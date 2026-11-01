@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Pixelverse 3D</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏡</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@400;600&display=swap" rel="stylesheet">
+<style>
+  :root { --gold: #ffd77a; --cream: #fff8e8; --border: #e8c47a; --wood: rgba(38, 26, 18, .9); --dim: #d8c3a0; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #cfe6f4; font-family: 'Pixelify Sans', system-ui, sans-serif; color: var(--cream); -webkit-user-select: none; user-select: none; }
+  canvas { display: block; }
+  .panel { background: var(--wood); border: 3px solid var(--border); border-radius: 6px; box-shadow: inset 0 0 0 2px #5a3a20, 0 4px 0 rgba(0, 0, 0, .3); }
+  #where { position: fixed; right: 12px; top: 10px; padding: 6px 12px; font-size: 16px; }
+  #help { position: fixed; left: 12px; top: 10px; padding: 10px 14px; font-size: 15px; line-height: 1.55; max-width: calc(100vw - 24px); }
+  #help b { color: var(--gold); font-size: 17px; display: block; margin-bottom: 4px; }
+  #help small { color: var(--dim); }
+  #stats { position: fixed; left: 12px; bottom: 10px; padding: 4px 10px; font-size: 13px; color: var(--dim); }
+  .hide { display: none; }
+  kbd { display: inline-block; min-width: 1.5em; padding: 0 5px; margin-right: 3px; border-radius: 4px; background: #fff3d6; color: #3a2414; font: 600 14px 'Pixelify Sans', sans-serif; text-align: center; box-shadow: 0 2px 0 #b8935a; }
+  #prompt { position: fixed; left: 50%; bottom: 18%; transform: translateX(-50%); padding: 6px 14px; font-size: 18px; opacity: 0; transition: opacity .12s; pointer-events: none; white-space: nowrap; }
+  #prompt.show { opacity: 1; }
+  #loading { position: fixed; inset: 0; display: grid; place-items: center; font-size: 26px; color: #3a2414; background: #cfe6f4; }
+</style>
+<script type="importmap">
+{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }
+</script>
+</head>
+<body>
+<div id="loading">Cargando…</div>
+<div id="help" class="panel">
+  <b>Pixelverse 3D · prototipo</b>
+  <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> andar · <kbd>Shift</kbd> correr<br>
+  <kbd>←</kbd><kbd>→</kbd> girar la cámara · rueda: zoom<br>
+  <kbd>E</kbd> abrir o cerrar puertas · <kbd>N</kbd> día / noche<br>
+  <small><kbd>F</kbd> rendimiento · <kbd>H</kbd> ocultar esta ayuda</small>
+</div>
+<div id="where" class="panel">Pueblo Brotes</div>
+<div id="prompt" class="panel"></div>
+<div id="stats" class="panel">…</div>
+<script type="module" src="src/proto3d/main.js"></script>
+</body>
+</html>
