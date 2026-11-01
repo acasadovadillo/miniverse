@@ -38,6 +38,17 @@ function instanced(geo, material, list, { cast = true, receive = true } = {}) {
   return m;
 }
 
+// Igual, pero repartidas en bloques de `size` metros: la cámara y el sol (sombras) solo pintan los bloques que ven
+function blockwise(geo, material, list, opts, size = 32) {
+  const blocks = new Map();
+  for (const it of list) {
+    const k = `${Math.floor(it.p[0] / size)},${Math.floor(it.p[2] / size)}`;
+    if (!blocks.has(k)) blocks.set(k, []);
+    blocks.get(k).push(it);
+  }
+  return [...blocks.values()].map(l => { const m = instanced(geo, material, l, opts); m.computeBoundingSphere(); return m; });
+}
+
 const LEAF = ['#4f9a3a', '#5aa642', '#468c34', '#62ad48', '#3f8030'], PINE = ['#2f6a3c', '#357444', '#2a5e36', '#3c7c48'];
 const FRUIT_LEAF = ['#62ad48', '#6cb850', '#58a040'];
 
@@ -84,13 +95,12 @@ export function buildNature(items, seed = 1) {
   const trunkGeo = new THREE.CylinderGeometry(0.13, 0.2, 1, 7); trunkGeo.translate(0, 0, 0);
   const barkTex = bark(); barkTex.repeat.set(2, 1);
   const leafMat = sway(mat({ flatShading: true, roughness: 0.95 }), 0.035, 0.7);
-  group.add(instanced(trunkGeo, mat({ map: barkTex }), trunks));
-  group.add(instanced(new THREE.IcosahedronGeometry(1, 1), leafMat, lumps));
-  group.add(instanced(new THREE.SphereGeometry(1, 8, 6), mat({ color: '#d8352a', roughness: 0.5 }), apples));
-  group.add(instanced(new THREE.ConeGeometry(1, 1.4, 8), leafMat, cones));
-  group.add(instanced(new THREE.IcosahedronGeometry(1, 1), leafMat, bushes));
-  group.add(instanced(new THREE.IcosahedronGeometry(1, 0), mat({ roughness: 0.6 }), blossoms, { cast: false }));
-  group.add(instanced(new THREE.DodecahedronGeometry(1, 0), mat({ flatShading: true, roughness: 0.9 }), rocks));
+  const lumpGeo = new THREE.IcosahedronGeometry(1, 1);
+  for (const [geo, m, list, opts] of [
+    [trunkGeo, mat({ map: barkTex }), trunks], [lumpGeo, leafMat, lumps], [new THREE.SphereGeometry(1, 8, 6), mat({ color: '#d8352a', roughness: 0.5 }), apples],
+    [new THREE.ConeGeometry(1, 1.4, 8), leafMat, cones], [lumpGeo, leafMat, bushes], [new THREE.IcosahedronGeometry(1, 0), mat({ roughness: 0.6 }), blossoms, { cast: false }],
+    [new THREE.DodecahedronGeometry(1, 0), mat({ flatShading: true, roughness: 0.9 }), rocks],
+  ]) if (list.length) group.add(...blockwise(geo, m, list, opts));
   return { group, colliders };
 }
 
@@ -108,7 +118,7 @@ export function buildGround(spots, flowerSpots, seed = 2) {
   blade.setAttribute('color', new THREE.Float32BufferAttribute(cols, 3));
   blade.computeVertexNormals();
   const grassMat = sway(mat({ vertexColors: true, side: THREE.DoubleSide, roughness: 1 }), 0.3);
-  group.add(instanced(blade, grassMat, spots.map(s => ({ p: [s.x, s.y, s.z], s: 0.8 + r() * 0.7, r: [0, r() * Math.PI, 0], c: ['#6aae4a', '#76b854', '#62a444', '#82c25e'][Math.floor(r() * 4)] })), { cast: false }));
+  group.add(...blockwise(blade, grassMat, spots.map(s => ({ p: [s.x, s.y, s.z], s: 0.8 + r() * 0.7, r: [0, r() * Math.PI, 0], c: ['#6aae4a', '#76b854', '#62a444', '#82c25e'][Math.floor(r() * 4)] })), { cast: false }));
   // Flores: tallo y cabeza
   const stems = [], heads = [];
   for (const s of flowerSpots) {
@@ -116,7 +126,39 @@ export function buildGround(spots, flowerSpots, seed = 2) {
     stems.push({ p: [s.x, s.y + h / 2, s.z], s: [1, h, 1] });
     heads.push({ p: [s.x, s.y + h, s.z], s: 0.055, c: s.c });
   }
-  group.add(instanced(new THREE.CylinderGeometry(0.012, 0.012, 1, 4), mat({ color: '#4f8a38' }), stems, { cast: false }));
-  group.add(instanced(new THREE.IcosahedronGeometry(1, 0), mat({ roughness: 0.6 }), heads, { cast: false }));
+  group.add(...blockwise(new THREE.CylinderGeometry(0.012, 0.012, 1, 4), mat({ color: '#4f8a38' }), stems, { cast: false }));
+  group.add(...blockwise(new THREE.IcosahedronGeometry(1, 0), mat({ roughness: 0.6 }), heads, { cast: false }));
+  return group;
+}
+
+// Árboles y rocas de lejos (más allá de la zona construida): un tronco y una o dos bolas (o dos conos) por árbol,
+// sin sombras, en bloques de `block` metros para que la cámara descarte los que no ve
+export function buildFarNature(items, block = 96) {
+  const r = rng(77), group = new THREE.Group(), blocks = new Map();
+  for (const it of items) {
+    const k = `${Math.floor(it.x / block)},${Math.floor(it.z / block)}`;
+    if (!blocks.has(k)) blocks.set(k, { trunks: [], lumps: [], cones: [], rocks: [] });
+    const B = blocks.get(k), { x, z, y } = it, s = 0.85 + r() * 0.35, rot = r() * 6.28;
+    if (it.kind === 'oak') {
+      B.trunks.push({ p: [x, y + 0.75 * s, z], s: [s, 1.5 * s, s] });
+      B.lumps.push({ p: [x, y + 2.6 * s, z], s: 1.15 * s, r: [r(), r(), r()], c: LEAF[Math.floor(r() * LEAF.length)] });
+      B.lumps.push({ p: [x + Math.cos(rot) * 0.5 * s, y + 2.2 * s, z + Math.sin(rot) * 0.5 * s], s: 0.8 * s, r: [r(), r(), r()], c: LEAF[Math.floor(r() * LEAF.length)] });
+    } else if (it.kind === 'pine') {
+      B.trunks.push({ p: [x, y + 0.45 * s, z], s: [0.75 * s, 0.9 * s, 0.75 * s] });
+      for (let i = 0; i < 2; i++) B.cones.push({ p: [x, y + (1.5 + i * 1.0) * s, z], s: [(1.25 - i * 0.35) * s, 1.4 * s, (1.25 - i * 0.35) * s], r: [0, rot, 0], c: PINE[Math.floor(r() * PINE.length)] });
+    } else {
+      B.rocks.push({ p: [x, y + 0.25, z], s: [0.9 * s, 0.55 * s, 0.75 * s], r: [0, rot, 0], c: '#9a958c' });
+    }
+  }
+  const trunkGeo = new THREE.CylinderGeometry(0.13, 0.2, 1, 5), lumpGeo = new THREE.IcosahedronGeometry(1, 1), coneGeo = new THREE.ConeGeometry(1, 1.4, 7), rockGeo = new THREE.DodecahedronGeometry(1, 0);
+  const trunkMat = mat({ color: '#6b4a30' }), leafMat = sway(mat({ flatShading: true, roughness: 0.95 }), 0.035, 0.7), rockMat = mat({ flatShading: true });
+  for (const B of blocks.values()) {
+    for (const [geo, m, list] of [[trunkGeo, trunkMat, B.trunks], [lumpGeo, leafMat, B.lumps], [coneGeo, leafMat, B.cones], [rockGeo, rockMat, B.rocks]]) {
+      if (!list.length) continue;
+      const im = instanced(geo, m, list, { cast: false, receive: false });
+      im.computeBoundingSphere();
+      group.add(im);
+    }
+  }
   return group;
 }

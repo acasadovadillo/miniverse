@@ -214,8 +214,9 @@ export function buildHouse(bp, { x0, y0, w, h, roofId = 'tejado_rojo', lights = 
   colliders.push(...furn.colliders);
   for (const c of furn.roofParts) roof.group.add(c);
   return {
-    group, sides, roof: roof.group, colliders, doors, glass, lights: furn.lights, fires: furn.fires, anchors: furn.anchors,
+    group, sides, roof: roof.group, colliders, doors, glass, lights: furn.lights, fires: furn.fires, anchors: furn.anchors, interior: furn.group,
     inside: { x0: X0 + T, x1: X1 - T, z0: Z0 + T, z1: Z1 - T },
+    top: roof.heightAt,   // altura del tejado en (x, z), dentro de bounds
     bounds: { x0: X0 - T - OVERHANG, x1: X1 + T + OVERHANG, z0: Z0 - T - OVERHANG, z1: Z1 + T + OVERHANG, y1: WALL_H + roof.rise + 1.2 },
   };
 }

@@ -9,7 +9,7 @@ import { B, BIOMES } from '../world/biomes.js';
 import { houseBlueprint, houseSize } from '../world/blueprints.js';
 import { ihash, vnoise, smoothstep } from '../util.js';
 import { buildHouse } from './houses.js';
-import { buildNature, buildGround } from './nature.js';
+import { buildNature, buildGround, buildFarNature } from './nature.js';
 import { Builder, mat } from './geo.js';
 import { grassDetail, soilDetail, awning, notes, wood, stone, rng } from './textures.js';
 
@@ -33,44 +33,32 @@ const DIRT = hexRGB('#c49a64'), DIRT_D = hexRGB('#a8804e'), SAND = hexRGB('#dcc7
 const PAL = BIOMES.map(b => b.pal.map(hexRGB));
 const mix3 = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
 
-// Terreno: una malla de medio metro con color por vértice y cuánto tiene de tierra (para el detalle)
-function buildTerrain(gen) {
-  const step = 0.5, nx = Math.round((AREA.x1 - AREA.x0) / step) + 1, nz = Math.round((AREA.z1 - AREA.z0) / step) + 1;
-  const pos = new Float32Array(nx * nz * 3), col = new Float32Array(nx * nz * 3), soil = new Float32Array(nx * nz);
-  const water = [];
-  for (let j = 0, i = 0; j < nz; j++) {
-    for (let k = 0; k < nx; k++, i++) {
-      const x = AREA.x0 + k * step, z = AREA.z0 + j * step;
-      let y = heightAt(x, z);
-      // Color del bioma, con manchas suaves entre los cuatro tonos de su paleta
-      const b = gen.biomeAt(x, z), pal = PAL[b] || PAL[B.MEADOW];
-      const n1 = vnoise(x * 0.11, z * 0.11, S + 11), n2 = vnoise(x * 0.33, z * 0.33, S + 12);
-      let c = mix3(mix3(pal[0], pal[1], n1), mix3(pal[2], pal[3], n2), smoothstep(0.35, 0.65, vnoise(x * 0.07, z * 0.07, S + 13)));
-      let s = 0;
-      if (BIOMES[b].water) { y = Math.min(y, -0.7); s = 0.6; water.push(1); }
-      else if (b === B.BEACH || b === B.DESERT) s = 0.7;
-      // Camino de tierra con el borde irregular, la entrada de casa y la orilla del estanque
-      if (V.inBounds(x, z)) {
-        const p = V.distToPath(x, z) + (vnoise(x * 0.6, z * 0.6, S + 14) - 0.5) * 0.35;
-        const door = Math.hypot((x - 21.5) / 1.6, (z - 17.6) / 0.8);
-        const t = Math.max(1 - smoothstep(0.62, 0.95, p), 1 - smoothstep(0.85, 1.1, door));
-        if (t > 0) { c = mix3(c, mix3(DIRT, DIRT_D, n2 * 0.8), t); s = Math.max(s, t); }
-        const pd = V.pondDist(x, z) + (n1 - 0.5) * 0.14;
-        if (pd < 1.3) { const ts = 1 - smoothstep(1.12, 1.3, pd); c = mix3(c, pd < 1 ? mix3(MUD, SAND, smoothstep(0.6, 1, pd)) : SAND, ts); s = Math.max(s, ts); }
-      }
-      pos[i * 3] = x; pos[i * 3 + 1] = y; pos[i * 3 + 2] = z;
-      col.set(c, i * 3); soil[i] = s;
-    }
+// Suelo en (x, z): altura, color (el del bioma, con manchas suaves entre los cuatro tonos de su paleta; el
+// camino de tierra, la entrada de casa y la orilla del estanque) y cuánto tiene de tierra (para el detalle)
+function groundAt(gen, x, z) {
+  let y = heightAt(x, z);
+  const b = gen.biomeAt(x, z), pal = PAL[b] || PAL[B.MEADOW];
+  const n1 = vnoise(x * 0.11, z * 0.11, S + 11), n2 = vnoise(x * 0.33, z * 0.33, S + 12);
+  let c = mix3(mix3(pal[0], pal[1], n1), mix3(pal[2], pal[3], n2), smoothstep(0.35, 0.65, vnoise(x * 0.07, z * 0.07, S + 13)));
+  let s = 0;
+  if (BIOMES[b].water) { y = Math.min(y, -0.7); s = 0.6; }
+  else if (b === B.BEACH || b === B.DESERT) s = 0.7;
+  if (V.inBounds(x, z)) {
+    const p = V.distToPath(x, z) + (vnoise(x * 0.6, z * 0.6, S + 14) - 0.5) * 0.35;
+    const door = Math.hypot((x - 21.5) / 1.6, (z - 17.6) / 0.8);
+    const t = Math.max(1 - smoothstep(0.62, 0.95, p), 1 - smoothstep(0.85, 1.1, door));
+    if (t > 0) { c = mix3(c, mix3(DIRT, DIRT_D, n2 * 0.8), t); s = Math.max(s, t); }
+    const pd = V.pondDist(x, z) + (n1 - 0.5) * 0.14;
+    if (pd < 1.3) { const ts = 1 - smoothstep(1.12, 1.3, pd); c = mix3(c, pd < 1 ? mix3(MUD, SAND, smoothstep(0.6, 1, pd)) : SAND, ts); s = Math.max(s, ts); }
   }
-  const idx = [];
-  for (let j = 0; j < nz - 1; j++) for (let k = 0; k < nx - 1; k++) { const a = j * nx + k, b2 = a + 1, c2 = a + nx, d = c2 + 1; idx.push(a, c2, b2, b2, c2, d); }
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-  geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
-  geo.setAttribute('soil', new THREE.BufferAttribute(soil, 1));
-  geo.setIndex(idx);
-  geo.computeVertexNormals();
-  // Detalle: briznas sobre la hierba y piedrecitas sobre la tierra, a dos escalas para que no se note la repetición
+  return [y, c, s];
+}
+
+// Material del terreno. Detalle: briznas sobre la hierba y piedrecitas sobre la tierra, a dos escalas para
+// que no se note la repetición
+let GROUND;
+function groundMaterial() {
+  if (GROUND) return GROUND;
   const m = mat({ vertexColors: true, roughness: 0.95 }), gd = grassDetail(), sd = soilDetail();
   m.onBeforeCompile = sh => {
     sh.uniforms.grassMap = { value: gd }; sh.uniforms.soilMap = { value: sd };
@@ -84,16 +72,65 @@ function buildTerrain(gen) {
         float s1 = texture2D(soilMap, vWorld * 0.6).r / 0.84;
         diffuseColor.rgb *= mix(mix(0.82, 1.12, g1) * mix(0.92, 1.06, g2), mix(0.85, 1.12, s1), vSoil);`);
   };
-  const mesh = new THREE.Mesh(geo, m);
+  return (GROUND = m);
+}
+
+// Terreno de la región R con vértices cada `step` metros. hole: región que ya cubre otra malla (sus vértices
+// de dentro se hunden para quedar debajo; los del borde coinciden con los de esa malla)
+function buildTerrain(gen, R, step, hole = null) {
+  const nx = Math.round((R.x1 - R.x0) / step) + 1, nz = Math.round((R.z1 - R.z0) / step) + 1;
+  const pos = new Float32Array(nx * nz * 3), col = new Float32Array(nx * nz * 3), soil = new Float32Array(nx * nz);
+  for (let j = 0, i = 0; j < nz; j++) {
+    for (let k = 0; k < nx; k++, i++) {
+      const x = R.x0 + k * step, z = R.z0 + j * step, [y, c, s] = groundAt(gen, x, z);
+      const under = hole && x > hole.x0 + 0.01 && x < hole.x1 - 0.01 && z > hole.z0 + 0.01 && z < hole.z1 - 0.01;
+      pos[i * 3] = x; pos[i * 3 + 1] = under ? y - 1.5 : y; pos[i * 3 + 2] = z;
+      col.set(c, i * 3); soil[i] = s;
+    }
+  }
+  const idx = [];
+  for (let j = 0; j < nz - 1; j++) for (let k = 0; k < nx - 1; k++) { const a = j * nx + k, b2 = a + 1, c2 = a + nx, d = c2 + 1; idx.push(a, c2, b2, b2, c2, d); }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  geo.setAttribute('soil', new THREE.BufferAttribute(soil, 1));
+  geo.setIndex(idx);
+  geo.computeVertexNormals();
+  const mesh = new THREE.Mesh(geo, groundMaterial());
   mesh.receiveShadow = true;
   return mesh;
 }
 
+// Lo de lejos: el terreno sigue (más basto) hasta donde la niebla lo tapa todo, con sus árboles y rocas
+// sencillos, para que con la cámara baja se vea horizonte y no el borde del mundo
+export const FAR = { x0: AREA.x0 - 188, x1: AREA.x1 + 188, z0: AREA.z0 - 188, z1: AREA.z1 + 188 };
+function farTrees(gen) {
+  const items = [], cell = 3, M = 120;
+  for (let z = AREA.z0 - M; z < AREA.z1 + M; z += cell) for (let x = AREA.x0 - M; x < AREA.x1 + M; x += cell) {
+    const px = x + ihash(x, z, S + 80) * cell, pz = z + ihash(x, z, S + 81) * cell;
+    if (px > AREA.x0 - 1.5 && px < AREA.x1 + 1.5 && pz > AREA.z0 - 1.5 && pz < AREA.z1 + 1.5) continue;
+    if (V.keepClear(px, pz)) continue;
+    const b = gen.biomeAt(px, pz), roll = ihash(x, z, S + 82), thick = 0.6 + vnoise(px * 0.05, pz * 0.05, S + 9) * 0.6;
+    const pine = vnoise(px * 0.04, pz * 0.04, S + 60) > 0.58;
+    let kind = null;
+    if (b === B.MEADOW && roll < 0.12) kind = pine ? 'pine' : 'oak';
+    else if (b === B.FOREST && roll < 0.8 * thick) kind = pine ? 'pine' : 'oak';
+    else if ((b === B.PINES || b === B.SNOW) && roll < 0.8 * thick) kind = 'pine';
+    else if (b === B.SWAMP && roll < 0.45) kind = 'oak';
+    else if (b === B.ROCKY && roll < 0.3) kind = 'boulder';
+    if (!kind) continue;
+    const y = heightAt(px, pz);
+    if (y < WATER_Y + 0.3) continue;
+    items.push({ kind, x: px, z: pz, y });
+  }
+  return buildFarNature(items, 96);
+}
+
 // Agua: un plano a la altura del estanque que solo asoma donde el terreno está más bajo, con ondas suaves
 function buildWater() {
-  const geo = new THREE.PlaneGeometry(AREA.x1 - AREA.x0, AREA.z1 - AREA.z0, 1, 1);
+  const geo = new THREE.PlaneGeometry(FAR.x1 - FAR.x0, FAR.z1 - FAR.z0, 1, 1);
   geo.rotateX(-Math.PI / 2);
-  geo.translate((AREA.x0 + AREA.x1) / 2, WATER_Y, (AREA.z0 + AREA.z1) / 2);
+  geo.translate((FAR.x0 + FAR.x1) / 2, WATER_Y, (FAR.z0 + FAR.z1) / 2);
   const m = new THREE.MeshStandardMaterial({ color: '#3f8fd0', roughness: 0.08, metalness: 0.15, transparent: true, opacity: 0.78 });
   const uniforms = { time: { value: 0 } };
   m.onBeforeCompile = sh => {
@@ -267,7 +304,9 @@ export function buildVillage3D() {
   const stub = new Proxy({}, { get: () => [0, 1, 2, 3] });
   const gen = new WorldGen(S, stub);
   const group = new THREE.Group(), colliders = [], houses = [];
-  group.add(buildTerrain(gen));
+  group.add(buildTerrain(gen, AREA, 0.5));
+  group.add(buildTerrain(gen, FAR, 4, AREA));
+  group.add(farTrees(gen));
   const water = buildWater();
   group.add(water.mesh);
   // Casas: la tuya y las de los vecinos (con los muebles del juego)

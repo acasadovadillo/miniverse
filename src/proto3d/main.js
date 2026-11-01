@@ -1,9 +1,11 @@
 // Prototipo 3D de Pixelverse: Pueblo Brotes en 3D de verdad, con la cámara girando suave alrededor del
-// muñeco (flechas izquierda y derecha), zoom con la rueda, sol con sombras suaves, cielo, niebla y agua.
+// muñeco (flechas izquierda y derecha), inclinándose de ras de suelo a casi cenital (arriba y abajo), zoom
+// con la rueda, sol con sombras suaves, cielo con nubes, niebla y agua. La cámara no atraviesa el suelo y,
+// si una casa se pone entre ella y el muñeco, sube lo justo para verlo por encima del tejado.
 // Dentro de una casa se quitan el tejado y las paredes que tapan la vista; fuera, si una casa tapa al
 // muñeco, este se ve en silueta (también detrás de los árboles).
 import * as THREE from 'three';
-import { buildVillage3D, heightAt, WATER_Y } from './village3d.js';
+import { buildVillage3D, heightAt, WATER_Y, AREA } from './village3d.js';
 import { Person3D } from './people3d.js';
 import { WIND } from './nature.js';
 import * as V from '../world/village.js';
@@ -27,15 +29,24 @@ document.body.appendChild(renderer.domElement);
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(30, innerWidth / innerHeight, 0.5, 400);
 
-// Cielo: degradado del horizonte al cénit, con un halo alrededor del sol
+// Cielo: degradado del horizonte al cénit, halo alrededor del sol y nubes que pasan despacio
 const SKY = { day: { top: '#5ea4e2', horizon: '#cfe6f4', fog: '#c6e0ee' }, night: { top: '#0c1430', horizon: '#2a3a5e', fog: '#1e2a46' } };
-const skyU = { top: { value: new THREE.Color(SKY.day.top) }, horizon: { value: new THREE.Color(SKY.day.horizon) }, sunDir: { value: new THREE.Vector3() }, glow: { value: 1 } };
+const skyU = { top: { value: new THREE.Color(SKY.day.top) }, horizon: { value: new THREE.Color(SKY.day.horizon) }, sunDir: { value: new THREE.Vector3() }, glow: { value: 1 }, time: { value: 0 }, night: { value: 0 } };
 const sky = new THREE.Mesh(new THREE.SphereGeometry(300, 32, 16), new THREE.ShaderMaterial({
   uniforms: skyU, side: THREE.BackSide, depthWrite: false, fog: false,
   vertexShader: 'varying vec3 vDir; void main(){ vDir = normalize(position); vec4 p = modelViewMatrix * vec4(position, 1.0); gl_Position = projectionMatrix * p; gl_Position.z = gl_Position.w; }',
-  fragmentShader: `uniform vec3 top; uniform vec3 horizon; uniform vec3 sunDir; uniform float glow; varying vec3 vDir;
-    void main(){ float h = clamp(vDir.y, 0.0, 1.0); vec3 c = mix(horizon, top, pow(h, 0.55));
-      float s = max(dot(normalize(vDir), sunDir), 0.0); c += vec3(1.0, 0.85, 0.6) * (pow(s, 24.0) * 0.35 + pow(s, 600.0) * 1.5) * glow;
+  fragmentShader: `uniform vec3 top; uniform vec3 horizon; uniform vec3 sunDir; uniform float glow; uniform float time; uniform float night; varying vec3 vDir;
+    float h2(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+    float n2(vec2 p) { vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f); return mix(mix(h2(i), h2(i + vec2(1.0, 0.0)), f.x), mix(h2(i + vec2(0.0, 1.0)), h2(i + vec2(1.0, 1.0)), f.x), f.y); }
+    float fbm(vec2 p) { float v = 0.0, a = 0.5; for (int i = 0; i < 5; i++) { v += a * n2(p); p *= 2.03; a *= 0.5; } return v; }
+    void main(){ vec3 d = normalize(vDir); float h = clamp(d.y, 0.0, 1.0); vec3 c = mix(horizon, top, pow(h, 0.55));
+      float s = max(dot(d, sunDir), 0.0); c += vec3(1.0, 0.85, 0.6) * (pow(s, 24.0) * 0.35 + pow(s, 600.0) * 1.5) * glow;
+      if (d.y > 0.0) {
+        vec2 uv = d.xz / (d.y + 0.12) * 1.3 + vec2(time * 0.006, time * 0.003);
+        float cl = smoothstep(0.5, 0.78, fbm(uv)), shade = smoothstep(0.55, 0.95, fbm(uv * 1.3 + 4.0));
+        vec3 cc = mix(vec3(1.0, 0.98, 0.95), vec3(0.7, 0.74, 0.84), shade * 0.7) * mix(1.0, 0.22, night);
+        c = mix(c, cc, cl * smoothstep(0.0, 0.22, d.y) * 0.9);
+      }
       gl_FragColor = vec4(c, 1.0);
       #include <tonemapping_fragment>
       #include <colorspace_fragment>
@@ -85,6 +96,9 @@ for (const h of world.houses) {
   h.mats = { roof: prep(h.roof) };
   for (const k of ['n', 's', 'e', 'w']) h.mats[k] = prep(h.sides[k]);
   fadeables.push(h);
+  // Las luces de dentro, fuera del grupo de los muebles: los muebles de las casas lejanas no se pintan y así
+  // el número de luces no cambia (cambiarlo obligaría a recompilar los materiales)
+  for (const l of h.lights) h.group.attach(l.light);
 }
 
 // Las casas sin luces propias toman prestadas estas dos mientras estás dentro (así el número de luces no cambia)
@@ -171,7 +185,9 @@ addEventListener('keydown', e => {
 });
 addEventListener('keyup', e => keys.delete(e.code));
 addEventListener('blur', () => keys.clear());
-const cam = { yaw: Math.PI / 4, vel: 0, pitch: 0.84, dist: 26, distGoal: 26, target: new THREE.Vector3() };
+// yaw: giro alrededor del muñeco; pitch: inclinación (0 = a ras de suelo, π/2 = desde arriba); dist: zoom
+const PITCH = { min: 0.07, max: 1.5, start: 0.84 };
+const cam = { yaw: Math.PI / 4, vel: 0, pitch: PITCH.start, pvel: 0, dist: 26, distGoal: 26, target: new THREE.Vector3() };
 addEventListener('wheel', e => { cam.distGoal = Math.max(9, Math.min(48, cam.distGoal * (1 + Math.sign(e.deltaY) * 0.1))); e.preventDefault(); }, { passive: false });
 addEventListener('resize', () => { renderer.setSize(innerWidth, innerHeight); camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); });
 let night = Q.get('noche') !== null;
@@ -217,7 +233,7 @@ let nightK = night ? 1 : 0;
 function updateSky(dt) {
   nightK += ((night ? 1 : 0) - nightK) * Math.min(1, dt * 2.5);
   const k = nightK, col = (a, b) => new THREE.Color(a).lerp(new THREE.Color(b), k);
-  skyU.top.value.copy(col(SKY.day.top, SKY.night.top)); skyU.horizon.value.copy(col(SKY.day.horizon, SKY.night.horizon)); skyU.glow.value = 1 - k;
+  skyU.top.value.copy(col(SKY.day.top, SKY.night.top)); skyU.horizon.value.copy(col(SKY.day.horizon, SKY.night.horizon)); skyU.glow.value = 1 - k; skyU.night.value = k;
   scene.fog.color.copy(col(SKY.day.fog, SKY.night.fog));
   sun.intensity = 2.8 * (1 - k) + 0.3 * k; sun.color.copy(col('#fff0d8', '#9ab4ff'));
   hemi.intensity = 0.9 * (1 - k) + 0.14 * k; hemi.color.copy(col('#dcebff', '#4a5a8a')); hemi.groundColor.copy(col('#6a7f48', '#1a2030'));
@@ -233,6 +249,32 @@ function updateSky(dt) {
   for (const h of world.houses) for (const m of h.glass) m.emissiveIntensity = 1.4 * k;
 }
 
+// ---------- Cámara ----------
+const ray = new THREE.Vector3(), probe = new THREE.Vector3(), probe2 = new THREE.Vector3(), probe3 = new THREE.Vector3();
+// Hasta dónde puede alejarse la cámara desde el muñeco (from) en la dirección dir sin meterse en el suelo
+// (las lomas). Si houses, también cuenta la primera casa que se cruza (la tuya, si estás dentro, no: sus
+// paredes de delante se ocultan); blocked dice si ha sido una casa.
+function clearance(from, dir, max, inside, houses = true) {
+  const step = 0.4;
+  for (let d = step; d <= max; d += step) {
+    probe.copy(from).addScaledVector(dir, d);
+    if (probe.y < heightAt(probe.x, probe.z) + 0.3) return { reach: Math.max(1.5, d * 0.92), blocked: false };
+    if (houses) for (const h of world.houses) {
+      const B = h.bounds;
+      if (h !== inside && probe.x > B.x0 && probe.x < B.x1 && probe.z > B.z0 && probe.z < B.z1 && probe.y < h.top(probe.x, probe.z) + 0.35) return { reach: d, blocked: true };
+    }
+  }
+  return { reach: max, blocked: false };
+}
+const dirOf = (yaw, pitch, out) => out.set(Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), Math.cos(yaw) * Math.cos(pitch));
+// Inclinación a la que debe ir la cámara: la que pides o, si una casa se pone entre ella y el muñeco, la
+// justa para verlo por encima del tejado (si ni así, se queda la tuya y el muñeco se ve en silueta)
+function pitchOver(from, yaw, pitch, dist, inside) {
+  if (!clearance(from, dirOf(yaw, pitch, probe2), dist, inside).blocked) return pitch;
+  for (let q = pitch + 0.05; q <= Math.min(1.4, pitch + 0.8); q += 0.05) if (!clearance(from, dirOf(yaw, q, probe2), dist, inside).blocked) return q;
+  return pitch;
+}
+
 // ---------- Bucle ----------
 const clock = new THREE.Clock();
 let frames = 0, acc = 0, slow = 0;
@@ -244,10 +286,15 @@ function frame() {
   const turn = (keys.has('ArrowRight') ? 1 : 0) - (keys.has('ArrowLeft') ? 1 : 0);
   cam.vel += (turn * 2.1 - cam.vel) * Math.min(1, dt * (turn ? 5 : 7));
   cam.yaw += cam.vel * dt;
+  // Inclinación: arriba la sube hacia el plano cenital y abajo la baja a ras de suelo, también suave
+  const tilt = (keys.has('ArrowUp') ? 1 : 0) - (keys.has('ArrowDown') ? 1 : 0);
+  cam.pvel += (tilt * 0.75 - cam.pvel) * Math.min(1, dt * (tilt ? 5 : 7));
+  cam.pitch += cam.pvel * dt;
+  if (cam.pitch < PITCH.min || cam.pitch > PITCH.max) { cam.pitch = Math.max(PITCH.min, Math.min(PITCH.max, cam.pitch)); cam.pvel = 0; }
   cam.dist += (cam.distGoal - cam.dist) * Math.min(1, dt * 6);
   // Andar en la dirección de la pantalla
   fwd.set(-Math.sin(cam.yaw), 0, -Math.cos(cam.yaw)); right.set(Math.cos(cam.yaw), 0, -Math.sin(cam.yaw));
-  const f = (keys.has('KeyW') || keys.has('ArrowUp') ? 1 : 0) - (keys.has('KeyS') || keys.has('ArrowDown') ? 1 : 0), s = (keys.has('KeyD') ? 1 : 0) - (keys.has('KeyA') ? 1 : 0);
+  const f = (keys.has('KeyW') ? 1 : 0) - (keys.has('KeyS') ? 1 : 0), s = (keys.has('KeyD') ? 1 : 0) - (keys.has('KeyA') ? 1 : 0);
   move.copy(fwd).multiplyScalar(f).addScaledVector(right, s);
   let speed = 0;
   if (move.lengthSq() > 0) {
@@ -255,6 +302,8 @@ function frame() {
     speed = keys.has('ShiftLeft') || keys.has('ShiftRight') ? 5.6 : 3.2;
     const p = { x: player.pos.x + move.x * speed * dt, z: player.pos.z + move.z * speed * dt };
     resolve(p);
+    // (sin salir de la zona construida)
+    p.x = Math.max(AREA.x0 + 4, Math.min(AREA.x1 - 4, p.x)); p.z = Math.max(AREA.z0 + 4, Math.min(AREA.z1 - 4, p.z));
     if (walkable(p.x, p.z)) { player.pos.x = p.x; player.pos.z = p.z; }
     player.facing = Math.atan2(move.x, move.z);
   }
@@ -281,24 +330,40 @@ function frame() {
     d.amount += ((d.open ? 1 : 0) - d.amount) * Math.min(1, dt * 7);
     d.setAngle(d.amount);
   }
-  // Cámara: sigue al muñeco; dentro de casa, más cerca y más desde arriba
+  // Cámara: sigue al muñeco; dentro de casa, más cerca y un poco más desde arriba
   const inside = debug.solid ? null : houseAt(player.pos.x, player.pos.z, 0.05);
-  const want = inside ? { pitch: 0.98, dist: Math.min(cam.distGoal, 19) } : { pitch: debug.pitch ?? 0.84, dist: cam.dist };
-  cam.pitchNow = (cam.pitchNow ?? want.pitch) + (want.pitch - (cam.pitchNow ?? want.pitch)) * ease(4);
-  cam.distNow = (cam.distNow ?? want.dist) + (want.dist - (cam.distNow ?? want.dist)) * ease(4);
-  cam.target.lerp(new THREE.Vector3(player.pos.x, player.pos.y + 0.9, player.pos.z), ease(8));
-  const cp = Math.cos(cam.pitchNow), sp = Math.sin(cam.pitchNow);
-  camera.position.set(cam.target.x + Math.sin(cam.yaw) * cp * cam.distNow, cam.target.y + sp * cam.distNow, cam.target.z + Math.cos(cam.yaw) * cp * cam.distNow);
+  const pitch = debug.pitch ?? cam.pitch;
+  const want = inside ? { pitch: Math.min(PITCH.max, pitch + 0.14), dist: Math.min(cam.distGoal, 19) } : { pitch, dist: cam.dist };
+  cam.target.lerp(new THREE.Vector3(player.pos.x, player.pos.y + 0.9 + (cam.low ?? 0) * 0.5, player.pos.z), ease(8));
+  // (se comprueba desde la cintura, para que se le vea entero y no solo la cabeza)
+  const goalPitch = pitchOver(probe3.set(player.pos.x, player.pos.y + 0.5, player.pos.z), cam.yaw, want.pitch, want.dist, inside);
+  cam.pitchNow = (cam.pitchNow ?? goalPitch) + (goalPitch - (cam.pitchNow ?? goalPitch)) * (Math.abs(cam.pvel) > 0.01 && goalPitch === want.pitch ? 1 : ease(4));
+  // Baja, la imagen se abre un poco y mira algo por encima del muñeco (se ve más horizonte)
+  const low = (cam.low = 1 - Math.max(0, Math.min(1, (cam.pitchNow - PITCH.min) / 0.75)));
+  const fov = 30 + low * low * 12;
+  if (Math.abs(camera.fov - fov) > 0.01) { camera.fov = fov; camera.updateProjectionMatrix(); }
+  dirOf(cam.yaw, cam.pitchNow, ray);
+  // Que la cámara no se meta en el suelo (lomas): si lo cruza, se acerca
+  const reach = clearance(cam.target, ray, want.dist, inside, false).reach;
+  cam.distNow = (cam.distNow ?? reach) + (reach - (cam.distNow ?? reach)) * (reach < cam.distNow ? ease(14) : ease(3));
+  camera.position.copy(cam.target).addScaledVector(ray, cam.distNow);
+  camera.position.y = Math.max(camera.position.y, heightAt(camera.position.x, camera.position.z) + 0.35);
   camera.lookAt(cam.target);
-  // Sol: sombras alrededor del muñeco (ajustadas a la rejilla del mapa de sombras para que no tiemblen)
-  const texel = (sun.shadow.camera.right - sun.shadow.camera.left) / sun.shadow.mapSize.x;
-  const c = new THREE.Vector3(Math.round(player.pos.x / texel) * texel, 0, Math.round(player.pos.z / texel) * texel);
+  // Sol: sombras alrededor de lo que se ve (con la cámara baja se ve más lejos: la zona crece y se adelanta),
+  // ajustadas a la rejilla del mapa de sombras para que no tiemblen
+  const half = Math.round(24 + 6 * low), sc = sun.shadow.camera;
+  if (sc.right !== half) { Object.assign(sc, { left: -half, right: half, top: half, bottom: -half }); sc.updateProjectionMatrix(); }
+  const texel = (2 * half) / sun.shadow.mapSize.x, ahead = 12 * low;
+  const c = new THREE.Vector3(Math.round((player.pos.x - Math.sin(cam.yaw) * ahead) / texel) * texel, 0, Math.round((player.pos.z - Math.cos(cam.yaw) * ahead) / texel) * texel);
   sun.position.copy(c).addScaledVector(SUN_DIR, 45); sun.target.position.copy(c);
   skyU.sunDir.value.copy(SUN_DIR);
   sky.position.copy(camera.position);
   world.water.uniforms.time.value = t;
   WIND.value = t;
+  skyU.time.value = t;
   updateHouses(snapNext ? 10 : dt);
+  // Muebles: solo los de las casas cercanas (de lejos ni se ven por las ventanas)
+  for (const h of world.houses) { const B = h.bounds; h.interior.visible = h === inside || Math.hypot(cam.target.x - (B.x0 + B.x1) / 2, cam.target.z - (B.z0 + B.z1) / 2) < 24; }
   updateSky(snapNext ? 10 : dt);
   snapNext = false;
   // Aviso de la puerta
