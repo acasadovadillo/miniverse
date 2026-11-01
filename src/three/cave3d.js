@@ -21,7 +21,6 @@ export class Cave3D {
     this.view = view; this.sc = scene;
     this.group = new THREE.Group();
     view.scene.add(this.group);
-    if (!scene.walls) scene.prepare?.();
     this.cut = { player: { value: new THREE.Vector3() }, toCam: { value: new THREE.Vector2(0, 1) } };
     this.build();
     this.items = null; this.sig = '';

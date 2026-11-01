@@ -1,59 +1,8 @@
-// Sprites del huerto y la granja: cultivos en cada fase, arbolitos recién plantados y animales.
-import { mk, ramp, ellipse, blob, line, outlined } from '../util.js';
-import { CROPS } from '../items.js';
+// Animales de la granja: sus datos y su dibujo de lado (el icono de la tienda).
+import { mk, ellipse, blob, outlined } from '../util.js';
 
 const cache = new Map();
 const once = (key, make) => { if (!cache.has(key)) cache.set(key, make()); return cache.get(key); };
-
-// Cultivo: lienzo 32×44, apoyo en (16, 38). stage: 0 semilla … 3 listo; -1 seco
-export const CROP_AX = 16, CROP_AY = 38;
-export function cropSprite(id, stage) {
-  return once(`c:${id}:${stage}`, () => {
-    const c = mk(32, 44), g = c.getContext('2d'), crop = CROPS[id], lf = ramp(crop?.leaf || '#5aa842');
-    const R = (x, y, w, h, col) => { g.fillStyle = col; g.fillRect(x, y, w, h); };
-    const X = CROP_AX, Y = CROP_AY;
-    if (stage < 0) {   // seco
-      R(X - 1, Y - 8, 2, 8, '#8a6a3a'); R(X - 5, Y - 6, 4, 1, '#a8864a'); R(X + 1, Y - 9, 4, 1, '#a8864a');
-      return outlined(c);
-    }
-    if (stage === 0) { for (const [dx, dy] of [[-4, -1], [2, 0], [-1, 2], [4, 2]]) R(X + dx, Y + dy - 2, 2, 1, '#e8d8a0'); return c; }
-    if (stage === 1) { R(X, Y - 5, 1, 5, lf.d); R(X - 3, Y - 6, 3, 2, lf.b); R(X + 1, Y - 7, 3, 2, lf.l); return outlined(c); }
-    const tall = id === 'maiz' ? 26 : id === 'trigo' ? 16 : id === 'tomate' ? 20 : 10;
-    const h = stage === 2 ? Math.round(tall * 0.6) : tall;
-    if (id === 'maiz' || id === 'trigo') {
-      for (const dx of id === 'trigo' ? [-5, -2, 1, 4] : [0]) {
-        R(X + dx, Y - h, 2, h, lf.d);
-        for (let k = 4; k < h; k += 5) { R(X + dx - 3, Y - k, 3, 1, lf.b); R(X + dx + 2, Y - k - 2, 3, 1, lf.l); }
-        if (stage === 3) R(X + dx - (id === 'maiz' ? 1 : 0), Y - h - (id === 'maiz' ? -6 : 3), id === 'maiz' ? 3 : 2, id === 'maiz' ? 7 : 4, crop.color);
-      }
-      if (id === 'maiz' && stage === 3) R(X + 1, Y - h - 2, 1, 4, '#c8a040');
-      return outlined(c);
-    }
-    if (id === 'tomate') { R(X + 3, Y - h - 2, 1, h + 2, '#a8864a'); }
-    // Mata de hojas
-    blob(g, X, Y - Math.round(h / 2) - 2, Math.round(h / 2) + 2, lf.d);
-    blob(g, X - 1, Y - Math.round(h / 2) - 3, Math.round(h / 2), lf.b);
-    blob(g, X - 3, Y - h + 1, 2, lf.l);
-    if (stage === 3) {
-      const col = crop.color;
-      if (id === 'calabaza') { ellipse(g, X + 2, Y - 3, 7, 4, ramp(col).d); ellipse(g, X + 1, Y - 4, 6, 3, col); R(X + 1, Y - 8, 2, 2, '#5a7a3a'); }
-      else if (id === 'nabo' || id === 'zanahoria') { ellipse(g, X, Y - 1, 4, 2, col); R(X - 2, Y - 2, 2, 1, '#ffffff'); }
-      else for (const [dx, dy] of [[-4, -4], [2, -7], [-1, -10], [4, -3], [0, -5]]) { R(X + dx, Y + dy - (id === 'tomate' ? 6 : 0), 3, 3, col); R(X + dx, Y + dy - (id === 'tomate' ? 6 : 0), 1, 1, '#ffffff'); }
-    }
-    return outlined(c);
-  });
-}
-
-// Arbolito recién plantado (mismo apoyo que los árboles: 72×96 con base en 36,91)
-export function saplingSprite(kind) {
-  return once('s:' + kind, () => {
-    const c = mk(72, 96), g = c.getContext('2d'), leaf = ramp(kind === 'pine' ? '#3f7a44' : '#5aa842');
-    g.fillStyle = '#7a5232'; g.fillRect(35, 74, 2, 17);
-    if (kind === 'pine') { for (let k = 0; k < 3; k++) { const w = 9 - k * 3; g.fillStyle = k % 2 ? leaf.b : leaf.d; g.fillRect(36 - w, 78 - k * 5, w * 2, 4); } }
-    else { blob(g, 36, 72, 7, leaf.d); blob(g, 35, 71, 5, leaf.b); blob(g, 33, 69, 2, leaf.l); if (kind === 'fruit') { g.fillStyle = '#ff9ab8'; g.fillRect(31, 70, 2, 2); g.fillRect(38, 68, 2, 2); } }
-    return outlined(c);
-  });
-}
 
 // Animales vistos de lado, mirando a la derecha. Dos fotogramas (patas). Apoyo: centro de las patas.
 export const ANIMALS = {

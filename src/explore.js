@@ -8,7 +8,6 @@ import { B } from './world/biomes.js';
 import { CENTER } from './world/village.js';
 import { houseBlueprint, houseSize, byChunk } from './world/blueprints.js';
 import { makeCave, makeDungeon } from './world/underground.js';
-import { poiSprite, caveEntranceSprite, treasureSprite, faroSprite, POI_AX, POI_AY, T_AX, T_AY, FARO_AX, FARO_AY } from './art/explore.js';
 import { Person } from './entities.js';
 import { SHOPS } from './economy.js';
 import { Audio } from './audio.js';
@@ -154,25 +153,25 @@ export class Explore {
     const opened = d?.opened?.[p.key];
     // Todos los lugares ocupan 3×3 casillas enteras alrededor de la suya (el centro es una casilla)
     if (p.kind === 'cueva') {
-      out.objects.push({ img: caveEntranceSprite(p.snow), x: p.x, y: p.y, ax: POI_AX, ay: POI_AY, poi: p, fx: [p.x - 1.5, p.x + 1.5], fy: [p.y - 1.5, p.y + 1.5] });
+      out.objects.push({ x: p.x, y: p.y, poi: p, fx: [p.x - 1.5, p.x + 1.5], fy: [p.y - 1.5, p.y + 1.5] });
       out.colliders.push({ x0: p.x - 1.5, y0: p.y - 1.5, x1: p.x + 1.5, y1: p.y + 0.5 });
       return;
     }
     if (p.kind === 'faro') {
-      out.objects.push({ img: faroSprite(), x: p.x, y: p.y, ax: FARO_AX, ay: FARO_AY, poi: p, fx: [p.x - 1.5, p.x + 1.5], fy: [p.y - 1.5, p.y + 1.5] });
+      out.objects.push({ x: p.x, y: p.y, poi: p, fx: [p.x - 1.5, p.x + 1.5], fy: [p.y - 1.5, p.y + 1.5] });
       out.colliders.push({ x0: p.x - 0.5, y0: p.y - 0.5, x1: p.x + 0.5, y1: p.y + 0.5 });
       out.lights.push({ x: p.x, y: p.y, z: 160, r: 120 });
       return;
     }
     // Ruinas, campamento, torre, barco y templo: el sitio y un cofre al lado (menos el templo, que guarda su tesoro dentro)
-    out.objects.push({ img: poiSprite(p.kind), x: p.x, y: p.y, ax: POI_AX, ay: POI_AY, poi: p, fx: [p.x - 1.5, p.x + 1.5], fy: [p.y - 1.5, p.y + 1.5] });
+    out.objects.push({ x: p.x, y: p.y, poi: p, fx: [p.x - 1.5, p.x + 1.5], fy: [p.y - 1.5, p.y + 1.5] });
     if (p.kind === 'torre') out.colliders.push({ x0: p.x - 0.5, y0: p.y - 0.5, x1: p.x + 0.5, y1: p.y + 0.5 });
     else if (p.kind === 'campamento') { out.colliders.push({ x0: p.x - 1.5, y0: p.y - 1.5, x1: p.x + 0.5, y1: p.y + 0.5 }); out.colliders.push({ x: p.x + 1, y: p.y + 1, r: 0.4 }); }
     else out.colliders.push({ x0: p.x - 1.4, y0: p.y - 1.4, x1: p.x + 1.4, y1: p.y + 1.4 });
     if (p.kind === 'campamento') out.lights.push({ x: p.x + 1, y: p.y + 1, z: 6, r: 60 });
     if (p.kind !== 'templo') {
       const t = [Math.floor(p.x) + 2, Math.floor(p.y)];   // la casilla de al lado, a la derecha del lugar
-      out.objects.push({ img: treasureSprite(!!opened), x: t[0] + 0.5, y: t[1] + 0.5, ax: T_AX, ay: T_AY, treasure: p, tile: t, open: !!opened });
+      out.objects.push({ x: t[0] + 0.5, y: t[1] + 0.5, treasure: p, tile: t, open: !!opened });
       out.colliders.push({ x: t[0] + 0.5, y: t[1] + 0.5, r: 0.35 });
     }
   }

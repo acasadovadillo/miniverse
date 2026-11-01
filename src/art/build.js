@@ -2,7 +2,7 @@
 // Todos ocupan una casilla. Suelos y vallas usan el lienzo de lo colocable (40×70, apoyo en 20,58);
 // muros, puertas y el hogar, uno alto (40×130, apoyo en 20,118); los tejados, otro más alto todavía
 // (40×210, apoyo en 20,198), porque van encima de los muros y suben con la pendiente.
-import { mk, ramp, line, outlined, mixHex, ellipse } from '../util.js';
+import { mk, ramp, line, outlined, mixHex } from '../util.js';
 import { iso, boxCol, SEAM } from '../iso.js';
 import { PLACE_W, PLACE_H, PLACE_AX, PLACE_AY, drawHearth } from './stations.js';
 
@@ -200,7 +200,6 @@ export function wallSprite(id, mask = 3, only, inner = false, q = 0) {
 }
 // Dónde brillan las ventanas de noche (relativo al apoyo de la casilla): a la altura del cristal
 export const WINDOW_Z = (WIN0 + WIN1) / 2;
-export const WINDOW_GLOW = [[T, 0, WINDOW_Z], [0, T, WINDOW_Z]];
 
 // Puerta: marco con la hoja abierta y, encima del hueco, un trozo de muro fino hasta lo alto (del mismo tipo
 // que el muro de al lado, `wall`). `alongX`: el muro sigue el eje x (se pasa en dirección y)
@@ -243,57 +242,6 @@ export function doorSprite(alongX, wall = 'muro_madera', closed = false, bare = 
   });
 }
 
-// Candelabro de latón que cuelga del techo en el centro de cada casa (se ve al entrar, sin el tejado):
-// una cadena desde lo alto de los muros, un vástago con remates y un aro con ocho velas sobre sus platillos.
-// Las llamas las pinta el juego encima (parpadean), en CANDLES: [x, y, z] relativos al suelo bajo el candelabro.
-export const LAMP_W = 48, LAMP_H = 120, LAMP_AX = 24, LAMP_AY = 112, LAMP_Z = 52;
-const LAMP_R = 0.56;
-export const CANDLES = Array.from({ length: 8 }, (_, i) => { const a = (i / 8) * Math.PI * 2 + 0.2; return [Math.cos(a) * LAMP_R, Math.sin(a) * LAMP_R, LAMP_Z + 7]; });
-export function chandelierSprite() {
-  return cached('candelabro', () => {
-    const c = mk(LAMP_W, LAMP_H), g = c.getContext('2d'), I = iso(g, LAMP_AX, LAMP_AY);
-    const br = ramp('#c8963a'), chain = '#4a3a30', Y = z => Math.round(I.P(0, 0, z)[1]);
-    // Aro de latón, en dos mitades (la de atrás antes que el vástago y las velas de delante después);
-    // grueso de dos píxeles: arriba más claro
-    const ring = front => {
-      for (let i = 0; i < 48; i++) {
-        const a0 = (i / 48) * Math.PI * 2, a1 = ((i + 1) / 48) * Math.PI * 2;
-        if ((Math.cos(a0) + Math.sin(a0) > 0) !== front) continue;
-        const p = a => [Math.cos(a) * LAMP_R, Math.sin(a) * LAMP_R];
-        line(g, ...I.P(...p(a0), LAMP_Z - 1), ...I.P(...p(a1), LAMP_Z - 1), front ? br.d : br.d2);
-        line(g, ...I.P(...p(a0), LAMP_Z), ...I.P(...p(a1), LAMP_Z), front ? br.l : br.b);
-      }
-    };
-    const candle = ([x, y]) => {
-      const [sx, sy] = I.P(x, y, LAMP_Z + 1).map(Math.round);
-      g.fillStyle = br.d; g.fillRect(sx - 1, sy, 3, 1);                   // platillo
-      g.fillStyle = br.l; g.fillRect(sx - 1, sy - 1, 3, 1);
-      g.fillStyle = '#efe2c4'; g.fillRect(sx, sy - 6, 1, 5);              // vela
-      g.fillStyle = '#fffaf0'; g.fillRect(sx, sy - 6, 1, 2);
-    };
-    // Cadena desde el techo (a la altura de los muros) con su florón
-    const top = Y(WALL_H), hub = Y(LAMP_Z + 16);
-    ellipse(g, LAMP_AX, top, 3, 1, br.d);
-    for (let y = top + 1; y < hub; y += 3) { g.fillStyle = chain; g.fillRect(LAMP_AX, y, 1, 2); g.fillStyle = br.d; g.fillRect(LAMP_AX, y + 2, 1, 1); }
-    CANDLES.filter(([x, y]) => x + y <= 0).forEach(candle);
-    ring(false);
-    // Brazos curvos del vástago al aro
-    for (const [x, y] of CANDLES) {
-      const m = [x * 0.55, y * 0.55, LAMP_Z + 9];
-      line(g, ...I.P(0, 0, LAMP_Z + 14), ...I.P(...m), br.d); line(g, ...I.P(...m), ...I.P(x * 0.95, y * 0.95, LAMP_Z + 1), br.d);
-    }
-    // Vástago con tres remates: arriba, en medio y la gota de abajo
-    g.fillStyle = br.d; g.fillRect(LAMP_AX - 1, hub, 3, Y(LAMP_Z - 6) - hub);
-    g.fillStyle = br.l; g.fillRect(LAMP_AX - 1, hub, 1, Y(LAMP_Z - 6) - hub);
-    ellipse(g, LAMP_AX, Y(LAMP_Z + 15), 2, 1, br.b);
-    ellipse(g, LAMP_AX, Y(LAMP_Z + 4), 3, 2, br.b); g.fillStyle = br.l2; g.fillRect(LAMP_AX - 2, Y(LAMP_Z + 5), 1, 1);
-    ellipse(g, LAMP_AX, Y(LAMP_Z - 7), 2, 2, br.b); g.fillStyle = br.l2; g.fillRect(LAMP_AX - 1, Y(LAMP_Z - 8), 1, 1);
-    ring(true);
-    CANDLES.filter(([x, y]) => x + y > 0).forEach(candle);
-    return outlined(c, 'rgba(30,20,16,.55)');
-  });
-}
-
 // Hogar con chimenea: la columna de piedra sube hasta el alero (encima la sigue el tejado)
 // q: hacia dónde mira, visto desde la cámara (cuartos de vuelta)
 export function hearthSprite(q = 0) {
@@ -315,7 +263,6 @@ export function hearthSprite(q = 0) {
 export const ROOF_W = 40, ROOF_H = 210, ROOF_AX = 20, ROOF_AY = 198;   // lienzo más alto: el tejado va sobre los muros y sube
 export const ROOF_RISE = 16;          // píxeles por nivel de altura
 export const ROOF_Z0 = WALL_H + 2;    // z del alero (borde del tejado)
-export const ROOF_IDS = ['tejado_rojo', 'tejado_azul', 'tejado_paja', 'tejado_gris', 'tejado_verde'];
 const ROOFS = { tejado_rojo: '#c95a3c', tejado_azul: '#4a6aa8', tejado_paja: '#d8b060', tejado_gris: '#6a6e78', tejado_verde: '#4a8a5a' };
 const EAVE = 4;     // canto del alero, en píxeles
 const ROW = 4;      // separación entre filas de tejas, en z

@@ -1,5 +1,4 @@
-// Punto de entrada: prepara el arte, el juego, los controles y los menús.
-import { buildProps } from './art/props.js';
+// Punto de entrada: prepara el juego, los controles y los menús.
 import { Game } from './game.js';
 import { initInput } from './input.js';
 import { initMenus } from './ui/menus.js';
@@ -9,8 +8,7 @@ import { initChat } from './ui/chat.js';
 import { Settings } from './settings.js';
 
 Settings.load();
-const props = buildProps();
-const game = new Game(document.getElementById('c'), props);
+const game = new Game(document.getElementById('c'));
 const menus = initMenus(game);
 initBuildBar(game);
 const chat = initChat(game);

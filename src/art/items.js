@@ -1,6 +1,5 @@
 // Iconos de los objetos (16×16 con contorno) y sprites de recolección: tocón y tierra labrada.
 import { mk, ramp, poly, line, ellipse, blob, outlined } from '../util.js';
-import { iso, SEAM } from '../iso.js';
 import { ITEMS, TIERS, CROPS, FISH, BUGS } from '../items.js';
 
 const cache = new Map();
@@ -158,24 +157,3 @@ export function itemIcon(id) {
   return icon;
 }
 export const itemIconUrl = id => { itemIcon(id); return cache.get(id + ':url'); };
-
-// Tocón de un árbol talado (mismo lienzo y apoyo que los árboles: 72×96, base en 36,91)
-export function stumpSprite() {
-  const c = mk(72, 96), g = c.getContext('2d'), w = ramp('#7a5232');
-  const R = (x, y, ww, h, col) => { g.fillStyle = col; g.fillRect(x, y, ww, h); };
-  R(30, 80, 12, 10, w.b); R(38, 80, 4, 10, w.d); R(26, 88, 20, 3, w.d);
-  ellipse(g, 36, 80, 6, 2, '#d8b07a'); ellipse(g, 36, 80, 3, 1, '#b48a54'); R(35, 80, 2, 1, '#8a6034');
-  return outlined(c);
-}
-
-// Casilla de tierra labrada (rombo con surcos), con el centro de la casilla en (TILL_AX, TILL_AY). q: girada con la cámara
-export const TILL_AX = 20, TILL_AY = 12;
-const tilled = new Map();
-export function tilledSprite(q = 0) {
-  if (tilled.has(q)) return tilled.get(q);
-  const c = mk(40, 24), g = c.getContext('2d'), I = iso(g, TILL_AX, TILL_AY, 1, q, true, SEAM(q));
-  I.quad([-0.5, -0.5, 0], [0.5, -0.5, 0], [0.5, 0.5, 0], [-0.5, 0.5, 0], '#6a4428');
-  for (let k = 1; k < 5; k++) { const t = k / 5 - 0.5; line(g, ...I.P(t, -0.42), ...I.P(t, 0.42), '#4a2e1a'); line(g, ...I.P(t + 0.06, -0.4), ...I.P(t + 0.06, 0.4), '#8a5a34'); }
-  tilled.set(q, c);
-  return c;
-}

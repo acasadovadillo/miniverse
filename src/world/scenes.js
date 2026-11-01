@@ -1,14 +1,11 @@
-// Escena del mundo exterior (infinito, por trozos). Ofrece proyección, cámara, suelo, objetos,
-// entidades y colisiones. Todo lo que hay en el mundo va en la cuadrícula de casillas: lo que construye
+// Escena del mundo exterior (infinito, por trozos). Ofrece objetos, entidades y colisiones. Todo lo que hay en el mundo va en la cuadrícula de casillas: lo que construye
 // el jugador (deltas) y lo fijo del pueblo y de las aldeas (la "capa base", que no se puede quitar).
 import { clamp } from '../util.js';
-import { toScreen, VIEW } from '../iso.js';
 import { WorldGen, CHUNK } from './gen.js';
-import { ChunkManager } from './chunks.js';
 import { buildVillage, NILO, inBounds, isGrass, inOwnHouse } from './village.js';
 import { B, BIOMES } from './biomes.js';
 import { ITEMS } from '../items.js';
-import { footTile, LONG, BED_BACK, HEARTH_BACK, PLACE_AX, PLACE_AY, GLOW, LIGHT } from '../art/stations.js';
+import { footTile, LONG, BED_BACK, HEARTH_BACK, GLOW, LIGHT } from '../art/stations.js';
 import { wallRuns, WINDOW_Z, T } from '../art/build.js';
 import { PIECES, layerOf, parsePlaced } from '../pieces.js';
 import { Person } from '../entities.js';
@@ -21,8 +18,8 @@ const ROOF_MAX_LEVEL = 4;     // altura máxima de un tejado, en niveles
 // De su centro a su parte de atrás, en lo que tiene espalda: si detrás hay un muro, se arrima a él
 const BACK = { cama: BED_BACK, estanteria: 0.2, chimenea: HEARTH_BACK, lampara: 0.18 };
 
-// Completa un objeto de la mochila puesto en el mundo (estación o mueble): sprite, colisión y luz.
-// [sx, sy]: lo que se corre para arrimarse a un muro. Devuelve true si es plano (alfombra) y va pintado en el suelo.
+// Completa un objeto de la mochila puesto en el mundo (estación o mueble): colisión y luz.
+// [sx, sy]: lo que se corre para arrimarse a un muro. Devuelve true si es plano (alfombra) y va en el suelo.
 function itemObject(o, id, rot, colliders, lights, [sx, sy] = [0, 0]) {
   const [tx, ty] = o.tile;
   o.x += sx; o.y += sy;
@@ -52,34 +49,20 @@ function roofDistance(px, py, edges) {
 }
 
 export class Overworld {
-  constructor(seed, props, deltas = new Map()) {
+  constructor(seed, deltas = new Map()) {
     this.kind = 'world';
     this.seed = seed;
-    this.props = props;
     this.clock = 0;               // segundos de juego
     this.deltas = deltas;         // cambios del jugador por trozo: { removed: {clave: hora}, tilled: {casilla: hora}, placed: {casilla: id}, v }; lo quitado no vuelve
     this.dirty = new Set();       // trozos con cambios sin guardar
     this.merged = new Map();
-    this.village = buildVillage(props);
-    this.gen = new WorldGen(seed, props);
-    this.chunks = new ChunkManager(this.gen, this.village, (cx, cy) => this.contentFor(cx, cy));
+    this.village = buildVillage();
+    this.gen = new WorldGen(seed);
     this.nilo = new Person({ ...NILO, look: NILO_LOOK, flip: true });
     this.entities = [this.nilo];
     this.bounds = null;
-    this.visible = [];
     this.layers = [];             // otras capas de contenido por trozo (cultivos, lugares…): { add(cx, cy, delta, out), baseAt?(layer, tx, ty) }
   }
-  P(x, y, z) { return toScreen(x, y, z); }
-  // La cámara ha girado: se rehace todo lo que se pintó desde el ángulo anterior (suelo, objetos con sus
-  // sombras ya proyectadas, y el pueblo con sus detalles pintados en el suelo)
-  resetView() {
-    this.merged.clear();
-    this.gen.cache.clear();
-    this.village = buildVillage(this.props);
-    this.chunks.village = this.village;
-    this.chunks.clear();
-  }
-  camera(px, py, view) { return { x: Math.round(px - view.w / 2), y: Math.round(py - 24 - view.h / 2) }; }
 
   delta(cx, cy, create = false) {
     const k = `${cx},${cy}`;
@@ -108,13 +91,12 @@ export class Overworld {
     const key = `${cx},${cy}`, d = this.delta(cx, cy), bucket = Math.floor(this.clock / 5);
     const m = this.merged.get(key);
     if (m && m.v === (d?.v ?? -1) && m.bucket === bucket) return m.data;
-    const base = this.gen.content(cx, cy).objects, objects = [], colliders = [], shadows = [], tilled = [], flats = [], floors = [], lights = [];
+    const base = this.gen.content(cx, cy).objects, objects = [], colliders = [], tilled = [], flats = [], floors = [], lights = [];
     for (const o of base) {
       if (this.layers.some(l => l.hides?.(o))) continue;   // donde hay un lugar especial no crecen árboles
       if (d?.removed[o.key] !== undefined) continue;   // lo talado, picado o segado no vuelve: la casilla queda libre
       objects.push(o);
       if (o.col) colliders.push(o.col);
-      if (o.shadow) shadows.push(o.shadow);
     }
     if (d) for (const t of Object.keys(d.tilled)) tilled.push(t.split(',').map(Number));
     const out = { objects, colliders, flats, floors, lights, roofMemo: new Map() };
@@ -122,7 +104,7 @@ export class Overworld {
     const vb = this.village.built?.[key];
     if (vb) this.addBuilt(vb, out, true);
     for (const layer of this.layers) layer.add(cx, cy, d, out);
-    const data = { objects, colliders, shadows, tilled, flats, floors, lights };
+    const data = { objects, colliders, tilled, flats, floors, lights };
     this.merged.set(key, { v: d?.v ?? -1, bucket, data });
     if (this.merged.size > 300) this.merged.delete(this.merged.keys().next().value);
     return data;
@@ -162,22 +144,21 @@ export class Overworld {
   // src: { placed, floor, roof } por casilla. fixed: es del pueblo o de una aldea (no se puede quitar).
   addBuilt(src, out, fixed = false) {
     const { objects, colliders, flats, floors, lights } = out;
-    const base = (t, layer, id, img) => {
+    const base = (t, layer, id) => {
       const [tx, ty] = t.split(',').map(Number);
-      const o = { img, x: tx + 0.5, y: ty + 0.5, ax: PLACE_AX, ay: PLACE_AY, key: `${layer}:${t}`, placed: id, layer, tile: [tx, ty] };
+      const o = { x: tx + 0.5, y: ty + 0.5, key: `${layer}:${t}`, placed: id, layer, tile: [tx, ty] };
       if (fixed) o.fixed = true;
       return o;
     };
     // Lo fijo no pisa lo que haya puesto el jugador en la misma casilla y capa
     const taken = (layer, t) => fixed && this.ownAt(layer, ...t.split(',').map(Number));
-    // (todo se dibuja girado con la cámara: VIEW.r)
     for (const [t, id] of Object.entries(src.floor || {})) {
       if (taken('floor', t)) continue;
-      floors.push(base(t, 'floor', id, null));
+      floors.push(base(t, 'floor', id));
     }
     for (const [t, raw] of Object.entries(src.placed || {})) {
       if (taken('placed', t)) continue;
-      const [id, rot] = parsePlaced(raw), piece = PIECES[id], o = base(t, 'placed', id, null), [tx, ty] = o.tile;
+      const [id, rot] = parsePlaced(raw), piece = PIECES[id], o = base(t, 'placed', id), [tx, ty] = o.tile;
       if (piece?.kind === 'wall') {
         // Tabique fino que se une con los muros y puertas de al lado; choca solo con su grosor
         const joins = (x, y) => ['wall', 'door'].includes(this.pieceAt(x, y)?.kind);
@@ -216,7 +197,7 @@ export class Overworld {
     }
     for (const [t, id] of Object.entries(src.roof || {})) {
       if (taken('roof', t)) continue;
-      const o = base(t, 'roof', id, null), [tx, ty] = o.tile;
+      const o = base(t, 'roof', id), [tx, ty] = o.tile;
       const under = this.at('placed', tx, ty), chimney = !!under && parsePlaced(under)[0] === 'chimenea';
       o.roof = true;
       if (chimney) o.chimneyTop = [o.x, o.y];
@@ -257,18 +238,12 @@ export class Overworld {
     return memo.get(key);
   }
 
-  // Quita un objeto recolectado. Si está cerca del borde de su trozo, también se repinta el vecino (por la sombra).
+  // Quita un objeto recolectado
   remove(o) {
     if (o.planted) return o.planted.remove(o);   // árboles plantados por el jugador
     const cx = Math.floor(o.x / CHUNK), cy = Math.floor(o.y / CHUNK);
     this.delta(cx, cy, true).removed[o.key] = this.clock;
     this.touch(cx, cy);
-    this.chunks.refresh(cx, cy);
-    const lx = o.x - cx * CHUNK, ly = o.y - cy * CHUNK;
-    if (lx < 1.5) this.chunks.refresh(cx - 1, cy);
-    if (ly < 1.5) this.chunks.refresh(cx, cy - 1);
-    if (lx > CHUNK - 1.5) this.chunks.refresh(cx + 1, cy);
-    if (ly > CHUNK - 1.5) this.chunks.refresh(cx, cy + 1);
   }
 
   // ¿Se puede labrar esta casilla? Tierra con hierba, sin nada encima y fuera del camino del pueblo.
@@ -348,7 +323,7 @@ export class Overworld {
       if ((nx !== cx || ny !== cy) && this.delta(nx, ny)) this.touch(nx, ny);
     }
     // Un tejado cambia la forma de toda su región: que se rehagan los trozos de alrededor
-    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if ((dx || dy) && this.merged.has(`${cx + dx},${cy + dy}`)) { this.merged.delete(`${cx + dx},${cy + dy}`); this.chunks.refresh(cx + dx, cy + dy); }
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (dx || dy) this.merged.delete(`${cx + dx},${cy + dy}`);
   }
   // ¿Están aquí los pies de una cama (o de otra cosa de dos casillas)?
   footAt(tx, ty) {
@@ -380,25 +355,21 @@ export class Overworld {
     return c.objects.concat(c.flats).find(o => o.tile && o.tile[0] === tx && o.tile[1] === ty && o.layer === 'placed') || null;
   }
 
-  objects() {
-    const out = this.village.objects.slice();
-    for (const ch of this.visible) for (const o of this.contentFor(ch.cx, ch.cy).objects) out.push(o);
-    return out;
-  }
   // Objetos recolectables cerca de un punto
   harvestablesNear(x, y) {
     const cx = Math.floor(x / CHUNK), cy = Math.floor(y / CHUNK), out = [];
     for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) for (const o of this.contentFor(cx + dx, cy + dy).objects) if (o.kind) out.push(o);
     return out;
   }
+  // Colisiones cerca de una posición (el pueblo, Nilo y lo del trozo actual y sus vecinos)
   collidersNear(x, y) {
-    return [...this.village.colliders, { x: this.nilo.x, y: this.nilo.y, r: 0.35 }, ...(this.extraColliders || []), ...this.chunks.collidersNear(x, y)];
+    const cx = Math.floor(x / CHUNK), cy = Math.floor(y / CHUNK), out = [...this.village.colliders, { x: this.nilo.x, y: this.nilo.y, r: 0.35 }, ...(this.extraColliders || [])];
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) for (const c of this.contentFor(cx + dx, cy + dy).colliders) out.push(c);
+    return out;
   }
-  // Rehacer el pueblo (cambia la estación o se termina un proyecto) y repintar el suelo
+  // Rehacer el pueblo (se termina un proyecto)
   rebuildVillage() {
-    this.village = buildVillage(this.gen.props);
-    this.chunks.village = this.village;
-    this.chunks.chunks.clear();
+    this.village = buildVillage();
     this.merged.clear();
   }
   // Agua: la profunda no se puede pisar; la poco profunda se cruza despacio

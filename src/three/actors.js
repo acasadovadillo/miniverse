@@ -5,9 +5,9 @@
 // la mano la herramienta elegida y la balancea al golpear.
 import * as THREE from 'three';
 import { Person3D, mesh, mergeInto, G, M } from './people.js';
-import { Builder, mat } from './geo.js';
+import { mat } from './geo.js';
 import { ANIMALS } from '../art/farm.js';
-import { MONSTERS } from '../art/explore.js';
+import { MONSTERS } from '../combat.js';
 import { screenDirOf } from '../art/people3.js';
 import { screenToWorld } from '../camera.js';
 import { ITEMS, TIERS } from '../items.js';

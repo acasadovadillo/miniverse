@@ -47,15 +47,14 @@ function defaultHouseDeltas() {
 }
 
 export class Game {
-  constructor(canvas, props) {
+  constructor(canvas) {
     this.canvas = canvas;
     this.view3d = new View3D(canvas);
-    this.props = props;
     this.mode = 'menu';          // menu | play | pause | map | inventory | craft | chest | …
     this.busy = false;           // hay una escena en marcha (diálogo, puerta…)
     this.player = null;
     this.world = null;
-    this.menuWorld = new Overworld(WORLD_SEED, props, defaultHouseDeltas());
+    this.menuWorld = new Overworld(WORLD_SEED, defaultHouseDeltas());
     this.underRoof = false;      // el jugador está bajo un tejado del mundo (en una casa)
     this.scene = null;
     this.onSave = null;
@@ -111,7 +110,7 @@ export class Game {
       for (const [k, d] of deltas) if (!k.startsWith('u:')) Object.assign(d, { removed: {}, picked: {}, opened: {} });
       save = { ...save, explored: [], found: [] };
     }
-    this.world = new Overworld(WORLD_SEED, this.props, deltas);
+    this.world = new Overworld(WORLD_SEED, deltas);
     if (moved) for (const k of deltas.keys()) this.world.dirty.add(k);   // que se guarde ya así
     this.world.clock = save.clock || 0;
     this.inv = new Inventory(save.inventory);

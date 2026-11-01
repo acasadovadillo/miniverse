@@ -1,18 +1,22 @@
 // Combate ligero (solo en cuevas y mazmorras): vida del jugador en corazones, criaturas que persiguen
 // y muerden, y golpes con la espada (o con cualquier herramienta, que pega menos).
 import { ITEMS } from './items.js';
-import { MONSTERS } from './art/explore.js';
 import { Audio } from './audio.js';
 import { hud } from './ui/hud.js';
 
 export const HP_MAX = 20;   // medios corazones
+
+export const MONSTERS = {
+  limo: { name: 'Limo', hp: 3, dmg: 1, speed: 1.1, drops: [['baba', 1, 1, 0.7]] },
+  murcielago: { name: 'Murciélago', hp: 2, dmg: 1, speed: 2.4, fly: true, drops: [['fibra', 1, 1, 0.3]] },
+  esqueleto: { name: 'Esqueleto', hp: 6, dmg: 2, speed: 1.4, drops: [['calavera', 1, 1, 0.3], ['moneda_antigua', 1, 1, 0.15]] },
+};
 
 class Monster {
   constructor(type, x, y) {
     Object.assign(this, { type, x, y, hp: MONSTERS[type].hp, cool: 0, hurt: 0, step: Math.random() * 4, wander: 0, dir: [0, 0] });
   }
   get def() { return MONSTERS[this.type]; }
-  footprint() { return { x0: this.x - 0.2, x1: this.x + 0.2, y0: this.y - 0.2, y1: this.y + 0.2, c: this.x + this.y }; }
 }
 
 export class Combat {

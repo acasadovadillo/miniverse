@@ -2,8 +2,7 @@
 // Todo va en la cuadrícula: las casas están hechas de piezas de construcción (muros, ventanas, puerta,
 // tejado, hogar), la valla del jardín son piezas de valla, y los árboles, arbustos, farola, buzón,
 // cartel, tablón, vitrina y puestos ocupan casillas enteras.
-import { clamp, rgbOf, ellipse } from '../util.js';
-import { toScreen } from '../iso.js';
+import { clamp } from '../util.js';
 import { CHUNK } from './gen.js';
 import { houseBlueprint, byChunk } from './blueprints.js';
 
@@ -71,44 +70,23 @@ export function keepClear(x, y) {
 // Claro alrededor del pueblo: 0 en el centro, 1 lejos
 export const clearing = (x, y) => clamp((Math.hypot(x - CENTER.x, y - CENTER.y) - 10) / 6, 0, 1);
 
-const C = {
-  dirt: rgbOf('#c99e66'), dirtD: rgbOf('#b48855'), dirtL: rgbOf('#d8b07a'), pebble: rgbOf('#9a8c7a'),
-  water: rgbOf('#3f8fd0'), waterD: rgbOf('#3578bb'), waterL: rgbOf('#7cc0ec'),
-  sand: rgbOf('#dcc791'), sandD: rgbOf('#c8b07a'),
-};
-// Color del suelo propio del pueblo (camino, estanque) o null si es suelo normal
-export function groundColor(gx, gy, h, n1, n2, sx, sy) {
-  if (!inBounds(gx, gy)) return null;
-  const pd = pondDist(gx, gy) + (n1 - 0.5) * 0.18;
-  if (pd < 1) return h < 0.05 ? C.waterL : pd < 0.62 ? C.waterD : C.water;
-  if (pd < 1.16) return h < 0.3 ? C.sandD : C.sand;
-  const p = distToPath(gx, gy) + (n2 - 0.5) * 0.35;
-  const doorPatch = Math.hypot((gx - 21.5) / 1.6, (gy - 17.6) / 0.8) < 1;
-  if (p < 0.78 || doorPatch) return h < 0.06 ? C.pebble : h < 0.32 ? C.dirtD : h > 0.92 ? C.dirtL : C.dirt;
-  if (p < 0.95 && ((sx + sy) & 1)) return C.dirtD;
-  return null;
-}
-
-// Objetos, colisiones, sombras y detalles del suelo del pueblo, más lo construido fijo (built: piezas por trozo)
-export function buildVillage(props) {
-  const objects = [], colliders = [], shadows = [], decals = [];
-  const add = (img, x, y, ax, ay, extra = {}) => objects.push({ img, x, y, ax, ay, ...extra });
-  const shadowAt = (x, y, rx, ry) => shadows.push({ x, y, rx, ry });   // en el mundo: se proyecta al pintar el suelo
+// Objetos y colisiones del pueblo, más lo construido fijo (built: piezas por trozo)
+export function buildVillage() {
+  const objects = [], colliders = [];
+  const add = (x, y, extra) => objects.push({ x, y, ...extra });
   // Piezas fijas del pueblo, por casilla (las casas de los vecinos y la valla del jardín)
   const fixed = { placed: {}, floor: {}, roof: {} };
 
   // Árboles y arbustos del jardín, cada uno en su casilla
-  for (const [tx, ty, kind, i] of [[12, 12, 'fruit', 0], [29, 8, 'oak', 2]]) {
+  for (const [tx, ty, kind] of [[12, 12, 'fruit'], [29, 8, 'oak']]) {
     const x = tx + 0.5, y = ty + 0.5;
-    add(props[kind][i], x, y, 36, 91, { nature: kind });
+    add(x, y, { nature: kind });
     colliders.push({ x, y, r: 0.35 });
-    shadowAt(x, y + 0.1, 15, 6);
   }
-  for (const [tx, ty, b] of [[17, 18, 1], [25, 18, 2], [12, 16, 0], [29, 13, 3], [27, 22, 0], [22, 30, 4], [13, 25, 0]]) {
+  for (const [tx, ty] of [[17, 18], [25, 18], [12, 16], [29, 13], [27, 22], [22, 30], [13, 25]]) {
     const x = tx + 0.5, y = ty + 0.5;
-    add(props.bush[b], x, y, 18, 21, { nature: 'bush' });
+    add(x, y, { nature: 'bush' });
     colliders.push({ x, y, r: 0.45 });
-    shadowAt(x, y, 12, 4);
   }
 
   // Valla del jardín: piezas de valla en el anillo de casillas del jardín, con hueco para el camino
@@ -125,43 +103,30 @@ export function buildVillage(props) {
     for (const layer of ['placed', 'floor', 'roof']) Object.assign(fixed[layer], bp[layer]);
   }
 
-  // Puesto de Rosa, tablón de encargos y lo que se construye con los proyectos (todo en casillas enteras)
-  // corner: se apoya en la esquina de su huella (al girar la cámara se apoya en la que quede arriba)
-  add(props.stall.img, STALL.x0, STALL.y0, props.stall.ox, props.stall.oy, { fx: [STALL.x0, STALL.x1], fy: [STALL.y0, STALL.y1], corner: true, model: 'stall' });
+  // Puesto de Rosa, tablón de encargos y lo que se construye con los proyectos (todo en casillas enteras;
+  // fx, fy: la huella de lo que ocupa más de una)
+  add(STALL.x0, STALL.y0, { fx: [STALL.x0, STALL.x1], fy: [STALL.y0, STALL.y1], model: 'stall' });
   colliders.push({ x0: STALL.x0, y0: STALL.y0, x1: STALL.x1, y1: STALL.y1 });
-  add(props.board, BOARD.x, BOARD.y, 20, 48, { model: 'board' }); colliders.push({ x: BOARD.x, y: BOARD.y, r: 0.3 });
-  add(props.museum, MUSEUM.x, MUSEUM.y, 20, 58, { model: 'museum' }); colliders.push({ x: MUSEUM.x, y: MUSEUM.y, r: 0.4 });
+  add(BOARD.x, BOARD.y, { model: 'board' }); colliders.push({ x: BOARD.x, y: BOARD.y, r: 0.3 });
+  add(MUSEUM.x, MUSEUM.y, { model: 'museum' }); colliders.push({ x: MUSEUM.x, y: MUSEUM.y, r: 0.4 });
   if (projects.fuente) {
-    add(props.fountain.img, FOUNTAIN.x, FOUNTAIN.y, props.fountain.ox, props.fountain.oy, { fx: [FOUNTAIN.x - 1.5, FOUNTAIN.x + 1.5], fy: [FOUNTAIN.y - 1.5, FOUNTAIN.y + 1.5], model: 'fountain' });
+    add(FOUNTAIN.x, FOUNTAIN.y, { fx: [FOUNTAIN.x - 1.5, FOUNTAIN.x + 1.5], fy: [FOUNTAIN.y - 1.5, FOUNTAIN.y + 1.5], model: 'fountain' });
     colliders.push({ x: FOUNTAIN.x, y: FOUNTAIN.y, r: 1.05 });
   }
   if (projects.mercado) {
     for (const [x, y, k] of [[24, 27, 'stall2'], [12, 31, 'stall3']]) {
-      add(props[k].img, x, y, props[k].ox, props[k].oy, { fx: [x, x + 2], fy: [y, y + 1], corner: true, model: k });
+      add(x, y, { fx: [x, x + 2], fy: [y, y + 1], model: k });
       colliders.push({ x0: x, y0: y, x1: x + 2, y1: y + 1 });
     }
   }
-  if (projects.muelle) add(props.dock.img, DOCK.x0, DOCK.y0, props.dock.ox, props.dock.oy, { fx: [DOCK.x0, DOCK.x1], fy: [DOCK.y0, DOCK.y1], corner: true, model: 'dock' });
+  if (projects.muelle) add(DOCK.x0, DOCK.y0, { fx: [DOCK.x0, DOCK.x1], fy: [DOCK.y0, DOCK.y1], model: 'dock' });
 
   // Buzón, farola y cartel, cada uno en su casilla
-  add(props.mailbox, 22.5, 20.5, 10, 31, { model: 'mailbox' }); colliders.push({ x: 22.5, y: 20.5, r: 0.25 });
-  add(props.lamp, 19.5, 20.5, 9, 58, { model: 'lamp' }); colliders.push({ x: 19.5, y: 20.5, r: 0.2 });
-  add(props.sign, 17.5, 26.5, 15, 34, { model: 'sign' }); colliders.push({ x: 17.5, y: 26.5, r: 0.25 });
+  add(22.5, 20.5, { model: 'mailbox' }); colliders.push({ x: 22.5, y: 20.5, r: 0.25 });
+  add(19.5, 20.5, { model: 'lamp' }); colliders.push({ x: 19.5, y: 20.5, r: 0.2 });
+  add(17.5, 26.5, { model: 'sign' }); colliders.push({ x: 17.5, y: 26.5, r: 0.25 });
 
-  // Estanque: orilla de piedras y nenúfares (se pintan en el suelo)
+  // Estanque (la orilla y los nenúfares los pone la vista)
   colliders.push({ x: POND.x, y: POND.y, rx: POND.rx * 0.98, ry: POND.ry * 0.98 });
-  // (cada detalle se proyecta al pintarlo, con la vista con la que se pinte el suelo)
-  for (let i = 0; i < 26; i++) {
-    const a = (i / 26) * Math.PI * 2;
-    decals.push(g => { const [sx, sy] = toScreen(POND.x + Math.cos(a) * POND.rx * 1.12, POND.y + Math.sin(a) * POND.ry * 1.12); ellipse(g, sx, sy, 2 + (i % 2), 1, '#8a8478'); g.fillStyle = '#b0aa9c'; g.fillRect(sx - 1, sy - 1, 2, 1); });
-  }
-  for (const [ax, ay, flower] of [[0.3, -0.2, true], [-0.35, 0.25, true], [0.1, 0.45, false], [-0.5, -0.3, false], [0.55, 0.2, false], [-0.1, -0.5, false]]) {
-    decals.push(g => {
-      const [sx, sy] = toScreen(POND.x + ax * POND.rx, POND.y + ay * POND.ry);
-      ellipse(g, sx, sy, 4, 2, '#3f8a32'); g.fillStyle = '#5cae48'; g.fillRect(sx - 3, sy - 1, 4, 1);
-      g.fillStyle = '#3578bb'; g.fillRect(sx, sy - 2, 2, 2);
-      if (flower) { g.fillStyle = '#ffb8d8'; g.fillRect(sx - 1, sy - 2, 3, 2); g.fillStyle = '#ffffff'; g.fillRect(sx, sy - 3, 1, 1); }
-    });
-  }
-  return { objects, colliders, shadows, decals, built: byChunk(fixed, CHUNK) };
+  return { objects, colliders, built: byChunk(fixed, CHUNK) };
 }

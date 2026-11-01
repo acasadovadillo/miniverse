@@ -17,7 +17,6 @@ class Animal {
     this.tx = this.x; this.ty = this.y;
   }
   get def() { return ANIMALS[this.type]; }
-  footprint() { return { x0: this.x - 0.2, x1: this.x + 0.2, y0: this.y - 0.2, y1: this.y + 0.2, c: this.x + this.y }; }
   toSave() { const { type, name, home, x, y, love, ready, days, petDay, fedDay } = this; return { type, name, home, x: +x.toFixed(2), y: +y.toFixed(2), love, ready, days, petDay, fedDay }; }
   update(dt, world) {
     this.wait -= dt;

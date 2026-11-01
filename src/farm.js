@@ -5,8 +5,6 @@ import { CROPS } from './items.js';
 import { CHUNK } from './world/gen.js';
 import { B } from './world/biomes.js';
 import { inBounds, isGrass, pondDist } from './world/village.js';
-import { cropSprite, saplingSprite, CROP_AX, CROP_AY } from './art/farm.js';
-import { ihash } from './util.js';
 import { Audio } from './audio.js';
 
 export const CAN_MAX = 20;
@@ -42,16 +40,15 @@ export class Farm {
     if (!d) return;
     for (const [k, c] of Object.entries(d.crops || {})) {
       const [tx, ty] = k.split(',').map(Number);
-      out.objects.push({ img: cropSprite(c.id, this.stage(c)), x: tx + 0.5, y: ty + 0.5, ax: CROP_AX, ay: CROP_AY, key: 'crop:' + k, tile: [tx, ty], crop: c });
+      out.objects.push({ x: tx + 0.5, y: ty + 0.5, key: 'crop:' + k, tile: [tx, ty], crop: c });
     }
     for (const [k, t] of Object.entries(d.trees || {})) {
       const [tx, ty] = k.split(',').map(Number), x = tx + 0.5, y = ty + 0.5;
       if (this.today - t.day < TREE_DAYS) {
-        out.objects.push({ img: saplingSprite(t.kind), x, y, ax: 36, ay: 91, key: 'sap:' + k, tile: [tx, ty], sapling: t.kind });
+        out.objects.push({ x, y, key: 'sap:' + k, tile: [tx, ty], sapling: t.kind });
         out.colliders.push({ x, y, r: 0.15 });
       } else {
-        const list = this.world.gen.props[t.kind];
-        const o = { kind: t.kind, img: list[Math.floor(ihash(tx, ty, 3) * list.length)], x, y, ax: 36, ay: 91, key: 'tree:' + k, tile: [tx, ty], planted: this };
+        const o = { kind: t.kind, x, y, key: 'tree:' + k, tile: [tx, ty], planted: this };
         out.objects.push(o);
         out.colliders.push({ x, y, r: 0.35 });
       }

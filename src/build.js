@@ -2,27 +2,23 @@
 // o lo que hay delante del jugador) y se pone pagando sus materiales. Quitar devuelve los materiales
 // (o el mueble a la mochila). Lo fijo del pueblo y de las aldeas no se puede quitar.
 import { PIECES, parsePlaced } from './pieces.js';
-import { floorSprite, wallSprite, doorSprite, hearthSprite, roofSprite, fenceSprite, ROOF_AX, ROOF_AY, WALL_AX, WALL_AY } from './art/build.js';
-import { PLACE_AX, PLACE_AY } from './art/stations.js';
+import { floorSprite, wallSprite, doorSprite, hearthSprite, roofSprite, fenceSprite } from './art/build.js';
 import { Audio } from './audio.js';
 
 export const REACH = 7;   // casillas de distancia a las que se puede construir
 export const PIECE_IDS = Object.keys(PIECES);
 
-// Sprite de una pieza tal como se ve en la paleta y en la vista previa: el tejado, como casilla suelta
-// (pirámide con alero por los cuatro lados); el hogar, con su sprite de estación
-// q: girado con la cámara (la vista previa); la paleta lo usa sin girar
-export function pieceSprite(id, q = 0) {
+// Dibujo de una pieza para su icono en la paleta: el tejado, como casilla suelta (pirámide con alero por
+// los cuatro lados); el hogar, con su chimenea
+export function pieceSprite(id) {
   const p = PIECES[id];
-  if (p.layer === 'floor') return floorSprite(id, undefined, q);
-  if (p.layer === 'roof') return roofSprite(id, { nw: 0, ne: 0, se: 0, sw: 0, c: 0.5 }, { n: true, e: true, s: true, w: true }, false, q);
-  if (p.kind === 'door') return doorSprite(true, undefined, false, false, q);
-  if (p.kind === 'fence') return fenceSprite(id, 3, q);
-  if (p.kind === 'hearth') return hearthSprite(q);
-  return wallSprite(id, 3, undefined, false, q);
+  if (p.layer === 'floor') return floorSprite(id);
+  if (p.layer === 'roof') return roofSprite(id, { nw: 0, ne: 0, se: 0, sw: 0, c: 0.5 }, { n: true, e: true, s: true, w: true }, false);
+  if (p.kind === 'door') return doorSprite(true);
+  if (p.kind === 'fence') return fenceSprite(id, 3);
+  if (p.kind === 'hearth') return hearthSprite();
+  return wallSprite(id, 3);
 }
-// Apoyo del sprite de una pieza: los tejados usan un lienzo más alto; los muros, las puertas y el hogar, otro también alto
-const pieceAnchor = id => (PIECES[id].layer === 'roof' ? [ROOF_AX, ROOF_AY] : ['wall', 'door', 'hearth'].includes(PIECES[id].kind) ? [WALL_AX, WALL_AY] : [PLACE_AX, PLACE_AY]);
 
 export class BuildMode {
   constructor(game) {

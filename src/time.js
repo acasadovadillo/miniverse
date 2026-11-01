@@ -1,7 +1,7 @@
 // Tiempo: hora del día, días, estaciones y clima. También la luz de la noche (farolas, ventanas,
 // antorchas), la lluvia, la nieve, la niebla y las tormentas.
 import { mk, ihash } from './util.js';
-import { SEASONS, seasonalProps } from './art/seasons.js';
+import { SEASONS } from './art/seasons.js';
 import { ENERGY_MAX } from './items.js';
 import { Audio } from './audio.js';
 import { Settings } from './settings.js';
@@ -69,17 +69,8 @@ export class TimeSystem {
     this.update(0);
   }
 
-  // Cambia el aspecto del mundo según la estación (suelo y plantas)
-  applySeason() {
-    const g = this.game, w = g.world, s = this.season;
-    if (w.gen.season === s && w.seasonApplied) return;
-    w.seasonApplied = true;
-    w.gen.season = s;
-    const props = seasonalProps(g.props, s);
-    w.gen.props = props;
-    w.gen.cache.clear();
-    w.rebuildVillage();
-  }
+  // Cambia el aspecto del mundo según la estación (la vista rehace el suelo y las plantas al verlo)
+  applySeason() { this.game.world.gen.season = this.season; }
 
   update(dt) {
     const g = this.game, d = this.dayIndex;

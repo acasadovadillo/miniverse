@@ -2,14 +2,13 @@
 import { lerp, clamp } from './util.js';
 import { fromView, toView } from './iso.js';
 import { screenToWorld } from './camera.js';
-import { personSprites, viewFor, screenDirOf } from './art/people3.js';
+import { viewFor, screenDirOf } from './art/people3.js';
 import { collide } from './physics.js';
 import { Audio } from './audio.js';
 
 export class Person {
   constructor({ x, y, look, view = 'front', flip = false }) {
     Object.assign(this, { x, y, look, view, flip, vx: 0, vy: 0, step: 0 });
-    this.sprites = personSprites(look);
   }
   get moving() { return Math.hypot(this.vx, this.vy) > 0.3; }
   // Hacia dónde mira en el mundo (su vista depende de la cámara; al girarla, sigue mirando hacia el mismo sitio).
@@ -20,9 +19,6 @@ export class Person {
     return fromView((sx / 2 + sy) / 2, (sy - sx / 2) / 2);
   }
   faceTo(dx, dy) { const [x, y] = toView(dx, dy); this.dir = [dx, dy]; [this.view, this.flip] = viewFor((x - y) * 2, x + y); }
-  frame() { return this.sprites[this.view][this.moving ? 1 + (Math.floor(this.step) % 4) : 0]; }
-  // Huella para ordenar el dibujo por profundidad
-  footprint() { return { x0: this.x - 0.2, x1: this.x + 0.2, y0: this.y - 0.2, y1: this.y + 0.2, c: this.x + this.y }; }
 }
 
 const RADIUS = 0.28;

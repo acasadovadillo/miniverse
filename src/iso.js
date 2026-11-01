@@ -1,6 +1,5 @@
-// Proyección isométrica 2:1. Casilla de 32×16 píxeles.
-// La cámara gira en STEPS pasos por vuelta (VIEW.r, de 0 a STEPS - 1): el mundo se gira antes de proyectarlo,
-// así que todo lo que pasa por toScreen y toGrid ya sale desde el ángulo de la cámara.
+// Dibujo isométrico 2:1 (casilla de 32×16 píxeles) para los iconos de la interfaz, y el giro de la cámara
+// (VIEW) con el que el mapa y la lógica pasan de la pantalla al mundo.
 import { poly, ramp, line, ellipse } from './util.js';
 
 export const HW = 16, HH = 8;
@@ -14,7 +13,6 @@ function turnOf(n) {
 const rotate = (x, y, c, s) => [x * c - y * s, x * s + y * c];
 
 export const VIEW = { r: 0, c: 1, s: 0 };
-export function setViewRot(r) { VIEW.r = ((r % STEPS) + STEPS) % STEPS; [VIEW.c, VIEW.s] = turnOf(VIEW.r); }
 // Giro continuo (en radianes, el mismo sentido que turnOf): lo usa el mapa para girar con la cámara 3D
 export function setViewAngle(a) {
   VIEW.c = Math.cos(a); VIEW.s = Math.sin(a);
@@ -23,12 +21,6 @@ export function setViewAngle(a) {
 // Del mundo a la vista de la cámara y al revés (también vale para direcciones)
 export const toView = (x, y) => rotate(x, y, VIEW.c, VIEW.s);
 export const fromView = (x, y) => rotate(x, y, VIEW.c, -VIEW.s);
-// Hacia dónde se acerca uno a la cámara, en el mundo (lo que está más allá en esta dirección tapa a lo de antes)
-export const depthDir = () => fromView(1, 1);
-
-// Rejilla del mundo → píxeles de "pantalla del mundo" (sin cámara). z sube hacia arriba.
-export const toScreen = (x, y, z = 0) => { [x, y] = toView(x, y); return [(x - y) * HW, (x + y) * HH - z]; };
-export const toGrid = (sx, sy) => fromView((sx / HW + sy / HH) / 2, (sy / HH - sx / HW) / 2);
 
 // Ayudante para dibujar figuras isométricas en un lienzo con origen (ox, oy).
 // `s` encoge el dibujo (se usa para hacer iconos con el mismo código que los sprites).
