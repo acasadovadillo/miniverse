@@ -20,7 +20,7 @@ python3 servidor.py 8000
 
 ### Primeros pasos
 
-1. **Crea una cuenta** (local, en este navegador) y pulsa **Nueva partida**: nombre y aspecto.
+1. Pulsa **Nueva partida** y crea tu personaje: nombre, cuerpo y ropa, cara (ojos y su color, cejas, nariz, orejas y mofletes) y pelo (13 peinados y barba). Mantén pulsados los botones de giro, las flechas ← → o arrastra sobre el personaje para girarlo; en la pestaña Cara la cámara se acerca.
 2. Empiezas con hacha, pico, guadaña, azada, tres manzanas y 100 monedas. **Habla con Nilo** en la plaza: te enseña a hacer un banco de carpintero.
 3. Tala, pica y siega fuera del pueblo, fabrica (C) y coloca estaciones. Cada material nuevo desbloquea recetas.
 4. Tu casa es parte del mundo: entras andando por la puerta y el tejado se oculta. Está hecha de las mismas piezas que puedes construir tú (B) en cualquier parte, y puedes cambiarla o amueblarla a tu gusto. Siembra, compra animales a Rosa, pesca con Lía, haz encargos del tablón y paga los proyectos del pueblo.
@@ -56,7 +56,7 @@ La partida se guarda sola cada 15 segundos, al entrar o salir de una casa y al d
 - **Todo en cuadrícula**, como en Minecraft: cada árbol, roca, arbusto, farola, cartel o puesto ocupa una casilla, y las casas del pueblo y de las aldeas están hechas de piezas de construcción. Solo las personas, los animales y las partículas se mueven libres.
 - **Construir**: suelos, muros (de madera, de piedra y de entramado con zócalo; tabiques finos que se unen solos en esquinas, T y cruces, y miden el doble que una persona; el suelo de debajo llega hasta el muro y no asoma por fuera), ventanas (con o sin contraventanas y jardinera), puertas que se abren y cierran, tejados a cuatro aguas en cinco materiales (al entrar en una casa se ocultan el tejado y las paredes que dan a la cámara; el tejado sigue dando sombra y el sol entra por las ventanas), hogar con chimenea que da luz y echa humo, candelabro en cada casa, y vallas que se unen solas; muebles que se giran, cofres, camas de dos casillas, lámparas. Las casas miden 12×10 casillas. Tu casa se amplía hablando con Nilo.
 - **Granja**: siete cultivos por estación, regadera, aspersores, abono, árboles que se plantan, manzanos; gallinas, vacas, ovejas, colmenas y comederos; pesca con doce peces según agua, estación y hora.
-- **Personajes** chibi en 3D hechos con el mismo "look" que se elige al crear el personaje (ocho peinados, colores, ropa), que andan, respiran y miran hacia donde van; el retrato de quien habla sale en los diálogos. Llevan en la mano la herramienta elegida y la balancean al golpear.
+- **Personajes** chibi en 3D hechos con el mismo "look" que se elige al crear el personaje (peinados, colores, ropa, forma de los ojos, cejas, nariz, orejas, barba y mofletes; ver `src/looks.js`), que andan, respiran y miran hacia donde van; el retrato de quien habla sale en los diálogos. Llevan en la mano la herramienta elegida y la balancean al golpear.
 - **Pueblo vivo**: Rosa, Lía, Bruno, Nilo y, si construyes su casa, Dani. Horarios, charlas, regalos, amistad con eventos, tiendas, tablón de encargos y cuatro proyectos (fuente, muelle, mercado y casa nueva).
 - **Aventura**: cuevas con niveles infinitos (vetas, gemas, fósiles, criaturas), templos con puzles (palanca, llave y bloque sobre placa), combate ligero con corazones, barca y caballo, y una historia ligera hasta el faro del confín.
 - **Progreso**: ocho habilidades que suben con el uso, museo con 33 piezas (minerales, fósiles, peces e insectos), 20 logros y estadísticas.
@@ -67,7 +67,7 @@ La partida se guarda sola cada 15 segundos, al entrar o salir de una casa y al d
 
 El juego es estático y se publica con GitHub Pages desde la rama `main` (carpeta raíz): cada `git push` a `main` actualiza <https://acasadovadillo.github.io/miniverse/> en un minuto o dos.
 
-Las cuentas y partidas se guardan en el navegador de cada jugador (IndexedDB), así que cada persona tiene las suyas.
+No hay cuentas: la partida se guarda en el navegador de cada jugador (IndexedDB), así que cada persona tiene la suya. Para llevarla a otro dispositivo, *Exportar* e *Importar partida*.
 
 ## Cómo está hecho
 

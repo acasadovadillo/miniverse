@@ -283,7 +283,7 @@
     #clockp { top: auto; bottom: 256px; right: 12px; left: auto; font-size: 13px; }
   }
 
-  /* ---------- Pantallas (cuenta, menú, creador, pausa) ---------- */
+  /* ---------- Pantallas (menú, creador, pausa) ---------- */
   .screen { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; flex-direction: column; gap: 18px; padding: 16px; background: radial-gradient(ellipse at center, rgba(10, 20, 8, .25), rgba(10, 16, 8, .7)); z-index: 10; overflow-y: auto; touch-action: auto; }
   .screen.show { display: flex; }
   .logo { font-size: clamp(40px, 8vw, 72px); font-weight: 600; color: var(--gold); text-shadow: 4px 4px 0 #6b3a14, 0 0 24px rgba(255, 200, 100, .35); line-height: 1; text-align: center; }
@@ -297,7 +297,6 @@
   .field[hidden] { display: none; }
   .field input { display: block; width: 100%; margin-top: 4px; padding: 9px 10px; font-size: 18px; color: var(--cream); background: rgba(0, 0, 0, .35); border: 2px solid #8a6034; border-radius: 4px; outline: none; user-select: text; -webkit-user-select: text; }
   .field input:focus { border-color: var(--gold); }
-  .check { display: flex; align-items: center; gap: 8px; font-size: 15px; color: var(--dim); margin: 2px 0 14px; cursor: pointer; }
   .err { min-height: 20px; color: var(--err); font-size: 15px; margin-bottom: 8px; }
   .m-row { display: flex; gap: 6px; } .m-row .btn { flex: 1; font-size: 16px; }
   .field small { font-size: 12px; opacity: .8; }
@@ -318,6 +317,11 @@
   .cr-rot span { flex: 1; text-align: center; color: var(--dim); }
   .sq { width: 40px; height: 36px; color: var(--cream); background: #4a2c18; border: 2px solid #9a6a34; border-radius: 4px; cursor: pointer; font-size: 18px; }
   .cr-opts { display: grid; gap: 12px; }
+  .cr-tabs { margin: 0; }
+  .cr-page { display: grid; gap: 12px; }
+  .cr-page[hidden] { display: none; }
+  #cr-canvas { touch-action: none; cursor: grab; }
+  .cr-rot .sq { touch-action: none; user-select: none; -webkit-user-select: none; }
   .opt-t { font-size: 16px; color: var(--gold); margin-bottom: 5px; }
   .seg { display: flex; gap: 6px; }
   .seg button { flex: 1; padding: 7px; color: var(--dim); background: rgba(0, 0, 0, .25); border: 2px solid #6a4a2a; border-radius: 4px; cursor: pointer; }
@@ -351,21 +355,6 @@
   <div id="dialog" class="panel"><canvas id="dlg-face" width="48" height="48"></canvas><div class="name" id="dlg-name"></div><div id="dlg-text"></div><div id="dlg-opts"></div><div class="more">▼</div></div>
   <div id="toasts"></div>
 
-  <!-- Cuenta -->
-  <section id="s-login" class="screen">
-    <div class="logo">Miniverse</div>
-    <form class="box panel" id="login-form" autocomplete="off">
-      <div class="tabs"><button type="button" data-tab="login" class="on">Entrar</button><button type="button" data-tab="register">Crear cuenta</button></div>
-      <label class="field">Usuario<input id="lg-user" maxlength="16" autocomplete="username"></label>
-      <label class="field">Contraseña<input id="lg-pass" type="password" maxlength="64" autocomplete="current-password"></label>
-      <label class="field" id="lg-pass2-row" hidden>Repite la contraseña<input id="lg-pass2" type="password" maxlength="64" autocomplete="new-password"></label>
-      <label class="check"><input type="checkbox" id="lg-remember" checked> Recordarme en este dispositivo</label>
-      <div class="err" id="lg-err"></div>
-      <button class="btn primary" id="lg-submit" type="submit">Entrar</button>
-      <p class="note">Las cuentas y las partidas se guardan en este navegador.</p>
-    </form>
-  </section>
-
   <!-- Menú principal -->
   <section id="s-menu" class="screen">
     <div class="logo">Miniverse</div>
@@ -379,7 +368,7 @@
       <button class="btn" id="m-settings">Ajustes</button>
       <p class="note" id="menu-msg"></p>
       <input type="file" id="file-pick" accept=".json,application/json" hidden>
-      <button class="btn" id="m-logout">Cerrar sesión</button>
+      <p class="note">Tu partida se guarda en este navegador.</p>
     </div>
   </section>
 
@@ -390,7 +379,7 @@
       <div class="cr">
         <div class="cr-stage">
           <div class="cr-room"><canvas id="cr-canvas"></canvas></div>
-          <div class="cr-rot"><button class="sq" id="rot-l" aria-label="Girar">⟲</button><span id="rot-label">De frente</span><button class="sq" id="rot-r" aria-label="Girar">⟳</button></div>
+          <div class="cr-rot"><button class="sq" id="rot-l" aria-label="Girar a la izquierda (mantén pulsado)">⟲</button><span id="rot-label">De frente</span><button class="sq" id="rot-r" aria-label="Girar a la derecha (mantén pulsado)">⟳</button></div>
         </div>
         <div class="cr-opts" id="cr-opts">
           <label class="field" style="margin:0">Nombre<input id="cr-name" maxlength="14"></label>

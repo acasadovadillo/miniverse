@@ -1,7 +1,7 @@
-// Pantallas: cuenta, menú principal, creador de personaje y pausa.
-import { Accounts } from '../accounts.js';
+// Pantallas: menú principal, creador de personaje y pausa.
+import { Profile } from '../accounts.js';
 import { Saves } from '../save.js';
-import { LOOK_OPTIONS, DEFAULT_LOOK } from '../art/people3.js';
+import { LOOK_OPTIONS, DEFAULT_LOOK } from '../looks.js';
 import { CharacterPreview } from '../three/preview.js';
 import { SPAWN } from '../world/village.js';
 import { hud } from './hud.js';
@@ -17,7 +17,7 @@ import { initSettingsUI } from './settings.js';
 import { exportGame, readExport, importGame } from '../share.js';
 
 const $ = id => document.getElementById(id);
-const SCREENS = ['s-login', 's-menu', 's-creator', 's-pause', 's-map', 's-inv', 's-craft', 's-chest', 's-shop', 's-journal', 's-settings', 's-controls'];
+const SCREENS = ['s-menu', 's-creator', 's-pause', 's-map', 's-inv', 's-craft', 's-chest', 's-shop', 's-journal', 's-settings', 's-controls'];
 const AUTOSAVE_MS = 15000;
 
 export function initMenus(game) {
@@ -26,32 +26,12 @@ export function initMenus(game) {
     document.body.classList.toggle('playing', !id);
   }
 
-  // ---------- Cuenta ----------
-  let tab = 'login';
-  function setTab(t) {
-    tab = t;
-    document.querySelectorAll('[data-tab]').forEach(b => b.classList.toggle('on', b.dataset.tab === t));
-    $('lg-pass2-row').hidden = t !== 'register';
-    $('lg-submit').textContent = t === 'login' ? 'Entrar' : 'Crear cuenta';
-    $('lg-pass').autocomplete = t === 'login' ? 'current-password' : 'new-password';
-    $('lg-err').textContent = '';
-  }
-  document.querySelectorAll('[data-tab]').forEach(b => b.addEventListener('click', () => setTab(b.dataset.tab)));
-  $('login-form').addEventListener('submit', async e => {
-    e.preventDefault();
-    const user = $('lg-user').value, pass = $('lg-pass').value, keep = $('lg-remember').checked;
-    const err = tab === 'login' ? await Accounts.login(user, pass, keep) : await Accounts.register(user, pass, $('lg-pass2').value, keep);
-    if (err) { $('lg-err').textContent = err; return; }
-    $('lg-pass').value = $('lg-pass2').value = '';
-    openMenu();
-  });
-
   // ---------- Menú principal ----------
   let currentSave = null;
   const when = ts => new Date(ts).toLocaleString('es-ES', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
   async function openMenu() {
-    currentSave = await Saves.load(Accounts.id);
-    $('menu-hello').textContent = `¡Hola, ${Accounts.user}!`;
+    currentSave = await Saves.load(Profile.id);
+    $('menu-hello').textContent = currentSave ? `¡Hola, ${currentSave.player.name}!` : '¡Hola!';
     $('menu-save').textContent = currentSave ? `Partida de ${currentSave.player.name} · guardada el ${when(currentSave.savedAt)}` : 'Todavía no tienes ninguna partida.';
     $('m-continue').disabled = !currentSave;
     $('m-continue').classList.toggle('primary', !!currentSave);
@@ -60,33 +40,49 @@ export function initMenus(game) {
     $('menu-msg').textContent = '';
     show('s-menu');
   }
-  $('m-continue').addEventListener('click', async () => { if (currentSave) play(currentSave, await WorldStore.load(Accounts.id)); });
+  $('m-continue').addEventListener('click', async () => { if (currentSave) play(currentSave, await WorldStore.load(Profile.id)); });
   $('m-new').addEventListener('click', () => {
     if (currentSave && !confirm('Empezar una partida nueva borrará la que tienes guardada. ¿Seguro?')) return;
     openCreator();
   });
-  $('m-logout').addEventListener('click', () => { Accounts.logout(); setTab('login'); show('s-login'); });
 
   // ---------- Creador de personaje ----------
+  // (la vista previa es el mismo modelo en 3D que en el juego)
   const look = { ...DEFAULT_LOOK };
-  const ROT = [['down', false, 'De frente'], ['front', false, 'Frente derecha'], ['side', false, 'Perfil derecho'], ['back', false, 'Espalda derecha'],
-    ['up', false, 'De espaldas'], ['back', true, 'Espalda izquierda'], ['side', true, 'Perfil izquierdo'], ['front', true, 'Frente izquierda']];
-  // (la vista previa es el mismo modelo en 3D que en el juego; ROT da la dirección y su nombre)
-  let rot = 0;
   const preview = new CharacterPreview($('cr-canvas'));
   const rows = [];
+
+  // Pestañas: cuerpo y ropa, cara y pelo (en la de la cara, la cámara se acerca a la cabeza)
+  const PAGES = [['cuerpo', 'Cuerpo'], ['cara', 'Cara'], ['pelo', 'Pelo']];
+  const pages = {};
+  const tabs = document.createElement('div');
+  tabs.className = 'tabs cr-tabs';
+  for (const [id, label] of PAGES) {
+    const b = document.createElement('button');
+    b.type = 'button'; b.textContent = label; b.dataset.page = id;
+    b.onclick = () => showPage(id);
+    tabs.append(b);
+    pages[id] = document.createElement('div');
+    pages[id].className = 'cr-page';
+  }
+  $('cr-opts').append(tabs, ...Object.values(pages));
+  function showPage(id) {
+    for (const b of tabs.children) b.classList.toggle('on', b.dataset.page === id);
+    for (const [k, el] of Object.entries(pages)) el.hidden = k !== id;
+    preview.focus(id === 'cara' ? 'face' : 'body');
+  }
 
   function rebuild() {
     preview.setLook(look);
     rows.forEach(r => r());
   }
-  function addRow(title, el) {
+  function addRow(page, title, el) {
     const wrap = document.createElement('div');
     wrap.innerHTML = `<div class="opt-t">${title}</div>`;
     wrap.append(el);
-    $('cr-opts').append(wrap);
+    pages[page].append(wrap);
   }
-  function segRow(title, key) {
+  function segRow(page, title, key) {
     const box = document.createElement('div');
     box.className = 'seg';
     for (const [value, label] of LOOK_OPTIONS[key]) {
@@ -97,9 +93,9 @@ export function initMenus(game) {
       box.append(b);
     }
     rows.push(() => [...box.children].forEach((b, i) => b.classList.toggle('on', LOOK_OPTIONS[key][i][0] === look[key])));
-    addRow(title, box);
+    addRow(page, title, box);
   }
-  function cycRow(title, key) {
+  function cycRow(page, title, key) {
     const box = document.createElement('div');
     box.className = 'cyc';
     box.innerHTML = '<button type="button" class="sq" aria-label="Anterior">◀</button><span></span><button type="button" class="sq" aria-label="Siguiente">▶</button>';
@@ -107,10 +103,10 @@ export function initMenus(game) {
     const step = d => { const i = list.findIndex(([v]) => v === look[key]); look[key] = list[(i + d + list.length) % list.length][0]; rebuild(); };
     prev.onclick = () => step(-1);
     next.onclick = () => step(1);
-    rows.push(() => { label.textContent = list.find(([v]) => v === look[key])[1]; });
-    addRow(title, box);
+    rows.push(() => { label.textContent = (list.find(([v]) => v === look[key]) || list[0])[1]; });
+    addRow(page, title, box);
   }
-  function swRow(title, key) {
+  function swRow(page, title, key) {
     const box = document.createElement('div');
     box.className = 'sw';
     for (const col of LOOK_OPTIONS[key]) {
@@ -122,52 +118,93 @@ export function initMenus(game) {
       box.append(b);
     }
     rows.push(() => [...box.children].forEach((b, i) => b.classList.toggle('on', LOOK_OPTIONS[key][i] === look[key])));
-    addRow(title, box);
+    addRow(page, title, box);
   }
-  segRow('Sexo', 'sex');
-  cycRow('Peinado', 'hairStyle');
-  swRow('Color de pelo', 'hair');
-  swRow('Tono de piel', 'skin');
-  cycRow('Ropa', 'outfit');
-  swRow('Color de la ropa', 'cloth');
+  segRow('cuerpo', 'Sexo', 'sex');
+  swRow('cuerpo', 'Tono de piel', 'skin');
+  cycRow('cuerpo', 'Ropa', 'outfit');
+  swRow('cuerpo', 'Color de la ropa', 'cloth');
+  cycRow('cara', 'Ojos', 'eyeStyle');
+  swRow('cara', 'Color de ojos', 'eyes');
+  cycRow('cara', 'Cejas', 'brows');
+  cycRow('cara', 'Nariz', 'nose');
+  cycRow('cara', 'Orejas', 'ears');
+  segRow('cara', 'Mofletes', 'cheeks');
+  cycRow('pelo', 'Peinado', 'hairStyle');
+  swRow('pelo', 'Color de pelo', 'hair');
+  cycRow('pelo', 'Barba', 'beard');
 
   const pickOf = arr => arr[Math.floor(Math.random() * arr.length)];
   $('cr-random').onclick = () => {
-    look.sex = pickOf(LOOK_OPTIONS.sex)[0];
-    look.hairStyle = pickOf(LOOK_OPTIONS.hairStyle)[0];
-    look.hair = pickOf(LOOK_OPTIONS.hair);
-    look.skin = pickOf(LOOK_OPTIONS.skin);
-    look.outfit = pickOf(LOOK_OPTIONS.outfit)[0];
-    look.cloth = pickOf(LOOK_OPTIONS.cloth);
+    for (const [key, list] of Object.entries(LOOK_OPTIONS)) { const v = pickOf(list); look[key] = Array.isArray(v) ? v[0] : v; }
+    // Barba solo a veces (y no a las chicas), y casi siempre con mofletes
+    look.beard = look.sex === 'chico' && Math.random() < 0.4 ? pickOf(LOOK_OPTIONS.beard.slice(1))[0] : 'no';
+    look.cheeks = Math.random() < 0.75;
     rebuild();
   };
-  const turn = d => { rot = (rot + d + ROT.length) % ROT.length; $('rot-label').textContent = ROT[rot][2]; preview.setAngle(rot * Math.PI / 4); };
-  $('rot-l').onclick = () => turn(-1);
-  $('rot-r').onclick = () => turn(1);
+
+  // Girar al personaje: poco a poco mientras se mantiene pulsado un botón de giro o una flecha (← →) del
+  // teclado, o arrastrando sobre él. El texto dice hacia dónde mira (la más cercana de ocho direcciones).
+  const FACING = ['De frente', 'Frente derecha', 'Perfil derecho', 'Espalda derecha', 'De espaldas', 'Espalda izquierda', 'Perfil izquierdo', 'Frente izquierda'];
+  const SPIN = 2.4;                     // radianes por segundo
+  let angle = 0, spin = 0;              // giro y hacia dónde gira ahora (-1, 0 o 1)
+  const turnTo = a => {
+    angle = a;
+    preview.setAngle(angle);
+    $('rot-label').textContent = FACING[((Math.round(angle / (Math.PI / 4)) % 8) + 8) % 8];
+  };
+  const creatorOpen = () => $('s-creator').classList.contains('show');
+  for (const [id, d] of [['rot-l', -1], ['rot-r', 1]]) {
+    const b = $(id);
+    b.addEventListener('pointerdown', e => { e.preventDefault(); spin = d; b.setPointerCapture?.(e.pointerId); });
+    for (const ev of ['pointerup', 'pointercancel', 'lostpointercapture']) b.addEventListener(ev, () => { if (spin === d) spin = 0; });
+    b.addEventListener('contextmenu', e => e.preventDefault());   // mantener pulsado en el móvil
+  }
+  const ARROWS = { ArrowLeft: -1, ArrowRight: 1 };
+  addEventListener('keydown', e => {
+    if (!creatorOpen() || !ARROWS[e.code] || e.target instanceof HTMLInputElement) return;
+    spin = ARROWS[e.code];
+    e.preventDefault();
+  });
+  addEventListener('keyup', e => { if (spin && spin === ARROWS[e.code]) spin = 0; });
+  addEventListener('blur', () => { spin = 0; });
+  const cv = $('cr-canvas');
+  let dragX = null;
+  cv.addEventListener('pointerdown', e => { dragX = e.clientX; cv.setPointerCapture(e.pointerId); });
+  cv.addEventListener('pointermove', e => { if (dragX === null) return; turnTo(angle + (e.clientX - dragX) * 0.012); dragX = e.clientX; });
+  for (const ev of ['pointerup', 'pointercancel']) cv.addEventListener(ev, () => { dragX = null; });
+
   $('cr-back').onclick = () => openMenu();
   $('cr-start').onclick = async () => {
     const name = $('cr-name').value.trim();
     if (!name) { $('cr-err').textContent = 'Ponle un nombre a tu personaje.'; return; }
     const save = { player: { name, look: { ...look }, x: SPAWN.x, y: SPAWN.y, inside: false, view: 'back' } };
-    await WorldStore.clear(Accounts.id);   // la partida nueva empieza sin cambios en el mundo
-    await Saves.write(Accounts.id, save);
+    await WorldStore.clear(Profile.id);   // la partida nueva empieza sin cambios en el mundo
+    await Saves.write(Profile.id, save);
     play(save, new Map());
   };
 
   function openCreator() {
-    $('cr-name').value = Accounts.user || '';
+    $('cr-name').value = currentSave?.player.name || '';
     $('cr-err').textContent = '';
-    rot = 0;
-    turn(0);
+    spin = 0;
+    turnTo(0);
     rebuild();
     const w = Math.max(160, Math.min(240, innerWidth - 80));
     preview.resize(w, Math.round(w * 1.25));
+    showPage('cuerpo');
     show('s-creator');
   }
 
-  // Vista previa animada: camina en el sitio
+  // Vista previa animada: camina en el sitio (y gira mientras se mantiene pulsado)
+  let last = 0;
   (function animate(t) {
-    if ($('s-creator').classList.contains('show')) preview.render(t);
+    const dt = Math.min(0.25, (t - last) / 1000 || 0);
+    last = t;
+    if (creatorOpen()) {
+      if (spin) turnTo(angle + spin * SPIN * dt);
+      preview.render(t);
+    }
     requestAnimationFrame(animate);
   })(0);
 
@@ -175,8 +212,8 @@ export function initMenus(game) {
   // Guarda la partida y los trozos del mundo que han cambiado
   const save = async () => {
     if (game.visiting) return false;   // de visita en el mundo de otra persona no se guarda nada
-    const ok = await Saves.write(Accounts.id, game.snapshot());
-    try { await game.flush(Accounts.id); } catch (e) { console.error(e); return false; }
+    const ok = await Saves.write(Profile.id, game.snapshot());
+    try { await game.flush(Profile.id); } catch (e) { console.error(e); return false; }
     return ok;
   };
   game.onSave = save;
@@ -188,7 +225,7 @@ export function initMenus(game) {
   }
 
   // ---------- Exportar, importar y visitar ----------
-  $('m-export').onclick = async () => { $('menu-msg').textContent = (await exportGame(Accounts.id)) ? 'Partida exportada: busca el archivo en tus descargas.' : 'No hay partida que exportar.'; };
+  $('m-export').onclick = async () => { $('menu-msg').textContent = (await exportGame(Profile.id)) ? 'Partida exportada: busca el archivo en tus descargas.' : 'No hay partida que exportar.'; };
   const pickFile = () => new Promise(resolve => { const i = $('file-pick'); i.value = ''; i.onchange = () => resolve(i.files[0]); i.click(); });
   $('m-import').onclick = async () => {
     const file = await pickFile();
@@ -196,7 +233,7 @@ export function initMenus(game) {
     try {
       const data = await readExport(file);
       if (currentSave && !confirm('Importar sustituye tu partida actual por la del archivo. ¿Seguro?')) return;
-      await importGame(Accounts.id, data);
+      await importGame(Profile.id, data);
       await openMenu();
       $('menu-msg').textContent = `Partida de ${data.save.player.name} importada.`;
     } catch (e) { $('menu-msg').textContent = e.message; }
@@ -316,8 +353,8 @@ export function initMenus(game) {
 
   // ---------- Inicio ----------
   async function boot() {
-    if (await Accounts.init()) openMenu();
-    else { setTab('login'); show('s-login'); }
+    await Profile.init();
+    openMenu();
   }
   return { boot, togglePause, toggleMap, zoomMap: zoom, toggleInventory, toggleCraft, toggleJournal };
 }

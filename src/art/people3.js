@@ -7,15 +7,6 @@
 import { mk, ramp, mixHex } from '../util.js';
 
 export const SW = 34, SH = 54, OX = 0, OY = 0, FEET_X = 17, FEET_Y = 50;
-export const LOOK_OPTIONS = {
-  sex: [['chico', 'Chico'], ['chica', 'Chica']],
-  hairStyle: [['corto', 'Corto'], ['largo', 'Largo'], ['coleta', 'Coleta'], ['rizado', 'Rizado'], ['mono', 'Moño'], ['rapado', 'Rapado'], ['calvo', 'Calvo'], ['pinchos', 'Pinchos']],
-  hair: ['#2a1e1e', '#4a2c1c', '#7a4a2a', '#a8442a', '#d8742a', '#e8c060', '#f0e6c8', '#a8a4ac', '#e86aa0', '#4a7ae8', '#3aa86a', '#8a4ac8'],
-  skin: ['#ffe0c4', '#f6c9a0', '#e8b07a', '#c98a5a', '#a86a42', '#8a5234', '#6a3c26', '#4a2a1c', '#9ec67a', '#a8b8e8'],
-  outfit: [['delantal', 'Camisa y delantal'], ['tunica', 'Túnica con cinturón'], ['chaleco', 'Camisa y chaleco'], ['larga', 'Túnica larga']],
-  cloth: ['#c83a3a', '#d8742a', '#e8c050', '#4a9a4a', '#2e8a8a', '#3a5ab8', '#6a4ab8', '#b84a8a', '#6a4a2e', '#4a4a5a', '#e8e0d0'],
-};
-export const DEFAULT_LOOK = { sex: 'chica', hairStyle: 'coleta', hair: '#a8442a', skin: '#e8b07a', outfit: 'delantal', cloth: '#3a5ab8', pants: '#4a3a2a', eyes: '#3a8a4a' };
 
 const INK = '#17110f';
 
