@@ -1,4 +1,6 @@
-# Pueblo Brotes
+# Miniverse
+
+**Jugar: <https://acasadovadillo.github.io/miniverse/>**
 
 Sandbox en 3D (con estética cálida y de pocos polígonos, al estilo de los juegos de vida en un pueblo) con un mundo infinito. Empiezas en Pueblo Brotes, una aldea hecha a mano; a partir de ahí el mundo se genera solo en todas direcciones. Hay un solo mundo, el mismo para todas las partidas. Puedes recolectar, fabricar, construir y decorar, cultivar, criar animales, pescar, hacer amigos, explorar cuevas y templos… y buscar el faro del confín del mundo.
 
@@ -61,13 +63,9 @@ La partida se guarda sola cada 15 segundos, al entrar o salir de una casa y al d
 - **Ajustes**: volúmenes, música generada, resolución (automática o fija), texto grande y reducir destellos. Los controles están en su propia sección de la pausa.
 - **Compartir sin servidor**: exportar e importar la partida a un archivo y visitar lo que ha hecho otra persona sin guardar nada.
 
-## Publicar en GitHub Pages
+## Publicación
 
-El juego es estático: basta con subir la carpeta a un repositorio y activar Pages.
-
-1. Crea un repositorio en GitHub y sube el contenido de esta carpeta (con `index.html` en la raíz).
-2. En *Settings → Pages*, elige *Deploy from a branch*, rama `main` y carpeta `/ (root)`.
-3. En un minuto estará en `https://TU-USUARIO.github.io/NOMBRE-DEL-REPO/`.
+El juego es estático y se publica con GitHub Pages desde la rama `main` (carpeta raíz): cada `git push` a `main` actualiza <https://acasadovadillo.github.io/miniverse/> en un minuto o dos.
 
 Las cuentas y partidas se guardan en el navegador de cada jugador (IndexedDB), así que cada persona tiene las suyas.
 
