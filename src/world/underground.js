@@ -43,11 +43,6 @@ export class GridScene {
     }
     this.cacheV = -1;
   }
-  drawGround(ctx, cam, view) {
-    ctx.fillStyle = '#0c0808';
-    ctx.fillRect(0, 0, view.w, view.h);
-    ctx.drawImage(this.floor, -cam.x, -cam.y);
-  }
   // Objetos vivos (sin lo ya picado, con los cofres abiertos y lo colocado)
   live() {
     if (this.cacheV === this.game.frameNo) return this.cache;
@@ -167,7 +162,7 @@ export function makeCave(game, caveId, depth, snow) {
       taken.add(`${tx},${ty}`);
     } else if (depth >= 2 && r > 0.988) {
       const col = ['#9a5ae0', '#4ae8c8', '#5aa8ff'][Math.floor(ihash(tx, ty, seed + 3) * 3)];
-      sc.items.push({ img: crystalSprite(col), x: tx + 0.5, y: ty + 0.5, ax: 12, ay: 27, shine: 46, tile: [tx, ty], solid: true, r: 0.3 });
+      sc.items.push({ img: crystalSprite(col), color: col, x: tx + 0.5, y: ty + 0.5, ax: 12, ay: 27, shine: 46, tile: [tx, ty], solid: true, r: 0.3 });
       taken.add(`${tx},${ty}`);
     }
   }
@@ -220,7 +215,7 @@ export function makeDungeon(game, dungeonId) {
   // Sala del tesoro
   const fx = x0(rooms - 1);
   sc.items.push({ chest: true, img: treasureSprite(false), x: fx + RW / 2, y: doorY + 0.5, ax: T_AX, ay: T_AY, key: 'tesoro', tile: [fx + Math.floor(RW / 2), doorY], solid: true, r: 0.4, loot: 'templo' });
-  for (const [dx, dy] of [[1, 1], [RW - 2, 1], [1, RH - 2], [RW - 2, RH - 2]]) sc.items.push({ img: crystalSprite('#f8c030'), x: fx + dx + 0.5, y: 1 + dy + 0.5, ax: 12, ay: 27, shine: 60, tile: [fx + dx, 1 + dy], solid: true, r: 0.3 });
+  for (const [dx, dy] of [[1, 1], [RW - 2, 1], [1, RH - 2], [RW - 2, RH - 2]]) sc.items.push({ img: crystalSprite('#f8c030'), color: '#f8c030', x: fx + dx + 0.5, y: 1 + dy + 0.5, ax: 12, ay: 27, shine: 60, tile: [fx + dx, 1 + dy], solid: true, r: 0.3 });
   sc.spawns = (sc.spawns || []).concat([['esqueleto', fx + 3.5, doorY - 1.5], ['esqueleto', fx + 5.5, doorY + 2.5]]);
   sc.prepare();
   return sc;

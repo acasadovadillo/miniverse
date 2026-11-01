@@ -100,13 +100,13 @@ export function buildVillage(props) {
   // Árboles y arbustos del jardín, cada uno en su casilla
   for (const [tx, ty, kind, i] of [[12, 12, 'fruit', 0], [29, 8, 'oak', 2]]) {
     const x = tx + 0.5, y = ty + 0.5;
-    add(props[kind][i], x, y, 36, 91);
+    add(props[kind][i], x, y, 36, 91, { nature: kind });
     colliders.push({ x, y, r: 0.35 });
     shadowAt(x, y + 0.1, 15, 6);
   }
   for (const [tx, ty, b] of [[17, 18, 1], [25, 18, 2], [12, 16, 0], [29, 13, 3], [27, 22, 0], [22, 30, 4], [13, 25, 0]]) {
     const x = tx + 0.5, y = ty + 0.5;
-    add(props.bush[b], x, y, 18, 21);
+    add(props.bush[b], x, y, 18, 21, { nature: 'bush' });
     colliders.push({ x, y, r: 0.45 });
     shadowAt(x, y, 12, 4);
   }
@@ -127,26 +127,26 @@ export function buildVillage(props) {
 
   // Puesto de Rosa, tablón de encargos y lo que se construye con los proyectos (todo en casillas enteras)
   // corner: se apoya en la esquina de su huella (al girar la cámara se apoya en la que quede arriba)
-  add(props.stall.img, STALL.x0, STALL.y0, props.stall.ox, props.stall.oy, { fx: [STALL.x0, STALL.x1], fy: [STALL.y0, STALL.y1], corner: true });
+  add(props.stall.img, STALL.x0, STALL.y0, props.stall.ox, props.stall.oy, { fx: [STALL.x0, STALL.x1], fy: [STALL.y0, STALL.y1], corner: true, model: 'stall' });
   colliders.push({ x0: STALL.x0, y0: STALL.y0, x1: STALL.x1, y1: STALL.y1 });
-  add(props.board, BOARD.x, BOARD.y, 20, 48); colliders.push({ x: BOARD.x, y: BOARD.y, r: 0.3 });
-  add(props.museum, MUSEUM.x, MUSEUM.y, 20, 58); colliders.push({ x: MUSEUM.x, y: MUSEUM.y, r: 0.4 });
+  add(props.board, BOARD.x, BOARD.y, 20, 48, { model: 'board' }); colliders.push({ x: BOARD.x, y: BOARD.y, r: 0.3 });
+  add(props.museum, MUSEUM.x, MUSEUM.y, 20, 58, { model: 'museum' }); colliders.push({ x: MUSEUM.x, y: MUSEUM.y, r: 0.4 });
   if (projects.fuente) {
-    add(props.fountain.img, FOUNTAIN.x, FOUNTAIN.y, props.fountain.ox, props.fountain.oy, { fx: [FOUNTAIN.x - 1.5, FOUNTAIN.x + 1.5], fy: [FOUNTAIN.y - 1.5, FOUNTAIN.y + 1.5] });
+    add(props.fountain.img, FOUNTAIN.x, FOUNTAIN.y, props.fountain.ox, props.fountain.oy, { fx: [FOUNTAIN.x - 1.5, FOUNTAIN.x + 1.5], fy: [FOUNTAIN.y - 1.5, FOUNTAIN.y + 1.5], model: 'fountain' });
     colliders.push({ x: FOUNTAIN.x, y: FOUNTAIN.y, r: 1.05 });
   }
   if (projects.mercado) {
     for (const [x, y, k] of [[24, 27, 'stall2'], [12, 31, 'stall3']]) {
-      add(props[k].img, x, y, props[k].ox, props[k].oy, { fx: [x, x + 2], fy: [y, y + 1], corner: true });
+      add(props[k].img, x, y, props[k].ox, props[k].oy, { fx: [x, x + 2], fy: [y, y + 1], corner: true, model: k });
       colliders.push({ x0: x, y0: y, x1: x + 2, y1: y + 1 });
     }
   }
-  if (projects.muelle) add(props.dock.img, DOCK.x0, DOCK.y0, props.dock.ox, props.dock.oy, { fx: [DOCK.x0, DOCK.x1], fy: [DOCK.y0, DOCK.y1], corner: true });
+  if (projects.muelle) add(props.dock.img, DOCK.x0, DOCK.y0, props.dock.ox, props.dock.oy, { fx: [DOCK.x0, DOCK.x1], fy: [DOCK.y0, DOCK.y1], corner: true, model: 'dock' });
 
   // Buzón, farola y cartel, cada uno en su casilla
-  add(props.mailbox, 22.5, 20.5, 10, 31); colliders.push({ x: 22.5, y: 20.5, r: 0.25 });
-  add(props.lamp, 19.5, 20.5, 9, 58); colliders.push({ x: 19.5, y: 20.5, r: 0.2 });
-  add(props.sign, 17.5, 26.5, 15, 34); colliders.push({ x: 17.5, y: 26.5, r: 0.25 });
+  add(props.mailbox, 22.5, 20.5, 10, 31, { model: 'mailbox' }); colliders.push({ x: 22.5, y: 20.5, r: 0.25 });
+  add(props.lamp, 19.5, 20.5, 9, 58, { model: 'lamp' }); colliders.push({ x: 19.5, y: 20.5, r: 0.2 });
+  add(props.sign, 17.5, 26.5, 15, 34, { model: 'sign' }); colliders.push({ x: 17.5, y: 26.5, r: 0.25 });
 
   // Estanque: orilla de piedras y nenúfares (se pintan en el suelo)
   colliders.push({ x: POND.x, y: POND.y, rx: POND.rx * 0.98, ry: POND.ry * 0.98 });

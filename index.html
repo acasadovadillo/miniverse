@@ -12,7 +12,12 @@
   :root { --gold: #ffd77a; --cream: #fff8e8; --border: #e8c47a; --wood: rgba(38, 26, 18, .94); --dim: #d8c3a0; --err: #ff8a7a; }
   * { box-sizing: border-box; }
   html, body { margin: 0; height: 100%; overflow: hidden; background: #1d2a1a; font-family: 'Pixelify Sans', system-ui, sans-serif; font-variant-ligatures: none; color: var(--cream); touch-action: none; -webkit-user-select: none; user-select: none; }
-  #c { position: fixed; left: 0; top: 0; image-rendering: pixelated; }
+  #c { position: fixed; left: 0; top: 0; display: block; }
+  /* Textos que suben sobre el jugador (los coloca el dibujo 3D) y el destello rojo al recibir un golpe */
+  #floaters { position: fixed; inset: 0; pointer-events: none; z-index: 5; overflow: hidden; }
+  .floater { position: absolute; left: 0; top: 0; font-size: 17px; font-weight: 600; white-space: nowrap; text-shadow: 1px 0 #2a1c22, -1px 0 #2a1c22, 0 1px #2a1c22, 0 -1px #2a1c22, 0 2px 3px rgba(0,0,0,.4); will-change: transform; }
+  #hurt { position: fixed; inset: 0; pointer-events: none; z-index: 6; opacity: 0; transition: opacity .12s; box-shadow: inset 0 0 160px 40px rgba(220, 40, 40, .55); }
+  #fps { position: fixed; left: 12px; bottom: 8px; z-index: 7; padding: 2px 8px; font-size: 12px; color: #d8c3a0; background: rgba(0,0,0,.45); border-radius: 4px; pointer-events: none; }
   button, input { font: inherit; font-variant-ligatures: none; }
 
   .panel { background: var(--wood); border: 3px solid var(--border); border-radius: 6px; box-shadow: inset 0 0 0 2px #5a3a20, 0 4px 0 rgba(0, 0, 0, .35); }
@@ -308,7 +313,7 @@
   @media (max-width: 680px) { .cr { grid-template-columns: 1fr; } }
   .cr-stage { display: flex; flex-direction: column; align-items: center; gap: 8px; }
   .cr-room { width: 100%; display: flex; justify-content: center; padding: 14px 0 0; border-radius: 4px; background: repeating-linear-gradient(90deg, rgba(0, 0, 0, .16) 0 2px, transparent 2px 22px), linear-gradient(#8a5634, #7c4b2d 72%, #66391f 72%); }
-  #cr-canvas { image-rendering: pixelated; display: block; }
+  #cr-canvas { display: block; }
   .cr-rot { display: flex; align-items: center; gap: 8px; width: 100%; }
   .cr-rot span { flex: 1; text-align: center; color: var(--dim); }
   .sq { width: 40px; height: 36px; color: var(--cream); background: #4a2c18; border: 2px solid #9a6a34; border-radius: 4px; cursor: pointer; font-size: 18px; }
@@ -328,6 +333,9 @@
 </head>
 <body>
   <canvas id="c"></canvas>
+  <div id="floaters"></div>
+  <div id="hurt"></div>
+  <div id="fps" hidden></div>
   <div id="clockp" class="panel"><span id="clock"></span></div>
   <div id="place" class="panel"><span id="place-name">Pueblo Brotes</span> <small id="coords"></small></div>
   <canvas id="minimap" class="panel" width="150" height="100"></canvas>
@@ -457,13 +465,16 @@
       <h2>Controles <button class="sq" id="ct-close" aria-label="Volver a la pausa">✕</button></h2>
       <h3>Teclado y ratón</h3>
       <dl class="ct-list">
-        <dt><kbd>WASD</kbd> (o <kbd>↑</kbd> <kbd>↓</kbd>)</dt><dd>Caminar</dd>
+        <dt><kbd>WASD</kbd></dt><dd>Caminar (arriba es hacia donde mira la cámara)</dd>
         <dt><kbd>Shift</kbd></dt><dd>Correr (mantenlo pulsado)</dd>
         <dt><kbd>Espacio</kbd> o clic</dt><dd>Usar lo que llevas: talar, picar, regar, sembrar, pescar, atacar, comer, colocar… Mantén para seguir.</dd>
         <dt><kbd>E</kbd> o <kbd>Enter</kbd></dt><dd>Interactuar: hablar, puertas, cofres, estaciones, dormir, cosechar, animales</dd>
         <dt><kbd>1</kbd>–<kbd>9</kbd> o rueda</dt><dd>Elegir objeto</dd>
         <dt><kbd>R</kbd></dt><dd>Girar lo que vas a colocar (apunta con el ratón: hasta 4 casillas)</dd>
-        <dt><kbd>←</kbd> / <kbd>→</kbd></dt><dd>Girar la cámara (16 ángulos, de 22,5° en 22,5°; en el mundo de fuera)</dd>
+        <dt><kbd>←</kbd> / <kbd>→</kbd></dt><dd>Girar la cámara alrededor de ti (mantén pulsado: gira suave)</dd>
+        <dt><kbd>↑</kbd> / <kbd>↓</kbd></dt><dd>Subir la cámara hasta casi verlo desde arriba o bajarla a ras de suelo</dd>
+        <dt><kbd>+</kbd> / <kbd>−</kbd> o <kbd>Ctrl</kbd>+rueda</dt><dd>Acercar y alejar la cámara</dd>
+        <dt><kbd>F</kbd></dt><dd>Ver el rendimiento (fotogramas por segundo)</dd>
         <dt><kbd>I</kbd> <kbd>C</kbd> <kbd>B</kbd></dt><dd>Mochila, fabricar y construir</dd>
         <dt><kbd>J</kbd> <kbd>M</kbd></dt><dd>Diario y mapa</dd>
         <dt><kbd>T</kbd> o <kbd>/</kbd></dt><dd>Chat y comandos (<b>/ayuda</b> para verlos; <b>/admin</b>: objetos infinitos y construir gratis)</dd>
@@ -538,6 +549,7 @@
   <script>
     if (location.protocol === 'file:') document.getElementById('s-file').classList.add('show');
   </script>
+  <script type="importmap">{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }</script>
   <script type="module" src="src/main.js"></script>
 </body>
 </html>

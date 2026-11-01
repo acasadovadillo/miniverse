@@ -17,7 +17,6 @@ const chat = initChat(game);
 const b = game.build;
 initInput({
   chat: prefix => chat.open(prefix),
-  turnCamera: d => game.rotateCamera(d),
   use: () => (hud.dialogOpen ? game.action() : b.on ? b.place() : game.gather.use()),
   build: () => (game.mode === 'play' && !game.busy ? b.toggle() : false),
   building: () => b.on && game.mode === 'play',

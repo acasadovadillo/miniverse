@@ -1,12 +1,22 @@
 // Teclado, ratón y controles táctiles. Guarda qué está pulsado y avisa de las acciones.
 import { Audio } from './audio.js';
+import { CAM, DIST } from './camera.js';
 
 // use: el botón de usar se mantiene pulsado (para seguir talando sin repetir la tecla)
 export const keys = { up: false, down: false, left: false, right: false, run: false, use: false };
 const handlers = { chat: () => false, use: () => {}, interact: () => {}, pause: () => {}, map: () => {}, bag: () => {}, craft: () => {}, build: () => {}, rotate: () => {}, erase: () => {}, select: () => {}, cycle: () => {}, enabled: () => false };
 const KEYMAP = { KeyW: 'up', ArrowUp: 'up', KeyS: 'down', ArrowDown: 'down', KeyA: 'left', ArrowLeft: 'left', KeyD: 'right', ArrowRight: 'right' };
+// En el juego las flechas mueven la cámara (girar e inclinar) y + y − la acercan o alejan; mientras se
+// mantienen, la cámara se mueve suave. Con el mapa abierto, las flechas mueven el mapa como WASD.
+const CAMKEYS = { ArrowLeft: ['turn', -1], ArrowRight: ['turn', 1], ArrowUp: ['tilt', 1], ArrowDown: ['tilt', -1] };
+const held = new Map();   // tecla → [eje, sentido]
+function camAxes() {
+  CAM.turn = CAM.tilt = CAM.zoom = 0;
+  for (const [axis, d] of held.values()) CAM[axis] = Math.max(-1, Math.min(1, CAM[axis] + d));
+}
+const zoomOf = e => (e.key === '+' || e.key === '=' || e.code === 'NumpadAdd' ? -1 : e.key === '-' || e.key === '_' || e.code === 'NumpadSubtract' ? 1 : 0);
 
-export function clearKeys() { for (const k in keys) keys[k] = false; }
+export function clearKeys() { for (const k in keys) keys[k] = false; held.clear(); camAxes(); }
 
 export function initInput(h) {
   Object.assign(handlers, h);
@@ -28,10 +38,12 @@ export function initInput(h) {
       return;
     }
     if (!handlers.enabled()) return;
-    // Girar la cámara: flecha izquierda y derecha (en el juego no mueven; con el mapa abierto, sí lo mueven)
-    if (e.code === 'ArrowLeft' || e.code === 'ArrowRight') { if (!e.repeat) handlers.turnCamera?.(e.code === 'ArrowRight' ? 1 : -1); e.preventDefault(); return; }
+    // La cámara: flechas para girarla e inclinarla, + y − para acercarla (Cmd/Ctrl + sigue siendo el zoom del navegador)
+    if (CAMKEYS[e.code]) { held.set(e.code, CAMKEYS[e.code]); camAxes(); e.preventDefault(); return; }
+    if (zoomOf(e) && !e.metaKey && !e.ctrlKey) { held.set(e.code, ['zoom', zoomOf(e)]); camAxes(); e.preventDefault(); return; }
     // Chat: T lo abre; / lo abre con la barra ya escrita (sin que la tecla se escriba dos veces)
     if ((e.code === 'KeyT' || e.key === '/') && !e.repeat) { if (handlers.chat(e.key === '/' ? '/' : '')) e.preventDefault(); return; }
+    if (e.code === 'KeyF' && !e.repeat) { const el = document.getElementById('fps'); if (el) el.hidden = !el.hidden; return; }
     Audio.start();
     if (KEYMAP[e.code]) { keys[KEYMAP[e.code]] = true; e.preventDefault(); }
     if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') keys.run = true;
@@ -42,6 +54,7 @@ export function initInput(h) {
     if ((e.code === 'KeyE' || e.code === 'Enter') && !e.repeat) { e.preventDefault(); handlers.interact(); }
   });
   addEventListener('keyup', e => {
+    if (held.delete(e.code)) camAxes();
     if (KEYMAP[e.code]) keys[KEYMAP[e.code]] = false;
     if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') keys.run = false;
     if (e.code === 'Space') keys.use = false;
@@ -75,6 +88,8 @@ export function initInput(h) {
   let wheelAt = 0;
   canvas.addEventListener('wheel', e => {
     e.preventDefault();
+    // Ctrl + rueda (o pellizcar el panel táctil): acercar o alejar la cámara; la rueda sola cambia de objeto
+    if (e.ctrlKey) { CAM.dist = Math.max(DIST.min, Math.min(DIST.max, CAM.dist * Math.exp(e.deltaY * 0.01))); return; }
     if (!handlers.enabled() || performance.now() - wheelAt < 60) return;
     wheelAt = performance.now();
     handlers.cycle(e.deltaY > 0 ? 1 : -1);

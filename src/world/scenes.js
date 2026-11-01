@@ -2,16 +2,15 @@
 // entidades y colisiones. Todo lo que hay en el mundo va en la cuadrícula de casillas: lo que construye
 // el jugador (deltas) y lo fijo del pueblo y de las aldeas (la "capa base", que no se puede quitar).
 import { clamp } from '../util.js';
-import { toScreen, VIEW, STEPS } from '../iso.js';
+import { toScreen, VIEW } from '../iso.js';
 import { WorldGen, CHUNK } from './gen.js';
 import { ChunkManager } from './chunks.js';
 import { buildVillage, NILO, inBounds, isGrass, inOwnHouse } from './village.js';
 import { B, BIOMES } from './biomes.js';
 import { ITEMS } from '../items.js';
-import { placeSprite, placeAnchor, footTile, LONG, BED_BACK, HEARTH_BACK, PLACE_AX, PLACE_AY, GLOW, LIGHT } from '../art/stations.js';
-import { floorSprite, wallSprite, wallRuns, doorSprite, hearthSprite, roofSprite, fenceSprite, roofTopZ, ROOF_AX, ROOF_AY, WALL_AX, WALL_AY, WINDOW_Z, T } from '../art/build.js';
+import { footTile, LONG, BED_BACK, HEARTH_BACK, PLACE_AX, PLACE_AY, GLOW, LIGHT } from '../art/stations.js';
+import { wallRuns, WINDOW_Z, T } from '../art/build.js';
 import { PIECES, layerOf, parsePlaced } from '../pieces.js';
-import { tilledSprite, TILL_AX, TILL_AY } from '../art/items.js';
 import { Person } from '../entities.js';
 
 export const NILO_LOOK = { sex: 'chico', skin: '#8a5234', hair: '#c8c4cc', eyes: '#6a3a1e', cloth: '#4a9a4a', pants: '#3a4a6a', hairStyle: 'corto', outfit: 'tunica', beard: true };
@@ -27,7 +26,7 @@ const BACK = { cama: BED_BACK, estanteria: 0.2, chimenea: HEARTH_BACK, lampara: 
 function itemObject(o, id, rot, colliders, lights, [sx, sy] = [0, 0]) {
   const [tx, ty] = o.tile;
   o.x += sx; o.y += sy;
-  o.img = placeSprite(id, VIEW.r + (rot || 0) * (STEPS / 4)); o.rot = rot; o.glow = GLOW[id]; [o.ax, o.ay] = placeAnchor(id);
+  o.rot = rot; o.glow = GLOW[id];
   if (LIGHT[id]) { const [lx, ly, lz, lr] = LIGHT[id]; lights.push({ x: o.x + lx, y: o.y + ly, z: lz, r: lr }); }
   if (ITEMS[id].place === 'flat') return true;
   if (LONG[id]) {   // dos casillas: la suya y la de los pies
@@ -81,29 +80,6 @@ export class Overworld {
     this.chunks.clear();
   }
   camera(px, py, view) { return { x: Math.round(px - view.w / 2), y: Math.round(py - 24 - view.h / 2) }; }
-  drawGround(ctx, cam, view, frame) {
-    this.visible = this.chunks.update(cam.x, cam.y, view.w, view.h, frame, this.buildBudget ?? Infinity);
-    // Con la cámara entre dos cuartos de vuelta, el suelo pintado desde el más cercano se dibuja deformado
-    const w = this.chunks.warp();
-    if (!w) for (const ch of this.visible) ctx.drawImage(ch.canvas, ch.ox - cam.x, ch.oy - cam.y);
-    else {
-      ctx.save();
-      for (const ch of this.visible) ctx.setTransform(w[0], w[1], w[2], w[3], w[0] * ch.ox + w[2] * ch.oy - cam.x, w[1] * ch.ox + w[3] * ch.oy - cam.y), ctx.drawImage(ch.canvas, 0, 0);
-      ctx.restore();
-    }
-    // Tierra labrada, suelos construidos y cosas planas (alfombras) encima del suelo
-    for (const ch of this.visible) {
-      const c = this.contentFor(ch.cx, ch.cy);
-      for (const t of c.tilled) {
-        const [sx, sy] = toScreen(t[0] + 0.5, t[1] + 0.5);   // desde el centro: la esquina de arriba depende de la cámara
-        ctx.drawImage(tilledSprite(VIEW.r), sx - TILL_AX - cam.x, sy - TILL_AY - cam.y);
-      }
-      for (const o of c.floors.concat(c.flats)) {
-        const [sx, sy] = toScreen(o.x, o.y);
-        ctx.drawImage(o.img, sx - o.ax - cam.x, sy - o.ay - cam.y);
-      }
-    }
-  }
 
   delta(cx, cy, create = false) {
     const k = `${cx},${cy}`;
@@ -197,7 +173,7 @@ export class Overworld {
     // (todo se dibuja girado con la cámara: VIEW.r)
     for (const [t, id] of Object.entries(src.floor || {})) {
       if (taken('floor', t)) continue;
-      floors.push(base(t, 'floor', id, floorSprite(id, this.floorClip(...t.split(',').map(Number)), VIEW.r)));
+      floors.push(base(t, 'floor', id, null));
     }
     for (const [t, raw] of Object.entries(src.placed || {})) {
       if (taken('placed', t)) continue;
@@ -207,24 +183,20 @@ export class Overworld {
         const joins = (x, y) => ['wall', 'door'].includes(this.pieceAt(x, y)?.kind);
         const mask = (joins(tx + 1, ty) ? 1 : 0) | (joins(tx - 1, ty) ? 2 : 0) | (joins(tx, ty + 1) ? 4 : 0) | (joins(tx, ty - 1) ? 8 : 0);
         o.wallId = id; o.mask = mask;
-        o.img = wallSprite(id, mask, undefined, false, VIEW.r); o.ax = WALL_AX; o.ay = WALL_AY; o.wall = true; o.window = id.startsWith('ventana');
+        o.wall = true; o.window = id.startsWith('ventana');
         for (const [x0, x1, y0, y1] of wallRuns(mask)) colliders.push({ x0: o.x + x0, y0: o.y + y0, x1: o.x + x1, y1: o.y + y1 });
         if (o.window) lights.push({ x: o.x, y: o.y, z: WINDOW_Z, r: 34, window: true });
       } else if (piece?.kind === 'door') {
         const solid = (x, y) => { const p = this.pieceAt(x, y); return p && p.kind !== 'fence'; };
         const alongX = solid(tx - 1, ty) || solid(tx + 1, ty) || !(solid(tx, ty - 1) || solid(tx, ty + 1));
-        // Encima del hueco va un trozo de muro como el de al lado (si no hay muro al lado, de madera)
-        const side = alongX ? [this.at('placed', tx - 1, ty), this.at('placed', tx + 1, ty)] : [this.at('placed', tx, ty - 1), this.at('placed', tx, ty + 1)];
-        const nextWall = side.map(v => v && parsePlaced(v)[0]).find(n => PIECES[n]?.kind === 'wall');
         const closed = this.doorClosed(tx, ty);
-        o.img = doorSprite(alongX, nextWall, closed, false, VIEW.r); o.ax = WALL_AX; o.ay = WALL_AY; o.wall = true; o.door = alongX ? 'x' : 'y';
+        o.wall = true; o.door = alongX ? 'x' : 'y';
         if (closed) colliders.push(alongX ? { x0: tx, y0: ty + 0.38, x1: tx + 1, y1: ty + 0.62 } : { x0: tx + 0.38, y0: ty, x1: tx + 0.62, y1: ty + 1 });
         else if (alongX) colliders.push({ x0: tx, y0: ty + 0.38, x1: tx + 0.14, y1: ty + 0.62 }, { x0: tx + 0.86, y0: ty + 0.38, x1: tx + 1, y1: ty + 0.62 });
         else colliders.push({ x0: tx + 0.38, y0: ty, x1: tx + 0.62, y1: ty + 0.14 }, { x0: tx + 0.38, y0: ty + 0.86, x1: tx + 0.62, y1: ty + 1 });
       } else if (piece?.kind === 'fence') {
         const f = (x, y) => this.pieceAt(x, y)?.kind === 'fence' || this.pieceAt(x, y)?.kind === 'wall';
         const mask = (f(tx + 1, ty) ? 1 : 0) | (f(tx - 1, ty) ? 2 : 0) | (f(tx, ty + 1) ? 4 : 0) | (f(tx, ty - 1) ? 8 : 0);
-        o.img = fenceSprite(id, mask, VIEW.r);
         colliders.push({ x: o.x, y: o.y, r: 0.12 });
         if (mask & 1) colliders.push({ x0: o.x, y0: o.y - 0.08, x1: tx + 1, y1: o.y + 0.08 });
         if (mask & 2) colliders.push({ x0: tx, y0: o.y - 0.08, x1: o.x, y1: o.y + 0.08 });
@@ -234,7 +206,7 @@ export class Overworld {
         // Hogar con chimenea: da luz y calor; el fuego lo dibuja el juego en la boca del hogar
         const [sx, sy] = this.wallShift(id, tx, ty, 0);
         o.x += sx; o.y += sy;
-        o.img = hearthSprite(VIEW.r); o.ax = WALL_AX; o.ay = WALL_AY; o.glow = GLOW[id]; o.fire = [o.x, o.y + 0.2, 3, 5]; o.hearth = true;
+        o.glow = GLOW[id]; o.fire = [o.x, o.y + 0.2, 3, 5]; o.hearth = true;
         if (LIGHT[id]) { const [lx, ly, lz, lr] = LIGHT[id]; lights.push({ x: o.x + lx, y: o.y + ly, z: lz, r: lr }); }
         colliders.push({ x0: tx + 0.04 + sx, y0: ty + 0.06 + sy, x1: tx + 0.96 + sx, y1: ty + 0.82 + sy });
       } else {
@@ -244,11 +216,10 @@ export class Overworld {
     }
     for (const [t, id] of Object.entries(src.roof || {})) {
       if (taken('roof', t)) continue;
-      const o = base(t, 'roof', id, null), [tx, ty] = o.tile, geo = this.roofGeometry(tx, ty, out.roofMemo);
+      const o = base(t, 'roof', id, null), [tx, ty] = o.tile;
       const under = this.at('placed', tx, ty), chimney = !!under && parsePlaced(under)[0] === 'chimenea';
-      o.img = roofSprite(id, geo.h, geo.eaves, chimney, VIEW.r);
-      o.ax = ROOF_AX; o.ay = ROOF_AY; o.roof = true; o.bias = 0.6;
-      if (chimney) o.chimneyTop = [o.x, o.y, roofTopZ(geo.h, geo.eaves) + 24];
+      o.roof = true;
+      if (chimney) o.chimneyTop = [o.x, o.y];
       objects.push(o);
     }
   }

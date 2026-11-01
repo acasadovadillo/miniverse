@@ -6,28 +6,13 @@ import { CHUNK } from './world/gen.js';
 import { B } from './world/biomes.js';
 import { inBounds, isGrass, pondDist } from './world/village.js';
 import { cropSprite, saplingSprite, CROP_AX, CROP_AY } from './art/farm.js';
-import { tilledSprite, TILL_AX, TILL_AY } from './art/items.js';
-import { VIEW } from './iso.js';
-import { ihash, mk } from './util.js';
+import { ihash } from './util.js';
 import { Audio } from './audio.js';
 
 export const CAN_MAX = 20;
 const TREE_DAYS = 3;              // días que tarda un arbolito en hacerse árbol
 const FRUIT_EVERY = 3;            // un manzano da manzanas cada tantos días
 const key = (tx, ty) => `${tx},${ty}`;
-
-// Tierra mojada: la misma casilla labrada, más oscura (q: girada con la cámara)
-const wet = new Map();
-function wetSprite(q) {
-  if (wet.has(q)) return wet.get(q);
-  const src = tilledSprite(q), c = mk(src.width, src.height), g = c.getContext('2d');
-  g.drawImage(src, 0, 0);
-  g.globalCompositeOperation = 'source-atop';
-  g.fillStyle = 'rgba(30,18,10,.38)';
-  g.fillRect(0, 0, c.width, c.height);
-  wet.set(q, c);
-  return c;
-}
 
 export class Farm {
   constructor(game) {
@@ -62,7 +47,7 @@ export class Farm {
     for (const [k, t] of Object.entries(d.trees || {})) {
       const [tx, ty] = k.split(',').map(Number), x = tx + 0.5, y = ty + 0.5;
       if (this.today - t.day < TREE_DAYS) {
-        out.objects.push({ img: saplingSprite(t.kind), x, y, ax: 36, ay: 91, key: 'sap:' + k, tile: [tx, ty] });
+        out.objects.push({ img: saplingSprite(t.kind), x, y, ax: 36, ay: 91, key: 'sap:' + k, tile: [tx, ty], sapling: t.kind });
         out.colliders.push({ x, y, r: 0.15 });
       } else {
         const list = this.world.gen.props[t.kind];
@@ -236,18 +221,4 @@ export class Farm {
     Audio.swish();
   }
 
-  // Tierra mojada (encima de la labrada)
-  drawGround(ctx, cam, scene) {
-    if (scene !== this.world) return;
-    const today = this.today;
-    for (const ch of scene.visible) {
-      const d = scene.delta(ch.cx, ch.cy);
-      if (!d?.wet) continue;
-      for (const [k, day] of Object.entries(d.wet)) {
-        if (day !== today || d.tilled[k] === undefined) continue;
-        const [tx, ty] = k.split(',').map(Number), [sx, sy] = scene.P(tx + 0.5, ty + 0.5);   // desde el centro (la esquina de arriba depende de la cámara)
-        ctx.drawImage(wetSprite(VIEW.r), sx - TILL_AX - cam.x, sy - TILL_AY - cam.y);
-      }
-    }
-  }
 }

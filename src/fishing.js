@@ -86,17 +86,4 @@ export class Fishing {
     else if (s.phase === 'bite' && s.t <= 0) { g.gather.float('Se ha escapado…', '#ffb0a0'); this.state = null; }
   }
 
-  // El sedal y el corcho
-  drawOverlay(ctx, cam, view, scene, t) {
-    const s = this.state;
-    if (!s || scene !== this.world) return;
-    const p = this.game.player, [hx, hy] = scene.P(p.x, p.y, 34), [bx, by] = scene.P(s.bx, s.by);
-    const x0 = hx - cam.x + (p.flip ? -8 : 8), y0 = hy - cam.y, x1 = bx - cam.x, y1 = by - cam.y;
-    ctx.fillStyle = 'rgba(240,240,240,.8)';
-    for (let i = 0; i <= 20; i++) { const k = i / 20, sag = Math.sin(k * Math.PI) * 10; ctx.fillRect(Math.round(x0 + (x1 - x0) * k), Math.round(y0 + (y1 - y0) * k + sag), 1, 1); }
-    const dip = s.phase === 'bite' ? 2 + Math.round(Math.sin(t * 30)) : Math.round(Math.sin(t * 3));
-    ctx.fillStyle = '#ffffff'; ctx.fillRect(Math.round(x1) - 1, Math.round(y1) - 3 + dip, 3, 2);
-    ctx.fillStyle = '#e83a3a'; ctx.fillRect(Math.round(x1) - 1, Math.round(y1) - 1 + dip, 3, 2);
-    if (s.phase === 'bite') { ctx.fillStyle = 'rgba(216,240,255,.8)'; const r = 4 + Math.round((t * 12) % 5); ctx.fillRect(Math.round(x1) - r, Math.round(y1) + 1, r * 2, 1); }
-  }
 }

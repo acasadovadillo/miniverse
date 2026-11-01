@@ -1,11 +1,7 @@
 // Recolectar: elegir lo que hay delante del jugador, golpearlo con la herramienta,
 // soltar lo que da y recogerlo. También los efectos: astillas, textos flotantes y el golpe de la herramienta.
-import { ellipse, line } from './util.js';
-import { toScreen, VIEW, STEPS } from './iso.js';
-import { ITEMS, HARVEST, TOOL_COST, ENERGY_MAX, TIERS, CROPS, toolId, hitsFor } from './items.js';
-import { itemIcon } from './art/items.js';
+import { ITEMS, HARVEST, TOOL_COST, ENERGY_MAX, CROPS, toolId, hitsFor } from './items.js';
 import { RECIPES } from './recipes.js';
-import { placeSprite, placeAnchor } from './art/stations.js';
 import { Audio } from './audio.js';
 import { hud } from './ui/hud.js';
 
@@ -116,7 +112,7 @@ export class Gathering {
     }
     for (const f of this.floaters) f.t += dt;
     this.floaters = this.floaters.filter(f => f.t < 1.4);
-    for (const q of this.parts) { q.t += dt; q.vy += 220 * dt; q.x += q.vx * dt; q.y += q.vy * dt; }
+    for (const q of this.parts) { q.t += dt; q.vz -= 9.8 * dt; q.x += q.vx * dt; q.y += q.vy * dt; q.z = Math.max(0.02, q.z + q.vz * dt); }
     this.parts = this.parts.filter(q => q.t < q.life);
   }
 
@@ -128,18 +124,20 @@ export class Gathering {
     this.pending.set(id, e);
   }
 
+  // Texto que sube sobre la cabeza del jugador (en el mundo: x, y de la rejilla y el número de fila)
   float(text, color = '#ffffff') {
     const p = this.game.player;
     if (!p) return;
-    const [sx, sy] = this.game.scene.P(p.x, p.y);
     if (this.floaters.length >= 4) this.floaters.shift();   // como mucho cuatro a la vez
-    this.floaters.push({ text, color, x: sx, y: sy - 58 - this.floaters.length * 9, t: 0 });
+    this.floaters.push({ text, color, x: p.x, y: p.y, row: this.floaters.length, t: 0 });
   }
 
+  // Astillas que saltan de lo que se golpea (en el mundo: x, y de la rejilla y z de altura, en casillas)
   chips(x, y, kind, n = 8) {
-    const [sx, sy] = this.game.scene.P(x, y), cols = CHIPS[kind] || CHIPS.wood;
+    const cols = CHIPS[kind] || CHIPS.wood;
     for (let i = 0; i < n; i++) {
-      this.parts.push({ x: sx + (Math.random() - 0.5) * 10, y: sy - 8 - Math.random() * 14, vx: (Math.random() - 0.5) * 70, vy: -40 - Math.random() * 60, t: 0, life: 0.5 + Math.random() * 0.3, col: cols[i % cols.length] });
+      const a = Math.random() * Math.PI * 2, v = 0.6 + Math.random() * 1.6;
+      this.parts.push({ x: x + (Math.random() - 0.5) * 0.3, y: y + (Math.random() - 0.5) * 0.3, z: 0.4 + Math.random() * 0.6, vx: Math.cos(a) * v, vy: Math.sin(a) * v, vz: 1.5 + Math.random() * 2.5, t: 0, life: 0.5 + Math.random() * 0.3, col: cols[i % cols.length] });
     }
   }
 
@@ -257,69 +255,8 @@ export class Gathering {
     return true;
   }
 
-  // ---------- dibujo ----------
-  // Marca de lo que se va a golpear (en el suelo, antes que los objetos)
-  drawTarget(ctx, cam, time) {
-    const t = this.target;
-    if (!t || (!t.tile && !t.obj)) return;
-    const pulse = Math.sin(time * 6) > 0 ? '#fff3c0' : '#ffd77a';
-    if (t.tile) {
-      if (!t.ok && !t.place) return;
-      const sc = this.game.scene, [x, y] = t.tile, P = (a, b) => { const [sx, sy] = sc.P(a, b); return [sx - cam.x, sy - cam.y]; };
-      const c = [P(x, y), P(x + 1, y), P(x + 1, y + 1), P(x, y + 1)];
-      for (let i = 0; i < 4; i++) line(ctx, ...c[i], ...c[(i + 1) % 4], t.ok ? pulse : '#ff7a6a');
-      if (t.place) {   // vista previa de lo que se va a colocar
-        const [sx, sy] = sc.P(x + 0.5, y + 0.5), [ax, ay] = placeAnchor(t.place);
-        ctx.globalAlpha = t.ok ? 0.65 : 0.3;
-        ctx.drawImage(placeSprite(t.place, VIEW.r + (t.rot || 0) * (STEPS / 4)), Math.round(sx - ax - cam.x), Math.round(sy - ay - cam.y));
-        ctx.globalAlpha = 1;
-      }
-      return;
-    }
-    const [sx, sy] = toScreen(t.obj.x, t.obj.y), x = Math.round(sx - cam.x), y = Math.round(sy - cam.y);
-    ctx.fillStyle = pulse;
-    for (const [dx, dy, w, h] of [[-14, -4, 4, 1], [-14, -4, 1, 3], [10, -4, 4, 1], [13, -4, 1, 3], [-14, 4, 4, 1], [-14, 2, 1, 3], [10, 4, 4, 1], [13, 2, 1, 3]]) ctx.fillRect(x + dx, y + dy, w, h);
-  }
 
-  // Objetos caídos en el suelo
-  drawDrops(ctx, cam, time) {
-    for (const d of this.drops) {
-      if (d.scene !== this.game.scene) continue;
-      const [sx, sy] = d.scene.P(d.x, d.y), x = Math.round(sx - cam.x), y = Math.round(sy - cam.y);
-      const bob = d.z > 0 ? 0 : Math.round(Math.sin(time * 4 + d.x * 3) * 1.5);
-      ellipse(ctx, x, y, 5, 2, 'rgba(20,30,15,.3)');
-      ctx.drawImage(itemIcon(d.id), x - 9, Math.round(y - 15 - d.z + bob));
-    }
-  }
 
-  // Astillas y textos flotantes (por encima de todo)
-  drawEffects(ctx, cam) {
-    for (const q of this.parts) { ctx.globalAlpha = 1 - q.t / q.life; ctx.fillStyle = q.col; ctx.fillRect(Math.round(q.x - cam.x), Math.round(q.y - cam.y), 2, 2); }
-    ctx.globalAlpha = 1;
-    ctx.font = '600 9px "Pixelify Sans", sans-serif';
-    ctx.textAlign = 'center';
-    for (const f of this.floaters) {
-      const x = Math.round(f.x - cam.x), y = Math.round(f.y - cam.y - f.t * 18);
-      ctx.globalAlpha = Math.min(1, 2.5 - f.t * 1.8);
-      ctx.fillStyle = '#2a1c22';
-      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) ctx.fillText(f.text, x + dx, y + dy);
-      ctx.fillStyle = f.color;
-      ctx.fillText(f.text, x, y);
-    }
-    ctx.globalAlpha = 1;
-  }
 
-  // La herramienta en la mano, girando al golpear
-  drawSwing(ctx, sx, sy, player) {
-    if (this.swing <= 0 || !this.swingItem) return;
-    const k = 1 - this.swing / 0.25, dir = player.flip ? -1 : 1;
-    const ang = (-1.3 + k * 2.2) * dir;
-    ctx.save();
-    ctx.translate(Math.round(sx + 8 * dir), Math.round(sy - 22));
-    ctx.rotate(ang);
-    if (dir < 0) ctx.scale(-1, 1);
-    ctx.drawImage(itemIcon(this.swingItem), -3, -15);
-    ctx.restore();
-  }
 }
 

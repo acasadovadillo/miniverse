@@ -1,7 +1,8 @@
 // Pantallas: cuenta, menú principal, creador de personaje y pausa.
 import { Accounts } from '../accounts.js';
 import { Saves } from '../save.js';
-import { SW, SH, LOOK_OPTIONS, DEFAULT_LOOK, personSprites } from '../art/people3.js';
+import { LOOK_OPTIONS, DEFAULT_LOOK } from '../art/people3.js';
+import { CharacterPreview } from '../three/preview.js';
 import { SPAWN } from '../world/village.js';
 import { hud } from './hud.js';
 import { Audio } from '../audio.js';
@@ -70,14 +71,13 @@ export function initMenus(game) {
   const look = { ...DEFAULT_LOOK };
   const ROT = [['down', false, 'De frente'], ['front', false, 'Frente derecha'], ['side', false, 'Perfil derecho'], ['back', false, 'Espalda derecha'],
     ['up', false, 'De espaldas'], ['back', true, 'Espalda izquierda'], ['side', true, 'Perfil izquierdo'], ['front', true, 'Frente izquierda']];
-  let rot = 0, sprites = personSprites(look);
-  const preview = $('cr-canvas'), pg = preview.getContext('2d');
-  preview.width = SW;
-  preview.height = SH;
+  // (la vista previa es el mismo modelo en 3D que en el juego; ROT da la dirección y su nombre)
+  let rot = 0;
+  const preview = new CharacterPreview($('cr-canvas'));
   const rows = [];
 
   function rebuild() {
-    sprites = personSprites(look);
+    preview.setLook(look);
     rows.forEach(r => r());
   }
   function addRow(title, el) {
@@ -141,7 +141,7 @@ export function initMenus(game) {
     look.cloth = pickOf(LOOK_OPTIONS.cloth);
     rebuild();
   };
-  const turn = d => { rot = (rot + d + ROT.length) % ROT.length; $('rot-label').textContent = ROT[rot][2]; };
+  const turn = d => { rot = (rot + d + ROT.length) % ROT.length; $('rot-label').textContent = ROT[rot][2]; preview.setAngle(rot * Math.PI / 4); };
   $('rot-l').onclick = () => turn(-1);
   $('rot-r').onclick = () => turn(1);
   $('cr-back').onclick = () => openMenu();
@@ -160,20 +160,14 @@ export function initMenus(game) {
     rot = 0;
     turn(0);
     rebuild();
-    const scale = Math.max(3, Math.min(5, Math.floor(Math.min(240, innerWidth - 80) / SW)));
-    preview.style.width = SW * scale + 'px';
-    preview.style.height = SH * scale + 'px';
+    const w = Math.max(160, Math.min(240, innerWidth - 80));
+    preview.resize(w, Math.round(w * 1.25));
     show('s-creator');
   }
 
   // Vista previa animada: camina en el sitio
   (function animate(t) {
-    if ($('s-creator').classList.contains('show')) {
-      const [view, flip] = ROT[rot];
-      const img = sprites[view][1 + (Math.floor(t / 150) % 4)];
-      pg.clearRect(0, 0, SW, SH);
-      if (flip) { pg.save(); pg.translate(SW, 0); pg.scale(-1, 1); pg.drawImage(img, 0, 0); pg.restore(); } else pg.drawImage(img, 0, 0);
-    }
+    if ($('s-creator').classList.contains('show')) preview.render(t);
     requestAnimationFrame(animate);
   })(0);
 

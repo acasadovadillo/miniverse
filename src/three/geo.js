@@ -1,13 +1,17 @@
-// Prototipo 3D: juntar muchas cajas y caras en una sola malla (menos llamadas de dibujo), con coordenadas de
+// Juntar muchas cajas, caras y figuras en una sola malla (menos llamadas de dibujo), con coordenadas de
 // textura en metros del mundo, para que las texturas sigan de una pieza a la siguiente sin cortes.
 import * as THREE from 'three';
 
 export class Builder {
-  constructor() { this.pos = []; this.nor = []; this.uv = []; this.idx = []; }
+  constructor() { this.pos = []; this.nor = []; this.uv = []; this.idx = []; this.col = null; this.color = null; }
   get empty() { return !this.idx.length; }
+  // Color de lo que se añada a partir de ahora (para materiales con color por vértice); null: sin color
+  tint(c) { this.color = c ? new THREE.Color(c) : null; if (c && !this.col) this.col = new Array((this.pos.length / 3) * 3).fill(1); return this; }
+  pushCol(n) { if (!this.col) return; const c = this.color || WHITE; for (let i = 0; i < n; i++) this.col.push(c.r, c.g, c.b); }
   // Cara de cuatro puntos (en orden antihorario visto desde fuera), con su normal y sus uv
   quad(a, b, c, d, n, uvs) {
     const i = this.pos.length / 3;
+    this.pushCol(4);
     for (const p of [a, b, c, d]) this.pos.push(...p);
     for (let k = 0; k < 4; k++) this.nor.push(...n);
     for (const t of uvs) this.uv.push(...t);
@@ -21,6 +25,7 @@ export class Builder {
   }
   tri(a, b, c, n, uvs) {
     const i = this.pos.length / 3;
+    this.pushCol(3);
     for (const p of [a, b, c]) this.pos.push(...p);
     for (let k = 0; k < 3; k++) this.nor.push(...n);
     for (const t of uvs) this.uv.push(...t);
@@ -48,13 +53,29 @@ export class Builder {
   // Copia girada yaw alrededor del eje vertical (como rotation.y) y movida a (x, y, z)
   transformed(x, y, z, yaw) {
     const b = new Builder(), c = Math.cos(yaw), s = Math.sin(yaw);
-    b.uv = this.uv.slice(); b.idx = this.idx.slice();
+    b.uv = this.uv.slice(); b.idx = this.idx.slice(); b.col = this.col && this.col.slice();
     for (let i = 0; i < this.pos.length; i += 3) { const px = this.pos[i], pz = this.pos[i + 2]; b.pos.push(x + px * c + pz * s, y + this.pos[i + 1], z - px * s + pz * c); }
     for (let i = 0; i < this.nor.length; i += 3) { const nx = this.nor[i], nz = this.nor[i + 2]; b.nor.push(nx * c + nz * s, this.nor[i + 1], -nx * s + nz * c); }
     return b;
   }
+  // Una geometría de Three (cilindro, esfera, cono…) con su transformación, junto al resto
+  addGeometry(geo, m4) {
+    const g = geo.index ? geo : geo, pos = g.attributes.position, nor = g.attributes.normal, uv = g.attributes.uv, off = this.pos.length / 3;
+    const nm = new THREE.Matrix3().getNormalMatrix(m4), v = new THREE.Vector3();
+    this.pushCol(pos.count);
+    for (let i = 0; i < pos.count; i++) {
+      v.fromBufferAttribute(pos, i).applyMatrix4(m4); this.pos.push(v.x, v.y, v.z);
+      v.fromBufferAttribute(nor, i).applyMatrix3(nm).normalize(); this.nor.push(v.x, v.y, v.z);
+      this.uv.push(uv ? uv.getX(i) : 0, uv ? uv.getY(i) : 0);
+    }
+    if (g.index) for (let i = 0; i < g.index.count; i++) this.idx.push(g.index.getX(i) + off);
+    else for (let i = 0; i < pos.count; i++) this.idx.push(i + off);
+    return this;
+  }
   add(b) {
     const off = this.pos.length / 3;
+    if (b.col && !this.col) this.col = new Array(off * 3).fill(1);
+    if (this.col) { if (b.col && !this.color) this.col.push(...b.col); else this.pushCol(b.pos.length / 3); }
     this.pos.push(...b.pos); this.nor.push(...b.nor); this.uv.push(...b.uv);
     for (const i of b.idx) this.idx.push(i + off);
   }
@@ -63,6 +84,7 @@ export class Builder {
     g.setAttribute('position', new THREE.Float32BufferAttribute(this.pos, 3));
     g.setAttribute('normal', new THREE.Float32BufferAttribute(this.nor, 3));
     g.setAttribute('uv', new THREE.Float32BufferAttribute(this.uv, 2));
+    if (this.col) g.setAttribute('color', new THREE.Float32BufferAttribute(this.col, 3));
     g.setIndex(this.idx);
     g.computeBoundingSphere();
     return g;
@@ -74,5 +96,6 @@ export class Builder {
   }
 }
 
-// Material estándar mate (lo normal en el prototipo)
+// Material estándar mate (lo normal)
 export const mat = (opts = {}) => new THREE.MeshStandardMaterial({ roughness: 0.88, metalness: 0, ...opts });
+const WHITE = new THREE.Color(1, 1, 1);

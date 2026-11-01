@@ -217,3 +217,5 @@ Cambian cómo se construyen las fases 0 y 1. Cuanto antes se decidan, menos se r
 ```
 
 Las fases 5 a 9 se pueden reordenar según lo que más apetezca. Cada una es una capa independiente sobre el núcleo.
+
+> Cambio posterior (01-11-2026), **el juego pasa a 3D**: el dibujo isométrico en 2D se sustituye por una escena de Three.js con cámara orbital libre (giro, inclinación y zoom suaves), sol y sombras según la hora, cielo, clima y estaciones; la lógica (casillas, trozos, construcción, sistemas, guardado) no cambia. Detalles y estado en [migracion-3d.md](migracion-3d.md).

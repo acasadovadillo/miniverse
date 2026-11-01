@@ -15,6 +15,11 @@ const rotate = (x, y, c, s) => [x * c - y * s, x * s + y * c];
 
 export const VIEW = { r: 0, c: 1, s: 0 };
 export function setViewRot(r) { VIEW.r = ((r % STEPS) + STEPS) % STEPS; [VIEW.c, VIEW.s] = turnOf(VIEW.r); }
+// Giro continuo (en radianes, el mismo sentido que turnOf): lo usa el mapa para girar con la cámara 3D
+export function setViewAngle(a) {
+  VIEW.c = Math.cos(a); VIEW.s = Math.sin(a);
+  VIEW.r = ((Math.round((-a * STEPS) / (2 * Math.PI)) % STEPS) + STEPS) % STEPS;
+}
 // Del mundo a la vista de la cámara y al revés (también vale para direcciones)
 export const toView = (x, y) => rotate(x, y, VIEW.c, VIEW.s);
 export const fromView = (x, y) => rotate(x, y, VIEW.c, -VIEW.s);

@@ -1,4 +1,4 @@
-// Prototipo 3D: texturas pintadas por código en lienzos (yeso, tablas, tejas, piedra, madera, corteza,
+// Texturas pintadas por código en lienzos (yeso, tablas, tejas, piedra, madera, corteza,
 // toldo y el detalle del suelo). Se repiten por metro: los modelos usan coordenadas de textura en metros.
 import * as THREE from 'three';
 
@@ -156,3 +156,63 @@ export const soilDetail = () => make(256, 256, (g, w, h) => {
     g.fillStyle = 'rgba(80,80,80,.5)'; g.beginPath(); g.ellipse(x + 1, y + 1, s, s * 0.7, 0, 0, Math.PI); g.fill();
   }
 }, { color: false });
+
+// Tablas horizontales de una pared de madera (cinco por metro), con juntas y vetas
+export const siding = () => make(256, 256, (g, w, h) => {
+  const r = rng(12), rows = 5, rh = h / rows;
+  for (let k = 0; k < rows; k++) {
+    const y = k * rh;
+    g.fillStyle = ['#9a6a40', '#8e6038', '#a47246', '#946640'][k % 4]; g.fillRect(0, y, w, rh);
+    for (let v = 0; v < 10; v++) { g.strokeStyle = `rgba(70,40,20,${0.06 + r() * 0.1})`; g.beginPath(); const yy = y + 3 + r() * (rh - 6); g.moveTo(0, yy); g.bezierCurveTo(w * 0.3, yy + (r() - 0.5) * 5, w * 0.7, yy + (r() - 0.5) * 5, w, yy); g.stroke(); }
+    g.fillStyle = 'rgba(40,22,10,.75)'; g.fillRect(0, y + rh - 4, w, 4);
+    g.fillStyle = 'rgba(255,225,180,.14)'; g.fillRect(0, y, w, 2);
+    if (r() < 0.6) { g.fillStyle = 'rgba(40,22,10,.6)'; g.fillRect(Math.floor(r() * w), y, 2, rh); }
+  }
+});
+
+// Losas de piedra para el suelo (cuatro por metro, a tresbolillo)
+export const flagstone = () => make(256, 256, (g, w, h) => {
+  const r = rng(13), n = 4, s = w / n;
+  g.fillStyle = '#5e5850'; g.fillRect(0, 0, w, h);
+  for (let j = 0; j < n; j++) for (let i = -1; i < n; i++) {
+    const x = i * s + (j % 2 ? s / 2 : 0), y = j * s, k = (r() - 0.5) * 0.18;
+    g.fillStyle = hex('#9a958a', k); g.beginPath(); g.roundRect(x + 2, y + 2, s - 4, s - 4, 4); g.fill();
+    g.fillStyle = 'rgba(255,255,255,.08)'; g.fillRect(x + 4, y + 4, s - 10, 3);
+  }
+  speckle(g, w, h, r, '#9a958a', 1200, 1, 0.3);
+});
+
+// Grava del camino: piedrecitas sobre tierra
+export const gravel = () => make(256, 256, (g, w, h) => {
+  const r = rng(14);
+  g.fillStyle = '#b8a07a'; g.fillRect(0, 0, w, h);
+  for (let i = 0; i < 900; i++) {
+    const x = r() * w, y = r() * h, s = 2 + r() * 5;
+    g.fillStyle = hex(['#a8a296', '#8e887c', '#c4bcae', '#9a8a70'][Math.floor(r() * 4)], (r() - 0.5) * 0.2);
+    g.beginPath(); g.ellipse(x, y, s, s * 0.7, r() * 3, 0, Math.PI * 2); g.fill();
+    g.fillStyle = 'rgba(40,30,20,.25)'; g.beginPath(); g.ellipse(x + 1, y + 1.5, s, s * 0.5, 0, 0, Math.PI); g.fill();
+  }
+});
+
+// Paja de un tejado: manojos en filas, cuesta abajo
+export const thatch = () => make(256, 256, (g, w, h) => {
+  const r = rng(15);
+  g.fillStyle = '#b8903e'; g.fillRect(0, 0, w, h);
+  for (let row = 0; row < 4; row++) {
+    const y0 = (row * h) / 4;
+    for (let i = 0; i < 500; i++) { const x = r() * w, y = y0 + r() * (h / 4); g.strokeStyle = hex(['#d8b060', '#c49a48', '#e8c878', '#a88438'][Math.floor(r() * 4)], (r() - 0.5) * 0.2); g.lineWidth = 1 + r(); g.beginPath(); g.moveTo(x, y); g.lineTo(x + (r() - 0.5) * 4, y + 10 + r() * 14); g.stroke(); }
+    g.fillStyle = 'rgba(60,40,10,.35)'; g.fillRect(0, y0 + h / 4 - 4, w, 4);
+  }
+});
+
+// Tierra labrada: surcos oscuros y húmedos
+export const furrows = () => make(128, 128, (g, w, h) => {
+  const r = rng(16);
+  g.fillStyle = '#6a4a30'; g.fillRect(0, 0, w, h);
+  for (let k = 0; k < 4; k++) {
+    const y = (k * h) / 4;
+    const gr = g.createLinearGradient(0, y, 0, y + h / 4); gr.addColorStop(0, '#5a3c24'); gr.addColorStop(0.5, '#8a6440'); gr.addColorStop(1, '#4a3020');
+    g.fillStyle = gr; g.fillRect(0, y, w, h / 4);
+  }
+  speckle(g, w, h, r, '#6a4a30', 700, 2, 0.4);
+});

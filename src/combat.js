@@ -1,8 +1,7 @@
 // Combate ligero (solo en cuevas y mazmorras): vida del jugador en corazones, criaturas que persiguen
 // y muerden, y golpes con la espada (o con cualquier herramienta, que pega menos).
 import { ITEMS } from './items.js';
-import { MONSTERS, monsterSprite } from './art/explore.js';
-import { ellipse } from './util.js';
+import { MONSTERS } from './art/explore.js';
 import { Audio } from './audio.js';
 import { hud } from './ui/hud.js';
 
@@ -14,13 +13,6 @@ class Monster {
   }
   get def() { return MONSTERS[this.type]; }
   footprint() { return { x0: this.x - 0.2, x1: this.x + 0.2, y0: this.y - 0.2, y1: this.y + 0.2, c: this.x + this.y }; }
-  draw(ctx, sx, sy, t) {
-    const img = monsterSprite(this.type, Math.floor(this.step) % 2), x = Math.round(sx), y = Math.round(sy) - (this.def.fly ? 14 + Math.round(Math.sin(t * 6 + this.x) * 3) : 0);
-    ellipse(ctx, Math.round(sx), Math.round(sy), 6, 2, 'rgba(0,0,0,.35)');
-    if (this.hurt > 0 && Math.floor(this.hurt * 20) % 2) ctx.globalAlpha = 0.4;
-    ctx.drawImage(img, x - Math.round(img.width / 2), y - img.height + 3);
-    ctx.globalAlpha = 1;
-  }
 }
 
 export class Combat {
@@ -131,7 +123,4 @@ export class Combat {
     }
   }
   entities(scene) { return scene.monsters || null; }
-  drawOverlay(ctx, cam, view) {
-    if (this.game.flashHurt > this.game.time) { ctx.fillStyle = 'rgba(220,40,40,.25)'; ctx.fillRect(0, 0, view.w, view.h); }
-  }
 }

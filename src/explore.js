@@ -172,7 +172,7 @@ export class Explore {
     if (p.kind === 'campamento') out.lights.push({ x: p.x + 1, y: p.y + 1, z: 6, r: 60 });
     if (p.kind !== 'templo') {
       const t = [Math.floor(p.x) + 2, Math.floor(p.y)];   // la casilla de al lado, a la derecha del lugar
-      out.objects.push({ img: treasureSprite(!!opened), x: t[0] + 0.5, y: t[1] + 0.5, ax: T_AX, ay: T_AY, treasure: p, tile: t });
+      out.objects.push({ img: treasureSprite(!!opened), x: t[0] + 0.5, y: t[1] + 0.5, ax: T_AX, ay: T_AY, treasure: p, tile: t, open: !!opened });
       out.colliders.push({ x: t[0] + 0.5, y: t[1] + 0.5, r: 0.35 });
     }
   }

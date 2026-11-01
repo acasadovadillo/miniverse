@@ -38,7 +38,7 @@ export function initSettingsUI({ onClose }) {
   check('musicOn', 'Música');
   slider('music', 'Volumen de la música');
   slider('sfx', 'Volumen de los efectos');
-  choice('scale', 'Tamaño de los píxeles', [['auto', 'Auto'], [1, '1×'], [2, '2×'], [3, '3×'], [4, '4×']]);
+  choice('scale', 'Resolución', [['auto', 'Auto'], [1, 'Máxima'], [2, 'Alta'], [3, 'Media'], [4, 'Baja']]);
   check('bigText', 'Texto más grande');
   check('noFlash', 'Reducir destellos (rayos de las tormentas)');
   $('st-close').onclick = () => onClose();

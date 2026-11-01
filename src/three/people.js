@@ -1,19 +1,19 @@
-// Prototipo 3D: personajes chibi de pocos polígonos a partir de los mismos "look" del juego (sexo, peinado,
+// Personas en 3D: chibis de pocos polígonos a partir de los mismos "look" del juego (sexo, peinado,
 // colores de pelo, piel, ojos y ropa, tipo de ropa y barba). Cabeza grande, cuerpo pequeño y animación de
 // andar (piernas y brazos que se balancean, un leve bote) y de respirar en reposo. Mira hacia z+.
 import * as THREE from 'three';
 import { mat } from './geo.js';
 
-const G = {
+export const G = {
   head: new THREE.SphereGeometry(0.29, 24, 18), eye: new THREE.SphereGeometry(1, 12, 8), ball: new THREE.SphereGeometry(1, 14, 10),
   limb: new THREE.CapsuleGeometry(0.055, 0.2, 4, 8), leg: new THREE.CapsuleGeometry(0.07, 0.16, 4, 8), boot: new THREE.SphereGeometry(1, 10, 8),
   cone: new THREE.ConeGeometry(1, 1, 10), cyl: new THREE.CylinderGeometry(1, 1, 1, 14),
 };
 const cache = new Map();
-const M = (c, o = {}) => { const k = c + JSON.stringify(o); if (!cache.has(k)) cache.set(k, mat({ color: c, roughness: 0.75, ...o })); return cache.get(k); };
+export const M = (c, o = {}) => { const k = c + JSON.stringify(o); if (!cache.has(k)) cache.set(k, mat({ color: c, roughness: 0.75, ...o })); return cache.get(k); };
 const shade = (c, k) => '#' + new THREE.Color(c).multiplyScalar(k).getHexString();
 
-function mesh(geo, m, { p = [0, 0, 0], s = [1, 1, 1], r = [0, 0, 0] } = {}, parent) {
+export function mesh(geo, m, { p = [0, 0, 0], s = [1, 1, 1], r = [0, 0, 0] } = {}, parent) {
   const o = new THREE.Mesh(geo, m);
   o.position.set(...p); o.scale.set(...(typeof s === 'number' ? [s, s, s] : s)); o.rotation.set(...r);
   o.castShadow = true;
@@ -23,7 +23,7 @@ function mesh(geo, m, { p = [0, 0, 0], s = [1, 1, 1], r = [0, 0, 0] } = {}, pare
 
 // Junta las mallas hijas directas de un grupo en una (posición, normal y color de su material)
 const SKIN = mat({ vertexColors: true, roughness: 0.7 });
-function mergeInto(group) {
+export function mergeInto(group) {
   const parts = group.children.filter(o => o.isMesh);
   if (parts.length < 2) return;
   const pos = [], nor = [], col = [];
@@ -46,19 +46,19 @@ export class Person3D {
   constructor(look, name = '') {
     this.look = look; this.name = name;
     this.root = new THREE.Group();
-    this.body = new THREE.Group(); this.root.add(this.body);
+    this.body = new THREE.Group(); this.body.name = 'body'; this.root.add(this.body);
     this.phase = Math.random() * 6; this.speed = 0; this.targetYaw = 0;
     const L = look, skin = M(L.skin), cloth = M(L.cloth), pants = M(L.pants || '#4a3a2a'), hair = M(L.hair, { roughness: 0.6 });
     const girl = L.sex === 'chica', boots = M('#5a3a24');
     // Piernas (con bota) y caderas
     this.legs = [-1, 1].map(s => {
-      const hip = new THREE.Group(); hip.position.set(s * 0.085, 0.36, 0); this.body.add(hip);
+      const hip = new THREE.Group(); hip.name = s < 0 ? 'legL' : 'legR'; hip.position.set(s * 0.085, 0.36, 0); this.body.add(hip);
       mesh(G.leg, pants, { p: [0, -0.14, 0] }, hip);
       mesh(G.boot, boots, { p: [0, -0.31, 0.03], s: [0.085, 0.06, 0.12] }, hip);
       return hip;
     });
     // Tronco y ropa
-    const torso = new THREE.Group(); torso.position.y = 0.36; this.body.add(torso); this.torso = torso;
+    const torso = new THREE.Group(); torso.name = 'torso'; torso.position.y = 0.36; this.body.add(torso); this.torso = torso;
     const long = L.outfit === 'larga' || L.outfit === 'tunica';
     mesh(G.cyl, cloth, { p: [0, 0.2, 0], s: [0.17, 0.4, 0.13] }, torso);
     mesh(G.ball, cloth, { p: [0, 0.4, 0], s: [0.19, 0.08, 0.14] }, torso);                       // hombros
@@ -70,13 +70,13 @@ export class Person3D {
     if (L.outfit === 'chaleco') { for (const s of [-1, 1]) mesh(G.cyl, M(shade(L.cloth, 0.6)), { p: [s * 0.08, 0.22, 0.1], s: [0.06, 0.36, 0.035] }, torso); mesh(G.cyl, M('#ece4d4'), { p: [0, 0.22, 0.095], s: [0.04, 0.36, 0.03] }, torso); }
     // Brazos, con manga y mano
     this.arms = [-1, 1].map(s => {
-      const sh = new THREE.Group(); sh.position.set(s * 0.21, 0.38, 0); torso.add(sh);
+      const sh = new THREE.Group(); sh.name = s < 0 ? 'armL' : 'armR'; sh.position.set(s * 0.21, 0.38, 0); torso.add(sh);
       mesh(G.limb, cloth, { p: [0, -0.12, 0], r: [0, 0, s * 0.12] }, sh);
       mesh(G.ball, skin, { p: [s * 0.03, -0.27, 0], s: 0.058 }, sh);
       return sh;
     });
     // Cabeza: cara, ojos con brillo, mejillas, boca, nariz y orejas
-    const head = new THREE.Group(); head.position.y = 0.43 + 0.28; torso.add(head); this.head = head;
+    const head = new THREE.Group(); head.name = 'head'; head.position.y = 0.43 + 0.28; torso.add(head); this.head = head;
     mesh(G.head, skin, { s: [1, 0.96, 0.96] }, head);
     const eye = M(L.eyes || '#3a2a1e', { roughness: 0.3 }), white = M('#ffffff', { roughness: 0.2 }), lash = M('#2a1a1a');
     for (const s of [-1, 1]) {
@@ -123,6 +123,12 @@ export class Person3D {
     if (st === 'mono') mesh(G.ball, m, { p: [0, 0.3, -0.06], s: 0.11 }, head);
     if (st === 'rizado') for (let i = 0; i < 14; i++) { const a = (i / 14) * Math.PI * 2; mesh(G.ball, m, { p: [Math.cos(a) * 0.25, 0.1 + Math.sin(i * 1.7) * 0.06, Math.sin(a) * 0.23 - 0.04], s: 0.085 }, head); }
     if (st === 'pinchos') for (let i = 0; i < 7; i++) { const a = (i / 7) * Math.PI * 2; mesh(G.cone, m, { p: [Math.cos(a) * 0.14, 0.28, Math.sin(a) * 0.14 - 0.03], s: [0.06, 0.16, 0.06], r: [Math.sin(a) * 0.5, 0, -Math.cos(a) * 0.5] }, head); }
+  }
+  // Otra persona igual (comparte geometrías y materiales: hacer una desde cero cuesta)
+  clone() {
+    const c = Object.create(Person3D.prototype), root = this.root.clone(true), by = n => root.getObjectByName(n);
+    Object.assign(c, { look: this.look, name: this.name, root, body: by('body'), torso: by('torso'), head: by('head'), legs: [by('legL'), by('legR')], arms: [by('armL'), by('armR')], phase: Math.random() * 6, speed: 0, targetYaw: 0 });
+    return c;
   }
   // Animación: speed en m/s (0 = quieto)
   update(dt, speed) {

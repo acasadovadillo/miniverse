@@ -2,11 +2,9 @@
 // o lo que hay delante del jugador) y se pone pagando sus materiales. Quitar devuelve los materiales
 // (o el mueble a la mochila). Lo fijo del pueblo y de las aldeas no se puede quitar.
 import { PIECES, parsePlaced } from './pieces.js';
-import { line } from './util.js';
 import { floorSprite, wallSprite, doorSprite, hearthSprite, roofSprite, fenceSprite, ROOF_AX, ROOF_AY, WALL_AX, WALL_AY } from './art/build.js';
 import { PLACE_AX, PLACE_AY } from './art/stations.js';
 import { Audio } from './audio.js';
-import { VIEW } from './iso.js';
 
 export const REACH = 7;   // casillas de distancia a las que se puede construir
 export const PIECE_IDS = Object.keys(PIECES);
@@ -116,19 +114,4 @@ export class BuildMode {
     return this.erase ? (c.ok ? 'Quitar' : c.why || '') : c.ok ? `Poner ${PIECES[this.piece].name.toLowerCase()}` : c.why || '';
   }
 
-  // Vista previa en la casilla apuntada
-  draw(ctx, cam, time) {
-    const t = this.on && this.target();
-    if (!t) return;
-    const sc = this.game.scene, c = this.check(t);
-    const P = (a, b) => { const [sx, sy] = sc.P(a, b); return [sx - cam.x, sy - cam.y]; };
-    const q = [P(t[0], t[1]), P(t[0] + 1, t[1]), P(t[0] + 1, t[1] + 1), P(t[0], t[1] + 1)];
-    const col = c.ok ? (Math.sin(time * 6) > 0 ? '#fff3c0' : '#a8f07a') : '#ff7a6a';
-    for (let i = 0; i < 4; i++) line(ctx, ...q[i], ...q[(i + 1) % 4], col);
-    if (this.erase) return;
-    const [sx, sy] = sc.P(t[0] + 0.5, t[1] + 0.5), [ax, ay] = pieceAnchor(this.piece);
-    ctx.globalAlpha = c.ok ? 0.6 : 0.25;
-    ctx.drawImage(pieceSprite(this.piece, VIEW.r), Math.round(sx - ax - cam.x), Math.round(sy - ay - cam.y));
-    ctx.globalAlpha = 1;
-  }
 }

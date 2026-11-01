@@ -2,11 +2,9 @@
 // de primavera a otoño) y cada mañana tienen huevos, leche o lana. Acariciarlos les hace felices.
 // También las colmenas (miel cada pocos días) y los comederos (se llenan con fibra o trigo).
 import { ITEMS } from './items.js';
-import { ANIMALS, animalSprite } from './art/farm.js';
+import { ANIMALS } from './art/farm.js';
 import { collide } from './physics.js';
 import { toView, fromView } from './iso.js';
-import { lerp, ellipse } from './util.js';
-import { itemIcon } from './art/items.js';
 import { Audio } from './audio.js';
 
 const HOME = { gallina: 'gallinero', vaca: 'establo', oveja: 'establo' };
@@ -46,19 +44,6 @@ class Animal {
   faceTo(dx, dy) {
     const [vx, vy] = toView(dx, dy);   // hacia dónde, visto desde la cámara
     if (Math.abs(vx - vy) > 0.05) { this.flip = vx - vy < 0; this.dir = [dx, dy]; }
-  }
-  draw(ctx, sx, sy, t) {
-    const img = animalSprite(this.type, Math.floor(this.step) % 2), x = Math.round(sx), y = Math.round(sy);
-    ellipse(ctx, x, y, Math.round(img.width / 3), 2, 'rgba(20,30,15,.3)');
-    if (this.flip) { ctx.save(); ctx.translate(x, 0); ctx.scale(-1, 1); ctx.drawImage(img, -Math.round(img.width / 2), y - img.height + 2); ctx.restore(); }
-    else ctx.drawImage(img, x - Math.round(img.width / 2), y - img.height + 2);
-    // Burbuja con el producto listo
-    if (this.ready) {
-      const by = y - img.height - 12 + Math.round(Math.sin(t * 3) * 1.5);
-      ctx.fillStyle = '#fff8e8'; ctx.fillRect(x - 7, by, 14, 12); ctx.fillStyle = '#2a1c22'; ctx.fillRect(x - 7, by + 12, 14, 1);
-      ctx.drawImage(itemIcon(this.def.product), x - 9 + 2, by - 3, 14, 14);
-    }
-    if (this.hearts > t) { ctx.fillStyle = '#ff7aa8'; const hy = y - img.height - 6 - Math.round((this.hearts - t) * -8); ctx.fillRect(x - 2, hy, 2, 2); ctx.fillRect(x + 1, hy, 2, 2); ctx.fillRect(x - 1, hy + 2, 3, 1); }
   }
 }
 
