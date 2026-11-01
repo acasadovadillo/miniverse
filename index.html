@@ -1,0 +1,543 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Pixelverse</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏡</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@400;600&display=swap" rel="stylesheet">
+<style>
+  :root { --gold: #ffd77a; --cream: #fff8e8; --border: #e8c47a; --wood: rgba(38, 26, 18, .94); --dim: #d8c3a0; --err: #ff8a7a; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #1d2a1a; font-family: 'Pixelify Sans', system-ui, sans-serif; font-variant-ligatures: none; color: var(--cream); touch-action: none; -webkit-user-select: none; user-select: none; }
+  #c { position: fixed; left: 0; top: 0; image-rendering: pixelated; }
+  button, input { font: inherit; font-variant-ligatures: none; }
+
+  .panel { background: var(--wood); border: 3px solid var(--border); border-radius: 6px; box-shadow: inset 0 0 0 2px #5a3a20, 0 4px 0 rgba(0, 0, 0, .35); }
+  #prompt { position: fixed; left: 50%; bottom: 22%; transform: translateX(-50%); padding: 6px 14px; font-size: 18px; opacity: 0; transition: opacity .12s; pointer-events: none; white-space: nowrap; }
+  #prompt.show { opacity: 1; }
+  kbd { display: inline-block; min-width: 1.5em; padding: 0 6px; margin-right: 4px; border-radius: 4px; background: #fff3d6; color: #3a2414; font: 600 16px 'Pixelify Sans', sans-serif; text-align: center; box-shadow: 0 2px 0 #b8935a; }
+
+  #dialog { position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); width: min(640px, calc(100vw - 24px)); padding: 14px 18px 16px; font-size: 19px; line-height: 1.4; display: none; cursor: pointer; }
+  #dialog.show { display: block; }
+  #dialog .name { color: var(--gold); margin-bottom: 4px; font-weight: 600; }
+  #dlg-face { display: none; position: absolute; left: 14px; top: 14px; width: 96px; height: 96px; image-rendering: pixelated; background: #6a4424; border: 2px solid var(--border, #e8c47a); border-radius: 4px; }
+  #dialog.face { padding-left: 128px; min-height: 128px; }
+  #dialog.face #dlg-face { display: block; }
+  #dialog .more { position: absolute; right: 14px; bottom: 8px; color: var(--gold); animation: blink 1s steps(2) infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
+  #dlg-opts { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; }
+  #dlg-opts:empty { display: none; }
+  #dlg-opts button { text-align: left; padding: 5px 10px; font-size: 17px; color: var(--dim); background: rgba(0, 0, 0, .25); border: 2px solid #6a4a2a; border-radius: 4px; cursor: pointer; }
+  #dlg-opts button.on { color: var(--gold); border-color: var(--border); background: #6a4424; }
+  #dialog.asking .more { display: none; }
+  /* Chat (T) */
+  #chat { position: fixed; left: 12px; bottom: 120px; width: min(460px, calc(100vw - 24px)); z-index: 24; pointer-events: none; }
+  #chat-log { display: flex; flex-direction: column; gap: 2px; max-height: 220px; overflow: hidden; }
+  .chat-line { align-self: flex-start; max-width: 100%; padding: 2px 8px; font-size: 15px; line-height: 1.3; color: var(--cream); background: rgba(0, 0, 0, .55); border-radius: 3px; text-shadow: 1px 1px 0 #000; overflow-wrap: anywhere; transition: opacity .6s; }
+  .chat-line.ok { color: #b8f08a; }
+  .chat-line.err { color: var(--err); }
+  .chat-line.sys { color: var(--gold); }
+  .chat-line.old { opacity: 0; }
+  #chat-input { display: none; width: 100%; box-sizing: border-box; margin-top: 4px; padding: 6px 8px; font: inherit; font-size: 15px; color: var(--cream); background: rgba(0, 0, 0, .7); border: 2px solid var(--border); border-radius: 4px; outline: none; -webkit-user-select: text; user-select: text; }
+  #chat.open { pointer-events: auto; }
+  #chat.open #chat-log { overflow-y: auto; }
+  #chat.open .chat-line.old { opacity: 1; }
+  #chat.open #chat-input { display: block; }
+  body:not(.playing) #chat { display: none; }
+  #admin-tag { display: none; position: fixed; left: 12px; top: 50px; padding: 3px 10px; font-size: 14px; color: #ff9a5a; letter-spacing: 1px; }
+  body.admin.playing #admin-tag { display: block; }
+  #toasts { position: fixed; left: 50%; top: 56px; transform: translateX(-50%); display: flex; flex-direction: column; gap: 6px; align-items: center; z-index: 25; pointer-events: none; }
+  .toast { padding: 6px 14px; font-size: 16px; color: var(--gold); transition: opacity .4s, transform .4s; }
+  .toast.out { opacity: 0; transform: translateY(-8px); }
+  .toast.good { color: #a8f07a; }
+
+  #place { position: fixed; right: 12px; top: 10px; padding: 6px 12px; font-size: 16px; }
+  #clockp { position: fixed; left: 12px; top: 10px; padding: 6px 12px; font-size: 16px; white-space: nowrap; }
+  #place small { color: var(--dim); margin-left: 6px; }
+  #minimap { position: fixed; right: 12px; top: 52px; width: 180px; height: 120px; padding: 0; image-rendering: pixelated; cursor: pointer; }
+  body.indoors #minimap { display: none; }
+  #s-map { padding: 0; background: #1a1410; }
+  #bigmap { position: fixed; inset: 0; image-rendering: pixelated; cursor: grab; touch-action: none; }
+  #bigmap.dragging { cursor: grabbing; }
+  .map-bar .sq:disabled { opacity: .4; cursor: default; }
+  .map-bar { position: fixed; left: 50%; top: 12px; transform: translateX(-50%); display: flex; align-items: center; gap: 12px; padding: 8px 14px; white-space: nowrap; }
+  .map-bar b { color: var(--gold); font-size: 20px; }
+  #map-info { color: var(--dim); }
+  .map-bar .sq { width: 34px; height: 30px; }
+  #fade { position: fixed; inset: 0; background: #000; opacity: 0; pointer-events: none; transition: opacity .25s; z-index: 20; }
+  #fade.on { opacity: 1; }
+  body:not(.playing) #clockp, body:not(.playing) #place, body:not(.playing) #touch, body:not(.playing) #prompt, body:not(.playing) #minimap, body:not(.playing) #hotbar, body:not(.playing) #hint { display: none !important; }
+
+  /* ---------- Barra rápida, energía y mochila ---------- */
+  #hotbar { position: fixed; left: 50%; bottom: 10px; transform: translateX(-50%); padding: 6px 8px 8px; }
+  #energy { display: flex; align-items: center; gap: 6px; margin: 0 2px 6px; font-size: 13px; color: var(--dim); }
+  #energy .bar { flex: 1; height: 8px; background: rgba(0, 0, 0, .45); border: 1px solid #6a4a2a; border-radius: 3px; overflow: hidden; }
+  #energy-fill { height: 100%; width: 100%; background: linear-gradient(#a8f07a, #5cbf3a); transition: width .2s; }
+  #energy.low #energy-fill { background: linear-gradient(#ffb07a, #e0603a); }
+  #energy.low { color: var(--err); animation: blink 1s steps(2) infinite; }
+  .slots { display: flex; gap: 4px; }
+  .slot { position: relative; width: 44px; height: 44px; background: rgba(0, 0, 0, .35); border: 2px solid #6a4a2a; border-radius: 4px; cursor: pointer; touch-action: none; }
+  .slot img { position: absolute; left: 50%; top: 50%; width: 36px; height: 36px; transform: translate(-50%, -50%); image-rendering: pixelated; pointer-events: none; }
+  .slot b { position: absolute; right: 2px; bottom: 0; font-size: 13px; color: #fff; text-shadow: 1px 1px 0 #2a1c22, -1px 0 0 #2a1c22, 0 -1px 0 #2a1c22; pointer-events: none; }
+  .slot i { position: absolute; left: 3px; top: 0; font-size: 10px; font-style: normal; color: var(--dim); opacity: .7; pointer-events: none; }
+  .slot.sel { border-color: var(--gold); box-shadow: 0 0 0 2px var(--gold), inset 0 0 8px rgba(255, 215, 122, .35); }
+  .slot.lift img { opacity: .3; }
+  #hint { position: fixed; left: 50%; bottom: 96px; transform: translateX(-50%); padding: 4px 10px; font-size: 15px; opacity: 0; transition: opacity .12s; pointer-events: none; white-space: nowrap; }
+  #hint.show { opacity: 1; }
+  body.hurt #hint, body.underground #hint { bottom: 114px; }
+  #hint kbd { font-size: 13px; }
+  #s-inv { background: rgba(10, 16, 8, .55); }
+  .inv-panel { padding: 14px 16px 16px; }
+  .inv-panel h2 { margin: 0 0 10px; font-size: 22px; color: var(--gold); display: flex; align-items: center; justify-content: space-between; }
+  .inv-panel h2 .sq { width: 34px; height: 30px; font-size: 16px; }
+  #inv-grid { display: grid; grid-template-columns: repeat(9, 44px); gap: 4px; }
+  .inv-sep { margin: 10px 0 5px; font-size: 13px; color: var(--dim); }
+  #inv-all { display: none; }
+  body.admin #inv-all { display: block; }
+  #inv-all-grid { display: grid; grid-template-columns: repeat(9, 44px); gap: 4px; max-height: 148px; overflow-y: auto; padding-right: 4px; }
+  #inv-info { display: flex; gap: 12px; align-items: center; margin-top: 12px; padding-top: 10px; border-top: 2px solid #5a3a20; min-height: 64px; }
+  #inv-icon { width: 48px; height: 48px; image-rendering: pixelated; flex: none; }
+  #inv-info.empty #inv-icon, #inv-info.empty .inv-acts { display: none; }
+  #inv-name { color: var(--gold); font-size: 17px; }
+  #inv-desc { color: var(--dim); font-size: 14px; line-height: 1.35; max-width: 300px; }
+  .inv-acts { margin-left: auto; display: flex; flex-direction: column; gap: 4px; }
+  .btn[hidden] { display: none; }
+  .inv-acts .btn { width: auto; padding: 5px 12px; margin: 0; font-size: 14px; }
+  .inv-panel h2 span, .cf-panel h2 span { display: flex; gap: 6px; }
+  /* Fabricar */
+  #s-craft { background: rgba(10, 16, 8, .55); }
+  .cf-panel { padding: 14px 16px 16px; width: min(640px, calc(100vw - 24px)); }
+  .cf-panel h2 { margin: 0 0 10px; font-size: 22px; color: var(--gold); display: flex; align-items: center; justify-content: space-between; }
+  .cf-panel h2 .sq { width: 34px; height: 30px; font-size: 16px; }
+  #cf-tabs { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 10px; }
+  .cf-tab { position: relative; display: flex; align-items: center; gap: 5px; padding: 4px 8px; color: var(--dim); background: rgba(0, 0, 0, .25); border: 2px solid #6a4a2a; border-radius: 4px; cursor: pointer; font-size: 14px; }
+  .cf-tab img { width: 18px; height: 18px; image-rendering: pixelated; }
+  .cf-tab .hand { font-size: 14px; }
+  .cf-tab.on { color: var(--gold); background: #6a4424; border-color: var(--border); }
+  .cf-tab.far { opacity: .55; }
+  .cf-tab.on.far { opacity: .85; }
+  .cf-tab.new::after, .cf-r.new::after { content: ''; position: absolute; right: -3px; top: -3px; width: 8px; height: 8px; border-radius: 50%; background: #ffe08a; box-shadow: 0 0 0 2px #3a2414; }
+  .cf-body { display: flex; gap: 14px; align-items: flex-start; }
+  #cf-list { display: grid; grid-template-columns: repeat(5, 44px); gap: 4px; align-content: start; min-height: 96px; }
+  .cf-r { padding: 0; }
+  .cf-r.locked img { filter: brightness(0) opacity(.45); }
+  .cf-r .q { position: absolute; inset: 0; display: grid; place-items: center; font-style: normal; font-size: 18px; color: var(--dim); }
+  .cf-r.ok { border-color: #6aa84a; }
+  .cf-r.sel { border-color: var(--gold); }
+  .cf-info { flex: 1; min-width: 0; }
+  .cf-head { display: flex; gap: 10px; align-items: center; }
+  #cf-icon { width: 48px; height: 48px; image-rendering: pixelated; flex: none; }
+  #cf-icon.locked { filter: brightness(0) opacity(.45); }
+  #cf-name { color: var(--gold); font-size: 18px; }
+  #cf-desc { color: var(--dim); font-size: 14px; line-height: 1.35; }
+  #cf-ins { margin: 10px 0 6px; display: flex; flex-direction: column; gap: 3px; }
+  .cf-in { display: flex; align-items: center; gap: 8px; font-size: 15px; color: var(--err); }
+  .cf-in img { width: 22px; height: 22px; image-rendering: pixelated; }
+  .cf-in b { margin-left: auto; font-weight: 600; }
+  .cf-in.have { color: var(--cream); }
+  .cf-in.have b { color: #a8f07a; }
+  #cf-msg { min-height: 18px; font-size: 14px; color: var(--err); }
+  #cf-note { flex: 1; text-align: right; margin-right: 10px; font-size: 15px; color: #ffe08a; }
+  .cf-acts { display: flex; gap: 6px; margin-top: 4px; }
+  .cf-acts .btn { margin: 0; }
+  #cf-make { flex: 1; }
+  #cf-make:disabled { opacity: .45; cursor: default; }
+  #cf-make5 { width: auto; }
+  .cf-foot { display: flex; align-items: center; gap: 10px; margin-top: 12px; padding-top: 10px; border-top: 2px solid #5a3a20; font-size: 14px; color: var(--dim); }
+  #cf-pick { width: auto; margin: 0 0 0 auto; padding: 5px 12px; font-size: 14px; }
+  @media (max-width: 560px) { .cf-body { flex-direction: column; } #cf-list { grid-template-columns: repeat(7, 38px); } .cf-r { width: 38px; height: 38px; } .cf-tab span:last-child { display: none; } }
+  /* Construcción */
+  #buildbar { display: none; position: fixed; left: 50%; bottom: 10px; transform: translateX(-50%); padding: 8px 10px; width: min(760px, calc(100vw - 20px)); }
+  body.building #buildbar { display: block; }
+  body.building #hotbar { display: none; }
+  .bb-top { display: flex; align-items: center; gap: 4px; margin-bottom: 6px; flex-wrap: wrap; }
+  .bb-top b { color: var(--gold); margin-right: 6px; }
+  #bb-cats { display: flex; gap: 4px; flex-wrap: wrap; flex: 1; }
+  #bb-cats button { padding: 3px 9px; font-size: 14px; color: var(--dim); background: rgba(0, 0, 0, .25); border: 2px solid #6a4a2a; border-radius: 4px; cursor: pointer; }
+  #bb-cats button.on { color: var(--gold); background: #6a4424; border-color: var(--border); }
+  #bb-close { width: 30px; height: 28px; font-size: 14px; }
+  #bb-pieces { display: flex; gap: 5px; overflow-x: auto; }
+  .bb-piece { flex: none; display: grid; grid-template-columns: 36px auto; grid-template-rows: auto auto; column-gap: 6px; align-items: center; padding: 3px 8px 3px 3px; text-align: left; color: var(--cream); background: rgba(0, 0, 0, .3); border: 2px solid #6a4a2a; border-radius: 4px; cursor: pointer; }
+  .bb-piece img { grid-row: span 2; width: 36px; height: 36px; image-rendering: pixelated; }
+  .bb-piece span { font-size: 14px; }
+  .bb-piece small { font-size: 12px; color: var(--dim); }
+  .bb-piece.on { border-color: var(--gold); box-shadow: 0 0 0 1px var(--gold); }
+  .bb-piece.poor small { color: var(--err); }
+  .bb-note { font-size: 14px; color: var(--dim); padding: 6px 2px; }
+  body.building #hint { bottom: 118px; }
+  body:not(.playing) #buildbar { display: none !important; }
+  /* Ajustes */
+  .st-panel h2 { display: flex; align-items: center; justify-content: space-between; }
+  .st-panel h2 .sq { width: 34px; height: 30px; font-size: 16px; }
+  .st-row { display: grid; grid-template-columns: 1fr auto auto; gap: 10px; align-items: center; margin: 8px 0; font-size: 16px; color: var(--dim); }
+  .st-row input[type=range] { width: 150px; accent-color: #e8c47a; }
+  .st-row b { width: 44px; text-align: right; color: var(--cream); font-weight: 400; }
+  .st-row.check { display: flex; gap: 8px; cursor: pointer; }
+  .st-row .seg { display: flex; gap: 3px; grid-column: span 2; }
+  .st-row .seg button { padding: 4px 8px; color: var(--dim); background: rgba(0, 0, 0, .25); border: 2px solid #6a4a2a; border-radius: 4px; cursor: pointer; }
+  .st-row .seg button.on { color: var(--gold); background: #6a4424; border-color: var(--border); }
+  /* Controles (en la pausa) */
+  #s-controls { justify-content: flex-start; }                 /* si no cabe, que se pueda bajar sin cortar el principio */
+  #s-controls .box.ct-panel { width: min(600px, 100%); margin: auto 0; }
+  .ct-panel h3 { margin: 14px 0 6px; font-size: 17px; color: var(--gold); font-weight: 600; }
+  .ct-list { display: grid; grid-template-columns: 190px 1fr; gap: 5px 14px; margin: 0; font-size: 15px; align-items: baseline; }
+  @media (max-width: 520px) { .ct-list { grid-template-columns: 1fr; gap: 2px; } .ct-list dd { margin-bottom: 6px; } }
+  .ct-list dt { white-space: nowrap; color: var(--cream); }
+  .ct-list dd { margin: 0; color: var(--dim); line-height: 1.35; }
+  .ct-list kbd { font-size: 14px; }
+  body.big-text #prompt, body.big-text #hint, body.big-text #dialog { font-size: 22px; }
+  body.big-text .panel { font-size: 1.12em; }
+  /* Diario */
+  #s-journal { background: rgba(10, 16, 8, .6); }
+  .j-panel { padding: 14px 16px 16px; width: min(640px, calc(100vw - 24px)); }
+  .j-panel h2 { margin: 0 0 8px; font-size: 22px; color: var(--gold); display: flex; align-items: center; justify-content: space-between; }
+  .j-panel h2 .sq { width: 34px; height: 30px; font-size: 16px; }
+  #j-tabs { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 10px; }
+  #j-tabs button { padding: 4px 10px; font-size: 14px; color: var(--dim); background: rgba(0, 0, 0, .25); border: 2px solid #6a4a2a; border-radius: 4px; cursor: pointer; }
+  #j-tabs button.on { color: var(--gold); background: #6a4424; border-color: var(--border); }
+  #j-body { max-height: min(62vh, 480px); overflow-y: auto; font-size: 15px; }
+  #j-body h3 { margin: 10px 0 6px; font-size: 16px; color: var(--gold); }
+  #j-body h3 small { color: var(--dim); font-weight: 400; }
+  .j-row { display: grid; grid-template-columns: 1fr auto; column-gap: 10px; align-items: center; padding: 5px 6px; border-bottom: 1px solid #4a3220; }
+  .j-row small { grid-column: 1 / -1; color: var(--dim); font-size: 13px; }
+  .j-row .bar { grid-column: 1 / -1; height: 6px; background: rgba(0, 0, 0, .4); border-radius: 3px; overflow: hidden; margin-top: 3px; }
+  .j-row .bar i { display: block; height: 100%; background: #a8f07a; }
+  .j-row .lvl { color: var(--gold); }
+  .hearts { color: #e83a4a; letter-spacing: 1px; } .hearts i { color: #4a3a3a; font-style: normal; }
+  .j-row.ach { opacity: .55; } .j-row.ach.done { opacity: 1; }
+  .j-grid { display: grid; grid-template-columns: repeat(auto-fill, 38px); gap: 4px; }
+  .j-cell { width: 38px; height: 38px; border: 2px solid #6a4a2a; border-radius: 4px; background: rgba(0, 0, 0, .3); display: grid; place-items: center; }
+  .j-cell img { width: 30px; height: 30px; image-rendering: pixelated; }
+  .j-cell.none img { filter: brightness(0) opacity(.35); }
+  .j-cell.seen img { opacity: .6; }
+  .j-cell.done { border-color: #6aa84a; }
+  .j-goal { padding: 8px 10px; background: rgba(0, 0, 0, .25); border-radius: 4px; color: var(--gold); }
+  .j-page { padding: 6px 10px; margin: 6px 0; background: #f4ecd8; color: #3a2414; border-radius: 3px; }
+  .j-page p { margin: 4px 0 0; }
+  .j-note { color: var(--dim); }
+  /* Tienda */
+  #s-shop { background: rgba(10, 16, 8, .55); }
+  .sh-panel { padding: 14px 16px 16px; width: min(620px, calc(100vw - 24px)); }
+  .sh-panel h2 { margin: 0 0 8px; font-size: 22px; color: var(--gold); display: flex; align-items: center; gap: 12px; }
+  #sh-money { margin-left: auto; font-size: 17px; color: var(--cream); }
+  .sh-panel h2 .sq { width: 34px; height: 30px; font-size: 16px; }
+  .sh-tabs { display: flex; gap: 4px; align-items: center; margin-bottom: 8px; }
+  .sh-tabs button { padding: 4px 12px; color: var(--dim); background: rgba(0, 0, 0, .25); border: 2px solid #6a4a2a; border-radius: 4px; cursor: pointer; }
+  .sh-tabs button.on { color: var(--gold); background: #6a4424; border-color: var(--border); }
+  #sh-note { margin-left: 10px; font-size: 14px; color: #ffe08a; }
+  #sh-list { max-height: min(60vh, 460px); overflow-y: auto; display: flex; flex-direction: column; gap: 4px; }
+  .sh-row { display: flex; align-items: center; gap: 10px; padding: 4px 6px; background: rgba(0, 0, 0, .22); border-radius: 4px; }
+  .sh-row img { width: 32px; height: 32px; image-rendering: pixelated; flex: none; object-fit: contain; }
+  .sh-row div { flex: 1; min-width: 0; }
+  .sh-row b { display: block; font-size: 15px; }
+  .sh-row small { display: block; font-size: 12px; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .sh-row .btn { width: auto; margin: 0; padding: 4px 10px; font-size: 14px; }
+  .sh-row .btn:disabled { opacity: .4; cursor: default; }
+  #money { color: var(--gold); margin-left: 8px; white-space: nowrap; }
+  #hearts { display: none; margin: -2px 2px 5px; font-size: 14px; letter-spacing: 1px; line-height: 1; }
+  body.hurt #hearts, body.underground #hearts { display: block; }
+  #hearts i { font-style: normal; color: #e83a4a; }
+  #hearts i.h { color: #e8828a; }
+  #hearts i.e { color: #4a3a3a; }
+  /* Cofre */
+  #s-chest { background: rgba(10, 16, 8, .55); }
+  .ch-panel { padding: 14px 16px 16px; }
+  .ch-panel h2 { margin: 0 0 8px; font-size: 22px; color: var(--gold); display: flex; align-items: center; justify-content: space-between; }
+  .ch-panel h2 .sq { width: 34px; height: 30px; font-size: 16px; }
+  #ch-grid, #ch-bag { display: grid; grid-template-columns: repeat(9, 44px); gap: 4px; }
+  @media (max-width: 520px) { #ch-grid, #ch-bag { grid-template-columns: repeat(9, 34px); } }
+  #inv-ghost { position: fixed; width: 40px; height: 40px; transform: translate(-50%, -50%); image-rendering: pixelated; pointer-events: none; z-index: 30; }
+  @media (max-width: 520px) {
+    .slot { width: 34px; height: 34px; } .slot img { width: 28px; height: 28px; }
+    #inv-grid { grid-template-columns: repeat(9, 34px); }
+    #inv-info { flex-wrap: wrap; }
+  }
+
+  #touch { display: none; position: fixed; inset: auto 0 0 0; height: 0; }
+  @media (pointer: coarse) { #touch { display: block; } }
+  .tb { position: fixed; width: 58px; height: 58px; border-radius: 14px; background: rgba(38, 26, 18, .65); border: 2px solid rgba(232, 196, 122, .8); color: #ffe7b0; font: 600 20px 'Pixelify Sans', sans-serif; touch-action: none; }
+  .tb.on { background: rgba(120, 80, 30, .8); }
+  [data-k='up'] { left: 76px; bottom: 148px; } [data-k='down'] { left: 76px; bottom: 24px; }
+  [data-k='left'] { left: 14px; bottom: 86px; } [data-k='right'] { left: 138px; bottom: 86px; }
+  [data-k='act'] { right: 20px; bottom: 150px; width: 58px; height: 58px; border-radius: 50%; font-size: 22px; }
+  [data-k='use'] { right: 24px; bottom: 60px; width: 76px; height: 76px; border-radius: 50%; font-size: 30px; }
+  [data-k='bag'] { right: 110px; bottom: 34px; width: 50px; height: 50px; font-size: 22px; }
+  [data-k='build'] { right: 110px; bottom: 92px; width: 50px; height: 50px; font-size: 22px; }
+  [data-k='pause'] { left: 14px; bottom: 214px; width: 46px; height: 46px; font-size: 20px; }
+  [data-k='craft'] { right: 110px; bottom: 150px; width: 50px; height: 50px; font-size: 20px; }
+  body.building #touch [data-k='use'], body.building #touch [data-k='act'] { display: none; }
+  @media (pointer: coarse) {
+    #hotbar { bottom: auto; top: 8px; }
+    #place { top: auto; bottom: 214px; right: 12px; }
+    #minimap { top: 96px; width: 120px; height: 80px; }
+    #hint, body.hurt #hint, body.underground #hint { bottom: auto; top: 184px; }
+    body.indoors #hint { top: 96px; }
+    #clockp { top: auto; bottom: 256px; right: 12px; left: auto; font-size: 13px; }
+  }
+
+  /* ---------- Pantallas (cuenta, menú, creador, pausa) ---------- */
+  .screen { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; flex-direction: column; gap: 18px; padding: 16px; background: radial-gradient(ellipse at center, rgba(10, 20, 8, .25), rgba(10, 16, 8, .7)); z-index: 10; overflow-y: auto; touch-action: auto; }
+  .screen.show { display: flex; }
+  .logo { font-size: clamp(40px, 8vw, 72px); font-weight: 600; color: var(--gold); text-shadow: 4px 4px 0 #6b3a14, 0 0 24px rgba(255, 200, 100, .35); line-height: 1; text-align: center; }
+  .logo small { display: block; font-size: .3em; color: var(--cream); text-shadow: 2px 2px 0 #3a2414; margin-top: 8px; font-weight: 400; }
+  .box { padding: 20px 22px; width: min(380px, 100%); }
+  .box h2 { margin: 0 0 14px; font-size: 24px; color: var(--gold); }
+  .tabs { display: flex; gap: 6px; margin-bottom: 16px; }
+  .tabs button { flex: 1; padding: 8px; background: rgba(0, 0, 0, .25); color: var(--dim); border: 2px solid #6a4a2a; border-radius: 4px; cursor: pointer; }
+  .tabs button.on { background: #6a4424; color: var(--gold); border-color: var(--border); }
+  .field { display: block; margin-bottom: 12px; font-size: 16px; color: var(--dim); }
+  .field[hidden] { display: none; }
+  .field input { display: block; width: 100%; margin-top: 4px; padding: 9px 10px; font-size: 18px; color: var(--cream); background: rgba(0, 0, 0, .35); border: 2px solid #8a6034; border-radius: 4px; outline: none; user-select: text; -webkit-user-select: text; }
+  .field input:focus { border-color: var(--gold); }
+  .check { display: flex; align-items: center; gap: 8px; font-size: 15px; color: var(--dim); margin: 2px 0 14px; cursor: pointer; }
+  .err { min-height: 20px; color: var(--err); font-size: 15px; margin-bottom: 8px; }
+  .m-row { display: flex; gap: 6px; } .m-row .btn { flex: 1; font-size: 16px; }
+  .field small { font-size: 12px; opacity: .8; }
+  .note { font-size: 13px; color: var(--dim); opacity: .85; margin: 12px 0 0; line-height: 1.4; }
+  .btn { display: block; width: 100%; padding: 11px 14px; font-size: 19px; font-weight: 600; color: #fbefd9; background: #4a2c18; border: 2px solid #9a6a34; border-radius: 5px; cursor: pointer; margin-top: 8px; }
+  .btn:hover:not(:disabled) { border-color: var(--gold); }
+  .btn.primary { color: #2a180c; background: #f0c25a; border: 0; box-shadow: inset 0 -3px 0 #b88a2a, 0 3px 0 #2a180c; }
+  .btn:disabled { opacity: .45; cursor: default; }
+  .who { color: var(--dim); margin: -6px 0 14px; }
+
+  #s-creator .box { width: min(820px, 100%); }
+  .cr { display: grid; grid-template-columns: 250px 1fr; gap: 22px; align-items: start; }
+  @media (max-width: 680px) { .cr { grid-template-columns: 1fr; } }
+  .cr-stage { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+  .cr-room { width: 100%; display: flex; justify-content: center; padding: 14px 0 0; border-radius: 4px; background: repeating-linear-gradient(90deg, rgba(0, 0, 0, .16) 0 2px, transparent 2px 22px), linear-gradient(#8a5634, #7c4b2d 72%, #66391f 72%); }
+  #cr-canvas { image-rendering: pixelated; display: block; }
+  .cr-rot { display: flex; align-items: center; gap: 8px; width: 100%; }
+  .cr-rot span { flex: 1; text-align: center; color: var(--dim); }
+  .sq { width: 40px; height: 36px; color: var(--cream); background: #4a2c18; border: 2px solid #9a6a34; border-radius: 4px; cursor: pointer; font-size: 18px; }
+  .cr-opts { display: grid; gap: 12px; }
+  .opt-t { font-size: 16px; color: var(--gold); margin-bottom: 5px; }
+  .seg { display: flex; gap: 6px; }
+  .seg button { flex: 1; padding: 7px; color: var(--dim); background: rgba(0, 0, 0, .25); border: 2px solid #6a4a2a; border-radius: 4px; cursor: pointer; }
+  .seg button.on { color: var(--gold); background: #6a4424; border-color: var(--border); }
+  .cyc { display: flex; align-items: center; gap: 8px; }
+  .cyc span { flex: 1; text-align: center; padding: 6px; background: rgba(0, 0, 0, .25); border-radius: 4px; }
+  .sw { display: flex; flex-wrap: wrap; gap: 6px; }
+  .sw button { width: 28px; height: 28px; padding: 0; border-radius: 5px; border: 2px solid rgba(0, 0, 0, .4); cursor: pointer; }
+  .sw button.on { outline: 3px solid var(--gold); outline-offset: 2px; }
+  .cr-actions { display: flex; gap: 10px; margin-top: 4px; }
+  .cr-actions .btn { margin: 0; }
+</style>
+</head>
+<body>
+  <canvas id="c"></canvas>
+  <div id="clockp" class="panel"><span id="clock"></span></div>
+  <div id="place" class="panel"><span id="place-name">Pueblo Brotes</span> <small id="coords"></small></div>
+  <canvas id="minimap" class="panel" width="150" height="100"></canvas>
+  <div id="hint" class="panel"><kbd>Espacio</kbd><span id="hint-text"></span></div>
+  <div id="hotbar" class="panel">
+    <div id="energy" title="Energía"><span>Energía</span><div class="bar"><div id="energy-fill"></div></div><span id="money">0 🪙</span></div>
+    <div id="hearts"></div>
+    <div class="slots" id="hotbar-slots"></div>
+  </div>
+  <div id="prompt" class="panel"><kbd>E</kbd><span id="prompt-text"></span></div>
+  <div id="admin-tag" class="panel" title="Modo admin: objetos infinitos y construir gratis (/admin para quitarlo)">ADMIN</div>
+  <div id="chat"><div id="chat-log"></div><input id="chat-input" maxlength="120" autocomplete="off" spellcheck="false" placeholder="Escribe un mensaje o un comando (/ayuda)"></div>
+  <div id="dialog" class="panel"><canvas id="dlg-face" width="48" height="48"></canvas><div class="name" id="dlg-name"></div><div id="dlg-text"></div><div id="dlg-opts"></div><div class="more">▼</div></div>
+  <div id="toasts"></div>
+
+  <!-- Cuenta -->
+  <section id="s-login" class="screen">
+    <div class="logo">Pixelverse</div>
+    <form class="box panel" id="login-form" autocomplete="off">
+      <div class="tabs"><button type="button" data-tab="login" class="on">Entrar</button><button type="button" data-tab="register">Crear cuenta</button></div>
+      <label class="field">Usuario<input id="lg-user" maxlength="16" autocomplete="username"></label>
+      <label class="field">Contraseña<input id="lg-pass" type="password" maxlength="64" autocomplete="current-password"></label>
+      <label class="field" id="lg-pass2-row" hidden>Repite la contraseña<input id="lg-pass2" type="password" maxlength="64" autocomplete="new-password"></label>
+      <label class="check"><input type="checkbox" id="lg-remember" checked> Recordarme en este dispositivo</label>
+      <div class="err" id="lg-err"></div>
+      <button class="btn primary" id="lg-submit" type="submit">Entrar</button>
+      <p class="note">Las cuentas y las partidas se guardan en este navegador.</p>
+    </form>
+  </section>
+
+  <!-- Menú principal -->
+  <section id="s-menu" class="screen">
+    <div class="logo">Pixelverse</div>
+    <div class="box panel">
+      <h2 id="menu-hello">¡Hola!</h2>
+      <p class="who" id="menu-save"></p>
+      <button class="btn primary" id="m-continue">Continuar</button>
+      <button class="btn" id="m-new">Nueva partida</button>
+      <div class="m-row"><button class="btn" id="m-export">Exportar partida</button><button class="btn" id="m-import">Importar partida</button></div>
+      <button class="btn" id="m-visit">Visitar el mundo de otra persona</button>
+      <button class="btn" id="m-settings">Ajustes</button>
+      <p class="note" id="menu-msg"></p>
+      <input type="file" id="file-pick" accept=".json,application/json" hidden>
+      <button class="btn" id="m-logout">Cerrar sesión</button>
+    </div>
+  </section>
+
+  <!-- Creador de personaje -->
+  <section id="s-creator" class="screen">
+    <div class="box panel">
+      <h2>Crea tu personaje</h2>
+      <div class="cr">
+        <div class="cr-stage">
+          <div class="cr-room"><canvas id="cr-canvas"></canvas></div>
+          <div class="cr-rot"><button class="sq" id="rot-l" aria-label="Girar">⟲</button><span id="rot-label">De frente</span><button class="sq" id="rot-r" aria-label="Girar">⟳</button></div>
+        </div>
+        <div class="cr-opts" id="cr-opts">
+          <label class="field" style="margin:0">Nombre<input id="cr-name" maxlength="14"></label>
+        </div>
+      </div>
+      <div class="err" id="cr-err"></div>
+      <div class="cr-actions"><button class="btn" id="cr-back" style="flex:0 0 auto;width:auto">Volver</button><button class="btn" id="cr-random" style="flex:0 0 auto;width:auto">Aleatorio</button><button class="btn primary" id="cr-start">Empezar</button></div>
+    </div>
+  </section>
+
+  <!-- Pausa -->
+  <section id="s-pause" class="screen">
+    <div class="box panel">
+      <h2>Pausa</h2>
+      <button class="btn primary" id="p-resume">Continuar</button>
+      <button class="btn" id="p-save">Guardar partida</button>
+      <button class="btn" id="p-journal">Diario (J)</button>
+      <button class="btn" id="p-controls">Controles</button>
+      <button class="btn" id="p-settings">Ajustes</button>
+      <button class="btn" id="p-sound">Sonido: sí</button>
+      <button class="btn" id="p-menu">Guardar y salir al menú</button>
+      <div class="err" id="p-msg" style="color:var(--gold);margin:10px 0 0"></div>
+    </div>
+  </section>
+
+  <!-- Mapa grande -->
+  <section id="s-map" class="screen">
+    <canvas id="bigmap"></canvas>
+    <div class="map-bar panel"><b>Mapa</b><span id="map-info"></span><button class="sq" id="map-out" aria-label="Alejar">−</button><button class="sq" id="map-in" aria-label="Acercar">+</button><button class="sq" id="map-home" aria-label="Volver a tu posición" title="Volver a tu posición">⌖</button><button class="sq" id="map-close" aria-label="Cerrar">✕</button></div>
+  </section>
+
+  <!-- Mochila -->
+  <section id="s-inv" class="screen">
+    <div class="inv-panel panel">
+      <h2>Mochila <span><button class="sq" id="inv-craft" aria-label="Fabricar" title="Fabricar (C)">⚒</button><button class="sq" id="inv-close" aria-label="Cerrar">✕</button></span></h2>
+      <div id="inv-grid"></div>
+      <div class="inv-sep">Barra rápida (1-9)</div>
+      <div class="slots" id="inv-quick"></div>
+      <div id="inv-info" class="empty">
+        <img id="inv-icon" alt="">
+        <div><div id="inv-name"></div><div id="inv-desc"></div></div>
+        <div class="inv-acts"><button class="btn primary" id="inv-eat">Comer</button><button class="btn" id="inv-drop1">Tirar uno</button><button class="btn" id="inv-drop">Tirar</button></div>
+      </div>
+      <div id="inv-all"><div class="inv-sep">Todos los objetos (admin): toca uno para cogerlo</div><div id="inv-all-grid"></div></div>
+    </div>
+    <img id="inv-ghost" alt="" hidden>
+  </section>
+  <!-- Construcción -->
+  <div id="buildbar" class="panel">
+    <div class="bb-top"><b>Construir</b><div id="bb-cats"></div><button class="sq" id="bb-close" aria-label="Salir del modo construcción" title="Salir (B)">✕</button></div>
+    <div id="bb-pieces"></div>
+  </div>
+  <!-- Cofre -->
+  <section id="s-chest" class="screen">
+    <div class="ch-panel panel">
+      <h2>Cofre <button class="sq" id="ch-close" aria-label="Cerrar">✕</button></h2>
+      <div id="ch-grid"></div>
+      <div class="inv-sep">Tu mochila (clic para guardar en el cofre)</div>
+      <div id="ch-bag"></div>
+    </div>
+  </section>
+  <!-- Ajustes -->
+  <section id="s-settings" class="screen">
+    <div class="box panel st-panel">
+      <h2>Ajustes <button class="sq" id="st-close" aria-label="Cerrar">✕</button></h2>
+      <div id="st-body"></div>
+    </div>
+  </section>
+  <!-- Controles (desde la pausa) -->
+  <section id="s-controls" class="screen">
+    <div class="box panel st-panel ct-panel">
+      <h2>Controles <button class="sq" id="ct-close" aria-label="Volver a la pausa">✕</button></h2>
+      <h3>Teclado y ratón</h3>
+      <dl class="ct-list">
+        <dt><kbd>WASD</kbd> (o <kbd>↑</kbd> <kbd>↓</kbd>)</dt><dd>Caminar</dd>
+        <dt><kbd>Shift</kbd></dt><dd>Correr (mantenlo pulsado)</dd>
+        <dt><kbd>Espacio</kbd> o clic</dt><dd>Usar lo que llevas: talar, picar, regar, sembrar, pescar, atacar, comer, colocar… Mantén para seguir.</dd>
+        <dt><kbd>E</kbd> o <kbd>Enter</kbd></dt><dd>Interactuar: hablar, puertas, cofres, estaciones, dormir, cosechar, animales</dd>
+        <dt><kbd>1</kbd>–<kbd>9</kbd> o rueda</dt><dd>Elegir objeto</dd>
+        <dt><kbd>R</kbd></dt><dd>Girar lo que vas a colocar (apunta con el ratón: hasta 4 casillas)</dd>
+        <dt><kbd>←</kbd> / <kbd>→</kbd></dt><dd>Girar la cámara (16 ángulos, de 22,5° en 22,5°; en el mundo de fuera)</dd>
+        <dt><kbd>I</kbd> <kbd>C</kbd> <kbd>B</kbd></dt><dd>Mochila, fabricar y construir</dd>
+        <dt><kbd>J</kbd> <kbd>M</kbd></dt><dd>Diario y mapa</dd>
+        <dt><kbd>T</kbd> o <kbd>/</kbd></dt><dd>Chat y comandos (<b>/ayuda</b> para verlos; <b>/admin</b>: objetos infinitos y construir gratis)</dd>
+        <dt><kbd>Esc</kbd></dt><dd>Pausa (y cerrar ventanas)</dd>
+      </dl>
+      <h3>Construyendo</h3>
+      <dl class="ct-list">
+        <dt>Clic</dt><dd>Poner (arrastra para pintar varias casillas)</dd>
+        <dt>Clic derecho o <kbd>X</kbd></dt><dd>Quitar</dd>
+      </dl>
+      <h3>En el mapa</h3>
+      <dl class="ct-list">
+        <dt><kbd>WASD</kbd> o arrastrar</dt><dd>Moverlo (<kbd>Shift</kbd>, más rápido)</dd>
+        <dt><kbd>+</kbd> <kbd>−</kbd> o rueda</dt><dd>Acercar y alejar</dd>
+        <dt>⌖</dt><dd>Volver a tu posición</dd>
+      </dl>
+      <h3>En el móvil</h3>
+      <dl class="ct-list">
+        <dt>Cruceta</dt><dd>Caminar</dd>
+        <dt>⚒ y E</dt><dd>Usar e interactuar</dd>
+        <dt>🎒 🧰 🔨 ☰</dt><dd>Mochila, fabricar, construir y pausa</dd>
+        <dt>Minimapa</dt><dd>Abrir el mapa (se mueve arrastrando)</dd>
+      </dl>
+    </div>
+  </section>
+  <!-- Diario -->
+  <section id="s-journal" class="screen">
+    <div class="j-panel panel">
+      <h2>Diario <button class="sq" id="j-close" aria-label="Cerrar">✕</button></h2>
+      <div id="j-tabs"></div>
+      <div id="j-body"></div>
+    </div>
+  </section>
+  <!-- Tienda -->
+  <section id="s-shop" class="screen">
+    <div class="sh-panel panel">
+      <h2><span id="sh-title">Tienda</span><span id="sh-money"></span><button class="sq" id="sh-close" aria-label="Cerrar">✕</button></h2>
+      <div class="sh-tabs"><button type="button" data-shtab="buy">Comprar</button><button type="button" data-shtab="sell">Vender</button><span id="sh-note"></span></div>
+      <div id="sh-list"></div>
+    </div>
+  </section>
+  <!-- Fabricar -->
+  <section id="s-craft" class="screen">
+    <div class="cf-panel panel">
+      <h2>Fabricar <span id="cf-note"></span><span><button class="sq" id="cf-bag" aria-label="Mochila" title="Mochila (I)">🎒</button><button class="sq" id="cf-close" aria-label="Cerrar">✕</button></span></h2>
+      <div id="cf-tabs"></div>
+      <div class="cf-body">
+        <div id="cf-list"></div>
+        <div class="cf-info">
+          <div class="cf-head"><img id="cf-icon" alt=""><div><div id="cf-name"></div><div id="cf-desc"></div></div></div>
+          <div id="cf-ins"></div>
+          <div id="cf-msg"></div>
+          <div class="cf-acts"><button class="btn primary" id="cf-make">Fabricar</button><button class="btn" id="cf-make5">×5</button></div>
+        </div>
+      </div>
+      <div class="cf-foot"><span id="cf-where"></span><button class="btn" id="cf-pick" hidden></button></div>
+    </div>
+  </section>
+  <div id="fade"></div>
+  <div id="touch">
+    <button class="tb" data-k="up">▲</button><button class="tb" data-k="left">◀</button>
+    <button class="tb" data-k="right">▶</button><button class="tb" data-k="down">▼</button>
+    <button class="tb" data-k="act">E</button><button class="tb" data-k="use" aria-label="Usar">⚒</button><button class="tb" data-k="bag" aria-label="Mochila">🎒</button><button class="tb" data-k="build" aria-label="Construir">🔨</button><button class="tb" data-k="pause" aria-label="Menú">☰</button><button class="tb" data-k="craft" aria-label="Fabricar">🧰</button>
+  </div>
+  <section id="s-file" class="screen">
+    <div class="box panel">
+      <h2>Hay que abrirlo con el lanzador</h2>
+      <p>El juego necesita un pequeño servidor local para funcionar. Haz doble clic en <b>jugar.command</b> (en la carpeta del juego) y se abrirá solo en el navegador.</p>
+      <p class="note">También puedes ejecutar <code>python3 -m http.server 8000</code> en la carpeta y entrar en http://localhost:8000</p>
+    </div>
+  </section>
+  <script>
+    if (location.protocol === 'file:') document.getElementById('s-file').classList.add('show');
+  </script>
+  <script type="module" src="src/main.js"></script>
+</body>
+</html>

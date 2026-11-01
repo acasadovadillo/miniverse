@@ -1,0 +1,135 @@
+// Interfaz durante la partida: aviso de interacción, diálogos, nombre del lugar y fundido a negro.
+import { Audio } from '../audio.js';
+import { portrait } from '../art/people3.js';
+
+const $ = id => document.getElementById(id);
+let shownPrompt = null, shownCoords = null, shownEnergy = null, shownHint = null, dialog = null;
+const portraits = new Map();
+
+// Retrato de quien habla (si es una persona conocida); el nombre puede llevar detrás los corazones
+function showFace(name) {
+  const look = hud.faces[name.split('  ')[0]], box = $('dialog'), cv = $('dlg-face');
+  box.classList.toggle('face', !!look);
+  if (!look) return;
+  const key = JSON.stringify(look);
+  if (!portraits.has(key)) portraits.set(key, portrait(look));
+  const g = cv.getContext('2d');
+  g.clearRect(0, 0, cv.width, cv.height);
+  g.drawImage(portraits.get(key), 0, 0);
+}
+
+export const hud = {
+  get dialogOpen() { return !!dialog; },
+  faces: {},   // nombre → aspecto, para poner su retrato en los diálogos
+
+  // Solo toca la página cuando el aviso cambia
+  prompt(text) {
+    const label = text || '';
+    if (label === shownPrompt) return;
+    shownPrompt = label;
+    $('prompt').classList.toggle('show', !!label);
+    if (label) $('prompt-text').textContent = label;
+  },
+
+  // Nombre del lugar; con flash, destaca un momento (al cambiar de bioma)
+  place(text, flash = false) {
+    $('place-name').textContent = text;
+    if (flash) $('place').animate([{ transform: 'scale(1.15)', borderColor: '#fff3c0' }, { transform: 'scale(1)' }], { duration: 600, easing: 'ease-out' });
+  },
+  money(n) { $('money').textContent = `${n} 🪙`; },
+  energy(frac) {
+    const pct = Math.round(frac * 100);
+    if (pct === shownEnergy) return;
+    shownEnergy = pct;
+    $('energy-fill').style.width = pct + '%';
+    $('energy').classList.toggle('low', pct <= 15);
+  },
+  hint(text) {
+    if (text === shownHint) return;
+    shownHint = text;
+    $('hint').classList.toggle('show', !!text);
+    if (text) $('hint-text').textContent = text;
+  },
+  coords(xy) {
+    const text = xy ? `${xy[0]}, ${xy[1]}` : '';
+    if (text !== shownCoords) { shownCoords = text; $('coords').textContent = text; }
+  },
+
+  say(name, lines) {
+    return new Promise(resolve => {
+      let i = 0;
+      showFace(name);
+      $('dlg-name').textContent = name;
+      $('dlg-text').textContent = lines[0];
+      $('dialog').classList.add('show');
+      dialog = {
+        next() {
+          Audio.blip();
+          if (++i < lines.length) { $('dlg-text').textContent = lines[i]; return; }
+          hud.closeDialog();
+          resolve();
+        },
+      };
+    });
+  },
+  // Pregunta con opciones; devuelve el índice elegido. Se elige con clic, flechas o números, y se confirma con E o Espacio.
+  ask(name, text, options) {
+    return new Promise(resolve => {
+      let sel = 0;
+      showFace(name);
+      $('dlg-name').textContent = name;
+      $('dlg-text').textContent = text;
+      const box = $('dlg-opts');
+      box.textContent = '';
+      const btns = options.map((o, i) => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.textContent = `${i + 1}. ${o}`;
+        b.onclick = e => { e.stopPropagation(); sel = i; dialog.next(); };
+        box.append(b);
+        return b;
+      });
+      const paint = () => btns.forEach((b, i) => b.classList.toggle('on', i === sel));
+      paint();
+      $('dialog').classList.add('show', 'asking');
+      dialog = {
+        move(d) { sel = (sel + d + options.length) % options.length; paint(); Audio.blip(); },
+        pick(i) { if (i < options.length) { sel = i; this.next(); } },
+        next() {
+          Audio.blip();
+          box.textContent = '';
+          $('dialog').classList.remove('asking');
+          hud.closeDialog();
+          resolve(sel);
+        },
+      };
+    });
+  },
+  get asking() { return !!dialog?.move; },
+  next() { dialog?.next(); },
+  closeDialog() { $('dialog').classList.remove('show', 'asking'); dialog = null; },
+
+  // Aviso breve arriba en el centro (logros, días nuevos…)
+  toast(text, kind = '') {
+    const el = document.createElement('div');
+    el.className = 'toast panel ' + kind;
+    el.textContent = text;
+    $('toasts').append(el);
+    setTimeout(() => el.classList.add('out'), 3200);
+    setTimeout(() => el.remove(), 3700);
+  },
+
+  fade(on) {
+    $('fade').classList.toggle('on', on);
+    return new Promise(r => setTimeout(r, 280));
+  },
+};
+$('dialog').addEventListener('click', () => { if (!hud.asking) hud.next(); });
+// Mover la elección con el teclado mientras hay una pregunta
+addEventListener('keydown', e => {
+  if (!dialog?.move) return;
+  const k = e.code;
+  if (k === 'ArrowUp' || k === 'KeyW') { dialog.move(-1); e.preventDefault(); e.stopImmediatePropagation(); }
+  else if (k === 'ArrowDown' || k === 'KeyS') { dialog.move(1); e.preventDefault(); e.stopImmediatePropagation(); }
+  else if (/^Digit[1-9]$/.test(k)) { dialog.pick(+k.slice(5) - 1); e.preventDefault(); e.stopImmediatePropagation(); }
+}, true);

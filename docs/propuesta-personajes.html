@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Propuesta de personajes</title>
+<link href="https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@400;600&display=swap" rel="stylesheet">
+<style>
+  :root { --gold: #ffd77a; --cream: #fff8e8; --dim: #d8c3a0; --wood: #2a1c14; --border: #e8c47a; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 24px 16px 48px; background: #1d2a1a; color: var(--cream); font-family: 'Pixelify Sans', system-ui, sans-serif; font-variant-ligatures: none; }
+  h1 { margin: 0 0 6px; color: var(--gold); font-size: 30px; }
+  h2 { margin: 34px 0 12px; color: var(--gold); font-size: 22px; }
+  p { max-width: 760px; color: var(--dim); line-height: 1.45; margin: 6px 0; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(680px, 1fr)); gap: 12px; }
+  .card { background: var(--wood); border: 3px solid var(--border); border-radius: 6px; padding: 12px 14px; }
+  .card h3 { margin: 0 0 8px; font-size: 18px; color: var(--gold); }
+  .card h3 small { color: var(--dim); font-weight: 400; font-size: 13px; }
+  .row { display: flex; gap: 8px; align-items: flex-end; flex-wrap: wrap; }
+  .col { display: flex; flex-direction: column; align-items: center; gap: 3px; font-size: 12px; color: var(--dim); }
+  .sep { width: 2px; align-self: stretch; background: #5a3a20; margin: 0 4px; }
+  canvas { image-rendering: pixelated; background: #e8dcc0; border-radius: 3px; }
+  canvas.portrait { background: #6a4424; }
+  .old canvas { opacity: .9; }
+  .styles { display: grid; grid-template-columns: repeat(8, auto); gap: 8px; justify-content: start; }
+  .dialog { display: flex; gap: 14px; align-items: center; max-width: 640px; background: rgba(38, 26, 18, .94); border: 3px solid var(--border); border-radius: 6px; padding: 12px 16px; margin-top: 10px; }
+  .dialog b { color: var(--gold); display: block; margin-bottom: 4px; }
+  .dialog div { font-size: 18px; line-height: 1.4; }
+  ul { color: var(--dim); max-width: 760px; line-height: 1.5; }
+</style>
+</head>
+<body>
+  <h1>Propuesta 3: avatares isométricos</h1>
+  <p>Diseño propio al estilo de los avatares isométricos clásicos:</p>
+  <ul>
+    <li>Vista de tres cuartos: de frente miran abajo a la derecha y de espaldas, arriba a la derecha. Para ir a la izquierda se da la vuelta al dibujo.</li>
+    <li>Contorno negro y colores planos con una sola sombra; cuerpo alto con la cabeza más pequeña.</li>
+    <li>Ojos de raya con un brillo, nariz que asoma por el lado de la cara y boca de una línea.</li>
+    <li>Un peinado nuevo, <b>pinchos</b>, además de los siete de ahora.</li>
+    <li>Mismo tamaño que los muñecos de ahora. El retrato de los diálogos es la cabeza del propio muñeco, ampliada.</li>
+  </ul>
+
+  <h2>Así se vería un diálogo</h2>
+  <div class="dialog"><canvas id="dlg-portrait" class="portrait"></canvas><div><b>Nilo</b>¡Así que tú eres Alba! Por fin llega alguien a la casa del final del camino.</div></div>
+
+  <h2>Vecinos y jugador: ahora y propuesta</h2>
+  <div class="grid" id="people"></div>
+
+  <h2>Peinados del creador de personaje (propuesta)</h2>
+  <p>Los ocho peinados, de chico (arriba) y de chica (abajo), con el mismo color de pelo y de piel.</p>
+  <div class="card"><div class="styles" id="styles"></div></div>
+
+  <h2>Tonos de piel y colores de pelo</h2>
+  <div class="card"><div class="row" id="tones"></div></div>
+
+<script type="module">
+  import * as OLD from '../src/art/people.js';
+  import * as NEW from '../src/art/people3.js';
+  // Los mismos aspectos que en el juego (copiados aquí para no cargar el juego entero)
+  const NILO_LOOK = { sex: 'chico', skin: '#8a5234', hair: '#c8c4cc', eyes: '#6a3a1e', cloth: '#4a9a4a', pants: '#3a4a6a', hairStyle: 'corto', outfit: 'tunica', beard: true };
+  const PEOPLE = {
+    rosa: { name: 'Rosa', look: { sex: 'chica', skin: '#f6c9a0', hair: '#4a2c1c', eyes: '#6a3a1e', cloth: '#c83a3a', pants: '#4a3a2a', hairStyle: 'mono', outfit: 'delantal' } },
+    lia: { name: 'Lía', look: { sex: 'chica', skin: '#e8b07a', hair: '#e8c060', eyes: '#3a6ab8', cloth: '#2e8a8a', pants: '#3a4a6a', hairStyle: 'largo', outfit: 'chaleco' } },
+    bruno: { name: 'Bruno', look: { sex: 'chico', skin: '#8a5234', hair: '#2a1e1e', eyes: '#3a2a1e', cloth: '#4a4a5a', pants: '#3a3a3a', hairStyle: 'rapado', outfit: 'delantal', beard: true } },
+    dani: { name: 'Dani', look: { sex: 'chico', skin: '#c98a5a', hair: '#e86aa0', eyes: '#3a8a4a', cloth: '#6a4ab8', pants: '#2a2a3a', hairStyle: 'rizado', outfit: 'larga' } },
+  };
+
+  const scaled = (img, k, cls = '') => { const c = document.createElement('canvas'); c.width = img.width; c.height = img.height; c.getContext('2d').drawImage(img, 0, 0); c.style.width = img.width * k + 'px'; c.style.height = img.height * k + 'px'; if (cls) c.className = cls; return c; };
+  const col = (label, el) => { const d = document.createElement('div'); d.className = 'col'; d.append(el); d.append(label); return d; };
+  // Animación de paso (fotogramas 1 a 4)
+  const walker = (sprites, view, k) => {
+    const c = scaled(sprites[view][0], k), g = c.getContext('2d');
+    let f = 0;
+    setInterval(() => { f = (f + 1) % 4; g.clearRect(0, 0, c.width, c.height); g.drawImage(sprites[view][1 + f], 0, 0); }, 160);
+    return c;
+  };
+  const mirrored = img => { const c = document.createElement('canvas'); c.width = img.width; c.height = img.height; const g = c.getContext('2d'); g.translate(img.width, 0); g.scale(-1, 1); g.drawImage(img, 0, 0); return c; };
+
+  const cast = [
+    ['Tú (chica)', 'jugadora por defecto', OLD.DEFAULT_LOOK],
+    ['Tú (chico)', 'otro ejemplo', { sex: 'chico', hairStyle: 'pinchos', hair: '#7a4a2a', skin: '#f6c9a0', outfit: 'chaleco', cloth: '#4a9a4a', pants: '#3a3a4a', eyes: '#6a3a1e' }],
+    ['Nilo', 'el vecino de siempre', NILO_LOOK],
+    ...['rosa', 'lia', 'bruno', 'dani'].map(id => [PEOPLE[id].name, { rosa: 'tendera', lia: 'pescadora', bruno: 'herrero', dani: 'artista' }[id], PEOPLE[id].look]),
+    ['Mercader', 'de las aldeas lejanas', { sex: 'chica', skin: '#c98a5a', hair: '#f0e6c8', eyes: '#3a2a1e', cloth: '#b84a8a', pants: '#3a3a3a', hairStyle: 'largo', outfit: 'larga' }],
+  ];
+  for (const [name, role, look] of cast) {
+    const card = document.createElement('div'); card.className = 'card';
+    card.innerHTML = `<h3>${name} <small>· ${role}</small></h3>`;
+    const row = document.createElement('div'); row.className = 'row';
+    const o = OLD.personSprites(look), n = NEW.personSprites(look);
+    const old = document.createElement('div'); old.className = 'row old';
+    old.append(col('Ahora', scaled(o.front[0], 3)));
+    row.append(old);
+    row.append(Object.assign(document.createElement('div'), { className: 'sep' }));
+    row.append(col('De frente', scaled(n.front[0], 3)), col('De perfil', scaled(n.side[0], 3)), col('De espaldas', scaled(n.back[0], 3)), col('Andando', walker(n, 'front', 3)));
+    row.append(col('Retrato', scaled(NEW.portrait(look), 2.6, 'portrait')));
+    card.append(row);
+    document.getElementById('people').append(card);
+  }
+  // Peinados
+  const box = document.getElementById('styles');
+  for (const sex of ['chico', 'chica']) for (const [style, label] of NEW.LOOK_OPTIONS.hairStyle) {
+    const look = { ...OLD.DEFAULT_LOOK, sex, hairStyle: style, hair: '#7a4a2a', cloth: sex === 'chico' ? '#2e8a8a' : '#b84a8a' };
+    const d = document.createElement('div'); d.className = 'col';
+    const pair = document.createElement('div'); pair.className = 'row';
+    pair.append(scaled(NEW.paintPerson(look, 'front', 0), 2), scaled(NEW.portrait(look), 1.25, 'portrait'));
+    d.append(pair, label);
+    box.append(d);
+  }
+  // Tonos
+  const tones = document.getElementById('tones');
+  OLD.LOOK_OPTIONS.skin.slice(0, 8).forEach((skin, i) => {
+    const look = { ...OLD.DEFAULT_LOOK, sex: i % 2 ? 'chico' : 'chica', hairStyle: ['corto', 'largo', 'rizado', 'coleta'][i % 4], skin, hair: OLD.LOOK_OPTIONS.hair[(i * 3) % 12] };
+    tones.append(scaled(NEW.portrait(look), 1.5, 'portrait'));
+  });
+  // Diálogo de ejemplo
+  const dp = document.getElementById('dlg-portrait'), pimg = NEW.portrait(NILO_LOOK);
+  dp.width = 48; dp.height = 48; dp.getContext('2d').drawImage(pimg, 0, 0); dp.style.width = dp.style.height = '120px';
+</script>
+</body>
+</html>
