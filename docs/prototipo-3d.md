@@ -8,7 +8,7 @@ Prueba de cómo quedaría Pixelverse en 3D de verdad, con la cámara girando sua
 2. Arranca el servidor como siempre (`jugar.command`) y abre `http://localhost:8000/prototipo3d.html` (el puerto es el que diga la ventana del servidor).
 3. Para volver al juego normal: `git switch main`.
 
-Controles: `WASD` andar (`Shift` correr), `←` `→` girar la cámara (acelera y frena suave, 360° en unos 3 s), `↑` `↓` subirla hasta casi el plano cenital o bajarla a ras de suelo (también suave), rueda del ratón para el zoom, `E` abrir o cerrar la puerta que tengas cerca, `N` día o noche, `F` ver el rendimiento, `H` ocultar la ayuda. Con `?q=low` en la dirección va en calidad baja (sin suavizado de bordes y sombras de menos resolución); con `?noche`, empieza de noche.
+Controles: `WASD` andar (`Shift` correr), `←` `→` girar la cámara (acelera y frena suave, 360° en unos 3 s), `↑` `↓` subirla hasta casi el plano cenital o bajarla a ras de suelo (también suave), `+` y `−` (o la rueda del ratón) para acercar o alejar la cámara, `E` abrir o cerrar la puerta que tengas cerca, `N` día o noche, `F` ver el rendimiento, `H` ocultar la ayuda. Con `?q=low` en la dirección va en calidad baja (sin suavizado de bordes y sombras de menos resolución); con `?noche`, empieza de noche.
 
 ## Qué hay
 

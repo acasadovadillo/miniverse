@@ -1,6 +1,6 @@
 // Prototipo 3D de Pixelverse: Pueblo Brotes en 3D de verdad, con la cámara girando suave alrededor del
 // muñeco (flechas izquierda y derecha), inclinándose de ras de suelo a casi cenital (arriba y abajo), zoom
-// con la rueda, sol con sombras suaves, cielo con nubes, niebla y agua. La cámara no atraviesa el suelo y,
+// con + y − o con la rueda, sol con sombras suaves, cielo con nubes, niebla y agua. La cámara no atraviesa el suelo y,
 // si una casa se pone entre ella y el muñeco, sube lo justo para verlo por encima del tejado.
 // Dentro de una casa se quitan el tejado y las paredes que tapan la vista; fuera, si una casa tapa al
 // muñeco, este se ve en silueta (también detrás de los árboles).
@@ -174,21 +174,26 @@ const walkable = (x, z) => houseAt(x, z, 0.12) || heightAt(x, z) > WATER_Y + 0.0
 
 // ---------- Controles ----------
 const keys = new Set();
+// Zoom con + y − (también los del teclado numérico), mientras se mantienen: tecla → -1 acerca, 1 aleja
+const zoomKeys = new Map();
+const zoomOf = e => (e.key === '+' || e.key === '=' || e.code === 'NumpadAdd' ? -1 : e.key === '-' || e.key === '_' || e.code === 'NumpadSubtract' ? 1 : 0);
 addEventListener('keydown', e => {
   if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Space'].includes(e.code)) e.preventDefault();
   keys.add(e.code);
+  if (zoomOf(e) && !e.metaKey && !e.ctrlKey) { zoomKeys.set(e.code, zoomOf(e)); e.preventDefault(); }   // (Cmd/Ctrl + sigue siendo el zoom del navegador)
   if (e.repeat) return;
   if (e.code === 'KeyE') toggleNearestDoor();
   if (e.code === 'KeyN') night = !night;
   if (e.code === 'KeyF') $('stats').classList.toggle('hide');
   if (e.code === 'KeyH') $('help').classList.toggle('hide');
 });
-addEventListener('keyup', e => keys.delete(e.code));
-addEventListener('blur', () => keys.clear());
+addEventListener('keyup', e => { keys.delete(e.code); zoomKeys.delete(e.code); });
+addEventListener('blur', () => { keys.clear(); zoomKeys.clear(); });
 // yaw: giro alrededor del muñeco; pitch: inclinación (0 = a ras de suelo, π/2 = desde arriba); dist: zoom
 const PITCH = { min: 0.07, max: 1.5, start: 0.84 };
+const ZOOM = { min: 9, max: 48 };
 const cam = { yaw: Math.PI / 4, vel: 0, pitch: PITCH.start, pvel: 0, dist: 26, distGoal: 26, target: new THREE.Vector3() };
-addEventListener('wheel', e => { cam.distGoal = Math.max(9, Math.min(48, cam.distGoal * (1 + Math.sign(e.deltaY) * 0.1))); e.preventDefault(); }, { passive: false });
+addEventListener('wheel', e => { cam.distGoal = Math.max(ZOOM.min, Math.min(ZOOM.max, cam.distGoal * (1 + Math.sign(e.deltaY) * 0.1))); e.preventDefault(); }, { passive: false });
 addEventListener('resize', () => { renderer.setSize(innerWidth, innerHeight); camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); });
 let night = Q.get('noche') !== null;
 
@@ -291,6 +296,9 @@ function frame() {
   cam.pvel += (tilt * 0.75 - cam.pvel) * Math.min(1, dt * (tilt ? 5 : 7));
   cam.pitch += cam.pvel * dt;
   if (cam.pitch < PITCH.min || cam.pitch > PITCH.max) { cam.pitch = Math.max(PITCH.min, Math.min(PITCH.max, cam.pitch)); cam.pvel = 0; }
+  // Zoom con + y −: de punta a punta (9 a 48 m) en unos 2 s
+  const zoom = Math.sign([...zoomKeys.values()].reduce((a, b) => a + b, 0));
+  if (zoom) cam.distGoal = Math.max(ZOOM.min, Math.min(ZOOM.max, cam.distGoal * Math.exp(zoom * dt * 0.85)));
   cam.dist += (cam.distGoal - cam.dist) * Math.min(1, dt * 6);
   // Andar en la dirección de la pantalla
   fwd.set(-Math.sin(cam.yaw), 0, -Math.cos(cam.yaw)); right.set(Math.cos(cam.yaw), 0, -Math.sin(cam.yaw));
