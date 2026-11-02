@@ -46,7 +46,7 @@ La partida se guarda sola cada 15 segundos, al entrar o salir de una casa y al d
 | Diario (historia, vecinos, habilidades, granja, pesca, museo, logros) | J | Desde el menú ☰ |
 | Mapa (con él abierto: moverlo, acercarlo y volver a tu sitio) | M o clic en el minimapa (WASD, flechas o arrastrar; Shift, más rápido; + y − o rueda; ⌖) | Tocar el minimapa (arrastrar; botones + y −; ⌖) |
 | Pausa (guardar, diario, controles, ajustes) | Esc | Botón ☰ |
-| Chat y comandos (`/ayuda`, `/admin`) | T, o / para empezar con el comando | — |
+| Chat y comandos (`/ayuda`, `/admin`, `/time set 18:30`) | T, o / para empezar con el comando | — |
 | Girar la cámara (suave, mientras se mantiene) | Flecha izquierda / flecha derecha | — |
 | Subir o bajar la cámara (de casi cenital a ras de suelo) | Flecha arriba / flecha abajo | — |
 | Acercar o alejar la cámara | + / − (o Ctrl + rueda, o pellizcar el panel táctil) | — |
@@ -95,6 +95,7 @@ El juego es estático y se publica con GitHub Pages desde la rama `main` (carpet
 - **Crear la cuenta de admin (la primera vez).** Entra como *Alberto*, escribe tu contraseña dos veces y pega tu token de admin.
 - **Crear una cuenta.** Con la sesión de Alberto y `/admin` activado, escribe en el chat `/account create <usuario>`. Pega su token de guardado y pásale a esa persona el código de invitación que sale. La primera vez, ella escribe su usuario, el código y la contraseña que quiera (dos veces); entonces se crean su `<usuario>-key.json` y su `<usuario>-miniverse-data.enc` en Miniverse-data. La próxima vez que entres tú, su token pasa a `accounts.json` y ya solo necesita su contraseña, en cualquier dispositivo.
 - **Al día.** Mientras juegas, tu juego pasa a `accounts.json` cada pocos minutos las cuentas que ya tienen contraseña, así que no hace falta volver a entrar cuando alguien activa la suya.
+- **La hora.** `/time` dice qué hora es y `/time set HH:MM` pone esa hora del día de hoy (por ejemplo `/time set 18:30`, o `/time set noche`). Solo el admin; jugando juntos, los demás ven la hora nueva al momento.
 - **Otros comandos.** `/account list` muestra las cuentas. `/account reset <usuario>` le da un token y un código nuevos (si el token caduca o se pierde el código); conserva su contraseña y su partida. `/account delete <usuario>` borra la cuenta y su partida.
 - **Límites.** GitHub no deja limitar un token a un solo archivo, así que con su token un jugador podría borrar o cambiar archivos de otros en Miniverse-data. No podría leerlos, porque van cifrados, y el historial de git permite recuperarlos. La partida se sube a GitHub al guardar desde la pausa, al salir al menú y, mientras se juega, como mucho cada 3 minutos.
 

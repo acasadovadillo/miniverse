@@ -97,6 +97,11 @@ export class TimeSystem {
     this.flash = Math.max(0, this.flash - dt * 2.5);
   }
 
+  // Poner una hora del día de hoy (en horas, con decimales: 18.5 son las 18:30), con el comando /time set
+  setHour(hour) {
+    this.game.world.clock = (this.dayIndex + hour / 24 - START_HOUR / 24) * DAY_LEN;
+    this.update(0);
+  }
   // Avanzar hasta las 6 de la mañana siguiente
   skipToMorning() {
     const t = this.t, morning = (t % 1) < 6 / 24 ? Math.floor(t) + 6 / 24 : Math.floor(t) + 1 + 6 / 24;

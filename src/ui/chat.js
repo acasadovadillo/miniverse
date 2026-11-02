@@ -7,6 +7,9 @@ import { Profile } from '../accounts.js';
 
 const $ = id => document.getElementById(id);
 const FADE = 10000;   // milisegundos que un mensaje se queda a la vista con el chat cerrado
+// Horas con nombre para /time set (además de HH:MM)
+const NAMED_HOURS = { amanecer: 6, dia: 7, 'día': 7, mediodia: 12, 'mediodía': 12, tarde: 17, noche: 21, medianoche: 0 };
+const clockText = h => { const m = Math.round(h * 60) % 1440; return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`; };
 
 const COMMANDS = {
   admin: {
@@ -38,6 +41,24 @@ const COMMANDS = {
           for (const a of await Profile.list()) say(`${a.name}${a.admin ? ' (admin)' : ''}: ${a.pending ? 'esperando a que ponga su contraseña' : 'activa'}`, 'sys');
         } else say('Uso: /account create <usuario> · /account reset <usuario> · /account delete <usuario> · /account list', 'err');
       } catch (e) { say(e.message, 'err'); }
+    },
+  },
+  time: {
+    help: 'la hora: /time dice qué hora es; /time set HH:MM pone esa hora del día, por ejemplo /time set 18:30 (solo el admin)',
+    run(game, say, [sub = '', value = '']) {
+      const T = game.days;
+      if (!sub) { say(`Son las ${clockText(T.hour)}.`, 'sys'); return; }
+      if (sub.toLowerCase() !== 'set' || !value) { say('Uso: /time set HH:MM (por ejemplo, /time set 18:30)', 'err'); return; }
+      // (la hora es la del mundo, que lleva el anfitrión: jugando en el mundo de otro no se puede cambiar)
+      if (!Profile.admin || game.live.guest) { say('Solo el administrador puede cambiar la hora.', 'err'); return; }
+      const m = /^(\d{1,2})(?::(\d{2}))?$/.exec(value), named = NAMED_HOURS[value.toLowerCase()];
+      if (!m && named === undefined) { say('Escribe la hora así: /time set 18:30', 'err'); return; }
+      if (m && (+m[1] > 23 || +(m[2] || 0) > 59)) { say('Esa hora no existe: va de 00:00 a 23:59.', 'err'); return; }
+      const h = named ?? +m[1] + +(m[2] || 0) / 60;
+      T.setHour(h);
+      if (game.live.timers) game.live.timers.time = Infinity;   // (jugando juntos, que los demás la vean ya)
+      game.onSave?.();
+      say(`Ahora son las ${clockText(h)}.`, 'ok');
     },
   },
   ayuda: {
