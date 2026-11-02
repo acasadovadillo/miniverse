@@ -112,12 +112,13 @@ export class TimeSystem {
     g.busy = true;
     g.player.stop();
     await hud.fade(true);
-    this.skipToMorning();
+    const guest = g.live.guest;   // (en el mundo de otro, la hora la lleva su juego: se descansa, pero no pasa la noche)
+    if (!guest) this.skipToMorning();
     g.setEnergy(ENERGY_MAX);
     await new Promise(r => setTimeout(r, 700));
     await hud.fade(false);
     g.busy = false;
-    g.gather.float('Buenos días. Energía al máximo', '#a8f0a0');
+    g.gather.float(guest ? 'Has descansado. Energía al máximo' : 'Buenos días. Energía al máximo', '#a8f0a0');
     g.onSave?.();
   }
 

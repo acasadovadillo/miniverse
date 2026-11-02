@@ -78,7 +78,7 @@ export function initChat(game) {
     input.blur();
   }
   function send(text) {
-    if (!text.startsWith('/')) { say(`<${game.player?.name || 'Tú'}> ${text}`); return; }
+    if (!text.startsWith('/')) { say(`<${game.player?.name || 'Tú'}> ${text}`); game.live.chat(text); return; }   // (en directo, también a los demás)
     const [name = '', ...args] = text.slice(1).split(/\s+/), c = COMMANDS[name.toLowerCase()];
     if (c) c.run(game, say, args);
     else say(`No existe el comando /${name}. Escribe /ayuda para ver los que hay.`, 'err');

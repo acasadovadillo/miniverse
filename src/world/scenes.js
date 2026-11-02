@@ -62,6 +62,7 @@ export class Overworld {
     this.entities = [this.nilo];
     this.bounds = null;
     this.layers = [];             // otras capas de contenido por trozo (cultivos, lugares…): { add(cx, cy, delta, out), baseAt?(layer, tx, ty) }
+    this.onTouch = null;          // avisa de cada trozo que cambia (para jugar juntos en directo)
   }
 
   delta(cx, cy, create = false) {
@@ -72,7 +73,7 @@ export class Overworld {
     if (d && !d.floor) Object.assign(d, { floor: {}, roof: {}, chest: {} });
     return d;
   }
-  touch(cx, cy) { const d = this.delta(cx, cy); d.v++; this.dirty.add(`${cx},${cy}`); }
+  touch(cx, cy) { const d = this.delta(cx, cy), k = `${cx},${cy}`; d.v++; this.dirty.add(k); this.onTouch?.(k); }
   // Lo que ha puesto el jugador en una capa de una casilla (o undefined)
   ownAt(layer, tx, ty) { return this.delta(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK))?.[layer]?.[`${tx},${ty}`]; }
   // Lo fijo del pueblo y de las aldeas en una casilla
@@ -334,7 +335,7 @@ export class Overworld {
     return false;
   }
   chestAt(tx, ty) { return this.delta(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK))?.chest?.[`${tx},${ty}`]; }
-  chestTouched(tx, ty) { this.dirty.add(`${Math.floor(tx / CHUNK)},${Math.floor(ty / CHUNK)}`); }
+  chestTouched(tx, ty) { const k = `${Math.floor(tx / CHUNK)},${Math.floor(ty / CHUNK)}`; this.dirty.add(k); this.onTouch?.(k); }
   // ¿Está esta casilla bajo un tejado? (para ocultar el tejado cuando el jugador entra en casa)
   roofAt(tx, ty) { return !!this.at('roof', tx, ty); }
   // Lo colocado cerca de un punto (para usar estaciones y recoger muebles), lo más cercano primero

@@ -27,6 +27,7 @@ import { Combat } from './combat.js';
 import { Explore } from './explore.js';
 import { Stats, Skills, Collection, Achievements, Story } from './progress.js';
 import { Music } from './music.js';
+import { Live } from './live.js';
 import { keys, clearKeys } from './input.js';
 import { Audio } from './audio.js';
 import { hud } from './ui/hud.js';
@@ -87,6 +88,7 @@ export class Game {
     this.collection = this.addSystem(new Collection(this));
     this.achievements = this.addSystem(new Achievements(this));
     this.story = this.addSystem(new Story(this));
+    this.live = this.addSystem(new Live(this));   // jugar juntos en directo
     this.niloTips = NILO_TIPS;
     this.money = 0;
     this.buffs = {};             // efectos de comida: { rapido: hasta cuándo, incansable: … }
@@ -112,6 +114,7 @@ export class Game {
       save = { ...save, explored: [], found: [] };
     }
     this.world = new Overworld(WORLD_SEED, deltas);
+    this.world.onTouch = k => this.live.touched(k);
     if (moved) for (const k of deltas.keys()) this.world.dirty.add(k);   // que se guarde ya así
     this.world.clock = save.clock || 0;
     this.inv = new Inventory(save.inventory);
@@ -216,6 +219,7 @@ export class Game {
     document.body.classList.toggle('underground', sc?.kind === 'grid');
   }
   end() {
+    this.live.left();
     this.player = null;
     this.scene = null;
     this.mode = 'menu';
@@ -465,10 +469,11 @@ export class Game {
 
   update(dt) {
     this.time += dt;
+    this.live.tick(dt);
     const p = this.player;
     if (p && this.mode === 'map') { this.map.update(keys, dt); return; }
     if (!p || this.mode !== 'play') return;
-    this.world.clock += dt;
+    if (!this.live.guest) this.world.clock += dt;   // (jugando en el mundo de otro, la hora la lleva él)
     this.gather.update(dt);
     this.hook('update', dt);
     if (keys.use && !this.busy && !this.build.on) this.gather.use(true);

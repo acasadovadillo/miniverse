@@ -63,6 +63,7 @@ export class Farm {
 
   // Cada mañana: crecen los cultivos regados, los de fuera de temporada se secan, la lluvia y los aspersores riegan
   onDay(day) {
+    if (this.game.live.guest) return;   // (en el mundo de otro, los cultivos los hace crecer su juego)
     const w = this.world, season = this.game.days.season, rain = !!this.game.days.info.rain;
     for (const [ck, d] of w.deltas) {
       if (!d.crops && !d.placed) continue;

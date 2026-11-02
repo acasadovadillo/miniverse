@@ -2,7 +2,8 @@
 // animales del rancho (gallinas, vacas y ovejas), los monstruos de las cuevas (limos, murciélagos y
 // esqueletos), el caballo y la barca. Cada entidad del juego tiene su modelo, que se crea al verla por
 // primera vez y se quita cuando deja de estar. Miran hacia donde van, andan y respiran; el jugador lleva en
-// la mano la herramienta elegida y la balancea al golpear.
+// la mano la herramienta elegida y la balancea al golpear. Los demás jugadores (en directo) son como él,
+// con su nombre encima.
 import * as THREE from 'three';
 import { Person3D, mesh, mergeInto, G, M } from './people.js';
 import { mat } from './geo.js';
@@ -35,9 +36,9 @@ export class Actors {
       if (!e || seen.has(e)) continue;
       seen.add(e);
       let m = this.models.get(e);
-      // (el jugador, con la ropa que lleva: si se pone o se quita algo, se rehace su muñeco)
+      // (el jugador y los demás jugadores, con la ropa que llevan: si se ponen o se quitan algo, se rehace su muñeco)
       const look = e === p ? game.appearance() : e.look;
-      if (m && e === p && m.look !== look) { this.group.remove(m.root); this.models.delete(e); this.player = null; m = null; }
+      if (m && (e === p || e.remote) && m.look !== look) { this.group.remove(m.root); this.models.delete(e); if (m === this.player) this.player = null; m = null; }
       if (!m) { m = this.make(e, e === p, look); if (!m) continue; m.look = look; this.models.set(e, m); this.group.add(m.root); }
       this.pose(m, e, scene, dt, t, e === p ? game : null);
     }
@@ -56,15 +57,19 @@ export class Actors {
       const root = new THREE.Group();
       root.add(person.root);
       const m = { kind: 'person', root, person, prev: null, speed: 0 };
-      if (isPlayer) {
-        // El jugador tiene sus propios materiales (para dibujar su silueta) y va en la capa 2
-        m.mats = []; m.body = [];
-        person.root.traverse(o => { if (o.isMesh) { o.material = o.material.clone(); m.mats.push(o.material); m.body.push(o.material); o.layers.set(2); } });
+      if (isPlayer || e.remote) {
+        // Con algo en la mano, caballo y barca (el jugador, además, con sus propios materiales para dibujar
+        // su silueta, y en la capa 2; los demás jugadores, con su nombre encima)
         m.hand = new THREE.Group();
         m.hand.position.set(0.03, -0.27, 0.02);
         person.arms[1].add(m.hand);
         m.horse = horseModel(); m.horse.visible = false; root.add(m.horse);
         m.boat = boatModel(); m.boat.visible = false; root.add(m.boat);
+        if (e.remote) root.add(nameTag(e.name));
+      }
+      if (isPlayer) {
+        m.mats = []; m.body = [];
+        person.root.traverse(o => { if (o.isMesh) { o.material = o.material.clone(); m.mats.push(o.material); m.body.push(o.material); o.layers.set(2); } });
         for (const o of [m.horse, m.boat]) o.traverse(q => { if (q.isMesh) { q.material = q.material.clone(); m.mats.push(q.material); q.layers.set(2); } });
         this.player = m;
       }
@@ -82,12 +87,12 @@ export class Actors {
     m.prev = [x, z];
     const v = dt > 0 ? Math.min(8, d / dt) : 0;
     m.speed += (v - m.speed) * Math.min(1, dt * 10);
-    const yaw = facing(e);
+    const yaw = e.yaw ?? facing(e);
     let y = view.groundY(scene, x, z);
     if (m.kind === 'person') {
       const P = m.person;
       if (yaw !== null) P.facing = yaw;
-      if (game) {
+      if (m.boat) {
         // Barca y caballo
         m.boat.visible = !!e.boat; m.horse.visible = !!e.mount;
         if (e.boat) {
@@ -103,7 +108,9 @@ export class Actors {
         y += e.z;
         if (!e.mount) { const k = Math.min(1, e.z / 0.25); P.legs[0].rotation.x = -0.7 * k; P.legs[1].rotation.x = 0.35 * k; }
       }
-      if (game) this.hold(m, game, dt);   // (después de andar: el golpe manda sobre el balanceo del brazo)
+      // (después de andar: el golpe manda sobre el balanceo del brazo)
+      if (game) this.hold(m, { held: game.inv.held?.id || null, swing: game.gather.swing, swingItem: game.gather.swingItem, cooldown: game.gather.cooldown }, dt);
+      else if (e.remote) this.hold(m, e, dt);
       if (e.mount || e.boat) { P.legs[0].rotation.x = P.legs[1].rotation.x = e.mount ? -1.1 : -1.4; P.legs[0].rotation.z = 0.5; P.legs[1].rotation.z = -0.5; }
       else P.legs[0].rotation.z = P.legs[1].rotation.z = 0;
     } else if (m.kind === 'animal') {
@@ -119,11 +126,12 @@ export class Actors {
     m.root.position.set(x, y, z);
   }
 
-  // La herramienta (o el arma) en la mano del jugador, y el gesto al usarla. Cada golpe nuevo (el temporizador
-  // swing de la recolección vuelve a subir) empieza una animación de su herramienta, que dura como mucho lo
-  // que tarda en poder volver a golpear (así, con el clic pulsado, los golpes se encadenan).
-  hold(m, game, dt) {
-    const g = game.gather, id = game.inv.held?.id || null, P = m.person;
+  // La herramienta (o el arma) en la mano, y el gesto al usarla. Cada golpe nuevo (el temporizador swing de
+  // la recolección vuelve a subir; en los demás jugadores, su cuenta de golpes) empieza una animación de su
+  // herramienta, que dura como mucho lo que tarda en poder volver a golpear (así, con el clic pulsado, los
+  // golpes se encadenan). g: { held, swing, swingItem, cooldown }
+  hold(m, g, dt) {
+    const id = g.held, P = m.person;
     if (g.swing > (m.lastSwing || 0) + 1e-4) {
       const kind = gestureOf(g.swingItem), base = GESTURES[kind].dur;
       m.anim = { t: 0, item: g.swingItem, kind, dur: g.cooldown > 0 ? Math.max(0.22, Math.min(base, g.cooldown)) : base };
@@ -133,7 +141,8 @@ export class Actors {
     if (m.holding !== show) {
       m.hand.clear();
       const tool = show && toolModel(show);
-      if (tool) { tool.traverse(o => { if (o.isMesh) { o.material = o.material.clone(); m.mats.push(o.material); m.body.push(o.material); o.layers.set(2); } }); m.hand.add(tool); }
+      if (tool && m.mats) tool.traverse(o => { if (o.isMesh) { o.material = o.material.clone(); m.mats.push(o.material); m.body.push(o.material); o.layers.set(2); } });
+      if (tool) m.hand.add(tool);
       m.holding = show;
     }
     const arm = P.arms[1];
@@ -177,6 +186,25 @@ function keys(list, k) {
     if (k <= k1) { const [k0, v0] = list[i - 1], t = (k - k0) / (k1 - k0 || 1); return v0 + (v1 - v0) * t * t * (3 - 2 * t); }
   }
   return list[list.length - 1][1];
+}
+
+// El nombre encima de la cabeza (de los demás jugadores): se ve siempre, también a través de las paredes
+function nameTag(name) {
+  const c = document.createElement('canvas'), x = c.getContext('2d'), font = '600 30px "Pixelify Sans", sans-serif';
+  x.font = font;
+  const w = Math.ceil(x.measureText(name).width) + 26;
+  c.width = w; c.height = 46;
+  x.fillStyle = 'rgba(30, 20, 14, 0.72)';
+  x.beginPath(); x.roundRect(0, 0, w, 46, 12); x.fill();
+  x.font = font; x.fillStyle = '#ffe7b0'; x.textAlign = 'center'; x.textBaseline = 'middle';
+  x.fillText(name, w / 2, 24);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: t, transparent: true, depthTest: false }));
+  s.scale.set(0.3 * w / 46, 0.3, 1);
+  s.position.y = 1.8;
+  s.renderOrder = 10;
+  return s;
 }
 
 // Hacia dónde mira una entidad (ángulo en el plano), o null si no se sabe

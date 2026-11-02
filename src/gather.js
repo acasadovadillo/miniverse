@@ -98,9 +98,9 @@ export class Gathering {
       if (d.z > 0 || d.vz > 0) { d.vz -= 160 * dt; d.z = Math.max(0, d.z + d.vz * dt); if (d.z === 0) d.vz = d.vz < -25 ? -d.vz * 0.35 : 0; }
       if (!p || d.scene !== g.scene) continue;
       const dx = p.x - d.x, dy = p.y - d.y, dist = Math.hypot(dx, dy);
-      if (d.t > 0.45 && dist < 1.8) {
+      if (d.t > 0.45 && dist < 1.8 && g.live.mayTake(d)) {
         if (dist < 0.35) {
-          if (g.inv.add(d.id, 1, d.extra) === 0) { this.drops.splice(i, 1); this.collected(d.id); }
+          if (g.inv.add(d.id, 1, d.extra) === 0) { this.drops.splice(i, 1); this.collected(d.id); g.live.taken(d); }
           continue;
         }
         const sp = Math.min(dist, 7 * dt);
@@ -216,7 +216,7 @@ export class Gathering {
       }
       const n = min + Math.floor(Math.random() * (max - min + 1));
       for (let i = 0; i < n; i++) {
-        this.drops.push({ id, x: o.x + (Math.random() - 0.5) * 0.9, y: o.y + (Math.random() - 0.5) * 0.9, z: 4, vz: 50 + Math.random() * 40, t: 0, scene: this.game.scene });
+        this.addDrop({ id, x: o.x + (Math.random() - 0.5) * 0.9, y: o.y + (Math.random() - 0.5) * 0.9, z: 4, vz: 50 + Math.random() * 40, t: 0, scene: this.game.scene });
       }
     }
   }
@@ -257,9 +257,11 @@ export class Gathering {
   throwOut(id, n, extra) {
     const p = this.game.player;
     if (!p) return false;
-    for (let i = 0; i < n; i++) this.drops.push({ id, extra, x: p.x + p.face.x * 1.2 + (Math.random() - 0.5) * 0.4, y: p.y + p.face.y * 1.2 + (Math.random() - 0.5) * 0.4, z: 6, vz: 40, t: -1.5, scene: this.game.scene });
+    for (let i = 0; i < n; i++) this.addDrop({ id, extra, x: p.x + p.face.x * 1.2 + (Math.random() - 0.5) * 0.4, y: p.y + p.face.y * 1.2 + (Math.random() - 0.5) * 0.4, z: 6, vz: 40, t: -1.5, scene: this.game.scene });
     return true;
   }
+  // Un objeto más en el suelo (jugando juntos, lo ven todos)
+  addDrop(d) { this.drops.push(d); this.game.live.dropped(d); }
 
 
 

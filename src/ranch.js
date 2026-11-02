@@ -54,6 +54,13 @@ export class Ranch {
   get world() { return this.game.world; }
   get today() { return this.game.days.dayIndex; }
   reset(save) { this.animals = (save.animals || []).map(a => new Animal(a)); }
+  // Jugando juntos en directo, como los tiene el anfitrión (sin dónde están: eso llega aparte)
+  share(list) {
+    this.animals = list.map((s, i) => {
+      const a = this.animals[i];
+      return a && a.name === s.name && a.type === s.type ? Object.assign(a, s) : new Animal({ ...s, x: s.home[0] + 0.5, y: s.home[1] + 1.5 });
+    });
+  }
   save(out) { out.animals = this.animals.map(a => a.toSave()); }
 
   // Casetas colocadas en el mundo de un tipo, con su sitio libre
@@ -80,7 +87,7 @@ export class Ranch {
 
   update(dt) {
     const p = this.game.player;
-    if (this.game.scene !== this.world) return;
+    if (this.game.scene !== this.world || this.game.live.guest) return;   // (en el mundo de otro, pasean donde dice su juego)
     for (const a of this.animals) if (Math.abs(a.x - p.x) + Math.abs(a.y - p.y) < 60) a.update(dt, this.world);
   }
   entities(scene) {
@@ -91,6 +98,7 @@ export class Ranch {
 
   // Cada mañana: comen (del comedero o pastando), dan su producto y, si nadie les hace caso, se ponen tristes
   onDay(day) {
+    if (this.game.live.guest) return;   // (en el mundo de otro, de los animales se ocupa su juego)
     const winter = this.game.days.season === 3;
     for (const a of this.animals) {
       const fed = !winter || this.eatFromFeeder(a);
@@ -105,7 +113,7 @@ export class Ranch {
     for (const [, d] of this.world.deltas) {
       for (const [k, n] of Object.entries(d.feed || {})) {
         const [tx, ty] = k.split(',').map(Number);
-        if (n > 0 && Math.hypot(tx - a.home[0], ty - a.home[1]) < 12) { d.feed[k]--; return true; }
+        if (n > 0 && Math.hypot(tx - a.home[0], ty - a.home[1]) < 12) { d.feed[k]--; this.world.chestTouched(tx, ty); return true; }
       }
     }
     return false;

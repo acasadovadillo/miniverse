@@ -79,8 +79,20 @@ El juego es estático y se publica con GitHub Pages desde la rama `main` (carpet
 - **Tokens.** Cada cuenta tiene su *token de guardado*: un token de GitHub de grano fino con acceso solo a Miniverse-data y permiso *Contents: Read and write*. El token va cifrado en `accounts.json` con la contraseña de su jugador (o con su código de invitación, hasta que la pone). El de Alberto, *token de admin*, tiene además acceso a este repositorio para reescribir `accounts.json`.
 - **Crear la cuenta de admin (la primera vez).** Entra como *Alberto*, escribe tu contraseña dos veces y pega tu token de admin.
 - **Crear una cuenta.** Con la sesión de Alberto y `/admin` activado, escribe en el chat `/account create <usuario>`. Pega su token de guardado y pásale a esa persona el código de invitación que sale. La primera vez, ella escribe su usuario, el código y la contraseña que quiera (dos veces); entonces se crean su `<usuario>-key.json` y su `<usuario>-miniverse-data.enc` en Miniverse-data. La próxima vez que entres tú, su token pasa a `accounts.json` y ya solo necesita su contraseña, en cualquier dispositivo.
+- **Al día.** Mientras juegas, tu juego pasa a `accounts.json` cada pocos minutos las cuentas que ya tienen contraseña, así que no hace falta volver a entrar cuando alguien activa la suya.
 - **Otros comandos.** `/account list` muestra las cuentas. `/account reset <usuario>` le da un token y un código nuevos (si el token caduca o se pierde el código); conserva su contraseña y su partida. `/account delete <usuario>` borra la cuenta y su partida.
 - **Límites.** GitHub no deja limitar un token a un solo archivo, así que con su token un jugador podría borrar o cambiar archivos de otros en Miniverse-data. No podría leerlos, porque van cifrados, y el historial de git permite recuperarlos. La partida se sube a GitHub al guardar desde la pausa, al salir al menú y, mientras se juega, como mucho cada 3 minutos. *Exportar partida* descarga el archivo cifrado; *Importar partida* acepta el de tu cuenta o una partida sin cifrar de las versiones de antes.
+
+### Jugar juntos en directo
+
+- **Abrir el servidor.** En tu Mac, desde esta carpeta: `python3 multijugador.py`. La primera vez instala el túnel con `brew install cloudflared`. El programa abre un túnel (una dirección `https://….trycloudflare.com` que cambia cada vez, gratis y sin cuenta) y abre el juego ya conectado. Entra con tu cuenta: tu juego publica la dirección en `servidor.json`, en Miniverse-data. Para cerrarlo, Ctrl+C.
+- **Entrar los demás.** Desde la web de siempre: al iniciar sesión, el menú dice si estás jugando y muestra *Jugar con Alberto*. Entran en tu mundo con su propio personaje. *Continuar* sigue jugando en su mundo, sin los demás.
+- **Qué es de todos.** Tu mundo con todo lo construido: lo que se tala, se pica, se construye o se quita, el huerto, las puertas y los cofres cambia en directo para todos. También son de todos la hora y el tiempo, la casa, los proyectos y los encargos del tablón, el museo y los animales. Lo que se tira al suelo lo puede recoger otro (así se dan cosas: lo que uno tira, los primeros segundos es solo para los demás).
+- **Qué es de cada uno.** El personaje y su ropa, lo que lleva encima, el dinero, la energía y la vida, las habilidades, los logros, la amistad con los vecinos y el mapa descubierto. Se guarda en la partida de cada uno, que conserva aparte su mundo de siempre; la próxima vez vuelve a aparecer donde se quedó en el tuyo.
+- **Lo que lleva tu juego.** El mundo se guarda en tu partida, como siempre. Tu juego hace pasar la hora y crecer los cultivos, se ocupa de los animales y reparte los cambios: si dos tocan lo mismo a la vez (el mismo cofre, por ejemplo), se queda lo último que llega a tu juego. Los demás pueden dormir para recuperar energía, pero la noche solo la pasa tu juego. Si sales al menú o cierras el servidor, los demás vuelven a su menú con lo suyo guardado.
+- **Qué se ve.** A los demás jugadores con su ropa y su nombre encima: cómo andan, saltan, montan a caballo o van en barca, y lo que llevan en la mano y cuándo lo usan. El chat llega a todos. Juntos solo en el mundo de fuera: en las cuevas cada uno va por su cuenta.
+- **Cifrado.** Los mensajes van cifrados con la *clave del mundo*, que solo tienen las cuentas: el servidor y el túnel solo ven datos sin sentido. Cada cuenta tiene un par de claves ECDH en `<usuario>-claves.json` (la privada, cifrada con su contraseña); tu juego le da la clave del mundo a cada cuenta cifrada con el secreto que solo compartís los dos. Se la da al entrar, cada pocos minutos mientras juegas y en cuanto la pide al conectarse.
+- **Para probar en un solo ordenador:** `python3 multijugador.py --sin-tunel` y abre el juego con `?servidor=ws://localhost:8790`.
 
 ## Cómo está hecho
 
@@ -98,6 +110,7 @@ El juego es estático y se publica con GitHub Pages desde la rama `main` (carpet
 index.html             Página, estilos e interfaz
 jugar.command          Lanzador para Mac
 servidor.py            Servidor local sin caché
+multijugador.py        Servidor para jugar juntos en directo (repetidor WebSocket y túnel)
 src/main.js            Punto de entrada
 src/game.js            Núcleo: estado, bucle, interacciones y sistemas
 src/camera.js          Estado de la cámara (giro, inclinación y distancia)
@@ -126,6 +139,7 @@ src/settings.js        Ajustes
 src/share.js           Exportar, importar y visitar
 src/audio.js           Sonidos
 src/accounts.js        Cuentas: entrar, invitaciones, /account y guardar la partida cifrada
+src/live.js, livesync.js, net.js, worldkey.js   Jugar juntos en directo: los demás jugadores, el mundo compartido, la conexión cifrada y la clave del mundo
 src/vault.js, github.js  Cifrado (AES-GCM, PBKDF2) y archivos en GitHub (accounts.json, Miniverse-data)
 src/db.js, save.js, worldstore.js   IndexedDB (la partida cifrada de cada cuenta y las partidas de versiones anteriores)
 src/util.js, iso.js, physics.js                   Utilidades, proyección y colisiones

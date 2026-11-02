@@ -11,13 +11,19 @@
 //
 // La partida va cifrada en este ordenador (IndexedDB) y en GitHub, y al entrar se usa la más reciente.
 // Descifrada solo está en memoria, mientras dura la sesión.
+//
+// Para jugar juntos en directo, cada cuenta tiene además la clave del mundo compartido (ver worldkey.js) y el
+// admin publica en servidor.json, en el repositorio privado, la dirección de su servidor cuando lo abre.
 import { db } from './db.js';
 import { gameData } from './share.js';
 import { GAME_REPO, DATA_REPO, readAccounts, getFile, putFile, deleteFile, canWrite } from './github.js';
 import { dataFile, keyFile, toB64, fromB64, newSalt, deriveKey, encryptText, decryptText, seal, unseal, inviteCode, normalizeCode, isVault } from './vault.js';
+import { WorldKey, keysFile } from './worldkey.js';
 
 export const ADMIN_ID = 'alberto';
 const UPLOAD_EVERY = 3 * 60 * 1000;   // como mucho, una subida automática a GitHub cada 3 minutos
+const CHORES_EVERY = 3 * 60 * 1000;   // el admin pone al día las cuentas cada tantos minutos mientras juega
+const LIVE_FILE = 'servidor.json';
 const NAME_RE = /^[\p{L}\p{N}_-]{3,16}$/u;
 const idOf = name => name.trim().toLowerCase();
 const text = bytes => new TextDecoder().decode(bytes);
@@ -30,6 +36,7 @@ let book = null, bookSha;   // accounts.json y su sha (para reescribirlo)
 let me = null;              // la cuenta con la sesión iniciada: { id, name, admin, key, salt, token }
 let data = null;            // su partida descifrada
 let remoteSha, lastUpload = 0, changed = false, queue = Promise.resolve();
+let worldKey = Promise.resolve(null), chores = null;   // la clave del mundo compartido (se va abriendo) y las tareas del admin
 
 async function loadBook(token) {
   const r = await readAccounts(token);
@@ -59,7 +66,11 @@ async function begin(account, seed = null) {
   data = [rData, lData, seed].filter(Boolean).sort((a, b) => timeOf(b) - timeOf(a))[0] || emptyData();
   changed = false;
   await Profile.persist({ upload: !rData || timeOf(data) > timeOf(rData) });
-  if (me.admin) Profile.syncAccounts().catch(() => {});
+  // La clave del mundo compartido. El admin, además, pone al día las cuentas (pasa a accounts.json las que ya
+  // tienen contraseña y da la clave del mundo a quien no la tenga) al entrar y cada pocos minutos
+  worldKey = WorldKey.open(me).catch(e => { console.warn('Clave del mundo:', e); return null; });
+  clearInterval(chores);
+  if (me.admin) { const run = () => Profile.chores().catch(() => {}); run(); chores = setInterval(run, CHORES_EVERY); }
 }
 
 export const Profile = {
@@ -133,7 +144,7 @@ export const Profile = {
     return null;
   },
 
-  logout() { me = null; data = null; },
+  logout() { me = null; data = null; clearInterval(chores); WorldKey.forget(); worldKey = Promise.resolve(null); },
 
   // Guarda la partida: cifrada en este ordenador siempre y en GitHub si se pide (o si hace rato de la última)
   store(save, deltas, { upload = false, keepTime = false } = {}) {
@@ -192,6 +203,7 @@ export const Profile = {
     await writeBook(`Cuenta borrada: ${acc.name}`);
     await deleteFile(me.token, DATA_REPO, dataFile(id));
     await deleteFile(me.token, DATA_REPO, keyFile(id));
+    await deleteFile(me.token, DATA_REPO, keysFile(id));
     return acc.name;
   },
   async list() {
@@ -213,5 +225,32 @@ export const Profile = {
       acc.salt = info.salt; acc.token = info.token; delete acc.invite; n++;
     }
     if (n) await writeBook(n === 1 ? 'Una cuenta activada' : `${n} cuentas activadas`);
+  },
+  async chores() {
+    await this.syncAccounts();
+    await worldKey;
+    for (const id of Object.keys(book.accounts)) await WorldKey.grant(me, id).catch(() => false);
+  },
+
+  // ---------- Jugar juntos en directo ----------
+  // La clave del mundo compartido (AES-GCM), o null si el admin todavía no te la ha dado
+  worldKey() { return worldKey; },
+  // Vuelve a abrirla (cuando el admin acaba de dártela)
+  reopenWorldKey() { if (me) worldKey = WorldKey.open(me).catch(() => null); return worldKey; },
+  // El servidor en directo que ha publicado el admin: { url, host, since } o null
+  async liveServer() {
+    const f = me && await getFile(me.token, DATA_REPO, LIVE_FILE).catch(() => null);
+    const v = f && JSON.parse(text(f.bytes));
+    return v?.url ? v : null;
+  },
+  // Solo el admin: publica la dirección de su servidor (o, con null, que está cerrado)
+  async announce(url) {
+    if (me?.admin) await putFile(me.token, DATA_REPO, LIVE_FILE, bytesOf({ url, host: me.id, since: Date.now() }), url ? 'Servidor en directo abierto' : 'Servidor en directo cerrado');
+  },
+  // Solo el admin: da la clave del mundo a una cuenta (cuando la pide al conectarse)
+  async grant(id) {
+    if (!me?.admin) return false;
+    await worldKey;
+    return WorldKey.grant(me, idOf(id));
   },
 };

@@ -325,6 +325,11 @@
   .btn.primary { color: #2a180c; background: #f0c25a; border: 0; box-shadow: inset 0 -3px 0 #b88a2a, 0 3px 0 #2a180c; }
   .btn:disabled { opacity: .45; cursor: default; }
   .who { color: var(--dim); margin: -6px 0 14px; }
+  /* Jugar juntos en directo (en el menú) */
+  #m-live { margin: -4px 0 12px; padding: 8px 10px; border: 2px solid #4a8a4a; border-radius: 6px; background: rgba(40, 70, 36, .35); }
+  #m-live p { margin: 0; color: var(--cream); font-size: 15px; line-height: 1.35; }
+  #m-live p::before { content: '● '; color: #7ad87a; }
+  #m-live .btn { margin: 8px 0 0; }
 
   #s-creator .box { width: min(820px, 100%); }
   .cr { display: grid; grid-template-columns: 250px 1fr; gap: 22px; align-items: start; }
@@ -417,6 +422,7 @@
     <div class="box panel">
       <h2 id="menu-hello">¡Hola!</h2>
       <p class="who" id="menu-save"></p>
+      <div id="m-live" hidden><p id="m-live-msg"></p><button class="btn primary" id="m-join">Jugar juntos</button></div>
       <button class="btn primary" id="m-continue">Continuar</button>
       <button class="btn" id="m-new">Nueva partida</button>
       <div class="m-row"><button class="btn" id="m-export">Exportar partida</button><button class="btn" id="m-import">Importar partida</button></div>

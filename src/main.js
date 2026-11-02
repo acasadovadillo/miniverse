@@ -12,6 +12,7 @@ const game = new Game(document.getElementById('c'));
 const menus = initMenus(game);
 initBuildBar(game);
 const chat = initChat(game);
+game.live.say = (text, kind) => chat.say(text, kind);
 const b = game.build;
 initInput({
   chat: prefix => chat.open(prefix),

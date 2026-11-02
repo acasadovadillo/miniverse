@@ -31,6 +31,16 @@ export class Board {
     this.world.rebuildVillage();
   }
   save(out) { out.projects = this.projects; out.boardDone = this.done; }
+  // Jugando juntos en directo, como los tiene el anfitrión (y si se ha terminado un proyecto, el pueblo crece)
+  share(v) {
+    const had = JSON.stringify(this.projects), casa = this.projects.casa;
+    this.projects = v.projects || {};
+    this.done = v.done || { day: -1, ids: [] };
+    if (JSON.stringify(this.projects) === had) return;
+    setProjects(this.projects);
+    this.world.rebuildVillage();
+    if (this.projects.casa && !casa) this.game.neighbors.moveIn('dani');
+  }
 
   // Encargos del día (siempre los mismos para un día y una semilla)
   requests() {
