@@ -28,6 +28,7 @@ import { Explore } from './explore.js';
 import { Stats, Skills, Collection, Achievements, Story } from './progress.js';
 import { Music } from './music.js';
 import { Live } from './live.js';
+import { Settings } from './settings.js';
 import { keys, clearKeys } from './input.js';
 import { Audio } from './audio.js';
 import { hud } from './ui/hud.js';
@@ -168,7 +169,7 @@ export class Game {
       seed: this.world.seed, player, explored: [...this.explored],
       inventory: this.inv.toSave(), energy: Math.round(this.energy), clock: Math.round(this.world.clock),
       ...this.craft.toSave(), house: { big: this.house.big, built: true, v: 3 }, money: this.money,
-      admin: this.admin, cam3d: camToSave(),
+      admin: this.admin, cam3d: camToSave(), volumes: Settings.volumes(),
     };
     this.hook('save', out);
     return out;

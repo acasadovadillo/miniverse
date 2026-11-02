@@ -5,6 +5,7 @@ const $ = id => document.getElementById(id);
 
 export function initSettingsUI({ onClose }) {
   const box = $('st-body');
+  // (se rehace al abrirse: al entrar con tu cuenta, los volúmenes pasan a ser los tuyos)
   const slider = (key, label) => {
     const row = document.createElement('label');
     row.className = 'st-row';
@@ -34,13 +35,17 @@ export function initSettingsUI({ onClose }) {
     paint();
     box.append(row);
   };
-  slider('master', 'Volumen general');
-  check('musicOn', 'Música');
-  slider('music', 'Volumen de la música');
-  slider('sfx', 'Volumen de los efectos');
-  choice('scale', 'Resolución', [['auto', 'Auto'], [1, 'Máxima'], [2, 'Alta'], [3, 'Media'], [4, 'Baja']]);
-  check('bigText', 'Texto más grande');
-  check('noFlash', 'Reducir destellos (rayos de las tormentas)');
+  function build() {
+    box.replaceChildren();
+    slider('master', 'Volumen general');
+    check('musicOn', 'Música');
+    slider('music', 'Volumen de la música');
+    slider('sfx', 'Volumen de los efectos');
+    choice('scale', 'Resolución', [['auto', 'Auto'], [1, 'Máxima'], [2, 'Alta'], [3, 'Media'], [4, 'Baja']]);
+    check('bigText', 'Texto más grande');
+    check('noFlash', 'Reducir destellos (rayos de las tormentas)');
+  }
+  build();
   $('st-close').onclick = () => onClose();
-  return {};
+  return { refresh: build };
 }

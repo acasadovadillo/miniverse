@@ -65,7 +65,7 @@ La partida se guarda sola cada 15 segundos, al entrar o salir de una casa y al d
 - **Aventura**: cuevas con niveles infinitos (vetas, gemas, fósiles, criaturas), templos con puzles (palanca, llave y bloque sobre placa), combate ligero con corazones, barca y caballo, y una historia ligera hasta el faro del confín.
 - **Inventario realista**: sin mochila solo llevas lo que cabe en las manos y los bolsillos (las 9 casillas de la barra). La mochila (a mano, con fibra y cuerda) se lleva a la espalda y desbloquea 27 casillas más; para quitártela tiene que estar vacía. La ropa son objetos que te pones y te quitas, cada uno en su hueco del cuerpo (cabeza, torso, encima, piernas, pies, ropa interior de arriba y de abajo, calcetines y espalda), y el personaje se ve con lo que lleva: camisa, túnica corta o larga, chaleco, delantal, pantalón, falda, botas, camiseta interior, calzoncillos o bragas, calcetines, sombrero de paja y gorro de lana. Sin nada, es un muñeco liso. La ropa se teje en el telar (el sombrero, a mano).
 - **Progreso**: ocho habilidades que suben con el uso, museo con 33 piezas (minerales, fósiles, peces e insectos), 20 logros y estadísticas.
-- **Ajustes**: volúmenes, música generada, resolución (automática o fija), texto grande y reducir destellos. Los controles están en su propia sección de la pausa.
+- **Ajustes**: volúmenes, música generada, resolución (automática o fija), texto grande y reducir destellos. Los volúmenes se guardan en la partida de cada cuenta y se usan al entrar, en cualquier ordenador; lo demás es de cada dispositivo. Los controles están en su propia sección de la pausa.
 
 ## Publicación
 

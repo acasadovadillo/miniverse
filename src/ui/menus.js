@@ -12,6 +12,7 @@ import { initChestUI } from './chest.js';
 import { initShopUI } from './shop.js';
 import { initJournalUI } from './journal.js';
 import { initSettingsUI } from './settings.js';
+import { Settings } from '../settings.js';
 
 const $ = id => document.getElementById(id);
 const SCREENS = ['s-login', 's-menu', 's-account', 's-creator', 's-pause', 's-map', 's-inv', 's-craft', 's-chest', 's-shop', 's-journal', 's-settings', 's-controls'];
@@ -62,6 +63,7 @@ export function initMenus(game) {
         : step === 'setup' ? await Profile.setup(pass, $('lg-pass2').value, $('lg-token').value)
         : await Profile.login(user, pass);
       if (err) return say(err);
+      Settings.useVolumes(Profile.data?.save?.volumes);   // (los volúmenes de tu partida)
       openMenu();
     } catch (err) { say(err.message); } finally { $('lg-submit').disabled = false; }
   });
@@ -409,8 +411,18 @@ export function initMenus(game) {
   $('ct-close').onclick = () => show('s-pause');
   // Ajustes: desde la pausa o desde el menú principal (vuelve a donde estaba)
   let settingsBack = null;
-  initSettingsUI({ onClose: () => { const back = settingsBack; settingsBack = null; show(back); } });
-  const openSettings = from => { settingsBack = from; show('s-settings'); };
+  const settingsUI = initSettingsUI({ onClose: () => { const back = settingsBack; settingsBack = null; show(back); } });
+  const openSettings = from => { settingsBack = from; settingsUI.refresh(); show('s-settings'); };
+  // Los volúmenes se guardan también en tu partida, poco después de dejar de moverlos: jugando, con lo demás;
+  // en el menú, en tu partida tal como está (y se sube a GitHub)
+  let volumeTimer = null;
+  Settings.onVolume = () => { clearTimeout(volumeTimer); volumeTimer = setTimeout(saveVolumes, 1200); };
+  function saveVolumes() {
+    if (!Profile.id) return;
+    if (game.player) { save(); return; }
+    const s = Profile.data?.save;
+    if (s) Profile.store({ ...s, volumes: Settings.volumes() }, new Map(Profile.data.deltas), { upload: true });
+  }
   $('p-settings').onclick = () => openSettings('s-pause');
   $('m-settings').onclick = () => openSettings('s-menu');
   game.onShop = id => { if (game.mode !== 'play') return; game.mode = 'shop'; show('s-shop'); shopUI.open(id); };
