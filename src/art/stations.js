@@ -41,12 +41,16 @@ export const LIGHT = { horno: [0, 0.42, 6, 42], cocina: [0, 0.4, 6, 34], lampara
 // doble), además las dos de al lado (+x; girado, -y)
 export const LONG = { cama: 'long', cama_nino: 'long', banera: 'long', cama_doble: 'wide' };
 export const BED_BACK = 0.46;   // de la casilla de la cabecera a la parte de atrás de la cama
-export const footTile = (tx, ty, rot) => (rot ? [tx + 1, ty] : [tx, ty + 1]);
+// Los cuatro giros (R): hacia dónde mira el frente del mueble (z+ del modelo) en la rejilla, hacia dónde queda su
+// lado derecho (x+) y su ángulo. 0: +y; 1: +x; 2: -y; 3: -x
+export const FRONT = [[0, 1], [1, 0], [0, -1], [-1, 0]], SIDE = [[1, 0], [0, -1], [-1, 0], [0, 1]];
+export const front = rot => FRONT[(rot || 0) % 4], yawOf = rot => ((rot || 0) % 4) * Math.PI / 2;
+export const footTile = (tx, ty, rot) => { const [dx, dy] = front(rot); return [tx + dx, ty + dy]; };
 // Las casillas que ocupa además de la suya
 export function extraTiles(id, tx, ty, rot) {
   if (!LONG[id]) return [];
   const foot = footTile(tx, ty, rot);
   if (LONG[id] !== 'wide') return [foot];
-  const side = rot ? [0, -1] : [1, 0];
+  const side = SIDE[(rot || 0) % 4];
   return [foot, [tx + side[0], ty + side[1]], [foot[0] + side[0], foot[1] + side[1]]];
 }

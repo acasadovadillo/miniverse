@@ -32,6 +32,7 @@ class Animal {
     Object.assign(this, { love: 0, ready: false, days: 0, petDay: -1, fedDay: -1, flip: false, step: 0, vx: 0, vy: 0, wait: Math.random() * 3, named: true }, data);
     this.id ||= `${this.type}-${this.name}-${Math.random().toString(36).slice(2, 7)}`;
     this.breed ||= ANIMALS[this.type].breeds?.[0];
+    this.x ??= this.home ? this.home[0] + 0.5 : SPAWN.x; this.y ??= this.home ? this.home[1] + 1.5 : SPAWN.y;   // (sin sitio guardado: delante de su casa)
     this.tx = this.x; this.ty = this.y;
   }
   get def() { return ANIMALS[this.type]; }

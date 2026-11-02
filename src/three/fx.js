@@ -4,6 +4,7 @@
 // de la fuente, la luz del faro, el sedal y el corcho al pescar y el destello rojo al recibir un golpe.
 import * as THREE from 'three';
 import { itemIcon } from '../art/items.js';
+import { yawOf } from '../art/stations.js';
 import { PIECES } from '../pieces.js';
 import { getModel } from './models.js';
 import { WALL_H } from './build3d.js';
@@ -112,7 +113,7 @@ export class Fx {
         const tg = game.gather.target;
         if (tg?.tile && (tg.ok || tg.place)) {
           this.showTile(tg.tile, gy, tg.ok ? pulse : '#ff7a6a');
-          if (tg.place) { ghost = tg.place; ghostOk = tg.ok; at = [tg.tile[0] + 0.5, tg.tile[1] + 0.5]; yaw = tg.rot ? Math.PI / 2 : 0; }
+          if (tg.place) { ghost = tg.place; ghostOk = tg.ok; at = [tg.tile[0] + 0.5, tg.tile[1] + 0.5]; yaw = yawOf(tg.rot); }
         } else if (tg?.obj) {
           this.ring.visible = true;
           this.ring.position.set(tg.obj.x, gy(tg.obj.x, tg.obj.y) + 0.04, tg.obj.y);

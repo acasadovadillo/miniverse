@@ -181,6 +181,11 @@ const WEAR_DRAW = {
   bragas(R, g, c) { poly(g, [[2, 5], [14, 5], [10, 12], [6, 12]], c.b); R(2, 5, 12, 1, c.d); R(7, 9, 2, 2, c.l); },
   sombrero(R, g, c) { ellipse(g, 8, 11, 7, 3, c.d); R(5, 4, 6, 7, c.b); R(5, 8, 6, 2, '#8a5a30'); ellipse(g, 8, 10, 7, 2, c.b); R(6, 5, 2, 2, c.l); },
   hijab(R, g, c) { ellipse(g, 8, 7, 6, 6, c.b); poly(g, [[2, 9], [14, 9], [15, 15], [1, 15]], c.b); ellipse(g, 8, 8, 3, 4, '#e8b07a'); R(6, 7, 1, 1, '#2a1c22'); R(9, 7, 1, 1, '#2a1c22'); R(4, 3, 2, 2, c.l); R(2, 14, 12, 1, c.d); },
+  lazo(R, g, c) { poly(g, [[8, 8], [2, 3], [1, 12]], c.b); poly(g, [[8, 8], [14, 3], [15, 12]], c.b); R(3, 6, 2, 3, c.l); R(12, 6, 2, 3, c.l); blob(g, 8, 8, 2, c.d); R(6, 10, 2, 5, c.d); R(9, 10, 2, 5, c.d); },
+  diadema(R, g, c) { g.strokeStyle = c.b; g.lineWidth = 2.5; g.beginPath(); g.arc(8, 11, 6.5, Math.PI, 0); g.stroke(); g.strokeStyle = c.l; g.lineWidth = 0.8; g.beginPath(); g.arc(8, 11, 6.5, Math.PI * 1.15, Math.PI * 1.55); g.stroke(); },
+  flor_pelo(R, g, c) { for (const [x, y] of [[8, 4], [12, 7], [11, 12], [5, 12], [4, 7]]) blob(g, x, y, 3, c.b); blob(g, 8, 8, 2, '#f0c030'); R(7, 7, 1, 1, '#fff6c0'); },
+  horquillas(R, g, c) { for (const [x, y] of [[3, 5], [7, 9]]) { R(x, y, 8, 2, c.b); R(x, y, 8, 1, c.l); R(x + 7, y - 1, 2, 4, c.d); } },
+  corona_flores(R, g, c) { g.strokeStyle = '#4a9a3a'; g.lineWidth = 1.5; g.beginPath(); g.ellipse(8, 9, 6.5, 3.5, 0, 0, Math.PI * 2); g.stroke(); for (const [x, y] of [[2, 9], [5, 6], [8, 5.5], [11, 6], [14, 9], [11, 12], [5, 12]]) blob(g, x, y, 1.6, c.b); for (const [x, y] of [[5, 6], [11, 6], [8, 12.5]]) R(x, y, 1, 1, '#f0c030'); },
   gorro(R, g, c) { ellipse(g, 8, 9, 6, 6, c.b); R(2, 10, 12, 4, c.d); ellipse(g, 8, 3, 2, 2, '#f4f0e8'); R(5, 6, 2, 2, c.l); },
   mochila(R, g, c) { R(3, 3, 10, 12, c.b); R(3, 3, 10, 4, c.d); R(5, 9, 6, 4, c.d); R(7, 6, 2, 2, '#c8a048'); R(4, 2, 1, 2, c.d); R(11, 2, 1, 2, c.d); },
 };

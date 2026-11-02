@@ -13,6 +13,7 @@ import { Builder } from './geo.js';
 import { buildNatureChunk, buildGround, buildFarNature, shake, WIND } from './nature3d.js';
 import { baseMaterials, wallTile, doorTile, doorLeaf, fenceTile, floorTile, roofRegion, WALL_H, ROOF, FLOWER } from './build3d.js';
 import { getModel, modelMat, CHANDELIER } from './models.js';
+import { yawOf } from '../art/stations.js';
 // Lo que brilla en los modelos y, apagado, con qué se dibuja
 const UNLIT = { shade: 'cloth', lamp: 'white', ember: 'soot', glow: 'soot', crystal: 'crystal' };
 import { tintMats, tintOf } from './tints.js';
@@ -149,7 +150,7 @@ export class World3D {
         if (piece?.kind === 'wall') { const ex = { blooms: [], leaves: [] }; wallTile(scene, tx, ty, o.placed, emitFor(region), ex); this.flowers(ex, region, group); }
         else if (piece?.kind === 'door') { const ex = { blooms: [], leaves: [] }; const d = doorTile(scene, tx, ty, emitFor(region), ex); d.region = region; c.doors.push(d); }
         else if (piece?.kind === 'fence') fenceTile(scene, tx, ty, o.placed, plain);
-        else this.placeModel(o.placed, o.x, o.y, o.rot ? Math.PI / 2 : 0, plain, c, group, o.off);
+        else this.placeModel(o.placed, o.x, o.y, yawOf(o.rot), plain, c, group, o.off);
       } else if (o.crop && this.farm(scene)) this.placeModel(`crop:${o.crop.id}:${this.farm(scene).stage(o.crop)}`, o.x, o.y, 0, plain, c, group);
       else if (o.poi) this.placeModel(`poi:${o.poi.kind}${o.poi.snow ? ':snow' : ''}`, o.poi.x, o.poi.y, 0, plain, c, group);
       else if (o.treasure) this.placeModel(`treasure:${o.open ? 1 : 0}`, o.x, o.y, 0, plain, c, group);

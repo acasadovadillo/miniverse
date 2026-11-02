@@ -2,6 +2,7 @@
 // con lo que lleva puesto, rodeado de los huecos del cuerpo (ropa y mochila), y las casillas, con arrastrar y
 // soltar. Sin mochila, sus 27 casillas están cerradas.
 import { ITEMS, WEAR_SLOTS } from '../items.js';
+import { DYES } from '../looks.js';
 import { SLOTS, HOTBAR, extraOf } from '../inventory.js';
 import { itemIconUrl } from '../art/items.js';
 import { CharacterPreview } from '../three/preview.js';
@@ -53,8 +54,8 @@ export function initInventoryUI(game, { onClose, onCraft }) {
   // ropa de fuera, de la cabeza a los pies; a la derecha la mochila y lo de debajo (ropa interior y calcetines).
   // Vacíos, muestran en gris una prenda de ejemplo y su nombre.
   const wears = {}, LABEL = Object.fromEntries(WEAR_SLOTS);
-  const SIDES = { 'inv-wear-l': ['cabeza', 'torso', 'encima', 'piernas', 'pies'], 'inv-wear-r': ['espalda', 'interiorArriba', 'interiorAbajo', 'calcetines'] };
-  const SAMPLE = { cabeza: 'sombrero', torso: 'camisa', encima: 'chaleco', piernas: 'pantalon', pies: 'botas', interiorArriba: 'camiseta_interior', interiorAbajo: 'calzoncillos', calcetines: 'calcetines', espalda: 'mochila' };
+  const SIDES = { 'inv-wear-l': ['cabeza', 'torso', 'encima', 'piernas', 'pies'], 'inv-wear-r': ['pelo', 'espalda', 'interiorArriba', 'interiorAbajo', 'calcetines'] };
+  const SAMPLE = { cabeza: 'sombrero', torso: 'camisa', encima: 'chaleco', piernas: 'pantalon', pies: 'botas', interiorArriba: 'camiseta_interior', interiorAbajo: 'calzoncillos', calcetines: 'calcetines', espalda: 'mochila', pelo: 'lazo' };
   for (const [col, slots] of Object.entries(SIDES)) for (const slot of slots) {
     const el = slotEl(-1, 'slot wear');
     el.dataset.wear = slot;
@@ -123,10 +124,29 @@ export function initInventoryUI(game, { onClose, onCraft }) {
     $('inv-name').textContent = def.name + (s.n > 1 ? ` ×${s.n}` : '') + (worn ? ' (puesto)' : '');
     say(def.desc + (def.food ? ` Da ${def.food} de energía.` : ''));
     $('inv-wearbtn').hidden = !def.wear;
+    // Teñir: las prendas (puestas o en la mochila) se cambian de color tocando uno
+    $('inv-dyes').hidden = !def.wear;
+    if (def.wear) {
+      const box = $('inv-dyes');
+      if (!box.children.length) {
+        box.innerHTML = '<span>Teñir:</span>';
+        for (const c of DYES) { const b = document.createElement('button'); b.type = 'button'; b.style.background = c; b.dataset.c = c; b.title = 'Teñir de este color'; b.onclick = () => dye(c); box.append(b); }
+      }
+      for (const b of box.querySelectorAll('button')) b.classList.toggle('on', b.dataset.c === s.color);
+    }
     $('inv-wearbtn').textContent = worn ? 'Quitármelo' : 'Ponérmelo';
     $('inv-eat').hidden = !def.food || !!worn;
     $('inv-drop1').hidden = s.n < 2 || !!worn;
     $('inv-drop').hidden = !!worn;
+  }
+
+  // Teñir lo elegido (en su casilla o puesto)
+  function dye(c) {
+    const inv = game.inv, it = picked?.wear ? inv.equip[picked.wear] : typeof picked === 'number' ? inv.slots[picked] : null;
+    if (!it || !ITEMS[it.id].wear) return;
+    it.color = c;
+    inv.changed();
+    refresh();
   }
 
   // Ponerse o quitarse lo elegido

@@ -24,7 +24,7 @@ function px(x, y) {
 const K = SIZE * 4 / (2 * Math.PI * R);   // píxeles por unidad, cerca del centro de la cara
 
 export function faceMaterials(L) {
-  const key = ['skin', 'eyes', 'eyeStyle', 'brows', 'hair', 'cheeks', 'sex'].map(k => L[k]).join('|');
+  const key = ['skin', 'eyes', 'eyeStyle', 'brows', 'hair', 'cheeks', 'sex', 'mouth'].map(k => L[k]).join('|');
   if (cache.has(key)) return cache.get(key);
   const open = material(draw(L, false)), closed = material(draw(L, true));
   CLOSED.set(open, closed);
@@ -59,11 +59,7 @@ function draw(L, shut) {
     eye(g, cx, cy, s, L, shut, ink, girl);
     brow(g, s, L);
   }
-  // La boca: una sonrisa; ellas, con los labios algo más llenos
-  const [mx, my] = px(0, -0.118), w = 0.034 * K;
-  g.strokeStyle = girl ? '#b8405a' : '#7a3030'; g.lineWidth = 0.009 * K;
-  g.beginPath(); g.moveTo(mx - w, my - 0.006 * K); g.quadraticCurveTo(mx, my + 0.018 * K, mx + w, my - 0.006 * K); g.stroke();
-  if (girl) { g.fillStyle = '#d86a84'; g.beginPath(); g.ellipse(mx, my + 0.011 * K, w * 0.45, 0.007 * K, 0, 0, Math.PI * 2); g.fill(); }
+  mouth(g, L.mouth || 'sonrisa', girl);
   return c;
 }
 
@@ -155,4 +151,30 @@ function brow(g, s, L) {
   g.beginPath(); g.moveTo(x0, y0 + (b === 'rectas' || b === 'gruesas' ? -0.004 * K : 0));
   g.quadraticCurveTo(xm, ym - (b === 'arqueadas' ? 0.018 : b === 'finas' ? 0.008 : 0.002) * K, x1, y1);
   g.stroke();
+}
+
+// La boca: sonrisa, riendo (abierta, con dientes y lengua), seria, pícara (de medio lado), sorprendida (una o)
+// o sacando la lengua. Ellas, con los labios algo más llenos
+function mouth(g, st, girl) {
+  const [mx, my] = px(0, -0.118), w = 0.034 * K, ink = girl ? '#b8405a' : '#7a3030', dark = '#4a1a20';
+  g.strokeStyle = ink; g.lineWidth = 0.009 * K; g.lineCap = 'round';
+  const lips = () => { if (girl) { g.fillStyle = '#d86a84'; g.beginPath(); g.ellipse(mx, my + 0.011 * K, w * 0.45, 0.007 * K, 0, 0, Math.PI * 2); g.fill(); } };
+  if (st === 'abierta' || st === 'lengua') {
+    // Media luna abierta: oscuro dentro, los dientes arriba y la lengua abajo
+    const h = (st === 'abierta' ? 0.038 : 0.024) * K, w = (st === 'abierta' ? 0.042 : 0.036) * K;
+    g.beginPath(); g.moveTo(mx - w, my - 0.006 * K); g.quadraticCurveTo(mx, my + h * 1.6, mx + w, my - 0.006 * K); g.closePath();
+    g.fillStyle = dark; g.fill();
+    g.save(); g.clip();
+    g.fillStyle = '#fbf6ee'; g.fillRect(mx - w, my - 0.008 * K, w * 2, 0.008 * K);
+    g.fillStyle = '#e86a7a'; g.beginPath(); g.ellipse(mx, my + h * 0.95, w * 0.55, h * 0.55, 0, 0, Math.PI * 2); g.fill();
+    g.restore();
+    g.lineWidth = 0.006 * K; g.beginPath(); g.moveTo(mx - w, my - 0.006 * K); g.quadraticCurveTo(mx, my + h * 1.6, mx + w, my - 0.006 * K); g.closePath(); g.stroke();
+    if (st === 'lengua') { g.fillStyle = '#e86a7a'; g.beginPath(); g.ellipse(mx + w * 0.25, my + h * 1.15, w * 0.32, h * 0.85, 0, 0, Math.PI * 2); g.fill(); g.strokeStyle = '#c84a5a'; g.lineWidth = 0.003 * K; g.beginPath(); g.moveTo(mx + w * 0.25, my + h * 0.7); g.lineTo(mx + w * 0.25, my + h * 1.6); g.stroke(); }
+    return;
+  }
+  if (st === 'seria') { g.beginPath(); g.moveTo(mx - w * 0.8, my + 0.002 * K); g.lineTo(mx + w * 0.8, my + 0.002 * K); g.stroke(); lips(); return; }
+  if (st === 'picara') { g.beginPath(); g.moveTo(mx - w * 0.9, my + 0.004 * K); g.quadraticCurveTo(mx + w * 0.2, my + 0.014 * K, mx + w, my - 0.014 * K); g.stroke(); lips(); return; }
+  if (st === 'sorpresa') { g.fillStyle = dark; g.beginPath(); g.ellipse(mx, my + 0.006 * K, w * 0.36, w * 0.46, 0, 0, Math.PI * 2); g.fill(); g.lineWidth = 0.005 * K; g.stroke(); return; }
+  g.beginPath(); g.moveTo(mx - w, my - 0.006 * K); g.quadraticCurveTo(mx, my + 0.018 * K, mx + w, my - 0.006 * K); g.stroke();
+  lips();
 }

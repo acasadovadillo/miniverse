@@ -23,6 +23,7 @@ import { Ranch } from './ranch.js';
 import { Fishing } from './fishing.js';
 import { Wildlife } from './wildlife.js';
 import { Rest } from './rest.js';
+import { footTile, front } from './art/stations.js';
 import { HOTBAR } from './inventory.js';
 import { Neighbors } from './neighbors.js';
 import { Board } from './board.js';
@@ -264,6 +265,7 @@ export class Game {
       if (STATIONS[o.placed]) return { text: `Usar ${name}`, run: () => this.onCraft?.(o.placed) };
       if (o.placed === 'cama' || o.placed === 'cama_nino' || o.placed === 'cama_doble') return { text: 'Usar la cama', run: () => this.bed(o), alt: pick };
       if (o.placed === 'silla') return { text: 'Sentarse', run: () => this.rest.sit(o), alt: pick };
+      if (o.placed === 'lavabo') return { text: 'Mirarse en el espejo', run: () => this.onMirror?.(), alt: pick };
       if (o.placed === 'cofre') return { text: 'Abrir el cofre', run: () => this.onChest?.(sc.chestAt(...o.tile), o.tile) };
       if (o.placed === 'mochila') return { text: 'Abrir la mochila', run: () => this.onChest?.(sc.chestAt(...o.tile) || [], o.tile), alt: { text: this.inv.equip.espalda ? 'Recoger la mochila' : 'Ponerse la mochila', run: () => this.takeBackpack(o) } };
       if (LIGHTS.has(o.placed)) return { text: `${o.off ? 'Encender' : 'Apagar'} ${name.replace(/^lámpara/, 'la lámpara').replace(/^antorcha/, 'la antorcha').replace(/^vela/, 'la vela')}`, run: () => { sc.toggleLight(...o.tile); Audio.blip(); save(); }, alt: pick };
@@ -494,7 +496,7 @@ export class Game {
     for (let ty = H.y0; ty < H.y1; ty++) for (let tx = H.x0; tx < H.x1; tx++) {
       const [id, rot] = parsePlaced(w.ownAt('placed', tx, ty) || '');
       if (id !== 'cama') continue;
-      const [fx, fy] = rot ? [tx + 1, ty] : [tx, ty + 1], cur = w.ownAt('placed', fx, fy);
+      const [fx, fy] = footTile(tx, ty, rot), cur = w.ownAt('placed', fx, fy);
       if (!cur || PIECES[parsePlaced(cur)[0]]) continue;   // nada, o un muro (la cama se queda como está)
       const items = w.chestAt(fx, fy), [cid, crot] = parsePlaced(cur);
       w.unplace({ tile: [fx, fy], layer: 'placed', placed: cid });
@@ -515,7 +517,7 @@ export class Game {
       const spots = Object.entries(bp.placed).filter(([, v]) => parsePlaced(v)[0] === id).map(([t]) => t.split(',').map(Number));
       for (let ty = H.y0 + 1; ty < H.y1 - 1; ty++) for (let tx = H.x0 + 1; tx < H.x1 - 1; tx++) {
         const [cur, rot] = parsePlaced(w.ownAt('placed', tx, ty) || '');
-        if (cur !== id || wallAt(...(rot ? [tx - 1, ty] : [tx, ty - 1]))) continue;
+        if (cur !== id || wallAt(tx - front(rot)[0], ty - front(rot)[1])) continue;
         const spot = spots.find(([x, y]) => free(x, y) && (id !== 'cama' || free(x, y + 1)));
         if (!spot) continue;
         w.unplace({ tile: [tx, ty], layer: 'placed', placed: id });

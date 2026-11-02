@@ -3,6 +3,7 @@
 // nombre. Duerme en su cuna y, 7 días después, ya es un niño: de día pasea por casa y por el jardín, de noche
 // duerme en su cama de niño, y se puede hablar con él. Como mucho, dos. Se parecen a los dos (ver childLook).
 // Es parte del mundo: lo lleva el juego del anfitrión y los demás lo ven igual (ver livesync.js).
+import { front, yawOf } from './art/stations.js';
 import { childLook, clothesFor, dressed } from './looks.js';
 import { collide } from './physics.js';
 import { hud } from './ui/hud.js';
@@ -162,8 +163,8 @@ export class Family {
   lie(e, bed, y, along) {
     Object.assign(e, { vx: 0, vy: 0, lying: true, walking: false });
     if (!bed) { const [hx, hy] = this.game.homeSpot(); Object.assign(e, { x: hx, y: hy - 1, h: 0.05, yaw: 0 }); return; }   // (un bebé sin cuna: en el suelo, junto a la puerta)
-    const [dx, dy] = bed.rot ? [1, 0] : [0, 1];
-    Object.assign(e, { x: bed.x + dx * along, y: bed.y + dy * along, h: y, yaw: bed.rot ? Math.PI / 2 : 0 });
+    const [dx, dy] = front(bed.rot);
+    Object.assign(e, { x: bed.x + dx * along, y: bed.y + dy * along, h: y, yaw: yawOf(bed.rot) });
   }
   // Las puertas de tu casa (el centro de su casilla)
   doors() {

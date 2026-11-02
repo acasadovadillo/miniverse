@@ -190,11 +190,12 @@ export function initMenus(game) {
   }
 
   function rebuild() {
-    preview.setLook(look);
+    preview.setLook(mirror ? { ...look, wear: mirror.wear } : look);
     rows.forEach(r => r());
   }
-  function addRow(page, title, el) {
+  function addRow(page, title, el, key) {
     const wrap = document.createElement('div');
+    if (key) wrap.dataset.key = key;
     wrap.innerHTML = `<div class="opt-t">${title}</div>`;
     wrap.append(el);
     pages[page].append(wrap);
@@ -210,7 +211,7 @@ export function initMenus(game) {
       box.append(b);
     }
     rows.push(() => [...box.children].forEach((b, i) => b.classList.toggle('on', LOOK_OPTIONS[key][i][0] === look[key])));
-    addRow(page, title, box);
+    addRow(page, title, box, key);
   }
   function cycRow(page, title, key) {
     const box = document.createElement('div');
@@ -221,7 +222,7 @@ export function initMenus(game) {
     prev.onclick = () => step(-1);
     next.onclick = () => step(1);
     rows.push(() => { label.textContent = (list.find(([v]) => v === look[key]) || list[0])[1]; });
-    addRow(page, title, box);
+    addRow(page, title, box, key);
   }
   function swRow(page, title, key) {
     const box = document.createElement('div');
@@ -235,7 +236,7 @@ export function initMenus(game) {
       box.append(b);
     }
     rows.push(() => [...box.children].forEach((b, i) => b.classList.toggle('on', LOOK_OPTIONS[key][i] === look[key])));
-    addRow(page, title, box);
+    addRow(page, title, box, key);
   }
   segRow('cuerpo', 'Sexo', 'sex');
   swRow('cuerpo', 'Tono de piel', 'skin');
@@ -247,9 +248,12 @@ export function initMenus(game) {
   cycRow('cara', 'Nariz', 'nose');
   cycRow('cara', 'Orejas', 'ears');
   segRow('cara', 'Mofletes', 'cheeks');
+  cycRow('cara', 'Boca', 'mouth');
   cycRow('pelo', 'Peinado', 'hairStyle');
   swRow('pelo', 'Color de pelo', 'hair');
   cycRow('pelo', 'Barba', 'beard');
+  cycRow('pelo', 'Accesorio', 'hairAcc');
+  swRow('pelo', 'Color del accesorio', 'accColor');
 
   const pickOf = arr => arr[Math.floor(Math.random() * arr.length)];
   $('cr-random').onclick = () => {
@@ -291,8 +295,35 @@ export function initMenus(game) {
   cv.addEventListener('pointermove', e => { if (dragX === null) return; turnTo(angle + (e.clientX - dragX) * 0.012); dragX = e.clientX; });
   for (const ev of ['pointerup', 'pointercancel']) cv.addEventListener(ev, () => { dragX = null; });
 
-  $('cr-back').onclick = () => openMenu();
+  // El espejo (en el lavabo): cambiarse la cara y el pelo sin empezar de nuevo (la ropa y los accesorios se
+  // cambian en la mochila). Al terminar se vuelve al juego
+  let mirror = null;
+  const MIRROR_HIDES = ['outfit', 'cloth', 'hairAcc', 'accColor'];
+  game.onMirror = () => {
+    if (game.mode !== 'play' || !game.player) return;
+    game.mode = 'mirror';
+    mirror = { wear: game.appearance().wear };
+    Object.assign(look, DEFAULT_LOOK, game.player.look);
+    $('cr-name').value = game.player.name; $('cr-name').disabled = true;
+    $('cr-start').textContent = 'Listo';
+    for (const el of document.querySelectorAll('#s-creator [data-key]')) el.hidden = MIRROR_HIDES.includes(el.dataset.key);
+    $('cr-err').textContent = '';
+    spin = 0; turnTo(0); rebuild();
+    const w = Math.max(160, Math.min(240, innerWidth - 80));
+    preview.resize(w, Math.round(w * 1.25));
+    showPage('cara');
+    show('s-creator');
+  };
+  const closeMirror = apply => {
+    if (apply) { const keepOut = ['outfit', 'cloth', 'pants', 'hairAcc', 'accColor']; game.player.look = { ...game.player.look, ...Object.fromEntries(Object.entries(look).filter(([k]) => !keepOut.includes(k))) }; game.inv.changed(); save(); }
+    mirror = null;
+    $('cr-name').disabled = false; $('cr-start').textContent = 'Empezar';
+    for (const el of document.querySelectorAll('#s-creator [data-key]')) el.hidden = false;
+    resume();
+  };
+  $('cr-back').onclick = () => (mirror ? closeMirror(false) : openMenu());
   $('cr-start').onclick = async () => {
+    if (mirror) { closeMirror(true); return; }
     const name = $('cr-name').value.trim();
     if (!name) { $('cr-err').textContent = 'Ponle un nombre a tu personaje.'; return; }
     // Un personaje nuevo empieza de cero; si ya había partida, el mundo (y los ajustes) se quedan como estaban

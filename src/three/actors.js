@@ -130,7 +130,7 @@ export class Actors {
         if (!e.mount) { const k = Math.min(1, e.z / 0.25); P.legs[0].rotation.x = -0.7 * k; P.legs[1].rotation.x = 0.35 * k; }
       }
       // (después de andar: el golpe manda sobre el balanceo del brazo)
-      if (game) this.hold(m, { held: game.inv.held?.id || null, swing: game.gather.swing, swingItem: game.gather.swingItem, cooldown: game.gather.cooldown, pose: game.fishing?.pose(t) }, dt);
+      if (game) this.hold(m, { held: game.inv.held?.id || null, swing: game.gather.swing, swingItem: game.gather.swingItem, cooldown: game.gather.cooldown, fishPose: game.fishing?.pose(t) }, dt);
       else if (e.remote) this.hold(m, e, dt);
       if (pz && !lying) {   // sentado: los muslos hacia delante; en la silla, las piernas colgando; en el suelo, estiradas
         for (const l of P.legs) l.rotation.x = -Math.PI / 2;
@@ -176,8 +176,9 @@ export class Actors {
     }
     const arm = P.arms[1];
     arm.rotation.z = 0; m.hand.rotation.x = 0; P.torso.rotation.x = 0;
-    if ((a || g.pose) && P.fore) P.fore[1].rotation.x = -0.1;   // (usando algo, el brazo casi estirado)
-    if (!a) { if (g.pose) { arm.rotation.x = g.pose.arm; P.torso.rotation.x = g.pose.lean; } return; }   // (una postura fija: pescando)
+    if ((a || g.fishPose) && P.fore) P.fore[1].rotation.x = -0.1;   // (usando algo, el brazo casi estirado)
+    // (una postura fija: pescando. fishPose, no pose: pose es sentarse o tumbarse, y los demás jugadores la traen)
+    if (!a) { if (g.fishPose) { arm.rotation.x = g.fishPose.arm; P.torso.rotation.x = g.fishPose.lean; } return; }
     a.t += dt;
     const k = Math.min(1, a.t / a.dur), ge = GESTURES[a.kind];
     arm.rotation.x = keys(ge.arm, k);

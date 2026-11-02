@@ -355,6 +355,10 @@
   #m-live.wait p::before { color: #e8c050; }
   #m-live.err { border-color: #b8483a; background: rgba(96, 30, 24, .45); }
   #m-live.err p::before { content: '✕ '; color: #ff7a66; font-weight: 700; }
+  #inv-dyes { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin: 4px 0 2px; }
+  #inv-dyes span { font-size: 13px; color: var(--dim); margin-right: 4px; }
+  #inv-dyes button { width: 22px; height: 22px; padding: 0; border: 2px solid #2a1c12; border-radius: 4px; cursor: pointer; }
+  #inv-dyes button.on { border-color: var(--gold); box-shadow: 0 0 0 1px var(--gold); }
   #m-confirm { margin: 0 0 12px; padding: 10px 12px; border: 2px solid #b8483a; border-radius: 6px; background: rgba(96, 30, 24, .45); }
   #m-confirm p { margin: 0 0 10px; color: var(--cream); font-size: 15px; line-height: 1.4; }
   #m-confirm p::before { content: '⚠ '; color: #ffb07a; }
@@ -527,6 +531,7 @@
       <div id="inv-info" class="empty">
         <img id="inv-icon" alt="">
         <div><div id="inv-name"></div><div id="inv-desc"></div></div>
+        <div id="inv-dyes" hidden></div>
         <div class="inv-acts"><button class="btn primary" id="inv-wearbtn">Ponérmelo</button><button class="btn primary" id="inv-eat">Comer</button><button class="btn" id="inv-drop1">Tirar uno</button><button class="btn" id="inv-drop">Tirar</button></div>
       </div>
       <div id="inv-all"><div class="inv-sep">Todos los objetos (admin): toca uno para cogerlo</div><div id="inv-all-grid"></div></div>

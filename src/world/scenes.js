@@ -5,7 +5,7 @@ import { WorldGen, CHUNK } from './gen.js';
 import { buildVillage, NILO, inBounds, isGrass, inOwnHouse } from './village.js';
 import { B, BIOMES } from './biomes.js';
 import { ITEMS } from '../items.js';
-import { extraTiles, LONG, BED_BACK, HEARTH_BACK, GLOW, LIGHT } from '../art/stations.js';
+import { extraTiles, LONG, BED_BACK, HEARTH_BACK, GLOW, LIGHT, front } from '../art/stations.js';
 import { wallRuns, WINDOW_Z, T } from '../art/build.js';
 import { PIECES, layerOf, parsePlaced } from '../pieces.js';
 import { Person } from '../entities.js';
@@ -112,13 +112,14 @@ export class Overworld {
     return data;
   }
 
-  // Lo que tiene espalda (cama, estantería, hogar) se arrima al muro que tenga detrás (-y; girado, -x):
+  // Lo que tiene espalda (cama, estantería, hogar) se arrima al muro que tenga detrás (el lado contrario a su frente):
   // los muros son finos y van por el medio de su casilla, así que sin esto quedaría un hueco
   wallShift(id, tx, ty, rot) {
     const back = BACK[id];
-    if (!back || this.pieceAt(...(rot ? [tx - 1, ty] : [tx, ty - 1]))?.kind !== 'wall') return [0, 0];
+    const [fx, fy] = front(rot);
+    if (!back || this.pieceAt(tx - fx, ty - fy)?.kind !== 'wall') return [0, 0];
     const d = back - (1 - T - 0.01);
-    return rot ? [d, 0] : [0, d];
+    return [fx * d, fy * d];
   }
 
   // Bajo un muro o una puerta, el suelo solo cubre el lado que tiene suelo al lado (el de dentro de la casa),

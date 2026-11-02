@@ -16,13 +16,19 @@ export const LOOK_OPTIONS = {
   ears: [['redondas', 'Redondas'], ['pequenas', 'Pequeñas'], ['grandes', 'Grandes'], ['elfo', 'De elfo'], ['soplillo', 'De soplillo']],
   beard: [['no', 'Sin barba'], ['bigote', 'Bigote'], ['perilla', 'Perilla'], ['candado', 'Candado'], ['completa', 'Completa'], ['larga', 'Larga']],
   cheeks: [[true, 'Con mofletes'], [false, 'Sin mofletes']],
+  mouth: [['sonrisa', 'Sonrisa'], ['abierta', 'Riendo'], ['seria', 'Seria'], ['picara', 'Pícara'], ['sorpresa', 'Sorprendida'], ['lengua', 'Sacando la lengua']],
+  hairAcc: [['ninguno', 'Ninguno'], ['lazo', 'Lazo'], ['diadema', 'Diadema'], ['flor_pelo', 'Flor'], ['horquillas', 'Horquillas'], ['corona_flores', 'Corona de flores']],
+  accColor: ['#e86aa0', '#c83a3a', '#e8c050', '#f4f0e8', '#7ab4e8', '#3a5ab8', '#6a4ab8', '#4a9a4a', '#1c1c22'],
   outfit: [['delantal', 'Camisa y delantal'], ['tunica', 'Túnica con cinturón'], ['chaleco', 'Camisa y chaleco'], ['larga', 'Túnica larga']],
   cloth: ['#c83a3a', '#d8742a', '#e8c050', '#4a9a4a', '#2e8a8a', '#3a5ab8', '#6a4ab8', '#b84a8a', '#6a4a2e', '#4a4a5a', '#e8e0d0'],
 };
 export const DEFAULT_LOOK = {
   sex: 'chica', hairStyle: 'coleta', hair: '#a8442a', skin: '#e8b07a', outfit: 'delantal', cloth: '#3a5ab8', pants: '#4a3a2a',
   eyes: '#3a8a4a', eyeStyle: 'pestanas', brows: 'finas', nose: 'boton', ears: 'redondas', beard: 'no', cheeks: true,
+  mouth: 'sonrisa', hairAcc: 'ninguno', accColor: '#e86aa0',
 };
+// Los tintes: los colores a los que se puede teñir cada prenda (en la mochila)
+export const DYES = ['#f4f0e8', '#d8d0c4', '#a8a4ac', '#4a4a5a', '#1c1c22', '#6a4a2e', '#8a5a34', '#c8925a', '#e8c050', '#d8742a', '#c83a3a', '#e86aa0', '#b84a8a', '#6a4ab8', '#3a5ab8', '#7ab4e8', '#2e8a8a', '#4a9a4a', '#9ac84a', '#efe6d4'];
 
 // La ropa de un look (el tipo de ropa y sus colores, como lo elige el creador): con la que empieza el jugador
 // y la que llevan los vecinos. bag: con mochila. Devuelve los huecos del cuerpo → { id, color }.
@@ -40,6 +46,7 @@ export function clothesFor(look, bag = false) {
   if (L.outfit !== 'larga') e.piernas = { id: 'pantalon', color: L.pants || '#4a3a2a' };
   e.calcetines = { id: 'calcetines', color: '#ece6da' };
   e.pies = { id: 'botas', color: '#5a3a24' };
+  if (L.hairAcc && L.hairAcc !== 'ninguno') e.pelo = { id: L.hairAcc, color: L.accColor || '#e86aa0' };
   if (bag) e.espalda = { id: 'mochila', color: '#8a5a34' };
   return e;
 }
@@ -71,5 +78,6 @@ export function fullLook(L) {
     ears: L.ears || 'redondas',
     beard: typeof L.beard === 'string' ? L.beard : L.beard ? 'completa' : 'no',
     cheeks: L.cheeks ?? true,
+    mouth: L.mouth || 'sonrisa',
   };
 }

@@ -109,6 +109,11 @@ export const RECIPES = [
   R('telar', 'botas', 1, [['tela', 2], ['cuerda', 1]]),
   R('telar', 'gorro', 1, [['lana', 2]]),
   R('telar', 'hijab', 1, [['tela', 2]]),
+  R('telar', 'lazo', 1, [['tela', 1]]),
+  R('telar', 'diadema', 1, [['tela', 1], ['tablas', 1]]),
+  R('mano', 'flor_pelo', 1, [['fibra', 2], ['bayas', 1]]),
+  R('yunque', 'horquillas', 2, [['lingote_cobre', 1]]),
+  R('mano', 'corona_flores', 1, [['fibra', 4], ['bayas', 2]]),
 
   R('cocina', 'manzana_asada', 1, [['manzana', 1]]),
   R('cocina', 'mermelada', 1, [['bayas', 3]]),

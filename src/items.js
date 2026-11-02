@@ -194,7 +194,7 @@ for (const [tool, def] of Object.entries(TOOLS)) {
 // Ropa y mochila: se llevan puestas en un hueco del cuerpo (wear). Cada prenda lleva su color (en la casilla
 // de la mochila o en el hueco); dye es el de las que se fabrican.
 export const WEAR_SLOTS = [
-  ['cabeza', 'Cabeza'], ['torso', 'Torso'], ['encima', 'Encima'], ['piernas', 'Piernas'], ['pies', 'Pies'],
+  ['cabeza', 'Cabeza'], ['pelo', 'Pelo'], ['torso', 'Torso'], ['encima', 'Encima'], ['piernas', 'Piernas'], ['pies', 'Pies'],
   ['interiorArriba', 'Interior arriba'], ['interiorAbajo', 'Interior abajo'], ['calcetines', 'Calcetines'], ['espalda', 'Espalda'],
 ];
 Object.assign(ITEMS, {
@@ -212,6 +212,12 @@ Object.assign(ITEMS, {
   calcetines: { name: 'Calcetines', desc: 'Hasta media pierna. Van debajo de las botas.', wear: 'calcetines', dye: '#ece6da' },
   sombrero: { name: 'Sombrero de paja', desc: 'De ala ancha, para el sol del campo.', wear: 'cabeza', dye: '#e0c070' },
   gorro: { name: 'Gorro de lana', desc: 'Calentito, con pompón.', wear: 'cabeza', dye: '#c83a3a' },
+  // Accesorios del pelo (no se ven con algo en la cabeza)
+  lazo: { name: 'Lazo', desc: 'Un lazo grande para el pelo.', wear: 'pelo', dye: '#e86aa0' },
+  diadema: { name: 'Diadema', desc: 'Sujeta el pelo de oreja a oreja.', wear: 'pelo', dye: '#c83a3a' },
+  flor_pelo: { name: 'Flor para el pelo', desc: 'Una flor prendida sobre la oreja.', wear: 'pelo', dye: '#f4f0e8' },
+  horquillas: { name: 'Horquillas', desc: 'Un par de horquillas de colores.', wear: 'pelo', dye: '#e8c050' },
+  corona_flores: { name: 'Corona de flores', desc: 'Flores trenzadas alrededor de la cabeza.', wear: 'pelo', dye: '#e86aa0' },
   hijab: { name: 'Hiyab', desc: 'Pañuelo que cubre el pelo y el cuello y deja la cara a la vista.', wear: 'cabeza', dye: '#1c1c22' },
   mochila: { name: 'Mochila', desc: 'Póntela a la espalda y podrás llevar 27 cosas más. Sin ella solo llevas lo que cabe en las manos y los bolsillos. También se deja en el suelo, llena, como un cofre que se lleva.', wear: 'espalda', bag: 27, dye: '#8a5a34', place: 'furniture' },
 });
