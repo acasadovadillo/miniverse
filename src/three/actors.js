@@ -94,9 +94,9 @@ export class Actors {
         }
         else if (e.mount) { m.horse.rotation.y = P.root.rotation.y; animateHorse(m.horse, m.speed, t); P.root.position.y = 0.92; }
         else P.root.position.y = 0;
-        this.hold(m, game);
       }
       P.update(dt, e.mount || e.boat ? 0 : m.speed);
+      if (game) this.hold(m, game, dt);   // (después de andar: el golpe manda sobre el balanceo del brazo)
       if (e.mount || e.boat) { P.legs[0].rotation.x = P.legs[1].rotation.x = e.mount ? -1.1 : -1.4; P.legs[0].rotation.z = 0.5; P.legs[1].rotation.z = -0.5; }
       else P.legs[0].rotation.z = P.legs[1].rotation.z = 0;
     } else if (m.kind === 'animal') {
@@ -112,20 +112,62 @@ export class Actors {
     m.root.position.set(x, y, z);
   }
 
-  // La herramienta (o el arma) en la mano del jugador, y el golpe
-  hold(m, game) {
-    const held = game.inv.held, id = held?.id || null, g = game.gather;
-    const show = game.gather.swing > 0 ? g.swingItem : id;
+  // La herramienta (o el arma) en la mano del jugador, y el gesto al usarla. Cada golpe nuevo (el temporizador
+  // swing de la recolección vuelve a subir) empieza una animación de su herramienta, que dura como mucho lo
+  // que tarda en poder volver a golpear (así, con Espacio pulsado, los golpes se encadenan).
+  hold(m, game, dt) {
+    const g = game.gather, id = game.inv.held?.id || null, P = m.person;
+    if (g.swing > (m.lastSwing || 0) + 1e-4) {
+      const kind = gestureOf(g.swingItem), base = GESTURES[kind].dur;
+      m.anim = { t: 0, item: g.swingItem, kind, dur: g.cooldown > 0 ? Math.max(0.22, Math.min(base, g.cooldown)) : base };
+    }
+    m.lastSwing = g.swing;
+    const a = m.anim, show = a ? a.item : id;
     if (m.holding !== show) {
       m.hand.clear();
       const tool = show && toolModel(show);
       if (tool) { tool.traverse(o => { if (o.isMesh) { o.material = o.material.clone(); m.mats.push(o.material); o.layers.set(2); } }); m.hand.add(tool); }
       m.holding = show;
     }
-    const arm = m.person.arms[1];
-    if (g.swing > 0 && g.swingItem) { const k = 1 - g.swing / 0.25; arm.rotation.x = -2.4 + k * 3.0; arm.rotation.z = 0.15; }
-    else { arm.rotation.z = 0; }
+    const arm = P.arms[1];
+    arm.rotation.z = 0; m.hand.rotation.x = 0; P.torso.rotation.x = 0;
+    if (!a) return;
+    a.t += dt;
+    const k = Math.min(1, a.t / a.dur), ge = GESTURES[a.kind];
+    arm.rotation.x = keys(ge.arm, k);
+    if (ge.side) arm.rotation.z = keys(ge.side, k);
+    if (ge.twist) P.torso.rotation.y += keys(ge.twist, k);
+    if (ge.lean) P.torso.rotation.x = keys(ge.lean, k);
+    if (ge.tilt) m.hand.rotation.x = keys(ge.tilt, k);
+    if (k >= 1) m.anim = null;
   }
+}
+
+// Gestos al usar lo que se lleva en la mano: claves [momento (0 a 1), valor] del giro del brazo hacia delante
+// (arm, negativo = levantarlo), hacia el lado (side), del tronco (twist, lean) y de la mano (tilt), y lo que
+// dura en segundos. Los golpes cogen impulso por encima de la cabeza y bajan deprisa.
+const GESTURES = {
+  golpe: { dur: 0.42, arm: [[0, 0], [0.38, -2.7], [0.62, 0.5], [1, 0]], twist: [[0, 0], [0.38, -0.25], [0.62, 0.15], [1, 0]], lean: [[0, 0], [0.38, -0.08], [0.62, 0.18], [1, 0]], side: [[0, 0], [0.38, 0.12], [1, 0]] },
+  cavar: { dur: 0.45, arm: [[0, 0], [0.4, -2.6], [0.65, 0.85], [1, 0]], twist: [[0, 0], [0.4, -0.15], [1, 0]], lean: [[0, 0], [0.4, -0.1], [0.65, 0.3], [1, 0]] },
+  barrer: { dur: 0.4, arm: [[0, 0], [0.25, -1.2], [0.75, -1.15], [1, 0]], twist: [[0, 0], [0.25, 0.9], [0.72, -0.9], [1, 0]], side: [[0, 0], [0.25, -0.25], [0.72, 0.2], [1, 0]] },
+  tajo: { dur: 0.36, arm: [[0, 0], [0.32, -2.4], [0.62, 0.3], [1, 0]], side: [[0, 0], [0.32, 0.5], [0.62, -0.5], [1, 0]], twist: [[0, 0], [0.32, -0.4], [0.62, 0.4], [1, 0]] },
+  regar: { dur: 0.7, arm: [[0, 0], [0.25, -0.9], [0.75, -0.9], [1, 0]], tilt: [[0, 0], [0.25, 1.5], [0.75, 1.5], [1, 0]] },
+  lanzar: { dur: 0.6, arm: [[0, 0], [0.3, -2.6], [0.55, -0.6], [1, 0]], twist: [[0, 0], [0.3, -0.2], [0.55, 0.1], [1, 0]] },
+  mano: { dur: 0.3, arm: [[0, 0], [0.4, -1.5], [1, 0]], twist: [[0, 0], [0.4, -0.25], [1, 0]] },
+};
+function gestureOf(id) {
+  const d = id && ITEMS[id];
+  if (!d) return 'mano';
+  if (d.weapon) return 'tajo';
+  return { hacha: 'golpe', pico: 'golpe', azada: 'cavar', guadana: 'barrer', red: 'barrer', regadera: 'regar', cana: 'lanzar' }[d.tool] || 'golpe';
+}
+// El valor en el momento k, suavizado entre clave y clave
+function keys(list, k) {
+  for (let i = 1; i < list.length; i++) {
+    const [k1, v1] = list[i];
+    if (k <= k1) { const [k0, v0] = list[i - 1], t = (k - k0) / (k1 - k0 || 1); return v0 + (v1 - v0) * t * t * (3 - 2 * t); }
+  }
+  return list[list.length - 1][1];
 }
 
 // Hacia dónde mira una entidad (ángulo en el plano), o null si no se sabe

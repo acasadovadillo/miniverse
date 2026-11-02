@@ -162,7 +162,11 @@ export class Gathering {
     const held = g.inv.held, def = held && ITEMS[held.id];
     if (def?.food || def?.heal) return auto ? undefined : this.eat(g.inv.selected);
     if (def?.place) return this.place(held.id, auto);
-    if (this.target?.use) return auto && !this.target.auto ? undefined : this.target.use();   // lo que propone otro sistema (sembrar, pescar…)
+    if (this.target?.use) {   // lo que propone otro sistema (sembrar, pescar…)
+      if (auto && !this.target.auto) return;
+      if (def?.tool) { this.swing = 0.25; this.swingItem = held.id; }   // también se ve el gesto (regar, lanzar la caña…)
+      return this.target.use();
+    }
     if (auto && !(this.target?.obj || this.target?.ok)) return;
     if (!g.scene.harvestablesNear) return;
     const tool = def?.tool || null, tier = def?.tier || 1, t = this.target;
