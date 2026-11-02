@@ -8,7 +8,7 @@ const handlers = { chat: () => false, use: () => {}, interact: () => {}, pause: 
 const KEYMAP = { KeyW: 'up', ArrowUp: 'up', KeyS: 'down', ArrowDown: 'down', KeyA: 'left', ArrowLeft: 'left', KeyD: 'right', ArrowRight: 'right' };
 // En el juego las flechas mueven la cámara (girar e inclinar) y + y − la acercan o alejan; mientras se
 // mantienen, la cámara se mueve suave. Con el mapa abierto, las flechas mueven el mapa como WASD.
-const CAMKEYS = { ArrowLeft: ['turn', -1], ArrowRight: ['turn', 1], ArrowUp: ['tilt', 1], ArrowDown: ['tilt', -1] };
+const CAMKEYS = { ArrowLeft: ['turn', 1], ArrowRight: ['turn', -1], ArrowUp: ['tilt', 1], ArrowDown: ['tilt', -1] };
 const held = new Map();   // tecla → [eje, sentido]
 function camAxes() {
   CAM.turn = CAM.tilt = CAM.zoom = 0;
