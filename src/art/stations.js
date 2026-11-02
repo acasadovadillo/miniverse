@@ -38,8 +38,8 @@ export const GLOW = { horno: [0, 0.42, 4], cocina: [0, 0.4, 4], chimenea: [0, 0.
 export const LIGHT = { horno: [0, 0.42, 6, 42], cocina: [0, 0.4, 6, 34], lampara: [0, 0, 35, 70], antorcha: [0, 0, 28, 52], chimenea: [0, 0.3, 12, 70], vela: [0, 0, 8, 26] };
 
 // Lo que ocupa más de una casilla: 'long', la suya y la de delante (+y; girado, la de +x); 'wide' (la cama
-// doble), además las dos de al lado (+x; girado, -y)
-export const LONG = { cama: 'long', cama_nino: 'long', banera: 'long', cama_doble: 'wide' };
+// doble), además las dos de al lado (+x; girado, -y); 'pair' (el sofá), la suya y la de al lado
+export const LONG = { cama: 'long', cama_nino: 'long', banera: 'long', cama_doble: 'wide', sofa: 'pair' };
 export const BED_BACK = 0.46;   // de la casilla de la cabecera a la parte de atrás de la cama
 // Los cuatro giros (R): hacia dónde mira el frente del mueble (z+ del modelo) en la rejilla, hacia dónde queda su
 // lado derecho (x+) y su ángulo. 0: +y; 1: +x; 2: -y; 3: -x
@@ -50,6 +50,7 @@ export const footTile = (tx, ty, rot) => { const [dx, dy] = front(rot); return [
 export function extraTiles(id, tx, ty, rot) {
   if (!LONG[id]) return [];
   const foot = footTile(tx, ty, rot);
+  if (LONG[id] === 'pair') { const [sx, sy] = SIDE[(rot || 0) % 4]; return [[tx + sx, ty + sy]]; }   // (el sofá: la de al lado, no la de delante)
   if (LONG[id] !== 'wide') return [foot];
   const side = SIDE[(rot || 0) % 4];
   return [foot, [tx + side[0], ty + side[1]], [foot[0] + side[0], foot[1] + side[1]]];

@@ -3,10 +3,10 @@
 // La postura va en p.pose = { kind: 'sit' | 'floorSit' | 'lie' | 'floorLie', yaw, h } y la ven los demás
 // jugadores (va con su estado). h: la altura del cuerpo sobre el suelo (en la cama, sobre el colchón).
 import { keys } from './input.js';
-import { extraTiles, front, yawOf } from './art/stations.js';
+import { extraTiles, front, yawOf, SIDE } from './art/stations.js';
 import { Audio } from './audio.js';
 
-const SEAT = 0.14, BED = 0.6, FLOOR_LIE = 0.14, FLOOR_SIT = -0.28;
+const SEAT = 0.14, SOFA = 0.1, BED = 0.6, FLOOR_LIE = 0.14, FLOOR_SIT = -0.28;
 
 export class Rest {
   constructor(game) { this.game = game; }
@@ -16,9 +16,12 @@ export class Rest {
   static yaw(dx, dy) { return Math.atan2(dx, dy); }
 
   // En una silla: en su centro, mirando hacia donde mira ella
+  // En el sofá, en la plaza que quede más cerca (la suya o la de al lado), algo más hundido
   sit(o) {
-    const yaw = yawOf(o.rot);
-    this.take({ kind: 'sit', yaw, h: SEAT }, o.x - Math.sin(yaw) * 0.04, o.y - Math.cos(yaw) * 0.04);
+    const yaw = yawOf(o.rot), p = this.p;
+    let [x, y] = [o.x, o.y];
+    if (o.placed === 'sofa') { const [sx, sy] = SIDE[(o.rot || 0) % 4]; if (Math.hypot(x + sx - p.x, y + sy - p.y) < Math.hypot(x - p.x, y - p.y)) { x += sx; y += sy; } }
+    this.take({ kind: 'sit', yaw, h: o.placed === 'sofa' ? SOFA : SEAT }, x + Math.sin(yaw) * (o.placed === 'sofa' ? 0.05 : -0.04), y + Math.cos(yaw) * (o.placed === 'sofa' ? 0.05 : -0.04));
   }
   // En una cama: boca arriba, con la cabeza en la almohada (la casilla de la cabecera). En la doble, del lado
   // que quede más cerca

@@ -36,7 +36,7 @@ export function modelMats() {
     canvas: c('#d8c8a0', { side: THREE.DoubleSide, roughness: 1 }), tentStripe: c('#a8442a', { side: THREE.DoubleSide }), lamp: c('#fff2c0', { emissive: '#ffd070', emissiveIntensity: 1.5 }),
     hull: mat({ map: wood('#6a4a30'), roughness: 0.9 }), temple: mat({ map: stone('#c8bca0') }), templeD: mat({ map: stone('#8a8070') }), crystal: c('#7ae0ff', { emissive: '#3ab0ff', emissiveIntensity: 0.8, roughness: 0.1 }),
     snow: c('#f4f8fc', { roughness: 0.85 }), rock: mat({ map: stone('#8a857c'), flatShading: true }), dark0: c('#0a0806', { roughness: 1 }), stripeR: c('#c83a32'), lens: c('#fff6c8', { emissive: '#ffe080', emissiveIntensity: 2 }),
-    bee: c('#e8c040'), leather: c('#8a5a34', { roughness: 0.85 }), leatherD: c('#5e3b22', { roughness: 0.85 }),
+    bee: c('#e8c040'), sofa: c('#3f6a5a', { roughness: 0.95 }), sofaB: c('#5a8a74', { roughness: 0.95 }), leather: c('#8a5a34', { roughness: 0.85 }), leatherD: c('#5e3b22', { roughness: 0.85 }),
     porcelain: c('#f4f2ee', { roughness: 0.22 }), quiltK: c('#5a9ad8', { roughness: 0.95 }), quiltK2: c('#e88aa8', { roughness: 0.95 }), pillowK: c('#f4d86a', { roughness: 0.95 }),
     baby: c('#f4e6c8', { roughness: 0.95 }), mirror: c('#d8eef4', { metalness: 0.6, roughness: 0.08 }), plate: c('#f0ece0', { roughness: 0.4 }), plateB: c('#5a7ab8', { roughness: 0.4 }),
   };
@@ -79,6 +79,15 @@ const BUILD = {
     m.box('quiltB', -W / 2 + 0.005, 0.425, z0 + 0.62, W / 2 - 0.005, 0.535, z0 + 0.74).box('sheet', -0.34, 0.5, z0 + 0.14, 0.34, 0.64, z0 + 0.46);
   },
   // Cama de matrimonio: dos casillas de ancho (hacia +x) y dos de largo, con dos almohadas
+  sofa(m) {   // de dos plazas (la casilla y la de su derecha, +x): patas, asiento con dos cojines, respaldo y brazos
+    const x0 = -0.46, x1 = 1.46, z0 = -0.42, z1 = 0.4;
+    for (const x of [x0 + 0.04, x1 - 0.1]) for (const z of [z0 + 0.04, z1 - 0.1]) m.box('dark', x, 0, z, x + 0.06, 0.12, z + 0.06);
+    m.box('sofa', x0, 0.12, z0, x1, 0.3, z1);                                                       // la base
+    m.box('sofaB', x0 + 0.14, 0.3, z0 + 0.16, 0.47, 0.44, z1 - 0.01).box('sofaB', 0.53, 0.3, z0 + 0.16, x1 - 0.14, 0.44, z1 - 0.01);   // los cojines del asiento
+    m.box('sofa', x0, 0.3, z0, x1, 0.86, z0 + 0.18);                                                 // el respaldo
+    for (const x of [x0, x1 - 0.14]) m.box('sofa', x, 0.3, z0, x + 0.14, 0.6, z1);                // los brazos
+    m.box('sofaB', 0.15, 0.44, z0 + 0.16, 0.42, 0.7, z0 + 0.26, 0.5).box('quiltB', 0.7, 0.44, z0 + 0.17, 0.92, 0.66, z0 + 0.26);   // dos cojines de respaldo
+  },
   cama_doble(m) {
     const L = 1.9, x0 = -0.47, x1 = 1.47, z0 = -0.46, z1 = z0 + L;
     m.box('dark', x0, 0, z0, x0 + 0.09, 1.1, z0 + 0.09).box('dark', x1 - 0.09, 0, z0, x1, 1.1, z0 + 0.09).box('wood', x0 + 0.09, 0.35, z0 + 0.01, x1 - 0.09, 1.0, z0 + 0.07);

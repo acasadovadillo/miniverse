@@ -31,6 +31,7 @@ export const RECIPES = [
   R('banco', 'maceta', 1, [['piedra', 3], ['fibra', 2]]),
   R('banco', 'cama', 1, [['tablas', 6], ['tela', 2]]),
   R('banco', 'cama_doble', 1, [['tablas', 10], ['tela', 4]]),
+  R('banco', 'sofa', 1, [['tablas', 8], ['tela', 4], ['fibra', 4]]),
   R('banco', 'cama_nino', 1, [['tablas', 5], ['tela', 2]]),
   R('banco', 'cuna', 1, [['tablas', 6], ['tela', 1]]),
   R('banco', 'alacena', 1, [['tablas', 8], ['piedra', 2]]),

@@ -223,6 +223,7 @@ Object.assign(ITEMS, {
 });
 // Muebles de la casa familiar: dormitorios, cocina y baño
 Object.assign(ITEMS, {
+  sofa: { name: 'Sofá', desc: 'De dos plazas, con cojines. Arrímalo a la pared y siéntate en él con E.', place: 'furniture' },
   cama_doble: { name: 'Cama doble', desc: 'Cama de matrimonio, de dos casillas de ancho. Para dormir y, si estáis los dos en casa, para tener un bebé.', place: 'furniture' },
   cama_nino: { name: 'Cama de niño', desc: 'Pequeña, con edredón azul. Cuando el bebé crezca, dormirá en ella.', place: 'furniture' },
   cuna: { name: 'Cuna', desc: 'De barrotes. Para tener un bebé hace falta una libre.', place: 'furniture' },

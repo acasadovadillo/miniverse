@@ -264,7 +264,7 @@ export class Game {
       const name = ITEMS[o.placed].name.toLowerCase(), pick = { text: `Recoger ${name}`, run: () => this.pickUp(o) };
       if (STATIONS[o.placed]) return { text: `Usar ${name}`, run: () => this.onCraft?.(o.placed), alt: pick };
       if (o.placed === 'cama' || o.placed === 'cama_nino' || o.placed === 'cama_doble') return { text: 'Usar la cama', run: () => this.bed(o), alt: pick };
-      if (o.placed === 'silla') return { text: 'Sentarse', run: () => this.rest.sit(o), alt: pick };
+      if (o.placed === 'silla' || o.placed === 'sofa') return { text: 'Sentarse', run: () => this.rest.sit(o), alt: pick };
       if (o.placed === 'lavabo') return { text: 'Mirarse en el espejo', run: () => this.onMirror?.(), alt: pick };
       if (o.placed === 'cofre') return { text: 'Abrir el cofre', run: () => this.onChest?.(sc.chestAt(...o.tile), o.tile), alt: pick };   // (lleno no se recoge: hay que vaciarlo antes)
       if (o.placed === 'mochila') return { text: 'Abrir la mochila', run: () => this.onChest?.(sc.chestAt(...o.tile) || [], o.tile), alt: { text: this.inv.equip.espalda ? 'Recoger la mochila' : 'Ponerse la mochila', run: () => this.takeBackpack(o) } };

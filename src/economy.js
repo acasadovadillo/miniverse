@@ -55,6 +55,6 @@ export const SHOPS = {
   },
   dani: {
     title: 'Taller de Dani', hours: [10, 19],
-    stock: [{ id: 'maceta', price: 80 }, { id: 'alfombra', price: 140 }, { id: 'estanteria', price: 200 }, { id: 'lampara', price: 200 }, { id: 'cama', price: 350 }, { id: 'caballo', price: 3000 }],
+    stock: [{ id: 'maceta', price: 80 }, { id: 'alfombra', price: 140 }, { id: 'estanteria', price: 200 }, { id: 'lampara', price: 200 }, { id: 'cama', price: 350 }, { id: 'sofa', price: 420 }, { id: 'caballo', price: 3000 }],
   },
 };

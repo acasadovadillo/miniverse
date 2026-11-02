@@ -16,7 +16,7 @@ const ROOF_MAX_TILES = 900;   // tope de casillas de una región de tejado (para
 const ROOF_MAX_LEVEL = 4;     // altura máxima de un tejado, en niveles
 
 // De su centro a su parte de atrás, en lo que tiene espalda: si detrás hay un muro, se arrima a él
-const BACK = { cama: BED_BACK, cama_doble: BED_BACK, cama_nino: 0.42, banera: 0.4, estanteria: 0.2, alacena: 0.26, fregadero: 0.3, lavabo: 0.42, inodoro: 0.32, chimenea: HEARTH_BACK, lampara: 0.18 };
+const BACK = { cama: BED_BACK, cama_doble: BED_BACK, sofa: 0.42, cama_nino: 0.42, banera: 0.4, estanteria: 0.2, alacena: 0.26, fregadero: 0.3, lavabo: 0.42, inodoro: 0.32, chimenea: HEARTH_BACK, lampara: 0.18 };
 
 // Completa un objeto de la mochila puesto en el mundo (estación o mueble): colisión y luz.
 // [sx, sy]: lo que se corre para arrimarse a un muro. Devuelve true si es plano (alfombra) y va en el suelo.
