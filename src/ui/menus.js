@@ -12,8 +12,6 @@ import { initChestUI } from './chest.js';
 import { initShopUI } from './shop.js';
 import { initJournalUI } from './journal.js';
 import { initSettingsUI } from './settings.js';
-import { readExport } from '../share.js';
-import { downloadVault, dataFile } from '../vault.js';
 
 const $ = id => document.getElementById(id);
 const SCREENS = ['s-login', 's-menu', 's-account', 's-creator', 's-pause', 's-map', 's-inv', 's-craft', 's-chest', 's-shop', 's-journal', 's-settings', 's-controls'];
@@ -69,22 +67,35 @@ export function initMenus(game) {
   });
 
   // ---------- Menú principal ----------
+  // Solo hay un mundo, así que con personaje solo se puede jugar (el admin, en su mundo, que es el de todos;
+  // los demás, en el del admin, mientras él está jugando). Sin personaje, se crea.
   let currentSave = null;
   const when = ts => new Date(ts).toLocaleString('es-ES', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
   function openMenu() {
     currentSave = Profile.data?.save || null;
     $('menu-hello').textContent = `¡Hola, ${Profile.name}!`;
-    $('menu-save').textContent = currentSave ? `Partida de ${currentSave.player.name} · guardada el ${when(currentSave.savedAt)}` : 'Todavía no tienes ninguna partida.';
-    $('m-continue').disabled = !currentSave;
-    $('m-continue').classList.toggle('primary', !!currentSave);
-    $('m-new').classList.toggle('primary', !currentSave);
-    $('m-export').disabled = !currentSave;
+    $('menu-save').textContent = currentSave ? `Tu personaje: ${currentSave.player.name} · guardado el ${when(currentSave.savedAt)}` : 'Todavía no tienes personaje.';
+    $('m-continue').hidden = !currentSave;
+    $('m-new').hidden = !!currentSave;
     $('menu-msg').textContent = '';
     show('s-menu');
     paintLive();
     findLive();
   }
-  $('m-continue').addEventListener('click', () => { if (currentSave) play(currentSave, new Map(Profile.data.deltas)); });
+  $('m-continue').addEventListener('click', () => { if (currentSave) enter(); });
+  async function enter() {
+    if (Profile.admin) { play(currentSave, new Map(Profile.data.deltas)); return; }
+    // Los demás, en el mundo del admin con su personaje (en su partida se guarda lo suyo)
+    const b = $('m-continue');
+    b.disabled = true;
+    $('menu-msg').textContent = `Entrando en el mundo de ${live.host?.name || 'Alberto'}…`;
+    try {
+      const solo = { save: currentSave, deltas: new Map(Profile.data.deltas) };
+      const { save, deltas } = live.enter(solo, await live.requestWorld());
+      play(save, deltas);
+      live.join(solo);
+    } catch (e) { $('menu-msg').textContent = e.message; paintLive(); } finally { if (!game.player) paintLive(); }
+  }
   $('m-session').addEventListener('click', () => { live.close(); Profile.logout(); openLogin(); });
 
   // ---------- Jugar juntos en directo ----------
@@ -114,28 +125,22 @@ export function initMenus(game) {
       if (s === 'connecting') msg = 'Conectando con tu servidor para jugar juntos…';
       else if (s === 'error') msg = `No se puede conectar con tu servidor para jugar juntos: ${live.error} Sigo intentándolo… (¿está abierto multijugador.py?)`;
       else if (s === 'on') msg = live.others.length ? `Servidor abierto. Conectados: ${live.others.map(p => p.name).join(', ')}.` : 'Servidor abierto: cuando juegues, los demás podrán entrar contigo.';
-    } else if (s === 'nokey') msg = 'Pidiendo la llave del mundo compartido…';
-    else if (s === 'on' && host) msg = host.playing ? `${host.name} está jugando ahora.` : `${host.name} ha abierto el servidor, pero todavía no está jugando.`;
+    } else {
+      // Los demás solo pueden jugar mientras el admin está jugando: su mundo es el único que hay
+      const name = host?.name || 'Alberto';
+      if (s === 'connecting') msg = `Buscando el mundo de ${name}…`;
+      else if (s === 'nokey') msg = 'Pidiendo la llave del mundo…';
+      else if (host?.playing) msg = `${name} está jugando ahora: ya puedes entrar.`;
+      else if (host) msg = `${name} ha abierto el servidor, pero todavía no está jugando.`;
+      else msg = `El mundo está cerrado: se abre cuando ${name} está jugando.`;
+      $('m-continue').disabled = !host?.playing;
+    }
+    const open = Profile.admin ? s === 'on' : !!host?.playing;
     $('m-live').hidden = !msg;
-    $('m-live').className = s === 'error' ? 'err' : s === 'connecting' || s === 'nokey' ? 'wait' : '';
+    $('m-live').className = s === 'error' && Profile.admin ? 'err' : open ? '' : 'wait';
     $('m-live-msg').textContent = msg;
-    $('m-join').hidden = !(host?.playing && !Profile.admin);
-    $('m-join').textContent = `Jugar con ${host?.name || 'los demás'}`;
   }
   live.onChange = () => { announce(); if ($('s-menu').classList.contains('show')) paintLive(); };
-  // Entrar en el mundo del admin con tu personaje (tu partida de siempre se queda como estaba)
-  $('m-join').addEventListener('click', async () => {
-    if (!currentSave) { $('menu-msg').textContent = 'Primero crea tu personaje con «Nueva partida».'; return; }
-    const b = $('m-join');
-    b.disabled = true;
-    $('menu-msg').textContent = `Entrando en el mundo de ${live.host?.name || 'Alberto'}…`;
-    try {
-      const solo = { save: currentSave, deltas: new Map(Profile.data.deltas) };
-      const { save, deltas } = live.enter(solo, await live.requestWorld());
-      play(save, deltas);
-      live.join(solo);
-    } catch (e) { $('menu-msg').textContent = e.message; } finally { b.disabled = false; }
-  });
   // Si el anfitrión se va, se sale de su mundo (guardando lo tuyo)
   live.onHostLeft = async () => {
     const name = live.hostName || 'El anfitrión', r = await save({ upload: true });
@@ -143,10 +148,7 @@ export function initMenus(game) {
     openMenu();
     $('menu-msg').textContent = `${name} ha salido y se ha cerrado el mundo compartido. Tu personaje y lo que llevas están guardados${r.remote === false ? ' en este ordenador (no en GitHub)' : ''}.`;
   };
-  $('m-new').addEventListener('click', () => {
-    if (currentSave && !confirm('Empezar una partida nueva borrará la que tienes guardada. ¿Seguro?')) return;
-    openCreator();
-  });
+  $('m-new').addEventListener('click', () => openCreator());
 
   // ---------- Creador de personaje ----------
   // (la vista previa es el mismo modelo en 3D que en el juego)
@@ -282,7 +284,11 @@ export function initMenus(game) {
     if (!name) { $('cr-err').textContent = 'Ponle un nombre a tu personaje.'; return; }
     const save = { player: { name, look: { ...look }, x: SPAWN.x, y: SPAWN.y, inside: false, view: 'back' } };
     await Profile.store(save, new Map(), { upload: true });   // la partida nueva empieza sin cambios en el mundo
-    play(Profile.data.save, new Map());
+    if (Profile.admin) { play(Profile.data.save, new Map()); return; }
+    // Los demás entran en el mundo del admin si está jugando; si no, su personaje queda listo para cuando juegue
+    openMenu();
+    if (live.host?.playing) enter();
+    else $('menu-msg').textContent = 'Tu personaje está listo. Podrás entrar en cuanto Alberto esté jugando.';
   };
 
   function openCreator() {
@@ -313,50 +319,19 @@ export function initMenus(game) {
   // Guarda la partida (el jugador y los cambios del mundo), cifrada en este ordenador y, si se pide o hace
   // rato de la última vez, también en GitHub. Devuelve { local, remote } (remote: null si no tocaba subirla).
   const save = async ({ upload = false } = {}) => {
-    if (game.visiting || !game.player || !Profile.id) return { local: false, remote: null };   // de visita no se guarda nada
+    if (!game.player || !Profile.id) return { local: false, remote: null };
     // (en el mundo de otro, en tu partida se guarda lo tuyo, con tu mundo de siempre)
     if (live.guest) { const g = live.guestSave(game.snapshot(), game.world.deltas); return Profile.store(g.save, g.deltas, { upload }); }
     return Profile.store(game.snapshot(), game.world.deltas, { upload });
   };
   game.onSave = () => save();
-  function play(data, deltas, visiting = false) {
+  function play(data, deltas) {
     show(null);
-    game.visiting = visiting;
     game.start(data, deltas);
     if (!Profile.admin && game.admin) game.setAdmin(false);   // el modo admin es solo del admin
-    if (Profile.admin && !visiting && live.net) live.join();   // (el mundo del admin es el de todos)
-    if (visiting) hud.toast('Modo visita: puedes explorar, pero no se guarda nada');
+    if (Profile.admin && live.net) live.join();   // (el mundo del admin es el de todos)
   }
 
-  // ---------- Exportar, importar y visitar ----------
-  // (la partida se exporta cifrada, como el archivo que se guarda en GitHub)
-  $('m-export').onclick = async () => {
-    downloadVault(await Profile.sealed(), Profile.id);
-    $('menu-msg').textContent = `Partida exportada cifrada: busca ${dataFile(Profile.id)} en tus descargas.`;
-  };
-  const pickFile = () => new Promise(resolve => { const i = $('file-pick'); i.value = ''; i.onchange = () => resolve(i.files[0]); i.click(); });
-  $('m-import').onclick = async () => {
-    const file = await pickFile();
-    if (!file) return;
-    try {
-      let data;
-      const bytes = new Uint8Array(await file.arrayBuffer());
-      if (Profile.isVault(bytes)) {
-        const raw = await Profile.openFile(bytes);
-        if (!raw.save) throw new Error('En ese archivo todavía no hay ninguna partida.');
-        data = { save: raw.save, deltas: new Map(raw.deltas) };
-      } else data = await readExport(file);
-      if (currentSave && !confirm('Importar sustituye tu partida actual por la del archivo. ¿Seguro?')) return;
-      await Profile.store(data.save, data.deltas, { upload: true, keepTime: true });
-      openMenu();
-      $('menu-msg').textContent = `Partida de ${data.save.player.name} importada.`;
-    } catch (e) { $('menu-msg').textContent = e.message; }
-  };
-  $('m-visit').onclick = async () => {
-    const file = await pickFile();
-    if (!file) return;
-    try { const data = await readExport(file); play(data.save, data.deltas, true); } catch (e) { $('menu-msg').textContent = e.message; }
-  };
   setInterval(() => { if (game.mode === 'play' && game.player) save(); }, AUTOSAVE_MS);
   const savedMsg = r => (r.remote ? 'Partida guardada aquí y en GitHub.' : r.local ? `Partida guardada en este ordenador${r.remote === false ? `, pero no en GitHub: ${Profile.lastError}` : ''}.` : 'No se ha podido guardar.');
   addEventListener('pagehide', () => { if (game.player) save(); });
@@ -366,7 +341,7 @@ export function initMenus(game) {
     if (['map', 'inventory', 'craft', 'chest', 'shop', 'journal'].includes(game.mode)) { resume(); return true; }
     if (game.mode === 'play' && game.build.on) { game.build.toggle(false); return true; }
     if (game.busy || hud.dialogOpen) return false;
-    if (game.mode === 'play') { game.mode = 'pause'; $('p-msg').textContent = game.visiting ? 'Estás de visita: no se guarda nada.' : live.guest ? `Estás en el mundo de ${live.hostName}: el mundo lo guarda su juego, y lo tuyo, tu partida.` : ''; show('s-pause'); return true; }
+    if (game.mode === 'play') { game.mode = 'pause'; $('p-msg').textContent = live.guest ? `Estás en el mundo de ${live.hostName}: el mundo lo guarda su juego, y lo tuyo, tu partida.` : ''; show('s-pause'); return true; }
     if (game.mode === 'pause') { resume(); return true; }
     return false;
   }
@@ -408,7 +383,7 @@ export function initMenus(game) {
   $('p-save').onclick = async () => { $('p-msg').textContent = 'Guardando…'; $('p-msg').textContent = savedMsg(await save({ upload: true })); };
   $('p-menu').onclick = async () => {
     const r = await save({ upload: true });
-    game.end(); game.visiting = false; openMenu();
+    game.end(); openMenu();
     if (r.remote === false) $('menu-msg').textContent = savedMsg(r);
   };
 

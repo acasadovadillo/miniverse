@@ -22,7 +22,7 @@ python3 servidor.py 8000
 
 Al entrar sale la pantalla de inicio de sesión. Las cuentas las crea el administrador (Alberto) y cada partida va cifrada con la contraseña de su jugador (ver *Cuentas*). La primera vez se entra con el código de invitación que da el administrador y se elige la contraseña.
 
-1. Pulsa **Nueva partida** y crea tu personaje: nombre, cuerpo y ropa, cara (ojos y su color, cejas, nariz, orejas y mofletes) y pelo (23 peinados y barba). Mantén pulsados los botones de giro, las flechas ← → o arrastra sobre el personaje para girarlo; en la pestaña Cara la cámara se acerca.
+1. Pulsa **Crear tu personaje**: nombre, cuerpo y ropa, cara (ojos y su color, cejas, nariz, orejas y mofletes) y pelo (23 peinados y barba). Mantén pulsados los botones de giro, las flechas ← → o arrastra sobre el personaje para girarlo; en la pestaña Cara la cámara se acerca.
 2. Empiezas con hacha, pico, guadaña, azada, tres manzanas y 100 monedas. **Habla con Nilo** en la plaza: te enseña a hacer un banco de carpintero.
 3. Tala, pica y siega fuera del pueblo, fabrica (C) y coloca estaciones. Cada material nuevo desbloquea recetas.
 4. Tu casa es parte del mundo: entras andando por la puerta y el tejado se oculta. Está hecha de las mismas piezas que puedes construir tú (B) en cualquier parte, y puedes cambiarla o amueblarla a tu gusto. Siembra, compra animales a Rosa, pesca con Lía, haz encargos del tablón y paga los proyectos del pueblo.
@@ -66,7 +66,6 @@ La partida se guarda sola cada 15 segundos, al entrar o salir de una casa y al d
 - **Inventario realista**: sin mochila solo llevas lo que cabe en las manos y los bolsillos (las 9 casillas de la barra). La mochila (a mano, con fibra y cuerda) se lleva a la espalda y desbloquea 27 casillas más; para quitártela tiene que estar vacía. La ropa son objetos que te pones y te quitas, cada uno en su hueco del cuerpo (cabeza, torso, encima, piernas, pies, ropa interior de arriba y de abajo, calcetines y espalda), y el personaje se ve con lo que lleva: camisa, túnica corta o larga, chaleco, delantal, pantalón, falda, botas, camiseta interior, calzoncillos o bragas, calcetines, sombrero de paja y gorro de lana. Sin nada, es un muñeco liso. La ropa se teje en el telar (el sombrero, a mano).
 - **Progreso**: ocho habilidades que suben con el uso, museo con 33 piezas (minerales, fósiles, peces e insectos), 20 logros y estadísticas.
 - **Ajustes**: volúmenes, música generada, resolución (automática o fija), texto grande y reducir destellos. Los controles están en su propia sección de la pausa.
-- **Compartir sin servidor**: exportar e importar la partida a un archivo y visitar lo que ha hecho otra persona sin guardar nada.
 
 ## Publicación
 
@@ -81,12 +80,12 @@ El juego es estático y se publica con GitHub Pages desde la rama `main` (carpet
 - **Crear una cuenta.** Con la sesión de Alberto y `/admin` activado, escribe en el chat `/account create <usuario>`. Pega su token de guardado y pásale a esa persona el código de invitación que sale. La primera vez, ella escribe su usuario, el código y la contraseña que quiera (dos veces); entonces se crean su `<usuario>-key.json` y su `<usuario>-miniverse-data.enc` en Miniverse-data. La próxima vez que entres tú, su token pasa a `accounts.json` y ya solo necesita su contraseña, en cualquier dispositivo.
 - **Al día.** Mientras juegas, tu juego pasa a `accounts.json` cada pocos minutos las cuentas que ya tienen contraseña, así que no hace falta volver a entrar cuando alguien activa la suya.
 - **Otros comandos.** `/account list` muestra las cuentas. `/account reset <usuario>` le da un token y un código nuevos (si el token caduca o se pierde el código); conserva su contraseña y su partida. `/account delete <usuario>` borra la cuenta y su partida.
-- **Límites.** GitHub no deja limitar un token a un solo archivo, así que con su token un jugador podría borrar o cambiar archivos de otros en Miniverse-data. No podría leerlos, porque van cifrados, y el historial de git permite recuperarlos. La partida se sube a GitHub al guardar desde la pausa, al salir al menú y, mientras se juega, como mucho cada 3 minutos. *Exportar partida* descarga el archivo cifrado; *Importar partida* acepta el de tu cuenta o una partida sin cifrar de las versiones de antes.
+- **Límites.** GitHub no deja limitar un token a un solo archivo, así que con su token un jugador podría borrar o cambiar archivos de otros en Miniverse-data. No podría leerlos, porque van cifrados, y el historial de git permite recuperarlos. La partida se sube a GitHub al guardar desde la pausa, al salir al menú y, mientras se juega, como mucho cada 3 minutos.
 
 ### Jugar juntos en directo
 
 - **Abrir el servidor.** En tu Mac, desde esta carpeta: `python3 multijugador.py`. La primera vez instala el túnel con `brew install cloudflared`. El programa abre un túnel (una dirección `https://….trycloudflare.com` que cambia cada vez, gratis y sin cuenta) y abre el juego ya conectado. Entra con tu cuenta: tu juego publica la dirección en `servidor.json`, en Miniverse-data. Para cerrarlo, Ctrl+C.
-- **Entrar los demás.** Desde la web de siempre: al iniciar sesión, el menú dice si estás jugando y muestra *Jugar con Alberto*. Entran en tu mundo con su propio personaje. *Continuar* sigue jugando en su mundo, sin los demás.
+- **Entrar los demás.** Desde la web de siempre: al iniciar sesión, el menú dice si estás jugando. Mientras juegas, su botón **Jugar** les lleva a tu mundo con su propio personaje; cuando no juegas, el mundo está cerrado (solo hay uno: el tuyo).
 - **Qué es de todos.** Tu mundo con todo lo construido: lo que se tala, se pica, se construye o se quita, el huerto, las puertas y los cofres cambia en directo para todos. También son de todos la hora y el tiempo, la casa, los proyectos y los encargos del tablón, el museo y los animales. Lo que se tira al suelo lo puede recoger otro (así se dan cosas: lo que uno tira, los primeros segundos es solo para los demás).
 - **Qué es de cada uno.** El personaje y su ropa, lo que lleva encima, el dinero, la energía y la vida, las habilidades, los logros, la amistad con los vecinos y el mapa descubierto. Se guarda en la partida de cada uno, que conserva aparte su mundo de siempre; la próxima vez vuelve a aparecer donde se quedó en el tuyo.
 - **Lo que lleva tu juego.** El mundo se guarda en tu partida, como siempre. Tu juego hace pasar la hora y crecer los cultivos, se ocupa de los animales y reparte los cambios: si dos tocan lo mismo a la vez (el mismo cofre, por ejemplo), se queda lo último que llega a tu juego. Los demás pueden dormir para recuperar energía, pero la noche solo la pasa tu juego. Si sales al menú o cierras el servidor, los demás vuelven a su menú con lo suyo guardado.
@@ -136,7 +135,7 @@ src/explore.js         Lugares del mundo, cofres, cuevas, templos, barca y cabal
 src/progress.js        Estadísticas, habilidades, museo, logros e historia
 src/music.js           Música generada
 src/settings.js        Ajustes
-src/share.js           Exportar, importar y visitar
+src/share.js           Partidas de las versiones de antes (para cifrarlas)
 src/audio.js           Sonidos
 src/accounts.js        Cuentas: entrar, invitaciones, /account y guardar la partida cifrada
 src/live.js, livesync.js, net.js, worldkey.js   Jugar juntos en directo: los demás jugadores, el mundo compartido, la conexión cifrada y la clave del mundo

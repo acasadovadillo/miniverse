@@ -17,7 +17,7 @@
 import { db } from './db.js';
 import { gameData } from './share.js';
 import { GAME_REPO, DATA_REPO, readAccounts, getFile, putFile, deleteFile, canWrite } from './github.js';
-import { dataFile, keyFile, toB64, fromB64, newSalt, deriveKey, encryptText, decryptText, seal, unseal, inviteCode, normalizeCode, isVault } from './vault.js';
+import { dataFile, keyFile, toB64, fromB64, newSalt, deriveKey, encryptText, decryptText, seal, unseal, inviteCode, normalizeCode } from './vault.js';
 import { WorldKey, keysFile } from './worldkey.js';
 
 export const ADMIN_ID = 'alberto';
@@ -147,8 +147,8 @@ export const Profile = {
   logout() { me = null; data = null; clearInterval(chores); WorldKey.forget(); worldKey = Promise.resolve(null); },
 
   // Guarda la partida: cifrada en este ordenador siempre y en GitHub si se pide (o si hace rato de la última)
-  store(save, deltas, { upload = false, keepTime = false } = {}) {
-    data = { format: 'pueblo-brotes', version: 1, exportedAt: new Date().toISOString(), save: save && { ...save, savedAt: (keepTime && save.savedAt) || Date.now() }, deltas: [...deltas] };
+  store(save, deltas, { upload = false } = {}) {
+    data = { format: 'pueblo-brotes', version: 1, exportedAt: new Date().toISOString(), save: save && { ...save, savedAt: Date.now() }, deltas: [...deltas] };
     changed = true;
     return this.persist({ upload });
   },
@@ -168,10 +168,6 @@ export const Profile = {
     };
     return (queue = queue.then(run, run));
   },
-  async sealed() { return me ? seal(me.key, me.salt, data) : null; },
-  // Una partida cifrada (para importarla): tiene que ser de esta cuenta
-  async openFile(bytes) { if (!me) throw new Error('Inicia sesión para abrir datos cifrados.'); return unseal(bytes, me.key, me.salt); },
-  isVault,
 
   // ---------- Solo el admin ----------
   // Cuenta nueva (o renovada, con reset): su token de guardado queda cifrado con un código de invitación,

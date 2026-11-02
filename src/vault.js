@@ -51,14 +51,3 @@ export function inviteCode() {
   return `${s.slice(0, 4)}-${s.slice(4, 8)}-${s.slice(8)}`;
 }
 export const normalizeCode = c => c.toUpperCase().replace(/[^A-Z0-9]/g, '');
-
-// Descarga la partida cifrada (para guardarla aparte o llevarla a mano)
-export function downloadVault(bytes, id) {
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(new Blob([bytes], { type: 'application/octet-stream' }));
-  a.download = dataFile(id);
-  document.body.append(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
-}

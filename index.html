@@ -317,7 +317,6 @@
   .field input { display: block; width: 100%; margin-top: 4px; padding: 9px 10px; font-size: 18px; color: var(--cream); background: rgba(0, 0, 0, .35); border: 2px solid #8a6034; border-radius: 4px; outline: none; user-select: text; -webkit-user-select: text; }
   .field input:focus { border-color: var(--gold); }
   .err { min-height: 20px; color: var(--err); font-size: 15px; margin-bottom: 8px; }
-  .m-row { display: flex; gap: 6px; } .m-row .btn { flex: 1; font-size: 16px; }
   .field small { font-size: 12px; opacity: .8; }
   .note { font-size: 13px; color: var(--dim); opacity: .85; margin: 12px 0 0; line-height: 1.4; }
   .btn { display: block; width: 100%; padding: 11px 14px; font-size: 19px; font-weight: 600; color: #fbefd9; background: #4a2c18; border: 2px solid #9a6a34; border-radius: 5px; cursor: pointer; margin-top: 8px; }
@@ -333,7 +332,6 @@
   #m-live.wait p::before { color: #e8c050; }
   #m-live.err { border-color: #b8483a; background: rgba(96, 30, 24, .45); }
   #m-live.err p::before { content: '✕ '; color: #ff7a66; font-weight: 700; }
-  #m-live .btn { margin: 8px 0 0; }
 
   #s-creator .box { width: min(820px, 100%); }
   .cr { display: grid; grid-template-columns: 250px 1fr; gap: 22px; align-items: start; }
@@ -396,7 +394,6 @@
       <label class="field" id="lg-token-row" hidden>Token de admin de GitHub<input id="lg-token" type="password" maxlength="300" autocomplete="off" spellcheck="false"></label>
       <div class="err" id="lg-err"></div>
       <button class="btn primary" id="lg-submit" type="submit">Entrar</button>
-      <p class="note">Tu contraseña abre tu partida, que se guarda cifrada. Las cuentas las crea el administrador: si te ha dado un código de invitación, escribe tu usuario y la contraseña que quieras.</p>
     </form>
   </section>
 
@@ -426,14 +423,11 @@
     <div class="box panel">
       <h2 id="menu-hello">¡Hola!</h2>
       <p class="who" id="menu-save"></p>
-      <div id="m-live" hidden><p id="m-live-msg"></p><button class="btn primary" id="m-join">Jugar juntos</button></div>
-      <button class="btn primary" id="m-continue">Continuar</button>
-      <button class="btn" id="m-new">Nueva partida</button>
-      <div class="m-row"><button class="btn" id="m-export">Exportar partida</button><button class="btn" id="m-import">Importar partida</button></div>
-      <button class="btn" id="m-visit">Visitar el mundo de otra persona</button>
+      <div id="m-live" hidden><p id="m-live-msg"></p></div>
+      <button class="btn primary" id="m-continue">Jugar</button>
+      <button class="btn primary" id="m-new">Crear tu personaje</button>
       <button class="btn" id="m-settings">Ajustes</button>
       <p class="note" id="menu-msg"></p>
-      <input type="file" id="file-pick" accept=".json,.enc,application/json,application/octet-stream" hidden>
       <button class="btn" id="m-session">Cerrar sesión</button>
     </div>
   </section>
