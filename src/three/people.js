@@ -184,11 +184,8 @@ export class Person3D {
       const ear = { redondas: [0.035, 0.06, 0.045, 0.285], pequenas: [0.028, 0.045, 0.035, 0.282], grandes: [0.044, 0.084, 0.062, 0.29], elfo: [0.032, 0.055, 0.042, 0.285], soplillo: [0.018, 0.066, 0.056, 0.312] }[L.ears] || [0.035, 0.06, 0.045, 0.285];
       mesh(G.ball, skin, { p: [s * ear[3], -0.03, L.ears === 'soplillo' ? -0.01 : 0], s: ear.slice(0, 3), r: [0, L.ears === 'soplillo' ? s * 1.1 : 0, 0] }, head);
       if (L.ears === 'elfo') mesh(G.cone, skin, { p: [s * 0.325, 0.05, -0.02], s: [0.03, 0.16, 0.036], r: [-0.25, 0, -s * 0.6] }, head);
-      // Mofletes: un poco de volumen con colorete
-      if (L.cheeks) {
-        mesh(G.ball, skin, { p: F(s * 0.135, -0.09, -0.032), s: [0.058, 0.048, 0.045] }, head);
-        mesh(G.eye, M(mix(L.skin, '#ff7a8a', 0.45)), { p: F(s * 0.14, -0.085, 0.008), s: [0.04, 0.024, 0.02] }, head);
-      }
+      // Mofletes: una sola pieza redondeada con colorete, que abulta un poco
+      if (L.cheeks) mesh(G.eye, M(mix(L.skin, '#ff7a8a', 0.4)), { p: F(s * 0.145, -0.085, -0.004), s: [0.05, 0.032, 0.028] }, head);
     }
     // Nariz
     const n = L.nose;
