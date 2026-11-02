@@ -12,7 +12,7 @@
 import { setFamilyHouse } from './world/village.js';
 
 // Lo de la partida que es del mundo (y no de cada jugador)
-export const SHARED = ['clock', 'house', 'projects', 'boardDone', 'animals', 'museum', 'family'];
+export const SHARED = ['clock', 'house', 'projects', 'boardDone', 'animals', 'farm', 'museum', 'family'];
 
 const isMap = v => !!v && typeof v === 'object' && !Array.isArray(v);
 const same = (a, b) => a === b || JSON.stringify(a) === JSON.stringify(b);
@@ -59,4 +59,5 @@ export const BLOBS = {
   board: { get: g => ({ projects: g.board.projects, done: g.board.done }), set: (g, v) => g.board.share(v) },
   museum: { get: g => [...g.collection.donated].sort(), set: (g, v) => { g.collection.donated = new Set(v); } },
   animals: { get: g => g.ranch.animals.map(a => { const { x, y, ...s } = a.toSave(); return s; }), set: (g, v) => g.ranch.share(v) },
+  farm: { get: g => g.ranch.farm, set: (g, v) => g.ranch.shareFarm(v) },
 };

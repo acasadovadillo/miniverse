@@ -426,11 +426,11 @@ export function initMenus(game) {
   $('p-settings').onclick = () => openSettings('s-pause');
   $('m-settings').onclick = () => openSettings('s-menu');
   game.onShop = id => { if (game.mode !== 'play') return; game.mode = 'shop'; show('s-shop'); shopUI.open(id); };
-  game.onChest = (chest, tile) => {
+  game.onChest = (chest, tile, onChange) => {
     if (!chest || game.mode !== 'play') return;
     game.mode = 'chest';
     show('s-chest');
-    chestUI.open(chest, tile);
+    chestUI.open(chest, tile, onChange);
   };
   function toggleInventory() {
     if (game.mode === 'inventory') { resume(); return true; }

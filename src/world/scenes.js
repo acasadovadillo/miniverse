@@ -33,7 +33,7 @@ function itemObject(o, id, rot, colliders, lights, [sx, sy] = [0, 0]) {
     colliders.push({ x0: x0 + 0.06 + sx, y0: y0 + 0.06 + sy, x1: x1 - 0.06 + sx, y1: y1 - 0.06 + sy });
     return false;
   }
-  if (id === 'silla' || id === 'antorcha' || id === 'maceta' || id === 'lampara') colliders.push({ x: o.x, y: o.y, r: id === 'silla' ? 0.3 : 0.2 });
+  if (id === 'silla' || id === 'antorcha' || id === 'maceta' || id === 'lampara' || id === 'cojin' || id === 'palomar') colliders.push({ x: o.x, y: o.y, r: id === 'silla' || id === 'cojin' ? 0.3 : 0.2 });
   else colliders.push({ x0: tx + 0.06 + sx, y0: ty + 0.06 + sy, x1: tx + 0.94 + sx, y1: ty + 0.94 + sy });
   return false;
 }
@@ -180,11 +180,12 @@ export class Overworld {
       } else if (piece?.kind === 'fence') {
         const f = (x, y) => this.pieceAt(x, y)?.kind === 'fence' || this.pieceAt(x, y)?.kind === 'wall';
         const mask = (f(tx + 1, ty) ? 1 : 0) | (f(tx - 1, ty) ? 2 : 0) | (f(tx, ty + 1) ? 4 : 0) | (f(tx, ty - 1) ? 8 : 0);
-        colliders.push({ x: o.x, y: o.y, r: 0.12 });
-        if (mask & 1) colliders.push({ x0: o.x, y0: o.y - 0.08, x1: tx + 1, y1: o.y + 0.08 });
-        if (mask & 2) colliders.push({ x0: tx, y0: o.y - 0.08, x1: o.x, y1: o.y + 0.08 });
-        if (mask & 4) colliders.push({ x0: o.x - 0.08, y0: o.y, x1: o.x + 0.08, y1: ty + 1 });
-        if (mask & 8) colliders.push({ x0: o.x - 0.08, y0: ty, x1: o.x + 0.08, y1: o.y });
+        // (low: es baja; a caballo, saltando, se pasa por encima)
+        colliders.push({ x: o.x, y: o.y, r: 0.12, low: true });
+        if (mask & 1) colliders.push({ x0: o.x, y0: o.y - 0.08, x1: tx + 1, y1: o.y + 0.08, low: true });
+        if (mask & 2) colliders.push({ x0: tx, y0: o.y - 0.08, x1: o.x, y1: o.y + 0.08, low: true });
+        if (mask & 4) colliders.push({ x0: o.x - 0.08, y0: o.y, x1: o.x + 0.08, y1: ty + 1, low: true });
+        if (mask & 8) colliders.push({ x0: o.x - 0.08, y0: ty, x1: o.x + 0.08, y1: o.y, low: true });
       } else if (piece?.kind === 'hearth') {
         // Hogar con chimenea: da luz y calor; el fuego lo dibuja el juego en la boca del hogar
         const [sx, sy] = this.wallShift(id, tx, ty, 0);

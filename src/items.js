@@ -101,6 +101,33 @@ Object.assign(ITEMS, {
   palomitas: { name: 'Palomitas', desc: 'Pop.', food: 20 },
   tostada_miel: { name: 'Tostada con miel', desc: 'Desayuno de campeones: da energía y velocidad.', food: 45, buff: ['rapido', 90] },
 });
+// ---------- Granja, segunda parte: más animales, crías, heno, quesería, caballos y mascotas ----------
+Object.assign(ITEMS, {
+  huevo_pato: { name: 'Huevo de pato', desc: 'Más grande que el de gallina, y con más sabor.', food: 10 },
+  huevo_oro: { name: 'Huevo de oro', desc: 'Solo lo pone un ave muy, muy feliz. Vale una fortuna.' },
+  plumas: { name: 'Plumas', desc: 'De pato: suaves y calentitas.' },
+  leche_cabra: { name: 'Leche de cabra', desc: 'Para hacer queso de cabra en la quesera.', food: 10 },
+  nata: { name: 'Nata', desc: 'La da una vaca o una cabra muy contenta. En la quesera se bate en mantequilla.', food: 12 },
+  mantequilla: { name: 'Mantequilla', desc: 'Para untar, o para cocinar platos más ricos.', food: 20 },
+  queso_cabra: { name: 'Queso de cabra', desc: 'Curado en la quesera: fuerte y cremoso.', food: 40 },
+  lana_fina: { name: 'Lana fina', desc: 'De una oveja o un conejo muy cuidados: se vende muy bien.' },
+  angora: { name: 'Pelo de angora', desc: 'Del conejo. En el telar se hace fieltro.' },
+  fieltro: { name: 'Fieltro', desc: 'Tela gruesa de angora: abriga mucho.' },
+  trufa: { name: 'Trufa', desc: 'La encuentran los cerdos hozando al aire libre. Muy cara.', food: 15 },
+  heno: { name: 'Heno', desc: 'Hierba seca. Con un silo, al segar se guarda sola; los animales lo comen cuando no pueden pastar.' },
+  cepillo: { name: 'Cepillo', desc: 'Para cepillar a tu caballo cada día: le gusta mucho.' },
+  herraduras: { name: 'Herraduras', desc: 'Pónselas a tu caballo: corre más.' },
+  alforjas: { name: 'Alforjas', desc: 'Bolsas para el caballo: llevan 9 montones de cosas.' },
+  pelota: { name: 'Pelota', desc: 'Lánzala y tu perro te la traerá.', stack: 1 },
+  silo: { name: 'Silo', desc: 'Guarda el heno que siegas (hasta 240). Los animales comen de él cuando no pueden pastar.', place: 'furniture' },
+  cuadra: { name: 'Cuadra', desc: 'Casa para hasta 2 caballos.', place: 'furniture' },
+  conejera: { name: 'Conejera', desc: 'Casa para hasta 4 conejos.', place: 'furniture' },
+  caseta: { name: 'Caseta del perro', desc: 'Donde duerme tu perro.', place: 'furniture' },
+  cojin: { name: 'Cojín del gato', desc: 'Donde duerme tu gato (cuando no duerme en tu cama).', place: 'furniture' },
+  palomar: { name: 'Palomar', desc: 'Envía con una paloma lo que llevas en la mano a otra persona, aunque no esté jugando.', place: 'furniture' },
+  incubadora: { name: 'Incubadora', desc: 'Pon un huevo de gallina o de pato: en 4 días sale un polluelo.', place: 'furniture' },
+  quesera: { name: 'Quesera', desc: 'Estación: quesos, queso de cabra y mantequilla.', place: 'station' },
+});
 // Peces: dónde viven, cuándo (estaciones, horas y tiempo) y cómo pelean al pescarlos:
 // dif: lo difícil que es (0 a 1); mov: cómo se mueve (calmo, mixto, nervioso, fondo: tira hacia abajo,
 // flota: tira hacia arriba); cm: la talla, de la más pequeña a la más grande
@@ -138,7 +165,7 @@ Object.assign(ITEMS, {
   espada: { name: 'Espada', desc: 'Para defenderte en cuevas y mazmorras. Úsala con el clic izquierdo.', weapon: 3, stack: 1 },
   espada_oro: { name: 'Espada de oro', desc: 'Pega el doble de fuerte.', weapon: 6, stack: 1 },
   barca: { name: 'Barca', desc: 'Úsala mirando al agua para navegar por ríos, lagos y el mar.', vehicle: 'barca', stack: 1 },
-  caballo: { name: 'Silbato del caballo', desc: 'Úsalo para montar (o bajar) de tu caballo: vas mucho más rápido.', vehicle: 'caballo', stack: 1 },
+  caballo: { name: 'Silbato del caballo', desc: 'Con él tienes caballo: úsalo para llamarlo, montar y bajar. Cepíllalo y dale zanahorias: cuanto más te quiere, más corre.', vehicle: 'caballo', stack: 1 },
   brujula: { name: 'Brújula del confín', desc: 'Su aguja no apunta al norte: apunta a algún sitio muy lejano.', stack: 1 },
 });
 // ---------- Insectos (fase 9): se cazan con la red ----------

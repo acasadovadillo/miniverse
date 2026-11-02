@@ -43,7 +43,7 @@ La partida se guarda sola cada 15 segundos, al entrar o salir de una casa y al d
 | Girar lo que vas a colocar | R | — |
 | Mochila / Fabricar / Construir | I / C / B | 🎒 / 🧰 / 🔨 |
 | En modo construcción | Clic pone (arrastra para pintar), clic derecho o X quita | Tocar pone; pestaña «Quitar» |
-| Diario (historia, vecinos, habilidades, pesca, museo, logros) | J | Desde el menú ☰ |
+| Diario (historia, vecinos, habilidades, granja, pesca, museo, logros) | J | Desde el menú ☰ |
 | Mapa (con él abierto: moverlo, acercarlo y volver a tu sitio) | M o clic en el minimapa (WASD, flechas o arrastrar; Shift, más rápido; + y − o rueda; ⌖) | Tocar el minimapa (arrastrar; botones + y −; ⌖) |
 | Pausa (guardar, diario, controles, ajustes) | Esc | Botón ☰ |
 | Chat y comandos (`/ayuda`, `/admin`) | T, o / para empezar con el comando | — |
@@ -60,7 +60,20 @@ La partida se guarda sola cada 15 segundos, al entrar o salir de una casa y al d
 - **Recolectar y fabricar**: herramientas de madera, piedra, cobre, hierro y oro; banco, horno, yunque, telar y cocina; recetas que se desbloquean.
 - **Todo en cuadrícula**, como en Minecraft: cada árbol, roca, arbusto, farola, cartel o puesto ocupa una casilla, y las casas del pueblo y de las aldeas están hechas de piezas de construcción. Solo las personas, los animales y las partículas se mueven libres.
 - **Construir**: suelos, muros (de madera, de piedra y de entramado con zócalo; tabiques finos que se unen solos en esquinas, T y cruces, y miden el doble que una persona; el suelo de debajo llega hasta el muro y no asoma por fuera), ventanas (con o sin contraventanas y jardinera), puertas que se abren y cierran, tejados a cuatro aguas en cinco materiales (al entrar en una casa se ocultan el tejado y las paredes que dan a la cámara; el tejado sigue dando sombra y el sol entra por las ventanas), hogar con chimenea que da luz y echa humo, candelabro en cada casa, y vallas que se unen solas; muebles que se giran, cofres, camas de dos casillas, lámparas. Las casas miden 12×10 casillas. Tu casa se amplía hablando con Nilo.
-- **Granja**: siete cultivos por estación, regadera, aspersores, abono, árboles que se plantan, manzanos; gallinas, vacas, ovejas, colmenas y comederos.
+- **Granja**: siete cultivos por estación, regadera, aspersores, abono, árboles que se plantan, manzanos y colmenas.
+- **Ganadería**:
+  - Ocho animales de granja, con razas o pelajes: gallinas (y gallo), patos, vacas, ovejas, cabras, cerdos, conejos y caballos. Viven en su casa (gallinero, establo, conejera o cuadra).
+  - De día salen a pastar si la puerta está abierta. De noche, con lluvia o en invierno se quedan dentro y comen del comedero o del heno del silo, que se llena solo al segar con la guadaña.
+  - Con la puerta abierta de noche, un zorro puede asustarlos (salvo que tengas perro); sin gato, los ratones roen el heno.
+  - Los animales contentos (caricias cada día) dan más y, a veces, algo especial: huevo de oro, nata o lana fina. Los cerdos encuentran trufas al aire libre.
+  - Dos adultos muy contentos en la misma casa tienen crías; las aves, con la incubadora. Las crías crecen y se les pone nombre.
+  - La quesera hace queso, queso de cabra y mantequilla; el telar, fieltro de angora. Cada animal tiene su ficha en la pestaña Granja del diario.
+- **Caballo y mascotas**:
+  - El silbato da un caballo de verdad: eliges el pelaje y el nombre, lo llamas y viene al galope, montas y bajas, y se queda donde lo dejas.
+  - Cepillarlo y darle zanahorias sube el vínculo y lo hace más rápido; las herraduras de Bruno, más aún. Con las alforjas lleva 9 montones y, montado, salta las vallas. Tiene potros.
+  - En la plaza aparece de vez en cuando un perro o un gato callejero para adoptar. El perro te sigue, escarba y encuentra cosas, ladra a los animales salvajes, espanta al zorro y te trae la pelota. El gato duerme en su cojín, espanta a los ratones y te deja regalos.
+  - El palomar envía lo que llevas en la mano a otra persona, aunque no esté jugando, y lo recoge en cualquier palomar.
+  - Por el mundo pasean ciervos, jabalíes y cisnes, que huyen si te acercas.
 - **Pesca** con minijuego: mantén pulsado para coger fuerza y suelta para lanzar (más lejos, peces algo más grandes y raros). El corcho tiembla alguna vez sin que sea nada; cuando pica de verdad, pulsa a tiempo. En la pelea, el pez sube y baja por una columna de agua y hay que tenerlo dentro de la red, que sube mientras mantienes pulsado y baja al soltar; con el pez dentro se llena la barra de captura y fuera se vacía. Cada pez pelea a su manera (calmo, mixto, nervioso, del fondo o de superficie) y con su dificultad. A veces aparece un tesoro que se coge igual, con la red encima. Sin que el pez se salga nunca de la red, la captura es perfecta: más experiencia y más talla. Dieciséis peces según el agua, la estación, la hora y el tiempo (el siluro sale con lluvia), cada uno con su talla en centímetros y su récord en el cuaderno de pesca del diario. La caña de fibra de Lía hace la red más grande y que piquen antes; la habilidad de pesca también agranda la red.
 - **Personajes** chibi en 3D hechos con el mismo "look" que se elige al crear el personaje (peinados, colores, ropa, forma de los ojos, cejas, nariz, orejas, barba y mofletes; ver `src/looks.js`), que andan, respiran y miran hacia donde van; en los diálogos sale la cara en 3D de quien habla (`src/three/portrait.js`). Llevan en la mano la herramienta elegida y la balancean al golpear.
 - **Pueblo vivo**: Rosa, Lía, Bruno, Nilo y, si construyes su casa, Dani. Horarios, charlas, regalos, amistad con eventos, tiendas, tablón de encargos y cuatro proyectos (fuente, muelle, mercado y casa nueva).
@@ -128,8 +141,9 @@ src/pieces.js          Piezas de construcción
 src/build.js           Modo construcción
 src/time.js            Hora, días, estaciones, clima y luz
 src/farm.js            Huerto y árboles plantados
-src/ranch.js           Animales, colmenas y comederos
+src/ranch.js           Ganadería: animales, crías, puertas, silo, incubadora, caballo, mascotas y palomar
 src/fishing.js         Pesca: lanzar, picadas, la pelea con el pez, tesoros, tallas y cuaderno de pesca
+src/wildlife.js        Animales salvajes (ciervos, jabalíes y cisnes)
 src/neighbors.js       Vecinos, horarios, amistad y regalos
 src/board.js           Tablón de encargos y proyectos del pueblo
 src/economy.js         Precios y tiendas

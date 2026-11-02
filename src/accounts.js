@@ -75,6 +75,8 @@ async function begin(account, seed = null) {
 
 export const Profile = {
   get id() { return me?.id; },
+  // Todas las cuentas: [{ id, name }] (para el palomar)
+  players() { return Object.entries(book?.accounts || {}).map(([id, a]) => ({ id, name: a.name || id })); },
   get name() { return me?.name; },
   get admin() { return !!me?.admin; },
   get data() { return data; },

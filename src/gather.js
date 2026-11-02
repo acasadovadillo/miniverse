@@ -10,7 +10,7 @@ const COOLDOWN = 0.32;      // segundos entre golpes
 const CHIPS = {
   wood: ['#8a5a30', '#b07a44', '#e0b878'], stone: ['#7e7a72', '#a8a49a', '#5e5a55'], leaf: ['#4a9638', '#7cbf55', '#3a7c2e'],
   cactus: ['#4f9a52', '#7cc07a', '#f4f0d0'], twig: ['#8a6a44', '#a8865a', '#c8a878'], dirt: ['#6a4428', '#8a5a34', '#4a2e1a'],
-  water: ['#9ad0ff', '#7ab8e0', '#d8f0ff'], heart: ['#ff7aa8', '#ff9ac8', '#ffffff'],
+  water: ['#9ad0ff', '#7ab8e0', '#d8f0ff'], heart: ['#ff7aa8', '#ff9ac8', '#ffffff'], feather: ['#ffffff', '#e8e4dc', '#c8c8d0'],
 };
 
 const PLACE_REACH = 4;   // casillas de distancia a las que se puede colocar algo con el ratón
@@ -98,7 +98,7 @@ export class Gathering {
       if (d.z > 0 || d.vz > 0) { d.vz -= 160 * dt; d.z = Math.max(0, d.z + d.vz * dt); if (d.z === 0) d.vz = d.vz < -25 ? -d.vz * 0.35 : 0; }
       if (!p || d.scene !== g.scene) continue;
       const dx = p.x - d.x, dy = p.y - d.y, dist = Math.hypot(dx, dy);
-      if (d.t > 0.45 && dist < 1.8 && g.live.mayTake(d)) {
+      if (d.t > 0.45 && dist < 1.8 && (d.id !== 'pelota' || d.back) && g.live.mayTake(d)) {   // (la pelota lanzada es para el perro)
         if (dist < 0.35) {
           if (g.inv.add(d.id, 1, d.extra) === 0) { this.drops.splice(i, 1); this.collected(d.id); g.live.taken(d); }
           continue;
@@ -199,6 +199,7 @@ export class Gathering {
       g.scene.remove(o);
       this.chips(o.x, o.y, rule.chips, 16);
       this.spawnDrops(o, rule, tool === rule.tool ? tier : 0, skill && Math.random() < (g.skills?.bonus(skill) || 0));
+      if (o.kind === 'bush' && tool === 'guadana') g.ranch?.mowed();   // (con un silo, el heno se guarda solo)
       if (skill) { g.skills?.gain(skill, 3); g.stats?.add(skill === 'tala' ? 'talados' : skill === 'mineria' ? 'picados' : 'segados', 1); }
       Audio.fell();
     }

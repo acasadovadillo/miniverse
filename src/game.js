@@ -21,6 +21,7 @@ import { TimeSystem } from './time.js';
 import { Farm } from './farm.js';
 import { Ranch } from './ranch.js';
 import { Fishing } from './fishing.js';
+import { Wildlife } from './wildlife.js';
 import { Neighbors } from './neighbors.js';
 import { Board } from './board.js';
 import { Combat } from './combat.js';
@@ -85,6 +86,7 @@ export class Game {
     this.ranch = this.addSystem(new Ranch(this));
     this.family = this.addSystem(new Family(this));
     this.fishing = this.addSystem(new Fishing(this));
+    this.wildlife = this.addSystem(new Wildlife(this));
     this.neighbors = this.addSystem(new Neighbors(this));
     this.combat = this.addSystem(new Combat(this));
     this.places = this.addSystem(new Explore(this));
@@ -508,7 +510,7 @@ export class Game {
     this.hook('update', dt);
     if (keys.use && !this.busy && !this.build.on) this.gather.use(true);
     if (this.busy || hud.dialogOpen || this.fishing.still) { p.stop(); return; }
-    p.speedMul = (this.buffs.rapido > this.time ? 1.35 : 1) * (p.mount ? 1.8 : 1);
+    p.speedMul = (this.buffs.rapido > this.time ? 1.35 : 1) * (p.mount ? this.ranch.rideSpeed() : 1);
     p.update(dt, keys, this.scene);
     if (!p.inside) this.explore();
     // Bajo un tejado: cambia el ambiente (sonido, lluvia, nombre del sitio) y se guarda, como al entrar en casa

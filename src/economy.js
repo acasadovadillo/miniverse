@@ -7,6 +7,7 @@ const BASE = {
   coco: 15, manzana: 12, bayas: 6, pulpa: 10, huevo: 20, leche: 30, lana: 45, miel: 40, tablas: 2, abono: 6,
   amatista: 80, esmeralda: 140, rubi: 200, diamante: 400, fosil_concha: 60, fosil_hueso: 120, fosil_ambar: 150,
   calavera: 30, moneda_antigua: 100,
+  huevo_pato: 35, huevo_oro: 300, plumas: 12, leche_cabra: 40, nata: 60, lana_fina: 140, angora: 55, trufa: 250, heno: 3,
 };
 const cache = new Map();
 
@@ -38,14 +39,15 @@ export const SHOPS = {
     stock: [
       ...Object.keys(CROPS).map(c => ({ id: 'semilla_' + c, seasons: CROPS[c].seasons, price: Math.round(CROPS[c].price * 0.5) })),
       { id: 'semilla_manzano', price: 120 }, { id: 'abono', price: 25 },
-      { animal: 'gallina', name: 'Gallina', price: 400 }, { animal: 'oveja', name: 'Oveja', price: 1200, project: 'mercado' }, { animal: 'vaca', name: 'Vaca', price: 1500, project: 'mercado' },
+      { animal: 'gallina', name: 'Gallina', price: 400 }, { animal: 'pato', name: 'Pato', price: 500 }, { animal: 'conejo', name: 'Conejo', price: 700 },
+      { animal: 'cabra', name: 'Cabra', price: 1000 }, { animal: 'cerdo', name: 'Cerdo', price: 1300 }, { animal: 'oveja', name: 'Oveja', price: 1200, project: 'mercado' }, { animal: 'vaca', name: 'Vaca', price: 1500, project: 'mercado' },
       { id: 'maceta', price: 90 }, { id: 'alfombra', price: 160, project: 'mercado' }, { id: 'lampara', price: 220, project: 'mercado' },
       { id: 'pan', price: 70 }, { id: 'manzana', price: 30 },
     ],
   },
   bruno: {
     title: 'Herrería de Bruno', hours: [8, 17],
-    stock: [{ id: 'carbon', price: 18 }, { id: 'piedra', price: 6 }, { id: 'lingote_cobre', price: 90 }, { id: 'lingote_hierro', price: 160, project: 'mercado' }, { id: 'antorcha', price: 15 }, { id: 'espada', price: 450 }, { id: 'pico_piedra', price: 120 }, { id: 'hacha_piedra', price: 120 }],
+    stock: [{ id: 'carbon', price: 18 }, { id: 'piedra', price: 6 }, { id: 'lingote_cobre', price: 90 }, { id: 'lingote_hierro', price: 160, project: 'mercado' }, { id: 'antorcha', price: 15 }, { id: 'espada', price: 450 }, { id: 'pico_piedra', price: 120 }, { id: 'hacha_piedra', price: 120 }, { id: 'herraduras', price: 350 }],
   },
   lia: {
     title: 'Aparejos de Lía', hours: [6, 20],

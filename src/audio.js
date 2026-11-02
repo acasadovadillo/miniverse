@@ -66,6 +66,12 @@ export const Audio = {
     src.connect(f).connect(g).connect(sfx); src.start(t, Math.random() * 0.8, dur + 0.05);
   },
   blip: () => tone([[880, 0.03, 'square', 0.03]]),
+  // Animales: el gallo al amanecer, el perro, el gato, el caballo y el silbato
+  crow() { tone([[520, 0.12, 'sawtooth', 0.025], [700, 0.1, 'sawtooth', 0.03], [880, 0.35, 'sawtooth', 0.025], [620, 0.2, 'sawtooth', 0.02]]); },
+  bark() { tone([[320, 0.06, 'sawtooth', 0.05], [240, 0.08, 'square', 0.03]]); Audio.noiseHit(600, 0.08, 0.2); },
+  meow() { if (!ac || !on) return; const o = ac.createOscillator(), g = ac.createGain(), t = ac.currentTime; o.type = 'triangle'; o.frequency.setValueAtTime(600, t); o.frequency.linearRampToValueAtTime(900, t + 0.15); o.frequency.linearRampToValueAtTime(500, t + 0.4); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.05, t + 0.05); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.42); o.connect(g).connect(sfx); o.start(t); o.stop(t + 0.45); },
+  neigh() { tone([[700, 0.08, 'sawtooth', 0.025], [900, 0.1, 'sawtooth', 0.025], [760, 0.12, 'sawtooth', 0.02], [600, 0.18, 'sawtooth', 0.015]]); },
+  whistle() { tone([[1800, 0.12, 'sine', 0.05], [2400, 0.25, 'sine', 0.05]]); },
   // Pesca: el corcho cae al agua, una picada de mentira, el chapuzón al clavar y el carrete al recoger
   plop() { Audio.noiseHit(900, 0.12, 0.22, 'lowpass'); tone([[420, 0.05, 'sine', 0.05], [260, 0.08, 'sine', 0.04]]); },
   nibble: () => tone([[1200, 0.02, 'sine', 0.025], [1500, 0.02, 'sine', 0.02]]),

@@ -325,7 +325,7 @@ export class Explore {
       if (p.boat && !water && !this.world.blocked(ax, ay) && !this.world.collidersNear(ax, ay).some(c => c.r !== undefined && Math.hypot(c.x - ax, c.y - ay) < c.r + 0.3)) return { tile: null, ok: true, label: 'Bajar a tierra', use: () => { p.boat = false; p.x = ax; p.y = ay; Audio.door(); } };
       return null;
     }
-    if (def?.vehicle === 'caballo' && !p.boat) return { tile: null, ok: true, label: p.mount ? 'Bajar del caballo' : 'Montar a caballo', use: () => { p.mount = !p.mount; g.gather.cooldown = 0.4; Audio.door(); } };
+    if (def?.vehicle === 'caballo' && !p.boat) return g.ranch.whistle(p);   // (el caballo es un animal de verdad: ver la granja)
     return null;
   }
   // Marcas para el mapa: lugares descubiertos (y el faro, si llevas la brújula)

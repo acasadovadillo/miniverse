@@ -4,7 +4,7 @@ import { RECIPES, STATIONS, lockedHint } from '../recipes.js';
 import { itemIconUrl } from '../art/items.js';
 
 const $ = id => document.getElementById(id);
-const TAB_ICON = { mano: null, banco: 'banco', horno: 'horno', yunque: 'yunque', telar: 'telar', cocina: 'cocina' };
+const TAB_ICON = { mano: null, banco: 'banco', horno: 'horno', yunque: 'yunque', telar: 'telar', cocina: 'cocina', quesera: 'quesera' };
 
 export function initCraftingUI(game, { onClose, onBag }) {
   const cr = () => game.craft;

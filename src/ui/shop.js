@@ -2,7 +2,7 @@
 import { ITEMS } from '../items.js';
 import { SHOPS, priceOf, buyPrice } from '../economy.js';
 import { itemIconUrl } from '../art/items.js';
-import { animalSprite } from '../art/farm.js';
+import { animalSprite, ANIMALS } from '../art/farm.js';
 import { Audio } from '../audio.js';
 
 const $ = id => document.getElementById(id);
@@ -41,10 +41,10 @@ export function initShopUI(game, { onClose }) {
       for (const e of stock()) {
         const price = Math.round((e.price ?? buyPrice(e.id)) * discount());
         if (e.animal) {
-          row(animalIcon(e.animal), e.name, `${price} 🪙 · vive en ${e.animal === 'gallina' ? 'un gallinero' : 'un establo'}`, [['Comprar', () => {
+          row(animalIcon(e.animal), e.name, `${price} 🪙 · vive en: ${ITEMS[ANIMALS[e.animal].home].name.toLowerCase()}`, [['Comprar', () => {
             const why = game.ranch.add(e.animal);
             if (why) { note = why; Audio.error(); return; }
-            game.addMoney(-price); note = `¡${e.name} nueva! Ya está en su casa.`; Audio.unlock();
+            game.addMoney(-price); note = `${e.name}: ya está en su casa.`; Audio.unlock();
           }, game.money >= price]]);
           continue;
         }

@@ -30,7 +30,7 @@ class RemotePlayer extends Person {
   apply(st) {
     this.to = [st.x, st.y, st.z || 0];
     if (this.fresh || Math.hypot(st.x - this.x, st.y - this.y) > SNAP) { [this.x, this.y, this.z] = this.to; this.fresh = false; }
-    Object.assign(this, { yaw: st.yaw ?? null, inside: !!st.in, mount: !!st.m, boat: !!st.b, held: st.h || null, swing: st.sw || 0, swingItem: st.si || null, cooldown: st.cd || 0 });
+    Object.assign(this, { yaw: st.yaw ?? null, inside: !!st.in, mount: !!st.m, horseCoat: st.hc || null, horseBags: !!st.hb, boat: !!st.b, held: st.h || null, swing: st.sw || 0, swingItem: st.si || null, cooldown: st.cd || 0 });
   }
   update(dt) {
     if (!this.to) return;
@@ -187,7 +187,7 @@ export class Live {
         break;
       // Lo que se tira al suelo
       case 'drop':
-        if (this.joined && g.world) g.gather.drops.push({ id: m.id, extra: m.extra, x: m.x, y: m.y, z: m.z, vz: m.vz, t: m.dt, scene: g.world, nid: m.n, owner: peer.id, free: !!m.free, born: g.time });
+        if (this.joined && g.world) g.gather.drops.push({ id: m.id, extra: m.extra, x: m.x, y: m.y, z: m.z, vz: m.vz, t: m.dt, scene: g.world, nid: m.n, owner: peer.id, free: !!m.free, back: !!m.back, born: g.time });
         break;
       case 'take': {
         const i = g.gather.drops.findIndex(d => d.nid === m.n);
@@ -273,6 +273,11 @@ export class Live {
     for (const p of this.peers.values()) this.hide(p);
     for (const a of this.game.ranch.animals) delete a.netTo;
   }
+  // El nombre de un jugador por su cuenta (de quien está jugando, o de la lista de cuentas)
+  nameOf(id) {
+    for (const peer of this.peers.values()) if (peer.id === id) return peer.name;
+    return Profile.players?.().find(x => x.id === id)?.name || null;
+  }
   chat(text) { if (this.joined) this.net?.send({ t: 'chat', text }); }
   // Otro jugador que esté contigo y cumpla near(entidad) (por ejemplo, en tu casa): { conn, peer } o null
   partner(near) {
@@ -317,7 +322,7 @@ export class Live {
     const g = this.game;
     if (!this.joined || d.scene !== g.world || !this.net?.ready) return;
     Object.assign(d, { nid: `${Profile.id}:${session}:${++this.dropN}`, owner: Profile.id, born: g.time, free: d.t < 0 });
-    this.net.send({ t: 'drop', n: d.nid, id: d.id, extra: d.extra, x: r2(d.x), y: r2(d.y), z: d.z, vz: r2(d.vz), dt: d.t, free: d.free });
+    this.net.send({ t: 'drop', n: d.nid, id: d.id, extra: d.extra, x: r2(d.x), y: r2(d.y), z: d.z, vz: r2(d.vz), dt: d.t, free: d.free, back: d.back ? 1 : undefined });
   }
   mayTake(d) {
     if (!d.owner) return true;
@@ -372,7 +377,7 @@ export class Live {
     }
     this.sent += dt;
     const sc = g.scene === g.world ? 'world' : null;
-    const st = { t: 'st', sc, x: r2(p.x), y: r2(p.y), z: r2(p.z || 0), yaw: r2(g.view3d.actors.player?.person.facing ?? 0), in: p.inside ? 1 : 0, m: p.mount ? 1 : 0, b: p.boat ? 1 : 0, h: g.inv.held?.id || null, sw: this.swings, si: g.gather.swingItem || null, cd: r2(g.gather.cooldown || 0) };
+    const st = { t: 'st', sc, x: r2(p.x), y: r2(p.y), z: r2(p.z || 0), yaw: r2(g.view3d.actors.player?.person.facing ?? 0), in: p.inside ? 1 : 0, m: p.mount ? 1 : 0, hc: p.mount ? p.horseCoat || null : null, hb: p.mount && p.horseBags ? 1 : 0, b: p.boat ? 1 : 0, h: g.inv.held?.id || null, sw: this.swings, si: g.gather.swingItem || null, cd: r2(g.gather.cooldown || 0) };
     const key = JSON.stringify(st);
     if (this.sent < SEND_EVERY || (key === this.lastSent && this.sent < IDLE_EVERY)) return;
     this.sent = 0; this.lastSent = key;
