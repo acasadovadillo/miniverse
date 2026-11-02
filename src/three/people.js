@@ -49,6 +49,12 @@ function strap(m, a, b, r, parent) {
   o.quaternion.setFromUnitVectors(UP, d.normalize());
   return o;
 }
+// Un mechón de punta: un cono que sale de p hacia dir, de largo len y grueso r en la base
+function spike(m, p, dir, len, r, parent) {
+  const d = new THREE.Vector3(...dir).normalize(), o = mesh(G.cone, m, { p: new THREE.Vector3(...p).addScaledVector(d, len / 2).toArray(), s: [r, len, r] }, parent);
+  o.quaternion.setFromUnitVectors(UP, d);
+  return o;
+}
 
 // Junta las mallas hijas directas de un grupo en una (posición, normal y color de su material)
 const SKIN = mat({ vertexColors: true, roughness: 0.7 });
@@ -210,11 +216,23 @@ export class Person3D {
   hair(head, L, m) {
     const st = L.hairStyle;
     if (st === 'calvo') return;
-    const short = st === 'rapado' || st === 'cresta' || st === 'tupe', cap = short ? 1.02 : 1.08;
-    // Casquete: media esfera inclinada hacia atrás, que deja la cara al aire
-    const capGeo = new THREE.SphereGeometry(0.29, 24, 14, 0, Math.PI * 2, 0, Math.PI * 0.55);
-    // (con cresta, los lados van rapados: el casquete es piel con un poco de sombra de pelo)
-    mesh(capGeo, st === 'cresta' ? M(mix(L.skin, '#2a1e18', 0.3)) : m, { p: [0, 0.03, -0.02], s: [cap, cap, cap], r: [-0.62, 0, 0] }, head);
+    const shaved = st === 'cresta' || st === 'samurai';   // lados rapados: piel con un poco de sombra de pelo
+    const cap = { rapado: 1.02, cresta: 1.02, tupe: 1.02, samurai: 1.02, pinchos: 1.06, mullet: 1.06, rastas: 1.07, afro: 1.12 }[st] || 1.08;
+    // Casquete: media esfera inclinada hacia atrás, que deja la cara al aire (el tazón lleva el suyo)
+    if (st !== 'tazon') {
+      const capGeo = new THREE.SphereGeometry(0.29, 24, 14, 0, Math.PI * 2, 0, Math.PI * 0.55);
+      mesh(capGeo, shaved ? M(mix(L.skin, '#2a1e18', 0.3)) : m, { p: [0, 0.03, -0.02], s: [cap, cap, cap], r: [-0.62, 0, 0] }, head);
+    }
+    // Un punto de la cabeza (az: 0 delante, en radianes alrededor; el: altura, 0 a la altura de los ojos) y
+    // hacia fuera desde el centro
+    const on = (az, el, R = 0.3) => [Math.sin(az) * Math.cos(el) * R, 0.03 + Math.sin(el) * R, Math.cos(az) * Math.cos(el) * R - 0.02];
+    const out = (az, el, up = 0) => [Math.sin(az) * Math.cos(el), Math.sin(el) + up, Math.cos(az) * Math.cos(el)];
+    const ribbon = M('#e86aa0'), gold = M('#e8c050');
+    // Lo de casi todos: flequillo, volumen a los lados (por encima de las orejas) y detrás
+    const fringe = () => { for (let i = -2; i <= 2; i++) mesh(G.ball, m, { p: [i * 0.065, 0.19 - Math.abs(i) * 0.015, 0.2 - Math.abs(i) * 0.025], s: [0.065, 0.05, 0.05], r: [0, 0, i * 0.2] }, head); };
+    const sides = (k = 1) => { for (const s of [-1, 1]) mesh(G.ball, m, { p: [s * 0.255, 0.07, -0.04], s: [0.065, 0.13 * k, 0.17 * k] }, head); };
+    const back = () => mesh(G.ball, m, { p: [0, 0.02, -0.17], s: [0.25, 0.22, 0.16] }, head);
+
     if (st === 'cresta') {
       // Cresta: una fila de mechones de punta, de la frente a la nuca
       for (let i = 0; i < 8; i++) {
@@ -231,14 +249,86 @@ export class Person3D {
       return;
     }
     if (st === 'rapado') return;
-    // Flequillo
-    for (let i = -2; i <= 2; i++) mesh(G.ball, m, { p: [i * 0.065, 0.19 - Math.abs(i) * 0.015, 0.2 - Math.abs(i) * 0.025], s: [0.065, 0.05, 0.05], r: [0, 0, i * 0.2] }, head);
-    // Volumen a los lados (por encima de las orejas) y detrás
-    for (const s of [-1, 1]) mesh(G.ball, m, { p: [s * 0.255, 0.07, -0.04], s: [0.065, 0.13, 0.17] }, head);
-    mesh(G.ball, m, { p: [0, 0.02, -0.17], s: [0.25, 0.22, 0.16] }, head);
+    if (st === 'pinchos') {
+      // Pinchos de verdad: una corona hacia arriba, otra hacia fuera por los lados y la nuca, y tres sobre la frente
+      for (let i = 0; i < 6; i++) { const az = (i / 6) * Math.PI * 2 + 0.3; spike(m, on(az, 1.15, 0.27), out(az, 1.15, 0.7), 0.27, 0.075, head); }
+      for (let i = 0; i < 7; i++) { const az = 1.0 + (i / 6) * (Math.PI * 2 - 2.0); spike(m, on(az, 0.6, 0.28), out(az, 0.6, 0.25), 0.25, 0.07, head); }
+      for (const az of [Math.PI - 0.6, Math.PI, Math.PI + 0.6]) spike(m, on(az, 0.1, 0.28), out(az, 0.1, -0.15), 0.19, 0.062, head);
+      for (const x of [-0.1, 0, 0.1]) spike(m, [x, 0.2, 0.2], [x * 1.6, -0.45, 1], 0.17, 0.055, head);
+      return;
+    }
+    if (st === 'samurai') {
+      // Samurái: los lados rapados, el pelo de arriba peinado hacia atrás y un moño alto atado
+      mesh(new THREE.SphereGeometry(0.29, 20, 8, 0, Math.PI * 2, 0, Math.PI * 0.4), m, { p: [0, 0.035, -0.035], s: 1.06, r: [-0.22, 0, 0] }, head);
+      mesh(G.ball, m, { p: [0, 0.3, -0.13], s: [0.075, 0.095, 0.075] }, head);
+      mesh(G.ball, M('#c83a32'), { p: [0, 0.255, -0.13], s: [0.065, 0.022, 0.065] }, head);
+      spike(m, [0, 0.33, -0.16], [0, 0.25, -1], 0.13, 0.045, head);
+      return;
+    }
+    if (st === 'tazon') {
+      // Tazón: un casquete redondo y recto, con el flequillo cortado justo por encima de los ojos
+      const cut = Math.PI * 0.44;
+      // (inclinado hacia atrás: por detrás baja hasta la nuca; por delante, el flequillo cuelga hasta las cejas)
+      mesh(new THREE.SphereGeometry(0.29, 26, 12, 0, Math.PI * 2, 0, cut), m, { p: [0, 0.03, -0.01], s: 1.12, r: [-0.35, 0, 0] }, head);
+      for (let a = -1.35; a <= 1.36; a += 0.27) mesh(G.ball, m, { p: on(a, 0.3, 0.31), s: [0.055, 0.09, 0.035], r: [0, a, 0] }, head);   // mechones del flequillo
+      back();
+      return;
+    }
+    if (st === 'afro') {
+      // Afro: una nube de rizos alrededor de la cabeza (sin tapar la cara)
+      for (const [el, n] of [[-0.25, 9], [0.25, 10], [0.7, 9], [1.15, 5]]) for (let i = 0; i < n; i++) {
+        const az = (i / n) * Math.PI * 2 + el;
+        if (Math.cos(az) > 0.35 && el < 0.6) continue;
+        mesh(G.ball, m, { p: on(az, el, 0.34), s: 0.13 + ((i * 7 + n) % 3) * 0.012 }, head);
+      }
+      mesh(G.ball, m, { p: [0, 0.36, -0.04], s: 0.17 }, head);
+      return;
+    }
+    if (st === 'rastas') {
+      // Rastas: mechones gruesos que caen por los lados y la espalda, con alguna cuenta dorada
+      sides(0.9); back();
+      for (let i = 0; i < 16; i++) {
+        const az = 0.85 + (i / 15) * (Math.PI * 2 - 1.7), a = on(az, 0.35, 0.29), len = 0.4 + (i % 3) * 0.05;
+        const b = [a[0] + Math.sin(az) * 0.09, a[1] - len, a[2] + Math.cos(az) * 0.09];
+        strap(m, a, b, 0.034, head);
+        mesh(G.ball, m, { p: b, s: 0.036 }, head);
+        if (i % 4 === 1) mesh(G.ball, gold, { p: [a[0] + (b[0] - a[0]) * 0.7, a[1] + (b[1] - a[1]) * 0.7, a[2] + (b[2] - a[2]) * 0.7], s: 0.042 }, head);
+      }
+      for (const s of [-1, 1]) strap(m, on(s * 0.6, 0.95, 0.28), [s * 0.29, -0.12, 0.1], 0.03, head);
+      return;
+    }
+    if (st === 'flequillo') {
+      // Flequillo largo de lado: barrido sobre la frente, tapando un poco un ojo
+      sides(); back();
+      mesh(G.ball, m, { p: [-0.04, 0.17, 0.215], s: [0.21, 0.075, 0.07], r: [0.2, 0, -0.35] }, head);
+      mesh(G.ball, m, { p: [0.11, 0.09, 0.245], s: [0.12, 0.07, 0.05], r: [0.1, 0, -0.8] }, head);
+      spike(m, [0.16, 0.05, 0.25], [0.35, -1, 0.12], 0.12, 0.045, head);
+      mesh(G.ball, m, { p: [-0.17, 0.2, 0.14], s: [0.09, 0.07, 0.08] }, head);
+      return;
+    }
+    if (st === 'mullet') {
+      // Mullet: corto por delante y por arriba, largo por detrás, con las puntas hacia fuera
+      for (let i = -1; i <= 1; i++) mesh(G.ball, m, { p: [i * 0.07, 0.19, 0.19], s: [0.06, 0.045, 0.045] }, head);
+      sides(0.8);
+      mesh(G.ball, m, { p: [0, -0.04, -0.19], s: [0.23, 0.2, 0.13] }, head);
+      mesh(G.ball, m, { p: [0, -0.24, -0.19], s: [0.2, 0.16, 0.1] }, head);
+      for (const x of [-0.12, 0, 0.12]) spike(m, [x, -0.34, -0.18], [x * 2.2, -1, -0.35], 0.11, 0.05, head);
+      return;
+    }
+
+    fringe(); sides(); back();
     if (st === 'largo') {
       mesh(G.ball, m, { p: [0, -0.12, -0.12], s: [0.29, 0.34, 0.2] }, head);
       for (const s of [-1, 1]) mesh(G.ball, m, { p: [s * 0.25, -0.12, 0.02], s: [0.07, 0.24, 0.11] }, head);
+    }
+    if (st === 'ondas') {
+      // Ondas largas: melena hasta los hombros con ondas a los lados y las puntas rizadas
+      mesh(G.ball, m, { p: [0, -0.14, -0.12], s: [0.3, 0.36, 0.2] }, head);
+      for (const s of [-1, 1]) {
+        for (let k = 0; k < 4; k++) mesh(G.ball, m, { p: [s * (0.255 + (k % 2) * 0.035), -0.04 - k * 0.11, 0.03 - k * 0.015], s: [0.075, 0.085, 0.1] }, head);
+        mesh(G.ball, m, { p: [s * 0.235, -0.48, 0.03], s: [0.07, 0.06, 0.08] }, head);
+      }
+      for (const x of [-0.14, 0, 0.14]) mesh(G.ball, m, { p: [x, -0.48, -0.12], s: [0.1, 0.07, 0.09] }, head);
     }
     if (st === 'melena') {
       // Melena corta: redondeada, hasta la mandíbula
@@ -247,29 +337,49 @@ export class Person3D {
     }
     if (st === 'coleta') {
       mesh(G.ball, m, { p: [0, 0.06, -0.3], s: [0.07, 0.07, 0.06] }, head);
-      mesh(G.ball, M('#e8c050'), { p: [0, 0.06, -0.33], s: [0.05, 0.05, 0.03] }, head);
+      mesh(G.ball, gold, { p: [0, 0.06, -0.33], s: [0.05, 0.05, 0.03] }, head);
       mesh(G.ball, m, { p: [0, -0.06, -0.37], s: [0.075, 0.17, 0.075], r: [0.35, 0, 0] }, head);
       mesh(G.ball, m, { p: [0, -0.22, -0.4], s: [0.05, 0.08, 0.05] }, head);
+    }
+    if (st === 'coletaAlta') {
+      // Coleta alta: atada en lo alto de la nuca, cae hacia atrás en curva
+      mesh(G.ball, ribbon, { p: [0, 0.27, -0.215], s: [0.07, 0.035, 0.06], r: [0.6, 0, 0] }, head);
+      for (const [y, z, sx, sy] of [[0.31, -0.27, 0.085, 0.085], [0.22, -0.37, 0.08, 0.1], [0.08, -0.42, 0.072, 0.11], [-0.07, -0.43, 0.062, 0.1]]) mesh(G.ball, m, { p: [0, y, z], s: [sx, sy, sx] }, head);
+      spike(m, [0, -0.13, -0.42], [0, -1, 0.15], 0.12, 0.05, head);
     }
     if (st === 'coletas') {
       // Dos coletas a los lados, con su lazo
       for (const s of [-1, 1]) {
-        mesh(G.ball, M('#e86aa0'), { p: [s * 0.28, 0.1, -0.1], s: [0.035, 0.05, 0.05] }, head);
+        mesh(G.ball, ribbon, { p: [s * 0.28, 0.1, -0.1], s: [0.035, 0.05, 0.05] }, head);
         mesh(G.ball, m, { p: [s * 0.33, 0.04, -0.12], s: [0.06, 0.07, 0.06] }, head);
         mesh(G.ball, m, { p: [s * 0.37, -0.12, -0.13], s: [0.065, 0.16, 0.065], r: [0, 0, s * 0.22] }, head);
         mesh(G.ball, m, { p: [s * 0.4, -0.27, -0.13], s: [0.04, 0.07, 0.04], r: [0, 0, s * 0.3] }, head);
+      }
+    }
+    if (st === 'monos') {
+      // Dos moños en lo alto, cada uno con su vuelta
+      for (const s of [-1, 1]) {
+        mesh(G.ball, m, { p: [s * 0.17, 0.29, -0.07], s: 0.105 }, head);
+        mesh(G.ball, M(shade(L.hair, 0.78)), { p: [s * 0.165, 0.215, -0.07], s: [0.085, 0.028, 0.085] }, head);
       }
     }
     if (st === 'trenza') {
       // Trenza larga por la espalda: eslabones que se cruzan y un lazo al final
       mesh(G.ball, m, { p: [0, 0.0, -0.3], s: [0.075, 0.075, 0.06] }, head);
       for (let k = 0; k < 6; k++) mesh(G.ball, m, { p: [(k % 2 ? 1 : -1) * 0.012, -0.08 - k * 0.075, -0.31 - k * 0.006], s: [0.06 - k * 0.004, 0.052, 0.05], r: [0, 0, (k % 2 ? 1 : -1) * 0.5] }, head);
-      mesh(G.ball, M('#e8c050'), { p: [0, -0.53, -0.34], s: [0.04, 0.025, 0.04] }, head);
+      mesh(G.ball, gold, { p: [0, -0.53, -0.34], s: [0.04, 0.025, 0.04] }, head);
       mesh(G.cone, m, { p: [0, -0.59, -0.34], s: [0.04, 0.08, 0.04], r: [Math.PI, 0, 0] }, head);
+    }
+    if (st === 'trenzas') {
+      // Dos trenzas por delante de los hombros, con lazo
+      for (const s of [-1, 1]) {
+        for (let k = 0; k < 7; k++) mesh(G.ball, m, { p: [s * (0.255 + k * 0.004), -0.06 - k * 0.07, -0.04 + k * 0.018], s: [0.055 - k * 0.003, 0.047, 0.05], r: [0, 0, (k % 2 ? 1 : -1) * 0.5] }, head);
+        mesh(G.ball, ribbon, { p: [s * 0.285, -0.55, 0.09], s: [0.045, 0.022, 0.04] }, head);
+        spike(m, [s * 0.285, -0.56, 0.09], [0, -1, 0.1], 0.08, 0.035, head);
+      }
     }
     if (st === 'mono') mesh(G.ball, m, { p: [0, 0.3, -0.06], s: 0.11 }, head);
     if (st === 'rizado') for (let i = 0; i < 14; i++) { const a = (i / 14) * Math.PI * 2; mesh(G.ball, m, { p: [Math.cos(a) * 0.25, 0.1 + Math.sin(i * 1.7) * 0.06, Math.sin(a) * 0.23 - 0.04], s: 0.085 }, head); }
-    if (st === 'pinchos') for (let i = 0; i < 7; i++) { const a = (i / 7) * Math.PI * 2; mesh(G.cone, m, { p: [Math.cos(a) * 0.14, 0.28, Math.sin(a) * 0.14 - 0.03], s: [0.06, 0.16, 0.06], r: [Math.sin(a) * 0.5, 0, -Math.cos(a) * 0.5] }, head); }
   }
   // Otra persona igual (comparte geometrías y materiales: hacer una desde cero cuesta)
   clone() {
