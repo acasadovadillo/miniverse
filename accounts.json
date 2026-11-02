@@ -14,13 +14,10 @@
     "hafsa": {
       "name": "Hafsa",
       "created": "2026-11-02",
-      "invite": {
-        "salt": "GwLj/AFe8JaI+xuoZXhX6g==",
-        "token": {
-          "iv": "Jdl7AhK6KAnVkBpU",
-          "data": "DeGvuJ86UPgMVkhxGaX9sapKzB4Ekx9tO28JDn2QB/q1Gkd3YFWDWcR71AHpBhTz9uDsoutVCh67Lko8RYapqYJB5GOZilHk3kTkEDhN2nxzIgi1drmfXRHtI7vRT039/yWkZ7TyQW2MTd3+MQ=="
-        },
-        "issued": 1793617308784
+      "salt": "s+cD7h0iillOhyrm7t+jOA==",
+      "token": {
+        "iv": "XRtWg+0Zzw25KOGh",
+        "data": "EonPPh2JW8QD6NGvzXce23ZivJ9isPCKQCvCDT7fMtwzgZckUigMrn8pZsE5wI5xeSrOVV/4+Nf9UBQoxG5piD0ggu4FMgBZt5IoZTs8amFVrhOkpxmg/S7y2T8J5xW9U2Hd2629GNHRiSvIcQ=="
       }
     }
   }
