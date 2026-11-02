@@ -2,13 +2,14 @@
 import { itemIconUrl } from '../art/items.js';
 
 const $ = id => document.getElementById(id);
-const STAT_NAMES = { talados: 'Árboles talados', picados: 'Rocas picadas', cosechas: 'Cosechas', peces: 'Peces', criaturas: 'Criaturas derrotadas', cofres: 'Cofres abiertos', lugares: 'Lugares descubiertos', profundidad: 'Nivel más hondo de cueva', encargos: 'Encargos cumplidos', regalos: 'Regalos hechos', piezas: 'Piezas construidas', cocinados: 'Platos cocinados', ganado: 'Monedas ganadas', donados: 'Piezas donadas' };
+const STAT_NAMES = { talados: 'Árboles talados', picados: 'Rocas picadas', cosechas: 'Cosechas', peces: 'Peces', perfectos: 'Capturas perfectas', tesoros: 'Tesoros del agua', criaturas: 'Criaturas derrotadas', cofres: 'Cofres abiertos', lugares: 'Lugares descubiertos', profundidad: 'Nivel más hondo de cueva', encargos: 'Encargos cumplidos', regalos: 'Regalos hechos', piezas: 'Piezas construidas', cocinados: 'Platos cocinados', ganado: 'Monedas ganadas', donados: 'Piezas donadas' };
 
 export function initJournalUI(game, { onClose }) {
   const TABS = {
     historia: ['Historia', () => game.story.journal()],
     vecinos: ['Vecinos', () => game.neighbors.journal()],
     habilidades: ['Habilidades', () => game.skills.journal()],
+    pesca: ['Pesca', () => game.fishing.journal()],
     museo: ['Museo', () => game.collection.journal()],
     logros: ['Logros', () => game.achievements.journal()],
     datos: ['Estadísticas', () => `<p class="j-note">Día ${game.days.dayIndex + 1} · ${game.money} monedas</p>` + Object.entries(STAT_NAMES).map(([k, n]) => `<div class="j-row"><b>${n}</b><span class="lvl">${Math.round(game.stats.get(k))}</span></div>`).join('')],

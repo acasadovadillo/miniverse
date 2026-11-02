@@ -66,6 +66,11 @@ export const Audio = {
     src.connect(f).connect(g).connect(sfx); src.start(t, Math.random() * 0.8, dur + 0.05);
   },
   blip: () => tone([[880, 0.03, 'square', 0.03]]),
+  // Pesca: el corcho cae al agua, una picada de mentira, el chapuzón al clavar y el carrete al recoger
+  plop() { Audio.noiseHit(900, 0.12, 0.22, 'lowpass'); tone([[420, 0.05, 'sine', 0.05], [260, 0.08, 'sine', 0.04]]); },
+  nibble: () => tone([[1200, 0.02, 'sine', 0.025], [1500, 0.02, 'sine', 0.02]]),
+  splash() { Audio.noiseHit(1400, 0.3, 0.35, 'lowpass'); Audio.noiseHit(4000, 0.15, 0.1, 'highpass'); },
+  reel: () => tone([[1900 + Math.random() * 300, 0.012, 'square', 0.012]]),
   // Lluvia de fondo: 0 = nada, 1 = lluvia, 2 = tormenta
   rain(level) {
     if (!ac) return;

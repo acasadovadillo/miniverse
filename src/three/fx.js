@@ -8,6 +8,7 @@ import { PIECES } from '../pieces.js';
 import { getModel } from './models.js';
 import { WALL_H } from './build3d.js';
 import { WATER_Y } from './terrain.js';
+import { drawFishing } from '../ui/fishbar.js';
 
 const tmp = new THREE.Object3D(), col = new THREE.Color(), v3 = new THREE.Vector3();
 
@@ -289,24 +290,43 @@ export class Fx {
   }
 
   // ---------- pesca ----------
+  // El corcho vuela en arco hasta el agua, tiembla en las picadas de mentira, se hunde al picar y, peleando,
+  // se agita y se acerca a la orilla según va saliendo el pez; el sedal se tensa. Y los paneles de la pesca
+  // (fuerza y pelea), junto al jugador en la pantalla.
   updateFishing(game, scene, playing, t) {
-    const s = playing ? game.fishing?.state : null, show = !!s && scene === game.world;
+    const s = playing ? game.fishing?.state : null, p = game.player;
+    if (s && p && game.mode === 'play') {   // (con un menú abierto, los paneles se esconden)
+      const gy = this.view.groundY(scene, p.x, p.y), top = v3.set(p.x, gy + 2.3, p.y).project(this.view.camera).y;
+      v3.set(p.x, gy + 1, p.y).project(this.view.camera);
+      drawFishing(s, ((v3.x + 1) / 2) * innerWidth, ((1 - v3.y) / 2) * innerHeight, ((1 - top) / 2) * innerHeight, t);
+    } else drawFishing(null);
+    const show = !!s && scene === game.world && s.phase !== 'charge';
     this.line.visible = this.bobber.visible = this.ripple.visible = show;
     if (!show) return;
     // (el sedal sale de la punta de la caña; si no se ve la caña, de un poco por encima de la mano)
     const hand = this.view.actors.player?.hand, tip = hand?.getObjectByName('tip');
-    const from = tip ? tip.getWorldPosition(new THREE.Vector3()) : hand ? hand.getWorldPosition(v3.set(0, 0, 0)).clone() : new THREE.Vector3(game.player.x, 1.2, game.player.y);
+    const from = tip ? tip.getWorldPosition(new THREE.Vector3()) : hand ? hand.getWorldPosition(v3.set(0, 0, 0)).clone() : new THREE.Vector3(p.x, 1.2, p.y);
     if (!tip) from.y += 0.9;
-    const dip = s.phase === 'bite' ? -0.05 + Math.sin(t * 30) * 0.03 : Math.sin(t * 3) * 0.015;
-    const to = new THREE.Vector3(s.bx, WATER_Y + 0.03 + dip, s.by);
+    const reel = s.phase === 'reel', r = s.r;
+    let x = s.bx, z = s.by, dip = Math.sin(t * 3) * 0.015, sag = 0.4;
+    if (s.phase === 'bite') dip = -0.05 + Math.sin(t * 30) * 0.03;
+    else if (s.nib > 0) dip = -0.035 * Math.sin((s.nib / 0.3) * Math.PI);
+    else if (reel) {
+      const k = Math.max(0, r.prog) * 0.45;
+      x += (p.x - x) * k + Math.sin(t * 7.3) * 0.12; z += (p.y - z) * k + Math.cos(t * 6.1) * 0.12;
+      dip = -0.07 + Math.sin(t * 25) * 0.03; sag = 0.05;
+    }
+    const to = new THREE.Vector3(x, WATER_Y + 0.03 + dip, z);
+    if (s.fly < 1) { to.lerpVectors(from, to, s.fly); to.y += Math.sin(s.fly * Math.PI) * 1.2; sag = 0.1; }
     this.bobber.position.copy(to);
     const pts = this.line.geometry.attributes.position;
-    for (let i = 0; i <= 20; i++) { const k = i / 20; pts.setXYZ(i, from.x + (to.x - from.x) * k, from.y + (to.y - from.y) * k - Math.sin(k * Math.PI) * 0.4, from.z + (to.z - from.z) * k); }
+    for (let i = 0; i <= 20; i++) { const k = i / 20; pts.setXYZ(i, from.x + (to.x - from.x) * k, from.y + (to.y - from.y) * k - Math.sin(k * Math.PI) * sag, from.z + (to.z - from.z) * k); }
     pts.needsUpdate = true;
-    this.ripple.visible = s.phase === 'bite';
+    this.ripple.visible = s.phase === 'bite' || reel || s.nib > 0;
+    const speed = reel ? 3 : 2, w = (t * speed) % 1;
     this.ripple.position.set(to.x, WATER_Y + 0.01, to.z);
-    this.ripple.scale.setScalar(1 + ((t * 2) % 1) * 1.5);
-    this.ripple.material.opacity = 0.7 * (1 - ((t * 2) % 1));
+    this.ripple.scale.setScalar((s.nib > 0 ? 0.7 : 1) + w * (reel ? 2.2 : 1.5));
+    this.ripple.material.opacity = (s.nib > 0 ? 0.4 : 0.7) * (1 - w);
   }
 
   // ---------- textos flotantes ----------

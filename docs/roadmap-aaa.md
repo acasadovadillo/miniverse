@@ -44,7 +44,7 @@ premium de su género (granja, vida en un pueblo, sandbox), hecho en el navegado
 - **Economía plana.** Rosa compra de todo, los precios son fijos y no hay demanda, encargos de verdad ni dinero que dé gusto gastar.
 - **Progresión corta.** Las herramientas llegan al oro enseguida, los proyectos del pueblo son 4 y la historia son páginas sueltas.
 - **Combate básico.** Golpear y alejarse; tres monstruos; sin esquivar, armaduras ni jefes.
-- **Pesca.** Se lanza y se recoge, sin un minijuego con gracia.
+- **Pesca.** ~~Se lanza y se recoge, sin un minijuego con gracia.~~ Hecho: minijuego con red, tesoros, tallas y cuaderno de pesca. Faltan cebos, más cañas y un concurso de pesca.
 - **Vecinos.** La amistad sube hablando y regalando, pero solo hay dos eventos por vecino (a los 3 y a los 6 corazones).
 - **Pocas razones para salir.** Los lugares del mundo dan un cofre y poco más; no hay aldeas con encargos.
 - **La familia, recién llegada.** Los niños no crecen más allá de niños, no ayudan en casa y no van a la escuela.
@@ -100,7 +100,7 @@ Cada fase deja el juego publicable. El tamaño es aproximado: S = una tarde, M =
 | 2.3 | Más vecinos (al menos 10), con eventos a 2, 4, 6, 8 y 10 corazones y rutinas en su trabajo. | L |
 | 2.4 | Fiestas por estación: feria de la cosecha, carrera, concurso de pesca, noche de farolillos. | M |
 | 2.5 | Combate con esquiva, armaduras, jefes al fondo de las cuevas y monstruos por bioma. | L |
-| 2.6 | Minijuego de pesca y cocina con recetas que se descubren. | M |
+| 2.6 | ~~Minijuego de pesca~~ (hecho) y cocina con recetas que se descubren. | M |
 | 2.7 | Familia, segunda parte: los niños crecen, ayudan en la granja y van a la escuela, y se les puede regalar y llevar de paseo. | M |
 | 2.8 | Aldeas lejanas con encargos, comercio y una historia, como motivo para explorar el mundo. | L |
 

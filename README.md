@@ -36,13 +36,14 @@ La partida se guarda sola cada 15 segundos, al entrar o salir de una casa y al d
 | --- | --- | --- |
 | Caminar / correr | WASD / Shift (arriba es hacia donde mira la cámara) | Cruceta |
 | Usar lo que llevas (talar, picar, regar, sembrar, pescar, atacar, comer, colocar…) | Clic izquierdo (mantén para seguir) | Botón ⚒ |
+| Pescar | Con la caña, mantén el clic para coger fuerza y suelta para lanzar; cuando pique, clic. En la pelea, mantén el clic (o Espacio) para subir la red | Botón ⚒, igual |
 | Saltar | Espacio (con un diálogo abierto, seguir) | Botón ⤒ |
 | Interactuar (hablar, puertas, cofres, estaciones, dormir, cosechar, animales) | E o Enter | Botón E |
 | Elegir objeto | 1–9 o rueda | Tocar la casilla |
 | Girar lo que vas a colocar | R | — |
 | Mochila / Fabricar / Construir | I / C / B | 🎒 / 🧰 / 🔨 |
 | En modo construcción | Clic pone (arrastra para pintar), clic derecho o X quita | Tocar pone; pestaña «Quitar» |
-| Diario (historia, vecinos, habilidades, museo, logros) | J | Desde el menú ☰ |
+| Diario (historia, vecinos, habilidades, pesca, museo, logros) | J | Desde el menú ☰ |
 | Mapa (con él abierto: moverlo, acercarlo y volver a tu sitio) | M o clic en el minimapa (WASD, flechas o arrastrar; Shift, más rápido; + y − o rueda; ⌖) | Tocar el minimapa (arrastrar; botones + y −; ⌖) |
 | Pausa (guardar, diario, controles, ajustes) | Esc | Botón ☰ |
 | Chat y comandos (`/ayuda`, `/admin`) | T, o / para empezar con el comando | — |
@@ -59,13 +60,14 @@ La partida se guarda sola cada 15 segundos, al entrar o salir de una casa y al d
 - **Recolectar y fabricar**: herramientas de madera, piedra, cobre, hierro y oro; banco, horno, yunque, telar y cocina; recetas que se desbloquean.
 - **Todo en cuadrícula**, como en Minecraft: cada árbol, roca, arbusto, farola, cartel o puesto ocupa una casilla, y las casas del pueblo y de las aldeas están hechas de piezas de construcción. Solo las personas, los animales y las partículas se mueven libres.
 - **Construir**: suelos, muros (de madera, de piedra y de entramado con zócalo; tabiques finos que se unen solos en esquinas, T y cruces, y miden el doble que una persona; el suelo de debajo llega hasta el muro y no asoma por fuera), ventanas (con o sin contraventanas y jardinera), puertas que se abren y cierran, tejados a cuatro aguas en cinco materiales (al entrar en una casa se ocultan el tejado y las paredes que dan a la cámara; el tejado sigue dando sombra y el sol entra por las ventanas), hogar con chimenea que da luz y echa humo, candelabro en cada casa, y vallas que se unen solas; muebles que se giran, cofres, camas de dos casillas, lámparas. Las casas miden 12×10 casillas. Tu casa se amplía hablando con Nilo.
-- **Granja**: siete cultivos por estación, regadera, aspersores, abono, árboles que se plantan, manzanos; gallinas, vacas, ovejas, colmenas y comederos; pesca con doce peces según agua, estación y hora.
+- **Granja**: siete cultivos por estación, regadera, aspersores, abono, árboles que se plantan, manzanos; gallinas, vacas, ovejas, colmenas y comederos.
+- **Pesca** con minijuego: mantén pulsado para coger fuerza y suelta para lanzar (más lejos, peces algo más grandes y raros). El corcho tiembla alguna vez sin que sea nada; cuando pica de verdad, pulsa a tiempo. En la pelea, el pez sube y baja por una columna de agua y hay que tenerlo dentro de la red, que sube mientras mantienes pulsado y baja al soltar; con el pez dentro se llena la barra de captura y fuera se vacía. Cada pez pelea a su manera (calmo, mixto, nervioso, del fondo o de superficie) y con su dificultad. A veces aparece un tesoro que se coge igual, con la red encima. Sin que el pez se salga nunca de la red, la captura es perfecta: más experiencia y más talla. Dieciséis peces según el agua, la estación, la hora y el tiempo (el siluro sale con lluvia), cada uno con su talla en centímetros y su récord en el cuaderno de pesca del diario. La caña de fibra de Lía hace la red más grande y que piquen antes; la habilidad de pesca también agranda la red.
 - **Personajes** chibi en 3D hechos con el mismo "look" que se elige al crear el personaje (peinados, colores, ropa, forma de los ojos, cejas, nariz, orejas, barba y mofletes; ver `src/looks.js`), que andan, respiran y miran hacia donde van; en los diálogos sale la cara en 3D de quien habla (`src/three/portrait.js`). Llevan en la mano la herramienta elegida y la balancean al golpear.
 - **Pueblo vivo**: Rosa, Lía, Bruno, Nilo y, si construyes su casa, Dani. Horarios, charlas, regalos, amistad con eventos, tiendas, tablón de encargos y cuatro proyectos (fuente, muelle, mercado y casa nueva).
 - **Aventura**: cuevas con niveles infinitos (vetas, gemas, fósiles, criaturas), templos con puzles (palanca, llave y bloque sobre placa), combate ligero con corazones, barca y caballo, y una historia ligera hasta el faro del confín.
 - **Inventario realista**: sin mochila solo llevas lo que cabe en las manos y los bolsillos (las 9 casillas de la barra). La mochila (a mano, con fibra y cuerda) se lleva a la espalda y desbloquea 27 casillas más; para quitártela tiene que estar vacía. La ropa son objetos que te pones y te quitas, cada uno en su hueco del cuerpo (cabeza, torso, encima, piernas, pies, ropa interior de arriba y de abajo, calcetines y espalda), y el personaje se ve con lo que lleva: camisa, túnica corta o larga, chaleco, delantal, pantalón, falda, botas, camiseta interior, calzoncillos o bragas, calcetines, hiyab, sombrero de paja y gorro de lana. Sin nada, es un muñeco liso. La ropa se teje en el telar (el sombrero, a mano).
 - **Familia**: Nilo convierte la casa ampliada en la **casa familiar** (18 × 14 casillas), con dormitorio, cuarto de los niños, baño, cocina y salón. Los muebles nuevos se fabrican en el banco: cama doble (2 × 2), cama de niño, cuna, alacena, fregadero, bañera, retrete y lavabo. Jugando juntos, con los dos en casa, uno propone tener un bebé en la cama doble y el otro acepta: a los 7 días nace (hace falta una cuna libre) y se le pone nombre; a los 7 días más es un niño que pasea por casa y por el jardín de día y duerme en su cama de noche. Como mucho, dos; se parecen a los dos padres.
-- **Progreso**: ocho habilidades que suben con el uso, museo con 33 piezas (minerales, fósiles, peces e insectos), 20 logros y estadísticas.
+- **Progreso**: ocho habilidades que suben con el uso, museo con 37 piezas (minerales, fósiles, peces e insectos), 22 logros y estadísticas.
 - **Ajustes**: volúmenes, música generada, resolución (automática o fija), texto grande y reducir destellos. Los volúmenes se guardan en la partida de cada cuenta y se usan al entrar, en cualquier ordenador; lo demás es de cada dispositivo. Los controles están en su propia sección de la pausa.
 
 ## Publicación
@@ -127,7 +129,7 @@ src/build.js           Modo construcción
 src/time.js            Hora, días, estaciones, clima y luz
 src/farm.js            Huerto y árboles plantados
 src/ranch.js           Animales, colmenas y comederos
-src/fishing.js         Pesca
+src/fishing.js         Pesca: lanzar, picadas, la pelea con el pez, tesoros, tallas y cuaderno de pesca
 src/neighbors.js       Vecinos, horarios, amistad y regalos
 src/board.js           Tablón de encargos y proyectos del pueblo
 src/economy.js         Precios y tiendas
@@ -146,7 +148,7 @@ src/db.js, save.js, worldstore.js   IndexedDB (la partida cifrada de cada cuenta
 src/util.js, iso.js, physics.js                   Utilidades, proyección y colisiones
 src/art/               Personajes, naturaleza, iconos, estaciones, construcción, granja, exploración y estaciones del año
 src/world/             Biomas, generador, trozos, pueblo, interiores, escenas y subterráneos
-src/ui/                HUD, menús, mapa, mochila, fabricar, construir, cofre, tienda, diario y ajustes
+src/ui/                HUD, menús, mapa, mochila, fabricar, construir, cofre, tienda, diario, ajustes y paneles de la pesca
 docs/roadmap.md        Plan por fases
 docs/roadmap-aaa.md    Revisión del juego y roadmap hacia un acabado AAA
 capturas/              Capturas de cada fase

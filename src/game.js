@@ -507,7 +507,7 @@ export class Game {
     this.gather.update(dt);
     this.hook('update', dt);
     if (keys.use && !this.busy && !this.build.on) this.gather.use(true);
-    if (this.busy || hud.dialogOpen) { p.stop(); return; }
+    if (this.busy || hud.dialogOpen || this.fishing.still) { p.stop(); return; }
     p.speedMul = (this.buffs.rapido > this.time ? 1.35 : 1) * (p.mount ? 1.8 : 1);
     p.update(dt, keys, this.scene);
     if (!p.inside) this.explore();

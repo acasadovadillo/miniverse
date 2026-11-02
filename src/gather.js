@@ -166,7 +166,7 @@ export class Gathering {
     if (def?.place) return this.place(held.id, auto);
     if (this.target?.use) {   // lo que propone otro sistema (sembrar, pescar…)
       if (auto && !this.target.auto) return;
-      if (def?.tool) { this.swing = 0.25; this.swingItem = held.id; }   // también se ve el gesto (regar, lanzar la caña…)
+      if (def?.tool && !this.target.still) { this.swing = 0.25; this.swingItem = held.id; }   // también se ve el gesto (regar, lanzar la caña…)
       return this.target.use();
     }
     if (auto && !(this.target?.obj || this.target?.ok)) return;

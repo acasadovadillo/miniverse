@@ -19,7 +19,7 @@ export function priceOf(id) {
   if (p === undefined) {
     if (CROPS[id]) p = CROPS[id].price;
     else if (def.seed) p = Math.round(CROPS[def.seed].price * 0.2);
-    else if (FISH[id]) p = FISH[id].rare ? 400 : 15 + FISH[id].size * 9;
+    else if (FISH[id]) p = FISH[id].rare ? 400 : Math.round(15 + FISH[id].size * 9 + FISH[id].dif * 80);   // los que pelean más valen más
     else {
       const r = RECIPES.find(r => r.out === id);
       p = r ? Math.round((r.ins.reduce((t, [i, n]) => t + priceOf(i) * n, 0) / r.n) * (def.food ? 1.5 : def.tool ? 0.5 : 1.3) + (def.food ? 8 : 2)) : 5;
@@ -49,7 +49,7 @@ export const SHOPS = {
   },
   lia: {
     title: 'Aparejos de Lía', hours: [6, 20],
-    stock: [{ id: 'cana', price: 150 }, { id: 'regadera', price: 200 }, { id: 'barca', price: 1800 }, { id: 'sardina', price: 50 }],
+    stock: [{ id: 'cana', price: 150 }, { id: 'cana_fibra', price: 1500 }, { id: 'regadera', price: 200 }, { id: 'barca', price: 1800 }, { id: 'sardina', price: 65 }],
   },
   dani: {
     title: 'Taller de Dani', hours: [10, 19],

@@ -17,7 +17,7 @@ const b = game.build;
 initInput({
   chat: prefix => chat.open(prefix),
   use: () => (hud.dialogOpen ? game.action() : b.on ? b.place() : game.gather.use()),
-  jump: () => (hud.dialogOpen ? game.action() : game.player?.jump()),
+  jump: () => (hud.dialogOpen ? game.action() : game.fishing.space() || game.fishing.still ? null : game.player?.jump()),
   build: () => (game.mode === 'play' && !game.busy ? b.toggle() : false),
   building: () => b.on && game.mode === 'play',
   point: (x, y) => b.pointTo(game.tileAtScreen(x, y)),

@@ -119,7 +119,7 @@ export class Actors {
         if (!e.mount) { const k = Math.min(1, e.z / 0.25); P.legs[0].rotation.x = -0.7 * k; P.legs[1].rotation.x = 0.35 * k; }
       }
       // (después de andar: el golpe manda sobre el balanceo del brazo)
-      if (game) this.hold(m, { held: game.inv.held?.id || null, swing: game.gather.swing, swingItem: game.gather.swingItem, cooldown: game.gather.cooldown }, dt);
+      if (game) this.hold(m, { held: game.inv.held?.id || null, swing: game.gather.swing, swingItem: game.gather.swingItem, cooldown: game.gather.cooldown, pose: game.fishing?.pose(t) }, dt);
       else if (e.remote) this.hold(m, e, dt);
       if (e.mount || e.boat) { P.legs[0].rotation.x = P.legs[1].rotation.x = e.mount ? -1.1 : -1.4; P.legs[0].rotation.z = 0.5; P.legs[1].rotation.z = -0.5; }
       else P.legs[0].rotation.z = P.legs[1].rotation.z = 0;
@@ -157,7 +157,7 @@ export class Actors {
     }
     const arm = P.arms[1];
     arm.rotation.z = 0; m.hand.rotation.x = 0; P.torso.rotation.x = 0;
-    if (!a) return;
+    if (!a) { if (g.pose) { arm.rotation.x = g.pose.arm; P.torso.rotation.x = g.pose.lean; } return; }   // (una postura fija: pescando)
     a.t += dt;
     const k = Math.min(1, a.t / a.dur), ge = GESTURES[a.kind];
     arm.rotation.x = keys(ge.arm, k);
@@ -470,8 +470,9 @@ export function toolModel(id) {
     // Caña: empuñadura de corcho, carrete y una vara que se afina hasta la punta (de ahí sale el sedal)
     at(new THREE.CylinderGeometry(0.02, 0.022, 0.16, 8), M('#c8a070'), [0, 0, 0]);
     at(new THREE.CylinderGeometry(0.035, 0.035, 0.02, 12), M('#3a3a40', { metalness: 0.5, roughness: 0.4 }), [0.035, 0.1, 0], [0, 0, Math.PI / 2]);
-    at(new THREE.CylinderGeometry(0.004, 0.014, 1.3, 6), M('#5a3a24'), [0, 0.73, 0]);
-    for (const y of [0.4, 0.75, 1.1]) at(new THREE.TorusGeometry(0.012, 0.003, 4, 8), M('#d8d8d8', { metalness: 0.6 }), [0, y, 0.012], [0, Math.PI / 2, 0]);
+    const fiber = (def.tier || 1) > 1;   // la de fibra: vara azul oscura con anillas doradas
+    at(new THREE.CylinderGeometry(0.004, 0.014, 1.3, 6), M(fiber ? '#22344e' : '#5a3a24', fiber ? { roughness: 0.35 } : undefined), [0, 0.73, 0]);
+    for (const y of [0.4, 0.75, 1.1]) at(new THREE.TorusGeometry(0.012, 0.003, 4, 8), M(fiber ? '#e8c050' : '#d8d8d8', { metalness: 0.6 }), [0, y, 0.012], [0, Math.PI / 2, 0]);
     const tip = new THREE.Object3D(); tip.name = 'tip'; tip.position.set(0, 1.38, 0); g.add(tip);
     g.rotation.x = 0.5;
     g.traverse(o => { if (o.isMesh) o.castShadow = true; });

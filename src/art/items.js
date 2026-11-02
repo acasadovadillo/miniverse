@@ -63,6 +63,7 @@ Object.assign(DRAW, {
   semilla_manzano(R) { seedPacket(R, '#d8382a', '#4a9a3a'); },
   regadera(R, g) { R(3, 7, 9, 7, '#5a8ab8'); R(3, 7, 9, 2, '#7aaad8'); R(12, 8, 3, 2, '#5a8ab8'); R(14, 6, 2, 2, '#4a7aa8'); line(g, 4, 6, 7, 3, '#3a5a80'); line(g, 7, 3, 10, 6, '#3a5a80'); R(1, 9, 2, 3, '#4a7aa8'); },
   cana(R, g) { line(g, 2, 15, 13, 1, '#8a5a30'); line(g, 3, 15, 14, 1, '#6a4422'); line(g, 14, 1, 15, 10, '#e8e0d0'); R(14, 10, 2, 2, '#e83a3a'); R(4, 12, 3, 2, '#4a4a54'); },
+  cana_fibra(R, g) { line(g, 2, 15, 13, 1, '#2a4a6a'); line(g, 3, 15, 14, 1, '#1a3048'); for (const [x, y] of [[6, 10], [9, 6]]) R(x, y, 2, 1, '#e8c050'); line(g, 14, 1, 15, 10, '#e8e0d0'); R(14, 10, 2, 2, '#e83a3a'); R(4, 12, 3, 2, '#c8a048'); },
   abono(R) { R(3, 4, 10, 11, '#8a6a44'); R(3, 4, 10, 2, '#a8865a'); R(5, 8, 6, 3, '#4a3020'); R(6, 1, 4, 3, '#6aa84a'); },
   aspersor(R) { R(7, 6, 2, 9, '#8a8e96'); R(4, 13, 8, 2, '#6a6e76'); R(4, 4, 8, 3, '#b8c2ce'); for (const [x, y] of [[2, 2], [13, 2], [1, 6], [14, 6]]) R(x, y, 1, 1, '#7ab8e0'); },
   gallinero(R) { R(2, 7, 12, 8, '#c8925a'); R(1, 5, 14, 3, '#c95a3c'); R(4, 2, 8, 4, '#c95a3c'); R(6, 10, 4, 5, '#5a3a22'); R(11, 9, 2, 2, '#ffffff'); R(12, 8, 1, 1, '#e83a3a'); },
@@ -123,12 +124,14 @@ function cropIcon(R, g, c, id) {
 function fishIcon(R, g, f) {
   const r = ramp(f.color);
   if (f.crab) { ellipse(g, 8, 10, 5, 3, r.b); R(2, 6, 3, 3, r.b); R(11, 6, 3, 3, r.b); for (const x of [4, 6, 10, 12]) R(x, 13, 1, 2, r.d); R(6, 8, 1, 1, '#2a1c22'); R(9, 8, 1, 1, '#2a1c22'); return; }
+  if (f.octo) { ellipse(g, 8, 6, 5, 4, r.b); ellipse(g, 7, 5, 3, 2, r.l); for (const x of [3, 6, 9, 12]) { R(x, 9, 2, 4, r.b); R(x + (x < 8 ? -1 : 1), 13, 2, 1, r.d); } R(6, 6, 1, 1, '#2a1c22'); R(10, 6, 1, 1, '#2a1c22'); return; }
   const ry = f.round ? 4 : f.thin ? 2 : 3;
   ellipse(g, 7, 9, Math.min(6, f.size + 1), ry, r.b);
   ellipse(g, 7, 8, Math.min(5, f.size), 1, r.l);
   poly(g, [[12, 9], [15, 6], [15, 12]], r.d);
   R(3, 8, 1, 1, '#2a1c22');
   if (f.round) for (const [x, y] of [[5, 5], [9, 5], [7, 13]]) R(x, y, 1, 1, r.d);
+  if (f.whiskers) { R(0, 10, 2, 1, r.d); R(1, 11, 2, 1, r.d); R(0, 7, 2, 1, r.d); }
 }
 function ingot(R, g, col) {
   const r = ramp(col);
