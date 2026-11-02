@@ -5,6 +5,7 @@ const STORES = {
   accounts: { keyPath: 'id' },
   saves: { keyPath: 'accountId' },
   chunks: {},   // cambios del jugador en cada trozo del mundo (desde la fase 2)
+  vaults: {},   // la partida cifrada de cada cuenta (como <usuario>-miniverse-data.enc), por usuario
 };
 let opening = null;
 

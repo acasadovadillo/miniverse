@@ -20,7 +20,7 @@ python3 servidor.py 8000
 
 ### Primeros pasos
 
-Al entrar sale la pantalla de inicio de sesión. Hay una sola cuenta, **Alberto**: su contraseña abre su partida, que va cifrada en `alberto-miniverse-data.enc` (ver *Datos cifrados de Alberto*). Cualquier otra persona pulsa **Jugar sin cuenta**.
+Al entrar sale la pantalla de inicio de sesión. Las cuentas las crea el administrador (Alberto) y cada partida va cifrada con la contraseña de su jugador (ver *Cuentas*). La primera vez se entra con el código de invitación que da el administrador y se elige la contraseña.
 
 1. Pulsa **Nueva partida** y crea tu personaje: nombre, cuerpo y ropa, cara (ojos y su color, cejas, nariz, orejas y mofletes) y pelo (13 peinados y barba). Mantén pulsados los botones de giro, las flechas ← → o arrastra sobre el personaje para girarlo; en la pestaña Cara la cámara se acerca.
 2. Empiezas con hacha, pico, guadaña, azada, tres manzanas y 100 monedas. **Habla con Nilo** en la plaza: te enseña a hacer un banco de carpintero.
@@ -69,16 +69,15 @@ La partida se guarda sola cada 15 segundos, al entrar o salir de una casa y al d
 
 El juego es estático y se publica con GitHub Pages desde la rama `main` (carpeta raíz): cada `git push` a `main` actualiza <https://acasadovadillo.github.io/miniverse/> en un minuto o dos.
 
-Sin cuenta, la partida se guarda en el navegador de cada jugador (IndexedDB), así que cada persona tiene la suya. Para llevarla a otro dispositivo, *Exportar* e *Importar partida*.
+### Cuentas
 
-### Datos cifrados de Alberto
-
-La partida de Alberto va en `alberto-miniverse-data.enc`, junto a `index.html`, cifrada con AES-GCM de 256 bits. La clave sale de su contraseña (PBKDF2 con SHA-256, 310 000 vueltas y una sal aleatoria); la contraseña no se guarda en ningún sitio y, si se olvida, los datos no se pueden recuperar. El archivo es público en el repositorio: lo que lo protege es que la contraseña sea larga.
-
-- **Crearlo (la primera vez):** juega en local (`jugar.command`), entra como *Alberto* y escribe la contraseña dos veces. El archivo se crea en la carpeta del juego con la partida que tuvieras en ese navegador.
-- **En local** cada guardado actualiza el archivo de la carpeta (lo escribe `servidor.py`). Para tenerlo en la web, súbelo al repositorio (`git commit` y `git push`).
-- **En la web** la partida se abre desde el archivo publicado y se guarda en ese navegador (al entrar se usa la más reciente de las dos). *Exportar partida* descarga el archivo cifrado puesto al día; para que la web lo tenga, sustituye el del repositorio por ese.
-- *Importar partida* también acepta el archivo cifrado (con la sesión iniciada).
+- **Dónde están.** La lista de cuentas es `accounts.json`, en este repositorio. Las partidas, `<usuario>-miniverse-data.enc`, van en el repositorio privado [Miniverse-data](https://github.com/acasadovadillo/Miniverse-data) y, además, en el navegador de cada ordenador. Al entrar se usa la más reciente de las dos.
+- **Cifrado.** Cada partida va cifrada con AES-GCM de 256 bits. La clave sale de la contraseña de su jugador (PBKDF2 con SHA-256, 310 000 vueltas y una sal por cuenta). Descifrada solo está en memoria mientras se juega. Las contraseñas no se guardan en ningún sitio: si se olvidan, la partida no se puede recuperar.
+- **Tokens.** Cada cuenta tiene su *token de guardado*: un token de GitHub de grano fino con acceso solo a Miniverse-data y permiso *Contents: Read and write*. El token va cifrado en `accounts.json` con la contraseña de su jugador (o con su código de invitación, hasta que la pone). El de Alberto, *token de admin*, tiene además acceso a este repositorio para reescribir `accounts.json`.
+- **Crear la cuenta de admin (la primera vez).** Entra como *Alberto*, escribe tu contraseña dos veces y pega tu token de admin.
+- **Crear una cuenta.** Con la sesión de Alberto y `/admin` activado, escribe en el chat `/account create <usuario>`. Pega su token de guardado y pásale a esa persona el código de invitación que sale. La primera vez, ella escribe su usuario, el código y la contraseña que quiera (dos veces); entonces se crean su `<usuario>-key.json` y su `<usuario>-miniverse-data.enc` en Miniverse-data. La próxima vez que entres tú, su token pasa a `accounts.json` y ya solo necesita su contraseña, en cualquier dispositivo.
+- **Otros comandos.** `/account list` muestra las cuentas. `/account reset <usuario>` le da un token y un código nuevos (si el token caduca o se pierde el código); conserva su contraseña y su partida. `/account delete <usuario>` borra la cuenta y su partida.
+- **Límites.** GitHub no deja limitar un token a un solo archivo, así que con su token un jugador podría borrar o cambiar archivos de otros en Miniverse-data. No podría leerlos, porque van cifrados, y el historial de git permite recuperarlos. La partida se sube a GitHub al guardar desde la pausa, al salir al menú y, mientras se juega, como mucho cada 3 minutos. *Exportar partida* descarga el archivo cifrado; *Importar partida* acepta el de tu cuenta o una partida sin cifrar de las versiones de antes.
 
 ## Cómo está hecho
 
@@ -123,8 +122,9 @@ src/music.js           Música generada
 src/settings.js        Ajustes
 src/share.js           Exportar, importar y visitar
 src/audio.js           Sonidos
-src/db.js, accounts.js, save.js, worldstore.js   Guardado en IndexedDB y quién juega (Alberto o sin cuenta)
-src/vault.js                                     Datos cifrados de Alberto (alberto-miniverse-data.enc)
+src/accounts.js        Cuentas: entrar, invitaciones, /account y guardar la partida cifrada
+src/vault.js, github.js  Cifrado (AES-GCM, PBKDF2) y archivos en GitHub (accounts.json, Miniverse-data)
+src/db.js, save.js, worldstore.js   IndexedDB (la partida cifrada de cada cuenta y las partidas de versiones anteriores)
 src/util.js, iso.js, physics.js                   Utilidades, proyección y colisiones
 src/art/               Personajes, naturaleza, iconos, estaciones, construcción, granja, exploración y estaciones del año
 src/world/             Biomas, generador, trozos, pueblo, interiores, escenas y subterráneos

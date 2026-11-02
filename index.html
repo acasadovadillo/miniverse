@@ -317,6 +317,7 @@
   .cr-rot span { flex: 1; text-align: center; color: var(--dim); }
   .sq { width: 40px; height: 36px; color: var(--cream); background: #4a2c18; border: 2px solid #9a6a34; border-radius: 4px; cursor: pointer; font-size: 18px; }
   .cr-opts { display: grid; gap: 12px; }
+  .ac-code { margin: 10px 0; padding: 12px; text-align: center; font-size: 28px; letter-spacing: 3px; color: var(--gold); background: rgba(0, 0, 0, .35); border-radius: 4px; user-select: all; -webkit-user-select: all; }
   .cr-tabs { margin: 0; }
   .cr-page { display: grid; gap: 12px; }
   .cr-page[hidden] { display: none; }
@@ -361,13 +362,34 @@
     <form class="box panel" id="login-form">
       <h2>Iniciar sesión</h2>
       <label class="field">Usuario<input id="lg-user" maxlength="16" autocomplete="username" autocapitalize="off" spellcheck="false"></label>
+      <label class="field" id="lg-code-row" hidden>Código de invitación<input id="lg-code" maxlength="20" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="XXXX-XXXX-XXXX"></label>
       <label class="field">Contraseña<input id="lg-pass" type="password" maxlength="128" autocomplete="current-password"></label>
       <label class="field" id="lg-pass2-row" hidden>Repite la contraseña<input id="lg-pass2" type="password" maxlength="128" autocomplete="new-password"></label>
+      <label class="field" id="lg-token-row" hidden>Token de admin de GitHub<input id="lg-token" type="password" maxlength="300" autocomplete="off" spellcheck="false"></label>
       <div class="err" id="lg-err"></div>
       <button class="btn primary" id="lg-submit" type="submit">Entrar</button>
-      <button class="btn" id="lg-guest" type="button">Jugar sin cuenta</button>
-      <p class="note">La contraseña abre tu partida, que se guarda cifrada. Sin cuenta, la partida se guarda solo en este navegador.</p>
+      <p class="note">Tu contraseña abre tu partida, que se guarda cifrada. Las cuentas las crea el administrador: si te ha dado un código de invitación, escribe tu usuario y la contraseña que quieras.</p>
     </form>
+  </section>
+
+  <!-- Cuenta nueva (admin): el token de guardado y el código de invitación -->
+  <section id="s-account" class="screen">
+    <div class="box panel">
+      <h2 id="ac-title">Cuenta nueva</h2>
+      <form id="ac-form">
+        <p class="note" style="margin:0 0 12px">Pega su token de guardado: un token de GitHub de grano fino con acceso solo al repositorio Miniverse-data y permiso de contenido de lectura y escritura.</p>
+        <label class="field">Token de guardado<input id="ac-token" type="password" maxlength="300" autocomplete="off" spellcheck="false"></label>
+        <div class="err" id="ac-err"></div>
+        <button class="btn primary" type="submit">Crear la invitación</button>
+        <button class="btn" type="button" id="ac-cancel">Cancelar</button>
+      </form>
+      <div id="ac-result" hidden>
+        <p>Pásale a <b id="ac-who"></b> este código de invitación. Lo necesitará la primera vez, junto a la contraseña que elija:</p>
+        <div id="ac-code" class="ac-code"></div>
+        <p class="note">No se vuelve a mostrar: apúntalo ahora. Si se pierde, <b>/account reset</b> da uno nuevo.</p>
+        <button class="btn primary" type="button" id="ac-close">Hecho</button>
+      </div>
+    </div>
   </section>
 
   <!-- Menú principal -->
@@ -482,7 +504,7 @@
         <dt><kbd>F</kbd></dt><dd>Ver el rendimiento (fotogramas por segundo)</dd>
         <dt><kbd>I</kbd> <kbd>C</kbd> <kbd>B</kbd></dt><dd>Mochila, fabricar y construir</dd>
         <dt><kbd>J</kbd> <kbd>M</kbd></dt><dd>Diario y mapa</dd>
-        <dt><kbd>T</kbd> o <kbd>/</kbd></dt><dd>Chat y comandos (<b>/ayuda</b> para verlos; <b>/admin</b>: objetos infinitos y construir gratis)</dd>
+        <dt><kbd>T</kbd> o <kbd>/</kbd></dt><dd>Chat y comandos (<b>/ayuda</b> para verlos; el admin tiene <b>/admin</b>, objetos infinitos y construir gratis, y <b>/account</b>, para crear cuentas)</dd>
         <dt><kbd>Esc</kbd></dt><dd>Pausa (y cerrar ventanas)</dd>
       </dl>
       <h3>Construyendo</h3>

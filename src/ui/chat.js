@@ -3,18 +3,41 @@
 // abierto se ven todos los últimos.
 import { hud } from './hud.js';
 import { clearKeys } from '../input.js';
+import { Profile } from '../accounts.js';
 
 const $ = id => document.getElementById(id);
 const FADE = 10000;   // milisegundos que un mensaje se queda a la vista con el chat cerrado
 
 const COMMANDS = {
   admin: {
-    help: 'activa o quita el modo admin: objetos infinitos y construir gratis donde quieras',
+    help: 'activa o quita el modo admin: objetos infinitos y construir gratis donde quieras (solo el admin)',
     run(game, say) {
+      if (!Profile.admin) { say('Solo el administrador puede usar /admin.', 'err'); return; }
       game.setAdmin(!game.admin);
       if (game.admin) say('Modo admin activado. Lo que uses no se gasta, en la mochila (I) tienes todos los objetos y construir (B) es gratis.', 'ok');
       else say('Modo admin desactivado.', 'ok');
       game.onSave?.();
+    },
+  },
+  account: {
+    help: 'cuentas (solo el admin, con /admin activado): /account create <usuario>, /account reset <usuario>, /account delete <usuario>, /account list',
+    async run(game, say, [sub = '', name = '']) {
+      if (!Profile.admin || !game.admin) { say('Para gestionar cuentas, entra como administrador y activa /admin.', 'err'); return; }
+      sub = sub.toLowerCase();
+      try {
+        if (sub === 'create' || sub === 'reset') {
+          if (!name) { say(`Falta el usuario: /account ${sub} <usuario>`, 'err'); return; }
+          const r = await game.onAccount?.(name, sub === 'reset');
+          if (r) say(`${sub === 'reset' ? 'Token nuevo para' : 'Cuenta creada:'} ${r.name}. Código de invitación: ${r.code}`, 'ok');
+        } else if (sub === 'delete') {
+          if (!name) { say('Falta el usuario: /account delete <usuario>', 'err'); return; }
+          if (!confirm(`¿Borrar la cuenta ${name} y su partida? No se puede deshacer.`)) return;
+          say(`Cuenta borrada: ${await Profile.remove(name)}.`, 'ok');
+        } else if (sub === 'list') {
+          say('Leyendo las cuentas…', 'sys');
+          for (const a of await Profile.list()) say(`${a.name}${a.admin ? ' (admin)' : ''}: ${a.pending ? 'esperando a que ponga su contraseña' : 'activa'}`, 'sys');
+        } else say('Uso: /account create <usuario> · /account reset <usuario> · /account delete <usuario> · /account list', 'err');
+      } catch (e) { say(e.message, 'err'); }
     },
   },
   ayuda: {

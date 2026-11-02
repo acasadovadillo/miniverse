@@ -1,24 +1,22 @@
 // Pantallas: inicio de sesión, menú principal, creador de personaje y pausa.
 import { Profile } from '../accounts.js';
-import { Saves } from '../save.js';
 import { LOOK_OPTIONS, DEFAULT_LOOK } from '../looks.js';
 import { CharacterPreview } from '../three/preview.js';
 import { SPAWN } from '../world/village.js';
 import { hud } from './hud.js';
 import { Audio } from '../audio.js';
 import { clearKeys } from '../input.js';
-import { WorldStore } from '../worldstore.js';
 import { initInventoryUI } from './inventory.js';
 import { initCraftingUI } from './crafting.js';
 import { initChestUI } from './chest.js';
 import { initShopUI } from './shop.js';
 import { initJournalUI } from './journal.js';
 import { initSettingsUI } from './settings.js';
-import { exportGame, readExport, importGame } from '../share.js';
-import { OWNER, isOwner, isVault, canWriteFile, downloadVault, VAULT_FILE } from '../vault.js';
+import { readExport } from '../share.js';
+import { downloadVault, dataFile } from '../vault.js';
 
 const $ = id => document.getElementById(id);
-const SCREENS = ['s-login', 's-menu', 's-creator', 's-pause', 's-map', 's-inv', 's-craft', 's-chest', 's-shop', 's-journal', 's-settings', 's-controls'];
+const SCREENS = ['s-login', 's-menu', 's-account', 's-creator', 's-pause', 's-map', 's-inv', 's-craft', 's-chest', 's-shop', 's-journal', 's-settings', 's-controls'];
 const AUTOSAVE_MS = 15000;
 
 export function initMenus(game) {
@@ -27,59 +25,56 @@ export function initMenus(game) {
     document.body.classList.toggle('playing', !id);
   }
 
-  // ---------- Inicio de sesión (la única cuenta es la de Alberto; los demás juegan sin cuenta) ----------
-  let creating = false;   // la primera vez, en local: elegir la contraseña con la que se cifran los datos
-  function setCreating(on) {
-    creating = on;
-    $('lg-pass2-row').hidden = !on;
-    $('lg-submit').textContent = on ? 'Crear mis datos cifrados' : 'Entrar';
-    $('lg-pass').autocomplete = on ? 'new-password' : 'current-password';
+  // ---------- Inicio de sesión ----------
+  // Según el usuario hace falta su contraseña; la primera vez, además, su código de invitación (y repetir la
+  // contraseña nueva); y para crear la cuenta de admin, su token de GitHub.
+  let step = null, stepUser = '';
+  const ROWS = { login: [], invite: ['lg-code-row', 'lg-pass2-row'], setup: ['lg-pass2-row', 'lg-token-row'] };
+  function setStep(s) {
+    step = s;
+    for (const id of ['lg-code-row', 'lg-pass2-row', 'lg-token-row']) $(id).hidden = !ROWS[s || 'login'].includes(id);
+    $('lg-submit').textContent = s === 'setup' ? 'Crear la cuenta de admin' : 'Entrar';
+    $('lg-pass').autocomplete = s === 'login' || !s ? 'current-password' : 'new-password';
   }
   function openLogin() {
-    setCreating(false);
-    $('lg-pass').value = $('lg-pass2').value = '';
+    setStep(null);
+    for (const id of ['lg-pass', 'lg-pass2', 'lg-code', 'lg-token']) $(id).value = '';
     $('lg-err').textContent = '';
     show('s-login');
   }
+  $('lg-user').addEventListener('input', () => { if (step) { setStep(null); $('lg-err').textContent = ''; } });
   $('login-form').addEventListener('submit', async e => {
     e.preventDefault();
-    const user = $('lg-user').value, pass = $('lg-pass').value, say = m => { $('lg-err').textContent = m; };
-    if (!user.trim()) return say('Escribe tu usuario.');
+    const user = $('lg-user').value.trim(), pass = $('lg-pass').value, say = m => { $('lg-err').textContent = m; };
+    if (!user) return say('Escribe tu usuario.');
     if (!pass) return say('Escribe tu contraseña.');
     $('lg-submit').disabled = true;
     try {
-      if (creating) {
-        if (pass.length < 8) return say('La contraseña debe tener al menos 8 caracteres.');
-        if (pass !== $('lg-pass2').value) return say('Las contraseñas no coinciden.');
-        say('Cifrando tus datos…');
-        const err = await Profile.create(pass);
-        if (err) return say(err);
-      } else {
-        if (isOwner(user) && canWriteFile && !(await Profile.vaultExists().catch(() => true))) {
-          setCreating(true);
-          return say(`Todavía no existe ${VAULT_FILE}. Repite la contraseña para crearlo: con ella se cifra tu partida.`);
-        }
-        say('Abriendo tus datos…');
-        const err = await Profile.login(user, pass);
-        if (err) return say(err);
+      if (!step || stepUser !== user) {
+        say('Buscando tu cuenta…');
+        const s = await Profile.check(user);
+        stepUser = user;
+        if (s === 'unknown') { setStep(null); return say('Ese usuario no existe.'); }
+        setStep(s);
+        if (s === 'invite') return say('Es tu primera vez: escribe el código de invitación y repite tu contraseña nueva.');
+        if (s === 'setup') return say('Todavía no existe la cuenta de admin: repite tu contraseña y pega tu token de admin de GitHub.');
       }
-      $('lg-pass').value = $('lg-pass2').value = '';
-      say('');
+      say('Abriendo tus datos…');
+      const err = step === 'invite' ? await Profile.activate(user, $('lg-code').value, pass, $('lg-pass2').value)
+        : step === 'setup' ? await Profile.setup(pass, $('lg-pass2').value, $('lg-token').value)
+        : await Profile.login(user, pass);
+      if (err) return say(err);
       openMenu();
-    } finally { $('lg-submit').disabled = false; }
+    } catch (err) { say(err.message); } finally { $('lg-submit').disabled = false; }
   });
-  $('lg-guest').onclick = () => { Profile.playAsGuest(); openMenu(); };
 
   // ---------- Menú principal ----------
   let currentSave = null;
   const when = ts => new Date(ts).toLocaleString('es-ES', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
-  async function openMenu() {
-    currentSave = await Saves.load(Profile.id);
-    $('menu-hello').textContent = Profile.owner ? `¡Hola, ${OWNER.name}!` : currentSave ? `¡Hola, ${currentSave.player.name}!` : '¡Hola!';
-    $('menu-note').textContent = !Profile.owner ? 'Sin cuenta, tu partida se guarda solo en este navegador.'
-      : canWriteFile ? `Tu partida se guarda cifrada en ${VAULT_FILE}, en la carpeta del juego.`
-      : `Tu partida se guarda en este navegador. Exportar partida descarga ${VAULT_FILE} cifrado: súbelo al repositorio para tenerlo en la web.`;
-    $('m-session').textContent = Profile.owner ? 'Cerrar sesión' : 'Iniciar sesión';
+  function openMenu() {
+    currentSave = Profile.data?.save || null;
+    $('menu-hello').textContent = `¡Hola, ${Profile.name}!`;
+    $('menu-note').textContent = 'Tu partida se guarda cifrada en este ordenador y en GitHub.';
     $('menu-save').textContent = currentSave ? `Partida de ${currentSave.player.name} · guardada el ${when(currentSave.savedAt)}` : 'Todavía no tienes ninguna partida.';
     $('m-continue').disabled = !currentSave;
     $('m-continue').classList.toggle('primary', !!currentSave);
@@ -88,8 +83,8 @@ export function initMenus(game) {
     $('menu-msg').textContent = '';
     show('s-menu');
   }
-  $('m-continue').addEventListener('click', async () => { if (currentSave) play(currentSave, await WorldStore.load(Profile.id)); });
-  $('m-session').addEventListener('click', () => { if (Profile.owner) Profile.logout(); openLogin(); });
+  $('m-continue').addEventListener('click', () => { if (currentSave) play(currentSave, new Map(Profile.data.deltas)); });
+  $('m-session').addEventListener('click', () => { Profile.logout(); openLogin(); });
   $('m-new').addEventListener('click', () => {
     if (currentSave && !confirm('Empezar una partida nueva borrará la que tienes guardada. ¿Seguro?')) return;
     openCreator();
@@ -228,13 +223,12 @@ export function initMenus(game) {
     const name = $('cr-name').value.trim();
     if (!name) { $('cr-err').textContent = 'Ponle un nombre a tu personaje.'; return; }
     const save = { player: { name, look: { ...look }, x: SPAWN.x, y: SPAWN.y, inside: false, view: 'back' } };
-    await WorldStore.clear(Profile.id);   // la partida nueva empieza sin cambios en el mundo
-    await Saves.write(Profile.id, save);
-    play(save, new Map());
+    await Profile.store(save, new Map(), { upload: true });   // la partida nueva empieza sin cambios en el mundo
+    play(Profile.data.save, new Map());
   };
 
   function openCreator() {
-    $('cr-name').value = currentSave?.player.name || (Profile.owner ? OWNER.name : '');
+    $('cr-name').value = currentSave?.player.name || Profile.name || '';
     $('cr-err').textContent = '';
     spin = 0;
     turnTo(0);
@@ -258,27 +252,26 @@ export function initMenus(game) {
   })(0);
 
   // ---------- Partida ----------
-  // Guarda la partida y los trozos del mundo que han cambiado
-  const save = async () => {
-    if (game.visiting) return false;   // de visita en el mundo de otra persona no se guarda nada
-    const ok = await Saves.write(Profile.id, game.snapshot());
-    try { await game.flush(Profile.id); } catch (e) { console.error(e); return false; }
-    if (Profile.owner) await Profile.persist();   // en local, también el archivo cifrado
-    return ok;
+  // Guarda la partida (el jugador y los cambios del mundo), cifrada en este ordenador y, si se pide o hace
+  // rato de la última vez, también en GitHub. Devuelve { local, remote } (remote: null si no tocaba subirla).
+  const save = async ({ upload = false } = {}) => {
+    if (game.visiting || !game.player || !Profile.id) return { local: false, remote: null };   // de visita no se guarda nada
+    return Profile.store(game.snapshot(), game.world.deltas, { upload });
   };
-  game.onSave = save;
+  game.onSave = () => save();
   function play(data, deltas, visiting = false) {
     show(null);
     game.visiting = visiting;
     game.start(data, deltas);
+    if (!Profile.admin && game.admin) game.setAdmin(false);   // el modo admin es solo del admin
     if (visiting) hud.toast('Modo visita: puedes explorar, pero no se guarda nada');
   }
 
   // ---------- Exportar, importar y visitar ----------
-  // (con la sesión de Alberto, la partida se exporta cifrada, en el archivo de sus datos)
+  // (la partida se exporta cifrada, como el archivo que se guarda en GitHub)
   $('m-export').onclick = async () => {
-    if (Profile.owner) { downloadVault(await Profile.sealed()); $('menu-msg').textContent = `Datos cifrados exportados: busca ${VAULT_FILE} en tus descargas.`; return; }
-    $('menu-msg').textContent = (await exportGame(Profile.id)) ? 'Partida exportada: busca el archivo en tus descargas.' : 'No hay partida que exportar.';
+    downloadVault(await Profile.sealed(), Profile.id);
+    $('menu-msg').textContent = `Partida exportada cifrada: busca ${dataFile(Profile.id)} en tus descargas.`;
   };
   const pickFile = () => new Promise(resolve => { const i = $('file-pick'); i.value = ''; i.onchange = () => resolve(i.files[0]); i.click(); });
   $('m-import').onclick = async () => {
@@ -286,16 +279,15 @@ export function initMenus(game) {
     if (!file) return;
     try {
       let data;
-      if (isVault(new Uint8Array(await file.arrayBuffer()))) {
-        if (!Profile.owner) throw new Error('Ese archivo está cifrado: inicia sesión para abrirlo.');
-        const raw = await Profile.open(new Uint8Array(await file.arrayBuffer()));
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      if (Profile.isVault(bytes)) {
+        const raw = await Profile.openFile(bytes);
         if (!raw.save) throw new Error('En ese archivo todavía no hay ninguna partida.');
         data = { save: raw.save, deltas: new Map(raw.deltas) };
       } else data = await readExport(file);
       if (currentSave && !confirm('Importar sustituye tu partida actual por la del archivo. ¿Seguro?')) return;
-      await importGame(Profile.id, data, true);
-      if (Profile.owner) await Profile.persist();
-      await openMenu();
+      await Profile.store(data.save, data.deltas, { upload: true, keepTime: true });
+      openMenu();
       $('menu-msg').textContent = `Partida de ${data.save.player.name} importada.`;
     } catch (e) { $('menu-msg').textContent = e.message; }
   };
@@ -305,6 +297,7 @@ export function initMenus(game) {
     try { const data = await readExport(file); play(data.save, data.deltas, true); } catch (e) { $('menu-msg').textContent = e.message; }
   };
   setInterval(() => { if (game.mode === 'play' && game.player) save(); }, AUTOSAVE_MS);
+  const savedMsg = r => (r.remote ? 'Partida guardada aquí y en GitHub.' : r.local ? `Partida guardada en este ordenador${r.remote === false ? `, pero no en GitHub: ${Profile.lastError}` : ''}.` : 'No se ha podido guardar.');
   addEventListener('pagehide', () => { if (game.player) save(); });
 
   function resume() { game.mode = 'play'; show(null); }
@@ -351,8 +344,12 @@ export function initMenus(game) {
   big.addEventListener('pointerup', endDrag);
   big.addEventListener('pointercancel', endDrag);
   big.addEventListener('wheel', e => { e.preventDefault(); zoom(e.deltaY < 0 ? 1 : -1); }, { passive: false });
-  $('p-save').onclick = async () => { $('p-msg').textContent = (await save()) ? 'Partida guardada.' : 'No se ha podido guardar.'; };
-  $('p-menu').onclick = async () => { await save(); game.end(); game.visiting = false; openMenu(); };
+  $('p-save').onclick = async () => { $('p-msg').textContent = 'Guardando…'; $('p-msg').textContent = savedMsg(await save({ upload: true })); };
+  $('p-menu').onclick = async () => {
+    const r = await save({ upload: true });
+    game.end(); game.visiting = false; openMenu();
+    if (r.remote === false) $('menu-msg').textContent = savedMsg(r);
+  };
 
   // ---------- Mochila ----------
   const invUI = initInventoryUI(game, { onClose: resume, onCraft: () => openCraft() });
@@ -413,8 +410,32 @@ export function initMenus(game) {
   game.onCraft = openCraft;
 
   // ---------- Inicio ----------
+  // ---------- Cuentas (solo el admin, con /account en el chat) ----------
+  // /account create y /account reset piden aquí el token de guardado de la cuenta y enseñan su código de invitación
+  game.onAccount = (name, reset) => new Promise(resolve => {
+    const back = game.mode;
+    game.mode = 'account';
+    $('ac-title').textContent = reset ? `Token nuevo para ${name}` : `Cuenta nueva: ${name}`;
+    $('ac-token').value = ''; $('ac-err').textContent = ''; $('ac-result').hidden = true; $('ac-form').hidden = false;
+    show('s-account');
+    setTimeout(() => $('ac-token').focus(), 50);
+    const close = res => { $('ac-form').onsubmit = $('ac-cancel').onclick = $('ac-close').onclick = null; game.mode = back; show(null); resolve(res); };
+    $('ac-cancel').onclick = () => close(null);
+    $('ac-form').onsubmit = async e => {
+      e.preventDefault();
+      if (!$('ac-token').value.trim()) { $('ac-err').textContent = 'Pega el token de guardado.'; return; }
+      $('ac-err').textContent = 'Guardando en GitHub…';
+      try {
+        const r = await Profile.invite(name, $('ac-token').value, reset);
+        $('ac-token').value = '';
+        $('ac-form').hidden = true; $('ac-result').hidden = false;
+        $('ac-who').textContent = r.name; $('ac-code').textContent = r.code;
+        $('ac-close').onclick = () => close(r);
+      } catch (err) { $('ac-err').textContent = err.message; }
+    };
+  });
+
   async function boot() {
-    await Profile.init();
     openLogin();
   }
   return { boot, togglePause, toggleMap, zoomMap: zoom, toggleInventory, toggleCraft, toggleJournal };

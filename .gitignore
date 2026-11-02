@@ -1,1 +1,3 @@
 .DS_Store
+# Partidas cifradas: van al repositorio privado Miniverse-data, nunca a este
+*.enc
