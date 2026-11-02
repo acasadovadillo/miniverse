@@ -74,7 +74,6 @@ export function initMenus(game) {
   function openMenu() {
     currentSave = Profile.data?.save || null;
     $('menu-hello').textContent = `¡Hola, ${Profile.name}!`;
-    $('menu-note').textContent = 'Tu partida se guarda cifrada en este ordenador y en GitHub.';
     $('menu-save').textContent = currentSave ? `Partida de ${currentSave.player.name} · guardada el ${when(currentSave.savedAt)}` : 'Todavía no tienes ninguna partida.';
     $('m-continue').disabled = !currentSave;
     $('m-continue').classList.toggle('primary', !!currentSave);

@@ -67,19 +67,32 @@ function instanced(geo, material, list, { cast = true, receive = true } = {}) {
 
 // Piezas de un objeto de la naturaleza, en el sitio (x, z) con el suelo a altura y. Devuelve las piezas por
 // tipo en `out` ({ trunk: [], lump: [], … }), apuntando de quién es cada una (owner) para poder sacudirlo.
+// Una rama: un tronco fino que va del punto a al b
+const UP = new THREE.Vector3(0, 1, 0), dir = new THREE.Vector3(), turn = new THREE.Quaternion(), euler = new THREE.Euler();
+function branch(push, a, b, w) {
+  dir.set(b[0] - a[0], b[1] - a[1], b[2] - a[2]);
+  const len = dir.length();
+  euler.setFromQuaternion(turn.setFromUnitVectors(UP, dir.normalize()));
+  push('trunk', { p: [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2, (a[2] + b[2]) / 2], s: [w, len, w], r: [euler.x, euler.y, euler.z] });
+}
+
 function pieces(o, season, out, owner, y = 0) {
   const x = o.x, z = o.y, h = ihash(Math.floor(x * 7), Math.floor(z * 7), 11), r = (k) => ihash(Math.floor(x * 13) + k, Math.floor(z * 13), 31 + k);
   const k = 0.85 + h * 0.35, rot = r(1) * Math.PI * 2, push = (type, it) => { it.owner = owner; (out[type] ||= []).push(it); };
   const kind = o.kind;
   if (kind === 'oak' || kind === 'fruit' || kind === 'swampTree') {
     const tall = kind === 'swampTree' ? 1.25 : 1, th = 1.5 * k * tall;
-    push('trunk', { p: [x, y + th / 2, z], s: [k, th, k], r: [0, rot, 0] });
     const pal = kind === 'swampTree' ? SWAMP[season] : kind === 'fruit' && season < 2 ? ['#62ad48', '#6cb850', '#58a040'] : LEAF[season];
     const cy = y + th + 1.0 * k, n = 4 + Math.floor(r(2) * 2), droop = kind === 'swampTree' ? 0.35 : 0;
+    // El tronco sube hasta dentro de la copa (si no, desde abajo se vería un hueco y las hojas flotarían)
+    const top = cy - y - 0.1 * k;
+    push('trunk', { p: [x, y + top / 2, z], s: [k, top, k], r: [0, rot, 0] });
     push('lump', { p: [x, cy + 0.25 * k - droop, z], s: [1.05 * k, (1.05 - droop * 0.6) * k, 1.05 * k], r: [r(3), r(4), r(5)], c: pal[Math.floor(r(6) * pal.length)] });
     for (let i = 0; i < n; i++) {
-      const a = rot + (i / n) * Math.PI * 2, d = (0.55 + droop * 0.3) * k;
-      push('lump', { p: [x + Math.cos(a) * d, cy - 0.15 * k + r(10 + i) * 0.3 - droop, z + Math.sin(a) * d], s: (0.65 + r(20 + i) * 0.2) * k, r: [r(30 + i), r(40 + i), 0], c: pal[Math.floor(r(50 + i) * pal.length)] });
+      const a = rot + (i / n) * Math.PI * 2, d = (0.55 + droop * 0.3) * k, ly = cy - 0.15 * k + r(10 + i) * 0.3 - droop;
+      push('lump', { p: [x + Math.cos(a) * d, ly, z + Math.sin(a) * d], s: (0.65 + r(20 + i) * 0.2) * k, r: [r(30 + i), r(40 + i), 0], c: pal[Math.floor(r(50 + i) * pal.length)] });
+      // Ramas del tronco a las matas de abajo, que se ven al mirar la copa desde el suelo
+      if (i < 3) branch(push, [x, y + th * 0.82, z], [x + Math.cos(a) * d * 0.85, ly - 0.2 * k, z + Math.sin(a) * d * 0.85], 0.42 * k);
     }
     // Sauce del pantano: ramas colgando
     if (kind === 'swampTree') for (let i = 0; i < 8; i++) { const a = (i / 8) * Math.PI * 2 + rot, d = 1.0 * k; push('frond', { p: [x + Math.cos(a) * d, cy - 0.2, z + Math.sin(a) * d], s: [0.8, 1, 1.2], r: [-1.35, -a + Math.PI / 2, 0] }); }
@@ -291,7 +304,7 @@ export function buildFarNature(objs, season, groundY) {
     const x = o.x, z = o.y, y = groundY(x, z), h = ihash(Math.floor(x * 7), Math.floor(z * 7), 11), s = 0.85 + h * 0.35, rot = h * 6.28;
     if (o.kind === 'oak' || o.kind === 'fruit' || o.kind === 'swampTree') {
       const pal = o.kind === 'swampTree' ? SWAMP[season] : LEAF[season];
-      trunks.push({ p: [x, y + 0.75 * s, z], s: [s, 1.5 * s, s] });
+      trunks.push({ p: [x, y + 0.95 * s, z], s: [s, 1.9 * s, s] });
       lumps.push({ p: [x, y + 2.6 * s, z], s: 1.15 * s, r: [h, h * 2, 0], c: pal[Math.floor(h * pal.length)] });
       lumps.push({ p: [x + Math.cos(rot) * 0.5 * s, y + 2.2 * s, z + Math.sin(rot) * 0.5 * s], s: 0.8 * s, c: pal[(Math.floor(h * 9)) % pal.length] });
     } else if (o.kind === 'pine' || o.kind === 'snowPine') {
