@@ -384,7 +384,6 @@ export class Ranch {
       if (this.animals.some(a => a.type === type && a.stray) || (this.farm[k] ?? -STRAY_EVERY) > day - STRAY_EVERY) continue;
       this.farm[k] = day;
       this.animals.push(new Animal({ type, stray: true, name: type === 'perro' ? 'Perro callejero' : 'Gato callejero', named: false, x: SPAWN.x + (type === 'perro' ? -3 : 3), y: SPAWN.y + 1.5, born: day - 30, breed: this.randomBreed(type) }));
-      if (this.game.player) hud.toast(`Hay ${type === 'perro' ? 'un perro' : 'un gato'} sin dueño por la plaza del pueblo…`);
     }
   }
   eatFromFeeder(a) {
