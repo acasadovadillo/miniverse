@@ -10,6 +10,18 @@
         "data": "k65BbEGu9Ey8DVAK0REoHmE/BCD6nckli8luCSeK1I9Rrq+E7d4A6eoWhOhOo+oDEEmtSLXl0pAAjMWdnZoxAR4n3+qahw/EaiFBACk43IKugF9x4LtCTIJ8uZ8OcOGULjNyku363zL8nS5LLQ=="
       },
       "created": "2026-11-02"
+    },
+    "hafsa": {
+      "name": "Hafsa",
+      "created": "2026-11-02",
+      "invite": {
+        "salt": "GwLj/AFe8JaI+xuoZXhX6g==",
+        "token": {
+          "iv": "Jdl7AhK6KAnVkBpU",
+          "data": "DeGvuJ86UPgMVkhxGaX9sapKzB4Ekx9tO28JDn2QB/q1Gkd3YFWDWcR71AHpBhTz9uDsoutVCh67Lko8RYapqYJB5GOZilHk3kTkEDhN2nxzIgi1drmfXRHtI7vRT039/yWkZ7TyQW2MTd3+MQ=="
+        },
+        "issued": 1793617308784
+      }
     }
   }
 }
