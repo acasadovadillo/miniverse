@@ -91,7 +91,8 @@ export class Cave3D {
   update(game, dt) {
     const p = game.player;
     if (p) this.cut.player.value.set(p.x, 0, p.y);
-    this.cut.toCam.value.set(Math.sin(CAM.yaw), Math.cos(CAM.yaw));
+    if (CAM.first) this.cut.toCam.value.set(0, 0);   // (en primera persona no se recortan las paredes)
+    else this.cut.toCam.value.set(Math.sin(CAM.yaw), Math.cos(CAM.yaw));
     // Lo de dentro se rehace cuando cambia (una veta picada, un cofre abierto, una reja, una antorcha…)
     const live = this.sc.live(), st = this.sc.state;
     let sig = '';

@@ -44,6 +44,7 @@ export function initInput(h) {
     // Chat: T lo abre; / lo abre con la barra ya escrita (sin que la tecla se escriba dos veces)
     if ((e.code === 'KeyT' || e.key === '/') && !e.repeat) { if (handlers.chat(e.key === '/' ? '/' : '')) e.preventDefault(); return; }
     if (e.code === 'KeyF' && !e.repeat) { const el = document.getElementById('fps'); if (el) el.hidden = !el.hidden; return; }
+    if (e.code === 'KeyZ' && !e.repeat) { CAM.first = !CAM.first; e.preventDefault(); return; }   // primera o tercera persona
     Audio.start();
     if (KEYMAP[e.code]) { keys[KEYMAP[e.code]] = true; e.preventDefault(); }
     if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') keys.run = true;

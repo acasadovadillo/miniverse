@@ -5,13 +5,13 @@
 // el jugador, sube lo justo para verlo por encima del tejado. El sol sigue la hora del juego (y la luna de
 // noche), el cielo tiene nubes, y hay lluvia, nieve, tormentas y niebla según el tiempo.
 import * as THREE from 'three';
-import { CAM, PITCH, DIST } from '../camera.js';
+import { CAM, PITCH, DIST, LOOK } from '../camera.js';
 import { setViewAngle } from '../iso.js';
 import { CENTER } from '../world/village.js';
 import { Settings } from '../settings.js';
 import { Terrain, WATER_Y } from './terrain.js';
 import { World3D } from './world3d.js';
-import { Actors } from './actors.js';
+import { Actors, toolModel, swingArm } from './actors.js';
 import { Fx } from './fx.js';
 import { Cave3D } from './cave3d.js';
 
@@ -43,6 +43,8 @@ export class View3D {
     this.terrain = new Terrain(this.scene);
     this.world = new World3D(this);
     this.actors = new Actors(this);
+    // En primera persona, lo que se lleva en la mano se ve abajo a la derecha
+    this.viewmodel = new THREE.Group(); this.viewmodel.visible = false; this.scene.add(this.viewmodel);
     this.fx = new Fx(this);
     this.caves = new Map();       // escena de cueva → su vista
     this.cave = null;
@@ -165,10 +167,12 @@ export class View3D {
     c.zvel += (CAM.zoom * 0.85 - c.zvel) * Math.min(1, dt * (CAM.zoom ? 6 : 8));
     const cave = scene.kind === 'grid';
     CAM.yaw += c.vel * dt;
+    const p = game.player, menu = !p || !game.scene;
+    if (CAM.first && !menu) return this.firstPerson(game, scene, c, dt);
+    if (this.camera.near !== 0.3) { this.camera.near = 0.3; this.camera.updateProjectionMatrix(); }
     CAM.pitch = Math.max(PITCH.min, Math.min(PITCH.max, CAM.pitch + c.pvel * dt));
     if (CAM.pitch === PITCH.min || CAM.pitch === PITCH.max) c.pvel = 0;
     CAM.dist = Math.max(DIST.min, Math.min(DIST.max, CAM.dist * Math.exp(c.zvel * dt)));
-    const p = game.player, menu = !p || !game.scene;
     // A quién sigue: al jugador, o (en el menú) una vuelta lenta por el pueblo
     let tx, ty, tz;
     if (menu) { const t = game.time; tx = CENTER.x + Math.sin(t * 0.07) * 6; tz = CENTER.y + Math.cos(t * 0.05) * 5; ty = 0; CAM.yaw += dt * 0.05; }
@@ -193,6 +197,48 @@ export class View3D {
     if (!cave) this.camera.position.y = Math.max(this.camera.position.y, this.terrain.heightAt(this.camera.position.x, this.camera.position.z) + 0.35);
     this.camera.lookAt(c.target);
     setViewAngle(CAM.yaw - Math.PI / 4);   // el mapa gira con la cámara
+  }
+  // Primera persona: la cámara en los ojos del jugador (sube y baja un poco al andar, con su cabeza);
+  // ← → giran la mirada, ↑ ↓ miran arriba y abajo. El resto (mundo, luces, sombras) sigue al jugador.
+  firstPerson(game, scene, c, dt) {
+    CAM.look = Math.max(LOOK.min, Math.min(LOOK.max, CAM.look + c.pvel * dt * 1.6));
+    if (CAM.look === LOOK.min || CAM.look === LOOK.max) c.pvel = 0;
+    const p = game.player, ground = this.groundY(scene, p.x, p.y), head = this.actors.player?.person.head;
+    const eye = head ? head.getWorldPosition(this.probe) : this.probe.set(p.x, ground + 1.1, p.y);
+    dirOf(CAM.yaw, 0, this.ray).negate();   // hacia delante, en horizontal
+    c.target.set(p.x, ground + 0.9, p.y);
+    c.low = 1;
+    this.camera.position.copy(eye).addScaledVector(this.ray, 0.14);
+    const look = this.from.copy(this.ray).multiplyScalar(Math.cos(CAM.look));
+    look.y = Math.sin(CAM.look);
+    this.camera.lookAt(look.add(this.camera.position));
+    if (this.camera.fov !== 70 || this.camera.near !== 0.05) { this.camera.fov = 70; this.camera.near = 0.05; this.camera.updateProjectionMatrix(); }
+    setViewAngle(CAM.yaw - Math.PI / 4);
+  }
+  // Lo que se lleva en la mano, en primera persona: abajo a la derecha, con el vaivén de andar y el gesto al usarlo
+  updateViewmodel(game, first) {
+    const vm = this.viewmodel, m = this.actors.player;
+    const id = first ? (m?.anim ? m.anim.item : game.inv?.held?.id) || null : null;
+    if (this.vmItem !== id) {
+      this.vmItem = id;
+      vm.clear();
+      const tool = id && toolModel(id);
+      if (tool) {
+        tool.rotation.set(-0.35, 0.25, 0.32);
+        tool.traverse(o => { if (o.isMesh) o.castShadow = false; });
+        const hold = new THREE.Group();
+        hold.scale.setScalar(0.85);
+        hold.add(tool);
+        vm.add(hold);
+      }
+    }
+    vm.visible = !!vm.children.length;
+    if (!vm.visible) return;
+    vm.position.copy(this.camera.position);
+    vm.quaternion.copy(this.camera.quaternion);
+    const hold = vm.children[0], arm = swingArm(m), walk = Math.min(1, (m?.speed || 0) / 3);
+    hold.position.set(0.38 + Math.cos(game.time * 4.5) * 0.01 * walk, -0.44 + Math.abs(Math.sin(game.time * 4.5)) * 0.015 * walk - Math.min(0, arm) * 0.025, -0.72);
+    hold.rotation.x = -arm * 0.38;
   }
   // Hasta dónde puede alejarse la cámara sin meterse en el suelo; con houses, también sin cruzar una casa
   clearance(from, dir, max, inside, houses = true) {
@@ -239,6 +285,8 @@ export class View3D {
       this.world.update(game, scene, target, dt, snap);
     } else this.cave.update(game, dt);
     this.actors.update(game, scene, dt, t);
+    this.first = CAM.first && !!game.player && !!game.scene;
+    this.updateViewmodel(game, this.first);
     this.fx.update(game, scene, dt, t);
     this.terrain.water.uniforms.time.value = t;
     this.skyU.time.value = t;
@@ -275,14 +323,17 @@ export class View3D {
       l.intensity = (s.intensity ?? 3) * flick * (s.always ? 1 : 0.35 + 0.65 * Math.max(this.night, this.cave ? 1 : 0, game.indoors ? 0.8 : 0));
     });
   }
-  // Tres pasadas: el mundo (el jugador solo deja su sombra), su silueta donde algo lo tapa y el jugador
+  // Tres pasadas: el mundo (el jugador solo deja su sombra), su silueta donde algo lo tapa y el jugador.
+  // En primera persona, solo la primera: el cuerpo no se ve, pero sigue dando sombra (y la barca o el
+  // caballo se ven con el mundo).
   draw() {
-    const r = this.renderer, mats = this.actors.playerMaterials();
+    const r = this.renderer, mats = this.actors.playerMaterials(this.first);
     r.autoClear = true;
     for (const m of mats) { m.colorWrite = false; m.depthWrite = false; }
     this.camera.layers.enableAll(); this.camera.layers.disable(1);
     if (this.shadowDirty || this.frames % 2 === 0) { r.shadowMap.needsUpdate = true; this.shadowDirty = false; }
     r.render(this.scene, this.camera);
+    if (this.first) { for (const m of mats) { m.colorWrite = true; m.depthWrite = true; } return; }
     r.autoClear = false;
     this.camera.layers.set(2);
     this.scene.overrideMaterial = SILHOUETTE;

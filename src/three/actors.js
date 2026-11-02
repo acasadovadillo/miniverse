@@ -23,7 +23,8 @@ export class Actors {
     this.lights = [];
     this.player = null;
   }
-  playerMaterials() { return this.player?.mats || []; }
+  // Los materiales del jugador (para su silueta); body: solo los de su cuerpo y lo que lleva en la mano
+  playerMaterials(body = false) { return (body ? this.player?.body : this.player?.mats) || []; }
 
   update(game, scene, dt, t) {
     const seen = new Set(), p = game.player && game.scene ? game.player : null;
@@ -54,8 +55,8 @@ export class Actors {
       const m = { kind: 'person', root, person, prev: null, speed: 0 };
       if (isPlayer) {
         // El jugador tiene sus propios materiales (para dibujar su silueta) y va en la capa 2
-        m.mats = [];
-        person.root.traverse(o => { if (o.isMesh) { o.material = o.material.clone(); m.mats.push(o.material); o.layers.set(2); } });
+        m.mats = []; m.body = [];
+        person.root.traverse(o => { if (o.isMesh) { o.material = o.material.clone(); m.mats.push(o.material); m.body.push(o.material); o.layers.set(2); } });
         m.hand = new THREE.Group();
         m.hand.position.set(0.03, -0.27, 0.02);
         person.arms[1].add(m.hand);
@@ -125,7 +126,7 @@ export class Actors {
     if (m.holding !== show) {
       m.hand.clear();
       const tool = show && toolModel(show);
-      if (tool) { tool.traverse(o => { if (o.isMesh) { o.material = o.material.clone(); m.mats.push(o.material); o.layers.set(2); } }); m.hand.add(tool); }
+      if (tool) { tool.traverse(o => { if (o.isMesh) { o.material = o.material.clone(); m.mats.push(o.material); m.body.push(o.material); o.layers.set(2); } }); m.hand.add(tool); }
       m.holding = show;
     }
     const arm = P.arms[1];
@@ -154,6 +155,8 @@ const GESTURES = {
   lanzar: { dur: 0.6, arm: [[0, 0], [0.3, -2.6], [0.55, -0.6], [1, 0]], twist: [[0, 0], [0.3, -0.2], [0.55, 0.1], [1, 0]] },
   mano: { dur: 0.3, arm: [[0, 0], [0.4, -1.5], [1, 0]], twist: [[0, 0], [0.4, -0.25], [1, 0]] },
 };
+// Cuánto levanta el brazo ahora el gesto del jugador (0 si no está usando nada)
+export function swingArm(m) { const a = m?.anim; return a ? keys(GESTURES[a.kind].arm, Math.min(1, a.t / a.dur)) : 0; }
 function gestureOf(id) {
   const d = id && ITEMS[id];
   if (!d) return 'mano';

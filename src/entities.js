@@ -1,7 +1,7 @@
 // Entidades: cualquier cosa con posición que se mueve o se dibuja por sí misma (jugador, vecinos…).
 import { lerp, clamp } from './util.js';
 import { fromView, toView } from './iso.js';
-import { screenToWorld, viewFor, screenDirOf } from './camera.js';
+import { CAM, screenToWorld, viewFor, screenDirOf } from './camera.js';
 import { collide } from './physics.js';
 import { Audio } from './audio.js';
 
@@ -60,6 +60,8 @@ export class Player extends Person {
     // Arriba o abajo: de espaldas o de frente; solo a los lados: de perfil
     // Mira hacia donde anda: 8 direcciones (de frente, de espaldas, los dos perfiles y las cuatro diagonales)
     if (sx || sy) [this.view, this.flip] = viewFor(sx, sy);
+    // En primera persona se mira hacia donde mira la cámara (y lo de delante es lo que se ve)
+    if (CAM.first) { const [fx, fy] = screenToWorld(0, -1); this.face = { x: fx, y: fy }; this.dir = [fx, fy]; [this.view, this.flip] = viewFor(0, -1); }
     const before = Math.floor(this.step);
     this.step = moved < 0.002 ? 0 : this.step + moved * 3.2;
     if (Math.floor(this.step) !== before && Math.floor(this.step) % 2 === 1) Audio.step(this.inside || this.underRoof);

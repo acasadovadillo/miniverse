@@ -2,8 +2,10 @@
 // yaw: giro alrededor del jugador (con yaw = π/4 se mira como en el juego isométrico de antes, hacia -x -y);
 // pitch: inclinación (0 a ras de suelo, π/2 desde arriba); dist: lo lejos que está, en casillas.
 // turn, tilt y zoom: lo que piden las teclas ahora mismo (-1, 0 o 1); el dibujo lo convierte en movimiento suave.
-export const CAM = { yaw: Math.PI / 4, pitch: 0.84, dist: 22, turn: 0, tilt: 0, zoom: 0 };
+// first: en primera persona (la Z la cambia), con look la mirada hacia arriba (+) o hacia abajo (-).
+export const CAM = { yaw: Math.PI / 4, pitch: 0.84, dist: 22, turn: 0, tilt: 0, zoom: 0, first: false, look: 0 };
 export const PITCH = { min: 0.07, max: 1.5 };
+export const LOOK = { min: -1.2, max: 1.2 };
 export const DIST = { min: 7, max: 46 };
 
 // Dirección en el mundo (x, y de la rejilla) de un movimiento en pantalla: sx a la derecha, sy hacia abajo
@@ -27,10 +29,12 @@ export function screenDirOf(view, flip) {
 }
 
 // Guardar y cargar la cámara con la partida
-export const camToSave = () => ({ yaw: +CAM.yaw.toFixed(3), pitch: +CAM.pitch.toFixed(3), dist: +CAM.dist.toFixed(2) });
+export const camToSave = () => ({ yaw: +CAM.yaw.toFixed(3), pitch: +CAM.pitch.toFixed(3), dist: +CAM.dist.toFixed(2), first: CAM.first, look: +CAM.look.toFixed(3) });
 export function camFromSave(c) {
   if (!c || typeof c !== 'object') return;
   if (Number.isFinite(c.yaw)) CAM.yaw = c.yaw;
   if (Number.isFinite(c.pitch)) CAM.pitch = Math.max(PITCH.min, Math.min(PITCH.max, c.pitch));
   if (Number.isFinite(c.dist)) CAM.dist = Math.max(DIST.min, Math.min(DIST.max, c.dist));
+  CAM.first = !!c.first;
+  if (Number.isFinite(c.look)) CAM.look = Math.max(LOOK.min, Math.min(LOOK.max, c.look));
 }

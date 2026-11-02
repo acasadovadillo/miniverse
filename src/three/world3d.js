@@ -439,7 +439,7 @@ export class World3D {
     for (const [fk, mats] of this.fadeMats) {
       const [region, side] = fk.split('|');
       let goal = 1;
-      if (region === inside) goal = side === 'roof' ? 0 : N[side] && N[side][0] * toCam[0] + N[side][1] * toCam[1] > 0.12 ? 0 : 1;
+      if (region === inside && !CAM.first) goal = side === 'roof' ? 0 : N[side] && N[side][0] * toCam[0] + N[side][1] * toCam[1] > 0.12 ? 0 : 1;
       const v = this.fade.get(fk) ?? 1;
       if (v === goal) continue;
       const o = goal > v ? Math.min(goal, v + dt * 4) : Math.max(goal, v - dt * 4);

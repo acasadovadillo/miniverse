@@ -4,7 +4,7 @@ El juego entero pasa del dibujo isométrico en 2D (lienzo y sprites) a 3D con Th
 
 ## Arquitectura
 
-- `src/three/engine.js` — `View3D`: renderizador, escena, cámara orbital (giro ← →, inclinación ↑ ↓, zoom + − y Ctrl+rueda), sol con sombras, luz del cielo, cielo con nubes, niebla, día y noche, lluvia, nieve y tormenta según `time.js`, calidad automática, silueta del jugador detrás de las cosas, y `tileAt(clientX, clientY)` (rayo desde la cámara hasta el suelo).
+- `src/three/engine.js` — `View3D`: renderizador, escena, cámara orbital (giro ← →, inclinación ↑ ↓, zoom + − y Ctrl+rueda) o en primera persona (Z; ↑ ↓ miran arriba y abajo, y lo que se lleva en la mano se ve delante), sol con sombras, luz del cielo, cielo con nubes, niebla, día y noche, lluvia, nieve y tormenta según `time.js`, calidad automática, silueta del jugador detrás de las cosas, y `tileAt(clientX, clientY)` (rayo desde la cámara hasta el suelo).
 - `src/three/terrain.js` — suelo por trozos de 16 casillas alrededor de la cámara (colores del bioma con la estación, camino y estanque del pueblo, agua de mares y lagos), y un anillo lejano más basto para el horizonte.
 - `src/three/world3d.js` — lo que hay en cada trozo (`Overworld.contentFor`): naturaleza, piezas construidas, muebles, estaciones, cultivos, árboles plantados, lugares, cofres del tesoro y cosas del pueblo. Cada trozo se reconstruye solo cuando cambia su firma (lista de objetos y estados).
 - `src/three/build3d.js` — piezas: suelos, muros (madera, piedra, entramado, ventanas, cuadro) que se unen con sus vecinos, puertas que se abren y cierran, vallas, hogar y tejados por regiones (a cuatro aguas con la forma que calcula `roofGeometry`), con chimenea. Dentro de una casa: fuera el tejado y las paredes que tapan la vista.
@@ -19,6 +19,7 @@ El juego entero pasa del dibujo isométrico en 2D (lienzo y sprites) a 3D con Th
 - Moverse: arriba en pantalla es hacia donde mira la cámara (`entities.js`, con el giro de `src/camera.js`).
 - Flechas: ← → giran la cámara, ↑ ↓ la inclinan; ya no mueven al jugador (con el mapa abierto sí lo mueven, como antes). + y − acercan y alejan (con el mapa abierto, su zoom).
 - La rueda sigue cambiando de objeto; Ctrl+rueda (o pellizcar el panel táctil) acerca y aleja.
+- Z cambia entre tercera y primera persona. En primera persona se mira (y se apunta) hacia donde mira la cámara, las casas se ven enteras por dentro y en las cuevas no se recortan las paredes.
 - Textos flotantes y astillas se guardan en coordenadas del mundo.
 - El mapa grande y el minimapa siguen en 2D y giran con la cámara.
 
