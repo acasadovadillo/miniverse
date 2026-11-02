@@ -10,7 +10,7 @@
 // trozo en unas pocas mallas. Lo que no se junta (fuego, cristal, agua) va aparte, igual que sus luces.
 import * as THREE from 'three';
 import { Builder, mat } from './geo.js';
-import { wood, stone, rug, notes, awning, planks, furrows, artwork } from './textures.js';
+import { wood, stone, rug, rugDesign, notes, awning, planks, furrows, artwork } from './textures.js';
 import { CROPS } from '../items.js';
 import { WALL_H } from './build3d.js';
 
@@ -39,6 +39,8 @@ export function modelMats() {
     snow: c('#f4f8fc', { roughness: 0.85 }), rock: mat({ map: stone('#8a857c'), flatShading: true }), dark0: c('#0a0806', { roughness: 1 }), stripeR: c('#c83a32'), lens: c('#fff6c8', { emissive: '#ffe080', emissiveIntensity: 2 }),
     bee: c('#e8c040'), sofa: c('#3f6a5a', { roughness: 0.95 }), sofaB: c('#5a8a74', { roughness: 0.95 }), leather: c('#8a5a34', { roughness: 0.85 }), leatherD: c('#5e3b22', { roughness: 0.85 }),
     porcelain: c('#f4f2ee', { roughness: 0.22 }), quiltK: c('#5a9ad8', { roughness: 0.95 }), quiltK2: c('#e88aa8', { roughness: 0.95 }), pillowK: c('#f4d86a', { roughness: 0.95 }),
+    rug_persa: mat({ map: rugDesign('persa'), roughness: 1 }), rug_rayas: mat({ map: rugDesign('rayas'), roughness: 1 }), rug_rombos: mat({ map: rugDesign('rombos'), roughness: 1 }),
+    rug_trenzada: mat({ map: rugDesign('trenzada'), roughness: 1, alphaTest: 0.5 }),
     art_valle: mat({ map: artwork('valle'), roughness: 0.9 }), art_mar: mat({ map: artwork('mar'), roughness: 0.9 }), art_flores: mat({ map: artwork('flores'), roughness: 0.9 }), art_noche: mat({ map: artwork('noche'), roughness: 0.9 }),
     baby: c('#f4e6c8', { roughness: 0.95 }), mirror: c('#d8eef4', { metalness: 0.6, roughness: 0.08 }), plate: c('#f0ece0', { roughness: 0.4 }), plateB: c('#5a7ab8', { roughness: 0.4 }),
   };
@@ -142,6 +144,16 @@ const BUILD = {
     m.box('dark', -0.42, 0.2, 0.22, -0.012, 1.92, 0.245).box('dark', 0.012, 0.2, 0.22, 0.42, 1.92, 0.245);
     for (const [x0, x1] of [[-0.36, -0.07], [0.07, 0.36]]) m.box('wood', x0, 0.34, 0.245, x1, 0.92, 0.256).box('wood', x0, 1.1, 0.245, x1, 1.78, 0.256);
     m.ball('brass', -0.045, 1.02, 0.26, 0.022).ball('brass', 0.045, 1.02, 0.26, 0.022);
+  },
+  // Mueble de baño: bajo y blanco, con un cajón y dos puertas, patas y, encima, dos toallas dobladas y una pastilla de jabón
+  mueble_bano(m) {
+    m.box('white', -0.42, 0.08, -0.22, 0.42, 0.7, 0.14).box('porcelain', -0.45, 0.7, -0.24, 0.45, 0.74, 0.17);
+    for (const x of [-0.39, 0.34]) for (const z of [-0.19, 0.08]) m.box('steel', x, 0, z, x + 0.05, 0.08, z + 0.05);
+    m.box('cloth', -0.38, 0.54, 0.14, 0.38, 0.66, 0.155).box('brass', -0.07, 0.59, 0.155, 0.07, 0.61, 0.17);
+    m.box('cloth', -0.38, 0.13, 0.14, -0.012, 0.5, 0.155).box('cloth', 0.012, 0.13, 0.14, 0.38, 0.5, 0.155);
+    m.ball('brass', -0.05, 0.36, 0.165, 0.018).ball('brass', 0.05, 0.36, 0.165, 0.018);
+    m.box('quiltK', -0.34, 0.74, -0.18, -0.04, 0.8, 0.06).box('sheet', -0.32, 0.8, -0.16, -0.06, 0.85, 0.04);
+    m.box('quiltK2', 0.18, 0.74, -0.06, 0.28, 0.77, 0.02);
   },
   // Encimera con cajones: la parte de abajo de la alacena, con dos cajones encima de las puertas
   encimera(m) {
@@ -561,6 +573,14 @@ Object.assign(BUILD, {
   cuadro_flores: m => painting(m, 'art_flores', 'gold'), cuadro_noche: m => painting(m, 'art_noche', 'dark'),
 });
 
+// Alfombra de w × h casillas, un poco más pequeña que ellas, con el dibujo a lo largo (si es más ancha que
+// larga, girado)
+const RUG_MAT = { alfombra: 'rug', alfombra_persa: 'rug_persa', alfombra_rayas: 'rug_rayas', alfombra_rombos: 'rug_rombos', alfombra_trenzada: 'rug_trenzada' };
+function rugModel(m, id, size) {
+  const [w, h] = size.split('x').map(Number), x = w / 2 - 0.06, z = h / 2 - 0.06, y = 0.032;
+  m.B(RUG_MAT[id] || 'rug').quad([-x, y, z], [x, y, z], [x, y, -z], [-x, y, -z], [0, 1, 0], w > h ? [[0, 1], [0, 0], [1, 0], [1, 1]] : [[0, 0], [1, 0], [1, 1], [0, 1]]);
+}
+
 // ---------- caché ----------
 const CACHE = new Map();
 // Modelo de algo, por su nombre: 'banco', 'crop:tomate:3', 'poi:templo', 'village:stall', 'treasure:1', 'tilled:0'…
@@ -573,6 +593,7 @@ export function getModel(name) {
   else if (kind === 'poi') PLACES[a](m, b === 'snow');
   else if (kind === 'treasure') treasure(m, a === '1');
   else if (kind === 'tilled') tilled(m, a === '1');
+  else if (kind === 'rug') rugModel(m, a, b);
   else return null;
   CACHE.set(name, m);
   return m;

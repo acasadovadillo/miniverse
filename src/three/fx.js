@@ -4,7 +4,8 @@
 // de la fuente, la luz del faro, el sedal y el corcho al pescar y el destello rojo al recibir un golpe.
 import * as THREE from 'three';
 import { itemIcon } from '../art/items.js';
-import { yawOf } from '../art/stations.js';
+import { yawOf, rugRect } from '../art/stations.js';
+import { ITEMS } from '../items.js';
 import { PIECES } from '../pieces.js';
 import { getModel } from './models.js';
 import { WALL_H } from './build3d.js';
@@ -114,7 +115,9 @@ export class Fx {
         if (tg?.tile && (tg.ok || tg.place)) {
           this.showTile(tg.tile, gy, tg.ok ? pulse : '#ff7a6a');
           // (arrimado al muro de detrás, como quedará)
-          if (tg.place) { const [sx, sy] = game.scene.wallShift?.(tg.place, ...tg.tile, tg.rot) || [0, 0]; ghost = tg.place; ghostOk = tg.ok; at = [tg.tile[0] + 0.5 + sx, tg.tile[1] + 0.5 + sy]; yaw = yawOf(tg.rot); }
+          // (la alfombra, entera, del tamaño elegido)
+          if (tg.place && ITEMS[tg.place].place === 'rug') { const r = rugRect(...tg.tile, tg.rot); ghost = `rug:${tg.place}:${r.w}x${r.h}`; ghostOk = tg.ok; at = [r.x0 + r.w / 2, r.y0 + r.h / 2]; }
+          else if (tg.place) { const [sx, sy] = game.scene.wallShift?.(tg.place, ...tg.tile, tg.rot) || [0, 0]; ghost = tg.place; ghostOk = tg.ok; at = [tg.tile[0] + 0.5 + sx, tg.tile[1] + 0.5 + sy]; yaw = yawOf(tg.rot); }
         } else if (tg?.obj) {
           this.ring.visible = true;
           this.ring.position.set(tg.obj.x, gy(tg.obj.x, tg.obj.y) + 0.04, tg.obj.y);

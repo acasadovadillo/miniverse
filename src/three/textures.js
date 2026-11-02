@@ -123,6 +123,51 @@ export const rug = () => make(128, 128, (g, w, h) => {
   for (let x = 4; x < w; x += 8) { g.fillStyle = '#e8d8b0'; g.fillRect(x, 0, 2, 4); g.fillRect(x, h - 4, 2, 4); }
 });
 
+// Las otras alfombras (el dibujo, a lo largo: de arriba abajo del lienzo): persa, de rayas, de rombos y trenzada
+// (ovalada: fuera del óvalo, transparente)
+export const rugDesign = kind => make(128, 128, (g, w, h) => {
+  const fringe = c => { for (let x = 4; x < w; x += 8) { g.fillStyle = c; g.fillRect(x, 0, 2, 5); g.fillRect(x, h - 5, 2, 5); } };
+  const diamond = (x, y, rx, ry, c) => { g.fillStyle = c; g.beginPath(); g.moveTo(x, y - ry); g.lineTo(x + rx, y); g.lineTo(x, y + ry); g.lineTo(x - rx, y); g.closePath(); g.fill(); };
+  if (kind === 'persa') {
+    g.fillStyle = '#8a2a2a'; g.fillRect(0, 5, w, h - 10);
+    g.fillStyle = '#f0e0b0'; g.fillRect(8, 13, w - 16, h - 26);
+    g.fillStyle = '#2a3a6a'; g.fillRect(11, 16, w - 22, h - 32);
+    const r = rng(3);
+    g.fillStyle = '#5a6aa0'; for (let i = 0; i < 70; i++) g.fillRect(14 + r() * (w - 28), 19 + r() * (h - 38), 2, 2);
+    diamond(w / 2, h / 2, 34, 42, '#c84a3a'); diamond(w / 2, h / 2, 24, 30, '#f0e0b0'); diamond(w / 2, h / 2, 16, 20, '#2a3a6a'); diamond(w / 2, h / 2, 7, 9, '#e8b040');
+    for (const [x, y] of [[11, 16], [w - 11, 16], [11, h - 16], [w - 11, h - 16]]) diamond(x, y, 10, 12, '#c84a3a');
+    for (let x = 12; x < w - 10; x += 10) { g.fillStyle = '#e8b040'; g.fillRect(x, 8, 4, 3); g.fillRect(x, h - 11, 4, 3); }
+    fringe('#f0e0b0');
+  } else if (kind === 'rayas') {
+    const bands = ['#c8643a', '#e8c060', '#3a6a8a', '#f0e8d8', '#6a8a4a', '#a8442a', '#e8c060', '#3a6a8a'];
+    let y = 5;
+    for (let i = 0; y < h - 5; i++) {
+      const bh = [14, 6, 10, 4, 12, 6][i % 6], c = bands[i % bands.length];
+      g.fillStyle = c; g.fillRect(0, y, w, Math.min(bh, h - 5 - y));
+      if (bh >= 10) { g.fillStyle = bands[(i + 3) % bands.length]; for (let x = 4; x < w; x += 12) diamond(x, y + bh / 2, 4, bh / 2 - 2, g.fillStyle); }
+      y += bh;
+    }
+    fringe('#f0e8d8');
+  } else if (kind === 'rombos') {
+    g.fillStyle = '#3a2a24'; g.fillRect(0, 5, w, h - 10);
+    g.fillStyle = '#e8dcc0'; g.fillRect(7, 12, w - 14, h - 24);
+    for (let j = 0; j < 5; j++) for (let i = 0; i < 4; i++) {
+      const x = 22 + i * 28, y = 24 + j * 20, c = (i + j) % 2 ? '#a8442a' : '#3a6a3a';
+      diamond(x, y, 12, 9, c); diamond(x, y, 7, 5, '#e8dcc0'); diamond(x, y, 3, 2, c);
+    }
+    g.fillStyle = '#c8b890'; for (let x = 7; x < w - 7; x += 6) { g.fillRect(x, 12, 3, 3); g.fillRect(x + 3, h - 15, 3, 3); }
+    fringe('#e8dcc0');
+  } else {
+    const rings = ['#8a6a4a', '#c8a070', '#6a8a9a', '#a85a4a', '#e8d0a0', '#6a8a4a', '#c8a070', '#8a6a4a'];
+    for (let i = 0; i < rings.length; i++) {
+      const rx = 62 - i * 7.6, ry = 62 - i * 7.6;
+      g.fillStyle = rings[i]; g.beginPath(); g.ellipse(w / 2, h / 2, rx, ry, 0, 0, Math.PI * 2); g.fill();
+      g.strokeStyle = 'rgba(40, 24, 12, 0.25)'; g.lineWidth = 1.5; g.setLineDash([3, 3]); g.beginPath(); g.ellipse(w / 2, h / 2, rx - 3.8, ry - 3.8, 0, 0, Math.PI * 2); g.stroke();
+    }
+    g.setLineDash([]);
+  }
+});
+
 // Papeles del tablón
 export const notes = () => make(128, 96, (g, w, h) => {
   const r = rng(9);

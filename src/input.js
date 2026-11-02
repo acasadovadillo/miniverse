@@ -86,6 +86,7 @@ export function initInput(h) {
       if (e.button === 2) handlers.unpaint(e.clientX, e.clientY); else handlers.paint(e.clientX, e.clientY, false);
       return;
     }
+    if (e.pointerType === 'mouse' && e.button === 2) { handlers.secondary?.(e.clientX, e.clientY); return; }   // (clic derecho: sentar al perro)
     if (e.pointerType !== 'mouse' || e.button !== 0) return;
     keys.use = true;
     handlers.use();

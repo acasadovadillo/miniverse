@@ -261,7 +261,8 @@ export class Game {
     // con E). Lo más cercano primero; si encima de un mueble cuelga un cuadro, se recoge antes el cuadro.
     // (lo fijo de las casas de los vecinos no se toca)
     const dist = o => (o.fx ? Math.hypot(p.x - Math.min(Math.max(p.x, o.fx[0] + 0.5), o.fx[1] - 0.5), p.y - Math.min(Math.max(p.y, o.fy[0] + 0.5), o.fy[1] - 0.5)) : Math.hypot(o.x - p.x, o.y - p.y));
-    const o = (sc.placedNear?.(p.x, p.y, 1.3) || []).filter(o => !o.fixed && (!sc.reaches || sc.reaches(p.x, p.y, o.x, o.y))).sort((a, b) => dist(a) - dist(b))[0];
+    const near = (sc.placedNear?.(p.x, p.y, 1.3) || []).filter(o => !o.fixed && (!sc.reaches || sc.reaches(p.x, p.y, o.x, o.y))).sort((a, b) => dist(a) - dist(b));
+    const o = near.find(o => o.layer !== 'rug');   // (la alfombra, al final: lo de encima, las puertas y las ventanas antes)
     if (o) {
       const hung = o.layer === 'hang' ? null : [o.tile, ...extraTiles(o.placed, ...o.tile, o.rot)].map(t => [t, sc.ownAt?.('hang', ...t)]).find(([, v]) => v);
       const top = hung ? { tile: hung[0], layer: 'hang', placed: hung[1].split('@')[0] } : o;
@@ -287,6 +288,9 @@ export class Game {
     // Una ventana: se abre o se cierra (con contraventanas, por fuera; sin ellas, con postigos por dentro)
     const win = sc.windowNear?.(p.x, p.y);
     if (win) { const closed = sc.doorClosed(...win); return { text: closed ? 'Abrir la ventana' : 'Cerrar la ventana', run: () => { sc.toggleDoor(...win); Audio.door(); save(); } }; }
+    // La alfombra que se pisa: con X se recoge (con E no, para no llevársela sin querer)
+    const rug = near.find(o => o.layer === 'rug');
+    if (rug) return { text: `${ITEMS[rug.placed].name} de ${rug.rug.w}×${rug.rug.h}`, run: () => Audio.blip(), alt: { text: 'Recoger', run: () => { if (this.pickUp(rug)) save(); } } };
     return null;
   }
   // La cama: tumbarse (sin dormir), dormir o, en la doble, lo de la familia

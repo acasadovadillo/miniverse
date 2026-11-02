@@ -5,7 +5,7 @@ import { WorldGen, CHUNK } from './gen.js';
 import { buildVillage, NILO, inBounds, isGrass, inOwnHouse } from './village.js';
 import { B, BIOMES } from './biomes.js';
 import { ITEMS } from '../items.js';
-import { extraTiles, LONG, BED_BACK, HEARTH_BACK, GLOW, LIGHT, front, SIDE } from '../art/stations.js';
+import { extraTiles, LONG, BED_BACK, HEARTH_BACK, GLOW, LIGHT, front, SIDE, rugRect } from '../art/stations.js';
 import { wallRuns, WINDOW_Z, T } from '../art/build.js';
 import { PIECES, layerOf, parsePlaced } from '../pieces.js';
 import { Person } from '../entities.js';
@@ -19,7 +19,7 @@ const ROOF_MAX_LEVEL = 4;     // altura máxima de un tejado, en niveles
 // (de la casilla a la parte de atrás de cada mueble, medido en su modelo: con un muro detrás, se pega a él)
 const BACK = {
   cama: BED_BACK, cama_doble: BED_BACK, sofa: 0.42, cama_nino: 0.42, banera: 0.43, estanteria: 0.2, alacena: 0.28, encimera: 0.28, fregadero: 0.32, lavabo: 0.42, inodoro: 0.34, chimenea: HEARTH_BACK, lampara: 0.18,
-  cocina: 0.38, horno: 0.44, banco: 0.32, yunque: 0.3, telar: 0.3, quesera: 0.24, cofre: 0.28, armario: 0.33, cuadro_valle: 0.05, cuadro_mar: 0.05, cuadro_flores: 0.05, cuadro_noche: 0.05, vitrina: 0.32, cuna: 0.3, mesa: 0.42, incubadora: 0.26, maceta: 0.28, silla: 0.22,
+  cocina: 0.38, horno: 0.44, banco: 0.32, yunque: 0.3, telar: 0.3, quesera: 0.24, cofre: 0.28, armario: 0.33, mueble_bano: 0.24, cuadro_valle: 0.05, cuadro_mar: 0.05, cuadro_flores: 0.05, cuadro_noche: 0.05, vitrina: 0.32, cuna: 0.3, mesa: 0.42, incubadora: 0.26, maceta: 0.28, silla: 0.22,
 };
 
 // Completa un objeto de la mochila puesto en el mundo (estación o mueble): colisión y luz.
@@ -41,7 +41,7 @@ function itemObject(o, id, rot, colliders, lights, [sx, sy] = [0, 0]) {
   o.x += sx; o.y += sy;
   o.rot = rot; o.glow = GLOW[id];
   if (LIGHT[id] && !o.off) { const [lx, ly, lz, lr] = LIGHT[id]; lights.push({ x: o.x + lx, y: o.y + ly, z: lz, r: lr }); }
-  if (ITEMS[id].place === 'flat') return true;
+  if (ITEMS[id].place === 'flat' || ITEMS[id].place === 'rug') return true;   // (la alfombra de antes, de una casilla)
   if (LONG[id]) {   // varias casillas: la suya y las de los pies (y, la cama doble, las de al lado)
     const ts = [[tx, ty], ...extraTiles(id, tx, ty, rot)], xs = ts.map(t => t[0]), ys = ts.map(t => t[1]);
     const x0 = Math.min(...xs), x1 = Math.max(...xs) + 1, y0 = Math.min(...ys), y1 = Math.max(...ys) + 1;
@@ -128,6 +128,27 @@ export class Overworld {
     return data;
   }
 
+  // Una alfombra cabe donde no haya agua, muros, puertas, vallas, tierra labrada ni otra alfombra (y, en el
+  // pueblo, dentro de tu casa)
+  rugFits({ x0, y0, w, h }) {
+    for (let ty = y0; ty < y0 + h; ty++) for (let tx = x0; tx < x0 + w; tx++) {
+      const x = tx + 0.5, y = ty + 0.5;
+      if (this.water(x, y) || this.pieceAt(tx, ty) || this.rugAt(tx, ty)) return false;
+      if (this.delta(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK))?.tilled[`${tx},${ty}`] !== undefined) return false;
+      if (inBounds(x, y) && !isGrass(x, y) && !inOwnHouse(x, y) && !this.buildAnywhere) return false;
+    }
+    return true;
+  }
+  // ¿Pisa esta casilla alguna alfombra? (las más grandes miden 4: se miran las de alrededor)
+  rugAt(tx, ty) {
+    for (let dy = -3; dy <= 3; dy++) for (let dx = -3; dx <= 3; dx++) {
+      const v = this.at('rug', tx + dx, ty + dy);
+      if (!v) continue;
+      const r = rugRect(tx + dx, ty + dy, parsePlaced(v)[1]);
+      if (tx >= r.x0 && tx < r.x0 + r.w && ty >= r.y0 && ty < r.y0 + r.h) return true;
+    }
+    return false;
+  }
   // ¿Hay detrás (del lado contrario a su frente) un muro liso donde arrimar el hogar o colgar un cuadro? (en las
   // ventanas y en el muro que ya tiene cuadro, no)
   wallBehind(tx, ty, rot) {
@@ -233,6 +254,13 @@ export class Overworld {
       o.x += sx; o.y += sy; o.rot = rot;
       flats.push(o);
     }
+    // Las alfombras, del tamaño elegido (su "giro") alrededor de su casilla; tampoco chocan (encima van los muebles)
+    for (const [t, raw] of Object.entries(src.rug || {})) {
+      if (taken('rug', t)) continue;
+      const [id, k] = parsePlaced(raw), o = base(t, 'rug', id), r = rugRect(...o.tile, k);
+      Object.assign(o, { x: r.x0 + r.w / 2, y: r.y0 + r.h / 2, rug: r, model: `rug:${id}:${r.w}x${r.h}`, fx: [r.x0, r.x0 + r.w], fy: [r.y0, r.y0 + r.h] });
+      flats.push(o);
+    }
     for (const [t, id] of Object.entries(src.roof || {})) {
       if (taken('roof', t)) continue;
       const o = base(t, 'roof', id), [tx, ty] = o.tile;
@@ -306,6 +334,7 @@ export class Overworld {
   canPlace(tx, ty, id, player, rot = 0) {
     if (extraTiles(id, tx, ty, rot).some(t => !this.canPlace(...t, 'silla', player))) return false;   // las otras casillas también tienen que caber
     const x = tx + 0.5, y = ty + 0.5, layer = layerOf(id), k = `${tx},${ty}`;
+    if (layer === 'rug') return this.rugFits(rugRect(tx, ty, rot));
     if (this.water(x, y)) return false;
     if (inBounds(x, y) && !isGrass(x, y) && !inOwnHouse(x, y) && !this.buildAnywhere) return false;   // en modo admin, también en el pueblo
     const d = this.delta(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK));
@@ -417,7 +446,7 @@ export class Overworld {
   placedNear(x, y, r) {
     const cx = Math.floor(x / CHUNK), cy = Math.floor(y / CHUNK), out = [];
     // Distancia a lo colocado; a lo de dos casillas (la cama), a la más cercana de las dos
-    const dist = o => (LONG[o.placed] ? Math.hypot(x - clamp(x, o.fx[0] + 0.5, o.fx[1] - 0.5), y - clamp(y, o.fy[0] + 0.5, o.fy[1] - 0.5)) : Math.hypot(o.x - x, o.y - y));
+    const dist = o => (o.fx ? Math.hypot(x - clamp(x, o.fx[0] + 0.5, o.fx[1] - 0.5), y - clamp(y, o.fy[0] + 0.5, o.fy[1] - 0.5)) : Math.hypot(o.x - x, o.y - y));
     for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
       const c = this.contentFor(cx + dx, cy + dy);
       for (const o of c.objects) if (o.placed && !PIECES[o.placed] && dist(o) < r) out.push(o);

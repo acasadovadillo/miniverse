@@ -29,6 +29,7 @@ export const CATS = ['Suelos', 'Muros', 'Tejados', 'Vallas'];   // (el hogar, de
 
 // Capa de una cosa colocable: las piezas dicen la suya; los objetos de la mochila van en la de objetos
 // (los cuadros van en su propia capa, colgados del muro: debajo puede haber un mueble)
-export const layerOf = id => PIECES[id]?.layer || (ITEMS[id]?.place === 'wall' ? 'hang' : 'placed');
+// (y las alfombras, en la suya, en el suelo: encima puede haber un mueble)
+export const layerOf = id => PIECES[id]?.layer || ({ wall: 'hang', rug: 'rug' })[ITEMS[id]?.place] || 'placed';
 // "silla@1" → ['silla', 1] (el número es el giro)
 export const parsePlaced = raw => { const i = raw.indexOf('@'); return i < 0 ? [raw, 0] : [raw.slice(0, i), +raw.slice(i + 1)]; };

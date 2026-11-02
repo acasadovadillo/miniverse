@@ -36,6 +36,7 @@ export const RECIPES = [
   R('banco', 'cuna', 1, [['tablas', 6], ['tela', 1]]),
   R('banco', 'alacena', 1, [['tablas', 8], ['piedra', 2]]),
   R('banco', 'armario', 1, [['tablas', 10], ['cuerda', 1]]),
+  R('banco', 'mueble_bano', 1, [['tablas', 4], ['tela', 1]]),
   R('banco', 'chimenea', 1, [['piedra', 8]]),
   // Cuadros: un marco de tablas, el lienzo de tela y bayas para los colores
   ...['cuadro_valle', 'cuadro_mar', 'cuadro_flores', 'cuadro_noche'].map(id => R('banco', id, 1, [['tablas', 1], ['tela', 1], ['bayas', 2]])),
@@ -101,6 +102,10 @@ export const RECIPES = [
   R('cocina', 'palomitas', 1, [['maiz', 2]]),
   R('cocina', 'tostada_miel', 1, [['pan', 1], ['miel', 1]]),
   R('telar', 'alfombra', 1, [['tela', 3]]),
+  R('telar', 'alfombra_persa', 1, [['tela', 3], ['bayas', 2]]),
+  R('telar', 'alfombra_rayas', 1, [['tela', 2], ['lana', 2]]),
+  R('telar', 'alfombra_rombos', 1, [['tela', 3], ['lana', 1]]),
+  R('telar', 'alfombra_trenzada', 1, [['fibra', 6], ['tela', 1]]),
   // Ropa (en el telar)
   R('telar', 'camisa', 1, [['tela', 2]]),
   R('telar', 'pantalon', 1, [['tela', 2]]),

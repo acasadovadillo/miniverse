@@ -45,6 +45,10 @@ export const BED_BACK = 0.46;   // de la casilla de la cabecera a la parte de at
 // lado derecho (x+) y su ángulo. 0: +y; 1: +x; 2: -y; 3: -x
 export const FRONT = [[0, 1], [1, 0], [0, -1], [-1, 0]], SIDE = [[1, 0], [0, -1], [-1, 0], [0, 1]];
 export const front = rot => FRONT[(rot || 0) % 4], yawOf = rot => ((rot || 0) % 4) * Math.PI / 2;
+// Alfombras: cinco tamaños (1×1, 1×2, 2×2, 2×3 y 3×4), a lo largo o a lo ancho; se eligen con R y se guardan
+// como su giro. La casilla elegida queda en medio
+export const RUG_SIZES = [[1, 1], [1, 2], [2, 1], [2, 2], [2, 3], [3, 2], [3, 4], [4, 3]];
+export const rugRect = (tx, ty, k = 0) => { const [w, h] = RUG_SIZES[(k || 0) % RUG_SIZES.length]; return { x0: tx - Math.floor((w - 1) / 2), y0: ty - Math.floor((h - 1) / 2), w, h }; };
 export const footTile = (tx, ty, rot) => { const [dx, dy] = front(rot); return [tx + dx, ty + dy]; };
 // Las casillas que ocupa además de la suya
 export function extraTiles(id, tx, ty, rot) {

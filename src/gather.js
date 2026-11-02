@@ -4,6 +4,7 @@ import { ITEMS, HARVEST, TOOL_COST, ENERGY_MAX, CROPS, toolId, hitsFor } from '.
 import { RECIPES } from './recipes.js';
 import { Audio } from './audio.js';
 import { hud } from './ui/hud.js';
+import { RUG_SIZES } from './art/stations.js';
 
 const REACH = 1.7;          // alcance en casillas
 const COOLDOWN = 0.32;      // segundos entre golpes
@@ -51,8 +52,8 @@ export class Gathering {
       }
       // Lo que va contra un muro (los cuadros y el hogar) se gira solo hacia el que tenga detrás (con R, si hay dos,
       // al otro)
-      let rot = this.rot;
-      if (def.place === 'wall' || held.id === 'chimenea') rot = [0, 1, 2, 3].map(i => (this.rot + i) % 4).find(r => g.scene.canPlace?.(tx, ty, held.id, p, r)) ?? this.rot;
+      let rot = def.place === 'rug' ? this.rot % RUG_SIZES.length : this.rot % 4;
+      if (def.place === 'wall' || held.id === 'chimenea') rot = [0, 1, 2, 3].map(i => (rot + i) % 4).find(r => g.scene.canPlace?.(tx, ty, held.id, p, r)) ?? this.rot;
       return { tile: [tx, ty], ok: !far && !!g.scene.canPlace?.(tx, ty, held.id, p, rot), far, place: held.id, rot };
     }
     for (const s of g.systems) { const t = s.target?.(p, held, def); if (t) return t; }
@@ -79,6 +80,7 @@ export class Gathering {
     if (!g.player || g.mode !== 'play' || g.busy) return '';
     if (def?.food) return `Comer ${def.name.toLowerCase()}`;
     if (def?.heal) return `Beber ${def.name.toLowerCase()}`;
+    if (def?.place === 'rug') { const [w, h] = RUG_SIZES[(t?.rot || 0) % RUG_SIZES.length]; return t?.ok ? `Colocar ${def.name.toLowerCase()} de ${w}×${h} (R: tamaño)` : t?.far ? 'Demasiado lejos' : `No cabe de ${w}×${h} (R: tamaño)`; }
     if (def?.place) return t?.ok ? `Colocar ${def.name.toLowerCase()} (R: girar)` : t?.far ? 'Demasiado lejos' : '';
     if (t?.label !== undefined) return t.label;
     if (def?.tool === 'azada') return t?.ok ? 'Labrar' : '';

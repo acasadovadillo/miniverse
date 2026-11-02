@@ -22,7 +22,7 @@ const RUN = { perro: 4.2, gato: 2.6, caballo: 5 };   // corriendo (siguiendo a s
 const DIGS = [['bellota', 0.25], ['fibra', 0.2], ['pina', 0.15], ['semillas', 0.15], ['fosil_hueso', 0.08], ['moneda_antigua', 0.07], ['amatista', 0.05], ['fosil_concha', 0.05]];
 const GIFTS = ['sardina', 'plumas', 'bellota', 'fibra', 'bayas', 'carpa'];
 // Lo que se guarda de cada animal (lo demás es de paso: adónde va, si está dentro, si duerme…)
-const KEEP = ['id', 'type', 'name', 'home', 'love', 'ready', 'days', 'petDay', 'fedDay', 'born', 'breed', 'owner', 'expecting', 'bredDay', 'outDay', 'named', 'brushDay', 'carrotDay', 'shod', 'bags', 'rider', 'at', 'call', 'stray'];
+const KEEP = ['id', 'type', 'name', 'home', 'love', 'ready', 'days', 'petDay', 'fedDay', 'born', 'breed', 'owner', 'expecting', 'bredDay', 'outDay', 'named', 'brushDay', 'carrotDay', 'shod', 'bags', 'rider', 'at', 'call', 'stray', 'sit'];
 const pick = list => list[Math.floor(Math.random() * list.length)];
 const me = () => Profile.id || 'yo';
 const hearts = n => '♥'.repeat(Math.ceil(n / 2)) || '·';
@@ -213,6 +213,8 @@ export class Ranch {
   updatePet(a, dt, night) {
     const g = this.game, owner = a.owner && this.player(a.owner), home = a.home2 || (a.stray ? [SPAWN.x + (a.type === 'gato' ? 3 : -3), SPAWN.y + 1.5] : null);
     a.inside = false;
+    // Sentado (con clic derecho o con X): se queda ahí, también de noche, hasta que se le levanta
+    if (a.sit) { a.vx = a.vy = 0; a.tx = a.x; a.ty = a.y; a.fetch = null; a.sleep = false; return; }
     if (a.type === 'perro' && a.fetch) return this.fetch(a, dt, owner);
     const follow = owner && a.type === 'perro' && !night;
     if (follow) {
@@ -277,7 +279,7 @@ export class Ranch {
   updateBall() {
     const ball = this.game.gather.drops.find(d => d.id === 'pelota' && !d.back && d.scene === this.world);
     if (!ball) return;
-    const dog = this.animals.find(a => a.type === 'perro' && a.owner === (ball.owner || me()) && !a.fetch);
+    const dog = this.animals.find(a => a.type === 'perro' && a.owner === (ball.owner || me()) && !a.fetch && !a.sit);
     if (dog && Math.hypot(dog.x - ball.x, dog.y - ball.y) < 20) dog.fetch = 'go';
   }
   // Un jugador (yo o alguien jugando conmigo en el mundo) por su cuenta: { x, y, mount }
@@ -453,9 +455,29 @@ export class Ranch {
     if (def.ride && mine) return { text: `${a.name} ${hearts(a.love)}${a.young ? ' (potro)' : ''}`, run: () => this.horseMenu(a) };
     if (a.ready) return { text: `${def.verb} (${a.name})`, run: () => this.collect(a) };
     const whose = a.owner && !mine ? `, de ${g.live.nameOf?.(a.owner) || 'otra persona'}` : '';
-    if (a.petDay !== this.today) return { text: `Acariciar a ${a.name}${whose}`, run: () => this.pet(a) };
-    const state = def.pet || def.ride ? '' : ` (${a.young ? 'cría · ' : ''}${a.fedDay === this.today ? 'ha comido' : 'tiene hambre'}${a.expecting !== undefined && a.expecting !== null ? ' · espera una cría' : ''})`;
-    return { text: `${a.name} ${hearts(a.love)}${state}`, run: () => this.pet(a) };
+    const sit = def.pet && mine ? { text: a.sit ? 'Que se levante' : 'Que se siente', run: () => this.toggleSit(a) } : null;   // (el perro y el gato propios)
+    if (a.petDay !== this.today) return { text: `Acariciar a ${a.name}${whose}`, run: () => this.pet(a), alt: sit };
+    const state = def.pet || def.ride ? (a.sit ? ' (sentado)' : '') : ` (${a.young ? 'cría · ' : ''}${a.fedDay === this.today ? 'ha comido' : 'tiene hambre'}${a.expecting !== undefined && a.expecting !== null ? ' · espera una cría' : ''})`;
+    return { text: `${a.name} ${hearts(a.love)}${state}`, run: () => this.pet(a), alt: sit };
+  }
+  // Sentarse y quedarse ahí, o levantarse (y el perro, volver a seguirte), como en Minecraft
+  toggleSit(a) {
+    a.sit = !a.sit;
+    if (a.sit) { a.fetch = null; a.vx = a.vy = 0; a.tx = a.x; a.ty = a.y; }
+    this.game.gather.float(a.sit ? `${a.name} se sienta y espera` : a.type === 'perro' ? `${a.name} vuelve a seguirte` : `${a.name} se levanta`, '#fff3c0');
+    if (a.type === 'perro') Audio.bark(); else Audio.meow();
+    this.game.onSave?.();
+  }
+  // Clic derecho: tu perro o tu gato bajo el ratón (si no, el más cercano, a un par de pasos) se sienta o se levanta
+  sitAt(tile) {
+    const p = this.game.player;
+    if (!p || this.game.scene !== this.world) return false;
+    const pets = this.animals.filter(a => a.def.pet && a.owner === me() && !a.stray && Math.hypot(a.x - p.x, a.y - p.y) < 10), dist = (a, x, y) => Math.hypot(a.x - x, a.y - y);
+    const at = tile && pets.filter(a => dist(a, tile[0] + 0.5, tile[1] + 0.5) < 1.2).sort((a, b) => dist(a, tile[0] + 0.5, tile[1] + 0.5) - dist(b, tile[0] + 0.5, tile[1] + 0.5))[0];
+    const a = at || pets.filter(a => dist(a, p.x, p.y) < 2.5).sort((a, b) => dist(a, p.x, p.y) - dist(b, p.x, p.y))[0];
+    if (!a) return false;
+    this.toggleSit(a);
+    return true;
   }
   pet(a) {
     if (a.petDay !== this.today) { a.petDay = this.today; a.love = Math.min(10, a.love + 1); this.game.skills?.gain('granja', 1); }

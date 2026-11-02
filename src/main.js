@@ -6,6 +6,8 @@ import { hud } from './ui/hud.js';
 import { initBuildBar } from './ui/buildbar.js';
 import { initChat } from './ui/chat.js';
 import { Settings } from './settings.js';
+import { ITEMS } from './items.js';
+import { RUG_SIZES } from './art/stations.js';
 
 Settings.load();
 const game = new Game(document.getElementById('c'));
@@ -29,7 +31,9 @@ initInput({
   paint: (x, y, drag) => b.place(game.tileAtScreen(x, y), drag),
   unpaint: (x, y) => b.remove(game.tileAtScreen(x, y)),
   release: () => { b.painted = null; },
-  rotate: () => { game.gather.rot = ((game.gather.target?.rot ?? game.gather.rot ?? 0) + 1) % 4; },   // (cuatro giros: 0°, 90°, 180° y 270°; desde el que se ve)
+  secondary: (x, y) => { if (game.mode === 'play' && !game.busy) game.ranch.sitAt(game.tileAtScreen(x, y)); },
+  // (cuatro giros: 0°, 90°, 180° y 270°, desde el que se ve; las alfombras, sus tamaños)
+  rotate: () => { const g = game.gather, n = ITEMS[game.inv?.held?.id]?.place === 'rug' ? RUG_SIZES.length : 4; g.rot = ((g.target?.rot ?? g.rot ?? 0) + 1) % n; },
   erase: () => { if (b.on) b.remove(); else game.altAction(); },
   interact: () => game.action(),
   pause: () => menus.togglePause(),

@@ -324,10 +324,21 @@ function bird({ body, legs, u, cb, cd, cl, k, breed }, duck) {
 }
 
 // ---------- cómo se mueven ----------
+const SIT_LEAN = { perro: -0.62, gato: -0.7 };
 export function animateAnimal(m, dt, t, e) {
   const u = m.root.userData;
   if (u.horse) { animateHorse(m.root, m.speed, t, e); return; }
   const { body, legs, type, head, tail } = u, k = Math.min(1, m.speed / 0.8);
+  // Sentado (el perro y el gato): la grupa en el suelo, el cuerpo inclinado hacia arriba, las patas de atrás
+  // dobladas y las de delante rectas; la cabeza derecha, mirando alrededor, y la cola barriendo el suelo
+  if (e?.sit && legs.length === 4) {
+    const lean = SIT_LEAN[type] ?? -0.6;
+    body.rotation.set(lean, 0, 0); body.position.y = 0; body.scale.set(1, 1, 1);
+    for (const l of legs) { const hind = l.hip.position.z < 0; l.hip.rotation.x = hind ? -1.0 : -lean; l.knee.rotation.x = hind ? 1.9 : 0; }
+    if (head) { head.rotation.x = -lean * 0.85; head.rotation.y = Math.sin(t * 0.6 + u.seed * 2) * 0.35; }
+    if (tail) tail.rotation.set(type === 'perro' ? -0.2 : -1.1, 0, Math.sin(t * (type === 'perro' ? 9 : 1.5) + u.seed) * (type === 'perro' ? 0.5 : 0.25));
+    return;
+  }
   m.phase += dt * (3 + m.speed * 6);
   for (const l of legs) {
     const s = Math.sin(m.phase + l.phase);
