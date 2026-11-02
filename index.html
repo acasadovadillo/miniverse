@@ -329,6 +329,10 @@
   #m-live { margin: -4px 0 12px; padding: 8px 10px; border: 2px solid #4a8a4a; border-radius: 6px; background: rgba(40, 70, 36, .35); }
   #m-live p { margin: 0; color: var(--cream); font-size: 15px; line-height: 1.35; }
   #m-live p::before { content: '● '; color: #7ad87a; }
+  #m-live.wait { border-color: #a8883a; background: rgba(80, 64, 24, .35); }
+  #m-live.wait p::before { color: #e8c050; }
+  #m-live.err { border-color: #b8483a; background: rgba(96, 30, 24, .45); }
+  #m-live.err p::before { content: '✕ '; color: #ff7a66; font-weight: 700; }
   #m-live .btn { margin: 8px 0 0; }
 
   #s-creator .box { width: min(820px, 100%); }

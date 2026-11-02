@@ -79,13 +79,25 @@ export class Live {
     if (this.url !== url) return;
     const net = this.net = new Net(url, key, {
       up: () => this.up(),
-      down: () => { this.dropAll(); this.setStatus('connecting'); this.hostGone(); },
+      down: () => this.lost(),
       join: () => { if (this.status === 'nokey') this.net.sendPlain({ need: Profile.id }); },   // (por si es el admin, que llega)
       leave: conn => this.drop(conn, true),
       msg: (conn, m) => this.receive(conn, m),
       plain: (conn, p) => this.plain(conn, p),
     });
-    try { await net.open(); } catch (e) { if (this.net === net) { net.close(); this.net = null; this.setStatus('error', e.message); } }
+    // (si no responde a la primera, se queda avisando del error pero sigue intentándolo: un túnel recién
+    // abierto tarda un poco en funcionar)
+    try { await net.open(); } catch (e) { if (this.net === net && !net.ready) this.setStatus('error', e.message); }
+  }
+  // Se ha cortado (o no ha llegado a entrar): se sigue intentando. Si ya avisaba del error, sigue avisando;
+  // si estaba conectado, avisa al rato de no poder volver.
+  lost() {
+    this.dropAll();
+    this.hostGone();
+    if (this.status === 'error') return;
+    this.setStatus('connecting');
+    clearTimeout(this.lostTimer);
+    this.lostTimer = setTimeout(() => { if (this.net && !this.net.ready && this.status === 'connecting') this.setStatus('error', 'Se ha cortado la conexión con el servidor.'); }, 10000);
   }
   close() {
     if (this.net && this.joined) this.net.send({ t: 'bye' });

@@ -18,6 +18,7 @@ import re
 import shutil
 import struct
 import sys
+import urllib.request
 import webbrowser
 from urllib.parse import quote
 
@@ -146,27 +147,56 @@ async def handle(reader, writer):
 
 
 async def tunnel():
-    # Abre el túnel y devuelve su dirección (wss://…). El proceso sigue abierto mientras dure el servidor.
+    # Abre el túnel y devuelve su dirección (https://…) cuando ya está registrado en Cloudflare. Antes no se
+    # puede ni preguntar por ella: el nombre todavía no existe y el ordenador se queda un minuto creyendo que
+    # no existe. El proceso sigue abierto mientras dure el servidor.
     exe = shutil.which('cloudflared')
     if not exe:
         print('Falta cloudflared, que abre el túnel para que se pueda entrar desde otra casa. Instálalo con:\n\n'
               '    brew install cloudflared\n\no prueba solo en este ordenador con: python3 multijugador.py --sin-tunel')
         sys.exit(1)
-    proc = await asyncio.create_subprocess_exec(exe, 'tunnel', '--no-autoupdate', '--url', f'http://127.0.0.1:{PORT}',
+    # (por http2, que pasa por donde pasa la web; QUIC va por UDP y en algunas redes está cortado)
+    proc = await asyncio.create_subprocess_exec(exe, 'tunnel', '--no-autoupdate', '--protocol', 'http2', '--url', f'http://127.0.0.1:{PORT}',
                                                 stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT)
-    while True:
-        line = await proc.stdout.readline()
-        if not line:
-            print('cloudflared se ha cerrado sin abrir el túnel.')
-            sys.exit(1)
-        m = re.search(r'https://[-a-z0-9]+\.trycloudflare\.com', line.decode(errors='replace'))
-        if m:
-            break
+    async def registered():
+        url = None
+        while True:
+            line = (await proc.stdout.readline()).decode(errors='replace')
+            if not line:
+                print('cloudflared se ha cerrado sin abrir el túnel.')
+                sys.exit(1)
+            m = re.search(r'https://[-a-z0-9]+\.trycloudflare\.com', line)
+            url = url or (m and m.group(0))
+            if url and 'Registered tunnel connection' in line:
+                return url
+    try:
+        url = await asyncio.wait_for(registered(), 90)
+    except asyncio.TimeoutError:
+        print('El túnel no ha llegado a abrirse. ¿Hay conexión a internet?')
+        sys.exit(1)
     async def drain():                   # (lo que siga escribiendo cloudflared, que no se atasque)
         while await proc.stdout.readline():
             pass
     asyncio.create_task(drain())
-    return proc, 'wss://' + m.group(0)[len('https://'):]
+    return proc, url
+
+
+def answers(url):
+    # ¿Responde ya este servidor por el túnel? (recién abierto, Cloudflare tarda un poco en encontrarlo)
+    try:
+        with urllib.request.urlopen(urllib.request.Request(url, headers={'User-Agent': 'Miniverse'}), timeout=5) as r:
+            return b'Miniverse' in r.read()
+    except Exception:
+        return False
+
+
+async def ready(url, limit=60):
+    for _ in range(limit // 3):
+        await asyncio.sleep(1)
+        if await asyncio.to_thread(answers, url):
+            return True
+        await asyncio.sleep(2)
+    return False
 
 
 async def main():
@@ -177,10 +207,14 @@ async def main():
         print(f'Sin túnel: solo desde este ordenador, en ws://localhost:{PORT}')
     else:
         print('Abriendo el túnel…')
-        proc, url = await tunnel()
+        proc, https = await tunnel()
+        url = 'wss://' + https[len('https://'):]
+        print(f'Túnel abierto: {url}\nEsperando a que responda (suele tardar unos segundos)…')
+        if not await ready(https):
+            print('El túnel todavía no responde. Abro el juego igualmente: seguirá intentando conectar.')
         link = f'{GAME}?servidor={quote(url, safe="")}'
-        print(f'Túnel abierto: {url}\nAbriendo el juego: {link}\n'
-              'Entra con tu cuenta y los demás verán que estás jugando. Para cerrar el servidor, Ctrl+C.')
+        print(f'Listo. Abriendo el juego: {link}\n'
+              'Entra con tu cuenta y juega: los demás verán que estás jugando. Para cerrar el servidor, Ctrl+C.')
         webbrowser.open(link)
     try:
         async with server:

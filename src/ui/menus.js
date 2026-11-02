@@ -98,23 +98,31 @@ export function initMenus(game) {
     const url = LIVE_URL || (Profile.admin ? null : (await Profile.liveServer().catch(() => null))?.url);
     if (!url) { live.close(); paintLive(); return; }
     await live.connect(url);
-    if (Profile.admin && live.status === 'on' && url.startsWith('wss://') && announced !== url) { announced = url; Profile.announce(url).catch(() => {}); }
   }
+  // El admin publica la dirección en cuanto su juego se conecta a su servidor (por el túnel, no en local)
+  function announce() {
+    const url = live.url;
+    if (Profile.admin && live.status === 'on' && url?.startsWith('wss://') && announced !== url) { announced = url; Profile.announce(url).catch(() => { announced = null; }); }
+  }
+  // Los demás, mientras están en el menú sin conexión, vuelven a mirar de vez en cuando si el admin ha abierto
+  // su servidor (cada vez que lo abre, la dirección es otra)
+  setInterval(() => { if (Profile.id && !Profile.admin && !LIVE_URL && $('s-menu').classList.contains('show') && live.status !== 'on' && live.status !== 'nokey') findLive(); }, 30000);
   function paintLive() {
     const host = live.host, s = live.status;
     let msg = '';
     if (Profile.admin) {
       if (s === 'connecting') msg = 'Conectando con tu servidor para jugar juntos…';
-      else if (s === 'error') msg = `No se puede conectar con tu servidor para jugar juntos: ${live.error}`;
+      else if (s === 'error') msg = `No se puede conectar con tu servidor para jugar juntos: ${live.error} Sigo intentándolo… (¿está abierto multijugador.py?)`;
       else if (s === 'on') msg = live.others.length ? `Servidor abierto. Conectados: ${live.others.map(p => p.name).join(', ')}.` : 'Servidor abierto: cuando juegues, los demás podrán entrar contigo.';
     } else if (s === 'nokey') msg = 'Pidiendo la llave del mundo compartido…';
     else if (s === 'on' && host) msg = host.playing ? `${host.name} está jugando ahora.` : `${host.name} ha abierto el servidor, pero todavía no está jugando.`;
     $('m-live').hidden = !msg;
+    $('m-live').className = s === 'error' ? 'err' : s === 'connecting' || s === 'nokey' ? 'wait' : '';
     $('m-live-msg').textContent = msg;
     $('m-join').hidden = !(host?.playing && !Profile.admin);
     $('m-join').textContent = `Jugar con ${host?.name || 'los demás'}`;
   }
-  live.onChange = () => { if ($('s-menu').classList.contains('show')) paintLive(); };
+  live.onChange = () => { announce(); if ($('s-menu').classList.contains('show')) paintLive(); };
   // Entrar en el mundo del admin con tu personaje (tu partida de siempre se queda como estaba)
   $('m-join').addEventListener('click', async () => {
     if (!currentSave) { $('menu-msg').textContent = 'Primero crea tu personaje con «Nueva partida».'; return; }

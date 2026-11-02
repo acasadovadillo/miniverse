@@ -371,10 +371,10 @@ const PLACES = {
   },
 };
 
-// Cofre del tesoro: cerrado, o abierto con el oro a la vista
+// Cofre del tesoro: cerrado o, ya saqueado, abierto y vacío (por dentro, a oscuras)
 function treasure(m, open) {
   m.box('wood', -0.38, 0, -0.26, 0.38, 0.42, 0.26).box('iron', -0.4, 0.05, -0.27, -0.34, 0.45, 0.27).box('iron', 0.34, 0.05, -0.27, 0.4, 0.45, 0.27);
-  if (open) { m.B('dark').orientedBox(0, -0.38, 0.8, 0.12, 0.42, 0.95, 0, {}); m.box('gold', -0.3, 0.38, -0.2, 0.3, 0.44, 0.2); for (let i = 0; i < 6; i++) m.geo('gold', ICO, -0.2 + i * 0.08, 0.46, (i % 2) * 0.1 - 0.05, [i, 0, 0], 0.05); }
+  if (open) { m.B('dark').orientedBox(0, -0.38, 0.8, 0.12, 0.42, 0.95, 0, {}); m.box('dark', -0.31, 0.4, -0.2, 0.31, 0.426, 0.2); }
   else m.box('dark', -0.4, 0.42, -0.28, 0.4, 0.62, 0.28).box('gold', -0.06, 0.3, 0.26, 0.06, 0.46, 0.29);
 }
 
