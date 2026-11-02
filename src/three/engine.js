@@ -12,6 +12,7 @@ import { Settings } from '../settings.js';
 import { Terrain, WATER_Y } from './terrain.js';
 import { World3D } from './world3d.js';
 import { Actors, toolModel, swingArm } from './actors.js';
+import { ITEMS } from '../items.js';
 import { Fx } from './fx.js';
 import { Cave3D } from './cave3d.js';
 
@@ -224,11 +225,16 @@ export class View3D {
       vm.clear();
       const tool = id && toolModel(id);
       if (tool) {
-        tool.rotation.set(-0.35, 0.25, 0.32);
+        // (la herramienta, girada sobre su mango para que el filo del hacha o de la guadaña mire al centro de
+        // la pantalla; inclinada hacia delante y hacia dentro)
+        const kind = ITEMS[id]?.tool;
+        tool.rotation.set(0, kind === 'hacha' || kind === 'guadana' ? Math.PI + 0.35 : 0.25, 0);
         tool.traverse(o => { if (o.isMesh) o.castShadow = false; });
-        const hold = new THREE.Group();
+        const tilt = new THREE.Group(), hold = new THREE.Group();
+        tilt.rotation.set(-0.35, 0, 0.32);
+        tilt.add(tool);
         hold.scale.setScalar(0.85);
-        hold.add(tool);
+        hold.add(tilt);
         vm.add(hold);
       }
     }
@@ -269,6 +275,7 @@ export class View3D {
     const snap = this.snapNext; this.snapNext = false;
     const ease = rate => (snap ? 1 : Math.min(1, dt * rate));
     const scene = game.scene || game.menuWorld, cave = scene.kind === 'grid';
+    this.shown = scene;
     // La vista de la cueva en la que se está (o ninguna)
     if (cave && !this.caves.has(scene)) this.caves.set(scene, new Cave3D(this, scene));
     for (const [s, v] of this.caves) v.group.visible = s === scene;
@@ -359,14 +366,27 @@ export class View3D {
   }
 
   // Casilla bajo un punto de la pantalla: el rayo desde la cámara hasta el suelo
+  // (se avanza por el rayo, a pasos que crecen con la distancia, hasta que baja del suelo: así acierta
+  // también con el terreno en cuesta y con la cámara en primera persona)
   tileAt(clientX, clientY) {
+    const scene = this.shown;
+    if (!scene) return null;
     const ndc = new THREE.Vector2((clientX / innerWidth) * 2 - 1, -(clientY / innerHeight) * 2 + 1);
     this.raycaster.setFromCamera(ndc, this.camera);
-    const o = this.raycaster.ray.origin, d = this.raycaster.ray.direction, y = this.cam.target.y - 0.9 - this.cam.low * 0.5;
-    if (Math.abs(d.y) < 1e-4) return null;
-    const k = (y - o.y) / d.y;
-    if (k < 0) return null;
-    return [Math.floor(o.x + d.x * k), Math.floor(o.z + d.z * k)];
+    const o = this.raycaster.ray.origin, d = this.raycaster.ray.direction;
+    if (d.y > -1e-3) return null;
+    let prev = 0;
+    for (let t = 0.05; t < 160; t += 0.08 + t * 0.015) {
+      const x = o.x + d.x * t, y = o.y + d.y * t, z = o.z + d.z * t;
+      if (y <= this.groundY(scene, x, z)) {
+        // Afinar entre el paso anterior y este
+        let a = prev, b = t;
+        for (let i = 0; i < 6; i++) { const m = (a + b) / 2; if (o.y + d.y * m <= this.groundY(scene, o.x + d.x * m, o.z + d.z * m)) b = m; else a = m; }
+        return [Math.floor(o.x + d.x * b), Math.floor(o.z + d.z * b)];
+      }
+      prev = t;
+    }
+    return null;
   }
   // Sin transiciones en el próximo fotograma (al empezar, al cambiar de escena)
   snap() { this.snapNext = true; this.cam.pitchNow = this.cam.distNow = null; }

@@ -50,7 +50,11 @@ export class BuildMode {
   target() {
     const p = this.game.player;
     if (!p) return null;
-    if (this.cursor && performance.now() - this.cursorAt < 4000) return this.cursor;
+    // Con ratón, la casilla que hay debajo (y, si está sobre la barra de construir, la última); con el dedo, la
+    // tocada hace poco; si no, la de delante
+    const mt = this.game.mouseTile();
+    if (mt) { this.pointTo(mt); return mt; }
+    if (this.cursor && (this.game.mouse || performance.now() - this.cursorAt < 4000)) return this.cursor;
     return [Math.floor(p.x + p.face.x), Math.floor(p.y + p.face.y)];
   }
   pointTo(tile) { this.cursor = tile; this.cursorAt = performance.now(); }

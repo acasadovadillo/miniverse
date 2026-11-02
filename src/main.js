@@ -21,6 +21,7 @@ initInput({
   building: () => b.on && game.mode === 'play',
   point: (x, y) => b.pointTo(game.tileAtScreen(x, y)),
   hover: (x, y) => { const t = game.tileAtScreen(x, y); if (t) game.gather.pointTo(t); },
+  mouse: (x, y, inside) => { game.mouse = { x, y, in: inside }; },
   paint: (x, y, drag) => b.place(game.tileAtScreen(x, y), drag),
   unpaint: (x, y) => b.remove(game.tileAtScreen(x, y)),
   release: () => { b.painted = null; },

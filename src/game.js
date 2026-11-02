@@ -427,6 +427,14 @@ export class Game {
   }
   // Casilla bajo un punto de la pantalla (ratón o dedo): el rayo desde la cámara hasta el suelo
   tileAtScreen(clientX, clientY) { return this.scene ? this.view3d.tileAt(clientX, clientY) : null; }
+  // La casilla bajo el ratón mientras está sobre el juego (null si no), recalculada en cada fotograma: la
+  // cámara se mueve aunque el ratón se quede quieto
+  mouseTile() {
+    const m = this.mouse;
+    if (!m?.in) return null;
+    if (m.frame !== this.frameNo) { m.frame = this.frameNo; m.tile = this.tileAtScreen(m.x, m.y); }
+    return m.tile;
+  }
 
   // ---------- bucle ----------
   run() {

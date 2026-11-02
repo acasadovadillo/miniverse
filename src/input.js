@@ -65,8 +65,9 @@ export function initInput(h) {
   // En modo construcción, el ratón (o el dedo) apunta a la casilla: clic pone, clic derecho quita, arrastrar pinta.
   const canvas = document.getElementById('c');
   canvas.addEventListener('contextmenu', e => e.preventDefault());
+  canvas.addEventListener('pointerleave', e => { if (e.pointerType === 'mouse') handlers.mouse?.(e.clientX, e.clientY, false); });
   canvas.addEventListener('pointermove', e => {
-    if (e.pointerType === 'mouse') handlers.hover?.(e.clientX, e.clientY);   // la casilla bajo el ratón (para colocar)
+    if (e.pointerType === 'mouse') { handlers.mouse?.(e.clientX, e.clientY, true); handlers.hover?.(e.clientX, e.clientY); }   // la casilla bajo el ratón (para colocar)
     if (!handlers.building?.()) return;
     handlers.point(e.clientX, e.clientY);
     if (e.buttons === 1) handlers.paint(e.clientX, e.clientY, true);

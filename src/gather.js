@@ -43,6 +43,8 @@ export class Gathering {
       // Lo que se coloca va a la casilla del ratón, si se ha movido hace poco y está a PLACE_REACH casillas
       // como mucho; si no, a la de delante (también dentro de casa)
       let [tx, ty] = [Math.floor(p.x + p.face.x), Math.floor(p.y + p.face.y)], far = false;
+      const mt = g.mouseTile();
+      if (mt) this.pointTo(mt);
       if (this.cursor && performance.now() - this.cursorAt < 4000) {
         [tx, ty] = this.cursor;
         far = Math.max(Math.abs(tx - Math.floor(p.x)), Math.abs(ty - Math.floor(p.y))) > PLACE_REACH;
