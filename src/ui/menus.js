@@ -18,6 +18,10 @@ const $ = id => document.getElementById(id);
 const SCREENS = ['s-login', 's-menu', 's-account', 's-creator', 's-pause', 's-map', 's-inv', 's-craft', 's-chest', 's-shop', 's-journal', 's-settings', 's-controls'];
 const AUTOSAVE_MS = 15000;
 
+// Lo de la partida que es del mundo (y los ajustes): se conserva al empezar con un personaje nuevo. Lo demás
+// (lo que llevas, dinero, habilidades, recetas, amistades, logros, estadísticas…) es del personaje y se borra
+const WORLD_KEYS = ['seed', 'clock', 'house', 'projects', 'boardDone', 'animals', 'farm', 'museum', 'family', 'admin', 'cam3d', 'volumes'];
+
 export function initMenus(game) {
   function show(id) {
     SCREENS.forEach(s => $(s).classList.toggle('show', s === id));
@@ -69,8 +73,9 @@ export function initMenus(game) {
   });
 
   // ---------- Menú principal ----------
-  // Solo hay un mundo, así que con personaje solo se puede jugar (el admin, en su mundo, que es el de todos;
-  // los demás, en el del admin, mientras él está jugando). Sin personaje, se crea.
+  // Solo hay un mundo: con personaje se continúa la partida (el admin, en su mundo, que es el de todos; los
+  // demás, en el del admin, mientras él está jugando) o se empieza otra con un personaje nuevo (avisando de que
+  // el de ahora se borra). Sin personaje, se crea.
   let currentSave = null;
   const when = ts => new Date(ts).toLocaleString('es-ES', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
   function openMenu() {
@@ -78,7 +83,9 @@ export function initMenus(game) {
     $('menu-hello').textContent = `¡Hola, ${Profile.name}!`;
     $('menu-save').textContent = currentSave ? `Tu personaje: ${currentSave.player.name} · guardado el ${when(currentSave.savedAt)}` : 'Todavía no tienes personaje.';
     $('m-continue').hidden = !currentSave;
-    $('m-new').hidden = !!currentSave;
+    $('m-new').hidden = false;
+    $('m-new').textContent = currentSave ? 'Nueva partida' : 'Crear tu personaje';
+    $('m-confirm').hidden = true;
     $('menu-msg').textContent = '';
     show('s-menu');
     paintLive();
@@ -150,7 +157,11 @@ export function initMenus(game) {
     openMenu();
     $('menu-msg').textContent = `${name} ha salido y se ha cerrado el mundo compartido. Tu personaje y lo que llevas están guardados${r.remote === false ? ' en este ordenador (no en GitHub)' : ''}.`;
   };
-  $('m-new').addEventListener('click', () => openCreator());
+  // Nueva partida: antes, un aviso (se borra el personaje de ahora; el mundo, no). Sin personaje, al creador
+  const confirming = on => { $('m-confirm').hidden = !on; for (const id of ['m-continue', 'm-new']) $(id).hidden = on || (id === 'm-continue' && !currentSave); };
+  $('m-new').addEventListener('click', () => (currentSave ? confirming(true) : openCreator()));
+  $('m-confirm-no').addEventListener('click', () => confirming(false));
+  $('m-confirm-yes').addEventListener('click', () => { confirming(false); openCreator(true); });
 
   // ---------- Creador de personaje ----------
   // (la vista previa es el mismo modelo en 3D que en el juego)
@@ -284,17 +295,23 @@ export function initMenus(game) {
   $('cr-start').onclick = async () => {
     const name = $('cr-name').value.trim();
     if (!name) { $('cr-err').textContent = 'Ponle un nombre a tu personaje.'; return; }
-    const save = { player: { name, look: { ...look }, x: SPAWN.x, y: SPAWN.y, inside: false, view: 'back' } };
-    await Profile.store(save, new Map(), { upload: true });   // la partida nueva empieza sin cambios en el mundo
-    if (Profile.admin) { play(Profile.data.save, new Map()); return; }
+    // Un personaje nuevo empieza de cero; si ya había partida, el mundo (y los ajustes) se quedan como estaban
+    const keep = currentSave && fresh ? Object.fromEntries(WORLD_KEYS.filter(k => k in currentSave).map(k => [k, currentSave[k]])) : {};
+    const deltas = currentSave && fresh ? new Map(Profile.data.deltas) : new Map();
+    const save = { ...keep, player: { name, look: { ...look }, x: SPAWN.x, y: SPAWN.y, inside: false, view: 'back' } };
+    await Profile.store(save, deltas, { upload: true });
+    fresh = false;
+    if (Profile.admin) { play(Profile.data.save, new Map(Profile.data.deltas)); return; }
     // Los demás entran en el mundo del admin si está jugando; si no, su personaje queda listo para cuando juegue
     openMenu();
     if (live.host?.playing) enter();
     else $('menu-msg').textContent = 'Tu personaje está listo. Podrás entrar en cuanto Alberto esté jugando.';
   };
 
-  function openCreator() {
-    $('cr-name').value = currentSave?.player.name || Profile.name || '';
+  let fresh = false;   // (empezando de nuevo con un personaje nuevo, aunque ya hubiera uno)
+  function openCreator(again = false) {
+    fresh = again;
+    $('cr-name').value = again ? Profile.name || '' : currentSave?.player.name || Profile.name || '';
     $('cr-err').textContent = '';
     spin = 0;
     turnTo(0);
