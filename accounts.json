@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "accounts": {
+    "alberto": {
+      "name": "Alberto",
+      "admin": true,
+      "salt": "B608JMU/6AvTtQI0tUW8yg==",
+      "token": {
+        "iv": "wKrmV+0+vRPwlGdb",
+        "data": "k65BbEGu9Ey8DVAK0REoHmE/BCD6nckli8luCSeK1I9Rrq+E7d4A6eoWhOhOo+oDEEmtSLXl0pAAjMWdnZoxAR4n3+qahw/EaiFBACk43IKugF9x4LtCTIJ8uZ8OcOGULjNyku363zL8nS5LLQ=="
+      },
+      "created": "2026-11-02"
+    }
+  }
+}
