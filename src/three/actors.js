@@ -5,7 +5,7 @@
 // la mano la herramienta elegida y la balancea al golpear. Los demás jugadores (en directo) son como él,
 // con su nombre encima.
 import * as THREE from 'three';
-import { Person3D, mesh, mergeInto, G, M } from './people.js';
+import { Person3D, babyModel, mesh, mergeInto, G, M } from './people.js';
 import { mat } from './geo.js';
 import { ANIMALS } from '../art/farm.js';
 import { MONSTERS } from '../combat.js';
@@ -14,6 +14,7 @@ import { ITEMS, TIERS } from '../items.js';
 import { WATER_Y } from './terrain.js';
 
 const PEOPLE = new Map();
+const KID_SCALE = 0.66;   // los niños, más pequeños
 
 export class Actors {
   constructor(view) {
@@ -49,6 +50,7 @@ export class Actors {
   }
 
   make(e, isPlayer, look = e.look) {
+    if (e.baby) { const root = new THREE.Group(); root.add(babyModel(look)); return { kind: 'baby', root, prev: null, speed: 0 }; }
     if (look) {
       // (las personas con el mismo aspecto se copian de la primera: hacer una desde cero cuesta)
       const key = JSON.stringify(look);
@@ -57,6 +59,7 @@ export class Actors {
       const root = new THREE.Group();
       root.add(person.root);
       const m = { kind: 'person', root, person, prev: null, speed: 0 };
+      if (e.kid) { root.scale.setScalar(KID_SCALE); root.rotation.order = 'YXZ'; }
       if (isPlayer || e.remote) {
         // Con algo en la mano, caballo y barca (el jugador, además, con sus propios materiales para dibujar
         // su silueta, y en la capa 2; los demás jugadores, con su nombre encima)
@@ -89,9 +92,16 @@ export class Actors {
     m.speed += (v - m.speed) * Math.min(1, dt * 10);
     const yaw = e.yaw ?? facing(e);
     let y = view.groundY(scene, x, z);
+    if (m.kind === 'baby') { m.root.position.set(x, y + (e.h || 0), z); m.root.rotation.y = e.yaw || 0; return; }
+    if (e.kid) {   // (los niños, tumbados en su cama de noche: boca arriba, con la cabeza hacia la almohada)
+      m.root.rotation.x = e.lying ? -Math.PI / 2 : 0;
+      m.root.rotation.y = e.lying ? e.yaw || 0 : 0;
+      y += e.lying ? e.h || 0 : 0;
+    }
     if (m.kind === 'person') {
       const P = m.person;
-      if (yaw !== null) P.facing = yaw;
+      if (e.kid && e.lying) P.facing = 0;
+      else if (yaw !== null) P.facing = yaw;
       if (m.boat) {
         // Barca y caballo
         m.boat.visible = !!e.boat; m.horse.visible = !!e.mount;

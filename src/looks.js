@@ -43,6 +43,19 @@ export function clothesFor(look, bag = false) {
   if (bag) e.espalda = { id: 'mochila', color: '#8a5a34' };
   return e;
 }
+// El aspecto de un hijo (chico o chica): la piel, entre la de sus padres; el pelo, los ojos y las orejas, de uno
+// u otro; el peinado y la ropa, de niño
+const blend = (a, b) => '#' + [1, 3, 5].map(i => Math.round((parseInt(a.slice(i, i + 2), 16) + parseInt(b.slice(i, i + 2), 16)) / 2).toString(16).padStart(2, '0')).join('');
+export function childLook(a, b, sex, rnd = Math.random) {
+  const A = fullLook(a), B = fullLook(b), pick = (x, y) => (rnd() < 0.5 ? x : y), any = list => list[Math.floor(rnd() * list.length)];
+  const styles = sex === 'chica' ? ['coleta', 'coletas', 'trenzas', 'monos', 'melena', 'flequillo'] : ['corto', 'rizado', 'pinchos', 'tazon', 'flequillo', 'afro'];
+  return {
+    sex, skin: blend(A.skin, B.skin), hair: pick(A.hair, B.hair), eyes: pick(A.eyes, B.eyes), ears: pick(A.ears, B.ears),
+    hairStyle: any(styles), eyeStyle: 'redondos', brows: 'finas', nose: 'boton', beard: 'no', cheeks: true,
+    outfit: any(['tunica', 'delantal', 'chaleco']), cloth: any(LOOK_OPTIONS.cloth.slice(0, 8)), pants: '#4a3a2a',
+  };
+}
+
 // El look con la ropa que se lleva puesta (es lo que dibuja el muñeco)
 export const dressed = (look, equip) => ({ ...look, wear: Object.fromEntries(Object.entries(equip).map(([k, v]) => [k, { id: v.id, color: v.color }])) });
 

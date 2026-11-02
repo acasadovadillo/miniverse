@@ -8,6 +8,7 @@ import { houseBlueprint, byChunk } from './blueprints.js';
 
 export const HOUSE = { x0: 15, y0: 7, x1: 27, y1: 17 };      // huella de tu casa (12×10 casillas)
 export const HOUSE_BIG = { x0: 13, y0: 5, x1: 29, y1: 17 };   // la casa ampliada (16×12), con la puerta en el mismo sitio
+export const HOUSE_FAMILY = { x0: 12, y0: 4, x1: 30, y1: 18 }; // la casa familiar (18×14), con sus cuartos: ocupa casi todo el jardín
 export const DOOR = { x: 21.5, y: 17.5 };                      // casilla de delante de la puerta de tu casa
 export const POND = { x: 31.5, y: 27, rx: 3.6, ry: 2.8 };
 export const YARD = { x0: 11, y0: 3, x1: 31, y1: 20 };
@@ -33,6 +34,10 @@ export const DOCK = { x0: 26, y0: 30, x1: 30, y1: 31 };
 let projects = {};
 export function setProjects(p) { projects = p || {}; }
 export const hasProject = id => !!projects[id];
+// ¿Es ya tu casa la casa familiar? (entonces ocupa más jardín: los árboles y arbustos de ahí no están)
+let family = false;
+export function setFamilyHouse(on) { family = !!on; }
+const ownLot = () => (family ? HOUSE_FAMILY : HOUSE_BIG);
 // Caminitos desde el camino principal hasta cada puerta
 const SPURS = [
   [[16.8, 43], [28.5, 43]],
@@ -54,11 +59,11 @@ export function distToPath(x, y) {
 }
 const inHouse = (x, y, m = 0) => Object.values(HOUSES).some(h => (!h.project || projects[h.project]) && x > h.x0 - m && x < h.x1 + m && y > h.y0 - m && y < h.y1 + m);
 // ¿Está dentro del solar de tu casa (el de la casa ampliada)? Ahí se puede construir aunque sea terreno del pueblo
-export const inOwnHouse = (x, y) => x > HOUSE_BIG.x0 && x < HOUSE_BIG.x1 && y > HOUSE_BIG.y0 && y < HOUSE_BIG.y1;
+export const inOwnHouse = (x, y) => { const H = ownLot(); return x > H.x0 && x < H.x1 && y > H.y0 && y < H.y1; };
 export const pondDist = (x, y) => Math.hypot((x - POND.x) / POND.rx, (y - POND.y) / POND.ry);
 export const inYard = (x, y, m = 0) => x > YARD.x0 - m && x < YARD.x1 + m && y > YARD.y0 - m && y < YARD.y1 + m;
 export const inBounds = (x, y) => x > BOUNDS.x0 && x < BOUNDS.x1 && y > BOUNDS.y0 && y < BOUNDS.y1;
-export const isGrass = (x, y) => !inBounds(x, y) || (pondDist(x, y) > 1.25 && distToPath(x, y) > 1.05 && !(x > HOUSE_BIG.x0 - 0.5 && x < HOUSE_BIG.x1 + 0.5 && y > HOUSE_BIG.y0 - 0.5 && y < HOUSE_BIG.y1 + 0.5) && !inHouse(x, y, 0.5));
+export const isGrass = (x, y) => !inBounds(x, y) || (pondDist(x, y) > 1.25 && distToPath(x, y) > 1.05 && !(x > ownLot().x0 - 0.5 && x < ownLot().x1 + 0.5 && y > ownLot().y0 - 0.5 && y < ownLot().y1 + 0.5) && !inHouse(x, y, 0.5));
 
 // ¿Debe quedar libre de árboles y rocas esta casilla?
 export function keepClear(x, y) {
@@ -78,12 +83,15 @@ export function buildVillage() {
   const fixed = { placed: {}, floor: {}, roof: {} };
 
   // Árboles y arbustos del jardín, cada uno en su casilla
+  const lot = ownLot(), onLot = (tx, ty) => tx >= lot.x0 && tx < lot.x1 && ty >= lot.y0 && ty < lot.y1;
   for (const [tx, ty, kind] of [[12, 12, 'fruit'], [29, 8, 'oak']]) {
+    if (onLot(tx, ty)) continue;
     const x = tx + 0.5, y = ty + 0.5;
     add(x, y, { nature: kind });
     colliders.push({ x, y, r: 0.35 });
   }
   for (const [tx, ty] of [[17, 18], [25, 18], [12, 16], [29, 13], [27, 22], [22, 30], [13, 25]]) {
+    if (onLot(tx, ty)) continue;
     const x = tx + 0.5, y = ty + 0.5;
     add(x, y, { nature: 'bush' });
     colliders.push({ x, y, r: 0.45 });

@@ -177,7 +177,19 @@ Object.assign(ITEMS, {
   calcetines: { name: 'Calcetines', desc: 'Hasta media pierna. Van debajo de las botas.', wear: 'calcetines', dye: '#ece6da' },
   sombrero: { name: 'Sombrero de paja', desc: 'De ala ancha, para el sol del campo.', wear: 'cabeza', dye: '#e0c070' },
   gorro: { name: 'Gorro de lana', desc: 'Calentito, con pompón.', wear: 'cabeza', dye: '#c83a3a' },
+  hijab: { name: 'Hiyab', desc: 'Pañuelo que cubre el pelo y el cuello y deja la cara a la vista.', wear: 'cabeza', dye: '#1c1c22' },
   mochila: { name: 'Mochila', desc: 'Póntela a la espalda y podrás llevar 27 cosas más. Sin ella solo llevas lo que cabe en las manos y los bolsillos.', wear: 'espalda', bag: 27, dye: '#8a5a34' },
+});
+// Muebles de la casa familiar: dormitorios, cocina y baño
+Object.assign(ITEMS, {
+  cama_doble: { name: 'Cama doble', desc: 'Cama de matrimonio, de dos casillas de ancho. Para dormir y, si estáis los dos en casa, para tener un bebé.', place: 'furniture' },
+  cama_nino: { name: 'Cama de niño', desc: 'Pequeña, con edredón azul. Cuando el bebé crezca, dormirá en ella.', place: 'furniture' },
+  cuna: { name: 'Cuna', desc: 'De barrotes. Para tener un bebé hace falta una libre.', place: 'furniture' },
+  alacena: { name: 'Alacena', desc: 'Armario de cocina, con platos y tarros en los estantes.', place: 'furniture' },
+  fregadero: { name: 'Fregadero', desc: 'De piedra, sobre un mueble, con su grifo.', place: 'furniture' },
+  banera: { name: 'Bañera', desc: 'De porcelana, con patas de latón. Ocupa dos casillas.', place: 'furniture' },
+  inodoro: { name: 'Retrete', desc: 'De porcelana, con asiento de madera.', place: 'furniture' },
+  lavabo: { name: 'Lavabo', desc: 'De porcelana, con un espejo encima.', place: 'furniture' },
 });
 for (const it of Object.values(ITEMS)) if (it.wear) it.stack = 1;
 for (const it of Object.values(ITEMS)) it.stack ??= it.place ? 10 : 99;

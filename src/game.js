@@ -3,8 +3,8 @@ import { Player } from './entities.js';
 import { View3D } from './three/engine.js';
 import { camToSave, camFromSave } from './camera.js';
 import { Overworld, NILO_LOOK } from './world/scenes.js';
-import { houseBlueprint, byChunk, doorTile } from './world/blueprints.js';
-import { HOUSE, HOUSE_BIG, HOUSES, CENTER, SPAWN, inBounds, inOwnHouse, hasProject } from './world/village.js';
+import { houseBlueprint, familyBlueprint, byChunk, doorTile } from './world/blueprints.js';
+import { HOUSE, HOUSE_BIG, HOUSE_FAMILY, HOUSES, CENTER, SPAWN, inBounds, inOwnHouse, hasProject, setFamilyHouse } from './world/village.js';
 import { PIECES, parsePlaced } from './pieces.js';
 import { BIOMES } from './world/biomes.js';
 import { CHUNK, WORLD_SEED } from './world/gen.js';
@@ -28,6 +28,7 @@ import { Explore } from './explore.js';
 import { Stats, Skills, Collection, Achievements, Story } from './progress.js';
 import { Music } from './music.js';
 import { Live } from './live.js';
+import { Family } from './family.js';
 import { Settings } from './settings.js';
 import { keys, clearKeys } from './input.js';
 import { Audio } from './audio.js';
@@ -82,6 +83,7 @@ export class Game {
     this.board = this.addSystem(new Board(this));
     this.farm = this.addSystem(new Farm(this));
     this.ranch = this.addSystem(new Ranch(this));
+    this.family = this.addSystem(new Family(this));
     this.fishing = this.addSystem(new Fishing(this));
     this.neighbors = this.addSystem(new Neighbors(this));
     this.combat = this.addSystem(new Combat(this));
@@ -114,6 +116,7 @@ export class Game {
       for (const [k, d] of deltas) if (!k.startsWith('u:')) Object.assign(d, { removed: {}, picked: {}, opened: {} });
       save = { ...save, explored: [], found: [] };
     }
+    setFamilyHouse(save.house?.family);   // (antes de hacer el pueblo: con la casa familiar, su jardín cambia)
     this.world = new Overworld(WORLD_SEED, deltas);
     this.world.onTouch = k => this.live.touched(k);
     if (moved) for (const k of deltas.keys()) this.world.dirty.add(k);   // que se guarde ya así
@@ -134,7 +137,7 @@ export class Game {
     this.addMoney(0);
     this.gather.reset();
     const p = { ...save.player };
-    this.house = { big: !!save.house?.big, built: !!save.house?.built, v: save.house?.v ?? 1 };
+    this.house = { big: !!save.house?.big, family: !!save.house?.family, built: !!save.house?.built, v: save.house?.v ?? 1 };
     // Tu casa es parte del mundo. Si la partida aún no la tiene (es nueva, o de cuando la casa era una
     // habitación aparte), se levanta ahora; los muebles de aquella habitación pasan dentro.
     if (p.inside) { const [hx, hy] = this.homeSpot(); Object.assign(p, { inside: false, x: hx, y: hy, view: 'front', dir: null }); }
@@ -145,9 +148,9 @@ export class Game {
     // Lo que el jugador tenía en su habitación va primero (dentro de la casa); luego se levanta la casa con
     // sus muebles por defecto, que solo ocupan las casillas que quedan libres. Va después de crear al jugador,
     // porque lo que no quepa vuelve a la mochila a través de él.
-    if (!this.house.built) { this.migrateRoom(save.house); this.layHouse(this.house.big, true); this.house.built = true; this.house.v = 3; }
+    if (!this.house.built) { this.migrateRoom(save.house); this.layHouse(this.houseSize, true); this.house.built = true; this.house.v = 3; }
     // Partidas de cuando las casas medían la mitad: la casa crece hacia atrás y a los lados (la puerta se queda)
-    if (this.house.v < 2) { this.layHouse(this.house.big, false); this.makeRoomForBeds(); this.house.v = 2; }
+    if (this.house.v < 2) { this.layHouse(this.houseSize, false); this.makeRoomForBeds(); this.house.v = 2; }
     // Al crecer, la cama y el hogar se quedaron en medio de la sala: a su sitio, contra la pared
     if (this.house.v < 3) { this.tidyHouse(); this.house.v = 3; }
     this.explored = new Set(save.explored || []);
@@ -168,7 +171,7 @@ export class Game {
     const out = {
       seed: this.world.seed, player, explored: [...this.explored],
       inventory: this.inv.toSave(), energy: Math.round(this.energy), clock: Math.round(this.world.clock),
-      ...this.craft.toSave(), house: { big: this.house.big, built: true, v: 3 }, money: this.money,
+      ...this.craft.toSave(), house: { big: this.house.big, family: this.house.family, built: true, v: 3 }, money: this.money,
       admin: this.admin, cam3d: camToSave(), volumes: Settings.volumes(),
     };
     this.hook('save', out);
@@ -248,7 +251,8 @@ export class Game {
     if (o) {
       const name = ITEMS[o.placed].name.toLowerCase();
       if (STATIONS[o.placed]) return { text: `Usar ${name}`, run: () => this.onCraft?.(o.placed) };
-      if (o.placed === 'cama') return { text: 'Dormir', run: () => this.sleep() };
+      if (o.placed === 'cama' || o.placed === 'cama_nino') return { text: 'Dormir', run: () => this.sleep() };
+      if (o.placed === 'cama_doble') return { text: 'Usar la cama', run: () => this.family.bed() };
       if (o.placed === 'cofre') return { text: 'Abrir el cofre', run: () => this.onChest?.(sc.chestAt(...o.tile), o.tile) };
       return { text: `Recoger ${name}`, run: () => this.pickUp(o) };
     }
@@ -295,6 +299,23 @@ export class Game {
     await hud.say('Nilo', ['¡Listo! Tira de martillo… quiero decir, ya está. Tu casa es ahora mucho más amplia. Ve a verla.']);
     this.onSave?.();
   }
+  // Nilo convierte la casa ampliada en la casa familiar: más grande, con dormitorio, cuarto de los niños, baño,
+  // cocina y salón (los muebles, de cada uno)
+  async offerFamily() {
+    const cost = [['tablas', 80], ['piedra', 60], ['lingote_hierro', 6]], ok = cost.every(([id, n]) => this.inv.count(id) >= n);
+    const pick = await hud.ask('Nilo', 'Si la familia va a crecer, hace falta sitio. Con 80 tablas, 60 piedras y 6 lingotes de hierro te levanto una casa familiar: dormitorio, cuarto para los niños, baño, cocina y salón. Los muebles ya los pones tú.', ok ? ['¡Adelante!', 'Ahora no'] : ['Vale, lo junto y vuelvo']);
+    if (!ok || pick !== 0) return;
+    for (const [id, n] of cost) this.inv.remove(id, n);
+    this.house.family = true;
+    setFamilyHouse(true);
+    this.world.rebuildVillage();   // (los árboles y arbustos que había donde va la casa ya no están)
+    this.layHouse('family', false);
+    await hud.say('Nilo', ['¡Hecho! Ya tienes casa familiar. Fabrica en el banco la cama doble, la cuna, las camas de los niños y lo de la cocina y el baño, y ponlo a tu gusto.']);
+    this.onSave?.();
+  }
+  // Tu casa: su tamaño (false, true o 'family') y su solar
+  get houseSize() { return this.house.family ? 'family' : !!this.house.big; }
+  houseRect() { return this.house.family ? HOUSE_FAMILY : this.house.big ? HOUSE_BIG : HOUSE; }
   // ¿Está el jugador a cubierto? En una cueva o bajo un tejado del mundo
   get indoors() { return !!(this.player?.inside || this.underRoof); }
   // Nombre de la casa en la que está el jugador
@@ -306,7 +327,7 @@ export class Game {
   }
   // La casilla de dentro de tu casa, junto a la puerta (donde despiertas si te rescatan)
   homeSpot() {
-    const H = this.house.big ? HOUSE_BIG : HOUSE, [dx, dy] = doorTile(H.x0, H.y0, this.house.big);
+    const H = this.houseRect(), [dx, dy] = doorTile(H.x0, H.y0, this.houseSize);
     return [dx + 0.5, dy - 0.5];
   }
   // Llevar al jugador a su casa (cuando cae en combate)
@@ -333,9 +354,9 @@ export class Game {
   // Levanta tu casa con piezas de construcción (partida nueva, partida de antes del cambio o la ampliación
   // de Nilo). Lo que haya del jugador donde va un muro vuelve a la mochila (las piezas devuelven sus
   // materiales); un cofre con cosas se cambia de sitio dentro de la casa. furnish: con muebles.
-  layHouse(big, furnish) {
-    const w = this.world, H = big ? HOUSE_BIG : HOUSE, [dx, dy] = doorTile(H.x0, H.y0, big);
-    const bp = houseBlueprint({ x0: H.x0, y0: H.y0, big, furnish: furnish ? 'full' : 'none' });
+  layHouse(size, furnish) {
+    const w = this.world, H = size === 'family' ? HOUSE_FAMILY : size ? HOUSE_BIG : HOUSE, [dx, dy] = doorTile(H.x0, H.y0, size);
+    const bp = size === 'family' ? familyBlueprint({ x0: H.x0, y0: H.y0 }) : houseBlueprint({ x0: H.x0, y0: H.y0, big: size, furnish: furnish ? 'full' : 'none' });
     const interior = (tx, ty) => tx > H.x0 && tx < H.x1 - 1 && ty > H.y0 && ty < H.y1 - 1;
     const clear = (tx, ty) => {
       const cur = w.ownAt('placed', tx, ty);
@@ -350,14 +371,21 @@ export class Game {
       }
       if (PIECES[cid]) { for (const [m, n] of PIECES[cid].cost) this.giveBack(m, n); } else this.giveBack(cid, 1);
     };
+    // (en la casa familiar el hogar va en el salón: el de antes, que quedaría en un dormitorio, se cambia allí)
+    if (size === 'family') for (let ty = H.y0; ty < H.y1; ty++) for (let tx = H.x0; tx < H.x1; tx++) if (parsePlaced(w.ownAt('placed', tx, ty) || '')[0] === 'chimenea') w.unplace({ tile: [tx, ty], layer: 'placed', placed: 'chimenea' });
     for (const [t, raw] of Object.entries(bp.placed)) {
       const [tx, ty] = t.split(',').map(Number), [id, rot] = parsePlaced(raw);
-      if (PIECES[id]) { if (parsePlaced(w.ownAt('placed', tx, ty) || '')[0] === id) continue; clear(tx, ty); w.place(tx, ty, id, rot); }
+      if (PIECES[id]) {
+        if (parsePlaced(w.ownAt('placed', tx, ty) || '')[0] === id) continue;
+        const a = w.anchorOf(tx, ty);   // (lo de varias casillas que pisa un muro nuevo, por ejemplo los pies de una cama)
+        if (a) clear(...a);
+        clear(tx, ty); w.place(tx, ty, id, rot);
+      }
       else if (!w.ownAt('placed', tx, ty)) w.place(tx, ty, id, rot);   // muebles: solo donde no haya nada del jugador
     }
-    // Muros de antes que al ampliar quedan dentro: fuera
+    // Muros de antes que al ampliar quedan dentro: fuera (menos los de los cuartos del plano)
     for (let ty = H.y0; ty < H.y1; ty++) for (let tx = H.x0; tx < H.x1; tx++) {
-      if (!interior(tx, ty)) continue;
+      if (!interior(tx, ty) || PIECES[parsePlaced(bp.placed[`${tx},${ty}`] || '')[0]]) continue;
       const cur = w.ownAt('placed', tx, ty), kind = cur && PIECES[parsePlaced(cur)[0]]?.kind;
       if (kind === 'wall' || kind === 'door') clear(tx, ty);
     }
@@ -368,7 +396,7 @@ export class Game {
   }
   // Las camas ocupan dos casillas: lo que haya puesto donde van los pies se cambia de sitio dentro de casa
   makeRoomForBeds() {
-    const w = this.world, H = this.house.big ? HOUSE_BIG : HOUSE, [dx, dy] = doorTile(H.x0, H.y0, this.house.big);
+    const w = this.world, H = this.houseRect(), [dx, dy] = doorTile(H.x0, H.y0, this.houseSize);
     for (let ty = H.y0; ty < H.y1; ty++) for (let tx = H.x0; tx < H.x1; tx++) {
       const [id, rot] = parsePlaced(w.ownAt('placed', tx, ty) || '');
       if (id !== 'cama') continue;
@@ -385,6 +413,7 @@ export class Game {
   // La cama y el hogar de tu casa que no estén contra un muro pasan a su sitio del plano (contra la pared
   // de atrás), si está libre
   tidyHouse() {
+    if (this.house.family) return;
     const w = this.world, big = this.house.big, H = big ? HOUSE_BIG : HOUSE, bp = houseBlueprint({ x0: H.x0, y0: H.y0, big });
     const wallAt = (x, y) => w.pieceAt(x, y)?.kind === 'wall';
     const free = (x, y) => !w.ownAt('placed', x, y) && !w.footAt(x, y);
@@ -405,7 +434,7 @@ export class Game {
   migrateRoom(house) {
     const entries = Object.entries(house?.placed || {});
     if (!entries.length) return;
-    const w = this.world, H = this.house.big ? HOUSE_BIG : HOUSE, [dx, dy] = doorTile(H.x0, H.y0, this.house.big);
+    const w = this.world, H = this.houseRect(), [dx, dy] = doorTile(H.x0, H.y0, this.houseSize);
     entries.sort(([a], [b]) => (house.chests?.[b] ? 1 : 0) - (house.chests?.[a] ? 1 : 0));   // los cofres primero
     let lost = 0;
     for (const [k, raw] of entries) {

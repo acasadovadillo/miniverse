@@ -9,8 +9,10 @@
 // hizo): así, si dos tocan lo mismo a la vez, todos acaban con lo que dice el anfitrión. Lo que pasa solo (la
 // hora, que crezcan los cultivos, que los animales den su producto y por dónde pasean) lo lleva el anfitrión.
 
+import { setFamilyHouse } from './world/village.js';
+
 // Lo de la partida que es del mundo (y no de cada jugador)
-export const SHARED = ['clock', 'house', 'projects', 'boardDone', 'animals', 'museum'];
+export const SHARED = ['clock', 'house', 'projects', 'boardDone', 'animals', 'museum', 'family'];
 
 const isMap = v => !!v && typeof v === 'object' && !Array.isArray(v);
 const same = (a, b) => a === b || JSON.stringify(a) === JSON.stringify(b);
@@ -45,7 +47,15 @@ export function applyOps(d, ops) {
 // Lo de todos que no va en los trozos del mundo: cómo leerlo (sin lo que cambia a cada momento, como por
 // dónde va cada animal) y cómo ponerlo
 export const BLOBS = {
-  house: { get: g => g.house, set: (g, v) => Object.assign(g.house, v) },
+  house: {
+    get: g => g.house,
+    set: (g, v) => {   // (si ahora es la casa familiar, el jardín cambia: el pueblo se rehace)
+      const was = !!g.house.family;
+      Object.assign(g.house, v);
+      if (!!v.family !== was) { setFamilyHouse(v.family); g.world.rebuildVillage(); }
+    },
+  },
+  family: { get: g => g.family.v, set: (g, v) => g.family.share(v) },
   board: { get: g => ({ projects: g.board.projects, done: g.board.done }), set: (g, v) => g.board.share(v) },
   museum: { get: g => [...g.collection.donated].sort(), set: (g, v) => { g.collection.donated = new Set(v); } },
   animals: { get: g => g.ranch.animals.map(a => { const { x, y, ...s } = a.toSave(); return s; }), set: (g, v) => g.ranch.share(v) },

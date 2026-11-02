@@ -9,9 +9,31 @@
 
 export const SMALL = { w: 12, h: 10 };
 export const BIG = { w: 16, h: 12 };
-export const houseSize = big => (big ? BIG : SMALL);
+export const FAMILY = { w: 18, h: 14 };
+// size: false (pequeña), true (grande) o 'family' (la casa familiar)
+export const houseSize = size => (size === 'family' ? FAMILY : size ? BIG : SMALL);
 // Casilla de la puerta de una casa con el origen en (x0, y0)
-export const doorTile = (x0, y0, big = false) => { const { w, h } = houseSize(big); return [x0 + Math.floor(w / 2), y0 + h - 1]; };
+export const doorTile = (x0, y0, size = false) => { const { w, h } = houseSize(size); return [x0 + Math.floor(w / 2), y0 + h - 1]; };
+
+// La casa familiar (18×14): detrás, el dormitorio (6×5), el de los niños (5×5) y el baño (3×5), cada uno con su
+// puerta; delante, la cocina y el salón, de una pieza, con el hogar contra la pared de los cuartos. Sin muebles:
+// los fabrica y los pone el jugador.
+export function familyBlueprint({ x0, y0, roof = 'tejado_rojo', wall = 'muro_entramado', inner = 'muro_madera', window = 'ventana_contraventanas' }) {
+  const { w, h } = FAMILY, placed = {}, floor = {}, roofs = {}, k = (x, y) => `${x},${y}`;
+  for (let y = y0; y < y0 + h; y++) for (let x = x0; x < x0 + w; x++) { floor[k(x, y)] = 'suelo_madera'; roofs[k(x, y)] = roof; }
+  const x1 = x0 + w - 1, y1 = y0 + h - 1, mid = y0 + 6, [dx, dy] = doorTile(x0, y0, 'family');
+  for (let x = x0; x <= x1; x++) { placed[k(x, y0)] = wall; placed[k(x, y1)] = wall; placed[k(x, mid)] = inner; }
+  for (let y = y0; y <= y1; y++) { placed[k(x0, y)] = wall; placed[k(x1, y)] = wall; }
+  for (let y = y0 + 1; y < mid; y++) { placed[k(x0 + 7, y)] = inner; placed[k(x0 + 13, y)] = inner; }
+  placed[k(x0, mid)] = placed[k(x1, mid)] = wall;
+  for (const x of [x0 + 3, x0 + 11]) placed[k(x, y0)] = window;
+  for (const y of [y0 + 3, y0 + 9]) { placed[k(x0, y)] = window; placed[k(x1, y)] = window; }
+  for (const x of [x0 + 3, x0 + 6, x0 + 12, x0 + 15]) placed[k(x, y1)] = window;
+  for (const x of [x0 + 4, x0 + 10, x0 + 15]) placed[k(x, mid)] = 'puerta';
+  placed[k(dx, dy)] = 'puerta';
+  placed[k(x0 + 11, mid + 1)] = 'chimenea';
+  return { placed, floor, roof: roofs };
+}
 
 // furnish: 'full' (casa del jugador), 'npc' (vecinos y aldeas: sin cofre) o 'none'
 export function houseBlueprint({ x0, y0, big = false, roof = 'tejado_rojo', wall = 'muro_entramado', window = 'ventana_contraventanas', furnish = 'full' }) {

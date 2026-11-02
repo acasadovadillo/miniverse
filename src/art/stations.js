@@ -37,7 +37,16 @@ export const GLOW = { horno: [0, 0.42, 4], cocina: [0, 0.4, 4], chimenea: [0, 0.
 // Lo que da luz de noche: [dx, dy, z, radio]
 export const LIGHT = { horno: [0, 0.42, 6, 42], cocina: [0, 0.4, 6, 34], lampara: [0, 0, 35, 70], antorcha: [0, 0, 28, 52], chimenea: [0, 0.3, 12, 70] };
 
-// Lo que ocupa dos casillas: la suya y la de delante (+y; girado, la de +x)
-export const LONG = { cama: true };
+// Lo que ocupa más de una casilla: 'long', la suya y la de delante (+y; girado, la de +x); 'wide' (la cama
+// doble), además las dos de al lado (+x; girado, -y)
+export const LONG = { cama: 'long', cama_nino: 'long', banera: 'long', cama_doble: 'wide' };
 export const BED_BACK = 0.46;   // de la casilla de la cabecera a la parte de atrás de la cama
 export const footTile = (tx, ty, rot) => (rot ? [tx + 1, ty] : [tx, ty + 1]);
+// Las casillas que ocupa además de la suya
+export function extraTiles(id, tx, ty, rot) {
+  if (!LONG[id]) return [];
+  const foot = footTile(tx, ty, rot);
+  if (LONG[id] !== 'wide') return [foot];
+  const side = rot ? [0, -1] : [1, 0];
+  return [foot, [tx + side[0], ty + side[1]], [foot[0] + side[0], foot[1] + side[1]]];
+}

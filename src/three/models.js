@@ -37,6 +37,8 @@ export function modelMats() {
     hull: mat({ map: wood('#6a4a30'), roughness: 0.9 }), temple: mat({ map: stone('#c8bca0') }), templeD: mat({ map: stone('#8a8070') }), crystal: c('#7ae0ff', { emissive: '#3ab0ff', emissiveIntensity: 0.8, roughness: 0.1 }),
     snow: c('#f4f8fc', { roughness: 0.85 }), rock: mat({ map: stone('#8a857c'), flatShading: true }), dark0: c('#0a0806', { roughness: 1 }), stripeR: c('#c83a32'), lens: c('#fff6c8', { emissive: '#ffe080', emissiveIntensity: 2 }),
     bee: c('#e8c040'),
+    porcelain: c('#f4f2ee', { roughness: 0.22 }), quiltK: c('#5a9ad8', { roughness: 0.95 }), quiltK2: c('#e88aa8', { roughness: 0.95 }), pillowK: c('#f4d86a', { roughness: 0.95 }),
+    baby: c('#f4e6c8', { roughness: 0.95 }), mirror: c('#d8eef4', { metalness: 0.6, roughness: 0.08 }), plate: c('#f0ece0', { roughness: 0.4 }), plateB: c('#5a7ab8', { roughness: 0.4 }),
   };
   return MATS;
 }
@@ -74,6 +76,73 @@ const BUILD = {
     m.box('wood', -W / 2, 0.22, z0 + 0.08, W / 2, 0.34, z1 - 0.08).box('sheet', -W / 2 + 0.03, 0.34, z0 + 0.09, W / 2 - 0.03, 0.5, z1 - 0.09);
     m.box('quilt', -W / 2 + 0.01, 0.42, z0 + 0.62, W / 2 - 0.01, 0.53, z1 - 0.1).box('quilt', -W / 2 - 0.005, 0.2, z0 + 0.62, -W / 2 + 0.01, 0.53, z1 - 0.1).box('quilt', W / 2 - 0.01, 0.2, z0 + 0.62, W / 2 + 0.005, 0.53, z1 - 0.1);
     m.box('quiltB', -W / 2 + 0.005, 0.425, z0 + 0.62, W / 2 - 0.005, 0.535, z0 + 0.74).box('sheet', -0.34, 0.5, z0 + 0.14, 0.34, 0.64, z0 + 0.46);
+  },
+  // Cama de matrimonio: dos casillas de ancho (hacia +x) y dos de largo, con dos almohadas
+  cama_doble(m) {
+    const L = 1.9, x0 = -0.47, x1 = 1.47, z0 = -0.46, z1 = z0 + L;
+    m.box('dark', x0, 0, z0, x0 + 0.09, 1.1, z0 + 0.09).box('dark', x1 - 0.09, 0, z0, x1, 1.1, z0 + 0.09).box('wood', x0 + 0.09, 0.35, z0 + 0.01, x1 - 0.09, 1.0, z0 + 0.07);
+    m.box('light', x0 + 0.3, 0.72, z0 + 0.075, x1 - 0.3, 0.9, z0 + 0.085);   // (un panel más claro en el cabecero)
+    m.box('dark', x0, 0, z1 - 0.09, x0 + 0.09, 0.62, z1).box('dark', x1 - 0.09, 0, z1 - 0.09, x1, 0.62, z1).box('wood', x0 + 0.09, 0.3, z1 - 0.07, x1 - 0.09, 0.55, z1 - 0.01);
+    m.box('wood', x0, 0.22, z0 + 0.09, x1, 0.34, z1 - 0.09).box('sheet', x0 + 0.03, 0.34, z0 + 0.1, x1 - 0.03, 0.5, z1 - 0.1);
+    m.box('quilt', x0 + 0.01, 0.42, z0 + 0.66, x1 - 0.01, 0.53, z1 - 0.1).box('quilt', x0 - 0.005, 0.2, z0 + 0.66, x0 + 0.01, 0.53, z1 - 0.1).box('quilt', x1 - 0.01, 0.2, z0 + 0.66, x1 + 0.005, 0.53, z1 - 0.1);
+    m.box('quiltB', x0 + 0.005, 0.425, z0 + 0.66, x1 - 0.005, 0.535, z0 + 0.78);
+    m.box('sheet', x0 + 0.12, 0.5, z0 + 0.14, 0.42, 0.64, z0 + 0.46).box('sheet', 0.58, 0.5, z0 + 0.14, x1 - 0.12, 0.64, z0 + 0.46);
+  },
+  // Cama de niño: como la tuya, pero más corta y baja, con edredón azul
+  cama_nino(m) {
+    const L = 1.62, W = 0.86, z0 = -0.42, z1 = z0 + L;
+    m.box('light', -W / 2, 0, z0, -W / 2 + 0.07, 0.8, z0 + 0.07).box('light', W / 2 - 0.07, 0, z0, W / 2, 0.8, z0 + 0.07).box('wood', -W / 2 + 0.07, 0.3, z0 + 0.01, W / 2 - 0.07, 0.72, z0 + 0.06);
+    m.geo('pillowK', ICO, 0, 0.62, z0 + 0.04, [0, 0, 0], [0.09, 0.09, 0.02]);   // (una estrella en el cabecero)
+    m.box('light', -W / 2, 0, z1 - 0.07, -W / 2 + 0.07, 0.5, z1).box('light', W / 2 - 0.07, 0, z1 - 0.07, W / 2, 0.5, z1).box('wood', -W / 2 + 0.07, 0.26, z1 - 0.06, W / 2 - 0.07, 0.44, z1 - 0.01);
+    m.box('wood', -W / 2, 0.18, z0 + 0.07, W / 2, 0.28, z1 - 0.07).box('sheet', -W / 2 + 0.03, 0.28, z0 + 0.08, W / 2 - 0.03, 0.42, z1 - 0.08);
+    m.box('quiltK', -W / 2 + 0.01, 0.35, z0 + 0.5, W / 2 - 0.01, 0.45, z1 - 0.08).box('quiltK', -W / 2 - 0.005, 0.17, z0 + 0.5, -W / 2 + 0.01, 0.45, z1 - 0.08).box('quiltK', W / 2 - 0.01, 0.17, z0 + 0.5, W / 2 + 0.005, 0.45, z1 - 0.08);
+    m.box('pillowK', -0.28, 0.42, z0 + 0.12, 0.28, 0.54, z0 + 0.38);
+  },
+  // Cuna: de barrotes, con colchón y una mantita
+  cuna(m) {
+    const x = 0.4, z = 0.3, h = 0.78;
+    for (const [a, b] of [[-x, -z], [x - 0.06, -z], [-x, z - 0.06], [x - 0.06, z - 0.06]]) m.box('light', a, 0, b, a + 0.06, h, b + 0.06);
+    m.box('wood', -x, 0.24, -z, x, 0.3, z).box('sheet', -x + 0.05, 0.3, -z + 0.05, x - 0.05, 0.38, z - 0.05).box('quiltK2', -x + 0.06, 0.36, 0, x - 0.06, 0.41, z - 0.06);
+    for (const y of [0.3, h - 0.05]) m.box('light', -x, y, -z, x, y + 0.05, -z + 0.04).box('light', -x, y, z - 0.04, x, y + 0.05, z).box('light', -x, y, -z, -x + 0.04, y + 0.05, z).box('light', x - 0.04, y, -z, x, y + 0.05, z);
+    for (let i = 1; i < 8; i++) { const u = -x + i * (2 * x / 8); m.box('light', u - 0.012, 0.33, -z + 0.005, u + 0.012, h - 0.05, -z + 0.03).box('light', u - 0.012, 0.33, z - 0.03, u + 0.012, h - 0.05, z - 0.005); }
+    for (let i = 1; i < 5; i++) { const v = -z + i * (2 * z / 5); m.box('light', -x + 0.005, 0.33, v - 0.012, -x + 0.03, h - 0.05, v + 0.012).box('light', x - 0.03, 0.33, v - 0.012, x - 0.005, h - 0.05, v + 0.012); }
+  },
+  // Cocina: fregadero de piedra sobre un mueble, con su grifo
+  fregadero(m) {
+    m.box('wood', -0.45, 0, -0.3, 0.45, 0.82, 0.24).box('dark', -0.4, 0.08, 0.24, -0.02, 0.74, 0.26).box('dark', 0.02, 0.08, 0.24, 0.4, 0.74, 0.26);
+    m.ball('brass', -0.06, 0.44, 0.27, 0.02).ball('brass', 0.06, 0.44, 0.27, 0.02);
+    m.box('stone', -0.47, 0.82, -0.32, 0.47, 0.9, 0.27).box('soot', -0.3, 0.9, -0.18, 0.3, 0.902, 0.16).box('water', -0.27, 0.902, -0.15, 0.27, 0.905, 0.13);
+    m.cyl('brass', 0, 0.9, -0.26, 0.025, 0.025, 0.22, 8).box('brass', -0.016, 1.08, -0.26, 0.016, 1.11, -0.1).ball('brass', 0, 1.13, -0.27, 0.035);
+  },
+  // Alacena: armario bajo con puertas y, encima, estantes con platos y tarros
+  alacena(m) {
+    m.box('wood', -0.46, 0, -0.26, 0.46, 0.86, 0.2).box('light', -0.48, 0.86, -0.28, 0.48, 0.92, 0.22);
+    m.box('dark', -0.42, 0.08, 0.2, -0.02, 0.78, 0.22).box('dark', 0.02, 0.08, 0.2, 0.42, 0.78, 0.22).ball('brass', -0.07, 0.46, 0.235, 0.022).ball('brass', 0.07, 0.46, 0.235, 0.022);
+    m.box('wood', -0.46, 0.92, -0.26, 0.46, 1.95, -0.2).box('dark', -0.46, 0.92, -0.26, -0.41, 1.95, 0.0).box('dark', 0.41, 0.92, -0.26, 0.46, 1.95, 0.0).box('light', -0.48, 1.92, -0.28, 0.48, 1.98, 0.03);
+    for (const y of [1.3, 1.62]) m.box('light', -0.41, y, -0.2, 0.41, y + 0.035, 0.0);
+    for (let i = 0; i < 4; i++) { const u = -0.3 + i * 0.2; m.cyl(i % 2 ? 'plateB' : 'plate', u, 1.335, -0.12, 0.1, 0.1, 0.018, 14, [Math.PI / 2 - 0.25, 0, 0]); }
+    for (const [u, k, h] of [[-0.28, 'pot', 0.16], [-0.08, 'glass', 0.2], [0.12, 'pot', 0.13], [0.3, 'copper', 0.18]]) m.cyl(k, u, 1.655, -0.1, 0.06, 0.055, h, 10);
+  },
+  // Baño: bañera de porcelana con patas de latón (dos casillas de largo), retrete y lavabo con espejo
+  banera(m) {
+    const z0 = -0.4, z1 = 1.38, x = 0.42, t = 0.07;
+    m.box('porcelain', -x, 0.14, z0, x, 0.3, z1);   // el fondo y, alrededor, las paredes con su borde
+    m.box('porcelain', -x, 0.3, z0, -x + t, 0.62, z1).box('porcelain', x - t, 0.3, z0, x, 0.62, z1).box('porcelain', -x, 0.3, z0, x, 0.62, z0 + t).box('porcelain', -x, 0.3, z1 - t, x, 0.62, z1);
+    m.box('porcelain', -x - 0.03, 0.62, z0 - 0.03, x + 0.03, 0.66, z0 + t).box('porcelain', -x - 0.03, 0.62, z1 - t, x + 0.03, 0.66, z1 + 0.03);
+    m.box('porcelain', -x - 0.03, 0.62, z0 + t, -x + t, 0.66, z1 - t).box('porcelain', x - t, 0.62, z0 + t, x + 0.03, 0.66, z1 - t);
+    m.box('water', -x + t, 0.3, z0 + t, x - t, 0.52, z1 - t);
+    for (const [a, b] of [[-x + 0.06, z0 + 0.08], [x - 0.06, z0 + 0.08], [-x + 0.06, z1 - 0.08], [x - 0.06, z1 - 0.08]]) m.ball('brass', a, 0.09, b, 0.07, 0.09, 0.07);
+    m.cyl('brass', 0, 0.66, z0 + 0.04, 0.025, 0.025, 0.2, 8).box('brass', -0.015, 0.84, z0 + 0.04, 0.015, 0.87, z0 + 0.18).ball('brass', -0.08, 0.72, z0 + 0.04, 0.03).ball('brass', 0.08, 0.72, z0 + 0.04, 0.03);
+  },
+  inodoro(m) {
+    m.cyl('porcelain', 0, 0, 0.06, 0.14, 0.18, 0.3, 14).cyl('porcelain', 0, 0.28, 0.08, 0.21, 0.22, 0.12, 16).cyl('soot', 0, 0.399, 0.08, 0.15, 0.15, 0.002, 16);
+    m.cyl('wood', 0, 0.4, 0.08, 0.22, 0.22, 0.03, 16).box('porcelain', -0.22, 0.3, -0.32, 0.22, 0.9, -0.12).box('porcelain', -0.24, 0.88, -0.34, 0.24, 0.94, -0.1);
+    m.box('brass', 0.14, 0.78, -0.12, 0.2, 0.81, -0.08);
+  },
+  lavabo(m) {
+    m.cyl('porcelain', 0, 0, -0.06, 0.1, 0.07, 0.72, 12).cyl('porcelain', 0, 0.7, -0.06, 0.16, 0.3, 0.16, 16).cyl('soot', 0, 0.86, -0.06, 0.24, 0.24, 0.002, 16).cyl('water', 0, 0.862, -0.06, 0.2, 0.2, 0.002, 16);
+    m.cyl('brass', 0, 0.86, -0.3, 0.02, 0.02, 0.16, 8).box('brass', -0.014, 1.0, -0.3, 0.014, 1.03, -0.18);
+    m.box('dark', -0.3, 1.12, -0.42, 0.3, 1.74, -0.36).box('mirror', -0.25, 1.17, -0.37, 0.25, 1.69, -0.355);
   },
   estanteria(m) {
     m.box('dark', -0.46, 0, -0.2, -0.42, 1.9, 0.15).box('dark', 0.42, 0, -0.2, 0.46, 1.9, 0.15).box('wood', -0.46, 1.86, -0.2, 0.46, 1.92, 0.17).box('wood', -0.42, 0, -0.2, 0.42, 1.86, -0.17);

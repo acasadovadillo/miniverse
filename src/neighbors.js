@@ -182,7 +182,7 @@ export class Neighbors {
     const opts = ['Charlar'];
     if (open) opts.push('Ver la tienda');
     if (giftable) opts.push(`Regalar: ${ITEMS[held.id].name.toLowerCase()}`);
-    if (id === 'nilo' && !g.house.big) opts.push('Hablar de la casa');
+    if (id === 'nilo' && !g.house.family && !g.live.guest) opts.push('Hablar de la casa');   // (la casa es la del dueño del mundo)
     opts.push('Adiós');
     const hearts = '♥'.repeat(this.hearts(id)) || '·';
     const pick = opts[await hud.ask(`${def.name}  ${hearts}`, this.greeting(id), opts)];
@@ -196,7 +196,7 @@ export class Neighbors {
     } else if (pick?.startsWith('Regalar')) {
       await this.gift(id, held);
     } else if (pick === 'Hablar de la casa') {
-      await g.offerReform();
+      await (g.house.big ? g.offerFamily() : g.offerReform());
     }
     g.busy = false;
   }

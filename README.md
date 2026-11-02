@@ -63,7 +63,8 @@ La partida se guarda sola cada 15 segundos, al entrar o salir de una casa y al d
 - **Personajes** chibi en 3D hechos con el mismo "look" que se elige al crear el personaje (peinados, colores, ropa, forma de los ojos, cejas, nariz, orejas, barba y mofletes; ver `src/looks.js`), que andan, respiran y miran hacia donde van; en los diálogos sale la cara en 3D de quien habla (`src/three/portrait.js`). Llevan en la mano la herramienta elegida y la balancean al golpear.
 - **Pueblo vivo**: Rosa, Lía, Bruno, Nilo y, si construyes su casa, Dani. Horarios, charlas, regalos, amistad con eventos, tiendas, tablón de encargos y cuatro proyectos (fuente, muelle, mercado y casa nueva).
 - **Aventura**: cuevas con niveles infinitos (vetas, gemas, fósiles, criaturas), templos con puzles (palanca, llave y bloque sobre placa), combate ligero con corazones, barca y caballo, y una historia ligera hasta el faro del confín.
-- **Inventario realista**: sin mochila solo llevas lo que cabe en las manos y los bolsillos (las 9 casillas de la barra). La mochila (a mano, con fibra y cuerda) se lleva a la espalda y desbloquea 27 casillas más; para quitártela tiene que estar vacía. La ropa son objetos que te pones y te quitas, cada uno en su hueco del cuerpo (cabeza, torso, encima, piernas, pies, ropa interior de arriba y de abajo, calcetines y espalda), y el personaje se ve con lo que lleva: camisa, túnica corta o larga, chaleco, delantal, pantalón, falda, botas, camiseta interior, calzoncillos o bragas, calcetines, sombrero de paja y gorro de lana. Sin nada, es un muñeco liso. La ropa se teje en el telar (el sombrero, a mano).
+- **Inventario realista**: sin mochila solo llevas lo que cabe en las manos y los bolsillos (las 9 casillas de la barra). La mochila (a mano, con fibra y cuerda) se lleva a la espalda y desbloquea 27 casillas más; para quitártela tiene que estar vacía. La ropa son objetos que te pones y te quitas, cada uno en su hueco del cuerpo (cabeza, torso, encima, piernas, pies, ropa interior de arriba y de abajo, calcetines y espalda), y el personaje se ve con lo que lleva: camisa, túnica corta o larga, chaleco, delantal, pantalón, falda, botas, camiseta interior, calzoncillos o bragas, calcetines, hiyab, sombrero de paja y gorro de lana. Sin nada, es un muñeco liso. La ropa se teje en el telar (el sombrero, a mano).
+- **Familia**: Nilo convierte la casa ampliada en la **casa familiar** (18 × 14 casillas), con dormitorio, cuarto de los niños, baño, cocina y salón. Los muebles nuevos se fabrican en el banco: cama doble (2 × 2), cama de niño, cuna, alacena, fregadero, bañera, retrete y lavabo. Jugando juntos, con los dos en casa, uno propone tener un bebé en la cama doble y el otro acepta: a los 7 días nace (hace falta una cuna libre) y se le pone nombre; a los 7 días más es un niño que pasea por casa y por el jardín de día y duerme en su cama de noche. Como mucho, dos; se parecen a los dos padres.
 - **Progreso**: ocho habilidades que suben con el uso, museo con 33 piezas (minerales, fósiles, peces e insectos), 20 logros y estadísticas.
 - **Ajustes**: volúmenes, música generada, resolución (automática o fija), texto grande y reducir destellos. Los volúmenes se guardan en la partida de cada cuenta y se usan al entrar, en cualquier ordenador; lo demás es de cada dispositivo. Los controles están en su propia sección de la pausa.
 
@@ -138,6 +139,7 @@ src/settings.js        Ajustes
 src/share.js           Partidas de las versiones de antes (para cifrarlas)
 src/audio.js           Sonidos
 src/accounts.js        Cuentas: entrar, invitaciones, /account y guardar la partida cifrada
+src/family.js          Familia: tener hijos, nacer, crecer y la vida de los niños
 src/live.js, livesync.js, net.js, worldkey.js   Jugar juntos en directo: los demás jugadores, el mundo compartido, la conexión cifrada y la clave del mundo
 src/vault.js, github.js  Cifrado (AES-GCM, PBKDF2) y archivos en GitHub (accounts.json, Miniverse-data)
 src/db.js, save.js, worldstore.js   IndexedDB (la partida cifrada de cada cuenta y las partidas de versiones anteriores)
@@ -146,5 +148,6 @@ src/art/               Personajes, naturaleza, iconos, estaciones, construcción
 src/world/             Biomas, generador, trozos, pueblo, interiores, escenas y subterráneos
 src/ui/                HUD, menús, mapa, mochila, fabricar, construir, cofre, tienda, diario y ajustes
 docs/roadmap.md        Plan por fases
+docs/roadmap-aaa.md    Revisión del juego y roadmap hacia un acabado AAA
 capturas/              Capturas de cada fase
 ```

@@ -102,6 +102,26 @@ export const hud = {
       };
     });
   },
+  // Pide un texto (un nombre): se escribe y se acepta con Intro o con el botón. Si se deja vacío, def.
+  askText(name, text, def = '') {
+    return new Promise(resolve => {
+      showFace(name);
+      $('dlg-name').textContent = name;
+      $('dlg-text').textContent = text;
+      const box = $('dlg-opts'), input = document.createElement('input'), ok = document.createElement('button');
+      box.textContent = '';
+      Object.assign(input, { type: 'text', maxLength: 16, value: def, className: 'dlg-input', autocomplete: 'off' });
+      ok.type = 'button'; ok.textContent = 'Aceptar';
+      box.append(input, ok);
+      $('dialog').classList.add('show', 'asking');
+      const done = () => { const v = input.value.trim() || def; box.textContent = ''; Audio.blip(); hud.closeDialog(); resolve(v); };
+      ok.onclick = e => { e.stopPropagation(); done(); };
+      input.onclick = e => e.stopPropagation();
+      input.onkeydown = e => { e.stopPropagation(); if (e.key === 'Enter') { e.preventDefault(); done(); } };
+      dialog = { move() {}, pick() {}, next() {} };   // (solo se cierra aceptando)
+      setTimeout(() => input.focus(), 30);
+    });
+  },
   get asking() { return !!dialog?.move; },
   next() { dialog?.next(); },
   closeDialog() { $('dialog').classList.remove('show', 'asking'); dialog = null; },

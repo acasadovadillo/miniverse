@@ -29,6 +29,14 @@ export const RECIPES = [
   R('banco', 'estanteria', 1, [['tablas', 6]]),
   R('banco', 'maceta', 1, [['piedra', 3], ['fibra', 2]]),
   R('banco', 'cama', 1, [['tablas', 6], ['tela', 2]]),
+  R('banco', 'cama_doble', 1, [['tablas', 10], ['tela', 4]]),
+  R('banco', 'cama_nino', 1, [['tablas', 5], ['tela', 2]]),
+  R('banco', 'cuna', 1, [['tablas', 6], ['tela', 1]]),
+  R('banco', 'alacena', 1, [['tablas', 8], ['piedra', 2]]),
+  R('banco', 'fregadero', 1, [['piedra', 8], ['tablas', 2], ['lingote_cobre', 1]]),
+  R('banco', 'banera', 1, [['piedra', 12], ['lingote_cobre', 2]]),
+  R('banco', 'inodoro', 1, [['piedra', 6], ['tablas', 1], ['lingote_cobre', 1]]),
+  R('banco', 'lavabo', 1, [['piedra', 5], ['lingote_cobre', 1], ['lingote_hierro', 1]]),
   R('banco', 'lampara', 1, [['lingote_cobre', 1], ['tablas', 1], ['carbon', 1]]),
   R('mano', 'antorcha', 3, [['madera', 1], ['carbon', 1]]),
 
@@ -81,6 +89,7 @@ export const RECIPES = [
   R('telar', 'calcetines', 1, [['tela', 1]]),
   R('telar', 'botas', 1, [['tela', 2], ['cuerda', 1]]),
   R('telar', 'gorro', 1, [['lana', 2]]),
+  R('telar', 'hijab', 1, [['tela', 2]]),
 
   R('cocina', 'manzana_asada', 1, [['manzana', 1]]),
   R('cocina', 'mermelada', 1, [['bayas', 3]]),

@@ -30,7 +30,16 @@ export const G = {
   bib: twoSided(new THREE.CylinderGeometry(1, 1, 1, 12, 1, true, -0.75, 1.5)),              // peto del delantal
   apron: twoSided(new THREE.CylinderGeometry(1, 1.28, 1, 14, 1, true, -1, 2)),             // falda del delantal
   arch: new THREE.TorusGeometry(1, 0.17, 6, 14, Math.PI * 0.8).rotateZ(Math.PI * 0.1),      // ceja arqueada
+  ...hijabGeo(),                                                                             // el hiyab, su borde y lo que cae sobre los hombros
 };
+// El hiyab: una esfera algo mayor que la cabeza con un agujero redondo delante, para la cara (el polo de la
+// esfera mira hacia delante y un poco hacia abajo), y un dobladillo alrededor
+function hijabGeo() {
+  const R = 0.312, open = 0.72, down = 0.12;
+  const hijab = new THREE.SphereGeometry(R, 40, 30, 0, Math.PI * 2, open, Math.PI - open).rotateX(Math.PI / 2 + down);
+  const hem = new THREE.TorusGeometry(R * Math.sin(open), 0.014, 6, 40).translate(0, 0, R * Math.cos(open)).rotateX(down);
+  return { hijab, hem, drape: new THREE.CylinderGeometry(0.62, 1, 1, 20) };
+}
 const cache = new Map();
 export const M = (c, o = {}) => { const k = c + JSON.stringify(o); if (!cache.has(k)) cache.set(k, mat({ color: c, roughness: 0.75, ...o })); return cache.get(k); };
 const shade = (c, k) => '#' + new THREE.Color(c).multiplyScalar(k).getHexString();
@@ -83,6 +92,22 @@ export function mergeInto(group) {
 const HR = [0.29, 0.29 * 0.96, 0.29 * 0.96];
 const F = (x, y, d = 0) => [x, y, HR[2] * Math.sqrt(Math.max(0, 1 - (x / HR[0]) ** 2 - (y / HR[1]) ** 2)) + d];
 
+// Un bebé en su cuna: envuelto en una mantita, boca arriba, con los ojos cerrados y un mechón de pelo
+export function babyModel(look) {
+  const L = fullLook(look), root = new THREE.Group(), skin = M(L.skin), ink = M('#2a1a1a');
+  mesh(G.ball, M('#f4e6c8', { roughness: 0.95 }), { p: [0, 0.06, 0.06], s: [0.12, 0.085, 0.19] }, root);
+  mesh(G.ball, M('#e88aa8', { roughness: 0.95 }), { p: [0, 0.07, 0.13], s: [0.125, 0.07, 0.11] }, root);   // (la mantita)
+  mesh(G.ball, skin, { p: [0, 0.09, -0.13], s: [0.105, 0.1, 0.105] }, root);
+  for (const s of [-1, 1]) {
+    mesh(G.box, ink, { p: [s * 0.036, 0.188, -0.135], s: [0.034, 0.007, 0.01], r: [0, 0, s * 0.15] }, root);   // ojos cerrados
+    mesh(G.ball, M('#ff8a96'), { p: [s * 0.062, 0.17, -0.105], s: [0.022, 0.01, 0.018] }, root);                 // mofletes
+  }
+  mesh(G.ball, M(shade(L.skin, 0.88)), { p: [0, 0.188, -0.1], s: [0.014, 0.008, 0.01] }, root);                 // boca
+  mesh(G.ball, M(L.hair, { roughness: 0.6 }), { p: [0, 0.15, -0.2], s: [0.07, 0.05, 0.045] }, root);             // mechón
+  mergeInto(root);
+  return root;
+}
+
 export class Person3D {
   constructor(look, name = '') {
     this.look = look; this.name = name;
@@ -124,9 +149,10 @@ export class Person3D {
     // Cabeza: cara, ojos, cejas, nariz, boca, orejas, mofletes, barba y pelo
     const head = new THREE.Group(); head.name = 'head'; head.position.y = 0.43 + 0.28; torso.add(head); this.head = head;
     mesh(G.head, skin, { s: [1, 0.96, 0.96] }, head);
-    this.face(head, L, skin, hair);
-    this.hair(head, L, hair);
-    this.headwear(head, W.cabeza);
+    const covered = W.cabeza?.id === 'hijab';   // (el hiyab tapa el pelo y las orejas)
+    this.face(head, L, skin, hair, covered);
+    if (!covered) this.hair(head, L, hair);
+    this.headwear(head, W.cabeza, torso);
     // Cada parte que se mueve junta (piernas, brazos, tronco y cabeza) en una sola malla con colores por vértice
     for (const grp of [...this.legs, ...this.arms, torso, head]) mergeInto(grp);
     this.root.traverse(o => { if (o.isMesh) o.castShadow = true; });
@@ -190,7 +216,7 @@ export class Person3D {
   }
 
   // Sombrero de paja (copa, cinta y ala ancha) o gorro de lana con vuelta y pompón
-  headwear(head, it) {
+  headwear(head, it, torso) {
     if (!it) return;
     const c = M(it.color, { roughness: 0.85 }), d = M(shade(it.color, 0.72), { roughness: 0.85 });
     if (it.id === 'sombrero') {
@@ -203,9 +229,16 @@ export class Person3D {
       mesh(new THREE.TorusGeometry(0.33, 0.04, 6, 26), d, { p: [0, 0.06, -0.02], r: [Math.PI / 2 - 0.3, 0, 0] }, head);   // la vuelta, en el borde
       mesh(G.ball, M('#f4f0e8'), { p: [0, 0.4, -0.13], s: 0.065 }, head);
     }
+    if (it.id === 'hijab') {
+      // Un pañuelo que envuelve la cabeza dejando un óvalo para la cara, y cae sobre el cuello y los hombros
+      mesh(G.hijab, c, { p: [0, 0, 0.004] }, head);
+      mesh(G.hem, d, { p: [0, 0, 0.004] }, head);
+      mesh(G.drape, c, { p: [0, 0.49, -0.005], s: [0.27, 0.3, 0.22] }, torso);
+      mesh(G.drape, d, { p: [0, 0.335, -0.005], s: [0.272, 0.012, 0.222] }, torso);   // el borde
+    }
   }
 
-  face(head, L, skin, hair) {
+  face(head, L, skin, hair, covered = false) {
     const eye = M(L.eyes, { roughness: 0.3 }), white = M('#ffffff', { roughness: 0.2 }), ink = M('#2a1a1a'), lid = M(shade(L.skin, 0.95));
     const brow = M(shade(L.hair, 0.8)), noseM = M(shade(L.skin, 0.92));
     for (const s of [-1, 1]) {
@@ -243,8 +276,8 @@ export class Person3D {
       }
       // Orejas
       const ear = { redondas: [0.035, 0.06, 0.045, 0.285], pequenas: [0.028, 0.045, 0.035, 0.282], grandes: [0.044, 0.084, 0.062, 0.29], elfo: [0.032, 0.055, 0.042, 0.285], soplillo: [0.018, 0.066, 0.056, 0.312] }[L.ears] || [0.035, 0.06, 0.045, 0.285];
-      mesh(G.ball, skin, { p: [s * ear[3], -0.03, L.ears === 'soplillo' ? -0.01 : 0], s: ear.slice(0, 3), r: [0, L.ears === 'soplillo' ? s * 1.1 : 0, 0] }, head);
-      if (L.ears === 'elfo') mesh(G.cone, skin, { p: [s * 0.325, 0.05, -0.02], s: [0.03, 0.16, 0.036], r: [-0.25, 0, -s * 0.6] }, head);
+      if (!covered) mesh(G.ball, skin, { p: [s * ear[3], -0.03, L.ears === 'soplillo' ? -0.01 : 0], s: ear.slice(0, 3), r: [0, L.ears === 'soplillo' ? s * 1.1 : 0, 0] }, head);
+      if (L.ears === 'elfo' && !covered) mesh(G.cone, skin, { p: [s * 0.325, 0.05, -0.02], s: [0.03, 0.16, 0.036], r: [-0.25, 0, -s * 0.6] }, head);
       // Mofletes: una sola pieza redondeada con colorete, que abulta un poco
       if (L.cheeks) mesh(G.eye, M(mix(L.skin, '#ff7a8a', 0.4)), { p: F(s * 0.145, -0.085, -0.004), s: [0.05, 0.032, 0.028] }, head);
     }

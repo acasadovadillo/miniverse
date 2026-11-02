@@ -5,7 +5,7 @@ import { WorldGen, CHUNK } from './gen.js';
 import { buildVillage, NILO, inBounds, isGrass, inOwnHouse } from './village.js';
 import { B, BIOMES } from './biomes.js';
 import { ITEMS } from '../items.js';
-import { footTile, LONG, BED_BACK, HEARTH_BACK, GLOW, LIGHT } from '../art/stations.js';
+import { extraTiles, LONG, BED_BACK, HEARTH_BACK, GLOW, LIGHT } from '../art/stations.js';
 import { wallRuns, WINDOW_Z, T } from '../art/build.js';
 import { PIECES, layerOf, parsePlaced } from '../pieces.js';
 import { Person } from '../entities.js';
@@ -16,7 +16,7 @@ const ROOF_MAX_TILES = 900;   // tope de casillas de una región de tejado (para
 const ROOF_MAX_LEVEL = 4;     // altura máxima de un tejado, en niveles
 
 // De su centro a su parte de atrás, en lo que tiene espalda: si detrás hay un muro, se arrima a él
-const BACK = { cama: BED_BACK, estanteria: 0.2, chimenea: HEARTH_BACK, lampara: 0.18 };
+const BACK = { cama: BED_BACK, cama_doble: BED_BACK, cama_nino: 0.42, banera: 0.4, estanteria: 0.2, alacena: 0.26, fregadero: 0.3, lavabo: 0.42, inodoro: 0.32, chimenea: HEARTH_BACK, lampara: 0.18 };
 
 // Completa un objeto de la mochila puesto en el mundo (estación o mueble): colisión y luz.
 // [sx, sy]: lo que se corre para arrimarse a un muro. Devuelve true si es plano (alfombra) y va en el suelo.
@@ -26,10 +26,11 @@ function itemObject(o, id, rot, colliders, lights, [sx, sy] = [0, 0]) {
   o.rot = rot; o.glow = GLOW[id];
   if (LIGHT[id]) { const [lx, ly, lz, lr] = LIGHT[id]; lights.push({ x: o.x + lx, y: o.y + ly, z: lz, r: lr }); }
   if (ITEMS[id].place === 'flat') return true;
-  if (LONG[id]) {   // dos casillas: la suya y la de los pies
-    const [fx, fy] = footTile(tx, ty, rot);
-    o.fx = [tx + sx, fx + 1 + sx]; o.fy = [ty + sy, fy + 1 + sy];
-    colliders.push({ x0: tx + 0.06 + sx, y0: ty + 0.06 + sy, x1: fx + 0.94 + sx, y1: fy + 0.94 + sy });
+  if (LONG[id]) {   // varias casillas: la suya y las de los pies (y, la cama doble, las de al lado)
+    const ts = [[tx, ty], ...extraTiles(id, tx, ty, rot)], xs = ts.map(t => t[0]), ys = ts.map(t => t[1]);
+    const x0 = Math.min(...xs), x1 = Math.max(...xs) + 1, y0 = Math.min(...ys), y1 = Math.max(...ys) + 1;
+    o.fx = [x0 + sx, x1 + sx]; o.fy = [y0 + sy, y1 + sy];
+    colliders.push({ x0: x0 + 0.06 + sx, y0: y0 + 0.06 + sy, x1: x1 - 0.06 + sx, y1: y1 - 0.06 + sy });
     return false;
   }
   if (id === 'silla' || id === 'antorcha' || id === 'maceta' || id === 'lampara') colliders.push({ x: o.x, y: o.y, r: id === 'silla' ? 0.3 : 0.2 });
@@ -267,7 +268,7 @@ export class Overworld {
   // Cada capa tiene sus reglas: el suelo va debajo de todo y el tejado necesita un muro o un suelo debajo.
   // Dentro de tu casa se puede construir aunque sea terreno del pueblo.
   canPlace(tx, ty, id, player, rot = 0) {
-    if (LONG[id] && !this.canPlace(...footTile(tx, ty, rot), 'silla', player)) return false;   // los pies también tienen que caber
+    if (extraTiles(id, tx, ty, rot).some(t => !this.canPlace(...t, 'silla', player))) return false;   // las otras casillas también tienen que caber
     const x = tx + 0.5, y = ty + 0.5, layer = layerOf(id), k = `${tx},${ty}`;
     if (this.water(x, y)) return false;
     if (inBounds(x, y) && !isGrass(x, y) && !inOwnHouse(x, y) && !this.buildAnywhere) return false;   // en modo admin, también en el pueblo
@@ -328,11 +329,21 @@ export class Overworld {
   }
   // ¿Están aquí los pies de una cama (o de otra cosa de dos casillas)?
   footAt(tx, ty) {
-    for (const [x, y, r] of [[tx, ty - 1, 0], [tx - 1, ty, 1]]) {
-      const v = this.at('placed', x, y), [id, rot] = v ? parsePlaced(v) : [];
-      if (LONG[id] && !!rot === !!r) return true;
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+      if (!dx && !dy) continue;
+      const v = this.at('placed', tx + dx, ty + dy), [id, rot] = v ? parsePlaced(v) : [];
+      if (LONG[id] && extraTiles(id, tx + dx, ty + dy, rot).some(([x, y]) => x === tx && y === ty)) return true;
     }
     return false;
+  }
+  // La casilla de lo de varias casillas que ocupa también esta (o null)
+  anchorOf(tx, ty) {
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+      if (!dx && !dy) continue;
+      const v = this.ownAt('placed', tx + dx, ty + dy), [id, rot] = v ? parsePlaced(v) : [];
+      if (LONG[id] && extraTiles(id, tx + dx, ty + dy, rot).some(([x, y]) => x === tx && y === ty)) return [tx + dx, ty + dy];
+    }
+    return null;
   }
   chestAt(tx, ty) { return this.delta(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK))?.chest?.[`${tx},${ty}`]; }
   chestTouched(tx, ty) { const k = `${Math.floor(tx / CHUNK)},${Math.floor(ty / CHUNK)}`; this.dirty.add(k); this.onTouch?.(k); }

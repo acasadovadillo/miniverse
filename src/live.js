@@ -173,7 +173,18 @@ export class Live {
         if (fromHost) this.blobs[m.name] = JSON.stringify(BLOBS[m.name].get(g));   // (el anfitrión lo reparte a todos en su próxima vuelta)
         break;
       case 'time': if (fromHost) this.clockBase = { c: m.c, at: g.time, run: m.run }; break;
-      case 'herd': if (fromHost) m.p.forEach((p, i) => { const a = g.ranch.animals[i]; if (a) a.netTo = p; }); break;
+      case 'herd':
+        if (!fromHost) break;
+        m.p.forEach((p, i) => { const a = g.ranch.animals[i]; if (a) a.netTo = p; });
+        if (m.k) g.family.place(m.k);
+        break;
+      // Tener un bebé: te lo proponen (y contestas) o contestan a lo que propusiste
+      case 'baby?':
+        if (this.joined) g.family.asked(peer).then(ok => this.net?.send({ t: 'baby!', ok, look: g.player?.look }, conn));
+        break;
+      case 'baby!':
+        if (this.asking?.conn === conn) { clearTimeout(this.asking.timer); this.asking.resolve({ ok: !!m.ok, look: m.look }); this.asking = null; }
+        break;
       // Lo que se tira al suelo
       case 'drop':
         if (this.joined && g.world) g.gather.drops.push({ id: m.id, extra: m.extra, x: m.x, y: m.y, z: m.z, vz: m.vz, t: m.dt, scene: g.world, nid: m.n, owner: peer.id, free: !!m.free, born: g.time });
@@ -263,6 +274,19 @@ export class Live {
     for (const a of this.game.ranch.animals) delete a.netTo;
   }
   chat(text) { if (this.joined) this.net?.send({ t: 'chat', text }); }
+  // Otro jugador que esté contigo y cumpla near(entidad) (por ejemplo, en tu casa): { conn, peer } o null
+  partner(near) {
+    if (!this.joined) return null;
+    for (const [conn, peer] of this.peers) if (peer.playing && peer.sc === 'world' && peer.entity && near(peer.entity)) return { conn, peer };
+    return null;
+  }
+  // Proponerle algo (tener un bebé) y esperar su respuesta: { ok, look } o null si no contesta
+  propose(conn) {
+    return new Promise(resolve => {
+      this.asking = { conn, resolve, timer: setTimeout(() => { this.asking = null; resolve(null); }, 45000) };
+      this.net.send({ t: 'baby?' }, conn);
+    });
+  }
   // Un trozo del mundo ha cambiado (lo avisa el mundo)
   touched(k) { if (this.joined && !k.startsWith('u:')) this.pending.add(k); }
 
@@ -334,7 +358,7 @@ export class Live {
     }
     if (this.role === 'host') {
       if (T.time >= TIME_EVERY) { T.time = 0; this.net.send({ t: 'time', c: r2(g.world.clock), run: g.mode === 'play' }); }
-      if (T.herd >= HERD_EVERY && this.others.some(o => o.playing)) { T.herd = 0; this.net.send({ t: 'herd', p: g.ranch.animals.map(a => [r2(a.x), r2(a.y)]) }); }
+      if (T.herd >= HERD_EVERY && this.others.some(o => o.playing)) { T.herd = 0; this.net.send({ t: 'herd', p: g.ranch.animals.map(a => [r2(a.x), r2(a.y)]), k: g.family.positions() }); }
     }
     // Cómo va uno. Cada golpe nuevo con la herramienta (el temporizador sube), para que los demás vean el gesto.
     if (g.gather.swing > this.lastSwing + 1e-4) this.swings++;
