@@ -146,8 +146,8 @@ export class Neighbors {
 
   interact(p, scene) {
     if (scene !== this.world) return null;
-    if (Math.hypot(p.x - NILO.x, p.y - NILO.y) < 1.6) return { text: 'Hablar con Nilo', run: () => this.talk('nilo') };
-    for (const n of this.people) if (!n.hidden && Math.hypot(p.x - n.x, p.y - n.y) < 1.5) return { text: `Hablar con ${n.def.name}`, run: () => this.talk(n.id, n) };
+    if (Math.hypot(p.x - NILO.x, p.y - NILO.y) < 1.6 && scene.reaches(p.x, p.y, NILO.x, NILO.y)) return { text: 'Hablar con Nilo', run: () => this.talk('nilo') };
+    for (const n of this.people) if (!n.hidden && Math.hypot(p.x - n.x, p.y - n.y) < 1.5 && scene.reaches(p.x, p.y, n.x, n.y)) return { text: `Hablar con ${n.def.name}`, run: () => this.talk(n.id, n) };
     return null;
   }
 

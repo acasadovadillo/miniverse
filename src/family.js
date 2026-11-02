@@ -217,7 +217,7 @@ export class Family {
   interact(p, scene) {
     if (scene !== this.world) return null;
     for (const [id, e] of this.ents) {
-      if (Math.hypot(e.x - p.x, e.y - p.y) > 1.3) continue;
+      if (Math.hypot(e.x - p.x, e.y - p.y) > 1.3 || !scene.reaches(p.x, p.y, e.x, e.y)) continue;
       return { text: e.baby ? `Mirar a ${e.name}` : e.lying ? `${e.name} duerme` : `Hablar con ${e.name}`, run: () => this.talk(id, e) };
     }
     return null;

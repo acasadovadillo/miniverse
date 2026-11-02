@@ -216,3 +216,62 @@ export const furrows = () => make(128, 128, (g, w, h) => {
   }
   speckle(g, w, h, r, '#6a4a30', 700, 2, 0.4);
 });
+
+// Los cuadros (128 × 96): el valle, el mar al atardecer, un jarrón de flores y el pueblo de noche
+export function artwork(kind) {
+  return make(128, 96, (g, w, h) => {
+    const path = pts => { g.beginPath(); g.moveTo(...pts[0]); for (const p of pts.slice(1)) p.length > 2 ? g.quadraticCurveTo(...p) : g.lineTo(...p); g.fill(); };
+    const disc = (x, y, r, c, a0 = 0, a1 = Math.PI * 2) => { g.fillStyle = c; g.beginPath(); g.arc(x, y, r, a0, a1); g.fill(); };
+    if (kind === 'valle') {
+      const sky = g.createLinearGradient(0, 0, 0, h); sky.addColorStop(0, '#6eb6e4'); sky.addColorStop(1, '#e4f2f8');
+      g.fillStyle = sky; g.fillRect(0, 0, w, h);
+      disc(96, 24, 10, '#ffe08a');
+      g.fillStyle = '#8fb0c8'; path([[0, 60], [30, 30], [52, 50], [76, 26], [128, 62], [128, 96], [0, 96]]);
+      g.fillStyle = '#5aa842'; path([[0, 66], [40, 46, 80, 62], [106, 70, 128, 56], [128, 96], [0, 96]]);
+      g.fillStyle = '#3f8030'; path([[0, 80], [64, 64, 128, 82], [128, 96], [0, 96]]);
+    } else if (kind === 'mar') {
+      const sky = g.createLinearGradient(0, 0, 0, 52); sky.addColorStop(0, '#7a8ac8'); sky.addColorStop(0.55, '#f4a87a'); sky.addColorStop(1, '#ffd89a');
+      g.fillStyle = sky; g.fillRect(0, 0, w, 52);
+      disc(64, 52, 14, '#ffe9a8', Math.PI, 0);
+      const sea = g.createLinearGradient(0, 52, 0, h); sea.addColorStop(0, '#3a7ab8'); sea.addColorStop(1, '#1a3a6a');
+      g.fillStyle = sea; g.fillRect(0, 52, w, h - 52);
+      g.fillStyle = 'rgba(255, 220, 150, 0.55)';
+      for (let i = 0; i < 6; i++) g.fillRect(52 + i * 2, 55 + i * 6, 24 - i * 4, 2);
+      g.strokeStyle = 'rgba(200, 230, 255, 0.5)'; g.lineWidth = 1.5;
+      for (let i = 0; i < 10; i++) { const y = 60 + (i % 5) * 7, x = (i * 37) % 118; g.beginPath(); g.moveTo(x, y); g.quadraticCurveTo(x + 5, y - 3, x + 10, y); g.stroke(); }
+      g.fillStyle = '#5a3a24'; path([[24, 60], [50, 60], [46, 66], [28, 66]]);
+      g.fillStyle = '#3a2a1e'; g.fillRect(36.5, 32, 1.5, 28);
+      g.fillStyle = '#f8f2e4'; path([[39, 34], [39, 58], [52, 58]]); path([[35.5, 39], [35.5, 58], [26, 58]]);
+      g.strokeStyle = '#3a3a5a'; g.lineWidth = 1.2;
+      for (const [x, y] of [[90, 18], [101, 24], [83, 27]]) { g.beginPath(); g.moveTo(x - 4, y); g.quadraticCurveTo(x - 2, y - 3, x, y); g.quadraticCurveTo(x + 2, y - 3, x + 4, y); g.stroke(); }
+    } else if (kind === 'flores') {
+      const bg = g.createRadialGradient(64, 40, 8, 64, 48, 90); bg.addColorStop(0, '#6a5040'); bg.addColorStop(1, '#2a1e18');
+      g.fillStyle = bg; g.fillRect(0, 0, w, h);
+      g.fillStyle = '#8a5a34'; g.fillRect(0, 76, w, 20); g.fillStyle = '#6a4228'; g.fillRect(0, 76, w, 3);
+      const flowers = [[40, 24, '#e83a4a'], [58, 14, '#f0d040'], [78, 17, '#f4f0e8'], [93, 30, '#e88aa8'], [49, 37, '#f08a2a'], [72, 33, '#b48aff'], [86, 46, '#e83a4a'], [36, 45, '#f4f0e8']];
+      g.strokeStyle = '#3f7a2e'; g.lineWidth = 2;
+      for (const [x, y] of flowers) { g.beginPath(); g.moveTo(64, 54); g.quadraticCurveTo((64 + x) / 2, y + 14, x, y); g.stroke(); }
+      g.fillStyle = '#4f9a3a';
+      for (const [x, y, a] of [[52, 46, -0.6], [76, 44, 0.6], [60, 30, -0.3], [84, 36, 0.9]]) { g.save(); g.translate(x, y); g.rotate(a); g.beginPath(); g.ellipse(0, 0, 7, 3, 0, 0, Math.PI * 2); g.fill(); g.restore(); }
+      for (const [x, y, c] of flowers) { for (let k = 0; k < 6; k++) { const a = k * Math.PI / 3; disc(x + Math.cos(a) * 4, y + Math.sin(a) * 4, 3.5, c); } disc(x, y, 2.5, '#f0c040'); }
+      g.fillStyle = '#4a7ab8'; path([[54, 50], [42, 64, 52, 80], [76, 80], [86, 64, 74, 50]]);
+      g.fillStyle = '#6a9ad8'; g.fillRect(55, 56, 3, 18);
+      disc(100, 80, 6, '#c83a32'); g.fillStyle = '#5a3a24'; g.fillRect(99.5, 72, 1.5, 3);
+    } else {
+      const sky = g.createLinearGradient(0, 0, 0, 70); sky.addColorStop(0, '#0e1638'); sky.addColorStop(1, '#2a3a6a');
+      g.fillStyle = sky; g.fillRect(0, 0, w, h);
+      const r = rng(7);
+      g.fillStyle = '#f8f0c0';
+      for (let i = 0; i < 42; i++) { const s = r() < 0.2 ? 2 : 1; g.fillRect(r() * w, r() * 54, s, s); }
+      disc(98, 20, 10, '#f8f0c0'); disc(103, 17, 9, '#131c42');
+      g.fillStyle = '#1a2a3a'; path([[0, 62], [40, 44, 80, 58], [108, 66, 128, 54], [128, 96], [0, 96]]);
+      for (const [x, wd, ht] of [[20, 16, 14], [43, 14, 11], [68, 18, 16], [95, 14, 12]]) {
+        const y = 76;
+        g.fillStyle = '#2a2a3a'; g.fillRect(x, y - ht, wd, ht);
+        g.fillStyle = '#3a2028'; path([[x - 2, y - ht], [x + wd / 2, y - ht - 8], [x + wd + 2, y - ht]]);
+        g.fillStyle = '#ffd070'; g.fillRect(x + wd / 2 - 2, y - ht + 4, 4, 4);
+      }
+      g.fillStyle = '#121c28'; g.fillRect(0, 76, w, 20);
+    }
+  });
+}

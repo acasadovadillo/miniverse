@@ -1,5 +1,8 @@
 // Piezas de construcción: no son objetos de la mochila, se pagan con materiales al ponerlas
-// y devuelven esos materiales al quitarlas. Cada casilla tiene tres capas: suelo, objeto y tejado.
+// y devuelven esos materiales al quitarlas. Cada casilla tiene tres capas: suelo, objeto y tejado (y los cuadros,
+// colgados, la suya).
+import { ITEMS } from './items.js';
+
 export const PIECES = {
   suelo_madera: { name: 'Suelo de madera', cat: 'Suelos', layer: 'floor', cost: [['tablas', 1]] },
   suelo_piedra: { name: 'Suelo de piedra', cat: 'Suelos', layer: 'floor', cost: [['piedra', 2]] },
@@ -18,12 +21,14 @@ export const PIECES = {
   tejado_verde: { name: 'Tejado verde', cat: 'Tejados', layer: 'roof', cost: [['tablas', 1], ['piedra', 1]] },
   valla: { name: 'Valla de madera', cat: 'Vallas', layer: 'placed', kind: 'fence', cost: [['tablas', 1]] },
   valla_piedra: { name: 'Murete de piedra', cat: 'Vallas', layer: 'placed', kind: 'fence', cost: [['piedra', 2]] },
-  // El hogar da luz y calor; si hay tejado encima, el tejado dibuja su chimenea
+  // El hogar da luz y calor; si hay tejado encima, el tejado dibuja su chimenea. Es también un objeto (se fabrica
+  // en el banco, se coloca girándolo y se recoge con X), así que no sale en la paleta de construir
   chimenea: { name: 'Hogar con chimenea', cat: 'Casa', layer: 'placed', kind: 'hearth', cost: [['piedra', 8]] },
 };
-export const CATS = ['Suelos', 'Muros', 'Tejados', 'Vallas', 'Casa'];
+export const CATS = ['Suelos', 'Muros', 'Tejados', 'Vallas'];   // (el hogar, de la casa, se fabrica en el banco)
 
 // Capa de una cosa colocable: las piezas dicen la suya; los objetos de la mochila van en la de objetos
-export const layerOf = id => PIECES[id]?.layer || 'placed';
+// (los cuadros van en su propia capa, colgados del muro: debajo puede haber un mueble)
+export const layerOf = id => PIECES[id]?.layer || (ITEMS[id]?.place === 'wall' ? 'hang' : 'placed');
 // "silla@1" → ['silla', 1] (el número es el giro)
 export const parsePlaced = raw => { const i = raw.indexOf('@'); return i < 0 ? [raw, 0] : [raw.slice(0, i), +raw.slice(i + 1)]; };

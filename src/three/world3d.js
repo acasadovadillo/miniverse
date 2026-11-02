@@ -7,7 +7,7 @@
 import * as THREE from 'three';
 import { CHUNK } from '../world/gen.js';
 import * as village from '../world/village.js';
-import { PIECES } from '../pieces.js';
+import { PIECES, parsePlaced } from '../pieces.js';
 import { CAM } from '../camera.js';
 import { Builder } from './geo.js';
 import { buildNatureChunk, buildGround, buildFarNature, shake, WIND } from './nature3d.js';
@@ -115,7 +115,7 @@ export class World3D {
     const farm = this.farm(scene), d = scene.delta(cx, cy), today = farm?.today;
     let s = '';
     for (const o of data.objects) s += o.key + (o.crop ? ':' + farm.stage(o.crop) : '') + (o.open ? '!' : '') + (o.placed ? o.placed + (o.rot || 0) : '') + (o.off ? '~' : '') + (o.window && scene.doorClosed(...o.tile) ? '#' : '') + ',';   // (~: apagado; #: ventana cerrada)
-    for (const o of data.flats) s += o.key + ',';
+    for (const o of data.flats) s += o.key + (o.placed || '') + (o.rot || 0) + ',';
     for (const o of data.floors) s += o.key + ',';
     for (const t of data.tilled) { const k = `${t[0]},${t[1]}`; s += k + (d?.wet?.[k] === today ? 'w' : '') + ';'; }
     return s;
@@ -144,7 +144,7 @@ export class World3D {
       this.placeModel(`tilled:${wet ? 1 : 0}`, t[0] + 0.5, t[1] + 0.5, 0, plain, c, group);
     }
     for (const o of data.objects.concat(data.flats)) {
-      if (o.placed && o.layer === 'placed') {
+      if (o.placed && (o.layer === 'placed' || o.layer === 'hang')) {
         const [tx, ty] = o.tile, piece = PIECES[o.placed], region = this.regionAt(scene, tx, ty);
         if (region) c.regions.add(region);
         if (piece?.kind === 'wall') { const ex = { blooms: [], leaves: [] }; wallTile(scene, tx, ty, o.placed, emitFor(region), ex); this.flowers(ex, region, group); }
@@ -383,7 +383,11 @@ export class World3D {
     // Los trozos que la tocan se rehacen (sus paredes la llevan apuntada)
     for (const c of this.chunks.values()) if (c.regions.has(r.key)) c.force = true;
   }
-  dropRegion(r) { if (r.roof) { this.group.remove(r.roof); r.roof.traverse(o => { if (o.isMesh) o.geometry.dispose(); }); } if (r.lamp) this.group.remove(r.lamp); r.roof = r.lamp = null; }
+  dropRegion(r) {
+    for (const k of ['roof', 'ceil']) if (r[k]) { this.group.remove(r[k]); r[k].traverse(o => { if (o.isMesh) o.geometry.dispose(); }); }
+    if (r.lamp) this.group.remove(r.lamp);
+    r.roof = r.lamp = r.ceil = null;
+  }
   updateRegions(scene) {
     for (const r of this.regions.values()) {
       if (!r.dirty) continue;
@@ -392,8 +396,10 @@ export class World3D {
       const mats = [];
       r.roof.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; o.material = this.fadeMat(r.key + '|roof', matKeyOf(o.material)); mats.push(o.material); } });
       this.group.add(r.roof);
-      // Candelabro en el centro de las casas (las regiones con suelo)
+      // El techo por dentro: tablas y vigas (se ve solo con la cámara por debajo, ver updateFade)
       const floor = r.tiles.filter(([x, y]) => scene.at('floor', x, y));
+      if (floor.length) { r.ceil = this.ceiling(floor, r.box); this.group.add(r.ceil); }
+      // Candelabro en el centro de las casas (las regiones con suelo), salvo si ya tienen uno colgado
       if (floor.length > 4) {
         let sx = 0, sy = 0;
         for (const [x, y] of floor) { sx += x + 0.5; sy += y + 0.5; }
@@ -410,6 +416,30 @@ export class World3D {
       for (const [x, y] of r.tiles) { if (!has(x, y - 1)) edges.push([x, y, x + 1, y]); if (!has(x, y + 1)) edges.push([x, y + 1, x + 1, y + 1]); if (!has(x - 1, y)) edges.push([x, y, x, y + 1]); if (!has(x + 1, y)) edges.push([x + 1, y, x + 1, y + 1]); }
       r.top = (px, py) => { let best = Infinity; for (const e of edges) { const d = Math.max(Math.max(e[0] - px, 0, px - e[2]), Math.max(e[1] - py, 0, py - e[3])); if (d < best) best = d; } return WALL_H + ROOF.thick + Math.min(best, ROOF.cap) * ROOF.level; };
     }
+  }
+  // El techo de una casa por dentro: tablas de madera (que solo se ven desde abajo) y una viga oscura cada
+  // dos filas, de pared a pared
+  ceiling(floor, box) {
+    const g = new THREE.Group(), boards = new Builder(), beams = new Builder(), y = WALL_H - 0.01, has = new Set(floor.map(t => String(t)));
+    for (const [x, z] of floor) {
+      boards.box(x, y - 0.02, z, x + 1, y, z + 1, { skip: 'px nx py pz nz' });
+      if ((z - box.y0) % 2 === 1) {
+        const x0 = has.has(String([x - 1, z])) ? x : x + 0.02, x1 = has.has(String([x + 1, z])) ? x + 1 : x + 0.98;
+        beams.box(x0, y - 0.18, z + 0.43, x1, y - 0.02, z + 0.57, { skip: 'py' });
+      }
+    }
+    for (const [B, key] of [[boards, 'plank'], [beams, 'dark']]) if (!B.empty) { const m = B.mesh(this.mat(key)); m.castShadow = false; m.receiveShadow = false; g.add(m); }
+    g.visible = false;
+    return g;
+  }
+  // ¿Cuelga de esta casa algún candelabro puesto por el jugador? (entonces no lleva el suyo); se mira de vez en cuando
+  ownLamp(r) {
+    const s = this.game?.world, t = performance.now() / 1000;
+    if (!s || (r.lampAt ?? -9) > t - 0.5) return r.hasLamp;
+    r.lampAt = t;
+    r.hasLamp = r.tiles.some(([x, y]) => { const v = s.at('placed', x, y); return v && parsePlaced(v)[0] === 'candelabro'; });
+    if (r.lamp) r.lamp.visible = !r.hasLamp;
+    return r.hasLamp;
   }
   // Cajas de las casas cercanas (para que la cámara no se meta detrás de un tejado)
   houseBoxes() {
@@ -435,6 +465,9 @@ export class World3D {
     }
   }
   updateFade(game, scene, dt) {
+    // El techo por dentro, solo con la cámara por debajo de él (en primera persona o muy baja): desde arriba no tapa
+    const below = this.view.camera.position.y < WALL_H;
+    for (const r of this.regions.values()) if (r.ceil) r.ceil.visible = below;
     // La casa en la que está el jugador: la región de tejado bajo sus pies (si está a cubierto)
     const p = game.player, inside = p && game.scene === scene && game.underRoof ? this.regionOf.get(`${Math.floor(p.x)},${Math.floor(p.y)}`) || null : null;
     const reg = inside ? this.regions.get(inside) : null;
@@ -459,20 +492,20 @@ export class World3D {
     const out = [];
     for (const c of this.chunks.values()) for (const l of c.lights) out.push(l);
     if (this.villageLights) for (const l of this.villageLights.lights) out.push(l);
-    for (const r of this.regions.values()) if (r.center && !this.chandelierOff(r)) out.push({ x: r.center[0], y: WALL_H - 0.6, z: r.center[1], color: '#ffd08a', intensity: 4.5, range: 11 });
+    for (const r of this.regions.values()) if (r.center && !this.ownLamp(r) && !this.chandelierOff(r)) out.push({ x: r.center[0], y: WALL_H - 0.6, z: r.center[1], color: '#ffd08a', intensity: 4.5, range: 11 });
     return out;
   }
   flames() {
     const out = [];
     for (const c of this.chunks.values()) for (const f of c.flames) out.push(f);
     if (this.villageLights) for (const f of this.villageLights.flames) out.push(f);
-    for (const r of this.regions.values()) if (r.flames && !this.chandelierOff(r)) for (const f of r.flames) out.push(f);
+    for (const r of this.regions.values()) if (r.flames && !this.ownLamp(r) && !this.chandelierOff(r)) for (const f of r.flames) out.push(f);
     return out;
   }
   // El candelabro de una casa: se apaga y se enciende como las demás luces (se guarda con la casilla de su centro)
   chandelierOff(r) { const s = this.game?.world, [x, y] = r.center.map(Math.floor); return !!s?.lightOff(x, y, `c:${x},${y}`); }
   chandelierNear(x, y, d = 2.2) {
-    for (const r of this.regions.values()) if (r.center && Math.hypot(r.center[0] - x, r.center[1] - y) < d) return r.center.map(Math.floor);
+    for (const r of this.regions.values()) if (r.center && !this.ownLamp(r) && Math.hypot(r.center[0] - x, r.center[1] - y) < d) return r.center.map(Math.floor);
     return null;
   }
   smoke() {

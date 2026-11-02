@@ -138,6 +138,13 @@
   .inv-sep { margin: 10px 0 5px; font-size: 13px; color: var(--dim); }
   #inv-all { display: none; }
   body.admin #inv-all { display: block; }
+  .inv-allhead { display: flex; align-items: center; gap: 10px; }
+  #inv-all-q { margin-left: auto; width: 190px; padding: 4px 8px; font-size: 14px; color: var(--cream); background: rgba(0, 0, 0, .35); border: 2px solid #8a6034; border-radius: 4px; outline: none; user-select: text; -webkit-user-select: text; }
+  #inv-all-q:focus { border-color: var(--gold); }
+  #inv-all-none { padding: 8px 2px; font-size: 14px; color: var(--dim); }
+  #inv-all-none[hidden] { display: none; }
+  body:not(.admin) #inv-del { display: none; }
+  .btn.danger { color: #ffe8dc; background: #a8442a; border: 0; box-shadow: inset 0 -3px 0 #6a2416, 0 3px 0 #2a180c; }
   #inv-all-grid { display: grid; grid-template-columns: repeat(9, 44px); gap: 4px; max-height: 148px; overflow-y: auto; padding-right: 4px; }
   #inv-info { display: flex; gap: 12px; align-items: center; margin-top: 12px; padding-top: 10px; border-top: 2px solid #5a3a20; min-height: 64px; }
   #inv-icon { width: 48px; height: 48px; image-rendering: pixelated; flex: none; }
@@ -288,6 +295,7 @@
   #hearts i.e { color: #4a3a3a; }
   /* Cofre */
   #s-chest { background: rgba(10, 16, 8, .55); }
+  #ch-hint.no { color: #ff9a7a; }
   .ch-panel { padding: 14px 16px 16px; }
   .ch-panel h2 { margin: 0 0 8px; font-size: 22px; color: var(--gold); display: flex; align-items: center; justify-content: space-between; }
   .ch-panel h2 .sq { width: 34px; height: 30px; font-size: 16px; }
@@ -532,9 +540,9 @@
         <img id="inv-icon" alt="">
         <div><div id="inv-name"></div><div id="inv-desc"></div></div>
         <div id="inv-dyes" hidden></div>
-        <div class="inv-acts"><button class="btn primary" id="inv-wearbtn">Ponérmelo</button><button class="btn primary" id="inv-eat">Comer</button><button class="btn" id="inv-drop1">Tirar uno</button><button class="btn" id="inv-drop">Tirar</button></div>
+        <div class="inv-acts"><button class="btn primary" id="inv-wearbtn">Ponérmelo</button><button class="btn primary" id="inv-eat">Comer</button><button class="btn" id="inv-drop1">Tirar uno</button><button class="btn" id="inv-drop">Tirar</button><button class="btn danger" id="inv-del" title="Modo admin: lo quita para siempre, sin tirarlo">Eliminar</button></div>
       </div>
-      <div id="inv-all"><div class="inv-sep">Todos los objetos (admin): toca uno para cogerlo</div><div id="inv-all-grid"></div></div>
+      <div id="inv-all"><div class="inv-sep inv-allhead">Todos los objetos (admin): toca uno para cogerlo<input id="inv-all-q" type="search" placeholder="Buscar objeto…" autocomplete="off" spellcheck="false"></div><div id="inv-all-grid"></div><div id="inv-all-none" hidden>Ningún objeto se llama así.</div></div>
     </div>
     <img id="inv-ghost" alt="" hidden>
   </section>
@@ -548,7 +556,7 @@
     <div class="ch-panel panel">
       <h2><span id="ch-title">Cofre</span> <button class="sq" id="ch-close" aria-label="Cerrar">✕</button></h2>
       <div id="ch-grid"></div>
-      <div class="inv-sep">Tu mochila (clic para guardar en el cofre)</div>
+      <div class="inv-sep" id="ch-hint">Tu mochila (clic para guardar en el cofre)</div>
       <div id="ch-bag"></div>
     </div>
   </section>

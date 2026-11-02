@@ -81,7 +81,6 @@ export class Combat {
     g.busy = true;
     await hud.fade(true);
     g.addMoney(-lost);
-    g.days.skipToMorning();
     g.goHome();
     this.hp = HP_MAX; this.paint();
     g.setEnergy(50);

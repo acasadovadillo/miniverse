@@ -88,20 +88,35 @@ export function initInventoryUI(game, { onClose, onCraft }) {
   let picked = null;   // casilla elegida (número) o hueco del cuerpo ({ wear }) para ver sus detalles
 
   // ---------- Todos los objetos (modo admin) ----------
-  // Tocar uno da un montón entero; si no cabe, va a la casilla de la mano
-  const all = $('inv-all-grid');
+  // Tocar uno da un montón entero; si no cabe, va a la casilla de la mano. El buscador filtra por el nombre
+  // (sin tildes ni mayúsculas) y Enter coge el primero que quede
+  const all = $('inv-all-grid'), found = [];
+  const plain = t => t.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+  const give = id => {
+    const inv = game.inv, n = ITEMS[id].stack;
+    if (inv.add(id, n) === n) { inv.slots[inv.selected] = { id, n, ...(ITEMS[id].wear && { color: ITEMS[id].dye }) }; inv.changed(); }
+    picked = inv.slots.findIndex(s => s?.id === id);
+    refresh();
+  };
   for (const id of Object.keys(ITEMS)) {
     const el = slotEl(-1, 'slot');
     paint(el, { id, n: 1 });
-    el.addEventListener('pointerdown', e => {
-      e.preventDefault();
-      const inv = game.inv, n = ITEMS[id].stack;
-      if (inv.add(id, n) === n) { inv.slots[inv.selected] = { id, n, ...(ITEMS[id].wear && { color: ITEMS[id].dye }) }; inv.changed(); }
-      picked = inv.slots.findIndex(s => s?.id === id);
-      refresh();
-    });
+    el.addEventListener('pointerdown', e => { e.preventDefault(); give(id); });
     all.append(el);
+    found.push([el, id, plain(`${ITEMS[id].name} ${id.replace(/_/g, ' ')}`)]);
   }
+  const search = $('inv-all-q');
+  search.addEventListener('input', () => {
+    const q = plain(search.value.trim());
+    let any = false;
+    for (const [el, , text] of found) { el.hidden = !!q && !text.includes(q); any ||= !el.hidden; }
+    $('inv-all-none').hidden = any;
+    all.scrollTop = 0;
+  });
+  search.addEventListener('keydown', e => {
+    if (e.key === 'Enter') { const hit = found.find(([el]) => !el.hidden); if (hit) give(hit[1]); }
+    if (e.key === 'Escape') search.blur();
+  });
 
   const say = text => { $('inv-desc').textContent = text; };
   function refresh() {
@@ -170,6 +185,17 @@ export function initInventoryUI(game, { onClose, onCraft }) {
   };
   $('inv-drop1').onclick = () => { if (typeof picked === 'number') drop(picked, 1); };
   $('inv-drop').onclick = () => { if (typeof picked === 'number') drop(picked, Infinity); };
+  // Eliminar (modo admin): lo elegido desaparece entero, sin tirarlo al suelo (la mochila puesta, solo vacía)
+  $('inv-del').onclick = () => {
+    const inv = game.inv, worn = picked?.wear, s = worn ? inv.equip[worn] : typeof picked === 'number' ? inv.slots[picked] : null;
+    if (!game.admin || !s) return;
+    if (worn === 'espalda' && inv.slots.slice(HOTBAR).some(Boolean)) { say('Vacía la mochila antes de eliminarla.'); return; }
+    if (worn) delete inv.equip[worn]; else inv.slots[picked] = null;
+    inv.changed();
+    picked = null;
+    refresh();
+    $('inv-name').textContent = `Has eliminado ${ITEMS[s.id].name}${s.n > 1 ? ` ×${s.n}` : ''}`;
+  };
   $('inv-close').onclick = () => onClose();
   $('inv-craft').onclick = () => onCraft();
 

@@ -9,8 +9,9 @@
 // fuera (n, s, e, o w), para poder quitar las paredes que tapan la vista cuando el jugador está dentro.
 import * as THREE from 'three';
 import { Builder, mat } from './geo.js';
-import { plaster, planks, roofTiles, stone, wood, siding, flagstone, gravel, thatch } from './textures.js';
+import { plaster, planks, roofTiles, stone, wood, siding, flagstone, gravel, thatch, artwork } from './textures.js';
 import { PIECES, parsePlaced } from '../pieces.js';
+import { front } from '../art/stations.js';
 
 export const WALL_H = 2.8;
 export const T = 0.12;
@@ -33,7 +34,7 @@ export function baseMaterials() {
     timber: mat({ map: wood('#5e3b22'), roughness: 0.8 }), frame: mat({ map: wood('#4a2e1a'), roughness: 0.7 }), shutter: mat({ map: wood('#3f7a44') }), door: mat({ map: wood('#9a6438') }),
     glass: new THREE.MeshStandardMaterial({ color: '#a8d4f0', roughness: 0.08, metalness: 0.3, transparent: true, opacity: 0.4, depthWrite: false, emissive: '#ffb050', emissiveIntensity: 0 }),
     box: mat({ color: '#7a4a2a' }), soil: mat({ color: '#4a3020' }), leaves: mat({ color: '#3f8a32', flatShading: true }), bloom: mat({ roughness: 0.6 }),
-    painting: mat({ map: paintingTex() }), floor_madera: mat({ map: planks(), roughness: 0.6 }), floor_piedra: mat({ map: flagstone(), roughness: 0.85 }), floor_camino: mat({ map: gravel(), roughness: 1 }),
+    painting: mat({ map: artwork('valle') }), floor_madera: mat({ map: planks(), roughness: 0.6 }), floor_piedra: mat({ map: flagstone(), roughness: 0.85 }), floor_camino: mat({ map: gravel(), roughness: 1 }),
     fence: mat({ map: wood('#9a6a40') }), fenceStone: mat({ map: stone('#9a948a') }), roofs, roofEdge: mat({ map: wood('#4a2e1a') }), soffit: mat({ map: planks(), color: '#d8c8b0' }),
   };
   return BASE;
@@ -82,6 +83,12 @@ export function wallTile(scene, tx, ty, id, emit, extras) {
   };
   for (const f of ['px', 'nx', 'pz', 'nz']) emit(faceMat(f), side).box(cx - T, 0, cz - T, cx + T, WALL_H, cz + T, { skip: ['px', 'nx', 'py', 'ny', 'pz', 'nz'].filter(k => k !== f).join(' ') });
   emit('frame', side).box(cx - T, WALL_H - 0.02, cz - T, cx + T, WALL_H, cz + T, { skip: 'ny px nx pz nz' });
+  // Rodapié en las caras del poste que dan a la casa sin brazo delante: el lado liso de un muro en T (si no,
+  // queda cortado) y, en un rincón saliente, las dos (la de lo largo de x tapa la esquina)
+  const open = { px: !(mask & 1), nx: !(mask & 2), pz: !(mask & 4), nz: !(mask & 8) }, R = 0.02;
+  const skirt = f => open[f] && faceMat(f) === 'plaster', sk = emit('frame', side);
+  for (const [f, z0, z1] of [['pz', cz + T, cz + T + R], ['nz', cz - T - R, cz - T]]) if (skirt(f)) sk.box(cx - T - (skirt('nx') ? R : 0), 0, z0, cx + T + (skirt('px') ? R : 0), 0.12, z1);
+  for (const [f, x0, x1] of [['px', cx + T, cx + T + R], ['nx', cx - T - R, cx - T]]) if (skirt(f)) sk.box(x0, 0, cz - T, x1, 0.12, cz + T);
   // Poste de esquina y zócalo por fuera, en la esquina de fuera de un muro en L
   if (xArms.length === 1 && zArms.length === 1 && sideX !== 'in' && sideZ !== 'in') {
     const ox = -xArms[0], oz = -zArms[0];   // la esquina de fuera queda hacia donde no van los brazos
@@ -330,21 +337,22 @@ export function roofRegion(scene, tiles, regionKey) {
       const a2 = [a[0], a[1] - ROOF.thick, a[2]], b2 = [b[0], b[1] - ROOF.thick, b[2]], mid = [(a[0] + b[0]) / 2 - (x + 0.5), 0, (a[2] + b[2]) / 2 - (y + 0.5)], l = Math.hypot(mid[0], mid[2]) || 1;
       fascia.quadN(a2, b2, b, a, [mid[0] / l, 0, mid[2] / l], [[0, 0], [1, 0], [1, 0.14], [0, 0.14]]);
     }
-    const under = scene.at('placed', x, y);
-    if (under && parsePlaced(under)[0] === 'chimenea') chimneys.push([x + 0.5, y + 0.5, top(0, 0, H(x + 0.5, y + 0.5))]);
+    const [under, rot] = parsePlaced(scene.at('placed', x, y) || '');
+    if (under === 'chimenea') chimneys.push([x + 0.5, y + 0.5, top(0, 0, H(x + 0.5, y + 0.5)), rot]);
   }
   const g = new THREE.Group();
   for (const [id, B] of byMat) g.add(B.mesh(M.roofs[id]));
   g.add(soffit.mesh(M.soffit), fascia.mesh(M.roofEdge));
-  // Chimeneas de piedra con su remate
-  for (const [x, z, y] of chimneys) {
-    const B = new Builder();
-    B.box(x - 0.36, WALL_H, z - 0.56, x + 0.36, y + 1.0, z + 0.04, { s: 0.6 });
-    B.box(x - 0.42, y + 1.0, z - 0.62, x + 0.42, y + 1.12, z + 0.1, { s: 0.6 });
-    const S = new Builder(); S.box(x - 0.26, y + 1.12, z - 0.48, x + 0.26, y + 1.13, z - 0.04);
+  // Chimeneas de piedra con su remate, hacia la espalda del hogar (el muro que tiene detrás)
+  const stacks = chimneys.map(([x, z, y, rot]) => { const [fx, fz] = front(rot); return [x - fx * 0.26, z - fz * 0.26, y, fx !== 0]; });
+  for (const [x, z, y, across] of stacks) {
+    // (a lo ancho del hogar w, hacia atrás d)
+    const box = (B, w, d, y0, y1) => { const [hx, hz] = across ? [d, w] : [w, d]; B.box(x - hx, y0, z - hz, x + hx, y1, z + hz, { s: 0.6 }); };
+    const B = new Builder(), S = new Builder();
+    box(B, 0.36, 0.3, WALL_H, y + 1.0); box(B, 0.42, 0.36, y + 1.0, y + 1.12); box(S, 0.26, 0.22, y + 1.12, y + 1.13);
     g.add(B.mesh(M.stone), S.mesh(mat({ color: '#1e1a18' })));
   }
-  g.userData = { regionKey, chimneys: chimneys.map(([x, z, y]) => [x, y + 1.15, z - 0.26]) };
+  g.userData = { regionKey, chimneys: stacks.map(([x, z, y]) => [x, y + 1.15, z]) };
   return g;
 }
 // Un triángulo del tejado, con las tejas en filas paralelas al alero (u a lo largo, v cuesta arriba). Por
@@ -366,16 +374,4 @@ function addRoofTri(B, [a, b, c], under = false) {
 }
 
 // Paisaje para los cuadros
-function paintingTex() {
-  const c = document.createElement('canvas'); c.width = 128; c.height = 96;
-  const x = c.getContext('2d'), sky = x.createLinearGradient(0, 0, 0, 96);
-  sky.addColorStop(0, '#6eb6e4'); sky.addColorStop(1, '#e4f2f8');
-  x.fillStyle = sky; x.fillRect(0, 0, 128, 96);
-  x.fillStyle = '#ffe08a'; x.beginPath(); x.arc(96, 24, 10, 0, Math.PI * 2); x.fill();
-  x.fillStyle = '#8fb0c8'; x.beginPath(); x.moveTo(0, 60); x.lineTo(30, 30); x.lineTo(52, 50); x.lineTo(76, 26); x.lineTo(128, 62); x.lineTo(128, 96); x.lineTo(0, 96); x.fill();
-  x.fillStyle = '#5aa842'; x.beginPath(); x.moveTo(0, 66); x.quadraticCurveTo(40, 46, 80, 62); x.quadraticCurveTo(106, 70, 128, 56); x.lineTo(128, 96); x.lineTo(0, 96); x.fill();
-  x.fillStyle = '#3f8030'; x.beginPath(); x.moveTo(0, 80); x.quadraticCurveTo(64, 64, 128, 82); x.lineTo(128, 96); x.lineTo(0, 96); x.fill();
-  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
-  return t;
-}
 export { FLOWER };

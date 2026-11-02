@@ -23,8 +23,8 @@ import { Ranch } from './ranch.js';
 import { Fishing } from './fishing.js';
 import { Wildlife } from './wildlife.js';
 import { Rest } from './rest.js';
-import { footTile, front } from './art/stations.js';
-import { HOTBAR } from './inventory.js';
+import { footTile, front, extraTiles } from './art/stations.js';
+import { HOTBAR, extraOf } from './inventory.js';
 import { Neighbors } from './neighbors.js';
 import { Board } from './board.js';
 import { Combat } from './combat.js';
@@ -54,7 +54,7 @@ function defaultHouseDeltas() {
   return out;
 }
 
-const LIGHTS = new Set(['lampara', 'antorcha', 'vela']);   // lo colocado que se apaga y se enciende con E
+const LIGHTS = new Set(['lampara', 'antorcha', 'vela', 'candelabro']);   // lo colocado que se apaga y se enciende con E
 
 export class Game {
   constructor(canvas) {
@@ -257,23 +257,31 @@ export class Game {
       if (closed || !inGap) return { text: closed ? 'Abrir la puerta' : 'Cerrar la puerta', run: () => { sc.toggleDoor(...door); Audio.place(); save(); } };
     }
     // Lo colocado: las estaciones se usan, en la cama te tumbas o duermes, en la silla te sientas, las luces se
-    // apagan y se encienden, el cofre y la mochila se abren; lo demás se recoge (con X, lo que se usa con E)
+    // apagan y se encienden, el cofre, el armario y la mochila se abren; lo demás se recoge (con X, lo que se usa
+    // con E). Lo más cercano primero; si encima de un mueble cuelga un cuadro, se recoge antes el cuadro.
     // (lo fijo de las casas de los vecinos no se toca)
-    const o = sc.placedNear?.(p.x, p.y, 1.3).find(o => !o.fixed);
+    const dist = o => (o.fx ? Math.hypot(p.x - Math.min(Math.max(p.x, o.fx[0] + 0.5), o.fx[1] - 0.5), p.y - Math.min(Math.max(p.y, o.fy[0] + 0.5), o.fy[1] - 0.5)) : Math.hypot(o.x - p.x, o.y - p.y));
+    const o = (sc.placedNear?.(p.x, p.y, 1.3) || []).filter(o => !o.fixed && (!sc.reaches || sc.reaches(p.x, p.y, o.x, o.y))).sort((a, b) => dist(a) - dist(b))[0];
     if (o) {
-      const name = ITEMS[o.placed].name.toLowerCase(), pick = { text: `Recoger ${name}`, run: () => this.pickUp(o) };
+      const hung = o.layer === 'hang' ? null : [o.tile, ...extraTiles(o.placed, ...o.tile, o.rot)].map(t => [t, sc.ownAt?.('hang', ...t)]).find(([, v]) => v);
+      const top = hung ? { tile: hung[0], layer: 'hang', placed: hung[1].split('@')[0] } : o;
+      const name = ITEMS[o.placed].name.toLowerCase(), pick = { text: `Recoger ${ITEMS[top.placed].name.toLowerCase()}`, run: () => this.pickUp(top) };
       if (STATIONS[o.placed]) return { text: `Usar ${name}`, run: () => this.onCraft?.(o.placed), alt: pick };
       if (o.placed === 'cama' || o.placed === 'cama_nino' || o.placed === 'cama_doble') return { text: 'Usar la cama', run: () => this.bed(o), alt: pick };
       if (o.placed === 'silla' || o.placed === 'sofa') return { text: 'Sentarse', run: () => this.rest.sit(o), alt: pick };
       if (o.placed === 'lavabo') return { text: 'Mirarse en el espejo', run: () => this.onMirror?.(), alt: pick };
       if (o.placed === 'cofre') return { text: 'Abrir el cofre', run: () => this.onChest?.(sc.chestAt(...o.tile), o.tile), alt: pick };   // (lleno no se recoge: hay que vaciarlo antes)
+      if (o.placed === 'armario') return { text: 'Abrir el armario', run: () => this.onChest?.(sc.chestAt(...o.tile), o.tile), alt: pick };
       if (o.placed === 'mochila') return { text: 'Abrir la mochila', run: () => this.onChest?.(sc.chestAt(...o.tile) || [], o.tile), alt: { text: this.inv.equip.espalda ? 'Recoger la mochila' : 'Ponerse la mochila', run: () => this.takeBackpack(o) } };
-      if (LIGHTS.has(o.placed)) return { text: `${o.off ? 'Encender' : 'Apagar'} ${name.replace(/^lámpara/, 'la lámpara').replace(/^antorcha/, 'la antorcha').replace(/^vela/, 'la vela')}`, run: () => { sc.toggleLight(...o.tile); Audio.blip(); save(); }, alt: pick };
+      if (LIGHTS.has(o.placed)) return { text: `${o.off ? 'Encender' : 'Apagar'} ${name.replace(/^lámpara/, 'la lámpara').replace(/^antorcha/, 'la antorcha').replace(/^vela/, 'la vela').replace(/^candelabro de techo/, 'el candelabro')}`, run: () => { sc.toggleLight(...o.tile); Audio.blip(); save(); }, alt: pick };
       return pick;
     }
     // El fuego del hogar y el candelabro de la casa
     const hearth = sc.hearthNear?.(p.x, p.y);
-    if (hearth) { const off = sc.lightOff(...hearth); return { text: off ? 'Encender el fuego' : 'Apagar el fuego', run: () => { sc.toggleLight(...hearth); Audio.noiseHit(off ? 900 : 300, 0.25, 0.25); save(); } }; }
+    if (hearth) {
+      const off = sc.lightOff(...hearth), mine = !!sc.ownAt?.('placed', ...hearth);   // (el de los vecinos no se recoge)
+      return { text: off ? 'Encender el fuego' : 'Apagar el fuego', run: () => { sc.toggleLight(...hearth); Audio.noiseHit(off ? 900 : 300, 0.25, 0.25); save(); }, alt: mine ? { text: 'Recoger el hogar', run: () => { if (this.pickUp({ tile: hearth, layer: 'placed', placed: 'chimenea' })) save(); } } : null };
+    }
     const lamp = sc === this.world && p.inside !== undefined && this.underRoof && this.view3d?.world?.chandelierNear?.(p.x, p.y);
     if (lamp) { const k = `c:${lamp}`, off = sc.lightOff(...lamp, k); return { text: off ? 'Encender el candelabro' : 'Apagar el candelabro', run: () => { sc.toggleLight(...lamp, k); Audio.blip(); save(); } }; }
     // Una ventana: se abre o se cierra (con contraventanas, por fuera; sin ellas, con postigos por dentro)
@@ -358,7 +366,7 @@ export class Game {
   // Devolver a la mochila algo colocado
   pickUp(o) {
     if (this.inv.room(o.placed) < 1) { this.gather.float('No te cabe: no llevas sitio libre', '#ffb0a0'); Audio.error(); return false; }
-    if (o.placed === 'cofre' && this.scene.chestAt(...o.tile)?.some(Boolean)) { this.gather.float('Vacía el cofre antes', '#ffb0a0'); Audio.error(); return false; }
+    if ((o.placed === 'cofre' || o.placed === 'armario') && this.scene.chestAt(...o.tile)?.some(Boolean)) { this.gather.float(`Vacía ${o.placed === 'cofre' ? 'el cofre' : 'el armario'} antes`, '#ffb0a0'); Audio.error(); return false; }
     this.scene.unplace(o);
     this.inv.add(o.placed, 1);
     Audio.pickup();
@@ -434,9 +442,9 @@ export class Game {
     this.updatePlace();
   }
   // Devuelve algo a la mochila; si no cabe, al suelo
-  giveBack(id, n = 1) {
-    const left = this.inv.add(id, n);
-    if (left && this.player) this.gather.throwOut(id, left);
+  giveBack(id, n = 1, from) {   // (from: la casilla de donde sale, para que la ropa conserve su color)
+    const left = this.inv.add(id, n, extraOf(from));
+    if (left && this.player) this.gather.throwOut(id, left, extraOf(from));
   }
   // Primera casilla libre de dentro de una casa (sin contar la de delante de la puerta), o null
   freeTile(H, dx, dy) {
@@ -458,17 +466,22 @@ export class Game {
       const cur = w.ownAt('placed', tx, ty);
       if (!cur) return;
       const [cid] = parsePlaced(cur), o = { tile: [tx, ty], layer: 'placed', placed: cid };
-      const items = cid === 'cofre' ? w.chestAt(tx, ty) : null;
+      const items = cid === 'cofre' || cid === 'armario' ? w.chestAt(tx, ty) : null;
       w.unplace(o);
       if (items?.some(Boolean)) {
         const spot = this.freeTile(H, dx, dy);
-        if (spot) { w.place(spot[0], spot[1], 'cofre'); w.delta(Math.floor(spot[0] / CHUNK), Math.floor(spot[1] / CHUNK)).chest[`${spot[0]},${spot[1]}`] = items; return; }
-        for (const it of items) if (it) this.giveBack(it.id, it.n);
+        if (spot) { w.place(spot[0], spot[1], cid); w.delta(Math.floor(spot[0] / CHUNK), Math.floor(spot[1] / CHUNK)).chest[`${spot[0]},${spot[1]}`] = items; return; }
+        for (const it of items) if (it) this.giveBack(it.id, it.n, it);
       }
-      if (PIECES[cid]) { for (const [m, n] of PIECES[cid].cost) this.giveBack(m, n); } else this.giveBack(cid, 1);
+      if (PIECES[cid] && !ITEMS[cid]) { for (const [m, n] of PIECES[cid].cost) this.giveBack(m, n); } else this.giveBack(cid, 1);
     };
-    // (en la casa familiar el hogar va en el salón: el de antes, que quedaría en un dormitorio, se cambia allí)
-    if (size === 'family') for (let ty = H.y0; ty < H.y1; ty++) for (let tx = H.x0; tx < H.x1; tx++) if (parsePlaced(w.ownAt('placed', tx, ty) || '')[0] === 'chimenea') w.unplace({ tile: [tx, ty], layer: 'placed', placed: 'chimenea' });
+    // (en la casa familiar el hogar va en el salón: el de antes, que quedaría en un dormitorio, se cambia allí; si
+    // había más, los otros vuelven a la mochila)
+    if (size === 'family') {
+      let n = 0;
+      for (let ty = H.y0; ty < H.y1; ty++) for (let tx = H.x0; tx < H.x1; tx++) if (parsePlaced(w.ownAt('placed', tx, ty) || '')[0] === 'chimenea') { w.unplace({ tile: [tx, ty], layer: 'placed', placed: 'chimenea' }); n++; }
+      if (n > 1) this.giveBack('chimenea', n - 1);
+    }
     for (const [t, raw] of Object.entries(bp.placed)) {
       const [tx, ty] = t.split(',').map(Number), [id, rot] = parsePlaced(raw);
       if (PIECES[id]) {

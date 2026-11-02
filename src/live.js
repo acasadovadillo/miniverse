@@ -60,7 +60,7 @@ export class Live {
     this.synced = new Map();      // trozo → cómo estaba la última vez que se mandó (o llegó del anfitrión)
     this.blobs = {};              // lo de todos que no va en los trozos, como se mandó la última vez
     this.timers = { sync: 0, blob: 0, time: 0, herd: 0 };
-    this.clockBase = null;        // (invitado) la hora del anfitrión: { c, at, run }
+    this.clockBase = null;        // (invitado) la hora del anfitrión: { c, at, run, sh, db } (sh: lo que ha movido el reloj; db: su día 0)
     this.solo = null;             // (invitado) su partida de siempre, con su mundo: lo que se guarda
     this.wanted = null;           // (invitado) esperando el mundo del anfitrión
     this.dropN = 0;
@@ -175,7 +175,7 @@ export class Live {
         BLOBS[m.name].set(g, m.v);
         if (fromHost) this.blobs[m.name] = JSON.stringify(BLOBS[m.name].get(g));   // (el anfitrión lo reparte a todos en su próxima vuelta)
         break;
-      case 'time': if (fromHost) this.clockBase = { c: m.c, at: g.time, run: m.run }; break;
+      case 'time': if (fromHost) this.clockBase = { c: m.c, at: g.time, run: m.run, sh: m.sh, db: m.db }; break;
       case 'herd':
         if (!fromHost) break;
         m.p.forEach((p, i) => { const a = g.ranch.animals[i]; if (a) a.netTo = p; });
@@ -370,7 +370,7 @@ export class Live {
       }
     }
     if (this.role === 'host') {
-      if (T.time >= TIME_EVERY) { T.time = 0; this.net.send({ t: 'time', c: r2(g.world.clock), run: g.mode === 'play' }); }
+      if (T.time >= TIME_EVERY) { T.time = 0; this.net.send({ t: 'time', c: r2(g.world.clock), run: g.mode === 'play', sh: g.days.shift, db: g.days.dayBase }); }
       if (T.herd >= HERD_EVERY && this.others.some(o => o.playing)) { T.herd = 0; this.net.send({ t: 'herd', p: g.ranch.animals.map(a => [r2(a.x), r2(a.y)]), k: g.family.positions() }); }
     }
     // Cómo va uno. Cada golpe nuevo con la herramienta (el temporizador sube), para que los demás vean el gesto.

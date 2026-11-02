@@ -49,7 +49,11 @@ export class Gathering {
         [tx, ty] = this.cursor;
         far = Math.max(Math.abs(tx - Math.floor(p.x)), Math.abs(ty - Math.floor(p.y))) > PLACE_REACH;
       }
-      return { tile: [tx, ty], ok: !far && !!g.scene.canPlace?.(tx, ty, held.id, p, this.rot), far, place: held.id, rot: this.rot };
+      // Lo que va contra un muro (los cuadros y el hogar) se gira solo hacia el que tenga detrás (con R, si hay dos,
+      // al otro)
+      let rot = this.rot;
+      if (def.place === 'wall' || held.id === 'chimenea') rot = [0, 1, 2, 3].map(i => (this.rot + i) % 4).find(r => g.scene.canPlace?.(tx, ty, held.id, p, r)) ?? this.rot;
+      return { tile: [tx, ty], ok: !far && !!g.scene.canPlace?.(tx, ty, held.id, p, rot), far, place: held.id, rot };
     }
     for (const s of g.systems) { const t = s.target?.(p, held, def); if (t) return t; }
     if (!g.scene.harvestablesNear) return null;
@@ -228,7 +232,7 @@ export class Gathering {
     if (auto) return;
     this.cooldown = COOLDOWN;
     if (!t?.ok) { this.float(t?.far ? `Demasiado lejos (como mucho a ${PLACE_REACH} casillas)` : 'Ahí no cabe', '#ffb0a0'); Audio.error(); return; }
-    g.scene.place(...t.tile, id, this.rot);
+    g.scene.place(...t.tile, id, t.rot);
     g.inv.take(g.inv.selected, 1);
     this.chips(t.tile[0] + 0.5, t.tile[1] + 0.5, 'dirt', 8);
     Audio.place();

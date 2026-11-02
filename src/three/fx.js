@@ -113,7 +113,8 @@ export class Fx {
         const tg = game.gather.target;
         if (tg?.tile && (tg.ok || tg.place)) {
           this.showTile(tg.tile, gy, tg.ok ? pulse : '#ff7a6a');
-          if (tg.place) { ghost = tg.place; ghostOk = tg.ok; at = [tg.tile[0] + 0.5, tg.tile[1] + 0.5]; yaw = yawOf(tg.rot); }
+          // (arrimado al muro de detrás, como quedará)
+          if (tg.place) { const [sx, sy] = game.scene.wallShift?.(tg.place, ...tg.tile, tg.rot) || [0, 0]; ghost = tg.place; ghostOk = tg.ok; at = [tg.tile[0] + 0.5 + sx, tg.tile[1] + 0.5 + sy]; yaw = yawOf(tg.rot); }
         } else if (tg?.obj) {
           this.ring.visible = true;
           this.ring.position.set(tg.obj.x, gy(tg.obj.x, tg.obj.y) + 0.04, tg.obj.y);

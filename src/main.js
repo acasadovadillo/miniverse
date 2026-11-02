@@ -29,7 +29,7 @@ initInput({
   paint: (x, y, drag) => b.place(game.tileAtScreen(x, y), drag),
   unpaint: (x, y) => b.remove(game.tileAtScreen(x, y)),
   release: () => { b.painted = null; },
-  rotate: () => { game.gather.rot = ((game.gather.rot || 0) + 1) % 4; },   // (cuatro giros: 0°, 90°, 180° y 270°)
+  rotate: () => { game.gather.rot = ((game.gather.target?.rot ?? game.gather.rot ?? 0) + 1) % 4; },   // (cuatro giros: 0°, 90°, 180° y 270°; desde el que se ve)
   erase: () => { if (b.on) b.remove(); else game.altAction(); },
   interact: () => game.action(),
   pause: () => menus.togglePause(),

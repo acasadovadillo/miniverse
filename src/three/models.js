@@ -10,8 +10,9 @@
 // trozo en unas pocas mallas. Lo que no se junta (fuego, cristal, agua) va aparte, igual que sus luces.
 import * as THREE from 'three';
 import { Builder, mat } from './geo.js';
-import { wood, stone, rug, notes, awning, planks, furrows } from './textures.js';
+import { wood, stone, rug, notes, awning, planks, furrows, artwork } from './textures.js';
 import { CROPS } from '../items.js';
+import { WALL_H } from './build3d.js';
 
 // ---------- materiales ----------
 let MATS;
@@ -38,6 +39,7 @@ export function modelMats() {
     snow: c('#f4f8fc', { roughness: 0.85 }), rock: mat({ map: stone('#8a857c'), flatShading: true }), dark0: c('#0a0806', { roughness: 1 }), stripeR: c('#c83a32'), lens: c('#fff6c8', { emissive: '#ffe080', emissiveIntensity: 2 }),
     bee: c('#e8c040'), sofa: c('#3f6a5a', { roughness: 0.95 }), sofaB: c('#5a8a74', { roughness: 0.95 }), leather: c('#8a5a34', { roughness: 0.85 }), leatherD: c('#5e3b22', { roughness: 0.85 }),
     porcelain: c('#f4f2ee', { roughness: 0.22 }), quiltK: c('#5a9ad8', { roughness: 0.95 }), quiltK2: c('#e88aa8', { roughness: 0.95 }), pillowK: c('#f4d86a', { roughness: 0.95 }),
+    art_valle: mat({ map: artwork('valle'), roughness: 0.9 }), art_mar: mat({ map: artwork('mar'), roughness: 0.9 }), art_flores: mat({ map: artwork('flores'), roughness: 0.9 }), art_noche: mat({ map: artwork('noche'), roughness: 0.9 }),
     baby: c('#f4e6c8', { roughness: 0.95 }), mirror: c('#d8eef4', { metalness: 0.6, roughness: 0.08 }), plate: c('#f0ece0', { roughness: 0.4 }), plateB: c('#5a7ab8', { roughness: 0.4 }),
   };
   return MATS;
@@ -132,6 +134,20 @@ const BUILD = {
     for (const y of [1.3, 1.62]) m.box('light', -0.41, y, -0.2, 0.41, y + 0.035, 0.0);
     for (let i = 0; i < 4; i++) { const u = -0.3 + i * 0.2; m.cyl(i % 2 ? 'plateB' : 'plate', u, 1.335, -0.12, 0.1, 0.1, 0.018, 14, [Math.PI / 2 - 0.25, 0, 0]); }
     for (const [u, k, h] of [[-0.28, 'pot', 0.16], [-0.08, 'glass', 0.2], [0.12, 'pot', 0.13], [0.3, 'copper', 0.18]]) m.cyl(k, u, 1.655, -0.1, 0.06, 0.055, h, 10);
+  },
+  // Armario: alto, de dos puertas con cuarterones, con cornisa y patas
+  armario(m) {
+    m.box('wood', -0.46, 0.08, -0.3, 0.46, 2.0, 0.22).box('light', -0.5, 2.0, -0.33, 0.5, 2.08, 0.26).box('dark', -0.48, 0.08, -0.31, 0.48, 0.14, 0.24);
+    for (const x of [-0.44, 0.39]) for (const z of [-0.28, 0.17]) m.box('dark', x, 0, z, x + 0.05, 0.08, z + 0.05);
+    m.box('dark', -0.42, 0.2, 0.22, -0.012, 1.92, 0.245).box('dark', 0.012, 0.2, 0.22, 0.42, 1.92, 0.245);
+    for (const [x0, x1] of [[-0.36, -0.07], [0.07, 0.36]]) m.box('wood', x0, 0.34, 0.245, x1, 0.92, 0.256).box('wood', x0, 1.1, 0.245, x1, 1.78, 0.256);
+    m.ball('brass', -0.045, 1.02, 0.26, 0.022).ball('brass', 0.045, 1.02, 0.26, 0.022);
+  },
+  // Encimera con cajones: la parte de abajo de la alacena, con dos cajones encima de las puertas
+  encimera(m) {
+    m.box('wood', -0.46, 0, -0.26, 0.46, 0.86, 0.2).box('light', -0.48, 0.86, -0.28, 0.48, 0.92, 0.22);
+    m.box('dark', -0.42, 0.62, 0.2, -0.02, 0.8, 0.22).box('dark', 0.02, 0.62, 0.2, 0.42, 0.8, 0.22).box('brass', -0.28, 0.7, 0.22, -0.16, 0.725, 0.24).box('brass', 0.16, 0.7, 0.22, 0.28, 0.725, 0.24);
+    m.box('dark', -0.42, 0.08, 0.2, -0.02, 0.56, 0.22).box('dark', 0.02, 0.08, 0.2, 0.42, 0.56, 0.22).ball('brass', -0.07, 0.32, 0.235, 0.022).ball('brass', 0.07, 0.32, 0.235, 0.022);
   },
   // Baño: bañera de porcelana con patas de latón (dos casillas de largo), retrete y lavabo con espejo
   banera(m) {
@@ -533,6 +549,18 @@ function tilled(m, wet) {
   for (let i = 0; i < 3; i++) m.box(wet ? 'dirtWet' : 'dirt', -0.42, 0.06, -0.36 + i * 0.3, 0.42, 0.1, -0.24 + i * 0.3, 1);
 }
 
+// Cuadros: marco con su fondo y el lienzo un poco hundido, a media altura, con la espalda contra el muro (z = -0.05)
+function painting(m, art, frame) {
+  const z0 = -0.05, z1 = -0.015, x = 0.42, y0 = 1.1, y1 = 1.8, b = 0.06, z = -0.032;
+  m.box(frame, -x, y0, z0, x, y1, z0 + 0.01);
+  m.box(frame, -x, y0, z0, -x + b, y1, z1).box(frame, x - b, y0, z0, x, y1, z1).box(frame, -x + b, y0, z0, x - b, y0 + b, z1).box(frame, -x + b, y1 - b, z0, x - b, y1, z1);
+  m.B(art).quadN([-x + b, y0 + b, z], [x - b, y0 + b, z], [x - b, y1 - b, z], [-x + b, y1 - b, z], [0, 0, 1], [[0, 0], [1, 0], [1, 1], [0, 1]]);
+}
+Object.assign(BUILD, {
+  cuadro_valle: m => painting(m, 'art_valle', 'dark'), cuadro_mar: m => painting(m, 'art_mar', 'light'),
+  cuadro_flores: m => painting(m, 'art_flores', 'gold'), cuadro_noche: m => painting(m, 'art_noche', 'dark'),
+});
+
 // ---------- caché ----------
 const CACHE = new Map();
 // Modelo de algo, por su nombre: 'banco', 'crop:tomate:3', 'poi:templo', 'village:stall', 'treasure:1', 'tilled:0'…
@@ -561,14 +589,17 @@ export function modelMat(key) {
   }
   return DYN.get(key);
 }
-export const CHANDELIER = (() => {
-  // Candelabro: cadena, aro de hierro, seis velas con su llama (se cuelga del techo; el origen arriba)
-  const m = new Model();
-  m.cyl('iron', 0, -0.7, 0, 0.012, 0.012, 0.7, 4).geo('iron', TORUS, 0, -0.75, 0, [Math.PI / 2, 0, 0], [0.38, 0.38, 0.38 / 0.38]).ball('brass', 0, -0.75, 0, 0.06);
+// Candelabro: cadena, aro de hierro, seis velas con su llama, colgado a la altura y0 (el techo)
+function chandelier(m, y0) {
+  m.cyl('iron', 0, y0 - 0.7, 0, 0.012, 0.012, 0.7, 4).geo('iron', TORUS, 0, y0 - 0.75, 0, [Math.PI / 2, 0, 0], [0.38, 0.38, 0.38 / 0.38]).ball('brass', 0, y0 - 0.75, 0, 0.06);
+  m.cyl('iron', 0, y0 - 0.04, 0, 0.07, 0.05, 0.04, 10);   // el florón del techo
   for (let i = 0; i < 6; i++) {
     const a = (i / 6) * Math.PI * 2, x = Math.cos(a) * 0.38, z = Math.sin(a) * 0.38;
-    m.cyl('brass', x, -0.75, z, 0.04, 0.03, 0.03, 8).cyl('candle', x, -0.72, z, 0.022, 0.022, 0.14, 8);
-    m.fire(x, -0.58, z, 0.12);
+    m.cyl('brass', x, y0 - 0.75, z, 0.04, 0.03, 0.03, 8).cyl('candle', x, y0 - 0.72, z, 0.022, 0.022, 0.14, 8);
+    m.fire(x, y0 - 0.58, z, 0.12);
   }
   return m;
-})();
+}
+// El de cada casa (el origen arriba) y el que se coloca (origen en el suelo, colgado del techo, con su luz)
+export const CHANDELIER = chandelier(new Model(), 0);
+BUILD.candelabro = m => chandelier(m, WALL_H).light(0, WALL_H - 0.6, 0, { color: '#ffd08a', intensity: 4.5, range: 11 });

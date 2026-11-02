@@ -1,4 +1,5 @@
-// Cofre: dos rejillas (el cofre y la mochila). Un clic en una casilla pasa el montón al otro lado.
+// Cofre: dos rejillas (el cofre y la mochila). Un clic en una casilla pasa el montón al otro lado. Sirve también
+// para la mochila dejada en el suelo, las alforjas del caballo y el armario (en el que solo cabe ropa).
 import { ITEMS } from '../items.js';
 import { SLOTS, extraOf } from '../inventory.js';
 import { itemIconUrl } from '../art/items.js';
@@ -21,7 +22,7 @@ function paint(el, s) {
 }
 
 export function initChestUI(game, { onClose }) {
-  let chest = null, tile = null, onChange = null;   // (sin casilla: las alforjas del caballo, que avisan con onChange)
+  let chest = null, tile = null, onChange = null, wardrobe = false, hintTimer = 0;   // (sin casilla: las alforjas del caballo, que avisan con onChange)
   const chestCells = [], bagCells = [];
   for (let i = 0; i < 27; i++) chestCells.push(cell($('ch-grid'), () => toBag(i)));
   for (let i = 0; i < SLOTS; i++) bagCells.push(cell($('ch-bag'), () => toChest(i)));
@@ -37,6 +38,12 @@ export function initChestUI(game, { onClose }) {
   function toChest(i) {
     const s = game.inv.slots[i];
     if (!chest || !s) return;
+    if (wardrobe && !ITEMS[s.id].wear) {
+      const el = $('ch-hint');
+      el.textContent = `En el armario solo se guarda ropa (${ITEMS[s.id].name.toLowerCase()} no)`; el.classList.add('no');
+      clearTimeout(hintTimer); hintTimer = setTimeout(hint, 1800);
+      return;
+    }
     let n = s.n;
     const max = ITEMS[s.id].stack;
     if (!s.color) for (const c of chest) if (n > 0 && c?.id === s.id && !c.color && c.n < max) { const k = Math.min(n, max - c.n); c.n += k; n -= k; }
@@ -49,6 +56,19 @@ export function initChestUI(game, { onClose }) {
     chestCells.forEach((el, i) => { paint(el, chest[i]); el.hidden = i >= chest.length; });
     bagCells.forEach((el, i) => { paint(el, game.inv.slots[i]); el.classList.toggle('locked', !game.inv.usable(i)); });
   }
+  const NAMES = { mochila: 'Mochila', armario: 'Armario' };
+  let name = 'Cofre';
+  function hint() { const el = $('ch-hint'); el.classList.remove('no'); el.textContent = `Tu mochila (clic para guardar en ${name === 'Alforjas' ? 'las alforjas' : `${name === 'Mochila' ? 'la' : 'el'} ${name.toLowerCase()}`}${wardrobe ? ': solo ropa' : ''})`; }
   $('ch-close').onclick = () => onClose();
-  return { refresh, open(c, t, cb) { chest = c; tile = t; onChange = cb; $('ch-title').textContent = !t ? 'Alforjas' : game.scene.at?.('placed', ...t)?.startsWith('mochila') ? 'Mochila' : 'Cofre'; refresh(); } };
+  return {
+    refresh,
+    open(c, t, cb) {
+      chest = c; tile = t; onChange = cb;
+      const id = t && (game.scene.at?.('placed', ...t) || '').split('@')[0];
+      name = !t ? 'Alforjas' : NAMES[id] || 'Cofre'; wardrobe = id === 'armario';
+      $('ch-title').textContent = name;
+      clearTimeout(hintTimer); hint();
+      refresh();
+    },
+  };
 }

@@ -44,13 +44,21 @@ const COMMANDS = {
     },
   },
   time: {
-    help: 'la hora: /time dice qué hora es; /time set HH:MM pone esa hora del día, por ejemplo /time set 18:30 (solo el admin)',
+    help: 'la hora (la de Madrid): /time dice qué hora es; /time set HH:MM pone esa hora del día, por ejemplo /time set 18:30, y /time madrid vuelve a la de Madrid (solo el admin)',
     run(game, say, [sub = '', value = '']) {
       const T = game.days;
-      if (!sub) { say(`Son las ${clockText(T.hour)}.`, 'sys'); return; }
-      if (sub.toLowerCase() !== 'set' || !value) { say('Uso: /time set HH:MM (por ejemplo, /time set 18:30)', 'err'); return; }
+      if (!sub) { say(`Son las ${clockText(T.hour)}${T.shift ? ' (el reloj está movido: /time madrid lo devuelve a la hora de Madrid)' : ', como en Madrid'}.`, 'sys'); return; }
+      sub = sub.toLowerCase();
+      if (!(sub === 'set' && value) && sub !== 'madrid') { say('Uso: /time set HH:MM (por ejemplo, /time set 18:30) o /time madrid', 'err'); return; }
       // (la hora es la del mundo, que lleva el anfitrión: jugando en el mundo de otro no se puede cambiar)
       if (!Profile.admin || game.live.guest) { say('Solo el administrador puede cambiar la hora.', 'err'); return; }
+      if (sub === 'madrid') {
+        T.realHour();
+        if (game.live.timers) game.live.timers.time = Infinity;
+        game.onSave?.();
+        say(`Vuelve a ser la hora de Madrid: son las ${clockText(T.hour)}.`, 'ok');
+        return;
+      }
       const m = /^(\d{1,2})(?::(\d{2}))?$/.exec(value), named = NAMED_HOURS[value.toLowerCase()];
       if (!m && named === undefined) { say('Escribe la hora así: /time set 18:30', 'err'); return; }
       if (m && (+m[1] > 23 || +(m[2] || 0) > 59)) { say('Esa hora no existe: va de 00:00 a 23:59.', 'err'); return; }
@@ -58,7 +66,7 @@ const COMMANDS = {
       T.setHour(h);
       if (game.live.timers) game.live.timers.time = Infinity;   // (jugando juntos, que los demás la vean ya)
       game.onSave?.();
-      say(`Ahora son las ${clockText(h)}.`, 'ok');
+      say(`Ahora son las ${clockText(h)} (el reloj sigue andando desde ahí; /time madrid lo devuelve a la hora de Madrid).`, 'ok');
     },
   },
   sentarse: { help: 'sentarse en el suelo (también con la tecla G)', run(game) { game.rest.floor('floorSit'); } },

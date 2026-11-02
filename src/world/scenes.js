@@ -5,7 +5,7 @@ import { WorldGen, CHUNK } from './gen.js';
 import { buildVillage, NILO, inBounds, isGrass, inOwnHouse } from './village.js';
 import { B, BIOMES } from './biomes.js';
 import { ITEMS } from '../items.js';
-import { extraTiles, LONG, BED_BACK, HEARTH_BACK, GLOW, LIGHT, front } from '../art/stations.js';
+import { extraTiles, LONG, BED_BACK, HEARTH_BACK, GLOW, LIGHT, front, SIDE } from '../art/stations.js';
 import { wallRuns, WINDOW_Z, T } from '../art/build.js';
 import { PIECES, layerOf, parsePlaced } from '../pieces.js';
 import { Person } from '../entities.js';
@@ -16,10 +16,26 @@ const ROOF_MAX_TILES = 900;   // tope de casillas de una región de tejado (para
 const ROOF_MAX_LEVEL = 4;     // altura máxima de un tejado, en niveles
 
 // De su centro a su parte de atrás, en lo que tiene espalda: si detrás hay un muro, se arrima a él
-const BACK = { cama: BED_BACK, cama_doble: BED_BACK, sofa: 0.42, cama_nino: 0.42, banera: 0.4, estanteria: 0.2, alacena: 0.26, fregadero: 0.3, lavabo: 0.42, inodoro: 0.32, chimenea: HEARTH_BACK, lampara: 0.18 };
+// (de la casilla a la parte de atrás de cada mueble, medido en su modelo: con un muro detrás, se pega a él)
+const BACK = {
+  cama: BED_BACK, cama_doble: BED_BACK, sofa: 0.42, cama_nino: 0.42, banera: 0.43, estanteria: 0.2, alacena: 0.28, encimera: 0.28, fregadero: 0.32, lavabo: 0.42, inodoro: 0.34, chimenea: HEARTH_BACK, lampara: 0.18,
+  cocina: 0.38, horno: 0.44, banco: 0.32, yunque: 0.3, telar: 0.3, quesera: 0.24, cofre: 0.28, armario: 0.33, cuadro_valle: 0.05, cuadro_mar: 0.05, cuadro_flores: 0.05, cuadro_noche: 0.05, vitrina: 0.32, cuna: 0.3, mesa: 0.42, incubadora: 0.26, maceta: 0.28, silla: 0.22,
+};
 
 // Completa un objeto de la mochila puesto en el mundo (estación o mueble): colisión y luz.
 // [sx, sy]: lo que se corre para arrimarse a un muro. Devuelve true si es plano (alfombra) y va en el suelo.
+// ¿Cruza el segmento (x0, y0)-(x1, y1) la caja b?
+function crosses(x0, y0, x1, y1, b) {
+  let t0 = 0, t1 = 1;
+  for (const [p, d, lo, hi] of [[x0, x1 - x0, b.x0, b.x1], [y0, y1 - y0, b.y0, b.y1]]) {
+    if (Math.abs(d) < 1e-9) { if (p < lo || p > hi) return false; continue; }
+    let a = (lo - p) / d, c = (hi - p) / d;
+    if (a > c) [a, c] = [c, a];
+    t0 = Math.max(t0, a); t1 = Math.min(t1, c);
+    if (t0 > t1) return false;
+  }
+  return true;
+}
 function itemObject(o, id, rot, colliders, lights, [sx, sy] = [0, 0]) {
   const [tx, ty] = o.tile;
   o.x += sx; o.y += sy;
@@ -112,6 +128,12 @@ export class Overworld {
     return data;
   }
 
+  // ¿Hay detrás (del lado contrario a su frente) un muro liso donde arrimar el hogar o colgar un cuadro? (en las
+  // ventanas y en el muro que ya tiene cuadro, no)
+  wallBehind(tx, ty, rot) {
+    const [fx, fy] = front(rot), v = this.at('placed', tx - fx, ty - fy);
+    return !!v && PIECES[parsePlaced(v)[0]]?.kind === 'wall' && !/^(ventana|muro_cuadro)/.test(v);
+  }
   // Lo que tiene espalda (cama, estantería, hogar) se arrima al muro que tenga detrás (el lado contrario a su frente):
   // los muros son finos y van por el medio de su casilla, así que sin esto quedaría un hueco
   wallShift(id, tx, ty, rot) {
@@ -168,16 +190,16 @@ export class Overworld {
         const mask = (joins(tx + 1, ty) ? 1 : 0) | (joins(tx - 1, ty) ? 2 : 0) | (joins(tx, ty + 1) ? 4 : 0) | (joins(tx, ty - 1) ? 8 : 0);
         o.wallId = id; o.mask = mask;
         o.wall = true; o.window = id.startsWith('ventana');
-        for (const [x0, x1, y0, y1] of wallRuns(mask)) colliders.push({ x0: o.x + x0, y0: o.y + y0, x1: o.x + x1, y1: o.y + y1 });
+        for (const [x0, x1, y0, y1] of wallRuns(mask)) colliders.push({ x0: o.x + x0, y0: o.y + y0, x1: o.x + x1, y1: o.y + y1, wall: true });
         if (o.window && !this.doorClosed(tx, ty)) lights.push({ x: o.x, y: o.y, z: WINDOW_Z, r: 34, window: true });   // (cerrada, no sale luz)
       } else if (piece?.kind === 'door') {
         const solid = (x, y) => { const p = this.pieceAt(x, y); return p && p.kind !== 'fence'; };
         const alongX = solid(tx - 1, ty) || solid(tx + 1, ty) || !(solid(tx, ty - 1) || solid(tx, ty + 1));
         const closed = this.doorClosed(tx, ty);
         o.wall = true; o.door = alongX ? 'x' : 'y';
-        if (closed) colliders.push(alongX ? { x0: tx, y0: ty + 0.38, x1: tx + 1, y1: ty + 0.62 } : { x0: tx + 0.38, y0: ty, x1: tx + 0.62, y1: ty + 1 });
-        else if (alongX) colliders.push({ x0: tx, y0: ty + 0.38, x1: tx + 0.14, y1: ty + 0.62 }, { x0: tx + 0.86, y0: ty + 0.38, x1: tx + 1, y1: ty + 0.62 });
-        else colliders.push({ x0: tx + 0.38, y0: ty, x1: tx + 0.62, y1: ty + 0.14 }, { x0: tx + 0.38, y0: ty + 0.86, x1: tx + 0.62, y1: ty + 1 });
+        if (closed) colliders.push(alongX ? { x0: tx, y0: ty + 0.38, x1: tx + 1, y1: ty + 0.62, wall: true } : { x0: tx + 0.38, y0: ty, x1: tx + 0.62, y1: ty + 1, wall: true });
+        else if (alongX) colliders.push({ x0: tx, y0: ty + 0.38, x1: tx + 0.14, y1: ty + 0.62, wall: true }, { x0: tx + 0.86, y0: ty + 0.38, x1: tx + 1, y1: ty + 0.62, wall: true });
+        else colliders.push({ x0: tx + 0.38, y0: ty, x1: tx + 0.62, y1: ty + 0.14, wall: true }, { x0: tx + 0.38, y0: ty + 0.86, x1: tx + 0.62, y1: ty + 1, wall: true });
       } else if (piece?.kind === 'fence') {
         const f = (x, y) => this.pieceAt(x, y)?.kind === 'fence' || this.pieceAt(x, y)?.kind === 'wall';
         const mask = (f(tx + 1, ty) ? 1 : 0) | (f(tx - 1, ty) ? 2 : 0) | (f(tx, ty + 1) ? 4 : 0) | (f(tx, ty - 1) ? 8 : 0);
@@ -188,18 +210,28 @@ export class Overworld {
         if (mask & 4) colliders.push({ x0: o.x - 0.08, y0: o.y, x1: o.x + 0.08, y1: ty + 1, low: true });
         if (mask & 8) colliders.push({ x0: o.x - 0.08, y0: ty, x1: o.x + 0.08, y1: o.y, low: true });
       } else if (piece?.kind === 'hearth') {
-        // Hogar con chimenea: da luz y calor; el fuego lo dibuja el juego en la boca del hogar
-        const [sx, sy] = this.wallShift(id, tx, ty, 0);
-        o.x += sx; o.y += sy;
+        // Hogar con chimenea, de espaldas al muro que tenga detrás: da luz y calor; el fuego lo dibuja el juego en la
+        // boca del hogar
+        const [sx, sy] = this.wallShift(id, tx, ty, rot), [fx, fy] = front(rot), [ux, uy] = SIDE[(rot || 0) % 4];
+        o.x += sx; o.y += sy; o.rot = rot;
+        const at = (a, b) => [o.x + ux * a + fx * b, o.y + uy * a + fy * b];   // (a: a lo ancho; b: hacia delante)
         o.off = this.lightOff(tx, ty);   // (apagado: sin fuego ni luz)
-        o.glow = o.off ? null : GLOW[id]; o.fire = o.off ? null : [o.x, o.y + 0.2, 3, 5]; o.hearth = true;
-        if (LIGHT[id] && !o.off) { const [lx, ly, lz, lr] = LIGHT[id]; lights.push({ x: o.x + lx, y: o.y + ly, z: lz, r: lr }); }
-        colliders.push({ x0: tx + 0.04 + sx, y0: ty + 0.06 + sy, x1: tx + 0.96 + sx, y1: ty + 0.82 + sy });
+        o.glow = o.off ? null : GLOW[id]; o.fire = o.off ? null : [...at(0, 0.2), 3, 5]; o.hearth = true;
+        if (LIGHT[id] && !o.off) { const [lx, ly, lz, lr] = LIGHT[id], [x, y] = at(lx, ly); lights.push({ x, y, z: lz, r: lr }); }
+        const [[ax, ay], [bx, by]] = [at(-0.46, -0.44), at(0.46, 0.32)];
+        colliders.push({ x0: Math.min(ax, bx), y0: Math.min(ay, by), x1: Math.max(ax, bx), y1: Math.max(ay, by) });
       } else {
         o.off = this.lightOff(tx, ty);
         if (itemObject(o, id, rot, colliders, lights, this.wallShift(id, tx, ty, rot))) { flats.push(o); continue; }
       }
       objects.push(o);
+    }
+    // Los cuadros: colgados del muro de detrás; no chocan (debajo puede haber un mueble)
+    for (const [t, raw] of Object.entries(src.hang || {})) {
+      if (taken('hang', t)) continue;
+      const [id, rot] = parsePlaced(raw), o = base(t, 'hang', id), [sx, sy] = this.wallShift(id, ...o.tile, rot);
+      o.x += sx; o.y += sy; o.rot = rot;
+      flats.push(o);
     }
     for (const [t, id] of Object.entries(src.roof || {})) {
       if (taken('roof', t)) continue;
@@ -281,15 +313,17 @@ export class Overworld {
     if (layer === 'floor') return true;
     if (layer === 'roof') return !!(this.at('floor', tx, ty) || ['wall', 'door'].includes(this.pieceAt(tx, ty)?.kind));
     if (this.layers.some(l => l.blocks?.(tx, ty))) return false;
-    if (ITEMS[id]?.place === 'flat') return true;
+    if ((id === 'candelabro' || id === 'chimenea' || layer === 'hang') && !this.roofAt(tx, ty)) return false;   // (dentro de casa: el candelabro se cuelga del techo)
+    if ((id === 'chimenea' || layer === 'hang') && !this.wallBehind(tx, ty, rot)) return false;
+    if (layer === 'hang' || ITEMS[id]?.place === 'flat') return true;
     if (player && Math.abs(player.x - x) < 0.8 && Math.abs(player.y - y) < 0.8) return false;   // no encerrarse
     return !this.collidersNear(x, y).some(c => (c.r !== undefined ? Math.hypot(c.x - x, c.y - y) < c.r + 0.4 : !c.rx && x > c.x0 - 0.4 && x < c.x1 + 0.4 && y > c.y0 - 0.4 && y < c.y1 + 0.4));
   }
   place(tx, ty, id, rot = 0) {
     const cx = Math.floor(tx / CHUNK), cy = Math.floor(ty / CHUNK), layer = layerOf(id), d = this.delta(cx, cy, true);
-    d[layer][`${tx},${ty}`] = rot ? `${id}@${rot}` : id;
+    (d[layer] ||= {})[`${tx},${ty}`] = rot ? `${id}@${rot}` : id;
     if (id === 'cofre') d.chest[`${tx},${ty}`] = Array(18).fill(null);
-    if (id === 'mochila') d.chest[`${tx},${ty}`] = Array(27).fill(null);   // (la mochila en el suelo es como un cofre)
+    if (id === 'mochila' || id === 'armario') d.chest[`${tx},${ty}`] = Array(27).fill(null);   // (la mochila en el suelo es como un cofre; el armario, para la ropa)
     this.touchAround(tx, ty);
   }
   // Quita lo que puso el jugador en una casilla. Lo fijo del pueblo no se quita: devuelve false.
@@ -298,9 +332,9 @@ export class Overworld {
     if (o.fixed || !this.ownAt(layer, tx, ty)) return false;
     const d = this.delta(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK));
     delete d[layer][k];
-    if (o.placed === 'cofre' || o.placed === 'mochila') delete d.chest[k];
-    if (d.closed) delete d.closed[k];
-    if (d.off) delete d.off[k];
+    if (layer === 'placed' && (o.placed === 'cofre' || o.placed === 'mochila' || o.placed === 'armario')) delete d.chest[k];
+    if (layer === 'placed' && d.closed) delete d.closed[k];
+    if (layer === 'placed' && d.off) delete d.off[k];
     this.touchAround(tx, ty);
     return true;
   }
@@ -408,6 +442,12 @@ export class Overworld {
     const cx = Math.floor(x / CHUNK), cy = Math.floor(y / CHUNK), out = [...this.village.colliders, { x: this.nilo.x, y: this.nilo.y, r: 0.35 }, ...(this.extraColliders || [])];
     for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) for (const c of this.contentFor(cx + dx, cy + dy).colliders) out.push(c);
     return out;
+  }
+  // ¿Se llega de un punto a otro sin un muro o una puerta cerrada por medio? (para no acariciar, hablar ni
+  // recoger nada a través de ellos)
+  reaches(x0, y0, x1, y1) {
+    for (const c of this.collidersNear((x0 + x1) / 2, (y0 + y1) / 2)) if (c.wall && crosses(x0, y0, x1, y1, c)) return false;
+    return true;
   }
   // Rehacer el pueblo (se termina un proyecto)
   rebuildVillage() {

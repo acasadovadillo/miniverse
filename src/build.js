@@ -2,11 +2,12 @@
 // o lo que hay delante del jugador) y se pone pagando sus materiales. Quitar devuelve los materiales
 // (o el mueble a la mochila). Lo fijo del pueblo y de las aldeas no se puede quitar.
 import { PIECES, parsePlaced } from './pieces.js';
+import { ITEMS } from './items.js';
 import { floorSprite, wallSprite, doorSprite, hearthSprite, roofSprite, fenceSprite } from './art/build.js';
 import { Audio } from './audio.js';
 
 export const REACH = 7;   // casillas de distancia a las que se puede construir
-export const PIECE_IDS = Object.keys(PIECES);
+export const PIECE_IDS = Object.keys(PIECES).filter(id => !ITEMS[id]);   // (el hogar se fabrica, como un mueble)
 
 // Dibujo de una pieza para su icono en la paleta: el tejado, como casilla suelta (pirámide con alero por
 // los cuatro lados); el hogar, con su chimenea
@@ -100,7 +101,7 @@ export class BuildMode {
     if (!layer || !this.inReach(t)) { Audio.error(); return; }
     const [id] = parsePlaced(this.ownAt(layer, t)), o = { tile: t, layer, placed: id };
     if (id === 'cofre' && sc.chestAt(...t)?.some(Boolean)) { g.gather.float('Vacía el cofre antes', '#ffb0a0'); Audio.error(); return; }
-    if (PIECES[id]) {
+    if (PIECES[id] && !ITEMS[id]) {
       if (sc.unplace(o) === false) { Audio.error(); return; }   // lo fijo no se quita ni devuelve materiales
       for (const [m, n] of PIECES[id].cost) { const left = g.inv.add(m, n); if (left) g.gather.throwOut(m, left); }
     } else if (!g.pickUp(o)) return;
