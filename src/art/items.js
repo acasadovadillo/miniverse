@@ -129,6 +129,24 @@ function ingot(R, g, col) {
   poly(g, [[11, 11], [15, 7], [15, 10], [11, 14]], r.d);
   R(5, 8, 6, 1, '#ffffff');
 }
+// Ropa y mochila: dibujadas con el color de la prenda (c: rampa de ese color)
+const WEAR_DRAW = {
+  camisa(R, g, c) { poly(g, [[4, 3], [12, 3], [15, 7], [13, 9], [12, 7], [12, 15], [4, 15], [4, 7], [3, 9], [1, 7]], c.b); R(6, 3, 4, 2, c.d); R(7, 5, 2, 8, c.l); R(4, 14, 8, 1, c.d); },
+  tunica(R, g, c) { poly(g, [[4, 2], [12, 2], [15, 6], [13, 8], [12, 6], [13, 15], [3, 15], [4, 6], [3, 8], [1, 6]], c.b); R(6, 2, 4, 2, c.d); R(4, 9, 8, 2, '#5a3a22'); R(7, 9, 2, 2, '#e8c050'); },
+  tunica_larga(R, g, c) { poly(g, [[5, 1], [11, 1], [14, 5], [12, 6], [11, 5], [13, 15], [3, 15], [5, 5], [4, 6], [2, 5]], c.b); R(6, 1, 4, 2, c.d); R(5, 7, 6, 1, '#5a3a22'); R(3, 14, 10, 1, c.d); },
+  chaleco(R, g, c) { poly(g, [[3, 3], [7, 3], [7, 15], [3, 15]], c.b); poly(g, [[9, 3], [13, 3], [13, 15], [9, 15]], c.b); R(7, 3, 2, 12, '#ece4d4'); R(5, 8, 1, 1, c.l); R(11, 8, 1, 1, c.l); R(3, 3, 1, 12, c.d); R(12, 3, 1, 12, c.d); },
+  delantal(R, g, c) { R(5, 2, 6, 6, c.b); R(3, 8, 10, 7, c.b); R(2, 8, 12, 1, c.d); R(9, 10, 3, 3, c.d); R(5, 1, 1, 2, c.d); R(10, 1, 1, 2, c.d); },
+  pantalon(R, g, c) { R(3, 2, 10, 3, c.b); R(3, 5, 4, 10, c.b); R(9, 5, 4, 10, c.b); R(3, 2, 10, 1, c.d); R(7, 5, 2, 3, c.b); R(4, 6, 1, 8, c.l); R(10, 6, 1, 8, c.l); },
+  falda(R, g, c) { poly(g, [[5, 3], [11, 3], [14, 13], [2, 13]], c.b); R(5, 3, 6, 2, c.d); R(5, 6, 1, 6, c.l); R(10, 6, 1, 6, c.l); },
+  botas(R, g, c) { R(3, 3, 4, 8, c.b); R(3, 10, 6, 4, c.b); R(9, 3, 4, 8, c.d); R(9, 10, 6, 4, c.d); R(3, 13, 6, 1, '#2a1c14'); R(9, 13, 6, 1, '#2a1c14'); },
+  camiseta_interior(R, g, c) { poly(g, [[4, 2], [6, 2], [7, 5], [9, 5], [10, 2], [12, 2], [13, 15], [3, 15]], c.b); R(4, 14, 9, 1, c.d); R(6, 7, 1, 6, c.l); },
+  calzoncillos(R, g, c) { R(2, 4, 12, 3, c.b); R(2, 7, 5, 6, c.b); R(9, 7, 5, 6, c.b); R(2, 4, 12, 1, c.d); R(7, 7, 2, 3, c.b); },
+  bragas(R, g, c) { poly(g, [[2, 5], [14, 5], [10, 12], [6, 12]], c.b); R(2, 5, 12, 1, c.d); R(7, 9, 2, 2, c.l); },
+  sombrero(R, g, c) { ellipse(g, 8, 11, 7, 3, c.d); R(5, 4, 6, 7, c.b); R(5, 8, 6, 2, '#8a5a30'); ellipse(g, 8, 10, 7, 2, c.b); R(6, 5, 2, 2, c.l); },
+  gorro(R, g, c) { ellipse(g, 8, 9, 6, 6, c.b); R(2, 10, 12, 4, c.d); ellipse(g, 8, 3, 2, 2, '#f4f0e8'); R(5, 6, 2, 2, c.l); },
+  mochila(R, g, c) { R(3, 3, 10, 12, c.b); R(3, 3, 10, 4, c.d); R(5, 9, 6, 4, c.d); R(7, 6, 2, 2, '#c8a048'); R(4, 2, 1, 2, c.d); R(11, 2, 1, 2, c.d); },
+};
+
 // Herramientas: el mismo dibujo con la cabeza del color del material
 const TOOL_DRAW = {
   hacha(R, g, h) { line(g, 3, 14, 11, 4, '#8a5a30'); line(g, 4, 14, 12, 4, '#6a4422'); poly(g, [[9, 2], [15, 4], [14, 9], [10, 6]], h.b); R(13, 4, 1, 4, h.l); R(10, 5, 2, 1, h.d); },
@@ -137,14 +155,15 @@ const TOOL_DRAW = {
   azada(R, g, h) { line(g, 3, 15, 11, 3, '#8a5a30'); line(g, 4, 15, 12, 3, '#6a4422'); poly(g, [[9, 2], [15, 2], [15, 6], [11, 5]], h.b); R(14, 2, 1, 4, h.l); R(11, 4, 2, 1, h.d); },
 };
 
-// Icono de 18×18 (16×16 más el contorno)
-export function itemIcon(id) {
-  if (cache.has(id)) return cache.get(id);
+// Icono de 18×18 (16×16 más el contorno). color: el de la prenda (la ropa)
+export function itemIcon(id, color) {
+  const def = ITEMS[id], k = def?.wear ? `${id}|${color || def.dye}` : id;
+  if (cache.has(k)) return cache.get(k);
   const c = mk(18, 18), g = c.getContext('2d');
   g.translate(1, 1);
   const R = (x, y, w, h, col) => { g.fillStyle = col; g.fillRect(Math.round(x), Math.round(y), w, h); };
-  const def = ITEMS[id];
-  if (TOOL_DRAW[def.tool]) TOOL_DRAW[def.tool](R, g, ramp(TIERS[def.tier].head));
+  if (WEAR_DRAW[id]) WEAR_DRAW[id](R, g, ramp(color || def.dye));
+  else if (TOOL_DRAW[def.tool]) TOOL_DRAW[def.tool](R, g, ramp(TIERS[def.tier].head));
   else if (def.seed) seedPacket(R, CROPS[def.seed].color, CROPS[def.seed].leaf);
   else if (CROPS[id]) cropIcon(R, g, CROPS[id], id);
   else if (FISH[id]) fishIcon(R, g, FISH[id]);
@@ -152,8 +171,8 @@ export function itemIcon(id) {
   else if (DRAW[id]) DRAW[id](R, g);
   else R(4, 4, 8, 8, '#ff00ff');
   const icon = outlined(c);
-  cache.set(id, icon);
-  cache.set(id + ':url', icon.toDataURL());
+  cache.set(k, icon);
+  cache.set(k + ':url', icon.toDataURL());
   return icon;
 }
-export const itemIconUrl = id => { itemIcon(id); return cache.get(id + ':url'); };
+export const itemIconUrl = (id, color) => { itemIcon(id, color); const def = ITEMS[id]; return cache.get((def?.wear ? `${id}|${color || def.dye}` : id) + ':url'); };

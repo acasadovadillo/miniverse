@@ -163,19 +163,21 @@ export class Fx {
   }
 
   // ---------- objetos caídos ----------
-  icon(id) {
-    if (!this.icons.has(id)) {
-      const t = new THREE.CanvasTexture(itemIcon(id)); t.colorSpace = THREE.SRGBColorSpace; t.magFilter = THREE.NearestFilter; t.minFilter = THREE.NearestFilter;
-      this.icons.set(id, new THREE.SpriteMaterial({ map: t, transparent: true, alphaTest: 0.3 }));
+  // (la ropa, con su color)
+  icon(id, color) {
+    const k = color ? `${id}|${color}` : id;
+    if (!this.icons.has(k)) {
+      const t = new THREE.CanvasTexture(itemIcon(id, color)); t.colorSpace = THREE.SRGBColorSpace; t.magFilter = THREE.NearestFilter; t.minFilter = THREE.NearestFilter;
+      this.icons.set(k, new THREE.SpriteMaterial({ map: t, transparent: true, alphaTest: 0.3 }));
     }
-    return this.icons.get(id);
+    return this.icons.get(k);
   }
   updateDrops(game, scene, playing, t, gy) {
     const list = playing ? game.gather.drops.filter(d => d.scene === scene) : [], seen = new Set();
     for (const d of list) {
       seen.add(d);
       let o = this.drops.get(d);
-      if (!o) { const s = new THREE.Sprite(this.icon(d.id)); s.scale.setScalar(0.42); const b = this.blob.clone(); o = { s, b }; this.group.add(s, b); this.drops.set(d, o); }
+      if (!o) { const s = new THREE.Sprite(this.icon(d.id, d.extra?.color)); s.scale.setScalar(0.42); const b = this.blob.clone(); o = { s, b }; this.group.add(s, b); this.drops.set(d, o); }
       const g = gy(d.x, d.y), bob = d.z > 0 ? 0 : Math.sin(t * 4 + d.x * 3) * 0.05;
       o.s.position.set(d.x, g + 0.3 + d.z / 24 + bob, d.y);
       o.b.position.set(d.x, g + 0.02, d.y);

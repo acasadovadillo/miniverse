@@ -24,6 +24,27 @@ export const DEFAULT_LOOK = {
   eyes: '#3a8a4a', eyeStyle: 'pestanas', brows: 'finas', nose: 'boton', ears: 'redondas', beard: 'no', cheeks: true,
 };
 
+// La ropa de un look (el tipo de ropa y sus colores, como lo elige el creador): con la que empieza el jugador
+// y la que llevan los vecinos. bag: con mochila. Devuelve los huecos del cuerpo → { id, color }.
+const darken = (hex, k) => '#' + [1, 3, 5].map(i => Math.round(parseInt(hex.slice(i, i + 2), 16) * k).toString(16).padStart(2, '0')).join('');
+export function clothesFor(look, bag = false) {
+  const L = fullLook(look), girl = L.sex === 'chica', cloth = L.cloth || '#3a5ab8', e = {};
+  e.interiorAbajo = girl ? { id: 'bragas', color: '#f4d8e2' } : { id: 'calzoncillos', color: '#f2efe8' };
+  if (girl) e.interiorArriba = { id: 'camiseta_interior', color: '#f2efe8' };
+  if (L.outfit === 'tunica') e.torso = { id: 'tunica', color: cloth };
+  else if (L.outfit === 'larga') e.torso = { id: 'tunica_larga', color: cloth };
+  else {
+    e.torso = { id: 'camisa', color: cloth };
+    e.encima = L.outfit === 'delantal' ? { id: 'delantal', color: '#efe6d4' } : { id: 'chaleco', color: darken(cloth, 0.6) };
+  }
+  if (L.outfit !== 'larga') e.piernas = { id: 'pantalon', color: L.pants || '#4a3a2a' };
+  e.pies = { id: 'botas', color: '#5a3a24' };
+  if (bag) e.espalda = { id: 'mochila', color: '#8a5a34' };
+  return e;
+}
+// El look con la ropa que se lleva puesta (es lo que dibuja el muñeco)
+export const dressed = (look, equip) => ({ ...look, wear: Object.fromEntries(Object.entries(equip).map(([k, v]) => [k, { id: v.id, color: v.color }])) });
+
 // Un look con todos sus rasgos (lo que falta se deduce: las chicas de antes tenían pestañas; los chicos, cejas rectas)
 export function fullLook(L) {
   const girl = L.sex === 'chica';

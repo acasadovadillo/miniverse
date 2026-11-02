@@ -156,6 +156,29 @@ for (const [tool, def] of Object.entries(TOOLS)) {
     ITEMS[toolId(tool, tier)] = { name: `${def.name} ${TIERS[tier].name}`, desc: def.desc, tool, tier, stack: 1 };
   }
 }
+// Ropa y mochila: se llevan puestas en un hueco del cuerpo (wear). Cada prenda lleva su color (en la casilla
+// de la mochila o en el hueco); dye es el de las que se fabrican.
+export const WEAR_SLOTS = [
+  ['cabeza', 'Cabeza'], ['torso', 'Torso'], ['encima', 'Encima'], ['piernas', 'Piernas'], ['pies', 'Pies'],
+  ['interiorArriba', 'Interior arriba'], ['interiorAbajo', 'Interior abajo'], ['espalda', 'Espalda'],
+];
+Object.assign(ITEMS, {
+  camisa: { name: 'Camisa', desc: 'De manga larga. Encima puede ir un chaleco o un delantal.', wear: 'torso', dye: '#3a5ab8' },
+  tunica: { name: 'Túnica con cinturón', desc: 'Hasta las caderas, con cinturón y hebilla.', wear: 'torso', dye: '#4a9a4a' },
+  tunica_larga: { name: 'Túnica larga', desc: 'Hasta los tobillos.', wear: 'torso', dye: '#6a4ab8' },
+  chaleco: { name: 'Chaleco', desc: 'Va encima de la camisa.', wear: 'encima', dye: '#2a3a6a' },
+  delantal: { name: 'Delantal', desc: 'Con peto, bolsillo y lazo detrás. Va encima de la camisa.', wear: 'encima', dye: '#efe6d4' },
+  pantalon: { name: 'Pantalón', desc: 'Largo, con cintura.', wear: 'piernas', dye: '#4a3a2a' },
+  falda: { name: 'Falda', desc: 'Acampanada, hasta las rodillas.', wear: 'piernas', dye: '#b84a8a' },
+  botas: { name: 'Botas', desc: 'Para no ir descalzo.', wear: 'pies', dye: '#5a3a24' },
+  camiseta_interior: { name: 'Camiseta interior', desc: 'Sin mangas, debajo de la ropa.', wear: 'interiorArriba', dye: '#f2efe8' },
+  calzoncillos: { name: 'Calzoncillos', desc: 'Ropa interior.', wear: 'interiorAbajo', dye: '#f2efe8' },
+  bragas: { name: 'Bragas', desc: 'Ropa interior.', wear: 'interiorAbajo', dye: '#f4d8e2' },
+  sombrero: { name: 'Sombrero de paja', desc: 'De ala ancha, para el sol del campo.', wear: 'cabeza', dye: '#e0c070' },
+  gorro: { name: 'Gorro de lana', desc: 'Calentito, con pompón.', wear: 'cabeza', dye: '#c83a3a' },
+  mochila: { name: 'Mochila', desc: 'Póntela a la espalda y podrás llevar 27 cosas más. Sin ella solo llevas lo que cabe en las manos y los bolsillos.', wear: 'espalda', bag: 27, dye: '#8a5a34' },
+});
+for (const it of Object.values(ITEMS)) if (it.wear) it.stack = 1;
 for (const it of Object.values(ITEMS)) it.stack ??= it.place ? 10 : 99;
 
 // Qué herramienta hace falta, cuántos golpes con una de madera, qué cae

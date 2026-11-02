@@ -99,6 +99,22 @@
   .inv-panel h2 { margin: 0 0 10px; font-size: 22px; color: var(--gold); display: flex; align-items: center; justify-content: space-between; }
   .inv-panel h2 .sq { width: 34px; height: 30px; font-size: 16px; }
   #inv-grid { display: grid; grid-template-columns: repeat(9, 44px); gap: 4px; }
+  .inv-body { display: flex; gap: 16px; align-items: flex-start; flex-wrap: wrap; }
+  .inv-me { flex: none; }
+  /* Lo que se lleva puesto: el personaje en el centro y los huecos del cuerpo a los dos lados */
+  #inv-wear { display: flex; gap: 10px; padding: 10px; border: 2px solid #6a4a2a; border-radius: 6px; background: radial-gradient(ellipse at 50% 44%, #7a5232, #3e2614 72%); }
+  .inv-col { display: flex; flex-direction: column; justify-content: space-between; }
+  #inv-me { display: block; touch-action: none; cursor: grab; }
+  .slot.wear { width: 52px; height: 52px; background: rgba(24, 14, 8, .6); }
+  .slot.wear img { width: 40px; height: 40px; }
+  .slot.wear img.ph { top: 3px; width: 30px; height: 30px; transform: translateX(-50%); opacity: .2; filter: grayscale(1) brightness(1.8); }
+  .slot.wear i { left: 0; right: 0; top: auto; bottom: 2px; text-align: center; font-size: 8px; line-height: 1; opacity: .75; }
+  .slot.wear.on i, .slot.wear.on img.ph { display: none; }
+  .slot.drop-ok { border-color: var(--gold); }
+  .inv-bagbox { position: relative; }
+  .slot.locked { opacity: .28; cursor: default; }
+  #inv-lock { display: none; position: absolute; inset: 0; align-items: center; justify-content: center; padding: 10px 18px; text-align: center; font-size: 15px; line-height: 1.4; color: var(--cream); background: rgba(20, 12, 6, .55); border-radius: 4px; pointer-events: none; }
+  .inv-bagbox.locked #inv-lock { display: flex; }
   .inv-sep { margin: 10px 0 5px; font-size: 13px; color: var(--dim); }
   #inv-all { display: none; }
   body.admin #inv-all { display: block; }
@@ -257,6 +273,8 @@
   #inv-ghost { position: fixed; width: 40px; height: 40px; transform: translate(-50%, -50%); image-rendering: pixelated; pointer-events: none; z-index: 30; }
   @media (max-width: 520px) {
     .slot { width: 34px; height: 34px; } .slot img { width: 28px; height: 28px; }
+    .inv-me { margin: 0 auto; }
+    .slot.wear { width: 44px; height: 44px; } .slot.wear img { width: 34px; height: 34px; } .slot.wear img.ph { width: 24px; height: 24px; }
     #inv-grid { grid-template-columns: repeat(9, 34px); }
     #inv-info { flex-wrap: wrap; }
   }
@@ -449,17 +467,26 @@
     <div class="map-bar panel"><b>Mapa</b><span id="map-info"></span><button class="sq" id="map-out" aria-label="Alejar">−</button><button class="sq" id="map-in" aria-label="Acercar">+</button><button class="sq" id="map-home" aria-label="Volver a tu posición" title="Volver a tu posición">⌖</button><button class="sq" id="map-close" aria-label="Cerrar">✕</button></div>
   </section>
 
-  <!-- Mochila -->
+  <!-- Inventario -->
   <section id="s-inv" class="screen">
     <div class="inv-panel panel">
-      <h2>Mochila <span><button class="sq" id="inv-craft" aria-label="Fabricar" title="Fabricar (C)">⚒</button><button class="sq" id="inv-close" aria-label="Cerrar">✕</button></span></h2>
-      <div id="inv-grid"></div>
-      <div class="inv-sep">Barra rápida (1-9)</div>
-      <div class="slots" id="inv-quick"></div>
+      <h2>Inventario <span><button class="sq" id="inv-craft" aria-label="Fabricar" title="Fabricar (C)">⚒</button><button class="sq" id="inv-close" aria-label="Cerrar">✕</button></span></h2>
+      <div class="inv-body">
+        <div class="inv-me">
+          <div class="inv-sep">Lo que llevas puesto</div>
+          <div id="inv-wear"><div class="inv-col" id="inv-wear-l"></div><canvas id="inv-me"></canvas><div class="inv-col" id="inv-wear-r"></div></div>
+        </div>
+        <div class="inv-bags">
+          <div class="inv-sep">Manos y bolsillos (1-9)</div>
+          <div class="slots" id="inv-quick"></div>
+          <div class="inv-sep">Mochila</div>
+          <div class="inv-bagbox"><div id="inv-grid"></div><div id="inv-lock">Sin mochila solo llevas lo que cabe en las manos y los bolsillos. Fabrica una (C, a mano: fibra y cuerda) y póntela.</div></div>
+        </div>
+      </div>
       <div id="inv-info" class="empty">
         <img id="inv-icon" alt="">
         <div><div id="inv-name"></div><div id="inv-desc"></div></div>
-        <div class="inv-acts"><button class="btn primary" id="inv-eat">Comer</button><button class="btn" id="inv-drop1">Tirar uno</button><button class="btn" id="inv-drop">Tirar</button></div>
+        <div class="inv-acts"><button class="btn primary" id="inv-wearbtn">Ponérmelo</button><button class="btn primary" id="inv-eat">Comer</button><button class="btn" id="inv-drop1">Tirar uno</button><button class="btn" id="inv-drop">Tirar</button></div>
       </div>
       <div id="inv-all"><div class="inv-sep">Todos los objetos (admin): toca uno para cogerlo</div><div id="inv-all-grid"></div></div>
     </div>
@@ -504,7 +531,7 @@
         <dt><kbd>+</kbd> / <kbd>−</kbd> o <kbd>Ctrl</kbd>+rueda</dt><dd>Acercar y alejar la cámara</dd>
         <dt><kbd>Z</kbd></dt><dd>Primera o tercera persona (en primera persona, <kbd>↑</kbd> <kbd>↓</kbd> miran arriba y abajo)</dd>
         <dt><kbd>F</kbd></dt><dd>Ver el rendimiento (fotogramas por segundo)</dd>
-        <dt><kbd>I</kbd> <kbd>C</kbd> <kbd>B</kbd></dt><dd>Mochila, fabricar y construir</dd>
+        <dt><kbd>I</kbd> <kbd>C</kbd> <kbd>B</kbd></dt><dd>Inventario (lo que llevas y la ropa), fabricar y construir</dd>
         <dt><kbd>J</kbd> <kbd>M</kbd></dt><dd>Diario y mapa</dd>
         <dt><kbd>T</kbd> o <kbd>/</kbd></dt><dd>Chat y comandos (<b>/ayuda</b> para verlos; el admin tiene <b>/admin</b>, objetos infinitos y construir gratis, y <b>/account</b>, para crear cuentas)</dd>
         <dt><kbd>Esc</kbd></dt><dd>Pausa (y cerrar ventanas)</dd>
@@ -524,7 +551,7 @@
       <dl class="ct-list">
         <dt>Cruceta</dt><dd>Caminar</dd>
         <dt>⚒ y E</dt><dd>Usar e interactuar</dd>
-        <dt>🎒 🧰 🔨 ☰</dt><dd>Mochila, fabricar, construir y pausa</dd>
+        <dt>🎒 🧰 🔨 ☰</dt><dd>Inventario, fabricar, construir y pausa</dd>
         <dt>Minimapa</dt><dd>Abrir el mapa (se mueve arrastrando)</dd>
       </dl>
     </div>
@@ -548,7 +575,7 @@
   <!-- Fabricar -->
   <section id="s-craft" class="screen">
     <div class="cf-panel panel">
-      <h2>Fabricar <span id="cf-note"></span><span><button class="sq" id="cf-bag" aria-label="Mochila" title="Mochila (I)">🎒</button><button class="sq" id="cf-close" aria-label="Cerrar">✕</button></span></h2>
+      <h2>Fabricar <span id="cf-note"></span><span><button class="sq" id="cf-bag" aria-label="Inventario" title="Inventario (I)">🎒</button><button class="sq" id="cf-close" aria-label="Cerrar">✕</button></span></h2>
       <div id="cf-tabs"></div>
       <div class="cf-body">
         <div id="cf-list"></div>
@@ -566,7 +593,7 @@
   <div id="touch">
     <button class="tb" data-k="up">▲</button><button class="tb" data-k="left">◀</button>
     <button class="tb" data-k="right">▶</button><button class="tb" data-k="down">▼</button>
-    <button class="tb" data-k="act">E</button><button class="tb" data-k="use" aria-label="Usar">⚒</button><button class="tb" data-k="jump" aria-label="Saltar">⤒</button><button class="tb" data-k="bag" aria-label="Mochila">🎒</button><button class="tb" data-k="build" aria-label="Construir">🔨</button><button class="tb" data-k="pause" aria-label="Menú">☰</button><button class="tb" data-k="craft" aria-label="Fabricar">🧰</button>
+    <button class="tb" data-k="act">E</button><button class="tb" data-k="use" aria-label="Usar">⚒</button><button class="tb" data-k="jump" aria-label="Saltar">⤒</button><button class="tb" data-k="bag" aria-label="Inventario">🎒</button><button class="tb" data-k="build" aria-label="Construir">🔨</button><button class="tb" data-k="pause" aria-label="Menú">☰</button><button class="tb" data-k="craft" aria-label="Fabricar">🧰</button>
   </div>
   <section id="s-file" class="screen">
     <div class="box panel">

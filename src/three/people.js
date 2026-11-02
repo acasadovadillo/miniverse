@@ -1,10 +1,11 @@
 // Personas en 3D: chibis de pocos polígonos a partir de los "look" del juego (sexo, peinado, colores de pelo,
-// piel, ojos y ropa, tipo de ropa, y la forma de los ojos, las cejas, la nariz, las orejas, la barba y los
-// mofletes). Cabeza grande, cuerpo pequeño y animación de andar (piernas y brazos que se balancean, un leve
+// piel y ojos, y la forma de los ojos, las cejas, la nariz, las orejas, la barba y los mofletes) y de la ropa
+// que llevan puesta (look.wear, por hueco del cuerpo; si no lo trae, la que corresponde a su tipo de ropa).
+// Lo que no se cubre con ropa es piel: sin nada, un muñeco liso. Cabeza grande, cuerpo pequeño y animación de andar (piernas y brazos que se balancean, un leve
 // bote) y de respirar en reposo. Mira hacia z+.
 import * as THREE from 'three';
 import { mat } from './geo.js';
-import { fullLook } from '../looks.js';
+import { fullLook, clothesFor } from '../looks.js';
 
 // Una superficie abierta (un trozo de cilindro: delantal, peto) con las dos caras, para que se vea también por dentro
 function twoSided(geo) {
@@ -24,7 +25,7 @@ function twoSided(geo) {
 export const G = {
   head: new THREE.SphereGeometry(0.29, 24, 18), eye: new THREE.SphereGeometry(1, 12, 8), ball: new THREE.SphereGeometry(1, 14, 10),
   limb: new THREE.CapsuleGeometry(0.055, 0.2, 4, 8), leg: new THREE.CapsuleGeometry(0.07, 0.16, 4, 8), boot: new THREE.SphereGeometry(1, 10, 8),
-  cone: new THREE.ConeGeometry(1, 1, 10), cyl: new THREE.CylinderGeometry(1, 1, 1, 14),
+  cone: new THREE.ConeGeometry(1, 1, 10), cyl: new THREE.CylinderGeometry(1, 1, 1, 14), box: new THREE.BoxGeometry(1, 1, 1),
   skirt: new THREE.CylinderGeometry(1, 1.32, 1, 20),                                         // falda de túnica (cerrada)
   bib: twoSided(new THREE.CylinderGeometry(1, 1, 1, 12, 1, true, -0.75, 1.5)),              // peto del delantal
   apron: twoSided(new THREE.CylinderGeometry(1, 1.28, 1, 14, 1, true, -1, 2)),             // falda del delantal
@@ -88,26 +89,28 @@ export class Person3D {
     this.root = new THREE.Group();
     this.body = new THREE.Group(); this.body.name = 'body'; this.root.add(this.body);
     this.phase = Math.random() * 6; this.speed = 0; this.targetYaw = 0;
-    const L = fullLook(look), skin = M(L.skin), cloth = M(L.cloth), pants = M(L.pants || '#4a3a2a'), hair = M(L.hair, { roughness: 0.6 });
-    const boots = M('#5a3a24');
+    const L = fullLook(look), W = look.wear || clothesFor(L), skin = M(L.skin), hair = M(L.hair, { roughness: 0.6 });
+    const shirt = W.torso ? M(W.torso.color) : null, under = W.interiorArriba ? M(W.interiorArriba.color) : null;
+    const pants = W.piernas?.id === 'pantalon' ? M(W.piernas.color) : null;
     // Con la túnica larga las piernas se mueven menos (si no, asomarían por la falda)
-    this.legSwing = L.outfit === 'larga' ? 0.5 : 1;
-    // Piernas (con bota) y caderas
+    this.legSwing = W.torso?.id === 'tunica_larga' ? 0.5 : 1;
+    // Piernas (con pantalón o piel) y pies (con botas o descalzos)
     this.legs = [-1, 1].map(s => {
       const hip = new THREE.Group(); hip.name = s < 0 ? 'legL' : 'legR'; hip.position.set(s * 0.085, 0.36, 0); this.body.add(hip);
-      mesh(G.leg, pants, { p: [0, -0.14, 0] }, hip);
-      mesh(G.boot, boots, { p: [0, -0.31, 0.03], s: [0.085, 0.06, 0.12] }, hip);
+      mesh(G.leg, pants || skin, { p: [0, -0.14, 0] }, hip);
+      if (W.pies) mesh(G.boot, M(W.pies.color), { p: [0, -0.31, 0.03], s: [0.085, 0.06, 0.12] }, hip);
+      else mesh(G.boot, skin, { p: [0, -0.315, 0.025], s: [0.062, 0.045, 0.095] }, hip);
       return hip;
     });
-    // Tronco y ropa
+    // Tronco (con camisa o túnica, camiseta interior o piel) y lo que va encima
     const torso = new THREE.Group(); torso.name = 'torso'; torso.position.y = 0.36; this.body.add(torso); this.torso = torso;
-    mesh(G.cyl, cloth, { p: [0, 0.2, 0], s: [0.17, 0.4, 0.13] }, torso);
-    mesh(G.ball, cloth, { p: [0, 0.4, 0], s: [0.19, 0.08, 0.14] }, torso);                       // hombros
-    this.outfit(torso, L, cloth, pants);
-    // Brazos, con manga y mano
+    mesh(G.cyl, shirt || under || skin, { p: [0, 0.2, 0], s: [0.17, 0.4, 0.13] }, torso);
+    mesh(G.ball, shirt || skin, { p: [0, 0.4, 0], s: [0.19, 0.08, 0.14] }, torso);                       // hombros
+    this.outfit(torso, L, W);
+    // Brazos, con manga (o piel) y mano
     this.arms = [-1, 1].map(s => {
       const sh = new THREE.Group(); sh.name = s < 0 ? 'armL' : 'armR'; sh.position.set(s * 0.21, 0.38, 0); torso.add(sh);
-      mesh(G.limb, cloth, { p: [0, -0.12, 0], r: [0, 0, s * 0.12] }, sh);
+      mesh(G.limb, shirt || skin, { p: [0, -0.12, 0], r: [0, 0, s * 0.12] }, sh);
       mesh(G.ball, skin, { p: [s * 0.03, -0.27, 0], s: 0.058 }, sh);
       return sh;
     });
@@ -116,26 +119,39 @@ export class Person3D {
     mesh(G.head, skin, { s: [1, 0.96, 0.96] }, head);
     this.face(head, L, skin, hair);
     this.hair(head, L, hair);
+    this.headwear(head, W.cabeza);
     // Cada parte que se mueve junta (piernas, brazos, tronco y cabeza) en una sola malla con colores por vértice
     for (const grp of [...this.legs, ...this.arms, torso, head]) mergeInto(grp);
     this.root.traverse(o => { if (o.isMesh) o.castShadow = true; });
   }
 
-  // Ropa sobre el tronco: delantal (peto, falda, cintas, lazo y bolsillo), túnica con cinturón (corta o larga) o chaleco
-  outfit(torso, L, cloth, pants) {
-    const o = L.outfit;
-    if (o === 'tunica' || o === 'larga') {
+  // Lo que se lleva en el tronco y las caderas: túnica (corta o larga, con cinturón), pantalón, falda o la
+  // ropa interior que quede a la vista; encima, delantal o chaleco; y a la espalda, la mochila
+  outfit(torso, L, W) {
+    const top = W.torso?.id, legs = W.piernas?.id, tunic = top === 'tunica' || top === 'tunica_larga';
+    if (tunic) {
       // Falda acampanada desde la cintura: por las caderas (corta) o casi hasta los tobillos (larga), con ribete
-      const [h, y] = o === 'larga' ? [0.42, -0.08] : [0.26, 0];
-      mesh(G.skirt, cloth, { p: [0, y, 0], s: [0.178, h, 0.138] }, torso);
-      mesh(G.cyl, M(shade(L.cloth, 0.7)), { p: [0, y - h / 2 + 0.012, 0], s: [0.178 * 1.32 + 0.004, 0.024, 0.138 * 1.32 + 0.004] }, torso);
+      const c = W.torso.color, [h, y] = top === 'tunica_larga' ? [0.42, -0.08] : [0.26, 0];
+      mesh(G.skirt, M(c), { p: [0, y, 0], s: [0.178, h, 0.138] }, torso);
+      mesh(G.cyl, M(shade(c, 0.7)), { p: [0, y - h / 2 + 0.012, 0], s: [0.178 * 1.32 + 0.004, 0.024, 0.138 * 1.32 + 0.004] }, torso);
       mesh(G.cyl, M('#5a3a22'), { p: [0, 0.12, 0], s: [0.184, 0.04, 0.144] }, torso);                                         // cinturón
       mesh(G.cyl, M('#e8c050', { metalness: 0.5, roughness: 0.4 }), { p: [0, 0.12, 0.146], s: [0.03, 0.045, 0.012], r: [Math.PI / 2, 0, 0] }, torso);
-      return;
     }
-    mesh(G.cyl, pants, { p: [0, 0.02, 0], s: [0.175, 0.08, 0.135] }, torso);                    // la cintura del pantalón
-    if (o === 'delantal') {
-      const apron = M('#efe6d4'), tie = M('#d8ccb4');
+    if (legs === 'pantalon' && top !== 'tunica_larga') mesh(G.cyl, M(W.piernas.color), { p: [0, 0.02, 0], s: [0.175, 0.08, 0.135] }, torso);   // la cintura del pantalón
+    if (legs === 'falda' && top !== 'tunica_larga') {
+      const c = W.piernas.color;
+      mesh(G.skirt, M(c), { p: [0, -0.04, 0], s: [0.179, 0.24, 0.139] }, torso);
+      mesh(G.cyl, M(shade(c, 0.75)), { p: [0, 0.075, 0], s: [0.184, 0.03, 0.144] }, torso);
+    }
+    // Sin nada por debajo de la cintura, se ve la ropa interior (o nada: piel)
+    if (!legs && !tunic && W.interiorAbajo) {
+      const c = M(W.interiorAbajo.color);
+      mesh(G.cyl, c, { p: [0, 0.0, 0], s: [0.176, 0.09, 0.136] }, torso);
+      mesh(G.cyl, M(shade(W.interiorAbajo.color, 0.85)), { p: [0, 0.045, 0], s: [0.178, 0.014, 0.138] }, torso);   // elástico
+    }
+    const over = W.encima?.id;
+    if (over === 'delantal') {
+      const apron = M(W.encima.color), tie = M(shade(W.encima.color, 0.88));
       mesh(G.bib, apron, { p: [0, 0.27, 0], s: [0.182, 0.17, 0.142] }, torso);                  // peto
       mesh(G.apron, apron, { p: [0, 0, 0], s: [0.182, 0.24, 0.142] }, torso);                   // falda
       mesh(G.cyl, tie, { p: [0, 0.125, 0], s: [0.186, 0.026, 0.146] }, torso);                  // cinta de la cintura
@@ -145,9 +161,41 @@ export class Person3D {
         strap(tie, [s * 0.01, 0.12, -0.15], [s * 0.03, 0.03, -0.155], 0.009, torso);
       }
       mesh(G.ball, tie, { p: [0, 0.125, -0.152], s: 0.014 }, torso);
-      mesh(G.ball, M(shade('#efe6d4', 0.88)), { p: [0.06, -0.035, 0.164], s: [0.05, 0.035, 0.01] }, torso);   // bolsillo
+      mesh(G.ball, M(shade(W.encima.color, 0.88)), { p: [0.06, -0.035, 0.164], s: [0.05, 0.035, 0.01] }, torso);   // bolsillo
     }
-    if (o === 'chaleco') { for (const s of [-1, 1]) mesh(G.cyl, M(shade(L.cloth, 0.6)), { p: [s * 0.08, 0.22, 0.1], s: [0.06, 0.36, 0.035] }, torso); mesh(G.cyl, M('#ece4d4'), { p: [0, 0.22, 0.095], s: [0.04, 0.36, 0.03] }, torso); }
+    if (over === 'chaleco') {
+      for (const s of [-1, 1]) mesh(G.cyl, M(W.encima.color), { p: [s * 0.08, 0.22, 0.1], s: [0.06, 0.36, 0.035] }, torso);
+      if (!W.torso) mesh(G.cyl, M(L.skin), { p: [0, 0.22, 0.095], s: [0.04, 0.36, 0.03] }, torso);
+      else mesh(G.cyl, M('#ece4d4'), { p: [0, 0.22, 0.095], s: [0.04, 0.36, 0.03] }, torso);
+    }
+    // Mochila: cuerpo, solapa, bolsillo y las dos correas por encima de los hombros
+    if (W.espalda) {
+      const bag = M(W.espalda.color, { roughness: 0.85 }), dark = M(shade(W.espalda.color, 0.68), { roughness: 0.85 });
+      mesh(G.box, bag, { p: [0, 0.21, -0.195], s: [0.25, 0.3, 0.13] }, torso);
+      mesh(G.box, dark, { p: [0, 0.32, -0.2], s: [0.26, 0.1, 0.14] }, torso);                   // solapa
+      mesh(G.box, dark, { p: [0, 0.12, -0.265], s: [0.17, 0.11, 0.03] }, torso);                // bolsillo
+      mesh(G.ball, M('#c8a048', { metalness: 0.5, roughness: 0.4 }), { p: [0, 0.29, -0.272], s: [0.018, 0.018, 0.01] }, torso);   // hebilla
+      for (const s of [-1, 1]) {
+        strap(dark, [s * 0.085, 0.36, -0.14], [s * 0.085, 0.43, 0.05], 0.016, torso);
+        strap(dark, [s * 0.085, 0.43, 0.05], [s * 0.1, 0.2, 0.137], 0.016, torso);
+      }
+    }
+  }
+
+  // Sombrero de paja (copa, cinta y ala ancha) o gorro de lana con vuelta y pompón
+  headwear(head, it) {
+    if (!it) return;
+    const c = M(it.color, { roughness: 0.85 }), d = M(shade(it.color, 0.72), { roughness: 0.85 });
+    if (it.id === 'sombrero') {
+      mesh(G.cyl, c, { p: [0, 0.31, -0.02], s: [0.2, 0.13, 0.2], r: [-0.1, 0, 0] }, head);
+      mesh(G.cyl, d, { p: [0, 0.265, -0.015], s: [0.205, 0.035, 0.205], r: [-0.1, 0, 0] }, head);
+      mesh(G.cyl, c, { p: [0, 0.245, -0.01], s: [0.4, 0.016, 0.38], r: [-0.1, 0, 0] }, head);
+    }
+    if (it.id === 'gorro') {
+      mesh(new THREE.SphereGeometry(0.29, 22, 12, 0, Math.PI * 2, 0, Math.PI * 0.5), c, { p: [0, 0.06, -0.02], s: 1.13, r: [-0.3, 0, 0] }, head);
+      mesh(new THREE.TorusGeometry(0.33, 0.04, 6, 26), d, { p: [0, 0.06, -0.02], r: [Math.PI / 2 - 0.3, 0, 0] }, head);   // la vuelta, en el borde
+      mesh(G.ball, M('#f4f0e8'), { p: [0, 0.4, -0.13], s: 0.065 }, head);
+    }
   }
 
   face(head, L, skin, hair) {

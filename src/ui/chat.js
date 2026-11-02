@@ -14,7 +14,7 @@ const COMMANDS = {
     run(game, say) {
       if (!Profile.admin) { say('Solo el administrador puede usar /admin.', 'err'); return; }
       game.setAdmin(!game.admin);
-      if (game.admin) say('Modo admin activado. Lo que uses no se gasta, en la mochila (I) tienes todos los objetos y construir (B) es gratis.', 'ok');
+      if (game.admin) say('Modo admin activado. Lo que uses no se gasta, en el inventario (I) tienes todos los objetos y construir (B) es gratis.', 'ok');
       else say('Modo admin desactivado.', 'ok');
       game.onSave?.();
     },

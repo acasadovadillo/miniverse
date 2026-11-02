@@ -68,7 +68,7 @@ export function initShopUI(game, { onClose }) {
   }
   function buy(id, price, n) {
     if (game.money < price * n) return;
-    if (game.inv.room(id) < n) { note = 'No te cabe en la mochila'; Audio.error(); return; }
+    if (game.inv.room(id) < n) { note = 'No te cabe: no llevas sitio libre'; Audio.error(); return; }
     game.addMoney(-price * n);
     game.inv.add(id, n);
     note = `Has comprado ${n} × ${ITEMS[id].name.toLowerCase()}.`;

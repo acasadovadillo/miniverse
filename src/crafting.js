@@ -62,7 +62,7 @@ export class Crafting {
     if (!this.stationsNear()[r.station]) return `Tienes que estar junto a: ${STATIONS[r.station].name.toLowerCase()}`;
     const missing = !inv.infinite && r.ins.find(([id, n]) => inv.count(id) < n);
     if (missing) return `Te falta ${ITEMS[missing[0]].name.toLowerCase()}`;
-    if (inv.room(r.out) < r.n && !r.ins.some(([id, n]) => inv.count(id) === n)) return 'No te cabe en la mochila';
+    if (inv.room(r.out) < r.n && !r.ins.some(([id, n]) => inv.count(id) === n)) return 'No te cabe: no llevas sitio libre';
     return null;
   }
   // Cuántas veces seguidas se podría fabricar con lo que hay

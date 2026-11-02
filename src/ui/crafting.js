@@ -54,7 +54,7 @@ export function initCraftingUI(game, { onClose, onBag }) {
     // Si hay una estación de esta pestaña cerca, se puede recoger
     const st = near[tab];
     $('cf-pick').hidden = !st || st === true;
-    if (st && st !== true) $('cf-pick').textContent = `Guardar ${ITEMS[tab].name.toLowerCase()} en la mochila`;
+    if (st && st !== true) $('cf-pick').textContent = `Guardar ${ITEMS[tab].name.toLowerCase()} en el inventario`;
     $('cf-where').textContent = tab === 'mano' ? 'Se fabrica en cualquier sitio.' : near[tab] ? `Estás junto a: ${STATIONS[tab].name.toLowerCase()}.` : `Para esto necesitas estar junto a: ${STATIONS[tab].name.toLowerCase()}.`;
   }
 

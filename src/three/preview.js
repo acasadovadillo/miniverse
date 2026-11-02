@@ -29,6 +29,7 @@ export class CharacterPreview {
     stage.position.y = -0.06; stage.receiveShadow = true;
     this.scene.add(stage);
     this.person = null; this.angle = 0; this.want = 0; this.last = 0;
+    this.walk = true;   // andando en el sitio (si no, de pie)
   }
   setLook(look) {
     if (this.person) this.scene.remove(this.person.root);
@@ -48,7 +49,7 @@ export class CharacterPreview {
     let d = this.want - this.angle;
     d = Math.atan2(Math.sin(d), Math.cos(d));
     this.angle += d * Math.min(1, dt * 8);
-    if (this.person) { this.person.facing = this.angle; this.person.root.rotation.y = this.angle; this.person.update(dt, this.shot === 'face' ? 0 : 1.4); this.person.root.position.y = 0; }
+    if (this.person) { this.person.facing = this.angle; this.person.root.rotation.y = this.angle; this.person.update(dt, this.shot === 'face' || !this.walk ? 0 : 1.4); this.person.root.position.y = 0; }
     const [pos, at] = this.shots[this.shot], k = Math.min(1, dt * 7);
     this.cam[0].lerp(new THREE.Vector3(...pos), k); this.cam[1].lerp(new THREE.Vector3(...at), k);
     this.camera.position.copy(this.cam[0]);

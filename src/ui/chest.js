@@ -1,6 +1,6 @@
 // Cofre: dos rejillas (el cofre y la mochila). Un clic en una casilla pasa el montón al otro lado.
 import { ITEMS } from '../items.js';
-import { SLOTS } from '../inventory.js';
+import { SLOTS, extraOf } from '../inventory.js';
 import { itemIconUrl } from '../art/items.js';
 
 const $ = id => document.getElementById(id);
@@ -15,7 +15,7 @@ function cell(parent, onClick) {
 }
 function paint(el, s) {
   const img = el.querySelector('img');
-  if (s) { const url = itemIconUrl(s.id); if (img.getAttribute('src') !== url) img.src = url; img.hidden = false; el.title = ITEMS[s.id].name; }
+  if (s) { const url = itemIconUrl(s.id, s.color); if (img.getAttribute('src') !== url) img.src = url; img.hidden = false; el.title = ITEMS[s.id].name; }
   else { img.hidden = true; el.title = ''; }
   el.querySelector('b').textContent = s && s.n > 1 ? s.n : '';
 }
@@ -30,8 +30,8 @@ export function initChestUI(game, { onClose }) {
   function toBag(i) {
     const s = chest?.[i];
     if (!s) return;
-    const left = game.inv.add(s.id, s.n);
-    chest[i] = left ? { id: s.id, n: left } : null;
+    const left = game.inv.add(s.id, s.n, extraOf(s));
+    chest[i] = left ? { ...s, n: left } : null;
     changed();
   }
   function toChest(i) {
@@ -39,15 +39,15 @@ export function initChestUI(game, { onClose }) {
     if (!chest || !s) return;
     let n = s.n;
     const max = ITEMS[s.id].stack;
-    for (const c of chest) if (n > 0 && c?.id === s.id && c.n < max) { const k = Math.min(n, max - c.n); c.n += k; n -= k; }
-    for (let j = 0; j < chest.length && n > 0; j++) if (!chest[j]) { chest[j] = { id: s.id, n: Math.min(n, max) }; n -= chest[j].n; }
+    if (!s.color) for (const c of chest) if (n > 0 && c?.id === s.id && !c.color && c.n < max) { const k = Math.min(n, max - c.n); c.n += k; n -= k; }
+    for (let j = 0; j < chest.length && n > 0; j++) if (!chest[j]) { chest[j] = { ...s, n: Math.min(n, max) }; n -= chest[j].n; }
     game.inv.take(i, s.n - n, true);
     changed();
   }
   function refresh() {
     if (!chest) return;
     chestCells.forEach((el, i) => paint(el, chest[i]));
-    bagCells.forEach((el, i) => paint(el, game.inv.slots[i]));
+    bagCells.forEach((el, i) => { paint(el, game.inv.slots[i]); el.classList.toggle('locked', !game.inv.usable(i)); });
   }
   $('ch-close').onclick = () => onClose();
   return { refresh, open(c, t) { chest = c; tile = t; refresh(); } };

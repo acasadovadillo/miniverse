@@ -16,6 +16,8 @@ const R = (station, out, n, ins, extra = {}) => ({ id: out, station, out, n, ins
 export const RECIPES = [
   R('mano', 'tablas', 2, [['madera', 1]]),
   R('mano', 'cuerda', 1, [['fibra', 3]]),
+  R('mano', 'mochila', 1, [['fibra', 8], ['cuerda', 2]]),
+  R('mano', 'sombrero', 1, [['fibra', 6], ['cuerda', 1]]),
   R('mano', 'banco', 1, [['tablas', 6], ['piedra', 2]], { teach: 'Nilo' }),
 
   R('banco', 'horno', 1, [['piedra', 14]]),
@@ -65,6 +67,19 @@ export const RECIPES = [
   R('cocina', 'palomitas', 1, [['maiz', 2]]),
   R('cocina', 'tostada_miel', 1, [['pan', 1], ['miel', 1]]),
   R('telar', 'alfombra', 1, [['tela', 3]]),
+  // Ropa (en el telar)
+  R('telar', 'camisa', 1, [['tela', 2]]),
+  R('telar', 'pantalon', 1, [['tela', 2]]),
+  R('telar', 'falda', 1, [['tela', 2]]),
+  R('telar', 'chaleco', 1, [['tela', 2]]),
+  R('telar', 'delantal', 1, [['tela', 2]]),
+  R('telar', 'tunica', 1, [['tela', 3]]),
+  R('telar', 'tunica_larga', 1, [['tela', 4]]),
+  R('telar', 'camiseta_interior', 1, [['tela', 1]]),
+  R('telar', 'calzoncillos', 1, [['tela', 1]]),
+  R('telar', 'bragas', 1, [['tela', 1]]),
+  R('telar', 'botas', 1, [['tela', 2], ['cuerda', 1]]),
+  R('telar', 'gorro', 1, [['lana', 2]]),
 
   R('cocina', 'manzana_asada', 1, [['manzana', 1]]),
   R('cocina', 'mermelada', 1, [['bayas', 3]]),

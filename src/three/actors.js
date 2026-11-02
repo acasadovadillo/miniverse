@@ -35,7 +35,10 @@ export class Actors {
       if (!e || seen.has(e)) continue;
       seen.add(e);
       let m = this.models.get(e);
-      if (!m) { m = this.make(e, e === p); if (!m) continue; this.models.set(e, m); this.group.add(m.root); }
+      // (el jugador, con la ropa que lleva: si se pone o se quita algo, se rehace su muñeco)
+      const look = e === p ? game.appearance() : e.look;
+      if (m && e === p && m.look !== look) { this.group.remove(m.root); this.models.delete(e); this.player = null; m = null; }
+      if (!m) { m = this.make(e, e === p, look); if (!m) continue; m.look = look; this.models.set(e, m); this.group.add(m.root); }
       this.pose(m, e, scene, dt, t, e === p ? game : null);
     }
     for (const [e, m] of this.models) if (!seen.has(e)) { this.group.remove(m.root); this.models.delete(e); if (m === this.player) this.player = null; }
@@ -44,11 +47,11 @@ export class Actors {
     if (p && scene.kind === 'grid') this.lights.push({ x: p.x, y: 1.8, z: p.y, intensity: 8, range: 14, color: '#ffc880', always: true, flicker: true });
   }
 
-  make(e, isPlayer) {
-    if (e.look) {
+  make(e, isPlayer, look = e.look) {
+    if (look) {
       // (las personas con el mismo aspecto se copian de la primera: hacer una desde cero cuesta)
-      const key = JSON.stringify(e.look);
-      if (!PEOPLE.has(key)) PEOPLE.set(key, new Person3D(e.look, ''));
+      const key = JSON.stringify(look);
+      if (!PEOPLE.has(key)) PEOPLE.set(key, new Person3D(look, ''));
       const person = PEOPLE.get(key).clone();
       const root = new THREE.Group();
       root.add(person.root);

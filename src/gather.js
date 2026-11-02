@@ -100,7 +100,7 @@ export class Gathering {
       const dx = p.x - d.x, dy = p.y - d.y, dist = Math.hypot(dx, dy);
       if (d.t > 0.45 && dist < 1.8) {
         if (dist < 0.35) {
-          if (g.inv.add(d.id, 1) === 0) { this.drops.splice(i, 1); this.collected(d.id); }
+          if (g.inv.add(d.id, 1, d.extra) === 0) { this.drops.splice(i, 1); this.collected(d.id); }
           continue;
         }
         const sp = Math.min(dist, 7 * dt);
@@ -254,10 +254,10 @@ export class Gathering {
   }
 
   // Tirar objetos de la mochila al suelo, delante del jugador
-  throwOut(id, n) {
+  throwOut(id, n, extra) {
     const p = this.game.player;
     if (!p) return false;
-    for (let i = 0; i < n; i++) this.drops.push({ id, x: p.x + p.face.x * 1.2 + (Math.random() - 0.5) * 0.4, y: p.y + p.face.y * 1.2 + (Math.random() - 0.5) * 0.4, z: 6, vz: 40, t: -1.5, scene: this.game.scene });
+    for (let i = 0; i < n; i++) this.drops.push({ id, extra, x: p.x + p.face.x * 1.2 + (Math.random() - 0.5) * 0.4, y: p.y + p.face.y * 1.2 + (Math.random() - 0.5) * 0.4, z: 6, vz: 40, t: -1.5, scene: this.game.scene });
     return true;
   }
 

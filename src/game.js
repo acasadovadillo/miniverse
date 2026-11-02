@@ -14,6 +14,7 @@ import { Gathering } from './gather.js';
 import { Crafting } from './crafting.js';
 import { STATIONS } from './recipes.js';
 import { ENERGY_MAX, START_KIT, ITEMS } from './items.js';
+import { clothesFor, dressed } from './looks.js';
 import { WorldStore } from './worldstore.js';
 import { BuildMode } from './build.js';
 import { TimeSystem } from './time.js';
@@ -114,7 +115,10 @@ export class Game {
     if (moved) for (const k of deltas.keys()) this.world.dirty.add(k);   // que se guarde ya así
     this.world.clock = save.clock || 0;
     this.inv = new Inventory(save.inventory);
-    if (!save.inventory) for (const [id, n] of START_KIT) this.inv.add(id, n);   // partidas sin mochila: equipo inicial
+    if (!save.inventory) for (const [id, n] of START_KIT) this.inv.add(id, n);   // partida nueva: equipo inicial
+    // La ropa: la partida nueva empieza con la que se eligió al crear el personaje, sin mochila; las de antes
+    // de que hubiera ropa, con la suya y una mochila (así no pierden nada de lo que llevaban)
+    if (!save.inventory?.equip) this.inv.equip = clothesFor(save.player.look, !!save.inventory);
     this.inv.onChange = () => { this.craft.check(); this.onInventory?.(); };
     this.craft.reset(save);
     this.onInventory?.();
@@ -247,7 +251,7 @@ export class Game {
   sleep() { return this.days.sleep(); }
   // Devolver a la mochila algo colocado
   pickUp(o) {
-    if (this.inv.room(o.placed) < 1) { this.gather.float('No te cabe en la mochila', '#ffb0a0'); Audio.error(); return false; }
+    if (this.inv.room(o.placed) < 1) { this.gather.float('No te cabe: no llevas sitio libre', '#ffb0a0'); Audio.error(); return false; }
     if (o.placed === 'cofre' && this.scene.chestAt(...o.tile)?.some(Boolean)) { this.gather.float('Vacía el cofre antes', '#ffb0a0'); Audio.error(); return false; }
     this.scene.unplace(o);
     this.inv.add(o.placed, 1);
@@ -267,7 +271,8 @@ export class Game {
       `¡Así que tú eres ${p.name}! Por fin llega alguien a la casa del final del camino. Llevaba años vacía.`,
       'Esto es Pueblo Brotes. Pequeño, sí, pero aquí cada cual se construye la vida a su manera.',
       'Dicen que el mundo no se acaba nunca más allá del bosque. Yo nunca he llegado tan lejos.',
-      'Te he dejado en la mochila unas herramientas viejas: hacha, pico, guadaña y azada. Elígelas con los números y úsalas con el clic izquierdo.',
+      'Te he dejado unas herramientas viejas: hacha, pico, guadaña y azada. Las llevas en las manos y en los bolsillos: elígelas con los números y úsalas con el clic izquierdo.',
+      'Sin mochila no te cabe mucho más. Siega unos matorrales: con fibra y un par de cuerdas te haces una (pulsa C) y te la pones en el inventario (I).',
       'Y un consejo de viejo carpintero: con madera se hacen tablas (pulsa C para fabricar). Con seis tablas y dos piedras te sale un banco de carpintero, y con él, herramientas mejores.',
     ] : [NILO_TIPS[this.niloTip++ % NILO_TIPS.length]]);
     if (first) this.craft.teach('banco');
@@ -426,6 +431,12 @@ export class Game {
     this.busy = false;
   }
   // Casilla bajo un punto de la pantalla (ratón o dedo): el rayo desde la cámara hasta el suelo
+  // El aspecto del jugador con la ropa que lleva puesta (cambia al ponerse o quitarse algo)
+  appearance() {
+    if (!this.player) return null;
+    if (this.looked?.v !== this.inv.v || this.looked.base !== this.player.look) this.looked = { v: this.inv.v, base: this.player.look, look: dressed(this.player.look, this.inv.equip) };
+    return this.looked.look;
+  }
   tileAtScreen(clientX, clientY) { return this.scene ? this.view3d.tileAt(clientX, clientY) : null; }
   // La casilla bajo el ratón mientras está sobre el juego (null si no), recalculada en cada fotograma: la
   // cámara se mueve aunque el ratón se quede quieto
