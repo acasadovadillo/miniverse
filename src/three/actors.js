@@ -292,22 +292,107 @@ function boatModel() {
 }
 
 // ---------- herramientas ----------
+// Las herramientas en la mano: el mango va a lo largo de +y desde el puño y las cabezas son perfiles
+// extruidos (hoja del hacha, media luna del pico, hoja de la guadaña, pala de la azada, hoja de la espada),
+// con el filo de un tono más claro (un poco más grueso que la cabeza, para que asome por las dos caras). Las de madera y piedra van atadas con cuerda; las de metal brillan.
+const SHAPES = new Map();
+// Un perfil (lista de órdenes de THREE.Shape) extruido con su grosor, centrado en z
+function profile(key, draw, depth, bevel = 0.004) {
+  if (!SHAPES.has(key)) {
+    const sh = new THREE.Shape();
+    draw(sh);
+    const geo = new THREE.ExtrudeGeometry(sh, { depth, bevelEnabled: true, bevelThickness: bevel, bevelSize: bevel, bevelSegments: 1, curveSegments: 10 });
+    geo.translate(0, 0, -depth / 2);
+    geo.computeVertexNormals();
+    SHAPES.set(key, geo);
+  }
+  return SHAPES.get(key);
+}
+const AXE = sh => { sh.moveTo(-0.04, -0.045); sh.lineTo(0.03, -0.035); sh.quadraticCurveTo(0.08, -0.06, 0.125, -0.115); sh.quadraticCurveTo(0.175, 0, 0.125, 0.115); sh.quadraticCurveTo(0.08, 0.06, 0.03, 0.035); sh.lineTo(-0.04, 0.045); sh.lineTo(-0.04, -0.045); };
+const AXE_EDGE = sh => { sh.moveTo(0.125, -0.115); sh.quadraticCurveTo(0.175, 0, 0.125, 0.115); sh.quadraticCurveTo(0.152, 0, 0.11, -0.1); };
+const PICK = sh => { sh.moveTo(-0.27, -0.07); sh.quadraticCurveTo(-0.13, 0.06, 0, 0.05); sh.quadraticCurveTo(0.13, 0.06, 0.27, -0.07); sh.quadraticCurveTo(0.12, -0.005, 0, -0.025); sh.quadraticCurveTo(-0.12, -0.005, -0.27, -0.07); };
+const SCYTHE = sh => { sh.moveTo(-0.01, 0.025); sh.quadraticCurveTo(0.24, 0.07, 0.5, -0.09); sh.quadraticCurveTo(0.27, -0.005, -0.01, -0.03); sh.lineTo(-0.01, 0.025); };
+const SCYTHE_EDGE = sh => { sh.moveTo(0.5, -0.09); sh.quadraticCurveTo(0.27, -0.005, -0.01, -0.03); sh.lineTo(-0.01, -0.018); sh.quadraticCurveTo(0.27, 0.01, 0.5, -0.09); };
+const HOE = sh => { sh.moveTo(-0.075, 0); sh.lineTo(0.075, 0); sh.lineTo(0.06, 0.13); sh.lineTo(-0.06, 0.13); sh.lineTo(-0.075, 0); };
+const BLADE = sh => { sh.moveTo(-0.028, 0); sh.lineTo(0.028, 0); sh.lineTo(0.028, 0.47); sh.lineTo(0, 0.56); sh.lineTo(-0.028, 0.47); sh.lineTo(-0.028, 0); };
+
 export function toolModel(id) {
   const def = ITEMS[id];
   if (!def || !(def.tool || def.weapon)) return null;
-  const head = mat({ color: TIERS[def.tier]?.head || '#b8c2ce', metalness: def.tier >= 3 ? 0.6 : 0.1, roughness: def.tier >= 3 ? 0.35 : 0.8 });
-  const handle = M('#8a5a34'), g = new THREE.Group();
-  const stick = (len, r = 0.022) => mesh(G.cyl, handle, { p: [0, len / 2 - 0.08, 0], s: [r, len, r] }, g);
+  const tier = def.tier || 4, base = def.weapon ? (def.weapon > 3 ? '#f0c840' : '#c8d0d8') : TIERS[tier]?.head || '#b8c2ce';
+  const metal = def.weapon || tier >= 3, flat = !metal;
+  const head = mat({ color: base, metalness: metal ? 0.65 : 0, roughness: metal ? 0.32 : 0.85, flatShading: flat });
+  const edge = mat({ color: '#' + new THREE.Color(base).lerp(new THREE.Color('#ffffff'), metal ? 0.45 : 0.25).getHexString(), metalness: metal ? 0.8 : 0, roughness: metal ? 0.2 : 0.7, flatShading: flat });
+  const wood = M('#7a4e2c'), grip = M('#4a2e1c'), rope = M('#d8c8a0'), g = new THREE.Group();
+  const at = (geo, m, p, r = [0, 0, 0], s = [1, 1, 1]) => mesh(geo, m, { p, r, s }, g);
+  // Mango: algo más grueso abajo, con la empuñadura forrada y un remate
+  const haft = (len, r = 0.022) => {
+    at(new THREE.CylinderGeometry(r * 0.9, r * 1.1, len, 8), wood, [0, len / 2 - 0.1, 0]);
+    at(new THREE.CylinderGeometry(r * 1.25, r * 1.25, 0.13, 8), grip, [0, -0.03, 0]);
+    at(G.ball, grip, [0, -0.1, 0], [0, 0, 0], [r * 1.4, r * 1.1, r * 1.4]);
+    return len - 0.1;   // dónde acaba
+  };
+  const lash = y => { if (!metal) for (const dy of [-0.05, 0.05]) at(new THREE.TorusGeometry(0.027, 0.007, 4, 10), rope, [0, y + dy, 0], [Math.PI / 2, 0, 0]); };
   const kind = def.weapon ? 'espada' : def.tool;
-  if (kind === 'hacha') { stick(0.55); mesh(G.cyl, head, { p: [0.07, 0.4, 0], s: [0.1, 0.03, 0.14], r: [Math.PI / 2, 0, 0] }, g); }
-  else if (kind === 'pico') { stick(0.55); mesh(G.cyl, head, { p: [0, 0.44, 0], s: [0.025, 0.42, 0.025], r: [0, 0, Math.PI / 2] }, g); for (const s of [-1, 1]) mesh(G.cone, head, { p: [s * 0.23, 0.42, 0], s: [0.025, 0.08, 0.025], r: [0, 0, -s * 1.9] }, g); }
-  else if (kind === 'guadana') { stick(0.7); const bl = new THREE.Mesh(new THREE.TorusGeometry(0.22, 0.02, 4, 12, 2), head); bl.position.set(-0.2, 0.6, 0); bl.castShadow = true; g.add(bl); }
-  else if (kind === 'azada') { stick(0.6); mesh(G.cyl, head, { p: [0, 0.5, 0.06], s: [0.1, 0.02, 0.1] }, g); }
-  else if (kind === 'regadera') { mesh(G.cyl, M('#7a9ab0', { metalness: 0.5, roughness: 0.4 }), { p: [0, 0.08, 0.1], s: [0.09, 0.18, 0.09] }, g); mesh(G.cyl, M('#7a9ab0', { metalness: 0.5 }), { p: [0, 0.12, 0.25], s: [0.015, 0.22, 0.015], r: [1.1, 0, 0] }, g); }
-  else if (kind === 'cana') { mesh(G.cyl, handle, { p: [0, 0.6, 0.1], s: [0.012, 1.4, 0.012], r: [0.5, 0, 0] }, g); }
-  else if (kind === 'red') { stick(0.7); const ring = new THREE.Mesh(new THREE.TorusGeometry(0.14, 0.012, 4, 14), M('#d8d0b8')); ring.position.set(0, 0.68, 0); ring.rotation.x = Math.PI / 2; g.add(ring); }
-  else if (kind === 'espada') { mesh(G.cyl, handle, { p: [0, 0.02, 0], s: [0.025, 0.14, 0.025] }, g); mesh(G.cyl, M('#8a6a3a'), { p: [0, 0.1, 0], s: [0.12, 0.025, 0.03] }, g); mesh(G.cyl, def.weapon > 3 ? M('#f0c840', { metalness: 0.7, roughness: 0.3 }) : M('#c8d0d8', { metalness: 0.7, roughness: 0.3 }), { p: [0, 0.4, 0], s: [0.035, 0.55, 0.012] }, g); }
-  else stick(0.5);
+  if (kind === 'hacha') {
+    const top = haft(0.62), y = top - 0.07;
+    at(profile('axe', AXE, 0.034), head, [0.012, y, 0]);
+    at(profile('axeEdge', AXE_EDGE, 0.04, 0.003), edge, [0.012, y, 0]);
+    lash(y);
+  } else if (kind === 'pico') {
+    const top = haft(0.62), y = top - 0.04;
+    at(profile('pick', PICK, 0.036), head, [0, y, 0]);
+    at(new THREE.CylinderGeometry(0.034, 0.034, 0.09, 8), head, [0, y, 0]);
+    for (const sx of [-1, 1]) at(G.cone, edge, [sx * 0.262, y - 0.068, 0], [0, 0, sx * 2.25], [0.018, 0.05, 0.018]);
+    lash(y);
+  } else if (kind === 'guadana') {
+    const top = haft(0.9, 0.02);
+    at(new THREE.CylinderGeometry(0.016, 0.016, 0.12, 6), wood, [0, 0.32, 0.06], [Math.PI / 2, 0, 0]);   // asidero
+    at(G.ball, grip, [0, 0.32, 0.125], [0, 0, 0], 0.022);
+    at(profile('scythe', SCYTHE, 0.012, 0.003), head, [0, top - 0.02, 0]);
+    at(profile('scytheEdge', SCYTHE_EDGE, 0.016, 0.002), edge, [0, top - 0.02, 0]);
+    at(new THREE.CylinderGeometry(0.03, 0.03, 0.06, 8), head, [0, top - 0.02, 0]);
+  } else if (kind === 'azada') {
+    const top = haft(0.66);
+    at(new THREE.CylinderGeometry(0.03, 0.03, 0.07, 8), head, [0, top - 0.02, 0]);
+    at(new THREE.CylinderGeometry(0.012, 0.012, 0.09, 6), head, [0, top - 0.01, 0.04], [Math.PI / 2, 0, 0]);
+    const plate = at(profile('hoe', HOE, 0.016), head, [0, top - 0.02, 0.09], [Math.PI - 0.35, 0, 0]);
+    at(profile('hoeEdge', sh => { sh.moveTo(-0.075, 0); sh.lineTo(0.075, 0); sh.lineTo(0.073, 0.018); sh.lineTo(-0.073, 0.018); sh.lineTo(-0.075, 0); }, 0.022, 0.002), edge, plate.position.toArray(), [Math.PI - 0.35, 0, 0]);
+    lash(top - 0.02);
+  } else if (kind === 'espada') {
+    const gold = def.weapon > 3, brass = M(gold ? '#c8962a' : '#8a6a3a', { metalness: 0.6, roughness: 0.35 });
+    at(new THREE.CylinderGeometry(0.02, 0.022, 0.13, 8), grip, [0, 0.0, 0]);
+    at(G.ball, brass, [0, -0.08, 0], [0, 0, 0], 0.03);
+    at(G.cyl, brass, [0, 0.075, 0], [0, 0, 0], [0.1, 0.022, 0.028]);
+    for (const sx of [-1, 1]) at(G.ball, brass, [sx * 0.1, 0.075, 0], [0, 0, 0], 0.02);
+    at(profile('blade', BLADE, 0.008, 0.006), head, [0, 0.085, 0]);
+  } else if (kind === 'regadera') {
+    // Se lleva colgando del asa: el cuerpo, el caño con su alcachofa y el asa
+    const tin = M('#7a9ab0', { metalness: 0.55, roughness: 0.35 }), dark = M('#5a7a8e', { metalness: 0.5, roughness: 0.4 });
+    at(new THREE.CylinderGeometry(0.085, 0.095, 0.17, 14), tin, [0, -0.17, 0.02]);
+    at(new THREE.TorusGeometry(0.085, 0.008, 4, 16), dark, [0, -0.085, 0.02], [Math.PI / 2, 0, 0]);
+    at(new THREE.TubeGeometry(new THREE.QuadraticBezierCurve3(new THREE.Vector3(0, -0.21, 0.1), new THREE.Vector3(0, -0.16, 0.22), new THREE.Vector3(0, -0.07, 0.29)), 8, 0.012, 6), tin, [0, 0, 0]);
+    at(new THREE.CylinderGeometry(0.03, 0.012, 0.04, 10), dark, [0, -0.06, 0.305], [0.7, 0, 0]);
+    at(new THREE.TorusGeometry(0.07, 0.01, 4, 12, Math.PI), dark, [0, -0.085, 0.02], [0, Math.PI / 2, 0]);
+    g.rotation.x = -0.15;
+    g.traverse(o => { if (o.isMesh) o.castShadow = true; });
+    return g;
+  } else if (kind === 'cana') {
+    // Caña: empuñadura de corcho, carrete y una vara que se afina hasta la punta (de ahí sale el sedal)
+    at(new THREE.CylinderGeometry(0.02, 0.022, 0.16, 8), M('#c8a070'), [0, 0, 0]);
+    at(new THREE.CylinderGeometry(0.035, 0.035, 0.02, 12), M('#3a3a40', { metalness: 0.5, roughness: 0.4 }), [0.035, 0.1, 0], [0, 0, Math.PI / 2]);
+    at(new THREE.CylinderGeometry(0.004, 0.014, 1.3, 6), M('#5a3a24'), [0, 0.73, 0]);
+    for (const y of [0.4, 0.75, 1.1]) at(new THREE.TorusGeometry(0.012, 0.003, 4, 8), M('#d8d8d8', { metalness: 0.6 }), [0, y, 0.012], [0, Math.PI / 2, 0]);
+    const tip = new THREE.Object3D(); tip.name = 'tip'; tip.position.set(0, 1.38, 0); g.add(tip);
+    g.rotation.x = 0.5;
+    g.traverse(o => { if (o.isMesh) o.castShadow = true; });
+    return g;
+  } else if (kind === 'red') {
+    const top = haft(0.72, 0.018), ring = M('#b8a888', { metalness: 0.3 });
+    at(new THREE.TorusGeometry(0.13, 0.009, 4, 18), ring, [0, top + 0.13, 0]);
+    const net = new THREE.Mesh(new THREE.ConeGeometry(0.13, 0.24, 14, 1, true), mat({ color: '#f4f0e4', transparent: true, opacity: 0.55, side: THREE.DoubleSide, depthWrite: false }));
+    net.position.set(0, top + 0.13, -0.12); net.rotation.x = -Math.PI / 2; g.add(net);
+  } else haft(0.5);
   g.rotation.x = Math.PI / 2 - 0.3;   // en la mano, hacia delante
   g.traverse(o => { if (o.isMesh) o.castShadow = true; });
   return g;

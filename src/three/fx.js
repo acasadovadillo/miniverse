@@ -291,9 +291,10 @@ export class Fx {
     const s = playing ? game.fishing?.state : null, show = !!s && scene === game.world;
     this.line.visible = this.bobber.visible = this.ripple.visible = show;
     if (!show) return;
-    const hand = this.view.actors.player?.hand;
-    const from = hand ? hand.getWorldPosition(v3.set(0, 0, 0)).clone() : new THREE.Vector3(game.player.x, 1.2, game.player.y);
-    from.y += 0.9;
+    // (el sedal sale de la punta de la caña; si no se ve la caña, de un poco por encima de la mano)
+    const hand = this.view.actors.player?.hand, tip = hand?.getObjectByName('tip');
+    const from = tip ? tip.getWorldPosition(new THREE.Vector3()) : hand ? hand.getWorldPosition(v3.set(0, 0, 0)).clone() : new THREE.Vector3(game.player.x, 1.2, game.player.y);
+    if (!tip) from.y += 0.9;
     const dip = s.phase === 'bite' ? -0.05 + Math.sin(t * 30) * 0.03 : Math.sin(t * 3) * 0.015;
     const to = new THREE.Vector3(s.bx, WATER_Y + 0.03 + dip, s.by);
     this.bobber.position.copy(to);
