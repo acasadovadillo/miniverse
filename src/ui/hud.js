@@ -1,21 +1,18 @@
 // Interfaz durante la partida: aviso de interacción, diálogos, nombre del lugar y fundido a negro.
 import { Audio } from '../audio.js';
-import { portrait } from '../art/people3.js';
+import { portrait3D } from '../three/portrait.js';
 
 const $ = id => document.getElementById(id);
 let shownPrompt = null, shownCoords = null, shownEnergy = null, shownHint = null, dialog = null;
-const portraits = new Map();
 
-// Retrato de quien habla (si es una persona conocida); el nombre puede llevar detrás los corazones
+// Retrato de quien habla (si es una persona conocida): su cara en 3D. El nombre puede llevar detrás los corazones.
 function showFace(name) {
   const look = hud.faces[name.split('  ')[0]], box = $('dialog'), cv = $('dlg-face');
   box.classList.toggle('face', !!look);
   if (!look) return;
-  const key = JSON.stringify(look);
-  if (!portraits.has(key)) portraits.set(key, portrait(look));
   const g = cv.getContext('2d');
   g.clearRect(0, 0, cv.width, cv.height);
-  g.drawImage(portraits.get(key), 0, 0);
+  g.drawImage(portrait3D(look), 0, 0, cv.width, cv.height);
 }
 
 export const hud = {

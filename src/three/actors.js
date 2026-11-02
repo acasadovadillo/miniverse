@@ -8,8 +8,7 @@ import { Person3D, mesh, mergeInto, G, M } from './people.js';
 import { mat } from './geo.js';
 import { ANIMALS } from '../art/farm.js';
 import { MONSTERS } from '../combat.js';
-import { screenDirOf } from '../art/people3.js';
-import { screenToWorld } from '../camera.js';
+import { screenToWorld, screenDirOf } from '../camera.js';
 import { ITEMS, TIERS } from '../items.js';
 import { WATER_Y } from './terrain.js';
 

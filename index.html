@@ -28,7 +28,7 @@
   #dialog { position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); width: min(640px, calc(100vw - 24px)); padding: 14px 18px 16px; font-size: 19px; line-height: 1.4; display: none; cursor: pointer; }
   #dialog.show { display: block; }
   #dialog .name { color: var(--gold); margin-bottom: 4px; font-weight: 600; }
-  #dlg-face { display: none; position: absolute; left: 14px; top: 14px; width: 96px; height: 96px; image-rendering: pixelated; background: #6a4424; border: 2px solid var(--border, #e8c47a); border-radius: 4px; }
+  #dlg-face { display: none; position: absolute; left: 14px; top: 14px; width: 96px; height: 96px; background: radial-gradient(circle at 50% 38%, #9a6a3e, #5a3820 72%); border: 2px solid var(--border, #e8c47a); border-radius: 4px; }
   #dialog.face { padding-left: 128px; min-height: 128px; }
   #dialog.face #dlg-face { display: block; }
   #dialog .more { position: absolute; right: 14px; bottom: 8px; color: var(--gold); animation: blink 1s steps(2) infinite; }
@@ -353,7 +353,7 @@
   <div id="prompt" class="panel"><kbd>E</kbd><span id="prompt-text"></span></div>
   <div id="admin-tag" class="panel" title="Modo admin: objetos infinitos y construir gratis (/admin para quitarlo)">ADMIN</div>
   <div id="chat"><div id="chat-log"></div><input id="chat-input" maxlength="120" autocomplete="off" spellcheck="false" placeholder="Escribe un mensaje o un comando (/ayuda)"></div>
-  <div id="dialog" class="panel"><canvas id="dlg-face" width="48" height="48"></canvas><div class="name" id="dlg-name"></div><div id="dlg-text"></div><div id="dlg-opts"></div><div class="more">▼</div></div>
+  <div id="dialog" class="panel"><canvas id="dlg-face" width="192" height="192"></canvas><div class="name" id="dlg-name"></div><div id="dlg-text"></div><div id="dlg-opts"></div><div class="more">▼</div></div>
   <div id="toasts"></div>
 
   <!-- Inicio de sesión -->

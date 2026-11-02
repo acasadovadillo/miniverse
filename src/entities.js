@@ -1,8 +1,7 @@
 // Entidades: cualquier cosa con posición que se mueve o se dibuja por sí misma (jugador, vecinos…).
 import { lerp, clamp } from './util.js';
 import { fromView, toView } from './iso.js';
-import { screenToWorld } from './camera.js';
-import { viewFor, screenDirOf } from './art/people3.js';
+import { screenToWorld, viewFor, screenDirOf } from './camera.js';
 import { collide } from './physics.js';
 import { Audio } from './audio.js';
 

@@ -11,6 +11,21 @@ export function screenToWorld(sx, sy) {
   const s = Math.sin(CAM.yaw), c = Math.cos(CAM.yaw);
   return [sx * c + sy * s, -sx * s + sy * c];
 }
+// Las personas miran hacia una de 8 vistas respecto a la pantalla: 'down' (de frente), 'front' (de frente en
+// diagonal), 'side' (de perfil), 'back' (de espaldas en diagonal) y 'up' (de espaldas), y las de la izquierda
+// son las de la derecha volteadas (flip). Sirven para saber hacia dónde mira quien no se está moviendo.
+const VIEW8 = [['side', false], ['front', false], ['down', false], ['front', true], ['side', true], ['back', true], ['up', false], ['back', false]];
+// Vista y volteo según hacia dónde se mueve en pantalla (sx, sy)
+export function viewFor(sx, sy) {
+  const k = ((Math.round(Math.atan2(sy, sx) / (Math.PI / 4)) % 8) + 8) % 8;   // 0 derecha, 2 abajo, 4 izquierda, 6 arriba
+  return VIEW8[k];
+}
+// Al revés: hacia dónde en pantalla (sx, sy) mira una vista
+export function screenDirOf(view, flip) {
+  const k = Math.max(0, VIEW8.findIndex(([v, f]) => v === view && f === !!flip)), a = (k * Math.PI) / 4;
+  return [Math.cos(a), Math.sin(a)];
+}
+
 // Guardar y cargar la cámara con la partida
 export const camToSave = () => ({ yaw: +CAM.yaw.toFixed(3), pitch: +CAM.pitch.toFixed(3), dist: +CAM.dist.toFixed(2) });
 export function camFromSave(c) {
