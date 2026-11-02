@@ -283,7 +283,7 @@
     #clockp { top: auto; bottom: 256px; right: 12px; left: auto; font-size: 13px; }
   }
 
-  /* ---------- Pantallas (menú, creador, pausa) ---------- */
+  /* ---------- Pantallas (inicio de sesión, menú, creador, pausa) ---------- */
   .screen { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; flex-direction: column; gap: 18px; padding: 16px; background: radial-gradient(ellipse at center, rgba(10, 20, 8, .25), rgba(10, 16, 8, .7)); z-index: 10; overflow-y: auto; touch-action: auto; }
   .screen.show { display: flex; }
   .logo { font-size: clamp(40px, 8vw, 72px); font-weight: 600; color: var(--gold); text-shadow: 4px 4px 0 #6b3a14, 0 0 24px rgba(255, 200, 100, .35); line-height: 1; text-align: center; }
@@ -355,6 +355,21 @@
   <div id="dialog" class="panel"><canvas id="dlg-face" width="48" height="48"></canvas><div class="name" id="dlg-name"></div><div id="dlg-text"></div><div id="dlg-opts"></div><div class="more">▼</div></div>
   <div id="toasts"></div>
 
+  <!-- Inicio de sesión -->
+  <section id="s-login" class="screen">
+    <div class="logo">Miniverse</div>
+    <form class="box panel" id="login-form">
+      <h2>Iniciar sesión</h2>
+      <label class="field">Usuario<input id="lg-user" maxlength="16" autocomplete="username" autocapitalize="off" spellcheck="false"></label>
+      <label class="field">Contraseña<input id="lg-pass" type="password" maxlength="128" autocomplete="current-password"></label>
+      <label class="field" id="lg-pass2-row" hidden>Repite la contraseña<input id="lg-pass2" type="password" maxlength="128" autocomplete="new-password"></label>
+      <div class="err" id="lg-err"></div>
+      <button class="btn primary" id="lg-submit" type="submit">Entrar</button>
+      <button class="btn" id="lg-guest" type="button">Jugar sin cuenta</button>
+      <p class="note">La contraseña abre tu partida, que se guarda cifrada. Sin cuenta, la partida se guarda solo en este navegador.</p>
+    </form>
+  </section>
+
   <!-- Menú principal -->
   <section id="s-menu" class="screen">
     <div class="logo">Miniverse</div>
@@ -367,8 +382,9 @@
       <button class="btn" id="m-visit">Visitar el mundo de otra persona</button>
       <button class="btn" id="m-settings">Ajustes</button>
       <p class="note" id="menu-msg"></p>
-      <input type="file" id="file-pick" accept=".json,application/json" hidden>
-      <p class="note">Tu partida se guarda en este navegador.</p>
+      <input type="file" id="file-pick" accept=".json,.enc,application/json,application/octet-stream" hidden>
+      <button class="btn" id="m-session">Iniciar sesión</button>
+      <p class="note" id="menu-note"></p>
     </div>
   </section>
 

@@ -8,10 +8,11 @@ import { db } from './db.js';
 
 export const Saves = {
   load: accountId => (accountId ? db.get('saves', accountId) : Promise.resolve(null)),
-  async write(accountId, data) {
+  // keepTime: conservar la hora en que se guardó (al traerla de un archivo)
+  async write(accountId, data, keepTime = false) {
     if (!accountId || !data) return false;
     try {
-      await db.put('saves', { ...data, accountId, version: 2, savedAt: Date.now() });
+      await db.put('saves', { ...data, accountId, version: 2, savedAt: (keepTime && data.savedAt) || Date.now() });
       return true;
     } catch {
       return false;

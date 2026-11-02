@@ -1,4 +1,4 @@
-// Pantallas: menú principal, creador de personaje y pausa.
+// Pantallas: inicio de sesión, menú principal, creador de personaje y pausa.
 import { Profile } from '../accounts.js';
 import { Saves } from '../save.js';
 import { LOOK_OPTIONS, DEFAULT_LOOK } from '../looks.js';
@@ -15,9 +15,10 @@ import { initShopUI } from './shop.js';
 import { initJournalUI } from './journal.js';
 import { initSettingsUI } from './settings.js';
 import { exportGame, readExport, importGame } from '../share.js';
+import { OWNER, isOwner, isVault, canWriteFile, downloadVault, VAULT_FILE } from '../vault.js';
 
 const $ = id => document.getElementById(id);
-const SCREENS = ['s-menu', 's-creator', 's-pause', 's-map', 's-inv', 's-craft', 's-chest', 's-shop', 's-journal', 's-settings', 's-controls'];
+const SCREENS = ['s-login', 's-menu', 's-creator', 's-pause', 's-map', 's-inv', 's-craft', 's-chest', 's-shop', 's-journal', 's-settings', 's-controls'];
 const AUTOSAVE_MS = 15000;
 
 export function initMenus(game) {
@@ -26,12 +27,59 @@ export function initMenus(game) {
     document.body.classList.toggle('playing', !id);
   }
 
+  // ---------- Inicio de sesión (la única cuenta es la de Alberto; los demás juegan sin cuenta) ----------
+  let creating = false;   // la primera vez, en local: elegir la contraseña con la que se cifran los datos
+  function setCreating(on) {
+    creating = on;
+    $('lg-pass2-row').hidden = !on;
+    $('lg-submit').textContent = on ? 'Crear mis datos cifrados' : 'Entrar';
+    $('lg-pass').autocomplete = on ? 'new-password' : 'current-password';
+  }
+  function openLogin() {
+    setCreating(false);
+    $('lg-pass').value = $('lg-pass2').value = '';
+    $('lg-err').textContent = '';
+    show('s-login');
+  }
+  $('login-form').addEventListener('submit', async e => {
+    e.preventDefault();
+    const user = $('lg-user').value, pass = $('lg-pass').value, say = m => { $('lg-err').textContent = m; };
+    if (!user.trim()) return say('Escribe tu usuario.');
+    if (!pass) return say('Escribe tu contraseña.');
+    $('lg-submit').disabled = true;
+    try {
+      if (creating) {
+        if (pass.length < 8) return say('La contraseña debe tener al menos 8 caracteres.');
+        if (pass !== $('lg-pass2').value) return say('Las contraseñas no coinciden.');
+        say('Cifrando tus datos…');
+        const err = await Profile.create(pass);
+        if (err) return say(err);
+      } else {
+        if (isOwner(user) && canWriteFile && !(await Profile.vaultExists().catch(() => true))) {
+          setCreating(true);
+          return say(`Todavía no existe ${VAULT_FILE}. Repite la contraseña para crearlo: con ella se cifra tu partida.`);
+        }
+        say('Abriendo tus datos…');
+        const err = await Profile.login(user, pass);
+        if (err) return say(err);
+      }
+      $('lg-pass').value = $('lg-pass2').value = '';
+      say('');
+      openMenu();
+    } finally { $('lg-submit').disabled = false; }
+  });
+  $('lg-guest').onclick = () => { Profile.playAsGuest(); openMenu(); };
+
   // ---------- Menú principal ----------
   let currentSave = null;
   const when = ts => new Date(ts).toLocaleString('es-ES', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
   async function openMenu() {
     currentSave = await Saves.load(Profile.id);
-    $('menu-hello').textContent = currentSave ? `¡Hola, ${currentSave.player.name}!` : '¡Hola!';
+    $('menu-hello').textContent = Profile.owner ? `¡Hola, ${OWNER.name}!` : currentSave ? `¡Hola, ${currentSave.player.name}!` : '¡Hola!';
+    $('menu-note').textContent = !Profile.owner ? 'Sin cuenta, tu partida se guarda solo en este navegador.'
+      : canWriteFile ? `Tu partida se guarda cifrada en ${VAULT_FILE}, en la carpeta del juego.`
+      : `Tu partida se guarda en este navegador. Exportar partida descarga ${VAULT_FILE} cifrado: súbelo al repositorio para tenerlo en la web.`;
+    $('m-session').textContent = Profile.owner ? 'Cerrar sesión' : 'Iniciar sesión';
     $('menu-save').textContent = currentSave ? `Partida de ${currentSave.player.name} · guardada el ${when(currentSave.savedAt)}` : 'Todavía no tienes ninguna partida.';
     $('m-continue').disabled = !currentSave;
     $('m-continue').classList.toggle('primary', !!currentSave);
@@ -41,6 +89,7 @@ export function initMenus(game) {
     show('s-menu');
   }
   $('m-continue').addEventListener('click', async () => { if (currentSave) play(currentSave, await WorldStore.load(Profile.id)); });
+  $('m-session').addEventListener('click', () => { if (Profile.owner) Profile.logout(); openLogin(); });
   $('m-new').addEventListener('click', () => {
     if (currentSave && !confirm('Empezar una partida nueva borrará la que tienes guardada. ¿Seguro?')) return;
     openCreator();
@@ -185,7 +234,7 @@ export function initMenus(game) {
   };
 
   function openCreator() {
-    $('cr-name').value = currentSave?.player.name || '';
+    $('cr-name').value = currentSave?.player.name || (Profile.owner ? OWNER.name : '');
     $('cr-err').textContent = '';
     spin = 0;
     turnTo(0);
@@ -214,6 +263,7 @@ export function initMenus(game) {
     if (game.visiting) return false;   // de visita en el mundo de otra persona no se guarda nada
     const ok = await Saves.write(Profile.id, game.snapshot());
     try { await game.flush(Profile.id); } catch (e) { console.error(e); return false; }
+    if (Profile.owner) await Profile.persist();   // en local, también el archivo cifrado
     return ok;
   };
   game.onSave = save;
@@ -225,15 +275,26 @@ export function initMenus(game) {
   }
 
   // ---------- Exportar, importar y visitar ----------
-  $('m-export').onclick = async () => { $('menu-msg').textContent = (await exportGame(Profile.id)) ? 'Partida exportada: busca el archivo en tus descargas.' : 'No hay partida que exportar.'; };
+  // (con la sesión de Alberto, la partida se exporta cifrada, en el archivo de sus datos)
+  $('m-export').onclick = async () => {
+    if (Profile.owner) { downloadVault(await Profile.sealed()); $('menu-msg').textContent = `Datos cifrados exportados: busca ${VAULT_FILE} en tus descargas.`; return; }
+    $('menu-msg').textContent = (await exportGame(Profile.id)) ? 'Partida exportada: busca el archivo en tus descargas.' : 'No hay partida que exportar.';
+  };
   const pickFile = () => new Promise(resolve => { const i = $('file-pick'); i.value = ''; i.onchange = () => resolve(i.files[0]); i.click(); });
   $('m-import').onclick = async () => {
     const file = await pickFile();
     if (!file) return;
     try {
-      const data = await readExport(file);
+      let data;
+      if (isVault(new Uint8Array(await file.arrayBuffer()))) {
+        if (!Profile.owner) throw new Error('Ese archivo está cifrado: inicia sesión para abrirlo.');
+        const raw = await Profile.open(new Uint8Array(await file.arrayBuffer()));
+        if (!raw.save) throw new Error('En ese archivo todavía no hay ninguna partida.');
+        data = { save: raw.save, deltas: new Map(raw.deltas) };
+      } else data = await readExport(file);
       if (currentSave && !confirm('Importar sustituye tu partida actual por la del archivo. ¿Seguro?')) return;
-      await importGame(Profile.id, data);
+      await importGame(Profile.id, data, true);
+      if (Profile.owner) await Profile.persist();
       await openMenu();
       $('menu-msg').textContent = `Partida de ${data.save.player.name} importada.`;
     } catch (e) { $('menu-msg').textContent = e.message; }
@@ -354,7 +415,7 @@ export function initMenus(game) {
   // ---------- Inicio ----------
   async function boot() {
     await Profile.init();
-    openMenu();
+    openLogin();
   }
   return { boot, togglePause, toggleMap, zoomMap: zoom, toggleInventory, toggleCraft, toggleJournal };
 }
