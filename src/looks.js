@@ -38,6 +38,7 @@ export function clothesFor(look, bag = false) {
     e.encima = L.outfit === 'delantal' ? { id: 'delantal', color: '#efe6d4' } : { id: 'chaleco', color: darken(cloth, 0.6) };
   }
   if (L.outfit !== 'larga') e.piernas = { id: 'pantalon', color: L.pants || '#4a3a2a' };
+  e.calcetines = { id: 'calcetines', color: '#ece6da' };
   e.pies = { id: 'botas', color: '#5a3a24' };
   if (bag) e.espalda = { id: 'mochila', color: '#8a5a34' };
   return e;

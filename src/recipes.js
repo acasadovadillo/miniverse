@@ -78,6 +78,7 @@ export const RECIPES = [
   R('telar', 'camiseta_interior', 1, [['tela', 1]]),
   R('telar', 'calzoncillos', 1, [['tela', 1]]),
   R('telar', 'bragas', 1, [['tela', 1]]),
+  R('telar', 'calcetines', 1, [['tela', 1]]),
   R('telar', 'botas', 1, [['tela', 2], ['cuerda', 1]]),
   R('telar', 'gorro', 1, [['lana', 2]]),
 

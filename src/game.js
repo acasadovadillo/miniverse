@@ -119,6 +119,7 @@ export class Game {
     // La ropa: la partida nueva empieza con la que se eligió al crear el personaje, sin mochila; las de antes
     // de que hubiera ropa, con la suya y una mochila (así no pierden nada de lo que llevaban)
     if (!save.inventory?.equip) this.inv.equip = clothesFor(save.player.look, !!save.inventory);
+    else if ((save.inventory.wardrobe || 1) < 2) this.inv.equip.calcetines ??= clothesFor(save.player.look).calcetines;   // los calcetines llegaron después
     this.inv.onChange = () => { this.craft.check(); this.onInventory?.(); };
     this.craft.reset(save);
     this.onInventory?.();

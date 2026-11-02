@@ -104,5 +104,6 @@ export class Inventory {
     return null;
   }
 
-  toSave() { return { slots: this.slots.map(s => (s ? { ...s } : null)), selected: this.selected, equip: { ...this.equip } }; }
+  // wardrobe: qué ropa había cuando se guardó (2: con calcetines), para dar a las partidas de antes la que falte
+  toSave() { return { slots: this.slots.map(s => (s ? { ...s } : null)), selected: this.selected, equip: { ...this.equip }, wardrobe: 2 }; }
 }

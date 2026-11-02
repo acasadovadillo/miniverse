@@ -50,11 +50,11 @@ export function initInventoryUI(game, { onClose, onCraft }) {
   }
   // ---------- Lo que se lleva puesto ----------
   // Los huecos a los dos lados del personaje, más o menos a la altura de lo que visten: a la izquierda la
-  // ropa de fuera, de la cabeza a los pies; a la derecha la mochila, lo de encima y la ropa interior.
+  // ropa de fuera, de la cabeza a los pies; a la derecha la mochila y lo de debajo (ropa interior y calcetines).
   // Vacíos, muestran en gris una prenda de ejemplo y su nombre.
   const wears = {}, LABEL = Object.fromEntries(WEAR_SLOTS);
-  const SIDES = { 'inv-wear-l': ['cabeza', 'torso', 'piernas', 'pies'], 'inv-wear-r': ['espalda', 'encima', 'interiorArriba', 'interiorAbajo'] };
-  const SAMPLE = { cabeza: 'sombrero', torso: 'camisa', encima: 'chaleco', piernas: 'pantalon', pies: 'botas', interiorArriba: 'camiseta_interior', interiorAbajo: 'calzoncillos', espalda: 'mochila' };
+  const SIDES = { 'inv-wear-l': ['cabeza', 'torso', 'encima', 'piernas', 'pies'], 'inv-wear-r': ['espalda', 'interiorArriba', 'interiorAbajo', 'calcetines'] };
+  const SAMPLE = { cabeza: 'sombrero', torso: 'camisa', encima: 'chaleco', piernas: 'pantalon', pies: 'botas', interiorArriba: 'camiseta_interior', interiorAbajo: 'calzoncillos', calcetines: 'calcetines', espalda: 'mochila' };
   for (const [col, slots] of Object.entries(SIDES)) for (const slot of slots) {
     const el = slotEl(-1, 'slot wear');
     el.dataset.wear = slot;
@@ -65,7 +65,7 @@ export function initInventoryUI(game, { onClose, onCraft }) {
   }
   // El personaje en 3D, girando despacio (o arrastrándolo)
   const me = new CharacterPreview($('inv-me'));
-  if (matchMedia('(max-width: 520px)').matches) me.resize(176, 206); else me.resize(164, 248);
+  if (matchMedia('(max-width: 520px)').matches) me.resize(176, 246); else me.resize(168, 288);
   me.walk = false;
   let meLook = null, meAngle = 0.3, meDrag = null;
   $('inv-me').addEventListener('pointerdown', e => { meDrag = e.clientX; $('inv-me').setPointerCapture(e.pointerId); });

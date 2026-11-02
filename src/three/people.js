@@ -94,11 +94,18 @@ export class Person3D {
     const pants = W.piernas?.id === 'pantalon' ? M(W.piernas.color) : null;
     // Con la túnica larga las piernas se mueven menos (si no, asomarían por la falda)
     this.legSwing = W.torso?.id === 'tunica_larga' ? 0.5 : 1;
-    // Piernas (con pantalón o piel) y pies (con botas o descalzos)
+    // Piernas (con pantalón o piel) y pies (con botas, con calcetines o descalzos). Sin pantalón, los
+    // calcetines se ven subiendo por la pierna hasta media espinilla, con el puño algo más oscuro.
+    const socks = W.calcetines && W.calcetines.color;
     this.legs = [-1, 1].map(s => {
       const hip = new THREE.Group(); hip.name = s < 0 ? 'legL' : 'legR'; hip.position.set(s * 0.085, 0.36, 0); this.body.add(hip);
       mesh(G.leg, pants || skin, { p: [0, -0.14, 0] }, hip);
+      if (socks && !pants) {
+        mesh(G.cyl, M(socks), { p: [0, -0.22, 0], s: [0.073, 0.12, 0.073] }, hip);
+        mesh(G.cyl, M(shade(socks, 0.82)), { p: [0, -0.163, 0], s: [0.076, 0.022, 0.076] }, hip);
+      }
       if (W.pies) mesh(G.boot, M(W.pies.color), { p: [0, -0.31, 0.03], s: [0.085, 0.06, 0.12] }, hip);
+      else if (socks) mesh(G.boot, M(socks), { p: [0, -0.313, 0.025], s: [0.067, 0.049, 0.1] }, hip);
       else mesh(G.boot, skin, { p: [0, -0.315, 0.025], s: [0.062, 0.045, 0.095] }, hip);
       return hip;
     });

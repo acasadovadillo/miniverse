@@ -160,7 +160,7 @@ for (const [tool, def] of Object.entries(TOOLS)) {
 // de la mochila o en el hueco); dye es el de las que se fabrican.
 export const WEAR_SLOTS = [
   ['cabeza', 'Cabeza'], ['torso', 'Torso'], ['encima', 'Encima'], ['piernas', 'Piernas'], ['pies', 'Pies'],
-  ['interiorArriba', 'Interior arriba'], ['interiorAbajo', 'Interior abajo'], ['espalda', 'Espalda'],
+  ['interiorArriba', 'Interior arriba'], ['interiorAbajo', 'Interior abajo'], ['calcetines', 'Calcetines'], ['espalda', 'Espalda'],
 ];
 Object.assign(ITEMS, {
   camisa: { name: 'Camisa', desc: 'De manga larga. Encima puede ir un chaleco o un delantal.', wear: 'torso', dye: '#3a5ab8' },
@@ -174,6 +174,7 @@ Object.assign(ITEMS, {
   camiseta_interior: { name: 'Camiseta interior', desc: 'Sin mangas, debajo de la ropa.', wear: 'interiorArriba', dye: '#f2efe8' },
   calzoncillos: { name: 'Calzoncillos', desc: 'Ropa interior.', wear: 'interiorAbajo', dye: '#f2efe8' },
   bragas: { name: 'Bragas', desc: 'Ropa interior.', wear: 'interiorAbajo', dye: '#f4d8e2' },
+  calcetines: { name: 'Calcetines', desc: 'Hasta media pierna. Van debajo de las botas.', wear: 'calcetines', dye: '#ece6da' },
   sombrero: { name: 'Sombrero de paja', desc: 'De ala ancha, para el sol del campo.', wear: 'cabeza', dye: '#e0c070' },
   gorro: { name: 'Gorro de lana', desc: 'Calentito, con pompón.', wear: 'cabeza', dye: '#c83a3a' },
   mochila: { name: 'Mochila', desc: 'Póntela a la espalda y podrás llevar 27 cosas más. Sin ella solo llevas lo que cabe en las manos y los bolsillos.', wear: 'espalda', bag: 27, dye: '#8a5a34' },
