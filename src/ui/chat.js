@@ -61,6 +61,9 @@ const COMMANDS = {
       say(`Ahora son las ${clockText(h)}.`, 'ok');
     },
   },
+  sentarse: { help: 'sentarse en el suelo (también con la tecla G)', run(game) { game.rest.floor('floorSit'); } },
+  tumbarse: { help: 'tumbarse en el suelo (también con la tecla H)', run(game) { game.rest.floor('floorLie'); } },
+  levantarse: { help: 'levantarse (también moviéndote o con E)', run(game) { game.rest.stand(); } },
   ayuda: {
     help: 'lista los comandos',
     run(game, say) { for (const [name, c] of Object.entries(COMMANDS)) say(`/${name}: ${c.help}`, 'sys'); },

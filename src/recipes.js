@@ -67,6 +67,7 @@ export const RECIPES = [
   R('telar', 'alforjas', 1, [['tela', 4], ['cuerda', 2]]),
   R('telar', 'fieltro', 1, [['angora', 2]]),
   R('mano', 'pelota', 1, [['fibra', 4]]),
+  R('mano', 'vela', 2, [['miel', 1], ['fibra', 1]]),
   R('quesera', 'queso', 1, [['leche', 2]], { id: 'queso_quesera' }),
   R('quesera', 'queso_cabra', 1, [['leche_cabra', 2]]),
   R('quesera', 'mantequilla', 1, [['nata', 1]]),

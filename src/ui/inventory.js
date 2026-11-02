@@ -133,7 +133,9 @@ export function initInventoryUI(game, { onClose, onCraft }) {
   function wearPicked() {
     const inv = game.inv;
     if (picked?.wear) {
-      const why = inv.unwear(picked.wear);
+      let why = inv.unwear(picked.wear);
+      // (la mochila llena no se guarda: se deja en el suelo, delante, con todo dentro)
+      if (why && picked.wear === 'espalda') { why = game.dropBackpack(); if (!why) { picked = null; say('Has dejado la mochila en el suelo, con todo dentro.'); refresh(); return; } }
       if (why) { say(why); return; }
       picked = null;
     } else if (picked !== null && inv.wear(picked)) picked = null;

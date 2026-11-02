@@ -38,7 +38,10 @@ La partida se guarda sola cada 15 segundos, al entrar o salir de una casa y al d
 | Usar lo que llevas (talar, picar, regar, sembrar, pescar, atacar, comer, colocar…) | Clic izquierdo (mantén para seguir) | Botón ⚒ |
 | Pescar | Con la caña, mantén el clic para coger fuerza y suelta para lanzar; cuando pique, clic. En la pelea, mantén el clic (o Espacio) para subir la red | Botón ⚒, igual |
 | Saltar | Espacio (con un diálogo abierto, seguir) | Botón ⤒ |
-| Interactuar (hablar, puertas, cofres, estaciones, dormir, cosechar, animales) | E o Enter | Botón E |
+| Interactuar (hablar, puertas y ventanas, llamar, luces, cofres, estaciones, sentarse, la cama, cosechar, animales) | E o Enter | Botón E |
+| Recoger un mueble que se usa con E (silla, cama, lámpara, mochila del suelo…) | X | — |
+| Tirar al suelo lo que llevas en la mano (uno; con Ctrl o Shift, el montón) | Q | — |
+| Sentarse o tumbarse en el suelo (otra vez, o moverse, para levantarse) | G / H (o `/sentarse`, `/tumbarse`) | — |
 | Elegir objeto | 1–9 o rueda | Tocar la casilla |
 | Girar lo que vas a colocar | R | — |
 | Mochila / Fabricar / Construir | I / C / B | 🎒 / 🧰 / 🔨 |
@@ -61,6 +64,12 @@ La partida se guarda sola cada 15 segundos, al entrar o salir de una casa y al d
 - **Todo en cuadrícula**, como en Minecraft: cada árbol, roca, arbusto, farola, cartel o puesto ocupa una casilla, y las casas del pueblo y de las aldeas están hechas de piezas de construcción. Solo las personas, los animales y las partículas se mueven libres.
 - **Construir**: suelos, muros (de madera, de piedra y de entramado con zócalo; tabiques finos que se unen solos en esquinas, T y cruces, y miden el doble que una persona; el suelo de debajo llega hasta el muro y no asoma por fuera), ventanas (con o sin contraventanas y jardinera), puertas que se abren y cierran, tejados a cuatro aguas en cinco materiales (al entrar en una casa se ocultan el tejado y las paredes que dan a la cámara; el tejado sigue dando sombra y el sol entra por las ventanas), hogar con chimenea que da luz y echa humo, candelabro en cada casa, y vallas que se unen solas; muebles que se giran, cofres, camas de dos casillas, lámparas. Las casas miden 12×10 casillas. Tu casa se amplía hablando con Nilo.
 - **Granja**: siete cultivos por estación, regadera, aspersores, abono, árboles que se plantan, manzanos y colmenas.
+- **Vida en casa**:
+  - Las ventanas se cierran (postigos por dentro y, si tienen, contraventanas por fuera) y entonces no sale luz.
+  - A las puertas cerradas de otros se llama: el vecino contesta y abre si está en casa (de noche te manda a dormir), y jugando juntos el otro oye el toc, toc.
+  - Las lámparas, las antorchas, las velas, los hogares y el candelabro de cada casa se apagan y se encienden.
+  - Te sientas en las sillas, te tumbas en la cama sin dormir y te sientas o te tumbas en el suelo; los demás jugadores te ven así.
+- **Objetos en el suelo**: se ven en 3D, como una pieza de píxeles que gira y flota, y se pueden tirar con Q. La mochila se deja en el suelo llena, como un cofre que se lleva: cualquiera la abre y saca lo que quiera, o la recoge y se la pone con todo dentro.
 - **Ganadería**:
   - Ocho animales de granja, con razas o pelajes: gallinas (y gallo), patos, vacas, ovejas, cabras, cerdos, conejos y caballos. Viven en su casa (gallinero, establo, conejera o cuadra).
   - De día salen a pastar si la puerta está abierta. De noche, con lluvia o en invierno se quedan dentro y comen del comedero o del heno del silo, que se llena solo al segar con la guadaña.
@@ -144,6 +153,7 @@ src/time.js            Hora, días, estaciones, clima y luz
 src/farm.js            Huerto y árboles plantados
 src/ranch.js           Ganadería: animales, crías, puertas, silo, incubadora, caballo, mascotas y palomar
 src/fishing.js         Pesca: lanzar, picadas, la pelea con el pez, tesoros, tallas y cuaderno de pesca
+src/rest.js            Posturas: sentarse en sillas y en el suelo, tumbarse en la cama y en el suelo
 src/wildlife.js        Animales salvajes (ciervos, jabalíes y cisnes)
 src/neighbors.js       Vecinos, horarios, amistad y regalos
 src/board.js           Tablón de encargos y proyectos del pueblo

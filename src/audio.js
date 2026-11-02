@@ -66,6 +66,8 @@ export const Audio = {
     src.connect(f).connect(g).connect(sfx); src.start(t, Math.random() * 0.8, dur + 0.05);
   },
   blip: () => tone([[880, 0.03, 'square', 0.03]]),
+  // Toc, toc, toc: llamar a una puerta
+  knock() { for (let i = 0; i < 3; i++) setTimeout(() => { Audio.noiseHit(380, 0.07, 0.5); tone([[150, 0.05, 'triangle', 0.06]]); }, i * 170); },
   // Animales: el gallo al amanecer, el perro, el gato, el caballo y el silbato
   crow() { tone([[520, 0.12, 'sawtooth', 0.025], [700, 0.1, 'sawtooth', 0.03], [880, 0.35, 'sawtooth', 0.025], [620, 0.2, 'sawtooth', 0.02]]); },
   bark() { tone([[320, 0.06, 'sawtooth', 0.05], [240, 0.08, 'square', 0.03]]); Audio.noiseHit(600, 0.08, 0.2); },

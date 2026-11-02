@@ -28,6 +28,7 @@ export class Fx {
     // Objetos caídos: su icono, de cara a la cámara, con una sombrita
     this.drops = new Map();
     this.blob = new THREE.Mesh(new THREE.CircleGeometry(0.18, 16).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: '#000', transparent: true, opacity: 0.25, depthWrite: false }));
+    this.solids = new Map(); this.solidMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.75 });   // (los objetos del suelo, en 3D)
     this.icons = new Map();
     // Astillas, llamas, humo, gotas de la fuente
     this.chips = new THREE.InstancedMesh(new THREE.BoxGeometry(0.06, 0.06, 0.06), new THREE.MeshStandardMaterial({ roughness: 0.8 }), 256);
@@ -173,17 +174,50 @@ export class Fx {
     }
     return this.icons.get(k);
   }
+  // Lo que hay en el suelo, como en Minecraft: el icono hecho pieza (cada píxel, un cubito con grosor), que
+  // gira despacio y flota subiendo y bajando, con su sombra debajo
   updateDrops(game, scene, playing, t, gy) {
     const list = playing ? game.gather.drops.filter(d => d.scene === scene) : [], seen = new Set();
     for (const d of list) {
       seen.add(d);
       let o = this.drops.get(d);
-      if (!o) { const s = new THREE.Sprite(this.icon(d.id, d.extra?.color)); s.scale.setScalar(0.42); const b = this.blob.clone(); o = { s, b }; this.group.add(s, b); this.drops.set(d, o); }
-      const g = gy(d.x, d.y), bob = d.z > 0 ? 0 : Math.sin(t * 4 + d.x * 3) * 0.05;
-      o.s.position.set(d.x, g + 0.3 + d.z / 24 + bob, d.y);
+      if (!o) { const s = new THREE.Mesh(this.solid(d.id, d.extra?.color), this.solidMat); s.castShadow = true; const b = this.blob.clone(); o = { s, b, seed: Math.random() * 6 }; this.group.add(s, b); this.drops.set(d, o); }
+      const g = gy(d.x, d.y), bob = Math.sin(t * 2.6 + o.seed) * 0.05;
+      o.s.position.set(d.x, g + 0.26 + d.z / 24 + bob, d.y);
+      o.s.rotation.y = t * 1.6 + o.seed;
       o.b.position.set(d.x, g + 0.02, d.y);
+      o.b.scale.setScalar(1 - Math.min(0.5, d.z / 40) + bob);
     }
     for (const [d, o] of this.drops) if (!seen.has(d)) { this.group.remove(o.s, o.b); this.drops.delete(d); }
+  }
+  // La pieza 3D de un objeto, a partir de su icono de 18×18: por delante y por detrás cada píxel; por los
+  // lados, solo donde acaba el dibujo (los lados, algo más oscuros). Mide 0,36 de ancho
+  solid(id, color) {
+    const k = color ? `${id}|${color}` : id;
+    if (this.solids.has(k)) return this.solids.get(k);
+    const c = itemIcon(id, color), W = c.width, H = c.height, px = c.getContext('2d').getImageData(0, 0, W, H).data;
+    const S = 0.36 / W, D = S * 0.75, pos = [], col = [], at = (x, y) => x >= 0 && y >= 0 && x < W && y < H && px[(y * W + x) * 4 + 3] > 100;
+    const quad = (a, b, c2, d2, r, g, bl) => { pos.push(...a, ...b, ...c2, ...a, ...c2, ...d2); for (let i = 0; i < 6; i++) col.push(r, g, bl); };
+    const tc = new THREE.Color();
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      if (!at(x, y)) continue;
+      const i = (y * W + x) * 4;
+      tc.setRGB(px[i] / 255, px[i + 1] / 255, px[i + 2] / 255, THREE.SRGBColorSpace);
+      const { r, g, b } = tc, x0 = (x - W / 2) * S, x1 = x0 + S, y1 = (H / 2 - y) * S, y0 = y1 - S;
+      quad([x0, y0, D], [x1, y0, D], [x1, y1, D], [x0, y1, D], r, g, b);         // delante
+      quad([x1, y0, -D], [x0, y0, -D], [x0, y1, -D], [x1, y1, -D], r, g, b);     // detrás
+      const k2 = 0.72;
+      if (!at(x - 1, y)) quad([x0, y0, -D], [x0, y0, D], [x0, y1, D], [x0, y1, -D], r * k2, g * k2, b * k2);
+      if (!at(x + 1, y)) quad([x1, y0, D], [x1, y0, -D], [x1, y1, -D], [x1, y1, D], r * k2, g * k2, b * k2);
+      if (!at(x, y - 1)) quad([x0, y1, D], [x1, y1, D], [x1, y1, -D], [x0, y1, -D], r * 0.9, g * 0.9, b * 0.9);
+      if (!at(x, y + 1)) quad([x0, y0, -D], [x1, y0, -D], [x1, y0, D], [x0, y0, D], r * k2, g * k2, b * k2);
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+    geo.computeVertexNormals();
+    this.solids.set(k, geo);
+    return geo;
   }
   updateChips(game, playing) {
     const parts = playing ? game.gather.parts : [];

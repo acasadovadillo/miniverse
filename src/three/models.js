@@ -36,7 +36,7 @@ export function modelMats() {
     canvas: c('#d8c8a0', { side: THREE.DoubleSide, roughness: 1 }), tentStripe: c('#a8442a', { side: THREE.DoubleSide }), lamp: c('#fff2c0', { emissive: '#ffd070', emissiveIntensity: 1.5 }),
     hull: mat({ map: wood('#6a4a30'), roughness: 0.9 }), temple: mat({ map: stone('#c8bca0') }), templeD: mat({ map: stone('#8a8070') }), crystal: c('#7ae0ff', { emissive: '#3ab0ff', emissiveIntensity: 0.8, roughness: 0.1 }),
     snow: c('#f4f8fc', { roughness: 0.85 }), rock: mat({ map: stone('#8a857c'), flatShading: true }), dark0: c('#0a0806', { roughness: 1 }), stripeR: c('#c83a32'), lens: c('#fff6c8', { emissive: '#ffe080', emissiveIntensity: 2 }),
-    bee: c('#e8c040'),
+    bee: c('#e8c040'), leather: c('#8a5a34', { roughness: 0.85 }), leatherD: c('#5e3b22', { roughness: 0.85 }),
     porcelain: c('#f4f2ee', { roughness: 0.22 }), quiltK: c('#5a9ad8', { roughness: 0.95 }), quiltK2: c('#e88aa8', { roughness: 0.95 }), pillowK: c('#f4d86a', { roughness: 0.95 }),
     baby: c('#f4e6c8', { roughness: 0.95 }), mirror: c('#d8eef4', { metalness: 0.6, roughness: 0.08 }), plate: c('#f0ece0', { roughness: 0.4 }), plateB: c('#5a7ab8', { roughness: 0.4 }),
   };
@@ -186,6 +186,18 @@ const BUILD = {
   cofre(m) {
     m.box('wood', -0.38, 0, -0.26, 0.38, 0.42, 0.26).box('dark', -0.4, 0.42, -0.28, 0.4, 0.58, 0.28);
     m.box('iron', -0.4, 0.05, -0.27, -0.34, 0.58, 0.27).box('iron', 0.34, 0.05, -0.27, 0.4, 0.58, 0.27).box('brass', -0.06, 0.32, 0.26, 0.06, 0.46, 0.29);
+  },
+  vela(m) {   // una vela en su palmatoria
+    m.cyl('brass', 0, 0, 0, 0.09, 0.08, 0.025, 12).cyl('brass', 0, 0.025, 0, 0.03, 0.035, 0.03, 10);
+    m.geo('brass', new THREE.TorusGeometry(0.035, 0.008, 4, 10, Math.PI), 0.085, 0.05, 0, [0, 0, -Math.PI / 2]);
+    m.cyl('candle', 0, 0.05, 0, 0.022, 0.022, 0.14, 10).cyl('soot', 0, 0.19, 0, 0.003, 0.003, 0.02, 4);
+    m.fire(0, 0.22, 0, 0.22).light(0, 0.26, 0, { color: '#ffc070', intensity: 1.2, range: 4, flicker: true });
+  },
+  mochila(m) {   // una mochila en el suelo, de pie: cuerpo, solapa con hebilla, bolsillo y correas
+    const bag = 'leather', dark = 'leatherD';
+    m.box(bag, -0.17, 0, -0.1, 0.17, 0.42, 0.12).box(dark, -0.18, 0.3, -0.11, 0.18, 0.44, 0.135).box(dark, -0.12, 0.08, 0.12, 0.12, 0.22, 0.16);
+    m.ball('brass', 0, 0.33, 0.14, 0.022, 0.022, 0.012);
+    for (const x of [-0.09, 0.09]) m.box(dark, x - 0.02, 0.02, -0.13, x + 0.02, 0.42, -0.1);
   },
   antorcha(m) {
     m.cyl('dark', 0, 0, 0, 0.04, 0.03, 1.05, 6).cyl('rope', 0, 0.92, 0, 0.055, 0.06, 0.14, 8);

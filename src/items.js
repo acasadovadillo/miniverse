@@ -57,6 +57,7 @@ export const ITEMS = {
   estanteria: { name: 'Estantería', desc: 'Llena de libros que nadie ha leído.', place: 'furniture' },
   maceta: { name: 'Maceta', desc: 'Flores que no hay que regar. Bueno, un poco.', place: 'furniture' },
   lampara: { name: 'Lámpara', desc: 'Da luz de noche.', place: 'furniture' },
+  vela: { name: 'Vela', desc: 'Una luz pequeña para la mesa o la mesilla. Se apaga y se enciende con E.', place: 'furniture' },
   antorcha: { name: 'Antorcha', desc: 'Luz barata para la noche, las cuevas y los sustos.', place: 'furniture' },
   cofre: { name: 'Cofre', desc: 'Guarda 18 montones de cosas. Ábrelo con E.', place: 'furniture' },
 };
@@ -212,7 +213,7 @@ Object.assign(ITEMS, {
   sombrero: { name: 'Sombrero de paja', desc: 'De ala ancha, para el sol del campo.', wear: 'cabeza', dye: '#e0c070' },
   gorro: { name: 'Gorro de lana', desc: 'Calentito, con pompón.', wear: 'cabeza', dye: '#c83a3a' },
   hijab: { name: 'Hiyab', desc: 'Pañuelo que cubre el pelo y el cuello y deja la cara a la vista.', wear: 'cabeza', dye: '#1c1c22' },
-  mochila: { name: 'Mochila', desc: 'Póntela a la espalda y podrás llevar 27 cosas más. Sin ella solo llevas lo que cabe en las manos y los bolsillos.', wear: 'espalda', bag: 27, dye: '#8a5a34' },
+  mochila: { name: 'Mochila', desc: 'Póntela a la espalda y podrás llevar 27 cosas más. Sin ella solo llevas lo que cabe en las manos y los bolsillos. También se deja en el suelo, llena, como un cofre que se lleva.', wear: 'espalda', bag: 27, dye: '#8a5a34', place: 'furniture' },
 });
 // Muebles de la casa familiar: dormitorios, cocina y baño
 Object.assign(ITEMS, {

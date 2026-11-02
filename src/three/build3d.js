@@ -62,7 +62,7 @@ export function wallTile(scene, tx, ty, id, emit, extras) {
   const xArms = [mask & 1 ? 1 : 0, mask & 2 ? -1 : 0].filter(Boolean), zArms = [mask & 4 ? 1 : 0, mask & 8 ? -1 : 0].filter(Boolean);
   // Sin vecinos: un tramo entero a lo largo de x. Recto: un tramo entero, con su hueco si es ventana
   const straightX = !zArms.length, straightZ = !xArms.length && zArms.length;
-  const window = id.startsWith('ventana') && (straightX || straightZ) ? { half: WIN.half, y0: WIN.y0, y1: WIN.y1, shutters: id === 'ventana_contraventanas' } : null;
+  const window = id.startsWith('ventana') && (straightX || straightZ) ? { half: WIN.half, y0: WIN.y0, y1: WIN.y1, shutters: id === 'ventana_contraventanas', closed: !!scene.doorClosed?.(tx, ty) } : null;
   if (straightX || straightZ) {
     const X = !!straightX, side = outward(scene, tx, ty, X), c = X ? cz : cx, u0 = X ? tx : ty;
     const ends = X ? [!(mask & 2), !(mask & 1)] : [!(mask & 8), !(mask & 4)];
@@ -160,9 +160,17 @@ function run(emit, extras, { id, X, c, side, a, b, holes, ends, painting, half }
     box('frame', h.u - 0.022, h.u + 0.022, h.y0, h.y1, -0.03, 0.03);
     box('frame', h0, h1, (h.y0 + h.y1) / 2 - 0.022, (h.y0 + h.y1) / 2 + 0.022, -0.03, 0.03);
     box('frame', h0 - 0.1, h1 + 0.1, h.y0 - 0.06, h.y0, -T - 0.08, T + 0.08);
+    // Cerrada: los postigos por dentro y, si tiene contraventanas, también juntas por fuera delante del cristal
+    if (h.closed) for (const o of outSign ? [-outSign] : [1, -1]) {
+      const k = o * T;
+      for (const [a0, a1] of [[h0, h.u - 0.004], [h.u + 0.004, h1]]) {
+        box('door', a0, a1, h.y0, h.y1, k + o * 0.005, k + o * 0.04);
+        for (const y of [h.y0 + 0.08, h.y1 - 0.11]) box('frame', a0 + 0.02, a1 - 0.02, y, y + 0.03, k + o * 0.04, k + o * 0.055);
+      }
+    }
     if (h.shutters && outSign) {
       const k = outSign * T;
-      for (const [a0, a1] of [[h0 - 0.38, h0 - 0.08], [h1 + 0.08, h1 + 0.38]]) {
+      for (const [a0, a1] of h.closed ? [[h0 - 0.02, h.u - 0.003], [h.u + 0.003, h1 + 0.02]] : [[h0 - 0.38, h0 - 0.08], [h1 + 0.08, h1 + 0.38]]) {
         box('shutter', a0, a1, h.y0 - 0.02, h.y1 + 0.04, k + outSign * 0.05, k + outSign * 0.085);
         for (let y = h.y0 + 0.1; y < h.y1; y += 0.19) box('frame', a0 + 0.03, a1 - 0.03, y, y + 0.035, k + outSign * 0.085, k + outSign * 0.1);
       }

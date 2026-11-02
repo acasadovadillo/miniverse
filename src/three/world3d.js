@@ -13,6 +13,8 @@ import { Builder } from './geo.js';
 import { buildNatureChunk, buildGround, buildFarNature, shake, WIND } from './nature3d.js';
 import { baseMaterials, wallTile, doorTile, doorLeaf, fenceTile, floorTile, roofRegion, WALL_H, ROOF, FLOWER } from './build3d.js';
 import { getModel, modelMat, CHANDELIER } from './models.js';
+// Lo que brilla en los modelos y, apagado, con qué se dibuja
+const UNLIT = { shade: 'cloth', lamp: 'white', ember: 'soot', glow: 'soot', crystal: 'crystal' };
 import { tintMats, tintOf } from './tints.js';
 
 const NEAR = 3;          // trozos alrededor del de la cámara con todo
@@ -111,7 +113,7 @@ export class World3D {
   signature(scene, cx, cy, data) {
     const farm = this.farm(scene), d = scene.delta(cx, cy), today = farm?.today;
     let s = '';
-    for (const o of data.objects) s += o.key + (o.crop ? ':' + farm.stage(o.crop) : '') + (o.open ? '!' : '') + (o.placed ? o.placed + (o.rot || 0) : '') + ',';
+    for (const o of data.objects) s += o.key + (o.crop ? ':' + farm.stage(o.crop) : '') + (o.open ? '!' : '') + (o.placed ? o.placed + (o.rot || 0) : '') + (o.off ? '~' : '') + (o.window && scene.doorClosed(...o.tile) ? '#' : '') + ',';   // (~: apagado; #: ventana cerrada)
     for (const o of data.flats) s += o.key + ',';
     for (const o of data.floors) s += o.key + ',';
     for (const t of data.tilled) { const k = `${t[0]},${t[1]}`; s += k + (d?.wet?.[k] === today ? 'w' : '') + ';'; }
@@ -147,7 +149,7 @@ export class World3D {
         if (piece?.kind === 'wall') { const ex = { blooms: [], leaves: [] }; wallTile(scene, tx, ty, o.placed, emitFor(region), ex); this.flowers(ex, region, group); }
         else if (piece?.kind === 'door') { const ex = { blooms: [], leaves: [] }; const d = doorTile(scene, tx, ty, emitFor(region), ex); d.region = region; c.doors.push(d); }
         else if (piece?.kind === 'fence') fenceTile(scene, tx, ty, o.placed, plain);
-        else this.placeModel(o.placed, o.x, o.y, o.rot ? Math.PI / 2 : 0, plain, c, group);
+        else this.placeModel(o.placed, o.x, o.y, o.rot ? Math.PI / 2 : 0, plain, c, group, o.off);
       } else if (o.crop && this.farm(scene)) this.placeModel(`crop:${o.crop.id}:${this.farm(scene).stage(o.crop)}`, o.x, o.y, 0, plain, c, group);
       else if (o.poi) this.placeModel(`poi:${o.poi.kind}${o.poi.snow ? ':snow' : ''}`, o.poi.x, o.poi.y, 0, plain, c, group);
       else if (o.treasure) this.placeModel(`treasure:${o.open ? 1 : 0}`, o.x, o.y, 0, plain, c, group);
@@ -244,15 +246,16 @@ export class World3D {
     b.ground?.geometry.dispose();
   }
   // Pone un modelo (por su nombre) en (x, z) girado yaw: sus piezas a las mallas del trozo; lo demás, aparte
-  placeModel(name, x, z, yaw, emit, c, group) {
+  // off: apagado (una lámpara, una antorcha, una vela, un hogar): sin luz, llama ni humo, y lo que brilla, apagado
+  placeModel(name, x, z, yaw, emit, c, group, off = false) {
     const m = getModel(name);
     if (!m) return;
-    for (const [key, B] of m.parts) emit(key, '').add(B.transformed(x, 0, z, yaw));
+    for (const [key, B] of m.parts) emit(off ? UNLIT[key] || key : key, '').add(B.transformed(x, 0, z, yaw));
     const cs = Math.cos(yaw), sn = Math.sin(yaw), at = (p) => [x + p[0] * cs + p[2] * sn, p[1], z - p[0] * sn + p[2] * cs];
     for (const e of m.extras) { const o = e.clone(); o.position.set(...at([e.position.x, e.position.y, e.position.z])); o.rotation.y += yaw; o.traverse(q => { if (q.isMesh) { q.castShadow = true; q.receiveShadow = true; } }); group.add(o); }
-    for (const l of m.lights) c.lights.push({ ...l, ...Object.fromEntries(['x', 'y', 'z'].map((k, i) => [k, at([l.x, l.y, l.z])[i]])) });
-    for (const f of m.fires) c.flames.push([...at(f), f[3]]);
-    for (const s of m.smoke) c.smoke.push(at(s));
+    if (!off) for (const l of m.lights) c.lights.push({ ...l, ...Object.fromEntries(['x', 'y', 'z'].map((k, i) => [k, at([l.x, l.y, l.z])[i]])) });
+    if (!off) for (const f of m.fires) c.flames.push([...at(f), f[3]]);
+    if (!off) for (const s of m.smoke) c.smoke.push(at(s));
     if (m.fountain) c.fountain = at(m.fountain);
     if (m.beacon) c.beacon = at(m.beacon);
   }
@@ -455,15 +458,21 @@ export class World3D {
     const out = [];
     for (const c of this.chunks.values()) for (const l of c.lights) out.push(l);
     if (this.villageLights) for (const l of this.villageLights.lights) out.push(l);
-    for (const r of this.regions.values()) if (r.center) out.push({ x: r.center[0], y: WALL_H - 0.6, z: r.center[1], color: '#ffd08a', intensity: 4.5, range: 11 });
+    for (const r of this.regions.values()) if (r.center && !this.chandelierOff(r)) out.push({ x: r.center[0], y: WALL_H - 0.6, z: r.center[1], color: '#ffd08a', intensity: 4.5, range: 11 });
     return out;
   }
   flames() {
     const out = [];
     for (const c of this.chunks.values()) for (const f of c.flames) out.push(f);
     if (this.villageLights) for (const f of this.villageLights.flames) out.push(f);
-    for (const r of this.regions.values()) if (r.flames) for (const f of r.flames) out.push(f);
+    for (const r of this.regions.values()) if (r.flames && !this.chandelierOff(r)) for (const f of r.flames) out.push(f);
     return out;
+  }
+  // El candelabro de una casa: se apaga y se enciende como las demás luces (se guarda con la casilla de su centro)
+  chandelierOff(r) { const s = this.game?.world, [x, y] = r.center.map(Math.floor); return !!s?.lightOff(x, y, `c:${x},${y}`); }
+  chandelierNear(x, y, d = 2.2) {
+    for (const r of this.regions.values()) if (r.center && Math.hypot(r.center[0] - x, r.center[1] - y) < d) return r.center.map(Math.floor);
+    return null;
   }
   smoke() {
     const out = [];

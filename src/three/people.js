@@ -6,6 +6,7 @@
 import * as THREE from 'three';
 import { mat } from './geo.js';
 import { fullLook, clothesFor } from '../looks.js';
+import { faceMaterials, CLOSED } from './face.js';
 
 // Una superficie abierta (un trozo de cilindro: delantal, peto) con las dos caras, para que se vea también por dentro
 function twoSided(geo) {
@@ -23,8 +24,13 @@ function twoSided(geo) {
 }
 
 export const G = {
-  head: new THREE.SphereGeometry(0.29, 24, 18), eye: new THREE.SphereGeometry(1, 12, 8), ball: new THREE.SphereGeometry(1, 14, 10),
-  limb: new THREE.CapsuleGeometry(0.055, 0.2, 4, 8), leg: new THREE.CapsuleGeometry(0.07, 0.16, 4, 8), boot: new THREE.SphereGeometry(1, 10, 8),
+  head: headGeo(), eye: new THREE.SphereGeometry(1, 16, 12), ball: new THREE.SphereGeometry(1, 18, 14),
+  limb: new THREE.CapsuleGeometry(0.055, 0.2, 4, 8), leg: new THREE.CapsuleGeometry(0.07, 0.16, 4, 8), boot: new THREE.SphereGeometry(1, 16, 12),
+  // El cuerpo con forma: tronco (caderas, cintura, pecho y hombros), brazos y piernas en dos partes (codo y rodilla)
+  torso: torsoGeo(), upper: new THREE.CapsuleGeometry(0.056, 0.08, 6, 12), fore: new THREE.CapsuleGeometry(0.05, 0.07, 6, 12),
+  thigh: new THREE.CapsuleGeometry(0.072, 0.06, 6, 12), shin: new THREE.CapsuleGeometry(0.064, 0.06, 6, 12),
+  smile: new THREE.TorusGeometry(1, 0.22, 6, 18, Math.PI * 0.7).rotateZ(Math.PI * 1.15),        // la boca: un arco que sonríe
+  collar: new THREE.TorusGeometry(1, 0.28, 8, 24),
   cone: new THREE.ConeGeometry(1, 1, 10), cyl: new THREE.CylinderGeometry(1, 1, 1, 14), box: new THREE.BoxGeometry(1, 1, 1),
   skirt: new THREE.CylinderGeometry(1, 1.32, 1, 20),                                         // falda de túnica (cerrada)
   bib: twoSided(new THREE.CylinderGeometry(1, 1, 1, 12, 1, true, -0.75, 1.5)),              // peto del delantal
@@ -32,6 +38,25 @@ export const G = {
   arch: new THREE.TorusGeometry(1, 0.17, 6, 14, Math.PI * 0.8).rotateZ(Math.PI * 0.1),      // ceja arqueada
   ...hijabGeo(),                                                                             // el hiyab, su borde y lo que cae sobre los hombros
 };
+// La cabeza: una esfera algo achatada, con la mandíbula un poco más estrecha que los mofletes y la barbilla
+// redondeada hacia delante
+function headGeo() {
+  const g = new THREE.SphereGeometry(0.29, 40, 30), p = g.attributes.position;
+  for (let i = 0; i < p.count; i++) {
+    const x = p.getX(i), y = p.getY(i), z = p.getZ(i), low = Math.max(0, -y / 0.29);
+    p.setXYZ(i, x * (1 - 0.13 * low * low), y, z + (z > 0 ? 0.012 * low * low : 0));
+  }
+  g.computeVertexNormals();
+  return g;
+}
+// El tronco: un perfil (caderas, cintura algo más estrecha, pecho y hombros redondeados) que se gira, aplastado
+// de delante atrás. Ocupa lo mismo que el cilindro de antes (la ropa se apoya en él)
+function torsoGeo() {
+  const pts = [[0.001, 0], [0.166, 0.0], [0.172, 0.05], [0.163, 0.12], [0.154, 0.18], [0.16, 0.26], [0.17, 0.33], [0.168, 0.39], [0.135, 0.43], [0.07, 0.455], [0.001, 0.46]];
+  const g = new THREE.LatheGeometry(pts.map(([r, y]) => new THREE.Vector2(r, y)), 28);
+  g.scale(1, 1, 0.765);
+  return g;
+}
 // El hiyab: una esfera algo mayor que la cabeza con un agujero redondo delante, para la cara (el polo de la
 // esfera mira hacia delante y un poco hacia abajo), y un dobladillo alrededor
 function hijabGeo() {
@@ -69,14 +94,15 @@ function spike(m, p, dir, len, r, parent) {
 // Junta las mallas hijas directas de un grupo en una (posición, normal y color de su material)
 const SKIN = mat({ vertexColors: true, roughness: 0.7 });
 export function mergeInto(group) {
-  const parts = group.children.filter(o => o.isMesh);
+  const parts = group.children.filter(o => o.isMesh && !o.userData.keep);   // (keep: se queda aparte, con su propio material)
   if (parts.length < 2) return;
   const pos = [], nor = [], col = [];
   for (const o of parts) {
     o.updateMatrix();
     const g = (o.geometry.index ? o.geometry.toNonIndexed() : o.geometry.clone()).applyMatrix4(o.matrix), c = o.material.color;
     pos.push(...g.attributes.position.array); nor.push(...g.attributes.normal.array);
-    for (let i = 0; i < g.attributes.position.count; i++) col.push(c.r, c.g, c.b);
+    const n = g.attributes.normal, vc = g.attributes.color;   // (si la pieza trae su color por vértice, ese, por el del material)
+    for (let i = 0; i < g.attributes.position.count; i++) { const k = 0.8 + 0.2 * (0.5 + 0.5 * n.getY(i)); col.push((vc ? vc.getX(i) : 1) * c.r * k, (vc ? vc.getY(i) : 1) * c.g * k, (vc ? vc.getZ(i) : 1) * c.b * k); }
     group.remove(o);
   }
   const geo = new THREE.BufferGeometry();
@@ -122,39 +148,65 @@ export class Person3D {
     // Piernas (con pantalón o piel) y pies (con botas, con calcetines o descalzos). Sin pantalón, los
     // calcetines se ven subiendo por la pierna hasta media espinilla, con el puño algo más oscuro.
     const socks = W.calcetines && W.calcetines.color;
+    this.shins = [];
     this.legs = [-1, 1].map(s => {
       const hip = new THREE.Group(); hip.name = s < 0 ? 'legL' : 'legR'; hip.position.set(s * 0.085, 0.36, 0); this.body.add(hip);
-      mesh(G.leg, pants || skin, { p: [0, -0.14, 0] }, hip);
+      mesh(G.thigh, pants || skin, { p: [0, -0.07, 0] }, hip);
+      const knee = new THREE.Group(); knee.name = s < 0 ? 'shinL' : 'shinR'; knee.position.y = -0.15; hip.add(knee); this.shins.push(knee);
+      mesh(G.shin, pants || skin, { p: [0, -0.055, 0] }, knee);
+      if (pants) mesh(G.cyl, M(shade(W.piernas.color, 0.85)), { p: [0, -0.13, 0], s: [0.068, 0.02, 0.068] }, knee);   // el bajo
       if (socks && !pants) {
-        mesh(G.cyl, M(socks), { p: [0, -0.22, 0], s: [0.073, 0.12, 0.073] }, hip);
-        mesh(G.cyl, M(shade(socks, 0.82)), { p: [0, -0.163, 0], s: [0.076, 0.022, 0.076] }, hip);
+        mesh(G.cyl, M(socks), { p: [0, -0.07, 0], s: [0.068, 0.12, 0.068] }, knee);
+        mesh(G.cyl, M(shade(socks, 0.82)), { p: [0, -0.013, 0], s: [0.071, 0.022, 0.071] }, knee);
       }
-      if (W.pies) mesh(G.boot, M(W.pies.color), { p: [0, -0.31, 0.03], s: [0.085, 0.06, 0.12] }, hip);
-      else if (socks) mesh(G.boot, M(socks), { p: [0, -0.313, 0.025], s: [0.067, 0.049, 0.1] }, hip);
-      else mesh(G.boot, skin, { p: [0, -0.315, 0.025], s: [0.062, 0.045, 0.095] }, hip);
+      if (W.pies) {   // botas: caña, pie y suela, con la puntera algo más clara
+        const c = W.pies.color;
+        mesh(G.cyl, M(c), { p: [0, -0.1, 0], s: [0.07, 0.11, 0.07] }, knee);
+        mesh(G.cyl, M(shade(c, 0.8)), { p: [0, -0.045, 0], s: [0.073, 0.02, 0.073] }, knee);
+        mesh(G.boot, M(c), { p: [0, -0.16, 0.03], s: [0.08, 0.055, 0.12] }, knee);
+        mesh(G.boot, M(mix(c, '#ffffff', 0.12)), { p: [0, -0.158, 0.1], s: [0.06, 0.04, 0.05] }, knee);
+        mesh(G.boot, M('#2a1c14'), { p: [0, -0.205, 0.028], s: [0.083, 0.018, 0.124] }, knee);
+      } else if (socks) mesh(G.boot, M(socks), { p: [0, -0.163, 0.025], s: [0.067, 0.049, 0.1] }, knee);
+      else { mesh(G.boot, skin, { p: [0, -0.165, 0.025], s: [0.062, 0.045, 0.095] }, knee); for (let t = -1; t <= 1; t++) mesh(G.ball, skin, { p: [t * 0.022, -0.17, 0.112], s: 0.016 }, knee); }
       return hip;
     });
     // Tronco (con camisa o túnica, camiseta interior o piel) y lo que va encima
     const torso = new THREE.Group(); torso.name = 'torso'; torso.position.y = 0.36; this.body.add(torso); this.torso = torso;
-    mesh(G.cyl, shirt || under || skin, { p: [0, 0.2, 0], s: [0.17, 0.4, 0.13] }, torso);
-    mesh(G.ball, shirt || skin, { p: [0, 0.4, 0], s: [0.19, 0.08, 0.14] }, torso);                       // hombros
+    mesh(G.torso, shirt || under || skin, {}, torso);
+    mesh(G.ball, shirt || under || skin, { p: [0, 0.39, 0], s: [0.186, 0.07, 0.13] }, torso);                // hombros
+    mesh(G.cyl, skin, { p: [0, 0.47, 0], s: [0.055, 0.06, 0.052] }, torso);                                 // cuello
+    if (W.torso) {
+      mesh(G.collar, M(shade(W.torso.color, 0.82)), { p: [0, 0.44, 0.004], s: [0.07, 0.065, 0.07], r: [Math.PI / 2 - 0.18, 0, 0] }, torso);   // el cuello de la ropa
+      if (W.torso.id === 'camisa' && !W.encima) for (const y of [0.34, 0.25, 0.16]) mesh(G.ball, M(shade(W.torso.color, 0.6)), { p: [0, y, 0.123 + (y > 0.3 ? 0.004 : 0)], s: [0.012, 0.012, 0.008] }, torso);
+    }
     this.outfit(torso, L, W);
     // Brazos, con manga (o piel) y mano
+    this.fore = [];
     this.arms = [-1, 1].map(s => {
       const sh = new THREE.Group(); sh.name = s < 0 ? 'armL' : 'armR'; sh.position.set(s * 0.21, 0.38, 0); torso.add(sh);
-      mesh(G.limb, shirt || skin, { p: [0, -0.12, 0], r: [0, 0, s * 0.12] }, sh);
-      mesh(G.ball, skin, { p: [s * 0.03, -0.27, 0], s: 0.058 }, sh);
+      sh.rotation.z = 0;
+      mesh(G.upper, shirt || skin, { p: [s * 0.006, -0.06, 0], r: [0, 0, s * 0.1] }, sh);
+      const el = new THREE.Group(); el.name = s < 0 ? 'foreL' : 'foreR'; el.position.set(s * 0.014, -0.13, 0); sh.add(el); this.fore.push(el);
+      mesh(G.fore, shirt || skin, { p: [s * 0.006, -0.06, 0], r: [0, 0, s * 0.06] }, el);
+      if (shirt) mesh(G.cyl, M(shade(W.torso.color, 0.82)), { p: [s * 0.011, -0.118, 0], s: [0.054, 0.02, 0.054] }, el);   // el puño
+      mesh(G.ball, skin, { p: [s * 0.014, -0.155, 0], s: [0.05, 0.058, 0.045] }, el);                            // la mano
+      mesh(G.ball, skin, { p: [s * 0.004, -0.14, 0.038], s: [0.019, 0.026, 0.019], r: [0.4, 0, 0] }, el);        // el pulgar
       return sh;
     });
     // Cabeza: cara, ojos, cejas, nariz, boca, orejas, mofletes, barba y pelo
     const head = new THREE.Group(); head.name = 'head'; head.position.y = 0.43 + 0.28; torso.add(head); this.head = head;
-    mesh(G.head, skin, { s: [1, 0.96, 0.96] }, head);
+    // La cabeza, con la cara pintada (ojos, cejas, boca y colorete); aparte, porque lleva su dibujo
+    this.faceOpen = faceMaterials(L);
+    this.faceMesh = mesh(G.head, this.faceOpen, { s: [1, 0.96, 0.96] }, head);
+    this.faceMesh.name = 'face'; this.faceMesh.userData.keep = true;
     const covered = W.cabeza?.id === 'hijab';   // (el hiyab tapa el pelo y las orejas)
     this.face(head, L, skin, hair, covered);
     if (!covered) this.hair(head, L, hair);
     this.headwear(head, W.cabeza, torso);
-    // Cada parte que se mueve junta (piernas, brazos, tronco y cabeza) en una sola malla con colores por vértice
-    for (const grp of [...this.legs, ...this.arms, torso, head]) mergeInto(grp);
+    // Cada parte que se mueve junta (piernas, rodillas, brazos, codos, tronco, cabeza y ojos) en una sola malla
+    // con colores por vértice
+    for (const grp of [...this.legs, ...this.shins, ...this.arms, ...this.fore, torso, head]) mergeInto(grp);
+    this.blink = 2 + Math.random() * 3;
     this.root.traverse(o => { if (o.isMesh) o.castShadow = true; });
   }
 
@@ -240,46 +292,15 @@ export class Person3D {
 
   face(head, L, skin, hair, covered = false) {
     const eye = M(L.eyes, { roughness: 0.3 }), white = M('#ffffff', { roughness: 0.2 }), ink = M('#2a1a1a'), lid = M(shade(L.skin, 0.95));
-    const brow = M(shade(L.hair, 0.8)), noseM = M(shade(L.skin, 0.92));
+    const noseM = M(shade(L.skin, 0.92));
     for (const s of [-1, 1]) {
       const x = s * 0.1;
-      // Ojos
-      const st = L.eyeStyle;
-      if (st === 'pequenos') {
-        mesh(G.eye, eye, { p: F(x, -0.005, 0.0), s: [0.03, 0.04, 0.02] }, head);
-        mesh(G.eye, white, { p: F(x + 0.01, 0.01, 0.016), s: [0.009, 0.01, 0.005] }, head);
-      } else if (st === 'almendrados') {
-        mesh(G.eye, white, { p: F(x, 0, -0.008), s: [0.068, 0.044, 0.03], r: [0, 0, s * 0.18] }, head);
-        mesh(G.eye, eye, { p: F(x, -0.002, 0.008), s: [0.034, 0.04, 0.02] }, head);
-        mesh(G.eye, white, { p: F(x + 0.012, 0.014, 0.022), s: [0.011, 0.012, 0.005] }, head);
-        mesh(G.cyl, ink, { p: F(x, 0.036, 0.006), s: [0.066, 0.008, 0.01], r: [Math.PI / 2 - 0.15, 0, s * 0.2] }, head);
-      } else {
-        mesh(G.eye, white, { p: F(x, 0, -0.01), s: [0.055, 0.068, 0.03] }, head);
-        mesh(G.eye, eye, { p: F(x, -0.005, 0.007), s: [0.04, 0.054, 0.02] }, head);
-        mesh(G.eye, white, { p: F(x + 0.014, 0.018, 0.022), s: [0.012, 0.014, 0.006] }, head);
-        if (st === 'pestanas') {
-          mesh(G.cyl, ink, { p: F(x, 0.07, 0.002), s: [0.05, 0.01, 0.012], r: [Math.PI / 2 - 0.2, 0, s * 0.15] }, head);
-          strap(ink, F(x + s * 0.045, 0.06, 0.004), F(x + s * 0.068, 0.078, 0.004), 0.006, head);
-        }
-        if (st === 'entornados') {
-          mesh(G.eye, lid, { p: F(x, 0.036, -0.012), s: [0.06, 0.042, 0.034] }, head);   // párpado a media asta
-          mesh(G.cyl, ink, { p: F(x, -0.004, 0.018), s: [0.054, 0.006, 0.006], r: [Math.PI / 2 - 0.25, 0, 0] }, head);
-        }
-      }
-      // Cejas
-      const by = 0.108, b = L.brows;
-      if (b === 'arqueadas') mesh(G.arch, brow, { p: F(x, by - 0.03, 0.01), s: [0.05, 0.036, 0.05] }, head);
-      else if (b === 'pobladas') for (let k = -1; k <= 1; k++) mesh(G.ball, brow, { p: F(x + k * 0.03, by - k * s * 0.004, 0.004), s: [0.024, 0.018, 0.014] }, head);
-      else {
-        const [w, h, t, tilt] = { finas: [0.048, 0.008, 0.01, 0.12], rectas: [0.045, 0.013, 0.014, 0.1], gruesas: [0.05, 0.022, 0.018, 0.05] }[b] || [0.045, 0.013, 0.014, 0.1];
-        mesh(G.cyl, brow, { p: F(x, by, 0.002), s: [w, t, h], r: [Math.PI / 2 - 0.3, 0, -s * tilt] }, head);
-      }
       // Orejas
       const ear = { redondas: [0.035, 0.06, 0.045, 0.285], pequenas: [0.028, 0.045, 0.035, 0.282], grandes: [0.044, 0.084, 0.062, 0.29], elfo: [0.032, 0.055, 0.042, 0.285], soplillo: [0.018, 0.066, 0.056, 0.312] }[L.ears] || [0.035, 0.06, 0.045, 0.285];
       if (!covered) mesh(G.ball, skin, { p: [s * ear[3], -0.03, L.ears === 'soplillo' ? -0.01 : 0], s: ear.slice(0, 3), r: [0, L.ears === 'soplillo' ? s * 1.1 : 0, 0] }, head);
+      if (!covered && L.ears !== 'soplillo') mesh(G.ball, M(shade(L.skin, 0.82)), { p: [s * (ear[3] + ear[0] * 0.72), -0.03, 0.006], s: [ear[0] * 0.4, ear[1] * 0.6, ear[2] * 0.55] }, head);
       if (L.ears === 'elfo' && !covered) mesh(G.cone, skin, { p: [s * 0.325, 0.05, -0.02], s: [0.03, 0.16, 0.036], r: [-0.25, 0, -s * 0.6] }, head);
       // Mofletes: una sola pieza redondeada con colorete, que abulta un poco
-      if (L.cheeks) mesh(G.eye, M(mix(L.skin, '#ff7a8a', 0.4)), { p: F(s * 0.145, -0.085, -0.004), s: [0.05, 0.032, 0.028] }, head);
     }
     // Nariz
     const n = L.nose;
@@ -289,7 +310,6 @@ export class Person3D {
     else if (n === 'puntiaguda') mesh(G.cone, noseM, { p: F(0, -0.052, 0.028), s: [0.026, 0.075, 0.026], r: [Math.PI / 2 + 0.3, 0, 0] }, head);
     else mesh(G.ball, noseM, { p: F(0, -0.06, 0.013), s: [0.028, 0.022, 0.02] }, head);
     // Boca
-    mesh(G.cyl, M(L.sex === 'chica' ? '#c8506a' : '#8a3a3a'), { p: F(0, -0.13, 0.016), s: [0.035, 0.008, 0.012], r: [Math.PI / 2, 0, 0] }, head);
     // Barba
     const bd = L.beard, moustache = () => { for (const s of [-1, 1]) mesh(G.ball, hair, { p: F(s * 0.036, -0.098, 0.012), s: [0.046, 0.017, 0.02], r: [0, 0, -s * 0.25] }, head); };
     const goatee = () => { mesh(G.ball, hair, { p: F(0, -0.19, -0.012), s: [0.045, 0.05, 0.04] }, head); mesh(G.cone, hair, { p: F(0, -0.235, -0.025), s: [0.03, 0.05, 0.03], r: [Math.PI - 0.3, 0, 0] }, head); };
@@ -472,7 +492,7 @@ export class Person3D {
   // Otra persona igual (comparte geometrías y materiales: hacer una desde cero cuesta)
   clone() {
     const c = Object.create(Person3D.prototype), root = this.root.clone(true), by = n => root.getObjectByName(n);
-    Object.assign(c, { look: this.look, name: this.name, root, body: by('body'), torso: by('torso'), head: by('head'), legs: [by('legL'), by('legR')], arms: [by('armL'), by('armR')], legSwing: this.legSwing, phase: Math.random() * 6, speed: 0, targetYaw: 0 });
+    Object.assign(c, { look: this.look, name: this.name, root, body: by('body'), torso: by('torso'), head: by('head'), faceMesh: by('face'), faceOpen: this.faceOpen, legs: [by('legL'), by('legR')], arms: [by('armL'), by('armR')], shins: [by('shinL'), by('shinR')], fore: [by('foreL'), by('foreR')], legSwing: this.legSwing, phase: Math.random() * 6, speed: 0, targetYaw: 0, blink: 1 + Math.random() * 3 });
     return c;
   }
   // Animación: speed en m/s (0 = quieto)
@@ -483,6 +503,13 @@ export class Person3D {
     const sw = Math.sin(this.phase) * 0.75 * k;
     this.legs[0].rotation.x = sw * this.legSwing; this.legs[1].rotation.x = -sw * this.legSwing;
     this.arms[0].rotation.x = -sw * 0.9; this.arms[1].rotation.x = sw * 0.9;
+    // Las rodillas se doblan al levantar el pie de atrás; los codos, un poco, más al ir el brazo adelante
+    this.shins[0].rotation.x = (Math.max(0, sw) * 1.3 + 0.08 * k) * this.legSwing; this.shins[1].rotation.x = (Math.max(0, -sw) * 1.3 + 0.08 * k) * this.legSwing;
+    this.fore[0].rotation.x = -0.12 - Math.max(0, sw) * 0.5; this.fore[1].rotation.x = -0.12 - Math.max(0, -sw) * 0.5;
+    // Parpadea cada pocos segundos y, quieto, respira
+    this.blink -= dt;
+    if (this.blink < 0) { this.faceMesh.material = this.blink > -0.12 ? CLOSED.get(this.faceOpen) : this.faceOpen; if (this.blink <= -0.12) this.blink = 2 + Math.random() * 4; }
+    this.torso.scale.y = 1 + Math.sin(this.phase * 0.5) * 0.012 * (1 - k);
     this.body.position.y = Math.abs(Math.cos(this.phase)) * 0.05 * k + Math.sin(this.phase * 0.5) * 0.004 * (1 - k);
     this.torso.rotation.y = sw * 0.12;
     this.head.rotation.z = Math.sin(this.phase * 0.5) * 0.02 * (1 - k);

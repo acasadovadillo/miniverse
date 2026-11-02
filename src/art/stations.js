@@ -35,7 +35,7 @@ export function drawHearth(I, g, top) {
 // Dónde está la boca del fuego (para el parpadeo), relativa al apoyo
 export const GLOW = { horno: [0, 0.42, 4], cocina: [0, 0.4, 4], chimenea: [0, 0.27, 6] };
 // Lo que da luz de noche: [dx, dy, z, radio]
-export const LIGHT = { horno: [0, 0.42, 6, 42], cocina: [0, 0.4, 6, 34], lampara: [0, 0, 35, 70], antorcha: [0, 0, 28, 52], chimenea: [0, 0.3, 12, 70] };
+export const LIGHT = { horno: [0, 0.42, 6, 42], cocina: [0, 0.4, 6, 34], lampara: [0, 0, 35, 70], antorcha: [0, 0, 28, 52], chimenea: [0, 0.3, 12, 70], vela: [0, 0, 8, 26] };
 
 // Lo que ocupa más de una casilla: 'long', la suya y la de delante (+y; girado, la de +x); 'wide' (la cama
 // doble), además las dos de al lado (+x; girado, -y)

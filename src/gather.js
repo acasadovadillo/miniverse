@@ -160,7 +160,7 @@ export class Gathering {
   // auto: el botón se mantiene pulsado; sigue golpeando, pero no come sin querer ni golpea al aire.
   use(auto = false) {
     const g = this.game, p = g.player;
-    if (!p || g.busy || hud.dialogOpen || g.mode !== 'play' || this.cooldown > 0) return;
+    if (!p || g.busy || hud.dialogOpen || g.mode !== 'play' || this.cooldown > 0 || p.pose) return;
     const held = g.inv.held, def = held && ITEMS[held.id];
     if (def?.food || def?.heal) return auto ? undefined : this.eat(g.inv.selected);
     if (def?.place) return this.place(held.id, auto);

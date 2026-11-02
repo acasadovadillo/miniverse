@@ -22,6 +22,8 @@ import { Farm } from './farm.js';
 import { Ranch } from './ranch.js';
 import { Fishing } from './fishing.js';
 import { Wildlife } from './wildlife.js';
+import { Rest } from './rest.js';
+import { HOTBAR } from './inventory.js';
 import { Neighbors } from './neighbors.js';
 import { Board } from './board.js';
 import { Combat } from './combat.js';
@@ -50,6 +52,8 @@ function defaultHouseDeltas() {
   for (const [k, c] of Object.entries(byChunk(houseBlueprint({ x0: HOUSE.x0, y0: HOUSE.y0 }), CHUNK))) out.set(k, { removed: {}, tilled: {}, chest: {}, v: 0, ...c });
   return out;
 }
+
+const LIGHTS = new Set(['lampara', 'antorcha', 'vela']);   // lo colocado que se apaga y se enciende con E
 
 export class Game {
   constructor(canvas) {
@@ -87,6 +91,7 @@ export class Game {
     this.family = this.addSystem(new Family(this));
     this.fishing = this.addSystem(new Fishing(this));
     this.wildlife = this.addSystem(new Wildlife(this));
+    this.rest = this.addSystem(new Rest(this));
     this.neighbors = this.addSystem(new Neighbors(this));
     this.combat = this.addSystem(new Combat(this));
     this.places = this.addSystem(new Explore(this));
@@ -235,29 +240,116 @@ export class Game {
   }
 
   // ---------- interacción ----------
+  // Lo que se puede hacer con E aquí (text, run) y, a veces, algo más con X (alt: recoger un mueble)
   nearest() {
     const p = this.player;
     if (this.busy || this.mode !== 'play' || !p) return null;
-    const near = (a, r) => Math.hypot(p.x - a.x, p.y - a.y) < r;
-    const sc = this.scene;
+    const sc = this.scene, save = () => this.onSave?.();
+    if (p.pose) return { text: 'Levantarse', run: () => this.rest.stand() };
     for (const s of this.systems) { const r = s.interact?.(p, sc); if (r) return r; }
-    // Una puerta cerca: se abre o se cierra (cerrarla con el jugador en el hueco lo dejaría atrapado)
+    // Una puerta cerca: se abre o se cierra (cerrarla con el jugador en el hueco lo dejaría atrapado). Cerrada y
+    // de otro (de un vecino, o con alguien jugando contigo cerca), primero se llama
     const door = sc.doorNear?.(p.x, p.y);
     if (door) {
-      const closed = sc.doorClosed(...door), inGap = Math.hypot(door[0] + 0.5 - p.x, door[1] + 0.5 - p.y) < 0.55;
-      if (closed || !inGap) return { text: closed ? 'Abrir la puerta' : 'Cerrar la puerta', run: () => { sc.toggleDoor(...door); Audio.place(); this.onSave?.(); } };
+      const closed = sc.doorClosed(...door), inGap = Math.hypot(door[0] + 0.5 - p.x, door[1] + 0.5 - p.y) < 0.55, k = String(door);
+      if (closed && !(this.knocked?.k === k && this.time < this.knocked.until) && this.knockable(door)) return { text: 'Llamar a la puerta', run: () => this.knock(door) };
+      if (closed || !inGap) return { text: closed ? 'Abrir la puerta' : 'Cerrar la puerta', run: () => { sc.toggleDoor(...door); Audio.place(); save(); } };
     }
-    // Lo colocado: las estaciones se usan, la cama sirve para dormir, el cofre se abre y lo demás se recoge
+    // Lo colocado: las estaciones se usan, en la cama te tumbas o duermes, en la silla te sientas, las luces se
+    // apagan y se encienden, el cofre y la mochila se abren; lo demás se recoge (con X, lo que se usa con E)
     // (lo fijo de las casas de los vecinos no se toca)
     const o = sc.placedNear?.(p.x, p.y, 1.3).find(o => !o.fixed);
     if (o) {
-      const name = ITEMS[o.placed].name.toLowerCase();
+      const name = ITEMS[o.placed].name.toLowerCase(), pick = { text: `Recoger ${name}`, run: () => this.pickUp(o) };
       if (STATIONS[o.placed]) return { text: `Usar ${name}`, run: () => this.onCraft?.(o.placed) };
-      if (o.placed === 'cama' || o.placed === 'cama_nino') return { text: 'Dormir', run: () => this.sleep() };
-      if (o.placed === 'cama_doble') return { text: 'Usar la cama', run: () => this.family.bed() };
+      if (o.placed === 'cama' || o.placed === 'cama_nino' || o.placed === 'cama_doble') return { text: 'Usar la cama', run: () => this.bed(o), alt: pick };
+      if (o.placed === 'silla') return { text: 'Sentarse', run: () => this.rest.sit(o), alt: pick };
       if (o.placed === 'cofre') return { text: 'Abrir el cofre', run: () => this.onChest?.(sc.chestAt(...o.tile), o.tile) };
-      return { text: `Recoger ${name}`, run: () => this.pickUp(o) };
+      if (o.placed === 'mochila') return { text: 'Abrir la mochila', run: () => this.onChest?.(sc.chestAt(...o.tile) || [], o.tile), alt: { text: this.inv.equip.espalda ? 'Recoger la mochila' : 'Ponerse la mochila', run: () => this.takeBackpack(o) } };
+      if (LIGHTS.has(o.placed)) return { text: `${o.off ? 'Encender' : 'Apagar'} ${name.replace(/^lámpara/, 'la lámpara').replace(/^antorcha/, 'la antorcha').replace(/^vela/, 'la vela')}`, run: () => { sc.toggleLight(...o.tile); Audio.blip(); save(); }, alt: pick };
+      return pick;
     }
+    // El fuego del hogar y el candelabro de la casa
+    const hearth = sc.hearthNear?.(p.x, p.y);
+    if (hearth) { const off = sc.lightOff(...hearth); return { text: off ? 'Encender el fuego' : 'Apagar el fuego', run: () => { sc.toggleLight(...hearth); Audio.noiseHit(off ? 900 : 300, 0.25, 0.25); save(); } }; }
+    const lamp = sc === this.world && p.inside !== undefined && this.underRoof && this.view3d?.world?.chandelierNear?.(p.x, p.y);
+    if (lamp) { const k = `c:${lamp}`, off = sc.lightOff(...lamp, k); return { text: off ? 'Encender el candelabro' : 'Apagar el candelabro', run: () => { sc.toggleLight(...lamp, k); Audio.blip(); save(); } }; }
+    // Una ventana: se abre o se cierra (con contraventanas, por fuera; sin ellas, con postigos por dentro)
+    const win = sc.windowNear?.(p.x, p.y);
+    if (win) { const closed = sc.doorClosed(...win); return { text: closed ? 'Abrir la ventana' : 'Cerrar la ventana', run: () => { sc.toggleDoor(...win); Audio.door(); save(); } }; }
+    return null;
+  }
+  // La cama: tumbarse (sin dormir), dormir o, en la doble, lo de la familia
+  async bed(o) {
+    if (o.placed === 'cama_doble') return this.family.bed(o);
+    this.busy = true;
+    const pick = await hud.ask(this.player.name, '¿Qué hacemos?', ['Tumbarse un rato', 'Dormir', 'Nada']);
+    this.busy = false;
+    if (pick === 0) this.rest.lie(o);
+    if (pick === 1) this.sleep();
+  }
+  // Llamar a una puerta cerrada: suena para todos los de cerca; si es de un vecino y está en casa, contesta
+  knockable(door) {
+    if (this.vecinoAt(door)) return true;
+    return [...(this.live.peers?.values() || [])].some(q => q.entity && q.sc === 'world' && Math.hypot(q.entity.x - door[0], q.entity.y - door[1]) < 10);
+  }
+  vecinoAt([tx, ty]) { return Object.entries(HOUSES).find(([, h]) => (!h.project || hasProject(h.project)) && tx === h.x0 + 6 && ty === h.y1 - 1)?.[0] || null; }   // (la puerta: en x0+6, en la fila de abajo)
+  knock(door) {
+    const g = this, house = this.vecinoAt(door), h = this.days.hour;
+    this.knocked = { k: String(door), until: this.time + 8 };
+    Audio.knock();
+    this.live.knock?.(door);
+    if (!house) return;
+    const home = this.neighbors.people.filter(n => n.def.home === house && n.hidden);
+    setTimeout(() => {
+      if (!home.length) { g.gather.float('No contesta nadie…', '#d8c3a0'); return; }
+      const who = home[0].def.name;
+      if (h >= 22 || h < 7) { g.gather.float(`${who} (desde dentro): ¡Son horas de dormir! Vuelve mañana`, '#fff3c0'); return; }
+      g.gather.float(`${who}: ¡Voy! … ¡Pasa, pasa!`, '#fff3c0');
+      if (this.scene.doorClosed(...door)) { this.scene.toggleDoor(...door); Audio.door(); }
+    }, 900);
+  }
+  // X: lo segundo que se puede hacer aquí (recoger lo que se usa con E)
+  altAction() { const n = this.nearest(); n?.alt?.run(); }
+  // Tirar al suelo lo que se lleva en la mano (uno, o el montón entero)
+  toss(all = false) {
+    const p = this.player, held = this.inv.held, i = this.inv.selected;
+    if (!p || !held || this.busy || this.mode !== 'play' || p.pose) return;
+    const n = all ? held.n : 1, { id, n: _, ...extra } = held;
+    this.inv.take(i, n, true);
+    for (let k = 0; k < n; k++) this.gather.addDrop({ id, extra: Object.keys(extra).length ? extra : undefined, x: p.x + p.face.x * (2 + Math.random() * 0.4), y: p.y + p.face.y * (2 + Math.random() * 0.4) + (Math.random() - 0.5) * 0.3, z: 12, vz: 45, t: -1.2, scene: this.scene });
+    this.gather.swing = 0.25; this.gather.swingItem = null;
+    Audio.swish();
+  }
+  // Recoger una mochila del suelo: si no llevas, te la pones con lo que tenga dentro; si llevas, solo vacía
+  takeBackpack(o) {
+    const sc = this.scene, inside = sc.chestAt(...o.tile) || [], full = inside.some(Boolean), inv = this.inv;
+    if (!inv.equip.espalda) {
+      sc.unplace(o);
+      inv.equip.espalda = { id: 'mochila', color: ITEMS.mochila.dye };
+      inside.forEach((s, j) => { if (s) inv.slots[HOTBAR + j] = s; });
+      inv.changed();
+      Audio.pickup();
+      this.onSave?.();
+      return;
+    }
+    if (full) { this.gather.float('Ya llevas una mochila: saca antes lo que tenga', '#ffb0a0'); Audio.error(); return; }
+    this.pickUp(o);
+  }
+  // Dejar en el suelo, delante, la mochila que llevas puesta, con todo lo que lleve dentro
+  dropBackpack() {
+    const p = this.player, sc = this.scene, inv = this.inv;
+    if (!p || !inv.equip.espalda) return 'No llevas mochila.';
+    const tx = Math.floor(p.x + p.face.x * 1.1), ty = Math.floor(p.y + p.face.y * 1.1);
+    if (!sc.canPlace?.(tx, ty, 'mochila', p)) return 'Aquí delante no hay sitio para dejarla.';
+    sc.place(tx, ty, 'mochila', 0);
+    const chest = sc.chestAt(tx, ty);
+    for (let j = 0; j < 27; j++) { chest[j] = inv.slots[HOTBAR + j] || null; inv.slots[HOTBAR + j] = null; }
+    delete inv.equip.espalda;
+    inv.changed();
+    sc.chestTouched(tx, ty);
+    Audio.place();
+    this.onSave?.();
     return null;
   }
   sleep() { return this.days.sleep(); }
@@ -509,7 +601,7 @@ export class Game {
     this.gather.update(dt);
     this.hook('update', dt);
     if (keys.use && !this.busy && !this.build.on) this.gather.use(true);
-    if (this.busy || hud.dialogOpen || this.fishing.still) { p.stop(); return; }
+    if (this.busy || hud.dialogOpen || this.fishing.still || p.pose) { p.stop(); return; }
     p.speedMul = (this.buffs.rapido > this.time ? 1.35 : 1) * (p.mount ? this.ranch.rideSpeed() : 1);
     p.update(dt, keys, this.scene);
     if (!p.inside) this.explore();
@@ -522,7 +614,8 @@ export class Game {
   render() {
     this.frameNo++;
     this.view3d.render(this);
-    hud.prompt(this.nearest()?.text);
+    const near = this.nearest();
+    hud.prompt(near && (near.alt ? `${near.text}  ·  X: ${near.alt.text.toLowerCase()}` : near.text));
     let hint = '';
     if (this.player) {
       for (const s of this.systems) { hint = s.hint?.() || ''; if (hint) break; }

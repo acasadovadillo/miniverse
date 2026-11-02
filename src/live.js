@@ -9,10 +9,12 @@ import { Net } from './net.js';
 import { Person } from './entities.js';
 import { Profile } from './accounts.js';
 import { hud } from './ui/hud.js';
+import { Audio } from './audio.js';
 import { SHARED, BLOBS, diffChunk, applyOps, copy } from './livesync.js';
 
 const SEND_EVERY = 0.1, IDLE_EVERY = 1;   // segundos entre mensajes de cómo va uno: moviéndose y quieto
 const SYNC_EVERY = 0.1;                   // cada cuánto se mandan los cambios del mundo
+const POSES = ['sit', 'floorSit', 'lie', 'floorLie'];   // las posturas, por su número (en el estado de cada jugador)
 const BLOB_EVERY = 0.25, TIME_EVERY = 1, HERD_EVERY = 0.2;   // lo de todos, la hora y por dónde van los animales
 const SNAP = 4;                           // si alguien aparece a más de tantas casillas de donde estaba, salta allí
 const MINE_FIRST = 3;                     // segundos que lo que suelta algo al romperse es solo de quien lo rompió
@@ -30,6 +32,7 @@ class RemotePlayer extends Person {
   apply(st) {
     this.to = [st.x, st.y, st.z || 0];
     if (this.fresh || Math.hypot(st.x - this.x, st.y - this.y) > SNAP) { [this.x, this.y, this.z] = this.to; this.fresh = false; }
+    this.pose = st.po ? { kind: POSES[st.po[0]], yaw: st.po[1], h: st.po[2] } : null;   // (sentado o tumbado)
     Object.assign(this, { yaw: st.yaw ?? null, inside: !!st.in, mount: !!st.m, horseCoat: st.hc || null, horseBags: !!st.hb, boat: !!st.b, held: st.h || null, swing: st.sw || 0, swingItem: st.si || null, cooldown: st.cd || 0 });
   }
   update(dt) {
@@ -178,6 +181,10 @@ export class Live {
         m.p.forEach((p, i) => { const a = g.ranch.animals[i]; if (a) a.netTo = p; });
         if (m.k) g.family.place(m.k);
         break;
+      // Alguien llama a una puerta: suena si estás cerca (y, si es la tuya, te avisa)
+      case 'knock':
+        if (this.joined && g.player && g.scene === g.world && Math.hypot(g.player.x - m.x, g.player.y - m.y) < 25) { Audio.knock(); if (Math.hypot(g.player.x - m.x, g.player.y - m.y) < 12) hud.toast(`${peer.name} llama a la puerta`); }
+        break;
       // Tener un bebé: te lo proponen (y contestas) o contestan a lo que propusiste
       case 'baby?':
         if (this.joined) g.family.asked(peer).then(ok => this.net?.send({ t: 'baby!', ok, look: g.player?.look }, conn));
@@ -278,6 +285,7 @@ export class Live {
     for (const peer of this.peers.values()) if (peer.id === id) return peer.name;
     return Profile.players?.().find(x => x.id === id)?.name || null;
   }
+  knock([x, y]) { if (this.joined) this.net?.send({ t: 'knock', x: x + 0.5, y: y + 0.5 }); }
   chat(text) { if (this.joined) this.net?.send({ t: 'chat', text }); }
   // Otro jugador que esté contigo y cumpla near(entidad) (por ejemplo, en tu casa): { conn, peer } o null
   partner(near) {
@@ -377,7 +385,7 @@ export class Live {
     }
     this.sent += dt;
     const sc = g.scene === g.world ? 'world' : null;
-    const st = { t: 'st', sc, x: r2(p.x), y: r2(p.y), z: r2(p.z || 0), yaw: r2(g.view3d.actors.player?.person.facing ?? 0), in: p.inside ? 1 : 0, m: p.mount ? 1 : 0, hc: p.mount ? p.horseCoat || null : null, hb: p.mount && p.horseBags ? 1 : 0, b: p.boat ? 1 : 0, h: g.inv.held?.id || null, sw: this.swings, si: g.gather.swingItem || null, cd: r2(g.gather.cooldown || 0) };
+    const st = { t: 'st', sc, x: r2(p.x), y: r2(p.y), z: r2(p.z || 0), yaw: r2(g.view3d.actors.player?.person.facing ?? 0), in: p.inside ? 1 : 0, po: p.pose ? [POSES.indexOf(p.pose.kind), r2(p.pose.yaw), r2(p.pose.h)] : 0, m: p.mount ? 1 : 0, hc: p.mount ? p.horseCoat || null : null, hb: p.mount && p.horseBags ? 1 : 0, b: p.boat ? 1 : 0, h: g.inv.held?.id || null, sw: this.swings, si: g.gather.swingItem || null, cd: r2(g.gather.cooldown || 0) };
     const key = JSON.stringify(st);
     if (this.sent < SEND_EVERY || (key === this.lastSent && this.sent < IDLE_EVERY)) return;
     this.sent = 0; this.lastSent = key;

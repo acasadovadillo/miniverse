@@ -24,7 +24,7 @@ function itemObject(o, id, rot, colliders, lights, [sx, sy] = [0, 0]) {
   const [tx, ty] = o.tile;
   o.x += sx; o.y += sy;
   o.rot = rot; o.glow = GLOW[id];
-  if (LIGHT[id]) { const [lx, ly, lz, lr] = LIGHT[id]; lights.push({ x: o.x + lx, y: o.y + ly, z: lz, r: lr }); }
+  if (LIGHT[id] && !o.off) { const [lx, ly, lz, lr] = LIGHT[id]; lights.push({ x: o.x + lx, y: o.y + ly, z: lz, r: lr }); }
   if (ITEMS[id].place === 'flat') return true;
   if (LONG[id]) {   // varias casillas: la suya y las de los pies (y, la cama doble, las de al lado)
     const ts = [[tx, ty], ...extraTiles(id, tx, ty, rot)], xs = ts.map(t => t[0]), ys = ts.map(t => t[1]);
@@ -168,7 +168,7 @@ export class Overworld {
         o.wallId = id; o.mask = mask;
         o.wall = true; o.window = id.startsWith('ventana');
         for (const [x0, x1, y0, y1] of wallRuns(mask)) colliders.push({ x0: o.x + x0, y0: o.y + y0, x1: o.x + x1, y1: o.y + y1 });
-        if (o.window) lights.push({ x: o.x, y: o.y, z: WINDOW_Z, r: 34, window: true });
+        if (o.window && !this.doorClosed(tx, ty)) lights.push({ x: o.x, y: o.y, z: WINDOW_Z, r: 34, window: true });   // (cerrada, no sale luz)
       } else if (piece?.kind === 'door') {
         const solid = (x, y) => { const p = this.pieceAt(x, y); return p && p.kind !== 'fence'; };
         const alongX = solid(tx - 1, ty) || solid(tx + 1, ty) || !(solid(tx, ty - 1) || solid(tx, ty + 1));
@@ -190,10 +190,12 @@ export class Overworld {
         // Hogar con chimenea: da luz y calor; el fuego lo dibuja el juego en la boca del hogar
         const [sx, sy] = this.wallShift(id, tx, ty, 0);
         o.x += sx; o.y += sy;
-        o.glow = GLOW[id]; o.fire = [o.x, o.y + 0.2, 3, 5]; o.hearth = true;
-        if (LIGHT[id]) { const [lx, ly, lz, lr] = LIGHT[id]; lights.push({ x: o.x + lx, y: o.y + ly, z: lz, r: lr }); }
+        o.off = this.lightOff(tx, ty);   // (apagado: sin fuego ni luz)
+        o.glow = o.off ? null : GLOW[id]; o.fire = o.off ? null : [o.x, o.y + 0.2, 3, 5]; o.hearth = true;
+        if (LIGHT[id] && !o.off) { const [lx, ly, lz, lr] = LIGHT[id]; lights.push({ x: o.x + lx, y: o.y + ly, z: lz, r: lr }); }
         colliders.push({ x0: tx + 0.04 + sx, y0: ty + 0.06 + sy, x1: tx + 0.96 + sx, y1: ty + 0.82 + sy });
       } else {
+        o.off = this.lightOff(tx, ty);
         if (itemObject(o, id, rot, colliders, lights, this.wallShift(id, tx, ty, rot))) { flats.push(o); continue; }
       }
       objects.push(o);
@@ -286,6 +288,7 @@ export class Overworld {
     const cx = Math.floor(tx / CHUNK), cy = Math.floor(ty / CHUNK), layer = layerOf(id), d = this.delta(cx, cy, true);
     d[layer][`${tx},${ty}`] = rot ? `${id}@${rot}` : id;
     if (id === 'cofre') d.chest[`${tx},${ty}`] = Array(18).fill(null);
+    if (id === 'mochila') d.chest[`${tx},${ty}`] = Array(27).fill(null);   // (la mochila en el suelo es como un cofre)
     this.touchAround(tx, ty);
   }
   // Quita lo que puso el jugador en una casilla. Lo fijo del pueblo no se quita: devuelve false.
@@ -294,8 +297,9 @@ export class Overworld {
     if (o.fixed || !this.ownAt(layer, tx, ty)) return false;
     const d = this.delta(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK));
     delete d[layer][k];
-    if (o.placed === 'cofre') delete d.chest[k];
+    if (o.placed === 'cofre' || o.placed === 'mochila') delete d.chest[k];
     if (d.closed) delete d.closed[k];
+    if (d.off) delete d.off[k];
     this.touchAround(tx, ty);
     return true;
   }
@@ -307,6 +311,30 @@ export class Overworld {
     if (d.closed[k]) delete d.closed[k]; else d.closed[k] = true;
     this.touchAround(tx, ty);
     return !!d.closed[k];
+  }
+  // Luces apagadas (lámparas, antorchas, velas, hogares y candelabros): se guarda en el trozo, como las puertas.
+  // k: la casilla ("x,y") o, el candelabro de una casa, "c:x,y" (la casilla del centro de la casa)
+  lightOff(tx, ty, k = `${tx},${ty}`) { return !!this.delta(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK))?.off?.[k]; }
+  toggleLight(tx, ty, k = `${tx},${ty}`) {
+    const d = this.delta(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK), true);
+    d.off ||= {};
+    if (d.off[k]) delete d.off[k]; else d.off[k] = 1;
+    this.touchAround(tx, ty);
+    return !d.off[k];
+  }
+  // El hogar más cercano (pieza de construcción), o null
+  hearthNear(x, y, r = 1.5) {
+    for (let ty = Math.floor(y) - 1; ty <= Math.floor(y) + 1; ty++) for (let tx = Math.floor(x) - 1; tx <= Math.floor(x) + 1; tx++) if (Math.hypot(tx + 0.5 - x, ty + 0.5 - y) < r && this.pieceAt(tx, ty)?.kind === 'hearth') return [tx, ty];
+    return null;
+  }
+  // La ventana más cercana a un punto (se abre y se cierra como una puerta: se guarda igual), o null
+  windowNear(x, y, r = 1.3) {
+    let best = null, bd = r;
+    for (let ty = Math.floor(y) - 1; ty <= Math.floor(y) + 1; ty++) for (let tx = Math.floor(x) - 1; tx <= Math.floor(x) + 1; tx++) {
+      const dist = Math.hypot(tx + 0.5 - x, ty + 0.5 - y), v = this.at('placed', tx, ty);
+      if (dist < bd && v && parsePlaced(v)[0].startsWith('ventana')) { best = [tx, ty]; bd = dist; }
+    }
+    return best;
   }
   // La puerta más cercana a un punto (a menos de r de su centro), o null
   doorNear(x, y, r = 1.5) {

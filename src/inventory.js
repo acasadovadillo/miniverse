@@ -95,7 +95,7 @@ export class Inventory {
   unwear(slot) {
     const it = this.equip[slot];
     if (!it) return null;
-    if (slot === 'espalda' && this.slots.slice(HOTBAR).some(Boolean)) return 'Vacía la mochila antes de quitártela.';
+    if (slot === 'espalda' && this.slots.slice(HOTBAR).some(Boolean)) return 'Vacía la mochila antes de quitártela (o déjala en el suelo, llena).';
     const free = this.slots.findIndex((s, i) => !s && i < (slot === 'espalda' ? HOTBAR : this.cap));
     if (free < 0) return 'No tienes un hueco libre donde guardarlo.';
     this.slots[free] = { id: it.id, n: 1, color: it.color };

@@ -66,13 +66,14 @@ export class Family {
 
   // ---------- tener un bebé ----------
   // En la cama doble: dormir o, si se puede, proponer tener un bebé
-  async bed() {
+  async bed(o) {
     const g = this.game;
     g.busy = true;
-    const pickN = await hud.ask(g.player.name, '¿Qué hacemos?', ['Dormir', 'Tener un bebé', 'Nada']);
+    const pickN = await hud.ask(g.player.name, '¿Qué hacemos?', ['Tumbarse un rato', 'Dormir', 'Tener un bebé', 'Nada']);
     g.busy = false;
-    if (pickN === 0) return g.sleep();
-    if (pickN === 1) return this.propose();
+    if (pickN === 0 && o) return g.rest.lie(o);
+    if (pickN === 1) return g.sleep();
+    if (pickN === 2) return this.propose();
   }
   // Lo que impide tener un bebé ahora (o null)
   why() {

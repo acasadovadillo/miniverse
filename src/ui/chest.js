@@ -23,7 +23,7 @@ function paint(el, s) {
 export function initChestUI(game, { onClose }) {
   let chest = null, tile = null, onChange = null;   // (sin casilla: las alforjas del caballo, que avisan con onChange)
   const chestCells = [], bagCells = [];
-  for (let i = 0; i < 18; i++) chestCells.push(cell($('ch-grid'), () => toBag(i)));
+  for (let i = 0; i < 27; i++) chestCells.push(cell($('ch-grid'), () => toBag(i)));
   for (let i = 0; i < SLOTS; i++) bagCells.push(cell($('ch-bag'), () => toChest(i)));
 
   const changed = () => { if (tile) game.scene.chestTouched(...tile); else onChange?.(); refresh(); };
@@ -46,9 +46,9 @@ export function initChestUI(game, { onClose }) {
   }
   function refresh() {
     if (!chest) return;
-    chestCells.forEach((el, i) => { paint(el, chest[i]); el.classList.toggle('locked', i >= chest.length); });
+    chestCells.forEach((el, i) => { paint(el, chest[i]); el.hidden = i >= chest.length; });
     bagCells.forEach((el, i) => { paint(el, game.inv.slots[i]); el.classList.toggle('locked', !game.inv.usable(i)); });
   }
   $('ch-close').onclick = () => onClose();
-  return { refresh, open(c, t, cb) { chest = c; tile = t; onChange = cb; $('ch-title').textContent = t ? 'Cofre' : 'Alforjas'; refresh(); } };
+  return { refresh, open(c, t, cb) { chest = c; tile = t; onChange = cb; $('ch-title').textContent = !t ? 'Alforjas' : game.scene.at?.('placed', ...t)?.startsWith('mochila') ? 'Mochila' : 'Cofre'; refresh(); } };
 }
