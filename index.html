@@ -269,6 +269,7 @@
   [data-k='left'] { left: 14px; bottom: 86px; } [data-k='right'] { left: 138px; bottom: 86px; }
   [data-k='act'] { right: 20px; bottom: 150px; width: 58px; height: 58px; border-radius: 50%; font-size: 22px; }
   [data-k='use'] { right: 24px; bottom: 60px; width: 76px; height: 76px; border-radius: 50%; font-size: 30px; }
+  [data-k='jump'] { right: 24px; bottom: 222px; width: 52px; height: 52px; border-radius: 50%; font-size: 22px; }
   [data-k='bag'] { right: 110px; bottom: 34px; width: 50px; height: 50px; font-size: 22px; }
   [data-k='build'] { right: 110px; bottom: 92px; width: 50px; height: 50px; font-size: 22px; }
   [data-k='pause'] { left: 14px; bottom: 214px; width: 46px; height: 46px; font-size: 20px; }
@@ -344,7 +345,7 @@
   <div id="clockp" class="panel"><span id="clock"></span></div>
   <div id="place" class="panel"><span id="place-name">Pueblo Brotes</span> <small id="coords"></small></div>
   <canvas id="minimap" class="panel" width="150" height="100"></canvas>
-  <div id="hint" class="panel"><kbd>Espacio</kbd><span id="hint-text"></span></div>
+  <div id="hint" class="panel"><kbd>Clic</kbd><span id="hint-text"></span></div>
   <div id="hotbar" class="panel">
     <div id="energy" title="Energía"><span>Energía</span><div class="bar"><div id="energy-fill"></div></div><span id="money">0 🪙</span></div>
     <div id="hearts"></div>
@@ -493,7 +494,8 @@
       <dl class="ct-list">
         <dt><kbd>WASD</kbd></dt><dd>Caminar (arriba es hacia donde mira la cámara)</dd>
         <dt><kbd>Shift</kbd></dt><dd>Correr (mantenlo pulsado)</dd>
-        <dt><kbd>Espacio</kbd> o clic</dt><dd>Usar lo que llevas: talar, picar, regar, sembrar, pescar, atacar, comer, colocar… Mantén para seguir.</dd>
+        <dt>Clic izquierdo</dt><dd>Usar lo que llevas: talar, picar, regar, sembrar, pescar, atacar, comer, colocar… Mantén para seguir.</dd>
+        <dt><kbd>Espacio</kbd></dt><dd>Saltar (con un diálogo abierto, seguir)</dd>
         <dt><kbd>E</kbd> o <kbd>Enter</kbd></dt><dd>Interactuar: hablar, puertas, cofres, estaciones, dormir, cosechar, animales</dd>
         <dt><kbd>1</kbd>–<kbd>9</kbd> o rueda</dt><dd>Elegir objeto</dd>
         <dt><kbd>R</kbd></dt><dd>Girar lo que vas a colocar (apunta con el ratón: hasta 4 casillas)</dd>
@@ -564,7 +566,7 @@
   <div id="touch">
     <button class="tb" data-k="up">▲</button><button class="tb" data-k="left">◀</button>
     <button class="tb" data-k="right">▶</button><button class="tb" data-k="down">▼</button>
-    <button class="tb" data-k="act">E</button><button class="tb" data-k="use" aria-label="Usar">⚒</button><button class="tb" data-k="bag" aria-label="Mochila">🎒</button><button class="tb" data-k="build" aria-label="Construir">🔨</button><button class="tb" data-k="pause" aria-label="Menú">☰</button><button class="tb" data-k="craft" aria-label="Fabricar">🧰</button>
+    <button class="tb" data-k="act">E</button><button class="tb" data-k="use" aria-label="Usar">⚒</button><button class="tb" data-k="jump" aria-label="Saltar">⤒</button><button class="tb" data-k="bag" aria-label="Mochila">🎒</button><button class="tb" data-k="build" aria-label="Construir">🔨</button><button class="tb" data-k="pause" aria-label="Menú">☰</button><button class="tb" data-k="craft" aria-label="Fabricar">🧰</button>
   </div>
   <section id="s-file" class="screen">
     <div class="box panel">

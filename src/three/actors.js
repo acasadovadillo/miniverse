@@ -96,6 +96,10 @@ export class Actors {
         else P.root.position.y = 0;
       }
       P.update(dt, e.mount || e.boat ? 0 : m.speed);
+      if (e.z > 0) {   // en el aire: un poco más arriba y con las piernas recogidas
+        y += e.z;
+        if (!e.mount) { const k = Math.min(1, e.z / 0.25); P.legs[0].rotation.x = -0.7 * k; P.legs[1].rotation.x = 0.35 * k; }
+      }
       if (game) this.hold(m, game, dt);   // (después de andar: el golpe manda sobre el balanceo del brazo)
       if (e.mount || e.boat) { P.legs[0].rotation.x = P.legs[1].rotation.x = e.mount ? -1.1 : -1.4; P.legs[0].rotation.z = 0.5; P.legs[1].rotation.z = -0.5; }
       else P.legs[0].rotation.z = P.legs[1].rotation.z = 0;
@@ -114,7 +118,7 @@ export class Actors {
 
   // La herramienta (o el arma) en la mano del jugador, y el gesto al usarla. Cada golpe nuevo (el temporizador
   // swing de la recolección vuelve a subir) empieza una animación de su herramienta, que dura como mucho lo
-  // que tarda en poder volver a golpear (así, con Espacio pulsado, los golpes se encadenan).
+  // que tarda en poder volver a golpear (así, con el clic pulsado, los golpes se encadenan).
   hold(m, game, dt) {
     const g = game.gather, id = game.inv.held?.id || null, P = m.person;
     if (g.swing > (m.lastSwing || 0) + 1e-4) {

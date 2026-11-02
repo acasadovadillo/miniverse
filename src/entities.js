@@ -21,6 +21,7 @@ export class Person {
 }
 
 const RADIUS = 0.28;
+const JUMP = 4.4, GRAVITY = 15;   // velocidad al saltar (m/s) y gravedad: sube unos 65 cm y está 0,6 s en el aire
 
 export class Player extends Person {
   constructor(data) {
@@ -30,6 +31,15 @@ export class Player extends Person {
     this.boat = !!data.boat;
     this.mount = !!data.mount;
     this.face = { x: -Math.SQRT1_2, y: -Math.SQRT1_2 };   // dirección a la que mira, en la rejilla
+    this.z = 0; this.vz = 0;   // altura del salto sobre el suelo y su velocidad
+  }
+  get airborne() { return this.z > 0; }
+  // Saltar (desde el suelo; en barca no)
+  jump() {
+    if (this.boat || this.z > 0) return;
+    this.vz = JUMP * (this.mount ? 1.1 : 1);
+    this.z = 0.001;
+    Audio.swish();
   }
   // Movimiento con las teclas, que siguen la pantalla: arriba es hacia donde mira la cámara
   update(dt, keys, scene) {
@@ -62,9 +72,15 @@ export class Player extends Person {
     if (sx || sy) [this.view, this.flip] = viewFor(sx, sy);
     // En primera persona se mira hacia donde mira la cámara (y lo de delante es lo que se ve)
     if (CAM.first) { const [fx, fy] = screenToWorld(0, -1); this.face = { x: fx, y: fy }; this.dir = [fx, fy]; [this.view, this.flip] = viewFor(0, -1); }
+    // El salto: sube y baja con la gravedad (en el aire no suenan los pasos)
+    if (this.z > 0) {
+      this.vz -= GRAVITY * dt;
+      this.z += this.vz * dt;
+      if (this.z <= 0) { this.z = 0; this.vz = 0; Audio.step(this.inside || this.underRoof); }
+    }
     const before = Math.floor(this.step);
     this.step = moved < 0.002 ? 0 : this.step + moved * 3.2;
-    if (Math.floor(this.step) !== before && Math.floor(this.step) % 2 === 1) Audio.step(this.inside || this.underRoof);
+    if (this.z === 0 && Math.floor(this.step) !== before && Math.floor(this.step) % 2 === 1) Audio.step(this.inside || this.underRoof);
   }
   stop() { this.vx = this.vy = 0; }
   toSave() {

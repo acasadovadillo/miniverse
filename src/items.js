@@ -128,7 +128,7 @@ Object.assign(ITEMS, {
   calavera: { name: 'Calavera de esqueleto', desc: 'Sonríe todo el rato. Da un poco de mal rollo.' },
   baba: { name: 'Baba de limo', desc: 'Pegajosa. A alguien le servirá.' },
   pocion: { name: 'Poción de vida', desc: 'Cura 6 corazones.', heal: 12 },
-  espada: { name: 'Espada', desc: 'Para defenderte en cuevas y mazmorras. Úsala con Espacio.', weapon: 3, stack: 1 },
+  espada: { name: 'Espada', desc: 'Para defenderte en cuevas y mazmorras. Úsala con el clic izquierdo.', weapon: 3, stack: 1 },
   espada_oro: { name: 'Espada de oro', desc: 'Pega el doble de fuerte.', weapon: 6, stack: 1 },
   barca: { name: 'Barca', desc: 'Úsala mirando al agua para navegar por ríos, lagos y el mar.', vehicle: 'barca', stack: 1 },
   caballo: { name: 'Silbato del caballo', desc: 'Úsalo para montar (o bajar) de tu caballo: vas mucho más rápido.', vehicle: 'caballo', stack: 1 },

@@ -35,7 +35,8 @@ La partida se guarda sola cada 15 segundos, al entrar o salir de una casa y al d
 | Acción | Teclado y ratón | Móvil |
 | --- | --- | --- |
 | Caminar / correr | WASD / Shift (arriba es hacia donde mira la cámara) | Cruceta |
-| Usar lo que llevas (talar, picar, regar, sembrar, pescar, atacar, comer, colocar…) | Espacio o clic (mantén para seguir) | Botón ⚒ |
+| Usar lo que llevas (talar, picar, regar, sembrar, pescar, atacar, comer, colocar…) | Clic izquierdo (mantén para seguir) | Botón ⚒ |
+| Saltar | Espacio (con un diálogo abierto, seguir) | Botón ⤒ |
 | Interactuar (hablar, puertas, cofres, estaciones, dormir, cosechar, animales) | E o Enter | Botón E |
 | Elegir objeto | 1–9 o rueda | Tocar la casilla |
 | Girar lo que vas a colocar | R | — |
@@ -48,8 +49,9 @@ La partida se guarda sola cada 15 segundos, al entrar o salir de una casa y al d
 | Girar la cámara (suave, mientras se mantiene) | Flecha izquierda / flecha derecha | — |
 | Subir o bajar la cámara (de casi cenital a ras de suelo) | Flecha arriba / flecha abajo | — |
 | Acercar o alejar la cámara | + / − (o Ctrl + rueda, o pellizcar el panel táctil) | — |
+| Primera o tercera persona | Z (en primera persona, flecha arriba / abajo para mirar arriba y abajo) | — |
 | Ver el rendimiento | F | — |
-| Colocar muebles y estaciones | Apunta con el ratón (hasta 4 casillas) y clic o Espacio; sin ratón, la casilla de delante | Delante del jugador |
+| Colocar muebles y estaciones | Apunta con el ratón (hasta 4 casillas) y clic | Delante del jugador |
 
 ## Lo que hay en el juego
 

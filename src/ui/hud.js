@@ -69,7 +69,7 @@ export const hud = {
       };
     });
   },
-  // Pregunta con opciones; devuelve el índice elegido. Se elige con clic, flechas o números, y se confirma con E o Espacio.
+  // Pregunta con opciones; devuelve el índice elegido. Se elige con clic, flechas o números, y se confirma con E, Espacio o clic.
   ask(name, text, options) {
     return new Promise(resolve => {
       let sel = 0;

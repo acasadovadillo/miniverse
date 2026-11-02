@@ -26,7 +26,7 @@ export function initBuildBar(game) {
     const box = $('bb-pieces');
     box.textContent = '';
     if (b.erase) {
-      box.innerHTML = '<div class="bb-note">Clic (o Espacio) sobre lo que quieras quitar: te devuelve los materiales o el mueble.</div>';
+      box.innerHTML = '<div class="bb-note">Clic sobre lo que quieras quitar: te devuelve los materiales o el mueble.</div>';
       return;
     }
     for (const [id, p] of Object.entries(PIECES)) {

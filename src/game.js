@@ -267,7 +267,7 @@ export class Game {
       `¡Así que tú eres ${p.name}! Por fin llega alguien a la casa del final del camino. Llevaba años vacía.`,
       'Esto es Pueblo Brotes. Pequeño, sí, pero aquí cada cual se construye la vida a su manera.',
       'Dicen que el mundo no se acaba nunca más allá del bosque. Yo nunca he llegado tan lejos.',
-      'Te he dejado en la mochila unas herramientas viejas: hacha, pico, guadaña y azada. Elígelas con los números y úsalas con Espacio.',
+      'Te he dejado en la mochila unas herramientas viejas: hacha, pico, guadaña y azada. Elígelas con los números y úsalas con el clic izquierdo.',
       'Y un consejo de viejo carpintero: con madera se hacen tablas (pulsa C para fabricar). Con seis tablas y dos piedras te sale un banco de carpintero, y con él, herramientas mejores.',
     ] : [NILO_TIPS[this.niloTip++ % NILO_TIPS.length]]);
     if (first) this.craft.teach('banco');

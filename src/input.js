@@ -4,7 +4,7 @@ import { CAM, DIST } from './camera.js';
 
 // use: el botón de usar se mantiene pulsado (para seguir talando sin repetir la tecla)
 export const keys = { up: false, down: false, left: false, right: false, run: false, use: false };
-const handlers = { chat: () => false, use: () => {}, interact: () => {}, pause: () => {}, map: () => {}, bag: () => {}, craft: () => {}, build: () => {}, rotate: () => {}, erase: () => {}, select: () => {}, cycle: () => {}, enabled: () => false };
+const handlers = { chat: () => false, use: () => {}, jump: () => {}, interact: () => {}, pause: () => {}, map: () => {}, bag: () => {}, craft: () => {}, build: () => {}, rotate: () => {}, erase: () => {}, select: () => {}, cycle: () => {}, enabled: () => false };
 const KEYMAP = { KeyW: 'up', ArrowUp: 'up', KeyS: 'down', ArrowDown: 'down', KeyA: 'left', ArrowLeft: 'left', KeyD: 'right', ArrowRight: 'right' };
 // En el juego las flechas mueven la cámara (girar e inclinar) y + y − la acercan o alejan; mientras se
 // mantienen, la cámara se mueve suave. Con el mapa abierto, las flechas mueven el mapa como WASD.
@@ -51,14 +51,13 @@ export function initInput(h) {
     if (/^Digit[1-9]$/.test(e.code)) handlers.select(+e.code.slice(5) - 1);
     if (e.code === 'KeyR' && !e.repeat) handlers.rotate();
     if ((e.code === 'KeyX' || e.code === 'Delete' || e.code === 'Backspace') && !e.repeat) handlers.erase();
-    if (e.code === 'Space' && !e.repeat) { e.preventDefault(); keys.use = true; handlers.use(); }
+    if (e.code === 'Space') { e.preventDefault(); if (!e.repeat) handlers.jump(); }   // saltar (con un diálogo abierto, seguir)
     if ((e.code === 'KeyE' || e.code === 'Enter') && !e.repeat) { e.preventDefault(); handlers.interact(); }
   });
   addEventListener('keyup', e => {
     if (held.delete(e.code)) camAxes();
     if (KEYMAP[e.code]) keys[KEYMAP[e.code]] = false;
     if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') keys.run = false;
-    if (e.code === 'Space') keys.use = false;
   });
   addEventListener('blur', clearKeys);
 
@@ -111,6 +110,7 @@ export function initInput(h) {
       b.classList.add('on');
       if (k === 'act') handlers.interact();
       else if (k === 'use') { keys.use = true; handlers.use(); }
+      else if (k === 'jump') handlers.jump();
       else keys[k] = true;
     });
     ['pointerup', 'pointercancel', 'pointerleave'].forEach(t => b.addEventListener(t, up));
