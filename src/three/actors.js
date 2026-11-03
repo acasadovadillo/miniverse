@@ -32,6 +32,17 @@ export class Actors {
     this.player = null;
   }
   // Los materiales del jugador (para su silueta); body: solo los de su cuerpo y lo que lleva en la mano
+  // Un jugador espectador se ve como un fantasma (solo lo ven los otros espectadores, y él mismo)
+  ghost(m, on) {
+    if (!!m.ghosted === on) return;
+    m.ghosted = on;
+    if (m.mats) { for (const mat of m.mats) Object.assign(mat, { transparent: on, opacity: on ? 0.35 : 1, needsUpdate: true }); return; }   // (los del tuyo ya son solo suyos)
+    m.root.traverse(o => {
+      if (!o.isMesh) return;
+      if (on && !o.userData.solid) { o.userData.solid = o.material; o.material = o.material.clone(); Object.assign(o.material, { transparent: true, opacity: 0.35, depthWrite: false }); }
+      else if (!on && o.userData.solid) { o.material = o.userData.solid; delete o.userData.solid; }
+    });
+  }
   playerMaterials(body = false) { return (body ? this.player?.body : this.player?.mats) || []; }
 
   update(game, scene, dt, t) {
@@ -50,6 +61,7 @@ export class Actors {
       if (m?.kind === 'animal' && m.key !== animalKey(e)) { this.group.remove(m.root); this.models.delete(e); m = null; }
       if (!m) { m = this.make(e, e === p, look); if (!m) continue; m.look = look; this.models.set(e, m); this.group.add(m.root); }
       this.pose(m, e, scene, dt, t, e === p ? game : null);
+      if (m === this.player || e.remote) this.ghost(m, e === p ? game.gamemode === 'spectator' : e.gm === 3);   // (de espectador, medio transparente)
     }
     for (const [e, m] of this.models) if (!seen.has(e)) { this.group.remove(m.root); this.models.delete(e); if (m === this.player) this.player = null; }
     // En cuevas y mazmorras el jugador lleva un farol

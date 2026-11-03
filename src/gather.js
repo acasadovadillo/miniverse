@@ -51,7 +51,7 @@ export class Gathering {
   // Qué hay justo delante del jugador (o qué casilla labraría la azada, o dónde iría lo que se coloca)
   pickTarget() {
     const g = this.game, p = g.player;
-    if (!p || g.mode !== 'play' || g.build.on) return null;
+    if (!p || g.mode !== 'play' || g.build.on || g.gamemode === 'spectator') return null;   // (el espectador no toca nada)
     const held = g.inv.held, def = held && ITEMS[held.id], tool = def?.tool;
     // Lo que se coloca libre va al punto del ratón (si se ha movido hace poco), o un paso por delante, girado como
     // diga R; se arrima a la pared que roce y no se pone si corta algo
@@ -148,7 +148,7 @@ export class Gathering {
       const d = this.drops[i];
       d.t += dt;
       if (d.z > 0 || d.vz > 0) { d.vz -= 160 * dt; d.z = Math.max(0, d.z + d.vz * dt); if (d.z === 0) d.vz = d.vz < -25 ? -d.vz * 0.35 : 0; }
-      if (!p || d.scene !== g.scene) continue;
+      if (!p || d.scene !== g.scene || g.gamemode === 'spectator') continue;   // (el espectador no recoge)
       const dx = p.x - d.x, dy = p.y - d.y, dist = Math.hypot(dx, dy);
       if (d.t > 0.45 && dist < 1.8 && (d.id !== 'pelota' || d.back) && g.live.mayTake(d)) {   // (la pelota lanzada es para el perro)
         if (dist < 0.35) {
@@ -212,7 +212,7 @@ export class Gathering {
   // auto: el botón se mantiene pulsado; sigue golpeando, pero no come sin querer ni golpea al aire.
   use(auto = false) {
     const g = this.game, p = g.player;
-    if (!p || g.busy || hud.dialogOpen || g.mode !== 'play' || this.cooldown > 0 || p.pose) return;
+    if (!p || g.busy || hud.dialogOpen || g.mode !== 'play' || this.cooldown > 0 || p.pose || g.gamemode === 'spectator') return;
     const held = g.inv.held, def = held && ITEMS[held.id];
     if (def?.food || def?.heal) return auto ? undefined : this.eat(g.inv.selected);
     if (def?.place) return this.place(held.id, auto);

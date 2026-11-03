@@ -13,7 +13,8 @@ import { setFamilyHouse } from './world/village.js';
 
 // Lo de la partida que es del mundo (y no de cada jugador)
 // (dayBase, timeShift y seenDay: el calendario del mundo y el último día que amaneció en él)
-export const SHARED = ['clock', 'house', 'projects', 'boardDone', 'animals', 'farm', 'museum', 'family', 'dayBase', 'timeShift', 'seenDay'];
+// (rules, worldSpawn y weatherLock: las reglas del mundo, dónde aparecen los nuevos y el tiempo que ha puesto un op)
+export const SHARED = ['clock', 'house', 'projects', 'boardDone', 'animals', 'farm', 'museum', 'family', 'dayBase', 'timeShift', 'seenDay', 'rules', 'worldSpawn', 'weatherLock'];
 
 const isMap = v => !!v && typeof v === 'object' && !Array.isArray(v);
 const same = (a, b) => a === b || JSON.stringify(a) === JSON.stringify(b);
@@ -61,4 +62,7 @@ export const BLOBS = {
   museum: { get: g => [...g.collection.donated].sort(), set: (g, v) => { g.collection.donated = new Set(v); } },
   animals: { get: g => g.ranch.animals.map(a => { const { x, y, ...s } = a.toSave(); return s; }), set: (g, v) => g.ranch.share(v) },
   farm: { get: g => g.ranch.farm, set: (g, v) => g.ranch.shareFarm(v) },
+  rules: { get: g => g.rules, set: (g, v) => { g.rules = { ...g.rules, ...v }; } },
+  worldSpawn: { get: g => g.worldSpawn, set: (g, v) => { g.worldSpawn = v; } },
+  weatherLock: { get: g => g.weatherLock, set: (g, v) => { g.weatherLock = v; } },
 };

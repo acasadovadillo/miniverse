@@ -21,7 +21,7 @@ const ADMIN_NAME = 'Alberto';   // (el dueño del mundo, que abre el servidor)
 
 // Lo de la partida que es del mundo (y los ajustes): se conserva al empezar con un personaje nuevo. Lo demás
 // (lo que llevas, dinero, habilidades, recetas, amistades, logros, estadísticas…) es del personaje y se borra
-const WORLD_KEYS = ['seed', 'clock', 'house', 'projects', 'boardDone', 'animals', 'farm', 'museum', 'family', 'dayBase', 'timeShift', 'seenDay', 'worldAt', 'admin', 'cam3d', 'volumes'];
+const WORLD_KEYS = ['seed', 'clock', 'house', 'projects', 'boardDone', 'animals', 'farm', 'museum', 'family', 'dayBase', 'timeShift', 'seenDay', 'rules', 'worldSpawn', 'weatherLock', 'worldAt', 'cam3d', 'volumes'];
 
 export function initMenus(game) {
   function show(id) {
@@ -116,9 +116,11 @@ export function initMenus(game) {
     const b = $('m-continue'), solo = { save: currentSave, deltas: new Map(Profile.data.deltas) };
     b.disabled = true;
     try {
+      if (live.status === 'kicked') { live.close(); await findLive(); }   // (te echaron: se vuelve a intentar entrar)
       const on = live.status === 'on';
       if (!on && !Profile.admin) throw new Error(`El servidor está cerrado: se puede jugar cuando ${ADMIN_NAME} lo abre.`);
       if (on && !live.host?.playing && !(await live.claim())) await live.waitHost();
+      if (on && live.status !== 'on') throw new Error(live.error || 'Se ha cortado la conexión con el servidor.');   // (te han echado o vetado mientras)
       if (on && live.host?.playing) {
         $('menu-msg').textContent = `Entrando en el mundo con ${live.host.name}…`;
         const { save, deltas } = live.enter(solo, await live.requestWorld());
@@ -127,6 +129,7 @@ export function initMenus(game) {
       }
       $('menu-msg').textContent = 'Abriendo el mundo…';
       const world = await sharedWorld(solo);
+      if (on && live.status !== 'on') throw new Error(live.error || 'Se ha cortado la conexión con el servidor.');
       if (world) { const { save, deltas } = live.enter(solo, world); play(save, deltas, Profile.admin ? null : solo, on ? 'host' : null); }
       else play(currentSave, solo.deltas, null, on ? 'host' : null);   // (el admin, con el mundo de su partida)
     } catch (e) { live.unclaim(); $('menu-msg').textContent = e.message; } finally { if (!game.player) { b.disabled = false; paintLive(); } }
@@ -161,11 +164,12 @@ export function initMenus(game) {
   }
   // Mientras se está en el menú sin conexión, se vuelve a mirar de vez en cuando si el admin ha abierto su
   // servidor (cada vez que lo abre, la dirección es otra)
-  setInterval(() => { if (Profile.id && !LIVE_URL && $('s-menu').classList.contains('show') && live.status !== 'on' && live.status !== 'nokey') findLive(); }, 30000);
+  setInterval(() => { if (Profile.id && !LIVE_URL && $('s-menu').classList.contains('show') && !['on', 'nokey', 'kicked'].includes(live.status)) findLive(); }, 30000);
   function paintLive() {
     const host = live.host, s = live.status, playing = live.others.filter(p => p.playing).map(p => p.name);
     let msg = '';
-    if (s === 'on') msg = host?.playing ? `Servidor abierto. Ahora juega${playing.length > 1 ? 'n' : ''}: ${playing.join(', ')}. Al entrar, jugaréis juntos.`
+    if (s === 'kicked') msg = live.error;
+    else if (s === 'on') msg = host?.playing ? `Servidor abierto. Ahora juega${playing.length > 1 ? 'n' : ''}: ${playing.join(', ')}. Al entrar, jugaréis juntos.`
       : Profile.admin ? 'Servidor abierto: los demás pueden entrar en el mundo cuando quieran, aunque tú no estés jugando.'
       : 'Servidor abierto: puedes entrar en el mundo aunque no haya nadie más jugando.';
     else if (Profile.admin) {
@@ -177,22 +181,26 @@ export function initMenus(game) {
       else if (s === 'nokey') msg = `Pidiendo la llave del mundo… (te la da el juego de ${ADMIN_NAME} la próxima vez que entre)`;
       else msg = `El servidor está cerrado: se puede jugar cuando ${ADMIN_NAME} lo abre.`;
     }
-    if (!Profile.admin) $('m-continue').disabled = s !== 'on';
+    if (!Profile.admin) $('m-continue').disabled = s !== 'on' && s !== 'kicked';   // (echado: al pulsar, se vuelve a intentar)
     const open = s === 'on';
     $('m-live').hidden = !msg;
-    $('m-live').className = s === 'error' && Profile.admin ? 'err' : open ? '' : 'wait';
+    $('m-live').className = s === 'kicked' || (s === 'error' && Profile.admin) ? 'err' : open ? '' : 'wait';
     $('m-live-msg').textContent = msg;
   }
   live.onChange = () => { announce(); if ($('s-menu').classList.contains('show')) paintLive(); };
   // Si hay que salir del mundo compartido (se ha cortado la conexión, u otro ya lo llevaba), se guarda lo tuyo
   // (y, si lo llevabas y no es que otro lo llevara ya, el mundo) y se vuelve al menú
-  live.onHostLeft = async why => {
+  live.onHostLeft = async (why, text) => {
     const r = await save({ upload: true, world: why !== 'conflict' });
     game.end();
     openMenu();
     const kept = `Tu personaje y lo que llevas están guardados${r.remote === false ? ' en este ordenador (no en GitHub)' : ''}.`;
-    $('menu-msg').textContent = why === 'conflict' ? `Otro juego ya llevaba el mundo compartido: vuelve a entrar para jugar juntos. ${kept}` : `Se ha cortado la conexión con el mundo compartido. ${kept}`;
+    $('menu-msg').textContent = why === 'conflict' ? `Otro juego ya llevaba el mundo compartido: vuelve a entrar para jugar juntos. ${kept}`
+      : why === 'kicked' || why === 'stop' ? `${text} ${kept}` : `Se ha cortado la conexión con el mundo compartido. ${kept}`;
   };
+  // El servidor pide guardar ya (/save-all en su terminal); y cada vez que se sube el mundo, una copia para él
+  live.onServerSave = () => save({ upload: true });
+  Profile.onWorldBytes = bytes => live.backup(bytes);
   // Tu juego pasa a llevar el mundo (se ha ido quien lo llevaba): se guarda ya para todos
   live.onHost = () => save({ upload: true });
   // Nueva partida: antes, un aviso (se borra el personaje de ahora; el mundo, no). Sin personaje, al creador
@@ -422,10 +430,6 @@ export function initMenus(game) {
     // (si la partida no se puede abrir, se vuelve al menú diciendo por qué, en vez de quedarse parado)
     try { game.start(data, deltas); }
     catch (e) { console.error(e); live.unclaim(); game.end(); openMenu(); $('menu-msg').textContent = `No se ha podido abrir la partida: ${e.message}`; return; }
-    // El modo admin es de los op (los da el terminal del servidor); sin servidor, solo el admin conserva el suyo
-    const op = live.isOp(Profile.id);
-    if (op !== null) game.setAdmin(op);
-    else if (!Profile.admin && game.admin) game.setAdmin(false);
     if (role && live.net) live.join(solo, role);
     if (role === 'host' || (!role && Profile.admin)) save({ upload: true });   // (que el mundo quede guardado para los demás cuanto antes)
   }

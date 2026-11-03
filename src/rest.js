@@ -37,6 +37,7 @@ export class Rest {
   }
   // En el suelo, donde está, mirando hacia donde miraba
   floor(kind) {
+    if (this.game.gamemode === 'spectator') return;   // (el espectador no se sienta)
     const p = this.p;
     if (!p || p.boat || p.mount || this.game.busy) return;
     if (p.pose) { const was = p.pose.kind; this.stand(); if (was === kind) return; }

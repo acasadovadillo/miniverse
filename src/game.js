@@ -55,6 +55,9 @@ function defaultHouseDeltas() {
   return out;
 }
 
+// Los modos de juego (/gamemode) y las reglas del mundo (/gamerule) con lo que valen al empezar
+export const GAMEMODES = { survival: 'supervivencia', creative: 'creativo', spectator: 'espectador' };
+export const RULES = { keepInventory: false, doMobSpawning: true, doWeatherCycle: true };
 const AIM_REACH = 2;   // lo que se apunta con el ratón se usa si está a esto como mucho (casillas)
 const LIGHTS = new Set(['lampara', 'antorcha', 'vela', 'candelabro']);   // lo colocado que se apaga y se enciende con E
 
@@ -83,7 +86,11 @@ export class Game {
     this.placeName = '';
     this.build = new BuildMode(this);
     this.house = { big: false };
-    this.admin = false;          // modo admin (de los op: /op en el terminal del servidor): objetos infinitos y construir gratis
+    this.admin = false;          // lo del modo creativo: objetos infinitos y construir gratis donde sea
+    this.gamemode = 'survival';  // modo de juego (/gamemode): survival, creative o spectator
+    this.rules = { ...RULES };   // las reglas del mundo (/gamerule): de todos, como el mundo
+    this.worldSpawn = null;      // dónde aparecen los personajes nuevos (/setworldspawn); sin él, en el pueblo
+    this.weatherLock = null;     // el tiempo que ha puesto un op (/weather): { w, until } (until null: sin fin)
     this.systems = [];           // capas de juego que se enchufan: tiempo, huerto, vecinos… (ver hook)
     this.stats = this.addSystem(new Stats());
     this.skills = this.addSystem(new Skills(this));
@@ -141,7 +148,10 @@ export class Game {
     this.craft.reset(save);
     this.onInventory?.();
     this.setEnergy(save.energy ?? ENERGY_MAX);
-    this.setAdmin(!!save.admin);
+    this.rules = { ...RULES, ...(save.rules || {}) };
+    this.worldSpawn = save.worldSpawn || null;
+    this.weatherLock = save.weatherLock || null;
+    this.setGamemode(save.gamemode || (save.admin ? 'creative' : 'survival'));   // (las de antes: el modo admin era el creativo)
     camFromSave(save.cam3d);
     this.money = save.money ?? 100;
     this.addMoney(0);
@@ -151,7 +161,9 @@ export class Game {
     // Tu casa es parte del mundo. Si la partida aún no la tiene (es nueva, o de cuando la casa era una
     // habitación aparte), se levanta ahora; los muebles de aquella habitación pasan dentro.
     if (p.inside) { const [hx, hy] = this.homeSpot(); Object.assign(p, { inside: false, x: hx, y: hy, view: 'front', dir: null }); }
-    this.player = new Player({ ...p, x: p.x ?? SPAWN.x, y: p.y ?? SPAWN.y });
+    const [sx, sy] = this.worldSpawn || [SPAWN.x, SPAWN.y];   // (un personaje nuevo, donde diga el mundo)
+    this.player = new Player({ ...p, x: save.inventory ? p.x ?? sx : sx, y: save.inventory ? p.y ?? sy : sy });
+    this.player.ghost = this.gamemode === 'spectator';
     hud.faces = { ...hud.faces, Nilo: NILO_LOOK, [this.player.name]: this.player.look };
     this.scene = this.world;
     this.underRoof = false;
@@ -182,13 +194,40 @@ export class Game {
       seed: this.world.seed, player, explored: [...this.explored],
       inventory: this.inv.toSave(), energy: Math.round(this.energy), clock: Math.round(this.world.clock),
       ...this.craft.toSave(), house: { big: this.house.big, family: this.house.family, built: true, v: 3 }, money: this.money,
-      admin: this.admin, cam3d: camToSave(), volumes: Settings.volumes(),
+      gamemode: this.gamemode, rules: this.rules, worldSpawn: this.worldSpawn, weatherLock: this.weatherLock, cam3d: camToSave(), volumes: Settings.volumes(),
     };
     this.hook('save', out);
     return out;
   }
-  // Modo admin: lo que se usa no se gasta, en la mochila están todos los objetos y construir es gratis
-  // (y se puede construir también sobre el terreno del pueblo)
+  // Modo de juego, como en Minecraft: en supervivencia se gasta lo que se usa y hacen daño; en creativo, lo que se
+  // usa no se gasta, en la mochila están todos los objetos, construir es gratis y no hacen daño; el espectador
+  // atraviesa todo, no toca nada y los demás no lo ven (solo los otros espectadores)
+  setGamemode(gm) {
+    this.gamemode = GAMEMODES[gm] ? gm : 'survival';
+    this.setAdmin(this.gamemode === 'creative');
+    if (this.player) this.player.ghost = this.gamemode === 'spectator';
+    document.body.classList.toggle('spectator', this.gamemode === 'spectator');
+    document.getElementById('admin-tag').textContent = this.gamemode === 'spectator' ? 'ESPECTADOR' : 'CREATIVO';
+    if (this.gamemode === 'spectator') { this.build.toggle(false); if (this.player?.pose) this.rest.stand(); }
+  }
+  // Lo que pide un op con un comando a este jugador (desde su juego o desde otro): llevarte a un sitio, darte
+  // algo, matarte, ponerte dónde reaparecer o cambiarte el modo de juego. by: quién lo pide (null: tú)
+  fromOp(m, by = null) {
+    const said = text => { if (by) hud.toast(`${by} ${text}`); };
+    if (m.t === 'tp') { if (m.home ? this.teleportHome() : this.teleport(m.x, m.y)) said(`te ha teletransportado${m.home ? ' a casa' : ''}`); }
+    else if (m.t === 'give' && ITEMS[m.id]) {
+      const n = Math.max(1, Math.min(9999, m.n | 0)), left = this.inv.add(m.id, n);
+      if (left) this.gather.throwOut(m.id, left);
+      said(`te ha dado ${n} × ${ITEMS[m.id].name.toLowerCase()}`);
+    } else if (m.t === 'kill') this.combat.die(by ? `${by} te ha matado (/kill)` : 'Has muerto (/kill)');
+    else if (m.t === 'spawn' && Number.isFinite(m.x) && Number.isFinite(m.y)) { this.player.spawn = [m.x, m.y]; said('te ha puesto aquí dónde reapareces'); }
+    else if (m.t === 'gamemode' && GAMEMODES[m.gm]) { this.setGamemode(m.gm); said(`te ha puesto en modo ${GAMEMODES[m.gm]}`); }
+    this.onSave?.();
+  }
+  // Dónde se reaparece al morir: en tu punto (/spawnpoint) o, si no tienes, en casa
+  respawnSpot() { return this.player?.spawn || this.homeSpot(); }
+  // Lo que se usa no se gasta, en la mochila están todos los objetos y construir es gratis (y se puede construir
+  // también sobre el terreno del pueblo): el modo creativo
   setAdmin(on) {
     this.admin = on;
     this.inv.infinite = on;
@@ -246,7 +285,7 @@ export class Game {
   // Lo que se puede hacer con E aquí (text, run) y, a veces, algo más con X (alt: recoger un mueble)
   nearest() {
     const p = this.player;
-    if (this.busy || this.mode !== 'play' || !p) return null;
+    if (this.busy || this.mode !== 'play' || !p || this.gamemode === 'spectator') return null;   // (el espectador no toca nada)
     const sc = this.scene;
     if (p.pose) return { text: 'Levantarse', run: () => this.rest.stand() };
     // Lo que se apunta con el ratón, si está cerca; si no, lo que haya más cerca
@@ -411,7 +450,7 @@ export class Game {
   // Tirar al suelo lo que se lleva en la mano (uno, o el montón entero)
   toss(all = false) {
     const p = this.player, held = this.inv.held, i = this.inv.selected;
-    if (!p || !held || this.busy || this.mode !== 'play' || p.pose) return;
+    if (!p || !held || this.busy || this.mode !== 'play' || p.pose || this.gamemode === 'spectator') return;
     const n = all ? held.n : 1, { id, n: _, ...extra } = held;
     this.inv.take(i, n, true);
     for (let k = 0; k < n; k++) this.gather.addDrop({ id, extra: Object.keys(extra).length ? extra : undefined, x: p.x + p.face.x * (2 + Math.random() * 0.4), y: p.y + p.face.y * (2 + Math.random() * 0.4) + (Math.random() - 0.5) * 0.3, z: 12, vz: 45, t: -1.2, scene: this.scene });
@@ -536,9 +575,9 @@ export class Game {
     return true;
   }
   teleportHome() { const [x, y] = this.homeSpot(); return this.teleport(x, y); }
-  // Llevar al jugador a su casa (cuando cae en combate)
+  // Llevar al jugador adonde reaparece (cuando cae en combate): su punto (/spawnpoint) o su casa
   goHome() {
-    const [x, y] = this.homeSpot();
+    const [x, y] = this.respawnSpot();
     Object.assign(this.player, { inside: false, x, y, view: 'front', dir: null, boat: false, mount: false });
     this.scene = this.world;
     this.updatePlace();

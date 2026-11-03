@@ -4,3 +4,6 @@
 __pycache__/
 # Los op del servidor en directo (los escribe multijugador.py en el ordenador del admin)
 ops.json
+banned.json
+whitelist.json
+backups/

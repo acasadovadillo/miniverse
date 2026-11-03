@@ -33,6 +33,8 @@ export class Player extends Person {
     Object.assign(this, { horseId: data.horseId, horseCoat: data.horseCoat, horseBags: !!data.horseBags });   // el caballo que monta
     this.face = { x: -Math.SQRT1_2, y: -Math.SQRT1_2 };   // dirección a la que mira, en la rejilla
     this.z = 0; this.vz = 0;   // altura del salto sobre el suelo y su velocidad
+    this.spawn = data.spawn || null;   // dónde reaparece al morir (/spawnpoint); sin él, en casa
+    this.ghost = false;                // espectador: atraviesa todo
   }
   get airborne() { return this.z > 0; }
   // Saltar (desde el suelo; en barca no)
@@ -53,9 +55,9 @@ export class Player extends Person {
     this.vx = lerp(this.vx, wx, k);
     this.vy = lerp(this.vy, wy, k);
     const p = { x: this.x + this.vx * dt, y: this.y + this.vy * dt };
-    if (!this.boat) { const near = scene.collidersNear(p.x, p.y); collide(p, this.mount && this.z > 0.2 ? near.filter(c => !c.low) : near, RADIUS); }   // (a caballo se saltan las vallas)
+    if (!this.boat && !this.ghost) { const near = scene.collidersNear(p.x, p.y); collide(p, this.mount && this.z > 0.2 ? near.filter(c => !c.low) : near, RADIUS); }   // (a caballo se saltan las vallas)
     // No entrar en agua profunda (o, en barca, no salir a tierra): si se puede, deslizarse por la orilla
-    const blocked = this.boat ? (x, y) => !scene.water?.(x, y) : scene.blocked?.bind(scene);
+    const blocked = this.ghost ? null : this.boat ? (x, y) => !scene.water?.(x, y) : scene.blocked?.bind(scene);
     if (blocked) {
       const wet = (x, y) => blocked(x, y) || blocked(x + RADIUS, y) || blocked(x - RADIUS, y) || blocked(x, y + RADIUS) || blocked(x, y - RADIUS);
       if (wet(p.x, p.y)) {
@@ -86,6 +88,6 @@ export class Player extends Person {
   }
   stop() { this.vx = this.vy = 0; }
   toSave() {
-    return { name: this.name, look: this.look, x: +this.x.toFixed(2), y: +this.y.toFixed(2), inside: this.inside, view: this.view === 'side' ? 'front' : this.view, boat: !!this.boat, mount: !!this.mount, horseId: this.horseId, horseCoat: this.horseCoat, horseBags: this.horseBags };
+    return { name: this.name, look: this.look, x: +this.x.toFixed(2), y: +this.y.toFixed(2), inside: this.inside, view: this.view === 'side' ? 'front' : this.view, boat: !!this.boat, mount: !!this.mount, horseId: this.horseId, horseCoat: this.horseCoat, horseBags: this.horseBags, spawn: this.spawn };
   }
 }

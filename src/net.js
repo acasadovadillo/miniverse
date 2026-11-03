@@ -20,9 +20,10 @@ async function openMsg(key, d) {
   } catch { return null; }
 }
 
-// on: { up(), down(), join(conn), leave(conn), msg(conn, msg), plain(conn, p), bad(conn), ops(lista) }. Cada
-// conexión tiene un número (conn), que da el servidor. ops: los usuarios con modo admin, que se dan en el
-// terminal del servidor (/op); null si el servidor es de antes y no los lleva.
+// on: { up(), down(), join(conn), leave(conn), msg(conn, msg), plain(conn, p), bad(conn), ops(lista), server(m) }.
+// Cada conexión tiene un número (conn), que da el servidor. ops: los usuarios op, que se dan en el terminal del
+// servidor (/op); null si el servidor es de antes y no los lleva. server: lo que manda el propio servidor desde su
+// terminal (kicked: te ha echado, y no se vuelve a intentar; say: un aviso; save: guardar ya; stop: se cierra).
 export class Net {
   constructor(url, key, on) {
     Object.assign(this, { url, key, on, ws: null, me: null, peers: new Set(), wanted: false });
@@ -63,6 +64,7 @@ export class Net {
     try { m = JSON.parse(raw); } catch { return; }
     if (m.t === 'you') { this.me = m.id; this.peers = new Set(m.peers); this.on.ops?.(m.ops ?? null); this.on.up?.(); this.entered?.(); this.entered = null; }
     else if (m.t === 'ops') this.on.ops?.(m.ops);
+    else if (m.t === 'kicked' || m.t === 'say' || m.t === 'save' || m.t === 'stop') { if (m.t === 'kicked' || m.t === 'stop') this.wanted = false; this.on.server?.(m); }
     else if (m.t === 'join') { this.peers.add(m.id); this.on.join?.(m.id); }
     else if (m.t === 'leave') { this.peers.delete(m.id); this.on.leave?.(m.id); }
     else if (m.t === 'msg') {
@@ -81,4 +83,6 @@ export class Net {
   }
   // Un aviso sin cifrar
   sendPlain(p, to = null) { if (this.ready) this.ws.send(JSON.stringify({ t: 'msg', to, p })); }
+  // Al propio servidor (no a los demás): de qué cuenta es este juego, o una copia del mundo (ya cifrada)
+  sendServer(m) { if (this.ready) this.ws.send(JSON.stringify(m)); }
 }

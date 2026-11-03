@@ -10,20 +10,24 @@
 #   python3 multijugador.py              servidor, túnel y el juego abierto
 #   python3 multijugador.py --sin-tunel  solo el servidor, en ws://localhost:8790 (para probar en este ordenador)
 #
-# Mientras está abierto, en su terminal se escriben los comandos de los op (como en Minecraft): /op <usuario> le
-# da el modo admin a esa cuenta (objetos infinitos, construir gratis, /tp, /time…), /deop <usuario> se lo quita y
-# /ops dice quiénes lo tienen. Se guardan en ops.json, junto a este archivo, y se les dice a todos los juegos.
+# Mientras está abierto, en su terminal se escriben los comandos del servidor (como en Minecraft; /ayuda los
+# lista): op y deop (los op pueden usar los comandos del juego: /gamemode, /tp, /give…), kick, ban y pardon, la
+# lista blanca, list, say, save-all y stop. Cada juego dice al entrar de qué cuenta es (el servidor no lee nada
+# más). Los op, los vetados y la lista blanca se guardan en ops.json, banned.json y whitelist.json, junto a este
+# archivo, y las copias del mundo (cifradas: el servidor no puede abrirlas) en backups/.
 #
 # Solo usa la biblioteca estándar de Python. El túnel necesita cloudflared: brew install cloudflared
 import asyncio
 import base64
-import os
 import hashlib
 import json
+import os
 import re
 import shutil
 import struct
 import sys
+import threading
+import time
 import urllib.request
 import webbrowser
 from urllib.parse import quote
@@ -35,18 +39,34 @@ MAX = 32 * 1024 * 1024                          # el mensaje más grande que se 
 
 peers = {}        # número de conexión → su escritor
 next_id = 1
-OPS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'ops.json')
+HERE = os.path.dirname(os.path.abspath(__file__))
+OPS_FILE, BANS_FILE, WHITE_FILE = (os.path.join(HERE, n) for n in ('ops.json', 'banned.json', 'whitelist.json'))
+BACKUPS = os.path.join(HERE, 'backups')
+BACKUP_EVERY = 15 * 60   # segundos: como mucho, una copia del mundo cada tanto (la manda el juego que lo lleva)
+BACKUP_KEEP = 48         # las copias que se guardan (las más antiguas se borran)
+IDENT_WAIT = 10          # con la lista blanca puesta, lo que se espera a que un juego diga de qué cuenta es
 
 
-def load_ops():
+def load_json(path, default):
     try:
-        with open(OPS_FILE, encoding='utf-8') as f:
-            return {str(u).lower() for u in json.load(f)}
+        with open(path, encoding='utf-8') as f:
+            return json.load(f)
     except (OSError, ValueError):
-        return set()
+        return default
 
 
-ops = load_ops()  # las cuentas con modo admin (su usuario, en minúsculas)
+def save_json(path, data):
+    with open(path, 'w', encoding='utf-8') as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+
+
+ops = {str(u).lower() for u in load_json(OPS_FILE, [])}   # las cuentas op (su usuario, en minúsculas)
+bans = {str(u).lower(): str(r) for u, r in load_json(BANS_FILE, {}).items()}   # vetadas → el motivo
+white = load_json(WHITE_FILE, {'enabled': False, 'users': []})                  # la lista blanca
+white = {'enabled': bool(white.get('enabled')), 'users': sorted({str(u).lower() for u in white.get('users', [])})}
+users = {}           # número de conexión → la cuenta que ha dicho su juego
+last_backup = 0
+stopping = None      # (se avisa para cerrar el servidor: /stop)
 
 
 def frame(op, data):
@@ -110,6 +130,55 @@ def send(peer_id, obj):
         w.write(frame(1, json.dumps(obj, separators=(',', ':')).encode()))
 
 
+def everyone(obj):
+    for p in list(peers):
+        send(p, obj)
+
+
+def kick(peer_id, reason):
+    # Se le dice por qué (su juego lo enseña y deja de reconectar) y se cierra su conexión
+    send(peer_id, {'t': 'kicked', 'reason': reason})
+    w = peers.get(peer_id)
+    if w:
+        w.close()
+
+
+def refused(user):
+    # Por qué no puede entrar esa cuenta (o None si puede)
+    if user in bans:
+        return f'Estás vetado en este servidor{": " + bans[user] if bans[user] else ""}.'
+    if white['enabled'] and user not in white['users']:
+        return 'No estás en la lista blanca de este servidor.'
+    return None
+
+
+async def check_ident(peer_id):
+    # Con la lista blanca puesta, quien no dice de qué cuenta es (un juego de antes) no se queda
+    await asyncio.sleep(IDENT_WAIT)
+    if peer_id in peers and peer_id not in users and white['enabled']:
+        kick(peer_id, 'Este servidor tiene lista blanca: actualiza el juego (recarga la página).')
+
+
+def backup(data):
+    global last_backup
+    now = time.time()
+    if now - last_backup < BACKUP_EVERY:
+        return
+    try:
+        raw = base64.b64decode(data, validate=True)
+    except ValueError:
+        return
+    os.makedirs(BACKUPS, exist_ok=True)
+    name = time.strftime('mundo-%Y-%m-%d_%H-%M.enc')
+    with open(os.path.join(BACKUPS, name), 'wb') as f:
+        f.write(raw)
+    last_backup = now
+    old = sorted(n for n in os.listdir(BACKUPS) if n.startswith('mundo-') and n.endswith('.enc'))
+    for n in old[:-BACKUP_KEEP]:
+        os.remove(os.path.join(BACKUPS, n))
+    print(f'  Copia del mundo: backups/{name} ({len(raw) // 1024} KB)')
+
+
 async def handle(reader, writer):
     global next_id
     # La petición: el WebSocket del juego o una visita normal (para comprobar que el servidor está en marcha)
@@ -138,13 +207,31 @@ async def handle(reader, writer):
     for p in others:
         send(p, {'t': 'join', 'id': me})
     print(f'  + Se ha conectado alguien ({len(peers)} conectados)')
+    waiting = asyncio.create_task(check_ident(me))
     try:
         async for raw in messages(reader, writer):
             try:
                 msg = json.loads(raw)
             except ValueError:
                 continue
-            if not isinstance(msg, dict) or msg.get('t') != 'msg':
+            if not isinstance(msg, dict):
+                continue
+            # (de qué cuenta es: para los op, los vetos y la lista blanca; y la copia del mundo, que va cifrada)
+            if msg.get('t') == 'ident' and isinstance(msg.get('user'), str):
+                user = msg['user'].lower()[:32]
+                first = me not in users
+                users[me] = user
+                why = refused(user)
+                if why:
+                    print(f'  ! {user} no puede entrar: {why}')
+                    kick(me, why)
+                elif first:
+                    print(f'  + {user} ha entrado')
+                continue
+            if msg.get('t') == 'backup' and me in users and isinstance(msg.get('d'), str):
+                backup(msg['d'])
+                continue
+            if msg.get('t') != 'msg':
                 continue
             out = {'t': 'msg', 'from': me}
             for k in ('d', 'p'):
@@ -157,11 +244,13 @@ async def handle(reader, writer):
     except (asyncio.IncompleteReadError, ConnectionError, OSError):
         pass
     finally:
+        waiting.cancel()
         peers.pop(me, None)
+        who = users.pop(me, None)
         for p in list(peers):
             send(p, {'t': 'leave', 'id': me})
         writer.close()
-        print(f'  - Se ha ido alguien ({len(peers)} conectados)')
+        print(f'  - {who + " se ha ido" if who else "Se ha ido alguien"} ({len(peers)} conectados)')
 
 
 async def tunnel():
@@ -217,10 +306,27 @@ async def ready(url, limit=60):
     return False
 
 
+HELP = '''  Comandos del servidor:
+    /op <usuario>, /deop <usuario>, /ops      dar o quitar los comandos de op, y quién los tiene
+    /kick <usuario> [motivo]                  echar a alguien (puede volver a entrar)
+    /ban <usuario> [motivo], /pardon <usuario>, /banlist   vetar, quitar el veto y ver los vetados
+    /whitelist on|off|add <usuario>|remove <usuario>|list  la lista blanca (puesta, solo entran los de la lista)
+    /list                                     quién está conectado
+    /say <texto>                              un aviso en el chat de todos
+    /save-all                                 que todos guarden ya (quien lleva el mundo, también el mundo)
+    /stop                                     guardar y cerrar el servidor'''
+
+
+def conns_of(user):
+    return [c for c, u in users.items() if u == user]
+
+
 def command(line):
     # Un comando escrito en este terminal (con o sin la barra)
     name, _, arg = line.strip().lstrip('/').partition(' ')
-    name, user = name.lower(), arg.strip().lower()
+    name = name.lower()
+    user, _, rest = arg.strip().partition(' ')
+    user, rest = user.lower(), rest.strip()
     if not name:
         return
     if name in ('op', 'deop'):
@@ -231,31 +337,87 @@ def command(line):
             ops.add(user)
         else:
             ops.discard(user)
-        with open(OPS_FILE, 'w', encoding='utf-8') as f:
-            json.dump(sorted(ops), f, ensure_ascii=False, indent=2)
-        for p in list(peers):
-            send(p, {'t': 'ops', 'ops': sorted(ops)})
+        save_json(OPS_FILE, sorted(ops))
+        everyone({'t': 'ops', 'ops': sorted(ops)})
         print(f'  {user} {"ya es op" if name == "op" else "ya no es op"} (op: {", ".join(sorted(ops)) or "nadie"})')
     elif name == 'ops':
         print(f'  Op: {", ".join(sorted(ops)) or "nadie"}')
-    else:
-        print('  Comandos: /op <usuario>, /deop <usuario>, /ops')
-
-
-async def console():
-    # Lo que se escribe en el terminal, línea a línea (si no hay terminal, no hace nada)
-    while True:
-        line = await asyncio.to_thread(sys.stdin.readline)
-        if not line:
+    elif name == 'kick':
+        if not user:
+            print('  Uso: /kick <usuario> [motivo]')
             return
-        command(line)
+        found = conns_of(user)
+        for c in found:
+            kick(c, f'Te han echado del servidor{": " + rest if rest else ""}.')
+        print(f'  {user} {"echado" if found else "no está conectado"}')
+    elif name == 'ban':
+        if not user:
+            print('  Uso: /ban <usuario> [motivo]')
+            return
+        bans[user] = rest
+        save_json(BANS_FILE, bans)
+        for c in conns_of(user):
+            kick(c, refused(user))
+        print(f'  {user} vetado{": " + rest if rest else ""}')
+    elif name == 'pardon':
+        print(f'  {user} {"ya puede entrar" if bans.pop(user, None) is not None else "no estaba vetado"}')
+        save_json(BANS_FILE, bans)
+    elif name == 'banlist':
+        print('  Vetados: ' + (', '.join(f'{u}{" (" + r + ")" if r else ""}' for u, r in sorted(bans.items())) or 'nadie'))
+    elif name == 'whitelist':
+        sub = user
+        target = rest.split(' ')[0].lower() if rest else ''
+        if sub in ('on', 'off'):
+            white['enabled'] = sub == 'on'
+            if white['enabled']:
+                for c, u in list(users.items()):
+                    if refused(u):
+                        kick(c, refused(u))
+        elif sub in ('add', 'remove') and target:
+            white['users'] = sorted(set(white['users']) | {target} if sub == 'add' else set(white['users']) - {target})
+        elif sub != 'list':
+            print('  Uso: /whitelist on|off|add <usuario>|remove <usuario>|list')
+            return
+        save_json(WHITE_FILE, white)
+        print(f'  Lista blanca {"puesta" if white["enabled"] else "quitada"}: {", ".join(white["users"]) or "nadie"}')
+    elif name == 'list':
+        who = sorted(set(users.values()))
+        print(f'  Conectados ({len(peers)}): {", ".join(who) or "nadie"}' + (f' y {len(peers) - len(users)} sin decir quién' if len(peers) > len(users) else ''))
+    elif name == 'say':
+        text = arg.strip()
+        if text:
+            everyone({'t': 'say', 'text': text[:300]})
+            print(f'  [Servidor] {text}')
+    elif name == 'save-all':
+        everyone({'t': 'save'})
+        print('  Guardando: cada juego guarda lo suyo, y quien lleva el mundo, el mundo')
+    elif name == 'stop':
+        everyone({'t': 'stop'})
+        print('  Cerrando el servidor (los juegos guardan antes)…')
+        asyncio.get_running_loop().call_later(3, shutdown)
+    else:
+        print(HELP)
+
+
+def console(loop):
+    # Lo que se escribe en el terminal, línea a línea, en su propio hilo (que no impide cerrar el programa)
+    for line in sys.stdin:
+        loop.call_soon_threadsafe(command, line)
+
+
+def shutdown():
+    for w in list(peers.values()):
+        w.close()
+    stopping.set()
 
 
 async def main():
+    global stopping
+    stopping = asyncio.Event()
     server = await asyncio.start_server(handle, '127.0.0.1', PORT)
     print(f'Servidor de Miniverse para jugar juntos, en el puerto {PORT}.')
-    print(f'Comandos (escríbelos aquí): /op <usuario>, /deop <usuario>, /ops. Op ahora: {", ".join(sorted(ops)) or "nadie"}.')
-    reading = asyncio.create_task(console())   # (se guarda: una tarea sin nadie que la guarde se puede perder)
+    print(f'Escribe aquí los comandos del servidor (/ayuda para verlos). Op ahora: {", ".join(sorted(ops)) or "nadie"}.')
+    threading.Thread(target=console, args=(asyncio.get_running_loop(),), daemon=True).start()
     proc = None
     if '--sin-tunel' in sys.argv:
         print(f'Sin túnel: solo desde este ordenador, en ws://localhost:{PORT}')
@@ -272,7 +434,8 @@ async def main():
         webbrowser.open(link)
     try:
         async with server:
-            await server.serve_forever()
+            await stopping.wait()
+        print('Servidor cerrado.')
     finally:
         if proc and proc.returncode is None:
             proc.terminate()

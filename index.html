@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- La versión publicada: se cambia en cada publicación (así el juego sabe que tiene que pedir el código nuevo) -->
-<meta name="miniverse-version" content="2026-11-03.7">
+<meta name="miniverse-version" content="2026-11-03.8">
 <title>Miniverse</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏡</text></svg>">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -48,6 +48,8 @@
   .chat-line.ok { color: #b8f08a; }
   .chat-line.err { color: var(--err); }
   .chat-line.sys { color: var(--gold); }
+  .chat-line.say { color: #ffd76a; }
+  .chat-line.dm { color: #c9b8ff; font-style: italic; }
   .chat-line.old { opacity: 0; }
   #chat-input { display: none; width: 100%; box-sizing: border-box; margin-top: 4px; padding: 6px 8px; font: inherit; font-size: 15px; color: var(--cream); background: rgba(0, 0, 0, .7); border: 2px solid var(--border); border-radius: 4px; outline: none; -webkit-user-select: text; user-select: text; }
   #chat.open { pointer-events: auto; }
@@ -56,7 +58,17 @@
   #chat.open #chat-input { display: block; }
   body:not(.playing) #chat { display: none; }
   #admin-tag { display: none; position: fixed; left: 12px; top: 50px; padding: 3px 10px; font-size: 14px; color: #ff9a5a; letter-spacing: 1px; }
-  body.admin.playing #admin-tag { display: block; }
+  body.admin.playing #admin-tag, body.spectator.playing #admin-tag { display: block; }
+  /* La lista de jugadores (mientras se mantiene Tab) */
+  #players { display: none; position: fixed; left: 50%; top: 70px; transform: translateX(-50%); min-width: 260px; max-width: calc(100vw - 32px); padding: 10px 14px; z-index: 30; }
+  #players.show { display: block; }
+  #players h3 { margin: 0 0 6px; font-size: 16px; color: var(--gold); text-align: center; }
+  #players-list { margin: 0; padding: 0; list-style: none; }
+  #players-list li { display: flex; gap: 10px; align-items: baseline; padding: 3px 0; font-size: 15px; color: var(--cream); border-top: 1px solid rgba(255, 255, 255, .08); }
+  #players-list li:first-child { border-top: 0; }
+  #players-list b { font-weight: 600; flex: 1; }
+  #players-list small { font-size: 12px; color: var(--dim); }
+  #players-list .op { color: #ffb15a; }
   #toasts { position: fixed; left: 50%; top: 56px; transform: translateX(-50%); display: flex; flex-direction: column; gap: 6px; align-items: center; z-index: 25; pointer-events: none; }
   .toast { padding: 6px 14px; font-size: 16px; color: var(--gold); transition: opacity .4s, transform .4s; }
   .toast.out { opacity: 0; transform: translateY(-8px); }
@@ -432,7 +444,8 @@
     <div class="slots" id="hotbar-slots"></div>
   </div>
   <div id="prompt" class="panel"><kbd>E</kbd><span id="prompt-text"></span></div>
-  <div id="admin-tag" class="panel" title="Modo admin (eres op): objetos infinitos, construir gratis, /tp y /time">ADMIN</div>
+  <div id="admin-tag" class="panel" title="Modo de juego (/gamemode): en creativo, objetos infinitos y construir gratis; de espectador, atraviesas todo y nadie te ve">CREATIVO</div>
+  <div id="players" class="panel" aria-live="polite"><h3>Jugadores</h3><ul id="players-list"></ul></div>
   <div id="chat"><div id="chat-log"></div><input id="chat-input" maxlength="120" autocomplete="off" spellcheck="false" placeholder="Escribe un mensaje o un comando (/ayuda)"></div>
   <div id="dialog" class="panel"><canvas id="dlg-face" width="192" height="192"></canvas><div class="name" id="dlg-name"></div><div id="dlg-text"></div><div id="dlg-opts"></div><div class="more">▼</div></div>
   <div id="toasts"></div>
@@ -597,8 +610,9 @@
         <dt><kbd>Z</kbd></dt><dd>Primera o tercera persona (en primera persona, <kbd>↑</kbd> <kbd>↓</kbd> miran arriba y abajo)</dd>
         <dt><kbd>F</kbd></dt><dd>Ver el rendimiento (fotogramas por segundo)</dd>
         <dt><kbd>I</kbd> <kbd>C</kbd> <kbd>B</kbd></dt><dd>Inventario (lo que llevas y la ropa), fabricar y construir</dd>
+        <dt><kbd>Tab</kbd></dt><dd>Mientras lo mantienes, quién está jugando</dd>
         <dt><kbd>J</kbd> <kbd>M</kbd></dt><dd>Diario y mapa</dd>
-        <dt><kbd>T</kbd> o <kbd>/</kbd></dt><dd>Chat y comandos (<b>/ayuda</b> para verlos). Los op (se dan en el terminal del servidor con <b>/op</b>) tienen el modo admin, objetos infinitos y construir gratis, <b>/tp</b> y <b>/time</b>; el admin, además, <b>/account</b>, para crear cuentas</dd>
+        <dt><kbd>T</kbd> o <kbd>/</kbd></dt><dd>Chat y comandos (<b>/ayuda</b> para verlos). Los op (se dan en el terminal del servidor con <b>/op</b>) tienen <b>/gamemode</b>, <b>/tp</b>, <b>/give</b>, <b>/kill</b>, <b>/weather</b>, <b>/gamerule</b>…; el admin, además, <b>/account</b>, para crear cuentas</dd>
         <dt><kbd>Esc</kbd></dt><dd>Pausa (y cerrar ventanas)</dd>
       </dl>
       <h3>Construyendo</h3>

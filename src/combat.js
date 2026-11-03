@@ -30,7 +30,7 @@ export class Combat {
   reset(save) { this.hp = save.hp ?? HP_MAX; this.invuln = 0; this.paint(); }
   save(out) { out.hp = this.hp; }
   get scene() { return this.game.scene; }
-  spawn(scene) { scene.monsters = (scene.spawns || []).map(([type, x, y]) => new Monster(type, x, y)); }
+  spawn(scene) { scene.monsters = this.game.rules.doMobSpawning ? (scene.spawns || []).map(([type, x, y]) => new Monster(type, x, y)) : []; }   // (/gamerule doMobSpawning)
   heal(n) { this.hp = Math.min(HP_MAX, this.hp + n); this.paint(); }
   paint() {
     if (this.shown === this.hp) return;
@@ -61,7 +61,7 @@ export class Combat {
       if (def.fly || !sc.blocked(m.x, ny)) m.y = ny;
       if (sc.blocked(m.x, m.y)) { m.x -= vx * sp; m.y -= vy * sp; }
       m.step += dt * (def.fly ? 10 : 5);
-      if (d < 0.55 && m.cool <= 0 && this.invuln <= 0 && !g.busy) { m.cool = 1.5; this.hit(def.dmg, m); }
+      if (d < 0.55 && m.cool <= 0 && this.invuln <= 0 && !g.busy && g.gamemode === 'survival') { m.cool = 1.5; this.hit(def.dmg, m); }   // (en creativo y de espectador no hacen daño)
     }
   }
   hit(dmg, from) {
@@ -76,18 +76,30 @@ export class Combat {
     g.flashHurt = g.time + 0.25;
     if (this.hp <= 0) this.faint();
   }
+  // Caer en una cueva: Nilo te lleva adonde reapareces y por el camino se pierde algo de dinero (salvo con
+  // /gamerule keepInventory true)
   async faint() {
-    const g = this.game, lost = Math.floor(g.money * 0.1);
-    g.busy = true;
+    const lost = await this.die(null);
+    await hud.say('Nilo', [`Te encontraron desmayado y te traje ${this.game.player.spawn ? 'hasta aquí' : 'a casa'}. ${lost ? `Por el camino se te cayeron ${lost} monedas.` : ''} ¡Lleva comida y antorchas la próxima vez!`]);
+    this.game.busy = false;
+  }
+  // Morir: se reaparece (en tu punto o en casa) con la vida llena. why: lo que se dice (null: lo dice quien llama,
+  // que sigue con el juego parado). Devuelve las monedas perdidas
+  async die(why) {
+    const g = this.game, lost = g.rules.keepInventory ? 0 : Math.floor(g.money * 0.1);
+    if (!g.player || g.dying) return 0;
+    g.busy = g.dying = true;
     await hud.fade(true);
     g.addMoney(-lost);
     g.goHome();
     this.hp = HP_MAX; this.paint();
     g.setEnergy(50);
+    g.view3d.snap();
     await hud.fade(false);
-    await hud.say('Nilo', [`Te encontraron desmayado y te traje a casa. ${lost ? `Por el camino se te cayeron ${lost} monedas.` : ''} ¡Lleva comida y antorchas la próxima vez!`]);
-    g.busy = false;
+    g.dying = false;
+    if (why) { g.busy = false; hud.toast(`${why}${lost ? ` · Se te cayeron ${lost} monedas` : ''}`); }
     g.onSave?.();
+    return lost;
   }
 
   // Atacar lo que haya delante

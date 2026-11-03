@@ -30,7 +30,8 @@ export function initInput(h) {
     if (e.target instanceof HTMLInputElement) return;
     if (e.code === 'Escape') { if (handlers.pause()) e.preventDefault(); return; }
     if (e.code === 'KeyM' && !e.repeat) { if (handlers.map()) e.preventDefault(); return; }
-    if ((e.code === 'KeyI' || e.code === 'Tab') && !e.repeat) { if (handlers.bag()) e.preventDefault(); return; }
+    if (e.code === 'Tab') { e.preventDefault(); if (!e.repeat) handlers.players?.(true); return; }   // (mantenido: quién está jugando)
+    if (e.code === 'KeyI' && !e.repeat) { if (handlers.bag()) e.preventDefault(); return; }
     if (e.code === 'KeyC' && !e.repeat) { if (handlers.craft()) e.preventDefault(); return; }
     if (e.code === 'KeyB' && !e.repeat) { if (handlers.build()) e.preventDefault(); return; }
     if (e.code === 'KeyJ' && !e.repeat) { if (handlers.journal?.()) e.preventDefault(); return; }
@@ -76,6 +77,7 @@ export function initInput(h) {
     }
     if (e.code === 'Space') keys.space = false;
     if (e.code === 'KeyR') handlers.rotateEnd?.();
+    if (e.code === 'Tab') handlers.players?.(false);
   });
   addEventListener('blur', clearKeys);
 

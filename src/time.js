@@ -55,6 +55,7 @@ function seasonOf(day) {
   return best;
 }
 
+export const WEATHERS = Object.keys(WEATHER);   // (para /weather)
 export class TimeSystem {
   constructor(game) {
     this.game = game;
@@ -126,6 +127,12 @@ export class TimeSystem {
       if (n > 1 && !g.live.guest) hud.toast(`Han pasado ${n} días desde la última vez · ${SEASONS[this.season]}, día ${this.dayOfSeason}${first} · ${this.info.name}`);
       else if (n === 1) hud.toast(`${SEASONS[this.season]}, día ${this.dayOfSeason}${first} · ${this.info.name}`);
     }
+    // El tiempo que ha puesto un op (/weather, o /gamerule doWeatherCycle false): manda mientras dure; al acabar,
+    // vuelve el del día
+    const lock = g.weatherLock;
+    if (lock && lock.until !== null && Date.now() >= lock.until) g.weatherLock = null;
+    if (g.weatherLock && WEATHER[g.weatherLock.w]) { this.weather = g.weatherLock.w; this.locked = true; }
+    else if (this.locked) { this.locked = false; this.weather = this.weatherFor(this.dayIndex); }
     const label = this.label();
     if (label !== this.shown) { this.shown = label; document.getElementById('clock').textContent = label; }
     // Lluvia, nieve y rayos

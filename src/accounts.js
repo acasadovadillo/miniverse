@@ -257,7 +257,8 @@ export const Profile = {
     try { return JSON.parse(text(new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: b.subarray(0, 12) }, key, b.subarray(12))))); }
     catch { throw new Error('No se puede abrir el mundo compartido (¿es de otra clave del mundo?).'); }
   },
-  // Lo guarda quien lo lleva: { deltas, shared }. Se sube a GitHub si se pide o si hace rato de la última vez.
+  // Lo guarda quien lo lleva: { deltas, shared }. Se sube a GitHub si se pide o si hace rato de la última vez
+  // (y, al subirlo, onWorldBytes recibe lo subido: el menú se lo pasa al servidor como copia).
   // Devuelve true si se ha subido, false si falló y null si no tocaba
   storeWorld(world, { upload = false } = {}) {
     const run = async () => {
@@ -268,7 +269,7 @@ export const Profile = {
       const body = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, new TextEncoder().encode(JSON.stringify({ format: 'miniverse-mundo', savedAt: Date.now(), by: me.id, ...world }))));
       const bytes = new Uint8Array(12 + body.length);
       bytes.set(iv); bytes.set(body, 12);
-      try { worldSha = await putFile(me.token, DATA_REPO, WORLD_FILE, bytes, `Mundo compartido (${me.name})`, worldSha); worldUploaded = Date.now(); return true; }
+      try { worldSha = await putFile(me.token, DATA_REPO, WORLD_FILE, bytes, `Mundo compartido (${me.name})`, worldSha); worldUploaded = Date.now(); this.onWorldBytes?.(bytes); return true; }
       catch (e) { this.lastError = e.message; worldSha = undefined; return false; }
     };
     return (worldQueue = worldQueue.then(run, run));

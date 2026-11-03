@@ -13,6 +13,7 @@ import { Profile } from './accounts.js';
 import { hud } from './ui/hud.js';
 import { Audio } from './audio.js';
 import { SHARED, BLOBS, diffChunk, applyOps, copy } from './livesync.js';
+import { toB64 } from './vault.js';
 
 const SEND_EVERY = 0.1, IDLE_EVERY = 1;   // segundos entre mensajes de cómo va uno: moviéndose y quieto
 const SYNC_EVERY = 0.1;                   // cada cuánto se mandan los cambios del mundo
@@ -37,7 +38,7 @@ class RemotePlayer extends Person {
     this.to = [st.x, st.y, st.z || 0];
     if (this.fresh || Math.hypot(st.x - this.x, st.y - this.y) > SNAP) { [this.x, this.y, this.z] = this.to; this.fresh = false; }
     this.pose = st.po ? { kind: POSES[st.po[0]], yaw: st.po[1], h: st.po[2] } : null;   // (sentado o tumbado)
-    Object.assign(this, { yaw: st.yaw ?? null, inside: !!st.in, mount: !!st.m, horseCoat: st.hc || null, horseBags: !!st.hb, boat: !!st.b, crouch: !!st.cr, held: st.h || null, swing: st.sw || 0, swingItem: st.si || null, cooldown: st.cd || 0 });
+    Object.assign(this, { yaw: st.yaw ?? null, inside: !!st.in, mount: !!st.m, horseCoat: st.hc || null, horseBags: !!st.hb, boat: !!st.b, crouch: !!st.cr, gm: st.gm || 0, held: st.h || null, swing: st.sw || 0, swingItem: st.si || null, cooldown: st.cd || 0 });
   }
   update(dt) {
     if (!this.to) return;
@@ -61,6 +62,7 @@ export class Live {
     this.onChange = null;     // (para el menú: cambia el estado o quién hay)
     this.onHostLeft = null;   // (para el menú: hay que salir del mundo compartido, por qué: 'lost' o 'conflict')
     this.onHost = null;       // (para el menú: tu juego ha pasado a llevar el mundo)
+    this.onServerSave = null; // (para el menú: el servidor pide guardar ya, /save-all)
     this.say = null;          // (para el chat: say(texto, tipo))
     this.sent = 0; this.lastSent = ''; this.swings = 0; this.lastSwing = 0; this.lastLook = null;
     this.pending = new Set();     // trozos del mundo que han cambiado desde la última vez que se mandaron
@@ -95,6 +97,7 @@ export class Live {
       msg: (conn, m) => this.receive(conn, m),
       plain: (conn, p) => this.plain(conn, p),
       ops: list => this.setOps(list),
+      server: m => this.fromServer(m),
     });
     // (si no responde a la primera, se queda avisando del error pero sigue intentándolo: un túnel recién
     // abierto tarda un poco en funcionar)
@@ -103,6 +106,7 @@ export class Live {
   // Se ha cortado (o no ha llegado a entrar): se sigue intentando. Si ya avisaba del error, sigue avisando;
   // si estaba conectado, avisa al rato de no poder volver.
   lost() {
+    if (this.status === 'kicked') { this.dropAll(); return; }   // (te han echado o se ha cerrado: no se vuelve a intentar)
     const out = this.joined && (this.guest || !Profile.admin);
     this.dropAll();
     if (out) this.leave('lost');   // (sin servidor solo juega el admin: los demás salen, el anfitrión guardando el mundo)
@@ -120,6 +124,7 @@ export class Live {
   }
   // Al entrar (o volver a entrar tras un corte): saludar o, sin la clave del mundo, pedírsela al admin
   up() {
+    this.net.sendServer({ t: 'ident', user: Profile.id });   // (al servidor: de qué cuenta es, para los op, los vetos y la lista blanca)
     // (el admin jugando solo en el mundo cuando aparece el servidor: lo lleva su juego, para que entren los demás)
     if (this.net.key && Profile.admin && this.game.player && !this.joined) this.join(null, 'host');
     if (this.net.key) { this.setStatus('on'); this.hi(null, true); }
@@ -140,20 +145,30 @@ export class Live {
     }
   }
 
-  // ---------- op ----------
-  // Los op los da el terminal del servidor (/op, /deop). Al cambiar los tuyos, cambia tu modo admin
+  // ---------- op y el servidor ----------
+  // Los op los da el terminal del servidor (/op, /deop): pueden usar los comandos (/gamemode, /tp, /give…)
   setOps(list) {
+    const was = this.amOp;
     this.ops = Array.isArray(list) ? new Set(list.map(u => String(u).toLowerCase())) : null;
-    const g = this.game, op = this.isOp(Profile.id);
-    if (g.player && op !== null && !!g.admin !== op) {
-      g.setAdmin(op);
-      hud.toast(op ? 'Ahora eres op: modo admin activado' : 'Ya no eres op: modo admin desactivado', op ? 'ok' : '');
-      g.onSave?.();
-    }
+    if (this.game.player && this.amOp !== was) hud.toast(this.amOp ? 'Ahora eres op: puedes usar los comandos (/ayuda)' : 'Ya no eres op', this.amOp ? 'ok' : '');
     this.changed();
   }
   // ¿Es op esta cuenta? (null: el servidor no lo dice)
   isOp(id) { return this.ops ? this.ops.has(String(id || '').toLowerCase()) : null; }
+  // ¿Lo eres tú? (sin un servidor que lo diga, solo el admin, que es el dueño del mundo)
+  get amOp() { return this.isOp(Profile.id) ?? Profile.admin; }
+  // Lo que manda el propio servidor desde su terminal
+  fromServer(m) {
+    if (m.t === 'say') { this.say?.(`[Servidor] ${m.text}`, 'say'); hud.toast(`[Servidor] ${m.text}`); }
+    else if (m.t === 'save') { this.say?.('El servidor guarda: guardando la partida…', 'sys'); this.onServerSave?.(); }
+    else if (m.t === 'kicked' || m.t === 'stop') {
+      const why = m.t === 'stop' ? 'Se ha cerrado el servidor.' : m.reason || 'Te han echado del servidor.';
+      this.setStatus('kicked', why);
+      if (this.joined) this.leave(m.t === 'stop' ? 'stop' : 'kicked', why);
+    }
+  }
+  // Una copia del mundo (ya cifrada con la clave del mundo: el servidor no puede abrirla) para que la guarde
+  backup(bytes) { if (this.joined && this.role === 'host') this.net?.sendServer({ t: 'backup', d: toB64(bytes) }); }
   // Los jugadores con ese nombre (el de su cuenta o el de su personaje, sin mayúsculas; @a: todos; @s: tú),
   // de los que están jugando: [{ me: true } o { conn, peer }]
   playersNamed(name) {
@@ -207,7 +222,11 @@ export class Live {
         peer.look = m.look;
         if (peer.entity) peer.entity.look = m.look;
         break;
-      case 'chat': this.say?.(`<${peer.name}> ${m.text}`); break;
+      case 'chat':
+        if (m.say) this.say?.(`[${peer.name}] ${m.text}`, 'say');   // (/say de un op)
+        else if (m.dm) this.say?.(`${peer.name} te susurra: ${m.text}`, 'dm');   // (/msg)
+        else this.say?.(`<${peer.name}> ${m.text}`);
+        break;
       case 'bye':
         if (this.joined && peer.playing && g.player) hud.toast(`${peer.name} ha salido`);
         peer.playing = false;
@@ -241,10 +260,10 @@ export class Live {
       case 'baby!':
         if (this.asking?.conn === conn) { clearTimeout(this.asking.timer); this.asking.resolve({ ok: !!m.ok, look: m.look }); this.asking = null; }
         break;
-      // Un op te lleva a otro sitio (/tp)
-      case 'tp':
-        if (!this.joined || !g.player || !this.isOp(peer.id)) break;
-        if (m.home ? g.teleportHome() : g.teleport(m.x, m.y)) hud.toast(`${peer.name} te ha teletransportado${m.home ? ' a casa' : ''}`);
+      // Un op te lleva a otro sitio (/tp), te da algo (/give), te mata (/kill), te pone dónde reaparecer
+      // (/spawnpoint) o te cambia el modo de juego (/gamemode). Lo hace tu juego, si lo pide un op
+      case 'tp': case 'give': case 'kill': case 'spawn': case 'gamemode':
+        if (this.joined && g.player && this.isOp(peer.id)) g.fromOp(m, peer.name);
         break;
       // Lo que se tira al suelo
       case 'drop':
@@ -289,11 +308,11 @@ export class Live {
     hud.toast(`Ahora el mundo compartido lo lleva tu juego (${was} ha salido)`, 'ok');
     this.onHost?.();
   }
-  // Salir del mundo compartido (se ha cortado la conexión, u otro ya lo llevaba)
-  leave(why) {
+  // Salir del mundo compartido (se ha cortado la conexión, otro ya lo llevaba o el servidor te ha echado o se cierra)
+  leave(why, text = '') {
     if (!this.game.player || this.leaving) return;
     this.leaving = true;
-    this.onHostLeft?.(why);
+    this.onHostLeft?.(why, text);
   }
 
   // ---------- entrar sin anfitrión ----------
@@ -383,7 +402,9 @@ export class Live {
     return Profile.players?.().find(x => x.id === id)?.name || null;
   }
   knock([x, y]) { if (this.joined) this.net?.send({ t: 'knock', x: x + 0.5, y: y + 0.5 }); }
-  chat(text) { if (this.joined) this.net?.send({ t: 'chat', text }); }
+  chat(text, extra = {}, to = null) { if (this.joined) this.net?.send({ t: 'chat', text, ...extra }, to); }
+  // Mandarle algo a otro jugador (lo que pide un op con un comando: ver fromOp en el juego)
+  order(conn, m) { this.net?.send(m, conn); }
   // Otro jugador que esté contigo y cumpla near(entidad) (por ejemplo, en tu casa): { conn, peer } o null
   partner(near) {
     if (!this.joined) return null;
@@ -482,7 +503,7 @@ export class Live {
     }
     this.sent += dt;
     const sc = g.scene === g.world ? 'world' : null;
-    const st = { t: 'st', sc, x: r2(p.x), y: r2(p.y), z: r2(p.z || 0), yaw: r2(g.view3d.actors.player?.person.facing ?? 0), in: p.inside ? 1 : 0, po: p.pose ? [POSES.indexOf(p.pose.kind), r2(p.pose.yaw), r2(p.pose.h)] : 0, m: p.mount ? 1 : 0, hc: p.mount ? p.horseCoat || null : null, hb: p.mount && p.horseBags ? 1 : 0, b: p.boat ? 1 : 0, cr: p.crouch ? 1 : 0, h: g.inv.held?.id || null, sw: this.swings, si: g.gather.swingItem || null, cd: r2(g.gather.cooldown || 0) };
+    const st = { t: 'st', sc, x: r2(p.x), y: r2(p.y), z: r2(p.z || 0), yaw: r2(g.view3d.actors.player?.person.facing ?? 0), in: p.inside ? 1 : 0, po: p.pose ? [POSES.indexOf(p.pose.kind), r2(p.pose.yaw), r2(p.pose.h)] : 0, m: p.mount ? 1 : 0, hc: p.mount ? p.horseCoat || null : null, hb: p.mount && p.horseBags ? 1 : 0, b: p.boat ? 1 : 0, cr: p.crouch ? 1 : 0, gm: g.gamemode === 'survival' ? 0 : g.gamemode === 'creative' ? 1 : 3, h: g.inv.held?.id || null, sw: this.swings, si: g.gather.swingItem || null, cd: r2(g.gather.cooldown || 0) };
     const key = JSON.stringify(st);
     if (this.sent < SEND_EVERY || (key === this.lastSent && this.sent < IDLE_EVERY)) return;
     this.sent = 0; this.lastSent = key;
@@ -491,6 +512,7 @@ export class Live {
   // Los demás jugadores que están en esta escena (para dibujarlos)
   entities(scene) {
     if (!this.joined || scene !== this.game.world) return null;
-    return this.others.filter(p => p.sc === 'world' && p.entity).map(p => p.entity);
+    const ghosts = this.game.gamemode === 'spectator';   // (los espectadores solo los ven los otros espectadores)
+    return this.others.filter(p => p.sc === 'world' && p.entity && (p.entity.gm !== 3 || ghosts)).map(p => p.entity);
   }
 }
