@@ -9,6 +9,8 @@ import { ITEMS, isArmor } from './items.js';
 import { extraOf } from './inventory.js';
 import { Audio } from './audio.js';
 import { hud } from './ui/hud.js';
+import { enchLevel } from './enchant.js';
+import { XP_MOB, roll } from './xp.js';
 
 export const HP_MAX = 20;       // medios corazones
 export const HUNGER_MAX = 20;   // medios muslos
@@ -57,8 +59,9 @@ export class Combat {
     this.paint();
   }
   feed(n) { this.hunger = Math.min(HUNGER_MAX, this.hunger + n); this.paint(); }
-  // Los puntos de armadura que se llevan puestos (cada uno quita un 4 % del daño, hasta el 80 %)
-  armor() { return Math.min(20, Object.values(this.game.inv?.equip || {}).reduce((t, it) => t + (ITEMS[it.id]?.armor || 0), 0)); }
+  // Los puntos de armadura que se llevan puestos, con la protección de sus encantamientos (cada uno quita un 4 % del
+  // daño, hasta el 80 %)
+  armor() { return Math.min(20, Object.values(this.game.inv?.equip || {}).reduce((t, it) => t + (ITEMS[it.id]?.armor ? ITEMS[it.id].armor + enchLevel(it, 'proteccion') : 0), 0)); }
   get scene() { return this.game.scene; }
   spawn(scene) { scene.monsters = this.game.rules.doMobSpawning && this.diff.cap ? (scene.spawns || []).map(([type, x, y]) => new Monster(type, x, y)) : []; }   // (/gamerule doMobSpawning; en pacífico, ninguna)
   // Las criaturas de esta escena (las de fuera, de mobs.js)
@@ -91,6 +94,8 @@ export class Combat {
     if (!this.survival) { if (this.hp < HP_MAX || this.hunger < HUNGER_MAX) { this.hp = HP_MAX; this.hunger = HUNGER_MAX; this.paint(); } }
     else if (p && !g.busy) {
       this.exert(dt * EXHAUST / IDLE);
+      // (con la poción de regeneración, medio corazón cada poco)
+      if (g.buffs.regeneracion > g.time && (this.regenPot = (this.regenPot || 0) + dt) >= 2.5) { this.regenPot = 0; this.heal(1); }
       if ((this.regen += dt) >= TICK) {
         this.regen = 0;
         const starve = this.diff.starve;
@@ -121,10 +126,11 @@ export class Combat {
   }
   hit(dmg, from) {
     const g = this.game, p = g.player;
-    // La armadura quita daño y cada pieza se gasta un poco con cada golpe (y se rompe al acabarse)
-    dmg *= 1 - this.armor() * 0.04;
+    // La armadura quita daño y cada pieza se gasta un poco con cada golpe (y se rompe al acabarse; con irrompibilidad,
+    // a veces no se gasta); la poción de resistencia, un 30 % más
+    dmg *= (1 - this.armor() * 0.04) * (g.buffs.resistencia > g.time ? 0.7 : 1);
     for (const [slot, it] of Object.entries(g.inv.equip)) {
-      if (!isArmor(it.id)) continue;
+      if (!isArmor(it.id) || Math.random() >= 1 / (1 + enchLevel(it, 'irrompibilidad'))) continue;
       it.dur = (it.dur ?? ITEMS[it.id].dur) - 1;
       if (it.dur <= 0) { delete g.inv.equip[slot]; g.gather.float(`¡Se ha roto: ${ITEMS[it.id].name.toLowerCase()}!`, '#ffb0a0'); }
     }
@@ -155,6 +161,7 @@ export class Combat {
     if (!g.player || g.dying) return 0;
     g.busy = g.dying = true;
     const dropped = keep ? 0 : this.dropAll();
+    if (!keep && g.xp?.points) { g.xp.lose(); hud.toast('Has perdido tu experiencia'); }
     await hud.fade(true);
     g.addMoney(-lost);
     this.hunger = HUNGER_MAX; this.exhaust = 0;
@@ -206,7 +213,8 @@ export class Combat {
     g.gather.swingItem = g.inv.held?.id && (ITEMS[g.inv.held.id].weapon || ITEMS[g.inv.held.id].tool) ? g.inv.held.id : null;
     Audio.swish();
     if (!m) return;
-    const dmg = (def?.weapon || 1) + (g.skills?.level('combate') >= 5 ? 1 : 0);
+    // (con filo, y con la poción de fuerza, pega más)
+    const dmg = (def?.weapon || 1) + (g.skills?.level('combate') >= 5 ? 1 : 0) + enchLevel(g.inv.held, 'filo') + (g.buffs.fuerza > g.time ? 2 : 0);
     g.gather.wearOut();   // (el arma, o la herramienta con que se pega, se gasta)
     this.exert(0.1);
     Audio.chop();
@@ -223,6 +231,7 @@ export class Combat {
     g.gather.chips(m.x, m.y, m.type === 'limo' ? 'leaf' : 'stone', 12);
     g.skills?.gain('combate', 4);
     g.stats?.add('criaturas', 1);
+    if (XP_MOB[m.type]) g.xp?.add(roll(...XP_MOB[m.type]));
   }
   entities(scene) { return scene === this.game.world ? null : scene.monsters || null; }
 }

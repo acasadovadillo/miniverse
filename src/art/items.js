@@ -132,7 +132,11 @@ Object.assign(DRAW, {
   moneda_antigua(R, g) { blob(g, 8, 8, 6, '#c8a030'); blob(g, 8, 8, 4, '#e8c050'); R(7, 5, 2, 6, '#a88020'); R(5, 7, 6, 2, '#a88020'); },
   calavera(R) { R(4, 3, 8, 7, '#f0ece0'); R(5, 10, 6, 3, '#f0ece0'); R(5, 5, 2, 2, '#2a1c22'); R(9, 5, 2, 2, '#2a1c22'); R(7, 8, 2, 1, '#2a1c22'); for (const x of [6, 8, 10]) R(x, 11, 1, 2, '#c8c4b8'); },
   baba(R, g) { ellipse(g, 8, 11, 6, 3, '#6ad84a'); ellipse(g, 8, 9, 4, 3, '#8ae86a'); R(6, 8, 2, 1, '#ffffff'); },
-  pocion(R) { R(6, 1, 4, 3, '#a8764a'); R(7, 4, 2, 2, '#c8e8f8'); R(4, 6, 8, 8, '#c8e8f8'); R(5, 8, 6, 5, '#e83a5a'); R(6, 8, 2, 2, '#ff9aaa'); },
+  frasco(R) { R(6, 1, 4, 2, '#a8764a'); R(7, 3, 2, 3, '#d8eef8'); R(4, 6, 8, 8, '#d8eef8'); R(5, 7, 6, 6, '#a8cce0'); R(5, 7, 2, 3, '#f4fbff'); },
+  // Alambique: base de piedra, el soporte con el quemador y tres frascos
+  alambique(R) { R(2, 13, 12, 2, '#62626e'); R(3, 12, 10, 1, '#8a8a96'); R(7, 3, 2, 9, '#7a5232'); R(6, 2, 4, 1, '#c8a070'); R(7, 10, 2, 2, '#ff8a3a'); for (const x of [2, 6, 10]) { R(x, 7, 4, 4, '#c8e8f8'); R(x + 1, 8, 2, 3, x === 6 ? '#e83a5a' : x === 2 ? '#5ac8f0' : '#e86ab8'); } },
+  // Mesa de encantar: un bloque oscuro con el borde de amatista y un libro abierto encima
+  mesa_encantar(R) { R(2, 8, 12, 7, '#3a2a4a'); R(2, 8, 12, 1, '#8a5ad8'); R(2, 14, 12, 1, '#241a30'); R(3, 9, 2, 2, '#c890ff'); R(11, 9, 2, 2, '#c890ff'); R(4, 4, 8, 4, '#f4ecdc'); R(7, 4, 2, 4, '#a8764a'); R(4, 4, 3, 1, '#d8c8a8'); R(9, 4, 3, 1, '#d8c8a8'); R(5, 2, 1, 1, '#d8b0ff'); R(10, 1, 1, 1, '#d8b0ff'); },
   espada(R, g) { line(g, 3, 13, 13, 3, '#d8dce4'); line(g, 4, 13, 14, 3, '#9aa0aa'); R(2, 11, 4, 1, '#8a5a30'); R(4, 9, 1, 4, '#8a5a30'); R(1, 14, 2, 2, '#6a4422'); },
   espada_oro(R, g) { line(g, 3, 13, 13, 3, '#f8e070'); line(g, 4, 13, 14, 3, '#d8a830'); R(2, 11, 4, 1, '#e83a4a'); R(4, 9, 1, 4, '#e83a4a'); R(1, 14, 2, 2, '#a88020'); },
   barca(R) { R(1, 9, 14, 3, '#a8764a'); R(3, 12, 10, 2, '#7a5030'); R(1, 8, 14, 1, '#c8925a'); R(7, 2, 1, 7, '#7a5030'); R(8, 3, 5, 4, '#f4ecd8'); },
@@ -222,6 +226,12 @@ const TOOL_DRAW = {
 };
 
 // Icono de 18×18 (16×16 más el contorno). color: el de la prenda (la ropa)
+// Una poción: el frasco con su color dentro (y un brillo más claro)
+function potionIcon(R, color) {
+  R(6, 1, 4, 3, '#a8764a'); R(7, 4, 2, 2, '#c8e8f8'); R(4, 6, 8, 8, '#c8e8f8'); R(5, 8, 6, 5, color);
+  const n = parseInt(color.slice(1), 16), light = [16, 8, 0].map(s => Math.round(((n >> s) & 255) * 0.45 + 255 * 0.55)).reduce((t, v) => t * 256 + v, 0);
+  R(6, 8, 2, 2, `#${light.toString(16).padStart(6, '0')}`);
+}
 export function itemIcon(id, color) {
   const def = ITEMS[id], k = def?.wear ? `${id}|${color || def.dye}` : id;
   if (cache.has(k)) return cache.get(k);
@@ -234,6 +244,7 @@ export function itemIcon(id, color) {
   else if (CROPS[id]) cropIcon(R, g, CROPS[id], id);
   else if (FISH[id]) fishIcon(R, g, FISH[id]);
   else if (BUGS[id]) bugIcon(R, g, BUGS[id], id);
+  else if (def.potion) potionIcon(R, def.potion);
   else if (DRAW[id] || DRAW[def.rug]) (DRAW[id] || DRAW[def.rug])(R, g);   // (las alfombras, igual de cualquier tamaño)
   else R(4, 4, 8, 8, '#ff00ff');
   const icon = outlined(c);

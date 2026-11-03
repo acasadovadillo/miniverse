@@ -497,6 +497,7 @@ export class Ranch {
     if (a.bredAt && now - a.bredAt < REST_MS) { g.gather.float(`${a.name} acaba de tener una cría: tiene que descansar`, '#fff3c0'); return; }
     g.inv.remove(food, 1);
     a.heat = now + HEAT_MS;
+    g.xp?.add(1 + Math.random() * 2);
     g.gather.chips(a.x, a.y, 'heart', 8);
     g.skills?.gain('granja', 1);
     Audio.blip();

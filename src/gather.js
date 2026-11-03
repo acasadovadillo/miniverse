@@ -6,6 +6,11 @@ import { RECIPES } from './recipes.js';
 import { Audio } from './audio.js';
 import { hud } from './ui/hud.js';
 import { RUG_SIZES, TABLE_SIZES } from './art/stations.js';
+import { enchLevel } from './enchant.js';
+import { XP_ORE, roll } from './xp.js';
+
+// Lo que dice cada efecto al tomarlo (comida o poción)
+const BUFF_TEXT = { rapido: 'Más rápido', incansable: 'Sin cansancio', fuerza: 'Más fuerza', resistencia: 'Más resistencia', regeneracion: 'Regeneración' };
 
 // Lo que se coloca libre (donde se apunte, con cualquier giro): muebles, estaciones, lo que va plano y las
 // alfombras. Los cuadros y el hogar, contra un muro, siguen yendo por casillas
@@ -218,6 +223,7 @@ export class Gathering {
   wearOut(slot = this.game.inv.selected) {
     const g = this.game, s = g.inv.slots[slot], def = s && ITEMS[s.id];
     if (!def?.dur || g.inv.infinite) return;
+    if (Math.random() >= 1 / (1 + enchLevel(s, 'irrompibilidad'))) return;   // (con irrompibilidad, a veces no se gasta)
     s.dur = (s.dur ?? def.dur) - 1;
     if (s.dur <= 0) { g.inv.slots[slot] = null; this.float(`¡Se ha roto: ${def.name.toLowerCase()}!`, '#ffb0a0'); Audio.error(); }
     g.inv.changed();
@@ -239,7 +245,7 @@ export class Gathering {
     if (auto && !(this.target?.obj || this.target?.ok)) return;
     if (!g.scene.harvestablesNear) return;
     const tool = def?.tool || null, tier = def?.tier || 1, t = this.target;
-    this.cooldown = COOLDOWN * (1 - 0.07 * (tier - 1));   // las herramientas buenas van más deprisa
+    this.cooldown = COOLDOWN * (1 - 0.07 * (tier - 1)) * (1 - 0.15 * enchLevel(held, 'eficiencia'));   // las herramientas buenas (y con eficiencia) van más deprisa
     this.swing = 0.25;
     this.swingItem = tool ? held.id : null;
 
@@ -265,7 +271,10 @@ export class Gathering {
       o.hits = 0;
       g.scene.remove(o);
       this.chips(o.x, o.y, rule.chips, 16);
-      this.spawnDrops(o, rule, tool === rule.tool ? tier : 0, skill && Math.random() < (g.skills?.bonus(skill) || 0));
+      const tierHit = tool === rule.tool ? tier : 0;
+      this.spawnDrops(o, rule, tierHit, (skill && Math.random() < (g.skills?.bonus(skill) || 0)) || Math.random() < 0.33 * enchLevel(held, 'fortuna'));   // (con fortuna, a veces uno más)
+      const ore = rule.drops.find(([id, , , , minTier = 0]) => XP_ORE[id] && tierHit >= minTier);   // (el carbón y las piedras preciosas dan experiencia)
+      if (ore) g.xp?.add(roll(...XP_ORE[ore[0]]));
       if (o.kind === 'bush' && tool === 'guadana') g.ranch?.mowed();   // (con un silo, el heno se guarda solo)
       if (skill) { g.skills?.gain(skill, 3); g.stats?.add(skill === 'tala' ? 'talados' : skill === 'mineria' ? 'picados' : 'segados', 1); }
       Audio.fell();
@@ -305,18 +314,18 @@ export class Gathering {
 
   eat(slot) {
     const g = this.game, it = g.inv.slots[slot], def = it && ITEMS[it.id];
-    if (!def?.food && !def?.heal) return;
+    if (!def?.food && !def?.heal && !def?.buff) return;
     const hurt = g.combat && g.combat.hp < 20, hungry = g.combat && g.combat.hunger < HUNGER_MAX;
     if (g.energy >= ENERGY_MAX && !hurt && !hungry && !def.buff) { this.float('No tienes hambre', '#d8e8ff'); return; }
     g.inv.take(slot, 1);
     const cooked = RECIPES.some(r => r.out === it.id && r.station === 'cocina'), food = Math.round((def.food || 0) * (cooked ? 1 + (g.skills?.level('cocina') || 0) * 0.05 : 1));
     if (food) { g.setEnergy(g.energy + food); this.float(`+${food} energía`, '#a8f0a0'); }
     if (def.food && g.combat) g.combat.feed(Math.round(hungerOf(def) * (food / def.food)));   // (el hambre, como en Minecraft)
-    if (g.combat) { const hp = def.heal || Math.ceil(def.food / 12); if (hurt) { g.combat.heal(hp); this.float(`+${hp / 2} ♥`, '#ff9aaa'); } }
+    if (g.combat) { const hp = def.heal || (def.food ? Math.ceil(def.food / 12) : 0); if (hurt && hp) { g.combat.heal(hp); this.float(`+${hp / 2} ♥`, '#ff9aaa'); } }
     if (def.buff) {
       const [kind, secs] = def.buff;
       g.buffs[kind] = g.time + secs;
-      this.float(kind === 'rapido' ? `¡Más rápido durante ${secs / 60} min!` : `¡Sin cansancio durante ${secs / 60} min!`, '#ffe08a');
+      this.float(`¡${BUFF_TEXT[kind] || kind} durante ${secs >= 60 ? `${secs / 60} min` : `${secs} s`}!`, '#ffe08a');
     }
     Audio.eat();
     this.cooldown = COOLDOWN;

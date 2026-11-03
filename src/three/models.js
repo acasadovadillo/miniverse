@@ -36,7 +36,7 @@ export function modelMats() {
     glow: new THREE.MeshBasicMaterial({ color: '#ff9a3a' }), ember: c('#ff6a20', { emissive: '#ff4a10', emissiveIntensity: 1.2 }),
     sand: c('#d8c08a', { roughness: 1 }), moss: c('#5a7a3a', { flatShading: true }), ruin: mat({ map: stone('#b8b0a0'), flatShading: true }), dirt: mat({ map: furrows(), roughness: 1 }),
     canvas: c('#d8c8a0', { side: THREE.DoubleSide, roughness: 1 }), tentStripe: c('#a8442a', { side: THREE.DoubleSide }), lamp: c('#fff2c0', { emissive: '#ffd070', emissiveIntensity: 1.5 }),
-    hull: mat({ map: wood('#6a4a30'), roughness: 0.9 }), temple: mat({ map: stone('#c8bca0') }), templeD: mat({ map: stone('#8a8070') }), crystal: c('#7ae0ff', { emissive: '#3ab0ff', emissiveIntensity: 0.8, roughness: 0.1 }),
+    hull: mat({ map: wood('#6a4a30'), roughness: 0.9 }), temple: mat({ map: stone('#c8bca0') }), templeD: mat({ map: stone('#8a8070') }), crystal: c('#7ae0ff', { emissive: '#3ab0ff', emissiveIntensity: 0.8, roughness: 0.1 }), amethyst: c('#a860e8', { emissive: '#6a20c0', emissiveIntensity: 0.7, roughness: 0.15 }),
     snow: c('#f4f8fc', { roughness: 0.85 }), rock: mat({ map: stone('#8a857c'), flatShading: true }), dark0: c('#0a0806', { roughness: 1 }), stripeR: c('#c83a32'), lens: c('#fff6c8', { emissive: '#ffe080', emissiveIntensity: 2 }),
     bee: c('#e8c040'), sofa: c('#3f6a5a', { roughness: 0.95 }), sofaB: c('#5a8a74', { roughness: 0.95 }), leather: c('#8a5a34', { roughness: 0.85 }), leatherD: c('#5e3b22', { roughness: 0.85 }),
     porcelain: c('#f4f2ee', { roughness: 0.22 }), quiltK: c('#5a9ad8', { roughness: 0.95 }), quiltK2: c('#e88aa8', { roughness: 0.95 }), pillowK: c('#f4d86a', { roughness: 0.95 }),
@@ -386,6 +386,22 @@ const BUILD = {
     for (const [x, z] of [[-0.1, -0.05], [0.08, 0.04], [0.0, -0.08]]) m.ball('white', x, 0.55, z, 0.045, 0.06, 0.045);
     m.box('lamp', -0.04, 0.6, -0.04, 0.04, 0.64, 0.04).ball('ember', 0.2, 0.28, 0.25, 0.025);
     m.light(0, 0.7, 0, { color: '#ffc070', intensity: 0.8, range: 2.5 });
+  },
+  // Alambique: base de piedra, el quemador encendido, el soporte y tres frascos de colores
+  alambique(m) {
+    m.cyl('stone', 0, 0, 0, 0.36, 0.34, 0.12, 12).cyl('dark', 0, 0.12, 0, 0.05, 0.05, 0.8, 8);
+    m.cyl('iron', 0, 0.12, 0, 0.12, 0.1, 0.1, 10).ball('ember', 0, 0.26, 0, 0.05, 0.04, 0.05);
+    m.box('dark', -0.3, 0.5, -0.02, 0.3, 0.53, 0.02).box('dark', -0.02, 0.5, -0.3, 0.02, 0.53, 0.3);
+    for (const [x, z] of [[-0.24, 0], [0.24, 0], [0, 0.24]]) { m.cyl('glass', x, 0.3, z, 0.07, 0.05, 0.2, 10).cyl('wood', x, 0.5, z, 0.025, 0.025, 0.05, 6); }
+    m.ball('red', -0.24, 0.36, 0, 0.055, 0.05, 0.055).ball('quiltB', 0.24, 0.36, 0, 0.055, 0.05, 0.055).ball('lamp', 0, 0.36, 0.24, 0.055, 0.05, 0.055);
+    m.light(0, 0.35, 0, { color: '#ff9a4a', intensity: 0.6, range: 2 });
+  },
+  // Mesa de encantar: bloque oscuro con esquinas de amatista y un libro abierto encima
+  mesa_encantar(m) {
+    m.box('dark', -0.42, 0, -0.42, 0.42, 0.62, 0.42).box('red', -0.44, 0.58, -0.44, 0.44, 0.66, 0.44);
+    for (const [x, z] of [[-0.44, -0.44], [0.36, -0.44], [-0.44, 0.36], [0.36, 0.36]]) m.box('amethyst', x, 0.1, z, x + 0.08, 0.5, z + 0.08);
+    m.box('wood', -0.18, 0.66, -0.12, 0.18, 0.7, 0.12).box('white', -0.17, 0.7, -0.11, -0.01, 0.73, 0.11).box('white', 0.01, 0.7, -0.11, 0.17, 0.73, 0.11);
+    m.light(0, 0.9, 0, { color: '#c890ff', intensity: 0.7, range: 2.5 });
   },
   quesera(m) {
     for (const x of [-0.36, 0.3]) m.box('dark', x, 0, -0.2, x + 0.06, 1.05, -0.14).box('dark', x, 0, 0.14, x + 0.06, 1.05, 0.2);

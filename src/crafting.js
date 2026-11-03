@@ -3,6 +3,7 @@ import { ITEMS } from './items.js';
 import { RECIPES, STATIONS, unlocked } from './recipes.js';
 import { Audio } from './audio.js';
 import { parsePlaced } from './pieces.js';
+import { canEnchant, offers, combine, enchName } from './enchant.js';
 
 export const STATION_REACH = 2.4;   // a cuántas casillas puede estar una estación para usarla
 const worn = it => !!it && !!ITEMS[it.id]?.dur && it.dur !== undefined && it.dur < ITEMS[it.id].dur;
@@ -100,7 +101,8 @@ export class Crafting {
 
   // ---------- Reparar en el yunque ----------
   // Lo gastado que se lleva (en las casillas o puesto) y con qué se arregla: cada unidad del material le devuelve
-  // una cuarta parte de lo que aguanta, como en el yunque de Minecraft. [{ where: casilla o hueco, it, mat }]
+  // una cuarta parte de lo que aguanta y cuesta un nivel de experiencia, como en el yunque de Minecraft.
+  // [{ where: casilla o hueco, it, mat }]
   repairable() {
     const inv = this.game.inv, out = [];
     inv.slots.forEach((it, i) => { if (worn(it)) out.push({ where: i, it, mat: repairMat(it.id) }); });
@@ -111,11 +113,60 @@ export class Crafting {
     const g = this.game, inv = g.inv, it = typeof r.where === 'number' ? inv.slots[r.where] : inv.equip[r.where], max = it && ITEMS[it.id].dur;
     if (!worn(it) || !this.stationsNear().yunque) return 'Tienes que estar junto al yunque';
     if (!inv.infinite && inv.count(r.mat) < 1) return `Te falta ${ITEMS[r.mat].name.toLowerCase()}`;
+    if (!g.xp.spend(1)) return 'Te falta 1 nivel de experiencia (cada arreglo cuesta uno)';
     inv.remove(r.mat, 1);
     it.dur = Math.min(max, (it.dur ?? max) + Math.ceil(max / 4));
     inv.changed();
     Audio.craft();
     this.say(`${ITEMS[it.id].name}: ${it.dur}/${max} usos`, '#fff3c0');
+    return null;
+  }
+
+  // Juntar en el yunque dos cosas iguales de la mochila (gastadas o encantadas): [{ a, b, it, cost }] (a y b: sus
+  // casillas; it: lo que sale; cost: los niveles que cuesta)
+  combinable() {
+    const slots = this.game.inv.slots, out = [], used = new Set();
+    slots.forEach((x, a) => {
+      if (!x || used.has(a) || !(ITEMS[x.id].dur || canEnchant(x.id)) || ITEMS[x.id].stack > 1) return;
+      const b = slots.findIndex((y, j) => j > a && !used.has(j) && y?.id === x.id && (worn(x) || worn(y) || x.ench || y.ench));
+      if (b < 0) return;
+      used.add(a); used.add(b);
+      out.push({ a, b, ...combine(x, slots[b]) });
+    });
+    return out;
+  }
+  merge(c) {
+    const g = this.game, inv = g.inv;
+    if (!this.stationsNear().yunque) return 'Tienes que estar junto al yunque';
+    if (inv.slots[c.a]?.id !== c.it.id || inv.slots[c.b]?.id !== c.it.id) return 'Ya no están en la mochila';
+    if (c.cost > 39) return '¡Demasiado caro! (más de 39 niveles)';
+    if (!g.xp.spend(c.cost)) return `Te faltan niveles de experiencia: cuesta ${c.cost}`;
+    inv.slots[c.a] = c.it; inv.slots[c.b] = null;
+    inv.changed();
+    Audio.craft();
+    this.say(`${ITEMS[c.it.id].name}${c.it.ench ? ` (${enchName(c.it.ench)})` : ''}${c.it.dur !== undefined ? `: ${c.it.dur}/${ITEMS[c.it.id].dur} usos` : ''}`, '#fff3c0');
+    return null;
+  }
+
+  // ---------- Encantar en la mesa de encantar ----------
+  // Lo que se puede encantar de la mochila (sin encantar aún) con sus tres ofertas: [{ i, it, offers }]
+  enchantable() {
+    const seed = this.game.xp.seed;
+    return this.game.inv.slots.map((it, i) => ({ i, it })).filter(({ it }) => it && !it.ench && canEnchant(it.id) && ITEMS[it.id].stack <= 1).map(o => ({ ...o, offers: offers(o.it.id, seed) }));
+  }
+  enchant(i, k) {
+    const g = this.game, inv = g.inv, it = inv.slots[i], o = it && offers(it.id, g.xp.seed)[k];
+    if (!o || it.ench) return 'No se puede encantar';
+    if (!this.stationsNear().mesa_encantar) return 'Tienes que estar junto a la mesa de encantar';
+    if (!inv.infinite && g.xp.level < o.need) return `Necesitas el nivel ${o.need} de experiencia`;
+    if (!inv.infinite && inv.count('amatista') < o.cost) return `Te faltan amatistas: cuesta ${o.cost}`;
+    if (!g.xp.spend(o.cost)) return `Te faltan niveles de experiencia: cuesta ${o.cost}`;
+    inv.remove('amatista', o.cost);
+    it.ench = { ...o.ench };
+    g.xp.seed = Math.floor(Math.random() * 2 ** 31);   // (ofertas nuevas para lo siguiente)
+    inv.changed();
+    Audio.unlock();
+    this.say(`¡${ITEMS[it.id].name}: ${enchName(it.ench)}!`, '#d8b0ff');
     return null;
   }
 
@@ -129,7 +180,7 @@ export class Crafting {
       made++;
     }
     if (made) {
-      if (r.station === 'cocina') { g.skills?.gain('cocina', 3 * made); g.stats?.add('cocinados', made); }
+      if (r.station === 'cocina') { g.skills?.gain('cocina', 3 * made); g.stats?.add('cocinados', made); g.xp?.add(0.35 * made); }
       Audio.craft();
       this.say(`+${made * r.n} ${ITEMS[r.out].name}`, '#fff3c0');
     } else Audio.error();

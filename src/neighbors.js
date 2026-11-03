@@ -5,6 +5,7 @@ import { Person } from './entities.js';
 import { ITEMS, CROPS } from './items.js';
 import { NILO, hasProject } from './world/village.js';
 import { SHOPS } from './economy.js';
+import { TRADES } from './trades.js';
 import { Audio } from './audio.js';
 import { hud } from './ui/hud.js';
 import { Profile } from './accounts.js';
@@ -184,6 +185,7 @@ export class Neighbors {
     const shop = def.shop && SHOPS[def.shop], open = shop && this.isWorking(id) && g.days.hour >= shop.hours[0] && g.days.hour < shop.hours[1];
     const opts = ['Charlar'];
     if (open) opts.push('Ver la tienda');
+    if (open && TRADES[id]) opts.push('Hacer tratos');
     if (giftable) opts.push(`Regalar: ${ITEMS[held.id].name.toLowerCase()}`);
     if (id === 'nilo' && !g.house.family && Profile.admin && !g.live.guest) opts.push('Hablar de la casa');   // (la casa es la del dueño del mundo)
     opts.push('Adiós');
@@ -196,12 +198,26 @@ export class Neighbors {
       g.busy = false;
       g.onShop?.(def.shop);
       return;
+    } else if (pick === 'Hacer tratos') {
+      await this.trade(id);
     } else if (pick?.startsWith('Regalar')) {
       await this.gift(id, held);
     } else if (pick === 'Hablar de la casa') {
       await (g.house.big ? g.offerFamily() : g.offerReform());
     }
     g.busy = false;
+  }
+  // Tratos (trades.js): los que ofrece, uno detrás de otro, hasta que te despides
+  async trade(id) {
+    const g = this.game, def = PEOPLE[id], f = this.friend(id), T = g.trades;
+    for (;;) {
+      const offers = T.offers(id, f), opts = [...offers.map(o => o.text), 'Adiós'];
+      const k = await hud.ask(T.title(id, f, def.name), '¿Qué te interesa? Cada trato se puede hacer unas veces al día.', opts);
+      if (!(k >= 0 && k < offers.length)) return;
+      const o = offers[k], said = T.make(id, f, o, def.name);
+      if (o.why) Audio.error(); else { Audio.craft(); g.onSave?.(); }
+      await hud.say(def.name, [said]);
+    }
   }
   niloLine() {
     const tips = [...PEOPLE.nilo.chat, ...this.game.niloTips];

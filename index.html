@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- La versión publicada: se cambia en cada publicación (así el juego sabe que tiene que pedir el código nuevo) -->
-<meta name="miniverse-version" content="2026-11-03.11">
+<meta name="miniverse-version" content="2026-11-03.12">
 <title>Miniverse</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏡</text></svg>">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -197,9 +197,22 @@
   #cf-icon.locked { filter: brightness(0) opacity(.45); }
   #cf-name { color: var(--gold); font-size: 18px; }
   #cf-desc { color: var(--dim); font-size: 14px; line-height: 1.35; }
-  #cf-repair { margin-top: 10px; display: flex; flex-direction: column; gap: 3px; }
+  #cf-repair { margin-top: 10px; display: flex; flex-direction: column; gap: 3px; max-height: 320px; overflow-y: auto; }
   #cf-repair[hidden] { display: none; }
   #cf-repair h3 { margin: 0 0 2px; font-size: 15px; color: var(--gold); }
+  .cf-hint { margin: 2px 0; font-size: 13px; color: var(--dim); }
+  /* El horno y el alambique: sus casillas, el fuego y la flecha de lo que lleva hecho, y lo hecho */
+  .mc { display: flex; align-items: center; gap: 10px; padding: 4px 0; }
+  .mc-ins { display: flex; gap: 6px; }
+  .mc-cell { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+  .mc-cell small { font-size: 11px; color: var(--dim); max-width: 64px; text-align: center; line-height: 1.1; }
+  .mc-slot img { width: 34px; height: 34px; image-rendering: pixelated; margin: 3px; }
+  .mc-slot b { position: absolute; right: 2px; bottom: 0; font-size: 12px; color: #fff; text-shadow: 0 1px 0 #000; }
+  .mc-bars { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+  .mc-fire { position: relative; width: 14px; height: 18px; background: rgba(0, 0, 0, .4); border: 1px solid #6a4a2a; border-radius: 50% 50% 4px 4px; overflow: hidden; }
+  .mc-fire i { position: absolute; left: 0; right: 0; bottom: 0; background: linear-gradient(#ffd060, #ff6a20); }
+  .mc-arrow { width: 40px; height: 8px; background: rgba(0, 0, 0, .4); border-radius: 4px; overflow: hidden; }
+  .mc-arrow i { display: block; height: 100%; background: var(--gold); }
   .cf-fix { display: flex; align-items: center; gap: 8px; padding: 3px 8px; font-size: 14px; color: var(--cream); background: rgba(0, 0, 0, .25); border: 2px solid #6a4a2a; border-radius: 4px; cursor: pointer; text-align: left; }
   .cf-fix:disabled { opacity: .5; cursor: default; }
   .cf-fix img { width: 22px; height: 22px; image-rendering: pixelated; }
@@ -325,6 +338,13 @@
   #hunger i.h { opacity: .55; }
   #hunger i.e { filter: grayscale(1) brightness(.45); opacity: .55; }
   #hearts i { font-style: normal; color: #e83a4a; }
+  /* La experiencia: una barra verde con el nivel encima (en supervivencia) */
+  #xp { display: none; position: relative; height: 5px; margin: 6px 2px 6px; background: rgba(0, 0, 0, .55); border-radius: 3px; }
+  body.survival #xp { display: block; }
+  #xp i { display: block; height: 100%; width: 0; background: linear-gradient(#b8f070, #6ab82a); border-radius: 3px; }
+  #xp b { position: absolute; left: 50%; top: -8px; transform: translateX(-50%); font-size: 12px; line-height: 1; color: #b8f070; text-shadow: 0 1px 0 #142008, 1px 0 0 #142008, -1px 0 0 #142008, 0 -1px 0 #142008; }
+  /* Lo encantado brilla */
+  .slot.ench img { filter: drop-shadow(0 0 2px #b070ff) drop-shadow(0 0 1px #e0c0ff); }
   #hearts i.h { color: #e8828a; }
   #hearts i.e { color: #4a3a3a; }
   /* Cofre */
@@ -457,6 +477,7 @@
   <div id="hotbar" class="panel">
     <div id="energy" title="Energía"><span>Energía</span><div class="bar"><div id="energy-fill"></div></div><span id="money">0 🪙</span></div>
     <div id="vitals"><div id="hearts" title="Vida"></div><div id="hunger" title="Hambre"></div></div>
+    <div id="xp" title="Experiencia"><i></i><b></b></div>
     <div class="slots" id="hotbar-slots"></div>
   </div>
   <div id="prompt" class="panel"><kbd>E</kbd><span id="prompt-text"></span></div>

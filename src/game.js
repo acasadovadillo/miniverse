@@ -30,6 +30,9 @@ import { Neighbors } from './neighbors.js';
 import { Board } from './board.js';
 import { Combat, DIFFICULTIES } from './combat.js';
 import { Mobs } from './mobs.js';
+import { Experience } from './xp.js';
+import { Machines, machineAt, machineEmpty } from './machines.js';
+import { Trades } from './trades.js';
 import { Explore } from './explore.js';
 import { Stats, Skills, Collection, Achievements, Story } from './progress.js';
 import { Music } from './music.js';
@@ -110,6 +113,9 @@ export class Game {
     this.neighbors = this.addSystem(new Neighbors(this));
     this.combat = this.addSystem(new Combat(this));
     this.mobs = this.addSystem(new Mobs(this));   // la luz y las criaturas de fuera, de noche
+    this.xp = this.addSystem(new Experience(this));   // la experiencia y los niveles
+    this.machines = new Machines(this);   // el horno y el alambique, que llevan su tiempo
+    this.trades = new Trades(this);       // los tratos con los vecinos
     this.places = this.addSystem(new Explore(this));
     this.collection = this.addSystem(new Collection(this));
     this.achievements = this.addSystem(new Achievements(this));
@@ -520,6 +526,7 @@ export class Game {
     // (una alfombra vuelve como la del telar de su tamaño; las de antes, de cualquier tamaño, se ponían con V)
     const r = o.layer === 'rug' && o.rug, id = r ? rugId(ITEMS[o.placed].rug || o.placed, RUG_MADE.find(([w, h]) => (w === r.w && h === r.h) || (w === r.h && h === r.w)) || [1, 1]) : o.placed;
     if (this.inv.room(id) < 1) { this.gather.float('No te cabe: no llevas sitio libre', '#ffb0a0'); Audio.error(); return false; }
+    if (this.scene === this.world && !machineEmpty(machineAt(this.world, o.tile))) { this.gather.float(`Vacía ${o.placed === 'horno' ? 'el horno' : 'el alambique'} antes`, '#ffb0a0'); Audio.error(); return false; }
     if ((o.placed === 'cofre' || o.placed === 'armario') && this.scene.chestAt(...o.tile)?.some(Boolean)) { this.gather.float(`Vacía ${o.placed === 'cofre' ? 'el cofre' : 'el armario'} antes`, '#ffb0a0'); Audio.error(); return false; }
     this.scene.unplace(o);
     this.inv.add(id, 1);

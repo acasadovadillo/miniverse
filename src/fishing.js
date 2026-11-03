@@ -192,6 +192,7 @@ export class Fishing {
     g.gather.chips(s.bx, s.by, 'water', 14);
     g.skills?.gain('pesca', Math.round((3 + f.dif * 9) * (r.clean ? 1.5 : 1)));
     g.stats?.add('peces', 1);
+    g.xp?.add(1 + Math.floor(Math.random() * 6));   // (como en Minecraft, de 1 a 6 de experiencia)
     g.collection?.found(id);
   }
   treasure() {

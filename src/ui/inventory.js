@@ -5,6 +5,7 @@ import { ITEMS, WEAR_SLOTS } from '../items.js';
 import { DYES } from '../looks.js';
 import { SLOTS, HOTBAR, extraOf } from '../inventory.js';
 import { itemIconUrl } from '../art/items.js';
+import { enchName } from '../enchant.js';
 import { CharacterPreview } from '../three/preview.js';
 
 const $ = id => document.getElementById(id);
@@ -23,8 +24,10 @@ function paint(el, s) {
     if (img.getAttribute('src') !== url) img.src = url;
     img.hidden = false;
     n.textContent = s.n > 1 ? s.n : '';
-    el.title = ITEMS[s.id].name + (ITEMS[s.id].dur ? ` (${s.dur ?? ITEMS[s.id].dur}/${ITEMS[s.id].dur} usos)` : '');
+    el.title = ITEMS[s.id].name + (s.ench ? ` · ${enchName(s.ench)}` : '') + (ITEMS[s.id].dur ? ` (${s.dur ?? ITEMS[s.id].dur}/${ITEMS[s.id].dur} usos)` : '');
+    el.classList.toggle('ench', !!s.ench);   // (lo encantado brilla)
   } else {
+    el.classList.remove('ench');
     img.hidden = true;
     n.textContent = '';
     el.title = '';

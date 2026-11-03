@@ -1,10 +1,14 @@
 // Pantalla de fabricar: pestañas por estación, recetas (las bloqueadas salen como "???") y detalle con ingredientes.
+// Algunas estaciones tienen además su panel: en el yunque, arreglar y juntar; en el horno y el alambique, lo que
+// tienen dentro (machines.js); en la mesa de encantar, sus ofertas.
 import { ITEMS } from '../items.js';
 import { RECIPES, STATIONS, lockedHint } from '../recipes.js';
 import { itemIconUrl } from '../art/items.js';
+import { MACHINES, machineAt, settle, fits } from '../machines.js';
+import { enchName } from '../enchant.js';
 
 const $ = id => document.getElementById(id);
-const TAB_ICON = { mano: null, banco: 'banco', horno: 'horno', yunque: 'yunque', telar: 'telar', cocina: 'cocina', quesera: 'quesera' };
+const TAB_ICON = { mano: null, banco: 'banco', horno: 'horno', yunque: 'yunque', telar: 'telar', cocina: 'cocina', quesera: 'quesera', alambique: 'alambique', mesa_encantar: 'mesa_encantar' };
 
 export function initCraftingUI(game, { onClose, onBag }) {
   const cr = () => game.craft;
@@ -23,7 +27,7 @@ export function initCraftingUI(game, { onClose, onBag }) {
     b.type = 'button';
     b.className = 'cf-tab';
     b.innerHTML = (TAB_ICON[st] ? `<img alt="" src="${itemIconUrl(TAB_ICON[st])}">` : '<span class="hand">✋</span>') + `<span>${STATIONS[st].name}</span>`;
-    b.onclick = () => { tab = st; picked = null; refresh(); };
+    b.onclick = () => { tab = st; picked = null; picking = null; refresh(); };
     $('cf-tabs').append(b);
     tabs[st] = b;
   }
@@ -51,23 +55,7 @@ export function initCraftingUI(game, { onClose, onBag }) {
       box.append(el);
     }
     showRecipe(picked, near);
-    // En el yunque, además, arreglar lo gastado (un material cada vez, que devuelve un cuarto de lo que aguanta)
-    const fix = $('cf-repair'), worn = tab === 'yunque' ? c.repairable() : [];
-    fix.hidden = !worn.length;
-    fix.textContent = '';
-    if (worn.length) {
-      const h = document.createElement('h3'); h.textContent = 'Reparar'; fix.append(h);
-      for (const r of worn) {
-        const row = document.createElement('button'), max = ITEMS[r.it.id].dur;
-        row.type = 'button'; row.className = 'cf-fix';
-        row.innerHTML = `<img alt="" src="${itemIconUrl(r.it.id)}"><span></span><b></b>`;
-        row.querySelector('span').textContent = `${ITEMS[r.it.id].name} (${r.it.dur}/${max})`;
-        row.querySelector('b').textContent = `1 × ${ITEMS[r.mat].name.toLowerCase()} (tienes ${game.inv.count(r.mat)})`;
-        row.disabled = !near.yunque;
-        row.onclick = () => { const why = c.repair(r); if (why) c.onNotice?.(why); refresh(); };
-        fix.append(row);
-      }
-    }
+    extraPanel(near);
     // Si hay una estación de esta pestaña cerca, se puede recoger
     const st = near[tab];
     $('cf-pick').hidden = !st || st === true;
@@ -75,7 +63,94 @@ export function initCraftingUI(game, { onClose, onBag }) {
     $('cf-where').textContent = tab === 'mano' ? 'Se fabrica en cualquier sitio.' : near[tab] ? `Estás junto a: ${STATIONS[tab].name.toLowerCase()}.` : `Para esto necesitas estar junto a: ${STATIONS[tab].name.toLowerCase()}.`;
   }
 
+  // ---------- El panel de la estación ----------
+  let picking = null;   // (horno o alambique) la casilla para la que se está eligiendo qué poner
+  function extraPanel(near) {
+    const box = $('cf-repair'), c = cr(), st = near[tab];
+    box.textContent = '';
+    const head = text => { const e = document.createElement('h3'); e.textContent = text; box.append(e); };
+    const note = text => { const e = document.createElement('p'); e.className = 'cf-hint'; e.textContent = text; box.append(e); };
+    const row = (id, label, sub, run, off) => {
+      const b = document.createElement('button');
+      b.type = 'button'; b.className = 'cf-fix';
+      b.innerHTML = `<img alt="" src="${itemIconUrl(id)}"><span></span><b></b>`;
+      b.querySelector('span').textContent = label; b.querySelector('b').textContent = sub;
+      b.disabled = !!off;
+      b.onclick = () => { const why = run(); if (why) c.onNotice?.(why); refresh(); };
+      box.append(b);
+    };
+    if (tab === 'yunque') {
+      // Arreglar (un material cada vez: devuelve un cuarto de lo que aguanta) y juntar dos iguales
+      const worn = c.repairable(), pairs = c.combinable();
+      if (worn.length) head(`Reparar (1 nivel cada vez; tienes ${game.xp.level})`);
+      for (const r of worn) row(r.it.id, `${ITEMS[r.it.id].name} (${r.it.dur}/${ITEMS[r.it.id].dur})`, `1 × ${ITEMS[r.mat].name.toLowerCase()} (tienes ${game.inv.count(r.mat)})`, () => c.repair(r), !near.yunque);
+      if (pairs.length) head('Juntar dos iguales');
+      for (const p of pairs) row(p.it.id, `2 × ${ITEMS[p.it.id].name} → ${p.it.dur !== undefined ? `${p.it.dur}/${ITEMS[p.it.id].dur}` : ''}${p.it.ench ? ` ${enchName(p.it.ench)}` : ''}`, `${p.cost} niveles`, () => c.merge(p), !near.yunque);
+    } else if (MACHINES[tab] && st && st !== true) machinePanel(box, st.tile, head, note);
+    else if (tab === 'mesa_encantar' && st) {
+      const list = c.enchantable(), lvl = game.xp.level;
+      head(`Encantar (tienes nivel ${lvl} y ${game.inv.count('amatista')} amatistas)`);
+      if (!list.length) note('Trae en la mochila una herramienta, un arma, una armadura o una caña sin encantar.');
+      for (const e of list) {
+        note(ITEMS[e.it.id].name);
+        e.offers.forEach((o, k) => row(e.it.id, enchName(o.ench), `${o.cost} ${o.cost === 1 ? 'nivel' : 'niveles'} y ${o.cost} ${o.cost === 1 ? 'amatista' : 'amatistas'} · pide nivel ${o.need}`, () => c.enchant(e.i, k), !game.inv.infinite && lvl < o.need));
+      }
+    }
+    box.hidden = !box.childElementCount;
+  }
+  // El horno o el alambique: sus casillas (lo de dentro; al pulsar, se saca o se elige qué poner), el fuego, lo que
+  // lleva hecho y lo hecho
+  function machinePanel(box, tile, head, note) {
+    const def = MACHINES[tab], kind = tab, M = game.machines;
+    const m = settle(structuredClone(machineAt(game.world, tile) || { burn: 0, max: 0, prog: 0, t: Date.now() }), def);   // (para verlo: lo que lleva hecho ahora)
+    head(def.title);
+    const wrap = document.createElement('div');
+    wrap.className = 'mc';
+    const slotBtn = (slot, label, it) => {
+      const cell = document.createElement('div'), b = document.createElement('button'), s = document.createElement('small');
+      cell.className = 'mc-cell';
+      b.type = 'button'; b.className = 'slot mc-slot' + (picking === slot ? ' sel' : '');
+      b.innerHTML = it ? `<img alt="" src="${itemIconUrl(it.id)}"><b>${it.n > 1 ? it.n : ''}</b>` : '';
+      b.title = it ? `${ITEMS[it.id].name} ×${it.n}` : label;
+      b.onclick = () => { if (slot === 'out' || it) { picking = null; M.takeBack(tile, kind, slot); } else picking = picking === slot ? null : slot; refresh(); };
+      s.textContent = label;
+      cell.append(b, s);
+      return cell;
+    };
+    const ins = document.createElement('div');
+    ins.className = 'mc-ins';
+    for (const [slot, label] of Object.entries(def.slots)) ins.append(slotBtn(slot, label, m[slot]));
+    const bars = document.createElement('div');
+    bars.className = 'mc-bars';
+    bars.innerHTML = `<span class="mc-fire" title="Combustible"><i style="height:${m.max ? Math.round((m.burn / m.max) * 100) : 0}%"></i></span><span class="mc-arrow" title="Lo que lleva hecho"><i style="width:${Math.round(((m.prog || 0) / def.time) * 100)}%"></i></span>`;
+    wrap.append(ins, bars, slotBtn('out', 'Hecho', m.out));
+    box.append(wrap);
+    if (picking) {
+      const opts = game.inv.slots.map((s, i) => ({ s, i })).filter(({ s }) => s && fits(def, picking, s.id));
+      note(opts.length ? `Elige qué poner en «${def.slots[picking].toLowerCase()}»:` : `No llevas nada para «${def.slots[picking].toLowerCase()}».`);
+      for (const { s, i } of opts) {
+        const b = document.createElement('button');
+        b.type = 'button'; b.className = 'cf-fix';
+        b.innerHTML = `<img alt="" src="${itemIconUrl(s.id)}"><span></span><b></b>`;
+        b.querySelector('span').textContent = ITEMS[s.id].name; b.querySelector('b').textContent = `×${s.n}`;
+        b.onclick = () => { M.put(tile, kind, picking, i); picking = null; refresh(); };
+        box.append(b);
+      }
+    } else if (!m.in && !m.out) note(tab === 'horno' ? 'Pon mineral (cobre, hierro u oro) o madera, y combustible: cada cosa tarda 10 segundos. Sigue aunque te vayas.' : 'Pon un ingrediente (miel, bayas, calavera, plumas o amatista), hasta 3 frascos y carbón: tarda 20 segundos.');
+  }
+
   function showRecipe(r, near) {
+    // (una estación sin recetas propias, como el alambique o la mesa de encantar: lo que es, y su panel debajo)
+    $('cf-make').hidden = $('cf-make5').hidden = !r;
+    if (!r) {
+      $('cf-icon').src = itemIconUrl(tab); $('cf-icon').classList.remove('locked');
+      $('cf-name').textContent = STATIONS[tab].name; $('cf-desc').textContent = ITEMS[tab]?.desc || '';
+      for (const id of ['cf-ins', 'cf-sizes']) $(id).textContent = '';
+      $('cf-sizes').hidden = true;
+      $('cf-msg').textContent = near[tab] ? '' : `Para esto necesitas estar junto a: ${STATIONS[tab].name.toLowerCase()}.`;
+      $('cf-note').textContent = notice;
+      return;
+    }
     const c = cr(), known = c.known.has(r.id), def = ITEMS[r.out];
     c.fresh.delete(r.id);
     $('cf-icon').src = itemIconUrl(r.out);
@@ -120,6 +195,9 @@ export function initCraftingUI(game, { onClose, onBag }) {
   };
   $('cf-close').onclick = () => onClose();
   $('cf-bag').onclick = () => onBag();
+
+  // (el horno y el alambique siguen trabajando con la pantalla abierta)
+  setInterval(() => { if ($('s-craft').classList.contains('show') && MACHINES[tab]) refresh(); }, 500);
 
   return {
     refresh,

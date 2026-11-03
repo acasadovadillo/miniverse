@@ -10,6 +10,8 @@ export const STATIONS = {
   telar: { name: 'Telar' },
   cocina: { name: 'Cocina' },
   quesera: { name: 'Quesera' },
+  alambique: { name: 'Alambique' },
+  mesa_encantar: { name: 'Mesa de encantar' },
 };
 
 const R = (station, out, n, ins, extra = {}) => ({ id: out, station, out, n, ins, ...extra });
@@ -52,11 +54,11 @@ export const RECIPES = [
   R('banco', 'lampara', 1, [['lingote_cobre', 1], ['tablas', 1], ['carbon', 1]]),
   R('mano', 'antorcha', 3, [['madera', 1], ['carbon', 1]]),
 
-  R('horno', 'carbon', 1, [['madera', 2]]),
-  R('horno', 'lingote_cobre', 1, [['cobre', 2], ['carbon', 1]]),
-  R('horno', 'lingote_hierro', 1, [['hierro', 2], ['carbon', 1]]),
-  R('horno', 'lingote_oro', 1, [['oro', 2], ['carbon', 1]]),
+  // (fundir minerales y hacer carbón lleva su tiempo y combustible: ver machines.js)
   R('horno', 'yunque', 1, [['lingote_cobre', 3], ['piedra', 6]]),
+  R('horno', 'frasco', 3, [['piedra', 2], ['carbon', 1]]),
+  R('yunque', 'alambique', 1, [['lingote_hierro', 2], ['piedra', 4], ['frasco', 1]]),
+  R('yunque', 'mesa_encantar', 1, [['amatista', 4], ['tablas', 6], ['lingote_hierro', 2]]),
 
   R('telar', 'tela', 1, [['fibra', 4]]),
   R('telar', 'tela', 2, [['lana', 1]], { id: 'tela_lana' }),
