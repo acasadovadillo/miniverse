@@ -12,7 +12,7 @@ import * as THREE from 'three';
 import { Builder, mat } from './geo.js';
 import { wood, stone, rug, rugDesign, notes, awning, planks, furrows, artwork } from './textures.js';
 import { CROPS, ITEMS } from '../items.js';
-import { WALL_H } from './build3d.js';
+import { WALL_H, FLOOR_H } from './build3d.js';
 import { SOLIDS, hull } from '../world/fit.js';
 
 // ---------- materiales ----------
@@ -245,7 +245,7 @@ const BUILD = {
     m.geo('leaf', ICO, 0, 0.78, 0, [0, 0, 0], 0.17);
     for (let i = 0; i < 4; i++) { const a = i * 1.7; m.geo(['red', 'quiltB', 'white', 'books4'][i], ICO, Math.cos(a) * 0.14, 0.72 + (i % 2) * 0.1, Math.sin(a) * 0.14, [0, 0, 0], 0.05); }
   },
-  alfombra(m) { m.B('rug').quad([-0.9, 0.035, 0.6], [0.9, 0.035, 0.6], [0.9, 0.035, -0.6], [-0.9, 0.035, -0.6], [0, 1, 0], [[0, 0], [1, 0], [1, 1], [0, 1]]); },
+  alfombra(m) { m.B('rug').quad([-0.9, RUG_Y, 0.6], [0.9, RUG_Y, 0.6], [0.9, RUG_Y, -0.6], [-0.9, RUG_Y, -0.6], [0, 1, 0], [[0, 0], [1, 0], [1, 1], [0, 1]]); },
   cofre(m) {
     m.box('wood', -0.38, 0, -0.26, 0.38, 0.42, 0.26).box('dark', -0.4, 0.42, -0.28, 0.4, 0.58, 0.28);
     m.box('iron', -0.4, 0.05, -0.27, -0.34, 0.58, 0.27).box('iron', 0.34, 0.05, -0.27, 0.4, 0.58, 0.27).box('brass', -0.06, 0.32, 0.26, 0.06, 0.46, 0.29);
@@ -599,11 +599,13 @@ Object.assign(BUILD, {
   cuadro_flores: m => painting(m, 'art_flores', 'gold'), cuadro_noche: m => painting(m, 'art_noche', 'dark'),
 });
 
+// (las alfombras, 1 cm por encima del suelo: más pegadas, de lejos parpadeaban con él)
+const RUG_Y = FLOOR_H + 0.01;
 // Alfombra de w × h casillas, un poco más pequeña que ellas, con el dibujo a lo largo (si es más ancha que
 // larga, girado)
 const RUG_MAT = { alfombra: 'rug', alfombra_persa: 'rug_persa', alfombra_rayas: 'rug_rayas', alfombra_rombos: 'rug_rombos', alfombra_trenzada: 'rug_trenzada' };
 function rugModel(m, id, size) {
-  const [w, h] = size.split('x').map(Number), x = w / 2 - 0.06, z = h / 2 - 0.06, y = 0.032;
+  const [w, h] = size.split('x').map(Number), x = w / 2 - 0.06, z = h / 2 - 0.06, y = RUG_Y;
   m.B(RUG_MAT[ITEMS[id]?.rug || id] || 'rug').quad([-x, y, z], [x, y, z], [x, y, -z], [-x, y, -z], [0, 1, 0], w > h ? [[0, 1], [0, 0], [1, 0], [1, 1]] : [[0, 0], [1, 0], [1, 1], [0, 1]]);
 }
 

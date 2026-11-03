@@ -244,7 +244,7 @@ export function doorTile(scene, tx, ty, emit, extras) {
     box('frame', h1, h1 + 0.07, 0, DOOR.y1 + 0.07, k, k + o * 0.05);
     box('frame', h0, h1, DOOR.y1, DOOR.y1 + 0.07, k, k + o * 0.05);
   }
-  box('frame', h0, h1, 0, 0.03, -T, T);   // umbral
+  box('frame', h0, h1, 0, FLOOR_H + 0.015, -T, T);   // umbral (un poco más alto que el suelo: a la misma altura, los dos parpadeaban)
   if (side !== 'in') box('stone', h0 - 0.1, h1 + 0.1, 0, 0.1, outSign * (T + 0.05), outSign * (T + 0.5));
   const hinge = X ? [h0 + 0.02, 0, c + outSign * (T + 0.04)] : [c + outSign * (T + 0.04), 0, h0 + 0.02];
   return { tile: [tx, ty], X, outSign, side, hinge, width: DOOR.half * 2 - 0.03 };
@@ -287,9 +287,10 @@ const ihash2 = (x, y) => { let h = (Math.imul(x | 0, 374761393) + Math.imul(y | 
 
 // ---------- suelos ----------
 // Bajo un muro o una puerta, el suelo solo cubre el lado de dentro (clip: [x0, x1, y0, y1] desde el centro)
+export const FLOOR_H = 0.03;   // lo que levanta el suelo de tablas o de piedra (el camino, menos)
 export function floorTile(scene, tx, ty, id, emit) {
   const clip = scene.floorClip?.(tx, ty) || [-0.5, 0.5, -0.5, 0.5], cx = tx + 0.5, cz = ty + 0.5;
-  const key = id === 'suelo_piedra' ? 'floor_piedra' : id === 'camino' ? 'floor_camino' : 'floor_madera', h = id === 'camino' ? 0.02 : 0.03;
+  const key = id === 'suelo_piedra' ? 'floor_piedra' : id === 'camino' ? 'floor_camino' : 'floor_madera', h = id === 'camino' ? 0.02 : FLOOR_H;
   const B = emit(key, 'floor'), x0 = cx + clip[0], x1 = cx + clip[1], z0 = cz + clip[2], z1 = cz + clip[3];
   // (el suelo de tablas se mira con su textura a 2 m: doce hileras)
   const u = id === 'suelo_madera' ? 0.5 : 1;
