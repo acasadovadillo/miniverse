@@ -399,6 +399,12 @@ export class View3D {
   }
   // Sin transiciones en el próximo fotograma (al empezar, al cambiar de escena)
   snap() { this.snapNext = true; this.cam.pitchNow = this.cam.distNow = null; }
+  // Espera (como mucho ms) a que el suelo de alrededor de la cámara esté hecho: para no destapar la vista sobre el vacío
+  whenReady(ms = 1500) {
+    const t0 = performance.now(), target = this.cam.target;
+    let frames = 0;   // (dos fotogramas de margen: que la vista haya pasado ya al mundo nuevo)
+    return new Promise(res => { const look = () => { if (++frames > 2 && (this.cave || this.terrain.ready(target.x, target.z) || performance.now() - t0 > ms)) res(); else requestAnimationFrame(look); }; look(); });
+  }
 }
 const CAVE_SUN = new THREE.Vector3(0.2, 1, 0.3).normalize();
 const SILHOUETTE = new THREE.MeshBasicMaterial({ color: '#ffe8b0', transparent: true, opacity: 0.45, depthFunc: THREE.GreaterDepth, depthWrite: false, fog: false });

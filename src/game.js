@@ -841,6 +841,7 @@ export class Game {
     this.build.toggle(false);
     this.updatePlace();
     this.view3d.snap();
+    await this.view3d.whenReady?.(1500);   // (el suelo se hace en otro hilo: que esté antes de destapar)
     await hud.fade(false);
     this.busy = false;
   }

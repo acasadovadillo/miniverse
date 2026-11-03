@@ -437,8 +437,10 @@ export function initMenus(game) {
   function play(data, deltas, solo = null, role = null) {
     show(null);
     // (si la partida no se puede abrir, se vuelve al menú diciendo por qué, en vez de quedarse parado)
+    $('fade').classList.add('on');   // (a oscuras hasta que el suelo de alrededor esté hecho: se calcula en otro hilo)
     try { game.start(data, deltas); }
-    catch (e) { console.error(e); live.unclaim(); game.end(); openMenu(); $('menu-msg').textContent = `No se ha podido abrir la partida: ${e.message}`; return; }
+    catch (e) { console.error(e); $('fade').classList.remove('on'); live.unclaim(); game.end(); openMenu(); $('menu-msg').textContent = `No se ha podido abrir la partida: ${e.message}`; return; }
+    (game.view3d.whenReady?.(2000) || Promise.resolve()).then(() => hud.fade(false));
     if (role && live.net) live.join(solo, role);
     if (role === 'host' || (!role && Profile.admin)) save({ upload: true });   // (que el mundo quede guardado para los demás cuanto antes)
   }

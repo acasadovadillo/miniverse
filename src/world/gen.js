@@ -18,10 +18,36 @@ export class WorldGen {
   constructor(seed) {
     this.seed = seed | 0;
     this.cache = new Map();
+    this.biomes = new Map();   // "cx,cy" → los biomas de medias casillas de un trozo ya calculados (255: aún no)
+    this.fields = new Map();   // "cx,cy" → field(cx, cy)
     this.season = 0;   // estación actual (cambia los colores del suelo y de las plantas)
   }
 
-  biomeAt(x, y) { return biomeAt(x, y, this.seed); }
+  // El bioma de un punto. Los puntos a medias casillas (los centros y las esquinas, que son los que piden el
+  // mundo, el suelo y el mapa) se recuerdan por trozo: el clima cuesta y se pregunta mucho
+  biomeAt(x, y) {
+    const hx = x * 2, hy = y * 2;
+    if (hx !== (hx | 0) || hy !== (hy | 0)) return biomeAt(x, y, this.seed);
+    const cx = own(Math.floor(x / CHUNK)), cy = Math.floor(y / CHUNK), k = `${cx},${cy}`;
+    let grid = this.biomes.get(k);
+    if (!grid) { grid = new Uint8Array(CHUNK * CHUNK * 4).fill(255); this.biomes.set(k, grid); if (this.biomes.size > 3000) this.biomes.delete(this.biomes.keys().next().value); }
+    const li = (hy - cy * CHUNK * 2) * CHUNK * 2 + (((hx % (CHUNK * 2)) + CHUNK * 2) % (CHUNK * 2));   // (la media casilla dentro del trozo)
+    let b = grid[li];
+    if (b === 255) grid[li] = b = biomeAt(x, y, this.seed);
+    return b;
+  }
+  // Apuntar biomas ya calculados en otro hilo (ground.js: blockHeights): las esquinas (m por lado desde
+  // (x0 - 1, z0 - 1)) y los centros (BLOCK por lado desde el bloque)
+  seedBiomes(x0, z0, corners, m, centers, w) {
+    const put = (x, y, b) => {
+      const cx = own(Math.floor(x / CHUNK)), cy = Math.floor(y / CHUNK), k = `${cx},${cy}`;
+      let grid = this.biomes.get(k);
+      if (!grid) { grid = new Uint8Array(CHUNK * CHUNK * 4).fill(255); this.biomes.set(k, grid); }
+      grid[(y * 2 - cy * CHUNK * 2) * CHUNK * 2 + ((((x * 2) % (CHUNK * 2)) + CHUNK * 2) % (CHUNK * 2))] = b;
+    };
+    for (let j = 0; j < m; j++) for (let i = 0; i < m; i++) put(x0 - 1 + i, z0 - 1 + j, corners[j * m + i]);
+    for (let j = 0; j < w; j++) for (let i = 0; i < w; i++) put(x0 + i + 0.5, z0 + j + 0.5, centers[j * w + i]);
+  }
   nearVillage(cx, cy) {
     const bx = own(cx) * CHUNK, by = cy * CHUNK, V = village.BOUNDS;
     return bx + CHUNK > V.x0 && bx < V.x1 && by + CHUNK > V.y0 && by < V.y1;
@@ -31,6 +57,14 @@ export class WorldGen {
   // por casilla y se interpola, y con eso se decide el bioma de cada muestra.
   field(cx, cy) {
     cx = own(cx);
+    const fk = `${cx},${cy}`, had = this.fields.get(fk);
+    if (had) return had;
+    const out = this.computeField(cx, cy);
+    this.fields.set(fk, out);
+    if (this.fields.size > 120) this.fields.delete(this.fields.keys().next().value);
+    return out;
+  }
+  computeField(cx, cy) {
     const s = this.seed, nc = CHUNK + 1, c = {};
     const K = ['T', 'M', 'C', 'R', 'L', 'K', 'P', 'f', 'Q'], coarse = K.map(() => new Float32Array(nc * nc));
     for (let j = 0, i = 0; j < nc; j++) {

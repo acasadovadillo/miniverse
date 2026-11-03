@@ -35,11 +35,18 @@ export const FOUNTAIN = { x: 21.5, y: 28.5 };                  // fuente (3×3 c
 export const DOCK = { x0: 26, y0: 30, x1: 30, y1: 31 };
 // Proyectos del pueblo ya terminados (los pone el sistema de vecinos)
 let projects = {};
-export function setProjects(p) { projects = p || {}; }
+export function setProjects(p) { projects = p || {}; changed(); }
+export const getProjects = () => projects;
+// Quien quiera enterarse de que cambia lo que hay en el pueblo (los proyectos o la casa familiar): el suelo en 3D, que
+// pinta el camino, lo calcula en otro hilo y tiene que contárselo
+const listeners = new Set();
+export function onVillageChange(fn) { listeners.add(fn); return () => listeners.delete(fn); }
+const changed = () => { for (const fn of listeners) fn(); };
 export const hasProject = id => !!projects[id];
 // ¿Es ya tu casa la casa familiar? (entonces ocupa más jardín: los árboles y arbustos de ahí no están)
 let family = false;
-export function setFamilyHouse(on) { family = !!on; }
+export function setFamilyHouse(on) { const was = family; family = !!on; if (was !== family) changed(); }
+export const familyHouse = () => family;
 const ownLot = () => (family ? HOUSE_FAMILY : HOUSE_BIG);
 // Caminitos desde el camino principal hasta cada puerta
 const SPURS = [
