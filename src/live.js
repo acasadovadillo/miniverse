@@ -184,7 +184,7 @@ export class Live {
   setOps(list) {
     const was = this.amOp;
     this.ops = Array.isArray(list) ? new Set(list.map(u => String(u).toLowerCase())) : null;
-    if (this.game.player && this.amOp !== was) hud.toast(this.amOp ? 'Ahora eres op: puedes usar los comandos (/ayuda)' : 'Ya no eres op', this.amOp ? 'ok' : '');
+    if (this.game.player && this.amOp !== was) hud.toast(this.amOp ? 'Ahora eres op: puedes usar los comandos (/help)' : 'Ya no eres op', this.amOp ? 'ok' : '');
     this.changed();
   }
   // ¿Es op esta cuenta? (null: el servidor no lo dice)

@@ -78,7 +78,7 @@ async function stored(log) {
     try {
       // (con un token que no llega al repositorio, GitHub diría que no hay mundo: antes, se comprueba)
       if (!Profile.server.token || !(await canWrite(Profile.server.token, DATA_REPO))) {
-        if (!warned) log(`El token no puede guardar en ${DATA_REPO} (o GitHub no responde bien): lo intento cada poco. Si no se arregla, escribe /vincular en el terminal y entra con la cuenta del admin.`);
+        if (!warned) log(`El token no puede guardar en ${DATA_REPO} (o GitHub no responde bien): lo intento cada poco. Si no se arregla, escribe /link en el terminal y entra con la cuenta del admin.`);
         warned = true;
         await sleep(RETRY * 3);
         continue;
@@ -88,7 +88,7 @@ async function stored(log) {
       if (!w) log('Todavía no hay mundo guardado: empieza uno nuevo.');
       return w || { deltas: [], shared: {} };
     } catch (e) {
-      if (e.wrongKey) { log(`${e.message} Escribe /vincular en el terminal y entra con la cuenta del admin.`); return null; }
+      if (e.wrongKey) { log(`${e.message} Escribe /link en el terminal y entra con la cuenta del admin.`); return null; }
       if (local) { log(`GitHub no responde (${e.message}): se abre la copia de este ordenador.`); return local; }
       log(`GitHub no responde (${e.message}): lo intento otra vez en unos segundos.`);
       await sleep(RETRY);

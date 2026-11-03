@@ -2,7 +2,7 @@
 // antorchas), la lluvia, la nieve, la niebla y las tormentas.
 // La hora es la de Madrid (con el cambio de hora de verano e invierno) y la estación, la del calendario: si se
 // juega de noche, en el juego es de noche. El admin puede adelantarla o atrasarla (/time set) y volver a la de
-// Madrid (/time madrid). Los días cuentan desde que empezó la partida; los que pasan sin jugar se viven al volver.
+// Madrid (/time reset). Los días cuentan desde que empezó la partida; los que pasan sin jugar se viven al volver.
 import { mk, ihash } from './util.js';
 import { SEASONS } from './art/seasons.js';
 import { ENERGY_MAX } from './items.js';
@@ -147,7 +147,7 @@ export class TimeSystem {
   }
 
   // Poner una hora del día de hoy (en horas, con decimales: 18.5 son las 18:30), con el comando /time set: el
-  // reloj sigue andando desde ahí. Y volver a la hora de Madrid (/time madrid)
+  // reloj sigue andando desde ahí. Y volver a la hora de Madrid (/time reset)
   setHour(hour) {
     const here = this.now - this.shift * HOUR_MS;
     this.shift = hour - (here % DAY_MS) / HOUR_MS;

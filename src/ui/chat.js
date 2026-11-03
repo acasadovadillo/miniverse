@@ -1,6 +1,6 @@
 // Chat, como en Minecraft: T lo abre (o / con la barra ya escrita), Intro envía y Esc cierra.
-// Lo que empieza por / es un comando. Los mensajes se van apagando a los pocos segundos; con el chat
-// abierto se ven todos los últimos.
+// Lo que empieza por / es un comando (en inglés, como en Minecraft; lo que se les pasa también se entiende en
+// español). Los mensajes se van apagando a los pocos segundos; con el chat abierto se ven todos los últimos.
 import { hud } from './hud.js';
 import { clearKeys } from '../input.js';
 import { Profile } from '../accounts.js';
@@ -13,7 +13,7 @@ import { WORLD_SEED } from '../world/gen.js';
 const $ = id => document.getElementById(id);
 const FADE = 10000;   // milisegundos que un mensaje se queda a la vista con el chat cerrado
 // Horas con nombre para /time set (además de HH:MM)
-const NAMED_HOURS = { amanecer: 6, dia: 7, 'día': 7, mediodia: 12, 'mediodía': 12, tarde: 17, noche: 21, medianoche: 0 };
+const NAMED_HOURS = { sunrise: 6, day: 7, noon: 12, sunset: 19, night: 21, midnight: 0, amanecer: 6, dia: 7, mediodia: 12, tarde: 17, noche: 21, medianoche: 0 };
 const clockText = h => { const m = Math.round(h * 60) % 1440; return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`; };
 
 // /op y /deop (dar o quitar los comandos de op) solo se escriben en el terminal del servidor, como en Minecraft
@@ -29,7 +29,8 @@ function findItem(text) {
 }
 // Los modos de juego, como se pueden escribir
 const GM_NAMES = { supervivencia: 'survival', survival: 'survival', s: 'survival', 0: 'survival', creativo: 'creative', creative: 'creative', c: 'creative', 1: 'creative', espectador: 'spectator', spectator: 'spectator', sp: 'spectator', 3: 'spectator' };
-const WEATHER_NAMES = { sol: 'sol', despejado: 'sol', clear: 'sol', nubes: 'nubes', nublado: 'nubes', lluvia: 'lluvia', rain: 'lluvia', tormenta: 'tormenta', thunder: 'tormenta', niebla: 'niebla', nieve: 'nieve', snow: 'nieve' };
+const WEATHER_NAMES = { clear: 'sol', clouds: 'nubes', cloudy: 'nubes', rain: 'lluvia', thunder: 'tormenta', fog: 'niebla', snow: 'nieve', sol: 'sol', despejado: 'sol', nubes: 'nubes', nublado: 'nubes', lluvia: 'lluvia', tormenta: 'tormenta', niebla: 'niebla', nieve: 'nieve' };
+const WEATHER_SAID = { sol: 'sol', nubes: 'nubes', lluvia: 'lluvia', tormenta: 'tormenta', niebla: 'niebla', nieve: 'nieve' };
 const DIFF_NAMES = { pacifico: 'peaceful', peaceful: 'peaceful', p: 'peaceful', 0: 'peaceful', facil: 'easy', easy: 'easy', e: 'easy', 1: 'easy', normal: 'normal', n: 'normal', 2: 'normal', dificil: 'hard', hard: 'hard', h: 'hard', 3: 'hard' };
 const num = v => (v !== undefined && v !== '' && Number.isFinite(+v) ? +v : null);
 // Pedirle algo a unos jugadores (por su nombre, @a o @s): a ti te lo hace tu juego; a los demás, el suyo
@@ -44,11 +45,11 @@ const COMMANDS = {
   op: { help: 'da los comandos de op (/gamemode, /tp, /give, /time…) a una cuenta: se escribe en el terminal del servidor, /op <usuario>', run(game, say) { opHere(game, say, 'op'); } },
   deop: { help: 'quita los comandos de op a una cuenta: se escribe en el terminal del servidor, /deop <usuario>', run(game, say) { opHere(game, say, 'deop'); } },
   gamemode: {
-    help: 'modo de juego (solo los op): /gamemode supervivencia|creativo|espectador [jugador]',
+    help: 'modo de juego (solo los op): /gamemode survival|creative|spectator [jugador]',
     run(game, say, [mode = '', who = '@s']) {
       if (needOp(game, say, 'gamemode')) return;
       const gm = GM_NAMES[plain(mode)];
-      if (!gm) { say('Uso: /gamemode supervivencia|creativo|espectador [jugador]', 'err'); return; }
+      if (!gm) { say('Uso: /gamemode survival|creative|spectator [jugador]', 'err'); return; }
       const names = order(game, say, who, { t: 'gamemode', gm });
       if (names) say(`Modo ${GAMEMODES[gm]}: ${names.join(', ')}.`, 'ok');
     },
@@ -123,30 +124,30 @@ const COMMANDS = {
     },
   },
   weather: {
-    help: 'el tiempo (solo los op): /weather sol|nubes|lluvia|tormenta|niebla|nieve [minutos] (sin minutos, 15); luego vuelve el del día',
+    help: 'el tiempo (solo los op): /weather clear|clouds|rain|thunder|fog|snow [minutos] (sin minutos, 15); luego vuelve el del día',
     run(game, say, [kind = '', mins = '']) {
       if (needOp(game, say, 'weather')) return;
       const w = WEATHER_NAMES[plain(kind)], m = num(mins) ?? 15;
-      if (!w || m <= 0) { say('Uso: /weather sol|nubes|lluvia|tormenta|niebla|nieve [minutos]', 'err'); return; }
+      if (!w || m <= 0) { say('Uso: /weather clear|clouds|rain|thunder|fog|snow [minutos]', 'err'); return; }
       game.weatherLock = { w, until: Date.now() + m * 60000 };
       game.onSave?.();
-      say(`Ahora hace ${plain(kind) === 'sol' ? 'sol' : w} durante ${m} minuto${m === 1 ? '' : 's'}${game.rules.doWeatherCycle ? '; luego vuelve el tiempo del día' : ''}.`, 'ok');
+      say(`Ahora hace ${WEATHER_SAID[w]} durante ${m} minuto${m === 1 ? '' : 's'}${game.rules.doWeatherCycle ? '; luego vuelve el tiempo del día' : ''}.`, 'ok');
     },
   },
   seed: { help: 'la semilla del mundo', run(game, say) { say(`Semilla del mundo: ${WORLD_SEED}`, 'sys'); } },
   difficulty: {
-    help: 'la dificultad: /difficulty (la dice); /difficulty pacifico|facil|normal|dificil (solo los op)',
+    help: 'la dificultad: /difficulty (la dice); /difficulty peaceful|easy|normal|hard (solo los op)',
     run(game, say, [level = '']) {
       if (!level) { say(`Dificultad: ${DIFFICULTIES[game.difficulty]}.`, 'sys'); return; }
       if (needOp(game, say, 'difficulty')) return;
       const d = DIFF_NAMES[plain(level)];
-      if (!d) { say('Uso: /difficulty pacifico|facil|normal|dificil', 'err'); return; }
+      if (!d) { say('Uso: /difficulty peaceful|easy|normal|hard', 'err'); return; }
       game.difficulty = d;
       game.onSave?.();
       say(`Dificultad: ${DIFFICULTIES[d]}.${d === 'peaceful' ? ' No hay criaturas y el hambre no baja.' : ''}`, 'ok');
     },
   },
-  luz: {
+  light: {
     help: `la luz donde estás (0-15): con ${DARK} o menos, de noche, aparecen criaturas`,
     run(game, say) {
       const p = game.player, m = game.mobs;
@@ -220,24 +221,25 @@ const COMMANDS = {
     },
   },
   time: {
-    help: 'la hora (la de Madrid): /time dice qué hora es; /time set HH:MM pone esa hora del día, por ejemplo /time set 18:30, y /time madrid vuelve a la de Madrid (solo los op)',
+    help: 'la hora (la de Madrid): /time dice qué hora es; /time set HH:MM (o sunrise, day, noon, sunset, night, midnight) pone esa hora del día, por ejemplo /time set 18:30, y /time reset vuelve a la de Madrid (solo los op)',
     run(game, say, [sub = '', value = '']) {
       const T = game.days;
-      if (!sub) { say(`Son las ${clockText(T.hour)}${T.shift ? ' (el reloj está movido: /time madrid lo devuelve a la hora de Madrid)' : ', como en Madrid'}.`, 'sys'); return; }
+      if (!sub) { say(`Son las ${clockText(T.hour)}${T.shift ? ' (el reloj está movido: /time reset lo devuelve a la hora de Madrid)' : ', como en Madrid'}.`, 'sys'); return; }
       sub = sub.toLowerCase();
-      if (!(sub === 'set' && value) && sub !== 'madrid') { say('Uso: /time set HH:MM (por ejemplo, /time set 18:30) o /time madrid', 'err'); return; }
+      if (sub === 'madrid') sub = 'reset';
+      if (!(sub === 'set' && value) && sub !== 'reset') { say('Uso: /time set HH:MM (por ejemplo, /time set 18:30) o /time reset', 'err'); return; }
       // (la hora es la del mundo: jugando en el mundo de otro, se le pide a quien lo lleva, que la cambia si eres op)
       if (needOp(game, say, 'time')) return;
       const ask = m => { game.live.order(game.live.hostConn, { t: 'settime', ...m }); say(`Pedido a ${game.live.hostName || 'quien lleva el mundo'}, que lleva la hora del mundo.`, 'ok'); };
-      if (sub === 'madrid' && game.live.guest) { ask({ madrid: true }); return; }
-      if (sub === 'madrid') {
+      if (sub === 'reset' && game.live.guest) { ask({ madrid: true }); return; }
+      if (sub === 'reset') {
         T.realHour();
         if (game.live.timers) game.live.timers.time = Infinity;
         game.onSave?.();
         say(`Vuelve a ser la hora de Madrid: son las ${clockText(T.hour)}.`, 'ok');
         return;
       }
-      const m = /^(\d{1,2})(?::(\d{2}))?$/.exec(value), named = NAMED_HOURS[value.toLowerCase()];
+      const m = /^(\d{1,2})(?::(\d{2}))?$/.exec(value), named = NAMED_HOURS[plain(value)];
       if (!m && named === undefined) { say('Escribe la hora así: /time set 18:30', 'err'); return; }
       if (m && (+m[1] > 23 || +(m[2] || 0) > 59)) { say('Esa hora no existe: va de 00:00 a 23:59.', 'err'); return; }
       const h = named ?? +m[1] + +(m[2] || 0) / 60;
@@ -245,19 +247,19 @@ const COMMANDS = {
       T.setHour(h);
       if (game.live.timers) game.live.timers.time = Infinity;   // (jugando juntos, que los demás la vean ya)
       game.onSave?.();
-      say(`Ahora son las ${clockText(h)} (el reloj sigue andando desde ahí; /time madrid lo devuelve a la hora de Madrid).`, 'ok');
+      say(`Ahora son las ${clockText(h)} (el reloj sigue andando desde ahí; /time reset lo devuelve a la hora de Madrid).`, 'ok');
     },
   },
-  sentarse: { help: 'sentarse en el suelo (también con la tecla G)', run(game) { game.rest.floor('floorSit'); } },
-  tumbarse: { help: 'tumbarse en el suelo (también con la tecla H)', run(game) { game.rest.floor('floorLie'); } },
-  levantarse: { help: 'levantarse (también moviéndote o con E)', run(game) { game.rest.stand(); } },
-  ayuda: {
+  sit: { help: 'sentarse en el suelo (también con la tecla G)', run(game) { game.rest.floor('floorSit'); } },
+  lie: { help: 'tumbarse en el suelo (también con la tecla H)', run(game) { game.rest.floor('floorLie'); } },
+  stand: { help: 'levantarse (también moviéndote o con E)', run(game) { game.rest.stand(); } },
+  help: {
     help: 'lista los comandos',
     run(game, say) { for (const [name, c] of Object.entries(COMMANDS)) say(`/${name}: ${c.help}`, 'sys'); },
   },
 };
 
-const ALIASES = { tell: 'msg', w: 'msg', help: 'ayuda', dificultad: 'difficulty', light: 'luz' };
+const ALIASES = { tell: 'msg', w: 'msg' };
 
 export function initChat(game) {
   const box = $('chat'), log = $('chat-log'), input = $('chat-input');
@@ -294,7 +296,7 @@ export function initChat(game) {
     if (!text.startsWith('/')) { say(`<${game.player?.name || 'Tú'}> ${text}`); game.live.chat(text); return; }   // (en directo, también a los demás)
     const [name = '', ...args] = text.slice(1).split(/\s+/), c = COMMANDS[ALIASES[name.toLowerCase()] || name.toLowerCase()];
     if (c) c.run(game, say, args);
-    else say(`No existe el comando /${name}. Escribe /ayuda para ver los que hay.`, 'err');
+    else say(`No existe el comando /${name}. Escribe /help para ver los que hay.`, 'err');
   }
 
   input.addEventListener('keydown', e => {

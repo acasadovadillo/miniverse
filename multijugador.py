@@ -20,10 +20,10 @@
 # la hora y crecer los cultivos, reparte los cambios, no deja los que no tocan y lo guarda (cifrado). Ese juego lo
 # sirve este programa desde esta carpeta, solo para este ordenador (http://127.0.0.1:8791). Para llevar el mundo
 # necesita la clave del mundo y el token del admin para guardarlo en GitHub: se los da el juego del admin la primera
-# vez que entra con la pestaña que se abre (o tras /vincular), siempre dentro de este ordenador (nunca por el
+# vez que entra con la pestaña que se abre (o tras /link), siempre dentro de este ordenador (nunca por el
 # túnel), y quedan en servidor-secretos.json, junto a los op.
 #
-# Mientras está abierto, en su terminal se escriben los comandos del servidor (como en Minecraft; /ayuda los
+# Mientras está abierto, en su terminal se escriben los comandos del servidor (como en Minecraft; /help los
 # lista): op y deop (los op pueden usar los comandos del juego: /gamemode, /tp, /give…), kick, ban y pardon, la
 # lista blanca, list, say, save-all y stop. Cada juego dice al entrar de qué cuenta es (el servidor no lee nada
 # más). Los op, los vetados y la lista blanca se guardan en ops.json, banned.json y whitelist.json, junto a este
@@ -99,7 +99,7 @@ CHROMES = ['/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', '/App
            '/Applications/Brave Browser.app/Contents/MacOS/Brave Browser', '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge']
 PASE = base64.urlsafe_b64encode(os.urandom(18)).decode()   # lo que enseña el mundo del servidor para que se le den las claves
 world_keys = load_json(SECRETS_FILE, None)   # { key, token }: la clave del mundo y con qué guardarlo
-link_until = 0       # (tras /vincular, hasta cuándo se aceptan claves nuevas)
+link_until = 0       # (tras /link, hasta cuándo se aceptan claves nuevas)
 servers = set()      # las conexiones del mundo del servidor
 local = set()        # las conexiones desde este ordenador (no por el túnel): solo a ellas se les piden o dan claves
 chrome = None        # su proceso
@@ -378,16 +378,17 @@ async def ready(url, limit=60):
 
 
 HELP = '''  Comandos del servidor:
-    /op <usuario>, /deop <usuario>, /ops      dar o quitar los comandos de op, y quién los tiene
+    /op <usuario>, /deop <usuario>, /op list  dar o quitar los comandos de op, y quién los tiene
     /kick <usuario> [motivo]                  echar a alguien (puede volver a entrar)
     /ban <usuario> [motivo], /pardon <usuario>, /banlist   vetar, quitar el veto y ver los vetados
     /whitelist on|off|add <usuario>|remove <usuario>|list  la lista blanca (puesta, solo entran los de la lista)
     /list                                     quién está conectado
     /say <texto>                              un aviso en el chat de todos
     /save-all                                 que todos guarden ya (quien lleva el mundo, también el mundo)
-    /mundo                                    cómo está el mundo del servidor
-    /vincular                                 pedir otra vez las claves del mundo al juego del admin (5 minutos)
-    /stop                                     guardar y cerrar el servidor (también con Ctrl+C)'''
+    /world                                    cómo está el mundo del servidor
+    /link                                     pedir otra vez las claves del mundo al juego del admin (5 minutos)
+    /stop                                     guardar y cerrar el servidor (también con Ctrl+C)
+    /help                                     esta lista'''
 
 
 def need_keys():
@@ -495,9 +496,11 @@ def command(line):
     user, rest = user.lower(), rest.strip()
     if not name:
         return
-    if name in ('op', 'deop'):
+    if name == 'op' and user == 'list':
+        print(f'  Op: {", ".join(sorted(ops)) or "nadie"}')
+    elif name in ('op', 'deop'):
         if not user:
-            print(f'  Uso: /{name} <usuario>')
+            print(f'  Uso: /{name} <usuario>' + (' (o /op list)' if name == 'op' else ''))
             return
         if name == 'op':
             ops.add(user)
@@ -506,8 +509,6 @@ def command(line):
         save_json(OPS_FILE, sorted(ops))
         everyone({'t': 'ops', 'ops': sorted(ops)})
         print(f'  {user} {"ya es op" if name == "op" else "ya no es op"} (op: {", ".join(sorted(ops)) or "nadie"})')
-    elif name == 'ops':
-        print(f'  Op: {", ".join(sorted(ops)) or "nadie"}')
     elif name == 'kick':
         if not user:
             print('  Uso: /kick <usuario> [motivo]')
@@ -557,10 +558,10 @@ def command(line):
     elif name == 'save-all':
         everyone({'t': 'save'})
         print('  Guardando: cada juego guarda lo suyo, y quien lleva el mundo, el mundo')
-    elif name == 'mundo':
+    elif name == 'world':
         state = 'conectado' if servers else 'abriéndose' if chrome and chrome.returncode is None else 'cerrado'
         print(f'  Mundo del servidor: {state}' + ('' if world_keys else ' (sin claves: que entre el admin)'))
-    elif name == 'vincular':
+    elif name == 'link':
         global link_until
         link_until = time.time() + 300
         for c in local:
@@ -577,6 +578,8 @@ def command(line):
         # (el mundo del servidor avisa cuando ha guardado: como mucho, se le espera un poco)
         asyncio.get_running_loop().call_later(15 if servers else 3, shutdown)
     else:
+        if name != 'help':
+            print(f'  No existe el comando /{name}.')
         print(HELP)
 
 
@@ -623,7 +626,7 @@ async def main():
     server = await asyncio.start_server(handle, '127.0.0.1', PORT)
     site = await asyncio.start_server(web, '127.0.0.1', WEB_PORT)
     print(f'Servidor de Miniverse para jugar juntos, en el puerto {PORT}.')
-    print(f'Escribe aquí los comandos del servidor (/ayuda para verlos). Op ahora: {", ".join(sorted(ops)) or "nadie"}.')
+    print(f'Escribe aquí los comandos del servidor (/help para verlos). Op ahora: {", ".join(sorted(ops)) or "nadie"}.')
     threading.Thread(target=console, args=(asyncio.get_running_loop(),), daemon=True).start()
     asyncio.get_running_loop().add_signal_handler(signal.SIGINT, stop_signal)
     asyncio.get_running_loop().add_signal_handler(signal.SIGTERM, stop_signal)
