@@ -114,7 +114,7 @@ export class World3D {
   signature(scene, cx, cy, data) {
     const farm = this.farm(scene), d = scene.delta(cx, cy), today = farm?.today;
     let s = '';
-    for (const o of data.objects) s += o.key + (o.crop ? ':' + farm.stage(o.crop) : '') + (o.open ? '!' : '') + (o.placed ? o.placed + (o.rot || 0) : '') + (o.off ? '~' : '') + (o.tuck ? '^' : '') + (o.free ? `@${o.x.toFixed(2)},${o.y.toFixed(2)},${o.yaw.toFixed(2)}` : '') + (o.window && scene.doorClosed(...o.tile) ? '#' : '') + ',';   // (~: apagado; #: ventana cerrada)
+    for (const o of data.objects) s += o.key + (o.crop ? ':' + farm.stage(o.crop) : '') + (o.open ? '!' : '') + (o.placed ? o.placed + (o.rot || 0) : '') + (o.model ? ':' + o.model : '') + (o.off ? '~' : '') + (o.tuck ? '^' : '') + (o.free ? `@${o.x.toFixed(2)},${o.y.toFixed(2)},${o.yaw.toFixed(2)}` : '') + (o.window && scene.doorClosed(...o.tile) ? '#' : '') + ',';   // (~: apagado; #: ventana cerrada)
     for (const o of data.flats) s += o.key + (o.model || o.placed || '') + (o.rot || 0) + (o.free ? `@${o.x.toFixed(2)},${o.y.toFixed(2)},${o.yaw.toFixed(2)}` : '') + ',';
     for (const o of data.floors) s += o.key + ',';
     for (const t of data.tilled) { const k = `${t[0]},${t[1]}`; s += k + (d?.wet?.[k] === today ? 'w' : '') + ';'; }
@@ -504,8 +504,9 @@ export class World3D {
   }
   // El candelabro de una casa: se apaga y se enciende como las demás luces (se guarda con la casilla de su centro)
   chandelierOff(r) { const s = this.game?.world, [x, y] = r.center.map(Math.floor); return !!s?.lightOff(x, y, `c:${x},${y}`); }
-  chandelierNear(x, y, d = 2.2) {
-    for (const r of this.regions.values()) if (r.center && !this.ownLamp(r) && Math.hypot(r.center[0] - x, r.center[1] - y) < d) return r.center.map(Math.floor);
+  // (la casilla de su centro; exact: el punto del que cuelga)
+  chandelierNear(x, y, d = 2.2, exact = false) {
+    for (const r of this.regions.values()) if (r.center && !this.ownLamp(r) && Math.hypot(r.center[0] - x, r.center[1] - y) < d) return exact ? r.center : r.center.map(Math.floor);
     return null;
   }
   smoke() {

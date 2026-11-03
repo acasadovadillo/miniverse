@@ -9,8 +9,10 @@ import { RUG_SIZES, TABLE_SIZES } from './art/stations.js';
 // Lo que se coloca libre (donde se apunte, con cualquier giro): muebles, estaciones, lo que va plano y las
 // alfombras. Los cuadros y el hogar, contra un muro, siguen yendo por casillas
 export const freePlace = id => !!id && id !== 'chimenea' && ['furniture', 'station', 'flat', 'rug'].includes(ITEMS[id]?.place);
-// Los tamaños que se eligen con V (índices de RUG_SIZES y TABLE_SIZES: girarlos ya lo hace R)
-const sizesOf = id => (ITEMS[id]?.place === 'rug' ? [0, 1, 3, 4, 6] : id === 'mesa_grande' ? [0, 2, 3, 5] : null);
+// Los tamaños que se eligen con V (índices de TABLE_SIZES: girarla ya lo hace R). Las alfombras ya vienen de su
+// tamaño del telar: rugK, su índice en RUG_SIZES
+const sizesOf = id => (id === 'mesa_grande' ? [0, 2, 3, 5] : null);
+const rugK = id => Math.max(0, RUG_SIZES.findIndex(([w, h]) => w === ITEMS[id].size?.[0] && h === ITEMS[id].size?.[1]));
 
 const REACH = 1.7;          // alcance en casillas
 const COOLDOWN = 0.32;      // segundos entre golpes
@@ -21,6 +23,7 @@ const CHIPS = {
 };
 
 const TURN_WAIT = 0.22, TURN_SPEED = 1.7;   // R: lo que dura un toque (s) y lo que gira mantenida (rad/s)
+const TURN_STEP = Math.PI / 12;             // los toques de R van de 15° en 15° (encajados: 90° son 6 toques)
 const PLACE_REACH = 4;   // casillas de distancia a las que se puede colocar algo con el ratón
 
 export class Gathering {
@@ -56,7 +59,7 @@ export class Gathering {
       const mp = g.mousePoint();
       if (mp) { this.cursorPt = mp; this.cursorAt = performance.now(); }
       const pt = this.cursorPt && performance.now() - this.cursorAt < 4000 ? this.cursorPt : [p.x + p.face.x * 1.3, p.y + p.face.y * 1.3];
-      const S = sizesOf(held.id), k = S ? S[this.size % S.length] : 0, f = g.scene.fitFree(held.id, pt[0], pt[1], this.angle, k, p);
+      const S = sizesOf(held.id), k = def.place === 'rug' ? rugK(held.id) : S ? S[this.size % S.length] : 0, f = g.scene.fitFree(held.id, pt[0], pt[1], this.angle, k, p);
       const far = Math.hypot(f.cx - p.x, f.cy - p.y) > PLACE_REACH + 0.5;
       return { free: true, ok: f.ok && !far, far, why: f.why, fit: f, place: held.id, model: f.model, x: f.ox, y: f.oy, a: f.a, rot: k };
     }
@@ -101,8 +104,9 @@ export class Gathering {
     if (def?.food) return `Comer ${def.name.toLowerCase()}`;
     if (def?.heal) return `Beber ${def.name.toLowerCase()}`;
     if (t?.free) {
-      const [w, h] = def.place === 'rug' ? RUG_SIZES[t.rot] : held.id === 'mesa_grande' ? TABLE_SIZES[t.rot] : [], size = w ? ` de ${w}×${h}` : '', keys = `R: girar${w ? ' · V: tamaño' : ''}`;
-      return t.ok ? `Colocar ${def.name.toLowerCase()}${size} (${keys})` : t.far ? 'Demasiado lejos' : `${t.why || 'Ahí no cabe'} (${keys})`;
+      const [w, h] = held.id === 'mesa_grande' ? TABLE_SIZES[t.rot] : [], size = w ? ` de ${w}×${h}` : '', keys = `R: girar${w ? ' · V: tamaño' : ''}`;
+      const loose = g.player.crouch && held.id === 'encimera' ? ', suelta (agachado no se une)' : '';
+      return t.ok ? `Colocar ${def.name.toLowerCase()}${size}${loose} (${keys})` : t.far ? 'Demasiado lejos' : `${t.why || 'Ahí no cabe'} (${keys})`;
     }
     if (def?.place) return t?.ok ? `Colocar ${def.name.toLowerCase()} (R: girar)` : t?.far ? 'Demasiado lejos' : '';
     if (t?.label !== undefined) return t.label;
@@ -114,8 +118,9 @@ export class Gathering {
     return `Necesitas ${rule.tool === 'guadana' ? 'la guadaña' : rule.tool === 'hacha' ? 'el hacha' : 'el pico'}`;
   }
 
-  // Girar lo que se coloca libre: un toque de R, 15°; dejándola pulsada, gira poco a poco (con Shift, al revés).
-  // Al soltar, si queda casi recto (a menos de 5°), se endereza
+  // Girar lo que se coloca libre: dejando R pulsada, gira sin parar (con Shift, al revés); cada toque lo lleva
+  // al siguiente múltiplo de 15°, así que tras un giro libre unos toques lo vuelven a cuadrar con las casillas
+  // (y con la pared). Al soltar tras mantenerla, si queda casi recto (a menos de 5°), se endereza
   turnStart(dir) { if (!this.turn) this.turn = { dir, at: performance.now(), from: this.angle }; }
   turning() { const t = this.turn, held = (performance.now() - t.at) / 1000 - TURN_WAIT; if (held > 0) this.angle = t.from + t.dir * TURN_SPEED * held; }
   turnEnd() {
@@ -124,8 +129,10 @@ export class Gathering {
     this.turning();
     this.turn = null;
     const Q = Math.PI / 2;
-    if (performance.now() - t.at < TURN_WAIT * 1000) this.angle = t.from + t.dir * Math.PI / 12;
-    else { const n = Math.round(this.angle / Q) * Q; if (Math.abs(this.angle - n) < 5 * Math.PI / 180) this.angle = n; }
+    if (performance.now() - t.at < TURN_WAIT * 1000) {
+      const s = t.from / TURN_STEP;   // (el margen, para no quedarse donde ya está por un error de redondeo)
+      this.angle = (t.dir > 0 ? Math.floor(s + 1e-6) + 1 : Math.ceil(s - 1e-6) - 1) * TURN_STEP;
+    } else { const n = Math.round(this.angle / Q) * Q; if (Math.abs(this.angle - n) < 5 * Math.PI / 180) this.angle = n; }
     this.angle = ((this.angle % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
   }
   nextSize() { this.size++; }
@@ -273,7 +280,7 @@ export class Gathering {
     if (auto) return;
     this.cooldown = COOLDOWN;
     if (!t?.ok) { this.float(t?.far ? `Demasiado lejos (como mucho a ${PLACE_REACH} casillas)` : t?.why || 'Ahí no cabe', '#ffb0a0'); Audio.error(); return; }
-    if (t.free) g.scene.placeFree(id, t.fit); else g.scene.place(...t.tile, id, t.rot);
+    if (t.free) g.scene.placeFree(id, t.fit, !!g.player.crouch); else g.scene.place(...t.tile, id, t.rot);
     g.inv.take(g.inv.selected, 1);
     this.chips(t.free ? t.fit.cx : t.tile[0] + 0.5, t.free ? t.fit.cy : t.tile[1] + 0.5, 'dirt', 8);
     Audio.place();

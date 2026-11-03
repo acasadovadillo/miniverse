@@ -44,9 +44,10 @@ export class Player extends Person {
   }
   // Movimiento con las teclas, que siguen la pantalla: arriba es hacia donde mira la cámara
   update(dt, keys, scene) {
+    if (this.mount || this.boat) this.crouch = false;   // (agachado no se monta ni se rema)
     const sx = (keys.right ? 1 : 0) - (keys.left ? 1 : 0), sy = (keys.down ? 1 : 0) - (keys.up ? 1 : 0);
     const l = Math.hypot(sx, sy);
-    const speed = (keys.run ? 5.3 : 3.2) / (l || 1) * (this.wading ? 0.55 : 1) * (this.speedMul || 1) * (this.boat ? 1.4 : 1);
+    const speed = (this.crouch ? 1.4 : keys.run ? 5.3 : 3.2) / (l || 1) * (this.wading ? 0.55 : 1) * (this.speedMul || 1) * (this.boat ? 1.4 : 1);
     const k = 1 - Math.exp(-dt * 14);
     const [dx, dy] = screenToWorld(sx, sy), wx = dx * speed, wy = dy * speed;
     this.vx = lerp(this.vx, wx, k);

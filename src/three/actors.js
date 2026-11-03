@@ -16,6 +16,10 @@ import { animalModel, animalKey, animateAnimal, horseModel, animateHorse } from 
 
 const PEOPLE = new Map();
 const KID_SCALE = 0.66;   // los niños, más pequeños
+// Agachado: cuánto se adelantan los muslos y se doblan las rodillas (rad), cuánto baja el cuerpo (m: lo que suben
+// los pies al doblar las piernas, para que sigan en el suelo) y se echa hacia delante (rad; la cabeza lo compensa
+// para seguir mirando al frente)
+const CROUCH = { hip: 1.5, knee: 2.5, drop: 0.11, lean: 0.4 };
 const LOOK_R = 2.6;      // a qué distancia se mira a quien se tiene al lado
 
 export class Actors {
@@ -160,6 +164,16 @@ export class Actors {
       // (después de andar: el golpe manda sobre el balanceo del brazo)
       if (game) this.hold(m, { held: game.inv.held?.id || null, swing: game.gather.swing, swingItem: game.gather.swingItem, cooldown: game.gather.cooldown, fishPose: game.fishing?.pose(t) }, dt);
       else if (e.remote) this.hold(m, e, dt);
+      // Agachado (Shift): las rodillas dobladas, el cuerpo más bajo y un poco echado hacia delante; andando, a pasitos
+      P.crouch = (P.crouch || 0) + ((e.crouch && !pz && !e.mount && !e.boat ? 1 : 0) - (P.crouch || 0)) * Math.min(1, dt * 12);
+      if (P.crouch > 0.01) {
+        const c = P.crouch;
+        for (const l of P.legs) l.rotation.x = l.rotation.x * (1 - c * 0.5) - CROUCH.hip * c;
+        for (const k of P.shins || []) k.rotation.x = k.rotation.x * (1 - c) + CROUCH.knee * c;
+        P.body.position.y -= CROUCH.drop * c;
+        P.torso.rotation.x += CROUCH.lean * c;
+        P.head.rotation.x = -CROUCH.lean * 0.8 * c;
+      } else P.head.rotation.x = 0;
       if (pz && !lying) {   // sentado: los muslos hacia delante; en la silla, las piernas colgando; en el suelo, estiradas
         for (const l of P.legs) l.rotation.x = -Math.PI / 2;
         for (const k of P.shins || []) k.rotation.x = pz.kind === 'sit' ? Math.PI / 2 : 0.1;

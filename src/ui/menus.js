@@ -4,7 +4,6 @@ import { LOOK_OPTIONS, DEFAULT_LOOK } from '../looks.js';
 import { CharacterPreview } from '../three/preview.js';
 import { SPAWN } from '../world/village.js';
 import { hud } from './hud.js';
-import { Audio } from '../audio.js';
 import { clearKeys } from '../input.js';
 import { initInventoryUI } from './inventory.js';
 import { initCraftingUI } from './crafting.js';
@@ -396,9 +395,6 @@ export function initMenus(game) {
     return false;
   }
   $('p-resume').onclick = resume;
-  const soundLabel = () => { $('p-sound').textContent = `Sonido: ${Audio.on ? 'sí' : 'no'}`; };
-  $('p-sound').onclick = () => { Audio.toggle(); soundLabel(); };
-  soundLabel();
 
   // ---------- Mapa ----------
   function toggleMap() {

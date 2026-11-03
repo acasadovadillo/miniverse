@@ -218,10 +218,11 @@ export class Family {
     if (scene !== this.world) return null;
     for (const [id, e] of this.ents) {
       if (Math.hypot(e.x - p.x, e.y - p.y) > 1.3 || !scene.reaches(p.x, p.y, e.x, e.y)) continue;
-      return { text: e.baby ? `Mirar a ${e.name}` : e.lying ? `${e.name} duerme` : `Hablar con ${e.name}`, run: () => this.talk(id, e) };
+      return this.actionFor(id, e);
     }
     return null;
   }
+  actionFor(id, e) { return { text: e.baby ? `Mirar a ${e.name}` : e.lying ? `${e.name} duerme` : `Hablar con ${e.name}`, run: () => this.talk(id, e) }; }
   async talk(id, e) {
     const g = this.game, parent = (g.player.look?.sex || 'chico') === 'chica' ? 'mamá' : 'papá';
     g.busy = true;

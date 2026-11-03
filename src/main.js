@@ -22,6 +22,7 @@ initInput({
   drop: all => game.toss(all),
   sit: () => game.rest.floor('floorSit'),
   lie: () => game.rest.floor('floorLie'),
+  crouch: on => { const p = game.player; if (p && !p.mount && !p.boat && !p.pose) p.crouch = on ?? !p.crouch; },   // (Shift: agacharse o levantarse)
   build: () => (game.mode === 'play' && !game.busy ? b.toggle() : false),
   building: () => b.on && game.mode === 'play',
   point: (x, y) => b.pointTo(game.tileAtScreen(x, y)),

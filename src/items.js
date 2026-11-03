@@ -53,11 +53,11 @@ export const ITEMS = {
   silla: { name: 'Silla', desc: 'Para sentarse a admirar lo talado. Mirando a una mesa, se mete debajo.', place: 'furniture' },
   mesa: { name: 'Mesa', desc: 'Una mesa robusta de tablas. Las sillas que la miran se meten debajo.', place: 'furniture' },
   mesa_grande: { name: 'Mesa grande', desc: 'De comedor, para toda la familia. Al ponerla, V cambia el tamaño: 2×1, 2×2, 3×1 o 3×2 (y R la gira). Las sillas que la miran se meten debajo.', place: 'furniture' },
-  alfombra: { name: 'Alfombra', desc: 'Da un toque hogareño a cualquier rincón. Al ponerla, V cambia el tamaño (de 1×1 a 3×4); los muebles van encima.', place: 'rug' },
-  alfombra_persa: { name: 'Alfombra persa', desc: 'Azul, con un medallón rojo en el centro y cenefa. Al ponerla, V cambia el tamaño (de 1×1 a 3×4).', place: 'rug' },
-  alfombra_rayas: { name: 'Alfombra de rayas', desc: 'Tejida a franjas de colores, con flecos. Al ponerla, V cambia el tamaño (de 1×1 a 3×4).', place: 'rug' },
-  alfombra_rombos: { name: 'Alfombra de rombos', desc: 'Lana cruda con rombos verdes y rojos. Al ponerla, V cambia el tamaño (de 1×1 a 3×4).', place: 'rug' },
-  alfombra_trenzada: { name: 'Alfombra trenzada', desc: 'Ovalada, de trenzas de tela en espiral. Al ponerla, V cambia el tamaño (de 1×1 a 3×4).', place: 'rug' },
+  alfombra: { name: 'Alfombra', desc: 'Da un toque hogareño a cualquier rincón. En el telar se teje de cinco tamaños (de 1×1 a 3×4; cuanto más grande, más cuesta); los muebles van encima.', place: 'rug' },
+  alfombra_persa: { name: 'Alfombra persa', desc: 'Azul, con un medallón rojo en el centro y cenefa. En el telar se teje de cinco tamaños (de 1×1 a 3×4).', place: 'rug' },
+  alfombra_rayas: { name: 'Alfombra de rayas', desc: 'Tejida a franjas de colores, con flecos. En el telar se teje de cinco tamaños (de 1×1 a 3×4).', place: 'rug' },
+  alfombra_rombos: { name: 'Alfombra de rombos', desc: 'Lana cruda con rombos verdes y rojos. En el telar se teje de cinco tamaños (de 1×1 a 3×4).', place: 'rug' },
+  alfombra_trenzada: { name: 'Alfombra trenzada', desc: 'Ovalada, de trenzas de tela en espiral. En el telar se teje de cinco tamaños (de 1×1 a 3×4).', place: 'rug' },
   cama: { name: 'Cama', desc: 'Para dormir en tu propia casa, donde la construyas.', place: 'furniture' },
   estanteria: { name: 'Estantería', desc: 'Llena de libros que nadie ha leído.', place: 'furniture' },
   maceta: { name: 'Maceta', desc: 'Flores que no hay que regar. Bueno, un poco.', place: 'furniture' },
@@ -247,6 +247,15 @@ Object.assign(ITEMS, {
   inodoro: { name: 'Retrete', desc: 'De porcelana, con asiento de madera.', place: 'furniture' },
   lavabo: { name: 'Lavabo', desc: 'De porcelana, con un espejo encima.', place: 'furniture' },
 });
+// Las alfombras se tejen de cada tamaño en el telar: la de siempre es la de 1×1 y 'alfombra_persa_2x3', la persa de
+// 2×3 (rug: de qué alfombra es; size: lo que ocupa, en casillas; plain: su nombre sin el tamaño)
+export const RUG_KINDS = ['alfombra', 'alfombra_persa', 'alfombra_rayas', 'alfombra_rombos', 'alfombra_trenzada'];
+export const RUG_MADE = [[1, 1], [1, 2], [2, 2], [2, 3], [3, 4]];
+export const rugId = (kind, [w, h]) => (w === 1 && h === 1 ? kind : `${kind}_${w}x${h}`);
+for (const kind of RUG_KINDS) {
+  const base = ITEMS[kind], plain = base.name;
+  for (const size of RUG_MADE) ITEMS[rugId(kind, size)] = Object.assign(ITEMS[rugId(kind, size)] || { ...base }, { name: `${plain} ${size[0]}×${size[1]}`, rug: kind, size, plain });
+}
 for (const it of Object.values(ITEMS)) if (it.wear) it.stack = 1;
 for (const it of Object.values(ITEMS)) it.stack ??= it.place ? 10 : 99;
 

@@ -418,7 +418,10 @@ export class Ranch {
     for (const a of this.animals) { if (a.inside || a.rider) continue; const d = Math.hypot(a.x - p.x, a.y - p.y); if (d < bd && scene.reaches(p.x, p.y, a.x, a.y)) { bd = d; best = a; } }
     if (best) return this.talk(best);
     const o = this.world.placedNear(p.x, p.y, 1.3).find(o => !o.fixed && scene.reaches(p.x, p.y, o.x, o.y));
-    if (!o) return null;
+    return o ? this.objectAction(o) : null;
+  }
+  // Lo que se hace con algo de la granja puesto en el mundo (colmena, comedero, corrales, silo…), o null
+  objectAction(o) {
     const d = this.world.delta(Math.floor(o.tile[0] / 16), Math.floor(o.tile[1] / 16), true), k = `${o.tile[0]},${o.tile[1]}`, inv = this.game.inv;
     const touched = () => this.world.chestTouched(...o.tile);
     switch (o.placed) {

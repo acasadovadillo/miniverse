@@ -11,7 +11,7 @@
 import * as THREE from 'three';
 import { Builder, mat } from './geo.js';
 import { wood, stone, rug, rugDesign, notes, awning, planks, furrows, artwork } from './textures.js';
-import { CROPS } from '../items.js';
+import { CROPS, ITEMS } from '../items.js';
 import { WALL_H } from './build3d.js';
 import { SOLIDS, hull } from '../world/fit.js';
 
@@ -164,9 +164,11 @@ const BUILD = {
     m.box('quiltK', -0.34, 0.74, -0.18, -0.04, 0.8, 0.06).box('sheet', -0.32, 0.8, -0.16, -0.06, 0.85, 0.04);
     m.box('quiltK2', 0.18, 0.74, -0.06, 0.28, 0.77, 0.02);
   },
-  // Encimera con cajones: la parte de abajo de la alacena, con dos cajones encima de las puertas
-  encimera(m) {
-    m.box('wood', -0.46, 0, -0.26, 0.46, 0.86, 0.2).box('light', -0.48, 0.86, -0.28, 0.48, 0.92, 0.22);
+  // Encimera con cajones: la parte de abajo de la alacena, con dos cajones encima de las puertas. a y b: lo que se
+  // alarga por la izquierda y por la derecha para unirse a lo de al lado (el tablero y, hasta su borde, el cuerpo)
+  encimera(m, a, b) {
+    const l = +a || 0, r = +b || 0, bl = l ? l + 0.02 : 0, br = r ? r + 0.02 : 0;
+    m.box('wood', -0.46 - bl, 0, -0.26, 0.46 + br, 0.86, 0.2).box('light', -0.48 - l, 0.86, -0.28, 0.48 + r, 0.92, 0.22);
     m.box('dark', -0.42, 0.62, 0.2, -0.02, 0.8, 0.22).box('dark', 0.02, 0.62, 0.2, 0.42, 0.8, 0.22).box('brass', -0.28, 0.7, 0.22, -0.16, 0.725, 0.24).box('brass', 0.16, 0.7, 0.22, 0.28, 0.725, 0.24);
     m.box('dark', -0.42, 0.08, 0.2, -0.02, 0.56, 0.22).box('dark', 0.02, 0.08, 0.2, 0.42, 0.56, 0.22).ball('brass', -0.07, 0.32, 0.235, 0.022).ball('brass', 0.07, 0.32, 0.235, 0.022);
   },
@@ -602,7 +604,7 @@ Object.assign(BUILD, {
 const RUG_MAT = { alfombra: 'rug', alfombra_persa: 'rug_persa', alfombra_rayas: 'rug_rayas', alfombra_rombos: 'rug_rombos', alfombra_trenzada: 'rug_trenzada' };
 function rugModel(m, id, size) {
   const [w, h] = size.split('x').map(Number), x = w / 2 - 0.06, z = h / 2 - 0.06, y = 0.032;
-  m.B(RUG_MAT[id] || 'rug').quad([-x, y, z], [x, y, z], [x, y, -z], [-x, y, -z], [0, 1, 0], w > h ? [[0, 1], [0, 0], [1, 0], [1, 1]] : [[0, 0], [1, 0], [1, 1], [0, 1]]);
+  m.B(RUG_MAT[ITEMS[id]?.rug || id] || 'rug').quad([-x, y, z], [x, y, z], [x, y, -z], [-x, y, -z], [0, 1, 0], w > h ? [[0, 1], [0, 0], [1, 0], [1, 1]] : [[0, 0], [1, 0], [1, 1], [0, 1]]);
 }
 
 // ---------- caché ----------

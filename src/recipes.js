@@ -1,6 +1,6 @@
 // Recetas: qué se fabrica, dónde (a mano o en una estación) y con qué.
 // Una receta se desbloquea cuando ya has tenido todos sus ingredientes, salvo las que te enseña alguien (`teach`).
-import { ITEMS, toolId } from './items.js';
+import { ITEMS, toolId, RUG_MADE, rugId } from './items.js';
 
 export const STATIONS = {
   mano: { name: 'A mano' },
@@ -13,6 +13,9 @@ export const STATIONS = {
 };
 
 const R = (station, out, n, ins, extra = {}) => ({ id: out, station, out, n, ins, ...extra });
+// Una alfombra de cada tamaño: cuesta según lo que ocupa (la de 2×2, cuatro veces lo de la de 1×1). En la lista sale
+// la de 1×1 y el tamaño se elige al fabricarla (variant: la alfombra de 1×1 de la que es)
+const rugs = (kind, ins) => RUG_MADE.map(size => { const a = size[0] * size[1]; return R('telar', rugId(kind, size), 1, ins.map(([id, n]) => [id, n * a]), a > 1 ? { variant: kind } : {}); });
 
 export const RECIPES = [
   R('mano', 'tablas', 2, [['madera', 1]]),
@@ -102,11 +105,11 @@ export const RECIPES = [
   R('cocina', 'mermelada_fresa', 1, [['fresa', 3]]),
   R('cocina', 'palomitas', 1, [['maiz', 2]]),
   R('cocina', 'tostada_miel', 1, [['pan', 1], ['miel', 1]]),
-  R('telar', 'alfombra', 1, [['tela', 3]]),
-  R('telar', 'alfombra_persa', 1, [['tela', 3], ['bayas', 2]]),
-  R('telar', 'alfombra_rayas', 1, [['tela', 2], ['lana', 2]]),
-  R('telar', 'alfombra_rombos', 1, [['tela', 3], ['lana', 1]]),
-  R('telar', 'alfombra_trenzada', 1, [['fibra', 6], ['tela', 1]]),
+  ...rugs('alfombra', [['tela', 3]]),
+  ...rugs('alfombra_persa', [['tela', 3], ['bayas', 2]]),
+  ...rugs('alfombra_rayas', [['tela', 2], ['lana', 2]]),
+  ...rugs('alfombra_rombos', [['tela', 3], ['lana', 1]]),
+  ...rugs('alfombra_trenzada', [['fibra', 6], ['tela', 1]]),
   // Ropa (en el telar)
   R('telar', 'camisa', 1, [['tela', 2]]),
   R('telar', 'pantalon', 1, [['tela', 2]]),

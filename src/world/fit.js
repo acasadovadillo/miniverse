@@ -62,6 +62,20 @@ export function distTo(A, px, py) {
   const dx = px - A.x, dy = py - A.y, u = dx * A.ux + dy * A.uy, v = dx * A.vx + dy * A.vy;
   return Math.hypot(Math.max(0, Math.abs(u) - A.hx), Math.max(0, Math.abs(v) - A.hy));
 }
+// ¿A qué distancia corta un rayo (o: origen; d: dirección; los dos [x, altura, y]) una caja girada con alturas? null
+// si no la corta
+export function rayHits(o, d, b) {
+  const px = o[0] - b.x, py = o[2] - b.y;
+  let t0 = 0, t1 = Infinity;
+  for (const [s, ds, lo, hi] of [[px * b.ux + py * b.uy, d[0] * b.ux + d[2] * b.uy, -b.hx, b.hx], [px * b.vx + py * b.vy, d[0] * b.vx + d[2] * b.vy, -b.hy, b.hy], [o[1], d[1], b.y0, b.y1]]) {
+    if (Math.abs(ds) < 1e-9) { if (s < lo || s > hi) return null; continue; }
+    let a = (lo - s) / ds, c = (hi - s) / ds;
+    if (a > c) [a, c] = [c, a];
+    t0 = Math.max(t0, a); t1 = Math.min(t1, c);
+    if (t0 > t1) return null;
+  }
+  return t0;
+}
 // Sacar a una persona (un círculo en p) de una caja girada
 export function pushOut(p, A, r) {
   const dx = p.x - A.x, dy = p.y - A.y, u = dx * A.ux + dy * A.uy, v = dx * A.vx + dy * A.vy;

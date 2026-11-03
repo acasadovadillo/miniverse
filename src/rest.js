@@ -47,7 +47,7 @@ export class Rest {
     const p = this.p;
     if (!p || p.mount || p.boat) return;
     this.back = [p.x, p.y];   // (al levantarse, vuelve aquí)
-    Object.assign(p, { pose, x, y, vx: 0, vy: 0, z: 0, vz: 0 });
+    Object.assign(p, { pose, x, y, vx: 0, vy: 0, z: 0, vz: 0, crouch: false });
     Audio.place();
   }
   stand() {

@@ -36,17 +36,17 @@ export function initCraftingUI(game, { onClose, onBag }) {
       b.classList.toggle('far', !near[st]);
       b.classList.toggle('new', RECIPES.some(r => r.station === st && c.fresh.has(r.id)));
     }
-    // Lista de recetas de la pestaña: primero las conocidas
-    const list = RECIPES.filter(r => r.station === tab).sort((a, b) => c.known.has(b.id) - c.known.has(a.id));
+    // Lista de recetas de la pestaña: primero las conocidas (de las alfombras, la de 1×1: el tamaño se elige luego)
+    const list = RECIPES.filter(r => r.station === tab && !r.variant).sort((a, b) => c.known.has(b.id) - c.known.has(a.id));
     if (!picked || picked.station !== tab) picked = list.find(r => c.known.has(r.id)) || list[0];
     const box = $('cf-list');
     box.textContent = '';
     for (const r of list) {
       const el = document.createElement('button'), known = c.known.has(r.id);
       el.type = 'button';
-      el.className = 'slot cf-r' + (known ? '' : ' locked') + (r === picked ? ' sel' : '') + (known && !c.problem(r) ? ' ok' : '') + (c.fresh.has(r.id) ? ' new' : '');
+      el.className = 'slot cf-r' + (known ? '' : ' locked') + (r === picked || picked?.variant === r.id ? ' sel' : '') + (known && !c.problem(r) ? ' ok' : '') + (c.fresh.has(r.id) ? ' new' : '');
       el.innerHTML = `<img alt="" src="${itemIconUrl(r.out)}">` + (r.n > 1 ? `<b>${r.n}</b>` : '') + (known ? '' : '<i class="q">?</i>');
-      el.title = known ? ITEMS[r.out].name : '???';
+      el.title = known ? ITEMS[r.out].plain || ITEMS[r.out].name : '???';
       el.onclick = () => { picked = r; c.fresh.delete(r.id); refresh(); };
       box.append(el);
     }
@@ -65,6 +65,18 @@ export function initCraftingUI(game, { onClose, onBag }) {
     $('cf-icon').classList.toggle('locked', !known);
     $('cf-name').textContent = known ? def.name + (r.n > 1 ? ` ×${r.n}` : '') : '???';
     $('cf-desc').textContent = known ? def.desc + (def.food ? ` Da ${def.food} de energía.` : '') : lockedHint(r, c.seen);
+    // Las alfombras: aquí se elige el tamaño (cada uno con su receta, que cuesta según lo que ocupa)
+    const sizes = $('cf-sizes'), kind = r.variant || (ITEMS[r.out].rug && r.out);
+    sizes.textContent = '';
+    sizes.hidden = !known || !kind;
+    if (known && kind) for (const v of RECIPES.filter(q => q.out === kind || q.variant === kind)) {
+      const b = document.createElement('button'), [w, h] = ITEMS[v.out].size;
+      b.type = 'button';
+      b.className = 'cf-size' + (v === r ? ' on' : '');
+      b.textContent = `${w}×${h}`;
+      b.onclick = () => { picked = v; refresh(); };
+      sizes.append(b);
+    }
     const ins = $('cf-ins');
     ins.textContent = '';
     if (known) {

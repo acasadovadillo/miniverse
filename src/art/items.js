@@ -226,7 +226,7 @@ export function itemIcon(id, color) {
   else if (CROPS[id]) cropIcon(R, g, CROPS[id], id);
   else if (FISH[id]) fishIcon(R, g, FISH[id]);
   else if (BUGS[id]) bugIcon(R, g, BUGS[id], id);
-  else if (DRAW[id]) DRAW[id](R, g);
+  else if (DRAW[id] || DRAW[def.rug]) (DRAW[id] || DRAW[def.rug])(R, g);   // (las alfombras, igual de cualquier tamaño)
   else R(4, 4, 8, 8, '#ff00ff');
   const icon = outlined(c);
   cache.set(k, icon);

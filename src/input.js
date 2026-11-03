@@ -15,6 +15,10 @@ function camAxes() {
   CAM.turn = CAM.tilt = CAM.zoom = 0;
   for (const [axis, d] of held.values()) CAM[axis] = Math.max(-1, Math.min(1, CAM[axis] + d));
 }
+// Correr: dos toques seguidos de W (se corre mientras se mantiene). Agacharse: un toque de Shift solo (sin otra
+// tecla a la vez, así Shift+R y Shift+Q siguen siendo lo que eran); otro toque, de pie
+const DOUBLE_TAP = 350;   // ms entre los dos toques de W
+let lastW = 0, shiftAlone = false;
 const zoomOf = e => (e.key === '+' || e.key === '=' || e.code === 'NumpadAdd' ? -1 : e.key === '-' || e.key === '_' || e.code === 'NumpadSubtract' ? 1 : 0);
 
 export function clearKeys() { for (const k in keys) keys[k] = false; held.clear(); camAxes(); }
@@ -39,6 +43,8 @@ export function initInput(h) {
       return;
     }
     if (!handlers.enabled()) return;
+    const isShift = e.code === 'ShiftLeft' || e.code === 'ShiftRight';
+    if (isShift && !e.repeat) shiftAlone = true; else if (!isShift) shiftAlone = false;
     // La cámara: flechas para girarla e inclinarla, + y − para acercarla (Cmd/Ctrl + sigue siendo el zoom del navegador)
     if (CAMKEYS[e.code]) { held.set(e.code, CAMKEYS[e.code]); camAxes(); e.preventDefault(); return; }
     if (zoomOf(e) && !e.metaKey && !e.ctrlKey) { held.set(e.code, ['zoom', zoomOf(e)]); camAxes(); e.preventDefault(); return; }
@@ -51,7 +57,7 @@ export function initInput(h) {
     if (e.code === 'KeyH' && !e.repeat) { handlers.lie?.(); return; }    // tumbarse en el suelo
     Audio.start();
     if (KEYMAP[e.code]) { keys[KEYMAP[e.code]] = true; e.preventDefault(); }
-    if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') keys.run = true;
+    if (e.code === 'KeyW' && !e.repeat) { const now = performance.now(); if (now - lastW < DOUBLE_TAP) { keys.run = true; handlers.crouch?.(false); } lastW = now; }
     if (/^Digit[1-9]$/.test(e.code)) handlers.select(+e.code.slice(5) - 1);
     if (e.code === 'KeyR' && !e.repeat) handlers.rotate(e.shiftKey ? -1 : 1);   // (lo libre gira mientras se mantiene)
     if (e.code === 'KeyV' && !e.repeat) handlers.size?.();
@@ -62,7 +68,12 @@ export function initInput(h) {
   addEventListener('keyup', e => {
     if (held.delete(e.code)) camAxes();
     if (KEYMAP[e.code]) keys[KEYMAP[e.code]] = false;
-    if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') keys.run = false;
+    if (e.code === 'KeyW') keys.run = false;
+    if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') {
+      if (handlers.mapOpen?.()) keys.run = false;   // (con el mapa, Shift lo mueve más rápido)
+      else if (shiftAlone && handlers.enabled()) { keys.run = false; handlers.crouch?.(); }
+      shiftAlone = false;
+    }
     if (e.code === 'Space') keys.space = false;
     if (e.code === 'KeyR') handlers.rotateEnd?.();
   });
@@ -81,6 +92,7 @@ export function initInput(h) {
     else if (e.buttons === 2) handlers.unpaint(e.clientX, e.clientY);
   });
   canvas.addEventListener('pointerdown', e => {
+    shiftAlone = false;   // (Shift+clic no agacha)
     if (!handlers.enabled()) return;
     Audio.start();
     if (handlers.building?.()) {

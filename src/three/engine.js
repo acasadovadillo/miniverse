@@ -370,6 +370,13 @@ export class View3D {
   // también con el terreno en cuesta y con la cámara en primera persona)
   tileAt(clientX, clientY) { const p = this.pointAt(clientX, clientY); return p && [Math.floor(p[0]), Math.floor(p[1])]; }
   // El punto del suelo bajo el ratón (x, y de la rejilla, con decimales)
+  // El rayo que sale de la cámara por un punto de la pantalla: origen y dirección, [x, altura, y] del mundo
+  rayAt(clientX, clientY) {
+    if (!this.shown) return null;
+    this.raycaster.setFromCamera(new THREE.Vector2((clientX / innerWidth) * 2 - 1, -(clientY / innerHeight) * 2 + 1), this.camera);
+    const { origin: o, direction: d } = this.raycaster.ray;
+    return { o: [o.x, o.y, o.z], d: [d.x, d.y, d.z] };
+  }
   pointAt(clientX, clientY) {
     const scene = this.shown;
     if (!scene) return null;

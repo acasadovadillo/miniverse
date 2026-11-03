@@ -181,6 +181,10 @@
   #cf-icon.locked { filter: brightness(0) opacity(.45); }
   #cf-name { color: var(--gold); font-size: 18px; }
   #cf-desc { color: var(--dim); font-size: 14px; line-height: 1.35; }
+  #cf-sizes { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 10px; }
+  #cf-sizes[hidden] { display: none; }
+  .cf-size { padding: 3px 9px; color: var(--dim); background: rgba(0, 0, 0, .25); border: 2px solid #6a4a2a; border-radius: 4px; cursor: pointer; font-size: 14px; }
+  .cf-size.on { color: var(--gold); background: #6a4424; border-color: var(--border); }
   #cf-ins { margin: 10px 0 6px; display: flex; flex-direction: column; gap: 3px; }
   .cf-in { display: flex; align-items: center; gap: 8px; font-size: 15px; color: var(--err); }
   .cf-in img { width: 22px; height: 22px; image-rendering: pixelated; }
@@ -508,7 +512,6 @@
       <button class="btn" id="p-journal">Diario (J)</button>
       <button class="btn" id="p-controls">Controles</button>
       <button class="btn" id="p-settings">Ajustes</button>
-      <button class="btn" id="p-sound">Sonido: sí</button>
       <button class="btn" id="p-menu">Guardar y salir al menú</button>
       <div class="err" id="p-msg" style="color:var(--gold);margin:10px 0 0"></div>
     </div>
@@ -574,12 +577,13 @@
       <h3>Teclado y ratón</h3>
       <dl class="ct-list">
         <dt><kbd>WASD</kbd></dt><dd>Caminar (arriba es hacia donde mira la cámara)</dd>
-        <dt><kbd>Shift</kbd></dt><dd>Correr (mantenlo pulsado)</dd>
+        <dt><kbd>W</kbd> <kbd>W</kbd></dt><dd>Correr: dos toques seguidos de W (se corre mientras la mantienes)</dd>
+        <dt><kbd>Shift</kbd></dt><dd>Agacharse (un toque; otro, de pie). Agachado se anda despacio, y lo que pones no se une a lo de al lado</dd>
         <dt>Clic izquierdo</dt><dd>Usar lo que llevas: talar, picar, regar, sembrar, pescar, atacar, comer, colocar… Mantén para seguir.</dd>
         <dt><kbd>Espacio</kbd></dt><dd>Saltar (con un diálogo abierto, seguir)</dd>
-        <dt><kbd>E</kbd> o <kbd>Enter</kbd></dt><dd>Interactuar: hablar, puertas, cofres, estaciones, dormir, cosechar, animales</dd>
+        <dt><kbd>E</kbd> o <kbd>Enter</kbd></dt><dd>Interactuar con lo que apuntas con el ratón (a 2 casillas como mucho; sin apuntar a nada, con lo más cercano): hablar, puertas, cofres, estaciones, dormir, cosechar, animales</dd>
         <dt><kbd>1</kbd>–<kbd>9</kbd> o rueda</dt><dd>Elegir objeto</dd>
-        <dt><kbd>R</kbd></dt><dd>Girar lo que vas a colocar (apunta con el ratón: hasta 4 casillas)</dd>
+        <dt><kbd>R</kbd></dt><dd>Girar lo que vas a colocar (apunta con el ratón: hasta 4 casillas). Mantenida gira sin parar; a toques, de 15° en 15°, encajando con las casillas</dd>
         <dt><kbd>←</kbd> / <kbd>→</kbd></dt><dd>Girar la cámara alrededor de ti (mantén pulsado: gira suave)</dd>
         <dt><kbd>↑</kbd> / <kbd>↓</kbd></dt><dd>Subir la cámara hasta casi verlo desde arriba o bajarla a ras de suelo</dd>
         <dt><kbd>+</kbd> / <kbd>−</kbd> o <kbd>Ctrl</kbd>+rueda</dt><dd>Acercar y alejar la cámara</dd>
@@ -635,6 +639,7 @@
         <div id="cf-list"></div>
         <div class="cf-info">
           <div class="cf-head"><img id="cf-icon" alt=""><div><div id="cf-name"></div><div id="cf-desc"></div></div></div>
+          <div id="cf-sizes" hidden></div>
           <div id="cf-ins"></div>
           <div id="cf-msg"></div>
           <div class="cf-acts"><button class="btn primary" id="cf-make">Fabricar</button><button class="btn" id="cf-make5">×5</button></div>

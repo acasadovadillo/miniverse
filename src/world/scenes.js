@@ -23,6 +23,81 @@ const BACK = {
   cocina: 0.38, horno: 0.44, banco: 0.32, yunque: 0.3, telar: 0.3, quesera: 0.24, cofre: 0.28, armario: 0.33, mueble_bano: 0.24, cuadro_valle: 0.05, cuadro_mar: 0.05, cuadro_flores: 0.05, cuadro_noche: 0.05, vitrina: 0.32, cuna: 0.3, mesa: 0.42, incubadora: 0.26, maceta: 0.28, silla: 0.22,
 };
 
+// Las encimeras se unen con lo que tengan al lado (otra encimera, la alacena, el fregadero o la cocina): se alargan
+// hasta tocarlo (entre dos encimeras en fila, cada una la mitad del hueco). Lo puesto agachado no se une. En una esquina en L con el rincón vacío,
+// una sigue por él hasta el fondo de la otra (queda esquinera) y la otra llega hasta su frente.
+// list: [{ key, id, x, y, a }]; devuelve, por cada encimera, lo que se alarga por la izquierda y por la derecha
+const COUNTER = [-0.48, -0.28, 0.48, 0.22];   // el tablero de la encimera, en planta: x0, z0, x1, z1 (de lado a lado; de atrás a delante)
+const JOINS = new Set(['encimera', 'alacena', 'fregadero', 'cocina']);
+const JOIN = 0.4, JOIN_TOL = 0.08, JOIN_ANG = 0.07;   // (el hueco más ancho que se rellena, el margen y el giro que se perdona: 4°)
+function counterJoins(list) {
+  const rect = c => (c.id === 'encimera' ? COUNTER : (h => [h[0], h[2], h[3], h[5]])(hull(solidsOf(c.id))));
+  // N visto desde A (x: a lo ancho de A, hacia su derecha; z: hacia donde mira A), si están a escuadra (si no,
+  // null): la caja de N (alargada lo que diga ext), si van en paralelo y hacia dónde mira N a lo ancho de A (±1)
+  const rel = (A, N, ext) => {
+    const d = N.a - A.a, q = Math.round(d / (Math.PI / 2));
+    if (Math.abs(d - q * Math.PI / 2) > JOIN_ANG) return null;
+    const [ux, uy] = sideOf(A.a), [vx, vy] = dirOf(A.a), [nux, nuy] = sideOf(N.a), [nvx, nvy] = dirOf(N.a);
+    const [x0, z0, x1, z1] = rect(N), [l, r] = ext.get(N) || [0, 0], xs = [], zs = [];
+    for (const p of [x0 - l, x1 + r]) for (const k of [z0, z1]) {
+      const wx = N.x + nux * p + nvx * k - A.x, wy = N.y + nuy * p + nvy * k - A.y;
+      xs.push(wx * ux + wy * uy); zs.push(wx * vx + wy * vy);
+    }
+    return { x0: Math.min(...xs), x1: Math.max(...xs), z0: Math.min(...zs), z1: Math.max(...zs), par: q % 2 === 0, face: Math.round(nvx * ux + nvy * uy) };
+  };
+  const tops = list.filter(c => c.id === 'encimera').sort((a, b) => (a.key < b.key ? -1 : 1)), [, Z0, X1, Z1] = COUNTER;
+  // 1. Las esquinas con el rincón vacío: la otra mira hacia esta y empieza en su frente; esta sigue hasta el fondo
+  // de la otra (o, si la otra se mete un poco, hasta su frente). Solo una de las dos se queda el rincón
+  const corner = new Map(), claimed = new Set(), none = new Map();
+  for (const A of tops) for (const s of [-1, 1]) for (const N of tops) {
+    if (N === A || claimed.has(`${N.key}|${A.key}`)) continue;
+    const n = rel(A, N, none);
+    if (!n || n.par || n.face !== -s) continue;
+    const w0 = s > 0 ? n.x0 : -n.x1, w1 = s > 0 ? n.x1 : -n.x0;
+    if (w0 - X1 < -JOIN_TOL || w0 - X1 > JOIN || n.z0 - Z1 < -JOIN_TOL || n.z0 - Z1 > JOIN) continue;
+    const e = corner.get(A) || [0, 0];
+    e[s > 0 ? 1 : 0] = Math.max(0, (n.z0 >= Z1 - 0.01 ? w1 : w0) - X1);
+    corner.set(A, e); claimed.add(`${A.key}|${N.key}`);
+  }
+  // 2. Hasta lo que tenga al lado, si lo cubre de atrás a delante (el hueco más corto)
+  const out = new Map();
+  for (const A of tops) {
+    const e = [...(corner.get(A) || [0, 0])];
+    for (const s of [-1, 1]) {
+      const i = s > 0 ? 1 : 0;
+      if (e[i]) continue;
+      let best = Infinity;
+      for (const N of list) {
+        const n = N !== A && rel(A, N, corner);
+        if (!n || n.z0 > Z0 + JOIN_TOL || n.z1 < Z1 - JOIN_TOL) continue;
+        const gap = (s > 0 ? n.x0 : -n.x1) - X1;
+        if (gap < -JOIN_TOL || gap > JOIN || gap >= best) continue;
+        best = gap; e[i] = Math.max(0, gap) / (n.par && N.id === 'encimera' ? 2 : 1);
+      }
+    }
+    out.set(A, e.map(v => +v.toFixed(3)));
+  }
+  return out;
+}
+
+// Los muros, en tramos: los trozos de cada casilla que siguen en línea, juntos (si no, al arrimar algo a un muro se
+// enganchaba en las juntas entre casillas y se corría hacia ellas)
+function joinedWalls(list) {
+  const rs = list.map(w => [w.x - w.hx, w.y - w.hy, w.x + w.hx, w.y + w.hy]), same = (a, b) => Math.abs(a - b) < 1e-3;
+  for (let merged = true; merged;) {
+    merged = false;
+    for (let i = 0; i < rs.length && !merged; i++) for (let j = i + 1; j < rs.length; j++) {
+      const a = rs[i], b = rs[j];
+      const alongX = same(a[1], b[1]) && same(a[3], b[3]) && a[0] <= b[2] + 1e-3 && b[0] <= a[2] + 1e-3;
+      const alongY = same(a[0], b[0]) && same(a[2], b[2]) && a[1] <= b[3] + 1e-3 && b[1] <= a[3] + 1e-3;
+      if (!alongX && !alongY) continue;
+      rs[i] = [Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.max(a[2], b[2]), Math.max(a[3], b[3])];
+      rs.splice(j, 1); merged = true; break;
+    }
+  }
+  return rs.map(([x0, y0, x1, y1]) => aabb(x0, y0, x1, y1));
+}
+
 // Completa un objeto de la mochila puesto en el mundo (estación o mueble): colisión y luz.
 // [sx, sy]: lo que se corre para arrimarse a un muro. Devuelve true si es plano (alfombra) y va en el suelo.
 // ¿Cruza el segmento (x0, y0)-(x1, y1) la caja b?
@@ -270,11 +345,13 @@ export class Overworld {
         colliders.push({ x0: Math.min(ax, bx), y0: Math.min(ay, by), x1: Math.max(ax, bx), y1: Math.max(ay, by), piece: true });
       } else if (src.pos?.[o.key]) {
         o.off = this.lightOff(tx, ty);
+        if (id === 'encimera' && !fixed) o.model = this.counterModel(tx, ty);
         if (freeObject(o, id, rot, src.pos[o.key], out)) { flats.push(o); continue; }
       } else {
         o.off = this.lightOff(tx, ty);
         const tuck = this.tuckShift(id, tx, ty, rot);
         if (tuck) o.tuck = true;
+        if (id === 'encimera' && !fixed) o.model = this.counterModel(tx, ty);
         if (itemObject(o, id, rot, colliders, lights, tuck || this.wallShift(id, tx, ty, rot))) { flats.push(o); continue; }
       }
       objects.push(o);
@@ -443,6 +520,25 @@ export class Overworld {
     }
     return best;
   }
+  // El modelo de la encimera de una casilla, unida a lo que tenga al lado ('encimera:izquierda:derecha'), o null
+  counterModel(tx, ty) {
+    const cx = Math.floor(tx / CHUNK), cy = Math.floor(ty / CHUNK), me = `placed:${tx},${ty}`, list = [];
+    let self = null;
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+      const d = this.delta(cx + dx, cy + dy);
+      for (const [t, raw] of Object.entries(d?.placed || {})) {
+        const [id, rot] = parsePlaced(raw), key = `placed:${t}`, p = d.pos?.[key];
+        if (!JOINS.has(id) || p?.[3]) continue;   // (lo puesto agachado va suelto)
+        const [x, y] = t.split(',').map(Number), [sx, sy] = p ? [0, 0] : this.wallShift(id, x, y, rot);
+        const c = p ? { key, id, x: p[0], y: p[1], a: p[2] } : { key, id, x: x + 0.5 + sx, y: y + 0.5 + sy, a: (rot % 4) * Math.PI / 2 };
+        list.push(c);
+        if (key === me) self = c;
+      }
+    }
+    if (!self) return null;
+    const [l, r] = counterJoins(list.filter(c => Math.hypot(c.x - self.x, c.y - self.y) < 4)).get(self);
+    return l || r ? `encimera:${l}:${r}` : null;
+  }
   // Las vallas, las puertas y los tejados miran a sus vecinas: si están en otro trozo, también hay que rehacerlo
   touchAround(tx, ty) {
     const cx = Math.floor(tx / CHUNK), cy = Math.floor(ty / CHUNK);
@@ -527,9 +623,8 @@ export class Overworld {
     const obstacles = this.obstaclesNear(px, py, rug), whole = () => placeBoxes([H], ox, oy, a)[0];
     const res = (ok, why) => { const w = whole(); return { ok, why, ox, oy, a, k, model, cx: w.x, cy: w.y, box: w, anchor }; };
     // Arrimar a los muros (y a las esquinas): solo se pega si está casi recto (a menos de 8°)
-    const q = ((a / (Math.PI / 2)) % 1 + 1) % 1, aligned = q < 0.09 || q > 0.91;
-    for (let pass = 0; pass < 3; pass++) for (const w of obstacles) {
-      if (!w.wall) continue;
+    const q = ((a / (Math.PI / 2)) % 1 + 1) % 1, aligned = q < 0.09 || q > 0.91, walls = joinedWalls(obstacles.filter(w => w.wall));
+    for (let pass = 0; pass < 3; pass++) for (const w of walls) {
       const m = aligned ? SNAP : 0, b = whole(), hit = sat({ ...b, hx: b.hx + m, hy: b.hy + m }, w);
       if (!hit || hit.depth - m > MAX_PUSH) continue;
       ox += hit.nx * (hit.depth - m); oy += hit.ny * (hit.depth - m);
@@ -560,10 +655,11 @@ export class Overworld {
     return anchor ? res(true, null) : res(false, 'Ahí no cabe');
   }
   // Ponerlo donde ha dicho fitFree (en su casilla, con su sitio y su giro de verdad)
-  placeFree(id, f) {
+  // loose: puesto agachado (no se une a lo de al lado)
+  placeFree(id, f, loose = false) {
     const [tx, ty] = f.anchor, layer = layerOf(id), d = this.delta(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK), true), r3 = v => Math.round(v * 1000) / 1000;
     const a = ((f.a % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2), sized = layer === 'rug' || id === 'mesa_grande';
-    (d.pos ||= {})[`${layer}:${tx},${ty}`] = [r3(f.ox), r3(f.oy), r3(a)];
+    (d.pos ||= {})[`${layer}:${tx},${ty}`] = loose ? [r3(f.ox), r3(f.oy), r3(a), 1] : [r3(f.ox), r3(f.oy), r3(a)];
     this.place(tx, ty, id, sized ? f.k : Math.round(a / (Math.PI / 2)) % 4);
   }
   // Un objeto colocado (mueble, estación o pieza) en una casilla, con sus datos, o null
