@@ -2,6 +2,7 @@
 import { ITEMS } from './items.js';
 import { RECIPES, STATIONS, unlocked } from './recipes.js';
 import { Audio } from './audio.js';
+import { parsePlaced } from './pieces.js';
 
 export const STATION_REACH = 2.4;   // a cuántas casillas puede estar una estación para usarla
 
@@ -20,13 +21,26 @@ export class Crafting {
   }
 
   reset(save) {
-    this.seen = new Set(save.seen || []);
+    // (las partidas guardadas mientras el reloj guardaba su día con el mismo nombre perdieron esta lista: se rehace
+    // con lo que se tiene)
+    this.seen = new Set(Array.isArray(save.seen) ? save.seen : this.owned());
     this.taught = new Set(save.taught || []);
     this.known = new Set();
     this.fresh = new Set();
     this.check(true);
   }
   toSave() { return { seen: [...this.seen], taught: [...this.taught] }; }
+  // Lo que se tiene ahora: en la mochila, puesto, colocado en el mundo y en los cofres
+  owned() {
+    const g = this.game, out = new Set(), add = id => { if (ITEMS[id]) out.add(id); };
+    for (const s of g.inv?.slots || []) if (s) add(s.id);
+    for (const w of Object.values(g.inv?.equip || {})) if (w) add(w.id);
+    for (const d of g.world?.deltas.values() || []) {
+      for (const layer of ['placed', 'hang', 'rug']) for (const raw of Object.values(d[layer] || {})) add(parsePlaced(raw)[0]);
+      for (const chest of Object.values(d.chest || {})) for (const s of chest || []) if (s) add(s.id);
+    }
+    return out;
+  }
 
   // Mira la mochila por si hay objetos nuevos y avisa de las recetas que se desbloquean
   check(silent = false) {

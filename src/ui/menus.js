@@ -376,7 +376,9 @@ export function initMenus(game) {
   game.onSave = () => save();
   function play(data, deltas) {
     show(null);
-    game.start(data, deltas);
+    // (si la partida no se puede abrir, se vuelve al menú diciendo por qué, en vez de quedarse parado)
+    try { game.start(data, deltas); }
+    catch (e) { console.error(e); game.end(); openMenu(); $('menu-msg').textContent = `No se ha podido abrir la partida: ${e.message}`; return; }
     if (!Profile.admin && game.admin) game.setAdmin(false);   // el modo admin es solo del admin
     if (Profile.admin && live.net) live.join();   // (el mundo del admin es el de todos)
   }

@@ -95,18 +95,20 @@ export class TimeSystem {
     return 'sol';
   }
 
-  // dayBase: las partidas de antes siguen en el día en que iban. seen: el último día que amaneció jugando
+  // dayBase: las partidas de antes siguen en el día en que iban. seenDay: el último día que amaneció jugando (antes se
+  // guardaba como "seen", que es también lo que ha tenido el jugador: si no es un número, es eso, y se empieza hoy)
   reset(save = {}) {
     const today = Math.floor(madridMs() / DAY_MS);
     this.dayBase = save.dayBase ?? today - Math.floor((save.clock || 0) / OLD_DAY_LEN + OLD_START_HOUR / 24);
     this.shift = save.timeShift || 0;
-    this.day = save.seen === undefined ? this.realDay : Math.min(this.realDay, Math.max(this.realDay - CATCH_UP, save.seen));
+    const last = Number.isFinite(save.seenDay) ? save.seenDay : Number.isFinite(save.seen) ? save.seen : null;
+    this.day = last === null ? this.realDay : Math.min(this.realDay, Math.max(this.realDay - CATCH_UP, last));
     this.wday = -1;
     this.drops = [];
     this.shown = '';
     this.update(0);
   }
-  save(out) { Object.assign(out, { dayBase: this.dayBase, timeShift: this.shift, seen: this.day }); }
+  save(out) { Object.assign(out, { dayBase: this.dayBase, timeShift: this.shift, seenDay: this.day }); }
 
   // Cambia el aspecto del mundo según la estación (la vista rehace el suelo y las plantas al verlo)
   applySeason() { this.game.world.gen.season = this.season; }

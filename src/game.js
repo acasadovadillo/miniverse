@@ -691,7 +691,8 @@ export class Game {
     const frame = now => {
       acc += Math.min(0.25, (now - last) / 1000);
       last = now;
-      while (acc >= STEP) { this.update(STEP); acc -= STEP; }
+      // (un fallo al avanzar tampoco: se avisa una vez y el juego sigue respondiendo)
+      try { while (acc >= STEP) { this.update(STEP); acc -= STEP; } } catch (e) { acc = 0; if (this.updateError !== e.message) console.error(e); this.updateError = e.message; }
       // (un fallo al dibujar no para el juego: se avisa y se sigue)
       try { this.render(); } catch (e) { if (this.renderError !== e.message) console.error(e); this.renderError = e.message; }
       if (this.frameNo % 30 === 0) Music.update(this);
