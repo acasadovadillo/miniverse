@@ -4,7 +4,7 @@
 // de la fuente, la luz del faro, el sedal y el corcho al pescar y el destello rojo al recibir un golpe.
 import * as THREE from 'three';
 import { itemIcon } from '../art/items.js';
-import { yawOf, rugRect } from '../art/stations.js';
+import { yawOf, rugRect, tableRect } from '../art/stations.js';
 import { ITEMS } from '../items.js';
 import { PIECES } from '../pieces.js';
 import { getModel } from './models.js';
@@ -112,12 +112,13 @@ export class Fx {
         }
       } else {
         const tg = game.gather.target;
-        if (tg?.tile && (tg.ok || tg.place)) {
+        if (tg?.free) { ghost = tg.model; ghostOk = tg.ok; at = [tg.x, tg.y]; yaw = tg.a; }   // (lo libre: donde y como quedaría, sin casilla)
+        else if (tg?.tile && (tg.ok || tg.place)) {
           this.showTile(tg.tile, gy, tg.ok ? pulse : '#ff7a6a');
-          // (arrimado al muro de detrás, como quedará)
-          // (la alfombra, entera, del tamaño elegido)
+          // (la alfombra y la mesa grande, enteras, del tamaño elegido; lo demás, arrimado al muro de detrás)
           if (tg.place && ITEMS[tg.place].place === 'rug') { const r = rugRect(...tg.tile, tg.rot); ghost = `rug:${tg.place}:${r.w}x${r.h}`; ghostOk = tg.ok; at = [r.x0 + r.w / 2, r.y0 + r.h / 2]; }
-          else if (tg.place) { const [sx, sy] = game.scene.wallShift?.(tg.place, ...tg.tile, tg.rot) || [0, 0]; ghost = tg.place; ghostOk = tg.ok; at = [tg.tile[0] + 0.5 + sx, tg.tile[1] + 0.5 + sy]; yaw = yawOf(tg.rot); }
+          else if (tg.place === 'mesa_grande') { const r = tableRect(...tg.tile, tg.rot); ghost = `mesa_grande:${r.w}x${r.h}`; ghostOk = tg.ok; at = [r.x0 + r.w / 2, r.y0 + r.h / 2]; }
+          else if (tg.place) { const [sx, sy] = game.scene.shiftFor?.(tg.place, ...tg.tile, tg.rot) || [0, 0]; ghost = tg.place; ghostOk = tg.ok; at = [tg.tile[0] + 0.5 + sx, tg.tile[1] + 0.5 + sy]; yaw = yawOf(tg.rot); }
         } else if (tg?.obj) {
           this.ring.visible = true;
           this.ring.position.set(tg.obj.x, gy(tg.obj.x, tg.obj.y) + 0.04, tg.obj.y);
@@ -135,7 +136,7 @@ export class Fx {
     if (this.ghost) {
       this.ghost.position.set(at[0], gy(...at) + 0.01, at[1]);
       this.ghost.rotation.y = yaw;
-      this.ghostMat.opacity = ghostOk ? 0.55 : 0.22;
+      this.ghostMat.opacity = ghostOk ? 0.55 : 0.5;   // (en rojo, bien visible: así se ve qué corta)
       this.ghostMat.color.set(ghostOk ? '#c8ffd0' : '#ffb0a0');
     }
   }

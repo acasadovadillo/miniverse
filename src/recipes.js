@@ -26,6 +26,7 @@ export const RECIPES = [
   R('banco', 'cocina', 1, [['piedra', 8], ['tablas', 4], ['lingote_cobre', 2]]),
   R('banco', 'silla', 1, [['tablas', 4]]),
   R('banco', 'mesa', 1, [['tablas', 6]]),
+  R('banco', 'mesa_grande', 1, [['tablas', 12]]),
   R('banco', 'cofre', 1, [['tablas', 8]]),
   R('banco', 'estanteria', 1, [['tablas', 6]]),
   R('banco', 'maceta', 1, [['piedra', 3], ['fibra', 2]]),

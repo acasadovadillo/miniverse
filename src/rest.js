@@ -3,7 +3,7 @@
 // La postura va en p.pose = { kind: 'sit' | 'floorSit' | 'lie' | 'floorLie', yaw, h } y la ven los demás
 // jugadores (va con su estado). h: la altura del cuerpo sobre el suelo (en la cama, sobre el colchón).
 import { keys } from './input.js';
-import { extraTiles, front, yawOf, SIDE } from './art/stations.js';
+import { dirOf, sideOf } from './world/fit.js';
 import { Audio } from './audio.js';
 
 const SEAT = 0.14, SOFA = 0.1, BED = 0.6, FLOOR_LIE = 0.14, FLOOR_SIT = -0.28;
@@ -15,21 +15,21 @@ export class Rest {
   // Mirando hacia (dx, dy): el ángulo del modelo (z+ hacia delante)
   static yaw(dx, dy) { return Math.atan2(dx, dy); }
 
-  // En una silla: en su centro, mirando hacia donde mira ella
+  // En una silla: en su centro, mirando hacia donde mira ella (con el giro que tenga: o.yaw)
   // En el sofá, en la plaza que quede más cerca (la suya o la de al lado), algo más hundido
   sit(o) {
-    const yaw = yawOf(o.rot), p = this.p;
+    const yaw = o.yaw, p = this.p;
     let [x, y] = [o.x, o.y];
-    if (o.placed === 'sofa') { const [sx, sy] = SIDE[(o.rot || 0) % 4]; if (Math.hypot(x + sx - p.x, y + sy - p.y) < Math.hypot(x - p.x, y - p.y)) { x += sx; y += sy; } }
+    if (o.placed === 'sofa') { const [sx, sy] = sideOf(yaw); if (Math.hypot(x + sx - p.x, y + sy - p.y) < Math.hypot(x - p.x, y - p.y)) { x += sx; y += sy; } }
     this.take({ kind: 'sit', yaw, h: o.placed === 'sofa' ? SOFA : SEAT }, x + Math.sin(yaw) * (o.placed === 'sofa' ? 0.05 : -0.04), y + Math.cos(yaw) * (o.placed === 'sofa' ? 0.05 : -0.04));
   }
   // En una cama: boca arriba, con la cabeza en la almohada (la casilla de la cabecera). En la doble, del lado
   // que quede más cerca
   lie(o) {
-    const p = this.p, along = front(o.rot);
+    const p = this.p, along = dirOf(o.yaw);
     let [bx, by] = [o.x, o.y];
-    if (o.placed === 'cama_doble') {
-      const [sx, sy] = extraTiles('cama_doble', ...o.tile, o.rot).map(([x, y]) => [x + 0.5, y + 0.5]).find(([x, y]) => Math.abs(x - o.x) + Math.abs(y - o.y) === 1 && (x - o.x) * along[0] + (y - o.y) * along[1] === 0) || [o.x, o.y];
+    if (o.placed === 'cama_doble') {   // (la otra mitad, a su derecha)
+      const [ux, uy] = sideOf(o.yaw), sx = o.x + ux, sy = o.y + uy;
       if (Math.hypot(sx - p.x, sy - p.y) < Math.hypot(bx - p.x, by - p.y)) [bx, by] = [sx, sy];
     }
     const foot = o.placed === 'cama_nino' ? 0.85 : 1.05;   // (de los pies a la cabecera)

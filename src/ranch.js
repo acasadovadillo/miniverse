@@ -5,6 +5,7 @@
 // corre más cuanto más te quiere; el perro te sigue, escarba, avisa y va a por la pelota; el gato duerme en su
 // cojín, espanta a los ratones del silo y te deja regalos. Y el palomar, para enviarle cosas a otra persona.
 // Jugando juntos todo esto es del mundo del anfitrión: lo lleva su juego y los demás lo ven y lo tocan igual.
+import { CHUNK } from './world/gen.js';
 import { ITEMS } from './items.js';
 import { ANIMALS, BREED_NAMES, animalSprite } from './art/farm.js';
 import { SPAWN, inBounds } from './world/village.js';
@@ -36,7 +37,13 @@ class Animal {
     this.tx = this.x; this.ty = this.y;
   }
   get def() { return ANIMALS[this.type]; }
-  get home2() { return this.home ? [this.home[0] + 0.5, this.home[1] + (this.def.home === 'cojin' ? 0.5 : 1.5)] : null; }   // delante de su casa (el gato, encima de su cojín)
+  // Delante de su casa (el gato, encima de su cojín). Si la casa se colocó libre, delante de donde de verdad está y
+  // mirando hacia donde mira (Animal.spot lo sabe)
+  get home2() {
+    if (!this.home) return null;
+    const cushion = this.def.home === 'cojin';
+    return Animal.spot?.(this.home, cushion) || [this.home[0] + 0.5, this.home[1] + (cushion ? 0.5 : 1.5)];
+  }
   toSave() {
     const o = { x: +this.x.toFixed(2), y: +this.y.toFixed(2) };
     for (const k of KEEP) if (this[k] !== undefined && this[k] !== null) o[k] = this[k];
@@ -82,6 +89,10 @@ export class Ranch {
     this.animals = [];
     this.farm = { hay: 0, mail: [] };   // lo de la granja que no es de un animal: el heno del silo y el correo
     this.crowed = -1;
+    Animal.spot = (home, on) => {
+      const [tx, ty] = home, p = this.world?.delta(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK))?.pos?.[`placed:${tx},${ty}`];
+      return p && (on ? [p[0], p[1]] : [p[0] + Math.sin(p[2]), p[1] + Math.cos(p[2])]);
+    };
   }
   get world() { return this.game.world; }
   get days() { return this.game.days; }

@@ -13,6 +13,7 @@ import { Builder, mat } from './geo.js';
 import { wood, stone, rug, rugDesign, notes, awning, planks, furrows, artwork } from './textures.js';
 import { CROPS } from '../items.js';
 import { WALL_H } from './build3d.js';
+import { SOLIDS, hull } from '../world/fit.js';
 
 // ---------- materiales ----------
 let MATS;
@@ -48,13 +49,21 @@ export function modelMats() {
 }
 
 // ---------- un modelo en construcción ----------
+// (cada pieza apunta también su caja en solids: lo que ocupa el modelo, para no ponerlo cortando otra cosa)
 class Model {
-  constructor() { this.parts = new Map(); this.extras = []; this.lights = []; this.fires = []; this.smoke = []; }
+  constructor() { this.parts = new Map(); this.extras = []; this.lights = []; this.fires = []; this.smoke = []; this.solids = []; }
   B(key) { let b = this.parts.get(key); if (!b) this.parts.set(key, (b = new Builder())); return b; }
-  box(key, x0, y0, z0, x1, y1, z1, s = 0.5) { this.B(key).box(Math.min(x0, x1), Math.min(y0, y1), Math.min(z0, z1), Math.max(x0, x1), Math.max(y0, y1), Math.max(z0, z1), { s }); return this; }
+  box(key, x0, y0, z0, x1, y1, z1, s = 0.5) {
+    const b = [Math.min(x0, x1), Math.min(y0, y1), Math.min(z0, z1), Math.max(x0, x1), Math.max(y0, y1), Math.max(z0, z1)];
+    this.B(key).box(...b, { s }); this.solids.push(b); return this;
+  }
   geo(key, g, x, y, z, rot = [0, 0, 0], scale = [1, 1, 1]) {
     const m4 = new THREE.Matrix4().compose(new THREE.Vector3(x, y, z), new THREE.Quaternion().setFromEuler(new THREE.Euler(...rot)), new THREE.Vector3(...(typeof scale === 'number' ? [scale, scale, scale] : scale)));
-    this.B(key).addGeometry(g, m4); return this;
+    this.B(key).addGeometry(g, m4);
+    if (!g.boundingBox) g.computeBoundingBox();
+    const bb = g.boundingBox.clone().applyMatrix4(m4);
+    this.solids.push([bb.min.x, bb.min.y, bb.min.z, bb.max.x, bb.max.y, bb.max.z]);
+    return this;
   }
   // Cilindro con la base en y (r0 abajo, r1 arriba)
   cyl(key, x, y, z, r0, r1, h, seg = 10, rot) { return this.geo(key, cylGeo(r0, r1, h, seg), x, y, z, rot); }
@@ -202,6 +211,21 @@ const BUILD = {
     for (const [a, b] of [[-0.44, -0.36], [0.38, -0.36], [-0.44, 0.3], [0.38, 0.3]]) m.box('wood', a, 0, b, a + 0.06, 0.72, b + 0.06);
     m.box('wood', -0.42, 0.62, -0.34, 0.42, 0.7, -0.3).box('wood', -0.42, 0.62, 0.3, 0.42, 0.7, 0.34).box('sheet', -0.18, 0.8, -0.18, 0.18, 0.81, 0.18);
     m.cyl('pot', 0, 0.81, 0, 0.06, 0.05, 0.15).geo('books0', ICO, 0, 1.02, 0, [0, 0, 0], 0.06);
+  },
+  // Mesa grande, de w × h casillas: tablero, patas en las esquinas (las sillas caben entre ellas), faldón, un camino
+  // de mesa a lo largo, un jarrón con flores en medio y, a los lados, dos velas
+  mesa_grande(m, size = '2x1') {
+    const [w, h] = size.split('x').map(Number), X = w / 2 - 0.04, Z = h / 2 - 0.04, along = w >= h;
+    m.box('light', -X, 0.72, -Z, X, 0.8, Z);
+    for (const [a, b] of [[-X + 0.04, -Z + 0.04], [X - 0.1, -Z + 0.04], [-X + 0.04, Z - 0.1], [X - 0.1, Z - 0.1]]) m.box('wood', a, 0, b, a + 0.06, 0.72, b + 0.06);
+    m.box('wood', -X + 0.1, 0.62, -Z + 0.06, X - 0.1, 0.7, -Z + 0.1).box('wood', -X + 0.1, 0.62, Z - 0.1, X - 0.1, 0.7, Z - 0.06);
+    m.box('wood', -X + 0.06, 0.62, -Z + 0.1, -X + 0.1, 0.7, Z - 0.1).box('wood', X - 0.1, 0.62, -Z + 0.1, X - 0.06, 0.7, Z - 0.1);
+    if (along) m.box('sheet', -X + 0.18, 0.8, -0.17, X - 0.18, 0.806, 0.17); else m.box('sheet', -0.17, 0.8, -Z + 0.18, 0.17, 0.806, Z - 0.18);
+    m.cyl('pot', 0, 0.806, 0, 0.07, 0.055, 0.17);
+    for (const [x, y, z, k] of [[0, 1.02, 0, 'red'], [0.05, 0.99, 0.03, 'white'], [-0.05, 0.99, -0.02, 'quiltB'], [0.02, 1.0, -0.05, 'red']]) m.ball(k, x, y, z, 0.045);
+    m.ball('leaf', 0, 0.96, 0, 0.07, 0.04, 0.07);
+    const L = (along ? X : Z) - 0.42;
+    if (L > 0.2) for (const s of [-1, 1]) { const [cx, cz] = along ? [s * L, 0] : [0, s * L]; m.cyl('brass', cx, 0.806, cz, 0.05, 0.035, 0.03).cyl('candle', cx, 0.836, cz, 0.022, 0.022, 0.14); }
   },
   silla(m) {
     m.box('wood', -0.22, 0.42, -0.22, 0.22, 0.47, 0.22);
@@ -587,7 +611,7 @@ const CACHE = new Map();
 export function getModel(name) {
   if (CACHE.has(name)) return CACHE.get(name);
   const m = new Model(), [kind, a, b] = name.split(':');
-  if (BUILD[kind]) BUILD[kind](m);
+  if (BUILD[kind]) BUILD[kind](m, a, b);
   else if (kind === 'crop') crop(m, a, +b);
   else if (kind === 'village') { if (a === 'stall2') VILLAGE.stall(m, ['#e0b850', '#f08a2a', '#e83a4a'], 'awningB'); else if (a === 'stall3') VILLAGE.stall(m, ['#9ad0ff', '#c8a870', '#f0e8f0'], 'awningG'); else VILLAGE[a](m); }
   else if (kind === 'poi') PLACES[a](m, b === 'snow');
@@ -598,6 +622,14 @@ export function getModel(name) {
   CACHE.set(name, m);
   return m;
 }
+// Las cajas que ocupa un modelo (sin las que no levantan del suelo, como una alfombra); si es muy menudo, la que
+// las envuelve a todas
+SOLIDS.of = name => {
+  const m = getModel(name);
+  if (!m) return null;
+  if (!m.boxesFor) { const list = m.solids.filter(b => b[4] > 0.04); m.boxesFor = list.length > 60 ? [hull(list)] : list; }
+  return m.boxesFor.length ? m.boxesFor : null;
+};
 // Material de una pieza de modelo por su clave ('wood', 'books3', 'fruit:#e04a2a', 'leafc:#3f8a32'…)
 const DYN = new Map();
 export function modelMat(key) {

@@ -260,7 +260,7 @@ export class Game {
     // apagan y se encienden, el cofre, el armario y la mochila se abren; lo demás se recoge (con X, lo que se usa
     // con E). Lo más cercano primero; si encima de un mueble cuelga un cuadro, se recoge antes el cuadro.
     // (lo fijo de las casas de los vecinos no se toca)
-    const dist = o => (o.fx ? Math.hypot(p.x - Math.min(Math.max(p.x, o.fx[0] + 0.5), o.fx[1] - 0.5), p.y - Math.min(Math.max(p.y, o.fy[0] + 0.5), o.fy[1] - 0.5)) : Math.hypot(o.x - p.x, o.y - p.y));
+    const dist = o => (sc.placedDist ? sc.placedDist(o, p.x, p.y) : Math.hypot(o.x - p.x, o.y - p.y));
     const near = (sc.placedNear?.(p.x, p.y, 1.3) || []).filter(o => !o.fixed && (!sc.reaches || sc.reaches(p.x, p.y, o.x, o.y))).sort((a, b) => dist(a) - dist(b));
     const o = near.find(o => o.layer !== 'rug');   // (la alfombra, al final: lo de encima, las puertas y las ventanas antes)
     if (o) {
@@ -589,10 +589,15 @@ export class Game {
   // La casilla bajo el ratón mientras está sobre el juego (null si no), recalculada en cada fotograma: la
   // cámara se mueve aunque el ratón se quede quieto
   mouseTile() {
+    const p = this.mousePoint();
+    return p && [Math.floor(p[0]), Math.floor(p[1])];
+  }
+  // El punto exacto (con decimales) bajo el ratón: para colocar libre
+  mousePoint() {
     const m = this.mouse;
-    if (!m?.in) return null;
-    if (m.frame !== this.frameNo) { m.frame = this.frameNo; m.tile = this.tileAtScreen(m.x, m.y); }
-    return m.tile;
+    if (!m?.in || !this.scene) return null;
+    if (m.frame !== this.frameNo) { m.frame = this.frameNo; m.point = this.view3d.pointAt(m.x, m.y); }
+    return m.point;
   }
 
   // ---------- bucle ----------

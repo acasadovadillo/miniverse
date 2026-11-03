@@ -4,7 +4,13 @@ import { ITEMS, HARVEST, TOOL_COST, ENERGY_MAX, CROPS, toolId, hitsFor } from '.
 import { RECIPES } from './recipes.js';
 import { Audio } from './audio.js';
 import { hud } from './ui/hud.js';
-import { RUG_SIZES } from './art/stations.js';
+import { RUG_SIZES, TABLE_SIZES } from './art/stations.js';
+
+// Lo que se coloca libre (donde se apunte, con cualquier giro): muebles, estaciones, lo que va plano y las
+// alfombras. Los cuadros y el hogar, contra un muro, siguen yendo por casillas
+export const freePlace = id => !!id && id !== 'chimenea' && ['furniture', 'station', 'flat', 'rug'].includes(ITEMS[id]?.place);
+// Los tamaños que se eligen con V (índices de RUG_SIZES y TABLE_SIZES: girarlos ya lo hace R)
+const sizesOf = id => (ITEMS[id]?.place === 'rug' ? [0, 1, 3, 4, 6] : id === 'mesa_grande' ? [0, 2, 3, 5] : null);
 
 const REACH = 1.7;          // alcance en casillas
 const COOLDOWN = 0.32;      // segundos entre golpes
@@ -14,6 +20,7 @@ const CHIPS = {
   water: ['#9ad0ff', '#7ab8e0', '#d8f0ff'], heart: ['#ff7aa8', '#ff9ac8', '#ffffff'], feather: ['#ffffff', '#e8e4dc', '#c8c8d0'],
 };
 
+const TURN_WAIT = 0.22, TURN_SPEED = 1.7;   // R: lo que dura un toque (s) y lo que gira mantenida (rad/s)
 const PLACE_REACH = 4;   // casillas de distancia a las que se puede colocar algo con el ratón
 
 export class Gathering {
@@ -24,7 +31,10 @@ export class Gathering {
     this.floaters = [];     // textos que suben ("+3 Madera")
     this.pending = new Map();
     this.target = null;
-    this.rot = 0;           // giro de lo que se va a colocar (tecla R)
+    this.rot = 0;           // giro de lo que va contra un muro (cuadros y hogar: cuatro, con R)
+    this.angle = 0;         // giro de lo que se coloca libre (radianes: R lo va girando poco a poco)
+    this.size = 0;          // tamaño de la alfombra o de la mesa grande (V)
+    this.turn = null;       // R pulsada: { dir, at }
     this.cursor = null;     // casilla bajo el ratón (para colocar donde apunta), [x, y]
     this.cursorAt = 0;
     this.cooldown = 0;
@@ -40,6 +50,16 @@ export class Gathering {
     const g = this.game, p = g.player;
     if (!p || g.mode !== 'play' || g.build.on) return null;
     const held = g.inv.held, def = held && ITEMS[held.id], tool = def?.tool;
+    // Lo que se coloca libre va al punto del ratón (si se ha movido hace poco), o un paso por delante, girado como
+    // diga R; se arrima a la pared que roce y no se pone si corta algo
+    if (freePlace(held?.id) && g.scene.fitFree) {
+      const mp = g.mousePoint();
+      if (mp) { this.cursorPt = mp; this.cursorAt = performance.now(); }
+      const pt = this.cursorPt && performance.now() - this.cursorAt < 4000 ? this.cursorPt : [p.x + p.face.x * 1.3, p.y + p.face.y * 1.3];
+      const S = sizesOf(held.id), k = S ? S[this.size % S.length] : 0, f = g.scene.fitFree(held.id, pt[0], pt[1], this.angle, k, p);
+      const far = Math.hypot(f.cx - p.x, f.cy - p.y) > PLACE_REACH + 0.5;
+      return { free: true, ok: f.ok && !far, far, why: f.why, fit: f, place: held.id, model: f.model, x: f.ox, y: f.oy, a: f.a, rot: k };
+    }
     if (def?.place) {
       // Lo que se coloca va a la casilla del ratón, si se ha movido hace poco y está a PLACE_REACH casillas
       // como mucho; si no, a la de delante (también dentro de casa)
@@ -52,7 +72,7 @@ export class Gathering {
       }
       // Lo que va contra un muro (los cuadros y el hogar) se gira solo hacia el que tenga detrás (con R, si hay dos,
       // al otro)
-      let rot = def.place === 'rug' ? this.rot % RUG_SIZES.length : this.rot % 4;
+      let rot = this.rot % (def.place === 'rug' ? RUG_SIZES.length : held.id === 'mesa_grande' ? TABLE_SIZES.length : 4);
       if (def.place === 'wall' || held.id === 'chimenea') rot = [0, 1, 2, 3].map(i => (rot + i) % 4).find(r => g.scene.canPlace?.(tx, ty, held.id, p, r)) ?? this.rot;
       return { tile: [tx, ty], ok: !far && !!g.scene.canPlace?.(tx, ty, held.id, p, rot), far, place: held.id, rot };
     }
@@ -80,7 +100,10 @@ export class Gathering {
     if (!g.player || g.mode !== 'play' || g.busy) return '';
     if (def?.food) return `Comer ${def.name.toLowerCase()}`;
     if (def?.heal) return `Beber ${def.name.toLowerCase()}`;
-    if (def?.place === 'rug') { const [w, h] = RUG_SIZES[(t?.rot || 0) % RUG_SIZES.length]; return t?.ok ? `Colocar ${def.name.toLowerCase()} de ${w}×${h} (R: tamaño)` : t?.far ? 'Demasiado lejos' : `No cabe de ${w}×${h} (R: tamaño)`; }
+    if (t?.free) {
+      const [w, h] = def.place === 'rug' ? RUG_SIZES[t.rot] : held.id === 'mesa_grande' ? TABLE_SIZES[t.rot] : [], size = w ? ` de ${w}×${h}` : '', keys = `R: girar${w ? ' · V: tamaño' : ''}`;
+      return t.ok ? `Colocar ${def.name.toLowerCase()}${size} (${keys})` : t.far ? 'Demasiado lejos' : `${t.why || 'Ahí no cabe'} (${keys})`;
+    }
     if (def?.place) return t?.ok ? `Colocar ${def.name.toLowerCase()} (R: girar)` : t?.far ? 'Demasiado lejos' : '';
     if (t?.label !== undefined) return t.label;
     if (def?.tool === 'azada') return t?.ok ? 'Labrar' : '';
@@ -91,8 +114,24 @@ export class Gathering {
     return `Necesitas ${rule.tool === 'guadana' ? 'la guadaña' : rule.tool === 'hacha' ? 'el hacha' : 'el pico'}`;
   }
 
+  // Girar lo que se coloca libre: un toque de R, 15°; dejándola pulsada, gira poco a poco (con Shift, al revés).
+  // Al soltar, si queda casi recto (a menos de 5°), se endereza
+  turnStart(dir) { if (!this.turn) this.turn = { dir, at: performance.now(), from: this.angle }; }
+  turning() { const t = this.turn, held = (performance.now() - t.at) / 1000 - TURN_WAIT; if (held > 0) this.angle = t.from + t.dir * TURN_SPEED * held; }
+  turnEnd() {
+    const t = this.turn;
+    if (!t) return;
+    this.turning();
+    this.turn = null;
+    const Q = Math.PI / 2;
+    if (performance.now() - t.at < TURN_WAIT * 1000) this.angle = t.from + t.dir * Math.PI / 12;
+    else { const n = Math.round(this.angle / Q) * Q; if (Math.abs(this.angle - n) < 5 * Math.PI / 180) this.angle = n; }
+    this.angle = ((this.angle % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
+  }
+  nextSize() { this.size++; }
   update(dt) {
     const g = this.game, p = g.player;
+    if (this.turn) this.turning();
     this.cooldown = Math.max(0, this.cooldown - dt);
     this.swing = Math.max(0, this.swing - dt);
     this.target = this.pickTarget();
@@ -233,10 +272,10 @@ export class Gathering {
     const g = this.game, t = this.pickTarget();
     if (auto) return;
     this.cooldown = COOLDOWN;
-    if (!t?.ok) { this.float(t?.far ? `Demasiado lejos (como mucho a ${PLACE_REACH} casillas)` : 'Ahí no cabe', '#ffb0a0'); Audio.error(); return; }
-    g.scene.place(...t.tile, id, t.rot);
+    if (!t?.ok) { this.float(t?.far ? `Demasiado lejos (como mucho a ${PLACE_REACH} casillas)` : t?.why || 'Ahí no cabe', '#ffb0a0'); Audio.error(); return; }
+    if (t.free) g.scene.placeFree(id, t.fit); else g.scene.place(...t.tile, id, t.rot);
     g.inv.take(g.inv.selected, 1);
-    this.chips(t.tile[0] + 0.5, t.tile[1] + 0.5, 'dirt', 8);
+    this.chips(t.free ? t.fit.cx : t.tile[0] + 0.5, t.free ? t.fit.cy : t.tile[1] + 0.5, 'dirt', 8);
     Audio.place();
     if (ITEMS[id].place === 'station') g.stats?.add('estaciones', 1);
     if (ITEMS[id].place === 'station') this.float(`${ITEMS[id].name}: acércate y pulsa E`, '#fff3c0');

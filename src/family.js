@@ -3,7 +3,7 @@
 // nombre. Duerme en su cuna y, 7 días después, ya es un niño: de día pasea por casa y por el jardín, de noche
 // duerme en su cama de niño, y se puede hablar con él. Como mucho, dos. Se parecen a los dos (ver childLook).
 // Es parte del mundo: lo lleva el juego del anfitrión y los demás lo ven igual (ver livesync.js).
-import { front, yawOf } from './art/stations.js';
+import { dirOf } from './world/fit.js';
 import { childLook, clothesFor, dressed } from './looks.js';
 import { collide } from './physics.js';
 import { hud } from './ui/hud.js';
@@ -52,7 +52,7 @@ export class Family {
       for (const o of this.world.contentFor(cx, cy).objects) {
         if (o.placed !== id || !o.tile) continue;
         const [tx, ty] = o.tile;
-        if (tx >= H.x0 && tx < H.x1 && ty >= H.y0 && ty < H.y1) out.push({ x: o.x, y: o.y, rot: o.rot || 0, tile: o.tile });
+        if (tx >= H.x0 && tx < H.x1 && ty >= H.y0 && ty < H.y1) out.push({ x: o.x, y: o.y, yaw: o.yaw || 0, tile: o.tile });
       }
     }
     return out.sort((a, b) => a.tile[1] - b.tile[1] || a.tile[0] - b.tile[0]);
@@ -163,8 +163,8 @@ export class Family {
   lie(e, bed, y, along) {
     Object.assign(e, { vx: 0, vy: 0, lying: true, walking: false });
     if (!bed) { const [hx, hy] = this.game.homeSpot(); Object.assign(e, { x: hx, y: hy - 1, h: 0.05, yaw: 0 }); return; }   // (un bebé sin cuna: en el suelo, junto a la puerta)
-    const [dx, dy] = front(bed.rot);
-    Object.assign(e, { x: bed.x + dx * along, y: bed.y + dy * along, h: y, yaw: yawOf(bed.rot) });
+    const [dx, dy] = dirOf(bed.yaw);
+    Object.assign(e, { x: bed.x + dx * along, y: bed.y + dy * along, h: y, yaw: bed.yaw });
   }
   // Las puertas de tu casa (el centro de su casilla)
   doors() {

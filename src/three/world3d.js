@@ -114,8 +114,8 @@ export class World3D {
   signature(scene, cx, cy, data) {
     const farm = this.farm(scene), d = scene.delta(cx, cy), today = farm?.today;
     let s = '';
-    for (const o of data.objects) s += o.key + (o.crop ? ':' + farm.stage(o.crop) : '') + (o.open ? '!' : '') + (o.placed ? o.placed + (o.rot || 0) : '') + (o.off ? '~' : '') + (o.window && scene.doorClosed(...o.tile) ? '#' : '') + ',';   // (~: apagado; #: ventana cerrada)
-    for (const o of data.flats) s += o.key + (o.model || o.placed || '') + (o.rot || 0) + ',';
+    for (const o of data.objects) s += o.key + (o.crop ? ':' + farm.stage(o.crop) : '') + (o.open ? '!' : '') + (o.placed ? o.placed + (o.rot || 0) : '') + (o.off ? '~' : '') + (o.tuck ? '^' : '') + (o.free ? `@${o.x.toFixed(2)},${o.y.toFixed(2)},${o.yaw.toFixed(2)}` : '') + (o.window && scene.doorClosed(...o.tile) ? '#' : '') + ',';   // (~: apagado; #: ventana cerrada)
+    for (const o of data.flats) s += o.key + (o.model || o.placed || '') + (o.rot || 0) + (o.free ? `@${o.x.toFixed(2)},${o.y.toFixed(2)},${o.yaw.toFixed(2)}` : '') + ',';
     for (const o of data.floors) s += o.key + ',';
     for (const t of data.tilled) { const k = `${t[0]},${t[1]}`; s += k + (d?.wet?.[k] === today ? 'w' : '') + ';'; }
     return s;
@@ -150,7 +150,7 @@ export class World3D {
         if (piece?.kind === 'wall') { const ex = { blooms: [], leaves: [] }; wallTile(scene, tx, ty, o.placed, emitFor(region), ex); this.flowers(ex, region, group); }
         else if (piece?.kind === 'door') { const ex = { blooms: [], leaves: [] }; const d = doorTile(scene, tx, ty, emitFor(region), ex); d.region = region; c.doors.push(d); }
         else if (piece?.kind === 'fence') fenceTile(scene, tx, ty, o.placed, plain);
-        else this.placeModel(o.model || o.placed, o.x, o.y, yawOf(o.rot), plain, c, group, o.off);
+        else this.placeModel(o.model || o.placed, o.x, o.y, o.yaw ?? yawOf(o.rot), plain, c, group, o.off);
       } else if (o.crop && this.farm(scene)) this.placeModel(`crop:${o.crop.id}:${this.farm(scene).stage(o.crop)}`, o.x, o.y, 0, plain, c, group);
       else if (o.poi) this.placeModel(`poi:${o.poi.kind}${o.poi.snow ? ':snow' : ''}`, o.poi.x, o.poi.y, 0, plain, c, group);
       else if (o.treasure) this.placeModel(`treasure:${o.open ? 1 : 0}`, o.x, o.y, 0, plain, c, group);

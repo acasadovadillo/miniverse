@@ -368,7 +368,9 @@ export class View3D {
   // Casilla bajo un punto de la pantalla: el rayo desde la cámara hasta el suelo
   // (se avanza por el rayo, a pasos que crecen con la distancia, hasta que baja del suelo: así acierta
   // también con el terreno en cuesta y con la cámara en primera persona)
-  tileAt(clientX, clientY) {
+  tileAt(clientX, clientY) { const p = this.pointAt(clientX, clientY); return p && [Math.floor(p[0]), Math.floor(p[1])]; }
+  // El punto del suelo bajo el ratón (x, y de la rejilla, con decimales)
+  pointAt(clientX, clientY) {
     const scene = this.shown;
     if (!scene) return null;
     const ndc = new THREE.Vector2((clientX / innerWidth) * 2 - 1, -(clientY / innerHeight) * 2 + 1);
@@ -382,7 +384,7 @@ export class View3D {
         // Afinar entre el paso anterior y este
         let a = prev, b = t;
         for (let i = 0; i < 6; i++) { const m = (a + b) / 2; if (o.y + d.y * m <= this.groundY(scene, o.x + d.x * m, o.z + d.z * m)) b = m; else a = m; }
-        return [Math.floor(o.x + d.x * b), Math.floor(o.z + d.z * b)];
+        return [o.x + d.x * b, o.z + d.z * b];
       }
       prev = t;
     }

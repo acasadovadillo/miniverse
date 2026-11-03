@@ -38,8 +38,9 @@ export const GLOW = { horno: [0, 0.42, 4], cocina: [0, 0.4, 4], chimenea: [0, 0.
 export const LIGHT = { horno: [0, 0.42, 6, 42], cocina: [0, 0.4, 6, 34], lampara: [0, 0, 35, 70], antorcha: [0, 0, 28, 52], chimenea: [0, 0.3, 12, 70], vela: [0, 0, 8, 26], candelabro: [0, 0, 44, 80] };
 
 // Lo que ocupa más de una casilla: 'long', la suya y la de delante (+y; girado, la de +x); 'wide' (la cama
-// doble), además las dos de al lado (+x; girado, -y); 'pair' (el sofá), la suya y la de al lado
-export const LONG = { cama: 'long', cama_nino: 'long', banera: 'long', cama_doble: 'wide', sofa: 'pair' };
+// doble), además las dos de al lado (+x; girado, -y); 'pair' (el sofá), la suya y la de al lado; 'table' (la mesa
+// grande), las de su tamaño alrededor de la suya
+export const LONG = { cama: 'long', cama_nino: 'long', banera: 'long', cama_doble: 'wide', sofa: 'pair', mesa_grande: 'table' };
 export const BED_BACK = 0.46;   // de la casilla de la cabecera a la parte de atrás de la cama
 // Los cuatro giros (R): hacia dónde mira el frente del mueble (z+ del modelo) en la rejilla, hacia dónde queda su
 // lado derecho (x+) y su ángulo. 0: +y; 1: +x; 2: -y; 3: -x
@@ -49,10 +50,17 @@ export const front = rot => FRONT[(rot || 0) % 4], yawOf = rot => ((rot || 0) % 
 // como su giro. La casilla elegida queda en medio
 export const RUG_SIZES = [[1, 1], [1, 2], [2, 1], [2, 2], [2, 3], [3, 2], [3, 4], [4, 3]];
 export const rugRect = (tx, ty, k = 0) => { const [w, h] = RUG_SIZES[(k || 0) % RUG_SIZES.length]; return { x0: tx - Math.floor((w - 1) / 2), y0: ty - Math.floor((h - 1) / 2), w, h }; };
+// Mesa grande: cuatro tamaños (2×1, 2×2, 3×1 y 3×2), a lo largo o a lo ancho, que se eligen con R y se guardan
+// como su giro. La casilla elegida queda en medio (lo demás, a una casilla como mucho)
+export const TABLE_SIZES = [[2, 1], [1, 2], [2, 2], [3, 1], [1, 3], [3, 2], [2, 3]];
+export const tableRect = (tx, ty, k = 0) => { const [w, h] = TABLE_SIZES[(k || 0) % TABLE_SIZES.length]; return { x0: tx - Math.floor((w - 1) / 2), y0: ty - Math.floor((h - 1) / 2), w, h }; };
+// Las sillas que miran a una mesa se meten debajo: el asiento bajo el tablero y el respaldo fuera
+export const TABLES = new Set(['mesa', 'mesa_grande']), TUCK = 0.42;
 export const footTile = (tx, ty, rot) => { const [dx, dy] = front(rot); return [tx + dx, ty + dy]; };
 // Las casillas que ocupa además de la suya
 export function extraTiles(id, tx, ty, rot) {
   if (!LONG[id]) return [];
+  if (LONG[id] === 'table') { const r = tableRect(tx, ty, rot), out = []; for (let y = r.y0; y < r.y0 + r.h; y++) for (let x = r.x0; x < r.x0 + r.w; x++) if (x !== tx || y !== ty) out.push([x, y]); return out; }
   const foot = footTile(tx, ty, rot);
   if (LONG[id] === 'pair') { const [sx, sy] = SIDE[(rot || 0) % 4]; return [[tx + sx, ty + sy]]; }   // (el sofá: la de al lado, no la de delante)
   if (LONG[id] !== 'wide') return [foot];

@@ -53,7 +53,8 @@ export function initInput(h) {
     if (KEYMAP[e.code]) { keys[KEYMAP[e.code]] = true; e.preventDefault(); }
     if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') keys.run = true;
     if (/^Digit[1-9]$/.test(e.code)) handlers.select(+e.code.slice(5) - 1);
-    if (e.code === 'KeyR' && !e.repeat) handlers.rotate();
+    if (e.code === 'KeyR' && !e.repeat) handlers.rotate(e.shiftKey ? -1 : 1);   // (lo libre gira mientras se mantiene)
+    if (e.code === 'KeyV' && !e.repeat) handlers.size?.();
     if ((e.code === 'KeyX' || e.code === 'Delete' || e.code === 'Backspace') && !e.repeat) handlers.erase();
     if (e.code === 'Space') { e.preventDefault(); keys.space = true; if (!e.repeat) handlers.jump(); }   // saltar (con un diálogo abierto, seguir)
     if ((e.code === 'KeyE' || e.code === 'Enter') && !e.repeat) { e.preventDefault(); handlers.interact(); }
@@ -63,6 +64,7 @@ export function initInput(h) {
     if (KEYMAP[e.code]) keys[KEYMAP[e.code]] = false;
     if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') keys.run = false;
     if (e.code === 'Space') keys.space = false;
+    if (e.code === 'KeyR') handlers.rotateEnd?.();
   });
   addEventListener('blur', clearKeys);
 

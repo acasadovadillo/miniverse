@@ -60,7 +60,7 @@ export function houseBlueprint({ x0, y0, big = false, roof = 'tejado_rojo', wall
     placed[k(x1 - 1, r)] = 'maceta';
     placed[k(dx + 1, r + 3)] = 'silla@1';
     placed[k(dx + 2, r + 3)] = 'mesa';
-    placed[k(dx + 3, r + 3)] = 'silla';
+    placed[k(dx + 3, r + 3)] = 'silla@3';   // (las dos sillas, mirando a la mesa: se meten debajo)
     placed[k(x0 + 3, r + 4)] = 'alfombra@2';   // (de 2×1)
     placed[k(x0 + 1, y1 - 1)] = 'maceta';
     if (furnish === 'full') placed[k(x0 + 1, r + 3)] = 'cofre';

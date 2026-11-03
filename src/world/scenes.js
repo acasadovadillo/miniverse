@@ -5,7 +5,8 @@ import { WorldGen, CHUNK } from './gen.js';
 import { buildVillage, NILO, inBounds, isGrass, inOwnHouse } from './village.js';
 import { B, BIOMES } from './biomes.js';
 import { ITEMS } from '../items.js';
-import { extraTiles, LONG, BED_BACK, HEARTH_BACK, GLOW, LIGHT, front, SIDE, rugRect } from '../art/stations.js';
+import { extraTiles, LONG, BED_BACK, HEARTH_BACK, GLOW, LIGHT, front, SIDE, rugRect, RUG_SIZES, TABLE_SIZES, TABLES, TUCK } from '../art/stations.js';
+import { solidsOf, hull, placeBoxes, bounds, aabb, sat, hitsCircle, distTo, obb, dirOf, sideOf } from './fit.js';
 import { wallRuns, WINDOW_Z, T } from '../art/build.js';
 import { PIECES, layerOf, parsePlaced } from '../pieces.js';
 import { Person } from '../entities.js';
@@ -36,10 +37,25 @@ function crosses(x0, y0, x1, y1, b) {
   }
   return true;
 }
+// Lo colocado libre: donde se puso y con su giro. Choca con la caja que envuelve su modelo (las personas) y, para
+// colocar otra cosa al lado, con cada una de sus cajas, a su altura (solids). Devuelve true si es plano
+const SNAP = 0.35, MAX_PUSH = 0.45, NUDGE = 0.12;   // (a menos de SNAP de un muro, se pega; si lo corta menos de MAX_PUSH, se saca; de un mueble, solo si lo roza: NUDGE)
+function freeObject(o, id, rot, [x, y, a], { colliders, lights, solids }) {
+  Object.assign(o, { x, y, yaw: a, rot, free: true, glow: GLOW[id] });
+  const [ux, uy] = sideOf(a), [vx, vy] = dirOf(a);
+  if (LIGHT[id] && !o.off) { const [lx, ly, lz, lr] = LIGHT[id]; lights.push({ x: x + ux * lx + vx * ly, y: y + uy * lx + vy * ly, z: lz, r: lr }); }
+  if (LONG[id] === 'table') o.model = `mesa_grande:${TABLE_SIZES[(rot || 0) % TABLE_SIZES.length].join('x')}`;
+  if (ITEMS[id].place === 'flat') return true;
+  const local = solidsOf(o.model || id), box = placeBoxes([hull(local)], x, y, a)[0];
+  o.obb = box;
+  colliders.push({ ...bounds(box), obb: box, free: true });
+  for (const s of placeBoxes(local, x, y, a)) solids.push(s);
+  return false;
+}
 function itemObject(o, id, rot, colliders, lights, [sx, sy] = [0, 0]) {
   const [tx, ty] = o.tile;
   o.x += sx; o.y += sy;
-  o.rot = rot; o.glow = GLOW[id];
+  o.rot = rot; o.yaw = (rot % 4) * Math.PI / 2; o.glow = GLOW[id];
   if (LIGHT[id] && !o.off) { const [lx, ly, lz, lr] = LIGHT[id]; lights.push({ x: o.x + lx, y: o.y + ly, z: lz, r: lr }); }
   if (ITEMS[id].place === 'flat' || ITEMS[id].place === 'rug') return true;   // (la alfombra de antes, de una casilla)
   if (LONG[id]) {   // varias casillas: la suya y las de los pies (y, la cama doble, las de al lado)
@@ -47,6 +63,8 @@ function itemObject(o, id, rot, colliders, lights, [sx, sy] = [0, 0]) {
     const x0 = Math.min(...xs), x1 = Math.max(...xs) + 1, y0 = Math.min(...ys), y1 = Math.max(...ys) + 1;
     o.fx = [x0 + sx, x1 + sx]; o.fy = [y0 + sy, y1 + sy];
     colliders.push({ x0: x0 + 0.06 + sx, y0: y0 + 0.06 + sy, x1: x1 - 0.06 + sx, y1: y1 - 0.06 + sy });
+    // (la mesa grande se dibuja de su tamaño, centrada en lo que ocupa y sin girar)
+    if (LONG[id] === 'table') Object.assign(o, { x: (x0 + x1) / 2, y: (y0 + y1) / 2, yaw: 0, model: `mesa_grande:${x1 - x0}x${y1 - y0}` });
     return false;
   }
   if (id === 'silla' || id === 'antorcha' || id === 'maceta' || id === 'lampara' || id === 'cojin' || id === 'palomar') colliders.push({ x: o.x, y: o.y, r: id === 'silla' || id === 'cojin' ? 0.3 : 0.2 });
@@ -117,12 +135,12 @@ export class Overworld {
       if (o.col) colliders.push(o.col);
     }
     if (d) for (const t of Object.keys(d.tilled)) tilled.push(t.split(',').map(Number));
-    const out = { objects, colliders, flats, floors, lights, roofMemo: new Map() };
+    const out = { objects, colliders, flats, floors, lights, solids: [], roofMemo: new Map() };
     if (d) this.addBuilt(d, out);
     const vb = this.village.built?.[key];
     if (vb) this.addBuilt(vb, out, true);
     for (const layer of this.layers) layer.add(cx, cy, d, out);
-    const data = { objects, colliders, tilled, flats, floors, lights };
+    const data = { objects, colliders, tilled, flats, floors, lights, solids: out.solids };
     this.merged.set(key, { v: d?.v ?? -1, bucket, data });
     if (this.merged.size > 300) this.merged.delete(this.merged.keys().next().value);
     return data;
@@ -155,6 +173,15 @@ export class Overworld {
     const [fx, fy] = front(rot), v = this.at('placed', tx - fx, ty - fy);
     return !!v && PIECES[parsePlaced(v)[0]]?.kind === 'wall' && !/^(ventana|muro_cuadro)/.test(v);
   }
+  // La silla que mira a una mesa (o a una casilla de una mesa grande) se mete debajo
+  tuckShift(id, tx, ty, rot) {
+    if (id !== 'silla') return null;
+    const [fx, fy] = front(rot), x = tx + fx, y = ty + fy, v = this.at('placed', x, y), a = v ? null : this.anchorOf(x, y);
+    const table = v ? parsePlaced(v)[0] : a && parsePlaced(this.ownAt('placed', ...a))[0];
+    return TABLES.has(table) ? [fx * TUCK, fy * TUCK] : null;
+  }
+  // Cuánto se corre lo que se pone: bajo la mesa o arrimado al muro de detrás
+  shiftFor(id, tx, ty, rot) { return this.tuckShift(id, tx, ty, rot) || this.wallShift(id, tx, ty, rot); }
   // Lo que tiene espalda (cama, estantería, hogar) se arrima al muro que tenga detrás (el lado contrario a su frente):
   // los muros son finos y van por el medio de su casilla, así que sin esto quedaría un hueco
   wallShift(id, tx, ty, rot) {
@@ -240,10 +267,15 @@ export class Overworld {
         o.glow = o.off ? null : GLOW[id]; o.fire = o.off ? null : [...at(0, 0.2), 3, 5]; o.hearth = true;
         if (LIGHT[id] && !o.off) { const [lx, ly, lz, lr] = LIGHT[id], [x, y] = at(lx, ly); lights.push({ x, y, z: lz, r: lr }); }
         const [[ax, ay], [bx, by]] = [at(-0.46, -0.44), at(0.46, 0.32)];
-        colliders.push({ x0: Math.min(ax, bx), y0: Math.min(ay, by), x1: Math.max(ax, bx), y1: Math.max(ay, by) });
+        colliders.push({ x0: Math.min(ax, bx), y0: Math.min(ay, by), x1: Math.max(ax, bx), y1: Math.max(ay, by), piece: true });
+      } else if (src.pos?.[o.key]) {
+        o.off = this.lightOff(tx, ty);
+        if (freeObject(o, id, rot, src.pos[o.key], out)) { flats.push(o); continue; }
       } else {
         o.off = this.lightOff(tx, ty);
-        if (itemObject(o, id, rot, colliders, lights, this.wallShift(id, tx, ty, rot))) { flats.push(o); continue; }
+        const tuck = this.tuckShift(id, tx, ty, rot);
+        if (tuck) o.tuck = true;
+        if (itemObject(o, id, rot, colliders, lights, tuck || this.wallShift(id, tx, ty, rot))) { flats.push(o); continue; }
       }
       objects.push(o);
     }
@@ -257,8 +289,9 @@ export class Overworld {
     // Las alfombras, del tamaño elegido (su "giro") alrededor de su casilla; tampoco chocan (encima van los muebles)
     for (const [t, raw] of Object.entries(src.rug || {})) {
       if (taken('rug', t)) continue;
-      const [id, k] = parsePlaced(raw), o = base(t, 'rug', id), r = rugRect(...o.tile, k);
+      const [id, k] = parsePlaced(raw), o = base(t, 'rug', id), r = rugRect(...o.tile, k), fp = src.pos?.[o.key];
       Object.assign(o, { x: r.x0 + r.w / 2, y: r.y0 + r.h / 2, rug: r, model: `rug:${id}:${r.w}x${r.h}`, fx: [r.x0, r.x0 + r.w], fy: [r.y0, r.y0 + r.h] });
+      if (fp) { Object.assign(o, { x: fp[0], y: fp[1], yaw: fp[2], free: true, fx: null, fy: null }); o.obb = obb(fp[0], fp[1], r.w / 2 - 0.06, r.h / 2 - 0.06, fp[2]); }   // (libre: donde se puso, girada)
       flats.push(o);
     }
     for (const [t, id] of Object.entries(src.roof || {})) {
@@ -361,6 +394,7 @@ export class Overworld {
     if (o.fixed || !this.ownAt(layer, tx, ty)) return false;
     const d = this.delta(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK));
     delete d[layer][k];
+    if (d.pos) delete d.pos[`${layer}:${k}`];
     if (layer === 'placed' && (o.placed === 'cofre' || o.placed === 'mochila' || o.placed === 'armario')) delete d.chest[k];
     if (layer === 'placed' && d.closed) delete d.closed[k];
     if (layer === 'placed' && d.off) delete d.off[k];
@@ -445,14 +479,92 @@ export class Overworld {
   // Lo colocado cerca de un punto (para usar estaciones y recoger muebles), lo más cercano primero
   placedNear(x, y, r) {
     const cx = Math.floor(x / CHUNK), cy = Math.floor(y / CHUNK), out = [];
-    // Distancia a lo colocado; a lo de dos casillas (la cama), a la más cercana de las dos
-    const dist = o => (o.fx ? Math.hypot(x - clamp(x, o.fx[0] + 0.5, o.fx[1] - 0.5), y - clamp(y, o.fy[0] + 0.5, o.fy[1] - 0.5)) : Math.hypot(o.x - x, o.y - y));
+    const dist = o => this.placedDist(o, x, y);
     for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
       const c = this.contentFor(cx + dx, cy + dy);
       for (const o of c.objects) if (o.placed && !PIECES[o.placed] && dist(o) < r) out.push(o);
       for (const o of c.flats) if (dist(o) < r) out.push(o);
     }
     return out.sort((a, b) => dist(a) - dist(b));
+  }
+  // Distancia a lo colocado; a lo de varias casillas (la cama), a la más cercana; a lo libre, a su borde (más lo que
+  // hay del borde al centro de algo pequeño)
+  placedDist(o, x, y) {
+    if (o.obb) return distTo(o.obb, x, y) + 0.4;
+    if (o.fx) return Math.hypot(x - clamp(x, o.fx[0] + 0.5, o.fx[1] - 0.5), y - clamp(y, o.fy[0] + 0.5, o.fy[1] - 0.5));
+    return Math.hypot(o.x - x, o.y - y);
+  }
+
+  // ---------- colocar libre ----------
+  // Con qué puede chocar lo que se coloca cerca de (x, y): cajas con su altura. wall: un muro o una puerta (también
+  // abierta: no se tapa). Las alfombras, solo con muros, vallas, el hogar y otras alfombras
+  obstaclesNear(x, y, rug) {
+    const out = [], cx = Math.floor(x / CHUNK), cy = Math.floor(y / CHUNK), near = b => Math.abs(b.x - x) < 5 && Math.abs(b.y - y) < 5;
+    for (const c of this.collidersNear(x, y)) {
+      if (c.free || (rug && !c.wall && !c.low && !c.piece)) continue;
+      const b = c.r !== undefined ? aabb(c.x - c.r * 0.85, c.y - c.r * 0.85, c.x + c.r * 0.85, c.y + c.r * 0.85) : c.rx ? aabb(c.x - c.rx * 0.8, c.y - c.ry * 0.8, c.x + c.rx * 0.8, c.y + c.ry * 0.8) : aabb(c.x0, c.y0, c.x1, c.y1);
+      if (near(b)) out.push({ ...b, y0: 0, y1: c.low ? 1 : 3, wall: !!c.wall });
+    }
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+      const c = this.contentFor(cx + dx, cy + dy);
+      for (const o of c.objects) if (o.door) { const [tx, ty] = o.tile; out.push({ ...(o.door === 'x' ? aabb(tx, ty + 0.38, tx + 1, ty + 0.62) : aabb(tx + 0.38, ty, tx + 0.62, ty + 1)), y0: 0, y1: 3, wall: true }); }
+      if (rug) { for (const o of c.flats) if (o.layer === 'rug') out.push({ ...(o.obb || aabb(o.fx[0], o.fy[0], o.fx[1], o.fy[1])), y0: 0, y1: 0.1 }); }
+      else for (const s of c.solids) if (near(s)) out.push(s);
+    }
+    return out;
+  }
+  // Cómo quedaría lo que se coloca libre con el centro de lo que ocupa en (px, py) y girado a (k: su tamaño, la
+  // alfombra y la mesa grande): si roza un muro (o le falta poco, estando recto) se arrima; si apenas roza un mueble,
+  // se separa; si lo corta, no cabe (la silla sí entra bajo la mesa, mientras el respaldo no toque el tablero). Devuelve dónde (ox, oy:
+  // el origen del modelo), si cabe (ok) y, si no, por qué (why); anchor: la casilla donde se apunta
+  fitFree(id, px, py, a, k = 0, player = null) {
+    const def = ITEMS[id], rug = def.place === 'rug', flat = def.place === 'flat';
+    let local, model = id, anchor = null;
+    if (rug) { const [w, h] = RUG_SIZES[k % RUG_SIZES.length]; local = [[-w / 2 + 0.06, 0, -h / 2 + 0.06, w / 2 - 0.06, 0.05, h / 2 - 0.06]]; model = `rug:${id}:${w}x${h}`; }
+    else { if (id === 'mesa_grande') model = `mesa_grande:${TABLE_SIZES[k % TABLE_SIZES.length].join('x')}`; local = solidsOf(model); }
+    const H = hull(local), lx = (H[0] + H[3]) / 2, lz = (H[2] + H[5]) / 2, [ux, uy] = sideOf(a), [vx, vy] = dirOf(a);
+    let ox = px - (ux * lx + vx * lz), oy = py - (uy * lx + vy * lz);
+    const obstacles = this.obstaclesNear(px, py, rug), whole = () => placeBoxes([H], ox, oy, a)[0];
+    const res = (ok, why) => { const w = whole(); return { ok, why, ox, oy, a, k, model, cx: w.x, cy: w.y, box: w, anchor }; };
+    // Arrimar a los muros (y a las esquinas): solo se pega si está casi recto (a menos de 8°)
+    const q = ((a / (Math.PI / 2)) % 1 + 1) % 1, aligned = q < 0.09 || q > 0.91;
+    for (let pass = 0; pass < 3; pass++) for (const w of obstacles) {
+      if (!w.wall) continue;
+      const m = aligned ? SNAP : 0, b = whole(), hit = sat({ ...b, hx: b.hx + m, hy: b.hy + m }, w);
+      if (!hit || hit.depth - m > MAX_PUSH) continue;
+      ox += hit.nx * (hit.depth - m); oy += hit.ny * (hit.depth - m);
+    }
+    // Separarlo de lo que apenas roce a su misma altura
+    const cuts = (s, o) => o.y1 > s.y0 + 0.01 && o.y0 < s.y1 - 0.01 && sat(s, o);
+    if (!flat) for (let pass = 0; pass < 4; pass++) {
+      let worst = null;
+      for (const s of placeBoxes(local, ox, oy, a)) for (const o of obstacles) { if (o.wall) continue; const hit = cuts(s, o); if (hit && (!worst || hit.depth > worst.depth)) worst = hit; }
+      if (!worst || worst.depth > NUDGE) break;
+      ox += worst.nx * (worst.depth + 0.004); oy += worst.ny * (worst.depth + 0.004);
+    }
+    // ¿Cabe?
+    for (const s of placeBoxes(local, ox, oy, a)) for (const o of obstacles) { const hit = cuts(s, o); if (hit && hit.depth > 0.012) return res(false, o.wall ? 'Choca con la pared' : 'Choca con otra cosa'); }
+    const w = whole(), b = bounds(w);
+    if (!rug && !flat && player && hitsCircle(w, player.x, player.y, 0.2)) return res(false, 'Estás tú en medio');
+    for (const [x, y] of [[w.x, w.y], [b.x0, b.y0], [b.x1, b.y0], [b.x0, b.y1], [b.x1, b.y1]]) {
+      if (this.water(x, y)) return res(false, 'Ahí no se puede poner');
+      if (inBounds(x, y) && !isGrass(x, y) && !inOwnHouse(x, y) && !this.buildAnywhere) return res(false, 'En el pueblo, solo en tu casa');
+    }
+    if (id === 'candelabro' && !this.roofAt(Math.floor(w.x), Math.floor(w.y))) return res(false, 'Se cuelga del techo: solo dentro de casa');
+    const t0 = [Math.floor(w.x), Math.floor(w.y)], tilled = (x, y) => this.delta(Math.floor(x / CHUNK), Math.floor(y / CHUNK))?.tilled[`${x},${y}`] !== undefined;
+    if (tilled(...t0)) return res(false, 'Ahí no: es tierra labrada');
+    // La casilla donde se apunta: la suya o una de al lado libre (cada casilla guarda una cosa por capa)
+    const layer = rug ? 'rug' : 'placed', tiles = [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, 1], [1, -1], [-1, -1]].map(([dx, dy]) => [t0[0] + dx, t0[1] + dy]);
+    tiles.sort((p, r) => Math.hypot(p[0] + 0.5 - w.x, p[1] + 0.5 - w.y) - Math.hypot(r[0] + 0.5 - w.x, r[1] + 0.5 - w.y));
+    anchor = tiles.find(([x, y]) => !this.at(layer, x, y) && (rug || !this.pieceAt(x, y)) && !tilled(x, y)) || null;
+    return anchor ? res(true, null) : res(false, 'Ahí no cabe');
+  }
+  // Ponerlo donde ha dicho fitFree (en su casilla, con su sitio y su giro de verdad)
+  placeFree(id, f) {
+    const [tx, ty] = f.anchor, layer = layerOf(id), d = this.delta(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK), true), r3 = v => Math.round(v * 1000) / 1000;
+    const a = ((f.a % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2), sized = layer === 'rug' || id === 'mesa_grande';
+    (d.pos ||= {})[`${layer}:${tx},${ty}`] = [r3(f.ox), r3(f.oy), r3(a)];
+    this.place(tx, ty, id, sized ? f.k : Math.round(a / (Math.PI / 2)) % 4);
   }
   // Un objeto colocado (mueble, estación o pieza) en una casilla, con sus datos, o null
   placedObjectAt(tx, ty) {

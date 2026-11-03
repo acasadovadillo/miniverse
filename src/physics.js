@@ -1,8 +1,10 @@
 // Colisiones en el plano del suelo: círculos {x, y, r}, elipses {x, y, rx, ry} y cajas {x0, y0, x1, y1}.
 import { clamp } from './util.js';
+import { pushOut } from './world/fit.js';
 
 export function collide(p, list, radius) {
   for (const c of list) {
+    if (c.obb) { pushOut(p, c.obb, radius); continue; }   // (lo colocado libre, girado)
     if (c.rx) {
       const dx = (p.x - c.x) / (c.rx + radius), dy = (p.y - c.y) / (c.ry + radius), d = Math.hypot(dx, dy);
       if (d < 1 && d > 1e-6) { p.x = c.x + (dx / d) * (c.rx + radius); p.y = c.y + (dy / d) * (c.ry + radius); }

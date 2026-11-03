@@ -16,6 +16,7 @@ import { animalModel, animalKey, animateAnimal, horseModel, animateHorse } from 
 
 const PEOPLE = new Map();
 const KID_SCALE = 0.66;   // los niños, más pequeños
+const LOOK_R = 2.6;      // a qué distancia se mira a quien se tiene al lado
 
 export class Actors {
   constructor(view) {
@@ -34,6 +35,7 @@ export class Actors {
     const list = [...(scene.entities || [])];
     if (game.player && game.scene === scene) for (const s of game.systems) { const more = s.entities?.(scene); if (more) list.push(...more); }
     if (p) list.push(p);
+    this.around = list; this.me = p;   // (para mirar a quien se tiene al lado)
     for (const e of list) {
       if (!e || seen.has(e)) continue;
       seen.add(e);
@@ -49,6 +51,32 @@ export class Actors {
     // En cuevas y mazmorras el jugador lleva un farol
     this.lights.length = 0;
     if (p && scene.kind === 'grid') this.lights.push({ x: p.x, y: 1.8, z: p.y, intensity: 8, range: 14, color: '#ffc880', always: true, flicker: true });
+  }
+
+  // Mirar a quien se tiene al lado: quieto, sentado o tumbado, la cabeza (y un poco los hombros) se gira hacia la
+  // persona más cercana, hasta unos 66° a cada lado; tumbado, hacia el lado donde está. Andando, al frente
+  lookAt(m, e, dt, lying) {
+    const P = m.person;
+    let want = 0;
+    if (m.speed < 0.6 && !e.mount && !e.boat) {
+      let best = null, bd = LOOK_R;
+      for (const o of this.around || []) {
+        if (o === e || !(o === this.me || o.look)) continue;
+        const d = Math.hypot(o.x - e.x, o.y - e.y);
+        if (d > 0.05 && d < bd) { bd = d; best = o; }
+      }
+      if (best) {
+        const dx = best.x - e.x, dy = best.y - e.y;
+        if (lying) { const yaw = m.root.rotation.y, s = (dx * Math.cos(yaw) - dy * Math.sin(yaw)) / bd; if (Math.abs(s) > 0.3) want = Math.sign(s) * 1.0; }
+        else {
+          const body = P.root.rotation.y + m.root.rotation.y, a = Math.atan2(dx, dy) - body, rel = Math.atan2(Math.sin(a), Math.cos(a));
+          if (Math.abs(rel) < 2.1) want = Math.max(-1.15, Math.min(1.15, rel));
+        }
+      }
+    }
+    P.lookYaw = (P.lookYaw || 0) + (want - (P.lookYaw || 0)) * Math.min(1, dt * 4);
+    P.head.rotation.y = P.lookYaw * 0.8;
+    P.torso.rotation.y += P.lookYaw * 0.2;
   }
 
   make(e, isPlayer, look = e.look) {
@@ -140,6 +168,7 @@ export class Actors {
       }
       if (e.mount || e.boat) { P.legs[0].rotation.x = P.legs[1].rotation.x = e.mount ? -1.1 : -1.4; P.legs[0].rotation.z = 0.5; P.legs[1].rotation.z = -0.5; for (const k of P.shins || []) k.rotation.x = e.mount ? 1.0 : 1.3; }
       else P.legs[0].rotation.z = P.legs[1].rotation.z = 0;
+      this.lookAt(m, e, dt, lying);
     } else if (m.kind === 'animal') {
       if (yaw !== null) turnTo(m.root, yaw, dt);
       m.root.scale.setScalar(e.young ? 0.55 : 1);
