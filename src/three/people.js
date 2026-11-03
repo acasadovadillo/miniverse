@@ -171,8 +171,11 @@ function fabric(kind) {
 export const FAB = (kind, color) => { const k = kind + color; if (!FAB_MATS.has(k)) FAB_MATS.set(k, mat({ map: fabric(kind), color, roughness: kind === 'leather' ? 0.55 : 0.92 })); return FAB_MATS.get(k); };
 // La tela de cada prenda
 const CLOTH_OF = { camisa: 'weave', tunica: 'weave', tunica_larga: 'weave', chaleco: 'knit', delantal: 'weave', pantalon: 'denim', falda: 'weave', botas: 'leather', camiseta_interior: 'weave', calzoncillos: 'weave', bragas: 'weave', calcetines: 'knit', sombrero: 'straw', gorro: 'knit', hijab: 'weave', mochila: 'leather' };
-const cloth = it => (it ? (CLOTH_OF[it.id] ? FAB(CLOTH_OF[it.id], it.color) : M(it.color)) : null);
-const clothShade = (it, k) => (CLOTH_OF[it.id] ? FAB(CLOTH_OF[it.id], shade(it.color, k)) : M(shade(it.color, k)));
+// Las armaduras (casco, peto, grebas y botas de metal): con las formas de la ropa, pero de metal y con brillo
+const ARMOR = /^(casco|peto|grebas|botas)_(cobre|hierro|oro)$/, isArmor = it => !!it && ARMOR.test(it.id);
+const METAL = c => M(c, { metalness: 0.7, roughness: 0.32 });
+const cloth = it => (it ? (isArmor(it) ? METAL(it.color) : CLOTH_OF[it.id] ? FAB(CLOTH_OF[it.id], it.color) : M(it.color)) : null);
+const clothShade = (it, k) => (isArmor(it) ? METAL(shade(it.color, k)) : CLOTH_OF[it.id] ? FAB(CLOTH_OF[it.id], shade(it.color, k)) : M(shade(it.color, k)));
 
 // La cara de la cabeza (esfera de radio 0.29 algo achatada): z de la superficie en (x, y), para apoyar en ella
 // ojos, cejas, nariz, mofletes y barba. F(x, y, d): ese punto, d por delante de la superficie.
@@ -203,7 +206,7 @@ export class Person3D {
     this.phase = Math.random() * 6; this.speed = 0; this.targetYaw = 0;
     const L = fullLook(look), W = look.wear || clothesFor(L), skin = M(L.skin), hair = M(L.hair, { roughness: 0.6 });
     const shirt = cloth(W.torso), under = cloth(W.interiorArriba);
-    const pants = W.piernas?.id === 'pantalon' ? cloth(W.piernas) : null;
+    const pants = W.piernas?.id === 'pantalon' || W.piernas?.id?.startsWith('grebas_') ? cloth(W.piernas) : null;   // (las grebas, como un pantalón de metal)
     // Con la túnica larga las piernas se mueven menos (si no, asomarían por la falda)
     this.legSwing = W.torso?.id === 'tunica_larga' ? 0.5 : 1;
     // Piernas (con pantalón o piel) y pies (con botas, con calcetines o descalzos). Sin pantalón, los
@@ -221,11 +224,11 @@ export class Person3D {
         mesh(G.cyl, FAB('knit', shade(socks, 0.82)), { p: [0, -0.013, 0], s: [0.071, 0.022, 0.071] }, knee);
       }
       if (W.pies) {   // botas: caña, pie y suela, con la puntera algo más clara
-        const c = W.pies.color, lace = M(shade(c, 0.55));
-        mesh(G.cyl, FAB('leather', c), { p: [0, -0.1, 0], s: [0.07, 0.11, 0.07] }, knee);
-        mesh(G.cyl, FAB('leather', shade(c, 0.8)), { p: [0, -0.045, 0], s: [0.073, 0.02, 0.073] }, knee);
-        mesh(G.boot, FAB('leather', c), { p: [0, -0.16, 0.03], s: [0.08, 0.055, 0.12] }, knee);
-        mesh(G.boot, FAB('leather', mix(c, '#ffffff', 0.12)), { p: [0, -0.158, 0.1], s: [0.06, 0.04, 0.05] }, knee);
+        const c = W.pies.color, lace = M(shade(c, 0.55)), hide = isArmor(W.pies) ? METAL : col => FAB('leather', col);   // (las de armadura, de metal)
+        mesh(G.cyl, hide(c), { p: [0, -0.1, 0], s: [0.07, 0.11, 0.07] }, knee);
+        mesh(G.cyl, hide(shade(c, 0.8)), { p: [0, -0.045, 0], s: [0.073, 0.02, 0.073] }, knee);
+        mesh(G.boot, hide(c), { p: [0, -0.16, 0.03], s: [0.08, 0.055, 0.12] }, knee);
+        mesh(G.boot, hide(mix(c, '#ffffff', 0.12)), { p: [0, -0.158, 0.1], s: [0.06, 0.04, 0.05] }, knee);
         mesh(G.boot, M('#2a1c14'), { p: [0, -0.205, 0.028], s: [0.083, 0.018, 0.124] }, knee);
         for (const y of [-0.07, -0.1, -0.13]) mesh(G.box, lace, { p: [0, y, 0.068], s: [0.05, 0.007, 0.006], r: [0.2, 0, 0] }, knee);   // los cordones
       } else if (socks) mesh(G.boot, M(socks), { p: [0, -0.163, 0.025], s: [0.067, 0.049, 0.1] }, knee);
@@ -286,7 +289,7 @@ export class Person3D {
       mesh(G.cyl, M('#5a3a22'), { p: [0, 0.12, 0], s: [0.184, 0.04, 0.144] }, torso);                                         // cinturón
       mesh(G.cyl, M('#e8c050', { metalness: 0.5, roughness: 0.4 }), { p: [0, 0.12, 0.146], s: [0.03, 0.045, 0.012], r: [Math.PI / 2, 0, 0] }, torso);
     }
-    if (legs === 'pantalon' && top !== 'tunica_larga') {   // la cintura del pantalón y, si no lo tapa una túnica, el cinturón con su hebilla
+    if ((legs === 'pantalon' || legs?.startsWith('grebas_')) && top !== 'tunica_larga') {   // la cintura del pantalón y, si no lo tapa una túnica, el cinturón con su hebilla
       mesh(G.cyl, cloth(W.piernas), { p: [0, 0.02, 0], s: [0.175, 0.08, 0.135] }, torso);
       if (!tunic) { mesh(G.cyl, FAB('leather', '#3a2618'), { p: [0, 0.055, 0], s: [0.178, 0.026, 0.138] }, torso); mesh(G.box, M('#d8b048', { metalness: 0.6, roughness: 0.35 }), { p: [0, 0.055, 0.138], s: [0.038, 0.03, 0.008] }, torso); }
     }
@@ -312,6 +315,13 @@ export class Person3D {
       }
       mesh(G.ball, tie, { p: [0, 0.125, -0.152], s: 0.014 }, torso);
       mesh(G.ball, M(shade(W.encima.color, 0.88)), { p: [0.06, -0.035, 0.164], s: [0.05, 0.035, 0.01] }, torso);   // bolsillo
+    }
+    if (over?.startsWith('peto_')) {   // peto: cerrado, de metal, con una placa en el pecho y el borde de los hombros
+      const plate = cloth(W.encima), edge = clothShade(W.encima, 0.75);
+      mesh(G.vest, plate, {}, torso);
+      mesh(G.box, plate, { p: [0, 0.23, 0.128], s: [0.17, 0.2, 0.02], r: [-0.1, 0, 0] }, torso);
+      mesh(G.box, edge, { p: [0, 0.23, 0.14], s: [0.016, 0.19, 0.012], r: [-0.1, 0, 0] }, torso);
+      for (const x of [-0.13, 0.13]) mesh(G.ball, edge, { p: [x, 0.37, 0], s: [0.07, 0.04, 0.09] }, torso);
     }
     if (over === 'chaleco') {   // ajustado al cuerpo y abierto delante, con botones a un lado y dos bolsillos
       const v = cloth(W.encima), dark = M(shade(W.encima.color, 0.55));
@@ -371,6 +381,11 @@ export class Person3D {
       mesh(new THREE.SphereGeometry(0.29, 22, 12, 0, Math.PI * 2, 0, Math.PI * 0.5), c, { p: [0, 0.06, -0.02], s: 1.13, r: [-0.3, 0, 0] }, head);
       mesh(new THREE.TorusGeometry(0.33, 0.04, 6, 26), d, { p: [0, 0.06, -0.02], r: [Math.PI / 2 - 0.3, 0, 0] }, head);   // la vuelta, en el borde
       mesh(G.ball, M('#f4f0e8'), { p: [0, 0.4, -0.13], s: 0.065 }, head);
+    }
+    if (isArmor(it)) {   // casco: una cúpula de metal con su borde y la protección de la nariz
+      mesh(new THREE.SphereGeometry(0.3, 22, 12, 0, Math.PI * 2, 0, Math.PI * 0.5), c, { p: [0, 0.05, -0.01], s: 1.1, r: [-0.25, 0, 0] }, head);
+      mesh(new THREE.TorusGeometry(0.33, 0.03, 6, 26), d, { p: [0, 0.05, -0.01], r: [Math.PI / 2 - 0.25, 0, 0] }, head);
+      mesh(G.box, d, { p: [0, 0.07, 0.3], s: [0.035, 0.13, 0.02] }, head);
     }
     if (it.id === 'hijab') {
       // Un pañuelo que envuelve la cabeza dejando un óvalo para la cara, y cae sobre el cuello y los hombros

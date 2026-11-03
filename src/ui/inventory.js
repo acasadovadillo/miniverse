@@ -23,12 +23,22 @@ function paint(el, s) {
     if (img.getAttribute('src') !== url) img.src = url;
     img.hidden = false;
     n.textContent = s.n > 1 ? s.n : '';
-    el.title = ITEMS[s.id].name;
+    el.title = ITEMS[s.id].name + (ITEMS[s.id].dur ? ` (${s.dur ?? ITEMS[s.id].dur}/${ITEMS[s.id].dur} usos)` : '');
   } else {
     img.hidden = true;
     n.textContent = '';
     el.title = '';
   }
+  wearBar(el, s);
+}
+// Lo gastada que está una herramienta o una armadura: una barrita abajo, de verde a rojo (solo si ya se ha usado)
+export function wearBar(el, s) {
+  const max = s && ITEMS[s.id].dur, left = max && s.dur !== undefined && s.dur < max ? s.dur / max : null;
+  let bar = el.querySelector('.dur');
+  if (left === null) { bar?.remove(); return; }
+  if (!bar) { bar = document.createElement('span'); bar.className = 'dur'; bar.innerHTML = '<span></span>'; el.append(bar); }
+  bar.firstChild.style.width = `${Math.max(4, left * 100)}%`;
+  bar.firstChild.style.background = `hsl(${Math.round(left * 120)}, 75%, 50%)`;
 }
 
 export function initInventoryUI(game, { onClose, onCraft }) {
@@ -140,7 +150,7 @@ export function initInventoryUI(game, { onClose, onCraft }) {
     say(def.desc + (def.food ? ` Da ${def.food} de energía.` : ''));
     $('inv-wearbtn').hidden = !def.wear;
     // Teñir: las prendas (puestas o en la mochila) se cambian de color tocando uno
-    $('inv-dyes').hidden = !def.wear;
+    $('inv-dyes').hidden = !def.wear || !!def.noDye;   // (la armadura no se tiñe)
     if (def.wear) {
       const box = $('inv-dyes');
       if (!box.children.length) {

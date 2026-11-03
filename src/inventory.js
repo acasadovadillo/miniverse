@@ -5,8 +5,9 @@
 import { ITEMS } from './items.js';
 
 export const SLOTS = 36, HOTBAR = 9;
-// Lo que distingue una prenda de otra igual (su color); undefined si no hay nada
-export const extraOf = s => (s?.color ? { color: s.color } : undefined);
+// Lo que distingue una cosa de otra igual (el color de una prenda, lo gastada que está una herramienta o una
+// armadura: dur, los usos que le quedan); undefined si no hay nada
+export const extraOf = s => { const e = {}; if (s?.color) e.color = s.color; if (s?.dur !== undefined) e.dur = s.dur; return Object.keys(e).length ? e : undefined; };
 
 export class Inventory {
   constructor(data) {
@@ -85,8 +86,8 @@ export class Inventory {
     const s = this.slots[i], slot = s && ITEMS[s.id].wear;
     if (!slot) return false;
     const old = this.equip[slot];
-    this.equip[slot] = { id: s.id, color: s.color || ITEMS[s.id].dye };
-    this.slots[i] = old ? { id: old.id, n: 1, color: old.color } : null;
+    this.equip[slot] = { id: s.id, color: s.color || ITEMS[s.id].dye, ...(s.dur !== undefined && { dur: s.dur }) };
+    this.slots[i] = old ? { id: old.id, n: 1, color: old.color, ...(old.dur !== undefined && { dur: old.dur }) } : null;
     this.changed();
     return true;
   }
@@ -98,7 +99,7 @@ export class Inventory {
     if (slot === 'espalda' && this.slots.slice(HOTBAR).some(Boolean)) return 'Vacía la mochila antes de quitártela (o déjala en el suelo, llena).';
     const free = this.slots.findIndex((s, i) => !s && i < (slot === 'espalda' ? HOTBAR : this.cap));
     if (free < 0) return 'No tienes un hueco libre donde guardarlo.';
-    this.slots[free] = { id: it.id, n: 1, color: it.color };
+    this.slots[free] = { id: it.id, n: 1, color: it.color, ...(it.dur !== undefined && { dur: it.dur }) };
     delete this.equip[slot];
     this.changed();
     return null;

@@ -59,7 +59,8 @@ function defaultHouseDeltas() {
 export const GAMEMODES = { survival: 'supervivencia', creative: 'creativo', spectator: 'espectador' };
 export const RULES = { keepInventory: false, doMobSpawning: true, doWeatherCycle: true };
 const AIM_REACH = 2;   // lo que se apunta con el ratón se usa si está a esto como mucho (casillas)
-const LIGHTS = new Set(['lampara', 'antorcha', 'vela', 'candelabro']);   // lo colocado que se apaga y se enciende con E
+const LIGHTS = new Set(['lampara', 'antorcha', 'vela', 'candelabro']);
+const BEDS = new Set(['cama', 'cama_nino', 'cama_doble']);   // lo colocado que se apaga y se enciende con E
 
 export class Game {
   constructor(canvas) {
@@ -164,6 +165,7 @@ export class Game {
     const [sx, sy] = this.worldSpawn || [SPAWN.x, SPAWN.y];   // (un personaje nuevo, donde diga el mundo)
     this.player = new Player({ ...p, x: save.inventory ? p.x ?? sx : sx, y: save.inventory ? p.y ?? sy : sy });
     this.player.ghost = this.gamemode === 'spectator';
+    this.player.onExert = n => this.combat.exert(n);   // (correr y saltar dan hambre)
     hud.faces = { ...hud.faces, Nilo: NILO_LOOK, [this.player.name]: this.player.look };
     this.scene = this.world;
     this.underRoof = false;
@@ -207,6 +209,8 @@ export class Game {
     this.setAdmin(this.gamemode === 'creative');
     if (this.player) this.player.ghost = this.gamemode === 'spectator';
     document.body.classList.toggle('spectator', this.gamemode === 'spectator');
+    document.body.classList.toggle('survival', this.gamemode === 'survival');   // (con la vida y el hambre a la vista)
+    this.combat?.paint();
     document.getElementById('admin-tag').textContent = this.gamemode === 'spectator' ? 'ESPECTADOR' : 'CREATIVO';
     if (this.gamemode === 'spectator') { this.build.toggle(false); if (this.player?.pose) this.rest.stand(); }
   }
@@ -224,8 +228,23 @@ export class Game {
     else if (m.t === 'gamemode' && GAMEMODES[m.gm]) { this.setGamemode(m.gm); said(`te ha puesto en modo ${GAMEMODES[m.gm]}`); }
     this.onSave?.();
   }
-  // Dónde se reaparece al morir: en tu punto (/spawnpoint) o, si no tienes, en casa
-  respawnSpot() { return this.player?.spawn || this.homeSpot(); }
+  // Dónde se reaparece al morir: en tu cama (si sigue ahí), en tu punto (/spawnpoint) o, si no tienes, en casa
+  respawnSpot() {
+    const s = this.player?.spawn;
+    if (s?.length === 4) {
+      const v = this.world.ownAt('placed', s[2], s[3]), id = v && parsePlaced(v)[0];
+      if (!BEDS.has(id)) { this.player.spawn = null; hud.toast('Tu cama ya no está: apareces en casa'); return this.homeSpot(); }
+    }
+    return s ? [s[0], s[1]] : this.homeSpot();
+  }
+  bedSpawn(o) {
+    const p = this.player, [tx, ty] = o.tile, s = p.spawn;
+    if (s?.length === 4 && s[2] === tx && s[3] === ty) return;
+    p.spawn = [Math.round(p.x * 100) / 100, Math.round(p.y * 100) / 100, tx, ty];
+    hud.toast('Punto de reaparición: tu cama');
+  }
+  // Un nombre fijo para cada escena (el mundo, o tal nivel de tal cueva), que no cambia aunque se rehaga
+  sceneKey(sc) { return !sc || sc === this.world ? 'world' : `g:${sc.id ?? `${sc.caveId}:${sc.depth}`}`; }
   // Lo que se usa no se gasta, en la mochila están todos los objetos y construir es gratis (y se puede construir
   // también sobre el terreno del pueblo): el modo creativo
   setAdmin(on) {
@@ -417,6 +436,7 @@ export class Game {
   rugAction(rug) { return { text: `${ITEMS[rug.placed].plain || ITEMS[rug.placed].name} de ${rug.rug.w}×${rug.rug.h}`, run: () => Audio.blip(), alt: { text: 'Recoger', run: () => { if (this.pickUp(rug)) this.onSave?.(); } } }; }
   // La cama: tumbarse (sin dormir), dormir o, en la doble, lo de la familia
   async bed(o) {
+    this.bedSpawn(o);   // (como en Minecraft: usar la cama la hace tu punto de reaparición)
     if (o.placed === 'cama_doble') return this.family.bed(o);
     this.busy = true;
     const pick = await hud.ask(this.player.name, '¿Qué hacemos?', ['Tumbarse un rato', 'Dormir', 'Nada']);
@@ -708,6 +728,9 @@ export class Game {
     await hud.fade(true);
     Object.assign(this.player, { x, y, inside, view: 'front', dir: null });
     this.scene = scene;
+    // (lo que se soltó al morir en esta cueva o mazmorra sigue ahí: las cuevas se rehacen al entrar)
+    const key = this.sceneKey(scene);
+    for (const d of this.gather.drops) if (d.sceneKey === key) d.scene = scene;
     Audio.indoors = inside;
     this.build.toggle(false);
     this.updatePlace();
@@ -719,7 +742,11 @@ export class Game {
   // El aspecto del jugador con la ropa que lleva puesta (cambia al ponerse o quitarse algo)
   appearance() {
     if (!this.player) return null;
-    if (this.looked?.v !== this.inv.v || this.looked.base !== this.player.look) this.looked = { v: this.inv.v, base: this.player.look, look: dressed(this.player.look, this.inv.equip) };
+    // (solo cambia con la ropa puesta y su color: lo gastada que esté la armadura no rehace el muñeco)
+    if (this.looked?.v === this.inv.v && this.looked.base === this.player.look) return this.looked.look;
+    const key = Object.entries(this.inv.equip).map(([k, it]) => `${k}:${it.id}:${it.color}`).sort().join('|');
+    if (this.looked?.key !== key || this.looked.base !== this.player.look) this.looked = { key, base: this.player.look, look: dressed(this.player.look, this.inv.equip) };
+    this.looked.v = this.inv.v;
     return this.looked.look;
   }
   tileAtScreen(clientX, clientY) { return this.scene ? this.view3d.tileAt(clientX, clientY) : null; }

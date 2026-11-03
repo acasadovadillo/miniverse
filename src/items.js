@@ -2,11 +2,11 @@
 
 // Niveles de herramienta: un nivel mejor necesita menos golpes, trabaja más deprisa y saca mejores minerales.
 export const TIERS = {
-  1: { name: 'de madera', head: '#b08050', power: 1 },
-  2: { name: 'de piedra', head: '#8e8a82', power: 1.5 },
-  3: { name: 'de cobre', head: '#d8844a', power: 2 },
-  4: { name: 'de hierro', head: '#b8c2ce', power: 3 },
-  5: { name: 'de oro', head: '#f0c840', power: 4 },
+  1: { name: 'de madera', head: '#b08050', power: 1, dur: 60 },
+  2: { name: 'de piedra', head: '#8e8a82', power: 1.5, dur: 130 },
+  3: { name: 'de cobre', head: '#d8844a', power: 2, dur: 190 },
+  4: { name: 'de hierro', head: '#b8c2ce', power: 3, dur: 250 },
+  5: { name: 'de oro', head: '#f0c840', power: 4, dur: 500 },   // (dur: los usos que aguanta antes de romperse)
 };
 const TOOLS = {
   hacha: { name: 'Hacha', desc: 'Tala árboles y corta cactus.' },
@@ -86,8 +86,8 @@ for (const [id, c] of Object.entries(CROPS)) {
 Object.assign(ITEMS, {
   semilla_manzano: { name: 'Semilla de manzano', desc: 'Plántala en la hierba: en unos días tendrás un manzano que da manzanas.', sapling: 'fruit' },
   regadera: { name: 'Regadera', desc: 'Riega la tierra labrada. Se llena en cualquier agua.', tool: 'regadera', tier: 1, stack: 1 },
-  cana: { name: 'Caña de pescar', desc: 'Mirando al agua, mantén pulsado para coger fuerza y suelta para lanzar. Cuando pique, pulsa y mantén la red sobre el pez.', tool: 'cana', tier: 1, stack: 1 },
-  cana_fibra: { name: 'Caña de fibra', desc: 'Más ligera y sensible: los peces pican antes y la red es más grande.', tool: 'cana', tier: 2, stack: 1 },
+  cana: { name: 'Caña de pescar', desc: 'Mirando al agua, mantén pulsado para coger fuerza y suelta para lanzar. Cuando pique, pulsa y mantén la red sobre el pez.', tool: 'cana', tier: 1, stack: 1, dur: 80 },
+  cana_fibra: { name: 'Caña de fibra', desc: 'Más ligera y sensible: los peces pican antes y la red es más grande.', tool: 'cana', tier: 2, stack: 1, dur: 160 },
   abono: { name: 'Abono', desc: 'Úsalo en un cultivo: crecerá más deprisa.' },
   aspersor: { name: 'Aspersor', desc: 'Riega solo cada mañana las 8 casillas de alrededor.', place: 'furniture' },
   gallinero: { name: 'Gallinero', desc: 'Casa para hasta 4 gallinas.', place: 'furniture' },
@@ -169,8 +169,8 @@ Object.assign(ITEMS, {
   calavera: { name: 'Calavera de esqueleto', desc: 'Sonríe todo el rato. Da un poco de mal rollo.' },
   baba: { name: 'Baba de limo', desc: 'Pegajosa. A alguien le servirá.' },
   pocion: { name: 'Poción de vida', desc: 'Cura 6 corazones.', heal: 12 },
-  espada: { name: 'Espada', desc: 'Para defenderte en cuevas y mazmorras. Úsala con el clic izquierdo.', weapon: 3, stack: 1 },
-  espada_oro: { name: 'Espada de oro', desc: 'Pega el doble de fuerte.', weapon: 6, stack: 1 },
+  espada: { name: 'Espada', desc: 'Para defenderte en cuevas y mazmorras. Úsala con el clic izquierdo.', weapon: 3, stack: 1, dur: 150 },
+  espada_oro: { name: 'Espada de oro', desc: 'Pega el doble de fuerte.', weapon: 6, stack: 1, dur: 500 },
   barca: { name: 'Barca', desc: 'Úsala mirando al agua para navegar por ríos, lagos y el mar.', vehicle: 'barca', stack: 1 },
   caballo: { name: 'Silbato del caballo', desc: 'Con él tienes caballo: úsalo para llamarlo, montar y bajar. Cepíllalo y dale zanahorias: cuanto más te quiere, más corre.', vehicle: 'caballo', stack: 1 },
   brujula: { name: 'Brújula del confín', desc: 'Su aguja no apunta al norte: apunta a algún sitio muy lejano.', stack: 1 },
@@ -187,14 +187,14 @@ export const BUGS = {
   polilla: { name: 'Polilla', seasons: [1, 2, 3], hours: [20, 5], col: '#c8b898' },
 };
 for (const [id, b] of Object.entries(BUGS)) ITEMS[id] = { name: b.name, desc: 'Un insecto para el museo del pueblo.', bug: true };
-ITEMS.red = { name: 'Red de insectos', desc: 'Úsala en la hierba o junto al agua para cazar insectos.', tool: 'red', tier: 1, stack: 1 };
+ITEMS.red = { name: 'Red de insectos', desc: 'Úsala en la hierba o junto al agua para cazar insectos.', tool: 'red', tier: 1, stack: 1, dur: 120 };
 ITEMS.vitrina = { name: 'Vitrina', desc: 'Para lucir tus colecciones en casa.', place: 'furniture' };
 
 for (const [id, f] of Object.entries(FISH)) ITEMS[id] = { name: f.name, desc: f.rare ? '¡Rarísimo! Dicen que da suerte.' : 'Un pez. Se puede asar en la cocina o vender.', food: 6, fish: true };
 
 for (const [tool, def] of Object.entries(TOOLS)) {
   for (const tier of [1, 2, 3, 4, 5]) {
-    ITEMS[toolId(tool, tier)] = { name: `${def.name} ${TIERS[tier].name}`, desc: def.desc, tool, tier, stack: 1 };
+    ITEMS[toolId(tool, tier)] = { name: `${def.name} ${TIERS[tier].name}`, desc: def.desc, tool, tier, stack: 1, dur: TIERS[tier].dur };
   }
 }
 // Ropa y mochila: se llevan puestas en un hueco del cuerpo (wear). Cada prenda lleva su color (en la casilla
@@ -247,6 +247,18 @@ Object.assign(ITEMS, {
   inodoro: { name: 'Retrete', desc: 'De porcelana, con asiento de madera.', place: 'furniture' },
   lavabo: { name: 'Lavabo', desc: 'De porcelana, con un espejo encima.', place: 'furniture' },
 });
+// Armaduras: casco, peto, grebas y botas de cobre, hierro y oro, que se forjan en el yunque y se llevan puestas en
+// los huecos de la ropa (cabeza, encima, piernas y pies). armor: lo que protege (cada punto quita un 4 % del daño,
+// como en Minecraft); dur: los golpes que aguanta
+export const ARMOR_PIECES = [['casco', 'Casco', 'cabeza', 11], ['peto', 'Peto', 'encima', 16], ['grebas', 'Grebas', 'piernas', 15], ['botas', 'Botas', 'pies', 13]];
+export const ARMOR_METALS = [['cobre', 'de cobre', '#d08a52', [2, 5, 4, 1], 12], ['hierro', 'de hierro', '#c4ccd6', [2, 6, 5, 2], 15], ['oro', 'de oro', '#f0c840', [3, 8, 6, 3], 33]];
+for (const [metal, of, dye, points, base] of ARMOR_METALS) ARMOR_PIECES.forEach(([piece, name, wear, mult], i) => {
+  ITEMS[`${piece}_${metal}`] = { name: `${name} ${of}`, desc: `Armadura: protege ${points[i]} punto${points[i] > 1 ? 's' : ''} (cada uno, un 4 % del daño). Se forja en el yunque y se repara allí.`, wear, dye, armor: points[i], dur: base * mult, metal, piece, stack: 1, noDye: true };
+});
+export const isArmor = id => !!ITEMS[id]?.armor;
+// Lo que quita el hambre cada comida (en medios muslos, de 20): si no lo dice, según la energía que da
+export const hungerOf = def => def.hunger ?? Math.max(1, Math.min(10, Math.round((def.food || 0) / 4)));
+
 // Las alfombras se tejen de cada tamaño en el telar: la de siempre es la de 1×1 y 'alfombra_persa_2x3', la persa de
 // 2×3 (rug: de qué alfombra es; size: lo que ocupa, en casillas; plain: su nombre sin el tamaño)
 export const RUG_KINDS = ['alfombra', 'alfombra_persa', 'alfombra_rayas', 'alfombra_rombos', 'alfombra_trenzada'];

@@ -1,10 +1,19 @@
-// Combate ligero (solo en cuevas y mazmorras): vida del jugador en corazones, criaturas que persiguen
-// y muerden, y golpes con la espada (o con cualquier herramienta, que pega menos).
-import { ITEMS } from './items.js';
+// Vida y combate. La vida (en corazones) y el hambre (en muslos) cuentan siempre en supervivencia, como en
+// Minecraft: con el hambre casi llena se cura sola, y sin hambre duele. El hambre baja con el tiempo y con lo que
+// se hace (usar herramientas, correr, saltar, pegar). La armadura quita daño. Al morir se suelta lo que se lleva
+// (salvo con keepInventory) y se reaparece en la cama o en casa. En cuevas y mazmorras, criaturas que persiguen y
+// muerden, y golpes con la espada (o con cualquier herramienta, que pega menos).
+import { ITEMS, isArmor } from './items.js';
+import { extraOf } from './inventory.js';
 import { Audio } from './audio.js';
 import { hud } from './ui/hud.js';
 
-export const HP_MAX = 20;   // medios corazones
+export const HP_MAX = 20;       // medios corazones
+export const HUNGER_MAX = 20;   // medios muslos
+const EXHAUST = 4;               // lo que hay que cansarse para perder medio muslo (usar algo o pegar: 0,1; correr, 0,05
+                                 // por metro; saltar, 0,05; curarse medio corazón, 1,5; y, sin hacer nada, esto cada IDLE s)
+const IDLE = 150, TICK = 4;      // y cada TICK s se cura (con el hambre a 18 o más) o duele el hambre (a 0)
+const DROP_TTL = 300;            // segundos que dura en el suelo lo que se suelta al morir
 
 export const MONSTERS = {
   limo: { name: 'Limo', hp: 3, dmg: 1, speed: 1.1, drops: [['baba', 1, 1, 0.7]] },
@@ -23,12 +32,25 @@ export class Combat {
   constructor(game) {
     this.game = game;
     this.hp = HP_MAX;
+    this.hunger = HUNGER_MAX;
+    this.exhaust = 0;
     this.invuln = 0;
     this.regen = 0;
-    this.shown = -1;
+    this.shown = -1; this.shownHunger = -1;
   }
-  reset(save) { this.hp = save.hp ?? HP_MAX; this.invuln = 0; this.paint(); }
-  save(out) { out.hp = this.hp; }
+  reset(save) { this.hp = save.hp ?? HP_MAX; this.hunger = save.hunger ?? HUNGER_MAX; this.exhaust = save.exhaust || 0; this.invuln = 0; this.regen = 0; this.paint(); }
+  save(out) { out.hp = Math.round(this.hp * 10) / 10; out.hunger = this.hunger; out.exhaust = Math.round(this.exhaust * 100) / 100; }
+  get survival() { return this.game.gamemode === 'survival'; }
+  // Cansarse: cada EXHAUST, medio muslo menos de hambre (solo en supervivencia)
+  exert(n) {
+    if (!this.survival) return;
+    this.exhaust += n;
+    while (this.exhaust >= EXHAUST) { this.exhaust -= EXHAUST; if (this.hunger > 0) this.hunger--; }
+    this.paint();
+  }
+  feed(n) { this.hunger = Math.min(HUNGER_MAX, this.hunger + n); this.paint(); }
+  // Los puntos de armadura que se llevan puestos (cada uno quita un 4 % del daño, hasta el 80 %)
+  armor() { return Math.min(20, Object.values(this.game.inv?.equip || {}).reduce((t, it) => t + (ITEMS[it.id]?.armor || 0), 0)); }
   get scene() { return this.game.scene; }
   spawn(scene) { scene.monsters = this.game.rules.doMobSpawning ? (scene.spawns || []).map(([type, x, y]) => new Monster(type, x, y)) : []; }   // (/gamerule doMobSpawning)
   heal(n) { this.hp = Math.min(HP_MAX, this.hp + n); this.paint(); }
@@ -37,16 +59,34 @@ export class Combat {
     this.shown = this.hp;
     const el = document.getElementById('hearts');
     let html = '';
-    for (let i = 0; i < HP_MAX / 2; i++) { const v = this.hp - i * 2; html += `<i class="${v >= 2 ? 'f' : v === 1 ? 'h' : 'e'}">♥</i>`; }
+    for (let i = 0; i < HP_MAX / 2; i++) { const v = this.hp - i * 2; html += `<i class="${v >= 2 ? 'f' : v >= 1 ? 'h' : 'e'}">♥</i>`; }
     el.innerHTML = html;
     document.body.classList.toggle('hurt', this.hp < HP_MAX);
+    this.paintHunger();
+  }
+  paintHunger() {
+    if (this.shownHunger === this.hunger) return;
+    this.shownHunger = this.hunger;
+    let html = '';
+    for (let i = 0; i < HUNGER_MAX / 2; i++) { const v = this.hunger - i * 2; html += `<i class="${v >= 2 ? 'f' : v >= 1 ? 'h' : 'e'}"></i>`; }
+    document.getElementById('hunger').innerHTML = html;
+    document.body.classList.toggle('hungry', this.hunger <= 6);
   }
 
   update(dt) {
     const g = this.game, p = g.player, sc = this.scene;
     this.invuln = Math.max(0, this.invuln - dt);
-    // Fuera de las cuevas se recupera vida poco a poco
-    if (!sc.monsters && this.hp < HP_MAX && (this.regen += dt) > 15) { this.regen = 0; this.heal(1); }
+    // En creativo y de espectador, ni hambre ni daño; en supervivencia, el hambre baja sola y cada poco se cura
+    // (con el hambre a 18 o más) o duele el hambre (a 0: hasta medio corazón)
+    if (!this.survival) { if (this.hp < HP_MAX || this.hunger < HUNGER_MAX) { this.hp = HP_MAX; this.hunger = HUNGER_MAX; this.paint(); } }
+    else if (p && !g.busy) {
+      this.exert(dt * EXHAUST / IDLE);
+      if ((this.regen += dt) >= TICK) {
+        this.regen = 0;
+        if (this.hunger >= 18 && this.hp < HP_MAX) { this.heal(1); this.exert(1.5); }
+        else if (this.hunger <= 0 && this.hp > 1) { this.hp = Math.max(1, this.hp - 1); this.paint(); Audio.noiseHit(200, 0.12, 0.3); g.flashHurt = g.time + 0.2; }
+      }
+    }
     if (!sc.monsters) return;
     for (const m of sc.monsters) {
       m.cool = Math.max(0, m.cool - dt); m.hurt = Math.max(0, m.hurt - dt);
@@ -66,6 +106,15 @@ export class Combat {
   }
   hit(dmg, from) {
     const g = this.game, p = g.player;
+    // La armadura quita daño y cada pieza se gasta un poco con cada golpe (y se rompe al acabarse)
+    dmg *= 1 - this.armor() * 0.04;
+    for (const [slot, it] of Object.entries(g.inv.equip)) {
+      if (!isArmor(it.id)) continue;
+      it.dur = (it.dur ?? ITEMS[it.id].dur) - 1;
+      if (it.dur <= 0) { delete g.inv.equip[slot]; g.gather.float(`¡Se ha roto: ${ITEMS[it.id].name.toLowerCase()}!`, '#ffb0a0'); }
+    }
+    g.inv.changed();
+    this.exert(0.1);
     this.hp = Math.max(0, this.hp - dmg);
     this.invuln = 0.8;
     const dx = p.x - from.x, dy = p.y - from.y, d = Math.hypot(dx, dy) || 1;
@@ -83,14 +132,17 @@ export class Combat {
     await hud.say('Nilo', [`Te encontraron desmayado y te traje ${this.game.player.spawn ? 'hasta aquí' : 'a casa'}. ${lost ? `Por el camino se te cayeron ${lost} monedas.` : ''} ¡Lleva comida y antorchas la próxima vez!`]);
     this.game.busy = false;
   }
-  // Morir: se reaparece (en tu punto o en casa) con la vida llena. why: lo que se dice (null: lo dice quien llama,
-  // que sigue con el juego parado). Devuelve las monedas perdidas
+  // Morir: se suelta lo que se lleva donde se cae (salvo con keepInventory) y se reaparece (en la cama, en tu punto
+  // o en casa) con la vida y el hambre llenas. why: lo que se dice (null: lo dice quien llama, que sigue con el juego
+  // parado). Devuelve las monedas perdidas
   async die(why) {
-    const g = this.game, lost = g.rules.keepInventory ? 0 : Math.floor(g.money * 0.1);
+    const g = this.game, keep = g.rules.keepInventory || !this.survival, lost = keep ? 0 : Math.floor(g.money * 0.1);
     if (!g.player || g.dying) return 0;
     g.busy = g.dying = true;
+    const dropped = keep ? 0 : this.dropAll();
     await hud.fade(true);
     g.addMoney(-lost);
+    this.hunger = HUNGER_MAX; this.exhaust = 0;
     g.goHome();
     this.hp = HP_MAX; this.paint();
     g.setEnergy(50);
@@ -98,8 +150,23 @@ export class Combat {
     await hud.fade(false);
     g.dying = false;
     if (why) { g.busy = false; hud.toast(`${why}${lost ? ` · Se te cayeron ${lost} monedas` : ''}`); }
+    if (dropped) hud.toast(`Lo que llevabas se ha quedado donde caíste: tienes ${DROP_TTL / 60} minutos para recogerlo`);
     g.onSave?.();
     return lost;
+  }
+  // Soltar lo que se lleva (las casillas y la armadura; la ropa y la mochila, vacía, no) alrededor de donde se
+  // está, en esa escena (las cuevas se rehacen al entrar: se guarda cuál es). Devuelve cuántas cosas
+  dropAll() {
+    const g = this.game, p = g.player, inv = g.inv, out = [];
+    inv.slots.forEach((s, i) => { if (s) { out.push(s); inv.slots[i] = null; } });
+    for (const [slot, it] of Object.entries(inv.equip)) if (isArmor(it.id)) { out.push({ ...it, n: 1 }); delete inv.equip[slot]; }
+    inv.changed();
+    const scene = g.scene, sceneKey = g.sceneKey(scene);
+    out.forEach((s, i) => {
+      const a = (i / out.length) * Math.PI * 2, r = 0.3 + Math.random() * 0.6;
+      g.gather.addDrop({ id: s.id, count: s.n, extra: extraOf(s), x: p.x + Math.cos(a) * r, y: p.y + Math.sin(a) * r, z: 4, vz: 30, t: 0, scene, sceneKey, ttl: DROP_TTL });
+    });
+    return out.length;
   }
 
   // Atacar lo que haya delante
@@ -127,6 +194,8 @@ export class Combat {
     if (!m) return;
     const dmg = (def?.weapon || 1) + (g.skills?.level('combate') >= 5 ? 1 : 0);
     m.hp -= dmg; m.hurt = 0.4;
+    g.gather.wearOut();   // (el arma, o la herramienta con que se pega, se gasta)
+    this.exert(0.1);
     Audio.chop();
     g.skills?.gain('combate', 1);
     if (m.hp <= 0) {

@@ -267,7 +267,7 @@ export class Live {
         break;
       // Lo que se tira al suelo
       case 'drop':
-        if (this.joined && g.world) g.gather.drops.push({ id: m.id, extra: m.extra, x: m.x, y: m.y, z: m.z, vz: m.vz, t: m.dt, scene: g.world, nid: m.n, owner: peer.id, free: !!m.free, back: !!m.back, born: g.time });
+        if (this.joined && g.world) g.gather.drops.push({ id: m.id, extra: m.extra, count: m.k || 1, ttl: m.ttl, x: m.x, y: m.y, z: m.z, vz: m.vz, t: m.dt, scene: g.world, nid: m.n, owner: peer.id, free: !!m.free, back: !!m.back, born: g.time });
         break;
       case 'take': {
         const i = g.gather.drops.findIndex(d => d.nid === m.n);
@@ -448,7 +448,7 @@ export class Live {
     const g = this.game;
     if (!this.joined || d.scene !== g.world || !this.net?.ready) return;
     Object.assign(d, { nid: `${Profile.id}:${session}:${++this.dropN}`, owner: Profile.id, born: g.time, free: d.t < 0 });
-    this.net.send({ t: 'drop', n: d.nid, id: d.id, extra: d.extra, x: r2(d.x), y: r2(d.y), z: d.z, vz: r2(d.vz), dt: d.t, free: d.free, back: d.back ? 1 : undefined });
+    this.net.send({ t: 'drop', n: d.nid, id: d.id, extra: d.extra, k: d.count > 1 ? d.count : undefined, ttl: d.ttl, x: r2(d.x), y: r2(d.y), z: d.z, vz: r2(d.vz), dt: d.t, free: d.free, back: d.back ? 1 : undefined });
   }
   mayTake(d) {
     if (!d.owner) return true;

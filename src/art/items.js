@@ -204,6 +204,14 @@ const WEAR_DRAW = {
   gorro(R, g, c) { ellipse(g, 8, 9, 6, 6, c.b); R(2, 10, 12, 4, c.d); ellipse(g, 8, 3, 2, 2, '#f4f0e8'); R(5, 6, 2, 2, c.l); },
   mochila(R, g, c) { R(3, 3, 10, 12, c.b); R(3, 3, 10, 4, c.d); R(5, 9, 6, 4, c.d); R(7, 6, 2, 2, '#c8a048'); R(4, 2, 1, 2, c.d); R(11, 2, 1, 2, c.d); },
 };
+// Armaduras: cada pieza con su forma, del color del metal (con brillo)
+const ARMOR_DRAW = {
+  casco(R, g, c) { ellipse(g, 8, 9, 6, 5, c.b); R(2, 9, 12, 4, c.b); R(4, 10, 8, 3, '#2a2420'); R(2, 12, 2, 2, c.d); R(12, 12, 2, 2, c.d); R(5, 5, 3, 1, c.l); },
+  peto(R, g, c) { poly(g, [[3, 2], [6, 3], [10, 3], [13, 2], [15, 6], [13, 7], [13, 15], [3, 15], [3, 7], [1, 6]], c.b); R(7, 3, 2, 12, c.d); R(4, 5, 2, 6, c.l); R(3, 14, 10, 1, c.d); },
+  grebas(R, g, c) { R(3, 2, 10, 3, c.b); R(3, 5, 4, 10, c.b); R(9, 5, 4, 10, c.b); R(3, 2, 10, 1, c.d); R(4, 6, 1, 7, c.l); R(10, 6, 1, 7, c.l); R(3, 9, 4, 1, c.d); R(9, 9, 4, 1, c.d); },
+  botas(R, g, c) { R(3, 4, 4, 7, c.b); R(3, 10, 6, 4, c.b); R(9, 4, 4, 7, c.d); R(9, 10, 6, 4, c.d); R(4, 5, 1, 4, c.l); R(3, 13, 6, 1, '#2a2420'); R(9, 13, 6, 1, '#2a2420'); },
+};
+for (const [id, def] of Object.entries(ITEMS)) if (def.armor) WEAR_DRAW[id] = ARMOR_DRAW[def.piece];
 
 // Herramientas: el mismo dibujo con la cabeza del color del material
 const TOOL_DRAW = {

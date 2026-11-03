@@ -1,6 +1,7 @@
 // Recolectar: elegir lo que hay delante del jugador, golpearlo con la herramienta,
 // soltar lo que da y recogerlo. También los efectos: astillas, textos flotantes y el golpe de la herramienta.
-import { ITEMS, HARVEST, TOOL_COST, ENERGY_MAX, CROPS, toolId, hitsFor } from './items.js';
+import { ITEMS, HARVEST, TOOL_COST, ENERGY_MAX, CROPS, toolId, hitsFor, hungerOf } from './items.js';
+import { HUNGER_MAX } from './combat.js';
 import { RECIPES } from './recipes.js';
 import { Audio } from './audio.js';
 import { hud } from './ui/hud.js';
@@ -148,11 +149,14 @@ export class Gathering {
       const d = this.drops[i];
       d.t += dt;
       if (d.z > 0 || d.vz > 0) { d.vz -= 160 * dt; d.z = Math.max(0, d.z + d.vz * dt); if (d.z === 0) d.vz = d.vz < -25 ? -d.vz * 0.35 : 0; }
+      if (d.ttl && d.t > d.ttl) { this.drops.splice(i, 1); continue; }   // (lo que se suelta al morir dura un rato)
       if (!p || d.scene !== g.scene || g.gamemode === 'spectator') continue;   // (el espectador no recoge)
       const dx = p.x - d.x, dy = p.y - d.y, dist = Math.hypot(dx, dy);
       if (d.t > 0.45 && dist < 1.8 && (d.id !== 'pelota' || d.back) && g.live.mayTake(d)) {   // (la pelota lanzada es para el perro)
         if (dist < 0.35) {
-          if (g.inv.add(d.id, 1, d.extra) === 0) { this.drops.splice(i, 1); this.collected(d.id); g.live.taken(d); }
+          const n = d.count || 1, left = g.inv.add(d.id, n, d.extra);
+          for (let k = left; k < n; k++) this.collected(d.id);
+          if (left === 0) { this.drops.splice(i, 1); g.live.taken(d); } else d.count = left;
           continue;
         }
         const sp = Math.min(dist, 7 * dt);
@@ -197,15 +201,26 @@ export class Gathering {
 
   spend(kind) {
     const g = this.game;
-    if (g.buffs?.incansable > g.time) return true;   // la sopa de verduras quita el cansancio un rato
-    const cost = Math.max(0, TOOL_COST[kind] - (g.skills?.costCut(kind) || 0));
-    if (g.energy < cost) {
-      this.float('Sin energía: come algo o duerme', '#ffb0a0');
-      Audio.error();
-      return false;
+    if (!(g.buffs?.incansable > g.time)) {   // (la sopa de verduras quita el cansancio un rato)
+      const cost = Math.max(0, TOOL_COST[kind] - (g.skills?.costCut(kind) || 0));
+      if (g.energy < cost) {
+        this.float('Sin energía: come algo o duerme', '#ffb0a0');
+        Audio.error();
+        return false;
+      }
+      g.setEnergy(g.energy - cost);
     }
-    g.setEnergy(g.energy - cost);
+    this.wearOut();             // (y la herramienta se gasta un uso)
+    g.combat?.exert(0.1);       // (y da hambre)
     return true;
+  }
+  // Lo que se lleva en la mano (herramienta o arma) se gasta un uso; si se acaba, se rompe (en creativo, no)
+  wearOut(slot = this.game.inv.selected) {
+    const g = this.game, s = g.inv.slots[slot], def = s && ITEMS[s.id];
+    if (!def?.dur || g.inv.infinite) return;
+    s.dur = (s.dur ?? def.dur) - 1;
+    if (s.dur <= 0) { g.inv.slots[slot] = null; this.float(`¡Se ha roto: ${def.name.toLowerCase()}!`, '#ffb0a0'); Audio.error(); }
+    g.inv.changed();
   }
 
   // Usar lo que se tiene en la mano (herramienta, comida o la mano vacía).
@@ -291,11 +306,12 @@ export class Gathering {
   eat(slot) {
     const g = this.game, it = g.inv.slots[slot], def = it && ITEMS[it.id];
     if (!def?.food && !def?.heal) return;
-    const hurt = g.combat && g.combat.hp < 20;
-    if (g.energy >= ENERGY_MAX && !hurt && !def.buff) { this.float('No tienes hambre', '#d8e8ff'); return; }
+    const hurt = g.combat && g.combat.hp < 20, hungry = g.combat && g.combat.hunger < HUNGER_MAX;
+    if (g.energy >= ENERGY_MAX && !hurt && !hungry && !def.buff) { this.float('No tienes hambre', '#d8e8ff'); return; }
     g.inv.take(slot, 1);
     const cooked = RECIPES.some(r => r.out === it.id && r.station === 'cocina'), food = Math.round((def.food || 0) * (cooked ? 1 + (g.skills?.level('cocina') || 0) * 0.05 : 1));
     if (food) { g.setEnergy(g.energy + food); this.float(`+${food} energía`, '#a8f0a0'); }
+    if (def.food && g.combat) g.combat.feed(Math.round(hungerOf(def) * (food / def.food)));   // (el hambre, como en Minecraft)
     if (g.combat) { const hp = def.heal || Math.ceil(def.food / 12); if (hurt) { g.combat.heal(hp); this.float(`+${hp / 2} ♥`, '#ff9aaa'); } }
     if (def.buff) {
       const [kind, secs] = def.buff;

@@ -51,6 +51,23 @@ export function initCraftingUI(game, { onClose, onBag }) {
       box.append(el);
     }
     showRecipe(picked, near);
+    // En el yunque, además, arreglar lo gastado (un material cada vez, que devuelve un cuarto de lo que aguanta)
+    const fix = $('cf-repair'), worn = tab === 'yunque' ? c.repairable() : [];
+    fix.hidden = !worn.length;
+    fix.textContent = '';
+    if (worn.length) {
+      const h = document.createElement('h3'); h.textContent = 'Reparar'; fix.append(h);
+      for (const r of worn) {
+        const row = document.createElement('button'), max = ITEMS[r.it.id].dur;
+        row.type = 'button'; row.className = 'cf-fix';
+        row.innerHTML = `<img alt="" src="${itemIconUrl(r.it.id)}"><span></span><b></b>`;
+        row.querySelector('span').textContent = `${ITEMS[r.it.id].name} (${r.it.dur}/${max})`;
+        row.querySelector('b').textContent = `1 × ${ITEMS[r.mat].name.toLowerCase()} (tienes ${game.inv.count(r.mat)})`;
+        row.disabled = !near.yunque;
+        row.onclick = () => { const why = c.repair(r); if (why) c.onNotice?.(why); refresh(); };
+        fix.append(row);
+      }
+    }
     // Si hay una estación de esta pestaña cerca, se puede recoger
     const st = near[tab];
     $('cf-pick').hidden = !st || st === true;

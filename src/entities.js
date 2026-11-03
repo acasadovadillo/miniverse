@@ -42,6 +42,7 @@ export class Player extends Person {
     if (this.boat || this.z > 0) return;
     this.vz = JUMP * (this.mount ? 1.1 : 1);
     this.z = 0.001;
+    this.onExert?.(0.05);
     Audio.swish();
   }
   // Movimiento con las teclas, que siguen la pantalla: arriba es hacia donde mira la cámara
@@ -68,6 +69,7 @@ export class Player extends Person {
     }
     if (scene.bounds) { p.x = clamp(p.x, scene.bounds.x0, scene.bounds.x1); p.y = clamp(p.y, scene.bounds.y0, scene.bounds.y1); }
     const moved = Math.hypot(p.x - this.x, p.y - this.y);
+    if (keys.run && !this.crouch && !this.mount && !this.boat) this.onExert?.(moved * 0.05);   // (correr da hambre)
     this.x = p.x; this.y = p.y;
     this.wading = !this.boat && scene.water?.(this.x, this.y) === 'shallow';
     if (sx || sy) { const fl = Math.hypot(wx, wy); this.face = { x: wx / fl, y: wy / fl }; this.dir = [wx, wy]; }

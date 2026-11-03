@@ -1,6 +1,6 @@
 // Recetas: qué se fabrica, dónde (a mano o en una estación) y con qué.
 // Una receta se desbloquea cuando ya has tenido todos sus ingredientes, salvo las que te enseña alguien (`teach`).
-import { ITEMS, toolId, RUG_MADE, rugId } from './items.js';
+import { ITEMS, toolId, RUG_MADE, rugId, ARMOR_PIECES, ARMOR_METALS } from './items.js';
 
 export const STATIONS = {
   mano: { name: 'A mano' },
@@ -89,6 +89,8 @@ export const RECIPES = [
   R('mano', 'abono', 2, [['fibra', 2], ['bayas', 1]]),
   R('yunque', 'espada', 1, [['lingote_hierro', 2], ['tablas', 1]]),
   R('yunque', 'espada_oro', 1, [['lingote_oro', 3], ['rubi', 1]]),
+  // Armaduras: lo mismo que en Minecraft (casco 5 lingotes, peto 8, grebas 7, botas 4)
+  ...ARMOR_METALS.flatMap(([metal]) => ARMOR_PIECES.map(([piece], i) => R('yunque', `${piece}_${metal}`, 1, [[`lingote_${metal}`, [5, 8, 7, 4][i]]]))),
   R('cocina', 'pocion', 1, [['baba', 2], ['miel', 1]]),
   R('banco', 'barca', 1, [['tablas', 40], ['cuerda', 6]]),
   R('banco', 'red', 1, [['tablas', 2], ['tela', 1], ['cuerda', 1]]),

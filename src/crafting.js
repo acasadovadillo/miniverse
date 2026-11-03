@@ -5,6 +5,17 @@ import { Audio } from './audio.js';
 import { parsePlaced } from './pieces.js';
 
 export const STATION_REACH = 2.4;   // a cuántas casillas puede estar una estación para usarla
+const worn = it => !!it && !!ITEMS[it.id]?.dur && it.dur !== undefined && it.dur < ITEMS[it.id].dur;
+// Con qué se repara cada cosa: las herramientas, con lo de su cabeza; las armaduras y las espadas, con su lingote
+const TIER_MAT = { 1: 'tablas', 2: 'piedra', 3: 'lingote_cobre', 4: 'lingote_hierro', 5: 'lingote_oro' };
+export function repairMat(id) {
+  const def = ITEMS[id];
+  if (def.metal) return `lingote_${def.metal}`;
+  if (id === 'espada') return 'lingote_hierro';
+  if (id === 'espada_oro') return 'lingote_oro';
+  if (def.tool === 'cana' || def.tool === 'red') return 'cuerda';
+  return def.tier ? TIER_MAT[def.tier] : null;
+}
 
 export class Crafting {
   constructor(game) {
@@ -85,6 +96,27 @@ export class Crafting {
     const inv = this.game.inv;
     if (inv.infinite) return 99;
     return Math.min(...r.ins.map(([id, n]) => Math.floor(inv.count(id) / n)));
+  }
+
+  // ---------- Reparar en el yunque ----------
+  // Lo gastado que se lleva (en las casillas o puesto) y con qué se arregla: cada unidad del material le devuelve
+  // una cuarta parte de lo que aguanta, como en el yunque de Minecraft. [{ where: casilla o hueco, it, mat }]
+  repairable() {
+    const inv = this.game.inv, out = [];
+    inv.slots.forEach((it, i) => { if (worn(it)) out.push({ where: i, it, mat: repairMat(it.id) }); });
+    for (const [slot, it] of Object.entries(inv.equip)) if (worn(it)) out.push({ where: slot, it, mat: repairMat(it.id) });
+    return out.filter(r => r.mat);
+  }
+  repair(r) {
+    const g = this.game, inv = g.inv, it = typeof r.where === 'number' ? inv.slots[r.where] : inv.equip[r.where], max = it && ITEMS[it.id].dur;
+    if (!worn(it) || !this.stationsNear().yunque) return 'Tienes que estar junto al yunque';
+    if (!inv.infinite && inv.count(r.mat) < 1) return `Te falta ${ITEMS[r.mat].name.toLowerCase()}`;
+    inv.remove(r.mat, 1);
+    it.dur = Math.min(max, (it.dur ?? max) + Math.ceil(max / 4));
+    inv.changed();
+    Audio.craft();
+    this.say(`${ITEMS[it.id].name}: ${it.dur}/${max} usos`, '#fff3c0');
+    return null;
   }
 
   craft(r, times = 1) {
