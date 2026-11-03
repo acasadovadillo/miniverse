@@ -414,7 +414,7 @@ export const COMMANDS = {
     },
   },
   tp: {
-    help: 'teletransporta (solo los op): /tp home · /tp <jugador> · /tp <x> <y> · /tp <jugador> <jugador> · /tp <jugador> home · /tp <jugador> <x> <y> (~ desde donde estás); @a son todos',
+    help: 'teletransporta (solo los op): /tp home · /tp <jugador> · /tp <x> <y> · /tp <jugador> <jugador> · /tp <jugador> home · /tp <jugador> <x> <y> (~ desde donde estás); @a son todos. También /teleport',
     run(game, say, args) {
       if (needOp(game, say, 'tp')) return;
       let who, to, at = null;
@@ -510,7 +510,7 @@ export const COMMANDS = {
     run(game, say) { for (const [name, c] of Object.entries(COMMANDS)) say(`/${name}: ${c.help}`, 'sys'); },
   },
 };
-const ALIASES = { tell: 'msg', w: 'msg', experience: 'xp', advancement: 'achievement' };
+const ALIASES = { tell: 'msg', w: 'msg', experience: 'xp', advancement: 'achievement', teleport: 'tp' };
 
 // Ejecutar un comando escrito (con la barra)
 export function runCommand(game, text, say) {

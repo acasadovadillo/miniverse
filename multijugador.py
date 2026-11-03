@@ -396,7 +396,7 @@ HELP = '''  Comandos del servidor:
     /whitelist on|off|add <usuario>|remove <usuario>|list  la lista blanca (puesta, solo entran los de la lista)
     /list                                     quién está conectado
     /say <texto>                              un aviso en el chat de todos
-    /tp <usuario> <usuario>, /tp <usuario> home   llevar a alguien adonde está otro, o a su casa (@a: todos)
+    /tp <usuario> <usuario>, /tp <usuario> home   llevar a alguien adonde está otro, o a su casa (@a: todos; también /teleport)
     /save-off, /save-on                       dejar de guardar el mundo (para copiarlo a mano) y volver a guardarlo
     /setidletimeout <minutos>                 echar a quien lleve esos minutos sin moverse (0: nunca)
     /tps                                      cómo va el mundo del servidor (pasos por segundo)
@@ -517,6 +517,8 @@ def command(line):
     # Un comando escrito en este terminal (con o sin la barra)
     name, _, arg = line.strip().lstrip('/').partition(' ')
     name = name.lower()
+    if name == 'teleport':   # (como en Minecraft, /teleport es lo mismo que /tp)
+        name = 'tp'
     user, _, rest = arg.strip().partition(' ')
     user, rest = user.lower(), rest.strip()
     if not name:
