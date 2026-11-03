@@ -1,6 +1,6 @@
-// Jugar juntos en directo: el mundo compartido. Es el del anfitrión (el admin). Al entrar, los demás reciben
-// sus trozos con todos sus cambios y lo que es de todos (la hora, la casa, los proyectos y los encargos del
-// pueblo, el museo y los animales). Lo de cada uno (su personaje, lo que lleva, su dinero, sus habilidades,
+// Jugar juntos en directo: el mundo compartido. Lo lleva el juego del anfitrión (el primero que entra). Al
+// entrar, los demás reciben sus trozos con todos sus cambios y lo que es de todos (la hora y el calendario, la
+// casa, los proyectos y los encargos del pueblo, el museo y los animales). Lo de cada uno (su personaje, lo que lleva, su dinero, sus habilidades,
 // la amistad con los vecinos, lo que ha descubierto…) sigue siendo suyo y se guarda en su partida.
 //
 // Mientras se juega, cada cambio en un trozo del mundo (talar, picar, construir, el huerto, las puertas, los
@@ -12,7 +12,8 @@
 import { setFamilyHouse } from './world/village.js';
 
 // Lo de la partida que es del mundo (y no de cada jugador)
-export const SHARED = ['clock', 'house', 'projects', 'boardDone', 'animals', 'farm', 'museum', 'family'];
+// (dayBase, timeShift y seenDay: el calendario del mundo y el último día que amaneció en él)
+export const SHARED = ['clock', 'house', 'projects', 'boardDone', 'animals', 'farm', 'museum', 'family', 'dayBase', 'timeShift', 'seenDay'];
 
 const isMap = v => !!v && typeof v === 'object' && !Array.isArray(v);
 const same = (a, b) => a === b || JSON.stringify(a) === JSON.stringify(b);

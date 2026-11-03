@@ -151,7 +151,7 @@ export class Actors {
         if (e.boat) {
           y = WATER_Y - 0.12 + Math.sin(t * 2.5) * 0.04; m.boat.rotation.y = P.root.rotation.y; m.boat.rotation.z = Math.sin(t * 1.7) * 0.03; P.root.position.y = 0.3;
           const row = Math.min(1, m.speed / 1.5);
-          for (const o of m.boat.userData.oars) { const a = t * 5; o.rotation.y = Math.sin(a) * 0.5 * row; o.rotation.z = o.userData.side * (Math.PI / 2 + 0.45 + Math.cos(a) * 0.15 * row); }
+          for (const o of m.boat.userData.oars) { const a = t * 5, sd = o.userData.side; o.rotation.y = sd * Math.sin(a) * 0.5 * row; o.rotation.z = sd * (Math.PI / 2 - OAR_DIP + Math.cos(a) * 0.15 * row); }   // (los dos a la vez; al volver, la pala sale del agua)
         }
         else if (e.mount) { m.horse.rotation.y = P.root.rotation.y; animateHorse(m.horse, m.speed, t); P.root.position.y = 0.92; }
         else P.root.position.y = 0;
@@ -338,6 +338,7 @@ function animateMonster(m, e, dt, t) {
 }
 
 // ---------- caballo y barca ----------
+const OAR_DIP = 0.4;   // lo que bajan los remos hacia el agua desde el horizontal (rad): la pala queda dentro
 function boatModel() {
   // Barca de remos: casco con la proa en punta (mirando a +z), borda, fondo, banco y dos remos
   const root = new THREE.Group(), wood = mat({ color: '#8a5a34', roughness: 0.8 }), dark = mat({ color: '#5e3b22', roughness: 0.8 }), inside = mat({ color: '#6a4428', roughness: 0.9 });
@@ -352,7 +353,7 @@ function boatModel() {
   for (const s of [-1, 1]) {
     const oar = new THREE.Group(), stick = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.022, 1.5, 6), wood), blade = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.4, 0.14), wood);
     stick.position.y = -0.75; blade.position.y = -1.45; oar.add(stick, blade);
-    oar.position.set(s * 0.5, 0.5, 0); oar.rotation.z = s * (Math.PI / 2 + 0.45); oar.userData.side = s;
+    oar.position.set(s * 0.5, 0.5, 0); oar.rotation.z = s * (Math.PI / 2 - OAR_DIP); oar.userData.side = s;
     root.add(oar); (root.userData.oars ||= []).push(oar);
   }
   root.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });

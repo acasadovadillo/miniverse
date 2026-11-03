@@ -7,6 +7,7 @@ import { NILO, hasProject } from './world/village.js';
 import { SHOPS } from './economy.js';
 import { Audio } from './audio.js';
 import { hud } from './ui/hud.js';
+import { Profile } from './accounts.js';
 
 // Puntos del pueblo por los que se camina (sobre el camino, para no chocar con nada) y cómo se unen
 const NODES = {
@@ -184,7 +185,7 @@ export class Neighbors {
     const opts = ['Charlar'];
     if (open) opts.push('Ver la tienda');
     if (giftable) opts.push(`Regalar: ${ITEMS[held.id].name.toLowerCase()}`);
-    if (id === 'nilo' && !g.house.family && !g.live.guest) opts.push('Hablar de la casa');   // (la casa es la del dueño del mundo)
+    if (id === 'nilo' && !g.house.family && Profile.admin && !g.live.guest) opts.push('Hablar de la casa');   // (la casa es la del dueño del mundo)
     opts.push('Adiós');
     const hearts = '♥'.repeat(this.hearts(id)) || '·';
     const pick = opts[await hud.ask(`${def.name}  ${hearts}`, this.greeting(id), opts)];

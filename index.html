@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- La versión publicada: se cambia en cada publicación (así el juego sabe que tiene que pedir el código nuevo) -->
-<meta name="miniverse-version" content="2026-11-03.4">
+<meta name="miniverse-version" content="2026-11-03.6">
 <title>Miniverse</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏡</text></svg>">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -353,6 +353,11 @@
   .field[hidden] { display: none; }
   .field input { display: block; width: 100%; margin-top: 4px; padding: 9px 10px; font-size: 18px; color: var(--cream); background: rgba(0, 0, 0, .35); border: 2px solid #8a6034; border-radius: 4px; outline: none; user-select: text; -webkit-user-select: text; }
   .field input:focus { border-color: var(--gold); }
+  .pw { position: relative; display: block; margin-top: 4px; }
+  .pw input { margin-top: 0; padding-right: 46px; }
+  .pw-eye { position: absolute; right: 5px; top: 50%; transform: translateY(-50%); width: 36px; height: 36px; display: grid; place-items: center; padding: 0; color: var(--dim); background: none; border: 0; border-radius: 4px; cursor: pointer; }
+  .pw-eye:hover, .pw-eye:focus-visible { color: var(--cream); background: rgba(255, 255, 255, .08); outline: none; }
+  .pw-eye svg { width: 22px; height: 22px; }
   .err { min-height: 20px; color: var(--err); font-size: 15px; margin-bottom: 8px; }
   .field small { font-size: 12px; opacity: .8; }
   .note { font-size: 13px; color: var(--dim); opacity: .85; margin: 12px 0 0; line-height: 1.4; }
@@ -427,7 +432,7 @@
     <div class="slots" id="hotbar-slots"></div>
   </div>
   <div id="prompt" class="panel"><kbd>E</kbd><span id="prompt-text"></span></div>
-  <div id="admin-tag" class="panel" title="Modo admin: objetos infinitos y construir gratis (/admin para quitarlo)">ADMIN</div>
+  <div id="admin-tag" class="panel" title="Modo admin (eres op): objetos infinitos, construir gratis, /tp y /time">ADMIN</div>
   <div id="chat"><div id="chat-log"></div><input id="chat-input" maxlength="120" autocomplete="off" spellcheck="false" placeholder="Escribe un mensaje o un comando (/ayuda)"></div>
   <div id="dialog" class="panel"><canvas id="dlg-face" width="192" height="192"></canvas><div class="name" id="dlg-name"></div><div id="dlg-text"></div><div id="dlg-opts"></div><div class="more">▼</div></div>
   <div id="toasts"></div>
@@ -593,7 +598,7 @@
         <dt><kbd>F</kbd></dt><dd>Ver el rendimiento (fotogramas por segundo)</dd>
         <dt><kbd>I</kbd> <kbd>C</kbd> <kbd>B</kbd></dt><dd>Inventario (lo que llevas y la ropa), fabricar y construir</dd>
         <dt><kbd>J</kbd> <kbd>M</kbd></dt><dd>Diario y mapa</dd>
-        <dt><kbd>T</kbd> o <kbd>/</kbd></dt><dd>Chat y comandos (<b>/ayuda</b> para verlos; el admin tiene <b>/admin</b>, objetos infinitos y construir gratis, y <b>/account</b>, para crear cuentas)</dd>
+        <dt><kbd>T</kbd> o <kbd>/</kbd></dt><dd>Chat y comandos (<b>/ayuda</b> para verlos). Los op (se dan en el terminal del servidor con <b>/op</b>) tienen el modo admin, objetos infinitos y construir gratis, <b>/tp</b> y <b>/time</b>; el admin, además, <b>/account</b>, para crear cuentas</dd>
         <dt><kbd>Esc</kbd></dt><dd>Pausa (y cerrar ventanas)</dd>
       </dl>
       <h3>Construyendo</h3>

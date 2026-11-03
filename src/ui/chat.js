@@ -11,21 +11,39 @@ const FADE = 10000;   // milisegundos que un mensaje se queda a la vista con el 
 const NAMED_HOURS = { amanecer: 6, dia: 7, 'día': 7, mediodia: 12, 'mediodía': 12, tarde: 17, noche: 21, medianoche: 0 };
 const clockText = h => { const m = Math.round(h * 60) % 1440; return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`; };
 
+// /op y /deop (dar o quitar el modo admin) solo se escriben en el terminal del servidor, como en Minecraft
+const opHere = (game, say, cmd) => say(`/${cmd} se escribe en el terminal del servidor (el de multijugador.py): /${cmd} <usuario>.${game.admin ? ' Ahora eres op.' : ''}`, 'err');
+
 const COMMANDS = {
-  admin: {
-    help: 'activa o quita el modo admin: objetos infinitos y construir gratis donde quieras (solo el admin)',
-    run(game, say) {
-      if (!Profile.admin) { say('Solo el administrador puede usar /admin.', 'err'); return; }
-      game.setAdmin(!game.admin);
-      if (game.admin) say('Modo admin activado. Lo que uses no se gasta, en el inventario (I) tienes todos los objetos y construir (B) es gratis.', 'ok');
-      else say('Modo admin desactivado.', 'ok');
-      game.onSave?.();
+  op: { help: 'da el modo admin (objetos infinitos, construir gratis, /tp, /time…) a una cuenta: se escribe en el terminal del servidor, /op <usuario>', run(game, say) { opHere(game, say, 'op'); } },
+  deop: { help: 'quita el modo admin a una cuenta: se escribe en el terminal del servidor, /deop <usuario>', run(game, say) { opHere(game, say, 'deop'); } },
+  tp: {
+    help: 'teletransporta (solo los op): /tp <jugador> <jugador> lleva al primero adonde está el segundo; /tp <jugador> home, a casa; @a son todos (/tp @a home)',
+    run(game, say, [who = '', to = '']) {
+      if (!game.admin) { say('Solo los op pueden usar /tp.', 'err'); return; }
+      if (!who || !to) { say('Uso: /tp <jugador> <jugador> · /tp <jugador> home · /tp @a home', 'err'); return; }
+      const live = game.live, movers = live.playersNamed(who), home = to.toLowerCase() === 'home';
+      if (!movers.length) { say(`No hay nadie jugando que se llame ${who}.`, 'err'); return; }
+      let where = { home: true };
+      if (!home) {
+        if (to === '@a') { say('El destino es un jugador o home.', 'err'); return; }
+        const t = live.playersNamed(to)[0], e = t && (t.me ? game.player : t.peer.entity);
+        if (!t) { say(`No hay nadie jugando que se llame ${to}.`, 'err'); return; }
+        if (!e || (t.me ? game.scene !== game.world : t.peer.sc !== 'world')) { say(`${t.me ? 'Tú no estás' : `${t.peer.name} no está`} en el mundo de fuera.`, 'err'); return; }
+        where = { x: Math.round(e.x * 100) / 100, y: Math.round(e.y * 100) / 100 };
+      }
+      const names = [];
+      for (const m of movers) {
+        if (m.me) { if (home ? game.teleportHome() : game.teleport(where.x, where.y)) names.push('tú'); }
+        else { live.sendTp(m.conn, where); names.push(m.peer.name); }
+      }
+      say(names.length ? `Teletransportado${names.length > 1 ? 's' : ''} ${home ? 'a casa' : `adonde está ${to}`}: ${names.join(', ')}.` : 'No se ha podido teletransportar a nadie.', names.length ? 'ok' : 'err');
     },
   },
   account: {
-    help: 'cuentas (solo el admin, con /admin activado): /account create <usuario>, /account reset <usuario>, /account delete <usuario>, /account list',
+    help: 'cuentas (solo el admin, siendo op): /account create <usuario>, /account reset <usuario>, /account delete <usuario>, /account list',
     async run(game, say, [sub = '', name = '']) {
-      if (!Profile.admin || !game.admin) { say('Para gestionar cuentas, entra como administrador y activa /admin.', 'err'); return; }
+      if (!Profile.admin || !game.admin) { say('Para gestionar cuentas, entra como administrador y hazte op (en el terminal del servidor: /op <tu usuario>).', 'err'); return; }
       sub = sub.toLowerCase();
       try {
         if (sub === 'create' || sub === 'reset') {
@@ -44,14 +62,15 @@ const COMMANDS = {
     },
   },
   time: {
-    help: 'la hora (la de Madrid): /time dice qué hora es; /time set HH:MM pone esa hora del día, por ejemplo /time set 18:30, y /time madrid vuelve a la de Madrid (solo el admin)',
+    help: 'la hora (la de Madrid): /time dice qué hora es; /time set HH:MM pone esa hora del día, por ejemplo /time set 18:30, y /time madrid vuelve a la de Madrid (solo los op)',
     run(game, say, [sub = '', value = '']) {
       const T = game.days;
       if (!sub) { say(`Son las ${clockText(T.hour)}${T.shift ? ' (el reloj está movido: /time madrid lo devuelve a la hora de Madrid)' : ', como en Madrid'}.`, 'sys'); return; }
       sub = sub.toLowerCase();
       if (!(sub === 'set' && value) && sub !== 'madrid') { say('Uso: /time set HH:MM (por ejemplo, /time set 18:30) o /time madrid', 'err'); return; }
       // (la hora es la del mundo, que lleva el anfitrión: jugando en el mundo de otro no se puede cambiar)
-      if (!Profile.admin || game.live.guest) { say('Solo el administrador puede cambiar la hora.', 'err'); return; }
+      if (!game.admin) { say('Solo los op pueden cambiar la hora.', 'err'); return; }
+      if (game.live.guest) { say(`La hora la lleva el juego de ${game.live.hostName || 'quien lleva el mundo'}: la puede cambiar ese jugador.`, 'err'); return; }
       if (sub === 'madrid') {
         T.realHour();
         if (game.live.timers) game.live.timers.time = Infinity;

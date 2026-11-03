@@ -4,14 +4,20 @@
 #
 # Para que se pueda entrar desde otra casa abre un túnel con cloudflared (gratis y sin cuenta: una dirección
 # https://….trycloudflare.com que cambia cada vez) y abre el juego en el navegador ya conectado a él. El
-# juego del admin publica esa dirección en GitHub y así los demás la encuentran al iniciar sesión.
+# juego del admin publica esa dirección en GitHub y así los demás la encuentran al iniciar sesión. Mientras
+# esté abierto se puede jugar en el mundo aunque el admin no esté jugando: lo lleva el juego del primero que entra.
 #
 #   python3 multijugador.py              servidor, túnel y el juego abierto
 #   python3 multijugador.py --sin-tunel  solo el servidor, en ws://localhost:8790 (para probar en este ordenador)
 #
+# Mientras está abierto, en su terminal se escriben los comandos de los op (como en Minecraft): /op <usuario> le
+# da el modo admin a esa cuenta (objetos infinitos, construir gratis, /tp, /time…), /deop <usuario> se lo quita y
+# /ops dice quiénes lo tienen. Se guardan en ops.json, junto a este archivo, y se les dice a todos los juegos.
+#
 # Solo usa la biblioteca estándar de Python. El túnel necesita cloudflared: brew install cloudflared
 import asyncio
 import base64
+import os
 import hashlib
 import json
 import re
@@ -29,6 +35,18 @@ MAX = 32 * 1024 * 1024                          # el mensaje más grande que se 
 
 peers = {}        # número de conexión → su escritor
 next_id = 1
+OPS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'ops.json')
+
+
+def load_ops():
+    try:
+        with open(OPS_FILE, encoding='utf-8') as f:
+            return {str(u).lower() for u in json.load(f)}
+    except (OSError, ValueError):
+        return set()
+
+
+ops = load_ops()  # las cuentas con modo admin (su usuario, en minúsculas)
 
 
 def frame(op, data):
@@ -116,7 +134,7 @@ async def handle(reader, writer):
     me, next_id = next_id, next_id + 1
     others = list(peers)
     peers[me] = writer
-    send(me, {'t': 'you', 'id': me, 'peers': others})
+    send(me, {'t': 'you', 'id': me, 'peers': others, 'ops': sorted(ops)})
     for p in others:
         send(p, {'t': 'join', 'id': me})
     print(f'  + Se ha conectado alguien ({len(peers)} conectados)')
@@ -199,9 +217,45 @@ async def ready(url, limit=60):
     return False
 
 
+def command(line):
+    # Un comando escrito en este terminal (con o sin la barra)
+    name, _, arg = line.strip().lstrip('/').partition(' ')
+    name, user = name.lower(), arg.strip().lower()
+    if not name:
+        return
+    if name in ('op', 'deop'):
+        if not user:
+            print(f'  Uso: /{name} <usuario>')
+            return
+        if name == 'op':
+            ops.add(user)
+        else:
+            ops.discard(user)
+        with open(OPS_FILE, 'w', encoding='utf-8') as f:
+            json.dump(sorted(ops), f, ensure_ascii=False, indent=2)
+        for p in list(peers):
+            send(p, {'t': 'ops', 'ops': sorted(ops)})
+        print(f'  {user} {"ya es op" if name == "op" else "ya no es op"} (op: {", ".join(sorted(ops)) or "nadie"})')
+    elif name == 'ops':
+        print(f'  Op: {", ".join(sorted(ops)) or "nadie"}')
+    else:
+        print('  Comandos: /op <usuario>, /deop <usuario>, /ops')
+
+
+async def console():
+    # Lo que se escribe en el terminal, línea a línea (si no hay terminal, no hace nada)
+    while True:
+        line = await asyncio.to_thread(sys.stdin.readline)
+        if not line:
+            return
+        command(line)
+
+
 async def main():
     server = await asyncio.start_server(handle, '127.0.0.1', PORT)
     print(f'Servidor de Miniverse para jugar juntos, en el puerto {PORT}.')
+    print(f'Comandos (escríbelos aquí): /op <usuario>, /deop <usuario>, /ops. Op ahora: {", ".join(sorted(ops)) or "nadie"}.')
+    reading = asyncio.create_task(console())   # (se guarda: una tarea sin nadie que la guarde se puede perder)
     proc = None
     if '--sin-tunel' in sys.argv:
         print(f'Sin túnel: solo desde este ordenador, en ws://localhost:{PORT}')

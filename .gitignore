@@ -2,3 +2,5 @@
 # Partidas cifradas: van al repositorio privado Miniverse-data, nunca a este
 *.enc
 __pycache__/
+# Los op del servidor en directo (los escribe multijugador.py en el ordenador del admin)
+ops.json

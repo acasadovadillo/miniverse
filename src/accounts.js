@@ -13,7 +13,9 @@
 // Descifrada solo está en memoria, mientras dura la sesión.
 //
 // Para jugar juntos en directo, cada cuenta tiene además la clave del mundo compartido (ver worldkey.js) y el
-// admin publica en servidor.json, en el repositorio privado, la dirección de su servidor cuando lo abre.
+// admin publica en servidor.json, en el repositorio privado, la dirección de su servidor cuando lo abre. El
+// mundo compartido va en mundo.enc, cifrado con esa clave: lo guarda el juego que lo lleva (el primero que
+// entra, sea quien sea), así que se puede jugar en él aunque el admin no esté.
 import { db } from './db.js';
 import { gameData } from './share.js';
 import { GAME_REPO, DATA_REPO, readAccounts, getFile, putFile, deleteFile, canWrite } from './github.js';
@@ -24,6 +26,7 @@ export const ADMIN_ID = 'alberto';
 const UPLOAD_EVERY = 3 * 60 * 1000;   // como mucho, una subida automática a GitHub cada 3 minutos
 const CHORES_EVERY = 3 * 60 * 1000;   // el admin pone al día las cuentas cada tantos minutos mientras juega
 const LIVE_FILE = 'servidor.json';
+const WORLD_FILE = 'mundo.enc';
 const NAME_RE = /^[\p{L}\p{N}_-]{3,16}$/u;
 const idOf = name => name.trim().toLowerCase();
 const text = bytes => new TextDecoder().decode(bytes);
@@ -37,6 +40,7 @@ let me = null;              // la cuenta con la sesión iniciada: { id, name, ad
 let data = null;            // su partida descifrada
 let remoteSha, lastUpload = 0, changed = false, queue = Promise.resolve();
 let worldKey = Promise.resolve(null), chores = null;   // la clave del mundo compartido (se va abriendo) y las tareas del admin
+let worldSha, worldUploaded = 0, worldQueue = Promise.resolve();   // el mundo compartido: su sha y cuándo se subió
 
 async function loadBook(token) {
   const r = await readAccounts(token);
@@ -146,7 +150,7 @@ export const Profile = {
     return null;
   },
 
-  logout() { me = null; data = null; clearInterval(chores); WorldKey.forget(); worldKey = Promise.resolve(null); },
+  logout() { me = null; data = null; clearInterval(chores); WorldKey.forget(); worldKey = Promise.resolve(null); worldSha = undefined; worldUploaded = 0; },
 
   // Guarda la partida: cifrada en este ordenador siempre y en GitHub si se pide (o si hace rato de la última)
   store(save, deltas, { upload = false } = {}) {
@@ -240,6 +244,34 @@ export const Profile = {
     const f = me && await getFile(me.token, DATA_REPO, LIVE_FILE).catch(() => null);
     const v = f && JSON.parse(text(f.bytes));
     return v?.url ? v : null;
+  },
+  // El mundo compartido, como lo guardó la última vez quien lo llevaba: { savedAt, deltas, shared }, o null si
+  // todavía no se ha guardado nunca (o no se tiene la clave del mundo). Si no se puede traer, lanza el error
+  async loadWorld() {
+    const key = await worldKey;
+    if (!key || !me) return null;
+    const f = await getFile(me.token, DATA_REPO, WORLD_FILE);
+    worldSha = f?.sha ?? null;
+    if (!f) return null;
+    const b = f.bytes;
+    try { return JSON.parse(text(new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: b.subarray(0, 12) }, key, b.subarray(12))))); }
+    catch { throw new Error('No se puede abrir el mundo compartido (¿es de otra clave del mundo?).'); }
+  },
+  // Lo guarda quien lo lleva: { deltas, shared }. Se sube a GitHub si se pide o si hace rato de la última vez.
+  // Devuelve true si se ha subido, false si falló y null si no tocaba
+  storeWorld(world, { upload = false } = {}) {
+    const run = async () => {
+      const key = await worldKey;
+      if (!me || !key) return false;
+      if (!upload && Date.now() - worldUploaded < UPLOAD_EVERY) return null;
+      const iv = crypto.getRandomValues(new Uint8Array(12));
+      const body = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, new TextEncoder().encode(JSON.stringify({ format: 'miniverse-mundo', savedAt: Date.now(), by: me.id, ...world }))));
+      const bytes = new Uint8Array(12 + body.length);
+      bytes.set(iv); bytes.set(body, 12);
+      try { worldSha = await putFile(me.token, DATA_REPO, WORLD_FILE, bytes, `Mundo compartido (${me.name})`, worldSha); worldUploaded = Date.now(); return true; }
+      catch (e) { this.lastError = e.message; worldSha = undefined; return false; }
+    };
+    return (worldQueue = worldQueue.then(run, run));
   },
   // Solo el admin: publica la dirección de su servidor (o, con null, que está cerrado)
   async announce(url) {

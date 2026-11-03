@@ -83,7 +83,7 @@ export class Game {
     this.placeName = '';
     this.build = new BuildMode(this);
     this.house = { big: false };
-    this.admin = false;          // modo admin (comando /admin): objetos infinitos y construir gratis
+    this.admin = false;          // modo admin (de los op: /op en el terminal del servidor): objetos infinitos y construir gratis
     this.systems = [];           // capas de juego que se enchufan: tiempo, huerto, vecinos… (ver hook)
     this.stats = this.addSystem(new Stats());
     this.skills = this.addSystem(new Skills(this));
@@ -523,6 +523,19 @@ export class Game {
     const H = this.houseRect(), [dx, dy] = doorTile(H.x0, H.y0, this.houseSize);
     return [dx + 0.5, dy - 0.5];
   }
+  // Llevar al jugador a un sitio del mundo de fuera (/tp): sale de la cueva si está en una, se levanta y, si allí
+  // no hay agua, se baja de la barca (a caballo, va con él)
+  teleport(x, y) {
+    const p = this.player;
+    if (!p || !this.world || !Number.isFinite(x) || !Number.isFinite(y)) return false;
+    if (p.pose) this.rest.stand();
+    if (this.scene !== this.world) { this.scene = this.world; p.inside = false; }
+    Object.assign(p, { x, y, vx: 0, vy: 0, z: 0, vz: 0, boat: p.boat && !!this.world.water(x, y) });
+    this.view3d.snap();
+    this.updatePlace();
+    return true;
+  }
+  teleportHome() { const [x, y] = this.homeSpot(); return this.teleport(x, y); }
   // Llevar al jugador a su casa (cuando cae en combate)
   goHome() {
     const [x, y] = this.homeSpot();

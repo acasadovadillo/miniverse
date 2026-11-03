@@ -1,6 +1,8 @@
-// Jugar juntos en directo. El admin abre su servidor (multijugador.py) y su juego se conecta a él como
-// anfitrión; los demás lo encuentran al iniciar sesión (la dirección está en GitHub) y entran en su mundo con
-// su propio personaje (ver livesync.js: qué es de todos y cómo se reparten los cambios). Cada jugador manda a
+// Jugar juntos en directo. El admin abre su servidor (multijugador.py) y publica su dirección en GitHub; los
+// demás la encuentran al iniciar sesión. El mundo compartido lo lleva el juego del primero que entra (el
+// anfitrión, sea quien sea: también sin el admin), que lo guarda para todos en mundo.enc; los que llegan después
+// entran en él con su propio personaje (ver livesync.js: qué es de todos y cómo se reparten los cambios). Si el
+// anfitrión se va, lo sigue llevando el que antes llegó al servidor de los que quedan, sin cortar. Cada jugador manda a
 // los demás cómo va (dónde está, hacia dónde mira, si salta, qué lleva en la mano y cuándo lo usa, y su
 // aspecto con la ropa que lleva) y ve a los demás como una persona más, con su nombre encima. El chat llega a
 // todos, y lo que se tira al suelo lo puede recoger cualquiera. Por ahora, juntos solo en el mundo de fuera:
@@ -20,6 +22,8 @@ const SNAP = 4;                           // si alguien aparece a más de tantas
 const MINE_FIRST = 3;                     // segundos que lo que suelta algo al romperse es solo de quien lo rompió
 const GIVE_FIRST = 5;                     // y que lo que uno tira es solo para los demás (así se dan cosas)
 const WORLD_WAIT = 20000;                 // lo que se espera, como mucho, a que llegue el mundo del anfitrión
+const CLAIM_WAIT = 900;                   // al entrar sin anfitrión, lo que se espera por si otro también iba a llevarlo
+const HOST_WAIT = 6000;                   // y lo que se espera a que el que lo lleva diga que ya está
 const r2 = v => Math.round(v * 100) / 100;
 const session = Math.random().toString(36).slice(2, 6);   // (para que los objetos tirados tengan nombres únicos)
 
@@ -49,11 +53,14 @@ export class Live {
     this.url = null;
     this.status = 'off';      // off | connecting | nokey | on | error
     this.error = '';
-    this.joined = false;      // si uno está jugando con los demás (el admin, siempre que juega: su mundo es el de todos)
-    this.role = null;         // jugando juntos: 'host' (el admin, en su mundo) o 'guest' (en el mundo del admin)
+    this.joined = false;      // si uno está jugando con los demás
+    this.role = null;         // jugando juntos: 'host' (tu juego lleva el mundo compartido) o 'guest' (lo lleva otro)
+    this.claimAt = null;      // entrando sin anfitrión: cuándo se pidió llevar el mundo (gana quien lo pidió antes)
+    this.ops = null;          // los usuarios op (modo admin), como los da el servidor; null si no los da
     this.peers = new Map();   // conexión → { id, name, host, playing, look, entity, sc }
     this.onChange = null;     // (para el menú: cambia el estado o quién hay)
-    this.onHostLeft = null;   // (para el menú: el anfitrión se ha ido y el invitado tiene que salir)
+    this.onHostLeft = null;   // (para el menú: hay que salir del mundo compartido, por qué: 'lost' o 'conflict')
+    this.onHost = null;       // (para el menú: tu juego ha pasado a llevar el mundo)
     this.say = null;          // (para el chat: say(texto, tipo))
     this.sent = 0; this.lastSent = ''; this.swings = 0; this.lastSwing = 0; this.lastLook = null;
     this.pending = new Set();     // trozos del mundo que han cambiado desde la última vez que se mandaron
@@ -87,6 +94,7 @@ export class Live {
       leave: conn => this.drop(conn, true),
       msg: (conn, m) => this.receive(conn, m),
       plain: (conn, p) => this.plain(conn, p),
+      ops: list => this.setOps(list),
     });
     // (si no responde a la primera, se queda avisando del error pero sigue intentándolo: un túnel recién
     // abierto tarda un poco en funcionar)
@@ -95,8 +103,9 @@ export class Live {
   // Se ha cortado (o no ha llegado a entrar): se sigue intentando. Si ya avisaba del error, sigue avisando;
   // si estaba conectado, avisa al rato de no poder volver.
   lost() {
+    const out = this.joined && (this.guest || !Profile.admin);
     this.dropAll();
-    this.hostGone();
+    if (out) this.leave('lost');   // (sin servidor solo juega el admin: los demás salen, el anfitrión guardando el mundo)
     if (this.status === 'error') return;
     this.setStatus('connecting');
     clearTimeout(this.lostTimer);
@@ -111,13 +120,15 @@ export class Live {
   }
   // Al entrar (o volver a entrar tras un corte): saludar o, sin la clave del mundo, pedírsela al admin
   up() {
+    // (el admin jugando solo en el mundo cuando aparece el servidor: lo lleva su juego, para que entren los demás)
+    if (this.net.key && Profile.admin && this.game.player && !this.joined) this.join(null, 'host');
     if (this.net.key) { this.setStatus('on'); this.hi(null, true); }
     else { this.setStatus('nokey'); this.net.sendPlain({ need: Profile.id }); }
   }
   hi(to = null, ask = false) {
     const g = this.game;
     const look = g.player ? g.appearance() : null;
-    this.net?.send({ t: 'hi', id: Profile.id, name: g.player?.name || Profile.name, host: Profile.admin, playing: this.joined && !!g.player, look, ask }, to);
+    this.net?.send({ t: 'hi', id: Profile.id, name: g.player?.name || Profile.name, host: this.joined && this.role === 'host' && !!g.player, admin: Profile.admin, playing: this.joined && !!g.player, look, ask }, to);
     this.lastLook = look; this.lastLookJson = JSON.stringify(look);
   }
   plain(conn, p) {
@@ -129,19 +140,57 @@ export class Live {
     }
   }
 
+  // ---------- op ----------
+  // Los op los da el terminal del servidor (/op, /deop). Al cambiar los tuyos, cambia tu modo admin
+  setOps(list) {
+    this.ops = Array.isArray(list) ? new Set(list.map(u => String(u).toLowerCase())) : null;
+    const g = this.game, op = this.isOp(Profile.id);
+    if (g.player && op !== null && !!g.admin !== op) {
+      g.setAdmin(op);
+      hud.toast(op ? 'Ahora eres op: modo admin activado' : 'Ya no eres op: modo admin desactivado', op ? 'ok' : '');
+      g.onSave?.();
+    }
+    this.changed();
+  }
+  // ¿Es op esta cuenta? (null: el servidor no lo dice)
+  isOp(id) { return this.ops ? this.ops.has(String(id || '').toLowerCase()) : null; }
+  // Los jugadores con ese nombre (el de su cuenta o el de su personaje, sin mayúsculas; @a: todos; @s: tú),
+  // de los que están jugando: [{ me: true } o { conn, peer }]
+  playersNamed(name) {
+    const n = name.toLowerCase(), g = this.game, out = [];
+    if (n === '@a' || n === '@s' || n === String(Profile.id).toLowerCase() || n === g.player?.name.toLowerCase()) out.push({ me: true });
+    if (n !== '@s' && this.joined) for (const [conn, peer] of this.peers) if (peer.playing && (n === '@a' || peer.id === n || peer.name?.toLowerCase() === n)) out.push({ conn, peer });
+    return out;
+  }
+  // Llevar a otro jugador a un sitio ({ x, y }) o a casa ({ home: true }): lo hace su juego, si se lo pide un op
+  sendTp(conn, where) { this.net?.send({ t: 'tp', ...where }, conn); }
+
   // ---------- mensajes ----------
   receive(conn, m) {
     let peer = this.peers.get(conn);
     if (m.t === 'hi') {
-      const was = peer?.playing;
-      peer = { ...peer, id: m.id, name: m.name, host: !!m.host, playing: !!m.playing, look: m.look };
+      const was = peer?.playing, wasHost = peer?.host;
+      peer = { ...peer, id: m.id, name: m.name, host: !!m.host, admin: !!m.admin, playing: !!m.playing, look: m.look };
       if (!peer.playing) this.hide(peer);
       this.peers.set(conn, peer);
       if (peer.entity && m.look) peer.entity.look = m.look;
       if (m.ask) this.hi(conn);
       if (this.joined && this.game.player && peer.playing !== !!was) hud.toast(peer.playing ? `${peer.name} está jugando contigo` : `${peer.name} ha salido`, peer.playing ? 'ok' : '');
-      if (peer.host && !peer.playing) this.hostGone();
+      if (peer.host) { this.hostName = peer.name; clearTimeout(this.waitTimer); }
+      // Dos llevando el mundo (uno se cortó y volvió, o entraron a la vez): sigue el que llegó antes al servidor
+      if (peer.host && this.joined && this.role === 'host') { if (conn < this.net.me) this.leave('conflict'); else this.hi(conn); }
+      if (wasHost && !peer.host) this.hostGone();
       this.changed();
+      return;
+    }
+    // Alguien entra sin anfitrión y pide llevar el mundo: si ya lo llevas, se lo dices; si tú también lo habías
+    // pedido, gana quien lo pidió antes (y, a la vez, quien llegó antes al servidor)
+    if (m.t === 'claim') {
+      if (this.joined && this.role === 'host') this.hi(conn);
+      else if (this.claimAt !== null) {
+        if (this.claimAt < m.at || (this.claimAt === m.at && this.net.me < conn)) this.net.send({ t: 'claim', at: this.claimAt }, conn);
+        else this.lostClaim = true;
+      }
       return;
     }
     if (!peer) return;
@@ -163,7 +212,7 @@ export class Live {
         if (this.joined && peer.playing && g.player) hud.toast(`${peer.name} ha salido`);
         peer.playing = false;
         this.hide(peer);
-        if (peer.host) this.hostGone();
+        if (peer.host) { peer.host = false; this.hostGone(); }
         this.changed();
         break;
       // El mundo compartido
@@ -192,6 +241,11 @@ export class Live {
       case 'baby!':
         if (this.asking?.conn === conn) { clearTimeout(this.asking.timer); this.asking.resolve({ ok: !!m.ok, look: m.look }); this.asking = null; }
         break;
+      // Un op te lleva a otro sitio (/tp)
+      case 'tp':
+        if (!this.joined || !g.player || !this.isOp(peer.id)) break;
+        if (m.home ? g.teleportHome() : g.teleport(m.x, m.y)) hud.toast(`${peer.name} te ha teletransportado${m.home ? ' a casa' : ''}`);
+        break;
       // Lo que se tira al suelo
       case 'drop':
         if (this.joined && g.world) g.gather.drops.push({ id: m.id, extra: m.extra, x: m.x, y: m.y, z: m.z, vz: m.vz, t: m.dt, scene: g.world, nid: m.n, owner: peer.id, free: !!m.free, back: !!m.back, born: g.time });
@@ -215,11 +269,50 @@ export class Live {
     } else this.hide(peer);
   }
   dropAll() { for (const p of this.peers.values()) this.hide(p); this.peers.clear(); this.changed(); }
-  // El anfitrión se ha ido (o se ha cortado la conexión): el invitado sale de su mundo
+  // El anfitrión se ha ido: lo sigue llevando el que antes llegó al servidor de los que quedan jugando (si eres
+  // tú, desde ya; si es otro, se espera a que lo diga y, si no, lo llevas tú)
   hostGone() {
-    if (!this.guest || !this.game.player || this.leaving) return;
+    if (!this.joined || !this.guest || !this.game.player || this.leaving) return;
+    const me = this.net?.me;
+    if (me === null || me === undefined) return this.leave('lost');
+    const first = [...this.peers].filter(([, p]) => p.playing && !p.host).every(([c]) => c > me);
+    clearTimeout(this.waitTimer);
+    if (first) this.becomeHost();
+    else this.waitTimer = setTimeout(() => { if (this.joined && this.guest && this.hostConn === null) this.becomeHost(); }, HOST_WAIT);
+  }
+  becomeHost() {
+    const g = this.game, was = this.hostName || 'El anfitrión';
+    this.role = 'host'; this.clockBase = null; this.hostName = g.player?.name || Profile.name;
+    for (const a of g.ranch.animals) delete a.netTo;   // (los animales y los niños, ahora los mueve tu juego)
+    for (const e of g.family.ents.values()) delete e.netTo;
+    this.hi();
+    hud.toast(`Ahora el mundo compartido lo lleva tu juego (${was} ha salido)`, 'ok');
+    this.onHost?.();
+  }
+  // Salir del mundo compartido (se ha cortado la conexión, u otro ya lo llevaba)
+  leave(why) {
+    if (!this.game.player || this.leaving) return;
     this.leaving = true;
-    this.onHostLeft?.();
+    this.onHostLeft?.(why);
+  }
+
+  // ---------- entrar sin anfitrión ----------
+  // Se avisa a los demás de que vas a llevar el mundo y se espera un momento por si otro lo lleva o lo había
+  // pedido antes. Devuelve true si te toca (y hasta join, contestas a los demás que lo llevas tú)
+  async claim() {
+    this.claimAt = Date.now(); this.lostClaim = false;
+    this.net.send({ t: 'claim', at: this.claimAt });
+    await new Promise(r => setTimeout(r, CLAIM_WAIT));
+    if (this.lostClaim || this.host?.playing) { this.claimAt = null; return false; }
+    return true;
+  }
+  unclaim() { this.claimAt = null; }
+  // Espera a que alguien diga que lleva el mundo (true) o a que pase un rato (false)
+  waitHost(ms = HOST_WAIT) {
+    return new Promise(resolve => {
+      const t0 = Date.now(), check = () => (this.host?.playing ? resolve(true) : Date.now() - t0 > ms ? resolve(false) : setTimeout(check, 150));
+      check();
+    });
   }
 
   // ---------- entrar en el mundo del anfitrión (invitado) ----------
@@ -237,9 +330,11 @@ export class Live {
     const g = this.game, snap = g.snapshot();
     this.flush();
     for (const [k, d] of g.world.deltas) if (!k.startsWith('u:') && !this.synced.has(k)) this.synced.set(k, copy(d));
-    this.net.send({ t: 'world', deltas: [...g.world.deltas].filter(([k]) => !k.startsWith('u:')), shared: Object.fromEntries(SHARED.map(k => [k, snap[k]])) }, conn);
+    this.net.send({ t: 'world', ...this.worldOf(snap, g.world.deltas) }, conn);
   }
-  // La partida con la que empieza el invitado: la suya, con el mundo del anfitrión (y sus propias cuevas)
+  // El mundo compartido tal como está (lo que se manda a quien entra y lo que guarda el anfitrión para todos)
+  worldOf(snap, deltas) { return { deltas: [...deltas].filter(([k]) => !k.startsWith('u:')), shared: Object.fromEntries(SHARED.map(k => [k, snap[k]])) }; }
+  // La partida con la que empieza quien entra en el mundo compartido: la suya, con ese mundo (y sus propias cuevas)
   enter(solo, world) {
     const her = solo.save;
     const save = { ...her, ...world.shared, player: { ...her.player, inside: false, boat: false, mount: false, ...(her.livePos || {}) } };
@@ -259,11 +354,12 @@ export class Live {
   }
 
   // ---------- en la partida ----------
-  // Empieza a jugar con los demás: el admin, en su mundo (anfitrión); los demás, en el del admin (solo: su
-  // partida de siempre). O deja de hacerlo, al salir al menú.
-  join(solo = null) {
+  // Empieza a jugar con los demás: llevando tú el mundo compartido ('host') o en el que lleva otro ('guest').
+  // solo: tu partida de siempre (lo que se guarda en la tuya; el admin, que guarda el mundo en la suya, sin ella
+  // cuando lo lleva). O deja de hacerlo, al salir al menú.
+  join(solo = null, role = solo ? 'guest' : 'host') {
     const g = this.game;
-    Object.assign(this, { joined: true, role: solo ? 'guest' : 'host', solo, leaving: false, clockBase: null, hostName: this.host?.name || '' });
+    Object.assign(this, { joined: true, role, solo, leaving: false, clockBase: null, claimAt: null, hostName: role === 'host' ? g.player?.name || '' : this.host?.name || '' });
     this.pending.clear(); this.synced.clear();
     if (solo) {
       for (const [k, d] of g.world.deltas) if (!k.startsWith('u:')) this.synced.set(k, copy(d));
@@ -273,6 +369,7 @@ export class Live {
     this.hi();
   }
   left() {
+    clearTimeout(this.waitTimer);
     if (!this.joined) return;
     this.joined = false; this.role = null; this.solo = null;
     this.net?.send({ t: 'st', sc: null });
@@ -359,7 +456,7 @@ export class Live {
     const T = this.timers;
     for (const k in T) T[k] += dt;
     // Los cambios del mundo y lo de todos
-    if (T.sync >= SYNC_EVERY) { T.sync = 0; if (this.pending.size) this.flush(); }
+    if (T.sync >= SYNC_EVERY) { T.sync = 0; if (this.pending.size && (!this.guest || this.hostConn !== null)) this.flush(); }   // (sin anfitrión, se guardan hasta que haya)
     if (T.blob >= BLOB_EVERY) {
       T.blob = 0;
       for (const [name, b] of Object.entries(BLOBS)) {
