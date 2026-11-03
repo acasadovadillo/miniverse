@@ -95,8 +95,8 @@ const COMMANDS = {
     help: 'quién está jugando',
     run(game, say) {
       const live = game.live, me = `${game.player.name}${live.role === 'host' ? ' (lleva el mundo)' : ''}`;
-      const others = live.joined ? live.others.filter(p => p.playing).map(p => `${p.name}${p.host ? ' (lleva el mundo)' : ''}`) : [];
-      say(`Jugando (${others.length + 1}): ${[me, ...others].join(', ')}.`, 'sys');
+      const others = live.joined ? live.others.filter(p => p.playing && !p.server).map(p => `${p.name}${p.host ? ' (lleva el mundo)' : ''}`) : [];
+      say(`Jugando (${others.length + 1}): ${[me, ...others].join(', ')}.${live.joined && live.host?.server ? ' El mundo lo lleva el servidor.' : ''}`, 'sys');
     },
   },
   msg: {

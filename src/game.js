@@ -61,11 +61,13 @@ export const RULES = { keepInventory: false, doMobSpawning: true, doWeatherCycle
 const AIM_REACH = 2;   // lo que se apunta con el ratón se usa si está a esto como mucho (casillas)
 const LIGHTS = new Set(['lampara', 'antorcha', 'vela', 'candelabro']);
 const BEDS = new Set(['cama', 'cama_nino', 'cama_doble']);   // lo colocado que se apaga y se enciende con E
+// Sin dibujo (el mundo del servidor, server.js): lo que el juego le pregunta a la vista en 3D, sin vista
+const NO_VIEW = { world: null, actors: { player: null }, snap() {}, resize() {}, render() {}, tileAt: () => null, pointAt: () => null, rayAt: () => null, groundY: () => 0 };
 
 export class Game {
-  constructor(canvas) {
+  constructor(canvas, { headless = false } = {}) {
     this.canvas = canvas;
-    this.view3d = new View3D(canvas);
+    this.view3d = headless ? NO_VIEW : new View3D(canvas);
     this.mode = 'menu';          // menu | play | pause | map | inventory | craft | chest | …
     this.busy = false;           // hay una escena en marcha (diálogo, puerta…)
     this.player = null;
@@ -778,6 +780,18 @@ export class Game {
       requestAnimationFrame(frame);
     };
     requestAnimationFrame(frame);
+  }
+
+  // Sin dibujar (el mundo del servidor): solo avanza, a pasos fijos, unas 20 veces por segundo. onError: un fallo al
+  // avanzar (se avisa una vez y se sigue)
+  runHeadless() {
+    let last = performance.now(), acc = 0;
+    setInterval(() => {
+      const now = performance.now();
+      acc += Math.min(1, (now - last) / 1000);
+      last = now;
+      try { while (acc >= STEP) { this.update(STEP); acc -= STEP; } } catch (e) { acc = 0; if (this.updateError !== e.message) this.onError?.(e); this.updateError = e.message; }
+    }, 50);
   }
 
   update(dt) {

@@ -72,5 +72,8 @@ export const WorldKey = {
     return true;
   },
 
+  // Solo el admin: la clave del mundo tal cual (para el mundo del servidor, que la necesita para llevarlo)
+  raw() { return mine?.raw || null; },
+
   forget() { mine = null; },
 };

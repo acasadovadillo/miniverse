@@ -7,3 +7,5 @@ ops.json
 banned.json
 whitelist.json
 backups/
+servidor-secretos.json
+servidor-chrome/

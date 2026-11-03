@@ -9,6 +9,19 @@
 #
 #   python3 multijugador.py              servidor, túnel y el juego abierto
 #   python3 multijugador.py --sin-tunel  solo el servidor, en ws://localhost:8790 (para probar en este ordenador)
+#   --sin-mundo                          sin el mundo del servidor (lo lleva el primero que entra a jugar)
+#   --juego <dirección>                  el juego que se abre para jugar (por omisión, el publicado)
+#   --puerto <n>                         otro puerto (por omisión, 8790; el juego para el mundo del servidor, el siguiente)
+#   --datos <carpeta>                    dónde guardar los op, los vetos, las copias… (por omisión, junto a este archivo)
+#   --sin-navegador                      no abrir el juego en el navegador (lo que habría que abrir sale en el terminal)
+#
+# Además abre el mundo del servidor: el mismo juego en un Chrome invisible (sin dibujo ni jugador visible) que lleva
+# el mundo compartido mientras esto esté abierto, aunque no juegue nadie, como un servidor de Minecraft: hace pasar
+# la hora y crecer los cultivos, reparte los cambios, no deja los que no tocan y lo guarda (cifrado). Ese juego lo
+# sirve este programa desde esta carpeta, solo para este ordenador (http://127.0.0.1:8791). Para llevar el mundo
+# necesita la clave del mundo y el token del admin para guardarlo en GitHub: se los da el juego del admin la primera
+# vez que entra con la pestaña que se abre (o tras /vincular), siempre dentro de este ordenador (nunca por el
+# túnel), y quedan en servidor-secretos.json, junto a los op.
 #
 # Mientras está abierto, en su terminal se escriben los comandos del servidor (como en Minecraft; /ayuda los
 # lista): op y deop (los op pueden usar los comandos del juego: /gamemode, /tp, /give…), kick, ban y pardon, la
@@ -24,7 +37,9 @@ import json
 import os
 import re
 import shutil
+import signal
 import struct
+import subprocess
 import sys
 import threading
 import time
@@ -32,16 +47,27 @@ import urllib.request
 import webbrowser
 from urllib.parse import quote
 
-PORT = 8790
-GAME = 'https://acasadovadillo.github.io/miniverse/'
+from urllib.parse import unquote
+
+
+def option(name, default):
+    return sys.argv[sys.argv.index(name) + 1] if name in sys.argv[:-1] else default
+
+
+PORT = int(option('--puerto', 8790))
+WEB_PORT = PORT + 1   # el juego, para el mundo del servidor: solo en este ordenador (el túnel no llega)
+GAME = option('--juego', 'https://acasadovadillo.github.io/miniverse/')
+LOCAL_GAME = f'http://127.0.0.1:{WEB_PORT}/'
 GUID = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11'   # el de la norma de WebSocket, para responder al saludo
 MAX = 32 * 1024 * 1024                          # el mensaje más grande que se acepta (el mundo entero cabe de sobra)
 
 peers = {}        # número de conexión → su escritor
 next_id = 1
-HERE = os.path.dirname(os.path.abspath(__file__))
-OPS_FILE, BANS_FILE, WHITE_FILE = (os.path.join(HERE, n) for n in ('ops.json', 'banned.json', 'whitelist.json'))
-BACKUPS = os.path.join(HERE, 'backups')
+HERE = os.path.realpath(os.path.dirname(os.path.abspath(__file__)))   # (el juego, que se sirve al mundo del servidor)
+DATA = os.path.abspath(option('--datos', HERE))
+os.makedirs(DATA, exist_ok=True)
+OPS_FILE, BANS_FILE, WHITE_FILE = (os.path.join(DATA, n) for n in ('ops.json', 'banned.json', 'whitelist.json'))
+BACKUPS = os.path.join(DATA, 'backups')
 BACKUP_EVERY = 15 * 60   # segundos: como mucho, una copia del mundo cada tanto (la manda el juego que lo lleva)
 BACKUP_KEEP = 48         # las copias que se guardan (las más antiguas se borran)
 IDENT_WAIT = 10          # con la lista blanca puesta, lo que se espera a que un juego diga de qué cuenta es
@@ -65,7 +91,23 @@ bans = {str(u).lower(): str(r) for u, r in load_json(BANS_FILE, {}).items()}   #
 white = load_json(WHITE_FILE, {'enabled': False, 'users': []})                  # la lista blanca
 white = {'enabled': bool(white.get('enabled')), 'users': sorted({str(u).lower() for u in white.get('users', [])})}
 users = {}           # número de conexión → la cuenta que ha dicho su juego
+SECRETS_FILE = os.path.join(DATA, 'servidor-secretos.json')
+CHROME_DIR = os.path.join(DATA, 'servidor-chrome')
+WEB_FILES = re.compile(r'^(index\.html|accounts\.json|src/[\w/.-]+\.js)$')   # lo único que se sirve
+WEB_TYPES = {'.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.json': 'application/json'}
+CHROMES = ['/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', '/Applications/Chromium.app/Contents/MacOS/Chromium',
+           '/Applications/Brave Browser.app/Contents/MacOS/Brave Browser', '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge']
+PASE = base64.urlsafe_b64encode(os.urandom(18)).decode()   # lo que enseña el mundo del servidor para que se le den las claves
+world_keys = load_json(SECRETS_FILE, None)   # { key, token }: la clave del mundo y con qué guardarlo
+link_until = 0       # (tras /vincular, hasta cuándo se aceptan claves nuevas)
+servers = set()      # las conexiones del mundo del servidor
+local = set()        # las conexiones desde este ordenador (no por el túnel): solo a ellas se les piden o dan claves
+chrome = None        # su proceso
+world_task = None
 last_backup = 0
+tunnel_url = None    # wss://… del túnel, cuando lo hay
+stop_asked = False   # (Ctrl+C)
+stop_asked_at = 0    # cuándo se pidió cerrar
 stopping = None      # (se avisa para cerrar el servidor: /stop)
 
 
@@ -155,7 +197,7 @@ def refused(user):
 async def check_ident(peer_id):
     # Con la lista blanca puesta, quien no dice de qué cuenta es (un juego de antes) no se queda
     await asyncio.sleep(IDENT_WAIT)
-    if peer_id in peers and peer_id not in users and white['enabled']:
+    if peer_id in peers and peer_id not in users and peer_id not in servers and white['enabled']:
         kick(peer_id, 'Este servidor tiene lista blanca: actualiza el juego (recarga la página).')
 
 
@@ -203,7 +245,10 @@ async def handle(reader, writer):
     me, next_id = next_id, next_id + 1
     others = list(peers)
     peers[me] = writer
-    send(me, {'t': 'you', 'id': me, 'peers': others, 'ops': sorted(ops)})
+    # (por el túnel llega con el nombre del túnel y sus cabeceras; desde este ordenador, a 127.0.0.1 o localhost)
+    if headers.get('host', '').rsplit(':', 1)[0] in ('127.0.0.1', 'localhost') and not any(k.startswith('cf-') for k in headers):
+        local.add(me)
+    send(me, {'t': 'you', 'id': me, 'peers': others, 'ops': sorted(ops), 'need': me in local and need_keys()})
     for p in others:
         send(p, {'t': 'join', 'id': me})
     print(f'  + Se ha conectado alguien ({len(peers)} conectados)')
@@ -231,6 +276,26 @@ async def handle(reader, writer):
             if msg.get('t') == 'backup' and me in users and isinstance(msg.get('d'), str):
                 backup(msg['d'])
                 continue
+            # El mundo del servidor enseña su pase y recibe las claves; el juego del admin se las da; y lo que va
+            # contando el mundo del servidor sale aquí
+            if msg.get('t') == 'pase' and msg.get('pase') == PASE and me in local:
+                first = me not in servers
+                servers.add(me)
+                users[me] = 'servidor'
+                send(me, {'t': 'secretos', **(world_keys or {}), 'tunnel': tunnel_url})
+                if first:
+                    print('  + El mundo del servidor está conectado')
+                continue
+            if msg.get('t') == 'secrets' and me in local and me in users and need_keys():
+                take_keys(msg, me)
+                continue
+            if msg.get('t') == 'log' and me in servers and isinstance(msg.get('text'), str):
+                print(f'  [mundo] {msg["text"][:300]}')
+                continue
+            if msg.get('t') == 'saved' and me in servers and stop_asked_at:
+                # (cerrando: el mundo ya está guardado; se espera lo justo a que guarden los demás)
+                asyncio.get_running_loop().call_later(max(0, 3 - (time.time() - stop_asked_at)), shutdown)
+                continue
             if msg.get('t') != 'msg':
                 continue
             out = {'t': 'msg', 'from': me}
@@ -247,10 +312,16 @@ async def handle(reader, writer):
         waiting.cancel()
         peers.pop(me, None)
         who = users.pop(me, None)
+        local.discard(me)
+        was_server = me in servers
+        servers.discard(me)
         for p in list(peers):
             send(p, {'t': 'leave', 'id': me})
         writer.close()
-        print(f'  - {who + " se ha ido" if who else "Se ha ido alguien"} ({len(peers)} conectados)')
+        if was_server:
+            print('  - El mundo del servidor se ha desconectado')
+        else:
+            print(f'  - {who + " se ha ido" if who else "Se ha ido alguien"} ({len(peers)} conectados)')
 
 
 async def tunnel():
@@ -314,7 +385,102 @@ HELP = '''  Comandos del servidor:
     /list                                     quién está conectado
     /say <texto>                              un aviso en el chat de todos
     /save-all                                 que todos guarden ya (quien lleva el mundo, también el mundo)
-    /stop                                     guardar y cerrar el servidor'''
+    /mundo                                    cómo está el mundo del servidor
+    /vincular                                 pedir otra vez las claves del mundo al juego del admin (5 minutos)
+    /stop                                     guardar y cerrar el servidor (también con Ctrl+C)'''
+
+
+def need_keys():
+    return world_keys is None or time.time() < link_until
+
+
+def take_keys(msg, sender=None):
+    # Las claves que da el juego del admin: la del mundo (32 bytes) y el token con que guardarlo
+    global world_keys, link_until
+    try:
+        if len(base64.b64decode(msg.get('key', ''), validate=True)) != 32:
+            return
+    except ValueError:
+        return
+    token = msg.get('token') if isinstance(msg.get('token'), str) else None
+    world_keys = {'key': msg['key'], 'token': token}
+    save_json(SECRETS_FILE, world_keys)
+    os.chmod(SECRETS_FILE, 0o600)
+    link_until = 0
+    print(f'  Claves del mundo recibidas (de {users.get(sender, "?")}) y guardadas en servidor-secretos.json')
+    if chrome and chrome.returncode is None:
+        chrome.terminate()   # (vuelve a abrirse solo, ya con las nuevas)
+    start_world()
+
+
+async def web(reader, writer):
+    # El juego para el mundo del servidor (y para darle las claves): solo en este ordenador, y solo sus archivos
+    try:
+        head = await asyncio.wait_for(reader.readuntil(b'\r\n\r\n'), 10)
+        method, target = head.decode('latin-1').split('\r\n')[0].split(' ')[:2]
+        path = unquote(target.split('?')[0]).lstrip('/') or 'index.html'
+        full = os.path.realpath(os.path.join(HERE, path))
+        if method == 'GET' and WEB_FILES.match(path) and '..' not in path and full.startswith(HERE + os.sep) and os.path.isfile(full):
+            with open(full, 'rb') as f:
+                body = f.read()
+            status, kind = '200 OK', WEB_TYPES[os.path.splitext(path)[1]]
+        else:
+            body, status, kind = b'No encontrado\n', '404 Not Found', 'text/plain; charset=utf-8'
+        writer.write(f'HTTP/1.1 {status}\r\nContent-Type: {kind}\r\nContent-Length: {len(body)}\r\n'
+                     f'Cache-Control: no-cache\r\nConnection: close\r\n\r\n'.encode() + body)
+        await writer.drain()
+    except Exception:
+        pass
+    finally:
+        writer.close()
+
+
+def stale_chrome():
+    # Un mundo del servidor de otra vez que se quedó abierto (se cerró este programa de golpe): se cierra
+    # (solo si ese proceso es de verdad un Chrome con la carpeta del mundo del servidor)
+    try:
+        pid = int(os.readlink(os.path.join(CHROME_DIR, 'SingletonLock')).rsplit('-', 1)[1])
+        cmd = subprocess.run(['ps', '-o', 'command=', '-p', str(pid)], capture_output=True, text=True).stdout
+        if f'--user-data-dir={CHROME_DIR}' in cmd:
+            os.kill(pid, signal.SIGTERM)
+            time.sleep(1)
+    except (OSError, ValueError, IndexError):
+        pass
+
+
+def find_chrome():
+    return next((c for c in CHROMES if os.path.exists(c)), None) or shutil.which('google-chrome') or shutil.which('chromium')
+
+
+async def world_loop():
+    # El mundo del servidor: el juego en un Chrome invisible. Si se cierra solo, se vuelve a abrir
+    global chrome
+    exe = find_chrome()
+    if not exe:
+        print('  No encuentro Chrome (ni Chromium, Brave o Edge): sin él, el mundo lo lleva el primero que entra a jugar.')
+        return
+    stale_chrome()
+    while not stopping.is_set():
+        url = f'{LOCAL_GAME}?servidor={quote(f"ws://127.0.0.1:{PORT}", safe="")}&modo=servidor&pase={PASE}'
+        chrome = await asyncio.create_subprocess_exec(
+            exe, '--headless=new', '--disable-gpu', '--mute-audio', '--no-first-run', '--no-default-browser-check',
+            '--disable-background-timer-throttling', '--disable-renderer-backgrounding', '--disable-backgrounding-occluded-windows',
+            f'--user-data-dir={CHROME_DIR}', url, stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL)
+        print('  Abriendo el mundo del servidor (el juego, en un Chrome invisible)…')
+        await chrome.wait()
+        if stopping.is_set():
+            return
+        print('  El mundo del servidor se ha cerrado: lo vuelvo a abrir en 5 segundos')
+        await asyncio.sleep(5)
+
+
+def start_world():
+    global world_task
+    if '--sin-mundo' in sys.argv and world_keys:
+        print(f'Sin el mundo del servidor (--sin-mundo). Para abrirlo a mano: {LOCAL_GAME}?servidor={quote(f"ws://127.0.0.1:{PORT}", safe="")}&modo=servidor&pase={PASE}')
+    if '--sin-mundo' in sys.argv or not world_keys or (world_task and not world_task.done()):
+        return
+    world_task = asyncio.get_running_loop().create_task(world_loop())
 
 
 def conns_of(user):
@@ -391,10 +557,25 @@ def command(line):
     elif name == 'save-all':
         everyone({'t': 'save'})
         print('  Guardando: cada juego guarda lo suyo, y quien lleva el mundo, el mundo')
+    elif name == 'mundo':
+        state = 'conectado' if servers else 'abriéndose' if chrome and chrome.returncode is None else 'cerrado'
+        print(f'  Mundo del servidor: {state}' + ('' if world_keys else ' (sin claves: que entre el admin)'))
+    elif name == 'vincular':
+        global link_until
+        link_until = time.time() + 300
+        for c in local:
+            send(c, {'t': 'need'})
+        print(f'  Esperando las claves (5 minutos): entra con la cuenta del admin en la pestaña que se abre ({LOCAL_GAME})')
+        open_page(admin_link())
     elif name == 'stop':
+        global stop_asked_at
+        if stop_asked_at:
+            return
+        stop_asked_at = time.time()
         everyone({'t': 'stop'})
         print('  Cerrando el servidor (los juegos guardan antes)…')
-        asyncio.get_running_loop().call_later(3, shutdown)
+        # (el mundo del servidor avisa cuando ha guardado: como mucho, se le espera un poco)
+        asyncio.get_running_loop().call_later(15 if servers else 3, shutdown)
     else:
         print(HELP)
 
@@ -405,35 +586,72 @@ def console(loop):
         loop.call_soon_threadsafe(command, line)
 
 
+def open_page(url):
+    if '--sin-navegador' not in sys.argv:
+        webbrowser.open(url)
+
+
+def admin_link():
+    # La pestaña para dar las claves: el juego servido aquí, conectado aquí mismo (y, si lo hay, con el túnel)
+    url = tunnel_url or f'ws://127.0.0.1:{PORT}'
+    return f'{LOCAL_GAME}?servidor={quote(url, safe="")}&local={quote(f"ws://127.0.0.1:{PORT}", safe="")}'
+
+
+def stop_signal():
+    # Ctrl+C cierra como /stop (los juegos guardan antes); otro Ctrl+C, ya
+    global stop_asked
+    if stop_asked or stopping.is_set():
+        os._exit(1)
+    stop_asked = True
+    command('stop')
+
+
 def shutdown():
+    if stopping.is_set():
+        return
     for w in list(peers.values()):
         w.close()
+    if chrome and chrome.returncode is None:
+        chrome.terminate()
     stopping.set()
 
 
 async def main():
     global stopping
     stopping = asyncio.Event()
+    global tunnel_url
     server = await asyncio.start_server(handle, '127.0.0.1', PORT)
+    site = await asyncio.start_server(web, '127.0.0.1', WEB_PORT)
     print(f'Servidor de Miniverse para jugar juntos, en el puerto {PORT}.')
     print(f'Escribe aquí los comandos del servidor (/ayuda para verlos). Op ahora: {", ".join(sorted(ops)) or "nadie"}.')
     threading.Thread(target=console, args=(asyncio.get_running_loop(),), daemon=True).start()
+    asyncio.get_running_loop().add_signal_handler(signal.SIGINT, stop_signal)
+    asyncio.get_running_loop().add_signal_handler(signal.SIGTERM, stop_signal)
+    keys_first = not world_keys and '--sin-mundo' not in sys.argv
     proc = None
     if '--sin-tunel' in sys.argv:
         print(f'Sin túnel: solo desde este ordenador, en ws://localhost:{PORT}')
     else:
         print('Abriendo el túnel…')
         proc, https = await tunnel()
-        url = 'wss://' + https[len('https://'):]
+        url = tunnel_url = 'wss://' + https[len('https://'):]
         print(f'Túnel abierto: {url}\nEsperando a que responda (suele tardar unos segundos)…')
         if not await ready(https):
             print('El túnel todavía no responde. Abro el juego igualmente: seguirá intentando conectar.')
         link = f'{GAME}?servidor={quote(url, safe="")}'
-        print(f'Listo. Abriendo el juego: {link}\n'
-              'Entra con tu cuenta y juega: los demás verán que estás jugando. Para cerrar el servidor, Ctrl+C.')
-        webbrowser.open(link)
+        if not keys_first:
+            print(f'Listo. Abriendo el juego: {link}\n'
+                  'Entra con tu cuenta y juega: los demás verán que estás jugando. Para cerrar el servidor, Ctrl+C.')
+            open_page(link)
+    start_world()   # (después del túnel: el mundo del servidor publica su dirección)
+    if keys_first:
+        # (la primera vez, el juego se abre servido desde aquí: así el del admin puede darle las claves al mundo del
+        # servidor sin que pasen por el túnel)
+        print(f'Todavía no tengo las claves del mundo. Abro el juego desde este ordenador: entra con la cuenta del admin\n'
+              f'y se las da al mundo del servidor (no salen de este ordenador). {admin_link()}')
+        open_page(admin_link())
     try:
-        async with server:
+        async with server, site:
             await stopping.wait()
         print('Servidor cerrado.')
     finally:

@@ -27,6 +27,7 @@ const UPLOAD_EVERY = 3 * 60 * 1000;   // como mucho, una subida automática a Gi
 const CHORES_EVERY = 3 * 60 * 1000;   // el admin pone al día las cuentas cada tantos minutos mientras juega
 const LIVE_FILE = 'servidor.json';
 const WORLD_FILE = 'mundo.enc';
+const SERVER_COPY = 'servidor-mundo';   // (el mundo del servidor guarda aquí, en este navegador, su copia del mundo)
 const NAME_RE = /^[\p{L}\p{N}_-]{3,16}$/u;
 const idOf = name => name.trim().toLowerCase();
 const text = bytes => new TextDecoder().decode(bytes);
@@ -41,6 +42,16 @@ let data = null;            // su partida descifrada
 let remoteSha, lastUpload = 0, changed = false, queue = Promise.resolve();
 let worldKey = Promise.resolve(null), chores = null;   // la clave del mundo compartido (se va abriendo) y las tareas del admin
 let worldSha, worldUploaded = 0, worldQueue = Promise.resolve();   // el mundo compartido: su sha y cuándo se subió
+
+// El mundo compartido va cifrado con la clave del mundo (AES-GCM): 12 bytes al azar y luego lo cifrado
+async function sealWorld(key, world) {
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const body = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, new TextEncoder().encode(JSON.stringify(world))));
+  const bytes = new Uint8Array(12 + body.length);
+  bytes.set(iv); bytes.set(body, 12);
+  return bytes;
+}
+const openWorld = async (key, b) => JSON.parse(text(new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: b.subarray(0, 12) }, key, b.subarray(12)))));
 
 async function loadBook(token) {
   const r = await readAccounts(token);
@@ -83,6 +94,8 @@ export const Profile = {
   players() { return Object.entries(book?.accounts || {}).map(([id, a]) => ({ id, name: a.name || id })); },
   get name() { return me?.name; },
   get admin() { return !!me?.admin; },
+  // El mundo del servidor (ver server.js): { id: 'servidor', pase… } o null
+  get server() { return me?.server ? me : null; },
   get data() { return data; },
   lastError: '',
 
@@ -149,6 +162,18 @@ export const Profile = {
     } catch (e) { me = null; return e.message; }
     return null;
   },
+
+  // El mundo del servidor no entra con una cuenta: se da a conocer al servidor con su pase y este le da la clave del
+  // mundo (tal cual) y el token con que guardarlo en GitHub, que a él le dio el juego del admin. No tiene partida
+  // propia: solo lleva el mundo
+  serverStart(pase) { me = { id: 'servidor', name: 'Servidor', server: true, token: null, pase }; data = null; worldKey = Promise.resolve(null); },
+  serverKeys({ key, token }) {
+    if (!me?.server) return Promise.resolve(null);
+    me.token = token || null;
+    return (worldKey = crypto.subtle.importKey('raw', fromB64(key), 'AES-GCM', false, ['encrypt', 'decrypt']).catch(() => null));
+  },
+  // Solo el admin: lo que necesita el mundo del servidor (la clave del mundo y su token), o null si aún no la tiene
+  serverSecrets() { const raw = WorldKey.raw(); return me?.admin && raw ? { key: toB64(raw), token: me.token } : null; },
 
   logout() { me = null; data = null; clearInterval(chores); WorldKey.forget(); worldKey = Promise.resolve(null); worldSha = undefined; worldUploaded = 0; },
 
@@ -253,30 +278,36 @@ export const Profile = {
     const f = await getFile(me.token, DATA_REPO, WORLD_FILE);
     worldSha = f?.sha ?? null;
     if (!f) return null;
-    const b = f.bytes;
-    try { return JSON.parse(text(new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: b.subarray(0, 12) }, key, b.subarray(12))))); }
-    catch { throw new Error('No se puede abrir el mundo compartido (¿es de otra clave del mundo?).'); }
+    try { return await openWorld(key, f.bytes); }
+    catch { throw Object.assign(new Error('No se puede abrir el mundo compartido (¿es de otra clave del mundo?).'), { wrongKey: true }); }
+  },
+  // (el mundo del servidor) La copia del mundo que guardó en este navegador, o null
+  async localWorld() {
+    const key = await worldKey, c = await db.get('vaults', SERVER_COPY).catch(() => null);
+    if (!key || !c) return null;
+    try { return await openWorld(key, c.bytes); } catch { return null; }
   },
   // Lo guarda quien lo lleva: { deltas, shared }. Se sube a GitHub si se pide o si hace rato de la última vez
   // (y, al subirlo, onWorldBytes recibe lo subido: el menú se lo pasa al servidor como copia).
   // Devuelve true si se ha subido, false si falló y null si no tocaba
+  // (el mundo del servidor, además, guarda siempre su copia en este navegador)
   storeWorld(world, { upload = false } = {}) {
     const run = async () => {
       const key = await worldKey;
       if (!me || !key) return false;
-      if (!upload && Date.now() - worldUploaded < UPLOAD_EVERY) return null;
-      const iv = crypto.getRandomValues(new Uint8Array(12));
-      const body = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, new TextEncoder().encode(JSON.stringify({ format: 'miniverse-mundo', savedAt: Date.now(), by: me.id, ...world }))));
-      const bytes = new Uint8Array(12 + body.length);
-      bytes.set(iv); bytes.set(body, 12);
+      const later = !upload && Date.now() - worldUploaded < UPLOAD_EVERY;
+      if (later && !me.server) return null;
+      const savedAt = Date.now(), bytes = await sealWorld(key, { format: 'miniverse-mundo', savedAt, by: me.id, ...world });
+      if (me.server) await db.put('vaults', { bytes, savedAt }, SERVER_COPY).catch(() => {});
+      if (later || !me.token) return null;
       try { worldSha = await putFile(me.token, DATA_REPO, WORLD_FILE, bytes, `Mundo compartido (${me.name})`, worldSha); worldUploaded = Date.now(); this.onWorldBytes?.(bytes); return true; }
       catch (e) { this.lastError = e.message; worldSha = undefined; return false; }
     };
     return (worldQueue = worldQueue.then(run, run));
   },
-  // Solo el admin: publica la dirección de su servidor (o, con null, que está cerrado)
+  // El admin (o el mundo del servidor): publica la dirección del servidor (o, con null, que está cerrado)
   async announce(url) {
-    if (me?.admin) await putFile(me.token, DATA_REPO, LIVE_FILE, bytesOf({ url, host: me.id, since: Date.now() }), url ? 'Servidor en directo abierto' : 'Servidor en directo cerrado');
+    if (me?.admin || (me?.server && me.token)) await putFile(me.token, DATA_REPO, LIVE_FILE, bytesOf({ url, host: me.id, since: Date.now() }), url ? 'Servidor en directo abierto' : 'Servidor en directo cerrado');
   },
   // Solo el admin: da la clave del mundo a una cuenta (cuando la pide al conectarse)
   async grant(id) {

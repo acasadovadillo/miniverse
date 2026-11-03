@@ -23,7 +23,9 @@ async function openMsg(key, d) {
 // on: { up(), down(), join(conn), leave(conn), msg(conn, msg), plain(conn, p), bad(conn), ops(lista), server(m) }.
 // Cada conexión tiene un número (conn), que da el servidor. ops: los usuarios op, que se dan en el terminal del
 // servidor (/op); null si el servidor es de antes y no los lleva. server: lo que manda el propio servidor desde su
-// terminal (kicked: te ha echado, y no se vuelve a intentar; say: un aviso; save: guardar ya; stop: se cierra).
+// terminal (kicked: te ha echado, y no se vuelve a intentar; say: un aviso; save: guardar ya; stop: se cierra; need:
+// le faltan las claves para el mundo del servidor, y solo se lo pide a quien está en su mismo ordenador). need: si al
+// entrar ya le faltaban.
 export class Net {
   constructor(url, key, on) {
     Object.assign(this, { url, key, on, ws: null, me: null, peers: new Set(), wanted: false });
@@ -62,7 +64,9 @@ export class Net {
   receive(raw) {
     let m;
     try { m = JSON.parse(raw); } catch { return; }
-    if (m.t === 'you') { this.me = m.id; this.peers = new Set(m.peers); this.on.ops?.(m.ops ?? null); this.on.up?.(); this.entered?.(); this.entered = null; }
+    if (m.t === 'you') { this.me = m.id; this.peers = new Set(m.peers); this.need = !!m.need; this.on.ops?.(m.ops ?? null); this.on.up?.(); this.entered?.(); this.entered = null; }
+    else if (m.t === 'need') { this.need = true; this.on.server?.(m); }
+    else if (m.t === 'secretos') this.on.server?.(m);   // (al mundo del servidor: sus claves)
     else if (m.t === 'ops') this.on.ops?.(m.ops);
     else if (m.t === 'kicked' || m.t === 'say' || m.t === 'save' || m.t === 'stop') { if (m.t === 'kicked' || m.t === 'stop') this.wanted = false; this.on.server?.(m); }
     else if (m.t === 'join') { this.peers.add(m.id); this.on.join?.(m.id); }
@@ -83,6 +87,7 @@ export class Net {
   }
   // Un aviso sin cifrar
   sendPlain(p, to = null) { if (this.ready) this.ws.send(JSON.stringify({ t: 'msg', to, p })); }
-  // Al propio servidor (no a los demás): de qué cuenta es este juego, o una copia del mundo (ya cifrada)
+  // Al propio servidor (no a los demás): de qué cuenta es este juego, una copia del mundo (ya cifrada) o, del admin
+  // en el mismo ordenador, las claves para el mundo del servidor
   sendServer(m) { if (this.ready) this.ws.send(JSON.stringify(m)); }
 }

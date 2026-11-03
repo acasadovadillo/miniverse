@@ -122,7 +122,7 @@ export function initMenus(game) {
       if (on && !live.host?.playing && !(await live.claim())) await live.waitHost();
       if (on && live.status !== 'on') throw new Error(live.error || 'Se ha cortado la conexión con el servidor.');   // (te han echado o vetado mientras)
       if (on && live.host?.playing) {
-        $('menu-msg').textContent = `Entrando en el mundo con ${live.host.name}…`;
+        $('menu-msg').textContent = live.host.server ? 'Entrando en el mundo…' : `Entrando en el mundo con ${live.host.name}…`;
         const { save, deltas } = live.enter(solo, await live.requestWorld());
         play(save, deltas, solo, 'guest');
         return;
@@ -150,10 +150,15 @@ export function initMenus(game) {
   // él como anfitrión y publica la dirección en GitHub. Los demás la buscan ahí al llegar al menú (o la traen
   // en el enlace) y, si el admin está jugando, pueden entrar con él.
   const live = game.live;
-  const LIVE_URL = (u => (u && /^wss?:\/\//.test(u) ? u : null))(new URLSearchParams(location.search).get('servidor'));
+  const wsParam = name => (u => (u && /^wss?:\/\//.test(u) ? u : null))(new URLSearchParams(location.search).get(name));
+  const LIVE_URL = wsParam('servidor');
+  // (local: el servidor, en este mismo ordenador, cuando la pestaña la abre multijugador.py para que el juego del
+  // admin le dé las claves al mundo del servidor; ver live.handOver)
+  const LOCAL_URL = wsParam('local');
   let announced = null;
   async function findLive() {
     const url = LIVE_URL || (await Profile.liveServer().catch(() => null))?.url;   // (también el admin: si alguien juega, entra con él)
+    if (LOCAL_URL && LOCAL_URL !== url && Profile.admin && await Profile.worldKey()) live.handOver(LOCAL_URL);
     if (!url) { live.close(); paintLive(); return; }
     await live.connect(url);
   }
@@ -166,9 +171,11 @@ export function initMenus(game) {
   // servidor (cada vez que lo abre, la dirección es otra)
   setInterval(() => { if (Profile.id && !LIVE_URL && $('s-menu').classList.contains('show') && !['on', 'nokey', 'kicked'].includes(live.status)) findLive(); }, 30000);
   function paintLive() {
-    const host = live.host, s = live.status, playing = live.others.filter(p => p.playing).map(p => p.name);
+    const host = live.host, s = live.status, playing = live.others.filter(p => p.playing && !p.server).map(p => p.name);
     let msg = '';
     if (s === 'kicked') msg = live.error;
+    else if (s === 'on' && host?.server) msg = playing.length ? `Servidor abierto: el mundo está en marcha. Ahora juega${playing.length > 1 ? 'n' : ''}: ${playing.join(', ')}. Al entrar, jugaréis juntos.`
+      : 'Servidor abierto: el mundo está en marcha (lo lleva el servidor). Puedes entrar cuando quieras.';
     else if (s === 'on') msg = host?.playing ? `Servidor abierto. Ahora juega${playing.length > 1 ? 'n' : ''}: ${playing.join(', ')}. Al entrar, jugaréis juntos.`
       : Profile.admin ? 'Servidor abierto: los demás pueden entrar en el mundo cuando quieran, aunque tú no estés jugando.'
       : 'Servidor abierto: puedes entrar en el mundo aunque no haya nadie más jugando.';
@@ -201,8 +208,10 @@ export function initMenus(game) {
   // El servidor pide guardar ya (/save-all en su terminal); y cada vez que se sube el mundo, una copia para él
   live.onServerSave = () => save({ upload: true });
   Profile.onWorldBytes = bytes => live.backup(bytes);
-  // Tu juego pasa a llevar el mundo (se ha ido quien lo llevaba): se guarda ya para todos
+  // Tu juego pasa a llevar el mundo (se ha ido quien lo llevaba): se guarda ya para todos. Y deja de llevarlo
+  // porque llega el mundo del servidor: se guarda lo tuyo
   live.onHost = () => save({ upload: true });
+  live.onYield = () => save({ upload: true });
   // Nueva partida: antes, un aviso (se borra el personaje de ahora; el mundo, no). Sin personaje, al creador
   const confirming = on => { $('m-confirm').hidden = !on; for (const id of ['m-continue', 'm-new']) $(id).hidden = on || (id === 'm-continue' && !currentSave); };
   $('m-new').addEventListener('click', () => (currentSave ? confirming(true) : openCreator()));
@@ -443,7 +452,7 @@ export function initMenus(game) {
     if (['map', 'inventory', 'craft', 'chest', 'shop', 'journal'].includes(game.mode)) { resume(); return true; }
     if (game.mode === 'play' && game.build.on) { game.build.toggle(false); return true; }
     if (game.busy || hud.dialogOpen) return false;
-    if (game.mode === 'play') { game.mode = 'pause'; $('p-msg').textContent = live.guest ? `El mundo compartido lo lleva ahora el juego de ${live.hostName}: lo guarda él para todos, y lo tuyo, tu partida.` : live.role === 'host' && !Profile.admin ? 'El mundo compartido lo lleva ahora tu juego: se guarda para todos.' : ''; show('s-pause'); return true; }
+    if (game.mode === 'play') { game.mode = 'pause'; $('p-msg').textContent = live.guest ? `El mundo compartido lo lleva ${live.host?.server ? 'el servidor' : `ahora el juego de ${live.hostName}`}: lo guarda él para todos, y lo tuyo, tu partida.` : live.role === 'host' && !Profile.admin ? 'El mundo compartido lo lleva ahora tu juego: se guarda para todos.' : ''; show('s-pause'); return true; }
     if (game.mode === 'pause') { resume(); return true; }
     return false;
   }

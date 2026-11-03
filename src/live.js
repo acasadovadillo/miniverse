@@ -7,6 +7,11 @@
 // aspecto con la ropa que lleva) y ve a los demás como una persona más, con su nombre encima. El chat llega a
 // todos, y lo que se tira al suelo lo puede recoger cualquiera. Por ahora, juntos solo en el mundo de fuera:
 // en las cuevas, cada uno va por su cuenta.
+//
+// Con el mundo del servidor (server.js: el juego en un Chrome invisible que abre multijugador.py), el mundo lo lleva
+// siempre él, como un servidor de Minecraft: si llega cuando ya lo llevaba otro, le pide el mundo y ese juego se lo
+// pasa y sigue en él como uno más. Quien lleva el mundo no deja tocarlo lejos de donde está quien lo pide, ni cambiar
+// las reglas a quien no es op: se lo devuelve como estaba.
 import { Net } from './net.js';
 import { Person } from './entities.js';
 import { Profile } from './accounts.js';
@@ -14,6 +19,7 @@ import { hud } from './ui/hud.js';
 import { Audio } from './audio.js';
 import { SHARED, BLOBS, diffChunk, applyOps, copy } from './livesync.js';
 import { toB64 } from './vault.js';
+import { CHUNK } from './world/gen.js';
 
 const SEND_EVERY = 0.1, IDLE_EVERY = 1;   // segundos entre mensajes de cómo va uno: moviéndose y quieto
 const SYNC_EVERY = 0.1;                   // cada cuánto se mandan los cambios del mundo
@@ -25,6 +31,8 @@ const GIVE_FIRST = 5;                     // y que lo que uno tira es solo para 
 const WORLD_WAIT = 20000;                 // lo que se espera, como mucho, a que llegue el mundo del anfitrión
 const CLAIM_WAIT = 900;                   // al entrar sin anfitrión, lo que se espera por si otro también iba a llevarlo
 const HOST_WAIT = 6000;                   // y lo que se espera a que el que lo lleva diga que ya está
+const REACH = 3;                          // trozos del mundo alrededor de donde está cada uno que puede tocar
+const OP_BLOBS = new Set(['rules', 'worldSpawn', 'weatherLock']);   // lo de todos que solo cambian los op
 const r2 = v => Math.round(v * 100) / 100;
 const session = Math.random().toString(36).slice(2, 6);   // (para que los objetos tirados tengan nombres únicos)
 
@@ -92,7 +100,7 @@ export class Live {
     const net = this.net = new Net(url, key, {
       up: () => this.up(),
       down: () => this.lost(),
-      join: () => { if (this.status === 'nokey') this.net.sendPlain({ need: Profile.id }); },   // (por si es el admin, que llega)
+      join: () => { if (this.status === 'nokey' && !Profile.server) this.net.sendPlain({ need: Profile.id }); },   // (por si es el admin, que llega)
       leave: conn => this.drop(conn, true),
       msg: (conn, m) => this.receive(conn, m),
       plain: (conn, p) => this.plain(conn, p),
@@ -124,16 +132,42 @@ export class Live {
   }
   // Al entrar (o volver a entrar tras un corte): saludar o, sin la clave del mundo, pedírsela al admin
   up() {
-    this.net.sendServer({ t: 'ident', user: Profile.id });   // (al servidor: de qué cuenta es, para los op, los vetos y la lista blanca)
+    // (al servidor: de qué cuenta es, para los op, los vetos y la lista blanca; el mundo del servidor, su pase)
+    const srv = Profile.server;
+    this.net.sendServer(srv ? { t: 'pase', pase: srv.pase } : { t: 'ident', user: Profile.id });
+    if (this.net.need) this.giveKeys();
     // (el admin jugando solo en el mundo cuando aparece el servidor: lo lleva su juego, para que entren los demás)
     if (this.net.key && Profile.admin && this.game.player && !this.joined) this.join(null, 'host');
     if (this.net.key) { this.setStatus('on'); this.hi(null, true); }
+    else if (srv) this.setStatus('nokey');   // (el mundo del servidor: las claves se las da el servidor con su pase)
     else { this.setStatus('nokey'); this.net.sendPlain({ need: Profile.id }); }
+  }
+  // El admin, en el mismo ordenador que el servidor, le da las claves para el mundo del servidor (solo se las pide
+  // así, nunca por el túnel)
+  giveKeys() {
+    const s = Profile.serverSecrets();
+    if (s) { this.net.sendServer({ t: 'secrets', ...s }); this.net.need = false; }
+  }
+  // Lo mismo con el juego conectado al servidor por el túnel: por una conexión aparte, dentro del ordenador (url)
+  handOver(url) {
+    const s = Profile.serverSecrets();
+    if (!s || this.handing === url) return;
+    this.handing = url;
+    let ws;
+    try { ws = new WebSocket(url); } catch { this.handing = null; return; }
+    ws.onmessage = e => {
+      let m;
+      try { m = JSON.parse(e.data); } catch { return; }
+      if (m.t !== 'you') return;
+      if (m.need) { ws.send(JSON.stringify({ t: 'ident', user: Profile.id })); ws.send(JSON.stringify({ t: 'secrets', ...s })); }
+      setTimeout(() => ws.close(), 500);
+    };
+    ws.onerror = () => { this.handing = null; };
   }
   hi(to = null, ask = false) {
     const g = this.game;
     const look = g.player ? g.appearance() : null;
-    this.net?.send({ t: 'hi', id: Profile.id, name: g.player?.name || Profile.name, host: this.joined && this.role === 'host' && !!g.player, admin: Profile.admin, playing: this.joined && !!g.player, look, ask }, to);
+    this.net?.send({ t: 'hi', id: Profile.id, name: g.player?.name || Profile.name, host: this.joined && this.role === 'host' && !!g.player, admin: Profile.admin, server: !!Profile.server, playing: this.joined && !!g.player, look, ask }, to);
     this.lastLook = look; this.lastLookJson = JSON.stringify(look);
   }
   plain(conn, p) {
@@ -160,11 +194,15 @@ export class Live {
   // Lo que manda el propio servidor desde su terminal
   fromServer(m) {
     if (m.t === 'say') { this.say?.(`[Servidor] ${m.text}`, 'say'); hud.toast(`[Servidor] ${m.text}`); }
-    else if (m.t === 'save') { this.say?.('El servidor guarda: guardando la partida…', 'sys'); this.onServerSave?.(); }
+    else if (m.t === 'save') { this.say?.(Profile.server ? 'Guardando el mundo…' : 'El servidor guarda: guardando la partida…', 'sys'); this.onServerSave?.(); }
+    else if (m.t === 'need') { if (Profile.admin) this.giveKeys(); }
+    // (el mundo del servidor: sus claves, la primera vez que enseña su pase)
+    else if (m.t === 'secretos') { if (Profile.server && !this.net?.key && m.key) this.onKeys?.(m); }
     else if (m.t === 'kicked' || m.t === 'stop') {
       const why = m.t === 'stop' ? 'Se ha cerrado el servidor.' : m.reason || 'Te han echado del servidor.';
       this.setStatus('kicked', why);
       if (this.joined) this.leave(m.t === 'stop' ? 'stop' : 'kicked', why);
+      else if (Profile.server) this.net?.sendServer({ t: 'saved' });   // (el mundo del servidor sin mundo abierto: nada que guardar)
     }
   }
   // Una copia del mundo (ya cifrada con la clave del mundo: el servidor no puede abrirla) para que la guarde
@@ -174,7 +212,7 @@ export class Live {
   playersNamed(name) {
     const n = name.toLowerCase(), g = this.game, out = [];
     if (n === '@a' || n === '@s' || n === String(Profile.id).toLowerCase() || n === g.player?.name.toLowerCase()) out.push({ me: true });
-    if (n !== '@s' && this.joined) for (const [conn, peer] of this.peers) if (peer.playing && (n === '@a' || peer.id === n || peer.name?.toLowerCase() === n)) out.push({ conn, peer });
+    if (n !== '@s' && this.joined) for (const [conn, peer] of this.peers) if (peer.playing && !peer.server && (n === '@a' || peer.id === n || peer.name?.toLowerCase() === n)) out.push({ conn, peer });
     return out;
   }
   // Llevar a otro jugador a un sitio ({ x, y }) o a casa ({ home: true }): lo hace su juego, si se lo pide un op
@@ -185,15 +223,21 @@ export class Live {
     let peer = this.peers.get(conn);
     if (m.t === 'hi') {
       const was = peer?.playing, wasHost = peer?.host;
-      peer = { ...peer, id: m.id, name: m.name, host: !!m.host, admin: !!m.admin, playing: !!m.playing, look: m.look };
+      peer = { ...peer, id: m.id, name: m.name, host: !!m.host, admin: !!m.admin, server: !!m.server, playing: !!m.playing, look: m.look };
       if (!peer.playing) this.hide(peer);
       this.peers.set(conn, peer);
       if (peer.entity && m.look) peer.entity.look = m.look;
       if (m.ask) this.hi(conn);
-      if (this.joined && this.game.player && peer.playing !== !!was) hud.toast(peer.playing ? `${peer.name} está jugando contigo` : `${peer.name} ha salido`, peer.playing ? 'ok' : '');
+      if (this.joined && this.game.player && !peer.server && peer.playing !== !!was) hud.toast(peer.playing ? `${peer.name} ${Profile.server ? 'ha entrado en el mundo' : 'está jugando contigo'}` : `${peer.name} ha salido`, peer.playing ? 'ok' : '');
       if (peer.host) { this.hostName = peer.name; clearTimeout(this.waitTimer); }
-      // Dos llevando el mundo (uno se cortó y volvió, o entraron a la vez): sigue el que llegó antes al servidor
-      if (peer.host && this.joined && this.role === 'host') { if (conn < this.net.me) this.leave('conflict'); else this.hi(conn); }
+      // Dos llevando el mundo (uno se cortó y volvió, o entraron a la vez): sigue el que llegó antes al servidor. El
+      // mundo del servidor, siempre: si tu juego se lo acaba de dar, se lo pasa y sigue en él; si no, sale y vuelve
+      if (peer.host && this.joined && this.role === 'host') {
+        if (Profile.server) this.hi(conn);
+        else if (peer.server) { if (this.gaveTo === conn) this.yieldTo(conn); else this.leave('conflict'); }
+        else if (conn < this.net.me) this.leave('conflict');
+        else this.hi(conn);
+      }
       if (wasHost && !peer.host) this.hostGone();
       this.changed();
       return;
@@ -214,6 +258,7 @@ export class Live {
       case 'st':
         if (!peer.playing) { peer.playing = true; this.changed(); }
         if (!m.sc) { this.hide(peer); return; }
+        if (m.sc === 'world') peer.at = [m.x, m.y];   // (para saber qué puede tocar)
         if (!peer.entity && peer.look) peer.entity = new RemotePlayer(peer);
         peer.entity?.apply(m);
         peer.sc = m.sc;
@@ -228,18 +273,22 @@ export class Live {
         else this.say?.(`<${peer.name}> ${m.text}`);
         break;
       case 'bye':
-        if (this.joined && peer.playing && g.player) hud.toast(`${peer.name} ha salido`);
+        if (this.joined && peer.playing && g.player && !peer.server) hud.toast(`${peer.name} ha salido`);
         peer.playing = false;
         this.hide(peer);
         if (peer.host) { peer.host = false; this.hostGone(); }
         this.changed();
         break;
       // El mundo compartido
-      case 'want': if (this.role === 'host' && g.player) this.sendWorld(conn); break;
+      case 'want': if (this.role === 'host' && g.player) { this.sendWorld(conn); if (peer.server) this.gaveTo = conn; } break;
       case 'world': if (this.wanted && peer.host) { clearTimeout(this.wanted.timer); this.wanted.resolve(m); this.wanted = null; } break;
-      case 'w': if ((this.role === 'host' && !peer.host) || fromHost) this.applyChunk(m.c, m.ops); break;
+      case 'w':
+        if (fromHost) this.applyChunk(m.c, m.ops);
+        else if (this.takes(peer)) { if (this.mayEdit(peer, m.c)) this.applyChunk(m.c, m.ops); else this.refuse(conn, peer, m.c, m.ops); }
+        break;
       case 's':
-        if (!BLOBS[m.name] || !((this.role === 'host' && !peer.host) || fromHost)) break;
+        if (!BLOBS[m.name] || !(fromHost || this.takes(peer))) break;
+        if (!fromHost && OP_BLOBS.has(m.name) && this.isOp(peer.id) === false) { this.net.send({ t: 's', name: m.name, v: BLOBS[m.name].get(g) }, conn); this.warn(peer, `${peer.name} ha intentado cambiar ${m.name} sin ser op (no se deja)`); break; }
         BLOBS[m.name].set(g, m.v);
         if (fromHost) this.blobs[m.name] = JSON.stringify(BLOBS[m.name].get(g));   // (el anfitrión lo reparte a todos en su próxima vuelta)
         break;
@@ -276,12 +325,34 @@ export class Live {
       }
     }
   }
+  // (anfitrión) Los cambios del mundo que se aceptan: de los invitados (el mundo del servidor, también de quien lo
+  // llevaba hasta que llegó). Lo que se toca, cerca de donde está quien lo toca
+  takes(peer) { return this.role === 'host' && (!peer.host || !!Profile.server); }
+  mayEdit(peer, k) {
+    if (!peer.at) return true;
+    const [cx, cy] = k.split(',').map(Number);
+    return Math.abs(cx - Math.floor(peer.at[0] / CHUNK)) <= REACH && Math.abs(cy - Math.floor(peer.at[1] / CHUNK)) <= REACH;
+  }
+  // No se deja: se le devuelve como está aquí lo que intentó cambiar (una capa que aquí no hay, vacía si era de
+  // casillas: su juego la vuelve a crear así, y quitársela del todo no acabaría nunca)
+  refuse(conn, peer, k, ops) {
+    const cur = this.game.world.deltas.get(k) || {}, isMap = v => !!v && typeof v === 'object' && !Array.isArray(v);
+    const back = ops.map(([f, c, v]) => (c === undefined || c === null ? (cur[f] !== undefined ? [f, null, cur[f]] : isMap(v) ? [f, null, {}] : [f]) : cur[f]?.[c] === undefined ? [f, c] : [f, c, cur[f][c]]));
+    this.net.send({ t: 'w', c: k, ops: back }, conn);
+    this.warn(peer, `${peer.name} ha intentado cambiar el mundo lejos de donde está (no se deja)`);
+  }
+  // (el mundo del servidor lo cuenta en el terminal; como mucho, una vez cada medio minuto por jugador)
+  warn(peer, text) {
+    if (!Profile.server || this.game.time - (peer.warned ?? -99) < 30) return;
+    peer.warned = this.game.time;
+    this.say?.(text, 'sys');
+  }
   hide(peer) { peer.entity = null; peer.sc = null; }
   drop(conn, gone = false) {
     const peer = this.peers.get(conn);
     if (!peer) return;
     if (gone) {
-      if (this.joined && peer.playing && this.game.player) hud.toast(`${peer.name} se ha desconectado`);
+      if (this.joined && peer.playing && this.game.player && !peer.server) hud.toast(`${peer.name} se ha desconectado`);
       this.peers.delete(conn);
       if (peer.host) this.hostGone();
       this.changed();
@@ -291,7 +362,7 @@ export class Live {
   // El anfitrión se ha ido: lo sigue llevando el que antes llegó al servidor de los que quedan jugando (si eres
   // tú, desde ya; si es otro, se espera a que lo diga y, si no, lo llevas tú)
   hostGone() {
-    if (!this.joined || !this.guest || !this.game.player || this.leaving) return;
+    if (!this.joined || !this.guest || !this.game.player || this.leaving || this.hostConn !== null) return;   // (ya lo lleva otro: el mundo del servidor)
     const me = this.net?.me;
     if (me === null || me === undefined) return this.leave('lost');
     const first = [...this.peers].filter(([, p]) => p.playing && !p.host).every(([c]) => c > me);
@@ -307,6 +378,17 @@ export class Live {
     this.hi();
     hud.toast(`Ahora el mundo compartido lo lleva tu juego (${was} ha salido)`, 'ok');
     this.onHost?.();
+  }
+  // Ha llegado el mundo del servidor mientras tu juego llevaba el mundo: desde ya lo lleva él (tiene el mundo tal cual:
+  // se lo acaba de dar tu juego) y tú sigues jugando en él como uno más. En tu partida se guarda lo tuyo (el admin,
+  // que guarda el mundo en la suya, con el mundo de ahora)
+  yieldTo(conn) {
+    const g = this.game;
+    if (!this.solo) this.solo = { save: { ...g.snapshot(), worldAt: Date.now() }, deltas: new Map([...g.world.deltas].map(([k, d]) => [k, copy(d)])) };
+    Object.assign(this, { role: 'guest', gaveTo: null, clockBase: { c: g.world.clock, at: g.time, run: true }, hostName: this.peers.get(conn)?.name || 'Servidor' });
+    this.hi();
+    hud.toast('Ahora el mundo compartido lo lleva el servidor', 'ok');
+    this.onYield?.();
   }
   // Salir del mundo compartido (se ha cortado la conexión, otro ya lo llevaba o el servidor te ha echado o se cierra)
   leave(why, text = '') {
@@ -378,7 +460,7 @@ export class Live {
   // cuando lo lleva). O deja de hacerlo, al salir al menú.
   join(solo = null, role = solo ? 'guest' : 'host') {
     const g = this.game;
-    Object.assign(this, { joined: true, role, solo, leaving: false, clockBase: null, claimAt: null, hostName: role === 'host' ? g.player?.name || '' : this.host?.name || '' });
+    Object.assign(this, { joined: true, role, solo, leaving: false, clockBase: null, claimAt: null, gaveTo: null, hostName: role === 'host' ? g.player?.name || '' : this.host?.name || '' });
     this.pending.clear(); this.synced.clear();
     if (solo) {
       for (const [k, d] of g.world.deltas) if (!k.startsWith('u:')) this.synced.set(k, copy(d));
@@ -491,6 +573,7 @@ export class Live {
       if (T.time >= TIME_EVERY) { T.time = 0; this.net.send({ t: 'time', c: r2(g.world.clock), run: g.mode === 'play', sh: g.days.shift, db: g.days.dayBase }); }
       if (T.herd >= HERD_EVERY && this.others.some(o => o.playing)) { T.herd = 0; this.net.send({ t: 'herd', p: g.ranch.animals.map(a => [r2(a.x), r2(a.y)]), k: g.family.positions() }); }
     }
+    if (Profile.server) return;   // (el mundo del servidor no tiene personaje que los demás vean)
     // Cómo va uno. Cada golpe nuevo con la herramienta (el temporizador sube), para que los demás vean el gesto.
     if (g.gather.swing > this.lastSwing + 1e-4) this.swings++;
     this.lastSwing = g.gather.swing;
