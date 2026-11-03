@@ -172,6 +172,7 @@ El juego es estático y se publica con GitHub Pages desde la rama `main` (carpet
 - **Cambios del jugador por trozo**: lo talado, picado y segado (que no vuelve a crecer: la casilla queda libre), lo labrado, lo construido en tres capas (suelo, objeto y tejado), cultivos, árboles plantados, cofres… Solo se guardan los trozos que cambian.
 - **Sistemas que se enchufan**: tiempo, huerto, granja, pesca, vecinos, tablón, combate, exploración y progreso se registran en el juego con los mismos ganchos (guardar, actualizar, dibujar, interactuar, cambio de día).
 - **El suelo se calcula en otro hilo** (`src/world/ground.js` y `src/world/genworker.js`): las alturas de cada bloque de terreno, los biomas de sus casillas y los píxeles de la textura de cada trozo los hacen uno o dos *Web Workers*, lo más cercano a la cámara primero; el hilo del juego solo hace las mallas y sube las texturas. Al cargar o al teletransportarse la pantalla espera a oscuras (como mucho 1,5 s) a que esté el suelo de alrededor. Los biomas de las medias casillas (centros y esquinas) se recuerdan por trozo, porque el clima cuesta y se pregunta mucho. Sin hilos aparte, se calcula en el hilo del juego poco a poco, como antes.
+- **Pruebas automáticas** (`probar.py` y `src/pruebas.js`): `python3 probar.py` abre el juego en un Chrome invisible (como el mundo del servidor) con una cuenta de prueba y una partida nueva, y las pruebas juegan solas: cargar, talar, picar, segar, labrar, fabricar, colocar, cofres, puertas, sentarse, comandos, mapas y brújula, cocos, la noria, guardar y cargar, y que ningún sistema tape un gancho del juego. Luego abre un relay de pruebas (`multijugador.py` en el puerto 8795, con sus datos en una carpeta temporal) y dos juegos que comparten mundo: el invitado ve el cofre del anfitrión y el anfitrión, la silla del invitado. Termina con 0 si todo va bien (unos cinco minutos; `--solo`, solo un jugador; `--dos`, solo los dos; `--ver`, con la consola de cada juego). Conviene pasarlas antes de publicar.
 - Bucle de paso fijo (60 pasos por segundo). En un Intel Iris Plus, un fotograma cuesta unos 6 ms y unos 11 ms cuando se rehace el mapa de sombras (cada dos fotogramas); la resolución baja sola si va lento.
 
 ## Archivos
@@ -181,7 +182,9 @@ index.html             Página, estilos e interfaz
 jugar.command          Lanzador para Mac
 servidor.py            Servidor local sin caché
 multijugador.py        Servidor para jugar juntos en directo (repetidor WebSocket, túnel y el mundo del servidor)
+probar.py              Pruebas automáticas en un Chrome invisible (un jugador y dos por el relay)
 src/main.js            Punto de entrada
+src/pruebas.js         Las pruebas automáticas (las lanza probar.py)
 src/server.js          El mundo del servidor (el juego sin dibujo que lleva el mundo compartido)
 src/game.js            Núcleo: estado, bucle, interacciones y sistemas
 src/camera.js          Estado de la cámara (giro, inclinación y distancia)

@@ -8,8 +8,11 @@ import { initChat } from './ui/chat.js';
 import { Settings } from './settings.js';
 import { freePlace } from './gather.js';
 
-// Con ?modo=servidor, este juego es el mundo del servidor (lo abre multijugador.py): sin dibujo ni menús (server.js)
-if (new URLSearchParams(location.search).get('modo') === 'servidor') import('./server.js').then(m => m.runServer());
+// Con ?modo=servidor, este juego es el mundo del servidor (lo abre multijugador.py): sin dibujo ni menús (server.js).
+// Con ?modo=pruebas, el juego de siempre, pero jugado por las pruebas automáticas (pruebas.js; las lanza probar.py)
+const MODE = new URLSearchParams(location.search).get('modo');
+if (MODE === 'servidor') import('./server.js').then(m => m.runServer());
+else if (MODE === 'pruebas' && ['127.0.0.1', 'localhost'].includes(location.hostname)) import('./pruebas.js').then(m => m.runTests(play()));   // (solo en este ordenador)
 else play();
 
 function play() {
@@ -83,4 +86,5 @@ function play() {
 
   // Acceso desde la consola del navegador, para depurar
   window.pueblo = game;
+  return game;
 }

@@ -91,7 +91,7 @@
 
 ### 5. Código, pruebas y herramientas
 
-**5.1 Pruebas automáticas (M, lo segundo).** El fallo de la brújula (un método `target` que tapaba el de las herramientas) estuvo publicado dos versiones sin que nadie lo viera. Hace falta un guion que arranque el juego en un Chrome invisible (como hace ya `multijugador.py` para el mundo del servidor), cargue una partida de prueba y compruebe lo básico: talar, picar, fabricar, colocar, dormir, un comando de cada clase, y dos juegos conectados a un relay de prueba (puerto 8795) que comparten un cofre. Correrlo antes de cada publicación.
+**5.1 Pruebas automáticas (M, lo segundo).** ✅ Hecho el 3-11-2026 (`probar.py` y `src/pruebas.js`: 16 pruebas de un jugador y 7 de dos por el relay; unos cinco minutos). El fallo de la brújula (un método `target` que tapaba el de las herramientas) estuvo publicado dos versiones sin que nadie lo viera. Hace falta un guion que arranque el juego en un Chrome invisible (como hace ya `multijugador.py` para el mundo del servidor), cargue una partida de prueba y compruebe lo básico: talar, picar, fabricar, colocar, dormir, un comando de cada clase, y dos juegos conectados a un relay de prueba (puerto 8795) que comparten un cofre. Correrlo antes de cada publicación.
 
 **5.2 Panel de depuración (S).** Una tecla (F3, como en Minecraft) que enseñe fotogramas por segundo, tiempo de simulación y de dibujo, llamadas de dibujo, trozos cargados, memoria y la casilla y el bioma. Sin esto cada medida de rendimiento hay que improvisarla.
 
