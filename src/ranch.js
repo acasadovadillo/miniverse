@@ -1,7 +1,8 @@
 // Granja: animales que viven en su casa (gallinero, establo, conejera, cuadra), salen de día a pastar si la
 // puerta está abierta, vuelven a dormir de noche (y con lluvia o en invierno se quedan dentro, comiendo del
 // comedero o del heno del silo) y cada mañana tienen su producto; los muy felices, a veces, uno especial.
-// Tienen crías: dos adultos contentos en la misma casa (las aves, con la incubadora). El caballo se monta y
+// Tienen crías: dos adultos contentos en la misma casa (las aves, con la incubadora) o, como en Minecraft, dos adultos
+// a los que se da a mano lo que más les gusta (trigo, semillas o zanahorias), que se buscan y la tienen al momento. El caballo se monta y
 // corre más cuanto más te quiere; el perro te sigue, escarba, avisa y va a por la pelota; el gato duerme en su
 // cojín, espanta a los ratones del silo y te deja regalos. Y el palomar, para enviarle cosas a otra persona.
 // Jugando juntos todo esto es del mundo del anfitrión: lo lleva su juego y los demás lo ven y lo tocan igual.
@@ -18,12 +19,15 @@ import { Profile } from './accounts.js';
 const PER_HOME = { gallinero: 4, establo: 4, conejera: 4, cuadra: 2, caseta: 1, cojin: 1 };
 const ROAM = 4.5, HONEY_EVERY = 3, GROW = 5, WAIT_BIRTH = 3, HATCH = 4, SILO_CAP = 240, STRAY_EVERY = 7;
 const FEED = ['heno', 'fibra', 'trigo'];
+// Lo que se les da a mano para que busquen pareja (las aves, cualquier semilla), cuánto dura y cuánto descansan luego
+const LOVE_FOOD = { gallina: ['trigo'], pato: ['trigo'], vaca: ['trigo'], oveja: ['trigo'], cabra: ['trigo'], cerdo: ['zanahoria'], conejo: ['zanahoria'] };
+const HEAT_MS = 30000, REST_MS = 5 * 60000, MATE_NEAR = 8;
 const SPEED = { gallina: 1.1, pato: 0.9, conejo: 1.3, cerdo: 0.8, cabra: 1, caballo: 1.3, perro: 1.6, gato: 1.2 };
 const RUN = { perro: 4.2, gato: 2.6, caballo: 5 };   // corriendo (siguiendo a su dueño o al llamarlo)
 const DIGS = [['bellota', 0.25], ['fibra', 0.2], ['pina', 0.15], ['semillas', 0.15], ['fosil_hueso', 0.08], ['moneda_antigua', 0.07], ['amatista', 0.05], ['fosil_concha', 0.05]];
 const GIFTS = ['sardina', 'plumas', 'bellota', 'fibra', 'bayas', 'carpa'];
 // Lo que se guarda de cada animal (lo demás es de paso: adónde va, si está dentro, si duerme…)
-const KEEP = ['id', 'type', 'name', 'home', 'love', 'ready', 'days', 'petDay', 'fedDay', 'born', 'breed', 'owner', 'expecting', 'bredDay', 'outDay', 'named', 'brushDay', 'carrotDay', 'shod', 'bags', 'rider', 'at', 'call', 'stray', 'sit'];
+const KEEP = ['id', 'type', 'name', 'home', 'love', 'ready', 'days', 'petDay', 'fedDay', 'born', 'breed', 'owner', 'expecting', 'bredDay', 'outDay', 'named', 'brushDay', 'carrotDay', 'shod', 'bags', 'rider', 'at', 'call', 'stray', 'sit', 'heat', 'bredAt'];
 const pick = list => list[Math.floor(Math.random() * list.length)];
 const me = () => Profile.id || 'yo';
 const hearts = n => '♥'.repeat(Math.ceil(n / 2)) || '·';
@@ -176,6 +180,7 @@ export class Ranch {
     const T = this.days, h = T.hour, night = h >= 19.5 || h < 6.5, bad = !!T.info.rain || T.season === 3;
     // El gallo canta al amanecer
     if (h >= 6 && h < 6.5 && this.crowed !== this.today && this.animals.some(a => a.breed === 'gallo' && Math.hypot(a.x - p.x, a.y - p.y) < 30)) { this.crowed = this.today; Audio.crow(); }
+    this.mate(Date.now());
     for (const a of this.animals) {
       const def = a.def, far = Math.abs(a.x - p.x) + Math.abs(a.y - p.y) > 60;
       a.young = this.young(a);
@@ -461,6 +466,42 @@ export class Ranch {
     }
     return null;
   }
+  // Los que están en celo buscan a otro igual en celo cerca y van hacia él; al juntarse (o en la misma casa), nace
+  // una cría, que va a la casa de uno de los dos si cabe
+  mate(now) {
+    const hot = this.animals.filter(a => a.heat > now && !this.young(a));
+    for (const a of hot) {
+      const b = hot.find(b => b !== a && b.type === a.type && b.heat > now && Math.hypot(b.x - a.x, b.y - a.y) < MATE_NEAR);
+      if (!b) continue;
+      if (Math.hypot(b.x - a.x, b.y - a.y) > 1 && !(a.inside && b.inside)) { a.go(b.x, b.y); b.go(a.x, a.y); continue; }
+      const room = h => h && this.homes(a.def.home).some(x => x.tile[0] === h[0] && x.tile[1] === h[1] && x.free > 0);
+      const baby = new Animal({ type: a.type, name: a.def.baby, named: false, home: room(a.home) ? a.home : room(b.home) ? b.home : null, owner: a.owner || b.owner, x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, born: this.today, outDay: this.today, breed: pick([a.breed, b.breed].filter(Boolean)) });
+      if (a.inside) baby.inside = true;
+      this.animals.push(baby);
+      for (const x of [a, b]) { delete x.heat; x.bredAt = now; }
+      this.game.gather.chips(baby.x, baby.y, 'heart', 10);
+      if (this.game.player) hud.toast(`¡Ha nacido ${an(a.def.baby)} en la granja! Ve a ponerle nombre.`, 'good');
+      this.game.onSave?.();
+    }
+  }
+  // Lo que tienes en la mano y le encanta a este animal (para que busque pareja), o null
+  loveFood(a) {
+    const held = this.game.inv.held?.id, foods = LOVE_FOOD[a.type];
+    if (!held || !foods || this.young(a)) return null;
+    return foods.includes(held) || (a.def.bird && held.startsWith('semilla_')) ? held : null;
+  }
+  // Dárselo: se pone en celo un rato (salvo si ya lo está o acaba de tener una cría)
+  court(a, food) {
+    const g = this.game, now = Date.now();
+    if (a.heat > now) { g.gather.float(`${a.name} ya está buscando pareja`, '#ffb0c8'); return; }
+    if (a.bredAt && now - a.bredAt < REST_MS) { g.gather.float(`${a.name} acaba de tener una cría: tiene que descansar`, '#fff3c0'); return; }
+    g.inv.remove(food, 1);
+    a.heat = now + HEAT_MS;
+    g.gather.chips(a.x, a.y, 'heart', 8);
+    g.skills?.gain('granja', 1);
+    Audio.blip();
+    g.onSave?.();
+  }
   // Hablar con un animal: ponerle nombre, recoger lo suyo, acariciarlo; al caballo propio, su menú
   talk(a) {
     const def = a.def, mine = a.owner === me(), g = this.game;
@@ -468,6 +509,8 @@ export class Ranch {
     if (!a.named && (!a.owner || mine)) return { text: `Ponerle nombre ${a.def.baby ? 'a la cría' : ''}`.trim(), run: () => this.name(a) };
     if (def.ride && mine) return { text: `${a.name} ${hearts(a.love)}${a.young ? ' (potro)' : ''}`, run: () => this.horseMenu(a) };
     if (a.ready) return { text: `${def.verb} (${a.name})`, run: () => this.collect(a) };
+    const food = this.loveFood(a);
+    if (food) return { text: `Darle ${ITEMS[food].name.toLowerCase()} a ${a.name} (para que tenga una cría)`, run: () => this.court(a, food) };
     const whose = a.owner && !mine ? `, de ${g.live.nameOf?.(a.owner) || 'otra persona'}` : '';
     const sit = def.pet && mine ? { text: a.sit ? 'Que se levante' : 'Que se siente', run: () => this.toggleSit(a) } : null;   // (el perro y el gato propios)
     if (a.petDay !== this.today) return { text: `Acariciar a ${a.name}${whose}`, run: () => this.pet(a), alt: sit };

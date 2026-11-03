@@ -13,8 +13,9 @@ import { setFamilyHouse } from './world/village.js';
 
 // Lo de la partida que es del mundo (y no de cada jugador)
 // (dayBase, timeShift y seenDay: el calendario del mundo y el último día que amaneció en él)
-// (rules, worldSpawn y weatherLock: las reglas del mundo, dónde aparecen los nuevos y el tiempo que ha puesto un op)
-export const SHARED = ['clock', 'house', 'projects', 'boardDone', 'animals', 'farm', 'museum', 'family', 'dayBase', 'timeShift', 'seenDay', 'rules', 'worldSpawn', 'weatherLock'];
+// (rules, worldSpawn, weatherLock y difficulty: las reglas del mundo, dónde aparecen los nuevos, el tiempo que ha
+// puesto un op y la dificultad)
+export const SHARED = ['clock', 'house', 'projects', 'boardDone', 'animals', 'farm', 'museum', 'family', 'dayBase', 'timeShift', 'seenDay', 'rules', 'worldSpawn', 'weatherLock', 'difficulty'];
 
 const isMap = v => !!v && typeof v === 'object' && !Array.isArray(v);
 const same = (a, b) => a === b || JSON.stringify(a) === JSON.stringify(b);
@@ -65,4 +66,5 @@ export const BLOBS = {
   rules: { get: g => g.rules, set: (g, v) => { g.rules = { ...g.rules, ...v }; } },
   worldSpawn: { get: g => g.worldSpawn, set: (g, v) => { g.worldSpawn = v; } },
   weatherLock: { get: g => g.weatherLock, set: (g, v) => { g.weatherLock = v; } },
+  difficulty: { get: g => g.difficulty, set: (g, v) => { g.difficulty = v; } },
 };

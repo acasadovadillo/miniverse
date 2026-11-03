@@ -32,7 +32,7 @@ const WORLD_WAIT = 20000;                 // lo que se espera, como mucho, a que
 const CLAIM_WAIT = 900;                   // al entrar sin anfitrión, lo que se espera por si otro también iba a llevarlo
 const HOST_WAIT = 6000;                   // y lo que se espera a que el que lo lleva diga que ya está
 const REACH = 3;                          // trozos del mundo alrededor de donde está cada uno que puede tocar
-const OP_BLOBS = new Set(['rules', 'worldSpawn', 'weatherLock']);   // lo de todos que solo cambian los op
+const OP_BLOBS = new Set(['rules', 'worldSpawn', 'weatherLock', 'difficulty']);   // lo de todos que solo cambian los op
 const r2 = v => Math.round(v * 100) / 100;
 const session = Math.random().toString(36).slice(2, 6);   // (para que los objetos tirados tengan nombres únicos)
 
@@ -314,6 +314,20 @@ export class Live {
       case 'tp': case 'give': case 'kill': case 'spawn': case 'gamemode':
         if (this.joined && g.player && this.isOp(peer.id)) g.fromOp(m, peer.name);
         break;
+      // Un op que juega en el mundo que lleva tu juego cambia la hora (/time)
+      case 'settime':
+        if (this.role !== 'host' || !this.isOp(peer.id) || !(m.madrid || (Number.isFinite(m.h) && m.h >= 0 && m.h < 24))) break;
+        if (m.madrid) g.days.realHour(); else g.days.setHour(m.h);
+        this.timers.time = Infinity;
+        g.onSave?.();
+        if (Profile.server) this.say?.(`${peer.name} ha cambiado la hora (/time)`, 'sys');
+        break;
+      // Las criaturas de fuera (mobs.js): dónde están (de quien lleva el mundo), a cuál le pega quién (a quien lo
+      // lleva), a quién muerden y quién ha matado a una (de quien lo lleva)
+      case 'mobs': if (fromHost && Array.isArray(m.m)) g.mobs.netList(m.m); break;
+      case 'hitm': if (this.takes(peer)) g.mobs.hitBy(conn, peer, m); break;
+      case 'hurt': if (fromHost && this.joined && g.player && g.gamemode === 'survival' && g.combat.invuln <= 0 && Number.isFinite(m.dmg)) g.combat.hit(Math.min(20, m.dmg), { x: m.x, y: m.y }); break;
+      case 'mobdead': if (fromHost) g.mobs.killed(m); break;
       // Lo que se tira al suelo
       case 'drop':
         if (this.joined && g.world) g.gather.drops.push({ id: m.id, extra: m.extra, count: m.k || 1, ttl: m.ttl, x: m.x, y: m.y, z: m.z, vz: m.vz, t: m.dt, scene: g.world, nid: m.n, owner: peer.id, free: !!m.free, back: !!m.back, born: g.time });

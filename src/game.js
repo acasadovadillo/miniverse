@@ -28,7 +28,8 @@ import { solidsOf, hull, placeBoxes, aabb, distTo, rayHits } from './world/fit.j
 import { HOTBAR, extraOf } from './inventory.js';
 import { Neighbors } from './neighbors.js';
 import { Board } from './board.js';
-import { Combat } from './combat.js';
+import { Combat, DIFFICULTIES } from './combat.js';
+import { Mobs } from './mobs.js';
 import { Explore } from './explore.js';
 import { Stats, Skills, Collection, Achievements, Story } from './progress.js';
 import { Music } from './music.js';
@@ -94,6 +95,7 @@ export class Game {
     this.rules = { ...RULES };   // las reglas del mundo (/gamerule): de todos, como el mundo
     this.worldSpawn = null;      // dónde aparecen los personajes nuevos (/setworldspawn); sin él, en el pueblo
     this.weatherLock = null;     // el tiempo que ha puesto un op (/weather): { w, until } (until null: sin fin)
+    this.difficulty = 'normal';  // la dificultad del mundo (/difficulty): peaceful, easy, normal o hard
     this.systems = [];           // capas de juego que se enchufan: tiempo, huerto, vecinos… (ver hook)
     this.stats = this.addSystem(new Stats());
     this.skills = this.addSystem(new Skills(this));
@@ -107,6 +109,7 @@ export class Game {
     this.rest = this.addSystem(new Rest(this));
     this.neighbors = this.addSystem(new Neighbors(this));
     this.combat = this.addSystem(new Combat(this));
+    this.mobs = this.addSystem(new Mobs(this));   // la luz y las criaturas de fuera, de noche
     this.places = this.addSystem(new Explore(this));
     this.collection = this.addSystem(new Collection(this));
     this.achievements = this.addSystem(new Achievements(this));
@@ -154,6 +157,7 @@ export class Game {
     this.rules = { ...RULES, ...(save.rules || {}) };
     this.worldSpawn = save.worldSpawn || null;
     this.weatherLock = save.weatherLock || null;
+    this.difficulty = DIFFICULTIES[save.difficulty] ? save.difficulty : 'normal';
     this.setGamemode(save.gamemode || (save.admin ? 'creative' : 'survival'));   // (las de antes: el modo admin era el creativo)
     camFromSave(save.cam3d);
     this.money = save.money ?? 100;
@@ -198,7 +202,7 @@ export class Game {
       seed: this.world.seed, player, explored: [...this.explored],
       inventory: this.inv.toSave(), energy: Math.round(this.energy), clock: Math.round(this.world.clock),
       ...this.craft.toSave(), house: { big: this.house.big, family: this.house.family, built: true, v: 3 }, money: this.money,
-      gamemode: this.gamemode, rules: this.rules, worldSpawn: this.worldSpawn, weatherLock: this.weatherLock, cam3d: camToSave(), volumes: Settings.volumes(),
+      gamemode: this.gamemode, rules: this.rules, worldSpawn: this.worldSpawn, weatherLock: this.weatherLock, difficulty: this.difficulty, cam3d: camToSave(), volumes: Settings.volumes(),
     };
     this.hook('save', out);
     return out;

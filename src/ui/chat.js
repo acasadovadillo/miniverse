@@ -6,6 +6,8 @@ import { clearKeys } from '../input.js';
 import { Profile } from '../accounts.js';
 import { ITEMS } from '../items.js';
 import { GAMEMODES, RULES } from '../game.js';
+import { DIFFICULTIES } from '../combat.js';
+import { DARK } from '../mobs.js';
 import { WORLD_SEED } from '../world/gen.js';
 
 const $ = id => document.getElementById(id);
@@ -28,6 +30,7 @@ function findItem(text) {
 // Los modos de juego, como se pueden escribir
 const GM_NAMES = { supervivencia: 'survival', survival: 'survival', s: 'survival', 0: 'survival', creativo: 'creative', creative: 'creative', c: 'creative', 1: 'creative', espectador: 'spectator', spectator: 'spectator', sp: 'spectator', 3: 'spectator' };
 const WEATHER_NAMES = { sol: 'sol', despejado: 'sol', clear: 'sol', nubes: 'nubes', nublado: 'nubes', lluvia: 'lluvia', rain: 'lluvia', tormenta: 'tormenta', thunder: 'tormenta', niebla: 'niebla', nieve: 'nieve', snow: 'nieve' };
+const DIFF_NAMES = { pacifico: 'peaceful', peaceful: 'peaceful', p: 'peaceful', 0: 'peaceful', facil: 'easy', easy: 'easy', e: 'easy', 1: 'easy', normal: 'normal', n: 'normal', 2: 'normal', dificil: 'hard', hard: 'hard', h: 'hard', 3: 'hard' };
 const num = v => (v !== undefined && v !== '' && Number.isFinite(+v) ? +v : null);
 // Pedirle algo a unos jugadores (por su nombre, @a o @s): a ti te lo hace tu juego; a los demás, el suyo
 function order(game, say, who, m) {
@@ -131,6 +134,27 @@ const COMMANDS = {
     },
   },
   seed: { help: 'la semilla del mundo', run(game, say) { say(`Semilla del mundo: ${WORLD_SEED}`, 'sys'); } },
+  difficulty: {
+    help: 'la dificultad: /difficulty (la dice); /difficulty pacifico|facil|normal|dificil (solo los op)',
+    run(game, say, [level = '']) {
+      if (!level) { say(`Dificultad: ${DIFFICULTIES[game.difficulty]}.`, 'sys'); return; }
+      if (needOp(game, say, 'difficulty')) return;
+      const d = DIFF_NAMES[plain(level)];
+      if (!d) { say('Uso: /difficulty pacifico|facil|normal|dificil', 'err'); return; }
+      game.difficulty = d;
+      game.onSave?.();
+      say(`Dificultad: ${DIFFICULTIES[d]}.${d === 'peaceful' ? ' No hay criaturas y el hambre no baja.' : ''}`, 'ok');
+    },
+  },
+  luz: {
+    help: `la luz donde estás (0-15): con ${DARK} o menos, de noche, aparecen criaturas`,
+    run(game, say) {
+      const p = game.player, m = game.mobs;
+      if (game.scene !== game.world) { say('Aquí no hay cielo: en las cuevas, las criaturas están siempre.', 'sys'); return; }
+      const tx = Math.floor(p.x), ty = Math.floor(p.y), sky = game.world.roofAt(tx, ty) ? 0 : m.sky(), block = m.block(tx, ty);
+      say(`Luz aquí: ${Math.max(sky, block)} (cielo ${sky}, luces ${block}). ${Math.max(sky, block) <= DARK ? 'Aquí pueden aparecer criaturas.' : 'Aquí no aparecen criaturas.'}`, 'sys');
+    },
+  },
   gamerule: {
     help: 'las reglas del mundo: /gamerule (las dice); /gamerule <regla> true|false (solo los op): keepInventory, doMobSpawning, doWeatherCycle',
     run(game, say, [rule = '', value = '']) {
@@ -202,9 +226,10 @@ const COMMANDS = {
       if (!sub) { say(`Son las ${clockText(T.hour)}${T.shift ? ' (el reloj está movido: /time madrid lo devuelve a la hora de Madrid)' : ', como en Madrid'}.`, 'sys'); return; }
       sub = sub.toLowerCase();
       if (!(sub === 'set' && value) && sub !== 'madrid') { say('Uso: /time set HH:MM (por ejemplo, /time set 18:30) o /time madrid', 'err'); return; }
-      // (la hora es la del mundo, que lleva el anfitrión: jugando en el mundo de otro no se puede cambiar)
+      // (la hora es la del mundo: jugando en el mundo de otro, se le pide a quien lo lleva, que la cambia si eres op)
       if (needOp(game, say, 'time')) return;
-      if (game.live.guest) { say(`La hora la lleva el juego de ${game.live.hostName || 'quien lleva el mundo'}: la puede cambiar ese jugador.`, 'err'); return; }
+      const ask = m => { game.live.order(game.live.hostConn, { t: 'settime', ...m }); say(`Pedido a ${game.live.hostName || 'quien lleva el mundo'}, que lleva la hora del mundo.`, 'ok'); };
+      if (sub === 'madrid' && game.live.guest) { ask({ madrid: true }); return; }
       if (sub === 'madrid') {
         T.realHour();
         if (game.live.timers) game.live.timers.time = Infinity;
@@ -216,6 +241,7 @@ const COMMANDS = {
       if (!m && named === undefined) { say('Escribe la hora así: /time set 18:30', 'err'); return; }
       if (m && (+m[1] > 23 || +(m[2] || 0) > 59)) { say('Esa hora no existe: va de 00:00 a 23:59.', 'err'); return; }
       const h = named ?? +m[1] + +(m[2] || 0) / 60;
+      if (game.live.guest) { ask({ h }); return; }
       T.setHour(h);
       if (game.live.timers) game.live.timers.time = Infinity;   // (jugando juntos, que los demás la vean ya)
       game.onSave?.();
@@ -231,7 +257,7 @@ const COMMANDS = {
   },
 };
 
-const ALIASES = { tell: 'msg', w: 'msg', help: 'ayuda' };
+const ALIASES = { tell: 'msg', w: 'msg', help: 'ayuda', dificultad: 'difficulty', light: 'luz' };
 
 export function initChat(game) {
   const box = $('chat'), log = $('chat-log'), input = $('chat-input');

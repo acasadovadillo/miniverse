@@ -5,6 +5,7 @@
 import { keys } from './input.js';
 import { dirOf, sideOf } from './world/fit.js';
 import { Audio } from './audio.js';
+import { hud } from './ui/hud.js';
 
 const SEAT = 0.14, SOFA = 0.1, BED = 0.6, FLOOR_LIE = 0.14, FLOOR_SIT = -0.28;
 
@@ -27,6 +28,8 @@ export class Rest {
   // que quede más cerca
   lie(o) {
     const p = this.p, along = dirOf(o.yaw);
+    // (como en Minecraft: con criaturas cerca no se puede descansar)
+    if (this.game.gamemode === 'survival' && this.game.mobs?.near(p.x, p.y, 8)) { hud.toast('No puedes descansar: hay criaturas cerca'); return; }
     let [bx, by] = [o.x, o.y];
     if (o.placed === 'cama_doble') {   // (la otra mitad, a su derecha)
       const [ux, uy] = sideOf(o.yaw), sx = o.x + ux, sy = o.y + uy;

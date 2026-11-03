@@ -2,7 +2,9 @@
 // Minecraft: con el hambre casi llena se cura sola, y sin hambre duele. El hambre baja con el tiempo y con lo que
 // se hace (usar herramientas, correr, saltar, pegar). La armadura quita daño. Al morir se suelta lo que se lleva
 // (salvo con keepInventory) y se reaparece en la cama o en casa. En cuevas y mazmorras, criaturas que persiguen y
-// muerden, y golpes con la espada (o con cualquier herramienta, que pega menos).
+// muerden, y golpes con la espada (o con cualquier herramienta, que pega menos); las de fuera, de noche, las lleva
+// mobs.js. La dificultad (/difficulty) cambia cuánto muerden y el hambre: en pacífico no hay criaturas ni baja el
+// hambre; en fácil el hambre no baja la vida de 5 corazones, en normal, de medio, y en difícil mata.
 import { ITEMS, isArmor } from './items.js';
 import { extraOf } from './inventory.js';
 import { Audio } from './audio.js';
@@ -14,6 +16,11 @@ const EXHAUST = 4;               // lo que hay que cansarse para perder medio mu
                                  // por metro; saltar, 0,05; curarse medio corazón, 1,5; y, sin hacer nada, esto cada IDLE s)
 const IDLE = 150, TICK = 4;      // y cada TICK s se cura (con el hambre a 18 o más) o duele el hambre (a 0)
 const DROP_TTL = 300;            // segundos que dura en el suelo lo que se suelta al morir
+
+export const DIFFICULTIES = { peaceful: 'pacífico', easy: 'fácil', normal: 'normal', hard: 'difícil' };
+// Por dificultad: cuántas criaturas de fuera como mucho alrededor de cada uno, cuánto muerden y hasta dónde quita
+// vida el hambre (en medios corazones)
+export const DIFF = { peaceful: { cap: 0, dmg: 0, starve: HP_MAX }, easy: { cap: 3, dmg: 0.5, starve: 10 }, normal: { cap: 6, dmg: 1, starve: 1 }, hard: { cap: 10, dmg: 1.5, starve: 0 } };
 
 export const MONSTERS = {
   limo: { name: 'Limo', hp: 3, dmg: 1, speed: 1.1, drops: [['baba', 1, 1, 0.7]] },
@@ -41,9 +48,10 @@ export class Combat {
   reset(save) { this.hp = save.hp ?? HP_MAX; this.hunger = save.hunger ?? HUNGER_MAX; this.exhaust = save.exhaust || 0; this.invuln = 0; this.regen = 0; this.paint(); }
   save(out) { out.hp = Math.round(this.hp * 10) / 10; out.hunger = this.hunger; out.exhaust = Math.round(this.exhaust * 100) / 100; }
   get survival() { return this.game.gamemode === 'survival'; }
-  // Cansarse: cada EXHAUST, medio muslo menos de hambre (solo en supervivencia)
+  get diff() { return DIFF[this.game.difficulty] || DIFF.normal; }
+  // Cansarse: cada EXHAUST, medio muslo menos de hambre (solo en supervivencia, y no en pacífico)
   exert(n) {
-    if (!this.survival) return;
+    if (!this.survival || this.game.difficulty === 'peaceful') return;
     this.exhaust += n;
     while (this.exhaust >= EXHAUST) { this.exhaust -= EXHAUST; if (this.hunger > 0) this.hunger--; }
     this.paint();
@@ -52,7 +60,9 @@ export class Combat {
   // Los puntos de armadura que se llevan puestos (cada uno quita un 4 % del daño, hasta el 80 %)
   armor() { return Math.min(20, Object.values(this.game.inv?.equip || {}).reduce((t, it) => t + (ITEMS[it.id]?.armor || 0), 0)); }
   get scene() { return this.game.scene; }
-  spawn(scene) { scene.monsters = this.game.rules.doMobSpawning ? (scene.spawns || []).map(([type, x, y]) => new Monster(type, x, y)) : []; }   // (/gamerule doMobSpawning)
+  spawn(scene) { scene.monsters = this.game.rules.doMobSpawning && this.diff.cap ? (scene.spawns || []).map(([type, x, y]) => new Monster(type, x, y)) : []; }   // (/gamerule doMobSpawning; en pacífico, ninguna)
+  // Las criaturas de esta escena (las de fuera, de mobs.js)
+  get monsters() { const g = this.game; return this.scene === g.world ? g.mobs.list : this.scene?.monsters; }
   heal(n) { this.hp = Math.min(HP_MAX, this.hp + n); this.paint(); }
   paint() {
     if (this.shown === this.hp) return;
@@ -83,11 +93,16 @@ export class Combat {
       this.exert(dt * EXHAUST / IDLE);
       if ((this.regen += dt) >= TICK) {
         this.regen = 0;
-        if (this.hunger >= 18 && this.hp < HP_MAX) { this.heal(1); this.exert(1.5); }
-        else if (this.hunger <= 0 && this.hp > 1) { this.hp = Math.max(1, this.hp - 1); this.paint(); Audio.noiseHit(200, 0.12, 0.3); g.flashHurt = g.time + 0.2; }
+        const starve = this.diff.starve;
+        if ((this.hunger >= 18 || g.difficulty === 'peaceful') && this.hp < HP_MAX) { this.heal(1); this.exert(1.5); }
+        else if (this.hunger <= 0 && this.hp > starve) {
+          this.hp = Math.max(starve, this.hp - 1); this.paint(); Audio.noiseHit(200, 0.12, 0.3); g.flashHurt = g.time + 0.2;
+          if (this.hp <= 0) this.die('Has muerto de hambre');
+        }
       }
     }
     if (!sc.monsters) return;
+    if (!this.diff.cap) sc.monsters.length = 0;   // (en pacífico se van)
     for (const m of sc.monsters) {
       m.cool = Math.max(0, m.cool - dt); m.hurt = Math.max(0, m.hurt - dt);
       const dx = p.x - m.x, dy = p.y - m.y, d = Math.hypot(dx, dy), def = m.def;
@@ -101,7 +116,7 @@ export class Combat {
       if (def.fly || !sc.blocked(m.x, ny)) m.y = ny;
       if (sc.blocked(m.x, m.y)) { m.x -= vx * sp; m.y -= vy * sp; }
       m.step += dt * (def.fly ? 10 : 5);
-      if (d < 0.55 && m.cool <= 0 && this.invuln <= 0 && !g.busy && g.gamemode === 'survival') { m.cool = 1.5; this.hit(def.dmg, m); }   // (en creativo y de espectador no hacen daño)
+      if (d < 0.55 && m.cool <= 0 && this.invuln <= 0 && !g.busy && g.gamemode === 'survival') { m.cool = 1.5; this.hit(Math.max(0.5, def.dmg * this.diff.dmg), m); }   // (en creativo y de espectador no hacen daño)
     }
   }
   hit(dmg, from) {
@@ -171,15 +186,14 @@ export class Combat {
 
   // Atacar lo que haya delante
   target(p, held, def) {
-    const sc = this.scene;
-    if (!sc.monsters?.length) return null;
+    if (!this.monsters?.length) return null;
     const m = this.inFront(p);
     if (!m && !def?.weapon) return null;
     return { tile: null, ok: true, auto: true, label: m ? `Atacar (${m.def.name.toLowerCase()})` : 'Atacar', use: () => this.attack(m, def) };
   }
   inFront(p) {
     let best = null, bd = 1.6;
-    for (const m of this.scene.monsters) {
+    for (const m of this.monsters) {
       const dx = m.x - p.x, dy = m.y - p.y, d = Math.hypot(dx, dy);
       if (d < bd && (dx * p.face.x + dy * p.face.y) / (d || 1) > 0.2) { bd = d; best = m; }
     }
@@ -193,18 +207,22 @@ export class Combat {
     Audio.swish();
     if (!m) return;
     const dmg = (def?.weapon || 1) + (g.skills?.level('combate') >= 5 ? 1 : 0);
-    m.hp -= dmg; m.hurt = 0.4;
     g.gather.wearOut();   // (el arma, o la herramienta con que se pega, se gasta)
     this.exert(0.1);
     Audio.chop();
     g.skills?.gain('combate', 1);
-    if (m.hp <= 0) {
-      this.scene.monsters.splice(this.scene.monsters.indexOf(m), 1);
-      g.gather.spawnDrops(m, { drops: m.def.drops });
-      g.gather.chips(m.x, m.y, m.type === 'limo' ? 'leaf' : 'stone', 12);
-      g.skills?.gain('combate', 4);
-      g.stats?.add('criaturas', 1);
-    }
+    // (las de fuera son del mundo: el golpe se lo da quien lo lleva)
+    if (m.world) { g.mobs.strike(m, dmg); return; }
+    m.hp -= dmg; m.hurt = 0.4;
+    if (m.hp <= 0) { this.scene.monsters.splice(this.scene.monsters.indexOf(m), 1); this.reward(m); }
   }
-  entities(scene) { return scene.monsters || null; }
+  // Una criatura muerta por ti: lo que suelta, y lo que aprendes
+  reward(m) {
+    const g = this.game;
+    g.gather.spawnDrops(m, { drops: m.def.drops });
+    g.gather.chips(m.x, m.y, m.type === 'limo' ? 'leaf' : 'stone', 12);
+    g.skills?.gain('combate', 4);
+    g.stats?.add('criaturas', 1);
+  }
+  entities(scene) { return scene === this.game.world ? null : scene.monsters || null; }
 }
