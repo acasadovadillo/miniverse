@@ -126,6 +126,15 @@ export const hud = {
   next() { dialog?.next(); },
   closeDialog() { $('dialog').classList.remove('show', 'asking'); dialog = null; },
 
+  // Un texto grande en el centro de la pantalla (/title), que se va solo
+  title(text) {
+    const el = $('title-msg');
+    el.textContent = text;
+    el.classList.remove('out'); el.hidden = false;
+    clearTimeout(this.titleT); clearTimeout(this.titleOut);
+    this.titleT = setTimeout(() => el.classList.add('out'), 3500);
+    this.titleOut = setTimeout(() => { el.hidden = true; }, 4200);
+  },
   // Aviso breve arriba en el centro (logros, días nuevos…)
   toast(text, kind = '') {
     const el = document.createElement('div');

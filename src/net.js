@@ -64,9 +64,12 @@ export class Net {
   receive(raw) {
     let m;
     try { m = JSON.parse(raw); } catch { return; }
-    if (m.t === 'you') { this.me = m.id; this.peers = new Set(m.peers); this.need = !!m.need; this.on.ops?.(m.ops ?? null); this.on.up?.(); this.entered?.(); this.entered = null; }
+    if (m.t === 'you') { this.me = m.id; this.peers = new Set(m.peers); this.need = !!m.need; this.on.ops?.(m.ops ?? null); this.on.welcome?.(m); this.on.up?.(); this.entered?.(); this.entered = null; }
     else if (m.t === 'need') { this.need = true; this.on.server?.(m); }
     else if (m.t === 'secretos') this.on.server?.(m);   // (al mundo del servidor: sus claves)
+    // (cuáles son las conexiones del mundo del servidor; si se guarda el mundo; el tiempo para echar a quien no se
+    // mueve; y, al mundo del servidor, un comando del terminal o que diga cómo va)
+    else if (['servers', 'autosave', 'idle', 'cmd', 'tps'].includes(m.t)) this.on.server?.(m);
     else if (m.t === 'ops') this.on.ops?.(m.ops);
     else if (m.t === 'kicked' || m.t === 'say' || m.t === 'save' || m.t === 'stop' || m.t === 'tp') { if (m.t === 'kicked' || m.t === 'stop') this.wanted = false; this.on.server?.(m); }
     else if (m.t === 'join') { this.peers.add(m.id); this.on.join?.(m.id); }

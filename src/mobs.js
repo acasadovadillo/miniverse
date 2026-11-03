@@ -196,5 +196,8 @@ export class Mobs {
     this.remove(m);
     if (MONSTERS[m.type]) this.game.combat.reward(m);
   }
+  // /summon y /kill @e (los hace quien lleva el mundo)
+  summon(type, x, y) { const m = new Mob(type, wrapX(x), y, ++this.n); this.list.push(m); return m; }
+  clearNear(x, y, r) { const before = this.list.length; this.list = this.list.filter(m => distOf(m.x, m.y, x, y) >= r); return before - this.list.length; }
   entities(scene) { return scene === this.world && this.list.length ? this.list : null; }
 }

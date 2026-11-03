@@ -509,6 +509,16 @@ export class Overworld {
     this.touchAround(tx, ty);
     return true;
   }
+  // Lo que hacen /setblock y /fill: poner una pieza en su capa (sin mirar si cabe, como en Minecraft) o, con 'air',
+  // quitar todo lo que haya puesto en la casilla (lo fijo del pueblo no)
+  setTile(tx, ty, id) {
+    const d = this.delta(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK), true), k = `${tx},${ty}`;
+    if (id === 'air') {
+      for (const layer of ['floor', 'placed', 'roof', 'hang', 'rug']) { if (d[layer]) delete d[layer][k]; if (d.pos) delete d.pos[`${layer}:${k}`]; }
+      for (const l of ['chest', 'closed', 'off', 'machine', 'tilled']) if (d[l]) delete d[l][k];
+    } else (d[layerOf(id)] ||= {})[k] = id;
+    this.touchAround(tx, ty);
+  }
   // Puertas: abiertas salvo que se hayan cerrado (se guarda en el trozo, también las del pueblo y las aldeas)
   doorClosed(tx, ty) { return !!this.delta(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK))?.closed?.[`${tx},${ty}`]; }
   toggleDoor(tx, ty) {

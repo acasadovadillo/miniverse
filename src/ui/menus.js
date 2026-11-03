@@ -21,7 +21,7 @@ const ADMIN_NAME = 'Alberto';   // (el dueño del mundo, que abre el servidor)
 
 // Lo de la partida que es del mundo (y los ajustes): se conserva al empezar con un personaje nuevo. Lo demás
 // (lo que llevas, dinero, habilidades, recetas, amistades, logros, estadísticas…) es del personaje y se borra
-const WORLD_KEYS = ['seed', 'clock', 'house', 'projects', 'boardDone', 'animals', 'farm', 'museum', 'family', 'dayBase', 'timeShift', 'seenDay', 'rules', 'worldSpawn', 'weatherLock', 'difficulty', 'maps', 'worldAt', 'cam3d', 'volumes'];
+const WORLD_KEYS = ['seed', 'clock', 'house', 'projects', 'boardDone', 'animals', 'farm', 'museum', 'family', 'dayBase', 'timeShift', 'seenDay', 'rules', 'worldSpawn', 'weatherLock', 'difficulty', 'maps', 'defaultGamemode', 'frozenHour', 'worldAt', 'cam3d', 'volumes'];
 
 export function initMenus(game) {
   function show(id) {
@@ -427,7 +427,7 @@ export function initMenus(game) {
   const save = async ({ upload = false, world = true } = {}) => {
     if (!game.player || !Profile.id) return { local: false, remote: null };
     const snap = game.snapshot(), deltas = game.world.deltas, hosting = world && !live.guest && (live.role === 'host' || Profile.admin);
-    if (hosting) Profile.storeWorld(live.worldOf(snap, deltas), { upload });
+    if (hosting && game.worldSaving !== false) Profile.storeWorld(live.worldOf(snap, deltas), { upload });   // (/save-off en el terminal lo para)
     // (si el mundo lo lleva otro o vienes de fuera, en tu partida se guarda lo tuyo, con tu mundo de siempre)
     if (live.solo) { const g = live.guestSave(snap, deltas); return Profile.store(g.save, g.deltas, { upload }); }
     return Profile.store({ ...snap, worldAt: hosting ? Date.now() : Profile.data?.save?.worldAt }, deltas, { upload });

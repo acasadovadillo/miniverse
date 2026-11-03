@@ -23,6 +23,7 @@ export class Crafting {
     this.game = game;
     this.seen = new Set();      // objetos que se han tenido alguna vez
     this.taught = new Set();    // recetas que te ha enseñado alguien
+    this.forgot = new Set();    // recetas quitadas con /recipe take
     this.known = new Set();     // recetas desbloqueadas
     this.fresh = new Set();     // desbloqueadas y aún sin mirar
     this.onNotice = null;       // la pantalla de fabricar, si está abierta, muestra los avisos ella misma
@@ -37,11 +38,25 @@ export class Crafting {
     // con lo que se tiene)
     this.seen = new Set(Array.isArray(save.seen) ? save.seen : this.owned());
     this.taught = new Set(save.taught || []);
+    this.forgot = new Set(save.forgot || []);
     this.known = new Set();
     this.fresh = new Set();
     this.check(true);
   }
-  toSave() { return { seen: [...this.seen], taught: [...this.taught] }; }
+  toSave() { return { seen: [...this.seen], taught: [...this.taught], forgot: [...this.forgot] }; }
+  // /recipe give|take: una receta (por lo que se fabrica) o todas (*). Las quitadas no vuelven solas al tener sus
+  // ingredientes; sí al dárselas otra vez. Devuelven cuántas
+  grant(id) {
+    let n = 0;
+    for (const r of RECIPES) if (id === '*' || r.out === id) { this.forgot.delete(r.id); if (!this.known.has(r.id)) { this.taught.add(r.id); n += r.variant ? 0 : 1; } }
+    this.check(true);
+    return n;
+  }
+  revoke(id) {
+    let n = 0;
+    for (const r of RECIPES) if (id === '*' || r.out === id) { if (this.known.delete(r.id) && !r.variant) n++; this.taught.delete(r.id); this.forgot.add(r.id); this.fresh.delete(r.id); }
+    return n;
+  }
   // Lo que se tiene ahora: en la mochila, puesto, colocado en el mundo y en los cofres
   owned() {
     const g = this.game, out = new Set(), add = id => { if (ITEMS[id]) out.add(id); };
@@ -57,7 +72,7 @@ export class Crafting {
   // Mira la mochila por si hay objetos nuevos y avisa de las recetas que se desbloquean
   check(silent = false) {
     for (const s of this.game.inv.slots) if (s) this.seen.add(s.id);
-    const news = RECIPES.filter(r => !this.known.has(r.id) && unlocked(r, this.seen, this.taught));
+    const news = RECIPES.filter(r => !this.known.has(r.id) && !this.forgot.has(r.id) && unlocked(r, this.seen, this.taught));
     for (const r of news) {
       this.known.add(r.id);
       if (!silent && !r.variant) this.fresh.add(r.id);   // (los otros tamaños de una alfombra no cuentan aparte)

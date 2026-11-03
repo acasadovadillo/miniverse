@@ -115,7 +115,7 @@ export class Collection {
 
 // ---------- Logros ----------
 const S = (k, n) => g => g.stats.get(k) >= n;
-const ACH = [
+export const ACH = [
   ['primer_arbol', 'Leñador novato', 'Tala tu primer árbol', S('talados', 1)],
   ['talador', 'Leñador de verdad', 'Tala 100 árboles', S('talados', 100)],
   ['banco', 'Manitas', 'Pon un banco de carpintero', g => g.stats.get('estaciones') >= 1],
@@ -146,8 +146,19 @@ export class Achievements {
   update(dt) {
     if ((this.t += dt) < 1) return;
     this.t = 0;
-    for (const [id, name, , check] of ACH) if (!this.got.has(id) && check(this.game)) { this.got.add(id); hud.toast(`🏆 Logro: ${name}`, 'good'); Audio.unlock(); }
+    for (const [id, name, , check] of ACH) if (!this.got.has(id) && check(this.game)) this.earn(id, name);
   }
+  // Un logro conseguido: se avisa y, jugando juntos (con /gamerule announceAdvancements), lo ven los demás en el chat
+  earn(id, name) {
+    const g = this.game;
+    this.got.add(id);
+    hud.toast(`🏆 Logro: ${name}`, 'good');
+    Audio.unlock();
+    if (g.rules?.announceAdvancements !== false) g.live?.chat(name, { adv: true });
+  }
+  // /achievement grant|revoke: uno (por su id) o todos (*). Devuelven cuántos
+  grant(id) { let n = 0; for (const [k, name] of ACH) if ((id === '*' || id === k) && !this.got.has(k)) { this.earn(k, name); n++; } return n; }
+  revoke(id) { let n = 0; for (const [k] of ACH) if ((id === '*' || id === k) && this.got.delete(k)) n++; return n; }
   journal() {
     return `<p class="j-note">${this.got.size} de ${ACH.length} logros</p>` + ACH.map(([id, name, desc]) => `<div class="j-row ach ${this.got.has(id) ? 'done' : ''}"><b>${this.got.has(id) ? '🏆' : '·'} ${name}</b><small>${desc}</small></div>`).join('');
   }

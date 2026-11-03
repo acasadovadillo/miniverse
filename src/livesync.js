@@ -15,7 +15,7 @@ import { setFamilyHouse } from './world/village.js';
 // (dayBase, timeShift y seenDay: el calendario del mundo y el último día que amaneció en él)
 // (rules, worldSpawn, weatherLock y difficulty: las reglas del mundo, dónde aparecen los nuevos, el tiempo que ha
 // puesto un op y la dificultad)
-export const SHARED = ['clock', 'house', 'projects', 'boardDone', 'animals', 'farm', 'museum', 'family', 'dayBase', 'timeShift', 'seenDay', 'rules', 'worldSpawn', 'weatherLock', 'difficulty', 'maps'];
+export const SHARED = ['clock', 'house', 'projects', 'boardDone', 'animals', 'farm', 'museum', 'family', 'dayBase', 'timeShift', 'seenDay', 'rules', 'worldSpawn', 'weatherLock', 'difficulty', 'maps', 'defaultGamemode', 'frozenHour'];
 
 const isMap = v => !!v && typeof v === 'object' && !Array.isArray(v);
 const same = (a, b) => a === b || JSON.stringify(a) === JSON.stringify(b);
@@ -68,4 +68,5 @@ export const BLOBS = {
   weatherLock: { get: g => g.weatherLock, set: (g, v) => { g.weatherLock = v; } },
   difficulty: { get: g => g.difficulty, set: (g, v) => { g.difficulty = v; } },
   maps: { get: g => g.maps.data, set: (g, v) => { g.maps.data = v || {}; } },   // (lo dibujado en los mapas)
+  defaultGamemode: { get: g => g.defaultGamemode, set: (g, v) => { g.defaultGamemode = v; } },
 };

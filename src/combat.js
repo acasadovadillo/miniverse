@@ -20,6 +20,8 @@ const IDLE = 150, TICK = 4;      // y cada TICK s se cura (con el hambre a 18 o 
 const DROP_TTL = 300;            // segundos que dura en el suelo lo que se suelta al morir
 
 export const DIFFICULTIES = { peaceful: 'pacífico', easy: 'fácil', normal: 'normal', hard: 'difícil' };
+// Los efectos (de las pociones, de la comida o de /effect), por su nombre
+export const EFFECT_NAMES = { rapido: 'rapidez', fuerza: 'fuerza', resistencia: 'resistencia', regeneracion: 'regeneración', incansable: 'sin cansancio', curacion: 'curación' };
 // Por dificultad: cuántas criaturas de fuera como mucho alrededor de cada uno, cuánto muerden y hasta dónde quita
 // vida el hambre (en medios corazones)
 export const DIFF = { peaceful: { cap: 0, dmg: 0, starve: HP_MAX }, easy: { cap: 3, dmg: 0.5, starve: 10 }, normal: { cap: 6, dmg: 1, starve: 1 }, hard: { cap: 10, dmg: 1.5, starve: 0 } };
@@ -99,7 +101,7 @@ export class Combat {
       if ((this.regen += dt) >= TICK) {
         this.regen = 0;
         const starve = this.diff.starve;
-        if ((this.hunger >= 18 || g.difficulty === 'peaceful') && this.hp < HP_MAX) { this.heal(1); this.exert(1.5); }
+        if (((this.hunger >= 18 && g.rules.naturalRegeneration !== false) || g.difficulty === 'peaceful') && this.hp < HP_MAX) { this.heal(1); this.exert(1.5); }   // (/gamerule naturalRegeneration)
         else if (this.hunger <= 0 && this.hp > starve) {
           this.hp = Math.max(starve, this.hp - 1); this.paint(); Audio.noiseHit(200, 0.12, 0.3); g.flashHurt = g.time + 0.2;
           if (this.hp <= 0) this.die('Has muerto de hambre');

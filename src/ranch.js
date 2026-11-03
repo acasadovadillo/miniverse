@@ -159,6 +159,14 @@ export class Ranch {
     this.animals.push(new Animal({ type, name: name || this.freeName(type), home: home.tile, x: home.tile[0] + 0.5, y: home.tile[1] + 1.5, born: this.today - GROW, outDay: this.today, breed: this.randomBreed(type) }));
     return null;
   }
+  // /summon: uno de granja, sin casa (pasea por donde aparece), adulto y con nombre
+  summon(type, x, y) {
+    if (!ANIMALS[type] || ANIMALS[type].wild || ANIMALS[type].pet || ANIMALS[type].ride) return null;
+    const a = new Animal({ type, name: this.freeName(type), x, y, born: this.today - GROW - 1, outDay: this.today, breed: this.randomBreed(type) });
+    this.animals.push(a);
+    this.game.onSave?.();
+    return a;
+  }
   freeName(type) {
     const def = ANIMALS[type], used = new Set(this.animals.map(a => a.name));
     return def.names.find(n => !used.has(n)) || `${def.name} ${this.animals.length + 1}`;

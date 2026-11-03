@@ -70,6 +70,8 @@ export class Wildlife {
     }
     return false;
   }
+  // /summon: uno donde se pide (cada jugador ve los suyos)
+  summon(type, x, y) { const w = new Wild(type, x, y); this.list.push(w); return w; }
   entities(scene) { return scene === this.world ? this.list : null; }
   // El salvaje más cercano a un punto (para que el perro le ladre)
   near(x, y, r) { return this.list.find(w => w.type !== 'cisne' && Math.hypot(w.x - x, w.y - y) < r) || null; }

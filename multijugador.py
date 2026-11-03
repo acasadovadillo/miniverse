@@ -25,7 +25,8 @@
 #
 # Mientras está abierto, en su terminal se escriben los comandos del servidor (como en Minecraft; /help los
 # lista): op y deop (los op pueden usar los comandos del juego: /gamemode, /tp, /give…), kick, ban y pardon, la
-# lista blanca, list, say, save-all y stop. Cada juego dice al entrar de qué cuenta es (el servidor no lee nada
+# lista blanca, list, say, tp, save-all, save-off y save-on, setidletimeout, tps y stop. Y, como en la consola de
+# Minecraft, cualquier comando del juego (/time, /weather, /give, /fill…): lo ejecuta el mundo del servidor. Cada juego dice al entrar de qué cuenta es (el servidor no lee nada
 # más). Los op, los vetados y la lista blanca se guardan en ops.json, banned.json y whitelist.json, junto a este
 # archivo, y las copias del mundo (cifradas: el servidor no puede abrirlas) en backups/.
 #
@@ -92,6 +93,7 @@ white = load_json(WHITE_FILE, {'enabled': False, 'users': []})                  
 white = {'enabled': bool(white.get('enabled')), 'users': sorted({str(u).lower() for u in white.get('users', [])})}
 users = {}           # número de conexión → la cuenta que ha dicho su juego
 SECRETS_FILE = os.path.join(DATA, 'servidor-secretos.json')
+SETTINGS_FILE = os.path.join(DATA, 'ajustes.json')   # (lo que se pone con comandos del terminal y se queda: /setidletimeout)
 CHROME_DIR = os.path.join(DATA, 'servidor-chrome')
 WEB_FILES = re.compile(r'^(index\.html|accounts\.json|src/[\w/.-]+\.js)$')   # lo único que se sirve
 WEB_TYPES = {'.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.json': 'application/json'}
@@ -100,6 +102,8 @@ CHROMES = ['/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', '/App
 PASE = base64.urlsafe_b64encode(os.urandom(18)).decode()   # lo que enseña el mundo del servidor para que se le den las claves
 world_keys = load_json(SECRETS_FILE, None)   # { key, token }: la clave del mundo y con qué guardarlo
 link_until = 0       # (tras /link, hasta cuándo se aceptan claves nuevas)
+settings = load_json(SETTINGS_FILE, {}) if os.path.exists(SETTINGS_FILE) else {}
+autosave = True      # (/save-off y /save-on)
 servers = set()      # las conexiones del mundo del servidor
 local = set()        # las conexiones desde este ordenador (no por el túnel): solo a ellas se les piden o dan claves
 chrome = None        # su proceso
@@ -248,7 +252,8 @@ async def handle(reader, writer):
     # (por el túnel llega con el nombre del túnel y sus cabeceras; desde este ordenador, a 127.0.0.1 o localhost)
     if headers.get('host', '').rsplit(':', 1)[0] in ('127.0.0.1', 'localhost') and not any(k.startswith('cf-') for k in headers):
         local.add(me)
-    send(me, {'t': 'you', 'id': me, 'peers': others, 'ops': sorted(ops), 'need': me in local and need_keys()})
+    send(me, {'t': 'you', 'id': me, 'peers': others, 'ops': sorted(ops), 'need': me in local and need_keys(),
+              'servers': sorted(servers), 'idle': settings.get('idle', 0), 'autosave': autosave})
     for p in others:
         send(p, {'t': 'join', 'id': me})
     print(f'  + Se ha conectado alguien ({len(peers)} conectados)')
@@ -285,6 +290,12 @@ async def handle(reader, writer):
                 send(me, {'t': 'secretos', **(world_keys or {}), 'tunnel': tunnel_url})
                 if first:
                     print('  + El mundo del servidor está conectado')
+                    everyone({'t': 'servers', 'ids': sorted(servers)})   # (los juegos solo se fían del mundo del servidor que diga esto)
+                continue
+            if msg.get('t') == 'idle' and me not in servers and settings.get('idle'):
+                mins = f'{settings["idle"]} minuto{"" if settings["idle"] == 1 else "s"}'
+                print(f'  {users.get(me, "Alguien")} lleva {mins} sin moverse: fuera')
+                kick(me, f'Te han echado por estar {mins} sin moverte.')
                 continue
             if msg.get('t') == 'secrets' and me in local and me in users and need_keys():
                 take_keys(msg, me)
@@ -320,6 +331,7 @@ async def handle(reader, writer):
         writer.close()
         if was_server:
             print('  - El mundo del servidor se ha desconectado')
+            everyone({'t': 'servers', 'ids': sorted(servers)})
         else:
             print(f'  - {who + " se ha ido" if who else "Se ha ido alguien"} ({len(peers)} conectados)')
 
@@ -385,11 +397,23 @@ HELP = '''  Comandos del servidor:
     /list                                     quién está conectado
     /say <texto>                              un aviso en el chat de todos
     /tp <usuario> <usuario>, /tp <usuario> home   llevar a alguien adonde está otro, o a su casa (@a: todos)
+    /save-off, /save-on                       dejar de guardar el mundo (para copiarlo a mano) y volver a guardarlo
+    /setidletimeout <minutos>                 echar a quien lleve esos minutos sin moverse (0: nunca)
+    /tps                                      cómo va el mundo del servidor (pasos por segundo)
+    y cualquier comando del juego (/time, /weather, /gamerule, /give, /gamemode, /kill, /fill, /locate…): lo
+    ejecuta el mundo del servidor, que es op (tiene que estar abierto)
     /save-all                                 que todos guarden ya (quien lleva el mundo, también el mundo)
     /world                                    cómo está el mundo del servidor
     /link                                     pedir otra vez las claves del mundo al juego del admin (5 minutos)
     /stop                                     guardar y cerrar el servidor (también con Ctrl+C)
     /help                                     esta lista'''
+
+
+def forward(line):
+    # Un comando del juego escrito en el terminal: lo ejecuta el mundo del servidor (lo que cuenta sale como [mundo])
+    text = '/' + line.strip().lstrip('/')
+    for c in sorted(servers)[:1]:
+        send(c, {'t': 'cmd', 'text': text})
 
 
 def need_keys():
@@ -559,6 +583,9 @@ def command(line):
     elif name == 'tp':
         # (el servidor no sabe dónde está nadie: se lo pide al juego de quien va, que sabe dónde están los demás)
         target = rest.split(' ')[0].lower() if rest else ''
+        if re.fullmatch(r'~?-?\d*\.?\d*', target or 'x') and target and servers:   # (a unas coordenadas: el mundo del servidor)
+            forward(line)
+            return
         if not user or not target:
             print('  Uso: /tp <usuario> <usuario> · /tp <usuario> home · /tp @a home')
             return
@@ -577,6 +604,25 @@ def command(line):
                 if users.get(c) != target:
                     send(c, {'t': 'tp', 'to': target})
             print(f'  {"Todos van" if user == "@a" else user + " va"} adonde está {target} (si está en el mundo de fuera)')
+    elif name in ('save-off', 'save-on'):
+        global autosave
+        autosave = name == 'save-on'
+        everyone({'t': 'autosave', 'on': autosave})
+        print('  Se vuelve a guardar el mundo' if autosave else '  Ya no se guarda el mundo (hasta /save-on): ahora se puede copiar a mano')
+    elif name == 'setidletimeout':
+        if not re.fullmatch(r'\d+', user or ''):
+            print(f'  Uso: /setidletimeout <minutos> (ahora: {settings.get("idle", 0) or "nunca"})')
+            return
+        settings['idle'] = int(user)
+        save_json(SETTINGS_FILE, settings)
+        everyone({'t': 'idle', 'minutes': settings['idle']})
+        print(f'  A quien lleve {settings["idle"]} minuto{"" if settings["idle"] == 1 else "s"} sin moverse, fuera' if settings['idle'] else '  Ya no se echa a nadie por no moverse')
+    elif name == 'tps':
+        if not servers:
+            print('  El mundo del servidor no está abierto')
+            return
+        for c in servers:
+            send(c, {'t': 'tps'})
     elif name == 'save-all':
         everyone({'t': 'save'})
         print('  Guardando: cada juego guarda lo suyo, y quien lleva el mundo, el mundo')
@@ -599,10 +645,12 @@ def command(line):
         print('  Cerrando el servidor (los juegos guardan antes)…')
         # (el mundo del servidor avisa cuando ha guardado: como mucho, se le espera un poco)
         asyncio.get_running_loop().call_later(15 if servers else 3, shutdown)
-    else:
-        if name != 'help':
-            print(f'  No existe el comando /{name}.')
+    elif name == 'help':
         print(HELP)
+    elif servers:
+        forward(line)   # (un comando del juego: lo ejecuta el mundo del servidor)
+    else:
+        print(f'  No existe el comando /{name} en el servidor, y los del juego (/time, /give…) necesitan el mundo del servidor abierto. /help los lista.')
 
 
 def console(loop):

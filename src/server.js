@@ -14,6 +14,7 @@ import { Settings } from './settings.js';
 import { hud } from './ui/hud.js';
 import { DEFAULT_LOOK } from './looks.js';
 import { SPAWN } from './world/village.js';
+import { runCommand } from './commands.js';
 
 const SAVE_EVERY = 60000;   // cada cuánto se guarda el mundo (en este navegador; en GitHub, como mucho cada 3 minutos)
 const HOST_WAIT = 3000;     // al llegar, lo que se espera a saber si alguien ya llevaba el mundo
@@ -58,7 +59,12 @@ export async function runServer() {
   const save = upload => Profile.storeWorld(live.worldOf(game.snapshot(), game.world.deltas), { upload });
   Profile.onWorldBytes = bytes => live.backup(bytes);
   game.onSave = () => {};   // (lo que guardaría la partida de un jugador: aquí el mundo se guarda cada minuto)
-  setInterval(() => save(false), SAVE_EVERY);
+  setInterval(() => { if (game.worldSaving !== false) save(false); }, SAVE_EVERY);   // (/save-off en el terminal lo para)
+  // Lo del terminal: un comando (lo ejecuta este mundo, que es op) o cómo va (/tps)
+  live.onServerCmd = m => {
+    if (m.t === 'tps') { const t = game.tps || {}; log(`Pasos por segundo: ${t.steps ?? '?'} de 60 (cada paso, ${(t.ms || 0).toFixed(2)} ms) · ${game.mobs.list.length} criaturas · ${live.others.filter(p => p.playing).length} jugando`); return; }
+    if (typeof m.text === 'string' && m.text.startsWith('/')) Promise.resolve(runCommand(game, m.text, (text, kind) => log(kind === 'err' ? `✗ ${text}` : text))).catch(e => log(`Fallo: ${e.message}`));
+  };
   const said = r => log(r ? 'Mundo guardado (también en GitHub).' : `Mundo guardado en este ordenador${r === false ? `, pero no en GitHub: ${Profile.lastError}` : ''}.`);
   live.onServerSave = () => save(true).then(said);
   // Si se corta o se cierra el servidor: se guarda y, si no es que se cierra, se vuelve a empezar al rato

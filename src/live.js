@@ -67,6 +67,8 @@ export class Live {
     this.role = null;         // jugando juntos: 'host' (tu juego lleva el mundo compartido) o 'guest' (lo lleva otro)
     this.claimAt = null;      // entrando sin anfitrión: cuándo se pidió llevar el mundo (gana quien lo pidió antes)
     this.ops = null;          // los usuarios op (modo admin), como los da el servidor; null si no los da
+    this.serverConns = new Set();   // las conexiones del mundo del servidor (lo dice el propio servidor, no ellas)
+    this.idleMinutes = 0;     // (/setidletimeout en el terminal: a los tantos minutos sin moverse, te echa)
     this.peers = new Map();   // conexión → { id, name, host, playing, look, entity, sc }
     this.onChange = null;     // (para el menú: cambia el estado o quién hay)
     this.onHostLeft = null;   // (para el menú: hay que salir del mundo compartido, por qué: 'lost' o 'conflict')
@@ -106,6 +108,7 @@ export class Live {
       msg: (conn, m) => this.receive(conn, m),
       plain: (conn, p) => this.plain(conn, p),
       ops: list => this.setOps(list),
+      welcome: m => this.welcome(m),
       server: m => this.fromServer(m),
     });
     // (si no responde a la primera, se queda avisando del error pero sigue intentándolo: un túnel recién
@@ -191,12 +194,22 @@ export class Live {
   // ¿Es op esta cuenta? (null: el servidor no lo dice)
   isOp(id) { return this.ops ? this.ops.has(String(id || '').toLowerCase()) : null; }
   // ¿Lo eres tú? (sin un servidor que lo diga, solo el admin, que es el dueño del mundo)
-  get amOp() { return this.isOp(Profile.id) ?? Profile.admin; }
+  get amOp() { return Profile.server ? true : this.isOp(Profile.id) ?? Profile.admin; }   // (el mundo del servidor, siempre: ejecuta los del terminal)
+  // Lo que dice el servidor al entrar: quién es el mundo del servidor, si se guarda el mundo y lo de no moverse
+  welcome(m) {
+    this.serverConns = new Set(m.servers || []);
+    this.idleMinutes = m.idle || 0;
+    if (m.autosave === false) this.game.worldSaving = false; else if (m.autosave === true) this.game.worldSaving = true;
+  }
   // Lo que manda el propio servidor desde su terminal
   fromServer(m) {
     if (m.t === 'say') { this.say?.(`[Servidor] ${m.text}`, 'say'); hud.toast(`[Servidor] ${m.text}`); }
     else if (m.t === 'save') { this.say?.(Profile.server ? 'Guardando el mundo…' : 'El servidor guarda: guardando la partida…', 'sys'); this.onServerSave?.(); }
     else if (m.t === 'need') { if (Profile.admin) this.giveKeys(); }
+    else if (m.t === 'servers') { this.serverConns = new Set(m.ids || []); for (const [c, p] of this.peers) if (p.server && !this.serverConns.has(c)) p.server = false; }
+    else if (m.t === 'autosave') { this.game.worldSaving = !!m.on; this.say?.(m.on ? 'El servidor vuelve a guardar el mundo.' : 'El servidor ha dejado de guardar el mundo (/save-off).', 'sys'); }
+    else if (m.t === 'idle') this.idleMinutes = m.minutes || 0;
+    else if (m.t === 'cmd' || m.t === 'tps') this.onServerCmd?.(m);
     // /tp desde el terminal del servidor: a casa, o adonde está otro jugador (lo sabe tu juego)
     else if (m.t === 'tp') this.serverTp(m);
     // (el mundo del servidor: sus claves, la primera vez que enseña su pase)
@@ -233,7 +246,7 @@ export class Live {
     let peer = this.peers.get(conn);
     if (m.t === 'hi') {
       const was = peer?.playing, wasHost = peer?.host;
-      peer = { ...peer, id: m.id, name: m.name, host: !!m.host, admin: !!m.admin, server: !!m.server, playing: !!m.playing, look: m.look };
+      peer = { ...peer, id: m.id, name: m.name, host: !!m.host, admin: !!m.admin, server: !!m.server && this.serverConns.has(conn), playing: !!m.playing, look: m.look };
       if (!peer.playing) this.hide(peer);
       this.peers.set(conn, peer);
       if (peer.entity && m.look) peer.entity.look = m.look;
@@ -279,6 +292,8 @@ export class Live {
         break;
       case 'chat':
         if (m.say) this.say?.(`[${peer.name}] ${m.text}`, 'say');   // (/say de un op)
+        else if (m.me) this.say?.(`* ${peer.name} ${m.text}`, 'me');   // (/me)
+        else if (m.adv) this.say?.(`${peer.name} ha conseguido el logro [${m.text}]`, 'say');   // (con announceAdvancements)
         else if (m.dm) this.say?.(`${peer.name} te susurra: ${m.text}`, 'dm');   // (/msg)
         else this.say?.(`<${peer.name}> ${m.text}`);
         break;
@@ -322,7 +337,12 @@ export class Live {
       // Un op te lleva a otro sitio (/tp), te da algo (/give), te mata (/kill), te pone dónde reaparecer
       // (/spawnpoint) o te cambia el modo de juego (/gamemode). Lo hace tu juego, si lo pide un op
       case 'tp': case 'give': case 'kill': case 'spawn': case 'gamemode':
-        if (this.joined && g.player && this.isOp(peer.id)) g.fromOp(m, peer.name);
+      case 'clear': case 'effect': case 'enchant': case 'xp': case 'recipe': case 'achievement': case 'title':
+        if (this.joined && g.player && !Profile.server && this.trusted(conn, peer)) g.fromOp(m, peer.server ? 'El servidor' : peer.name);
+        break;
+      // Lo que se le pide a quien lleva el mundo (/summon, /kill @e), si lo pide un op
+      case 'summon': case 'killmobs':
+        if (this.role === 'host' && g.player && this.trusted(conn, peer)) g.fromHost(m);
         break;
       // Un op que juega en el mundo que lleva tu juego cambia la hora (/time)
       case 'settime':
@@ -349,11 +369,13 @@ export class Live {
       }
     }
   }
+  // Si lo que pide alguien vale como de un op: lo es, o es el mundo del servidor (lo dice el servidor)
+  trusted(conn, peer) { return !!this.isOp(peer.id) || this.serverConns.has(conn); }
   // (anfitrión) Los cambios del mundo que se aceptan: de los invitados (el mundo del servidor, también de quien lo
-  // llevaba hasta que llegó). Lo que se toca, cerca de donde está quien lo toca
+  // llevaba hasta que llegó). Lo que se toca, cerca de donde está quien lo toca (los op, donde sea: /fill)
   takes(peer) { return this.role === 'host' && (!peer.host || !!Profile.server); }
   mayEdit(peer, k) {
-    if (!peer.at) return true;
+    if (!peer.at || this.isOp(peer.id)) return true;
     const [cx, cy] = k.split(',').map(Number);
     return Math.abs(wrapIndex(cx - Math.floor(peer.at[0] / CHUNK), CHUNK)) <= REACH && Math.abs(cy - Math.floor(peer.at[1] / CHUNK)) <= REACH;
   }
@@ -599,6 +621,9 @@ export class Live {
       if (T.herd >= HERD_EVERY && this.others.some(o => o.playing)) { T.herd = 0; this.net.send({ t: 'herd', p: g.ranch.animals.map(a => [r2(a.x), r2(a.y)]), k: g.family.positions() }); }
     }
     if (Profile.server) return;   // (el mundo del servidor no tiene personaje que los demás vean)
+    // (/setidletimeout: si llevas los minutos que diga sin moverte, se lo dices al servidor, que te echa)
+    if (this.idleMinutes > 0 && g.time - (g.lastInput ?? g.time) > this.idleMinutes * 60) { if (!this.idleSent) { this.idleSent = true; this.net.sendServer({ t: 'idle' }); } }
+    else this.idleSent = false;
     // Cómo va uno. Cada golpe nuevo con la herramienta (el temporizador sube), para que los demás vean el gesto.
     if (g.gather.swing > this.lastSwing + 1e-4) this.swings++;
     this.lastSwing = g.gather.swing;

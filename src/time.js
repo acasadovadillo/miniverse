@@ -112,6 +112,7 @@ export class TimeSystem {
     const today = Math.floor(madridMs() / DAY_MS);
     this.dayBase = save.dayBase ?? today - Math.floor((save.clock || 0) / OLD_DAY_LEN + OLD_START_HOUR / 24);
     this.shift = save.timeShift || 0;
+    this.game.frozenHour = save.frozenHour ?? null;
     const last = Number.isFinite(save.seenDay) ? save.seenDay : Number.isFinite(save.seen) ? save.seen : null;
     this.day = last === null ? this.realDay : Math.min(this.realDay, Math.max(this.realDay - CATCH_UP, last));
     this.wday = -1;
@@ -119,7 +120,7 @@ export class TimeSystem {
     this.shown = '';
     this.update(0);
   }
-  save(out) { Object.assign(out, { dayBase: this.dayBase, timeShift: this.shift, seenDay: this.day }); }
+  save(out) { Object.assign(out, { dayBase: this.dayBase, timeShift: this.shift, seenDay: this.day, frozenHour: this.game.frozenHour ?? null }); }
 
   // Cambia el aspecto del mundo según la estación (la vista rehace el suelo y las plantas al verlo)
   applySeason() { this.game.world.gen.season = this.localSeason; }
@@ -144,6 +145,11 @@ export class TimeSystem {
     if (lock && lock.until !== null && Date.now() >= lock.until) g.weatherLock = null;
     if (g.weatherLock && WEATHER[g.weatherLock.w]) { this.weather = g.weatherLock.w; this.locked = true; }
     else if (this.locked) { this.locked = false; this.weather = this.weatherFor(this.dayIndex); }
+    // /gamerule doDaylightCycle false: el reloj se queda a la hora que era (lo lleva quien lleva el mundo)
+    if (g.rules.doDaylightCycle === false && !g.live.guest) {
+      if (g.frozenHour == null) g.frozenHour = this.hour;
+      else { const d = ((g.frozenHour - this.hour + 36) % 24) - 12; if (Math.abs(d) > 1 / 240) this.shift += d; }
+    } else if (g.frozenHour != null && !g.live.guest) g.frozenHour = null;
     const label = this.label();
     if (label !== this.shown) { this.shown = label; document.getElementById('clock').textContent = label; }
     // Lluvia, nieve y rayos
@@ -162,9 +168,10 @@ export class TimeSystem {
   setHour(hour) {
     const here = this.now - this.shift * HOUR_MS;
     this.shift = hour - (here % DAY_MS) / HOUR_MS;
+    if (this.game.frozenHour != null) this.game.frozenHour = hour;   // (con el reloj parado, se para a la nueva)
     this.update(0);
   }
-  realHour() { this.shift = 0; this.update(0); }
+  realHour() { this.shift = 0; if (this.game.frozenHour != null) this.game.frozenHour = this.hour; this.update(0); }
   // Dormir: el tiempo no se salta (es el de verdad), pero se recupera la energía
   async sleep() {
     const g = this.game, h = this.hour;

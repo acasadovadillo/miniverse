@@ -29,7 +29,9 @@ import { solidsOf, hull, placeBoxes, aabb, distTo, rayHits } from './world/fit.j
 import { HOTBAR, extraOf } from './inventory.js';
 import { Neighbors } from './neighbors.js';
 import { Board } from './board.js';
-import { Combat, DIFFICULTIES } from './combat.js';
+import { Combat, DIFFICULTIES, MONSTERS, EFFECT_NAMES } from './combat.js';
+import { ENCHANTS, enchName } from './enchant.js';
+import { xpTo } from './xp.js';
 import { Mobs } from './mobs.js';
 import { Experience } from './xp.js';
 import { Machines, machineAt, machineEmpty } from './machines.js';
@@ -63,7 +65,7 @@ function defaultHouseDeltas() {
 
 // Los modos de juego (/gamemode) y las reglas del mundo (/gamerule) con lo que valen al empezar
 export const GAMEMODES = { survival: 'supervivencia', creative: 'creativo', spectator: 'espectador' };
-export const RULES = { keepInventory: false, doMobSpawning: true, doWeatherCycle: true };
+export const RULES = { keepInventory: false, doMobSpawning: true, doWeatherCycle: true, doDaylightCycle: true, naturalRegeneration: true, announceAdvancements: true };
 const AIM_REACH = 2;   // lo que se apunta con el ratón se usa si está a esto como mucho (casillas)
 const LIGHTS = new Set(['lampara', 'antorcha', 'vela', 'candelabro']);
 const BEDS = new Set(['cama', 'cama_nino', 'cama_doble']);   // lo colocado que se apaga y se enciende con E
@@ -101,6 +103,9 @@ export class Game {
     this.worldSpawn = null;      // dónde aparecen los personajes nuevos (/setworldspawn); sin él, en el pueblo
     this.weatherLock = null;     // el tiempo que ha puesto un op (/weather): { w, until } (until null: sin fin)
     this.difficulty = 'normal';  // la dificultad del mundo (/difficulty): peaceful, easy, normal o hard
+    this.defaultGamemode = 'survival';   // el modo en que empiezan los personajes nuevos (/defaultgamemode)
+    this.worldSaving = true;     // si se guarda el mundo (/save-off en el terminal lo para)
+    this.spectating = null;      // a quién sigue el espectador (/spectate)
     this.systems = [];           // capas de juego que se enchufan: tiempo, huerto, vecinos… (ver hook)
     this.stats = this.addSystem(new Stats());
     this.skills = this.addSystem(new Skills(this));
@@ -167,7 +172,10 @@ export class Game {
     this.worldSpawn = save.worldSpawn || null;
     this.weatherLock = save.weatherLock || null;
     this.difficulty = DIFFICULTIES[save.difficulty] ? save.difficulty : 'normal';
-    this.setGamemode(save.gamemode || (save.admin ? 'creative' : 'survival'));   // (las de antes: el modo admin era el creativo)
+    this.defaultGamemode = GAMEMODES[save.defaultGamemode] ? save.defaultGamemode : 'survival';
+    this.spectating = null;
+    this.lastInput = this.time;
+    this.setGamemode(save.gamemode || (save.admin ? 'creative' : save.inventory ? 'survival' : this.defaultGamemode));   // (las de antes: el modo admin era el creativo; los nuevos, el del mundo)
     camFromSave(save.cam3d);
     this.money = save.money ?? 100;
     this.addMoney(0);
@@ -211,7 +219,7 @@ export class Game {
       seed: this.world.seed, player, explored: [...this.explored],
       inventory: this.inv.toSave(), energy: Math.round(this.energy), clock: Math.round(this.world.clock),
       ...this.craft.toSave(), house: { big: this.house.big, family: this.house.family, built: true, v: 3 }, money: this.money,
-      gamemode: this.gamemode, rules: this.rules, worldSpawn: this.worldSpawn, weatherLock: this.weatherLock, difficulty: this.difficulty, cam3d: camToSave(), volumes: Settings.volumes(),
+      gamemode: this.gamemode, rules: this.rules, worldSpawn: this.worldSpawn, weatherLock: this.weatherLock, difficulty: this.difficulty, defaultGamemode: this.defaultGamemode, cam3d: camToSave(), volumes: Settings.volumes(),
     };
     this.hook('save', out);
     return out;
@@ -241,7 +249,63 @@ export class Game {
     } else if (m.t === 'kill') this.combat.die(by ? `${by} te ha matado (/kill)` : 'Has muerto (/kill)');
     else if (m.t === 'spawn' && Number.isFinite(m.x) && Number.isFinite(m.y)) { this.player.spawn = [m.x, m.y]; said('te ha puesto aquí dónde reapareces'); }
     else if (m.t === 'gamemode' && GAMEMODES[m.gm]) { this.setGamemode(m.gm); said(`te ha puesto en modo ${GAMEMODES[m.gm]}`); }
+    else return this.fromOp2(m, said);
     this.onSave?.();
+  }
+  // (las órdenes de los comandos de la fase de comandos: /clear, /effect, /enchant, /xp, /recipe, /achievement y
+  // /title). Devuelven lo que ha pasado, para quien lo pide desde su juego
+  fromOp2(m, said) {
+    const inv = this.inv, p = this.player;
+    let out = '';
+    if (m.t === 'clear') {
+      let n = 0;
+      inv.slots.forEach((s, i) => {
+        if (!s || (m.id && s.id !== m.id)) return;
+        const k = m.n ? Math.min(s.n, m.n - n) : s.n;
+        if (k <= 0) return;
+        inv.take(i, k, true); n += k;
+      });
+      if (!m.id) for (const [slot, it] of Object.entries(inv.equip)) if (ITEMS[it.id]?.armor) { delete inv.equip[slot]; n++; }
+      inv.changed();
+      out = `Fuera de tu mochila: ${n} ${m.id ? `× ${ITEMS[m.id].name.toLowerCase()}` : 'cosas'}`;
+      said(`ha vaciado tu mochila (${n})`);
+    } else if (m.t === 'effect') {
+      if (m.give === 'curacion') { this.combat.heal(8); out = 'Te has curado 4 corazones'; }
+      else if (m.give && EFFECT_NAMES[m.give]) { this.buffs[m.give] = this.time + Math.max(1, Math.min(3600, m.secs || 30)); out = `Efecto ${EFFECT_NAMES[m.give]} durante ${m.secs || 30} s`; }
+      else if (m.clear) { if (m.clear === 'all') this.buffs = {}; else delete this.buffs[m.clear]; out = 'Efectos quitados'; }
+      if (out) said(`te ha dado: ${out.toLowerCase()}`);
+    } else if (m.t === 'enchant' && ENCHANTS[m.ench]) {
+      const it = inv.held, def = it && ITEMS[it.id];
+      if (!def || !ENCHANTS[m.ench].fits(def) || def.stack > 1) out = 'Lo que tienes en la mano no se puede encantar así';
+      else { it.ench = { ...(it.ench || {}), [m.ench]: Math.max(1, Math.min(ENCHANTS[m.ench].max, m.lvl | 0)) }; inv.changed(); out = `${def.name}: ${enchName(it.ench)}`; said(`ha encantado lo que llevas: ${enchName(it.ench)}`); }
+    } else if (m.t === 'xp' && Number.isFinite(m.n)) {
+      const x = this.xp;
+      if (m.levels) x.set(xpTo(Math.max(0, (m.set ? 0 : x.level) + m.n)) + (m.set ? 0 : x.into));
+      else if (m.set) x.set(m.n); else if (m.n > 0) x.add(m.n); else x.set(x.points + m.n);
+      out = `Tienes nivel ${x.level} de experiencia (${x.points} puntos)`;
+      said(`te ha cambiado la experiencia: nivel ${x.level}`);
+    } else if (m.t === 'recipe') {
+      const n = m.give ? this.craft.grant(m.id) : this.craft.revoke(m.id);
+      out = `${m.give ? 'Recetas nuevas' : 'Recetas olvidadas'}: ${n}`;
+      said(`te ha ${m.give ? 'enseñado' : 'quitado'} recetas (${n})`);
+    } else if (m.t === 'achievement') {
+      const n = m.grant ? this.achievements.grant(m.id) : this.achievements.revoke(m.id);
+      out = `${m.grant ? 'Logros dados' : 'Logros quitados'}: ${n}`;
+      said(`te ha ${m.grant ? 'dado' : 'quitado'} logros (${n})`);
+    } else if (m.t === 'title' && m.text) { hud.title(String(m.text).slice(0, 80)); return null; }
+    else return null;
+    this.onSave?.();
+    return out;
+  }
+  // Lo que se le pide a quien lleva el mundo (/summon de criaturas y animales de granja, /kill @e). Devuelve lo que
+  // ha pasado
+  fromHost(m) {
+    if (m.t === 'summon' && Number.isFinite(m.x) && Number.isFinite(m.y)) {
+      if (m.kind === 'mob' && MONSTERS[m.type]) { this.mobs.summon(m.type, m.x, m.y); return `Ha aparecido: ${MONSTERS[m.type].name.toLowerCase()}.`; }
+      if (m.kind === 'farm') { const a = this.ranch.summon(m.type, m.x, m.y); return a ? `Ha aparecido: ${a.name}.` : null; }
+    }
+    if (m.t === 'killmobs' && Number.isFinite(m.x)) return `Criaturas quitadas: ${this.mobs.clearNear(m.x, m.y, 48)}.`;
+    return null;
   }
   // Dónde se reaparece al morir: en tu cama (si sigue ahí), en tu punto (/spawnpoint) o, si no tienes, en casa
   respawnSpot() {
@@ -309,6 +373,12 @@ export class Game {
     CAM.yaw += Math.PI;
     this.view3d.snap();
     hud.toast(`Has cruzado el polo ${north ? 'norte' : 'sur'}: sigues por el otro lado del planeta`);
+  }
+  // El espectador que sigue a alguien (/spectate) va donde va él (si deja de estar, o deja de ser espectador, se acaba)
+  followSpectated() {
+    const peer = this.live.others.find(x => x.id === this.spectating && x.playing), e = peer?.entity;
+    if (this.gamemode !== 'spectator' || !peer) { this.spectating = null; return; }
+    if (e && peer.sc === 'world') { this.player.x = e.x; this.player.y = e.y; }
   }
   // Nombre del lugar (pueblo o bioma) y coordenadas, con el pueblo en (0, 0)
   updatePlace() {
@@ -814,13 +884,17 @@ export class Game {
 
   // Sin dibujar (el mundo del servidor): solo avanza, a pasos fijos, unas 20 veces por segundo. onError: un fallo al
   // avanzar (se avisa una vez y se sigue)
+  // (tps: los pasos por segundo de verdad del último segundo, y lo que tardan; para /tps en el terminal)
   runHeadless() {
-    let last = performance.now(), acc = 0;
+    let last = performance.now(), acc = 0, steps = 0, busy = 0, t0 = last;
+    this.tps = { steps: 60, ms: 0 };
     setInterval(() => {
       const now = performance.now();
       acc += Math.min(1, (now - last) / 1000);
       last = now;
-      try { while (acc >= STEP) { this.update(STEP); acc -= STEP; } } catch (e) { acc = 0; if (this.updateError !== e.message) this.onError?.(e); this.updateError = e.message; }
+      try { while (acc >= STEP) { this.update(STEP); acc -= STEP; steps++; } } catch (e) { acc = 0; if (this.updateError !== e.message) this.onError?.(e); this.updateError = e.message; }
+      busy += performance.now() - now;
+      if (now - t0 >= 1000) { this.tps = { steps: Math.round((steps * 1000) / (now - t0)), ms: steps ? busy / steps : 0 }; steps = 0; busy = 0; t0 = now; }
     }, 50);
   }
 
@@ -836,7 +910,9 @@ export class Game {
     if (keys.use && !this.busy && !this.build.on) this.gather.use(true);
     if (this.busy || hud.dialogOpen || this.fishing.still || p.pose) { p.stop(); return; }
     p.speedMul = (this.buffs.rapido > this.time ? 1.35 : 1) * (p.mount ? this.ranch.rideSpeed() : 1);
+    if (Object.values(keys).some(Boolean)) this.lastInput = this.time;   // (para /setidletimeout)
     p.update(dt, keys, this.scene);
+    if (this.spectating) this.followSpectated();
     if (this.scene === this.world) this.aroundPlanet();
     if (!p.inside) this.explore();
     // Bajo un tejado: cambia el ambiente (sonido, lluvia, nombre del sitio) y se guarda, como al entrar en casa
