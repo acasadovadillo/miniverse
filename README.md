@@ -99,7 +99,7 @@ La partida se guarda sola cada 15 segundos, al entrar o salir de una casa y al d
 
 ## Publicación
 
-El juego es estático y se publica con GitHub Pages desde la rama `main` (carpeta raíz): cada `git push` a `main` actualiza <https://acasadovadillo.github.io/miniverse/> en un minuto o dos.
+El juego es estático y se publica con GitHub Pages desde la rama `main` (carpeta raíz): cada `git push` a `main` actualiza <https://acasadovadillo.github.io/miniverse/> en un minuto o dos. Antes de cada publicación se cambia la versión de `index.html` (`<meta name="miniverse-version">`): al ver una versión nueva, el juego vuelve a pedir sin caché el código que tenía guardado el navegador (GitHub Pages lo deja guardar 10 minutos, y mezclar el código de antes con la página nueva dejaba el juego parado al entrar).
 
 ### Cuentas
 

@@ -3,6 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<!-- La versión publicada: se cambia en cada publicación (así el juego sabe que tiene que pedir el código nuevo) -->
+<meta name="miniverse-version" content="2026-11-03.2">
 <title>Miniverse</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏡</text></svg>">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -665,6 +667,21 @@
     if (location.protocol === 'file:') document.getElementById('s-file').classList.add('show');
   </script>
   <script type="importmap">{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }</script>
-  <script type="module" src="src/main.js"></script>
+  <script>
+    // Al publicar una versión, el navegador puede tener aún en caché (GitHub Pages lo deja 10 minutos) el código de
+    // la anterior, y mezclado con esta página el juego no arranca. Si esta página es de otra versión que la última
+    // que se abrió aquí, antes de arrancar se vuelve a pedir sin caché el código que se cargó aquella vez
+    (() => {
+      const V = document.querySelector('meta[name="miniverse-version"]').content, K = 'pueblo-brotes:version', base = new URL('.', location.href).href;
+      let last = null, files = [];
+      try { last = localStorage.getItem(K); files = JSON.parse(localStorage.getItem(K + ':files') || '[]'); } catch {}
+      performance.setResourceTimingBufferSize?.(2000);
+      const fresh = last === V ? [] : files.filter(f => f.startsWith(base)).map(f => fetch(f, { cache: 'reload' }).catch(() => null));
+      Promise.all(fresh).then(() => import('./src/main.js')).then(() => {
+        const code = performance.getEntriesByType('resource').map(e => e.name).filter(u => u.startsWith(base) && /\.js$/.test(u));
+        try { localStorage.setItem(K, V); localStorage.setItem(K + ':files', JSON.stringify([...new Set(code)])); } catch {}
+      }, e => console.error(e));
+    })();
+  </script>
 </body>
 </html>
