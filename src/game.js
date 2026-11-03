@@ -874,13 +874,18 @@ export class Game {
   // ---------- bucle ----------
   run() {
     let last = performance.now(), acc = 0;
+    const perf = this.perf = { frames: 0, steps: 0, update: 0, draw: 0, max: 0 };   // (lo que cuesta cada fotograma: para el panel de F3)
     const frame = now => {
       acc += Math.min(0.25, (now - last) / 1000);
       last = now;
+      const t0 = performance.now();
       // (un fallo al avanzar tampoco: se avisa una vez y el juego sigue respondiendo)
-      try { while (acc >= STEP) { this.update(STEP); acc -= STEP; } } catch (e) { acc = 0; if (this.updateError !== e.message) console.error(e); this.updateError = e.message; }
+      try { while (acc >= STEP) { this.update(STEP); acc -= STEP; perf.steps++; } } catch (e) { acc = 0; if (this.updateError !== e.message) console.error(e); this.updateError = e.message; }
+      const t1 = performance.now();
       // (un fallo al dibujar no para el juego: se avisa y se sigue)
       try { this.render(); } catch (e) { if (this.renderError !== e.message) console.error(e); this.renderError = e.message; }
+      const t2 = performance.now();
+      perf.frames++; perf.update += t1 - t0; perf.draw += t2 - t1; perf.max = Math.max(perf.max, t2 - t0);
       if (this.frameNo % 30 === 0) Music.update(this);
       requestAnimationFrame(frame);
     };

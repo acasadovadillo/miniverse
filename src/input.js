@@ -51,7 +51,7 @@ export function initInput(h) {
     if (zoomOf(e) && !e.metaKey && !e.ctrlKey) { held.set(e.code, ['zoom', zoomOf(e)]); camAxes(); e.preventDefault(); return; }
     // Chat: T lo abre; / lo abre con la barra ya escrita (sin que la tecla se escriba dos veces)
     if ((e.code === 'KeyT' || e.key === '/') && !e.repeat) { if (handlers.chat(e.key === '/' ? '/' : '')) e.preventDefault(); return; }
-    if (e.code === 'KeyF' && !e.repeat) { const el = document.getElementById('fps'); if (el) el.hidden = !el.hidden; return; }
+    if (e.code === 'F3') { e.preventDefault(); if (!e.repeat) handlers.debug?.(); return; }   // (el panel de depuración, como en Minecraft)
     if (e.code === 'KeyZ' && !e.repeat) { CAM.first = !CAM.first; e.preventDefault(); return; }   // primera o tercera persona
     if (e.code === 'KeyQ' && !e.repeat) { handlers.drop?.(e.ctrlKey || e.metaKey || e.shiftKey); e.preventDefault(); return; }   // tirar (con Ctrl o Shift, el montón)
     if (e.code === 'KeyG' && !e.repeat) { handlers.sit?.(); return; }    // sentarse en el suelo

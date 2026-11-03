@@ -5,6 +5,7 @@ import { initMenus } from './ui/menus.js';
 import { hud } from './ui/hud.js';
 import { initBuildBar } from './ui/buildbar.js';
 import { initChat } from './ui/chat.js';
+import { initDebug } from './ui/debug.js';
 import { Settings } from './settings.js';
 import { freePlace } from './gather.js';
 
@@ -21,6 +22,7 @@ function play() {
   const menus = initMenus(game);
   initBuildBar(game);
   const chat = initChat(game);
+  const debug = initDebug(game);
   game.live.say = (text, kind) => chat.say(text, kind);
   const b = game.build;
   initInput({
@@ -55,6 +57,7 @@ function play() {
     craft: () => menus.toggleCraft(),
     journal: () => menus.toggleJournal(),
     players: on => showPlayers(on),
+    debug: () => debug.toggle(),
     select: i => (b.on ? null : game.inv.select(i)),
     cycle: d => (b.on ? b.cycle(d) : game.inv.select(game.inv.selected + d)),
     enabled: () => game.mode === 'play',

@@ -354,14 +354,14 @@ export class View3D {
   stats(dt) {
     this.frames++; this.acc += dt;
     if (this.acc > 0.5) {
-      const fps = this.frames / this.acc, info = this.renderer.info.render;
+      const fps = this.frames / this.acc;
       this.fps = fps;
-      const el = document.getElementById('fps');
-      if (el && !el.hidden) el.textContent = `${fps.toFixed(0)} FPS · ${info.calls} llamadas · ${(info.triangles / 1000).toFixed(0)}k triángulos · ×${this.pixelRatio.toFixed(2)}`;
       this.slow = fps < 40 ? this.slow + this.acc : 0;
       if (this.auto && this.slow > 3 && this.pixelRatio > 0.75) { this.pixelRatio = Math.max(0.75, this.pixelRatio - 0.25); this.renderer.setPixelRatio(this.pixelRatio); this.resize(); this.slow = 0; }
       this.frames = 0; this.acc = 0;
     }
+    const info = this.renderer.info.render;
+    this.lastInfo = { calls: info.calls, triangles: info.triangles };   // (lo del último fotograma, para el panel de F3)
     this.renderer.info.reset();
   }
 

@@ -238,6 +238,14 @@ async function soloTests(game) {
     check(inv().count('bayas') === bayas, 'las bayas no vuelven');
     check(w().chestAt(tx, ty)?.[2]?.n === 3, 'el cofre no vuelve con lo suyo');
   });
+  await test('panel F3: se abre, dice los fotogramas y se cierra', async () => {
+    const key = () => document.dispatchEvent(new KeyboardEvent('keydown', { code: 'F3', key: 'F3', bubbles: true, cancelable: true }));
+    const el = document.getElementById('debug');
+    key(); await frames(2); check(el && !el.hidden, 'no se abre');
+    // (el bucle lo llevan las pruebas: el panel no tiene fotogramas que contar, y lo dice)
+    check(/fps|fotogramas/.test(el.textContent) && /bioma/.test(el.textContent) && /trozos/.test(el.textContent), `no dice lo suyo: ${el.textContent.slice(0, 120)}`);
+    key(); await frames(2); check(el.hidden, 'no se cierra');
+  });
   await test('ganchos: ningún sistema tapa un gancho con otra cosa', async () => {
     const HOOKS = { target: 3, interact: 2, entities: 1, onDay: 1 };   // (los ganchos con parámetros: un método con ese nombre y otro uso los taparía)
     for (const s of game.systems) for (const [h, n] of Object.entries(HOOKS)) if (typeof s[h] === 'function' && s[h].length < n) throw new Error(`${s.constructor.name}.${h} tiene ${s[h].length} parámetros y el gancho pide ${n}`);
