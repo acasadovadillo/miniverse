@@ -18,10 +18,11 @@ const COMMANDS = {
   op: { help: 'da el modo admin (objetos infinitos, construir gratis, /tp, /time…) a una cuenta: se escribe en el terminal del servidor, /op <usuario>', run(game, say) { opHere(game, say, 'op'); } },
   deop: { help: 'quita el modo admin a una cuenta: se escribe en el terminal del servidor, /deop <usuario>', run(game, say) { opHere(game, say, 'deop'); } },
   tp: {
-    help: 'teletransporta (solo los op): /tp <jugador> <jugador> lleva al primero adonde está el segundo; /tp <jugador> home, a casa; @a son todos (/tp @a home)',
+    help: 'teletransporta (solo los op): /tp home te lleva a casa y /tp <jugador>, adonde está; /tp <jugador> <jugador> lleva al primero adonde está el segundo; /tp <jugador> home, a casa; @a son todos (/tp @a home)',
     run(game, say, [who = '', to = '']) {
       if (!game.admin) { say('Solo los op pueden usar /tp.', 'err'); return; }
-      if (!who || !to) { say('Uso: /tp <jugador> <jugador> · /tp <jugador> home · /tp @a home', 'err'); return; }
+      if (who && !to) [who, to] = ['@s', who];   // (con uno solo, el que va eres tú: /tp home, /tp <jugador>)
+      if (!who || !to) { say('Uso: /tp home · /tp <jugador> · /tp <jugador> <jugador> · /tp <jugador> home · /tp @a home', 'err'); return; }
       const live = game.live, movers = live.playersNamed(who), home = to.toLowerCase() === 'home';
       if (!movers.length) { say(`No hay nadie jugando que se llame ${who}.`, 'err'); return; }
       let where = { home: true };
@@ -37,7 +38,9 @@ const COMMANDS = {
         if (m.me) { if (home ? game.teleportHome() : game.teleport(where.x, where.y)) names.push('tú'); }
         else { live.sendTp(m.conn, where); names.push(m.peer.name); }
       }
-      say(names.length ? `Teletransportado${names.length > 1 ? 's' : ''} ${home ? 'a casa' : `adonde está ${to}`}: ${names.join(', ')}.` : 'No se ha podido teletransportar a nadie.', names.length ? 'ok' : 'err');
+      const dest = home ? 'a casa' : `adonde está ${to}`;
+      if (!names.length) say('No se ha podido teletransportar a nadie.', 'err');
+      else say(names.length === 1 && names[0] === 'tú' ? `Te has teletransportado ${dest}.` : `Teletransportado${names.length > 1 ? 's' : ''} ${dest}: ${names.join(', ')}.`, 'ok');
     },
   },
   account: {
