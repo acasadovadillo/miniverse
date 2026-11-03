@@ -1,7 +1,8 @@
 // Núcleo del juego: estado, bucle de paso fijo e interacciones. El dibujo es en 3D (src/three/engine.js).
 import { Player } from './entities.js';
 import { View3D } from './three/engine.js';
-import { camToSave, camFromSave } from './camera.js';
+import { camToSave, camFromSave, CAM } from './camera.js';
+import { wrapX, wrapIndex, HALF, NORTH, SOUTH } from './world/planet.js';
 import { Overworld, NILO_LOOK } from './world/scenes.js';
 import { houseBlueprint, familyBlueprint, byChunk, doorTile } from './world/blueprints.js';
 import { HOUSE, HOUSE_BIG, HOUSE_FAMILY, HOUSES, CENTER, SPAWN, inBounds, inOwnHouse, hasProject, setFamilyHouse } from './world/village.js';
@@ -33,6 +34,7 @@ import { Mobs } from './mobs.js';
 import { Experience } from './xp.js';
 import { Machines, machineAt, machineEmpty } from './machines.js';
 import { Trades } from './trades.js';
+import { Maps } from './maps.js';
 import { Explore } from './explore.js';
 import { Stats, Skills, Collection, Achievements, Story } from './progress.js';
 import { Music } from './music.js';
@@ -116,6 +118,7 @@ export class Game {
     this.xp = this.addSystem(new Experience(this));   // la experiencia y los niveles
     this.machines = new Machines(this);   // el horno y el alambique, que llevan su tiempo
     this.trades = new Trades(this);       // los tratos con los vecinos
+    this.maps = this.addSystem(new Maps(this));   // los mapas (objetos) y la brújula
     this.places = this.addSystem(new Explore(this));
     this.collection = this.addSystem(new Collection(this));
     this.achievements = this.addSystem(new Achievements(this));
@@ -290,7 +293,22 @@ export class Game {
     const p = this.player, cx = Math.floor(p.x / CHUNK), cy = Math.floor(p.y / CHUNK), key = `${cx},${cy}`;
     if (key === this.lastChunk) return;
     this.lastChunk = key;
-    for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) this.explored.add(`${cx + dx},${cy + dy}`);
+    for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) this.explored.add(`${wrapIndex(cx + dx, CHUNK)},${cy + dy}`);
+  }
+  // Dar la vuelta al planeta (planet.js): al pasar la costura, las coordenadas siguen por el otro lado y la vista se
+  // rehace; al cruzar un polo se sale por el otro lado del planeta (180° más allá), andando hacia el sur (la cámara
+  // da media vuelta, así que en la pantalla se sigue hacia el mismo lado)
+  aroundPlanet() {
+    const p = this.player;
+    if (p.x >= HALF || p.x < -HALF) { p.x = wrapX(p.x); this.view3d.snap(); }
+    if (p.y >= NORTH && p.y < SOUTH) return;
+    const north = p.y < NORTH;
+    p.y = north ? 2 * NORTH - p.y : 2 * SOUTH - p.y - 0.01;
+    p.x = wrapX(p.x + HALF);
+    if (p.face) p.face = { x: -p.face.x, y: -p.face.y };
+    CAM.yaw += Math.PI;
+    this.view3d.snap();
+    hud.toast(`Has cruzado el polo ${north ? 'norte' : 'sur'}: sigues por el otro lado del planeta`);
   }
   // Nombre del lugar (pueblo o bioma) y coordenadas, con el pueblo en (0, 0)
   updatePlace() {
@@ -600,6 +618,7 @@ export class Game {
   teleport(x, y) {
     const p = this.player;
     if (!p || !this.world || !Number.isFinite(x) || !Number.isFinite(y)) return false;
+    x = wrapX(x); y = Math.max(NORTH + 1, Math.min(SOUTH - 1, y));   // (dentro del planeta)
     if (p.pose) this.rest.stand();
     if (this.scene !== this.world) { this.scene = this.world; p.inside = false; }
     Object.assign(p, { x, y, vx: 0, vy: 0, z: 0, vz: 0, boat: p.boat && !!this.world.water(x, y) });
@@ -818,6 +837,7 @@ export class Game {
     if (this.busy || hud.dialogOpen || this.fishing.still || p.pose) { p.stop(); return; }
     p.speedMul = (this.buffs.rapido > this.time ? 1.35 : 1) * (p.mount ? this.ranch.rideSpeed() : 1);
     p.update(dt, keys, this.scene);
+    if (this.scene === this.world) this.aroundPlanet();
     if (!p.inside) this.explore();
     // Bajo un tejado: cambia el ambiente (sonido, lluvia, nombre del sitio) y se guarda, como al entrar en casa
     const under = this.scene === this.world && underRoof(this.world, p.x, p.y);

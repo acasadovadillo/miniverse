@@ -68,7 +68,7 @@ export class Net {
     else if (m.t === 'need') { this.need = true; this.on.server?.(m); }
     else if (m.t === 'secretos') this.on.server?.(m);   // (al mundo del servidor: sus claves)
     else if (m.t === 'ops') this.on.ops?.(m.ops);
-    else if (m.t === 'kicked' || m.t === 'say' || m.t === 'save' || m.t === 'stop') { if (m.t === 'kicked' || m.t === 'stop') this.wanted = false; this.on.server?.(m); }
+    else if (m.t === 'kicked' || m.t === 'say' || m.t === 'save' || m.t === 'stop' || m.t === 'tp') { if (m.t === 'kicked' || m.t === 'stop') this.wanted = false; this.on.server?.(m); }
     else if (m.t === 'join') { this.peers.add(m.id); this.on.join?.(m.id); }
     else if (m.t === 'leave') { this.peers.delete(m.id); this.on.leave?.(m.id); }
     else if (m.t === 'msg') {

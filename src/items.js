@@ -181,7 +181,9 @@ Object.assign(ITEMS, {
   espada_oro: { name: 'Espada de oro', desc: 'Pega el doble de fuerte.', weapon: 6, stack: 1, dur: 500 },
   barca: { name: 'Barca', desc: 'Úsala mirando al agua para navegar por ríos, lagos y el mar.', vehicle: 'barca', stack: 1 },
   caballo: { name: 'Silbato del caballo', desc: 'Con él tienes caballo: úsalo para llamarlo, montar y bajar. Cepíllalo y dale zanahorias: cuanto más te quiere, más corre.', vehicle: 'caballo', stack: 1 },
-  brujula: { name: 'Brújula del confín', desc: 'Su aguja no apunta al norte: apunta a algún sitio muy lejano.', stack: 1 },
+  brujula: { name: 'Brújula', desc: 'Llévala en la mano: su aguja apunta a tu cama o, si no tienes, a tu casa, por el camino más corto alrededor del planeta.', stack: 1 },
+  mapa_vacio: { name: 'Mapa en blanco', desc: 'Úsalo y se convierte en el mapa de la zona donde estás (128 × 128 casillas), que se va dibujando mientras lo llevas encima.' },
+  mapa: { name: 'Mapa', desc: 'Llévalo en la mano para verlo. Se dibuja mientras lo llevas encima en su zona. En el banco se copia y se amplía.', stack: 1 },
 });
 // ---------- Insectos (fase 9): se cazan con la red ----------
 export const BUGS = {

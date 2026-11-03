@@ -1,6 +1,5 @@
 // Progreso: estadísticas, habilidades que suben con el uso, el museo del pueblo (colecciones), logros
-// y la historia ligera del farero: páginas de su diario en los cofres, una brújula en un templo y un faro
-// muy lejos, en el confín del mundo.
+// y las páginas del diario de un farero, sueltas en los cofres.
 import { ITEMS, FISH, BUGS } from './items.js';
 import { MUSEUM } from './world/village.js';
 import { Audio } from './audio.js';
@@ -138,7 +137,7 @@ const ACH = [
   ['coleccionista', 'Coleccionista', 'Dona 25 piezas al museo', g => g.collection.donated.size >= 25],
   ['chef', 'Chef', 'Cocina 20 platos', S('cocinados', 20)],
   ['valiente', 'Valiente', 'Derrota 50 criaturas', S('criaturas', 50)],
-  ['faro', 'El confín del mundo', 'Llega al faro', g => !!g.story?.done],
+  ['faro', 'Desde lo alto', 'Sube a un faro', S('faros', 1)],
 ];
 export class Achievements {
   constructor(game) { this.game = game; this.got = new Set(); this.t = 0; }
@@ -155,71 +154,31 @@ export class Achievements {
 }
 
 // ---------- Historia: el diario del farero ----------
+// Páginas sueltas del diario de un farero en los cofres de los lugares: se leen y quedan en el diario, sin más
 const PAGES = [
-  'Día 1. Me han dado el faro más lejano del mundo. Dicen que nadie llega hasta aquí. Mejor: así no me molestan.',
+  'Día 1. Me han dado un faro en una costa por donde no pasa casi nadie. Mejor: así no me molestan.',
   'Día 40. He plantado tomates en la roca. No crecen. Las gaviotas se ríen de mí, lo sé.',
-  'Día 112. He hecho una brújula que no apunta al norte: apunta al faro. Por si algún día me pierdo. Soy así de despistado.',
-  'Día 200. Bajé a un pueblo llamado Brotes a por harina. Un niño, Nilo, me preguntó si el mundo se acababa. Le dije que no, que solo se cansa.',
-  'Día 365. He escondido la brújula en un templo del desierto. Quien la encuentre, que suba al faro. Le espera algo.',
+  'Día 112. Un marinero me ha dicho que si navegas siempre hacia el oeste, vuelves a casa por el este. Le he servido otra taza de té, por si acaso.',
+  'Día 200. Bajé a un pueblo llamado Brotes a por harina. Un niño, Nilo, me preguntó si el mundo se acababa. Le dije que no: que da la vuelta.',
+  'Día 365. Hay más faros en otras costas. Me gusta pensar que nos hacemos señales.',
   'Última página. Una luz no se apaga mientras alguien se acuerde de ella. Si lees esto, gracias por acordarte.',
 ];
 export class Story {
-  constructor(game) { this.game = game; this.pages = 0; this.done = false; this.compass = false; }
-  reset(save) { this.pages = save.storyPages || 0; this.done = !!save.storyDone; this.compass = !!save.storyCompass; }
-  save(out) { out.storyPages = this.pages; out.storyDone = this.done; out.storyCompass = this.compass; }
-  // Al abrir un cofre de un lugar: una página más del diario (y la brújula en el templo)
+  constructor(game) { this.game = game; this.pages = 0; }
+  reset(save) { this.pages = save.storyPages || 0; }
+  save(out) { out.storyPages = this.pages; }
+  // Al abrir un cofre de un lugar: una página más del diario
   async found(kind) {
     const g = this.game;
-    if (kind === 'templo') {
-      g.stats.add('templos', 1);
-      if (!this.compass) {
-        this.compass = true;
-        const left = g.inv.add('brujula', 1); if (left) g.gather.throwOut('brujula', left);
-        g.busy = true;
-        await hud.say('Templo', ['Al fondo del cofre hay una brújula vieja. Su aguja tiembla… y no apunta al norte.', 'En la tapa pone: «Al faro del confín». (Llévala en la mano para seguirla. También aparece en el mapa.)']);
-        g.busy = false;
-        return;
-      }
-    }
+    if (kind === 'templo') g.stats.add('templos', 1);
     if (this.pages >= PAGES.length) return;
     const text = PAGES[this.pages++];
     g.busy = true;
     await hud.say(`Diario del farero · página ${this.pages}`, [text]);
     g.busy = false;
   }
-  // Con la brújula en la mano, la pista dice hacia dónde ir
-  hint() {
-    const g = this.game, p = g.player;
-    if (g.inv.held?.id !== 'brujula' || g.scene !== g.world) return '';
-    const f = g.places.faro, dx = f.x - p.x, dy = f.y - p.y, d = Math.round(Math.hypot(dx, dy));
-    if (d < 6) return '¡Has llegado! Sube al faro';
-    const sx = dx - dy, sy = (dx + dy) / 2, a = Math.atan2(sy, sx);   // dirección en pantalla
-    const dirs = ['este', 'sureste', 'sur', 'suroeste', 'oeste', 'noroeste', 'norte', 'noreste'];
-    return `La brújula apunta al ${dirs[(Math.round(a / (Math.PI / 4)) + 8) % 8]} · ${d} pasos`;
-  }
-  async ending() {
-    const g = this.game;
-    g.busy = true;
-    const first = !this.done;
-    this.done = true;
-    await hud.say('El faro del confín', first ? [
-      'Subes los escalones. Muchos. Demasiados. Arriba, la lámpara sigue encendida, como si alguien la cuidara todavía.',
-      'Junto a la lámpara hay una nota: «Si has llegado hasta aquí, ya sabes lo que yo sé: el mundo no se acaba. Solo se cansa. Y tú no».',
-      'Desde lo alto ves el mundo entero: bosques, desiertos, el mar… y muy, muy lejos, una columna de humo. La chimenea de tu casa en Pueblo Brotes.',
-      '— FIN — (pero el mundo sigue: es infinito, y tuyo)',
-    ] : ['La lámpara sigue encendida. Desde aquí arriba se ve todo tan pequeño…']);
-    if (first) {
-      g.addMoney(5000);
-      const left = g.inv.add('lampara', 1); if (left) g.gather.throwOut('lampara', left);
-      hud.toast('¡Has llegado al confín del mundo!', 'good');
-      Audio.unlock();
-    }
-    g.busy = false;
-    g.onSave?.();
-  }
   journal() {
-    const g = this.game;
-    const goal = this.done ? 'Has llegado al faro del confín. El mundo es tuyo.' : this.compass ? 'Sigue la brújula hasta el faro del confín.' : g.neighbors.flags.faro_rumor ? 'Nilo habla de un faro en el confín del mundo. Busca pistas en ruinas, torres, barcos y templos.' : 'Haz amistad con los vecinos. Quizá alguien sepa qué hay más allá del bosque.';
+    const goal = 'El mundo es un planeta: si andas siempre hacia el oeste, vuelves por el este. Busca páginas del diario del farero en ruinas, torres, barcos y templos.';
     return `<p class="j-goal">🧭 ${goal}</p>` + (this.pages ? PAGES.slice(0, this.pages).map((t, i) => `<div class="j-page"><b>Página ${i + 1}</b><p>${t}</p></div>`).join('') : '<p class="j-note">Aún no has encontrado páginas del diario del farero.</p>');
   }
 }

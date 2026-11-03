@@ -35,7 +35,7 @@ const PEOPLE = {
     name: 'Nilo', fixed: true, loves: ['pan', 'tostada_miel', 'tarta_calabaza'], likes: ['manzana', 'miel', 'queso', 'pan_bellota'], hates: ['piedra', 'carbon'],
     chat: ['Cuando yo era joven, este pueblo tenía hasta panadería. Y un perro que se llamaba Pan.', 'El secreto de una buena vida: dormir la siesta y no discutir con las gallinas.', '¿Has visto qué cielo? Mañana lloverá, o no. Ochenta años y sigo sin acertar.', 'Me alegra ver humo en tu chimenea. Una casa vacía se pone triste.'],
     events: {
-      3: { lines: ['¿Sabes? Mi abuelo decía que muy, muy lejos, donde se acaba el mundo, hay un faro que nunca se apaga.', 'Nadie ha llegado nunca. Pero si alguien puede, eres tú. Toma, era suyo.'], gift: [['semilla_manzano', 2]], flag: 'faro_rumor' },
+      3: { lines: ['¿Sabes? Mi abuelo decía que si andas siempre hacia el oeste, acabas volviendo por el este. Que el mundo da la vuelta.', 'Nadie lo ha comprobado nunca. Pero si alguien puede, eres tú. Toma, era suyo.'], gift: [['semilla_manzano', 2]] },
       6: { lines: ['Te has convertido en alguien importante para este pueblo. Y para este viejo.', 'Ten esta tarta. La hice yo. Bueno, la hizo Rosa, pero yo la miré mucho.'], gift: [['tarta_calabaza', 3]] },
     },
   },

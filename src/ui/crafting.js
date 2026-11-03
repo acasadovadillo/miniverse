@@ -87,6 +87,15 @@ export function initCraftingUI(game, { onClose, onBag }) {
       if (pairs.length) head('Juntar dos iguales');
       for (const p of pairs) row(p.it.id, `2 × ${ITEMS[p.it.id].name} → ${p.it.dur !== undefined ? `${p.it.dur}/${ITEMS[p.it.id].dur}` : ''}${p.it.ench ? ` ${enchName(p.it.ench)}` : ''}`, `${p.cost} niveles`, () => c.merge(p), !near.yunque);
     } else if (MACHINES[tab] && st && st !== true) machinePanel(box, st.tile, head, note);
+    else if (tab === 'banco') {
+      // Los mapas que llevas: copiarlos (con un mapa en blanco) o ampliarlos al doble (con telas)
+      const maps = game.maps.carried();
+      if (maps.length) head('Mapas');
+      for (const { i, m } of maps) {
+        row('mapa', `Copiar el mapa de ${game.maps.label(m)}`, `1 × mapa en blanco (tienes ${game.inv.count('mapa_vacio')})`, () => game.maps.copy(i), !near.banco);
+        if (m.s < 2) row('mapa', `Ampliarlo al doble (${game.maps.label({ s: m.s + 1 })})`, `4 × tela (tienes ${game.inv.count('tela')})`, () => game.maps.enlarge(i), !near.banco);
+      }
+    }
     else if (tab === 'mesa_encantar' && st) {
       const list = c.enchantable(), lvl = game.xp.level;
       head(`Encantar (tienes nivel ${lvl} y ${game.inv.count('amatista')} amatistas)`);

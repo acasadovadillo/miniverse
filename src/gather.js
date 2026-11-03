@@ -235,7 +235,8 @@ export class Gathering {
     const g = this.game, p = g.player;
     if (!p || g.busy || hud.dialogOpen || g.mode !== 'play' || this.cooldown > 0 || p.pose || g.gamemode === 'spectator') return;
     const held = g.inv.held, def = held && ITEMS[held.id];
-    if (def?.food || def?.heal) return auto ? undefined : this.eat(g.inv.selected);
+    if (def?.food || def?.heal || def?.buff) return auto ? undefined : this.eat(g.inv.selected);
+    if (held?.id === 'mapa_vacio') return auto ? undefined : g.maps.create(g.inv.selected);
     if (def?.place) return this.place(held.id, auto);
     if (this.target?.use) {   // lo que propone otro sistema (sembrar, pescar…)
       if (auto && !this.target.auto) return;

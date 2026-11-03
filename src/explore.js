@@ -1,11 +1,12 @@
 // Exploración: lugares que el mundo genera solo (entradas de cueva, ruinas, campamentos, torres, barcos
-// hundidos, templos y aldeas lejanas), sus cofres, las cuevas y mazmorras a las que llevan, y los
-// vehículos (barca y caballo). Muy lejos del pueblo, en una dirección que decide la semilla, está el faro.
+// hundidos, templos, faros en algunas costas y aldeas lejanas), sus cofres, las cuevas y mazmorras a las que
+// llevan, y los vehículos (barca y caballo).
 import { ITEMS } from './items.js';
 import { ihash } from './util.js';
 import { CHUNK } from './world/gen.js';
 import { B } from './world/biomes.js';
 import { CENTER } from './world/village.js';
+import { wrapIndex } from './world/planet.js';
 import { houseBlueprint, houseSize, byChunk } from './world/blueprints.js';
 import { makeCave, makeDungeon } from './world/underground.js';
 import { Person } from './entities.js';
@@ -13,10 +14,9 @@ import { SHOPS } from './economy.js';
 import { Audio } from './audio.js';
 import { hud } from './ui/hud.js';
 
-export const FARO_DIST = 1400;   // casillas desde el pueblo hasta el faro del confín
 const SIZE = { ruinas: 2.2, campamento: 1.8, torre: 1.3, barco: 2.2, templo: 2.2, cueva: 1.4, aldea: 16, faro: 3 };
 const AROUND = [[-1, -1], [0, -1], [1, -1], [-1, 0], [1, 0], [-1, 1], [0, 1], [1, 1]];
-const NAMES = { ruinas: 'Ruinas', campamento: 'Campamento abandonado', torre: 'Torre vieja', barco: 'Barco hundido', templo: 'Templo antiguo', cueva: 'Cueva', aldea: 'Aldea', faro: 'El faro del confín' };
+const NAMES = { ruinas: 'Ruinas', campamento: 'Campamento abandonado', torre: 'Torre vieja', barco: 'Barco hundido', templo: 'Templo antiguo', cueva: 'Cueva', aldea: 'Aldea', faro: 'Faro' };
 SHOPS.viajero = { title: 'Mercader de la aldea', hours: [7, 21], stock: [{ id: 'semilla_manzano', price: 90 }, { id: 'pocion', price: 120 }, { id: 'espada', price: 380 }, { id: 'barca', price: 1500 }, { id: 'caballo', price: 2600 }, { id: 'lingote_oro', price: 300 }, { id: 'semilla_calabaza', price: 60 }] };
 
 export class Explore {
@@ -37,44 +37,42 @@ export class Explore {
     this.raw.clear();
     this.found = new Set(save.found || []);
     if (!this.world.layers.includes(this.layer)) this.world.layers.push(this.layer);
-    const a = ihash(3, 9, this.world.seed) * Math.PI * 2;
-    // Los lugares van centrados en una casilla (x.5), para que ocupen casillas enteras
-    this.faro = { x: Math.round(CENTER.x + Math.cos(a) * FARO_DIST) + 0.5, y: Math.round(CENTER.y + Math.sin(a) * FARO_DIST) + 0.5 };
   }
   save(out) { out.found = [...this.found]; }
 
   // ¿Hay un lugar en este trozo? (siempre lo mismo para la misma semilla). Una aldea se sale de su trozo
   // hacia los de alrededor, así que en esos no hay otro lugar (y de dos aldeas juntas queda una).
   poi(cx, cy) {
+    cx = wrapIndex(cx, CHUNK);   // (el trozo, dentro del planeta)
     const k = `${cx},${cy}`;
     if (this.cache.has(k)) return this.cache.get(k);
     const w = this.world, s = w.seed, x = cx * CHUNK + 8.5, y = cy * CHUNK + 8.5;
     let kind = this.rawKind(cx, cy);
-    if (kind === 'aldea' ? !this.isAldea(cx, cy) : kind && kind !== 'faro' && AROUND.some(([dx, dy]) => this.isAldea(cx + dx, cy + dy))) kind = null;
-    const p = kind && { kind, x: kind === 'faro' ? this.faro.x : x, y: kind === 'faro' ? this.faro.y : y, key: k, id: Math.floor(ihash(cx, cy, s + 701) * 1e6), snow: w.gen.biomeAt(x, y) === B.SNOW };
+    if (kind === 'aldea' ? !this.isAldea(cx, cy) : kind && AROUND.some(([dx, dy]) => this.isAldea(cx + dx, cy + dy))) kind = null;
+    const p = kind && { kind, x, y, key: k, id: Math.floor(ihash(cx, cy, s + 701) * 1e6), snow: w.gen.biomeAt(x, y) === B.SNOW };
     this.cache.set(k, p);
     return p;
   }
-  // Una aldea de verdad: no tiene al lado el faro ni otra aldea que gane (la de número más bajo)
+  // Una aldea de verdad: no tiene al lado un faro ni otra aldea que gane (la de número más bajo)
   isAldea(cx, cy) {
+    cx = wrapIndex(cx, CHUNK);
     if (this.rawKind(cx, cy) !== 'aldea') return false;
     const r = ihash(cx, cy, this.world.seed + 700);
     return !AROUND.some(([dx, dy]) => { const k = this.rawKind(cx + dx, cy + dy); return k === 'faro' || (k === 'aldea' && ihash(cx + dx, cy + dy, this.world.seed + 700) < r); });
   }
   // El lugar que tocaría en el trozo sin mirar a los de al lado
   rawKind(cx, cy) {
+    cx = wrapIndex(cx, CHUNK);
     const k = `${cx},${cy}`;
     if (this.raw.has(k)) return this.raw.get(k);
     const w = this.world, s = w.seed, x = cx * CHUNK + 8.5, y = cy * CHUNK + 8.5;
     let kind = null;
-    const fx = Math.floor(this.faro.x / CHUNK), fy = Math.floor(this.faro.y / CHUNK);
-    if (cx === fx && cy === fy) kind = 'faro';
-    else if (Math.hypot(x - CENTER.x, y - CENTER.y) > 45) {
+    if (Math.hypot(x - CENTER.x, y - CENTER.y) > 45) {
       const b = w.gen.biomeAt(x, y), r = ihash(cx, cy, s + 700), far = Math.hypot(x - CENTER.x, y - CENTER.y) > 110;
       if (b === B.ROCKY) kind = r < 0.25 ? 'cueva' : null;
       else if (b === B.SNOW) kind = r < 0.1 ? 'cueva' : r < 0.18 ? 'torre' : null;
       else if (b === B.DESERT) kind = r < 0.1 ? 'templo' : r < 0.14 ? 'ruinas' : null;
-      else if (b === B.BEACH) kind = r < 0.1 ? 'barco' : null;
+      else if (b === B.BEACH) kind = r < 0.1 ? 'barco' : far && r < 0.13 ? 'faro' : null;   // (algunas costas tienen faro)
       else if (b === B.MEADOW || b === B.FOREST || b === B.PINES) kind = r < 0.03 ? 'ruinas' : r < 0.055 ? 'campamento' : r < 0.075 ? 'torre' : far && r < 0.125 ? 'aldea' : null;
       // Una aldea necesita la plaza y al menos dos casas en tierra firme
       if (kind === 'aldea' && (w.water(x, y) || this.aldeaSlots(cx, cy).length < 2)) kind = null;
@@ -205,7 +203,7 @@ export class Explore {
       if (!poi) return null;
       if (poi.kind === 'cueva' && Math.hypot(p.x - poi.x, p.y - poi.y) < 2.2) return { text: 'Entrar en la cueva', run: () => this.enterCave(poi, 1) };
       if (poi.kind === 'templo' && p.y > poi.y + 1.2 && Math.abs(p.x - poi.x) < 1.6) return { text: 'Entrar en el templo', run: () => this.enterDungeon(poi) };
-      if (poi.kind === 'faro') return { text: 'Subir al faro', run: () => g.story?.ending() };
+      if (poi.kind === 'faro') return { text: 'Subir al faro', run: () => this.climb(poi) };
       if (poi.kind === 'aldea') {
         const t = this.traders.get(poi.key);
         if (t && Math.hypot(p.x - t.x, p.y - t.y) < 1.6) return { text: 'Hablar con el mercader', run: () => g.onShop?.('viajero') };
@@ -328,11 +326,22 @@ export class Explore {
     if (def?.vehicle === 'caballo' && !p.boat) return g.ranch.whistle(p);   // (el caballo es un animal de verdad: ver la granja)
     return null;
   }
-  // Marcas para el mapa: lugares descubiertos (y el faro, si llevas la brújula)
+  // Subir a un faro: desde arriba se ve la costa (se descubre lo de alrededor en el mapa)
+  async climb(poi) {
+    const g = this.game, cx = Math.floor(poi.x / CHUNK), cy = Math.floor(poi.y / CHUNK);
+    g.busy = true;
+    await hud.fade(true);
+    for (let dy = -4; dy <= 4; dy++) for (let dx = -4; dx <= 4; dx++) g.explored.add(`${wrapIndex(cx + dx, CHUNK)},${cy + dy}`);
+    g.stats?.add('faros', 1);
+    await hud.fade(false);
+    g.busy = false;
+    await hud.say('Faro', ['Subes los escalones hasta la lámpara. Desde aquí arriba se ve toda la costa (ahora está en tu mapa).']);
+    g.busy = false;
+  }
+  // Marcas para el mapa: lugares descubiertos
   markers() {
     const out = [];
     for (const k of this.found) { const [cx, cy] = k.split(',').map(Number), p = this.poi(cx, cy); if (p) out.push({ x: p.x, y: p.y, kind: p.kind }); }
-    if (this.game.inv.count('brujula')) out.push({ x: this.faro.x, y: this.faro.y, kind: 'faro' });
     return out;
   }
 }

@@ -132,6 +132,9 @@ Object.assign(DRAW, {
   moneda_antigua(R, g) { blob(g, 8, 8, 6, '#c8a030'); blob(g, 8, 8, 4, '#e8c050'); R(7, 5, 2, 6, '#a88020'); R(5, 7, 6, 2, '#a88020'); },
   calavera(R) { R(4, 3, 8, 7, '#f0ece0'); R(5, 10, 6, 3, '#f0ece0'); R(5, 5, 2, 2, '#2a1c22'); R(9, 5, 2, 2, '#2a1c22'); R(7, 8, 2, 1, '#2a1c22'); for (const x of [6, 8, 10]) R(x, 11, 1, 2, '#c8c4b8'); },
   baba(R, g) { ellipse(g, 8, 11, 6, 3, '#6ad84a'); ellipse(g, 8, 9, 4, 3, '#8ae86a'); R(6, 8, 2, 1, '#ffffff'); },
+  // Mapas: el pergamino en blanco y el dibujado (tierra, agua y una cruz)
+  mapa_vacio(R) { R(3, 3, 10, 10, '#e8d8b0'); R(3, 3, 10, 1, '#c8b088'); R(3, 12, 10, 1, '#b89868'); R(2, 3, 1, 10, '#a8764a'); R(13, 3, 1, 10, '#a8764a'); },
+  mapa(R) { R(3, 3, 10, 10, '#e8d8b0'); R(4, 4, 5, 4, '#7ab85a'); R(8, 7, 4, 4, '#5a9ad8'); R(4, 9, 3, 3, '#c8b070'); R(2, 3, 1, 10, '#a8764a'); R(13, 3, 1, 10, '#a8764a'); R(9, 5, 1, 1, '#e83a3a'); R(10, 4, 1, 1, '#e83a3a'); R(10, 6, 1, 1, '#e83a3a'); R(11, 5, 1, 1, '#e83a3a'); },
   frasco(R) { R(6, 1, 4, 2, '#a8764a'); R(7, 3, 2, 3, '#d8eef8'); R(4, 6, 8, 8, '#d8eef8'); R(5, 7, 6, 6, '#a8cce0'); R(5, 7, 2, 3, '#f4fbff'); },
   // Alambique: base de piedra, el soporte con el quemador y tres frascos
   alambique(R) { R(2, 13, 12, 2, '#62626e'); R(3, 12, 10, 1, '#8a8a96'); R(7, 3, 2, 9, '#7a5232'); R(6, 2, 4, 1, '#c8a070'); R(7, 10, 2, 2, '#ff8a3a'); for (const x of [2, 6, 10]) { R(x, 7, 4, 4, '#c8e8f8'); R(x + 1, 8, 2, 3, x === 6 ? '#e83a5a' : x === 2 ? '#5ac8f0' : '#e86ab8'); } },

@@ -12,6 +12,7 @@ import { MONSTERS, DIFF } from './combat.js';
 import { collide } from './physics.js';
 import { CHUNK } from './world/gen.js';
 import { Profile } from './accounts.js';
+import { wrapX, dxOf, distOf } from './world/planet.js';
 
 export const DARK = 7;                          // con esta luz o menos aparecen monstruos
 const RING = [14, 26];                          // a qué distancia de quien juega aparecen
@@ -41,10 +42,10 @@ export class Mobs {
   get world() { return this.game.world; }
 
   // ---------- la luz ----------
-  // La del cielo ahora: 15 de día, 4 de noche (al amanecer y al atardecer, entre medias); con lluvia, algo menos, y
-  // con tormenta, poca (aparecen monstruos también de día, como en Minecraft)
-  sky() {
-    const T = this.game.days, h = T.hour;
+  // La del cielo ahora en x (la hora es la de esa longitud): 15 de día, 4 de noche (al amanecer y al atardecer,
+  // entre medias); con lluvia, algo menos, y con tormenta, poca (aparecen monstruos también de día, como en Minecraft)
+  sky(x = this.game.player?.x ?? 0) {
+    const T = this.game.days, h = T.hourAt(x);
     let s = h >= 6.5 && h < 19 ? 15 : h >= 5 && h < 6.5 ? 4 + (h - 5) / 1.5 * 11 : h >= 19 && h < 20.5 ? 15 - (h - 19) / 1.5 * 11 : 4;
     const rain = T.info?.rain || 0;
     if (rain >= 2) s = Math.min(s, 6); else if (rain) s -= 3;
@@ -61,7 +62,7 @@ export class Mobs {
     for (const o of w.village.objects) if (o.model === 'lamp') best = Math.max(best, 15 - Math.abs(Math.floor(o.x) - tx) - Math.abs(Math.floor(o.y) - ty));   // (la farola del pueblo)
     return Math.max(0, best);
   }
-  lightAt(tx, ty) { return Math.max(this.world.roofAt(tx, ty) ? 0 : this.sky(), this.block(tx, ty)); }
+  lightAt(tx, ty) { return Math.max(this.world.roofAt(tx, ty) ? 0 : this.sky(tx), this.block(tx, ty)); }
   // ¿Puede aparecer aquí un monstruo? En tierra, sin nada construido ni tejado, sin chocar con nada y a oscuras
   canSpawn(tx, ty) {
     const w = this.world, x = tx + 0.5, y = ty + 0.5;
@@ -82,7 +83,7 @@ export class Mobs {
     return out;
   }
   // ¿Hay algún monstruo a menos de d de este punto?
-  near(x, y, d) { return this.list.some(m => Math.hypot(m.x - x, m.y - y) < d); }
+  near(x, y, d) { return this.list.some(m => distOf(m.x, m.y, x, y) < d); }
 
   // ---------- cada paso ----------
   update(dt) {
@@ -93,11 +94,10 @@ export class Mobs {
     const on = g.rules.doMobSpawning && diff.cap > 0;
     if (!on && this.list.length) this.list = [];
     if (on && (this.timers.spawn += dt) >= SPAWN_EVERY) { this.timers.spawn = 0; for (const q of fighters) this.trySpawn(q, players, diff.cap); }
-    const sky = this.sky();
     for (const m of [...this.list]) {
-      if (!players.some(q => Math.hypot(q.x - m.x, q.y - m.y) < FAR)) { this.remove(m); continue; }
+      if (!players.some(q => distOf(q.x, q.y, m.x, m.y) < FAR)) { this.remove(m); continue; }
       // Con el sol, al rato, se deshacen
-      if (sky > 11 && !this.world.roofAt(Math.floor(m.x), Math.floor(m.y)) && (m.sun += dt) > 1 + (m.id % 7) * 0.6) { this.remove(m, true); continue; }
+      if (this.sky(m.x) > 11 && !this.world.roofAt(Math.floor(m.x), Math.floor(m.y)) && (m.sun += dt) > 1 + (m.id % 7) * 0.6) { this.remove(m, true); continue; }
       this.move(m, fighters, dt, diff);
     }
     if (g.live.joined && (this.timers.send += dt) >= SEND_EVERY) {
@@ -107,11 +107,11 @@ export class Mobs {
     }
   }
   trySpawn(q, players, cap) {
-    if (this.list.filter(m => Math.hypot(m.x - q.x, m.y - q.y) < AROUND).length >= cap) return;
+    if (this.list.filter(m => distOf(m.x, m.y, q.x, q.y) < AROUND).length >= cap) return;
     for (let i = 0; i < 4; i++) {
       const a = Math.random() * Math.PI * 2, r = RING[0] + Math.random() * (RING[1] - RING[0]);
-      const tx = Math.floor(q.x + Math.cos(a) * r), ty = Math.floor(q.y + Math.sin(a) * r);
-      if (players.some(o => Math.hypot(o.x - tx - 0.5, o.y - ty - 0.5) < AWAY) || !this.canSpawn(tx, ty)) continue;
+      const tx = Math.floor(wrapX(q.x + Math.cos(a) * r)), ty = Math.floor(q.y + Math.sin(a) * r);
+      if (players.some(o => distOf(o.x, o.y, tx + 0.5, ty + 0.5) < AWAY) || !this.canSpawn(tx, ty)) continue;
       let k = Math.random(), type = NIGHT_TYPES[0][0];
       for (const [t, w] of NIGHT_TYPES) { if ((k -= w) < 0) { type = t; break; } }
       this.list.push(new Mob(type, tx + 0.5, ty + 0.5, ++this.n));
@@ -122,15 +122,15 @@ export class Mobs {
     const g = this.game, def = m.def;
     m.cool = Math.max(0, m.cool - dt); m.hurt = Math.max(0, m.hurt - dt);
     let t = null, td = CHASE;
-    for (const q of fighters) { const d = Math.hypot(q.x - m.x, q.y - m.y); if (d < td) { td = d; t = q; } }
+    for (const q of fighters) { const d = distOf(q.x, q.y, m.x, m.y); if (d < td) { td = d; t = q; } }
     let vx = 0, vy = 0;
-    if (t && td > 0.01) { vx = (t.x - m.x) / td; vy = (t.y - m.y) / td; m.dir = [vx, vy]; }
+    if (t && td > 0.01) { vx = dxOf(t.x, m.x) / td; vy = (t.y - m.y) / td; m.dir = [vx, vy]; }
     else if ((m.wander -= dt) <= 0) { m.wander = 1 + Math.random() * 2; const a = Math.random() * 6.28; m.dir = Math.random() < 0.4 ? [0, 0] : [Math.cos(a) * 0.4, Math.sin(a) * 0.4]; }
     if (!vx && !vy) [vx, vy] = m.dir;
-    if (m.hurt > 0.25 && m.from) { const dx = m.x - m.from[0], dy = m.y - m.from[1], d = Math.hypot(dx, dy) || 1; vx = dx / d * 2.5; vy = dy / d * 2.5; }   // (empujón al recibir un golpe)
+    if (m.hurt > 0.25 && m.from) { const dx = dxOf(m.x, m.from[0]), dy = m.y - m.from[1], d = Math.hypot(dx, dy) || 1; vx = dx / d * 2.5; vy = dy / d * 2.5; }   // (empujón al recibir un golpe)
     const sp = def.speed * dt, p = { x: m.x + vx * sp, y: m.y + vy * sp };
     collide(p, this.world.collidersNear(p.x, p.y), 0.25);
-    if (!this.world.water(p.x, p.y)) { m.x = p.x; m.y = p.y; }
+    if (!this.world.water(p.x, p.y)) { m.x = wrapX(p.x); m.y = p.y; }
     m.step += dt * 5;
     if (t && td < BITE && m.cool <= 0) {
       m.cool = 1.5;
@@ -159,9 +159,9 @@ export class Mobs {
     for (const m of this.list) {
       m.hurt = Math.max(0, m.hurt - dt);
       if (!m.netTo) continue;
-      const dx = (m.netTo[0] - m.x) * k, dy = (m.netTo[1] - m.y) * k;
+      const dx = dxOf(m.netTo[0], m.x) * k, dy = (m.netTo[1] - m.y) * k;
       if (Math.abs(dx) + Math.abs(dy) > 1e-3) { m.dir = [dx, dy]; m.step += dt * 5; }
-      m.x += dx; m.y += dy;
+      m.x = wrapX(m.x + dx); m.y += dy;
     }
   }
 
@@ -187,7 +187,7 @@ export class Mobs {
     const m = this.list.find(m => m.id === msg.id);
     if (!m || !Number.isFinite(msg.dmg)) return;
     // (de cerca: como lo que se toca del mundo)
-    if (peer.at && Math.hypot(peer.at[0] - m.x, peer.at[1] - m.y) > 4) return;
+    if (peer.at && distOf(peer.at[0], peer.at[1], m.x, m.y) > 4) return;
     this.damage(m, Math.min(10, Math.max(0, msg.dmg)), [msg.x, msg.y], conn);
   }
   // (invitado) Has matado a uno: lo que suelta, para ti

@@ -7,7 +7,7 @@ import { ITEMS } from './items.js';
 export const SLOTS = 36, HOTBAR = 9;
 // Lo que distingue una cosa de otra igual (el color de una prenda, lo gastada que está una herramienta o una
 // armadura: dur, los usos que le quedan; y sus encantamientos, ench); undefined si no hay nada
-export const extraOf = s => { const e = {}; if (s?.color) e.color = s.color; if (s?.dur !== undefined) e.dur = s.dur; if (s?.ench) e.ench = s.ench; return Object.keys(e).length ? e : undefined; };
+export const extraOf = s => { const e = {}; if (s?.color) e.color = s.color; if (s?.dur !== undefined) e.dur = s.dur; if (s?.ench) e.ench = s.ench; if (s?.map) e.map = s.map; return Object.keys(e).length ? e : undefined; };
 
 export class Inventory {
   constructor(data) {

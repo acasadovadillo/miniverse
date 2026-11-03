@@ -20,6 +20,7 @@ import { Audio } from './audio.js';
 import { SHARED, BLOBS, diffChunk, applyOps, copy } from './livesync.js';
 import { toB64 } from './vault.js';
 import { CHUNK } from './world/gen.js';
+import { wrapIndex, PLANET } from './world/planet.js';
 
 const SEND_EVERY = 0.1, IDLE_EVERY = 1;   // segundos entre mensajes de cómo va uno: moviéndose y quieto
 const SYNC_EVERY = 0.1;                   // cada cuánto se mandan los cambios del mundo
@@ -196,6 +197,8 @@ export class Live {
     if (m.t === 'say') { this.say?.(`[Servidor] ${m.text}`, 'say'); hud.toast(`[Servidor] ${m.text}`); }
     else if (m.t === 'save') { this.say?.(Profile.server ? 'Guardando el mundo…' : 'El servidor guarda: guardando la partida…', 'sys'); this.onServerSave?.(); }
     else if (m.t === 'need') { if (Profile.admin) this.giveKeys(); }
+    // /tp desde el terminal del servidor: a casa, o adonde está otro jugador (lo sabe tu juego)
+    else if (m.t === 'tp') this.serverTp(m);
     // (el mundo del servidor: sus claves, la primera vez que enseña su pase)
     else if (m.t === 'secretos') { if (Profile.server && !this.net?.key && m.key) this.onKeys?.(m); }
     else if (m.t === 'kicked' || m.t === 'stop') {
@@ -204,6 +207,13 @@ export class Live {
       if (this.joined) this.leave(m.t === 'stop' ? 'stop' : 'kicked', why);
       else if (Profile.server) this.net?.sendServer({ t: 'saved' });   // (el mundo del servidor sin mundo abierto: nada que guardar)
     }
+  }
+  serverTp(m) {
+    const g = this.game;
+    if (!this.joined || !g.player || Profile.server) return;
+    if (m.home) { if (g.teleportHome()) hud.toast('El servidor te ha llevado a casa'); return; }
+    const to = String(m.to || '').toLowerCase(), peer = this.others.find(p => p.playing && p.id === to);
+    if (peer?.entity && peer.sc === 'world' && g.teleport(peer.entity.x, peer.entity.y)) hud.toast(`El servidor te ha llevado adonde está ${peer.name}`);
   }
   // Una copia del mundo (ya cifrada con la clave del mundo: el servidor no puede abrirla) para que la guarde
   backup(bytes) { if (this.joined && this.role === 'host') this.net?.sendServer({ t: 'backup', d: toB64(bytes) }); }
@@ -345,7 +355,7 @@ export class Live {
   mayEdit(peer, k) {
     if (!peer.at) return true;
     const [cx, cy] = k.split(',').map(Number);
-    return Math.abs(cx - Math.floor(peer.at[0] / CHUNK)) <= REACH && Math.abs(cy - Math.floor(peer.at[1] / CHUNK)) <= REACH;
+    return Math.abs(wrapIndex(cx - Math.floor(peer.at[0] / CHUNK), CHUNK)) <= REACH && Math.abs(cy - Math.floor(peer.at[1] / CHUNK)) <= REACH;
   }
   // No se deja: se le devuelve como está aquí lo que intentó cambiar (una capa que aquí no hay, vacía si era de
   // casillas: su juego la vuelve a crear así, y quitársela del todo no acabaría nunca)
@@ -447,8 +457,9 @@ export class Live {
     for (const [k, d] of g.world.deltas) if (!k.startsWith('u:') && !this.synced.has(k)) this.synced.set(k, copy(d));
     this.net.send({ t: 'world', ...this.worldOf(snap, g.world.deltas) }, conn);
   }
-  // El mundo compartido tal como está (lo que se manda a quien entra y lo que guarda el anfitrión para todos)
-  worldOf(snap, deltas) { return { deltas: [...deltas].filter(([k]) => !k.startsWith('u:')), shared: Object.fromEntries(SHARED.map(k => [k, snap[k]])) }; }
+  // El mundo compartido tal como está (lo que se manda a quien entra y lo que guarda el anfitrión para todos), con
+  // la ficha de su planeta (cada planeta, su archivo)
+  worldOf(snap, deltas) { return { planet: PLANET, deltas: [...deltas].filter(([k]) => !k.startsWith('u:')), shared: Object.fromEntries(SHARED.map(k => [k, snap[k]])) }; }
   // La partida con la que empieza quien entra en el mundo compartido: la suya, con ese mundo (y sus propias cuevas)
   enter(solo, world) {
     const her = solo.save;

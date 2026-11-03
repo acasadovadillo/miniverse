@@ -130,8 +130,8 @@ export class View3D {
 
   // Sol, luna, cielo, niebla y tiempo según la hora. hour: 0–24; dark: oscuridad del juego (0–0.85)
   updateSky(game, dt) {
-    const days = game.player ? game.days : null, hour = days ? days.hour : 16.5, info = days?.info || {};
-    const dark = days ? days.darkness() : 0, rain = info.rain || 0, snow = !!info.snow, fog = game.days?.weather === 'niebla';
+    const days = game.player ? game.days : null, hour = days ? days.localHour : 16.5, info = days?.info || {};   // (la hora de donde estás en el planeta)
+    const dark = days ? days.darkness() : 0, rain = info.rain || 0, snow = !!info.snow, fog = !!info.fog || game.days?.weatherHere === 'niebla';
     const indoors = !!game.indoors;
     // El sol sale por el este (+x) y se pone por el oeste, pasando por el sur
     const a = ((hour - 6) / 14) * Math.PI, day = hour > 5.5 && hour < 20.5;

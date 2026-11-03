@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- La versión publicada: se cambia en cada publicación (así el juego sabe que tiene que pedir el código nuevo) -->
-<meta name="miniverse-version" content="2026-11-03.13">
+<meta name="miniverse-version" content="2026-11-03.14">
 <title>Miniverse</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏡</text></svg>">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -343,6 +343,11 @@
   body.survival #xp { display: block; }
   #xp i { display: block; height: 100%; width: 0; background: linear-gradient(#b8f070, #6ab82a); border-radius: 3px; }
   #xp b { position: absolute; left: 50%; top: -8px; transform: translateX(-50%); font-size: 12px; line-height: 1; color: #b8f070; text-shadow: 0 1px 0 #142008, 1px 0 0 #142008, -1px 0 0 #142008, 0 -1px 0 #142008; }
+  /* El mapa en la mano (con el norte arriba) y la aguja de la brújula */
+  #held-map { position: fixed; right: 16px; bottom: 96px; width: 216px; height: 216px; image-rendering: pixelated; border: 6px solid #8a5a34; border-radius: 4px; box-shadow: 0 4px 14px rgba(0, 0, 0, .45); background: #e8d8b0; z-index: 20; pointer-events: none; }
+  #compass { position: fixed; left: 50%; bottom: 112px; width: 54px; height: 54px; margin-left: -27px; border-radius: 50%; background: radial-gradient(#f4ecd8 58%, #c8a030 60%, #8a6a20 72%); box-shadow: 0 3px 10px rgba(0, 0, 0, .45); z-index: 20; pointer-events: none; }
+  #compass i { position: absolute; left: 50%; top: 50%; width: 6px; height: 40px; margin: -20px 0 0 -3px; background: linear-gradient(#e83a3a 50%, #4a4a54 50%); clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%); }
+  #held-map[hidden], #compass[hidden], body:not(.playing) #held-map, body:not(.playing) #compass { display: none; }
   /* Lo encantado brilla */
   .slot.ench img { filter: drop-shadow(0 0 2px #b070ff) drop-shadow(0 0 1px #e0c0ff); }
   #hearts i.h { color: #e8828a; }
@@ -483,6 +488,8 @@
   <div id="prompt" class="panel"><kbd>E</kbd><span id="prompt-text"></span></div>
   <div id="admin-tag" class="panel" title="Modo de juego (/gamemode): en creativo, objetos infinitos y construir gratis; de espectador, atraviesas todo y nadie te ve">CREATIVO</div>
   <div id="players" class="panel" aria-live="polite"><h3>Jugadores</h3><ul id="players-list"></ul></div>
+  <canvas id="held-map" hidden></canvas>
+  <div id="compass" hidden><i></i></div>
   <div id="chat"><div id="chat-log"></div><input id="chat-input" maxlength="120" autocomplete="off" spellcheck="false" placeholder="Escribe un mensaje o un comando (/help)"></div>
   <div id="dialog" class="panel"><canvas id="dlg-face" width="192" height="192"></canvas><div class="name" id="dlg-name"></div><div id="dlg-text"></div><div id="dlg-opts"></div><div class="more">▼</div></div>
   <div id="toasts"></div>

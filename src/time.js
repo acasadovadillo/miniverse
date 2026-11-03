@@ -9,6 +9,7 @@ import { ENERGY_MAX } from './items.js';
 import { Audio } from './audio.js';
 import { Settings } from './settings.js';
 import { hud } from './ui/hud.js';
+import { lonOf, latOf } from './world/planet.js';
 
 // (antes, un día duraba 20 minutos y empezaba a las 7: con eso se sabe en qué día iban las partidas de entonces)
 const OLD_DAY_LEN = 1200, OLD_START_HOUR = 7;
@@ -25,7 +26,9 @@ const WEATHER = {
   tormenta: { name: 'Tormenta', icon: '⛈', rain: 2 },
   niebla: { name: 'Niebla', icon: '🌫' },
   nieve: { name: 'Nieve', icon: '❄', snow: true },
+  ventisca: { name: 'Ventisca', icon: '🌨', snow: true, fog: true },   // (cerca de los polos, siempre)
 };
+const POLAR = 86;   // a partir de esta latitud, ventisca
 // Probabilidades de cada tiempo por estación (lo que sobra es sol)
 const CHANCES = [
   [['lluvia', 0.28], ['tormenta', 0.05], ['niebla', 0.08], ['nubes', 0.15]],
@@ -77,16 +80,23 @@ export class TimeSystem {
   get realDay() { return Math.floor(this.now / DAY_MS); }
   get dayIndex() { return this.realDay - this.base; }              // días desde que empezó la partida
   get hour() { return (this.now % DAY_MS) / HOUR_MS; }
+  // En el planeta, cada longitud tiene su hora (la del pueblo es la de Madrid: una hora más por cada 15° al este) y
+  // en el hemisferio sur las estaciones van al revés. «Aquí» es donde está el jugador
+  hourAt(x) { return (((this.hour + lonOf(x) / 15) % 24) + 24) % 24; }
+  get here() { const p = this.game.player; return p && this.game.scene === this.game.world ? p : { x: 0, y: 30 }; }
+  get localHour() { return this.hourAt(this.here.x); }
+  get localSeason() { return latOf(this.here.y) < 0 ? (this.season + 2) % 4 : this.season; }
+  get weatherHere() { return Math.abs(latOf(this.here.y)) > POLAR ? 'ventisca' : this.weather; }
   get t() { return this.dayIndex + this.hour / 24; }                // (con decimales)
   get season() { return seasonOf(this.realDay).season; }
   get year() { return new Date(this.realDay * DAY_MS).getUTCFullYear(); }
   get dayOfSeason() { return this.realDay - seasonOf(this.realDay).start + 1; }
-  get info() { return WEATHER[this.weather]; }
+  get info() { return WEATHER[this.weatherHere]; }
   get raining() { return !!this.info.rain && !this.game.indoors; }
-  isNight() { const h = this.hour; return h >= 20 || h < 6; }
+  isNight() { const h = this.localHour; return h >= 20 || h < 6; }
   label() {
-    const h = Math.floor(this.hour), m = Math.floor((this.hour % 1) * 60);
-    return `${this.info.icon} ${SEASONS[this.season]}, día ${this.dayOfSeason} · ${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+    const hl = this.localHour, h = Math.floor(hl), m = Math.floor((hl % 1) * 60);
+    return `${this.info.icon} ${SEASONS[this.localSeason]}, día ${this.dayOfSeason} · ${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
   }
   weatherFor(day) {
     if (day === 0) return 'sol';
@@ -112,11 +122,12 @@ export class TimeSystem {
   save(out) { Object.assign(out, { dayBase: this.dayBase, timeShift: this.shift, seenDay: this.day }); }
 
   // Cambia el aspecto del mundo según la estación (la vista rehace el suelo y las plantas al verlo)
-  applySeason() { this.game.world.gen.season = this.season; }
+  applySeason() { this.game.world.gen.season = this.localSeason; }
 
   update(dt) {
     const g = this.game, rd = this.realDay;
     if (rd !== this.wday) { this.wday = rd; this.weather = this.weatherFor(this.dayIndex); this.applySeason(); }
+    if (g.world.gen.season !== this.localSeason) this.applySeason();   // (al cruzar el ecuador)
     // Amanece (ya jugando): un día nuevo, o los que han pasado sin jugar, cada uno con su tiempo
     if (rd > this.day && dt > 0) {
       const n = rd - this.day;
@@ -172,12 +183,12 @@ export class TimeSystem {
     g.onSave?.();
   }
 
-  // Oscuridad (0 a 1) según la hora
+  // Oscuridad (0 a 1) según la hora de aquí
   darkness() {
-    const h = this.hour;
+    const h = this.localHour;
     let d = h < 4.5 ? 0.72 : h < 7 ? 0.72 * (1 - (h - 4.5) / 2.5) : h < 18 ? 0 : h < 21 ? 0.72 * ((h - 18) / 3) : 0.72;
     if (this.info.rain) d += 0.14 * this.info.rain;
-    else if (this.weather === 'nubes' || this.weather === 'niebla') d += 0.06;
+    else if (['nubes', 'niebla', 'ventisca'].includes(this.weatherHere)) d += 0.06;
     return Math.min(0.85, d);
   }
 

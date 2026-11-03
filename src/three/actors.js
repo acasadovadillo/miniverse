@@ -13,6 +13,7 @@ import { screenToWorld, screenDirOf } from '../camera.js';
 import { ITEMS, TIERS } from '../items.js';
 import { WATER_Y } from './terrain.js';
 import { animalModel, animalKey, animateAnimal, horseModel, animateHorse } from './animals.js';
+import { nearX } from '../world/planet.js';
 
 const PEOPLE = new Map();
 const KID_SCALE = 0.66;   // los niños, más pequeños
@@ -130,7 +131,7 @@ export class Actors {
   }
 
   pose(m, e, scene, dt, t, game) {
-    const view = this.view, x = e.x, z = e.y;
+    const view = this.view, x = this.me && scene.kind === 'world' ? nearX(e.x, this.me.x) : e.x, z = e.y;   // (lo del otro lado de la costura del planeta, a este lado)
     // Velocidad (para animar) a partir de lo que se ha movido
     const d = m.prev ? Math.hypot(x - m.prev[0], z - m.prev[1]) : 0;
     m.prev = [x, z];

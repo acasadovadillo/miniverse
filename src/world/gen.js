@@ -1,14 +1,18 @@
 // Generador del mundo: a partir de una semilla decide el bioma, el suelo y la naturaleza de cualquier casilla.
 // Todo es determinista: la misma semilla y la misma casilla dan siempre lo mismo.
-import { mk, ihash, vnoise, rgbOf } from '../util.js';
+import { mk, ihash, rgbOf } from '../util.js';
 import * as village from './village.js';
 import { B, BIOMES, climate, classify, biomeAt } from './biomes.js';
+import { wrapNoise, wrapIndex } from './planet.js';
 
 export const CHUNK = 16;
 // Solo hay un mundo, el mismo para todas las partidas: esta es su semilla
 export const WORLD_SEED = 20261030;
 export const RES = 4;   // muestras de clima por casilla (el clima cambia despacio: no hace falta calcularlo por píxel)
 const ROOF = '#c95a3c', PATH = '#c99e66', POND = '#3f8fd0';
+const PATCH = wrapNoise(0.45), THICK = wrapNoise(0.05), PINE_MIX = wrapNoise(0.04);
+// (los trozos se cuentan siempre dentro del planeta: el de la otra punta de la costura es el mismo)
+const own = cx => wrapIndex(cx, CHUNK);
 
 export class WorldGen {
   constructor(seed) {
@@ -19,15 +23,16 @@ export class WorldGen {
 
   biomeAt(x, y) { return biomeAt(x, y, this.seed); }
   nearVillage(cx, cy) {
-    const bx = cx * CHUNK, by = cy * CHUNK, V = village.BOUNDS;
+    const bx = own(cx) * CHUNK, by = cy * CHUNK, V = village.BOUNDS;
     return bx + CHUNK > V.x0 && bx < V.x1 && by + CHUNK > V.y0 && by < V.y1;
   }
 
   // Bioma de un trozo en una rejilla de cuartos de casilla. El clima cambia despacio: se calcula una vez
   // por casilla y se interpola, y con eso se decide el bioma de cada muestra.
   field(cx, cy) {
+    cx = own(cx);
     const s = this.seed, nc = CHUNK + 1, c = {};
-    const K = ['T', 'M', 'C', 'R', 'L', 'K', 'P', 'f'], coarse = K.map(() => new Float32Array(nc * nc));
+    const K = ['T', 'M', 'C', 'R', 'L', 'K', 'P', 'f', 'Q'], coarse = K.map(() => new Float32Array(nc * nc));
     for (let j = 0, i = 0; j < nc; j++) {
       for (let k = 0; k < nc; k++, i++) {
         climate(cx * CHUNK + k, cy * CHUNK + j, s, c);
@@ -44,8 +49,8 @@ export class WorldGen {
         }
         // El azar va ligado a la posición en el mundo, así coincide en el borde entre dos trozos
         const gk = cx * CHUNK * RES + k, gj = cy * CHUNK * RES + j;
-        biome[i] = classify(v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7], (ihash(gk, gj, s + 5) - 0.5) * 0.03);
-        patch[i] = vnoise(gk / RES * 0.45, gj / RES * 0.45, s);
+        biome[i] = classify(v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7], (ihash(gk, gj, s + 5) - 0.5) * 0.03, v[8]);
+        patch[i] = PATCH(gk / RES, gj / RES, s);
       }
     }
     return { n, biome, patch };
@@ -57,6 +62,7 @@ export class WorldGen {
   // como en Minecraft: así el jugador puede construir casilla a casilla alrededor de lo que hay,
   // y cada casilla está libre u ocupada del todo, nunca a medias.
   content(cx, cy) {
+    cx = own(cx);
     const key = `${cx},${cy}`;
     if (this.cache.has(key)) return this.cache.get(key);
     const s = this.seed;
@@ -80,8 +86,8 @@ export class WorldGen {
         const x = px + 0.5, y = py + 0.5;
         if (village.keepClear(x, y)) continue;
         const b = this.biomeAt(x, y), roll = ihash(tx, ty, s + 52) / village.clearing(x, y);
-        const thick = 0.6 + vnoise(x * 0.05, y * 0.05, s + 9) * 0.6;   // claros dentro de los bosques
-        const pineMix = vnoise(x * 0.04, y * 0.04, s + 60) > 0.58;
+        const thick = 0.6 + THICK(x, y, s + 9) * 0.6;   // claros dentro de los bosques
+        const pineMix = PINE_MIX(x, y, s + 60) > 0.58;
         if (b === B.MEADOW && roll < 0.06) add(ihash(tx, ty, s + 53) < 0.06 ? 'fruit' : pineMix ? 'pine' : 'oak', px, py, 0.35);
         else if (b === B.FOREST && roll < 0.55 * thick) add(pineMix ? 'pine' : ihash(tx, ty, s + 53) < 0.03 ? 'fruit' : 'oak', px, py, 0.35);
         else if (b === B.PINES && roll < 0.6 * thick) add('pine', px, py, 0.35);
@@ -120,6 +126,7 @@ export class WorldGen {
 
   // Miniatura del trozo para el mapa: un píxel por casilla
   thumbnail(cx, cy) {
+    cx = own(cx);
     const c = mk(CHUNK, CHUNK), g = c.getContext('2d'), img = g.createImageData(CHUNK, CHUNK);
     for (let j = 0; j < CHUNK; j++) {
       for (let i = 0; i < CHUNK; i++) {

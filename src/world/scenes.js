@@ -1,5 +1,7 @@
-// Escena del mundo exterior (infinito, por trozos). Ofrece objetos, entidades y colisiones. Todo lo que hay en el mundo va en la cuadrícula de casillas: lo que construye
-// el jugador (deltas) y lo fijo del pueblo y de las aldeas (la "capa base", que no se puede quitar).
+// Escena del mundo exterior: el planeta (ver planet.js), por trozos. Ofrece objetos, entidades y colisiones. Todo lo que hay en el mundo va en la cuadrícula de casillas: lo que construye
+// el jugador (deltas) y lo fijo del pueblo y de las aldeas (la "capa base", que no se puede quitar). Los trozos se
+// guardan con su número dentro del planeta; los de más allá de la costura (para verlos y chocar con ellos desde el
+// otro lado) son los mismos, corridos una vuelta. Fuera del planeta no se construye.
 import { clamp } from '../util.js';
 import { WorldGen, CHUNK } from './gen.js';
 import { buildVillage, NILO, inBounds, isGrass, inOwnHouse } from './village.js';
@@ -10,6 +12,22 @@ import { solidsOf, hull, placeBoxes, bounds, aabb, sat, hitsCircle, distTo, obb,
 import { wallRuns, WINDOW_Z, T } from '../art/build.js';
 import { PIECES, layerOf, parsePlaced } from '../pieces.js';
 import { Person } from '../entities.js';
+import { wrapIndex, inPlanet } from './planet.js';
+
+// Lo de un trozo visto desde el otro lado de la costura: lo mismo, corrido off casillas en x
+const X_KEYS = new Set(['x', 'x0', 'x1', 'cx']);
+function shifted(v, off) {
+  if (Array.isArray(v)) return v.map(e => (e && typeof e === 'object' ? shifted(e, off) : e));
+  const o = {};
+  for (const [k, e] of Object.entries(v)) {
+    if (typeof e === 'number' && X_KEYS.has(k)) o[k] = e + off;
+    else if (k === 'tile' && Array.isArray(e)) o[k] = [e[0] + off, e[1]];
+    else if (k === 'fx' && Array.isArray(e)) o[k] = e.map(v => v + off);
+    else if (e && typeof e === 'object' && Object.getPrototypeOf(e) === Object.prototype || Array.isArray(e)) o[k] = shifted(e, off);
+    else o[k] = e;
+  }
+  return o;
+}
 
 export const NILO_LOOK = { sex: 'chico', skin: '#8a5234', hair: '#c8c4cc', eyes: '#6a3a1e', cloth: '#4a9a4a', pants: '#3a4a6a', hairStyle: 'corto', outfit: 'tunica', beard: true };
 
@@ -166,6 +184,7 @@ export class Overworld {
     this.deltas = deltas;         // cambios del jugador por trozo: { removed: {clave: hora}, tilled: {casilla: hora}, placed: {casilla: id}, v }; lo quitado no vuelve
     this.dirty = new Set();       // trozos con cambios sin guardar
     this.merged = new Map();
+    this.wrapped = new Map();     // (los trozos de más allá de la costura, ya corridos)
     this.village = buildVillage();
     this.gen = new WorldGen(seed);
     this.nilo = new Person({ ...NILO, look: NILO_LOOK, flip: true });
@@ -176,6 +195,7 @@ export class Overworld {
   }
 
   delta(cx, cy, create = false) {
+    cx = wrapIndex(cx, CHUNK);
     const k = `${cx},${cy}`;
     let d = this.deltas.get(k);
     if (!d && create) { d = { removed: {}, tilled: {}, v: 0 }; this.deltas.set(k, d); }
@@ -183,7 +203,7 @@ export class Overworld {
     if (d && !d.floor) Object.assign(d, { floor: {}, roof: {}, chest: {} });
     return d;
   }
-  touch(cx, cy) { const d = this.delta(cx, cy), k = `${cx},${cy}`; d.v++; this.dirty.add(k); this.onTouch?.(k); }
+  touch(cx, cy) { cx = wrapIndex(cx, CHUNK); const d = this.delta(cx, cy), k = `${cx},${cy}`; d.v++; this.dirty.add(k); this.onTouch?.(k); }
   // Lo que ha puesto el jugador en una capa de una casilla (o undefined)
   ownAt(layer, tx, ty) { return this.delta(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK))?.[layer]?.[`${tx},${ty}`]; }
   // Lo fijo del pueblo y de las aldeas en una casilla
@@ -199,6 +219,15 @@ export class Overworld {
 
   // Contenido de un trozo con los cambios del jugador aplicados
   contentFor(cx, cy) {
+    const own = wrapIndex(cx, CHUNK);
+    if (own !== cx) {   // (más allá de la costura: el mismo trozo, una vuelta más allá)
+      const src = this.contentFor(own, cy), k = `${cx},${cy}`, w = this.wrapped.get(k);
+      if (w?.src === src) return w.data;
+      const data = shifted(src, (cx - own) * CHUNK);
+      this.wrapped.set(k, { src, data });
+      if (this.wrapped.size > 80) this.wrapped.delete(this.wrapped.keys().next().value);
+      return data;
+    }
     const key = `${cx},${cy}`, d = this.delta(cx, cy), bucket = Math.floor(this.clock / 5);
     const m = this.merged.get(key);
     if (m && m.v === (d?.v ?? -1) && m.bucket === bucket) return m.data;
@@ -425,6 +454,7 @@ export class Overworld {
   // ¿Se puede labrar esta casilla? Tierra con hierba, sin nada encima y fuera del camino del pueblo.
   canTill(tx, ty) {
     const x = tx + 0.5, y = ty + 0.5, b = this.gen.biomeAt(x, y);
+    if (!inPlanet(x, y)) return false;
     if (![B.MEADOW, B.FOREST, B.PINES, B.SWAMP].includes(b)) return false;
     if (inBounds(x, y) && !isGrass(x, y)) return false;
     const d = this.delta(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK));
@@ -444,6 +474,7 @@ export class Overworld {
   canPlace(tx, ty, id, player, rot = 0) {
     if (extraTiles(id, tx, ty, rot).some(t => !this.canPlace(...t, 'silla', player))) return false;   // las otras casillas también tienen que caber
     const x = tx + 0.5, y = ty + 0.5, layer = layerOf(id), k = `${tx},${ty}`;
+    if (!inPlanet(x, y)) return false;   // (en la costura del planeta, desde el otro lado, o más allá de un polo)
     if (layer === 'rug') return this.rugFits(rugRect(tx, ty, rot));
     if (this.water(x, y)) return false;
     if (inBounds(x, y) && !isGrass(x, y) && !inOwnHouse(x, y) && !this.buildAnywhere) return false;   // en modo admin, también en el pueblo
@@ -622,6 +653,7 @@ export class Overworld {
     let ox = px - (ux * lx + vx * lz), oy = py - (uy * lx + vy * lz);
     const obstacles = this.obstaclesNear(px, py, rug), whole = () => placeBoxes([H], ox, oy, a)[0];
     const res = (ok, why) => { const w = whole(); return { ok, why, ox, oy, a, k, model, cx: w.x, cy: w.y, box: w, anchor }; };
+    if (!inPlanet(px - 1, py) || !inPlanet(px + 1, py)) return res(false, 'Aquí no: es la costura del planeta');
     // Arrimar a los muros (y a las esquinas): solo se pega si está casi recto (a menos de 8°)
     const q = ((a / (Math.PI / 2)) % 1 + 1) % 1, aligned = q < 0.09 || q > 0.91, walls = joinedWalls(obstacles.filter(w => w.wall));
     for (let pass = 0; pass < 3; pass++) for (const w of walls) {

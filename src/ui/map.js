@@ -4,9 +4,9 @@
 import { CHUNK } from '../world/gen.js';
 import { toView, fromView } from '../iso.js';
 import { CENTER, HOUSE } from '../world/village.js';
+import { nearX, wrapIndex } from '../world/planet.js';
 
 const $ = id => document.getElementById(id);
-const blinkSlow = t => Math.sin(t * 3) > 0;
 
 export class MapView {
   constructor() {
@@ -66,17 +66,17 @@ export class MapView {
     // Primero se juntan las miniaturas en una imagen plana (sin huecos entre trozos) y luego se gira
     // entera a la perspectiva isométrica de la cámara: rejilla (x, y) → vista (u, v) ↦ (a·(u − v) + e, a/2·(u + v) + f)
     const [pu, pv] = toView(px, py), e = w / 2 - a * (pu - pv), f = h / 2 - (a / 2) * (pu + pv);
-    const toMap = (x, y) => { const [u, v] = toView(x, y); return [Math.round(a * (u - v) + e), Math.round((a / 2) * (u + v) + f)]; };
+    const toMap = (x, y) => { const [u, v] = toView(nearX(x, px), y); return [Math.round(a * (u - v) + e), Math.round((a / 2) * (u + v) + f)]; };   // (por el camino corto alrededor del planeta)
     const reach = Math.ceil((w + h * 2) / a / CHUNK / 2) + 1;   // trozos que pueden caber en pantalla
     const pcx = Math.floor(px / CHUNK), pcy = Math.floor(py / CHUNK), side = (reach * 2 + 1) * CHUNK;
     if (!this.flat || this.flat.width !== side) { this.flat = document.createElement('canvas'); this.flat.width = this.flat.height = side; }
     const fg = this.flat.getContext('2d');
     fg.clearRect(0, 0, side, side);
     for (const key of explored) {
-      const [cx, cy] = key.split(',').map(Number);
-      if (Math.abs(cx - pcx) > reach || Math.abs(cy - pcy) > reach) continue;
+      const [cx, cy] = key.split(',').map(Number), dcx = wrapIndex(cx - pcx, CHUNK);
+      if (Math.abs(dcx) > reach || Math.abs(cy - pcy) > reach) continue;
       const t = this.thumb(gen, key);
-      if (t) fg.drawImage(t, (cx - pcx + reach) * CHUNK, (cy - pcy + reach) * CHUNK);
+      if (t) fg.drawImage(t, (dcx + reach) * CHUNK, (cy - pcy + reach) * CHUNK);
     }
     // Cada eje de la imagen plana (x e y del mundo) va adonde lo lleve la cámara
     const ox = (pcx - reach) * CHUNK, oy = (pcy - reach) * CHUNK, [xu, xv] = toView(1, 0), [yu, yv] = toView(0, 1), [u0, v0] = toView(ox, oy);
@@ -88,14 +88,12 @@ export class MapView {
     g.fillStyle = '#2a1c22'; g.fillRect(hx - 3, hy - 3, 7, 6);
     g.fillStyle = '#c95a3c'; g.fillRect(hx - 2, hy - 3, 5, 2);
     g.fillStyle = '#f2e2c0'; g.fillRect(hx - 2, hy - 1, 5, 3);
-    // Lugares descubiertos (y el faro, si llevas la brújula: en el borde si queda lejos)
+    // Lugares descubiertos
     const COL = { cueva: '#4a4a54', ruinas: '#a8a298', campamento: '#e88a3a', torre: '#d8d0c0', barco: '#7a5030', templo: '#e8c070', aldea: '#4a6aa8', faro: '#ff4a4a' };
     for (const m of this.markers || []) {
-      let [x, y] = toMap(m.x, m.y);
-      if (m.kind === 'faro') { x = Math.max(6, Math.min(w - 6, x)); y = Math.max(6, Math.min(h - 6, y)); }
+      const [x, y] = toMap(m.x, m.y);
       g.fillStyle = '#2a1c22'; g.fillRect(x - 3, y - 3, 7, 7);
       g.fillStyle = COL[m.kind] || '#ffffff'; g.fillRect(x - 2, y - 2, 5, 5);
-      if (m.kind === 'faro' && blinkSlow(time)) { g.fillStyle = '#ffffff'; g.fillRect(x - 1, y - 1, 3, 3); }
     }
     const [mx, my] = toMap(...me), blink = Math.sin(time * 6) > 0;
     g.fillStyle = '#2a1c22'; g.fillRect(mx - 3, my - 3, 7, 7);

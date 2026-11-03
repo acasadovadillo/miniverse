@@ -59,6 +59,8 @@ export const RECIPES = [
   R('horno', 'frasco', 3, [['piedra', 2], ['carbon', 1]]),
   R('yunque', 'alambique', 1, [['lingote_hierro', 2], ['piedra', 4], ['frasco', 1]]),
   R('yunque', 'mesa_encantar', 1, [['amatista', 4], ['tablas', 6], ['lingote_hierro', 2]]),
+  R('yunque', 'brujula', 1, [['lingote_hierro', 4], ['amatista', 1]]),
+  R('banco', 'mapa_vacio', 1, [['tela', 2], ['carbon', 1]]),
 
   R('telar', 'tela', 1, [['fibra', 4]]),
   R('telar', 'tela', 2, [['lana', 1]], { id: 'tela_lana' }),

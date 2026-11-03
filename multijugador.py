@@ -384,6 +384,7 @@ HELP = '''  Comandos del servidor:
     /whitelist on|off|add <usuario>|remove <usuario>|list  la lista blanca (puesta, solo entran los de la lista)
     /list                                     quién está conectado
     /say <texto>                              un aviso en el chat de todos
+    /tp <usuario> <usuario>, /tp <usuario> home   llevar a alguien adonde está otro, o a su casa (@a: todos)
     /save-all                                 que todos guarden ya (quien lleva el mundo, también el mundo)
     /world                                    cómo está el mundo del servidor
     /link                                     pedir otra vez las claves del mundo al juego del admin (5 minutos)
@@ -555,6 +556,27 @@ def command(line):
         if text:
             everyone({'t': 'say', 'text': text[:300]})
             print(f'  [Servidor] {text}')
+    elif name == 'tp':
+        # (el servidor no sabe dónde está nadie: se lo pide al juego de quien va, que sabe dónde están los demás)
+        target = rest.split(' ')[0].lower() if rest else ''
+        if not user or not target:
+            print('  Uso: /tp <usuario> <usuario> · /tp <usuario> home · /tp @a home')
+            return
+        movers = [c for c, u in users.items() if c not in servers and (user == '@a' or u == user)]
+        if not movers:
+            print(f'  {user} no está conectado')
+            return
+        if target == 'home':
+            for c in movers:
+                send(c, {'t': 'tp', 'home': True})
+            print(f'  {"Todos van" if user == "@a" else user + " va"} a casa')
+        elif target not in users.values():
+            print(f'  {target} no está conectado')
+        else:
+            for c in movers:
+                if users.get(c) != target:
+                    send(c, {'t': 'tp', 'to': target})
+            print(f'  {"Todos van" if user == "@a" else user + " va"} adonde está {target} (si está en el mundo de fuera)')
     elif name == 'save-all':
         everyone({'t': 'save'})
         print('  Guardando: cada juego guarda lo suyo, y quien lleva el mundo, el mundo')
