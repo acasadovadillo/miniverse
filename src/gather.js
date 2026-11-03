@@ -273,7 +273,8 @@ export class Gathering {
       g.scene.remove(o);
       this.chips(o.x, o.y, rule.chips, 16);
       const tierHit = tool === rule.tool ? tier : 0;
-      this.spawnDrops(o, rule, tierHit, (skill && Math.random() < (g.skills?.bonus(skill) || 0)) || Math.random() < 0.33 * enchLevel(held, 'fortuna'));   // (con fortuna, a veces uno más)
+      const fruit = o.bare && rule.fruit ? { ...rule, drops: rule.drops.filter(([id]) => id !== rule.fruit) } : rule;   // (la palmera a la que se le acaban de coger los cocos ya no tiene)
+      this.spawnDrops(o, fruit, tierHit, (skill && Math.random() < (g.skills?.bonus(skill) || 0)) || Math.random() < 0.33 * enchLevel(held, 'fortuna'));   // (con fortuna, a veces uno más)
       const ore = rule.drops.find(([id, , , , minTier = 0]) => XP_ORE[id] && tierHit >= minTier);   // (el carbón y las piedras preciosas dan experiencia)
       if (ore) g.xp?.add(roll(...XP_ORE[ore[0]]));
       if (o.kind === 'bush' && tool === 'guadana') g.ranch?.mowed();   // (con un silo, el heno se guarda solo)

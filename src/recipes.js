@@ -12,6 +12,7 @@ export const STATIONS = {
   quesera: { name: 'Quesera' },
   alambique: { name: 'Alambique' },
   mesa_encantar: { name: 'Mesa de encantar' },
+  noria: { name: 'Noria' },
 };
 
 const R = (station, out, n, ins, extra = {}) => ({ id: out, station, out, n, ins, ...extra });
@@ -38,6 +39,10 @@ export const RECIPES = [
   R('banco', 'cama', 1, [['tablas', 6], ['tela', 2]]),
   R('banco', 'cama_doble', 1, [['tablas', 10], ['tela', 4]]),
   R('banco', 'sofa', 1, [['tablas', 8], ['tela', 4], ['fibra', 4]]),
+  R('banco', 'sillon', 1, [['tablas', 4], ['tela', 3], ['fibra', 3]]),
+  R('banco', 'mesa_baja', 1, [['tablas', 4]]),
+  R('banco', 'mesita', 1, [['tablas', 5]]),
+  R('banco', 'comoda', 1, [['tablas', 10]]),
   R('banco', 'cama_nino', 1, [['tablas', 5], ['tela', 2]]),
   R('banco', 'cuna', 1, [['tablas', 6], ['tela', 1]]),
   R('banco', 'alacena', 1, [['tablas', 8], ['piedra', 2]]),
@@ -61,6 +66,7 @@ export const RECIPES = [
   R('yunque', 'mesa_encantar', 1, [['amatista', 4], ['tablas', 6], ['lingote_hierro', 2]]),
   R('yunque', 'brujula', 1, [['lingote_hierro', 4], ['amatista', 1]]),
   R('banco', 'mapa_vacio', 1, [['tela', 2], ['carbon', 1]]),
+  R('banco', 'noria', 1, [['tablas', 24], ['piedra', 12], ['lingote_hierro', 2]]),
 
   R('telar', 'tela', 1, [['fibra', 4]]),
   R('telar', 'tela', 2, [['lana', 1]], { id: 'tela_lana' }),
@@ -102,6 +108,7 @@ export const RECIPES = [
   R('cocina', 'tortilla', 1, [['huevo', 2]]),
   R('cocina', 'queso', 1, [['leche', 2]]),
   R('cocina', 'pan', 1, [['trigo', 3]]),
+  R('cocina', 'pan', 1, [['harina', 2]], { id: 'pan_harina' }),
   R('cocina', 'tarta_calabaza', 1, [['calabaza', 1], ['huevo', 1], ['trigo', 1]]),
   R('cocina', 'sopa_verduras', 1, [['nabo', 1], ['zanahoria', 1], ['tomate', 1]]),
   R('cocina', 'pescado_asado', 1, [['sardina', 1]], { id: 'asado_sardina' }),

@@ -6,7 +6,7 @@ import { clamp } from '../util.js';
 import { WorldGen, CHUNK } from './gen.js';
 import { buildVillage, NILO, inBounds, isGrass, inOwnHouse } from './village.js';
 import { B, BIOMES } from './biomes.js';
-import { ITEMS } from '../items.js';
+import { ITEMS, CHESTS } from '../items.js';
 import { extraTiles, LONG, BED_BACK, HEARTH_BACK, GLOW, LIGHT, front, SIDE, rugRect, RUG_SIZES, TABLE_SIZES, TABLES, TUCK } from '../art/stations.js';
 import { solidsOf, hull, placeBoxes, bounds, aabb, sat, hitsCircle, distTo, obb, dirOf, sideOf } from './fit.js';
 import { wallRuns, WINDOW_Z, T } from '../art/build.js';
@@ -38,7 +38,7 @@ const ROOF_MAX_LEVEL = 4;     // altura máxima de un tejado, en niveles
 // (de la casilla a la parte de atrás de cada mueble, medido en su modelo: con un muro detrás, se pega a él)
 const BACK = {
   cama: BED_BACK, cama_doble: BED_BACK, sofa: 0.42, cama_nino: 0.42, banera: 0.43, estanteria: 0.2, alacena: 0.28, encimera: 0.28, fregadero: 0.32, lavabo: 0.42, inodoro: 0.34, chimenea: HEARTH_BACK, lampara: 0.18,
-  cocina: 0.38, horno: 0.44, banco: 0.32, yunque: 0.3, telar: 0.3, quesera: 0.24, cofre: 0.28, armario: 0.33, mueble_bano: 0.24, cuadro_valle: 0.05, cuadro_mar: 0.05, cuadro_flores: 0.05, cuadro_noche: 0.05, vitrina: 0.32, cuna: 0.3, mesa: 0.42, incubadora: 0.26, maceta: 0.28, silla: 0.22,
+  cocina: 0.38, horno: 0.44, banco: 0.32, yunque: 0.3, telar: 0.3, quesera: 0.24, cofre: 0.28, armario: 0.33, mueble_bano: 0.24, mesita: 0.22, comoda: 0.26, sillon: 0.42, cuadro_valle: 0.05, cuadro_mar: 0.05, cuadro_flores: 0.05, cuadro_noche: 0.05, vitrina: 0.32, cuna: 0.3, mesa: 0.42, incubadora: 0.26, maceta: 0.28, silla: 0.22,
 };
 
 // Las encimeras se unen con lo que tengan al lado (otra encimera, la alacena, el fregadero o la cocina): se alargan
@@ -492,8 +492,7 @@ export class Overworld {
   place(tx, ty, id, rot = 0) {
     const cx = Math.floor(tx / CHUNK), cy = Math.floor(ty / CHUNK), layer = layerOf(id), d = this.delta(cx, cy, true);
     (d[layer] ||= {})[`${tx},${ty}`] = rot ? `${id}@${rot}` : id;
-    if (id === 'cofre') d.chest[`${tx},${ty}`] = Array(18).fill(null);
-    if (id === 'mochila' || id === 'armario') d.chest[`${tx},${ty}`] = Array(27).fill(null);   // (la mochila en el suelo es como un cofre; el armario, para la ropa)
+    if (CHESTS[id]) d.chest[`${tx},${ty}`] = Array(CHESTS[id][0]).fill(null);   // (la mochila en el suelo es como un cofre; el armario, para la ropa)
     this.touchAround(tx, ty);
   }
   // Quita lo que puso el jugador en una casilla. Lo fijo del pueblo no se quita: devuelve false.
@@ -503,7 +502,7 @@ export class Overworld {
     const d = this.delta(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK));
     delete d[layer][k];
     if (d.pos) delete d.pos[`${layer}:${k}`];
-    if (layer === 'placed' && (o.placed === 'cofre' || o.placed === 'mochila' || o.placed === 'armario')) delete d.chest[k];
+    if (layer === 'placed' && CHESTS[o.placed]) delete d.chest[k];
     if (layer === 'placed' && d.closed) delete d.closed[k];
     if (layer === 'placed' && d.off) delete d.off[k];
     this.touchAround(tx, ty);
@@ -683,8 +682,13 @@ export class Overworld {
     for (const s of placeBoxes(local, ox, oy, a)) for (const o of obstacles) { const hit = cuts(s, o); if (hit && hit.depth > 0.012) return res(false, o.wall ? 'Choca con la pared' : 'Choca con otra cosa'); }
     const w = whole(), b = bounds(w);
     if (!rug && !flat && player && hitsCircle(w, player.x, player.y, 0.2)) return res(false, 'Estás tú en medio');
+    // La noria, al revés que lo demás: la rueda (su eje, el origen del modelo) en el agua de un río, con la orilla cerca
+    if (id === 'noria') {
+      if (!this.riverAt(ox, oy)) return res(false, 'La noria va en un río');
+      if (![...Array(8)].some((_, i) => !this.water(ox + Math.cos(i * Math.PI / 4) * 2.4, oy + Math.sin(i * Math.PI / 4) * 2.4))) return res(false, 'Ponla cerca de la orilla');
+    }
     for (const [x, y] of [[w.x, w.y], [b.x0, b.y0], [b.x1, b.y0], [b.x0, b.y1], [b.x1, b.y1]]) {
-      if (this.water(x, y)) return res(false, 'Ahí no se puede poner');
+      if (this.water(x, y) && id !== 'noria') return res(false, 'Ahí no se puede poner');
       if (inBounds(x, y) && !isGrass(x, y) && !inOwnHouse(x, y) && !this.buildAnywhere) return res(false, 'En el pueblo, solo en tu casa');
     }
     if (id === 'candelabro' && !this.roofAt(Math.floor(w.x), Math.floor(w.y))) return res(false, 'Se cuelga del techo: solo dentro de casa');
@@ -735,5 +739,11 @@ export class Overworld {
   }
   // Agua: la profunda no se puede pisar; la poco profunda se cruza despacio
   water(x, y) { return inBounds(x, y) ? null : BIOMES[this.gen.biomeAt(x, y)].water || null; }
+  // ¿Es agua de río (poco profunda y lejos del mar)? (la orilla de un lago o una charca también vale)
+  riverAt(x, y) {
+    if (inBounds(x, y) || this.gen.biomeAt(x, y) !== B.SHALLOW) return false;
+    for (let r = 2; r <= 8; r += 3) for (let a = 0; a < 6; a++) if (this.gen.biomeAt(x + Math.cos(a) * r, y + Math.sin(a) * r) === B.OCEAN) return false;
+    return true;
+  }
   blocked(x, y) { return this.water(x, y) === 'deep'; }
 }

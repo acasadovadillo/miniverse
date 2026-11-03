@@ -1,6 +1,7 @@
 // Cofre: dos rejillas (el cofre y la mochila). Un clic en una casilla pasa el montón al otro lado. Sirve también
-// para la mochila dejada en el suelo, las alforjas del caballo y el armario (en el que solo cabe ropa).
-import { ITEMS } from '../items.js';
+// para la mochila dejada en el suelo, las alforjas del caballo, la mesita, la cómoda y el armario (en el que solo
+// cabe ropa).
+import { ITEMS, CHESTS } from '../items.js';
 import { SLOTS, extraOf } from '../inventory.js';
 import { itemIconUrl } from '../art/items.js';
 
@@ -56,17 +57,16 @@ export function initChestUI(game, { onClose }) {
     chestCells.forEach((el, i) => { paint(el, chest[i]); el.hidden = i >= chest.length; });
     bagCells.forEach((el, i) => { paint(el, game.inv.slots[i]); el.classList.toggle('locked', !game.inv.usable(i)); });
   }
-  const NAMES = { mochila: 'Mochila', armario: 'Armario' };
-  let name = 'Cofre';
-  function hint() { const el = $('ch-hint'); el.classList.remove('no'); el.textContent = `Tu mochila (clic para guardar en ${name === 'Alforjas' ? 'las alforjas' : `${name === 'Mochila' ? 'la' : 'el'} ${name.toLowerCase()}`}${wardrobe ? ': solo ropa' : ''})`; }
+  let the = 'el cofre';
+  function hint() { const el = $('ch-hint'); el.classList.remove('no'); el.textContent = `Tu mochila (clic para guardar en ${the}${wardrobe ? ': solo ropa' : ''})`; }
   $('ch-close').onclick = () => onClose();
   return {
     refresh,
     open(c, t, cb) {
       chest = c; tile = t; onChange = cb;
       const id = t && (game.scene.at?.('placed', ...t) || '').split('@')[0];
-      name = !t ? 'Alforjas' : NAMES[id] || 'Cofre'; wardrobe = id === 'armario';
-      $('ch-title').textContent = name;
+      the = !t ? 'las alforjas' : CHESTS[id]?.[1] || 'el cofre'; wardrobe = id === 'armario';
+      $('ch-title').textContent = !t ? 'Alforjas' : CHESTS[id] ? ITEMS[id].name : 'Cofre';
       clearTimeout(hintTimer); hint();
       refresh();
     },

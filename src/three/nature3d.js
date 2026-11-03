@@ -96,8 +96,8 @@ function pieces(o, season, out, owner, y = 0) {
     }
     // Sauce del pantano: ramas colgando
     if (kind === 'swampTree') for (let i = 0; i < 8; i++) { const a = (i / 8) * Math.PI * 2 + rot, d = 1.0 * k; push('frond', { p: [x + Math.cos(a) * d, cy - 0.2, z + Math.sin(a) * d], s: [0.8, 1, 1.2], r: [-1.35, -a + Math.PI / 2, 0] }); }
-    // Frutales: manzanas en verano y otoño, flores en primavera
-    if (kind === 'fruit' && season < 3) for (let i = 0; i < (season === 0 ? 14 : 9); i++) {
+    // Frutales: manzanas en verano y otoño (si no se acaban de coger: bare), flores en primavera
+    if (kind === 'fruit' && season < 3 && !(o.bare && season > 0)) for (let i = 0; i < (season === 0 ? 14 : 9); i++) {
       const a = r(60 + i) * Math.PI * 2, e = r(70 + i) * 0.9 - 0.2, d = 1.05 * k;
       push(season === 0 ? 'bloom' : 'apple', { p: [x + Math.cos(a) * Math.cos(e) * d, cy + Math.sin(e) * d * 0.8, z + Math.sin(a) * Math.cos(e) * d], s: season === 0 ? 0.09 : 0.12, c: season === 0 ? BLOSSOM[i % 3] : '#d8352a' });
     }
@@ -112,7 +112,7 @@ function pieces(o, season, out, owner, y = 0) {
       if (snowy) push('snowCone', { p: [x, cy + 0.32 * k, z], s: [w * 0.72, 0.55 * k, w * 0.72], r: [0, rot + i, 0] });
     }
   } else if (kind === 'palm') {
-    // Tronco curvado (cinco tramos) y penachos de hojas, con cocos
+    // Tronco curvado (cinco tramos) y penachos de hojas, con cocos (si no se acaban de coger)
     let px = x, py = y, pz = z;
     const lean = rot, segs = 5;
     for (let i = 0; i < segs; i++) {
@@ -121,7 +121,7 @@ function pieces(o, season, out, owner, y = 0) {
       px = nx; py = ny; pz = nz;
     }
     for (let i = 0; i < 7; i++) { const a = (i / 7) * Math.PI * 2 + rot; push('frond', { p: [px, py, pz], s: [1.2, 1, 1.4 * k], r: [-0.35 - (i % 2) * 0.25, -a + Math.PI / 2, 0] }); }
-    for (let i = 0; i < 3; i++) { const a = rot + i * 2.1; push('coconut', { p: [px + Math.cos(a) * 0.15, py - 0.15, pz + Math.sin(a) * 0.15], s: 0.11, c: '#6a4a2a' }); }
+    if (!o.bare) for (let i = 0; i < 3; i++) { const a = rot + i * 2.1; push('coconut', { p: [px + Math.cos(a) * 0.15, py - 0.15, pz + Math.sin(a) * 0.15], s: 0.11, c: '#6a4a2a' }); }
   } else if (kind === 'cactus') {
     const th = 1.5 * k;
     push('cactus', { p: [x, y + th / 2, z], s: [0.2, th, 0.2] });

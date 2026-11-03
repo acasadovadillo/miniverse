@@ -1,10 +1,10 @@
 // Pueblo Brotes: la zona hecha a mano donde empieza la partida. Es igual en todos los mundos.
-// Todo va en la cuadrícula: las casas están hechas de piezas de construcción (muros, ventanas, puerta,
+// Todo va en la cuadrícula: las casas y el taller están hechos de piezas de construcción (muros, ventanas, puerta,
 // tejado, hogar), la valla del jardín son piezas de valla, y los árboles, arbustos, farola, buzón,
 // cartel, tablón, vitrina y puestos ocupan casillas enteras.
 import { clamp } from '../util.js';
 import { CHUNK } from './gen.js';
-import { houseBlueprint, byChunk } from './blueprints.js';
+import { houseBlueprint, workshopBlueprint, byChunk } from './blueprints.js';
 
 export const HOUSE = { x0: 15, y0: 7, x1: 27, y1: 17 };      // huella de tu casa (12×10 casillas)
 export const HOUSE_BIG = { x0: 13, y0: 5, x1: 29, y1: 17 };   // la casa ampliada (16×12), con la puerta en el mismo sitio
@@ -25,6 +25,9 @@ export const HOUSES = {
 };
 // Casilla de delante de la puerta de una casa de vecino (la puerta está en x0+6, en la fila de abajo)
 export const doorOf = h => ({ x: h.x0 + 6.5, y: h.y1 + 0.5 });
+// El taller del pueblo (10×8), al oeste del camino: un banco de carpintero y un telar que puede usar cualquiera
+export const WORKSHOP = { x0: 1, y0: 32, x1: 11, y1: 40 };
+export const inWorkshop = (x, y, m = 0) => x > WORKSHOP.x0 - m && x < WORKSHOP.x1 + m && y > WORKSHOP.y0 - m && y < WORKSHOP.y1 + m;
 export const STALL = { x0: 25, y0: 23, x1: 27, y1: 24 };     // puesto de Rosa (2×1 casillas)
 export const BOARD = { x: 16.5, y: 22.5 };                     // tablón de encargos
 export const MUSEUM = { x: 14.5, y: 23.5 };                    // vitrina del museo del pueblo
@@ -41,6 +44,7 @@ const ownLot = () => (family ? HOUSE_FAMILY : HOUSE_BIG);
 // Caminitos desde el camino principal hasta cada puerta
 const SPURS = [
   [[16.8, 43], [28.5, 43]],
+  [[17.0, 41], [6.5, 41]],   // (al taller)
   [[16.1, 55], [8.5, 55.2]],
   [[16.1, 57], [27.5, 57], 'casa'],
 ];
@@ -57,7 +61,7 @@ export function distToPath(x, y) {
   for (const [a, b, need] of SPURS) if (!need || projects[need]) d = Math.min(d, distSeg(x, y, a[0], a[1], b[0], b[1]));
   return d;
 }
-const inHouse = (x, y, m = 0) => Object.values(HOUSES).some(h => (!h.project || projects[h.project]) && x > h.x0 - m && x < h.x1 + m && y > h.y0 - m && y < h.y1 + m);
+const inHouse = (x, y, m = 0) => inWorkshop(x, y, m) || Object.values(HOUSES).some(h => (!h.project || projects[h.project]) && x > h.x0 - m && x < h.x1 + m && y > h.y0 - m && y < h.y1 + m);
 // ¿Está dentro del solar de tu casa (el de la casa ampliada)? Ahí se puede construir aunque sea terreno del pueblo
 export const inOwnHouse = (x, y) => { const H = ownLot(); return x > H.x0 && x < H.x1 && y > H.y0 && y < H.y1; };
 export const pondDist = (x, y) => Math.hypot((x - POND.x) / POND.rx, (y - POND.y) / POND.ry);
@@ -69,7 +73,7 @@ export const isGrass = (x, y) => !inBounds(x, y) || (pondDist(x, y) > 1.25 && di
 export function keepClear(x, y) {
   if (!inBounds(x, y)) return false;
   return distToPath(x, y) < 2.4 || inYard(x, y, 1.5) || pondDist(x, y) < 1.6 || Math.hypot(x - SPAWN.x, y - SPAWN.y) < 3 ||
-    Object.values(HOUSES).some(h => x > h.x0 - 2 && x < h.x1 + 2 && y > h.y0 - 2 && y < h.y1 + 3) ||
+    [...Object.values(HOUSES), WORKSHOP].some(h => x > h.x0 - 2 && x < h.x1 + 2 && y > h.y0 - 2 && y < h.y1 + 3) ||
     Math.hypot(x - FOUNTAIN.x, y - FOUNTAIN.y) < 2.5 || (x > 23 && x < 28 && y > 21 && y < 25);
 }
 // Claro alrededor del pueblo: 0 en el centro, 1 lejos
@@ -110,6 +114,10 @@ export function buildVillage() {
     const bp = houseBlueprint({ x0: h.x0, y0: h.y0, roof: h.roof, furnish: 'npc' });
     for (const layer of ['placed', 'floor', 'roof']) Object.assign(fixed[layer], bp[layer]);
   }
+
+  // El taller, con su banco y su telar (de todos)
+  const ws = workshopBlueprint({ x0: WORKSHOP.x0, y0: WORKSHOP.y0 });
+  for (const layer of ['placed', 'floor', 'roof']) Object.assign(fixed[layer], ws[layer]);
 
   // Puesto de Rosa, tablón de encargos y lo que se construye con los proyectos (todo en casillas enteras;
   // fx, fy: la huella de lo que ocupa más de una)

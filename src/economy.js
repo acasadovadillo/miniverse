@@ -4,7 +4,7 @@ import { RECIPES } from './recipes.js';
 
 const BASE = {
   madera: 2, piedra: 2, fibra: 2, carbon: 6, cobre: 10, hierro: 18, oro: 40, bellota: 5, pina: 5,
-  coco: 15, manzana: 12, bayas: 6, pulpa: 10, huevo: 20, leche: 30, lana: 45, miel: 40, tablas: 2, abono: 6,
+  coco: 15, harina: 30, manzana: 12, bayas: 6, pulpa: 10, huevo: 20, leche: 30, lana: 45, miel: 40, tablas: 2, abono: 6,
   amatista: 80, esmeralda: 140, rubi: 200, diamante: 400, fosil_concha: 60, fosil_hueso: 120, fosil_ambar: 150,
   calavera: 30, moneda_antigua: 100, lingote_cobre: 36, lingote_hierro: 57, lingote_oro: 114,
   pocion_rapidez: 60, pocion_fuerza: 80, pocion_resistencia: 90, pocion_regeneracion: 90,

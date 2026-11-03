@@ -17,12 +17,13 @@ export class Rest {
   static yaw(dx, dy) { return Math.atan2(dx, dy); }
 
   // En una silla: en su centro, mirando hacia donde mira ella (con el giro que tenga: o.yaw)
-  // En el sofá, en la plaza que quede más cerca (la suya o la de al lado), algo más hundido
+  // En el sofá, en la plaza que quede más cerca (la suya o la de al lado), algo más hundido (y en el sillón)
   sit(o) {
     const yaw = o.yaw, p = this.p;
     let [x, y] = [o.x, o.y];
     if (o.placed === 'sofa') { const [sx, sy] = sideOf(yaw); if (Math.hypot(x + sx - p.x, y + sy - p.y) < Math.hypot(x - p.x, y - p.y)) { x += sx; y += sy; } }
-    this.take({ kind: 'sit', yaw, h: o.placed === 'sofa' ? SOFA : SEAT }, x + Math.sin(yaw) * (o.placed === 'sofa' ? 0.05 : -0.04), y + Math.cos(yaw) * (o.placed === 'sofa' ? 0.05 : -0.04));
+    const soft = o.placed === 'sofa' || o.placed === 'sillon';   // (en el sofá y en el sillón, más hundido y algo más adelante)
+    this.take({ kind: 'sit', yaw, h: soft ? SOFA : SEAT }, x + Math.sin(yaw) * (soft ? 0.05 : -0.04), y + Math.cos(yaw) * (soft ? 0.05 : -0.04));
   }
   // En una cama: boca arriba, con la cabeza en la almohada (la casilla de la cabecera). En la doble, del lado
   // que quede más cerca

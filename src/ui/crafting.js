@@ -1,6 +1,6 @@
 // Pantalla de fabricar: pestañas por estación, recetas (las bloqueadas salen como "???") y detalle con ingredientes.
-// Algunas estaciones tienen además su panel: en el yunque, arreglar y juntar; en el horno y el alambique, lo que
-// tienen dentro (machines.js); en la mesa de encantar, sus ofertas.
+// Algunas estaciones tienen además su panel: en el yunque, arreglar y juntar; en el horno, el alambique y la noria,
+// lo que tienen dentro (machines.js); en la mesa de encantar, sus ofertas.
 import { ITEMS } from '../items.js';
 import { RECIPES, STATIONS, lockedHint } from '../recipes.js';
 import { itemIconUrl } from '../art/items.js';
@@ -8,7 +8,7 @@ import { MACHINES, machineAt, settle, fits } from '../machines.js';
 import { enchName } from '../enchant.js';
 
 const $ = id => document.getElementById(id);
-const TAB_ICON = { mano: null, banco: 'banco', horno: 'horno', yunque: 'yunque', telar: 'telar', cocina: 'cocina', quesera: 'quesera', alambique: 'alambique', mesa_encantar: 'mesa_encantar' };
+const TAB_ICON = { mano: null, banco: 'banco', horno: 'horno', yunque: 'yunque', telar: 'telar', cocina: 'cocina', quesera: 'quesera', alambique: 'alambique', mesa_encantar: 'mesa_encantar', noria: 'noria' };
 
 export function initCraftingUI(game, { onClose, onBag }) {
   const cr = () => game.craft;
@@ -58,13 +58,13 @@ export function initCraftingUI(game, { onClose, onBag }) {
     extraPanel(near);
     // Si hay una estación de esta pestaña cerca, se puede recoger
     const st = near[tab];
-    $('cf-pick').hidden = !st || st === true;
+    $('cf-pick').hidden = !st || st === true || !!st.fixed;   // (las del taller del pueblo no se recogen)
     if (st && st !== true) $('cf-pick').textContent = `Guardar ${ITEMS[tab].name.toLowerCase()} en el inventario`;
     $('cf-where').textContent = tab === 'mano' ? 'Se fabrica en cualquier sitio.' : near[tab] ? `Estás junto a: ${STATIONS[tab].name.toLowerCase()}.` : `Para esto necesitas estar junto a: ${STATIONS[tab].name.toLowerCase()}.`;
   }
 
   // ---------- El panel de la estación ----------
-  let picking = null;   // (horno o alambique) la casilla para la que se está eligiendo qué poner
+  let picking = null;   // (horno, alambique o noria) la casilla para la que se está eligiendo qué poner
   function extraPanel(near) {
     const box = $('cf-repair'), c = cr(), st = near[tab];
     box.textContent = '';
@@ -107,7 +107,7 @@ export function initCraftingUI(game, { onClose, onBag }) {
     }
     box.hidden = !box.childElementCount;
   }
-  // El horno o el alambique: sus casillas (lo de dentro; al pulsar, se saca o se elige qué poner), el fuego, lo que
+  // El horno, el alambique o la noria: sus casillas (lo de dentro; al pulsar, se saca o se elige qué poner), el fuego, lo que
   // lleva hecho y lo hecho
   function machinePanel(box, tile, head, note) {
     const def = MACHINES[tab], kind = tab, M = game.machines;
@@ -131,7 +131,7 @@ export function initCraftingUI(game, { onClose, onBag }) {
     for (const [slot, label] of Object.entries(def.slots)) ins.append(slotBtn(slot, label, m[slot]));
     const bars = document.createElement('div');
     bars.className = 'mc-bars';
-    bars.innerHTML = `<span class="mc-fire" title="Combustible"><i style="height:${m.max ? Math.round((m.burn / m.max) * 100) : 0}%"></i></span><span class="mc-arrow" title="Lo que lleva hecho"><i style="width:${Math.round(((m.prog || 0) / def.time) * 100)}%"></i></span>`;
+    bars.innerHTML = (def.fuels ? `<span class="mc-fire" title="Combustible"><i style="height:${m.max ? Math.round((m.burn / m.max) * 100) : 0}%"></i></span>` : '<span class="mc-fire mc-water" title="La mueve el río"><i style="height:100%"></i></span>') + `<span class="mc-arrow" title="Lo que lleva hecho"><i style="width:${Math.round(((m.prog || 0) / def.time) * 100)}%"></i></span>`;
     wrap.append(ins, bars, slotBtn('out', 'Hecho', m.out));
     box.append(wrap);
     if (picking) {
@@ -145,7 +145,7 @@ export function initCraftingUI(game, { onClose, onBag }) {
         b.onclick = () => { M.put(tile, kind, picking, i); picking = null; refresh(); };
         box.append(b);
       }
-    } else if (!m.in && !m.out) note(tab === 'horno' ? 'Pon mineral (cobre, hierro u oro) o madera, y combustible: cada cosa tarda 10 segundos. Sigue aunque te vayas.' : 'Pon un ingrediente (miel, bayas, calavera, plumas o amatista), hasta 3 frascos y carbón: tarda 20 segundos.');
+    } else if (!m.in && !m.out) note(def.help);
   }
 
   function showRecipe(r, near) {

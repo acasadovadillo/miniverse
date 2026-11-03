@@ -34,7 +34,7 @@ export const ITEMS = {
   lingote_hierro: { name: 'Lingote de hierro', desc: 'Para herramientas de hierro en el yunque.' },
   lingote_oro: { name: 'Lingote de oro', desc: 'Para las mejores herramientas.' },
   // Comida (food: energía que da)
-  coco: { name: 'Coco', desc: 'Cuesta abrirlo, pero merece la pena.', food: 12 },
+  coco: { name: 'Coco', desc: 'Se cogen de las palmeras con E (vuelven a salir a los 3 días) o talándolas. Cuesta abrirlo, pero merece la pena.', food: 12 },
   manzana: { name: 'Manzana', desc: 'Crujiente y dulce.', food: 15 },
   bayas: { name: 'Bayas', desc: 'Un puñado de bayas silvestres.', food: 8 },
   pulpa: { name: 'Pulpa de cactus', desc: 'Jugosa, aunque pincha un poco.', food: 10 },
@@ -136,6 +136,8 @@ Object.assign(ITEMS, {
   quesera: { name: 'Quesera', desc: 'Estación: quesos, queso de cabra y mantequilla.', place: 'station' },
   alambique: { name: 'Alambique', desc: 'Estación: destila pociones con carbón, frascos y un ingrediente (miel, bayas, calavera, plumas o amatista).', place: 'station' },
   mesa_encantar: { name: 'Mesa de encantar', desc: 'Estación: encanta herramientas, armas y armaduras a cambio de niveles de experiencia y amatistas.', place: 'station' },
+  noria: { name: 'Noria', desc: 'Se pone en un río, cerca de la orilla, y gira con el agua: muele el trigo en harina y cada mañana riega sola la tierra labrada de alrededor (hasta 4 casillas a cada lado).', place: 'station' },
+  harina: { name: 'Harina', desc: 'Trigo molido en la noria. En la cocina, con dos se hace un pan.' },
 });
 // Peces: dónde viven, cuándo (estaciones, horas y tiempo) y cómo pelean al pescarlos:
 // dif: lo difícil que es (0 a 1); mov: cómo se mueve (calmo, mixto, nervioso, fondo: tira hacia abajo,
@@ -256,7 +258,14 @@ Object.assign(ITEMS, {
   banera: { name: 'Bañera', desc: 'De porcelana, con patas de latón. Ocupa dos casillas.', place: 'furniture' },
   inodoro: { name: 'Retrete', desc: 'De porcelana, con asiento de madera.', place: 'furniture' },
   lavabo: { name: 'Lavabo', desc: 'De porcelana, con un espejo encima.', place: 'furniture' },
+  // Para el salón y el dormitorio
+  mesa_baja: { name: 'Mesa baja', desc: 'Mesita de centro, con un estante abajo: para delante del sofá o del sillón.', place: 'furniture' },
+  sillon: { name: 'Sillón', desc: 'De cuero, de una plaza, con orejas y un cojín. Siéntate en él con E.', place: 'furniture' },
+  mesita: { name: 'Mesita de noche', desc: 'Con un cajón y un hueco para un libro: junto a la cama. Guarda 9 montones de cosas: ábrela con E.', place: 'furniture' },
+  comoda: { name: 'Cómoda', desc: 'Tres cajones grandes con tiradores de latón. Guarda 18 montones de cosas: ábrela con E.', place: 'furniture' },
 });
+// Lo que guarda cosas dentro (se abre con E): cuántos montones y cómo se dice
+export const CHESTS = { cofre: [18, 'el cofre'], armario: [27, 'el armario'], mochila: [27, 'la mochila'], mesita: [9, 'la mesita'], comoda: [18, 'la cómoda'] };
 // Armaduras: casco, peto, grebas y botas de cobre, hierro y oro, que se forjan en el yunque y se llevan puestas en
 // los huecos de la ropa (cabeza, encima, piernas y pies). armor: lo que protege (cada punto quita un 4 % del daño,
 // como en Minecraft); dur: los golpes que aguanta
@@ -291,7 +300,7 @@ export const HARVEST = {
   fruit: { ...TREE, drops: [['madera', 3, 4], ['manzana', 2, 3]] },
   pine: { ...TREE, drops: [['madera', 3, 5], ['pina', 1, 1, 0.3]] },
   snowPine: { ...TREE, drops: [['madera', 3, 5], ['pina', 1, 1, 0.3]] },
-  palm: { ...TREE, hits: 3, drops: [['madera', 2, 3], ['coco', 1, 1, 0.5]] },
+  palm: { ...TREE, hits: 3, fruit: 'coco', drops: [['madera', 2, 3], ['coco', 2, 3]] },   // (fruit: lo que no suelta si se le acaba de coger)
   swampTree: { ...TREE, drops: [['madera', 3, 4], ['fibra', 1, 2, 0.4]] },
   cactus: { tool: 'hacha', hits: 2, chips: 'cactus', verb: 'Cortar', drops: [['pulpa', 1, 2], ['fibra', 1, 1, 0.5]] },
   bush: { tool: 'guadana', hand: 2, hits: 1, chips: 'leaf', verb: 'Segar', drops: [['fibra', 1, 2], ['bayas', 1, 2, 0.5], ['semillas', 1, 2, 0.3]] },

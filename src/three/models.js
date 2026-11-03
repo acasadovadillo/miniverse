@@ -101,6 +101,54 @@ const BUILD = {
     for (const x of [x0, x1 - 0.14]) m.box('sofa', x, 0.3, z0, x + 0.14, 0.6, z1);                // los brazos
     m.box('sofaB', 0.15, 0.44, z0 + 0.16, 0.42, 0.7, z0 + 0.26, 0.5).box('quiltB', 0.7, 0.44, z0 + 0.17, 0.92, 0.66, z0 + 0.26);   // dos cojines de respaldo
   },
+  // Sillón de cuero, de una plaza: patas, base, cojín del asiento, respaldo alto con orejas, brazos y un cojín
+  sillon(m) {
+    const X = 0.42, z0 = -0.4, z1 = 0.38, a = 0.13;
+    for (const x of [-X + 0.04, X - 0.1]) for (const z of [z0 + 0.04, z1 - 0.1]) m.box('dark', x, 0, z, x + 0.06, 0.1, z + 0.06);
+    m.box('leather', -X, 0.1, z0, X, 0.3, z1);                                                       // la base
+    m.box('leather', -X + a, 0.3, z0 + 0.18, X - a, 0.43, z1 - 0.01, 0.6);                          // el cojín del asiento
+    m.box('leather', -X, 0.3, z0, X, 1.02, z0 + 0.18);                                               // el respaldo
+    for (const s of [-1, 1]) {
+      const x0 = s < 0 ? -X : X - a, x1 = x0 + a;
+      m.box('leather', x0, 0.3, z0 + 0.18, x1, 0.6, z1);                                             // los brazos
+      m.box('leatherD', x0 - 0.01, 0.6, z0 + 0.18, x1 + 0.01, 0.64, z1 + 0.01);                       // con su remate
+      m.box('leather', x0, 0.64, z0 + 0.18, x1, 0.96, z0 + 0.34);                                    // las orejas
+    }
+    m.box('leatherD', -X, 0.98, z0 - 0.01, X, 1.04, z0 + 0.19);
+    m.box('quiltB', -0.17, 0.43, z0 + 0.19, 0.17, 0.74, z0 + 0.3, 0.5);                              // el cojín
+  },
+  // Mesa baja de centro: tablero, patas, un estante abajo con dos libros y, encima, una taza y un libro
+  mesa_baja(m) {
+    const X = 0.46, Z = 0.3;
+    m.box('light', -X, 0.38, -Z, X, 0.44, Z);
+    for (const [a, b] of [[-X + 0.03, -Z + 0.03], [X - 0.09, -Z + 0.03], [-X + 0.03, Z - 0.09], [X - 0.09, Z - 0.09]]) m.box('wood', a, 0, b, a + 0.06, 0.38, b + 0.06);
+    m.box('wood', -X + 0.04, 0.1, -Z + 0.04, X - 0.04, 0.13, Z - 0.04);                              // el estante
+    m.B('books1').box(-0.3, 0.13, -0.12, -0.02, 0.17, 0.1, { s: 0.5 }); m.B('books3').box(-0.27, 0.17, -0.1, -0.05, 0.2, 0.08, { s: 0.5 });
+    m.cyl('plate', 0.22, 0.44, 0.04, 0.045, 0.05, 0.08, 10).cyl('soot', 0.22, 0.52, 0.04, 0.04, 0.04, 0.002, 10);   // una taza
+    m.geo('plate', new THREE.TorusGeometry(0.025, 0.008, 4, 8), 0.275, 0.48, 0.04);
+    m.B('books4').box(-0.22, 0.44, -0.14, 0.04, 0.47, 0.06, { s: 0.5 });
+  },
+  // Mesita de noche: patas, cuerpo, un cajón con tirador y, debajo, un hueco con un libro
+  mesita(m) {
+    const X = 0.25, z0 = -0.2, z1 = 0.18;
+    for (const x of [-X, X - 0.05]) for (const z of [z0, z1 - 0.05]) m.box('dark', x, 0, z, x + 0.05, 0.08, z + 0.05);
+    m.box('wood', -X, 0.08, z0, X, 0.12, z1).box('wood', -X, 0.12, z0, -X + 0.03, 0.58, z1).box('wood', X - 0.03, 0.12, z0, X, 0.58, z1).box('wood', -X, 0.12, z0, X, 0.58, z0 + 0.03);
+    m.box('wood', -X + 0.03, 0.36, z0 + 0.03, X - 0.03, 0.39, z1);                                  // el suelo del cajón
+    m.box('dark', -X + 0.03, 0.39, z1 - 0.03, X - 0.03, 0.56, z1 + 0.01).ball('brass', 0, 0.475, z1 + 0.025, 0.022);   // el cajón
+    m.box('light', -X - 0.02, 0.58, z0 - 0.02, X + 0.02, 0.62, z1 + 0.02);
+    m.B('books0').box(-0.16, 0.12, -0.1, -0.12, 0.32, 0.1, { s: 0.5 }); m.B('books5').box(-0.11, 0.12, -0.1, -0.07, 0.3, 0.1, { s: 0.5 });
+  },
+  // Cómoda: tres cajones grandes con dos tiradores cada uno, encimera y zócalo
+  comoda(m) {
+    const X = 0.46, z0 = -0.24, z1 = 0.2;
+    for (const x of [-X + 0.02, X - 0.08]) for (const z of [z0 + 0.02, z1 - 0.06]) m.box('dark', x, 0, z, x + 0.06, 0.08, z + 0.06);
+    m.box('wood', -X, 0.08, z0, X, 0.9, z1).box('dark', -X - 0.01, 0.08, z0 - 0.01, X + 0.01, 0.14, z1 + 0.01);
+    m.box('light', -X - 0.03, 0.9, z0 - 0.03, X + 0.03, 0.95, z1 + 0.03);
+    for (const y of [0.17, 0.42, 0.66]) {
+      m.box('light', -X + 0.05, y, z1, X - 0.05, y + 0.21, z1 + 0.02);
+      for (const x of [-0.22, 0.22]) m.box('brass', x - 0.06, y + 0.095, z1 + 0.02, x + 0.06, y + 0.115, z1 + 0.04);
+    }
+  },
   cama_doble(m) {
     const L = 1.9, x0 = -0.47, x1 = 1.47, z0 = -0.46, z1 = z0 + L;
     m.box('dark', x0, 0, z0, x0 + 0.09, 1.1, z0 + 0.09).box('dark', x1 - 0.09, 0, z0, x1, 1.1, z0 + 0.09).box('wood', x0 + 0.09, 0.35, z0 + 0.01, x1 - 0.09, 1.0, z0 + 0.07);
@@ -303,6 +351,32 @@ const BUILD = {
     m.geo('ember', ICO, 0, 0.18, 0.3, [0, 0, 0], [0.13, 0.05, 0.05]);
     m.fire(0, 0.16, 0.3, 0.45).light(0, 0.4, 0.5, { color: '#ff8a3a', intensity: 1.8, range: 5, flicker: true });
     m.smoke.push([0.3, 1.9, -0.25]);
+  },
+  // Noria: dos caballetes con el eje, la rueda de paletas (que gira, aparte: spin) y, a su derecha, la canaleta que
+  // lleva el agua que sube hasta la orilla
+  noria(m) {
+    const H = 0.74, R = 0.95, M = modelMats();   // (el eje, algo más bajo que el radio: la rueda entra en el agua)
+    for (const x of [-0.34, 0.34]) {
+      m.box('dark', x - 0.05, 0, -0.56, x + 0.05, 0.08, 0.56);                                        // la zapata
+      m.cyl('dark', x, 0, -0.48, 0.04, 0.04, 1.02, 6, [0.45, 0, 0]).cyl('dark', x, 0, 0.48, 0.04, 0.04, 1.02, 6, [-0.45, 0, 0]);   // el caballete
+      m.box('iron', x - 0.06, H - 0.07, -0.07, x + 0.06, H + 0.07, 0.07);                             // el cojinete
+    }
+    m.cyl('iron', -0.42, H, 0, 0.045, 0.045, 0.84, 8, [0, 0, -Math.PI / 2]);                         // el eje
+    const y = H + R - 0.1;
+    m.box('wood', 0.26, y, -0.13, 1.5, y + 0.04, 0.13).box('wood', 0.26, y + 0.04, -0.13, 1.5, y + 0.14, -0.1).box('wood', 0.26, y + 0.04, 0.1, 1.5, y + 0.14, 0.13);
+    m.box('water', 0.26, y + 0.04, -0.1, 1.5, y + 0.09, 0.1);
+    m.box('dark', 1.34, 0, -0.05, 1.44, y, 0.05);
+    const wheel = new THREE.Group(), add = (geo, mt, x, yy, z, rx = 0, ry = 0, rz = 0) => { const o = new THREE.Mesh(geo, mt); o.position.set(x, yy, z); o.rotation.set(rx, ry, rz); wheel.add(o); };
+    add(new THREE.CylinderGeometry(0.12, 0.12, 0.46, 10), M.dark, 0, 0, 0, 0, 0, Math.PI / 2);      // el cubo
+    const rim = new THREE.TorusGeometry(R, 0.035, 6, 32), spoke = new THREE.BoxGeometry(0.05, R * 2, 0.05), paddle = new THREE.BoxGeometry(0.44, 0.24, 0.035);
+    for (const x of [-0.18, 0.18]) {
+      add(rim, M.wood, x, 0, 0, 0, Math.PI / 2, 0);
+      for (let i = 0; i < 4; i++) add(spoke, M.dark, x, 0, 0, (i / 4) * Math.PI);
+    }
+    for (let i = 0; i < 12; i++) { const a = (i / 12) * Math.PI * 2; add(paddle, M.wood, 0, Math.cos(a) * (R - 0.08), Math.sin(a) * (R - 0.08), a); }
+    wheel.position.set(0, H, 0); wheel.rotation.order = 'YXZ'; wheel.userData.spin = -0.7;
+    m.extra(wheel);
+    m.solids.push([-0.24, 0, -R, 0.24, H + R, R]);   // (lo que ocupa la rueda: no se le pone nada encima)
   },
   aspersor(m) {
     m.cyl('copper', 0, 0, 0, 0.12, 0.1, 0.06, 10).cyl('copper', 0, 0.06, 0, 0.025, 0.025, 0.3, 6).box('copper', -0.16, 0.34, -0.02, 0.16, 0.38, 0.02).box('copper', -0.02, 0.34, -0.16, 0.02, 0.38, 0.16);

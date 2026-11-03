@@ -92,6 +92,7 @@ export class World3D {
       if (on || b.shaking?.has(key)) { shake(b.nat, key, on ? Math.sin(game.time * 90) * 0.04 : 0); if (on) (b.shaking ||= new Set()).add(key); else b.shaking.delete(key); }
     }
     this.updateDoors(scene, dt);
+    for (const c of this.chunks.values()) if (c.spin) for (const o of c.spin) o.rotation.x += o.userData.spin * dt;
     this.updateFade(game, scene, dt);
     // Las ventanas se encienden de noche
     const glow = this.view.night * 1.2;
@@ -207,7 +208,7 @@ export class World3D {
           if (NATURE.has(o.kind) && !o.poi) { nat.push(o); shakers.set(o.key, o); }
           else if (o.sapling) nat.push({ kind: 'sapling', tree: o.sapling, x: o.x, y: o.y, key: o.key });
         }
-        const natSig = nat.map(o => o.key).join(','), gSig = datas.map(([cx, cy, d]) => this.signature(scene, cx, cy, d)).join('|');
+        const natSig = nat.map(o => o.key + (o.bare ? '-' : '')).join(','), gSig = datas.map(([cx, cy, d]) => this.signature(scene, cx, cy, d)).join('|');
         if (!b) { b = { group: new THREE.Group(), nat: null, ground: null, bx, by }; this.group.add(b.group); this.nature.set(k, b); }
         if (natSig !== b.natSig) {
           if (b.nat) { b.group.remove(b.nat.group); b.nat.group.traverse(o => { if (o.isInstancedMesh) o.dispose(); }); }
@@ -253,7 +254,13 @@ export class World3D {
     if (!m) return;
     for (const [key, B] of m.parts) emit(off ? UNLIT[key] || key : key, '').add(B.transformed(x, 0, z, yaw));
     const cs = Math.cos(yaw), sn = Math.sin(yaw), at = (p) => [x + p[0] * cs + p[2] * sn, p[1], z - p[0] * sn + p[2] * cs];
-    for (const e of m.extras) { const o = e.clone(); o.position.set(...at([e.position.x, e.position.y, e.position.z])); o.rotation.y += yaw; o.traverse(q => { if (q.isMesh) { q.castShadow = true; q.receiveShadow = true; } }); group.add(o); }
+    for (const e of m.extras) {
+      const o = e.clone();
+      o.position.set(...at([e.position.x, e.position.y, e.position.z])); o.rotation.y += yaw;
+      o.traverse(q => { if (q.isMesh) { q.castShadow = true; q.receiveShadow = true; } });
+      if (o.userData.spin) (c.spin ||= []).push(o);   // (lo que gira: la rueda de la noria)
+      group.add(o);
+    }
     if (!off) for (const l of m.lights) c.lights.push({ ...l, ...Object.fromEntries(['x', 'y', 'z'].map((k, i) => [k, at([l.x, l.y, l.z])[i]])) });
     if (!off) for (const f of m.fires) c.flames.push([...at(f), f[3]]);
     if (!off) for (const s of m.smoke) c.smoke.push(at(s));

@@ -1,16 +1,20 @@
 // Huerto: sembrar en tierra labrada, regar (o que llueva), abonar y cosechar. Los cultivos crecen un paso
 // cada mañana si la tierra estuvo mojada el día anterior. También se plantan árboles con bellotas, piñas
-// o semillas de manzano, y los manzanos dan manzanas cada pocos días.
+// o semillas de manzano; los manzanos dan manzanas y las palmeras, cocos, cada pocos días (se cogen con E).
 import { CROPS } from './items.js';
 import { CHUNK } from './world/gen.js';
 import { B } from './world/biomes.js';
 import { inBounds, isGrass, pondDist } from './world/village.js';
 import { Audio } from './audio.js';
+import { parsePlaced } from './pieces.js';
 
 export const CAN_MAX = 20;
 const TREE_DAYS = 3;              // días que tarda un arbolito en hacerse árbol
-const FRUIT_EVERY = 3;            // un manzano da manzanas cada tantos días
+const FRUIT_EVERY = 3;            // un manzano da manzanas (y una palmera, cocos) cada tantos días
+// Lo que da cada árbol con fruta al cogerla, cómo se dice y si en invierno no tiene
+const FRUIT = { fruit: { drops: [['manzana', 2, 3]], text: 'Coger manzanas', winter: false }, palm: { drops: [['coco', 1, 3]], text: 'Coger cocos', winter: true } };
 const key = (tx, ty) => `${tx},${ty}`;
+const WATERS = { aspersor: 1, noria: 4 };   // lo que riega solo cada mañana: hasta cuántas casillas a cada lado
 
 export class Farm {
   constructor(game) {
@@ -35,9 +39,10 @@ export class Farm {
     return c.grow >= days ? 3 : c.grow >= days / 2 ? 2 : c.grow >= 1 ? 1 : 0;
   }
 
-  // Cultivos y árboles plantados de un trozo
+  // Cultivos y árboles plantados de un trozo (y, en los árboles con fruta recién cogida, que no se vea: bare)
   addContent(cx, cy, d, out) {
     if (!d) return;
+    if (d.picked) out.objects.forEach((o, i) => { if (FRUIT[o.kind] && !this.hasFruit(d, o)) out.objects[i] = { ...o, bare: true }; });
     for (const [k, c] of Object.entries(d.crops || {})) {
       const [tx, ty] = k.split(',').map(Number);
       out.objects.push({ x: tx + 0.5, y: ty + 0.5, key: 'crop:' + k, tile: [tx, ty], crop: c });
@@ -61,7 +66,8 @@ export class Farm {
     this.world.touchAround(tx, ty);
   }
 
-  // Cada mañana: crecen los cultivos regados, los de fuera de temporada se secan, la lluvia y los aspersores riegan
+  // Cada mañana: crecen los cultivos regados, los de fuera de temporada se secan, la lluvia, los aspersores y las
+  // norias riegan
   onDay(day) {
     if (this.game.live.guest) return;   // (en el mundo de otro, los cultivos los hace crecer su juego)
     const w = this.world, season = this.game.days.season, rain = !!this.game.days.info.rain;
@@ -75,12 +81,13 @@ export class Farm {
         if (!crop.seasons.includes(season)) { c.dead = true; changed = true; continue; }
         if (d.wet[k] === day - 1 && c.grow < crop.days) { c.grow += c.fert ? 1.5 : 1; changed = true; }
       }
-      // Hoy riegan la lluvia y los aspersores
+      // Hoy riegan la lluvia, los aspersores y las norias
       if (rain) for (const k of Object.keys(d.tilled)) d.wet[k] = day;
       for (const [k, raw] of Object.entries(d.placed || {})) {
-        if (raw !== 'aspersor') continue;
-        const [tx, ty] = k.split(',').map(Number);
-        for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+        const id = parsePlaced(raw)[0], r = WATERS[id];
+        if (!r) continue;
+        const pos = d.pos?.[`placed:${k}`], [tx, ty] = pos ? [Math.floor(pos[0]), Math.floor(pos[1])] : k.split(',').map(Number);
+        for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) {
           const nd = this.d(tx + dx, ty + dy), nk = key(tx + dx, ty + dy);
           if (nd?.tilled[nk] !== undefined) { nd.wet ||= {}; nd.wet[nk] = day; }
         }
@@ -125,7 +132,7 @@ export class Farm {
       if (this.ready(c) && Math.hypot(tx + 0.5 - p.x, ty + 0.5 - p.y) < 1.2) return { text: 'Cosechar', run: () => this.harvest(tx, ty) };
     }
     const tree = this.fruitTreeNear(p);
-    if (tree) return { text: 'Coger manzanas', run: () => this.pickApples(tree) };
+    if (tree) return { text: FRUIT[tree.kind].text, run: () => this.pickFruit(tree) };
     return null;
   }
 
@@ -199,23 +206,24 @@ export class Farm {
     g.stats?.add('arboles', 1);
   }
 
-  // Manzanos (del mundo o plantados) con fruta madura cerca
+  // Árboles con fruta (manzanos y palmeras, del mundo o plantados) con la fruta madura cerca
+  hasFruit(d, o) { return (d?.picked?.[o.key] ?? -99) <= this.today - FRUIT_EVERY; }
   fruitTreeNear(p) {
-    if (this.game.days.season === 3) return null;
+    const winter = this.game.days.season === 3;
     for (const o of this.world.harvestablesNear(p.x, p.y)) {
-      if (o.kind !== 'fruit' || Math.hypot(o.x - p.x, o.y - p.y) > 1.4) continue;
-      const d = this.d(Math.floor(o.x), Math.floor(o.y), true);
-      d.picked ||= {};
-      if ((d.picked[o.key] ?? -99) <= this.today - FRUIT_EVERY) return o;
+      const f = FRUIT[o.kind];
+      if (!f || (winter && !f.winter) || Math.hypot(o.x - p.x, o.y - p.y) > 1.4) continue;
+      if (this.hasFruit(this.d(Math.floor(o.x), Math.floor(o.y)), o)) return o;
     }
     return null;
   }
-  pickApples(o) {
-    const d = this.d(Math.floor(o.x), Math.floor(o.y), true);
-    d.picked[o.key] = this.today;
-    this.world.chestTouched(Math.floor(o.x), Math.floor(o.y));
+  // Sacudirlo: cae la fruta y, hasta que vuelva a salir, no se ve en el árbol
+  pickFruit(o) {
+    const tx = Math.floor(o.x), ty = Math.floor(o.y), d = this.d(tx, ty, true);
+    (d.picked ||= {})[o.key] = this.today;
+    this.world.touch(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK));
     o.shakeUntil = this.game.time + 0.3;
-    this.game.gather.spawnDrops(o, { drops: [['manzana', 2, 3]] });
+    this.game.gather.spawnDrops(o, { drops: FRUIT[o.kind].drops });
     Audio.swish();
   }
 

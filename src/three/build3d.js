@@ -224,7 +224,7 @@ function beamGeo(B, p0, p1, b, n, w, d) {
 
 // ---------- puertas ----------
 // El hueco con su marco y el trozo de muro de encima (del muro de al lado), y la hoja, que se devuelve aparte
-// para animarla: { tile, hinge (posición), X, outSign, side }
+// para animarla: { tile, hinge (posición), X, outSign (hacia fuera), swing (hacia dónde se abre), side }
 export function doorTile(scene, tx, ty, emit, extras) {
   const solid = (x, y) => { const p = scene.pieceAt(x, y); return p && p.kind !== 'fence'; };
   const X = solid(tx - 1, ty) || solid(tx + 1, ty) || !(solid(tx, ty - 1) || solid(tx, ty + 1));
@@ -246,8 +246,11 @@ export function doorTile(scene, tx, ty, emit, extras) {
   }
   box('frame', h0, h1, 0, FLOOR_H + 0.015, -T, T);   // umbral (un poco más alto que el suelo: a la misma altura, los dos parpadeaban)
   if (side !== 'in') box('stone', h0 - 0.1, h1 + 0.1, 0, 0.1, outSign * (T + 0.05), outSign * (T + 0.5));
-  const hinge = X ? [h0 + 0.02, 0, c + outSign * (T + 0.04)] : [c + outSign * (T + 0.04), 0, h0 + 0.02];
-  return { tile: [tx, ty], X, outSign, side, hinge, width: DOOR.half * 2 - 0.03 };
+  // La hoja se abre hacia dentro de la casa (las de entre dos cuartos, y las sueltas, hacia +x o +y): la bisagra va
+  // en la cara de ese lado
+  const swing = side === 'in' || side === 'free' ? outSign : -outSign;
+  const hinge = X ? [h0 + 0.02, 0, c + swing * (T + 0.04)] : [c + swing * (T + 0.04), 0, h0 + 0.02];
+  return { tile: [tx, ty], X, outSign, swing, side, hinge, width: DOOR.half * 2 - 0.03 };
 }
 // La hoja de una puerta: tablas con sus refuerzos y el tirador. Gira sobre la bisagra: a = 0 cerrada, 1 abierta
 export function doorLeaf(d, mats) {
@@ -258,7 +261,7 @@ export function doorLeaf(d, mats) {
   const g = new THREE.Group();
   g.position.set(...d.hinge);
   g.add(leaf.mesh(mats.door), bars.mesh(mats.frame));
-  const along = d.X ? [1, 0] : [0, 1], out = d.X ? [0, d.outSign] : [d.outSign, 0], beta = 1.95;
+  const along = d.X ? [1, 0] : [0, 1], out = d.X ? [0, d.swing] : [d.swing, 0], beta = 1.95;
   g.userData.setAngle = a => { const b = beta * a, dx = along[0] * Math.cos(b) + out[0] * Math.sin(b), dz = along[1] * Math.cos(b) + out[1] * Math.sin(b); g.rotation.y = Math.atan2(-dz, dx); };
   return g;
 }

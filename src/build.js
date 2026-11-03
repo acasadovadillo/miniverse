@@ -2,7 +2,7 @@
 // o lo que hay delante del jugador) y se pone pagando sus materiales. Quitar devuelve los materiales
 // (o el mueble a la mochila). Lo fijo del pueblo y de las aldeas no se puede quitar.
 import { PIECES, parsePlaced } from './pieces.js';
-import { ITEMS } from './items.js';
+import { ITEMS, CHESTS } from './items.js';
 import { floorSprite, wallSprite, doorSprite, hearthSprite, roofSprite, fenceSprite } from './art/build.js';
 import { Audio } from './audio.js';
 
@@ -100,7 +100,7 @@ export class BuildMode {
     const g = this.game, sc = g.scene, layer = this.removable(t);
     if (!layer || !this.inReach(t)) { Audio.error(); return; }
     const [id] = parsePlaced(this.ownAt(layer, t)), o = { tile: t, layer, placed: id };
-    if (id === 'cofre' && sc.chestAt(...t)?.some(Boolean)) { g.gather.float('Vacía el cofre antes', '#ffb0a0'); Audio.error(); return; }
+    if (CHESTS[id] && sc.chestAt(...t)?.some(Boolean)) { g.gather.float(`Vacía ${CHESTS[id][1]} antes`, '#ffb0a0'); Audio.error(); return; }
     if (PIECES[id] && !ITEMS[id]) {
       if (sc.unplace(o) === false) { Audio.error(); return; }   // lo fijo no se quita ni devuelve materiales
       for (const [m, n] of PIECES[id].cost) { const left = g.inv.add(m, n); if (left) g.gather.throwOut(m, left); }

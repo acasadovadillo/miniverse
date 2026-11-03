@@ -1,23 +1,32 @@
-// Lo que lleva su tiempo, como en Minecraft: el horno funde (cada mineral, un lingote) y hace carbón, y el alambique
-// destila pociones (un ingrediente llena hasta tres frascos). Cada uno tiene sus casillas (lo que se funde o el
-// ingrediente, los frascos y el combustible) y lo hecho, que se recoge (y da experiencia). Sigue solo aunque no estés
-// delante: lo que lleva hecho se calcula con el tiempo que ha pasado; sin combustible o sin nada que hacer, se para.
+// Lo que lleva su tiempo, como en Minecraft: el horno funde (cada mineral, un lingote) y hace carbón, el alambique
+// destila pociones (un ingrediente llena hasta tres frascos) y la noria muele el trigo en harina (sin combustible: la
+// mueve el río). Cada uno tiene sus casillas (lo que se funde o el ingrediente, los frascos y el combustible) y lo
+// hecho, que se recoge (y da experiencia). Sigue solo aunque no estés delante: lo que lleva hecho se calcula con el
+// tiempo que ha pasado; sin combustible o sin nada que hacer, se para.
 // Se guarda en el trozo del mundo, como los cofres: jugando juntos lo ven y lo usan todos.
 import { ITEMS } from './items.js';
 import { CHUNK } from './world/gen.js';
 import { Audio } from './audio.js';
 
 // time: segundos por cada cosa; makes: lo que sale de cada cosa y la experiencia que da; fuels: los segundos que arde
+// cada combustible (sin fuels, no le hace falta); the: cómo se dice; help: lo que se explica con él vacío
 export const MACHINES = {
   horno: {
-    title: 'Fundir', time: 10, slots: { in: 'Para fundir', fuel: 'Combustible' },
+    title: 'Fundir', the: 'el horno', time: 10, slots: { in: 'Para fundir', fuel: 'Combustible' },
+    help: 'Pon mineral (cobre, hierro u oro) o madera, y combustible: cada cosa tarda 10 segundos. Sigue aunque te vayas.',
     makes: { cobre: ['lingote_cobre', 0.7], hierro: ['lingote_hierro', 0.7], oro: ['lingote_oro', 1], madera: ['carbon', 0.15] },
     fuels: { carbon: 80, madera: 15, tablas: 7.5, fibra: 2.5, heno: 4 },
   },
   alambique: {
-    title: 'Destilar', time: 20, bottles: 3, slots: { in: 'Ingrediente', bottle: 'Frascos', fuel: 'Carbón' },
+    title: 'Destilar', the: 'el alambique', time: 20, bottles: 3, slots: { in: 'Ingrediente', bottle: 'Frascos', fuel: 'Carbón' },
+    help: 'Pon un ingrediente (miel, bayas, calavera, plumas o amatista), hasta 3 frascos y carbón: tarda 20 segundos.',
     makes: { miel: ['pocion', 0.5], bayas: ['pocion_regeneracion', 0.5], calavera: ['pocion_fuerza', 0.5], plumas: ['pocion_rapidez', 0.5], amatista: ['pocion_resistencia', 0.5] },
     fuels: { carbon: 80 },
+  },
+  noria: {
+    title: 'Moler', the: 'la noria', time: 6, slots: { in: 'Para moler' },
+    help: 'Pon trigo: el río la mueve y cada uno sale en harina en 6 segundos, aunque te vayas. Además, cada mañana riega sola la tierra labrada de alrededor (hasta 4 casillas a cada lado).',
+    makes: { trigo: ['harina', 0.1] },
   },
 };
 const MAX_STACK = id => ITEMS[id].stack || 99;
@@ -25,7 +34,7 @@ const MAX_STACK = id => ITEMS[id].stack || 99;
 // Lo que cabe en cada casilla
 export function fits(def, slot, id) {
   if (slot === 'in') return !!def.makes[id];
-  if (slot === 'fuel') return !!def.fuels[id];
+  if (slot === 'fuel') return !!def.fuels?.[id];
   if (slot === 'bottle') return id === 'frasco';
   return false;
 }
@@ -46,14 +55,15 @@ export function settle(m, def, now = Date.now()) {
   while (dt > 1e-6) {
     const r = job(m, def);
     if (!r) { m.prog = 0; break; }
-    if (!(m.burn > 1e-6)) {
+    if (def.fuels && !(m.burn > 1e-6)) {
       const f = m.fuel && def.fuels[m.fuel.id];
       if (!f) { m.prog = 0; break; }
       m.burn = m.max = f;
       take(m, 'fuel', 1);
     }
-    const step = Math.min(dt, m.burn, def.time - (m.prog || 0));
-    m.prog = (m.prog || 0) + step; m.burn -= step; dt -= step;
+    const step = Math.min(dt, def.fuels ? m.burn : Infinity, def.time - (m.prog || 0));
+    m.prog = (m.prog || 0) + step; dt -= step;
+    if (def.fuels) m.burn -= step;
     if (m.prog >= def.time - 1e-6) {
       m.prog = 0;
       take(m, 'in', 1);
@@ -74,7 +84,7 @@ export function machineAt(world, tile, create = false) {
 }
 export const machineEmpty = m => !m || !(m.in || m.fuel || m.out || m.bottle);
 
-// Lo que se hace con él desde la pantalla de fabricar (kind: horno o alambique; tile: dónde está)
+// Lo que se hace con él desde la pantalla de fabricar (kind: horno, alambique o noria; tile: dónde está)
 export class Machines {
   constructor(game) { this.game = game; }
   get(tile, kind, create = false) {

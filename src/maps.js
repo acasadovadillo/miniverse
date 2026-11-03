@@ -139,10 +139,11 @@ export class Maps {
     if (g.live.joined) for (const peer of g.live.others) if (peer.playing && !peer.server && peer.entity && peer.sc === 'world') dot(peer.entity.x, peer.entity.y, '#4a8ad8', 2 + m.s);
     dot(p.x, p.y, Math.sin(g.time * 6) > 0 ? '#ffd77a' : '#ff4a3a', 2 + m.s);
   }
-  // Adónde apunta la brújula: tu cama (o el punto donde reapareces) o, si no, la puerta de tu casa
-  target() { const s = this.game.player.spawn; return s ? [s[0], s[1]] : this.game.homeSpot(); }
+  // Adónde apunta la brújula: tu cama (o el punto donde reapareces) o, si no, la puerta de tu casa. (No se llama
+  // target: ese nombre es el de lo que propone cada sistema con lo que se lleva en la mano, y taparía las herramientas)
+  pointsTo() { const s = this.game.player.spawn; return s ? [s[0], s[1]] : this.game.homeSpot(); }
   drawNeedle(el) {
-    const p = this.game.player, [tx, ty] = this.target(), dx = dxOf(tx, p.x), dy = ty - p.y;
+    const p = this.game.player, [tx, ty] = this.pointsTo(), dx = dxOf(tx, p.x), dy = ty - p.y;
     // (de la dirección en el mundo a la de la pantalla, con el giro de la cámara: al revés que screenToWorld)
     const [ax, ay] = screenToWorld(1, 0), [bx, by] = screenToWorld(0, 1), sx = dx * ax + dy * ay, sy = dx * bx + dy * by;
     el.firstChild.style.transform = `rotate(${Math.atan2(sy, sx) + Math.PI / 2}rad)`;
@@ -151,7 +152,7 @@ export class Maps {
   hint() {
     const g = this.game, p = g.player;
     if (g.inv.held?.id !== 'brujula' || g.scene !== g.world || !inPlanet(p.x, p.y)) return '';
-    const [tx, ty] = this.target(), d = Math.round(Math.hypot(dxOf(tx, p.x), ty - p.y));
+    const [tx, ty] = this.pointsTo(), d = Math.round(Math.hypot(dxOf(tx, p.x), ty - p.y));
     return d < 4 ? `Ya estás en ${p.spawn ? 'tu cama' : 'casa'}` : `La brújula apunta a ${p.spawn ? 'tu cama' : 'tu casa'} · ${d} pasos`;
   }
 }

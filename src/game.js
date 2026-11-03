@@ -5,7 +5,7 @@ import { camToSave, camFromSave, CAM } from './camera.js';
 import { wrapX, wrapIndex, HALF, NORTH, SOUTH } from './world/planet.js';
 import { Overworld, NILO_LOOK } from './world/scenes.js';
 import { houseBlueprint, familyBlueprint, byChunk, doorTile } from './world/blueprints.js';
-import { HOUSE, HOUSE_BIG, HOUSE_FAMILY, HOUSES, CENTER, SPAWN, inBounds, inOwnHouse, hasProject, setFamilyHouse } from './world/village.js';
+import { HOUSE, HOUSE_BIG, HOUSE_FAMILY, HOUSES, CENTER, SPAWN, inBounds, inOwnHouse, inWorkshop, hasProject, setFamilyHouse } from './world/village.js';
 import { PIECES, parsePlaced } from './pieces.js';
 import { BIOMES } from './world/biomes.js';
 import { CHUNK, WORLD_SEED } from './world/gen.js';
@@ -14,7 +14,7 @@ import { Inventory } from './inventory.js';
 import { Gathering } from './gather.js';
 import { Crafting } from './crafting.js';
 import { STATIONS } from './recipes.js';
-import { ENERGY_MAX, START_KIT, ITEMS, RUG_MADE, rugId } from './items.js';
+import { ENERGY_MAX, START_KIT, ITEMS, RUG_MADE, rugId, CHESTS } from './items.js';
 import { clothesFor, dressed } from './looks.js';
 import { WorldStore } from './worldstore.js';
 import { BuildMode } from './build.js';
@@ -34,7 +34,7 @@ import { ENCHANTS, enchName } from './enchant.js';
 import { xpTo } from './xp.js';
 import { Mobs } from './mobs.js';
 import { Experience } from './xp.js';
-import { Machines, machineAt, machineEmpty } from './machines.js';
+import { Machines, MACHINES, machineAt, machineEmpty } from './machines.js';
 import { Trades } from './trades.js';
 import { Maps } from './maps.js';
 import { Explore } from './explore.js';
@@ -54,6 +54,9 @@ const NILO_TIPS = [
   'Con un horno conviertes el mineral en lingotes. Y con lingotes de cobre, un yunque para herramientas de metal.',
   'En la cocina, una manzana asada da el doble de energía que una cruda. Hazme caso.',
   'Si te quedas sin carbón, quema madera en el horno. Así lo hacía mi abuelo.',
+  'En el taller, al oeste del camino, hay un banco y un telar para quien los necesite. No hace falta pedir permiso.',
+  'Las palmeras de las playas cálidas dan cocos cada pocos días. No hace falta talarlas: basta con sacudirlas.',
+  'Una noria en un río muele el trigo en harina y riega sola el huerto de alrededor. Con harina, el pan sale más barato.',
 ];
 
 // Deltas con tu casa recién hecha: para el fondo del menú, que no tiene partida
@@ -414,9 +417,9 @@ export class Game {
     const door = sc.doorNear?.(p.x, p.y), da = door && this.doorAction(door);
     if (da) return da;
     // Lo colocado, lo más cercano primero (la alfombra, al final: lo de encima, las puertas y las ventanas antes).
-    // (lo fijo de las casas de los vecinos no se toca)
+    // (lo fijo de las casas de los vecinos no se toca; las estaciones del taller del pueblo, sí se usan)
     const dist = o => (sc.placedDist ? sc.placedDist(o, p.x, p.y) : Math.hypot(o.x - p.x, o.y - p.y));
-    const near = (sc.placedNear?.(p.x, p.y, 1.3) || []).filter(o => !o.fixed && (!sc.reaches || sc.reaches(p.x, p.y, o.x, o.y))).sort((a, b) => dist(a) - dist(b));
+    const near = (sc.placedNear?.(p.x, p.y, 1.3) || []).filter(o => (!o.fixed || STATIONS[o.placed]) && (!sc.reaches || sc.reaches(p.x, p.y, o.x, o.y))).sort((a, b) => dist(a) - dist(b));
     const o = near.find(o => o.layer !== 'rug');
     if (o) return this.placedAction(o, true);
     const hearth = sc.hearthNear?.(p.x, p.y);
@@ -450,7 +453,7 @@ export class Game {
     const sees = (x, y) => !sc.reaches || sc.reaches(p.x, p.y, x, y);
     // Lo colocado, a su tamaño y altura (las alfombras, a ras de suelo; los cuadros cuelgan del muro: no se miran a la vista)
     for (const o of sc.placedNear?.(p.x, p.y, R) || []) {
-      if (o.fixed || (o.layer !== 'hang' && !sees(o.x, o.y))) continue;
+      if ((o.fixed && !STATIONS[o.placed]) || (o.layer !== 'hang' && !sees(o.x, o.y))) continue;
       if (o.layer === 'rug') { out.push({ kind: 'placed', o, box: { ...(o.obb || aabb(o.fx[0], o.fy[0], o.fx[1], o.fy[1])), y0: 0, y1: 0.06 } }); continue; }
       let h = hull(solidsOf(o.model || o.placed));
       if (!isFinite(h[0])) h = [-0.45, 0, -0.45, 0.45, 0.1, 0.45];
@@ -512,12 +515,11 @@ export class Game {
     const hung = hungFirst && o.layer !== 'hang' ? [o.tile, ...extraTiles(o.placed, ...o.tile, o.rot)].map(t => [t, sc.ownAt?.('hang', ...t)]).find(([, v]) => v) : null;
     const top = hung ? { tile: hung[0], layer: 'hang', placed: hung[1].split('@')[0] } : o;
     const name = ITEMS[o.placed].name.toLowerCase(), pick = { text: `Recoger ${ITEMS[top.placed].name.toLowerCase()}`, run: () => this.pickUp(top) };
-    if (STATIONS[o.placed]) return { text: `Usar ${name}`, run: () => this.onCraft?.(o.placed), alt: pick };
+    if (STATIONS[o.placed]) return { text: `Usar ${name}`, run: () => this.onCraft?.(o.placed), alt: o.fixed ? null : pick };   // (las del taller son de todos: no se recogen)
     if (o.placed === 'cama' || o.placed === 'cama_nino' || o.placed === 'cama_doble') return { text: 'Usar la cama', run: () => this.bed(o), alt: pick };
-    if (o.placed === 'silla' || o.placed === 'sofa') return { text: 'Sentarse', run: () => this.rest.sit(o), alt: pick };
+    if (o.placed === 'silla' || o.placed === 'sofa' || o.placed === 'sillon') return { text: 'Sentarse', run: () => this.rest.sit(o), alt: pick };
     if (o.placed === 'lavabo') return { text: 'Mirarse en el espejo', run: () => this.onMirror?.(), alt: pick };
-    if (o.placed === 'cofre') return { text: 'Abrir el cofre', run: () => this.onChest?.(sc.chestAt(...o.tile), o.tile), alt: pick };   // (lleno no se recoge: hay que vaciarlo antes)
-    if (o.placed === 'armario') return { text: 'Abrir el armario', run: () => this.onChest?.(sc.chestAt(...o.tile), o.tile), alt: pick };
+    if (CHESTS[o.placed] && o.placed !== 'mochila') return { text: `Abrir ${CHESTS[o.placed][1]}`, run: () => this.onChest?.(sc.chestAt(...o.tile), o.tile), alt: pick };   // (lleno no se recoge: hay que vaciarlo antes)
     if (o.placed === 'mochila') return { text: 'Abrir la mochila', run: () => this.onChest?.(sc.chestAt(...o.tile) || [], o.tile), alt: { text: this.inv.equip.espalda ? 'Recoger la mochila' : 'Ponerse la mochila', run: () => this.takeBackpack(o) } };
     if (LIGHTS.has(o.placed)) return { text: `${o.off ? 'Encender' : 'Apagar'} ${name.replace(/^lámpara/, 'la lámpara').replace(/^antorcha/, 'la antorcha').replace(/^vela/, 'la vela').replace(/^candelabro de techo/, 'el candelabro')}`, run: () => { sc.toggleLight(...o.tile); Audio.blip(); save(); }, alt: pick };
     return pick;
@@ -611,11 +613,12 @@ export class Game {
   sleep() { return this.days.sleep(); }
   // Devolver a la mochila algo colocado
   pickUp(o) {
+    if (o.fixed) return false;   // (lo del pueblo no se recoge)
     // (una alfombra vuelve como la del telar de su tamaño; las de antes, de cualquier tamaño, se ponían con V)
     const r = o.layer === 'rug' && o.rug, id = r ? rugId(ITEMS[o.placed].rug || o.placed, RUG_MADE.find(([w, h]) => (w === r.w && h === r.h) || (w === r.h && h === r.w)) || [1, 1]) : o.placed;
     if (this.inv.room(id) < 1) { this.gather.float('No te cabe: no llevas sitio libre', '#ffb0a0'); Audio.error(); return false; }
-    if (this.scene === this.world && !machineEmpty(machineAt(this.world, o.tile))) { this.gather.float(`Vacía ${o.placed === 'horno' ? 'el horno' : 'el alambique'} antes`, '#ffb0a0'); Audio.error(); return false; }
-    if ((o.placed === 'cofre' || o.placed === 'armario') && this.scene.chestAt(...o.tile)?.some(Boolean)) { this.gather.float(`Vacía ${o.placed === 'cofre' ? 'el cofre' : 'el armario'} antes`, '#ffb0a0'); Audio.error(); return false; }
+    if (this.scene === this.world && !machineEmpty(machineAt(this.world, o.tile))) { this.gather.float(`Vacía ${MACHINES[o.placed]?.the || 'la máquina'} antes`, '#ffb0a0'); Audio.error(); return false; }
+    if (CHESTS[o.placed] && o.placed !== 'mochila' && this.scene.chestAt(...o.tile)?.some(Boolean)) { this.gather.float(`Vacía ${CHESTS[o.placed][1]} antes`, '#ffb0a0'); Audio.error(); return false; }
     this.scene.unplace(o);
     this.inv.add(id, 1);
     Audio.pickup();
@@ -636,7 +639,7 @@ export class Game {
       'Dicen que el mundo no se acaba nunca más allá del bosque. Yo nunca he llegado tan lejos.',
       'Te he dejado unas herramientas viejas: hacha, pico, guadaña y azada. Las llevas en las manos y en los bolsillos: elígelas con los números y úsalas con el clic izquierdo.',
       'Sin mochila no te cabe mucho más. Siega unos matorrales: con fibra y un par de cuerdas te haces una (pulsa C) y te la pones en el inventario (I).',
-      'Y un consejo de viejo carpintero: con madera se hacen tablas (pulsa C para fabricar). Con seis tablas y dos piedras te sale un banco de carpintero, y con él, herramientas mejores.',
+      'Y un consejo de viejo carpintero: con madera se hacen tablas (pulsa C para fabricar). Con seis tablas y dos piedras te sale un banco de carpintero, y con él, herramientas mejores. Mientras, en el taller del pueblo, al oeste del camino, hay un banco y un telar que puede usar cualquiera.',
     ] : [NILO_TIPS[this.niloTip++ % NILO_TIPS.length]]);
     if (first) this.craft.teach('banco');
     this.busy = false;
@@ -676,6 +679,7 @@ export class Game {
     const p = this.player;
     if (inOwnHouse(p.x, p.y)) return 'Tu casa';
     for (const h of Object.values(HOUSES)) if ((!h.project || hasProject(h.project)) && p.x > h.x0 && p.x < h.x1 && p.y > h.y0 && p.y < h.y1) return `Casa de ${h.name}`;
+    if (inWorkshop(p.x, p.y)) return 'El taller';
     return 'Bajo techo';
   }
   // La casilla de dentro de tu casa, junto a la puerta (donde despiertas si te rescatan)
@@ -729,7 +733,7 @@ export class Game {
       const cur = w.ownAt('placed', tx, ty);
       if (!cur) return;
       const [cid] = parsePlaced(cur), o = { tile: [tx, ty], layer: 'placed', placed: cid };
-      const items = cid === 'cofre' || cid === 'armario' ? w.chestAt(tx, ty) : null;
+      const items = CHESTS[cid] ? w.chestAt(tx, ty) : null;
       w.unplace(o);
       if (items?.some(Boolean)) {
         const spot = this.freeTile(H, dx, dy);
@@ -813,7 +817,7 @@ export class Game {
       const [id, rot] = parsePlaced(raw), spot = this.freeTile(H, dx, dy);
       if (spot) {
         w.place(spot[0], spot[1], id, rot);
-        if (id === 'cofre' && house.chests?.[k]) w.delta(Math.floor(spot[0] / CHUNK), Math.floor(spot[1] / CHUNK)).chest[`${spot[0]},${spot[1]}`] = house.chests[k];
+        if (CHESTS[id] && house.chests?.[k]) w.delta(Math.floor(spot[0] / CHUNK), Math.floor(spot[1] / CHUNK)).chest[`${spot[0]},${spot[1]}`] = house.chests[k];
       } else {
         this.giveBack(id, 1);
         for (const it of house.chests?.[k] || []) if (it) this.giveBack(it.id, it.n);
