@@ -190,6 +190,7 @@ export class Game {
     this.player = new Player({ ...p, x: save.inventory ? p.x ?? sx : sx, y: save.inventory ? p.y ?? sy : sy });
     this.player.ghost = this.gamemode === 'spectator';
     this.player.onExert = n => this.combat.exert(n);   // (correr y saltar dan hambre)
+    this.player.onLand = () => this.farm.trample(this.player);   // (caer de un salto sobre tierra labrada la deshace)
     hud.faces = { ...hud.faces, Nilo: NILO_LOOK, [this.player.name]: this.player.look };
     this.scene = this.world;
     this.underRoof = false;

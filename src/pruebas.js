@@ -1,6 +1,6 @@
 // Pruebas automáticas del juego. Las lanza probar.py en un Chrome invisible con ?modo=pruebas: el juego arranca con
 // una cuenta de prueba (sin contraseña ni GitHub: nada se guarda fuera de este navegador) y una partida nueva, y va
-// haciendo lo básico (recolectar, el hambre, fabricar, colocar, cofres, puertas, comandos, mapas, cocos, la noria,
+// haciendo lo básico (recolectar, pisotear la tierra labrada, el hambre, fabricar, colocar, cofres, puertas, comandos, mapas, cocos, la noria,
 // guardar y cargar) comprobando que pasa lo que tiene que pasar. Cada prueba se cuenta a probar.py (POST /pruebas) y sale
 // también en la consola. Con &parte=dos&relay=ws://…, dos juegos (quien=a, el anfitrión, y quien=b, el invitado)
 // comparten un mundo por el relay de pruebas y comprueban que cada uno ve lo que pone el otro.
@@ -152,6 +152,26 @@ async function soloTests(game) {
     p().x = tile[0] + 0.5; p().y = tile[1] + 1.4; p().face = { x: 0, y: -1 }; await frames(2);
     game.gather.cooldown = 0; game.gather.target = game.gather.pickTarget(); check(game.gather.target?.ok, 'la azada no apunta a la casilla'); game.gather.use();
     check(w().delta(Math.floor(tile[0] / CHUNK), Math.floor(tile[1] / CHUNK))?.tilled[`${tile[0]},${tile[1]}`] !== undefined, 'la casilla no está labrada');
+  });
+  await test('pisotear: saltar sobre tierra labrada sin plantar la deshace', async () => {
+    await goTo(game, 60, 30);
+    let tile = null;
+    for (let r = 0; r < 12 && !tile; r++) for (let dx = -r; dx <= r && !tile; dx++) for (let dy = -r; dy <= r && !tile; dy++) if (w().canTill(60 + dx, 30 + dy)) tile = [60 + dx, 30 + dy];
+    check(tile, 'no hay dónde labrar');
+    const [tx, ty] = tile, k = `${tx},${ty}`, d = () => w().delta(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK)), tilled = () => d()?.tilled[k] !== undefined;
+    const jump = async () => { p().jump(); check(p().z > 0, 'no ha saltado'); await until(() => p().z === 0, 8000, 'a caer del salto'); };
+    w().till(tx, ty); d().wet = { ...d().wet, [k]: game.farm.today };
+    p().x = tx + 0.5; p().y = ty + 0.5; p().vx = p().vy = 0; await frames(20);
+    check(tilled(), 'estar encima sin saltar la ha deshecho');
+    inv().add('semilla_trigo', 1); game.farm.sow(tx, ty, 'trigo'); await jump();
+    check(tilled() && game.farm.cropAt(tx, ty), 'saltar sobre lo plantado lo ha deshecho');
+    delete d().crops[k]; await jump();
+    check(!tilled(), 'saltar encima no la ha deshecho');
+    check(d().wet?.[k] === undefined, 'la casilla sigue mojada');
+    check(w().canTill(tx, ty), 'no se puede volver a labrar');
+    w().till(tx, ty); runCommand(game, '/gamemode spectator', () => {}); await jump();
+    check(tilled(), 'el espectador la ha pisado');
+    runCommand(game, '/gamemode survival', () => {}); w().setTile(tx, ty, 'air');
   });
   await test('hambre: trabajar la gasta, comer la quita y dormir la recupera', async () => {
     const c = game.combat; check(game.gamemode === 'survival' && game.difficulty === 'normal', `modo ${game.gamemode}, dificultad ${game.difficulty}`);

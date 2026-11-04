@@ -82,7 +82,7 @@ export class Player extends Person {
     if (this.z > 0) {
       this.vz -= GRAVITY * dt;
       this.z += this.vz * dt;
-      if (this.z <= 0) { this.z = 0; this.vz = 0; Audio.step(this.inside || this.underRoof); }
+      if (this.z <= 0) { this.z = 0; this.vz = 0; Audio.step(this.inside || this.underRoof); this.onLand?.(); }
     }
     const before = Math.floor(this.step);
     this.step = moved < 0.002 ? 0 : this.step + moved * 3.2;

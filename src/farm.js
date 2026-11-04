@@ -158,6 +158,18 @@ export class Farm {
     Audio.noiseHit(1400, 0.25, 0.15, 'highpass');
     g.skills?.gain('agricultura', 0.3);
   }
+  // Caer de un salto sobre tierra labrada sin nada plantado la deshace, como en Minecraft (andar por encima, no; y
+  // con algo plantado, aunque esté seco, tampoco). El espectador no pisa nada
+  trample(p) {
+    const g = this.game, tx = Math.floor(p.x), ty = Math.floor(p.y), k = key(tx, ty), d = this.d(tx, ty);
+    if (g.scene !== this.world || g.gamemode === 'spectator' || d?.tilled?.[k] === undefined || this.cropAt(tx, ty)) return false;
+    delete d.tilled[k];
+    if (d.wet) delete d.wet[k];
+    this.world.touchAround(tx, ty);
+    g.gather.chips(tx + 0.5, ty + 0.5, 'dirt', 8);
+    Audio.till();
+    return true;
+  }
   sow(tx, ty, id) {
     const g = this.game, d = this.d(tx, ty, true);
     d.crops ||= {};
