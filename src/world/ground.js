@@ -10,8 +10,12 @@ import { ihash, vnoise, rgbOf } from '../util.js';
 
 export const BLOCK = CHUNK * 4;         // lado de un bloque de suelo, en casillas (metros)
 export const PX = 4;                    // píxeles de textura por metro
-export const DEPTH = { deep: -1.25, shallow: -0.42 };
 const DUNE = rgbOf('#c8a868'), DIRT = rgbOf('#c49a64'), DIRT_D = rgbOf('#a8804e'), SAND = rgbOf('#dcc791'), MUD = rgbOf('#8a7a5a');
+// La orilla y el fondo, por clase (arena, barro, lodo): el borde seco, el mojado junto al agua y el fondo hondo
+// La orilla y el fondo, por clase (arena, barro, lodo): el borde seco y el mojado junto al agua; y el agua misma, pintada
+// en el suelo (la malla de agua de encima se desvanece en el borde, así la línea de la orilla la da esta pintura, que es
+// más fina que la malla): de clara en la orilla, con una línea de espuma, a honda
+const SHORE = [[SAND, rgbOf('#ad9560')], [rgbOf('#9c8a64'), rgbOf('#6e5e42')], [rgbOf('#5a5a3c'), rgbOf('#3c3c2a')]], SHALLOW_W = rgbOf('#86c6cc'), DEEP = rgbOf('#2f6a9a'), FOAM = rgbOf('#eef6f8');
 const mix3 = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
 const ss = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 
@@ -27,36 +31,28 @@ function villageGround(x, y, col, S) {
   return col;
 }
 
-// Profundidad del suelo en un punto (sin suavizar): 0 en tierra. biome: el del punto, si ya se sabe
-export function depthOf(gen, x, z, biome) {
+// Profundidad del suelo en un punto, seguida (0 en tierra): el estanque del pueblo por su distancia; lo demás, por
+// el clima (gen.depthAt)
+export function depthOf(gen, x, z) {
   if (village.inBounds(x, z)) {
     const pd = village.pondDist(x, z);
     return pd < 1 ? -0.7 * (1 - pd * pd) - 0.1 : pd < 1.3 ? -0.1 * (1 - (pd - 1) / 0.3) : 0;
   }
-  const w = BIOMES[biome ?? gen.biomeAt(x, z)].water;
-  return w ? DEPTH[w] : 0;
+  return gen.depthAt(x, z);
 }
 
-// Las alturas de un bloque (un vértice por casilla, con un borde de más para suavizar la orilla) y los biomas de
-// sus esquinas (n+2 por lado, desde una casilla antes del bloque) y de los centros de sus casillas (BLOCK por lado),
-// para que el juego no los tenga que volver a calcular. Si a 2 m no se ve agua en todo el bloque, es llano
+// Las alturas de un bloque (un vértice por casilla, hundido donde hay agua según la profundidad seguida) y los
+// biomas de sus esquinas (n+2 por lado, desde una casilla antes del bloque) y de los centros de sus casillas (BLOCK
+// por lado), para que el juego no los tenga que volver a calcular. Si a 2 m no se ve agua en todo el bloque, es llano
 export function blockHeights(gen, bx, bz) {
   const x0 = bx * BLOCK, z0 = bz * BLOCK, n = BLOCK + 1, m = n + 2;
   const corners = new Uint8Array(m * m), centers = new Uint8Array(BLOCK * BLOCK);
   for (let j = -1; j <= n; j++) for (let i = -1; i <= n; i++) corners[(j + 1) * m + i + 1] = gen.biomeAt(x0 + i, z0 + j);
   for (let j = 0; j < BLOCK; j++) for (let i = 0; i < BLOCK; i++) centers[j * BLOCK + i] = gen.biomeAt(x0 + i + 0.5, z0 + j + 0.5);
-  const corner = (i, j) => (i >= -1 && i <= n && j >= -1 && j <= n ? corners[(j + 1) * m + i + 1] : undefined);
   let water = false;
-  for (let j = -1; j <= BLOCK / 2 + 1 && !water; j++) for (let i = -1; i <= BLOCK / 2 + 1; i++) if (depthOf(gen, x0 + i * 2, z0 + j * 2, corner(i * 2, j * 2)) < 0) { water = true; break; }
-  const raw = new Float32Array(m * m);
-  if (water) for (let j = -1; j <= n; j++) for (let i = -1; i <= n; i++) { const k = (j + 1) * m + i + 1; raw[k] = depthOf(gen, x0 + i, z0 + j, corners[k]); }
+  for (let j = -1; j <= BLOCK / 2 + 1 && !water; j++) for (let i = -1; i <= BLOCK / 2 + 1; i++) if (depthOf(gen, x0 + i * 2, z0 + j * 2) < 0) { water = true; break; }
   const heights = new Float32Array(n * n);
-  for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
-    let s = 0;
-    for (let dj = 0; dj < 3; dj++) for (let di = 0; di < 3; di++) s += raw[(j + dj) * m + i + di] * (di === 1 && dj === 1 ? 4 : 1);
-    const c = raw[(j + 1) * m + i + 1];
-    heights[j * n + i] = c < 0 ? Math.min(c * 0.6 + (s / 12) * 0.4, s / 12) : s / 12;
-  }
+  if (water) for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) heights[j * n + i] = depthOf(gen, x0 + i, z0 + j);
   return { heights, water, corners, centers, n, m };
 }
 
@@ -72,7 +68,8 @@ export function blockColors(gen, bx, bz, season) {
 }
 
 // Los píxeles de un trozo de la textura, visto desde arriba: el color del bioma de cada cuarto de casilla (del campo
-// de biomas del trozo), mezclando suave los cuatro tonos de su paleta, y el camino y la orilla del estanque del
+// de biomas del trozo), mezclando suave los cuatro tonos de su paleta; junto al agua, la orilla (arena, barro o lodo,
+// mojada al borde) y, debajo, el fondo, que se oscurece con la profundidad; y el camino y la orilla del estanque del
 // pueblo con el borde irregular. field: gen.field(cx, cy) (se pasa para poder guardarlo en caché aparte)
 export function paintPixels(gen, cx, cy, season, field = gen.field(cx, cy)) {
   const N = CHUNK * PX, step = RES / PX, S = gen.seed, f = field, near = gen.nearVillage(cx, cy);
@@ -84,6 +81,11 @@ export function paintPixels(gen, cx, cy, season, field = gen.field(cx, cy)) {
     const k = f.patch[s] + (vnoise(gx * 0.9, gy * 0.9, S + 12) - 0.5) * 0.25;
     let col = mix3(mix3(pal[3], pal[0], ss(0.18, 0.42, k)), mix3(pal[1], pal[2], ss(0.6, 0.85, k)), ss(0.45, 0.62, k));
     if (biome === B.DESERT && Math.sin((gx + gy * 0.6) * 4 + f.patch[s] * 9) > 0.93) col = mix3(col, DUNE, 0.6);
+    const u = info.water ? Math.max(f.wet[s], -0.2) : f.wet[s];   // (el tramado de los biomas de agua, como borde mojado)
+    if (u > -0.45) {   // la orilla, el borde mojado y el fondo
+      const [dry, wetc] = SHORE[f.shore[s]];
+      col = u <= 0 ? mix3(col, mix3(dry, wetc, ss(-0.2, 0, u)), ss(-0.45, -0.15, u)) : mix3(mix3(SHALLOW_W, DEEP, ss(0, 1, u)), FOAM, 0.6 * (1 - ss(0, 0.08, u)));
+    }
     const sh = 1 + (h - 0.5) * 0.08;
     if (near && village.inBounds(gx, gy)) col = villageGround(gx, gy, col, S);
     const o = (j * N + i) * 4;

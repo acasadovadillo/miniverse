@@ -280,7 +280,7 @@ export class View3D {
     if (cave && !this.caves.has(scene)) this.caves.set(scene, new Cave3D(this, scene));
     for (const [s, v] of this.caves) v.group.visible = s === scene;
     this.cave = cave ? this.caves.get(scene) : null;
-    this.terrain.group.visible = this.terrain.water.mesh.visible = this.world.group.visible = this.sky.visible = !cave;
+    this.terrain.group.visible = this.terrain.water.group.visible = this.world.group.visible = this.sky.visible = !cave;
     this.updateSky(game, dt);
     // (el fondo, con el color de borrar: un fondo de escena borraría la imagen en cada una de las tres pasadas)
     if (cave) { this.scene.fog.color.set('#05050a'); this.scene.fog.near = 14; this.scene.fog.far = 40; this.renderer.setClearColor('#05050a'); }
@@ -296,6 +296,7 @@ export class View3D {
     this.updateViewmodel(game, this.first);
     this.fx.update(game, scene, dt, t);
     this.terrain.water.uniforms.time.value = t;
+    this.terrain.water.uniforms.sky.value.copy(this.skyU.horizon.value);
     this.skyU.time.value = t;
     this.sky.position.copy(this.camera.position);
     this.updateLights(game, scene, target);

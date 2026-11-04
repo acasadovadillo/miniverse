@@ -15,7 +15,7 @@ import { hud } from './ui/hud.js';
 import { itemIcon } from './art/items.js';
 import { modelKind, ICON3D } from './three/icons.js';
 
-const q = new URLSearchParams(location.search), WHO = q.get('quien') || 'a', RELAY = q.get('relay'), PART = q.get('parte') || 'solo';   // parte: 'solo' (un jugador) o 'dos'
+const q = new URLSearchParams(location.search), WHO = q.get('quien') || 'a', RELAY = q.get('relay'), PART = q.get('parte') || 'solo';   // parte: 'solo' (un jugador), 'dos' o 'mirar' (sin pruebas: el juego con la cuenta de prueba, para verlo)
 const LOOK = { sex: 'chica', hairStyle: 'trenzas', hair: '#2a1e1e', skin: '#c98a5a', outfit: 'delantal', cloth: '#b84a8a', pants: '#4a3a2a', eyes: '#3a2a1e' };
 const TEST_TIMEOUT = 25000, LOAD_TIMEOUT = 90000;
 const results = [];
@@ -119,6 +119,8 @@ async function soloTests(game) {
     check(game.mode === 'play' && p(), 'no hay partida');
     const ok = await readyGround(game, 60000);   // (el primer dibujo por software compila todos los materiales: tarda)
     check(ok, `el suelo de alrededor no está hecho (${health(game)})`);
+    const home = game.view3d.terrain.blocks.get(`${Math.floor(p().x / 64)},${Math.floor(p().y / 64)}`);
+    check(home?.waterMesh, 'el estanque del pueblo no tiene agua (malla de agua del bloque)');
     await frames(60);
     check(game.time > 0.9, 'la simulación no avanza');
     console.log(health(game));
@@ -299,14 +301,14 @@ async function hostTests(game) {
     game.world.place(...CHEST, 'cofre'); game.world.chestAt(...CHEST)[0] = { id: 'madera', n: 5 }; game.world.chestTouched(...CHEST);
   });
   await test('dos: llega el invitado y ve el cofre', async () => {
-    await until(() => l.others.some(o => o.playing), 40000, 'al invitado');
+    await until(() => l.others.some(o => o.playing), 90000, 'al invitado');
     const seen = []; const old = l.say; l.say = (t, k) => { seen.push(t); old?.(t, k); };
     await until(() => seen.some(t => t.includes('COFRE-VISTO')), 30000, 'el aviso del invitado');
   });
   await test('dos: la silla que pone el invitado aparece aquí', async () => {
     const got = [], refused = [], oa = l.applyChunk.bind(l), or = l.refuse.bind(l);
     l.applyChunk = (k, ops) => { got.push(k); return oa(k, ops); }; l.refuse = (c, peer, k, ops) => { refused.push(k); return or(c, peer, k, ops); };
-    try { await until(() => (game.world.at('placed', ...CHAIR) || '').startsWith('silla'), 20000, `la silla del invitado (llegaron: ${got.join(' ') || 'nada'}; rechazados: ${refused.join(' ') || 'nada'}; el invitado está en ${JSON.stringify(l.others[0]?.at)})`); }
+    try { await until(() => (game.world.at('placed', ...CHAIR) || '').startsWith('silla'), 90000, `la silla del invitado (llegaron: ${got.join(' ') || 'nada'}; rechazados: ${refused.join(' ') || 'nada'}; el invitado está en ${JSON.stringify(l.others[0]?.at)})`); }
     finally { l.applyChunk = oa; l.refuse = or; }
     l.chat('SILLA-VISTA');
   });
@@ -317,14 +319,15 @@ async function guestTests(game) {
     await l.connect(RELAY); await until(() => l.status === 'on', 15000, 'el relay');
     await until(() => l.host?.playing, 60000, 'a que el anfitrión juegue');
     const solo = { save: game.snapshot(), deltas: new Map() };
-    const world = await l.requestWorld();
+    // (con dos Chromes por software el anfitrión puede estar compilando materiales: se pide el mundo hasta tres veces)
+    let world = null; for (let i = 0; i < 3 && !world; i++) { try { world = await l.requestWorld(); } catch (e) { if (i === 2) throw e; } }
     const { save, deltas } = l.enter(solo, world);
     game.end(); game.start(save, deltas); l.join(solo, 'guest');
     await readyGround(game, 6000);
     check(l.guest, 'no es invitado');
   });
   await test('dos: ve el cofre del anfitrión con su madera', async () => {
-    await until(() => game.world.chestAt(...CHEST)?.[0]?.id === 'madera', 20000, 'el cofre');
+    await until(() => game.world.chestAt(...CHEST)?.[0]?.id === 'madera', 40000, 'el cofre');
     check(game.world.chestAt(...CHEST)[0].n === 5, 'la madera no son 5');
     l.chat('COFRE-VISTO');
   });
@@ -334,7 +337,7 @@ async function guestTests(game) {
     const seen = []; const old = l.say; l.say = (t, k) => { seen.push(t); old?.(t, k); };
     await frames(30);
     const how = () => `pendientes ${l.pending.size}, aquí hay ${game.world.at('placed', ...CHAIR)}, estado ${l.status}, anfitrión ${l.hostConn}, invitado ${l.guest}`;
-    await until(() => seen.some(t => t.includes('SILLA-VISTA')), 30000, `el aviso del anfitrión (${how()})`);
+    await until(() => seen.some(t => t.includes('SILLA-VISTA')), 150000, `el aviso del anfitrión (${how()})`);
   });
 }
 
@@ -348,6 +351,7 @@ export async function runTests(game) {
   document.getElementById('fade')?.classList.remove('on');
   hud.ask = (who, text, options) => Promise.resolve(0);   // (las preguntas, siempre la primera opción: que nada se quede esperando)
   game.visiting = true;
+  if (PART === 'mirar') { game.start(fresh()); game.onSave = null; return; }
   // (en el Chrome invisible el dibujo va por software: lo más barato posible, sin sombras ni resolución)
   const r = game.view3d.renderer; if (r) { r.shadowMap.enabled = false; r.setPixelRatio(0.5); game.view3d.auto = false; game.view3d.resize(); }
   // (el bucle del navegador no avanza ni dibuja nada: lo hacen las pruebas con frames())

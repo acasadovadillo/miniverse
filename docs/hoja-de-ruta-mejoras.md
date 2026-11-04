@@ -33,10 +33,8 @@
 
 ### 2. Estética y modelados
 
-**2.1 Agua (M).** Es un plano azul con las casillas a la vista: en los ríos la orilla sale en escalera y no se mueve. Es lo que más canta junto a lo demás.
-- Orilla suavizada (contorno por *marching squares* sobre la cuadrícula de biomas, como ya se hace con los tejados por regiones) con una franja de arena o barro.
-- Un material de agua con ondas pequeñas en el shader, reflejo del cielo y espuma en la orilla; en el mar, olas que llegan a la playa.
-- *Hecho cuando:* un río visto de cerca no enseña casillas y se nota que corre.
+**2.1 Agua (M).** ✅ Hecho el 2026-11-04. El agua se define seguida desde el clima (`wetness` en `biomes.js`: la misma regla que decide los biomas de agua, sin tramado), así la orilla no sale a escalones: el suelo se hunde según esa profundidad (`gen.depthAt`, con un escalón de 27 cm en la orilla y hasta más de un metro mar adentro), la textura pinta la orilla (arena, barro o lodo, mojada al borde), una línea de espuma y el agua de clara a honda (`ground.js`), y cada bloque lleva su malla de agua con la profundidad en cada vértice (`terrain.js`): color más claro donde cubre poco, espuma que late hacia la orilla, ondas y brillos a la deriva, reflejo del cielo en los ángulos rasantes y un borde que se desvanece (la línea de la orilla la da la pintura del suelo, más fina que la malla). El plano de siempre queda solo donde aún no hay bloque. Pendiente: la malla de agua va a 1 m, y de muy cerca se le notan las facetas en la orilla; afinarla a medio metro si molesta.
+- *Antes:* un plano azul con las casillas a la vista: en los ríos la orilla salía en escalera y no se movía.
 
 **2.2 Bordes entre biomas (S).** Pradera, arena, nieve y roca se cortan en dentado casilla a casilla (se ve en el desierto). Mezclar el color por vértice en una franja de 2 casillas, con el ruido que ya hay (`PATCH`).
 

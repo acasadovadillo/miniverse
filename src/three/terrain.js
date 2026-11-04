@@ -2,7 +2,8 @@
 // es una malla de un vértice por casilla, hundida donde hay agua (mar, lagos, el estanque del pueblo), y una
 // textura pintada desde arriba con los mismos colores que el suelo del juego en 2D: el bioma con su paleta
 // de la estación, sus manchas, y el camino y la orilla del estanque del pueblo. Encima, un detalle de briznas
-// o de piedrecitas que no se repite a la vista. El agua es un plano que acompaña a la cámara.
+// o de piedrecitas que no se repite a la vista. El agua es una malla por bloque a ras de WATER_Y con la profundidad
+// en cada vértice (para el color, la espuma y el borde suave) y, donde aún no hay bloque, un plano que sigue a la cámara.
 // Los números (alturas, biomas y píxeles: ground.js) los calcula un hilo aparte (genworker.js), lo más cercano
 // primero; aquí solo se hacen las mallas y se suben las texturas. Sin hilos aparte, se calcula aquí poco a poco.
 import * as THREE from 'three';
@@ -31,7 +32,7 @@ export class Terrain {
     this.group = new THREE.Group();
     scene.add(this.group);
     this.water = makeWater();
-    scene.add(this.water.mesh);
+    scene.add(this.water.group);
     this.workers = this.startWorkers();
     village.onVillageChange(() => this.villageChanged());
   }
@@ -64,7 +65,7 @@ export class Terrain {
     this.season = gen.season;
     for (const w of this.workers) w.postMessage({ t: 'init', seed: gen.seed, projects: village.getProjects(), family: village.familyHouse() });
   }
-  dispose(b) { this.group.remove(b.mesh); b.mesh.geometry.dispose(); b.mesh.material.dispose(); b.tex.dispose(); }
+  dispose(b) { this.group.remove(b.mesh); b.mesh.geometry.dispose(); b.mesh.material.dispose(); b.tex.dispose(); if (b.waterMesh) { this.water.group.remove(b.waterMesh); b.waterMesh.geometry.dispose(); } }
   dropAll() {
     const byWorker = new Map();
     for (const [id, j] of this.jobs) { if (!byWorker.has(j.worker)) byWorker.set(j.worker, []); byWorker.get(j.worker).push(id); }
@@ -91,6 +92,9 @@ export class Terrain {
     const keep = new Set(want.map(([a, b]) => `${a},${b}`));
     for (const [k, b] of this.blocks) if (!keep.has(k)) { this.dispose(b); this.blocks.delete(k); }
     this.water.mesh.position.set(x, WATER_Y, z);
+    // (el plano de fondo solo donde no hay bloque: el shader descarta lo que cae en un bloque hecho)
+    const U = this.water.uniforms; U.origin.value.set((bx - RADIUS) * BLOCK, (bz - RADIUS) * BLOCK);
+    for (let dz = -RADIUS; dz <= RADIUS; dz++) for (let dx = -RADIUS; dx <= RADIUS; dx++) U.built.value[(dz + RADIUS) * (2 * RADIUS + 1) + dx + RADIUS] = this.blocks.has(`${bx + dx},${bz + dz}`) ? 1 : 0;
     if (this.workers.length) {
       // Lo que ya no hace falta, fuera de la cola; lo que falta, pedido (lo cercano primero: pri)
       const drop = [];
@@ -192,7 +196,31 @@ export class Terrain {
     mesh.receiveShadow = true;
     mesh.matrixAutoUpdate = false;
     this.group.add(mesh);
-    return { mesh, tex, ctx: g, heights, x0, z0, n, bx, bz, season: this.season, todo: allChunks(), painted: 0 };
+    const waterMesh = water ? this.buildWater(pos, heights, n) : null;
+    return { mesh, tex, ctx: g, heights, x0, z0, n, bx, bz, season: this.season, todo: allChunks(), painted: 0, waterMesh };
+  }
+  // El agua del bloque: la misma rejilla a ras de WATER_Y, con lo que hay de suelo debajo en cada vértice (depth), y
+  // solo las casillas que tocan agua
+  buildWater(pos, heights, n) {
+    const wpos = new Float32Array(n * n * 3), depth = new Float32Array(n * n), nor = new Float32Array(n * n * 3), idx = [];
+    for (let v = 0; v < n * n; v++) { wpos[v * 3] = pos[v * 3]; wpos[v * 3 + 1] = WATER_Y; wpos[v * 3 + 2] = pos[v * 3 + 2]; depth[v] = WATER_Y - heights[v]; nor[v * 3 + 1] = 1; }
+    for (let j = 0; j < n - 1; j++) for (let i = 0; i < n - 1; i++) {
+      const a = j * n + i, b = a + 1, c = a + n, d = c + 1;
+      if (depth[a] > 0 || depth[b] > 0 || depth[c] > 0 || depth[d] > 0) idx.push(a, c, b, b, c, d);
+    }
+    if (!idx.length) return null;
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(wpos, 3));
+    geo.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
+    geo.setAttribute('depth', new THREE.BufferAttribute(depth, 1));
+    geo.setIndex(idx);
+    geo.computeBoundingSphere();
+    const m = new THREE.Mesh(geo, this.water.material);
+    m.renderOrder = 2;
+    m.receiveShadow = true;
+    m.matrixAutoUpdate = false;
+    this.water.group.add(m);
+    return m;
   }
   // Pone los píxeles de un trozo en la textura de su bloque; se sube a la gráfica cuando están los 16 (y, para
   // que lo cercano no espere, también al cuarto)
@@ -236,28 +264,53 @@ function groundMaterial(map) {
   return m;
 }
 
-// Agua: un plano grande que sigue a la cámara; solo asoma donde el suelo está más bajo. Ondas en la normal,
-// brillos que se mueven y algo de transparencia para ver el fondo
+// Agua: el material de las mallas por bloque (block: con la profundidad por vértice) y el del plano de fondo (sin
+// ella: como si fuera honda, y descartado donde ya hay bloque). Ondas pequeñas en la normal que van a la deriva,
+// brillos que se mueven, el reflejo del cielo en los ángulos rasantes, el color más claro y verdoso donde cubre
+// poco, espuma que late hacia la orilla y el borde que se desvanece en vez de cortar el suelo (la línea de la orilla
+// la pinta el suelo, ground.js, que es más fino que esta malla)
+function waterMaterial(uniforms, block) {
+  const m = new THREE.MeshStandardMaterial({ color: '#4a9ee0', roughness: 0.08, metalness: 0.1, transparent: true, opacity: 0.8 });
+  m.customProgramCacheKey = () => (block ? 'agua-bloque' : 'agua-fondo');   // (si no, Three les da el mismo programa a los dos: el texto de onBeforeCompile es el mismo)
+  m.onBeforeCompile = sh => {
+    Object.assign(sh.uniforms, { time: uniforms.time, sky: uniforms.sky, origin: uniforms.origin, built: uniforms.built });
+    sh.vertexShader = sh.vertexShader
+      .replace('#include <common>', `#include <common>\nvarying vec2 vW;\nvarying float vDepth;${block ? '\nattribute float depth;' : ''}`)
+      .replace('#include <begin_vertex>', `#include <begin_vertex>\nvW = (modelMatrix * vec4(transformed, 1.0)).xz;\nvDepth = ${block ? 'depth' : '1.0'};`);
+    sh.fragmentShader = sh.fragmentShader
+      .replace('#include <common>', `#include <common>\nuniform float time;\nuniform vec3 sky;\nuniform vec2 origin;\nuniform float built[${(2 * RADIUS + 1) ** 2}];\nvarying vec2 vW;\nvarying float vDepth;`)
+      .replace('#include <clipping_planes_fragment>', `#include <clipping_planes_fragment>
+        ${block ? '' : `vec2 bq = floor((vW - origin) / ${BLOCK}.0);
+        if (bq.x >= 0.0 && bq.x < ${2 * RADIUS + 1}.0 && bq.y >= 0.0 && bq.y < ${2 * RADIUS + 1}.0 && built[int(bq.y) * ${2 * RADIUS + 1} + int(bq.x)] > 0.5) discard;`}
+        if (vDepth <= 0.0) discard;`)
+      .replace('#include <color_fragment>', `#include <color_fragment>
+        float dp = vDepth;
+        vec2 q = vW * 1.7 + vec2(time * 0.22, time * 0.1);
+        float sp = sin(q.x * 3.1 + time * 0.9 + sin(q.y * 1.7) * 1.5) * sin(q.y * 2.7 - time * 0.7 + sin(q.x * 1.3) * 1.5);   // (brillos sin rejilla)
+        diffuseColor.rgb = mix(vec3(0.36, 0.74, 0.84), diffuseColor.rgb, smoothstep(0.0, 0.4, dp));
+        diffuseColor.rgb += vec3(0.06, 0.08, 0.09) * smoothstep(0.75, 1.0, sp);
+        // (espuma: una franja fina junto a la orilla, que late hacia ella)
+        float ring = 0.55 + 0.45 * sin(dp * 40.0 - time * 1.8 + sin(vW.x * 1.3 + vW.y * 0.9) * 2.0);
+        float foam = smoothstep(0.26, 0.04, dp) * ring;
+        diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.97, 0.99, 1.0), foam * 0.6);
+        diffuseColor.a = mix(diffuseColor.a, 0.9, foam * 0.5) * smoothstep(0.0, 0.22, dp);   // (el borde se desvanece: la orilla la dibuja el suelo)`)
+      .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
+        float w1 = sin(q.x * 1.3 + time * 1.1) * cos(q.y * 1.1 - time * 0.8), w2 = sin((q.x + q.y) * 2.3 - time * 1.7);
+        normal = normalize(normal + (mat3(viewMatrix) * vec3(w1 * 0.06 + w2 * 0.03, 0.0, w2 * 0.05 - w1 * 0.03)));
+        float fres = pow(1.0 - clamp(dot(normalize(vViewPosition), normal), 0.0, 1.0), 3.0);
+        diffuseColor.rgb = mix(diffuseColor.rgb, sky, fres * 0.4);
+        diffuseColor.a = mix(diffuseColor.a, 1.0, fres * 0.6);`);
+  };
+  return m;
+}
 function makeWater() {
+  const uniforms = { time: { value: 0 }, sky: { value: new THREE.Color('#cfe6f4') }, origin: { value: new THREE.Vector2() }, built: { value: new Float32Array((2 * RADIUS + 1) ** 2) } };
   const geo = new THREE.PlaneGeometry(520, 520, 1, 1);
   geo.rotateX(-Math.PI / 2);
-  const m = new THREE.MeshStandardMaterial({ color: '#3f8fd0', roughness: 0.06, metalness: 0.2, transparent: true, opacity: 0.74 });
-  const uniforms = { time: { value: 0 } };
-  m.onBeforeCompile = sh => {
-    sh.uniforms.time = uniforms.time;
-    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec2 vW;').replace('#include <begin_vertex>', '#include <begin_vertex>\nvW = (modelMatrix * vec4(transformed, 1.0)).xz;');
-    sh.fragmentShader = sh.fragmentShader
-      .replace('#include <common>', '#include <common>\nuniform float time;\nvarying vec2 vW;')
-      .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
-        vec2 q = vW * 1.7;
-        float w1 = sin(q.x * 1.3 + time * 1.1) * cos(q.y * 1.1 - time * 0.8), w2 = sin((q.x + q.y) * 2.3 - time * 1.7);
-        normal = normalize(normal + (mat3(viewMatrix) * vec3(w1 * 0.06 + w2 * 0.03, 0.0, w2 * 0.05 - w1 * 0.03)));`)
-      .replace('#include <color_fragment>', `#include <color_fragment>
-        float sp = sin(vW.x * 3.1 + time * 0.9) * sin(vW.y * 2.7 - time * 0.7);
-        diffuseColor.rgb += vec3(0.05, 0.07, 0.08) * smoothstep(0.75, 1.0, sp);`);
-  };
-  const mesh = new THREE.Mesh(geo, m);
+  const mesh = new THREE.Mesh(geo, waterMaterial(uniforms, false));
   mesh.renderOrder = 1;
   mesh.receiveShadow = true;
-  return { mesh, uniforms };
+  const group = new THREE.Group();
+  group.add(mesh);
+  return { mesh, group, material: waterMaterial(uniforms, true), uniforms };
 }

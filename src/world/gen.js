@@ -2,7 +2,7 @@
 // Todo es determinista: la misma semilla y la misma casilla dan siempre lo mismo.
 import { mk, ihash, rgbOf } from '../util.js';
 import * as village from './village.js';
-import { B, BIOMES, climate, classify, biomeAt } from './biomes.js';
+import { B, BIOMES, climate, classify, biomeAt, wetness, depthOfWet, shoreOf } from './biomes.js';
 import { wrapNoise, wrapIndex } from './planet.js';
 
 export const CHUNK = 16;
@@ -36,6 +36,8 @@ export class WorldGen {
     if (b === 255) grid[li] = b = biomeAt(x, y, this.seed);
     return b;
   }
+  // Lo que se hunde el suelo por el agua en (x, y), seguido (0 en tierra): ver wetness
+  depthAt(x, y) { return depthOfWet(wetness(climate(x, y, this.seed, this.tmpC ||= {}))); }
   // Apuntar biomas ya calculados en otro hilo (ground.js: blockHeights): las esquinas (m por lado desde
   // (x0 - 1, z0 - 1)) y los centros (BLOCK por lado desde el bloque)
   seedBiomes(x0, z0, corners, m, centers, w) {
@@ -74,6 +76,7 @@ export class WorldGen {
       }
     }
     const n = CHUNK * RES + 1, biome = new Uint8Array(n * n), patch = new Float32Array(n * n), v = new Float32Array(K.length);
+    const wet = new Float32Array(n * n), shore = new Uint8Array(n * n), cw = {};   // (el agua, seguida, y la clase de orilla)
     for (let j = 0, i = 0; j < n; j++) {
       for (let k = 0; k < n; k++, i++) {
         const fx = k / RES, fy = j / RES, x0 = Math.min(nc - 2, fx | 0), y0 = Math.min(nc - 2, fy | 0), u = fx - x0, w = fy - y0, b = y0 * nc + x0;
@@ -85,9 +88,11 @@ export class WorldGen {
         const gk = cx * CHUNK * RES + k, gj = cy * CHUNK * RES + j;
         biome[i] = classify(v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7], (ihash(gk, gj, s + 5) - 0.5) * 0.03, v[8]);
         patch[i] = PATCH(gk / RES, gj / RES, s);
+        for (let q = 0; q < K.length; q++) cw[K[q]] = v[q];
+        wet[i] = wetness(cw); shore[i] = shoreOf(v[0], v[1], v[2]);
       }
     }
-    return { n, biome, patch };
+    return { n, biome, patch, wet, shore };
   }
 
   // Árboles, arbustos y rocas de un trozo. Cada objeto lleva su tipo (kind), una clave única,

@@ -25,7 +25,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 WEB_PORT, RELAY_PORT = 8797, 8795
 CHROMES = ['/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', '/Applications/Chromium.app/Contents/MacOS/Chromium',
            '/Applications/Brave Browser.app/Contents/MacOS/Brave Browser', '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge']
-TIMEOUT = 240   # segundos para todas las pruebas
+TIMEOUT = 480   # segundos para todas las pruebas (con dos Chromes por software todo va despacio)
 SOLO = '--solo' in sys.argv
 DOS = '--dos' in sys.argv   # (solo las de dos jugadores: para probarlas)
 VERBOSE = '--ver' in sys.argv

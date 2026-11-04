@@ -72,6 +72,26 @@ export function classify(T, M, C, R, L, K, P, f, j = 0, Q = 0) {
   return B.MEADOW;
 }
 
+// Cuánta agua hay en un punto según el clima: lo mismo que decide classify (sin el tramado), pero seguido, para
+// que la orilla no salga a escalones. > 0 bajo el agua (1: lo hondo de un río; más, mar adentro o en un lago),
+// < 0 en tierra (cuanto más lejos de la orilla, más negativo). En el hielo y el frío solo queda el mar.
+export function wetness(c) {
+  if (c.Q > 0.5) return -1;
+  let u = (0.36 - c.C) / 0.02;                                                                 // el mar
+  if (c.T >= 0.32) {
+    if (c.C > 0.4 && c.f > 0.01) u = Math.max(u, 1 - Math.abs(c.R - 0.5) / (0.008 * c.f));   // los ríos
+    u = Math.max(u, (c.L - 0.82) / 0.03);                                                     // los lagos
+    if (c.M > 0.64) u = Math.max(u, (c.P - 0.73) / 0.02);                                     // las charcas del pantano
+  }
+  return u;
+}
+// Lo que se hunde el suelo con esa agua (metros, negativo): en la orilla hay un escalón de 27 cm (el agua está a
+// -0,12: así el borde es nítido, con 15 cm de agua, y no una lámina), un río llega a casi 60 cm y el mar y los
+// lagos, a más de uno
+export const depthOfWet = u => (u <= 0 ? 0 : -0.27 - 0.3 * smoothstep(0, 0.6, u) - 0.7 * smoothstep(1, 2.5, u));
+// Qué orilla tiene: arena (costa y desierto), barro (lo normal) o lodo oscuro (pantano)
+export const shoreOf = (T, M, C) => (C < 0.41 || (T > 0.62 && M < 0.46) ? 0 : M > 0.64 ? 2 : 1);
+
 const tmp = {};
 export function biomeAt(x, y, seed) {
   const c = climate(x, y, seed, tmp);
