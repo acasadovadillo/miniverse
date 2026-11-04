@@ -55,13 +55,13 @@
 
 **2.7 Clima (S).** La lluvia son rayas; la nieve, puntos. Añadir charcos que reflejen en la lluvia (un plano con el material del agua donde hay camino), gotas en la cámara con tormenta, y nieve que cuaje sobre tejados y copas en invierno (ya hay `snow` en los árboles: extenderlo a los tejados).
 
-**2.8 Coherencia de iconos (decisión).** Los iconos son de píxeles (16 × 16) y el mundo es 3D de pocos polígonos. Funciona como estilo, pero cada objeto nuevo hay que dibujarlo dos veces. Opción: generar los iconos renderizando el modelo 3D (`preview.js` ya sabe hacerlo para la ropa) y quedarse con el píxel solo para la interfaz. Hay que decidirlo antes de añadir más objetos.
+**2.8 Coherencia de iconos (decisión).** ✅ Decidido y hecho el 2026-11-04: mixto. Lo que se coloca (muebles, estaciones, cosas del rancho) y las herramientas y armas se dibujan desde su modelo 3D (`src/three/icons.js`: de tres cuartos, 36 píxeles con contorno, una vez y en caché; 73 objetos), y lo que se tira al suelo de eso es el modelo en miniatura. Los materiales, la comida, las semillas, los peces, los bichos, la ropa, las alfombras, los cuadros, la caña y la red siguen a píxel (se leen mejor pequeños). Un objeto nuevo con modelo ya no necesita icono. Prueba: «iconos».
 
 ### 3. Interfaz
 
 **3.1 Mapa grande (M).** Solo enseña lo explorado, en un rombo isométrico, sin nombres ni leyenda. Ponerle: norte arriba (como los mapas objeto), nombres de los sitios descubiertos (faro, templo, aldeas), la casa y los vecinos, el ratón para arrastrar y la rueda para ampliar, y una leyenda de colores.
 
-**3.2 Barra de estado (S).** Energía, vida y hambre son tres indicadores que compiten (ver 4.1). Mientras se decida, al menos: números al pasar el ratón, y que la energía no tape los corazones en pantallas estrechas.
+**3.2 Barra de estado (S).** ✅ Hecho el 2026-11-04 con 4.1: al quitar la energía quedan vida, hambre y dinero en una fila, con los números al pasar el ratón; el hambre parpadea cuando queda poca.
 
 **3.3 Pantallas (S).** Inventario, cofre, fabricar y diario comparten estilo, pero cada una tiene su cierre en un sitio y sus atajos. Unificar: Escape cierra siempre, la misma tecla que abre cierra, la X arriba a la derecha en todas, y el nombre del objeto bajo el ratón en una etiqueta flotante en todas (ahora solo en algunas).
 
@@ -73,7 +73,7 @@
 
 ### 4. Mecánicas
 
-**4.1 Energía, vida y hambre (decisión, M).** Hay tres: la energía (de la fase de recolectar) se gasta al trabajar y se recupera comiendo y durmiendo; el hambre (de la fase de supervivencia) baja con el tiempo y se llena comiendo; la vida se cura con el hambre alta. Comer hace dos cosas a la vez y el jugador no sabe cuál mira. Propuesta: fundir energía y hambre en una sola barra (el hambre, como en Minecraft), que el trabajo gaste hambre y que dormir la recupere; la energía desaparece. Es un cambio de reglas: hay que decidirlo.
+**4.1 Energía, vida y hambre (decisión, M).** ✅ Decidido y hecho el 2026-11-04: fundidas en el hambre. Cada uso de herramienta cansa lo que dice `TOOL_COST` (hacha, pico y azada, 1: un octavo de muslo; guadaña, mano, regadera, caña y red, 0,5; con tala o minería al 5, la mitad), comer quita hambre (y cura si duele), dormir deja 7 muslos como poco, y siempre se puede trabajar: con el hambre a cero baja la vida, según la dificultad. La partida ya no guarda `energy` (se ignora al cargar). Prueba: «hambre: trabajar la gasta, comer la quita y dormir la recupera».
 
 **4.2 El pueblo de noche (S).** En la prueba, un esqueleto apareció en la plaza, junto a la farola, y mató al personaje. Dentro de `BOUNDS` del pueblo no deberían aparecer criaturas (es el sitio seguro desde donde se sale a explorar), o al menos no en las casillas con camino ni a menos de 8 casillas de una casa.
 
@@ -91,7 +91,7 @@
 
 ### 5. Código, pruebas y herramientas
 
-**5.1 Pruebas automáticas (M, lo segundo).** ✅ Hecho el 3-11-2026 (`probar.py` y `src/pruebas.js`: 16 pruebas de un jugador y 7 de dos por el relay; unos cinco minutos). El fallo de la brújula (un método `target` que tapaba el de las herramientas) estuvo publicado dos versiones sin que nadie lo viera. Hace falta un guion que arranque el juego en un Chrome invisible (como hace ya `multijugador.py` para el mundo del servidor), cargue una partida de prueba y compruebe lo básico: talar, picar, fabricar, colocar, dormir, un comando de cada clase, y dos juegos conectados a un relay de prueba (puerto 8795) que comparten un cofre. Correrlo antes de cada publicación.
+**5.1 Pruebas automáticas (M, lo segundo).** ✅ Hecho el 3-11-2026 (`probar.py` y `src/pruebas.js`: 19 pruebas de un jugador y 7 de dos por el relay; unos cinco minutos; las de dos fallan si el ordenador va cargado: cerrar el navegador y repetir con `--dos`). El fallo de la brújula (un método `target` que tapaba el de las herramientas) estuvo publicado dos versiones sin que nadie lo viera. Hace falta un guion que arranque el juego en un Chrome invisible (como hace ya `multijugador.py` para el mundo del servidor), cargue una partida de prueba y compruebe lo básico: talar, picar, fabricar, colocar, dormir, un comando de cada clase, y dos juegos conectados a un relay de prueba (puerto 8795) que comparten un cofre. Correrlo antes de cada publicación.
 
 **5.2 Panel de depuración (S).** ✅ Hecho el 4-11-2026 (F3, `src/ui/debug.js`). Una tecla (F3, como en Minecraft) que enseñe fotogramas por segundo, tiempo de simulación y de dibujo, llamadas de dibujo, trozos cargados, memoria y la casilla y el bioma. Sin esto cada medida de rendimiento hay que improvisarla.
 

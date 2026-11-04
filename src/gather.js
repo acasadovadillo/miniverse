@@ -1,6 +1,6 @@
 // Recolectar: elegir lo que hay delante del jugador, golpearlo con la herramienta,
 // soltar lo que da y recogerlo. También los efectos: astillas, textos flotantes y el golpe de la herramienta.
-import { ITEMS, HARVEST, TOOL_COST, ENERGY_MAX, CROPS, toolId, hitsFor, hungerOf } from './items.js';
+import { ITEMS, HARVEST, TOOL_COST, CROPS, toolId, hitsFor, hungerOf } from './items.js';
 import { HUNGER_MAX } from './combat.js';
 import { RECIPES } from './recipes.js';
 import { Audio } from './audio.js';
@@ -204,19 +204,12 @@ export class Gathering {
     }
   }
 
+  // Usar una herramienta cansa (da hambre, como en Minecraft; con la tala o la minería al 5, la mitad) y la gasta un
+  // uso. Siempre se puede trabajar: con el hambre a cero lo que baja es la vida (según la dificultad)
   spend(kind) {
     const g = this.game;
-    if (!(g.buffs?.incansable > g.time)) {   // (la sopa de verduras quita el cansancio un rato)
-      const cost = Math.max(0, TOOL_COST[kind] - (g.skills?.costCut(kind) || 0));
-      if (g.energy < cost) {
-        this.float('Sin energía: come algo o duerme', '#ffb0a0');
-        Audio.error();
-        return false;
-      }
-      g.setEnergy(g.energy - cost);
-    }
-    this.wearOut();             // (y la herramienta se gasta un uso)
-    g.combat?.exert(0.1);       // (y da hambre)
+    if (!(g.buffs?.incansable > g.time)) g.combat?.exert(TOOL_COST[kind] * (g.skills?.costCut(kind) ? 0.5 : 1));   // (la sopa de verduras quita el cansancio un rato)
+    this.wearOut();
     return true;
   }
   // Lo que se lleva en la mano (herramienta o arma) se gasta un uso; si se acaba, se rompe (en creativo, no)
@@ -318,11 +311,11 @@ export class Gathering {
     const g = this.game, it = g.inv.slots[slot], def = it && ITEMS[it.id];
     if (!def?.food && !def?.heal && !def?.buff) return;
     const hurt = g.combat && g.combat.hp < 20, hungry = g.combat && g.combat.hunger < HUNGER_MAX;
-    if (g.energy >= ENERGY_MAX && !hurt && !hungry && !def.buff) { this.float('No tienes hambre', '#d8e8ff'); return; }
+    if (!hurt && !hungry && !def.buff) { this.float('No tienes hambre', '#d8e8ff'); return; }
     g.inv.take(slot, 1);
-    const cooked = RECIPES.some(r => r.out === it.id && r.station === 'cocina'), food = Math.round((def.food || 0) * (cooked ? 1 + (g.skills?.level('cocina') || 0) * 0.05 : 1));
-    if (food) { g.setEnergy(g.energy + food); this.float(`+${food} energía`, '#a8f0a0'); }
-    if (def.food && g.combat) g.combat.feed(Math.round(hungerOf(def) * (food / def.food)));   // (el hambre, como en Minecraft)
+    // (los platos de la cocina quitan más hambre con cada nivel de cocina)
+    const cooked = RECIPES.some(r => r.out === it.id && r.station === 'cocina'), fed = def.food ? Math.max(1, Math.round(hungerOf(def) * (cooked ? 1 + (g.skills?.level('cocina') || 0) * 0.05 : 1))) : 0;
+    if (fed && g.combat) { g.combat.feed(fed); this.float(`+${String(fed / 2).replace('.', ',')} 🍗`, '#f0c890'); }
     if (g.combat) { const hp = def.heal || (def.food ? Math.ceil(def.food / 12) : 0); if (hurt && hp) { g.combat.heal(hp); this.float(`+${hp / 2} ♥`, '#ff9aaa'); } }
     if (def.buff) {
       const [kind, secs] = def.buff;

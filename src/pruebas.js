@@ -1,7 +1,7 @@
 // Pruebas automáticas del juego. Las lanza probar.py en un Chrome invisible con ?modo=pruebas: el juego arranca con
 // una cuenta de prueba (sin contraseña ni GitHub: nada se guarda fuera de este navegador) y una partida nueva, y va
-// haciendo lo básico (recolectar, fabricar, colocar, cofres, puertas, comandos, mapas, cocos, la noria, guardar y
-// cargar) comprobando que pasa lo que tiene que pasar. Cada prueba se cuenta a probar.py (POST /pruebas) y sale
+// haciendo lo básico (recolectar, el hambre, fabricar, colocar, cofres, puertas, comandos, mapas, cocos, la noria,
+// guardar y cargar) comprobando que pasa lo que tiene que pasar. Cada prueba se cuenta a probar.py (POST /pruebas) y sale
 // también en la consola. Con &parte=dos&relay=ws://…, dos juegos (quien=a, el anfitrión, y quien=b, el invitado)
 // comparten un mundo por el relay de pruebas y comprueban que cada uno ve lo que pone el otro.
 import { Profile } from './accounts.js';
@@ -12,6 +12,8 @@ import { CHUNK } from './world/gen.js';
 import { HOUSE } from './world/village.js';
 import { machineAt, settle, MACHINES } from './machines.js';
 import { hud } from './ui/hud.js';
+import { itemIcon } from './art/items.js';
+import { modelKind, ICON3D } from './three/icons.js';
 
 const q = new URLSearchParams(location.search), WHO = q.get('quien') || 'a', RELAY = q.get('relay'), PART = q.get('parte') || 'solo';   // parte: 'solo' (un jugador) o 'dos'
 const LOOK = { sex: 'chica', hairStyle: 'trenzas', hair: '#2a1e1e', skin: '#c98a5a', outfit: 'delantal', cloth: '#b84a8a', pants: '#4a3a2a', eyes: '#3a2a1e' };
@@ -31,7 +33,8 @@ async function frames(n) {
 }
 async function until(fn, ms = 10000, what = 'algo') {
   const t0 = performance.now();
-  while (performance.now() - t0 < ms) { const v = fn(); if (v) return v; await frames(3); }
+  let said = t0;
+  while (performance.now() - t0 < ms) { const v = fn(); if (v) return v; await frames(3); if (performance.now() - said > 5000) { said = performance.now(); console.log(`… esperando ${what} (${Math.round((said - t0) / 1000)} s)`); } }
   throw new Error(`Esperando ${what}: ${ms} ms y nada`);
 }
 // Dibujar hasta que el suelo de alrededor de la cámara esté hecho (lo calcula el hilo aparte)
@@ -54,6 +57,7 @@ function tell(name, ok, detail = '') {
 }
 async function test(name, fn) {
   const before = errors.length;
+  console.log(`▶ ${name}`);   // (con probar.py --ver se ve por dónde va cada juego)
   try {
     const limit = /carga|^dos:/.test(name) ? LOAD_TIMEOUT : TEST_TIMEOUT;   // (lo que espera a otro juego o al primer dibujo, más)
     await Promise.race([fn(), sleep(limit).then(() => { throw new Error(`más de ${limit / 1000} s`); })]);
@@ -98,7 +102,7 @@ async function harvest(game, o, tool) {
   p.x = o.x + 0.8; p.y = o.y; p.face = { x: -1, y: 0 }; p.vx = p.vy = 0;
   await frames(2);
   const alive = () => w.harvestablesNear(o.x, o.y).some(k => k.key === o.key);
-  for (let i = 0; i < 20 && alive(); i++) { game.setEnergy(100); game.gather.cooldown = 0; game.gather.target = game.gather.pickTarget(); check(game.gather.target?.obj, `no apunto a ${o.kind}`); game.gather.use(); await frames(2); }
+  for (let i = 0; i < 20 && alive(); i++) { game.gather.cooldown = 0; game.gather.target = game.gather.pickTarget(); check(game.gather.target?.obj, `no apunto a ${o.kind}`); game.gather.use(); await frames(2); }
   check(!alive(), `${o.kind} sigue ahí`);
   await until(() => !game.gather.drops.length, 8000, 'a recoger lo que ha caído');   // (lo que cae vuela hasta el jugador)
 }
@@ -144,8 +148,21 @@ async function soloTests(game) {
     check(tile, 'no hay dónde labrar');
     selectTool(game, 'azada');
     p().x = tile[0] + 0.5; p().y = tile[1] + 1.4; p().face = { x: 0, y: -1 }; await frames(2);
-    game.setEnergy(100); game.gather.cooldown = 0; game.gather.target = game.gather.pickTarget(); check(game.gather.target?.ok, 'la azada no apunta a la casilla'); game.gather.use();
+    game.gather.cooldown = 0; game.gather.target = game.gather.pickTarget(); check(game.gather.target?.ok, 'la azada no apunta a la casilla'); game.gather.use();
     check(w().delta(Math.floor(tile[0] / CHUNK), Math.floor(tile[1] / CHUNK))?.tilled[`${tile[0]},${tile[1]}`] !== undefined, 'la casilla no está labrada');
+  });
+  await test('hambre: trabajar la gasta, comer la quita y dormir la recupera', async () => {
+    const c = game.combat; check(game.gamemode === 'survival' && game.difficulty === 'normal', `modo ${game.gamemode}, dificultad ${game.difficulty}`);
+    c.hunger = 20; c.exhaust = 0; c.paint();
+    for (let i = 0; i < 8; i++) game.gather.spend('hacha');   // (ocho hachazos: 8 de cansancio, un muslo)
+    check(c.hunger === 18, `tras 8 hachazos el hambre está a ${c.hunger} (esperaba 18)`);
+    const said = []; const say = (t, k) => said.push(`${k}: ${t}`);
+    c.hunger = 4; c.paint(); inv().add('manzana', 1); const slot = inv().slots.findIndex(s => s?.id === 'manzana'); check(slot >= 0, 'no hay manzana');
+    game.gather.cooldown = 0; game.gather.eat(slot); check(c.hunger === 8, `tras la manzana el hambre está a ${c.hunger} (esperaba 8)`);
+    runCommand(game, '/time set 23:00', say); check(game.days.hour >= 22, `time set: ${said.at(-1)}`);
+    await game.days.sleep(); check(c.hunger === 14, `tras dormir el hambre está a ${c.hunger} (esperaba 14)`);
+    runCommand(game, '/time reset', say);
+    c.hunger = 20; c.paint();
   });
   await test('fabricar: tablas a mano y un banco con tablas y piedra', async () => {
     inv().add('madera', 4); game.craft.check();
@@ -163,6 +180,10 @@ async function soloTests(game) {
     check(game.craft.stationsNear().banco, 'el banco no está cerca');
     const o = w().placedNear(p().x, p().y, 3).find(o => o.placed === 'banco'); check(o, 'no se encuentra el banco colocado');
     check(game.pickUp(o), 'no se recoge'); check(inv().count('banco') === 1, 'el banco no ha vuelto a la mochila');
+    // Tirado al suelo se ve como el modelo en miniatura (no como icono hecho pieza) y vuelve solo a la mochila
+    inv().remove('banco', 1); game.gather.throwOut('banco', 1); check(inv().count('banco') === 0 && game.gather.drops.length === 1, 'no se ha tirado');
+    draw(); const fx = game.view3d.fx, shown = fx.drops.get(game.gather.drops[0]); check(shown?.s?.isGroup, 'en el suelo no está el modelo en miniatura');
+    await until(() => !game.gather.drops.length, 8000, 'a recoger el banco'); check(inv().count('banco') === 1, 'el banco tirado no ha vuelto');
   });
   await test('cofre: guarda cosas y lleno no se recoge', async () => {
     const [tx, ty] = freeTile(game, [[62, 38], [63, 38], [62, 39], [61, 38]]);
@@ -204,7 +225,8 @@ async function soloTests(game) {
     const o = findKind(game, ['palm'], -120, 90, 10) || findKind(game, ['palm'], 0, 0, 30); check(o, 'no hay palmeras');
     await goTo(game, o.x + 0.9, o.y + 0.9);
     p().x = o.x + 0.9; p().y = o.y + 0.9; await frames(2);
-    const n = inv().count('coco'), near = game.nearest(); check(near?.text === 'Coger cocos', `E dice: ${near?.text}`); near.run(); await until(() => !game.gather.drops.length, 8000, 'a recoger los cocos');
+    const n = inv().count('coco'), near = game.nearest(); check(near?.text === 'Coger cocos', `E dice: ${near?.text}`); near.run();
+    await until(() => { const d = game.gather.drops[0]; if (d) { p().x = d.x; p().y = d.y; } return !game.gather.drops.length; }, 8000, 'a recoger los cocos');   // (se va a por cada coco: a veces caen lejos)
     check(inv().count('coco') > n, 'no han caído cocos');
     const live = w().harvestablesNear(o.x, o.y).find(k => k.key === o.key); check(live?.bare, 'la palmera no se queda sin cocos');
     const m = inv().count('madera'); await harvest(game, live, 'hacha'); check(inv().count('madera') > m, 'talarla no da madera');
@@ -245,6 +267,17 @@ async function soloTests(game) {
     // (el bucle lo llevan las pruebas: el panel no tiene fotogramas que contar, y lo dice)
     check(/fps|fotogramas/.test(el.textContent) && /bioma/.test(el.textContent) && /trozos/.test(el.textContent), `no dice lo suyo: ${el.textContent.slice(0, 120)}`);
     key(); await frames(2); check(el.hidden, 'no se cierra');
+  });
+  await test('iconos: los de lo que se coloca y las herramientas salen del modelo 3D, el resto a píxel', async () => {
+    check(modelKind('silla') === 'placed' && modelKind('hacha') === 'tool' && !modelKind('madera') && !modelKind('camisa') && !modelKind('alfombra'), 'la clase de icono no es la esperada');
+    const bad = [];
+    for (const id of Object.keys(ITEMS)) {
+      const c = itemIcon(id), d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+      let magenta = 0, opaque = 0;
+      for (let i = 0; i < d.length; i += 4) if (d[i + 3] > 100) { opaque++; if (d[i] > 200 && d[i + 1] < 60 && d[i + 2] > 200) magenta++; }
+      if (magenta > 20 || opaque < 10 || c.width !== (modelKind(id) ? ICON3D : 18)) bad.push(id);
+    }
+    check(!bad.length, `iconos vacíos, de relleno o de otro tamaño: ${bad.join(', ')}`);
   });
   await test('ganchos: ningún sistema tapa un gancho con otra cosa', async () => {
     const HOOKS = { target: 3, interact: 2, entities: 1, onDay: 1 };   // (los ganchos con parámetros: un método con ese nombre y otro uso los taparía)

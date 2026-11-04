@@ -14,7 +14,7 @@ import { Inventory } from './inventory.js';
 import { Gathering } from './gather.js';
 import { Crafting } from './crafting.js';
 import { STATIONS } from './recipes.js';
-import { ENERGY_MAX, START_KIT, ITEMS, RUG_MADE, rugId, CHESTS } from './items.js';
+import { START_KIT, ITEMS, RUG_MADE, rugId, CHESTS } from './items.js';
 import { clothesFor, dressed } from './looks.js';
 import { WorldStore } from './worldstore.js';
 import { BuildMode } from './build.js';
@@ -52,7 +52,7 @@ const NILO_TIPS = [
   'Los peñascos grandes no se dejan picar con un pico de madera. Hazte uno de piedra en el banco.',
   'Dicen que en las montañas los peñascos esconden cobre, hierro y hasta oro. Pero hace falta buen pico.',
   'Con un horno conviertes el mineral en lingotes. Y con lingotes de cobre, un yunque para herramientas de metal.',
-  'En la cocina, una manzana asada da el doble de energía que una cruda. Hazme caso.',
+  'En la cocina, una manzana asada quita el doble de hambre que una cruda. Hazme caso.',
   'Si te quedas sin carbón, quema madera en el horno. Así lo hacía mi abuelo.',
   'En el taller, al oeste del camino, hay un banco y un telar para quien los necesite. No hace falta pedir permiso.',
   'Las palmeras de las playas cálidas dan cocos cada pocos días. No hace falta talarlas: basta con sacudirlas.',
@@ -91,7 +91,6 @@ export class Game {
     this.frameNo = 0;
     this.map = new MapView();
     this.inv = new Inventory();
-    this.energy = ENERGY_MAX;
     this.gather = new Gathering(this);
     this.craft = new Crafting(this);
     this.niloTip = 0;
@@ -170,7 +169,6 @@ export class Game {
     this.inv.onChange = () => { this.craft.check(); this.onInventory?.(); };
     this.craft.reset(save);
     this.onInventory?.();
-    this.setEnergy(save.energy ?? ENERGY_MAX);
     this.rules = { ...RULES, ...(save.rules || {}) };
     this.worldSpawn = save.worldSpawn || null;
     this.weatherLock = save.weatherLock || null;
@@ -220,7 +218,7 @@ export class Game {
     if (this.scene?.kind === 'grid') Object.assign(player, { inside: false, x: this.scene.exitTo.x, y: this.scene.exitTo.y });   // en una cueva se guarda la entrada
     const out = {
       seed: this.world.seed, player, explored: [...this.explored],
-      inventory: this.inv.toSave(), energy: Math.round(this.energy), clock: Math.round(this.world.clock),
+      inventory: this.inv.toSave(), clock: Math.round(this.world.clock),
       ...this.craft.toSave(), house: { big: this.house.big, family: this.house.family, built: true, v: 3 }, money: this.money,
       gamemode: this.gamemode, rules: this.rules, worldSpawn: this.worldSpawn, weatherLock: this.weatherLock, difficulty: this.difficulty, defaultGamemode: this.defaultGamemode, cam3d: camToSave(), volumes: Settings.volumes(),
     };
@@ -349,10 +347,6 @@ export class Game {
     this.money = Math.max(0, this.money + n);
     hud.money(this.money);
     if (n > 0) this.stats?.add('ganado', n);
-  }
-  setEnergy(v) {
-    this.energy = Math.max(0, Math.min(ENERGY_MAX, v));
-    hud.energy(this.energy / ENERGY_MAX);
   }
 
   // Marca como explorados los trozos alrededor del jugador

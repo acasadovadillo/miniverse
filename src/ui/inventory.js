@@ -1,7 +1,7 @@
 // Barra rápida (las 9 primeras casillas: manos y bolsillos) y la pantalla del inventario: el personaje en 3D
 // con lo que lleva puesto, rodeado de los huecos del cuerpo (ropa y mochila), y las casillas, con arrastrar y
 // soltar. Sin mochila, sus 27 casillas están cerradas.
-import { ITEMS, WEAR_SLOTS } from '../items.js';
+import { ITEMS, WEAR_SLOTS, hungerText } from '../items.js';
 import { DYES } from '../looks.js';
 import { SLOTS, HOTBAR, extraOf } from '../inventory.js';
 import { itemIconUrl } from '../art/items.js';
@@ -150,7 +150,7 @@ export function initInventoryUI(game, { onClose, onCraft }) {
     if (!s) { $('inv-name').textContent = 'Toca un objeto para ver qué es'; say('Arrástralo para moverlo, o a tu cuerpo para ponértelo. Suéltalo fuera para tirarlo.'); return; }
     $('inv-icon').src = itemIconUrl(s.id, s.color);
     $('inv-name').textContent = def.name + (s.n > 1 ? ` ×${s.n}` : '') + (worn ? ' (puesto)' : '');
-    say(def.desc + (def.food ? ` Da ${def.food} de energía.` : ''));
+    say(def.desc + (def.food ? ` ${hungerText(def)}` : ''));
     $('inv-wearbtn').hidden = !def.wear;
     // Teñir: las prendas (puestas o en la mochila) se cambian de color tocando uno
     $('inv-dyes').hidden = !def.wear || !!def.noDye;   // (la armadura no se tiñe)

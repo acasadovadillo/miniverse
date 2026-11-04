@@ -22,7 +22,7 @@ const SKILLS = {
 };
 const PERKS = {
   tala: 'Nivel 5: talar cansa menos. Cada nivel: más madera.', mineria: 'Nivel 5: picar cansa menos. Cada nivel: más mineral.',
-  agricultura: 'Cada nivel: más cosecha.', pesca: 'Cada nivel: la red es más grande y salen más peces raros y tesoros.', cocina: 'Cada nivel: platos más sabrosos (más energía).',
+  agricultura: 'Cada nivel: más cosecha.', pesca: 'Cada nivel: la red es más grande y salen más peces raros y tesoros.', cocina: 'Cada nivel: platos más sabrosos (quitan más hambre).',
   construccion: 'Por construir, que es muy bonito.', granja: 'Cada nivel: animales más contentos.', combate: 'Nivel 5: golpeas más fuerte.',
 };
 const xpFor = lvl => 25 * lvl * (lvl + 1);   // experiencia total para llegar a un nivel

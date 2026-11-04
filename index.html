@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- La versión publicada: se cambia en cada publicación (así el juego sabe que tiene que pedir el código nuevo) -->
-<meta name="miniverse-version" content="2026-11-04.2">
+<meta name="miniverse-version" content="2026-11-04.3">
 <title>Miniverse</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏡</text></svg>">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -92,13 +92,8 @@
   #fade.on { opacity: 1; }
   body:not(.playing) #clockp, body:not(.playing) #place, body:not(.playing) #touch, body:not(.playing) #prompt, body:not(.playing) #minimap, body:not(.playing) #hotbar, body:not(.playing) #hint { display: none !important; }
 
-  /* ---------- Barra rápida, energía y mochila ---------- */
+  /* ---------- Barra rápida, vida, hambre y mochila ---------- */
   #hotbar { position: fixed; left: 50%; bottom: 10px; transform: translateX(-50%); padding: 6px 8px 8px; }
-  #energy { display: flex; align-items: center; gap: 6px; margin: 0 2px 6px; font-size: 13px; color: var(--dim); }
-  #energy .bar { flex: 1; height: 8px; background: rgba(0, 0, 0, .45); border: 1px solid #6a4a2a; border-radius: 3px; overflow: hidden; }
-  #energy-fill { height: 100%; width: 100%; background: linear-gradient(#a8f07a, #5cbf3a); transition: width .2s; }
-  #energy.low #energy-fill { background: linear-gradient(#ffb07a, #e0603a); }
-  #energy.low { color: var(--err); animation: blink 1s steps(2) infinite; }
   .slots { display: flex; gap: 4px; }
   .slot { position: relative; width: 44px; height: 44px; background: rgba(0, 0, 0, .35); border: 2px solid #6a4a2a; border-radius: 4px; cursor: pointer; touch-action: none; }
   .slot img { position: absolute; left: 50%; top: 50%; width: 36px; height: 36px; transform: translate(-50%, -50%); image-rendering: pixelated; pointer-events: none; }
@@ -331,10 +326,12 @@
   .sh-row small { display: block; font-size: 12px; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .sh-row .btn { width: auto; margin: 0; padding: 4px 10px; font-size: 14px; }
   .sh-row .btn:disabled { opacity: .4; cursor: default; }
-  #money { color: var(--gold); margin-left: 8px; white-space: nowrap; }
-  /* La vida (corazones) y el hambre (muslos, que se vacían desde la izquierda): en supervivencia, siempre */
-  #vitals { display: none; justify-content: space-between; align-items: center; gap: 10px; margin: -2px 2px 5px; }
-  body.survival #vitals, body.underground #vitals { display: flex; }
+  #money { color: var(--gold); margin-left: auto; white-space: nowrap; font-size: 13px; }
+  /* La vida (corazones), el hambre (muslos, que se vacían desde la izquierda) y el dinero: la vida y el hambre, en
+     supervivencia (y bajo tierra); el dinero, siempre */
+  #vitals { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin: 0 2px 6px; min-height: 14px; }
+  body:not(.survival):not(.underground) #hearts, body:not(.survival):not(.underground) #hunger { display: none; }
+  body.hungry #hunger { animation: blink 1s steps(2) infinite; }
   #hearts { font-size: 14px; letter-spacing: 1px; line-height: 1; }
   #hunger { display: flex; flex-direction: row-reverse; gap: 1px; }
   #hunger i { display: block; width: 13px; height: 13px; background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cellipse cx='7.6' cy='4.4' rx='4' ry='3.3' fill='%23c8743a' transform='rotate(-35 7.6 4.4)'/%3E%3Cellipse cx='8.4' cy='3.4' rx='1.6' ry='1' fill='%23eaa262'/%3E%3Crect x='2.6' y='5.9' width='3.6' height='1.7' rx='.8' fill='%23f4ecdc' transform='rotate(-45 4.4 6.8)'/%3E%3Ccircle cx='2.1' cy='10' r='1.2' fill='%23f4ecdc'/%3E%3Ccircle cx='1.3' cy='8.9' r='1' fill='%23f4ecdc'/%3E%3C/svg%3E") center / contain no-repeat; }
@@ -487,8 +484,7 @@
   <canvas id="minimap" class="panel" width="150" height="100"></canvas>
   <div id="hint" class="panel"><kbd>Clic</kbd><span id="hint-text"></span></div>
   <div id="hotbar" class="panel">
-    <div id="energy" title="Energía"><span>Energía</span><div class="bar"><div id="energy-fill"></div></div><span id="money">0 🪙</span></div>
-    <div id="vitals"><div id="hearts" title="Vida"></div><div id="hunger" title="Hambre"></div></div>
+    <div id="vitals"><div id="hearts" title="Vida"></div><div id="hunger" title="Hambre"></div><span id="money" title="Monedas">0 🪙</span></div>
     <div id="xp" title="Experiencia"><i></i><b></b></div>
     <div class="slots" id="hotbar-slots"></div>
   </div>

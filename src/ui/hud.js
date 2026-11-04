@@ -3,7 +3,7 @@ import { Audio } from '../audio.js';
 import { portrait3D } from '../three/portrait.js';
 
 const $ = id => document.getElementById(id);
-let shownPrompt = null, shownCoords = null, shownEnergy = null, shownHint = null, dialog = null;
+let shownPrompt = null, shownCoords = null, shownHint = null, dialog = null;
 
 // Retrato de quien habla (si es una persona conocida): su cara en 3D. El nombre puede llevar detrás los corazones.
 function showFace(name) {
@@ -34,13 +34,6 @@ export const hud = {
     if (flash) $('place').animate([{ transform: 'scale(1.15)', borderColor: '#fff3c0' }, { transform: 'scale(1)' }], { duration: 600, easing: 'ease-out' });
   },
   money(n) { $('money').textContent = `${n} 🪙`; },
-  energy(frac) {
-    const pct = Math.round(frac * 100);
-    if (pct === shownEnergy) return;
-    shownEnergy = pct;
-    $('energy-fill').style.width = pct + '%';
-    $('energy').classList.toggle('low', pct <= 15);
-  },
   hint(text) {
     if (text === shownHint) return;
     shownHint = text;

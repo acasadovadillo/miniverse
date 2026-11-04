@@ -5,12 +5,12 @@
 // Madrid (/time reset). Los días cuentan desde que empezó la partida; los que pasan sin jugar se viven al volver.
 import { mk, ihash } from './util.js';
 import { SEASONS } from './art/seasons.js';
-import { ENERGY_MAX } from './items.js';
 import { Audio } from './audio.js';
 import { Settings } from './settings.js';
 import { hud } from './ui/hud.js';
 import { lonOf, latOf } from './world/planet.js';
 
+const SLEEP_FED = 14;             // medios muslos de hambre con los que se levanta uno de dormir (si tenía menos)
 // (antes, un día duraba 20 minutos y empezaba a las 7: con eso se sabe en qué día iban las partidas de entonces)
 const OLD_DAY_LEN = 1200, OLD_START_HOUR = 7;
 const HELD_LIGHT = { antorcha: 64, lampara: 76 };   // lo que alumbra llevándolo en la mano, y cuánto
@@ -172,7 +172,7 @@ export class TimeSystem {
     this.update(0);
   }
   realHour() { this.shift = 0; if (this.game.frozenHour != null) this.game.frozenHour = this.hour; this.update(0); }
-  // Dormir: el tiempo no se salta (es el de verdad), pero se recupera la energía
+  // Dormir: el tiempo no se salta (es el de verdad), pero descansar quita parte del hambre (deja SLEEP_FED medios muslos como poco)
   async sleep() {
     const g = this.game, h = this.hour;
     if (h >= 6 && h < 18) {
@@ -182,11 +182,12 @@ export class TimeSystem {
     g.busy = true;
     g.player.stop();
     await hud.fade(true);
-    g.setEnergy(ENERGY_MAX);
+    const fed = g.combat && g.combat.hunger < SLEEP_FED;
+    if (fed) g.combat.feed(SLEEP_FED - g.combat.hunger);
     await new Promise(r => setTimeout(r, 700));
     await hud.fade(false);
     g.busy = false;
-    g.gather.float('Has descansado. Energía al máximo', '#a8f0a0');
+    g.gather.float(fed ? 'Has descansado y se te ha pasado el hambre' : 'Has descansado', '#a8f0a0');
     g.onSave?.();
   }
 

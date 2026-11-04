@@ -33,7 +33,7 @@ export const ITEMS = {
   lingote_cobre: { name: 'Lingote de cobre', desc: 'Para el yunque, la cocina y las herramientas de cobre.' },
   lingote_hierro: { name: 'Lingote de hierro', desc: 'Para herramientas de hierro en el yunque.' },
   lingote_oro: { name: 'Lingote de oro', desc: 'Para las mejores herramientas.' },
-  // Comida (food: energía que da)
+  // Comida (food: lo que alimenta; hungerOf lo pasa a medios muslos de hambre)
   coco: { name: 'Coco', desc: 'Se cogen de las palmeras con E (vuelven a salir a los 3 días) o talándolas. Cuesta abrirlo, pero merece la pena.', food: 12 },
   manzana: { name: 'Manzana', desc: 'Crujiente y dulce.', food: 15 },
   bayas: { name: 'Bayas', desc: 'Un puñado de bayas silvestres.', food: 8 },
@@ -43,13 +43,13 @@ export const ITEMS = {
   coco_tostado: { name: 'Coco tostado', desc: 'Huele a playa.', food: 28 },
   pinones: { name: 'Piñones tostados', desc: 'Pequeños pero llenan.', food: 18 },
   pan_bellota: { name: 'Pan de bellota', desc: 'Denso, rústico y muy de pueblo.', food: 25 },
-  estofado: { name: 'Estofado de cactus', desc: 'La especialidad del desierto. Da energía para rato.', food: 50 },
+  estofado: { name: 'Estofado de cactus', desc: 'La especialidad del desierto. Quita el hambre para rato.', food: 50 },
   // Cosas que se colocan en el mundo (place: estación de trabajo, mueble o algo plano en el suelo)
   banco: { name: 'Banco de carpintero', desc: 'Estación: herramientas de piedra, muebles y otras estaciones.', place: 'station' },
   horno: { name: 'Horno', desc: 'Estación: funde minerales en lingotes y hace carbón.', place: 'station' },
   yunque: { name: 'Yunque', desc: 'Estación: herramientas de cobre, hierro y oro.', place: 'station' },
   telar: { name: 'Telar', desc: 'Estación: teje fibra en tela.', place: 'station' },
-  cocina: { name: 'Cocina', desc: 'Estación: platos que dan mucha más energía.', place: 'station' },
+  cocina: { name: 'Cocina', desc: 'Estación: platos que quitan mucha más hambre.', place: 'station' },
   silla: { name: 'Silla', desc: 'Para sentarse a admirar lo talado. Mirando a una mesa, se mete debajo.', place: 'furniture' },
   mesa: { name: 'Mesa', desc: 'Una mesa robusta de tablas. Las sillas que la miran se meten debajo.', place: 'furniture' },
   mesa_grande: { name: 'Mesa grande', desc: 'De comedor, para toda la familia. Al ponerla, V cambia el tamaño: 2×1, 2×2, 3×1 o 3×2 (y R la gira). Las sillas que la miran se meten debajo.', place: 'furniture' },
@@ -101,12 +101,12 @@ Object.assign(ITEMS, {
   tortilla: { name: 'Tortilla', desc: 'Con o sin cebolla: el eterno debate.', food: 40 },
   queso: { name: 'Queso', desc: 'Curado en tu propia cocina.', food: 35 },
   pan: { name: 'Pan', desc: 'Recién hecho.', food: 30 },
-  tarta_calabaza: { name: 'Tarta de calabaza', desc: 'Da energía y te hace ir más rápido un rato.', food: 60, buff: ['rapido', 120] },
+  tarta_calabaza: { name: 'Tarta de calabaza', desc: 'Quita el hambre y te hace ir más rápido un rato.', food: 60, buff: ['rapido', 120] },
   sopa_verduras: { name: 'Sopa de verduras', desc: 'Durante un rato, trabajar no cansa.', food: 55, buff: ['incansable', 120] },
   pescado_asado: { name: 'Pescado asado', desc: 'Con un chorrito de limón imaginario.', food: 30 },
   mermelada_fresa: { name: 'Mermelada de fresa', desc: 'Para untar en pan.', food: 40 },
   palomitas: { name: 'Palomitas', desc: 'Pop.', food: 20 },
-  tostada_miel: { name: 'Tostada con miel', desc: 'Desayuno de campeones: da energía y velocidad.', food: 45, buff: ['rapido', 90] },
+  tostada_miel: { name: 'Tostada con miel', desc: 'Desayuno de campeones: quita el hambre y da velocidad.', food: 45, buff: ['rapido', 90] },
 });
 // ---------- Granja, segunda parte: más animales, crías, heno, quesería, caballos y mascotas ----------
 Object.assign(ITEMS, {
@@ -275,8 +275,10 @@ for (const [metal, of, dye, points, base] of ARMOR_METALS) ARMOR_PIECES.forEach(
   ITEMS[`${piece}_${metal}`] = { name: `${name} ${of}`, desc: `Armadura: protege ${points[i]} punto${points[i] > 1 ? 's' : ''} (cada uno, un 4 % del daño). Se forja en el yunque y se repara allí.`, wear, dye, armor: points[i], dur: base * mult, metal, piece, stack: 1, noDye: true };
 });
 export const isArmor = id => !!ITEMS[id]?.armor;
-// Lo que quita el hambre cada comida (en medios muslos, de 20): si no lo dice, según la energía que da
+// Lo que quita el hambre cada comida (en medios muslos, de 20): si no lo dice, según lo que alimenta (food)
 export const hungerOf = def => def.hunger ?? Math.max(1, Math.min(10, Math.round((def.food || 0) / 4)));
+// Lo mismo, dicho en muslos («Quita 2,5 muslos de hambre»)
+export const hungerText = def => { const n = hungerOf(def) / 2; return `Quita ${String(n).replace('.', ',')} muslo${n === 1 ? '' : 's'} de hambre.`; };
 
 // Las alfombras se tejen de cada tamaño en el telar: la de siempre es la de 1×1 y 'alfombra_persa_2x3', la persa de
 // 2×3 (rug: de qué alfombra es; size: lo que ocupa, en casillas; plain: su nombre sin el tamaño)
@@ -324,8 +326,8 @@ Object.assign(HARVEST, {
   veta_fosil: VEIN('fosil', 2, 3, [['fosil_concha', 1, 1, 0.5], ['fosil_hueso', 1, 1, 0.35], ['fosil_ambar', 1, 1, 0.2], ['piedra', 1, 2]]),
 });
 
-export const ENERGY_MAX = 100;
-export const TOOL_COST = { hacha: 2, pico: 2, guadana: 1, azada: 2, mano: 1, regadera: 1, cana: 1, red: 1 };
+// Lo que cansa cada uso de herramienta (en cansancio de combat.js: a 4, medio muslo de hambre menos)
+export const TOOL_COST = { hacha: 1, pico: 1, guadana: 0.5, azada: 1, mano: 0.5, regadera: 0.5, cana: 0.5, red: 0.5 };
 export const START_KIT = [['hacha', 1], ['pico', 1], ['guadana', 1], ['azada', 1], ['manzana', 3]];
 
 // Golpes que necesita una herramienta de cierto nivel

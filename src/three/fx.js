@@ -4,6 +4,7 @@
 // de la fuente, la luz del faro, el sedal y el corcho al pescar y el destello rojo al recibir un golpe.
 import * as THREE from 'three';
 import { itemIcon } from '../art/items.js';
+import { dropModel } from './icons.js';
 import { yawOf, rugRect, tableRect } from '../art/stations.js';
 import { ITEMS } from '../items.js';
 import { PIECES } from '../pieces.js';
@@ -180,14 +181,14 @@ export class Fx {
     }
     return this.icons.get(k);
   }
-  // Lo que hay en el suelo, como en Minecraft: el icono hecho pieza (cada píxel, un cubito con grosor), que
-  // gira despacio y flota subiendo y bajando, con su sombra debajo
+  // Lo que hay en el suelo, como en Minecraft: el icono hecho pieza (cada píxel, un cubito con grosor) o, si lo
+  // tiene, el modelo 3D en miniatura, que gira despacio y flota subiendo y bajando, con su sombra debajo
   updateDrops(game, scene, playing, t, gy) {
     const list = playing ? game.gather.drops.filter(d => d.scene === scene) : [], seen = new Set();
     for (const d of list) {
       seen.add(d);
       let o = this.drops.get(d);
-      if (!o) { const s = new THREE.Mesh(this.solid(d.id, d.extra?.color), this.solidMat); s.castShadow = true; const b = this.blob.clone(); o = { s, b, seed: Math.random() * 6 }; this.group.add(s, b); this.drops.set(d, o); }
+      if (!o) { const s = dropModel(d.id) || new THREE.Mesh(this.solid(d.id, d.extra?.color), this.solidMat); s.castShadow = true; const b = this.blob.clone(); o = { s, b, seed: Math.random() * 6 }; this.group.add(s, b); this.drops.set(d, o); }
       const g = gy(d.x, d.y), bob = Math.sin(t * 2.6 + o.seed) * 0.05;
       o.s.position.set(d.x, g + 0.26 + d.z / 24 + bob, d.y);
       o.s.rotation.y = t * 1.6 + o.seed;

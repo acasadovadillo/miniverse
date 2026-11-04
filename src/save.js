@@ -1,6 +1,6 @@
 // Partida guardada de cada cuenta: el estado del jugador (el mundo es uno solo; seed dice en cuál se guardó).
 // Formato: { accountId, version: 2, seed, savedAt, player: { name, look, x, y, inside, view },
-//           explored, inventory: { slots, selected }, energy, clock, house: { big, built } }
+//           explored, inventory: { slots, selected }, hp, hunger, clock, house: { big, built } }
 // (built: tu casa ya está levantada en el mundo con piezas; las partidas de antes traían house.placed y
 // house.chests con los muebles de la habitación aparte, que se migran al cargar)
 // Los cambios del mundo (talado, labrado) van aparte, por trozos: ver worldstore.js

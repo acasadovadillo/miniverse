@@ -14,8 +14,8 @@ import { XP_MOB, roll } from './xp.js';
 
 export const HP_MAX = 20;       // medios corazones
 export const HUNGER_MAX = 20;   // medios muslos
-const EXHAUST = 4;               // lo que hay que cansarse para perder medio muslo (usar algo o pegar: 0,1; correr, 0,05
-                                 // por metro; saltar, 0,05; curarse medio corazón, 1,5; y, sin hacer nada, esto cada IDLE s)
+const EXHAUST = 4;               // lo que hay que cansarse para perder medio muslo (usar una herramienta: TOOL_COST, de 0,5 a 1;
+                                 // pegar: 0,1; correr, 0,05 por metro; saltar, 0,05; curarse medio corazón, 1,5; y, sin hacer nada, esto cada IDLE s)
 const IDLE = 150, TICK = 4;      // y cada TICK s se cura (con el hambre a 18 o más) o duele el hambre (a 0)
 const DROP_TTL = 300;            // segundos que dura en el suelo lo que se suelta al morir
 
@@ -76,6 +76,7 @@ export class Combat {
     let html = '';
     for (let i = 0; i < HP_MAX / 2; i++) { const v = this.hp - i * 2; html += `<i class="${v >= 2 ? 'f' : v >= 1 ? 'h' : 'e'}">♥</i>`; }
     el.innerHTML = html;
+    el.title = `Vida: ${String(this.hp / 2).replace('.', ',')} de ${HP_MAX / 2} corazones`;
     document.body.classList.toggle('hurt', this.hp < HP_MAX);
     this.paintHunger();
   }
@@ -84,7 +85,9 @@ export class Combat {
     this.shownHunger = this.hunger;
     let html = '';
     for (let i = 0; i < HUNGER_MAX / 2; i++) { const v = this.hunger - i * 2; html += `<i class="${v >= 2 ? 'f' : v >= 1 ? 'h' : 'e'}"></i>`; }
-    document.getElementById('hunger').innerHTML = html;
+    const el = document.getElementById('hunger');
+    el.innerHTML = html;
+    el.title = `Hambre: ${this.hunger / 2} de ${HUNGER_MAX / 2} muslos (trabajar, correr y pegar la gastan; comer la quita; con ${18 / 2} o más te curas)`;
     document.body.classList.toggle('hungry', this.hunger <= 6);
   }
 
@@ -169,7 +172,6 @@ export class Combat {
     this.hunger = HUNGER_MAX; this.exhaust = 0;
     g.goHome();
     this.hp = HP_MAX; this.paint();
-    g.setEnergy(50);
     g.view3d.snap();
     await hud.fade(false);
     g.dying = false;
