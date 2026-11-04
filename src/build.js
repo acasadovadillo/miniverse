@@ -7,7 +7,7 @@ import { floorSprite, wallSprite, doorSprite, hearthSprite, roofSprite, fenceSpr
 import { Audio } from './audio.js';
 
 export const REACH = 7;   // casillas de distancia a las que se puede construir
-export const PIECE_IDS = Object.keys(PIECES).filter(id => !ITEMS[id]);   // (el hogar se fabrica, como un mueble)
+export const PIECE_IDS = Object.keys(PIECES).filter(id => !ITEMS[id] || PIECES[id].palette);   // (el hogar se fabrica, como un mueble; la valla, además de fabricarse, se pone aquí)
 
 // Dibujo de una pieza para su icono en la paleta: el tejado, como casilla suelta (pirámide con alero por
 // los cuatro lados); el hogar, con su chimenea

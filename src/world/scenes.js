@@ -355,6 +355,7 @@ export class Overworld {
       } else if (piece?.kind === 'fence') {
         const f = (x, y) => this.pieceAt(x, y)?.kind === 'fence' || this.pieceAt(x, y)?.kind === 'wall';
         const mask = (f(tx + 1, ty) ? 1 : 0) | (f(tx - 1, ty) ? 2 : 0) | (f(tx, ty + 1) ? 4 : 0) | (f(tx, ty - 1) ? 8 : 0);
+        o.fence = true;
         // (low: es baja; a caballo, saltando, se pasa por encima)
         colliders.push({ x: o.x, y: o.y, r: 0.12, low: true });
         if (mask & 1) colliders.push({ x0: o.x, y0: o.y - 0.08, x1: tx + 1, y1: o.y + 0.08, low: true });

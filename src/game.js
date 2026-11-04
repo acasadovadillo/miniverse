@@ -462,6 +462,7 @@ export class Game {
       if (o.door) out.push({ kind: 'door', tile: o.tile, box: alongX ? box(tx + 0.5, ty + 0.5, 0.5, 0.2, 0, 2.3) : box(tx + 0.5, ty + 0.5, 0.2, 0.5, 0, 2.3) });
       else if (o.window) out.push({ kind: 'window', tile: o.tile, box: alongX ? box(tx + 0.5, ty + 0.5, 0.45, 0.2, 0.9, 2.1) : box(tx + 0.5, ty + 0.5, 0.2, 0.45, 0.9, 2.1) });
       else if (o.hearth) out.push({ kind: 'hearth', tile: o.tile, box: box(o.x, o.y, 0.5, 0.5, 0, 1.4) });
+      else if (o.fence && !o.fixed && ITEMS[o.placed]) out.push({ kind: 'fence', o, box: box(o.x, o.y, 0.5, 0.5, 0, 0.96) });   // (solo apuntándola: si no, cada valla cercana taparía lo demás)
     }
     // El candelabro de la casa, colgado del techo
     const lamp = this.lampNear(R), at = lamp && this.view3d.world.chandelierNear(p.x, p.y, R, true);
@@ -485,6 +486,7 @@ export class Game {
       case 'door': return this.doorAction(a.tile);
       case 'window': return this.windowAction(a.tile);
       case 'hearth': return this.hearthAction(a.tile);
+      case 'fence': return { text: ITEMS[a.o.placed].name, run: () => Audio.blip(), alt: { text: 'Recoger', run: () => { if (this.pickUp(a.o)) this.onSave?.(); } } };
       case 'lamp': return this.lampAction(a.tile);
       case 'npc': return this.neighbors.actionFor(a.n);
       case 'kid': return this.family.actionFor(a.id, a.e);

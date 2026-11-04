@@ -17,6 +17,7 @@ import { hud } from './ui/hud.js';
 import { Profile } from './accounts.js';
 
 const PER_HOME = { gallinero: 4, establo: 4, conejera: 4, cuadra: 2, caseta: 1, cojin: 1 };
+const DOORS = new Set(['gallinero', 'establo', 'conejera']), MENU_PAGE = 5;   // (las casas con puerta y cuántos animales enseña el menú de una vez)
 const ROAM = 4.5, HONEY_EVERY = 3, GROW = 5, WAIT_BIRTH = 3, HATCH = 4, SILO_CAP = 240, STRAY_EVERY = 7;
 const FEED = ['heno', 'fibra', 'trigo'];
 // Lo que se les da a mano para que busquen pareja (las aves, cualquier semilla), cuánto dura y cuánto descansan luego
@@ -156,7 +157,7 @@ export class Ranch {
   add(type, name) {
     const def = ANIMALS[type], home = this.homes(def.home).find(h => h.free > 0);
     if (!home) return `Necesitas ${ITEMS[def.home].name.toLowerCase()} con sitio libre`;
-    this.animals.push(new Animal({ type, name: name || this.freeName(type), home: home.tile, x: home.tile[0] + 0.5, y: home.tile[1] + 1.5, born: this.today - GROW, outDay: this.today, breed: this.randomBreed(type) }));
+    this.animals.push(new Animal({ type, name: name || this.freeName(type), owner: me(), home: home.tile, x: home.tile[0] + 0.5, y: home.tile[1] + 1.5, born: this.today - GROW, outDay: this.today, breed: this.randomBreed(type) }));
     return null;
   }
   // /summon: uno de granja, sin casa (pasea por donde aparece), adulto y con nombre
@@ -433,6 +434,51 @@ export class Ranch {
     const o = this.world.placedNear(p.x, p.y, 1.3).find(o => !o.fixed && scene.reaches(p.x, p.y, o.x, o.y));
     return o ? this.objectAction(o) : null;
   }
+  // Los animales que viven en una casa
+  livingIn(tile) { return this.animals.filter(a => a.home && a.home[0] === tile[0] && a.home[1] === tile[1]); }
+  // Los animales tuyos que podrían vivir en esta casa y no viven en ella, primero los que no tienen casa. Tuyos: los que
+  // llevan tu nombre y los que no son de nadie (los comprados antes de que llevaran dueño, que son de la granja)
+  assignable(kind, tile) {
+    const here = a => a.home && a.home[0] === tile[0] && a.home[1] === tile[1];
+    return this.animals.filter(a => a.def.home === kind && !a.stray && !a.rider && !here(a) && (!a.owner || a.owner === me())).sort((a, b) => !!this.homeOf(a) - !!this.homeOf(b));
+  }
+  // Que un animal pase a vivir en una casa: aparece delante de ella (no saben buscar el camino desde lejos). at: para
+  // que, jugando juntos, el anfitrión también lo ponga ahí
+  assign(a, tile) {
+    a.home = [tile[0], tile[1]];
+    a.inside = false; a.sleep = false; a.sit = false;
+    const [x, y] = a.home2;
+    a.x = a.tx = x; a.y = a.ty = y; a.vx = a.vy = 0; a.wait = 1;
+    a.at = [+x.toFixed(2), +y.toFixed(2)];
+    this.game.onSave?.();
+  }
+  // El menú de una casa: quién vive en ella, abrir o cerrar la puerta (las que tienen) y asignarle uno de tus animales
+  async houseMenu(o) {
+    const g = this.game, kind = o.placed, house = ITEMS[kind].name, list = this.livingIn(o.tile), cap = PER_HOME[kind] || 4, who = this.assignable(kind, o.tile), opts = [];
+    const d = this.world.delta(Math.floor(o.tile[0] / 16), Math.floor(o.tile[1] / 16), true), k = `${o.tile[0]},${o.tile[1]}`, open = d.door?.[k] !== 0;
+    if (DOORS.has(kind)) opts.push([`${open ? 'Cerrar' : 'Abrir'} la puerta`, () => { d.door ||= {}; if (open) d.door[k] = 0; else delete d.door[k]; this.world.chestTouched(...o.tile); Audio.door(); g.gather.float(open ? 'Puerta cerrada: se quedan dentro' : 'Puerta abierta: saldrán de día', '#fff3c0'); }]);
+    if (who.length && list.length < cap) opts.push(['Asignar un animal', () => this.assignMenu(o, who)]);
+    opts.push(['Nada', null]);
+    const note = list.length >= cap ? ' Está llena.' : who.length ? '' : ' No tienes más animales que puedan vivir aquí.';
+    g.busy = true;
+    const i = await hud.ask(house, `${list.length ? list.map(a => a.name).join(', ') : 'No vive nadie'} (${list.length} de ${cap}).${note}`, opts.map(x => x[0]));
+    g.busy = false;
+    opts[i]?.[1]?.();
+  }
+  // Elegir a quién: de MENU_PAGE en MENU_PAGE, para que la lista quepa en la pantalla
+  async assignMenu(o, who) {
+    const g = this.game, house = ITEMS[o.placed].name.toLowerCase();
+    for (let page = 0; ;) {
+      const some = who.slice(page, page + MENU_PAGE), more = who.length > MENU_PAGE;
+      const labels = some.map(a => { const h = this.homeOf(a); return `${a.name} (${a.def.name.toLowerCase()}${this.young(a) ? ', cría' : ''}, ${h ? 'en otra casa' : 'sin casa'})`; });
+      g.busy = true;
+      const i = await hud.ask(`Asignar a ${house}`, '¿Quién va a vivir aquí?', [...labels, ...(more ? ['Ver más'] : []), 'Nada']);
+      g.busy = false;
+      if (i < some.length) { const a = some[i]; this.assign(a, o.tile); Audio.place(); hud.toast(`${a.name} ya vive en esta casa`, 'good'); return; }
+      if (!more || i > some.length) return;
+      page = page + MENU_PAGE >= who.length ? 0 : page + MENU_PAGE;
+    }
+  }
   // Lo que se hace con algo de la granja puesto en el mundo (colmena, comedero, corrales, silo…), o null
   objectAction(o) {
     const d = this.world.delta(Math.floor(o.tile[0] / 16), Math.floor(o.tile[1] / 16), true), k = `${o.tile[0]},${o.tile[1]}`, inv = this.game.inv;
@@ -451,10 +497,12 @@ export class Ranch {
         return { text: `Llenar el comedero (${n} raciones)`, run: () => { const k2 = Math.min(10, inv.count(food)); inv.remove(food, k2); d.feed[k] = n + k2; touched(); Audio.place(); } };
       }
       case 'gallinero': case 'establo': case 'conejera': case 'cuadra': {
-        const list = this.animals.filter(a => a.home && a.home[0] === o.tile[0] && a.home[1] === o.tile[1]), open = d.door?.[k] !== 0;
-        const what = `${ITEMS[o.placed].name}: ${list.length ? list.map(a => a.name).join(', ') : 'vacío'}`;
-        if (o.placed === 'cuadra') return { text: what, run: () => Audio.blip() };
-        return { text: `${what} · ${open ? 'Cerrar' : 'Abrir'} la puerta`, run: () => { d.door ||= {}; if (open) d.door[k] = 0; else delete d.door[k]; touched(); Audio.door(); this.game.gather.float(open ? 'Puerta cerrada: se quedan dentro' : 'Puerta abierta: saldrán de día', '#fff3c0'); } };
+        const list = this.livingIn(o.tile);
+        return { text: `${ITEMS[o.placed].name}: ${list.length ? list.map(a => a.name).join(', ') : 'vacío'}`, run: () => this.houseMenu(o) };
+      }
+      case 'caseta': case 'cojin': {   // (se usan con E; se recogen con X)
+        const list = this.livingIn(o.tile);
+        return { text: `${ITEMS[o.placed].name}: ${list.length ? list[0].name : 'vacío'}`, run: () => this.houseMenu(o), alt: { text: `Recoger ${ITEMS[o.placed].name.toLowerCase()}`, run: () => this.game.pickUp(o) } };
       }
       case 'silo': {
         const cap = this.siloCap, hay = this.farm.hay, have = inv.count('heno');

@@ -1,7 +1,7 @@
 // Pruebas automáticas del juego. Las lanza probar.py en un Chrome invisible con ?modo=pruebas: el juego arranca con
 // una cuenta de prueba (sin contraseña ni GitHub: nada se guarda fuera de este navegador) y una partida nueva, y va
-// haciendo lo básico (recolectar, pisotear la tierra labrada, el hambre, fabricar, colocar, cofres, puertas, comandos, mapas, cocos, la noria,
-// guardar y cargar) comprobando que pasa lo que tiene que pasar. Cada prueba se cuenta a probar.py (POST /pruebas) y sale
+// haciendo lo básico (recolectar, pisotear la tierra labrada, el hambre, fabricar, colocar, cofres, puertas, comandos, mapas, cocos, la noria, las
+// casas de los animales, las vallas, guardar y cargar) comprobando que pasa lo que tiene que pasar. Cada prueba se cuenta a probar.py (POST /pruebas) y sale
 // también en la consola. Con &parte=dos&relay=ws://…, dos juegos (quien=a, el anfitrión, y quien=b, el invitado)
 // comparten un mundo por el relay de pruebas y comprueban que cada uno ve lo que pone el otro.
 import { Profile } from './accounts.js';
@@ -12,6 +12,8 @@ import { CHUNK } from './world/gen.js';
 import { HOUSE } from './world/village.js';
 import { machineAt, settle, MACHINES } from './machines.js';
 import { hud } from './ui/hud.js';
+import { freePlace } from './gather.js';
+import { PIECE_IDS } from './build.js';
 import { itemIcon } from './art/items.js';
 import { modelKind, ICON3D } from './three/icons.js';
 
@@ -271,6 +273,65 @@ async function soloTests(game) {
     const m = machineAt(w(), tile); m.t -= 13000; settle(m, MACHINES.noria);
     check(m.out?.id === 'harina' && m.out.n === 2, `molido: ${JSON.stringify(m.out)}`);
   });
+  await test('casas: el menú asigna tus animales a una casa con sitio', async () => {
+    await goTo(game, 60, 36);
+    const R = game.ranch, was = hud.ask, [ax, ay] = freeTile(game, [[66, 34], [67, 34], [66, 35]]), A = [ax, ay]; w().place(ax, ay, 'gallinero');
+    const [bx, by] = freeTile(game, [[70, 38], [71, 38], [70, 39]]), B = [bx, by]; w().place(bx, by, 'gallinero');
+    const houseA = w().placedObjectAt(ax, ay), houseB = w().placedObjectAt(bx, by), keep = [...R.animals];
+    let picks = [], seen = [];
+    hud.ask = (who, text, options) => { seen.push(options); const want = picks.shift(), i = options.findIndex(o => o.includes(want)); check(i >= 0, `el menú no ofrece «${want}»: ${options.join(' | ')}`); return Promise.resolve(i); };
+    try {
+      check(!R.add('gallina', 'Pepa'), 'no se puede comprar'); const pepa = R.animals.at(-1);
+      check(pepa.home[0] === ax && pepa.home[1] === ay && pepa.owner, 'la gallina no está en la primera casa, o sin dueño');
+      const pato = R.summon('pato', 60, 36), ajeno = R.summon('gallina', 60, 36), vaca = R.summon('vaca', 60, 36); ajeno.owner = 'otra-persona';
+      // (el pato, sin casa, primero; ni la vaca ni el animal de otro salen en el menú; y la gallina se puede mudar)
+      const who = R.assignable('gallinero', B);
+      check(who[0] === pato && who.includes(pepa) && !who.includes(ajeno) && !who.includes(vaca), `lista: ${who.map(a => a.name).join(', ')}`);
+      check(R.objectAction(houseB).text.includes('vacío'), `aviso: ${R.objectAction(houseB).text}`);
+      picks = ['Asignar', pato.name]; await R.houseMenu(houseB); await sleep(0); await frames(2);
+      check(pato.home?.[0] === bx && pato.home?.[1] === by && !game.busy, 'el pato no vive en la casa elegida');
+      check(Math.hypot(pato.x - (bx + 0.5), pato.y - (by + 1.5)) < 3, `el pato no ha ido a su casa: ${pato.x}, ${pato.y}`);
+      picks = ['Asignar', 'Pepa']; await R.houseMenu(houseB); await sleep(0);
+      check(R.livingIn(B).length === 2 && !R.livingIn(A).length, 'Pepa no se ha mudado');
+      // (llena, no se ofrece; la puerta sigue funcionando desde el menú)
+      for (const n of ['a', 'b']) Object.assign(R.summon('gallina', 60, 36), { name: n, home: [bx, by] });
+      picks = ['Cerrar']; await R.houseMenu(houseB); await sleep(0);
+      check(!seen.at(-1).includes('Asignar un animal'), 'en una casa llena se ofrece asignar');
+      check(!R.doorOpen(pato), 'la puerta no se ha cerrado');
+      // (al perder su casa, queda sin casa y se le puede dar otra)
+      game.pickUp(houseB);
+      check(R.assignable('gallinero', A)[0] && !R.homeOf(pato), 'sin casa no se le puede asignar otra');
+      R.assign(pato, A); check(R.homeOf(pato)?.tile[0] === ax, 'no se le ha podido dar otra casa');
+    } finally { hud.ask = was; R.animals = keep; w().setTile(ax, ay, 'air'); w().setTile(bx, by, 'air'); inv().remove('gallinero', 1); }
+  });
+  await test('vallas: se fabrican, se colocan, se unen y se recogen', async () => {
+    await goTo(game, 60, 36);
+    inv().add('tablas', 2); game.craft.check();
+    const f = w().fitFree('banco', p().x + 1.5, p().y, 0, 0, p()); check(f.ok, `el banco no cabe: ${f.why}`); w().placeFree('banco', f); await frames(2);
+    const r = RECIPES.find(r => r.id === 'valla'); check(r && !game.craft.problem(r), `receta: ${r && game.craft.problem(r)}`);
+    const n0 = inv().count('valla'); game.craft.craft(r, 2); check(inv().count('valla') === n0 + 2, 'no hay vallas');
+    const banco = w().placedNear(p().x, p().y, 3).find(o => o.placed === 'banco'); check(banco && game.pickUp(banco), 'no se recoge el banco'); inv().remove('banco', 1);
+    check(!freePlace('valla') && PIECE_IDS.includes('valla'), 'la valla no va por casillas, o ya no está en la paleta');
+    inv().selected = inv().slots.findIndex(s => s?.id === 'valla'); inv().changed(); check(inv().held?.id === 'valla', 'no la llevo en la mano');
+    let [tx, ty] = freeTile(game, [[64, 42], [66, 42], [68, 42]]);
+    const clear = (x, y) => w().canPlace(x, y, 'valla', p()) && w().canPlace(x + 1, y, 'valla', p());
+    for (let i = 0; i < 30 && !clear(tx, ty); i++) tx += 2;
+    check(clear(tx, ty), 'no hay dos casillas libres seguidas');
+    const put = async x => { p().x = x + 0.5; p().y = ty + 1.4; p().face = { x: 0, y: -1 }; await frames(2); game.gather.cooldown = 0; game.gather.target = game.gather.pickTarget(); check(game.gather.target?.ok && game.gather.target.tile[0] === x, `no apunta a ${x},${ty}`); game.gather.use(); await frames(1); };
+    await put(tx); await put(tx + 1);
+    check(w().ownAt('placed', tx, ty) === 'valla' && w().ownAt('placed', tx + 1, ty) === 'valla', 'no se han colocado (o llevan giro)');
+    check(inv().count('valla') === n0, 'no se han gastado');
+    check(w().pieceAt(tx, ty)?.kind === 'fence', 'no es una pieza de valla');
+    check(w().collidersNear(tx + 1, ty + 0.5).some(c => c.low && c.x0 === tx + 0.5), 'no se une a la de al lado');
+    const obj = c => c.objects.find(o => o.tile?.[0] === tx && o.tile?.[1] === ty);
+    const o = obj(w().contentFor(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK))); check(o?.fence && !o.fixed, 'no se reconoce como valla');
+    const act = game.actionFor({ kind: 'fence', o }); check(act.alt?.text === 'Recoger', 'no se puede recoger'); act.alt.run();
+    check(!w().ownAt('placed', tx, ty) && inv().count('valla') === n0 + 1, 'no ha vuelto a la mochila');
+    check(!game.pickUp({ tile: [tx + 1, ty], layer: 'placed', placed: 'valla', fixed: true }), 'lo fijo se ha recogido');
+    game.build.piece = 'valla'; game.build.erase = true; game.build.on = true; game.build.remove([tx + 1, ty]); game.build.on = false; game.build.erase = false;
+    check(!w().ownAt('placed', tx + 1, ty) && inv().count('valla') === n0 + 2, 'quitarla en el modo construir no la devuelve');
+    inv().remove('valla', n0 + 2);
+  });
   await test('guardar y cargar: la partida vuelve igual', async () => {
     await goTo(game, 40, 40);
     inv().add('bayas', 7);
@@ -369,7 +430,7 @@ export async function runTests(game) {
   ['s-login', 's-menu', 's-creator'].forEach(id => document.getElementById(id)?.classList.remove('show'));
   document.body.classList.add('playing');
   document.getElementById('fade')?.classList.remove('on');
-  hud.ask = (who, text, options) => Promise.resolve(0);   // (las preguntas, siempre la primera opción: que nada se quede esperando)
+  if (PART !== 'mirar') hud.ask = (who, text, options) => Promise.resolve(0);   // (las preguntas, siempre la primera opción: que nada se quede esperando)
   game.visiting = true;
   if (PART === 'mirar') { game.start(fresh()); game.onSave = null; return; }
   // (en el Chrome invisible el dibujo va por software: lo más barato posible, sin sombras ni resolución)

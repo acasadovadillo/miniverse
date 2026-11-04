@@ -49,6 +49,7 @@ export const RECIPES = [
   R('banco', 'armario', 1, [['tablas', 10], ['cuerda', 1]]),
   R('banco', 'mueble_bano', 1, [['tablas', 4], ['tela', 1]]),
   R('banco', 'chimenea', 1, [['piedra', 8]]),
+  R('banco', 'valla', 1, [['tablas', 1]]),
   // Cuadros: un marco de tablas, el lienzo de tela y bayas para los colores
   ...['cuadro_valle', 'cuadro_mar', 'cuadro_flores', 'cuadro_noche'].map(id => R('banco', id, 1, [['tablas', 1], ['tela', 1], ['bayas', 2]])),
   R('banco', 'encimera', 1, [['tablas', 5], ['piedra', 1]]),

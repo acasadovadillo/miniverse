@@ -2,6 +2,7 @@
 // soltar lo que da y recogerlo. También los efectos: astillas, textos flotantes y el golpe de la herramienta.
 import { ITEMS, HARVEST, TOOL_COST, CROPS, toolId, hitsFor, hungerOf } from './items.js';
 import { HUNGER_MAX } from './combat.js';
+import { PIECES } from './pieces.js';
 import { RECIPES } from './recipes.js';
 import { Audio } from './audio.js';
 import { hud } from './ui/hud.js';
@@ -14,7 +15,7 @@ const BUFF_TEXT = { rapido: 'Más rápido', incansable: 'Sin cansancio', fuerza:
 
 // Lo que se coloca libre (donde se apunte, con cualquier giro): muebles, estaciones, lo que va plano y las
 // alfombras. Los cuadros y el hogar, contra un muro, siguen yendo por casillas
-export const freePlace = id => !!id && id !== 'chimenea' && ['furniture', 'station', 'flat', 'rug'].includes(ITEMS[id]?.place);
+export const freePlace = id => !!id && !PIECES[id] && ['furniture', 'station', 'flat', 'rug'].includes(ITEMS[id]?.place);   // (las piezas, como el hogar y la valla, van por casillas)
 // Los tamaños que se eligen con V (índices de TABLE_SIZES: girarla ya lo hace R). Las alfombras ya vienen de su
 // tamaño del telar: rugK, su índice en RUG_SIZES
 const sizesOf = id => (id === 'mesa_grande' ? [0, 2, 3, 5] : null);
@@ -83,7 +84,9 @@ export class Gathering {
       // al otro)
       let rot = this.rot % (def.place === 'rug' ? RUG_SIZES.length : held.id === 'mesa_grande' ? TABLE_SIZES.length : 4);
       if (def.place === 'wall' || held.id === 'chimenea') rot = [0, 1, 2, 3].map(i => (rot + i) % 4).find(r => g.scene.canPlace?.(tx, ty, held.id, p, r)) ?? this.rot;
-      return { tile: [tx, ty], ok: !far && !!g.scene.canPlace?.(tx, ty, held.id, p, rot), far, place: held.id, rot };
+      const fence = PIECES[held.id]?.kind === 'fence';   // (la valla no se gira: se une a sus vecinas; y va fuera, como en el modo construir)
+      if (fence) rot = 0;
+      return { tile: [tx, ty], ok: !far && (!fence || g.scene === g.world) && !!g.scene.canPlace?.(tx, ty, held.id, p, rot), far, place: held.id, rot };
     }
     for (const s of g.systems) { const t = s.target?.(p, held, def); if (t) return t; }
     if (!g.scene.harvestablesNear) return null;
@@ -114,7 +117,7 @@ export class Gathering {
       const loose = g.player.crouch && held.id === 'encimera' ? ', suelta (agachado no se une)' : '';
       return t.ok ? `Colocar ${def.name.toLowerCase()}${size}${loose} (${keys})` : t.far ? 'Demasiado lejos' : `${t.why || 'Ahí no cabe'} (${keys})`;
     }
-    if (def?.place) return t?.ok ? `Colocar ${def.name.toLowerCase()} (R: girar)` : t?.far ? 'Demasiado lejos' : '';
+    if (def?.place) return t?.ok ? `Colocar ${def.name.toLowerCase()}${PIECES[held.id]?.kind === 'fence' ? '' : ' (R: girar)'}` : t?.far ? 'Demasiado lejos' : '';
     if (t?.label !== undefined) return t.label;
     if (def?.tool === 'azada') return t?.ok ? 'Labrar' : '';
     if (!t?.obj) return '';

@@ -277,6 +277,10 @@ const BUILD = {
     const L = (along ? X : Z) - 0.42;
     if (L > 0.2) for (const s of [-1, 1]) { const [cx, cz] = along ? [s * L, 0] : [0, s * L]; m.cyl('brass', cx, 0.806, cz, 0.05, 0.035, 0.03).cyl('candle', cx, 0.836, cz, 0.022, 0.022, 0.14); }
   },
+  valla(m) {   // (para su icono, su vista previa y tirada en el suelo; puesta en el mundo la dibuja build3d, unida a sus vecinas)
+    m.box('wood', -0.055, 0, -0.055, 0.055, 0.92, 0.055).box('dark', -0.07, 0.92, -0.07, 0.07, 0.96, 0.07);
+    for (const y of [0.36, 0.72]) m.box('wood', -0.5, y, 0.055, 0.5, y + 0.1, 0.09).box('wood', -0.5, y, -0.09, 0.5, y + 0.1, -0.055);
+  },
   silla(m) {
     m.box('wood', -0.22, 0.42, -0.22, 0.22, 0.47, 0.22);
     for (const [a, b] of [[-0.21, -0.21], [0.16, -0.21], [-0.21, 0.16], [0.16, 0.16]]) m.box('dark', a, 0, b, a + 0.05, 0.42, b + 0.05);
