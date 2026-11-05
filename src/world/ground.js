@@ -67,20 +67,68 @@ export function blockColors(gen, bx, bz, season) {
   return out;
 }
 
+// Lo que abarca la mezcla de biomas al pintar el suelo, en muestras de cuarto de casilla: BLEND a cada lado (una franja
+// de dos casillas) más SWAY, lo que se mueve con el ruido para que la franja no siga la rejilla
+const BLEND = 4, SWAY = 2, MARGIN = BLEND + SWAY;
+// Los biomas de alrededor de un trozo (con MARGIN muestras de más por cada lado, de los trozos vecinos) y, si hay más
+// de un bioma de tierra, cuántas muestras de cada uno hay en cada rectángulo (tablas de sumas): así se sabe en un
+// momento cuánto de cada bioma hay alrededor de un punto. El agua no cuenta: su orilla ya se pinta aparte. Sin borde
+// en el trozo (lo normal), devuelve null
+function biomeBlend(gen, cx, cy, f) {
+  const N = CHUNK * RES, P = N + 1 + 2 * MARGIN, grid = new Uint8Array(P * P), near = new Array(9), seen = new Uint8Array(BIOMES.length);
+  near[4] = f;
+  for (let j = -MARGIN; j <= N + MARGIN; j++) {
+    const fy = j < 0 ? -1 : j > N ? 1 : 0, sj = j - fy * N, row = (j + MARGIN) * P + MARGIN;
+    for (let i = -MARGIN; i <= N + MARGIN; i++) {
+      const fx = i < 0 ? -1 : i > N ? 1 : 0, q = (fy + 1) * 3 + fx + 1, g = near[q] || (near[q] = gen.field(cx + fx, cy + fy));
+      seen[grid[row + i] = g.biome[sj * g.n + i - fx * N]] = 1;
+    }
+  }
+  const list = [];
+  for (let b = 0; b < seen.length; b++) if (seen[b] && !BIOMES[b].water) list.push(b);
+  if (list.length < 2) return null;
+  const W = P + 1, sums = list.map(b => {
+    const t = new Int32Array(W * W);
+    for (let j = 0; j < P; j++) for (let i = 0; i < P; i++) t[(j + 1) * W + i + 1] = t[j * W + i + 1] + t[(j + 1) * W + i] - t[j * W + i] + (grid[j * P + i] === b ? 1 : 0);
+    return t;
+  });
+  return { list, sums, W, P };
+}
+
 // Los píxeles de un trozo de la textura, visto desde arriba: el color del bioma de cada cuarto de casilla (del campo
-// de biomas del trozo), mezclando suave los cuatro tonos de su paleta; junto al agua, la orilla (arena, barro o lodo,
+// de biomas del trozo), mezclando suave los cuatro tonos de su paleta y, en los bordes, con los biomas de alrededor; junto al agua, la orilla (arena, barro o lodo,
 // mojada al borde) y, debajo, el fondo, que se oscurece con la profundidad; y el camino y la orilla del estanque del
 // pueblo con el borde irregular. field: gen.field(cx, cy) (se pasa para poder guardarlo en caché aparte)
 export function paintPixels(gen, cx, cy, season, field = gen.field(cx, cy)) {
-  const N = CHUNK * PX, step = RES / PX, S = gen.seed, f = field, near = gen.nearVillage(cx, cy);
-  const d = new Uint8ClampedArray(N * N * 4);
+  const N = CHUNK * PX, step = RES / PX, S = gen.seed, f = field, near = gen.nearVillage(cx, cy), blend = biomeBlend(gen, cx, cy, f);
+  const d = new Uint8ClampedArray(N * N * 4), tone = (pal, k) => mix3(mix3(pal[3], pal[0], ss(0.18, 0.42, k)), mix3(pal[1], pal[2], ss(0.6, 0.85, k)), ss(0.45, 0.62, k));
+  const pals = blend && blend.list.map(b => seasonalPalette(b, BIOMES[b], season));
   for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
     const si = Math.min(f.n - 1, Math.round(i * step)), sj = Math.min(f.n - 1, Math.round(j * step)), s = sj * f.n + si;
     const gx = cx * CHUNK + (i + 0.5) / PX, gy = cy * CHUNK + (j + 0.5) / PX, h = ihash(Math.floor(gx * PX), Math.floor(gy * PX), 77);
     const biome = f.biome[s], info = BIOMES[biome], pal = seasonalPalette(biome, info, season);
     const k = f.patch[s] + (vnoise(gx * 0.9, gy * 0.9, S + 12) - 0.5) * 0.25;
-    let col = mix3(mix3(pal[3], pal[0], ss(0.18, 0.42, k)), mix3(pal[1], pal[2], ss(0.6, 0.85, k)), ss(0.45, 0.62, k));
-    if (biome === B.DESERT && Math.sin((gx + gy * 0.6) * 4 + f.patch[s] * 9) > 0.93) col = mix3(col, DUNE, 0.6);
+    let col = tone(pal, k), own = 1;
+    if (blend && !info.water) {
+      // Cuánto hay de cada bioma en un cuadrado alrededor del punto, movido con el ruido (si en todo lo que puede
+      // abarcar solo hay de un bioma, no hay nada que mezclar: es lo normal, salvo en la franja del borde)
+      const { list, sums, W, P } = blend, m = MARGIN, whole = sums[list.indexOf(biome)], all = (2 * m + 1) * (2 * m + 1);
+      const inBox = (t, x0, y0, x1, y1) => t[y1 * W + x1] - t[y0 * W + x1] - t[y1 * W + x0] + t[y0 * W + x0];
+      if (whole && inBox(whole, si, sj, si + 2 * m + 1, sj + 2 * m + 1) === all) { /* (solo este bioma) */ } else {
+      const qx = si + m + Math.round((vnoise(gx * 0.8, gy * 0.8, S + 16) - 0.5) * 2 * SWAY), qy = sj + m + Math.round((vnoise(gx * 0.8, gy * 0.8, S + 17) - 0.5) * 2 * SWAY);
+      const x0 = Math.max(0, qx - BLEND), x1 = Math.min(P, qx + BLEND + 1), y0 = Math.max(0, qy - BLEND), y1 = Math.min(P, qy + BLEND + 1);
+      let total = 0, r = 0, g = 0, b = 0;
+      for (let q = 0; q < list.length; q++) {
+        const c = inBox(sums[q], x0, y0, x1, y1);
+        if (!c) continue;
+        const v = tone(pals[q], k);
+        total += c; r += v[0] * c; g += v[1] * c; b += v[2] * c;
+        if (list[q] === biome) own = c;
+      }
+      if (total) { col = [r / total, g / total, b / total]; own /= total; }
+      }
+    }
+    if (biome === B.DESERT && Math.sin((gx + gy * 0.6) * 4 + f.patch[s] * 9) > 0.93) col = mix3(col, DUNE, 0.6 * own);
     const u = info.water ? Math.max(f.wet[s], -0.2) : f.wet[s];   // (el tramado de los biomas de agua, como borde mojado)
     if (u > -0.45) {   // la orilla, el borde mojado y el fondo
       const [dry, wetc] = SHORE[f.shore[s]];

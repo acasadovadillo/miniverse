@@ -63,7 +63,7 @@ export class WorldGen {
     if (had) return had;
     const out = this.computeField(cx, cy);
     this.fields.set(fk, out);
-    if (this.fields.size > 120) this.fields.delete(this.fields.keys().next().value);
+    if (this.fields.size > 320) this.fields.delete(this.fields.keys().next().value);
     return out;
   }
   computeField(cx, cy) {
@@ -84,10 +84,11 @@ export class WorldGen {
           const a = coarse[q], p00 = a[b], p10 = a[b + 1], p01 = a[b + nc], p11 = a[b + nc + 1];
           v[q] = p00 + (p10 - p00) * u + (p01 - p00) * w + (p00 - p10 - p01 + p11) * u * w;
         }
-        // El azar va ligado a la posición en el mundo, así coincide en el borde entre dos trozos
+        // El ruido va ligado a la posición en el mundo, así coincide en el borde entre dos trozos. El borde de cada
+        // bioma se mueve con él (a manchas, no a muestras sueltas: un tramado se vería como un laberinto de casillas)
         const gk = cx * CHUNK * RES + k, gj = cy * CHUNK * RES + j;
-        biome[i] = classify(v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7], (ihash(gk, gj, s + 5) - 0.5) * 0.03, v[8]);
         patch[i] = PATCH(gk / RES, gj / RES, s);
+        biome[i] = classify(v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7], (patch[i] - 0.5) * 0.03, v[8]);
         for (let q = 0; q < K.length; q++) cw[K[q]] = v[q];
         wet[i] = wetness(cw); shore[i] = shoreOf(v[0], v[1], v[2]);
       }

@@ -9,6 +9,8 @@ import { ITEMS } from './items.js';
 import { RECIPES } from './recipes.js';
 import { runCommand } from './commands.js';
 import { CHUNK } from './world/gen.js';
+import { B, BIOMES } from './world/biomes.js';
+import { paintPixels } from './world/ground.js';
 import { HOUSE } from './world/village.js';
 import { machineAt, settle, MACHINES } from './machines.js';
 import { hud } from './ui/hud.js';
@@ -331,6 +333,24 @@ async function soloTests(game) {
     game.build.piece = 'valla'; game.build.erase = true; game.build.on = true; game.build.remove([tx + 1, ty]); game.build.on = false; game.build.erase = false;
     check(!w().ownAt('placed', tx + 1, ty) && inv().count('valla') === n0 + 2, 'quitarla en el modo construir no la devuelve');
     inv().remove('valla', n0 + 2);
+  });
+  await test('bordes de biomas: el color cambia poco a poco, también entre trozos', async () => {
+    const gen = w().gen, N = 64, kinds = f => [...new Set(f.biome)], dry = f => Math.max(...f.wet) < -0.5 && !kinds(f).some(b => BIOMES[b].water);
+    let spot = null;
+    for (let r = 6; r < 60 && !spot; r++) for (let a = 0; a < 40 && !spot; a++) {
+      const cx = Math.round(Math.cos(a / 40 * 6.283) * r), cy = Math.round(Math.sin(a / 40 * 6.283) * r), f = gen.field(cx, cy);
+      if (kinds(f).includes(B.ROCKY) && kinds(f).includes(B.MEADOW) && dry(f) && dry(gen.field(cx + 1, cy)) && !gen.nearVillage(cx, cy) && !gen.nearVillage(cx + 1, cy)) spot = [cx, cy];
+    }
+    check(spot, 'no hay un borde de roca y pradera sin agua');
+    const A = paintPixels(gen, spot[0], spot[1], 0), C = paintPixels(gen, spot[0] + 1, spot[1], 0), at = (d, i, j, c) => d[(j * N + i) * 4 + c];
+    let inside = 0, seam = 0;
+    for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) for (let c = 0; c < 3; c++) {
+      if (i < N - 1) inside = Math.max(inside, Math.abs(at(A, i, j, c) - at(A, i + 1, j, c)));
+      if (j < N - 1) inside = Math.max(inside, Math.abs(at(A, i, j, c) - at(A, i, j + 1, c)));
+    }
+    for (let j = 0; j < N; j++) for (let c = 0; c < 3; c++) seam = Math.max(seam, Math.abs(at(A, N - 1, j, c) - at(C, 0, j, c)));
+    check(inside < 40, `salto de color dentro del trozo: ${inside}`);   // (de roca a pradera sin mezclar son más de 50)
+    check(seam < 40, `salto de color entre dos trozos: ${seam}`);
   });
   await test('guardar y cargar: la partida vuelve igual', async () => {
     await goTo(game, 40, 40);
