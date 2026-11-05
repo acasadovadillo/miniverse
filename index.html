@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- La versión publicada: se cambia en cada publicación (así el juego sabe que tiene que pedir el código nuevo) -->
-<meta name="miniverse-version" content="2026-11-05.3">
+<meta name="miniverse-version" content="2026-11-05.4">
 <title>Miniverse</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏡</text></svg>">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -737,9 +737,13 @@
   <script>
     // Al publicar una versión, el navegador puede tener aún en caché (GitHub Pages lo deja 10 minutos) el código de
     // la anterior, y mezclado con esta página el juego no arranca. Si esta página es de otra versión que la última
-    // que se abrió aquí, antes de arrancar se vuelve a pedir sin caché el código que se cargó aquella vez
+    // que se abrió aquí, antes de arrancar se vuelve a pedir sin caché el código que se cargó aquella vez.
+    // Y si el código no llega (GitHub Pages da algún error suelto, sobre todo justo al publicar), la pantalla de entrar
+    // se vería bien pero no haría nada: se tapa con un aviso y se recarga la página unas veces, cada vez más despacio
+    // (recargar y no pedir otra vez el módulo: lo que no se pudo cargar, el navegador no lo vuelve a pedir en esta
+    // página). Si sigue sin llegar, se dice y se deja un botón.
     (() => {
-      const V = document.querySelector('meta[name="miniverse-version"]').content, K = 'pueblo-brotes:version', base = new URL('.', location.href).href;
+      const V = document.querySelector('meta[name="miniverse-version"]').content, K = 'pueblo-brotes:version', base = new URL('.', location.href).href, RETRY = 'pueblo-brotes:arranque', WAITS = [1000, 2000, 4000];
       let last = null, files = [];
       try { last = localStorage.getItem(K); files = JSON.parse(localStorage.getItem(K + ':files') || '[]'); } catch {}
       performance.setResourceTimingBufferSize?.(2000);
@@ -747,7 +751,32 @@
       Promise.all(fresh).then(() => import('./src/main.js')).then(() => {
         const code = performance.getEntriesByType('resource').map(e => e.name).filter(u => u.startsWith(base) && /\.js$/.test(u));
         try { localStorage.setItem(K, V); localStorage.setItem(K + ':files', JSON.stringify([...new Set(code)])); } catch {}
-      }, e => console.error(e));
+        try { sessionStorage.removeItem(RETRY); } catch {}
+      }, e => {
+        console.error(e);
+        let n = 0;
+        try { n = +sessionStorage.getItem(RETRY) || 0; } catch {}
+        const more = n < WAITS.length, box = document.createElement('div'), card = document.createElement('div'), text = document.createElement('p');
+        box.id = 'boot-error';
+        box.style.cssText = 'position:fixed;inset:0;z-index:100;display:flex;align-items:center;justify-content:center;padding:16px;background:rgba(10,8,6,.72)';
+        card.className = 'panel';
+        card.style.cssText = 'max-width:440px;padding:18px 22px;text-align:center;color:var(--cream);font-size:18px';
+        text.style.margin = '0';
+        text.textContent = more ? `El juego no ha terminado de cargar. Volviendo a intentarlo (${n + 1} de ${WAITS.length})…` : 'No se ha podido cargar el juego. Puede ser la conexión o un fallo momentáneo del servidor.';
+        card.append(text);
+        if (more) {
+          try { sessionStorage.setItem(RETRY, n + 1); } catch {}
+          setTimeout(() => location.reload(), WAITS[n]);
+        } else {
+          const again = document.createElement('button');
+          again.type = 'button'; again.className = 'btn'; again.textContent = 'Volver a intentarlo';
+          again.style.cssText = 'margin-top:14px;padding:8px 18px;font-size:18px;cursor:pointer';
+          again.onclick = () => { try { sessionStorage.removeItem(RETRY); } catch {} location.reload(); };
+          card.append(again);
+        }
+        box.append(card);
+        document.body.append(box);
+      });
     })();
   </script>
 </body>

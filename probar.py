@@ -32,6 +32,7 @@ VERBOSE = '--ver' in sys.argv
 
 results = []     # { who, name, ok, detail }
 done = set()     # quién ha terminado ('a', 'b')
+fail_main = 0    # cuántas veces más responder con un error al pedir src/main.js (para probar que el arranque se recupera)
 lock = threading.Lock()
 
 
@@ -43,6 +44,17 @@ class Handler(SimpleHTTPRequestHandler):
     def end_headers(self):
         self.send_header('Cache-Control', 'no-cache')
         super().end_headers()
+
+    def do_GET(self):
+        global fail_main
+        if self.path.split('?')[0] == '/src/main.js':
+            with lock:
+                fail = fail_main > 0
+                fail_main -= fail
+            if fail:
+                self.send_error(503)
+                return
+        super().do_GET()
 
     def do_POST(self):
         n = int(self.headers.get('Content-Length') or 0)
@@ -127,6 +139,10 @@ def main():
         finished = True
         for label, players in rounds:
             print(f'Pruebas de {label} en Chrome invisible ({os.path.basename(exe)})…', flush=True)
+            # (la primera vez, el servidor falla al dar el código del juego: tiene que recuperarse recargando solo)
+            if label == 'un jugador':
+                global fail_main
+                fail_main = 2
             games = []
             for who, part, url in players:
                 games.append(open_game(exe, who, os.path.join(tmp, f'{who}-{part}'), part, url))
@@ -150,6 +166,9 @@ def main():
                 if p.poll() is None:
                     p.terminate()
             procs.extend(games)
+        if not DOS:
+            results.append({'who': 'a', 'name': 'arranque: se recupera de un error al cargar', 'ok': fail_main == 0})
+            print(f"  {'OK' if fail_main == 0 else 'KO'}  [a] arranque: se recupera de un error al cargar", flush=True)
         ok = [r for r in results if r['ok']]
         ko = [r for r in results if not r['ok']]
         print(f'\n{len(ok)} bien, {len(ko)} mal' + ('' if finished else ' (y pruebas sin terminar)'))
