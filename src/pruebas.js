@@ -11,7 +11,7 @@ import { runCommand } from './commands.js';
 import { CHUNK } from './world/gen.js';
 import { B, BIOMES } from './world/biomes.js';
 import { paintPixels } from './world/ground.js';
-import { HOUSE, BOUNDS, inBounds } from './world/village.js';
+import { HOUSE, BOUNDS, CENTER, inBounds } from './world/village.js';
 import { machineAt, settle, MACHINES } from './machines.js';
 import { hud } from './ui/hud.js';
 import { freePlace } from './gather.js';
@@ -375,6 +375,27 @@ async function soloTests(game) {
     check(Math.hypot(otro.x - p().x, otro.y - p().y) < d0 - 0.5, 'fuera del pueblo no persigue');
     M.remove(otro); M.clearNear(p().x, p().y, 60); game.combat.hp = hp; game.combat.invuln = 0; game.combat.paint();
     runCommand(game, '/time reset', say);
+  });
+  await test('mapa grande: norte arriba, nombres, leyenda, y el zoom hacia el ratón', async () => {
+    await goTo(game, CENTER.x, CENTER.y);
+    const M = game.map, gen = w().gen, was = M.zoom; M.recenter(); M.zoom = 3; M.markers = game.places.markers();
+    M.people = [{ x: CENTER.x + 3, y: CENTER.y, name: 'Vecina de prueba' }];
+    M.drawBig(gen, game.explored, p().x, p().y, 0);
+    const [, up] = M.toScreen(p().x, p().y - 10, p().x, p().y), [, down] = M.toScreen(p().x, p().y + 10, p().x, p().y), [left] = M.toScreen(p().x - 10, p().y, p().x, p().y), [right] = M.toScreen(p().x + 10, p().y, p().x, p().y);
+    check(up < down && left < right, 'el norte no está arriba');
+    check(M.labels.includes('Tú') && M.labels.includes('Casa de Rosa'), `nombres: ${M.labels.join(', ')}`);
+    M.zoom = 8; M.recenter(); M.scroll(0, -M.tile * 2); M.drawBig(gen, game.explored, HOUSE.x0 + 6, HOUSE.y0 + 5, 0); check(M.labels.includes('Tu casa'), `sin tu casa: ${M.labels.join(', ')}`);
+    M.recenter(); M.zoom = 3;
+    // (lo que hay bajo el ratón se queda bajo el ratón al acercar)
+    const sx = innerWidth / 2 + 90, sy = innerHeight / 2 - 40, cx = p().x + M.pan.x, cy = p().y + M.pan.y, wx = cx + (sx - innerWidth / 2) / M.tile, wy = cy + (sy - innerHeight / 2) / M.tile;
+    M.zoomAt(2, sx, sy);
+    const nx = p().x + M.pan.x + (sx - innerWidth / 2) / M.tile, ny = p().y + M.pan.y + (sy - innerHeight / 2) / M.tile;
+    check(M.zoom === 5 && Math.abs(nx - wx) < 0.01 && Math.abs(ny - wy) < 0.01, `se ha movido: ${wx},${wy} → ${nx},${ny}`);
+    M.zoomAt(99); check(M.zoom === 8, 'el zoom se pasa'); M.zoomAt(-99); check(M.zoom === 1, 'el zoom se pasa por abajo');
+    // (arrastrar 40 píxeles a la derecha mueve la vista lo mismo, con el zoom que sea)
+    M.recenter(); M.zoom = 4; M.scroll(40, 0); check(Math.abs(M.pan.x - 40 / M.tile) < 0.01 && M.pan.y === 0, 'el arrastre no sigue al ratón');
+    const legend = document.getElementById('map-legend-rows').textContent; check(legend.includes('Tu casa') && legend.includes('Pradera'), `leyenda: ${legend}`);
+    M.recenter(); M.zoom = was; M.people = [];
   });
   await test('guardar y cargar: la partida vuelve igual', async () => {
     await goTo(game, 40, 40);

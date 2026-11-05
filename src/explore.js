@@ -341,7 +341,7 @@ export class Explore {
   // Marcas para el mapa: lugares descubiertos
   markers() {
     const out = [];
-    for (const k of this.found) { const [cx, cy] = k.split(',').map(Number), p = this.poi(cx, cy); if (p) out.push({ x: p.x, y: p.y, kind: p.kind }); }
+    for (const k of this.found) { const [cx, cy] = k.split(',').map(Number), p = this.poi(cx, cy); if (p) out.push({ x: p.x, y: p.y, kind: p.kind, name: NAMES[p.kind] }); }
     return out;
   }
 }

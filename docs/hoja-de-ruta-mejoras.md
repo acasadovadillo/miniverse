@@ -57,7 +57,7 @@
 
 ### 3. Interfaz
 
-**3.1 Mapa grande (M).** Solo enseña lo explorado, en un rombo isométrico, sin nombres ni leyenda. Ponerle: norte arriba (como los mapas objeto), nombres de los sitios descubiertos (faro, templo, aldeas), la casa y los vecinos, el ratón para arrastrar y la rueda para ampliar, y una leyenda de colores.
+**3.1 Mapa grande (M).** ✅ Hecho el 2026-11-05 (`src/ui/map.js`). Antes era un rombo isométrico sin nombres ni leyenda. Ahora va en plano y con el norte arriba, a la resolución de la pantalla para que se lean los nombres: lugares descubiertos, tu casa, las de los vecinos, el taller y los vecinos que estén fuera; si dos nombres se pisan, uno sale al acercarse. La rueda acerca hacia el ratón y la leyenda enseña solo lo ya visto. El minimapa sigue isométrico. Prueba: «mapa grande».
 
 **3.2 Barra de estado (S).** ✅ Hecho el 2026-11-04 con 4.1: al quitar la energía quedan vida, hambre y dinero en una fila, con los números al pasar el ratón; el hambre parpadea cuando queda poca.
 

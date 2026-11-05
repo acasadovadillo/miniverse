@@ -470,7 +470,7 @@ export function initMenus(game) {
     show('s-map');
     return true;
   }
-  const zoom = d => { game.map.zoom = Math.max(1, Math.min(8, game.map.zoom + d)); };
+  const zoom = (d, x, y) => game.map.zoomAt(d, x, y);
   $('map-in').onclick = () => zoom(1);
   $('map-out').onclick = () => zoom(-1);
   $('map-close').onclick = resume;
@@ -482,14 +482,22 @@ export function initMenus(game) {
   big.addEventListener('pointerdown', e => { drag = { x: e.clientX, y: e.clientY }; big.setPointerCapture(e.pointerId); big.classList.add('dragging'); });
   big.addEventListener('pointermove', e => {
     if (!drag) return;
-    const s = game.map.scale;
-    game.map.scroll(-(e.clientX - drag.x) / s, -(e.clientY - drag.y) / s);
+    game.map.scroll(-(e.clientX - drag.x), -(e.clientY - drag.y));
     drag = { x: e.clientX, y: e.clientY };
   });
   const endDrag = () => { drag = null; big.classList.remove('dragging'); };
   big.addEventListener('pointerup', endDrag);
   big.addEventListener('pointercancel', endDrag);
-  big.addEventListener('wheel', e => { e.preventDefault(); zoom(e.deltaY < 0 ? 1 : -1); }, { passive: false });
+  // La rueda acerca hacia donde está el ratón (lo que se mueve poco a poco, como un trackpad, se va sumando)
+  let wheel = 0;
+  big.addEventListener('wheel', e => {
+    e.preventDefault();
+    wheel += e.deltaMode ? e.deltaY * 40 : e.deltaY;
+    if (Math.abs(wheel) < 40) return;
+    zoom(wheel < 0 ? 1 : -1, e.clientX, e.clientY);
+    wheel = 0;
+  }, { passive: false });
+  $('map-legend').open = innerWidth > 700;   // (en una pantalla estrecha, plegada)
   $('p-save').onclick = async () => { $('p-msg').textContent = 'Guardando…'; $('p-msg').textContent = savedMsg(await save({ upload: true })); };
   $('p-menu').onclick = async () => {
     const r = await save({ upload: true });
