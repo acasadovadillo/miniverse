@@ -1,6 +1,6 @@
 // Pruebas automáticas del juego. Las lanza probar.py en un Chrome invisible con ?modo=pruebas: el juego arranca con
 // una cuenta de prueba (sin contraseña ni GitHub: nada se guarda fuera de este navegador) y una partida nueva, y va
-// haciendo lo básico (recolectar, pisotear la tierra labrada, el hambre, fabricar, colocar, cofres, puertas, comandos, mapas, cocos, la noria, las
+// haciendo lo básico (recolectar, pisotear la tierra labrada, el hambre, el pueblo seguro, fabricar, colocar, cofres, puertas, comandos, mapas, cocos, la noria, las
 // casas de los animales, las vallas, guardar y cargar) comprobando que pasa lo que tiene que pasar. Cada prueba se cuenta a probar.py (POST /pruebas) y sale
 // también en la consola. Con &parte=dos&relay=ws://…, dos juegos (quien=a, el anfitrión, y quien=b, el invitado)
 // comparten un mundo por el relay de pruebas y comprueban que cada uno ve lo que pone el otro.
@@ -11,7 +11,7 @@ import { runCommand } from './commands.js';
 import { CHUNK } from './world/gen.js';
 import { B, BIOMES } from './world/biomes.js';
 import { paintPixels } from './world/ground.js';
-import { HOUSE } from './world/village.js';
+import { HOUSE, BOUNDS, inBounds } from './world/village.js';
 import { machineAt, settle, MACHINES } from './machines.js';
 import { hud } from './ui/hud.js';
 import { freePlace } from './gather.js';
@@ -352,6 +352,30 @@ async function soloTests(game) {
     check(inside < 40, `salto de color dentro del trozo: ${inside}`);   // (de roca a pradera sin mezclar son más de 50)
     check(seam < 40, `salto de color entre dos trozos: ${seam}`);
   });
+  await test('pueblo seguro: de noche ahí no aparecen, no entran ni persiguen', async () => {
+    const M = game.mobs, say = () => {}, ok = (x, y) => !w().water(x, y) && !w().collidersNear(x, y).some(c => (c.r !== undefined ? Math.hypot(c.x - x, c.y - y) < c.r + 0.5 : x > c.x0 - 0.5 && x < c.x1 + 0.5 && y > c.y0 - 0.5 && y < c.y1 + 0.5));
+    runCommand(game, '/time set 23:00', say);
+    for (let ty = BOUNDS.y0 + 1; ty < BOUNDS.y1 - 1; ty++) for (let tx = BOUNDS.x0 + 1; tx < BOUNDS.x1 - 1; tx++) check(!M.canSpawn(tx, ty), `puede aparecer en ${tx},${ty}`);
+    let y = null;
+    for (let ty = BOUNDS.y0 + 4; ty < BOUNDS.y1 - 4 && y === null; ty++) { let free = true; for (let x = BOUNDS.x0 - 8; x < BOUNDS.x0 + 3 && free; x++) free = ok(x + 0.5, ty + 0.5); if (free) y = ty + 0.5; }
+    check(y !== null, 'no hay una tira libre junto al pueblo');
+    await goTo(game, BOUNDS.x0 - 2, y);
+    let out = false; for (let x = BOUNDS.x0 - 14; x < BOUNDS.x0 - 2 && !out; x++) out = M.canSpawn(x, Math.floor(y));
+    check(out, 'fuera del pueblo tampoco aparecen (¿es de noche?)');
+    const X0 = BOUNDS.x0, hp = game.combat.hp;
+    // (desde dentro: se queda fuera y no persigue)
+    p().x = X0 + 1.5; p().y = y; p().vx = p().vy = 0; await frames(2);
+    const limo = M.summon('limo', X0 - 0.5, y);
+    await frames(180);
+    check(M.list.includes(limo) && limo.x <= X0, `ha entrado en el pueblo: ${limo.x}, ${limo.y}`);
+    // (desde fuera: sí persigue)
+    M.remove(limo); p().x = X0 - 2; p().y = y; await frames(2);
+    const otro = M.summon('limo', X0 - 7, y), d0 = Math.hypot(otro.x - p().x, otro.y - p().y);
+    await frames(60);
+    check(Math.hypot(otro.x - p().x, otro.y - p().y) < d0 - 0.5, 'fuera del pueblo no persigue');
+    M.remove(otro); M.clearNear(p().x, p().y, 60); game.combat.hp = hp; game.combat.invuln = 0; game.combat.paint();
+    runCommand(game, '/time reset', say);
+  });
   await test('guardar y cargar: la partida vuelve igual', async () => {
     await goTo(game, 40, 40);
     inv().add('bayas', 7);
@@ -402,8 +426,8 @@ async function hostTests(game) {
     game.world.place(...CHEST, 'cofre'); game.world.chestAt(...CHEST)[0] = { id: 'madera', n: 5 }; game.world.chestTouched(...CHEST);
   });
   await test('dos: llega el invitado y ve el cofre', async () => {
+    const seen = []; const old = l.say; l.say = (t, k) => { seen.push(t); old?.(t, k); };   // (desde antes de que llegue: si no, el aviso se puede perder)
     await until(() => l.others.some(o => o.playing), 90000, 'al invitado');
-    const seen = []; const old = l.say; l.say = (t, k) => { seen.push(t); old?.(t, k); };
     await until(() => seen.some(t => t.includes('COFRE-VISTO')), 30000, 'el aviso del invitado');
   });
   await test('dos: la silla que pone el invitado aparece aquí', async () => {

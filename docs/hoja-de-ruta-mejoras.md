@@ -73,7 +73,7 @@
 
 **4.1 Energía, vida y hambre (decisión, M).** ✅ Decidido y hecho el 2026-11-04: fundidas en el hambre. Cada uso de herramienta cansa lo que dice `TOOL_COST` (hacha, pico y azada, 1: un octavo de muslo; guadaña, mano, regadera, caña y red, 0,5; con tala o minería al 5, la mitad), comer quita hambre (y cura si duele), dormir deja 7 muslos como poco, y siempre se puede trabajar: con el hambre a cero baja la vida, según la dificultad. La partida ya no guarda `energy` (se ignora al cargar). Prueba: «hambre: trabajar la gasta, comer la quita y dormir la recupera».
 
-**4.2 El pueblo de noche (S).** En la prueba, un esqueleto apareció en la plaza, junto a la farola, y mató al personaje. Dentro de `BOUNDS` del pueblo no deberían aparecer criaturas (es el sitio seguro desde donde se sale a explorar), o al menos no en las casillas con camino ni a menos de 8 casillas de una casa.
+**4.2 El pueblo de noche (S).** ✅ Hecho el 2026-11-05. En la prueba, un esqueleto apareció en la plaza, junto a la farola, y mató al personaje. Ahora, dentro de `BOUNDS` del pueblo no aparecen criaturas (`Mobs.canSpawn`) y las de fuera no entran ni persiguen a quien está dentro (`Mobs.move`): es el sitio seguro desde donde se sale a explorar. Las aldeas siguen como estaban. Prueba: «pueblo seguro».
 
 **4.3 Primera hora de juego (M).** La charla de Nilo lo explica todo de golpe (seis frases). Repartirlo: un encargo detrás de otro en el tablón o en el diario («siega tres matorrales», «hazte la mochila», «ven al taller»), cada uno con su recompensa, hasta tener banco, cama y huerto. Lo que ya existe (encargos, logros, diario) sirve de base.
 

@@ -4,13 +4,15 @@
 // 7 o menos aparecen monstruos (limos y esqueletos) alrededor de quien juega en supervivencia, ni muy cerca ni muy
 // lejos, nunca en un suelo o bajo un tejado; con antorchas alrededor, no. Persiguen a quien tienen cerca y muerden;
 // con el sol se deshacen y, si se quedan muy lejos de todos, se van. Cuántos hay y cuánto muerden depende de la
-// dificultad (/difficulty); en pacífico no hay.
+// dificultad (/difficulty); en pacífico no hay. El pueblo es el sitio seguro: ahí no aparecen, los de fuera no entran
+// ni persiguen a quien está dentro (los que pone un op con /summon dentro sí se mueven y muerden).
 //
 // Jugando juntos, los lleva quien lleva el mundo (el mundo del servidor): los hace aparecer alrededor de cada uno, los
 // mueve y les dice a los demás dónde están; los demás le dicen a quién pegan y él les dice cuándo les muerden.
 import { MONSTERS, DIFF } from './combat.js';
 import { collide } from './physics.js';
 import { CHUNK } from './world/gen.js';
+import { inBounds } from './world/village.js';
 import { Profile } from './accounts.js';
 import { wrapX, dxOf, distOf } from './world/planet.js';
 
@@ -63,10 +65,10 @@ export class Mobs {
     return Math.max(0, best);
   }
   lightAt(tx, ty) { return Math.max(this.world.roofAt(tx, ty) ? 0 : this.sky(tx), this.block(tx, ty)); }
-  // ¿Puede aparecer aquí un monstruo? En tierra, sin nada construido ni tejado, sin chocar con nada y a oscuras
+  // ¿Puede aparecer aquí un monstruo? Fuera del pueblo, en tierra, sin nada construido ni tejado, sin chocar con nada y a oscuras
   canSpawn(tx, ty) {
     const w = this.world, x = tx + 0.5, y = ty + 0.5;
-    if (w.water(x, y) || w.at('placed', tx, ty) || w.at('floor', tx, ty) || w.roofAt(tx, ty)) return false;
+    if (inBounds(x, y) || w.water(x, y) || w.at('placed', tx, ty) || w.at('floor', tx, ty) || w.roofAt(tx, ty)) return false;
     const p = { x, y };
     collide(p, w.collidersNear(x, y), 0.3);
     return Math.hypot(p.x - x, p.y - y) < 0.05 && this.lightAt(tx, ty) <= DARK;
@@ -122,7 +124,8 @@ export class Mobs {
     const g = this.game, def = m.def;
     m.cool = Math.max(0, m.cool - dt); m.hurt = Math.max(0, m.hurt - dt);
     let t = null, td = CHASE;
-    for (const q of fighters) { const d = distOf(q.x, q.y, m.x, m.y); if (d < td) { td = d; t = q; } }
+    const outside = !inBounds(m.x, m.y);   // (desde fuera no se persigue a quien está en el pueblo)
+    for (const q of fighters) { const d = distOf(q.x, q.y, m.x, m.y); if (d < td && !(outside && inBounds(q.x, q.y))) { td = d; t = q; } }
     let vx = 0, vy = 0;
     if (t && td > 0.01) { vx = dxOf(t.x, m.x) / td; vy = (t.y - m.y) / td; m.dir = [vx, vy]; }
     else if ((m.wander -= dt) <= 0) { m.wander = 1 + Math.random() * 2; const a = Math.random() * 6.28; m.dir = Math.random() < 0.4 ? [0, 0] : [Math.cos(a) * 0.4, Math.sin(a) * 0.4]; }
@@ -130,6 +133,8 @@ export class Mobs {
     if (m.hurt > 0.25 && m.from) { const dx = dxOf(m.x, m.from[0]), dy = m.y - m.from[1], d = Math.hypot(dx, dy) || 1; vx = dx / d * 2.5; vy = dy / d * 2.5; }   // (empujón al recibir un golpe)
     const sp = def.speed * dt, p = { x: m.x + vx * sp, y: m.y + vy * sp };
     collide(p, this.world.collidersNear(p.x, p.y), 0.25);
+    // (el de fuera no entra en el pueblo: se queda en el límite o sigue a lo largo de él)
+    if (outside && inBounds(wrapX(p.x), p.y)) { if (!inBounds(wrapX(p.x), m.y)) p.y = m.y; else if (!inBounds(m.x, p.y)) p.x = m.x; else { p.x = m.x; p.y = m.y; } }
     if (!this.world.water(p.x, p.y)) { m.x = wrapX(p.x); m.y = p.y; }
     m.step += dt * 5;
     if (t && td < BITE && m.cool <= 0) {
