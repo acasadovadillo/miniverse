@@ -7,7 +7,6 @@ import { RECIPES } from './recipes.js';
 import { Audio } from './audio.js';
 import { hud } from './ui/hud.js';
 import { RUG_SIZES, TABLE_SIZES } from './art/stations.js';
-import { enchLevel } from './enchant.js';
 import { XP_ORE, roll } from './xp.js';
 
 // Lo que dice cada efecto al tomarlo (comida o poción)
@@ -219,7 +218,6 @@ export class Gathering {
   wearOut(slot = this.game.inv.selected) {
     const g = this.game, s = g.inv.slots[slot], def = s && ITEMS[s.id];
     if (!def?.dur || g.inv.infinite) return;
-    if (Math.random() >= 1 / (1 + enchLevel(s, 'irrompibilidad'))) return;   // (con irrompibilidad, a veces no se gasta)
     s.dur = (s.dur ?? def.dur) - 1;
     if (s.dur <= 0) { g.inv.slots[slot] = null; this.float(`¡Se ha roto: ${def.name.toLowerCase()}!`, '#ffb0a0'); Audio.error(); }
     g.inv.changed();
@@ -242,7 +240,7 @@ export class Gathering {
     if (auto && !(this.target?.obj || this.target?.ok)) return;
     if (!g.scene.harvestablesNear) return;
     const tool = def?.tool || null, tier = def?.tier || 1, t = this.target;
-    this.cooldown = COOLDOWN * (1 - 0.07 * (tier - 1)) * (1 - 0.15 * enchLevel(held, 'eficiencia'));   // las herramientas buenas (y con eficiencia) van más deprisa
+    this.cooldown = COOLDOWN * (1 - 0.07 * (tier - 1));   // las herramientas buenas van más deprisa
     this.swing = 0.25;
     this.swingItem = tool ? held.id : null;
 
@@ -271,7 +269,7 @@ export class Gathering {
       this.chips(o.x, o.y, rule.chips, 16);
       const tierHit = tool === rule.tool ? tier : 0;
       const fruit = o.bare && rule.fruit ? { ...rule, drops: rule.drops.filter(([id]) => id !== rule.fruit) } : rule;   // (la palmera a la que se le acaban de coger los cocos ya no tiene)
-      this.spawnDrops(o, fruit, tierHit, (skill && Math.random() < (g.skills?.bonus(skill) || 0)) || Math.random() < 0.33 * enchLevel(held, 'fortuna'));   // (con fortuna, a veces uno más)
+      this.spawnDrops(o, fruit, tierHit, skill && Math.random() < (g.skills?.bonus(skill) || 0));
       const ore = rule.drops.find(([id, , , , minTier = 0]) => XP_ORE[id] && tierHit >= minTier);   // (el carbón y las piedras preciosas dan experiencia)
       if (ore) g.xp?.add(roll(...XP_ORE[ore[0]]));
       if (o.kind === 'bush' && tool === 'guadana') g.ranch?.mowed();   // (con un silo, el heno se guarda solo)

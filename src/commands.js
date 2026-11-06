@@ -11,7 +11,6 @@ import { WORLD_SEED, CHUNK } from './world/gen.js';
 import { B, BIOMES } from './world/biomes.js';
 import { CENTER } from './world/village.js';
 import { PIECES } from './pieces.js';
-import { ENCHANTS } from './enchant.js';
 import { RECIPES } from './recipes.js';
 import { ACH } from './progress.js';
 import { POI_NAMES } from './explore.js';
@@ -38,7 +37,6 @@ const WEATHER_NAMES = { clear: 'sol', clouds: 'nubes', cloudy: 'nubes', rain: 'l
 const WEATHER_SAID = { sol: 'sol', nubes: 'nubes', lluvia: 'lluvia', tormenta: 'tormenta', niebla: 'niebla', nieve: 'nieve' };
 const DIFF_NAMES = { pacifico: 'peaceful', peaceful: 'peaceful', p: 'peaceful', 0: 'peaceful', facil: 'easy', easy: 'easy', e: 'easy', 1: 'easy', normal: 'normal', n: 'normal', 2: 'normal', dificil: 'hard', hard: 'hard', h: 'hard', 3: 'hard' };
 const EFFECTS = { speed: 'rapido', rapidez: 'rapido', strength: 'fuerza', fuerza: 'fuerza', resistance: 'resistencia', resistencia: 'resistencia', regeneration: 'regeneracion', regeneracion: 'regeneracion', tireless: 'incansable', incansable: 'incansable', instant_health: 'curacion', curacion: 'curacion' };
-const ENCHANT_NAMES = { sharpness: 'filo', filo: 'filo', efficiency: 'eficiencia', eficiencia: 'eficiencia', fortune: 'fortuna', fortuna: 'fortuna', unbreaking: 'irrompibilidad', irrompibilidad: 'irrompibilidad', protection: 'proteccion', proteccion: 'proteccion' };
 const PLACES = { village: 'aldea', aldea: 'aldea', temple: 'templo', templo: 'templo', lighthouse: 'faro', faro: 'faro', cave: 'cueva', cueva: 'cueva', ruins: 'ruinas', ruinas: 'ruinas', camp: 'campamento', campamento: 'campamento', tower: 'torre', torre: 'torre', shipwreck: 'barco', barco: 'barco' };
 const BIOME_IDS = { desert: B.DESERT, desierto: B.DESERT, ice: B.ICE, hielo: B.ICE, snowy_tundra: B.SNOW, tundra: B.SNOW, forest: B.FOREST, bosque: B.FOREST, taiga: B.PINES, pinos: B.PINES, swamp: B.SWAMP, pantano: B.SWAMP, plains: B.MEADOW, pradera: B.MEADOW, ocean: B.OCEAN, mar: B.OCEAN, beach: B.BEACH, playa: B.BEACH, mountains: B.ROCKY, montana: B.ROCKY, lake: B.LAKE, lago: B.LAKE };
 // Lo que se puede hacer aparecer con /summon: criaturas (las lleva quien lleva el mundo), animales salvajes (los
@@ -142,16 +140,6 @@ export const COMMANDS = {
       const s = Math.max(1, Math.min(3600, num(secs) ?? 30));
       const names = order(game, say, who, sub === 'give' ? { t: 'effect', give: e, secs: s } : { t: 'effect', clear: e || 'all' });
       if (names?.some(x => x !== 'tú')) say(`${sub === 'give' ? `Efecto ${EFFECT_NAMES[e]}` : 'Efectos quitados'}: ${names.filter(x => x !== 'tú').join(', ')}.`, 'ok');
-    },
-  },
-  enchant: {
-    help: 'encantar lo que tiene en la mano (solo los op): /enchant <jugador> sharpness|efficiency|fortune|unbreaking|protection [nivel]',
-    run(game, say, [who = '', kind = '', lvl = '']) {
-      if (needOp(game, say, 'enchant')) return;
-      const e = ENCHANT_NAMES[plain(kind)];
-      if (!who || !e) { say('Uso: /enchant <jugador> sharpness|efficiency|fortune|unbreaking|protection [nivel]', 'err'); return; }
-      const names = order(game, say, who, { t: 'enchant', ench: e, lvl: Math.max(1, Math.min(ENCHANTS[e].max, num(lvl) ?? 1)) });
-      if (names?.some(x => x !== 'tú')) say(`Pedido el encantamiento para: ${names.filter(x => x !== 'tú').join(', ')}.`, 'ok');
     },
   },
   xp: {

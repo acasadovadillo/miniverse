@@ -3,7 +3,6 @@ import { ITEMS } from './items.js';
 import { RECIPES, STATIONS, unlocked } from './recipes.js';
 import { Audio } from './audio.js';
 import { parsePlaced } from './pieces.js';
-import { canEnchant, combine, enchName } from './enchant.js';
 
 export const STATION_REACH = 2.4;   // a cuántas casillas puede estar una estación para usarla
 const worn = it => !!it && !!ITEMS[it.id]?.dur && it.dur !== undefined && it.dur < ITEMS[it.id].dur;
@@ -137,16 +136,18 @@ export class Crafting {
     return null;
   }
 
-  // Juntar en el yunque dos cosas iguales de la mochila (gastadas o encantadas): [{ a, b, it, cost }] (a y b: sus
+  // Juntar en el yunque dos cosas iguales de la mochila, si alguna está gastada: suman lo que aguantan y un poco más, por
+  // 2 niveles. [{ a, b, it, cost }] (a y b: sus
   // casillas; it: lo que sale; cost: los niveles que cuesta)
   combinable() {
     const slots = this.game.inv.slots, out = [], used = new Set();
     slots.forEach((x, a) => {
-      if (!x || used.has(a) || !(ITEMS[x.id].dur || canEnchant(x.id)) || ITEMS[x.id].stack > 1) return;
-      const b = slots.findIndex((y, j) => j > a && !used.has(j) && y?.id === x.id && (worn(x) || worn(y) || x.ench || y.ench));
+      if (!x || used.has(a) || !ITEMS[x.id].dur || ITEMS[x.id].stack > 1) return;
+      const b = slots.findIndex((y, j) => j > a && !used.has(j) && y?.id === x.id && (worn(x) || worn(y)));
       if (b < 0) return;
       used.add(a); used.add(b);
-      out.push({ a, b, ...combine(x, slots[b]) });
+      const max = ITEMS[x.id].dur, dur = Math.min(max, (x.dur ?? max) + (slots[b].dur ?? max) + Math.floor(max * 0.12));
+      out.push({ a, b, it: { ...x, dur }, cost: 2 });
     });
     return out;
   }
@@ -154,12 +155,11 @@ export class Crafting {
     const g = this.game, inv = g.inv;
     if (!this.stationsNear().yunque) return 'Tienes que estar junto al yunque';
     if (inv.slots[c.a]?.id !== c.it.id || inv.slots[c.b]?.id !== c.it.id) return 'Ya no están en la mochila';
-    if (c.cost > 39) return '¡Demasiado caro! (más de 39 niveles)';
     if (!g.xp.spend(c.cost)) return `Te faltan niveles de experiencia: cuesta ${c.cost}`;
     inv.slots[c.a] = c.it; inv.slots[c.b] = null;
     inv.changed();
     Audio.craft();
-    this.say(`${ITEMS[c.it.id].name}${c.it.ench ? ` (${enchName(c.it.ench)})` : ''}${c.it.dur !== undefined ? `: ${c.it.dur}/${ITEMS[c.it.id].dur} usos` : ''}`, '#fff3c0');
+    this.say(`${ITEMS[c.it.id].name}: ${c.it.dur}/${ITEMS[c.it.id].dur} usos`, '#fff3c0');
     return null;
   }
 

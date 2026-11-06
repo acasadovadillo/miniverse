@@ -334,7 +334,7 @@ export class Live {
       // Un op te lleva a otro sitio (/tp), te da algo (/give), te mata (/kill), te pone dónde reaparecer
       // (/spawnpoint) o te cambia el modo de juego (/gamemode). Lo hace tu juego, si lo pide un op
       case 'tp': case 'give': case 'kill': case 'spawn': case 'gamemode':
-      case 'clear': case 'effect': case 'enchant': case 'xp': case 'recipe': case 'achievement': case 'title':
+      case 'clear': case 'effect': case 'xp': case 'recipe': case 'achievement': case 'title':
         if (this.joined && g.player && !Profile.server && this.trusted(conn, peer)) g.fromOp(m, peer.server ? 'El servidor' : peer.name);
         break;
       // Lo que se le pide a quien lleva el mundo (/summon, /kill @e), si lo pide un op

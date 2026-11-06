@@ -9,7 +9,6 @@ import { ITEMS, isArmor } from './items.js';
 import { extraOf } from './inventory.js';
 import { Audio } from './audio.js';
 import { hud } from './ui/hud.js';
-import { enchLevel } from './enchant.js';
 import { XP_MOB, roll } from './xp.js';
 
 export const HP_MAX = 20;       // medios corazones
@@ -61,9 +60,8 @@ export class Combat {
     this.paint();
   }
   feed(n) { this.hunger = Math.min(HUNGER_MAX, this.hunger + n); this.paint(); }
-  // Los puntos de armadura que se llevan puestos, con la protección de sus encantamientos (cada uno quita un 4 % del
-  // daño, hasta el 80 %)
-  armor() { return Math.min(20, Object.values(this.game.inv?.equip || {}).reduce((t, it) => t + (ITEMS[it.id]?.armor ? ITEMS[it.id].armor + enchLevel(it, 'proteccion') : 0), 0)); }
+  // Los puntos de armadura que se llevan puestos (cada uno quita un 4 % del daño, hasta el 80 %)
+  armor() { return Math.min(20, Object.values(this.game.inv?.equip || {}).reduce((t, it) => t + (ITEMS[it.id]?.armor || 0), 0)); }
   get scene() { return this.game.scene; }
   spawn(scene) { scene.monsters = this.game.rules.doMobSpawning && this.diff.cap ? (scene.spawns || []).map(([type, x, y]) => new Monster(type, x, y)) : []; }   // (/gamerule doMobSpawning; en pacífico, ninguna)
   // Las criaturas de esta escena (las de fuera, de mobs.js)
@@ -135,7 +133,7 @@ export class Combat {
     // a veces no se gasta); la poción de resistencia, un 30 % más
     dmg *= (1 - this.armor() * 0.04) * (g.buffs.resistencia > g.time ? 0.7 : 1);
     for (const [slot, it] of Object.entries(g.inv.equip)) {
-      if (!isArmor(it.id) || Math.random() >= 1 / (1 + enchLevel(it, 'irrompibilidad'))) continue;
+      if (!isArmor(it.id)) continue;
       it.dur = (it.dur ?? ITEMS[it.id].dur) - 1;
       if (it.dur <= 0) { delete g.inv.equip[slot]; g.gather.float(`¡Se ha roto: ${ITEMS[it.id].name.toLowerCase()}!`, '#ffb0a0'); }
     }
@@ -218,7 +216,7 @@ export class Combat {
     Audio.swish();
     if (!m) return;
     // (con filo, y con la poción de fuerza, pega más)
-    const dmg = (def?.weapon || 1) + (g.skills?.level('combate') >= 5 ? 1 : 0) + enchLevel(g.inv.held, 'filo') + (g.buffs.fuerza > g.time ? 2 : 0);
+    const dmg = (def?.weapon || 1) + (g.skills?.level('combate') >= 5 ? 1 : 0) + (g.buffs.fuerza > g.time ? 2 : 0);
     g.gather.wearOut();   // (el arma, o la herramienta con que se pega, se gasta)
     this.exert(0.1);
     Audio.chop();

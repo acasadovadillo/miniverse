@@ -529,11 +529,22 @@ async function soloTests(game) {
   });
   await test('mesa de encantar retirada: al cargar se quita y se devuelven sus materiales', async () => {
     const cx = 100, cy = 100, k = `${cx},${cy}`, deltas = new Map([[k, { removed: {}, tilled: {}, v: 0, placed: { '1600,1600': 'mesa_encantar@1', '1601,1600': 'silla' }, pos: { 'placed:1600,1600': [1, 2, 3] }, chest: { '1602,1600': [{ id: 'mesa_encantar', n: 1 }, { id: 'madera', n: 2 }] } }]]);
-    const save = game.snapshot(); save.inventory.slots = [{ id: 'mesa_encantar', n: 1 }, ...save.inventory.slots.slice(1)];
+    const save = game.snapshot(); save.inventory.slots = [{ id: 'mesa_encantar', n: 1 }, { id: 'hacha', n: 1, dur: 5, ench: { filo: 2 } }, ...save.inventory.slots.slice(2)];
+    save.inventory.equip = { cabeza: { id: 'casco_hierro', dur: 3, ench: { proteccion: 1 } } }; deltas.get(k).chest['1602,1600'][1].ench = { fortuna: 1 };
     const before = save.inventory.slots.length, owed = retireItems(save, deltas), d = deltas.get(k);
     check(!d.placed['1600,1600'] && d.placed['1601,1600'] === 'silla' && !d.pos['placed:1600,1600'], 'no se ha quitado la del mundo'); check(d.chest['1602,1600'][0] === null && d.chest['1602,1600'][1].id === 'madera', 'no se ha quitado la del cofre');
     check(save.inventory.slots[0] === null && save.inventory.slots.length === before, 'no se ha quitado la de la mochila');
+    check(owed.spell && !save.inventory.slots[1].ench && save.inventory.slots[1].dur === 5 && !save.inventory.equip.cabeza.ench && !d.chest['1602,1600'][1].ench, 'quedan encantamientos en la partida vieja');
     const count = id => owed.filter(o => o[0] === id).reduce((n, o) => n + o[1], 0); check(count('amatista') === 12 && count('tablas') === 18 && count('lingote_hierro') === 6, `devuelve: ${JSON.stringify(owed)}`);
+  });
+  await test('yunque: sin encantamientos, dos iguales gastados se juntan', async () => {
+    const said = []; runCommand(game, '/enchant @s sharpness', (t, k) => said.push(`${k}: ${t}`)); check(said.some(t => t.startsWith('err')), `/enchant sigue: ${said.join(' | ')}`);
+    const free = () => inv().slots.findIndex(s => !s), a = free(); inv().slots[a] = { id: 'espada_oro', n: 1, dur: 10 };
+    const b = free(); inv().slots[b] = { id: 'espada_oro', n: 1, dur: 20 };
+    try {
+      const pair = game.craft.combinable().find(c => c.a === a && c.b === b), max = ITEMS.espada_oro.dur;
+      check(pair && pair.cost === 2 && pair.it.dur === Math.min(max, 30 + Math.floor(max * 0.12)) && !pair.it.ench, `sale: ${JSON.stringify(pair)}`);
+    } finally { inv().slots[a] = inv().slots[b] = null; inv().changed(); }
   });
   await test('guardar y cargar: la partida vuelve igual', async () => {
     await goTo(game, 40, 40);

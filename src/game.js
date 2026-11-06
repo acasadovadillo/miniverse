@@ -33,7 +33,6 @@ import { HOTBAR, extraOf } from './inventory.js';
 import { Neighbors } from './neighbors.js';
 import { Board } from './board.js';
 import { Combat, DIFFICULTIES, MONSTERS, EFFECT_NAMES } from './combat.js';
-import { ENCHANTS, enchName } from './enchant.js';
 import { xpTo } from './xp.js';
 import { Mobs } from './mobs.js';
 import { Experience } from './xp.js';
@@ -56,10 +55,13 @@ import { hud } from './ui/hud.js';
 const RETIRED = { mesa_encantar: [['amatista', 4], ['tablas', 6], ['lingote_hierro', 2]] };
 export function retireItems(save, deltas) {
   const owed = [], back = (id, n = 1) => { for (const [m, k] of RETIRED[id]) owed.push([m, k * n]); };
-  const clean = list => { if (Array.isArray(list)) list.forEach((s, i) => { if (s && RETIRED[s.id]) { back(s.id, s.n || 1); list[i] = null; } }); };
+  // (los encantamientos tampoco están ya: lo encantado se queda como cualquier otro; owed.spell: si había alguno)
+  const unspell = s => { if (s?.ench) { delete s.ench; owed.spell = true; } };
+  const clean = list => { if (Array.isArray(list)) list.forEach((s, i) => { if (s && RETIRED[s.id]) { back(s.id, s.n || 1); list[i] = null; } else unspell(s); }); };
   clean(save.inventory?.slots);
+  for (const it of Object.values(save.inventory?.equip || {})) unspell(it);
   for (const a of save.animals || []) clean(a.bags);
-  if (save.farm?.mail) save.farm.mail = save.farm.mail.filter(m => { if (!RETIRED[m.id]) return true; back(m.id, m.n || 1); return false; });
+  if (save.farm?.mail) save.farm.mail = save.farm.mail.filter(m => { if (!RETIRED[m.id]) { unspell(m.extra); return true; } back(m.id, m.n || 1); return false; });
   for (const [k, d] of deltas) {
     if (k.startsWith('u:')) continue;
     for (const list of Object.values(d.chest || {})) clean(list);
@@ -224,6 +226,7 @@ export class Game {
     this.scene = this.world;
     this.underRoof = false;
     if (owed.length && !Profile.server) { for (const [id, n] of owed) this.giveBack(id, n); hud.toast('La mesa de encantar ya no está en el juego: te devuelvo sus materiales', 'good'); }
+    if (owed.spell && !Profile.server) hud.toast('Los encantamientos ya no están en el juego: tus cosas siguen, pero sin ellos');
     // Lo que el jugador tenía en su habitación va primero (dentro de la casa); luego se levanta la casa con
     // sus muebles por defecto, que solo ocupan las casillas que quedan libres. Va después de crear al jugador,
     // porque lo que no quepa vuelve a la mochila a través de él.
@@ -284,7 +287,7 @@ export class Game {
     else return this.fromOp2(m, said);
     this.onSave?.();
   }
-  // (las órdenes de los comandos de la fase de comandos: /clear, /effect, /enchant, /xp, /recipe, /achievement y
+  // (las órdenes de los comandos de la fase de comandos: /clear, /effect, /xp, /recipe, /achievement y
   // /title). Devuelven lo que ha pasado, para quien lo pide desde su juego
   fromOp2(m, said) {
     const inv = this.inv, p = this.player;
@@ -306,10 +309,6 @@ export class Game {
       else if (m.give && EFFECT_NAMES[m.give]) { this.buffs[m.give] = this.time + Math.max(1, Math.min(3600, m.secs || 30)); out = `Efecto ${EFFECT_NAMES[m.give]} durante ${m.secs || 30} s`; }
       else if (m.clear) { if (m.clear === 'all') this.buffs = {}; else delete this.buffs[m.clear]; out = 'Efectos quitados'; }
       if (out) said(`te ha dado: ${out.toLowerCase()}`);
-    } else if (m.t === 'enchant' && ENCHANTS[m.ench]) {
-      const it = inv.held, def = it && ITEMS[it.id];
-      if (!def || !ENCHANTS[m.ench].fits(def) || def.stack > 1) out = 'Lo que tienes en la mano no se puede encantar así';
-      else { it.ench = { ...(it.ench || {}), [m.ench]: Math.max(1, Math.min(ENCHANTS[m.ench].max, m.lvl | 0)) }; inv.changed(); out = `${def.name}: ${enchName(it.ench)}`; said(`ha encantado lo que llevas: ${enchName(it.ench)}`); }
     } else if (m.t === 'xp' && Number.isFinite(m.n)) {
       const x = this.xp;
       if (m.levels) x.set(xpTo(Math.max(0, (m.set ? 0 : x.level) + m.n)) + (m.set ? 0 : x.into));

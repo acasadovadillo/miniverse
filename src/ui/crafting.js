@@ -5,7 +5,6 @@ import { ITEMS, hungerText } from '../items.js';
 import { RECIPES, STATIONS, lockedHint } from '../recipes.js';
 import { itemIconUrl } from '../art/items.js';
 import { MACHINES, machineAt, settle, fits } from '../machines.js';
-import { enchName } from '../enchant.js';
 
 const $ = id => document.getElementById(id);
 const TAB_ICON = { mano: null, banco: 'banco', horno: 'horno', yunque: 'yunque', telar: 'telar', cocina: 'cocina', quesera: 'quesera', alambique: 'alambique', noria: 'noria' };
@@ -85,7 +84,7 @@ export function initCraftingUI(game, { onClose, onBag }) {
       if (worn.length) head(`Reparar (1 nivel cada vez; tienes ${game.xp.level})`);
       for (const r of worn) row(r.it.id, `${ITEMS[r.it.id].name} (${r.it.dur}/${ITEMS[r.it.id].dur})`, `1 × ${ITEMS[r.mat].name.toLowerCase()} (tienes ${game.inv.count(r.mat)})`, () => c.repair(r), !near.yunque);
       if (pairs.length) head('Juntar dos iguales');
-      for (const p of pairs) row(p.it.id, `2 × ${ITEMS[p.it.id].name} → ${p.it.dur !== undefined ? `${p.it.dur}/${ITEMS[p.it.id].dur}` : ''}${p.it.ench ? ` ${enchName(p.it.ench)}` : ''}`, `${p.cost} niveles`, () => c.merge(p), !near.yunque);
+      for (const p of pairs) row(p.it.id, `2 × ${ITEMS[p.it.id].name} → ${p.it.dur}/${ITEMS[p.it.id].dur}`, `${p.cost} niveles`, () => c.merge(p), !near.yunque);
     } else if (MACHINES[tab] && st && st !== true) machinePanel(box, st.tile, head, note);
     else if (tab === 'banco') {
       // Los mapas que llevas: copiarlos (con un mapa en blanco) o ampliarlos al doble (con telas)
