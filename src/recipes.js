@@ -153,6 +153,8 @@ export const RECIPES = [
   R('cocina', 'coco_tostado', 1, [['coco', 1]]),
   R('cocina', 'pinones', 1, [['pina', 2]]),
   R('cocina', 'pan_bellota', 1, [['bellota', 3]]),
+  R('banco', 'arco', 1, [['tablas', 3], ['cuerda', 3]]),
+  R('banco', 'flecha', 4, [['tablas', 1], ['piedra', 1], ['plumas', 1]]),
   R('banco', 'barra', 1, [['tablas', 4]]),
   R('banco', 'barril', 1, [['tablas', 5], ['lingote_hierro', 1]]),
   R('banco', 'taburete', 1, [['tablas', 2]]),

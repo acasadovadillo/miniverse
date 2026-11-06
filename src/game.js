@@ -34,6 +34,7 @@ import { Neighbors } from './neighbors.js';
 import { Board } from './board.js';
 import { Combat, DIFFICULTIES, MONSTERS, EFFECT_NAMES } from './combat.js';
 import { Hunt, bodyBox } from './hunt.js';
+import { Archery } from './archery.js';
 import { ANIMALS } from './art/farm.js';
 import { syncLook, aimLock } from './input.js';
 import { xpTo } from './xp.js';
@@ -153,6 +154,7 @@ export class Game {
     this.stats = this.addSystem(new Stats());
     this.skills = this.addSystem(new Skills(this));
     this.days = this.addSystem(new TimeSystem(this));
+    this.archery = this.addSystem(new Archery(this));   // el arco (antes que lo que se haga con E o con la herramienta)
     this.board = this.addSystem(new Board(this));
     this.farm = this.addSystem(new Farm(this));
     this.ranch = this.addSystem(new Ranch(this));
@@ -984,7 +986,7 @@ export class Game {
     this.hook('update', dt);
     if (keys.use && !this.busy && !this.build.on) this.gather.use(true);
     if (this.busy || hud.dialogOpen || p.pose) { p.stop(); return; }
-    p.speedMul = (this.buffs.rapido > this.time ? 1.35 : 1) * (p.mount ? this.ranch.rideSpeed() : 1);
+    p.speedMul = (this.buffs.rapido > this.time ? 1.35 : 1) * (p.mount ? this.ranch.rideSpeed() : 1) * this.archery.walk;
     if (Object.values(keys).some(Boolean)) this.lastInput = this.time;   // (para /setidletimeout)
     if (p.aboard) p.stop();   // (de pasajero en una barca, le lleva ella)
     else p.update(dt, keys, this.scene);

@@ -47,7 +47,7 @@ class RemotePlayer extends Person {
     this.to = [st.x, st.y, st.z || 0];
     if (this.fresh || Math.hypot(st.x - this.x, st.y - this.y) > SNAP) { [this.x, this.y, this.z] = this.to; this.fresh = false; }
     this.pose = st.po ? { kind: POSES[st.po[0]], yaw: st.po[1], h: st.po[2] } : null;   // (sentado o tumbado)
-    Object.assign(this, { yaw: st.yaw ?? null, inside: !!st.in, mount: !!st.m, horseCoat: st.hc || null, horseBags: !!st.hb, boat: !!st.b, aboard: st.pa || null, crouch: !!st.cr, gm: st.gm || 0, held: st.h || null, swing: st.sw || 0, swingItem: st.si || null, cooldown: st.cd || 0 });
+    Object.assign(this, { yaw: st.yaw ?? null, inside: !!st.in, mount: !!st.m, horseCoat: st.hc || null, horseBags: !!st.hb, boat: !!st.b, aboard: st.pa || null, crouch: !!st.cr, gm: st.gm || 0, held: st.h || null, swing: st.sw || 0, swingItem: st.si || null, cooldown: st.cd || 0, bowPull: st.dr || 0 });
   }
   update(dt) {
     if (!this.to) return;
@@ -354,6 +354,9 @@ export class Live {
       // lleva), a quién muerden y quién ha matado a una (de quien lo lleva)
       case 'mobs': if (fromHost && Array.isArray(m.m)) g.mobs.netList(m.m); break;
       case 'wild': if (fromHost && Array.isArray(m.w)) g.wildlife.netList(m.w); break;
+      // Las flechas: las ve volar todo el mundo y la que ya no está, deja de verse
+      case 'arrow': g.archery.ghost(m); break;
+      case 'arrowgone': g.archery.gone(m.id); break;
       case 'hitm': if (this.takes(peer)) g.mobs.hitBy(conn, peer, m); break;
       case 'hita': if (this.takes(peer)) g.hunt.hitBy(conn, peer, m); break;
       case 'preydead': if (fromHost) g.hunt.killed(m); break;
@@ -630,7 +633,7 @@ export class Live {
     }
     this.sent += dt;
     const sc = g.scene === g.world ? 'world' : null;
-    const st = { t: 'st', sc, x: r2(p.x), y: r2(p.y), z: r2(p.z || 0), yaw: r2(g.view3d.actors.player?.person.facing ?? 0), in: p.inside ? 1 : 0, po: p.pose ? [POSES.indexOf(p.pose.kind), r2(p.pose.yaw), r2(p.pose.h)] : 0, m: p.mount ? 1 : 0, hc: p.mount ? p.horseCoat || null : null, hb: p.mount && p.horseBags ? 1 : 0, b: p.boat ? 1 : 0, pa: p.aboard || 0, cr: p.crouch ? 1 : 0, gm: g.gamemode === 'survival' ? 0 : g.gamemode === 'creative' ? 1 : 3, h: g.inv.held?.id || null, sw: this.swings, si: g.gather.swingItem || null, cd: r2(g.gather.cooldown || 0) };
+    const st = { t: 'st', sc, x: r2(p.x), y: r2(p.y), z: r2(p.z || 0), yaw: r2(g.view3d.actors.player?.person.facing ?? 0), in: p.inside ? 1 : 0, po: p.pose ? [POSES.indexOf(p.pose.kind), r2(p.pose.yaw), r2(p.pose.h)] : 0, m: p.mount ? 1 : 0, hc: p.mount ? p.horseCoat || null : null, hb: p.mount && p.horseBags ? 1 : 0, b: p.boat ? 1 : 0, pa: p.aboard || 0, cr: p.crouch ? 1 : 0, gm: g.gamemode === 'survival' ? 0 : g.gamemode === 'creative' ? 1 : 3, h: g.inv.held?.id || null, sw: this.swings, si: g.gather.swingItem || null, cd: r2(g.gather.cooldown || 0), dr: r2(g.archery.k) };
     const key = JSON.stringify(st);
     if (this.sent < SEND_EVERY || (key === this.lastSent && this.sent < IDLE_EVERY)) return;
     this.sent = 0; this.lastSent = key;

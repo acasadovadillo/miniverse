@@ -80,6 +80,15 @@ export class Hunt {
     if (g.live.guest) { g.live.net?.send({ t: 'hita', id: e.id, dmg, x: r2(p.x), y: r2(p.y) }, g.live.hostConn); return; }
     this.damage(e, dmg, [p.x, p.y], null);
   }
+  // Una flecha que le da (lo decide quien la dispara)
+  shot(e, dmg) {
+    const g = this.game, p = g.player;
+    e.hurt = HURT;
+    g.gather.chips(e.x, e.y, PREY[e.type].chips || 'dirt', 4);
+    g.skills?.gain('combate', 1);
+    if (g.live.guest) g.live.net?.send({ t: 'hita', id: e.id, dmg, x: r2(p.x), y: r2(p.y), far: 1 }, g.live.hostConn);
+    else this.damage(e, dmg, [p.x, p.y], null);
+  }
   // (quien lleva el mundo) from: desde dónde; by: la conexión de quien ha pegado (null: tú)
   damage(e, dmg, from, by) {
     const g = this.game, def = PREY[e.type];
@@ -105,7 +114,7 @@ export class Hunt {
   hitBy(conn, peer, msg) {
     const g = this.game, a = g.ranch.animals.find(a => a.id === msg.id) || g.wildlife.list.find(w => w.id === msg.id);
     if (!a || (a.inside && !g.ranch.stall(a)) || !this.canHit(a, peer.id) || !Number.isFinite(msg.dmg)) return;
-    if (peer.at && distOf(peer.at[0], peer.at[1], a.x, a.y) > 5) return;
+    if (peer.at && distOf(peer.at[0], peer.at[1], a.x, a.y) > (msg.far ? 60 : 5)) return;   // (con una flecha, de más lejos)
     this.damage(a, Math.min(10, Math.max(0, msg.dmg)), [msg.x, msg.y], conn);
   }
   // (invitado) Has matado a uno: ya no está y lo que suelta es para ti

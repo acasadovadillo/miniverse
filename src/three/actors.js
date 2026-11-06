@@ -177,7 +177,7 @@ export class Actors {
         if (!e.mount) { const k = Math.min(1, e.z / 0.25); P.legs[0].rotation.x = -0.7 * k; P.legs[1].rotation.x = 0.35 * k; }
       }
       // (después de andar: el golpe manda sobre el balanceo del brazo)
-      if (game) this.hold(m, { held: game.inv.held?.id || null, swing: game.gather.swing, swingItem: game.gather.swingItem, cooldown: game.gather.cooldown, fishPose: game.fishing?.pose(t) }, dt);
+      if (game) this.hold(m, { held: game.inv.held?.id || null, swing: game.gather.swing, swingItem: game.gather.swingItem, cooldown: game.gather.cooldown, fishPose: game.fishing?.pose(t), bowPull: game.archery?.k || 0 }, dt);
       else if (e.remote) this.hold(m, e, dt);
       // Agachado (Shift): las rodillas dobladas, el cuerpo más bajo y un poco echado hacia delante; andando, a pasitos
       const C = P.skirt ? CROUCH_SKIRT : CROUCH;   // (con falda, más recogido: las rodillas no suben tanto)
@@ -241,6 +241,9 @@ export class Actors {
     }
     const arm = P.arms[1];
     arm.rotation.z = 0; m.hand.rotation.x = 0; P.torso.rotation.x = 0;
+    pullBow(m.hand, g.bowPull || 0);
+    // (tensando el arco: el brazo estirado y el arco de pie)
+    if (g.bowPull > 0 && !a) { arm.rotation.x = -1.5; m.hand.rotation.x = 1.5; if (P.fore) P.fore[1].rotation.x = -0.1; return; }
     if ((a || g.fishPose) && P.fore) P.fore[1].rotation.x = -0.1;   // (usando algo, el brazo casi estirado)
     // (una postura fija: pescando. fishPose, no pose: pose es sentarse o tumbarse, y los demás jugadores la traen)
     if (!a) { if (g.fishPose) { arm.rotation.x = g.fishPose.arm; P.torso.rotation.x = g.fishPose.lean; } return; }
@@ -408,9 +411,39 @@ const SCYTHE_EDGE = sh => { sh.moveTo(0.5, -0.09); sh.quadraticCurveTo(0.27, -0.
 const HOE = sh => { sh.moveTo(-0.075, 0); sh.lineTo(0.075, 0); sh.lineTo(0.06, 0.13); sh.lineTo(-0.06, 0.13); sh.lineTo(-0.075, 0); };
 const BLADE = sh => { sh.moveTo(-0.028, 0); sh.lineTo(0.028, 0); sh.lineTo(0.028, 0.47); sh.lineTo(0, 0.56); sh.lineTo(-0.028, 0.47); sh.lineTo(-0.028, 0); };
 
+// El arco: dos palas curvas, con la empuñadura en la mano, y la cuerda en dos tramos, que se tiran hacia atrás al tensar
+// (pullBow). La flecha, solo tensándolo. Mira hacia z+
+const BOW_END = [0.46, -0.13];   // (la punta de arriba: y, z)
+function bowModel() {
+  const g = new THREE.Group(), wood = M('#7a4e2c'), grip = M('#3a2416'), line = M('#efe6d4');
+  const curve = new THREE.CatmullRomCurve3([[0, -0.46, -0.13], [0, -0.3, 0.02], [0, 0, 0.08], [0, 0.3, 0.02], [0, 0.46, -0.13]].map(v => new THREE.Vector3(...v)));
+  g.add(new THREE.Mesh(new THREE.TubeGeometry(curve, 18, 0.018, 6), wood));
+  mesh(new THREE.CylinderGeometry(0.026, 0.026, 0.13, 8), grip, { p: [0, 0, 0.08] }, g);
+  const seg = () => mesh(new THREE.CylinderGeometry(0.005, 0.005, 1, 4), line, { p: [0, 0, 0] }, g), arrow = new THREE.Group();
+  mesh(new THREE.CylinderGeometry(0.009, 0.009, 0.62, 6), M('#b08a58'), { p: [0, 0, 0.31], r: [Math.PI / 2, 0, 0] }, arrow);
+  mesh(new THREE.ConeGeometry(0.022, 0.07, 6), M('#8a9098'), { p: [0, 0, 0.65], r: [Math.PI / 2, 0, 0] }, arrow);
+  g.add(arrow);
+  g.userData.bow = { up: seg(), down: seg(), arrow };
+  pullBow(g, 0);
+  return g;
+}
+// Tensar el arco que haya en este grupo: k de 0 (suelto) a 1
+export function pullBow(root, k) {
+  let bow = null;
+  root.traverse(o => { if (o.userData.bow) bow = o.userData.bow; });
+  if (!bow || bow.k === k) return;
+  bow.k = k;
+  const [y, z] = BOW_END, back = z - 0.3 * k, len = Math.hypot(y, back - z), ang = Math.atan2(back - z, y);
+  // (cada tramo, del extremo al punto del que se tira)
+  bow.up.position.set(0, y / 2, (z + back) / 2); bow.up.rotation.x = ang; bow.up.scale.y = len;
+  bow.down.position.set(0, -y / 2, (z + back) / 2); bow.down.rotation.x = -ang; bow.down.scale.y = len;
+  bow.arrow.visible = k > 0.01; bow.arrow.position.set(0, 0, back);
+}
+
 export function toolModel(id) {
   const def = ITEMS[id];
-  if (!def || !(def.tool || def.weapon)) return null;
+  if (!def || !(def.tool || def.weapon || def.bow)) return null;
+  if (def.bow) return bowModel();
   const tier = def.tier || 4, base = def.weapon ? (def.weapon > 3 ? '#f0c840' : '#c8d0d8') : TIERS[tier]?.head || '#b8c2ce';
   const metal = def.weapon || tier >= 3, flat = !metal;
   const head = mat({ color: base, metalness: metal ? 0.65 : 0, roughness: metal ? 0.32 : 0.85, flatShading: flat });

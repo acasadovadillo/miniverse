@@ -53,7 +53,7 @@ export const SHOPS = {
   },
   bruno: {
     title: 'Herrería de Bruno', hours: [8, 17],
-    stock: [{ id: 'carbon', price: 18 }, { id: 'piedra', price: 6 }, { id: 'lingote_cobre', price: 90 }, { id: 'lingote_hierro', price: 160, project: 'mercado' }, { id: 'antorcha', price: 15 }, { id: 'espada', price: 450 }, { id: 'pico_hierro', price: 400 }, { id: 'hacha_hierro', price: 400 }, { id: 'guadana_hierro', price: 400 }, { id: 'azada_hierro', price: 400 }, { id: 'herraduras', price: 350 }],
+    stock: [{ id: 'carbon', price: 18 }, { id: 'piedra', price: 6 }, { id: 'lingote_cobre', price: 90 }, { id: 'lingote_hierro', price: 160, project: 'mercado' }, { id: 'antorcha', price: 15 }, { id: 'espada', price: 450 }, { id: 'pico_hierro', price: 400 }, { id: 'hacha_hierro', price: 400 }, { id: 'guadana_hierro', price: 400 }, { id: 'azada_hierro', price: 400 }, { id: 'herraduras', price: 350 }, { id: 'arco', price: 300 }, { id: 'flecha', price: 8 }],
   },
   lia: {
     title: 'Aparejos de Lía', hours: [6, 20],

@@ -244,6 +244,7 @@ export class Gathering {
     if (def?.food || def?.heal || def?.buff) return auto ? undefined : this.eat(g.inv.selected);
     if (held?.id === 'mapa_vacio') return auto ? undefined : g.maps.create(g.inv.selected);
     if (def?.place) return this.place(held.id, auto);
+    if (def?.bow) { if (!auto) g.archery.press(); return; }   // (mantener tensa; al soltar, sale)
     if (this.target?.use) {   // lo que propone otro sistema (sembrar, pescar…)
       if (auto && !this.target.auto) return;
       if (def?.tool) { this.swing = 0.25; this.swingItem = held.id; }   // también se ve el gesto (regar, lanzar la caña…)

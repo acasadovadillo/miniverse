@@ -173,10 +173,10 @@ export class Mobs {
   // ---------- pegarles ----------
   // Un golpe a un monstruo de fuera (lo da tu juego): si llevas tú el mundo, se lo das; si no, se lo pides a quien lo
   // lleva, que dice si lo has matado. Devuelve si ha muerto ya
-  strike(m, dmg) {
+  strike(m, dmg, far = false) {
     const g = this.game, p = g.player;
     m.hurt = 0.4;
-    if (g.live.guest) { g.live.net?.send({ t: 'hitm', id: m.id, dmg, x: r2(p.x), y: r2(p.y) }, g.live.hostConn); return false; }
+    if (g.live.guest) { g.live.net?.send({ t: 'hitm', id: m.id, dmg, x: r2(p.x), y: r2(p.y), far: far ? 1 : 0 }, g.live.hostConn); return false; }
     return this.damage(m, dmg, [p.x, p.y], null);
   }
   // (quien lleva el mundo) Un golpe desde from; by: la conexión de quien lo ha dado (null: tú)
@@ -192,7 +192,7 @@ export class Mobs {
     const m = this.list.find(m => m.id === msg.id);
     if (!m || !Number.isFinite(msg.dmg)) return;
     // (de cerca: como lo que se toca del mundo)
-    if (peer.at && distOf(peer.at[0], peer.at[1], m.x, m.y) > 4) return;
+    if (peer.at && distOf(peer.at[0], peer.at[1], m.x, m.y) > (msg.far ? 60 : 4)) return;   // (con una flecha, de más lejos)
     this.damage(m, Math.min(10, Math.max(0, msg.dmg)), [msg.x, msg.y], conn);
   }
   // (invitado) Has matado a uno: lo que suelta, para ti

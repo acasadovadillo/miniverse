@@ -12,9 +12,10 @@ import { CENTER } from '../world/village.js';
 import { Settings } from '../settings.js';
 import { Terrain, WATER_Y } from './terrain.js';
 import { World3D } from './world3d.js';
-import { Actors, toolModel, swingArm } from './actors.js';
+import { Actors, toolModel, swingArm, pullBow } from './actors.js';
 import { ITEMS } from '../items.js';
 import { Fx } from './fx.js';
+import { ArrowsView } from './arrows.js';
 import { Cave3D } from './cave3d.js';
 
 const SKY = {
@@ -48,6 +49,7 @@ export class View3D {
     // En primera persona, lo que se lleva en la mano se ve abajo a la derecha
     this.viewmodel = new THREE.Group(); this.viewmodel.visible = false; this.scene.add(this.viewmodel);
     this.fx = new Fx(this);
+    this.arrows = new ArrowsView(this);
     this.caves = new Map();       // escena de cueva → su vista
     this.cave = null;
     this.cam = { target: new THREE.Vector3(CENTER.x, 0, CENTER.y), vel: 0, pvel: 0, zvel: 0, pitchNow: null, distNow: null, low: 0 };
@@ -214,7 +216,8 @@ export class View3D {
     const look = this.from.copy(this.ray).multiplyScalar(Math.cos(CAM.look));
     look.y = Math.sin(CAM.look);
     this.camera.lookAt(look.add(this.camera.position));
-    if (this.camera.fov !== 70 || this.camera.near !== 0.05) { this.camera.fov = 70; this.camera.near = 0.05; this.camera.updateProjectionMatrix(); }
+    const fov = 70 - 12 * (game.archery?.k || 0);   // (al tensar el arco, se acerca un poco)
+    if (this.camera.fov !== fov || this.camera.near !== 0.05) { this.camera.fov = fov; this.camera.near = 0.05; this.camera.updateProjectionMatrix(); }
     setViewAngle(CAM.yaw - Math.PI / 4);
   }
   // Lo que se lleva en la mano, en primera persona: abajo a la derecha, con el vaivén de andar y el gesto al usarlo
@@ -229,10 +232,10 @@ export class View3D {
         // (la herramienta, girada sobre su mango para que el filo del hacha o de la guadaña mire al centro de
         // la pantalla; inclinada hacia delante y hacia dentro)
         const kind = ITEMS[id]?.tool;
-        tool.rotation.set(0, kind === 'hacha' || kind === 'guadana' ? Math.PI + 0.35 : 0.25, 0);
+        tool.rotation.set(0, ITEMS[id]?.bow ? Math.PI + 0.42 : kind === 'hacha' || kind === 'guadana' ? Math.PI + 0.35 : 0.25, 0);
         tool.traverse(o => { if (o.isMesh) o.castShadow = false; });
         const tilt = new THREE.Group(), hold = new THREE.Group();
-        tilt.rotation.set(-0.35, 0, 0.32);
+        tilt.rotation.set(ITEMS[id]?.bow ? 0 : -0.35, 0, ITEMS[id]?.bow ? 0.3 : 0.32);
         tilt.add(tool);
         hold.scale.setScalar(0.85);
         hold.add(tilt);
@@ -244,6 +247,11 @@ export class View3D {
     vm.position.copy(this.camera.position);
     vm.quaternion.copy(this.camera.quaternion);
     const hold = vm.children[0], arm = swingArm(m), walk = Math.min(1, (m?.speed || 0) / 3);
+    // (el arco: al tensarlo, al centro y con la cuerda hacia atrás)
+    const pull = game.archery?.k || 0;
+    pullBow(vm, pull);
+    if (ITEMS[this.vmItem]?.bow) { const k = Math.min(1, pull * 3); hold.position.set(0.42 - 0.12 * k, -0.2 + 0.03 * k, -0.86); hold.rotation.set(0, 0, 0); return; }
+    hold.rotation.z = 0;
     hold.position.set(0.38 + Math.cos(game.time * 4.5) * 0.01 * walk, -0.44 + Math.abs(Math.sin(game.time * 4.5)) * 0.015 * walk - Math.min(0, arm) * 0.025, -0.72);
     hold.rotation.x = -arm * 0.38;
   }
@@ -296,6 +304,7 @@ export class View3D {
     this.first = CAM.first && !!game.player && !!game.scene;
     this.updateViewmodel(game, this.first);
     this.fx.update(game, scene, dt, t);
+    this.arrows.update(game, scene);
     this.terrain.water.uniforms.time.value = t;
     this.terrain.water.uniforms.sky.value.copy(this.skyU.horizon.value);
     this.skyU.time.value = t;

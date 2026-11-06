@@ -102,6 +102,11 @@ Object.assign(ITEMS, {
   palomitas: { name: 'Palomitas', desc: 'Pop.', food: 20 },
   tostada_miel: { name: 'Tostada con miel', desc: 'Desayuno de campeones: quita el hambre y da velocidad.', food: 45, buff: ['rapido', 90] },
 });
+// ---------- El arco (archery.js) ----------
+Object.assign(ITEMS, {
+  arco: { name: 'Arco', desc: 'Mantén pulsado para tensar y suelta para disparar: cuanto más tenso, más lejos llega y más daña.', bow: true, stack: 1, dur: 200 },
+  flecha: { name: 'Flecha', desc: 'Vuela en parábola y se clava. Se recoge del suelo con solo pasar por encima.' },
+});
 // ---------- La taberna ----------
 Object.assign(ITEMS, {
   barra: { name: 'Barra de taberna', desc: 'Madera recia y una jarra siempre a mano. Se une a la de al lado.', place: 'furniture' },

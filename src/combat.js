@@ -29,7 +29,7 @@ export const DIFF = { peaceful: { cap: 0, dmg: 0, starve: HP_MAX }, easy: { cap:
 export const MONSTERS = {
   limo: { name: 'Limo', hp: 3, dmg: 1, speed: 1.1, drops: [['baba', 1, 1, 0.7]] },
   murcielago: { name: 'Murciélago', hp: 2, dmg: 1, speed: 2.4, fly: true, drops: [['fibra', 1, 1, 0.3]] },
-  esqueleto: { name: 'Esqueleto', hp: 6, dmg: 2, speed: 1.4, drops: [['calavera', 1, 1, 0.3], ['moneda_antigua', 1, 1, 0.15]] },
+  esqueleto: { name: 'Esqueleto', hp: 6, dmg: 2, speed: 1.4, drops: [['calavera', 1, 1, 0.3], ['moneda_antigua', 1, 1, 0.15], ['flecha', 1, 2, 0.6], ['hueso', 1, 2, 0.5]] },
 };
 
 class Monster {
@@ -237,6 +237,15 @@ export class Combat {
     m.hp -= dmg; m.hurt = 0.4;
     if (m.hp <= 0) { this.scene.monsters.splice(this.scene.monsters.indexOf(m), 1); this.reward(m); }
   }
+  // Una flecha que le da (lo decide quien la dispara)
+  shot(m, dmg) {
+    const g = this.game;
+    g.skills?.gain('combate', 1);
+    if (m.world) { g.mobs.strike(m, dmg, true); return; }
+    m.hp -= dmg; m.hurt = 0.4;
+    if (m.hp <= 0) { const l = this.scene?.monsters, i = l ? l.indexOf(m) : -1; if (i >= 0) l.splice(i, 1); this.reward(m); }
+  }
+  flies(m) { return !!MONSTERS[m.type]?.fly; }
   // Una criatura muerta por ti: lo que suelta, y lo que aprendes
   reward(m) {
     const g = this.game;

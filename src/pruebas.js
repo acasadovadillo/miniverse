@@ -442,6 +442,50 @@ async function soloTests(game) {
       inv().remove('espada', 1);
     } finally { CAM.first = false; CAM.yaw = yaw; CAM.look = look; game.mouse = was; clearKeys(); draw(); check(!document.body.classList.contains('aiming'), 'sigue la cruceta en tercera'); }
   });
+  await test('arco: se tensa, la flecha hace una parábola, se clava y se recoge al pisarla', async () => {
+    const A = game.archery, I = inv(), P = p(), kept = I.slots.slice(), sel = I.selected, was = game.mouse;
+    I.slots.fill(null); I.add('arco', 1); I.add('flecha', 10); I.select(I.slots.findIndex(s => s?.id === 'arco'));
+    game.mouse = null; CAM.first = false;
+    const shoot = async (held) => {   // tensa held segundos (de juego) y suelta
+      keys.use = true; game.gather.cooldown = 0; game.gather.use();
+      const steps = Math.round(held * 60); for (let i = 0; i < steps; i += 5) await frames(5);
+      keys.use = false; await frames(1);
+    };
+    try {
+      await goTo(game, 62, 50); P.face = { x: 1, y: 0 };
+      check(!game.gather.pickTarget()?.use && game.gather.pickTarget()?.label.includes('tensar'), `dice: ${game.gather.pickTarget()?.label}`);
+      // Tensar: se anda despacio; soltar casi sin tensar, no gasta
+      keys.use = true; game.gather.cooldown = 0; game.gather.use(); await frames(2); check(A.drawT !== null && A.walk < 1 && P.drawing, `no se tensa: ${A.drawT} ${A.walk} ${P.drawing} ${game.busy} ${hud.dialogOpen} ${game.mode}`); keys.use = false; await frames(1);
+      check(!A.list.length && I.count('flecha') === 10, 'sin tensar sale una flecha');
+      // A toda fuerza: sube y baja, y cae lejos
+      await shoot(1.2); check(A.list.length === 1 && I.count('flecha') === 9, 'no sale ni se gasta');
+      const a = A.list[0], x0 = a.x, h0 = a.h; let top = h0, climbs = 0, falls = 0, last = h0;
+      check(a.mine && a.dmg === 6, `daño: ${a.dmg}`);
+      for (let i = 0; i < 400 && !a.stuck; i++) { await frames(1); if (a.stuck) break; if (a.h > last) climbs++; else if (a.h < last) falls++; top = Math.max(top, a.h); last = a.h; }
+      check(a.stuck, 'no se clava'); check(climbs > 3 && falls > 3 && top > h0, `no es una parábola: sube ${climbs}, baja ${falls}`);
+      const far = Math.hypot(a.x - x0, a.y - P.y); check(far > 6, `llega a ${far}`);
+      // Tensar menos: llega menos
+      await shoot(0.35); const b = A.list.at(-1); check(b !== a && b.dmg < 6, 'tensar poco no daña menos');
+      await until(() => b.stuck, 8000, 'la flecha corta'); const near = Math.hypot(b.x - x0, b.y - P.y); check(near < far, `poco tensa llega a ${near} y tensa a ${far}`);
+      // Se recoge con solo pasar por encima
+      const n = I.count('flecha'); P.x = a.x + 2; P.y = a.y; await frames(2); check(A.list.includes(a), 'se recoge de lejos');
+      P.x = a.x + 0.3; await frames(30); check(!A.list.includes(a) && I.count('flecha') === n + 1, 'no se recoge al pisarla');
+      // A un animal: le daña y se pierde; un muro la para
+      await goTo(game, 62, 50); P.face = { x: 1, y: 0 };
+      const R = game.ranch, cow = R.summon('vaca', P.x + 4, P.y); cow.wait = 9999;
+      const before = I.count('flecha'), left = A.list.length; await shoot(1.2); const c = A.list.at(-1);
+      c.h = game.view3d.groundY(game.world, c.x, c.y) + 0.7; c.vh = 0;
+      await until(() => !A.list.includes(c) || c.stuck, 6000, 'que dé');
+      check(!A.list.includes(c) && cow.hp === 12 - 6 && I.count('flecha') === before - 1, `a la vaca: vida ${cow.hp}`);
+      R.remove(cow); R.gone.delete(cow.id);
+      // Sin flechas, no; y tensar y cambiar de objeto cancela
+      I.remove('flecha', I.count('flecha')); keys.use = true; game.gather.cooldown = 0; game.gather.use(); check(A.drawT === null, 'tensa sin flechas'); keys.use = false;
+      I.add('flecha', 1); keys.use = true; game.gather.cooldown = 0; game.gather.use(); await frames(3); I.select(I.slots.findIndex(s => s?.id === 'arco') + 1); await frames(2); check(A.drawT === null, 'sigue tensando sin el arco'); keys.use = false;
+      draw(); check(!!game.view3d.arrows.group.children.length, 'no se dibujan');
+      check(RECIPES.some(r => r.out === 'arco') && RECIPES.some(r => r.out === 'flecha'), 'sin receta');
+      check(itemIcon('arco') && itemIcon('flecha'), 'sin icono');
+    } finally { keys.use = false; A.drawT = null; I.slots.splice(0, I.slots.length, ...kept); I.select(sel); game.mouse = was; }
+  });
   await test('ropa: lo que cuelga de la cintura se abre cuando suben las piernas', async () => {
     for (const wear of [{ torso: { id: 'tunica_larga', color: '#222222' } }, { torso: { id: 'camisa', color: '#ffffff' }, piernas: { id: 'falda', color: '#b84a8a' } }, { torso: { id: 'camisa', color: '#ffffff' }, encima: { id: 'delantal', color: '#efe6d4' } }]) {
       const P = new Person3D({ ...LOOK, wear }, '').clone(); check(P.skirt?.children.length, `sin falda: ${JSON.stringify(wear)}`);
@@ -826,6 +870,19 @@ async function hostTests(game) {
     l.chat('SILLA-VISTA');
   });
   const guest = () => l.others.find(o => o.playing);
+  await test('dos: el invitado ve la flecha y la recoge', async () => {
+    const A = game.archery, I = game.inv, X = 62, Y = 56;
+    await goTo(game, X, Y); game.mouse = null;
+    I.add('arco', 1); I.add('flecha', 2); const was = I.selected; I.slots.splice(0, 0); const at = I.slots.findIndex(s => s?.id === 'arco');
+    const a = A.add({ id: 'prueba-1', x: X + 1, h: game.view3d.groundY(game.world, X + 1, Y) + 1, y: Y, vx: 4, vh: 1, vy: 0, dmg: 3, mine: true, free: false, scene: game.world });
+    l.net.send({ t: 'arrow', id: a.id, x: a.x, h: a.h, y: a.y, vx: a.vx, vh: a.vh, vy: a.vy, free: 0 });
+    await until(() => a.stuck, 8000, 'que se clave');
+    l.chat(`FLECHA ${a.x} ${a.y}`);
+    await until(() => !A.list.includes(a), 70000, 'que la recoja el invitado');
+    I.remove('arco', 1); I.remove('flecha', 2); I.select(was); check(at >= -1, '');
+    l.chat('FLECHA-VISTA');
+    await frames(30);
+  });
   await test('dos: el ciervo es el mismo para los dos', async () => {
     const W = game.wildlife, X = 62, Y = 52;
     await goTo(game, X, Y - 12);
@@ -944,6 +1001,17 @@ async function guestTests(game) {
     await until(() => heard('SILLA-VISTA'), 150000, `el aviso del anfitrión (${how()})`);
   });
   const nums = (word) => { const t = heard(word); return t.slice(t.indexOf(word) + word.length).trim().split(' ').map(Number); };
+  await test('dos: ve volar la flecha del otro y la recoge al pisarla', async () => {
+    const A = game.archery, I = game.inv;
+    const a = await until(() => A.list.find(x => x.id === 'prueba-1'), 70000, 'ver la flecha');
+    check(!a.mine, 'la toma por suya');
+    const t = await until(() => heard('FLECHA '), 70000, 'el aviso'), [x, y] = t.slice(t.indexOf('FLECHA ') + 7).trim().split(' ').map(Number);
+    await until(() => a.stuck, 8000, 'que se clave aquí');
+    const n = I.count('flecha'); await goTo(game, a.x + 0.3, a.y);
+    await until(() => !A.list.includes(a), 8000, 'recogerla');
+    check(I.count('flecha') === n + 1, 'no vuelve a la mochila'); check(Math.hypot(x - a.x, y - a.y) < 6, 'se clava en otro sitio');
+    await until(() => heard('FLECHA-VISTA'), 70000, 'a que el otro lo vea');
+  });
   await test('dos: ve el mismo ciervo, lo caza y se lleva lo suyo', async () => {
     const W = game.wildlife, H = game.hunt, inv = game.inv;
     const t = await until(() => heard('CIERVO '), 70000, 'el ciervo'), [id, x, y] = t.slice(t.indexOf('CIERVO ') + 7).trim().split(' ');
