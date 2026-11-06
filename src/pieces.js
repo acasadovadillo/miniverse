@@ -21,6 +21,7 @@ export const PIECES = {
   tejado_verde: { name: 'Tejado verde', cat: 'Tejados', layer: 'roof', cost: [['tablas', 1], ['piedra', 1]] },
   // (la valla de madera es también un objeto, que se fabrica en el banco; palette: además sigue en la paleta de construir)
   valla: { name: 'Valla de madera', cat: 'Vallas', layer: 'placed', kind: 'fence', cost: [['tablas', 1]], palette: true },
+  puerta_valla: { name: 'Puerta de valla', cat: 'Vallas', layer: 'placed', kind: 'gate', cost: [['tablas', 3]], palette: true },
   valla_piedra: { name: 'Murete de piedra', cat: 'Vallas', layer: 'placed', kind: 'fence', cost: [['piedra', 2]] },
   // El hogar da luz y calor; si hay tejado encima, el tejado dibuja su chimenea. Es también un objeto (se fabrica
   // en el banco, se coloca girándolo y se recoge con X), así que no sale en la paleta de construir

@@ -51,7 +51,7 @@ export class Actors {
     const list = [...(scene.entities || [])];
     if (game.player && game.scene === scene) for (const s of game.systems) { const more = s.entities?.(scene); if (more) list.push(...more); }
     if (p) list.push(p);
-    this.around = list; this.me = p;   // (para mirar a quien se tiene al lado)
+    this.around = list; this.me = p; this.game = game;   // (para mirar a quien se tiene al lado)
     for (const e of list) {
       if (!e || seen.has(e)) continue;
       seen.add(e);
@@ -75,7 +75,7 @@ export class Actors {
   lookAt(m, e, dt, lying) {
     const P = m.person;
     let want = 0;
-    if (m.speed < 0.6 && !e.mount && !e.boat) {
+    if (m.speed < 0.6 && !e.mount && !e.boat && !e.aboard) {
       let best = null, bd = LOOK_R;
       for (const o of this.around || []) {
         if (o === e || !(o === this.me || o.look)) continue;
@@ -161,7 +161,8 @@ export class Actors {
       if (m.boat) {
         // Barca y caballo
         m.boat.visible = !!e.boat; m.horse.visible = !!e.mount;
-        if (e.boat) {
+        if (e.aboard) { y = WATER_Y - 0.12 + Math.sin(t * 2.5) * 0.04; P.root.position.y = 0.3; }   // (de pasajero: la barca es la del que rema)
+        else if (e.boat) {
           y = WATER_Y - 0.12 + Math.sin(t * 2.5) * 0.04; m.boat.rotation.y = P.root.rotation.y; m.boat.rotation.z = Math.sin(t * 1.7) * 0.03; P.root.position.y = 0.3;
           const row = Math.min(1, m.speed / 1.5);
           for (const o of m.boat.userData.oars) { const a = t * 5, sd = o.userData.side; o.rotation.y = sd * Math.sin(a) * 0.5 * row; o.rotation.z = sd * (Math.PI / 2 - OAR_DIP + Math.cos(a) * 0.15 * row); }   // (los dos a la vez; al volver, la pala sale del agua)
@@ -169,7 +170,7 @@ export class Actors {
         else if (e.mount) { m.horse.rotation.y = P.root.rotation.y; animateHorse(m.horse, m.speed, t); P.root.position.y = 0.92; }
         else P.root.position.y = 0;
       }
-      P.update(dt, e.mount || e.boat ? 0 : m.speed);
+      P.update(dt, e.mount || e.boat || e.aboard ? 0 : m.speed);
       if (e.z > 0) {   // en el aire: un poco más arriba y con las piernas recogidas
         y += e.z;
         if (!e.mount) { const k = Math.min(1, e.z / 0.25); P.legs[0].rotation.x = -0.7 * k; P.legs[1].rotation.x = 0.35 * k; }
@@ -178,7 +179,7 @@ export class Actors {
       if (game) this.hold(m, { held: game.inv.held?.id || null, swing: game.gather.swing, swingItem: game.gather.swingItem, cooldown: game.gather.cooldown, fishPose: game.fishing?.pose(t) }, dt);
       else if (e.remote) this.hold(m, e, dt);
       // Agachado (Shift): las rodillas dobladas, el cuerpo más bajo y un poco echado hacia delante; andando, a pasitos
-      P.crouch = (P.crouch || 0) + ((e.crouch && !pz && !e.mount && !e.boat ? 1 : 0) - (P.crouch || 0)) * Math.min(1, dt * 12);
+      P.crouch = (P.crouch || 0) + ((e.crouch && !pz && !e.mount && !e.boat && !e.aboard ? 1 : 0) - (P.crouch || 0)) * Math.min(1, dt * 12);
       if (P.crouch > 0.01) {
         const c = P.crouch;
         for (const l of P.legs) l.rotation.x = l.rotation.x * (1 - c * 0.5) - CROUCH.hip * c;
@@ -193,9 +194,13 @@ export class Actors {
         if (pz.kind === 'floorSit') { for (const a of P.arms) a.rotation.x = 0.45; P.torso.rotation.x = -0.12; }
         else for (const a of P.arms) a.rotation.x = -0.35;
       }
-      if (e.mount || e.boat) { P.legs[0].rotation.x = P.legs[1].rotation.x = e.mount ? -1.1 : -1.4; P.legs[0].rotation.z = 0.5; P.legs[1].rotation.z = -0.5; for (const k of P.shins || []) k.rotation.x = e.mount ? 1.0 : 1.3; }
+      if (e.mount || e.boat || e.aboard) { P.legs[0].rotation.x = P.legs[1].rotation.x = e.mount ? -1.1 : -1.4; P.legs[0].rotation.z = 0.5; P.legs[1].rotation.z = -0.5; for (const k of P.shins || []) k.rotation.x = e.mount ? 1.0 : 1.3; }
       else P.legs[0].rotation.z = P.legs[1].rotation.z = 0;
       this.lookAt(m, e, dt, lying);
+      if (m.hand) {   // (los jugadores: la barriga, si espera un bebé)
+        const made = P.setBelly(this.game.family.bellyOf(e));
+        if (made && m === this.player) { made.material = made.material.clone(); m.mats.push(made.material); m.body.push(made.material); made.layers.set(2); }
+      }
     } else if (m.kind === 'animal') {
       if (yaw !== null) turnTo(m.root, yaw, dt);
       m.root.scale.setScalar(e.young ? 0.55 : 1);
@@ -353,7 +358,7 @@ function animateMonster(m, e, dt, t) {
 // ---------- caballo y barca ----------
 const OAR_DIP = 0.4;   // lo que bajan los remos hacia el agua desde el horizontal (rad): la pala queda dentro
 function boatModel() {
-  // Barca de remos: casco con la proa en punta (mirando a +z), borda, fondo, banco y dos remos
+  // Barca de remos: casco con la proa en punta (mirando a +z), borda, fondo, dos bancos y dos remos
   const root = new THREE.Group(), wood = mat({ color: '#8a5a34', roughness: 0.8 }), dark = mat({ color: '#5e3b22', roughness: 0.8 }), inside = mat({ color: '#6a4428', roughness: 0.9 });
   const outline = (k) => { const s = new THREE.Shape(); s.moveTo(-0.55 * k, -0.95 * k); s.lineTo(0.55 * k, -0.95 * k); s.quadraticCurveTo(0.62 * k, 0.4 * k, 0, 1.15 * k); s.quadraticCurveTo(-0.62 * k, 0.4 * k, -0.55 * k, -0.95 * k); return s; };
   const hullGeo = new THREE.ExtrudeGeometry(outline(1), { depth: 0.42, bevelEnabled: true, bevelThickness: 0.04, bevelSize: 0.04, bevelSegments: 2, curveSegments: 10 });
@@ -363,6 +368,7 @@ function boatModel() {
   const floor = new THREE.Mesh(floorGeo, inside); floor.position.y = 0.335; root.add(floor);
   const rim = new THREE.Mesh(new THREE.TorusGeometry(0.6, 0.035, 4, 24), dark); rim.scale.set(0.95, 1.75, 1); rim.rotation.x = Math.PI / 2; rim.position.set(0, 0.36, 0.08); root.add(rim);
   const bench = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.05, 0.22), dark); bench.position.set(0, 0.45, -0.1); root.add(bench);
+  const stern = bench.clone(); stern.position.z = -0.75; root.add(stern);   // (el del pasajero)
   for (const s of [-1, 1]) {
     const oar = new THREE.Group(), stick = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.022, 1.5, 6), wood), blade = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.4, 0.14), wood);
     stick.position.y = -0.75; blade.position.y = -1.45; oar.add(stick, blade);

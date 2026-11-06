@@ -175,6 +175,7 @@ export class Farm {
     d.crops ||= {};
     d.crops[key(tx, ty)] = { id, grow: 0, day: this.today };
     g.inv.remove('semilla_' + id, 1);
+    g.stats?.add('sembrados', 1);
     g.gather.cooldown = 0.25;
     this.world.touchAround(tx, ty);
     Audio.till();

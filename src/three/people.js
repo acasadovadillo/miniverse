@@ -206,6 +206,7 @@ export class Person3D {
     this.phase = Math.random() * 6; this.speed = 0; this.targetYaw = 0;
     const L = fullLook(look), W = look.wear || clothesFor(L), skin = M(L.skin), hair = M(L.hair, { roughness: 0.6 });
     const shirt = cloth(W.torso), under = cloth(W.interiorArriba);
+    this.bellyMat = (W.encima?.id === 'delantal' && cloth(W.encima)) || shirt || under || skin;   // (la barriga va del color de lo que la cubre)
     const pants = W.piernas?.id === 'pantalon' || W.piernas?.id?.startsWith('grebas_') ? cloth(W.piernas) : null;   // (las grebas, como un pantalón de metal)
     // Con la túnica larga las piernas se mueven menos (si no, asomarían por la falda)
     this.legSwing = W.torso?.id === 'tunica_larga' ? 0.5 : 1;
@@ -598,8 +599,24 @@ export class Person3D {
   // Otra persona igual (comparte geometrías y materiales: hacer una desde cero cuesta)
   clone() {
     const c = Object.create(Person3D.prototype), root = this.root.clone(true), by = n => root.getObjectByName(n);
-    Object.assign(c, { look: this.look, name: this.name, root, body: by('body'), torso: by('torso'), head: by('head'), faceMesh: by('face'), faceOpen: this.faceOpen, legs: [by('legL'), by('legR')], arms: [by('armL'), by('armR')], shins: [by('shinL'), by('shinR')], fore: [by('foreL'), by('foreR')], legSwing: this.legSwing, phase: Math.random() * 6, speed: 0, targetYaw: 0, blink: 1 + Math.random() * 3 });
+    Object.assign(c, { bellyMat: this.bellyMat, look: this.look, name: this.name, root, body: by('body'), torso: by('torso'), head: by('head'), faceMesh: by('face'), faceOpen: this.faceOpen, legs: [by('legL'), by('legR')], arms: [by('armL'), by('armR')], shins: [by('shinL'), by('shinR')], fore: [by('foreL'), by('foreR')], legSwing: this.legSwing, phase: Math.random() * 6, speed: 0, targetYaw: 0, blink: 1 + Math.random() * 3 });
     return c;
+  }
+  // La barriga del embarazo (k: de 0 a 1), delante del tronco. Devuelve la malla la primera vez que se crea
+  setBelly(k) {
+    let made = null;
+    if (k > 0 && !this.bellyMesh) {
+      made = this.bellyMesh = new THREE.Mesh(G.ball, this.bellyMat);
+      made.castShadow = true;
+      this.torso.add(made);
+    }
+    if (this.bellyMesh) {
+      this.bellyMesh.visible = k > 0;
+      const d = 0.07 + 0.14 * k;   // (lo que sobresale crece más que lo que ensancha)
+      this.bellyMesh.position.set(0, 0.135 - 0.02 * k, 0.05 + 0.03 * k);
+      this.bellyMesh.scale.set(0.135 + 0.03 * k, 0.12 + 0.035 * k, d);
+    }
+    return made;
   }
   // Animación: speed en m/s (0 = quieto)
   update(dt, speed) {

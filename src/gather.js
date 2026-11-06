@@ -84,7 +84,7 @@ export class Gathering {
       // al otro)
       let rot = this.rot % (def.place === 'rug' ? RUG_SIZES.length : held.id === 'mesa_grande' ? TABLE_SIZES.length : 4);
       if (def.place === 'wall' || held.id === 'chimenea') rot = [0, 1, 2, 3].map(i => (rot + i) % 4).find(r => g.scene.canPlace?.(tx, ty, held.id, p, r)) ?? this.rot;
-      const fence = PIECES[held.id]?.kind === 'fence';   // (la valla no se gira: se une a sus vecinas; y va fuera, como en el modo construir)
+      const fence = ['fence', 'gate'].includes(PIECES[held.id]?.kind);   // (la valla y su puerta no se giran: se unen a sus vecinas; y van fuera, como en el modo construir)
       if (fence) rot = 0;
       return { tile: [tx, ty], ok: !far && (!fence || g.scene === g.world) && !!g.scene.canPlace?.(tx, ty, held.id, p, rot), far, place: held.id, rot };
     }
@@ -117,7 +117,7 @@ export class Gathering {
       const loose = g.player.crouch && held.id === 'encimera' ? ', suelta (agachado no se une)' : '';
       return t.ok ? `Colocar ${def.name.toLowerCase()}${size}${loose} (${keys})` : t.far ? 'Demasiado lejos' : `${t.why || 'Ahí no cabe'} (${keys})`;
     }
-    if (def?.place) return t?.ok ? `Colocar ${def.name.toLowerCase()}${PIECES[held.id]?.kind === 'fence' ? '' : ' (R: girar)'}` : t?.far ? 'Demasiado lejos' : '';
+    if (def?.place) return t?.ok ? `Colocar ${def.name.toLowerCase()}${['fence', 'gate'].includes(PIECES[held.id]?.kind) ? '' : ' (R: girar)'}` : t?.far ? 'Demasiado lejos' : '';
     if (t?.label !== undefined) return t.label;
     if (def?.tool === 'azada') return t?.ok ? 'Labrar' : '';
     if (!t?.obj) return '';
@@ -236,7 +236,7 @@ export class Gathering {
     if (def?.place) return this.place(held.id, auto);
     if (this.target?.use) {   // lo que propone otro sistema (sembrar, pescar…)
       if (auto && !this.target.auto) return;
-      if (def?.tool && !this.target.still) { this.swing = 0.25; this.swingItem = held.id; }   // también se ve el gesto (regar, lanzar la caña…)
+      if (def?.tool) { this.swing = 0.25; this.swingItem = held.id; }   // también se ve el gesto (regar, lanzar la caña…)
       return this.target.use();
     }
     if (auto && !(this.target?.obj || this.target?.ok)) return;
@@ -249,6 +249,7 @@ export class Gathering {
     if (tool === 'azada') {
       if (!t?.ok || !this.spend('azada')) { if (!t?.ok) Audio.swish(); return; }
       g.world.till(...t.tile);
+      g.stats?.add('labrados', 1);
       this.chips(t.tile[0] + 0.5, t.tile[1] + 0.5, 'dirt', 10);
       Audio.till();
       return;

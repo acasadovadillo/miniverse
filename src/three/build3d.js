@@ -226,7 +226,7 @@ function beamGeo(B, p0, p1, b, n, w, d) {
 // El hueco con su marco y el trozo de muro de encima (del muro de al lado), y la hoja, que se devuelve aparte
 // para animarla: { tile, hinge (posición), X, outSign (hacia fuera), swing (hacia dónde se abre), side }
 export function doorTile(scene, tx, ty, emit, extras) {
-  const solid = (x, y) => { const p = scene.pieceAt(x, y); return p && p.kind !== 'fence'; };
+  const solid = (x, y) => { const p = scene.pieceAt(x, y); return p && p.kind !== 'fence' && p.kind !== 'gate'; };
   const X = solid(tx - 1, ty) || solid(tx + 1, ty) || !(solid(tx, ty - 1) || solid(tx, ty + 1));
   const sideIds = X ? [scene.at('placed', tx - 1, ty), scene.at('placed', tx + 1, ty)] : [scene.at('placed', tx, ty - 1), scene.at('placed', tx, ty + 1)];
   const next = sideIds.map(v => v && parsePlaced(v)[0]).find(n => PIECES[n]?.kind === 'wall') || 'muro_madera';
@@ -267,8 +267,30 @@ export function doorLeaf(d, mats) {
 }
 
 // ---------- vallas ----------
+// La puerta de una valla: dos postes en la línea de las vecinas y lo que necesita la hoja para animarla (la dibuja gateLeaf)
+export function gateTile(scene, tx, ty, emit) {
+  const f = (x, y) => ['fence', 'gate', 'wall'].includes(scene.pieceAt(x, y)?.kind);
+  const X = f(tx - 1, ty) || f(tx + 1, ty) || !(f(tx, ty - 1) || f(tx, ty + 1)), cx = tx + 0.5, cz = ty + 0.5, B = emit('fence', 'free');
+  for (const s of [-0.5, 0.5]) {
+    const px = X ? cx + s : cx, pz = X ? cz : cz + s;
+    B.box(px - 0.07, 0, pz - 0.07, px + 0.07, 1.02, pz + 0.07, { s: 0.5 });
+    B.box(px - 0.09, 1.02, pz - 0.09, px + 0.09, 1.07, pz + 0.09, { s: 0.5 });
+  }
+  return { tile: [tx, ty], X, gate: true, swing: 1, hinge: X ? [tx + 0.05, 0, cz] : [cx, 0, ty + 0.05], width: 0.9 };
+}
+// La hoja: tres barras entre dos largueros, de lado a lado. Gira sobre la bisagra: a = 0 cerrada, 1 abierta
+export function gateLeaf(d, mats) {
+  const w = d.width, B = new Builder(), g = new THREE.Group();
+  for (const y of [0.26, 0.5, 0.74]) B.box(0, y, -0.035, w, y + 0.09, 0.035, { s: 0.5 });
+  for (const x of [0.02, w - 0.09]) B.box(x, 0.18, -0.045, x + 0.07, 0.92, 0.045, { s: 0.5 });
+  g.position.set(...d.hinge);
+  g.add(B.mesh(mats.fence));
+  const along = d.X ? [1, 0] : [0, 1], out = d.X ? [0, d.swing] : [d.swing, 0], beta = 1.75;
+  g.userData.setAngle = a => { const b = beta * a, dx = along[0] * Math.cos(b) + out[0] * Math.sin(b), dz = along[1] * Math.cos(b) + out[1] * Math.sin(b); g.rotation.y = Math.atan2(-dz, dx); };
+  return g;
+}
 export function fenceTile(scene, tx, ty, id, emit) {
-  const f = (x, y) => { const k = scene.pieceAt(x, y)?.kind; return k === 'fence' || k === 'wall'; };
+  const f = (x, y) => ['fence', 'gate', 'wall'].includes(scene.pieceAt(x, y)?.kind);
   const cx = tx + 0.5, cz = ty + 0.5, arms = [[f(tx + 1, ty), 1, 0], [f(tx - 1, ty), -1, 0], [f(tx, ty + 1), 0, 1], [f(tx, ty - 1), 0, -1]].filter(a => a[0]);
   const seg = (dx, dz, fn) => { const x0 = Math.min(cx, cx + dx * 0.5), x1 = Math.max(cx, cx + dx * 0.5), z0 = Math.min(cz, cz + dz * 0.5), z1 = Math.max(cz, cz + dz * 0.5); fn(x0, x1, z0, z1); };
   if (id === 'valla_piedra') {

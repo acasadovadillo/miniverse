@@ -281,6 +281,11 @@ const BUILD = {
     m.box('wood', -0.055, 0, -0.055, 0.055, 0.92, 0.055).box('dark', -0.07, 0.92, -0.07, 0.07, 0.96, 0.07);
     for (const y of [0.36, 0.72]) m.box('wood', -0.5, y, 0.055, 0.5, y + 0.1, 0.09).box('wood', -0.5, y, -0.09, 0.5, y + 0.1, -0.055);
   },
+  puerta_valla(m) {   // (para su icono, su vista previa y tirada en el suelo; puesta en el mundo, build3d)
+    for (const x of [-0.5, 0.5]) m.box('wood', x - 0.07, 0, -0.07, x + 0.07, 1.02, 0.07).box('dark', x - 0.09, 1.02, -0.09, x + 0.09, 1.07, 0.09);
+    for (const y of [0.26, 0.5, 0.74]) m.box('wood', -0.43, y, -0.035, 0.43, y + 0.09, 0.035);
+    for (const x of [-0.41, 0.34]) m.box('wood', x, 0.18, -0.045, x + 0.07, 0.92, 0.045);
+  },
   silla(m) {
     m.box('wood', -0.22, 0.42, -0.22, 0.22, 0.47, 0.22);
     for (const [a, b] of [[-0.21, -0.21], [0.16, -0.21], [-0.21, 0.16], [0.16, 0.16]]) m.box('dark', a, 0, b, a + 0.05, 0.42, b + 0.05);
@@ -386,21 +391,52 @@ const BUILD = {
     m.cyl('copper', 0, 0, 0, 0.12, 0.1, 0.06, 10).cyl('copper', 0, 0.06, 0, 0.025, 0.025, 0.3, 6).box('copper', -0.16, 0.34, -0.02, 0.16, 0.38, 0.02).box('copper', -0.02, 0.34, -0.16, 0.02, 0.38, 0.16);
     for (const [x, z] of [[0.16, 0], [-0.16, 0], [0, 0.16], [0, -0.16]]) m.ball('steel', x, 0.36, z, 0.03);
   },
-  gallinero(m) {
-    m.box('wood', -0.45, 0.25, -0.4, 0.45, 0.95, 0.4).box('dark', -0.48, 0, -0.43, -0.4, 0.95, -0.35).box('dark', 0.4, 0, -0.43, 0.48, 0.95, -0.35).box('dark', -0.48, 0, 0.35, -0.4, 0.95, 0.43).box('dark', 0.4, 0, 0.35, 0.48, 0.95, 0.43);
-    roofPrism(m, 'red', -0.55, 0.55, -0.5, 0.5, 0.95, 0.4);
-    m.box('soot', -0.12, 0.3, 0.4, 0.12, 0.6, 0.41).box('plank', -0.1, 0, 0.4, 0.1, 0.03, 0.85);   // puerta y rampa
-    for (let i = 0; i < 4; i++) m.box('dark', -0.1, 0.03 + 0.0, 0.48 + i * 0.1, 0.1, 0.05, 0.5 + i * 0.1);
-    m.box('straw', -0.4, 0.25, -0.35, 0.4, 0.3, 0.35);
+  // Las casas con puerta se dibujan abiertas o cerradas ('shut'). Lo que asoma por delante (las hojas de la puerta, la
+  // rampa) no choca: se pasa por ahí
+  gallinero(m, shut) {
+    const W = 1.2, D = 1, F = 0.36, H = 1.42, soft = (key, ...b) => m.B(key).box(...b, { s: 0.5 });
+    for (const x of [-W, W - 0.1]) for (const z of [-D, D - 0.1]) m.box('dark', x, 0, z, x + 0.1, H, z + 0.1);   // las patas y las esquinas
+    m.box('wood', -W + 0.03, F, -D + 0.03, W - 0.03, H, D - 0.03);
+    soft('dark', -W, F - 0.05, D - 0.02, W, F + 0.04, D + 0.01); soft('dark', -W, H - 0.08, D - 0.02, W, H, D + 0.01);
+    roofPrism(m, 'red', -W - 0.16, W + 0.16, -D - 0.2, D + 0.2, H, 0.72);
+    soft('straw', -W + 0.1, 0, -D + 0.1, W - 0.1, 0.05, D - 0.1);   // (paja debajo)
+    // La puerta, con su marco, y la rampa con sus listones hasta el suelo
+    soft('dark', -0.33, F, D - 0.02, 0.33, F + 0.72, D + 0.015);
+    soft('soot', -0.27, F + 0.04, D, 0.27, F + 0.66, D + 0.025);
+    if (shut) soft('wood', -0.26, F + 0.05, D + 0.01, 0.26, F + 0.65, D + 0.045), soft('dark', -0.26, F + 0.32, D + 0.04, 0.26, F + 0.38, D + 0.06), soft('iron', 0.14, F + 0.32, D + 0.05, 0.2, F + 0.38, D + 0.075);
+    else soft('wood', 0.27, F + 0.05, D + 0.01, 0.31, F + 0.65, D + 0.52);
+    for (let i = 0; i < 4; i++) soft('plank', -0.26, F - 0.08 - i * 0.09, D + i * 0.22, 0.26, F - 0.04 - i * 0.09, D + 0.24 + i * 0.22);
+    // Un ventanuco a cada lado de la puerta y un nido por fuera
+    for (const x of [-0.8, 0.8]) { soft('dark', x - 0.2, 0.82, D - 0.02, x + 0.2, 1.2, D + 0.012); soft('soot', x - 0.15, 0.87, D, x + 0.15, 1.15, D + 0.02); soft('iron', x - 0.012, 0.87, D, x + 0.012, 1.15, D + 0.03); soft('iron', x - 0.15, 1, D, x + 0.15, 1.02, D + 0.03); }
+    m.box('wood', W - 0.04, 0.5, -0.5, W + 0.34, 0.92, 0.5);
+    soft('straw', W + 0.02, 0.92, -0.46, W + 0.3, 0.95, 0.46);
+    soft('red', W - 0.04, 0.98, -0.56, W + 0.42, 1.04, 0.56);
   },
-  establo(m) {
-    m.box('red', -0.48, 0, -0.45, 0.48, 1.1, 0.45, 0.5);
-    for (const x of [-0.5, 0.42]) for (const z of [-0.47, 0.39]) m.box('white', x, 0, z, x + 0.08, 1.1, z + 0.08);
-    roofPrism(m, 'dark', -0.6, 0.6, -0.55, 0.55, 1.1, 0.5);
-    m.box('dark', -0.26, 0, 0.45, 0.26, 0.85, 0.47);
-    m.box('white', -0.26, 0.0, 0.47, 0.26, 0.05, 0.49).box('white', -0.26, 0.8, 0.47, 0.26, 0.85, 0.49);
-    m.box('white', -0.03, 0.05, 0.47, 0.03, 0.8, 0.49);
-    m.box('hay', -0.42, 1.1, -0.3, -0.1, 1.25, 0.1);
+  establo(m, shut) {
+    const W = 2, D = 1.5, H = 1.95, DW = 0.85, DH = 1.55, soft = (key, ...b) => m.B(key).box(...b, { s: 0.5 });
+    // Las paredes dejan el hueco de la puerta: abierta, se ve la paja, los cercados y el heno de dentro
+    m.box('red', -W, 0, -D, W, H, -D + 0.1).box('red', -W, 0, -D, -W + 0.1, H, D).box('red', W - 0.1, 0, -D, W, H, D);
+    m.box('red', -W, 0, D - 0.1, -DW, H, D).box('red', DW, 0, D - 0.1, W, H, D).box('red', -DW, DH, D - 0.1, DW, H, D);
+    soft('dark', -W + 0.05, H - 0.04, -D + 0.05, W - 0.05, H, D - 0.05);   // (el techo, por dentro)
+    soft('straw', -W + 0.1, 0, -D + 0.1, W - 0.1, 0.04, D - 0.1);
+    for (const x of [-1.05, 1.05]) soft('white', x - 0.04, 0.05, -D + 0.1, x + 0.04, 0.72, -0.25);   // los cercados
+    soft('hay', -W + 0.14, 0.04, -D + 0.14, -1.15, 0.62, -0.5); soft('hay', 1.15, 0.04, -D + 0.14, W - 0.14, 0.42, -0.5);
+    // Las esquinas y las vigas, en blanco
+    for (const x of [-W - 0.03, W - 0.07]) for (const z of [-D - 0.03, D - 0.07]) m.box('white', x, 0, z, x + 0.1, H, z + 0.1);
+    soft('white', -W, H - 0.1, D, W, H, D + 0.02); soft('white', -W - 0.02, H - 0.1, -D, -W, H, D); soft('white', W, H - 0.1, -D, W + 0.02, H, D);
+    roofPrism(m, 'dark', -W - 0.2, W + 0.2, -D - 0.25, D + 0.25, H, 1.1);
+    // El marco de la puerta y sus dos hojas: juntas si está cerrada; abiertas hacia los lados si no
+    soft('white', -DW - 0.08, 0, D, -DW, DH + 0.08, D + 0.03); soft('white', DW, 0, D, DW + 0.08, DH + 0.08, D + 0.03); soft('white', -DW - 0.08, DH, D, DW + 0.08, DH + 0.08, D + 0.03);
+    const leaf = (x0, x1, z0, z1) => {
+      soft('dark', x0, 0.02, z0, x1, DH - 0.02, z1);
+      const out = [[0.02, 0.12], [DH / 2 - 0.05, DH / 2 + 0.05], [DH - 0.12, DH - 0.02]];
+      for (const [y0, y1] of out) soft('white', x0 - 0.005, y0, z0 - 0.005, x1 + 0.005, y1, z1 + 0.005);
+    };
+    if (shut) { leaf(-DW, -0.01, D, D + 0.05); leaf(0.01, DW, D, D + 0.05); }
+    else { leaf(-DW - 0.05, -DW, D, D + DW); leaf(DW, DW + 0.05, D, D + DW); }
+    // Las ventanas de los lados y una bala de heno a la puerta
+    for (const x of [-1.42, 1.42]) { soft('white', x - 0.3, 0.9, D, x + 0.3, 1.42, D + 0.015); soft('soot', x - 0.24, 0.96, D + 0.01, x + 0.24, 1.36, D + 0.02); soft('white', x - 0.02, 0.96, D + 0.01, x + 0.02, 1.36, D + 0.03); }
+    soft('hay', 1.05, 0, D + 0.02, 1.75, 0.48, D + 0.5);
   },
   colmena(m) {
     for (const [x, z] of [[-0.25, -0.2], [0.21, -0.2], [-0.25, 0.16], [0.21, 0.16]]) m.box('dark', x, 0, z, x + 0.04, 0.3, z + 0.04);
@@ -473,13 +509,6 @@ const BUILD = {
     for (const [x, z] of [[-0.24, 0], [0.24, 0], [0, 0.24]]) { m.cyl('glass', x, 0.3, z, 0.07, 0.05, 0.2, 10).cyl('wood', x, 0.5, z, 0.025, 0.025, 0.05, 6); }
     m.ball('red', -0.24, 0.36, 0, 0.055, 0.05, 0.055).ball('quiltB', 0.24, 0.36, 0, 0.055, 0.05, 0.055).ball('lamp', 0, 0.36, 0.24, 0.055, 0.05, 0.055);
     m.light(0, 0.35, 0, { color: '#ff9a4a', intensity: 0.6, range: 2 });
-  },
-  // Mesa de encantar: bloque oscuro con esquinas de amatista y un libro abierto encima
-  mesa_encantar(m) {
-    m.box('dark', -0.42, 0, -0.42, 0.42, 0.62, 0.42).box('red', -0.44, 0.58, -0.44, 0.44, 0.66, 0.44);
-    for (const [x, z] of [[-0.44, -0.44], [0.36, -0.44], [-0.44, 0.36], [0.36, 0.36]]) m.box('amethyst', x, 0.1, z, x + 0.08, 0.5, z + 0.08);
-    m.box('wood', -0.18, 0.66, -0.12, 0.18, 0.7, 0.12).box('white', -0.17, 0.7, -0.11, -0.01, 0.73, 0.11).box('white', 0.01, 0.7, -0.11, 0.17, 0.73, 0.11);
-    m.light(0, 0.9, 0, { color: '#c890ff', intensity: 0.7, range: 2.5 });
   },
   quesera(m) {
     for (const x of [-0.36, 0.3]) m.box('dark', x, 0, -0.2, x + 0.06, 1.05, -0.14).box('dark', x, 0, 0.14, x + 0.06, 1.05, 0.2);

@@ -41,13 +41,13 @@ const session = Math.random().toString(36).slice(2, 6);   // (para que los objet
 class RemotePlayer extends Person {
   constructor(peer) {
     super({ x: 0, y: 0, look: peer.look });
-    Object.assign(this, { remote: true, name: peer.name, z: 0, yaw: null, held: null, swing: 0, swingItem: null, cooldown: 0, to: null, fresh: true });
+    Object.assign(this, { remote: true, id: peer.id, name: peer.name, z: 0, yaw: null, held: null, swing: 0, swingItem: null, cooldown: 0, to: null, fresh: true });
   }
   apply(st) {
     this.to = [st.x, st.y, st.z || 0];
     if (this.fresh || Math.hypot(st.x - this.x, st.y - this.y) > SNAP) { [this.x, this.y, this.z] = this.to; this.fresh = false; }
     this.pose = st.po ? { kind: POSES[st.po[0]], yaw: st.po[1], h: st.po[2] } : null;   // (sentado o tumbado)
-    Object.assign(this, { yaw: st.yaw ?? null, inside: !!st.in, mount: !!st.m, horseCoat: st.hc || null, horseBags: !!st.hb, boat: !!st.b, crouch: !!st.cr, gm: st.gm || 0, held: st.h || null, swing: st.sw || 0, swingItem: st.si || null, cooldown: st.cd || 0 });
+    Object.assign(this, { yaw: st.yaw ?? null, inside: !!st.in, mount: !!st.m, horseCoat: st.hc || null, horseBags: !!st.hb, boat: !!st.b, aboard: st.pa || null, crouch: !!st.cr, gm: st.gm || 0, held: st.h || null, swing: st.sw || 0, swingItem: st.si || null, cooldown: st.cd || 0 });
   }
   update(dt) {
     if (!this.to) return;
@@ -320,19 +320,16 @@ export class Live {
       case 'time': if (fromHost) this.clockBase = { c: m.c, at: g.time, run: m.run, sh: m.sh, db: m.db }; break;
       case 'herd':
         if (!fromHost) break;
-        m.p.forEach((p, i) => { const a = g.ranch.animals[i]; if (a) a.netTo = p; });
+        m.p.forEach((p, i) => { const a = g.ranch.animals[i]; if (a) { a.netTo = p; a.inside = !!p[2]; } });
         if (m.k) g.family.place(m.k);
         break;
       // Alguien llama a una puerta: suena si estás cerca (y, si es la tuya, te avisa)
       case 'knock':
         if (this.joined && g.player && g.scene === g.world && Math.hypot(g.player.x - m.x, g.player.y - m.y) < 25) { Audio.knock(); if (Math.hypot(g.player.x - m.x, g.player.y - m.y) < 12) hud.toast(`${peer.name} llama a la puerta`); }
         break;
-      // Tener un bebé: te lo proponen (y contestas) o contestan a lo que propusiste
-      case 'baby?':
-        if (this.joined) g.family.asked(peer).then(ok => this.net?.send({ t: 'baby!', ok, look: g.player?.look }, conn));
-        break;
-      case 'baby!':
-        if (this.asking?.conn === conn) { clearTimeout(this.asking.timer); this.asking.resolve({ ok: !!m.ok, look: m.look }); this.asking = null; }
+      // Tener un bebé: quien está al otro lado de la cama ha pulsado su corazón
+      case 'love':
+        if (this.joined) g.family.heard(conn);
         break;
       // Un op te lleva a otro sitio (/tp), te da algo (/give), te mata (/kill), te pone dónde reaparecer
       // (/spawnpoint) o te cambia el modo de juego (/gamemode). Lo hace tu juego, si lo pide un op
@@ -540,13 +537,6 @@ export class Live {
     for (const [conn, peer] of this.peers) if (peer.playing && peer.sc === 'world' && peer.entity && near(peer.entity)) return { conn, peer };
     return null;
   }
-  // Proponerle algo (tener un bebé) y esperar su respuesta: { ok, look } o null si no contesta
-  propose(conn) {
-    return new Promise(resolve => {
-      this.asking = { conn, resolve, timer: setTimeout(() => { this.asking = null; resolve(null); }, 45000) };
-      this.net.send({ t: 'baby?' }, conn);
-    });
-  }
   // Un trozo del mundo ha cambiado (lo avisa el mundo)
   touched(k) { if (this.joined && !k.startsWith('u:')) this.pending.add(k); }
 
@@ -618,7 +608,7 @@ export class Live {
     }
     if (this.role === 'host') {
       if (T.time >= TIME_EVERY) { T.time = 0; this.net.send({ t: 'time', c: r2(g.world.clock), run: g.mode === 'play', sh: g.days.shift, db: g.days.dayBase }); }
-      if (T.herd >= HERD_EVERY && this.others.some(o => o.playing)) { T.herd = 0; this.net.send({ t: 'herd', p: g.ranch.animals.map(a => [r2(a.x), r2(a.y)]), k: g.family.positions() }); }
+      if (T.herd >= HERD_EVERY && this.others.some(o => o.playing)) { T.herd = 0; this.net.send({ t: 'herd', p: g.ranch.animals.map(a => [r2(a.x), r2(a.y), a.inside ? 1 : 0]), k: g.family.positions() }); }
     }
     if (Profile.server) return;   // (el mundo del servidor no tiene personaje que los demás vean)
     // (/setidletimeout: si llevas los minutos que diga sin moverte, se lo dices al servidor, que te echa)
@@ -636,7 +626,7 @@ export class Live {
     }
     this.sent += dt;
     const sc = g.scene === g.world ? 'world' : null;
-    const st = { t: 'st', sc, x: r2(p.x), y: r2(p.y), z: r2(p.z || 0), yaw: r2(g.view3d.actors.player?.person.facing ?? 0), in: p.inside ? 1 : 0, po: p.pose ? [POSES.indexOf(p.pose.kind), r2(p.pose.yaw), r2(p.pose.h)] : 0, m: p.mount ? 1 : 0, hc: p.mount ? p.horseCoat || null : null, hb: p.mount && p.horseBags ? 1 : 0, b: p.boat ? 1 : 0, cr: p.crouch ? 1 : 0, gm: g.gamemode === 'survival' ? 0 : g.gamemode === 'creative' ? 1 : 3, h: g.inv.held?.id || null, sw: this.swings, si: g.gather.swingItem || null, cd: r2(g.gather.cooldown || 0) };
+    const st = { t: 'st', sc, x: r2(p.x), y: r2(p.y), z: r2(p.z || 0), yaw: r2(g.view3d.actors.player?.person.facing ?? 0), in: p.inside ? 1 : 0, po: p.pose ? [POSES.indexOf(p.pose.kind), r2(p.pose.yaw), r2(p.pose.h)] : 0, m: p.mount ? 1 : 0, hc: p.mount ? p.horseCoat || null : null, hb: p.mount && p.horseBags ? 1 : 0, b: p.boat ? 1 : 0, pa: p.aboard || 0, cr: p.crouch ? 1 : 0, gm: g.gamemode === 'survival' ? 0 : g.gamemode === 'creative' ? 1 : 3, h: g.inv.held?.id || null, sw: this.swings, si: g.gather.swingItem || null, cd: r2(g.gather.cooldown || 0) };
     const key = JSON.stringify(st);
     if (this.sent < SEND_EVERY || (key === this.lastSent && this.sent < IDLE_EVERY)) return;
     this.sent = 0; this.lastSent = key;

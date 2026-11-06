@@ -11,7 +11,6 @@ export const STATIONS = {
   cocina: { name: 'Cocina' },
   quesera: { name: 'Quesera' },
   alambique: { name: 'Alambique' },
-  mesa_encantar: { name: 'Mesa de encantar' },
   noria: { name: 'Noria' },
 };
 
@@ -50,6 +49,7 @@ export const RECIPES = [
   R('banco', 'mueble_bano', 1, [['tablas', 4], ['tela', 1]]),
   R('banco', 'chimenea', 1, [['piedra', 8]]),
   R('banco', 'valla', 1, [['tablas', 1]]),
+  R('banco', 'puerta_valla', 1, [['tablas', 3]]),
   // Cuadros: un marco de tablas, el lienzo de tela y bayas para los colores
   ...['cuadro_valle', 'cuadro_mar', 'cuadro_flores', 'cuadro_noche'].map(id => R('banco', id, 1, [['tablas', 1], ['tela', 1], ['bayas', 2]])),
   R('banco', 'encimera', 1, [['tablas', 5], ['piedra', 1]]),
@@ -64,7 +64,6 @@ export const RECIPES = [
   R('horno', 'yunque', 1, [['lingote_cobre', 3], ['piedra', 6]]),
   R('horno', 'frasco', 3, [['piedra', 2], ['carbon', 1]]),
   R('yunque', 'alambique', 1, [['lingote_hierro', 2], ['piedra', 4], ['frasco', 1]]),
-  R('yunque', 'mesa_encantar', 1, [['amatista', 4], ['tablas', 6], ['lingote_hierro', 2]]),
   R('yunque', 'brujula', 1, [['lingote_hierro', 4], ['amatista', 1]]),
   R('banco', 'mapa_vacio', 1, [['tela', 2], ['carbon', 1]]),
   R('banco', 'noria', 1, [['tablas', 24], ['piedra', 12], ['lingote_hierro', 2]]),

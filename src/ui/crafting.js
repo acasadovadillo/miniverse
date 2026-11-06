@@ -1,6 +1,6 @@
 // Pantalla de fabricar: pestañas por estación, recetas (las bloqueadas salen como "???") y detalle con ingredientes.
 // Algunas estaciones tienen además su panel: en el yunque, arreglar y juntar; en el horno, el alambique y la noria,
-// lo que tienen dentro (machines.js); en la mesa de encantar, sus ofertas.
+// lo que tienen dentro (machines.js).
 import { ITEMS, hungerText } from '../items.js';
 import { RECIPES, STATIONS, lockedHint } from '../recipes.js';
 import { itemIconUrl } from '../art/items.js';
@@ -8,7 +8,7 @@ import { MACHINES, machineAt, settle, fits } from '../machines.js';
 import { enchName } from '../enchant.js';
 
 const $ = id => document.getElementById(id);
-const TAB_ICON = { mano: null, banco: 'banco', horno: 'horno', yunque: 'yunque', telar: 'telar', cocina: 'cocina', quesera: 'quesera', alambique: 'alambique', mesa_encantar: 'mesa_encantar', noria: 'noria' };
+const TAB_ICON = { mano: null, banco: 'banco', horno: 'horno', yunque: 'yunque', telar: 'telar', cocina: 'cocina', quesera: 'quesera', alambique: 'alambique', noria: 'noria' };
 
 export function initCraftingUI(game, { onClose, onBag }) {
   const cr = () => game.craft;
@@ -96,15 +96,6 @@ export function initCraftingUI(game, { onClose, onBag }) {
         if (m.s < 2) row('mapa', `Ampliarlo al doble (${game.maps.label({ s: m.s + 1 })})`, `4 × tela (tienes ${game.inv.count('tela')})`, () => game.maps.enlarge(i), !near.banco);
       }
     }
-    else if (tab === 'mesa_encantar' && st) {
-      const list = c.enchantable(), lvl = game.xp.level;
-      head(`Encantar (tienes nivel ${lvl} y ${game.inv.count('amatista')} amatistas)`);
-      if (!list.length) note('Trae en la mochila una herramienta, un arma, una armadura o una caña sin encantar.');
-      for (const e of list) {
-        note(ITEMS[e.it.id].name);
-        e.offers.forEach((o, k) => row(e.it.id, enchName(o.ench), `${o.cost} ${o.cost === 1 ? 'nivel' : 'niveles'} y ${o.cost} ${o.cost === 1 ? 'amatista' : 'amatistas'} · pide nivel ${o.need}`, () => c.enchant(e.i, k), !game.inv.infinite && lvl < o.need));
-      }
-    }
     box.hidden = !box.childElementCount;
   }
   // El horno, el alambique o la noria: sus casillas (lo de dentro; al pulsar, se saca o se elige qué poner), el fuego, lo que
@@ -149,7 +140,7 @@ export function initCraftingUI(game, { onClose, onBag }) {
   }
 
   function showRecipe(r, near) {
-    // (una estación sin recetas propias, como el alambique o la mesa de encantar: lo que es, y su panel debajo)
+    // (una estación sin recetas propias, como el alambique: lo que es, y su panel debajo)
     $('cf-make').hidden = $('cf-make5').hidden = !r;
     if (!r) {
       $('cf-icon').src = itemIconUrl(tab); $('cf-icon').classList.remove('locked');

@@ -4,7 +4,7 @@
 // otro lado) son los mismos, corridos una vuelta. Fuera del planeta no se construye.
 import { clamp } from '../util.js';
 import { WorldGen, CHUNK } from './gen.js';
-import { buildVillage, NILO, inBounds, isGrass, inOwnHouse } from './village.js';
+import { inYard, buildVillage, NILO, inBounds, isGrass, inOwnHouse } from './village.js';
 import { B, BIOMES } from './biomes.js';
 import { ITEMS, CHESTS } from '../items.js';
 import { extraTiles, LONG, BED_BACK, HEARTH_BACK, GLOW, LIGHT, front, SIDE, rugRect, RUG_SIZES, TABLE_SIZES, TABLES, TUCK } from '../art/stations.js';
@@ -133,6 +133,7 @@ function crosses(x0, y0, x1, y1, b) {
 // Lo colocado libre: donde se puso y con su giro. Choca con la caja que envuelve su modelo (las personas) y, para
 // colocar otra cosa al lado, con cada una de sus cajas, a su altura (solids). Devuelve true si es plano
 const SNAP = 0.35, MAX_PUSH = 0.45, NUDGE = 0.12;   // (a menos de SNAP de un muro, se pega; si lo corta menos de MAX_PUSH, se saca; de un mueble, solo si lo roza: NUDGE)
+const BIG_HOUSE = new Set(['gallinero', 'establo']);   // (con la puerta abierta o cerrada)
 function freeObject(o, id, rot, [x, y, a], { colliders, lights, solids }) {
   Object.assign(o, { x, y, yaw: a, rot, free: true, glow: GLOW[id] });
   const [ux, uy] = sideOf(a), [vx, vy] = dirOf(a);
@@ -209,10 +210,13 @@ export class Overworld {
   // Lo fijo del pueblo y de las aldeas en una casilla
   baseAt(layer, tx, ty) {
     const v = this.village.built?.[`${Math.floor(tx / CHUNK)},${Math.floor(ty / CHUNK)}`]?.[layer]?.[`${tx},${ty}`];
-    if (v) return v;
+    if (v && !(layer === 'placed' && this.fixedGone(tx, ty))) return v;
     for (const l of this.layers) { const b = l.baseAt?.(layer, tx, ty); if (b) return b; }
     return undefined;
   }
+  // Las vallas de tu jardín vienen puestas, pero se pueden recoger: lo que se ha quitado se apunta en el trozo (gone)
+  fixedGone(tx, ty) { return !!this.delta(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK))?.gone?.[`${tx},${ty}`]; }
+  yardFenceAt(tx, ty) { return !this.ownAt('placed', tx, ty) && inYard(tx + 0.5, ty + 0.5, 0.6) && parsePlaced(this.baseAt('placed', tx, ty) || '')[0] === 'valla'; }
   // Lo que hay en una capa de una casilla, sea del jugador o fijo (o undefined)
   at(layer, tx, ty) { return this.ownAt(layer, tx, ty) ?? this.baseAt(layer, tx, ty); }
   pieceAt(tx, ty) { const v = this.at('placed', tx, ty); return v && PIECES[parsePlaced(v)[0]]; }
@@ -303,7 +307,7 @@ export class Overworld {
     if (p?.kind !== 'wall' && p?.kind !== 'door') return;
     let alongX, alongY;
     if (p.kind === 'door') {
-      const solid = (x, y) => { const q = this.pieceAt(x, y); return q && q.kind !== 'fence'; };
+      const solid = (x, y) => { const q = this.pieceAt(x, y); return q && q.kind !== 'fence' && q.kind !== 'gate'; };
       alongX = solid(tx - 1, ty) || solid(tx + 1, ty) || !(solid(tx, ty - 1) || solid(tx, ty + 1)); alongY = !alongX;
     } else {
       const joins = (x, y) => ['wall', 'door'].includes(this.pieceAt(x, y)?.kind);
@@ -324,11 +328,11 @@ export class Overworld {
     const base = (t, layer, id) => {
       const [tx, ty] = t.split(',').map(Number);
       const o = { x: tx + 0.5, y: ty + 0.5, key: `${layer}:${t}`, placed: id, layer, tile: [tx, ty] };
-      if (fixed) o.fixed = true;
+      if (fixed) { o.fixed = true; if (layer === 'placed' && id === 'valla' && inYard(tx + 0.5, ty + 0.5, 0.6)) o.yard = true; }   // (yard: la valla de tu jardín, que sí se recoge)
       return o;
     };
     // Lo fijo no pisa lo que haya puesto el jugador en la misma casilla y capa
-    const taken = (layer, t) => fixed && this.ownAt(layer, ...t.split(',').map(Number));
+    const taken = (layer, t) => { if (!fixed) return false; const [tx, ty] = t.split(',').map(Number); return this.ownAt(layer, tx, ty) || (layer === 'placed' && this.fixedGone(tx, ty)); };
     for (const [t, id] of Object.entries(src.floor || {})) {
       if (taken('floor', t)) continue;
       floors.push(base(t, 'floor', id));
@@ -345,17 +349,25 @@ export class Overworld {
         for (const [x0, x1, y0, y1] of wallRuns(mask)) colliders.push({ x0: o.x + x0, y0: o.y + y0, x1: o.x + x1, y1: o.y + y1, wall: true });
         if (o.window && !this.doorClosed(tx, ty)) lights.push({ x: o.x, y: o.y, z: WINDOW_Z, r: 34, window: true });   // (cerrada, no sale luz)
       } else if (piece?.kind === 'door') {
-        const solid = (x, y) => { const p = this.pieceAt(x, y); return p && p.kind !== 'fence'; };
+        const solid = (x, y) => { const p = this.pieceAt(x, y); return p && p.kind !== 'fence' && p.kind !== 'gate'; };
         const alongX = solid(tx - 1, ty) || solid(tx + 1, ty) || !(solid(tx, ty - 1) || solid(tx, ty + 1));
         const closed = this.doorClosed(tx, ty);
         o.wall = true; o.door = alongX ? 'x' : 'y';
         if (closed) colliders.push(alongX ? { x0: tx, y0: ty + 0.38, x1: tx + 1, y1: ty + 0.62, wall: true } : { x0: tx + 0.38, y0: ty, x1: tx + 0.62, y1: ty + 1, wall: true });
         else if (alongX) colliders.push({ x0: tx, y0: ty + 0.38, x1: tx + 0.14, y1: ty + 0.62, wall: true }, { x0: tx + 0.86, y0: ty + 0.38, x1: tx + 1, y1: ty + 0.62, wall: true });
         else colliders.push({ x0: tx + 0.38, y0: ty, x1: tx + 0.62, y1: ty + 0.14, wall: true }, { x0: tx + 0.38, y0: ty + 0.86, x1: tx + 0.62, y1: ty + 1, wall: true });
+      } else if (piece?.kind === 'gate') {
+        // Puerta de valla: va en la línea de las vallas de los lados. Cerrada choca como una valla (a caballo se salta);
+        // abierta solo chocan sus postes
+        const f = (x, y) => ['fence', 'gate', 'wall'].includes(this.pieceAt(x, y)?.kind);
+        const alongX = f(tx - 1, ty) || f(tx + 1, ty) || !(f(tx, ty - 1) || f(tx, ty + 1));
+        o.door = alongX ? 'x' : 'y'; o.gate = true;
+        for (const s of [-0.5, 0.5]) colliders.push(alongX ? { x: o.x + s, y: o.y, r: 0.12, low: true } : { x: o.x, y: o.y + s, r: 0.12, low: true });
+        if (this.doorClosed(tx, ty)) colliders.push(alongX ? { x0: tx, y0: o.y - 0.08, x1: tx + 1, y1: o.y + 0.08, low: true } : { x0: o.x - 0.08, y0: ty, x1: o.x + 0.08, y1: ty + 1, low: true });
       } else if (piece?.kind === 'fence') {
-        const f = (x, y) => this.pieceAt(x, y)?.kind === 'fence' || this.pieceAt(x, y)?.kind === 'wall';
-        const mask = (f(tx + 1, ty) ? 1 : 0) | (f(tx - 1, ty) ? 2 : 0) | (f(tx, ty + 1) ? 4 : 0) | (f(tx, ty - 1) ? 8 : 0);
         o.fence = true;
+        const f = (x, y) => ['fence', 'gate', 'wall'].includes(this.pieceAt(x, y)?.kind);
+        const mask = (f(tx + 1, ty) ? 1 : 0) | (f(tx - 1, ty) ? 2 : 0) | (f(tx, ty + 1) ? 4 : 0) | (f(tx, ty - 1) ? 8 : 0);
         // (low: es baja; a caballo, saltando, se pasa por encima)
         colliders.push({ x: o.x, y: o.y, r: 0.12, low: true });
         if (mask & 1) colliders.push({ x0: o.x, y0: o.y - 0.08, x1: tx + 1, y1: o.y + 0.08, low: true });
@@ -373,10 +385,11 @@ export class Overworld {
         if (LIGHT[id] && !o.off) { const [lx, ly, lz, lr] = LIGHT[id], [x, y] = at(lx, ly); lights.push({ x, y, z: lz, r: lr }); }
         const [[ax, ay], [bx, by]] = [at(-0.46, -0.44), at(0.46, 0.32)];
         colliders.push({ x0: Math.min(ax, bx), y0: Math.min(ay, by), x1: Math.max(ax, bx), y1: Math.max(ay, by), piece: true });
-      } else if (src.pos?.[o.key]) {
+      } else if (src.pos?.[o.key] || BIG_HOUSE.has(id)) {   // (las casas grandes, aunque se pusieran por casillas antes de crecer, ocupan lo suyo)
         o.off = this.lightOff(tx, ty);
+        if (BIG_HOUSE.has(id) && src.door?.[`${tx},${ty}`] === 0) o.model = `${id}:shut`;
         if (id === 'encimera' && !fixed) o.model = this.counterModel(tx, ty);
-        if (freeObject(o, id, rot, src.pos[o.key], out)) { flats.push(o); continue; }
+        if (freeObject(o, id, rot, src.pos?.[o.key] || [tx + 0.5, ty + 0.5, (rot % 4) * Math.PI / 2], out)) { flats.push(o); continue; }
       } else {
         o.off = this.lightOff(tx, ty);
         const tuck = this.tuckShift(id, tx, ty, rot);
@@ -478,7 +491,8 @@ export class Overworld {
     if (!inPlanet(x, y)) return false;   // (en la costura del planeta, desde el otro lado, o más allá de un polo)
     if (layer === 'rug') return this.rugFits(rugRect(tx, ty, rot));
     if (this.water(x, y)) return false;
-    if (inBounds(x, y) && !isGrass(x, y) && !inOwnHouse(x, y) && !this.buildAnywhere) return false;   // en modo admin, también en el pueblo
+    // (en el pueblo, solo en la hierba o en tu casa; las vallas y sus puertas, además, en todo tu jardín, también en el hueco del camino; en modo admin, donde sea)
+    if (inBounds(x, y) && !isGrass(x, y) && !inOwnHouse(x, y) && !this.buildAnywhere && !(['fence', 'gate'].includes(PIECES[id]?.kind) && inYard(x, y, 0.6))) return false;
     const d = this.delta(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK));
     if (this.at(layer, tx, ty) || d?.tilled[k] !== undefined) return false;
     if (layer === 'floor') return true;
@@ -493,12 +507,14 @@ export class Overworld {
   place(tx, ty, id, rot = 0) {
     const cx = Math.floor(tx / CHUNK), cy = Math.floor(ty / CHUNK), layer = layerOf(id), d = this.delta(cx, cy, true);
     (d[layer] ||= {})[`${tx},${ty}`] = rot ? `${id}@${rot}` : id;
+    if (PIECES[id]?.kind === 'gate') (d.closed ||= {})[`${tx},${ty}`] = true;   // (la puerta de valla empieza cerrada: el cercado ya guarda)
     if (CHESTS[id]) d.chest[`${tx},${ty}`] = Array(CHESTS[id][0]).fill(null);   // (la mochila en el suelo es como un cofre; el armario, para la ropa)
     this.touchAround(tx, ty);
   }
   // Quita lo que puso el jugador en una casilla. Lo fijo del pueblo no se quita: devuelve false.
   unplace(o) {
     const [tx, ty] = o.tile, layer = o.layer || 'placed', k = `${tx},${ty}`;
+    if (o.yard && this.yardFenceAt(tx, ty)) { (this.delta(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK), true).gone ||= {})[k] = true; this.touchAround(tx, ty); return true; }   // (la del jardín que venía puesta)
     if (o.fixed || !this.ownAt(layer, tx, ty)) return false;
     const d = this.delta(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK));
     delete d[layer][k];
@@ -557,7 +573,7 @@ export class Overworld {
     let best = null, bd = r;
     for (let ty = Math.floor(y) - 1; ty <= Math.floor(y) + 1; ty++) for (let tx = Math.floor(x) - 1; tx <= Math.floor(x) + 1; tx++) {
       const dist = Math.hypot(tx + 0.5 - x, ty + 0.5 - y);
-      if (dist < bd && this.pieceAt(tx, ty)?.kind === 'door') { best = [tx, ty]; bd = dist; }
+      if (dist < bd && ['door', 'gate'].includes(this.pieceAt(tx, ty)?.kind)) { best = [tx, ty]; bd = dist; }
     }
     return best;
   }
@@ -644,7 +660,7 @@ export class Overworld {
     }
     for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
       const c = this.contentFor(cx + dx, cy + dy);
-      for (const o of c.objects) if (o.door) { const [tx, ty] = o.tile; out.push({ ...(o.door === 'x' ? aabb(tx, ty + 0.38, tx + 1, ty + 0.62) : aabb(tx + 0.38, ty, tx + 0.62, ty + 1)), y0: 0, y1: 3, wall: true }); }
+      for (const o of c.objects) if (o.door && !o.gate) { const [tx, ty] = o.tile; out.push({ ...(o.door === 'x' ? aabb(tx, ty + 0.38, tx + 1, ty + 0.62) : aabb(tx + 0.38, ty, tx + 0.62, ty + 1)), y0: 0, y1: 3, wall: true }); }
       if (rug) { for (const o of c.flats) if (o.layer === 'rug') out.push({ ...(o.obb || aabb(o.fx[0], o.fy[0], o.fx[1], o.fy[1])), y0: 0, y1: 0.1 }); }
       else for (const s of c.solids) if (near(s)) out.push(s);
     }

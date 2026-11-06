@@ -3,7 +3,6 @@ import { Audio } from './audio.js';
 import { CAM, DIST } from './camera.js';
 
 // use: el botón de usar se mantiene pulsado (para seguir talando sin repetir la tecla)
-// space: la barra espaciadora mantenida (para subir la red pescando)
 export const keys = { up: false, down: false, left: false, right: false, run: false, use: false, space: false };
 const handlers = { chat: () => false, use: () => {}, jump: () => {}, interact: () => {}, pause: () => {}, map: () => {}, bag: () => {}, craft: () => {}, build: () => {}, rotate: () => {}, erase: () => {}, select: () => {}, cycle: () => {}, enabled: () => false };
 const KEYMAP = { KeyW: 'up', ArrowUp: 'up', KeyS: 'down', ArrowDown: 'down', KeyA: 'left', ArrowLeft: 'left', KeyD: 'right', ArrowRight: 'right' };

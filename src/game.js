@@ -7,6 +7,7 @@ import { Overworld, NILO_LOOK } from './world/scenes.js';
 import { houseBlueprint, familyBlueprint, byChunk, doorTile } from './world/blueprints.js';
 import { HOUSE, HOUSE_BIG, HOUSE_FAMILY, HOUSES, CENTER, SPAWN, inBounds, inOwnHouse, inWorkshop, hasProject, setFamilyHouse } from './world/village.js';
 import { PIECES, parsePlaced } from './pieces.js';
+import { Profile } from './accounts.js';
 import { BIOMES } from './world/biomes.js';
 import { CHUNK, WORLD_SEED } from './world/gen.js';
 import { MapView } from './ui/map.js';
@@ -21,9 +22,11 @@ import { BuildMode } from './build.js';
 import { TimeSystem } from './time.js';
 import { Farm } from './farm.js';
 import { Ranch } from './ranch.js';
+import { Steps } from './steps.js';
 import { Fishing } from './fishing.js';
 import { Wildlife } from './wildlife.js';
 import { Rest } from './rest.js';
+import { Crew } from './crew.js';
 import { footTile, front, extraTiles, yawOf } from './art/stations.js';
 import { solidsOf, hull, placeBoxes, aabb, distTo, rayHits } from './world/fit.js';
 import { HOTBAR, extraOf } from './inventory.js';
@@ -47,8 +50,31 @@ import { keys, clearKeys } from './input.js';
 import { Audio } from './audio.js';
 import { hud } from './ui/hud.js';
 
+// Lo que ya no existe en el juego y lo que costó. Al cargar una partida se quita de donde esté (la mochila, los cofres, las
+// alforjas, el correo o puesto en el mundo) y, si no, quedaría un objeto sin datos que rompe la mochila. Devuelve lo que
+// hay que devolver: [[id, n]]
+const RETIRED = { mesa_encantar: [['amatista', 4], ['tablas', 6], ['lingote_hierro', 2]] };
+export function retireItems(save, deltas) {
+  const owed = [], back = (id, n = 1) => { for (const [m, k] of RETIRED[id]) owed.push([m, k * n]); };
+  const clean = list => { if (Array.isArray(list)) list.forEach((s, i) => { if (s && RETIRED[s.id]) { back(s.id, s.n || 1); list[i] = null; } }); };
+  clean(save.inventory?.slots);
+  for (const a of save.animals || []) clean(a.bags);
+  if (save.farm?.mail) save.farm.mail = save.farm.mail.filter(m => { if (!RETIRED[m.id]) return true; back(m.id, m.n || 1); return false; });
+  for (const [k, d] of deltas) {
+    if (k.startsWith('u:')) continue;
+    for (const list of Object.values(d.chest || {})) clean(list);
+    for (const [t, raw] of Object.entries(d.placed || {})) {
+      const id = parsePlaced(raw)[0];
+      if (!RETIRED[id]) continue;
+      delete d.placed[t]; if (d.pos) delete d.pos[`placed:${t}`];
+      back(id);
+    }
+  }
+  return owed;
+}
 const STEP = 1 / 60;   // la simulación avanza siempre a 60 pasos por segundo
 const NILO_TIPS = [
+  'Dicen que el mundo no se acaba nunca más allá del bosque. Yo nunca he llegado tan lejos.',
   'Los peñascos grandes no se dejan picar con un pico de madera. Hazte uno de piedra en el banco.',
   'Dicen que en las montañas los peñascos esconden cobre, hierro y hasta oro. Pero hace falta buen pico.',
   'Con un horno conviertes el mineral en lingotes. Y con lingotes de cobre, un yunque para herramientas de metal.',
@@ -119,6 +145,7 @@ export class Game {
     this.fishing = this.addSystem(new Fishing(this));
     this.wildlife = this.addSystem(new Wildlife(this));
     this.rest = this.addSystem(new Rest(this));
+    this.crew = this.addSystem(new Crew(this));   // ir de pasajero en la barca de otro
     this.neighbors = this.addSystem(new Neighbors(this));
     this.combat = this.addSystem(new Combat(this));
     this.mobs = this.addSystem(new Mobs(this));   // la luz y las criaturas de fuera, de noche
@@ -130,6 +157,7 @@ export class Game {
     this.collection = this.addSystem(new Collection(this));
     this.achievements = this.addSystem(new Achievements(this));
     this.story = this.addSystem(new Story(this));
+    this.steps = this.addSystem(new Steps(this));   // los primeros pasos
     this.live = this.addSystem(new Live(this));   // jugar juntos en directo
     this.niloTips = NILO_TIPS;
     this.money = 0;
@@ -147,6 +175,7 @@ export class Game {
   // ---------- partida ----------
   // deltas: cambios del jugador en el mundo, cargados de IndexedDB
   start(save, deltas = new Map()) {
+    const owed = retireItems(save, deltas);
     // Solo hay un mundo. Una partida de antes, de otro mundo, pasa a este: lo construido se queda donde
     // estaba, pero se olvida lo que dependía de la naturaleza de aquel (lo talado, recogido y saqueado),
     // el mapa explorado y los lugares descubiertos
@@ -194,6 +223,7 @@ export class Game {
     hud.faces = { ...hud.faces, Nilo: NILO_LOOK, [this.player.name]: this.player.look };
     this.scene = this.world;
     this.underRoof = false;
+    if (owed.length && !Profile.server) { for (const [id, n] of owed) this.giveBack(id, n); hud.toast('La mesa de encantar ya no está en el juego: te devuelvo sus materiales', 'good'); }
     // Lo que el jugador tenía en su habitación va primero (dentro de la casa); luego se levanta la casa con
     // sus muebles por defecto, que solo ocupan las casillas que quedan libres. Va después de crear al jugador,
     // porque lo que no quepa vuelve a la mochila a través de él.
@@ -405,6 +435,7 @@ export class Game {
     if (this.busy || this.mode !== 'play' || !p || this.gamemode === 'spectator') return null;   // (el espectador no toca nada)
     const sc = this.scene;
     if (p.pose) return { text: 'Levantarse', run: () => this.rest.stand() };
+    if (p.aboard) return this.crew.action();
     // Lo que se apunta con el ratón, si está cerca; si no, lo que haya más cerca
     const aim = this.aimed(), act = aim && this.actionFor(aim);
     if (act) return act;
@@ -459,10 +490,10 @@ export class Game {
     if (sc.contentFor) for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) for (const o of sc.contentFor(cx + dx, cy + dy).objects) {
       if (!o.tile || Math.abs(o.x - p.x) > R || Math.abs(o.y - p.y) > R) continue;
       const [tx, ty] = o.tile, alongX = o.door ? o.door === 'x' : (o.mask & 3) || !(o.mask & 12);
-      if (o.door) out.push({ kind: 'door', tile: o.tile, box: alongX ? box(tx + 0.5, ty + 0.5, 0.5, 0.2, 0, 2.3) : box(tx + 0.5, ty + 0.5, 0.2, 0.5, 0, 2.3) });
+      if (o.door) { const y1 = o.gate ? 1 : 2.3; out.push({ kind: 'door', tile: o.tile, box: alongX ? box(tx + 0.5, ty + 0.5, 0.5, 0.2, 0, y1) : box(tx + 0.5, ty + 0.5, 0.2, 0.5, 0, y1) }); }
       else if (o.window) out.push({ kind: 'window', tile: o.tile, box: alongX ? box(tx + 0.5, ty + 0.5, 0.45, 0.2, 0.9, 2.1) : box(tx + 0.5, ty + 0.5, 0.2, 0.45, 0.9, 2.1) });
       else if (o.hearth) out.push({ kind: 'hearth', tile: o.tile, box: box(o.x, o.y, 0.5, 0.5, 0, 1.4) });
-      else if (o.fence && !o.fixed && ITEMS[o.placed]) out.push({ kind: 'fence', o, box: box(o.x, o.y, 0.5, 0.5, 0, 0.96) });   // (solo apuntándola: si no, cada valla cercana taparía lo demás)
+      else if (o.fence && (!o.fixed || o.yard) && ITEMS[o.placed]) out.push({ kind: 'fence', o, box: box(o.x, o.y, 0.5, 0.5, 0, 0.96) });   // (solo apuntándola: si no, cada valla cercana taparía lo demás)
     }
     // El candelabro de la casa, colgado del techo
     const lamp = this.lampNear(R), at = lamp && this.view3d.world.chandelierNear(p.x, p.y, R, true);
@@ -499,9 +530,11 @@ export class Game {
   // otro (de un vecino, o con alguien jugando contigo cerca), primero se llama
   doorAction(door) {
     const sc = this.scene, p = this.player, closed = sc.doorClosed(...door), inGap = Math.hypot(door[0] + 0.5 - p.x, door[1] + 0.5 - p.y) < 0.55, k = String(door);
-    if (closed && !(this.knocked?.k === k && this.time < this.knocked.until) && this.knockable(door)) return { text: 'Llamar a la puerta', run: () => this.knock(door) };
-    if (closed || !inGap) return { text: closed ? 'Abrir la puerta' : 'Cerrar la puerta', run: () => { sc.toggleDoor(...door); Audio.place(); this.onSave?.(); } };
-    return null;
+    const gate = sc.pieceAt?.(...door)?.kind === 'gate';
+    if (!gate && closed && !(this.knocked?.k === k && this.time < this.knocked.until) && this.knockable(door)) return { text: 'Llamar a la puerta', run: () => this.knock(door) };
+    const pick = gate ? { text: 'Recoger la puerta de valla', run: () => { if (this.pickUp({ tile: door, layer: 'placed', placed: 'puerta_valla' })) this.onSave?.(); } } : null;
+    if (closed || !inGap) return { text: `${closed ? 'Abrir' : 'Cerrar'} la puerta${gate ? ' de valla' : ''}`, run: () => { sc.toggleDoor(...door); Audio.place(); this.onSave?.(); }, alt: pick };
+    return gate ? { text: 'Puerta de valla', run: () => Audio.blip(), alt: pick } : null;
   }
   // Lo colocado: las estaciones se usan, en la cama te tumbas o duermes, en la silla te sientas, las luces se
   // apagan y se encienden, el cofre, el armario y la mochila se abren; lo demás se recoge (con X, lo que se usa
@@ -610,7 +643,7 @@ export class Game {
   sleep() { return this.days.sleep(); }
   // Devolver a la mochila algo colocado
   pickUp(o) {
-    if (o.fixed) return false;   // (lo del pueblo no se recoge)
+    if (o.fixed && !o.yard) return false;   // (lo del pueblo no se recoge, salvo la valla de tu jardín)
     // (una alfombra vuelve como la del telar de su tamaño; las de antes, de cualquier tamaño, se ponían con V)
     const r = o.layer === 'rug' && o.rug, id = r ? rugId(ITEMS[o.placed].rug || o.placed, RUG_MADE.find(([w, h]) => (w === r.w && h === r.h) || (w === r.h && h === r.w)) || [1, 1]) : o.placed;
     if (this.inv.room(id) < 1) { this.gather.float('No te cabe: no llevas sitio libre', '#ffb0a0'); Audio.error(); return false; }
@@ -633,10 +666,8 @@ export class Game {
     await hud.say('Nilo', first ? [
       `¡Así que tú eres ${p.name}! Por fin llega alguien a la casa del final del camino. Llevaba años vacía.`,
       'Esto es Pueblo Brotes. Pequeño, sí, pero aquí cada cual se construye la vida a su manera.',
-      'Dicen que el mundo no se acaba nunca más allá del bosque. Yo nunca he llegado tan lejos.',
-      'Te he dejado unas herramientas viejas: hacha, pico, guadaña y azada. Las llevas en las manos y en los bolsillos: elígelas con los números y úsalas con el clic izquierdo.',
-      'Sin mochila no te cabe mucho más. Siega unos matorrales: con fibra y un par de cuerdas te haces una (pulsa C) y te la pones en el inventario (I).',
-      'Y un consejo de viejo carpintero: con madera se hacen tablas (pulsa C para fabricar). Con seis tablas y dos piedras te sale un banco de carpintero, y con él, herramientas mejores. Mientras, en el taller del pueblo, al oeste del camino, hay un banco y un telar que puede usar cualquiera.',
+      'Te he dejado unas herramientas viejas: hacha, pico, guadaña y azada. Elígelas con los números y úsalas con el clic izquierdo.',
+      'No te agobies, que no hace falta saberlo todo hoy. Te dejo apuntado qué hacer, de uno en uno, arriba a la izquierda.',
     ] : [NILO_TIPS[this.niloTip++ % NILO_TIPS.length]]);
     if (first) this.craft.teach('banco');
     this.busy = false;
@@ -692,7 +723,7 @@ export class Game {
     x = wrapX(x); y = Math.max(NORTH + 1, Math.min(SOUTH - 1, y));   // (dentro del planeta)
     if (p.pose) this.rest.stand();
     if (this.scene !== this.world) { this.scene = this.world; p.inside = false; }
-    Object.assign(p, { x, y, vx: 0, vy: 0, z: 0, vz: 0, boat: p.boat && !!this.world.water(x, y) });
+    Object.assign(p, { x, y, vx: 0, vy: 0, z: 0, vz: 0, boat: (p.boat || !!p.aboard) && !!this.world.water(x, y), aboard: null });
     this.view3d.snap();
     this.updatePlace();
     return true;
@@ -701,7 +732,7 @@ export class Game {
   // Llevar al jugador adonde reaparece (cuando cae en combate): su punto (/spawnpoint) o su casa
   goHome() {
     const [x, y] = this.respawnSpot();
-    Object.assign(this.player, { inside: false, x, y, view: 'front', dir: null, boat: false, mount: false });
+    Object.assign(this.player, { inside: false, x, y, view: 'front', dir: null, boat: false, aboard: null, mount: false });
     this.scene = this.world;
     this.updatePlace();
   }
@@ -915,10 +946,11 @@ export class Game {
     this.gather.update(dt);
     this.hook('update', dt);
     if (keys.use && !this.busy && !this.build.on) this.gather.use(true);
-    if (this.busy || hud.dialogOpen || this.fishing.still || p.pose) { p.stop(); return; }
+    if (this.busy || hud.dialogOpen || p.pose) { p.stop(); return; }
     p.speedMul = (this.buffs.rapido > this.time ? 1.35 : 1) * (p.mount ? this.ranch.rideSpeed() : 1);
     if (Object.values(keys).some(Boolean)) this.lastInput = this.time;   // (para /setidletimeout)
-    p.update(dt, keys, this.scene);
+    if (p.aboard) p.stop();   // (de pasajero en una barca, le lleva ella)
+    else p.update(dt, keys, this.scene);
     if (this.spectating) this.followSpectated();
     if (this.scene === this.world) this.aroundPlanet();
     if (!p.inside) this.explore();

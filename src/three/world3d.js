@@ -11,7 +11,7 @@ import { PIECES, parsePlaced } from '../pieces.js';
 import { CAM } from '../camera.js';
 import { Builder } from './geo.js';
 import { buildNatureChunk, buildGround, buildFarNature, shake, WIND } from './nature3d.js';
-import { baseMaterials, wallTile, doorTile, doorLeaf, fenceTile, floorTile, roofRegion, WALL_H, ROOF, FLOWER } from './build3d.js';
+import { baseMaterials, wallTile, doorTile, doorLeaf, gateTile, gateLeaf, fenceTile, floorTile, roofRegion, WALL_H, ROOF, FLOWER } from './build3d.js';
 import { getModel, modelMat, CHANDELIER } from './models.js';
 import { yawOf } from '../art/stations.js';
 // Lo que brilla en los modelos y, apagado, con qué se dibuja
@@ -150,6 +150,7 @@ export class World3D {
         if (region) c.regions.add(region);
         if (piece?.kind === 'wall') { const ex = { blooms: [], leaves: [] }; wallTile(scene, tx, ty, o.placed, emitFor(region), ex); this.flowers(ex, region, group); }
         else if (piece?.kind === 'door') { const ex = { blooms: [], leaves: [] }; const d = doorTile(scene, tx, ty, emitFor(region), ex); d.region = region; c.doors.push(d); }
+        else if (piece?.kind === 'gate') c.doors.push(gateTile(scene, tx, ty, plain));
         else if (piece?.kind === 'fence') fenceTile(scene, tx, ty, o.placed, plain);
         else this.placeModel(o.model || o.placed, o.x, o.y, o.yaw ?? yawOf(o.rot), plain, c, group, o.off);
       } else if (o.crop && this.farm(scene)) this.placeModel(`crop:${o.crop.id}:${this.farm(scene).stage(o.crop)}`, o.x, o.y, 0, plain, c, group);
@@ -169,7 +170,7 @@ export class World3D {
     // Puertas: la hoja se anima aparte (y se desvanece con su pared)
     for (const d of c.doors) {
       const k = `${d.tile[0]},${d.tile[1]}`, fk = d.region && d.side !== 'free' ? `${d.region}|${d.side}` : '';
-      const leaf = doorLeaf(d, { door: fk ? this.fadeMat(fk, 'door') : this.mat('door'), frame: fk ? this.fadeMat(fk, 'frame') : this.mat('frame') });
+      const leaf = d.gate ? gateLeaf(d, { fence: this.mat('fence') }) : doorLeaf(d, { door: fk ? this.fadeMat(fk, 'door') : this.mat('door'), frame: fk ? this.fadeMat(fk, 'frame') : this.mat('frame') });
       leaf.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
       const prev = this.doors.get(k);
       const amount = prev ? prev.amount : scene.doorClosed(...d.tile) ? 0 : 1;

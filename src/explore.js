@@ -319,11 +319,11 @@ export class Explore {
     if (g.scene !== this.world) return null;
     if (def?.vehicle === 'barca') {
       const ax = p.x + p.face.x * 1.1, ay = p.y + p.face.y * 1.1, water = !!this.world.water(ax, ay);
-      if (!p.boat && water && !p.mount) return { tile: null, ok: true, label: 'Subir a la barca', use: () => { p.boat = true; p.x = ax; p.y = ay; Audio.door(); } };
+      if (!p.boat && !p.aboard && water && !p.mount) return { tile: null, ok: true, label: 'Subir a la barca', use: () => { p.boat = true; p.x = ax; p.y = ay; Audio.door(); } };
       if (p.boat && !water && !this.world.blocked(ax, ay) && !this.world.collidersNear(ax, ay).some(c => c.r !== undefined && Math.hypot(c.x - ax, c.y - ay) < c.r + 0.3)) return { tile: null, ok: true, label: 'Bajar a tierra', use: () => { p.boat = false; p.x = ax; p.y = ay; Audio.door(); } };
       return null;
     }
-    if (def?.vehicle === 'caballo' && !p.boat) return g.ranch.whistle(p);   // (el caballo es un animal de verdad: ver la granja)
+    if (def?.vehicle === 'caballo' && !p.boat && !p.aboard) return g.ranch.whistle(p);   // (el caballo es un animal de verdad: ver la granja)
     return null;
   }
   // Subir a un faro: desde arriba se ve la costa (se descubre lo de alrededor en el mapa)

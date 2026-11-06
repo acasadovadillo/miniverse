@@ -98,7 +98,6 @@ Object.assign(DRAW, {
   mapa(R) { R(3, 3, 10, 10, '#e8d8b0'); R(4, 4, 5, 4, '#7ab85a'); R(8, 7, 4, 4, '#5a9ad8'); R(4, 9, 3, 3, '#c8b070'); R(2, 3, 1, 10, '#a8764a'); R(13, 3, 1, 10, '#a8764a'); R(9, 5, 1, 1, '#e83a3a'); R(10, 4, 1, 1, '#e83a3a'); R(10, 6, 1, 1, '#e83a3a'); R(11, 5, 1, 1, '#e83a3a'); },
   frasco(R) { R(6, 1, 4, 2, '#a8764a'); R(7, 3, 2, 3, '#d8eef8'); R(4, 6, 8, 8, '#d8eef8'); R(5, 7, 6, 6, '#a8cce0'); R(5, 7, 2, 3, '#f4fbff'); },
   // Alambique: base de piedra, el soporte con el quemador y tres frascos
-  // Mesa de encantar: un bloque oscuro con el borde de amatista y un libro abierto encima
   barca(R) { R(1, 9, 14, 3, '#a8764a'); R(3, 12, 10, 2, '#7a5030'); R(1, 8, 14, 1, '#c8925a'); R(7, 2, 1, 7, '#7a5030'); R(8, 3, 5, 4, '#f4ecd8'); },
   caballo(R) { R(6, 2, 4, 12, '#c8a030'); R(6, 2, 4, 2, '#e8c050'); R(4, 12, 8, 2, '#a88020'); R(7, 5, 2, 1, '#6a4a10'); R(10, 3, 3, 1, '#e83a3a'); },
   brujula(R, g) { blob(g, 8, 8, 6, '#c8a030'); blob(g, 8, 8, 5, '#f4ecd8'); line(g, 8, 8, 11, 4, '#e83a3a'); line(g, 8, 8, 5, 12, '#4a4a54'); R(7, 7, 2, 2, '#2a1c22'); },

@@ -75,7 +75,7 @@
 
 **4.2 El pueblo de noche (S).** ✅ Hecho el 2026-11-05. En la prueba, un esqueleto apareció en la plaza, junto a la farola, y mató al personaje. Ahora, dentro de `BOUNDS` del pueblo no aparecen criaturas (`Mobs.canSpawn`) y las de fuera no entran ni persiguen a quien está dentro (`Mobs.move`): es el sitio seguro desde donde se sale a explorar. Las aldeas siguen como estaban. Prueba: «pueblo seguro».
 
-**4.3 Primera hora de juego (M).** La charla de Nilo lo explica todo de golpe (seis frases). Repartirlo: un encargo detrás de otro en el tablón o en el diario («siega tres matorrales», «hazte la mochila», «ven al taller»), cada uno con su recompensa, hasta tener banco, cama y huerto. Lo que ya existe (encargos, logros, diario) sirve de base.
+**4.3 Primera hora de juego (M).** ✅ Hecho el 2026-11-05 (`src/steps.js`). La charla de Nilo lo explicaba todo de golpe, en seis frases. Ahora son cuatro y lo demás va en 11 pasos, de uno en uno, arriba a la izquierda y con recompensa, hasta tener banco, cama y huerto. Se pueden quitar y repasar en el diario. A las partidas de antes no les salen solos. Prueba: «primeros pasos».
 
 **4.4 Economía (S).** Los precios salen de las recetas (`economy.js`), así que los objetos nuevos se venden sin mirarlos: la harina a 30 vale más que tres trigos, la cómoda sale cara por las tablas. Pasar por todos los precios una vez y poner a mano los que se desvíen; que las tiendas de los vecinos cambien el surtido por estación.
 

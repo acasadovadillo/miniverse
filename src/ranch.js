@@ -17,6 +17,7 @@ import { hud } from './ui/hud.js';
 import { Profile } from './accounts.js';
 
 const PER_HOME = { gallinero: 4, establo: 4, conejera: 4, cuadra: 2, caseta: 1, cojin: 1 };
+const FRONT = { gallinero: 2.15, establo: 2.25 };   // las casas grandes: del centro a donde se entra (delante de la puerta)
 const DOORS = new Set(['gallinero', 'establo', 'conejera']), MENU_PAGE = 5;   // (las casas con puerta y cuántos animales enseña el menú de una vez)
 const ROAM = 4.5, HONEY_EVERY = 3, GROW = 5, WAIT_BIRTH = 3, HATCH = 4, SILO_CAP = 240, STRAY_EVERY = 7;
 const FEED = ['heno', 'fibra', 'trigo'];
@@ -38,7 +39,8 @@ class Animal {
     Object.assign(this, { love: 0, ready: false, days: 0, petDay: -1, fedDay: -1, flip: false, step: 0, vx: 0, vy: 0, wait: Math.random() * 3, named: true }, data);
     this.id ||= `${this.type}-${this.name}-${Math.random().toString(36).slice(2, 7)}`;
     this.breed ||= ANIMALS[this.type].breeds?.[0];
-    this.x ??= this.home ? this.home[0] + 0.5 : SPAWN.x; this.y ??= this.home ? this.home[1] + 1.5 : SPAWN.y;   // (sin sitio guardado: delante de su casa)
+    const at = this.home2;   // (sin sitio guardado: delante de su casa)
+    this.x ??= at ? at[0] : SPAWN.x; this.y ??= at ? at[1] : SPAWN.y;
     this.tx = this.x; this.ty = this.y;
   }
   get def() { return ANIMALS[this.type]; }
@@ -95,8 +97,10 @@ export class Ranch {
     this.farm = { hay: 0, mail: [] };   // lo de la granja que no es de un animal: el heno del silo y el correo
     this.crowed = -1;
     Animal.spot = (home, on) => {
-      const [tx, ty] = home, p = this.world?.delta(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK))?.pos?.[`placed:${tx},${ty}`];
-      return p && (on ? [p[0], p[1]] : [p[0] + Math.sin(p[2]), p[1] + Math.cos(p[2])]);
+      const [tx, ty] = home, d = this.world?.delta(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK)), [kind, rot] = (d?.placed?.[`${tx},${ty}`] || '').split('@'), front = FRONT[kind];
+      // (donde de verdad está; las casas grandes de antes de crecer, puestas por casillas, en el centro de la suya)
+      const p = d?.pos?.[`placed:${tx},${ty}`] || (front && [tx + 0.5, ty + 0.5, ((+rot || 0) % 4) * Math.PI / 2]);
+      return p && (on ? [p[0], p[1]] : [p[0] + Math.sin(p[2]) * (front || 1), p[1] + Math.cos(p[2]) * (front || 1)]);
     };
   }
   get world() { return this.game.world; }
@@ -117,7 +121,7 @@ export class Ranch {
     this.animals = list.map(s => {
       const a = old.get(s.id);
       if (!a) {
-        const n = new Animal({ ...s, x: s.at?.[0] ?? (s.home ? s.home[0] + 0.5 : SPAWN.x), y: s.at?.[1] ?? (s.home ? s.home[1] + 1.5 : SPAWN.y) });
+        const n = new Animal({ ...s, x: s.at?.[0], y: s.at?.[1] });
         if (!n.named && this.game.player) hud.toast(`¡Ha nacido ${an(n.def.baby)} en la granja!`, 'good');
         return n;
       }
@@ -143,7 +147,11 @@ export class Ranch {
     return this.placed(kind).map(h => ({ ...h, free: (PER_HOME[kind] || 4) - this.animals.filter(a => a.home && a.home[0] === h.tile[0] && a.home[1] === h.tile[1]).length }));
   }
   homeOf(a) { return a.home && this.placed(a.def.home).find(h => h.tile[0] === a.home[0] && h.tile[1] === a.home[1]); }
-  doorOpen(a) { const h = this.homeOf(a); return !h || h.d.door?.[h.k] !== 0; }
+  // (mirando solo su trozo: se pregunta cada paso por cada animal)
+  doorOpen(a) {
+    const k = `${a.home?.[0]},${a.home?.[1]}`, d = a.home && this.world.delta(Math.floor(a.home[0] / CHUNK), Math.floor(a.home[1] / CHUNK));
+    return !d?.placed?.[k] || d.door?.[k] !== 0;
+  }
   get siloCap() { return this.placed('silo').length * SILO_CAP; }
   // Al segar con un silo puesto, el heno se guarda solo
   mowed() {
@@ -157,7 +165,7 @@ export class Ranch {
   add(type, name) {
     const def = ANIMALS[type], home = this.homes(def.home).find(h => h.free > 0);
     if (!home) return `Necesitas ${ITEMS[def.home].name.toLowerCase()} con sitio libre`;
-    this.animals.push(new Animal({ type, name: name || this.freeName(type), owner: me(), home: home.tile, x: home.tile[0] + 0.5, y: home.tile[1] + 1.5, born: this.today - GROW, outDay: this.today, breed: this.randomBreed(type) }));
+    this.animals.push(new Animal({ type, name: name || this.freeName(type), owner: me(), home: home.tile, born: this.today - GROW, outDay: this.today, breed: this.randomBreed(type) }));
     return null;
   }
   // /summon: uno de granja, sin casa (pasea por donde aparece), adulto y con nombre
@@ -198,7 +206,8 @@ export class Ranch {
       // De granja: fuera de día con la puerta abierta; dentro de noche, con lluvia, en invierno o con la puerta cerrada
       const out = !night && !bad && this.doorOpen(a) && !!a.home;
       if (out) a.outDay = this.today;
-      if (far) continue;
+      if (far) { if (!out && a.home) a.inside = true; continue; }   // (lejos: si tiene que estar dentro, ya lo está)
+      if (!out && a.inside) continue;                               // (dentro no hace nada ni se dibuja: no gasta)
       if (!a.home) { a.inside = false; a.roam(dt, this.world, a.x, a.y, 1); continue; }
       const [hx, hy] = a.home2;
       if (out) {
@@ -381,7 +390,7 @@ export class Ranch {
       if (!home) { news.push('Hay un polluelo a punto de salir, pero no cabe en ningún gallinero.'); continue; }
       delete inc.d.incub[inc.k];
       this.world.chestTouched(...inc.tile);
-      this.animals.push(new Animal({ type, name: ANIMALS[type].baby, named: false, home: home.tile, x: home.tile[0] + 0.5, y: home.tile[1] + 1.5, born: day, outDay: day, breed: this.randomBreed(type, true) }));
+      this.animals.push(new Animal({ type, name: ANIMALS[type].baby, named: false, home: home.tile, born: day, outDay: day, breed: this.randomBreed(type, true) }));
       news.push(`¡Ha salido ${an(ANIMALS[type].baby)} de la incubadora! Ya está en el gallinero: ponle nombre.`);
     }
   }
@@ -452,11 +461,18 @@ export class Ranch {
     a.at = [+x.toFixed(2), +y.toFixed(2)];
     this.game.onSave?.();
   }
+  // Por qué no salen aunque la puerta esté abierta (o nada)
+  stayIn() {
+    const T = this.days, h = T.hour;
+    if (T.season === 3) return 'Puerta abierta: en invierno se quedan dentro';
+    if (T.info.rain) return 'Puerta abierta: saldrán cuando pare de llover';
+    return h >= 19.5 || h < 6.5 ? 'Puerta abierta: saldrán por la mañana' : '';
+  }
   // El menú de una casa: quién vive en ella, abrir o cerrar la puerta (las que tienen) y asignarle uno de tus animales
   async houseMenu(o) {
     const g = this.game, kind = o.placed, house = ITEMS[kind].name, list = this.livingIn(o.tile), cap = PER_HOME[kind] || 4, who = this.assignable(kind, o.tile), opts = [];
     const d = this.world.delta(Math.floor(o.tile[0] / 16), Math.floor(o.tile[1] / 16), true), k = `${o.tile[0]},${o.tile[1]}`, open = d.door?.[k] !== 0;
-    if (DOORS.has(kind)) opts.push([`${open ? 'Cerrar' : 'Abrir'} la puerta`, () => { d.door ||= {}; if (open) d.door[k] = 0; else delete d.door[k]; this.world.chestTouched(...o.tile); Audio.door(); g.gather.float(open ? 'Puerta cerrada: se quedan dentro' : 'Puerta abierta: saldrán de día', '#fff3c0'); }]);
+    if (DOORS.has(kind)) opts.push([`${open ? 'Cerrar' : 'Abrir'} la puerta`, () => { d.door ||= {}; if (open) d.door[k] = 0; else delete d.door[k]; this.world.touch(Math.floor(o.tile[0] / 16), Math.floor(o.tile[1] / 16)); Audio.door(); g.gather.float(open ? 'Puerta cerrada: entran y se quedan dentro' : this.stayIn() || 'Puerta abierta: ya salen', '#fff3c0'); }]);
     if (who.length && list.length < cap) opts.push(['Asignar un animal', () => this.assignMenu(o, who)]);
     opts.push(['Nada', null]);
     const note = list.length >= cap ? ' Está llena.' : who.length ? '' : ' No tienes más animales que puedan vivir aquí.';

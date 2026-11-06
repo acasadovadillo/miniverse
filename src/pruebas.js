@@ -1,17 +1,21 @@
 // Pruebas automáticas del juego. Las lanza probar.py en un Chrome invisible con ?modo=pruebas: el juego arranca con
 // una cuenta de prueba (sin contraseña ni GitHub: nada se guarda fuera de este navegador) y una partida nueva, y va
-// haciendo lo básico (recolectar, pisotear la tierra labrada, el hambre, el pueblo seguro, fabricar, colocar, cofres, puertas, comandos, mapas, cocos, la noria, las
+// haciendo lo básico (recolectar, pisotear la tierra labrada, el hambre, el pueblo seguro, los primeros pasos, fabricar, colocar, cofres, puertas, comandos, mapas, cocos, la noria, las
 // casas de los animales, las vallas, guardar y cargar) comprobando que pasa lo que tiene que pasar. Cada prueba se cuenta a probar.py (POST /pruebas) y sale
 // también en la consola. Con &parte=dos&relay=ws://…, dos juegos (quien=a, el anfitrión, y quien=b, el invitado)
 // comparten un mundo por el relay de pruebas y comprueban que cada uno ve lo que pone el otro.
 import { Profile } from './accounts.js';
+import { distTo } from './world/fit.js';
 import { ITEMS } from './items.js';
 import { RECIPES } from './recipes.js';
 import { runCommand } from './commands.js';
 import { CHUNK } from './world/gen.js';
 import { B, BIOMES } from './world/biomes.js';
 import { paintPixels } from './world/ground.js';
-import { HOUSE, BOUNDS, CENTER, inBounds } from './world/village.js';
+import { retireItems } from './game.js';
+import { HOUSE, HOUSES, POND, YARD, BOUNDS, CENTER, WORKSHOP, inBounds } from './world/village.js';
+import { collide as collideNow } from './physics.js';
+import { STEPS } from './steps.js';
 import { machineAt, settle, MACHINES } from './machines.js';
 import { hud } from './ui/hud.js';
 import { freePlace } from './gather.js';
@@ -19,6 +23,7 @@ import { PIECE_IDS } from './build.js';
 import { itemIcon } from './art/items.js';
 import { modelKind, ICON3D } from './three/icons.js';
 
+const GATE_X = 20;   // (el hueco de la valla del jardín, en el camino)
 const q = new URLSearchParams(location.search), WHO = q.get('quien') || 'a', RELAY = q.get('relay'), PART = q.get('parte') || 'solo';   // parte: 'solo' (un jugador), 'dos' o 'mirar' (sin pruebas: el juego con la cuenta de prueba, para verlo)
 const LOOK = { sex: 'chica', hairStyle: 'trenzas', hair: '#2a1e1e', skin: '#c98a5a', outfit: 'delantal', cloth: '#b84a8a', pants: '#4a3a2a', eyes: '#3a2a1e' };
 const TEST_TIMEOUT = 25000, LOAD_TIMEOUT = 90000;
@@ -108,7 +113,12 @@ async function harvest(game, o, tool) {
   const alive = () => w.harvestablesNear(o.x, o.y).some(k => k.key === o.key);
   for (let i = 0; i < 20 && alive(); i++) { game.gather.cooldown = 0; game.gather.target = game.gather.pickTarget(); check(game.gather.target?.obj, `no apunto a ${o.kind}`); game.gather.use(); await frames(2); }
   check(!alive(), `${o.kind} sigue ahí`);
-  await until(() => !game.gather.drops.length, 8000, 'a recoger lo que ha caído');   // (lo que cae vuela hasta el jugador)
+  await collectDrops(game);
+}
+// Recoger lo que ha caído (vuela hasta el jugador si está cerca; con el ordenador lento tarda, y lo que cae lejos no
+// vendría: se va a por ello)
+async function collectDrops(game, what = 'a recoger lo que ha caído') {
+  await until(() => { const d = game.gather.drops[0]; if (d) { game.player.x = d.x; game.player.y = d.y; } return !game.gather.drops.length; }, 30000, what);
 }
 function freeTile(game, from) {
   const w = game.world, p = game.player;
@@ -199,6 +209,44 @@ async function soloTests(game) {
     check(!game.craft.problem(banco), `banco: ${game.craft.problem(banco)}`);
     game.craft.craft(banco, 1); check(inv().count('banco') === 1, 'no hay banco');
   });
+  await test('casas grandes: caben, la puerta los mete dentro y los saca', async () => {
+    await goTo(game, 60, 36);
+    const R = game.ranch, keep = [...R.animals], was = hud.ask, Rp = Object.getOwnPropertyDescriptor(R, 'days');
+    const noon = { hour: 12, info: { rain: false }, season: 1, dayIndex: game.days.dayIndex };
+    Object.defineProperty(R, 'days', { get: () => noon, configurable: true });
+    let f = null;
+    for (let dx = -8; dx <= 8 && !f?.ok; dx += 2) for (let dy = -10; dy <= 8 && !f?.ok; dy += 2) f = w().fitFree('establo', 60 + dx, 36 + dy, 0, 0, null);
+    check(f?.ok, `el establo no cabe: ${f?.why}`);
+    w().placeFree('establo', f);
+    const house = w().placedNear(f.ox, f.oy, 3).find(o => o.placed === 'establo'); check(house?.obb, 'no está el establo colocado');
+    check(house.obb.hx >= 1.9 && house.obb.hy >= 1.4, `es pequeño: ${house.obb.hx}×${house.obb.hy}`);
+    let want = '';
+    hud.ask = (who, text, options) => { const i = options.findIndex(o => o.includes(want)); check(i >= 0, `el menú no ofrece «${want}»: ${options.join(' | ')}`); return Promise.resolve(i); };
+    try {
+      for (const n of ['Lola', 'Rosa', 'Nube', 'Trufa']) check(!R.add('vaca', n), `no se puede traer a ${n}`);
+      const cows = R.animals.filter(a => a.home?.[0] === house.tile[0] && a.home?.[1] === house.tile[1]); check(cows.length === 4, `viven ${cows.length}`);
+      const [hx, hy] = cows[0].home2;
+      check(distTo(house.obb, hx, hy) > 0.3, `se sale dentro de la casa: a ${distTo(house.obb, hx, hy)} de la pared`);
+      cows.forEach((a, i) => { a.x = a.tx = hx + i - 1.5; a.y = a.ty = hy + 1 + i * 0.5; a.inside = false; });
+      await frames(5);
+      check(cows.every(a => !a.inside) && cows.every(a => R.entities(w()).includes(a)), 'de día no están fuera');
+      // Cerrar: entran todas y dejan de estar en el mapa
+      want = 'Cerrar la puerta'; await R.houseMenu(house);
+      check(w().placedObjectAt(...house.tile)?.model === 'establo:shut', 'la puerta no se ve cerrada');
+      await until(() => cows.every(a => a.inside), 20000, 'a que entren');
+      check(!cows.some(a => R.entities(w()).includes(a)), 'siguen en el mapa con la puerta cerrada');
+      const at = cows.map(a => [a.x, a.y]); await frames(20); check(cows.every((a, i) => a.x === at[i][0] && a.y === at[i][1]), 'dentro siguen moviéndose');
+      // Abrir: salen. De noche, no
+      noon.hour = 22; want = 'Abrir la puerta'; await R.houseMenu(w().placedObjectAt(...house.tile));
+      await frames(5); check(cows.every(a => a.inside), 'salen de noche');
+      noon.hour = 12; await until(() => cows.every(a => !a.inside), 8000, 'a que salgan');
+      check(cows.every(a => R.entities(w()).includes(a)), 'al abrir no vuelven al mapa');
+      check(!w().placedObjectAt(...house.tile)?.model, 'la puerta no se ve abierta');
+    } finally {
+      hud.ask = was; R.animals = keep; if (Rp) Object.defineProperty(R, 'days', Rp); else delete R.days;
+      const o = w().placedObjectAt(...house.tile); if (o) { game.pickUp(o); inv().remove('establo', 1); }
+    }
+  });
   await test('colocar: el banco se pone libre, se usa y se recoge', async () => {
     await goTo(game, 60, 36);
     const f = w().fitFree('banco', p().x + 1.5, p().y, 0, 0, p()); check(f.ok, `no cabe: ${f.why}`);
@@ -207,9 +255,9 @@ async function soloTests(game) {
     const o = w().placedNear(p().x, p().y, 3).find(o => o.placed === 'banco'); check(o, 'no se encuentra el banco colocado');
     check(game.pickUp(o), 'no se recoge'); check(inv().count('banco') === 1, 'el banco no ha vuelto a la mochila');
     // Tirado al suelo se ve como el modelo en miniatura (no como icono hecho pieza) y vuelve solo a la mochila
-    inv().remove('banco', 1); game.gather.throwOut('banco', 1); check(inv().count('banco') === 0 && game.gather.drops.length === 1, 'no se ha tirado');
+    await collectDrops(game); inv().remove('banco', 1); game.gather.throwOut('banco', 1); check(inv().count('banco') === 0 && game.gather.drops.length === 1, 'no se ha tirado');
     draw(); const fx = game.view3d.fx, shown = fx.drops.get(game.gather.drops[0]); check(shown?.s?.isGroup, 'en el suelo no está el modelo en miniatura');
-    await until(() => !game.gather.drops.length, 8000, 'a recoger el banco'); check(inv().count('banco') === 1, 'el banco tirado no ha vuelto');
+    await collectDrops(game, 'a recoger el banco'); check(inv().count('banco') === 1, 'el banco tirado no ha vuelto');
   });
   await test('cofre: guarda cosas y lleno no se recoge', async () => {
     const [tx, ty] = freeTile(game, [[62, 38], [63, 38], [62, 39], [61, 38]]);
@@ -397,6 +445,96 @@ async function soloTests(game) {
     const legend = document.getElementById('map-legend-rows').textContent; check(legend.includes('Tu casa') && legend.includes('Pradera'), `leyenda: ${legend}`);
     M.recenter(); M.zoom = was; M.people = [];
   });
+  await test('primeros pasos: se cumplen de uno en uno, con recompensa, y se guardan', async () => {
+    const S = game.steps, st = game.stats, was = { i: S.i, base: S.base, pay: S.pay }, equip = inv().equip.espalda;
+    S.reset({}); check(S.i === 0 && S.pay && !S.over, 'una partida nueva no empieza por el primero');
+    S.reset({ inventory: {} }); check(S.over, 'a una partida de antes le salen');
+    S.reset({ steps: { i: 3, base: 7 } }); check(S.i === 3 && S.base === 7 && S.pay, 'no se recupera lo guardado');
+    const out = {}; S.save(out); check(out.steps.i === 3 && out.steps.base === 7, 'no se guarda');
+    const money = game.money;
+    S.reset({}); S.check(); check(document.getElementById('quest').hidden === false && document.getElementById('quest-text').textContent.length > 3, 'no se ve lo que toca');
+    const doing = {
+      nilo: () => game.craft.teach('banco'), segar: () => st.add('segados', 3), mochila: () => { inv().equip.espalda = { id: 'mochila', color: ITEMS.mochila.dye }; }, talar: () => st.add('talados', 1),
+      tablas: () => inv().add('tablas', 6), picar: () => st.add('picados', 1), banco: () => st.add('estaciones', 1), dormir: () => st.add('dormido', 1), labrar: () => st.add('labrados', 3), sembrar: () => st.add('sembrados', 1),
+    };
+    const total = STEPS.reduce((n, s) => n + (s.skip?.(game) ? 0 : s.money || 0), 0);
+    for (let guard = 0; !S.over && guard < STEPS.length + 2; guard++) {
+      const before = S.i, step = S.step;
+      S.check(); if (S.i !== before) continue;   // (ya estaba hecho, como hablar con Nilo: ya no se pide)
+      if (step.stat) { const p = S.progress(); st.add(step.stat, p[1] - 1); S.check(); check(S.i === before, `${step.id} se da por hecho sin terminarlo`); st.add(step.stat, 1); }
+      else if (step.id === 'taller') { p().x = WORKSHOP.x0 + 3; p().y = WORKSHOP.y0 + 3; }
+      else doing[step.id]?.();
+      S.check(); check(S.i > before, `${step.id} no se cumple`);
+    }
+    check(S.over, `no se terminan: va por ${S.i}`);
+    check(game.money === money + total, `recompensas: ${game.money - money}, esperaba ${total}`);
+    check(document.getElementById('quest').hidden, 'al terminar sigue viéndose');
+    const paid = game.money; S.restart(); check(!S.over && !S.pay, 'no se pueden repasar'); S.check(); doing.segar();
+    for (let guard = 0; !S.over && guard < 30; guard++) { const step = S.step; if (step.stat) st.add(step.stat, step.need); else if (step.id === 'taller') { p().x = WORKSHOP.x0 + 3; p().y = WORKSHOP.y0 + 3; } S.check(); }
+    check(S.over && game.money === paid, 'al repasarlos también pagan');
+    check(game.steps.journal().includes('Repasarlos'), 'el diario no los lista');
+    inv().equip.espalda = equip; inv().changed(); S.reset({ steps: was }); await goTo(game, 60, 36);
+  });
+  await test('puerta de valla: se une, empieza cerrada, se abre, y se recoge', async () => {
+    await goTo(game, 60, 36);
+    let y = null, x0 = null;
+    for (let ty = 30; ty < 50 && y === null; ty++) for (let tx = 56; tx < 80 && y === null; tx++) if ([0, 1, 2].every(i => w().canPlace(tx + i, ty, 'valla', null)) && [0, 1, 2].every(i => w().canPlace(tx + i, ty + 1, 'valla', null)) && [0, 1, 2].every(i => w().canPlace(tx + i, ty - 1, 'valla', null))) { x0 = tx; y = ty; }
+    check(y !== null, 'no hay sitio para el cercado');
+    const gx = x0 + 1, blocks = (px, py) => { const q = { x: px, y: py }; collideNow(q, w().collidersNear(px, py), 0.25); return Math.hypot(q.x - px, q.y - py) > 0.01; };
+    inv().add('puerta_valla', 1); inv().selected = inv().slots.findIndex(s => s?.id === 'puerta_valla'); inv().changed();
+    w().place(x0, y, 'valla'); w().place(x0 + 2, y, 'valla');
+    p().x = gx + 0.5; p().y = y + 1.4; p().face = { x: 0, y: -1 }; await frames(2);
+    game.gather.cooldown = 0; game.gather.target = game.gather.pickTarget(); check(game.gather.target?.ok && game.gather.target.tile[0] === gx && game.gather.target.tile[1] === y, 'no apunta al hueco de la valla'); game.gather.use(); await frames(1);
+    check(w().ownAt('placed', gx, y) === 'puerta_valla', 'no se ha colocado (o lleva giro)'); check(inv().count('puerta_valla') === 0, 'no se ha gastado');
+    const gate = w().contentFor(Math.floor(gx / CHUNK), Math.floor(y / CHUNK)).objects.find(o => o.tile?.[0] === gx && o.tile?.[1] === y);
+    check(gate?.door === 'x' && gate.gate, `no va en la línea de las vallas: ${gate?.door}`);
+    check(w().doorClosed(gx, y) && blocks(gx + 0.5, y + 0.5), 'no empieza cerrada');
+    check(game.doorAction([gx, y]).text === 'Abrir la puerta de valla', `dice: ${game.doorAction([gx, y]).text}`);
+    await frames(2); game.doorAction([gx, y]).run(); await frames(2);
+    check(!w().doorClosed(gx, y) && !blocks(gx + 0.5, y + 0.5), 'abierta no se puede pasar');
+    check(w().collidersNear(x0 + 1, y + 0.5).some(c => c.low && c.x0 === x0 + 0.5), 'la valla no se une a la puerta');
+    const a = game.doorAction([gx, y]); check(a.alt?.text.includes('Recoger'), 'no se puede recoger'); a.alt.run();
+    check(!w().ownAt('placed', gx, y) && inv().count('puerta_valla') === 1, 'no ha vuelto a la mochila'); check(!w().doorClosed(gx, y), 'se queda apuntada como cerrada');
+    inv().remove('puerta_valla', 1); w().setTile(x0, y, 'air'); w().setTile(x0 + 2, y, 'air');
+    const r = RECIPES.find(r => r.id === 'puerta_valla'); check(r && r.station === 'banco', 'no se fabrica en el banco'); check(PIECE_IDS.includes('puerta_valla'), 'no está en la paleta');
+  });
+  await test('vallas del jardín: se recogen, vuelven a ponerse y no las de otros', async () => {
+    let t = null; for (const [x, yy] of [[YARD.x0, YARD.y0 + 5], [YARD.x0, YARD.y0 + 6], [YARD.x0 + 1, YARD.y0]]) if (w().yardFenceAt(x, yy)) { t = [x, yy]; break; }
+    check(t, 'no hay valla en el jardín');
+    await goTo(game, t[0] + 3.5, t[1] + 0.5);
+    const [tx, ty] = t, keep = inv().count('valla'), find = () => w().contentFor(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK)).objects.find(o => o.tile?.[0] === tx && o.tile?.[1] === ty);
+    const o = find(); check(o?.yard && o.fixed && o.fence, `no se reconoce como valla del jardín: ${JSON.stringify(o)}`);
+    check(game.pickUp(o), 'no se recoge'); check(inv().count('valla') === keep + 1, 'no ha vuelto a la mochila');
+    check(!w().pieceAt(tx, ty) && !find(), 'sigue ahí');
+    check(w().delta(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK)).gone?.[`${tx},${ty}`], 'no queda apuntado');
+    check(!w().collidersNear(tx + 0.5, ty + 0.5).some(c => c.low && c.x === tx + 0.5 && c.y === ty + 0.5), 'sigue chocando');
+    check(!game.pickUp({ tile: [HOUSES.rosa.x0, HOUSES.rosa.y0], layer: 'placed', placed: 'muro_entramado', fixed: true }), 'se ha recogido un muro de un vecino');
+    check(w().canPlace(tx, ty, 'valla', p()), 'no se puede volver a poner'); w().place(tx, ty, 'valla'); check(w().ownAt('placed', tx, ty) === 'valla' && w().pieceAt(tx, ty)?.kind === 'fence', 'no se ha vuelto a poner');
+    const hole = [GATE_X, YARD.y1 - 1]; check(w().canPlace(hole[0], hole[1], 'puerta_valla', null), 'en el hueco del jardín no cabe la puerta');
+    check(!w().canPlace(hole[0], hole[1], 'silla', null), 'en el camino del jardín cabe cualquier cosa');
+    w().setTile(tx, ty, 'air'); delete w().delta(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK)).gone[`${tx},${ty}`]; w().touchAround(tx, ty); inv().remove('valla', 1);
+  });
+  await test('pesca: un clic lanza y otro saca el pez cuando pica', async () => {
+    const F = game.fishing, peces = game.stats.get('peces');
+    inv().add('cana', 1); inv().selected = inv().slots.findIndex(s => s?.id === 'cana'); inv().changed();
+    await goTo(game, POND.x, POND.y - POND.ry - 0.6); p().x = POND.x; p().y = POND.y - POND.ry - 0.6; p().vx = p().vy = 0; p().face = { x: 0, y: 1 }; await frames(2);
+    const use = () => { game.gather.cooldown = 0; game.gather.target = game.gather.pickTarget(); check(game.gather.target?.use, `la caña no apunta al agua: ${game.gather.target?.label}`); game.gather.target.use(); };
+    use(); check(F.state?.phase === 'wait', 'un clic no lanza'); F.state.t = 99; await frames(2);
+    use(); check(!F.state, 'pulsar antes de que pique no recoge el sedal'); check(game.stats.get('peces') === peces, 'ha salido un pez sin picar');
+    use(); F.state.fly = 1; F.state.t = 0.01; await frames(3); check(F.state?.phase === 'bite', 'no pica');
+    use(); check(!F.state && game.stats.get('peces') === peces + 1, 'al clic no sale el pez'); await collectDrops(game, 'a recoger el pez');
+    await frames(2); game.gather.cooldown = 0; game.gather.target = game.gather.pickTarget(); p().x = POND.x; p().y = POND.y - POND.ry - 0.6; p().face = { x: 0, y: 1 }; await frames(2);
+    use(); F.state.fly = 1; F.state.t = 0.01; await frames(3); F.state.t = 0.01; await frames(3); check(!F.state && game.stats.get('peces') === peces + 1, 'tardando, también sale');
+    inv().remove('cana', 1); check(!ITEMS.mesa_encantar && !document.getElementById('fishbar'), 'quedan restos');
+  });
+  await test('mesa de encantar retirada: al cargar se quita y se devuelven sus materiales', async () => {
+    const cx = 100, cy = 100, k = `${cx},${cy}`, deltas = new Map([[k, { removed: {}, tilled: {}, v: 0, placed: { '1600,1600': 'mesa_encantar@1', '1601,1600': 'silla' }, pos: { 'placed:1600,1600': [1, 2, 3] }, chest: { '1602,1600': [{ id: 'mesa_encantar', n: 1 }, { id: 'madera', n: 2 }] } }]]);
+    const save = game.snapshot(); save.inventory.slots = [{ id: 'mesa_encantar', n: 1 }, ...save.inventory.slots.slice(1)];
+    const before = save.inventory.slots.length, owed = retireItems(save, deltas), d = deltas.get(k);
+    check(!d.placed['1600,1600'] && d.placed['1601,1600'] === 'silla' && !d.pos['placed:1600,1600'], 'no se ha quitado la del mundo'); check(d.chest['1602,1600'][0] === null && d.chest['1602,1600'][1].id === 'madera', 'no se ha quitado la del cofre');
+    check(save.inventory.slots[0] === null && save.inventory.slots.length === before, 'no se ha quitado la de la mochila');
+    const count = id => owed.filter(o => o[0] === id).reduce((n, o) => n + o[1], 0); check(count('amatista') === 12 && count('tablas') === 18 && count('lingote_hierro') === 6, `devuelve: ${JSON.stringify(owed)}`);
+  });
   await test('guardar y cargar: la partida vuelve igual', async () => {
     await goTo(game, 40, 40);
     inv().add('bayas', 7);
@@ -435,8 +573,23 @@ async function soloTests(game) {
 
 // ---------- dos jugadores por el relay ----------
 const CHEST = [19, 13], CHAIR = [20, 13];   // (dentro de la casa del pueblo)
+// Lo que se oye por el chat (desde el principio, para no perder ningún aviso)
+function listen(l) {
+  const seen = [], old = l.say;
+  l.say = (t, k) => { seen.push(t); old?.(t, k); };
+  return { heard: w => seen.find(t => t.includes(w)) };
+}
+// Un sitio con agua alrededor, cerca de un río
+function riverSpot(game) {
+  const w = game.world;
+  for (let r = 60; r < 400; r += 4) for (let a = 0; a < 64; a++) {
+    const x = Math.round(21 + Math.cos(a / 64 * 6.283) * r), y = Math.round(24 + Math.sin(a / 64 * 6.283) * r);
+    if (w.water(x, y) && w.water(x + 1, y) && w.water(x - 1, y) && w.water(x, y + 1) && w.water(x, y - 1)) return [x, y];
+  }
+  return null;
+}
 async function hostTests(game) {
-  const l = game.live;
+  const l = game.live, { heard } = listen(l);
   await test('dos: el anfitrión entra en el relay', async () => {
     await l.connect(RELAY); await until(() => l.status === 'on', 15000, 'el relay');
     l.join(null, 'host'); await frames(5); check(l.role === 'host', 'no lleva el mundo');
@@ -447,9 +600,8 @@ async function hostTests(game) {
     game.world.place(...CHEST, 'cofre'); game.world.chestAt(...CHEST)[0] = { id: 'madera', n: 5 }; game.world.chestTouched(...CHEST);
   });
   await test('dos: llega el invitado y ve el cofre', async () => {
-    const seen = []; const old = l.say; l.say = (t, k) => { seen.push(t); old?.(t, k); };   // (desde antes de que llegue: si no, el aviso se puede perder)
     await until(() => l.others.some(o => o.playing), 90000, 'al invitado');
-    await until(() => seen.some(t => t.includes('COFRE-VISTO')), 30000, 'el aviso del invitado');
+    await until(() => heard('COFRE-VISTO'), 30000, 'el aviso del invitado');
   });
   await test('dos: la silla que pone el invitado aparece aquí', async () => {
     const got = [], refused = [], oa = l.applyChunk.bind(l), or = l.refuse.bind(l);
@@ -458,9 +610,77 @@ async function hostTests(game) {
     finally { l.applyChunk = oa; l.refuse = or; }
     l.chat('SILLA-VISTA');
   });
+  const guest = () => l.others.find(o => o.playing);
+  await test('dos: en la barca caben dos', async () => {
+    const spot = riverSpot(game), me = game.player; check(spot, 'no hay un río cerca');
+    await goTo(game, ...spot); me.boat = true;
+    l.chat(`BARCA ${spot[0]} ${spot[1]}`);
+    await until(() => guest()?.entity?.aboard === Profile.id, 70000, 'a que se suba a la barca');
+    check(guest().entity.boat === false, 'el pasajero lleva su propia barca');
+    me.x += 0.6; me.faceTo(1, 0); me.face = { x: 1, y: 0 };
+    l.chat('REMO');
+  });
+  await test('dos: quien va de pasajero baja con quien rema', async () => {
+    const me = game.player;
+    await until(() => heard('SIGUE'), 70000, 'a que me siga');
+    const w = game.world;
+    let land = null; for (let r = 1; r < 60 && !land; r++) for (let a = 0; a < 16 && !land; a++) { const x = me.x + Math.cos(a / 16 * 6.283) * r, y = me.y + Math.sin(a / 16 * 6.283) * r; if (!w.water(x, y) && !w.blocked(x, y)) land = [x, y]; }
+    check(land, 'no hay tierra cerca');
+    me.boat = false; me.x = land[0]; me.y = land[1];
+    await until(() => heard('EN-TIERRA'), 70000, 'a que baje');
+  });
+  await test('dos: la cama doble, cada uno a un lado', async () => {
+    const H = game.houseRect(), w = game.world, F = game.family, me = game.player;
+    await goTo(game, (H.x0 + H.x1) / 2, (H.y0 + H.y1) / 2);
+    const fit = id => { for (let y = H.y0 + 1; y < H.y1 - 1; y += 0.5) for (let x = H.x0 + 1; x < H.x1 - 1; x += 0.5) { const f = w.fitFree(id, x, y, 0, 0, null); if (f.ok) return f; } return null; };
+    const cuna = fit('cuna'); check(cuna, 'no cabe la cuna'); w.placeFree('cuna', cuna);
+    const bed = fit('cama_doble'); check(bed, 'no cabe la cama doble'); w.placeFree('cama_doble', bed); await frames(2);
+    const o = w.placedNear(me.x, me.y, 16).find(o => o.placed === 'cama_doble'); check(o, 'no está la cama');
+    check(F.furniture('cuna').length && !F.why(), `no se puede: ${F.why()}`);
+    me.x = o.x; me.y = o.y + 2; game.rest.lie(o); check(me.pose?.kind === 'lie' && game.rest.twin, 'no se tumba en un lado');
+    l.chat(`CAMA ${o.x.toFixed(2)} ${o.y.toFixed(2)}`);
+    // Con alguien del mismo sexo al otro lado no sale el corazón
+    await until(() => heard('TUMBADA-ELLA'), 70000, 'a que se tumbe la otra');
+    await until(() => guest()?.entity?.pose?.kind === 'lie', 20000, 'verla tumbada');
+    await frames(10); check(!F.pair && document.getElementById('love').hidden, 'sale el corazón con alguien del mismo sexo');
+    l.chat('SIN-CORAZON');
+  });
+  await test('dos: los dos pulsan el corazón y sale la escena', async () => {
+    const F = game.family;
+    await until(() => F.pair && guest().entity?.look?.sex === 'chico', 70000, 'a que se tumbe él y salga el corazón');
+    check(!document.getElementById('love').hidden, 'no se ve el corazón');
+    document.getElementById('love-heart').click();
+    check(F.pair.mine && !F.scene && !F.v.expecting, 'con uno solo no vale');
+    await until(() => F.scene, 40000, 'a que él pulse el suyo');
+    check(document.getElementById('love').hidden, 'el corazón sigue durante la escena');
+    await until(() => F.hearts.length > 3, 10000, 'los corazones');
+    check(F.v.expecting?.mother === Profile.id && F.v.expecting.looks.length === 2, `no está embarazada ella: ${JSON.stringify(F.v.expecting)}`);
+    check(F.bellyOf(game.player) === 0, 'la barriga se nota el primer día');
+    F.scene.t = 999; await frames(2); check(!F.scene, 'la escena no se acaba');
+    F.hearts.forEach(h => { h.t = h.life; }); await frames(2); check(!F.hearts.length, 'los corazones no se van');
+  });
+  await test('dos: la barriga crece y nace el bebé', async () => {
+    const F = game.family, me = game.player, x = F.v.expecting, n = F.v.kids.length, ask = hud.askText;
+    x.since = F.today - 3; await frames(8);
+    check(Math.abs(F.bellyOf(me) - 0.5) < 0.01, `a los 3 días: ${F.bellyOf(me)}`);
+    const P = () => game.view3d.actors.models.get(me)?.person;
+    draw(); check(P()?.bellyMesh?.visible, 'no se le ve la barriga');
+    const small = P().bellyMesh.scale.z; x.since = F.today - 6; await frames(2); draw();
+    check(P().bellyMesh.scale.z > small, 'no crece');
+    await until(() => heard('BARRIGA-VISTA'), 70000, 'a que él la vea');
+    hud.askText = (a, b, name) => Promise.resolve(name);
+    try {
+      game.rest.stand(); F.onDay(x.since + 7);
+      check(F.v.kids.length === n + 1 && !F.v.expecting, 'no nace');
+      await until(() => F.v.kids.at(-1).named !== false, 8000, 'el nombre');
+      draw(); check(F.bellyOf(me) === 0 && !P().bellyMesh.visible, 'sigue la barriga después de nacer');
+    } finally { hud.askText = ask; }
+    l.chat('NACIDO');
+    await until(() => heard('NACIDO-VISTO'), 70000, 'a que él lo vea');   // (si no se sigue jugando, no le llega)
+  });
 }
 async function guestTests(game) {
-  const l = game.live;
+  const l = game.live, { heard } = listen(l);
   await test('dos: el invitado entra en el mundo del anfitrión', async () => {
     await l.connect(RELAY); await until(() => l.status === 'on', 15000, 'el relay');
     await until(() => l.host?.playing, 60000, 'a que el anfitrión juegue');
@@ -480,10 +700,70 @@ async function guestTests(game) {
   await test('dos: pone una silla y el anfitrión la ve', async () => {
     await goTo(game, CHAIR[0] + 0.5, CHAIR[1] + 1.5);
     game.world.place(...CHAIR, 'silla');
-    const seen = []; const old = l.say; l.say = (t, k) => { seen.push(t); old?.(t, k); };
     await frames(30);
     const how = () => `pendientes ${l.pending.size}, aquí hay ${game.world.at('placed', ...CHAIR)}, estado ${l.status}, anfitrión ${l.hostConn}, invitado ${l.guest}`;
-    await until(() => seen.some(t => t.includes('SILLA-VISTA')), 150000, `el aviso del anfitrión (${how()})`);
+    await until(() => heard('SILLA-VISTA'), 150000, `el aviso del anfitrión (${how()})`);
+  });
+  const nums = (word) => { const t = heard(word); return t.slice(t.indexOf(word) + word.length).trim().split(' ').map(Number); };
+  await test('dos: se sube a la barca del otro', async () => {
+    await until(() => heard('BARCA '), 70000, 'la barca');
+    const [x, y] = nums('BARCA '), me = game.player;
+    await goTo(game, x, y + 1.2);
+    const act = await until(() => l.host?.entity?.boat && game.crew.interact(me, game.world), 30000, 'poder subir');
+    check(act.text.includes('Subir a la barca'), `dice: ${act.text}`);
+    act.run(); check(me.aboard, 'no va a bordo');
+    await frames(10);
+    const host = l.host.entity, d = () => Math.hypot(host.x - me.x, host.y - me.y);
+    check(Math.abs(d() - 0.7) < 0.1, `no va en su banco: a ${d()}`);
+    check(me.toSave().boat, 'guardando en la barca de otro, se ahogaría');
+    const at = [me.x, me.y];
+    await until(() => heard('REMO'), 70000, 'a que reme');
+    await until(() => Math.hypot(me.x - at[0], me.y - at[1]) > 0.3, 30000, 'que la barca me lleve');
+    check(Math.abs(d() - 0.7) < 0.15, `se queda atrás: a ${d()}`);
+    l.chat('SIGUE');
+  });
+  await test('dos: baja cuando baja quien rema', async () => {
+    const me = game.player;
+    await until(() => !me.aboard, 70000, 'a bajar');
+    check(!me.boat && !game.world.water(me.x, me.y), 'no ha bajado a tierra');
+    l.chat('EN-TIERRA');
+  });
+  await test('dos: se tumba al otro lado; del mismo sexo, sin corazón', async () => {
+    const me = game.player;
+    await until(() => heard('CAMA '), 70000, 'la cama');
+    const [x, y] = nums('CAMA ');
+    await goTo(game, x, y + 2);
+    const o = await until(() => game.world.placedNear(x, y, 3).find(o => o.placed === 'cama_doble'), 40000, 'ver la cama');
+    await until(() => l.host?.entity?.pose?.kind === 'lie', 20000, 'verla tumbada');
+    game.rest.lie(o);
+    check(me.pose?.kind === 'lie' && game.rest.twin, 'no se tumba');
+    const host = l.host.entity; check(Math.hypot(host.x - me.x, host.y - me.y) > 0.6, `en el mismo lado: a ${Math.hypot(host.x - me.x, host.y - me.y)}`);
+    l.chat('TUMBADA-ELLA');
+    await until(() => heard('SIN-CORAZON'), 70000, 'el aviso');
+    check(!game.family.pair, 'sale el corazón con alguien del mismo sexo');
+    game.rest.stand();
+    me.look = { ...me.look, sex: 'chico' };   // (ahora, de chico)
+    await frames(10);
+    me.x = x; me.y = y + 2; game.rest.lie(o); check(me.pose?.kind === 'lie', 'no se tumba otra vez');
+  });
+  await test('dos: los dos pulsan el corazón y queda embarazada ella', async () => {
+    const F = game.family, me = game.player, host = () => l.host?.entity;
+    await until(() => F.pair, 40000, 'el corazón');
+    await until(() => F.theirs === F.pair?.conn, 40000, 'a que ella pulse el suyo');
+    document.getElementById('love-heart').click();
+    check(F.scene, 'no sale la escena');
+    await until(() => F.v.expecting, 40000, 'la noticia');
+    check(F.v.expecting.mother === 'prueba_a', `la madre es ${F.v.expecting.mother}`);
+    check(F.bellyOf(me) === 0, 'la barriga le sale a él');
+    F.scene && (F.scene.t = 999); await frames(2);
+    await until(() => F.bellyOf(host()) > 0, 40000, 'ver que le crece la barriga');
+    const P = () => game.view3d.actors.models.get(host())?.person;
+    await until(() => { draw(); return P()?.bellyMesh?.visible; }, 20000, 'verle la barriga');
+    check(!game.view3d.actors.models.get(me)?.person?.bellyMesh?.visible, 'a él también');
+    l.chat('BARRIGA-VISTA');
+    await until(() => heard('NACIDO'), 70000, 'el nacimiento');
+    await until(() => F.v.kids.length > 0 && !F.v.expecting && F.bellyOf(host()) === 0, 40000, 'que nazca aquí también');
+    l.chat('NACIDO-VISTO');
   });
 }
 

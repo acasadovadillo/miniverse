@@ -39,7 +39,7 @@ export class Player extends Person {
   get airborne() { return this.z > 0; }
   // Saltar (desde el suelo; en barca no)
   jump() {
-    if (this.boat || this.z > 0) return;
+    if (this.boat || this.aboard || this.z > 0) return;
     this.vz = JUMP * (this.mount ? 1.1 : 1);
     this.z = 0.001;
     this.onExert?.(0.05);
@@ -90,6 +90,6 @@ export class Player extends Person {
   }
   stop() { this.vx = this.vy = 0; }
   toSave() {
-    return { name: this.name, look: this.look, x: +this.x.toFixed(2), y: +this.y.toFixed(2), inside: this.inside, view: this.view === 'side' ? 'front' : this.view, boat: !!this.boat, mount: !!this.mount, horseId: this.horseId, horseCoat: this.horseCoat, horseBags: this.horseBags, spawn: this.spawn };
+    return { name: this.name, look: this.look, x: +this.x.toFixed(2), y: +this.y.toFixed(2), inside: this.inside, view: this.view === 'side' ? 'front' : this.view, boat: !!this.boat || !!this.aboard, mount: !!this.mount, horseId: this.horseId, horseCoat: this.horseCoat, horseBags: this.horseBags, spawn: this.spawn };
   }
 }

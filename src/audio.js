@@ -56,6 +56,7 @@ export const Audio = {
   error: () => tone([[160, 0.1, 'sawtooth', 0.04]]),
   place() { Audio.noiseHit(220, 0.1, 0.35); tone([[140, 0.08, 'triangle', 0.08]]); },
   craft() { Audio.clink(); setTimeout(() => tone([[660, 0.05, 'square', 0.03], [880, 0.05, 'square', 0.03], [1320, 0.08, 'square', 0.03]]), 120); },
+  love: () => tone([[523, 0.22, 'sine', 0.06], [659, 0.22, 'sine', 0.06], [784, 0.22, 'sine', 0.06], [659, 0.22, 'sine', 0.05], [880, 0.3, 'sine', 0.06], [784, 0.3, 'sine', 0.05], [1047, 0.7, 'sine', 0.06]]),
   unlock: () => tone([[523, 0.08, 'triangle', 0.06], [659, 0.08, 'triangle', 0.06], [784, 0.08, 'triangle', 0.06], [1047, 0.16, 'triangle', 0.06]]),
   // Golpe de ruido filtrado (madera, piedra, tierra…)
   noiseHit(freq, dur, vol, type = 'bandpass') {
@@ -78,7 +79,6 @@ export const Audio = {
   plop() { Audio.noiseHit(900, 0.12, 0.22, 'lowpass'); tone([[420, 0.05, 'sine', 0.05], [260, 0.08, 'sine', 0.04]]); },
   nibble: () => tone([[1200, 0.02, 'sine', 0.025], [1500, 0.02, 'sine', 0.02]]),
   splash() { Audio.noiseHit(1400, 0.3, 0.35, 'lowpass'); Audio.noiseHit(4000, 0.15, 0.1, 'highpass'); },
-  reel: () => tone([[1900 + Math.random() * 300, 0.012, 'square', 0.012]]),
   // Lluvia de fondo: 0 = nada, 1 = lluvia, 2 = tormenta
   rain(level) {
     if (!ac) return;

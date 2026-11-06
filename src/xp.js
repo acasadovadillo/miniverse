@@ -1,6 +1,6 @@
 // Experiencia y niveles, como en Minecraft: picar carbón y piedras preciosas, matar criaturas, sacar lo fundido del
 // horno, pescar, dar de comer a los animales para que tengan crías, cocinar y comerciar con los vecinos dan
-// experiencia, y cada nivel cuesta más que el anterior. Los niveles se gastan en la mesa de encantar y en el yunque.
+// experiencia, y cada nivel cuesta más que el anterior. Los niveles se gastan en el yunque.
 // Al morir se pierden (salvo con keepInventory). Es de cada uno, como la vida; la barra verde, en supervivencia.
 import { Audio } from './audio.js';
 import { hud } from './ui/hud.js';
@@ -19,9 +19,8 @@ export class Experience {
     this.points = 0; this.level = 0; this.into = 0;
     this.part = 0;   // (lo que se gana a trozos: fundir un lingote da 0,7)
   }
-  // (seed: de qué salen las ofertas de la mesa de encantar; cambia cada vez que se encanta algo)
-  reset(save) { this.set(save.xp || 0); this.part = 0; this.seed = save.enchSeed ?? Math.floor(Math.random() * 2 ** 31); }
-  save(out) { out.xp = this.points; out.enchSeed = this.seed; }
+  reset(save) { this.set(save.xp || 0); this.part = 0; }
+  save(out) { out.xp = this.points; }
   set(points) {
     this.points = Math.max(0, Math.floor(points));
     let l = 0;

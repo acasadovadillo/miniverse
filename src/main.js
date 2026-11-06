@@ -28,11 +28,11 @@ function play() {
   initInput({
     chat: prefix => chat.open(prefix),
     use: () => (hud.dialogOpen ? game.action() : b.on ? b.place() : game.gather.use()),
-    jump: () => (hud.dialogOpen ? game.action() : game.player?.pose ? game.rest.stand() : game.fishing.space() || game.fishing.still ? null : game.player?.jump()),
+    jump: () => (hud.dialogOpen ? game.action() : game.player?.pose ? game.rest.stand() : game.fishing.space() ? null : game.player?.jump()),
     drop: all => game.toss(all),
     sit: () => game.rest.floor('floorSit'),
     lie: () => game.rest.floor('floorLie'),
-    crouch: on => { const p = game.player; if (p && !p.mount && !p.boat && !p.pose) p.crouch = on ?? !p.crouch; },   // (Shift: agacharse o levantarse)
+    crouch: on => { const p = game.player; if (p && !p.mount && !p.boat && !p.aboard && !p.pose) p.crouch = on ?? !p.crouch; },   // (Shift: agacharse o levantarse)
     build: () => (game.mode === 'play' && !game.busy && game.gamemode !== 'spectator' ? b.toggle() : false),
     building: () => b.on && game.mode === 'play',
     point: (x, y) => b.pointTo(game.tileAtScreen(x, y)),

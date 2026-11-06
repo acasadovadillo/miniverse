@@ -182,6 +182,7 @@ export class TimeSystem {
     g.busy = true;
     g.player.stop();
     await hud.fade(true);
+    g.stats?.add('dormido', 1);
     const fed = g.combat && g.combat.hunger < SLEEP_FED;
     if (fed) g.combat.feed(SLEEP_FED - g.combat.hunger);
     await new Promise(r => setTimeout(r, 700));

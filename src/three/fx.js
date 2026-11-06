@@ -1,7 +1,7 @@
 // Efectos en 3D: la casilla o el objeto apuntado, la vista previa de lo que se va a colocar o construir, los
 // objetos caídos (con su icono), los textos que suben sobre el jugador, las astillas de lo que se golpea, el
 // fuego de hogares, hornos y antorchas, el humo de las chimeneas, las mariposas, la lluvia y la nieve, el agua
-// de la fuente, la luz del faro, el sedal y el corcho al pescar y el destello rojo al recibir un golpe.
+// de la fuente, los corazones de la cama doble, la luz del faro, el sedal y el corcho al pescar y el destello rojo al recibir un golpe.
 import * as THREE from 'three';
 import { itemIcon } from '../art/items.js';
 import { dropModel } from './icons.js';
@@ -11,7 +11,7 @@ import { PIECES } from '../pieces.js';
 import { getModel } from './models.js';
 import { WALL_H } from './build3d.js';
 import { WATER_Y } from './terrain.js';
-import { drawFishing } from '../ui/fishbar.js';
+import { nearX } from '../world/planet.js';
 
 const tmp = new THREE.Object3D(), col = new THREE.Color(), v3 = new THREE.Vector3();
 
@@ -36,6 +36,10 @@ export class Fx {
     // Astillas, llamas, humo, gotas de la fuente
     this.chips = new THREE.InstancedMesh(new THREE.BoxGeometry(0.06, 0.06, 0.06), new THREE.MeshStandardMaterial({ roughness: 0.8 }), 256);
     this.chips.count = 0; this.chips.frustumCulled = false; this.group.add(this.chips);
+    // Los corazones que flotan sobre la cama doble: de cara a la cámara
+    const hs = new THREE.Shape(); hs.moveTo(0, -1); hs.bezierCurveTo(-1.4, -0.1, -1.15, 1, -0.5, 1); hs.bezierCurveTo(-0.2, 1, 0, 0.75, 0, 0.5); hs.bezierCurveTo(0, 0.75, 0.2, 1, 0.5, 1); hs.bezierCurveTo(1.15, 1, 1.4, -0.1, 0, -1);
+    this.hearts = new THREE.InstancedMesh(new THREE.ExtrudeGeometry(hs, { depth: 0.28, bevelEnabled: true, bevelSize: 0.08, bevelThickness: 0.08, bevelSegments: 2, curveSegments: 10 }).translate(0, 0, -0.14), new THREE.MeshBasicMaterial({ color: '#ffffff', toneMapped: false }), 96);
+    this.hearts.count = 0; this.hearts.frustumCulled = false; this.hearts.renderOrder = 4; this.group.add(this.hearts);
     const flameGeo = new THREE.ConeGeometry(1, 2, 7).translate(0, 1, 0);
     this.flameOut = new THREE.InstancedMesh(flameGeo, new THREE.MeshBasicMaterial({ color: '#ff7a1a', transparent: true, opacity: 0.85, blending: THREE.AdditiveBlending, depthWrite: false }), 400);
     this.flameIn = new THREE.InstancedMesh(flameGeo, new THREE.MeshBasicMaterial({ color: '#ffe080', transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false }), 400);
@@ -86,6 +90,7 @@ export class Fx {
     this.updateTarget(game, scene, playing, t, gy);
     this.updateDrops(game, scene, playing, t, gy);
     this.updateChips(game, playing);
+    this.updateHearts(game, scene, playing, t);
     this.updateFlames(scene, t);
     this.updateSmoke(scene, t);
     this.updateFountains(scene, t);
@@ -157,6 +162,7 @@ export class Fx {
       else if (layer === 'roof') { box(-0.5, WALL_H, -0.5, 0.5, WALL_H + 0.16, 0.5); }
       else if (kind === 'wall') { box(-0.5, 0, -0.12, 0.5, WALL_H, 0.12); if (id.startsWith('ventana')) box(-0.3, 1.0, -0.14, 0.3, 1.95, 0.14); }
       else if (kind === 'door') { box(-0.5, 2.05, -0.12, 0.5, WALL_H, 0.12); box(-0.5, 0, -0.12, -0.42, 2.05, 0.12); box(0.42, 0, -0.12, 0.5, 2.05, 0.12); box(-0.4, 0, -0.03, 0.4, 2.0, 0.03); }
+      else if (kind === 'gate') return this.modelGhost('puerta_valla');
       else if (kind === 'fence') { box(-0.06, 0, -0.06, 0.06, 0.95, 0.06); box(-0.5, 0.36, -0.04, 0.5, 0.46, 0.04); box(-0.5, 0.72, -0.04, 0.5, 0.82, 0.04); }
       else if (kind === 'hearth') return this.modelGhost('chimenea');
       return g;
@@ -238,6 +244,27 @@ export class Fx {
     this.chips.count = n;
     this.chips.instanceMatrix.needsUpdate = true;
     if (this.chips.instanceColor) this.chips.instanceColor.needsUpdate = true;
+  }
+
+  updateHearts(game, scene, playing, t) {
+    const list = playing && game.player ? game.family.hearts : [], me = game.player;
+    let n = 0;
+    for (const h of list) {
+      if (n >= 96) break;
+      const k = h.t / h.life, grow = Math.min(1, h.t * 3) * Math.min(1, (1 - k) * 4);   // (aparece y se va encogiendo)
+      const beat = h.big ? 1 + Math.sin(t * 5) * 0.08 : 1, sway = h.big ? 0 : Math.sin(h.t * 2.4 + h.ph) * 0.14;
+      tmp.position.set(nearX(h.x, me.x) + sway, this.view.groundY(scene, h.x, h.y) + h.z + (h.big ? Math.sin(t * 1.5) * 0.05 : 0), h.y);
+      tmp.quaternion.copy(this.view.camera.quaternion);
+      if (!h.big) tmp.rotateZ(Math.sin(h.t * 1.8 + h.ph) * 0.3);
+      tmp.scale.setScalar(Math.max(0.001, h.s * grow * beat));
+      tmp.updateMatrix(); this.hearts.setMatrixAt(n, tmp.matrix);
+      this.hearts.setColorAt(n, col.set(h.big ? '#f0306e' : ['#f0406e', '#ff5f8f', '#ff86aa'][Math.floor(h.ph * 3 / 6.3)]));
+      n++;
+    }
+    tmp.quaternion.identity();
+    this.hearts.count = n;
+    this.hearts.instanceMatrix.needsUpdate = true;
+    if (this.hearts.instanceColor) this.hearts.instanceColor.needsUpdate = true;
   }
 
   // ---------- fuego, humo y agua ----------
@@ -336,37 +363,26 @@ export class Fx {
   // (fuerza y pelea), junto al jugador en la pantalla.
   updateFishing(game, scene, playing, t) {
     const s = playing ? game.fishing?.state : null, p = game.player;
-    if (s && p && game.mode === 'play') {   // (con un menú abierto, los paneles se esconden)
-      const gy = this.view.groundY(scene, p.x, p.y), top = v3.set(p.x, gy + 2.3, p.y).project(this.view.camera).y;
-      v3.set(p.x, gy + 1, p.y).project(this.view.camera);
-      drawFishing(s, ((v3.x + 1) / 2) * innerWidth, ((1 - v3.y) / 2) * innerHeight, ((1 - top) / 2) * innerHeight, t);
-    } else drawFishing(null);
-    const show = !!s && scene === game.world && s.phase !== 'charge';
+    const show = !!s && scene === game.world;
     this.line.visible = this.bobber.visible = this.ripple.visible = show;
     if (!show) return;
     // (el sedal sale de la punta de la caña; si no se ve la caña, de un poco por encima de la mano)
     const hand = this.view.actors.player?.hand, tip = hand?.getObjectByName('tip');
     const from = tip ? tip.getWorldPosition(new THREE.Vector3()) : hand ? hand.getWorldPosition(v3.set(0, 0, 0)).clone() : new THREE.Vector3(p.x, 1.2, p.y);
     if (!tip) from.y += 0.9;
-    const reel = s.phase === 'reel', r = s.r;
-    let x = s.bx, z = s.by, dip = Math.sin(t * 3) * 0.015, sag = 0.4;
+    const x = s.bx, z = s.by; let dip = Math.sin(t * 3) * 0.015, sag = 0.4;
     if (s.phase === 'bite') dip = -0.05 + Math.sin(t * 30) * 0.03;
     else if (s.nib > 0) dip = -0.035 * Math.sin((s.nib / 0.3) * Math.PI);
-    else if (reel) {
-      const k = Math.max(0, r.prog) * 0.45;
-      x += (p.x - x) * k + Math.sin(t * 7.3) * 0.12; z += (p.y - z) * k + Math.cos(t * 6.1) * 0.12;
-      dip = -0.07 + Math.sin(t * 25) * 0.03; sag = 0.05;
-    }
     const to = new THREE.Vector3(x, WATER_Y + 0.03 + dip, z);
     if (s.fly < 1) { to.lerpVectors(from, to, s.fly); to.y += Math.sin(s.fly * Math.PI) * 1.2; sag = 0.1; }
     this.bobber.position.copy(to);
     const pts = this.line.geometry.attributes.position;
     for (let i = 0; i <= 20; i++) { const k = i / 20; pts.setXYZ(i, from.x + (to.x - from.x) * k, from.y + (to.y - from.y) * k - Math.sin(k * Math.PI) * sag, from.z + (to.z - from.z) * k); }
     pts.needsUpdate = true;
-    this.ripple.visible = s.phase === 'bite' || reel || s.nib > 0;
-    const speed = reel ? 3 : 2, w = (t * speed) % 1;
+    this.ripple.visible = s.phase === 'bite' || s.nib > 0;
+    const w = (t * 2) % 1;
     this.ripple.position.set(to.x, WATER_Y + 0.01, to.z);
-    this.ripple.scale.setScalar((s.nib > 0 ? 0.7 : 1) + w * (reel ? 2.2 : 1.5));
+    this.ripple.scale.setScalar((s.nib > 0 ? 0.7 : 1) + w * 1.5);
     this.ripple.material.opacity = (s.nib > 0 ? 0.4 : 0.7) * (1 - w);
   }
 

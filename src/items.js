@@ -86,12 +86,12 @@ for (const [id, c] of Object.entries(CROPS)) {
 Object.assign(ITEMS, {
   semilla_manzano: { name: 'Semilla de manzano', desc: 'Plántala en la hierba: en unos días tendrás un manzano que da manzanas.', sapling: 'fruit' },
   regadera: { name: 'Regadera', desc: 'Riega la tierra labrada. Se llena en cualquier agua.', tool: 'regadera', tier: 1, stack: 1 },
-  cana: { name: 'Caña de pescar', desc: 'Mirando al agua, mantén pulsado para coger fuerza y suelta para lanzar. Cuando pique, pulsa y mantén la red sobre el pez.', tool: 'cana', tier: 1, stack: 1, dur: 80 },
-  cana_fibra: { name: 'Caña de fibra', desc: 'Más ligera y sensible: los peces pican antes y la red es más grande.', tool: 'cana', tier: 2, stack: 1, dur: 160 },
+  cana: { name: 'Caña de pescar', desc: 'Mirando al agua, clic para lanzar. Cuando pique, clic otra vez, a tiempo.', tool: 'cana', tier: 1, stack: 1, dur: 80 },
+  cana_fibra: { name: 'Caña de fibra', desc: 'Más ligera y sensible: los peces pican antes y da algo más de tiempo.', tool: 'cana', tier: 2, stack: 1, dur: 160 },
   abono: { name: 'Abono', desc: 'Úsalo en un cultivo: crecerá más deprisa.' },
   aspersor: { name: 'Aspersor', desc: 'Riega solo cada mañana las 8 casillas de alrededor.', place: 'furniture' },
-  gallinero: { name: 'Gallinero', desc: 'Casa para hasta 4 gallinas o patos. Con E: la puerta y asignarle animales.', place: 'furniture' },
-  establo: { name: 'Establo', desc: 'Casa para hasta 4 vacas, ovejas, cabras o cerdos. Con E: la puerta y asignarle animales.', place: 'furniture' },
+  gallinero: { name: 'Gallinero', desc: 'Casa grande para hasta 4 gallinas o patos. Con E: la puerta y asignarle animales. Con la puerta cerrada, se quedan dentro.', place: 'furniture' },
+  establo: { name: 'Establo', desc: 'Casa grande para hasta 4 vacas, ovejas, cabras o cerdos. Con E: la puerta y asignarle animales. Con la puerta cerrada, se quedan dentro.', place: 'furniture' },
   colmena: { name: 'Colmena', desc: 'Las abejas hacen miel cada pocos días (menos en invierno).', place: 'furniture' },
   comedero: { name: 'Comedero', desc: 'Pon dentro fibra o trigo: tus animales comen de él cada mañana.', place: 'furniture' },
   huevo: { name: 'Huevo', desc: 'Fresco del gallinero.', food: 8 },
@@ -135,11 +135,10 @@ Object.assign(ITEMS, {
   incubadora: { name: 'Incubadora', desc: 'Pon un huevo de gallina o de pato: en 4 días sale un polluelo.', place: 'furniture' },
   quesera: { name: 'Quesera', desc: 'Estación: quesos, queso de cabra y mantequilla.', place: 'station' },
   alambique: { name: 'Alambique', desc: 'Estación: destila pociones con carbón, frascos y un ingrediente (miel, bayas, calavera, plumas o amatista).', place: 'station' },
-  mesa_encantar: { name: 'Mesa de encantar', desc: 'Estación: encanta herramientas, armas y armaduras a cambio de niveles de experiencia y amatistas.', place: 'station' },
   noria: { name: 'Noria', desc: 'Se pone en un río, cerca de la orilla, y gira con el agua: muele el trigo en harina y cada mañana riega sola la tierra labrada de alrededor (hasta 4 casillas a cada lado).', place: 'station' },
   harina: { name: 'Harina', desc: 'Trigo molido en la noria. En la cocina, con dos se hace un pan.' },
 });
-// Peces: dónde viven, cuándo (estaciones, horas y tiempo) y cómo pelean al pescarlos:
+// Peces: dónde viven, cuándo (estaciones, horas y tiempo) y lo difíciles que son (los difíciles salen menos y valen más):
 // dif: lo difícil que es (0 a 1); mov: cómo se mueve (calmo, mixto, nervioso, fondo: tira hacia abajo,
 // flota: tira hacia arriba); cm: la talla, de la más pequeña a la más grande
 export const FISH = {
@@ -242,13 +241,14 @@ Object.assign(ITEMS, {
 // Muebles de la casa familiar: dormitorios, cocina y baño
 Object.assign(ITEMS, {
   sofa: { name: 'Sofá', desc: 'De dos plazas, con cojines. Arrímalo a la pared y siéntate en él con E.', place: 'furniture' },
-  cama_doble: { name: 'Cama doble', desc: 'Cama de matrimonio, de dos casillas de ancho. Para dormir y, si estáis los dos en casa, para tener un bebé.', place: 'furniture' },
+  cama_doble: { name: 'Cama doble', desc: 'Cama de matrimonio, de dos casillas de ancho. Para dormir y, si os tumbáis cada uno a un lado, para tener un bebé.', place: 'furniture' },
   cama_nino: { name: 'Cama de niño', desc: 'Pequeña, con edredón azul. Cuando el bebé crezca, dormirá en ella.', place: 'furniture' },
   cuna: { name: 'Cuna', desc: 'De barrotes. Para tener un bebé hace falta una libre.', place: 'furniture' },
   alacena: { name: 'Alacena', desc: 'Armario de cocina, con platos y tarros en los estantes.', place: 'furniture' },
   mueble_bano: { name: 'Mueble de baño', desc: 'Bajo y blanco, con un cajón y dos puertas; encima, toallas dobladas y jabón.', place: 'furniture' },
   armario: { name: 'Armario', desc: 'Alto, de dos puertas, para el dormitorio: guarda 27 prendas (solo ropa). Ábrelo con E.', place: 'furniture' },
-  valla: { name: 'Valla de madera', desc: 'Se coloca por casillas y se une sola a las de al lado. Se recoge apuntándola con el ratón y pulsando X.', place: 'furniture', stack: 99 },
+  valla: { name: 'Valla de madera', desc: 'Se coloca por casillas y se une sola a las de al lado. Para entrar en el cercado, una puerta de valla. Se recoge apuntándola con el ratón y pulsando X.', place: 'furniture', stack: 99 },
+  puerta_valla: { name: 'Puerta de valla', desc: 'Para entrar en un cercado: se une a las vallas de los lados y se abre con E. Empieza cerrada: los animales no la abren. Se recoge apuntándola con el ratón y pulsando X.', place: 'furniture', stack: 99 },
   chimenea: { name: 'Hogar con chimenea', desc: 'De piedra, con su chimenea: da luz y calor. Se arrima a un muro, dentro de casa (R: girar), y se recoge con X.', place: 'furniture' },
   cuadro_valle: { name: 'Cuadro del valle', desc: 'Colinas verdes y montañas al fondo. Se cuelga de un muro, dentro de casa (también encima de un mueble).', place: 'wall' },
   cuadro_mar: { name: 'Cuadro del mar', desc: 'Un velero al atardecer. Se cuelga de un muro, dentro de casa (también encima de un mueble).', place: 'wall' },

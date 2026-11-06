@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- La versión publicada: se cambia en cada publicación (así el juego sabe que tiene que pedir el código nuevo) -->
-<meta name="miniverse-version" content="2026-11-05.5">
+<meta name="miniverse-version" content="2026-11-06.1">
 <title>Miniverse</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏡</text></svg>">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -18,6 +18,15 @@
   /* Textos que suben sobre el jugador (los coloca el dibujo 3D) y el destello rojo al recibir un golpe */
   #floaters { position: fixed; inset: 0; pointer-events: none; z-index: 5; overflow: hidden; }
   .floater { position: absolute; left: 0; top: 0; font-size: 17px; font-weight: 600; white-space: nowrap; text-shadow: 1px 0 #2a1c22, -1px 0 #2a1c22, 0 1px #2a1c22, 0 -1px #2a1c22, 0 2px 3px rgba(0,0,0,.4); will-change: transform; }
+  #love-glow { position: fixed; inset: 0; pointer-events: none; z-index: 5; opacity: 0; transition: opacity .9s; background: radial-gradient(ellipse at center, rgba(255, 150, 180, 0) 45%, rgba(255, 110, 150, .38) 100%); }
+  #love-glow.on { opacity: 1; }
+  #love { position: fixed; left: 50%; top: 15%; transform: translateX(-50%); z-index: 8; display: flex; flex-direction: column; align-items: center; gap: 4px; pointer-events: none; }
+  #love[hidden], body:not(.playing) #love { display: none; }
+  #love-heart { width: 84px; height: 84px; padding: 0; border: 0; background: none; cursor: pointer; pointer-events: auto; color: #ff5f8f; font-size: 76px; line-height: 84px; text-shadow: 0 2px 0 #8a1f45, 0 0 18px rgba(255, 120, 170, .8); animation: love-beat 1.05s ease-in-out infinite; }
+  #love-heart:hover { color: #ff8cae; }
+  #love.waiting #love-heart { cursor: default; opacity: .75; animation-duration: 1.8s; }
+  #love-text { padding: 2px 12px; font-size: 16px; color: var(--cream); white-space: nowrap; }
+  @keyframes love-beat { 0%, 100% { transform: scale(1); } 15% { transform: scale(1.16); } 30% { transform: scale(1); } 45% { transform: scale(1.1); } 60% { transform: scale(1); } }
   #hurt { position: fixed; inset: 0; pointer-events: none; z-index: 6; opacity: 0; transition: opacity .12s; box-shadow: inset 0 0 160px 40px rgba(220, 40, 40, .55); }
   #debug { position: fixed; left: 12px; top: 54px; z-index: 7; max-width: min(640px, calc(100vw - 24px)); padding: 6px 10px; font: 12px/1.45 ui-monospace, Menlo, Consolas, monospace; color: #e8dcc0; background: rgba(0,0,0,.55); border-radius: 6px; pointer-events: none; white-space: pre-wrap; }
   #debug b { color: #ffd77a; font-weight: normal; }
@@ -77,6 +86,15 @@
 
   #place { position: fixed; right: 12px; top: 10px; padding: 6px 12px; font-size: 16px; }
   #clockp { position: fixed; left: 12px; top: 10px; padding: 6px 12px; font-size: 16px; white-space: nowrap; }
+  /* Primeros pasos: lo que toca hacer, debajo del reloj (con el panel F3 abierto, no) */
+  #quest { position: fixed; left: 12px; top: 54px; z-index: 6; width: min(300px, calc(100vw - 24px)); padding: 7px 26px 8px 12px; display: flex; flex-direction: column; gap: 2px; pointer-events: auto; }
+  #quest[hidden], body:not(.playing) #quest, #debug:not([hidden]) ~ #quest { display: none; }
+  body.admin #quest, body.spectator #quest { top: 88px; }
+  #quest small { color: var(--dim); font-size: 12px; }
+  #quest b { color: var(--gold); font-size: 16px; font-weight: 600; line-height: 1.2; }
+  #quest span { color: var(--cream); font-size: 13px; line-height: 1.25; }
+  #quest-x { position: absolute; right: 4px; top: 4px; width: 20px; height: 20px; padding: 0; color: var(--dim); background: none; border: 0; cursor: pointer; font-size: 13px; }
+  #quest-x:hover { color: var(--cream); }
   #place small { color: var(--dim); margin-left: 6px; }
   #minimap { position: fixed; right: 12px; top: 52px; width: 180px; height: 120px; padding: 0; image-rendering: pixelated; cursor: pointer; }
   body.indoors #minimap { display: none; }
@@ -115,24 +133,6 @@
   body.hurt #hint, body.underground #hint, body.survival #hint { bottom: 114px; }
   #hint kbd { font-size: 13px; }
   /* Pesca: la barra de fuerza al lanzar y, en la pelea, la columna de agua con la red, el pez, el tesoro y la barra de captura */
-  #castbar { position: fixed; left: 0; top: 0; z-index: 6; width: 116px; height: 20px; padding: 3px; pointer-events: none; }
-  #castbar i { display: block; height: 100%; border-radius: 2px; background: linear-gradient(90deg, #6ab8e0, #a8f07a 55%, #ffd77a 80%, #ff8a6a) 0 0 / 104px 100% no-repeat; }
-  #fishbar { position: fixed; left: 0; top: 0; z-index: 6; display: flex; gap: 6px; padding: 8px; pointer-events: none; }
-  #fishbar[hidden], #castbar[hidden], #fb-chest[hidden] { display: none; }
-  #fb-water { position: relative; width: 46px; height: min(250px, 46vh); border-radius: 4px; overflow: hidden; background: linear-gradient(#9ad8f0, #4a9acc 35%, #22568a 80%, #1a3e66); box-shadow: inset 0 0 0 2px #2a1c12, inset 0 4px 0 rgba(255, 255, 255, .35); }
-  #fb-water::before { content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 14px; background: radial-gradient(circle at 20% 100%, #4a8a3a 0 5px, transparent 6px), radial-gradient(circle at 70% 100%, #3a7a32 0 7px, transparent 8px), linear-gradient(transparent 55%, #c8a86a 55%); }
-  #fb-water::after { content: ''; position: absolute; inset: 0; background: radial-gradient(circle, rgba(255, 255, 255, .55) 0 1.5px, transparent 2px) 8px 0 / 22px 46px, radial-gradient(circle, rgba(255, 255, 255, .4) 0 1px, transparent 1.5px) 30px 20px / 26px 60px; animation: fb-bubbles 3s linear infinite; }
-  @keyframes fb-bubbles { to { background-position: 8px -46px, 30px -40px; } }
-  #fb-zone { position: absolute; left: 3px; right: 3px; bottom: 0; z-index: 1; border: 2px solid #f4e2a8; border-radius: 7px; background: repeating-linear-gradient(45deg, rgba(255, 244, 210, .3) 0 1.5px, transparent 1.5px 7px), repeating-linear-gradient(-45deg, rgba(255, 244, 210, .3) 0 1.5px, transparent 1.5px 7px); box-shadow: 0 0 0 1px rgba(0, 0, 0, .35); }
-  #fb-zone.on { border-color: #b8f57a; background-color: rgba(168, 240, 122, .2); }
-  #fb-fish, #fb-chest { position: absolute; left: 50%; bottom: 0; z-index: 2; }
-  #fb-fish { width: 34px; height: 34px; image-rendering: pixelated; filter: brightness(0) drop-shadow(0 0 1px rgba(255, 255, 255, .6)); opacity: .85; }
-  #fb-chest { width: 30px; }
-  #fb-chest img { display: block; width: 30px; height: 30px; image-rendering: pixelated; }
-  #fb-chest span { display: block; height: 4px; margin-top: -2px; border-radius: 2px; background: rgba(0, 0, 0, .5); overflow: hidden; }
-  #fb-chest span i { display: block; height: 100%; background: #ffd77a; }
-  #fb-meter { position: relative; width: 14px; border-radius: 7px; background: rgba(0, 0, 0, .5); box-shadow: inset 0 0 0 2px #2a1c12; }
-  #fb-fill { position: absolute; left: 2px; right: 2px; bottom: 2px; border-radius: 5px; }
   #s-inv { background: rgba(10, 16, 8, .55); }
   .inv-panel { padding: 14px 16px 16px; }
   .inv-panel h2 { margin: 0 0 10px; font-size: 22px; color: var(--gold); display: flex; align-items: center; justify-content: space-between; }
@@ -396,6 +396,7 @@
   body.building #touch [data-k='use'], body.building #touch [data-k='act'] { display: none; }
   @media (pointer: coarse) {
     #hotbar { bottom: auto; top: 8px; }
+    #quest, body.admin #quest, body.spectator #quest { top: 112px; }
     #place { top: auto; bottom: 214px; right: 12px; }
     #minimap { top: 96px; width: 120px; height: 80px; }
     #hint, body.hurt #hint, body.underground #hint, body.survival #hint { bottom: auto; top: 184px; }
@@ -480,13 +481,11 @@
   <canvas id="c"></canvas>
   <div id="floaters"></div>
   <div id="hurt"></div>
-  <div id="castbar" class="panel" hidden><i id="cast-fill"></i></div>
-  <div id="fishbar" class="panel" hidden>
-    <div id="fb-water"><i id="fb-zone"></i><div id="fb-chest" hidden><img id="fb-chest-img" alt=""><span><i id="fb-chest-fill"></i></span></div><img id="fb-fish" alt=""></div>
-    <div id="fb-meter"><i id="fb-fill"></i></div>
-  </div>
+  <div id="love-glow"></div>
+  <div id="love" hidden><button type="button" id="love-heart" aria-label="Tener un bebé" title="Tener un bebé">♥</button><span id="love-text" class="panel"></span></div>
   <div id="debug" hidden></div>
   <div id="clockp" class="panel"><span id="clock"></span></div>
+  <div id="quest" class="panel" hidden><button type="button" id="quest-x" aria-label="Quitar los primeros pasos" title="Quitar los primeros pasos">✕</button><small id="quest-title"></small><b id="quest-text"></b><span id="quest-hint"></span></div>
   <div id="place" class="panel"><span id="place-name">Pueblo Brotes</span> <small id="coords"></small></div>
   <canvas id="minimap" class="panel" width="150" height="100"></canvas>
   <div id="hint" class="panel"><kbd>Clic</kbd><span id="hint-text"></span></div>

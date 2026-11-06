@@ -17,6 +17,7 @@ export function pieceSprite(id) {
   if (p.layer === 'roof') return roofSprite(id, { nw: 0, ne: 0, se: 0, sw: 0, c: 0.5 }, { n: true, e: true, s: true, w: true }, false);
   if (p.kind === 'door') return doorSprite(true);
   if (p.kind === 'fence') return fenceSprite(id, 3);
+  if (p.kind === 'gate') return fenceSprite('valla', 3);
   if (p.kind === 'hearth') return hearthSprite();
   return wallSprite(id, 3);
 }
@@ -91,15 +92,16 @@ export class BuildMode {
 
   // Lo que ha puesto el jugador en una capa de una casilla (lo fijo del pueblo no cuenta)
   ownAt(layer, t) { const sc = this.game.scene; return sc.ownAt ? sc.ownAt(layer, t[0], t[1]) : sc.at(layer, t[0], t[1]); }
-  // Lo que se puede quitar en una casilla, de arriba abajo: tejado, objeto y suelo
+  // Lo que se puede quitar en una casilla, de arriba abajo: tejado, objeto y suelo (y la valla de tu jardín, aunque
+  // sea de las que venían puestas)
   removable(t) {
     for (const layer of ['roof', 'placed', 'floor']) if (this.ownAt(layer, t)) return layer;
-    return null;
+    return this.game.scene.yardFenceAt?.(t[0], t[1]) ? 'placed' : null;
   }
   remove(t = this.target()) {
     const g = this.game, sc = g.scene, layer = this.removable(t);
     if (!layer || !this.inReach(t)) { Audio.error(); return; }
-    const [id] = parsePlaced(this.ownAt(layer, t)), o = { tile: t, layer, placed: id };
+    const yard = !this.ownAt(layer, t), [id] = parsePlaced(this.ownAt(layer, t) || 'valla'), o = { tile: t, layer, placed: id, ...(yard ? { fixed: true, yard: true } : {}) };
     if (CHESTS[id] && sc.chestAt(...t)?.some(Boolean)) { g.gather.float(`Vacía ${CHESTS[id][1]} antes`, '#ffb0a0'); Audio.error(); return; }
     if (PIECES[id] && !ITEMS[id]) {
       if (sc.unplace(o) === false) { Audio.error(); return; }   // lo fijo no se quita ni devuelve materiales

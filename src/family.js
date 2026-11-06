@@ -1,11 +1,14 @@
-// La familia: tener hijos y que hagan vida en casa. Con los dos en casa, uno lo propone en la cama doble y el
-// otro acepta (jugando juntos en directo); a los 7 días nace el bebé, si hay una cuna libre, y se le pone
-// nombre. Duerme en su cuna y, 7 días después, ya es un niño: de día pasea por casa y por el jardín, de noche
-// duerme en su cama de niño, y se puede hablar con él. Como mucho, dos. Se parecen a los dos (ver childLook).
-// Es parte del mundo: lo lleva el juego del anfitrión y los demás lo ven igual (ver livesync.js).
+// La familia: tener hijos y que hagan vida en casa. Jugando juntos en directo, una pareja (chico y chica) se tumba
+// cada uno a un lado de la cama doble: a los dos les sale un corazón y, si los dos lo pulsan, salen corazones
+// flotando y ella se queda embarazada. La barriga le crece cada día y a los 7 días nace el bebé, si hay una cuna
+// libre, y se le pone nombre. Duerme en su cuna y, 7 días después, ya es un niño: de día pasea por casa y por el
+// jardín, de noche duerme en su cama de niño, y se puede hablar con él. Como mucho, dos. Se parecen a los dos (ver
+// childLook). Es parte del mundo: lo lleva el juego del anfitrión y los demás lo ven igual (ver livesync.js).
 import { dirOf } from './world/fit.js';
 import { childLook, clothesFor, dressed } from './looks.js';
 import { collide } from './physics.js';
+import { nearX } from './world/planet.js';
+import { Profile } from './accounts.js';
 import { hud } from './ui/hud.js';
 import { Audio } from './audio.js';
 
@@ -23,17 +26,28 @@ const KID_LINES = [
 ];
 const BABY_LINES = ['Duerme como un tronco.', 'Te agarra el dedo y no lo suelta.', 'Hace pompas y se ríe.', 'Bosteza enorme y vuelve a dormirse.'];
 const pick = list => list[Math.floor(Math.random() * list.length)];
+const $ = id => document.getElementById(id);
+const SCENE = 4.5;   // lo que duran los corazones (segundos)
 
 export class Family {
   constructor(game) {
     this.game = game;
-    this.v = { kids: [], expecting: null };   // los hijos ({ id, name, sex, look, born }) y si se espera uno ({ since, looks })
+    this.v = { kids: [], expecting: null };   // los hijos ({ id, name, sex, look, born }) y si se espera uno ({ since, looks, mother })
     this.ents = new Map();                    // hijo → cómo se ve (dónde está, si está tumbado…)
     this.naming = null;                       // (el bebé que acaba de nacer y está esperando nombre)
+    this.pair = null;                         // quien está al otro lado de la cama: { conn, peer, mine: si ya has pulsado el corazón }
+    this.theirs = null;                       // (la conexión de quien ya ha pulsado el suyo)
+    this.scene = null;                        // salen los corazones: { t, x, y, next }
+    this.hearts = [];                         // los corazones que flotan: { x, y, z, t, life, s, ph } (los dibuja fx.js)
+    $('love-heart')?.addEventListener('click', e => { e.stopPropagation(); this.vote(); });
   }
   get world() { return this.game.world; }
   get today() { return this.game.days.dayIndex; }
-  reset(save) { this.v = structuredClone(save.family || { kids: [], expecting: null }); this.ents.clear(); this.naming = null; }
+  reset(save) {
+    this.v = structuredClone(save.family || { kids: [], expecting: null }); this.ents.clear(); this.naming = null;
+    this.pair = this.theirs = this.scene = null; this.hearts = []; this.warned = null;
+    this.paintHeart(); this.glow(false);
+  }
   save(out) { out.family = this.v; }
   baby(k) { return this.today - k.born < GROW; }
   // Jugando juntos en directo, como lo tiene el anfitrión (con un aviso cuando ha nacido alguien y ya tiene nombre)
@@ -66,15 +80,14 @@ export class Family {
   inHouse(x, y) { const H = this.game.houseRect(); return x > H.x0 && x < H.x1 && y > H.y0 && y < H.y1; }
 
   // ---------- tener un bebé ----------
-  // En la cama doble: dormir o, si se puede, proponer tener un bebé
+  // En la cama doble: tumbarse o dormir
   async bed(o) {
     const g = this.game;
     g.busy = true;
-    const pickN = await hud.ask(g.player.name, '¿Qué hacemos?', ['Tumbarse un rato', 'Dormir', 'Tener un bebé', 'Nada']);
+    const pickN = await hud.ask(g.player.name, '¿Qué hacemos?', ['Tumbarse un rato', 'Dormir', 'Nada']);
     g.busy = false;
     if (pickN === 0 && o) return g.rest.lie(o);
     if (pickN === 1) return g.sleep();
-    if (pickN === 2) return this.propose();
   }
   // Lo que impide tener un bebé ahora (o null)
   why() {
@@ -85,30 +98,90 @@ export class Family {
     if (this.furniture('cuna').length <= babies) return 'Hace falta una cuna libre en casa (se fabrica en el banco de carpintero).';
     return null;
   }
-  async propose() {
-    const g = this.game, no = this.why();
-    if (no) { await hud.say(g.player.name, [no]); return; }
-    const partner = g.live.partner(p => this.inHouse(p.x, p.y));
-    if (!partner) { await hud.say(g.player.name, ['Para tener un bebé tenéis que estar los dos en casa.']); return; }
-    hud.toast(`Esperando a ${partner.peer.name}…`);
-    const answer = await g.live.propose(partner.conn);
-    if (!answer?.ok) { hud.toast(answer ? `${partner.peer.name} prefiere esperar` : `${partner.peer.name} no contesta`); return; }
-    if (g.live.role === 'host') this.conceive([g.player.look, answer.look]);
-    this.expectingNews();
+  // Quien se ha tumbado al otro lado de tu cama doble, si es del otro sexo: { conn, peer } o null
+  couple() {
+    const g = this.game, p = g.player, twin = g.rest.twin;
+    if (!twin || p?.pose?.kind !== 'lie') return null;
+    const there = g.live.partner(e => e.pose?.kind === 'lie' && Math.hypot(nearX(e.x, twin[0]) - twin[0], e.y - twin[1]) < 0.4);
+    return there && (there.peer.entity.look?.sex || 'chico') !== (p.look?.sex || 'chico') ? there : null;
   }
-  // Te lo proponen: contestar (y, si eres el anfitrión, empieza la espera)
-  async asked(peer) {
-    const g = this.game;
-    if (!g.player || g.busy || hud.dialogOpen || this.why()) return false;
-    g.busy = true;
-    const yes = (await hud.ask(peer.name, `${peer.name} quiere tener un bebé contigo. ¿Aceptas?`, ['Sí, ¡qué ilusión!', 'Ahora no'])) === 0;
-    g.busy = false;
-    if (yes && g.live.role === 'host') this.conceive([peer.look, g.player.look]);
-    if (yes) this.expectingNews();
-    return yes;
+  // El corazón aparece mientras los dos sigan tumbados (levantarse lo deshace todo)
+  watchCouple() {
+    const there = this.scene ? null : this.couple(), no = there && this.why();
+    if (no && this.warned !== there.conn) { this.warned = there.conn; hud.toast(no); }
+    if (!there) this.warned = null;
+    const can = there && !no;
+    if (can && this.pair?.conn !== there.conn) this.pair = { ...there, mine: false };
+    if (!can && this.pair) { this.pair = null; this.theirs = null; }
+    this.paintHeart();
   }
-  conceive(looks) { this.v.expecting = { since: this.today, looks: looks.map(l => { const { wear, ...rest } = l || {}; return rest; }) }; this.game.onSave?.(); }
+  paintHeart() {
+    const el = $('love'), pair = this.pair;
+    if (!el) return;
+    const key = pair ? `${pair.peer.name}|${pair.mine}|${this.theirs === pair.conn}` : '';
+    if (key === this.heartKey) return;
+    this.heartKey = key;
+    el.hidden = !pair;
+    if (!pair) return;
+    el.classList.toggle('waiting', pair.mine);
+    $('love-text').textContent = pair.mine ? `Esperando a ${pair.peer.name}…` : this.theirs === pair.conn ? `${pair.peer.name} quiere tener un bebé contigo` : '¿Tener un bebé?';
+  }
+  // Has pulsado tu corazón
+  vote() {
+    const pair = this.pair;
+    if (!pair || pair.mine) return;
+    pair.mine = true;
+    this.game.live.net?.send({ t: 'love' }, pair.conn);
+    Audio.blip();
+    this.paintHeart();
+    this.settle();
+  }
+  // El otro ha pulsado el suyo
+  heard(conn) { this.theirs = conn; this.paintHeart(); this.settle(); }
+  settle() { if (this.pair?.mine && this.theirs === this.pair.conn) this.begin(); }
+  // Los dos: salen los corazones, entre los dos. Quien se queda embarazada es la chica, y su juego lo apunta
+  begin() {
+    const g = this.game, p = g.player, { peer } = this.pair, twin = g.rest.twin;
+    if (!twin) return;
+    const x = (p.x + nearX(twin[0], p.x)) / 2, y = (p.y + twin[1]) / 2;
+    if ((p.look?.sex || 'chico') === 'chica') this.conceive([p.look, peer.look]);
+    this.pair = null; this.theirs = null;
+    this.scene = { t: 0, x, y, next: 0 };
+    this.hearts.push({ x, y, z: 2.15, t: 0, life: SCENE, s: 0.36, big: true, ph: 0 });   // (uno grande, por encima de los dos)
+    Audio.love();
+    this.glow(true);
+    this.paintHeart();
+  }
+  conceive(looks) { this.v.expecting = { since: this.today, mother: Profile.id, looks: looks.map(l => { const { wear, ...rest } = l || {}; return rest; }) }; this.game.onSave?.(); }
   expectingNews() { Audio.unlock(); hud.toast(`¡Vais a tener un bebé! Nacerá dentro de ${WAIT} días.`, 'good'); }
+  glow(on) { $('love-glow')?.classList.toggle('on', on); }
+  // Los corazones suben balanceándose
+  updateHearts(dt) {
+    const sc = this.scene;
+    if (sc) {
+      sc.t += dt;
+      if (sc.t < SCENE - 1.5 && (sc.next -= dt) <= 0) {
+        sc.next = 0.11;
+        const a = Math.random() * Math.PI * 2, r = Math.random() * 0.8;
+        this.hearts.push({ x: sc.x + Math.cos(a) * r, y: sc.y + Math.sin(a) * r, z: 1.15, t: 0, life: 1.8 + Math.random() * 1.2, s: 0.06 + Math.random() * 0.08, ph: Math.random() * 6 });
+      }
+      if (sc.t >= SCENE) { this.scene = null; this.glow(false); this.expectingNews(); }
+    }
+    for (const h of this.hearts) { h.t += dt; if (!h.big) h.z += dt * 0.75; }
+    if (this.hearts.some(h => h.t >= h.life)) this.hearts = this.hearts.filter(h => h.t < h.life);
+  }
+  // Cuánto se le nota el embarazo a un jugador (de 0 a 1): crece cada día
+  bellyOf(e) {
+    const x = this.v.expecting;
+    if (!x?.mother || x.mother !== (e.remote ? e.id : Profile.id)) return 0;
+    return Math.max(0, Math.min(1, (this.today - x.since) / (WAIT - 1)));
+  }
+  // Lo que se ve abajo, en la cama, cuando se puede pero aún falta alguien
+  hint() {
+    const g = this.game, p = g.player;
+    if (!g.rest.twin || p?.pose?.kind !== 'lie' || this.pair || this.scene || !g.live.joined || this.why()) return '';
+    return g.live.others.some(q => q.sc === 'world' && q.entity && (q.entity.look?.sex || 'chico') !== (p.look?.sex || 'chico')) ? 'Si tu pareja se tumba al otro lado, podréis tener un bebé' : '';
+  }
 
   // Cada mañana (en el mundo de otro, lo hace su juego): nace el bebé o deja de serlo
   onDay(day) {
@@ -140,6 +213,8 @@ export class Family {
   // ---------- en casa ----------
   update(dt) {
     const g = this.game, p = g.player;
+    this.updateHearts(dt);
+    this.watchCouple();
     if (!p || g.scene !== this.world) return;
     if (this.naming && !g.busy && !hud.dialogOpen && g.mode === 'play') { const k = this.v.kids.find(k => k.id === this.naming); this.naming = null; if (k) this.name(k); }
     const beds = this.beds(), h = g.days.hour, night = h >= NIGHT[0] || h < NIGHT[1];

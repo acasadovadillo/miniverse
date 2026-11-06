@@ -22,7 +22,7 @@ const SKILLS = {
 };
 const PERKS = {
   tala: 'Nivel 5: talar cansa menos. Cada nivel: más madera.', mineria: 'Nivel 5: picar cansa menos. Cada nivel: más mineral.',
-  agricultura: 'Cada nivel: más cosecha.', pesca: 'Cada nivel: la red es más grande y salen más peces raros y tesoros.', cocina: 'Cada nivel: platos más sabrosos (quitan más hambre).',
+  agricultura: 'Cada nivel: más cosecha.', pesca: 'Cada nivel: salen más peces raros y tesoros.', cocina: 'Cada nivel: platos más sabrosos (quitan más hambre).',
   construccion: 'Por construir, que es muy bonito.', granja: 'Cada nivel: animales más contentos.', combate: 'Nivel 5: golpeas más fuerte.',
 };
 const xpFor = lvl => 25 * lvl * (lvl + 1);   // experiencia total para llegar a un nivel
@@ -124,7 +124,6 @@ export const ACH = [
   ['granjero', 'Manos verdes', 'Cosecha 50 veces', S('cosechas', 50)],
   ['pescador', 'Paciencia de pescador', 'Pesca 25 peces', S('peces', 25)],
   ['dorado', '¿Existe de verdad?', 'Pesca el pez dorado', g => g.collection.seen.has('pez_dorado')],
-  ['mano_firme', 'Mano firme', 'Pesca un pez sin que se salga nunca de la red', S('perfectos', 1)],
   ['tesoro_agua', 'Algo brilla ahí abajo', 'Saca un tesoro del agua', S('tesoros', 1)],
   ['constructor', 'Arquitecto', 'Pon 100 piezas de construcción', S('piezas', 100)],
   ['casa', 'Hogar, dulce hogar', 'Amplía la casa del pueblo', g => g.house.big],
@@ -141,7 +140,7 @@ export const ACH = [
 ];
 export class Achievements {
   constructor(game) { this.game = game; this.got = new Set(); this.t = 0; }
-  reset(save) { this.got = new Set(save.achievements || []); }
+  reset(save) { this.got = new Set((save.achievements || []).filter(id => ACH.some(a => a[0] === id))); }   // (los logros que ya no existen no cuentan)
   save(out) { out.achievements = [...this.got]; }
   update(dt) {
     if ((this.t += dt) < 1) return;

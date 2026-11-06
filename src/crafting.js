@@ -3,7 +3,7 @@ import { ITEMS } from './items.js';
 import { RECIPES, STATIONS, unlocked } from './recipes.js';
 import { Audio } from './audio.js';
 import { parsePlaced } from './pieces.js';
-import { canEnchant, offers, combine, enchName } from './enchant.js';
+import { canEnchant, combine, enchName } from './enchant.js';
 
 export const STATION_REACH = 2.4;   // a cuántas casillas puede estar una estación para usarla
 const worn = it => !!it && !!ITEMS[it.id]?.dur && it.dur !== undefined && it.dur < ITEMS[it.id].dur;
@@ -160,28 +160,6 @@ export class Crafting {
     inv.changed();
     Audio.craft();
     this.say(`${ITEMS[c.it.id].name}${c.it.ench ? ` (${enchName(c.it.ench)})` : ''}${c.it.dur !== undefined ? `: ${c.it.dur}/${ITEMS[c.it.id].dur} usos` : ''}`, '#fff3c0');
-    return null;
-  }
-
-  // ---------- Encantar en la mesa de encantar ----------
-  // Lo que se puede encantar de la mochila (sin encantar aún) con sus tres ofertas: [{ i, it, offers }]
-  enchantable() {
-    const seed = this.game.xp.seed;
-    return this.game.inv.slots.map((it, i) => ({ i, it })).filter(({ it }) => it && !it.ench && canEnchant(it.id) && ITEMS[it.id].stack <= 1).map(o => ({ ...o, offers: offers(o.it.id, seed) }));
-  }
-  enchant(i, k) {
-    const g = this.game, inv = g.inv, it = inv.slots[i], o = it && offers(it.id, g.xp.seed)[k];
-    if (!o || it.ench) return 'No se puede encantar';
-    if (!this.stationsNear().mesa_encantar) return 'Tienes que estar junto a la mesa de encantar';
-    if (!inv.infinite && g.xp.level < o.need) return `Necesitas el nivel ${o.need} de experiencia`;
-    if (!inv.infinite && inv.count('amatista') < o.cost) return `Te faltan amatistas: cuesta ${o.cost}`;
-    if (!g.xp.spend(o.cost)) return `Te faltan niveles de experiencia: cuesta ${o.cost}`;
-    inv.remove('amatista', o.cost);
-    it.ench = { ...o.ench };
-    g.xp.seed = Math.floor(Math.random() * 2 ** 31);   // (ofertas nuevas para lo siguiente)
-    inv.changed();
-    Audio.unlock();
-    this.say(`¡${ITEMS[it.id].name}: ${enchName(it.ench)}!`, '#d8b0ff');
     return null;
   }
 
