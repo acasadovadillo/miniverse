@@ -6,6 +6,7 @@
 // comparten un mundo por el relay de pruebas y comprueban que cada uno ve lo que pone el otro.
 import * as THREE from 'three';
 import { Profile } from './accounts.js';
+import { Person3D } from './three/people.js';
 import { distTo } from './world/fit.js';
 import { ITEMS, HARVEST, hitsFor } from './items.js';
 import { SHOPS } from './economy.js';
@@ -289,6 +290,17 @@ async function soloTests(game) {
       const nilo = w().nilo; await shot(nilo.x + 1, nilo.y + 1); aimAt(nilo.x, 0.8, nilo.y); check(game.nearest()?.text === 'Hablar con Nilo', `con Nilo dice: ${game.nearest()?.text}`);
       await shot(BOARD.x + 0.5, BOARD.y + 1.6); aimAt(BOARD.x, 1, BOARD.y); check(game.nearest()?.text.includes('tablón'), `en el tablón dice: ${game.nearest()?.text}`);
     } finally { game.mouse = was; game.highlight = null; }
+  });
+  await test('ropa: lo que cuelga de la cintura se abre cuando suben las piernas', async () => {
+    for (const wear of [{ torso: { id: 'tunica_larga', color: '#222222' } }, { torso: { id: 'camisa', color: '#ffffff' }, piernas: { id: 'falda', color: '#b84a8a' } }, { torso: { id: 'camisa', color: '#ffffff' }, encima: { id: 'delantal', color: '#efe6d4' } }]) {
+      const P = new Person3D({ ...LOOK, wear }, '').clone(); check(P.skirt?.children.length, `sin falda: ${JSON.stringify(wear)}`);
+      P.legs[0].rotation.x = P.legs[1].rotation.x = 0; P.torso.rotation.x = 0.25; P.fitSkirt();
+      check(P.skirt.scale.z === 1 && Math.abs(P.skirt.rotation.x + 0.25) < 1e-6, 'de pie no cuelga recto');
+      P.legs[0].rotation.x = P.legs[1].rotation.x = -1; P.fitSkirt();
+      check(P.skirt.scale.z > 1.3 && P.skirt.rotation.x < -0.3, 'con los muslos en alto no se abre');
+    }
+    const plain = new Person3D({ ...LOOK, wear: { torso: { id: 'camisa', color: '#ffffff' }, piernas: { id: 'pantalon', color: '#333333' } } }, '').clone();
+    check(!plain.skirt, 'con pantalón hay falda'); plain.fitSkirt();
   });
   await test('puerta: se cierra y se abre', async () => {
     const door = [21, 16];   // (la de tu casa)

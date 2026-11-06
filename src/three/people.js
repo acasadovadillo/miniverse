@@ -143,6 +143,7 @@ export function mergeInto(group) {
   }
 }
 const WHITE_C = new THREE.Color(1, 1, 1);
+const SKIRT = { tilt: 0.42, wide: 0.1, deep: 0.5 };   // lo que se adelanta y se abre una falda con los muslos en alto
 
 // Telas: dibujos en gris que se tiñen con el color de la prenda. weave: tejido de algodón; knit: punto de lana;
 // leather: cuero; straw: paja trenzada; denim: sarga de vaquero. FAB(tela, color): su material
@@ -273,7 +274,8 @@ export class Person3D {
     if (W.pelo && !W.cabeza) this.hairAcc(head, W.pelo);
     // Cada parte que se mueve junta (piernas, rodillas, brazos, codos, tronco, cabeza y ojos) en una sola malla
     // con colores por vértice
-    for (const grp of [...this.legs, ...this.shins, ...this.arms, ...this.fore, torso, head]) mergeInto(grp);
+    this.skirt = torso.getObjectByName('skirt') || null;
+    for (const grp of [...this.legs, ...this.shins, ...this.arms, ...this.fore, torso, head, ...(this.skirt ? [this.skirt] : [])]) mergeInto(grp);
     this.blink = 2 + Math.random() * 3;
     this.root.traverse(o => { if (o.isMesh) o.castShadow = true; });
   }
@@ -282,11 +284,13 @@ export class Person3D {
   // ropa interior que quede a la vista; encima, delantal o chaleco; y a la espalda, la mochila
   outfit(torso, L, W) {
     const top = W.torso?.id, legs = W.piernas?.id, tunic = top === 'tunica' || top === 'tunica_larga';
+    // Lo que cuelga de la cintura va aparte, para que se abra cuando las piernas suben (ver fitSkirt)
+    const skirt = new THREE.Group(); skirt.name = 'skirt';
     if (tunic) {
       // Falda acampanada desde la cintura: por las caderas (corta) o casi hasta los tobillos (larga), con ribete
       const c = W.torso.color, [h, y] = top === 'tunica_larga' ? [0.42, -0.08] : [0.26, 0];
-      mesh(G.pleats, cloth(W.torso), { p: [0, y, 0], s: [0.178, h, 0.138] }, torso);
-      mesh(G.cyl, clothShade(W.torso, 0.7), { p: [0, y - h / 2 + 0.012, 0], s: [0.178 * 1.37 + 0.004, 0.024, 0.138 * 1.37 + 0.004] }, torso);
+      mesh(G.pleats, cloth(W.torso), { p: [0, y, 0], s: [0.178, h, 0.138] }, skirt);
+      mesh(G.cyl, clothShade(W.torso, 0.7), { p: [0, y - h / 2 + 0.012, 0], s: [0.178 * 1.37 + 0.004, 0.024, 0.138 * 1.37 + 0.004] }, skirt);
       mesh(G.cyl, M('#5a3a22'), { p: [0, 0.12, 0], s: [0.184, 0.04, 0.144] }, torso);                                         // cinturón
       mesh(G.cyl, M('#e8c050', { metalness: 0.5, roughness: 0.4 }), { p: [0, 0.12, 0.146], s: [0.03, 0.045, 0.012], r: [Math.PI / 2, 0, 0] }, torso);
     }
@@ -295,7 +299,7 @@ export class Person3D {
       if (!tunic) { mesh(G.cyl, FAB('leather', '#3a2618'), { p: [0, 0.055, 0], s: [0.178, 0.026, 0.138] }, torso); mesh(G.box, M('#d8b048', { metalness: 0.6, roughness: 0.35 }), { p: [0, 0.055, 0.138], s: [0.038, 0.03, 0.008] }, torso); }
     }
     if (legs === 'falda' && top !== 'tunica_larga') {
-      mesh(G.pleats, cloth(W.piernas), { p: [0, -0.04, 0], s: [0.179, 0.24, 0.139] }, torso);
+      mesh(G.pleats, cloth(W.piernas), { p: [0, -0.04, 0], s: [0.179, 0.24, 0.139] }, skirt);
       mesh(G.cyl, clothShade(W.piernas, 0.75), { p: [0, 0.075, 0], s: [0.184, 0.03, 0.144] }, torso);
     }
     // Sin nada por debajo de la cintura, se ve la ropa interior (o nada: piel)
@@ -307,7 +311,7 @@ export class Person3D {
     if (over === 'delantal') {
       const apron = cloth(W.encima), tie = clothShade(W.encima, 0.88);
       mesh(G.bib, apron, { p: [0, 0.27, 0], s: [0.182, 0.17, 0.142] }, torso);                  // peto
-      mesh(G.apron, apron, { p: [0, 0, 0], s: [0.182, 0.24, 0.142] }, torso);                   // falda
+      mesh(G.apron, apron, { p: [0, 0, 0], s: [0.182, 0.24, 0.142] }, skirt);                   // falda
       mesh(G.cyl, tie, { p: [0, 0.125, 0], s: [0.186, 0.026, 0.146] }, torso);                  // cinta de la cintura
       for (const s of [-1, 1]) {
         strap(tie, [s * 0.12, 0.35, 0.115], [s * 0.075, 0.43, 0.01], 0.012, torso);              // tirantes al cuello
@@ -315,7 +319,7 @@ export class Person3D {
         strap(tie, [s * 0.01, 0.12, -0.15], [s * 0.03, 0.03, -0.155], 0.009, torso);
       }
       mesh(G.ball, tie, { p: [0, 0.125, -0.152], s: 0.014 }, torso);
-      mesh(G.ball, M(shade(W.encima.color, 0.88)), { p: [0.06, -0.035, 0.164], s: [0.05, 0.035, 0.01] }, torso);   // bolsillo
+      mesh(G.ball, M(shade(W.encima.color, 0.88)), { p: [0.06, -0.035, 0.164], s: [0.05, 0.035, 0.01] }, skirt);   // bolsillo
     }
     if (over?.startsWith('peto_')) {   // peto: cerrado, de metal, con una placa en el pecho y el borde de los hombros
       const plate = cloth(W.encima), edge = clothShade(W.encima, 0.75);
@@ -331,6 +335,7 @@ export class Person3D {
       for (const x of [-0.1, 0.1]) mesh(G.box, clothShade(W.encima, 0.8), { p: [x, 0.08, 0.13], s: [0.06, 0.012, 0.01], r: [-0.12, 0, 0] }, torso);
     }
     // Mochila: cuerpo, solapa, bolsillo y las dos correas por encima de los hombros
+    if (skirt.children.length) torso.add(skirt);
     if (W.espalda) {
       const bag = FAB('leather', W.espalda.color), dark = FAB('leather', shade(W.espalda.color, 0.68));
       mesh(G.box, bag, { p: [0, 0.21, -0.195], s: [0.25, 0.3, 0.13] }, torso);
@@ -599,8 +604,17 @@ export class Person3D {
   // Otra persona igual (comparte geometrías y materiales: hacer una desde cero cuesta)
   clone() {
     const c = Object.create(Person3D.prototype), root = this.root.clone(true), by = n => root.getObjectByName(n);
-    Object.assign(c, { bellyMat: this.bellyMat, look: this.look, name: this.name, root, body: by('body'), torso: by('torso'), head: by('head'), faceMesh: by('face'), faceOpen: this.faceOpen, legs: [by('legL'), by('legR')], arms: [by('armL'), by('armR')], shins: [by('shinL'), by('shinR')], fore: [by('foreL'), by('foreR')], legSwing: this.legSwing, phase: Math.random() * 6, speed: 0, targetYaw: 0, blink: 1 + Math.random() * 3 });
+    Object.assign(c, { skirt: by('skirt') || null, bellyMat: this.bellyMat, look: this.look, name: this.name, root, body: by('body'), torso: by('torso'), head: by('head'), faceMesh: by('face'), faceOpen: this.faceOpen, legs: [by('legL'), by('legR')], arms: [by('armL'), by('armR')], shins: [by('shinL'), by('shinR')], fore: [by('foreL'), by('foreR')], legSwing: this.legSwing, phase: Math.random() * 6, speed: 0, targetYaw: 0, blink: 1 + Math.random() * 3 });
     return c;
+  }
+  // Lo que cuelga de la cintura (túnica, falda, delantal), según lo que suban las piernas: sigue colgando recto aunque
+  // el cuerpo se incline y, con los muslos hacia delante, se adelanta y se abre para taparlos
+  fitSkirt() {
+    const s = this.skirt;
+    if (!s) return;
+    const up = -Math.min(this.legs[0].rotation.x, this.legs[1].rotation.x), k = Math.max(0, Math.min(1, (up - 0.3) / 0.8));
+    s.rotation.x = -this.torso.rotation.x - SKIRT.tilt * k;
+    s.scale.set(1 + SKIRT.wide * k, 1, 1 + SKIRT.deep * k);
   }
   // La barriga del embarazo (k: de 0 a 1), delante del tronco. Devuelve la malla la primera vez que se crea
   setBelly(k) {

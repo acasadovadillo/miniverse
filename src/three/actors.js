@@ -21,6 +21,7 @@ const KID_SCALE = 0.66;   // los niños, más pequeños
 // los pies al doblar las piernas, para que sigan en el suelo) y se echa hacia delante (rad; la cabeza lo compensa
 // para seguir mirando al frente)
 const CROUCH = { hip: 1.5, knee: 2.5, drop: 0.11, lean: 0.4 };
+const CROUCH_SKIRT = { hip: 1.0, knee: 1.7, drop: 0.11, lean: 0.25 };
 const LOOK_R = 2.6;      // a qué distancia se mira a quien se tiene al lado
 
 export class Actors {
@@ -179,14 +180,15 @@ export class Actors {
       if (game) this.hold(m, { held: game.inv.held?.id || null, swing: game.gather.swing, swingItem: game.gather.swingItem, cooldown: game.gather.cooldown, fishPose: game.fishing?.pose(t) }, dt);
       else if (e.remote) this.hold(m, e, dt);
       // Agachado (Shift): las rodillas dobladas, el cuerpo más bajo y un poco echado hacia delante; andando, a pasitos
+      const C = P.skirt ? CROUCH_SKIRT : CROUCH;   // (con falda, más recogido: las rodillas no suben tanto)
       P.crouch = (P.crouch || 0) + ((e.crouch && !pz && !e.mount && !e.boat && !e.aboard ? 1 : 0) - (P.crouch || 0)) * Math.min(1, dt * 12);
       if (P.crouch > 0.01) {
         const c = P.crouch;
-        for (const l of P.legs) l.rotation.x = l.rotation.x * (1 - c * 0.5) - CROUCH.hip * c;
-        for (const k of P.shins || []) k.rotation.x = k.rotation.x * (1 - c) + CROUCH.knee * c;
-        P.body.position.y -= CROUCH.drop * c;
-        P.torso.rotation.x += CROUCH.lean * c;
-        P.head.rotation.x = -CROUCH.lean * 0.8 * c;
+        for (const l of P.legs) l.rotation.x = l.rotation.x * (1 - c * 0.5) - C.hip * c;
+        for (const k of P.shins || []) k.rotation.x = k.rotation.x * (1 - c) + C.knee * c;
+        P.body.position.y -= C.drop * c;
+        P.torso.rotation.x += C.lean * c;
+        P.head.rotation.x = -C.lean * 0.8 * c;
       } else P.head.rotation.x = 0;
       if (pz && !lying) {   // sentado: los muslos hacia delante; en la silla, las piernas colgando; en el suelo, estiradas
         for (const l of P.legs) l.rotation.x = -Math.PI / 2;
@@ -197,6 +199,7 @@ export class Actors {
       if (e.mount || e.boat || e.aboard) { P.legs[0].rotation.x = P.legs[1].rotation.x = e.mount ? -1.1 : -1.4; P.legs[0].rotation.z = 0.5; P.legs[1].rotation.z = -0.5; for (const k of P.shins || []) k.rotation.x = e.mount ? 1.0 : 1.3; }
       else P.legs[0].rotation.z = P.legs[1].rotation.z = 0;
       this.lookAt(m, e, dt, lying);
+      P.fitSkirt();
       if (m.hand) {   // (los jugadores: la barriga, si espera un bebé)
         const made = P.setBelly(this.game.family.bellyOf(e));
         if (made && m === this.player) { made.material = made.material.clone(); m.mats.push(made.material); m.body.push(made.material); made.layers.set(2); }
