@@ -1,5 +1,5 @@
 // Tienda de un vecino: comprar lo que vende y venderle lo que lleves.
-import { ITEMS } from '../items.js';
+import { ITEMS, TIERS } from '../items.js';
 import { SHOPS, priceOf, buyPrice } from '../economy.js';
 import { itemIconUrl } from '../art/items.js';
 import { animalSprite, ANIMALS } from '../art/farm.js';
@@ -60,7 +60,7 @@ export function initShopUI(game, { onClose }) {
         if (!s || seen.has(s.id)) continue;
         seen.add(s.id);
         const p = priceOf(s.id), n = game.inv.count(s.id), def = ITEMS[s.id];
-        if (!p || (def.tool && def.tier === 1)) continue;
+        if (!p || (def.tool && (def.tier === 1 || TIERS[def.tier]))) continue;   // (las herramientas de siempre no se venden)
         row(itemIconUrl(s.id), `${def.name} ×${n}`, `${p} 🪙 cada uno`, [['Vender 1', () => sell(s.id, 1, p), true], ['Todo', () => sell(s.id, n, p), n > 1]]);
       }
       if (!seen.size) note = 'No llevas nada que vender.';

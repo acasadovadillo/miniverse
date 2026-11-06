@@ -133,6 +133,13 @@ export class Fx {
         }
       }
     }
+    const hl = playing && game.highlight;
+    if (hl?.ring) {   // (un árbol con fruta apuntado con el cursor: un aro a sus pies)
+      this.ring.visible = true;
+      this.ring.position.set(hl.box.x, gy(hl.box.x, hl.box.y) + 0.04, hl.box.y);
+      this.ring.material.color.set(Math.sin(t * 6) > 0 ? '#fff3c0' : '#ffd77a');
+      this.ring.scale.setScalar(1.3 + Math.sin(t * 6) * 0.06);
+    }
     if (ghost !== this.ghostKey) {
       if (this.ghost) this.group.remove(this.ghost);
       this.ghost = ghost ? this.makeGhost(ghost) : null;

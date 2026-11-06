@@ -1,6 +1,6 @@
 // Recolectar: elegir lo que hay delante del jugador, golpearlo con la herramienta,
 // soltar lo que da y recogerlo. También los efectos: astillas, textos flotantes y el golpe de la herramienta.
-import { ITEMS, HARVEST, TOOL_COST, CROPS, toolId, hitsFor, hungerOf } from './items.js';
+import { ITEMS, HARVEST, TOOL_COST, CROPS, hitsFor, hungerOf } from './items.js';
 import { HUNGER_MAX } from './combat.js';
 import { PIECES } from './pieces.js';
 import { RECIPES } from './recipes.js';
@@ -121,7 +121,7 @@ export class Gathering {
     if (def?.tool === 'azada') return t?.ok ? 'Labrar' : '';
     if (!t?.obj) return '';
     const rule = HARVEST[t.obj.kind];
-    if (def?.tool === rule.tool) return def.tier >= (rule.minTier || 1) ? rule.verb : `Necesitas ${ITEMS[toolId(rule.tool, rule.minTier)].name.toLowerCase()} o mejor`;
+    if (def?.tool === rule.tool) return rule.verb;
     if (!def?.tool && rule.hand) return rule.verb;
     return `Necesitas ${rule.tool === 'guadana' ? 'la guadaña' : rule.tool === 'hacha' ? 'el hacha' : 'el pico'}`;
   }
@@ -240,7 +240,7 @@ export class Gathering {
     if (auto && !(this.target?.obj || this.target?.ok)) return;
     if (!g.scene.harvestablesNear) return;
     const tool = def?.tool || null, tier = def?.tier || 1, t = this.target;
-    this.cooldown = COOLDOWN * (1 - 0.07 * (tier - 1));   // las herramientas buenas van más deprisa
+    this.cooldown = COOLDOWN * (1 - 0.07 * (tier - 1));   // (las de hierro van más deprisa que la mano)
     this.swing = 0.25;
     this.swingItem = tool ? held.id : null;
 
@@ -254,7 +254,7 @@ export class Gathering {
     }
     if (!t?.obj) { Audio.swish(); return; }
     const o = t.obj, rule = HARVEST[o.kind];
-    const hits = tool === rule.tool ? (tier >= (rule.minTier || 1) ? hitsFor(rule, tier) : 0) : !tool && rule.hand ? rule.hand : 0;
+    const hits = tool === rule.tool ? hitsFor(rule) : !tool && rule.hand ? rule.hand : 0;
     if (!hits) { this.float(this.hint(), '#ffb0a0'); Audio.error(); return; }
     if (!this.spend(tool || 'mano')) return;
     o.hits = (o.hits || 0) + 1;
@@ -267,10 +267,9 @@ export class Gathering {
       o.hits = 0;
       g.scene.remove(o);
       this.chips(o.x, o.y, rule.chips, 16);
-      const tierHit = tool === rule.tool ? tier : 0;
       const fruit = o.bare && rule.fruit ? { ...rule, drops: rule.drops.filter(([id]) => id !== rule.fruit) } : rule;   // (la palmera a la que se le acaban de coger los cocos ya no tiene)
-      this.spawnDrops(o, fruit, tierHit, skill && Math.random() < (g.skills?.bonus(skill) || 0));
-      const ore = rule.drops.find(([id, , , , minTier = 0]) => XP_ORE[id] && tierHit >= minTier);   // (el carbón y las piedras preciosas dan experiencia)
+      this.spawnDrops(o, fruit, skill && Math.random() < (g.skills?.bonus(skill) || 0));
+      const ore = rule.drops.find(([id]) => XP_ORE[id]);   // (el carbón y las piedras preciosas dan experiencia)
       if (ore) g.xp?.add(roll(...XP_ORE[ore[0]]));
       if (o.kind === 'bush' && tool === 'guadana') g.ranch?.mowed();   // (con un silo, el heno se guarda solo)
       if (skill) { g.skills?.gain(skill, 3); g.stats?.add(skill === 'tala' ? 'talados' : skill === 'mineria' ? 'picados' : 'segados', 1); }
@@ -278,11 +277,11 @@ export class Gathering {
     }
   }
 
-  // Lo que suelta al romperse; algunos minerales solo salen con una herramienta de cierto nivel
-  spawnDrops(o, rule, tier = 1, extra = false) {
-    for (let [id, min, max, chance = 1, minTier = 0] of rule.drops) {
+  // Lo que suelta al romperse
+  spawnDrops(o, rule, extra = false) {
+    for (let [id, min, max, chance = 1] of rule.drops) {
       if (extra) { max++; extra = false; }   // la habilidad a veces da uno más
-      if (tier < minTier || Math.random() > chance) continue;
+      if (Math.random() > chance) continue;
       if (id === 'semillas') {   // semillas de algo que crezca en esta estación
         const season = this.game.days.season, ok = Object.keys(CROPS).filter(c => CROPS[c].seasons.includes(season));
         if (!ok.length) continue;

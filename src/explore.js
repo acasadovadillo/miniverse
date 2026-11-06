@@ -220,24 +220,54 @@ export class Explore {
     if (scene.kind !== 'grid') return null;
     for (const o of scene.live()) {
       if (!o.tile || Math.hypot(p.x - o.x, p.y - o.y) > 1.3) continue;
-      if (o.ladder === 'up') return { text: scene.depth > 1 ? `Subir al nivel ${scene.depth - 1}` : 'Salir', run: () => this.climb(scene, -1) };
-      if (o.ladder === 'down') return { text: `Bajar al nivel ${scene.depth + 1}`, run: () => this.climb(scene, 1) };
-      if (o.chest) {
-        if (scene.state.opened[o.key]) continue;
-        return { text: 'Abrir el cofre', run: () => this.openGridChest(scene, o) };
-      }
-      if (o.lever !== undefined) return { text: 'Tirar de la palanca', run: () => { scene.state.flags['g' + o.lever] = true; scene.touched(); Audio.clink(); hud.toast('Se oye una reja que se abre…'); } };
-      if (o.gate !== undefined && !o.open && o.lock) {
-        if (scene.state.flags['k' + o.gate]) return { text: 'Abrir la reja con la llave', run: () => { scene.state.flags['g' + o.gate] = true; scene.touched(); Audio.unlock(); } };
-        return { text: 'Reja cerrada con llave', run: () => Audio.error() };
-      }
-      if (o.gate !== undefined && !o.open) return { text: 'Reja cerrada', run: () => Audio.error() };
-      if (o.block) {
-        const dx = o.x - p.x, dy = o.y - p.y, [mx, my] = Math.abs(dx) > Math.abs(dy) ? [Math.sign(dx), 0] : [0, Math.sign(dy)];
-        return { text: 'Empujar el bloque', run: () => { if (scene.push(o, mx, my)) { Audio.place(); if (scene.state.flags['g' + o.block.room]) hud.toast('¡Click! La reja se ha abierto'); } else Audio.error(); } };
-      }
+      const act = this.gridAction(scene, o, p);
+      if (act) return act;
     }
     return null;
+  }
+  // Lo que se hace con algo de una cueva o de un templo (o null)
+  gridAction(scene, o, p) {
+    if (o.ladder === 'up') return { text: scene.depth > 1 ? `Subir al nivel ${scene.depth - 1}` : 'Salir', run: () => this.climb(scene, -1) };
+    if (o.ladder === 'down') return { text: `Bajar al nivel ${scene.depth + 1}`, run: () => this.climb(scene, 1) };
+    if (o.chest) return scene.state.opened[o.key] ? null : { text: 'Abrir el cofre', run: () => this.openGridChest(scene, o) };
+    if (o.lever !== undefined) return { text: 'Tirar de la palanca', run: () => { scene.state.flags['g' + o.lever] = true; scene.touched(); Audio.clink(); hud.toast('Se oye una reja que se abre…'); } };
+    if (o.gate !== undefined && !o.open && o.lock) {
+      if (scene.state.flags['k' + o.gate]) return { text: 'Abrir la reja con la llave', run: () => { scene.state.flags['g' + o.gate] = true; scene.touched(); Audio.unlock(); } };
+      return { text: 'Reja cerrada con llave', run: () => Audio.error() };
+    }
+    if (o.gate !== undefined && !o.open) return { text: 'Reja cerrada', run: () => Audio.error() };
+    if (o.block) {
+      const dx = o.x - p.x, dy = o.y - p.y, [mx, my] = Math.abs(dx) > Math.abs(dy) ? [Math.sign(dx), 0] : [0, Math.sign(dy)];
+      return { text: 'Empujar el bloque', run: () => { if (scene.push(o, mx, my)) { Audio.place(); if (scene.state.flags['g' + o.block.room]) hud.toast('¡Click! La reja se ha abierto'); } else Audio.error(); } };
+    }
+    return null;
+  }
+  // Lo que se puede apuntar con el cursor: la entrada de lo que haya cerca, y lo de dentro
+  aimables(p, scene, box) {
+    const g = this.game, out = [];
+    if (scene === this.world) {
+      const poi = this.poiNear(p.x, p.y, 4);
+      if (!poi) return null;
+      const add = (x, y, hx, hy, h, act, e) => out.push({ kind: 'sys', e, box: box(x, y, hx, hy, 0, h), act });
+      if (poi.kind === 'cueva') add(poi.x, poi.y, 1.1, 1.1, 1.5, () => ({ text: 'Entrar en la cueva', run: () => this.enterCave(poi, 1) }));
+      else if (poi.kind === 'templo') add(poi.x, poi.y + 1.2, 0.9, 0.25, 2, () => ({ text: 'Entrar en el templo', run: () => this.enterDungeon(poi) }));
+      else if (poi.kind === 'faro') add(poi.x, poi.y, 1, 1, 4, () => ({ text: 'Subir al faro', run: () => this.climb(poi) }));
+      else if (poi.kind === 'aldea') { const t = this.traders.get(poi.key); if (t) add(t.x, t.y, 0.35, 0.35, 1.5, () => ({ text: 'Hablar con el mercader', run: () => g.onShop?.('viajero') }), t); }
+      else {
+        const c = this.world.contentFor(Math.floor(poi.x / CHUNK), Math.floor(poi.y / CHUNK)).objects.find(o => o.treasure);
+        if (c) add(c.x, c.y, 0.45, 0.4, 0.7, () => {
+          const d = this.world.delta(Math.floor(poi.x / CHUNK), Math.floor(poi.y / CHUNK), true);
+          return d.opened?.[poi.key] ? { text: 'Cofre vacío', run: () => Audio.error() } : { text: 'Abrir el cofre', run: () => this.openPoiChest(poi, d) };
+        });
+      }
+      return out;
+    }
+    if (scene.kind !== 'grid') return null;
+    for (const o of scene.live()) {
+      if (!o.tile || Math.abs(o.x - p.x) > 4 || Math.abs(o.y - p.y) > 4 || !this.gridAction(scene, o, p)) continue;
+      out.push({ kind: 'sys', box: box(o.x, o.y, 0.48, 0.48, 0, o.ladder ? 2 : o.gate !== undefined ? 1.8 : 1), act: () => this.gridAction(scene, o, g.player) });
+    }
+    return out;
   }
 
   async enterCave(poi, depth) {

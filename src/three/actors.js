@@ -382,7 +382,7 @@ function boatModel() {
 // ---------- herramientas ----------
 // Las herramientas en la mano: el mango va a lo largo de +y desde el puño y las cabezas son perfiles
 // extruidos (hoja del hacha, media luna del pico, hoja de la guadaña, pala de la azada, hoja de la espada),
-// con el filo de un tono más claro (un poco más grueso que la cabeza, para que asome por las dos caras). Las de madera y piedra van atadas con cuerda; las de metal brillan.
+// con el filo de un tono más claro (un poco más grueso que la cabeza, para que asome por las dos caras). Las de metal brillan.
 const SHAPES = new Map();
 // Un perfil (lista de órdenes de THREE.Shape) extruido con su grosor, centrado en z
 function profile(key, draw, depth, bevel = 0.004) {
@@ -411,7 +411,7 @@ export function toolModel(id) {
   const metal = def.weapon || tier >= 3, flat = !metal;
   const head = mat({ color: base, metalness: metal ? 0.65 : 0, roughness: metal ? 0.32 : 0.85, flatShading: flat });
   const edge = mat({ color: '#' + new THREE.Color(base).lerp(new THREE.Color('#ffffff'), metal ? 0.45 : 0.25).getHexString(), metalness: metal ? 0.8 : 0, roughness: metal ? 0.2 : 0.7, flatShading: flat });
-  const wood = M('#7a4e2c'), grip = M('#4a2e1c'), rope = M('#d8c8a0'), g = new THREE.Group();
+  const wood = M('#7a4e2c'), grip = M('#4a2e1c'), g = new THREE.Group();
   const at = (geo, m, p, r = [0, 0, 0], s = [1, 1, 1]) => mesh(geo, m, { p, r, s }, g);
   // Mango: algo más grueso abajo, con la empuñadura forrada y un remate
   const haft = (len, r = 0.022) => {
@@ -420,19 +420,16 @@ export function toolModel(id) {
     at(G.ball, grip, [0, -0.1, 0], [0, 0, 0], [r * 1.4, r * 1.1, r * 1.4]);
     return len - 0.1;   // dónde acaba
   };
-  const lash = y => { if (!metal) for (const dy of [-0.05, 0.05]) at(new THREE.TorusGeometry(0.027, 0.007, 4, 10), rope, [0, y + dy, 0], [Math.PI / 2, 0, 0]); };
   const kind = def.weapon ? 'espada' : def.tool;
   if (kind === 'hacha') {
     const top = haft(0.62), y = top - 0.07;
     at(profile('axe', AXE, 0.034), head, [0.012, y, 0]);
     at(profile('axeEdge', AXE_EDGE, 0.04, 0.003), edge, [0.012, y, 0]);
-    lash(y);
   } else if (kind === 'pico') {
     const top = haft(0.62), y = top - 0.04;
     at(profile('pick', PICK, 0.036), head, [0, y, 0]);
     at(new THREE.CylinderGeometry(0.034, 0.034, 0.09, 8), head, [0, y, 0]);
     for (const sx of [-1, 1]) at(G.cone, edge, [sx * 0.262, y - 0.068, 0], [0, 0, sx * 2.25], [0.018, 0.05, 0.018]);
-    lash(y);
   } else if (kind === 'guadana') {
     const top = haft(0.9, 0.02);
     at(new THREE.CylinderGeometry(0.016, 0.016, 0.12, 6), wood, [0, 0.32, 0.06], [Math.PI / 2, 0, 0]);   // asidero
@@ -446,7 +443,6 @@ export function toolModel(id) {
     at(new THREE.CylinderGeometry(0.012, 0.012, 0.09, 6), head, [0, top - 0.01, 0.04], [Math.PI / 2, 0, 0]);
     const plate = at(profile('hoe', HOE, 0.016), head, [0, top - 0.02, 0.09], [Math.PI - 0.35, 0, 0]);
     at(profile('hoeEdge', sh => { sh.moveTo(-0.075, 0); sh.lineTo(0.075, 0); sh.lineTo(0.073, 0.018); sh.lineTo(-0.073, 0.018); sh.lineTo(-0.075, 0); }, 0.022, 0.002), edge, plate.position.toArray(), [Math.PI - 0.35, 0, 0]);
-    lash(top - 0.02);
   } else if (kind === 'espada') {
     const gold = def.weapon > 3, brass = M(gold ? '#c8962a' : '#8a6a3a', { metalness: 0.6, roughness: 0.35 });
     at(new THREE.CylinderGeometry(0.02, 0.022, 0.13, 8), grip, [0, 0.0, 0]);

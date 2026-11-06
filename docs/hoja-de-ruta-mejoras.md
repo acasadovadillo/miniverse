@@ -79,7 +79,7 @@
 
 **4.4 Economía (S).** Los precios salen de las recetas (`economy.js`), así que los objetos nuevos se venden sin mirarlos: la harina a 30 vale más que tres trigos, la cómoda sale cara por las tablas. Pasar por todos los precios una vez y poner a mano los que se desvíen; que las tiendas de los vecinos cambien el surtido por estación.
 
-**4.5 Recolectar (S).** Los golpes que necesita cada cosa y lo que cae no se han tocado desde la fase 2: con un hacha de oro un roble cae de un golpe y da lo mismo que con la de madera. Que la herramienta mejor dé un poco más (ya lo hace fortuna) y que el peñasco necesite de verdad el pico de piedra en todos los niveles.
+**4.5 Recolectar (S).** ⚠️ Desde el 2026-11-06 solo hay herramientas de hierro: lo de los niveles ya no aplica. Los golpes que necesita cada cosa y lo que cae no se han tocado desde la fase 2: con un hacha de oro un roble cae de un golpe y da lo mismo que con la de madera. Que la herramienta mejor dé un poco más (ya lo hace fortuna) y que el peñasco necesite de verdad el pico de piedra en todos los niveles.
 
 **4.6 Criaturas y combate (S).** El combate es pulsar hacia la criatura. Añadir retroceso al golpear y al recibir, un pequeño parpadeo del golpeado, y que el esqueleto dispare desde lejos (ahora todas muerden de cerca).
 

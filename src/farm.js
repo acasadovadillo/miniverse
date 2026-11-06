@@ -136,6 +136,16 @@ export class Farm {
     return null;
   }
 
+  aimables(p, scene, box) {
+    if (scene !== this.world) return null;
+    const out = [], winter = this.game.days.season === 3;
+    for (const o of this.world.harvestablesNear(p.x, p.y)) {
+      const f = FRUIT[o.kind];
+      if (!f || (winter && !f.winter) || Math.hypot(o.x - p.x, o.y - p.y) > 4 || !this.hasFruit(this.d(Math.floor(o.x), Math.floor(o.y)), o)) continue;
+      out.push({ kind: 'sys', ring: true, box: box(o.x, o.y, 0.8, 0.8, 0, 3), act: () => ({ text: f.text, run: () => this.pickFruit(o) }) });
+    }
+    return out;
+  }
   waterAhead(p) {
     for (const r of [1, 1.6]) {
       const x = p.x + p.face.x * r, y = p.y + p.face.y * r;

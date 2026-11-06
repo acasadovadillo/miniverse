@@ -1,6 +1,6 @@
 // Recetas: qué se fabrica, dónde (a mano o en una estación) y con qué.
 // Una receta se desbloquea cuando ya has tenido todos sus ingredientes, salvo las que te enseña alguien (`teach`).
-import { ITEMS, toolId, RUG_MADE, rugId, ARMOR_PIECES, ARMOR_METALS } from './items.js';
+import { ITEMS, RUG_MADE, rugId, ARMOR_PIECES, ARMOR_METALS } from './items.js';
 
 export const STATIONS = {
   mano: { name: 'A mano' },
@@ -151,13 +151,8 @@ export const RECIPES = [
   R('cocina', 'pan_bellota', 1, [['bellota', 3]]),
   R('cocina', 'estofado', 1, [['pulpa', 2], ['bayas', 1]]),
 ];
-// Herramientas: las de piedra en el banco; las de metal en el yunque
-for (const tool of ['hacha', 'pico', 'guadana', 'azada']) {
-  RECIPES.push(R('banco', toolId(tool, 2), 1, [['tablas', 2], ['piedra', 3], ['cuerda', 1]]));
-  for (const [tier, bar] of [[3, 'lingote_cobre'], [4, 'lingote_hierro'], [5, 'lingote_oro']]) {
-    RECIPES.push(R('yunque', toolId(tool, tier), 1, [[bar, 3], ['tablas', 1]]));
-  }
-}
+// Herramientas: todas de hierro, en el yunque
+for (const tool of ['hacha', 'pico', 'guadana', 'azada']) RECIPES.push(R('yunque', `${tool}_hierro`, 1, [['lingote_hierro', 3], ['tablas', 1]]));
 for (const r of RECIPES) if (!ITEMS[r.out] || r.ins.some(([id]) => !ITEMS[id])) throw new Error(`Receta rota: ${r.id}`);
 
 // ¿Está desbloqueada? `seen`: objetos que el jugador ha tenido alguna vez; `taught`: recetas aprendidas

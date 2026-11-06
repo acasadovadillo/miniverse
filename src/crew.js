@@ -74,16 +74,22 @@ export class Crew {
     return { text: `En la barca de ${name}`, run: () => hud.toast('Acercaos a la orilla para bajar') };
   }
   // Cerca de la barca de otro: subirse, si no va ya alguien
+  canBoard(p, scene) { const g = this.game; return scene === g.world && g.live.joined && !p.boat && !p.mount && !p.aboard && !p.inside; }
+  actionOn(peer) {
+    if (this.game.live.others.some(q => q.entity?.aboard === peer.id)) return { text: `La barca de ${peer.name} ya va llena`, run: () => hud.toast('En la barca caben dos') };
+    return { text: `Subir a la barca de ${peer.name}`, run: () => this.board(peer) };
+  }
   interact(p, scene) {
-    const g = this.game;
-    if (scene !== g.world || !g.live.joined || p.boat || p.mount || p.aboard || p.inside) return null;
-    for (const peer of g.live.others) {
+    if (!this.canBoard(p, scene)) return null;
+    for (const peer of this.game.live.others) {
       const e = peer.entity;
-      if (!e?.boat || peer.sc !== 'world' || Math.hypot(nearX(e.x, p.x) - p.x, e.y - p.y) > REACH) continue;
-      if (g.live.others.some(q => q.entity?.aboard === peer.id)) return { text: `La barca de ${peer.name} ya va llena`, run: () => hud.toast('En la barca caben dos') };
-      return { text: `Subir a la barca de ${peer.name}`, run: () => this.board(peer) };
+      if (e?.boat && peer.sc === 'world' && Math.hypot(nearX(e.x, p.x) - p.x, e.y - p.y) <= REACH) return this.actionOn(peer);
     }
     return null;
+  }
+  aimables(p, scene, box) {
+    if (!this.canBoard(p, scene)) return null;
+    return this.game.live.others.filter(q => q.entity?.boat && q.sc === 'world').map(peer => ({ kind: 'sys', e: peer.entity, box: box(peer.entity.x, peer.entity.y, 0.9, 0.9, 0, 1.6), act: () => this.actionOn(peer) }));
   }
   board(peer) {
     const p = this.p;

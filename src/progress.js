@@ -60,9 +60,15 @@ export class Collection {
   save(out) { out.museum = [...this.donated]; out.seenCollect = [...this.seen]; }
   found(id) { if (ALL.includes(id)) this.seen.add(id); }
   interact(p, scene) {
-    const g = this.game;
-    if (scene !== g.world || Math.hypot(p.x - MUSEUM.x, p.y - MUSEUM.y) > 1.5) return null;
-    const can = ALL.filter(id => !this.donated.has(id) && g.inv.count(id));
+    if (scene !== this.game.world || Math.hypot(p.x - MUSEUM.x, p.y - MUSEUM.y) > 1.5) return null;
+    return this.museumAction();
+  }
+  aimables(p, scene, box) {
+    if (scene !== this.game.world) return null;
+    return [{ kind: 'sys', box: box(MUSEUM.x, MUSEUM.y, 0.55, 0.55, 0, 1.4), act: () => this.museumAction() }];
+  }
+  museumAction() {
+    const g = this.game, can = ALL.filter(id => !this.donated.has(id) && g.inv.count(id));
     return { text: can.length ? `Donar al museo (${can.length} nuevo${can.length > 1 ? 's' : ''})` : `Museo del pueblo: ${this.donated.size}/${ALL.length}`, run: () => this.donate(can) };
   }
   async donate(list) {

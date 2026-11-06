@@ -4,16 +4,19 @@
 // casas de los animales, las vallas, guardar y cargar) comprobando que pasa lo que tiene que pasar. Cada prueba se cuenta a probar.py (POST /pruebas) y sale
 // también en la consola. Con &parte=dos&relay=ws://…, dos juegos (quien=a, el anfitrión, y quien=b, el invitado)
 // comparten un mundo por el relay de pruebas y comprueban que cada uno ve lo que pone el otro.
+import * as THREE from 'three';
 import { Profile } from './accounts.js';
 import { distTo } from './world/fit.js';
-import { ITEMS } from './items.js';
+import { ITEMS, HARVEST, hitsFor } from './items.js';
+import { SHOPS } from './economy.js';
+import { repairMat } from './crafting.js';
 import { RECIPES } from './recipes.js';
 import { runCommand } from './commands.js';
 import { CHUNK } from './world/gen.js';
 import { B, BIOMES } from './world/biomes.js';
 import { paintPixels } from './world/ground.js';
 import { retireItems } from './game.js';
-import { HOUSE, HOUSES, POND, YARD, BOUNDS, CENTER, WORKSHOP, inBounds } from './world/village.js';
+import { HOUSE, HOUSES, POND, YARD, BOUNDS, BOARD, CENTER, WORKSHOP, inBounds } from './world/village.js';
 import { collide as collideNow } from './physics.js';
 import { STEPS } from './steps.js';
 import { machineAt, settle, MACHINES } from './machines.js';
@@ -267,6 +270,26 @@ async function soloTests(game) {
     check(!game.pickUp(o), 'se ha recogido lleno');
     chest[0] = null; check(game.pickUp(o), 'vacío no se recoge');
   });
+  await test('cursor: se usa lo apuntado, a 2 casillas, con su borde y la opción al lado', async () => {
+    const was = game.mouse, aimAt = (x, h, y) => { const v = new THREE.Vector3(x, game.view3d.groundY(w(), x, y) + h, y).project(game.view3d.camera); game.mouse = { x: (v.x + 1) / 2 * innerWidth, y: (1 - v.y) / 2 * innerHeight, in: true }; };
+    const shot = async (x, y) => { await goTo(game, x, y); draw(); draw(); };
+    try {
+      await shot(21.5, 17.8);
+      aimAt(21.5, 1.1, 16.5); check(/puerta/i.test(game.nearest()?.text || ''), `en la puerta dice: ${game.nearest()?.text}`);
+      draw(); check(game.highlight?.kind === 'door', `resalta: ${game.highlight?.kind}`);
+      check(document.getElementById('prompt').classList.contains('follow'), 'la opción no sale junto al cursor');
+      // Sin apuntarla no hay nada, aunque esté al lado; ni con el ratón fuera del juego
+      game.mouse = { x: 3, y: 3, in: true }; check(!game.nearest(), `sin apuntar dice: ${game.nearest()?.text}`); draw(); check(!game.highlight, 'resalta sin apuntar');
+      aimAt(21.5, 1.1, 16.5); game.mouse.in = false; check(!game.nearest(), 'con el ratón fuera sigue la opción');
+      // Más lejos de 2 casillas, tampoco
+      await shot(21.5, 19.6); aimAt(21.5, 1.1, 16.5); check(!game.nearest(), `de lejos dice: ${game.nearest()?.text}`);
+      // La cama, una valla del jardín, Nilo y el tablón
+      const H = game.houseRect(), bed = w().placedNear((H.x0 + H.x1) / 2, (H.y0 + H.y1) / 2, 16).find(o => o.placed === 'cama'); check(bed, 'no hay cama');
+      await shot(bed.x + 1.2, bed.y + 1.2); aimAt(bed.x, 0.45, bed.y); let act = game.nearest(); check(act?.text === 'Usar la cama' && act.alt, `en la cama dice: ${act?.text}`);
+      const nilo = w().nilo; await shot(nilo.x + 1, nilo.y + 1); aimAt(nilo.x, 0.8, nilo.y); check(game.nearest()?.text === 'Hablar con Nilo', `con Nilo dice: ${game.nearest()?.text}`);
+      await shot(BOARD.x + 0.5, BOARD.y + 1.6); aimAt(BOARD.x, 1, BOARD.y); check(game.nearest()?.text.includes('tablón'), `en el tablón dice: ${game.nearest()?.text}`);
+    } finally { game.mouse = was; game.highlight = null; }
+  });
   await test('puerta: se cierra y se abre', async () => {
     const door = [21, 16];   // (la de tu casa)
     check(w().pieceAt(...door)?.kind === 'door', 'no hay puerta en la casa');
@@ -375,7 +398,7 @@ async function soloTests(game) {
     check(w().collidersNear(tx + 1, ty + 0.5).some(c => c.low && c.x0 === tx + 0.5), 'no se une a la de al lado');
     const obj = c => c.objects.find(o => o.tile?.[0] === tx && o.tile?.[1] === ty);
     const o = obj(w().contentFor(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK))); check(o?.fence && !o.fixed, 'no se reconoce como valla');
-    const act = game.actionFor({ kind: 'fence', o }); check(act.alt?.text === 'Recoger', 'no se puede recoger'); act.alt.run();
+    const act = game.actionFor({ kind: 'fence', o }); check(act.text.startsWith('Recoger'), `dice: ${act.text}`); act.run();
     check(!w().ownAt('placed', tx, ty) && inv().count('valla') === n0 + 1, 'no ha vuelto a la mochila');
     check(!game.pickUp({ tile: [tx + 1, ty], layer: 'placed', placed: 'valla', fixed: true }), 'lo fijo se ha recogido');
     game.build.piece = 'valla'; game.build.erase = true; game.build.on = true; game.build.remove([tx + 1, ty]); game.build.on = false; game.build.erase = false;
@@ -529,13 +552,26 @@ async function soloTests(game) {
   });
   await test('mesa de encantar retirada: al cargar se quita y se devuelven sus materiales', async () => {
     const cx = 100, cy = 100, k = `${cx},${cy}`, deltas = new Map([[k, { removed: {}, tilled: {}, v: 0, placed: { '1600,1600': 'mesa_encantar@1', '1601,1600': 'silla' }, pos: { 'placed:1600,1600': [1, 2, 3] }, chest: { '1602,1600': [{ id: 'mesa_encantar', n: 1 }, { id: 'madera', n: 2 }] } }]]);
-    const save = game.snapshot(); save.inventory.slots = [{ id: 'mesa_encantar', n: 1 }, { id: 'hacha', n: 1, dur: 5, ench: { filo: 2 } }, ...save.inventory.slots.slice(2)];
+    const save = game.snapshot(); save.inventory.slots = [{ id: 'mesa_encantar', n: 1 }, { id: 'hacha', n: 1, dur: 15, ench: { filo: 2 } }, ...save.inventory.slots.slice(2)];
     save.inventory.equip = { cabeza: { id: 'casco_hierro', dur: 3, ench: { proteccion: 1 } } }; deltas.get(k).chest['1602,1600'][1].ench = { fortuna: 1 };
     const before = save.inventory.slots.length, owed = retireItems(save, deltas), d = deltas.get(k);
     check(!d.placed['1600,1600'] && d.placed['1601,1600'] === 'silla' && !d.pos['placed:1600,1600'], 'no se ha quitado la del mundo'); check(d.chest['1602,1600'][0] === null && d.chest['1602,1600'][1].id === 'madera', 'no se ha quitado la del cofre');
     check(save.inventory.slots[0] === null && save.inventory.slots.length === before, 'no se ha quitado la de la mochila');
-    check(owed.spell && !save.inventory.slots[1].ench && save.inventory.slots[1].dur === 5 && !save.inventory.equip.cabeza.ench && !d.chest['1602,1600'][1].ench, 'quedan encantamientos en la partida vieja');
+    check(owed.iron && save.inventory.slots[1].id === 'hacha_hierro' && save.inventory.slots[1].dur === Math.ceil(ITEMS.hacha_hierro.dur * 15 / 60), `el hacha de madera no pasa a hierro: ${JSON.stringify(save.inventory.slots[1])}`);
+    check(owed.spell && !save.inventory.slots[1].ench && !save.inventory.equip.cabeza.ench && !d.chest['1602,1600'][1].ench, 'quedan encantamientos en la partida vieja');
     const count = id => owed.filter(o => o[0] === id).reduce((n, o) => n + o[1], 0); check(count('amatista') === 12 && count('tablas') === 18 && count('lingote_hierro') === 6, `devuelve: ${JSON.stringify(owed)}`);
+  });
+  await test('herramientas: solo las de hierro, desde el principio', async () => {
+    const tools = Object.entries(ITEMS).filter(([, d]) => ['hacha', 'pico', 'guadana', 'azada'].includes(d.tool));
+    check(tools.length === 4 && tools.every(([id, d]) => id.endsWith('_hierro') && d.name.endsWith('de hierro')), `hay: ${tools.map(t => t[0]).join(', ')}`);
+    for (const t of ['hacha', 'pico', 'guadana', 'azada']) {
+      check(inv().slots.some(s => s?.id === `${t}_hierro`), `no se empieza con ${t} de hierro`);
+      check(RECIPES.some(r => r.out === `${t}_hierro` && r.station === 'yunque'), `no se fabrica ${t} de hierro`);
+    }
+    check(!RECIPES.some(r => /^(hacha|pico|guadana|azada)(_|$)/.test(r.out) && !r.out.endsWith('_hierro')), 'quedan recetas de las otras');
+    for (const shop of Object.values(SHOPS)) for (const it of shop.stock) if (it.id) check(ITEMS[it.id], `se vende algo que no existe: ${it.id}`);
+    check(repairMat('pico_hierro') === 'lingote_hierro', 'no se repara con hierro');
+    check(hitsFor(HARVEST.boulder) === 2 && HARVEST.veta_diamante.drops[0][0] === 'diamante', 'los golpes no son los del hierro');
   });
   await test('yunque: sin encantamientos, dos iguales gastados se juntan', async () => {
     const said = []; runCommand(game, '/enchant @s sharpness', (t, k) => said.push(`${k}: ${t}`)); check(said.some(t => t.startsWith('err')), `/enchant sigue: ${said.join(' | ')}`);
@@ -566,7 +602,7 @@ async function soloTests(game) {
     key(); await frames(2); check(el.hidden, 'no se cierra');
   });
   await test('iconos: los de lo que se coloca y las herramientas salen del modelo 3D, el resto a píxel', async () => {
-    check(modelKind('silla') === 'placed' && modelKind('hacha') === 'tool' && !modelKind('madera') && !modelKind('camisa') && !modelKind('alfombra'), 'la clase de icono no es la esperada');
+    check(modelKind('silla') === 'placed' && modelKind('hacha_hierro') === 'tool' && !modelKind('madera') && !modelKind('camisa') && !modelKind('alfombra'), 'la clase de icono no es la esperada');
     const bad = [];
     for (const id of Object.keys(ITEMS)) {
       const c = itemIcon(id), d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;

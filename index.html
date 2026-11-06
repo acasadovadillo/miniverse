@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- La versión publicada: se cambia en cada publicación (así el juego sabe que tiene que pedir el código nuevo) -->
-<meta name="miniverse-version" content="2026-11-06.2">
+<meta name="miniverse-version" content="2026-11-06.3">
 <title>Miniverse</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏡</text></svg>">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -33,6 +33,7 @@
   button, input { font: inherit; font-variant-ligatures: none; }
 
   .panel { background: var(--wood); border: 3px solid var(--border); border-radius: 6px; box-shadow: inset 0 0 0 2px #5a3a20, 0 4px 0 rgba(0, 0, 0, .35); }
+  #prompt.follow { left: 0; top: 0; bottom: auto; transition: opacity .12s; }
   #prompt { position: fixed; left: 50%; bottom: 22%; transform: translateX(-50%); padding: 6px 14px; font-size: 18px; opacity: 0; transition: opacity .12s; pointer-events: none; white-space: nowrap; }
   #prompt.show { opacity: 1; }
   kbd { display: inline-block; min-width: 1.5em; padding: 0 6px; margin-right: 4px; border-radius: 4px; background: #fff3d6; color: #3a2414; font: 600 16px 'Pixelify Sans', sans-serif; text-align: center; box-shadow: 0 2px 0 #b8935a; }

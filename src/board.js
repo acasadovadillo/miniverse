@@ -58,6 +58,11 @@ export class Board {
     return { text: 'Mirar el tablón de encargos', run: () => this.open() };
   }
 
+  aimables(p, scene, box) {
+    if (scene !== this.world) return null;
+    return [{ kind: 'sys', box: box(BOARD.x, BOARD.y, 0.75, 0.3, 0, 1.8), act: () => ({ text: 'Mirar el tablón de encargos', run: () => this.open() }) }];
+  }
+
   async open() {
     const g = this.game;
     g.busy = true;

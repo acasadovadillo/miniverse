@@ -20,12 +20,19 @@ export const hud = {
   faces: {},   // nombre → aspecto, para poner su retrato en los diálogos
 
   // Solo toca la página cuando el aviso cambia
-  prompt(text) {
-    const label = text || '';
-    if (label === shownPrompt) return;
-    shownPrompt = label;
-    $('prompt').classList.toggle('show', !!label);
-    if (label) $('prompt-text').textContent = label;
+  // at: junto a qué punto de la pantalla (el cursor); sin él, abajo, en el centro
+  prompt(text, at = null) {
+    const label = text || '', el = $('prompt');
+    if (label !== shownPrompt) {
+      shownPrompt = label;
+      el.classList.toggle('show', !!label);
+      if (label) $('prompt-text').textContent = label;
+    }
+    el.classList.toggle('follow', !!(label && at));
+    if (label && at) {
+      const x = Math.max(6, Math.min(innerWidth - el.offsetWidth - 6, at[0] + 18)), y = Math.max(6, Math.min(innerHeight - el.offsetHeight - 6, at[1] + 18));
+      el.style.transform = `translate(${x}px, ${y}px)`;
+    } else el.style.transform = '';
   },
 
   // Nombre del lugar; con flash, destaca un momento (al cambiar de bioma)

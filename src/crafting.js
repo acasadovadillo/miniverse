@@ -6,15 +6,14 @@ import { parsePlaced } from './pieces.js';
 
 export const STATION_REACH = 2.4;   // a cuántas casillas puede estar una estación para usarla
 const worn = it => !!it && !!ITEMS[it.id]?.dur && it.dur !== undefined && it.dur < ITEMS[it.id].dur;
-// Con qué se repara cada cosa: las herramientas, con lo de su cabeza; las armaduras y las espadas, con su lingote
-const TIER_MAT = { 1: 'tablas', 2: 'piedra', 3: 'lingote_cobre', 4: 'lingote_hierro', 5: 'lingote_oro' };
+// Con qué se repara cada cosa: las herramientas, con hierro; las armaduras y las espadas, con su lingote
 export function repairMat(id) {
   const def = ITEMS[id];
   if (def.metal) return `lingote_${def.metal}`;
   if (id === 'espada') return 'lingote_hierro';
   if (id === 'espada_oro') return 'lingote_oro';
   if (def.tool === 'cana' || def.tool === 'red') return 'cuerda';
-  return def.tier ? TIER_MAT[def.tier] : null;
+  return def.tool ? 'lingote_hierro' : null;
 }
 
 export class Crafting {

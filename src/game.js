@@ -52,16 +52,25 @@ import { hud } from './ui/hud.js';
 // Lo que ya no existe en el juego y lo que costó. Al cargar una partida se quita de donde esté (la mochila, los cofres, las
 // alforjas, el correo o puesto en el mundo) y, si no, quedaría un objeto sin datos que rompe la mochila. Devuelve lo que
 // hay que devolver: [[id, n]]
+// Las herramientas son todas de hierro: las de antes pasan a serlo, con la parte de uso que les quedaba (dur: lo que aguantaban)
+const OLD_TOOLS = {};
+for (const tool of ['hacha', 'pico', 'guadana', 'azada']) for (const [suffix, dur] of [['', 60], ['_piedra', 130], ['_cobre', 190], ['_oro', 500]]) OLD_TOOLS[tool + suffix] = { id: `${tool}_hierro`, dur };
 const RETIRED = { mesa_encantar: [['amatista', 4], ['tablas', 6], ['lingote_hierro', 2]] };
 export function retireItems(save, deltas) {
   const owed = [], back = (id, n = 1) => { for (const [m, k] of RETIRED[id]) owed.push([m, k * n]); };
   // (los encantamientos tampoco están ya: lo encantado se queda como cualquier otro; owed.spell: si había alguno)
   const unspell = s => { if (s?.ench) { delete s.ench; owed.spell = true; } };
-  const clean = list => { if (Array.isArray(list)) list.forEach((s, i) => { if (s && RETIRED[s.id]) { back(s.id, s.n || 1); list[i] = null; } else unspell(s); }); };
+  const reforge = (s, data = s) => {
+    const old = s && OLD_TOOLS[s.id];
+    if (!old) return;
+    s.id = old.id; owed.iron = true;
+    if (data.dur !== undefined) data.dur = Math.max(1, Math.ceil(ITEMS[old.id].dur * data.dur / old.dur));
+  };
+  const clean = list => { if (Array.isArray(list)) list.forEach((s, i) => { if (s && RETIRED[s.id]) { back(s.id, s.n || 1); list[i] = null; } else { unspell(s); reforge(s); } }); };
   clean(save.inventory?.slots);
   for (const it of Object.values(save.inventory?.equip || {})) unspell(it);
   for (const a of save.animals || []) clean(a.bags);
-  if (save.farm?.mail) save.farm.mail = save.farm.mail.filter(m => { if (!RETIRED[m.id]) { unspell(m.extra); return true; } back(m.id, m.n || 1); return false; });
+  if (save.farm?.mail) save.farm.mail = save.farm.mail.filter(m => { if (!RETIRED[m.id]) { unspell(m.extra); reforge(m, m.extra || {}); return true; } back(m.id, m.n || 1); return false; });
   for (const [k, d] of deltas) {
     if (k.startsWith('u:')) continue;
     for (const list of Object.values(d.chest || {})) clean(list);
@@ -77,9 +86,9 @@ export function retireItems(save, deltas) {
 const STEP = 1 / 60;   // la simulación avanza siempre a 60 pasos por segundo
 const NILO_TIPS = [
   'Dicen que el mundo no se acaba nunca más allá del bosque. Yo nunca he llegado tan lejos.',
-  'Los peñascos grandes no se dejan picar con un pico de madera. Hazte uno de piedra en el banco.',
-  'Dicen que en las montañas los peñascos esconden cobre, hierro y hasta oro. Pero hace falta buen pico.',
-  'Con un horno conviertes el mineral en lingotes. Y con lingotes de cobre, un yunque para herramientas de metal.',
+  'Los peñascos grandes dan de todo: piedra, carbón, cobre, hierro y a veces oro. Pero tu pico se gasta: cuídalo.',
+  'Dicen que en las montañas los peñascos esconden más hierro y más oro.',
+  'Con un horno conviertes el mineral en lingotes. Y con lingotes de cobre, un yunque para forjar. Si se te rompe una herramienta, ahí te haces otra, o se la compras a Bruno.',
   'En la cocina, una manzana asada quita el doble de hambre que una cruda. Hazme caso.',
   'Si te quedas sin carbón, quema madera en el horno. Así lo hacía mi abuelo.',
   'En el taller, al oeste del camino, hay un banco y un telar para quien los necesite. No hace falta pedir permiso.',
@@ -226,6 +235,7 @@ export class Game {
     this.scene = this.world;
     this.underRoof = false;
     if (owed.length && !Profile.server) { for (const [id, n] of owed) this.giveBack(id, n); hud.toast('La mesa de encantar ya no está en el juego: te devuelvo sus materiales', 'good'); }
+    if (owed.iron && !Profile.server) hud.toast('Ahora todas las herramientas son de hierro: también las tuyas, con el desgaste que llevaban', 'good');
     if (owed.spell && !Profile.server) hud.toast('Los encantamientos ya no están en el juego: tus cosas siguen, pero sin ellos');
     // Lo que el jugador tenía en su habitación va primero (dentro de la casa); luego se levanta la casa con
     // sus muebles por defecto, que solo ocupan las casillas que quedan libres. Va después de crear al jugador,
@@ -435,9 +445,9 @@ export class Game {
     const sc = this.scene;
     if (p.pose) return { text: 'Levantarse', run: () => this.rest.stand() };
     if (p.aboard) return this.crew.action();
-    // Lo que se apunta con el ratón, si está cerca; si no, lo que haya más cerca
-    const aim = this.aimed(), act = aim && this.actionFor(aim);
-    if (act) return act;
+    // Con ratón, solo lo que se apunta con el cursor (a AIM_REACH casillas como mucho)
+    if (this.mouse) { const aim = this.aimed(); return aim ? this.actionFor(aim) : null; }
+    // Sin ratón (en pantalla táctil, sin cursor): lo que haya más cerca
     for (const s of this.systems) { const r = s.interact?.(p, sc); if (r) return r; }
     const door = sc.doorNear?.(p.x, p.y), da = door && this.doorAction(door);
     if (da) return da;
@@ -482,21 +492,26 @@ export class Game {
       if (o.layer === 'rug') { out.push({ kind: 'placed', o, box: { ...(o.obb || aabb(o.fx[0], o.fy[0], o.fx[1], o.fy[1])), y0: 0, y1: 0.06 } }); continue; }
       let h = hull(solidsOf(o.model || o.placed));
       if (!isFinite(h[0])) h = [-0.45, 0, -0.45, 0.45, 0.1, 0.45];
-      out.push({ kind: 'placed', o, box: placeBoxes([h], o.x, o.y, o.yaw ?? yawOf(o.rot))[0] });
+      out.push({ kind: 'placed', o, yaw: o.yaw ?? yawOf(o.rot), box: placeBoxes([h], o.x, o.y, o.yaw ?? yawOf(o.rot))[0] });
     }
     // Las puertas, las ventanas y el hogar (piezas de construcción)
     const cx = Math.floor(p.x / CHUNK), cy = Math.floor(p.y / CHUNK);
     if (sc.contentFor) for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) for (const o of sc.contentFor(cx + dx, cy + dy).objects) {
       if (!o.tile || Math.abs(o.x - p.x) > R || Math.abs(o.y - p.y) > R) continue;
       const [tx, ty] = o.tile, alongX = o.door ? o.door === 'x' : (o.mask & 3) || !(o.mask & 12);
-      if (o.door) { const y1 = o.gate ? 1 : 2.3; out.push({ kind: 'door', tile: o.tile, box: alongX ? box(tx + 0.5, ty + 0.5, 0.5, 0.2, 0, y1) : box(tx + 0.5, ty + 0.5, 0.2, 0.5, 0, y1) }); }
+      if (o.door) { const y1 = o.gate ? 1 : 2.05, w = o.gate ? 0.5 : 0.46; out.push({ kind: 'door', tile: o.tile, box: alongX ? box(tx + 0.5, ty + 0.5, w, 0.12, 0, y1) : box(tx + 0.5, ty + 0.5, 0.12, w, 0, y1) }); }
       else if (o.window) out.push({ kind: 'window', tile: o.tile, box: alongX ? box(tx + 0.5, ty + 0.5, 0.45, 0.2, 0.9, 2.1) : box(tx + 0.5, ty + 0.5, 0.2, 0.45, 0.9, 2.1) });
       else if (o.hearth) out.push({ kind: 'hearth', tile: o.tile, box: box(o.x, o.y, 0.5, 0.5, 0, 1.4) });
-      else if (o.fence && (!o.fixed || o.yard) && ITEMS[o.placed]) out.push({ kind: 'fence', o, box: box(o.x, o.y, 0.5, 0.5, 0, 0.96) });   // (solo apuntándola: si no, cada valla cercana taparía lo demás)
+      else if (o.fence && (!o.fixed || o.yard) && ITEMS[o.placed]) {   // (solo apuntándola: si no, cada valla cercana taparía lo demás)
+        const m = o.mask || 0, x0 = m & 2 ? -0.5 : -0.1, x1 = m & 1 ? 0.5 : 0.1, y0 = m & 8 ? -0.5 : -0.1, y1 = m & 4 ? 0.5 : 0.1;   // (el poste y sus tramos, hacia las de al lado)
+        out.push({ kind: 'fence', o, box: box(o.x + (x0 + x1) / 2, o.y + (y0 + y1) / 2, (x1 - x0) / 2, (y1 - y0) / 2, 0, 0.9) });
+      }
     }
     // El candelabro de la casa, colgado del techo
     const lamp = this.lampNear(R), at = lamp && this.view3d.world.chandelierNear(p.x, p.y, R, true);
     if (lamp) out.push({ kind: 'lamp', tile: lamp, box: box(at[0], at[1], 0.6, 0.6, 1.9, 2.8) });
+    // Lo de cada sistema: el tablón, el museo, las cuevas y los templos, los árboles con fruta, la barca de otro…
+    for (const s of this.systems) { const more = s.aimables?.(p, sc, box); if (more) out.push(...more); }
     if (sc !== this.world) return out;
     // La gente, los animales y lo que se puede cosechar
     const who = (kind, e, r, y1, more) => out.push({ kind, e, ...more, box: box(e.x, e.y, r, r, 0, y1) });
@@ -516,12 +531,13 @@ export class Game {
       case 'door': return this.doorAction(a.tile);
       case 'window': return this.windowAction(a.tile);
       case 'hearth': return this.hearthAction(a.tile);
-      case 'fence': return { text: ITEMS[a.o.placed].name, run: () => Audio.blip(), alt: { text: 'Recoger', run: () => { if (this.pickUp(a.o)) this.onSave?.(); } } };
+      case 'fence': return { text: `Recoger ${ITEMS[a.o.placed].name.toLowerCase()}`, run: () => { if (this.pickUp(a.o)) this.onSave?.(); } };
       case 'lamp': return this.lampAction(a.tile);
       case 'npc': return this.neighbors.actionFor(a.n);
       case 'kid': return this.family.actionFor(a.id, a.e);
       case 'animal': return this.ranch.talk(a.e);
       case 'crop': return { text: 'Cosechar', run: () => this.farm.harvest(...a.tile) };
+      case 'sys': return a.act();
     }
     return null;
   }
@@ -665,7 +681,7 @@ export class Game {
     await hud.say('Nilo', first ? [
       `¡Así que tú eres ${p.name}! Por fin llega alguien a la casa del final del camino. Llevaba años vacía.`,
       'Esto es Pueblo Brotes. Pequeño, sí, pero aquí cada cual se construye la vida a su manera.',
-      'Te he dejado unas herramientas viejas: hacha, pico, guadaña y azada. Elígelas con los números y úsalas con el clic izquierdo.',
+      'Te he dejado unas herramientas de hierro: hacha, pico, guadaña y azada. Elígelas con los números y úsalas con el clic izquierdo. Para usar lo demás, acércate, pon el cursor encima y pulsa E.',
       'No te agobies, que no hace falta saberlo todo hoy. Te dejo apuntado qué hacer, de uno en uno, arriba a la izquierda.',
     ] : [NILO_TIPS[this.niloTip++ % NILO_TIPS.length]]);
     if (first) this.craft.teach('banco');
@@ -961,9 +977,12 @@ export class Game {
 
   render() {
     this.frameNo++;
+    const near = this.nearest(), p = this.player, m = this.mouse;
+    // Lo apuntado con el cursor lleva un borde amarillo, y la opción sale a su lado
+    this.highlight = near && m?.in && !p.pose && !p.aboard && !this.build.on ? this.aimed() : null;
+    this.view3d.game = this;
     this.view3d.render(this);
-    const near = this.nearest();
-    hud.prompt(near && (near.alt ? `${near.text}  ·  X: ${near.alt.text.toLowerCase()}` : near.text));
+    hud.prompt(near && (near.alt ? `${near.text}  ·  X: ${near.alt.text.toLowerCase()}` : near.text), this.highlight ? [m.x, m.y] : null);
     let hint = '';
     if (this.player) {
       for (const s of this.systems) { hint = s.hint?.() || ''; if (hint) break; }

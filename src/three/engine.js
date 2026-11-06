@@ -5,6 +5,7 @@
 // el jugador, sube lo justo para verlo por encima del tejado. El sol sigue la hora del juego (y la luna de
 // noche), el cielo tiene nubes, y hay lluvia, nieve, tormentas y niebla según el tiempo.
 import * as THREE from 'three';
+import { Outline } from './outline.js';
 import { CAM, PITCH, DIST, LOOK } from '../camera.js';
 import { setViewAngle } from '../iso.js';
 import { CENTER } from '../world/village.js';
@@ -26,7 +27,7 @@ const LOW_Q = new URLSearchParams(location.search).get('q') === 'low';
 
 export class View3D {
   constructor(canvas) {
-    const r = (this.renderer = new THREE.WebGLRenderer({ canvas, antialias: !LOW_Q, powerPreference: 'high-performance' }));
+    const r = (this.renderer = new THREE.WebGLRenderer({ canvas, antialias: !LOW_Q, stencil: true, powerPreference: 'high-performance' }));
     this.pixelRatio = Math.min(devicePixelRatio, LOW_Q ? 1 : 2);
     r.setPixelRatio(this.pixelRatio);
     r.outputColorSpace = THREE.SRGBColorSpace;
@@ -341,7 +342,7 @@ export class View3D {
     this.camera.layers.enableAll(); this.camera.layers.disable(1);
     if (this.shadowDirty || this.frames % 2 === 0) { r.shadowMap.needsUpdate = true; this.shadowDirty = false; }
     r.render(this.scene, this.camera);
-    if (this.first) { for (const m of mats) { m.colorWrite = true; m.depthWrite = true; } return; }
+    if (this.first) { for (const m of mats) { m.colorWrite = true; m.depthWrite = true; } this.drawOutline(); return; }
     r.autoClear = false;
     this.camera.layers.set(2);
     this.scene.overrideMaterial = SILHOUETTE;
@@ -350,6 +351,12 @@ export class View3D {
     for (const m of mats) { m.colorWrite = true; m.depthWrite = true; }
     if (mats.length) r.render(this.scene, this.camera);
     this.camera.layers.enableAll(); this.camera.layers.disable(1);
+    this.drawOutline();
+  }
+  // El borde amarillo de lo que se apunta con el cursor (game.highlight)
+  drawOutline() {
+    const g = this.game;
+    if (g?.highlight && this.shown === g.scene) (this.outline ||= new Outline(this)).draw(this.renderer, this.camera, g.highlight, g.scene, g.player, g.time);
   }
   // Fotogramas por segundo; si va lento un buen rato, se baja la resolución
   stats(dt) {

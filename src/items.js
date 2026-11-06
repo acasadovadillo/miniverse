@@ -1,38 +1,32 @@
 // Objetos (herramientas, materiales, comida y cosas que se colocan) y qué da cada cosa del mundo al recolectarla.
 
-// Niveles de herramienta: un nivel mejor necesita menos golpes, trabaja más deprisa y saca mejores minerales.
+// Las herramientas son todas de hierro (hacha, pico, guadaña y azada). tier: el nivel, que además usan la caña y la red
 export const TIERS = {
-  1: { name: 'de madera', head: '#b08050', power: 1, dur: 60 },
-  2: { name: 'de piedra', head: '#8e8a82', power: 1.5, dur: 130 },
-  3: { name: 'de cobre', head: '#d8844a', power: 2, dur: 190 },
-  4: { name: 'de hierro', head: '#b8c2ce', power: 3, dur: 250 },
-  5: { name: 'de oro', head: '#f0c840', power: 4, dur: 500 },   // (dur: los usos que aguanta antes de romperse)
+  4: { name: 'de hierro', head: '#b8c2ce', power: 3, dur: 250 },   // (dur: los usos que aguanta antes de romperse)
 };
 const TOOLS = {
   hacha: { name: 'Hacha', desc: 'Tala árboles y corta cactus.' },
-  pico: { name: 'Pico', desc: 'Pica rocas y peñascos. Cuanto mejor es, mejores minerales saca.' },
+  pico: { name: 'Pico', desc: 'Pica rocas, peñascos y vetas.' },
   guadana: { name: 'Guadaña', desc: 'Siega arbustos y matojos de un tajo.' },
   azada: { name: 'Azada', desc: 'Labra la tierra para sembrar.' },
 };
-const TIER_SUFFIX = { 1: '', 2: '_piedra', 3: '_cobre', 4: '_hierro', 5: '_oro' };
-export const toolId = (tool, tier) => tool + TIER_SUFFIX[tier];
 
 export const ITEMS = {
   madera: { name: 'Madera', desc: 'Troncos para construir y fabricar.' },
   piedra: { name: 'Piedra', desc: 'Para construir, y para hacer hornos.' },
   fibra: { name: 'Fibra', desc: 'Hebras vegetales para cuerdas y telas.' },
   carbon: { name: 'Carbón', desc: 'Combustible para el horno. También se hace quemando madera en el horno.' },
-  cobre: { name: 'Mineral de cobre', desc: 'Sale de rocas y peñascos con un pico de piedra o mejor. En el horno se funde.' },
-  hierro: { name: 'Mineral de hierro', desc: 'Sale de los peñascos con un pico de cobre o mejor. En el horno se funde.' },
-  oro: { name: 'Mineral de oro', desc: 'Muy raro: sale de los peñascos con un pico de hierro o mejor.' },
+  cobre: { name: 'Mineral de cobre', desc: 'Sale de rocas y peñascos. En el horno se funde.' },
+  hierro: { name: 'Mineral de hierro', desc: 'Sale de los peñascos. En el horno se funde.' },
+  oro: { name: 'Mineral de oro', desc: 'Sale de algunos peñascos. En el horno se funde.' },
   bellota: { name: 'Bellota', desc: 'Semilla de roble: plántala en la hierba y en unos días tendrás un árbol.', sapling: 'oak' },
   pina: { name: 'Piña', desc: 'Semilla de pino: se planta en la hierba. Tostada, sus piñones están ricos.', sapling: 'pine' },
   tablas: { name: 'Tablas', desc: 'Madera cortada, lista para fabricar.' },
   cuerda: { name: 'Cuerda', desc: 'Fibra trenzada. Sujeta las cabezas de las herramientas.' },
   tela: { name: 'Tela', desc: 'Tejida en el telar con fibra.' },
-  lingote_cobre: { name: 'Lingote de cobre', desc: 'Para el yunque, la cocina y las herramientas de cobre.' },
-  lingote_hierro: { name: 'Lingote de hierro', desc: 'Para herramientas de hierro en el yunque.' },
-  lingote_oro: { name: 'Lingote de oro', desc: 'Para las mejores herramientas.' },
+  lingote_cobre: { name: 'Lingote de cobre', desc: 'Para el yunque, la cocina y la armadura de cobre.' },
+  lingote_hierro: { name: 'Lingote de hierro', desc: 'Para las herramientas y la armadura de hierro, en el yunque.' },
+  lingote_oro: { name: 'Lingote de oro', desc: 'Para la espada y la armadura de oro.' },
   // Comida (food: lo que alimenta; hungerOf lo pasa a medios muslos de hambre)
   coco: { name: 'Coco', desc: 'Se cogen de las palmeras con E (vuelven a salir a los 3 días) o talándolas. Cuesta abrirlo, pero merece la pena.', food: 12 },
   manzana: { name: 'Manzana', desc: 'Crujiente y dulce.', food: 15 },
@@ -45,9 +39,9 @@ export const ITEMS = {
   pan_bellota: { name: 'Pan de bellota', desc: 'Denso, rústico y muy de pueblo.', food: 25 },
   estofado: { name: 'Estofado de cactus', desc: 'La especialidad del desierto. Quita el hambre para rato.', food: 50 },
   // Cosas que se colocan en el mundo (place: estación de trabajo, mueble o algo plano en el suelo)
-  banco: { name: 'Banco de carpintero', desc: 'Estación: herramientas de piedra, muebles y otras estaciones.', place: 'station' },
+  banco: { name: 'Banco de carpintero', desc: 'Estación: muebles y otras estaciones.', place: 'station' },
   horno: { name: 'Horno', desc: 'Estación: funde minerales en lingotes y hace carbón.', place: 'station' },
-  yunque: { name: 'Yunque', desc: 'Estación: herramientas de cobre, hierro y oro.', place: 'station' },
+  yunque: { name: 'Yunque', desc: 'Estación: herramientas de hierro, armaduras y espadas.', place: 'station' },
   telar: { name: 'Telar', desc: 'Estación: teje fibra en tela.', place: 'station' },
   cocina: { name: 'Cocina', desc: 'Estación: platos que quitan mucha más hambre.', place: 'station' },
   silla: { name: 'Silla', desc: 'Para sentarse a admirar lo talado. Mirando a una mesa, se mete debajo.', place: 'furniture' },
@@ -203,11 +197,7 @@ ITEMS.vitrina = { name: 'Vitrina', desc: 'Para lucir tus colecciones en casa.', 
 
 for (const [id, f] of Object.entries(FISH)) ITEMS[id] = { name: f.name, desc: f.rare ? '¡Rarísimo! Dicen que da suerte.' : 'Un pez. Se puede asar en la cocina o vender.', food: 6, fish: true };
 
-for (const [tool, def] of Object.entries(TOOLS)) {
-  for (const tier of [1, 2, 3, 4, 5]) {
-    ITEMS[toolId(tool, tier)] = { name: `${def.name} ${TIERS[tier].name}`, desc: def.desc, tool, tier, stack: 1, dur: TIERS[tier].dur };
-  }
-}
+for (const [tool, def] of Object.entries(TOOLS)) ITEMS[`${tool}_hierro`] = { name: `${def.name} ${TIERS[4].name}`, desc: def.desc, tool, tier: 4, stack: 1, dur: TIERS[4].dur };
 // Ropa y mochila: se llevan puestas en un hueco del cuerpo (wear). Cada prenda lleva su color (en la casilla
 // de la mochila o en el hueco); dye es el de las que se fabrican.
 export const WEAR_SLOTS = [
@@ -293,9 +283,8 @@ for (const kind of RUG_KINDS) {
 for (const it of Object.values(ITEMS)) if (it.wear) it.stack = 1;
 for (const it of Object.values(ITEMS)) it.stack ??= it.place ? 10 : 99;
 
-// Qué herramienta hace falta, cuántos golpes con una de madera, qué cae
-// ([id, mínimo, máximo, probabilidad, nivel mínimo de herramienta]) y qué astillas salta al golpear.
-// `hand`: golpes a mano (si se puede). `minTier`: nivel de herramienta necesario para poder trabajarlo.
+// Qué herramienta hace falta, cuánto cuesta trabajarlo (hits: ver hitsFor), qué cae ([id, mínimo, máximo, probabilidad])
+// y qué astillas salta al golpear. `hand`: golpes a mano (si se puede).
 // Nada de esto vuelve a crecer: lo que se tala, pica o siega desaparece para siempre.
 const TREE = { tool: 'hacha', hits: 4, chips: 'wood', verb: 'Talar' };
 export const HARVEST = {
@@ -308,28 +297,28 @@ export const HARVEST = {
   cactus: { tool: 'hacha', hits: 2, chips: 'cactus', verb: 'Cortar', drops: [['pulpa', 1, 2], ['fibra', 1, 1, 0.5]] },
   bush: { tool: 'guadana', hand: 2, hits: 1, chips: 'leaf', verb: 'Segar', drops: [['fibra', 1, 2], ['bayas', 1, 2, 0.5], ['semillas', 1, 2, 0.3]] },
   deadBush: { tool: 'guadana', hand: 1, hits: 1, chips: 'twig', verb: 'Segar', drops: [['madera', 1, 1], ['fibra', 1, 2]] },
-  rock: { tool: 'pico', hits: 2, chips: 'stone', verb: 'Picar', drops: [['piedra', 2, 3], ['carbon', 1, 1, 0.2], ['cobre', 1, 1, 0.15, 2]] },
-  boulder: { tool: 'pico', minTier: 2, hits: 6, chips: 'stone', verb: 'Picar', drops: [['piedra', 5, 7], ['carbon', 1, 2, 0.4], ['cobre', 1, 3, 0.6, 2], ['hierro', 1, 2, 0.45, 3], ['oro', 1, 2, 0.3, 4]] },
-  snowBoulder: { tool: 'pico', minTier: 2, hits: 6, chips: 'stone', verb: 'Picar', drops: [['piedra', 4, 6], ['carbon', 1, 1, 0.3], ['hierro', 1, 3, 0.55, 3], ['oro', 1, 2, 0.35, 4]] },
+  rock: { tool: 'pico', hits: 2, chips: 'stone', verb: 'Picar', drops: [['piedra', 2, 3], ['carbon', 1, 1, 0.2], ['cobre', 1, 1, 0.15]] },
+  boulder: { tool: 'pico', hits: 6, chips: 'stone', verb: 'Picar', drops: [['piedra', 5, 7], ['carbon', 1, 2, 0.4], ['cobre', 1, 3, 0.6], ['hierro', 1, 2, 0.45], ['oro', 1, 2, 0.3]] },
+  snowBoulder: { tool: 'pico', hits: 6, chips: 'stone', verb: 'Picar', drops: [['piedra', 4, 6], ['carbon', 1, 1, 0.3], ['hierro', 1, 3, 0.55], ['oro', 1, 2, 0.35]] },
 };
 
-// Vetas de las cuevas: necesitan un pico de cierto nivel
-const VEIN = (ore, minTier, hits, drops) => ({ tool: 'pico', minTier, hits, chips: 'stone', verb: 'Picar', drops });
+// Vetas de las cuevas
+const VEIN = (ore, hits, drops) => ({ tool: 'pico', hits, chips: 'stone', verb: 'Picar', drops });
 Object.assign(HARVEST, {
-  veta_piedra: VEIN('piedra', 1, 2, [['piedra', 2, 4], ['carbon', 1, 1, 0.3]]),
-  veta_cobre: VEIN('cobre', 1, 3, [['cobre', 1, 3], ['piedra', 1, 2]]),
-  veta_hierro: VEIN('hierro', 2, 4, [['hierro', 1, 3], ['piedra', 1, 1]]),
-  veta_oro: VEIN('oro', 3, 5, [['oro', 1, 2]]),
-  veta_amatista: VEIN('amatista', 2, 4, [['amatista', 1, 1], ['piedra', 1, 1]]),
-  veta_esmeralda: VEIN('esmeralda', 3, 5, [['esmeralda', 1, 1]]),
-  veta_rubi: VEIN('rubi', 3, 6, [['rubi', 1, 1]]),
-  veta_diamante: VEIN('diamante', 4, 7, [['diamante', 1, 1]]),
-  veta_fosil: VEIN('fosil', 2, 3, [['fosil_concha', 1, 1, 0.5], ['fosil_hueso', 1, 1, 0.35], ['fosil_ambar', 1, 1, 0.2], ['piedra', 1, 2]]),
+  veta_piedra: VEIN('piedra', 2, [['piedra', 2, 4], ['carbon', 1, 1, 0.3]]),
+  veta_cobre: VEIN('cobre', 3, [['cobre', 1, 3], ['piedra', 1, 2]]),
+  veta_hierro: VEIN('hierro', 4, [['hierro', 1, 3], ['piedra', 1, 1]]),
+  veta_oro: VEIN('oro', 5, [['oro', 1, 2]]),
+  veta_amatista: VEIN('amatista', 4, [['amatista', 1, 1], ['piedra', 1, 1]]),
+  veta_esmeralda: VEIN('esmeralda', 5, [['esmeralda', 1, 1]]),
+  veta_rubi: VEIN('rubi', 6, [['rubi', 1, 1]]),
+  veta_diamante: VEIN('diamante', 7, [['diamante', 1, 1]]),
+  veta_fosil: VEIN('fosil', 3, [['fosil_concha', 1, 1, 0.5], ['fosil_hueso', 1, 1, 0.35], ['fosil_ambar', 1, 1, 0.2], ['piedra', 1, 2]]),
 });
 
 // Lo que cansa cada uso de herramienta (en cansancio de combat.js: a 4, medio muslo de hambre menos)
 export const TOOL_COST = { hacha: 1, pico: 1, guadana: 0.5, azada: 1, mano: 0.5, regadera: 0.5, cana: 0.5, red: 0.5 };
-export const START_KIT = [['hacha', 1], ['pico', 1], ['guadana', 1], ['azada', 1], ['manzana', 3]];
+export const START_KIT = [['hacha_hierro', 1], ['pico_hierro', 1], ['guadana_hierro', 1], ['azada_hierro', 1], ['manzana', 3]];
 
-// Golpes que necesita una herramienta de cierto nivel
-export const hitsFor = (rule, tier) => Math.max(1, Math.ceil(rule.hits / TIERS[tier].power));
+// Golpes que necesita con su herramienta
+export const hitsFor = rule => Math.max(1, Math.ceil(rule.hits / TIERS[4].power));

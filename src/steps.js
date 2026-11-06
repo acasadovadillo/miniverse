@@ -15,7 +15,7 @@ const seedNow = g => { const c = Object.keys(CROPS).find(id => CROPS[id].seasons
 // id, lo que hay que hacer y una pista. Se cumple con stat + need (cuántos más que al empezar el paso), o con done(g).
 // money e items: la recompensa (items puede depender del momento). skip(g): este paso ahora no se puede hacer
 export const STEPS = [
-  { id: 'nilo', text: 'Habla con Nilo, en la plaza', hint: 'Acércate a él y pulsa E.', done: g => g.craft.taught.has('banco'), money: 20 },
+  { id: 'nilo', text: 'Habla con Nilo, en la plaza', hint: 'Acércate, pon el cursor encima de él y pulsa E.', done: g => g.craft.taught.has('banco'), money: 20 },
   { id: 'segar', text: 'Siega 3 matorrales', hint: 'Elige la guadaña con el 3 y usa el clic izquierdo. Dan fibra.', stat: 'segados', need: 3, money: 30, items: [['fibra', 4]] },
   { id: 'mochila', text: 'Hazte una mochila y póntela', hint: 'Son 8 de fibra y 2 cuerdas (3 de fibra cada una): siega más. Se hace con C y se pone con I.', done: g => g.inv.equip.espalda?.id === 'mochila', money: 50 },
   { id: 'talar', text: 'Tala un árbol', hint: 'El hacha está en el 1. Da madera.', stat: 'talados', need: 1, money: 20 },
@@ -23,7 +23,7 @@ export const STEPS = [
   { id: 'picar', text: 'Pica una roca', hint: 'El pico está en el 2. Da piedra.', stat: 'picados', need: 1, money: 20 },
   { id: 'taller', text: 'Ven al taller del pueblo', hint: 'Al oeste del camino. Su banco y su telar los puede usar cualquiera.', done: g => inWorkshop(g.player.x, g.player.y), money: 20 },
   { id: 'banco', text: 'Hazte tu banco de carpintero y colócalo', hint: '6 tablas y 2 piedras, con C. Luego, en la mano y clic donde lo quieras.', stat: 'estaciones', need: 1, money: 60 },
-  { id: 'dormir', text: 'Prueba tu cama', hint: 'Está en tu casa, al norte de la plaza. Pulsa E en ella y elige dormir.', stat: 'dormido', need: 1, money: 30 },
+  { id: 'dormir', text: 'Prueba tu cama', hint: 'Está en tu casa, al norte de la plaza. Acércate, pon el cursor encima y pulsa E. Elige dormir.', stat: 'dormido', need: 1, money: 30 },
   { id: 'labrar', text: 'Labra 3 casillas de hierba', hint: 'La azada está en el 4. Si saltas encima de la tierra labrada, se deshace.', stat: 'labrados', need: 3, money: 40, items: g => { const s = seedNow(g); return s ? [[s, 3]] : []; } },
   { id: 'sembrar', text: 'Siembra lo que te ha dado la tierra', hint: 'Con las semillas en la mano, clic sobre la tierra labrada. Luego hay que regarlas, o que llueva.', stat: 'sembrados', need: 1, money: 40, skip: g => !seedNow(g) },
 ];
