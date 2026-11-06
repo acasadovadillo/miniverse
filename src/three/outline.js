@@ -59,7 +59,7 @@ export class Outline {
     let n = 0;
     const actor = a.e && view.actors.models.get(a.e);
     if (actor) { actor.root.updateMatrixWorld(true); actor.root.traverseVisible(q => { if (q.isMesh) this.add(q.geometry, q.matrixWorld, n++); }); return n; }
-    const o = a.kind === 'placed' ? a.o : null, list = o && o.layer !== 'rug' ? this.pieces(o.model || o.placed) : null;
+    const o = a.kind === 'placed' ? a.o : null, list = o && o.layer !== 'rug' ? this.pieces(o.key === view.world.insideKey ? `${o.placed}:in` : o.model || o.placed) : null;
     if (list?.length) {
       const yaw = o.yaw ?? a.yaw ?? 0, x = nearX(o.x, me.x);
       ME.makeRotationY(yaw).setPosition(x, view.groundY(scene, o.x, o.y), o.y);

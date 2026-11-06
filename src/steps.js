@@ -3,7 +3,7 @@
 // jugador, no del mundo. Lo que se cuenta (matorrales, árboles…) se cuenta desde que empieza ese paso. A las partidas de
 // antes de que esto existiera no les sale, pero en el diario (J) se puede repasar, ya sin recompensas.
 import { CROPS } from './items.js';
-import { inWorkshop } from './world/village.js';
+import { inTavern } from './world/village.js';
 import { Audio } from './audio.js';
 import { hud } from './ui/hud.js';
 import { Profile } from './accounts.js';
@@ -21,7 +21,7 @@ export const STEPS = [
   { id: 'talar', text: 'Tala un árbol', hint: 'El hacha está en el 1. Da madera.', stat: 'talados', need: 1, money: 20 },
   { id: 'tablas', text: 'Junta 6 tablas', hint: 'Con C: cada madera da 2 tablas.', done: g => g.inv.count('tablas') >= 6, money: 20 },
   { id: 'picar', text: 'Pica una roca', hint: 'El pico está en el 2. Da piedra.', stat: 'picados', need: 1, money: 20 },
-  { id: 'taller', text: 'Ven al taller del pueblo', hint: 'Al oeste del camino. Su banco y su telar los puede usar cualquiera.', done: g => inWorkshop(g.player.x, g.player.y), money: 20 },
+  { id: 'taller', text: 'Ven a la taberna del pueblo', hint: 'Al oeste del camino. Anselmo sirve comida y bebida.', done: g => inTavern(g.player.x, g.player.y), money: 20 },
   { id: 'banco', text: 'Hazte tu banco de carpintero y colócalo', hint: '6 tablas y 2 piedras, con C. Luego, en la mano y clic donde lo quieras.', stat: 'estaciones', need: 1, money: 60 },
   { id: 'dormir', text: 'Prueba tu cama', hint: 'Está en tu casa, al norte de la plaza. Acércate, pon el cursor encima y pulsa E. Elige dormir.', stat: 'dormido', need: 1, money: 30 },
   { id: 'labrar', text: 'Labra 3 casillas de hierba', hint: 'La azada está en el 4. Si saltas encima de la tierra labrada, se deshace.', stat: 'labrados', need: 3, money: 40, items: g => { const s = seedNow(g); return s ? [[s, 3]] : []; } },

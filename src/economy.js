@@ -8,6 +8,7 @@ const BASE = {
   amatista: 80, esmeralda: 140, rubi: 200, diamante: 400, fosil_concha: 60, fosil_hueso: 120, fosil_ambar: 150,
   calavera: 30, moneda_antigua: 100, lingote_cobre: 36, lingote_hierro: 57, lingote_oro: 114,
   pocion_rapidez: 60, pocion_fuerza: 80, pocion_resistencia: 90, pocion_regeneracion: 90,
+  carne_ave: 14, carne_conejo: 16, carne_vaca: 30, carne_cordero: 26, carne_cabra: 24, carne_cerdo: 26, carne_venado: 30, carne_jabali: 30, piel: 20, hueso: 6, manteca: 14, asta: 60, colmillo: 45,
   huevo_pato: 35, huevo_oro: 300, plumas: 12, leche_cabra: 40, nata: 60, lana_fina: 140, angora: 55, trufa: 250, heno: 3,
 };
 const cache = new Map();
@@ -45,6 +46,10 @@ export const SHOPS = {
       { id: 'maceta', price: 90 }, { id: 'alfombra', price: 160, project: 'mercado' }, { id: 'lampara', price: 220, project: 'mercado' },
       { id: 'pan', price: 70 }, { id: 'manzana', price: 30 },
     ],
+  },
+  anselmo: {
+    title: 'Taberna de Anselmo', hours: [10, 26],
+    stock: [{ id: 'cerveza', price: 45 }, { id: 'sidra', price: 40 }, { id: 'hidromiel', price: 90 }, { id: 'pan', price: 70 }, { id: 'pollo_asado', price: 90 }, { id: 'estofado', price: 150 }, { id: 'filete', price: 130 }, { id: 'venado_asado', price: 160 }, { id: 'barril', price: 260 }, { id: 'taburete', price: 40 }],
   },
   bruno: {
     title: 'Herrería de Bruno', hours: [8, 17],

@@ -7,7 +7,9 @@
 import * as THREE from 'three';
 import { Profile } from './accounts.js';
 import { Person3D } from './three/people.js';
-import { distTo } from './world/fit.js';
+import { distTo, dirOf } from './world/fit.js';
+import { CAM, lookBy } from './camera.js';
+import { keys, clearKeys } from './input.js';
 import { ITEMS, HARVEST, hitsFor } from './items.js';
 import { SHOPS } from './economy.js';
 import { repairMat } from './crafting.js';
@@ -17,7 +19,7 @@ import { CHUNK } from './world/gen.js';
 import { B, BIOMES } from './world/biomes.js';
 import { paintPixels } from './world/ground.js';
 import { retireItems } from './game.js';
-import { HOUSE, HOUSES, POND, YARD, BOUNDS, BOARD, CENTER, WORKSHOP, inBounds } from './world/village.js';
+import { HOUSE, HOUSES, POND, YARD, BOUNDS, BOARD, CENTER, TAVERN, inBounds } from './world/village.js';
 import { collide as collideNow } from './physics.js';
 import { STEPS } from './steps.js';
 import { machineAt, settle, MACHINES } from './machines.js';
@@ -25,6 +27,8 @@ import { hud } from './ui/hud.js';
 import { freePlace } from './gather.js';
 import { PIECE_IDS } from './build.js';
 import { itemIcon } from './art/items.js';
+import { PREY, bodyBox } from './hunt.js';
+import { priceOf } from './economy.js';
 import { modelKind, ICON3D } from './three/icons.js';
 
 const GATE_X = 20;   // (el hueco de la valla del jardín, en el camino)
@@ -291,6 +295,153 @@ async function soloTests(game) {
       await shot(BOARD.x + 0.5, BOARD.y + 1.6); aimAt(BOARD.x, 1, BOARD.y); check(game.nearest()?.text.includes('tablón'), `en el tablón dice: ${game.nearest()?.text}`);
     } finally { game.mouse = was; game.highlight = null; }
   });
+  await test('caza: el cursor acierta en su cuerpo, muere y suelta lo suyo', async () => {
+    const was = game.mouse, R = game.ranch, g = game.gather, inv = game.inv, p = game.player, X = 62, Y = 44;
+    const aimAt = (x, h, y) => { const v = new THREE.Vector3(x, game.view3d.groundY(game.world, x, y) + h, y).project(game.view3d.camera); game.mouse = { x: (v.x + 1) / 2 * innerWidth, y: (1 - v.y) / 2 * innerHeight, in: true }; };
+    const count = id => inv.count(id);
+    const kept = inv.slots.slice(), sel = inv.selected;   // (con la barra llena no cabría lo que suelten)
+    inv.slots.fill(null); inv.add('espada', 1); inv.select(inv.slots.findIndex(s => s?.id === 'espada'));
+    try {
+      await goTo(game, X, Y); draw(); draw();
+      // Una vaca mirando a +x: su caja es la de su cuerpo, larga y girada con ella, y se apunta hasta el hocico
+      const a = R.summon('vaca', X + 1.4, Y); a.dir = [1, 0]; a.wait = 9999;
+      const b = bodyBox(a); check(Math.abs(b.hy - 0.86) < 0.01 && Math.abs(b.hx - 0.34) < 0.01 && Math.abs(b.y1 - 1.26) < 0.01 && Math.abs(b.vx - 1) < 0.01, `caja: ${JSON.stringify(b)}`);
+      const put = () => { a.x = a.tx = X + 1.4; a.y = a.ty = Y; a.panic = 0; a.dir = [1, 0]; a.wait = 9999; };
+      aimAt(a.x + 0.9, 1, a.y); check(game.aimed()?.e === a, `el hocico no se apunta: ${game.aimed()?.kind}`);
+      g.target = g.pickTarget(); draw(); check(document.getElementById('prompt').textContent.includes('Clic: atacar'), `la opción dice: ${document.getElementById('prompt').textContent}`);
+      draw(); check(game.highlight?.e === a, 'sin borde');
+      game.mouse = { x: 3, y: 3, in: true }; g.target = g.pickTarget(); check(!g.target?.prey, 'pega sin apuntarle');
+      // A espadazos: parpadea y huye, y al morir se va y suelta su carne, su piel y su hueso
+      const before = ['carne_vaca', 'piel', 'hueso'].map(count); let hits = 0;
+      for (; R.animals.includes(a) && hits < 14; hits++) {
+        put(); aimAt(a.x, 0.9, a.y); g.cooldown = 0; g.target = g.pickTarget(); check(g.target?.prey === a, `no le apunto: ${g.target?.label}`);
+        g.use();
+        if (!hits) { check(a.hurt > 0, 'no parpadea'); check(a.panic > game.time, 'no huye'); await frames(30); check(Math.hypot(a.x - X - 1.4, a.y - Y) > 0.5, 'no se mueve al huir'); }
+      }
+      check(!R.animals.includes(a), `sigue viva tras ${hits} golpes`); check(hits >= 3 && hits <= 4, `${hits} golpes de espada`);
+      await collectDrops(game);
+      check(count('carne_vaca') >= before[0] + 2 && count('piel') >= before[1] + 1 && count('hueso') >= before[2] + 1, 'la vaca no suelta lo suyo');
+      await goTo(game, X, Y);
+      // La cría, solo un trozo de carne
+      const lana = count('lana'), meat = count('carne_cordero'), c = R.summon('oveja', X + 1.4, Y); c.born = R.today; c.young = true; c.wait = 9999;
+      for (let i = 0; i < 9 && R.animals.includes(c); i++) game.hunt.hit(c, ITEMS.espada);
+      check(!R.animals.includes(c), 'la cría sigue viva'); await collectDrops(game);
+      check(count('carne_cordero') === meat + 1 && count('lana') === lana, 'la cría suelta de más');
+      await goTo(game, X, Y); draw();
+      // Lo de otra persona no se ataca (ni, si no apuntas, nada)
+      const o = R.summon('gallina', X + 1.4, Y); o.wait = 9999; o.owner = 'otra-persona';
+      aimAt(o.x, 0.3, o.y); g.target = g.pickTarget(); check(game.aimed()?.e === o && !g.target?.prey, 'se ataca lo de otro');
+      R.remove(o); R.gone.delete(o.id);
+      check(!PREY.perro && !PREY.gato && !PREY.caballo, 'las mascotas y el caballo se pueden matar');
+      // Con comida en la mano, el clic es para comer
+      inv.add('pan', 1); inv.select(inv.slots.findIndex(s => s?.id === 'pan'));
+      const e = R.summon('gallina', X + 1.4, Y); e.wait = 9999; aimAt(e.x, 0.3, e.y); g.target = g.pickTarget(); check(!g.target?.prey, 'con pan en la mano, pega'); R.remove(e); R.gone.delete(e.id); inv.remove('pan', 1);
+      // El salvaje huye de quien va de pie; de quien va agachado, solo muy de cerca
+      const W = game.wildlife, d = W.summon('ciervo', X + 3, Y); W.t = -999;
+      p.crouch = true; const at = [d.x, d.y]; await frames(20);
+      check(W.list.includes(d) && Math.hypot(d.x - at[0], d.y - at[1]) < 2 && !(d.scared > game.time), 'huye de quien va agachado');
+      p.crouch = false; d.tx = d.x; d.ty = d.y; d.wait = 0; const at2 = [d.x, d.y]; await frames(20);
+      check(!W.list.includes(d) || Math.hypot(d.x - at2[0], d.y - at2[1]) > 1, 'no huye de quien va de pie');
+      if (!W.list.includes(d)) W.list.push(d);
+      d.x = X + 1.3; d.y = Y; const v = count('carne_venado');
+      for (let i = 0; i < 9 && W.list.includes(d); i++) { game.hunt.hit(d, ITEMS.espada); check(i || d.scared > game.time, 'no se asusta'); }
+      check(!W.list.includes(d), 'el ciervo sigue vivo'); await collectDrops(game); check(count('carne_venado') >= v + 2, 'el ciervo no suelta carne');
+      // Todo lo que sueltan existe y vale algo, y la carne se asa en la cocina y alimenta más
+      for (const [t, def] of Object.entries(PREY)) for (const [id] of def.drops) { check(ITEMS[id], `${t} suelta ${id}`); check(priceOf(id) > 0, `${id} no vale nada`); }
+      for (const id of Object.keys(ITEMS).filter(k => k.startsWith('carne_'))) { const r = RECIPES.find(r => r.station === 'cocina' && r.ins[0][0] === id); check(r && ITEMS[r.out].food > ITEMS[id].food, `${id} no se asa`); check(itemIcon(id) && itemIcon(r.out), `sin icono: ${id}`); }
+      check(RECIPES.some(r => r.out === 'cuero' && r.ins[0][0] === 'piel') && RECIPES.some(r => r.ins.some(([i]) => i === 'cuero')), 'la piel no sirve de nada');
+      check(priceOf('vela') === 29, `la vela vale ${priceOf('vela')}`);   // (las recetas nuevas no cambian lo que ya valía)
+    } finally { game.mouse = was; game.highlight = null; p.crouch = false; inv.slots.splice(0, inv.slots.length, ...kept); inv.select(sel); }
+  });
+  await test('establo: abierto se entra y se ve a los de dentro; cerrado, no', async () => {
+    await goTo(game, 60, 36);
+    const R = game.ranch, keep = [...R.animals], was = hud.ask, Rp = Object.getOwnPropertyDescriptor(R, 'days'), p0 = p();
+    const noon = { hour: 22, info: { rain: false }, season: 1, dayIndex: game.days.dayIndex };
+    Object.defineProperty(R, 'days', { get: () => noon, configurable: true });
+    let f = null;
+    for (let dx = -8; dx <= 8 && !f?.ok; dx += 2) for (let dy = -10; dy <= 8 && !f?.ok; dy += 2) f = w().fitFree('establo', 60 + dx, 36 + dy, 0, 0, null);
+    check(f?.ok, `no cabe: ${f?.why}`);
+    w().placeFree('establo', f);
+    let house = w().placedNear(f.ox, f.oy, 3).find(o => o.placed === 'establo');
+    hud.ask = (who, text, options) => Promise.resolve(options.findIndex(o => o.includes('Cerrar')));
+    try {
+      check(!R.add('vaca', 'Lola'), 'no se trae la vaca');
+      const cow = R.animals.at(-1); cow.inside = true;
+      // Por el hueco de la puerta se pasa, hasta el fondo; por las paredes, no
+      const [vx, vy] = dirOf(house.yaw), free = (x, y) => { const q = { x, y }; collideNow(q, w().collidersNear(x, y), 0.25); return Math.hypot(q.x - x, q.y - y) < 0.01; };
+      for (const d of [2.2, 1.5, 1, 0, -1]) check(free(house.x + vx * d, house.y + vy * d), `no se pasa a ${d} del centro`);
+      check(!free(house.x + vx * 1.45 + Math.cos(house.yaw) * 1.5, house.y + vy * 1.45 - Math.sin(house.yaw) * 1.5), 'se atraviesa la pared');
+      Object.assign(p0, { x: house.x, y: house.y }); await frames(5);
+      check(Math.hypot(p0.x - house.x, p0.y - house.y) < 0.05, 'dentro le empuja hacia fuera');
+      check(R.houseAround(p0)?.key === house.key, 'no sabe que está dentro');
+      draw(); check(game.view3d.world.insideKey === house.key, 'dentro no se quita el tejado');
+      const s = R.stall(cow); check(s && distTo(house.obb, s[0], s[1]) === 0, 'la vaca no tiene sitio dentro');
+      check(R.entities(w()).includes(cow) && Math.hypot(cow.x - s[0], cow.y - s[1]) < 0.01, 'no se ve a la vaca dentro');
+      check(game.aimTargets(p0, w()).some(c => c.kind === 'animal' && c.e === cow), 'no se puede apuntar a la vaca de dentro');
+      // Cerrar con alguien dentro: sale fuera y dejan de verse
+      await R.houseMenu(house); await frames(5);
+      house = w().placedObjectAt(...house.tile); check(house.model === 'establo:shut', 'no se cierra');
+      check(distTo(house.obb, p0.x, p0.y) > 0.1, 'se queda dentro al cerrar');
+      check(!R.stall(cow) && !R.entities(w()).includes(cow), 'se ve dentro con la puerta cerrada');
+      draw(); check(!game.view3d.world.insideKey, 'fuera sigue sin tejado');
+    } finally {
+      hud.ask = was; R.animals = keep; if (Rp) Object.defineProperty(R, 'days', Rp); else delete R.days;
+      const o = w().placedObjectAt(...house.tile); if (o) { game.pickUp(o); inv().remove('establo', 1); }
+    }
+  });
+  await test('taberna: el tabernero, los clientes, su tienda y sus asientos', async () => {
+    const N = game.neighbors, who = id => N.people.find(n => n.id === id), hidden = (id, h) => { who(id).update(0, h); return who(id).hidden; };
+    check(who('anselmo') && who('eusebio') && who('ines') && who('marta') && who('paco'), 'falta gente');
+    check(hidden('anselmo', 8) && !hidden('anselmo', 12) && !hidden('anselmo', 1), 'Anselmo no está a sus horas');
+    check(hidden('marta', 12) && !hidden('marta', 20) && !hidden('eusebio', 12), 'los clientes no están a sus horas');
+    check(who('eusebio').pose?.kind === 'sit' && !who('anselmo').pose, 'mal sentados');
+    await goTo(game, 6.5, 36.5); draw();
+    const near = w().placedNear(6, 36, 9), has = id => near.some(o => o.placed === id);
+    check(has('barra') && has('barril') && has('taburete') && has('mesa') && has('silla'), `falta mobiliario: ${[...new Set(near.map(o => o.placed))]}`);
+    check(!has('banco') && !has('telar'), 'quedan el banco o el telar');
+    check(game.houseName() === 'La taberna', `se llama ${game.houseName()}`);
+    for (const id of ['anselmo', 'eusebio', 'ines', 'marta', 'paco']) { const { x, y } = who(id), q = { x, y }; collideNow(q, w().collidersNear(x, y).filter(c => c.r === undefined && !c.piece), 0.05); check(Math.hypot(q.x - x, q.y - y) < 0.4 || who(id).pose, `${id} está dentro de algo`); }
+    check(SHOPS.anselmo.stock.every(i => ITEMS[i.id]), 'vende lo que no existe');
+    const stool = near.find(o => o.placed === 'taburete'); p().x = stool.x; p().y = stool.y + 1;
+    check(game.aimTargets(p(), w()).some(c => c.o === stool), 'el taburete no se apunta');
+    const act = game.actionFor({ kind: 'placed', o: stool }); check(act?.text === 'Sentarse' && !act.alt, `dice: ${act?.text}`);
+    act.run(); check(p().pose?.kind === 'sit', 'no se sienta'); game.rest.stand();
+  });
+  await test('primera persona: el ratón mira y se usa lo que está en la cruceta', async () => {
+    const was = game.mouse, g = game.gather, M = game.mobs;
+    const center = () => { game.mouse = { x: innerWidth / 2, y: innerHeight / 2, in: true }; };
+    const press = (code, type = 'keydown') => dispatchEvent(new KeyboardEvent(type, { code, bubbles: true }));
+    const yaw = CAM.yaw, look = CAM.look;
+    try {
+      // En tercera persona las flechas mueven la cámara; en primera, andan
+      CAM.first = false; press('ArrowLeft'); check(CAM.turn === 1 && !keys.left, 'en tercera las flechas no giran'); press('ArrowLeft', 'keyup');
+      CAM.first = true; press('ArrowLeft'); check(CAM.turn === 0 && keys.left, 'en primera las flechas giran'); press('ArrowLeft', 'keyup'); clearKeys();
+      // El ratón: a la derecha gira a la derecha, y hacia arriba mira arriba
+      CAM.yaw = 0; CAM.look = 0;
+      const [rx, ry] = [Math.cos(0), -Math.sin(0)]; lookBy(100, 0); const fwd = [-Math.sin(CAM.yaw), -Math.cos(CAM.yaw)]; check(fwd[0] * rx + fwd[1] * ry > 0, 'gira al revés');
+      lookBy(0, -100); check(CAM.look > 0, 'mira al revés');
+      // Cruceta y a quién se pega
+      await goTo(game, 62, 46); CAM.yaw = 0; CAM.look = -0.45; p().crouch = false;
+      const P = p(), m = M.summon('esqueleto', P.x, P.y - 1.3), keep = [...M.list];
+      draw(); draw(); center();
+      check(document.body.classList.contains('aiming'), 'no sale la cruceta');
+      check(game.aimed()?.e === m, `en la cruceta: ${game.aimed()?.kind}`);
+      const t = g.pickTarget(); check(t?.use && t.label.includes('esqueleto'), `objetivo: ${t?.label}`);
+      const hp = m.hp; g.cooldown = 0; g.target = t; g.use(); check(m.hp < hp, 'no le pega');
+      // Sin apuntarle, no (aunque esté delante)
+      CAM.yaw = 0.9; draw(); draw(); center(); check(game.aimed()?.e !== m, 'sigue en la cruceta sin mirarle');
+      inv().add('espada', 1);
+      M.list = keep.filter(x => x !== m);
+      // Un árbol: el de la cruceta, no el de delante
+      const oak = w().harvestablesNear(P.x, P.y).find(o => HARVEST[o.kind]?.tool === 'hacha');
+      if (oak) {
+        P.x = oak.x; P.y = oak.y + 1.1; CAM.yaw = 0; CAM.look = 0; P.face = { x: 0, y: -1 }; draw(); draw(); center(); selectTool(game, 'hacha');
+        check(g.pickTarget()?.obj === oak, 'no se apunta al árbol con la cruceta');
+        CAM.yaw = Math.PI; draw(); draw(); center(); check(g.pickTarget()?.obj !== oak, 'se apunta al árbol de espaldas');
+      }
+      inv().remove('espada', 1);
+    } finally { CAM.first = false; CAM.yaw = yaw; CAM.look = look; game.mouse = was; clearKeys(); draw(); check(!document.body.classList.contains('aiming'), 'sigue la cruceta en tercera'); }
+  });
   await test('ropa: lo que cuelga de la cintura se abre cuando suben las piernas', async () => {
     for (const wear of [{ torso: { id: 'tunica_larga', color: '#222222' } }, { torso: { id: 'camisa', color: '#ffffff' }, piernas: { id: 'falda', color: '#b84a8a' } }, { torso: { id: 'camisa', color: '#ffffff' }, encima: { id: 'delantal', color: '#efe6d4' } }]) {
       const P = new Person3D({ ...LOOK, wear }, '').clone(); check(P.skirt?.children.length, `sin falda: ${JSON.stringify(wear)}`);
@@ -318,7 +469,12 @@ async function soloTests(game) {
     runCommand(game, '/tp 10 -5', say); await frames(2); check(Math.round(p().x - 21) === 10 && Math.round(p().y - 24) === -5, `tp: ${said.at(-1)} (${p().x}, ${p().y})`);
     runCommand(game, '/time set 12:00', say); check(Math.abs(game.days.hour - 12) < 0.05, `time set: ${game.days.hour} (${said.at(-1)})`);
     runCommand(game, '/time reset', say);
-    runCommand(game, '/weather rain', say); check(game.weatherLock?.w === 'lluvia', `weather: ${said.at(-1)}`); runCommand(game, '/weather clear', say);
+    runCommand(game, '/weather rain', say); check(game.weatherLock?.w === 'lluvia', `weather: ${said.at(-1)}`);
+    runCommand(game, '/weather', say); check(said.at(-1).includes('op'), `dice: ${said.at(-1)}`);
+    runCommand(game, '/weather blizzard forever', say); check(game.weatherLock?.w === 'ventisca' && game.weatherLock.until === null, `sin fin: ${said.at(-1)}`);
+    await frames(2); check(game.days.weatherHere === 'ventisca', `hace: ${game.days.weatherHere}`);
+    runCommand(game, '/toggledownfall', say); check(game.weatherLock?.w === 'sol', `toggledownfall: ${said.at(-1)}`);
+    runCommand(game, '/weather reset', say); check(!game.weatherLock, 'no vuelve el del día'); runCommand(game, '/weather clear', say);
     runCommand(game, '/gamerule keepInventory true', say); check(game.rules.keepInventory === true, `gamerule: ${said.at(-1)}`); runCommand(game, '/gamerule keepInventory false', say);
     runCommand(game, '/gamemode creative', say); check(game.gamemode === 'creative', `gamemode: ${said.at(-1)}`); runCommand(game, '/gamemode survival', say); check(game.gamemode === 'survival', 'no vuelve a supervivencia');
     runCommand(game, '/help', say); check(said.some(s => s.includes('/tp')), 'help no lista /tp');
@@ -497,7 +653,7 @@ async function soloTests(game) {
       const before = S.i, step = S.step;
       S.check(); if (S.i !== before) continue;   // (ya estaba hecho, como hablar con Nilo: ya no se pide)
       if (step.stat) { const p = S.progress(); st.add(step.stat, p[1] - 1); S.check(); check(S.i === before, `${step.id} se da por hecho sin terminarlo`); st.add(step.stat, 1); }
-      else if (step.id === 'taller') { p().x = WORKSHOP.x0 + 3; p().y = WORKSHOP.y0 + 3; }
+      else if (step.id === 'taller') { p().x = TAVERN.x0 + 3; p().y = TAVERN.y0 + 3; }
       else doing[step.id]?.();
       S.check(); check(S.i > before, `${step.id} no se cumple`);
     }
@@ -505,7 +661,7 @@ async function soloTests(game) {
     check(game.money === money + total, `recompensas: ${game.money - money}, esperaba ${total}`);
     check(document.getElementById('quest').hidden, 'al terminar sigue viéndose');
     const paid = game.money; S.restart(); check(!S.over && !S.pay, 'no se pueden repasar'); S.check(); doing.segar();
-    for (let guard = 0; !S.over && guard < 30; guard++) { const step = S.step; if (step.stat) st.add(step.stat, step.need); else if (step.id === 'taller') { p().x = WORKSHOP.x0 + 3; p().y = WORKSHOP.y0 + 3; } S.check(); }
+    for (let guard = 0; !S.over && guard < 30; guard++) { const step = S.step; if (step.stat) st.add(step.stat, step.need); else if (step.id === 'taller') { p().x = TAVERN.x0 + 3; p().y = TAVERN.y0 + 3; } S.check(); }
     check(S.over && game.money === paid, 'al repasarlos también pagan');
     check(game.steps.journal().includes('Repasarlos'), 'el diario no los lista');
     inv().equip.espalda = equip; inv().changed(); S.reset({ steps: was }); await goTo(game, 60, 36);
@@ -670,6 +826,16 @@ async function hostTests(game) {
     l.chat('SILLA-VISTA');
   });
   const guest = () => l.others.find(o => o.playing);
+  await test('dos: el ciervo es el mismo para los dos', async () => {
+    const W = game.wildlife, X = 62, Y = 52;
+    await goTo(game, X, Y - 12);
+    const d = W.summon('ciervo', X, Y);
+    l.chat(`CIERVO ${d.id} ${X} ${Y}`);
+    await until(() => heard('CIERVO-MUERTO'), 85000, 'a que el invitado lo cace');
+    check(!W.list.includes(d), 'sigue aquí');
+    l.chat('CIERVO-VISTO');
+    await frames(30);
+  });
   await test('dos: en la barca caben dos', async () => {
     const spot = riverSpot(game), me = game.player; check(spot, 'no hay un río cerca');
     await goTo(game, ...spot); me.boat = true;
@@ -737,6 +903,20 @@ async function hostTests(game) {
     l.chat('NACIDO');
     await until(() => heard('NACIDO-VISTO'), 70000, 'a que él lo vea');   // (si no se sigue jugando, no le llega)
   });
+  await test('dos: el invitado mata a un animal y lo suelta para él', async () => {
+    const R = game.ranch, X = 62, Y = 46;
+    await goTo(game, X, Y - 3);
+    const a = R.summon('oveja', X, Y), mine = R.summon('gallina', X + 1.5, Y); a.wait = mine.wait = 9999; mine.owner = 'prueba_a';
+    const old = JSON.parse(JSON.stringify(R.animals.map(x => x.toSave())));
+    l.chat(`CAZA ${X} ${Y}`);
+    await until(() => heard('CAZADA'), 85000, 'a que la mate');
+    check(!R.animals.includes(a), 'la oveja sigue aquí');
+    check(R.animals.includes(mine) && mine.hp === undefined, 'el invitado ha pegado a lo que no es suyo');
+    R.share(old); check(!R.animals.some(x => x.id === a.id), 'una lista vieja la resucita');
+    l.chat('CAZA-VISTA');
+    await frames(30);
+    await until(() => heard('FIN-CAZA'), 40000, 'a que él acabe');
+  });
 }
 async function guestTests(game) {
   const l = game.live, { heard } = listen(l);
@@ -764,6 +944,26 @@ async function guestTests(game) {
     await until(() => heard('SILLA-VISTA'), 150000, `el aviso del anfitrión (${how()})`);
   });
   const nums = (word) => { const t = heard(word); return t.slice(t.indexOf(word) + word.length).trim().split(' ').map(Number); };
+  await test('dos: ve el mismo ciervo, lo caza y se lleva lo suyo', async () => {
+    const W = game.wildlife, H = game.hunt, inv = game.inv;
+    const t = await until(() => heard('CIERVO '), 70000, 'el ciervo'), [id, x, y] = t.slice(t.indexOf('CIERVO ') + 7).trim().split(' ');
+    const made = W.n, d = await until(() => W.list.find(w => w.id === id), 30000, 'ver el ciervo');
+    await frames(60);
+    check(Math.hypot(d.netTo[0] - +x, d.netTo[1] - +y) < 12, `lejos de donde está: ${d.netTo}`);
+    check(W.n === made, 'aquí también aparecen');   // (los que hubiera solo, antes de entrar, no cuentan)
+    game.player.crouch = true;
+    const before = inv.count('carne_venado'); let last = 0;
+    await until(() => {
+      if (!W.list.includes(d)) return true;
+      if (performance.now() - last > 1000) { last = performance.now(); game.player.x = d.x; game.player.y = d.y + 1.5; H.hit(d, ITEMS.espada); }
+      return false;
+    }, 80000, 'que muera el ciervo');
+    game.player.crouch = false;
+    await collectDrops(game);
+    check(inv.count('carne_venado') > before, 'no ha caído carne para él');
+    l.chat('CIERVO-MUERTO');
+    await until(() => heard('CIERVO-VISTO'), 70000, 'a que el anfitrión lo vea');
+  });
   await test('dos: se sube a la barca del otro', async () => {
     await until(() => heard('BARCA '), 70000, 'la barca');
     const [x, y] = nums('BARCA '), me = game.player;
@@ -823,6 +1023,31 @@ async function guestTests(game) {
     await until(() => heard('NACIDO'), 70000, 'el nacimiento');
     await until(() => F.v.kids.length > 0 && !F.v.expecting && F.bellyOf(host()) === 0, 40000, 'que nazca aquí también');
     l.chat('NACIDO-VISTO');
+  });
+  await test('dos: mata a un animal del anfitrión y se lo lleva', async () => {
+    const R = game.ranch, inv = game.inv, H = game.hunt;
+    await until(() => heard('CAZA '), 70000, 'la caza');
+    const t = heard('CAZA '), [x, y] = t.slice(t.indexOf('CAZA ') + 5).trim().split(' ').map(Number);
+    await goTo(game, x, y + 1.2);
+    const find = type => R.animals.find(a => a.type === type && Math.hypot(a.x - x, a.y - y) < 4);
+    const a = await until(() => find('oveja'), 30000, 'ver la oveja'), mine = await until(() => find('gallina'), 30000, 'ver la gallina');
+    check(!H.canHit(mine), 'deja pegar a lo de otro');
+    l.net.send({ t: 'hita', id: mine.id, dmg: 10, x: game.player.x, y: game.player.y }, l.hostConn);   // (y si se pide igual, se niega)
+    const before = inv.count('carne_cordero');
+    // (huye con cada golpe y lo decide el anfitrión, que con dos Chromes por software tarda en contestar: se la persigue y se espera)
+    let last = 0;
+    await until(() => {
+      if (!R.animals.includes(a)) return true;
+      if (performance.now() - last > 1000) { last = performance.now(); game.player.x = a.x; game.player.y = a.y + 1.2; H.hit(a, ITEMS.espada); }
+      return false;
+    }, 80000, 'que muera la oveja');
+    await collectDrops(game);
+    check(inv.count('carne_cordero') > before, 'no ha caído carne para él');
+    l.chat('CAZADA');
+    await until(() => heard('CAZA-VISTA'), 70000, 'a que el anfitrión lo vea');
+    await frames(30);
+    check(!R.animals.some(b => b.id === a.id), 'vuelve a aparecer');
+    l.chat('FIN-CAZA');
   });
 }
 

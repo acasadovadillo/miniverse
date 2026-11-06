@@ -1,6 +1,6 @@
 // Teclado, ratón y controles táctiles. Guarda qué está pulsado y avisa de las acciones.
 import { Audio } from './audio.js';
-import { CAM, DIST } from './camera.js';
+import { CAM, DIST, lookBy } from './camera.js';
 
 // use: el botón de usar se mantiene pulsado (para seguir talando sin repetir la tecla)
 export const keys = { up: false, down: false, left: false, right: false, run: false, use: false, space: false };
@@ -9,6 +9,18 @@ const KEYMAP = { KeyW: 'up', ArrowUp: 'up', KeyS: 'down', ArrowDown: 'down', Key
 // En el juego las flechas mueven la cámara (girar e inclinar) y + y − la acercan o alejan; mientras se
 // mantienen, la cámara se mueve suave. Con el mapa abierto, las flechas mueven el mapa como WASD.
 const CAMKEYS = { ArrowLeft: ['turn', 1], ArrowRight: ['turn', -1], ArrowUp: ['tilt', 1], ArrowDown: ['tilt', -1] };
+// Primera persona, como en Minecraft: el ratón (o el panel táctil) mueve la cámara y se apunta con la cruceta. Para eso se
+// captura el puntero (pointer lock): al abrir un menú o un diálogo se suelta y al volver se recoge; con Esc se suelta
+// y se abre la pausa. want: se quiere capturar; locked: capturado; asked: ya se ha pedido (si falla, un clic lo pide)
+export const aimLock = { want: false, locked: false, asked: false, freed: false, exitAt: 0 };
+const askLock = () => { const c = document.getElementById('c'); aimLock.asked = true; try { c.requestPointerLock?.()?.catch?.(() => {}); } catch { /* (sin puntero que capturar) */ } };
+export function syncLook(can) {
+  const want = aimLock.want = !!(CAM.first && can && !(document.activeElement instanceof HTMLInputElement));
+  document.body.classList.toggle('aiming', want);
+  document.body.classList.toggle('aim-free', want && !aimLock.locked);
+  if (!want) { aimLock.asked = false; if (aimLock.locked) { aimLock.freed = true; document.exitPointerLock?.(); } }
+  else if (!aimLock.locked && !aimLock.asked) askLock();
+}
 const held = new Map();   // tecla → [eje, sentido]
 function camAxes() {
   CAM.turn = CAM.tilt = CAM.zoom = 0;
@@ -27,7 +39,11 @@ export function initInput(h) {
 
   addEventListener('keydown', e => {
     if (e.target instanceof HTMLInputElement) return;
-    if (e.code === 'Escape') { if (handlers.pause()) e.preventDefault(); return; }
+    if (e.code === 'Escape') {
+      if (aimLock.locked || performance.now() - aimLock.exitAt < 400) return;   // (Esc suelta el puntero y eso ya abre la pausa)
+      if (handlers.pause()) e.preventDefault();
+      return;
+    }
     if (e.code === 'KeyM' && !e.repeat) { if (handlers.map()) e.preventDefault(); return; }
     if (e.code === 'Tab') { e.preventDefault(); if (!e.repeat) handlers.players?.(true); return; }   // (mantenido: quién está jugando)
     if (e.code === 'KeyI' && !e.repeat) { if (handlers.bag()) e.preventDefault(); return; }
@@ -46,7 +62,8 @@ export function initInput(h) {
     const isShift = e.code === 'ShiftLeft' || e.code === 'ShiftRight';
     if (isShift && !e.repeat) shiftAlone = true; else if (!isShift) shiftAlone = false;
     // La cámara: flechas para girarla e inclinarla, + y − para acercarla (Cmd/Ctrl + sigue siendo el zoom del navegador)
-    if (CAMKEYS[e.code]) { held.set(e.code, CAMKEYS[e.code]); camAxes(); e.preventDefault(); return; }
+    // (en primera persona la cámara va con el ratón: las flechas andan, como WASD)
+    if (CAMKEYS[e.code] && !(CAM.first && document.getElementById('c').requestPointerLock)) { held.set(e.code, CAMKEYS[e.code]); camAxes(); e.preventDefault(); return; }
     if (zoomOf(e) && !e.metaKey && !e.ctrlKey) { held.set(e.code, ['zoom', zoomOf(e)]); camAxes(); e.preventDefault(); return; }
     // Chat: T lo abre; / lo abre con la barra ya escrita (sin que la tecla se escriba dos veces)
     if ((e.code === 'KeyT' || e.key === '/') && !e.repeat) { if (handlers.chat(e.key === '/' ? '/' : '')) e.preventDefault(); return; }
@@ -84,8 +101,17 @@ export function initInput(h) {
   // En modo construcción, el ratón (o el dedo) apunta a la casilla: clic pone, clic derecho quita, arrastrar pinta.
   const canvas = document.getElementById('c');
   canvas.addEventListener('contextmenu', e => e.preventDefault());
-  canvas.addEventListener('pointerleave', e => { if (e.pointerType === 'mouse') handlers.mouse?.(e.clientX, e.clientY, false); });
+  document.addEventListener('pointerlockchange', () => {
+    const was = aimLock.locked;
+    aimLock.locked = document.pointerLockElement === canvas;
+    if (was && !aimLock.locked) {
+      if (!aimLock.freed && aimLock.want) { aimLock.exitAt = performance.now(); handlers.pause(); clearKeys(); }   // (lo ha soltado Esc)
+      aimLock.freed = false;
+    }
+  });
+  canvas.addEventListener('pointerleave', e => { if (e.pointerType === 'mouse' && !aimLock.locked) handlers.mouse?.(e.clientX, e.clientY, false); });
   canvas.addEventListener('pointermove', e => {
+    if (aimLock.locked) { if (Math.abs(e.movementX) < 300 && Math.abs(e.movementY) < 300) lookBy(e.movementX, e.movementY); return; }   // (a veces da saltos enormes: se ignoran)
     if (e.pointerType === 'mouse') { handlers.mouse?.(e.clientX, e.clientY, true); handlers.hover?.(e.clientX, e.clientY); }   // la casilla bajo el ratón (para colocar)
     if (!handlers.building?.()) return;
     handlers.point(e.clientX, e.clientY);
@@ -96,12 +122,13 @@ export function initInput(h) {
     shiftAlone = false;   // (Shift+clic no agacha)
     if (!handlers.enabled()) return;
     Audio.start();
+    if (e.pointerType === 'mouse' && aimLock.want && !aimLock.locked) { askLock(); return; }   // (este clic es para capturar el puntero)
     if (handlers.building?.()) {
       handlers.point(e.clientX, e.clientY);
       if (e.button === 2) handlers.unpaint(e.clientX, e.clientY); else handlers.paint(e.clientX, e.clientY, false);
       return;
     }
-    if (e.pointerType === 'mouse' && e.button === 2) { handlers.secondary?.(e.clientX, e.clientY); return; }   // (clic derecho: sentar al perro)
+    if (e.pointerType === 'mouse' && e.button === 2) { handlers.secondary?.(aimLock.locked ? innerWidth / 2 : e.clientX, aimLock.locked ? innerHeight / 2 : e.clientY); return; }   // (clic derecho: sentar al perro)
     if (e.pointerType !== 'mouse' || e.button !== 0) return;
     keys.use = true;
     handlers.use();

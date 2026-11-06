@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- La versión publicada: se cambia en cada publicación (así el juego sabe que tiene que pedir el código nuevo) -->
-<meta name="miniverse-version" content="2026-11-06.4">
+<meta name="miniverse-version" content="2026-11-06.5">
 <title>Miniverse</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏡</text></svg>">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -33,6 +33,10 @@
   button, input { font: inherit; font-variant-ligatures: none; }
 
   .panel { background: var(--wood); border: 3px solid var(--border); border-radius: 6px; box-shadow: inset 0 0 0 2px #5a3a20, 0 4px 0 rgba(0, 0, 0, .35); }
+  #crosshair { display: none; position: fixed; left: 50%; top: 50%; width: 18px; height: 18px; margin: -9px 0 0 -9px; pointer-events: none; z-index: 5; mix-blend-mode: difference; background: linear-gradient(#fff, #fff) center / 2px 100% no-repeat, linear-gradient(#fff, #fff) center / 100% 2px no-repeat; }
+  body.playing.aiming #crosshair { display: block; }
+  #aim-free { display: none; position: fixed; left: 50%; top: 58%; transform: translateX(-50%); padding: 4px 10px; font-size: 15px; pointer-events: none; z-index: 5; }
+  body.playing.aim-free #aim-free { display: block; }
   #prompt.follow { left: 0; top: 0; bottom: auto; transition: opacity .12s; }
   #prompt { position: fixed; left: 50%; bottom: 22%; transform: translateX(-50%); padding: 6px 14px; font-size: 18px; opacity: 0; transition: opacity .12s; pointer-events: none; white-space: nowrap; }
   #prompt.show { opacity: 1; }
@@ -493,6 +497,8 @@
     <div id="xp" title="Experiencia"><i></i><b></b></div>
     <div class="slots" id="hotbar-slots"></div>
   </div>
+  <div id="crosshair" aria-hidden="true"></div>
+  <div id="aim-free" class="panel">Haz clic para mover la cámara con el ratón</div>
   <div id="prompt" class="panel"><kbd>E</kbd><span id="prompt-text"></span></div>
   <div id="admin-tag" class="panel" title="Modo de juego (/gamemode): en creativo, objetos infinitos y construir gratis; de espectador, atraviesas todo y nadie te ve">CREATIVO</div>
   <div id="players" class="panel" aria-live="polite"><h3>Jugadores</h3><ul id="players-list"></ul></div>

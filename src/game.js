@@ -5,7 +5,7 @@ import { camToSave, camFromSave, CAM } from './camera.js';
 import { wrapX, wrapIndex, HALF, NORTH, SOUTH } from './world/planet.js';
 import { Overworld, NILO_LOOK } from './world/scenes.js';
 import { houseBlueprint, familyBlueprint, byChunk, doorTile } from './world/blueprints.js';
-import { HOUSE, HOUSE_BIG, HOUSE_FAMILY, HOUSES, CENTER, SPAWN, inBounds, inOwnHouse, inWorkshop, hasProject, setFamilyHouse } from './world/village.js';
+import { HOUSE, HOUSE_BIG, HOUSE_FAMILY, HOUSES, CENTER, SPAWN, inBounds, inOwnHouse, inTavern, hasProject, setFamilyHouse } from './world/village.js';
 import { PIECES, parsePlaced } from './pieces.js';
 import { Profile } from './accounts.js';
 import { BIOMES } from './world/biomes.js';
@@ -33,6 +33,9 @@ import { HOTBAR, extraOf } from './inventory.js';
 import { Neighbors } from './neighbors.js';
 import { Board } from './board.js';
 import { Combat, DIFFICULTIES, MONSTERS, EFFECT_NAMES } from './combat.js';
+import { Hunt, bodyBox } from './hunt.js';
+import { ANIMALS } from './art/farm.js';
+import { syncLook, aimLock } from './input.js';
 import { xpTo } from './xp.js';
 import { Mobs } from './mobs.js';
 import { Experience } from './xp.js';
@@ -91,7 +94,7 @@ const NILO_TIPS = [
   'Con un horno conviertes el mineral en lingotes. Y con lingotes de cobre, un yunque para forjar. Si se te rompe una herramienta, ahí te haces otra, o se la compras a Bruno.',
   'En la cocina, una manzana asada quita el doble de hambre que una cruda. Hazme caso.',
   'Si te quedas sin carbón, quema madera en el horno. Así lo hacía mi abuelo.',
-  'En el taller, al oeste del camino, hay un banco y un telar para quien los necesite. No hace falta pedir permiso.',
+  'En la taberna, al oeste del camino, Anselmo te da de comer y te cuenta la vida de todos. Sobre todo lo segundo.',
   'Las palmeras de las playas cálidas dan cocos cada pocos días. No hace falta talarlas: basta con sacudirlas.',
   'Una noria en un río muele el trigo en harina y riega sola el huerto de alrededor. Con harina, el pan sale más barato.',
 ];
@@ -106,6 +109,7 @@ function defaultHouseDeltas() {
 // Los modos de juego (/gamemode) y las reglas del mundo (/gamerule) con lo que valen al empezar
 export const GAMEMODES = { survival: 'supervivencia', creative: 'creativo', spectator: 'espectador' };
 export const RULES = { keepInventory: false, doMobSpawning: true, doWeatherCycle: true, doDaylightCycle: true, naturalRegeneration: true, announceAdvancements: true };
+const TAVERN_SEATS = new Set(['silla', 'taburete']);   // (en la taberna, quien quiere se sienta)
 const AIM_REACH = 2;   // lo que se apunta con el ratón se usa si está a esto como mucho (casillas)
 const LIGHTS = new Set(['lampara', 'antorcha', 'vela', 'candelabro']);
 const BEDS = new Set(['cama', 'cama_nino', 'cama_doble']);   // lo colocado que se apaga y se enciende con E
@@ -158,8 +162,9 @@ export class Game {
     this.rest = this.addSystem(new Rest(this));
     this.crew = this.addSystem(new Crew(this));   // ir de pasajero en la barca de otro
     this.neighbors = this.addSystem(new Neighbors(this));
+    this.hunt = this.addSystem(new Hunt(this));   // pegar a los animales (antes que a las criaturas: va a lo que se apunta)
     this.combat = this.addSystem(new Combat(this));
-    this.mobs = this.addSystem(new Mobs(this));   // la luz y las criaturas de fuera, de noche
+    this.mobs =this.addSystem(new Mobs(this));   // la luz y las criaturas de fuera, de noche
     this.xp = this.addSystem(new Experience(this));   // la experiencia y los niveles
     this.machines = new Machines(this);   // el horno y el alambique, que llevan su tiempo
     this.trades = new Trades(this);       // los tratos con los vecinos
@@ -343,6 +348,7 @@ export class Game {
   fromHost(m) {
     if (m.t === 'summon' && Number.isFinite(m.x) && Number.isFinite(m.y)) {
       if (m.kind === 'mob' && MONSTERS[m.type]) { this.mobs.summon(m.type, m.x, m.y); return `Ha aparecido: ${MONSTERS[m.type].name.toLowerCase()}.`; }
+      if (m.kind === 'wild') { this.wildlife.summon(m.type, m.x, m.y); return `Ha aparecido: ${ANIMALS[m.type]?.name.toLowerCase() || m.type}.`; }
       if (m.kind === 'farm') { const a = this.ranch.summon(m.type, m.x, m.y); return a ? `Ha aparecido: ${a.name}.` : null; }
     }
     if (m.t === 'killmobs' && Number.isFinite(m.x)) return `Criaturas quitadas: ${this.mobs.clearNear(m.x, m.y, 48)}.`;
@@ -452,7 +458,7 @@ export class Game {
     const door = sc.doorNear?.(p.x, p.y), da = door && this.doorAction(door);
     if (da) return da;
     // Lo colocado, lo más cercano primero (la alfombra, al final: lo de encima, las puertas y las ventanas antes).
-    // (lo fijo de las casas de los vecinos no se toca; las estaciones del taller del pueblo, sí se usan)
+    // (lo fijo de las casas de los vecinos no se toca)
     const dist = o => (sc.placedDist ? sc.placedDist(o, p.x, p.y) : Math.hypot(o.x - p.x, o.y - p.y));
     const near = (sc.placedNear?.(p.x, p.y, 1.3) || []).filter(o => (!o.fixed || STATIONS[o.placed]) && (!sc.reaches || sc.reaches(p.x, p.y, o.x, o.y))).sort((a, b) => dist(a) - dist(b));
     const o = near.find(o => o.layer !== 'rug');
@@ -488,7 +494,13 @@ export class Game {
     const sees = (x, y) => !sc.reaches || sc.reaches(p.x, p.y, x, y);
     // Lo colocado, a su tamaño y altura (las alfombras, a ras de suelo; los cuadros cuelgan del muro: no se miran a la vista)
     for (const o of sc.placedNear?.(p.x, p.y, R) || []) {
-      if ((o.fixed && !STATIONS[o.placed]) || (o.layer !== 'hang' && !sees(o.x, o.y))) continue;
+      if ((o.fixed && !STATIONS[o.placed] && !(TAVERN_SEATS.has(o.placed) && inTavern(o.x, o.y))) || (o.layer !== 'hang' && !sees(o.x, o.y))) continue;
+      // (en el establo abierto se entra: sus paredes, por separado, y el tejado desde fuera)
+      if (o.placed === 'establo' && o.model !== 'establo:shut') {
+        const yaw = o.yaw ?? yawOf(o.rot), walls = solidsOf('establo').filter(s => s[1] < 1), roof = this.ranch.houseAround(p) === o ? [] : [[-2, 1.95, -1.5, 2, 3, 1.5]];
+        for (const s of placeBoxes([...walls, ...roof], o.x, o.y, yaw)) out.push({ kind: 'placed', o, yaw, box: s });
+        continue;
+      }
       if (o.layer === 'rug') { out.push({ kind: 'placed', o, box: { ...(o.obb || aabb(o.fx[0], o.fy[0], o.fx[1], o.fy[1])), y0: 0, y1: 0.06 } }); continue; }
       let h = hull(solidsOf(o.model || o.placed));
       if (!isFinite(h[0])) h = [-0.45, 0, -0.45, 0.45, 0.1, 0.45];
@@ -512,13 +524,16 @@ export class Game {
     if (lamp) out.push({ kind: 'lamp', tile: lamp, box: box(at[0], at[1], 0.6, 0.6, 1.9, 2.8) });
     // Lo de cada sistema: el tablón, el museo, las cuevas y los templos, los árboles con fruta, la barca de otro…
     for (const s of this.systems) { const more = s.aimables?.(p, sc, box); if (more) out.push(...more); }
+    // En primera persona, también las criaturas: se les pega a las que están en la cruceta
+    if (CAM.first) for (const m of this.combat.monsters || []) if (sees(m.x, m.y)) { const fly = MONSTERS[m.type].fly, tall = m.type === 'esqueleto' ? 1.4 : 0.7; out.push({ kind: 'monster', e: m, box: box(m.x, m.y, 0.4, 0.4, fly ? 0.9 : 0, fly ? 1.7 : tall) }); }
     if (sc !== this.world) return out;
     // La gente, los animales y lo que se puede cosechar
     const who = (kind, e, r, y1, more) => out.push({ kind, e, ...more, box: box(e.x, e.y, r, r, 0, y1) });
     if (sees(this.world.nilo.x, this.world.nilo.y)) who('npc', this.world.nilo, 0.35, 1.5, { n: null });
     for (const n of this.neighbors.people) if (!n.hidden && sees(n.x, n.y)) who('npc', n, 0.35, 1.5, { n });
     for (const [id, e] of this.family.ents) if (sees(e.x, e.y)) who('kid', e, e.lying ? 0.45 : 0.3, e.lying ? (e.h || 0) + 0.5 : 1.1, { id });
-    for (const a of this.ranch.animals) if (!a.inside && !a.rider && sees(a.x, a.y)) who('animal', a, a.def.ride ? 0.6 : 0.45, (a.def.ride ? 1.7 : 1.0) * (a.young ? 0.6 : 1), {});
+    for (const a of this.ranch.animals) if ((!a.inside || this.ranch.stall(a)) && !a.rider && sees(a.x, a.y)) out.push({ kind: 'animal', e: a, box: bodyBox(a) });
+    for (const w of this.wildlife.list) if (sees(w.x, w.y)) out.push({ kind: 'wild', e: w, box: bodyBox(w) });
     for (let ty = Math.floor(p.y) - 2; ty <= Math.floor(p.y) + 2; ty++) for (let tx = Math.floor(p.x) - 2; tx <= Math.floor(p.x) + 2; tx++) {
       if (this.farm.ready(this.farm.cropAt(tx, ty))) out.push({ kind: 'crop', tile: [tx, ty], box: box(tx + 0.5, ty + 0.5, 0.45, 0.45, 0, 0.7) });
     }
@@ -536,6 +551,8 @@ export class Game {
       case 'npc': return this.neighbors.actionFor(a.n);
       case 'kid': return this.family.actionFor(a.id, a.e);
       case 'animal': return this.ranch.talk(a.e);
+      case 'wild': return { text: ANIMALS[a.e.type].name, run: () => Audio.blip() };
+      case 'monster': return { text: MONSTERS[a.e.type].name, run: () => Audio.blip() };
       case 'crop': return { text: 'Cosechar', run: () => this.farm.harvest(...a.tile) };
       case 'sys': return a.act();
     }
@@ -560,9 +577,9 @@ export class Game {
     const hung = hungFirst && o.layer !== 'hang' ? [o.tile, ...extraTiles(o.placed, ...o.tile, o.rot)].map(t => [t, sc.ownAt?.('hang', ...t)]).find(([, v]) => v) : null;
     const top = hung ? { tile: hung[0], layer: 'hang', placed: hung[1].split('@')[0] } : o;
     const name = ITEMS[o.placed].name.toLowerCase(), pick = { text: `Recoger ${ITEMS[top.placed].name.toLowerCase()}`, run: () => this.pickUp(top) };
-    if (STATIONS[o.placed]) return { text: `Usar ${name}`, run: () => this.onCraft?.(o.placed), alt: o.fixed ? null : pick };   // (las del taller son de todos: no se recogen)
+    if (STATIONS[o.placed]) return { text: `Usar ${name}`, run: () => this.onCraft?.(o.placed), alt: o.fixed ? null : pick };
     if (o.placed === 'cama' || o.placed === 'cama_nino' || o.placed === 'cama_doble') return { text: 'Usar la cama', run: () => this.bed(o), alt: pick };
-    if (o.placed === 'silla' || o.placed === 'sofa' || o.placed === 'sillon') return { text: 'Sentarse', run: () => this.rest.sit(o), alt: pick };
+    if (o.placed === 'silla' || o.placed === 'taburete' || o.placed === 'sofa' || o.placed === 'sillon') return { text: 'Sentarse', run: () => this.rest.sit(o), alt: o.fixed ? null : pick };
     if (o.placed === 'lavabo') return { text: 'Mirarse en el espejo', run: () => this.onMirror?.(), alt: pick };
     if (CHESTS[o.placed] && o.placed !== 'mochila') return { text: `Abrir ${CHESTS[o.placed][1]}`, run: () => this.onChest?.(sc.chestAt(...o.tile), o.tile), alt: pick };   // (lleno no se recoge: hay que vaciarlo antes)
     if (o.placed === 'mochila') return { text: 'Abrir la mochila', run: () => this.onChest?.(sc.chestAt(...o.tile) || [], o.tile), alt: { text: this.inv.equip.espalda ? 'Recoger la mochila' : 'Ponerse la mochila', run: () => this.takeBackpack(o) } };
@@ -722,7 +739,7 @@ export class Game {
     const p = this.player;
     if (inOwnHouse(p.x, p.y)) return 'Tu casa';
     for (const h of Object.values(HOUSES)) if ((!h.project || hasProject(h.project)) && p.x > h.x0 && p.x < h.x1 && p.y > h.y0 && p.y < h.y1) return `Casa de ${h.name}`;
-    if (inWorkshop(p.x, p.y)) return 'El taller';
+    if (inTavern(p.x, p.y)) return 'La taberna';
     return 'Bajo techo';
   }
   // La casilla de dentro de tu casa, junto a la puerta (donde despiertas si te rescatan)
@@ -900,6 +917,11 @@ export class Game {
     return this.looked.look;
   }
   tileAtScreen(clientX, clientY) { return this.scene ? this.view3d.tileAt(clientX, clientY) : null; }
+  // La casilla con la que se trabaja la tierra: un paso por delante o, en primera persona, la que está en la cruceta (si llega)
+  aimTile() {
+    const p = this.player, mt = CAM.first ? this.mouseTile() : null;
+    return mt && Math.hypot(mt[0] + 0.5 - p.x, mt[1] + 0.5 - p.y) < 2.5 ? mt : [Math.floor(p.x + p.face.x * 0.9), Math.floor(p.y + p.face.y * 0.9)];
+  }
   // La casilla bajo el ratón mientras está sobre el juego (null si no), recalculada en cada fotograma: la
   // cámara se mueve aunque el ratón se quede quieto
   mouseTile() {
@@ -970,19 +992,25 @@ export class Game {
     if (this.scene === this.world) this.aroundPlanet();
     if (!p.inside) this.explore();
     // Bajo un tejado: cambia el ambiente (sonido, lluvia, nombre del sitio) y se guarda, como al entrar en casa
-    const under = this.scene === this.world && underRoof(this.world, p.x, p.y);
+    const house = this.scene === this.world && !p.aboard ? this.ranch.houseAround(p) : null;
+    this.view3d.world?.showInside?.(house && !CAM.first ? house : null);   // (dentro del establo, sin tejado: se ve lo de dentro)
+    const under = this.scene === this.world && (underRoof(this.world, p.x, p.y) || !!house);
     if (under !== this.underRoof) { this.underRoof = under; p.underRoof = under; Audio.indoors = this.indoors; this.updatePlace(); this.onSave?.(); }
     if (this.frameNo % 10 === 0) this.updatePlace();
   }
 
   render() {
     this.frameNo++;
+    // En primera persona el ratón mueve la cámara y se apunta con la cruceta, en el centro de la pantalla
+    syncLook(this.mode === 'play' && !this.busy && !hud.dialogOpen && !this.build.on && !!this.player);
+    if (aimLock.locked) { const c = this.mouse ||= {}; c.x = innerWidth / 2; c.y = innerHeight / 2; c.in = true; }
     const near = this.nearest(), p = this.player, m = this.mouse;
     // Lo apuntado con el cursor lleva un borde amarillo, y la opción sale a su lado
     this.highlight = near && m?.in && !p.pose && !p.aboard && !this.build.on ? this.aimed() : null;
     this.view3d.game = this;
     this.view3d.render(this);
-    hud.prompt(near && (near.alt ? `${near.text}  ·  X: ${near.alt.text.toLowerCase()}` : near.text), this.highlight ? [m.x, m.y] : null);
+    const prey = this.gather.target?.prey, click = prey && this.highlight?.e === prey ? '  ·  Clic: atacar' : '';
+    hud.prompt(near && (near.alt ? `${near.text}  ·  X: ${near.alt.text.toLowerCase()}` : near.text) + click, this.highlight ? [m.x, m.y] : null);
     let hint = '';
     if (this.player) {
       for (const s of this.systems) { hint = s.hint?.() || ''; if (hint) break; }

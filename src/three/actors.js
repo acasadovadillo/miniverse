@@ -209,6 +209,7 @@ export class Actors {
       m.root.scale.setScalar(e.young ? 0.55 : 1);
       if (ANIMALS[e.type].swims) y = WATER_Y - 0.06 + Math.sin(t * 1.5 + x) * 0.015;
       animateAnimal(m, dt, t, e);
+      m.root.visible = !(e.hurt > 0 && Math.floor(e.hurt * 20) % 2);   // (herido: parpadea)
     } else if (m.kind === 'monster') {
       if (yaw !== null && (e.dir?.[0] || e.dir?.[1])) turnTo(m.root, yaw, dt);
       animateMonster(m, e, dt, t);

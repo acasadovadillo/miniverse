@@ -101,7 +101,7 @@ export class Farm {
   target(p, held, def) {
     const g = this.game;
     if (g.scene !== this.world) return null;
-    const tx = Math.floor(p.x + p.face.x * 0.9), ty = Math.floor(p.y + p.face.y * 0.9), d = this.d(tx, ty), k = key(tx, ty);
+    const [tx, ty] = g.aimTile(), d = this.d(tx, ty), k = key(tx, ty);
     const crop = d?.crops?.[k], tilled = d?.tilled[k] !== undefined, tile = [tx, ty];
     if (crop && this.ready(crop) && !def?.place) return { tile, ok: true, label: 'Cosechar', use: () => this.harvest(tx, ty) };
     if (crop?.dead && !def?.place) return { tile, ok: true, label: 'Quitar la planta seca', use: () => { delete d.crops[k]; this.world.touchAround(tx, ty); Audio.swish(); } };

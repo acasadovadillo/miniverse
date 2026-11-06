@@ -86,7 +86,7 @@ export class TimeSystem {
   get here() { const p = this.game.player; return p && this.game.scene === this.game.world ? p : { x: 0, y: 30 }; }
   get localHour() { return this.hourAt(this.here.x); }
   get localSeason() { return latOf(this.here.y) < 0 ? (this.season + 2) % 4 : this.season; }
-  get weatherHere() { return Math.abs(latOf(this.here.y)) > POLAR ? 'ventisca' : this.weather; }
+  get weatherHere() { return !this.locked && Math.abs(latOf(this.here.y)) > POLAR ? 'ventisca' : this.weather; }   // (lo que manda un op, también en los polos)
   get t() { return this.dayIndex + this.hour / 24; }                // (con decimales)
   get season() { return seasonOf(this.realDay).season; }
   get year() { return new Date(this.realDay * DAY_MS).getUTCFullYear(); }

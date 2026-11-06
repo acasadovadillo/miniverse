@@ -412,19 +412,19 @@ const BUILD = {
     soft('straw', W + 0.02, 0.92, -0.46, W + 0.3, 0.95, 0.46);
     soft('red', W - 0.04, 0.98, -0.56, W + 0.42, 1.04, 0.56);
   },
-  establo(m, shut) {
-    const W = 2, D = 1.5, H = 1.95, DW = 0.85, DH = 1.55, soft = (key, ...b) => m.B(key).box(...b, { s: 0.5 });
+  // (arg: 'shut', con la puerta cerrada; 'in', sin tejado y con las paredes bajas, para ver dentro cuando se está en él)
+  establo(m, arg) {
+    const shut = arg === 'shut', cut = arg === 'in', W = 2, D = 1.5, H = cut ? 0.8 : 1.95, DW = 0.85, DH = cut ? 0.8 : 1.55, soft = (key, ...b) => m.B(key).box(...b, { s: 0.5 });
     // Las paredes dejan el hueco de la puerta: abierta, se ve la paja, los cercados y el heno de dentro
     m.box('red', -W, 0, -D, W, H, -D + 0.1).box('red', -W, 0, -D, -W + 0.1, H, D).box('red', W - 0.1, 0, -D, W, H, D);
-    m.box('red', -W, 0, D - 0.1, -DW, H, D).box('red', DW, 0, D - 0.1, W, H, D).box('red', -DW, DH, D - 0.1, DW, H, D);
-    soft('dark', -W + 0.05, H - 0.04, -D + 0.05, W - 0.05, H, D - 0.05);   // (el techo, por dentro)
+    m.box('red', -W, 0, D - 0.1, -DW, H, D).box('red', DW, 0, D - 0.1, W, H, D);
+    if (!cut) { m.box('red', -DW, DH, D - 0.1, DW, H, D); soft('dark', -W + 0.05, H - 0.04, -D + 0.05, W - 0.05, H, D - 0.05); }   // (el dintel y el techo, por dentro)
     soft('straw', -W + 0.1, 0, -D + 0.1, W - 0.1, 0.04, D - 0.1);
     for (const x of [-1.05, 1.05]) soft('white', x - 0.04, 0.05, -D + 0.1, x + 0.04, 0.72, -0.25);   // los cercados
     soft('hay', -W + 0.14, 0.04, -D + 0.14, -1.15, 0.62, -0.5); soft('hay', 1.15, 0.04, -D + 0.14, W - 0.14, 0.42, -0.5);
     // Las esquinas y las vigas, en blanco
     for (const x of [-W - 0.03, W - 0.07]) for (const z of [-D - 0.03, D - 0.07]) m.box('white', x, 0, z, x + 0.1, H, z + 0.1);
-    soft('white', -W, H - 0.1, D, W, H, D + 0.02); soft('white', -W - 0.02, H - 0.1, -D, -W, H, D); soft('white', W, H - 0.1, -D, W + 0.02, H, D);
-    roofPrism(m, 'dark', -W - 0.2, W + 0.2, -D - 0.25, D + 0.25, H, 1.1);
+    if (!cut) { soft('white', -W, H - 0.1, D, W, H, D + 0.02); soft('white', -W - 0.02, H - 0.1, -D, -W, H, D); soft('white', W, H - 0.1, -D, W + 0.02, H, D); roofPrism(m, 'dark', -W - 0.2, W + 0.2, -D - 0.25, D + 0.25, H, 1.1); }
     // El marco de la puerta y sus dos hojas: juntas si está cerrada; abiertas hacia los lados si no
     soft('white', -DW - 0.08, 0, D, -DW, DH + 0.08, D + 0.03); soft('white', DW, 0, D, DW + 0.08, DH + 0.08, D + 0.03); soft('white', -DW - 0.08, DH, D, DW + 0.08, DH + 0.08, D + 0.03);
     const leaf = (x0, x1, z0, z1) => {
@@ -435,8 +435,23 @@ const BUILD = {
     if (shut) { leaf(-DW, -0.01, D, D + 0.05); leaf(0.01, DW, D, D + 0.05); }
     else { leaf(-DW - 0.05, -DW, D, D + DW); leaf(DW, DW + 0.05, D, D + DW); }
     // Las ventanas de los lados y una bala de heno a la puerta
-    for (const x of [-1.42, 1.42]) { soft('white', x - 0.3, 0.9, D, x + 0.3, 1.42, D + 0.015); soft('soot', x - 0.24, 0.96, D + 0.01, x + 0.24, 1.36, D + 0.02); soft('white', x - 0.02, 0.96, D + 0.01, x + 0.02, 1.36, D + 0.03); }
+    if (!cut) for (const x of [-1.42, 1.42]) { soft('white', x - 0.3, 0.9, D, x + 0.3, 1.42, D + 0.015); soft('soot', x - 0.24, 0.96, D + 0.01, x + 0.24, 1.36, D + 0.02); soft('white', x - 0.02, 0.96, D + 0.01, x + 0.02, 1.36, D + 0.03); }
     soft('hay', 1.05, 0, D + 0.02, 1.75, 0.48, D + 0.5);
+  },
+  barra(m) {   // la barra de la taberna: se une a la de al lado
+    m.box('wood', -0.5, 0, -0.26, 0.5, 0.86, 0.26).box('light', -0.5, 0.86, -0.34, 0.5, 0.93, 0.34).box('dark', -0.5, 0, 0.26, 0.5, 0.1, 0.3);
+    for (const x of [-0.32, 0.32]) m.box('dark', x - 0.03, 0.1, 0.26, x + 0.03, 0.86, 0.28);
+    m.cyl('iron', 0.18, 0.93, 0.08, 0.055, 0.055, 0.13, 8).cyl('hay', 0.18, 1.06, 0.08, 0.05, 0.05, 0.015, 8);   // una jarra
+  },
+  barril(m) {
+    m.cyl('wood', 0, 0, 0, 0.27, 0.32, 0.42, 12).cyl('wood', 0, 0.42, 0, 0.32, 0.27, 0.42, 12);
+    for (const y of [0.14, 0.66]) m.cyl('iron', 0, y, 0, 0.32, 0.32, 0.04, 12);
+    m.box('dark', -0.03, 0.2, 0.29, 0.03, 0.26, 0.37);   // la espita
+  },
+  taburete(m) {
+    for (const [a, b] of [[-0.14, -0.14], [0.1, -0.14], [-0.14, 0.1], [0.1, 0.1]]) m.box('dark', a, 0, b, a + 0.04, 0.6, b + 0.04);
+    m.box('dark', -0.14, 0.24, -0.14, 0.14, 0.27, 0.14);
+    m.cyl('wood', 0, 0.6, 0, 0.2, 0.2, 0.05, 10);
   },
   colmena(m) {
     for (const [x, z] of [[-0.25, -0.2], [0.21, -0.2], [-0.25, 0.16], [0.21, 0.16]]) m.box('dark', x, 0, z, x + 0.04, 0.3, z + 0.04);

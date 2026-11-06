@@ -8,7 +8,7 @@ import { nearX } from './world/planet.js';
 import { Audio } from './audio.js';
 import { hud } from './ui/hud.js';
 
-const SEAT = 0.14, SOFA = 0.1, BED = 0.6, FLOOR_LIE = 0.14, FLOOR_SIT = -0.28;
+const SEAT = 0.14, STOOL = 0.27, SOFA = 0.1, BED = 0.6, FLOOR_LIE = 0.14, FLOOR_SIT = -0.28;
 
 export class Rest {
   constructor(game) { this.game = game; }
@@ -24,7 +24,7 @@ export class Rest {
     let [x, y] = [o.x, o.y];
     if (o.placed === 'sofa') { const [sx, sy] = sideOf(yaw); if (Math.hypot(x + sx - p.x, y + sy - p.y) < Math.hypot(x - p.x, y - p.y)) { x += sx; y += sy; } }
     const soft = o.placed === 'sofa' || o.placed === 'sillon';   // (en el sofá y en el sillón, más hundido y algo más adelante)
-    this.take({ kind: 'sit', yaw, h: soft ? SOFA : SEAT }, x + Math.sin(yaw) * (soft ? 0.05 : -0.04), y + Math.cos(yaw) * (soft ? 0.05 : -0.04));
+    this.take({ kind: 'sit', yaw, h: soft ? SOFA : o.placed === 'taburete' ? STOOL : SEAT }, x + Math.sin(yaw) * (soft ? 0.05 : -0.04), y + Math.cos(yaw) * (soft ? 0.05 : -0.04));
   }
   // En una cama: boca arriba, con la cabeza en la almohada (la casilla de la cabecera). En la doble, del lado
   // que quede más cerca y esté libre (twin: dónde está el otro lado, para saber quién se tumba ahí: ver la familia)

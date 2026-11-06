@@ -142,7 +142,9 @@ function freeObject(o, id, rot, [x, y, a], { colliders, lights, solids }) {
   if (ITEMS[id].place === 'flat') return true;
   const local = solidsOf(o.model || id), box = placeBoxes([hull(local)], x, y, a)[0];
   o.obb = box;
-  colliders.push({ ...bounds(box), obb: box, free: true });
+  // (en el establo con la puerta abierta se entra: chocan sus paredes, no todo él; lo alto no molesta)
+  if (id === 'establo' && o.model !== 'establo:shut') for (const s of placeBoxes(local.filter(l => l[1] < 1), x, y, a)) colliders.push({ ...bounds(s), obb: s, free: true });
+  else colliders.push({ ...bounds(box), obb: box, free: true });
   for (const s of placeBoxes(local, x, y, a)) solids.push(s);
   return false;
 }

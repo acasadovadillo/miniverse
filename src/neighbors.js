@@ -80,6 +80,49 @@ const PEOPLE = {
     },
   },
 };
+// La gente de la taberna: Anselmo, tras la barra, y sus clientes. No pasean: están en su sitio a sus horas (hours: de
+// cuándo a cuándo; más de 24, de madrugada). seat: dónde están y hacia dónde miran; sits: sentados en un taburete o una silla
+const STOOL_H = 0.27, CHAIR_H = 0.14, TO_N = Math.PI, TO_E = Math.PI / 2, TO_W = -Math.PI / 2;
+Object.assign(PEOPLE, {
+  anselmo: {
+    name: 'Anselmo', seat: [6.5, 33.45, 0], hours: [10, 26], work: 'taberna', shop: 'anselmo',
+    look: { sex: 'chico', skin: '#e8b07a', hair: '#7a4a2a', eyes: '#3a2a1e', cloth: '#efe6d4', pants: '#3a2c22', hairStyle: 'calvo', outfit: 'delantal', beard: 'completa' },
+    loves: ['miel', 'filete', 'manzana_asada'], likes: ['trigo', 'manzana', 'queso'], hates: ['baba', 'calavera'],
+    chat: ['¿Lo de siempre? Da igual lo que digas, te voy a poner lo de siempre.', 'Aquí se sabe todo antes de que pase. Rosa ya me ha contado lo que vas a hacer mañana.', 'La receta de la cerveza era de mi abuela. La de la sopa, también. Mi abuela no cocinaba bien.', 'Si no pagas hoy, pagas mañana. Y si no, le digo a Bruno que me debes dinero.', 'En esta barra se han arreglado más líos que en todo el ayuntamiento. Bueno, no hay ayuntamiento.'],
+    events: {
+      3: { lines: ['Ya eres de la casa. Toma, esta la pago yo. No se lo digas a nadie, que tengo una reputación.'], gift: [['hidromiel', 2]] },
+      6: { lines: ['Toma este taburete. Era el de mi padre. Ya no lo usa: dice que le han crecido las piernas.'], gift: [['taburete', 2]] },
+    },
+  },
+  eusebio: {
+    name: 'Eusebio', seat: [3.5, 35.5, TO_N], sits: STOOL_H, hours: [11, 23],
+    look: { sex: 'chico', skin: '#f6c9a0', hair: '#a8a4ac', eyes: '#7a7a8a', cloth: '#5a6a4a', pants: '#3a3a3e', hairStyle: 'corto', outfit: 'chaleco', beard: 'bigote' },
+    loves: ['pan_bellota', 'pinones'], likes: ['pan', 'queso'], hates: ['anguila'],
+    chat: ['Yo llevo en este taburete desde antes de que hubiera taberna.', '¿Tú crees que va a llover? Yo creo que sí. Lo digo todos los días y a veces acierto.', 'Nilo y yo fuimos a la escuela juntos. Él ya era viejo entonces.', 'Dicen que al norte hay hielo que no se acaba nunca. Yo no he ido a mirar: me queda lejos del taburete.'],
+    events: { 3: { lines: ['Toma, de mi huerto. Bueno, del huerto de mi cuñada. Bueno, ella no lo sabe.'], gift: [['manzana', 4]] } },
+  },
+  ines: {
+    name: 'Inés', seat: [7.5, 35.5, TO_N], sits: STOOL_H, hours: [12, 22],
+    look: { sex: 'chica', skin: '#a86a42', hair: '#2a1e1e', eyes: '#3a2a1e', cloth: '#3a6ab8', pants: '#3a2c22', hairStyle: 'trenza', outfit: 'tunica' },
+    loves: ['amatista', 'mapa_vacio'], likes: ['sidra', 'manzana'], hates: ['baba'],
+    chat: ['Soy cartógrafa. Bueno, pinto cosas y digo que es el mundo.', 'He estado en un templo que no sale en ningún mapa. Tampoco en los míos: se me olvidó el papel.', 'Si vas de viaje, lleva antorchas. Y un mapa. Y antorchas.', 'Dicen que si andas siempre recto, vuelves aquí. Por eso paro antes: aquí ya estoy.'],
+    events: { 3: { lines: ['Toma, un mapa en blanco. Lo importante es lo que le pongas.'], gift: [['mapa_vacio', 1]] } },
+  },
+  marta: {
+    name: 'Marta', seat: [2.62, 37.5, TO_E], sits: CHAIR_H, hours: [17, 26],
+    look: { sex: 'chica', skin: '#ffe0c4', hair: '#a8442a', eyes: '#3a8a4a', cloth: '#7a4a8a', pants: '#2a2a3a', hairStyle: 'melena', outfit: 'tunica' },
+    loves: ['fresa', 'mermelada_fresa'], likes: ['pan', 'hidromiel'], hates: ['carbon'],
+    chat: ['Vengo a que me cuenten cosas. Anselmo las inventa, pero las cuenta muy bien.', 'Me paso el día tejiendo. Por la tarde, a descansar las manos y a mover la lengua.', '¿Has visto a Dani pintar? Lleva tres días con el mismo pato. Es un pato muy guapo.', 'La sidra de aquí quita las penas. Luego vuelven, pero ya se han cansado.'],
+    events: { 3: { lines: ['Te he hecho un gorro. Ya sé que no lo has pedido. Por eso es un regalo.'], gift: [['gorro', 1]] } },
+  },
+  paco: {
+    name: 'Paco', seat: [7.62, 37.5, TO_E], sits: CHAIR_H, hours: [19, 26],
+    look: { sex: 'chico', skin: '#c98a5a', hair: '#2a1e1e', eyes: '#7a4a24', cloth: '#a8442a', pants: '#4a3a2a', hairStyle: 'rizado', outfit: 'tunica', beard: 'perilla' },
+    loves: ['filete', 'jabali_asado'], likes: ['cerveza', 'carpa'], hates: ['nabo'],
+    chat: ['Yo cazo. Bueno, yo voy al bosque y a veces vuelvo con algo.', 'Al ciervo hay que acercarse agachado. Si vas de pie, se entera hasta el del pueblo de al lado.', 'El jabalí es listo. Más que mi cuñado, que tampoco es difícil.', 'Con la piel haces cuero y con el cuero, botas. Con las botas, a cazar otra vez.'],
+    events: { 3: { lines: ['Toma, de lo último que cacé. Asado por Anselmo, que yo lo quemo todo.'], gift: [['venado_asado', 2]] } },
+  },
+});
 for (const p of Object.values(PEOPLE)) hud.faces[p.name] = p.look;
 
 const GREET = {
@@ -92,14 +135,18 @@ const GREET = {
 
 class Neighbor extends Person {
   constructor(id, def) {
-    const [x, y] = NODES[def.schedule[0][1]];
+    const [x, y] = def.seat || NODES[def.schedule[0][1]];
     super({ x, y, look: def.look });
-    Object.assign(this, { id, def, node: def.schedule[0][1], path: [], hidden: true });
+    Object.assign(this, { id, def, node: def.seat ? def.work : def.schedule[0][1], path: [], hidden: true });
+    if (def.seat) { this.yaw = def.seat[2]; this.dir = [Math.sin(def.seat[2]), Math.cos(def.seat[2])]; if (def.sits) this.pose = { kind: 'sit', yaw: def.seat[2], h: def.sits }; }
   }
+  // (los de la taberna) ¿Está a esta hora?
+  isIn(hour) { const [a, b] = this.def.hours, h = hour < 6 ? hour + 24 : hour; return h >= a && h < b; }
   // A dónde le toca ir según la hora
   goal(hour) { let g = this.def.schedule[0][1]; for (const [h, n] of this.def.schedule) if (hour >= h) g = n; return g; }
-  placeAt(hour) { const g = this.goal(hour); this.node = g; [this.x, this.y] = NODES[g]; this.path = []; this.hidden = g.startsWith('door'); }
+  placeAt(hour) { if (this.def.seat) { this.hidden = !this.isIn(hour); return; } const g = this.goal(hour); this.node = g; [this.x, this.y] = NODES[g]; this.path = []; this.hidden = g.startsWith('door'); }
   update(dt, hour) {
+    if (this.def.seat) { this.hidden = !this.isIn(hour); this.vx = this.vy = 0; return; }
     const g = this.goal(hour);
     if (g !== this.node && !this.path.length) { this.path = route(this.node, g); this.hidden = false; }
     if (!this.path.length) { this.vx = this.vy = 0; this.hidden = this.node.startsWith('door'); return; }
@@ -182,7 +229,7 @@ export class Neighbors {
       }
     }
     const held = g.inv.held, giftable = held && !ITEMS[held.id].tool && f.gift !== this.today;
-    const shop = def.shop && SHOPS[def.shop], open = shop && this.isWorking(id) && g.days.hour >= shop.hours[0] && g.days.hour < shop.hours[1];
+    const shop = def.shop && SHOPS[def.shop], now = shop && shop.hours[1] > 24 && g.days.hour < 6 ? g.days.hour + 24 : g.days.hour, open = shop && this.isWorking(id) && now >= shop.hours[0] && now < shop.hours[1];
     const opts = ['Charlar'];
     if (open) opts.push('Ver la tienda');
     if (open && TRADES[id]) opts.push('Hacer tratos');

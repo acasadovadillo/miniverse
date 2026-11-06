@@ -320,7 +320,8 @@ export class Live {
       case 'time': if (fromHost) this.clockBase = { c: m.c, at: g.time, run: m.run, sh: m.sh, db: m.db }; break;
       case 'herd':
         if (!fromHost) break;
-        m.p.forEach((p, i) => { const a = g.ranch.animals[i]; if (a) { a.netTo = p; a.inside = !!p[2]; } });
+        // (van en el orden de la lista: si ha nacido o muerto alguno y aún no ha llegado la lista nueva, se espera a ella)
+        if (m.p.length === g.ranch.animals.length) m.p.forEach((p, i) => { const a = g.ranch.animals[i]; a.netTo = p; a.inside = !!p[2]; });
         if (m.k) g.family.place(m.k);
         break;
       // Alguien llama a una puerta: suena si estás cerca (y, si es la tuya, te avisa)
@@ -352,7 +353,10 @@ export class Live {
       // Las criaturas de fuera (mobs.js): dónde están (de quien lleva el mundo), a cuál le pega quién (a quien lo
       // lleva), a quién muerden y quién ha matado a una (de quien lo lleva)
       case 'mobs': if (fromHost && Array.isArray(m.m)) g.mobs.netList(m.m); break;
+      case 'wild': if (fromHost && Array.isArray(m.w)) g.wildlife.netList(m.w); break;
       case 'hitm': if (this.takes(peer)) g.mobs.hitBy(conn, peer, m); break;
+      case 'hita': if (this.takes(peer)) g.hunt.hitBy(conn, peer, m); break;
+      case 'preydead': if (fromHost) g.hunt.killed(m); break;
       case 'hurt': if (fromHost && this.joined && g.player && g.gamemode === 'survival' && g.combat.invuln <= 0 && Number.isFinite(m.dmg)) g.combat.hit(Math.min(20, m.dmg), { x: m.x, y: m.y }); break;
       case 'mobdead': if (fromHost) g.mobs.killed(m); break;
       // Lo que se tira al suelo
@@ -587,7 +591,7 @@ export class Live {
       if (b) g.world.clock = b.c + (b.run ? g.time - b.at : 0);
       const k = 1 - Math.exp(-dt * 8);
       for (const a of g.ranch.animals) {
-        if (!a.netTo) continue;
+        if (!a.netTo || a.inside) continue;   // (dentro, en su sitio del establo)
         const dx = (a.netTo[0] - a.x) * k, dy = (a.netTo[1] - a.y) * k, moving = Math.abs(dx) + Math.abs(dy) > 1e-3;
         a.x += dx; a.y += dy; a.vx = moving ? dx / dt : 0; a.vy = moving ? dy / dt : 0;
       }

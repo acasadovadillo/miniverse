@@ -111,6 +111,13 @@ export class World3D {
     this.villageGroup = null; this.villageRef = null;
   }
 
+  // La casa en la que se está (el establo), sin tejado; se rehace su trozo al entrar y al salir
+  showInside(o) {
+    const key = o?.key || null;
+    if (key === (this.insideKey ?? null)) return;
+    for (const t of [this.insideTile, o?.tile]) { const c = t && this.chunks.get(`${Math.floor(t[0] / CHUNK)},${Math.floor(t[1] / CHUNK)}`); if (c) c.force = true; }
+    this.insideKey = key; this.insideTile = o?.tile || null;
+  }
   // Firma de un trozo: si no cambia, no hace falta rehacerlo (el juego rehace sus datos cada pocos segundos)
   signature(scene, cx, cy, data) {
     const farm = this.farm(scene), d = scene.delta(cx, cy), today = farm?.today;
@@ -152,7 +159,7 @@ export class World3D {
         else if (piece?.kind === 'door') { const ex = { blooms: [], leaves: [] }; const d = doorTile(scene, tx, ty, emitFor(region), ex); d.region = region; c.doors.push(d); }
         else if (piece?.kind === 'gate') c.doors.push(gateTile(scene, tx, ty, plain));
         else if (piece?.kind === 'fence') fenceTile(scene, tx, ty, o.placed, plain);
-        else this.placeModel(o.model || o.placed, o.x, o.y, o.yaw ?? yawOf(o.rot), plain, c, group, o.off);
+        else this.placeModel(o.key === this.insideKey ? `${o.placed}:in` : o.model || o.placed, o.x, o.y, o.yaw ?? yawOf(o.rot), plain, c, group, o.off);
       } else if (o.crop && this.farm(scene)) this.placeModel(`crop:${o.crop.id}:${this.farm(scene).stage(o.crop)}`, o.x, o.y, 0, plain, c, group);
       else if (o.poi) this.placeModel(`poi:${o.poi.kind}${o.poi.snow ? ':snow' : ''}`, o.poi.x, o.poi.y, 0, plain, c, group);
       else if (o.treasure) this.placeModel(`treasure:${o.open ? 1 : 0}`, o.x, o.y, 0, plain, c, group);

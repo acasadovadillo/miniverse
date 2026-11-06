@@ -102,6 +102,40 @@ Object.assign(ITEMS, {
   palomitas: { name: 'Palomitas', desc: 'Pop.', food: 20 },
   tostada_miel: { name: 'Tostada con miel', desc: 'Desayuno de campeones: quita el hambre y da velocidad.', food: 45, buff: ['rapido', 90] },
 });
+// ---------- La taberna ----------
+Object.assign(ITEMS, {
+  barra: { name: 'Barra de taberna', desc: 'Madera recia y una jarra siempre a mano. Se une a la de al lado.', place: 'furniture' },
+  barril: { name: 'Barril', desc: 'De roble, con su espita.', place: 'furniture' },
+  taburete: { name: 'Taburete', desc: 'Alto, para la barra. Siéntate con E.', place: 'furniture' },
+  sidra: { name: 'Vaso de sidra', desc: 'De las manzanas del pueblo: fresca y ácida.', food: 10, drink: true },
+  cerveza: { name: 'Jarra de cerveza', desc: 'Con su espuma. Anselmo dice que la receta es de su abuela.', food: 12, drink: true },
+  hidromiel: { name: 'Hidromiel', desc: 'Miel fermentada: dulce y traicionera. Un rato de alegría en las piernas.', food: 14, drink: true, buff: ['rapido', 60] },
+});
+// ---------- Lo que dan los animales al matarlos (hunt.js) ----------
+Object.assign(ITEMS, {
+  carne_ave: { name: 'Carne de ave', desc: 'De gallina, de pato o de cisne. Cruda alimenta poco: ásala en la cocina.', food: 8 },
+  carne_conejo: { name: 'Carne de conejo', desc: 'Magra y tierna. Cruda alimenta poco: ásala en la cocina.', food: 8 },
+  carne_vaca: { name: 'Carne de vaca', desc: 'Un buen trozo. Cruda alimenta poco: ásala en la cocina.', food: 10 },
+  carne_cordero: { name: 'Carne de cordero', desc: 'De oveja. Cruda alimenta poco: ásala en la cocina.', food: 10 },
+  carne_cabra: { name: 'Carne de cabra', desc: 'Sabor fuerte. Cruda alimenta poco: ásala en la cocina.', food: 10 },
+  carne_cerdo: { name: 'Carne de cerdo', desc: 'Con su veta de grasa. Cruda alimenta poco: ásala en la cocina.', food: 10 },
+  carne_venado: { name: 'Carne de venado', desc: 'Caza del bosque y del prado. Cruda alimenta poco: ásala en la cocina.', food: 10 },
+  carne_jabali: { name: 'Carne de jabalí', desc: 'Caza del bosque. Cruda alimenta poco: ásala en la cocina.', food: 10 },
+  pollo_asado: { name: 'Muslo asado', desc: 'Dorado por fuera y jugoso por dentro.', food: 30 },
+  conejo_asado: { name: 'Conejo asado', desc: 'Con hierbas del monte imaginarias.', food: 28 },
+  filete: { name: 'Filete', desc: 'A la brasa, en su punto.', food: 40 },
+  cordero_asado: { name: 'Cordero asado', desc: 'Se deshace solo.', food: 36 },
+  cabra_asada: { name: 'Cabra asada', desc: 'Curtida, pero con mucho sabor.', food: 34 },
+  chuleta: { name: 'Chuleta de cerdo', desc: 'Con la grasita crujiente.', food: 36 },
+  venado_asado: { name: 'Venado asado', desc: 'Plato de cazador: llena para rato.', food: 40 },
+  jabali_asado: { name: 'Jabalí asado', desc: 'Plato de cazador: llena para rato.', food: 40 },
+  piel: { name: 'Piel', desc: 'De un animal. En el telar, dos pieles se curten en cuero.' },
+  cuero: { name: 'Cuero', desc: 'Piel curtida: para botas, alforjas y sillones.' },
+  hueso: { name: 'Hueso', desc: 'En el banco se muele en abono.' },
+  manteca: { name: 'Manteca', desc: 'Grasa de cerdo. En el banco se hacen velas con ella.' },
+  asta: { name: 'Asta de ciervo', desc: 'Un trofeo: se vende bien.' },
+  colmillo: { name: 'Colmillo de jabalí', desc: 'Un trofeo: se vende bien.' },
+});
 // ---------- Granja, segunda parte: más animales, crías, heno, quesería, caballos y mascotas ----------
 Object.assign(ITEMS, {
   huevo_pato: { name: 'Huevo de pato', desc: 'Más grande que el de gallina, y con más sabor.', food: 10 },

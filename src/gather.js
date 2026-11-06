@@ -1,5 +1,6 @@
 // Recolectar: elegir lo que hay delante del jugador, golpearlo con la herramienta,
 // soltar lo que da y recogerlo. También los efectos: astillas, textos flotantes y el golpe de la herramienta.
+import { CAM } from './camera.js';
 import { ITEMS, HARVEST, TOOL_COST, CROPS, hitsFor, hungerOf } from './items.js';
 import { HUNGER_MAX } from './combat.js';
 import { PIECES } from './pieces.js';
@@ -90,8 +91,19 @@ export class Gathering {
     for (const s of g.systems) { const t = s.target?.(p, held, def); if (t) return t; }
     if (!g.scene.harvestablesNear) return null;
     if (tool === 'azada' && g.scene === g.world) {
-      const tx = Math.floor(p.x + p.face.x * 0.9), ty = Math.floor(p.y + p.face.y * 0.9);
+      const [tx, ty] = g.aimTile();
       return { tile: [tx, ty], ok: g.world.canTill(tx, ty) };
+    }
+    // (en primera persona, lo que está en la cruceta: un tronco alto, una mata baja)
+    const ray = CAM.first && g.mouse?.in ? g.view3d.rayAt(g.mouse.x, g.mouse.y) : null;
+    if (ray) {
+      let hit = null, near = Infinity;
+      for (const o of g.scene.harvestablesNear(p.x, p.y)) {
+        const ox = o.x - ray.o[0], oy = o.y - ray.o[2], l = Math.hypot(ray.d[0], ray.d[2]) || 1e-6, t = Math.max(0, (ox * ray.d[0] + oy * ray.d[2]) / (l * l)), gap = Math.hypot(ox - ray.d[0] * t, oy - ray.d[2] * t);
+        const y = ray.o[1] + ray.d[1] * t - g.view3d.groundY(g.scene, o.x, o.y), top = HARVEST[o.kind]?.tool === 'hacha' ? 4 : 1.4;
+        if (Math.hypot(o.x - p.x, o.y - p.y) <= REACH && gap < 0.6 && y > -0.2 && y < top && t < near) { near = t; hit = o; }
+      }
+      return hit && { obj: hit };
     }
     let best = null, score = Infinity;
     for (const o of g.scene.harvestablesNear(p.x, p.y)) {
@@ -109,7 +121,7 @@ export class Gathering {
   hint() {
     const g = this.game, held = g.inv.held, def = held && ITEMS[held.id], t = this.target;
     if (!g.player || g.mode !== 'play' || g.busy) return '';
-    if (def?.food) return `Comer ${def.name.toLowerCase()}`;
+    if (def?.food) return `${def.drink ? 'Beber' : 'Comer'} ${def.name.toLowerCase()}`;
     if (def?.heal) return `Beber ${def.name.toLowerCase()}`;
     if (t?.free) {
       const [w, h] = held.id === 'mesa_grande' ? TABLE_SIZES[t.rot] : [], size = w ? ` de ${w}×${h}` : '', keys = `R: girar${w ? ' · V: tamaño' : ''}`;

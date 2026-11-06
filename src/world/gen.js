@@ -173,7 +173,7 @@ export class WorldGen {
         const x = cx * CHUNK + i + 0.5, y = cy * CHUNK + j + 0.5;
         let col = BIOMES[this.biomeAt(x, y)].rgb[1];
         if (village.inBounds(x, y)) {
-          if (village.inOwnHouse(x, y) || village.inWorkshop(x, y) || Object.values(village.HOUSES).some(h => (!h.project || village.hasProject(h.project)) && x > h.x0 && x < h.x1 && y > h.y0 && y < h.y1)) col = rgbOf(ROOF);
+          if (village.inOwnHouse(x, y) || village.inTavern(x, y) || Object.values(village.HOUSES).some(h => (!h.project || village.hasProject(h.project)) && x > h.x0 && x < h.x1 && y > h.y0 && y < h.y1)) col = rgbOf(ROOF);
           else if (village.pondDist(x, y) < 1) col = rgbOf(POND);
           else if (village.distToPath(x, y) < 0.8) col = rgbOf(PATH);
         }

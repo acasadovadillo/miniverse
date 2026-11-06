@@ -11,6 +11,7 @@ import { ITEMS } from './items.js';
 import { ANIMALS, BREED_NAMES, animalSprite } from './art/farm.js';
 import { SPAWN, inBounds } from './world/village.js';
 import { collide } from './physics.js';
+import { sideOf, dirOf } from './world/fit.js';
 import { toView, fromView } from './iso.js';
 import { Audio } from './audio.js';
 import { hud } from './ui/hud.js';
@@ -18,6 +19,7 @@ import { Profile } from './accounts.js';
 
 const PER_HOME = { gallinero: 4, establo: 4, conejera: 4, cuadra: 2, caseta: 1, cojin: 1 };
 const FRONT = { gallinero: 2.15, establo: 2.25 };   // las casas grandes: del centro a donde se entra (delante de la puerta)
+const STALLS = [[-1.5, -0.45], [1.5, -0.45], [-0.5, -0.55], [0.5, -0.55]];   // dónde se ponen dentro del establo
 const DOORS = new Set(['gallinero', 'establo', 'conejera']), MENU_PAGE = 5;   // (las casas con puerta y cuántos animales enseña el menú de una vez)
 const ROAM = 4.5, HONEY_EVERY = 3, GROW = 5, WAIT_BIRTH = 3, HATCH = 4, SILO_CAP = 240, STRAY_EVERY = 7;
 const FEED = ['heno', 'fibra', 'trigo'];
@@ -111,14 +113,21 @@ export class Ranch {
     this.farm = { hay: 0, mail: [], ...save.farm };
     this.mailSeen = 0;
     this.ball = null;
+    this.gone = new Set();
     this.notifyMail();
   }
   save(out) { out.animals = this.animals.map(a => a.toSave()); out.farm = this.farm; }
+  // Uno que ha muerto (gone: para que una lista de antes de saberlo no lo resucite, jugando juntos)
+  remove(a) {
+    const i = this.animals.indexOf(a);
+    if (i >= 0) this.animals.splice(i, 1);
+    this.gone.add(a.id);
+  }
   // Jugando juntos en directo, como los tiene el anfitrión (sin dónde están: eso llega aparte). Si alguien
   // bajó de un caballo (at) se pone ahí; si alguien lo llamó (call), el anfitrión lo hace venir.
   share(list) {
     const old = new Map(this.animals.map(a => [a.id, a]));
-    this.animals = list.map(s => {
+    this.animals = list.filter(s => !this.gone.has(s.id)).map(s => {
       const a = old.get(s.id);
       if (!a) {
         const n = new Animal({ ...s, x: s.at?.[0], y: s.at?.[1] });
@@ -208,6 +217,7 @@ export class Ranch {
       if (out) a.outDay = this.today;
       if (far) { if (!out && a.home) a.inside = true; continue; }   // (lejos: si tiene que estar dentro, ya lo está)
       if (!out && a.inside) continue;                               // (dentro no hace nada ni se dibuja: no gasta)
+      if (a.panic > g.time) { a.walk(dt, this.world, (SPEED[a.type] || 1) * 3); continue; }   // (le han pegado: sale corriendo)
       if (!a.home) { a.inside = false; a.roam(dt, this.world, a.x, a.y, 1); continue; }
       const [hx, hy] = a.home2;
       if (out) {
@@ -327,7 +337,12 @@ export class Ranch {
   entities(scene) {
     if (scene !== this.world) return null;
     const p = this.game.player;
-    return this.animals.filter(a => { a.young = this.young(a); return !a.inside && !a.rider && Math.abs(a.x - p.x) + Math.abs(a.y - p.y) < 30; });
+    return this.animals.filter(a => {
+      a.young = this.young(a);
+      if (a.rider) return false;
+      if (a.inside) { const s = this.stall(a); if (!s) return false; a.x = s[0]; a.y = s[1]; a.dir = s[2]; a.vx = a.vy = 0; }
+      return Math.abs(a.x - p.x) + Math.abs(a.y - p.y) < 30;
+    });
   }
 
   // ---------- cada mañana ----------
@@ -442,6 +457,24 @@ export class Ranch {
     if (best) return this.talk(best);
     const o = this.world.placedNear(p.x, p.y, 1.3).find(o => !o.fixed && scene.reaches(p.x, p.y, o.x, o.y));
     return o ? this.objectAction(o) : null;
+  }
+  // El establo abierto en el que está alguien (o null)
+  houseAround(p) {
+    for (const o of this.world.placedNear?.(p.x, p.y, 3) || []) {
+      if (o.placed !== 'establo' || o.model === 'establo:shut' || o.yaw === undefined) continue;
+      const [ux, uy] = sideOf(o.yaw), [vx, vy] = dirOf(o.yaw), dx = p.x - o.x, dy = p.y - o.y;
+      if (Math.abs(dx * ux + dy * uy) < 2 && Math.abs(dx * vx + dy * vy) < 1.5) return o;
+    }
+    return null;
+  }
+  // Dónde está dentro del establo, si se puede ver (con la puerta abierta se entra a verlos): [x, y, hacia dónde mira]
+  stall(a) {
+    if (!a.inside || a.def.home !== 'establo' || !a.home || !this.doorOpen(a)) return null;
+    const [tx, ty] = a.home, k = `${tx},${ty}`, d = this.world.delta(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK)), raw = d?.placed?.[k];
+    if (!raw) return null;
+    const pos = d.pos?.[`placed:${k}`] || [tx + 0.5, ty + 0.5, ((+raw.split('@')[1] || 0) % 4) * Math.PI / 2];
+    const [lx, lz] = STALLS[Math.max(0, this.livingIn(a.home).indexOf(a)) % STALLS.length], [ux, uy] = sideOf(pos[2]), [vx, vy] = dirOf(pos[2]);
+    return [pos[0] + ux * lx + vx * lz, pos[1] + uy * lx + vy * lz, [vx, vy]];
   }
   // Los animales que viven en una casa
   livingIn(tile) { return this.animals.filter(a => a.home && a.home[0] === tile[0] && a.home[1] === tile[1]); }

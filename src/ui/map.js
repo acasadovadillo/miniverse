@@ -6,7 +6,7 @@
 import { CHUNK } from '../world/gen.js';
 import { BIOMES } from '../world/biomes.js';
 import { toView } from '../iso.js';
-import { CENTER, HOUSE, HOUSES, WORKSHOP, hasProject } from '../world/village.js';
+import { CENTER, HOUSE, HOUSES, TAVERN, hasProject } from '../world/village.js';
 import { nearX, wrapIndex } from '../world/planet.js';
 
 const $ = id => document.getElementById(id);
@@ -162,7 +162,7 @@ export class MapView {
     const spots = [{ x: me[0], y: me[1], name: 'Tú', col: Math.sin(time * 6) > 0 ? ME : '#ff6a4a', size: 7 }, { x: (HOUSE.x0 + HOUSE.x1) / 2, y: (HOUSE.y0 + HOUSE.y1) / 2, name: 'Tu casa', col: HOME, size: 8 }];
     for (const m of this.markers || []) spots.push({ x: m.x, y: m.y, name: m.name, col: COL[m.kind] || '#ffffff', size: 7 });
     for (const q of Object.values(HOUSES)) if (!q.project || hasProject(q.project)) spots.push({ x: (q.x0 + q.x1) / 2, y: (q.y0 + q.y1) / 2, name: `Casa de ${q.name}`, col: HOUSE_COL, size: 7 });
-    spots.push({ x: (WORKSHOP.x0 + WORKSHOP.x1) / 2, y: (WORKSHOP.y0 + WORKSHOP.y1) / 2, name: 'Taller', col: HOUSE_COL, size: 7 });
+    spots.push({ x: (TAVERN.x0 + TAVERN.x1) / 2, y: (TAVERN.y0 + TAVERN.y1) / 2, name: 'Taberna', col: HOUSE_COL, size: 7 });
     for (const q of this.people) spots.push({ x: q.x, y: q.y, name: q.name, col: PERSON, size: 5 });
     const taken = [], labels = [], clear = b => !taken.some(o => b[0] < o[2] && b[2] > o[0] && b[1] < o[3] && b[3] > o[1]);
     g.font = '13px "Pixelify Sans", system-ui, sans-serif';
@@ -205,7 +205,7 @@ export class MapView {
     const kinds = [...new Map((this.markers || []).map(m => [m.kind, m.name])).entries()], key = `${[...this.seenBiomes].sort().join()}|${kinds.map(k => k[0]).sort().join()}`;
     if (key === this.legendKey) return;
     this.legendKey = key;
-    const rows = [[ME, 'Tú'], [HOME, 'Tu casa'], [HOUSE_COL, 'Casas y taller'], [PERSON, 'Vecinos'], ...kinds.map(([k, name]) => [COL[k] || '#ffffff', name]).sort((a, b) => a[1].localeCompare(b[1])), ...[...this.seenBiomes].sort((a, b) => a - b).map(b => [rgbCss(BIOMES[b].rgb[1]), BIOMES[b].name])];
+    const rows = [[ME, 'Tú'], [HOME, 'Tu casa'], [HOUSE_COL, 'Casas y taberna'], [PERSON, 'Vecinos'], ...kinds.map(([k, name]) => [COL[k] || '#ffffff', name]).sort((a, b) => a[1].localeCompare(b[1])), ...[...this.seenBiomes].sort((a, b) => a - b).map(b => [rgbCss(BIOMES[b].rgb[1]), BIOMES[b].name])];
     const box = $('map-legend-rows');
     box.textContent = '';
     for (const [col, name] of rows) {

@@ -33,8 +33,8 @@ function findItem(text) {
 }
 // Lo que se puede escribir en cada comando (en inglés, como en Minecraft, y en español)
 const GM_NAMES = { supervivencia: 'survival', survival: 'survival', s: 'survival', 0: 'survival', creativo: 'creative', creative: 'creative', c: 'creative', 1: 'creative', espectador: 'spectator', spectator: 'spectator', sp: 'spectator', 3: 'spectator' };
-const WEATHER_NAMES = { clear: 'sol', clouds: 'nubes', cloudy: 'nubes', rain: 'lluvia', thunder: 'tormenta', fog: 'niebla', snow: 'nieve', sol: 'sol', despejado: 'sol', nubes: 'nubes', nublado: 'nubes', lluvia: 'lluvia', tormenta: 'tormenta', niebla: 'niebla', nieve: 'nieve' };
-const WEATHER_SAID = { sol: 'sol', nubes: 'nubes', lluvia: 'lluvia', tormenta: 'tormenta', niebla: 'niebla', nieve: 'nieve' };
+const WEATHER_NAMES = { blizzard: 'ventisca', ventisca: 'ventisca', storm: 'tormenta', clear: 'sol', clouds: 'nubes', cloudy: 'nubes', rain: 'lluvia', thunder: 'tormenta', fog: 'niebla', snow: 'nieve', sol: 'sol', despejado: 'sol', nubes: 'nubes', nublado: 'nubes', lluvia: 'lluvia', tormenta: 'tormenta', niebla: 'niebla', nieve: 'nieve' };
+const WEATHER_SAID = { sol: 'sol', nubes: 'nubes', lluvia: 'lluvia', tormenta: 'tormenta', niebla: 'niebla', nieve: 'nieve', ventisca: 'ventisca' };
 const DIFF_NAMES = { pacifico: 'peaceful', peaceful: 'peaceful', p: 'peaceful', 0: 'peaceful', facil: 'easy', easy: 'easy', e: 'easy', 1: 'easy', normal: 'normal', n: 'normal', 2: 'normal', dificil: 'hard', hard: 'hard', h: 'hard', 3: 'hard' };
 const EFFECTS = { speed: 'rapido', rapidez: 'rapido', strength: 'fuerza', fuerza: 'fuerza', resistance: 'resistencia', resistencia: 'resistencia', regeneration: 'regeneracion', regeneracion: 'regeneracion', tireless: 'incansable', incansable: 'incansable', instant_health: 'curacion', curacion: 'curacion' };
 const PLACES = { village: 'aldea', aldea: 'aldea', temple: 'templo', templo: 'templo', lighthouse: 'faro', faro: 'faro', cave: 'cueva', cueva: 'cueva', ruins: 'ruinas', ruinas: 'ruinas', camp: 'campamento', campamento: 'campamento', tower: 'torre', torre: 'torre', shipwreck: 'barco', barco: 'barco' };
@@ -176,7 +176,6 @@ export const COMMANDS = {
       if (game.scene !== game.world) { say('Solo en el mundo de fuera.', 'err'); return; }
       const [x, y] = isCoord(vx) && isCoord(vy) ? coords(game, vx, vy) : [wrapX(p.x + (p.face?.x || 0) * 2), p.y + (p.face?.y || 1) * 2];
       if (!inPlanet(x, y)) { say('Ahí no: fuera del planeta.', 'err'); return; }
-      if (s[0] === 'wild') { game.wildlife.summon(s[1], x, y); say(`Ha aparecido: ${s[1]} en ${shown(x, y)}.`, 'ok'); return; }
       toHost(game, say, { t: 'summon', kind: s[0], type: s[1], x: r2(x), y: r2(y) });
     },
   },
@@ -249,14 +248,36 @@ export const COMMANDS = {
     },
   },
   weather: {
-    help: 'el tiempo (solo los op): /weather clear|clouds|rain|thunder|fog|snow [minutos] (sin minutos, 15); luego vuelve el del día',
+    help: 'el tiempo del mundo: /weather (dice el que hace); los op: /weather clear|clouds|rain|thunder|fog|snow|blizzard [minutos|forever] (sin minutos, 15) y /weather reset (vuelve el del día)',
     run(game, say, [kind = '', mins = '']) {
+      const T = game.days, lock = game.weatherLock, word = plain(kind);
+      if (!word || word === 'query') {
+        const left = lock?.until ? Math.max(1, Math.ceil((lock.until - Date.now()) / 60000)) : 0;
+        say(`Aquí hace ${WEATHER_SAID[T.weatherHere] || T.weatherHere}${lock ? (lock.until === null ? ', puesto por un op, sin fin' : `, puesto por un op, ${left} minuto${left === 1 ? '' : 's'} más`) : ', el del día'}.`, 'sys');
+        return;
+      }
       if (needOp(game, say, 'weather')) return;
-      const w = WEATHER_NAMES[plain(kind)], m = num(mins) ?? 15;
-      if (!w || m <= 0) { say('Uso: /weather clear|clouds|rain|thunder|fog|snow [minutos]', 'err'); return; }
-      game.weatherLock = { w, until: Date.now() + m * 60000 };
+      if (word === 'reset' || word === 'auto' || word === 'cycle') {
+        game.weatherLock = game.rules.doWeatherCycle === false ? { w: T.weatherFor(T.dayIndex), until: null } : null;
+        game.onSave?.();
+        say('Vuelve el tiempo del día.', 'ok');
+        return;
+      }
+      const w = WEATHER_NAMES[word], forever = ['forever', 'inf', 'infinite', 'siempre'].includes(plain(mins)), m = forever ? null : num(mins) ?? 15;
+      if (!w || (!forever && m <= 0)) { say('Uso: /weather clear|clouds|rain|thunder|fog|snow|blizzard [minutos|forever], o /weather reset', 'err'); return; }
+      game.weatherLock = { w, until: forever ? null : Date.now() + m * 60000 };
       game.onSave?.();
-      say(`Ahora hace ${WEATHER_SAID[w]} durante ${m} minuto${m === 1 ? '' : 's'}${game.rules.doWeatherCycle ? '; luego vuelve el tiempo del día' : ''}.`, 'ok');
+      say(forever ? `Ahora hace ${WEATHER_SAID[w]}, hasta que se cambie (/weather reset).` : `Ahora hace ${WEATHER_SAID[w]} durante ${m} minuto${m === 1 ? '' : 's'}; luego vuelve el tiempo del día.`, 'ok');
+    },
+  },
+  toggledownfall: {
+    help: 'que empiece o deje de llover (solo los op), 15 minutos',
+    run(game, say) {
+      if (needOp(game, say, 'toggledownfall')) return;
+      const info = game.days.info, w = info.rain || info.snow ? 'sol' : game.days.season === 3 ? 'nieve' : 'lluvia';
+      game.weatherLock = { w, until: Date.now() + 15 * 60000 };
+      game.onSave?.();
+      say(`Ahora hace ${WEATHER_SAID[w]} durante 15 minutos.`, 'ok');
     },
   },
   seed: { help: 'la semilla del mundo', run(game, say) { say(`Semilla del mundo: ${WORLD_SEED}`, 'sys'); } },

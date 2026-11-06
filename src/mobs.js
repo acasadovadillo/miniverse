@@ -78,9 +78,9 @@ export class Mobs {
   // Los que están en el mundo de fuera: tú (salvo el mundo del servidor) y los demás, con su modo de juego
   players() {
     const g = this.game, p = g.player, out = [];
-    if (p && !Profile.server && g.scene === g.world) out.push({ me: true, x: p.x, y: p.y, gm: g.gamemode });
+    if (p && !Profile.server && g.scene === g.world) out.push({ me: true, x: p.x, y: p.y, gm: g.gamemode, crouch: p.crouch });
     if (g.live.joined) for (const [conn, peer] of g.live.peers) {
-      if (peer.playing && !peer.server && peer.sc === 'world' && peer.entity) out.push({ conn, x: peer.entity.x, y: peer.entity.y, gm: GM[peer.entity.gm || 0] });
+      if (peer.playing && !peer.server && peer.sc === 'world' && peer.entity) out.push({ conn, x: peer.entity.x, y: peer.entity.y, gm: GM[peer.entity.gm || 0], crouch: peer.entity.crouch });
     }
     return out;
   }

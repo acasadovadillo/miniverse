@@ -68,10 +68,10 @@ export function houseBlueprint({ x0, y0, big = false, roof = 'tejado_rojo', wall
   return { placed, floor, roof: roofs };
 }
 
-// El taller del pueblo (10×8): de madera, con tejado de paja y suelo de piedra, ventanas a los lados y delante, y la
-// puerta en medio de la fila de delante. Contra la pared de atrás, el banco de carpintero y el telar, de todos, con una
-// estantería y una lámpara; junto a la puerta, una maceta.
-export function workshopBlueprint({ x0, y0 }) {
+// La taberna del pueblo (10×8): de madera, con tejado de paja y suelo de piedra, ventanas a los lados y delante, y la
+// puerta en medio de la fila de delante. Al fondo, los barriles y la estantería, y Anselmo tras la barra; delante de la
+// barra, los taburetes; y dos mesas con sus sillas, a los lados del paso desde la puerta.
+export function tavernBlueprint({ x0, y0 }) {
   const w = 10, h = 8, placed = {}, floor = {}, roofs = {}, k = (x, y) => `${x},${y}`;
   for (let y = y0; y < y0 + h; y++) for (let x = x0; x < x0 + w; x++) { floor[k(x, y)] = 'suelo_piedra'; roofs[k(x, y)] = 'tejado_paja'; }
   const x1 = x0 + w - 1, y1 = y0 + h - 1, dx = x0 + Math.floor(w / 2);
@@ -80,11 +80,11 @@ export function workshopBlueprint({ x0, y0 }) {
   for (const x of [x0 + 2, x1 - 2]) placed[k(x, y1)] = 'ventana';
   for (const y of [y0 + 2, y0 + 5]) { placed[k(x0, y)] = 'ventana'; placed[k(x1, y)] = 'ventana'; }
   placed[k(dx, y1)] = 'puerta';
-  placed[k(x0 + 1, y0 + 1)] = 'estanteria';
-  placed[k(x0 + 3, y0 + 1)] = 'banco';
-  placed[k(x0 + 6, y0 + 1)] = 'telar';
-  placed[k(x1 - 1, y0 + 1)] = 'lampara';
-  placed[k(x0 + 1, y1 - 1)] = 'maceta';
+  placed[k(x0 + 1, y0 + 1)] = 'barril'; placed[k(x0 + 2, y0 + 1)] = 'barril'; placed[k(x0 + 3, y0 + 1)] = 'estanteria';
+  placed[k(x1 - 1, y0 + 1)] = 'lampara'; placed[k(x1 - 1, y1 - 1)] = 'lampara'; placed[k(x0 + 1, y1 - 1)] = 'maceta';
+  for (let x = x0 + 1; x <= x0 + 6; x++) placed[k(x, y0 + 2)] = 'barra';
+  for (const x of [x0 + 2, x0 + 4, x0 + 6]) placed[k(x, y0 + 3)] = 'taburete@2';
+  for (const x of [x0 + 2, x1 - 2]) { placed[k(x, y0 + 5)] = 'mesa'; placed[k(x - 1, y0 + 5)] = 'silla@1'; placed[k(x + 1, y0 + 5)] = 'silla@3'; }
   return { placed, floor, roof: roofs };
 }
 

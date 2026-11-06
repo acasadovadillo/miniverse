@@ -10,6 +10,7 @@ import { extraOf } from './inventory.js';
 import { Audio } from './audio.js';
 import { hud } from './ui/hud.js';
 import { XP_MOB, roll } from './xp.js';
+import { CAM } from './camera.js';
 
 export const HP_MAX = 20;       // medios corazones
 export const HUNGER_MAX = 20;   // medios muslos
@@ -196,7 +197,8 @@ export class Combat {
   // Atacar lo que haya delante
   target(p, held, def) {
     if (!this.monsters?.length) return null;
-    const m = this.inFront(p);
+    // (en primera persona, a la que está en la cruceta)
+    const g = this.game, aim = CAM.first && g.mouse ? g.aimed() : null, m = CAM.first && g.mouse ? (aim?.kind === 'monster' ? aim.e : null) : this.inFront(p);
     if (!m && !def?.weapon) return null;
     return { tile: null, ok: true, auto: true, label: m ? `Atacar (${m.def.name.toLowerCase()})` : 'Atacar', use: () => this.attack(m, def) };
   }
@@ -208,20 +210,29 @@ export class Combat {
     }
     return best;
   }
-  attack(m, def) {
+  // El gesto de pegar, acierte o no
+  swing() {
     const g = this.game;
     g.gather.cooldown = 0.38;
     g.gather.swing = 0.25;
     g.gather.swingItem = g.inv.held?.id && (ITEMS[g.inv.held.id].weapon || ITEMS[g.inv.held.id].tool) ? g.inv.held.id : null;
     Audio.swish();
-    if (!m) return;
-    // (con filo, y con la poción de fuerza, pega más)
-    const dmg = (def?.weapon || 1) + (g.skills?.level('combate') >= 5 ? 1 : 0) + (g.buffs.fuerza > g.time ? 2 : 0);
+  }
+  // Un golpe que acierta: lo que cuesta y cuánto pega (con filo, y con la poción de fuerza, más)
+  blow(def) {
+    const g = this.game, dmg = (def?.weapon || 1) + (g.skills?.level('combate') >= 5 ? 1 : 0) + (g.buffs.fuerza > g.time ? 2 : 0);
     g.gather.wearOut();   // (el arma, o la herramienta con que se pega, se gasta)
     this.exert(0.1);
     Audio.chop();
     g.skills?.gain('combate', 1);
+    return dmg;
+  }
+  attack(m, def) {
+    this.swing();
+    if (!m) return;
+    const dmg = this.blow(def);
     // (las de fuera son del mundo: el golpe se lo da quien lo lleva)
+    const g = this.game;
     if (m.world) { g.mobs.strike(m, dmg); return; }
     m.hp -= dmg; m.hurt = 0.4;
     if (m.hp <= 0) { this.scene.monsters.splice(this.scene.monsters.indexOf(m), 1); this.reward(m); }

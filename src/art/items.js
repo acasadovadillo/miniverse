@@ -50,6 +50,37 @@ const DRAW = {
   cuadro_noche(R) { R(1, 3, 14, 11, '#3a2a1e'); R(2, 4, 12, 9, '#1a2a5a'); R(11, 5, 2, 2, '#f8f0c0'); R(4, 5, 1, 1, '#f8f0c0'); R(7, 6, 1, 1, '#f8f0c0'); R(2, 10, 12, 3, '#14202e'); R(4, 9, 3, 3, '#2a2a3a'); R(9, 9, 3, 3, '#2a2a3a'); R(5, 10, 1, 1, '#ffd070'); R(10, 10, 1, 1, '#ffd070'); },
   alfombra(R) { R(1, 4, 14, 9, '#8a3a3a'); R(2, 5, 12, 7, '#c0644a'); R(5, 7, 6, 3, '#e8c070'); R(7, 8, 2, 1, '#8a3a3a'); for (let x = 1; x < 15; x += 2) { R(x, 3, 1, 1, '#e8c070'); R(x, 13, 1, 1, '#e8c070'); } },
 };
+// La carne: un muslo, un filete y una chuleta (a: el color; b: su brillo; c: el borde; marks: las marcas de la parrilla)
+const drumstick = (R, g, a, b, c) => { ellipse(g, 6, 6, 5, 5, c); ellipse(g, 6, 6, 4, 4, a); ellipse(g, 5, 5, 2, 2, b); line(g, 9, 9, 13, 13, c); line(g, 9, 10, 12, 13, '#f0e8d8'); R(12, 12, 3, 2, '#f0e8d8'); R(13, 11, 2, 2, '#f0e8d8'); };
+const steak = (R, g, a, b, c, marks) => { ellipse(g, 8, 9, 7, 5, c); ellipse(g, 8, 9, 6, 4, a); ellipse(g, 6, 8, 3, 2, b); if (marks) for (const x of [5, 8, 11]) R(x, 6, 1, 6, marks); else { R(9, 10, 3, 1, c); R(5, 11, 2, 1, c); } };
+const chop = (R, g, a, b, c, marks) => { R(10, 7, 4, 2, '#f0e8d8'); R(13, 6, 2, 2, '#f0e8d8'); R(13, 8, 2, 2, '#f0e8d8'); ellipse(g, 6, 8, 5, 5, c); ellipse(g, 6, 8, 4, 4, a); ellipse(g, 5, 7, 2, 2, b); if (marks) for (const x of [4, 7]) R(x, 6, 1, 5, marks); };
+Object.assign(DRAW, {
+  carne_ave: (R, g) => drumstick(R, g, '#f0b0a0', '#fad0c4', '#c87a70'),
+  carne_conejo: (R, g) => drumstick(R, g, '#e89088', '#f4b4a8', '#b05a58'),
+  carne_vaca: (R, g) => steak(R, g, '#c8383a', '#e86060', '#f0d8c8'),
+  carne_cerdo: (R, g) => steak(R, g, '#f09a98', '#fac0b8', '#fff0e4'),
+  carne_venado: (R, g) => steak(R, g, '#8a2428', '#b04040', '#d8b8a8'),
+  carne_jabali: (R, g) => steak(R, g, '#a03038', '#c85058', '#4a3028'),
+  carne_cordero: (R, g) => chop(R, g, '#d84a50', '#f07a78', '#f4e4d4'),
+  carne_cabra: (R, g) => chop(R, g, '#a83a3a', '#c85a58', '#e8d4c0'),
+  pollo_asado: (R, g) => drumstick(R, g, '#d89038', '#f0b85a', '#8a5420'),
+  conejo_asado: (R, g) => drumstick(R, g, '#b87030', '#d89850', '#6a4018'),
+  filete: (R, g) => steak(R, g, '#8a5028', '#a86a38', '#5a3418', '#3a2010'),
+  chuleta: (R, g) => chop(R, g, '#c08040', '#dca060', '#7a4c20', '#5a3418'),
+  venado_asado: (R, g) => steak(R, g, '#6a3820', '#885030', '#442412', '#2a160a'),
+  jabali_asado: (R, g) => steak(R, g, '#7a4424', '#985c34', '#2a1a10', '#2a160a'),
+  cordero_asado: (R, g) => chop(R, g, '#a86030', '#c88048', '#6a3c18', '#4a2a10'),
+  cabra_asada: (R, g) => chop(R, g, '#8a4c28', '#a86838', '#583018', '#3a2010'),
+  sidra(R, g) { R(5, 3, 6, 11, '#e8e0a8'); R(6, 6, 4, 7, '#d8b040'); R(6, 6, 4, 1, '#f4e080'); R(5, 14, 6, 1, '#b8ae80'); R(9, 7, 1, 5, '#f0d060'); },
+  cerveza(R, g) { R(4, 5, 7, 10, '#a86a30'); R(5, 6, 5, 8, '#d89a30'); R(11, 7, 3, 1, '#7a4a20'); R(13, 7, 1, 5, '#7a4a20'); R(11, 11, 3, 1, '#7a4a20'); ellipse(g, 7, 4, 4, 2, '#fff8ea'); R(5, 6, 1, 2, '#fff8ea'); R(9, 6, 1, 3, '#fff8ea'); },
+  hidromiel(R, g) { R(6, 2, 4, 3, '#a87840'); R(5, 5, 6, 10, '#c88a20'); R(6, 6, 4, 8, '#e8b030'); R(6, 7, 1, 5, '#f8d870'); R(5, 8, 6, 3, '#f4ecd8'); R(7, 9, 2, 1, '#c88a20'); },
+  piel(R, g) { poly(g, [[3, 3], [6, 4], [10, 4], [13, 3], [12, 7], [14, 13], [10, 12], [6, 12], [2, 13], [4, 7]], '#a87848'); poly(g, [[5, 5], [11, 5], [10, 8], [11, 11], [5, 11], [6, 8]], '#c89868'); R(7, 7, 2, 1, '#dcb488'); },
+  cuero(R, g) { ellipse(g, 11, 8, 4, 5, '#6a3e1e'); ellipse(g, 11, 8, 2, 3, '#a06c38'); R(2, 3, 9, 10, '#8a5428'); R(2, 3, 9, 1, '#a87040'); R(2, 12, 9, 1, '#5e3616'); for (let x = 3; x < 10; x += 3) R(x, 7, 2, 1, '#6a3e1e'); },
+  hueso(R, g) { line(g, 4, 12, 12, 4, '#e8e0cc'); line(g, 4, 11, 11, 4, '#fff8e8'); for (const [x, y] of [[3, 11], [5, 13], [11, 3], [13, 5]]) blob(g, x, y, 2, '#f4ecd8'); },
+  manteca(R, g) { R(3, 9, 10, 6, '#b8784a'); R(3, 9, 10, 1, '#d89a68'); R(3, 14, 10, 1, '#8a5430'); ellipse(g, 8, 8, 5, 3, '#fff8ea'); blob(g, 7, 6, 2, '#ffffff'); R(10, 7, 1, 1, '#e8dcc8'); },
+  asta(R, g) { line(g, 5, 15, 8, 3, '#8a6a44'); line(g, 6, 15, 9, 3, '#c8a878'); line(g, 7, 9, 12, 6, '#c8a878'); line(g, 7, 12, 3, 9, '#a8865a'); line(g, 8, 6, 12, 2, '#c8a878'); R(3, 8, 1, 1, '#f0e0c0'); R(12, 5, 1, 1, '#f0e0c0'); R(12, 1, 1, 1, '#f0e0c0'); },
+  colmillo(R, g) { poly(g, [[3, 13], [6, 14], [11, 11], [14, 3], [9, 8], [4, 10]], '#f0e8d0'); poly(g, [[5, 11], [9, 9], [12, 6], [10, 10], [6, 13]], '#d8ccae'); R(3, 11, 3, 3, '#a8845a'); },
+});
 Object.assign(DRAW, {
   semilla_manzano(R) { seedPacket(R, '#d8382a', '#4a9a3a'); },
   cana(R, g) { line(g, 2, 15, 13, 1, '#8a5a30'); line(g, 3, 15, 14, 1, '#6a4422'); line(g, 14, 1, 15, 10, '#e8e0d0'); R(14, 10, 2, 2, '#e83a3a'); R(4, 12, 3, 2, '#4a4a54'); },

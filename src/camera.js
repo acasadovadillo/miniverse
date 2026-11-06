@@ -8,6 +8,10 @@ export const PITCH = { min: 0.07, max: 1.5 };
 export const LOOK = { min: -1.2, max: 1.2 };
 export const DIST = { min: 7, max: 46 };
 
+// Mover la mirada con el ratón, en primera persona (dx, dy: lo que se ha movido, en píxeles)
+const SENS = 0.0024;
+export function lookBy(dx, dy) { CAM.yaw -= dx * SENS; CAM.look = Math.max(LOOK.min, Math.min(LOOK.max, CAM.look - dy * SENS)); }
+
 // Dirección en el mundo (x, y de la rejilla) de un movimiento en pantalla: sx a la derecha, sy hacia abajo
 export function screenToWorld(sx, sy) {
   const s = Math.sin(CAM.yaw), c = Math.cos(CAM.yaw);
