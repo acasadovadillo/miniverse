@@ -1,4 +1,5 @@
 // Pantallas: inicio de sesión, menú principal, creador de personaje y pausa.
+import { initWindows } from './windows.js';
 import { Profile } from '../accounts.js';
 import { LOOK_OPTIONS, DEFAULT_LOOK } from '../looks.js';
 import { CharacterPreview } from '../three/preview.js';
@@ -15,8 +16,9 @@ import { Settings } from '../settings.js';
 import { SHARED } from '../livesync.js';
 
 const $ = id => document.getElementById(id);
-const SCREENS = ['s-login', 's-menu', 's-account', 's-creator', 's-pause', 's-map', 's-inv', 's-craft', 's-chest', 's-shop', 's-journal', 's-settings', 's-controls'];
+const SCREENS = ['s-login', 's-menu', 's-account', 's-creator', 's-pause', 's-map', 's-shop', 's-settings', 's-controls'];
 const AUTOSAVE_MS = 15000;
+const CHEST_REACH = 4;   // (lo que se puede alejar uno de un cofre abierto)
 const ADMIN_NAME = 'Alberto';   // (el dueño del mundo, que abre el servidor)
 
 // Lo de la partida que es del mundo (y los ajustes): se conserva al empezar con un personaje nuevo. Lo demás
@@ -24,7 +26,9 @@ const ADMIN_NAME = 'Alberto';   // (el dueño del mundo, que abre el servidor)
 const WORLD_KEYS = ['seed', 'clock', 'house', 'projects', 'boardDone', 'animals', 'farm', 'museum', 'family', 'dayBase', 'timeShift', 'seenDay', 'rules', 'worldSpawn', 'weatherLock', 'difficulty', 'maps', 'defaultGamemode', 'frozenHour', 'worldAt', 'cam3d', 'volumes'];
 
 export function initMenus(game) {
+  let wins = null;   // (las ventanas de la partida: se hacen más abajo)
   function show(id) {
+    if (id === 's-login' || id === 's-menu') wins?.closeAll();
     SCREENS.forEach(s => $(s).classList.toggle('show', s === id));
     document.body.classList.toggle('playing', !id);
   }
@@ -449,11 +453,12 @@ export function initMenus(game) {
   const savedMsg = r => (r.remote ? 'Partida guardada aquí y en GitHub.' : r.local ? `Partida guardada en este ordenador${r.remote === false ? `, pero no en GitHub: ${Profile.lastError}` : ''}.` : 'No se ha podido guardar.');
   addEventListener('pagehide', () => { if (game.player) save({ upload: live.role === 'host' }); });   // (quien lleva el mundo, lo sube ya: los demás lo necesitan)
 
-  function resume() { game.mode = 'play'; show(null); }
+  function resume() { game.mode = 'play'; show(null); wins?.placeAll(); }
   function togglePause() {
-    if (['map', 'inventory', 'craft', 'chest', 'shop', 'journal'].includes(game.mode)) { resume(); return true; }
+    if (['map', 'shop'].includes(game.mode)) { resume(); return true; }
+    if (game.busy || hud.dialogOpen) return false;   // (hablando, las ventanas no se ven: Esc no las toca)
+    if (game.mode === 'play' && wins.closeTop()) return true;   // (Esc: primero, la ventana de encima)
     if (game.mode === 'play' && game.build.on) { game.build.toggle(false); return true; }
-    if (game.busy || hud.dialogOpen) return false;
     if (game.mode === 'play') { game.mode = 'pause'; $('p-msg').textContent = live.guest ? `El mundo compartido lo lleva ${live.host?.server ? 'el servidor' : `ahora el juego de ${live.hostName}`}: lo guarda él para todos, y lo tuyo, tu partida.` : live.role === 'host' && !Profile.admin ? 'El mundo compartido lo lleva ahora tu juego: se guarda para todos.' : ''; show('s-pause'); return true; }
     if (game.mode === 'pause') { resume(); return true; }
     return false;
@@ -506,19 +511,23 @@ export function initMenus(game) {
   };
 
   // ---------- Mochila ----------
-  const invUI = initInventoryUI(game, { onClose: resume, onCraft: () => openCraft() });
-  const craftUI = initCraftingUI(game, { onClose: resume, onBag: () => { resume(); toggleInventory(); } });
-  const chestUI = initChestUI(game, { onClose: resume });
-  game.onInventory = () => { invUI.refresh(); craftUI.refresh(); if (game.mode === 'chest') chestUI.refresh(); };
+  wins = game.windows = initWindows(game);
+  const invUI = initInventoryUI(game, { onClose: () => wins.close('s-inv'), onCraft: () => openCraft() });
+  const craftUI = initCraftingUI(game, { onClose: () => wins.close('s-craft'), onBag: () => wins.open('s-inv') });
+  const chestUI = initChestUI(game, { onClose: () => wins.close('s-chest') });
+  let chestAt = null, chestTick = 0;   // (dónde se abrió el cofre: si se aleja, se cierra)
+  wins.add('s-inv', { close: 'inv-close', spot: wins.defaults.left, onOpen: () => invUI.open() });
+  wins.add('s-craft', { close: 'cf-close', spot: wins.defaults.right });
+  wins.add('s-chest', { close: 'ch-close', spot: wins.defaults.right, onClose: () => { chestAt = null; chestUI.close(); } });
+  wins.add('s-journal', { close: 'j-close', spot: wins.defaults.center, onOpen: () => journalUI.open() });
+  game.onInventory = () => { invUI.refresh(); craftUI.refresh(); if (wins.isOpen('s-chest')) chestUI.refresh(); };
   const shopUI = initShopUI(game, { onClose: resume });
-  const journalUI = initJournalUI(game, { onClose: resume });
+  const journalUI = initJournalUI(game, { onClose: () => wins.close('s-journal') });
   function toggleJournal() {
-    if (game.mode === 'journal') { resume(); return true; }
-    if (game.mode === 'pause') game.mode = 'play';
+    if (game.mode === 'pause') resume();
     if (game.mode !== 'play' || game.busy || hud.dialogOpen) return false;
-    game.mode = 'journal';
-    show('s-journal');
-    journalUI.open();
+    if (wins.isOpen('s-journal')) { wins.close('s-journal'); return true; }
+    wins.open('s-journal');
     return true;
   }
   $('p-journal').onclick = toggleJournal;
@@ -544,34 +553,51 @@ export function initMenus(game) {
   game.onShop = id => { if (game.mode !== 'play') return; game.mode = 'shop'; show('s-shop'); shopUI.open(id); };
   game.onChest = (chest, tile, onChange) => {
     if (!chest || game.mode !== 'play') return;
-    game.mode = 'chest';
-    show('s-chest');
     chestUI.open(chest, tile, onChange);
+    wins.open('s-chest');
+    const p = game.player;
+    chestAt = p ? [p.x, p.y] : null;
   };
   function toggleInventory() {
-    if (game.mode === 'inventory') { resume(); return true; }
-    if (game.mode === 'craft') game.mode = 'play';
     if (game.mode !== 'play' || game.busy || hud.dialogOpen) return false;
-    game.mode = 'inventory';
-    show('s-inv');
-    invUI.open();
+    if (wins.isOpen('s-inv')) { wins.close('s-inv'); return true; }
+    wins.open('s-inv');
     return true;
   }
 
   // ---------- Fabricar ----------
   function openCraft(station) {
-    if (game.mode === 'inventory') game.mode = 'play';
     if (game.mode !== 'play' || game.busy || hud.dialogOpen) return false;
-    game.mode = 'craft';
-    show('s-craft');
+    wins.open('s-craft');
     craftUI.open(station);
     return true;
   }
   function toggleCraft() {
-    if (game.mode === 'craft') { resume(); return true; }
+    if (game.mode === 'play' && !game.busy && !hud.dialogOpen && wins.isOpen('s-craft')) { wins.close('s-craft'); return true; }
     return openCraft();
   }
   game.onCraft = openCraft;
+
+  // ---------- La columna de iconos ----------
+  const toggleBuild = () => (game.mode === 'play' && !game.busy && game.gamemode !== 'spectator' ? game.build.toggle() : false);
+  const openPause = () => { if (game.mode === 'play' && !game.busy && !hud.dialogOpen) { game.build.toggle(false); game.mode = 'pause'; $('p-msg').textContent = ''; show('s-pause'); } };
+  const RAIL = { inv: toggleInventory, craft: toggleCraft, build: toggleBuild, journal: toggleJournal, map: toggleMap, pause: openPause };
+  const rail = $('rail'), railBtn = {};
+  for (const b of rail.querySelectorAll('[data-rail]')) {
+    railBtn[b.dataset.rail] = b;
+    b.onclick = () => { b.blur(); RAIL[b.dataset.rail](); };
+  }
+  // Cada fotograma: si te alejas del cofre se cierra, y la columna dice qué hay abierto
+  game.onFrame = () => {
+    const p = game.player;
+    if (chestAt && p && Math.hypot(p.x - chestAt[0], p.y - chestAt[1]) > CHEST_REACH) wins.close('s-chest');
+    // (lo ha quitado alguien, o lo ha cambiado otro jugador: se cierra o se repinta)
+    if (wins.isOpen('s-chest') && ++chestTick % 6 === 0 && !chestUI.check()) wins.close('s-chest');
+    railBtn.inv.classList.toggle('on', wins.isOpen('s-inv'));
+    railBtn.craft.classList.toggle('on', wins.isOpen('s-craft'));
+    railBtn.journal.classList.toggle('on', wins.isOpen('s-journal'));
+    railBtn.build.classList.toggle('on', !!game.build.on);
+  };
 
   // ---------- Inicio ----------
   // ---------- Cuentas (solo el admin, con /account en el chat) ----------

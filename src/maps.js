@@ -50,6 +50,7 @@ export class Maps {
   copy(i) {
     const g = this.game, inv = g.inv, it = inv.slots[i];
     if (!it?.map) return 'Ese no es un mapa';
+    if (!g.craft.stationsNear().banco) return 'Tienes que estar junto al banco';
     if (!inv.infinite && inv.count('mapa_vacio') < 1) return 'Te falta un mapa en blanco';
     inv.remove('mapa_vacio', 1);
     const left = inv.add('mapa', 1, { map: it.map });
@@ -60,6 +61,7 @@ export class Maps {
   enlarge(i) {
     const g = this.game, inv = g.inv, it = inv.slots[i], m = it?.map && this.data[it.map];
     if (!m) return 'Ese no es un mapa';
+    if (!g.craft.stationsNear().banco) return 'Tienes que estar junto al banco';
     if (m.s >= MAX_SCALE) return 'Ya es lo más grande que puede ser';
     const miss = !inv.infinite && ENLARGE.find(([id, n]) => inv.count(id) < n);
     if (miss) return `Te falta ${ITEMS[miss[0]].name.toLowerCase()}`;

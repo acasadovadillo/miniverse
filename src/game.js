@@ -677,7 +677,7 @@ export class Game {
   sleep() { return this.days.sleep(); }
   // Devolver a la mochila algo colocado
   pickUp(o) {
-    if (o.fixed && !o.yard) return false;   // (lo del pueblo no se recoge, salvo la valla de tu jardín)
+    if (o.fixed && !o.yard && !o.build) return false;   // (lo que venía puesto no se recoge sin querer: solo la valla de tu jardín y, en modo construir, todo)
     // (una alfombra vuelve como la del telar de su tamaño; las de antes, de cualquier tamaño, se ponían con V)
     const r = o.layer === 'rug' && o.rug, id = r ? rugId(ITEMS[o.placed].rug || o.placed, RUG_MADE.find(([w, h]) => (w === r.w && h === r.h) || (w === r.h && h === r.w)) || [1, 1]) : o.placed;
     if (this.inv.room(id) < 1) { this.gather.float('No te cabe: no llevas sitio libre', '#ffb0a0'); Audio.error(); return false; }
@@ -1004,11 +1004,13 @@ export class Game {
   render() {
     this.frameNo++;
     // En primera persona el ratón mueve la cámara y se apunta con la cruceta, en el centro de la pantalla
-    syncLook(this.mode === 'play' && !this.busy && !hud.dialogOpen && !this.build.on && !!this.player);
+    syncLook(this.mode === 'play' && !this.busy && !hud.dialogOpen && !this.build.on && !!this.player && !this.windowsOpen);   // (con una ventana abierta, el cursor es para ella)
+    document.body.classList.toggle('talking', this.busy || hud.dialogOpen);   // (hablando, las ventanas se apartan)
+    this.onFrame?.();
     if (aimLock.locked) { const c = this.mouse ||= {}; c.x = innerWidth / 2; c.y = innerHeight / 2; c.in = true; }
     const near = this.nearest(), p = this.player, m = this.mouse;
     // Lo apuntado con el cursor lleva un borde amarillo, y la opción sale a su lado
-    this.highlight = near && m?.in && !p.pose && !p.aboard && !this.build.on ? this.aimed() : null;
+    this.highlight = this.build.on ? this.build.pickHighlight() : near && m?.in && !p.pose && !p.aboard ? this.aimed() : null;
     this.view3d.game = this;
     this.view3d.render(this);
     const prey = this.gather.target?.prey, click = prey && this.highlight?.e === prey ? '  ·  Clic: atacar' : '';

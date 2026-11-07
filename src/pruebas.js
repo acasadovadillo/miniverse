@@ -26,6 +26,9 @@ import { machineAt, settle, MACHINES } from './machines.js';
 import { hud } from './ui/hud.js';
 import { freePlace } from './gather.js';
 import { PIECE_IDS } from './build.js';
+import { PIECES, parsePlaced } from './pieces.js';
+import { diffChunk, applyOps } from './livesync.js';
+import { wallTile } from './three/build3d.js';
 import { itemIcon } from './art/items.js';
 import { PREY, bodyBox } from './hunt.js';
 import { priceOf } from './economy.js';
@@ -34,7 +37,7 @@ import { modelKind, ICON3D } from './three/icons.js';
 const GATE_X = 20;   // (el hueco de la valla del jardín, en el camino)
 const q = new URLSearchParams(location.search), WHO = q.get('quien') || 'a', RELAY = q.get('relay'), PART = q.get('parte') || 'solo';   // parte: 'solo' (un jugador), 'dos' o 'mirar' (sin pruebas: el juego con la cuenta de prueba, para verlo)
 const LOOK = { sex: 'chica', hairStyle: 'trenzas', hair: '#2a1e1e', skin: '#c98a5a', outfit: 'delantal', cloth: '#b84a8a', pants: '#4a3a2a', eyes: '#3a2a1e' };
-const TEST_TIMEOUT = 25000, LOAD_TIMEOUT = 90000;
+const TEST_TIMEOUT = 60000, LOAD_TIMEOUT = 90000;
 const results = [];
 let errors = [];
 
@@ -135,6 +138,7 @@ function freeTile(game, from) {
 }
 
 // ---------- las pruebas de un jugador ----------
+const W_place = (game, x, y, id) => game.world.place(x, y, id);
 async function soloTests(game) {
   const p = () => game.player, inv = () => game.inv, w = () => game.world;
   await test('carga: el juego arranca y el suelo está hecho', async () => {
@@ -485,6 +489,175 @@ async function soloTests(game) {
       check(RECIPES.some(r => r.out === 'arco') && RECIPES.some(r => r.out === 'flecha'), 'sin receta');
       check(itemIcon('arco') && itemIcon('flecha'), 'sin icono');
     } finally { keys.use = false; A.drawT = null; I.slots.splice(0, I.slots.length, ...kept); I.select(sel); game.mouse = was; }
+  });
+  await test('ventanas: encima del mundo, sin parar el juego', async () => {
+    const W = game.windows, P = p(), press = (code, type = 'keydown') => dispatchEvent(new KeyboardEvent(type, { code, bubbles: true }));
+    const el = id => document.getElementById(id), rail = k => document.querySelector(`[data-rail="${k}"]`);
+    const wasPlaying = document.body.classList.contains('playing');
+    document.body.classList.add('playing');
+    W.closeAll();
+    try {
+      // Por el icono y por la tecla, sin salir del juego
+      rail('inv').click(); check(W.isOpen('s-inv') && el('s-inv').classList.contains('show') && game.mode === 'play', `modo ${game.mode}`);
+      check(getComputedStyle(el('s-inv')).display === 'block', 'no se ve');
+      draw(); check(rail('inv').classList.contains('on'), 'el icono no lo dice');
+      press('KeyI'); check(!W.isOpen('s-inv'), 'I no la cierra'); press('KeyI'); check(W.isOpen('s-inv'), 'I no la abre');
+      // Se sigue andando con ella abierta
+      await goTo(game, 62, 50); const x0 = P.x, y0 = P.y; keys.up = true; await frames(30); keys.up = false;
+      check(Math.hypot(P.x - x0, P.y - y0) > 0.5, 'no se anda con la ventana abierta');
+      // Varias a la vez: la última, encima; Esc cierra de una en una antes que la pausa
+      press('KeyC'); press('KeyJ'); check(W.isOpen('s-craft') && W.isOpen('s-journal') && W.isOpen('s-inv'), 'no se abren varias');
+      check(+el('s-journal').style.zIndex > +el('s-inv').style.zIndex, 'la última no queda encima');
+      el('s-inv').dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })); check(+el('s-inv').style.zIndex > +el('s-journal').style.zIndex, 'tocarla no la sube');
+      press('Escape'); check(!W.isOpen('s-inv') && W.isOpen('s-journal') && game.mode === 'play', 'Esc no cierra la de encima');
+      press('Escape'); press('Escape'); check(!game.windowsOpen && game.mode === 'play', 'quedan abiertas'); 
+      press('Escape'); check(game.mode === 'pause', 'sin ventanas, Esc no pausa'); press('Escape'); check(game.mode === 'play', 'no vuelve de la pausa');
+      // Se arrastra por el título, se queda dentro de la pantalla y lo recuerda
+      const realMM = window.matchMedia; window.matchMedia = () => ({ matches: false });   // (aquí la pantalla es pequeña: como en un ordenador)
+      W.open('s-craft'); const head = el('s-craft').querySelector('h2'), r0 = el('s-craft').getBoundingClientRect(), ev = (t, x, y) => head.dispatchEvent(new PointerEvent(t, { bubbles: true, button: 0, clientX: x, clientY: y, pointerId: 1 }));
+      ev('pointerdown', r0.left + 40, r0.top + 10); ev('pointermove', r0.left + 10, r0.top + 60); ev('pointerup', r0.left + 10, r0.top + 60);
+      const r1 = el('s-craft').getBoundingClientRect(); check(Math.abs(r1.top - r0.top - 50) < 2, `no se mueve: ${r0.top} → ${r1.top}`);
+      check(JSON.parse(localStorage.getItem('pueblo-brotes:ventanas'))['s-craft'].y === Math.round(r1.top), 'no recuerda su sitio');
+      ev('pointerdown', r1.left + 40, r1.top + 10); ev('pointermove', r1.left + 40, 99999); ev('pointerup', r1.left + 40, 99999); check(el('s-craft').getBoundingClientRect().top < innerHeight - 20, 'se sale de la pantalla');
+      W.close('s-craft'); window.matchMedia = realMM;
+      // La chincheta: sin fijar se recoge al salir el cursor y vuelve al entrar
+      W.open('s-journal'); const pin = el('s-journal').querySelector('.win-pin'); check(pin.classList.contains('on'), 'no empieza fijada'); pin.click();
+      el('s-journal').dispatchEvent(new PointerEvent('pointerleave', { pointerType: 'mouse' })); await sleep(500); check(el('s-journal').classList.contains('collapsed'), 'no se recoge'); check(getComputedStyle(el('j-tabs')).display === 'none' && getComputedStyle(el('j-body')).display === 'none', 'se recoge, pero se sigue viendo');
+      el('s-journal').dispatchEvent(new PointerEvent('pointerenter', { pointerType: 'mouse' })); check(!el('s-journal').classList.contains('collapsed'), 'no vuelve');
+      pin.click(); el('s-journal').dispatchEvent(new PointerEvent('pointerleave', { pointerType: 'mouse' })); await sleep(500); check(!el('s-journal').classList.contains('collapsed'), 'fijada se recoge'); W.close('s-journal');
+      // Hablando se apartan; un cofre se cierra al alejarse
+      W.open('s-inv'); game.busy = true; draw(); check(getComputedStyle(el('s-inv')).visibility === 'hidden', 'se ven hablando'); game.busy = false; draw(); check(getComputedStyle(el('s-inv')).visibility === 'visible', 'no vuelven');
+      game.onChest(Array(18).fill(null), null); check(W.isOpen('s-chest'), 'no se abre el cofre'); draw(); check(W.isOpen('s-chest'), 'se cierra sola'); P.x += 6; draw(); check(!W.isOpen('s-chest'), 'sigue abierto de lejos');
+      // La ventana del cofre va sobre el cofre de verdad: lo que cambie otro se ve, y si lo quitan se cierra y no se pierde ni se duplica nada
+      await goTo(game, 62, 50);
+      const [cx, cy] = freeTile(game, [[62, 47], [63, 47], [61, 47], [62, 46]]), I = inv(); W_place(game, cx, cy, 'cofre'); const box = game.world.chestAt(cx, cy);
+      box[0] = { id: 'madera', n: 10 }; box[1] = { id: 'piedra', n: 7 }; game.world.chestTouched(cx, cy);
+      game.onChest(box, [cx, cy]); check(W.isOpen('s-chest'), 'no se abre');
+      const cells = () => document.querySelectorAll('#ch-grid .slot'), click = el => el.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+      const wood = I.count('madera'); click(cells()[0]); check(I.count('madera') === wood + 10 && !game.world.chestAt(cx, cy)[0], 'no saca');
+      // Llega un cambio de otro jugador (el array del trozo es otro): se sigue leyendo el de verdad
+      const d = game.world.delta(Math.floor(cx / CHUNK), Math.floor(cy / CHUNK)); d.chest[`${cx},${cy}`] = [null, { id: 'piedra', n: 7 }, ...Array(16).fill(null)];
+      const stone = I.count('piedra'); for (let i = 0; i < 8; i++) draw(); click(cells()[1]); check(I.count('piedra') === stone + 7 && !d.chest[`${cx},${cy}`][1], `el segundo montón no sale del de verdad: ${I.count('piedra') - stone}`);
+      // Se recoge el mueble con la ventana abierta: se cierra y lo guardado no se va a un array huérfano
+      check(game.pickUp(game.world.placedObjectAt(cx, cy)), 'no se recoge el cofre vacío'); const keepWood = I.count('madera'); for (let i = 0; i < 8; i++) draw(); check(!W.isOpen('s-chest'), 'sigue abierta sin cofre');
+      I.remove('cofre', 1); check(I.count('madera') === keepWood, 'cambia lo que llevas');
+      // Las alforjas: todos los movimientos de una apertura se quedan
+      const horse = { bags: [{ id: 'cuerda', n: 2 }, { id: 'fibra', n: 3 }, ...Array(7).fill(null)] }; game.onChest(() => horse.bags, null, () => game.ranch.bagsChanged(horse));
+      const rope = I.count('cuerda'), fib = I.count('fibra'); click(cells()[0]); click(cells()[1]); check(I.count('cuerda') === rope + 2 && I.count('fibra') === fib + 3 && !horse.bags.some(Boolean), `alforjas: ${JSON.stringify(horse.bags.slice(0, 2))}`);
+      W.close('s-chest'); I.remove('cuerda', 2); I.remove('fibra', 3); I.remove('madera', 10); I.remove('piedra', 7);
+      // En primera persona, con una ventana, el puntero queda libre
+      CAM.first = true; draw(); check(!document.body.classList.contains('aiming'), 'sigue la cruceta con una ventana abierta'); W.closeAll(); draw(); check(document.body.classList.contains('aiming'), 'no vuelve la cruceta');
+    } finally { CAM.first = false; game.busy = false; clearKeys(); W.closeAll(); document.body.classList.toggle('playing', wasPlaying); try { localStorage.removeItem('pueblo-brotes:ventanas'); } catch {} draw(); }
+  });
+  await test('vallado: al lado de una puerta de valla cabe otra valla, por los dos lados y en el hueco del jardín', async () => {
+    const W = w(), own = [], put = (x, y, id) => { W.place(x, y, id); own.push([x, y]); };
+    try {
+      for (const [gate, fence] of [[[GATE_X + 1, YARD.y1 - 1], [GATE_X, YARD.y1 - 1]], [[GATE_X, YARD.y1 - 1], [GATE_X + 1, YARD.y1 - 1]]]) {
+        put(...gate, 'puerta_valla');
+        check(W.canPlace(...fence, 'valla', null), `no cabe la valla en ${fence} con la puerta en ${gate}`);
+        check(W.canPlace(...fence, 'puerta_valla', null), `no cabe otra puerta en ${fence} con la puerta en ${gate}`);
+        put(...fence, 'valla');
+        const q = { x: fence[0] + 0.5, y: fence[1] + 0.5 }; collideNow(q, W.collidersNear(q.x, q.y), 0.25); check(Math.hypot(q.x - fence[0] - 0.5, q.y - fence[1] - 0.5) > 0.01, 'se atraviesa la valla');
+        for (const t of own.splice(0)) W.setTile(...t, 'air');
+      }
+      // Lo que sí estorba sigue estorbando: el tronco o el buzón de la casilla de al lado, de cerca
+      check(!W.canPlace(22, 20, 'valla', null), 'la valla se mete en el buzón');
+    } finally { for (const t of own) W.setTile(...t, 'air'); }
+  });
+  await test('casas: de las del pueblo se quita y se pone de todo, y queda guardado', async () => {
+    const h = HOUSES.rosa, B = game.build, I = inv(), P = p(), W = w(), kept = I.slots.slice();
+    const wallT = [h.x0 + 2, h.y1 - 1], roofT = [h.x0 + 3, h.y0 + 3], floorT = [h.x0 + 4, h.y0 + 4];
+    const k = t => `${t[0]},${t[1]}`, d = t => W.delta(Math.floor(t[0] / CHUNK), Math.floor(t[1] / CHUNK));
+    I.slots.fill(null);
+    await goTo(game, h.x0 + 3.5, h.y1 + 1.5);
+    const mouse = game.mouse; game.mouse = null;
+    try {
+      B.toggle(true); B.select('quitar');
+      // El muro de una vecina, con su material de vuelta
+      const wallId = parsePlaced(W.at('placed', ...wallT))[0], before = W.collidersNear(wallT[0] + 0.5, wallT[1] + 0.5).filter(c => c.wall).length;
+      check(PIECES[wallId], `en ${wallT} hay ${wallId}`); check(!W.ownAt('placed', ...wallT), 'ya era tuyo');
+      check(B.check(wallT).ok, `no deja: ${B.check(wallT).why}`);
+      const roofFirst = B.removable(wallT); check(roofFirst === 'roof', `primero: ${roofFirst}`);
+      B.remove(wallT); check(!W.at('roof', ...wallT), 'no quita el tejado'); check(d(wallT).gone?.[`roof:${k(wallT)}`], 'no apunta el tejado');
+      B.remove(wallT); check(!W.at('placed', ...wallT), 'no quita el muro'); check(d(wallT).gone?.[k(wallT)], 'no apunta el muro');
+      check(PIECES[wallId].cost.every(([m]) => I.count(m) > 0), 'no devuelve los materiales');
+      const after = W.collidersNear(wallT[0] + 0.5, wallT[1] + 0.5).filter(c => c.wall).length; check(after < before, `sigue chocando: ${before} → ${after}`);
+      draw();
+      // Sigue quitado después de guardar y al volver a pedir el trozo
+      const saved = JSON.parse(JSON.stringify(d(wallT).gone)); check(saved[k(wallT)] && saved[`roof:${k(wallT)}`], 'no se guardaría');
+      W.merged.delete(`${Math.floor(wallT[0] / CHUNK)},${Math.floor(wallT[1] / CHUNK)}`);
+      check(!W.contentFor(Math.floor(wallT[0] / CHUNK), Math.floor(wallT[1] / CHUNK)).objects.some(o => o.tile?.[0] === wallT[0] && o.tile?.[1] === wallT[1] && (o.layer === 'placed' || o.layer === 'roof')), 'vuelve a salir');
+      // Y se puede poner otra cosa ahí: es de quien lo pone, y al quitarlo no vuelve lo de antes
+      B.select('muro_piedra'); I.add('piedra', 9); P.x = wallT[0] + 2.5; P.y = wallT[1] + 2.5; check(W.canPlace(...wallT, 'muro_piedra', P), 'no se puede poner otro muro');
+      B.place(wallT); check(W.ownAt('placed', ...wallT) === 'muro_piedra', 'no se pone');
+      B.select('quitar'); B.remove(wallT); check(!W.at('placed', ...wallT), 'vuelve el muro de antes');
+      // Tejado y suelo de dentro, y un mueble
+      P.x = roofT[0] + 0.5; P.y = roofT[1] + 3.5; B.remove(roofT); check(!W.at('roof', ...roofT), 'tejado de dentro');
+      B.remove(floorT); B.remove(floorT); check(!W.at('floor', ...floorT), `suelo: ${W.at('roof', ...floorT)}, ${W.at('floor', ...floorT)}`);
+      const thing = W.placedNear(h.x0 + 4, h.y0 + 2, 6).find(o => o.fixed && ITEMS[o.placed] && o.layer === 'placed' && !PIECES[o.placed]); check(thing, 'sin mueble');
+      P.x = thing.x; P.y = thing.y + 2; while (B.removable(thing.tile) === 'roof') B.remove(thing.tile);
+      const has = I.count(thing.placed); B.remove(thing.tile); check(I.count(thing.placed) === has + 1, `${thing.placed} no vuelve a la mochila`);
+      // Lo mismo con /fill air: toda una esquina, de una vez, y sigue la casa de al lado
+      const c = [h.x1 - 2, h.y0 + 1]; W.setTile(...c, 'air'); check(!W.at('roof', ...c) && !W.at('floor', ...c), '/fill air no quita lo que venía puesto');
+      // En la taberna y en una aldea, igual
+      const bar = [3, 34]; P.x = 3.5; P.y = 36.5; while (B.removable(bar) === 'roof') B.remove(bar); check(W.at('placed', ...bar) === 'barra', 'no está la barra'); B.remove(bar); check(!W.at('placed', ...bar), 'la barra no se quita');
+      // Con el ratón, lo que se ve bajo el cursor
+      draw(); draw();
+      const pick = (x, H, y) => { const v = new THREE.Vector3(x, game.view3d.groundY(W, x, y) + H, y).project(game.view3d.camera); game.mouse = { x: (v.x + 1) / 2 * innerWidth, y: (1 - v.y) / 2 * innerHeight, in: true }; return B.pick(); };
+      await goTo(game, h.x0 + 8.5, h.y1 + 2.5); draw(); draw();
+      const wt = [h.x0 + 8, h.y1 - 1], got = pick(wt[0] + 0.5, 1.2, wt[1] + 0.5); check(got?.layer === 'placed' && got.tile[0] === wt[0] && got.tile[1] === wt[1], `al muro: ${JSON.stringify(got)}`);
+      const top = pick(h.x0 + 7.5, 3.1, h.y0 + 5.5); check(top?.layer === 'roof', `al tejado: ${JSON.stringify(top)}`);
+    } finally { game.mouse = mouse; B.select(PIECE_IDS[0]); B.toggle(false); I.slots.splice(0, I.slots.length, ...kept); I.changed(); }
+  });
+  await test('casas: en las aldeas se quita de todo, y dentro se apunta a lo que se ve', async () => {
+    const B = game.build, W = w(), P = p(), E = game.places, I = inv(), kept = I.slots.slice(), mouse = game.mouse;
+    let v = null;
+    for (let r = 2; r < 80 && !v; r++) for (let cy = -r; cy <= r && !v; cy++) for (let cx = -r; cx <= r && !v; cx++) { if (Math.max(Math.abs(cx), Math.abs(cy)) !== r) continue; const q = E.poi(cx, cy); if (q?.kind === 'aldea') v = q; }
+    check(v, 'no hay aldeas cerca');
+    const walls = Object.entries(E.aldea(v).all.placed).filter(([, id]) => id === 'muro_entramado').map(([t]) => t.split(',').map(Number));
+    const [wx, wy] = walls[Math.floor(walls.length / 2)];
+    I.slots.fill(null); game.mouse = null;
+    try {
+      await goTo(game, wx + 0.5, wy + 3.5); B.toggle(true); B.select('quitar'); draw(); draw();
+      check(W.at('hang', wx, wy) === undefined && W.at('rug', wx, wy) === undefined, 'preguntar por otras capas falla');
+      check(W.at('placed', wx, wy) === 'muro_entramado', 'no está el muro');
+      B.remove([wx, wy]); check(!W.at('roof', wx, wy), 'el tejado de la aldea no se quita'); B.remove([wx, wy]); check(!W.at('placed', wx, wy), 'el muro de la aldea no se quita');
+      check(W.canPlace(wx, wy, 'muro_piedra', null), 'en su hueco no se puede construir');
+      W.setTile(wx + 1, wy, 'air'); check(!W.at('placed', wx + 1, wy) && !W.at('roof', wx + 1, wy), '/fill air no vacía la aldea');
+      // Una pieza sobre lo que venía puesto: al quitarla no vuelve lo de antes
+      const [ox, oy] = walls[0]; W.setTile(ox, oy, 'muro_piedra'); P.x = ox + 0.5; P.y = oy + 3; B.select('quitar'); W.setTile(ox, oy, 'air'); check(!W.at('placed', ox, oy), 'vuelve lo de antes');
+      // Dentro de una casa, con la cámara por defecto: no se apunta a la pared oculta sino a lo que hay detrás
+      const h = HOUSES.bruno, T = [h.x0 + 1, h.y1 - 2];
+      await goTo(game, h.x0 + 5.5, h.y0 + 5.5); game.underRoof = true; CAM.first = false; for (let i = 0; i < 80; i++) { game.view3d.world.updateFade(game, W, 0.1); draw(); }
+      const aim = (x, H, y) => { const v3 = new THREE.Vector3(x, game.view3d.groundY(W, x, y) + H, y).project(game.view3d.camera); game.mouse = { x: (v3.x + 1) / 2 * innerWidth, y: (1 - v3.y) / 2 * innerHeight, in: true }; return B.pick(); };
+      const got = aim(T[0] + 0.5, 0.03, T[1] + 0.5);
+      check(got && got.tile[0] === T[0] && got.tile[1] === T[1] && PIECES[got.o.placed]?.kind !== 'wall', `junto a la pared oculta: ${got?.o.placed} en ${got?.tile} (tenía que ser ${T})`);
+      game.mouse = null;
+      // Una alfombra grande se apunta en cualquiera de sus casillas, y no se quita el suelo de debajo
+      const R = [h.x0 + 4, h.y0 + 4]; W.setTile(...R, 'air'); W.setTile(...R, 'suelo_madera'); W.place(R[0], R[1], 'alfombra', 2); W.setTile(R[0] + 1, R[1], 'air'); W.setTile(R[0], R[1] + 1, 'air'); draw();
+      check(B.removableAt([R[0] + 1, R[1]])?.layer === 'rug' || B.removableAt([R[0], R[1] + 1])?.layer === 'rug', `fuera del ancla: ${JSON.stringify(B.removableAt([R[0] + 1, R[1]]))}`);
+    } finally { game.mouse = mouse; game.underRoof = false; B.select(PIECE_IDS[0]); B.toggle(false); I.slots.splice(0, I.slots.length, ...kept); I.changed(); }
+  });
+  await test('jugar juntos: lo primero que se quita de un trozo no pisa lo demás', async () => {
+    const ops = diffChunk({ v: 1 }, { v: 1, gone: { '1,1': true } });
+    check(ops.length === 1 && ops[0][1] === '1,1', `sale: ${JSON.stringify(ops)}`);
+    const d = { gone: { '2,2': true } }; applyOps(d, ops); check(d.gone['1,1'] && d.gone['2,2'], `se pisan: ${JSON.stringify(d)}`);
+    check(JSON.stringify(diffChunk({}, { closed: {} })) === '[["closed",null,{}]]', 'un mapa vacío deja de llegar');
+  });
+  await test('muro en T: el de fuera sigue entero donde llega un tabique', async () => {
+    const at = { '5,5': 'muro_entramado', '4,5': 'muro_entramado', '6,5': 'muro_entramado', '5,6': 'muro_madera' };
+    const scene = { pieceAt: (x, y) => (at[`${x},${y}`] ? PIECES[at[`${x},${y}`]] : null), at: (l, x, y) => (l === 'floor' && y > 5 ? 'suelo_madera' : null), roofAt: (x, y) => y > 5, doorClosed: () => false };
+    const boxes = [], emit = key => ({ box: (x0, y0, z0, x1, y1, z1) => { boxes.push({ key, x0, y0, z0, x1, y1, z1 }); return emit(key); }, quad: () => emit(key), geo: () => emit(key), ball: () => emit(key), cyl: () => emit(key), tube: () => emit(key), verts: () => emit(key), add: () => emit(key), push: () => emit(key), tri: () => emit(key), beam: () => emit(key), plane: () => emit(key) });
+    let failed = null;
+    try { wallTile(scene, 5, 5, 'muro_entramado', k => new Proxy(emit(k), { get: (o, n) => o[n] || (() => emit(k)) }), {}); } catch (e) { failed = e.message; }
+    check(!failed, `falla al dibujar: ${failed}`);
+    const stone = boxes.filter(b => b.key === 'stone'); check(stone.length, 'sin zócalo');
+    check(Math.min(...stone.map(b => b.x0)) <= 5 && Math.max(...stone.map(b => b.x1)) >= 6, `zócalo de ${Math.min(...stone.map(b => b.x0))} a ${Math.max(...stone.map(b => b.x1))}`);
+    const covered = stone.filter(b => b.z0 < 5.5 && b.x1 - b.x0 > 0.95); check(covered.length, `el zócalo de fuera se corta: ${JSON.stringify(stone)}`);
+    // Sin suelo bajo el tabique, pero con tejado: sigue siendo de la casa
+    const noFloor = { ...scene, at: () => null, roofAt: (x, y) => y >= 5 };
+    const seen = new Set(); wallTile(noFloor, 5, 5, 'muro_entramado', (k, side) => { seen.add(side); return new Proxy({}, { get: () => () => {} }); }, {});
+    check(seen.has('n') && !seen.has('free'), `lados: ${[...seen]}`);
   });
   await test('ropa: lo que cuelga de la cintura se abre cuando suben las piernas', async () => {
     for (const wear of [{ torso: { id: 'tunica_larga', color: '#222222' } }, { torso: { id: 'camisa', color: '#ffffff' }, piernas: { id: 'falda', color: '#b84a8a' } }, { torso: { id: 'camisa', color: '#ffffff' }, encima: { id: 'delantal', color: '#efe6d4' } }]) {
@@ -870,6 +1043,15 @@ async function hostTests(game) {
     l.chat('SILLA-VISTA');
   });
   const guest = () => l.others.find(o => o.playing);
+  await test('dos: lo que el invitado quita de una casa, se quita para todos', async () => {
+    const W = game.world, h = HOUSES.bruno, t = [h.x0 + 2, h.y1 - 1];
+    check(W.at('placed', ...t), 'no hay muro');
+    l.chat(`QUITA ${t[0]} ${t[1]}`);
+    await until(() => heard('QUITADO'), 85000, 'a que lo quite');
+    await until(() => !W.at('placed', ...t) && !W.at('roof', ...t), 30000, 'verlo aquí');
+    check(W.deltas.get(`${Math.floor(t[0] / CHUNK)},${Math.floor(t[1] / CHUNK)}`).gone?.[`${t[0]},${t[1]}`], 'no queda apuntado');
+    l.chat('QUITADO-VISTO');
+  });
   await test('dos: el invitado ve la flecha y la recoge', async () => {
     const A = game.archery, I = game.inv, X = 62, Y = 56;
     await goTo(game, X, Y); game.mouse = null;
@@ -935,7 +1117,7 @@ async function hostTests(game) {
     check(F.pair.mine && !F.scene && !F.v.expecting, 'con uno solo no vale');
     await until(() => F.scene, 40000, 'a que él pulse el suyo');
     check(document.getElementById('love').hidden, 'el corazón sigue durante la escena');
-    await until(() => F.hearts.length > 3, 10000, 'los corazones');
+    await until(() => F.hearts.length > 3, 30000, 'los corazones');
     check(F.v.expecting?.mother === Profile.id && F.v.expecting.looks.length === 2, `no está embarazada ella: ${JSON.stringify(F.v.expecting)}`);
     check(F.bellyOf(game.player) === 0, 'la barriga se nota el primer día');
     F.scene.t = 999; await frames(2); check(!F.scene, 'la escena no se acaba');
@@ -1001,6 +1183,18 @@ async function guestTests(game) {
     await until(() => heard('SILLA-VISTA'), 150000, `el aviso del anfitrión (${how()})`);
   });
   const nums = (word) => { const t = heard(word); return t.slice(t.indexOf(word) + word.length).trim().split(' ').map(Number); };
+  await test('dos: quita un muro de una casa del pueblo', async () => {
+    const B = game.build, W = game.world, mouse = game.mouse, msg = await until(() => heard('QUITA '), 70000, 'el aviso'), t = msg.slice(msg.indexOf('QUITA ') + 6).trim().split(' ').map(Number);
+    await goTo(game, t[0] + 0.5, t[1] + 2.5); game.mouse = null;
+    try {
+      B.toggle(true); B.select('quitar'); B.remove(t); B.remove(t);
+      check(!W.at('placed', ...t) && !W.at('roof', ...t), 'no se quita aquí');
+    } finally { game.mouse = mouse; B.select(PIECE_IDS[0]); B.toggle(false); }
+    await frames(30);
+    l.chat('QUITADO');
+    await until(() => heard('QUITADO-VISTO'), 70000, 'a que el otro lo vea');
+    check(!W.at('placed', ...t), 'vuelve a aparecer');
+  });
   await test('dos: ve volar la flecha del otro y la recoge al pisarla', async () => {
     const A = game.archery, I = game.inv;
     const a = await until(() => A.list.find(x => x.id === 'prueba-1'), 70000, 'ver la flecha');

@@ -116,12 +116,13 @@ export function initInput(h) {
     if (!handlers.building?.()) return;
     handlers.point(e.clientX, e.clientY);
     if (e.buttons === 1) handlers.paint(e.clientX, e.clientY, true);
-    else if (e.buttons === 2) handlers.unpaint(e.clientX, e.clientY);
+    else if (e.buttons === 2) handlers.unpaint(e.clientX, e.clientY, true);
   });
   canvas.addEventListener('pointerdown', e => {
     shiftAlone = false;   // (Shift+clic no agacha)
     if (!handlers.enabled()) return;
     Audio.start();
+    if (document.activeElement instanceof HTMLInputElement) document.activeElement.blur();   // (si se escribía en un buscador, WASD vuelve a mover)
     if (e.pointerType === 'mouse' && aimLock.want && !aimLock.locked) { askLock(); return; }   // (este clic es para capturar el puntero)
     if (handlers.building?.()) {
       handlers.point(e.clientX, e.clientY);

@@ -74,6 +74,8 @@ export const inOwnHouse = (x, y) => { const H = ownLot(); return x > H.x0 && x <
 export const pondDist = (x, y) => Math.hypot((x - POND.x) / POND.rx, (y - POND.y) / POND.ry);
 export const inYard = (x, y, m = 0) => x > YARD.x0 - m && x < YARD.x1 + m && y > YARD.y0 - m && y < YARD.y1 + m;
 export const inBounds = (x, y) => x > BOUNDS.x0 && x < BOUNDS.x1 && y > BOUNDS.y0 && y < BOUNDS.y1;
+// ¿Dentro de una casa del pueblo o de la taberna? (ahí se puede quitar y poner de todo)
+export const inVillageHouse = (x, y) => inHouse(x, y);
 export const isGrass = (x, y) => !inBounds(x, y) || (pondDist(x, y) > 1.25 && distToPath(x, y) > 1.05 && !(x > ownLot().x0 - 0.5 && x < ownLot().x1 + 0.5 && y > ownLot().y0 - 0.5 && y < ownLot().y1 + 0.5) && !inHouse(x, y, 0.5));
 
 // ¿Debe quedar libre de árboles y rocas esta casilla?

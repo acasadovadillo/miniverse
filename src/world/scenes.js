@@ -4,7 +4,7 @@
 // otro lado) son los mismos, corridos una vuelta. Fuera del planeta no se construye.
 import { clamp } from '../util.js';
 import { WorldGen, CHUNK } from './gen.js';
-import { inYard, buildVillage, NILO, inBounds, isGrass, inOwnHouse } from './village.js';
+import { inYard, buildVillage, NILO, inBounds, isGrass, inOwnHouse, inVillageHouse } from './village.js';
 import { B, BIOMES } from './biomes.js';
 import { ITEMS, CHESTS } from '../items.js';
 import { extraTiles, LONG, BED_BACK, HEARTH_BACK, GLOW, LIGHT, front, SIDE, rugRect, RUG_SIZES, TABLE_SIZES, TABLES, TUCK } from '../art/stations.js';
@@ -31,6 +31,15 @@ function shifted(v, off) {
 
 export const NILO_LOOK = { sex: 'chico', skin: '#8a5234', hair: '#c8c4cc', eyes: '#6a3a1e', cloth: '#4a9a4a', pants: '#3a4a6a', hairStyle: 'corto', outfit: 'tunica', beard: true };
 
+// ¿Estorba este choque a lo que se ponga en el centro de la casilla (x, y), con este margen? Lo bajo de una valla o de una
+// puerta de valla va en su casilla, y como mucho llega al borde (los postes de la puerta van justo ahí): solo se mira de cerca
+const LOW_MARGIN = 0.3;
+function clashes(c, x, y, margin) {
+  const m = c.low ? LOW_MARGIN : margin;
+  return c.r !== undefined ? Math.hypot(c.x - x, c.y - y) < c.r + m : !c.rx && x > c.x0 - m && x < c.x1 + m && y > c.y0 - m && y < c.y1 + m;
+}
+// Cómo se apunta en el trozo que algo de lo que venía puesto ya no está
+const goneKey = (layer, k) => (layer === 'placed' ? k : `${layer}:${k}`);
 const ROOF_MAX_TILES = 900;   // tope de casillas de una región de tejado (para calcular su forma)
 const ROOF_MAX_LEVEL = 4;     // altura máxima de un tejado, en niveles
 
@@ -211,13 +220,15 @@ export class Overworld {
   ownAt(layer, tx, ty) { return this.delta(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK))?.[layer]?.[`${tx},${ty}`]; }
   // Lo fijo del pueblo y de las aldeas en una casilla
   baseAt(layer, tx, ty) {
+    if (this.fixedGone(tx, ty, layer)) return undefined;
     const v = this.village.built?.[`${Math.floor(tx / CHUNK)},${Math.floor(ty / CHUNK)}`]?.[layer]?.[`${tx},${ty}`];
-    if (v && !(layer === 'placed' && this.fixedGone(tx, ty))) return v;
+    if (v) return v;
     for (const l of this.layers) { const b = l.baseAt?.(layer, tx, ty); if (b) return b; }
     return undefined;
   }
-  // Las vallas de tu jardín vienen puestas, pero se pueden recoger: lo que se ha quitado se apunta en el trozo (gone)
-  fixedGone(tx, ty) { return !!this.delta(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK))?.gone?.[`${tx},${ty}`]; }
+  // Las casas del pueblo y de las aldeas vienen puestas, pero se pueden deshacer: lo que se ha quitado se apunta en el
+  // trozo (gone). La capa de objetos, con la casilla sola (las vallas del jardín ya se guardaban así); las demás, con su capa
+  fixedGone(tx, ty, layer = 'placed') { return !!this.delta(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK))?.gone?.[goneKey(layer, `${tx},${ty}`)]; }
   yardFenceAt(tx, ty) { return !this.ownAt('placed', tx, ty) && inYard(tx + 0.5, ty + 0.5, 0.6) && parsePlaced(this.baseAt('placed', tx, ty) || '')[0] === 'valla'; }
   // Lo que hay en una capa de una casilla, sea del jugador o fijo (o undefined)
   at(layer, tx, ty) { return this.ownAt(layer, tx, ty) ?? this.baseAt(layer, tx, ty); }
@@ -268,14 +279,16 @@ export class Overworld {
     return true;
   }
   // ¿Pisa esta casilla alguna alfombra? (las más grandes miden 4: se miran las de alrededor)
-  rugAt(tx, ty) {
+  rugAt(tx, ty) { return !!this.rugAnchor(tx, ty); }
+  // La casilla en la que está guardada la alfombra que pisa esta casilla (o null)
+  rugAnchor(tx, ty) {
     for (let dy = -3; dy <= 3; dy++) for (let dx = -3; dx <= 3; dx++) {
       const v = this.at('rug', tx + dx, ty + dy);
       if (!v) continue;
       const r = rugRect(tx + dx, ty + dy, parsePlaced(v)[1]);
-      if (tx >= r.x0 && tx < r.x0 + r.w && ty >= r.y0 && ty < r.y0 + r.h) return true;
+      if (tx >= r.x0 && tx < r.x0 + r.w && ty >= r.y0 && ty < r.y0 + r.h) return [tx + dx, ty + dy];
     }
-    return false;
+    return null;
   }
   // ¿Hay detrás (del lado contrario a su frente) un muro liso donde arrimar el hogar o colgar un cuadro? (en las
   // ventanas y en el muro que ya tiene cuadro, no)
@@ -287,7 +300,7 @@ export class Overworld {
   tuckShift(id, tx, ty, rot) {
     if (id !== 'silla') return null;
     const [fx, fy] = front(rot), x = tx + fx, y = ty + fy, v = this.at('placed', x, y), a = v ? null : this.anchorOf(x, y);
-    const table = v ? parsePlaced(v)[0] : a && parsePlaced(this.ownAt('placed', ...a))[0];
+    const table = v ? parsePlaced(v)[0] : a && parsePlaced(this.at('placed', ...a))[0];
     return TABLES.has(table) ? [fx * TUCK, fy * TUCK] : null;
   }
   // Cuánto se corre lo que se pone: bajo la mesa o arrimado al muro de detrás
@@ -324,7 +337,7 @@ export class Overworld {
   }
 
   // Lo construido en un trozo: suelos, muros, puertas, vallas, hogares, tejados, estaciones y muebles.
-  // src: { placed, floor, roof } por casilla. fixed: es del pueblo o de una aldea (no se puede quitar).
+  // src: { placed, floor, roof } por casilla. fixed: es del pueblo o de una aldea (viene puesto: lo quitado se apunta en gone).
   addBuilt(src, out, fixed = false) {
     const { objects, colliders, flats, floors, lights } = out;
     const base = (t, layer, id) => {
@@ -334,7 +347,7 @@ export class Overworld {
       return o;
     };
     // Lo fijo no pisa lo que haya puesto el jugador en la misma casilla y capa
-    const taken = (layer, t) => { if (!fixed) return false; const [tx, ty] = t.split(',').map(Number); return this.ownAt(layer, tx, ty) || (layer === 'placed' && this.fixedGone(tx, ty)); };
+    const taken = (layer, t) => { if (!fixed) return false; const [tx, ty] = t.split(',').map(Number); return this.ownAt(layer, tx, ty) || this.fixedGone(tx, ty, layer); };
     for (const [t, id] of Object.entries(src.floor || {})) {
       if (taken('floor', t)) continue;
       floors.push(base(t, 'floor', id));
@@ -347,7 +360,7 @@ export class Overworld {
         const joins = (x, y) => ['wall', 'door'].includes(this.pieceAt(x, y)?.kind);
         const mask = (joins(tx + 1, ty) ? 1 : 0) | (joins(tx - 1, ty) ? 2 : 0) | (joins(tx, ty + 1) ? 4 : 0) | (joins(tx, ty - 1) ? 8 : 0);
         o.wallId = id; o.mask = mask;
-        o.wall = true; o.window = id.startsWith('ventana');
+        o.wall = true; o.window = id.startsWith('ventana') && !((mask & 3) && (mask & 12));   // (en una esquina o una T no hay hueco: es un muro)
         for (const [x0, x1, y0, y1] of wallRuns(mask)) colliders.push({ x0: o.x + x0, y0: o.y + y0, x1: o.x + x1, y1: o.y + y1, wall: true });
         if (o.window && !this.doorClosed(tx, ty)) lights.push({ x: o.x, y: o.y, z: WINDOW_Z, r: 34, window: true });   // (cerrada, no sale luz)
       } else if (piece?.kind === 'door') {
@@ -477,7 +490,7 @@ export class Overworld {
     const d = this.delta(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK));
     if (d && d.tilled[`${tx},${ty}`] !== undefined) return false;
     if (this.at('placed', tx, ty) || this.at('floor', tx, ty)) return false;
-    return !this.collidersNear(x, y).some(c => (c.r !== undefined ? Math.hypot(c.x - x, c.y - y) < c.r + 0.45 : !c.rx && x > c.x0 - 0.45 && x < c.x1 + 0.45 && y > c.y0 - 0.45 && y < c.y1 + 0.45));
+    return !this.collidersNear(x, y).some(c => clashes(c, x, y, 0.45));
   }
   till(tx, ty) {
     const cx = Math.floor(tx / CHUNK), cy = Math.floor(ty / CHUNK);
@@ -494,10 +507,11 @@ export class Overworld {
     if (!inPlanet(x, y)) return false;   // (en la costura del planeta, desde el otro lado, o más allá de un polo)
     if (layer === 'rug') return this.rugFits(rugRect(tx, ty, rot));
     if (this.water(x, y)) return false;
-    // (en el pueblo, solo en la hierba o en tu casa; las vallas y sus puertas, además, en todo tu jardín, también en el hueco del camino; en modo admin, donde sea)
-    if (inBounds(x, y) && !isGrass(x, y) && !inOwnHouse(x, y) && !this.buildAnywhere && !(['fence', 'gate'].includes(PIECES[id]?.kind) && inYard(x, y, 0.6))) return false;
+    // (en el pueblo, en la hierba y en las casas; las vallas y sus puertas, además, en todo tu jardín, también en el hueco del camino; en modo admin, donde sea)
+    if (inBounds(x, y) && !isGrass(x, y) && !inOwnHouse(x, y) && !inVillageHouse(x, y) && !this.buildAnywhere && !(['fence', 'gate'].includes(PIECES[id]?.kind) && inYard(x, y, 0.6))) return false;
     const d = this.delta(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK));
     if (this.at(layer, tx, ty) || d?.tilled[k] !== undefined) return false;
+    if (layer === 'placed' && this.reserved?.has(k) && id !== 'silla' && id !== 'taburete') return false;   // (el sitio de alguien de la taberna, aunque ahora no esté)
     if (layer === 'floor') return true;
     if (layer === 'roof') return !!(this.at('floor', tx, ty) || ['wall', 'door'].includes(this.pieceAt(tx, ty)?.kind));
     if (this.layers.some(l => l.blocks?.(tx, ty))) return false;
@@ -505,7 +519,7 @@ export class Overworld {
     if ((id === 'chimenea' || layer === 'hang') && !this.wallBehind(tx, ty, rot)) return false;
     if (layer === 'hang' || ITEMS[id]?.place === 'flat') return true;
     if (player && Math.abs(player.x - x) < 0.8 && Math.abs(player.y - y) < 0.8) return false;   // no encerrarse
-    return !this.collidersNear(x, y).some(c => (c.r !== undefined ? Math.hypot(c.x - x, c.y - y) < c.r + 0.4 : !c.rx && x > c.x0 - 0.4 && x < c.x1 + 0.4 && y > c.y0 - 0.4 && y < c.y1 + 0.4));
+    return !this.collidersNear(x, y).some(c => clashes(c, x, y, 0.4));
   }
   place(tx, ty, id, rot = 0) {
     const cx = Math.floor(tx / CHUNK), cy = Math.floor(ty / CHUNK), layer = layerOf(id), d = this.delta(cx, cy, true);
@@ -514,11 +528,18 @@ export class Overworld {
     if (CHESTS[id]) d.chest[`${tx},${ty}`] = Array(CHESTS[id][0]).fill(null);   // (la mochila en el suelo es como un cofre; el armario, para la ropa)
     this.touchAround(tx, ty);
   }
-  // Quita lo que puso el jugador en una casilla. Lo fijo del pueblo no se quita: devuelve false.
+  // Quita algo de una casilla: lo que puso alguien o, con o.fixed, lo que venía puesto (se apunta que ya no está)
   unplace(o) {
     const [tx, ty] = o.tile, layer = o.layer || 'placed', k = `${tx},${ty}`;
-    if (o.yard && this.yardFenceAt(tx, ty)) { (this.delta(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK), true).gone ||= {})[k] = true; this.touchAround(tx, ty); return true; }   // (la del jardín que venía puesta)
-    if (o.fixed || !this.ownAt(layer, tx, ty)) return false;
+    if (o.fixed) {
+      if (this.ownAt(layer, tx, ty) || !this.baseAt(layer, tx, ty)) return false;
+      const d = this.delta(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK), true);
+      (d.gone ||= {})[goneKey(layer, k)] = true;
+      if (layer === 'placed') for (const l of ['chest', 'closed', 'off']) if (d[l]) delete d[l][k];
+      this.touchAround(tx, ty);
+      return true;
+    }
+    if (!this.ownAt(layer, tx, ty)) return false;
     const d = this.delta(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK));
     delete d[layer][k];
     if (d.pos) delete d.pos[`${layer}:${k}`];
@@ -529,13 +550,18 @@ export class Overworld {
     return true;
   }
   // Lo que hacen /setblock y /fill: poner una pieza en su capa (sin mirar si cabe, como en Minecraft) o, con 'air',
-  // quitar todo lo que haya puesto en la casilla (lo fijo del pueblo no)
+  // quitar todo lo que haya en la casilla, también lo que venía puesto
   setTile(tx, ty, id) {
     const d = this.delta(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK), true), k = `${tx},${ty}`;
     if (id === 'air') {
       for (const layer of ['floor', 'placed', 'roof', 'hang', 'rug']) { if (d[layer]) delete d[layer][k]; if (d.pos) delete d.pos[`${layer}:${k}`]; }
       for (const l of ['chest', 'closed', 'off', 'machine', 'tilled']) if (d[l]) delete d[l][k];
-    } else (d[layerOf(id)] ||= {})[k] = id;
+      for (const layer of ['floor', 'placed', 'roof', 'hang', 'rug']) if (this.baseAt(layer, tx, ty)) (d.gone ||= {})[goneKey(layer, k)] = true;
+    } else {
+      const layer = layerOf(id);
+      if (this.baseAt(layer, tx, ty)) (d.gone ||= {})[goneKey(layer, k)] = true;   // (lo que venía puesto ya no está: al quitar esto no vuelve)
+      (d[layer] ||= {})[k] = id;
+    }
     this.touchAround(tx, ty);
   }
   // Puertas: abiertas salvo que se hayan cerrado (se guarda en el trozo, también las del pueblo y las aldeas)
@@ -623,7 +649,7 @@ export class Overworld {
   anchorOf(tx, ty) {
     for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
       if (!dx && !dy) continue;
-      const v = this.ownAt('placed', tx + dx, ty + dy), [id, rot] = v ? parsePlaced(v) : [];
+      const v = this.at('placed', tx + dx, ty + dy), [id, rot] = v ? parsePlaced(v) : [];
       if (LONG[id] && extraTiles(id, tx + dx, ty + dy, rot).some(([x, y]) => x === tx && y === ty)) return [tx + dx, ty + dy];
     }
     return null;
@@ -702,6 +728,7 @@ export class Overworld {
     for (const s of placeBoxes(local, ox, oy, a)) for (const o of obstacles) { const hit = cuts(s, o); if (hit && hit.depth > 0.012) return res(false, o.wall ? 'Choca con la pared' : 'Choca con otra cosa'); }
     const w = whole(), b = bounds(w);
     if (!rug && !flat && player && hitsCircle(w, player.x, player.y, 0.2)) return res(false, 'Estás tú en medio');
+    if (!rug && !flat && this.reserved) for (const t of this.reserved) { const [rx, ry] = t.split(',').map(Number); if (hitsCircle(w, rx + 0.5, ry + 0.5, 0.2) && id !== 'silla' && id !== 'taburete') return res(false, 'Ese es el sitio de alguien'); }
     // La noria, al revés que lo demás: la rueda (su eje, el origen del modelo) en el agua de un río, con la orilla cerca
     if (id === 'noria') {
       if (!this.riverAt(ox, oy)) return res(false, 'La noria va en un río');
@@ -709,7 +736,7 @@ export class Overworld {
     }
     for (const [x, y] of [[w.x, w.y], [b.x0, b.y0], [b.x1, b.y0], [b.x0, b.y1], [b.x1, b.y1]]) {
       if (this.water(x, y) && id !== 'noria') return res(false, 'Ahí no se puede poner');
-      if (inBounds(x, y) && !isGrass(x, y) && !inOwnHouse(x, y) && !this.buildAnywhere) return res(false, 'En el pueblo, solo en tu casa');
+      if (inBounds(x, y) && !isGrass(x, y) && !inOwnHouse(x, y) && !inVillageHouse(x, y) && !this.buildAnywhere) return res(false, 'En el camino y en la plaza no se puede');
     }
     if (id === 'candelabro' && !this.roofAt(Math.floor(w.x), Math.floor(w.y))) return res(false, 'Se cuelga del techo: solo dentro de casa');
     const t0 = [Math.floor(w.x), Math.floor(w.y)], tilled = (x, y) => this.delta(Math.floor(x / CHUNK), Math.floor(y / CHUNK))?.tilled[`${x},${y}`] !== undefined;

@@ -38,9 +38,9 @@ function play() {
     point: (x, y) => b.pointTo(game.tileAtScreen(x, y)),
     hover: (x, y) => { const t = game.tileAtScreen(x, y); if (t) game.gather.pointTo(t); },
     mouse: (x, y, inside) => { game.mouse = { x, y, in: inside }; },
-    paint: (x, y, drag) => b.place(game.tileAtScreen(x, y), drag),
-    unpaint: (x, y) => b.remove(game.tileAtScreen(x, y)),
-    release: () => { b.painted = null; },
+    paint: (x, y, drag) => b.place(game.tileAtScreen(x, y), drag, [x, y]),
+    unpaint: (x, y, drag) => b.removeAt(game.tileAtScreen(x, y), drag, [x, y]),
+    release: () => { b.painted = null; b.dragLayer = null; },
     secondary: (x, y) => { if (game.mode === 'play' && !game.busy) game.ranch.sitAt(game.tileAtScreen(x, y)); },
     // Lo que se coloca libre gira poco a poco mientras se mantiene R; lo que va contra un muro (cuadros, hogar), en
     // cuatro giros desde el que se ve

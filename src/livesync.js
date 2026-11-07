@@ -34,6 +34,9 @@ export function diffChunk(prev = {}, cur = {}) {
         if (!(k in b)) ops.push([f, k]);
         else if (!(k in a) || !same(a[k], b[k])) ops.push([f, k, b[k]]);
       }
+    } else if (a === undefined && isMap(b) && Object.keys(b).length) {
+      // (un mapa nuevo va casilla a casilla: entero pisaría lo que otro haya hecho a la vez en él)
+      for (const k of Object.keys(b)) ops.push([f, k, b[k]]);
     } else if (!same(a, b)) ops.push(b === undefined ? [f] : [f, null, b]);
   }
   return ops;

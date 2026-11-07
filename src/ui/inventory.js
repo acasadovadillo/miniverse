@@ -245,7 +245,7 @@ export function initInventoryUI(game, { onClose, onCraft }) {
       const to = under?.closest('#inv-grid .slot, #inv-quick .slot'), onBody = under?.closest('#inv-wear, #inv-me');
       if (to) { game.inv.move(d.i, +to.dataset.i); picked = +to.dataset.i; refresh(); }
       else if (onBody) { picked = d.i; if (ITEMS[game.inv.slots[d.i].id].wear) wearPicked(); else { refresh(); say('Eso no se lleva puesto.'); } }
-      else if (!under?.closest('.inv-panel')) drop(d.i, Infinity);
+      else if (!under?.closest('.inv-panel, .win, #rail, #hotbar')) drop(d.i, Infinity);   // (sobre otra ventana o la barra no se tira)
     });
     el.addEventListener('pointercancel', () => { drag = null; ghost.hidden = true; cells.forEach(c => c.classList.remove('lift')); });
   }

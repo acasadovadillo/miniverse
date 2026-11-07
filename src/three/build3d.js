@@ -70,8 +70,18 @@ export function wallTile(scene, tx, ty, id, emit, extras) {
     run(emit, extras, { id, X, c, side, a: u0, b: u0 + 1, holes: window ? [{ u: u0 + 0.5, ...window }] : [], ends, painting: id === 'muro_cuadro' ? u0 + 0.5 : null, tile: [tx, ty] });
     return;
   }
-  // Esquina o cruce: un poste en el centro y un brazo hacia cada vecino
   const sideX = outward(scene, tx, ty, true), sideZ = outward(scene, tx, ty, false);
+  // En T (un tabique que llega a un muro): el muro sigue entero, con sus vigas, sus riostras y su zócalo, y el tabique sale de él
+  if (xArms.length + zArms.length === 3) {
+    const X = xArms.length === 2, s = X ? zArms[0] : xArms[0], mid = X ? cz : cx, u0 = X ? ty : tx;
+    // (el lado del muro: la casilla del tabique es de la casa si tiene tejado o suelo, aunque ella sea muro; y el tabique, de dentro)
+    const room = (x, y) => !!scene.roofAt(x, y) || !!scene.at('floor', x, y), arm = X ? room(tx, ty + s) : room(tx + s, ty), far = X ? room(tx, ty - s) : room(tx - s, ty);
+    const out = X ? (s > 0 ? 'n' : 's') : (s > 0 ? 'w' : 'e'), side = arm && far ? 'in' : arm ? out : far ? (X ? (s > 0 ? 's' : 'n') : (s > 0 ? 'e' : 'w')) : 'free';
+    run(emit, extras, { id, X, c: X ? cz : cx, side, a: X ? tx : ty, b: (X ? tx : ty) + 1, holes: [], ends: [false, false], tile: [tx, ty] });
+    run(emit, extras, { id, X: !X, c: X ? cx : cz, side: arm ? 'in' : X ? sideZ : sideX, a: s > 0 ? mid + T : u0, b: s > 0 ? u0 + 1 : mid - T, holes: [], ends: [s > 0, s < 0], tile: [tx, ty], half: true });
+    return;
+  }
+  // Esquina o cruce: un poste en el centro y un brazo hacia cada vecino
   for (const s of xArms) run(emit, extras, { id, X: true, c: cz, side: sideX, a: s > 0 ? cx + T : tx, b: s > 0 ? tx + 1 : cx - T, holes: [], ends: [false, false], tile: [tx, ty], half: true });
   for (const s of zArms) run(emit, extras, { id, X: false, c: cx, side: sideZ, a: s > 0 ? cz + T : ty, b: s > 0 ? ty + 1 : cz - T, holes: [], ends: [false, false], tile: [tx, ty], half: true });
   // El centro, con lo de cada lado según dé fuera o dentro

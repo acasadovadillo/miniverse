@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- La versión publicada: se cambia en cada publicación (así el juego sabe que tiene que pedir el código nuevo) -->
-<meta name="miniverse-version" content="2026-11-06.6">
+<meta name="miniverse-version" content="2026-11-07.1">
 <title>Miniverse</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏡</text></svg>">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -138,7 +138,6 @@
   body.hurt #hint, body.underground #hint, body.survival #hint { bottom: 114px; }
   #hint kbd { font-size: 13px; }
   /* Pesca: la barra de fuerza al lanzar y, en la pelea, la columna de agua con la red, el pez, el tesoro y la barra de captura */
-  #s-inv { background: rgba(10, 16, 8, .55); }
   .inv-panel { padding: 14px 16px 16px; }
   .inv-panel h2 { margin: 0 0 10px; font-size: 22px; color: var(--gold); display: flex; align-items: center; justify-content: space-between; }
   .inv-panel h2 .sq { width: 34px; height: 30px; font-size: 16px; }
@@ -180,7 +179,6 @@
   .inv-acts .btn { width: auto; padding: 5px 12px; margin: 0; font-size: 14px; }
   .inv-panel h2 span, .cf-panel h2 span { display: flex; gap: 6px; }
   /* Fabricar */
-  #s-craft { background: rgba(10, 16, 8, .55); }
   .cf-panel { padding: 14px 16px 16px; width: min(640px, calc(100vw - 24px)); }
   .cf-panel h2 { margin: 0 0 10px; font-size: 22px; color: var(--gold); display: flex; align-items: center; justify-content: space-between; }
   .cf-panel h2 .sq { width: 34px; height: 30px; font-size: 16px; }
@@ -290,7 +288,6 @@
   body.big-text #prompt, body.big-text #hint, body.big-text #dialog { font-size: 22px; }
   body.big-text .panel { font-size: 1.12em; }
   /* Diario */
-  #s-journal { background: rgba(10, 16, 8, .6); }
   .j-panel { padding: 14px 16px 16px; width: min(640px, calc(100vw - 24px)); }
   .j-panel h2 { margin: 0 0 8px; font-size: 22px; color: var(--gold); display: flex; align-items: center; justify-content: space-between; }
   .j-panel h2 .sq { width: 34px; height: 30px; font-size: 16px; }
@@ -360,14 +357,13 @@
   #title-msg[hidden] { display: none; }
   #title-msg.out { opacity: 0; }
   /* El mapa en la mano (con el norte arriba) y la aguja de la brújula */
-  #held-map { position: fixed; right: 16px; bottom: 96px; width: 216px; height: 216px; image-rendering: pixelated; border: 6px solid #8a5a34; border-radius: 4px; box-shadow: 0 4px 14px rgba(0, 0, 0, .45); background: #e8d8b0; z-index: 20; pointer-events: none; }
-  #compass { position: fixed; left: 50%; bottom: 112px; width: 54px; height: 54px; margin-left: -27px; border-radius: 50%; background: radial-gradient(#f4ecd8 58%, #c8a030 60%, #8a6a20 72%); box-shadow: 0 3px 10px rgba(0, 0, 0, .45); z-index: 20; pointer-events: none; }
+  #held-map { position: fixed; right: 16px; bottom: 96px; width: 216px; height: 216px; image-rendering: pixelated; border: 6px solid #8a5a34; border-radius: 4px; box-shadow: 0 4px 14px rgba(0, 0, 0, .45); background: #e8d8b0; z-index: 9; pointer-events: none; }
+  #compass { position: fixed; left: 50%; bottom: 112px; width: 54px; height: 54px; margin-left: -27px; border-radius: 50%; background: radial-gradient(#f4ecd8 58%, #c8a030 60%, #8a6a20 72%); box-shadow: 0 3px 10px rgba(0, 0, 0, .45); z-index: 9; pointer-events: none; }
   #compass i { position: absolute; left: 50%; top: 50%; width: 6px; height: 40px; margin: -20px 0 0 -3px; background: linear-gradient(#e83a3a 50%, #4a4a54 50%); clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%); }
   #held-map[hidden], #compass[hidden], body:not(.playing) #held-map, body:not(.playing) #compass { display: none; }
   #hearts i.h { color: #e8828a; }
   #hearts i.e { color: #4a3a3a; }
   /* Cofre */
-  #s-chest { background: rgba(10, 16, 8, .55); }
   #ch-hint.no { color: #ff9a7a; }
   .ch-panel { padding: 14px 16px 16px; }
   .ch-panel h2 { margin: 0 0 8px; font-size: 22px; color: var(--gold); display: flex; align-items: center; justify-content: space-between; }
@@ -408,6 +404,48 @@
   }
 
   /* ---------- Pantallas (inicio de sesión, menú, creador, pausa) ---------- */
+  /* Ventanas de la partida (ui/windows.js) y la columna de iconos */
+  .win { position: fixed; display: none; width: max-content; max-width: calc(100vw - 16px); max-height: calc(100vh - 16px); overflow: auto; touch-action: auto; }
+  .win.show { display: block; }
+  body:not(.playing) .win { display: none; }
+  body.talking .win { visibility: hidden; }
+  .win h2 { cursor: move; user-select: none; -webkit-user-select: none; touch-action: none; gap: 8px; }
+  .win h2 > span:last-child { display: flex; gap: 6px; flex-shrink: 0; }
+  .win .win-pin { opacity: .45; font-size: 14px; }
+  .win .win-pin.on { opacity: 1; }
+  .win.collapsed { overflow: hidden; }
+  .win.collapsed .panel > :not(h2) { display: none !important; }
+  .win.collapsed .panel { padding-bottom: 6px; }
+  .win.collapsed h2 { margin-bottom: 0; }
+  #rail { position: fixed; left: 8px; top: 50%; transform: translateY(-50%); z-index: 6; display: flex; flex-direction: column; gap: 4px; padding: 5px; }
+  body:not(.playing) #rail { display: none; }
+  #rail button { position: relative; width: 44px; height: 44px; padding: 0; font-size: 22px; line-height: 1; cursor: pointer; color: inherit; background: rgba(0, 0, 0, .18); border: 2px solid transparent; border-radius: 6px; }
+  #rail button:hover { background: rgba(255, 220, 140, .18); }
+  #rail button.on { border-color: var(--gold); background: rgba(255, 220, 140, .24); }
+  #rail kbd { position: absolute; right: 2px; bottom: 1px; font: 600 10px/1 monospace; opacity: .8; }
+  @media (max-height: 560px) { #rail button { width: 36px; height: 36px; font-size: 18px; } }
+  /* (con ratón, lo de la izquierda deja sitio a la columna) */
+  @media (pointer: fine) {
+    #quest { left: 76px; width: min(300px, calc(100vw - 88px)); }
+    #debug { left: 76px; max-width: min(640px, calc(100vw - 88px)); }
+    #chat { left: 76px; width: min(460px, calc(100vw - 88px)); }
+  }
+  @media (pointer: coarse), (max-width: 700px) {
+    .win { left: 0; right: 0; bottom: 0; width: auto; max-width: none; max-height: 74vh; }
+    .win .panel { width: 100%; box-sizing: border-box; }
+    .win h2 { cursor: default; }
+    .win .win-pin { display: none; }
+  }
+  /* En pantalla táctil van entre los controles, que siguen a mano: arriba en vertical, en medio en apaisado. De la
+     columna solo hacen falta el diario y el mapa: lo demás ya tiene su botón */
+  @media (pointer: coarse) and (orientation: portrait) { .win { top: 8px; bottom: 284px; max-height: none; } }
+  @media (pointer: coarse) and (orientation: landscape) { .win { top: 0; left: 204px; right: 172px; max-height: none; } }
+  @media (pointer: coarse) {
+    #rail { left: 70px; top: auto; bottom: 214px; transform: none; flex-direction: row; padding: 0; background: none; box-shadow: none; border: 0; }
+    #rail [data-rail='inv'], #rail [data-rail='craft'], #rail [data-rail='build'], #rail [data-rail='pause'] { display: none; }
+    #rail button { background: rgba(38, 26, 18, .65); border-color: rgba(232, 196, 122, .8); }
+    #rail kbd { display: none; }
+  }
   .screen { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; flex-direction: column; gap: 18px; padding: 16px; background: radial-gradient(ellipse at center, rgba(10, 20, 8, .25), rgba(10, 16, 8, .7)); z-index: 10; overflow-y: auto; touch-action: auto; }
   .screen.show { display: flex; }
   .logo { font-size: clamp(40px, 8vw, 72px); font-weight: 600; color: var(--gold); text-shadow: 4px 4px 0 #6b3a14, 0 0 24px rgba(255, 200, 100, .35); line-height: 1; text-align: center; }
@@ -497,6 +535,14 @@
     <div id="xp" title="Experiencia"><i></i><b></b></div>
     <div class="slots" id="hotbar-slots"></div>
   </div>
+  <nav id="rail" class="panel" aria-label="Menús">
+    <button type="button" data-rail="inv" aria-label="Mochila" title="Mochila (I)">🎒<kbd>I</kbd></button>
+    <button type="button" data-rail="craft" aria-label="Fabricar" title="Fabricar (C)">⚒<kbd>C</kbd></button>
+    <button type="button" data-rail="build" aria-label="Construir" title="Construir (B)">🔨<kbd>B</kbd></button>
+    <button type="button" data-rail="journal" aria-label="Diario" title="Diario (J)">📖<kbd>J</kbd></button>
+    <button type="button" data-rail="map" aria-label="Mapa" title="Mapa (M)">🗺<kbd>M</kbd></button>
+    <button type="button" data-rail="pause" aria-label="Menú" title="Menú (Esc)">☰</button>
+  </nav>
   <div id="crosshair" aria-hidden="true"></div>
   <div id="aim-free" class="panel">Haz clic para mover la cámara con el ratón</div>
   <div id="prompt" class="panel"><kbd>E</kbd><span id="prompt-text"></span></div>
@@ -605,7 +651,7 @@
   </section>
 
   <!-- Inventario -->
-  <section id="s-inv" class="screen">
+  <section id="s-inv" class="win">
     <div class="inv-panel panel">
       <h2>Inventario <span><button class="sq" id="inv-craft" aria-label="Fabricar" title="Fabricar (C)">⚒</button><button class="sq" id="inv-close" aria-label="Cerrar">✕</button></span></h2>
       <div class="inv-body">
@@ -636,7 +682,7 @@
     <div id="bb-pieces"></div>
   </div>
   <!-- Cofre -->
-  <section id="s-chest" class="screen">
+  <section id="s-chest" class="win">
     <div class="ch-panel panel">
       <h2><span id="ch-title">Cofre</span> <button class="sq" id="ch-close" aria-label="Cerrar">✕</button></h2>
       <div id="ch-grid"></div>
@@ -697,7 +743,7 @@
     </div>
   </section>
   <!-- Diario -->
-  <section id="s-journal" class="screen">
+  <section id="s-journal" class="win">
     <div class="j-panel panel">
       <h2>Diario <button class="sq" id="j-close" aria-label="Cerrar">✕</button></h2>
       <div id="j-tabs"></div>
@@ -713,7 +759,7 @@
     </div>
   </section>
   <!-- Fabricar -->
-  <section id="s-craft" class="screen">
+  <section id="s-craft" class="win">
     <div class="cf-panel panel">
       <h2>Fabricar <span id="cf-note"></span><span><button class="sq" id="cf-bag" aria-label="Inventario" title="Inventario (I)">🎒</button><button class="sq" id="cf-close" aria-label="Cerrar">✕</button></span></h2>
       <div id="cf-tabs"></div>

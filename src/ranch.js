@@ -739,7 +739,7 @@ export class Ranch {
     if (inv.count('zanahoria') && a.carrotDay !== this.today) opts.push(['Darle una zanahoria', () => { inv.remove('zanahoria', 1); a.carrotDay = this.today; this.bond(a, '¡Ñam!'); }]);
     if (inv.count('herraduras') && !a.shod) opts.push(['Ponerle las herraduras', () => { inv.remove('herraduras', 1); a.shod = true; Audio.clink(); g.gather.float('Ahora corre más', '#a8f07a'); }]);
     if (inv.count('alforjas') && !a.bags) opts.push(['Ponerle las alforjas', () => { inv.remove('alforjas', 1); a.bags = Array(9).fill(null); Audio.place(); }]);
-    if (a.bags) opts.push(['Abrir las alforjas', () => g.onChest?.(a.bags, null, () => this.bagsChanged(a))]);
+    if (a.bags) opts.push(['Abrir las alforjas', () => g.onChest?.(() => a.bags, null, () => this.bagsChanged(a))]);
     opts.push(['Nada', () => this.pet(a)]);
     g.busy = true;
     const bits = [a.shod ? 'con herraduras' : 'sin herraduras', a.bags ? 'con alforjas' : 'sin alforjas', `vínculo ${a.love}/10`];
@@ -754,7 +754,7 @@ export class Ranch {
     this.game.skills?.gain('granja', 1);
     Audio.neigh();
   }
-  bagsChanged(a) { a.bags = a.bags.map(s => s || null); }   // (así el cambio llega a los demás)
+  bagsChanged(a) { a.bags.forEach((s, i) => { a.bags[i] = s || null; }); }   // (en su sitio: la ventana sigue leyéndolo; a los demás les llega al comparar la lista)
 
   // ---------- la pelota ----------
   target(p, held, def) {

@@ -27,7 +27,7 @@ export class Crafting {
     this.onNotice = null;       // la pantalla de fabricar, si está abierta, muestra los avisos ella misma
   }
   say(text, color) {
-    if (this.game.mode === 'craft' && this.onNotice) this.onNotice(text);
+    if (this.game.windows?.isOpen('s-craft') && this.onNotice) this.onNotice(text);
     else this.game.gather.float(text, color);
   }
 

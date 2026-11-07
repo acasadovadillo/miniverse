@@ -196,7 +196,13 @@ export function initCraftingUI(game, { onClose, onBag }) {
   $('cf-bag').onclick = () => onBag();
 
   // (el horno y el alambique siguen trabajando con la pantalla abierta)
-  setInterval(() => { if ($('s-craft').classList.contains('show') && MACHINES[tab]) refresh(); }, 500);
+  // (y, como se puede andar con la ventana abierta, también cuando cambia qué estaciones hay cerca)
+  let nearKey = '';
+  setInterval(() => {
+    if (!$('s-craft').classList.contains('show') || !game.player) return;
+    const key = Object.keys(cr().stationsNear()).sort().join();
+    if (key !== nearKey || MACHINES[tab]) { nearKey = key; refresh(); }
+  }, 400);
 
   return {
     refresh,

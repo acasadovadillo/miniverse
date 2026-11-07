@@ -116,8 +116,7 @@ export class Explore {
   }
   blocks(tx, ty) {
     const p = this.poi(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK));
-    if (p && p.kind !== 'aldea' && Math.hypot(tx + 0.5 - p.x, ty + 0.5 - p.y) < SIZE[p.kind] + 1) return true;
-    return this.inAldea(tx + 0.5, ty + 0.5, 1);
+    return !!p && p.kind !== 'aldea' && Math.hypot(tx + 0.5 - p.x, ty + 0.5 - p.y) < SIZE[p.kind] + 1;   // (en las aldeas se puede construir: sus casas también se deshacen)
   }
   // Las casas de una aldea: dos o tres planos de piezas (como las del pueblo) alrededor de una plaza, donde está
   // el mercader. Llegan a los trozos de al lado. box: lo que ocupan [x0, y0, x1, y1].
@@ -139,7 +138,7 @@ export class Explore {
   }
   // Pieza fija de una aldea en una casilla (para puertas, vallas, tejados y colocar cosas)
   baseAt(layer, tx, ty) {
-    for (const p of this.aldeasAround(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK))) { const v = this.aldea(p).all[layer][`${tx},${ty}`]; if (v) return v; }
+    for (const p of this.aldeasAround(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK))) { const v = this.aldea(p).all[layer]?.[`${tx},${ty}`]; if (v) return v; }
     return undefined;
   }
 

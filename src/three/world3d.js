@@ -118,11 +118,13 @@ export class World3D {
     for (const t of [this.insideTile, o?.tile]) { const c = t && this.chunks.get(`${Math.floor(t[0] / CHUNK)},${Math.floor(t[1] / CHUNK)}`); if (c) c.force = true; }
     this.insideKey = key; this.insideTile = o?.tile || null;
   }
+  // ¿Está ahora oculto lo de este lado de la casa? (las paredes que dan a la cámara y el tejado, desde dentro)
+  faded(tx, ty, side) { const r = this.regionOf.get(`${tx},${ty}`); return !!r && (this.fade.get(`${r}|${side}`) ?? 1) < 0.5; }
   // Firma de un trozo: si no cambia, no hace falta rehacerlo (el juego rehace sus datos cada pocos segundos)
   signature(scene, cx, cy, data) {
     const farm = this.farm(scene), d = scene.delta(cx, cy), today = farm?.today;
     let s = '';
-    for (const o of data.objects) s += o.key + (o.crop ? ':' + farm.stage(o.crop) : '') + (o.open ? '!' : '') + (o.placed ? o.placed + (o.rot || 0) : '') + (o.model ? ':' + o.model : '') + (o.off ? '~' : '') + (o.tuck ? '^' : '') + (o.free ? `@${o.x.toFixed(2)},${o.y.toFixed(2)},${o.yaw.toFixed(2)}` : '') + (o.window && scene.doorClosed(...o.tile) ? '#' : '') + ',';   // (~: apagado; #: ventana cerrada)
+    for (const o of data.objects) s += o.key + (o.crop ? ':' + farm.stage(o.crop) : '') + (o.open ? '!' : '') + (o.placed ? o.placed + (o.rot || 0) : '') + (o.model ? ':' + o.model : '') + (o.off ? '~' : '') + (o.tuck ? '^' : '') + (o.mask !== undefined ? `m${o.mask}` : '') + (o.door ? `d${o.door}` : '') + (o.free ? `@${o.x.toFixed(2)},${o.y.toFixed(2)},${o.yaw.toFixed(2)}` : '') + (o.window && scene.doorClosed(...o.tile) ? '#' : '') + ',';   // (~: apagado; #: ventana cerrada)
     for (const o of data.flats) s += o.key + (o.model || o.placed || '') + (o.rot || 0) + (o.free ? `@${o.x.toFixed(2)},${o.y.toFixed(2)},${o.yaw.toFixed(2)}` : '') + ',';
     for (const o of data.floors) s += o.key + ',';
     for (const t of data.tilled) { const k = `${t[0]},${t[1]}`; s += k + (d?.wet?.[k] === today ? 'w' : '') + ';'; }

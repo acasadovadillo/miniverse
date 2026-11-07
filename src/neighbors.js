@@ -176,6 +176,7 @@ export class Neighbors {
     this.flags = save.flags || {};
     this.people = Object.entries(PEOPLE).filter(([, d]) => !d.fixed && (!d.project || hasProject(d.project))).map(([id, d]) => new Neighbor(id, d));
     for (const n of this.people) n.placeAt(this.game.days.hour);
+    this.world.reserved = new Set(this.people.filter(n => n.def.seat).map(n => `${Math.floor(n.def.seat[0])},${Math.floor(n.def.seat[1])}`));
   }
   save(out) { out.friends = this.friends; out.flags = this.flags; }
   friend(id) { return (this.friends[id] ||= { pts: 0, talk: -1, gift: -1, events: [] }); }
@@ -186,7 +187,11 @@ export class Neighbors {
 
   update(dt) {
     const h = this.game.days.hour;
-    for (const n of this.people) n.update(dt, h);
+    for (const n of this.people) {
+      n.update(dt, h);
+      // (si le han quitado la silla o el taburete, de pie; si vuelve a haberlo, sentado)
+      if (n.def.sits) { const has = !!this.world.at('placed', Math.floor(n.x), Math.floor(n.y)); if (has !== !!n.pose) n.pose = has ? { kind: 'sit', yaw: n.def.seat[2], h: n.def.sits } : null; }
+    }
     this.world.extraColliders = this.people.filter(n => !n.hidden).map(n => ({ x: n.x, y: n.y, r: 0.3 }));
   }
   entities(scene) { return scene === this.world ? this.people.filter(n => !n.hidden) : null; }

@@ -23,21 +23,25 @@ function paint(el, s) {
 }
 
 export function initChestUI(game, { onClose }) {
-  let chest = null, tile = null, onChange = null, wardrobe = false, hintTimer = 0;   // (sin casilla: las alforjas del caballo, que avisan con onChange)
+  // No se guarda el contenido: otro jugador, o quien lleva el mundo, puede cambiarlo o quitar el mueble con la ventana
+  // abierta. tile: dónde está el mueble (y scene, en qué escena); source: de dónde leer lo que no está en una casilla
+  // (las alforjas del caballo, que avisan con onChange)
+  let tile = null, scene = null, source = null, onChange = null, wardrobe = false, hintTimer = 0, shown = '';
   const chestCells = [], bagCells = [];
   for (let i = 0; i < 27; i++) chestCells.push(cell($('ch-grid'), () => toBag(i)));
   for (let i = 0; i < SLOTS; i++) bagCells.push(cell($('ch-bag'), () => toChest(i)));
 
+  const current = () => (tile ? (game.scene === scene ? game.scene.chestAt?.(...tile) : null) : source?.()) || null;
   const changed = () => { if (tile) game.scene.chestTouched(...tile); else onChange?.(); refresh(); };
   function toBag(i) {
-    const s = chest?.[i];
+    const chest = current(), s = chest?.[i];
     if (!s) return;
     const left = game.inv.add(s.id, s.n, extraOf(s));
     chest[i] = left ? { ...s, n: left } : null;
     changed();
   }
   function toChest(i) {
-    const s = game.inv.slots[i];
+    const chest = current(), s = game.inv.slots[i];
     if (!chest || !s) return;
     if (wardrobe && !ITEMS[s.id].wear) {
       const el = $('ch-hint');
@@ -53,7 +57,9 @@ export function initChestUI(game, { onClose }) {
     changed();
   }
   function refresh() {
+    const chest = current();
     if (!chest) return;
+    shown = JSON.stringify(chest);
     chestCells.forEach((el, i) => { paint(el, chest[i]); el.hidden = i >= chest.length; });
     bagCells.forEach((el, i) => { paint(el, game.inv.slots[i]); el.classList.toggle('locked', !game.inv.usable(i)); });
   }
@@ -62,8 +68,17 @@ export function initChestUI(game, { onClose }) {
   $('ch-close').onclick = () => onClose();
   return {
     refresh,
-    open(c, t, cb) {
-      chest = c; tile = t; onChange = cb;
+    // Cada poco, con la ventana abierta: si el mueble ya no está, false (hay que cerrarla); si ha cambiado, se repinta
+    check() {
+      const chest = current();
+      if (!chest) return false;
+      if (JSON.stringify(chest) !== shown) refresh();
+      return true;
+    },
+    close() { tile = scene = source = onChange = null; },
+    // src: lo que hay dentro, solo para lo que no está en una casilla: una función que lo devuelve
+    open(src, t, cb) {
+      tile = t; scene = game.scene; source = typeof src === 'function' ? src : () => src; onChange = cb;
       const id = t && (game.scene.at?.('placed', ...t) || '').split('@')[0];
       the = !t ? 'las alforjas' : CHESTS[id]?.[1] || 'el cofre'; wardrobe = id === 'armario';
       $('ch-title').textContent = !t ? 'Alforjas' : CHESTS[id] ? ITEMS[id].name : 'Cofre';
