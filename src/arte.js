@@ -1,18 +1,20 @@
 // El arte del juego («Pueblo vivido», ver docs/propuesta-arte.md): un pueblo de cal, madera, piedra y barro con luz y
-// color sobrios, que se hace por tandas. Lo aprobado es el arte de todos; la tanda que se está revisando va detrás de
-// ?arte=2: quien abre el juego así la ve, y se acuerda en este navegador hasta que abra ?arte=1. (Ahora mismo no hay
-// ninguna en revisión: la luz, la paleta y el color ya son de todos.)
+// color sobrios, que se ha hecho por tandas. Desde 2026-11-09.24 todas son de todos (ARTE = 2): las personas realistas,
+// los animales, los cultivos, los muebles, los árboles y plantas, los lugares, las cuevas, el agua, el clima y el fuego.
+// ?arte=1 vuelve al arte de antes en ese navegador (y se acuerda) y ?arte=2 lo deshace.
 //
 // Aquí está lo que no necesita Three (vale también en el hilo del suelo, genworker.js, que no ve la dirección de
 // la página: allí lo dice el mensaje de arranque, con setArte): qué arte se usa, la paleta y sobrio().
-const KEY = 'pueblo-brotes:arte';
+// (otra clave que la de cuando el arte nuevo había que pedirlo: lo que se eligió entonces ya no cuenta)
+const KEY = 'pueblo-brotes:arte-v2', OLD = 'pueblo-brotes:arte';
 function first() {
   if (typeof document === 'undefined') return 1;   // (en el hilo del suelo: hasta que llegue el mensaje de arranque)
   const q = new URLSearchParams(location.search).get('arte');
   try {
+    localStorage.removeItem(OLD);
     if (q === '1' || q === '2') localStorage.setItem(KEY, q);
-    return (q || localStorage.getItem(KEY)) === '2' ? 2 : 1;
-  } catch { return q === '2' ? 2 : 1; }
+    return (q || localStorage.getItem(KEY)) === '1' ? 1 : 2;
+  } catch { return q === '1' ? 1 : 2; }
 }
 export let ARTE = first();
 const hooks = [];
