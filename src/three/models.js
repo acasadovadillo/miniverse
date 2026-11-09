@@ -11,7 +11,15 @@
 import * as THREE from 'three';
 import { Builder, mat } from './geo.js';
 import { wood as wood0, stone as stone0, rug, rugDesign, notes, awning, planks, furrows, artwork } from './textures.js';
-import { apagado } from '../arte.js';
+import { ARTE, apagado } from '../arte.js';
+
+// La tanda en revisión (?arte=2): las cajas de los modelos con los cantos biselados, según su material: redondeadas en
+// lo blando (mantas, sábanas, cojines, cuero), con el canto gastado en la madera y un poco en la piedra
+const BEVEL = ARTE === 2 ? Object.assign(
+  Object.fromEntries(['quilt', 'quiltB', 'quiltK', 'quiltK2', 'pillowK', 'sheet', 'cloth', 'sofa', 'sofaB', 'leather', 'leatherD', 'baby'].map(k => [k, 0.04])),
+  Object.fromEntries(['wood', 'dark', 'light', 'plank', 'hull'].map(k => [k, 0.012])),
+  Object.fromEntries(['stone', 'brick', 'ruin', 'temple', 'templeD', 'rock'].map(k => [k, 0.018])),
+) : {};
 import { CROPS, ITEMS } from '../items.js';
 import { WALL_H, FLOOR_H } from './build3d.js';
 import { SOLIDS, hull } from '../world/fit.js';
@@ -57,7 +65,9 @@ class Model {
   B(key) { let b = this.parts.get(key); if (!b) this.parts.set(key, (b = new Builder())); return b; }
   box(key, x0, y0, z0, x1, y1, z1, s = 0.5) {
     const b = [Math.min(x0, x1), Math.min(y0, y1), Math.min(z0, z1), Math.max(x0, x1), Math.max(y0, y1), Math.max(z0, z1)];
-    this.B(key).box(...b, { s }); this.solids.push(b); return this;
+    const r = BEVEL[key];
+    if (r) this.B(key).roundBox(...b, r, { s }); else this.B(key).box(...b, { s });
+    this.solids.push(b); return this;
   }
   geo(key, g, x, y, z, rot = [0, 0, 0], scale = [1, 1, 1]) {
     const m4 = new THREE.Matrix4().compose(new THREE.Vector3(x, y, z), new THREE.Quaternion().setFromEuler(new THREE.Euler(...rot)), new THREE.Vector3(...(typeof scale === 'number' ? [scale, scale, scale] : scale)));

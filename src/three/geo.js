@@ -41,6 +41,50 @@ export class Builder {
     if (!skip.includes('pz')) this.quad([x0, y0, z1], [x1, y0, z1], [x1, y1, z1], [x0, y1, z1], [0, 0, 1], [[U(x0), U(y0)], [U(x1), U(y0)], [U(x1), U(y1)], [U(x0), U(y1)]]);
     if (!skip.includes('nz')) this.quad([x1, y0, z0], [x0, y0, z0], [x0, y1, z0], [x1, y1, z0], [0, 0, -1], [[U(-x1), U(y0)], [U(-x0), U(y0)], [U(-x0), U(y1)], [U(-x1), U(y1)]]);
   }
+  // Caja con los cantos biselados (r: lo que se come el bisel). Cada cara del bisel lleva en sus vértices las normales
+  // de las dos caras que une (y las esquinas, las de las tres), así que la luz pasa suave de una a otra: con r pequeño
+  // parece un canto gastado; con r grande, algo blando y redondeado (una manta, un cojín). Sin sitio, una caja normal
+  roundBox(x0, y0, z0, x1, y1, z1, r, { s = 1 } = {}) {
+    const lo = [x0, y0, z0], hi = [x1, y1, z1];
+    r = Math.min(r, ...[0, 1, 2].map(k => (hi[k] - lo[k]) * 0.45));
+    if (r < 0.003) return this.box(x0, y0, z0, x1, y1, z1, { s });
+    const inLo = lo.map(v => v + r), inHi = hi.map(v => v - r);
+    // El punto de la cara del eje a, en el lado sg (signos por eje): en ese eje, por fuera; en los otros, por dentro
+    const pt = (a, sg) => [0, 1, 2].map(k => (k === a ? (sg[k] > 0 ? hi[k] : lo[k]) : sg[k] > 0 ? inHi[k] : inLo[k]));
+    const nrm = (a, sg) => [0, 1, 2].map(k => (k === a ? sg[k] : 0));
+    const uvOf = (p, n) => {
+      const a = Math.abs(n[0]) >= Math.abs(n[1]) && Math.abs(n[0]) >= Math.abs(n[2]) ? 0 : Math.abs(n[1]) >= Math.abs(n[2]) ? 1 : 2, sg = n[a] >= 0 ? 1 : -1;
+      const [u, v] = a === 0 ? [sg > 0 ? -p[2] : p[2], p[1]] : a === 1 ? [p[0], sg > 0 ? -p[2] : p[2]] : [sg > 0 ? p[0] : -p[0], p[1]];
+      return [u / s, v / s];
+    };
+    // Un polígono con una normal por vértice, dado la vuelta si hace falta para que mire hacia fuera
+    const poly = (ps, ns) => {
+      const c = [0, 1, 2].map(k => ps.reduce((t, p) => t + p[k], 0) / ps.length), m = [0, 1, 2].map(k => ns.reduce((t, n) => t + n[k], 0));
+      const e1 = ps[1].map((v, k) => v - ps[0][k]), e2 = ps[2].map((v, k) => v - ps[0][k]);
+      const cr = [e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0]];
+      if (cr[0] * m[0] + cr[1] * m[1] + cr[2] * m[2] < 0) { ps = ps.slice().reverse(); ns = ns.slice().reverse(); }
+      const i = this.pos.length / 3;
+      this.pushCol(ps.length);
+      ps.forEach((p, j) => { const n = ns[j], l = Math.hypot(...n) || 1; this.pos.push(...p); this.nor.push(n[0] / l, n[1] / l, n[2] / l); this.uv.push(...uvOf(p, m)); });
+      for (let j = 1; j < ps.length - 1; j++) this.idx.push(i, i + j, i + j + 1);
+      void c;
+    };
+    const S = [-1, 1];
+    for (let a = 0; a < 3; a++) for (const sa of S) {   // las seis caras
+      const b = (a + 1) % 3, c = (a + 2) % 3, sg = (u, v) => { const g = [0, 0, 0]; g[a] = sa; g[b] = u; g[c] = v; return g; };
+      const ps = [sg(-1, -1), sg(1, -1), sg(1, 1), sg(-1, 1)].map(g => pt(a, g));
+      poly(ps, ps.map(() => nrm(a, sg(0, 0))));
+    }
+    for (let a = 0; a < 3; a++) for (let b = a + 1; b < 3; b++) for (const sa of S) for (const sb of S) {   // los doce cantos
+      const c = 3 - a - b, sg = w => { const g = [0, 0, 0]; g[a] = sa; g[b] = sb; g[c] = w; return g; };
+      poly([pt(a, sg(-1)), pt(a, sg(1)), pt(b, sg(1)), pt(b, sg(-1))], [nrm(a, sg(0)), nrm(a, sg(0)), nrm(b, sg(0)), nrm(b, sg(0))]);
+    }
+    for (const sx of S) for (const sy of S) for (const sz of S) {   // las ocho esquinas
+      const g = [sx, sy, sz];
+      poly([pt(0, g), pt(1, g), pt(2, g)], [nrm(0, g), nrm(1, g), nrm(2, g)]);
+    }
+    return this;
+  }
   // Caja girada en el plano (yaw, en radianes, alrededor de su centro), para piezas en diagonal
   orientedBox(cx, cz, len, wid, y0, y1, yaw, opts) {
     const b = new Builder();
