@@ -102,3 +102,21 @@ export class RealPerson {
     return made;
   }
 }
+
+// El bebé de la cuna: el mismo cuerpo a escala de bebé (4 cabezas de alto y unos 57 cm), tumbado boca arriba con la
+// cabeza hacia -z (como el de los muñecos) y envuelto hasta el cuello en su mantita
+export function realBaby(look) {
+  const L = fullLook(look), W = window.LOOK;
+  const r = P.build({ sex: L.sex === 'chica' ? 'f' : 'm', build: 'fino', cabezas: 4, escala: 0.33, skin: L.skin, hair: L.hair, hairStyle: 'corto', ojos: L.eyes,
+    semilla: hash(JSON.stringify(look)) % 97, garments: [{ id: 'camisa', color: '#f4e6c8' }] });
+  r.update(0.5, 0);
+  const root = new THREE.Group(), body = new THREE.Group();
+  body.add(r.root); body.rotation.x = -Math.PI / 2; body.position.set(0, 0.05, 0.3);
+  root.add(body);
+  const ball = new THREE.SphereGeometry(1, 20, 14), cloth = c => new THREE.MeshStandardMaterial({ color: W.sobrio(c), roughness: 0.95 });
+  for (const [c, p, s] of [['#f4e6c8', [0, 0.065, 0.08], [0.12, 0.08, 0.23]], ['#e88aa8', [0, 0.075, 0.15], [0.125, 0.07, 0.15]]]) {
+    const m = new THREE.Mesh(ball, cloth(c)); m.position.set(...p); m.scale.set(...s); m.castShadow = m.receiveShadow = true; root.add(m);
+  }
+  root.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+  return root;
+}

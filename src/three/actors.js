@@ -15,7 +15,7 @@ import { WATER_Y } from './terrain.js';
 import { animalModel, animalKey, animateAnimal, horseModel, animateHorse } from './animals.js';
 import { nearX } from '../world/planet.js';
 import { ARTE } from '../arte.js';
-import { loadReal, realReady, RealPerson } from './realperson.js';
+import { loadReal, realReady, RealPerson, realBaby } from './realperson.js';
 
 // (?arte=2, en revisión: las personas realistas, ver realperson.js. Se cargan aparte; hasta entonces, los muñecos)
 const REAL = ARTE === 2;
@@ -85,7 +85,7 @@ export class Actors {
       if (m && (e === p || e.remote) && m.look !== look) { this.group.remove(m.root); this.models.delete(e); if (m === this.player) this.player = null; m = null; }
       if (m?.kind === 'animal' && m.key !== animalKey(e)) { this.group.remove(m.root); this.models.delete(e); m = null; }
       // (cuando llegan las personas realistas, se rehacen los muñecos que había, de uno en uno: cada una cuesta)
-      if (REAL && m?.kind === 'person' && !m.person.real && realReady() && this.realBudget-- > 0) { this.group.remove(m.root); this.models.delete(e); if (m === this.player) this.player = null; m = null; }
+      if (REAL && ((m?.kind === 'person' && !m.person.real) || (m?.kind === 'baby' && !m.real)) && realReady() && this.realBudget-- > 0) { this.group.remove(m.root); this.models.delete(e); if (m === this.player) this.player = null; m = null; }
       if (!m) { m = this.make(e, e === p, look); if (!m) continue; m.look = look; this.models.set(e, m); this.group.add(m.root); }
       this.pose(m, e, scene, dt, t, e === p ? game : null);
       if (m === this.player || e.remote) this.ghost(m, e === p ? game.gamemode === 'spectator' : e.gm === 3);   // (de espectador, medio transparente)
@@ -123,7 +123,7 @@ export class Actors {
   }
 
   make(e, isPlayer, look = e.look) {
-    if (e.baby) { const root = new THREE.Group(); root.add(babyModel(look)); return { kind: 'baby', root, prev: null, speed: 0 }; }
+    if (e.baby) { const real = REAL && realReady(), root = new THREE.Group(); root.add(real ? realBaby(look) : babyModel(look)); return { kind: 'baby', real, root, prev: null, speed: 0 }; }
     if (look) {
       // (las personas con el mismo aspecto se copian de la primera: hacer una desde cero cuesta)
       const key = JSON.stringify(look);
