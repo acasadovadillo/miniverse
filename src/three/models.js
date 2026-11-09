@@ -90,6 +90,16 @@ function cylGeo(r0, r1, h, seg) {
   if (!CYL.has(k)) { const g = new THREE.CylinderGeometry(r1, r0, h, seg); g.translate(0, h / 2, 0); CYL.set(k, g); }
   return CYL.get(k);
 }
+// Un barril de duelas: torno de dieciséis caras con la panza en medio, sombreado plano para que cada duela se vea
+let BARREL;
+function barrelGeo() {
+  if (BARREL) return BARREL;
+  const pts = [];
+  for (let i = 0; i <= 8; i++) { const y = (i / 8) * 0.84; pts.push(new THREE.Vector2(0.27 + 0.05 * Math.sin(Math.PI * y / 0.84), y)); }
+  const g = new THREE.LatheGeometry(pts, 16).toNonIndexed();
+  g.computeVertexNormals();
+  return (BARREL = g);
+}
 const CONE = new THREE.ConeGeometry(1, 1, 10), ICO = new THREE.IcosahedronGeometry(1, 0), ICO1 = new THREE.IcosahedronGeometry(1, 1), TORUS = new THREE.TorusGeometry(1, 0.08, 6, 20), DODECA = new THREE.DodecahedronGeometry(1, 0);
 
 // ---------- muebles y estaciones ----------
@@ -456,6 +466,14 @@ const BUILD = {
     m.cyl('iron', 0.18, 0.93, 0.08, 0.055, 0.055, 0.13, 8).cyl('hay', 0.18, 1.06, 0.08, 0.05, 0.05, 0.015, 8);   // una jarra
   },
   barril(m) {
+    if (ARTE === 2) {
+      // (?arte=2) Panzudo, de dieciséis duelas que se ven una a una, tres aros de hierro y la tapa de tablas
+      m.geo('wood', barrelGeo(), 0, 0, 0);
+      for (const y of [0.1, 0.42, 0.74]) { const r = 0.272 + 0.05 * Math.sin(Math.PI * (y + 0.02) / 0.84); m.cyl('iron', 0, y, 0, r, r, 0.045, 16); }
+      for (let i = -2; i <= 2; i++) m.box('light', i * 0.1 - 0.048, 0.81, -0.24, i * 0.1 + 0.048, 0.83, 0.24);
+      m.box('dark', -0.03, 0.2, 0.3, 0.03, 0.26, 0.38);   // la espita
+      return;
+    }
     m.cyl('wood', 0, 0, 0, 0.27, 0.32, 0.42, 12).cyl('wood', 0, 0.42, 0, 0.32, 0.27, 0.42, 12);
     for (const y of [0.14, 0.66]) m.cyl('iron', 0, y, 0, 0.32, 0.32, 0.04, 12);
     m.box('dark', -0.03, 0.2, 0.29, 0.03, 0.26, 0.37);   // la espita
@@ -612,13 +630,28 @@ const LEAFG = (() => {
   return g;
 })();
 
+// (?arte=2) Toldo de tela que cede entre los postes y con faldón ondulado en el borde de delante
+let AWNING;
+function awningGeo() {
+  if (AWNING) return AWNING;
+  const g = new THREE.PlaneGeometry(2.3, 1.3, 16, 8), p = g.attributes.position;
+  for (let i = 0; i < p.count; i++) {
+    const x = p.getX(i), y = p.getY(i), u = x / 1.15, v = (y + 0.65) / 1.3;   // (v = 0: el borde de delante, el que cuelga)
+    let z = -0.07 * (1 - u * u) * Math.sin(Math.PI * v) - 0.025 * (1 - u * u);
+    if (v < 0.12) z -= (0.12 - v) * 1.4 * (0.8 + 0.2 * Math.cos(u * Math.PI * 4));   // el faldón, con sus ondas
+    p.setZ(i, z);
+  }
+  g.computeVertexNormals();
+  return (AWNING = g);
+}
+
 // ---------- cosas del pueblo ----------
 const VILLAGE = {
   // Puesto de 2×1 casillas (el origen en su centro): mostrador, postes, toldo y cajas de fruta
   stall(m, colors = ['#d8352a', '#f0a020', '#7ac040'], awn = 'awning') {
     m.box('wood', -0.9, 0, -0.1, 0.9, 0.9, 0.4).box('dark', -0.95, 0.9, -0.15, 0.95, 0.98, 0.45);
     for (const x of [-0.88, 0.88]) for (const z of [-0.42, 0.42]) m.box('dark', x - 0.05, 0, z - 0.05, x + 0.05, 2.2, z + 0.05);
-    const aw = new THREE.Mesh(new THREE.PlaneGeometry(2.3, 1.3), modelMats()[awn]); aw.position.set(0, 2.15, 0.05); aw.rotation.x = -Math.PI / 2 + 0.38; aw.castShadow = aw.receiveShadow = true; m.extra(aw);
+    const aw = new THREE.Mesh(ARTE === 2 ? awningGeo() : new THREE.PlaneGeometry(2.3, 1.3), modelMats()[awn]); aw.position.set(0, 2.15, 0.05); aw.rotation.x = -Math.PI / 2 + 0.38; aw.castShadow = aw.receiveShadow = true; m.extra(aw);
     colors.forEach((col, i) => {
       const x = -0.6 + i * 0.6; m.box('dark', x - 0.24, 0.98, -0.05, x + 0.24, 1.12, 0.32);
       for (let k = 0; k < 8; k++) m.ball('fruit:' + col, x - 0.15 + (k % 4) * 0.1, 1.15 + (k > 3 ? 0.03 : 0), 0.05 + (k > 3 ? 0.15 : 0), 0.06, 0.06, 0.06, 8);
