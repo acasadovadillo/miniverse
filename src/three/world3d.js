@@ -141,36 +141,60 @@ export class World3D {
     const c = { group, data, ring, sig: this.signature(scene, cx, cy, data), lights: [], flames: [], smoke: [], doors: [], regions: new Set(), cx, cy };
     // Lo construido y lo colocado, juntado por material (y lo de cada pared de cada casa, aparte)
     const sinks = new Map(), extras = { blooms: [], leaves: [] };
+    // La altura de cada casilla (lo construido va a la suya: ver scenes.js, levelAt): lo que se pinta mientras LIFT vale
+    // algo sube eso (cada constructor apunta desde qué vértice va cada altura, y se aplica al final)
+    let LIFT = 0;
+    const lv = (tx, ty) => scene.levelAt?.(tx + 0.5, ty + 0.5) || 0;
     // (lo que se puede pintar por vértice va a un material compartido, con su color)
     const emitFor = region => (key, side) => {
       const tint = tintOf(key), bucket = tint ? tint[0] : key, k = `${region && side && side !== 'free' && side !== 'floor' ? region + '|' + side : ''}#${bucket}`;
       let b = sinks.get(k);
       if (!b) sinks.set(k, (b = new Builder()));
+      if (b.liftNow !== LIFT) { (b.marks ||= []).push([b.pos.length, LIFT]); b.liftNow = LIFT; }
       return b.tint(tint ? tint[1] : null);
     };
     const plain = emitFor('');
-    for (const o of data.floors) floorTile(scene, o.tile[0], o.tile[1], o.placed, plain);
+    const struct = new Map();   // (las casillas con piezas de construcción, para su cimiento: 'full' o 'post')
+    for (const o of data.floors) { LIFT = lv(...o.tile); struct.set(`${o.tile[0]},${o.tile[1]}`, 'full'); floorTile(scene, o.tile[0], o.tile[1], o.placed, plain); }
     for (const t of data.tilled) {
       const k = `${t[0]},${t[1]}`, wet = scene.delta(cx, cy)?.wet?.[k] === this.farm(scene)?.today;
-      this.placeModel(`tilled:${wet ? 1 : 0}`, t[0] + 0.5, t[1] + 0.5, 0, plain, c, group);
+      LIFT = lv(t[0], t[1]);
+      this.placeModel(`tilled:${wet ? 1 : 0}`, t[0] + 0.5, t[1] + 0.5, 0, plain, c, group, false, LIFT);
     }
     for (const o of data.objects.concat(data.flats)) {
+      LIFT = o.poi || o.treasure ? 0 : o.tile ? lv(...o.tile) : lv(Math.floor(o.x), Math.floor(o.y));
       if (o.placed && (o.layer === 'placed' || o.layer === 'hang' || o.layer === 'rug')) {
         const [tx, ty] = o.tile, piece = PIECES[o.placed], region = this.regionAt(scene, tx, ty);
         if (region) c.regions.add(region);
-        if (piece?.kind === 'wall') { const ex = { blooms: [], leaves: [], paint: paintKey(region) }; wallTile(scene, tx, ty, o.placed, emitFor(region), ex); this.flowers(ex, region, group); }
-        else if (piece?.kind === 'door') { const ex = { blooms: [], leaves: [] }; const d = doorTile(scene, tx, ty, emitFor(region), ex); d.region = region; c.doors.push(d); }
-        else if (piece?.kind === 'gate') c.doors.push(gateTile(scene, tx, ty, plain));
+        if (piece) { const tk = `${tx},${ty}`; if (struct.get(tk) !== 'full') struct.set(tk, piece.kind === 'fence' || piece.kind === 'gate' ? 'post' : 'full'); }
+        if (piece?.kind === 'wall') { const ex = { blooms: [], leaves: [], paint: paintKey(region), lift: LIFT }; wallTile(scene, tx, ty, o.placed, emitFor(region), ex); this.flowers(ex, region, group); }
+        else if (piece?.kind === 'door') { const ex = { blooms: [], leaves: [] }; const d = doorTile(scene, tx, ty, emitFor(region), ex); d.region = region; d.lift = LIFT; c.doors.push(d); }
+        else if (piece?.kind === 'gate') { const d = gateTile(scene, tx, ty, plain); d.lift = LIFT; c.doors.push(d); }
         else if (piece?.kind === 'fence') fenceTile(scene, tx, ty, o.placed, plain);
-        else this.placeModel(o.key === this.insideKey ? `${o.placed}:in` : o.model || o.placed, o.x, o.y, o.yaw ?? yawOf(o.rot), plain, c, group, o.off);
-      } else if (o.crop && this.farm(scene)) this.placeModel(`crop:${o.crop.id}:${this.farm(scene).stage(o.crop)}`, o.x, o.y, 0, plain, c, group);
+        else this.placeModel(o.key === this.insideKey ? `${o.placed}:in` : o.model || o.placed, o.x, o.y, o.yaw ?? yawOf(o.rot), plain, c, group, o.off, LIFT);
+      } else if (o.crop && this.farm(scene)) this.placeModel(`crop:${o.crop.id}:${this.farm(scene).stage(o.crop)}`, o.x, o.y, 0, plain, c, group, false, LIFT);
       else if (o.poi) this.placeModel(`poi:${o.poi.kind}${o.poi.snow ? ':snow' : ''}`, o.poi.x, o.poi.y, 0, plain, c, group);
       else if (o.treasure) this.placeModel(`treasure:${o.open ? 1 : 0}`, o.x, o.y, 0, plain, c, group);
       else if (o.roof && o.layer === 'roof') { const r = this.regionAt(scene, o.tile[0], o.tile[1]); if (r) c.regions.add(r); }
     }
+    // Los cimientos: debajo de cada pieza de construcción alzada, piedra hasta el suelo (los suelos y los muros, la casilla
+    // entera; las vallas, un dado bajo cada poste)
+    LIFT = 0;
+    if (scene.levelAt) for (const [tk, kind] of struct) {
+      const [tx, ty] = tk.split(',').map(Number), L = lv(tx, ty);
+      if (L <= 0.02) continue;
+      const g0 = Math.min(...[[tx, ty], [tx + 1, ty], [tx, ty + 1], [tx + 1, ty + 1]].map(([x, y]) => view.terrain.heightAt(x, y))) - 0.25;   // (el suelo de verdad, sin lo construido)
+      if (L - g0 < 0.28) continue;
+      const B = plain('stone');
+      if (kind === 'post') B.box(tx + 0.36, g0, ty + 0.36, tx + 0.64, L, ty + 0.64, { s: 0.6 }); else B.box(tx, g0, ty, tx + 1, L, ty + 1, { s: 0.6 });
+    }
     this.flowers(extras, '', group);
     for (const [k, B] of sinks) {
       if (B.empty) continue;
+      if (B.marks) for (let m = 0; m < B.marks.length; m++) {   // (cada casilla, a su altura)
+        const [from, lift] = B.marks[m], to = m + 1 < B.marks.length ? B.marks[m + 1][0] : B.pos.length;
+        if (lift) for (let i = from + 1; i < to; i += 3) B.pos[i] += lift;
+      }
       const [fadeKey, key] = k.split('#'), m = fadeKey ? this.fadeMat(fadeKey, key) : this.mat(key), mesh = B.mesh(m);
       mesh.castShadow = key !== 'glass'; mesh.receiveShadow = true;
       if (fadeKey) mesh.userData.fade = fadeKey;
@@ -182,6 +206,7 @@ export class World3D {
       const k = `${d.tile[0]},${d.tile[1]}`, fk = d.region && d.side !== 'free' ? `${d.region}|${d.side}` : '';
       const M = key => (fk ? this.fadeMat(fk, key) : this.mat(key)), paint = paintKey(d.region);
       const leaf = d.gate ? gateLeaf(d, { fence: this.mat('fence') }) : doorLeaf(d, { door: M('door'), frame: M('frame'), paint: M(paint), iron: M('iron') });
+      if (d.lift) leaf.position.y += d.lift;   // (a la altura de su casilla)
       leaf.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
       const prev = this.doors.get(k);
       const amount = prev ? prev.amount : scene.doorClosed(...d.tile) ? 0 : 1;
@@ -261,11 +286,11 @@ export class World3D {
   }
   // Pone un modelo (por su nombre) en (x, z) girado yaw: sus piezas a las mallas del trozo; lo demás, aparte
   // off: apagado (una lámpara, una antorcha, una vela, un hogar): sin luz, llama ni humo, y lo que brilla, apagado
-  placeModel(name, x, z, yaw, emit, c, group, off = false) {
+  placeModel(name, x, z, yaw, emit, c, group, off = false, lift = 0) {
     const m = getModel(name);
     if (!m) return;
-    for (const [key, B] of m.parts) emit(off ? UNLIT[key] || key : key, '').add(B.transformed(x, 0, z, yaw));
-    const cs = Math.cos(yaw), sn = Math.sin(yaw), at = (p) => [x + p[0] * cs + p[2] * sn, p[1], z - p[0] * sn + p[2] * cs];
+    for (const [key, B] of m.parts) emit(off ? UNLIT[key] || key : key, '').add(B.transformed(x, 0, z, yaw));   // (la altura la pone LIFT, en buildChunk)
+    const cs = Math.cos(yaw), sn = Math.sin(yaw), at = (p) => [x + p[0] * cs + p[2] * sn, p[1] + lift, z - p[0] * sn + p[2] * cs];
     for (const e of m.extras) {
       const o = e.clone();
       o.position.set(...at([e.position.x, e.position.y, e.position.z])); o.rotation.y += yaw;
@@ -288,7 +313,7 @@ export class World3D {
       for (const [side, l] of bySide) {
         const fk = region && side !== 'free' ? `${region}|${side}` : '';
         const im = new THREE.InstancedMesh(FLOWER, fk ? this.fadeMat(fk, key) : this.mat(key), l.length), o = new THREE.Object3D();
-        l.forEach((it, i) => { o.position.set(...it.p); o.scale.set(...(typeof it.s === 'number' ? [it.s, it.s, it.s] : it.s)); o.rotation.set(i, i * 2, 0); o.updateMatrix(); im.setMatrixAt(i, o.matrix); if (it.c) im.setColorAt(i, new THREE.Color(it.c)); });
+        l.forEach((it, i) => { o.position.set(it.p[0], it.p[1] + (ex.lift || 0), it.p[2]); o.scale.set(...(typeof it.s === 'number' ? [it.s, it.s, it.s] : it.s)); o.rotation.set(i, i * 2, 0); o.updateMatrix(); im.setMatrixAt(i, o.matrix); if (it.c) im.setColorAt(i, new THREE.Color(it.c)); });
         im.castShadow = true;
         im.computeBoundingSphere();
         group.add(im);
@@ -377,7 +402,11 @@ export class World3D {
   // Región de tejado de una casilla (o '' si no tiene tejado). Se calcula la primera vez que se pregunta
   regionAt(scene, tx, ty) {
     const k = `${tx},${ty}`;
-    if (this.regionOf.has(k)) return this.regionOf.get(k);
+    if (this.regionOf.has(k)) {   // (si la casa ha subido de altura, su tejado se rehace)
+      const key = this.regionOf.get(k), r = this.regions.get(key);
+      if (r && scene.levelAt && r.level !== undefined && r.level !== this.regionLevel(scene, r.tiles)) { this.dropRegion(r); r.dirty = true; }
+      return key;
+    }
     if (!scene.roofAt(tx, ty)) return '';
     const tiles = [], seen = new Set([k]), todo = [[tx, ty]];
     while (todo.length && seen.size <= 900) {
@@ -395,6 +424,8 @@ export class World3D {
     if (!this.regions.has(key)) this.regions.set(key, { key, tiles, box: { x0, x1, y0, y1 }, roof: null, dirty: true });
     return key;
   }
+  // La altura de una casa: la más alta de sus casillas
+  regionLevel(scene, tiles) { let L = 0; if (scene.levelAt) for (const [x, y] of tiles) L = Math.max(L, scene.levelAt(x + 0.5, y + 0.5) || 0); return L; }
   invalidateRegion(r) {
     this.dropRegion(r);
     this.regions.delete(r.key);
@@ -411,13 +442,16 @@ export class World3D {
     for (const r of this.regions.values()) {
       if (!r.dirty) continue;
       r.dirty = false;
+      const L = (r.level = this.regionLevel(scene, r.tiles));
       r.roof = roofRegion(scene, r.tiles, r.key);
+      r.roof.position.y = L;
+      r.roof.userData.chimneys = r.roof.userData.chimneys.map(([x, y, z]) => [x, y + L, z]);
       const mats = [];
       r.roof.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; o.material = this.fadeMat(r.key + '|roof', matKeyOf(o.material)); mats.push(o.material); } });
       this.group.add(r.roof);
       // El techo por dentro: tablas y vigas (se ve solo con la cámara por debajo, ver updateFade)
       const floor = r.tiles.filter(([x, y]) => scene.at('floor', x, y));
-      if (floor.length) { r.ceil = this.ceiling(floor, r.box); this.group.add(r.ceil); }
+      if (floor.length) { r.ceil = this.ceiling(floor, r.box); r.ceil.position.y = L; this.group.add(r.ceil); }
       // Candelabro en el centro de las casas (las regiones con suelo), salvo si ya tienen uno colgado
       if (floor.length > 4) {
         let sx = 0, sy = 0;
@@ -425,15 +459,15 @@ export class World3D {
         r.center = [sx / floor.length, sy / floor.length];
         const lamp = new THREE.Group(), sinks = new Map();
         for (const [key, B] of CHANDELIER.parts) { const m = B.mesh(this.mat(key)); m.castShadow = false; lamp.add(m); sinks.set(key, m); }
-        lamp.position.set(r.center[0], WALL_H, r.center[1]);
-        r.flames = CHANDELIER.fires.map(f => [f[0] + r.center[0], f[1] + WALL_H, f[2] + r.center[1], f[3]]);
+        lamp.position.set(r.center[0], WALL_H + L, r.center[1]);
+        r.flames = CHANDELIER.fires.map(f => [f[0] + r.center[0], f[1] + WALL_H + L, f[2] + r.center[1], f[3]]);
         r.lamp = lamp;
         this.group.add(lamp);
       }
       // Altura del tejado en (x, z), para que la cámara pase por encima
       // (la misma forma que el dibujo: roof.js, a dos aguas si es rectangular, si no a cuatro)
       const shape = roofShape(r.tiles, (x, y) => this.regionOf.get(`${x},${y}`) === r.key);
-      r.top = (px, py) => WALL_H + ROOF.thick + shape.H(px, py) * ROOF.level;
+      r.top = (px, py) => L + WALL_H + ROOF.thick + shape.H(px, py) * ROOF.level;
     }
   }
   // El techo de una casa por dentro: tablas de madera (que solo se ven desde abajo) y una viga oscura cada
@@ -511,7 +545,7 @@ export class World3D {
     const out = [];
     for (const c of this.chunks.values()) for (const l of c.lights) out.push(l);
     if (this.villageLights) for (const l of this.villageLights.lights) out.push(l);
-    for (const r of this.regions.values()) if (r.center && !this.ownLamp(r) && !this.chandelierOff(r)) out.push({ x: r.center[0], y: WALL_H - 0.6, z: r.center[1], color: '#ffd08a', intensity: 4.5, range: 11 });
+    for (const r of this.regions.values()) if (r.center && !this.ownLamp(r) && !this.chandelierOff(r)) out.push({ x: r.center[0], y: WALL_H - 0.6 + (r.level || 0), z: r.center[1], color: '#ffd08a', intensity: 4.5, range: 11 });
     return out;
   }
   flames() {

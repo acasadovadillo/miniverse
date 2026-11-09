@@ -17,7 +17,10 @@ import { roofShape } from './roof.js';
 
 // Lo de un trozo visto desde el otro lado de la costura: lo mismo, corrido off casillas en x
 const X_KEYS = new Set(['x', 'x0', 'x1', 'cx']);
-const PAD_R = 7, NO_TILES = [];   // (el allanado alrededor de lo construido: ver padK)
+const PAD_R = 7, NO_TILES = [];   // (el allanado alrededor de lo construido de antes: ver padK)
+// La altura de lo construido (ver levelFor): a escalones de LV_STEP; una casilla se junta a la altura de las de al lado si
+// no le sacan más de LV_JOIN (así una casa en cuesta queda a una sola altura, sobre su cimiento)
+const LV_STEP = 0.25, LV_JOIN = 1.5;
 function shifted(v, off) {
   if (Array.isArray(v)) return v.map(e => (e && typeof e === 'object' ? shifted(e, off) : e));
   const o = {};
@@ -208,7 +211,68 @@ export class Overworld {
     this.onTouch = null;          // avisa de cada trozo que cambia (para jugar juntos en directo)
   }
 
-  // ---------- el suelo, llano junto a lo construido ----------
+  // ---------- la altura de lo construido ----------
+  // Como los bloques de Minecraft: cada casilla construida tiene su altura (d.lvl, metros), la del suelo de ahí cuando se
+  // puso lo primero, y todo lo de esa casilla se dibuja ahí. Las piezas de construcción (suelos, muros, puertas, vallas,
+  // tejados) van a la altura más alta de las esquinas de la casilla, en escalones, con un cimiento de piedra debajo hasta
+  // el suelo; lo demás (muebles sin suelo, lo labrado), a la del suelo en el centro. Lo construido antes de esto no tiene
+  // altura: va a 0, y el suelo se allana a su alrededor (padK). En el pueblo todo es llano: sin altura.
+  structAt(d, k) { const v = d?.placed?.[k]; return !!(d && (d.floor?.[k] || d.roof?.[k] || (v && PIECES[parsePlaced(v)[0]]))); }
+  builtAt(d, k) { return !!(d && (d.floor?.[k] || d.placed?.[k] || d.roof?.[k] || d.hang?.[k] || d.rug?.[k] || d.tilled?.[k] !== undefined)); }
+  // La altura de lo construido en (x, y), o null si ahí no hay nada construido
+  levelAt(x, y) {
+    const tx = Math.floor(x), ty = Math.floor(y), d = this.deltas.get(`${wrapIndex(Math.floor(tx / CHUNK), CHUNK)},${Math.floor(ty / CHUNK)}`);
+    if (!d) return null;
+    const k = `${tx},${ty}`, L = d.lvl?.[k];
+    return L !== undefined ? L : this.builtAt(d, k) ? 0 : null;
+  }
+  groundRaw(x, y) { if (inBounds(x, y)) return 0; const h = Math.max(0, this.gen.groundAt(x, y)); return h > 0 ? h * this.padK(x, y) : 0; }   // (el suelo como se ve: allanado junto a lo de antes)
+  // La altura que tendría id puesto en la casilla (para colocarlo y para la vista previa)
+  levelFor(tx, ty, id) {
+    if (inBounds(tx + 0.5, ty + 0.5)) return 0;
+    const d = this.delta(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK)), k = `${tx},${ty}`, have = d?.lvl?.[k];
+    if (have === undefined && this.builtAt(d, k)) return 0;   // (lo de antes)
+    const layer = layerOf(id), struct = layer === 'floor' || layer === 'roof' || !!PIECES[id];
+    if (!struct) return have ?? this.groundRaw(tx + 0.5, ty + 0.5);
+    let L = Math.ceil(Math.max(this.groundRaw(tx, ty), this.groundRaw(tx + 1, ty), this.groundRaw(tx, ty + 1), this.groundRaw(tx + 1, ty + 1)) / LV_STEP - 0.05) * LV_STEP;
+    if (have !== undefined) L = Math.max(L, have);
+    let join = L;
+    for (const [nx, ny] of [[tx + 1, ty], [tx - 1, ty], [tx, ty + 1], [tx, ty - 1]]) {
+      const nd = this.delta(Math.floor(nx / CHUNK), Math.floor(ny / CHUNK)), nk = `${nx},${ny}`, Ln = nd?.lvl?.[nk];
+      if (Ln !== undefined && this.structAt(nd, nk) && Ln >= L && Ln - L <= LV_JOIN) join = Math.max(join, Ln);
+    }
+    return join;
+  }
+  // Apunta la altura de una casilla al poner algo; si es de construcción, sube a esa altura las de su casa que estén
+  // algo más bajas (y se rehacen)
+  setLevel(tx, ty, id) {
+    if (inBounds(tx + 0.5, ty + 0.5)) return;
+    const d = this.delta(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK), true), k = `${tx},${ty}`;
+    if (d.lvl?.[k] === undefined && this.builtAt(d, k)) return;   // (lo de antes sigue a 0)
+    const L = this.levelFor(tx, ty, id);
+    (d.lvl ||= {})[k] = L;
+    const layer = layerOf(id);
+    if (!(layer === 'floor' || layer === 'roof' || PIECES[id])) return;
+    const todo = [[tx, ty]], seen = new Set([k]);
+    while (todo.length) {
+      const [x, y] = todo.pop();
+      for (const [nx, ny] of [[x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]]) {
+        const nk = `${nx},${ny}`;
+        if (seen.has(nk)) continue;
+        seen.add(nk);
+        const nd = this.delta(Math.floor(nx / CHUNK), Math.floor(ny / CHUNK)), Ln = nd?.lvl?.[nk];
+        if (Ln === undefined || !this.structAt(nd, nk) || Ln >= L || L - Ln > LV_JOIN) continue;
+        nd.lvl[nk] = L; this.touchAround(nx, ny); todo.push([nx, ny]);
+      }
+    }
+  }
+  // Si la casilla se ha quedado vacía, sin altura
+  dropLevel(tx, ty) {
+    const d = this.delta(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK)), k = `${tx},${ty}`;
+    if (d?.lvl?.[k] !== undefined && !this.builtAt(d, k)) delete d.lvl[k];
+  }
+
+  // ---------- el suelo, llano junto a lo construido de antes ----------
   // El relieve (biomes.js: reliefOf) se allana donde hay algo hecho: lo colocado, los suelos y lo labrado por los
   // jugadores, los lugares y las aldeas (las capas con pad). Lo construido se dibuja a ras de 0, así que el suelo baja a
   // 0 a su alrededor y vuelve a su altura en PAD_R casillas. padK: de 0 (llano) a 1 (el relieve entero)
@@ -218,7 +282,7 @@ export class Overworld {
     const cache = (this.builtCache ||= new Map()), k = `${wrapIndex(cx, CHUNK)},${cy}`, hit = cache.get(k);
     if (hit && hit.v === d.v) return hit.tiles;
     const tiles = [];
-    for (const src of [d.placed, d.floor, d.tilled]) for (const t of Object.keys(src || {})) { const [a, b] = t.split(','); const tx = parseInt(a, 10), ty = parseInt(b, 10); if (Number.isFinite(tx) && Number.isFinite(ty)) tiles.push(tx, ty); }
+    for (const src of [d.placed, d.floor, d.tilled]) for (const t of Object.keys(src || {})) { const [a, b] = t.split(','); const tx = parseInt(a, 10), ty = parseInt(b, 10); if (Number.isFinite(tx) && Number.isFinite(ty) && d.lvl?.[`${tx},${ty}`] === undefined) tiles.push(tx, ty); }   // (solo lo de antes de las alturas: lo nuevo va a la suya)
     cache.set(k, { v: d.v, tiles });
     return tiles;
   }
@@ -538,6 +602,7 @@ export class Overworld {
   }
   till(tx, ty) {
     const cx = Math.floor(tx / CHUNK), cy = Math.floor(ty / CHUNK);
+    this.setLevel(tx, ty, 'tierra');   // (lo labrado, a la altura del suelo)
     this.delta(cx, cy, true).tilled[`${tx},${ty}`] = this.clock;
     this.touch(cx, cy);
   }
@@ -567,6 +632,7 @@ export class Overworld {
   }
   place(tx, ty, id, rot = 0) {
     const cx = Math.floor(tx / CHUNK), cy = Math.floor(ty / CHUNK), layer = layerOf(id), d = this.delta(cx, cy, true);
+    this.setLevel(tx, ty, id);   // (antes de ponerlo: lo de antes en la casilla, sin altura, se distingue así)
     (d[layer] ||= {})[`${tx},${ty}`] = rot ? `${id}@${rot}` : id;
     if (PIECES[id]?.kind === 'gate') (d.closed ||= {})[`${tx},${ty}`] = true;   // (la puerta de valla empieza cerrada: el cercado ya guarda)
     if (CHESTS[id]) d.chest[`${tx},${ty}`] = Array(CHESTS[id][0]).fill(null);   // (la mochila en el suelo es como un cofre; el armario, para la ropa)
@@ -590,6 +656,7 @@ export class Overworld {
     if (layer === 'placed' && CHESTS[o.placed]) delete d.chest[k];
     if (layer === 'placed' && d.closed) delete d.closed[k];
     if (layer === 'placed' && d.off) delete d.off[k];
+    this.dropLevel(tx, ty);
     this.touchAround(tx, ty);
     return true;
   }
@@ -601,8 +668,10 @@ export class Overworld {
       for (const layer of ['floor', 'placed', 'roof', 'hang', 'rug']) { if (d[layer]) delete d[layer][k]; if (d.pos) delete d.pos[`${layer}:${k}`]; }
       for (const l of ['chest', 'closed', 'off', 'machine', 'tilled']) if (d[l]) delete d[l][k];
       for (const layer of ['floor', 'placed', 'roof', 'hang', 'rug']) if (this.baseAt(layer, tx, ty)) (d.gone ||= {})[goneKey(layer, k)] = true;
+      this.dropLevel(tx, ty);
     } else {
       const layer = layerOf(id);
+      this.setLevel(tx, ty, id);
       if (this.baseAt(layer, tx, ty)) (d.gone ||= {})[goneKey(layer, k)] = true;   // (lo que venía puesto ya no está: al quitar esto no vuelve)
       (d[layer] ||= {})[k] = id;
     }

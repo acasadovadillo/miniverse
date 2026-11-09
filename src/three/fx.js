@@ -185,7 +185,9 @@ export class Fx {
       this.ghostKey = ghost;
     }
     if (this.ghost) {
-      this.ghost.position.set(at[0], gy(...at) + 0.01, at[1]);
+      // (a la altura que tendrá: ver scenes.js, levelFor)
+      const gid = ghost.startsWith('piece:') ? ghost.slice(6) : ghost.split(':')[0], lvl = scene.levelFor && scene.kind === 'world' ? scene.levelFor(Math.floor(at[0]), Math.floor(at[1]), gid) : null;
+      this.ghost.position.set(at[0], (lvl ?? gy(...at)) + 0.01, at[1]);
       this.ghost.rotation.y = yaw;
       this.ghostMat.opacity = ghostOk ? 0.55 : 0.5;   // (en rojo, bien visible: así se ve qué corta)
       this.ghostMat.color.set(ghostOk ? '#c8ffd0' : '#ffb0a0');

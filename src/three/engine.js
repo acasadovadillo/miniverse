@@ -284,6 +284,8 @@ export class View3D {
   // Altura del suelo donde pisa algo (en cuevas, el suelo es plano)
   groundY(scene, x, y) {
     if (scene?.kind === 'grid') return 0;
+    const L = scene?.levelAt?.(x, y);   // (sobre lo construido: a su altura; ver scenes.js)
+    if (L !== null && L !== undefined) return L + (this.world.floorAt(x, y) ? 0.03 : 0);
     if (this.world.floorAt(x, y)) return 0.03;
     return Math.max(this.terrain.heightAt(x, y), WATER_Y - 0.3);
   }

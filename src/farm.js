@@ -175,6 +175,7 @@ export class Farm {
     if (g.scene !== this.world || g.gamemode === 'spectator' || d?.tilled?.[k] === undefined || this.cropAt(tx, ty)) return false;
     delete d.tilled[k];
     if (d.wet) delete d.wet[k];
+    this.world.dropLevel?.(tx, ty);
     this.world.touchAround(tx, ty);
     g.gather.chips(tx + 0.5, ty + 0.5, 'dirt', 8);
     Audio.till();
