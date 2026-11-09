@@ -182,6 +182,8 @@ export class Actors {
     if (m.kind === 'person') {
       const P = m.person;
       if ((e.kid && e.lying) || (pz && lying)) { P.facing = 0; P.root.rotation.y = 0; }
+      // (tumbada, la persona realista se corre hacia los pies lo que mide de más que el muñeco: la cabeza, en la almohada)
+      if (P.real) P.r.root.position.y = lying ? -(P.height - 1.36) : 0;
       else if (pz) { P.facing = pz.yaw; P.root.rotation.y = pz.yaw; }
       else if (yaw !== null) P.facing = yaw;
       if (m.horse && m.horseCoat !== (e.horseCoat || 'castano')) {   // (el caballo del jinete, con el pelaje del suyo)
@@ -192,13 +194,14 @@ export class Actors {
       if (m.boat) {
         // Barca y caballo
         m.boat.visible = !!e.boat; m.horse.visible = !!e.mount;
-        if (e.aboard) { y = WATER_Y - 0.12 + Math.sin(t * 2.5) * 0.04; P.root.position.y = 0.3; }   // (de pasajero: la barca es la del que rema)
+        const seat = P.real ? 0.36 - P.hipY : 0;   // (la persona realista, con la cadera donde la del muñeco: en el asiento)
+        if (e.aboard) { y = WATER_Y - 0.12 + Math.sin(t * 2.5) * 0.04; P.root.position.y = 0.3 + seat; }   // (de pasajero: la barca es la del que rema)
         else if (e.boat) {
-          y = WATER_Y - 0.12 + Math.sin(t * 2.5) * 0.04; m.boat.rotation.y = P.root.rotation.y; m.boat.rotation.z = Math.sin(t * 1.7) * 0.03; P.root.position.y = 0.3;
+          y = WATER_Y - 0.12 + Math.sin(t * 2.5) * 0.04; m.boat.rotation.y = P.root.rotation.y; m.boat.rotation.z = Math.sin(t * 1.7) * 0.03; P.root.position.y = 0.3 + seat;
           const row = Math.min(1, m.speed / 1.5);
           for (const o of m.boat.userData.oars) { const a = t * 5, sd = o.userData.side; o.rotation.y = sd * Math.sin(a) * 0.5 * row; o.rotation.z = sd * (Math.PI / 2 - OAR_DIP + Math.cos(a) * 0.15 * row); }   // (los dos a la vez; al volver, la pala sale del agua)
         }
-        else if (e.mount) { m.horse.rotation.y = P.root.rotation.y; animateHorse(m.horse, m.speed, t); P.root.position.y = 0.92; }
+        else if (e.mount) { m.horse.rotation.y = P.root.rotation.y; animateHorse(m.horse, m.speed, t); P.root.position.y = 0.92 + seat; }
         else P.root.position.y = 0;
       }
       P.update(dt, e.mount || e.boat || e.aboard ? 0 : m.speed);

@@ -65,7 +65,7 @@ export class RealPerson {
     this.legs = [b.legR, b.legL]; this.shins = [b.shinR, b.shinL]; this.arms = [b.armR, b.armL]; this.fore = [b.foreR, b.foreL];
     this.skirt = null;
     // Para el juego: la cadera (lo que hay que bajar al sentarse, comparado con los muñecos) y cuánto se agacha
-    this.hipY = b.body.position.y; this.dropK = this.hipY / 0.36;
+    this.hipY = b.body.position.y; this.dropK = this.hipY / 0.36; this.height = r.d?.alto || 1.7;
     this.targetYaw = 0; this.speed = 0;
     r.root.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
   }
