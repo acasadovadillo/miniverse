@@ -12,12 +12,11 @@ import { Builder, mat } from './geo.js';
 import { plaster, planks, roofTiles, stone, wood, siding, flagstone, gravel, thatch, artwork } from './textures.js';
 import { PIECES, parsePlaced } from '../pieces.js';
 import { front } from '../art/stations.js';
-import { ARTE, PAL } from '../arte.js';
+import { PAL } from '../arte.js';
 import { roofShape, ROOF_CAP } from '../world/roof.js';
 
-// La tanda en revisión (?arte=2): puertas y contraventanas de tablas pintadas con uno de cinco colores minerales por
-// casa, dintel y alféizar en las ventanas, cornisa, esquinas de sillería y tapajuntas en los muros
-const A2 = ARTE === 2;
+// Puertas y contraventanas de tablas pintadas con uno de cinco colores minerales por casa, dintel y alféizar en las
+// ventanas, cornisa, esquinas de sillería o de tablas y tapajuntas en los muros, y tejados a dos aguas (ver roof.js)
 const PAINTS = Object.values(PAL.pintura);
 // La pintura de una casa (por su región: siempre la misma), como clave de material: paint0 … paint4
 export function paintKey(region) { let h = 7; for (const ch of String(region || '')) h = (Math.imul(h, 31) + ch.charCodeAt(0)) | 0; return 'paint' + ((h >>> 0) % PAINTS.length); }
@@ -40,12 +39,12 @@ let BASE;
 export function baseMaterials() {
   if (BASE) return BASE;
   const roofs = {};
-  for (const [id, c] of Object.entries(ROOF_COLORS)) roofs[id] = mat({ map: roofTiles(c, id === 'tejado_azul' || id === 'tejado_gris' ? 'pizarra' : 'teja'), roughness: 0.88 });   // (la foto, con ?arte=2)
+  for (const [id, c] of Object.entries(ROOF_COLORS)) roofs[id] = mat({ map: roofTiles(c, id === 'tejado_azul' || id === 'tejado_gris' ? 'pizarra' : 'teja'), roughness: 0.88 });
   roofs.tejado_paja = mat({ map: thatch(), roughness: 1, color: C.thatch });
   BASE = {
     plaster: mat({ map: plaster(), color: C.plaster }), stone: mat({ map: stone(C.stone) }), wallStone: mat({ map: stone(C.wallStone) }), siding: mat({ map: siding(), color: C.siding }),
     timber: mat({ map: wood(C.timber), roughness: 0.8 }), frame: mat({ map: wood(C.frame), roughness: 0.7 }), shutter: mat({ map: wood(C.shutter) }), door: mat({ map: wood(C.door) }),
-    glass: new THREE.MeshStandardMaterial({ color: A2 ? PAL.detalle.cristal : C.glass, roughness: 0.08, metalness: 0.3, transparent: true, opacity: 0.4, depthWrite: false, emissive: '#ffb050', emissiveIntensity: 0 }),
+    glass: new THREE.MeshStandardMaterial({ color: PAL.detalle.cristal, roughness: 0.08, metalness: 0.3, transparent: true, opacity: 0.4, depthWrite: false, emissive: '#ffb050', emissiveIntensity: 0 }),
     box: mat({ color: C.box }), soil: mat({ color: C.soil }), leaves: mat({ color: C.leaves, flatShading: true }), bloom: mat({ roughness: 0.6 }),
     painting: mat({ map: artwork('valle') }), floor_madera: mat({ map: planks(), roughness: 0.6, color: C.planks }), floor_piedra: mat({ map: flagstone(), roughness: 0.85, color: C.flag }), floor_camino: mat({ map: gravel(), roughness: 1, color: C.flag }),
     fence: mat({ map: wood(C.fence) }), fenceStone: mat({ map: stone(C.fenceStone) }), roofs, roofEdge: mat({ map: wood(C.frame) }), soffit: mat({ map: planks(), color: C.soffit }),
@@ -82,8 +81,8 @@ export function wallTile(scene, tx, ty, id, emit, extras) {
   if (straightX || straightZ) {
     const X = !!straightX, side = outward(scene, tx, ty, X), c = X ? cz : cx, u0 = X ? tx : ty;
     const ends = X ? [!(mask & 2), !(mask & 1)] : [!(mask & 8), !(mask & 4)];
-    // (con ?arte=2, una ventana en un muro de tablas o de piedra es de ese muro, no de yeso: el primero que no sea ventana a los lados)
-    const fam = A2 && window ? familyOf(scene, tx, ty, X) || id : id;
+    // (una ventana en un muro de tablas o de piedra es de ese muro, no de yeso: el primero que no sea ventana a los lados)
+    const fam = window ? familyOf(scene, tx, ty, X) || id : id;
     run(emit, extras, { id: fam, X, c, side, a: u0, b: u0 + 1, holes: window ? [{ u: u0 + 0.5, ...window }] : [], ends, painting: id === 'muro_cuadro' ? u0 + 0.5 : null, tile: [tx, ty] });
     return;
   }
@@ -121,7 +120,7 @@ export function wallTile(scene, tx, ty, id, emit, extras) {
     const ox = -xArms[0], oz = -zArms[0];   // la esquina de fuera queda hacia donde no van los brazos
     const xr = ox > 0 ? [cx - T, cx + T + 0.05] : [cx - T - 0.05, cx + T], zr = oz > 0 ? [cz - T, cz + T + 0.05] : [cz - T - 0.05, cz + T];
     emit('stone', side).box(xr[0], 0, zr[0], xr[1], PLINTH, zr[1]);
-    if (A2 && !framed(id)) {
+    if (!framed(id)) {
       // Esquina de sillería (bloques que alternan el lado largo, uno en cada cara) o, en los de tablas, tablas de esquina
       const B = emit(id === 'muro_piedra' ? 'stone' : 'timber', side), P2 = id === 'muro_piedra' ? 0.025 : 0.02;
       const xo = cx + ox * T, zo = cz + oz * T, span = (a0, a1) => [Math.min(a0, a1), Math.max(a0, a1)];
@@ -186,7 +185,7 @@ function run(emit, extras, { id, X, c, side, a, b, holes, ends, painting, half }
     if (inner) { cutRun(a, b, holes.filter(h => h.door), (u0, u1) => box('frame', u0, u1, 0, 0.12, k0, k0 + dir * 0.02)); continue; }
     if (side === 'in') continue;
     cutRun(a, b, holes.filter(h => h.door), (u0, u1) => box('stone', u0, u1, 0, PLINTH, k0, k0 + dir * 0.05));
-    if (A2 && !framed(id)) {
+    if (!framed(id)) {
       // Cornisa arriba (de piedra o de madera) y, en los de tablas, tapajuntas cada 25 cm, salvo sobre los huecos
       box(id === 'muro_piedra' ? 'stone' : 'timber', a, b, WALL_H - 0.16, WALL_H, k0, k0 + dir * 0.045);
       if (id === 'muro_madera') for (let u = Math.ceil(a * 4 - 0.01) / 4 + 0.125; u < b - 0.02; u += 0.25)
@@ -223,7 +222,7 @@ function run(emit, extras, { id, X, c, side, a, b, holes, ends, painting, half }
     box('frame', h.u - 0.022, h.u + 0.022, h.y0, h.y1, -0.03, 0.03);
     box('frame', h0, h1, (h.y0 + h.y1) / 2 - 0.022, (h.y0 + h.y1) / 2 + 0.022, -0.03, 0.03);
     box('frame', h0 - 0.1, h1 + 0.1, h.y0 - 0.06, h.y0, -T - 0.08, T + 0.08);
-    if (A2 && outSign) {   // dintel encima y alféizar debajo, por fuera (de piedra; en los de madera, de madera)
+    if (outSign) {   // dintel encima y alféizar debajo, por fuera (de piedra; en los de madera, de madera)
       const k = outSign * T, m = framed(id) || id === 'muro_madera' ? 'timber' : 'stone';
       box(m, h0 - 0.14, h1 + 0.14, h.y1 + 0.07, h.y1 + 0.21, k, k + outSign * 0.04);
       box(id === 'muro_madera' ? 'timber' : 'stone', h0 - 0.12, h1 + 0.12, h.y0 - 0.12, h.y0 - 0.05, k, k + outSign * 0.09);
@@ -239,16 +238,13 @@ function run(emit, extras, { id, X, c, side, a, b, holes, ends, painting, half }
     if (h.shutters && outSign) {
       const k = outSign * T;
       for (const [a0, a1] of h.closed ? [[h0 - 0.02, h.u - 0.003], [h.u + 0.003, h1 + 0.02]] : [[h0 - 0.38, h0 - 0.08], [h1 + 0.08, h1 + 0.38]]) {
-        if (A2) {
+        {
           // Tres tablas con su junta, dos travesaños y la riostra en Z, del color de la casa
           const paint = extras.paint || 'paint0', w = (a1 - a0) / 3, z0 = k + outSign * 0.05, z1 = k + outSign * 0.08;
           for (let i = 0; i < 3; i++) box(paint, a0 + i * w + 0.004, a0 + (i + 1) * w - 0.004, h.y0 - 0.02, h.y1 + 0.04, z0, z1);
           for (const y of [h.y0 + 0.08, h.y1 - 0.08]) box(paint, a0 + 0.03, a1 - 0.03, y, y + 0.08, z1, z1 + outSign * 0.02);
           beamGeo(emit(paint, side), P(a0 + 0.06, h.y0 + 0.16, z1), P(a1 - 0.06, h.y1 - 0.08, z1), [0, 1, 0], X ? [0, 0, outSign] : [outSign, 0, 0], 0.07, 0.02);
-          continue;
         }
-        box('shutter', a0, a1, h.y0 - 0.02, h.y1 + 0.04, k + outSign * 0.05, k + outSign * 0.085);
-        for (let y = h.y0 + 0.1; y < h.y1; y += 0.19) box('frame', a0 + 0.03, a1 - 0.03, y, y + 0.035, k + outSign * 0.085, k + outSign * 0.1);
       }
       box('box', h0 - 0.12, h1 + 0.12, h.y0 - 0.3, h.y0 - 0.08, k + outSign * 0.1, k + outSign * 0.3);
       box('soil', h0 - 0.09, h1 + 0.09, h.y0 - 0.1, h.y0 - 0.075, k + outSign * 0.125, k + outSign * 0.275);
@@ -324,7 +320,7 @@ export function doorTile(scene, tx, ty, emit, extras) {
 // La hoja de una puerta: tablas con sus refuerzos y el tirador. Gira sobre la bisagra: a = 0 cerrada, 1 abierta
 export function doorLeaf(d, mats) {
   const lw = d.width, leaf = new Builder(), bars = new Builder();
-  if (A2 && mats.paint) {
+  if (mats.paint) {
     // Cinco tablas con su junta, tres travesaños y dos riostras en Z, del color de la casa; pernios de hierro que
     // cruzan la hoja desde la bisagra, y tirador de anilla
     const iron = new Builder(), w = lw / 5, H = DOOR.y1 - 0.04;
@@ -474,7 +470,7 @@ function addChimneys(g, chimneys, regionKey) {
   g.userData = { regionKey, chimneys: stacks.map(([x, z, y]) => [x, y + 1.15, z]) };
   return g;
 }
-// A dos aguas (?arte=2, regiones rectangulares: ver world/roof.js). Todo se piensa en (u, v): u a lo largo de la
+// A dos aguas (regiones rectangulares: ver world/roof.js). Todo se piensa en (u, v): u a lo largo de la
 // cumbrera y v de alero a alero. Faldones con la teja en filas paralelas al alero; en los lados largos, alero que baja
 // con la pendiente y su tabla; en los cortos, vuelo con su tabla; caballete en la cumbrera; y los hastiales (el muro
 // triangular encima de cada muro corto), del material de ese muro y, en los de entramado, con su viga y su pendolón

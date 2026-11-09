@@ -466,7 +466,7 @@ export class Overworld {
       if (!has(x - 1, y)) edges.push([x, y, x, y + 1]);
       if (!has(x + 1, y)) edges.push([x + 1, y, x + 1, y + 1]);
     }
-    const gable = roofShape(tiles, has);   // (con ?arte=2, las rectangulares van a dos aguas: ver roof.js)
+    const gable = roofShape(tiles, has);   // (las rectangulares van a dos aguas: ver roof.js)
     for (const [x, y] of tiles) {
       const D = gable.gable ? gable.H : (px, py) => roofDistance(px, py, edges);
       const h = { nw: D(x, y), ne: D(x + 1, y), se: D(x + 1, y + 1), sw: D(x, y + 1), c: D(x + 0.5, y + 0.5) };

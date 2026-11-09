@@ -431,7 +431,7 @@ export class World3D {
         this.group.add(lamp);
       }
       // Altura del tejado en (x, z), para que la cámara pase por encima
-      // (la misma forma que el dibujo: roof.js, a cuatro aguas o, con ?arte=2, a dos)
+      // (la misma forma que el dibujo: roof.js, a dos aguas si es rectangular, si no a cuatro)
       const shape = roofShape(r.tiles, (x, y) => this.regionOf.get(`${x},${y}`) === r.key);
       r.top = (px, py) => WALL_H + ROOF.thick + shape.H(px, py) * ROOF.level;
     }
