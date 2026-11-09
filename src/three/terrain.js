@@ -9,7 +9,7 @@
 import * as THREE from 'three';
 import { CHUNK } from '../world/gen.js';
 import * as village from '../world/village.js';
-import { BLOCK, PX, depthOf, blockHeights, blockColors, paintPixels } from '../world/ground.js';
+import { BLOCK, PX, groundSmooth, blockHeights, blockColors, paintPixels } from '../world/ground.js';
 import { grassDetail, soilDetail } from './textures.js';
 import { mat } from './geo.js';
 import { ARTE, PAL } from '../arte.js';
@@ -38,6 +38,8 @@ export class Terrain {
     scene.add(this.group);
     this.water = makeWater();
     scene.add(this.water.group);
+    this.world = null;            // el mundo de la partida (para allanar el suelo junto a lo construido: padK); lo pone engine.js
+    this.padCheck = 0;
     this.workers = this.startWorkers();
     village.onVillageChange(() => this.villageChanged());
   }
@@ -96,6 +98,8 @@ export class Terrain {
     want.sort((a, b) => a[2] - b[2]);
     const keep = new Set(want.map(([a, b]) => `${a},${b}`));
     for (const [k, b] of this.blocks) if (!keep.has(k)) { this.dispose(b); this.blocks.delete(k); }
+    // (cada medio segundo: ¿se ha construido algo que allane el suelo de un bloque hecho?)
+    if (this.world && performance.now() > this.padCheck) { this.padCheck = performance.now() + 500; for (const b of this.blocks.values()) if (b.raw && this.padSigOf(b.bx, b.bz) !== b.padSig) this.remesh(b); }
     this.water.mesh.position.set(x, WATER_Y, z);
     // (el plano de fondo solo donde no hay bloque: el shader descarta lo que cae en un bloque hecho)
     const U = this.water.uniforms; U.origin.value.set((bx - RADIUS) * BLOCK, (bz - RADIUS) * BLOCK);
@@ -164,8 +168,25 @@ export class Terrain {
   }
 
   // La malla de un bloque con sus alturas y, de entrada, cada trozo del color medio de su bioma (colors: 16 × rgb)
-  build(bx, bz, heights, water, colors) {
+  // Las alturas allanadas junto a lo construido (raw: las del mundo, con el agua y el relieve)
+  padded(bx, bz, raw) {
+    const w = this.world, out = raw.slice();
+    if (!w?.padK) return out;
     const x0 = bx * BLOCK, z0 = bz * BLOCK, n = BLOCK + 1;
+    if (w.padNear && !w.padNear(x0, z0, x0 + BLOCK, z0 + BLOCK)) return out;   // (nada construido ni ningún lugar cerca)
+    for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) { const v = j * n + i; if (out[v] > 0.01) out[v] *= w.padK(x0 + i, z0 + j); }
+    return out;
+  }
+  padSigOf(bx, bz) { return this.world?.padSig ? this.world.padSig(bx * BLOCK, bz * BLOCK, (bx + 1) * BLOCK, (bz + 1) * BLOCK) : ''; }
+  // Rehacer la forma de un bloque (alguien ha construido cerca: el suelo se allana o vuelve a su altura)
+  remesh(b) {
+    b.heights = this.padded(b.bx, b.bz, b.raw); b.padSig = this.padSigOf(b.bx, b.bz);
+    const geo = b.mesh.geometry, pos = geo.attributes.position;
+    for (let v = 0; v < pos.count; v++) pos.setY(v, b.heights[v]);
+    pos.needsUpdate = true; geo.computeVertexNormals(); geo.computeBoundingSphere();
+  }
+  build(bx, bz, raw, water, colors) {
+    const x0 = bx * BLOCK, z0 = bz * BLOCK, n = BLOCK + 1, heights = this.padded(bx, bz, raw);
     const pos = new Float32Array(n * n * 3), uv = new Float32Array(n * n * 2);
     for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
       const v = j * n + i;
@@ -182,7 +203,7 @@ export class Terrain {
     geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
     geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
     geo.setIndex(new THREE.BufferAttribute(idx, 1));
-    if (water) geo.computeVertexNormals();
+    if (heights.some(h => h !== 0)) geo.computeVertexNormals();   // (con agua o relieve)
     else { const nor = new Float32Array(n * n * 3); for (let i = 1; i < nor.length; i += 3) nor[i] = 1; geo.setAttribute('normal', new THREE.BufferAttribute(nor, 3)); }
     geo.computeBoundingSphere();
     const W = BLOCK * PX, c = document.createElement('canvas');
@@ -201,8 +222,8 @@ export class Terrain {
     mesh.receiveShadow = true;
     mesh.matrixAutoUpdate = false;
     this.group.add(mesh);
-    const waterMesh = water ? this.buildWater(pos, heights, n) : null;
-    return { mesh, tex, ctx: g, heights, x0, z0, n, bx, bz, season: this.season, todo: allChunks(), painted: 0, waterMesh };
+    const waterMesh = water ? this.buildWater(pos, raw, n) : null;
+    return { mesh, tex, ctx: g, heights, raw, padSig: this.padSigOf(bx, bz), x0, z0, n, bx, bz, season: this.season, todo: allChunks(), painted: 0, waterMesh };
   }
   // El agua del bloque: la misma rejilla a ras de WATER_Y, con lo que hay de suelo debajo en cada vértice (depth), y
   // solo las casillas que tocan agua
@@ -239,7 +260,7 @@ export class Terrain {
   // Altura del suelo en (x, z): la de la malla si su bloque está hecho; si no, la de la profundidad sin suavizar
   heightAt(x, z) {
     const b = this.blocks.get(`${Math.floor(x / BLOCK)},${Math.floor(z / BLOCK)}`);
-    if (!b) return this.gen ? Math.min(0, depthOf(this.gen, x, z)) : 0;
+    if (!b) { if (!this.gen) return 0; const h = groundSmooth(this.gen, x, z); return h > 0 && this.world?.padK ? h * this.world.padK(x, z) : h; }   // (aún sin bloque: lo mismo, calculado aquí)
     const u = x - b.x0, v = z - b.z0, i = Math.min(BLOCK - 1, Math.floor(u)), j = Math.min(BLOCK - 1, Math.floor(v)), fu = u - i, fv = v - j, H = b.heights, n = b.n;
     const a = H[j * n + i], bb = H[j * n + i + 1], c = H[(j + 1) * n + i], d = H[(j + 1) * n + i + 1];
     // (cada casilla son dos triángulos: a-c-b y b-c-d)

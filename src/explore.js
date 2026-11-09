@@ -23,7 +23,7 @@ export class Explore {
   constructor(game) {
     this.game = game;
     this.cache = new Map();
-    this.layer = { add: (cx, cy, d, out) => this.addContent(cx, cy, d, out), hides: o => this.hides(o), blocks: (tx, ty) => this.blocks(tx, ty), baseAt: (layer, tx, ty) => this.baseAt(layer, tx, ty) };
+    this.layer = { add: (cx, cy, d, out) => this.addContent(cx, cy, d, out), hides: o => this.hides(o), pad: (x, y) => this.padDist(x, y), padNear: (x0, y0, x1, y1) => this.padNear(x0, y0, x1, y1), blocks: (tx, ty) => this.blocks(tx, ty), baseAt: (layer, tx, ty) => this.baseAt(layer, tx, ty) };
     this.traders = new Map();
     this.aldeas = new Map();     // planos de piezas de las casas de cada aldea
     this.raw = new Map();        // lugar que tocaría en cada trozo, sin mirar a los de al lado
@@ -107,6 +107,23 @@ export class Explore {
     const cx = Math.floor(x / CHUNK), cy = Math.floor(y / CHUNK);
     for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) { const p = this.poi(cx + dx, cy + dy); if (p && Math.hypot(p.x - x, p.y - y) < r + SIZE[p.kind]) return p; }
     return null;
+  }
+  // ¿Hay un lugar o una aldea que llegue a este rectángulo?
+  padNear(x0, y0, x1, y1) {
+    for (let cy = Math.floor(y0 / CHUNK) - 1; cy <= Math.floor(y1 / CHUNK) + 1; cy++) for (let cx = Math.floor(x0 / CHUNK) - 1; cx <= Math.floor(x1 / CHUNK) + 1; cx++) if (this.poi(cx, cy)) return true;
+    return false;
+  }
+  // Lo lejos que está (x, y) de un lugar o de las casas de una aldea (para allanar el suelo: ver scenes.js, padK)
+  padDist(x, y) {
+    const cx = Math.floor(x / CHUNK), cy = Math.floor(y / CHUNK);
+    let best = 99;
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+      const p = this.poi(cx + dx, cy + dy);
+      if (!p) continue;
+      if (p.kind === 'aldea') { const [x0, y0, x1, y1] = this.aldea(p).box, ex = Math.max(0, x0 - x, x - x1), ey = Math.max(0, y0 - y, y - y1); best = Math.min(best, Math.hypot(ex, ey)); }
+      else best = Math.min(best, Math.max(0, Math.hypot(x - p.x, y - p.y) - (SIZE[p.kind] || 2)));
+    }
+    return best;
   }
   hides(o) {
     if (!o.kind) return false;

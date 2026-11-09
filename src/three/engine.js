@@ -307,6 +307,7 @@ export class View3D {
     this.updateCamera(game, scene, dt, ease);
     const target = this.cam.target;
     if (!cave) {
+      this.terrain.world = scene.padK ? scene : null;   // (el suelo, llano junto a lo construido)
       this.terrain.update(scene.gen, target.x, target.z, snap ? 1e9 : 8);
       this.world.update(game, scene, target, dt, snap);
     } else this.cave.update(game, dt);

@@ -12,11 +12,12 @@ import { solidsOf, hull, placeBoxes, bounds, aabb, sat, hitsCircle, distTo, obb,
 import { wallRuns, WINDOW_Z, T } from '../art/build.js';
 import { PIECES, layerOf, parsePlaced } from '../pieces.js';
 import { Person } from '../entities.js';
-import { wrapIndex, inPlanet } from './planet.js';
+import { wrapIndex, inPlanet, dxOf } from './planet.js';
 import { roofShape } from './roof.js';
 
 // Lo de un trozo visto desde el otro lado de la costura: lo mismo, corrido off casillas en x
 const X_KEYS = new Set(['x', 'x0', 'x1', 'cx']);
+const PAD_R = 7, NO_TILES = [];   // (el allanado alrededor de lo construido: ver padK)
 function shifted(v, off) {
   if (Array.isArray(v)) return v.map(e => (e && typeof e === 'object' ? shifted(e, off) : e));
   const o = {};
@@ -205,6 +206,46 @@ export class Overworld {
     this.bounds = null;
     this.layers = [];             // otras capas de contenido por trozo (cultivos, lugares…): { add(cx, cy, delta, out), baseAt?(layer, tx, ty) }
     this.onTouch = null;          // avisa de cada trozo que cambia (para jugar juntos en directo)
+  }
+
+  // ---------- el suelo, llano junto a lo construido ----------
+  // El relieve (biomes.js: reliefOf) se allana donde hay algo hecho: lo colocado, los suelos y lo labrado por los
+  // jugadores, los lugares y las aldeas (las capas con pad). Lo construido se dibuja a ras de 0, así que el suelo baja a
+  // 0 a su alrededor y vuelve a su altura en PAD_R casillas. padK: de 0 (llano) a 1 (el relieve entero)
+  builtTiles(cx, cy) {
+    const d = this.deltas.get(`${wrapIndex(cx, CHUNK)},${cy}`);
+    if (!d) return NO_TILES;
+    const cache = (this.builtCache ||= new Map()), k = `${wrapIndex(cx, CHUNK)},${cy}`, hit = cache.get(k);
+    if (hit && hit.v === d.v) return hit.tiles;
+    const tiles = [];
+    for (const src of [d.placed, d.floor, d.tilled]) for (const t of Object.keys(src || {})) { const [a, b] = t.split(','); const tx = parseInt(a, 10), ty = parseInt(b, 10); if (Number.isFinite(tx) && Number.isFinite(ty)) tiles.push(tx, ty); }
+    cache.set(k, { v: d.v, tiles });
+    return tiles;
+  }
+  padDist(x, y) {
+    let best = PAD_R;
+    const cx = Math.floor(x / CHUNK), cy = Math.floor(y / CHUNK);
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+      const t = this.builtTiles(cx + dx, cy + dy);
+      for (let i = 0; i < t.length; i += 2) {
+        const ex = Math.max(0, Math.abs(dxOf(x, t[i] + 0.5)) - 0.5), ey = Math.max(0, Math.abs(y - t[i + 1] - 0.5) - 0.5);
+        if (ex < best && ey < best) best = Math.min(best, Math.hypot(ex, ey));
+      }
+    }
+    for (const l of this.layers) if (l.pad) best = Math.min(best, l.pad(x, y));
+    return best;
+  }
+  padK(x, y) { if (inBounds(x, y)) return 0; const d = this.padDist(x, y); return d >= PAD_R ? 1 : d <= 1.2 ? 0 : ((d - 1.2) / (PAD_R - 1.2)) ** 2 * (3 - 2 * (d - 1.2) / (PAD_R - 1.2)); }
+  // ¿Hay algo que allanar cerca de este rectángulo? (para no mirar casilla a casilla donde no hay nada)
+  padNear(x0, y0, x1, y1) {
+    for (let cy = Math.floor((y0 - PAD_R) / CHUNK); cy <= Math.floor((y1 + PAD_R) / CHUNK); cy++) for (let cx = Math.floor((x0 - PAD_R) / CHUNK); cx <= Math.floor((x1 + PAD_R) / CHUNK); cx++) if (this.builtTiles(cx, cy).length) return true;
+    return this.layers.some(l => l.padNear?.(x0 - PAD_R, y0 - PAD_R, x1 + PAD_R, y1 + PAD_R));
+  }
+  // Lo que cambia el allanado en un rectángulo (para rehacer el suelo y lo que va encima): las versiones de sus trozos
+  padSig(x0, y0, x1, y1) {
+    let s = '';
+    for (let cy = Math.floor((y0 - PAD_R) / CHUNK); cy <= Math.floor((y1 + PAD_R) / CHUNK); cy++) for (let cx = Math.floor((x0 - PAD_R) / CHUNK); cx <= Math.floor((x1 + PAD_R) / CHUNK); cx++) s += (this.builtTiles(cx, cy).length || '') + ',';
+    return s;
   }
 
   delta(cx, cy, create = false) {

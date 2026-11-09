@@ -220,7 +220,7 @@ export class World3D {
           if (NATURE.has(o.kind) && !o.poi) { nat.push(o); shakers.set(o.key, o); }
           else if (o.sapling) nat.push({ kind: 'sapling', tree: o.sapling, x: o.x, y: o.y, key: o.key });
         }
-        const natSig = nat.map(o => o.key + (o.bare ? '-' : '')).join(','), gSig = datas.map(([cx, cy, d]) => this.signature(scene, cx, cy, d)).join('|');
+        const natSig = nat.map(o => o.key + (o.bare ? '-' : '')).join(',') + '|' + (scene.padSig ? scene.padSig(bx * NB * CHUNK, by * NB * CHUNK, (bx + 1) * NB * CHUNK, (by + 1) * NB * CHUNK) : ''), gSig = datas.map(([cx, cy, d]) => this.signature(scene, cx, cy, d)).join('|');
         if (!b) { b = { group: new THREE.Group(), nat: null, ground: null, bx, by }; this.group.add(b.group); this.nature.set(k, b); }
         if (natSig !== b.natSig) {
           if (b.nat) { b.group.remove(b.nat.group); b.nat.group.traverse(o => { if (o.isInstancedMesh) o.dispose(); }); }

@@ -42,10 +42,22 @@ export function depthOf(gen, x, z) {
   }
   return gen.depthAt(x, z);
 }
+// Lo mismo, como lo da la malla del suelo (cada dos casillas e interpolado; junto al agua, lo exacto): para poner algo en
+// el suelo antes de que esté hecho su bloque y que luego no flote
+export function groundSmooth(gen, x, z) {
+  const x0 = Math.floor(x / 2) * 2, z0 = Math.floor(z / 2) * 2, fx = (x - x0) / 2, fz = (z - z0) / 2;
+  const a = groundOf(gen, x0, z0), b = groundOf(gen, x0 + 2, z0), c = groundOf(gen, x0, z0 + 2), d = groundOf(gen, x0 + 2, z0 + 2);
+  return Math.min(a, b, c, d) < 0.3 ? groundOf(gen, x, z) : (a * (1 - fx) + b * fx) * (1 - fz) + (c * (1 - fx) + d * fx) * fz;
+}
+// La altura del suelo (sin lo construido): en el pueblo, la del estanque; fuera, el agua o el relieve (gen.groundAt)
+export function groundOf(gen, x, z) {
+  if (village.inBounds(x, z)) return depthOf(gen, x, z);
+  return gen.groundAt(x, z);
+}
 
 // Las alturas de un bloque (un vértice por casilla, hundido donde hay agua según la profundidad seguida) y los
 // biomas de sus esquinas (n+2 por lado, desde una casilla antes del bloque) y de los centros de sus casillas (BLOCK
-// por lado), para que el juego no los tenga que volver a calcular. Si a 2 m no se ve agua en todo el bloque, es llano
+// por lado), para que el juego no los tenga que volver a calcular. water: si a 2 m se ve agua en el bloque (para su malla)
 export function blockHeights(gen, bx, bz) {
   const x0 = bx * BLOCK, z0 = bz * BLOCK, n = BLOCK + 1, m = n + 2;
   const corners = new Uint8Array(m * m), centers = new Uint8Array(BLOCK * BLOCK);
@@ -54,7 +66,15 @@ export function blockHeights(gen, bx, bz) {
   let water = false;
   for (let j = -1; j <= BLOCK / 2 + 1 && !water; j++) for (let i = -1; i <= BLOCK / 2 + 1; i++) if (depthOf(gen, x0 + i * 2, z0 + j * 2) < 0) { water = true; break; }
   const heights = new Float32Array(n * n);
-  if (water) for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) heights[j * n + i] = depthOf(gen, x0 + i, z0 + j);
+  // (el agua y el relieve: cada dos casillas y, entre medias, interpolado, salvo junto al agua, que va casilla a casilla
+  // para que la orilla sea la de siempre)
+  const hn = BLOCK / 2 + 1, coarse = new Float32Array(hn * hn);
+  for (let j = 0; j < hn; j++) for (let i = 0; i < hn; i++) coarse[j * hn + i] = groundOf(gen, x0 + i * 2, z0 + j * 2);
+  for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
+    const ci = i >> 1, cj = j >> 1, fi = (i & 1) * 0.5, fj = (j & 1) * 0.5, ci1 = Math.min(hn - 1, ci + 1), cj1 = Math.min(hn - 1, cj + 1);
+    const a = coarse[cj * hn + ci], b = coarse[cj * hn + ci1], c = coarse[cj1 * hn + ci], d = coarse[cj1 * hn + ci1];
+    heights[j * n + i] = !fi && !fj ? a : Math.min(a, b, c, d) < 0.3 ? groundOf(gen, x0 + i, z0 + j) : (a * (1 - fi) + b * fi) * (1 - fj) + (c * (1 - fi) + d * fi) * fj;
+  }
   return { heights, water, corners, centers, n, m };
 }
 

@@ -2,7 +2,7 @@
 // Todo es determinista: la misma semilla y la misma casilla dan siempre lo mismo.
 import { mk, ihash, rgbOf } from '../util.js';
 import * as village from './village.js';
-import { B, BIOMES, climate, classify, biomeAt, wetness, depthOfWet, shoreOf } from './biomes.js';
+import { B, BIOMES, climate, classify, biomeAt, wetness, depthOfWet, shoreOf, reliefOf } from './biomes.js';
 import { wrapNoise, wrapIndex } from './planet.js';
 
 export const CHUNK = 16;
@@ -38,6 +38,8 @@ export class WorldGen {
   }
   // Lo que se hunde el suelo por el agua en (x, y), seguido (0 en tierra): ver wetness
   depthAt(x, y) { return depthOfWet(wetness(climate(x, y, this.seed, this.tmpC ||= {}))); }
+  // La altura del suelo en (x, y) sin lo construido: hundido por el agua o, en tierra, el relieve (ver reliefOf)
+  groundAt(x, y) { const c = climate(x, y, this.seed, this.tmpC ||= {}), u = wetness(c); return u > 0 ? depthOfWet(u) : reliefOf(c, u, x, y, this.seed); }
   // Apuntar biomas ya calculados en otro hilo (ground.js: blockHeights): las esquinas (m por lado desde
   // (x0 - 1, z0 - 1)) y los centros (BLOCK por lado desde el bloque)
   seedBiomes(x0, z0, corners, m, centers, w) {
