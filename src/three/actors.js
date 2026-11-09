@@ -14,6 +14,11 @@ import { ITEMS, TIERS } from '../items.js';
 import { WATER_Y } from './terrain.js';
 import { animalModel, animalKey, animateAnimal, horseModel, animateHorse } from './animals.js';
 import { nearX } from '../world/planet.js';
+import { ARTE } from '../arte.js';
+import { loadReal, realReady, RealPerson } from './realperson.js';
+
+// (?arte=2, en revisión: las personas realistas, ver realperson.js. Se cargan aparte; hasta entonces, los muñecos)
+const REAL = ARTE === 2;
 
 const PEOPLE = new Map();
 const KID_SCALE = 0.66;   // los niños, más pequeños
@@ -28,7 +33,10 @@ const LOOK_R = 2.6;      // a qué distancia se mira a quien se tiene al lado
 // dibujo no escribe ni color ni fondo (solo deja su sombra): esa vez se salta, sin dejar de dar sombra (el mapa de
 // sombras se pinta aparte), y se ahorra una llamada por pieza en cada fotograma
 function ownMesh(o, m, body = false) {
-  o.material = o.material.clone();
+  const base = o.material;
+  o.material = base.clone();
+  // (clone() no copia el parche del shader: las personas realistas lo llevan para la piel y el pelo)
+  if (base.onBeforeCompile) { o.material.onBeforeCompile = base.onBeforeCompile; o.material.customProgramCacheKey = base.customProgramCacheKey; }
   m.mats.push(o.material);
   if (body) m.body.push(o.material);
   o.layers.set(2);
@@ -45,6 +53,7 @@ export class Actors {
     this.models = new Map();      // entidad → { obj, kind, prev, … }
     this.lights = [];
     this.player = null;
+    if (REAL) loadReal();
   }
   // Los materiales del jugador (para su silueta); body: solo los de su cuerpo y lo que lleva en la mano
   // Un jugador espectador se ve como un fantasma (solo lo ven los otros espectadores, y él mismo)
@@ -62,6 +71,7 @@ export class Actors {
 
   update(game, scene, dt, t) {
     const seen = new Set(), p = game.player && game.scene ? game.player : null;
+    this.realBudget = 1;
     const list = [...(scene.entities || [])];
     if (game.player && game.scene === scene) for (const s of game.systems) { const more = s.entities?.(scene); if (more) list.push(...more); }
     if (p) list.push(p);
@@ -74,6 +84,8 @@ export class Actors {
       const look = e === p ? game.appearance() : e.look;
       if (m && (e === p || e.remote) && m.look !== look) { this.group.remove(m.root); this.models.delete(e); if (m === this.player) this.player = null; m = null; }
       if (m?.kind === 'animal' && m.key !== animalKey(e)) { this.group.remove(m.root); this.models.delete(e); m = null; }
+      // (cuando llegan las personas realistas, se rehacen los muñecos que había, de uno en uno: cada una cuesta)
+      if (REAL && m?.kind === 'person' && !m.person.real && realReady() && this.realBudget-- > 0) { this.group.remove(m.root); this.models.delete(e); if (m === this.player) this.player = null; m = null; }
       if (!m) { m = this.make(e, e === p, look); if (!m) continue; m.look = look; this.models.set(e, m); this.group.add(m.root); }
       this.pose(m, e, scene, dt, t, e === p ? game : null);
       if (m === this.player || e.remote) this.ghost(m, e === p ? game.gamemode === 'spectator' : e.gm === 3);   // (de espectador, medio transparente)
@@ -115,8 +127,9 @@ export class Actors {
     if (look) {
       // (las personas con el mismo aspecto se copian de la primera: hacer una desde cero cuesta)
       const key = JSON.stringify(look);
-      if (!PEOPLE.has(key)) PEOPLE.set(key, new Person3D(look, ''));
-      const person = PEOPLE.get(key).clone();
+      let person;
+      if (REAL && realReady()) person = new RealPerson(look);
+      else { if (!PEOPLE.has(key)) PEOPLE.set(key, new Person3D(look, '')); person = PEOPLE.get(key).clone(); }
       const root = new THREE.Group();
       root.add(person.root);
       const m = { kind: 'person', root, person, prev: null, speed: 0 };
@@ -125,8 +138,11 @@ export class Actors {
         // Con algo en la mano, caballo y barca (el jugador, además, con sus propios materiales para dibujar
         // su silueta, y en la capa 2; los demás jugadores, con su nombre encima)
         m.hand = new THREE.Group();
-        m.hand.position.set(0.03, person.fore ? -0.145 : -0.27, 0.02);   // (en la mano: va con el antebrazo)
-        (person.fore?.[1] || person.arms[1]).add(m.hand);
+        if (person.real) { m.hand.position.set(0, -0.07, 0.03); person.hand.add(m.hand); }   // (en la mano de verdad)
+        else {
+          m.hand.position.set(0.03, person.fore ? -0.145 : -0.27, 0.02);   // (en la mano: va con el antebrazo)
+          (person.fore?.[1] || person.arms[1]).add(m.hand);
+        }
         m.horse = horseModel(); m.horse.visible = false; root.add(m.horse);
         m.boat = boatModel(); m.boat.visible = false; root.add(m.boat);
         if (e.remote) root.add(nameTag(e.name));
@@ -161,6 +177,7 @@ export class Actors {
       m.root.rotation.x = lying ? -Math.PI / 2 : 0;
       m.root.rotation.y = lying ? (pz ? pz.yaw : e.yaw || 0) : 0;
       y += pz ? pz.h : lying ? e.h || 0 : 0;
+      if (pz && !lying && m.person?.real) y += 0.36 - m.person.hipY;   // (la persona realista tiene la cadera más alta que el muñeco)
     }
     if (m.kind === 'person') {
       const P = m.person;
@@ -199,7 +216,7 @@ export class Actors {
         const c = P.crouch;
         for (const l of P.legs) l.rotation.x = l.rotation.x * (1 - c * 0.5) - C.hip * c;
         for (const k of P.shins || []) k.rotation.x = k.rotation.x * (1 - c) + C.knee * c;
-        P.body.position.y -= C.drop * c;
+        P.body.position.y -= C.drop * c * (P.dropK || 1);
         P.torso.rotation.x += C.lean * c;
         P.head.rotation.x = -C.lean * 0.8 * c;
       } else P.head.rotation.x = 0;
