@@ -10,7 +10,7 @@ import { CAM, PITCH, DIST, LOOK } from '../camera.js';
 import { setViewAngle } from '../iso.js';
 import { CENTER } from '../world/village.js';
 import { Settings } from '../settings.js';
-import { Terrain, WATER_Y } from './terrain.js';
+import { Terrain, WATER_Y, WET, RAIN } from './terrain.js';
 import { World3D } from './world3d.js';
 import { Actors, toolModel, swingArm, pullBow } from './actors.js';
 import { ITEMS } from '../items.js';
@@ -317,6 +317,8 @@ export class View3D {
     this.arrows.update(game, scene);
     this.terrain.water.uniforms.time.value = t;
     this.terrain.water.uniforms.sky.value.copy(this.skyU.horizon.value);
+    // (?arte=2) El suelo se moja con la lluvia (en un minuto) y se seca despacio (unos cinco); el agua, con sus gotas
+    { const r = game.days?.info?.rain || 0, k = r ? 1 : 0; this.wetNow = (this.wetNow || 0) + (k - (this.wetNow || 0)) * Math.min(1, dt * (k > (this.wetNow || 0) ? 0.05 : 0.01)); WET.value = this.wetNow; RAIN.value = r ? (r === 2 ? 1 : 0.6) : 0; }
     this.skyU.time.value = t;
     this.sky.position.copy(this.camera.position);
     this.updateLights(game, scene, target);

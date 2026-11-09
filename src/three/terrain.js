@@ -17,6 +17,10 @@ import { ARTE, PAL } from '../arte.js';
 export { BLOCK };
 const RADIUS = 2;                       // bloques alrededor del de la cámara (5 × 5)
 export const WATER_Y = -0.12;
+// (?arte=2) El clima en el suelo y el agua: WET, de 0 a 1, cuánto ha llovido (oscurece y abrillanta el suelo, y se seca
+// despacio); RAIN, de 0 a 1, lo que llueve ahora (los círculos de las gotas en el agua). Los pone engine.js
+export const WET = { value: 0 }, RAIN = { value: 0 };
+const A2 = ARTE === 2;
 const WORKERS = Math.min(2, Math.max(1, (navigator.hardwareConcurrency || 2) - 1));
 
 const allChunks = () => { const l = []; for (let j = 0; j < 4; j++) for (let i = 0; i < 4; i++) l.push([i, j]); return l; };
@@ -248,8 +252,12 @@ export class Terrain {
 let DETAIL;
 function groundMaterial(map) {
   const m = mat({ roughness: 0.96, map }), D = (DETAIL ||= { grass: { value: grassDetail() }, soil: { value: soilDetail() } });
+  if (A2) m.customProgramCacheKey = () => 'suelo-mojado';
   m.onBeforeCompile = sh => {
-    sh.uniforms.grassMap = D.grass; sh.uniforms.soilMap = D.soil;
+    sh.uniforms.grassMap = D.grass; sh.uniforms.soilMap = D.soil; sh.uniforms.uWet = WET;
+    if (A2) sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nuniform float uWet;')
+      .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\n        roughnessFactor = mix(roughnessFactor, 0.42, uWet * 0.75);   // (mojado: brilla un poco)')
+      .replace('#include <color_fragment>', '#include <color_fragment>\n        diffuseColor.rgb *= 1.0 - 0.24 * uWet;   // (y más oscuro)');
     sh.vertexShader = sh.vertexShader
       .replace('#include <common>', '#include <common>\nvarying vec2 vWorld;')
       .replace('#include <begin_vertex>', '#include <begin_vertex>\nvWorld = (modelMatrix * vec4(transformed, 1.0)).xz;');
@@ -275,17 +283,17 @@ function groundMaterial(map) {
 // la pinta el suelo, ground.js, que es más fino que esta malla)
 // (los colores de la paleta, poca espuma y olas suaves)
 const lin = c => { const k = new THREE.Color(c); return `vec3(${k.r.toFixed(4)}, ${k.g.toFixed(4)}, ${k.b.toFixed(4)})`; };
-const WATER = { color: PAL.agua.media, shallow: lin(PAL.agua.orilla), foam: lin(PAL.agua.espuma), foamK: '0.35', wave: '0.7' };
+const WATER = { color: PAL.agua.media, shallow: lin(PAL.agua.orilla), deep: lin(PAL.agua.profunda), foam: lin(PAL.agua.espuma), foamK: '0.35', wave: '0.7' };
 function waterMaterial(uniforms, block) {
   const m = new THREE.MeshStandardMaterial({ color: WATER.color, roughness: 0.08, metalness: 0.1, transparent: true, opacity: 0.8 });
   m.customProgramCacheKey = () => (block ? 'agua-bloque' : 'agua-fondo');   // (si no, Three les da el mismo programa a los dos: el texto de onBeforeCompile es el mismo)
   m.onBeforeCompile = sh => {
-    Object.assign(sh.uniforms, { time: uniforms.time, sky: uniforms.sky, origin: uniforms.origin, built: uniforms.built });
+    Object.assign(sh.uniforms, { time: uniforms.time, sky: uniforms.sky, origin: uniforms.origin, built: uniforms.built, rainK: RAIN });
     sh.vertexShader = sh.vertexShader
       .replace('#include <common>', `#include <common>\nvarying vec2 vW;\nvarying float vDepth;${block ? '\nattribute float depth;' : ''}`)
       .replace('#include <begin_vertex>', `#include <begin_vertex>\nvW = (modelMatrix * vec4(transformed, 1.0)).xz;\nvDepth = ${block ? 'depth' : '1.0'};`);
     sh.fragmentShader = sh.fragmentShader
-      .replace('#include <common>', `#include <common>\nuniform float time;\nuniform vec3 sky;\nuniform vec2 origin;\nuniform float built[${(2 * RADIUS + 1) ** 2}];\nvarying vec2 vW;\nvarying float vDepth;`)
+      .replace('#include <common>', `#include <common>\nuniform float time;\nuniform vec3 sky;\nuniform vec2 origin;\nuniform float built[${(2 * RADIUS + 1) ** 2}];\nuniform float rainK;\nvarying vec2 vW;\nvarying float vDepth;`)
       .replace('#include <clipping_planes_fragment>', `#include <clipping_planes_fragment>
         ${block ? '' : `vec2 bq = floor((vW - origin) / ${BLOCK}.0);
         if (bq.x >= 0.0 && bq.x < ${2 * RADIUS + 1}.0 && bq.y >= 0.0 && bq.y < ${2 * RADIUS + 1}.0 && built[int(bq.y) * ${2 * RADIUS + 1} + int(bq.x)] > 0.5) discard;`}
@@ -295,6 +303,7 @@ function waterMaterial(uniforms, block) {
         vec2 q = vW * 1.7 + vec2(time * 0.22, time * 0.1);
         float sp = sin(q.x * 3.1 + time * 0.9 + sin(q.y * 1.7) * 1.5) * sin(q.y * 2.7 - time * 0.7 + sin(q.x * 1.3) * 1.5);   // (brillos sin rejilla)
         diffuseColor.rgb = mix(${WATER.shallow}, diffuseColor.rgb, smoothstep(0.0, 0.4, dp));
+        ${A2 ? `diffuseColor.rgb = mix(diffuseColor.rgb, ${WATER.deep}, smoothstep(0.6, 2.4, dp) * 0.8);   // (lo hondo, más oscuro)` : ''}
         diffuseColor.rgb += vec3(0.06, 0.08, 0.09) * smoothstep(0.75, 1.0, sp);
         // (espuma: una franja fina junto a la orilla, que late hacia ella)
         float ring = 0.55 + 0.45 * sin(dp * 40.0 - time * 1.8 + sin(vW.x * 1.3 + vW.y * 0.9) * 2.0);
@@ -304,6 +313,15 @@ function waterMaterial(uniforms, block) {
       .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
         float w1 = sin(q.x * 1.3 + time * 1.1) * cos(q.y * 1.1 - time * 0.8), w2 = sin((q.x + q.y) * 2.3 - time * 1.7);
         normal = normalize(normal + (mat3(viewMatrix) * vec3(w1 * 0.06 + w2 * 0.03, 0.0, w2 * 0.05 - w1 * 0.03) * ${WATER.wave}));
+        ${A2 ? `// (la lluvia: en cada celda de medio metro, un círculo que se abre y se apaga, a destiempo)
+        if (rainK > 0.0) {
+          vec2 cell = floor(vW * 2.2), f = fract(vW * 2.2) - 0.5;
+          float h = fract(sin(dot(cell, vec2(12.9898, 78.233))) * 43758.5453), tt = fract(time * 1.1 + h);
+          f -= (vec2(fract(h * 7.3), fract(h * 3.1)) - 0.5) * 0.4;
+          float rr = length(f), ring = smoothstep(0.035, 0.0, abs(rr - tt * 0.42)) * (1.0 - tt) * step(h, 0.35 + rainK * 0.6);
+          normal = normalize(normal + (mat3(viewMatrix) * vec3(f.x, 0.0, f.y) * ring * 2.5 * rainK));
+          diffuseColor.rgb += vec3(0.05) * ring * rainK;
+        }` : ''}
         float fres = pow(1.0 - clamp(dot(normalize(vViewPosition), normal), 0.0, 1.0), 3.0);
         diffuseColor.rgb = mix(diffuseColor.rgb, sky, fres * 0.4);
         diffuseColor.a = mix(diffuseColor.a, 1.0, fres * 0.6);`);
