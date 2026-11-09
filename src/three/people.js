@@ -5,6 +5,7 @@
 // bote) y de respirar en reposo. Mira hacia z+.
 import * as THREE from 'three';
 import { mat } from './geo.js';
+import { sobrio } from '../arte.js';
 import { fullLook, clothesFor } from '../looks.js';
 import { faceMaterials, CLOSED } from './face.js';
 
@@ -87,7 +88,8 @@ function hijabGeo() {
   return { hijab, hem, drape: pleated(new THREE.CylinderGeometry(0.62, 1, 1, 40, 2), 9, 0.035) };
 }
 const cache = new Map();
-export const M = (c, o = {}) => { const k = c + JSON.stringify(o); if (!cache.has(k)) cache.set(k, mat({ color: c, roughness: 0.75, ...o })); return cache.get(k); };
+// (con el arte nuevo, ?arte=2, cada color se ve apagado con sobrio(): la piel con { piel: true })
+export const M = (c, o = {}) => { const k = c + JSON.stringify(o); if (!cache.has(k)) { const { piel, ...rest } = o; cache.set(k, mat({ color: sobrio(c, piel ? 'piel' : undefined), roughness: 0.75, ...rest })); } return cache.get(k); };
 const shade = (c, k) => '#' + new THREE.Color(c).multiplyScalar(k).getHexString();
 const mix = (a, b, k) => '#' + new THREE.Color(a).lerp(new THREE.Color(b), k).getHexString();
 
@@ -169,7 +171,7 @@ function fabric(kind) {
   t.repeat.set(...{ weave: [4, 4], knit: [4, 4], leather: [2, 2], straw: [5, 3], denim: [4, 4] }[kind]);
   return (FABRICS[kind] = t);
 }
-export const FAB = (kind, color) => { const k = kind + color; if (!FAB_MATS.has(k)) FAB_MATS.set(k, mat({ map: fabric(kind), color, roughness: kind === 'leather' ? 0.55 : 0.92 })); return FAB_MATS.get(k); };
+export const FAB = (kind, color) => { const k = kind + color; if (!FAB_MATS.has(k)) FAB_MATS.set(k, mat({ map: fabric(kind), color: sobrio(color), roughness: kind === 'leather' ? 0.55 : 0.92 })); return FAB_MATS.get(k); };
 // La tela de cada prenda
 const CLOTH_OF = { camisa: 'weave', tunica: 'weave', tunica_larga: 'weave', chaleco: 'knit', delantal: 'weave', pantalon: 'denim', falda: 'weave', botas: 'leather', camiseta_interior: 'weave', calzoncillos: 'weave', bragas: 'weave', calcetines: 'knit', sombrero: 'straw', gorro: 'knit', hijab: 'weave', mochila: 'leather' };
 // Las armaduras (casco, peto, grebas y botas de metal): con las formas de la ropa, pero de metal y con brillo
@@ -185,7 +187,7 @@ const F = (x, y, d = 0) => [x, y, HR[2] * Math.sqrt(Math.max(0, 1 - (x / HR[0]) 
 
 // Un bebé en su cuna: envuelto en una mantita, boca arriba, con los ojos cerrados y un mechón de pelo
 export function babyModel(look) {
-  const L = fullLook(look), root = new THREE.Group(), skin = M(L.skin), ink = M('#2a1a1a');
+  const L = fullLook(look), root = new THREE.Group(), skin = M(L.skin, { piel: true }), ink = M('#2a1a1a');
   mesh(G.ball, M('#f4e6c8', { roughness: 0.95 }), { p: [0, 0.06, 0.06], s: [0.12, 0.085, 0.19] }, root);
   mesh(G.ball, M('#e88aa8', { roughness: 0.95 }), { p: [0, 0.07, 0.13], s: [0.125, 0.07, 0.11] }, root);   // (la mantita)
   mesh(G.ball, skin, { p: [0, 0.09, -0.13], s: [0.105, 0.1, 0.105] }, root);
@@ -193,7 +195,7 @@ export function babyModel(look) {
     mesh(G.box, ink, { p: [s * 0.036, 0.188, -0.135], s: [0.034, 0.007, 0.01], r: [0, 0, s * 0.15] }, root);   // ojos cerrados
     mesh(G.ball, M('#ff8a96'), { p: [s * 0.062, 0.17, -0.105], s: [0.022, 0.01, 0.018] }, root);                 // mofletes
   }
-  mesh(G.ball, M(shade(L.skin, 0.88)), { p: [0, 0.188, -0.1], s: [0.014, 0.008, 0.01] }, root);                 // boca
+  mesh(G.ball, M(shade(L.skin, 0.88), { piel: true }), { p: [0, 0.188, -0.1], s: [0.014, 0.008, 0.01] }, root);                 // boca
   mesh(G.ball, M(L.hair, { roughness: 0.6 }), { p: [0, 0.15, -0.2], s: [0.07, 0.05, 0.045] }, root);             // mechón
   mergeInto(root);
   return root;
@@ -205,7 +207,7 @@ export class Person3D {
     this.root = new THREE.Group();
     this.body = new THREE.Group(); this.body.name = 'body'; this.root.add(this.body);
     this.phase = Math.random() * 6; this.speed = 0; this.targetYaw = 0;
-    const L = fullLook(look), W = look.wear || clothesFor(L), skin = M(L.skin), hair = M(L.hair, { roughness: 0.6 });
+    const L = fullLook(look), W = look.wear || clothesFor(L), skin = M(L.skin, { piel: true }), hair = M(L.hair, { roughness: 0.6 });
     const shirt = cloth(W.torso), under = cloth(W.interiorArriba);
     this.bellyMat = (W.encima?.id === 'delantal' && cloth(W.encima)) || shirt || under || skin;   // (la barriga va del color de lo que la cubre)
     const pants = W.piernas?.id === 'pantalon' || W.piernas?.id?.startsWith('grebas_') ? cloth(W.piernas) : null;   // (las grebas, como un pantalón de metal)
@@ -403,14 +405,14 @@ export class Person3D {
   }
 
   face(head, L, skin, hair, covered = false) {
-    const eye = M(L.eyes, { roughness: 0.3 }), white = M('#ffffff', { roughness: 0.2 }), ink = M('#2a1a1a'), lid = M(shade(L.skin, 0.95));
-    const noseM = M(shade(L.skin, 0.92));
+    const eye = M(L.eyes, { roughness: 0.3 }), white = M('#ffffff', { roughness: 0.2 }), ink = M('#2a1a1a'), lid = M(shade(L.skin, 0.95), { piel: true });
+    const noseM = M(shade(L.skin, 0.92), { piel: true });
     for (const s of [-1, 1]) {
       const x = s * 0.1;
       // Orejas
       const ear = { redondas: [0.035, 0.06, 0.045, 0.285], pequenas: [0.028, 0.045, 0.035, 0.282], grandes: [0.044, 0.084, 0.062, 0.29], elfo: [0.032, 0.055, 0.042, 0.285], soplillo: [0.018, 0.066, 0.056, 0.312] }[L.ears] || [0.035, 0.06, 0.045, 0.285];
       if (!covered) mesh(G.ball, skin, { p: [s * ear[3], -0.03, L.ears === 'soplillo' ? -0.01 : 0], s: ear.slice(0, 3), r: [0, L.ears === 'soplillo' ? s * 1.1 : 0, 0] }, head);
-      if (!covered && L.ears !== 'soplillo') mesh(G.ball, M(shade(L.skin, 0.82)), { p: [s * (ear[3] + ear[0] * 0.72), -0.03, 0.006], s: [ear[0] * 0.4, ear[1] * 0.6, ear[2] * 0.55] }, head);
+      if (!covered && L.ears !== 'soplillo') mesh(G.ball, M(shade(L.skin, 0.82), { piel: true }), { p: [s * (ear[3] + ear[0] * 0.72), -0.03, 0.006], s: [ear[0] * 0.4, ear[1] * 0.6, ear[2] * 0.55] }, head);
       if (L.ears === 'elfo' && !covered) mesh(G.cone, skin, { p: [s * 0.325, 0.05, -0.02], s: [0.03, 0.16, 0.036], r: [-0.25, 0, -s * 0.6] }, head);
       // Mofletes: una sola pieza redondeada con colorete, que abulta un poco
     }

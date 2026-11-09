@@ -34,6 +34,7 @@ import { PREY, bodyBox } from './hunt.js';
 import { priceOf } from './economy.js';
 import { modelKind, ICON3D } from './three/icons.js';
 import { View3D } from './three/engine.js';
+import { ARTE, setArte, sobrio, apagado } from './arte.js';
 
 const GATE_X = 20;   // (el hueco de la valla del jardín, en el camino)
 const q = new URLSearchParams(location.search), WHO = q.get('quien') || 'a', RELAY = q.get('relay'), PART = q.get('parte') || 'solo';   // parte: 'solo' (un jugador), 'dos' o 'mirar' (sin pruebas: el juego con la cuenta de prueba, para verlo)
@@ -1034,6 +1035,18 @@ async function soloTests(game) {
     const G = { 2: 10, 1.75: 14, 1.5: 18, 1.25: 24, 1: 30, 0.75: 36 }, g = { pixelRatio: 2, setScale(x) { this.pixelRatio = x; } };
     for (let i = 0; i < 200; i++) View3D.prototype.autoScale.call(g, G[g.pixelRatio], 0.5);
     check(g.pixelRatio === 0.75, `con gráfica lenta se queda en ×${g.pixelRatio}`);
+  });
+  await test('arte nuevo: sin ?arte=2 todo sigue igual, y con él la paleta sobria entra y sale', async () => {
+    check(ARTE === 1, `estas pruebas corren con el arte ${ARTE}`);
+    const meadow = BIOMES[B.MEADOW].pal.join();
+    check(sobrio('#c83a3a') === '#c83a3a' && apagado('#c83a3a') === '#c83a3a', 'sin el arte nuevo, sobrio() o apagado() cambian el color');
+    check(game.view3d.renderer.toneMapping === THREE.ACESFilmicToneMapping, 'sin el arte nuevo, la curva de tono no es la de siempre');
+    try {
+      setArte(2);
+      check(sobrio('#c83a3a') === '#b84949' && sobrio('#e8b07a', 'piel') === '#e1b386', `sobrio() no da lo de la propuesta: ${sobrio('#c83a3a')}, ${sobrio('#e8b07a', 'piel')}`);
+      check(BIOMES[B.MEADOW].pal[0] === '#6e7a55' && BIOMES[B.MEADOW].rgb.length === 4, `la pradera del arte nuevo es ${BIOMES[B.MEADOW].pal[0]}`);
+    } finally { setArte(1); }
+    check(BIOMES[B.MEADOW].pal.join() === meadow, 'al volver al arte de siempre, la pradera no recupera sus colores');
   });
   await test('ganchos: ningún sistema tapa un gancho con otra cosa', async () => {
     const HOOKS = { target: 3, interact: 2, entities: 1, onDay: 1 };   // (los ganchos con parámetros: un método con ese nombre y otro uso los taparía)

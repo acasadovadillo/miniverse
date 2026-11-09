@@ -12,6 +12,7 @@ import * as village from '../world/village.js';
 import { BLOCK, PX, depthOf, blockHeights, blockColors, paintPixels } from '../world/ground.js';
 import { grassDetail, soilDetail } from './textures.js';
 import { mat } from './geo.js';
+import { ARTE, PAL } from '../arte.js';
 
 export { BLOCK };
 const RADIUS = 2;                       // bloques alrededor del de la cámara (5 × 5)
@@ -63,7 +64,7 @@ export class Terrain {
     this.dropAll();
     this.gen = gen;
     this.season = gen.season;
-    for (const w of this.workers) w.postMessage({ t: 'init', seed: gen.seed, projects: village.getProjects(), family: village.familyHouse() });
+    for (const w of this.workers) w.postMessage({ t: 'init', seed: gen.seed, projects: village.getProjects(), family: village.familyHouse(), arte: ARTE });
   }
   dispose(b) { this.group.remove(b.mesh); b.mesh.geometry.dispose(); b.mesh.material.dispose(); b.tex.dispose(); if (b.waterMesh) { this.water.group.remove(b.waterMesh); b.waterMesh.geometry.dispose(); } }
   dropAll() {
@@ -269,8 +270,13 @@ function groundMaterial(map) {
 // brillos que se mueven, el reflejo del cielo en los ángulos rasantes, el color más claro y verdoso donde cubre
 // poco, espuma que late hacia la orilla y el borde que se desvanece en vez de cortar el suelo (la línea de la orilla
 // la pinta el suelo, ground.js, que es más fino que esta malla)
+// (con el arte nuevo, ?arte=2: los colores de su paleta, menos espuma y olas más suaves)
+const lin = c => { const k = new THREE.Color(c); return `vec3(${k.r.toFixed(4)}, ${k.g.toFixed(4)}, ${k.b.toFixed(4)})`; };
+const WATER = ARTE === 2
+  ? { color: PAL.agua.media, shallow: lin(PAL.agua.orilla), foam: lin(PAL.agua.espuma), foamK: '0.35', wave: '0.7' }
+  : { color: '#4a9ee0', shallow: 'vec3(0.36, 0.74, 0.84)', foam: 'vec3(0.97, 0.99, 1.0)', foamK: '0.6', wave: '1.0' };
 function waterMaterial(uniforms, block) {
-  const m = new THREE.MeshStandardMaterial({ color: '#4a9ee0', roughness: 0.08, metalness: 0.1, transparent: true, opacity: 0.8 });
+  const m = new THREE.MeshStandardMaterial({ color: WATER.color, roughness: 0.08, metalness: 0.1, transparent: true, opacity: 0.8 });
   m.customProgramCacheKey = () => (block ? 'agua-bloque' : 'agua-fondo');   // (si no, Three les da el mismo programa a los dos: el texto de onBeforeCompile es el mismo)
   m.onBeforeCompile = sh => {
     Object.assign(sh.uniforms, { time: uniforms.time, sky: uniforms.sky, origin: uniforms.origin, built: uniforms.built });
@@ -287,16 +293,16 @@ function waterMaterial(uniforms, block) {
         float dp = vDepth;
         vec2 q = vW * 1.7 + vec2(time * 0.22, time * 0.1);
         float sp = sin(q.x * 3.1 + time * 0.9 + sin(q.y * 1.7) * 1.5) * sin(q.y * 2.7 - time * 0.7 + sin(q.x * 1.3) * 1.5);   // (brillos sin rejilla)
-        diffuseColor.rgb = mix(vec3(0.36, 0.74, 0.84), diffuseColor.rgb, smoothstep(0.0, 0.4, dp));
+        diffuseColor.rgb = mix(${WATER.shallow}, diffuseColor.rgb, smoothstep(0.0, 0.4, dp));
         diffuseColor.rgb += vec3(0.06, 0.08, 0.09) * smoothstep(0.75, 1.0, sp);
         // (espuma: una franja fina junto a la orilla, que late hacia ella)
         float ring = 0.55 + 0.45 * sin(dp * 40.0 - time * 1.8 + sin(vW.x * 1.3 + vW.y * 0.9) * 2.0);
         float foam = smoothstep(0.26, 0.04, dp) * ring;
-        diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.97, 0.99, 1.0), foam * 0.6);
+        diffuseColor.rgb = mix(diffuseColor.rgb, ${WATER.foam}, foam * ${WATER.foamK});
         diffuseColor.a = mix(diffuseColor.a, 0.9, foam * 0.5) * smoothstep(0.0, 0.22, dp);   // (el borde se desvanece: la orilla la dibuja el suelo)`)
       .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
         float w1 = sin(q.x * 1.3 + time * 1.1) * cos(q.y * 1.1 - time * 0.8), w2 = sin((q.x + q.y) * 2.3 - time * 1.7);
-        normal = normalize(normal + (mat3(viewMatrix) * vec3(w1 * 0.06 + w2 * 0.03, 0.0, w2 * 0.05 - w1 * 0.03)));
+        normal = normalize(normal + (mat3(viewMatrix) * vec3(w1 * 0.06 + w2 * 0.03, 0.0, w2 * 0.05 - w1 * 0.03) * ${WATER.wave}));
         float fres = pow(1.0 - clamp(dot(normalize(vViewPosition), normal), 0.0, 1.0), 3.0);
         diffuseColor.rgb = mix(diffuseColor.rgb, sky, fres * 0.4);
         diffuseColor.a = mix(diffuseColor.a, 1.0, fres * 0.6);`);

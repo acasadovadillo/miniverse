@@ -6,6 +6,7 @@
 // (45° a cada lado y arriba y abajo del centro), y lo de fuera se rellena con el color de la piel.
 import * as THREE from 'three';
 import { mat } from './geo.js';
+import { sobrio } from '../arte.js';
 
 const R = 0.29, SQ = 0.96, SIZE = 512;
 const shade = (c, k) => '#' + new THREE.Color(c).multiplyScalar(k).getHexString();
@@ -26,7 +27,9 @@ const K = SIZE * 4 / (2 * Math.PI * R);   // píxeles por unidad, cerca del cent
 export function faceMaterials(L) {
   const key = ['skin', 'eyes', 'eyeStyle', 'brows', 'hair', 'cheeks', 'sex', 'mouth'].map(k => L[k]).join('|');
   if (cache.has(key)) return cache.get(key);
-  const open = material(draw(L, false)), closed = material(draw(L, true));
+  // (con el arte nuevo, ?arte=2, los colores apagados con sobrio(), como los del cuerpo)
+  const S = { ...L, skin: sobrio(L.skin, 'piel'), eyes: sobrio(L.eyes), hair: sobrio(L.hair) };
+  const open = material(draw(S, false)), closed = material(draw(S, true));
   CLOSED.set(open, closed);
   cache.set(key, open);
   return open;

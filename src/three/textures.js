@@ -108,8 +108,8 @@ export const bark = () => make(64, 128, (g, w, h) => {
 });
 
 // Toldo a rayas
-export const awning = () => make(128, 64, (g, w, h) => {
-  for (let i = 0; i < 8; i++) { g.fillStyle = i % 2 ? '#f6f0e4' : '#d23c3c'; g.fillRect((i * w) / 8, 0, w / 8, h); }
+export const awning = (red = '#d23c3c', white = '#f6f0e4') => make(128, 64, (g, w, h) => {
+  for (let i = 0; i < 8; i++) { g.fillStyle = i % 2 ? white : red; g.fillRect((i * w) / 8, 0, w / 8, h); }
   g.fillStyle = 'rgba(0,0,0,.08)'; for (let i = 0; i < 8; i++) g.fillRect((i * w) / 8, 0, 2, h);
 });
 

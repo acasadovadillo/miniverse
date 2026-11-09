@@ -5,6 +5,7 @@
 import { WorldGen } from './gen.js';
 import { setProjects, setFamilyHouse } from './village.js';
 import { blockHeights, blockColors, paintPixels, BLOCK } from './ground.js';
+import { setArte } from '../arte.js';
 
 let gen = null;
 const queue = [];   // trabajos pendientes: { t: 'block' | 'paint', id, pri, … }
@@ -12,7 +13,7 @@ let pumping = false;
 
 onmessage = e => {
   const m = e.data;
-  if (m.t === 'init') { gen = new WorldGen(m.seed); setProjects(m.projects); setFamilyHouse(m.family); }
+  if (m.t === 'init') { setArte(m.arte); gen = new WorldGen(m.seed); setProjects(m.projects); setFamilyHouse(m.family); }
   else if (m.t === 'village') { setProjects(m.projects); setFamilyHouse(m.family); gen?.fields.clear(); }
   else if (m.t === 'block' || m.t === 'paint') { queue.push(m); pump(); }
   else if (m.t === 'drop') { const ids = new Set(m.ids); for (let i = queue.length - 1; i >= 0; i--) if (ids.has(queue[i].id)) queue.splice(i, 1); }

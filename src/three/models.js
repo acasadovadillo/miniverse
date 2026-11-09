@@ -10,7 +10,8 @@
 // trozo en unas pocas mallas. Lo que no se junta (fuego, cristal, agua) va aparte, igual que sus luces.
 import * as THREE from 'three';
 import { Builder, mat } from './geo.js';
-import { wood, stone, rug, rugDesign, notes, awning, planks, furrows, artwork } from './textures.js';
+import { wood as wood0, stone as stone0, rug, rugDesign, notes, awning, planks, furrows, artwork } from './textures.js';
+import { ARTE, apagado } from '../arte.js';
 import { CROPS, ITEMS } from '../items.js';
 import { WALL_H, FLOOR_H } from './build3d.js';
 import { SOLIDS, hull } from '../world/fit.js';
@@ -19,10 +20,11 @@ import { SOLIDS, hull } from '../world/fit.js';
 let MATS;
 export function modelMats() {
   if (MATS) return MATS;
-  const c = (color, o = {}) => mat({ color, ...o });
+  // (con el arte nuevo, ?arte=2, todos los colores apagados: ver apagado() en arte.js; lo que brilla, como siempre)
+  const A2 = ARTE === 2, c = (color, o = {}) => mat({ color: apagado(color), ...o }), wood = b => wood0(apagado(b)), stone = b => stone0(apagado(b));
   MATS = {
     wood: mat({ map: wood('#8a5a34'), roughness: 0.7 }), dark: mat({ map: wood('#5e3b22'), roughness: 0.7 }), light: mat({ map: wood('#b88454'), roughness: 0.7 }),
-    plank: mat({ map: planks(), roughness: 0.75 }), stone: mat({ map: stone('#9a948a') }), brick: mat({ map: stone('#b0705a') }), soot: c('#2a2220', { roughness: 1 }),
+    plank: mat({ map: planks(), roughness: 0.75, color: A2 ? '#d2c6b6' : '#ffffff' }), stone: mat({ map: stone('#9a948a') }), brick: mat({ map: stone('#b0705a') }), soot: c('#2a2220', { roughness: 1 }),
     sheet: c('#f4efe6', { roughness: 0.95 }), quilt: c('#d0574a', { roughness: 0.95 }), quiltB: c('#f0c25a', { roughness: 0.95 }), cloth: c('#e8e0d0', { roughness: 0.95 }),
     pot: c('#b8643c', { roughness: 0.8 }), soil: c('#4a3020'), leaf: c('#4f9a3a', { flatShading: true }), leafD: c('#3f7a2e', { flatShading: true }),
     rug: mat({ map: rug(), roughness: 1 }), brass: c('#c89a48', { metalness: 0.7, roughness: 0.35 }), iron: c('#3a3634', { metalness: 0.55, roughness: 0.45 }), steel: c('#8a929a', { metalness: 0.7, roughness: 0.3 }),
@@ -30,9 +32,9 @@ export function modelMats() {
     candle: c('#fff4dc', { roughness: 0.8 }), shade: c('#f4dca0', { emissive: '#ffb860', emissiveIntensity: 0.6, roughness: 0.9, side: THREE.DoubleSide }),
     books: ['#a83a32', '#3a5aa0', '#3f8a44', '#d8a83a', '#7a4aa0', '#e0e0d0'].map(x => c(x, { roughness: 0.8 })),
     red: c('#c83a32'), white: c('#f0ece4'), straw: c('#e0c060', { roughness: 1 }), hay: c('#d8b860', { roughness: 1 }), rope: c('#c8a870'),
-    notes: mat({ map: notes() }), awning: mat({ map: awning(), side: THREE.DoubleSide }), awningB: c('#3a6ab8', { side: THREE.DoubleSide }), awningG: c('#4a9a4a', { side: THREE.DoubleSide }),
-    water: new THREE.MeshStandardMaterial({ color: '#4a9ad8', roughness: 0.05, metalness: 0.2, transparent: true, opacity: 0.8 }),
-    glass: new THREE.MeshStandardMaterial({ color: '#cfe8f4', roughness: 0.05, metalness: 0.2, transparent: true, opacity: 0.3, depthWrite: false }),
+    notes: mat({ map: notes() }), awning: mat({ map: A2 ? awning('#a8483e', '#e0d8c8') : awning(), side: THREE.DoubleSide }), awningB: c('#3a6ab8', { side: THREE.DoubleSide }), awningG: c('#4a9a4a', { side: THREE.DoubleSide }),
+    water: new THREE.MeshStandardMaterial({ color: A2 ? '#47666a' : '#4a9ad8', roughness: 0.05, metalness: 0.2, transparent: true, opacity: 0.8 }),
+    glass: new THREE.MeshStandardMaterial({ color: A2 ? '#8a9aa0' : '#cfe8f4', roughness: 0.05, metalness: 0.2, transparent: true, opacity: 0.3, depthWrite: false }),
     glow: new THREE.MeshBasicMaterial({ color: '#ff9a3a' }), ember: c('#ff6a20', { emissive: '#ff4a10', emissiveIntensity: 1.2 }),
     sand: c('#d8c08a', { roughness: 1 }), moss: c('#5a7a3a', { flatShading: true }), ruin: mat({ map: stone('#b8b0a0'), flatShading: true }), dirt: mat({ map: furrows(), roughness: 1 }),
     canvas: c('#d8c8a0', { side: THREE.DoubleSide, roughness: 1 }), tentStripe: c('#a8442a', { side: THREE.DoubleSide }), lamp: c('#fff2c0', { emissive: '#ffd070', emissiveIntensity: 1.5 }),

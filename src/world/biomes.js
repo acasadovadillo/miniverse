@@ -5,6 +5,7 @@
 import { lerp, smoothstep, rgbOf } from '../util.js';
 import { CENTER } from './village.js';
 import { wrapNoise, dxOf, latOf, PLANET } from './planet.js';
+import { onArte, tonos } from '../arte.js';
 
 export const B = { OCEAN: 0, SHALLOW: 1, BEACH: 2, MEADOW: 3, FOREST: 4, PINES: 5, SWAMP: 6, DESERT: 7, SNOW: 8, ROCKY: 9, ICE: 10, LAKE: 11 };
 
@@ -23,7 +24,10 @@ export const BIOMES = [
   { name: 'Hielo', pal: ['#bfe0f2', '#b2d6ec', '#cfe9f7', '#a6cce4'] },
   { name: 'Lago', pal: ['#3578bb', '#2f6eb0', '#3f86c6', '#2a64a3'], water: 'deep' },
 ];
-for (const b of BIOMES) b.rgb = b.pal.map(rgbOf);
+// Con el arte nuevo (?arte=2), los mismos biomas en la paleta sobria (sección 4.8 de la propuesta)
+const ART2 = ['#2f4a4f', '#47666a', '#c9b88e', '#6e7a55', '#4f5e42', '#46553f', '#4e5740', '#b9a681', '#d9dddc', '#7c786e', '#b4cdd6', '#355a63'];
+const OLD = BIOMES.map(b => b.pal);
+onArte(v => BIOMES.forEach((b, i) => { b.pal = v === 2 ? tonos(ART2[i]) : OLD[i]; b.rgb = b.pal.map(rgbOf); }));
 
 // Los ruidos del clima, uno por frecuencia
 const N = Object.fromEntries([0.02, 0.07, 0.006, 0.03, 0.008, 0.035, 0.0035, 0.012, 0.011, 0.04, 0.01, 0.3].map(f => [f, wrapNoise(f)]));
