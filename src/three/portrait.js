@@ -3,6 +3,12 @@
 // todos; cada retrato se pinta la primera vez que hace falta y se guarda.
 import * as THREE from 'three';
 import { Person3D, G } from './people.js';
+import { ARTE } from '../arte.js';
+import { loadReal, realReady, RealPerson } from './realperson.js';
+
+// (?arte=2, en revisión: el retrato de la persona realista, encuadrado en su cabeza; mientras carga, el del muñeco)
+const REAL = ARTE === 2;
+if (REAL) loadReal();
 
 export const PORTRAIT_SIZE = 192;
 const cache = new Map();
@@ -28,16 +34,23 @@ function setup() {
 const shared = new Set(Object.values(G));
 // El retrato de un look, como lienzo de PORTRAIT_SIZE × PORTRAIT_SIZE (fondo transparente)
 export function portrait3D(look) {
-  const k = JSON.stringify(look);
+  const real = REAL && realReady(), k = (real ? 'R' : '') + JSON.stringify(look);
   if (cache.has(k)) return cache.get(k);
   const { renderer, scene, camera } = R || setup();
-  const p = new Person3D(look);
-  p.update(0, 0);
+  const p = real ? new RealPerson(look) : new Person3D(look);
+  p.facing = 0.32;
+  p.update(real ? 0.5 : 0, 0);
   p.root.rotation.y = 0.32;   // de tres cuartos, mirando un poco hacia la derecha
   scene.add(p.root);
+  if (real) {
+    // (la cabeza de la persona realista va más alta: la cámara se pone a su altura, con los hombros)
+    p.root.updateMatrixWorld(true);
+    const head = p.head.getWorldPosition(new THREE.Vector3());
+    camera.position.set(0, head.y + 0.1, 1.15); camera.lookAt(0, head.y + 0.02, 0);
+  } else { camera.position.set(0, 1.12, 2.05); camera.lookAt(0, 1.02, 0); }
   renderer.render(scene, camera);
   scene.remove(p.root);
-  p.root.traverse(o => { if (o.isMesh && !shared.has(o.geometry)) o.geometry.dispose(); });
+  p.root.traverse(o => { if (o.isMesh && !shared.has(o.geometry)) { o.geometry.dispose(); if (real) o.material.map?.dispose(); } });
   const out = document.createElement('canvas');
   out.width = out.height = PORTRAIT_SIZE;
   out.getContext('2d').drawImage(renderer.domElement, 0, 0);

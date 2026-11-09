@@ -5,6 +5,11 @@ import * as THREE from 'three';
 import { Person3D } from './people.js';
 import { mat } from './geo.js';
 import { planks } from './textures.js';
+import { ARTE } from '../arte.js';
+import { loadReal, realReady, RealPerson } from './realperson.js';
+
+// (?arte=2, en revisión: la persona realista, con los encuadres a su altura; mientras carga, el muñeco)
+const REAL = ARTE === 2;
 
 export class CharacterPreview {
   constructor(canvas) {
@@ -33,7 +38,12 @@ export class CharacterPreview {
   }
   setLook(look) {
     if (this.person) this.scene.remove(this.person.root);
-    this.person = new Person3D({ ...look }, '');
+    this.look = look;
+    if (REAL && !realReady()) loadReal().then(() => { if (this.look === look) this.setLook(look); });
+    this.person = REAL && realReady() ? new RealPerson({ ...look }) : new Person3D({ ...look }, '');
+    // Encuadres a la altura de quien se ve: el cuerpo entero y la cara
+    const h = this.person.real ? this.person.height : 1.36, face = this.person.real ? h - 0.12 : 1.1;
+    this.shots = this.person.real ? { body: [[0, h * 0.72, 4.9], [0, h * 0.52, 0]], face: [[0, face + 0.02, 1.75], [0, face - 0.1, 0]] } : { body: [[0, 1.25, 4.1], [0, 0.68, 0]], face: [[0, 1.24, 2.05], [0, 1.1, 0]] };
     this.person.root.traverse(o => { if (o.isMesh) o.castShadow = true; });
     this.person.root.rotation.y = this.angle;
     this.scene.add(this.person.root);
