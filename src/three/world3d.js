@@ -11,6 +11,7 @@ import { PIECES, parsePlaced } from '../pieces.js';
 import { CAM } from '../camera.js';
 import { Builder } from './geo.js';
 import { buildNatureChunk, buildGround, buildFarNature, shake, WIND } from './nature3d.js';
+import { roofShape } from '../world/roof.js';
 import { baseMaterials, wallTile, doorTile, doorLeaf, gateTile, gateLeaf, fenceTile, floorTile, roofRegion, paintKey, WALL_H, ROOF, FLOWER } from './build3d.js';
 import { getModel, modelMat, CHANDELIER } from './models.js';
 import { yawOf } from '../art/stations.js';
@@ -430,9 +431,9 @@ export class World3D {
         this.group.add(lamp);
       }
       // Altura del tejado en (x, z), para que la cámara pase por encima
-      const edges = [], has = (x, y) => this.regionOf.get(`${x},${y}`) === r.key;
-      for (const [x, y] of r.tiles) { if (!has(x, y - 1)) edges.push([x, y, x + 1, y]); if (!has(x, y + 1)) edges.push([x, y + 1, x + 1, y + 1]); if (!has(x - 1, y)) edges.push([x, y, x, y + 1]); if (!has(x + 1, y)) edges.push([x + 1, y, x + 1, y + 1]); }
-      r.top = (px, py) => { let best = Infinity; for (const e of edges) { const d = Math.max(Math.max(e[0] - px, 0, px - e[2]), Math.max(e[1] - py, 0, py - e[3])); if (d < best) best = d; } return WALL_H + ROOF.thick + Math.min(best, ROOF.cap) * ROOF.level; };
+      // (la misma forma que el dibujo: roof.js, a cuatro aguas o, con ?arte=2, a dos)
+      const shape = roofShape(r.tiles, (x, y) => this.regionOf.get(`${x},${y}`) === r.key);
+      r.top = (px, py) => WALL_H + ROOF.thick + shape.H(px, py) * ROOF.level;
     }
   }
   // El techo de una casa por dentro: tablas de madera (que solo se ven desde abajo) y una viga oscura cada

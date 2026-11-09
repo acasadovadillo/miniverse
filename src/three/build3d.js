@@ -13,6 +13,7 @@ import { plaster, planks, roofTiles, stone, wood, siding, flagstone, gravel, tha
 import { PIECES, parsePlaced } from '../pieces.js';
 import { front } from '../art/stations.js';
 import { ARTE, PAL } from '../arte.js';
+import { roofShape, ROOF_CAP } from '../world/roof.js';
 
 // La tanda en revisión (?arte=2): puertas y contraventanas de tablas pintadas con uno de cinco colores minerales por
 // casa, dintel y alféizar en las ventanas, cornisa, esquinas de sillería y tapajuntas en los muros
@@ -415,6 +416,8 @@ export function floorTile(scene, tx, ty, id, emit) {
 // Una región de tejado: casillas unidas con tejado. Altura de cada esquina según su distancia (métrica del
 // máximo) al borde de la región, como en el juego: así sube a cuatro aguas desde el alero con las limas a 45°
 export function roofRegion(scene, tiles, regionKey) {
+  const shape = roofShape(tiles);
+  if (shape.gable) return gableRoof(scene, tiles, regionKey, shape);
   const M = baseMaterials(), set = new Set(tiles.map(([x, y]) => `${x},${y}`)), has = (x, y) => set.has(`${x},${y}`);
   const edges = [];
   for (const [x, y] of tiles) {
@@ -455,7 +458,11 @@ export function roofRegion(scene, tiles, regionKey) {
   const g = new THREE.Group();
   for (const [id, B] of byMat) g.add(B.mesh(M.roofs[id]));
   g.add(soffit.mesh(M.soffit), fascia.mesh(M.roofEdge));
-  // Chimeneas de piedra con su remate, hacia la espalda del hogar (el muro que tiene detrás)
+  return addChimneys(g, chimneys, regionKey);
+}
+// Chimeneas de piedra con su remate, hacia la espalda del hogar (el muro que tiene detrás)
+function addChimneys(g, chimneys, regionKey) {
+  const M = baseMaterials();
   const stacks = chimneys.map(([x, z, y, rot]) => { const [fx, fz] = front(rot); return [x - fx * 0.26, z - fz * 0.26, y, fx !== 0]; });
   for (const [x, z, y, across] of stacks) {
     // (a lo ancho del hogar w, hacia atrás d)
@@ -467,6 +474,60 @@ export function roofRegion(scene, tiles, regionKey) {
   g.userData = { regionKey, chimneys: stacks.map(([x, z, y]) => [x, y + 1.15, z]) };
   return g;
 }
+// A dos aguas (?arte=2, regiones rectangulares: ver world/roof.js). Todo se piensa en (u, v): u a lo largo de la
+// cumbrera y v de alero a alero. Faldones con la teja en filas paralelas al alero; en los lados largos, alero que baja
+// con la pendiente y su tabla; en los cortos, vuelo con su tabla; caballete en la cumbrera; y los hastiales (el muro
+// triangular encima de cada muro corto), del material de ese muro y, en los de entramado, con su viga y su pendolón
+export function gableRoof(scene, tiles, regionKey, S) {
+  const M = baseMaterials(), byMat = new Map(), soffit = new Builder(), fascia = new Builder(), walls = new Map(), o = ROOF.over;
+  const X = S.alongX, u0 = X ? S.x0 : S.y0, u1 = X ? S.x1 : S.y1, v0 = X ? S.y0 : S.x0, v1 = X ? S.y1 : S.x1;
+  const lvl = v => Math.max(0, Math.min(v - v0, v1 - v, ROOF_CAP)), top = v => WALL_H + ROOF.thick + lvl(v) * ROOF.level;
+  const P = (u, y, v) => (X ? [u, y, v] : [v, y, u]), N = (nu, nv) => (X ? [nu, 0, nv] : [nv, 0, nu]);
+  const V = (u, v) => { const eu = u === u0 ? -o : u === u1 ? o : 0, ev = v === v0 ? -o : v === v1 ? o : 0; return P(u + eu, top(v) - (ev ? o * ROOF.level : 0), v + ev); };
+  const down = p => [p[0], p[1] - ROOF.thick, p[2]];
+  const chimneys = [], count = new Map();
+  for (const [x, y] of tiles) {
+    const raw = scene.at('roof', x, y), id = M.roofs[raw] ? raw : 'tejado_rojo', B = byMat.get(id) || byMat.set(id, new Builder()).get(id);
+    count.set(id, (count.get(id) || 0) + 1);
+    const tu = X ? x : y, tv = X ? y : x;
+    for (const va of [tv, tv + 0.5]) {
+      const vb = va + 0.5, a = V(tu, va), b = V(tu + 1, va), c = V(tu + 1, vb), d = V(tu, vb);
+      for (const tri of [[a, b, c], [a, c, d]]) { addRoofTri(B, tri); addRoofTri(soffit, tri.map(down), true); }
+      // Tabla del vuelo en los lados cortos
+      for (const [u, s] of [[u0, -1], [u1, 1]]) if ((s < 0 ? tu : tu + 1) === u) { const p = V(u, va), q = V(u, vb); fascia.quadN(down(p), down(q), q, p, N(s, 0), [[0, 0], [0.5, 0], [0.5, 0.14], [0, 0.14]]); }
+    }
+    // Tabla del alero en los lados largos
+    for (const [v, s] of [[v0, -1], [v1, 1]]) if ((s < 0 ? tv : tv + 1) === v) { const p = V(tu, v), q = V(tu + 1, v); fascia.quadN(down(p), down(q), q, p, N(0, s), [[0, 0], [1, 0], [1, 0.14], [0, 0.14]]); }
+    const [under, rot] = parsePlaced(scene.at('placed', x, y) || '');
+    if (under === 'chimenea') chimneys.push([x + 0.5, y + 0.5, top(tv + 0.5), rot]);
+  }
+  // Caballete: una hilera de tejas a lo largo de la cumbrera (si no la corta lo plano de las casas muy anchas)
+  const mid = (v0 + v1) / 2, main = [...count].sort((p, q) => q[1] - p[1])[0][0];
+  if (lvl(mid) < ROOF_CAP) { const ridge = byMat.get(main), y = top(mid), [a, b] = [P(u0 - o, y - 0.03, mid - 0.13), P(u1 + o, y + 0.09, mid + 0.13)]; ridge.box(Math.min(a[0], b[0]), a[1], Math.min(a[2], b[2]), Math.max(a[0], b[0]), b[1], Math.max(a[2], b[2]), { skip: 'ny' }); }
+  // Hastiales, encima de los muros cortos (a media casilla del borde, por su centro), de alero a alero
+  const wall = key => walls.get(key) || walls.set(key, new Builder()).get(key);
+  for (const [uc, s] of [[u0 + 0.5, -1], [u1 - 0.5, 1]]) {
+    const at = X ? scene.at('placed', Math.floor(uc), Math.floor(mid)) : scene.at('placed', Math.floor(mid), Math.floor(uc)), id = at && parsePlaced(at)[0];
+    const ext = EXTERIOR[id] || 'plaster', inner = 'plaster', a = v0 + 0.5, b = v1 - 0.5;
+    const under = v => top(v) - ROOF.thick, face = (key, uf, n) => { const B = wall(key); for (let v = a; v < b - 1e-6; v += 0.5) { const w = Math.min(b, v + 0.5); B.quadN(P(uf, WALL_H, v), P(uf, WALL_H, w), P(uf, under(w), w), P(uf, under(v), v), N(n, 0), [[v, WALL_H], [w, WALL_H], [w, under(w)], [v, under(v)]]); } };
+    face(ext, uc + s * T, s); face(inner, uc - s * T, -s);
+    // (los cantos de los extremos, junto al alero)
+    for (const [v, n] of [[a, -1], [b, 1]]) wall(ext).quadN(P(uc - T, WALL_H, v), P(uc + T, WALL_H, v), P(uc + T, under(v), v), P(uc - T, under(v), v), N(0, n), [[0, 0], [0.24, 0], [0.24, under(v) - WALL_H], [0, under(v) - WALL_H]]);
+    if (framed(id || 'muro_entramado') && ext === 'plaster') {
+      // Viga de atado abajo y pendolón hasta la cumbrera, por fuera
+      const k = uc + s * (T + 0.04), B = wall('timber'), lo = Math.min(uc + s * T, k), hi = Math.max(uc + s * T, k);
+      const box3 = (pa, pb) => B.box(Math.min(pa[0], pb[0]), Math.min(pa[1], pb[1]), Math.min(pa[2], pb[2]), Math.max(pa[0], pb[0]), Math.max(pa[1], pb[1]), Math.max(pa[2], pb[2]));
+      box3(P(lo, WALL_H, a), P(hi, WALL_H + 0.14, b));
+      box3(P(lo, WALL_H + 0.14, mid - 0.07), P(hi, under(mid) - 0.02, mid + 0.07));
+    }
+  }
+  const g = new THREE.Group();
+  for (const [id, B] of byMat) g.add(B.mesh(M.roofs[id]));
+  g.add(soffit.mesh(M.soffit), fascia.mesh(M.roofEdge));
+  for (const [key, B] of walls) if (!B.empty) g.add(B.mesh(M[key]));
+  return addChimneys(g, chimneys, regionKey);
+}
+
 // Un triángulo del tejado, con las tejas en filas paralelas al alero (u a lo largo, v cuesta arriba). Por
 // encima mira hacia arriba; la cara de abajo (under), hacia abajo
 function addRoofTri(B, [a, b, c], under = false) {

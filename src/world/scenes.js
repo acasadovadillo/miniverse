@@ -13,6 +13,7 @@ import { wallRuns, WINDOW_Z, T } from '../art/build.js';
 import { PIECES, layerOf, parsePlaced } from '../pieces.js';
 import { Person } from '../entities.js';
 import { wrapIndex, inPlanet } from './planet.js';
+import { roofShape } from './roof.js';
 
 // Lo de un trozo visto desde el otro lado de la costura: lo mismo, corrido off casillas en x
 const X_KEYS = new Set(['x', 'x0', 'x1', 'cx']);
@@ -465,8 +466,10 @@ export class Overworld {
       if (!has(x - 1, y)) edges.push([x, y, x, y + 1]);
       if (!has(x + 1, y)) edges.push([x + 1, y, x + 1, y + 1]);
     }
+    const gable = roofShape(tiles, has);   // (con ?arte=2, las rectangulares van a dos aguas: ver roof.js)
     for (const [x, y] of tiles) {
-      const h = { nw: roofDistance(x, y, edges), ne: roofDistance(x + 1, y, edges), se: roofDistance(x + 1, y + 1, edges), sw: roofDistance(x, y + 1, edges), c: roofDistance(x + 0.5, y + 0.5, edges) };
+      const D = gable.gable ? gable.H : (px, py) => roofDistance(px, py, edges);
+      const h = { nw: D(x, y), ne: D(x + 1, y), se: D(x + 1, y + 1), sw: D(x, y + 1), c: D(x + 0.5, y + 0.5) };
       const eaves = { n: !has(x, y - 1), e: !has(x + 1, y), s: !has(x, y + 1), w: !has(x - 1, y) };
       memo.set(`${x},${y}`, { h, eaves });
     }
