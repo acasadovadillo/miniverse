@@ -128,12 +128,12 @@ export class Actors {
       // (las personas con el mismo aspecto se copian de la primera: hacer una desde cero cuesta)
       const key = JSON.stringify(look);
       let person;
-      if (REAL && realReady()) person = new RealPerson(look);
+      if (REAL && realReady()) person = new RealPerson(look, { kid: !!e.kid });
       else { if (!PEOPLE.has(key)) PEOPLE.set(key, new Person3D(look, '')); person = PEOPLE.get(key).clone(); }
       const root = new THREE.Group();
       root.add(person.root);
       const m = { kind: 'person', root, person, prev: null, speed: 0 };
-      if (e.kid) { root.scale.setScalar(KID_SCALE); root.rotation.order = 'YXZ'; }
+      if (e.kid) { if (!person.real) root.scale.setScalar(KID_SCALE); root.rotation.order = 'YXZ'; }   // (la persona realista ya es un niño: ver realperson.js)
       if (isPlayer || e.remote) {
         // Con algo en la mano, caballo y barca (el jugador, además, con sus propios materiales para dibujar
         // su silueta, y en la capa 2; los demás jugadores, con su nombre encima)
@@ -177,13 +177,13 @@ export class Actors {
       m.root.rotation.x = lying ? -Math.PI / 2 : 0;
       m.root.rotation.y = lying ? (pz ? pz.yaw : e.yaw || 0) : 0;
       y += pz ? pz.h : lying ? e.h || 0 : 0;
-      if (pz && !lying && m.person?.real) y += 0.36 - m.person.hipY;   // (la persona realista tiene la cadera más alta que el muñeco)
+      if (pz && !lying && m.person?.real) y += 0.36 * (m.person.kid ? KID_SCALE : 1) - m.person.hipY;   // (la persona realista tiene la cadera más alta que el muñeco)
     }
     if (m.kind === 'person') {
       const P = m.person;
       if ((e.kid && e.lying) || (pz && lying)) { P.facing = 0; P.root.rotation.y = 0; }
       // (tumbada, la persona realista se corre hacia los pies lo que mide de más que el muñeco: la cabeza, en la almohada)
-      if (P.real) P.r.root.position.y = lying ? -(P.height - 1.36) : 0;
+      if (P.real) P.r.root.position.y = lying ? -(P.height - 1.36 * (P.kid ? KID_SCALE : 1)) : 0;
       else if (pz) { P.facing = pz.yaw; P.root.rotation.y = pz.yaw; }
       else if (yaw !== null) P.facing = yaw;
       if (m.horse && m.horseCoat !== (e.horseCoat || 'castano')) {   // (el caballo del jinete, con el pelaje del suyo)
@@ -194,7 +194,7 @@ export class Actors {
       if (m.boat) {
         // Barca y caballo
         m.boat.visible = !!e.boat; m.horse.visible = !!e.mount;
-        const seat = P.real ? 0.36 - P.hipY : 0;   // (la persona realista, con la cadera donde la del muñeco: en el asiento)
+        const seat = P.real ? 0.36 * (P.kid ? KID_SCALE : 1) - P.hipY : 0;   // (la persona realista, con la cadera donde la del muñeco: en el asiento)
         if (e.aboard) { y = WATER_Y - 0.12 + Math.sin(t * 2.5) * 0.04; P.root.position.y = 0.3 + seat; }   // (de pasajero: la barca es la del que rema)
         else if (e.boat) {
           y = WATER_Y - 0.12 + Math.sin(t * 2.5) * 0.04; m.boat.rotation.y = P.root.rotation.y; m.boat.rotation.z = Math.sin(t * 1.7) * 0.03; P.root.position.y = 0.3 + seat;
