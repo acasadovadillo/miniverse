@@ -11,12 +11,14 @@ import { freePlace } from './gather.js';
 
 // Con ?modo=servidor, este juego es el mundo del servidor (lo abre multijugador.py): sin dibujo ni menús (server.js).
 // Con ?modo=pruebas, el juego de siempre, pero jugado por las pruebas automáticas (pruebas.js; las lanza probar.py)
+// Con ?banco=1, el banco de medidas del dibujo (banco.js; lo lanza banco.py): sin entrar con ninguna cuenta
 const MODE = new URLSearchParams(location.search).get('modo');
 if (MODE === 'servidor') import('./server.js').then(m => m.runServer());
+else if (new URLSearchParams(location.search).has('banco')) import('./banco.js').then(m => m.runBench(play(false)));
 else if (MODE === 'pruebas' && ['127.0.0.1', 'localhost'].includes(location.hostname)) import('./pruebas.js').then(m => m.runTests(play()));   // (solo en este ordenador)
 else play();
 
-function play() {
+function play(login = true) {   // (login: abrir la pantalla de entrar)
   Settings.load();
   const game = new Game(document.getElementById('c'));
   const menus = initMenus(game);
@@ -85,7 +87,7 @@ function play() {
   }
   addEventListener('blur', () => showPlayers(false));
   game.run();
-  menus.boot();
+  if (login) menus.boot();
 
   // Acceso desde la consola del navegador, para depurar
   window.pueblo = game;

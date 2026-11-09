@@ -10,3 +10,6 @@ backups/
 servidor-secretos.json
 servidor-chrome/
 ajustes.json
+
+# Cifras y capturas del banco de medidas (banco.py)
+.banco/

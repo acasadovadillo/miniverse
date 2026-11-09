@@ -24,6 +24,19 @@ const CROUCH = { hip: 1.5, knee: 2.5, drop: 0.11, lean: 0.4 };
 const CROUCH_SKIRT = { hip: 1.0, knee: 1.7, drop: 0.11, lean: 0.25 };
 const LOOK_R = 2.6;      // a qué distancia se mira a quien se tiene al lado
 
+// Una malla del jugador: con su propio material (para dibujar su silueta) y en la capa 2. En la primera pasada del
+// dibujo no escribe ni color ni fondo (solo deja su sombra): esa vez se salta, sin dejar de dar sombra (el mapa de
+// sombras se pinta aparte), y se ahorra una llamada por pieza en cada fotograma
+function ownMesh(o, m, body = false) {
+  o.material = o.material.clone();
+  m.mats.push(o.material);
+  if (body) m.body.push(o.material);
+  o.layers.set(2);
+  let count = null;
+  o.onBeforeRender = (r, s, c, geo, mat) => { if (!mat.colorWrite && !mat.depthWrite) { count = geo.drawRange.count; geo.drawRange.count = -1; } };
+  o.onAfterRender = (r, s, c, geo) => { if (count !== null) { geo.drawRange.count = count; count = null; } };
+}
+
 export class Actors {
   constructor(view) {
     this.view = view;
@@ -120,8 +133,8 @@ export class Actors {
       }
       if (isPlayer) {
         m.mats = []; m.body = [];
-        person.root.traverse(o => { if (o.isMesh) { o.material = o.material.clone(); m.mats.push(o.material); m.body.push(o.material); o.layers.set(2); } });
-        for (const o of [m.horse, m.boat]) o.traverse(q => { if (q.isMesh) { q.material = q.material.clone(); m.mats.push(q.material); q.layers.set(2); } });
+        person.root.traverse(o => { if (o.isMesh) ownMesh(o, m, true); });
+        for (const o of [m.horse, m.boat]) o.traverse(q => { if (q.isMesh) ownMesh(q, m); });
         this.player = m;
       }
       return m;
@@ -156,7 +169,7 @@ export class Actors {
       else if (yaw !== null) P.facing = yaw;
       if (m.horse && m.horseCoat !== (e.horseCoat || 'castano')) {   // (el caballo del jinete, con el pelaje del suyo)
         const h = horseModel(e.horseCoat, e.horseBags);
-        if (m === this.player) h.traverse(q => { if (q.isMesh) { q.material = q.material.clone(); m.mats.push(q.material); q.layers.set(2); } });
+        if (m === this.player) h.traverse(q => { if (q.isMesh) ownMesh(q, m); });
         m.root.remove(m.horse); m.root.add(h); m.horse = h; m.horseCoat = e.horseCoat || 'castano';
       }
       if (m.boat) {
@@ -202,7 +215,7 @@ export class Actors {
       P.fitSkirt();
       if (m.hand) {   // (los jugadores: la barriga, si espera un bebé)
         const made = P.setBelly(this.game.family.bellyOf(e));
-        if (made && m === this.player) { made.material = made.material.clone(); m.mats.push(made.material); m.body.push(made.material); made.layers.set(2); }
+        if (made && m === this.player) ownMesh(made, m, true);
       }
     } else if (m.kind === 'animal') {
       if (yaw !== null) turnTo(m.root, yaw, dt);
@@ -235,7 +248,7 @@ export class Actors {
     if (m.holding !== show) {
       m.hand.clear();
       const tool = show && toolModel(show);
-      if (tool && m.mats) tool.traverse(o => { if (o.isMesh) { o.material = o.material.clone(); m.mats.push(o.material); m.body.push(o.material); o.layers.set(2); } });
+      if (tool && m.mats) tool.traverse(o => { if (o.isMesh) ownMesh(o, m, true); });
       if (tool) m.hand.add(tool);
       m.holding = show;
     }

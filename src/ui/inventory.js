@@ -108,9 +108,17 @@ export function initInventoryUI(game, { onClose, onCraft }) {
     picked = inv.slots.findIndex(s => s?.id === id);
     refresh();
   };
+  // (cada icono se dibuja cuando asoma en la lista: hacerlos todos al arrancar, con los de modelo 3D esperando a la
+  // gráfica uno a uno, retrasaba la entrada al juego decenas de segundos)
+  const lazy = new IntersectionObserver(seen => {
+    for (const e of seen) if (e.isIntersecting) { lazy.unobserve(e.target); paint(e.target, { id: e.target.dataset.id, n: 1 }); }
+  }, { root: all, rootMargin: '96px 0px' });
   for (const id of Object.keys(ITEMS)) {
     const el = slotEl(-1, 'slot');
-    paint(el, { id, n: 1 });
+    el.dataset.id = id;
+    el.title = ITEMS[id].name;
+    el.querySelector('img').hidden = true;
+    lazy.observe(el);
     el.addEventListener('pointerdown', e => { e.preventDefault(); give(id); });
     all.append(el);
     found.push([el, id, plain(`${ITEMS[id].name} ${id.replace(/_/g, ' ')}`)]);

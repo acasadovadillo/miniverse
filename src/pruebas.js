@@ -33,6 +33,7 @@ import { itemIcon } from './art/items.js';
 import { PREY, bodyBox } from './hunt.js';
 import { priceOf } from './economy.js';
 import { modelKind, ICON3D } from './three/icons.js';
+import { View3D } from './three/engine.js';
 
 const GATE_X = 20;   // (el hueco de la valla del jardín, en el camino)
 const q = new URLSearchParams(location.search), WHO = q.get('quien') || 'a', RELAY = q.get('relay'), PART = q.get('parte') || 'solo';   // parte: 'solo' (un jugador), 'dos' o 'mirar' (sin pruebas: el juego con la cuenta de prueba, para verlo)
@@ -996,6 +997,43 @@ async function soloTests(game) {
       if (magenta > 20 || opaque < 10 || c.width !== (modelKind(id) ? ICON3D : 18)) bad.push(id);
     }
     check(!bad.length, `iconos vacíos, de relleno o de otro tamaño: ${bad.join(', ')}`);
+  });
+  await test('dibujo: el jugador no se pinta a ciegas, las luces apagadas no se calculan, el cielo va al final y la lista de objetos pinta al verse', async () => {
+    const v = game.view3d;
+    await goTo(game, CENTER.x, CENTER.y + 3); draw();
+    // El jugador: en la primera pasada (sin color ni fondo) se salta; con color, se pinta
+    const hand = v.actors.player.hand, held = o => { for (let q = o; q; q = q.parent) if (q === hand) return true; return false; };   // (lo que lleva en la mano va aparte)
+    const meshes = [];
+    v.actors.player.person.root.traverse(o => { if (o.isMesh && !held(o)) meshes.push(o); });
+    const pm = meshes[0], geo = pm.geometry;
+    pm.onBeforeRender(null, null, null, geo, { colorWrite: false, depthWrite: false }); const blind = geo.drawRange.count; pm.onAfterRender(null, null, null, geo);
+    pm.onBeforeRender(null, null, null, geo, { colorWrite: true, depthWrite: true }); const seen = geo.drawRange.count; pm.onAfterRender(null, null, null, geo);
+    check(blind < 0 && seen === Infinity && geo.drawRange.count === Infinity, `el jugador: ${blind} a ciegas, ${seen} con color`);
+    // Las luces de cerca se saltan donde no dan luz, y el cielo se pinta después de lo opaco
+    check(THREE.ShaderChunk.lights_fragment_begin.includes('if ( directLight.visible ) RE_Direct'), 'las luces de cerca se calculan aunque no den luz');
+    let later = 0;
+    v.scene.traverse(o => { if (o !== v.sky && o.isMesh && !o.material.transparent) later = Math.max(later, o.renderOrder); });
+    check(!v.sky.material.transparent && v.sky.renderOrder > later, `el cielo va en el orden ${v.sky.renderOrder} y hay opaco en el ${later}`);
+    // La lista de todos los objetos (modo creativo): al abrirla se pintan los que se ven, no todos
+    const W = game.windows, said = [];
+    runCommand(game, '/gamemode creative', t => said.push(t));
+    try {
+      W.open('s-inv');
+      const cells = [...document.querySelectorAll('#inv-all-grid .slot')], shown = () => !cells[0].querySelector('img').hidden;
+      await until(() => { void cells[0].getBoundingClientRect(); return shown(); }, 20000, 'que se pinte el primer icono al abrir');
+      check(cells[0].querySelector('img').src, 'el primer icono no tiene dibujo');
+      check(cells.at(-1).querySelector('img').hidden, 'se pintan también los que no se ven');
+    } finally { W.closeAll(); runCommand(game, '/gamemode survival', () => {}); }
+  });
+  await test('resolución automática: baja mientras sirve y no se queda donde no gana nada', async () => {
+    // (como un MacBook Air con pantalla Retina: a ×2 va a 12 fps y por debajo de ×1 ya no mejora)
+    const FPS = { 2: 12, 1.75: 15, 1.5: 18, 1.25: 22, 1: 26, 0.75: 27 }, fake = { pixelRatio: 2, setScale(x) { this.pixelRatio = x; } };
+    for (let i = 0; i < 200; i++) View3D.prototype.autoScale.call(fake, FPS[fake.pixelRatio] ?? 30, 0.5);
+    check(fake.pixelRatio === 1 && fake.scaling.floor === 1, `se queda en ×${fake.pixelRatio}`);
+    // (y con una gráfica que sí gana al bajar, baja hasta el final)
+    const G = { 2: 10, 1.75: 14, 1.5: 18, 1.25: 24, 1: 30, 0.75: 36 }, g = { pixelRatio: 2, setScale(x) { this.pixelRatio = x; } };
+    for (let i = 0; i < 200; i++) View3D.prototype.autoScale.call(g, G[g.pixelRatio], 0.5);
+    check(g.pixelRatio === 0.75, `con gráfica lenta se queda en ×${g.pixelRatio}`);
   });
   await test('ganchos: ningún sistema tapa un gancho con otra cosa', async () => {
     const HOOKS = { target: 3, interact: 2, entities: 1, onDay: 1 };   // (los ganchos con parámetros: un método con ese nombre y otro uso los taparía)

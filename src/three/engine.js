@@ -25,6 +25,18 @@ const SKY = {
   rain: { top: '#6a7888', horizon: '#a8b4c0', fog: '#9aa6b2' },
 };
 const LOW_Q = new URLSearchParams(location.search).get('q') === 'low';
+const SKY_LAST = 1e6;   // orden de dibujo del cielo (ver makeSky)
+
+// Las luces de cerca (hogares, antorchas…) son siempre las mismas seis (ver makeLights), y Three las calcula en cada
+// píxel aunque estén apagadas (de día) o el píxel quede fuera de su alcance: buena parte del trabajo de la
+// gráfica. Aquí, cada una se salta donde no da luz (su color, ya con la distancia, es cero): sale lo mismo, porque
+// lo que se saltaba sumaba cero. (Antes de que se compile ningún material: el trozo es común a todos.)
+{
+  const C = THREE.ShaderChunk, from = C.lights_fragment_begin.indexOf('for ( int i = 0; i < NUM_POINT_LIGHTS; i ++ ) {'), call = '\t\tRE_Direct( directLight, geometryPosition, geometryNormal, geometryViewDir, geometryClearcoatNormal, material, reflectedLight );';
+  const at = C.lights_fragment_begin.indexOf(call, from);
+  if (from >= 0 && at > from) C.lights_fragment_begin = C.lights_fragment_begin.slice(0, at) + '\t\tif ( directLight.visible ) ' + call.trimStart() + C.lights_fragment_begin.slice(at + call.length);
+  else console.warn('Luces de cerca: el trozo de Three ha cambiado y no se ahorran');
+}
 
 export class View3D {
   constructor(canvas) {
@@ -55,14 +67,16 @@ export class View3D {
     this.cam = { target: new THREE.Vector3(CENTER.x, 0, CENTER.y), vel: 0, pvel: 0, zvel: 0, pitchNow: null, distNow: null, low: 0 };
     this.ray = new THREE.Vector3(); this.probe = new THREE.Vector3(); this.probe2 = new THREE.Vector3(); this.from = new THREE.Vector3();
     this.raycaster = new THREE.Raycaster();
-    this.frames = 0; this.acc = 0; this.slow = 0;
+    this.frames = 0; this.acc = 0;
     this.resize();
     addEventListener('resize', () => this.resize());
   }
   // Resolución: en Auto empieza al máximo y baja sola si va lento; si no, la que se elija en los ajustes
   resize() {
     const q = Settings.v.scale, fixed = { 1: Math.min(devicePixelRatio, 2), 2: 1, 3: 0.75, 4: 0.5 }[q];
-    this.auto = !fixed && !LOW_Q;
+    const auto = !fixed && !LOW_Q;
+    if (auto && this.auto === false) { this.scaling = null; this.pixelRatio = Math.min(devicePixelRatio, 2); this.renderer.setPixelRatio(this.pixelRatio); }   // (vuelta a Auto: desde el máximo)
+    this.auto = auto;
     if (fixed && fixed !== this.pixelRatio) { this.pixelRatio = fixed; this.renderer.setPixelRatio(fixed); }
     this.renderer.setSize(innerWidth, innerHeight, false);
     this.renderer.domElement.style.width = innerWidth + 'px';
@@ -96,7 +110,9 @@ export class View3D {
           #include <colorspace_fragment>
         }`,
     }));
-    this.sky.renderOrder = -1;
+    // (después de todo lo opaco y en el fondo de verdad: así la gráfica solo pinta las nubes donde se ve cielo, en vez
+    // de en toda la pantalla para que luego lo tape el suelo; antes de lo transparente, que se mezcla con él)
+    this.sky.renderOrder = SKY_LAST;
     this.sky.frustumCulled = false;
     this.scene.add(this.sky);
     this.scene.fog = new THREE.Fog(SKY.day.fog, 60, 150);
@@ -367,20 +383,41 @@ export class View3D {
     const g = this.game;
     if (g?.highlight && this.shown === g.scene) (this.outline ||= new Outline(this)).draw(this.renderer, this.camera, g.highlight, g.scene, g.player, g.time);
   }
-  // Fotogramas por segundo; si va lento un buen rato, se baja la resolución
+  // Fotogramas por segundo, con el tiempo de verdad (dt viene recortado: con él nunca bajaría de 20). En Auto, si va
+  // lento un rato, se prueba un escalón de resolución menos (ver autoScale)
   stats(dt) {
-    this.frames++; this.acc += dt;
+    const now = performance.now(), real = (now - (this.lastFrame ?? now)) / 1000;
+    this.lastFrame = now;
+    if (real > 0 && real < 0.25) { this.frames++; this.acc += real; }   // (un parón o la pestaña oculta no cuentan)
     if (this.acc > 0.5) {
-      const fps = this.frames / this.acc;
-      this.fps = fps;
-      this.slow = fps < 40 ? this.slow + this.acc : 0;
-      if (this.auto && this.slow > 3 && this.pixelRatio > 0.75) { this.pixelRatio = Math.max(0.75, this.pixelRatio - 0.25); this.renderer.setPixelRatio(this.pixelRatio); this.resize(); this.slow = 0; }
+      this.fps = this.frames / this.acc;
+      if (this.auto) this.autoScale(this.fps, this.acc);
       this.frames = 0; this.acc = 0;
     }
     const info = this.renderer.info.render;
     this.lastInfo = { calls: info.calls, triangles: info.triangles };   // (lo del último fotograma, para el panel de F3)
     this.renderer.info.reset();
   }
+
+  // Resolución automática: empieza al máximo (×2 en una pantalla Retina) y, si va lento unos segundos, baja un
+  // escalón. Luego mira si ha servido: si no va al menos un 10 % mejor, vuelve al de antes y ya no baja más. Por
+  // debajo de cierto punto lo que frena no es la gráfica (en un MacBook Air, de ×1 a ×0,75 se ganan 1-3 ms y la
+  // imagen se emborrona), y perder nitidez sin ganar fotogramas no compensa.
+  autoScale(fps, span) {
+    const a = (this.scaling ||= { slow: 0, sum: 0, floor: 0.75, trial: null });
+    if (a.trial) {
+      if ((a.trial.wait -= span) > 0) return;   // (un momento para que se asiente el cambio)
+      a.trial.t += span; a.trial.sum += fps * span;
+      if (a.trial.t < 2) return;
+      if (a.trial.sum / a.trial.t < a.trial.before * 1.1) { a.floor = a.trial.from; this.setScale(a.trial.from); }
+      a.trial = null; a.slow = a.sum = 0;
+      return;
+    }
+    if (fps < 40) { a.slow += span; a.sum += fps * span; } else a.slow = a.sum = 0;
+    const next = Math.round((this.pixelRatio - 0.25) * 4) / 4;
+    if (a.slow >= 2 && next >= a.floor) { a.trial = { from: this.pixelRatio, before: a.sum / a.slow, t: 0, sum: 0, wait: 1 }; this.setScale(next); }
+  }
+  setScale(x) { this.pixelRatio = x; this.renderer.setPixelRatio(x); this.resize(); }
 
   // Casilla bajo un punto de la pantalla: el rayo desde la cámara hasta el suelo
   // (se avanza por el rayo, a pasos que crecen con la distancia, hasta que baja del suelo: así acierta
