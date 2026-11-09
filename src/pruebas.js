@@ -1045,14 +1045,15 @@ async function soloTests(game) {
     check(BIOMES[B.MEADOW].pal[0] === '#6e7a55' && BIOMES[B.MEADOW].rgb.length === 4, `la pradera es ${BIOMES[B.MEADOW].pal[0]}`);
     check(tintOf('stone')[1] === '#958f84', `la piedra compartida es ${tintOf('stone')[1]}`);
   });
-  await test('texturas de fotos: cada archivo de assets/tex está en la lista y en las licencias, y sin ?arte=2 no se piden', async () => {
+  await test('texturas de fotos: cada archivo de assets/tex está en la lista y en las licencias, y llegan', async () => {
     const files = Object.values(PHOTOS).map(p => p.file), list = await (await fetch('assets/tex/')).text(), lic = await (await fetch('assets/LICENCIAS.md')).text();
     const onDisk = [...list.matchAll(/href="([^"]+\.webp)"/g)].map(m => decodeURIComponent(m[1]));
     check(onDisk.length === files.length && onDisk.every(f => files.includes(f)), `assets/tex no casa con photos.js: ${onDisk.filter(f => !files.includes(f)).join(', ') || files.filter(f => !onDisk.includes(f)).join(', ')}`);
     const missing = files.filter(f => !lic.includes(`tex/${f}`));
     check(!missing.length, `faltan en assets/LICENCIAS.md: ${missing.join(', ')}`);
     for (const f of files) { const r = await fetch(`assets/tex/${f}`, { method: 'HEAD' }); check(r.ok, `no se sirve assets/tex/${f}`); }
-    check(photo('teja') === null, 'sin ?arte=2 se piden las fotos');
+    const img = await photo('teja');
+    check(img && img.width === 512, `la foto de la teja no llega (${img?.width})`);
   });
   await test('ganchos: ningún sistema tapa un gancho con otra cosa', async () => {
     const HOOKS = { target: 3, interact: 2, entities: 1, onDay: 1 };   // (los ganchos con parámetros: un método con ese nombre y otro uso los taparía)

@@ -1,10 +1,9 @@
-// Las texturas de fotos del arte en revisión (?arte=2): fotos CC0 de ambientCG (ver assets/LICENCIAS.md) reducidas
+// Las texturas de fotos: fotos CC0 de ambientCG (ver assets/LICENCIAS.md) reducidas
 // y sin su color propio, en assets/tex/ con un nombre que cambia con su contenido. Cada una guarda el dibujo de la foto
 // con la media de cada canal en `mean` (de 0 a 255); `m` es lo que mide en el mundo, en metros (ancho, alto); `k`, si
 // lo lleva, rebaja su contraste (la pizarra, de lejos, hacía ruido).
 // textures.js las pinta encima de su lienzo de siempre cuando llegan, teñidas con el color medio de ese lienzo: hasta
-// entonces, y si no llegan, se ve el lienzo pintado por código. Sin ?arte=2 no se descarga ninguna.
-import { ARTE } from '../arte.js';
+// entonces, y si no llegan, se ve el lienzo pintado por código. Sin vista (el mundo del servidor) no se descarga ninguna.
 
 export const PHOTOS = {
   teja: { file: 'teja.eef90e8b.webp', mean: 162, m: [2.9, 2.9] },   // RoofingTiles014B, 512×512
@@ -23,10 +22,10 @@ export const PHOTOS = {
   arena: { file: 'arena.9221d77b.webp', mean: 191, m: [2.0, 2.0] },   // Ground080, 512×512
 };
 const LOADS = new Map();
-// La foto de una clave, cuando llegue (o null si falla); null en seguida si no hay que usarla
+// La foto de una clave, cuando llegue (o null si falla); null en seguida si no hay a dónde (sin documento)
 export function photo(key) {
   const p = PHOTOS[key];
-  if (ARTE !== 2 || !p || typeof document === 'undefined') return null;
+  if (!p || typeof document === 'undefined') return null;
   if (!LOADS.has(key)) LOADS.set(key, new Promise(res => {
     const img = new Image();
     img.onload = () => res(img); img.onerror = () => { console.warn(`No ha llegado la textura ${p.file}: se queda la pintada`); res(null); };

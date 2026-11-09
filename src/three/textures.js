@@ -20,7 +20,7 @@ function make(w, h, draw, { color = true } = {}) {
   if (color) t.colorSpace = THREE.SRGBColorSpace;
   return t;
 }
-// Con el arte en revisión (?arte=2), la foto de la clave encima del lienzo cuando llegue (ver photos.js): su dibujo,
+// La foto de la clave encima del lienzo cuando llegue (ver photos.js): su dibujo,
 // teñido con el color medio de lo que había pintado, y del tamaño que mide de verdad (meters: lo que mide el lienzo
 // pintado; sin él, el tamaño no cambia: el suelo la muestrea a su escala). grey: en gris, sobre la media del lienzo y
 // con el contraste por k (el suelo la usa de detalle, dividida por su media de siempre)

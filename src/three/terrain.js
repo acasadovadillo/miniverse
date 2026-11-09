@@ -262,7 +262,8 @@ function groundMaterial(map) {
         float green = smoothstep(-0.035, 0.015, base.g - base.r) * smoothstep(0.01, 0.06, base.g - base.b);
         float g1 = texture2D(grassMap, vWorld * 0.55).r / 0.85, g2 = texture2D(grassMap, vWorld * 0.13 + 0.37).r / 0.85;
         float s1 = texture2D(soilMap, vWorld * 0.6).r / 0.84;
-        diffuseColor.rgb *= ${ARTE === 2 ? 'mix(mix(0.72, 1.2, s1), mix(0.62, 1.25, g1) * mix(0.68, 1.24, g2), green)' : 'mix(mix(0.86, 1.1, s1), mix(0.82, 1.12, g1) * mix(0.92, 1.06, g2), green)'};   // (con las fotos, ?arte=2, más marcado)`);
+        // (con las fotos de hierba y tierra, bien marcado: la escala grande se ve como manchas a la distancia de juego)
+        diffuseColor.rgb *= mix(mix(0.72, 1.2, s1), mix(0.62, 1.25, g1) * mix(0.68, 1.24, g2), green);`);
   };
   return m;
 }
