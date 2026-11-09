@@ -21,7 +21,19 @@ export class Person {
 }
 
 const RADIUS = 0.28;
-const JUMP = 4.4, GRAVITY = 15;   // velocidad al saltar (m/s) y gravedad: sube unos 65 cm y está 0,6 s en el aire
+const JUMP = 5.0, GRAVITY = 15;   // velocidad al saltar (m/s) y gravedad: sube unos 83 cm y está 0,67 s en el aire
+const HOP = 0.35;                  // saltando, por encima de esta altura se pasa sobre lo bajo (vallas, puertas de valla)
+// La altura del suelo en (x, y) por las rocas (las que tienen top): una cúpula de su altura y algo más ancha que su
+// colisión, para subir andando por el borde
+export function floorAt(x, y, list) {
+  let h = 0;
+  for (const c of list) {
+    if (c.top === undefined) continue;
+    const R = c.r + 0.18, d = Math.hypot(x - c.x, y - c.y);
+    if (d < R) h = Math.max(h, c.top * Math.sqrt(1 - (d / R) ** 2));
+  }
+  return h;
+}
 
 export class Player extends Person {
   constructor(data) {
@@ -32,16 +44,17 @@ export class Player extends Person {
     this.mount = !!data.mount;
     Object.assign(this, { horseId: data.horseId, horseCoat: data.horseCoat, horseBags: !!data.horseBags });   // el caballo que monta
     this.face = { x: -Math.SQRT1_2, y: -Math.SQRT1_2 };   // dirección a la que mira, en la rejilla
-    this.z = 0; this.vz = 0;   // altura del salto sobre el suelo y su velocidad
+    this.z = 0; this.vz = 0;   // altura sobre el suelo (saltando o encima de una roca) y su velocidad
+    this.floor = 0;            // la altura de lo que pisa (una roca), sobre el suelo
     this.spawn = data.spawn || null;   // dónde reaparece al morir (/spawnpoint); sin él, en casa
     this.ghost = false;                // espectador: atraviesa todo
   }
-  get airborne() { return this.z > 0; }
+  get airborne() { return this.z > this.floor + 0.01; }
   // Saltar (desde el suelo; en barca no)
   jump() {
-    if (this.boat || this.aboard || this.z > 0) return;
+    if (this.boat || this.aboard || this.airborne) return;
     this.vz = JUMP * (this.mount ? 1.1 : 1);
-    this.z = 0.001;
+    this.z = this.floor + 0.001;
     this.onExert?.(0.05);
     Audio.swish();
   }
@@ -56,7 +69,13 @@ export class Player extends Person {
     this.vx = lerp(this.vx, wx, k);
     this.vy = lerp(this.vy, wy, k);
     const p = { x: this.x + this.vx * dt, y: this.y + this.vy * dt };
-    if (!this.boat && !this.ghost) { const near = scene.collidersNear(p.x, p.y); collide(p, this.mount && this.z > 0.2 ? near.filter(c => !c.low) : near, RADIUS); }   // (a caballo se saltan las vallas)
+    let near = null;
+    if (!this.boat && !this.ghost) {
+      // (las rocas no frenan: se sube uno encima; y saltando, a pie o a caballo, se pasa por encima de las vallas)
+      near = scene.collidersNear(p.x, p.y);
+      const high = this.z - this.floor > (this.mount ? 0.2 : HOP);
+      collide(p, near.filter(c => c.top === undefined && !(high && c.low)), RADIUS);
+    }
     // No entrar en agua profunda (o, en barca, no salir a tierra): si se puede, deslizarse por la orilla
     const blocked = this.ghost ? null : this.boat ? (x, y) => !scene.water?.(x, y) : scene.blocked?.bind(scene);
     if (blocked) {
@@ -78,15 +97,19 @@ export class Player extends Person {
     if (sx || sy) [this.view, this.flip] = viewFor(sx, sy);
     // En primera persona se mira hacia donde mira la cámara (y lo de delante es lo que se ve)
     if (CAM.first) { const [fx, fy] = screenToWorld(0, -1); this.face = { x: fx, y: fy }; this.dir = [fx, fy]; [this.view, this.flip] = viewFor(0, -1); }
+    // Lo que se pisa: subiendo a una roca, se sube con ella (deprisa, sin saltar); bajando poco, se baja con ella; si
+    // no, se cae
+    this.floor = near && !this.mount ? floorAt(this.x, this.y, near) : 0;
+    if (this.vz === 0 && this.z - this.floor < 0.3) { this.z += (this.floor - this.z) * Math.min(1, dt * 14); if (Math.abs(this.z - this.floor) < 0.005) this.z = this.floor; }
     // El salto: sube y baja con la gravedad (en el aire no suenan los pasos)
-    if (this.z > 0) {
+    else if (this.z > this.floor || this.vz > 0) {
       this.vz -= GRAVITY * dt;
       this.z += this.vz * dt;
-      if (this.z <= 0) { this.z = 0; this.vz = 0; Audio.step(this.inside || this.underRoof); this.onLand?.(); }
+      if (this.z <= this.floor) { const hard = this.vz < -2; this.z = this.floor; this.vz = 0; if (hard) { Audio.step(this.inside || this.underRoof); if (!this.floor) this.onLand?.(); } }
     }
     const before = Math.floor(this.step);
     this.step = moved < 0.002 ? 0 : this.step + moved * 3.2;
-    if (this.z === 0 && Math.floor(this.step) !== before && Math.floor(this.step) % 2 === 1) Audio.step(this.inside || this.underRoof);
+    if (!this.airborne && Math.floor(this.step) !== before && Math.floor(this.step) % 2 === 1) Audio.step(this.inside || this.underRoof);
   }
   stop() { this.vx = this.vy = 0; }
   toSave() {

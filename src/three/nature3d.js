@@ -67,18 +67,35 @@ function oneSided(m) {
   const key = m.customProgramCacheKey; m.customProgramCacheKey = () => key() + ':una';
   return m;
 }
-// (?arte=2) El atlas de hojas: un manojo de hojas en gris claro sobre transparente, que tiñe el color de cada tarjeta
-function leafAtlas() {
-  const S = 256, c = document.createElement('canvas'); c.width = c.height = S;
-  const x = c.getContext('2d'); let seed = 7; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
-  x.strokeStyle = 'rgb(90,80,70)'; x.lineWidth = 2;
-  for (let i = 0; i < 5; i++) { x.beginPath(); x.moveTo(S / 2, S / 2); x.lineTo(S / 2 + (rnd() - 0.5) * S * 0.8, S / 2 + (rnd() - 0.5) * S * 0.8); x.stroke(); }
-  for (let i = 0; i < 90; i++) {
-    const a = rnd() * Math.PI * 2, d = Math.sqrt(rnd()) * S * 0.4, px = S / 2 + Math.cos(a) * d, py = S / 2 + Math.sin(a) * d, v = 150 + Math.floor(rnd() * 105), L = 16 + rnd() * 14;
-    x.save(); x.translate(px, py); x.rotate(rnd() * Math.PI * 2);
-    x.fillStyle = `rgb(${v},${v},${v})`; x.beginPath(); x.ellipse(0, 0, L, L * 0.42, 0, 0, Math.PI * 2); x.fill();
-    x.strokeStyle = `rgba(0,0,0,0.25)`; x.lineWidth = 1; x.beginPath(); x.moveTo(-L, 0); x.lineTo(L, 0); x.stroke();
+// (?arte=2) Los atlas de hojas, en gris claro sobre transparente (el color va por tarjeta): 'roble', un manojo de hojas
+// anchas con sus ramitas; 'fina', muchas hojas menudas y apretadas (los arbustos); 'sauce', ramillas que cuelgan con
+// hojas largas y estrechas a los dos lados (el sauce llorón)
+function leafAtlas(kind = 'roble') {
+  const W = 256, H = kind === 'sauce' ? 512 : 256, c = document.createElement('canvas'); c.width = W; c.height = H;
+  const x = c.getContext('2d'); let seed = kind === 'fina' ? 11 : kind === 'sauce' ? 23 : 7; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  const leaf = (px, py, ang, L, w, v) => {
+    x.save(); x.translate(px, py); x.rotate(ang);
+    x.fillStyle = `rgb(${v},${v},${v})`; x.beginPath(); x.ellipse(0, 0, L, w, 0, 0, Math.PI * 2); x.fill();
+    x.strokeStyle = 'rgba(0,0,0,0.22)'; x.lineWidth = 1; x.beginPath(); x.moveTo(-L, 0); x.lineTo(L * 0.9, 0); x.stroke();
     x.restore();
+  };
+  if (kind === 'sauce') {
+    for (let i = 0; i < 15; i++) {
+      let px = 12 + rnd() * (W - 24), py = 0; const len = H * (0.65 + rnd() * 0.35), bend = (rnd() - 0.5) * 0.6;
+      x.strokeStyle = 'rgb(120,110,90)'; x.lineWidth = 1.2; x.beginPath(); x.moveTo(px, py);
+      const pts = [];
+      for (let t = 0; t <= len; t += 6) { const q = t / len, nx = px + Math.sin(q * 2.2 + i) * 6 + bend * t * 0.15; pts.push([nx, t]); x.lineTo(nx, t); }
+      x.stroke();
+      pts.forEach(([qx, qy], j) => { if (j % 1 === 0 && j > 1) { const sd = j % 2 ? 1 : -1, ang = Math.PI / 2 + sd * (0.35 + rnd() * 0.35); leaf(qx + sd * 5, qy + 4, ang, 9 + rnd() * 6, 2.2 + rnd() * 1.2, 150 + Math.floor(rnd() * 100)); } });
+    }
+  } else {
+    const fina = kind === 'fina', n = fina ? 260 : 90;
+    x.strokeStyle = 'rgb(90,80,70)'; x.lineWidth = fina ? 1.2 : 2;
+    for (let i = 0; i < (fina ? 9 : 5); i++) { x.beginPath(); x.moveTo(W / 2, H / 2); x.lineTo(W / 2 + (rnd() - 0.5) * W * 0.8, H / 2 + (rnd() - 0.5) * H * 0.8); x.stroke(); }
+    for (let i = 0; i < n; i++) {
+      const a = rnd() * Math.PI * 2, d = Math.sqrt(rnd()) * W * (fina ? 0.42 + 0.06 * Math.sin(a * 5) : 0.4), L = fina ? 6 + rnd() * 5 : 16 + rnd() * 14;
+      leaf(W / 2 + Math.cos(a) * d, H / 2 + Math.sin(a) * d, rnd() * Math.PI * 2, L, L * (fina ? 0.55 : 0.42), (fina ? 130 : 150) + Math.floor(rnd() * (fina ? 125 : 105)));
+    }
   }
   const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4;
   return t;
@@ -91,6 +108,8 @@ const mats = () => (MATS ||= {
   palmTrunk: mat({ color: '#8f7a5c', roughness: 0.9 }), frond: sway(mat({ color: '#5d7044', side: THREE.DoubleSide, flatShading: true }), 0.05, 1.2), dry: mat({ color: '#7f6a4c', roughness: 1 }),
   snow: mat({ color: '#dfe4e6', roughness: 0.85 }),
   card: A2 ? oneSided(sway(mat({ map: leafAtlas(), alphaTest: 0.5, side: THREE.DoubleSide, roughness: 0.9 }), 0.035, 0.7)) : null,
+  cardS: A2 ? oneSided(sway(mat({ map: leafAtlas('fina'), alphaTest: 0.5, side: THREE.DoubleSide, roughness: 0.9 }), 0.03, 0.8)) : null,
+  cardW: A2 ? oneSided(sway(mat({ map: leafAtlas('sauce'), alphaTest: 0.45, side: THREE.DoubleSide, roughness: 0.85 }), 0.06, 0.6)) : null,
   tier: sway(mat({ roughness: 0.95, side: THREE.DoubleSide, shadowSide: THREE.BackSide, flatShading: true }), 0.02, 0.6),
   rock2: A2 ? mat({ map: (() => { return rockFace(); })(), flatShading: true, roughness: 0.92 }) : null,
   frond2: sway(mat({ color: '#ffffff', side: THREE.DoubleSide, shadowSide: THREE.DoubleSide, roughness: 0.85 }), 0.05, 1.2),
@@ -137,7 +156,8 @@ function pieces(o, season, out, owner, y = 0) {
   const x = o.x, z = o.y, h = ihash(Math.floor(x * 7), Math.floor(z * 7), 11), r = (k) => ihash(Math.floor(x * 13) + k, Math.floor(z * 13), 31 + k);
   const k = 0.85 + h * 0.35, rot = r(1) * Math.PI * 2, push = (type, it) => { it.owner = owner; (out[type] ||= []).push(it); };
   const kind = o.kind;
-  if (A2 && (kind === 'oak' || kind === 'fruit' || kind === 'swampTree')) broadleaf2(o, season, push, x, z, y, r, rot);
+  if (A2 && kind === 'swampTree') willow2(o, season, push, x, z, y, r, rot);
+  else if (A2 && (kind === 'oak' || kind === 'fruit')) broadleaf2(o, season, push, x, z, y, r, rot);
   else if (A2 && (kind === 'pine' || kind === 'snowPine')) pine2(o, season, push, x, z, y, r, rot);
   else if (A2 && kind === 'palm') palm2(o, season, push, x, z, y, r, rot);
   else if (A2 && kind === 'cactus') cactus2(o, season, push, x, z, y, r, rot);
@@ -321,21 +341,54 @@ function cactus2(o, season, push, x, z, y, r, rot) {
   }
   if (season === 0) for (let i = 0; i < 3; i++) push('bloom', { p: [x + (i - 1) * w * 0.5, y + th + w * 0.7, z], s: 0.07, c: ['#e8607a', '#f0d040', '#e8607a'][i] });
 }
+// Sauce llorón: tronco corto y grueso que se abre pronto en tres o cuatro brazos que suben y se arquean hacia fuera; la copa,
+// una cúpula de ramillas colgantes, y alrededor, cortinas de ramillas que caen casi hasta el suelo (verde amarillento)
+const WILLOW = [tonos('#7a8a46'), tonos('#6f7f40'), ['#a08a44', '#94803e'], tonos('#7a8070')];
+function willow2(o, season, push, x, z, y, r, rot) {
+  const { k, Ry, cy } = broadDims(o, y), R = 2.1 * k, pal = WILLOW[season], fork = y + 1.25 * k;
+  push('trunk', { p: [x, y + 0.15, z], s: [2.7 * k, 0.3, 2.7 * k], r: [0, rot, 0] });
+  push('trunk', { p: [x, (y + fork) / 2, z], s: [2.1 * k, fork - y, 2.1 * k], r: [0.06, rot, 0.04] });
+  const n = 3 + Math.floor(r(2) * 2), heads = [];
+  for (let i = 0; i < n; i++) {
+    const a = rot + (i / n) * Math.PI * 2 + r(110 + i) * 0.6, mid = [x + Math.cos(a) * R * 0.45, cy + Ry * 0.35, z + Math.sin(a) * R * 0.45], end = [x + Math.cos(a) * R * 0.8, cy + Ry * 0.2, z + Math.sin(a) * R * 0.8];
+    branch(push, [x, fork - 0.1, z], mid, 1.2 * k); branch(push, mid, end, 0.65 * k);
+    heads.push(mid, end);
+  }
+  push('lump', { p: [x, cy - Ry * 0.05, z], s: [R * 0.42, Ry * 0.38, R * 0.42], c: darker(pal[0], 0.5) });   // (el núcleo: la sombra)
+  // La cúpula: ramillas que cuelgan de lo alto, de cara a fuera
+  const cards = Math.round(40 * ageOf(o) + 10), yaw = (dx, dz) => Math.atan2(dx, dz);
+  for (let i = 0; i < cards; i++) {
+    const u = 0.15 + r(200 + i) * 0.85, f = r(300 + i) * Math.PI * 2, ring = Math.sqrt(1 - u * u), d = R * (0.35 + 0.6 * ring) * (0.85 + r(400 + i) * 0.2);
+    const px = x + Math.cos(f) * d, pz = z + Math.sin(f) * d, top = cy + Ry * (0.15 + 0.85 * Math.sqrt(Math.max(0, 1 - (d / R) ** 2))), h = Ry * (0.7 + r(600 + i) * 0.5), w = R * (0.32 + r(650 + i) * 0.15);
+    push('cardW', { p: [px, top - h * 0.45, pz], s: [w, h, 1], r: [-0.15, yaw(Math.cos(f), Math.sin(f)) + (r(500 + i) - 0.5) * 0.6, 0], c: darker(pal[Math.floor(r(700 + i) * pal.length)], 0.95 + r(800 + i) * 0.3) });
+  }
+  // Las cortinas: por todo el borde, desde la copa hasta medio metro del suelo
+  // (a distintas distancias, la de fuera más baja de arriba, como sigue la cúpula, y de largos distintos: unas casi hasta
+  // el suelo y otras más cortas; abajo, algo abiertas hacia fuera)
+  if (season !== 3) for (let i = 0; i < 18; i++) {
+    const a = (i / 18) * Math.PI * 2 + rot + r(900 + i) * 0.3, q = 0.7 + r(910 + i) * 0.35, d = R * q, top = cy + Ry * (0.1 + 0.55 * Math.sqrt(Math.max(0, 1 - q * q * 0.8))), bottom = y + 0.4 + r(930 + i) * (r(935 + i) < 0.4 ? 1.4 : 0.5), L = top - bottom;
+    push('cardW', { p: [x + Math.cos(a) * d, top - L / 2, z + Math.sin(a) * d], s: [R * (0.3 + r(940 + i) * 0.14), L, 1], r: [0.1, yaw(Math.cos(a), Math.sin(a)) + (r(950 + i) - 0.5) * 0.7, 0], c: darker(pal[i % pal.length], 0.9 + r(960 + i) * 0.25) });
+  }
+  if (season === 3) push('snow', { p: [x, cy + Ry * 0.9, z], s: [R * 0.45, R * 0.08, R * 0.45] });
+}
 // Arbusto: unas matas pequeñas con su núcleo y tarjetas de hojas, de algo más de un metro (con bayas en verano o flores en
 // primavera, y nieve en invierno)
 function bush2(o, season, push, x, z, y, r, rot, h) {
-  const k = 1.05 + h * 0.3, pal = LEAF[season], clumps = [];
-  for (let i = 0; i < 3; i++) { const a = rot + i * 2.1, d = 0.2 * k; clumps.push([x + Math.cos(a) * d, y + (0.42 + r(10 + i) * 0.18) * k, z + Math.sin(a) * d, (0.4 + r(20 + i) * 0.1) * k]); }
-  for (const [cx, cY, cz, cr] of clumps) push('lump', { p: [cx, cY, cz], s: [cr * 0.75, cr * 0.65, cr * 0.75], r: [r(3), r(4), 0], c: darker(pal[0], 0.5) });
-  for (let i = 0; i < 18; i++) {
-    const [cx, cY, cz, cr] = clumps[i % 3], u = r(200 + i) * 1.4 - 0.4, f = r(300 + i) * Math.PI * 2, sq = Math.sqrt(1 - u * u);
+  // Un monte bajo de cinco matas (una en medio, más alta, y cuatro alrededor), con el núcleo oscuro, muchas hojas menudas
+  // y unas ramitas al pie; con bayas en verano o flores en primavera, y nieve en invierno
+  const k = 1.1 + h * 0.35, pal = LEAF[season], clumps = [[x, y + 0.5 * k, z, 0.4 * k]];
+  for (let i = 0; i < 4; i++) { const a = rot + i * 1.57 + r(10 + i) * 0.5, d = (0.3 + r(15 + i) * 0.1) * k; clumps.push([x + Math.cos(a) * d, y + (0.28 + r(20 + i) * 0.14) * k, z + Math.sin(a) * d, (0.28 + r(25 + i) * 0.08) * k]); }
+  for (const [cx, cY, cz, cr] of clumps) push('lump', { p: [cx, cY, cz], s: [cr * 0.45, cr * 0.38, cr * 0.45], r: [r(3), r(4), 0], c: darker(pal[0], 0.6) });
+  for (let i = 0; i < 4; i++) { const a = rot + i * 1.6 + 0.4; push('twig', { p: [x + Math.cos(a) * 0.12 * k, y + 0.12, z + Math.sin(a) * 0.12 * k], s: [1.4, 0.3, 1.4], r: [Math.sin(a) * 0.5, 0, -Math.cos(a) * 0.5] }); }
+  for (let i = 0; i < 36; i++) {
+    const [cx, cY, cz, cr] = clumps[i % clumps.length], u = r(200 + i) * 1.5 - 0.5, f = r(300 + i) * Math.PI * 2, sq = Math.sqrt(1 - u * u);
     dv.set(sq * Math.cos(f), u, sq * Math.sin(f)); qa.setFromUnitVectors(ZV, dv); qb.setFromAxisAngle(ZV, r(500 + i) * 6.28); qa.multiply(qb); euler.setFromQuaternion(qa);
-    const dist = cr * (0.5 + r(400 + i) * 0.4), sz = cr * (1.2 + r(600 + i) * 0.5);
-    push('card', { p: [cx + dv.x * dist, cY + dv.y * dist * 0.85, cz + dv.z * dist], s: [sz, sz, sz], r: [euler.x, euler.y, euler.z], c: darker(pal[Math.floor(r(700 + i) * pal.length)], 1.05 + r(800 + i) * 0.3) });
+    const dist = cr * (0.45 + r(400 + i) * 0.5), sz = cr * (0.95 + r(600 + i) * 0.45);
+    push('cardS', { p: [cx + dv.x * dist, Math.max(y + 0.08, cY + dv.y * dist * 0.85), cz + dv.z * dist], s: [sz, sz, sz], r: [euler.x, euler.y, euler.z], c: darker(pal[Math.floor(r(700 + i) * pal.length)], 1.1 + r(800 + i) * 0.35) });
   }
-  if (season === 1 && h < 0.5) for (let i = 0; i < 9; i++) { const a = r(60 + i) * 6.28, d = 0.45 * k; push('apple', { p: [x + Math.cos(a) * d, y + (0.35 + r(80 + i) * 0.4) * k, z + Math.sin(a) * d], s: 0.04, c: '#3a3a8a' }); }
-  if (season === 0 && h > 0.5) for (let i = 0; i < 10; i++) { const a = r(60 + i) * 6.28, d = 0.47 * k; push('bloom', { p: [x + Math.cos(a) * d, y + (0.4 + r(80 + i) * 0.45) * k, z + Math.sin(a) * d], s: 0.05, c: ['#e87aa0', '#f0d84a', '#f4f0e8', '#a888e8'][i % 4] }); }
-  if (season === 3) push('snow', { p: [x, y + 0.82 * k, z], s: [0.42 * k, 0.1, 0.42 * k] });
+  if (season === 1 && h < 0.5) for (let i = 0; i < 12; i++) { const a = r(60 + i) * 6.28, d = (0.3 + r(90 + i) * 0.1) * k; push('apple', { p: [x + Math.cos(a) * d, y + (0.3 + r(80 + i) * 0.45) * k, z + Math.sin(a) * d], s: 0.03, c: '#2e2e6a' }); }
+  if (season === 0 && h > 0.5) for (let i = 0; i < 14; i++) { const a = r(60 + i) * 6.28, d = (0.32 + r(90 + i) * 0.1) * k; push('bloom', { p: [x + Math.cos(a) * d, y + (0.32 + r(80 + i) * 0.5) * k, z + Math.sin(a) * d], s: 0.04, c: ['#e87aa0', '#f0d84a', '#f4f0e8', '#a888e8'][i % 4] }); }
+  if (season === 3) push('snow', { p: [x, y + 0.85 * k, z], s: [0.4 * k, 0.08, 0.4 * k] });
 }
 // Roca y peñasco: rocas de caras irregulares, medio enterradas, con la textura de la piedra; los peñascos, con otra al lado
 // y las vetas de mineral asomando
@@ -350,7 +403,7 @@ function rock2(o, season, push, x, z, y, r, rot, h) {
   if (o.kind === 'snowBoulder' || (season === 3 && big)) push('snow', { p: [x, y + s * 0.62, z], s: [s * 0.8, s * 0.18, s * 0.75], r: [0, rot, 0] });
 }
 
-let CARD_DEPTH;
+const CARD_DEPTH = {};
 // Mallas de un trozo a partir de sus objetos de la naturaleza. shadows: si dan sombra (lo cercano)
 export function buildNatureChunk(objs, season, groundY, shadows = true) {
   const M = mats(), out = {}, owners = new Map(), group = new THREE.Group();
@@ -359,16 +412,16 @@ export function buildNatureChunk(objs, season, groundY, shadows = true) {
     trunk: [GEO.trunk, M.bark], lump: [GEO.lump, M.leaf], cone: [GEO.cone, M.leaf], snowCone: [GEO.cone, M.snow], snow: [GEO.lump, M.snow],
     apple: [GEO.ball, M.solid], bloom: [GEO.gem, M.solid], coconut: [GEO.ball, M.solid], gem: [GEO.gem, M.solid], rock: [GEO.rock, M.rock],
     palm: [GEO.cyl, M.palmTrunk], frond: [GEO.frond, M.frond], cactus: [GEO.cyl, M.cactus], cactusTop: [GEO.ball, M.cactus], twig: [GEO.twig, M.dry],
-    card: [GEO.card, M.card], tier: [GEO.tier, M.tier], snowTier: [GEO.tier, M.snow],
+    card: [GEO.card, M.card], cardS: [GEO.card, M.cardS], cardW: [GEO.card, M.cardW], tier: [GEO.tier, M.tier], snowTier: [GEO.tier, M.snow],
     palmSeg: [GEO.palmSeg, M.palmTrunk], frond2: [GEO.frond2, M.frond2], rib: [GEO.rib, M.cactus2], ribTop: [GEO.ribTop, M.cactus2],
     rock0: [GEO.rock0, M.rock2], rock1: [GEO.rock1, M.rock2], rock2: [GEO.rock2, M.rock2],
   };
   for (const [type, list] of Object.entries(out)) {
     const [geo, m] = spec[type];
-    const small = type === 'bloom' || type === 'apple' || type === 'gem' || type === 'coconut' || type === 'card';   // (las tarjetas de hojas, sin sombra: la da el núcleo)
-    const card = type === 'card', im = instanced(geo, m, list, { cast: shadows && (!small || card), receive: !card });   // (sin recibir: si no, la copa se oscurece entera con su propia sombra)
+    const small = type === 'bloom' || type === 'apple' || type === 'gem' || type === 'coconut' || type.startsWith('card');   // (las tarjetas de hojas, sin sombra: la da el núcleo)
+    const card = type.startsWith('card'), im = instanced(geo, m, list, { cast: shadows && (!small || card), receive: !card });   // (sin recibir: si no, la copa se oscurece entera con su propia sombra)
     // (las tarjetas de hojas dan sombra moteada: su silueta, con el corte de la textura)
-    if (card) im.customDepthMaterial = (CARD_DEPTH ||= new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking, map: m.map, alphaTest: 0.5 }));
+    if (card) im.customDepthMaterial = (CARD_DEPTH[type] ||= new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking, map: m.map, alphaTest: 0.5 }));
     im.userData.cast = !small || card;
     im.userData.base = list.map((it, i) => { const mm = new THREE.Matrix4(); im.getMatrixAt(i, mm); return mm; });
     list.forEach((it, i) => { if (!owners.has(it.owner)) owners.set(it.owner, []); owners.get(it.owner).push([im, i]); });

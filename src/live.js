@@ -44,7 +44,7 @@ class RemotePlayer extends Person {
     Object.assign(this, { remote: true, id: peer.id, name: peer.name, z: 0, yaw: null, held: null, swing: 0, swingItem: null, cooldown: 0, to: null, fresh: true });
   }
   apply(st) {
-    this.to = [st.x, st.y, st.z || 0];
+    this.to = [st.x, st.y, st.z || 0]; this.floor = st.fl || 0;   // (fl: la roca que pisa)
     if (this.fresh || Math.hypot(st.x - this.x, st.y - this.y) > SNAP) { [this.x, this.y, this.z] = this.to; this.fresh = false; }
     this.pose = st.po ? { kind: POSES[st.po[0]], yaw: st.po[1], h: st.po[2] } : null;   // (sentado o tumbado)
     Object.assign(this, { yaw: st.yaw ?? null, inside: !!st.in, mount: !!st.m, horseCoat: st.hc || null, horseBags: !!st.hb, boat: !!st.b, aboard: st.pa || null, crouch: !!st.cr, gm: st.gm || 0, held: st.h || null, swing: st.sw || 0, swingItem: st.si || null, cooldown: st.cd || 0, bowPull: st.dr || 0 });
@@ -633,7 +633,7 @@ export class Live {
     }
     this.sent += dt;
     const sc = g.scene === g.world ? 'world' : null;
-    const st = { t: 'st', sc, x: r2(p.x), y: r2(p.y), z: r2(p.z || 0), yaw: r2(g.view3d.actors.player?.person.facing ?? 0), in: p.inside ? 1 : 0, po: p.pose ? [POSES.indexOf(p.pose.kind), r2(p.pose.yaw), r2(p.pose.h)] : 0, m: p.mount ? 1 : 0, hc: p.mount ? p.horseCoat || null : null, hb: p.mount && p.horseBags ? 1 : 0, b: p.boat ? 1 : 0, pa: p.aboard || 0, cr: p.crouch ? 1 : 0, gm: g.gamemode === 'survival' ? 0 : g.gamemode === 'creative' ? 1 : 3, h: g.inv.held?.id || null, sw: this.swings, si: g.gather.swingItem || null, cd: r2(g.gather.cooldown || 0), dr: r2(g.archery.k) };
+    const st = { t: 'st', sc, x: r2(p.x), y: r2(p.y), z: r2(p.z || 0), fl: p.floor ? r2(p.floor) : undefined, yaw: r2(g.view3d.actors.player?.person.facing ?? 0), in: p.inside ? 1 : 0, po: p.pose ? [POSES.indexOf(p.pose.kind), r2(p.pose.yaw), r2(p.pose.h)] : 0, m: p.mount ? 1 : 0, hc: p.mount ? p.horseCoat || null : null, hb: p.mount && p.horseBags ? 1 : 0, b: p.boat ? 1 : 0, pa: p.aboard || 0, cr: p.crouch ? 1 : 0, gm: g.gamemode === 'survival' ? 0 : g.gamemode === 'creative' ? 1 : 3, h: g.inv.held?.id || null, sw: this.swings, si: g.gather.swingItem || null, cd: r2(g.gather.cooldown || 0), dr: r2(g.archery.k) };
     const key = JSON.stringify(st);
     if (this.sent < SEND_EVERY || (key === this.lastSent && this.sent < IDLE_EVERY)) return;
     this.sent = 0; this.lastSent = key;

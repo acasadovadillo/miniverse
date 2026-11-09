@@ -13,6 +13,9 @@ import { WALL_H } from './build3d.js';
 import { WATER_Y } from './terrain.js';
 import { nearX } from '../world/planet.js';
 import { ARTE } from '../arte.js';
+import { B } from '../world/biomes.js';
+// Las mariposas, solo en la pradera y el bosque de hoja (no en la nieve, el monte, el desierto ni la playa)
+const FLOWERY = new Set([B.MEADOW, B.FOREST]);
 const A2 = ARTE === 2;
 // (?arte=2) Texturas pintadas para el fuego, el humo y los copos: una llama en gota (blanca, el color va por instancia) y
 // una bola suave
@@ -408,13 +411,14 @@ export class Fx {
 
   // ---------- ambiente ----------
   updateButterflies(game, scene, playing, dt, t) {
-    const show = !this.view.cave && !game.indoors && this.view.night < 0.3 && !this.view.weather?.rain && !this.view.weather?.snow && scene.gen?.season !== 3;
-    const target = this.view.cam.target;
+    const target = this.view.cam.target, gen = scene.gen, flowery = (x, z) => !!gen && FLOWERY.has(gen.biomeAt(x, z));
+    const show = !this.view.cave && !game.indoors && this.view.night < 0.3 && !this.view.weather?.rain && !this.view.weather?.snow && gen?.season !== 3 && flowery(target.x, target.z);
     for (const b of this.butterflies) {
       b.visible = show;
       if (!show) continue;
       const u = b.userData;
-      if (Math.hypot(u.cx - target.x, u.cz - target.z) > 18) { u.cx = target.x + (Math.random() - 0.5) * 24; u.cz = target.z + (Math.random() - 0.5) * 24; }
+      if (Math.hypot(u.cx - target.x, u.cz - target.z) > 18) { u.cx = target.x + (Math.random() - 0.5) * 24; u.cz = target.z + (Math.random() - 0.5) * 24; u.ok = flowery(u.cx, u.cz); }   // (cada una, donde hay pradera o bosque)
+      if (u.ok === false) { b.visible = false; continue; }
       const q = t * u.sp + u.ph;
       b.position.set(u.cx + Math.sin(q) * 2.5, 0.7 + Math.sin(q * 3) * 0.35, u.cz + Math.cos(q * 0.8) * 2.5);
       b.rotation.y = Math.atan2(Math.cos(q), -Math.sin(q * 0.8) * 0.8);

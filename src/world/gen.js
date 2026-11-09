@@ -115,6 +115,8 @@ export class WorldGen {
       const x = tx + 0.5, y = ty + 0.5;   // centro de la casilla
       const o = { kind, x, y, key: `${x.toFixed(2)},${y.toFixed(2)}` };
       if (r) o.col = { x, y, r };
+      // (las rocas tienen altura, top: se sube uno encima andando, y la colisión del suelo no las cuenta; ver entities.js)
+      if (r && (kind === 'rock' || kind === 'boulder' || kind === 'snowBoulder')) o.col.top = kind === 'rock' ? 0.3 : 0.85;
       objects.push(o);
     };
 

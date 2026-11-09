@@ -3,6 +3,7 @@
 // pequeño (ICON3D píxeles, con contorno, como los iconos de píxel), y se guardan. Los materiales, la comida, las
 // semillas, los peces, los bichos, la ropa, las alfombras y los cuadros siguen a píxel (art/items.js): a 16
 // píxeles se leen mejor dibujados a mano. También da el modelo en miniatura de lo que se tira al suelo.
+import { foodModel } from './food3d.js';
 import * as THREE from 'three';
 import { getModel, modelMat } from './models.js';
 import { toolModel } from './actors.js';
@@ -88,13 +89,13 @@ export function modelIcon(id) {
 
 // El modelo en miniatura de un objeto tirado al suelo (centrado, de unos 0,45 m de alto como mucho), o null
 export function dropModel(id) {
-  const kind = modelKind(id);
-  if (!kind) return null;
-  const g = build(id, kind);
+  const kind = modelKind(id), food = !kind && foodModel(id);   // (la comida y la bebida, con su modelo de food3d.js)
+  if (!kind && !food) return null;
+  const g = food ? Object.assign(new THREE.Group(), {}).add(food) : build(id, kind);
   if (kind === 'tool') g.rotation.z = -0.75;
   g.updateMatrixWorld(true);
   const box = new THREE.Box3().setFromObject(g), size = box.getSize(new THREE.Vector3()), c = box.getCenter(new THREE.Vector3());
-  const k = 0.45 / Math.max(size.x, size.y, size.z, 0.01);
+  const k = (food ? 0.25 : 0.45) / Math.max(size.x, size.y, size.z, 0.01);
   const root = new THREE.Group();
   g.position.copy(c).multiplyScalar(-k);
   g.scale.setScalar(k);

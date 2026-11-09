@@ -4,6 +4,7 @@
 // primera vez y se quita cuando deja de estar. Miran hacia donde van, andan y respiran; el jugador lleva en
 // la mano la herramienta elegida y la balancea al golpear. Los demás jugadores (en directo) son como él,
 // con su nombre encima.
+import { foodModel } from './food3d.js';
 import * as THREE from 'three';
 import { Person3D, babyModel, mesh, mergeInto, G, M } from './people.js';
 import { mat } from './geo.js';
@@ -184,6 +185,8 @@ export class Actors {
       if ((e.kid && e.lying) || (pz && lying)) { P.facing = 0; P.root.rotation.y = 0; }
       // (tumbada, la persona realista se corre hacia los pies lo que mide de más que el muñeco: la cabeza, en la almohada)
       if (P.real) P.r.root.position.y = lying ? -(P.height - 1.36 * (P.kid ? KID_SCALE : 1)) : 0;
+      // (hacia dónde mira, también la realista: antes este «si no» solo valía para los muñecos y la realista no giraba)
+      if ((e.kid && e.lying) || (pz && lying)) {}
       else if (pz) { P.facing = pz.yaw; P.root.rotation.y = pz.yaw; }
       else if (yaw !== null) P.facing = yaw;
       if (m.horse && m.horseCoat !== (e.horseCoat || 'castano')) {   // (el caballo del jinete, con el pelaje del suyo)
@@ -205,9 +208,9 @@ export class Actors {
         else P.root.position.y = 0;
       }
       P.update(dt, e.mount || e.boat || e.aboard ? 0 : m.speed);
-      if (e.z > 0) {   // en el aire: un poco más arriba y con las piernas recogidas
-        y += e.z;
-        if (!e.mount) { const k = Math.min(1, e.z / 0.25); P.legs[0].rotation.x = -0.7 * k; P.legs[1].rotation.x = 0.35 * k; }
+      if (e.z > 0) y += e.z;   // (saltando o encima de una roca)
+      if (e.z - (e.floor || 0) > 0.03) {   // en el aire: con las piernas recogidas
+        if (!e.mount) { const k = Math.min(1, (e.z - (e.floor || 0)) / 0.25); P.legs[0].rotation.x = -0.7 * k; P.legs[1].rotation.x = 0.35 * k; }
       }
       // (después de andar: el golpe manda sobre el balanceo del brazo)
       if (game) this.hold(m, { held: game.inv.held?.id || null, swing: game.gather.swing, swingItem: game.gather.swingItem, cooldown: game.gather.cooldown, fishPose: game.fishing?.pose(t), bowPull: game.archery?.k || 0 }, dt);
@@ -267,7 +270,7 @@ export class Actors {
     const a = m.anim, show = a ? a.item : id;
     if (m.holding !== show) {
       m.hand.clear();
-      const tool = show && toolModel(show);
+      const tool = show && (toolModel(show) || foodInHand(show));
       if (tool && m.mats) tool.traverse(o => { if (o.isMesh) ownMesh(o, m, true); });
       if (tool) m.hand.add(tool);
       m.holding = show;
@@ -473,6 +476,13 @@ export function pullBow(root, k) {
   bow.arrow.visible = k > 0.01; bow.arrow.position.set(0, 0, back);
 }
 
+// La comida o la bebida que se lleva en la mano: el modelo de food3d.js, en la palma y algo más grande que de verdad
+function foodInHand(id) {
+  const f = foodModel(id);
+  if (!f) return null;
+  const g = new THREE.Group(); f.scale.setScalar(1.25); f.position.set(0, -0.03, 0.03); g.add(f);
+  return g;
+}
 export function toolModel(id) {
   const def = ITEMS[id];
   if (!def || !(def.tool || def.weapon || def.bow)) return null;
