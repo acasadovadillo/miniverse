@@ -586,6 +586,7 @@ function roofPrism(m, key, x0, x1, z0, z1, y0, h) {
 
 // ---------- cultivos ----------
 function crop(m, id, stage) {
+  if (ARTE === 2 && stage > 0) return crop2(m, id, stage);
   const c = CROPS[id], fruitKey = 'fruit:' + c.color, leafKey = 'leafc:' + c.leaf;
   m.geo('soil', ICO1, 0, 0.02, 0, [0, 0, 0], [0.22, 0.06, 0.22]);
   if (stage < 0) { for (let i = 0; i < 4; i++) m.cyl('dry', Math.cos(i * 1.6) * 0.06, 0.02, Math.sin(i * 1.6) * 0.06, 0.01, 0.006, 0.18, 4, [Math.sin(i) * 0.6, 0, Math.cos(i) * 0.6]); return; }
@@ -622,6 +623,83 @@ function crop(m, id, stage) {
   leaves(id === 'zanahoria' ? 7 : 5, stage === 3 ? 0.26 : 0.18, -0.5, id === 'zanahoria' ? 0.35 : 0.6);
   if (stage === 3) m.ball(fruitKey, 0, 0.05, 0, 0.08, id === 'nabo' ? 0.07 : 0.05, 0.08, 8);
 }
+// (?arte=2) Cultivos con hojas de verdad: alargadas, con su nervio, curvadas hacia abajo y con algo de azar en cada
+// planta (fijo por especie y fase); trigo de muchas cañas con espiga, maíz de hojas largas con mazorcas, tomatera con
+// tutor y racimos, calabaza acostillada y raíces que asoman. Sin tope de piezas: van al mismo material por color
+function crop2(m, id, stage) {
+  const c = CROPS[id], fruitKey = 'fruit:' + c.color, leafKey = 'leafc:' + c.leaf, R = rng2(id.length * 31 + stage * 7);
+  m.geo('soil', ICO1, 0, 0.015, 0, [0, 0, 0], [0.24, 0.05, 0.24]);
+  const big = stage === 3 ? 1 : stage === 2 ? 0.75 : 0.45;
+  // Una mata de hojas en roseta: n hojas de largo len, saliendo con la inclinación rise (cuanto más negativa, más tumbadas)
+  const rosette = (n, len, rise, y = 0.03, wide = 0.28, key = leafKey) => {
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * Math.PI * 2 + R() * 0.6, l = len * (0.75 + R() * 0.45);
+      m.geo(key, LEAF2, Math.cos(a) * 0.015, y, Math.sin(a) * 0.015, [rise + (R() - 0.5) * 0.35, a, (R() - 0.5) * 0.3], [l * wide, l, l]);
+    }
+  };
+  if (id === 'trigo' || id === 'maiz') {
+    const tall = (id === 'maiz' ? 1.75 : 0.85) * big, n = id === 'maiz' ? 3 : 26;
+    for (let i = 0; i < n; i++) {
+      const a = R() * Math.PI * 2, r = id === 'maiz' ? 0.09 * Math.sqrt(R()) : 0.17 * Math.sqrt(R()), x = Math.cos(a) * r, z = Math.sin(a) * r, h = tall * (0.85 + R() * 0.25);
+      const lean = [(R() - 0.5) * 0.15, 0, (R() - 0.5) * 0.15], ripe = stage === 3 && id === 'trigo';
+      m.cyl(ripe ? fruitKey : leafKey, x, 0.02, z, id === 'maiz' ? 0.022 : 0.006, id === 'maiz' ? 0.014 : 0.004, h, 5, lean);
+      if (id === 'trigo') { if (stage >= 2) m.geo(ripe ? fruitKey : leafKey, SPIKE, x + lean[2] * h, h, z - lean[0] * h, lean, [0.016, 0.075, 0.016]); }
+      else {
+        for (let k = 0; k < 6; k++) m.geo(leafKey, LEAF2, x, 0.25 + k * h * 0.13, z, [-0.35 - R() * 0.4, a + k * 2.4, 0], [0.09, 0.55 * big, 0.55 * big]);
+        if (stage === 3) for (const s of [0.45, 0.6]) m.geo(fruitKey, SPIKE, x + 0.05, h * s, z, [0.35, a, 0], [0.04, 0.2, 0.04]);
+        m.geo('fruit:#c9a36a', SPIKE, x, h, z, [0, 0, 0], [0.02, 0.14, 0.02]);   // (el penacho)
+      }
+    }
+    return;
+  }
+  if (id === 'tomate') {
+    const h = 1.1 * big;
+    m.cyl('wood', 0.1, 0, 0, 0.012, 0.012, h + 0.15, 5);   // (el tutor)
+    m.cyl(leafKey, 0.02, 0.02, 0, 0.012, 0.008, h, 5, [0, 0, -0.05]);
+    for (let k = 0; k < Math.round(9 * big); k++) {
+      const y = 0.15 + (k / 9) * h, a = k * 2.4 + R();
+      for (let j = 0; j < 3; j++) m.geo(leafKey, LEAF2, 0.02, y, 0, [-0.5 - R() * 0.5, a + (j - 1) * 0.5, 0], [0.11, 0.24, 0.24]);
+    }
+    if (stage === 3) for (let k = 0; k < 9; k++) { const a = k * 2.1, y = 0.25 + (k % 4) * 0.2; m.ball(fruitKey, Math.cos(a) * 0.12, y, Math.sin(a) * 0.12, 0.045, 0.04, 0.045, 10); }
+    return;
+  }
+  if (id === 'calabaza') {
+    rosette(7, 0.34 * big, -1.25, 0.05, 0.85);
+    if (stage === 3) { m.geo(fruitKey, PUMPKIN, 0.06, 0.19, 0.06, [0, 0.4, 0], [0.26, 0.19, 0.26]); m.cyl('leafc:' + c.leaf, 0.06, 0.21, 0.06, 0.018, 0.012, 0.07, 5); }
+    return;
+  }
+  if (id === 'fresa') {
+    rosette(12, 0.24 * big, -0.9, 0.03, 0.9);
+    if (stage === 3) for (let k = 0; k < 7; k++) m.geo(fruitKey, CONE, Math.cos(k * 0.9) * 0.15, 0.04, Math.sin(k * 0.9) * 0.15, [Math.PI, 0, 0], [0.028, 0.05, 0.028]);
+    return;
+  }
+  // Raíces: la zanahoria con hojas finas y altas; el nabo, más anchas. Maduras, asoma la raíz
+  rosette(id === 'zanahoria' ? 18 : 10, (id === 'zanahoria' ? 0.44 : 0.36) * big, id === 'zanahoria' ? -0.3 : -0.55, 0.04, id === 'zanahoria' ? 0.26 : 0.6);
+  if (stage === 3) m.ball(fruitKey, 0, 0.04, 0, 0.07, id === 'nabo' ? 0.06 : 0.04, 0.07, 10);
+}
+const rng2 = s => () => { s = (s * 16807) % 2147483647; return s / 2147483647; };
+// Hoja: lanceolada (ancha en el primer tercio, en punta), con el nervio marcado y curvada hacia abajo; sale hacia +z
+const LEAF2 = (() => {
+  const pos = [], N = 7;
+  for (let i = 0; i <= N; i++) {
+    const t = i / N, w = 0.5 * Math.sin(Math.PI * Math.pow(t, 0.7)) * (1 - t * 0.2), y = 0.12 * t - 0.3 * t * t, z = t;
+    pos.push([-w, y - 0.02 * w, z], [0, y + 0.015, z], [w, y - 0.02 * w, z]);
+  }
+  const p = [];
+  for (let i = 0; i < N; i++) for (const [a, b, c] of [[0, 1, 4], [0, 4, 3], [1, 2, 5], [1, 5, 4]]) { const q = k => pos[i * 3 + (k % 3) + (k >= 3 ? 3 : 0)]; p.push(...q(a), ...q(b), ...q(c)); }
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(p, 3)); g.computeVertexNormals();
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(new Array((p.length / 3) * 2).fill(0), 2));
+  return g;
+})();
+// Espiga o mazorca: un huso alargado
+const SPIKE = (() => { const pts = []; for (let i = 0; i <= 8; i++) { const t = i / 8; pts.push(new THREE.Vector2(Math.sin(Math.PI * t) * (0.8 + 0.2 * t), t * 2 - 1)); } return new THREE.LatheGeometry(pts, 8); })();
+// Calabaza: aplastada, con ocho costillas y el hueco del rabo
+const PUMPKIN = (() => {
+  const g = new THREE.SphereGeometry(1, 32, 16), p = g.attributes.position;
+  for (let i = 0; i < p.count; i++) { const x = p.getX(i), y = p.getY(i), z = p.getZ(i), a = Math.atan2(z, x), r = 1 + 0.07 * Math.cos(a * 8), dip = 1 - 0.25 * Math.max(0, y) ** 6; p.setXYZ(i, x * r, y * dip, z * r); }
+  g.computeVertexNormals(); return g;
+})();
+
 // Una hoja: un rombo doblado, que sale del centro hacia +z
 const LEAFG = (() => {
   const g = new THREE.BufferGeometry(), p = [0, 0, 0, 0.5, 0.05, 0.5, 0, 0.1, 1, 0, 0, 0, 0, 0.1, 1, -0.5, 0.05, 0.5];

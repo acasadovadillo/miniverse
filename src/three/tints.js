@@ -4,7 +4,7 @@
 import * as THREE from 'three';
 import { mat } from './geo.js';
 import { wood, stone } from './textures.js';
-import { sobrio } from '../arte.js';
+import { ARTE, sobrio } from '../arte.js';
 
 let MATS;
 export function tintMats() {
@@ -39,7 +39,7 @@ const BOOKS = ['#a83a32', '#3a5aa0', '#3f8a44', '#d8a83a', '#7a4aa0', '#e0e0d0']
 export function tintOf(key) {
   if (key in TINT) return TINT[key];
   if (key.startsWith('books')) return PAINT(sobrio(BOOKS[+key.slice(5)]));
-  if (key.startsWith('fruit:')) return PAINT(key.slice(6));
+  if (key.startsWith('fruit:')) return PAINT(ARTE === 2 ? sobrio(key.slice(6)) : key.slice(6));   // (?arte=2: los frutos, algo apagados)
   if (key.startsWith('leafc:')) return ['paintDouble', sobrio(key.slice(6))];
   return null;
 }
