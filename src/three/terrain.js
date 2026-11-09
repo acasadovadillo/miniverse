@@ -257,10 +257,12 @@ function groundMaterial(map) {
       .replace('#include <common>', '#include <common>\nuniform sampler2D grassMap;\nuniform sampler2D soilMap;\nvarying vec2 vWorld;')
       .replace('#include <map_fragment>', `#include <map_fragment>
         vec3 base = diffuseColor.rgb;
-        float green = smoothstep(0.01, 0.06, base.g - max(base.r, base.b));
+        // (lo verde: que no sea más rojo que verde ni tan azul; con los verdes sobrios y el otoño, la resta de siempre daba
+        // casi cero y el pasto se quedaba sin briznas)
+        float green = smoothstep(-0.035, 0.015, base.g - base.r) * smoothstep(0.01, 0.06, base.g - base.b);
         float g1 = texture2D(grassMap, vWorld * 0.55).r / 0.85, g2 = texture2D(grassMap, vWorld * 0.13 + 0.37).r / 0.85;
         float s1 = texture2D(soilMap, vWorld * 0.6).r / 0.84;
-        diffuseColor.rgb *= mix(mix(0.86, 1.1, s1), mix(0.82, 1.12, g1) * mix(0.92, 1.06, g2), green);`);
+        diffuseColor.rgb *= ${ARTE === 2 ? 'mix(mix(0.72, 1.2, s1), mix(0.62, 1.25, g1) * mix(0.68, 1.24, g2), green)' : 'mix(mix(0.86, 1.1, s1), mix(0.82, 1.12, g1) * mix(0.92, 1.06, g2), green)'};   // (con las fotos, ?arte=2, más marcado)`);
   };
   return m;
 }

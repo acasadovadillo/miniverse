@@ -31,7 +31,7 @@ let BASE;
 export function baseMaterials() {
   if (BASE) return BASE;
   const roofs = {};
-  for (const [id, c] of Object.entries(ROOF_COLORS)) roofs[id] = mat({ map: roofTiles(c), roughness: 0.88 });
+  for (const [id, c] of Object.entries(ROOF_COLORS)) roofs[id] = mat({ map: roofTiles(c, id === 'tejado_azul' || id === 'tejado_gris' ? 'pizarra' : 'teja'), roughness: 0.88 });   // (la foto, con ?arte=2)
   roofs.tejado_paja = mat({ map: thatch(), roughness: 1, color: C.thatch });
   BASE = {
     plaster: mat({ map: plaster(), color: C.plaster }), stone: mat({ map: stone(C.stone) }), wallStone: mat({ map: stone(C.wallStone) }), siding: mat({ map: siding(), color: C.siding }),

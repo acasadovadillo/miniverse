@@ -21,7 +21,7 @@ let MATS;
 export function modelMats() {
   if (MATS) return MATS;
   // (todos los colores apagados, para que no chillen sobre el mundo sobrio: ver apagado() en arte.js; lo que brilla, no)
-  const c = (color, o = {}) => mat({ color: apagado(color), ...o }), wood = b => wood0(apagado(b)), stone = b => stone0(apagado(b));
+  const c = (color, o = {}) => mat({ color: apagado(color), ...o }), wood = b => wood0(apagado(b)), stone = (b, photo) => stone0(apagado(b), photo);
   MATS = {
     wood: mat({ map: wood('#8a5a34'), roughness: 0.7 }), dark: mat({ map: wood('#5e3b22'), roughness: 0.7 }), light: mat({ map: wood('#b88454'), roughness: 0.7 }),
     plank: mat({ map: planks(), roughness: 0.75, color: '#d2c6b6' }), stone: mat({ map: stone('#9a948a') }), brick: mat({ map: stone('#b0705a') }), soot: c('#2a2220', { roughness: 1 }),
@@ -39,7 +39,7 @@ export function modelMats() {
     sand: c('#d8c08a', { roughness: 1 }), moss: c('#5a7a3a', { flatShading: true }), ruin: mat({ map: stone('#b8b0a0'), flatShading: true }), dirt: mat({ map: furrows(), roughness: 1 }),
     canvas: c('#d8c8a0', { side: THREE.DoubleSide, roughness: 1 }), tentStripe: c('#a8442a', { side: THREE.DoubleSide }), lamp: c('#fff2c0', { emissive: '#ffd070', emissiveIntensity: 1.5 }),
     hull: mat({ map: wood('#6a4a30'), roughness: 0.9 }), temple: mat({ map: stone('#c8bca0') }), templeD: mat({ map: stone('#8a8070') }), crystal: c('#7ae0ff', { emissive: '#3ab0ff', emissiveIntensity: 0.8, roughness: 0.1 }), amethyst: c('#a860e8', { emissive: '#6a20c0', emissiveIntensity: 0.7, roughness: 0.15 }),
-    snow: c('#f4f8fc', { roughness: 0.85 }), rock: mat({ map: stone('#8a857c'), flatShading: true }), dark0: c('#0a0806', { roughness: 1 }), stripeR: c('#c83a32'), lens: c('#fff6c8', { emissive: '#ffe080', emissiveIntensity: 2 }),
+    snow: c('#f4f8fc', { roughness: 0.85 }), rock: mat({ map: stone('#8a857c', 'roca'), flatShading: true }), dark0: c('#0a0806', { roughness: 1 }), stripeR: c('#c83a32'), lens: c('#fff6c8', { emissive: '#ffe080', emissiveIntensity: 2 }),
     bee: c('#e8c040'), sofa: c('#3f6a5a', { roughness: 0.95 }), sofaB: c('#5a8a74', { roughness: 0.95 }), leather: c('#8a5a34', { roughness: 0.85 }), leatherD: c('#5e3b22', { roughness: 0.85 }),
     porcelain: c('#f4f2ee', { roughness: 0.22 }), quiltK: c('#5a9ad8', { roughness: 0.95 }), quiltK2: c('#e88aa8', { roughness: 0.95 }), pillowK: c('#f4d86a', { roughness: 0.95 }),
     rug_persa: mat({ map: rugDesign('persa'), roughness: 1 }), rug_rayas: mat({ map: rugDesign('rayas'), roughness: 1 }), rug_rombos: mat({ map: rugDesign('rombos'), roughness: 1 }),

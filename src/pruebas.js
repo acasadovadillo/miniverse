@@ -36,6 +36,7 @@ import { modelKind, ICON3D } from './three/icons.js';
 import { View3D } from './three/engine.js';
 import { ARTE, sobrio } from './arte.js';
 import { tintOf } from './three/tints.js';
+import { PHOTOS, photo } from './three/photos.js';
 
 const GATE_X = 20;   // (el hueco de la valla del jardín, en el camino)
 const q = new URLSearchParams(location.search), WHO = q.get('quien') || 'a', RELAY = q.get('relay'), PART = q.get('parte') || 'solo';   // parte: 'solo' (un jugador), 'dos' o 'mirar' (sin pruebas: el juego con la cuenta de prueba, para verlo)
@@ -1043,6 +1044,15 @@ async function soloTests(game) {
     check(sobrio('#c83a3a') === '#b84949' && sobrio('#e8b07a', 'piel') === '#e1b386', `sobrio() no da lo de la propuesta: ${sobrio('#c83a3a')}, ${sobrio('#e8b07a', 'piel')}`);
     check(BIOMES[B.MEADOW].pal[0] === '#6e7a55' && BIOMES[B.MEADOW].rgb.length === 4, `la pradera es ${BIOMES[B.MEADOW].pal[0]}`);
     check(tintOf('stone')[1] === '#958f84', `la piedra compartida es ${tintOf('stone')[1]}`);
+  });
+  await test('texturas de fotos: cada archivo de assets/tex está en la lista y en las licencias, y sin ?arte=2 no se piden', async () => {
+    const files = Object.values(PHOTOS).map(p => p.file), list = await (await fetch('assets/tex/')).text(), lic = await (await fetch('assets/LICENCIAS.md')).text();
+    const onDisk = [...list.matchAll(/href="([^"]+\.webp)"/g)].map(m => decodeURIComponent(m[1]));
+    check(onDisk.length === files.length && onDisk.every(f => files.includes(f)), `assets/tex no casa con photos.js: ${onDisk.filter(f => !files.includes(f)).join(', ') || files.filter(f => !onDisk.includes(f)).join(', ')}`);
+    const missing = files.filter(f => !lic.includes(`tex/${f}`));
+    check(!missing.length, `faltan en assets/LICENCIAS.md: ${missing.join(', ')}`);
+    for (const f of files) { const r = await fetch(`assets/tex/${f}`, { method: 'HEAD' }); check(r.ok, `no se sirve assets/tex/${f}`); }
+    check(photo('teja') === null, 'sin ?arte=2 se piden las fotos');
   });
   await test('ganchos: ningún sistema tapa un gancho con otra cosa', async () => {
     const HOOKS = { target: 3, interact: 2, entities: 1, onDay: 1 };   // (los ganchos con parámetros: un método con ese nombre y otro uso los taparía)

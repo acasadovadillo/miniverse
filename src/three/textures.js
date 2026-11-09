@@ -1,6 +1,7 @@
 // Texturas pintadas por código en lienzos (yeso, tablas, tejas, piedra, madera, corteza,
 // toldo y el detalle del suelo). Se repiten por metro: los modelos usan coordenadas de textura en metros.
 import * as THREE from 'three';
+import { PHOTOS, photo } from './photos.js';
 
 // Azar con semilla (siempre igual)
 export function rng(seed) {
@@ -19,6 +20,32 @@ function make(w, h, draw, { color = true } = {}) {
   if (color) t.colorSpace = THREE.SRGBColorSpace;
   return t;
 }
+// Con el arte en revisión (?arte=2), la foto de la clave encima del lienzo cuando llegue (ver photos.js): su dibujo,
+// teñido con el color medio de lo que había pintado, y del tamaño que mide de verdad (meters: lo que mide el lienzo
+// pintado; sin él, el tamaño no cambia: el suelo la muestrea a su escala). grey: en gris, sobre la media del lienzo y
+// con el contraste por k (el suelo la usa de detalle, dividida por su media de siempre)
+function photoOver(t, key, { meters, grey } = {}) {
+  const p = PHOTOS[key], wait = photo(key);
+  if (wait) wait.then(img => {
+    if (!img) return;
+    const was = t.image, old = was.getContext('2d').getImageData(0, 0, was.width, was.height).data, avg = [0, 0, 0];
+    for (let i = 0; i < old.length; i += 4) { avg[0] += old[i]; avg[1] += old[i + 1]; avg[2] += old[i + 2]; }
+    for (let k = 0; k < 3; k++) avg[k] /= old.length / 4;
+    const c = document.createElement('canvas'), g = c.getContext('2d', { willReadFrequently: true });
+    c.width = img.width; c.height = img.height;
+    g.drawImage(img, 0, 0);
+    const data = g.getImageData(0, 0, c.width, c.height), d = data.data;
+    if (grey) for (let i = 0; i < d.length; i += 4) d[i] = d[i + 1] = d[i + 2] = avg[0] + (d[i] - p.mean) * grey;
+    else { const k = avg.map(a => a / p.mean), soft = p.k ?? 1, m = p.mean * (1 - soft); for (let i = 0; i < d.length; i += 4) { d[i] = (m + d[i] * soft) * k[0]; d[i + 1] = (m + d[i + 1] * soft) * k[1]; d[i + 2] = (m + d[i + 2] * soft) * k[2]; } }
+    g.putImageData(data, 0, 0);
+    if (meters) t.repeat.set(t.repeat.x * meters / p.m[0], t.repeat.y * meters / p.m[1]);
+    // (un lienzo nuevo, de otro tamaño: la textura ya subida a la gráfica tiene su sitio reservado al tamaño de antes, y
+    // escribir encima uno mayor da error y puede tumbar el contexto; dispose() la libera y se vuelve a subir entera)
+    t.dispose(); t.image = c; t.needsUpdate = true;
+  });
+  return t;
+}
+
 // Ruido de motas: n puntos de tamaño s con colores alrededor de base
 function speckle(g, w, h, r, base, n, s, spread) {
   for (let i = 0; i < n; i++) { g.fillStyle = hex(base, (r() - 0.5) * spread); g.fillRect(r() * w, r() * h, s, s); }
@@ -33,7 +60,7 @@ export const plaster = () => make(256, 256, (g, w, h) => {
 });
 
 // Suelo de tablas: el lienzo son 2 × 2 m, con doce hileras de tablas de largo variado, vetas, nudos y juntas
-export const planks = () => make(512, 512, (g, w, h) => {
+export const planks = () => photoOver(make(512, 512, (g, w, h) => {
   const r = rng(2), rows = 12, ph = h / rows, cols = ['#b8875c', '#b08056', '#bc8c62', '#ad7d52', '#b5845a'];
   for (let k = 0; k < rows; k++) {
     const y = k * ph;
@@ -53,10 +80,10 @@ export const planks = () => make(512, 512, (g, w, h) => {
     g.fillStyle = 'rgba(60,34,18,.6)'; g.fillRect(0, y, w, 2);
     g.fillStyle = 'rgba(255,232,196,.10)'; g.fillRect(0, y + 2, w, 2);
   }
-});
+}), 'entarimado', { meters: 2 });
 
 // Tejas de barro en filas (una fila cada 25 cm), cada una con su borde redondeado y su sombra
-export const roofTiles = color => make(256, 256, (g, w, h) => {
+export const roofTiles = (color, photoKey = 'teja') => photoOver(make(256, 256, (g, w, h) => {
   const r = rng(3), rows = 4, cols = 6;
   g.fillStyle = hex(color, -0.35); g.fillRect(0, 0, w, h);
   for (let j = 0; j < rows; j++) {
@@ -72,10 +99,10 @@ export const roofTiles = color => make(256, 256, (g, w, h) => {
     g.fillStyle = 'rgba(40,10,5,.35)'; g.fillRect(0, y0 + rh - 3, w, 3);
   }
   speckle(g, w, h, r, color, 900, 1, 0.3);
-});
+}), photoKey, { meters: 1 });
 
 // Piedra: sillares irregulares con mortero
-export const stone = (base = '#a59e92') => make(256, 256, (g, w, h) => {
+export const stone = (base = '#a59e92', photoKey = 'piedra') => photoOver(make(256, 256, (g, w, h) => {
   const r = rng(4);
   g.fillStyle = '#6e685f'; g.fillRect(0, 0, w, h);
   const rowH = 32;
@@ -90,22 +117,22 @@ export const stone = (base = '#a59e92') => make(256, 256, (g, w, h) => {
     }
   }
   speckle(g, w, h, r, base, 1800, 1, 0.35);
-});
+}), photoKey, { meters: 1 });
 
 // Madera para vigas, marcos y muebles: vetas a lo largo
-export const wood = (base = '#6a4428') => make(128, 128, (g, w, h) => {
+export const wood = (base = '#6a4428') => photoOver(make(128, 128, (g, w, h) => {
   const r = rng(5);
   g.fillStyle = base; g.fillRect(0, 0, w, h);
   for (let i = 0; i < 40; i++) { g.strokeStyle = `rgba(${r() < 0.5 ? '0,0,0' : '255,220,170'},${0.05 + r() * 0.1})`; g.beginPath(); const y = r() * h; g.moveTo(0, y); g.bezierCurveTo(w * 0.3, y + (r() - 0.5) * 8, w * 0.7, y + (r() - 0.5) * 8, w, y); g.stroke(); }
-});
+}), 'madera', { meters: 1 });
 
 // Corteza: vetas verticales oscuras
-export const bark = () => make(64, 128, (g, w, h) => {
+export const bark = () => photoOver(make(64, 128, (g, w, h) => {
   const r = rng(6);
   g.fillStyle = '#6b4a30'; g.fillRect(0, 0, w, h);
   for (let i = 0; i < 26; i++) { const x = r() * w; g.fillStyle = `rgba(${r() < 0.6 ? '40,25,15' : '150,110,80'},${0.25 + r() * 0.3})`; g.fillRect(x, 0, 1 + r() * 2, h); }
   for (let i = 0; i < 30; i++) { g.fillStyle = 'rgba(40,25,15,.35)'; g.fillRect(r() * w, r() * h, 3 + r() * 5, 1); }
-});
+}), 'corteza', { meters: 1 });
 
 // Toldo a rayas
 export const awning = (red = '#d23c3c', white = '#f6f0e4') => make(128, 64, (g, w, h) => {
@@ -181,7 +208,7 @@ export const notes = () => make(128, 96, (g, w, h) => {
 });
 
 // Detalle del suelo (en gris neutro: multiplica el color del terreno). Hierba: briznas y motas; tierra: piedrecitas
-export const grassDetail = () => make(256, 256, (g, w, h) => {
+export const grassDetail = () => photoOver(make(256, 256, (g, w, h) => {
   const r = rng(10);
   g.fillStyle = '#d9d9d9'; g.fillRect(0, 0, w, h);
   for (let i = 0; i < 4200; i++) {
@@ -190,8 +217,8 @@ export const grassDetail = () => make(256, 256, (g, w, h) => {
     g.beginPath(); g.moveTo(x, y); g.lineTo(x + (r() - 0.5) * 3, y - l); g.stroke();
   }
   for (let i = 0; i < 900; i++) { const v = 120 + r() * 60; g.fillStyle = `rgb(${v},${v},${v})`; g.fillRect(r() * w, r() * h, 2, 2); }
-}, { color: false });
-export const soilDetail = () => make(256, 256, (g, w, h) => {
+}, { color: false }), 'hierba', { grey: 0.8 });
+export const soilDetail = () => photoOver(make(256, 256, (g, w, h) => {
   const r = rng(11);
   g.fillStyle = '#d6d6d6'; g.fillRect(0, 0, w, h);
   for (let i = 0; i < 3000; i++) { const v = 170 + r() * 85; g.fillStyle = `rgb(${v},${v},${v})`; g.fillRect(r() * w, r() * h, 1 + r() * 2, 1 + r() * 2); }
@@ -200,10 +227,10 @@ export const soilDetail = () => make(256, 256, (g, w, h) => {
     g.fillStyle = `rgb(${v},${v},${v})`; g.beginPath(); g.ellipse(x, y, s, s * 0.7, r() * 3, 0, Math.PI * 2); g.fill();
     g.fillStyle = 'rgba(80,80,80,.5)'; g.beginPath(); g.ellipse(x + 1, y + 1, s, s * 0.7, 0, 0, Math.PI); g.fill();
   }
-}, { color: false });
+}, { color: false }), 'tierra', { grey: 0.8 });
 
 // Tablas horizontales de una pared de madera (cinco por metro), con juntas y vetas
-export const siding = () => make(256, 256, (g, w, h) => {
+export const siding = () => photoOver(make(256, 256, (g, w, h) => {
   const r = rng(12), rows = 5, rh = h / rows;
   for (let k = 0; k < rows; k++) {
     const y = k * rh;
@@ -213,10 +240,10 @@ export const siding = () => make(256, 256, (g, w, h) => {
     g.fillStyle = 'rgba(255,225,180,.14)'; g.fillRect(0, y, w, 2);
     if (r() < 0.6) { g.fillStyle = 'rgba(40,22,10,.6)'; g.fillRect(Math.floor(r() * w), y, 2, rh); }
   }
-});
+}), 'tablas', { meters: 1 });
 
 // Losas de piedra para el suelo (cuatro por metro, a tresbolillo)
-export const flagstone = () => make(256, 256, (g, w, h) => {
+export const flagstone = () => photoOver(make(256, 256, (g, w, h) => {
   const r = rng(13), n = 4, s = w / n;
   g.fillStyle = '#5e5850'; g.fillRect(0, 0, w, h);
   for (let j = 0; j < n; j++) for (let i = -1; i < n; i++) {
@@ -225,10 +252,10 @@ export const flagstone = () => make(256, 256, (g, w, h) => {
     g.fillStyle = 'rgba(255,255,255,.08)'; g.fillRect(x + 4, y + 4, s - 10, 3);
   }
   speckle(g, w, h, r, '#9a958a', 1200, 1, 0.3);
-});
+}), 'losa', { meters: 1 });
 
 // Grava del camino: piedrecitas sobre tierra
-export const gravel = () => make(256, 256, (g, w, h) => {
+export const gravel = () => photoOver(make(256, 256, (g, w, h) => {
   const r = rng(14);
   g.fillStyle = '#b8a07a'; g.fillRect(0, 0, w, h);
   for (let i = 0; i < 900; i++) {
@@ -237,10 +264,10 @@ export const gravel = () => make(256, 256, (g, w, h) => {
     g.beginPath(); g.ellipse(x, y, s, s * 0.7, r() * 3, 0, Math.PI * 2); g.fill();
     g.fillStyle = 'rgba(40,30,20,.25)'; g.beginPath(); g.ellipse(x + 1, y + 1.5, s, s * 0.5, 0, 0, Math.PI); g.fill();
   }
-});
+}), 'grava', { meters: 1 });
 
 // Paja de un tejado: manojos en filas, cuesta abajo
-export const thatch = () => make(256, 256, (g, w, h) => {
+export const thatch = () => photoOver(make(256, 256, (g, w, h) => {
   const r = rng(15);
   g.fillStyle = '#b8903e'; g.fillRect(0, 0, w, h);
   for (let row = 0; row < 4; row++) {
@@ -248,7 +275,7 @@ export const thatch = () => make(256, 256, (g, w, h) => {
     for (let i = 0; i < 500; i++) { const x = r() * w, y = y0 + r() * (h / 4); g.strokeStyle = hex(['#d8b060', '#c49a48', '#e8c878', '#a88438'][Math.floor(r() * 4)], (r() - 0.5) * 0.2); g.lineWidth = 1 + r(); g.beginPath(); g.moveTo(x, y); g.lineTo(x + (r() - 0.5) * 4, y + 10 + r() * 14); g.stroke(); }
     g.fillStyle = 'rgba(60,40,10,.35)'; g.fillRect(0, y0 + h / 4 - 4, w, 4);
   }
-});
+}), 'paja', { meters: 1 });
 
 // Tierra labrada: surcos oscuros y húmedos
 export const furrows = () => make(128, 128, (g, w, h) => {
