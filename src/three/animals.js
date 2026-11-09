@@ -6,6 +6,12 @@
 // rodilla (se doblan al andar), la cabeza va unida por el cuello y se mueve (pastan, miran), y la cola se agita.
 import * as THREE from 'three';
 import { mesh, mergeInto, G, M } from './people.js';
+import { ARTE, sobrio } from '../arte.js';
+
+// (?arte=2, en revisión: menos de dibujos animados. Pelaje apagado y con variación de tono, ojos pequeños sin punto de
+// brillo, patas más finas por debajo de la rodilla y, en los cabezones, la cabeza algo más pequeña)
+const A2 = ARTE === 2, SMALL_HEAD = { perro: 0.84, gato: 0.84, cerdo: 0.88, oveja: 0.88, conejo: 0.86, gallina: 0.9, pato: 0.92 };
+const tone = c => (A2 && typeof c === 'string' ? sobrio(c) : c);
 
 // Colores de cada raza o pelaje: b, el cuerpo; d, lo oscuro (manchas, crin, patas); l, lo claro (o la cara)
 const COATS = {
@@ -64,10 +70,11 @@ const trunk = ({ L, W, H, belly = 0.05, chest = 0.04, flat = 0.1 }) => (v, n) =>
 };
 // El color de una piel: el base, más oscuro en el lomo y más claro en la tripa; spots(n): manchas (0 a 1)
 const coat = (base, { back = 0.12, belly = null, spot = null, spots = null } = {}) => n => {
-  C.set(base);
-  if (belly && n.y < -0.25) C.lerp(C2.set(belly), Math.min(1, (-n.y - 0.25) * 2.2));
+  C.set(tone(base));
+  if (belly && n.y < -0.25) C.lerp(C2.set(tone(belly)), Math.min(1, (-n.y - 0.25) * 2.2));
   if (n.y > 0) C.multiplyScalar(1 - back * n.y);
-  if (spots && spot) { const k = spots(n); if (k > 0) C.lerp(C2.set(spot), k); }
+  if (spots && spot) { const k = spots(n); if (k > 0) C.lerp(C2.set(tone(spot)), k); }
+  if (A2) C.multiplyScalar(0.9 + noise(n.x * 7 + 3, n.y * 7, n.z * 7) * 0.12 + noise(n.x * 23, n.y * 23 + 5, n.z * 23) * 0.06);   // (el pelo, con su variación)
   return C;
 };
 // Manchas grandes (vaca, caballo pío, perro manchado): umbral de un ruido
@@ -84,14 +91,16 @@ function tube(m, a, b, r0, r1, parent, seg = 10) {
 }
 // Ojos brillantes: negros, con un punto de luz
 function eyes(parent, x, y, z, r, tilt = 0) {
+  if (A2) r *= 0.72;
   for (const s of [-1, 1]) {
     mesh(G.ball, EYE, { p: [s * x, y, z], s: r }, parent);
-    mesh(G.ball, SHINE, { p: [s * x + s * r * 0.25 * 0, y + r * 0.45, z + r * 0.6], s: r * 0.32 }, parent);
+    if (!A2) mesh(G.ball, SHINE, { p: [s * x + s * r * 0.25 * 0, y + r * 0.45, z + r * 0.6], s: r * 0.32 }, parent);
     if (tilt) mesh(G.ball, M('#000000'), { p: [s * x, y + r * 0.75, z + r * 0.15], s: [r * 1.15, r * 0.35, r * 0.9], r: [0, 0, s * tilt] }, parent);   // párpado
   }
 }
 // Una pata con rodilla: muslo (de hip hacia abajo) y, en la rodilla, la caña con el casco o la pata
 function leg(body, legs, { x, y, z, up, low, r0, r1, r2, color, foot, footColor, paw = false, phase = 0 }) {
+  if (A2) { r1 *= 0.85; r2 *= 0.75; }
   const hip = new THREE.Group(); hip.position.set(x, y, z); body.add(hip);
   mesh(new THREE.CylinderGeometry(r1, r0, up + r0 * 0.6, 12).translate(0, -up / 2 + r0 * 0.3, 0), M(color), {}, hip);   // (arranca dentro del cuerpo)
   const knee = new THREE.Group(); knee.position.y = -up; hip.add(knee);
@@ -120,7 +129,8 @@ export function animalModel(type, breed, bags) {
   root.add(body);
   const [cb, cd, cl] = coatOf(type, breed), k = `${type}:${breed}`;
   const B = BUILD[type];
-  if (B) B({ root, body, legs, u, cb, cd, cl, k, breed, bags });
+  if (B) B({ root, body, legs, u, cb, cd, cl, k: (A2 ? 'a2:' : '') + k, breed, bags });
+  if (A2 && u.head && SMALL_HEAD[type]) u.head.scale.setScalar(SMALL_HEAD[type]);
   return finish(root, u);
 }
 
