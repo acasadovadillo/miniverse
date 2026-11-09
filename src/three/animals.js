@@ -62,7 +62,19 @@ function blob(key, seg, shape, paint) {
 }
 // Un cuerpo de cuadrúpedo: medio largo L (z), medio ancho W y medio alto H, más estrecho en los extremos,
 // con barriga (belly), pecho adelantado (chest) y el lomo algo plano
-const trunk = ({ L, W, H, belly = 0.05, chest = 0.04, flat = 0.1 }) => (v, n) => {
+const Gs = (x, s) => Math.exp(-x * x / (2 * s * s)), sm = (a, b, x) => { const k = Math.max(0, Math.min(1, (x - a) / (b - a))); return k * k * (3 - 2 * k); };
+const trunk = (o) => (A2 ? trunk2(o) : trunk1(o));
+// (?arte=2) Con anatomía: la cruz y la cadera marcadas, el lomo que cae un poco entre ellas, el pecho hondo delante, los
+// ijares recogidos hacia atrás y el costillar más ancho que la cintura
+const trunk2 = ({ L, W, H, belly = 0.05, chest = 0.04, flat = 0.1, withers = 0.14, hips = 0.09 }) => (v, n) => {
+  const t = n.z, up = Math.max(0, n.y), down = Math.max(0, -n.y), taper = 1 - 0.22 * t ** 4;
+  v.x = n.x * W * taper * (1 + 0.07 * Gs(t - 0.15, 0.35) - 0.07 * Gs(t + 0.45, 0.16) + 0.04 * Gs(t + 0.75, 0.12));
+  v.y = n.y * H * taper * (n.y > 0 ? 1 - flat * n.y : 1);
+  v.y += H * up * (withers * Gs(t - 0.5, 0.17) + hips * Gs(t + 0.6, 0.17) - 0.05 * Gs(t + 0.05, 0.25));
+  v.y -= H * down * (0.1 * Gs(t - 0.4, 0.22) + belly * 2.2 * Gs(t - 0.05, 0.4)) - H * down * 0.2 * sm(-0.2, -0.85, t);
+  v.z = n.z * L + (t > 0.2 ? chest * (t - 0.2) * Math.max(0, 0.5 - n.y * 0.5) : 0);
+};
+const trunk1 = ({ L, W, H, belly = 0.05, chest = 0.04, flat = 0.1 }) => (v, n) => {
   const t = n.z, taper = 1 - 0.2 * t ** 4;
   v.x = n.x * W * taper;
   v.y = n.y * H * taper * (n.y > 0 ? 1 - flat * n.y : 1) - (n.y < 0 ? belly * (1 - t * t) * -n.y : 0);
@@ -99,8 +111,9 @@ function eyes(parent, x, y, z, r, tilt = 0) {
   }
 }
 // Una pata con rodilla: muslo (de hip hacia abajo) y, en la rodilla, la caña con el casco o la pata
-function leg(body, legs, { x, y, z, up, low, r0, r1, r2, color, foot, footColor, paw = false, phase = 0 }) {
-  if (A2) { r1 *= 0.85; r2 *= 0.75; }
+function leg(body, legs, o) {
+  if (A2) return leg2(body, legs, o);
+  const { x, y, z, up, low, r0, r1, r2, color, foot, footColor, paw = false, phase = 0 } = o;
   const hip = new THREE.Group(); hip.position.set(x, y, z); body.add(hip);
   mesh(new THREE.CylinderGeometry(r1, r0, up + r0 * 0.6, 12).translate(0, -up / 2 + r0 * 0.3, 0), M(color), {}, hip);   // (arranca dentro del cuerpo)
   const knee = new THREE.Group(); knee.position.y = -up; hip.add(knee);
@@ -108,6 +121,25 @@ function leg(body, legs, { x, y, z, up, low, r0, r1, r2, color, foot, footColor,
   mesh(new THREE.CylinderGeometry(r2, r1, low, 10).translate(0, -low / 2, 0), M(color), {}, knee);
   if (paw) mesh(G.ball, M(footColor || color), { p: [0, -low, r2 * 0.6], s: [r2 * 1.35, r2 * 0.8, r2 * 1.7] }, knee);
   else if (foot) mesh(new THREE.CylinderGeometry(r2 * 1.05, r2 * 1.25, foot, 10).translate(0, -low - foot / 2, 0), M(footColor || '#2a2420', { roughness: 0.5 }), {}, knee);
+  legs.push({ hip, knee, phase });
+  return knee;
+}
+// (?arte=2) Una pata con su músculo arriba (paletilla o muslo), fina abajo y, en las de atrás (z < 0), con el corvejón hacia
+// atrás: el muslo baja hacia atrás y la caña vuelve hacia delante, con el pie debajo de la cadera
+function leg2(body, legs, { x, y, z, up, low, r0, r1, r2, color, foot, footColor, paw = false, phase = 0 }) {
+  const hind = z < 0, kz = hind ? -up * 0.24 : up * 0.05, fz = hind ? up * 0.24 : -up * 0.03, c = M(color);
+  r1 *= 0.8; r2 *= 0.7;
+  const hip = new THREE.Group(); hip.position.set(x, y, z); body.add(hip);
+  if (!paw && up >= 0.2) mesh(G.ball, c, { p: [0, up * 0.08, hind ? -0.01 : 0.01], s: [r0 * (hind ? 0.95 : 0.8), up * 0.62, r0 * (hind ? 1.45 : 1.0)] }, hip);   // (el músculo, metido en el cuerpo)
+  tube(c, [0, up * 0.1, 0], [0, -up, kz], r0 * (paw ? 0.85 : 0.7), r1, hip, 10);
+  const knee = new THREE.Group(); knee.position.set(0, -up, kz); hip.add(knee);
+  mesh(G.ball, c, { s: [r1 * 0.95, r1 * 0.9, r1 * 0.95] }, knee);
+  tube(c, [0, 0, 0], [0, -low, fz], r1 * 0.95, r2, knee, 10);
+  if (paw) mesh(G.ball, M(footColor || color), { p: [0, -low, fz + r2 * 0.6], s: [r2 * 1.35, r2 * 0.8, r2 * 1.7] }, knee);
+  else if (foot) {
+    mesh(G.ball, M(footColor || color), { p: [0, -low + foot * 0.2, fz], s: [r2 * 1.2, r2 * 1.1, r2 * 1.2] }, knee);   // (la cuartilla)
+    mesh(new THREE.CylinderGeometry(r2 * 1.05, r2 * 1.35, foot, 10).translate(0, -low - foot / 2, fz + r2 * 0.25), M(footColor || '#2a2420', { roughness: 0.5 }), {}, knee);
+  }
   legs.push({ hip, knee, phase });
   return knee;
 }
@@ -144,8 +176,8 @@ const BUILD = {
     // Cuello y cabeza
     const head = new THREE.Group(); head.position.set(0, 1.0, 0.66); body.add(head); u.head = head;
     tube(M(cb), [0, 0.86, 0.42], [0, 1.0, 0.66], 0.24, 0.17, body, 14);
-    mesh(blob(k + ':h', 28, (v, n) => { v.set(n.x * 0.19 * (1 - 0.15 * Math.max(0, n.z)), n.y * 0.2, n.z * 0.24); }, n => coat(cb, { back: 0.05, spot: cd, spots: pinta ? n2 => (n2.x > 0.3 && n2.y > -0.2 ? 0.9 : 0) : null })(n)), WHITE, { p: [0, 0.02, 0.06] }, head);
-    mesh(G.ball, M('#f0b8b0'), { p: [0, -0.1, 0.27], s: [0.15, 0.11, 0.1] }, head);                   // hocico
+    mesh(blob(k + ':h', 28, A2 ? (v, n) => { const f = Math.max(0, n.z); v.set(n.x * 0.14 * (1 - 0.3 * f + 0.15 * f ** 4), n.y * 0.15 * (1 - 0.22 * f) - 0.06 * f * f, n.z * 0.31); } : (v, n) => { v.set(n.x * 0.19 * (1 - 0.15 * Math.max(0, n.z)), n.y * 0.2, n.z * 0.24); }, n => coat(cb, { back: 0.05, spot: cd, spots: pinta ? n2 => (n2.x > 0.3 && n2.y > -0.2 ? 0.9 : 0) : null })(n)), WHITE, { p: [0, 0.02, 0.06] }, head);
+    mesh(G.ball, M(A2 ? '#b8908a' : '#f0b8b0'), A2 ? { p: [0, -0.12, 0.29], s: [0.105, 0.075, 0.08] } : { p: [0, -0.1, 0.27], s: [0.15, 0.11, 0.1] }, head);                   // hocico
     for (const s of [-1, 1]) {
       mesh(G.ball, M('#5a2a2a'), { p: [s * 0.05, -0.08, 0.36], s: [0.02, 0.014, 0.01] }, head);         // ollares
       mesh(G.ball, M(cb), { p: [s * 0.2, 0.08, 0.02], s: [0.1, 0.035, 0.055], r: [0, s * 0.3, s * 0.35] }, head);   // orejas
@@ -189,9 +221,9 @@ const BUILD = {
     [[-0.11, 0.27], [0.11, 0.27], [-0.11, -0.27], [0.11, -0.27]].forEach(([x, z], i) => leg(body, legs, { x, y: 0.48, z, up: 0.25, low: 0.2, r0: 0.05, r1: 0.032, r2: 0.028, color: cb, foot: 0.04, footColor: '#4a4038', phase: TROT[i] }));
   },
   cerdo({ body, legs, u, cb, cd, k, breed }) {
-    mesh(blob(k + ':b', breed === 'manchado' ? 56 : 36, trunk({ L: 0.42, W: 0.29, H: 0.27, belly: 0.05, flat: 0.05 }), coat(cb, { back: 0.05, spot: cd, spots: breed === 'manchado' ? patches(2.4, 7.7, 0.6) : null })), WHITE, { p: [0, 0.44, 0] }, body);
+    mesh(blob(k + ':b', breed === 'manchado' ? 56 : 36, trunk(A2 ? { L: 0.47, W: 0.24, H: 0.24, belly: 0.06, flat: 0.12, withers: 0.04, hips: 0.06 } : { L: 0.42, W: 0.29, H: 0.27, belly: 0.05, flat: 0.05 }), coat(cb, { back: 0.05, spot: cd, spots: breed === 'manchado' ? patches(2.4, 7.7, 0.6) : null })), WHITE, { p: [0, 0.44, 0] }, body);
     const head = new THREE.Group(); head.position.set(0, 0.5, 0.42); body.add(head); u.head = head;
-    mesh(blob(k + ':h', 24, (v, n) => v.set(n.x * 0.19, n.y * 0.17, n.z * 0.16 * (n.z > 0 ? 1.15 : 1)), () => C.set(cb)), WHITE, { p: [0, 0, 0.04] }, head);
+    mesh(blob(k + ':h', 24, A2 ? (v, n) => { const f = Math.max(0, n.z); v.set(n.x * 0.15 * (1 - 0.35 * f), n.y * 0.15 * (1 - 0.3 * f), n.z * 0.2 * (n.z > 0 ? 1.25 : 1)); } : (v, n) => v.set(n.x * 0.19, n.y * 0.17, n.z * 0.16 * (n.z > 0 ? 1.15 : 1)), () => C.set(cb)), WHITE, { p: [0, 0, 0.04] }, head);
     mesh(G.cyl, M('#e88a86'), { p: [0, -0.03, 0.22], s: [0.075, 0.06, 0.06], r: [Math.PI / 2, 0, 0] }, head);   // el morro
     for (const s of [-1, 1]) {
       mesh(G.ball, M('#8a4a48'), { p: [s * 0.025, -0.03, 0.252], s: [0.013, 0.017, 0.006] }, head);
