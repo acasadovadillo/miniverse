@@ -9,8 +9,8 @@
 // y el frente mirando a +z), con sus piezas agrupadas por material para juntarlas luego con las del resto del
 // trozo en unas pocas mallas. Lo que no se junta (fuego, cristal, agua) va aparte, igual que sus luces.
 import * as THREE from 'three';
-import { Builder, mat } from './geo.js';
-import { wood as wood0, stone as stone0, rug, rugDesign, notes, awning, planks, furrows, artwork } from './textures.js';
+import { Builder, mat, rockGeo } from './geo.js';
+import { wood as wood0, stone as stone0, rockFace, rng, rug, rugDesign, notes, awning, planks, furrows, artwork } from './textures.js';
 import { ARTE, apagado } from '../arte.js';
 
 // La tanda en revisión (?arte=2): las cajas de los modelos con los cantos biselados, según su material: redondeadas en
@@ -18,7 +18,8 @@ import { ARTE, apagado } from '../arte.js';
 const BEVEL = ARTE === 2 ? Object.assign(
   Object.fromEntries(['quilt', 'quiltB', 'quiltK', 'quiltK2', 'pillowK', 'sheet', 'cloth', 'sofa', 'sofaB', 'leather', 'leatherD', 'baby'].map(k => [k, 0.04])),
   Object.fromEntries(['wood', 'dark', 'light', 'plank', 'hull'].map(k => [k, 0.012])),
-  Object.fromEntries(['stone', 'brick', 'ruin', 'temple', 'templeD', 'rock'].map(k => [k, 0.018])),
+  Object.fromEntries(['stone', 'brick', 'ruin', 'temple', 'templeD', 'rock', 'marble', 'marbleD'].map(k => [k, 0.018])),
+  { ashlar: 0.035 },
 ) : {};
 import { CROPS, ITEMS } from '../items.js';
 import { WALL_H, FLOOR_H } from './build3d.js';
@@ -53,6 +54,9 @@ export function modelMats() {
     rug_persa: mat({ map: rugDesign('persa'), roughness: 1 }), rug_rayas: mat({ map: rugDesign('rayas'), roughness: 1 }), rug_rombos: mat({ map: rugDesign('rombos'), roughness: 1 }),
     rug_trenzada: mat({ map: rugDesign('trenzada'), roughness: 1, alphaTest: 0.5 }),
     art_valle: mat({ map: artwork('valle'), roughness: 0.9 }), art_mar: mat({ map: artwork('mar'), roughness: 0.9 }), art_flores: mat({ map: artwork('flores'), roughness: 0.9 }), art_noche: mat({ map: artwork('noche'), roughness: 0.9 }),
+    // (?arte=2) La piedra de los lugares, sin sillares pintados: cada sillar es una pieza
+    ashlar: mat({ map: rockFace(apagado('#b4ab9a')), roughness: 0.92 }), marble: mat({ map: rockFace(apagado('#d2c8b0')), roughness: 0.75 }), marbleD: mat({ map: rockFace(apagado('#9a907e')), roughness: 0.85 }),
+    crag: mat({ map: rockFace(apagado('#8e887e')), flatShading: true, roughness: 0.95 }),
     baby: c('#f4e6c8', { roughness: 0.95 }), mirror: c('#d8eef4', { metalness: 0.6, roughness: 0.08 }), plate: c('#f0ece0', { roughness: 0.4 }), plateB: c('#5a7ab8', { roughness: 0.4 }),
   };
   return MATS;
@@ -771,6 +775,83 @@ const VILLAGE = {
 };
 
 // ---------- lugares ----------
+// (?arte=2) A la escala de las personas realistas (puertas de 2 m y pico), con cada sillar y cada roca de verdad
+const ROCKG = [];
+const rockG = i => (ROCKG[i] ||= rockGeo(i + 1));
+// Un tejado a dos aguas con la cumbrera a lo largo de z (los frontones, delante y detrás)
+function roofPrismZ(m, key, x0, x1, z0, z1, y0, h) {
+  const B = m.B(key), xm = (x0 + x1) / 2, A = [x0, y0, z1], Bp = [x1, y0, z1], C = [x1, y0, z0], D = [x0, y0, z0], E = [xm, y0 + h, z1], F = [xm, y0 + h, z0];
+  B.quadN(D, A, E, F, [-0.6, 0.8, 0], [[z0, 0], [z1, 0], [z1, 1], [z0, 1]]);
+  B.quadN(Bp, C, F, E, [0.6, 0.8, 0], [[z1, 0], [z0, 0], [z0, 1], [z1, 1]]);
+  B.tri(A, Bp, E, [0, 0, 1], [[x0, 0], [x1, 0], [xm, h]]);
+  B.tri(C, D, F, [0, 0, -1], [[x1, 0], [x0, 0], [xm, h]]);
+}
+// Un muro de sillares de x0,z0 hacia (dx, dz), con la altura que queda en pie en cada tramo (heights, en metros)
+function ashlarWall(m, R, x0, z0, dx, dz, heights, t = 0.36) {
+  const L = 0.44, H = 0.3;
+  heights.forEach((hm, i) => {
+    const rows = Math.round(hm / H);
+    for (let k = 0; k < rows; k++) {
+      if (k === rows - 1 && R() < 0.35) continue;   // (arriba, alguno caído)
+      const off = k % 2 ? L / 2 : 0, a = i * L + off, b = Math.min(heights.length * L, a + L) - 0.012, y = k * H, j = (R() - 0.5) * 0.03;
+      const p0 = [x0 + dx * a, z0 + dz * a], p1 = [x0 + dx * b, z0 + dz * b];
+      const xa = Math.min(p0[0], p1[0]) - (dz ? t / 2 : 0) + j, xb = Math.max(p0[0], p1[0]) + (dz ? t / 2 : 0) + j, za = Math.min(p0[1], p1[1]) - (dx ? t / 2 : 0) + j, zb = Math.max(p0[1], p1[1]) + (dx ? t / 2 : 0) + j;
+      m.box('ashlar', xa, y, za, xb, y + H - 0.015, zb, 0.6);
+    }
+  });
+}
+// Una columna de tambores (con su basa y, si está entera, su capitel), de h metros; si no, rota a esa altura
+function column(m, key, x, z, h, whole, R, r = 0.24) {
+  m.box(key, x - r * 1.25, 0, z - r * 1.25, x + r * 1.25, 0.18, z + r * 1.25, 0.6);
+  for (let y = 0.18; y < h - 0.05; y += 0.55) { const top = Math.min(h, y + 0.55); m.cyl(key, x, y, z, r, r * 0.97, top - y - 0.012, 16, [0, R() * 6, 0]); }
+  if (whole) m.box(key, x - r * 1.35, h, z - r * 1.35, x + r * 1.35, h + 0.2, z + r * 1.35, 0.6);
+}
+const PLACES2 = {
+  ruinas(m) {
+    const R = rng(31);
+    // Las losas del suelo, algunas levantadas y otras que faltan
+    for (let i = 0; i < 16; i++) { if (R() < 0.3) continue; const x = -1.35 + (i % 4) * 0.72, z = -1.35 + Math.floor(i / 4) * 0.72, h = 0.05 + R() * 0.04; m.box('marbleD', x - 0.34, 0, z - 0.34, x + 0.34, h, z + 0.34, 0.6); }
+    // Un muro en esquina, roto en escalera, y tres columnas: una entera, dos partidas
+    ashlarWall(m, R, -1.55, -1.45, 1, 0, [2.4, 2.1, 1.8, 1.2, 0.9, 0.6]);
+    ashlarWall(m, R, -1.55, -1.45, 0, 1, [2.4, 1.8, 1.5, 0.9, 0.6, 0.3]);
+    column(m, 'ashlar', 1.05, -0.95, 3.0, true, R);
+    column(m, 'ashlar', 1.05, 0.55, 1.4, false, R);
+    column(m, 'ashlar', -0.15, 1.15, 0.75, false, R);
+    // Tambores caídos y cascotes
+    m.cyl('ashlar', 0.15, 0.24, -0.15, 0.24, 0.24, 0.54, 16, [0, 0.6, Math.PI / 2]);
+    m.cyl('ashlar', 1.5, 0.24, 1.25, 0.24, 0.24, 0.54, 16, [0, -0.9, Math.PI / 2]);
+    for (let i = 0; i < 9; i++) { const a = R() * 6.28, d = 0.5 + R() * 1.0, sc = 0.08 + R() * 0.12; m.geo('ashlar', rockG(i % 3), Math.cos(a) * d, sc * 0.2, Math.sin(a) * d, [0, R() * 6, 0], [sc * 1.3, sc, sc]); }
+    // Musgo por encima del muro y al pie
+    for (const [x, y, z, sx] of [[-1.3, 2.4, -1.45, 0.3], [-0.7, 1.8, -1.45, 0.25], [-1.55, 1.5, -0.7, 0.25], [-1.0, 0.04, -1.1, 0.5], [1.05, 1.4, 0.55, 0.22]]) m.geo('moss', ICO1, x, y, z, [0, x, 0], [sx, 0.06, sx * 0.8]);
+  },
+  templo(m) {
+    const R = rng(7);
+    // Tres gradas, columnas alrededor de la cella (cuatro delante), arquitrabe y el frontón; la puerta, de 2,05 m, mira a +z
+    for (let i = 0; i < 3; i++) { const e = 1.65 - i * 0.14; m.box('marbleD', -e, i * 0.15, -e, e, (i + 1) * 0.15, e, 0.6); }
+    const y0 = 0.45, H = 2.6;
+    const g = new Model();   // (las columnas, sobre las gradas)
+    for (const [x, z] of [[-1.28, 1.28], [-0.43, 1.28], [0.43, 1.28], [1.28, 1.28], [-1.28, 0.2], [1.28, 0.2], [-1.28, -1.28], [1.28, -1.28], [-0.43, -1.28], [0.43, -1.28]]) column(g, 'marble', x, z, H, true, R, 0.19);
+    for (const [k, B] of g.parts) m.B(k).addGeometry(B.geometry(), new THREE.Matrix4().makeTranslation(0, y0, 0));
+    m.solids.push([-1.5, y0, -1.5, 1.5, y0 + H, 1.5]);
+    const top = y0 + H + 0.2;
+    m.box('marble', -1.5, top, -1.5, 1.5, top + 0.32, 1.5, 0.6);
+    m.box('marbleD', -1.56, top + 0.32, -1.56, 1.56, top + 0.4, 1.56, 0.6);
+    roofPrismZ(m, 'marbleD', -1.56, 1.56, -1.56, 1.56, top + 0.4, 0.85);
+    // La cella, con la puerta oscura
+    m.box('marble', -0.85, y0, -1.0, 0.85, top, 0.3, 0.6).box('dark0', -0.45, y0, 0.3, 0.45, y0 + 2.05, 0.33);
+    m.box('marbleD', -0.55, y0 + 2.05, 0.3, 0.55, y0 + 2.25, 0.36, 0.6);   // el dintel
+    for (const [x, z] of [[-1.5, 1.4], [1.45, -1.3], [1.5, 0.9]]) m.geo('moss', ICO1, x, 0.05, z, [0, x, 0], [0.35, 0.08, 0.25]);
+    m.geo('crystal', ICO, 0, top + 1.55, 0, [0, 0.5, 0], 0.2).light(0, top + 1.5, 0, { color: '#7ad8ff', intensity: 2, range: 6, always: true });
+  },
+  cueva(m, snow) {
+    // Un risco de rocas grandes con la boca (2,2 m de alto) mirando a +z, enmarcada por dos jambas y un dintel de roca
+    for (const [x, y, z, sx, sy, sz, i] of [[0, 0, -1.25, 2.2, 2.6, 1.1, 0], [-1.55, 0, -0.3, 0.8, 2.0, 1.0, 1], [1.55, 0, -0.35, 0.85, 1.8, 1.0, 2], [-1.2, 0, 0.35, 0.42, 2.0, 0.5, 2], [1.2, 0, 0.35, 0.45, 1.95, 0.5, 0], [0, 2.1, 0.15, 1.5, 0.5, 0.65, 1], [-1.85, 0, 0.9, 0.45, 0.4, 0.45, 0], [1.75, 0, 1.0, 0.38, 0.32, 0.4, 1]])
+      m.geo('crag', rockG(i), x, y + sy * 0.2, z, [0, x + z, 0], [sx, sy, sz]);
+    m.geo('dark0', ICO1, 0, 1.0, 0.0, [0, 0, 0], [0.78, 1.12, 0.45]);
+    m.box('dark0', -0.6, 0, -0.2, 0.6, 0.015, 0.6);
+    if (snow) for (const [x, y, z, sx] of [[0, 2.68, -1.25, 0.95], [-1.5, 2.0, -0.3, 0.45], [1.5, 1.82, -0.35, 0.45], [0, 2.52, 0.15, 0.75]]) m.geo('snow', ICO1, x, y, z, [0, 0, 0], [sx, sx * 0.22, sx * 0.8]);
+  },
+};
 const PLACES = {
   ruinas(m) {
     for (const [x, z, h] of [[-1, -1, 2.2], [1, -1, 1.2], [-1, 1, 0.8], [1.1, 0.9, 1.7]]) { m.cyl('ruin', x, 0, z, 0.24, 0.22, h, 10); m.box('ruin', x - 0.3, h, z - 0.3, x + 0.3, h + 0.15, z + 0.3); }
@@ -793,7 +874,8 @@ const PLACES = {
   torre(m) {
     m.cyl('ruin', 0, 0, 0, 0.75, 0.62, 4.2, 14).cyl('ruin', 0, 4.2, 0, 0.82, 0.82, 0.35, 14);
     for (let i = 0; i < 8; i++) { const a = (i / 8) * Math.PI * 2; m.box('ruin', Math.cos(a) * 0.68 - 0.12, 4.55, Math.sin(a) * 0.68 - 0.12, Math.cos(a) * 0.68 + 0.12, 4.85, Math.sin(a) * 0.68 + 0.12); }
-    m.box('soot', -0.25, 0, 0.6, 0.25, 1.4, 0.72).box('soot', -0.1, 2.6, 0.6, 0.1, 3.0, 0.68);
+    if (ARTE === 2) m.box('soot', -0.3, 0, 0.6, 0.3, 2.05, 0.77).box('soot', -0.08, 2.9, 0.62, 0.08, 3.4, 0.7);   // (la puerta, a escala de persona)
+    else m.box('soot', -0.25, 0, 0.6, 0.25, 1.4, 0.72).box('soot', -0.1, 2.6, 0.6, 0.1, 3.0, 0.68);
     m.geo('moss', ICO1, 0.5, 0.1, 0.5, [0, 0, 0], [0.35, 0.3, 0.3]);
   },
   barco(m) {
@@ -879,7 +961,7 @@ export function getModel(name) {
   if (BUILD[kind]) BUILD[kind](m, a, b);
   else if (kind === 'crop') crop(m, a, +b);
   else if (kind === 'village') { if (a === 'stall2') VILLAGE.stall(m, ['#e0b850', '#f08a2a', '#e83a4a'], 'awningB'); else if (a === 'stall3') VILLAGE.stall(m, ['#9ad0ff', '#c8a870', '#f0e8f0'], 'awningG'); else VILLAGE[a](m); }
-  else if (kind === 'poi') PLACES[a](m, b === 'snow');
+  else if (kind === 'poi') (ARTE === 2 && PLACES2[a] || PLACES[a])(m, b === 'snow');
   else if (kind === 'treasure') treasure(m, a === '1');
   else if (kind === 'tilled') tilled(m, a === '1');
   else if (kind === 'rug') rugModel(m, a, b);

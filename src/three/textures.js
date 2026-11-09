@@ -123,7 +123,7 @@ export const stone = (base = '#a59e92', photoKey = 'piedra') => photoOver(make(2
 export const rockFace = (base = '#d8d4cc') => photoOver(make(256, 256, (g, w, h) => {
   const r = rng(9);
   g.fillStyle = base; g.fillRect(0, 0, w, h);
-  for (let i = 0; i < 60; i++) { g.fillStyle = hex(base, (r() - 0.5) * 0.3); g.beginPath(); g.ellipse(r() * w, r() * h, 8 + r() * 30, 6 + r() * 20, r() * 3, 0, Math.PI * 2); g.fill(); }
+  for (let i = 0; i < 90; i++) { g.fillStyle = hex(base, (r() - 0.5) * 0.14); g.beginPath(); g.ellipse(r() * w, r() * h, 8 + r() * 30, 6 + r() * 20, r() * 3, 0, Math.PI * 2); g.fill(); }
   g.strokeStyle = hex(base, -0.35); g.lineWidth = 1.2;
   for (let i = 0; i < 10; i++) { g.beginPath(); let x = r() * w, y = r() * h; g.moveTo(x, y); for (let j = 0; j < 5; j++) { x += (r() - 0.5) * 50; y += (r() - 0.3) * 30; g.lineTo(x, y); } g.stroke(); }
   speckle(g, w, h, r, base, 2500, 1, 0.4);

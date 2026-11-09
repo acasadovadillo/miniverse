@@ -4,8 +4,10 @@
 // rejas, palancas, placas, bloques que se empujan y antorchas. Las paredes que quedan entre la cámara y el
 // jugador se abren (no se pintan) para que siempre se le vea.
 import * as THREE from 'three';
-import { mat } from './geo.js';
-import { stone, flagstone } from './textures.js';
+import { mat, rockGeo } from './geo.js';
+import { stone, flagstone, rockFace } from './textures.js';
+import { ARTE } from '../arte.js';
+const A2 = ARTE === 2;
 import { getModel, modelMat } from './models.js';
 import { CAM } from '../camera.js';
 
@@ -29,7 +31,7 @@ export class Cave3D {
   build() {
     const sc = this.sc, st = STYLE[sc.style] || STYLE.cave, temple = sc.style === 'temple';
     // Suelo
-    const ftex = temple ? flagstone() : stone(st.floor);
+    const ftex = temple ? flagstone() : A2 ? rockFace(st.floor) : stone(st.floor);   // (?arte=2: roca, sin sillares)
     ftex.repeat.set(sc.w / (temple ? 1 : 2), sc.h / (temple ? 1 : 2));
     const floor = new THREE.Mesh(new THREE.PlaneGeometry(sc.w, sc.h).rotateX(-Math.PI / 2), mat({ map: ftex, roughness: 0.95 }));
     floor.position.set(sc.w / 2, 0, sc.h / 2); floor.receiveShadow = true;
@@ -50,6 +52,25 @@ export class Cave3D {
       const cap = new THREE.InstancedMesh(new THREE.BoxGeometry(1.04, 0.2, 1.04), this.cutaway(mat({ color: st.top })), walls.length);
       walls.forEach(([x, y], i) => { o.position.set(x + 0.5, 2.7, y + 0.5); o.updateMatrix(); cap.setMatrixAt(i, o.matrix); });
       this.group.add(cap);
+    } else if (A2) {
+      // (?arte=2) Tres hileras de rocas de caras irregulares con la textura de la roca, de unos 2,6 m (a la altura de las
+      // personas realistas); las que tapan se abren igual
+      const rm = this.cutaway(mat({ map: rockFace(), flatShading: true, roughness: 0.95 })), lists = [[], [], []];
+      for (const [x, y] of walls) for (let k = 0; k < 3; k++) {
+        const s = 0.72 + rnd(x, y, k + 7) * 0.3;
+        lists[Math.floor(rnd(x, y, k + 11) * 3)].push([x + 0.5 + (rnd(x, y, k) - 0.5) * 0.3, 0.2 + k * 0.82 + rnd(x, y, k + 9) * 0.12, y + 0.5 + (rnd(x, y, k + 3) - 0.5) * 0.3, rnd(x, y, k + 6) * 6, s, s * [1.05, 0.95, 0.85][k], 0.8 + rnd(x, y, k + 8) * 0.35]);
+      }
+      lists.forEach((list, v) => {
+        if (!list.length) return;
+        const im = new THREE.InstancedMesh(rockGeo(v + 1), rm, list.length);
+        list.forEach(([px, py, pz, ry, s, sy, c], i) => { o.position.set(px, py, pz); o.rotation.set((c - 1) * 0.6, ry, 0); o.scale.set(s, sy, s); o.updateMatrix(); im.setMatrixAt(i, o.matrix); im.setColorAt(i, new THREE.Color(st.wall).multiplyScalar(c * 1.15)); });
+        im.castShadow = im.receiveShadow = true; this.group.add(im);
+      });
+      if (sc.style === 'ice') {
+        const snow = new THREE.InstancedMesh(new THREE.DodecahedronGeometry(0.6, 0), this.cutaway(mat({ color: '#f4fbff' })), walls.length);
+        walls.forEach(([x, y], i) => { o.position.set(x + 0.5, 2.55, y + 0.5); o.rotation.set(0, i, 0); o.scale.set(0.9, 0.3, 0.9); o.updateMatrix(); snow.setMatrixAt(i, o.matrix); });
+        this.group.add(snow);
+      }
     } else {
       // (dos hileras de rocas, de 1,7 m: con la cámara alta no tapan; si tapan, se abren)
       const geo = new THREE.DodecahedronGeometry(0.85, 0), im = new THREE.InstancedMesh(geo, wallMat, walls.length * 2);
@@ -148,7 +169,7 @@ export class Cave3D {
   flames() { return this.flameList; }
 }
 
-const VEIN = { rock: new THREE.DodecahedronGeometry(1, 0), gem: new THREE.OctahedronGeometry(1, 0), prism: new THREE.CylinderGeometry(0.6, 1, 1, 6).translate(0, 0.5, 0), rockMat: mat({ color: '#7e786e', flatShading: true }) };
+const VEIN = { rock: A2 ? rockGeo(2) : new THREE.DodecahedronGeometry(1, 0), gem: new THREE.OctahedronGeometry(1, 0), prism: new THREE.CylinderGeometry(0.6, 1, 1, 6).translate(0, 0.5, 0), rockMat: A2 ? mat({ map: rockFace('#8e887e'), flatShading: true, roughness: 0.95 }) : mat({ color: '#7e786e', flatShading: true }) };
 const OREM = new Map(), CRYM = new Map();
 const oreMat = ore => { if (!OREM.has(ore)) OREM.set(ore, mat({ color: ORE[ore] || '#ffffff', metalness: ['cobre', 'hierro', 'oro'].includes(ore) ? 0.7 : 0.1, roughness: 0.3, emissive: ['amatista', 'esmeralda', 'rubi', 'diamante'].includes(ore) ? ORE[ore] : '#000000', emissiveIntensity: 0.4 })); return OREM.get(ore); };
 const crystalMat = c => { if (!CRYM.has(c)) CRYM.set(c, mat({ color: c, emissive: c, emissiveIntensity: 0.9, roughness: 0.1, transparent: true, opacity: 0.9 })); return CRYM.get(c); };

@@ -5,7 +5,7 @@
 // temblar cuando se golpea. También las matas de hierba, flores, setas, juncos y piedrecitas del suelo, y
 // los árboles lejanos (más sencillos y sin sombra) para el horizonte.
 import * as THREE from 'three';
-import { mat } from './geo.js';
+import { mat, rockGeo } from './geo.js';
 import { bark, rockFace } from './textures.js';
 import { ihash, vnoise } from '../util.js';
 import { tonos, ARTE } from '../arte.js';
@@ -58,27 +58,6 @@ function frondGeo() {
     for (const sd of [-1, 1]) { const t = [sd * w, a[1] - 0.1 * w - 0.05, a[2] + w * 0.55]; pos.push(...a, ...b, ...t); }
   }
   const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.computeVertexNormals();
-  return g;
-}
-// (?arte=2) Una roca: una bola de caras deformada por un ruido, aplastada y con la base plana, y la textura proyectada por la
-// cara (de lado o desde arriba) en metros
-function rockGeo(seed) {
-  const g = new THREE.IcosahedronGeometry(1, 2), p = g.attributes.position, v = new THREE.Vector3();
-  const n3 = (x, y, z) => Math.sin(x * 2.1 + seed) * Math.sin(y * 2.7 + seed * 2) * Math.sin(z * 1.9 + seed * 3) + 0.5 * Math.sin(x * 4.3 - seed) * Math.sin(z * 4.1 + y * 3.3);
-  for (let i = 0; i < p.count; i++) {
-    v.fromBufferAttribute(p, i).normalize();
-    const r = 1 + 0.22 * n3(v.x * 1.3, v.y * 1.3, v.z * 1.3);
-    let y = v.y * r * 0.72; if (y < -0.25) y = -0.25 + (y + 0.25) * 0.15;
-    p.setXYZ(i, v.x * r, y, v.z * r);
-  }
-  g.computeVertexNormals();
-  const uv = g.attributes.uv, a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3(), nn = new THREE.Vector3();
-  for (let i = 0; i < p.count; i += 3) {
-    a.fromBufferAttribute(p, i); b.fromBufferAttribute(p, i + 1); c.fromBufferAttribute(p, i + 2);
-    nn.subVectors(c, b).cross(b.clone().sub(a)).normalize();
-    const ax = Math.abs(nn.x), ay = Math.abs(nn.y), az = Math.abs(nn.z);
-    for (let j = 0; j < 3; j++) { const q = [a, b, c][j]; const [u1, v1] = ay > ax && ay > az ? [q.x, q.z] : ax > az ? [q.z, q.y] : [q.x, q.y]; uv.setXY(i + j, u1 * 0.6 + seed * 0.37, v1 * 0.6); }
-  }
   return g;
 }
 // Las tarjetas de hojas se ven por las dos caras con la luz de la de fuera (si no, las de espaldas salen negras)
