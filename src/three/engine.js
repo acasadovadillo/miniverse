@@ -17,14 +17,8 @@ import { ITEMS } from '../items.js';
 import { Fx } from './fx.js';
 import { ArrowsView } from './arrows.js';
 import { Cave3D } from './cave3d.js';
-import { ART2, TONE_MAPPING, CURVA, lightAt, toneOut } from './look.js';
+import { TONE_MAPPING, CURVA, lightAt, toneOut } from './look.js';
 
-const SKY = {
-  day: { top: '#5ea4e2', horizon: '#cfe6f4', fog: '#c6e0ee' },
-  dusk: { top: '#4a5f9a', horizon: '#f0b48a', fog: '#d8a890' },
-  night: { top: '#0b1330', horizon: '#26365a', fog: '#1c2844' },
-  rain: { top: '#6a7888', horizon: '#a8b4c0', fog: '#9aa6b2' },
-};
 const LOW_Q = new URLSearchParams(location.search).get('q') === 'low';
 const SKY_LAST = 1e6;   // orden de dibujo del cielo (ver makeSky)
 
@@ -45,8 +39,8 @@ export class View3D {
     this.pixelRatio = Math.min(devicePixelRatio, LOW_Q ? 1 : 2);
     r.setPixelRatio(this.pixelRatio);
     r.outputColorSpace = THREE.SRGBColorSpace;
-    r.toneMapping = TONE_MAPPING;   // (con el arte nuevo, su curva y su exposición: ver look.js)
-    if (ART2) r.toneMappingExposure = CURVA.exp;
+    r.toneMapping = TONE_MAPPING;   // (la curva y la exposición de look.js)
+    r.toneMappingExposure = CURVA.exp;
     r.shadowMap.enabled = true;
     r.shadowMap.type = THREE.PCFSoftShadowMap;
     r.shadowMap.autoUpdate = false;   // se rehace cada dos fotogramas o cuando se mueve su zona (ver draw)
@@ -89,7 +83,7 @@ export class View3D {
 
   // ---------- cielo y luz ----------
   makeSky() {
-    this.skyU = { top: { value: new THREE.Color(SKY.day.top) }, horizon: { value: new THREE.Color(SKY.day.horizon) }, sunDir: { value: new THREE.Vector3(0, 1, 0) }, glow: { value: 1 }, time: { value: 0 }, night: { value: 0 }, cloudy: { value: 0.3 }, cloudK: { value: 1 } };
+    this.skyU = { top: { value: new THREE.Color() }, horizon: { value: new THREE.Color() }, sunDir: { value: new THREE.Vector3(0, 1, 0) }, glow: { value: 1 }, time: { value: 0 }, night: { value: 0 }, cloudy: { value: 0.3 }, cloudK: { value: 1 } };
     this.sky = new THREE.Mesh(new THREE.SphereGeometry(300, 32, 16), new THREE.ShaderMaterial({
       uniforms: this.skyU, side: THREE.BackSide, depthWrite: false, fog: false,
       vertexShader: 'varying vec3 vDir; void main(){ vDir = normalize(position); vec4 p = modelViewMatrix * vec4(position, 1.0); gl_Position = projectionMatrix * p; gl_Position.z = gl_Position.w; }',
@@ -117,7 +111,7 @@ export class View3D {
     this.sky.renderOrder = SKY_LAST;
     this.sky.frustumCulled = false;
     this.scene.add(this.sky);
-    this.scene.fog = new THREE.Fog(SKY.day.fog, 60, 150);
+    this.scene.fog = new THREE.Fog('#c9d2d0', 60, 150);
   }
   makeLights() {
     const sun = (this.sun = new THREE.DirectionalLight('#fff0d8', 2.8));
@@ -135,8 +129,8 @@ export class View3D {
     this.pool = Array.from({ length: 6 }, () => { const l = new THREE.PointLight('#ffb870', 0, 9, 1.4); this.scene.add(l); return l; });
     // Reflejo del cielo
     const pm = new THREE.PMREMGenerator(this.renderer), env = new THREE.Scene();
-    env.add(new THREE.Mesh(new THREE.SphereGeometry(10, 16, 8), new THREE.MeshBasicMaterial({ side: THREE.BackSide, color: ART2 ? '#b9c6cf' : '#9cc4e4' })));
-    const ground = new THREE.Mesh(new THREE.CircleGeometry(9, 16), new THREE.MeshBasicMaterial({ color: ART2 ? '#6b5f4e' : '#5a7a44' }));
+    env.add(new THREE.Mesh(new THREE.SphereGeometry(10, 16, 8), new THREE.MeshBasicMaterial({ side: THREE.BackSide, color: '#b9c6cf' })));
+    const ground = new THREE.Mesh(new THREE.CircleGeometry(9, 16), new THREE.MeshBasicMaterial({ color: '#6b5f4e' }));
     ground.rotation.x = -Math.PI / 2; ground.position.y = -1; env.add(ground);
     this.scene.environment = pm.fromScene(env, 0.04).texture;
     this.envNow = -1;
@@ -166,32 +160,16 @@ export class View3D {
     this.skyU.sunDir.value.copy(day ? sunDir : moonDir);
     this.night = night;
     this.weather = { rain: indoors ? 0 : rain, snow: !indoors && snow };
-    if (ART2) {
-      // Arte nuevo: la luz de la tabla de look.js, mezclada según la hora y el tiempo. Dentro de casa, la luz del cielo
-      // y su reflejo a la mitad: mandan las luces cálidas
-      const L = lightAt(night, dusk, rain || fog ? 1 : 0);
-      this.skyU.top.value.copy(L.top); this.skyU.horizon.value.copy(L.horizon);
-      this.skyU.glow.value = (1 - night) * (rain ? 0.1 : 0.45); this.skyU.cloudK.value = L.cloud;
-      toneOut(L.horizon, CURVA.exp, this.scene.fog.color);
-      this.scene.fog.near = fog ? 12 : L.near; this.scene.fog.far = fog ? 70 : L.far;
-      this.sun.color.copy(L.sun); this.sun.intensity = (day ? 1 : night) + flash * 3;   // (entre la puesta y la noche cerrada, el sol ya no está)
-      this.hemi.color.copy(L.hemiC); this.hemi.groundColor.copy(L.hemiS); this.hemi.intensity = (indoors ? 0.5 : 1) + flash;
-      this.setEnv((0.08 * (1 - night) + 0.02 * night) * (indoors ? 0.5 : 1));   // (poco: aclaraba y apagaba el contraste)
-      return;
-    }
-    const col = (k1, k2, t) => new THREE.Color(SKY[k1][k2]).lerp(new THREE.Color(SKY.night[k2]), night);
-    const pick = key => { const c = col('day', key); if (dusk > 0) c.lerp(new THREE.Color(SKY.dusk[key]), dusk * (1 - night)); if (rain || fog) c.lerp(new THREE.Color(SKY.rain[key]).lerp(new THREE.Color(SKY.night[key]), night), 0.75); return c; };
-    this.skyU.top.value.copy(pick('top')); this.skyU.horizon.value.copy(pick('horizon'));
-    this.skyU.glow.value = (1 - night) * (rain ? 0.2 : 1);
-    this.scene.fog.color.copy(pick('fog'));
-    this.scene.fog.near = fog ? 12 : rain ? 40 : 60; this.scene.fog.far = fog ? 70 : rain ? 120 : 150;
-    // Luz del sol (o de la luna), del cielo y del suelo; un rayo lo ilumina todo un instante
-    this.sun.intensity = (day ? 2.9 * (1 - night) * (rain ? 0.35 : 1) : 0) + 0.32 * night + flash * 3;
-    this.sun.color.set(night > 0.5 ? '#9ab4ff' : dusk > 0.3 ? '#ffc890' : '#fff0d8');
-    this.hemi.intensity = (0.95 * (1 - night) + 0.16 * night) * (rain ? 0.85 : 1) + flash;
-    this.hemi.color.copy(pick('horizon')).lerp(new THREE.Color('#dcebff'), 0.5);
-    this.hemi.groundColor.set(night > 0.5 ? '#1a2030' : '#6a7f48');
-    this.setEnv((0.45 * (1 - night) + 0.05 * night) * (indoors ? 0.7 : 1));
+    // La luz de la tabla de look.js, mezclada según la hora y el tiempo. Dentro de casa, la luz del cielo
+    // y su reflejo a la mitad: mandan las luces cálidas
+    const L = lightAt(night, dusk, rain || fog ? 1 : 0);
+    this.skyU.top.value.copy(L.top); this.skyU.horizon.value.copy(L.horizon);
+    this.skyU.glow.value = (1 - night) * (rain ? 0.1 : 0.45); this.skyU.cloudK.value = L.cloud;
+    toneOut(L.horizon, CURVA.exp, this.scene.fog.color);
+    this.scene.fog.near = fog ? 12 : L.near; this.scene.fog.far = fog ? 70 : L.far;
+    this.sun.color.copy(L.sun); this.sun.intensity = (day ? 1 : night) + flash * 3;   // (entre la puesta y la noche cerrada, el sol ya no está)
+    this.hemi.color.copy(L.hemiC); this.hemi.groundColor.copy(L.hemiS); this.hemi.intensity = (indoors ? 0.5 : 1) + flash;
+    this.setEnv((0.08 * (1 - night) + 0.02 * night) * (indoors ? 0.5 : 1));   // (poco: aclaraba y apagaba el contraste)
   }
 
   // ---------- cámara ----------

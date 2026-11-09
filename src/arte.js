@@ -1,6 +1,7 @@
-// El arte nuevo («Pueblo vivido», ver docs/propuesta-arte.md): un pueblo de cal, madera, piedra y barro con luz y
-// color sobrios. Mientras se revisa va detrás de ?arte=2: quien abre el juego así lo ve, y se acuerda en este
-// navegador hasta que abra ?arte=1. Sin él, el juego se ve como siempre.
+// El arte del juego («Pueblo vivido», ver docs/propuesta-arte.md): un pueblo de cal, madera, piedra y barro con luz y
+// color sobrios, que se hace por tandas. Lo aprobado es el arte de todos; la tanda que se está revisando va detrás de
+// ?arte=2: quien abre el juego así la ve, y se acuerda en este navegador hasta que abra ?arte=1. (Ahora mismo no hay
+// ninguna en revisión: la luz, la paleta y el color ya son de todos.)
 //
 // Aquí está lo que no necesita Three (vale también en el hilo del suelo, genworker.js, que no ve la dirección de
 // la página: allí lo dice el mensaje de arranque, con setArte): qué arte se usa, la paleta y sobrio().
@@ -44,10 +45,10 @@ function fromHsv(h, s, v) {
   return [[v, x, m], [x, v, m], [m, v, x], [m, x, v], [x, m, v], [v, m, x]][Math.floor(h) % 6];
 }
 // Un color guardado (de ropa, pelo o piel), apagado para dibujarlo: las partidas guardan el suyo y se ve así. Telas y
-// pelo: saturación ×0,85 y valor ×0,92; piel: saturación ×0,85 y valor ×0,97. Con el arte de siempre, igual.
+// pelo: saturación ×0,85 y valor ×0,92; piel: saturación ×0,85 y valor ×0,97.
 const SOBRIO = new Map();
 export function sobrio(c, tipo) {
-  if (ARTE !== 2 || typeof c !== 'string' || c[0] !== '#' || c.length !== 7) return c;
+  if (typeof c !== 'string' || c[0] !== '#' || c.length !== 7) return c;
   const k = c + (tipo || '');
   let o = SOBRIO.get(k);
   if (!o) {
@@ -59,10 +60,10 @@ export function sobrio(c, tipo) {
 // Los cuatro tonos de un color de suelo, como los de siempre: el de base, dos más claros y uno más oscuro
 export const tonos = c => { const [h, s, v] = hsv(...rgb(c)); return [1, 1.08, 1.16, 0.91].map((k, i) => hex(...fromHsv((h + [0, 0.02, 0.04, -0.02][i] + 6) % 6, s, Math.min(255, v * k)))); };
 // Para todo lo demás que no tiene color propio en la paleta (muebles, telas, toldos…): saturación ×0,7 y valor ×0,9,
-// para que no chille sobre el mundo sobrio. Con el arte de siempre, igual.
+// para que no chille sobre el mundo sobrio.
 const APAGADO = new Map();
 export function apagado(c) {
-  if (ARTE !== 2 || typeof c !== 'string' || c[0] !== '#' || c.length !== 7) return c;
+  if (typeof c !== 'string' || c[0] !== '#' || c.length !== 7) return c;
   let o = APAGADO.get(c);
   if (!o) { const [h, s, v] = hsv(...rgb(c)); APAGADO.set(c, (o = hex(...fromHsv(h, s * 0.7, v * 0.9)))); }
   return o;

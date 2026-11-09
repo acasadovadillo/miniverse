@@ -12,7 +12,6 @@ import { Builder, mat } from './geo.js';
 import { plaster, planks, roofTiles, stone, wood, siding, flagstone, gravel, thatch, artwork } from './textures.js';
 import { PIECES, parsePlaced } from '../pieces.js';
 import { front } from '../art/stations.js';
-import { ARTE } from '../arte.js';
 
 export const WALL_H = 2.8;
 export const T = 0.12;
@@ -21,21 +20,18 @@ const WIN = { half: 0.3, y0: 1.0, y1: 1.95 };
 const DOOR = { half: 0.42, y1: 2.05 };
 const BEAM = { post: 0.04, rail: 0.034, brace: 0.028 };
 export const ROOF = { level: 0.62, cap: 6, thick: 0.14, over: 0.32 };
-export const ROOF_COLORS = { tejado_rojo: '#c95a3c', tejado_azul: '#4a6aa8', tejado_gris: '#6a6e78', tejado_verde: '#4a8a5a' };
-// Los colores de los materiales de siempre y, con el arte nuevo (?arte=2), los de su paleta: cal, piedra y madera
-// gastadas, teja de barro, pizarra y cristal oscuro (los que van sobre una textura clara la tiñen: color del material)
-const ART1 = { thatch: '#ffffff', plaster: '#ffffff', stone: '#a59e92', wallStone: '#b0a898', siding: '#ffffff', timber: '#5e3b22', frame: '#4a2e1a', shutter: '#3f7a44', door: '#9a6438',
-  glass: '#a8d4f0', box: '#7a4a2a', soil: '#4a3020', leaves: '#3f8a32', planks: '#ffffff', flag: '#ffffff', fence: '#9a6a40', fenceStone: '#9a948a', soffit: '#d8c8b0' };
-const ART2 = { thatch: '#c9bea8', plaster: '#d4d1c8', stone: '#8a857a', wallStone: '#948e82', siding: '#c9c2b6', timber: '#5f4e3e', frame: '#4f4438', shutter: '#3f7f5a', door: '#7d5e46',
+// Colores de la paleta sobria: cal, piedra y madera gastadas, teja de barro, pizarra y cristal oscuro (los que van sobre
+// una textura clara la tiñen: color del material). Los tejados, por su id (rojo es la teja de barro)
+export const ROOF_COLORS = { tejado_rojo: '#7a5544', tejado_azul: '#44505c', tejado_gris: '#525558', tejado_verde: '#4c6250' };
+const C = { thatch: '#c9bea8', plaster: '#d4d1c8', stone: '#8a857a', wallStone: '#948e82', siding: '#c9c2b6', timber: '#5f4e3e', frame: '#4f4438', shutter: '#3f7f5a', door: '#7d5e46',
   glass: '#5a6870', box: '#76604a', soil: '#4f4538', leaves: '#55663f', planks: '#d2c6b6', flag: '#d6d2c8', fence: '#857058', fenceStone: '#857f75', soffit: '#b8ab98' };
-const ROOF2 = { tejado_rojo: '#7a5544', tejado_azul: '#44505c', tejado_gris: '#525558', tejado_verde: '#4c6250' };   // (al sol de mediodía, la teja salía casi rosa)
 
 // Materiales base (los muros de una casa los clonan para poder desvanecerlos)
 let BASE;
 export function baseMaterials() {
   if (BASE) return BASE;
-  const roofs = {}, A2 = ARTE === 2, C = A2 ? ART2 : ART1;
-  for (const [id, c] of Object.entries(A2 ? ROOF2 : ROOF_COLORS)) roofs[id] = mat({ map: roofTiles(c), roughness: A2 ? 0.88 : 0.75 });
+  const roofs = {};
+  for (const [id, c] of Object.entries(ROOF_COLORS)) roofs[id] = mat({ map: roofTiles(c), roughness: 0.88 });
   roofs.tejado_paja = mat({ map: thatch(), roughness: 1, color: C.thatch });
   BASE = {
     plaster: mat({ map: plaster(), color: C.plaster }), stone: mat({ map: stone(C.stone) }), wallStone: mat({ map: stone(C.wallStone) }), siding: mat({ map: siding(), color: C.siding }),

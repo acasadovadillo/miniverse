@@ -7,25 +7,17 @@ import { B, BIOMES } from './biomes.js';
 import * as village from './village.js';
 import { seasonalPalette } from '../art/seasons.js';
 import { ihash, vnoise, rgbOf } from '../util.js';
-import { onArte, PAL } from '../arte.js';
+import { PAL } from '../arte.js';
 
 export const BLOCK = CHUNK * 4;         // lado de un bloque de suelo, en casillas (metros)
 export const PX = 4;                    // píxeles de textura por metro
-let DUNE, DIRT, DIRT_D, SAND, MUD, SHORE, SHALLOW_W, DEEP, FOAM;   // (los colores: ver onArte, abajo)
-// La orilla y el fondo, por clase (arena, barro, lodo): el borde seco, el mojado junto al agua y el fondo hondo
-// La orilla y el fondo, por clase (arena, barro, lodo): el borde seco y el mojado junto al agua; y el agua misma, pintada
-// en el suelo (la malla de agua de encima se desvanece en el borde, así la línea de la orilla la da esta pintura, que es
-// más fina que la malla): de clara en la orilla, con una línea de espuma, a honda
-// Dunas, camino (claro y oscuro), arena y barro; la orilla seca y mojada de cada clase; el agua clara, honda y la espuma.
-// Con el arte nuevo (?arte=2), los de su paleta.
-onArte(v => {
-  const c = v === 2
-    ? { dune: '#b3a27c', dirt: PAL.suelo.camino, dirtD: PAL.suelo.tierra, sand: PAL.suelo.arena, mud: PAL.suelo.barro, shore: ['#8f8164', '#80745d', '#665b48', '#5a5244', '#3f3a30'], shallow: PAL.agua.orilla, deep: PAL.agua.profunda, foam: PAL.agua.espuma }
-    : { dune: '#c8a868', dirt: '#c49a64', dirtD: '#a8804e', sand: '#dcc791', mud: '#8a7a5a', shore: ['#ad9560', '#9c8a64', '#6e5e42', '#5a5a3c', '#3c3c2a'], shallow: '#86c6cc', deep: '#2f6a9a', foam: '#eef6f8' };
-  [DUNE, DIRT, DIRT_D, SAND, MUD, SHALLOW_W, DEEP, FOAM] = [c.dune, c.dirt, c.dirtD, c.sand, c.mud, c.shallow, c.deep, c.foam].map(rgbOf);
-  const s = c.shore.map(rgbOf);
-  SHORE = [[SAND, s[0]], [s[1], s[2]], [s[3], s[4]]];
-});
+// Dunas, camino (claro y oscuro), arena y barro (de la paleta sobria). La orilla, por clase (arena, barro, lodo): el borde
+// seco y el mojado junto al agua; y el agua misma, pintada en el suelo (la malla de agua de encima se desvanece en el
+// borde, así la línea de la orilla la da esta pintura, que es más fina que la malla): de clara en la orilla, con una
+// línea de espuma, a honda
+const DUNE = rgbOf('#b3a27c'), DIRT = rgbOf(PAL.suelo.camino), DIRT_D = rgbOf(PAL.suelo.tierra), SAND = rgbOf(PAL.suelo.arena), MUD = rgbOf(PAL.suelo.barro);
+const SHORE = [[SAND, rgbOf('#8f8164')], [rgbOf('#80745d'), rgbOf('#665b48')], [rgbOf('#5a5244'), rgbOf('#3f3a30')]];
+const SHALLOW_W = rgbOf(PAL.agua.orilla), DEEP = rgbOf(PAL.agua.profunda), FOAM = rgbOf(PAL.agua.espuma);
 const mix3 = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
 const ss = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 

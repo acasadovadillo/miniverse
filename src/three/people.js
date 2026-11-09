@@ -88,7 +88,7 @@ function hijabGeo() {
   return { hijab, hem, drape: pleated(new THREE.CylinderGeometry(0.62, 1, 1, 40, 2), 9, 0.035) };
 }
 const cache = new Map();
-// (con el arte nuevo, ?arte=2, cada color se ve apagado con sobrio(): la piel con { piel: true })
+// (cada color se ve apagado con sobrio(), para que no chille sobre el mundo sobrio; la piel, con { piel: true })
 export const M = (c, o = {}) => { const k = c + JSON.stringify(o); if (!cache.has(k)) { const { piel, ...rest } = o; cache.set(k, mat({ color: sobrio(c, piel ? 'piel' : undefined), roughness: 0.75, ...rest })); } return cache.get(k); };
 const shade = (c, k) => '#' + new THREE.Color(c).multiplyScalar(k).getHexString();
 const mix = (a, b, k) => '#' + new THREE.Color(a).lerp(new THREE.Color(b), k).getHexString();

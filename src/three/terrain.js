@@ -270,11 +270,9 @@ function groundMaterial(map) {
 // brillos que se mueven, el reflejo del cielo en los ángulos rasantes, el color más claro y verdoso donde cubre
 // poco, espuma que late hacia la orilla y el borde que se desvanece en vez de cortar el suelo (la línea de la orilla
 // la pinta el suelo, ground.js, que es más fino que esta malla)
-// (con el arte nuevo, ?arte=2: los colores de su paleta, menos espuma y olas más suaves)
+// (los colores de la paleta, poca espuma y olas suaves)
 const lin = c => { const k = new THREE.Color(c); return `vec3(${k.r.toFixed(4)}, ${k.g.toFixed(4)}, ${k.b.toFixed(4)})`; };
-const WATER = ARTE === 2
-  ? { color: PAL.agua.media, shallow: lin(PAL.agua.orilla), foam: lin(PAL.agua.espuma), foamK: '0.35', wave: '0.7' }
-  : { color: '#4a9ee0', shallow: 'vec3(0.36, 0.74, 0.84)', foam: 'vec3(0.97, 0.99, 1.0)', foamK: '0.6', wave: '1.0' };
+const WATER = { color: PAL.agua.media, shallow: lin(PAL.agua.orilla), foam: lin(PAL.agua.espuma), foamK: '0.35', wave: '0.7' };
 function waterMaterial(uniforms, block) {
   const m = new THREE.MeshStandardMaterial({ color: WATER.color, roughness: 0.08, metalness: 0.1, transparent: true, opacity: 0.8 });
   m.customProgramCacheKey = () => (block ? 'agua-bloque' : 'agua-fondo');   // (si no, Three les da el mismo programa a los dos: el texto de onBeforeCompile es el mismo)

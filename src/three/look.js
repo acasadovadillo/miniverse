@@ -1,11 +1,7 @@
-// La luz y el color del arte nuevo (?arte=2; ver src/arte.js y la sección 4.10 de docs/propuesta-arte.md). Sin
-// posproceso: la curva de tono es la AgX de Three con algo más de contraste, y la luz sale de una tabla por momento
+// La luz y el color del juego (ver src/arte.js y la sección 4.10 de docs/propuesta-arte.md). Sin posproceso: la curva de tono es la AgX de Three con algo más de contraste, y la luz sale de una tabla por momento
 // del día (mediodía, atardecer, noche y lluvia) que se mezcla de forma continua según la hora y el tiempo.
 // Los valores vienen de las pruebas de aspecto (docs/pruebas-arte/look/base.js), calibrados sobre capturas.
 import * as THREE from 'three';
-import { ARTE } from '../arte.js';
-
-export const ART2 = ARTE === 2;
 // La curva: exposición, potencia, contraste y saturación (con poca luz el color se apaga: si no, la pintura se
 // satura en la sombra y de noche)
 export const CURVA = { exp: 2.2, pot: 1.15, con: 0.4, sat: 1.08 };
@@ -13,8 +9,8 @@ export const CURVA = { exp: 2.2, pot: 1.15, con: 0.4, sat: 1.08 };
 // Se instala antes de que se compile ningún material (al cargar este archivo): cambia la función de tono vacía de
 // Three (CustomToneMapping) por la AgX con el ajuste, y hace que la sombra del sol se desvanezca antes del borde de
 // su zona, para que con la cámara baja no se vea el corte. Devuelve el tono que debe usar el renderer.
-let TONE = THREE.ACESFilmicToneMapping;
-if (ART2) {
+let TONE = THREE.AgXToneMapping;
+{
   const C = THREE.ShaderChunk, chunk = C.tonemapping_pars_fragment, m = chunk.match(/vec3 AgXToneMapping\( vec3 color \) \{[\s\S]*?\n\}/), hueco = /vec3 CustomToneMapping\( vec3 color \) \{ return color; \}/;
   const sig = 'color = agxDefaultContrastApprox( color );', f = n => n.toFixed(4);
   if (m && hueco.test(chunk) && m[0].includes(sig)) {
@@ -24,7 +20,7 @@ if (ART2) {
       color = mix(color, color * color * (3.0 - 2.0 * color), ${f(CURVA.con)});`;
     C.tonemapping_pars_fragment = chunk.replace(hueco, '') + '\n' + m[0].replace('AgXToneMapping', 'CustomToneMapping').replace(sig, ajuste);
     TONE = THREE.CustomToneMapping;
-  } else { console.warn('Arte nuevo: la curva de tono de Three ha cambiado; se usa AgX tal cual'); TONE = THREE.AgXToneMapping; }
+  } else console.warn('La curva de tono de Three ha cambiado: se usa AgX tal cual');
   if (C.shadowmap_pars_fragment.includes('return shadow;'))
     C.shadowmap_pars_fragment = C.shadowmap_pars_fragment.replace('return shadow;', 'vec2 lkB = abs(shadowCoord.xy * 2.0 - 1.0); return mix(shadow, 1.0, smoothstep(0.82, 1.0, max(lkB.x, lkB.y)));');
 }

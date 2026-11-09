@@ -8,10 +8,7 @@ import * as THREE from 'three';
 import { mat } from './geo.js';
 import { bark } from './textures.js';
 import { ihash, vnoise } from '../util.js';
-import { ARTE, tonos } from '../arte.js';
-
-// Con el arte nuevo (?arte=2), el follaje y las plantas con su paleta sobria (las flores y la fruta, como siempre)
-const A2 = ARTE === 2, V = (a, b) => (A2 ? b : a);
+import { tonos } from '../arte.js';
 
 const tmp = new THREE.Object3D(), col = new THREE.Color();
 // Viento: el tiempo que mueve la hierba y las copas (lo avanza el dibujo)
@@ -40,17 +37,15 @@ let MATS;
 const mats = () => (MATS ||= {
   bark: (() => { const t = bark(); t.repeat.set(2, 1); return mat({ map: t }); })(),
   leaf: sway(mat({ flatShading: true, roughness: 0.95 }), 0.035, 0.7),
-  solid: mat({ roughness: 0.6 }), rock: mat({ flatShading: true, roughness: 0.9 }), cactus: mat({ color: V('#4f9a4a', '#56704c'), roughness: 0.7, flatShading: true }),
-  palmTrunk: mat({ color: V('#a8885a', '#8f7a5c'), roughness: 0.9 }), frond: sway(mat({ color: V('#4fa040', '#5d7044'), side: THREE.DoubleSide, flatShading: true }), 0.05, 1.2), dry: mat({ color: V('#8a6a40', '#7f6a4c'), roughness: 1 }),
-  snow: mat({ color: V('#f4f8fc', '#dfe4e6'), roughness: 0.85 }),
+  solid: mat({ roughness: 0.6 }), rock: mat({ flatShading: true, roughness: 0.9 }), cactus: mat({ color: '#56704c', roughness: 0.7, flatShading: true }),
+  palmTrunk: mat({ color: '#8f7a5c', roughness: 0.9 }), frond: sway(mat({ color: '#5d7044', side: THREE.DoubleSide, flatShading: true }), 0.05, 1.2), dry: mat({ color: '#7f6a4c', roughness: 1 }),
+  snow: mat({ color: '#dfe4e6', roughness: 0.85 }),
 });
-// Colores de las hojas según la estación (0 primavera … 3 invierno)
-const LEAF = V([['#5aa642', '#62ad48', '#4f9a3a', '#6cb850'], ['#468c34', '#4f9a3a', '#3f8030', '#56a03e'], ['#d8782e', '#e8a838', '#c44c2c', '#d89a3a'], ['#8a9a8a', '#9aa69a', '#7e8c80', '#a8b2a8']],
-  [tonos('#6f8050'), tonos('#59683f'), ['#94703a', '#a07c42', '#7f4e2e', '#8c6438'], tonos('#858c84')]);
-const SWAMP = V([['#5a7a3a', '#64843e'], ['#4e6e34', '#587838'], ['#8a6a2e', '#a07a34'], ['#7e8678', '#8a9286']],
-  [['#5d6a45', '#65724b'], ['#525f3d', '#5a6743'], ['#86683a', '#93733f'], ['#7a8076', '#868c82']]);
-const PINE = V(['#2f6a3c', '#357444', '#2a5e36', '#3c7c48'], tonos('#3f5240'));
-const FRUIT_LEAF = V(['#62ad48', '#6cb850', '#58a040'], tonos('#66784a').slice(0, 3));
+// Colores de las hojas según la estación (0 primavera … 3 invierno), de la paleta sobria (las flores y la fruta, vivas)
+const LEAF = [tonos('#6f8050'), tonos('#59683f'), ['#94703a', '#a07c42', '#7f4e2e', '#8c6438'], tonos('#858c84')];
+const SWAMP = [['#5d6a45', '#65724b'], ['#525f3d', '#5a6743'], ['#86683a', '#93733f'], ['#7a8076', '#868c82']];
+const PINE = tonos('#3f5240');
+const FRUIT_LEAF = tonos('#66784a').slice(0, 3);
 const BLOSSOM = ['#ffb8d0', '#ffd0e0', '#ffffff'];
 
 // Instancias de una pieza: list = [{ p, s, r, c }]
@@ -204,8 +199,7 @@ let GROUND;
 export function* buildGround(cx0, cy0, n, CHUNK, gen, season, free, groundY) {
   const s = gen.seed, out = { pos: [], col: [], sway: [] };
   const FLOWERS = ['#ffffff', '#ffe04a', '#ff7aa8', '#b48aff', '#ff6a4a', '#7ac8ff'];
-  const GRASS = V([['#6aae4a', '#76b854', '#62a444'], ['#5e9e40', '#68a848', '#56963a'], ['#a8963e', '#b8a048', '#98883a'], ['#c8d4d0', '#d8e0dc', '#b8c6c2']],
-    [tonos('#748457').slice(0, 3), tonos('#61703f').slice(0, 3), ['#a08c4c', '#ad9852', '#958243'], ['#c4cbc8', '#d2d8d5', '#b6bebb']])[season];
+  const GRASS = [tonos('#748457').slice(0, 3), tonos('#61703f').slice(0, 3), ['#a08c4c', '#ad9852', '#958243'], ['#c4cbc8', '#d2d8d5', '#b6bebb']][season];
   const A = (GROUND ||= groundShapes());
   for (let cj = 0; cj < n; cj++) for (let ci = 0; ci < n; ci++, yield) for (let ty = (cy0 + cj) * CHUNK; ty < (cy0 + cj + 1) * CHUNK; ty++) for (let tx = (cx0 + ci) * CHUNK; tx < (cx0 + ci + 1) * CHUNK; tx++) {
     const b = gen.biomeAt(tx + 0.5, ty + 0.5), lush = b === B_.MEADOW || b === B_.FOREST || b === B_.PINES || b === B_.SWAMP;
@@ -215,8 +209,8 @@ export function* buildGround(cx0, cy0, n, CHUNK, gen, season, free, groundY) {
       const gy = groundY(x, y);
       if (gy < -0.05) continue;
       if (lush && roll < (season === 3 ? 0.08 : b === B_.MEADOW ? 0.9 : 0.7)) put(out, A.blade, x, gy, y, roll * 9, 1.0 + ihash(tx, ty, s + 40 + k) * 0.7, GRASS[Math.floor(roll * 30) % 3], true);
-      else if (b === B_.SWAMP && roll < 0.9) put(out, A.reed, x, gy, y, roll * 9, 0.6 + roll * 0.5, V('#5a8a3a', '#5e6f44'), true);
-      else if (b === B_.DESERT && roll < 0.08) put(out, A.blade, x, gy, y, roll * 9, 0.7, V('#b8955a', '#a08a62'), true);
+      else if (b === B_.SWAMP && roll < 0.9) put(out, A.reed, x, gy, y, roll * 9, 0.6 + roll * 0.5, '#5e6f44', true);
+      else if (b === B_.DESERT && roll < 0.08) put(out, A.blade, x, gy, y, roll * 9, 0.7, '#a08a62', true);
       else if (b === B_.BEACH && roll < 0.04) put(out, A.pebble, x, gy, y, roll * 9, 0.5, k ? '#ffd8e0' : '#ffffff');
       else if (b === B_.ROCKY && roll < 0.3) put(out, A.pebble, x, gy, y, roll * 9, 0.8 + roll, '#8a867e');
       else if (b === B_.SNOW && roll < 0.05) put(out, A.pebble, x, gy, y, roll * 9, 1.2, '#ffffff');
@@ -227,7 +221,7 @@ export function* buildGround(cx0, cy0, n, CHUNK, gen, season, free, groundY) {
         const x = tx + ihash(tx, ty, s + 41 + k), y = ty + ihash(tx, ty, s + 42 + k);
         if (!free(x, y)) continue;
         const h = 0.8 + ihash(tx, ty, s + 43 + k) * 0.6, gy = groundY(x, y);
-        put(out, A.stem, x, gy, y, k, h, V('#4f8a38', '#55693f'), true);
+        put(out, A.stem, x, gy, y, k, h, '#55693f', true);
         put(out, A.head, x, gy + 0.2 * h, y, k * 2, 1, FLOWERS[Math.floor(vnoise(tx * 0.2 + k, ty * 0.2, s + 8) * FLOWERS.length) % FLOWERS.length], true, 0.2 * h);
       }
     } else if (b === B_.FOREST && ihash(tx, ty, s + 43) < 0.05) {
@@ -321,7 +315,7 @@ export function buildFarNature(objs, season, groundY) {
       if (o.kind === 'snowPine' || season === 3) snow.push({ p: [x, y + 2.9 * s, z], s: [0.5 * s, 0.6 * s, 0.5 * s] });
     } else if (o.kind === 'palm' || o.kind === 'cactus') {
       trunks.push({ p: [x, y + 1 * s, z], s: [0.8 * s, 2 * s, 0.8 * s] });
-      lumps.push({ p: [x, y + 2.2 * s, z], s: [0.8 * s, 0.3 * s, 0.8 * s], c: o.kind === 'palm' ? V('#4fa040', '#5d7044') : V('#4f9a4a', '#56704c') });
+      lumps.push({ p: [x, y + 2.2 * s, z], s: [0.8 * s, 0.3 * s, 0.8 * s], c: o.kind === 'palm' ? '#5d7044' : '#56704c' });
     } else if (o.kind === 'boulder' || o.kind === 'snowBoulder') rocks.push({ p: [x, y + 0.25, z], s: [0.9 * s, 0.55 * s, 0.75 * s], r: [0, rot, 0], c: '#9a958c' });
   }
   const group = new THREE.Group();

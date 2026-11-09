@@ -27,7 +27,7 @@ const K = SIZE * 4 / (2 * Math.PI * R);   // píxeles por unidad, cerca del cent
 export function faceMaterials(L) {
   const key = ['skin', 'eyes', 'eyeStyle', 'brows', 'hair', 'cheeks', 'sex', 'mouth'].map(k => L[k]).join('|');
   if (cache.has(key)) return cache.get(key);
-  // (con el arte nuevo, ?arte=2, los colores apagados con sobrio(), como los del cuerpo)
+  // (los colores apagados con sobrio(), como los del cuerpo)
   const S = { ...L, skin: sobrio(L.skin, 'piel'), eyes: sobrio(L.eyes), hair: sobrio(L.hair) };
   const open = material(draw(S, false)), closed = material(draw(S, true));
   CLOSED.set(open, closed);
