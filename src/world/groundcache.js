@@ -34,7 +34,11 @@ function unpack(raw) {
   for (const v of heights) if (!Number.isFinite(v)) return null;
   return { heights, edge, corners: raw.slice(FLOATS * 4, FLOATS * 4 + M * M), centers: raw.slice(FLOATS * 4 + M * M), n: N, m: M };
 }
-const ZIP = typeof CompressionStream !== 'undefined' && typeof DecompressionStream !== 'undefined';
+// (¿comprime el navegador en 'deflate-raw'? Chrome 80-102 tiene las clases pero no ese formato, y entonces lanzan al crearlas)
+const ZIP = (() => { try { new CompressionStream('deflate-raw'); new DecompressionStream('deflate-raw'); return true; } catch { return false; } })();
+// La forma de lo guardado (pack, unpack y su tamaño) va en la clave junto a la huella del relieve: si cambia, lo de antes
+// ya no se lee como si fuera de ahora (y la limpieza de cleanOld se lo lleva, como lo de otra versión del relieve)
+const FORMAT = (() => { let h = 2166136261; for (const c of String(pack) + String(unpack) + BYTES) h = Math.imul(h ^ c.charCodeAt(0), 16777619); return (h >>> 0).toString(36); })();
 const through = (u8, stream) => new Response(new Blob([u8]).stream().pipeThrough(stream)).arrayBuffer().then(b => new Uint8Array(b));
 const req = r => new Promise((res, rej) => { r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
 const done = tx => new Promise((res, rej) => { tx.oncomplete = res; tx.onerror = tx.onabort = () => rej(tx.error); });
@@ -56,7 +60,7 @@ export function openGroundCache({ tag, owner = false, max = 1024 }) {
     r.onsuccess = () => {
       const db = r.result;
       if (settled) { db.close(); return; }
-      end(new GroundCache(db, tag, owner, max));
+      end(new GroundCache(db, tag + '.f' + FORMAT, owner, max));
     };
   });
 }
@@ -68,7 +72,7 @@ class GroundCache {
     this.full = false; this.quotaAt = 0;
     this.stats = { hits: 0, misses: 0, puts: 0, bytes: 0, removed: 0 };
     db.onversionchange = () => { db.close(); this.off = true; };   // (otra pestaña con otra versión de la base: se deja)
-    if (owner) this.cleanOld().catch(() => {});
+    if (owner) this.cleanLater();
   }
   key(bx, bz) { return `${this.tag}|${bx},${bz}`; }
   close() { this.off = true; try { this.db.close(); } catch {} }
@@ -94,11 +98,14 @@ class GroundCache {
     }
   }
   // Guardar un bloque recién calculado (d: lo de blockHeights; se copia aquí, antes de que se transfiera al hilo principal)
+  // Nunca lanza: si falla guardar, el bloque se manda igual (genworker.js) y la próxima vez se calcula
   put(bx, bz, d) {
     if (this.off || this.full) return;
-    const raw = pack(d), k = this.key(bx, bz), t = Date.now();
-    (ZIP ? through(raw, new CompressionStream('deflate-raw')) : Promise.resolve(raw))
-      .then(b => this.enqueue({ k, t, z: ZIP ? 1 : 0, b: b.buffer.byteLength === b.byteLength ? b.buffer : b.slice().buffer }), () => {});
+    try {
+      const raw = pack(d), k = this.key(bx, bz), t = Date.now();
+      (ZIP ? through(raw, new CompressionStream('deflate-raw')) : Promise.resolve(raw))
+        .then(b => this.enqueue({ k, t, z: ZIP ? 1 : 0, b: b.buffer.byteLength === b.byteLength ? b.buffer : b.slice().buffer }), () => {});
+    } catch { /* (se sigue sin guardar este) */ }
   }
   enqueue(rec) {
     this.queue.push(rec);
@@ -144,12 +151,18 @@ class GroundCache {
     await done(tx);
   }
   // Lo de otras versiones del relieve con esta misma semilla ya no vuelve a valer nunca: fuera (lo de otras semillas se
-  // deja: entra en el tope como lo demás)
+  // deja: entra en el tope como lo demás). Las claves van ordenadas y empiezan por la huella: son los dos tramos de esta
+  // semilla de antes y de después de los míos, dos borrados por rango sin recorrer nada
   async cleanOld() {
-    const seed = this.tag.slice(0, this.tag.indexOf('.') + 1), mine = this.tag + '|';
-    const tx = this.db.transaction(STORE, 'readwrite'), st = tx.objectStore(STORE), cur = st.openKeyCursor();
-    cur.onsuccess = () => { const c = cur.result; if (!c) return; const k = String(c.key); if (k.startsWith(seed) && !k.startsWith(mine)) { st.delete(c.primaryKey); this.stats.removed++; } c.continue(); };
+    if (this.off) return;
+    const seed = this.tag.slice(0, this.tag.indexOf('.') + 1), mine = this.tag + '|', END = '\uffff';
+    const tx = this.db.transaction(STORE, 'readwrite'), st = tx.objectStore(STORE);
+    st.delete(IDBKeyRange.bound(seed, mine, false, true));
+    st.delete(IDBKeyRange.bound(mine + END, seed + END, true, false));
     await done(tx);
   }
+  // (unos segundos después de abrir: una escritura en la tabla haría esperar a las lecturas del arranque, que son las que
+  // corren prisa)
+  cleanLater(ms = 8000) { setTimeout(() => this.cleanOld().catch(() => {}), ms); }
   async count() { return req(this.db.transaction(STORE, 'readonly').objectStore(STORE).count()); }
 }

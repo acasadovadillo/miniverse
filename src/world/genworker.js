@@ -30,8 +30,8 @@ onmessage = e => {
   if (m.t === 'init') {
     setProjects(m.projects); setFamilyHouse(m.family);
     useSeed(m.seed);
-    // (el primer hilo limpia lo guardado de otras versiones del relieve, una vez)
-    if (m.owner && !cleaned && cache) { cleaned = true; cache.then(c => c?.cleanOld()).catch(() => {}); }
+    // (el primer hilo limpia lo guardado de otras versiones del relieve, una vez y pasados unos segundos: ver cleanLater)
+    if (m.owner && !cleaned && cache) { cleaned = true; cache.then(c => c?.cleanLater()).catch(() => {}); }
   } else if (m.t === 'village') { setProjects(m.projects); setFamilyHouse(m.family); gen?.fields.clear(); }
   else if (m.t === 'block') {
     if (cache) { waiting.set(m.id, m); if (!batching) { batching = true; setTimeout(readBatch, 0); } }
@@ -87,23 +87,33 @@ function post(m, d, cached) {
     [heights.buffer, edge.buffer, normals.buffer, corners.buffer, centers.buffer, colors.buffer]);
 }
 
-// Un trabajo cada vez, dejando entre uno y otro que lleguen mensajes (para quitar trabajos o cambiar prioridades)
+// Un trabajo cada vez, dejando entre uno y otro que lleguen mensajes (para quitar trabajos o cambiar prioridades). Si
+// uno falla, la cola sigue (si no, se quedaría parada para siempre y no llegaría nada más de este hilo)
 function pump() { if (!pumping) { pumping = true; setTimeout(step, 0); } }
 function step() {
   if (!queue.length || !gen) { pumping = false; return; }
-  queue.sort((a, b) => a.pri - b.pri || RANK[a.t] - RANK[b.t]);
-  const m = queue.shift();
-  if (m.t === 'block') {
-    const t0 = performance.now(), d = blockHeights(gen, m.bx, m.bz);
-    stats.calc++; stats.msCalc += performance.now() - t0;
-    // (a guardar: put copia los números en el momento, porque luego se transfieren al hilo principal y aquí se quedan
-    // vacíos; si la base aún se está abriendo, se copian ya y se guardan al abrirse)
-    if (cacheDb) cacheDb.put(m.bx, m.bz, d);
-    else if (cache) { const copy = { heights: d.heights.slice(), edge: d.edge.slice(), corners: d.corners.slice(), centers: d.centers.slice() }; cache.then(c => c?.put(m.bx, m.bz, copy)); }
-    post(m, d, false);
-  } else {
-    const pixels = paintPixels(gen, m.cx, m.cy, m.season);
-    postMessage({ t: 'paint', id: m.id, bx: m.bx, bz: m.bz, ci: m.ci, cj: m.cj, season: m.season, pixels }, [pixels.buffer]);
+  let m = null;
+  try {
+    queue.sort((a, b) => a.pri - b.pri || RANK[a.t] - RANK[b.t]);
+    m = queue.shift();
+    if (m.t === 'block') {
+      const t0 = performance.now(), d = blockHeights(gen, m.bx, m.bz);
+      stats.calc++; stats.msCalc += performance.now() - t0;
+      // (a guardar: put copia los números en el momento, porque luego se transfieren al hilo principal y aquí se quedan
+      // vacíos; si la base aún se está abriendo, se copian ya y se guardan al abrirse. Guardar nunca impide mandarlo)
+      try {
+        if (cacheDb) cacheDb.put(m.bx, m.bz, d);
+        else if (cache) { const copy = { heights: d.heights.slice(), edge: d.edge.slice(), corners: d.corners.slice(), centers: d.centers.slice() }; cache.then(c => c?.put(m.bx, m.bz, copy)).catch(() => {}); }
+      } catch { /* (sin guardar) */ }
+      post(m, d, false);
+    } else {
+      const pixels = paintPixels(gen, m.cx, m.cy, m.season);
+      postMessage({ t: 'paint', id: m.id, bx: m.bx, bz: m.bz, ci: m.ci, cj: m.cj, season: m.season, pixels }, [pixels.buffer]);
+    }
+  } catch (e) {
+    // (el juego lo hace él: ver terrain.js, onResult)
+    console.warn('Suelo (hilo aparte): un trabajo ha fallado', e);
+    if (m) postMessage({ t: 'fallo', job: m.t, id: m.id, bx: m.bx, bz: m.bz, ci: m.ci, cj: m.cj, season: m.season });
   }
-  setTimeout(step, 0);
+  finally { setTimeout(step, 0); }
 }

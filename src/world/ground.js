@@ -44,10 +44,12 @@ export function depthOf(gen, x, z) {
 }
 // Lo mismo, como lo da la malla del suelo (un vértice por casilla y, entre medias, los dos triángulos de cada casilla,
 // como terrain.heightAt): para poner algo en el suelo antes de que esté hecho su bloque y que luego no flote ni se hunda.
-// k: lo que se allana cada vértice junto a lo construido (padK), como hace la malla
-export function groundSmooth(gen, x, z, k = null) {
+// w: el mundo de la partida (scenes.js), para allanar cada vértice junto a lo construido (padK), como hace la malla; si no
+// hay nada que allanar cerca de esta casilla (padNear), ni se mira
+export function groundSmooth(gen, x, z, w = null) {
   const x0 = Math.floor(x), z0 = Math.floor(z), fu = x - x0, fv = z - z0;
-  const at = (i, j) => { const h = groundOf(gen, i, j); return k && h > 0.01 ? h * k(i, j) : h; };
+  const k = w?.padK && (!w.padNear || w.padNear(x0, z0, x0 + 1, z0 + 1)) ? w : null;
+  const at = (i, j) => { const h = groundOf(gen, i, j); return k && h > 0.01 ? h * k.padK(i, j) : h; };
   const b = at(x0 + 1, z0), c = at(x0, z0 + 1);
   // (cada casilla son dos triángulos: a-c-b y b-c-d)
   if (fu + fv <= 1) { const a = at(x0, z0); return a + (b - a) * fu + (c - a) * fv; }

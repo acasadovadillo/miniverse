@@ -178,8 +178,7 @@ async function soloTests(game) {
         borders++;
       }
       // (el suelo de antes de tener el bloque, para poner cosas, es el mismo que el de la malla)
-      const k = T.world?.padK ? (x, y) => T.world.padK(x, y) : null;
-      for (let i = 0; i < 20; i++) { const x = b.x0 + ((i * 37.31) % 64), z = b.z0 + ((i * 17.77) % 64); check(Math.abs(groundSmooth(g, x, z, k) - T.heightAt(x, z)) < 1e-4, `el suelo de reserva no casa con la malla en ${x.toFixed(1)},${z.toFixed(1)}`); }
+      for (let i = 0; i < 20; i++) { const x = b.x0 + ((i * 37.31) % 64), z = b.z0 + ((i * 17.77) % 64); check(Math.abs(groundSmooth(g, x, z, T.world) - T.heightAt(x, z)) < 1e-4, `el suelo de reserva no casa con la malla en ${x.toFixed(1)},${z.toFixed(1)}`); }
     }
     check(borders >= 12, `pocas fronteras entre bloques hechos (${borders})`);
   });

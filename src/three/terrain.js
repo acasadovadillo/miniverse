@@ -14,6 +14,10 @@ import { BLOCK, PX, groundSmooth, blockHeights, blockNormals, edgeAt, blockColor
 import { grassDetail, soilDetail } from './textures.js';
 import { mat } from './geo.js';
 import { PAL } from '../arte.js';
+// (solo lo usa el hilo aparte, pero se carga también aquí para que index.html lo cuente entre lo que vuelve a pedir sin
+// caché al publicar otra versión: lo que carga un hilo no sale en la lista de lo cargado por la página. No hace nada al
+// cargarse)
+import '../world/groundcache.js';
 
 export { BLOCK };
 const RADIUS = 2;                       // bloques alrededor del de la cámara (5 × 5)
@@ -28,6 +32,7 @@ const WORKERS = Math.min(2, Math.max(1, (navigator.hardwareConcurrency || 2) - 1
 // guardan como mucho (para las pruebas)
 const URLQ = typeof location !== 'undefined' ? new URLSearchParams(location.search) : new URLSearchParams();
 const CACHE = URLQ.get('relieve') !== '0', CACHE_MAX = +URLQ.get('relieve-max') || 1024;
+const PAD_SQ = 8;                       // (padded: el lado de los cuadrados por los que se pregunta si hay algo que allanar)
 const BUILD_MS = 3;                     // lo que se dedica como mucho a hacer mallas de bloques nuevos en cada fotograma
 
 const allChunks = () => { const l = []; for (let j = 0; j < 4; j++) for (let i = 0; i < 4; i++) l.push([i, j]); return l; };
@@ -42,7 +47,7 @@ export class Terrain {
     this.season = -1;
     this.nextId = 1;
     this.arrived = [];            // bloques que ya han llegado del hilo aparte, por hacer su malla (unos pocos por fotograma)
-    this.stats = { calc: 0, msCalc: 0, hits: 0, msHit: 0, built: 0, msBuild: 0 };   // (para F3 y el banco)
+    this.stats = { calc: 0, msCalc: 0, hits: 0, msHit: 0, built: 0, msBuild: 0, padded: 0, msPad: 0 };   // (para F3 y el banco; padded: los allanados)
     this.workerStats = [];
     this.group = new THREE.Group();
     scene.add(this.group);
@@ -143,9 +148,12 @@ export class Terrain {
       for (const [a, b, d] of want) {
         const k = `${a},${b}`, cur = this.blocks.get(k);
         if (cur) { if (cur.stale) { cur.stale = false; this.repaint(cur, Math.sqrt(d)); } continue; }
-        // (pri: el de la cámara -1 y los de alrededor por debajo de 0,5, antes que cualquier pintura; los de más allá, con
-        // las pinturas de su misma distancia)
-        if (!this.pending.has(k)) this.pending.set(k, this.ask('block', k, Math.sqrt(d) - 1, { bx: a, bz: b, season: this.season }));
+        // (pri: el de la cámara -1 y los de alrededor por debajo de 0,5, antes que cualquier pintura. Los del anillo de fuera,
+        // de 1,25 a 2,1: después de pintar el bloque de la cámara (sus pinturas van de 0,5 a 1,2: ver repaint) y mezclados
+        // con las del resto del 3 × 3. Sin nada guardado, con las pinturas de su misma distancia el anillo de fuera tardaba
+        // 1,7 s más en estar (mientras, ahí hay un hueco con el agua de fondo) y el 3 × 3 solo se pintaba
+        // 0,4 s antes: la forma de lejos importa más que el color plano de cerca durante un momento)
+        if (!this.pending.has(k)) this.pending.set(k, this.ask('block', k, d <= 2 ? Math.sqrt(d) - 1 : Math.sqrt(d) - 0.75, { bx: a, bz: b, season: this.season }));
       }
       return;
     }
@@ -181,6 +189,7 @@ export class Terrain {
     if (!j) return;
     this.jobs.delete(m.id);
     const k = `${m.bx},${m.bz}`;
+    if (m.t === 'fallo') { this.failed(m, k); return; }
     if (m.t === 'block') {
       if (m.stats) { this.workerStats[wi] = m.stats; for (const f of ['calc', 'msCalc', 'hits', 'msHit']) this.stats[f] = this.workerStats.reduce((a, s) => a + (s?.[f] || 0), 0); }
       if (this.blocks.has(k) || !this.gen) { this.pending.delete(k); return; }
@@ -190,6 +199,20 @@ export class Terrain {
       if (!blk || blk.season !== m.season) return;
       this.paste(blk, m.ci, m.cj, m.pixels);
     }
+  }
+  // Un trabajo que ha fallado en el hilo aparte (no debería): se hace aquí, para que no quede un agujero en el suelo
+  failed(m, k) {
+    if (!this.gen) { this.pending.delete(k); return; }
+    try {
+      if (m.job === 'block') {
+        if (this.blocks.has(k)) { this.pending.delete(k); return; }
+        const d = blockHeights(this.gen, m.bx, m.bz);
+        this.arrived.push({ ...d, t: 'block', bx: m.bx, bz: m.bz, w: BLOCK, colors: blockColors(this.gen, m.bx, m.bz, this.season) });
+      } else {
+        const blk = this.blocks.get(k);
+        if (blk && blk.season === m.season) this.paste(blk, m.ci, m.cj, paintPixels(this.gen, blk.bx * 4 + m.ci, blk.bz * 4 + m.cj, m.season));
+      }
+    } catch (e) { this.pending.delete(k); console.warn('Suelo: no se ha podido hacer', k, e); }
   }
   // ¿Está hecho el suelo alrededor de (x, z)? (para no empezar a jugar sobre el vacío)
   ready(x, z) {
@@ -202,12 +225,30 @@ export class Terrain {
   // Las alturas allanadas junto a lo construido (raw: las del mundo, con el agua y el relieve; edge: su anillo), y sus
   // normales, que se rehacen con el anillo allanado igual (así el borde sigue sin costura). Sin nada construido cerca
   // (lo normal), las mismas alturas y las normales que vienen del hilo aparte
+  // padK es cara (mira lo construido y los lugares de 9 trozos), así que se pregunta por cuadrados de PAD_SQ casillas
+  // (padNear) y solo se mira vértice a vértice en los que tienen algo cerca; en los demás vale 1 (el relieve entero),
+  // justo lo mismo que daría padK. Si al final no se ha allanado nada, las normales del hilo valen
   padded(bx, bz, raw, edge, normals) {
     const w = this.world, n = BLOCK + 1, x0 = bx * BLOCK, z0 = bz * BLOCK;
-    if (!w?.padK || (w.padNear && !w.padNear(x0, z0, x0 + BLOCK, z0 + BLOCK))) return { heights: raw.slice(), normals: normals || blockNormals(raw, edge, n) };   // (nada construido ni ningún lugar cerca)
-    const out = raw.slice(), e = edge.slice();
-    for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) { const v = j * n + i; if (out[v] > 0.01) out[v] *= w.padK(x0 + i, z0 + j); }
-    for (let t = 0; t < n; t++) for (const [i, j] of [[-1, t], [n, t], [t, -1], [t, n]]) { const v = edgeAt(n, i, j); if (e[v] > 0.01) e[v] *= w.padK(x0 + i, z0 + j); }
+    const plain = () => ({ heights: raw.slice(), normals: normals || blockNormals(raw, edge, n) });
+    if (!w?.padK || (w.padNear && !w.padNear(x0, z0, x0 + BLOCK, z0 + BLOCK))) return plain();   // (nada construido ni ningún lugar cerca)
+    const t0 = performance.now(), out = raw.slice(), e = edge.slice(), S = PAD_SQ;
+    let any = false;
+    // (los vértices del bloque y su anillo: de -1 a n por cada lado, sin las cuatro esquinas del anillo)
+    for (let sj = -1; sj <= n; sj += S) for (let si = -1; si <= n; si += S) {
+      const i1 = Math.min(n, si + S - 1), j1 = Math.min(n, sj + S - 1);
+      if (w.padNear && !w.padNear(x0 + si, z0 + sj, x0 + i1, z0 + j1)) continue;
+      for (let j = sj; j <= j1; j++) for (let i = si; i <= i1; i++) {
+        const ii = i < 0 || i === n, jj = j < 0 || j === n;
+        if (ii && jj) continue;
+        const H = ii || jj ? e : out, v = ii || jj ? edgeAt(n, i, j) : j * n + i;
+        if (H[v] <= 0.01) continue;
+        const k = w.padK(x0 + i, z0 + j);
+        if (k !== 1) { H[v] *= k; any = true; }
+      }
+    }
+    this.stats.padded++; this.stats.msPad += performance.now() - t0;
+    if (!any) return { heights: out, normals: normals || blockNormals(raw, edge, n) };
     return { heights: out, normals: blockNormals(out, e, n) };
   }
   padSigOf(bx, bz) { return this.world?.padSig ? this.world.padSig(bx * BLOCK, bz * BLOCK, (bx + 1) * BLOCK, (bz + 1) * BLOCK) : ''; }
@@ -297,7 +338,7 @@ export class Terrain {
   // Altura del suelo en (x, z): la de la malla si su bloque está hecho; si no, la de la profundidad sin suavizar
   heightAt(x, z) {
     const b = this.blocks.get(`${Math.floor(x / BLOCK)},${Math.floor(z / BLOCK)}`);
-    if (!b) { if (!this.gen) return 0; const w = this.world; return groundSmooth(this.gen, x, z, w?.padK ? (i, j) => w.padK(i, j) : null); }   // (aún sin bloque: lo mismo, calculado aquí)
+    if (!b) return this.gen ? groundSmooth(this.gen, x, z, this.world) : 0;   // (aún sin bloque: lo mismo, calculado aquí)
     const u = x - b.x0, v = z - b.z0, i = Math.min(BLOCK - 1, Math.floor(u)), j = Math.min(BLOCK - 1, Math.floor(v)), fu = u - i, fv = v - j, H = b.heights, n = b.n;
     const a = H[j * n + i], bb = H[j * n + i + 1], c = H[(j + 1) * n + i], d = H[(j + 1) * n + i + 1];
     // (cada casilla son dos triángulos: a-c-b y b-c-d)

@@ -109,9 +109,16 @@ export class Explore {
     for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) { const p = this.poi(cx + dx, cy + dy); if (p && Math.hypot(p.x - x, p.y - y) < r + SIZE[p.kind]) return p; }
     return null;
   }
-  // ¿Hay un lugar o una aldea que llegue a este rectángulo?
+  // ¿Hay un lugar o una aldea que llegue a este rectángulo? (scenes.js ya lo agranda con lo que alcanza el allanado: aquí,
+  // si lo toca lo que ocupa el lugar, su caja o su tamaño, por cada eje para no quedarse corto). Los mismos lugares que
+  // mira padDist, los de los trozos de al lado
   padNear(x0, y0, x1, y1) {
-    for (let cy = Math.floor(y0 / CHUNK) - 1; cy <= Math.floor(y1 / CHUNK) + 1; cy++) for (let cx = Math.floor(x0 / CHUNK) - 1; cx <= Math.floor(x1 / CHUNK) + 1; cx++) if (this.poi(cx, cy)) return true;
+    for (let cy = Math.floor(y0 / CHUNK) - 1; cy <= Math.floor(y1 / CHUNK) + 1; cy++) for (let cx = Math.floor(x0 / CHUNK) - 1; cx <= Math.floor(x1 / CHUNK) + 1; cx++) {
+      const p = this.poi(cx, cy);
+      if (!p) continue;
+      if (p.kind === 'aldea') { const [a0, b0, a1, b1] = this.aldea(p).box; if (a0 <= x1 && a1 >= x0 && b0 <= y1 && b1 >= y0) return true; }
+      else { const r = SIZE[p.kind] || 2; if (Math.max(0, x0 - p.x, p.x - x1) <= r && Math.max(0, y0 - p.y, p.y - y1) <= r) return true; }
+    }
     return false;
   }
   // Lo lejos que está (x, y) de un lugar o de las casas de una aldea (para allanar el suelo: ver scenes.js, padK)
