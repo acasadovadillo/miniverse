@@ -1023,7 +1023,10 @@ export class Game {
     // Lo apuntado con el cursor lleva un borde amarillo, y la opción sale a su lado
     this.highlight = this.build.on ? this.build.pickHighlight() : near && m?.in && !p.pose && !p.aboard ? this.aimed() : null;
     this.view3d.game = this;
-    this.view3d.render(this);
+    // (sin partida, al entrar y en el menú, el fondo es una foto fija: body.still, en index.html; el mundo no se dibuja)
+    const still = !this.player || !this.scene;
+    if (still !== this.still) { this.still = still; document.body.classList.toggle('still', still); if (!still) this.view3d.snap?.(); }
+    if (!still) this.view3d.render(this);
     const prey = this.gather.target?.prey, click = prey && this.highlight?.e === prey ? '  ·  Clic: atacar' : '';
     hud.prompt(near && (near.alt ? `${near.text}  ·  X: ${near.alt.text.toLowerCase()}` : near.text) + click, this.highlight ? [m.x, m.y] : null);
     let hint = '';

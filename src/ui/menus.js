@@ -548,7 +548,6 @@ export function initMenus(game) {
     wins.open('s-journal');
     return true;
   }
-  $('p-journal').onclick = toggleJournal;
   // Controles: una sección de la pausa
   $('p-controls').onclick = () => show('s-controls');
   $('ct-close').onclick = () => show('s-pause');

@@ -65,7 +65,7 @@ export class RealPerson {
     this.root = new THREE.Group();
     this.root.add(r.root);
     const b = r.bones;
-    this.body = b.body; this.torso = b.torso; this.head = b.head; this.hand = b.handL;
+    this.body = b.body; this.torso = b.torso; this.head = b.head; this.hand = b.handR; this.toolArm = 0;   // (lo que se lleva, en la mano derecha: arms[0])
     this.legs = [b.legR, b.legL]; this.shins = [b.shinR, b.shinL]; this.arms = [b.armR, b.armL]; this.fore = [b.foreR, b.foreL];
     this.skirt = null;
     // Para el juego: la cadera (lo que hay que bajar al sentarse, comparado con los muñecos) y cuánto se agacha

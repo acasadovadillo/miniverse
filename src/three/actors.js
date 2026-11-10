@@ -141,9 +141,12 @@ export class Actors {
         m.hand = new THREE.Group();
         if (person.real) { m.hand.position.set(0, -0.07, 0.03); person.hand.add(m.hand); }   // (en la mano de verdad)
         else {
-          m.hand.position.set(0.03, person.fore ? -0.145 : -0.27, 0.02);   // (en la mano: va con el antebrazo)
-          (person.fore?.[1] || person.arms[1]).add(m.hand);
+          const t = person.toolArm ?? 1;   // (en la mano derecha)
+          m.hand.position.set(t === 0 ? -0.03 : 0.03, person.fore ? -0.145 : -0.27, 0.02);   // (en la mano: va con el antebrazo)
+          (person.fore?.[t] || person.arms[t]).add(m.hand);
         }
+        // (las herramientas se hicieron para la mano izquierda: en la derecha, reflejadas, para que apunten hacia fuera)
+        if ((person.toolArm ?? 1) === 0) m.hand.scale.x = -1;
         m.horse = horseModel(); m.horse.visible = false; root.add(m.horse);
         m.boat = boatModel(); m.boat.visible = false; root.add(m.boat);
         if (e.remote) root.add(nameTag(e.name));
@@ -288,19 +291,21 @@ export class Actors {
       if (tool) m.hand.add(tool);
       m.holding = show;
     }
-    const arm = P.arms[1];
+    // (el brazo de la mano que lleva la herramienta, la derecha; los gestos se pensaron para la izquierda: de lado y
+    // el giro del tronco, al revés)
+    const T = P.toolArm ?? 1, arm = P.arms[T], mir = T === 0 ? -1 : 1;
     arm.rotation.z = 0; m.hand.rotation.x = 0; P.torso.rotation.x = 0;
     pullBow(m.hand, g.bowPull || 0);
     // (tensando el arco: el brazo estirado y el arco de pie)
-    if (g.bowPull > 0 && !a) { arm.rotation.x = -1.5; m.hand.rotation.x = 1.5; if (P.fore) P.fore[1].rotation.x = -0.1; return; }
-    if ((a || g.fishPose) && P.fore) P.fore[1].rotation.x = -0.1;   // (usando algo, el brazo casi estirado)
+    if (g.bowPull > 0 && !a) { arm.rotation.x = -1.5; m.hand.rotation.x = 1.5; if (P.fore) P.fore[T].rotation.x = -0.1; return; }
+    if ((a || g.fishPose) && P.fore) P.fore[T].rotation.x = -0.1;   // (usando algo, el brazo casi estirado)
     // (una postura fija: pescando. fishPose, no pose: pose es sentarse o tumbarse, y los demás jugadores la traen)
     if (!a) { if (g.fishPose) { arm.rotation.x = g.fishPose.arm; P.torso.rotation.x = g.fishPose.lean; } return; }
     a.t += dt;
     const k = Math.min(1, a.t / a.dur), ge = GESTURES[a.kind];
     arm.rotation.x = keys(ge.arm, k);
-    if (ge.side) arm.rotation.z = keys(ge.side, k);
-    if (ge.twist) P.torso.rotation.y += keys(ge.twist, k);
+    if (ge.side) arm.rotation.z = keys(ge.side, k) * mir;
+    if (ge.twist) P.torso.rotation.y += keys(ge.twist, k) * mir;
     if (ge.lean) P.torso.rotation.x = keys(ge.lean, k);
     if (ge.tilt) m.hand.rotation.x = keys(ge.tilt, k);
     if (k >= 1) m.anim = null;

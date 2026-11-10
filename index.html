@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- La versión publicada: se cambia en cada publicación (así el juego sabe que tiene que pedir el código nuevo) -->
-<meta name="miniverse-version" content="2026-11-10.14">
+<meta name="miniverse-version" content="2026-11-10.15">
 <title>Miniverse</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏡</text></svg>">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -15,6 +15,9 @@
   * { box-sizing: border-box; }
   html, body { margin: 0; height: 100%; overflow: hidden; background: #1d2a1a; font-family: 'Pixelify Sans', system-ui, sans-serif; font-variant-ligatures: none; color: var(--cream); touch-action: none; -webkit-user-select: none; user-select: none; }
   #c { position: fixed; left: 0; top: 0; display: block; }
+  /* Sin partida (al entrar y en el menú), una foto fija del pueblo en vez del mundo dibujándose: no gasta nada */
+  body.still { background: #2a2418 url(assets/fondo-menu.jpg) center / cover no-repeat; }
+  body.still #c { visibility: hidden; }
   /* Textos que suben sobre el jugador (los coloca el dibujo 3D) y el destello rojo al recibir un golpe */
   #floaters { position: fixed; inset: 0; pointer-events: none; z-index: 5; overflow: hidden; }
   .floater { position: absolute; left: 0; top: 0; font-size: 17px; font-weight: 600; white-space: nowrap; text-shadow: 1px 0 #2a1c22, -1px 0 #2a1c22, 0 1px #2a1c22, 0 -1px #2a1c22, 0 2px 3px rgba(0,0,0,.4); will-change: transform; }
@@ -520,7 +523,7 @@
   .cr-actions .btn { margin: 0; }
 </style>
 </head>
-<body>
+<body class="still">
   <canvas id="c"></canvas>
   <div id="floaters"></div>
   <div id="hurt"></div>
@@ -636,7 +639,6 @@
     <div class="box panel">
       <h2>Pausa</h2>
       <button class="btn primary" id="p-resume">Continuar</button>
-      <button class="btn" id="p-journal">Diario (J)</button>
       <button class="btn" id="p-controls">Controles</button>
       <button class="btn" id="p-settings">Ajustes</button>
       <button class="btn" id="p-menu">Guardar y salir al menú</button>

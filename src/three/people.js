@@ -252,6 +252,7 @@ export class Person3D {
     this.outfit(torso, L, W);
     // Brazos, con manga (o piel) y mano
     this.fore = [];
+    this.toolArm = 0;   // (lo que se lleva, en la mano derecha: la del lado -x, arms[0])
     this.arms = [-1, 1].map(s => {
       const sh = new THREE.Group(); sh.name = s < 0 ? 'armL' : 'armR'; sh.position.set(s * 0.21, 0.38, 0); torso.add(sh);
       sh.rotation.z = 0;
