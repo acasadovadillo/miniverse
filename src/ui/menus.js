@@ -99,6 +99,7 @@ export function initMenus(game) {
   let currentSave = null;
   const when = ts => new Date(ts).toLocaleString('es-ES', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
   function openMenu() {
+    localMode = false; live.local = false;
     currentSave = Profile.data?.save || null;
     $('menu-hello').textContent = `¡Hola, ${Profile.name}!`;
     $('menu-save').textContent = currentSave ? `Tu personaje: ${currentSave.player.name} · guardado el ${when(currentSave.savedAt)}` : 'Todavía no tienes personaje.';
@@ -106,6 +107,9 @@ export function initMenus(game) {
     $('m-continue').disabled = false;   // (al volver de jugar; sin servidor, los demás no pueden: lo dice paintLive)
     $('m-new').hidden = false;
     $('m-new').textContent = currentSave ? 'Nueva partida' : 'Crear tu personaje';
+    const loc = Profile.data?.local?.save;
+    $('m-local').hidden = !currentSave && !loc;   // (hace falta un personaje: el mundo local empieza con el mismo aspecto)
+    $('m-local').textContent = loc ? `Jugar en local · guardado el ${when(loc.savedAt)}` : 'Jugar en local';
     $('m-confirm').hidden = true;
     $('menu-msg').textContent = '';
     show('s-menu');
@@ -113,6 +117,19 @@ export function initMenus(game) {
     findLive();
   }
   $('m-continue').addEventListener('click', () => { if (currentSave) enter(); });
+  // Jugar en local: un mundo solo tuyo, sin servidor ni nadie más, guardado con tu cuenta (Profile.storeLocal). Es una
+  // partida aparte: su personaje empieza de cero con el nombre y el aspecto del tuyo, y lo que hagas allí no pasa al
+  // mundo de todos (ni al revés). En él eres op: puedes usar los comandos
+  let localMode = false;
+  $('m-local').addEventListener('click', () => {
+    const loc = Profile.data?.local;
+    if (!loc?.save && !currentSave) { $('menu-msg').textContent = 'Crea primero tu personaje.'; return; }
+    live.close();   // (fuera del servidor mientras se juega en local; al volver al menú se busca otra vez)
+    const data = loc?.save || { player: { name: currentSave.player.name, look: { ...currentSave.player.look }, x: SPAWN.x, y: SPAWN.y, inside: false, view: 'back' } };
+    $('menu-msg').textContent = 'Abriendo tu mundo local…';
+    localMode = true; live.local = true;
+    play(data, new Map(loc?.deltas || []), null, null);
+  });
   // Entrar en el mundo: si alguien lo lleva, en el suyo; si no, lo lleva tu juego (con el servidor abierto, los
   // demás entran contigo). Sin servidor solo puede jugar el admin. En tu partida se guarda lo tuyo; el mundo, quien
   // lo lleva lo guarda para todos.
@@ -217,7 +234,7 @@ export function initMenus(game) {
   live.onHost = () => save({ upload: true });
   live.onYield = () => save({ upload: true });
   // Nueva partida: antes, un aviso (se borra el personaje de ahora; el mundo, no). Sin personaje, al creador
-  const confirming = on => { $('m-confirm').hidden = !on; for (const id of ['m-continue', 'm-new']) $(id).hidden = on || (id === 'm-continue' && !currentSave); };
+  const confirming = on => { $('m-confirm').hidden = !on; for (const id of ['m-continue', 'm-new', 'm-local']) $(id).hidden = on || (id !== 'm-new' && !currentSave && !(id === 'm-local' && Profile.data?.local?.save)); };
   $('m-new').addEventListener('click', () => (currentSave ? confirming(true) : openCreator()));
   $('m-confirm-no').addEventListener('click', () => confirming(false));
   $('m-confirm-yes').addEventListener('click', () => { confirming(false); openCreator(true); });
@@ -430,6 +447,7 @@ export function initMenus(game) {
   // cuándo, para saber luego cuál es más reciente)
   const save = async ({ upload = false, world = true } = {}) => {
     if (!game.player || !Profile.id) return { local: false, remote: null };
+    if (localMode) return Profile.storeLocal(game.snapshot(), game.world.deltas, { upload });   // (el mundo local: aparte, solo con tu cuenta)
     const snap = game.snapshot(), deltas = game.world.deltas, hosting = world && !live.guest && (live.role === 'host' || Profile.admin);
     if (hosting && game.worldSaving !== false) Profile.storeWorld(live.worldOf(snap, deltas), { upload });   // (/save-off en el terminal lo para)
     // (si el mundo lo lleva otro o vienes de fuera, en tu partida se guarda lo tuyo, con tu mundo de siempre)
@@ -446,7 +464,7 @@ export function initMenus(game) {
     catch (e) { console.error(e); $('fade').classList.remove('on'); live.unclaim(); game.end(); openMenu(); $('menu-msg').textContent = `No se ha podido abrir la partida: ${e.message}`; return; }
     (game.view3d.whenReady?.(2000) || Promise.resolve()).then(() => hud.fade(false));
     if (role && live.net) live.join(solo, role);
-    if (role === 'host' || (!role && Profile.admin)) save({ upload: true });   // (que el mundo quede guardado para los demás cuanto antes)
+    if (role === 'host' || (!role && Profile.admin) || localMode) save({ upload: true });   // (que el mundo quede guardado para los demás cuanto antes)
   }
 
   setInterval(() => { if (game.mode === 'play' && game.player) save(); }, AUTOSAVE_MS);

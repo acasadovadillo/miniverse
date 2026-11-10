@@ -179,7 +179,15 @@ export const Profile = {
 
   // Guarda la partida: cifrada en este ordenador siempre y en GitHub si se pide (o si hace rato de la última)
   store(save, deltas, { upload = false } = {}) {
-    data = { format: 'pueblo-brotes', version: 1, exportedAt: new Date().toISOString(), save: save && { ...save, savedAt: Date.now() }, deltas: [...deltas] };
+    data = { format: 'pueblo-brotes', version: 1, exportedAt: new Date().toISOString(), save: save && { ...save, savedAt: Date.now() }, deltas: [...deltas], ...(data?.local ? { local: data.local } : {}) };   // (el mundo local, si lo hay, sigue con la partida)
+    changed = true;
+    return this.persist({ upload });
+  },
+  // El mundo local de la cuenta («Jugar en local»): una partida aparte, con su personaje y su mundo, que no es el de
+  // todos ni pasa por el servidor. Va en la misma partida guardada de la cuenta (data.local: { save, deltas }), así
+  // que se guarda igual: cifrada en este ordenador y en GitHub, solo con esta cuenta
+  storeLocal(save, deltas, { upload = false } = {}) {
+    data = { ...(data || emptyData()), exportedAt: new Date().toISOString(), local: { save: { ...save, savedAt: Date.now() }, deltas: [...deltas] } };
     changed = true;
     return this.persist({ upload });
   },

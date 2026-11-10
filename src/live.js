@@ -194,7 +194,7 @@ export class Live {
   // ¿Es op esta cuenta? (null: el servidor no lo dice)
   isOp(id) { return this.ops ? this.ops.has(String(id || '').toLowerCase()) : null; }
   // ¿Lo eres tú? (sin un servidor que lo diga, solo el admin, que es el dueño del mundo)
-  get amOp() { return Profile.server ? true : this.isOp(Profile.id) ?? Profile.admin; }   // (el mundo del servidor, siempre: ejecuta los del terminal)
+  get amOp() { return Profile.server || this.local ? true : this.isOp(Profile.id) ?? Profile.admin; }   // (local: en tu mundo local mandas tú, como en un mundo de un jugador)   // (el mundo del servidor, siempre: ejecuta los del terminal)
   // Lo que dice el servidor al entrar: quién es el mundo del servidor, si se guarda el mundo y lo de no moverse
   welcome(m) {
     this.serverConns = new Set(m.servers || []);
