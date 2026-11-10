@@ -58,8 +58,11 @@ export class Gathering {
   // Qué hay justo delante del jugador (o qué casilla labraría la azada, o dónde iría lo que se coloca)
   pickTarget() {
     const g = this.game, p = g.player;
-    if (!p || g.mode !== 'play' || g.build.on || g.gamemode === 'spectator') return null;   // (el espectador no toca nada)
-    const held = g.inv.held, def = held && ITEMS[held.id], tool = def?.tool;
+    if (!p || g.mode !== 'play' || g.gamemode === 'spectator') return null;   // (el espectador no toca nada)
+    // (en el modo construir, lo que se "lleva" es el mueble o la estación elegidos en la barra, o lo que se mueve)
+    const virt = g.build.on ? g.build.heldItem() : null;
+    if (g.build.on && !virt) return null;
+    const held = virt || g.inv.held, def = held && ITEMS[held.id], tool = def?.tool;
     // Lo que se coloca libre va al punto del ratón (si se ha movido hace poco), o un paso por delante, girado como
     // diga R; se arrima a la pared que roce y no se pone si corta algo
     if (freePlace(held?.id) && g.scene.fitFree) {
@@ -314,7 +317,7 @@ export class Gathering {
     this.cooldown = COOLDOWN;
     if (!t?.ok) { this.float(t?.far ? `Demasiado lejos (como mucho a ${PLACE_REACH} casillas)` : t?.why || 'Ahí no cabe', '#ffb0a0'); Audio.error(); return; }
     if (t.free) g.scene.placeFree(id, t.fit, !!g.player.crouch); else g.scene.place(...t.tile, id, t.rot);
-    g.inv.take(g.inv.selected, 1);
+    if (g.build.on) g.build.paid(id); else g.inv.take(g.inv.selected, 1);   // (construyendo, se pagan sus materiales)
     this.chips(t.free ? t.fit.cx : t.tile[0] + 0.5, t.free ? t.fit.cy : t.tile[1] + 0.5, 'dirt', 8);
     Audio.place();
     if (ITEMS[id].place === 'station') g.stats?.add('estaciones', 1);

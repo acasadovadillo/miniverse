@@ -7,6 +7,7 @@ import { Overworld, NILO_LOOK } from './world/scenes.js';
 import { houseBlueprint, familyBlueprint, byChunk, doorTile } from './world/blueprints.js';
 import { HOUSE, HOUSE_BIG, HOUSE_FAMILY, HOUSES, CENTER, SPAWN, inBounds, inOwnHouse, inTavern, hasProject, setFamilyHouse } from './world/village.js';
 import { PIECES, parsePlaced } from './pieces.js';
+import { BUILDABLE } from './buildables.js';
 import { Profile } from './accounts.js';
 import { BIOMES } from './world/biomes.js';
 import { CHUNK, WORLD_SEED } from './world/gen.js';
@@ -209,6 +210,7 @@ export class Game {
     this.world.clock = save.clock || 0;
     this.inv = new Inventory(save.inventory);
     if (!save.inventory) for (const [id, n] of START_KIT) this.inv.add(id, n);   // partida nueva: equipo inicial
+    this.invSpill = this.inv.spill;   // (materiales de muebles de antes que no han cabido: se dejan a los pies al empezar)
     // La ropa: la partida nueva empieza con la que se eligió al crear el personaje, sin mochila; las de antes
     // de que hubiera ropa, con la suya y una mochila (así no pierden nada de lo que llevaban)
     if (!save.inventory?.equip) this.inv.equip = clothesFor(save.player.look, !!save.inventory);
@@ -258,6 +260,8 @@ export class Game {
     Audio.indoors = this.indoors;
     clearKeys();
     this.mode = 'play';
+    for (const [id, n] of this.invSpill || []) this.gather.throwOut(id, n);
+    this.invSpill = null;
     this.build.toggle(false);
     this.hook('reset', save);
     this.updatePlace();
@@ -578,7 +582,7 @@ export class Game {
     if (o.layer === 'rug') return this.rugAction(o);
     const hung = hungFirst && o.layer !== 'hang' ? [o.tile, ...extraTiles(o.placed, ...o.tile, o.rot)].map(t => [t, sc.ownAt?.('hang', ...t)]).find(([, v]) => v) : null;
     const top = hung ? { tile: hung[0], layer: 'hang', placed: hung[1].split('@')[0] } : o;
-    const name = ITEMS[o.placed].name.toLowerCase(), pick = { text: `Recoger ${ITEMS[top.placed].name.toLowerCase()}`, run: () => this.pickUp(top) };
+    const name = ITEMS[o.placed].name.toLowerCase(), pick = { text: `${BUILDABLE[top.placed] ? 'Desmontar' : 'Recoger'} ${ITEMS[top.placed].name.toLowerCase()}`, run: () => this.pickUp(top) };   // (lo construido, al desmontarlo, devuelve sus materiales)
     if (STATIONS[o.placed]) return { text: `Usar ${name}`, run: () => this.onCraft?.(o.placed), alt: o.fixed ? null : pick };
     if (o.placed === 'cama' || o.placed === 'cama_nino' || o.placed === 'cama_doble') return { text: 'Usar la cama', run: () => this.bed(o), alt: pick };
     if (o.placed === 'silla' || o.placed === 'taburete' || o.placed === 'sofa' || o.placed === 'sillon') return { text: 'Sentarse', run: () => this.rest.sit(o), alt: o.fixed ? null : pick };
@@ -676,22 +680,20 @@ export class Game {
   }
   sleep() { return this.days.sleep(); }
   // Devolver a la mochila algo colocado
-  pickUp(o) {
+  // carry: lo coge el modo construir para moverlo (no devuelve nada: se deja en otro sitio)
+  pickUp(o, carry = false) {
     if (o.fixed && !o.yard && !o.build) return false;   // (lo que venía puesto no se recoge sin querer: solo la valla de tu jardín y, en modo construir, todo)
+    // Lo que se construye (las piezas, como la valla, y los muebles y las estaciones) no vuelve a la mochila: devuelve
+    // sus materiales
+    const B = BUILDABLE[o.placed] || (PIECES[o.placed] && !ITEMS[o.placed] ? PIECES[o.placed] : null);
     // (una alfombra vuelve como la del telar de su tamaño; las de antes, de cualquier tamaño, se ponían con V)
-    // (una pieza de construcción, como la valla y su puerta: no vuelve a la mochila, devuelve sus materiales)
-    if (PIECES[o.placed] && !ITEMS[o.placed]) {
-      if (this.scene.unplace(o) === false) return false;
-      for (const [m, n] of PIECES[o.placed].cost) { const left = this.inv.add(m, n); if (left) this.gather.throwOut(m, left); }
-      Audio.pickup();
-      return true;
-    }
     const r = o.layer === 'rug' && o.rug, id = r ? rugId(ITEMS[o.placed].rug || o.placed, RUG_MADE.find(([w, h]) => (w === r.w && h === r.h) || (w === r.h && h === r.w)) || [1, 1]) : o.placed;
-    if (this.inv.room(id) < 1) { this.gather.float('No te cabe: no llevas sitio libre', '#ffb0a0'); Audio.error(); return false; }
+    if (!B && this.inv.room(id) < 1) { this.gather.float('No te cabe: no llevas sitio libre', '#ffb0a0'); Audio.error(); return false; }
     if (this.scene === this.world && !machineEmpty(machineAt(this.world, o.tile))) { this.gather.float(`Vacía ${MACHINES[o.placed]?.the || 'la máquina'} antes`, '#ffb0a0'); Audio.error(); return false; }
     if (CHESTS[o.placed] && o.placed !== 'mochila' && this.scene.chestAt(...o.tile)?.some(Boolean)) { this.gather.float(`Vacía ${CHESTS[o.placed][1]} antes`, '#ffb0a0'); Audio.error(); return false; }
-    this.scene.unplace(o);
-    this.inv.add(id, 1);
+    if (this.scene.unplace(o) === false && B) return false;
+    if (!B) this.inv.add(id, 1);
+    else if (!carry) for (const [m, n] of B.cost) { const left = this.inv.add(m, n); if (left) this.gather.throwOut(m, left); }
     Audio.pickup();
     return true;
   }

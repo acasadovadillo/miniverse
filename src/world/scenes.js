@@ -7,6 +7,7 @@ import { WorldGen, CHUNK } from './gen.js';
 import { inYard, buildVillage, NILO, inBounds, isGrass, inOwnHouse, inVillageHouse } from './village.js';
 import { B, BIOMES } from './biomes.js';
 import { ITEMS, CHESTS, modernSlots } from '../items.js';
+import '../buildables.js';   // (LEGACY_ITEMS con los muebles: también en el servidor)
 import { extraTiles, LONG, BED_BACK, HEARTH_BACK, GLOW, LIGHT, front, SIDE, rugRect, RUG_SIZES, TABLE_SIZES, TABLES, TUCK } from '../art/stations.js';
 import { solidsOf, hull, placeBoxes, bounds, aabb, sat, hitsCircle, distTo, obb, dirOf, sideOf } from './fit.js';
 import { wallRuns, WINDOW_Z, T } from '../art/build.js';
@@ -767,7 +768,7 @@ export class Overworld {
     }
     return null;
   }
-  chestAt(tx, ty) { const c = this.delta(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK))?.chest?.[`${tx},${ty}`]; if (c && !c.modern) { modernSlots(c); Object.defineProperty(c, 'modern', { value: true, enumerable: false }); } return c; }   // (lo que ya no es un objeto, por sus materiales)
+  chestAt(tx, ty) { const c = this.delta(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK))?.chest?.[`${tx},${ty}`]; if (c && !c.modern) { for (const [id, n] of modernSlots(c)) c.push({ id, n }); Object.defineProperty(c, 'modern', { value: true, enumerable: false }); } return c; }   // (lo que ya no es un objeto, por sus materiales)
   chestTouched(tx, ty) { const k = `${Math.floor(tx / CHUNK)},${Math.floor(ty / CHUNK)}`; this.dirty.add(k); this.onTouch?.(k); }
   // ¿Está esta casilla bajo un tejado? (para ocultar el tejado cuando el jugador entra en casa)
   roofAt(tx, ty) { return !!this.at('roof', tx, ty); }

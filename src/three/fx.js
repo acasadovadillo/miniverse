@@ -147,16 +147,16 @@ export class Fx {
     if (playing) {
       const b = game.build;
       const pulse = Math.sin(t * 6) > 0 ? '#fff3c0' : '#ffd77a';
-      if (b.on) {
+      if (b.on && !b.heldItem()) {
         const tt = b.target();
         if (tt) {
           const c = b.check(tt);
           this.showTile(tt, gy, c.ok ? pulse : '#ff7a6a');
-          if (!b.erase) { ghost = 'piece:' + b.piece; ghostOk = c.ok; at = [tt[0] + 0.5, tt[1] + 0.5]; }
+          if (!b.erase && !b.move) { ghost = 'piece:' + b.piece; ghostOk = c.ok; at = [tt[0] + 0.5, tt[1] + 0.5]; }
         }
       } else {
         const tg = game.gather.target;
-        if (tg?.free) { ghost = tg.model; ghostOk = tg.ok; at = [tg.x, tg.y]; yaw = tg.a; }   // (lo libre: donde y como quedaría, sin casilla)
+        if (tg?.free) { ghost = tg.model; ghostOk = tg.ok && (!b.on || b.check().ok); at = [tg.x, tg.y]; yaw = tg.a; }   // (lo libre: donde y como quedaría, sin casilla)
         else if (tg?.tile && (tg.ok || tg.place)) {
           this.showTile(tg.tile, gy, tg.ok ? pulse : '#ff7a6a');
           // (la alfombra y la mesa grande, enteras, del tamaño elegido; lo demás, arrimado al muro de detrás)

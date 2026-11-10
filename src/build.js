@@ -14,6 +14,7 @@ import { yawOf, rugRect } from './art/stations.js';
 
 const PICK_NEAR = 14;   // (se apunta a lo que haya hasta aquí: lo que está más lejos del alcance, tapa lo de detrás y dice que está lejos)
 export const REACH = 7;   // casillas de distancia a las que se puede construir
+import { BUILDABLE, BUILD_CATS } from './buildables.js';
 export const BUILD_STATION_REACH = 16;   // a cuántas casillas puede estar la estación que pide una pieza (el banco, para lo de madera)
 export const PIECE_IDS = Object.keys(PIECES).filter(id => !ITEMS[id] || PIECES[id].palette);   // (el hogar se fabrica, como un mueble; la valla, además de fabricarse, se pone aquí)
 
@@ -30,12 +31,19 @@ export function pieceSprite(id) {
   return wallSprite(id, 3);
 }
 
+// Todo lo que sale en la barra: las piezas y los muebles y estaciones (buildables.js). DEF: lo que cuesta y pide cada uno
+export const BUILD_IDS = [...PIECE_IDS.filter(id => !BUILDABLE[id]), ...Object.keys(BUILDABLE)];
+export const ALL_CATS = [...new Set([...Object.values(PIECES).map(p => p.cat), ...Object.keys(BUILD_CATS)])].filter(c => BUILD_IDS.some(id => DEF(id).cat === c));
+export function DEF(id) { return BUILDABLE[id] || PIECES[id]; }
+
 export class BuildMode {
   constructor(game) {
     this.game = game;
     this.on = false;
     this.piece = PIECE_IDS[0];
     this.erase = false;          // la "pieza" de quitar (para móvil)
+    this.move = false;           // la herramienta de mover: coge un mueble o una estación y lo deja en otro sitio, sin coste
+    this.carry = null;           // lo que se lleva al mover: { id }
     this.cursor = null;          // casilla apuntada con el ratón o el dedo, [x, y]
     this.cursorAt = 0;
     this.painted = null;         // al arrastrar, no repetir la misma casilla
@@ -46,23 +54,49 @@ export class BuildMode {
   toggle(v = !this.on) {
     const g = this.game;
     if (v && (g.mode !== 'play' || !g.player)) return false;
+    if (!v) this.dropCarry();
     this.on = v;
     this.cursor = null;
     document.body.classList.toggle('building', v);
     this.onChange?.();
     return true;
   }
-  select(id) { this.erase = id === 'quitar'; if (!this.erase) this.piece = id; this.onChange?.(); }
+  select(id) { this.dropCarry(); this.erase = id === 'quitar'; this.move = id === 'mover'; if (!this.erase && !this.move) this.piece = id; this.onChange?.(); }
   cycle(d) {
-    const list = ['quitar', ...PIECE_IDS], cur = this.erase ? 0 : list.indexOf(this.piece);
+    const list = ['quitar', 'mover', ...BUILD_IDS.filter(id => this.available(id))], cur = this.erase ? 0 : this.move ? 1 : list.indexOf(this.piece);
     this.select(list[(cur + d + list.length) % list.length]);
+  }
+  // ¿Sale en la barra? Las piezas, siempre; los muebles y las estaciones, cuando se conoce su receta (como al fabricar)
+  available(id) { const b = BUILDABLE[id]; return !b || this.game.admin || !!this.game.craft?.known.has(b.recipe); }
+  // Lo que el modo construir lleva "en la mano" para colocarlo como un mueble (ver gather.js, pickTarget): el mueble o
+  // la estación elegidos, o lo que se está moviendo; null con una pieza de casilla, quitando o sin nada cogido
+  heldItem() {
+    if (!this.on) return null;
+    if (this.carry) return { id: this.carry.id };
+    return !this.erase && !this.move && BUILDABLE[this.piece] ? { id: this.piece } : null;
+  }
+  // Soltar lo que se movía sin haberlo colocado: vuelven sus materiales
+  dropCarry() {
+    const c = this.carry, g = this.game;
+    if (!c) return;
+    this.carry = null;
+    for (const [m, n] of DEF(c.id).cost) { const left = g.inv.add(m, n); if (left) g.gather.throwOut(m, left); }
+    g.gather.float(`${DEF(c.id).name}: sin colocar, vuelven sus materiales`, '#fff3c0');
+  }
+  // Lo que se cobra al colocar (lo llama gather.place): nada si se estaba moviendo o en creativo
+  paid(id) {
+    const g = this.game;
+    if (this.carry) { this.carry = null; this.onChange?.(); return; }
+    if (!g.admin) for (const [m, n] of DEF(id).cost) g.inv.remove(m, n);
+    g.skills?.gain('construccion', 1);
+    g.stats?.add('piezas', 1);
   }
 
   // Casilla objetivo: la del ratón si se ha movido hace poco; si no, la de delante del jugador
   target() {
     const p = this.game.player;
     if (!p) return null;
-    if (this.erase) { const hit = this.pick(); if (hit) { this.pointTo(hit.tile); return hit.tile; } }
+    if (this.erase || this.move) { const hit = this.pick(); if (hit) { this.pointTo(hit.tile); return hit.tile; } }
     // Con ratón, la casilla que hay debajo (y, si está sobre la barra de construir, la última); con el dedo, la
     // tocada hace poco; si no, la de delante
     const mt = this.game.mouseTile();
@@ -75,17 +109,17 @@ export class BuildMode {
   // ¿Está cerca la estación que pide la pieza? (lo de madera, el banco de carpintero; en creativo, nada). Se mira dos
   // veces por segundo: esto se pregunta en cada fotograma
   stationFor(id) {
-    const need = PIECES[id]?.needs, g = this.game, p = g.player;
-    if (!need || g.admin || !p) return true;
+    const need = DEF(id)?.needs, g = this.game, p = g.player;
+    if (!need || g.admin || !p || this.carry) return true;
     const now = performance.now();
     if (!this.near || this.near.t < now - 500 || Math.hypot(this.near.x - p.x, this.near.y - p.y) > 1) {
       const found = new Set();
-      for (const o of g.world?.placedNear?.(p.x, p.y, BUILD_STATION_REACH) || []) if (STATIONS[o.placed]) found.add(o.placed);
+      for (const o of g.scene?.placedNear?.(p.x, p.y, BUILD_STATION_REACH) || []) if (STATIONS[o.placed]) found.add(o.placed);
       this.near = { t: now, x: p.x, y: p.y, found };
     }
     return this.near.found.has(need);
   }
-  affordable(id) { return this.game.admin || PIECES[id].cost.every(([m, n]) => this.game.inv.count(m) >= n); }
+  affordable(id) { return this.game.admin || !!this.carry || DEF(id).cost.every(([m, n]) => this.game.inv.count(m) >= n); }
 
   // Qué pasaría en la casilla: { ok, why }
   check(t) {
@@ -93,6 +127,21 @@ export class BuildMode {
     if (this.erase) {
       const hit = this.eraseTarget(t);
       if (!hit) return { ok: false, why: 'Aquí no hay nada que quitar' };
+      return this.inReach(hit.tile) ? { ok: true } : { ok: false, why: 'Demasiado lejos' };
+    }
+    // Un mueble o una estación (o lo que se mueve): que se pueda pagar, con su estación cerca y donde quepa (lo dice
+    // gather.pickTarget, que es quien lo coloca, libre y con su giro)
+    const held = this.heldItem();
+    if (held) {
+      if (!this.affordable(held.id)) return { ok: false, why: 'Te faltan materiales' };
+      if (!this.stationFor(held.id)) return { ok: false, why: `Necesitas un ${STATIONS[DEF(held.id).needs].name.toLowerCase()} cerca` };
+      const tg = g.gather.target?.place === held.id ? g.gather.target : g.gather.pickTarget();
+      return tg?.ok ? { ok: true } : { ok: false, why: tg?.far ? 'Demasiado lejos' : tg?.why || 'Ahí no cabe' };
+    }
+    if (this.move) {
+      const hit = this.eraseTarget(t), raw = hit && sc.at(hit.layer, hit.tile[0], hit.tile[1]), id = raw && parsePlaced(raw)[0];
+      if (!hit || !BUILDABLE[id]) return { ok: false, why: 'Apunta a un mueble o a una estación para moverlo' };
+      if (sc.ownAt && !sc.ownAt(hit.layer, hit.tile[0], hit.tile[1])) return { ok: false, why: 'Eso venía puesto: no se mueve' };
       return this.inReach(hit.tile) ? { ok: true } : { ok: false, why: 'Demasiado lejos' };
     }
     if (!t) return { ok: false };
@@ -107,6 +156,15 @@ export class BuildMode {
   place(t = this.target(), drag = false, at = null) {
     if (!this.on) return;
     if (this.erase) return this.removeAt(t, drag, at);
+    const held = this.heldItem();
+    if (held) {   // (un mueble o una estación: lo coloca gather, que cobra con paid())
+      if (drag) return;
+      const g = this.game, c = this.check(t);
+      if (!c.ok && (c.why === 'Te faltan materiales' || c.why?.startsWith('Necesitas'))) { g.gather.float(c.why, '#ffb0a0'); Audio.error(); return; }
+      g.gather.place(held.id);
+      return;
+    }
+    if (this.move) return this.lift(t, drag, at);
     if (!t) return;
     if (drag && this.painted === `${t}`) return;
     this.painted = `${t}`;
@@ -118,6 +176,19 @@ export class BuildMode {
     Audio.place();
     g.skills?.gain('construccion', 1);
     g.stats?.add('piezas', 1);
+  }
+
+  // Mover: coger el mueble o la estación apuntados (vacíos: como al quitarlos) para dejarlos en otro sitio sin pagar
+  lift(t, drag = false, at = null) {
+    if (drag) return;
+    const g = this.game, sc = g.scene, c = this.check(t), hit = c.ok && this.eraseTarget(t, at);
+    if (!hit) { if (c.why) g.gather.float(c.why, '#ffb0a0'); Audio.error(); return; }
+    const id = parsePlaced(sc.at(hit.layer, hit.tile[0], hit.tile[1]))[0];
+    if (!g.pickUp({ tile: hit.tile, layer: hit.layer, placed: id }, true)) return;
+    this.carry = { id };
+    this.pickV++;
+    g.gather.chips(hit.tile[0] + 0.5, hit.tile[1] + 0.5, 'wood', 4);
+    this.onChange?.();
   }
 
   // En una casilla, lo que se quitaría, de arriba abajo (para cuando no se apunta): { tile, layer }. La casilla es donde
@@ -216,7 +287,7 @@ export class BuildMode {
   }
   // El borde amarillo de lo que se va a quitar
   pickHighlight() {
-    if (!this.on || !this.erase) return null;
+    if (!this.on || !(this.erase || (this.move && !this.carry))) return null;
     const hit = this.pick();
     return hit && this.inReach(hit.tile) ? { kind: 'placed', o: hit.o, yaw: hit.o.yaw, box: hit.box } : null;
   }
@@ -228,6 +299,9 @@ export class BuildMode {
   }
   hint() {
     if (!this.on) return '';
+    const held = this.heldItem();
+    if (held) { const c = this.check(), name = DEF(held.id).name.toLowerCase(); return c.ok ? `${this.carry ? 'Dejar' : 'Colocar'} ${name} (R: girar)` : `${c.why || 'Ahí no cabe'} (R: girar)`; }
+    if (this.move) { const c = this.check(this.target()); return c.ok ? `Mover ${this.eraseHint().replace(/^Quitar /, '')}` : c.why || ''; }
     const c = this.check(this.target());
     return this.erase ? (c.ok ? this.eraseHint() : c.why || '') : c.ok ? `Poner ${PIECES[this.piece].name.toLowerCase()}` : c.why || '';
   }

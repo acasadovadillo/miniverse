@@ -22,7 +22,7 @@ export const STEPS = [
   { id: 'tablas', text: 'Junta 6 tablas', hint: 'Con C: cada madera da 2 tablas.', done: g => g.inv.count('tablas') >= 6, money: 20 },
   { id: 'picar', text: 'Pica una roca', hint: 'El pico está en el 2. Da piedra.', stat: 'picados', need: 1, money: 20 },
   { id: 'taller', text: 'Ven a la taberna del pueblo', hint: 'Al oeste del camino. Anselmo sirve comida y bebida.', done: g => inTavern(g.player.x, g.player.y), money: 20 },
-  { id: 'banco', text: 'Hazte tu banco de carpintero y colócalo', hint: '6 tablas y 2 piedras, con C. Luego, en la mano y clic donde lo quieras.', stat: 'estaciones', need: 1, money: 60 },
+  { id: 'banco', text: 'Hazte tu banco de carpintero y colócalo', hint: 'Pulsa B, pestaña Estaciones: cuesta 6 tablas y 2 piedras. Clic donde lo quieras (R: girar).', stat: 'estaciones', need: 1, money: 60 },
   { id: 'dormir', text: 'Prueba tu cama', hint: 'Está en tu casa, al norte de la plaza. Acércate, pon el cursor encima y pulsa E. Elige dormir.', stat: 'dormido', need: 1, money: 30 },
   { id: 'labrar', text: 'Labra 3 casillas de hierba', hint: 'La azada está en el 4. Si saltas encima de la tierra labrada, se deshace.', stat: 'labrados', need: 3, money: 40, items: g => { const s = seedNow(g); return s ? [[s, 3]] : []; } },
   { id: 'sembrar', text: 'Siembra lo que te ha dado la tierra', hint: 'Con las semillas en la mano, clic sobre la tierra labrada. Luego hay que regarlas, o que llueva.', stat: 'sembrados', need: 1, money: 40, skip: g => !seedNow(g) },

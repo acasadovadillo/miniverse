@@ -1,5 +1,5 @@
 // Tienda de un vecino: comprar lo que vende y venderle lo que lleves.
-import { ITEMS, TIERS } from '../items.js';
+import { ITEMS, TIERS, LEGACY_ITEMS } from '../items.js';
 import { SHOPS, priceOf, buyPrice } from '../economy.js';
 import { itemIconUrl } from '../art/items.js';
 import { animalSprite, ANIMALS } from '../art/farm.js';
@@ -13,7 +13,7 @@ export function initShopUI(game, { onClose }) {
 
   function stock() {
     const s = SHOPS[shop], season = game.days.season, done = game.board.projects;
-    return s.stock.filter(e => (!e.seasons || e.seasons.includes(season)) && (!e.project || done[e.project]) && (e.animal || ITEMS[e.id]));
+    return s.stock.filter(e => (!e.seasons || e.seasons.includes(season)) && (!e.project || done[e.project]) && (e.animal || (ITEMS[e.id] && !LEGACY_ITEMS[e.id])));   // (lo que ahora se construye no se vende: ya no es un objeto)
   }
   const animalIcon = type => animalSprite(type, 0).toDataURL();
 

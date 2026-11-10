@@ -73,13 +73,15 @@ export class Crafting {
     const news = RECIPES.filter(r => !this.known.has(r.id) && !this.forgot.has(r.id) && unlocked(r, this.seen, this.taught));
     for (const r of news) {
       this.known.add(r.id);
-      if (!silent && !r.variant) this.fresh.add(r.id);   // (los otros tamaños de una alfombra no cuentan aparte)
+      if (!silent && !r.variant && !r.build) this.fresh.add(r.id);   // (los otros tamaños de una alfombra no cuentan aparte; lo que se construye sale en la barra de construir)
     }
     const shown = news.filter(r => !r.variant);
     if (!silent && shown.length) {
       Audio.unlock();
       const name = ITEMS[shown[0].out].name;
-      this.say(shown.length === 1 ? `¡Receta nueva: ${name}!` : `¡${shown.length} recetas nuevas! (C para fabricar)`, '#ffe08a');
+      const built = shown.filter(r => r.build).length;
+      this.say(shown.length === 1 ? (built ? `¡Ya puedes construir: ${name}! (B)` : `¡Receta nueva: ${name}!`) : built === shown.length ? `¡${built} cosas nuevas para construir! (B)` : `¡${shown.length} recetas nuevas! (C para fabricar${built ? ', B para construir' : ''})`, '#ffe08a');
+      this.game.build?.onChange?.();
     }
   }
   teach(id) {

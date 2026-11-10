@@ -37,10 +37,10 @@ export function initCraftingUI(game, { onClose, onBag }) {
     for (const [st, b] of Object.entries(tabs)) {
       b.classList.toggle('on', st === tab);
       b.classList.toggle('far', !near[st]);
-      b.classList.toggle('new', RECIPES.some(r => r.station === st && c.fresh.has(r.id)));
+      b.classList.toggle('new', RECIPES.some(r => r.station === st && !r.build && c.fresh.has(r.id)));
     }
     // Lista de recetas de la pestaña: primero las conocidas (de las alfombras, la de 1×1: el tamaño se elige luego)
-    const list = RECIPES.filter(r => r.station === tab && !r.variant).sort((a, b) => c.known.has(b.id) - c.known.has(a.id));
+    const list = RECIPES.filter(r => r.station === tab && !r.variant && !r.build).sort((a, b) => c.known.has(b.id) - c.known.has(a.id));
     if (!picked || picked.station !== tab) picked = list.find(r => c.known.has(r.id)) || list[0];
     const box = $('cf-list');
     box.textContent = '';

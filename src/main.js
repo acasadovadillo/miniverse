@@ -46,7 +46,7 @@ function play(login = true) {   // (login: abrir la pantalla de entrar)
     secondary: (x, y) => { if (game.mode === 'play' && !game.busy) game.ranch.sitAt(game.tileAtScreen(x, y)); },
     // Lo que se coloca libre gira poco a poco mientras se mantiene R; lo que va contra un muro (cuadros, hogar), en
     // cuatro giros desde el que se ve
-    rotate: dir => { const g = game.gather; if (freePlace(game.inv?.held?.id)) g.turnStart(dir); else g.rot = ((g.target?.rot ?? g.rot ?? 0) + 1) % 4; },
+    rotate: dir => { const g = game.gather; if (freePlace(b.on ? b.heldItem()?.id : game.inv?.held?.id)) g.turnStart(dir); else g.rot = ((g.target?.rot ?? g.rot ?? 0) + 1) % 4; },
     rotateEnd: () => game.gather.turnEnd(),
     size: () => game.gather.nextSize(),
     erase: () => { if (b.on) b.remove(); else game.altAction(); },
