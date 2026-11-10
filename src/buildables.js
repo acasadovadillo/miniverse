@@ -1,4 +1,5 @@
-// Los construibles que antes eran objetos de la mochila: los muebles y las estaciones, que no caben en la mano. Se ponen
+// Los construibles que antes eran objetos de la mochila: los muebles, las estaciones (con la noria) y las casas y
+// aparatos del rancho, que no caben en la mano. Se ponen
 // con el modo construir (B, ver build.js), pagando sus materiales al colocarlos (los de su receta) y con su estación
 // cerca (el banco de carpintero para casi todos); al quitarlos devuelven los materiales, y con Mover se cambian de sitio
 // sin coste. Siguen estando en ITEMS (su nombre, su icono, su modelo y lo que hacen colocados), pero ya no se fabrican
@@ -7,9 +8,10 @@ import { ITEMS, LEGACY_ITEMS } from './items.js';
 import { RECIPES } from './recipes.js';
 
 export const BUILD_CATS = {
-  Muebles: ['silla', 'mesa', 'mesa_grande', 'mesa_baja', 'mesita', 'sofa', 'sillon', 'cama', 'cama_doble', 'cama_nino', 'cuna', 'cofre', 'armario', 'comoda', 'estanteria', 'vitrina', 'chimenea'],
+  Muebles: ['silla', 'mesa', 'mesa_grande', 'mesa_baja', 'mesita', 'sofa', 'sillon', 'cama', 'cama_doble', 'cama_nino', 'cuna', 'cofre', 'armario', 'comoda', 'estanteria', 'vitrina', 'chimenea', 'taburete', 'barra', 'barril'],
   'Cocina y baño': ['encimera', 'alacena', 'fregadero', 'banera', 'lavabo', 'inodoro', 'mueble_bano'],
-  Estaciones: ['banco', 'horno', 'telar', 'cocina', 'yunque', 'quesera', 'alambique'],
+  Estaciones: ['banco', 'horno', 'telar', 'cocina', 'yunque', 'quesera', 'alambique', 'noria'],
+  Rancho: ['gallinero', 'establo', 'cuadra', 'conejera', 'caseta', 'palomar', 'comedero', 'silo', 'colmena', 'incubadora'],
 };
 // id → { name, cat, cost: [[material, n]…], needs: la estación que hay que tener cerca (o null: a mano), recipe: la
 // receta que hay que conocer para que salga en la barra }
