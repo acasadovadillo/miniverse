@@ -530,6 +530,7 @@ export class World3D {
     // La casa en la que está el jugador: la región de tejado bajo sus pies (si está a cubierto)
     const p = game.player, inside = p && game.scene === scene && game.underRoof ? this.regionOf.get(`${Math.floor(p.x)},${Math.floor(p.y)}`) || null : null;
     const reg = inside ? this.regions.get(inside) : null;
+    this.insideRegion = inside;   // (la clave de su tejado: quien esté bajo otro, se ve solo por ventanas y puertas; ver Actors.grade)
     this.insideHouse = reg?.cam || (reg ? (this.houseBoxes(), reg.cam) : null);
     const toCam = [Math.sin(CAM.yaw), Math.cos(CAM.yaw)], N = { n: [0, -1], s: [0, 1], e: [1, 0], w: [-1, 0] };
     for (const [fk, mats] of this.fadeMats) {

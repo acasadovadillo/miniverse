@@ -319,7 +319,8 @@ export class View3D {
       this.terrain.update(scene.gen, target.x, target.z, snap ? 1e9 : 8);
       this.world.update(game, scene, target, dt, snap);
     } else this.cave.update(game, dt);
-    this.actors.update(game, scene, dt, t);
+    // (lo que tardan los actores, de media cada medio segundo: para F3 y el banco)
+    { const t0 = performance.now(); this.actors.update(game, scene, dt, t); const ms = performance.now() - t0; this.actorsAcc = (this.actorsAcc || 0) + ms; this.actorsN = (this.actorsN || 0) + 1; this.actorsT = (this.actorsT || 0) + dt; if (this.actorsT >= 0.5) { this.actorsMs = this.actorsAcc / this.actorsN; this.actorsAcc = this.actorsN = this.actorsT = 0; } }
     this.first = CAM.first && !!game.player && !!game.scene;
     this.updateViewmodel(game, this.first);
     this.fx.update(game, scene, dt, t);

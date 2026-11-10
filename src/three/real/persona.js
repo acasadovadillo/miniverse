@@ -7,7 +7,9 @@
      scene.add(root);  update(dt, velocidadEnMetrosPorSegundo);
 
    build(look, { det: 1 | 2, res: 512 | 1024, lejos })   det 2 y 1024 son para el retrato y el creador, fuera del presupuesto de juego. lejos: cara con más contraste en pestañas, cuenca, cejas y boca para leerse a distancia 7 (plaza.html).
-   Devuelve { root, update, pose, mesh, bones, tris, atlas, look, d }.
+   Devuelve { root, update, pose, mesh, bones, tris, trisL, atlas, look, d, setLod, release }. Las personas del mismo look comparten
+   malla, lienzo y material (un prototipo con su cuenta de usos): release() suelta la suya al quitarla, y setLod(1) la dibuja
+   con el índice de lejos (sin dedos, ojos ni nariz, con manoplas). prebuild(look, opts) deja hecho el prototipo; stats() cuenta.
    look.cabezas cambia las cabezas de alto (6,8 por defecto); look.ojos, el color de ojos; look.semilla varía un poco la cara y la postura de pie;
    look.edad 'mayor' pinta líneas blandas de edad y entradas. P.LOOKS trae los dos de la prueba y P.LOOKS.vecinos, seis personas distintas.
    Cuerpos: look.build fino|medio|fuerte, look.panza 0..1, look.encorvado 0..1, look.escala (estatura). Tocados: look.sombrero 'paja'|'boina', hairStyle 'panuelo' con look.panuelo (color).
@@ -170,7 +172,39 @@ LOOK.parts.persona = (THREE, LOOK) => {
   ];
 
   // ---------------------------------------------------------------- construir
+  // Personas con prototipos compartidos por look (malla, lienzo y material), con la cuenta de cuántas personas usan cada
+  // uno. Los que no usa nadie se guardan, hasta MAX_LIBRES, por si vuelven (un vecino que entra en casa y sale): rehacer
+  // uno cuesta 100-250 ms. Los más viejos de los que sobran se liberan en la gráfica (trim)
+  const PROTOS = new Map(), TEX = new Map(), MAX_LIBRES = 16;
+  const claveProto = (look, opts) => JSON.stringify([look, opts.det || 1, opts.res || 512, opts.lejos || look.lejos ? 1 : 0]);
   function build(look, opts = {}) {
+    const k = claveProto(look, opts);
+    let pr = PROTOS.get(k);
+    if (!pr) PROTOS.set(k, (pr = construir(look, opts)));
+    pr.refs++; pr.used = performance.now();
+    return pr.instancia();
+  }
+  // Solo el prototipo (sin persona y sin que cuente como usado): para tenerlo hecho antes de que haga falta. Solo procesador:
+  // la malla y el lienzo suben a la gráfica la primera vez que se dibujan
+  function prebuild(look, opts = {}) {
+    const k = claveProto(look, opts);
+    if (PROTOS.has(k)) return false;
+    const pr = construir(look, opts);
+    pr.used = performance.now(); PROTOS.set(k, pr); trim();
+    return true;
+  }
+  function trim() {
+    const libres = [...PROTOS].filter(([, p]) => p.refs <= 0).sort((a, b) => a[1].used - b[1].used);
+    for (let i = 0; i < libres.length - MAX_LIBRES; i++) {
+      const [k, p] = libres[i], tex = TEX.get(p.claveAtlas);
+      PROTOS.delete(k);
+      // (las dos geometrías comparten atributos: se sueltan juntas, nunca una sola)
+      p.geo.dispose(); p.geoL.dispose(); p.mat.dispose();
+      if (tex && --tex.refs <= 0) { tex.mapa.dispose(); TEX.delete(p.claveAtlas); delete cacheAtlas[p.claveAtlas]; }
+    }
+  }
+  const stats = () => { let libres = 0; for (const p of PROTOS.values()) if (p.refs <= 0) libres++; return { protos: PROTOS.size, libres, lienzos: TEX.size }; };
+  function construir(look, opts = {}) {
     const det = opts.det || 1, res = opts.res || 512, sx = look.sex === 'f' || look.sex === 'mujer' ? 'f' : 'm', B0 = DIMS[sx], m = sx === 'm';
     const LJ = opts.lejos || look.lejos ? 1 : 0;   // cara para verse de lejos (cámara 7 y 18): pestañas, cuenca y cejas con más contraste; nada de ojos grandes
     if (!moduloPelo && LOOK.parts.pelo) moduloPelo = LOOK.parts.pelo(THREE, LOOK);
@@ -269,6 +303,7 @@ LOOK.parts.persona = (THREE, LOOK) => {
 
     // ------------------------------------------------------------ pesos y malla
     const pos = [], uvs = [], sI = [], sW = [], grp = [], tag = [], fixN = {}, idx = [], oscV = {};
+    const idxM = [];   // (las manoplas: solo en el índice de lejos, ver idxL)
     const V = (p, u, v, w, g, t, fn) => {
       const i = pos.length / 3; pos.push(p[0], p[1], p[2]); uvs.push(u / 512, 1 - v / 512); grp.push(g); tag.push(t);
       const e = Object.entries(w).filter(k => k[1] > 0.001).sort((a, b) => b[1] - a[1]).slice(0, 4); let s = 0; for (const k of e) s += k[1];
@@ -446,8 +481,9 @@ LOOK.parts.persona = (THREE, LOOK) => {
       });
       // Cierre de la palma, por dentro de los dedos
       { const u = anillosBrazo[anillosBrazo.length - 1], tp = vadd(u.c, [-0.004, -0.005 * kMano, 0]); if (sg < 0) tp[0] = -tp[0]; fan(prev, V(tp, R.mano.x + R.mano.w / 2, R.mano.y + R.mano.h, { ['hand' + S]: 1 }, 'piel', t)); }
-      // Tubo por puntos, con radio propio: dedos y pulgar. El lado de cada dedo que toca al vecino se oscurece, y de ahí sale la raya entre dedos
-      const tubo = (pts, radios, nL, sombraLado) => {
+      // Tubo por puntos, con radio propio: dedos y pulgar. El lado de cada dedo que toca al vecino se oscurece, y de ahí sale la raya entre dedos.
+      // kArriba: el grueso, del ancho (los dedos, casi redondos; la manopla, plana)
+      const tubo = (pts, radios, nL, sombraLado, grupo = 'dedo', kArriba = 0.9) => {
         let P0 = pts, R0 = radios;
         if (det > 1) { P0 = []; R0 = []; pts.forEach((q, i) => { P0.push(q); R0.push(radios[i]); if (i < pts.length - 1) { P0.push(vlerp(q, pts[i + 1], 0.5)); R0.push((radios[i] + radios[i + 1]) / 2); } }); }
         const nR = P0.length, Z = [0, 0, 1], wM = { ['hand' + S]: 1 };
@@ -456,9 +492,9 @@ LOOK.parts.persona = (THREE, LOOK) => {
           tg = vnorm(vsub(P0[min(i + 1, nR - 1)], P0[max(i - 1, 0)]));
           const lado = vnorm(vsub(Z, vmul(tg, vdot(Z, tg)))), arriba = vnorm(vcross(tg, lado)), ring = [];
           for (let j = 0; j <= nL; j++) {
-            const f = 2 * PI * j / nL, cf = cos(f), sf = sin(f), pt = vadd(q, vadd(vmul(lado, cf * R0[i]), vmul(arriba, sf * R0[i] * 0.9)));
+            const f = 2 * PI * j / nL, cf = cos(f), sf = sin(f), pt = vadd(q, vadd(vmul(lado, cf * R0[i]), vmul(arriba, sf * R0[i] * kArriba)));
             if (sg < 0) pt[0] = -pt[0];
-            const iv = V(pt, R.dedo.x + R.dedo.w * j / nL, R.dedo.y + R.dedo.h * i / (nR - 1), wM, 'dedo', t);
+            const iv = V(pt, R.dedo.x + R.dedo.w * j / nL, R.dedo.y + R.dedo.h * i / (nR - 1), wM, grupo, t);
             oscV[iv] = (1 - sombraLado[cf > 0 ? 0 : 1] * cf * cf) * (1 - 0.08 * max(0, sf));
             ring.push(iv);
           }
@@ -466,14 +502,16 @@ LOOK.parts.persona = (THREE, LOOK) => {
           pa = ring;
         });
         const fin = vadd(P0[nR - 1], vmul(tg, R0[nR - 1] * 0.72)); if (sg < 0) fin[0] = -fin[0];
-        fan(pa, V(fin, R.dedo.x + R.dedo.w * 0.5, R.dedo.y + R.dedo.h, wM, 'dedo', t));
+        fan(pa, V(fin, R.dedo.x + R.dedo.w * 0.5, R.dedo.y + R.dedo.h, wM, grupo, t));
       };
       // Dedos: z en la palma, radio, largo, dónde nacen, cuánto se cierran de más. Mano en reposo: se curvan hacia el muslo y se tocan
       const DEDOS = [[0.0288, 0.0098, 0.076, -0.086, 0], [0.0098, 0.0102, 0.086, -0.090, 3], [-0.0098, 0.0098, 0.080, -0.088, 6], [-0.0284, 0.0086, 0.062, -0.081, 10]];
+      const camDedos = [];
       DEDOS.forEach(([zd, r, L, dyB, ex], iD) => {
         const a0 = palmaC(dyB, 0.004, 0.002); a0[2] += zd * kManoX;
         const angs = [20 + ex, 48 + ex * 1.4, 78 + ex * 1.8], tramos = [0.46, 0.30, 0.24], pts = [a0];
         angs.forEach((a, k) => { const p = pts[pts.length - 1]; pts.push(vadd(p, vmul(vnorm([-sin(rad(a)), -cos(rad(a)), zd * 0.1]), L * kMano * tramos[k]))); });
+        camDedos.push(pts);
         tubo(pts, [r, r * 0.96, r * 0.88, r * 0.76].map(x => x * kManoX), 4 * det, [iD === 0 ? 0.08 : 0.26, iD === 3 ? 0.06 : 0.26]);
       });
       // Pulgar: sale de la base de la palma y queda junto al índice, por el lado de dentro. No forma una V con los dedos
@@ -481,6 +519,14 @@ LOOK.parts.persona = (THREE, LOOK) => {
         const p0 = palmaC(-0.032, 0.006, 0); p0[2] += 0.016 * kMano;
         const p1 = vadd(p0, vmul([-0.012, -0.029, 0.022], kMano)), p2 = vadd(p1, vmul([-0.012, -0.025, 0.011], kMano)), p3 = vadd(p2, vmul([-0.009, -0.021, 0.002], kMano));
         tubo([p0, p1, p2, p3], [0.0175, 0.0128, 0.0104, 0.0086].map(x => x * kManoX), 5 * det, [0.05, 0.1]);
+      }
+      // La manopla, solo para verse de lejos (idxM): un tubo plano por el camino medio del corazón y el anular, tan ancho
+      // como los cuatro dedos juntos (lo que mide la palma en los nudillos) y del grueso de un dedo. Así la mano no se acorta
+      // ni se estrecha al quitar los dedos, y no hay salto al cambiar de detalle
+      {
+        const camMedio = camDedos[1].map((q, i) => vlerp(q, camDedos[2][i], 0.5)), iM = idx.length;
+        tubo(camMedio, [0.038, 0.035, 0.03, 0.022].map(x => x * kManoX), 6, [0.1, 0.1], 'manopla', 0.3);
+        idxM.push(...idx.splice(iM));
       }
     }
     hazBrazo('L', 1); hazBrazo('R', -1);
@@ -880,8 +926,8 @@ LOOK.parts.persona = (THREE, LOOK) => {
       const suma = new Map();
       const keys = new Array(nV);
       for (let i = 0; i < nV; i++) { keys[i] = clave(i); if (!suma.has(keys[i])) suma.set(keys[i], [0, 0, 0]); }
-      for (let t = 0; t < idx.length; t += 3) {
-        const a = idx[t], b = idx[t + 1], c = idx[t + 2], n = vcross(vsub(pv(b), pv(a)), vsub(pv(c), pv(a)));
+      for (const lista of [idx, idxM]) for (let t = 0; t < lista.length; t += 3) {   // (con la manopla, que solo está en el índice de lejos: si no, sus normales serían 0 y saldría negra)
+        const a = lista[t], b = lista[t + 1], c = lista[t + 2], n = vcross(vsub(pv(b), pv(a)), vsub(pv(c), pv(a)));
         for (const i of [a, b, c]) { const s = suma.get(keys[i]); s[0] += n[0]; s[1] += n[1]; s[2] += n[2]; }
       }
       for (let i = 0; i < nV; i++) { const n = fixN[i] || vnorm(suma.get(keys[i])); nor[i * 3] = n[0]; nor[i * 3 + 1] = n[1]; nor[i * 3 + 2] = n[2]; }
@@ -920,7 +966,7 @@ LOOK.parts.persona = (THREE, LOOK) => {
         const D = vsub(e.p, p), dl = vlen(D) || 1e-4, nd = vdot(n, D) / dl;
         o += peso * (dl < e.r ? 0.9 : max(0, nd * 0.85 + 0.15) * e.r * e.r / (dl * dl));
       }
-      aoV[i] = 1 - min(0.68, o * 0.62); if (grp[i] === 'dedo') aoV[i] = max(aoV[i], 0.88);
+      aoV[i] = 1 - min(0.68, o * 0.62); if (grp[i] === 'dedo' || grp[i] === 'manopla') aoV[i] = max(aoV[i], 0.88);
       const k = Math.round(p[0] * 5000) + '|' + Math.round(p[1] * 5000) + '|' + Math.round(p[2] * 5000) + '|' + grp[i];
       const lista = porPos.get(k); if (lista) lista.push(i); else porPos.set(k, [i]);
     }
@@ -955,7 +1001,7 @@ LOOK.parts.persona = (THREE, LOOK) => {
           else if ((T === 'pL' || T === 'pR') && y < (botaAlta ? yHem : 0.1) && cuero) r = 0.64;
           else if ((T === 'pL' || T === 'pR') && piernaDesnuda) { sk = 1; r = 0.66; }
         } else if (gi === 'nariz') { sk = 1; r = 0.56; }
-        else if (gi === 'dedo' || gi.startsWith('parpado') || gi.startsWith('oreja')) { sk = 1; r = 0.66; }
+        else if (gi === 'dedo' || gi === 'manopla' || gi.startsWith('parpado') || gi.startsWith('oreja')) { sk = 1; r = 0.66; }
         else if (gi.startsWith('ojo')) r = 0.2;
         else if (gi === 'pelo' || gi === 'mech' || gi === 'trenza' || gi === 'mono') r = look.hairStyle === 'panuelo' ? 0.92 : gi === 'mech' ? 0.72 : 0.66;
         aM[i * 3] = r; aM[i * 3 + 1] = sk; aM[i * 3 + 2] = (gi === 'pelo' || gi === 'mech' || gi === 'trenza' || gi === 'mono') && look.hairStyle !== 'panuelo' ? 1 : 0;
@@ -967,14 +1013,32 @@ LOOK.parts.persona = (THREE, LOOK) => {
     geo.setIndex(idx);
     geo.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, d.alto / 2, 0), 1.3);
 
-    const huesos = [], porNombre = {};
-    defs.forEach(b => { const h = new THREE.Bone(); h.name = b.nombre; huesos.push(h); porNombre[b.nombre] = h; });
-    defs.forEach(b => { const h = porNombre[b.nombre]; if (b.padre) { const pa = defs.find(o => o.nombre === b.padre); h.position.set(b.p[0] - pa.p[0], b.p[1] - pa.p[1], b.p[2] - pa.p[2]); porNombre[b.padre].add(h); } else h.position.set(b.p[0], b.p[1], b.p[2]); });
 
-    // Un lienzo por look: se cachea (la propuesta pide además un límite y dispose al llevarlo al juego)
-    const t0Atlas = performance.now(), claveAtlas = JSON.stringify([look, res, det > 1]), atlas = cacheAtlas[claveAtlas] || (cacheAtlas[claveAtlas] = pintaAtlas()), msLienzo = performance.now() - t0Atlas;
-    const mapa = new THREE.CanvasTexture(atlas);
-    mapa.colorSpace = THREE.SRGBColorSpace; mapa.anisotropy = 4; mapa.generateMipmaps = true; mapa.minFilter = THREE.LinearMipmapLinearFilter;
+    // De lejos (LOD1): los mismos vértices con otro índice, sin dedos, globos de los ojos, párpados ni nariz y con la
+    // manopla. Lo que se quita no se ve por debajo de unos 60 px de alto (y de lejos solo daba el brillo que parpadea
+    // en los ojos y el centelleo de los dedos finos): los ojos están pintados en el lienzo y la nariz es una pieza
+    // apoyada en la cara, así que debajo queda la cara pintada. Al ser los mismos vértices, la forma no salta
+    const QUITA = new Set(['dedo', 'ojoL', 'ojoR', 'parpadoL', 'parpadoR', 'nariz']), idxL = [];
+    for (let t = 0; t < idx.length; t += 3) {
+      const a = idx[t], b = idx[t + 1], c = idx[t + 2];
+      if (!QUITA.has(grp[a]) && !QUITA.has(grp[b]) && !QUITA.has(grp[c])) idxL.push(a, b, c);
+    }
+    idxL.push(...idxM);
+    const geoL = new THREE.BufferGeometry();
+    for (const [n, at] of Object.entries(geo.attributes)) geoL.setAttribute(n, at);   // (los mismos búferes en la gráfica: solo se sube el índice)
+    geoL.setIndex(idxL); geoL.boundingSphere = geo.boundingSphere;
+
+    // Un lienzo por look, y una sola textura por lienzo (TEX, con la cuenta de los prototipos que la usan: así no se
+    // vuelve a subir a la gráfica por cada persona, y se suelta con el último; ver trim)
+    const t0Atlas = performance.now(), claveAtlas = JSON.stringify([look, res, det > 1, LJ]), atlas = cacheAtlas[claveAtlas] || (cacheAtlas[claveAtlas] = pintaAtlas()), msLienzo = performance.now() - t0Atlas;
+    let tex = TEX.get(claveAtlas);
+    if (!tex) {
+      const mapa = new THREE.CanvasTexture(atlas);
+      mapa.colorSpace = THREE.SRGBColorSpace; mapa.anisotropy = 4; mapa.generateMipmaps = true; mapa.minFilter = THREE.LinearMipmapLinearFilter;
+      TEX.set(claveAtlas, (tex = { mapa, refs: 0 }));
+    }
+    tex.refs++;
+    const mapa = tex.mapa;
     const mat = new THREE.MeshStandardMaterial({ map: mapa, vertexColors: true, roughness: 0.86, metalness: 0 });
     mat.onBeforeCompile = sh => {
       sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nattribute vec3 aPiel; varying vec3 vPiel;').replace('#include <begin_vertex>', '#include <begin_vertex>\nvPiel = aPiel;');
@@ -993,14 +1057,7 @@ LOOK.parts.persona = (THREE, LOOK) => {
       sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nfloat lkNL = 1.0; float lkKS = 1.0; float lkKS0 = 1.0; float lkLuz = 0.0;').replace('#include <lights_fragment_begin>', lfb2).replace('#include <shadowmap_pars_fragment>', smp2);
     };
     mat.customProgramCacheKey = () => 'persona-piel';
-    const mesh = new THREE.SkinnedMesh(geo, mat);
-    mesh.castShadow = mesh.receiveShadow = true; mesh.frustumCulled = true; mesh.boundingSphere = geo.boundingSphere.clone();
-    const root = new THREE.Group(); root.name = 'persona';
-    root.add(mesh); mesh.add(huesos[0]);
-    root.updateMatrixWorld(true);
-    mesh.bind(new THREE.Skeleton(huesos));
-    const tris = idx.length / 3;
-    root.userData = { body: porNombre.body, torso: porNombre.torso, head: porNombre.head, legs: [porNombre.legL, porNombre.legR], shins: [porNombre.shinL, porNombre.shinR], arms: [porNombre.armL, porNombre.armR], fore: [porNombre.foreL, porNombre.foreR], skirt: porNombre.skirt, neck: porNombre.neck };
+    const tris = idx.length / 3, trisL = idxL.length / 3;
 
     // ------------------------------------------------------------ andar: tablas de 8 claves, fase ligada a la distancia
     const CL = {
@@ -1023,69 +1080,94 @@ LOOK.parts.persona = (THREE, LOOK) => {
       return (zT(0.03) - zT(0.5)) / 0.47;
     };
     const ZA = zancada('andar'), ZT = zancada('trote');
-    let fase = 0, mezcla = 0, pendulo = 0, velP = 0, tiempo = 0;
-    // De pie nadie está en firmes: carga el peso en una pierna, afloja la otra y gira un poco la cabeza. Cambia con la semilla
-    const QP = { s: vari.lado, giro: vari.giro * 26, incl: vari.incl * 9, brazo: vari.brazo, miraY: 0, miraX: 0 };
     const POST = look.postura && POSTURAS[look.postura], enc = look.encorvado || 0;
-    if (POST) for (const S of ['L', 'R']) porNombre['arm' + S].rotation.order = 'ZYX';
-    if (look.escala) root.scale.setScalar(look.escala);
-    function pose(p, g, w) {  // p fase, g 0 andar 1 trote, w 0 quieto 1 en marcha
-      const ky2 = (arr, ph) => lerp(cyc(CL.andar[arr], ph), cyc(CL.trote[arr], ph), g);
-      const b = porNombre, tilt = lerp(rad(1.5), rad(5), g) * w, ss = sin(2 * PI * p), cc = cos(2 * PI * p), rs = 1 - w;
-      const lado = (S, ph) => {
-        const libre = (S === 'L') === (QP.s > 0), hipR = libre ? 7 : -1, kneeR = libre ? 15 : 2 + 6 * enc;
-        const hip = ky2('hip', ph) * w + rs * hipR, knee = lerp(kneeR, ky2('knee', ph), w), ank = ky2('ank', ph) * w + rs * (kneeR - hipR), toe = ky2('toe', ph) * w;
-        b['leg' + S].rotation.x = -rad(hip) - tilt; b['shin' + S].rotation.x = rad(knee); b['foot' + S].rotation.x = -rad(ank); b['toe' + S].rotation.x = -rad(toe);
-        return piernaFK(hip, knee, ank, toe);
-      };
-      const A = lado('L', p), Bb = lado('R', p + 0.5);
-      // Pies hacia el centro: ligera aducción, más al apoyar. En reposo la pelvis cae hacia la pierna libre
-      const ad = rad(lerp(1.8, 1.0, g)) * w, cad = 0.04 * rs * QP.s;
-      b.legL.rotation.z = -ad - cad; b.legR.rotation.z = ad - cad;
-      const yaw = rad(m ? 6 : 7) * lerp(1, 1.3, g) * w, list = rad(m ? 1.6 : 3) * w, sway = (m ? 0.012 : 0.016) * w * (1 - 0.5 * g);
-      const altura = -min(A[0], Bb[0]);
-      const respira = (1 - w) * 0.002 * sin(tiempo * 1.5);
-      b.body.position.set(sway * ss - 0.016 * rs * QP.s, altura + respira + 0.002 * (g * w), 0);
-      b.body.rotation.set(tilt, -yaw * cc + rad(3) * rs * QP.s, list * ss + cad);
-      b.spine.rotation.set(lerp(rad(1), rad(4), g) * w, yaw * cc * 0.8, -list * ss * 0.6 - cad * 1.1);
-      b.torso.rotation.set(rad(0.5) * w, yaw * cc * 0.9 - rad(2) * rs * QP.s, -list * ss * 0.25 - cad * 0.5);
-      // La cabeza va algo alta: desde la cámara del juego se ve más cara. Quieto, mira un poco a un lado
-      b.neck.rotation.set(-tilt * 0.6 - rad(2), -yaw * cc * 0.5 + rad(QP.giro) * 0.4 * rs + rad(QP.miraY) * 0.4, rad(QP.incl) * 0.4 * rs);
-      b.head.rotation.set(-lerp(rad(1), rad(4), g) * w - rad(3) + rad(QP.miraX), -yaw * cc * 0.2 + rad(QP.giro) * 0.6 * rs + rad(QP.miraY) * 0.6, list * ss * 0.2 + rad(QP.incl) * 0.6 * rs);
-      const aA = lerp(m ? 14 : 11, m ? 24 : 20, g) * w, baseF = lerp(lerp(21, 18, w), 58, g * w), flexA = lerp(14, 12, g) * w;
-      const abre = rad(hayFalda ? 2.2 : 1.2) + rad(4) * g * w + rad(3) * (look.panza || 0), bR = rs * QP.brazo;
-      b.armL.rotation.set(rad(aA * cc) + bR * 0.12, 0, abre); b.armR.rotation.set(rad(-aA * cc) - bR * 0.12, 0, -abre);
-      b.foreL.rotation.x = -rad(baseF + flexA * max(0, -cc) + bR * 14); b.foreR.rotation.x = -rad(baseF + flexA * max(0, cc) - bR * 14);
-      b.handL.rotation.set(-rad(3) * w - rad(5) * rs, 0, 0); b.handR.rotation.set(-rad(3) * w - rad(5) * rs, 0, 0);
-      b.clavL.rotation.set(rad(aA * cc * 0.12), 0, -list * ss * 0.2); b.clavR.rotation.set(rad(-aA * cc * 0.12), 0, -list * ss * 0.2);
-      if (POST) {
-        const kP = POST.fijo ? 1 : rs;
-        for (const [S, sg] of [['L', 1], ['R', -1]]) {
-          const q = POST[S]; if (!q || kP <= 0) continue;
-          const A = b['arm' + S], F = b['fore' + S], Mn = b['hand' + S];
-          A.rotation.set(lerp(A.rotation.x, rad(q.arm[0]), kP), lerp(A.rotation.y, sg * rad(q.arm[1]), kP), lerp(A.rotation.z, sg * rad(q.arm[2]), kP));
-          F.rotation.x = lerp(F.rotation.x, rad(q.fore), kP);
-          if (q.mano) Mn.rotation.set(rad(q.mano[0]) * kP, sg * rad(q.mano[1]) * kP, sg * rad(q.mano[2]) * kP);
-        }
-      }
-      if (enc) {   // encorvado: la espalda se dobla, la cabeza se levanta para mirar al frente y los brazos siguen colgando
-        b.spine.rotation.x += enc * rad(7); b.torso.rotation.x += enc * rad(10); b.neck.rotation.x -= enc * rad(8); b.head.rotation.x -= enc * rad(7);
-        if (!POST) { b.armL.rotation.x -= enc * rad(15); b.armR.rotation.x -= enc * rad(15); }
-      }
-      b.skirt.rotation.x = 0.06 * w * lerp(1, 2, g) * sin(4 * PI * p + 1);
-      if (b.braid) b.braid.rotation.set(w * (0.05 + 0.1 * g + 0.035 * sin(4 * PI * p + 0.8)), 0, 0.05 * w * sin(2 * PI * p + 0.7));
-    }
-    function update(dt, speed = 0) {
-      tiempo += dt;
-      const gT = sm(1.9, 3.0, speed), obj = clamp(speed / 0.5);
-      mezcla += (obj - mezcla) * (1 - exp(-dt * 9));
-      const paso = lerp(ZA, ZT, gT);
-      fase = (fase + speed * dt / paso) % 1;
-      pose(fase, gT, mezcla);
-    }
-    pose(0, 0, 0);
 
-    return { root, update, pose: (p, g = 0, w = 1) => { mezcla = w; fase = p; pose(p, g, w); }, mirar: (y = 0, x = 0) => { QP.miraY = y; QP.miraX = x; QP.giro = 0; }, mesh, bones: porNombre, tris, atlas, look, d, zancadas: [ZA, ZT], msLienzo, trisPelo };
+    // El prototipo: lo de arriba (malla, lienzo, material y tablas de andar) se hace una vez por look y lo comparten
+    // todas sus personas. Cada una (instancia) solo lleva sus huesos, su SkinnedMesh y su estado de andar
+    const proto = { refs: 0, used: 0, geo, geoL, mat, claveAtlas, tris, trisL, instancia };
+    return proto;
+
+    function instancia() {
+      const huesos = [], porNombre = {};
+      defs.forEach(b => { const h = new THREE.Bone(); h.name = b.nombre; huesos.push(h); porNombre[b.nombre] = h; });
+      defs.forEach(b => { const h = porNombre[b.nombre]; if (b.padre) { const pa = defs.find(o => o.nombre === b.padre); h.position.set(b.p[0] - pa.p[0], b.p[1] - pa.p[1], b.p[2] - pa.p[2]); porNombre[b.padre].add(h); } else h.position.set(b.p[0], b.p[1], b.p[2]); });
+      const mesh = new THREE.SkinnedMesh(geo, mat);
+      mesh.castShadow = mesh.receiveShadow = true; mesh.frustumCulled = true; mesh.boundingSphere = geo.boundingSphere.clone();
+      const root = new THREE.Group(); root.name = 'persona';
+      root.add(mesh); mesh.add(huesos[0]);
+      root.updateMatrixWorld(true);
+      mesh.bind(new THREE.Skeleton(huesos));
+      root.userData = { body: porNombre.body, torso: porNombre.torso, head: porNombre.head, legs: [porNombre.legL, porNombre.legR], shins: [porNombre.shinL, porNombre.shinR], arms: [porNombre.armL, porNombre.armR], fore: [porNombre.foreL, porNombre.foreR], skirt: porNombre.skirt, neck: porNombre.neck };
+      let fase = 0, mezcla = 0, tiempo = 0, suelta = false;
+      // De pie nadie está en firmes: carga el peso en una pierna, afloja la otra y gira un poco la cabeza. Cambia con la semilla
+      const QP = { s: vari.lado, giro: vari.giro * 26, incl: vari.incl * 9, brazo: vari.brazo, miraY: 0, miraX: 0 };
+      if (POST) for (const S of ['L', 'R']) porNombre['arm' + S].rotation.order = 'ZYX';
+      if (look.escala) root.scale.setScalar(look.escala);
+      function pose(p, g, w) {  // p fase, g 0 andar 1 trote, w 0 quieto 1 en marcha
+        const ky2 = (arr, ph) => lerp(cyc(CL.andar[arr], ph), cyc(CL.trote[arr], ph), g);
+        const b = porNombre, tilt = lerp(rad(1.5), rad(5), g) * w, ss = sin(2 * PI * p), cc = cos(2 * PI * p), rs = 1 - w;
+        const lado = (S, ph) => {
+          const libre = (S === 'L') === (QP.s > 0), hipR = libre ? 7 : -1, kneeR = libre ? 15 : 2 + 6 * enc;
+          const hip = ky2('hip', ph) * w + rs * hipR, knee = lerp(kneeR, ky2('knee', ph), w), ank = ky2('ank', ph) * w + rs * (kneeR - hipR), toe = ky2('toe', ph) * w;
+          b['leg' + S].rotation.x = -rad(hip) - tilt; b['shin' + S].rotation.x = rad(knee); b['foot' + S].rotation.x = -rad(ank); b['toe' + S].rotation.x = -rad(toe);
+          return piernaFK(hip, knee, ank, toe);
+        };
+        const A = lado('L', p), Bb = lado('R', p + 0.5);
+        // Pies hacia el centro: ligera aducción, más al apoyar. En reposo la pelvis cae hacia la pierna libre
+        const ad = rad(lerp(1.8, 1.0, g)) * w, cad = 0.04 * rs * QP.s;
+        b.legL.rotation.z = -ad - cad; b.legR.rotation.z = ad - cad;
+        const yaw = rad(m ? 6 : 7) * lerp(1, 1.3, g) * w, list = rad(m ? 1.6 : 3) * w, sway = (m ? 0.012 : 0.016) * w * (1 - 0.5 * g);
+        const altura = -min(A[0], Bb[0]);
+        const respira = (1 - w) * 0.002 * sin(tiempo * 1.5);
+        b.body.position.set(sway * ss - 0.016 * rs * QP.s, altura + respira + 0.002 * (g * w), 0);
+        b.body.rotation.set(tilt, -yaw * cc + rad(3) * rs * QP.s, list * ss + cad);
+        b.spine.rotation.set(lerp(rad(1), rad(4), g) * w, yaw * cc * 0.8, -list * ss * 0.6 - cad * 1.1);
+        b.torso.rotation.set(rad(0.5) * w, yaw * cc * 0.9 - rad(2) * rs * QP.s, -list * ss * 0.25 - cad * 0.5);
+        // La cabeza va algo alta: desde la cámara del juego se ve más cara. Quieto, mira un poco a un lado
+        b.neck.rotation.set(-tilt * 0.6 - rad(2), -yaw * cc * 0.5 + rad(QP.giro) * 0.4 * rs + rad(QP.miraY) * 0.4, rad(QP.incl) * 0.4 * rs);
+        b.head.rotation.set(-lerp(rad(1), rad(4), g) * w - rad(3) + rad(QP.miraX), -yaw * cc * 0.2 + rad(QP.giro) * 0.6 * rs + rad(QP.miraY) * 0.6, list * ss * 0.2 + rad(QP.incl) * 0.6 * rs);
+        const aA = lerp(m ? 14 : 11, m ? 24 : 20, g) * w, baseF = lerp(lerp(21, 18, w), 58, g * w), flexA = lerp(14, 12, g) * w;
+        const abre = rad(hayFalda ? 2.2 : 1.2) + rad(4) * g * w + rad(3) * (look.panza || 0), bR = rs * QP.brazo;
+        b.armL.rotation.set(rad(aA * cc) + bR * 0.12, 0, abre); b.armR.rotation.set(rad(-aA * cc) - bR * 0.12, 0, -abre);
+        b.foreL.rotation.x = -rad(baseF + flexA * max(0, -cc) + bR * 14); b.foreR.rotation.x = -rad(baseF + flexA * max(0, cc) - bR * 14);
+        b.handL.rotation.set(-rad(3) * w - rad(5) * rs, 0, 0); b.handR.rotation.set(-rad(3) * w - rad(5) * rs, 0, 0);
+        b.clavL.rotation.set(rad(aA * cc * 0.12), 0, -list * ss * 0.2); b.clavR.rotation.set(rad(-aA * cc * 0.12), 0, -list * ss * 0.2);
+        if (POST) {
+          const kP = POST.fijo ? 1 : rs;
+          for (const [S, sg] of [['L', 1], ['R', -1]]) {
+            const q = POST[S]; if (!q || kP <= 0) continue;
+            const A = b['arm' + S], F = b['fore' + S], Mn = b['hand' + S];
+            A.rotation.set(lerp(A.rotation.x, rad(q.arm[0]), kP), lerp(A.rotation.y, sg * rad(q.arm[1]), kP), lerp(A.rotation.z, sg * rad(q.arm[2]), kP));
+            F.rotation.x = lerp(F.rotation.x, rad(q.fore), kP);
+            if (q.mano) Mn.rotation.set(rad(q.mano[0]) * kP, sg * rad(q.mano[1]) * kP, sg * rad(q.mano[2]) * kP);
+          }
+        }
+        if (enc) {   // encorvado: la espalda se dobla, la cabeza se levanta para mirar al frente y los brazos siguen colgando
+          b.spine.rotation.x += enc * rad(7); b.torso.rotation.x += enc * rad(10); b.neck.rotation.x -= enc * rad(8); b.head.rotation.x -= enc * rad(7);
+          if (!POST) { b.armL.rotation.x -= enc * rad(15); b.armR.rotation.x -= enc * rad(15); }
+        }
+        b.skirt.rotation.x = 0.06 * w * lerp(1, 2, g) * sin(4 * PI * p + 1);
+        if (b.braid) b.braid.rotation.set(w * (0.05 + 0.1 * g + 0.035 * sin(4 * PI * p + 0.8)), 0, 0.05 * w * sin(2 * PI * p + 0.7));
+      }
+      function update(dt, speed = 0) {
+        tiempo += dt;
+        const gT = sm(1.9, 3.0, speed), obj = clamp(speed / 0.5);
+        mezcla += (obj - mezcla) * (1 - exp(-dt * 9));
+        const paso = lerp(ZA, ZT, gT);
+        fase = (fase + speed * dt / paso) % 1;
+        pose(fase, gT, mezcla);
+      }
+      pose(0, 0, 0);
+
+      return {
+        root, update, pose: (p, g = 0, w = 1) => { mezcla = w; fase = p; pose(p, g, w); }, mirar: (y = 0, x = 0) => { QP.miraY = y; QP.miraX = x; QP.giro = 0; }, mesh, bones: porNombre, tris, trisL, atlas, look, d, zancadas: [ZA, ZT], msLienzo, trisPelo,
+        // El detalle: 0 de cerca, 1 de lejos (el otro índice, con los mismos vértices y el mismo esqueleto)
+        setLod: n => { mesh.geometry = n ? geoL : geo; },
+        // Ya no se usa: suelta su parte del prototipo (que se libera del todo cuando sobran, ver trim). Nunca geometry.dispose
+        // a mano: la malla y el lienzo son de todas las personas con este look
+        release: () => { if (suelta) return; suelta = true; proto.refs--; proto.used = performance.now(); trim(); },
+      };
+    }
 
     // ============================================================ lienzo: piel, cara, interior, piernas, tronco, encima, pliegues, suciedad, pelo
     function pintaAtlas() {
@@ -1537,5 +1619,5 @@ LOOK.parts.persona = (THREE, LOOK) => {
     obj.position.copy(v); p.root.add(obj); return obj;
   }
 
-  return { build, DIMS, LOOKS, GARMENTS, POSTURAS, prop, sujeta };
+  return { build, prebuild, stats, DIMS, LOOKS, GARMENTS, POSTURAS, prop, sujeta };
 };

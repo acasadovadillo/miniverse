@@ -45,6 +45,8 @@ export function initDebug(game) {
     }
     const d = game.days;
     if (d) lines.push(`hora ${clock(d.hour)} (aquí ${clock(d.localHour)}) · ${SEASONS[d.localSeason].toLowerCase()} · tiempo ${d.weatherHere} · día ${d.dayIndex} · modo ${GAMEMODES[game.gamemode] || game.gamemode} · dificultad ${game.difficulty} · t ${Math.round(game.time)} s`);
+    const a = v.actors?.stats;
+    if (a) lines.push(`personas: ${a.modelos} · ${a.vistas} vistas · ${a.dormidas} dormidas · a todo ${a.t0} / 30 Hz ${a.t1} / 15 Hz ${a.t2} · de lejos ${a.lod1} · ${(a.tris / 1000).toFixed(0)}k triángulos${a.protos !== undefined ? ` · ${a.protos} mallas en caché (${a.protosLibres} sin usar), ${a.lienzos} lienzos` : ''}${Number.isFinite(v.actorsMs) ? ` · actores ${n1(v.actorsMs)} ms` : ''}`);
     const l = game.live;
     lines.push(`entidades: ${game.mobs?.list.length ?? 0} criaturas · ${game.wildlife?.list.length ?? 0} salvajes · ${game.ranch?.animals.length ?? 0} animales · ${game.neighbors?.people.length ?? 0} vecinos · ${game.gather.drops.length} en el suelo · juntos: ${l?.joined ? `${l.role === 'host' ? 'anfitrión' : 'invitado'}, ${l.others.filter(o => o.playing).length} más` : l?.status || 'no'}`);
     return lines.join('\n');

@@ -48,8 +48,9 @@ export function portrait3D(look) {
   camera.position.set(0, head.y + 0.1, 1.15); camera.lookAt(0, head.y + 0.02, 0);
   renderer.render(scene, camera);
   scene.remove(p.root);
-  // (la persona es solo de este retrato: se suelta lo que ha subido a este renderizador)
-  p.root.traverse(o => { if (o.isMesh) { o.geometry.dispose(); o.material.map?.dispose(); } });
+  // (se suelta la persona, no su malla ni su lienzo: son los mismos que los de quien tenga este look en el mundo, y
+  // geometry.dispose los borraría también de la gráfica del juego. Se liberan juntos cuando ya no los usa nadie: persona.js trim)
+  p.dispose();
   const out = document.createElement('canvas');
   out.width = out.height = PORTRAIT_SIZE;
   out.getContext('2d').drawImage(renderer.domElement, 0, 0);

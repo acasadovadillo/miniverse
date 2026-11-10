@@ -15,7 +15,7 @@ import { ITEMS, TIERS } from '../items.js';
 import { WATER_Y } from './terrain.js';
 import { animalModel, animalKey, animateAnimal, horseModel, animateHorse } from './animals.js';
 import { nearX } from '../world/planet.js';
-import { RealPerson, realBaby } from './realperson.js';
+import { RealPerson, realBaby, prebuildReal, realStats } from './realperson.js';
 
 // Agachado: cuánto se adelantan los muslos y se doblan las rodillas (rad), cuánto baja el cuerpo (m: lo que suben
 // los pies al doblar las piernas, para que sigan en el suelo) y se echa hacia delante (rad; la cabeza lo compensa
@@ -26,6 +26,17 @@ const CROUCH = { hip: 1.5, knee: 2.5, drop: 0.11, lean: 0.4 };
 const SEAT_HIP = 0.36, LIE_LEN = 1.36, KID_REF = 0.66;
 const LOOK_R = 2.6;      // a qué distancia se mira a quien se tiene al lado
 const BUILD_MS = 6;      // lo que se puede ir en hacer modelos nuevos en un fotograma
+// Las personas, según lo que miden en pantalla (px de alto, en píxeles CSS: no le afecta la resolución automática). Con la
+// cámara de siempre (fov 30, 22 m) una persona mide unos 2 260/d px: a todo hasta unos 25 m, a 30 Hz hasta unos 56 m y a
+// 15 Hz más allá; de lejos (LOD1, sin dedos ni ojos) desde unos 38 m, y vuelve a cerca por debajo de unos 31 m. Las
+// cifras de subir son un 10 % más que las de bajar, para que no cambie a cada momento en el borde
+const TIER_PX = [[90, 81], [40, 36]];      // [para subir, para seguir]: a todo; a 30 Hz; si no, a 15 Hz
+const BONE_DT = [0, 1 / 30, 1 / 15, Infinity];   // cada cuánto se posan los huesos en cada nivel (3: fuera de la vista)
+const LOD_PX = [60, 72];                   // de lejos por debajo de 60 px; de cerca otra vez por encima de 72
+const LOD_GAP = 0.6;                       // segundos, como poco, entre dos cambios de detalle de la misma persona
+// ?personas=todas: todas a todo (sin dormidas, sin LOD1 y animadas en cada fotograma), para comparar
+const ALL = typeof location !== 'undefined' && new URLSearchParams(location.search).get('personas') === 'todas';
+const FR = new THREE.Frustum(), PV = new THREE.Matrix4(), SPH = new THREE.Sphere(), V3 = new THREE.Vector3();
 
 // Una malla del jugador: con su propio material (para dibujar su silueta) y en la capa 2. En la primera pasada del
 // dibujo no escribe ni color ni fondo (solo deja su sombra): esa vez se salta, sin dejar de dar sombra (el mapa de
@@ -51,6 +62,8 @@ export class Actors {
     this.models = new Map();      // entidad → { obj, kind, prev, … }
     this.lights = [];
     this.player = null;
+    this.time = 0; this.stats = null;
+    this.warm = null;             // las personas por hacer de antemano (ver prewarm)
   }
   // Los materiales del jugador (para su silueta); body: solo los de su cuerpo y lo que lleva en la mano
   // Un jugador espectador se ve como un fantasma (solo lo ven los otros espectadores, y él mismo)
@@ -60,14 +73,22 @@ export class Actors {
     if (m.mats) { for (const mat of m.mats) Object.assign(mat, { transparent: on, opacity: on ? 0.35 : 1, needsUpdate: true }); return; }   // (los del tuyo ya son solo suyos)
     m.root.traverse(o => {
       if (!o.isMesh) return;
-      if (on && !o.userData.solid) { o.userData.solid = o.material; o.material = o.material.clone(); Object.assign(o.material, { transparent: true, opacity: 0.35, depthWrite: false }); }
-      else if (!on && o.userData.solid) { o.material = o.userData.solid; delete o.userData.solid; }
+      if (on && !o.userData.solid) {
+        const base = o.material;
+        o.userData.solid = base; o.material = base.clone(); Object.assign(o.material, { transparent: true, opacity: 0.35, depthWrite: false });
+        // (clone() no copia el parche del shader: sin él, la piel de la persona realista saldría sin su sombreado)
+        if (base.onBeforeCompile) { o.material.onBeforeCompile = base.onBeforeCompile; o.material.customProgramCacheKey = base.customProgramCacheKey; }
+      }
+      else if (!on && o.userData.solid) { o.material.dispose(); o.material = o.userData.solid; delete o.userData.solid; }
     });
   }
   playerMaterials(body = false) { return (body ? this.player?.body : this.player?.mats) || []; }
 
   update(game, scene, dt, t) {
     const seen = new Set(), p = game.player && game.scene ? game.player : null;
+    this.time += dt;
+    this.prepView(scene);
+    this.prewarm(game);
     const list = [...(scene.entities || [])];
     if (game.player && game.scene === scene) for (const s of game.systems) { const more = s.entities?.(scene); if (more) list.push(...more); }
     if (p) list.unshift(p);
@@ -79,8 +100,8 @@ export class Actors {
       let m = this.models.get(e);
       // (el jugador y los demás jugadores, con la ropa que llevan: si se ponen o se quitan algo, se rehace su persona)
       const look = e === p ? game.appearance() : e.look;
-      if (m && (e === p || e.remote) && m.look !== look) { this.group.remove(m.root); this.models.delete(e); if (m === this.player) this.player = null; m = null; }
-      if (m?.kind === 'animal' && m.key !== animalKey(e)) { this.group.remove(m.root); this.models.delete(e); m = null; }
+      if (m && (e === p || e.remote) && m.look !== look) { this.drop(e, m); m = null; }
+      if (m?.kind === 'animal' && m.key !== animalKey(e)) { this.drop(e, m); m = null; }
       if (!m) {
         // (hacer una persona cuesta mucho, 100-250 ms: los vecinos van después, por cercanía. El jugador y los demás
         // jugadores, al momento, para que no desaparezcan al cambiarse de ropa; animales y monstruos son baratos)
@@ -101,10 +122,103 @@ export class Actors {
         if (m) this.place(m, e, scene, dt, t, p, game);
       }
     }
-    for (const [e, m] of this.models) if (!seen.has(e)) { this.group.remove(m.root); this.models.delete(e); if (m === this.player) this.player = null; }
+    for (const [e, m] of this.models) if (!seen.has(e)) this.drop(e, m);
+    this.count();
     // En cuevas y mazmorras el jugador lleva un farol
     this.lights.length = 0;
     if (p && scene.kind === 'grid') this.lights.push({ x: p.x, y: 1.8, z: p.y, intensity: 8, range: 14, color: '#ffc880', always: true, flicker: true });
+  }
+
+  // Quitar un modelo: fuera de la escena y suelta lo que es suyo. La malla y el lienzo de una persona son de todas las
+  // de su look (release, en persona.js); los materiales propios (los del jugador, los del espectador, el nombre) y la
+  // barca, sí se liberan. Las herramientas no: sus geometrías se comparten (SHAPES)
+  drop(e, m) {
+    this.group.remove(m.root); this.models.delete(e);
+    if (m === this.player) this.player = null;
+    try {
+      m.person?.dispose?.(); m.release?.();
+      for (const x of m.mats || []) x.dispose();
+      m.root.traverse(o => {
+        if (o.userData.solid) o.material.dispose();
+        if (o.isSprite) { o.material.map?.dispose(); o.material.dispose(); }
+      });
+      m.boat?.traverse(o => { if (o.isMesh) { o.geometry.dispose(); if (!m.mats) o.material.dispose(); } });
+    } catch (err) { console.warn('Miniverse: no se pudo soltar un modelo', err); }
+  }
+
+  // Lo que hace falta para saber cómo se ve cada persona en este fotograma: el cono de la cámara, cuántos px mide en
+  // pantalla un metro a un metro de ella, hacia dónde y cuánto se alarga una sombra (con el sol bajo, alguien fuera de
+  // la vista puede dar sombra dentro), hasta dónde llega la niebla y en qué casa está el jugador
+  prepView(scene) {
+    const v = this.view, cam = v.camera;
+    cam.updateMatrixWorld();
+    FR.setFromProjectionMatrix(PV.multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse));
+    this.pxK = (v.renderer.domElement.clientHeight || innerHeight) / (2 * Math.tan(cam.fov * Math.PI / 360));
+    // (la dirección del sol con la que se pinta el mapa de sombras: si las sombras la guardan, esa)
+    const s = v.shadows?.dir || v.sunDir, up = scene.kind !== 'grid' && s && s.y > 0.05;
+    this.shLen = up ? Math.min(10, 1.8 * Math.hypot(s.x, s.z) / Math.max(0.17, s.y)) : 0;
+    const h = up ? Math.hypot(s.x, s.z) || 1 : 1;
+    this.shDir = up ? [-s.x / h, -s.z / h] : [0, 0];
+    this.fogFar = v.scene.fog?.far ?? 1e9;
+    this.regionOf = scene.kind === 'world' ? v.world?.regionOf : null;
+    this.inRegion = v.world?.insideRegion ?? null;
+  }
+  // Cómo se ve esta persona (que no es el jugador): 3 fuera de la vista (ni se dibuja, ni da sombra, ni se anima), 0 a
+  // todo, 1 a 30 Hz y 2 a 15 Hz; y su detalle (P.lod). La esfera crece hacia donde cae su sombra, para que una sombra
+  // larga al atardecer no aparezca de golpe en el borde de la pantalla
+  grade(m, e, x, y, z) {
+    if (ALL || m === this.player || !m.person) return (m.tier = 0);
+    const P = m.person, h = P.height, cy = y + h * 0.5, cam = this.view.camera, me = this.me;
+    SPH.center.set(x + this.shDir[0] * this.shLen * 0.5, cy, z + this.shDir[1] * this.shLen * 0.5);
+    SPH.radius = h * 0.75 + this.shLen * 0.5;
+    const d = cam.position.distanceTo(V3.set(x, cy, z));
+    // (más allá de la niebla ya es de su color; los demás jugadores no, que llevan su nombre encima)
+    if (!FR.intersectsSphere(SPH) || (!e.remote && d > this.fogFar + 4)) return (m.tier = 3);
+    const px = h * this.pxK / Math.max(0.1, d);
+    const near = me ? Math.hypot(x - me.x, z - me.y) : Infinity, cerca = near < 4 || (e.remote && near < 12);
+    const reg = this.regionOf?.get(`${Math.floor(e.x)},${Math.floor(e.y)}`);
+    const tapada = !!reg && reg !== this.inRegion;   // bajo un tejado que no es el tuyo: se ve por ventanas y puertas
+    const was = m.tier ?? 0, up = (i, k) => px >= TIER_PX[i][was <= k ? 1 : 0];
+    let t = up(0, 0) ? 0 : up(1, 1) ? 1 : 2;
+    if (tapada) t = 2;
+    // (andando, los pies apoyados se moverían con el cuerpo entre pose y pose: a 30 Hz como mucho, y solo ya pequeña)
+    if (m.speed > 0.3) t = up(1, 1) ? 0 : 1;
+    if (cerca) t = 0;
+    m.tier = t;
+    const now = P.lod | 0, want = cerca ? 0 : px < LOD_PX[0] ? 1 : px > LOD_PX[1] ? 0 : now;
+    if (want !== now && this.time - (m.lodAt ?? -9) > LOD_GAP) { P.lod = want; m.lodAt = this.time; }
+    return t;
+  }
+  // Las cifras para F3 y el banco
+  count() {
+    const s = { modelos: 0, vistas: 0, dormidas: 0, t0: 0, t1: 0, t2: 0, lod1: 0, tris: 0 };
+    for (const m of this.models.values()) {
+      if (m.kind !== 'person' && m.kind !== 'baby') continue;
+      s.modelos++;
+      if (!m.root.visible) { s.dormidas++; continue; }
+      s.vistas++;
+      if (m.kind === 'person') { s['t' + Math.min(2, m.tier ?? 0)]++; if (m.person.lodNow) s.lod1++; s.tris += m.person.lodNow ? m.person.r.trisL : m.person.r.tris; }
+    }
+    const r = realStats();
+    if (r) { s.protos = r.protos; s.protosLibres = r.libres; s.lienzos = r.lienzos; }
+    this.stats = s;
+  }
+  // Hacer de antemano, en ratos libres, las personas que van a salir (los vecinos, también los que están en casa, Nilo y
+  // los niños): un vecino que sale por su puerta aparece sin el tirón de hacerlo entero. Solo el procesador; de una en una
+  prewarm(game) {
+    if (this.warm || !game.neighbors || typeof requestIdleCallback !== 'function') return;
+    const list = [];
+    for (const n of game.neighbors.people || []) if (n.look) list.push([n.look, false]);
+    if (game.world?.nilo?.look) list.push([game.world.nilo.look, false]);
+    for (const k of game.family?.ents?.values?.() || []) if (k.look && !k.baby) list.push([k.look, !!k.kid]);
+    this.warm = list;
+    const next = () => {
+      const it = this.warm.shift();
+      if (!it) return;
+      try { prebuildReal(it[0], it[1]); } catch (err) { /* (la hará al verla, como siempre) */ }
+      requestIdleCallback(next, { timeout: 3000 });
+    };
+    requestIdleCallback(next, { timeout: 3000 });
   }
 
   add(e, isPlayer, look) {
@@ -154,7 +268,7 @@ export class Actors {
     }
   }
   makePerson(e, isPlayer, look) {
-    if (e.baby) { const root = new THREE.Group(); root.add(realBaby(look)); return { kind: 'baby', root, prev: null, speed: 0 }; }
+    if (e.baby) { const root = new THREE.Group(), b = realBaby(look); root.add(b); return { kind: 'baby', root, prev: null, speed: 0, release: b.userData.release }; }
     {
       const person = new RealPerson(look, { kid: !!e.kid }), root = new THREE.Group();
       root.add(person.root);
@@ -195,7 +309,12 @@ export class Actors {
     m.speed += (v - m.speed) * Math.min(1, dt * 10);
     const yaw = e.yaw ?? facing(e);
     let y = view.groundY(scene, x, z);
-    if (m.kind === 'baby') { m.root.position.set(x, y + (e.h || 0), z); m.root.rotation.y = e.yaw || 0; return; }
+    if (m.kind === 'baby') {
+      m.root.position.set(x, y + (e.h || 0), z); m.root.rotation.y = e.yaw || 0;
+      SPH.center.set(x, y + 0.3, z); SPH.radius = 0.6;
+      m.root.visible = ALL || FR.intersectsSphere(SPH);
+      return;
+    }
     let pz = e.pose;
     // (sentado en una silla que aquí no está: otro jugador que la ve donde aquí no hay ninguna; mejor en el suelo que en el aire)
     if (pz?.kind === 'sit' && e.remote && scene.placedNear) {
@@ -212,7 +331,8 @@ export class Actors {
       if (pz && !lying && m.person) y += SEAT_HIP * (m.person.kid ? KID_REF : 1) - m.person.hipY;   // (con la cadera en el asiento)
     }
     if (m.kind === 'person') {
-      const P = m.person;
+      const P = m.person, tier = this.grade(m, e, x, y, z);
+      m.root.visible = tier !== 3;
       if ((e.kid && e.lying) || (pz && lying)) { P.facing = 0; P.root.rotation.y = 0; }
       // (tumbada, se corre hacia los pies lo que mide de más que la cama pensada: la cabeza, en la almohada)
       P.r.root.position.y = lying ? -(P.height - LIE_LEN * (P.kid ? KID_REF : 1)) : 0;
@@ -237,39 +357,17 @@ export class Actors {
         else if (e.mount) { m.horse.rotation.y = P.root.rotation.y; animateHorse(m.horse, m.speed, t); P.root.position.y = 0.92 + seat; }
         else P.root.position.y = 0;
       }
-      P.update(dt, e.mount || e.boat || e.aboard ? 0 : m.speed);
+      // Los huesos se posan en cada fotograma de cerca, y de lejos cada 1/30 o 1/15 s con el tiempo que haya pasado (ver
+      // grade; desfasadas, para que no les toque a todas en el mismo fotograma). Girar, siempre: crew.js lee hacia dónde
+      // mira. Todo lo que escribe en los huesos va dentro de este bloque: lo que suma (+= y -=) parte de la pose de
+      // animate(), y fuera se acumularía en los fotogramas sin pose (el tronco giraría sin parar o el cuerpo se hundiría)
+      m.acc = (m.acc ?? Math.random() / 15) + dt;
+      const bones = m.acc >= BONE_DT[tier], bdt = bones ? Math.min(0.5, m.acc) : 0;
+      if (bones) m.acc = 0;
+      P.turn(dt);
       if (e.z > 0) y += e.z;   // (saltando o encima de una roca)
-      if (e.z - (e.floor || 0) > 0.03) {   // en el aire: con las piernas recogidas
-        if (!e.mount) { const k = Math.min(1, (e.z - (e.floor || 0)) / 0.25); P.legs[0].rotation.x = -0.7 * k; P.legs[1].rotation.x = 0.35 * k; }
-      }
-      // (después de andar: el golpe manda sobre el balanceo del brazo)
-      if (game) this.hold(m, { held: game.inv.held?.id || null, swing: game.gather.swing, swingItem: game.gather.swingItem, cooldown: game.gather.cooldown, fishPose: game.fishing?.pose(t), bowPull: game.archery?.k || 0 }, dt);
-      else if (e.remote) this.hold(m, e, dt);
-      // Agachado (Shift): las rodillas dobladas, el cuerpo más bajo y un poco echado hacia delante; andando, a pasitos
-      const C = CROUCH;
-      P.crouch = (P.crouch || 0) + ((e.crouch && !pz && !e.mount && !e.boat && !e.aboard ? 1 : 0) - (P.crouch || 0)) * Math.min(1, dt * 12);
-      if (P.crouch > 0.01) {
-        const c = P.crouch;
-        for (const l of P.legs) l.rotation.x = l.rotation.x * (1 - c * 0.5) - C.hip * c;
-        for (const k of P.shins || []) k.rotation.x = k.rotation.x * (1 - c) + C.knee * c;
-        // (lo que de verdad se acortan las piernas dobladas, con sus medidas; el pie que queda más abajo es el que apoya)
-        const k = P.kid ? KID_REF : 1, Lt = P.shins[0].position.length(), Ls = P.hipY / k - Lt;
-        let reach = 0;
-        for (let i = 0; i < 2; i++) { const a = P.legs[i].rotation.x, b = a + P.shins[i].rotation.x; reach = Math.max(reach, Lt * Math.cos(a) + Ls * Math.cos(b)); }
-        P.body.position.y -= Math.max(0, Lt + Ls - reach);
-        P.torso.rotation.x += C.lean * c;
-        P.head.rotation.x = -C.lean * 0.8 * c;
-      } else P.head.rotation.x = 0;
-      if (pz && !lying) {   // sentado: los muslos hacia delante; en la silla, las piernas colgando; en el suelo, estiradas
-        for (const l of P.legs) l.rotation.x = -Math.PI / 2;
-        for (const k of P.shins || []) k.rotation.x = pz.kind === 'sit' ? Math.PI / 2 : 0.1;
-        if (pz.kind === 'floorSit') { for (const a of P.arms) a.rotation.x = 0.45; P.torso.rotation.x = -0.12; }
-        else for (const a of P.arms) a.rotation.x = -0.35;
-      }
-      if (e.mount || e.boat || e.aboard) { P.legs[0].rotation.x = P.legs[1].rotation.x = e.mount ? -1.1 : -1.4; P.legs[0].rotation.z = 0.5; P.legs[1].rotation.z = -0.5; for (const k of P.shins || []) k.rotation.x = e.mount ? 1.0 : 1.3; }
-      else P.legs[0].rotation.z = P.legs[1].rotation.z = 0;
-      this.lookAt(m, e, dt, lying);
-      if (m.hand) {   // (los jugadores: la barriga, si espera un bebé)
+      if (bones) this.poseBones(m, e, P, pz, lying, bdt, game);
+      if (m.hand) {   // (los jugadores: la barriga, si espera un bebé; no es un hueso)
         const made = P.setBelly(this.game.family.bellyOf(e));
         if (made && m === this.player) ownMesh(made, m, true);
       }
@@ -287,6 +385,42 @@ export class Actors {
       m.root.visible = !(e.hurt > 0 && Math.floor(e.hurt * 20) % 2);
     }
     m.root.position.set(x, y, z);
+  }
+
+  // La pose de los huesos de una persona: andar (animate), en el aire, lo que lleva en la mano, agachada, sentada, a
+  // caballo o en barca, y mirar a quien tiene al lado. dt: el tiempo desde la última pose (ver pose)
+  poseBones(m, e, P, pz, lying, dt, game) {
+    P.animate(dt, e.mount || e.boat || e.aboard ? 0 : m.speed);
+    if (e.z - (e.floor || 0) > 0.03) {   // en el aire: con las piernas recogidas
+      if (!e.mount) { const k = Math.min(1, (e.z - (e.floor || 0)) / 0.25); P.legs[0].rotation.x = -0.7 * k; P.legs[1].rotation.x = 0.35 * k; }
+    }
+    // (después de andar: el golpe manda sobre el balanceo del brazo)
+    if (game) this.hold(m, { held: game.inv.held?.id || null, swing: game.gather.swing, swingItem: game.gather.swingItem, cooldown: game.gather.cooldown, fishPose: game.fishing?.pose(game.time), bowPull: game.archery?.k || 0 }, dt);
+    else if (e.remote) this.hold(m, e, dt);
+    // Agachado (Shift): las rodillas dobladas, el cuerpo más bajo y un poco echado hacia delante; andando, a pasitos
+    const C = CROUCH;
+    P.crouch = (P.crouch || 0) + ((e.crouch && !pz && !e.mount && !e.boat && !e.aboard ? 1 : 0) - (P.crouch || 0)) * Math.min(1, dt * 12);
+    if (P.crouch > 0.01) {
+      const c = P.crouch;
+      for (const l of P.legs) l.rotation.x = l.rotation.x * (1 - c * 0.5) - C.hip * c;
+      for (const k of P.shins || []) k.rotation.x = k.rotation.x * (1 - c) + C.knee * c;
+      // (lo que de verdad se acortan las piernas dobladas, con sus medidas; el pie que queda más abajo es el que apoya)
+      const k = P.kid ? KID_REF : 1, Lt = P.shins[0].position.length(), Ls = P.hipY / k - Lt;
+      let reach = 0;
+      for (let i = 0; i < 2; i++) { const a = P.legs[i].rotation.x, b = a + P.shins[i].rotation.x; reach = Math.max(reach, Lt * Math.cos(a) + Ls * Math.cos(b)); }
+      P.body.position.y -= Math.max(0, Lt + Ls - reach);
+      P.torso.rotation.x += C.lean * c;
+      P.head.rotation.x = -C.lean * 0.8 * c;
+    } else P.head.rotation.x = 0;
+    if (pz && !lying) {   // sentado: los muslos hacia delante; en la silla, las piernas colgando; en el suelo, estiradas
+      for (const l of P.legs) l.rotation.x = -Math.PI / 2;
+      for (const k of P.shins || []) k.rotation.x = pz.kind === 'sit' ? Math.PI / 2 : 0.1;
+      if (pz.kind === 'floorSit') { for (const a of P.arms) a.rotation.x = 0.45; P.torso.rotation.x = -0.12; }
+      else for (const a of P.arms) a.rotation.x = -0.35;
+    }
+    if (e.mount || e.boat || e.aboard) { P.legs[0].rotation.x = P.legs[1].rotation.x = e.mount ? -1.1 : -1.4; P.legs[0].rotation.z = 0.5; P.legs[1].rotation.z = -0.5; for (const k of P.shins || []) k.rotation.x = e.mount ? 1.0 : 1.3; }
+    else P.legs[0].rotation.z = P.legs[1].rotation.z = 0;
+    this.lookAt(m, e, dt, lying);
   }
 
   // La herramienta (o el arma) en la mano, y el gesto al usarla. Cada golpe nuevo (el temporizador swing de

@@ -38,7 +38,7 @@ export class CharacterPreview {
     this.walk = true;   // andando en el sitio (si no, de pie)
   }
   setLook(look) {
-    if (this.person) this.scene.remove(this.person.root);
+    if (this.person) { this.scene.remove(this.person.root); this.person.dispose(); }   // (suelta su malla: ver persona.js release)
     this.look = look;
     // (si no se puede hacer, el escenario se queda vacío y el creador sigue: se avisa una vez)
     try { this.person = new RealPerson({ ...look }); }

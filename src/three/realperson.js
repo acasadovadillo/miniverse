@@ -53,6 +53,34 @@ export function toReal(look, kid = false) {
   return out;
 }
 
+// La mochila: el cuero (con su color por vértice, el de cada mochila) y la hebilla, compartidos por todas
+const BAG = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.84 });
+const BUCKLE = new THREE.MeshStandardMaterial({ color: '#b8964a', metalness: 0.5, roughness: 0.4 }), BUCKLE_GEO = new THREE.BoxGeometry(0.03, 0.03, 0.01);
+// Un color en todos los vértices de una pieza
+function paint(geo, c) {
+  const k = new THREE.Color(c), n = geo.attributes.position.count, a = new Float32Array(n * 3);
+  for (let i = 0; i < n; i++) { a[i * 3] = k.r; a[i * 3 + 1] = k.g; a[i * 3 + 2] = k.b; }
+  geo.setAttribute('color', new THREE.BufferAttribute(a, 3));
+  return geo;
+}
+// Varias piezas (posición, normal y color) en una sola geometría con índice
+function mergeParts(list) {
+  const pos = [], nor = [], col = [], idx = [];
+  for (const g of list) {
+    const off = pos.length / 3, P = g.attributes.position, N = g.attributes.normal, C = g.attributes.color;
+    for (let i = 0; i < P.count; i++) { pos.push(P.getX(i), P.getY(i), P.getZ(i)); nor.push(N.getX(i), N.getY(i), N.getZ(i)); col.push(C.getX(i), C.getY(i), C.getZ(i)); }
+    if (g.index) for (let i = 0; i < g.index.count; i++) idx.push(g.index.getX(i) + off);
+    else for (let i = 0; i < P.count; i++) idx.push(i + off);
+    g.dispose();
+  }
+  const out = new THREE.BufferGeometry();
+  out.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  out.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
+  out.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  out.setIndex(idx); out.computeBoundingSphere();
+  return out;
+}
+
 // Una persona con lo que el juego espera de ella: root, body, torso, head, legs, shins, arms, fore (índice 0 a -x y
 // 1 a +x), facing, update, clone…
 export class RealPerson {
@@ -72,15 +100,43 @@ export class RealPerson {
     this.targetYaw = 0; this.speed = 0;
     if (W.espalda) this.addBag(W.espalda);   // (la mochila, si la lleva puesta)
     r.root.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+    // El esqueleto solo se recalcula (y se sube a la gráfica) si algo ha cambiado: Three lo hace en cada fotograma con
+    // cada persona que se ve, aunque esté quieta o se anime a menos fotogramas (ver Actors.pose). Ha cambiado si se ha
+    // animado (dirty, de animate) o si se ha movido algo de lo que cuelga, que se ve en el hueso de la cadera en el mundo
+    // (las matrices de los huesos van en coordenadas del mundo: con la raíz movida y sin rehacerlas, se dibujaría donde estaba)
+    const sk = r.mesh.skeleton, up = sk.update.bind(sk), hip = sk.bones[0], last = new Float64Array(16);
+    this.dirty = true; this.lodNow = 0;
+    sk.update = () => {
+      const e = hip.matrixWorld.elements;
+      let go = this.dirty;
+      if (!go) for (let i = 0; i < 16; i++) if (e[i] !== last[i]) { go = true; break; }
+      if (go) { up(); last.set(e); this.dirty = false; }
+    };
   }
   set facing(yaw) { this.targetYaw = yaw; }
   get facing() { return this.targetYaw; }
-  update(dt, speed) {
+  // Andar y posar (los huesos) y girar hacia donde mira, por separado: el juego gira a todos en cada fotograma (crew.js lee
+  // hacia dónde mira) y anima a los de lejos a menos fotogramas, con el tiempo que haya pasado desde la última vez
+  update(dt, speed) { this.animate(dt, speed); this.turn(dt); }
+  animate(dt, speed) {
     this.speed += (speed - this.speed) * Math.min(1, dt * 10);
     this.r.update(dt, this.speed);
+    this.dirty = true;
+  }
+  turn(dt) {
     let d = this.targetYaw - this.root.rotation.y;
     d = Math.atan2(Math.sin(d), Math.cos(d));
     this.root.rotation.y += d * Math.min(1, dt * 12);
+  }
+  // El detalle: 0 de cerca, 1 de lejos (ver persona.js setLod)
+  set lod(n) { if (n !== this.lodNow) { this.lodNow = n; this.r.setLod(n); } }
+  get lod() { return this.lodNow; }
+  // Ya no se usa: suelta su malla compartida (persona.js release) y lo que es solo suyo (la barriga). La mochila es de
+  // geometría propia con materiales compartidos
+  dispose() {
+    this.r.release();
+    if (this.bag) for (const o of this.bag.children) o.geometry.dispose();
+    if (this.belly) { this.belly.geometry.dispose(); this.belly.material.dispose(); }
   }
   clone() { return new RealPerson(this.look, { kid: this.kid }); }
   // La mochila a la espalda: cuerpo, solapa, bolsillo con su hebilla y las dos correas por encima de los hombros y bajo
@@ -99,20 +155,27 @@ export class RealPerson {
         if (v.y > -0.02 && v.y < top - 0.05 && Math.abs(v.x) < 0.1) { back = Math.min(back, v.z); front = Math.max(front, v.z); }
       }
     });
-    const base = W.sobrio(item.color || '#8a5a34'), leather = new THREE.MeshStandardMaterial({ color: base, roughness: 0.82 }), dark = new THREE.MeshStandardMaterial({ color: W.mix(base, '#1a120c', 0.38), roughness: 0.85 });
-    const g = new THREE.Group(), box = (m, x0, y0, z0, x1, y1, z1, r) => { const B = new Builder(); B.roundBox(x0, y0, z0, x1, y1, z1, r, { s: 1 }); g.add(B.mesh(m)); };
+    // (todo el cuero en una sola malla con su color por vértice, y la hebilla aparte: 2 llamadas en vez de 14)
+    const base = W.sobrio(item.color || '#8a5a34'), leather = base, dark = W.mix(base, '#1a120c', 0.38), parts = [];
+    const g = new THREE.Group(), box = (c, x0, y0, z0, x1, y1, z1, r) => { const B = new Builder(); B.tint(c); B.roundBox(x0, y0, z0, x1, y1, z1, r, { s: 1 }); parts.push(B.geometry()); };
     const z = back + 0.012, y1 = top - 0.02, y0 = y1 - 0.36;
     box(leather, -0.135, y0, z - 0.14, 0.135, y1, z, 0.035);                 // el cuerpo
     box(dark, -0.14, y1 - 0.11, z - 0.15, 0.14, y1 + 0.012, z + 0.004, 0.03);   // la solapa
     box(dark, -0.09, y0 + 0.03, z - 0.165, 0.09, y0 + 0.15, z - 0.13, 0.012);   // el bolsillo
-    const buckle = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.03, 0.01), new THREE.MeshStandardMaterial({ color: '#b8964a', metalness: 0.5, roughness: 0.4 })); buckle.position.set(0, y1 - 0.11, z - 0.153); g.add(buckle);
-    const strap = (a, c) => { const A = new THREE.Vector3(...a), d = new THREE.Vector3(...c).sub(A), len = d.length(), m = new THREE.Mesh(new THREE.BoxGeometry(0.034, len, 0.012), dark); m.position.copy(A).addScaledVector(d, 0.5); m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), d.normalize()); g.add(m); };
+    const buckle = new THREE.Mesh(BUCKLE_GEO, BUCKLE); buckle.position.set(0, y1 - 0.11, z - 0.153); g.add(buckle);
+    const strap = (a, c) => {
+      const A = new THREE.Vector3(...a), d = new THREE.Vector3(...c).sub(A), len = d.length(), B = new THREE.BoxGeometry(0.034, len, 0.012);
+      const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), d.clone().normalize());
+      B.applyMatrix4(new THREE.Matrix4().compose(A.clone().addScaledVector(d, 0.5), q, new THREE.Vector3(1, 1, 1)));
+      parts.push(paint(B, dark));
+    };
     for (const s of [-1, 1]) {
       const x = s * 0.095, sh = top + 0.062;
       strap([x, y1 - 0.02, z], [x, sh, back * 0.45]); strap([x, sh, back * 0.45], [x, sh - 0.012, front * 0.4]);       // sube por la espalda y pasa el hombro
       strap([x, sh - 0.012, front * 0.4], [x * 1.1, top - 0.1, front * 0.86]);                                       // baja por el pecho
       strap([x * 1.1, top - 0.1, front * 0.86], [x * 1.75, y0 + 0.14, front * 0.25]); strap([x * 1.75, y0 + 0.14, front * 0.25], [s * 0.13, y0 + 0.06, z - 0.03]);   // y bajo el brazo, a la mochila
     }
+    g.add(new THREE.Mesh(mergeParts(parts), BAG));
     g.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
     T.add(g); this.bag = g;
   }
@@ -143,10 +206,17 @@ export function realBaby(look) {
   const root = new THREE.Group(), body = new THREE.Group();
   body.add(r.root); body.rotation.x = -Math.PI / 2; body.position.set(0, 0.05, 0.3);
   root.add(body);
-  const ball = new THREE.SphereGeometry(1, 20, 14), cloth = c => new THREE.MeshStandardMaterial({ color: W.sobrio(c), roughness: 0.95 });
+  const ball = BLANKET_BALL, cloth = c => BLANKET.get(c) || BLANKET.set(c, new THREE.MeshStandardMaterial({ color: W.sobrio(c), roughness: 0.95 })).get(c);
   for (const [c, p, s] of [['#f4e6c8', [0, 0.065, 0.08], [0.12, 0.08, 0.23]], ['#e88aa8', [0, 0.075, 0.15], [0.125, 0.07, 0.15]]]) {
     const m = new THREE.Mesh(ball, cloth(c)); m.position.set(...p); m.scale.set(...s); m.castShadow = m.receiveShadow = true; root.add(m);
   }
   root.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+  root.userData.release = r.release;   // (al quitarlo: ver Actors.drop; la manta es compartida)
   return root;
 }
+// La manta del bebé: dos colores fijos, compartidos por todos
+const BLANKET_BALL = new THREE.SphereGeometry(1, 20, 14), BLANKET = new Map();
+// Deja hecho el prototipo de una persona (persona.js prebuild), para que salga sin tirón cuando haga falta
+export const prebuildReal = (look, kid = false) => persona().prebuild(toReal(look, kid));
+// Cuántos prototipos hay, cuántos sin usar y cuántos lienzos
+export const realStats = () => (P ? P.stats() : null);
