@@ -1,4 +1,4 @@
-// Todo lo que se mueve: el jugador, Nilo, los vecinos y los mercaderes (personas chibi con su "look"), los
+// Todo lo que se mueve: el jugador, Nilo, los vecinos y los mercaderes (personas con su "look"), los
 // animales del rancho (gallinas, vacas y ovejas), los monstruos de las cuevas (limos, murciélagos y
 // esqueletos), el caballo y la barca. Cada entidad del juego tiene su modelo, que se crea al verla por
 // primera vez y se quita cuando deja de estar. Miran hacia donde van, andan y respiran; el jugador lleva en
@@ -67,12 +67,12 @@ export class Actors {
   playerMaterials(body = false) { return (body ? this.player?.body : this.player?.mats) || []; }
 
   update(game, scene, dt, t) {
-    const seen = new Set(), p = game.player && game.scene ? game.player : null, t0 = performance.now();
-    let made = 0;
+    const seen = new Set(), p = game.player && game.scene ? game.player : null;
     const list = [...(scene.entities || [])];
     if (game.player && game.scene === scene) for (const s of game.systems) { const more = s.entities?.(scene); if (more) list.push(...more); }
-    if (p) list.unshift(p);   // (el primero: el suyo se hace siempre, ver BUILD_MS)
+    if (p) list.unshift(p);
     this.around = list; this.me = p; this.game = game;   // (para mirar a quien se tiene al lado)
+    const wait = [];   // personas y bebés por hacer, si no caben en este fotograma (ver BUILD_MS)
     for (const e of list) {
       if (!e || seen.has(e)) continue;
       seen.add(e);
@@ -82,20 +82,40 @@ export class Actors {
       if (m && (e === p || e.remote) && m.look !== look) { this.group.remove(m.root); this.models.delete(e); if (m === this.player) this.player = null; m = null; }
       if (m?.kind === 'animal' && m.key !== animalKey(e)) { this.group.remove(m.root); this.models.delete(e); m = null; }
       if (!m) {
-        // (hacer una persona cuesta: las que no caben en BUILD_MS de este fotograma, en el siguiente. Al menos una cada vez,
-        // y la tuya siempre, la primera: así, al llegar a un sitio con mucha gente, no se para todo de golpe)
-        if (e !== p && made > 0 && performance.now() - t0 > BUILD_MS) continue;
-        m = this.make(e, e === p, look); made++;
+        // (hacer una persona cuesta mucho, 100-250 ms: los vecinos van después, por cercanía. El jugador y los demás
+        // jugadores, al momento, para que no desaparezcan al cambiarse de ropa; animales y monstruos son baratos)
+        if ((e.baby || look) && e !== p && !e.remote) { wait.push(e); continue; }
+        m = this.add(e, e === p, look);
         if (!m) continue;
-        m.look = look; this.models.set(e, m); this.group.add(m.root);
       }
-      this.pose(m, e, scene, dt, t, e === p ? game : null);
-      if (m === this.player || e.remote) this.ghost(m, e === p ? game.gamemode === 'spectator' : e.gm === 3);   // (de espectador, medio transparente)
+      this.place(m, e, scene, dt, t, p, game);
+    }
+    // Las personas que faltan: de cerca a lejos, sin pasar de BUILD_MS por fotograma (al menos una cada vez). Así, al
+    // llegar a un sitio con mucha gente, no se para todo de golpe y la de al lado sale la primera
+    if (wait.length) {
+      if (p) { const d = e => Math.hypot((scene.kind === 'world' ? nearX(e.x, p.x) : e.x) - p.x, e.y - p.y); wait.sort((a, b) => d(a) - d(b)); }
+      const t0 = performance.now();
+      for (const e of wait) {
+        if (e !== wait[0] && performance.now() - t0 > BUILD_MS) break;
+        const m = this.add(e, false, e.look);
+        if (m) this.place(m, e, scene, dt, t, p, game);
+      }
     }
     for (const [e, m] of this.models) if (!seen.has(e)) { this.group.remove(m.root); this.models.delete(e); if (m === this.player) this.player = null; }
     // En cuevas y mazmorras el jugador lleva un farol
     this.lights.length = 0;
     if (p && scene.kind === 'grid') this.lights.push({ x: p.x, y: 1.8, z: p.y, intensity: 8, range: 14, color: '#ffc880', always: true, flicker: true });
+  }
+
+  add(e, isPlayer, look) {
+    const m = this.make(e, isPlayer, look);
+    if (m) { m.look = look; this.models.set(e, m); this.group.add(m.root); }
+    return m;
+  }
+  place(m, e, scene, dt, t, p, game) {
+    if (m.kind === 'none') return;   // (sin modelo: ver make)
+    this.pose(m, e, scene, dt, t, e === p ? game : null);
+    if (m === this.player || e.remote) this.ghost(m, e === p ? game.gamemode === 'spectator' : e.gm === 3);   // (de espectador, medio transparente)
   }
 
   // Mirar a quien se tiene al lado: quieto, sentado o tumbado, la cabeza (y un poco los hombros) se gira hacia la
@@ -125,8 +145,17 @@ export class Actors {
   }
 
   make(e, isPlayer, look = e.look) {
+    if (!e.baby && !look) return this.makeThing(e);
+    // (si la persona no se puede hacer, la entidad se queda sin modelo y el juego sigue: se avisa una vez)
+    try { return this.makePerson(e, isPlayer, look); }
+    catch (err) {
+      if (!this.warned) { this.warned = true; console.warn('Miniverse: no se pudo hacer una persona', err); }
+      return { kind: 'none', root: new THREE.Group(), prev: null, speed: 0 };
+    }
+  }
+  makePerson(e, isPlayer, look) {
     if (e.baby) { const root = new THREE.Group(); root.add(realBaby(look)); return { kind: 'baby', root, prev: null, speed: 0 }; }
-    if (look) {
+    {
       const person = new RealPerson(look, { kid: !!e.kid }), root = new THREE.Group();
       root.add(person.root);
       const m = { kind: 'person', root, person, prev: null, speed: 0 };
@@ -150,6 +179,8 @@ export class Actors {
       }
       return m;
     }
+  }
+  makeThing(e) {
     if (ANIMALS[e.type]) return { kind: 'animal', root: animalModel(e.type, e.breed, e.bags), key: animalKey(e), prev: null, speed: 0, phase: Math.random() * 6 };
     if (MONSTERS[e.type]) return { kind: 'monster', root: monsterModel(e.type), prev: null, speed: 0, phase: Math.random() * 6 };
     return null;

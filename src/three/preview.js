@@ -40,10 +40,13 @@ export class CharacterPreview {
   setLook(look) {
     if (this.person) this.scene.remove(this.person.root);
     this.look = look;
-    this.person = new RealPerson({ ...look });
+    // (si no se puede hacer, el escenario se queda vacío y el creador sigue: se avisa una vez)
+    try { this.person = new RealPerson({ ...look }); }
+    catch (err) { this.person = null; if (!this.warned) { this.warned = true; console.warn('Miniverse: no se pudo hacer la persona', err); } }
     // Encuadres a la altura de quien se ve: el cuerpo entero y la cara
-    const h = this.person.height, face = h - 0.12;
+    const h = this.person?.height ?? 1.7, face = h - 0.12;
     this.shots = { body: [[0, h * 0.72, 4.9], [0, h * 0.52, 0]], face: [[0, face + 0.02, 1.75], [0, face - 0.1, 0]] };
+    if (!this.person) return;
     this.person.root.traverse(o => { if (o.isMesh) o.castShadow = true; });
     this.person.root.rotation.y = this.angle;
     this.scene.add(this.person.root);

@@ -30,7 +30,15 @@ export function portrait3D(look) {
   const k = JSON.stringify(look);
   if (cache.has(k)) return cache.get(k);
   const { renderer, scene, camera } = R || setup();
-  const p = new RealPerson(look);
+  let p;
+  try { p = new RealPerson(look); }
+  catch (err) {   // (si no se puede hacer, un retrato vacío: el juego sigue)
+    console.warn('Miniverse: no se pudo hacer el retrato', err);
+    const out = document.createElement('canvas');
+    out.width = out.height = PORTRAIT_SIZE;
+    cache.set(k, out);
+    return out;
+  }
   p.facing = 0.32;
   p.update(0.5, 0);
   p.root.rotation.y = 0.32;   // de tres cuartos, mirando un poco hacia la derecha
