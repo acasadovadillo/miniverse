@@ -228,7 +228,14 @@ export class Actors {
         const c = P.crouch;
         for (const l of P.legs) l.rotation.x = l.rotation.x * (1 - c * 0.5) - C.hip * c;
         for (const k of P.shins || []) k.rotation.x = k.rotation.x * (1 - c) + C.knee * c;
-        P.body.position.y -= C.drop * c * (P.dropK || 1);
+        if (P.real) {
+          // (la persona realista: lo que de verdad se acortan las piernas dobladas, con sus medidas; el pie que queda más
+          // abajo es el que apoya. Con lo de los muñecos, a escala, se quedaba a un palmo del suelo)
+          const k = P.kid ? KID_SCALE : 1, Lt = P.shins[0].position.length(), Ls = P.hipY / k - Lt;
+          let reach = 0;
+          for (let i = 0; i < 2; i++) { const a = P.legs[i].rotation.x, b = a + P.shins[i].rotation.x; reach = Math.max(reach, Lt * Math.cos(a) + Ls * Math.cos(b)); }
+          P.body.position.y -= Math.max(0, Lt + Ls - reach);
+        } else P.body.position.y -= C.drop * c * (P.dropK || 1);
         P.torso.rotation.x += C.lean * c;
         P.head.rotation.x = -C.lean * 0.8 * c;
       } else P.head.rotation.x = 0;

@@ -5,6 +5,7 @@
 // gesto de la herramienta, sentarse) mueve también a estas; sentarse, tumbarse, montar y la barriga se afinan después.
 import * as THREE from 'three';
 import { fullLook, clothesFor } from '../looks.js';
+import { Builder } from './geo.js';
 
 let P = null, loading = null;
 const KID = 0.68;   // la estatura de un niño, de la de un adulto
@@ -73,6 +74,7 @@ export class RealPerson {
     const W = look.wear || clothesFor(fullLook(look)), top = W.encima?.id === 'delantal' ? W.encima : W.torso || W.interiorArriba;
     this.bellyColor = window.LOOK.sobrio(top?.color || fullLook(look).skin);
     this.targetYaw = 0; this.speed = 0;
+    if (W.espalda) this.addBag(W.espalda);   // (la mochila, si la lleva puesta)
     r.root.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
   }
   set facing(yaw) { this.targetYaw = yaw; }
@@ -85,6 +87,39 @@ export class RealPerson {
     this.root.rotation.y += d * Math.min(1, dt * 12);
   }
   clone() { return new RealPerson(this.look, { kid: this.kid }); }
+  // La mochila a la espalda: cuerpo, solapa, bolsillo con su hebilla y las dos correas por encima de los hombros y bajo
+  // los brazos. Cuelga del hueso del pecho y se ajusta a cada cuerpo: dónde le quedan la espalda, el pecho y los
+  // hombros se mide en su malla
+  addBag(item) {
+    const b = this.r.bones, T = b.torso, v = new THREE.Vector3(), W = window.LOOK;
+    this.r.root.updateMatrixWorld(true);
+    const inv = new THREE.Matrix4().copy(T.matrixWorld).invert(), top = b.armL.getWorldPosition(new THREE.Vector3()).applyMatrix4(inv).y;
+    let back = -0.08, front = 0.08;
+    this.r.root.traverse(o => {
+      if (!o.isSkinnedMesh) return;
+      const pos = o.geometry.attributes.position;
+      for (let i = 0; i < pos.count; i += 3) {
+        o.getVertexPosition(i, v); o.localToWorld(v); v.applyMatrix4(inv);
+        if (v.y > -0.02 && v.y < top - 0.05 && Math.abs(v.x) < 0.1) { back = Math.min(back, v.z); front = Math.max(front, v.z); }
+      }
+    });
+    const base = W.sobrio(item.color || '#8a5a34'), leather = new THREE.MeshStandardMaterial({ color: base, roughness: 0.82 }), dark = new THREE.MeshStandardMaterial({ color: W.mix(base, '#1a120c', 0.38), roughness: 0.85 });
+    const g = new THREE.Group(), box = (m, x0, y0, z0, x1, y1, z1, r) => { const B = new Builder(); B.roundBox(x0, y0, z0, x1, y1, z1, r, { s: 1 }); g.add(B.mesh(m)); };
+    const z = back + 0.012, y1 = top - 0.02, y0 = y1 - 0.36;
+    box(leather, -0.135, y0, z - 0.14, 0.135, y1, z, 0.035);                 // el cuerpo
+    box(dark, -0.14, y1 - 0.11, z - 0.15, 0.14, y1 + 0.012, z + 0.004, 0.03);   // la solapa
+    box(dark, -0.09, y0 + 0.03, z - 0.165, 0.09, y0 + 0.15, z - 0.13, 0.012);   // el bolsillo
+    const buckle = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.03, 0.01), new THREE.MeshStandardMaterial({ color: '#b8964a', metalness: 0.5, roughness: 0.4 })); buckle.position.set(0, y1 - 0.11, z - 0.153); g.add(buckle);
+    const strap = (a, c) => { const A = new THREE.Vector3(...a), d = new THREE.Vector3(...c).sub(A), len = d.length(), m = new THREE.Mesh(new THREE.BoxGeometry(0.034, len, 0.012), dark); m.position.copy(A).addScaledVector(d, 0.5); m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), d.normalize()); g.add(m); };
+    for (const s of [-1, 1]) {
+      const x = s * 0.095, sh = top + 0.062;
+      strap([x, y1 - 0.02, z], [x, sh, back * 0.45]); strap([x, sh, back * 0.45], [x, sh - 0.012, front * 0.4]);       // sube por la espalda y pasa el hombro
+      strap([x, sh - 0.012, front * 0.4], [x * 1.1, top - 0.1, front * 0.86]);                                       // baja por el pecho
+      strap([x * 1.1, top - 0.1, front * 0.86], [x * 1.75, y0 + 0.14, front * 0.25]); strap([x * 1.75, y0 + 0.14, front * 0.25], [s * 0.13, y0 + 0.06, z - 0.03]);   // y bajo el brazo, a la mochila
+    }
+    g.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+    T.add(g); this.bag = g;
+  }
   fitSkirt() {}
   // La barriga, de 0 a 1: crece hacia delante más que a lo ancho, sobre el vientre (cuelga del hueso de la cintura)
   setBelly(k) {
