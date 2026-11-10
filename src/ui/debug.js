@@ -45,6 +45,8 @@ export function initDebug(game) {
     }
     const d = game.days;
     if (d) lines.push(`hora ${clock(d.hour)} (aquí ${clock(d.localHour)}) · ${SEASONS[d.localSeason].toLowerCase()} · tiempo ${d.weatherHere} · día ${d.dayIndex} · modo ${GAMEMODES[game.gamemode] || game.gamemode} · dificultad ${game.difficulty} · t ${Math.round(game.time)} s`);
+    const rs = v.terrain?.stats;
+    if (rs && (rs.calc || rs.hits)) lines.push(`relieve: ${rs.hits} bloques guardados (${n1(rs.msHit / Math.max(1, rs.hits))} ms cada uno) · ${rs.calc} calculados (${n1(rs.msCalc / Math.max(1, rs.calc))} ms) · mallas ${n1(rs.msBuild / Math.max(1, rs.built))} ms`);
     const a = v.actors?.stats;
     if (a) lines.push(`personas: ${a.modelos} · ${a.vistas} vistas · ${a.dormidas} dormidas · a todo ${a.t0} / 30 Hz ${a.t1} / 15 Hz ${a.t2} · de lejos ${a.lod1} · ${(a.tris / 1000).toFixed(0)}k triángulos${a.protos !== undefined ? ` · ${a.protos} mallas en caché (${a.protosLibres} sin usar), ${a.lienzos} lienzos` : ''}${Number.isFinite(v.actorsMs) ? ` · actores ${n1(v.actorsMs)} ms` : ''}`);
     const l = game.live;

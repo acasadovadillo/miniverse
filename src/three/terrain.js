@@ -5,11 +5,12 @@
 // o de piedrecitas que no se repite a la vista. El agua es una malla por bloque a ras de WATER_Y con la profundidad
 // en cada vértice (para el color, la espuma y el borde suave) y, donde aún no hay bloque, un plano que sigue a la cámara.
 // Los números (alturas, biomas y píxeles: ground.js) los calcula un hilo aparte (genworker.js), lo más cercano
-// primero; aquí solo se hacen las mallas y se suben las texturas. Sin hilos aparte, se calcula aquí poco a poco.
+// primero; aquí solo se hacen las mallas (unas pocas por fotograma) y se suben las texturas. Sin hilos aparte, se calcula
+// aquí poco a poco. El relieve calculado se guarda en el navegador (groundcache.js) y al volver sale de ahí al momento.
 import * as THREE from 'three';
 import { CHUNK } from '../world/gen.js';
 import * as village from '../world/village.js';
-import { BLOCK, PX, groundSmooth, blockHeights, blockColors, paintPixels } from '../world/ground.js';
+import { BLOCK, PX, groundSmooth, blockHeights, blockNormals, edgeAt, blockColors, paintPixels } from '../world/ground.js';
 import { grassDetail, soilDetail } from './textures.js';
 import { mat } from './geo.js';
 import { PAL } from '../arte.js';
@@ -23,6 +24,11 @@ export const WET = { value: 0 }, RAIN = { value: 0 };
 // La versión publicada (la meta de index.html; en las páginas de prueba sin ella, ninguna)
 const VERSION = (typeof document !== 'undefined' && document.querySelector('meta[name="miniverse-version"]')?.content) || '';
 const WORKERS = Math.min(2, Math.max(1, (navigator.hardwareConcurrency || 2) - 1));
+// El relieve guardado: ?relieve=0 lo apaga (todo se calcula, como antes) y ?relieve-max=N cambia cuántos bloques se
+// guardan como mucho (para las pruebas)
+const URLQ = typeof location !== 'undefined' ? new URLSearchParams(location.search) : new URLSearchParams();
+const CACHE = URLQ.get('relieve') !== '0', CACHE_MAX = +URLQ.get('relieve-max') || 1024;
+const BUILD_MS = 3;                     // lo que se dedica como mucho a hacer mallas de bloques nuevos en cada fotograma
 
 const allChunks = () => { const l = []; for (let j = 0; j < 4; j++) for (let i = 0; i < 4; i++) l.push([i, j]); return l; };
 
@@ -35,6 +41,9 @@ export class Terrain {
     this.gen = null;
     this.season = -1;
     this.nextId = 1;
+    this.arrived = [];            // bloques que ya han llegado del hilo aparte, por hacer su malla (unos pocos por fotograma)
+    this.stats = { calc: 0, msCalc: 0, hits: 0, msHit: 0, built: 0, msBuild: 0 };   // (para F3 y el banco)
+    this.workerStats = [];
     this.group = new THREE.Group();
     scene.add(this.group);
     this.water = makeWater();
@@ -52,9 +61,11 @@ export class Terrain {
       for (let i = 0; i < WORKERS; i++) {
         // (con la versión en la dirección: index.html solo vuelve a pedir sin caché lo que carga la página, y este archivo lo
         // carga solo el hilo; uno viejo en caché con lo de ahora podría no arrancar)
-        const w = new Worker(new URL('../world/genworker.js?v=' + encodeURIComponent(VERSION), import.meta.url), { type: 'module' });
-        w.onmessage = e => this.onResult(e.data);
-        w.onerror = e => { console.warn('Suelo: el hilo aparte ha fallado; se calcula aquí', e.message); this.workers = []; this.pending.clear(); this.jobs.clear(); };
+        // (y lo del relieve guardado, que el hilo necesita al arrancar: abre la base antes de que se le pida nada)
+        const extra = (CACHE ? '' : '&relieve=0') + (CACHE_MAX !== 1024 ? `&relieve-max=${CACHE_MAX}` : '');
+        const w = new Worker(new URL('../world/genworker.js?v=' + encodeURIComponent(VERSION) + extra, import.meta.url), { type: 'module' });
+        w.onmessage = e => this.onResult(e.data, i);
+        w.onerror = e => { console.warn('Suelo: el hilo aparte ha fallado; se calcula aquí', e.message); this.workers = []; this.pending.clear(); this.jobs.clear(); this.arrived.length = 0; };
         list.push(w);
       }
       return list;
@@ -73,14 +84,15 @@ export class Terrain {
     this.dropAll();
     this.gen = gen;
     this.season = gen.season;
-    for (const w of this.workers) w.postMessage({ t: 'init', seed: gen.seed, projects: village.getProjects(), family: village.familyHouse() });
+    // (owner: el primer hilo es el que limpia lo guardado de otras versiones del relieve)
+    this.workers.forEach((w, i) => w.postMessage({ t: 'init', seed: gen.seed, projects: village.getProjects(), family: village.familyHouse(), owner: i === 0 }));
   }
   dispose(b) { this.group.remove(b.mesh); b.mesh.geometry.dispose(); b.mesh.material.dispose(); b.tex.dispose(); if (b.waterMesh) { this.water.group.remove(b.waterMesh); b.waterMesh.geometry.dispose(); } }
   dropAll() {
     const byWorker = new Map();
     for (const [id, j] of this.jobs) { if (!byWorker.has(j.worker)) byWorker.set(j.worker, []); byWorker.get(j.worker).push(id); }
     for (const [w, ids] of byWorker) w.postMessage({ t: 'drop', ids });
-    this.jobs.clear(); this.pending.clear();
+    this.jobs.clear(); this.pending.clear(); this.arrived.length = 0;
   }
   workerFor(bx, bz) { return this.workers[(((bx + bz) % WORKERS) + WORKERS) % WORKERS]; }
   ask(kind, key, pri, m) {
@@ -101,6 +113,22 @@ export class Terrain {
     want.sort((a, b) => a[2] - b[2]);
     const keep = new Set(want.map(([a, b]) => `${a},${b}`));
     for (const [k, b] of this.blocks) if (!keep.has(k)) { this.dispose(b); this.blocks.delete(k); }
+    // Las mallas de lo que ha llegado del hilo aparte, de cerca a lejos: las del 3 × 3 de la cámara, todas enseguida (sin
+    // ellas no se empieza a jugar: ver ready); las de más allá, al menos una por fotograma y hasta BUILD_MS (todas de
+    // golpe con snap). Si llegan muchas a la vez (al cargar o al volver, del relieve guardado), así no se para un fotograma
+    const tb = performance.now(), A = this.arrived, ring = m => Math.max(Math.abs(m.bx - bx), Math.abs(m.bz - bz));
+    if (A.length > 1) A.sort((a, b) => ring(a) - ring(b));
+    for (let n = 0; A.length && (budget > 1e8 || !n || ring(A[0]) <= 1 || performance.now() - tb < BUILD_MS); n++) {
+      const m = A.shift(), k = `${m.bx},${m.bz}`;
+      this.pending.delete(k);
+      if (!keep.has(k) || this.blocks.has(k)) continue;
+      this.gen.seedBiomes(m.bx * BLOCK, m.bz * BLOCK, m.corners, m.m, m.centers, m.w);
+      const t1 = performance.now(), blk = this.build(m.bx, m.bz, m.heights, m.water, m.colors, m.edge, m.normals);
+      this.stats.built++; this.stats.msBuild += performance.now() - t1;
+      this.blocks.set(k, blk);
+      // (sus 16 trozos de textura, tras los bloques que hacen falta para empezar: ver ask)
+      this.repaint(blk, Math.hypot(m.bx * BLOCK + BLOCK / 2 - x, m.bz * BLOCK + BLOCK / 2 - z) / BLOCK);
+    }
     // (cada medio segundo: ¿se ha construido algo que allane el suelo de un bloque hecho?)
     if (this.world && performance.now() > this.padCheck) { this.padCheck = performance.now() + 500; for (const b of this.blocks.values()) if (b.raw && this.padSigOf(b.bx, b.bz) !== b.padSig) this.remesh(b); }
     this.water.mesh.position.set(x, WATER_Y, z);
@@ -114,8 +142,10 @@ export class Terrain {
       if (drop.length) for (const w of this.workers) w.postMessage({ t: 'drop', ids: drop });
       for (const [a, b, d] of want) {
         const k = `${a},${b}`, cur = this.blocks.get(k);
-        if (cur) { if (cur.stale) { cur.stale = false; this.repaint(cur, d); } continue; }
-        if (!this.pending.has(k)) this.pending.set(k, this.ask('block', k, d, { bx: a, bz: b, season: this.season }));
+        if (cur) { if (cur.stale) { cur.stale = false; this.repaint(cur, Math.sqrt(d)); } continue; }
+        // (pri: el de la cámara -1 y los de alrededor por debajo de 0,5, antes que cualquier pintura; los de más allá, con
+        // las pinturas de su misma distancia)
+        if (!this.pending.has(k)) this.pending.set(k, this.ask('block', k, Math.sqrt(d) - 1, { bx: a, bz: b, season: this.season }));
       }
       return;
     }
@@ -127,7 +157,7 @@ export class Terrain {
       if (cur) { if (cur.stale) { cur.stale = false; cur.todo = allChunks(); cur.painted = 0; } continue; }
       if (built && performance.now() - t0 > budget) break;
       const d = blockHeights(gen, a, b);
-      this.blocks.set(k, this.build(a, b, d.heights, d.water, blockColors(gen, a, b, this.season)));
+      this.blocks.set(k, this.build(a, b, d.heights, d.water, blockColors(gen, a, b, this.season), d.edge, d.normals));
       built++;
     }
     for (const [a, b] of want) {
@@ -144,19 +174,17 @@ export class Terrain {
     blk.season = this.season; blk.painted = 0;
     for (const [ci, cj] of allChunks()) this.ask('paint', `${blk.bx},${blk.bz}`, pri + 0.5, { bx: blk.bx, bz: blk.bz, ci, cj, cx: blk.bx * 4 + ci, cy: blk.bz * 4 + cj, season: this.season });
   }
-  // Lo que devuelve el hilo aparte (si aún hace falta)
-  onResult(m) {
+  // Lo que devuelve el hilo aparte (si aún hace falta). Los bloques esperan en arrived a que update haga su malla (y siguen
+  // en pending hasta entonces: el banco y las pruebas miran pending para saber si el suelo está hecho)
+  onResult(m, wi = 0) {
     const j = this.jobs.get(m.id);
     if (!j) return;
     this.jobs.delete(m.id);
     const k = `${m.bx},${m.bz}`;
     if (m.t === 'block') {
-      this.pending.delete(k);
-      if (this.blocks.has(k) || !this.gen) return;
-      this.gen.seedBiomes(m.bx * BLOCK, m.bz * BLOCK, m.corners, m.m, m.centers, m.w);
-      const blk = this.build(m.bx, m.bz, m.heights, m.water, m.colors);
-      this.blocks.set(k, blk);
-      this.repaint(blk, Math.hypot(m.bx * BLOCK + BLOCK / 2 - this.water.mesh.position.x, m.bz * BLOCK + BLOCK / 2 - this.water.mesh.position.z) / BLOCK);
+      if (m.stats) { this.workerStats[wi] = m.stats; for (const f of ['calc', 'msCalc', 'hits', 'msHit']) this.stats[f] = this.workerStats.reduce((a, s) => a + (s?.[f] || 0), 0); }
+      if (this.blocks.has(k) || !this.gen) { this.pending.delete(k); return; }
+      this.arrived.push(m);
     } else {
       const blk = this.blocks.get(k);
       if (!blk || blk.season !== m.season) return;
@@ -171,32 +199,38 @@ export class Terrain {
   }
 
   // La malla de un bloque con sus alturas y, de entrada, cada trozo del color medio de su bioma (colors: 16 × rgb)
-  // Las alturas allanadas junto a lo construido (raw: las del mundo, con el agua y el relieve)
-  padded(bx, bz, raw) {
-    const w = this.world, out = raw.slice();
-    if (!w?.padK) return out;
-    const x0 = bx * BLOCK, z0 = bz * BLOCK, n = BLOCK + 1;
-    if (w.padNear && !w.padNear(x0, z0, x0 + BLOCK, z0 + BLOCK)) return out;   // (nada construido ni ningún lugar cerca)
+  // Las alturas allanadas junto a lo construido (raw: las del mundo, con el agua y el relieve; edge: su anillo), y sus
+  // normales, que se rehacen con el anillo allanado igual (así el borde sigue sin costura). Sin nada construido cerca
+  // (lo normal), las mismas alturas y las normales que vienen del hilo aparte
+  padded(bx, bz, raw, edge, normals) {
+    const w = this.world, n = BLOCK + 1, x0 = bx * BLOCK, z0 = bz * BLOCK;
+    if (!w?.padK || (w.padNear && !w.padNear(x0, z0, x0 + BLOCK, z0 + BLOCK))) return { heights: raw.slice(), normals: normals || blockNormals(raw, edge, n) };   // (nada construido ni ningún lugar cerca)
+    const out = raw.slice(), e = edge.slice();
     for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) { const v = j * n + i; if (out[v] > 0.01) out[v] *= w.padK(x0 + i, z0 + j); }
-    return out;
+    for (let t = 0; t < n; t++) for (const [i, j] of [[-1, t], [n, t], [t, -1], [t, n]]) { const v = edgeAt(n, i, j); if (e[v] > 0.01) e[v] *= w.padK(x0 + i, z0 + j); }
+    return { heights: out, normals: blockNormals(out, e, n) };
   }
   padSigOf(bx, bz) { return this.world?.padSig ? this.world.padSig(bx * BLOCK, bz * BLOCK, (bx + 1) * BLOCK, (bz + 1) * BLOCK) : ''; }
   // Rehacer la forma de un bloque (alguien ha construido cerca: el suelo se allana o vuelve a su altura)
   remesh(b) {
-    b.heights = this.padded(b.bx, b.bz, b.raw); b.padSig = this.padSigOf(b.bx, b.bz);
-    const geo = b.mesh.geometry, pos = geo.attributes.position;
+    const p = this.padded(b.bx, b.bz, b.raw, b.edge, b.normals0);
+    b.heights = p.heights; b.padSig = this.padSigOf(b.bx, b.bz);
+    const geo = b.mesh.geometry, pos = geo.attributes.position, nor = geo.attributes.normal;
     for (let v = 0; v < pos.count; v++) pos.setY(v, b.heights[v]);
-    pos.needsUpdate = true; geo.computeVertexNormals(); geo.computeBoundingSphere();
+    nor.array.set(p.normals);
+    pos.needsUpdate = nor.needsUpdate = true; geo.computeBoundingSphere();
   }
-  build(bx, bz, raw, water, colors) {
-    const x0 = bx * BLOCK, z0 = bz * BLOCK, n = BLOCK + 1, heights = this.padded(bx, bz, raw);
+  // edge: el anillo de alturas de alrededor (ground.js: blockHeights) y normals: las normales sin allanar (si no vienen,
+  // se calculan)
+  build(bx, bz, raw, water, colors, edge, normals) {
+    const x0 = bx * BLOCK, z0 = bz * BLOCK, n = BLOCK + 1, { heights, normals: nor } = this.padded(bx, bz, raw, edge, normals);
     const pos = new Float32Array(n * n * 3), uv = new Float32Array(n * n * 2);
     for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
       const v = j * n + i;
       pos[v * 3] = x0 + i; pos[v * 3 + 1] = heights[v]; pos[v * 3 + 2] = z0 + j;
       uv[v * 2] = i / BLOCK; uv[v * 2 + 1] = 1 - j / BLOCK;
     }
-    const idx = new Uint32Array(BLOCK * BLOCK * 6);
+    const idx = new Uint16Array(BLOCK * BLOCK * 6);   // (65 × 65 vértices: caben en 16 bits, y ocupa la mitad)
     let q = 0;
     for (let j = 0; j < BLOCK; j++) for (let i = 0; i < BLOCK; i++) {
       const a = j * n + i, b = a + 1, c = a + n, d = c + 1;
@@ -206,8 +240,7 @@ export class Terrain {
     geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
     geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
     geo.setIndex(new THREE.BufferAttribute(idx, 1));
-    if (heights.some(h => h !== 0)) geo.computeVertexNormals();   // (con agua o relieve)
-    else { const nor = new Float32Array(n * n * 3); for (let i = 1; i < nor.length; i += 3) nor[i] = 1; geo.setAttribute('normal', new THREE.BufferAttribute(nor, 3)); }
+    geo.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
     geo.computeBoundingSphere();
     const W = BLOCK * PX, c = document.createElement('canvas');
     c.width = c.height = W;
@@ -226,7 +259,8 @@ export class Terrain {
     mesh.matrixAutoUpdate = false;
     this.group.add(mesh);
     const waterMesh = water ? this.buildWater(pos, raw, n) : null;
-    return { mesh, tex, ctx: g, heights, raw, padSig: this.padSigOf(bx, bz), x0, z0, n, bx, bz, season: this.season, todo: allChunks(), painted: 0, waterMesh };
+    // (normals0: las de sin allanar, para cuando se quita lo construido; aparte de las de la malla, que remesh cambia)
+    return { mesh, tex, ctx: g, heights, raw, edge, normals0: nor === normals ? normals.slice() : normals, padSig: this.padSigOf(bx, bz), x0, z0, n, bx, bz, season: this.season, todo: allChunks(), painted: 0, waterMesh };
   }
   // El agua del bloque: la misma rejilla a ras de WATER_Y, con lo que hay de suelo debajo en cada vértice (depth), y
   // solo las casillas que tocan agua
@@ -263,7 +297,7 @@ export class Terrain {
   // Altura del suelo en (x, z): la de la malla si su bloque está hecho; si no, la de la profundidad sin suavizar
   heightAt(x, z) {
     const b = this.blocks.get(`${Math.floor(x / BLOCK)},${Math.floor(z / BLOCK)}`);
-    if (!b) { if (!this.gen) return 0; const h = groundSmooth(this.gen, x, z); return h > 0 && this.world?.padK ? h * this.world.padK(x, z) : h; }   // (aún sin bloque: lo mismo, calculado aquí)
+    if (!b) { if (!this.gen) return 0; const w = this.world; return groundSmooth(this.gen, x, z, w?.padK ? (i, j) => w.padK(i, j) : null); }   // (aún sin bloque: lo mismo, calculado aquí)
     const u = x - b.x0, v = z - b.z0, i = Math.min(BLOCK - 1, Math.floor(u)), j = Math.min(BLOCK - 1, Math.floor(v)), fu = u - i, fv = v - j, H = b.heights, n = b.n;
     const a = H[j * n + i], bb = H[j * n + i + 1], c = H[(j + 1) * n + i], d = H[(j + 1) * n + i + 1];
     // (cada casilla son dos triángulos: a-c-b y b-c-d)

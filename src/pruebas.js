@@ -15,9 +15,9 @@ import { SHOPS } from './economy.js';
 import { repairMat } from './crafting.js';
 import { RECIPES } from './recipes.js';
 import { runCommand } from './commands.js';
-import { CHUNK } from './world/gen.js';
+import { CHUNK, WorldGen } from './world/gen.js';
 import { B, BIOMES } from './world/biomes.js';
-import { paintPixels } from './world/ground.js';
+import { paintPixels, blockHeights, groundSmooth, groundTag } from './world/ground.js';
 import { retireItems } from './game.js';
 import { HOUSE, HOUSES, POND, YARD, BOUNDS, BOARD, CENTER, TAVERN, inBounds } from './world/village.js';
 import { collide as collideNow } from './physics.js';
@@ -154,6 +154,34 @@ async function soloTests(game) {
     await frames(60);
     check(game.time > 0.9, 'la simulación no avanza');
     console.log(health(game));
+  });
+  await test('relieve: lo guardado da lo mismo que calcularlo, y sin costuras entre bloques', async () => {
+    // (lo hecho alrededor, venga de lo guardado o del hilo aparte, frente a lo recién calculado aquí: bit a bit)
+    const T = game.view3d.terrain, g = new WorldGen(w().gen.seed);
+    check(groundTag(new WorldGen(g.seed + 1)) !== groundTag(g), 'la huella del relieve no cambia con la semilla');
+    let borders = 0;
+    for (const b of T.blocks.values()) {
+      const d = blockHeights(g, b.bx, b.bz);
+      check(d.heights.every((h, v) => h === b.raw[v]) && d.edge.every((h, v) => h === b.edge[v]), `el bloque ${b.bx},${b.bz} no tiene las alturas de siempre (guardado: ${T.stats.hits}, calculado: ${T.stats.calc})`);
+      const nor = b.mesh.geometry.attributes.normal.array, flat = b.heights.some((h, v) => h !== b.raw[v]);
+      if (!flat) check(nor.every((x, v) => Math.abs(x - d.normals[v]) < 1e-6), `las normales del bloque ${b.bx},${b.bz} no son las del relieve`);
+      // (el vértice que comparte con el de la derecha y el de abajo: la misma altura y la misma normal)
+      for (const [dx, dz] of [[1, 0], [0, 1]]) {
+        const o = T.blocks.get(`${b.bx + dx},${b.bz + dz}`), n = b.n;
+        if (!o) continue;
+        const nb = o.mesh.geometry.attributes.normal.array;
+        for (let t = 0; t < n; t++) {
+          const va = dx ? t * n + n - 1 : (n - 1) * n + t, vb = dx ? t * n : t;
+          check(Math.abs(b.heights[va] - o.heights[vb]) < 1e-6, `grieta entre los bloques ${b.bx},${b.bz} y ${o.bx},${o.bz}`);
+          for (let c = 0; c < 3; c++) check(Math.abs(nor[va * 3 + c] - nb[vb * 3 + c]) < 1e-6, `costura de luz entre los bloques ${b.bx},${b.bz} y ${o.bx},${o.bz}`);
+        }
+        borders++;
+      }
+      // (el suelo de antes de tener el bloque, para poner cosas, es el mismo que el de la malla)
+      const k = T.world?.padK ? (x, y) => T.world.padK(x, y) : null;
+      for (let i = 0; i < 20; i++) { const x = b.x0 + ((i * 37.31) % 64), z = b.z0 + ((i * 17.77) % 64); check(Math.abs(groundSmooth(g, x, z, k) - T.heightAt(x, z)) < 1e-4, `el suelo de reserva no casa con la malla en ${x.toFixed(1)},${z.toFixed(1)}`); }
+    }
+    check(borders >= 12, `pocas fronteras entre bloques hechos (${borders})`);
   });
   await test('talar: un roble con el hacha da madera', async () => {
     const o = findKind(game, ['oak', 'pine'], p().x, p().y); check(o, 'no hay árboles cerca');

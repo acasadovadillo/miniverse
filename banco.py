@@ -16,6 +16,8 @@
 #                                         contadores (personas dibujadas, sombras rehechas, instancias, memoria);
 #                                         con --contra, grupo a grupo antes y ahora
 #   python3 banco.py --perfil --solo X    las funciones que más tiempo de procesador se llevan en la parada X
+#   python3 banco.py --mismo-perfil       el mismo perfil de Chrome en todas las vueltas (como recargar la página: la
+#                                         primera vuelta, con lo guardado vacío; las demás, con el relieve guardado)
 #
 # Guarda las cifras (resultados.json) y las capturas en .banco/<fecha-hora>/. No lo lances a la vez que probar.py
 # ni que otro Chrome invisible: en este Mac, varios a la vez pueden colgarlo.
@@ -51,6 +53,7 @@ ONLY = arg('--solo')
 PX = arg('--px', '1')
 SIZE = arg('--tam', '1280x800')
 SW = '--sw' in sys.argv
+SAME_PROFILE = '--mismo-perfil' in sys.argv
 OUT = os.path.join(HERE, '.banco', time.strftime('%Y%m%d-%H%M%S'))
 
 lock = threading.Lock()
@@ -312,6 +315,7 @@ def table(runs):
                 if p:
                     print('    personas (del juego): ' + ', '.join(f'{k} {v}' for k, v in p.items() if isinstance(v, (int, float))))
         print(f"\nListo en {same(l, 'arranque')} s · {same(l, 'programas')} programas · {same(l, 'texturas')} texturas · {same(l, 'geometrias')} geometrías · {same(l, 'memoria')} MB de memoria")
+        relief_line(runs, l)
         return
     print(f"{'parada':<16}{'ms antes':>10}{'ahora':>8}{'cambio':>9}   {'llamadas antes':>15}{'ahora':>12}   {'triángulos antes':>17}{'ahora':>14}")
     for s in stops:
@@ -324,8 +328,24 @@ def table(runs):
     warn_place(runs, stops)
     for key, name in (('arranque', 'listo en (s)'), ('programas', 'programas'), ('texturas', 'texturas'), ('geometrias', 'geometrías'), ('memoria', 'memoria (MB)')):
         print(f"{name:<16}{str(same('antes', key)):>10}{str(same('ahora', key)):>10}")
+    for l in ('antes', 'ahora'):
+        relief_line(runs, l)
     if '--desglose' in sys.argv:
         compare_breakdown(runs, stops)
+
+
+def relief_line(runs, label):
+    # El relieve, vuelta a vuelta: cuánto tardó en estar listo y cuántos bloques salieron de lo guardado (con
+    # --mismo-perfil, la primera vuelta sale fría y las demás calientes)
+    laps = [r for r in runs.get(label, []) if r.get('relieve')]
+    if not laps:
+        return
+    def one(r):
+        v = r['relieve']
+        hit = f"{v.get('hits', 0):.0f} guardados ({v.get('msHit', 0) / max(1, v.get('hits', 0)):.1f} ms)"
+        calc = f"{v.get('calc', 0):.0f} calculados ({v.get('msCalc', 0) / max(1, v.get('calc', 0)):.1f} ms)"
+        return f"listo en {r.get('arranque')} s, {hit}, {calc}"
+    print(f'relieve ({label}): ' + ' · '.join(f'vuelta {i + 1}: {one(r)}' for i, r in enumerate(laps)))
 
 
 def warn_place(runs, stops):
@@ -448,7 +468,7 @@ def main():
             for label in order:
                 got['lap'] = lap
                 print(f'  Vuelta {lap}, {label}{f" ({CONTRA})" if label == "antes" else ""}…', flush=True)
-                res, errors = run_once(exe, label, PORTS[label], trees[label][1], os.path.join(tmp, f'{label}-{lap}'))
+                res, errors = run_once(exe, label, PORTS[label], trees[label][1], os.path.join(tmp, label if SAME_PROFILE else f'{label}-{lap}'))
                 for e in errors[:5]:
                     print(f'    [{label}] fallo: {e}')
                 if res:

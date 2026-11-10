@@ -237,6 +237,9 @@ export async function runBench(game) {
   out.geometrias = r.info.memory.geometries;
   out.texturas = r.info.memory.textures;
   out.memoria = performance.memory ? Math.round(performance.memory.usedJSHeapSize / 1048576) : null;
+  // (el relieve: cuántos bloques salieron de lo guardado y cuántos se calcularon, y lo que tardó cada uno; con
+  // banco.py --mismo-perfil, la primera vuelta sale fría y las demás calientes, como al recargar la página)
+  if (v.terrain?.stats) out.relieve = Object.fromEntries(Object.entries(v.terrain.stats).map(([k, x]) => [k, Math.round(x * 10) / 10]));
   out.total = +(now() / 1000).toFixed(1);
   console.log('BANCO ' + JSON.stringify(out));
   await post('/banco', out);

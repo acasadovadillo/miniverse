@@ -3,7 +3,7 @@
 // generador, sin nada de dibujo ni de documento: así se calculan igual en el hilo principal (si no hay otro) y en el
 // hilo aparte (genworker.js), que es donde van normalmente para que el juego no dé tirones al estrenar terreno.
 import { CHUNK, RES } from './gen.js';
-import { B, BIOMES } from './biomes.js';
+import { B, BIOMES, climate, classify, biomeAt, wetness, depthOfWet, reliefOf } from './biomes.js';
 import * as village from './village.js';
 import { seasonalPalette } from '../art/seasons.js';
 import { ihash, vnoise, rgbOf } from '../util.js';
@@ -42,40 +42,88 @@ export function depthOf(gen, x, z) {
   }
   return gen.depthAt(x, z);
 }
-// Lo mismo, como lo da la malla del suelo (cada dos casillas e interpolado; junto al agua, lo exacto): para poner algo en
-// el suelo antes de que esté hecho su bloque y que luego no flote
-export function groundSmooth(gen, x, z) {
-  const x0 = Math.floor(x / 2) * 2, z0 = Math.floor(z / 2) * 2, fx = (x - x0) / 2, fz = (z - z0) / 2;
-  const a = groundOf(gen, x0, z0), b = groundOf(gen, x0 + 2, z0), c = groundOf(gen, x0, z0 + 2), d = groundOf(gen, x0 + 2, z0 + 2);
-  return Math.min(a, b, c, d) < 0.3 ? groundOf(gen, x, z) : (a * (1 - fx) + b * fx) * (1 - fz) + (c * (1 - fx) + d * fx) * fz;
+// Lo mismo, como lo da la malla del suelo (un vértice por casilla y, entre medias, los dos triángulos de cada casilla,
+// como terrain.heightAt): para poner algo en el suelo antes de que esté hecho su bloque y que luego no flote ni se hunda.
+// k: lo que se allana cada vértice junto a lo construido (padK), como hace la malla
+export function groundSmooth(gen, x, z, k = null) {
+  const x0 = Math.floor(x), z0 = Math.floor(z), fu = x - x0, fv = z - z0;
+  const at = (i, j) => { const h = groundOf(gen, i, j); return k && h > 0.01 ? h * k(i, j) : h; };
+  const b = at(x0 + 1, z0), c = at(x0, z0 + 1);
+  // (cada casilla son dos triángulos: a-c-b y b-c-d)
+  if (fu + fv <= 1) { const a = at(x0, z0); return a + (b - a) * fu + (c - a) * fv; }
+  const d = at(x0 + 1, z0 + 1); return d + (c - d) * (1 - fu) + (b - d) * (1 - fv);
 }
 // La altura del suelo (sin lo construido): en el pueblo, la del estanque; fuera, el agua o el relieve (gen.groundAt)
 export function groundOf(gen, x, z) {
   if (village.inBounds(x, z)) return depthOf(gen, x, z);
   return gen.groundAt(x, z);
 }
+// Lo mismo con el clima de ese punto ya calculado (c, de climate): da justo lo mismo que groundOf, bit a bit (las mismas
+// cuentas que gen.groundAt), y así blockHeights saca el bioma y la altura de cada vértice de una sola vez
+function groundWith(gen, x, z, c) {
+  if (village.inBounds(x, z)) return depthOf(gen, x, z);
+  const u = wetness(c);
+  return u > 0 ? depthOfWet(u) : reliefOf(c, u, x, z, gen.seed);
+}
 
-// Las alturas de un bloque (un vértice por casilla, hundido donde hay agua según la profundidad seguida) y los
-// biomas de sus esquinas (n+2 por lado, desde una casilla antes del bloque) y de los centros de sus casillas (BLOCK
-// por lado), para que el juego no los tenga que volver a calcular. water: si a 2 m se ve agua en el bloque (para su malla)
+// Las alturas de un bloque, un vértice por casilla y todas exactas (el relieve casilla a casilla, hundido donde hay agua
+// según la profundidad seguida: lo mismo que gen.groundAt, que es lo que usa lo construido para apoyarse), más el anillo
+// de vértices de alrededor (edge: los de la casilla de antes y de después por cada lado, para que las normales del borde
+// salgan iguales a las del bloque de al lado), las normales (blockNormals), y los biomas de sus esquinas (n+2 por lado,
+// desde una casilla antes del bloque) y de los centros de sus casillas (BLOCK por lado), para que el juego no los tenga
+// que volver a calcular. water: si hay algo bajo el agua en el bloque (para su malla)
+// (las esquinas de los biomas y los vértices con su anillo son los mismos puntos: el clima se calcula una vez para los dos)
 export function blockHeights(gen, bx, bz) {
-  const x0 = bx * BLOCK, z0 = bz * BLOCK, n = BLOCK + 1, m = n + 2;
-  const corners = new Uint8Array(m * m), centers = new Uint8Array(BLOCK * BLOCK);
-  for (let j = -1; j <= n; j++) for (let i = -1; i <= n; i++) corners[(j + 1) * m + i + 1] = gen.biomeAt(x0 + i, z0 + j);
-  for (let j = 0; j < BLOCK; j++) for (let i = 0; i < BLOCK; i++) centers[j * BLOCK + i] = gen.biomeAt(x0 + i + 0.5, z0 + j + 0.5);
+  const x0 = bx * BLOCK, z0 = bz * BLOCK, n = BLOCK + 1, m = n + 2, S = gen.seed, c = {};
+  const corners = new Uint8Array(m * m), centers = new Uint8Array(BLOCK * BLOCK), heights = new Float32Array(n * n), edge = new Float32Array(4 * n);
   let water = false;
-  for (let j = -1; j <= BLOCK / 2 + 1 && !water; j++) for (let i = -1; i <= BLOCK / 2 + 1; i++) if (depthOf(gen, x0 + i * 2, z0 + j * 2) < 0) { water = true; break; }
-  const heights = new Float32Array(n * n);
-  // (el agua y el relieve: cada dos casillas y, entre medias, interpolado, salvo junto al agua, que va casilla a casilla
-  // para que la orilla sea la de siempre)
-  const hn = BLOCK / 2 + 1, coarse = new Float32Array(hn * hn);
-  for (let j = 0; j < hn; j++) for (let i = 0; i < hn; i++) coarse[j * hn + i] = groundOf(gen, x0 + i * 2, z0 + j * 2);
-  for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
-    const ci = i >> 1, cj = j >> 1, fi = (i & 1) * 0.5, fj = (j & 1) * 0.5, ci1 = Math.min(hn - 1, ci + 1), cj1 = Math.min(hn - 1, cj + 1);
-    const a = coarse[cj * hn + ci], b = coarse[cj * hn + ci1], c = coarse[cj1 * hn + ci], d = coarse[cj1 * hn + ci1];
-    heights[j * n + i] = !fi && !fj ? a : Math.min(a, b, c, d) < 0.3 ? groundOf(gen, x0 + i, z0 + j) : (a * (1 - fi) + b * fi) * (1 - fj) + (c * (1 - fi) + d * fi) * fj;
+  for (let j = -1; j <= n; j++) for (let i = -1; i <= n; i++) {
+    const x = x0 + i, z = z0 + j;
+    climate(x, z, S, c);
+    corners[(j + 1) * m + i + 1] = classify(c.T, c.M, c.C, c.R, c.L, c.K, c.P, c.f, 0, c.Q, c.Tl, c.Ml);   // (= biomeAt)
+    const ii = i < 0 || i === n, jj = j < 0 || j === n;
+    if (ii && jj) continue;   // (las esquinas del anillo no hacen falta)
+    const h = groundWith(gen, x, z, c);
+    if (!ii && !jj) { heights[j * n + i] = h; if (h < 0) water = true; }
+    else edge[ii ? (i < 0 ? 0 : n) + j : (j < 0 ? 2 * n : 3 * n) + i] = h;
   }
-  return { heights, water, corners, centers, n, m };
+  for (let j = 0; j < BLOCK; j++) for (let i = 0; i < BLOCK; i++) centers[j * BLOCK + i] = biomeAt(x0 + i + 0.5, z0 + j + 0.5, S);
+  return { heights, edge, normals: blockNormals(heights, edge, n), water, corners, centers, n, m };
+}
+// El anillo de un bloque: edge[0..n) la columna de antes (x0 - 1, z0 + j), [n..2n) la de después (x0 + n), [2n..3n) la
+// fila de antes (x0 + i, z0 - 1) y [3n..4n) la de después (z0 + n)
+export const edgeAt = (n, i, j) => i < 0 ? j : i >= n ? n + j : j < 0 ? 2 * n + i : 3 * n + i;
+// Las normales de los vértices de un bloque, por diferencias centrales (con el anillo en el borde): ∝ (-dh/dx, 1, -dh/dz).
+// Cada vértice da la misma normal se calcule desde el bloque que se calcule, y así no hay una línea de luz cada 64 m en
+// las sierras (con las normales de los triángulos de cada bloque por separado, el borde solo veía su lado)
+export function blockNormals(H, edge, n, out = new Float32Array(n * n * 3)) {
+  const at = (i, j) => (i < 0 || i >= n || j < 0 || j >= n ? edge[edgeAt(n, i, j)] : H[j * n + i]);
+  for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
+    const x = (at(i - 1, j) - at(i + 1, j)) * 0.5, z = (at(i, j - 1) - at(i, j + 1)) * 0.5, l = 1 / Math.sqrt(x * x + 1 + z * z), o = (j * n + i) * 3;
+    out[o] = x * l; out[o + 1] = l; out[o + 2] = z * l;
+  }
+  return out;
+}
+
+// La huella del relieve: cambia si cambia cualquier cosa de la que salen las alturas y los biomas de blockHeights (su
+// código, el del clima y el relieve, o sus constantes, que se ven en lo que dan unos puntos de prueba). Es la clave de
+// lo guardado (groundcache.js): con otra semilla u otro código, lo guardado no vale. Se calcula con el código que corre
+// de verdad en el hilo (un genworker.js viejo de la caché del navegador da otra huella). Sube RELIEF_V a mano si cambia
+// algo que esto no vea
+export const RELIEF_V = 1;
+export function groundTag(gen) {
+  let h = 2166136261;
+  const f = new Float32Array(1), u = new Uint32Array(f.buffer), mix = v => { h = Math.imul(h ^ v, 16777619); };
+  const text = fn => { const t = String(fn); for (let i = 0; i < t.length; i++) mix(t.charCodeAt(i)); };
+  for (const fn of [blockHeights, groundWith, groundOf, depthOf, climate, classify, biomeAt, wetness, depthOfWet, reliefOf, gen.groundAt, gen.depthAt, village.pondDist, village.inBounds]) text(fn);
+  // (puntos de prueba: por todo el planeta, alrededor del pueblo y su estanque, y unos cuantos al azar cerca)
+  const P = [];
+  for (let j = 0; j < 12; j++) for (let i = 0; i < 12; i++) P.push([-32768 + i * 5461.3 + j * 97, -6000 + j * 1000 + i * 31]);
+  for (const [x, z] of [[31.5, 27], [20, 30], [0.5, 1.5], [39.5, 61.5], [60, 24], [150, 24], [-120, 80], [400, -300], [-900, 1200], [2000, -1500]]) P.push([x, z]);
+  for (let k = 0; k < 64; k++) P.push([((k * 2654435761) % 4001) - 2000 + 0.25, ((k * 40503) % 3001) - 1500 + 0.75]);
+  for (const [x, z] of P) { f[0] = groundOf(gen, x, z); mix(u[0]); mix(biomeAt(x, z, gen.seed)); }
+  mix(BLOCK);
+  return `s${gen.seed}.v${RELIEF_V}.${(h >>> 0).toString(36)}`;
 }
 
 // El color medio de cada trozo de un bloque (16 trozos: el bioma del centro con su paleta de la estación), para
