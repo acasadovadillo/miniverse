@@ -14,24 +14,28 @@ const $ = id => document.getElementById(id);
 export function initBuildBar(game) {
   const b = game.build;
   let cat = ALL_CATS[0];
+  let pinned = null;   // una pestaña abierta para mirarla sin tener aún nada suyo que elegir (todo pide plano): { cat, piece }
   const icons = {};
   const iconOf = id => (icons[id] ||= (BUILDABLE[id] ? itemIcon(id) : pieceIcon(pieceSprite(id))).toDataURL());
   const TOOLS = { Mover: 'mover', Quitar: 'quitar' };
   // Dónde se compra el plano de lo que lo pide (la primera tienda que lo vende)
-  const planAt = id => Object.values(SHOPS).find(s => s.stock.some(e => e.plan === id))?.title;
+  const planAt = id => Object.values(SHOPS).find(s => s.stock.some(e => e.plan === id))?.title.split(' de ').pop();
 
   function render() {
     const tool = b.erase ? 'Quitar' : b.move ? 'Mover' : null;
-    if (!tool && DEF(b.piece).cat !== cat) cat = DEF(b.piece).cat;
+    if (pinned && (tool || b.piece !== pinned.piece)) pinned = null;
+    if (pinned) cat = pinned.cat;
+    else if (!tool && DEF(b.piece).cat !== cat) cat = DEF(b.piece).cat;
     const shown = c => BUILD_IDS.filter(id => DEF(id).cat === c && b.available(id));
+    const locked = c => BUILD_IDS.filter(id => DEF(id).cat === c && PLANS.has(id) && !b.available(id));
     $('bb-cats').textContent = '';
     for (const c of [...ALL_CATS, 'Mover', 'Quitar']) {
-      if (!TOOLS[c] && !shown(c).length) continue;   // (una categoría de la que aún no se conoce nada no sale)
+      if (!TOOLS[c] && !shown(c).length && !locked(c).length) continue;   // (una categoría de la que aún no se conoce nada no sale, salvo que lo suyo pida plano)
       const btn = document.createElement('button');
       btn.type = 'button';
       btn.textContent = c;
       btn.className = (TOOLS[c] ? tool === c : !tool && c === cat) ? 'on' : '';
-      btn.onclick = () => { if (TOOLS[c]) b.select(TOOLS[c]); else { cat = c; b.select(shown(c)[0]); } };
+      btn.onclick = () => { if (TOOLS[c]) b.select(TOOLS[c]); else if (shown(c).length) { pinned = null; cat = c; b.select(shown(c)[0]); } else { if (tool) b.select(b.piece); pinned = { cat: c, piece: b.piece }; render(); } };
       $('bb-cats').append(btn);
     }
     const box = $('bb-pieces');
@@ -51,11 +55,10 @@ export function initBuildBar(game) {
       box.append(btn);
     }
     // Lo de esta pestaña que aún pide su plano: se ve, en gris, con la tienda donde se compra
-    for (const id of BUILD_IDS) {
-      if (DEF(id).cat !== cat || !PLANS.has(id) || b.available(id)) continue;
+    for (const id of locked(cat)) {
       const btn = document.createElement('button');
       btn.type = 'button'; btn.className = 'bb-piece poor'; btn.disabled = true; btn.title = DEF(id).name;
-      btn.innerHTML = `<img alt="" src="${iconOf(id)}"><span>${DEF(id).name}</span><small>Falta su plano: ${planAt(id) || 'se compra en una tienda'}</small>`;
+      btn.innerHTML = `<img alt="" src="${iconOf(id)}"><span>${DEF(id).name}</span><small>Falta su plano: lo vende ${planAt(id) || 'una tienda'}</small>`;
       box.append(btn);
     }
   }

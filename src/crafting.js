@@ -3,7 +3,7 @@ import { ITEMS } from './items.js';
 import { RECIPES, STATIONS, unlocked } from './recipes.js';
 import { Audio } from './audio.js';
 import { parsePlaced } from './pieces.js';
-import { BUILDABLE } from './buildables.js';
+import { BUILDABLE, PLANS_V } from './buildables.js';
 
 export const STATION_REACH = 2.4;   // a cuántas casillas puede estar una estación para usarla
 const worn = it => !!it && !!ITEMS[it.id]?.dur && it.dur !== undefined && it.dur < ITEMS[it.id].dur;
@@ -41,13 +41,13 @@ export class Crafting {
     this.known = new Set();
     this.fresh = new Set();
     // (los planos llegaron después: quien ya podía construir esas cosas, por haber tenido sus materiales, las conserva)
-    if (!save.planos && Array.isArray(save.seen)) {
+    if ((save.planos | 0) < PLANS_V && Array.isArray(save.seen)) {
       for (const s of this.game.inv.slots) if (s) this.seen.add(s.id);
       for (const r of RECIPES) if (r.plan && r.ins.every(([id]) => this.seen.has(id))) this.taught.add(r.id);
     }
     this.check(true);
   }
-  toSave() { return { seen: [...this.seen], taught: [...this.taught], forgot: [...this.forgot], planos: 1 }; }
+  toSave() { return { seen: [...this.seen], taught: [...this.taught], forgot: [...this.forgot], planos: PLANS_V }; }
   // Los planos de las tiendas: ¿se sabe ya construir eso?, y aprenderlo (todas sus recetas) al comprar el suyo
   hasPlan(id) { return this.known.has(BUILDABLE[id]?.recipe); }
   learnPlan(id) {

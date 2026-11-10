@@ -25,8 +25,10 @@ for (const [cat, ids] of Object.entries(BUILD_CATS)) for (const id of ids) {
   LEGACY_ITEMS[id] = r.ins;
 }
 
-// Los planos: estos construibles no se aprenden solos al haber tenido sus materiales, como los demás; su plano se compra
-// en una tienda (economy.js, { plan }) y enseña a construirlos para siempre (crafting.js, learnPlan). Quien ya sabía
-// hacerlos cuando llegaron los planos, los conserva (crafting.js, reset)
-export const PLANS = new Set(['sofa', 'sillon', 'armario', 'comoda', 'banera', 'barra', 'barril', 'taburete', 'barca'].filter(id => BUILDABLE[id]));
+// Los planos: todos los muebles (los de casa, los de la cocina y el baño y los de taberna) y la barca no se aprenden solos
+// al haber tenido sus materiales, como las estaciones y lo del rancho; su plano se compra en una tienda (economy.js,
+// { plan }) y enseña a construirlos para siempre (crafting.js, learnPlan). Quien ya sabía hacerlos cuando llegaron los
+// planos, los conserva (crafting.js, reset; PLANS_V: la tanda de planos, para que valga también al añadir más)
+export const PLANS = new Set([...BUILD_CATS.Muebles, ...BUILD_CATS['Cocina y baño'], 'barca'].filter(id => BUILDABLE[id]));
+export const PLANS_V = 2;
 for (const r of RECIPES) if (PLANS.has(r.out)) r.plan = true;

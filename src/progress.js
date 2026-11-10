@@ -1,6 +1,6 @@
 // Progreso: estadísticas, habilidades que suben con el uso, el museo del pueblo (colecciones), logros
 // y las páginas del diario de un farero, sueltas en los cofres.
-import { ITEMS, FISH, BUGS } from './items.js';
+import { ITEMS, FISH, BUGS, LEGACY_ITEMS } from './items.js';
 import { MUSEUM } from './world/village.js';
 import { Audio } from './audio.js';
 import { hud } from './ui/hud.js';
@@ -82,6 +82,7 @@ export class Collection {
     const lines = [`¡Gracias! Has donado: ${list.map(id => ITEMS[id].name.toLowerCase()).join(', ')}. Ya hay ${this.donated.size} de ${ALL.length} piezas.`];
     for (const [n, money, item, k] of REWARDS) if (before < n && this.donated.size >= n) {
       g.addMoney(money); const left = g.inv.add(item, k); if (left) g.gather.throwOut(item, left);
+      if (LEGACY_ITEMS[item]) g.craft.learnPlan(item);   // (un mueble: llegan sus materiales, y con ellos su plano)
       lines.push(`¡Premio por llegar a ${n} piezas! ${money} monedas y ${k} × ${ITEMS[item].name.toLowerCase()}.`);
     }
     await hud.say('Museo', lines);

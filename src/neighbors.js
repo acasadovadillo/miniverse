@@ -238,6 +238,7 @@ export class Neighbors {
     const opts = ['Charlar'];
     if (open) opts.push('Ver la tienda');
     if (open && TRADES[id]) opts.push('Hacer tratos');
+    if (id === 'nilo') opts.push('Ver sus planos');   // (los de los muebles de siempre: economy.js, SHOPS.nilo)
     if (giftable) opts.push(`Regalar: ${ITEMS[held.id].name.toLowerCase()}`);
     if (id === 'nilo' && !g.house.family && Profile.admin && !g.live.guest) opts.push('Hablar de la casa');   // (la casa es la del dueño del mundo)
     opts.push('Adiós');
@@ -246,9 +247,9 @@ export class Neighbors {
     if (pick === 'Charlar') {
       const line = id === 'nilo' ? this.niloLine() : def.chat[Math.floor(Math.random() * def.chat.length)];
       await hud.say(def.name, [line]);
-    } else if (pick === 'Ver la tienda') {
+    } else if (pick === 'Ver la tienda' || pick === 'Ver sus planos') {
       g.busy = false;
-      g.onShop?.(def.shop);
+      g.onShop?.(pick === 'Ver sus planos' ? 'nilo' : def.shop);
       return;
     } else if (pick === 'Hacer tratos') {
       await this.trade(id);

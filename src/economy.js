@@ -12,6 +12,7 @@ const BASE = {
   huevo_pato: 35, huevo_oro: 300, plumas: 12, leche_cabra: 40, nata: 60, lana_fina: 140, angora: 55, trufa: 250, heno: 3,
 };
 const cache = new Map();
+const plans = list => Object.entries(list).map(([plan, price]) => ({ plan, price }));
 
 // Precio de venta de un objeto (0 si no se vende)
 export function priceOf(id) {
@@ -60,8 +61,14 @@ export const SHOPS = {
     title: 'Aparejos de Lía', hours: [6, 20],
     stock: [{ id: 'cana', price: 150 }, { id: 'cana_fibra', price: 1500 }, { id: 'regadera', price: 200 }, { plan: 'barca', price: 600 }, { id: 'sardina', price: 65 }],
   },
+  // Nilo, en la plaza a todas horas: los planos de los muebles de siempre (los demás, Dani, cuando venga al pueblo)
+  nilo: {
+    title: 'Planos de Nilo', hours: [0, 24],
+    stock: plans({ silla: 30, mesa: 40, cofre: 60, estanteria: 50, mesita: 60, cama: 120, cama_nino: 100, cuna: 100, cama_doble: 250, chimenea: 150 }),
+  },
   dani: {
     title: 'Taller de Dani', hours: [10, 19],
-    stock: [{ id: 'maceta', price: 80 }, { id: 'alfombra', price: 140 }, { id: 'lampara', price: 200 }, { plan: 'sillon', price: 220 }, { plan: 'sofa', price: 300 }, { plan: 'comoda', price: 250 }, { plan: 'armario', price: 280 }, { plan: 'banera', price: 320 }, { id: 'caballo', price: 3000 }],
+    stock: [{ id: 'maceta', price: 80 }, { id: 'alfombra', price: 140 }, { id: 'lampara', price: 200 }, { id: 'caballo', price: 3000 },
+      ...plans({ mesa_baja: 60, mesa_grande: 120, sillon: 220, sofa: 300, comoda: 250, armario: 280, vitrina: 200, encimera: 90, alacena: 140, mueble_bano: 110, fregadero: 180, lavabo: 180, inodoro: 180, banera: 320 })],
   },
 };
