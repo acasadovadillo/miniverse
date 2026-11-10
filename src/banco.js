@@ -12,6 +12,7 @@
 //   &lotes=5&n=30      cuántas tandas de cuántos fotogramas se miden en cada parada
 //   &solo=plaza,noche  solo esas paradas
 //   &ab=luces,cielo…   además, lo que cuesta cada cosa (ver variants), quitándola en tandas alternas
+//   &estacion=0..3     otra estación (por defecto, otoño: ver SEASON)
 import { CAM, PITCH, DIST } from './camera.js';
 import { Profile } from './accounts.js';
 import { CENTER } from './world/village.js';
@@ -27,6 +28,10 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 const now = () => performance.now();
 const sec = ms => +(ms / 1000).toFixed(1);
 const median = a => { const s = [...a].sort((x, y) => x - y); return s[Math.floor(s.length / 2)]; };
+// La estación, fija: la del juego sale del calendario de verdad, y en otra cambian la hierba (en invierno queda menos
+// de la mitad), las hojas de los árboles y hasta qué trozo es la pradera. Así una medida de hoy se puede comparar con
+// otra de dentro de un mes. Otoño (2), como la medida de partida (9f538e8, 10-11-2026)
+const SEASON = Q.has('estacion') ? Math.max(0, Math.min(3, Math.floor(+Q.get('estacion') || 0))) : 2;
 
 // Las paradas: dónde está el jugador, cómo mira la cámara y a qué hora
 const PLAZA = () => [CENTER.x, CENTER.y + 3];
@@ -64,7 +69,9 @@ function forest(game) {
 // una de cada cuatro) y menos árboles, rocas o casas que la tapen (cada uno, unas doce casillas vistas desde arriba),
 // contando también los trozos de alrededor (la cámara de siempre ve unas ±12 casillas y la de lejos, mucho más); el
 // suyo cuenta doble. El jugador, en la casilla con hierba más cerca del centro que no tenga nada encima. Solo lee el
-// mundo que sale de la semilla: no depende de la versión del dibujo
+// mundo que sale de la semilla y la estación (fija, SEASON): no depende de la versión del dibujo, pero sí de la del
+// mundo (gen.js), así que cada parada guarda dónde se ha puesto y banco.py --contra avisa si no coincide. Busca a
+// ±7 trozos: con los de alrededor son los mismos ±8 que ya ha mirado forest(), y la caché de trozos (300) no se revuelve
 let meadowAt = null;
 function meadow(game) {
   if (meadowAt) return meadowAt;
@@ -80,7 +87,7 @@ function meadow(game) {
     return solids.get(k);
   }, open = (x, y) => grass(x, y) - 3 * solid(x, y).length;
   let best = -Infinity, at = null;
-  for (let dy = -8; dy <= 8; dy++) for (let dx = -8; dx <= 8; dx++) {
+  for (let dy = -7; dy <= 7; dy++) for (let dx = -7; dx <= 7; dx++) {
     if (Math.max(Math.abs(dx), Math.abs(dy)) < 3) continue;   // (fuera del pueblo)
     const x = cx + dx, y = cy + dy;
     let score = open(x, y);
@@ -132,6 +139,8 @@ export async function runBench(game) {
   runCommand(game, '/gamerule doDaylightCycle false', say);
   runCommand(game, '/weather clear forever', say);
   runCommand(game, '/gamemode creative', say);   // (que no le ataque nada ni pase hambre mientras se mide)
+  // (la estación, fija: el reloj del juego la saca de la fecha; en el pueblo, al norte, la de aquí es esa misma)
+  try { Object.defineProperty(game.days, 'season', { get: () => SEASON, configurable: true }); game.days.applySeason?.(); } catch {}
   const ext = gl.getExtension('WEBGL_debug_renderer_info');
   const out = {
     gpu: ext ? gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER),
@@ -146,6 +155,7 @@ export async function runBench(game) {
   out.tiempos.three = sec(res.find(e => e.name.includes('three'))?.responseEnd || 0);
   out.tiempos.ultimoCodigo = sec(Math.max(0, ...res.map(e => e.responseEnd)));
   const tf = now(); frame(); out.tiempos.primerDibujo = sec(now()); out.tiempos.primerDibujoDura = sec(now() - tf);
+  out.estacion = game.world.gen.season;
   console.log(`BANCO empieza: ${out.gpu}, lienzo ${out.lienzo}`);
   let hour = null;
   for (const s of STOPS) {
@@ -209,7 +219,7 @@ export async function runBench(game) {
     }
     parts.contadores = counters(v, frame);
     const ms = median(lots), stop = {
-      name: s.name, llamadas: main.calls, triangulos: main.triangles, llamadasSombra: all.calls - main.calls, triangulosSombra: all.triangles - main.triangles,
+      name: s.name, at: [+x.toFixed(1), +y.toFixed(1)], llamadas: main.calls, triangulos: main.triangles, llamadasSombra: all.calls - main.calls, triangulosSombra: all.triangles - main.triangles,
       ms: +ms.toFixed(1), fps: +(1000 / ms).toFixed(1), msSinSombra: +median(flat).toFixed(1), min: +Math.min(...lots).toFixed(1), max: +Math.max(...lots).toFixed(1),
       avanzar: +median(up).toFixed(2), encargar: +median(dr).toFixed(2), preparar: sec(now() - t0), ...ready, desglose: parts, cpu, ...(ab && { ab }),
       // (si la versión los lleva: los contadores de las personas que guarda el propio juego)
@@ -246,7 +256,7 @@ function labeler(v) {
   for (const r of v.world.regions.values()) { put(r.roof, 'tejados'); put(r.ceil, 'tejados'); }
   put(v.world.villageGroup, 'pueblo');
   put(v.actors.group, 'actores, otros');
-  for (const m of v.actors.models.values()) put(m.root, m.kind === 'person' || m.kind === 'baby' ? 'personas' : 'animales');
+  for (const m of v.actors.models.values()) put(m.root, groupOf(m));
   put(v.fx.group, 'efectos'); put(v.arrows?.group, 'flechas'); put(v.viewmodel, 'en la mano');
   const memo = new Map();
   return o => {
@@ -255,6 +265,9 @@ function labeler(v) {
     return k;
   };
 }
+
+// El grupo de una persona, un animal o un monstruo (los de la noche, aparte: si no, se cuentan como animales)
+const groupOf = m => m.kind === 'person' || m.kind === 'baby' ? 'personas' : m.kind === 'monster' ? 'monstruos' : 'animales';
 
 // Cuántos triángulos dibuja de verdad una llamada, con las mismas cuentas que Three (r160, renderBufferDirect y
 // WebGLInfo): solo el tramo que pide drawRange (los niveles de detalle dibujan el principio de la geometría), el del
@@ -298,9 +311,9 @@ function breakdown(v, frame) {
 }
 
 // Contadores de unos fotogramas normales, como en el juego (sin forzar las sombras ni cronometrar nada), para ver por
-// qué cambia lo que tarda: cuántas personas y animales se llegan a dibujar (los que pasan el recorte de la cámara), en
-// la pasada normal y en la de sombra; en cuántos fotogramas se rehace el mapa de sombras y con cuántas llamadas y
-// triángulos; cuántas instancias se dibujan por grupo (las matas de la hierba, los árboles…) y lo que hay en la
+// qué cambia lo que tarda: cuántas personas, animales y monstruos se llegan a dibujar (los que pasan el recorte de
+// la cámara), en la pasada normal y en la de sombra; en cuántos fotogramas se rehace el mapa de sombras y con cuántas
+// llamadas y triángulos; cuántas instancias se dibujan por grupo (las matas de la hierba, los árboles…) y lo que hay en la
 // gráfica. Va después de medir la parada, así que no cambia lo medido
 const COUNT_N = 12;   // (par: hoy las sombras se rehacen cada dos fotogramas)
 function counters(v, frame) {
@@ -312,10 +325,9 @@ function counters(v, frame) {
     if (m === undefined) { m = null; for (let p = o; p; p = p.parent) if (owner.has(p)) { m = owner.get(p); break; } memo.set(o, m); }
     return m;
   };
-  const people = m => m.kind === 'person' || m.kind === 'baby';
   const main = new Set(), shade = new Set();
   let depth = 0;
-  const sh = { fotogramas: 0, pasadas: 0, llamadas: 0, triangulos: 0 }, inst = {}, seen = { personas: 0, personasSombra: 0, animales: 0, animalesSombra: 0 };
+  const sh = { fotogramas: 0, pasadas: 0, llamadas: 0, triangulos: 0 }, inst = {}, seen = { personas: 0, personasSombra: 0, animales: 0, animalesSombra: 0, monstruos: 0, monstruosSombra: 0 };
   // (una pasada de sombra que dibuja algo es un repintado: con la caché de lo fijo, también cuenta la de solo lo móvil)
   patch(r.shadowMap, 'render', orig => function (...a) {
     const c0 = sh.llamadas;
@@ -338,16 +350,17 @@ function counters(v, frame) {
       const c0 = sh.llamadas;
       frame();
       if (sh.llamadas > c0) sh.fotogramas++;
-      for (const m of main) seen[people(m) ? 'personas' : 'animales']++;
-      for (const m of shade) seen[people(m) ? 'personasSombra' : 'animalesSombra']++;
+      for (const m of main) seen[groupOf(m)]++;
+      for (const m of shade) seen[groupOf(m) + 'Sombra']++;
     }
   } finally { for (const u of undo.reverse()) u(); }
   const per = x => +(x / COUNT_N).toFixed(2), models = [...v.actors.models.values()];
   const tally = list => ({ modelos: list.length, encendidos: list.filter(m => m.root.visible).length });
   return {
     fotogramas: COUNT_N,
-    personas: { ...tally(models.filter(people)), dibujadas: per(seen.personas), enSombra: per(seen.personasSombra) },
-    animales: { ...tally(models.filter(m => !people(m))), dibujados: per(seen.animales), enSombra: per(seen.animalesSombra) },
+    personas: { ...tally(models.filter(m => groupOf(m) === 'personas')), dibujadas: per(seen.personas), enSombra: per(seen.personasSombra) },
+    animales: { ...tally(models.filter(m => groupOf(m) === 'animales')), dibujados: per(seen.animales), enSombra: per(seen.animalesSombra) },
+    monstruos: { ...tally(models.filter(m => groupOf(m) === 'monstruos')), dibujados: per(seen.monstruos), enSombra: per(seen.monstruosSombra) },
     sombras: { rehechasPorFotograma: per(sh.fotogramas), pasadasPorFotograma: per(sh.pasadas), llamadasPorFotograma: per(sh.llamadas), triangulosPorFotograma: Math.round(sh.triangulos / COUNT_N) },
     instancias: Object.fromEntries(Object.entries(inst).map(([k, n]) => [k, Math.round(n / COUNT_N)])),
     memoria: { geometrias: r.info.memory.geometries, texturas: r.info.memory.textures, programas: r.info.programs?.length ?? null },
@@ -384,7 +397,7 @@ function variants(v, want) {
     for (const g of v.world.far.values()) put('lejanos', g);
     put('pueblo', v.world.villageGroup); put('suelo', v.terrain.group); put('agua', v.terrain.water.group); put('efectos', v.fx.group);
     // (las personas y los animales, por dentro: su raíz la enciende y apaga el juego, al parpadear si les dan)
-    for (const m of v.actors.models.values()) for (const o of m.root.children) put(m.kind === 'person' || m.kind === 'baby' ? 'personas' : 'animales', o);
+    for (const m of v.actors.models.values()) for (const o of m.root.children) put(groupOf(m), o);
     for (const [k, list] of G) if (want.includes('grupos') || want.includes(k)) out.push([k, hide(list)]);
   }
   if (want.includes('luces')) out.push(['luces de cerca', hide(v.pool)]);

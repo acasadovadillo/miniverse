@@ -308,6 +308,9 @@ def table(runs):
                 c = d.get('contadores')
                 if c:
                     print('    ' + counters_line(c))
+                p = next(x for x in runs[l][0]['paradas'] if x['name'] == s).get('personas')
+                if p:
+                    print('    personas (del juego): ' + ', '.join(f'{k} {v}' for k, v in p.items() if isinstance(v, (int, float))))
         print(f"\nListo en {same(l, 'arranque')} s · {same(l, 'programas')} programas · {same(l, 'texturas')} texturas · {same(l, 'geometrias')} geometrías · {same(l, 'memoria')} MB de memoria")
         return
     print(f"{'parada':<16}{'ms antes':>10}{'ahora':>8}{'cambio':>9}   {'llamadas antes':>15}{'ahora':>12}   {'triángulos antes':>17}{'ahora':>14}")
@@ -318,19 +321,39 @@ def table(runs):
         ta = f"{med('antes', s, 'triangulos') / 1000:.0f}k+{med('antes', s, 'triangulosSombra') / 1000:.0f}k"
         tb = f"{med('ahora', s, 'triangulos') / 1000:.0f}k+{med('ahora', s, 'triangulosSombra') / 1000:.0f}k"
         print(f"{s:<16}{a:>10.1f}{b:>8.1f}{(b - a) / a * 100:>+8.0f}%   {ca:>15}{cb:>12}   {ta:>17}{tb:>14}")
+    warn_place(runs, stops)
     for key, name in (('arranque', 'listo en (s)'), ('programas', 'programas'), ('texturas', 'texturas'), ('geometrias', 'geometrías'), ('memoria', 'memoria (MB)')):
         print(f"{name:<16}{str(same('antes', key)):>10}{str(same('ahora', key)):>10}")
     if '--desglose' in sys.argv:
         compare_breakdown(runs, stops)
 
 
+def warn_place(runs, stops):
+    # Con --contra: si las dos versiones no han medido en el mismo sitio (las paradas que se buscan, bosque y pradera,
+    # salen del mundo: si gen.js cambia, pueden caer en otro trozo) o en la misma estación, la comparación no vale
+    def first(label, key, s=None):
+        r = runs[label][0]
+        if s is None:
+            return r.get(key)
+        return next((x.get(key) for x in r['paradas'] if x['name'] == s), None)
+    ea, eb = first('antes', 'estacion'), first('ahora', 'estacion')
+    if ea is not None and eb is not None and ea != eb:
+        print(f'\n¡Ojo! Estación distinta (antes {ea}, ahora {eb}): la hierba y los árboles no son los mismos.')
+    for s in stops:
+        a, b = first('antes', 'at', s), first('ahora', 'at', s)
+        if a and b and (abs(a[0] - b[0]) > 0.05 or abs(a[1] - b[1]) > 0.05):
+            print(f'¡Ojo! {s}: antes en {a[0]:g},{a[1]:g} y ahora en {b[0]:g},{b[1]:g}: no se ha medido el mismo sitio.')
+
+
 def counters_line(c):
     # Los contadores pasivos de una parada (src/banco.js, counters), en una línea
     p, a, sh = c.get('personas', {}), c.get('animales', {}), c.get('sombras', {})
+    mo = c.get('monstruos') or {}
     inst = ', '.join(f'{k} {v}' for k, v in sorted((c.get('instancias') or {}).items(), key=lambda kv: -kv[1]))
     m = c.get('memoria', {})
     return (f"personas {p.get('dibujadas')} dibujadas de {p.get('modelos')} ({p.get('enSombra')} en sombra) · animales {a.get('dibujados')} de {a.get('modelos')}"
-            f" · sombras {sh.get('rehechasPorFotograma')}/fotograma, {sh.get('llamadasPorFotograma')} llamadas y {sh.get('triangulosPorFotograma', 0) / 1000:.0f}k triángulos"
+            + (f" · monstruos {mo.get('dibujados')} de {mo.get('modelos')}" if mo.get('modelos') else '')
+            + f" · sombras {sh.get('rehechasPorFotograma')}/fotograma, {sh.get('llamadasPorFotograma')} llamadas y {sh.get('triangulosPorFotograma', 0) / 1000:.0f}k triángulos"
             f" · instancias: {inst or '-'} · {m.get('geometrias')} geometrías, {m.get('texturas')} texturas, {m.get('programas')} programas")
 
 
@@ -372,6 +395,11 @@ def compare_breakdown(runs, stops):
         for label, d in (('antes', da), ('ahora', db)):
             if d.get('contadores'):
                 print(f'    {label}: ' + counters_line(d['contadores']))
+        # (los contadores de las personas que guarda el propio juego, si alguna versión los lleva)
+        pa, pb = a.get('personas') or {}, b.get('personas') or {}
+        keys = [k for k in dict.fromkeys([*pa, *pb]) if isinstance(pa.get(k, pb.get(k)), (int, float))]
+        if keys:
+            print('    personas (del juego): ' + ', '.join(f'{k} {num(pa.get(k))}→{num(pb.get(k))}' for k in keys))
 
 
 def main():
