@@ -7,7 +7,7 @@ import { B, BIOMES, climate, classify, biomeAt, wetness, depthOfWet, reliefOf } 
 import * as village from './village.js';
 import { seasonalPalette } from '../art/seasons.js';
 import { ihash, vnoise, rgbOf } from '../util.js';
-import { PAL } from '../arte.js';
+import { PAL, SUELO_V2 } from '../arte.js';
 
 export const BLOCK = CHUNK * 4;         // lado de un bloque de suelo, en casillas (metros)
 export const PX = 4;                    // píxeles de textura por metro
@@ -18,6 +18,21 @@ export const PX = 4;                    // píxeles de textura por metro
 const DUNE = rgbOf('#b3a27c'), DIRT = rgbOf(PAL.suelo.camino), DIRT_D = rgbOf(PAL.suelo.tierra), SAND = rgbOf(PAL.suelo.arena), MUD = rgbOf(PAL.suelo.barro);
 const SHORE = [[SAND, rgbOf('#8f8164')], [rgbOf('#80745d'), rgbOf('#665b48')], [rgbOf('#5a5244'), rgbOf('#3f3a30')]];
 const SHALLOW_W = rgbOf(PAL.agua.orilla), DEEP = rgbOf(PAL.agua.profunda), FOAM = rgbOf(PAL.agua.espuma);
+// Las manchas grandes del suelo (de 40 a 200 m): pasto seco y verde jugoso que cambian con la estación, y más claro o más
+// oscuro. Las comparten el suelo (paintPixels) y las matas de hierba de encima (nature3d.js), para que casen. Por estación:
+// cuánto se va a lo seco, cuánto a lo jugoso y cuánto cambia el valor (en invierno, bajo la nieve, casi nada)
+export const MAC_K = [[0.35, 0.45, 1], [0.6, 0.35, 1], [0.5, 0.25, 0.9], [0, 0, 0.35]];
+const MAC_DRY = ['#8b8562', '#94864c', '#8e7440'].map(rgbOf), MAC_LUSH = ['#566b35', '#4f6230', '#5f6233'].map(rgbOf), WARM = rgbOf('#a8865a'), MAC = {};
+// Las manchas en (x, y): dry y lush de 0 a 1 y v, el valor (de 0,88 a 1,12). u: lo mojado de ahí (wetness; -10 si no se
+// sabe): junto a la orilla, una franja jugosa de unos 5 m. Se escriben en out para no crear objetos en los bucles grandes
+export function macroOf(x, y, S, u, out) {
+  const a = vnoise(x * 0.021, y * 0.021, S + 91), b = vnoise(x * 0.0065, y * 0.0065, S + 92), c = vnoise(x * 0.06, y * 0.06, S + 93);
+  const m = a * 0.55 + b * 0.3 + c * 0.15, near = ss(-6, -0.6, u);
+  out.dry = ss(0.5, 0.74, m) * (1 - near);
+  out.lush = Math.max(ss(0.46, 0.24, m), near * 0.85);
+  out.v = 0.88 + 0.24 * (a * 0.6 + c * 0.4);
+  return out;
+}
 const mix3 = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
 const ss = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 
@@ -201,6 +216,18 @@ export function paintPixels(gen, cx, cy, season, field = gen.field(cx, cy)) {
       }
     }
     if (biome === B.DESERT && Math.sin((gx + gy * 0.6) * 4 + f.patch[s] * 9) > 0.93) col = mix3(col, DUNE, 0.6 * own);
+    if (!SUELO_V2 && !info.water) {
+      // Las manchas grandes. Cuánto hay de verde se mide por el color y no por el bioma: así no salta en los bordes ya
+      // mezclados. Los caminos, la arena, la roca y la nieve no tienen verde y solo cambian de valor (la arena, algo más
+      // cálida en lo seco). La orilla y el pueblo se pintan después y mandan
+      macroOf(gx, gy, S, f.wet[s], MAC);
+      const K = MAC_K[season], gr = ss(-0.06, 0.03, (col[1] - col[0]) / 255) * ss(0.04, 0.12, (col[1] - col[2]) / 255);
+      if (gr > 0 && K[0]) { col = mix3(col, MAC_DRY[season], MAC.dry * K[0] * gr); col = mix3(col, MAC_LUSH[season], MAC.lush * K[1] * gr); }
+      const sandy = ss(0.12, 0.24, (col[0] - col[2]) / 255) * ss(140, 175, col[0]);
+      if (sandy > 0) col = mix3(col, WARM, MAC.dry * 0.3 * sandy);
+      const vv = 1 + (MAC.v - 1) * K[2];
+      col = [col[0] * vv, col[1] * vv, col[2] * vv];
+    }
     const u = info.water ? Math.max(f.wet[s], -0.2) : f.wet[s];   // (el tramado de los biomas de agua, como borde mojado)
     if (u > -0.45) {   // la orilla, el borde mojado y el fondo
       const [dry, wetc] = SHORE[f.shore[s]];

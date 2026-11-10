@@ -34,7 +34,7 @@ import { PREY, bodyBox } from './hunt.js';
 import { priceOf } from './economy.js';
 import { modelKind, ICON3D } from './three/icons.js';
 import { View3D } from './three/engine.js';
-import { sobrio } from './arte.js';
+import { sobrio, tonosSuelo } from './arte.js';
 import { tintOf } from './three/tints.js';
 import { PHOTOS, photo } from './three/photos.js';
 
@@ -1067,7 +1067,7 @@ async function soloTests(game) {
   await test('arte: la luz y la paleta sobrias son las de todos, y sobrio() da lo de la propuesta', async () => {
     check(game.view3d.renderer.toneMapping === THREE.CustomToneMapping, 'la curva de tono no es la del arte (AgX con ajuste)');
     check(sobrio('#c83a3a') === '#b84949' && sobrio('#e8b07a', 'piel') === '#e1b386', `sobrio() no da lo de la propuesta: ${sobrio('#c83a3a')}, ${sobrio('#e8b07a', 'piel')}`);
-    check(BIOMES[B.MEADOW].pal[0] === '#6e7a55' && BIOMES[B.MEADOW].rgb.length === 4, `la pradera es ${BIOMES[B.MEADOW].pal[0]}`);
+    check(BIOMES[B.MEADOW].pal[0] === tonosSuelo('#6a7845', 1)[0] && BIOMES[B.MEADOW].rgb.length === 4, `la pradera es ${BIOMES[B.MEADOW].pal[0]}`);
     check(tintOf('stone')[1] === '#958f84', `la piedra compartida es ${tintOf('stone')[1]}`);
   });
   await test('texturas de fotos: cada archivo de assets/tex está en la lista y en las licencias, y llegan', async () => {

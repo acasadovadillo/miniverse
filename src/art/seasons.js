@@ -1,13 +1,15 @@
 // Las estaciones cambian el color del mundo: nombres de las estaciones y color del suelo de cada bioma.
 import { rgbOf, mixHex } from '../util.js';
+import { SUELO_V2 } from '../arte.js';
 
 export const SEASONS = ['Primavera', 'Verano', 'Otoño', 'Invierno'];
 // Paleta del suelo según la estación (solo cambia la hierba y la tierra; el agua y la nieve se quedan igual)
 const GREENISH = new Set([3, 4, 5, 6]);   // pradera, bosque, pinos y pantano
 const palCache = new Map();
-// Hacia qué color va el suelo en verano, otoño (dos tonos, y cuánto: más, la hierba se quedaba beige) e invierno (la
-// nieve y su sombra)
-const T = { summer: '#a89a50', autumn: ['#a0813f', '#97773c'], snow: ['#dfe4e6', '#c3cacc'], fall: 0.22 };
+// Hacia qué color va el suelo en verano, otoño (dos tonos, y cuánto) e invierno (la nieve y su sombra). (En otoño, el 28 %:
+// con el suelo de antes, que el detalle aclaraba, más se quedaba beige; con el de ahora sale olivo dorado y casa con las
+// matas ocres)
+const T = { summer: '#a89a50', autumn: ['#a0813f', '#97773c'], snow: ['#dfe4e6', '#c3cacc'], fall: SUELO_V2 ? 0.22 : 0.28 };
 export function seasonalPalette(biome, info, season) {
   if (season === 0 || season === 1 && !GREENISH.has(biome)) return info.rgb;
   const key = biome * 4 + season;

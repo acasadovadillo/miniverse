@@ -5,7 +5,7 @@
 import { lerp, smoothstep, rgbOf } from '../util.js';
 import { CENTER } from './village.js';
 import { wrapNoise, dxOf, latOf, PLANET } from './planet.js';
-import { tonos } from '../arte.js';
+import { tonos, tonosSuelo, SUELO_V2 } from '../arte.js';
 
 export const B = { OCEAN: 0, SHALLOW: 1, BEACH: 2, MEADOW: 3, FOREST: 4, PINES: 5, SWAMP: 6, DESERT: 7, SNOW: 8, ROCKY: 9, ICE: 10, LAKE: 11 };
 
@@ -24,7 +24,11 @@ export const BIOMES = [
   { name: 'Hielo', base: '#b4cdd6' },
   { name: 'Lago', base: '#355a63', water: 'deep' },
 ];
-for (const b of BIOMES) { b.pal = tonos(b.base); b.rgb = b.pal.map(rgbOf); }
+// La paleta del suelo (desde 2026-11-10): oliva más rico y algo más oscuro, que case con las matas de hierba de encima (el
+// detalle del suelo ya no aclara: ver terrain.js), con su contraste entre tonos (ver tonosSuelo). El agua y el hielo, y
+// todo con ?suelo=v2, como antes
+const SUELO = { [B.BEACH]: ['#c4ae81', 0.6], [B.MEADOW]: ['#6a7845', 1], [B.FOREST]: ['#4d5a33', 1], [B.PINES]: ['#4a5537', 1], [B.SWAMP]: ['#4b5535', 1], [B.DESERT]: ['#b9a275', 0.6], [B.SNOW]: ['#dde1e2', 0.3], [B.ROCKY]: ['#7a766b', 0.8] };
+BIOMES.forEach((b, i) => { const s = !SUELO_V2 && SUELO[i]; b.pal = s ? tonosSuelo(s[0], s[1]) : tonos(b.base); b.rgb = b.pal.map(rgbOf); });
 
 // Los ruidos del clima, uno por frecuencia
 const N = Object.fromEntries([0.02, 0.07, 0.006, 0.03, 0.008, 0.035, 0.0035, 0.012, 0.011, 0.04, 0.01, 0.3].map(f => [f, wrapNoise(f)]));

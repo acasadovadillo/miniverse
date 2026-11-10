@@ -8,7 +8,8 @@ import * as THREE from 'three';
 import { mat, rockGeo, snowCap } from './geo.js';
 import { bark, rockFace } from './textures.js';
 import { ihash, vnoise } from '../util.js';
-import { tonos } from '../arte.js';
+import { tonos, SUELO_V2 } from '../arte.js';
+import { macroOf, MAC_K } from '../world/ground.js';
 import { FLOWER_GEO, FLOWER_COLORS } from './flowers3d.js';
 
 const tmp = new THREE.Object3D(), col = new THREE.Color();
@@ -407,6 +408,9 @@ export function shake(chunk, key, amount) {
 // free(x, y): si ahí puede haber algo (sin construir, labrar, sembrar ni segar)
 const B_ = { BEACH: 2, MEADOW: 3, FOREST: 4, PINES: 5, SWAMP: 6, DESERT: 7, SNOW: 8, ROCKY: 9 };
 let GROUND;
+// Las matas siguen las manchas grandes del suelo (ground.js, macroOf): hacia qué color van en lo seco y en lo jugoso, por
+// estación (en invierno, nada: solo el valor)
+const TUFT_DRY = ['#7d7a3e', '#9a8a44', '#9c7a3a'].map(c => new THREE.Color(c)), TUFT_LUSH = ['#4f7034', '#4a6630', '#6a6c34'].map(c => new THREE.Color(c)), TM = {};
 // (se hace por pasos, un trozo cada vez: yield entre trozo y trozo; al acabar devuelve la malla)
 export function* buildGround(cx0, cy0, n, CHUNK, gen, season, free, groundY) {
   const s = gen.seed, out = { pos: [], col: [], sway: [] }, tufts = [];
@@ -420,7 +424,9 @@ export function* buildGround(cx0, cy0, n, CHUNK, gen, season, free, groundY) {
       if (gy > -0.05) {
         // (la mata, a la altura del centro y con la cuesta de la casilla: las hojas siguen de pie)
         const sx = (groundY(cx + 0.5, cy) - groundY(cx - 0.5, cy)), sz = (groundY(cx, cy + 0.5) - groundY(cx, cy - 0.5));
-        tufts.push([cx, gy, cy, ihash(tx, ty, s + 21) * Math.PI * 2, tall * (season === 3 ? 0.6 : 1), sx, sz, GRASS[Math.floor(ihash(tx, ty, s + 22) * 3)], 0.9 + ihash(tx, ty, s + 23) * 0.2]);
+        // (las manchas, sin lo de la orilla: aquí no hay lo mojado a mano, y calcularlo costaría 1-2 ms por trozo)
+        const mac = SUELO_V2 ? null : macroOf(cx, cy, s, -10, TM);
+        tufts.push([cx, gy, cy, ihash(tx, ty, s + 21) * Math.PI * 2, tall * (season === 3 ? 0.6 : 1), sx, sz, GRASS[Math.floor(ihash(tx, ty, s + 22) * 3)], 0.9 + ihash(tx, ty, s + 23) * 0.2, mac ? mac.dry : 0, mac ? mac.lush : 0, mac ? mac.v : 1]);
       }
       continue;
     }
@@ -448,12 +454,15 @@ export function* buildGround(cx0, cy0, n, CHUNK, gen, season, free, groundY) {
   mesh.userData.own = true;
   if (tufts.length) {
     const im = new THREE.InstancedMesh(A.tuft, A.tuftMat, tufts.length), M = new THREE.Matrix4(), c = new THREE.Color();
-    tufts.forEach(([x, y, z, rot, h, sx, sz, color, light], i) => {
+    const K = MAC_K[season];
+    tufts.forEach(([x, y, z, rot, h, sx, sz, color, light, dry, lush, v], i) => {
       // girada, con su altura y su anchura, y con la cuesta: cada punto sube lo que sube el suelo bajo él (las hojas, de pie)
       const co = Math.cos(rot), sn = Math.sin(rot), w = 1;
       M.set(co * w, 0, sn * w, x, sx * co * w - sz * sn * w, h, sx * sn * w + sz * co * w, y, -sn * w, 0, co * w, z, 0, 0, 0, 1);
       im.setMatrixAt(i, M);
-      im.setColorAt(i, c.set(color).multiplyScalar(light));
+      c.set(color);
+      if (season < 3) c.lerp(TUFT_DRY[season], dry * K[0] * 0.7).lerp(TUFT_LUSH[season], lush * K[1] * 0.6);
+      im.setColorAt(i, c.multiplyScalar(light * (1 + (v - 1) * K[2])));
     });
     im.instanceMatrix.needsUpdate = true; im.instanceColor.needsUpdate = true;
     im.receiveShadow = true;

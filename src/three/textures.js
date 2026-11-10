@@ -238,6 +238,15 @@ export const soilDetail = () => photoOver(make(256, 256, (g, w, h) => {
     g.fillStyle = 'rgba(80,80,80,.5)'; g.beginPath(); g.ellipse(x + 1, y + 1, s, s * 0.7, 0, 0, Math.PI); g.fill();
   }
 }, { color: false }), 'tierra', { grey: 0.8 });
+// Roca de las cuestas del suelo (terrain.js), en gris: manchas y grietas que bajan; encima, la foto de las rocas (la misma
+// que ya se descarga para ellas)
+export const rockDetail = () => photoOver(make(256, 256, (g, w, h) => {
+  const r = rng(13);
+  g.fillStyle = '#c4c4c4'; g.fillRect(0, 0, w, h);
+  for (let i = 0; i < 80; i++) { const v = 140 + r() * 100; g.fillStyle = `rgba(${v},${v},${v},.4)`; g.beginPath(); g.ellipse(r() * w, r() * h, 10 + r() * 36, 6 + r() * 18, r() * 3, 0, 7); g.fill(); }
+  g.strokeStyle = 'rgba(60,60,60,.55)';
+  for (let i = 0; i < 14; i++) { g.beginPath(); let x = r() * w, y = r() * h; g.moveTo(x, y); for (let k = 0; k < 5; k++) { x += (r() - 0.5) * 40; y += r() * 24; g.lineTo(x, y); } g.stroke(); }
+}, { color: false }), 'roca', { grey: 0.9 });
 
 // Tablas horizontales de una pared de madera (cinco por metro), con juntas y vetas
 export const siding = () => photoOver(make(256, 256, (g, w, h) => {

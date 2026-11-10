@@ -43,6 +43,19 @@ export function sobrio(c, tipo) {
 }
 // Los cuatro tonos de un color de suelo, como los de siempre: el de base, dos más claros y uno más oscuro
 export const tonos = c => { const [h, s, v] = hsv(...rgb(c)); return [1, 1.08, 1.16, 0.91].map((k, i) => hex(...fromHsv((h + [0, 0.02, 0.04, -0.02][i] + 6) % 6, s, Math.min(255, v * k)))); };
+// Los cuatro tonos del suelo de un bioma (el de base, dos más claros y uno más oscuro), con más recorrido que tonos(): los
+// claros salen más secos (más amarillos y menos saturados) y el oscuro, más jugoso. El matiz va en sextos de vuelta
+// (-0,14: unos 8°). k: el contraste de cada bioma (la nieve y la arena, poco). (tonos() se queda como estaba: lo usan
+// las hojas)
+export const tonosSuelo = (c, k = 1) => {
+  const [h, s, v] = hsv(...rgb(c));
+  return [[1, 1, 0], [1 + 0.1 * k, 1 - 0.08 * k, -0.08 * k], [1 + 0.2 * k, 1 - 0.15 * k, -0.14 * k], [1 - 0.16 * k, 1 + 0.08 * k, 0.06 * k]]
+    .map(([kv, ks, kh]) => hex(...fromHsv((h + kh + 6) % 6, Math.min(1, s * ks), Math.min(255, v * kv))));
+};
+// ?suelo=v2: el suelo de antes (paleta, detalle y matas de hasta 2026-11-10), para compararlo con el de ahora en el mismo
+// código. Se lee en el hilo principal (de la dirección de la página) y en el del suelo (de la suya: terrain.js le pasa la
+// opción al crearlo)
+export const SUELO_V2 = (() => { try { return new URLSearchParams(globalThis.location?.search || '').get('suelo') === 'v2'; } catch { return false; } })();
 // Para todo lo demás que no tiene color propio en la paleta (muebles, telas, toldos…): saturación ×0,7 y valor ×0,9,
 // para que no chille sobre el mundo sobrio.
 const APAGADO = new Map();
