@@ -406,7 +406,7 @@ function animateMonster(m, e, dt, t) {
 
 // ---------- caballo y barca ----------
 const OAR_DIP = 0.4;   // lo que bajan los remos hacia el agua desde el horizontal (rad): la pala queda dentro
-function boatModel() {
+export function boatModel() {
   // Barca de remos: casco con la proa en punta (mirando a +z), borda, fondo, dos bancos y dos remos
   const root = new THREE.Group(), wood = mat({ color: '#8a5a34', roughness: 0.8 }), dark = mat({ color: '#5e3b22', roughness: 0.8 }), inside = mat({ color: '#6a4428', roughness: 0.9 });
   const outline = (k) => { const s = new THREE.Shape(); s.moveTo(-0.55 * k, -0.95 * k); s.lineTo(0.55 * k, -0.95 * k); s.quadraticCurveTo(0.62 * k, 0.4 * k, 0, 1.15 * k); s.quadraticCurveTo(-0.62 * k, 0.4 * k, -0.55 * k, -0.95 * k); return s; };

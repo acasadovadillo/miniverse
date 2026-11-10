@@ -457,6 +457,7 @@ export class Game {
     const sc = this.scene;
     if (p.pose) return { text: 'Levantarse', run: () => this.rest.stand() };
     if (p.aboard) return this.crew.action();
+    if (p.boat) return this.crew.ownAction();   // (remando: E baja a tierra y amarra la barca)
     // Con ratón, solo lo que se apunta con el cursor (a AIM_REACH casillas como mucho)
     if (this.mouse) { const aim = this.aimed(); return aim ? this.actionFor(aim) : null; }
     // Sin ratón (en pantalla táctil, sin cursor): lo que haya más cerca
@@ -766,6 +767,7 @@ export class Game {
     x = wrapX(x); y = Math.max(NORTH + 1, Math.min(SOUTH - 1, y));   // (dentro del planeta)
     if (p.pose) this.rest.stand();
     if (this.scene !== this.world) { this.scene = this.world; p.inside = false; }
+    if (p.boat && !this.world.water(x, y) && !this.crew.hasMate()) this.world.moorBoat(p.x, p.y, 0);   // (te llevan a tierra remando: la barca se queda amarrada donde estabas)
     Object.assign(p, { x, y, vx: 0, vy: 0, z: 0, vz: 0, boat: (p.boat || !!p.aboard) && !!this.world.water(x, y), aboard: null });
     this.view3d.snap();
     this.updatePlace();

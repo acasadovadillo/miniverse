@@ -11,6 +11,7 @@ export const BUILD_CATS = {
   Muebles: ['silla', 'mesa', 'mesa_grande', 'mesa_baja', 'mesita', 'sofa', 'sillon', 'cama', 'cama_doble', 'cama_nino', 'cuna', 'cofre', 'armario', 'comoda', 'estanteria', 'vitrina', 'chimenea', 'taburete', 'barra', 'barril'],
   'Cocina y baño': ['encimera', 'alacena', 'fregadero', 'banera', 'lavabo', 'inodoro', 'mueble_bano'],
   Estaciones: ['banco', 'horno', 'telar', 'cocina', 'yunque', 'quesera', 'alambique', 'noria'],
+  Exterior: ['barca'],   // (la barca: se amarra en el agua; ver crew.js)
   Rancho: ['gallinero', 'establo', 'cuadra', 'conejera', 'caseta', 'palomar', 'comedero', 'silo', 'colmena', 'incubadora'],
 };
 // id → { name, cat, cost: [[material, n]…], needs: la estación que hay que tener cerca (o null: a mano), recipe: la

@@ -212,6 +212,27 @@ export class Overworld {
     this.onTouch = null;          // avisa de cada trozo que cambia (para jugar juntos en directo)
   }
 
+  // ---------- barcas amarradas ----------
+  // La barca se construye (B) en el agua, junto a la orilla, y se queda amarrada donde se deja al bajar a tierra: van
+  // en el trozo (d.boats: id → [x, y, giro]), así las ve todo el mundo. Al subir, se quita de aquí y va con quien rema
+  moorBoat(x, y, yaw = 0) {
+    const cx = Math.floor(x / CHUNK), cy = Math.floor(y / CHUNK), d = this.delta(cx, cy, true);
+    (d.boats ||= {})[`${Math.round(x * 10)}_${Math.round(y * 10)}`] = [+x.toFixed(2), +y.toFixed(2), +(+yaw || 0).toFixed(2)];
+    this.touch(cx, cy);
+  }
+  unmoorBoat(b) {
+    const cx = Math.floor(b.x / CHUNK), cy = Math.floor(b.y / CHUNK), d = this.delta(cx, cy);
+    if (!d?.boats?.[b.id]) return false;
+    delete d.boats[b.id];
+    this.touch(cx, cy);
+    return true;
+  }
+  boatsNear(x, y, r) {
+    const cx = Math.floor(x / CHUNK), cy = Math.floor(y / CHUNK), out = [];
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) for (const o of this.contentFor(cx + dx, cy + dy).objects) if (o.boat && Math.hypot(dxOf(o.x, x), o.y - y) <= r) out.push(o);
+    return out.sort((a, b) => Math.hypot(dxOf(a.x, x), a.y - y) - Math.hypot(dxOf(b.x, x), b.y - y));
+  }
+
   // ---------- la altura de lo construido ----------
   // Como los bloques de Minecraft: cada casilla construida tiene su altura (d.lvl, metros), la del suelo de ahí cuando se
   // puso lo primero, y todo lo de esa casilla se dibuja ahí. Las piezas de construcción (suelos, muros, puertas, vallas,
@@ -365,6 +386,7 @@ export class Overworld {
     if (d) for (const t of Object.keys(d.tilled)) tilled.push(t.split(',').map(Number));
     const out = { objects, colliders, flats, floors, lights, solids: [], roofMemo: new Map() };
     if (d) this.addBuilt(d, out);
+    if (d?.boats) for (const [id, b] of Object.entries(d.boats)) if (Array.isArray(b)) objects.push({ boat: true, id, x: b[0], y: b[1], yaw: b[2] || 0, key: `boat:${id}:${b[2] || 0}` });   // (las barcas amarradas)
     const vb = this.village.built?.[key];
     if (vb) this.addBuilt(vb, out, true);
     for (const layer of this.layers) layer.add(cx, cy, d, out);

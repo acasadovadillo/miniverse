@@ -4,6 +4,8 @@
 // sin sombra, en bloques grandes, hasta donde llega la niebla. Cada trozo se rehace solo cuando cambia lo que
 // tiene. Los tejados van por regiones (toda la superficie unida, aunque cruce trozos) y, con el jugador dentro
 // de una casa, se ocultan el tejado y las paredes que dan a la cámara (siguen dando sombra).
+import { WATER_Y } from './terrain.js';
+import { boatModel } from './actors.js';
 import * as THREE from 'three';
 import { CHUNK } from '../world/gen.js';
 import * as village from '../world/village.js';
@@ -16,6 +18,7 @@ import { baseMaterials, wallTile, doorTile, doorLeaf, gateTile, gateLeaf, fenceT
 import { getModel, modelMat, CHANDELIER } from './models.js';
 import { yawOf } from '../art/stations.js';
 // Lo que brilla en los modelos y, apagado, con qué se dibuja
+let BOAT = null;   // (el modelo de la barca, para las amarradas)
 const UNLIT = { shade: 'cloth', lamp: 'white', ember: 'soot', glow: 'soot', crystal: 'crystal' };
 import { tintMats, tintOf } from './tints.js';
 
@@ -173,6 +176,7 @@ export class World3D {
         else if (piece?.kind === 'fence') fenceTile(scene, tx, ty, o.placed, plain);
         else this.placeModel(o.key === this.insideKey ? `${o.placed}:in` : o.model || o.placed, o.x, o.y, o.yaw ?? yawOf(o.rot), plain, c, group, o.off, LIFT);
       } else if (o.crop && this.farm(scene)) this.placeModel(`crop:${o.crop.id}:${this.farm(scene).stage(o.crop)}`, o.x, o.y, 0, plain, c, group, false, LIFT);
+      else if (o.boat) { const b = (BOAT ||= boatModel()).clone(true); b.position.set(o.x, WATER_Y - 0.12, o.y); b.rotation.y = o.yaw; b.traverse(q => { if (q.isMesh) { q.castShadow = true; q.receiveShadow = true; } }); group.add(b); }   // (una barca amarrada)
       else if (o.poi) this.placeModel(`poi:${o.poi.kind}${o.poi.snow ? ':snow' : ''}`, o.poi.x, o.poi.y, 0, plain, c, group);
       else if (o.treasure) this.placeModel(`treasure:${o.open ? 1 : 0}`, o.x, o.y, 0, plain, c, group);
       else if (o.roof && o.layer === 'roof') { const r = this.regionAt(scene, o.tile[0], o.tile[1]); if (r) c.regions.add(r); }
