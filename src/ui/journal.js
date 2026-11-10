@@ -1,4 +1,4 @@
-// Diario (tecla J): la historia, los vecinos, las habilidades, el museo, los logros y las estadísticas.
+// Diario (tecla J): la historia, los vecinos, las habilidades, las colecciones, los logros y las estadísticas.
 import { itemIconUrl } from '../art/items.js';
 
 const $ = id => document.getElementById(id);
@@ -12,7 +12,7 @@ export function initJournalUI(game, { onClose }) {
     habilidades: ['Habilidades', () => game.skills.journal()],
     granja: ['Granja', () => game.ranch.journal()],
     pesca: ['Pesca', () => game.fishing.journal()],
-    museo: ['Museo', () => game.collection.journal()],
+    colecciones: ['Colecciones', () => game.collection.journal()],
     logros: ['Logros', () => game.achievements.journal()],
     datos: ['Estadísticas', () => `<p class="j-note">Día ${game.days.dayIndex + 1} · ${game.money} monedas</p>` + Object.entries(STAT_NAMES).map(([k, n]) => `<div class="j-row"><b>${n}</b><span class="lvl">${Math.round(game.stats.get(k))}</span></div>`).join('')],
   };

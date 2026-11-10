@@ -138,6 +138,9 @@ Object.assign(ITEMS, {
   piel: { name: 'Piel', desc: 'De un animal. En el telar, dos pieles se curten en cuero.' },
   cuero: { name: 'Cuero', desc: 'Piel curtida: para botas, alforjas y sillones.' },
   hueso: { name: 'Hueso', desc: 'En el banco se muele en abono.' },
+  // Flores silvestres (se cogen en la pradera; ver gen.js): para regalar, vender o la colección del diario
+  margarita: { name: 'Margarita', desc: 'Blanca, de botón amarillo. Sale en manchas por la pradera, de la primavera al otoño.', flower: true },
+  diente_leon: { name: 'Diente de león', desc: 'Amarillo; al madurar se vuelve una bola de vilanos que se lleva el viento.', flower: true },
   manteca: { name: 'Manteca', desc: 'Grasa de cerdo. En el banco se hacen velas con ella.' },
   asta: { name: 'Asta de ciervo', desc: 'Un trofeo: se vende bien.' },
   colmillo: { name: 'Colmillo de jabalí', desc: 'Un trofeo: se vende bien.' },
@@ -231,7 +234,7 @@ export const BUGS = {
   grillo: { name: 'Grillo', seasons: [2], hours: [18, 2], col: '#6a4a2a' },
   polilla: { name: 'Polilla', seasons: [1, 2, 3], hours: [20, 5], col: '#c8b898' },
 };
-for (const [id, b] of Object.entries(BUGS)) ITEMS[id] = { name: b.name, desc: 'Un insecto para el museo del pueblo.', bug: true };
+for (const [id, b] of Object.entries(BUGS)) ITEMS[id] = { name: b.name, desc: 'Un insecto para tu colección (diario, J).', bug: true };
 ITEMS.red = { name: 'Red de insectos', desc: 'Úsala en la hierba o junto al agua para cazar insectos.', tool: 'red', tier: 1, stack: 1, dur: 120 };
 ITEMS.vitrina = { name: 'Vitrina', desc: 'Para lucir tus colecciones en casa.', place: 'furniture' };
 
@@ -334,11 +337,17 @@ export const HARVEST = {
   swampTree: { ...TREE, drops: [['madera', 3, 4], ['fibra', 1, 2, 0.4]] },
   cactus: { tool: 'hacha', hits: 2, chips: 'cactus', verb: 'Cortar', drops: [['pulpa', 1, 2], ['fibra', 1, 1, 0.5]] },
   bush: { tool: 'guadana', hand: 2, hits: 1, chips: 'leaf', verb: 'Segar', drops: [['fibra', 1, 2], ['bayas', 1, 2, 0.5], ['semillas', 1, 2, 0.3]] },
+  // Las flores silvestres: se cogen a mano (o con la guadaña)
+  margarita: { tool: 'guadana', hand: 1, hits: 1, chips: 'leaf', verb: 'Coger', drops: [['margarita', 1, 1]] },
+  diente_leon: { tool: 'guadana', hand: 1, hits: 1, chips: 'leaf', verb: 'Coger', drops: [['diente_leon', 1, 1]] },
   deadBush: { tool: 'guadana', hand: 1, hits: 1, chips: 'twig', verb: 'Segar', drops: [['madera', 1, 1], ['fibra', 1, 2]] },
   rock: { tool: 'pico', hits: 2, chips: 'stone', verb: 'Picar', drops: [['piedra', 2, 3], ['carbon', 1, 1, 0.2], ['cobre', 1, 1, 0.15]] },
   boulder: { tool: 'pico', hits: 6, chips: 'stone', verb: 'Picar', drops: [['piedra', 5, 7], ['carbon', 1, 2, 0.4], ['cobre', 1, 3, 0.6], ['hierro', 1, 2, 0.45], ['oro', 1, 2, 0.3]] },
   snowBoulder: { tool: 'pico', hits: 6, chips: 'stone', verb: 'Picar', drops: [['piedra', 4, 6], ['carbon', 1, 1, 0.3], ['hierro', 1, 3, 0.55], ['oro', 1, 2, 0.35]] },
 };
+
+// La hierba de una casilla, segada con la guadaña (ver gen.js, grassAt): una fibra y, a veces, semillas
+export const GRASS_DROPS = [['fibra', 1, 1], ['semillas', 1, 1, 0.08]];
 
 // Vetas de las cuevas
 const VEIN = (ore, hits, drops) => ({ tool: 'pico', hits, chips: 'stone', verb: 'Picar', drops });

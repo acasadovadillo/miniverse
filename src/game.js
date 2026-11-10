@@ -529,7 +529,7 @@ export class Game {
     // El candelabro de la casa, colgado del techo
     const lamp = this.lampNear(R), at = lamp && this.view3d.world.chandelierNear(p.x, p.y, R, true);
     if (lamp) out.push({ kind: 'lamp', tile: lamp, box: box(at[0], at[1], 0.6, 0.6, 1.9, 2.8) });
-    // Lo de cada sistema: el tablón, el museo, las cuevas y los templos, los árboles con fruta, la barca de otro…
+    // Lo de cada sistema: el tablón, las cuevas y los templos, los árboles con fruta, la barca de otro…
     for (const s of this.systems) { const more = s.aimables?.(p, sc, box); if (more) out.push(...more); }
     // En primera persona, también las criaturas: se les pega a las que están en la cruceta
     if (CAM.first) for (const m of this.combat.monsters || []) if (sees(m.x, m.y)) { const fly = MONSTERS[m.type].fly, tall = m.type === 'esqueleto' ? 1.4 : 0.7; out.push({ kind: 'monster', e: m, box: box(m.x, m.y, 0.4, 0.4, fly ? 0.9 : 0, fly ? 1.7 : tall) }); }

@@ -1,6 +1,6 @@
 // Generador del mundo: a partir de una semilla decide el bioma, el suelo y la naturaleza de cualquier casilla.
 // Todo es determinista: la misma semilla y la misma casilla dan siempre lo mismo.
-import { mk, ihash, rgbOf } from '../util.js';
+import { mk, ihash, vnoise, rgbOf } from '../util.js';
 import * as village from './village.js';
 import { B, BIOMES, climate, classify, biomeAt, wetness, depthOfWet, shoreOf, reliefOf } from './biomes.js';
 import { wrapNoise, wrapIndex } from './planet.js';
@@ -13,6 +13,14 @@ const ROOF = '#c95a3c', PATH = '#c99e66', POND = '#3f8fd0';
 const PATCH = wrapNoise(0.45), THICK = wrapNoise(0.05), PINE_MIX = wrapNoise(0.04);
 // (los trozos se cuentan siempre dentro del planeta: el de la otra punta de la costura es el mismo)
 const own = cx => wrapIndex(cx, CHUNK);
+
+// Cuánta hierba hay en cada bioma (la parte de sus casillas que la tienen) y a los cuántos días de segarla vuelve a salir
+const GRASS_DENSITY = { [B.MEADOW]: 0.95, [B.FOREST]: 0.78, [B.PINES]: 0.6, [B.SWAMP]: 0.5 };
+export const GRASS_REGROW = 3;
+// Las flores silvestres que se cogen (objetos de la naturaleza, en manchas por la pradera y algo por el bosque). Salen
+// todas en primavera, casi todas en verano, menos en otoño y ninguna en invierno
+export const FLOWER_KINDS = new Set(['margarita', 'diente_leon']);
+export const flowerShows = (o, season) => ihash(Math.floor(o.x), Math.floor(o.y), 77) < [1, 0.85, 0.4, 0][season];
 
 export class WorldGen {
   constructor(seed) {
@@ -51,6 +59,16 @@ export class WorldGen {
     };
     for (let j = 0; j < m; j++) for (let i = 0; i < m; i++) put(x0 - 1 + i, z0 - 1 + j, corners[j * m + i]);
     for (let j = 0; j < w; j++) for (let i = 0; i < w; i++) put(x0 + i + 0.5, z0 + j + 0.5, centers[j * w + i]);
+  }
+  // La hierba de una casilla, como la de Minecraft: cada casilla de pradera, bosque, pinar o pantano la tiene o no (en
+  // manchas), y la que la tiene la llena entera. Da su altura (0 si no hay). En invierno queda menos. Se siega con la
+  // guadaña y vuelve a salir a los GRASS_REGROW días (scenes.js, grassAt y mow); lo dibuja nature3d.js (buildGround)
+  grassAt(tx, ty) {
+    const d = GRASS_DENSITY[this.biomeAt(tx + 0.5, ty + 0.5)];
+    if (!d) return 0;
+    const s = this.seed, patch = 0.7 + vnoise(tx * 0.13, ty * 0.13, s + 11) * 0.6;
+    if (ihash(tx, ty, s + 10) > d * patch * (this.season === 3 ? 0.45 : 1)) return 0;
+    return 0.75 + ihash(tx, ty, s + 40) * 0.55;
   }
   nearVillage(cx, cy) {
     const bx = own(cx) * CHUNK, by = cy * CHUNK, V = village.BOUNDS;
@@ -119,8 +137,11 @@ export class WorldGen {
       if (r) o.col = { x, y, r };
       // (las rocas tienen altura, top: se sube uno encima andando, y la colisión del suelo no las cuenta; ver entities.js)
       if (r && (kind === 'rock' || kind === 'boulder' || kind === 'snowBoulder')) o.col.top = kind === 'rock' ? 0.3 : 0.85;
+      if (FLOWER_KINDS.has(kind)) o.flower = true;
       objects.push(o);
     };
+    // Los arbustos del jardín del pueblo: como los demás, se siegan (y lo segado no vuelve)
+    for (const [tx, ty] of village.gardenBushes()) if (Math.floor(tx / CHUNK) === cx && Math.floor(ty / CHUNK) === cy) add('bush', tx, ty, 0.45);
 
     // Plantas grandes: como mucho una por celda de 2×2 casillas. El azar elige cuál de las cuatro
     // casillas de la celda ocupa (la misma que antes caía el punto suelto, pero ahora centrada).
@@ -161,6 +182,13 @@ export class WorldGen {
           add('bush', tx, ty, 0.45);
         }
       }
+    }
+    // Flores, en manchas, en las casillas que siguen libres (también en la hierba del pueblo)
+    for (let ty = cy * CHUNK; ty < (cy + 1) * CHUNK; ty++) for (let tx = cx * CHUNK; tx < (cx + 1) * CHUNK; tx++) {
+      if (taken.has(`${tx},${ty}`) || vnoise(tx * 0.21, ty * 0.21, s + 7) < 0.64) continue;
+      const x = tx + 0.5, y = ty + 0.5, b = this.biomeAt(x, y);
+      if ((b !== B.MEADOW && b !== B.FOREST) || ihash(tx, ty, s + 75) > (b === B.MEADOW ? 0.42 : 0.12) || village.keepClear(x, y) || !village.isGrass(x, y)) continue;
+      add(vnoise(tx * 0.09 + 3, ty * 0.09, s + 8) > 0.5 ? 'margarita' : 'diente_leon', tx, ty, 0);
     }
     const out = { objects };
     this.cache.set(key, out);

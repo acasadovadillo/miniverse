@@ -9,6 +9,7 @@ import { mat, rockGeo, snowCap } from './geo.js';
 import { bark, rockFace } from './textures.js';
 import { ihash, vnoise } from '../util.js';
 import { tonos, ARTE } from '../arte.js';
+import { FLOWER_GEO, FLOWER_COLORS } from './flowers3d.js';
 const A2 = ARTE === 2;
 
 const tmp = new THREE.Object3D(), col = new THREE.Color();
@@ -114,6 +115,7 @@ const mats = () => (MATS ||= {
   rock2: A2 ? mat({ map: (() => { return rockFace(); })(), flatShading: true, roughness: 0.92 }) : null,
   frond2: sway(mat({ color: '#ffffff', side: THREE.DoubleSide, shadowSide: THREE.DoubleSide, roughness: 0.85 }), 0.05, 1.2),
   cactus2: mat({ color: '#ffffff', roughness: 0.75 }), snowRock: snowCap({ flatShading: true }),
+  petal: mat({ roughness: 0.8, side: THREE.DoubleSide }), puff: mat({ roughness: 1, side: THREE.DoubleSide, transparent: true, opacity: 0.9, depthWrite: false }),
 });
 // Colores de las hojas según la estación (0 primavera … 3 invierno), de la paleta sobria (las flores y la fruta, vivas)
 const LEAF = [tonos('#6f8050'), tonos('#59683f'), ['#94703a', '#a07c42', '#7f4e2e', '#8c6438'], tonos('#858c84')];
@@ -161,6 +163,7 @@ function pieces(o, season, out, owner, y = 0) {
   else if (A2 && (kind === 'pine' || kind === 'snowPine')) pine2(o, season, push, x, z, y, r, rot);
   else if (A2 && kind === 'palm') palm2(o, season, push, x, z, y, r, rot);
   else if (A2 && kind === 'cactus') cactus2(o, season, push, x, z, y, r, rot);
+  else if (kind === 'margarita' || kind === 'diente_leon') flower2(o, season, push, x, z, y, r);
   else if (A2 && kind === 'bush') bush2(o, season, push, x, z, y, r, rot, h);
   else if (A2 && (kind === 'rock' || kind === 'boulder' || kind === 'snowBoulder')) rock2(o, season, push, x, z, y, r, rot, h);
   else if (kind === 'oak' || kind === 'fruit' || kind === 'swampTree') {
@@ -404,6 +407,29 @@ function rock2(o, season, push, x, z, y, r, rot, h) {
   if (o.kind === 'snowBoulder' || season === 3) push('snow' + v, { p: [x, y + s * 0.12 + 0.015, z], s: [s * (1.05 + r(1) * 0.35) * 1.04, s * (big ? 0.95 : 0.8) * 1.04, s * (0.95 + r(8) * 0.2) * 1.04], r: [(r(9) - 0.5) * 0.2, rot, (r(10) - 0.5) * 0.2] });
 }
 
+// Margarita y diente de león (flowers3d.js): una roseta de hojas tumbadas y de tres a cinco flores, cada una en su tallo
+// algo inclinado, con la cabeza mirando hacia donde se inclina. En verano y otoño, parte de los dientes de león son ya
+// vilanos (la bola blanca), y en otoño quedan menos flores. (En invierno no salen: gen.js, flowerShows)
+const FLOWER_PART = new Set(['petals', 'disc', 'dandelion', 'dome', 'cup', 'puff', 'leafD', 'leafT', 'stem']);
+const qf = new THREE.Quaternion(), ef = new THREE.Euler(), vf = new THREE.Vector3(), FLOWER_K = 1.7;   // (las cabezas, algo más grandes, para que se vean)
+function flower2(o, season, push, x, z, y, r) {
+  const daisy = o.kind === 'margarita', C = FLOWER_COLORS, n = (season === 2 ? 2 : 3) + Math.floor(r(1) * 3);
+  for (let i = 0, nl = daisy ? 8 : 6; i < nl; i++) push(daisy ? 'leafD' : 'leafT', { p: [x, y + 0.003, z], s: (0.85 + r(20 + i) * 0.45) * 1.4, r: [0, r(2) * 6.28 + i * 2.4, 0.1 + r(30 + i) * 0.3], c: C[daisy ? 'leafD' : 'leafT'] });
+  for (let i = 0; i < n; i++) {
+    const a = r(40 + i) * 6.28, d = 0.02 + r(50 + i) * 0.14, bx = x + Math.cos(a) * d, bz = z + Math.sin(a) * d;
+    const h = (daisy ? 0.2 : 0.22) + r(60 + i) * (daisy ? 0.12 : 0.16), la = r(70 + i) * 6.28, lean = 0.06 + r(80 + i) * 0.2, k = FLOWER_K;
+    vf.set(Math.cos(la) * Math.sin(lean), Math.cos(lean), Math.sin(la) * Math.sin(lean));
+    ef.setFromQuaternion(qf.setFromUnitVectors(UP, vf));
+    const R = [ef.x, ef.y, ef.z], top = [bx + vf.x * h, y + vf.y * h, bz + vf.z * h];
+    push('stem', { p: [bx + vf.x * h / 2, y + vf.y * h / 2, bz + vf.z * h / 2], s: [0.008, h, 0.008], r: R, c: C.stem });
+    if (daisy) { push('petals', { p: top, s: k, r: R, c: C.petals }); push('disc', { p: top, s: k, r: R, c: C.disc }); continue; }
+    push('cup', { p: top, s: k, r: R, c: C.cup });
+    const puff = season > 0 && r(90 + i) < (season === 1 ? 0.35 : 0.7);
+    push(puff ? 'puff' : 'dandelion', { p: puff ? [top[0], top[1] + 0.022 * k, top[2]] : top, s: k, r: R, c: C[puff ? 'puff' : 'dandelion'] });
+    if (!puff) push('dome', { p: top, s: k, r: R, c: C.dome });
+  }
+}
+
 const CARD_DEPTH = {};
 // Mallas de un trozo a partir de sus objetos de la naturaleza. shadows: si dan sombra (lo cercano)
 export function buildNatureChunk(objs, season, groundY, shadows = true) {
@@ -416,11 +442,12 @@ export function buildNatureChunk(objs, season, groundY, shadows = true) {
     card: [GEO.card, M.card], cardS: [GEO.card, M.cardS], cardW: [GEO.card, M.cardW], tier: [GEO.tier, M.tier], snowTier: [GEO.tier, M.snow],
     palmSeg: [GEO.palmSeg, M.palmTrunk], frond2: [GEO.frond2, M.frond2], rib: [GEO.rib, M.cactus2], ribTop: [GEO.ribTop, M.cactus2],
     rock0: [GEO.rock0, M.rock2], rock1: [GEO.rock1, M.rock2], rock2: [GEO.rock2, M.rock2],
+    ...Object.fromEntries([...FLOWER_PART].map(k => [k, [FLOWER_GEO()[k], k === 'puff' ? M.puff : M.petal]])),
     snowrock0: [GEO.rock0, M.snowRock], snowrock1: [GEO.rock1, M.snowRock], snowrock2: [GEO.rock2, M.snowRock],
   };
   for (const [type, list] of Object.entries(out)) {
     const [geo, m] = spec[type];
-    const small = type === 'bloom' || type === 'apple' || type === 'gem' || type === 'coconut' || type.startsWith('card');   // (las tarjetas de hojas, sin sombra: la da el núcleo)
+    const small = type === 'bloom' || type === 'apple' || type === 'gem' || type === 'coconut' || type.startsWith('card') || FLOWER_PART.has(type);   // (las tarjetas de hojas, sin sombra: la da el núcleo)
     const card = type.startsWith('card'), im = instanced(geo, m, list, { cast: shadows && (!small || card), receive: !card });   // (sin recibir: si no, la copa se oscurece entera con su propia sombra)
     // (las tarjetas de hojas dan sombra moteada: su silueta, con el corte de la textura)
     if (card) im.customDepthMaterial = (CARD_DEPTH[type] ||= new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking, map: m.map, alphaTest: 0.5 }));
@@ -442,44 +469,40 @@ export function shake(chunk, key, amount) {
   }
 }
 
-// Matas, flores, setas, juncos, conchas y piedrecitas del suelo de unos trozos (de cx0, cy0, n × n), según el
-// bioma de cada casilla, todo en una sola malla con colores por vértice (y cuánto se mece cada vértice).
-// free(x, y): si ahí puede haber algo (hierba sin construir ni labrar)
+// La hierba, las setas, los juncos, las conchas y las piedrecitas del suelo de unos trozos (de cx0, cy0, n × n), según
+// el bioma de cada casilla. La hierba va por casillas, como en Minecraft (gen.grassAt): cada casilla con hierba lleva
+// una mata que la llena entera, de muchas hojas finas (TUFT), en instancias inclinadas como la cuesta. Lo demás va en
+// una sola malla con colores por vértice (y cuánto se mece cada vértice), que lleva las matas como hija.
+// free(x, y): si ahí puede haber algo (sin construir, labrar, sembrar ni segar)
 const B_ = { BEACH: 2, MEADOW: 3, FOREST: 4, PINES: 5, SWAMP: 6, DESERT: 7, SNOW: 8, ROCKY: 9 };
 let GROUND;
 // (se hace por pasos, un trozo cada vez: yield entre trozo y trozo; al acabar devuelve la malla)
 export function* buildGround(cx0, cy0, n, CHUNK, gen, season, free, groundY) {
-  const s = gen.seed, out = { pos: [], col: [], sway: [] };
-  const FLOWERS = ['#ffffff', '#ffe04a', '#ff7aa8', '#b48aff', '#ff6a4a', '#7ac8ff'];
-  const GRASS = [tonos('#748457').slice(0, 3), tonos('#61703f').slice(0, 3), ['#a08c4c', '#ad9852', '#958243'], ['#c4cbc8', '#d2d8d5', '#b6bebb']][season];
+  const s = gen.seed, out = { pos: [], col: [], sway: [] }, tufts = [];
+  const GRASS = [['#5f7a3a', '#6a8442', '#56703a'], ['#56692f', '#5f7336', '#4d6130'], ['#8f7d42', '#9c8a4a', '#86743c'], ['#a4ac9e', '#b2b8ae', '#98a094']][season];
   const A = (GROUND ||= groundShapes());
   for (let cj = 0; cj < n; cj++) for (let ci = 0; ci < n; ci++, yield) for (let ty = (cy0 + cj) * CHUNK; ty < (cy0 + cj + 1) * CHUNK; ty++) for (let tx = (cx0 + ci) * CHUNK; tx < (cx0 + ci + 1) * CHUNK; tx++) {
-    const b = gen.biomeAt(tx + 0.5, ty + 0.5), lush = b === B_.MEADOW || b === B_.FOREST || b === B_.PINES || b === B_.SWAMP;
-    for (let k = 0; k < 1; k++) {
-      const x = tx + ihash(tx, ty, s + 20 + k), y = ty + ihash(tx, ty, s + 30 + k), roll = ihash(tx, ty, s + 10 + k);
-      if (!free(x, y)) continue;
-      const gy = groundY(x, y);
-      if (gy < -0.05) continue;
-      if (lush && roll < (season === 3 ? 0.08 : b === B_.MEADOW ? 0.9 : 0.7)) put(out, A.blade, x, gy, y, roll * 9, 1.0 + ihash(tx, ty, s + 40 + k) * 0.7, GRASS[Math.floor(roll * 30) % 3], true);
-      else if (b === B_.SWAMP && roll < 0.9) put(out, A.reed, x, gy, y, roll * 9, 0.6 + roll * 0.5, '#5e6f44', true);
-      else if (b === B_.DESERT && roll < 0.08) put(out, A.blade, x, gy, y, roll * 9, 0.7, '#a08a62', true);
-      else if (b === B_.BEACH && roll < 0.04) put(out, A.pebble, x, gy, y, roll * 9, 0.5, k ? '#ffd8e0' : '#ffffff');
-      else if (b === B_.ROCKY && roll < 0.3) put(out, A.pebble, x, gy, y, roll * 9, 0.8 + roll, '#8a867e');
-      else if (b === B_.SNOW && roll < 0.05) put(out, A.pebble, x, gy, y, roll * 9, 1.2, '#ffffff');
-    }
-    if (season === 3) continue;
-    if (b === B_.MEADOW && vnoise(tx * 0.25, ty * 0.25, s + 7) > 0.66 && ihash(tx, ty, s + 40) < (season === 0 ? 0.9 : season === 2 ? 0.35 : 0.7)) {
-      for (let k = 0; k < (season === 0 ? 2 : 1); k++) {
-        const x = tx + ihash(tx, ty, s + 41 + k), y = ty + ihash(tx, ty, s + 42 + k);
-        if (!free(x, y)) continue;
-        const h = 0.8 + ihash(tx, ty, s + 43 + k) * 0.6, gy = groundY(x, y);
-        put(out, A.stem, x, gy, y, k, h, '#55693f', true);
-        put(out, A.head, x, gy + 0.2 * h, y, k * 2, 1, FLOWERS[Math.floor(vnoise(tx * 0.2 + k, ty * 0.2, s + 8) * FLOWERS.length) % FLOWERS.length], true, 0.2 * h);
+    const b = gen.biomeAt(tx + 0.5, ty + 0.5), cx = tx + 0.5, cy = ty + 0.5;
+    const tall = gen.grassAt(tx, ty);
+    if (tall && free(cx, cy)) {
+      const gy = groundY(cx, cy);
+      if (gy > -0.05) {
+        // (la mata, a la altura del centro y con la cuesta de la casilla: las hojas siguen de pie)
+        const sx = (groundY(cx + 0.5, cy) - groundY(cx - 0.5, cy)), sz = (groundY(cx, cy + 0.5) - groundY(cx, cy - 0.5));
+        tufts.push([cx, gy, cy, ihash(tx, ty, s + 21) * Math.PI * 2, tall * (season === 3 ? 0.6 : 1), sx, sz, GRASS[Math.floor(ihash(tx, ty, s + 22) * 3)], 0.9 + ihash(tx, ty, s + 23) * 0.2]);
       }
-    } else if (b === B_.FOREST && ihash(tx, ty, s + 43) < 0.05) {
-      const x = tx + 0.5, y = ty + 0.5;
-      if (free(x, y)) { const gy = groundY(x, y); put(out, A.shroomStem, x, gy, y, 0, 1, '#f2ecd8'); put(out, A.shroomCap, x, gy, y, 0, 1, '#c83a2a'); }
+      continue;
     }
+    const x = tx + ihash(tx, ty, s + 20), y = ty + ihash(tx, ty, s + 30), roll = ihash(tx, ty, s + 10);
+    if (!free(x, y)) continue;
+    const gy = groundY(x, y);
+    if (gy < -0.05) continue;
+    if (b === B_.SWAMP && roll < 0.9) put(out, A.reed, x, gy, y, roll * 9, 0.6 + roll * 0.5, '#5e6f44', true);
+    else if (b === B_.DESERT && roll < 0.08) put(out, A.blade, x, gy, y, roll * 9, 0.7, '#a08a62', true);
+    else if (b === B_.BEACH && roll < 0.04) put(out, A.pebble, x, gy, y, roll * 9, 0.5, '#ffffff');
+    else if (b === B_.ROCKY && roll < 0.3) put(out, A.pebble, x, gy, y, roll * 9, 0.8 + roll, '#8a867e');
+    else if (b === B_.SNOW && roll < 0.05) put(out, A.pebble, x, gy, y, roll * 9, 1.2, '#ffffff');
+    else if (b === B_.FOREST && season !== 3 && ihash(tx, ty, s + 43) < 0.05 && free(cx, cy)) { const g2 = groundY(cx, cy); put(out, A.shroomStem, cx, g2, cy, 0, 1, '#f2ecd8'); put(out, A.shroomCap, cx, g2, cy, 0, 1, '#c83a2a'); }
   }
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.Float32BufferAttribute(out.pos, 3));
@@ -492,6 +515,20 @@ export function* buildGround(cx0, cy0, n, CHUNK, gen, season, free, groundY) {
   const mesh = new THREE.Mesh(geo, A.mat);
   mesh.receiveShadow = true;
   mesh.userData.own = true;
+  if (tufts.length) {
+    const im = new THREE.InstancedMesh(A.tuft, A.tuftMat, tufts.length), M = new THREE.Matrix4(), c = new THREE.Color();
+    tufts.forEach(([x, y, z, rot, h, sx, sz, color, light], i) => {
+      // girada, con su altura y su anchura, y con la cuesta: cada punto sube lo que sube el suelo bajo él (las hojas, de pie)
+      const co = Math.cos(rot), sn = Math.sin(rot), w = 1;
+      M.set(co * w, 0, sn * w, x, sx * co * w - sz * sn * w, h, sx * sn * w + sz * co * w, y, -sn * w, 0, co * w, z, 0, 0, 0, 1);
+      im.setMatrixAt(i, M);
+      im.setColorAt(i, c.set(color).multiplyScalar(light));
+    });
+    im.instanceMatrix.needsUpdate = true; im.instanceColor.needsUpdate = true;
+    im.receiveShadow = true;
+    im.computeBoundingSphere();
+    mesh.add(im);
+  }
   return mesh;
 }
 // Copia una forma (posiciones sin índices) girada, escalada y movida, con su color; bends: si se mece con el
@@ -508,10 +545,42 @@ function put(out, shape, x, y, z, rot, s, color, bends = false, lift = 0) {
     out.sway.push(bends ? (py + lift) : 0);
   }
 }
+// La mata de hierba de una casilla: TUFT_N hojas finas y largas repartidas por toda la casilla (algo más, para que las
+// de al lado se junten), cada una de tres tramos que se estrechan hasta la punta y se doblan hacia fuera; oscuras
+// abajo, claras arriba y cada una de un tono algo distinto. Con la normal hacia arriba, como el suelo
+const TUFT_N = 72;
+function tuftGeometry() {
+  let a = 9001;
+  const rnd = () => ((a = (a * 16807) % 2147483647) / 2147483647);
+  const pos = [], col = [], sway = [];
+  for (let i = 0; i < TUFT_N; i++) {
+    const bx = (rnd() - 0.5) * 1.12, bz = (rnd() - 0.5) * 1.12;
+    const h = 0.08 + rnd() * 0.08 + rnd() * rnd() * 0.14, w = 0.01 + rnd() * 0.008, yaw = rnd() * Math.PI, lean = 0.25 + rnd() * 0.45, ld = rnd() * Math.PI * 2;
+    const tone = 0.82 + rnd() * 0.3, ux = Math.cos(yaw), uz = Math.sin(yaw), dx = Math.cos(ld), dz = Math.sin(ld);
+    // los puntos de la hoja a lo alto (t de 0 a 1): la anchura baja y se dobla cada vez más
+    const at = (t, side) => { const bend = lean * h * t * t, ww = w * (1 - t) * side; return [bx + dx * bend + ux * ww, h * t, bz + dz * bend + uz * ww]; };
+    const shade = t => (0.38 + 0.72 * t) * tone;
+    const T = [0, 0.55, 1];
+    for (let k = 0; k < 2; k++) {
+      const t0 = T[k], t1 = T[k + 1], a0 = at(t0, -1), b0 = at(t0, 1), a1 = at(t1, -1), b1 = at(t1, 1);
+      const tri = k === 1 ? [a0, b0, a1] : [a0, b0, b1, a0, b1, a1];
+      const ts = k === 1 ? [t0, t0, t1] : [t0, t0, t1, t0, t1, t1];
+      tri.forEach((p, j) => { pos.push(...p); const c = shade(ts[j]); col.push(c, c, c); sway.push(p[1]); });
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  g.setAttribute('sway', new THREE.Float32BufferAttribute(sway, 1));
+  const nor = new Float32Array(pos.length); for (let i = 1; i < nor.length; i += 3) nor[i] = 1;
+  g.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
+  g.computeBoundingSphere();
+  return g;
+}
 function groundShapes() {
   const flat = g => { const n = g.index ? g.toNonIndexed() : g; return Array.from(n.attributes.position.array); };
-  // Una mata: tres hojas finas cruzadas, más oscuras abajo (cada hoja, con sus dos caras: así las dos se
-  // iluminan como el suelo, con la normal hacia arriba)
+  // Una matita seca (la del desierto): tres hojas finas cruzadas, más oscuras abajo (cada hoja, con sus dos caras: así
+  // las dos se iluminan como el suelo, con la normal hacia arriba)
   const blade = [], shade = [];
   for (let i = 0; i < 3; i++) {
     const a = (i / 3) * Math.PI, w = 0.045, h = 0.17 + (i % 2) * 0.06, dx = Math.cos(a) * w, dz = Math.sin(a) * w, lean = 0.04 * (i - 1);
@@ -519,20 +588,27 @@ function groundShapes() {
     shade.push(0.72, 0.72, 1.12, 0.72, 0.72, 1.12);
   }
   const reed = flat(new THREE.CylinderGeometry(0.008, 0.014, 1, 3).translate(0, 0.5, 0));
-  const stem = flat(new THREE.CylinderGeometry(0.012, 0.012, 0.2, 3).translate(0, 0.1, 0));
-  const head = flat(new THREE.OctahedronGeometry(0.05, 0));
   const pebble = flat(new THREE.OctahedronGeometry(0.07, 0).scale(1, 0.5, 0.8));
   const shroomStem = flat(new THREE.CylinderGeometry(0.025, 0.03, 0.1, 5).translate(0, 0.05, 0));
   const shroomCap = flat(new THREE.SphereGeometry(0.08, 6, 3, 0, Math.PI * 2, 0, Math.PI / 2).translate(0, 0.09, 0));
-  const m = mat({ vertexColors: true, roughness: 0.95 });
-  m.onBeforeCompile = sh => {
-    sh.uniforms.windTime = WIND;
-    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nuniform float windTime;\nattribute float sway;').replace('#include <begin_vertex>', `#include <begin_vertex>
-      float s = sin(windTime * 1.6 + position.x * 0.35 + position.z * 0.25) * 0.6 + sin(windTime * 2.9 + position.x * 0.9 - position.z * 0.4) * 0.3;
-      transformed.xz += vec2(s, s * 0.5) * 0.3 * sway;`);
+  const wind = (m, key, inst) => {
+    m.onBeforeCompile = sh => {
+      sh.uniforms.windTime = WIND;
+      // (con instancias, la fase del viento sale del sitio de cada mata)
+      const at = inst ? 'vec3 wp = (instanceMatrix * vec4(position, 1.0)).xyz;' : 'vec3 wp = position;';
+      sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nuniform float windTime;\nattribute float sway;').replace('#include <begin_vertex>', `#include <begin_vertex>
+        ${at}
+        float s = sin(windTime * 1.6 + wp.x * 0.35 + wp.z * 0.25) * 0.6 + sin(windTime * 2.9 + wp.x * 0.9 - wp.z * 0.4) * 0.3;
+        transformed.xz += vec2(s, s * 0.5) * ${inst ? '0.35' : '0.3'} * sway;`);
+      // (las matas, por las dos caras con la luz de arriba: la cara de atrás no da la vuelta a la normal)
+      if (inst) sh.fragmentShader = sh.fragmentShader.replace('#include <normal_fragment_begin>', THREE.ShaderChunk.normal_fragment_begin.replace('float faceDirection = gl_FrontFacing ? 1.0 : - 1.0;', 'float faceDirection = 1.0;'));
+    };
+    m.customProgramCacheKey = () => key;
+    return m;
   };
-  m.customProgramCacheKey = () => 'groundcover';
-  return { blade: { pos: blade, shade }, reed: { pos: reed }, stem: { pos: stem }, head: { pos: head }, pebble: { pos: pebble }, shroomStem: { pos: shroomStem }, shroomCap: { pos: shroomCap }, mat: m };
+  const m = wind(mat({ vertexColors: true, roughness: 0.95 }), 'groundcover', false);
+  const tuftMat = wind(mat({ vertexColors: true, roughness: 0.95, side: THREE.DoubleSide }), 'grasstuft', true);
+  return { blade: { pos: blade, shade }, reed: { pos: reed }, pebble: { pos: pebble }, shroomStem: { pos: shroomStem }, shroomCap: { pos: shroomCap }, mat: m, tuft: tuftGeometry(), tuftMat };
 }
 // Junta geometrías sin índices pintando cada una de un color (multiplica el de la instancia)
 export function mergeColored(list) {

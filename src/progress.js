@@ -1,7 +1,6 @@
-// Progreso: estadísticas, habilidades que suben con el uso, el museo del pueblo (colecciones), logros
+// Progreso: estadísticas, habilidades que suben con el uso, las colecciones (del diario), logros
 // y las páginas del diario de un farero, sueltas en los cofres.
 import { ITEMS, FISH, BUGS, LEGACY_ITEMS } from './items.js';
-import { MUSEUM } from './world/village.js';
 import { Audio } from './audio.js';
 import { hud } from './ui/hud.js';
 
@@ -47,50 +46,52 @@ export class Skills {
   }
 }
 
-// ---------- Museo ----------
+// ---------- Colecciones (en el diario, J) ----------
+// Lo raro y lo que se colecciona: cada cosa cuenta en cuanto se tiene una vez (no hay que entregarla), y al ir
+// llenándolas hay premios. Son de cada jugador. (Antes era el museo del pueblo, donde se donaban: lo donado y lo visto
+// entonces cuenta ya como reunido, y los premios que dio no se repiten)
 const MINERALS = ['cobre', 'hierro', 'oro', 'carbon', 'amatista', 'esmeralda', 'rubi', 'diamante'];
 const FOSSILS = ['fosil_concha', 'fosil_hueso', 'fosil_ambar', 'moneda_antigua', 'calavera'];
-export const COLLECTIONS = { Minerales: MINERALS, 'Fósiles y reliquias': FOSSILS, Peces: Object.keys(FISH), Insectos: Object.keys(BUGS) };
-const ALL = Object.values(COLLECTIONS).flat();
+const FLOWERS = ['margarita', 'diente_leon'];
+const RARE = ['huevo_oro', 'trufa', 'lana_fina', 'asta', 'colmillo'];
+export const COLLECTIONS = { 'Minerales y gemas': MINERALS, 'Fósiles y reliquias': FOSSILS, Peces: Object.keys(FISH), Insectos: Object.keys(BUGS), Flores: FLOWERS, Rarezas: RARE };
+const ALL = Object.values(COLLECTIONS).flat(), IN = new Set(ALL);
 const REWARDS = [[5, 300, 'pocion', 2], [12, 800, 'semilla_manzano', 3], [20, 1500, 'lampara', 1], [30, 3000, 'espada_oro', 1], [ALL.length, 8000, 'vitrina', 3]];
 
 export class Collection {
-  constructor(game) { this.game = game; this.donated = new Set(); this.seen = new Set(); }
-  reset(save) { this.donated = new Set(save.museum || []); this.seen = new Set(save.seenCollect || []); }
-  save(out) { out.museum = [...this.donated]; out.seenCollect = [...this.seen]; }
-  found(id) { if (ALL.includes(id)) this.seen.add(id); }
-  interact(p, scene) {
-    if (scene !== this.game.world || Math.hypot(p.x - MUSEUM.x, p.y - MUSEUM.y) > 1.5) return null;
-    return this.museumAction();
+  constructor(game) { this.game = game; this.got = new Set(); this.paid = 0; this.wait = 0; }
+  reset(save) {
+    this.got = new Set([...(save.collected || []), ...(save.seenCollect || []), ...(save.museum || [])].filter(id => IN.has(id)));
+    // (los premios ya dados: los del museo, por lo donado)
+    this.paid = save.collectPaid ?? REWARDS.filter(([n]) => (save.museum || []).length >= n).length;
   }
-  aimables(p, scene, box) {
-    if (scene !== this.game.world) return null;
-    return [{ kind: 'sys', box: box(MUSEUM.x, MUSEUM.y, 0.55, 0.55, 0, 1.4), act: () => this.museumAction() }];
+  save(out) { out.collected = [...this.got]; out.collectPaid = this.paid; }
+  // Algo nuevo para las colecciones (lo llaman al recogerlo y al pescarlo; lo demás, update, por lo que se ha tenido)
+  found(id, quiet = false) {
+    if (!IN.has(id) || this.got.has(id)) return;
+    this.got.add(id);
+    if (!quiet) hud.toast(`Nuevo en tus colecciones: ${ITEMS[id].name.toLowerCase()} (${this.got.size}/${ALL.length}, diario J)`, 'good');
   }
-  museumAction() {
-    const g = this.game, can = ALL.filter(id => !this.donated.has(id) && g.inv.count(id));
-    return { text: can.length ? `Donar al museo (${can.length} nuevo${can.length > 1 ? 's' : ''})` : `Museo del pueblo: ${this.donated.size}/${ALL.length}`, run: () => this.donate(can) };
-  }
-  async donate(list) {
+  update(dt) {
+    if ((this.wait -= dt) > 0) return;
+    this.wait = 1.5;
     const g = this.game;
-    g.busy = true;
-    if (!list.length) { await hud.say('Museo', [`Llevas ${this.donated.size} de ${ALL.length} piezas. Trae minerales, fósiles, peces o insectos que aún no tengamos (mira el diario, tecla J).`]); g.busy = false; return; }
-    const before = this.donated.size;
-    for (const id of list) { g.inv.remove(id, 1); this.donated.add(id); }
-    g.stats.add('donados', list.length);
-    Audio.unlock();
-    const lines = [`¡Gracias! Has donado: ${list.map(id => ITEMS[id].name.toLowerCase()).join(', ')}. Ya hay ${this.donated.size} de ${ALL.length} piezas.`];
-    for (const [n, money, item, k] of REWARDS) if (before < n && this.donated.size >= n) {
+    if (!g.player || !g.inv) return;
+    for (const s of g.inv.slots) if (s) this.found(s.id);
+    for (const id of ALL) if (g.craft?.seen.has(id)) this.found(id, true);
+    while (this.paid < REWARDS.length && this.got.size >= REWARDS[this.paid][0]) {
+      const [n, money, item, k] = REWARDS[this.paid++];
       g.addMoney(money); const left = g.inv.add(item, k); if (left) g.gather.throwOut(item, left);
       if (LEGACY_ITEMS[item]) g.craft.learnPlan(item);   // (un mueble: llegan sus materiales, y con ellos su plano)
-      lines.push(`¡Premio por llegar a ${n} piezas! ${money} monedas y ${k} × ${ITEMS[item].name.toLowerCase()}.`);
+      Audio.unlock();
+      hud.toast(`¡Premio de las colecciones (${n} piezas)! ${money} monedas y ${k} × ${ITEMS[item].name.toLowerCase()}.`, 'good');
     }
-    await hud.say('Museo', lines);
-    g.busy = false;
   }
   journal() {
-    return Object.entries(COLLECTIONS).map(([title, ids]) => `<h3>${title} <small>${ids.filter(i => this.donated.has(i)).length}/${ids.length}</small></h3><div class="j-grid">${ids.map(id => {
-      const state = this.donated.has(id) ? 'done' : this.seen.has(id) || this.game.inv.count(id) ? 'seen' : 'none';
+    const next = REWARDS[this.paid];
+    const head = `<p class="j-note">Llevas ${this.got.size} de ${ALL.length}. Cada cosa cuenta en cuanto la tienes una vez, sin entregarla.${next ? ` Próximo premio, a las ${next[0]}: ${next[1]} monedas y ${next[3]} × ${ITEMS[next[2]].name.toLowerCase()}.` : ' Las tienes todas.'}</p>`;
+    return head + Object.entries(COLLECTIONS).map(([title, ids]) => `<h3>${title} <small>${ids.filter(i => this.got.has(i)).length}/${ids.length}</small></h3><div class="j-grid">${ids.map(id => {
+      const state = this.got.has(id) ? 'done' : 'none';
       return `<div class="j-cell ${state}" title="${state === 'none' ? '???' : ITEMS[id].name}"><img alt="" data-icon="${id}"></div>`;
     }).join('')}</div>`).join('');
   }
@@ -130,7 +131,7 @@ export const ACH = [
   ['profundo', 'Hasta el fondo', 'Baja al nivel 10 de una cueva', S('profundidad', 10)],
   ['granjero', 'Manos verdes', 'Cosecha 50 veces', S('cosechas', 50)],
   ['pescador', 'Paciencia de pescador', 'Pesca 25 peces', S('peces', 25)],
-  ['dorado', '¿Existe de verdad?', 'Pesca el pez dorado', g => g.collection.seen.has('pez_dorado')],
+  ['dorado', '¿Existe de verdad?', 'Pesca el pez dorado', g => g.collection.got.has('pez_dorado')],
   ['tesoro_agua', 'Algo brilla ahí abajo', 'Saca un tesoro del agua', S('tesoros', 1)],
   ['constructor', 'Arquitecto', 'Pon 100 piezas de construcción', S('piezas', 100)],
   ['casa', 'Hogar, dulce hogar', 'Amplía la casa del pueblo', g => g.house.big],
@@ -140,7 +141,7 @@ export const ACH = [
   ['alcalde', 'Alcalde sin cargo', 'Termina los 4 proyectos del pueblo', S('proyectos', 4)],
   ['explorador', 'Explorador', 'Descubre 10 lugares', S('lugares', 10)],
   ['templo', 'Ladrón de tumbas', 'Saquea el tesoro de un templo', S('templos', 1)],
-  ['coleccionista', 'Coleccionista', 'Dona 25 piezas al museo', g => g.collection.donated.size >= 25],
+  ['coleccionista', 'Coleccionista', 'Reúne 25 piezas de las colecciones', g => g.collection.got.size >= 25],
   ['chef', 'Chef', 'Cocina 20 platos', S('cocinados', 20)],
   ['valiente', 'Valiente', 'Derrota 50 criaturas', S('criaturas', 50)],
   ['faro', 'Desde lo alto', 'Sube a un faro', S('faros', 1)],

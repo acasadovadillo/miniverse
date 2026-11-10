@@ -1,7 +1,7 @@
 // Modelos en 3D de lo que se coloca y de lo que hay en el mundo: estaciones de trabajo (banco, horno, yunque,
 // telar, cocina), muebles (cama, mesa, sillas, estanterías, lámparas, cofres, alfombras, macetas, vitrinas),
 // cosas del rancho y del huerto (gallinero, establo, colmena, comedero, aspersor, cultivos en cada fase), el
-// hogar con chimenea, las cosas del pueblo (puestos, tablón, vitrina del museo, fuente, muelle, buzón, farola
+// hogar con chimenea, las cosas del pueblo (puestos, tablón, fuente, muelle, buzón, farola
 // y cartel), los lugares que se descubren (ruinas, campamento, torre, barco hundido, templo, altar, cueva,
 // faro) y los cofres del tesoro.
 //
@@ -9,6 +9,7 @@
 // y el frente mirando a +z), con sus piezas agrupadas por material para juntarlas luego con las del resto del
 // trozo en unas pocas mallas. Lo que no se junta (fuego, cristal, agua) va aparte, igual que sus luces.
 import * as THREE from 'three';
+import { flowerBunch } from './flowers3d.js';
 import { Builder, mat, rockGeo, snowCap } from './geo.js';
 import { wood as wood0, stone as stone0, rockFace, rng, rug, rugDesign, notes, awning, planks, furrows, artwork } from './textures.js';
 import { ARTE, apagado } from '../arte.js';
@@ -372,6 +373,9 @@ const BUILD = {
     m.cyl('dark', 0, 0, 0, 0.04, 0.03, 1.05, 6).cyl('rope', 0, 0.92, 0, 0.055, 0.06, 0.14, 8);
     m.fire(0, 1.08, 0, 0.7).light(0, 1.25, 0, { color: '#ffa850', intensity: 3.2, range: 9, flicker: true });
   },
+  // Las flores que se cogen: un ramillete de tres (lo que se lleva y se tira al suelo; ver flowers3d.js)
+  margarita(m) { flowerBunch(m, 'margarita'); },
+  diente_leon(m) { flowerBunch(m, 'diente_leon'); },
   banco(m) {
     m.box('light', -0.55, 0.78, -0.32, 0.55, 0.86, 0.32);
     for (const [a, b] of [[-0.52, -0.29], [0.46, -0.29], [-0.52, 0.23], [0.46, 0.23]]) m.box('wood', a, 0, b, a + 0.06, 0.78, b + 0.06);
@@ -781,7 +785,6 @@ const VILLAGE = {
     m.box('dark', -0.62, 1.86, -0.2, 0.65, 1.92, 0.2).box('wood', -0.5, 0.93, -0.03, 0.52, 1.68, 0.02);
     m.B('notes').quad([-0.48, 0.95, 0.025], [0.5, 0.95, 0.025], [0.5, 1.66, 0.025], [-0.48, 1.66, 0.025], [0, 0, 1], [[0, 0], [1, 0], [1, 1], [0, 1]]);
   },
-  museum(m) { m.box('stone', -0.36, 0, -0.3, 0.36, 0.85, 0.3, 0.6).box('glass', -0.33, 0.85, -0.27, 0.33, 1.35, 0.27).geo('white', CONE, 0, 0.98, 0, [0, 0, 1.2], [0.12, 0.26, 0.12]); },
   mailbox(m) {
     m.box('dark', -0.05, 0, -0.05, 0.05, 1.0, 0.05).box('awningB', -0.15, 0.98, -0.21, 0.15, 1.0, 0.21);
     m.geo('awningB', new THREE.CylinderGeometry(0.15, 0.15, 0.42, 12, 1, false, 0, Math.PI), 0, 1.0, 0, [Math.PI / 2, 0, Math.PI / 2]);

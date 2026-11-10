@@ -3,7 +3,7 @@
 // guardan con su número dentro del planeta; los de más allá de la costura (para verlos y chocar con ellos desde el
 // otro lado) son los mismos, corridos una vuelta. Fuera del planeta no se construye.
 import { clamp } from '../util.js';
-import { WorldGen, CHUNK } from './gen.js';
+import { WorldGen, CHUNK, GRASS_REGROW, flowerShows } from './gen.js';
 import { inYard, buildVillage, NILO, inBounds, isGrass, inOwnHouse, inVillageHouse } from './village.js';
 import { B, BIOMES } from './biomes.js';
 import { ITEMS, CHESTS, modernSlots } from '../items.js';
@@ -380,6 +380,7 @@ export class Overworld {
     for (const o of base) {
       if (this.layers.some(l => l.hides?.(o))) continue;   // donde hay un lugar especial no crecen árboles
       if (d?.removed[o.key] !== undefined) continue;   // lo talado, picado o segado no vuelve: la casilla queda libre
+      if (o.flower && !this.flowerHere(o, d)) continue;
       objects.push(o);
       if (o.col) colliders.push(o.col);
     }
@@ -609,6 +610,34 @@ export class Overworld {
     if (o.planted) return o.planted.remove(o);   // árboles plantados por el jugador
     const cx = Math.floor(o.x / CHUNK), cy = Math.floor(o.y / CHUNK);
     this.delta(cx, cy, true).removed[o.key] = this.clock;
+    this.touch(cx, cy);
+  }
+
+  // Las flores silvestres salen según la estación (gen.js, flowerShows) y no donde se ha construido, labrado o sembrado
+  flowerHere(o, d) {
+    if (!flowerShows(o, this.gen.season)) return false;
+    const tx = Math.floor(o.x), ty = Math.floor(o.y), k = `${tx},${ty}`;
+    if (d && (d.tilled[k] !== undefined || d.crops?.[k])) return false;
+    return !this.at('floor', tx, ty) && !this.at('placed', tx, ty);
+  }
+
+  // ---------- La hierba de las casillas (gen.grassAt) ----------
+  // ¿Hay hierba en la casilla? La que da el mundo, si ahí no hay nada construido, labrado ni sembrado y no se ha segado
+  // hace menos de GRASS_REGROW días (today: el día del juego)
+  mownAt(tx, ty, today) { const v = this.delta(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK))?.mown?.[`${tx},${ty}`]; return v !== undefined && today - v < GRASS_REGROW; }
+  grassAt(tx, ty, today) {
+    const x = tx + 0.5, y = ty + 0.5;
+    if (!inPlanet(x, y) || !this.gen.grassAt(tx, ty) || !isGrass(x, y)) return false;
+    if (this.at('floor', tx, ty) || this.at('placed', tx, ty)) return false;
+    const d = this.delta(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK)), k = `${tx},${ty}`;
+    if (d && (d.tilled[k] !== undefined || d.crops?.[k])) return false;
+    return !this.mownAt(tx, ty, today) && !this.layers.some(l => l.blocks?.(tx, ty));
+  }
+  // Segarla (con la guadaña: ver gather.js): queda segada hasta que vuelve a salir (y lo segado hace mucho se olvida)
+  mow(tx, ty, today) {
+    const cx = Math.floor(tx / CHUNK), cy = Math.floor(ty / CHUNK), m = (this.delta(cx, cy, true).mown ||= {});
+    for (const [k, v] of Object.entries(m)) if (today - v >= GRASS_REGROW) delete m[k];
+    m[`${tx},${ty}`] = today;
     this.touch(cx, cy);
   }
 
@@ -918,6 +947,7 @@ export class Overworld {
   // Rehacer el pueblo (se termina un proyecto)
   rebuildVillage() {
     this.village = buildVillage();
+    this.gen.cache.clear();   // (los arbustos del jardín, que pone el mundo, dependen de dónde va tu casa)
     this.merged.clear();
   }
   // Agua: la profunda no se puede pisar; la poco profunda se cruza despacio

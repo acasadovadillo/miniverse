@@ -1,7 +1,7 @@
 // Recolectar: elegir lo que hay delante del jugador, golpearlo con la herramienta,
 // soltar lo que da y recogerlo. También los efectos: astillas, textos flotantes y el golpe de la herramienta.
 import { CAM } from './camera.js';
-import { ITEMS, HARVEST, TOOL_COST, CROPS, hitsFor, hungerOf } from './items.js';
+import { ITEMS, HARVEST, GRASS_DROPS, TOOL_COST, CROPS, hitsFor, hungerOf } from './items.js';
 import { HUNGER_MAX } from './combat.js';
 import { PIECES } from './pieces.js';
 import { RECIPES } from './recipes.js';
@@ -97,11 +97,18 @@ export class Gathering {
       const [tx, ty] = g.aimTile();
       return { tile: [tx, ty], ok: g.world.canTill(tx, ty) };
     }
+    // La guadaña siega también la hierba de la casilla apuntada, si ahí no hay una mata, una flor u otra planta
+    if (tool === 'guadana' && g.scene === g.world && g.world.grassAt) {
+      const [tx, ty] = g.aimTile();
+      const onTile = g.scene.harvestablesNear(p.x, p.y).some(o => Math.floor(o.x) === tx && Math.floor(o.y) === ty);
+      if (!onTile && Math.hypot(tx + 0.5 - p.x, ty + 0.5 - p.y) < 2.6 && g.world.grassAt(tx, ty, g.days.dayIndex)) return { tile: [tx, ty], grass: true, ok: true, label: 'Segar la hierba' };
+    }
     // (en primera persona, lo que está en la cruceta: un tronco alto, una mata baja)
     const ray = CAM.first && g.mouse?.in ? g.view3d.rayAt(g.mouse.x, g.mouse.y) : null;
     if (ray) {
       let hit = null, near = Infinity;
       for (const o of g.scene.harvestablesNear(p.x, p.y)) {
+        if (o.flower && tool && tool !== 'guadana') continue;   // (con el hacha o el pico, las flores no tapan lo de detrás)
         const ox = o.x - ray.o[0], oy = o.y - ray.o[2], l = Math.hypot(ray.d[0], ray.d[2]) || 1e-6, t = Math.max(0, (ox * ray.d[0] + oy * ray.d[2]) / (l * l)), gap = Math.hypot(ox - ray.d[0] * t, oy - ray.d[2] * t);
         const y = ray.o[1] + ray.d[1] * t - g.view3d.groundY(g.scene, o.x, o.y), top = HARVEST[o.kind]?.tool === 'hacha' ? 4 : 1.4;
         if (Math.hypot(o.x - p.x, o.y - p.y) <= REACH && gap < 0.6 && y > -0.2 && y < top && t < near) { near = t; hit = o; }
@@ -110,6 +117,7 @@ export class Gathering {
     }
     let best = null, score = Infinity;
     for (const o of g.scene.harvestablesNear(p.x, p.y)) {
+      if (o.flower && tool && tool !== 'guadana') continue;
       const dx = o.x - p.x, dy = o.y - p.y, d = Math.hypot(dx, dy);
       if (d > REACH) continue;
       const dot = d > 0.01 ? (dx * p.face.x + dy * p.face.y) / d : 1;
@@ -266,6 +274,17 @@ export class Gathering {
       g.stats?.add('labrados', 1);
       this.chips(t.tile[0] + 0.5, t.tile[1] + 0.5, 'dirt', 10);
       Audio.till();
+      return;
+    }
+    if (t?.grass && tool === 'guadana') {   // (la hierba de una casilla: da fibra y vuelve a salir)
+      if (!this.spend('guadana')) return;
+      const [tx, ty] = t.tile;
+      g.world.mow(tx, ty, g.days.dayIndex);
+      this.chips(tx + 0.5, ty + 0.5, 'leaf', 10);
+      this.spawnDrops({ x: tx + 0.5, y: ty + 0.5 }, { drops: GRASS_DROPS });
+      g.skills?.gain('agricultura', 0.5);
+      g.ranch?.mowed();   // (con un silo, el heno se guarda solo)
+      Audio.swish();
       return;
     }
     if (!t?.obj) { Audio.swish(); return; }

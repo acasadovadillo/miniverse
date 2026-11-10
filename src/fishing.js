@@ -165,7 +165,7 @@ export class Fishing {
 
   // El cuaderno de pesca (en el diario): cada pez con dónde y cuándo sale y la talla más grande pescada
   journal() {
-    const g = this.game, ids = Object.keys(FISH), known = id => g.collection.seen.has(id) || !!this.records[id];
+    const g = this.game, ids = Object.keys(FISH), known = id => g.collection.got.has(id) || !!this.records[id];
     const where = f => f.water.map(w => WATER_NAMES[w]).join(', ').replace(/, ([^,]*)$/, ' o $1');
     const when = f => [
       f.seasons ? 'en ' + f.seasons.map(i => SEASON_NAMES[i]).join(' y ') : 'todo el año',

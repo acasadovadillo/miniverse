@@ -30,7 +30,6 @@ export const TAVERN = { x0: 1, y0: 32, x1: 11, y1: 40 };
 export const inTavern = (x, y, m = 0) => x > TAVERN.x0 - m && x < TAVERN.x1 + m && y > TAVERN.y0 - m && y < TAVERN.y1 + m;
 export const STALL = { x0: 25, y0: 23, x1: 27, y1: 24 };     // puesto de Rosa (2×1 casillas)
 export const BOARD = { x: 16.5, y: 22.5 };                     // tablón de encargos
-export const MUSEUM = { x: 14.5, y: 23.5 };                    // vitrina del museo del pueblo
 export const FOUNTAIN = { x: 21.5, y: 28.5 };                  // fuente (3×3 casillas)
 export const DOCK = { x0: 26, y0: 30, x1: 30, y1: 31 };
 // Proyectos del pueblo ya terminados (los pone el sistema de vecinos)
@@ -86,6 +85,9 @@ export function keepClear(x, y) {
     Math.hypot(x - FOUNTAIN.x, y - FOUNTAIN.y) < 2.5 || (x > 23 && x < 28 && y > 21 && y < 25);
 }
 // Claro alrededor del pueblo: 0 en el centro, 1 lejos
+// Los arbustos del jardín del pueblo (menos los que caen donde va tu casa)
+const GARDEN_BUSHES = [[17, 18], [25, 18], [12, 16], [29, 13], [27, 22], [22, 30], [13, 25]];
+export function gardenBushes() { const lot = ownLot(); return GARDEN_BUSHES.filter(([tx, ty]) => !(tx >= lot.x0 && tx < lot.x1 && ty >= lot.y0 && ty < lot.y1)); }
 export const clearing = (x, y) => clamp((Math.hypot(x - CENTER.x, y - CENTER.y) - 10) / 6, 0, 1);
 
 // Objetos y colisiones del pueblo, más lo construido fijo (built: piezas por trozo)
@@ -103,12 +105,7 @@ export function buildVillage() {
     add(x, y, { nature: kind });
     colliders.push({ x, y, r: 0.35 });
   }
-  for (const [tx, ty] of [[17, 18], [25, 18], [12, 16], [29, 13], [27, 22], [22, 30], [13, 25]]) {
-    if (onLot(tx, ty)) continue;
-    const x = tx + 0.5, y = ty + 0.5;
-    add(x, y, { nature: 'bush' });
-    colliders.push({ x, y, r: 0.45 });
-  }
+  // (los arbustos del jardín los pone el mundo, como los demás, para que se puedan segar: gen.js, gardenBushes)
 
   // Valla del jardín: piezas de valla en el anillo de casillas del jardín, con hueco para el camino
   for (let x = YARD.x0; x < YARD.x1; x++) for (let y = YARD.y0; y < YARD.y1; y++) {
@@ -133,7 +130,6 @@ export function buildVillage() {
   add(STALL.x0, STALL.y0, { fx: [STALL.x0, STALL.x1], fy: [STALL.y0, STALL.y1], model: 'stall' });
   colliders.push({ x0: STALL.x0, y0: STALL.y0, x1: STALL.x1, y1: STALL.y1 });
   add(BOARD.x, BOARD.y, { model: 'board' }); colliders.push({ x: BOARD.x, y: BOARD.y, r: 0.3 });
-  add(MUSEUM.x, MUSEUM.y, { model: 'museum' }); colliders.push({ x: MUSEUM.x, y: MUSEUM.y, r: 0.4 });
   if (projects.fuente) {
     add(FOUNTAIN.x, FOUNTAIN.y, { fx: [FOUNTAIN.x - 1.5, FOUNTAIN.x + 1.5], fy: [FOUNTAIN.y - 1.5, FOUNTAIN.y + 1.5], model: 'fountain' });
     colliders.push({ x: FOUNTAIN.x, y: FOUNTAIN.y, r: 1.05 });

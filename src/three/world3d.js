@@ -7,7 +7,7 @@
 import { WATER_Y } from './terrain.js';
 import { boatModel } from './actors.js';
 import * as THREE from 'three';
-import { CHUNK } from '../world/gen.js';
+import { CHUNK, GRASS_REGROW } from '../world/gen.js';
 import * as village from '../world/village.js';
 import { PIECES, parsePlaced } from '../pieces.js';
 import { CAM } from '../camera.js';
@@ -28,7 +28,7 @@ const GROUND_R = 2;      // trozos alrededor con hierba y flores
 const SHADOW_R = 2;      // … cuya naturaleza da sombra
 const FAR_BLOCK = 4;     // trozos por lado de un bloque lejano
 const FAR_R = 2;         // bloques lejanos alrededor
-const NATURE = new Set(['oak', 'fruit', 'pine', 'snowPine', 'swampTree', 'cactus', 'palm', 'boulder', 'rock', 'bush', 'deadBush', 'snowBoulder']);
+const NATURE = new Set(['oak', 'fruit', 'pine', 'snowPine', 'swampTree', 'cactus', 'palm', 'boulder', 'rock', 'bush', 'deadBush', 'snowBoulder', 'margarita', 'diente_leon']);
 
 export class World3D {
   constructor(view) {
@@ -249,7 +249,7 @@ export class World3D {
           if (NATURE.has(o.kind) && !o.poi) { nat.push(o); shakers.set(o.key, o); }
           else if (o.sapling) nat.push({ kind: 'sapling', tree: o.sapling, x: o.x, y: o.y, key: o.key });
         }
-        const natSig = nat.map(o => o.key + (o.bare ? '-' : '')).join(',') + '|' + (scene.padSig ? scene.padSig(bx * NB * CHUNK, by * NB * CHUNK, (bx + 1) * NB * CHUNK, (by + 1) * NB * CHUNK) : ''), gSig = datas.map(([cx, cy, d]) => this.signature(scene, cx, cy, d)).join('|');
+        const natSig = nat.map(o => o.key + (o.bare ? '-' : '')).join(',') + '|' + (scene.padSig ? scene.padSig(bx * NB * CHUNK, by * NB * CHUNK, (bx + 1) * NB * CHUNK, (by + 1) * NB * CHUNK) : ''), gSig = datas.map(([cx, cy, d]) => this.signature(scene, cx, cy, d) + mownSig(scene, cx, cy, this.today())).join('|');
         if (!b) { b = { group: new THREE.Group(), nat: null, ground: null, bx, by }; this.group.add(b.group); this.nature.set(k, b); }
         if (natSig !== b.natSig) {
           if (b.nat) { b.group.remove(b.nat.group); b.nat.group.traverse(o => { if (o.isInstancedMesh) o.dispose(); }); }
@@ -258,8 +258,8 @@ export class World3D {
           b.natSig = natSig; b.shadow = null;
         }
         b.shakers = shakers;
-        if (gSig !== b.gSig) { if (b.ground) { b.group.remove(b.ground); b.ground.geometry.dispose(); b.ground = null; } b.groundJob = null; }
-        b.gSig = gSig; b.datas = datas; b.occ = occupied(scene, datas);
+        if (gSig !== b.gSig) { if (b.ground) { b.group.remove(b.ground); dropGround(b.ground); b.ground = null; } b.groundJob = null; }
+        b.gSig = gSig; b.datas = datas; b.occ = occupied(scene, datas, this.today());
       }
       this.natureRing(scene, b, ring);
     }
@@ -280,14 +280,16 @@ export class World3D {
     if (wantGround && !b.ground && !b.groundJob) {
       const T = this.view.terrain, occ = b.occ;
       b.groundJob = buildGround(b.bx * NB, b.by * NB, NB, CHUNK, scene.gen, scene.gen.season, (x, y) => !occ.has(`${Math.floor(x)},${Math.floor(y)}`) && village.isGrass(x, y), (x, y) => T.heightAt(x, y));
-    } else if (!wantGround) { if (b.ground) { b.group.remove(b.ground); b.ground.geometry.dispose(); b.ground = null; } b.groundJob = null; }
+    } else if (!wantGround) { if (b.ground) { b.group.remove(b.ground); dropGround(b.ground); b.ground = null; } b.groundJob = null; }
     if (b.shadow !== shadow) { b.shadow = shadow; b.nat.group.traverse(o => { if (o.isMesh && o.userData.base) o.castShadow = shadow && o.userData.cast !== false; }); }
   }
   dropNature(b) {
     this.group.remove(b.group);
     b.nat?.group.traverse(o => { if (o.isInstancedMesh) o.dispose(); });
-    b.ground?.geometry.dispose();
+    if (b.ground) dropGround(b.ground);
   }
+  // El día del juego (para la hierba segada, que vuelve a salir)
+  today() { return this.game?.days?.dayIndex ?? 0; }
   // Pone un modelo (por su nombre) en (x, z) girado yaw: sus piezas a las mallas del trozo; lo demás, aparte
   // off: apagado (una lámpara, una antorcha, una vela, un hogar): sin luz, llama ni humo, y lo que brilla, apagado
   placeModel(name, x, z, yaw, emit, c, group, off = false, lift = 0) {
@@ -580,9 +582,16 @@ function matKeyOf(m) {
   for (const [k, v] of Object.entries(B)) { if (v === m) return k; if (k === 'roofs') for (const [rk, rv] of Object.entries(v)) if (rv === m) return 'roof:' + rk; }
   return 'stone';
 }
-// Casillas ocupadas de unos trozos (ahí no crece hierba): lo construido y colocado, lo labrado, los cultivos y
-// los lugares (que ocupan 3 × 3 casillas)
-function occupied(scene, datas) {
+// La hierba de un bloque se suelta entera: su malla y la de las matas (instancias; su forma es de todas)
+function dropGround(g) { g.geometry.dispose(); for (const c of g.children) c.dispose?.(); }
+// Lo segado de un trozo que aún no ha vuelto a salir (si cambia, se rehace la hierba)
+function mownSig(scene, cx, cy, today) {
+  const m = scene.delta?.(cx, cy)?.mown;
+  return m ? '|m' + Object.keys(m).filter(k => today - m[k] < GRASS_REGROW).join(';') : '';
+}
+// Casillas ocupadas de unos trozos (ahí no crece hierba): lo construido y colocado, lo labrado, los cultivos, lo
+// segado y los lugares (que ocupan 3 × 3 casillas)
+function occupied(scene, datas, today = 0) {
   const occ = new Set();
   for (const [cx, cy, d] of datas) {
     for (const o of d.objects.concat(d.flats, d.floors)) {
@@ -592,6 +601,7 @@ function occupied(scene, datas) {
     for (const t of d.tilled) occ.add(`${t[0]},${t[1]}`);
     const dl = scene.delta(cx, cy);
     for (const k of Object.keys(dl?.crops || {})) occ.add(k);
+    for (const [k, v] of Object.entries(dl?.mown || {})) if (today - v < GRASS_REGROW) occ.add(k);
   }
   return occ;
 }

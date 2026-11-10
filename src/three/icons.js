@@ -38,7 +38,7 @@ export function modelKind(id) {
   const def = ITEMS[id];
   if (!def || def.wear || PIXEL.has(id)) return null;
   if (def.tool || def.weapon || def.bow) return 'tool';
-  if (def.place && def.place !== 'wall' && !def.rug && getModel(id)) return 'placed';
+  if (((def.place && def.place !== 'wall' && !def.rug) || def.flower) && getModel(id)) return 'placed';
   return null;
 }
 

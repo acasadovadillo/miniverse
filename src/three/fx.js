@@ -1,6 +1,6 @@
 // Efectos en 3D: la casilla o el objeto apuntado, la vista previa de lo que se va a colocar o construir, los
 // objetos caídos (con su icono), los textos que suben sobre el jugador, las astillas de lo que se golpea, el
-// fuego de hogares, hornos y antorchas, el humo de las chimeneas, las mariposas, la lluvia y la nieve, el agua
+// fuego de hogares, hornos y antorchas, el humo de las chimeneas, la lluvia y la nieve, el agua
 // de la fuente, los corazones de la cama doble, la luz del faro, el sedal y el corcho al pescar y el destello rojo al recibir un golpe.
 import * as THREE from 'three';
 import { itemIcon } from '../art/items.js';
@@ -13,9 +13,6 @@ import { WALL_H } from './build3d.js';
 import { WATER_Y } from './terrain.js';
 import { nearX } from '../world/planet.js';
 import { ARTE } from '../arte.js';
-import { B } from '../world/biomes.js';
-// Las mariposas, solo en la pradera y el bosque de hoja (no en la nieve, el monte, el desierto ni la playa)
-const FLOWERY = new Set([B.MEADOW, B.FOREST]);
 const A2 = ARTE === 2;
 // (?arte=2) Texturas pintadas para el fuego, el humo y los copos: una llama en gota (blanca, el color va por instancia) y
 // una bola suave
@@ -86,15 +83,6 @@ export class Fx {
     }
     this.spray = new THREE.InstancedMesh(new THREE.SphereGeometry(0.035, 6, 4), new THREE.MeshStandardMaterial({ color: '#cfeaff', transparent: true, opacity: 0.8, roughness: 0.1 }), 240);
     this.spray.count = 0; this.spray.frustumCulled = false; this.group.add(this.spray);
-    // Mariposas
-    const wing = new THREE.CircleGeometry(0.06, 8);
-    this.butterflies = Array.from({ length: 8 }, (_, i) => {
-      const g = new THREE.Group(), m = new THREE.MeshStandardMaterial({ color: ['#ffe04a', '#ffffff', '#ff9ac8', '#9ad0ff'][i % 4], side: THREE.DoubleSide, roughness: 0.6 });
-      const a = new THREE.Mesh(wing, m), b = new THREE.Mesh(wing, m); a.position.x = 0.05; b.position.x = -0.05; g.add(a, b);
-      g.userData = { a, b, ph: i * 1.7, cx: 0, cz: 0, sp: 0.35 + (i % 3) * 0.12 };
-      this.group.add(g);
-      return g;
-    });
     // Lluvia (rayas) y nieve (copos), en una caja alrededor de la cámara
     const N = 1800, rp = new Float32Array(N * 6);
     this.rainGeo = new THREE.BufferGeometry(); this.rainGeo.setAttribute('position', new THREE.BufferAttribute(rp, 3));
@@ -132,7 +120,6 @@ export class Fx {
     this.updateFlames(scene, t);
     this.updateSmoke(scene, t);
     this.updateFountains(scene, t);
-    this.updateButterflies(game, scene, playing, dt, t);
     this.updateWeather(t);
     this.updateFishing(game, scene, playing, t);
     this.updateBeacon(scene, t);
@@ -412,22 +399,6 @@ export class Fx {
   }
 
   // ---------- ambiente ----------
-  updateButterflies(game, scene, playing, dt, t) {
-    const target = this.view.cam.target, gen = scene.gen, flowery = (x, z) => !!gen && FLOWERY.has(gen.biomeAt(x, z));
-    const show = !this.view.cave && !game.indoors && this.view.night < 0.3 && !this.view.weather?.rain && !this.view.weather?.snow && gen?.season !== 3 && flowery(target.x, target.z);
-    for (const b of this.butterflies) {
-      b.visible = show;
-      if (!show) continue;
-      const u = b.userData;
-      if (Math.hypot(u.cx - target.x, u.cz - target.z) > 18) { u.cx = target.x + (Math.random() - 0.5) * 24; u.cz = target.z + (Math.random() - 0.5) * 24; u.ok = flowery(u.cx, u.cz); }   // (cada una, donde hay pradera o bosque)
-      if (u.ok === false) { b.visible = false; continue; }
-      const q = t * u.sp + u.ph;
-      b.position.set(u.cx + Math.sin(q) * 2.5, 0.7 + Math.sin(q * 3) * 0.35, u.cz + Math.cos(q * 0.8) * 2.5);
-      b.rotation.y = Math.atan2(Math.cos(q), -Math.sin(q * 0.8) * 0.8);
-      const f = Math.sin(t * 22 + u.ph) * 1.1;
-      u.a.rotation.y = f; u.b.rotation.y = -f;
-    }
-  }
   updateWeather(t) {
     const w = this.view.weather || {}, c = this.view.camera.position, rain = w.rain || 0, N = this.drop.length;
     this.rain.visible = !!rain && !this.view.cave;

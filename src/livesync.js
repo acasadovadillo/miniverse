@@ -1,6 +1,6 @@
 // Jugar juntos en directo: el mundo compartido. Lo lleva el juego del anfitrión (el primero que entra). Al
 // entrar, los demás reciben sus trozos con todos sus cambios y lo que es de todos (la hora y el calendario, la
-// casa, los proyectos y los encargos del pueblo, el museo y los animales). Lo de cada uno (su personaje, lo que lleva, su dinero, sus habilidades,
+// casa, los proyectos y los encargos del pueblo y los animales). Lo de cada uno (su personaje, lo que lleva, su dinero, sus habilidades,
 // la amistad con los vecinos, lo que ha descubierto…) sigue siendo suyo y se guarda en su partida.
 //
 // Mientras se juega, cada cambio en un trozo del mundo (talar, picar, construir, el huerto, las puertas, los
@@ -15,7 +15,7 @@ import { setFamilyHouse } from './world/village.js';
 // (dayBase, timeShift y seenDay: el calendario del mundo y el último día que amaneció en él)
 // (rules, worldSpawn, weatherLock y difficulty: las reglas del mundo, dónde aparecen los nuevos, el tiempo que ha
 // puesto un op y la dificultad)
-export const SHARED = ['clock', 'house', 'projects', 'boardDone', 'animals', 'farm', 'museum', 'family', 'dayBase', 'timeShift', 'seenDay', 'rules', 'worldSpawn', 'weatherLock', 'difficulty', 'maps', 'defaultGamemode', 'frozenHour'];
+export const SHARED = ['clock', 'house', 'projects', 'boardDone', 'animals', 'farm', 'family', 'dayBase', 'timeShift', 'seenDay', 'rules', 'worldSpawn', 'weatherLock', 'difficulty', 'maps', 'defaultGamemode', 'frozenHour'];
 
 const isMap = v => !!v && typeof v === 'object' && !Array.isArray(v);
 const same = (a, b) => a === b || JSON.stringify(a) === JSON.stringify(b);
@@ -63,7 +63,6 @@ export const BLOBS = {
   },
   family: { get: g => g.family.v, set: (g, v) => g.family.share(v) },
   board: { get: g => ({ projects: g.board.projects, done: g.board.done }), set: (g, v) => g.board.share(v) },
-  museum: { get: g => [...g.collection.donated].sort(), set: (g, v) => { g.collection.donated = new Set(v); } },
   animals: { get: g => g.ranch.animals.map(a => { const { x, y, ...s } = a.toSave(); return s; }), set: (g, v) => g.ranch.share(v) },
   farm: { get: g => g.ranch.farm, set: (g, v) => g.ranch.shareFarm(v) },
   rules: { get: g => g.rules, set: (g, v) => { g.rules = { ...g.rules, ...v }; } },

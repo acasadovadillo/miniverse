@@ -35,12 +35,32 @@ export function initSettingsUI({ onClose }) {
     paint();
     box.append(row);
   };
+  const head = text => { const h = document.createElement('h3'); h.className = 'st-head'; h.textContent = text; box.append(h); };
+  // Pantalla completa: el juego ocupa toda la pantalla, sin el navegador, como un vídeo a pantalla completa. Con el
+  // teclado bloqueado (Chrome y Edge), Esc sigue abriendo la pausa y para salir se mantiene pulsado; si no, Esc sale
+  const full = () => !!document.fullscreenElement;
+  const fullRow = () => {
+    const row = document.createElement('div');
+    row.className = 'st-row';
+    row.innerHTML = '<span>Pantalla completa</span><div class="seg"><button type="button">Sí</button><button type="button">No</button></div>';
+    const [on, off] = row.querySelectorAll('button');
+    const paint = () => { on.classList.toggle('on', full()); off.classList.toggle('on', !full()); };
+    on.onclick = () => toggleFullscreen(true).finally(paint);
+    off.onclick = () => toggleFullscreen(false).finally(paint);
+    document.addEventListener('fullscreenchange', paint);
+    paint();
+    box.append(row);
+    if (!document.fullscreenEnabled) { on.disabled = true; row.title = 'Este navegador no deja ponerlo a pantalla completa'; }
+  };
   function build() {
     box.replaceChildren();
+    head('Sonido');
     slider('master', 'Volumen general');
     check('musicOn', 'Música');
     slider('music', 'Volumen de la música');
     slider('sfx', 'Volumen de los efectos');
+    head('Pantalla');
+    fullRow();
     choice('scale', 'Resolución', [['auto', 'Auto'], [1, 'Máxima'], [2, 'Alta'], [3, 'Media'], [4, 'Baja']]);
     check('bigText', 'Texto más grande');
     check('noFlash', 'Reducir destellos (rayos de las tormentas)');
@@ -48,4 +68,17 @@ export function initSettingsUI({ onClose }) {
   build();
   $('st-close').onclick = () => onClose();
   return { refresh: build };
+}
+
+// Poner o quitar la pantalla completa (lo que se ve es toda la página: el juego y su interfaz)
+export async function toggleFullscreen(want = !document.fullscreenElement) {
+  try {
+    if (want && !document.fullscreenElement) {
+      await document.documentElement.requestFullscreen({ navigationUI: 'hide' });
+      await navigator.keyboard?.lock?.(['Escape']).catch(() => {});
+    } else if (!want && document.fullscreenElement) {
+      navigator.keyboard?.unlock?.();
+      await document.exitFullscreen();
+    }
+  } catch { /* (el navegador no lo deja) */ }
 }
