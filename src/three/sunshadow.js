@@ -14,11 +14,14 @@
 import * as THREE from 'three';
 
 const ALL = typeof location !== 'undefined' && new URLSearchParams(location.search).get('sombras') === 'todas';
-const HALF_GAP = 2;      // m que puede cambiar el tamaño de la zona antes de rehacerla
-const MOVE = 3;          // m que puede quedar la zona de sombras lejos de donde querría, antes de moverla
-const TURN = 0.0018;     // rad (~0,1°) que gira el sol antes de rehacer lo fijo: con el reloj de verdad, una vez cada ~30 s
+const HALF_GAP = 1;      // m que puede apartarse el tamaño de la zona del que se querría antes de rehacerla
+const MOVE = 2;          // m que puede quedar la zona de sombras lejos de donde querría, antes de moverla (el borde fundido de
+                         // look.js va pegado a ella: más, y ese borde saltaría a la vista al fondo)
+const TURN = 0.0018;     // rad (~0,1°) que gira el sol, alto, antes de rehacer lo fijo: con el reloj de verdad, una vez cada ~25 s
+const TURN_MIN = 0.0002; // … y con el sol bajo, menos (ver place)
 const EVERY = 2;         // fotogramas, como poco, entre dos repintados de lo fijo pedidos por el mundo (stale)
-const SAFETY = 5000;     // ms: lo fijo se rehace de todos modos cada tanto (por si algo cambió sin avisar)
+const SAFETY = 20000;    // ms: lo fijo se rehace de todos modos cada tanto (por si algo cambió sin avisar); los avisos ya
+                         // cubren lo que cambia, y cada repintado de más es un tirón
 const MARGIN = 2;        // texels de más alrededor de cada cosa que se mueve (el suavizado lee los vecinos)
 const PERSON_R = 1.3;    // m: lo mínimo alrededor de una persona (brazos al andar, al agacharse, la mochila)
 const RIDE_R = 2.8;      // … montada a caballo o en barca (con los remos)
@@ -87,10 +90,18 @@ export class SunShadow {
     const off = sun.intensity < 0.02;
     if (this.skip && !off) this.staticDirty = true;
     this.skip = off;
-    // (el tamaño, a metros enteros y solo si cambia más de HALF_GAP: con la cámara subiendo y bajando sobre los tejados
-    // no se repinta a cada momento)
-    if (Math.abs(half - sc.right) > HALF_GAP) { half = Math.round(half); Object.assign(sc, { left: -half, right: half, top: half, bottom: -half }); sc.updateProjectionMatrix(); this.staticDirty = true; }
-    if (!this.dirSet || this.dir.angleTo(dir) > TURN) { this.dir.copy(dir); this.dirSet = true; this.staticDirty = true; }
+    // (el tamaño, a metros enteros, como antes, y solo cuando se aparta un metro o más del que se querría: con la cámara
+    // subiendo y bajando sobre los tejados no se repinta a cada momento, y la zona nunca queda más de un metro corta ni
+    // larga. Los extremos, 24 y 30, se alcanzan siempre: al otro lado, el redondeo deja medio metro como mucho)
+    const want = Math.round(half);
+    if (want !== sc.right && Math.abs(half - sc.right) >= HALF_GAP) {
+      Object.assign(sc, { left: -want, right: want, top: want, bottom: -want }); sc.updateProjectionMatrix(); this.staticDirty = true;
+    }
+    // (el sol gira solo cuando se ha movido lo bastante. La punta de la sombra de algo de altura H corre H·giro/sen²(altura
+    // del sol): con el sol bajo, el mismo giro la llevaría medio metro de un salto. Así, el salto queda en unos centímetros
+    // a cualquier hora; al amanecer y al atardecer se repinta lo fijo cada pocos segundos)
+    const el = Math.max(0.12, dir.y), turn = Math.max(TURN_MIN, TURN * Math.min(1, (el / 0.5) ** 2));
+    if (!this.dirSet || this.dir.angleTo(dir) > turn) { this.dir.copy(dir); this.dirSet = true; this.staticDirty = true; }
     const ahead = 12 * low, wx = target.x - Math.sin(yaw) * ahead, wz = target.z - Math.cos(yaw) * ahead;
     // (a la altura de lo que se mira: en lo alto de un monte, lo de allí también cabe en la profundidad de la zona)
     if (this.staticDirty || Math.hypot(wx - this.center.x, target.y - this.center.y, wz - this.center.z) > MOVE) {
@@ -121,9 +132,9 @@ export class SunShadow {
     const hold = this.hold;
     this.hold = false;
     if (!sm.enabled) { this.staticDirty = true; return; }   // (al volver a encenderlas, lo fijo se repinta)
-    if (this.skip || hold) { sm.needsUpdate = false; return; }
-    this.n++;
     const now = performance.now();
+    if (this.skip || hold) { sm.needsUpdate = false; if (this.skip) this.rest(now); return; }
+    this.n++;
     if (this.pending && this.n - this.lastStatic >= EVERY) this.staticDirty = true;
     if (now - this.lastStaticT > SAFETY) this.staticDirty = true;
     // Como antes: todo el mapa, cada dos fotogramas o cuando hay que repintar lo fijo
@@ -173,6 +184,8 @@ export class SunShadow {
   }
   done(now) { this.staticDirty = false; this.pending = false; this.lastStatic = this.n; this.lastStaticT = now; this.nStatic++; this.stats.fijos++; }
   count(f, k) { const info = this.v.renderer.info.render, c0 = info.calls; f(); this.stats[k] += info.calls - c0; }
+  // Sin sol no hay cifras: se olvidan las de antes (F3 no enseña las de fuera) y se empieza a contar de nuevo al volver
+  rest(now) { const s = this.stats; s.out = null; s.fijos = s.movil = s.parches = s.frames = s.callsFijo = 0; s.t = now; }
   // Cada media vuelta, las cifras por segundo y por fotograma
   tally(now) {
     const s = this.stats;
@@ -199,6 +212,7 @@ export class SunShadow {
     const fa = P.get(from).__webglFramebuffer, fb = P.get(to).__webglFramebuffer;
     if (!fa || !fb) return false;
     const cur = r.getRenderTarget(), face = r.getActiveCubeFace(), mip = r.getActiveMipmapLevel();
+    if (!this.checked) for (let i = 0; i < 16 && gl.getError() !== gl.NO_ERROR; i++);
     // (a la copia le afecta el recorte de la tijera; las máscaras se dejan abiertas por si el controlador las aplica)
     st.setScissorTest(false); st.buffers.color.setMask(true); st.buffers.depth.setMask(true);
     st.bindFramebuffer(gl.READ_FRAMEBUFFER, fa); st.bindFramebuffer(gl.DRAW_FRAMEBUFFER, fb);
@@ -207,7 +221,8 @@ export class SunShadow {
     else for (const q of rects) gl.blitFramebuffer(q[0], q[1], q[2], q[3], q[0], q[1], q[2], q[3], bits, gl.NEAREST);
     st.bindFramebuffer(gl.READ_FRAMEBUFFER, null);
     r.setRenderTarget(cur, face, mip);
-    // (la primera vez se pregunta a la gráfica si ha ido bien; después no, que esperar a la respuesta frena)
+    // (la primera vez se pregunta a la gráfica si ha ido bien; después no, que esperar a la respuesta frena. Antes de
+    // copiar se vacía la cola de errores, que guarda los de cualquier llamada anterior: uno ajeno no apaga la caché)
     if (!this.checked) { this.checked = true; const e = gl.getError(); if (e) { console.warn('Sombras: error al copiar', e); return false; } }
     return true;
   }
@@ -246,7 +261,8 @@ export class SunShadow {
       if (cast === undefined) { cast = false; o.traverse(q => { if (q.castShadow && q.isMesh) cast = true; }); o.userData.shCast = cast; }
       if (cast) this.box(out, o);
     }
-    // Lo que gira en los modelos (la rueda de la noria): su esfera, una vez, alrededor de su eje
+    // Lo que gira en los modelos (la rueda de la noria) y las puertas mientras se abren: su esfera, una vez, alrededor de
+    // su eje (la bisagra)
     for (const o of v.world.spin?.children || []) {
       if (!o.visible) continue;
       if (!o.userData.shS) { BX.setFromObject(o); BX.getBoundingSphere(SP); o.userData.shS = SP.radius + SP.center.distanceTo(o.position) + 0.2; }
@@ -273,8 +289,9 @@ export class SunShadow {
   text() {
     const o = this.stats.out;
     if (!this.ok) return `sombras: todo el mapa cada dos fotogramas${ALL ? ' (?sombras=todas)' : ' (sin copia entre destinos)'}`;
+    if (this.skip) return 'sombras: sin sol (el mapa no se toca)';
     if (!o) return 'sombras: aún sin cifras';
     const f = x => x.toFixed(1).replace('.', ',');
-    return `sombras: fijo ${f(o.fijosPorSegundo)}/s (${Math.round(o.llamadasFijo)} llamadas) · móvil ${f(o.llamadasMovil)} llamadas · ${f(o.parches)} parches${this.skip ? ' · sin sol' : ''}`;
+    return `sombras: fijo ${f(o.fijosPorSegundo)}/s (${Math.round(o.llamadasFijo)} llamadas) · móvil ${f(o.llamadasMovil)} llamadas · ${f(o.parches)} parches`;
   }
 }

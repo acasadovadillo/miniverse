@@ -179,7 +179,10 @@ export async function runBench(game) {
     const main = { ...v.lastInfo };
     allShadows(v); frame();
     const all = { ...v.lastInfo };
-    frame();
+    // (que no se cuele un repintado de lo fijo: algo pendiente del mundo, la red de seguridad. Si aun así hay uno, se repite)
+    const quiet = () => { if (v.shadows) { v.shadows.pending = false; v.shadows.lastStaticT = performance.now(); } return v.shadows?.nStatic; };
+    const n0 = quiet(); frame();
+    if (v.shadows && v.shadows.nStatic !== n0) { quiet(); frame(); }
     const moving = { ...v.lastInfo };
     const parts = breakdown(v, frame);
     if (s === STOPS[0]) for (let i = 0; i < 3; i++) { timeLot(frame, sync); await sleep(0); }   // (calentar: la primera tanda sale siempre peor)

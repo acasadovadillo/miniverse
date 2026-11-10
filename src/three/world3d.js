@@ -46,8 +46,8 @@ export class World3D {
     this.view = view;
     this.group = new THREE.Group();
     view.scene.add(this.group);
-    // Lo que se mueve dentro de los modelos (la rueda de la noria), aparte: no es fijo para el mapa de sombras (ver
-    // sunshadow.js). Cualquier otra cosa que se anime en un modelo va aquí o avisa con stale()
+    // Lo que se mueve dentro de los modelos (la rueda de la noria, la hoja de una puerta mientras gira), aparte: no es
+    // fijo para el mapa de sombras (ver sunshadow.js). Cualquier otra cosa que se anime en un modelo va aquí o avisa con stale()
     this.spin = new THREE.Group();
     view.scene.add(this.spin);
     this.chunks = new Map();       // "cx,cy" → vista del trozo
@@ -123,7 +123,9 @@ export class World3D {
     // Lo que se golpea tiembla
     for (const b of this.nature.values()) for (const [key, o] of b.shakers) {
       const on = o.shakeUntil > game.time;
-      if (on || b.shaking?.has(key)) { shake(b.nat, key, on ? Math.sin(game.time * 90) * 0.04 : 0); if (on) (b.shaking ||= new Set()).add(key); else b.shaking.delete(key); this.stale(false, [o.x - 4, o.y - 4, o.x + 4, o.y + 4]); }
+      // (la sombra no tiembla: el temblor es de unos centímetros y repintar lo fijo cada dos fotogramas mientras dura, a
+      // cada golpe del hacha, saldría caro. Al acabar sí, por si lo fijo se repintó a medio temblor)
+      if (on || b.shaking?.has(key)) { shake(b.nat, key, on ? Math.sin(game.time * 90) * 0.04 : 0); if (on) (b.shaking ||= new Set()).add(key); else { b.shaking.delete(key); this.stale(false, [o.x - 4, o.y - 4, o.x + 4, o.y + 4]); } }
     }
     this.updateDoors(scene, dt);
     for (const c of this.chunks.values()) if (c.spin) for (const o of c.spin) o.rotation.x += o.userData.spin * dt;
@@ -147,7 +149,8 @@ export class World3D {
     this.regions.clear(); this.regionOf.clear();
     this.scene = scene; this.season = scene.gen.season;
     if (this.villageGroup) this.group.remove(this.villageGroup);
-    this.villageGroup = null; this.villageRef = null;
+    for (const o of this.villageLights?.spin || []) this.spin.remove(o);
+    this.villageGroup = null; this.villageRef = null; this.villageLights = null;
     // (lo primero que se monta después, al cambiar de estación o de mundo, sale de golpe: detrás no hay nada con lo que
     // fundirse, que lo lejano también se está rehaciendo, y su sombra saldría entera mientras él aún va tramado)
     this.freshNature = true;
@@ -254,7 +257,7 @@ export class World3D {
       const amount = prev ? prev.amount : scene.doorClosed(...d.tile) ? 0 : 1;
       leaf.userData.setAngle(amount);
       group.add(leaf);
-      this.doors.set(k, { leaf, amount, tile: d.tile });
+      this.doors.set(k, { leaf, amount, tile: d.tile, group });
     }
     group.matrixAutoUpdate = true;
     this.group.add(group);
@@ -266,7 +269,11 @@ export class World3D {
     for (const o of c.spin || []) this.spin.remove(o);
     this.stale(false, chunkBox(c.cx, c.cy));
     c.group.traverse(o => { if (o.userData.own) o.geometry.dispose(); });
-    for (const d of c.doors) { const dk = `${d.tile[0]},${d.tile[1]}`; if (!rebuilding) this.doors.delete(dk); }
+    for (const d of c.doors) {
+      const dk = `${d.tile[0]},${d.tile[1]}`, e = this.doors.get(dk);
+      if (e?.leaf.parent === this.spin) this.spin.remove(e.leaf);   // (a medio abrirse: estaba aparte, ver updateDoors)
+      if (!rebuilding) this.doors.delete(dk);
+    }
     if (!rebuilding) this.chunks.delete(k);
   }
   setRing(scene, c, ring) { c.ring = ring; }
@@ -804,10 +811,17 @@ export class World3D {
   updateDoors(scene, dt) {
     for (const d of this.doors.values()) {
       const want = scene.doorClosed(...d.tile) ? 0 : 1;
-      if (Math.abs(want - d.amount) < 1e-3) continue;
+      // (la hoja da sombra: mientras gira, va con lo que se mueve (world.spin) y su sombra se pinta en cada fotograma sin
+      // rehacer lo fijo; al empezar y al acabar, lo fijo se repinta una vez, sin ella y con ella. El grupo del trozo está
+      // en el origen y sin giro, así que la hoja no cambia de sitio al pasar de uno a otro)
+      const box = [d.tile[0] - 1, d.tile[1] - 1, d.tile[0] + 2, d.tile[1] + 2];
+      if (Math.abs(want - d.amount) < 1e-3) {
+        if (d.leaf.parent === this.spin) { d.group.add(d.leaf); this.stale(true, box); }
+        continue;
+      }
+      if (d.leaf.parent !== this.spin) { this.spin.add(d.leaf); delete d.leaf.userData.shS; this.stale(true, box); }
       d.amount += (want - d.amount) * Math.min(1, dt * 7);
       d.leaf.userData.setAngle(d.amount);
-      this.stale(false, [d.tile[0] - 1, d.tile[1] - 1, d.tile[0] + 2, d.tile[1] + 2]);   // (la hoja da sombra: mientras gira, su sombra también)
     }
   }
   updateFade(game, scene, dt) {
@@ -868,7 +882,8 @@ export class World3D {
 }
 // Lo que abarca (x0, z0, x1, z1 del mundo) un trozo, un bloque de naturaleza (con lo que asoma por los lados: copas,
 // sauces) y una casa (con el alero), para saber si un cambio cae en la zona de sombras (ver SunShadow.stale)
-const chunkBox = (cx, cy) => [cx * CHUNK - 2, cy * CHUNK - 2, (cx + 1) * CHUNK + 2, (cy + 1) * CHUNK + 2];
+// (con lo que asoma de los modelos grandes puestos en el borde del trozo: la taberna, las casas de animales, la noria)
+const chunkBox = (cx, cy) => [cx * CHUNK - 6, cy * CHUNK - 6, (cx + 1) * CHUNK + 6, (cy + 1) * CHUNK + 6];
 const blockBox = b => [b.bx * NB * CHUNK - 6, b.by * NB * CHUNK - 6, (b.bx + 1) * NB * CHUNK + 6, (b.by + 1) * NB * CHUNK + 6];
 const regionBox = r => [r.box.x0 - 3, r.box.y0 - 3, r.box.x1 + 3, r.box.y1 + 3];
 // Clave de un material base (para clonarlo para una región)
