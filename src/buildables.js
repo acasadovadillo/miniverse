@@ -24,3 +24,9 @@ for (const [cat, ids] of Object.entries(BUILD_CATS)) for (const id of ids) {
   for (const q of RECIPES) if (q.out === id) q.build = true;   // (ya no sale en la ventana de fabricar)
   LEGACY_ITEMS[id] = r.ins;
 }
+
+// Los planos: estos construibles no se aprenden solos al haber tenido sus materiales, como los demás; su plano se compra
+// en una tienda (economy.js, { plan }) y enseña a construirlos para siempre (crafting.js, learnPlan). Quien ya sabía
+// hacerlos cuando llegaron los planos, los conserva (crafting.js, reset)
+export const PLANS = new Set(['sofa', 'sillon', 'armario', 'comoda', 'banera', 'barra', 'barril', 'taburete', 'barca'].filter(id => BUILDABLE[id]));
+for (const r of RECIPES) if (PLANS.has(r.out)) r.plan = true;

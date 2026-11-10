@@ -176,8 +176,9 @@ export const RECIPES = [
 for (const tool of ['hacha', 'pico', 'guadana', 'azada']) RECIPES.push(R('yunque', `${tool}_hierro`, 1, [['lingote_hierro', 3], ['tablas', 1]]));
 for (const r of RECIPES) if (!ITEMS[r.out] || r.ins.some(([id]) => !ITEMS[id])) throw new Error(`Receta rota: ${r.id}`);
 
-// ¿Está desbloqueada? `seen`: objetos que el jugador ha tenido alguna vez; `taught`: recetas aprendidas
-export const unlocked = (r, seen, taught) => taught.has(r.id) || (!r.teach && r.ins.every(([id]) => seen.has(id)));
+// ¿Está desbloqueada? `seen`: objetos que el jugador ha tenido alguna vez; `taught`: recetas aprendidas (las que enseña
+// alguien, teach, y las que piden su plano, plan: ver buildables.js, solo se aprenden así)
+export const unlocked = (r, seen, taught) => taught.has(r.id) || (!r.teach && !r.plan && r.ins.every(([id]) => seen.has(id)));
 
 // Pista para una receta bloqueada
 export function lockedHint(r, seen) {

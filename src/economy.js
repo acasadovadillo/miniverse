@@ -34,7 +34,8 @@ export function priceOf(id) {
 export const buyPrice = id => Math.max(5, Math.round(priceOf(id) * 2.5));
 
 // Lo que vende cada vecino. `season`: solo esa estación; `project`: solo con ese proyecto terminado;
-// `animal`: no es un objeto, es un animal para tu granja; `price`: precio fijo
+// `animal`: no es un objeto, es un animal para tu granja; `price`: precio fijo; `plan`: tampoco es un objeto, es el plano
+// de algo que se construye con B (buildables.js, PLANS): se compra una vez y enseña a construirlo
 export const SHOPS = {
   rosa: {
     title: 'Puesto de Rosa', hours: [9, 18], buysAll: true,
@@ -49,7 +50,7 @@ export const SHOPS = {
   },
   anselmo: {
     title: 'Taberna de Anselmo', hours: [10, 26],
-    stock: [{ id: 'cerveza', price: 45 }, { id: 'sidra', price: 40 }, { id: 'hidromiel', price: 90 }, { id: 'pan', price: 70 }, { id: 'pollo_asado', price: 90 }, { id: 'estofado', price: 150 }, { id: 'filete', price: 130 }, { id: 'venado_asado', price: 160 }, { id: 'barril', price: 260 }, { id: 'taburete', price: 40 }],
+    stock: [{ id: 'cerveza', price: 45 }, { id: 'sidra', price: 40 }, { id: 'hidromiel', price: 90 }, { id: 'pan', price: 70 }, { id: 'pollo_asado', price: 90 }, { id: 'estofado', price: 150 }, { id: 'filete', price: 130 }, { id: 'venado_asado', price: 160 }, { plan: 'taburete', price: 40 }, { plan: 'barra', price: 90 }, { plan: 'barril', price: 160 }],
   },
   bruno: {
     title: 'Herrería de Bruno', hours: [8, 17],
@@ -57,10 +58,10 @@ export const SHOPS = {
   },
   lia: {
     title: 'Aparejos de Lía', hours: [6, 20],
-    stock: [{ id: 'cana', price: 150 }, { id: 'cana_fibra', price: 1500 }, { id: 'regadera', price: 200 }, { id: 'barca', price: 1800 }, { id: 'sardina', price: 65 }],
+    stock: [{ id: 'cana', price: 150 }, { id: 'cana_fibra', price: 1500 }, { id: 'regadera', price: 200 }, { plan: 'barca', price: 600 }, { id: 'sardina', price: 65 }],
   },
   dani: {
     title: 'Taller de Dani', hours: [10, 19],
-    stock: [{ id: 'maceta', price: 80 }, { id: 'alfombra', price: 140 }, { id: 'estanteria', price: 200 }, { id: 'lampara', price: 200 }, { id: 'cama', price: 350 }, { id: 'sofa', price: 420 }, { id: 'caballo', price: 3000 }],
+    stock: [{ id: 'maceta', price: 80 }, { id: 'alfombra', price: 140 }, { id: 'lampara', price: 200 }, { plan: 'sillon', price: 220 }, { plan: 'sofa', price: 300 }, { plan: 'comoda', price: 250 }, { plan: 'armario', price: 280 }, { plan: 'banera', price: 320 }, { id: 'caballo', price: 3000 }],
   },
 };

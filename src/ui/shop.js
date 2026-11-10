@@ -1,5 +1,7 @@
 // Tienda de un vecino: comprar lo que vende y venderle lo que lleves.
 import { ITEMS, TIERS, LEGACY_ITEMS } from '../items.js';
+import { STATIONS } from '../recipes.js';
+import { BUILDABLE, PLANS } from '../buildables.js';
 import { SHOPS, priceOf, buyPrice } from '../economy.js';
 import { itemIconUrl } from '../art/items.js';
 import { animalSprite, ANIMALS } from '../art/farm.js';
@@ -13,7 +15,7 @@ export function initShopUI(game, { onClose }) {
 
   function stock() {
     const s = SHOPS[shop], season = game.days.season, done = game.board.projects;
-    return s.stock.filter(e => (!e.seasons || e.seasons.includes(season)) && (!e.project || done[e.project]) && (e.animal || (ITEMS[e.id] && !LEGACY_ITEMS[e.id])));   // (lo que ahora se construye no se vende: ya no es un objeto)
+    return s.stock.filter(e => (!e.seasons || e.seasons.includes(season)) && (!e.project || done[e.project]) && (e.animal || (e.plan ? PLANS.has(e.plan) : ITEMS[e.id] && !LEGACY_ITEMS[e.id])));   // (lo que ahora se construye no se vende, ya no es un objeto: se vende su plano)
   }
   const animalIcon = type => animalSprite(type, 0).toDataURL();
 
@@ -46,6 +48,15 @@ export function initShopUI(game, { onClose }) {
             if (why) { note = why; Audio.error(); return; }
             game.addMoney(-price); note = `${e.name}: ya está en su casa.`; Audio.unlock();
           }, game.money >= price]]);
+          continue;
+        }
+        if (e.plan) {   // (un plano: se compra una vez y enseña a construir eso con B)
+          const d = BUILDABLE[e.plan], has = game.craft.hasPlan(e.plan), name = d.name.toLowerCase();
+          const how = `${d.cost.map(([m, n]) => `${n} ${ITEMS[m].name.toLowerCase()}`).join(', ')}${d.needs ? `, con ${STATIONS[d.needs].name.toLowerCase()} cerca` : ''}`;
+          row(itemIconUrl(e.plan), `Plano: ${name}`, has ? 'Ya lo tienes: se construye con B.' : `${price} 🪙 · Para construir con B: ${how}.`, [[has ? 'Aprendido' : 'Comprar', () => {
+            game.addMoney(-price); game.craft.learnPlan(e.plan);
+            note = `Plano aprendido: ${name}. Se construye con B.`; Audio.unlock();
+          }, !has && game.money >= price]]);
           continue;
         }
         const def = ITEMS[e.id];

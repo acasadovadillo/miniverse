@@ -1,6 +1,6 @@
 // Piezas de construcción: no son objetos de la mochila, se pagan con materiales al ponerlas
 // y devuelven esos materiales al quitarlas. needs: la estación que hay que tener cerca para ponerlas (lo de madera, el
-// banco de carpintero: ver build.js, stationNear). Cada casilla tiene tres capas: suelo, objeto y tejado (y los cuadros,
+// banco de carpintero; los tejados de teja y de pizarra, el horno, donde se cuecen: ver build.js, stationFor). Cada casilla tiene tres capas: suelo, objeto y tejado (y los cuadros,
 // colgados, la suya).
 import { ITEMS } from './items.js';
 
@@ -15,11 +15,11 @@ export const PIECES = {
   ventana_contraventanas: { name: 'Ventana con contraventanas', cat: 'Muros', layer: 'placed', kind: 'wall', cost: [['tablas', 3], ['piedra', 1]], needs: 'banco' },
   muro_cuadro: { name: 'Muro con cuadro', cat: 'Muros', layer: 'placed', kind: 'wall', cost: [['tablas', 2], ['tela', 1]], needs: 'banco' },
   puerta: { name: 'Puerta', cat: 'Muros', layer: 'placed', kind: 'door', cost: [['tablas', 3]], needs: 'banco' },
-  tejado_rojo: { name: 'Tejado rojo', cat: 'Tejados', layer: 'roof', cost: [['tablas', 1], ['piedra', 1]] },
-  tejado_azul: { name: 'Tejado azul', cat: 'Tejados', layer: 'roof', cost: [['tablas', 1], ['piedra', 1]] },
+  tejado_rojo: { name: 'Tejado rojo', cat: 'Tejados', layer: 'roof', cost: [['tablas', 1], ['piedra', 1]], needs: 'horno' },
+  tejado_azul: { name: 'Tejado azul', cat: 'Tejados', layer: 'roof', cost: [['tablas', 1], ['piedra', 1]], needs: 'horno' },
   tejado_paja: { name: 'Tejado de paja', cat: 'Tejados', layer: 'roof', cost: [['fibra', 3]] },
-  tejado_gris: { name: 'Tejado de pizarra', cat: 'Tejados', layer: 'roof', cost: [['tablas', 1], ['piedra', 1]] },
-  tejado_verde: { name: 'Tejado verde', cat: 'Tejados', layer: 'roof', cost: [['tablas', 1], ['piedra', 1]] },
+  tejado_gris: { name: 'Tejado de pizarra', cat: 'Tejados', layer: 'roof', cost: [['tablas', 1], ['piedra', 1]], needs: 'horno' },
+  tejado_verde: { name: 'Tejado verde', cat: 'Tejados', layer: 'roof', cost: [['tablas', 1], ['piedra', 1]], needs: 'horno' },
   // (las vallas y sus puertas fueron también objetos de la mochila; ya solo se construyen aquí)
   valla: { name: 'Valla de madera', cat: 'Vallas', layer: 'placed', kind: 'fence', cost: [['tablas', 1]], needs: 'banco' },
   puerta_valla: { name: 'Puerta de valla', cat: 'Vallas', layer: 'placed', kind: 'gate', cost: [['tablas', 3]], needs: 'banco' },
