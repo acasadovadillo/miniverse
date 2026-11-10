@@ -1,10 +1,13 @@
 // Banco de medidas del dibujo (?banco=1). Recorre siempre las mismas paradas del mismo mundo, a la misma hora y con
-// el mismo tiempo (plaza, de cerca, cámara baja, de lejos, bosque, noche y primera persona) y en cada una cuenta lo que se
+// el mismo tiempo (plaza, de cerca, cámara baja, de lejos, bosque, noche y primera persona; y al final, una pradera de
+// cerca, de lejos, con la cámara baja y en primera persona) y en cada una cuenta lo que se
 // dibuja (llamadas y triángulos, aparte los del mapa de sombras) y lo que tarda de verdad cada fotograma: dibuja
 // tandas seguidas y espera a que la gráfica las termine (leer un píxel obliga a acabarlas), porque sin esperar solo
 // se mediría lo que tarda el navegador en encargar el trabajo. Lo lanza banco.py en un Chrome con la gráfica de
 // verdad, que recoge las cifras y una captura de cada parada; también se puede abrir a mano en el navegador y leer
 // el resultado en pantalla. No guarda nada: la cuenta es de prueba y la partida, nueva.
+// banco.py --contra mide con este mismo archivo la versión de antes: lo que lee del juego tiene que valer en las dos
+// (lo que solo tenga una, con ?. y sin romper si falta).
 //   ?banco=1&px=1      resolución (×1 por defecto, para comparar; px=2 es la de una pantalla Retina)
 //   &lotes=5&n=30      cuántas tandas de cuántos fotogramas se miden en cada parada
 //   &solo=plaza,noche  solo esas paradas
@@ -36,6 +39,11 @@ const STOPS = [
   { name: 'bosque-baja', at: g => forest(g), cam: { yaw: Math.PI / 4 + 2, pitch: PITCH.min + 0.05, dist: 18 }, hour: 12 },
   { name: 'noche', at: PLAZA, cam: { yaw: Math.PI / 4, pitch: 0.84, dist: 22 }, hour: 23 },
   { name: 'primera', at: PLAZA, cam: { yaw: Math.PI / 4 + Math.PI, first: true }, hour: 12 },
+  // (las de la pradera, al final: las de antes se miden igual que siempre, en el mismo orden y con lo mismo detrás)
+  { name: 'pradera', at: g => meadow(g), cam: { yaw: Math.PI / 4, pitch: 0.84, dist: 22 }, hour: 12 },
+  { name: 'pradera-lejos', at: g => meadow(g), cam: { yaw: Math.PI / 4 + 1.2, pitch: 0.6, dist: DIST.max }, hour: 12 },
+  { name: 'pradera-baja', at: g => meadow(g), cam: { yaw: Math.PI / 4 + 2, pitch: PITCH.min + 0.05, dist: 18 }, hour: 12 },
+  { name: 'pradera-primera', at: g => meadow(g), cam: { yaw: Math.PI / 4 + Math.PI, first: true }, hour: 12 },
 ].filter(s => !ONLY || ONLY.includes(s.name));
 
 // El trozo con más árboles cerca del pueblo (siempre el mismo: el mundo sale de la misma semilla)
@@ -50,6 +58,43 @@ function forest(game) {
     if (n > best) { best = n; forestAt = [(cx + dx + 0.5) * CHUNK, (cy + dy + 0.5) * CHUNK]; }
   }
   return forestAt;
+}
+
+// El trozo más de pradera cerca del pueblo, para medir la hierba: el que tiene más casillas con hierba (gen.grassAt,
+// una de cada cuatro) y menos árboles, rocas o casas que la tapen (cada uno, unas doce casillas vistas desde arriba),
+// contando también los trozos de alrededor (la cámara de siempre ve unas ±12 casillas y la de lejos, mucho más); el
+// suyo cuenta doble. El jugador, en la casilla con hierba más cerca del centro que no tenga nada encima. Solo lee el
+// mundo que sale de la semilla: no depende de la versión del dibujo
+let meadowAt = null;
+function meadow(game) {
+  if (meadowAt) return meadowAt;
+  const w = game.world, gen = w.gen, cx = Math.floor(CENTER.x / CHUNK), cy = Math.floor(CENTER.y / CHUNK);
+  const counted = new Map(), grass = (x, y) => {
+    const k = `${x},${y}`;
+    if (!counted.has(k)) { let n = 0; for (let ty = y * CHUNK; ty < (y + 1) * CHUNK; ty += 2) for (let tx = x * CHUNK; tx < (x + 1) * CHUNK; tx += 2) if (gen.grassAt(tx, ty) > 0) n++; counted.set(k, n); }
+    return counted.get(k);
+  };
+  const solids = new Map(), solid = (x, y) => {   // (las flores no tapan la hierba)
+    const k = `${x},${y}`;
+    if (!solids.has(k)) solids.set(k, w.contentFor(x, y).objects.filter(o => !o.flower));
+    return solids.get(k);
+  }, open = (x, y) => grass(x, y) - 3 * solid(x, y).length;
+  let best = -Infinity, at = null;
+  for (let dy = -8; dy <= 8; dy++) for (let dx = -8; dx <= 8; dx++) {
+    if (Math.max(Math.abs(dx), Math.abs(dy)) < 3) continue;   // (fuera del pueblo)
+    const x = cx + dx, y = cy + dy;
+    let score = open(x, y);
+    for (let j = -1; j <= 1; j++) for (let i = -1; i <= 1; i++) score += open(x + i, y + j);
+    if (score > best) { best = score; at = [x, y]; }
+  }
+  const [bx, by] = at, objs = solid(bx, by), mx = (bx + 0.5) * CHUNK, my = (by + 0.5) * CHUNK;
+  let d = Infinity;
+  meadowAt = [mx, my];
+  for (let ty = by * CHUNK; ty < (by + 1) * CHUNK; ty++) for (let tx = bx * CHUNK; tx < (bx + 1) * CHUNK; tx++) {
+    const x = tx + 0.5, y = ty + 0.5, e = Math.hypot(x - mx, y - my);
+    if (e < d && gen.grassAt(tx, ty) > 0 && !objs.some(o => Math.hypot(o.x - x, o.y - y) < 1.5)) { d = e; meadowAt = [x, y]; }
+  }
+  return meadowAt;
 }
 
 // Una cuenta de prueba y una partida nueva (si no lo ha hecho ya ?modo=pruebas&parte=mirar)
@@ -162,10 +207,13 @@ export async function runBench(game) {
       }
       console.log(`BANCO ${s.name}: cuesta (ms) ` + Object.entries(ab).map(([k, x]) => `${k} ${x}`).join(', '));
     }
+    parts.contadores = counters(v, frame);
     const ms = median(lots), stop = {
       name: s.name, llamadas: main.calls, triangulos: main.triangles, llamadasSombra: all.calls - main.calls, triangulosSombra: all.triangles - main.triangles,
       ms: +ms.toFixed(1), fps: +(1000 / ms).toFixed(1), msSinSombra: +median(flat).toFixed(1), min: +Math.min(...lots).toFixed(1), max: +Math.max(...lots).toFixed(1),
       avanzar: +median(up).toFixed(2), encargar: +median(dr).toFixed(2), preparar: sec(now() - t0), ...ready, desglose: parts, cpu, ...(ab && { ab }),
+      // (si la versión los lleva: los contadores de las personas que guarda el propio juego)
+      ...(v.actors.stats && typeof v.actors.stats === 'object' && { personas: { ...v.actors.stats, ...(Number.isFinite(v.actorsMs) && { ms: +v.actorsMs.toFixed(2) }) } }),
     };
     out.paradas.push(stop);
     console.log(`BANCO ${s.name}: ${stop.ms} ms (${stop.fps} fps), sin sombras ${stop.msSinSombra} ms; ${stop.llamadas} llamadas + ${stop.llamadasSombra} de sombra; ${Math.round(stop.triangulos / 1000)} k + ${Math.round(stop.triangulosSombra / 1000)} k triángulos`);
@@ -186,9 +234,9 @@ export async function runBench(game) {
   return out;
 }
 
-// Qué se dibuja en cada llamada, por grupos (suelo, casas, naturaleza, lejanos, personas…), en la pasada normal y en
-// la del mapa de sombras: un fotograma que rehace las sombras, apuntando cada llamada y lo que dibuja
-function breakdown(v, frame) {
+// A qué grupo pertenece cada cosa que se dibuja (suelo, casas, naturaleza, lejanos, personas…): el de la raíz conocida
+// más cercana hacia arriba (la hierba va dentro de la naturaleza y gana la hierba: se mira primero lo más de dentro)
+function labeler(v) {
   const L = new Map(), put = (o, name) => { if (o) L.set(o, name); };
   put(v.terrain.group, 'suelo'); put(v.terrain.water.group, 'agua'); put(v.sky, 'cielo');
   put(v.world.group, 'mundo, otros');
@@ -200,30 +248,121 @@ function breakdown(v, frame) {
   put(v.actors.group, 'actores, otros');
   for (const m of v.actors.models.values()) put(m.root, m.kind === 'person' || m.kind === 'baby' ? 'personas' : 'animales');
   put(v.fx.group, 'efectos'); put(v.arrows?.group, 'flechas'); put(v.viewmodel, 'en la mano');
-  const labelOf = o => { for (let p = o; p; p = p.parent) if (L.has(p)) return L.get(p); return 'otros'; };
-  const r = v.renderer, orig = r.renderBufferDirect, out = { principal: {}, sombra: {} };
-  r.renderBufferDirect = function (camera, scene, geometry, material, object, group) {
-    if (geometry.drawRange.count < 0) return orig.apply(this, arguments);   // (se corta sin dibujar: no cuenta)
-    const into = camera.isOrthographicCamera && camera !== v.camera ? out.sombra : out.principal, k = labelOf(object), e = (into[k] ||= [0, 0]);
-    const n = geometry.index ? geometry.index.count : geometry.attributes.position?.count || 0;
-    e[0]++; e[1] += Math.round(n / 3 * (object.isInstancedMesh ? object.count : 1));
-    return orig.apply(this, arguments);
+  const memo = new Map();
+  return o => {
+    let k = memo.get(o);
+    if (k === undefined) { k = 'otros'; for (let p = o; p; p = p.parent) if (L.has(p)) { k = L.get(p); break; } memo.set(o, k); }
+    return k;
   };
-  try { v.frames = 0; frame(); } finally { r.renderBufferDirect = orig; }
+}
+
+// Cuántos triángulos dibuja de verdad una llamada, con las mismas cuentas que Three (r160, renderBufferDirect y
+// WebGLInfo): solo el tramo que pide drawRange (los niveles de detalle dibujan el principio de la geometría), el del
+// grupo si la malla lleva varios materiales, y por cada instancia. -1 si Three la corta sin dibujar (no cuenta como
+// llamada); 0 si son líneas o puntos
+function trianglesOf(geometry, material, object, group) {
+  const index = geometry.index, pos = geometry.attributes.position, R = geometry.drawRange;
+  let start = R.start, end = R.start + R.count;
+  if (group) { start = Math.max(start, group.start); end = Math.min(end, group.start + group.count); }
+  if (index) { start = Math.max(start, 0); end = Math.min(end, index.count); }
+  else if (pos) { start = Math.max(start, 0); end = Math.min(end, pos.count); }
+  const n = end - start, inst = instancesOf(geometry, object);
+  if (n < 0 || n === Infinity || inst === 0) return -1;   // (sin instancias, Three tampoco llega a dibujarla)
+  if (!(object.isMesh || object.isSprite) || material.wireframe) return 0;
+  return Math.round(n / 3 * inst);
+}
+const instancesOf = (geometry, object) => object.isInstancedMesh ? object.count
+  : geometry.isInstancedBufferGeometry ? Math.min(geometry.instanceCount, geometry._maxInstanceCount ?? Infinity) : 1;
+
+// Cambia una función de un objeto por otra hecha a partir de ella (make(f)) y apunta en undo cómo dejarla como estaba
+function patch(obj, name, make, undo) {
+  if (!obj || typeof obj[name] !== 'function') return;
+  const own = Object.prototype.hasOwnProperty.call(obj, name), f = obj[name];
+  obj[name] = make(f);
+  undo.push(() => { if (own) obj[name] = f; else delete obj[name]; });
+}
+
+// Qué se dibuja en cada llamada, por grupos (suelo, casas, naturaleza, lejanos, personas…), en la pasada normal y en
+// la del mapa de sombras: un fotograma que rehace las sombras, apuntando cada llamada y lo que dibuja
+function breakdown(v, frame) {
+  const labelOf = labeler(v), r = v.renderer, out = { principal: {}, sombra: {} }, undo = [];
+  patch(r, 'renderBufferDirect', orig => function (camera, scene, geometry, material, object, group) {
+    const n = trianglesOf(geometry, material, object, group);
+    if (n < 0) return orig.apply(this, arguments);   // (se corta sin dibujar: no cuenta)
+    const into = camera.isOrthographicCamera && camera !== v.camera ? out.sombra : out.principal, k = labelOf(object), e = (into[k] ||= [0, 0]);
+    e[0]++; e[1] += n;
+    return orig.apply(this, arguments);
+  }, undo);
+  try { v.frames = 0; frame(); } finally { for (const u of undo.reverse()) u(); }
   return out;   // grupo → [llamadas, triángulos]
+}
+
+// Contadores de unos fotogramas normales, como en el juego (sin forzar las sombras ni cronometrar nada), para ver por
+// qué cambia lo que tarda: cuántas personas y animales se llegan a dibujar (los que pasan el recorte de la cámara), en
+// la pasada normal y en la de sombra; en cuántos fotogramas se rehace el mapa de sombras y con cuántas llamadas y
+// triángulos; cuántas instancias se dibujan por grupo (las matas de la hierba, los árboles…) y lo que hay en la
+// gráfica. Va después de medir la parada, así que no cambia lo medido
+const COUNT_N = 12;   // (par: hoy las sombras se rehacen cada dos fotogramas)
+function counters(v, frame) {
+  const labelOf = labeler(v), r = v.renderer, undo = [];
+  const owner = new Map(), memo = new Map();
+  for (const m of v.actors.models.values()) owner.set(m.root, m);
+  const modelOf = o => {
+    let m = memo.get(o);
+    if (m === undefined) { m = null; for (let p = o; p; p = p.parent) if (owner.has(p)) { m = owner.get(p); break; } memo.set(o, m); }
+    return m;
+  };
+  const people = m => m.kind === 'person' || m.kind === 'baby';
+  const main = new Set(), shade = new Set();
+  let depth = 0;
+  const sh = { fotogramas: 0, pasadas: 0, llamadas: 0, triangulos: 0 }, inst = {}, seen = { personas: 0, personasSombra: 0, animales: 0, animalesSombra: 0 };
+  // (una pasada de sombra que dibuja algo es un repintado: con la caché de lo fijo, también cuenta la de solo lo móvil)
+  patch(r.shadowMap, 'render', orig => function (...a) {
+    const c0 = sh.llamadas;
+    depth++;
+    try { return orig.apply(this, a); } finally { if (--depth === 0 && sh.llamadas > c0) sh.pasadas++; }
+  }, undo);
+  patch(r, 'renderBufferDirect', orig => function (camera, scene, geometry, material, object, group) {
+    const n = trianglesOf(geometry, material, object, group);
+    if (n >= 0) {
+      if (depth) { sh.llamadas++; sh.triangulos += n; }
+      else if (object.isInstancedMesh) { const k = labelOf(object); inst[k] = (inst[k] || 0) + object.count; }
+      const m = modelOf(object);
+      if (m) (depth ? shade : main).add(m);
+    }
+    return orig.apply(this, arguments);
+  }, undo);
+  try {
+    for (let i = 0; i < COUNT_N; i++) {
+      main.clear(); shade.clear();
+      const c0 = sh.llamadas;
+      frame();
+      if (sh.llamadas > c0) sh.fotogramas++;
+      for (const m of main) seen[people(m) ? 'personas' : 'animales']++;
+      for (const m of shade) seen[people(m) ? 'personasSombra' : 'animalesSombra']++;
+    }
+  } finally { for (const u of undo.reverse()) u(); }
+  const per = x => +(x / COUNT_N).toFixed(2), models = [...v.actors.models.values()];
+  const tally = list => ({ modelos: list.length, encendidos: list.filter(m => m.root.visible).length });
+  return {
+    fotogramas: COUNT_N,
+    personas: { ...tally(models.filter(people)), dibujadas: per(seen.personas), enSombra: per(seen.personasSombra) },
+    animales: { ...tally(models.filter(m => !people(m))), dibujados: per(seen.animales), enSombra: per(seen.animalesSombra) },
+    sombras: { rehechasPorFotograma: per(sh.fotogramas), pasadasPorFotograma: per(sh.pasadas), llamadasPorFotograma: per(sh.llamadas), triangulosPorFotograma: Math.round(sh.triangulos / COUNT_N) },
+    instancias: Object.fromEntries(Object.entries(inst).map(([k, n]) => [k, Math.round(n / COUNT_N)])),
+    memoria: { geometrias: r.info.memory.geometries, texturas: r.info.memory.textures, programas: r.info.programs?.length ?? null },
+  };
 }
 
 // En qué se va el tiempo de procesador de cada fotograma (sin esperar a la gráfica), por partes del dibujo: N
 // fotogramas con cada parte cronometrada; dentro de Three, aparte las matrices y el mapa de sombras
 function cpuSplit(v, frame) {
   const parts = {}, undo = [];
-  const wrap = (obj, name, label) => {
-    if (!obj || typeof obj[name] !== 'function') return;
-    const own = Object.prototype.hasOwnProperty.call(obj, name), f = obj[name];
-    obj[name] = function (...a) { const t = now(); try { return f.apply(this, a); } finally { parts[label] = (parts[label] || 0) + now() - t; } };
-    undo.push(() => { if (own) obj[name] = f; else delete obj[name]; });
-  };
+  const wrap = (obj, name, label) => patch(obj, name, f => function (...a) { const t = now(); try { return f.apply(this, a); } finally { parts[label] = (parts[label] || 0) + now() - t; } }, undo);
   wrap(v, 'updateSky', 'cielo'); wrap(v, 'updateCamera', 'cámara'); wrap(v.terrain, 'update', 'suelo'); wrap(v.world, 'update', 'mundo');
+  // (dentro del mundo; las firmas van también dentro de los trozos y de la naturaleza. Lo que no tenga una versión, no sale)
+  wrap(v.world, 'updateNature', 'mundo: naturaleza'); wrap(v.world, 'updateGrass', 'mundo: hierba'); wrap(v.world, 'updateFar', 'mundo: lejanos');
+  wrap(v.world, 'updateRegions', 'mundo: casas'); wrap(v.world, 'updateFade', 'mundo: desvanecer'); wrap(v.world, 'signature', 'mundo: firmas');
   wrap(v.actors, 'update', 'actores'); wrap(v.fx, 'update', 'efectos'); wrap(v, 'updateLights', 'luces'); wrap(v, 'updateViewmodel', 'en la mano');
   wrap(v.renderer, 'render', 'three'); wrap(v.scene, 'updateMatrixWorld', 'three: matrices'); wrap(v.renderer.shadowMap, 'render', 'three: sombras');
   wrap(v.renderer, 'renderBufferDirect', 'three: llamadas');   // (dentro de cada llamada: programa, uniformes y dibujo)
@@ -298,7 +437,9 @@ async function post(path, body) {
 function show(out) {
   const box = document.createElement('div'), pre = document.createElement('pre'), copy = document.createElement('button');
   box.style.cssText = 'position:fixed;inset:12px;z-index:200;overflow:auto;padding:14px;background:rgba(10,8,6,.88);color:#f4ead8;font:13px/1.45 ui-monospace,monospace;border-radius:8px';
-  const rows = out.paradas.map(p => `${p.name.padEnd(12)} ${String(p.ms).padStart(6)} ms ${String(p.fps).padStart(5)} fps  sin sombras ${String(p.msSinSombra).padStart(6)}  llamadas ${p.llamadas}+${p.llamadasSombra}  triángulos ${Math.round(p.triangulos / 1000)}k+${Math.round(p.triangulosSombra / 1000)}k`);
+  const rows = out.paradas.map(p => { const c = p.desglose?.contadores;
+    return `${p.name.padEnd(16)} ${String(p.ms).padStart(6)} ms ${String(p.fps).padStart(5)} fps  sin sombras ${String(p.msSinSombra).padStart(6)}  llamadas ${p.llamadas}+${p.llamadasSombra}  triángulos ${Math.round(p.triangulos / 1000)}k+${Math.round(p.triangulosSombra / 1000)}k` +
+      (c ? `  personas ${c.personas.dibujadas}/${c.personas.modelos}  sombras ${c.sombras.rehechasPorFotograma}/fotograma` : ''); });
   pre.textContent = [`Banco · ${out.version} · ${out.gpu}`, `lienzo ${out.lienzo} (px ${out.px}, pantalla ×${out.dpr}) · listo en ${out.arranque} s · ${out.programas} programas`, '', ...rows].join('\n');
   pre.style.cssText = 'margin:0;white-space:pre-wrap';
   copy.textContent = 'Copiar el resultado';

@@ -12,7 +12,9 @@
 #   python3 banco.py --sw                 con el dibujo por software, como probar.py (para comparar)
 #   python3 banco.py --ab luces,cielo     en cada parada, lo que cuesta cada cosa, quitándola en tandas alternas
 #                                         (grupos, personas, luces, cielo, cielo-primero, sombra, res0.75…)
-#   python3 banco.py --desglose           qué se dibuja en cada parada y en qué se va el tiempo de procesador
+#   python3 banco.py --desglose           qué se dibuja en cada parada y en qué se va el tiempo de procesador, y los
+#                                         contadores (personas dibujadas, sombras rehechas, instancias, memoria);
+#                                         con --contra, grupo a grupo antes y ahora
 #   python3 banco.py --perfil --solo X    las funciones que más tiempo de procesador se llevan en la parada X
 #
 # Guarda las cifras (resultados.json) y las capturas en .banco/<fecha-hora>/. No lo lances a la vez que probar.py
@@ -35,7 +37,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 PORTS = {'ahora': 8798, 'antes': 8799}
 CHROMES = ['/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', '/Applications/Chromium.app/Contents/MacOS/Chromium',
            '/Applications/Brave Browser.app/Contents/MacOS/Brave Browser', '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge']
-TIMEOUT = 480   # segundos por vuelta (por software va muy despacio)
+TIMEOUT = 720   # segundos por vuelta (con las doce paradas, en este Mac una vuelta va por los 7 minutos; por software, más)
 
 
 def arg(name, default=None):
@@ -290,12 +292,12 @@ def table(runs):
     stops = [s['name'] for s in first['paradas']]
     if len(labels) == 1:
         l = labels[0]
-        print(f"{'parada':<13}{'ms':>7}{'fps':>7}{'sin sombras':>13}{'llamadas':>14}{'triángulos':>16}{'avanzar':>9}{'encargar':>10}")
+        print(f"{'parada':<16}{'ms':>7}{'fps':>7}{'sin sombras':>13}{'llamadas':>14}{'triángulos':>16}{'avanzar':>9}{'encargar':>10}")
         for s in stops:
             ms = med(l, s, 'ms')
             calls = '%.0f+%.0f' % (med(l, s, 'llamadas'), med(l, s, 'llamadasSombra'))
             tris = '%.0fk+%.0fk' % (med(l, s, 'triangulos') / 1000, med(l, s, 'triangulosSombra') / 1000)
-            print(f"{s:<13}{ms:>7.1f}{1000 / ms:>7.1f}{med(l, s, 'msSinSombra'):>13.1f}{calls:>14}{tris:>16}{med(l, s, 'avanzar'):>9.2f}{med(l, s, 'encargar'):>10.2f}")
+            print(f"{s:<16}{ms:>7.1f}{1000 / ms:>7.1f}{med(l, s, 'msSinSombra'):>13.1f}{calls:>14}{tris:>16}{med(l, s, 'avanzar'):>9.2f}{med(l, s, 'encargar'):>10.2f}")
         if '--desglose' in sys.argv:   # (qué se lleva las llamadas en cada parada: normal / sombra)
             for s in stops:
                 d = next(x for x in runs[l][0]['paradas'] if x['name'] == s).get('desglose') or {}
@@ -303,18 +305,73 @@ def table(runs):
                 print(f'  {s}: ' + ', '.join(f"{k} {d.get('principal', {}).get(k, [0])[0]}/{d.get('sombra', {}).get(k, [0])[0]}" for k in keys))
                 cpu = next(x for x in runs[l][0]['paradas'] if x['name'] == s).get('cpu') or {}
                 print('    procesador (ms): ' + ', '.join(f'{k} {v}' for k, v in sorted(cpu.items(), key=lambda kv: -kv[1])))
+                c = d.get('contadores')
+                if c:
+                    print('    ' + counters_line(c))
         print(f"\nListo en {same(l, 'arranque')} s · {same(l, 'programas')} programas · {same(l, 'texturas')} texturas · {same(l, 'geometrias')} geometrías · {same(l, 'memoria')} MB de memoria")
         return
-    print(f"{'parada':<13}{'ms antes':>10}{'ahora':>8}{'cambio':>9}   {'llamadas antes':>15}{'ahora':>12}   {'triángulos antes':>17}{'ahora':>14}")
+    print(f"{'parada':<16}{'ms antes':>10}{'ahora':>8}{'cambio':>9}   {'llamadas antes':>15}{'ahora':>12}   {'triángulos antes':>17}{'ahora':>14}")
     for s in stops:
         a, b = med('antes', s, 'ms'), med('ahora', s, 'ms')
         ca = f"{med('antes', s, 'llamadas'):.0f}+{med('antes', s, 'llamadasSombra'):.0f}"
         cb = f"{med('ahora', s, 'llamadas'):.0f}+{med('ahora', s, 'llamadasSombra'):.0f}"
         ta = f"{med('antes', s, 'triangulos') / 1000:.0f}k+{med('antes', s, 'triangulosSombra') / 1000:.0f}k"
         tb = f"{med('ahora', s, 'triangulos') / 1000:.0f}k+{med('ahora', s, 'triangulosSombra') / 1000:.0f}k"
-        print(f"{s:<13}{a:>10.1f}{b:>8.1f}{(b - a) / a * 100:>+8.0f}%   {ca:>15}{cb:>12}   {ta:>17}{tb:>14}")
+        print(f"{s:<16}{a:>10.1f}{b:>8.1f}{(b - a) / a * 100:>+8.0f}%   {ca:>15}{cb:>12}   {ta:>17}{tb:>14}")
     for key, name in (('arranque', 'listo en (s)'), ('programas', 'programas'), ('texturas', 'texturas'), ('geometrias', 'geometrías'), ('memoria', 'memoria (MB)')):
         print(f"{name:<16}{str(same('antes', key)):>10}{str(same('ahora', key)):>10}")
+    if '--desglose' in sys.argv:
+        compare_breakdown(runs, stops)
+
+
+def counters_line(c):
+    # Los contadores pasivos de una parada (src/banco.js, counters), en una línea
+    p, a, sh = c.get('personas', {}), c.get('animales', {}), c.get('sombras', {})
+    inst = ', '.join(f'{k} {v}' for k, v in sorted((c.get('instancias') or {}).items(), key=lambda kv: -kv[1]))
+    m = c.get('memoria', {})
+    return (f"personas {p.get('dibujadas')} dibujadas de {p.get('modelos')} ({p.get('enSombra')} en sombra) · animales {a.get('dibujados')} de {a.get('modelos')}"
+            f" · sombras {sh.get('rehechasPorFotograma')}/fotograma, {sh.get('llamadasPorFotograma')} llamadas y {sh.get('triangulosPorFotograma', 0) / 1000:.0f}k triángulos"
+            f" · instancias: {inst or '-'} · {m.get('geometrias')} geometrías, {m.get('texturas')} texturas, {m.get('programas')} programas")
+
+
+def compare_breakdown(runs, stops):
+    # Con --contra --desglose: por parada, las llamadas y los triángulos de cada grupo en la pasada normal y en la de
+    # sombra (antes → ahora), el procesador por partes (mediana de las vueltas) y los contadores. Lo que se dibuja no
+    # cambia de una vuelta a otra: sale de la primera
+    def stop_of(label, s, lap=0):
+        return next((x for x in runs[label][lap]['paradas'] if x['name'] == s), None)
+
+    def cpu_med(label, s):
+        parts = {}
+        for r in runs[label]:
+            for k, v in (next((x for x in r['paradas'] if x['name'] == s), {}).get('cpu') or {}).items():
+                parts.setdefault(k, []).append(v)
+        return {k: median(v) for k, v in parts.items()}
+    print('\nDesglose (llamadas/triángulos de cada grupo, antes → ahora; normal | sombra)')
+    for s in stops:
+        a, b = stop_of('antes', s), stop_of('ahora', s)
+        if not a or not b:
+            continue
+        da, db = a.get('desglose') or {}, b.get('desglose') or {}
+        print(f'  {s}:')
+        groups = set()
+        for d in (da, db):
+            for side in ('principal', 'sombra'):
+                groups |= set(d.get(side, {}))
+
+        def cell(d, side, g):
+            e = d.get(side, {}).get(g, [0, 0])
+            return f'{e[0]}/{e[1] / 1000:.0f}k'
+        weight = lambda g: -max(db.get('principal', {}).get(g, [0, 0])[1], da.get('principal', {}).get(g, [0, 0])[1])
+        for g in sorted(groups, key=weight):
+            print(f"    {g:<16}{cell(da, 'principal', g):>13} → {cell(db, 'principal', g):<13} | {cell(da, 'sombra', g):>11} → {cell(db, 'sombra', g)}")
+        ca, cb = cpu_med('antes', s), cpu_med('ahora', s)
+        keys = sorted(set(ca) | set(cb), key=lambda k: -max(ca.get(k, 0), cb.get(k, 0)))
+        num = lambda x: '-' if x is None else f'{x:g}'
+        print('    procesador (ms): ' + ', '.join(f'{k} {num(ca.get(k))}→{num(cb.get(k))}' for k in keys))
+        for label, d in (('antes', da), ('ahora', db)):
+            if d.get('contadores'):
+                print(f'    {label}: ' + counters_line(d['contadores']))
 
 
 def main():
