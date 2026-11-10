@@ -671,6 +671,7 @@ async function soloTests(game) {
     P.setBelly(0); check(!P.belly.visible, 'la barriga no se va');
     const K = new RealPerson(LOOK, { kid: true });
     check(K.height < P.height * 0.75 && K.height > 1, `el niño mide ${K.height} (la adulta, ${P.height})`);
+    P.dispose(); K.dispose();   // (sueltan su prototipo: ver persona.js release)
   });
   await test('puerta: se cierra y se abre', async () => {
     const door = [21, 16];   // (la de tu casa)

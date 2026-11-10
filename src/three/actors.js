@@ -36,7 +36,7 @@ const LOD_PX = [60, 72];                   // de lejos por debajo de 60 px; de c
 const LOD_GAP = 0.6;                       // segundos, como poco, entre dos cambios de detalle de la misma persona
 // ?personas=todas: todas a todo (sin dormidas, sin LOD1 y animadas en cada fotograma), para comparar
 const ALL = typeof location !== 'undefined' && new URLSearchParams(location.search).get('personas') === 'todas';
-const FR = new THREE.Frustum(), PV = new THREE.Matrix4(), SPH = new THREE.Sphere(), V3 = new THREE.Vector3();
+const FR = new THREE.Frustum(), PV = new THREE.Matrix4(), SPH = new THREE.Sphere(), V3 = new THREE.Vector3(), V2 = new THREE.Vector2(), CAMDIR = new THREE.Vector3();
 
 // Una malla del jugador: con su propio material (para dibujar su silueta) y en la capa 2. En la primera pasada del
 // dibujo no escribe ni color ni fondo (solo deja su sombra): esa vez se salta, sin dejar de dar sombra (el mapa de
@@ -63,7 +63,7 @@ export class Actors {
     this.lights = [];
     this.player = null;
     this.time = 0; this.stats = null;
-    this.warm = null;             // las personas por hacer de antemano (ver prewarm)
+    this.warm = []; this.warmKey = null;   // las personas por hacer de antemano (ver prewarm)
   }
   // Los materiales del jugador (para su silueta); body: solo los de su cuerpo y lo que lleva en la mano
   // Un jugador espectador se ve como un fantasma (solo lo ven los otros espectadores, y él mismo)
@@ -142,21 +142,25 @@ export class Actors {
         if (o.userData.solid) o.material.dispose();
         if (o.isSprite) { o.material.map?.dispose(); o.material.dispose(); }
       });
-      m.boat?.traverse(o => { if (o.isMesh) { o.geometry.dispose(); if (!m.mats) o.material.dispose(); } });
+      // (de espectador, la barca lleva clones, ya soltados arriba: los suyos de verdad están en userData.solid)
+      m.boat?.traverse(o => { if (o.isMesh) { o.geometry.dispose(); if (o.userData.solid) o.userData.solid.dispose(); else if (!m.mats) o.material.dispose(); } });
     } catch (err) { console.warn('Miniverse: no se pudo soltar un modelo', err); }
   }
 
   // Lo que hace falta para saber cómo se ve cada persona en este fotograma: el cono de la cámara, cuántos px mide en
-  // pantalla un metro a un metro de ella, hacia dónde y cuánto se alarga una sombra (con el sol bajo, alguien fuera de
-  // la vista puede dar sombra dentro), hasta dónde llega la niebla y en qué casa está el jugador
+  // pantalla un metro a un metro de ella, hacia dónde y cuánto se alarga una sombra por metro de alto (con el sol bajo,
+  // alguien fuera de la vista puede dar sombra dentro), hasta dónde llega la niebla y en qué casa está el jugador
   prepView(scene) {
     const v = this.view, cam = v.camera;
     cam.updateMatrixWorld();
     FR.setFromProjectionMatrix(PV.multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse));
-    this.pxK = (v.renderer.domElement.clientHeight || innerHeight) / (2 * Math.tan(cam.fov * Math.PI / 360));
-    // (la dirección del sol con la que se pinta el mapa de sombras: si las sombras la guardan, esa)
+    cam.getWorldDirection(CAMDIR);
+    // (el alto en px CSS que guarda Three al cambiar de tamaño: leer el del lienzo podría obligar a rehacer la maquetación)
+    this.pxK = (v.renderer.getSize(V2).y || innerHeight) / (2 * Math.tan(cam.fov * Math.PI / 360));
+    // (la dirección del sol con la que se pinta el mapa de sombras: si las sombras la guardan, esa. El sol más bajo tiene
+    // y = 0,12: una persona da entonces unos 14 m de sombra)
     const s = v.shadows?.dir || v.sunDir, up = scene.kind !== 'grid' && s && s.y > 0.05;
-    this.shLen = up ? Math.min(10, 1.8 * Math.hypot(s.x, s.z) / Math.max(0.17, s.y)) : 0;
+    this.shK = up ? Math.hypot(s.x, s.z) / Math.max(0.1, s.y) : 0;
     const h = up ? Math.hypot(s.x, s.z) || 1 : 1;
     this.shDir = up ? [-s.x / h, -s.z / h] : [0, 0];
     this.fogFar = v.scene.fog?.far ?? 1e9;
@@ -164,23 +168,29 @@ export class Actors {
     this.inRegion = v.world?.insideRegion ?? null;
   }
   // Cómo se ve esta persona (que no es el jugador): 3 fuera de la vista (ni se dibuja, ni da sombra, ni se anima), 0 a
-  // todo, 1 a 30 Hz y 2 a 15 Hz; y su detalle (P.lod). La esfera crece hacia donde cae su sombra, para que una sombra
-  // larga al atardecer no aparezca de golpe en el borde de la pantalla
-  grade(m, e, x, y, z) {
+  // todo, 1 a 30 Hz y 2 a 15 Hz; y su detalle (P.lod). y: la altura de sus pies, con lo que ha subido (saltando, en una
+  // torre, a caballo o en barca). La esfera crece hacia donde cae su sombra, para que una sombra larga al atardecer no
+  // aparezca de golpe en el borde de la pantalla; tumbada, cubre el cuerpo a lo largo; a caballo o en barca, también eso
+  grade(m, e, x, y, z, lying) {
     if (ALL || m === this.player || !m.person) return (m.tier = 0);
-    const P = m.person, h = P.height, cy = y + h * 0.5, cam = this.view.camera, me = this.me;
-    SPH.center.set(x + this.shDir[0] * this.shLen * 0.5, cy, z + this.shDir[1] * this.shLen * 0.5);
-    SPH.radius = h * 0.75 + this.shLen * 0.5;
+    const P = m.person, h = P.height, cy = lying ? y + 0.3 : y + h * 0.5, cam = this.view.camera, me = this.me;
+    const shLen = Math.min(16, h * this.shK);
+    SPH.center.set(x + this.shDir[0] * shLen * 0.5, cy, z + this.shDir[1] * shLen * 0.5);
+    // (tumbada, de la raíz a la cabeza y a los pies hay menos de lo que mide: ver LIE_LEN)
+    SPH.radius = (lying ? h : h * 0.75) + shLen * 0.5 + (m.horse?.visible || m.boat?.visible ? 1.3 : 0);
     const d = cam.position.distanceTo(V3.set(x, cy, z));
-    // (más allá de la niebla ya es de su color; los demás jugadores no, que llevan su nombre encima)
-    if (!FR.intersectsSphere(SPH) || (!e.remote && d > this.fogFar + 4)) return (m.tier = 3);
-    const px = h * this.pxK / Math.max(0.1, d);
     const near = me ? Math.hypot(x - me.x, z - me.y) : Infinity, cerca = near < 4 || (e.remote && near < 12);
+    // (más allá de la niebla ya es de su color; los demás jugadores no, que llevan su nombre encima. La niebla de Three va
+    // por la profundidad en la vista, no por la distancia: en los lados de la pantalla, alguien más lejos aún se ve)
+    const fogged = !e.remote && V3.sub(cam.position).dot(CAMDIR) > this.fogFar + 4;
+    if (!cerca && (fogged || !FR.intersectsSphere(SPH))) return (m.tier = 3);
+    const px = h * this.pxK / Math.max(0.1, d);
     const reg = this.regionOf?.get(`${Math.floor(e.x)},${Math.floor(e.y)}`);
     const tapada = !!reg && reg !== this.inRegion;   // bajo un tejado que no es el tuyo: se ve por ventanas y puertas
     const was = m.tier ?? 0, up = (i, k) => px >= TIER_PX[i][was <= k ? 1 : 0];
     let t = up(0, 0) ? 0 : up(1, 1) ? 1 : 2;
-    if (tapada) t = 2;
+    // (tapada, a 15 Hz; si se ve grande, desde la puerta o una ventana, a 30: a 15 se notarían los saltos de la cabeza)
+    if (tapada) t = t === 0 ? 1 : 2;
     // (andando, los pies apoyados se moverían con el cuerpo entre pose y pose: a 30 Hz como mucho, y solo ya pequeña)
     if (m.speed > 0.3) t = up(1, 1) ? 0 : 1;
     if (cerca) t = 0;
@@ -203,22 +213,30 @@ export class Actors {
     if (r) { s.protos = r.protos; s.protosLibres = r.libres; s.lienzos = r.lienzos; }
     this.stats = s;
   }
-  // Hacer de antemano, en ratos libres, las personas que van a salir (los vecinos, también los que están en casa, Nilo y
-  // los niños): un vecino que sale por su puerta aparece sin el tirón de hacerlo entero. Solo el procesador; de una en una
+  // Hacer de antemano las personas que van a salir (los vecinos, también los que están en casa, Nilo y los niños): un
+  // vecino que sale por su puerta aparece sin el tirón de hacerlo entero (100-250 ms, solo el procesador). Se hacen
+  // mientras la pantalla está a oscuras (al entrar en la partida o al cambiar de escena), una por fotograma, y si no, solo
+  // en un rato libre de verdad (más de 40 ms sin nada que hacer: en pausa, en un menú). Nunca a la fuerza en plena partida,
+  // que sería el mismo tirón. La lista se rehace si cambia el mundo o cuántos vecinos o niños hay (los niños llegan poco a poco)
   prewarm(game) {
-    if (this.warm || !game.neighbors || typeof requestIdleCallback !== 'function') return;
-    const list = [];
-    for (const n of game.neighbors.people || []) if (n.look) list.push([n.look, false]);
-    if (game.world?.nilo?.look) list.push([game.world.nilo.look, false]);
-    for (const k of game.family?.ents?.values?.() || []) if (k.look && !k.baby) list.push([k.look, !!k.kid]);
-    this.warm = list;
-    const next = () => {
-      const it = this.warm.shift();
-      if (!it) return;
-      try { prebuildReal(it[0], it[1]); } catch (err) { /* (la hará al verla, como siempre) */ }
-      requestIdleCallback(next, { timeout: 3000 });
-    };
-    requestIdleCallback(next, { timeout: 3000 });
+    const world = game.world, people = game.neighbors?.people;
+    if (!world || !people) return;
+    const kids = game.family?.ents, key = [world, people, people.length, kids?.size ?? 0, world.nilo?.look ? 1 : 0];
+    if (!this.warmKey || key.some((v, i) => v !== this.warmKey[i])) {
+      this.warmKey = key;
+      const list = [];
+      for (const n of people) if (n.look) list.push([n.look, false]);
+      if (world.nilo?.look) list.push([world.nilo.look, false]);
+      for (const k of kids?.values?.() || []) if (k.look && !k.baby) list.push([k.look, !!k.kid]);
+      this.warm = list;
+    }
+    if (!this.warm.length) return;
+    // (una que haya que hacer de verdad: las que ya están hechas no cuestan nada)
+    const one = () => { for (let it; (it = this.warm.shift());) { try { if (prebuildReal(it[0], it[1])) return; } catch (err) { /* (la hará al verla) */ } } };
+    if (typeof document !== 'undefined' && document.getElementById('fade')?.classList.contains('on')) { one(); return; }
+    if (this.warmIdle || typeof requestIdleCallback !== 'function') return;
+    this.warmIdle = true;
+    requestIdleCallback(dl => { this.warmIdle = false; if (dl.timeRemaining() > 40) one(); });
   }
 
   add(e, isPlayer, look) {
@@ -331,8 +349,7 @@ export class Actors {
       if (pz && !lying && m.person) y += SEAT_HIP * (m.person.kid ? KID_REF : 1) - m.person.hipY;   // (con la cadera en el asiento)
     }
     if (m.kind === 'person') {
-      const P = m.person, tier = this.grade(m, e, x, y, z);
-      m.root.visible = tier !== 3;
+      const P = m.person;
       if ((e.kid && e.lying) || (pz && lying)) { P.facing = 0; P.root.rotation.y = 0; }
       // (tumbada, se corre hacia los pies lo que mide de más que la cama pensada: la cabeza, en la almohada)
       P.r.root.position.y = lying ? -(P.height - LIE_LEN * (P.kid ? KID_REF : 1)) : 0;
@@ -361,11 +378,14 @@ export class Actors {
       // grade; desfasadas, para que no les toque a todas en el mismo fotograma). Girar, siempre: crew.js lee hacia dónde
       // mira. Todo lo que escribe en los huesos va dentro de este bloque: lo que suma (+= y -=) parte de la pose de
       // animate(), y fuera se acumularía en los fotogramas sin pose (el tronco giraría sin parar o el cuerpo se hundiría)
+      P.turn(dt);
+      if (e.z > 0) y += e.z;   // (saltando o encima de una roca)
+      // (cómo se ve, con la altura ya puesta: alguien en lo alto de una torre, mirado allí arriba, tiene los pies a 12 m del suelo)
+      const tier = this.grade(m, e, x, y + P.root.position.y, z, lying);
+      m.root.visible = tier !== 3;
       m.acc = (m.acc ?? Math.random() / 15) + dt;
       const bones = m.acc >= BONE_DT[tier], bdt = bones ? Math.min(0.5, m.acc) : 0;
       if (bones) m.acc = 0;
-      P.turn(dt);
-      if (e.z > 0) y += e.z;   // (saltando o encima de una roca)
       if (bones) this.poseBones(m, e, P, pz, lying, bdt, game);
       if (m.hand) {   // (los jugadores: la barriga, si espera un bebé; no es un hueso)
         const made = P.setBelly(this.game.family.bellyOf(e));

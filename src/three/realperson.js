@@ -135,7 +135,7 @@ export class RealPerson {
   // geometría propia con materiales compartidos
   dispose() {
     this.r.release();
-    if (this.bag) for (const o of this.bag.children) o.geometry.dispose();
+    if (this.bag) for (const o of this.bag.children) if (o.geometry !== BUCKLE_GEO) o.geometry.dispose();   // (la hebilla es de todas)
     if (this.belly) { this.belly.geometry.dispose(); this.belly.material.dispose(); }
   }
   clone() { return new RealPerson(this.look, { kid: this.kid }); }

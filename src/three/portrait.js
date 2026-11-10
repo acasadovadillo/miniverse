@@ -39,6 +39,14 @@ export function portrait3D(look) {
     cache.set(k, out);
     return out;
   }
+  // (este renderizador es otro contexto de la gráfica, que vive siempre: la malla, el material y el lienzo del prototipo,
+  // que son de todas las personas con este look, se quedarían subidos aquí mientras viva el vecino. Se pinta con copias
+  // que solo conoce él, y se sueltan al acabar: la textura copiada comparte la imagen, y soltarla solo la borra de aquí)
+  const mesh = p.r.mesh, own = [mesh.geometry.clone(), mesh.material.clone()];
+  const base = mesh.material;
+  own[1].onBeforeCompile = base.onBeforeCompile; own[1].customProgramCacheKey = base.customProgramCacheKey;   // (clone() no copia el parche de la piel)
+  if (base.map) own.push((own[1].map = base.map.clone()));
+  [mesh.geometry, mesh.material] = own;
   p.facing = 0.32;
   p.update(0.5, 0);
   p.root.rotation.y = 0.32;   // de tres cuartos, mirando un poco hacia la derecha
@@ -48,8 +56,10 @@ export function portrait3D(look) {
   camera.position.set(0, head.y + 0.1, 1.15); camera.lookAt(0, head.y + 0.02, 0);
   renderer.render(scene, camera);
   scene.remove(p.root);
-  // (se suelta la persona, no su malla ni su lienzo: son los mismos que los de quien tenga este look en el mundo, y
-  // geometry.dispose los borraría también de la gráfica del juego. Se liberan juntos cuando ya no los usa nadie: persona.js trim)
+  // (se sueltan las copias y la persona, no su malla ni su lienzo de verdad: son los mismos que los de quien tenga este look
+  // en el mundo, y geometry.dispose los borraría también de la gráfica del juego. Se liberan juntos cuando ya no los usa
+  // nadie: persona.js trim)
+  for (const x of own) x.dispose();
   p.dispose();
   const out = document.createElement('canvas');
   out.width = out.height = PORTRAIT_SIZE;
