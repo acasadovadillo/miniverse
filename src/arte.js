@@ -1,26 +1,8 @@
 // El arte del juego («Pueblo vivido», ver docs/propuesta-arte.md): un pueblo de cal, madera, piedra y barro con luz y
-// color sobrios, que se ha hecho por tandas. Desde 2026-11-09.24 todas son de todos (ARTE = 2): las personas realistas,
-// los animales, los cultivos, los muebles, los árboles y plantas, los lugares, las cuevas, el agua, el clima y el fuego.
-// ?arte=1 vuelve al arte de antes en ese navegador (y se acuerda) y ?arte=2 lo deshace.
-//
-// Aquí está lo que no necesita Three (vale también en el hilo del suelo, genworker.js, que no ve la dirección de
-// la página: allí lo dice el mensaje de arranque, con setArte): qué arte se usa, la paleta y sobrio().
-// (otra clave que la de cuando el arte nuevo había que pedirlo: lo que se eligió entonces ya no cuenta)
-const KEY = 'pueblo-brotes:arte-v2', OLD = 'pueblo-brotes:arte';
-function first() {
-  if (typeof document === 'undefined') return 1;   // (en el hilo del suelo: hasta que llegue el mensaje de arranque)
-  const q = new URLSearchParams(location.search).get('arte');
-  try {
-    localStorage.removeItem(OLD);
-    if (q === '1' || q === '2') localStorage.setItem(KEY, q);
-    return (q || localStorage.getItem(KEY)) === '1' ? 1 : 2;
-  } catch { return q === '1' ? 1 : 2; }
-}
-export let ARTE = first();
-const hooks = [];
-// f se llama ya y cada vez que cambie el arte (para rehacer tablas que dependen de él)
-export function onArte(f) { hooks.push(f); f(ARTE); }
-export function setArte(v) { v = v === 2 ? 2 : 1; if (v === ARTE) return; ARTE = v; for (const f of hooks) f(v); }
+// color sobrios. Aquí está lo que no necesita Three (vale también en el hilo del suelo, genworker.js): la paleta y
+// sobrio(), tonos() y apagado(). (Hasta 2026-11-10 había otro arte, el de antes, que se podía pedir con ?arte=1: ya no
+// está. Si quedan las dos claves con las que se acordaba cada navegador, se borran: solo esas, que son del juego.)
+if (typeof localStorage !== 'undefined') try { localStorage.removeItem('pueblo-brotes:arte-v2'); localStorage.removeItem('pueblo-brotes:arte'); } catch {}
 
 // La paleta (sección 3 de la propuesta). Suelo y muros, saturación de 30 o menos; la nota de color la ponen las
 // pinturas de puertas y postigos.

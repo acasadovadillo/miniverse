@@ -2,14 +2,14 @@
 // una tarima de madera, girado hacia donde se elija (con un giro suave) y, para ver la cara, con la cámara
 // acercándose a la cabeza.
 import * as THREE from 'three';
-import { Person3D } from './people.js';
 import { mat } from './geo.js';
 import { planks } from './textures.js';
-import { ARTE } from '../arte.js';
-import { loadReal, realReady, RealPerson } from './realperson.js';
+import { RealPerson } from './realperson.js';
+import { TONE_MAPPING, CURVA } from './look.js';
 
-// (?arte=2, en revisión: la persona realista, con los encuadres a su altura; mientras carga, el muñeco)
-const REAL = ARTE === 2;
+// Las luces del estudio, de las de antes (pensadas para la curva ACES): con la del juego, al 70 %, el color de la mejilla
+// sale como en el juego a mediodía (docs/pruebas-arte/t10/artev2.js)
+export const STUDIO = 0.7;
 
 export class CharacterPreview {
   constructor(canvas) {
@@ -17,7 +17,8 @@ export class CharacterPreview {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
-    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    // (la curva y la exposición del juego, y las luces del estudio a su medida: la piel y la ropa, como al jugar)
+    this.renderer.toneMapping = TONE_MAPPING; this.renderer.toneMappingExposure = CURVA.exp;
     this.renderer.shadowMap.enabled = true;
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(26, 0.8, 0.1, 20);
@@ -26,10 +27,10 @@ export class CharacterPreview {
     this.shot = 'body'; this.cam = this.shots.body.map(v => new THREE.Vector3(...v));
     this.camera.position.copy(this.cam[0]);
     this.camera.lookAt(this.cam[1]);
-    const sun = new THREE.DirectionalLight('#fff2dc', 2.6);
+    const sun = new THREE.DirectionalLight('#fff2dc', 2.6 * STUDIO);
     sun.position.set(1.5, 3, 2.5); sun.castShadow = true; sun.shadow.mapSize.set(512, 512);
     Object.assign(sun.shadow.camera, { left: -1.5, right: 1.5, top: 1.5, bottom: -1.5, near: 0.5, far: 8 });
-    this.scene.add(sun, new THREE.HemisphereLight('#e4eeff', '#7a5a3a', 1.1));
+    this.scene.add(sun, new THREE.HemisphereLight('#e4eeff', '#7a5a3a', 1.1 * STUDIO));
     const stage = new THREE.Mesh(new THREE.CylinderGeometry(0.75, 0.8, 0.12, 32), mat({ map: planks(), roughness: 0.7 }));
     stage.position.y = -0.06; stage.receiveShadow = true;
     this.scene.add(stage);
@@ -39,11 +40,10 @@ export class CharacterPreview {
   setLook(look) {
     if (this.person) this.scene.remove(this.person.root);
     this.look = look;
-    if (REAL && !realReady()) loadReal().then(() => { if (this.look === look) this.setLook(look); });
-    this.person = REAL && realReady() ? new RealPerson({ ...look }) : new Person3D({ ...look }, '');
+    this.person = new RealPerson({ ...look });
     // Encuadres a la altura de quien se ve: el cuerpo entero y la cara
-    const h = this.person.real ? this.person.height : 1.36, face = this.person.real ? h - 0.12 : 1.1;
-    this.shots = this.person.real ? { body: [[0, h * 0.72, 4.9], [0, h * 0.52, 0]], face: [[0, face + 0.02, 1.75], [0, face - 0.1, 0]] } : { body: [[0, 1.25, 4.1], [0, 0.68, 0]], face: [[0, 1.24, 2.05], [0, 1.1, 0]] };
+    const h = this.person.height, face = h - 0.12;
+    this.shots = { body: [[0, h * 0.72, 4.9], [0, h * 0.52, 0]], face: [[0, face + 0.02, 1.75], [0, face - 0.1, 0]] };
     this.person.root.traverse(o => { if (o.isMesh) o.castShadow = true; });
     this.person.root.rotation.y = this.angle;
     this.scene.add(this.person.root);

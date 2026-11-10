@@ -6,7 +6,7 @@
 // con su nombre encima.
 import { foodModel } from './food3d.js';
 import * as THREE from 'three';
-import { Person3D, babyModel, mesh, mergeInto, G, M } from './people.js';
+import { mesh, mergeInto, G, M } from './shapes.js';
 import { mat } from './geo.js';
 import { ANIMALS } from '../art/farm.js';
 import { MONSTERS } from '../combat.js';
@@ -15,20 +15,17 @@ import { ITEMS, TIERS } from '../items.js';
 import { WATER_Y } from './terrain.js';
 import { animalModel, animalKey, animateAnimal, horseModel, animateHorse } from './animals.js';
 import { nearX } from '../world/planet.js';
-import { ARTE } from '../arte.js';
-import { loadReal, realReady, RealPerson, realBaby } from './realperson.js';
+import { RealPerson, realBaby } from './realperson.js';
 
-// (?arte=2, en revisión: las personas realistas, ver realperson.js. Se cargan aparte; hasta entonces, los muñecos)
-const REAL = ARTE === 2;
-
-const PEOPLE = new Map();
-const KID_SCALE = 0.66;   // los niños, más pequeños
 // Agachado: cuánto se adelantan los muslos y se doblan las rodillas (rad), cuánto baja el cuerpo (m: lo que suben
 // los pies al doblar las piernas, para que sigan en el suelo) y se echa hacia delante (rad; la cabeza lo compensa
 // para seguir mirando al frente)
 const CROUCH = { hip: 1.5, knee: 2.5, drop: 0.11, lean: 0.4 };
-const CROUCH_SKIRT = { hip: 1.0, knee: 1.7, drop: 0.11, lean: 0.25 };
+// (asientos, camas y barca se calibraron con los muñecos de antes: la persona realista se ajusta a esas medidas. La
+// cadera de aquel muñeco sentado, lo que medía tumbado y la escala de sus niños; no cambiarlas sin recolocar muebles)
+const SEAT_HIP = 0.36, LIE_LEN = 1.36, KID_REF = 0.66;
 const LOOK_R = 2.6;      // a qué distancia se mira a quien se tiene al lado
+const BUILD_MS = 6;      // lo que se puede ir en hacer modelos nuevos en un fotograma
 
 // Una malla del jugador: con su propio material (para dibujar su silueta) y en la capa 2. En la primera pasada del
 // dibujo no escribe ni color ni fondo (solo deja su sombra): esa vez se salta, sin dejar de dar sombra (el mapa de
@@ -54,7 +51,6 @@ export class Actors {
     this.models = new Map();      // entidad → { obj, kind, prev, … }
     this.lights = [];
     this.player = null;
-    if (REAL) loadReal();
   }
   // Los materiales del jugador (para su silueta); body: solo los de su cuerpo y lo que lleva en la mano
   // Un jugador espectador se ve como un fantasma (solo lo ven los otros espectadores, y él mismo)
@@ -71,23 +67,28 @@ export class Actors {
   playerMaterials(body = false) { return (body ? this.player?.body : this.player?.mats) || []; }
 
   update(game, scene, dt, t) {
-    const seen = new Set(), p = game.player && game.scene ? game.player : null;
-    this.realBudget = 1;
+    const seen = new Set(), p = game.player && game.scene ? game.player : null, t0 = performance.now();
+    let made = 0;
     const list = [...(scene.entities || [])];
     if (game.player && game.scene === scene) for (const s of game.systems) { const more = s.entities?.(scene); if (more) list.push(...more); }
-    if (p) list.push(p);
+    if (p) list.unshift(p);   // (el primero: el suyo se hace siempre, ver BUILD_MS)
     this.around = list; this.me = p; this.game = game;   // (para mirar a quien se tiene al lado)
     for (const e of list) {
       if (!e || seen.has(e)) continue;
       seen.add(e);
       let m = this.models.get(e);
-      // (el jugador y los demás jugadores, con la ropa que llevan: si se ponen o se quitan algo, se rehace su muñeco)
+      // (el jugador y los demás jugadores, con la ropa que llevan: si se ponen o se quitan algo, se rehace su persona)
       const look = e === p ? game.appearance() : e.look;
       if (m && (e === p || e.remote) && m.look !== look) { this.group.remove(m.root); this.models.delete(e); if (m === this.player) this.player = null; m = null; }
       if (m?.kind === 'animal' && m.key !== animalKey(e)) { this.group.remove(m.root); this.models.delete(e); m = null; }
-      // (cuando llegan las personas realistas, se rehacen los muñecos que había, de uno en uno: cada una cuesta)
-      if (REAL && ((m?.kind === 'person' && !m.person.real) || (m?.kind === 'baby' && !m.real)) && realReady() && this.realBudget-- > 0) { this.group.remove(m.root); this.models.delete(e); if (m === this.player) this.player = null; m = null; }
-      if (!m) { m = this.make(e, e === p, look); if (!m) continue; m.look = look; this.models.set(e, m); this.group.add(m.root); }
+      if (!m) {
+        // (hacer una persona cuesta: las que no caben en BUILD_MS de este fotograma, en el siguiente. Al menos una cada vez,
+        // y la tuya siempre, la primera: así, al llegar a un sitio con mucha gente, no se para todo de golpe)
+        if (e !== p && made > 0 && performance.now() - t0 > BUILD_MS) continue;
+        m = this.make(e, e === p, look); made++;
+        if (!m) continue;
+        m.look = look; this.models.set(e, m); this.group.add(m.root);
+      }
       this.pose(m, e, scene, dt, t, e === p ? game : null);
       if (m === this.player || e.remote) this.ghost(m, e === p ? game.gamemode === 'spectator' : e.gm === 3);   // (de espectador, medio transparente)
     }
@@ -124,29 +125,19 @@ export class Actors {
   }
 
   make(e, isPlayer, look = e.look) {
-    if (e.baby) { const real = REAL && realReady(), root = new THREE.Group(); root.add(real ? realBaby(look) : babyModel(look)); return { kind: 'baby', real, root, prev: null, speed: 0 }; }
+    if (e.baby) { const root = new THREE.Group(); root.add(realBaby(look)); return { kind: 'baby', root, prev: null, speed: 0 }; }
     if (look) {
-      // (las personas con el mismo aspecto se copian de la primera: hacer una desde cero cuesta)
-      const key = JSON.stringify(look);
-      let person;
-      if (REAL && realReady()) person = new RealPerson(look, { kid: !!e.kid });
-      else { if (!PEOPLE.has(key)) PEOPLE.set(key, new Person3D(look, '')); person = PEOPLE.get(key).clone(); }
-      const root = new THREE.Group();
+      const person = new RealPerson(look, { kid: !!e.kid }), root = new THREE.Group();
       root.add(person.root);
       const m = { kind: 'person', root, person, prev: null, speed: 0 };
-      if (e.kid) { if (!person.real) root.scale.setScalar(KID_SCALE); root.rotation.order = 'YXZ'; }   // (la persona realista ya es un niño: ver realperson.js)
+      if (e.kid) root.rotation.order = 'YXZ';   // (la persona ya es de niño: ver realperson.js)
       if (isPlayer || e.remote) {
         // Con algo en la mano, caballo y barca (el jugador, además, con sus propios materiales para dibujar
         // su silueta, y en la capa 2; los demás jugadores, con su nombre encima)
         m.hand = new THREE.Group();
-        if (person.real) { m.hand.position.set(0, -0.07, 0.03); person.hand.add(m.hand); }   // (en la mano de verdad)
-        else {
-          const t = person.toolArm ?? 1;   // (en la mano derecha)
-          m.hand.position.set(t === 0 ? -0.03 : 0.03, person.fore ? -0.145 : -0.27, 0.02);   // (en la mano: va con el antebrazo)
-          (person.fore?.[t] || person.arms[t]).add(m.hand);
-        }
+        m.hand.position.set(0, -0.07, 0.03); person.hand.add(m.hand);   // (en el hueso de la mano derecha)
         // (las herramientas se hicieron para la mano izquierda: en la derecha, reflejadas, para que apunten hacia fuera)
-        if ((person.toolArm ?? 1) === 0) m.hand.scale.x = -1;
+        m.hand.scale.x = -1;
         m.horse = horseModel(); m.horse.visible = false; root.add(m.horse);
         m.boat = boatModel(); m.boat.visible = false; root.add(m.boat);
         if (e.remote) root.add(nameTag(e.name));
@@ -187,14 +178,13 @@ export class Actors {
       m.root.rotation.x = lying ? -Math.PI / 2 : 0;
       m.root.rotation.y = lying ? (pz ? pz.yaw : e.yaw || 0) : 0;
       y += pz ? pz.h : lying ? e.h || 0 : 0;
-      if (pz && !lying && m.person?.real) y += 0.36 * (m.person.kid ? KID_SCALE : 1) - m.person.hipY;   // (la persona realista tiene la cadera más alta que el muñeco)
+      if (pz && !lying && m.person) y += SEAT_HIP * (m.person.kid ? KID_REF : 1) - m.person.hipY;   // (con la cadera en el asiento)
     }
     if (m.kind === 'person') {
       const P = m.person;
       if ((e.kid && e.lying) || (pz && lying)) { P.facing = 0; P.root.rotation.y = 0; }
-      // (tumbada, la persona realista se corre hacia los pies lo que mide de más que el muñeco: la cabeza, en la almohada)
-      if (P.real) P.r.root.position.y = lying ? -(P.height - 1.36 * (P.kid ? KID_SCALE : 1)) : 0;
-      // (hacia dónde mira, también la realista: antes este «si no» solo valía para los muñecos y la realista no giraba)
+      // (tumbada, se corre hacia los pies lo que mide de más que la cama pensada: la cabeza, en la almohada)
+      P.r.root.position.y = lying ? -(P.height - LIE_LEN * (P.kid ? KID_REF : 1)) : 0;
       if ((e.kid && e.lying) || (pz && lying)) {}
       else if (pz) { P.facing = pz.yaw; P.root.rotation.y = pz.yaw; }
       else if (yaw !== null) P.facing = yaw;
@@ -206,7 +196,7 @@ export class Actors {
       if (m.boat) {
         // Barca y caballo
         m.boat.visible = !!e.boat; m.horse.visible = !!e.mount;
-        const seat = P.real ? 0.36 * (P.kid ? KID_SCALE : 1) - P.hipY : 0;   // (la persona realista, con la cadera donde la del muñeco: en el asiento)
+        const seat = SEAT_HIP * (P.kid ? KID_REF : 1) - P.hipY;   // (con la cadera en el asiento)
         if (e.aboard) { y = WATER_Y - 0.12 + Math.sin(t * 2.5) * 0.04; P.root.position.y = 0.3 + seat; }   // (de pasajero: la barca es la del que rema)
         else if (e.boat) {
           y = WATER_Y - 0.12 + Math.sin(t * 2.5) * 0.04; m.boat.rotation.y = P.root.rotation.y; m.boat.rotation.z = Math.sin(t * 1.7) * 0.03; P.root.position.y = 0.3 + seat;
@@ -225,20 +215,17 @@ export class Actors {
       if (game) this.hold(m, { held: game.inv.held?.id || null, swing: game.gather.swing, swingItem: game.gather.swingItem, cooldown: game.gather.cooldown, fishPose: game.fishing?.pose(t), bowPull: game.archery?.k || 0 }, dt);
       else if (e.remote) this.hold(m, e, dt);
       // Agachado (Shift): las rodillas dobladas, el cuerpo más bajo y un poco echado hacia delante; andando, a pasitos
-      const C = P.skirt ? CROUCH_SKIRT : CROUCH;   // (con falda, más recogido: las rodillas no suben tanto)
+      const C = CROUCH;
       P.crouch = (P.crouch || 0) + ((e.crouch && !pz && !e.mount && !e.boat && !e.aboard ? 1 : 0) - (P.crouch || 0)) * Math.min(1, dt * 12);
       if (P.crouch > 0.01) {
         const c = P.crouch;
         for (const l of P.legs) l.rotation.x = l.rotation.x * (1 - c * 0.5) - C.hip * c;
         for (const k of P.shins || []) k.rotation.x = k.rotation.x * (1 - c) + C.knee * c;
-        if (P.real) {
-          // (la persona realista: lo que de verdad se acortan las piernas dobladas, con sus medidas; el pie que queda más
-          // abajo es el que apoya. Con lo de los muñecos, a escala, se quedaba a un palmo del suelo)
-          const k = P.kid ? KID_SCALE : 1, Lt = P.shins[0].position.length(), Ls = P.hipY / k - Lt;
-          let reach = 0;
-          for (let i = 0; i < 2; i++) { const a = P.legs[i].rotation.x, b = a + P.shins[i].rotation.x; reach = Math.max(reach, Lt * Math.cos(a) + Ls * Math.cos(b)); }
-          P.body.position.y -= Math.max(0, Lt + Ls - reach);
-        } else P.body.position.y -= C.drop * c * (P.dropK || 1);
+        // (lo que de verdad se acortan las piernas dobladas, con sus medidas; el pie que queda más abajo es el que apoya)
+        const k = P.kid ? KID_REF : 1, Lt = P.shins[0].position.length(), Ls = P.hipY / k - Lt;
+        let reach = 0;
+        for (let i = 0; i < 2; i++) { const a = P.legs[i].rotation.x, b = a + P.shins[i].rotation.x; reach = Math.max(reach, Lt * Math.cos(a) + Ls * Math.cos(b)); }
+        P.body.position.y -= Math.max(0, Lt + Ls - reach);
         P.torso.rotation.x += C.lean * c;
         P.head.rotation.x = -C.lean * 0.8 * c;
       } else P.head.rotation.x = 0;
@@ -251,7 +238,6 @@ export class Actors {
       if (e.mount || e.boat || e.aboard) { P.legs[0].rotation.x = P.legs[1].rotation.x = e.mount ? -1.1 : -1.4; P.legs[0].rotation.z = 0.5; P.legs[1].rotation.z = -0.5; for (const k of P.shins || []) k.rotation.x = e.mount ? 1.0 : 1.3; }
       else P.legs[0].rotation.z = P.legs[1].rotation.z = 0;
       this.lookAt(m, e, dt, lying);
-      P.fitSkirt();
       if (m.hand) {   // (los jugadores: la barriga, si espera un bebé)
         const made = P.setBelly(this.game.family.bellyOf(e));
         if (made && m === this.player) ownMesh(made, m, true);
@@ -293,7 +279,7 @@ export class Actors {
     }
     // (el brazo de la mano que lleva la herramienta, la derecha; los gestos se pensaron para la izquierda: de lado y
     // el giro del tronco, al revés)
-    const T = P.toolArm ?? 1, arm = P.arms[T], mir = T === 0 ? -1 : 1;
+    const T = P.toolArm, arm = P.arms[T], mir = T === 0 ? -1 : 1;
     arm.rotation.z = 0; m.hand.rotation.x = 0; P.torso.rotation.x = 0;
     pullBow(m.hand, g.bowPull || 0);
     // (tensando el arco: el brazo estirado y el arco de pie)

@@ -12,15 +12,16 @@ import * as village from '../world/village.js';
 import { BLOCK, PX, groundSmooth, blockHeights, blockColors, paintPixels } from '../world/ground.js';
 import { grassDetail, soilDetail } from './textures.js';
 import { mat } from './geo.js';
-import { ARTE, PAL } from '../arte.js';
+import { PAL } from '../arte.js';
 
 export { BLOCK };
 const RADIUS = 2;                       // bloques alrededor del de la cámara (5 × 5)
 export const WATER_Y = -0.12;
-// (?arte=2) El clima en el suelo y el agua: WET, de 0 a 1, cuánto ha llovido (oscurece y abrillanta el suelo, y se seca
+// El clima en el suelo y el agua: WET, de 0 a 1, cuánto ha llovido (oscurece y abrillanta el suelo, y se seca
 // despacio); RAIN, de 0 a 1, lo que llueve ahora (los círculos de las gotas en el agua). Los pone engine.js
 export const WET = { value: 0 }, RAIN = { value: 0 };
-const A2 = ARTE === 2;
+// La versión publicada (la meta de index.html; en las páginas de prueba sin ella, ninguna)
+const VERSION = (typeof document !== 'undefined' && document.querySelector('meta[name="miniverse-version"]')?.content) || '';
 const WORKERS = Math.min(2, Math.max(1, (navigator.hardwareConcurrency || 2) - 1));
 
 const allChunks = () => { const l = []; for (let j = 0; j < 4; j++) for (let i = 0; i < 4; i++) l.push([i, j]); return l; };
@@ -49,7 +50,9 @@ export class Terrain {
     try {
       const list = [];
       for (let i = 0; i < WORKERS; i++) {
-        const w = new Worker(new URL('../world/genworker.js', import.meta.url), { type: 'module' });
+        // (con la versión en la dirección: index.html solo vuelve a pedir sin caché lo que carga la página, y este archivo lo
+        // carga solo el hilo; uno viejo en caché con lo de ahora podría no arrancar)
+        const w = new Worker(new URL('../world/genworker.js?v=' + encodeURIComponent(VERSION), import.meta.url), { type: 'module' });
         w.onmessage = e => this.onResult(e.data);
         w.onerror = e => { console.warn('Suelo: el hilo aparte ha fallado; se calcula aquí', e.message); this.workers = []; this.pending.clear(); this.jobs.clear(); };
         list.push(w);
@@ -70,7 +73,7 @@ export class Terrain {
     this.dropAll();
     this.gen = gen;
     this.season = gen.season;
-    for (const w of this.workers) w.postMessage({ t: 'init', seed: gen.seed, projects: village.getProjects(), family: village.familyHouse(), arte: ARTE });
+    for (const w of this.workers) w.postMessage({ t: 'init', seed: gen.seed, projects: village.getProjects(), family: village.familyHouse() });
   }
   dispose(b) { this.group.remove(b.mesh); b.mesh.geometry.dispose(); b.mesh.material.dispose(); b.tex.dispose(); if (b.waterMesh) { this.water.group.remove(b.waterMesh); b.waterMesh.geometry.dispose(); } }
   dropAll() {
@@ -273,10 +276,10 @@ export class Terrain {
 let DETAIL;
 function groundMaterial(map) {
   const m = mat({ roughness: 0.96, map }), D = (DETAIL ||= { grass: { value: grassDetail() }, soil: { value: soilDetail() } });
-  if (A2) m.customProgramCacheKey = () => 'suelo-mojado';
+  m.customProgramCacheKey = () => 'suelo-mojado';
   m.onBeforeCompile = sh => {
     sh.uniforms.grassMap = D.grass; sh.uniforms.soilMap = D.soil; sh.uniforms.uWet = WET;
-    if (A2) sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nuniform float uWet;')
+    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nuniform float uWet;')
       .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\n        roughnessFactor = mix(roughnessFactor, 0.42, uWet * 0.75);   // (mojado: brilla un poco)')
       .replace('#include <color_fragment>', '#include <color_fragment>\n        diffuseColor.rgb *= 1.0 - 0.24 * uWet;   // (y más oscuro)');
     sh.vertexShader = sh.vertexShader
@@ -324,7 +327,7 @@ function waterMaterial(uniforms, block) {
         vec2 q = vW * 1.7 + vec2(time * 0.22, time * 0.1);
         float sp = sin(q.x * 3.1 + time * 0.9 + sin(q.y * 1.7) * 1.5) * sin(q.y * 2.7 - time * 0.7 + sin(q.x * 1.3) * 1.5);   // (brillos sin rejilla)
         diffuseColor.rgb = mix(${WATER.shallow}, diffuseColor.rgb, smoothstep(0.0, 0.4, dp));
-        ${A2 ? `diffuseColor.rgb = mix(diffuseColor.rgb, ${WATER.deep}, smoothstep(0.6, 2.4, dp) * 0.8);   // (lo hondo, más oscuro)` : ''}
+        diffuseColor.rgb = mix(diffuseColor.rgb, ${WATER.deep}, smoothstep(0.6, 2.4, dp) * 0.8);   // (lo hondo, más oscuro)
         diffuseColor.rgb += vec3(0.06, 0.08, 0.09) * smoothstep(0.75, 1.0, sp);
         // (espuma: una franja fina junto a la orilla, que late hacia ella)
         float ring = 0.55 + 0.45 * sin(dp * 40.0 - time * 1.8 + sin(vW.x * 1.3 + vW.y * 0.9) * 2.0);
@@ -334,7 +337,7 @@ function waterMaterial(uniforms, block) {
       .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
         float w1 = sin(q.x * 1.3 + time * 1.1) * cos(q.y * 1.1 - time * 0.8), w2 = sin((q.x + q.y) * 2.3 - time * 1.7);
         normal = normalize(normal + (mat3(viewMatrix) * vec3(w1 * 0.06 + w2 * 0.03, 0.0, w2 * 0.05 - w1 * 0.03) * ${WATER.wave}));
-        ${A2 ? `// (la lluvia: en cada celda de medio metro, un círculo que se abre y se apaga, a destiempo)
+        // (la lluvia: en cada celda de medio metro, un círculo que se abre y se apaga, a destiempo)
         if (rainK > 0.0) {
           vec2 cell = floor(vW * 2.2), f = fract(vW * 2.2) - 0.5;
           float h = fract(sin(dot(cell, vec2(12.9898, 78.233))) * 43758.5453), tt = fract(time * 1.1 + h);
@@ -342,7 +345,7 @@ function waterMaterial(uniforms, block) {
           float rr = length(f), ring = smoothstep(0.035, 0.0, abs(rr - tt * 0.42)) * (1.0 - tt) * step(h, 0.35 + rainK * 0.6);
           normal = normalize(normal + (mat3(viewMatrix) * vec3(f.x, 0.0, f.y) * ring * 2.5 * rainK));
           diffuseColor.rgb += vec3(0.05) * ring * rainK;
-        }` : ''}
+        }
         float fres = pow(1.0 - clamp(dot(normalize(vViewPosition), normal), 0.0, 1.0), 3.0);
         diffuseColor.rgb = mix(diffuseColor.rgb, sky, fres * 0.4);
         diffuseColor.a = mix(diffuseColor.a, 1.0, fres * 0.6);`);

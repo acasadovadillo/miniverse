@@ -8,9 +8,8 @@ import * as THREE from 'three';
 import { mat, rockGeo, snowCap } from './geo.js';
 import { bark, rockFace } from './textures.js';
 import { ihash, vnoise } from '../util.js';
-import { tonos, ARTE } from '../arte.js';
+import { tonos } from '../arte.js';
 import { FLOWER_GEO, FLOWER_COLORS } from './flowers3d.js';
-const A2 = ARTE === 2;
 
 const tmp = new THREE.Object3D(), col = new THREE.Color();
 // Viento: el tiempo que mueve la hierba y las copas (lo avanza el dibujo)
@@ -32,9 +31,8 @@ function sway(material, amount, speed = 1) {
 const GEO = {
   trunk: new THREE.CylinderGeometry(0.13, 0.2, 1, 7), lump: new THREE.IcosahedronGeometry(1, 1), cone: new THREE.ConeGeometry(1, 1.4, 8),
   ball: new THREE.SphereGeometry(1, 8, 6), gem: new THREE.IcosahedronGeometry(1, 0), rock: new THREE.DodecahedronGeometry(1, 0),
-  cyl: new THREE.CylinderGeometry(1, 1, 1, 8), frond: (() => { const g = new THREE.ConeGeometry(0.18, 1.3, 4, 1, true); g.translate(0, 0.65, 0); g.rotateX(Math.PI / 2); g.scale(1, 0.25, 1); return g; })(),
   twig: new THREE.CylinderGeometry(0.02, 0.03, 1, 4),
-  // (?arte=2) Un piso de pino: un cono abierto con el borde en estrella y caído en las puntas
+  // Un piso de pino: un cono abierto con el borde en estrella y caído en las puntas
   tier: (() => {
     const g = new THREE.ConeGeometry(1, 1, 14, 3, true), p = g.attributes.position;
     for (let i = 0; i < p.count; i++) {
@@ -51,7 +49,7 @@ const GEO = {
   ribTop: (() => { const g = new THREE.SphereGeometry(1, 24, 8, 0, Math.PI * 2, 0, Math.PI / 2), p = g.attributes.position; for (let i = 0; i < p.count; i++) { const a = Math.atan2(p.getZ(i), p.getX(i)), f = 1 + 0.1 * Math.cos(a * 10); p.setX(i, p.getX(i) * f); p.setZ(i, p.getZ(i) * f); } g.computeVertexNormals(); return g; })(),
   rock0: rockGeo(1), rock1: rockGeo(2), rock2: rockGeo(3),
 };
-// (?arte=2) Una hoja de palmera: el nervio, que se arquea hacia abajo, con sus foliolos largos a los dos lados (a lo largo de +z)
+// Una hoja de palmera: el nervio, que se arquea hacia abajo, con sus foliolos largos a los dos lados (a lo largo de +z)
 function frondGeo() {
   const pos = [], N = 14, rib = z => [0, 0.32 * z - 0.62 * z * z, z];
   for (let i = 0; i < N; i++) {
@@ -68,7 +66,7 @@ function oneSided(m) {
   const key = m.customProgramCacheKey; m.customProgramCacheKey = () => key() + ':una';
   return m;
 }
-// (?arte=2) Los atlas de hojas, en gris claro sobre transparente (el color va por tarjeta): 'roble', un manojo de hojas
+// Los atlas de hojas, en gris claro sobre transparente (el color va por tarjeta): 'roble', un manojo de hojas
 // anchas con sus ramitas; 'fina', muchas hojas menudas y apretadas (los arbustos); 'sauce', ramillas que cuelgan con
 // hojas largas y estrechas a los dos lados (el sauce llorón)
 function leafAtlas(kind = 'roble') {
@@ -106,13 +104,13 @@ const mats = () => (MATS ||= {
   bark: (() => { const t = bark(); t.repeat.set(2, 1); return mat({ map: t }); })(),
   leaf: sway(mat({ flatShading: true, roughness: 0.95 }), 0.035, 0.7),
   solid: mat({ roughness: 0.6 }), rock: mat({ flatShading: true, roughness: 0.9 }), cactus: mat({ color: '#56704c', roughness: 0.7, flatShading: true }),
-  palmTrunk: mat({ color: '#8f7a5c', roughness: 0.9 }), frond: sway(mat({ color: '#5d7044', side: THREE.DoubleSide, flatShading: true }), 0.05, 1.2), dry: mat({ color: '#7f6a4c', roughness: 1 }),
+  palmTrunk: mat({ color: '#8f7a5c', roughness: 0.9 }), dry: mat({ color: '#7f6a4c', roughness: 1 }),
   snow: mat({ color: '#dfe4e6', roughness: 0.85 }),
-  card: A2 ? oneSided(sway(mat({ map: leafAtlas(), alphaTest: 0.5, side: THREE.DoubleSide, roughness: 0.9 }), 0.035, 0.7)) : null,
-  cardS: A2 ? oneSided(sway(mat({ map: leafAtlas('fina'), alphaTest: 0.5, side: THREE.DoubleSide, roughness: 0.9 }), 0.03, 0.8)) : null,
-  cardW: A2 ? oneSided(sway(mat({ map: leafAtlas('sauce'), alphaTest: 0.45, side: THREE.DoubleSide, roughness: 0.85 }), 0.06, 0.6)) : null,
+  card: oneSided(sway(mat({ map: leafAtlas(), alphaTest: 0.5, side: THREE.DoubleSide, roughness: 0.9 }), 0.035, 0.7)),
+  cardS: oneSided(sway(mat({ map: leafAtlas('fina'), alphaTest: 0.5, side: THREE.DoubleSide, roughness: 0.9 }), 0.03, 0.8)),
+  cardW: oneSided(sway(mat({ map: leafAtlas('sauce'), alphaTest: 0.45, side: THREE.DoubleSide, roughness: 0.85 }), 0.06, 0.6)),
   tier: sway(mat({ roughness: 0.95, side: THREE.DoubleSide, shadowSide: THREE.BackSide, flatShading: true }), 0.02, 0.6),
-  rock2: A2 ? mat({ map: (() => { return rockFace(); })(), flatShading: true, roughness: 0.92 }) : null,
+  rock2: mat({ map: rockFace(), flatShading: true, roughness: 0.92 }),
   frond2: sway(mat({ color: '#ffffff', side: THREE.DoubleSide, shadowSide: THREE.DoubleSide, roughness: 0.85 }), 0.05, 1.2),
   cactus2: mat({ color: '#ffffff', roughness: 0.75 }), snowRock: snowCap({ flatShading: true }),
   petal: mat({ roughness: 0.8, side: THREE.DoubleSide }), puff: mat({ roughness: 1, side: THREE.DoubleSide, transparent: true, opacity: 0.9, depthWrite: false }),
@@ -156,85 +154,18 @@ function branch(push, a, b, w) {
 
 function pieces(o, season, out, owner, y = 0) {
   const x = o.x, z = o.y, h = ihash(Math.floor(x * 7), Math.floor(z * 7), 11), r = (k) => ihash(Math.floor(x * 13) + k, Math.floor(z * 13), 31 + k);
-  const k = 0.85 + h * 0.35, rot = r(1) * Math.PI * 2, push = (type, it) => { it.owner = owner; (out[type] ||= []).push(it); };
+  const rot = r(1) * Math.PI * 2, push = (type, it) => { it.owner = owner; (out[type] ||= []).push(it); };
   const kind = o.kind;
-  if (A2 && kind === 'swampTree') willow2(o, season, push, x, z, y, r, rot);
-  else if (A2 && (kind === 'oak' || kind === 'fruit')) broadleaf2(o, season, push, x, z, y, r, rot);
-  else if (A2 && (kind === 'pine' || kind === 'snowPine')) pine2(o, season, push, x, z, y, r, rot);
-  else if (A2 && kind === 'palm') palm2(o, season, push, x, z, y, r, rot);
-  else if (A2 && kind === 'cactus') cactus2(o, season, push, x, z, y, r, rot);
+  if (kind === 'swampTree') willow2(o, season, push, x, z, y, r, rot);
+  else if (kind === 'oak' || kind === 'fruit') broadleaf2(o, season, push, x, z, y, r, rot);
+  else if (kind === 'pine' || kind === 'snowPine') pine2(o, season, push, x, z, y, r, rot);
+  else if (kind === 'palm') palm2(o, season, push, x, z, y, r, rot);
+  else if (kind === 'cactus') cactus2(o, season, push, x, z, y, r, rot);
   else if (kind === 'margarita' || kind === 'diente_leon') flower2(o, season, push, x, z, y, r);
-  else if (A2 && kind === 'bush') bush2(o, season, push, x, z, y, r, rot, h);
-  else if (A2 && (kind === 'rock' || kind === 'boulder' || kind === 'snowBoulder')) rock2(o, season, push, x, z, y, r, rot, h);
-  else if (kind === 'oak' || kind === 'fruit' || kind === 'swampTree') {
-    const tall = kind === 'swampTree' ? 1.25 : 1, th = 1.5 * k * tall;
-    const pal = kind === 'swampTree' ? SWAMP[season] : kind === 'fruit' && season < 2 ? FRUIT_LEAF : LEAF[season];
-    const cy = y + th + 1.0 * k, n = 4 + Math.floor(r(2) * 2), droop = kind === 'swampTree' ? 0.35 : 0;
-    // El tronco sube hasta dentro de la copa (si no, desde abajo se vería un hueco y las hojas flotarían)
-    const top = cy - y - 0.1 * k;
-    push('trunk', { p: [x, y + top / 2, z], s: [k, top, k], r: [0, rot, 0] });
-    push('lump', { p: [x, cy + 0.25 * k - droop, z], s: [1.05 * k, (1.05 - droop * 0.6) * k, 1.05 * k], r: [r(3), r(4), r(5)], c: pal[Math.floor(r(6) * pal.length)] });
-    for (let i = 0; i < n; i++) {
-      const a = rot + (i / n) * Math.PI * 2, d = (0.55 + droop * 0.3) * k, ly = cy - 0.15 * k + r(10 + i) * 0.3 - droop;
-      push('lump', { p: [x + Math.cos(a) * d, ly, z + Math.sin(a) * d], s: (0.65 + r(20 + i) * 0.2) * k, r: [r(30 + i), r(40 + i), 0], c: pal[Math.floor(r(50 + i) * pal.length)] });
-      // Ramas del tronco a las matas de abajo, que se ven al mirar la copa desde el suelo
-      if (i < 3) branch(push, [x, y + th * 0.82, z], [x + Math.cos(a) * d * 0.85, ly - 0.2 * k, z + Math.sin(a) * d * 0.85], 0.42 * k);
-    }
-    // Sauce del pantano: ramas colgando
-    if (kind === 'swampTree') for (let i = 0; i < 8; i++) { const a = (i / 8) * Math.PI * 2 + rot, d = 1.0 * k; push('frond', { p: [x + Math.cos(a) * d, cy - 0.2, z + Math.sin(a) * d], s: [0.8, 1, 1.2], r: [-1.35, -a + Math.PI / 2, 0] }); }
-    // Frutales: manzanas en verano y otoño (si no se acaban de coger: bare), flores en primavera
-    if (kind === 'fruit' && season < 3 && !(o.bare && season > 0)) for (let i = 0; i < (season === 0 ? 14 : 9); i++) {
-      const a = r(60 + i) * Math.PI * 2, e = r(70 + i) * 0.9 - 0.2, d = 1.05 * k;
-      push(season === 0 ? 'bloom' : 'apple', { p: [x + Math.cos(a) * Math.cos(e) * d, cy + Math.sin(e) * d * 0.8, z + Math.sin(a) * Math.cos(e) * d], s: season === 0 ? 0.09 : 0.12, c: season === 0 ? BLOSSOM[i % 3] : '#d8352a' });
-    }
-    if (season === 3) push('snow', { p: [x, cy + 0.6 * k, z], s: [0.85 * k, 0.4 * k, 0.85 * k], r: [r(3), 0, 0] });
-  } else if (kind === 'pine' || kind === 'snowPine') {
-    const th = 0.9 * k;
-    push('trunk', { p: [x, y + th / 2, z], s: [0.75 * k, th, 0.75 * k], r: [0, rot, 0] });
-    const snowy = kind === 'snowPine' || season === 3;
-    for (let i = 0; i < 3; i++) {
-      const cy = y + th + 0.55 * k + i * 0.75 * k, w = (1.25 - i * 0.3) * k;
-      push('cone', { p: [x, cy, z], s: [w, 1.1 * k, w], r: [0, rot + i, 0], c: PINE[Math.floor(r(80 + i) * PINE.length)] });
-      if (snowy) push('snowCone', { p: [x, cy + 0.32 * k, z], s: [w * 0.72, 0.55 * k, w * 0.72], r: [0, rot + i, 0] });
-    }
-  } else if (kind === 'palm') {
-    // Tronco curvado (cinco tramos) y penachos de hojas, con cocos (si no se acaban de coger)
-    let px = x, py = y, pz = z;
-    const lean = rot, segs = 5;
-    for (let i = 0; i < segs; i++) {
-      const len = 0.75 * k, tilt = 0.12 + i * 0.07, nx = px + Math.cos(lean) * Math.sin(tilt) * len, nz = pz + Math.sin(lean) * Math.sin(tilt) * len, ny = py + Math.cos(tilt) * len;
-      push('palm', { p: [(px + nx) / 2, (py + ny) / 2, (pz + nz) / 2], s: [0.16 - i * 0.015, len + 0.05, 0.16 - i * 0.015], r: [Math.sin(lean) * tilt, 0, -Math.cos(lean) * tilt] });
-      px = nx; py = ny; pz = nz;
-    }
-    for (let i = 0; i < 7; i++) { const a = (i / 7) * Math.PI * 2 + rot; push('frond', { p: [px, py, pz], s: [1.2, 1, 1.4 * k], r: [-0.35 - (i % 2) * 0.25, -a + Math.PI / 2, 0] }); }
-    if (!o.bare) for (let i = 0; i < 3; i++) { const a = rot + i * 2.1; push('coconut', { p: [px + Math.cos(a) * 0.15, py - 0.15, pz + Math.sin(a) * 0.15], s: 0.11, c: '#6a4a2a' }); }
-  } else if (kind === 'cactus') {
-    const th = 1.5 * k;
-    push('cactus', { p: [x, y + th / 2, z], s: [0.2, th, 0.2] });
-    push('cactusTop', { p: [x, y + th, z], s: 0.2 });
-    for (const [s, hgt] of [[1, 0.7], [-1, 0.95]]) {
-      if (r(90 + s) < 0.25) continue;
-      const ax = x + Math.cos(rot) * 0.32 * s, az = z + Math.sin(rot) * 0.32 * s;
-      push('cactus', { p: [(x + ax) / 2, y + hgt * k, (z + az) / 2], s: [0.12, 0.34, 0.12], r: [Math.sin(rot) * 1.57 * s, 0, -Math.cos(rot) * 1.57 * s] });
-      push('cactus', { p: [ax, y + hgt * k + 0.3, az], s: [0.13, 0.6, 0.13] });
-      push('cactusTop', { p: [ax, y + hgt * k + 0.6, az], s: 0.13 });
-    }
-    if (season === 0) push('bloom', { p: [x, y + th + 0.18, z], s: 0.09, c: '#ff6a9a' });
-  } else if (kind === 'bush') {
-    const n = 3 + Math.floor(r(2) * 2), pal = LEAF[season];
-    for (let i = 0; i < n; i++) { const a = rot + (i / n) * Math.PI * 2, d = 0.22; push('lump', { p: [x + Math.cos(a) * d, y + 0.3 + r(10 + i) * 0.1, z + Math.sin(a) * d], s: 0.32 + r(20 + i) * 0.1, r: [r(30 + i), r(40 + i), 0], c: pal[Math.floor(r(50 + i) * pal.length)] }); }
-    if (season === 1 && h < 0.5) for (let i = 0; i < 7; i++) { const a = r(60 + i) * 6.28, d = 0.28 + r(70 + i) * 0.1; push('apple', { p: [x + Math.cos(a) * d, y + 0.42 + r(80 + i) * 0.18, z + Math.sin(a) * d], s: 0.045, c: '#3a3aa8' }); }
-    if (season === 0 && h > 0.5) for (let i = 0; i < 8; i++) { const a = r(60 + i) * 6.28, d = 0.28 + r(70 + i) * 0.12; push('bloom', { p: [x + Math.cos(a) * d, y + 0.45 + r(80 + i) * 0.2, z + Math.sin(a) * d], s: 0.06, c: ['#ff7aa8', '#ffe04a', '#ffffff', '#b48aff'][i % 4] }); }
-    if (season === 3) push('snow', { p: [x, y + 0.55, z], s: [0.4, 0.18, 0.4] });
-  } else if (kind === 'deadBush') {
+  else if (kind === 'bush') bush2(o, season, push, x, z, y, r, rot, h);
+  else if (kind === 'rock' || kind === 'boulder' || kind === 'snowBoulder') rock2(o, season, push, x, z, y, r, rot, h);
+  else if (kind === 'deadBush') {
     for (let i = 0; i < 6; i++) { const a = rot + i * 1.05, t = 0.5 + r(i) * 0.4; push('twig', { p: [x + Math.cos(a) * 0.12, y + 0.22, z + Math.sin(a) * 0.12], s: [1, 0.5 + r(10 + i) * 0.2, 1], r: [Math.sin(a) * t, 0, -Math.cos(a) * t] }); }
-  } else if (kind === 'rock' || kind === 'boulder' || kind === 'snowBoulder') {
-    const big = kind !== 'rock', s = big ? 0.72 + h * 0.15 : 0.28 + h * 0.12;
-    push('rock', { p: [x, y + s * 0.35, z], s: [s * (1 + r(1) * 0.3), s * 0.72, s], r: [0, rot, 0], c: ['#9a958c', '#8c877e', '#a8a39a'][Math.floor(r(2) * 3)] });
-    if (big) push('rock', { p: [x + Math.cos(rot) * s * 0.55, y + s * 0.25, z + Math.sin(rot) * s * 0.55], s: [s * 0.55, s * 0.5, s * 0.5], r: [0, rot * 2, 0], c: '#8e8a82' });
-    // Los peñascos dejan ver vetas de mineral
-    if (big) for (let i = 0; i < 4; i++) { const a = rot + i * 1.6, e = 0.2 + r(5 + i) * 0.5; push('gem', { p: [x + Math.cos(a) * s * 0.85, y + s * (0.35 + e * 0.3), z + Math.sin(a) * s * 0.8], s: 0.07, r: [r(i), r(i + 1), 0], c: ['#d8844a', '#b8c2ce', '#f0c840', '#d8844a'][i] }); }
-    if (kind === 'snowBoulder' || (season === 3 && big)) push('snow', { p: [x, y + s * 0.62, z], s: [s * 0.9, s * 0.28, s * 0.85], r: [0, rot, 0] });
   } else if (kind === 'sapling') {
     const tree = o.tree || 'oak';
     push('twig', { p: [x, y + 0.25, z], s: [1.2, 0.5, 1.2] });
@@ -243,7 +174,7 @@ function pieces(o, season, out, owner, y = 0) {
   }
 }
 
-// (?arte=2) La edad del árbol, por su sitio (igual en todas las pantallas): 15 % maduro, 55 % medio, 30 % joven
+// La edad del árbol, por su sitio (igual en todas las pantallas): 15 % maduro, 55 % medio, 30 % joven
 const ageOf = (o) => o.age ?? (h => (h < 0.15 ? 1.25 : h < 0.7 ? 1 : 0.75))(ihash(Math.floor(o.x * 5), Math.floor(o.y * 5), 77));
 // Las medidas de un árbol de hoja: altura, radio de la copa y altura de su centro (las usan el de cerca y el lejano)
 function broadDims(o, y) {
@@ -436,9 +367,9 @@ export function buildNatureChunk(objs, season, groundY, shadows = true) {
   const M = mats(), out = {}, owners = new Map(), group = new THREE.Group();
   for (const o of objs) { const owner = o.key; pieces(o, season, out, owner, groundY(o.x, o.y)); }
   const spec = {
-    trunk: [GEO.trunk, M.bark], lump: [GEO.lump, M.leaf], cone: [GEO.cone, M.leaf], snowCone: [GEO.cone, M.snow], snow: [GEO.lump, M.snow],
-    apple: [GEO.ball, M.solid], bloom: [GEO.gem, M.solid], coconut: [GEO.ball, M.solid], gem: [GEO.gem, M.solid], rock: [GEO.rock, M.rock],
-    palm: [GEO.cyl, M.palmTrunk], frond: [GEO.frond, M.frond], cactus: [GEO.cyl, M.cactus], cactusTop: [GEO.ball, M.cactus], twig: [GEO.twig, M.dry],
+    trunk: [GEO.trunk, M.bark], lump: [GEO.lump, M.leaf], cone: [GEO.cone, M.leaf], snow: [GEO.lump, M.snow],
+    apple: [GEO.ball, M.solid], bloom: [GEO.gem, M.solid], coconut: [GEO.ball, M.solid], gem: [GEO.gem, M.solid],
+    cactusTop: [GEO.ball, M.cactus], twig: [GEO.twig, M.dry],
     card: [GEO.card, M.card], cardS: [GEO.card, M.cardS], cardW: [GEO.card, M.cardW], tier: [GEO.tier, M.tier], snowTier: [GEO.tier, M.snow],
     palmSeg: [GEO.palmSeg, M.palmTrunk], frond2: [GEO.frond2, M.frond2], rib: [GEO.rib, M.cactus2], ribTop: [GEO.ribTop, M.cactus2],
     rock0: [GEO.rock0, M.rock2], rock1: [GEO.rock1, M.rock2], rock2: [GEO.rock2, M.rock2],
@@ -632,37 +563,25 @@ export function buildFarNature(objs, season, groundY) {
   const M = (FAR_MATS ||= { bark: mats().bark.clone(), leaf: mat({ flatShading: true, roughness: 0.95 }), rock: mats().rock.clone(), snow: mats().snow.clone() }), trunks = [], lumps = [], cones = [], rocks = [], snow = [];
   for (const o of objs) {
     const x = o.x, z = o.y, y = groundY(x, z), h = ihash(Math.floor(x * 7), Math.floor(z * 7), 11), s = 0.85 + h * 0.35, rot = h * 6.28;
-    if (A2 && (o.kind === 'oak' || o.kind === 'fruit' || o.kind === 'swampTree')) {
+    if (o.kind === 'oak' || o.kind === 'fruit' || o.kind === 'swampTree') {
       const { k, R, Ry, cy } = broadDims(o, y), pal = o.kind === 'swampTree' ? SWAMP[season] : LEAF[season];
       trunks.push({ p: [x, (y + cy) / 2, z], s: [1.5 * k, cy - y, 1.5 * k] });
       if (season < 3 || o.kind === 'swampTree') {
         lumps.push({ p: [x, cy + Ry * 0.2, z], s: [R * 0.95, Ry * 0.9, R * 0.95], r: [h, h * 2, 0], c: pal[Math.floor(h * pal.length)] });
         lumps.push({ p: [x + Math.cos(rot) * R * 0.45, cy - Ry * 0.1, z + Math.sin(rot) * R * 0.45], s: R * 0.6, c: pal[(Math.floor(h * 9)) % pal.length] });
       }
-    } else if (A2 && (o.kind === 'pine' || o.kind === 'snowPine')) {
+    } else if (o.kind === 'pine' || o.kind === 'snowPine') {
       const { k, H } = pineDims(o, y);
       trunks.push({ p: [x, y + H * 0.3, z], s: [k, H * 0.6, k] });
       for (let i = 0; i < 3; i++) cones.push({ p: [x, y + (0.25 + i * 0.25) * H, z], s: [(1.35 - i * 0.4) * k, H * 0.32, (1.35 - i * 0.4) * k], r: [0, rot, 0], c: PINE[i % PINE.length] });
       if (o.kind === 'snowPine' || season === 3) snow.push({ p: [x, y + H * 0.85, z], s: [0.35 * k, 0.5 * k, 0.35 * k] });
-    } else if (o.kind === 'oak' || o.kind === 'fruit' || o.kind === 'swampTree') {
-      const pal = o.kind === 'swampTree' ? SWAMP[season] : LEAF[season];
-      trunks.push({ p: [x, y + 0.95 * s, z], s: [s, 1.9 * s, s] });
-      lumps.push({ p: [x, y + 2.6 * s, z], s: 1.15 * s, r: [h, h * 2, 0], c: pal[Math.floor(h * pal.length)] });
-      lumps.push({ p: [x + Math.cos(rot) * 0.5 * s, y + 2.2 * s, z + Math.sin(rot) * 0.5 * s], s: 0.8 * s, c: pal[(Math.floor(h * 9)) % pal.length] });
-    } else if (o.kind === 'pine' || o.kind === 'snowPine') {
-      trunks.push({ p: [x, y + 0.45 * s, z], s: [0.75 * s, 0.9 * s, 0.75 * s] });
-      for (let i = 0; i < 2; i++) cones.push({ p: [x, y + (1.5 + i * 1.0) * s, z], s: [(1.25 - i * 0.35) * s, 1.4 * s, (1.25 - i * 0.35) * s], r: [0, rot, 0], c: PINE[i] });
-      if (o.kind === 'snowPine' || season === 3) snow.push({ p: [x, y + 2.9 * s, z], s: [0.5 * s, 0.6 * s, 0.5 * s] });
-    } else if (A2 && o.kind === 'palm') {
+    } else if (o.kind === 'palm') {
       const { k, H } = palmDims(o, y);
       trunks.push({ p: [x + Math.cos(rot) * 0.4 * k, y + H / 2, z + Math.sin(rot) * 0.4 * k], s: [0.9, H, 0.9] });
       lumps.push({ p: [x + Math.cos(rot) * 0.9 * k, y + H - 0.1, z + Math.sin(rot) * 0.9 * k], s: [1.8 * k, 0.35 * k, 1.8 * k], c: '#5d7044' });
-    } else if (A2 && o.kind === 'cactus') {
+    } else if (o.kind === 'cactus') {
       const k = (0.9 + h * 0.2) * ageOf(o);
       trunks.push({ p: [x, y + 1.1 * k, z], s: [1.2, 2.2 * k, 1.2] });
-    } else if (o.kind === 'palm' || o.kind === 'cactus') {
-      trunks.push({ p: [x, y + 1 * s, z], s: [0.8 * s, 2 * s, 0.8 * s] });
-      lumps.push({ p: [x, y + 2.2 * s, z], s: [0.8 * s, 0.3 * s, 0.8 * s], c: o.kind === 'palm' ? '#5d7044' : '#56704c' });
     } else if (o.kind === 'boulder' || o.kind === 'snowBoulder') rocks.push({ p: [x, y + 0.25, z], s: [0.9 * s, 0.55 * s, 0.75 * s], r: [0, rot, 0], c: '#9a958c' });
   }
   const group = new THREE.Group();

@@ -38,9 +38,9 @@
 
 **2.2 Bordes entre biomas (S).** ✅ Hecho el 2026-11-05. El dentado era un tramado: el bioma de cada muestra se movía con azar suelto, y a la vista salía un laberinto alineado con las casillas. Ahora se mueve con el ruido `PATCH`, a manchas, y al pintar (`paintPixels` en `ground.js`) cada punto mezcla los biomas de tierra que hay en un cuadrado de unas 2 casillas a su alrededor, también de los trozos vecinos, movido con otro ruido para que la franja no siga la rejilla. Solo cambia el color del suelo: dónde hay de verdad cada bioma, y lo que crece en él, sigue igual. Pintar los 25 bloques de alrededor cuesta casi lo mismo (unos 3,8 s en un hilo aparte) a cambio de guardar más trozos en caché (320 en vez de 120, unos 13 MB por hilo). Prueba: «bordes de biomas».
 
-**2.3 Personajes (M).** Los chibis funcionan bien y la ropa se ve con mimo. Lo que falta:
+**2.3 Personajes (M).** (2026-11-10: los chibis se han quitado; todas las personas son las realistas de `src/three/realperson.js`, que ya llevan la herramienta en la mano y se sientan, se tumban y montan. Lo que sigue vale para ellas.) Lo que falta:
 - Manos (los brazos acaban en cápsula) y que la herramienta se vea en la mano al golpear: el gesto existe (`swing`) pero el objeto no se dibuja.
-- Parpadeo y dos o tres expresiones (contento al recibir regalo, dolor al recibir daño, dormido) usando `face.js`.
+- Parpadeo y dos o tres expresiones (contento al recibir regalo, dolor al recibir daño, dormido), pintadas en el lienzo de la cara de la persona.
 - Animaciones de sentarse, tumbarse y montar con transición, no de golpe.
 - Que los vecinos giren la cabeza hacia ti al hablar ya existe; añadir que gesticulen con los brazos al hablar.
 - *Hecho cuando:* al talar se ve el hacha, al pescar la caña, y la cara cambia al menos en tres situaciones.

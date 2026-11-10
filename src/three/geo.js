@@ -143,7 +143,7 @@ export class Builder {
 // Material estándar mate (lo normal)
 export const mat = (opts = {}) => new THREE.MeshStandardMaterial({ roughness: 0.88, metalness: 0, ...opts });
 const WHITE = new THREE.Color(1, 1, 1);
-// (?arte=2) Una roca: una bola de caras deformada por un ruido, aplastada y con la base plana, y la textura proyectada por la
+// Una roca: una bola de caras deformada por un ruido, aplastada y con la base plana, y la textura proyectada por la
 // cara (de lado o desde arriba) en metros
 export function rockGeo(seed) {
   const g = new THREE.IcosahedronGeometry(1, 2), p = g.attributes.position, v = new THREE.Vector3();

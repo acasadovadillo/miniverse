@@ -322,14 +322,11 @@ export function initMenus(game) {
   swRow('cara', 'Color de ojos', 'eyes');
   cycRow('cara', 'Cejas', 'brows');
   cycRow('cara', 'Nariz', 'nose');
-  cycRow('cara', 'Orejas', 'ears');
-  segRow('cara', 'Mofletes', 'cheeks');
-  cycRow('cara', 'Boca', 'mouth');
+  // (orejas, mofletes, boca y accesorio del pelo eran de los muñecos de antes: la persona de ahora no los dibuja. Siguen en
+  // el look, guardado y por red, pero ya no se ofrecen)
   cycRow('pelo', 'Peinado', 'hairStyle');
   swRow('pelo', 'Color de pelo', 'hair');
   cycRow('pelo', 'Barba', 'beard');
-  cycRow('pelo', 'Accesorio', 'hairAcc');
-  swRow('pelo', 'Color del accesorio', 'accColor');
 
   const pickOf = arr => arr[Math.floor(Math.random() * arr.length)];
   $('cr-random').onclick = () => {

@@ -6,7 +6,7 @@
 // comparten un mundo por el relay de pruebas y comprueban que cada uno ve lo que pone el otro.
 import * as THREE from 'three';
 import { Profile } from './accounts.js';
-import { Person3D } from './three/people.js';
+import { RealPerson } from './three/realperson.js';
 import { distTo, dirOf } from './world/fit.js';
 import { CAM, lookBy } from './camera.js';
 import { keys, clearKeys } from './input.js';
@@ -34,7 +34,7 @@ import { PREY, bodyBox } from './hunt.js';
 import { priceOf } from './economy.js';
 import { modelKind, ICON3D } from './three/icons.js';
 import { View3D } from './three/engine.js';
-import { ARTE, sobrio } from './arte.js';
+import { sobrio } from './arte.js';
 import { tintOf } from './three/tints.js';
 import { PHOTOS, photo } from './three/photos.js';
 
@@ -663,16 +663,14 @@ async function soloTests(game) {
     const seen = new Set(); wallTile(noFloor, 5, 5, 'muro_entramado', (k, side) => { seen.add(side); return new Proxy({}, { get: () => () => {} }); }, {});
     check(seen.has('n') && !seen.has('free'), `lados: ${[...seen]}`);
   });
-  await test('ropa: lo que cuelga de la cintura se abre cuando suben las piernas', async () => {
-    for (const wear of [{ torso: { id: 'tunica_larga', color: '#222222' } }, { torso: { id: 'camisa', color: '#ffffff' }, piernas: { id: 'falda', color: '#b84a8a' } }, { torso: { id: 'camisa', color: '#ffffff' }, encima: { id: 'delantal', color: '#efe6d4' } }]) {
-      const P = new Person3D({ ...LOOK, wear }, '').clone(); check(P.skirt?.children.length, `sin falda: ${JSON.stringify(wear)}`);
-      P.legs[0].rotation.x = P.legs[1].rotation.x = 0; P.torso.rotation.x = 0.25; P.fitSkirt();
-      check(P.skirt.scale.z === 1 && Math.abs(P.skirt.rotation.x + 0.25) < 1e-6, 'de pie no cuelga recto');
-      P.legs[0].rotation.x = P.legs[1].rotation.x = -1; P.fitSkirt();
-      check(P.skirt.scale.z > 1.3 && P.skirt.rotation.x < -0.3, 'con los muslos en alto no se abre');
-    }
-    const plain = new Person3D({ ...LOOK, wear: { torso: { id: 'camisa', color: '#ffffff' }, piernas: { id: 'pantalon', color: '#333333' } } }, '').clone();
-    check(!plain.skirt, 'con pantalón hay falda'); plain.fitSkirt();
+  await test('persona: huesos, mochila, barriga y niño', async () => {
+    const P = new RealPerson({ ...LOOK, wear: { torso: { id: 'camisa', color: '#ffffff' }, espalda: { id: 'mochila', color: '#8a5a34' } } });
+    check(P.head && P.hand && P.legs.length === 2 && P.shins.length === 2 && P.arms.length === 2 && P.fore.length === 2, 'le faltan huesos');
+    check(P.bag, 'sin mochila');
+    P.setBelly(0.5); check(P.belly?.visible, 'sin barriga');
+    P.setBelly(0); check(!P.belly.visible, 'la barriga no se va');
+    const K = new RealPerson(LOOK, { kid: true });
+    check(K.height < P.height * 0.75 && K.height > 1, `el niño mide ${K.height} (la adulta, ${P.height})`);
   });
   await test('puerta: se cierra y se abre', async () => {
     const door = [21, 16];   // (la de tu casa)
@@ -1039,7 +1037,6 @@ async function soloTests(game) {
     check(g.pixelRatio === 0.75, `con gráfica lenta se queda en ×${g.pixelRatio}`);
   });
   await test('arte: la luz y la paleta sobrias son las de todos, y sobrio() da lo de la propuesta', async () => {
-    check(ARTE === 1, `estas pruebas corren con el arte ${ARTE} (sin ?arte=2)`);
     check(game.view3d.renderer.toneMapping === THREE.CustomToneMapping, 'la curva de tono no es la del arte (AgX con ajuste)');
     check(sobrio('#c83a3a') === '#b84949' && sobrio('#e8b07a', 'piel') === '#e1b386', `sobrio() no da lo de la propuesta: ${sobrio('#c83a3a')}, ${sobrio('#e8b07a', 'piel')}`);
     check(BIOMES[B.MEADOW].pal[0] === '#6e7a55' && BIOMES[B.MEADOW].rgb.length === 4, `la pradera es ${BIOMES[B.MEADOW].pal[0]}`);
@@ -1186,16 +1183,16 @@ async function hostTests(game) {
     x.since = F.today - 3; await frames(8);
     check(Math.abs(F.bellyOf(me) - 0.5) < 0.01, `a los 3 días: ${F.bellyOf(me)}`);
     const P = () => game.view3d.actors.models.get(me)?.person;
-    draw(); check(P()?.bellyMesh?.visible, 'no se le ve la barriga');
-    const small = P().bellyMesh.scale.z; x.since = F.today - 6; await frames(2); draw();
-    check(P().bellyMesh.scale.z > small, 'no crece');
+    draw(); check(P()?.belly?.visible, 'no se le ve la barriga');
+    const small = P().belly.scale.z; x.since = F.today - 6; await frames(2); draw();
+    check(P().belly.scale.z > small, 'no crece');
     await until(() => heard('BARRIGA-VISTA'), 70000, 'a que él la vea');
     hud.askText = (a, b, name) => Promise.resolve(name);
     try {
       game.rest.stand(); F.onDay(x.since + 7);
       check(F.v.kids.length === n + 1 && !F.v.expecting, 'no nace');
       await until(() => F.v.kids.at(-1).named !== false, 8000, 'el nombre');
-      draw(); check(F.bellyOf(me) === 0 && !P().bellyMesh.visible, 'sigue la barriga después de nacer');
+      draw(); check(F.bellyOf(me) === 0 && !P().belly.visible, 'sigue la barriga después de nacer');
     } finally { hud.askText = ask; }
     l.chat('NACIDO');
     await until(() => heard('NACIDO-VISTO'), 70000, 'a que él lo vea');   // (si no se sigue jugando, no le llega)
@@ -1337,8 +1334,8 @@ async function guestTests(game) {
     F.scene && (F.scene.t = 999); await frames(2);
     await until(() => F.bellyOf(host()) > 0, 40000, 'ver que le crece la barriga');
     const P = () => game.view3d.actors.models.get(host())?.person;
-    await until(() => { draw(); return P()?.bellyMesh?.visible; }, 20000, 'verle la barriga');
-    check(!game.view3d.actors.models.get(me)?.person?.bellyMesh?.visible, 'a él también');
+    await until(() => { draw(); return P()?.belly?.visible; }, 20000, 'verle la barriga');
+    check(!game.view3d.actors.models.get(me)?.person?.belly?.visible, 'a él también');
     l.chat('BARRIGA-VISTA');
     await until(() => heard('NACIDO'), 70000, 'el nacimiento');
     await until(() => F.v.kids.length > 0 && !F.v.expecting && F.bellyOf(host()) === 0, 40000, 'que nazca aquí también');

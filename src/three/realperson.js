@@ -1,26 +1,23 @@
-// Las personas realistas (en revisión, detrás de ?arte=2): el cuerpo de la prueba de aspecto (real/persona.js, con sus
-// peinados de real/pelo.js y las ayudas de real/base.js), con la ropa, el peinado y los colores de cada look del juego.
-// Fase 1: andar y estar de pie. Sus huesos se llaman como las piezas de los muñecos de siempre (piernas, espinillas,
-// brazos, antebrazos, tronco, cabeza), así que lo que hace el juego con ellas (mirar a quien pasa, agacharse, el
-// gesto de la herramienta, sentarse) mueve también a estas; sentarse, tumbarse, montar y la barriga se afinan después.
+// Las personas del juego: el cuerpo de la prueba de aspecto (real/persona.js, con sus peinados de real/pelo.js y las
+// ayudas de real/base.js), con la ropa, el peinado y los colores de cada look del juego. Sus huesos se llaman como las
+// piezas de los muñecos de antes (piernas, espinillas, brazos, antebrazos, tronco, cabeza), así que lo que hace el juego
+// con ellas (mirar a quien pasa, agacharse, el gesto de la herramienta, sentarse, tumbarse, montar) las mueve igual.
 import * as THREE from 'three';
 import { fullLook, clothesFor } from '../looks.js';
 import { Builder } from './geo.js';
+// (se cargan con el juego, en este orden: base.js deja window.LOOK con sus ayudas, y pelo y persona solo se apuntan en
+// LOOK.parts; THREE lo usan dentro de sus funciones, así que basta con dárselo antes de construir a nadie. Así entran
+// también en la lista de archivos que index.html vuelve a pedir sin caché al cambiar de versión)
+import './real/base.js';
+import './real/pelo.js';
+import './real/persona.js';
 
-let P = null, loading = null;
+let P = null;
 const KID = 0.68;   // la estatura de un niño, de la de un adulto
-// Carga el generador (una vez); cuando acaba, realReady() es true
-export function loadReal() {
-  return (loading ||= (async () => {
-    await import('./real/base.js');
-    window.LOOK.THREE = THREE;
-    await import('./real/pelo.js');
-    await import('./real/persona.js');
-    P = window.LOOK.parts.persona(THREE, window.LOOK);
-    return P;
-  })().catch(e => { console.warn('No se han podido cargar las personas realistas: se quedan los muñecos', e); return null; }));
-}
-export const realReady = () => !!P;
+// El generador, la primera vez que hace falta (el servidor sin pantalla no construye a nadie)
+const persona = () => (P ||= ((window.LOOK.THREE = THREE), window.LOOK.parts.persona(THREE, window.LOOK)));
+// (las páginas de prueba lo esperan: docs/pruebas-arte/t10/hoja.html y medir.html)
+export const loadReal = () => Promise.resolve(persona());
 
 // Los peinados del juego, en los de la prueba (los que no tiene, el más parecido)
 const HAIR = {
@@ -56,20 +53,19 @@ export function toReal(look, kid = false) {
   return out;
 }
 
-// Una persona realista con lo que el juego espera de un muñeco (Person3D): root, body, torso, head, legs, shins,
-// arms, fore (índice 0 a -x y 1 a +x, como en los muñecos), facing, update, clone…
+// Una persona con lo que el juego espera de ella: root, body, torso, head, legs, shins, arms, fore (índice 0 a -x y
+// 1 a +x), facing, update, clone…
 export class RealPerson {
   constructor(look, { kid = false } = {}) {
     this.look = look; this.real = true; this.kid = kid;
-    const r = (this.r = P.build(toReal(look, kid))), k = kid ? KID : 1;   // (la escala va en su raíz: cadera y estatura, por ella)
+    const r = (this.r = persona().build(toReal(look, kid))), k = kid ? KID : 1;   // (la escala va en su raíz: cadera y estatura, por ella)
     this.root = new THREE.Group();
     this.root.add(r.root);
     const b = r.bones;
     this.body = b.body; this.torso = b.torso; this.head = b.head; this.hand = b.handR; this.toolArm = 0;   // (lo que se lleva, en la mano derecha: arms[0])
     this.legs = [b.legR, b.legL]; this.shins = [b.shinR, b.shinL]; this.arms = [b.armR, b.armL]; this.fore = [b.foreR, b.foreL];
-    this.skirt = null;
-    // Para el juego: la cadera (lo que hay que bajar al sentarse, comparado con los muñecos) y cuánto se agacha
-    this.hipY = b.body.position.y * k; this.dropK = this.hipY / 0.36; this.height = (r.d?.alto || 1.7) * k;
+    // Para el juego: la cadera (lo que hay que bajar al sentarse: ver SEAT_HIP en actors.js) y la estatura
+    this.hipY = b.body.position.y * k; this.height = (r.d?.alto || 1.7) * k;
     // La barriga del embarazo: del color de lo que se lleva encima (ver setBelly)
     const W = look.wear || clothesFor(fullLook(look)), top = W.encima?.id === 'delantal' ? W.encima : W.torso || W.interiorArriba;
     this.bellyColor = window.LOOK.sobrio(top?.color || fullLook(look).skin);
@@ -120,7 +116,6 @@ export class RealPerson {
     g.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
     T.add(g); this.bag = g;
   }
-  fitSkirt() {}
   // La barriga, de 0 a 1: crece hacia delante más que a lo ancho, sobre el vientre (cuelga del hueso de la cintura)
   setBelly(k) {
     let made = null;
@@ -142,7 +137,7 @@ export class RealPerson {
 // cabeza hacia -z (como el de los muñecos) y envuelto hasta el cuello en su mantita
 export function realBaby(look) {
   const L = fullLook(look), W = window.LOOK;
-  const r = P.build({ sex: L.sex === 'chica' ? 'f' : 'm', build: 'fino', cabezas: 4, escala: 0.33, skin: L.skin, hair: L.hair, hairStyle: 'corto', ojos: L.eyes,
+  const r = persona().build({ sex: L.sex === 'chica' ? 'f' : 'm', build: 'fino', cabezas: 4, escala: 0.33, skin: L.skin, hair: L.hair, hairStyle: 'corto', ojos: L.eyes,
     semilla: hash(JSON.stringify(look)) % 97, garments: [{ id: 'camisa', color: '#f4e6c8' }] });
   r.update(0.5, 0);
   const root = new THREE.Group(), body = new THREE.Group();

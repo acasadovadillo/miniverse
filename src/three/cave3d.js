@@ -6,8 +6,6 @@
 import * as THREE from 'three';
 import { mat, rockGeo } from './geo.js';
 import { stone, flagstone, rockFace } from './textures.js';
-import { ARTE } from '../arte.js';
-const A2 = ARTE === 2;
 import { getModel, modelMat } from './models.js';
 import { CAM } from '../camera.js';
 
@@ -31,7 +29,7 @@ export class Cave3D {
   build() {
     const sc = this.sc, st = STYLE[sc.style] || STYLE.cave, temple = sc.style === 'temple';
     // Suelo
-    const ftex = temple ? flagstone() : A2 ? rockFace(st.floor) : stone(st.floor);   // (?arte=2: roca, sin sillares)
+    const ftex = temple ? flagstone() : rockFace(st.floor);   // (en la cueva, roca, sin sillares)
     ftex.repeat.set(sc.w / (temple ? 1 : 2), sc.h / (temple ? 1 : 2));
     const floor = new THREE.Mesh(new THREE.PlaneGeometry(sc.w, sc.h).rotateX(-Math.PI / 2), mat({ map: ftex, roughness: 0.95 }));
     floor.position.set(sc.w / 2, 0, sc.h / 2); floor.receiveShadow = true;
@@ -43,18 +41,18 @@ export class Cave3D {
       const edge = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, -1], [1, -1], [-1, 1]].some(([dx, dy]) => !sc.wall(tx + dx, ty + dy) && tx + dx >= 0 && ty + dy >= 0 && tx + dx < sc.w && ty + dy < sc.h);
       if (edge) walls.push([tx, ty]);
     }
-    const wallMat = this.cutaway(temple ? mat({ map: stone(st.wall), roughness: 0.9 }) : mat({ color: st.wall, flatShading: true, roughness: 0.95 }));
     const o = new THREE.Object3D(), rnd = (x, y, k) => { let h = (Math.imul(x, 374761393) + Math.imul(y, 668265263) + Math.imul(k, 1442695041)) | 0; h = Math.imul(h ^ (h >>> 13), 1274126177); return ((h ^ (h >>> 16)) >>> 0) / 4294967296; };
     if (temple) {
+      const wallMat = this.cutaway(mat({ map: stone(st.wall), roughness: 0.9 }));
       const im = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 2.6, 1).translate(0, 1.3, 0), wallMat, walls.length);
       walls.forEach(([x, y], i) => { o.position.set(x + 0.5, 0, y + 0.5); o.rotation.set(0, 0, 0); o.scale.set(1, 1, 1); o.updateMatrix(); im.setMatrixAt(i, o.matrix); });
       im.castShadow = im.receiveShadow = true; this.group.add(im);
       const cap = new THREE.InstancedMesh(new THREE.BoxGeometry(1.04, 0.2, 1.04), this.cutaway(mat({ color: st.top })), walls.length);
       walls.forEach(([x, y], i) => { o.position.set(x + 0.5, 2.7, y + 0.5); o.updateMatrix(); cap.setMatrixAt(i, o.matrix); });
       this.group.add(cap);
-    } else if (A2) {
-      // (?arte=2) Tres hileras de rocas de caras irregulares con la textura de la roca, de unos 2,6 m (a la altura de las
-      // personas realistas); las que tapan se abren igual
+    } else {
+      // Tres hileras de rocas de caras irregulares con la textura de la roca, de unos 2,6 m (a la altura de las
+      // personas); las que tapan se abren igual
       const rm = this.cutaway(mat({ map: rockFace(), flatShading: true, roughness: 0.95 })), lists = [[], [], []];
       for (const [x, y] of walls) for (let k = 0; k < 3; k++) {
         const s = 0.72 + rnd(x, y, k + 7) * 0.3;
@@ -71,48 +69,29 @@ export class Cave3D {
         walls.forEach(([x, y], i) => { o.position.set(x + 0.5, 2.55, y + 0.5); o.rotation.set(0, i, 0); o.scale.set(0.9, 0.3, 0.9); o.updateMatrix(); snow.setMatrixAt(i, o.matrix); });
         this.group.add(snow);
       }
-    } else {
-      // (dos hileras de rocas, de 1,7 m: con la cámara alta no tapan; si tapan, se abren)
-      const geo = new THREE.DodecahedronGeometry(0.85, 0), im = new THREE.InstancedMesh(geo, wallMat, walls.length * 2);
-      let n = 0;
-      for (const [x, y] of walls) for (let k = 0; k < 2; k++) {
-        o.position.set(x + 0.5 + (rnd(x, y, k) - 0.5) * 0.3, 0.45 + k * 0.75 + rnd(x, y, k + 9) * 0.15, y + 0.5 + (rnd(x, y, k + 3) - 0.5) * 0.3);
-        o.rotation.set(rnd(x, y, k + 5) * 6, rnd(x, y, k + 6) * 6, 0); const s = 0.8 + rnd(x, y, k + 7) * 0.3; o.scale.set(s, s * (k ? 0.75 : 0.95), s);
-        o.updateMatrix(); im.setMatrixAt(n++, o.matrix);
-        im.setColorAt(n - 1, new THREE.Color(st.wall).multiplyScalar(0.8 + rnd(x, y, k + 8) * 0.35));
-      }
-      im.count = n; im.castShadow = im.receiveShadow = true;
-      this.group.add(im);
-      if (sc.style === 'ice') {
-        const snow = new THREE.InstancedMesh(new THREE.DodecahedronGeometry(0.6, 0), this.cutaway(mat({ color: '#f4fbff' })), walls.length);
-        walls.forEach(([x, y], i) => { o.position.set(x + 0.5, 1.75, y + 0.5); o.rotation.set(0, i, 0); o.scale.set(0.9, 0.35, 0.9); o.updateMatrix(); snow.setMatrixAt(i, o.matrix); });
-        this.group.add(snow);
-      }
     }
-    // El techo (?arte=2): una bóveda de roca irregular sobre todo, con estalactitas colgando donde se anda (en el hielo,
+    // El techo: una bóveda de roca irregular sobre todo, con estalactitas colgando donde se anda (en el hielo,
     // carámbanos; en el templo, losas lisas). Solo en primera persona: desde arriba taparía la cueva (ver update)
-    if (A2) {
-      const H = temple ? 2.8 : 2.5, n = 2, geo = new THREE.PlaneGeometry(sc.w + 2, sc.h + 2, (sc.w + 2) * n, (sc.h + 2) * n).rotateX(Math.PI / 2), p = geo.attributes.position;
-      if (!temple) for (let i = 0; i < p.count; i++) { const x = p.getX(i), z = p.getZ(i); p.setY(i, (rnd(Math.round(x * 4), Math.round(z * 4), 21) - 0.5) * 0.35 + Math.sin(x * 0.9) * Math.cos(z * 0.7) * 0.18); }
-      geo.computeVertexNormals();
-      const tex = temple ? flagstone() : rockFace(sc.style === 'ice' ? '#cfe0ea' : st.wall); tex.repeat.set((sc.w + 2) / 2, (sc.h + 2) / 2);
-      const ceil = new THREE.Mesh(geo, mat({ map: tex, flatShading: !temple, roughness: 0.95, color: temple ? '#b8aa8a' : '#cfc8c0', emissive: temple ? '#2e2a22' : '#2e2820', emissiveMap: tex }));   // (un poco de luz propia: por debajo no le da el sol de la cueva)
-      ceil.position.set(sc.w / 2, H, sc.h / 2); ceil.receiveShadow = true;
-      const roof = new THREE.Group(); roof.add(ceil);
-      if (!temple) {
-        const list = [];
-        for (let ty = 0; ty < sc.h; ty++) for (let tx = 0; tx < sc.w; tx++) {
-          if (sc.wall(tx, ty)) continue;
-          for (let k = 0; k < 3; k++) if (rnd(tx, ty, 30 + k) < 0.16) list.push([tx + 0.15 + rnd(tx, ty, 40 + k) * 0.7, ty + 0.15 + rnd(tx, ty, 50 + k) * 0.7, 0.04 + rnd(tx, ty, 60 + k) * 0.09, 0.15 + rnd(tx, ty, 70 + k) * 0.45]);
-        }
-        const ice = sc.style === 'ice', cone = new THREE.ConeGeometry(1, 1, 7).rotateX(Math.PI).translate(0, -0.5, 0);
-        const im = new THREE.InstancedMesh(cone, ice ? mat({ color: '#d8ecf6', roughness: 0.15, metalness: 0.05, transparent: true, opacity: 0.85 }) : mat({ map: rockFace(st.wall), flatShading: true, roughness: 0.9 }), Math.max(1, list.length));
-        list.forEach(([x, z, r, l], i) => { o.position.set(x, H + 0.08, z); o.rotation.set(0, i, 0); o.scale.set(r, l, r); o.updateMatrix(); im.setMatrixAt(i, o.matrix); });
-        im.count = list.length; roof.add(im);
+    const H = temple ? 2.8 : 2.5, n = 2, geo = new THREE.PlaneGeometry(sc.w + 2, sc.h + 2, (sc.w + 2) * n, (sc.h + 2) * n).rotateX(Math.PI / 2), p = geo.attributes.position;
+    if (!temple) for (let i = 0; i < p.count; i++) { const x = p.getX(i), z = p.getZ(i); p.setY(i, (rnd(Math.round(x * 4), Math.round(z * 4), 21) - 0.5) * 0.35 + Math.sin(x * 0.9) * Math.cos(z * 0.7) * 0.18); }
+    geo.computeVertexNormals();
+    const tex = temple ? flagstone() : rockFace(sc.style === 'ice' ? '#cfe0ea' : st.wall); tex.repeat.set((sc.w + 2) / 2, (sc.h + 2) / 2);
+    const ceil = new THREE.Mesh(geo, mat({ map: tex, flatShading: !temple, roughness: 0.95, color: temple ? '#b8aa8a' : '#cfc8c0', emissive: temple ? '#2e2a22' : '#2e2820', emissiveMap: tex }));   // (un poco de luz propia: por debajo no le da el sol de la cueva)
+    ceil.position.set(sc.w / 2, H, sc.h / 2); ceil.receiveShadow = true;
+    const roof = new THREE.Group(); roof.add(ceil);
+    if (!temple) {
+      const list = [];
+      for (let ty = 0; ty < sc.h; ty++) for (let tx = 0; tx < sc.w; tx++) {
+        if (sc.wall(tx, ty)) continue;
+        for (let k = 0; k < 3; k++) if (rnd(tx, ty, 30 + k) < 0.16) list.push([tx + 0.15 + rnd(tx, ty, 40 + k) * 0.7, ty + 0.15 + rnd(tx, ty, 50 + k) * 0.7, 0.04 + rnd(tx, ty, 60 + k) * 0.09, 0.15 + rnd(tx, ty, 70 + k) * 0.45]);
       }
-      roof.visible = false;
-      this.roof = roof; this.group.add(roof);
+      const ice = sc.style === 'ice', cone = new THREE.ConeGeometry(1, 1, 7).rotateX(Math.PI).translate(0, -0.5, 0);
+      const im = new THREE.InstancedMesh(cone, ice ? mat({ color: '#d8ecf6', roughness: 0.15, metalness: 0.05, transparent: true, opacity: 0.85 }) : mat({ map: rockFace(st.wall), flatShading: true, roughness: 0.9 }), Math.max(1, list.length));
+      list.forEach(([x, z, r, l], i) => { o.position.set(x, H + 0.08, z); o.rotation.set(0, i, 0); o.scale.set(r, l, r); o.updateMatrix(); im.setMatrixAt(i, o.matrix); });
+      im.count = list.length; roof.add(im);
     }
+    roof.visible = false;
+    this.roof = roof; this.group.add(roof);
     // Fuera de la cueva, negro
     const dark = new THREE.Mesh(new THREE.PlaneGeometry(400, 400).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: '#030304' }));
     dark.position.set(sc.w / 2, -0.02, sc.h / 2);
@@ -194,7 +173,7 @@ export class Cave3D {
   flames() { return this.flameList; }
 }
 
-const VEIN = { rock: A2 ? rockGeo(2) : new THREE.DodecahedronGeometry(1, 0), gem: new THREE.OctahedronGeometry(1, 0), prism: new THREE.CylinderGeometry(0.6, 1, 1, 6).translate(0, 0.5, 0), rockMat: A2 ? mat({ map: rockFace('#8e887e'), flatShading: true, roughness: 0.95 }) : mat({ color: '#7e786e', flatShading: true }) };
+const VEIN = { rock: rockGeo(2), gem: new THREE.OctahedronGeometry(1, 0), prism: new THREE.CylinderGeometry(0.6, 1, 1, 6).translate(0, 0.5, 0), rockMat: mat({ map: rockFace('#8e887e'), flatShading: true, roughness: 0.95 }) };
 const OREM = new Map(), CRYM = new Map();
 const oreMat = ore => { if (!OREM.has(ore)) OREM.set(ore, mat({ color: ORE[ore] || '#ffffff', metalness: ['cobre', 'hierro', 'oro'].includes(ore) ? 0.7 : 0.1, roughness: 0.3, emissive: ['amatista', 'esmeralda', 'rubi', 'diamante'].includes(ore) ? ORE[ore] : '#000000', emissiveIntensity: 0.4 })); return OREM.get(ore); };
 const crystalMat = c => { if (!CRYM.has(c)) CRYM.set(c, mat({ color: c, emissive: c, emissiveIntensity: 0.9, roughness: 0.1, transparent: true, opacity: 0.9 })); return CRYM.get(c); };

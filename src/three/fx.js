@@ -12,9 +12,7 @@ import { getModel } from './models.js';
 import { WALL_H } from './build3d.js';
 import { WATER_Y } from './terrain.js';
 import { nearX } from '../world/planet.js';
-import { ARTE } from '../arte.js';
-const A2 = ARTE === 2;
-// (?arte=2) Texturas pintadas para el fuego, el humo y los copos: una llama en gota (blanca, el color va por instancia) y
+// Texturas pintadas para el fuego, el humo y los copos: una llama en gota (blanca, el color va por instancia) y
 // una bola suave
 function spriteTex(kind) {
   const W = 64, H = kind === 'llama' ? 128 : 64, c = document.createElement('canvas'); c.width = W; c.height = H;
@@ -63,35 +61,27 @@ export class Fx {
     const hs = new THREE.Shape(); hs.moveTo(0, -1); hs.bezierCurveTo(-1.4, -0.1, -1.15, 1, -0.5, 1); hs.bezierCurveTo(-0.2, 1, 0, 0.75, 0, 0.5); hs.bezierCurveTo(0, 0.75, 0.2, 1, 0.5, 1); hs.bezierCurveTo(1.15, 1, 1.4, -0.1, 0, -1);
     this.hearts = new THREE.InstancedMesh(new THREE.ExtrudeGeometry(hs, { depth: 0.28, bevelEnabled: true, bevelSize: 0.08, bevelThickness: 0.08, bevelSegments: 2, curveSegments: 10 }).translate(0, 0, -0.14), new THREE.MeshBasicMaterial({ color: '#ffffff', toneMapped: false }), 96);
     this.hearts.count = 0; this.hearts.frustumCulled = false; this.hearts.renderOrder = 4; this.group.add(this.hearts);
-    const flameGeo = new THREE.ConeGeometry(1, 2, 7).translate(0, 1, 0);
-    this.flameOut = new THREE.InstancedMesh(flameGeo, new THREE.MeshBasicMaterial({ color: '#ff7a1a', transparent: true, opacity: 0.85, blending: THREE.AdditiveBlending, depthWrite: false }), 400);
-    this.flameIn = new THREE.InstancedMesh(flameGeo, new THREE.MeshBasicMaterial({ color: '#ffe080', transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false }), 400);
-    for (const f of [this.flameOut, this.flameIn]) { f.count = 0; f.frustumCulled = false; f.renderOrder = 4; this.group.add(f); }
-    this.puff = new THREE.InstancedMesh(new THREE.SphereGeometry(1, 8, 6), new THREE.MeshStandardMaterial({ color: '#e8e8ec', transparent: true, opacity: 0.35, depthWrite: false, roughness: 1 }), 300);
-    this.puff.count = 0; this.puff.frustumCulled = false; this.puff.renderOrder = 5; this.group.add(this.puff);
-    if (A2) {
-      // (?arte=2) Llamas de tres capas de cara a la cámara (fuera rojiza, en medio naranja, dentro casi blanca), chispas que
-      // suben y humo de bocanadas suaves que crecen y se desvanecen
-      const plane = new THREE.PlaneGeometry(1, 1).translate(0, 0.5, 0);
-      this.flame2 = new THREE.InstancedMesh(plane, new THREE.MeshBasicMaterial({ map: spriteTex('llama'), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }), 1200);
-      this.flame2.setColorAt(0, col.set('#ffffff')); this.flame2.count = 0; this.flame2.frustumCulled = false; this.flame2.renderOrder = 4; this.group.add(this.flame2);
-      this.ember = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: spriteTex('copo'), color: '#ffb050', transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }), 600);
-      this.ember.count = 0; this.ember.frustumCulled = false; this.ember.renderOrder = 4; this.group.add(this.ember);
-      const pg = new THREE.PlaneGeometry(1, 1); pg.setAttribute('fade', new THREE.InstancedBufferAttribute(new Float32Array(400), 1));
-      this.puff2 = new THREE.InstancedMesh(pg, fading(new THREE.MeshBasicMaterial({ map: spriteTex('humo'), color: '#b8b8bc', transparent: true, depthWrite: false })), 400);
-      this.puff2.count = 0; this.puff2.frustumCulled = false; this.puff2.renderOrder = 5; this.group.add(this.puff2);
-    }
+    // Llamas de tres capas de cara a la cámara (fuera rojiza, en medio naranja, dentro casi blanca), chispas que suben y
+    // humo de bocanadas suaves que crecen y se desvanecen
+    const plane = new THREE.PlaneGeometry(1, 1).translate(0, 0.5, 0);
+    this.flame2 = new THREE.InstancedMesh(plane, new THREE.MeshBasicMaterial({ map: spriteTex('llama'), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }), 1200);
+    this.flame2.setColorAt(0, col.set('#ffffff')); this.flame2.count = 0; this.flame2.frustumCulled = false; this.flame2.renderOrder = 4; this.group.add(this.flame2);
+    this.ember = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: spriteTex('copo'), color: '#ffb050', transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }), 600);
+    this.ember.count = 0; this.ember.frustumCulled = false; this.ember.renderOrder = 4; this.group.add(this.ember);
+    const pg = new THREE.PlaneGeometry(1, 1); pg.setAttribute('fade', new THREE.InstancedBufferAttribute(new Float32Array(400), 1));
+    this.puff2 = new THREE.InstancedMesh(pg, fading(new THREE.MeshBasicMaterial({ map: spriteTex('humo'), color: '#b8b8bc', transparent: true, depthWrite: false })), 400);
+    this.puff2.count = 0; this.puff2.frustumCulled = false; this.puff2.renderOrder = 5; this.group.add(this.puff2);
     this.spray = new THREE.InstancedMesh(new THREE.SphereGeometry(0.035, 6, 4), new THREE.MeshStandardMaterial({ color: '#cfeaff', transparent: true, opacity: 0.8, roughness: 0.1 }), 240);
     this.spray.count = 0; this.spray.frustumCulled = false; this.group.add(this.spray);
     // Lluvia (rayas) y nieve (copos), en una caja alrededor de la cámara
     const N = 1800, rp = new Float32Array(N * 6);
     this.rainGeo = new THREE.BufferGeometry(); this.rainGeo.setAttribute('position', new THREE.BufferAttribute(rp, 3));
-    this.rain = new THREE.LineSegments(this.rainGeo, new THREE.LineBasicMaterial({ color: A2 ? '#c8d2dc' : '#b8c8dc', transparent: true, opacity: A2 ? 0.32 : 0.55 }));
+    this.rain = new THREE.LineSegments(this.rainGeo, new THREE.LineBasicMaterial({ color: '#c8d2dc', transparent: true, opacity: 0.32 }));
     this.rain.frustumCulled = false; this.group.add(this.rain);
     this.drop = Array.from({ length: N }, () => [Math.random(), Math.random(), Math.random()]);
     const sp = new Float32Array(N * 3);
     this.snowGeo = new THREE.BufferGeometry(); this.snowGeo.setAttribute('position', new THREE.BufferAttribute(sp, 3));
-    this.snow = new THREE.Points(this.snowGeo, A2 ? new THREE.PointsMaterial({ color: '#ffffff', size: 0.13, map: spriteTex('copo'), transparent: true, opacity: 0.95, depthWrite: false }) : new THREE.PointsMaterial({ color: '#ffffff', size: 0.09, transparent: true, opacity: 0.9 }));
+    this.snow = new THREE.Points(this.snowGeo, new THREE.PointsMaterial({ color: '#ffffff', size: 0.13, map: spriteTex('copo'), transparent: true, opacity: 0.95, depthWrite: false }));
     this.snow.frustumCulled = false; this.group.add(this.snow);
     // Faro: un haz que gira de noche
     this.beam = new THREE.Mesh(new THREE.ConeGeometry(3, 26, 16, 1, true).translate(0, -13, 0).rotateZ(Math.PI / 2), new THREE.MeshBasicMaterial({ color: '#fff4c0', transparent: true, opacity: 0.12, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
@@ -302,25 +292,9 @@ export class Fx {
   }
 
   // ---------- fuego, humo y agua ----------
-  updateFlames(scene, t) {
-    if (A2) return this.updateFlames2(scene, t);
-    const src = this.view.cave ? this.view.cave.flames() : this.view.world.flames(), target = this.view.cam.target;
-    let n = 0;
-    for (const [x, y, z, s] of src) {
-      if (n >= 400 || Math.abs(x - target.x) > 40 || Math.abs(z - target.z) > 40) continue;
-      for (const [im, k, sc] of [[this.flameOut, 0, 1], [this.flameIn, 1, 0.55]]) {
-        const fl = 1 + Math.sin(t * 13 + x * 7 + k) * 0.15 + Math.sin(t * 29 + z * 5) * 0.1;
-        tmp.position.set(x, y, z); tmp.rotation.set(Math.sin(t * 7 + x) * 0.1, t * 2, Math.sin(t * 9 + z) * 0.1);
-        tmp.scale.set(0.09 * s * sc, 0.16 * s * sc * fl, 0.09 * s * sc); tmp.updateMatrix(); im.setMatrixAt(n, tmp.matrix);
-      }
-      n++;
-    }
-    this.flameOut.count = this.flameIn.count = n;
-    this.flameOut.instanceMatrix.needsUpdate = this.flameIn.instanceMatrix.needsUpdate = true;
-  }
-  // (?arte=2) Cada fuego: tres llamas planas que miran a la cámara (girando solo en vertical), que tiemblan y se estiran a
+  // Cada fuego: tres llamas planas que miran a la cámara (girando solo en vertical), que tiemblan y se estiran a
   // destiempo, y tres chispas que suben y se apagan
-  updateFlames2(scene, t) {
+  updateFlames(scene, t) {
     const src = this.view.cave ? this.view.cave.flames() : this.view.world.flames(), target = this.view.cam.target, cp = this.view.camera.position;
     let n = 0, e = 0;
     for (const [x, y, z, s] of src) {
@@ -342,9 +316,8 @@ export class Fx {
     this.flame2.instanceMatrix.needsUpdate = this.ember.instanceMatrix.needsUpdate = true;
     if (this.flame2.instanceColor) this.flame2.instanceColor.needsUpdate = true;
   }
-  // (?arte=2) El humo: bocanadas planas de cara a la cámara que suben, se ladean con el viento, crecen y se desvanecen
-  updateSmoke2(scene, t) {
-    this.puff.count = 0;
+  // El humo: bocanadas planas de cara a la cámara que suben, se ladean con el viento, crecen y se desvanecen
+  updateSmoke(scene, t) {
     if (this.view.cave) { this.puff2.count = 0; return; }
     const src = this.view.world.smoke(), target = this.view.cam.target, fade = this.puff2.geometry.attributes.fade;
     qCam.copy(this.view.camera.quaternion);
@@ -362,23 +335,6 @@ export class Fx {
     }
     this.puff2.count = n;
     this.puff2.instanceMatrix.needsUpdate = true; fade.needsUpdate = true;
-  }
-  updateSmoke(scene, t) {
-    if (A2) return this.updateSmoke2(scene, t);
-    if (this.view.cave) { this.puff.count = 0; return; }
-    const src = this.view.world.smoke(), target = this.view.cam.target;
-    let n = 0;
-    for (const [x, y, z] of src) {
-      if (Math.abs(x - target.x) > 45 || Math.abs(z - target.z) > 45) continue;
-      for (let i = 0; i < 10 && n < 300; i++) {
-        const q = (t * 0.22 + i / 10 + x * 0.13) % 1;
-        tmp.position.set(x + q * 1.4 + Math.sin(q * 7 + i) * 0.15, y + q * 2.6, z + Math.cos(q * 5 + i) * 0.15);
-        tmp.scale.setScalar(0.12 + q * 0.4); tmp.rotation.set(0, 0, 0); tmp.updateMatrix();
-        this.puff.setMatrixAt(n++, tmp.matrix);
-      }
-    }
-    this.puff.count = n;
-    this.puff.instanceMatrix.needsUpdate = true;
   }
   updateFountains(scene, t) {
     const src = this.view.cave ? [] : this.view.world.fountains();
@@ -408,15 +364,15 @@ export class Fx {
       for (let i = 0; i < N; i++) {
         const [a, b, h] = this.drop[i];
         if (i >= n) { p.fill(0, i * 6, i * 6 + 6); continue; }
-        const y = 18 - ((t * fall + h * 18) % 18), x = c.x + (a - 0.5) * 50 + y * (A2 ? 0.2 : 0.12), z = c.z + (b - 0.5) * 50, L = A2 ? 0.7 + h * 0.4 : 0.5;
-        p.set([x, y + c.y * 0 + this.view.cam.target.y - 2, z, x - (A2 ? 0.14 : 0.06) * L / 0.5, y + L + this.view.cam.target.y - 2, z], i * 6);
+        const y = 18 - ((t * fall + h * 18) % 18), x = c.x + (a - 0.5) * 50 + y * 0.2, z = c.z + (b - 0.5) * 50, L = 0.7 + h * 0.4;
+        p.set([x, y + c.y * 0 + this.view.cam.target.y - 2, z, x - 0.14 * L / 0.5, y + L + this.view.cam.target.y - 2, z], i * 6);
       }
       this.rainGeo.attributes.position.needsUpdate = true;
     }
     if (this.snow.visible) {
       const p = this.snowGeo.attributes.position.array;
       for (let i = 0; i < N; i++) {
-        const [a, b, h] = this.drop[i], y = 16 - ((t * (A2 ? 1.0 + h * 0.5 : 1.4) + h * 16) % 16);
+        const [a, b, h] = this.drop[i], y = 16 - ((t * (1.0 + h * 0.5) + h * 16) % 16);
         p.set([c.x + (a - 0.5) * 44 + Math.sin(t + i) * 0.4, y + this.view.cam.target.y - 2, c.z + (b - 0.5) * 44 + Math.cos(t * 0.7 + i) * 0.4], i * 3);
       }
       this.snowGeo.attributes.position.needsUpdate = true;

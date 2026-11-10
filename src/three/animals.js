@@ -5,13 +5,13 @@
 // así las manchas, la tripa más clara o el lomo más oscuro van pintados en la propia piel. Las patas tienen
 // rodilla (se doblan al andar), la cabeza va unida por el cuello y se mueve (pastan, miran), y la cola se agita.
 import * as THREE from 'three';
-import { mesh, mergeInto, G, M } from './people.js';
-import { ARTE, sobrio } from '../arte.js';
+import { mesh, mergeInto, G, M } from './shapes.js';
+import { sobrio } from '../arte.js';
 
-// (?arte=2, en revisión: menos de dibujos animados. Pelaje apagado y con variación de tono, ojos pequeños sin punto de
-// brillo, patas más finas por debajo de la rodilla y, en los cabezones, la cabeza algo más pequeña)
-const A2 = ARTE === 2, SMALL_HEAD = { perro: 0.84, gato: 0.84, cerdo: 0.88, oveja: 0.88, conejo: 0.86, gallina: 0.9, pato: 0.92 };
-const tone = c => (A2 && typeof c === 'string' ? sobrio(c) : c);
+// (menos de dibujos animados: pelaje apagado y con variación de tono, ojos pequeños sin punto de brillo, patas más finas
+// por debajo de la rodilla y, en los cabezones, la cabeza algo más pequeña)
+const SMALL_HEAD = { perro: 0.84, gato: 0.84, cerdo: 0.88, oveja: 0.88, conejo: 0.86, gallina: 0.9, pato: 0.92 };
+const tone = c => (typeof c === 'string' ? sobrio(c) : c);
 
 // Colores de cada raza o pelaje: b, el cuerpo; d, lo oscuro (manchas, crin, patas); l, lo claro (o la cara)
 const COATS = {
@@ -30,7 +30,7 @@ export const animalKey = e => `${e.type}:${e.breed || ''}:${e.bags ? 1 : 0}`;
 function coatOf(type, breed) { const c = COATS[type]; return c ? c[breed] || Object.values(c)[0] : []; }
 
 // ---------- herramientas ----------
-const C = new THREE.Color(), C2 = new THREE.Color(), WHITE = M('#ffffff'), EYE = M('#120e0e', { roughness: 0.12 }), SHINE = M('#ffffff', { roughness: 0.1 });
+const C = new THREE.Color(), C2 = new THREE.Color(), WHITE = M('#ffffff'), EYE = M('#120e0e', { roughness: 0.12 });
 const mixc = (a, b, k) => C.set(a).lerp(C2.set(b), k);
 // Ruido suave en 3D (manchas, rayas, lana)
 const hash = (x, y, z) => { const h = Math.sin(x * 127.1 + y * 311.7 + z * 74.7) * 43758.5453; return h - Math.floor(h); };
@@ -63,21 +63,14 @@ function blob(key, seg, shape, paint) {
 // Un cuerpo de cuadrúpedo: medio largo L (z), medio ancho W y medio alto H, más estrecho en los extremos,
 // con barriga (belly), pecho adelantado (chest) y el lomo algo plano
 const Gs = (x, s) => Math.exp(-x * x / (2 * s * s)), sm = (a, b, x) => { const k = Math.max(0, Math.min(1, (x - a) / (b - a))); return k * k * (3 - 2 * k); };
-const trunk = (o) => (A2 ? trunk2(o) : trunk1(o));
-// (?arte=2) Con anatomía: la cruz y la cadera marcadas, el lomo que cae un poco entre ellas, el pecho hondo delante, los
+// Con anatomía: la cruz y la cadera marcadas, el lomo que cae un poco entre ellas, el pecho hondo delante, los
 // ijares recogidos hacia atrás y el costillar más ancho que la cintura
-const trunk2 = ({ L, W, H, belly = 0.05, chest = 0.04, flat = 0.1, withers = 0.14, hips = 0.09 }) => (v, n) => {
+const trunk = ({ L, W, H, belly = 0.05, chest = 0.04, flat = 0.1, withers = 0.14, hips = 0.09 }) => (v, n) => {
   const t = n.z, up = Math.max(0, n.y), down = Math.max(0, -n.y), taper = 1 - 0.22 * t ** 4;
   v.x = n.x * W * taper * (1 + 0.07 * Gs(t - 0.15, 0.35) - 0.07 * Gs(t + 0.45, 0.16) + 0.04 * Gs(t + 0.75, 0.12));
   v.y = n.y * H * taper * (n.y > 0 ? 1 - flat * n.y : 1);
   v.y += H * up * (withers * Gs(t - 0.5, 0.17) + hips * Gs(t + 0.6, 0.17) - 0.05 * Gs(t + 0.05, 0.25));
   v.y -= H * down * (0.1 * Gs(t - 0.4, 0.22) + belly * 2.2 * Gs(t - 0.05, 0.4)) - H * down * 0.2 * sm(-0.2, -0.85, t);
-  v.z = n.z * L + (t > 0.2 ? chest * (t - 0.2) * Math.max(0, 0.5 - n.y * 0.5) : 0);
-};
-const trunk1 = ({ L, W, H, belly = 0.05, chest = 0.04, flat = 0.1 }) => (v, n) => {
-  const t = n.z, taper = 1 - 0.2 * t ** 4;
-  v.x = n.x * W * taper;
-  v.y = n.y * H * taper * (n.y > 0 ? 1 - flat * n.y : 1) - (n.y < 0 ? belly * (1 - t * t) * -n.y : 0);
   v.z = n.z * L + (t > 0.2 ? chest * (t - 0.2) * Math.max(0, 0.5 - n.y * 0.5) : 0);
 };
 // El color de una piel: el base, más oscuro en el lomo y más claro en la tripa; spots(n): manchas (0 a 1)
@@ -86,7 +79,7 @@ const coat = (base, { back = 0.12, belly = null, spot = null, spots = null } = {
   if (belly && n.y < -0.25) C.lerp(C2.set(tone(belly)), Math.min(1, (-n.y - 0.25) * 2.2));
   if (n.y > 0) C.multiplyScalar(1 - back * n.y);
   if (spots && spot) { const k = spots(n); if (k > 0) C.lerp(C2.set(tone(spot)), k); }
-  if (A2) C.multiplyScalar(0.9 + noise(n.x * 7 + 3, n.y * 7, n.z * 7) * 0.12 + noise(n.x * 23, n.y * 23 + 5, n.z * 23) * 0.06);   // (el pelo, con su variación)
+  C.multiplyScalar(0.9 + noise(n.x * 7 + 3, n.y * 7, n.z * 7) * 0.12 + noise(n.x * 23, n.y * 23 + 5, n.z * 23) * 0.06);   // (el pelo, con su variación)
   return C;
 };
 // Manchas grandes (vaca, caballo pío, perro manchado): umbral de un ruido
@@ -101,32 +94,17 @@ function tube(m, a, b, r0, r1, parent, seg = 10) {
   o.quaternion.setFromUnitVectors(UP, d.normalize());
   return o;
 }
-// Ojos brillantes: negros, con un punto de luz
+// Ojos: negros y pequeños (sin punto de luz, que los hacía de dibujos animados)
 function eyes(parent, x, y, z, r, tilt = 0) {
-  if (A2) r *= 0.72;
+  r *= 0.72;
   for (const s of [-1, 1]) {
     mesh(G.ball, EYE, { p: [s * x, y, z], s: r }, parent);
-    if (!A2) mesh(G.ball, SHINE, { p: [s * x + s * r * 0.25 * 0, y + r * 0.45, z + r * 0.6], s: r * 0.32 }, parent);
     if (tilt) mesh(G.ball, M('#000000'), { p: [s * x, y + r * 0.75, z + r * 0.15], s: [r * 1.15, r * 0.35, r * 0.9], r: [0, 0, s * tilt] }, parent);   // párpado
   }
 }
-// Una pata con rodilla: muslo (de hip hacia abajo) y, en la rodilla, la caña con el casco o la pata
-function leg(body, legs, o) {
-  if (A2) return leg2(body, legs, o);
-  const { x, y, z, up, low, r0, r1, r2, color, foot, footColor, paw = false, phase = 0 } = o;
-  const hip = new THREE.Group(); hip.position.set(x, y, z); body.add(hip);
-  mesh(new THREE.CylinderGeometry(r1, r0, up + r0 * 0.6, 12).translate(0, -up / 2 + r0 * 0.3, 0), M(color), {}, hip);   // (arranca dentro del cuerpo)
-  const knee = new THREE.Group(); knee.position.y = -up; hip.add(knee);
-  mesh(G.ball, M(color), { s: [r1, r1 * 0.9, r1] }, knee);   // (la rodilla, lisa: del mismo grueso que la pata)
-  mesh(new THREE.CylinderGeometry(r2, r1, low, 10).translate(0, -low / 2, 0), M(color), {}, knee);
-  if (paw) mesh(G.ball, M(footColor || color), { p: [0, -low, r2 * 0.6], s: [r2 * 1.35, r2 * 0.8, r2 * 1.7] }, knee);
-  else if (foot) mesh(new THREE.CylinderGeometry(r2 * 1.05, r2 * 1.25, foot, 10).translate(0, -low - foot / 2, 0), M(footColor || '#2a2420', { roughness: 0.5 }), {}, knee);
-  legs.push({ hip, knee, phase });
-  return knee;
-}
-// (?arte=2) Una pata con su músculo arriba (paletilla o muslo), fina abajo y, en las de atrás (z < 0), con el corvejón hacia
+// Una pata con rodilla: su músculo arriba (paletilla o muslo), fina abajo y, en las de atrás (z < 0), con el corvejón hacia
 // atrás: el muslo baja hacia atrás y la caña vuelve hacia delante, con el pie debajo de la cadera
-function leg2(body, legs, { x, y, z, up, low, r0, r1, r2, color, foot, footColor, paw = false, phase = 0 }) {
+function leg(body, legs, { x, y, z, up, low, r0, r1, r2, color, foot, footColor, paw = false, phase = 0 }) {
   const hind = z < 0, kz = hind ? -up * 0.24 : up * 0.05, fz = hind ? up * 0.24 : -up * 0.03, c = M(color);
   r1 *= paw ? 0.95 : 0.8; r2 *= paw ? 0.9 : 0.7;
   const hip = new THREE.Group(); hip.position.set(x, y, z); body.add(hip);
@@ -161,8 +139,8 @@ export function animalModel(type, breed, bags) {
   root.add(body);
   const [cb, cd, cl] = coatOf(type, breed), k = `${type}:${breed}`;
   const B = BUILD[type];
-  if (B) B({ root, body, legs, u, cb, cd, cl, k: (A2 ? 'a2:' : '') + k, breed, bags });
-  if (A2 && u.head && SMALL_HEAD[type]) u.head.scale.setScalar(SMALL_HEAD[type]);
+  if (B) B({ root, body, legs, u, cb, cd, cl, k: 'a2:' + k, breed, bags });
+  if (u.head && SMALL_HEAD[type]) u.head.scale.setScalar(SMALL_HEAD[type]);
   return finish(root, u);
 }
 
@@ -176,8 +154,8 @@ const BUILD = {
     // Cuello y cabeza
     const head = new THREE.Group(); head.position.set(0, 1.0, 0.66); body.add(head); u.head = head;
     tube(M(cb), [0, 0.86, 0.42], [0, 1.0, 0.66], 0.24, 0.17, body, 14);
-    mesh(blob(k + ':h', 28, A2 ? (v, n) => { const f = Math.max(0, n.z); v.set(n.x * 0.14 * (1 - 0.3 * f + 0.15 * f ** 4), n.y * 0.15 * (1 - 0.22 * f) - 0.06 * f * f, n.z * 0.31); } : (v, n) => { v.set(n.x * 0.19 * (1 - 0.15 * Math.max(0, n.z)), n.y * 0.2, n.z * 0.24); }, n => coat(cb, { back: 0.05, spot: cd, spots: pinta ? n2 => (n2.x > 0.3 && n2.y > -0.2 ? 0.9 : 0) : null })(n)), WHITE, { p: [0, 0.02, 0.06] }, head);
-    mesh(G.ball, M(A2 ? '#b8908a' : '#f0b8b0'), A2 ? { p: [0, -0.12, 0.29], s: [0.105, 0.075, 0.08] } : { p: [0, -0.1, 0.27], s: [0.15, 0.11, 0.1] }, head);                   // hocico
+    mesh(blob(k + ':h', 28, (v, n) => { const f = Math.max(0, n.z); v.set(n.x * 0.14 * (1 - 0.3 * f + 0.15 * f ** 4), n.y * 0.15 * (1 - 0.22 * f) - 0.06 * f * f, n.z * 0.31); }, n => coat(cb, { back: 0.05, spot: cd, spots: pinta ? n2 => (n2.x > 0.3 && n2.y > -0.2 ? 0.9 : 0) : null })(n)), WHITE, { p: [0, 0.02, 0.06] }, head);
+    mesh(G.ball, M('#b8908a'), { p: [0, -0.12, 0.29], s: [0.105, 0.075, 0.08] }, head);                   // hocico
     for (const s of [-1, 1]) {
       mesh(G.ball, M('#5a2a2a'), { p: [s * 0.05, -0.08, 0.36], s: [0.02, 0.014, 0.01] }, head);         // ollares
       mesh(G.ball, M(cb), { p: [s * 0.2, 0.08, 0.02], s: [0.1, 0.035, 0.055], r: [0, s * 0.3, s * 0.35] }, head);   // orejas
@@ -221,9 +199,9 @@ const BUILD = {
     [[-0.11, 0.27], [0.11, 0.27], [-0.11, -0.27], [0.11, -0.27]].forEach(([x, z], i) => leg(body, legs, { x, y: 0.48, z, up: 0.25, low: 0.2, r0: 0.05, r1: 0.032, r2: 0.028, color: cb, foot: 0.04, footColor: '#4a4038', phase: TROT[i] }));
   },
   cerdo({ body, legs, u, cb, cd, k, breed }) {
-    mesh(blob(k + ':b', breed === 'manchado' ? 56 : 36, trunk(A2 ? { L: 0.47, W: 0.24, H: 0.24, belly: 0.06, flat: 0.12, withers: 0.04, hips: 0.06 } : { L: 0.42, W: 0.29, H: 0.27, belly: 0.05, flat: 0.05 }), coat(cb, { back: 0.05, spot: cd, spots: breed === 'manchado' ? patches(2.4, 7.7, 0.6) : null })), WHITE, { p: [0, 0.44, 0] }, body);
+    mesh(blob(k + ':b', breed === 'manchado' ? 56 : 36, trunk({ L: 0.47, W: 0.24, H: 0.24, belly: 0.06, flat: 0.12, withers: 0.04, hips: 0.06 }), coat(cb, { back: 0.05, spot: cd, spots: breed === 'manchado' ? patches(2.4, 7.7, 0.6) : null })), WHITE, { p: [0, 0.44, 0] }, body);
     const head = new THREE.Group(); head.position.set(0, 0.5, 0.42); body.add(head); u.head = head;
-    mesh(blob(k + ':h', 24, A2 ? (v, n) => { const f = Math.max(0, n.z); v.set(n.x * 0.15 * (1 - 0.35 * f), n.y * 0.15 * (1 - 0.3 * f), n.z * 0.2 * (n.z > 0 ? 1.25 : 1)); } : (v, n) => v.set(n.x * 0.19, n.y * 0.17, n.z * 0.16 * (n.z > 0 ? 1.15 : 1)), () => C.set(cb)), WHITE, { p: [0, 0, 0.04] }, head);
+    mesh(blob(k + ':h', 24, (v, n) => { const f = Math.max(0, n.z); v.set(n.x * 0.15 * (1 - 0.35 * f), n.y * 0.15 * (1 - 0.3 * f), n.z * 0.2 * (n.z > 0 ? 1.25 : 1)); }, () => C.set(cb)), WHITE, { p: [0, 0, 0.04] }, head);
     mesh(G.cyl, M('#e88a86'), { p: [0, -0.03, 0.22], s: [0.075, 0.06, 0.06], r: [Math.PI / 2, 0, 0] }, head);   // el morro
     for (const s of [-1, 1]) {
       mesh(G.ball, M('#8a4a48'), { p: [s * 0.025, -0.03, 0.252], s: [0.013, 0.017, 0.006] }, head);
@@ -269,30 +247,30 @@ const BUILD = {
   perro: (o) => pet(o, true),
   gato: (o) => pet(o, false),
   conejo({ body, legs, u, cb, cd, k }) {
-    // (?arte=2: un huevo con la grupa ancha y alta, y las orejas largas y finas)
-    mesh(blob(k + ':b', 28, A2 ? (v, n) => { const r = Math.max(0, -n.z); v.set(n.x * 0.115 * (1 + 0.18 * r), n.y * 0.12 * (1 + 0.15 * r) + 0.03 * r * Math.max(0, n.y), n.z * 0.19); } : (v, n) => v.set(n.x * 0.13, n.y * 0.13 + (n.z < 0 ? 0.02 * -n.z : 0), n.z * 0.17), coat(cb, { back: 0.08, belly: '#ffffff' })), WHITE, { p: [0, 0.17, -0.02] }, body);
+    // (un huevo con la grupa ancha y alta, y las orejas largas y finas)
+    mesh(blob(k + ':b', 28, (v, n) => { const r = Math.max(0, -n.z); v.set(n.x * 0.115 * (1 + 0.18 * r), n.y * 0.12 * (1 + 0.15 * r) + 0.03 * r * Math.max(0, n.y), n.z * 0.19); }, coat(cb, { back: 0.08, belly: '#ffffff' })), WHITE, { p: [0, 0.17, -0.02] }, body);
     const head = new THREE.Group(); head.position.set(0, 0.3, 0.13); body.add(head); u.head = head;
     mesh(blob(k + ':h', 24, (v, n) => v.set(n.x * 0.085, n.y * 0.08, n.z * 0.09 * (n.z > 0 ? 1.1 : 1)), () => C.set(cb)), WHITE, {}, head);
     for (const s of [-1, 1]) {
-      const ey = A2 ? 0.17 : 0.15, eh = A2 ? 1.15 : 1, ew = A2 ? 0.8 : 1;
+      const ey = 0.17, eh = 1.15, ew = 0.8;
       mesh(G.ball, M(cb), { p: [s * 0.035, ey, -0.02], s: [0.026 * ew, 0.11 * eh, 0.035], r: [-0.25, 0, s * 0.18] }, head);
-      mesh(G.ball, M(A2 ? mixc(cd, cb, 0.4).getStyle() : cd), { p: [s * 0.035, ey, -0.002], s: [0.014 * ew, 0.085 * eh, 0.02], r: [-0.25, 0, s * 0.18] }, head);
+      mesh(G.ball, M(mixc(cd, cb, 0.4).getStyle()), { p: [s * 0.035, ey, -0.002], s: [0.014 * ew, 0.085 * eh, 0.02], r: [-0.25, 0, s * 0.18] }, head);
       mesh(G.ball, M('#ffffff'), { p: [s * 0.03, -0.035, 0.075], s: [0.03, 0.025, 0.025] }, head);   // mofletes
     }
     eyes(head, 0.05, 0.02, 0.06, 0.016);
     mesh(G.ball, M('#d88a92'), { p: [0, -0.015, 0.092], s: 0.013 }, head);
     const tail = new THREE.Group(); tail.position.set(0, 0.2, -0.19); body.add(tail); u.tail = tail;
     mesh(G.ball, M('#ffffff'), { s: 0.045 }, tail);
-    for (const s of [-1, 1]) mesh(G.ball, M(cb), A2 ? { p: [s * 0.085, 0.08, -0.08], s: [0.05, 0.075, 0.11] } : { p: [s * 0.08, 0.07, -0.07], s: [0.045, 0.06, 0.1] }, body);   // las patas de atrás, recogidas
+    for (const s of [-1, 1]) mesh(G.ball, M(cb), { p: [s * 0.085, 0.08, -0.08], s: [0.05, 0.075, 0.11] }, body);   // las patas de atrás, recogidas
     [[-0.05, 0.08], [0.05, 0.08]].forEach(([x, z], i) => leg(body, legs, { x, y: 0.09, z, up: 0.05, low: 0.04, r0: 0.025, r1: 0.02, r2: 0.018, color: cb, paw: true, phase: i ? 0 : 0 }));
   },
   gallina: o => bird(o, false),
   pato: o => bird(o, true),
   cisne({ body, u, k }) {
     mesh(blob(k + ':b', 28, (v, n) => v.set(n.x * 0.22, n.y * 0.13 * (n.y > 0 ? 1.2 : 1), n.z * 0.34 + (n.z < 0 && n.y > 0 ? -0.08 * n.y : 0)), () => C.set('#f8f6f2')), WHITE, { p: [0, 0.1, 0] }, body);
-    for (const s of [-1, 1]) mesh(blob(A2 ? 'a2:ala-cisne' : 'ala-cisne', 16, (v, n) => v.set(n.x * (A2 ? 0.035 : 0.07), n.y * (A2 ? 0.085 : 0.1), n.z * 0.27), () => C.set(tone('#f2f0ea'))), WHITE, { p: [s * (A2 ? 0.18 : 0.15), 0.2, -0.05], r: [0.2, 0, s * (A2 ? 0.15 : 0.3)] }, body);
+    for (const s of [-1, 1]) mesh(blob('a2:ala-cisne', 16, (v, n) => v.set(n.x * 0.035, n.y * 0.085, n.z * 0.27), () => C.set(tone('#f2f0ea'))), WHITE, { p: [s * 0.18, 0.2, -0.05], r: [0.2, 0, s * 0.15] }, body);
     const neck = new THREE.CatmullRomCurve3([new THREE.Vector3(0, 0.16, 0.24), new THREE.Vector3(0, 0.42, 0.3), new THREE.Vector3(0, 0.62, 0.2), new THREE.Vector3(0, 0.68, 0.3)]);
-    body.add(new THREE.Mesh(new THREE.TubeGeometry(neck, 16, A2 ? 0.034 : 0.042, 8), M('#f8f6f2')));
+    body.add(new THREE.Mesh(new THREE.TubeGeometry(neck, 16, 0.034, 8), M('#f8f6f2')));
     const head = new THREE.Group(); head.position.set(0, 0.68, 0.32); body.add(head); u.head = head;
     mesh(G.ball, M('#f8f6f2'), { s: [0.055, 0.055, 0.075] }, head);
     mesh(G.cone, M('#f07a20'), { p: [0, -0.015, 0.11], s: [0.025, 0.1, 0.022], r: [Math.PI / 2 + 0.25, 0, 0] }, head);
@@ -305,32 +283,31 @@ const BUILD = {
 function pet({ body, legs, u, cb, cd, cl, k, breed }, dog) {
   const L = dog ? 1 : 0.78, spots = breed === 'manchado' ? patches(2.6, 4.4, 0.55) : breed === 'tricolor' ? n => Math.max(patches(2.4, 1.3, 0.6)(n) * 1, 0) : (!dog && (breed === 'naranja' || breed === 'gris')) ? stripes : null;
   const third = breed === 'tricolor' ? cl : cd;
-  // (?arte=2) Más de verdad: patas más largas (todo lo de encima sube dy), el cuerpo más estrecho y con cruz y cadera, el
+  // Más de verdad: patas más largas (todo lo de encima sube dy), el cuerpo más estrecho y con cruz y cadera, el
   // cráneo más pequeño y, en el perro, el hocico más largo
-  const lh = A2 ? (dog ? 1.45 : 1.25) : 1, dy = (lh - 1) * 0.21 * L;
+  const lh = dog ? 1.45 : 1.25, dy = (lh - 1) * 0.21 * L;
   const paint = n => { const c = coat(cb, { back: 0.12, belly: dog && breed === 'negro' ? cd : '#f4f0e8', spot: third, spots })(n); if (breed === 'tricolor' && patches(2.2, 8.8, 0.62)(n) > 0.5) c.set(cd); return c; };
-  mesh(blob(k + ':b', spots ? 56 : 32, trunk(A2 ? { L: 0.26 * L, W: (dog ? 0.1 : 0.095) * L, H: (dog ? 0.12 : 0.105) * L, belly: 0, chest: dog ? 0.05 : 0.02, withers: dog ? 0.08 : 0.03, hips: dog ? 0.04 : 0.1 } : { L: 0.24 * L, W: 0.13 * L, H: 0.13 * L, belly: 0.02 * L, chest: dog ? 0.03 : 0.01 }), paint), WHITE, { p: [0, 0.32 * L + dy, 0] }, body);
-  const hy = (A2 ? 0.5 : 0.47) * L + dy, hz = (A2 && dog ? 0.3 : 0.27) * L;
+  mesh(blob(k + ':b', spots ? 56 : 32, trunk({ L: 0.26 * L, W: (dog ? 0.1 : 0.095) * L, H: (dog ? 0.12 : 0.105) * L, belly: 0, chest: dog ? 0.05 : 0.02, withers: dog ? 0.08 : 0.03, hips: dog ? 0.04 : 0.1 }), paint), WHITE, { p: [0, 0.32 * L + dy, 0] }, body);
+  const hy = 0.5 * L + dy, hz = (dog ? 0.3 : 0.27) * L;
   const head = new THREE.Group(); head.position.set(0, hy, hz); body.add(head); u.head = head;
-  tube(M(cb), [0, 0.34 * L + dy, 0.16 * L], [0, hy, hz], (A2 ? 0.075 : 0.09) * L, (A2 ? 0.055 : 0.07) * L, body, 10);
-  mesh(blob(k + ':h', 24, A2 ? (v, n) => v.set(n.x * (dog ? 0.095 : 0.09) * L, n.y * (dog ? 0.09 : 0.08) * L, n.z * (dog ? 0.105 : 0.088) * L) : (v, n) => v.set(n.x * 0.12 * L, n.y * 0.115 * L, n.z * 0.115 * L), n => coat(cb, { back: 0.08, spot: third, spots: breed === 'manchado' ? (m => (m.x > 0.4 ? 0.9 : 0)) : null })(n)), WHITE, {}, head);
-  const muzzle = M(dog ? (breed === 'negro' ? cd : A2 ? mixc(cb, '#000000', 0.12).getStyle() : mixc(cb, '#ffffff', 0.35).getStyle()) : A2 ? mixc(cb, '#ffffff', 0.45).getStyle() : '#f8f0ec');
-  if (A2 && dog) {   // el hocico largo, que se estrecha hacia la nariz, con la boca debajo
+  tube(M(cb), [0, 0.34 * L + dy, 0.16 * L], [0, hy, hz], 0.075 * L, 0.055 * L, body, 10);
+  mesh(blob(k + ':h', 24, (v, n) => v.set(n.x * (dog ? 0.095 : 0.09) * L, n.y * (dog ? 0.09 : 0.08) * L, n.z * (dog ? 0.105 : 0.088) * L), n => coat(cb, { back: 0.08, spot: third, spots: breed === 'manchado' ? (m => (m.x > 0.4 ? 0.9 : 0)) : null })(n)), WHITE, {}, head);
+  const muzzle = M(dog ? (breed === 'negro' ? cd : mixc(cb, '#000000', 0.12).getStyle()) : mixc(cb, '#ffffff', 0.45).getStyle());
+  if (dog) {   // el hocico largo, que se estrecha hacia la nariz, con la boca debajo
     mesh(blob('a2:hocico-perro', 16, (v, n) => { const f = Math.max(0, n.z); v.set(n.x * 0.05 * (1 - 0.25 * f) * L, n.y * 0.045 * (1 - 0.2 * f) * L, n.z * 0.1 * L); }, () => C.set('#ffffff')), muzzle, { p: [0, -0.03 * L, 0.1 * L] }, head);
     mesh(G.ball, M('#1a1010', { roughness: 0.25 }), { p: [0, -0.012 * L, 0.2 * L], s: [0.022 * L, 0.017 * L, 0.015 * L] }, head);
   } else {
-    mesh(blob(dog ? 'hocico-perro' : A2 ? 'a2:hocico-gato' : 'hocico-gato', 16, (v, n) => v.set(n.x * (dog ? 0.065 : A2 ? 0.042 : 0.05) * L, n.y * (dog ? 0.05 : A2 ? 0.03 : 0.035) * L, n.z * (dog ? 0.08 : A2 ? 0.045 : 0.04) * L), () => C.set('#ffffff')), muzzle, { p: [0, -0.035 * L, (A2 ? 0.075 : 0.1) * L] }, head);
-    mesh(G.ball, M(A2 && !dog ? '#c88a8a' : '#1a1010', { roughness: 0.25 }), { p: [0, -0.012 * L, (dog ? 0.175 : A2 ? 0.115 : 0.14) * L], s: [(A2 ? 0.016 : 0.024) * L, (A2 ? 0.012 : 0.018) * L, 0.016 * L] }, head);   // la nariz
+    mesh(blob('a2:hocico-gato', 16, (v, n) => v.set(n.x * 0.042 * L, n.y * 0.03 * L, n.z * 0.045 * L), () => C.set('#ffffff')), muzzle, { p: [0, -0.035 * L, 0.075 * L] }, head);
+    mesh(G.ball, M('#c88a8a', { roughness: 0.25 }), { p: [0, -0.012 * L, 0.115 * L], s: [0.016 * L, 0.012 * L, 0.016 * L] }, head);   // la nariz
   }
-  if (A2) eyes(head, (dog ? 0.045 : 0.045) * L, 0.025 * L, (dog ? 0.085 : 0.08) * L, (dog ? 0.02 : 0.024) * L);
-  else eyes(head, 0.055 * L, 0.03 * L, 0.095 * L, 0.02 * L);
+  eyes(head, 0.045 * L, 0.025 * L, (dog ? 0.085 : 0.08) * L, (dog ? 0.02 : 0.024) * L);
   for (const s of [-1, 1]) {
-    if (dog) mesh(blob(A2 ? 'a2:oreja-perro' : 'oreja-perro', 12, A2 ? (v, n) => v.set(n.x * 0.018, n.y * 0.07, n.z * 0.045) : (v, n) => v.set(n.x * 0.03, n.y * 0.08, n.z * 0.05), () => C.set('#ffffff')), M(breed === 'manchado' ? cd : mixc(cb, '#000000', 0.25).getStyle()), A2 ? { p: [s * 0.088, 0.02, -0.02], r: [0, 0, s * 0.22] } : { p: [s * 0.11, 0.0, -0.01], r: [0, 0, s * 0.3] }, head);
+    if (dog) mesh(blob('a2:oreja-perro', 12, (v, n) => v.set(n.x * 0.018, n.y * 0.07, n.z * 0.045), () => C.set('#ffffff')), M(breed === 'manchado' ? cd : mixc(cb, '#000000', 0.25).getStyle()), { p: [s * 0.088, 0.02, -0.02], r: [0, 0, s * 0.22] }, head);
     else {
-      const ex = A2 ? 0.055 : 0.06, ey = A2 ? 0.085 : 0.1;
+      const ex = 0.055, ey = 0.085;
       mesh(G.cone, M(cb), { p: [s * ex, ey, -0.005], s: [0.04, 0.07, 0.025], r: [0, 0, -s * 0.3] }, head);
-      mesh(G.cone, M(A2 ? '#c89890' : '#f0a8b0'), { p: [s * ex, ey - 0.005, 0.008], s: [0.024, 0.045, 0.01], r: [0, 0, -s * 0.3] }, head);
-      for (const d of [-0.01, 0.006]) tube(M('#f4f0ea'), [s * 0.035, -0.04 + d, A2 ? 0.1 : 0.13], [s * 0.12, -0.03 + d * 2, A2 ? 0.09 : 0.12], 0.0025, 0.0015, head, 4);   // bigotes
+      mesh(G.cone, M('#c89890'), { p: [s * ex, ey - 0.005, 0.008], s: [0.024, 0.045, 0.01], r: [0, 0, -s * 0.3] }, head);
+      for (const d of [-0.01, 0.006]) tube(M('#f4f0ea'), [s * 0.035, -0.04 + d, 0.1], [s * 0.12, -0.03 + d * 2, 0.09], 0.0025, 0.0015, head, 4);   // bigotes
     }
   }
   const tail = new THREE.Group(); tail.position.set(0, 0.38 * L + dy, -0.24 * L); body.add(tail); u.tail = tail;
@@ -342,10 +319,10 @@ function pet({ body, legs, u, cb, cd, cl, k, breed }, dog) {
 // Gallina (o gallo) y pato: cuerpo de gota, alas, cola, cabeza con cresta o pico plano, patas finas con dedos
 function bird({ body, legs, u, cb, cd, cl, k, breed }, duck) {
   const rooster = breed === 'gallo', real = breed === 'real', col = cb;
-  mesh(blob(k + ':b', 28, (v, n) => { const r = n.z < 0 ? 1 : 1 - 0.25 * n.z; v.set(n.x * (duck ? 0.17 : A2 ? 0.14 : 0.16) * r, n.y * (duck ? 0.12 : A2 ? 0.14 : 0.15) * (n.y < 0 ? 1.05 : 1), n.z * (duck ? 0.26 : A2 ? 0.22 : 0.2) + (n.z < 0 ? 0.03 * Math.max(0, n.y) * -n.z : 0)); }, n => { C.set(tone(col)); if (real && n.z > 0.2) C.lerp(C2.set(tone(cl)), Math.min(1, (n.z - 0.2) * 2)); if (n.y > 0) C.multiplyScalar(1 - 0.08 * n.y); if (A2) C.multiplyScalar(0.9 + noise(n.x * 9, n.y * 9 + 2, n.z * 9) * 0.14); return C; }), WHITE, { p: [0, duck ? 0.24 : 0.32, 0] }, body);
+  mesh(blob(k + ':b', 28, (v, n) => { const r = n.z < 0 ? 1 : 1 - 0.25 * n.z; v.set(n.x * (duck ? 0.17 : 0.14) * r, n.y * (duck ? 0.12 : 0.14) * (n.y < 0 ? 1.05 : 1), n.z * (duck ? 0.26 : 0.22) + (n.z < 0 ? 0.03 * Math.max(0, n.y) * -n.z : 0)); }, n => { C.set(tone(col)); if (real && n.z > 0.2) C.lerp(C2.set(tone(cl)), Math.min(1, (n.z - 0.2) * 2)); if (n.y > 0) C.multiplyScalar(1 - 0.08 * n.y); C.multiplyScalar(0.9 + noise(n.x * 9, n.y * 9 + 2, n.z * 9) * 0.14); return C; }), WHITE, { p: [0, duck ? 0.24 : 0.32, 0] }, body);
   // Alas
-  // (?arte=2: pegadas al cuerpo, finas)
-  for (const s of [-1, 1]) mesh(blob(k + ':ala', 14, (v, n) => v.set(n.x * (A2 ? 0.022 : 0.04), n.y * (A2 ? 0.08 : 0.09), n.z * 0.15 + (n.z < 0 ? -0.03 : 0)), n => C.set(tone(cd || col)).lerp(C2.set(tone(col)), 0.4 + n.y * 0.3)), WHITE, { p: [s * (duck ? (A2 ? 0.15 : 0.155) : A2 ? 0.125 : 0.145), duck ? 0.27 : 0.34, -0.03], r: [0.15, 0, s * (A2 ? 0.05 : 0.12)] }, body);
+  // (pegadas al cuerpo, finas)
+  for (const s of [-1, 1]) mesh(blob(k + ':ala', 14, (v, n) => v.set(n.x * 0.022, n.y * 0.08, n.z * 0.15 + (n.z < 0 ? -0.03 : 0)), n => C.set(tone(cd || col)).lerp(C2.set(tone(col)), 0.4 + n.y * 0.3)), WHITE, { p: [s * (duck ? 0.15 : 0.125), duck ? 0.27 : 0.34, -0.03], r: [0.15, 0, s * 0.05] }, body);
   // Cola: abanico de plumas (el gallo, largas y curvas)
   const tail = new THREE.Group(); tail.position.set(0, duck ? 0.3 : 0.4, duck ? -0.24 : -0.17); body.add(tail); u.tail = tail;
   const n = rooster ? 5 : duck ? 2 : 4;
@@ -357,22 +334,20 @@ function bird({ body, legs, u, cb, cd, cl, k, breed }, duck) {
   // Cabeza (con el cuello del pato)
   const head = new THREE.Group(); head.position.set(0, duck ? 0.5 : 0.53, duck ? 0.2 : 0.13); body.add(head); u.head = head;
   const hc = duck && real ? cd : col;
-  if (duck) tube(M(hc), [0, -0.2, -0.02], [0, -0.03, 0], 0.06, A2 ? 0.045 : 0.05, head, 10);
-  // (?arte=2) La cabeza más pequeña, con su cuello (la gallina), el pico más fino y la cresta y la barbilla más pequeñas
-  const hk = A2 ? 0.7 : 1;
-  if (A2 && !duck) tube(M(hc), [0, 0.4, 0.06], [0, 0.53, 0.13], 0.08, 0.045, body, 10);
+  if (duck) tube(M(hc), [0, -0.2, -0.02], [0, -0.03, 0], 0.06, 0.045, head, 10);
+  // La cabeza pequeña, con su cuello (la gallina), el pico más fino y la cresta y la barbilla más pequeñas
+  const hk = 0.7;
+  if (!duck) tube(M(hc), [0, 0.4, 0.06], [0, 0.53, 0.13], 0.08, 0.045, body, 10);
   mesh(G.ball, M(hc), { s: duck ? [0.075 * hk * 1.1, 0.075 * hk * 1.1, 0.09 * hk * 1.1] : [0.085 * hk, 0.09 * hk, 0.085 * hk * 1.1] }, head);
   if (duck) {
-    if (A2) mesh(blob('a2:pico-pato', 14, (v, n) => v.set(n.x * 0.032 * (1 + 0.15 * n.z), n.y * 0.014, n.z * 0.07), () => C.set('#ffffff')), M('#e0a030'), { p: [0, -0.018, 0.09] }, head);
-    else mesh(blob('pico-pato', 14, (v, n) => v.set(n.x * 0.045, n.y * 0.016, n.z * 0.075), () => C.set('#ffffff')), M('#f09a20'), { p: [0, -0.02, 0.1] }, head);
+    mesh(blob('a2:pico-pato', 14, (v, n) => v.set(n.x * 0.032 * (1 + 0.15 * n.z), n.y * 0.014, n.z * 0.07), () => C.set('#ffffff')), M('#e0a030'), { p: [0, -0.018, 0.09] }, head);
     if (real) mesh(G.cyl, M('#f4f0e8'), { p: [0, -0.1, -0.01], s: [0.058, 0.018, 0.058] }, head);
   } else {
-    mesh(G.cone, M(A2 ? '#d8a848' : '#f0b030'), { p: [0, -0.01 * hk, 0.1 * hk], s: [0.028 * hk, 0.06 * hk, 0.028 * hk], r: [Math.PI / 2 + 0.2, 0, 0] }, head);
+    mesh(G.cone, M('#d8a848'), { p: [0, -0.01 * hk, 0.1 * hk], s: [0.028 * hk, 0.06 * hk, 0.028 * hk], r: [Math.PI / 2 + 0.2, 0, 0] }, head);
     for (let i = 0; i < 3; i++) mesh(G.ball, M('#d8352a'), { p: [0, (0.09 + (i === 1 ? 0.02 : 0)) * hk, (-0.03 + i * 0.035) * hk], s: (rooster ? [0.022, 0.045, 0.025] : [0.016, 0.03, 0.018]).map(x => x * hk) }, head);   // cresta
     mesh(G.ball, M('#d8352a'), { p: [0, -0.07 * hk, 0.07 * hk], s: [0.018 * hk, (rooster ? 0.045 : 0.03) * hk, 0.015 * hk] }, head);                                                      // barbilla
   }
-  if (A2) eyes(head, duck ? 0.045 : 0.05, 0.015, duck ? 0.025 : 0.03, 0.016);
-  else eyes(head, duck ? 0.055 : 0.06, 0.02, duck ? 0.03 : 0.04, 0.013);
+  eyes(head, duck ? 0.045 : 0.05, 0.015, duck ? 0.025 : 0.03, 0.016);
   // Patas finas, con dedos (el pato, con la pata palmeada)
   const feet = M(duck ? '#f09a20' : '#e8a020');
   for (const s of [-1, 1]) {
@@ -432,32 +407,20 @@ export function horseModel(breed = 'castano', bags = false, alone = false) {
   const [cb, cd, cl] = coatOf('caballo', breed), k = `caballo:${breed}`, mane = M(cl || cd), pio = breed === 'pio';
   mesh(blob(k + ':b', pio || breed === 'tordo' ? 64 : 40, trunk({ L: 0.56, W: 0.26, H: 0.29, belly: 0.03, chest: 0.06 }), coat(cb, { back: 0.12, spot: cd, spots: pio ? patches(2, 5.5, 0.55) : breed === 'tordo' ? (n => noise(n.x * 9, n.y * 9, n.z * 9) > 0.62 ? 0.45 : 0) : null })), WHITE, { p: [0, 0.88, 0] }, body);
   // Cuello y cabeza, con la crin
-  tube(M(cb), [0, 0.9, 0.34], [0, 1.36, 0.72], A2 ? 0.15 : 0.16, A2 ? 0.075 : 0.1, body, 14);
+  tube(M(cb), [0, 0.9, 0.34], [0, 1.36, 0.72], 0.15, 0.075, body, 14);
   for (let i = 0; i < 6; i++) mesh(G.ball, mane, { p: [0, 1.06 + i * 0.065, 0.4 + i * 0.055], s: [0.045, 0.08, 0.07], r: [0.6, 0, 0] }, body);
   const head = new THREE.Group(); head.position.set(0, 1.38, 0.76); body.add(head); u.head = head;
   const morro = M(cl && breed === 'palomino' ? cb : breed === 'blanco' ? '#d8cfc4' : mixc(cb, '#000000', 0.25).getStyle());
-  if (A2) {
-    // (?arte=2) La cabeza larga, en cuña: ancha en la frente y las quijadas y estrecha hacia el morro, con los ojos a los lados
-    mesh(blob(k + ':h', 28, (v, n) => { const f = (n.z + 1) / 2, jaw = Gs(n.z + 0.45, 0.3) * Math.max(0, -n.y); v.set(n.x * (0.085 - 0.03 * f + 0.02 * jaw), n.y * (0.105 - 0.04 * f) - 0.03 * jaw, n.z * 0.3); }, n => coat(cb, { back: 0.06 })(n)), WHITE, { p: [0, -0.06, 0.12], r: [0.6, 0, 0] }, head);
-    mesh(G.ball, morro, { p: [0, -0.2, 0.31], s: [0.052, 0.05, 0.07], r: [0.6, 0, 0] }, head);   // el morro
-    if (breed === 'blanco' || breed === 'tordo' || breed === 'palomino' || pio) mesh(G.ball, M('#f8f4ee'), { p: [0, 0.0, 0.17], s: [0.03, 0.09, 0.016], r: [0.6, 0, 0] }, head);   // lucero
-    for (const s of [-1, 1]) {
-      mesh(G.cone, M(cb), { p: [s * 0.045, 0.1, -0.06], s: [0.025, 0.08, 0.02], r: [-0.25, 0, -s * 0.12] }, head);
-      mesh(G.ball, M('#2a1a14'), { p: [s * 0.026, -0.205, 0.345], s: [0.012, 0.015, 0.012], r: [0.6, 0, 0] }, head);   // ollares
-    }
-    mesh(G.ball, mane, { p: [0, 0.08, 0.02], s: [0.035, 0.045, 0.055] }, head);   // el flequillo
-    eyes(head, 0.075, 0.0, 0.07, 0.024);
-  } else {
-    mesh(blob(k + ':h', 24, (v, n) => v.set(n.x * 0.1 * (1 - 0.2 * Math.max(0, n.z)), n.y * 0.11 * (1 - 0.15 * Math.max(0, n.z)), n.z * 0.24), n => coat(cb, { back: 0.06 })(n)), WHITE, { p: [0, -0.04, 0.12], r: [0.55, 0, 0] }, head);
-    mesh(G.ball, morro, { p: [0, -0.18, 0.28], s: [0.085, 0.07, 0.08] }, head);   // el morro
-    if (breed === 'blanco' || breed === 'tordo' || breed === 'palomino' || pio) mesh(G.ball, M('#f8f4ee'), { p: [0, 0.04, 0.17], s: [0.035, 0.07, 0.02], r: [0.5, 0, 0] }, head);   // lucero
-    for (const s of [-1, 1]) {
-      mesh(G.cone, M(cb), { p: [s * 0.05, 0.13, -0.02], s: [0.03, 0.09, 0.025], r: [-0.2, 0, -s * 0.15] }, head);
-      mesh(G.ball, M('#2a1a14'), { p: [s * 0.035, -0.19, 0.35], s: [0.015, 0.012, 0.008] }, head);   // ollares
-    }
-    mesh(G.ball, mane, { p: [0, 0.1, 0.06], s: [0.04, 0.05, 0.06] }, head);   // el flequillo
-    eyes(head, 0.085, 0.02, 0.1, 0.022);
+  // La cabeza larga, en cuña: ancha en la frente y las quijadas y estrecha hacia el morro, con los ojos a los lados
+  mesh(blob(k + ':h', 28, (v, n) => { const f = (n.z + 1) / 2, jaw = Gs(n.z + 0.45, 0.3) * Math.max(0, -n.y); v.set(n.x * (0.085 - 0.03 * f + 0.02 * jaw), n.y * (0.105 - 0.04 * f) - 0.03 * jaw, n.z * 0.3); }, n => coat(cb, { back: 0.06 })(n)), WHITE, { p: [0, -0.06, 0.12], r: [0.6, 0, 0] }, head);
+  mesh(G.ball, morro, { p: [0, -0.2, 0.31], s: [0.052, 0.05, 0.07], r: [0.6, 0, 0] }, head);   // el morro
+  if (breed === 'blanco' || breed === 'tordo' || breed === 'palomino' || pio) mesh(G.ball, M('#f8f4ee'), { p: [0, 0.0, 0.17], s: [0.03, 0.09, 0.016], r: [0.6, 0, 0] }, head);   // lucero
+  for (const s of [-1, 1]) {
+    mesh(G.cone, M(cb), { p: [s * 0.045, 0.1, -0.06], s: [0.025, 0.08, 0.02], r: [-0.25, 0, -s * 0.12] }, head);
+    mesh(G.ball, M('#2a1a14'), { p: [s * 0.026, -0.205, 0.345], s: [0.012, 0.015, 0.012], r: [0.6, 0, 0] }, head);   // ollares
   }
+  mesh(G.ball, mane, { p: [0, 0.08, 0.02], s: [0.035, 0.045, 0.055] }, head);   // el flequillo
+  eyes(head, 0.075, 0.0, 0.07, 0.024);
   // Silla: manta, asiento con borrén, estribos; alforjas a los lados
   const saddle = M('#6a2a1e'), blanket = M('#3a5a8a'), steel = M('#b8c0c8', { metalness: 0.6, roughness: 0.35 });
   mesh(G.cyl, blanket, { p: [0, 1.13, -0.02], s: [0.3, 0.025, 0.34] }, body);

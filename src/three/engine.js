@@ -224,7 +224,7 @@ export class View3D {
     CAM.look = Math.max(LOOK.min, Math.min(LOOK.max, CAM.look + c.pvel * dt * 1.6));
     if (CAM.look === LOOK.min || CAM.look === LOOK.max) c.pvel = 0;
     const p = game.player, ground = this.groundY(scene, p.x, p.y), head = this.actors.player?.person.head;
-    const eye = head ? head.getWorldPosition(this.probe) : this.probe.set(p.x, ground + 1.1, p.y);
+    const eye = head ? head.getWorldPosition(this.probe) : this.probe.set(p.x, ground + 1.55, p.y);   // (sin cabeza aún: los ojos de una persona de pie)
     dirOf(CAM.yaw, 0, this.ray).negate();   // hacia delante, en horizontal
     c.target.set(p.x, ground + 0.9, p.y);
     c.low = 1;
@@ -326,7 +326,7 @@ export class View3D {
     this.arrows.update(game, scene);
     this.terrain.water.uniforms.time.value = t;
     this.terrain.water.uniforms.sky.value.copy(this.skyU.horizon.value);
-    // (?arte=2) El suelo se moja con la lluvia (en un minuto) y se seca despacio (unos cinco); el agua, con sus gotas
+    // El suelo se moja con la lluvia (en un minuto) y se seca despacio (unos cinco); el agua, con sus gotas
     { const r = game.days?.info?.rain || 0, k = r ? 1 : 0; this.wetNow = (this.wetNow || 0) + (k - (this.wetNow || 0)) * Math.min(1, dt * (k > (this.wetNow || 0) ? 0.05 : 0.01)); WET.value = this.wetNow; RAIN.value = r ? (r === 2 ? 1 : 0.6) : 0; }
     this.skyU.time.value = t;
     this.sky.position.copy(this.camera.position);

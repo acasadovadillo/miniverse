@@ -12,16 +12,16 @@ import * as THREE from 'three';
 import { flowerBunch } from './flowers3d.js';
 import { Builder, mat, rockGeo, snowCap } from './geo.js';
 import { wood as wood0, stone as stone0, rockFace, rng, rug, rugDesign, notes, awning, planks, furrows, artwork } from './textures.js';
-import { ARTE, apagado } from '../arte.js';
+import { apagado } from '../arte.js';
 
-// La tanda en revisión (?arte=2): las cajas de los modelos con los cantos biselados, según su material: redondeadas en
-// lo blando (mantas, sábanas, cojines, cuero), con el canto gastado en la madera y un poco en la piedra
-const BEVEL = ARTE === 2 ? Object.assign(
+// Las cajas de los modelos con los cantos biselados, según su material: redondeadas en lo blando (mantas, sábanas,
+// cojines, cuero), con el canto gastado en la madera y un poco en la piedra
+const BEVEL = Object.assign(
   Object.fromEntries(['quilt', 'quiltB', 'quiltK', 'quiltK2', 'pillowK', 'sheet', 'cloth', 'sofa', 'sofaB', 'leather', 'leatherD', 'baby'].map(k => [k, 0.04])),
   Object.fromEntries(['wood', 'dark', 'light', 'plank', 'hull'].map(k => [k, 0.012])),
-  Object.fromEntries(['stone', 'brick', 'ruin', 'temple', 'templeD', 'rock', 'marble', 'marbleD'].map(k => [k, 0.018])),
+  Object.fromEntries(['stone', 'brick', 'temple', 'templeD', 'rock', 'marble', 'marbleD'].map(k => [k, 0.018])),
   { ashlar: 0.035 },
-) : {};
+);
 import { CROPS, ITEMS } from '../items.js';
 import { WALL_H, FLOOR_H } from './build3d.js';
 import { SOLIDS, hull } from '../world/fit.js';
@@ -47,7 +47,7 @@ export function modelMats() {
     water: new THREE.MeshStandardMaterial({ color: '#47666a', roughness: 0.05, metalness: 0.2, transparent: true, opacity: 0.8 }),
     glass: new THREE.MeshStandardMaterial({ color: '#8a9aa0', roughness: 0.05, metalness: 0.2, transparent: true, opacity: 0.3, depthWrite: false }),
     glow: new THREE.MeshBasicMaterial({ color: '#ff9a3a' }), ember: c('#ff6a20', { emissive: '#ff4a10', emissiveIntensity: 1.2 }),
-    sand: c('#d8c08a', { roughness: 1 }), moss: c('#5a7a3a', { flatShading: true }), ruin: mat({ map: stone('#b8b0a0'), flatShading: true }), dirt: mat({ map: furrows(), roughness: 1 }),
+    sand: c('#d8c08a', { roughness: 1 }), moss: c('#5a7a3a', { flatShading: true }), dirt: mat({ map: furrows(), roughness: 1 }),
     canvas: c('#d8c8a0', { side: THREE.DoubleSide, roughness: 1 }), tentStripe: c('#a8442a', { side: THREE.DoubleSide }), lamp: c('#fff2c0', { emissive: '#ffd070', emissiveIntensity: 1.5 }),
     hull: mat({ map: wood('#6a4a30'), roughness: 0.9 }), temple: mat({ map: stone('#c8bca0') }), templeD: mat({ map: stone('#8a8070') }), crystal: c('#7ae0ff', { emissive: '#3ab0ff', emissiveIntensity: 0.8, roughness: 0.1 }), amethyst: c('#a860e8', { emissive: '#6a20c0', emissiveIntensity: 0.7, roughness: 0.15 }),
     snow: c('#f4f8fc', { roughness: 0.85 }), rock: mat({ map: stone('#8a857c', 'roca'), flatShading: true }), dark0: c('#0a0806', { roughness: 1 }), stripeR: c('#c83a32'), lens: c('#fff6c8', { emissive: '#ffe080', emissiveIntensity: 2 }),
@@ -56,7 +56,7 @@ export function modelMats() {
     rug_persa: mat({ map: rugDesign('persa'), roughness: 1 }), rug_rayas: mat({ map: rugDesign('rayas'), roughness: 1 }), rug_rombos: mat({ map: rugDesign('rombos'), roughness: 1 }),
     rug_trenzada: mat({ map: rugDesign('trenzada'), roughness: 1, alphaTest: 0.5 }),
     art_valle: mat({ map: artwork('valle'), roughness: 0.9 }), art_mar: mat({ map: artwork('mar'), roughness: 0.9 }), art_flores: mat({ map: artwork('flores'), roughness: 0.9 }), art_noche: mat({ map: artwork('noche'), roughness: 0.9 }),
-    // (?arte=2) La piedra de los lugares, sin sillares pintados: cada sillar es una pieza
+    // La piedra de los lugares, sin sillares pintados: cada sillar es una pieza
     ashlar: mat({ map: rockFace(apagado('#b4ab9a')), roughness: 0.92 }), marble: mat({ map: rockFace(apagado('#d2c8b0')), roughness: 0.75 }), marbleD: mat({ map: rockFace(apagado('#9a907e')), roughness: 0.85 }),
     crag: mat({ map: rockFace(apagado('#8e887e')), flatShading: true, roughness: 0.95 }), snowcap: snowCap({ flatShading: true }),
     towerWall: towerCut(mat({ map: stone('#a8a090'), roughness: 0.92 })), towerStone: towerCut(mat({ map: rockFace(apagado('#9a907e')), roughness: 0.9 })),
@@ -511,17 +511,11 @@ const BUILD = {
     m.cyl('iron', 0.18, 0.93, 0.08, 0.055, 0.055, 0.13, 8).cyl('hay', 0.18, 1.06, 0.08, 0.05, 0.05, 0.015, 8);   // una jarra
   },
   barril(m) {
-    if (ARTE === 2) {
-      // (?arte=2) Panzudo, de dieciséis duelas que se ven una a una, tres aros de hierro y la tapa de tablas
-      m.geo('wood', barrelGeo(), 0, 0, 0);
-      for (const y of [0.1, 0.42, 0.74]) { const r = 0.272 + 0.05 * Math.sin(Math.PI * (y + 0.02) / 0.84); m.cyl('iron', 0, y, 0, r, r, 0.045, 16); }
-      for (let i = -2; i <= 2; i++) m.box('light', i * 0.1 - 0.048, 0.81, -0.24, i * 0.1 + 0.048, 0.83, 0.24);
-      m.box('dark', -0.03, 0.2, 0.3, 0.03, 0.26, 0.38);   // la espita
-      return;
-    }
-    m.cyl('wood', 0, 0, 0, 0.27, 0.32, 0.42, 12).cyl('wood', 0, 0.42, 0, 0.32, 0.27, 0.42, 12);
-    for (const y of [0.14, 0.66]) m.cyl('iron', 0, y, 0, 0.32, 0.32, 0.04, 12);
-    m.box('dark', -0.03, 0.2, 0.29, 0.03, 0.26, 0.37);   // la espita
+    // Panzudo, de dieciséis duelas que se ven una a una, tres aros de hierro y la tapa de tablas
+    m.geo('wood', barrelGeo(), 0, 0, 0);
+    for (const y of [0.1, 0.42, 0.74]) { const r = 0.272 + 0.05 * Math.sin(Math.PI * (y + 0.02) / 0.84); m.cyl('iron', 0, y, 0, r, r, 0.045, 16); }
+    for (let i = -2; i <= 2; i++) m.box('light', i * 0.1 - 0.048, 0.81, -0.24, i * 0.1 + 0.048, 0.83, 0.24);
+    m.box('dark', -0.03, 0.2, 0.3, 0.03, 0.26, 0.38);   // la espita
   },
   taburete(m) {
     for (const [a, b] of [[-0.14, -0.14], [0.1, -0.14], [-0.14, 0.1], [0.1, 0.1]]) m.box('dark', a, 0, b, a + 0.04, 0.6, b + 0.04);
@@ -631,44 +625,12 @@ function roofPrism(m, key, x0, x1, z0, z1, y0, h) {
 
 // ---------- cultivos ----------
 function crop(m, id, stage) {
-  if (ARTE === 2 && stage > 0) return crop2(m, id, stage);
-  const c = CROPS[id], fruitKey = 'fruit:' + c.color, leafKey = 'leafc:' + c.leaf;
+  if (stage > 0) return crop2(m, id, stage);   // (con hojas de verdad: ver crop2)
   m.geo('soil', ICO1, 0, 0.02, 0, [0, 0, 0], [0.22, 0.06, 0.22]);
   if (stage < 0) { for (let i = 0; i < 4; i++) m.cyl('dry', Math.cos(i * 1.6) * 0.06, 0.02, Math.sin(i * 1.6) * 0.06, 0.01, 0.006, 0.18, 4, [Math.sin(i) * 0.6, 0, Math.cos(i) * 0.6]); return; }
-  if (stage === 0) { for (let i = 0; i < 3; i++) m.ball('soil', Math.cos(i * 2.1) * 0.08, 0.06, Math.sin(i * 2.1) * 0.08, 0.03, 0.02, 0.03, 6); return; }
-  const leaves = (n, len, rise, spread = 0.6) => { for (let i = 0; i < n; i++) { const a = (i / n) * Math.PI * 2; m.geo(leafKey, LEAFG, 0, 0.04, 0, [rise, a, 0], [len * spread, 1, len]); } };
-  if (stage === 1) { leaves(3, 0.14, -0.9); return; }
-  if (id === 'maiz' || id === 'trigo') {
-    const tall = id === 'maiz' ? (stage === 3 ? 1.6 : 0.9) : stage === 3 ? 0.75 : 0.45, n = id === 'maiz' ? 2 : 9;
-    for (let i = 0; i < n; i++) {
-      const a = i * 2.4, r = id === 'maiz' ? 0.08 : 0.1, x = Math.cos(a) * r * (i ? 1 : 0), z = Math.sin(a) * r * (i ? 1 : 0);
-      m.cyl(stage === 3 && id === 'trigo' ? fruitKey : leafKey, x, 0.02, z, 0.02, 0.012, tall, 5);
-      if (id === 'maiz') { for (let k = 0; k < 4; k++) m.geo(leafKey, LEAFG, x, 0.3 + k * 0.3 * (tall / 1.6), z, [-0.6, a + k * 1.7, 0], [0.18, 1, 0.42]); if (stage === 3) m.geo(fruitKey, CONE, x + 0.06, tall * 0.6, z, [0, 0, 0.3], [0.05, 0.22, 0.05]); }
-      else if (stage === 3) m.ball(fruitKey, x, tall + 0.04, z, 0.025, 0.07, 0.025, 6);
-    }
-    return;
-  }
-  if (id === 'tomate') {
-    m.cyl('wood', 0.08, 0, 0, 0.012, 0.012, stage === 3 ? 0.9 : 0.6, 4);
-    for (let k = 0; k < (stage === 3 ? 5 : 3); k++) m.geo(leafKey, ICO, Math.cos(k * 2.3) * 0.12, 0.2 + k * 0.14, Math.sin(k * 2.3) * 0.12, [k, k, 0], 0.11);
-    if (stage === 3) for (let k = 0; k < 6; k++) m.ball(fruitKey, Math.cos(k * 1.9) * 0.15, 0.25 + (k % 3) * 0.18, Math.sin(k * 1.9) * 0.15, 0.06);
-    return;
-  }
-  if (id === 'calabaza') {
-    leaves(5, stage === 3 ? 0.3 : 0.22, -1.3, 1);
-    if (stage === 3) { m.ball(fruitKey, 0.05, 0.16, 0.05, 0.24, 0.17, 0.22, 12); m.cyl('leafc:' + c.leaf, 0.05, 0.3, 0.05, 0.02, 0.015, 0.08, 5); }
-    return;
-  }
-  if (id === 'fresa') {
-    leaves(6, 0.16, -1.2, 1); m.geo(leafKey, ICO, 0, 0.1, 0, [0, 0, 0], [0.16, 0.08, 0.16]);
-    if (stage === 3) for (let k = 0; k < 6; k++) m.geo(fruitKey, CONE, Math.cos(k) * 0.16, 0.06, Math.sin(k) * 0.16, [Math.PI, 0, 0], [0.035, 0.06, 0.035]);
-    return;
-  }
-  // Raíces (nabo, zanahoria): hojas y, maduras, asoma la raíz
-  leaves(id === 'zanahoria' ? 7 : 5, stage === 3 ? 0.26 : 0.18, -0.5, id === 'zanahoria' ? 0.35 : 0.6);
-  if (stage === 3) m.ball(fruitKey, 0, 0.05, 0, 0.08, id === 'nabo' ? 0.07 : 0.05, 0.08, 8);
+  if (stage === 0) { for (let i = 0; i < 3; i++) m.ball('soil', Math.cos(i * 2.1) * 0.08, 0.06, Math.sin(i * 2.1) * 0.08, 0.03, 0.02, 0.03, 6); }
 }
-// (?arte=2) Cultivos con hojas de verdad: alargadas, con su nervio, curvadas hacia abajo y con algo de azar en cada
+// Cultivos con hojas de verdad: alargadas, con su nervio, curvadas hacia abajo y con algo de azar en cada
 // planta (fijo por especie y fase); trigo de muchas cañas con espiga, maíz de hojas largas con mazorcas, tomatera con
 // tutor y racimos, calabaza acostillada y raíces que asoman. Sin tope de piezas: van al mismo material por color
 function crop2(m, id, stage) {
@@ -745,15 +707,8 @@ const PUMPKIN = (() => {
   g.computeVertexNormals(); return g;
 })();
 
-// Una hoja: un rombo doblado, que sale del centro hacia +z
-const LEAFG = (() => {
-  const g = new THREE.BufferGeometry(), p = [0, 0, 0, 0.5, 0.05, 0.5, 0, 0.1, 1, 0, 0, 0, 0, 0.1, 1, -0.5, 0.05, 0.5];
-  g.setAttribute('position', new THREE.Float32BufferAttribute(p, 3)); g.computeVertexNormals();
-  g.setAttribute('uv', new THREE.Float32BufferAttribute(new Array(12).fill(0), 2));
-  return g;
-})();
 
-// (?arte=2) Toldo de tela que cede entre los postes y con faldón ondulado en el borde de delante
+// Toldo de tela que cede entre los postes y con faldón ondulado en el borde de delante
 let AWNING;
 function awningGeo() {
   if (AWNING) return AWNING;
@@ -774,7 +729,7 @@ const VILLAGE = {
   stall(m, colors = ['#d8352a', '#f0a020', '#7ac040'], awn = 'awning') {
     m.box('wood', -0.9, 0, -0.1, 0.9, 0.9, 0.4).box('dark', -0.95, 0.9, -0.15, 0.95, 0.98, 0.45);
     for (const x of [-0.88, 0.88]) for (const z of [-0.42, 0.42]) m.box('dark', x - 0.05, 0, z - 0.05, x + 0.05, 2.2, z + 0.05);
-    const aw = new THREE.Mesh(ARTE === 2 ? awningGeo() : new THREE.PlaneGeometry(2.3, 1.3), modelMats()[awn]); aw.position.set(0, 2.15, 0.05); aw.rotation.x = -Math.PI / 2 + 0.38; aw.castShadow = aw.receiveShadow = true; m.extra(aw);
+    const aw = new THREE.Mesh(awningGeo(), modelMats()[awn]); aw.position.set(0, 2.15, 0.05); aw.rotation.x = -Math.PI / 2 + 0.38; aw.castShadow = aw.receiveShadow = true; m.extra(aw);
     colors.forEach((col, i) => {
       const x = -0.6 + i * 0.6; m.box('dark', x - 0.24, 0.98, -0.05, x + 0.24, 1.12, 0.32);
       for (let k = 0; k < 8; k++) m.ball('fruit:' + col, x - 0.15 + (k % 4) * 0.1, 1.15 + (k > 3 ? 0.03 : 0), 0.05 + (k > 3 ? 0.15 : 0), 0.06, 0.06, 0.06, 8);
@@ -815,7 +770,7 @@ const VILLAGE = {
 };
 
 // ---------- lugares ----------
-// (?arte=2) A la escala de las personas realistas (puertas de 2 m y pico), con cada sillar y cada roca de verdad
+// A la escala de las personas (puertas de 2 m y pico), con cada sillar y cada roca de verdad
 const ROCKG = [];
 const rockG = i => (ROCKG[i] ||= rockGeo(i + 1));
 // Un tejado a dos aguas con la cumbrera a lo largo de z (los frontones, delante y detrás)
@@ -890,7 +845,9 @@ function bigTower(m) {
   m.solids.push([-R, 0, -R, R, H + T.parapet, R]);
 }
 const BOXG = new THREE.BoxGeometry(1, 1, 1), CIRCLE = new THREE.CircleGeometry(1, 28);
-const PLACES2 = {
+// Los lugares del mundo (poi:…): la torre grande, las ruinas, el templo y la cueva, y el campamento, el barco varado, el
+// altar y el faro
+const PLACES = {
   torre: bigTower,
   ruinas(m) {
     const R = rng(31);
@@ -936,14 +893,6 @@ const PLACES2 = {
     m.geo('cavein', ICO1, 0, 0.0, -0.35, [0, 0, 0], [0.85, 2.15, 1.05]);
     m.box('soot', -0.62, 0, -1.2, 0.62, 0.012, 0.5);
   },
-};
-const PLACES = {
-  ruinas(m) {
-    for (const [x, z, h] of [[-1, -1, 2.2], [1, -1, 1.2], [-1, 1, 0.8], [1.1, 0.9, 1.7]]) { m.cyl('ruin', x, 0, z, 0.24, 0.22, h, 10); m.box('ruin', x - 0.3, h, z - 0.3, x + 0.3, h + 0.15, z + 0.3); }
-    m.box('ruin', -1.3, 0, -1.3, 0.3, 1.1, -1.0).box('ruin', -1.3, 0, -1.0, -1.0, 0.7, 0.2);
-    for (let i = 0; i < 6; i++) m.geo('ruin', DODECA, Math.cos(i * 1.7) * 1.2, 0.12, Math.sin(i * 1.7) * 1.1, [i, i, 0], [0.2, 0.15, 0.18]);
-    m.geo('moss', ICO1, -0.6, 0, 0.4, [0, 0, 0], [0.4, 0.15, 0.3]);
-  },
   campamento(m) {
     // Tienda de lona, hoguera con piedras y troncos para sentarse
     const B = m.B('canvas'), A = [-1.3, 0, -1.2], Bp = [0.2, 0, -1.2], C = [0.2, 0, 0.3], D = [-1.3, 0, 0.3], E = [-0.55, 1.3, -1.2], F = [-0.55, 1.3, 0.3];
@@ -956,13 +905,6 @@ const PLACES = {
     m.smoke.push([1, 1.2, 1]);
     for (const [x, z, r] of [[1.9, 0.6, 0.3], [0.3, 1.9, 1.9]]) m.cyl('wood', x, 0.15, z, 0.14, 0.14, 0.7, 8, [0, r, Math.PI / 2]);
   },
-  torre(m) {
-    m.cyl('ruin', 0, 0, 0, 0.75, 0.62, 4.2, 14).cyl('ruin', 0, 4.2, 0, 0.82, 0.82, 0.35, 14);
-    for (let i = 0; i < 8; i++) { const a = (i / 8) * Math.PI * 2; m.box('ruin', Math.cos(a) * 0.68 - 0.12, 4.55, Math.sin(a) * 0.68 - 0.12, Math.cos(a) * 0.68 + 0.12, 4.85, Math.sin(a) * 0.68 + 0.12); }
-    if (ARTE === 2) m.box('soot', -0.3, 0, 0.6, 0.3, 2.05, 0.77).box('soot', -0.08, 2.9, 0.62, 0.08, 3.4, 0.7);   // (la puerta, a escala de persona)
-    else m.box('soot', -0.25, 0, 0.6, 0.25, 1.4, 0.72).box('soot', -0.1, 2.6, 0.6, 0.1, 3.0, 0.68);
-    m.geo('moss', ICO1, 0.5, 0.1, 0.5, [0, 0, 0], [0.35, 0.3, 0.3]);
-  },
   barco(m) {
     // Casco tumbado y medio enterrado en la arena, con el mástil roto
     const g = new THREE.Group();
@@ -973,25 +915,10 @@ const PLACES = {
     m.extra(g);
     m.geo('sand', ICO1, 0, -0.1, 0, [0, 0, 0], [1.6, 0.3, 2.0]);
   },
-  templo(m) {
-    m.box('templeD', -1.5, 0, -1.5, 1.5, 0.3, 1.5, 0.8).box('templeD', -1.3, 0.3, -1.3, 1.3, 0.55, 1.3, 0.8);
-    for (const [x, z] of [[-1.05, -1.05], [1.05, -1.05], [-1.05, 1.05], [1.05, 1.05], [-0.35, 1.05], [0.35, 1.05]]) m.cyl('temple', x, 0.55, z, 0.14, 0.12, 1.8, 10);
-    m.box('temple', -1.3, 2.35, -1.3, 1.3, 2.6, 1.3, 0.8);
-    roofPrism(m, 'templeD', -1.35, 1.35, -1.35, 1.35, 2.6, 0.7);
-    m.box('temple', -0.9, 0.55, -0.9, 0.9, 2.35, -0.6, 0.8).box('dark0', -0.3, 0.55, -0.62, 0.3, 1.6, -0.58);
-    m.geo('crystal', ICO, 0, 3.45, 0, [0, 0.5, 0], 0.18).light(0, 3.4, 0, { color: '#7ad8ff', intensity: 2, range: 6, always: true });
-  },
   altar(m) {
     m.box('templeD', -1, 0, -0.7, 1, 0.2, 0.7).box('temple', -0.6, 0.2, -0.4, 0.6, 0.95, 0.4).box('templeD', -0.7, 0.95, -0.5, 0.7, 1.05, 0.5);
     m.geo('crystal', ICO, 0, 1.3, 0, [0.3, 0.6, 0], 0.18).light(0, 1.4, 0, { color: '#9ae0ff', intensity: 2.5, range: 7, always: true });
     for (const x of [-1.2, 1.2]) { m.cyl('stone', x, 0, 0, 0.12, 0.1, 1.2, 8); m.fire(x, 1.22, 0, 0.5); }
-  },
-  cueva(m, snow) {
-    // Montículo de roca con una boca oscura que mira hacia +z
-    for (const [x, y, z, s] of [[0, 0.6, -0.5, 1.6], [-1.1, 0.3, 0, 0.9], [1.1, 0.35, 0, 1.0], [-0.6, 1.2, -0.3, 0.9], [0.7, 1.1, -0.4, 0.9]]) m.geo('rock', DODECA, x, y, z, [x, y, 0], [s, s * 0.85, s]);
-    m.geo('dark0', ICO1, 0, 0.45, 0.62, [0, 0, 0], [0.7, 0.6, 0.25]);
-    m.box('rock', -0.7, 0, 0.55, -0.45, 1.0, 0.95).box('rock', 0.45, 0, 0.55, 0.7, 1.0, 0.95).box('rock', -0.75, 0.95, 0.45, 0.75, 1.25, 0.95);
-    if (snow) for (const [x, y, z, s] of [[0, 1.75, -0.5, 1.0], [-0.6, 1.85, -0.3, 0.6], [0.7, 1.75, -0.4, 0.6]]) m.geo('snow', ICO1, x, y, z, [0, 0, 0], [s, s * 0.35, s]);
   },
   faro(m) {
     m.cyl('stone', 0, 0, 0, 1.4, 1.3, 0.6, 16);
@@ -1046,7 +973,7 @@ export function getModel(name) {
   if (BUILD[kind]) BUILD[kind](m, a, b);
   else if (kind === 'crop') crop(m, a, +b);
   else if (kind === 'village') { if (a === 'stall2') VILLAGE.stall(m, ['#e0b850', '#f08a2a', '#e83a4a'], 'awningB'); else if (a === 'stall3') VILLAGE.stall(m, ['#9ad0ff', '#c8a870', '#f0e8f0'], 'awningG'); else VILLAGE[a](m); }
-  else if (kind === 'poi') (ARTE === 2 && PLACES2[a] || PLACES[a])(m, b === 'snow');
+  else if (kind === 'poi') PLACES[a](m, b === 'snow');
   else if (kind === 'treasure') treasure(m, a === '1');
   else if (kind === 'tilled') tilled(m, a === '1');
   else if (kind === 'rug') rugModel(m, a, b);
