@@ -1,4 +1,5 @@
 // Barra del modo construcción: categorías, piezas con su coste y la herramienta de quitar.
+import { STATIONS } from '../recipes.js';
 import { PIECES, CATS } from '../pieces.js';
 import { ITEMS } from '../items.js';
 import { pieceSprite, PIECE_IDS } from '../build.js';
@@ -32,11 +33,11 @@ export function initBuildBar(game) {
     for (const id of PIECE_IDS) {
       const p = PIECES[id];
       if (p.cat !== cat) continue;
-      const btn = document.createElement('button'), ok = b.affordable(id);
+      const btn = document.createElement('button'), near = b.stationFor(id), ok = b.affordable(id) && near;
       btn.type = 'button';
       btn.className = 'bb-piece' + (id === b.piece ? ' on' : '') + (ok ? '' : ' poor');
       btn.title = p.name;
-      btn.innerHTML = `<img alt="" src="${iconOf(id)}"><span>${p.name}</span><small>${game.admin ? 'Gratis (admin)' : p.cost.map(([m, n]) => `${n} ${ITEMS[m].name.toLowerCase()}`).join(' · ')}</small>`;
+      btn.innerHTML = `<img alt="" src="${iconOf(id)}"><span>${p.name}</span><small>${game.admin ? 'Gratis (admin)' : p.cost.map(([m, n]) => `${n} ${ITEMS[m].name.toLowerCase()}`).join(' · ') + (near ? '' : ` · falta un ${STATIONS[p.needs].name.toLowerCase()} cerca`)}</small>`;
       btn.onclick = () => b.select(id);
       box.append(btn);
     }

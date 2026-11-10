@@ -1,6 +1,7 @@
 // Modo construcción: se elige una pieza de la paleta, se apunta a una casilla (con el ratón, el dedo
 // o lo que hay delante del jugador) y se pone pagando sus materiales. Quitar devuelve los materiales
 // (o el mueble a la mochila). Se puede quitar de todo, también de las casas del pueblo y de las aldeas.
+import { STATIONS } from './recipes.js';
 import { PIECES, parsePlaced } from './pieces.js';
 import { ITEMS, CHESTS } from './items.js';
 import { floorSprite, wallSprite, doorSprite, hearthSprite, roofSprite, fenceSprite } from './art/build.js';
@@ -13,6 +14,7 @@ import { yawOf, rugRect } from './art/stations.js';
 
 const PICK_NEAR = 14;   // (se apunta a lo que haya hasta aquí: lo que está más lejos del alcance, tapa lo de detrás y dice que está lejos)
 export const REACH = 7;   // casillas de distancia a las que se puede construir
+export const BUILD_STATION_REACH = 16;   // a cuántas casillas puede estar la estación que pide una pieza (el banco, para lo de madera)
 export const PIECE_IDS = Object.keys(PIECES).filter(id => !ITEMS[id] || PIECES[id].palette);   // (el hogar se fabrica, como un mueble; la valla, además de fabricarse, se pone aquí)
 
 // Dibujo de una pieza para su icono en la paleta: el tejado, como casilla suelta (pirámide con alero por
@@ -70,6 +72,19 @@ export class BuildMode {
   }
   pointTo(tile) { this.cursor = tile; this.cursorAt = performance.now(); }
   inReach(t) { const p = this.game.player; return Math.hypot(t[0] + 0.5 - p.x, t[1] + 0.5 - p.y) <= REACH; }
+  // ¿Está cerca la estación que pide la pieza? (lo de madera, el banco de carpintero; en creativo, nada). Se mira dos
+  // veces por segundo: esto se pregunta en cada fotograma
+  stationFor(id) {
+    const need = PIECES[id]?.needs, g = this.game, p = g.player;
+    if (!need || g.admin || !p) return true;
+    const now = performance.now();
+    if (!this.near || this.near.t < now - 500 || Math.hypot(this.near.x - p.x, this.near.y - p.y) > 1) {
+      const found = new Set();
+      for (const o of g.world?.placedNear?.(p.x, p.y, BUILD_STATION_REACH) || []) if (STATIONS[o.placed]) found.add(o.placed);
+      this.near = { t: now, x: p.x, y: p.y, found };
+    }
+    return this.near.found.has(need);
+  }
   affordable(id) { return this.game.admin || PIECES[id].cost.every(([m, n]) => this.game.inv.count(m) >= n); }
 
   // Qué pasaría en la casilla: { ok, why }
@@ -84,6 +99,7 @@ export class BuildMode {
     if (!this.inReach(t)) return { ok: false, why: 'Demasiado lejos' };
     if (sc !== g.world) return { ok: false, why: 'Dentro de esta casa solo se ponen muebles' };
     if (!this.affordable(this.piece)) return { ok: false, why: 'Te faltan materiales' };
+    if (!this.stationFor(this.piece)) return { ok: false, why: `Necesitas un ${STATIONS[PIECES[this.piece].needs].name.toLowerCase()} cerca` };
     if (!sc.canPlace(t[0], t[1], this.piece, g.player)) return { ok: false, why: PIECES[this.piece].layer === 'roof' ? 'El tejado va sobre un muro o un suelo' : 'Ahí no cabe' };
     return { ok: true };
   }

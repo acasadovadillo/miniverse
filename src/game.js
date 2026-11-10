@@ -516,7 +516,7 @@ export class Game {
       if (o.door) { const y1 = o.gate ? 1 : 2.05, w = o.gate ? 0.5 : 0.46; out.push({ kind: 'door', tile: o.tile, box: alongX ? box(tx + 0.5, ty + 0.5, w, 0.12, 0, y1) : box(tx + 0.5, ty + 0.5, 0.12, w, 0, y1) }); }
       else if (o.window) out.push({ kind: 'window', tile: o.tile, box: alongX ? box(tx + 0.5, ty + 0.5, 0.45, 0.2, 0.9, 2.1) : box(tx + 0.5, ty + 0.5, 0.2, 0.45, 0.9, 2.1) });
       else if (o.hearth) out.push({ kind: 'hearth', tile: o.tile, box: box(o.x, o.y, 0.5, 0.5, 0, 1.4) });
-      else if (o.fence && (!o.fixed || o.yard) && ITEMS[o.placed]) {   // (solo apuntándola: si no, cada valla cercana taparía lo demás)
+      else if (o.fence && (!o.fixed || o.yard)) {   // (solo apuntándola: si no, cada valla cercana taparía lo demás)
         const m = o.mask || 0, x0 = m & 2 ? -0.5 : -0.1, x1 = m & 1 ? 0.5 : 0.1, y0 = m & 8 ? -0.5 : -0.1, y1 = m & 4 ? 0.5 : 0.1;   // (el poste y sus tramos, hacia las de al lado)
         out.push({ kind: 'fence', o, box: box(o.x + (x0 + x1) / 2, o.y + (y0 + y1) / 2, (x1 - x0) / 2, (y1 - y0) / 2, 0, 0.9) });
       }
@@ -548,7 +548,7 @@ export class Game {
       case 'door': return this.doorAction(a.tile);
       case 'window': return this.windowAction(a.tile);
       case 'hearth': return this.hearthAction(a.tile);
-      case 'fence': return { text: `Recoger ${ITEMS[a.o.placed].name.toLowerCase()}`, run: () => { if (this.pickUp(a.o)) this.onSave?.(); } };
+      case 'fence': return { text: `Quitar ${(PIECES[a.o.placed] || ITEMS[a.o.placed]).name.toLowerCase()}`, run: () => { if (this.pickUp(a.o)) this.onSave?.(); } };
       case 'lamp': return this.lampAction(a.tile);
       case 'npc': return this.neighbors.actionFor(a.n);
       case 'kid': return this.family.actionFor(a.id, a.e);
@@ -679,6 +679,13 @@ export class Game {
   pickUp(o) {
     if (o.fixed && !o.yard && !o.build) return false;   // (lo que venía puesto no se recoge sin querer: solo la valla de tu jardín y, en modo construir, todo)
     // (una alfombra vuelve como la del telar de su tamaño; las de antes, de cualquier tamaño, se ponían con V)
+    // (una pieza de construcción, como la valla y su puerta: no vuelve a la mochila, devuelve sus materiales)
+    if (PIECES[o.placed] && !ITEMS[o.placed]) {
+      if (this.scene.unplace(o) === false) return false;
+      for (const [m, n] of PIECES[o.placed].cost) { const left = this.inv.add(m, n); if (left) this.gather.throwOut(m, left); }
+      Audio.pickup();
+      return true;
+    }
     const r = o.layer === 'rug' && o.rug, id = r ? rugId(ITEMS[o.placed].rug || o.placed, RUG_MADE.find(([w, h]) => (w === r.w && h === r.h) || (w === r.h && h === r.w)) || [1, 1]) : o.placed;
     if (this.inv.room(id) < 1) { this.gather.float('No te cabe: no llevas sitio libre', '#ffb0a0'); Audio.error(); return false; }
     if (this.scene === this.world && !machineEmpty(machineAt(this.world, o.tile))) { this.gather.float(`Vacía ${MACHINES[o.placed]?.the || 'la máquina'} antes`, '#ffb0a0'); Audio.error(); return false; }

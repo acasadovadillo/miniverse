@@ -2,7 +2,7 @@
 // las otras 27 solo se pueden usar con una mochila puesta. Cada casilla es { id, n } o null (la ropa lleva
 // además su color: { id, n: 1, color }). equip: lo que se lleva puesto, por hueco del cuerpo
 // (ver WEAR_SLOTS en items.js), como { id, color }.
-import { ITEMS } from './items.js';
+import { ITEMS, LEGACY_ITEMS, modernSlots } from './items.js';
 
 export const SLOTS = 36, HOTBAR = 9;
 // Lo que distingue una cosa de otra igual (el color de una prenda, lo gastada que está una herramienta o una
@@ -12,6 +12,7 @@ export const extraOf = s => { const e = {}; if (s?.color) e.color = s.color; if 
 export class Inventory {
   constructor(data) {
     this.slots = Array.from({ length: SLOTS }, (_, i) => (data?.slots?.[i] ? { ...data.slots[i] } : null));
+    modernSlots(this.slots);   // (lo que ya no es un objeto, por sus materiales)
     this.selected = data?.selected ?? 0;
     this.equip = Object.fromEntries(Object.entries(data?.equip || {}).filter(([, v]) => v && ITEMS[v.id]));
     this.onChange = null;
@@ -27,6 +28,9 @@ export class Inventory {
   // Añade y devuelve lo que no haya cabido. Primero completa montones, luego usa huecos (barra rápida antes).
   // extra: lo propio de la prenda (su color); sin él, la ropa sale del color de fábrica
   add(id, n, extra) {
+    const L = LEGACY_ITEMS[id];
+    if (L) return this.add(L[0], n * L[1]);   // (una valla suelta de antes: sus tablas)
+    if (!ITEMS[id]) return 0;
     const max = ITEMS[id].stack, cap = this.cap;
     extra ||= ITEMS[id].wear ? { color: ITEMS[id].dye } : undefined;
     if (!extra) for (let i = 0; i < cap && n > 0; i++) { const s = this.slots[i]; if (s && s.id === id && !s.color && s.n < max) { const k = Math.min(n, max - s.n); s.n += k; n -= k; } }
@@ -37,6 +41,7 @@ export class Inventory {
   count(id) { return this.slots.reduce((t, s) => t + (s?.id === id ? s.n : 0), 0); }
   // Cuántos de un objeto caben todavía
   room(id) {
+    if (LEGACY_ITEMS[id]) id = LEGACY_ITEMS[id][0];
     const max = ITEMS[id].stack;
     return this.slots.slice(0, this.cap).reduce((t, s) => t + (!s ? max : s.id === id && !s.color ? max - s.n : 0), 0);
   }

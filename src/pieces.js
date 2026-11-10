@@ -1,27 +1,28 @@
 // Piezas de construcción: no son objetos de la mochila, se pagan con materiales al ponerlas
-// y devuelven esos materiales al quitarlas. Cada casilla tiene tres capas: suelo, objeto y tejado (y los cuadros,
+// y devuelven esos materiales al quitarlas. needs: la estación que hay que tener cerca para ponerlas (lo de madera, el
+// banco de carpintero: ver build.js, stationNear). Cada casilla tiene tres capas: suelo, objeto y tejado (y los cuadros,
 // colgados, la suya).
 import { ITEMS } from './items.js';
 
 export const PIECES = {
-  suelo_madera: { name: 'Suelo de madera', cat: 'Suelos', layer: 'floor', cost: [['tablas', 1]] },
+  suelo_madera: { name: 'Suelo de madera', cat: 'Suelos', layer: 'floor', cost: [['tablas', 1]], needs: 'banco' },
   suelo_piedra: { name: 'Suelo de piedra', cat: 'Suelos', layer: 'floor', cost: [['piedra', 2]] },
   camino: { name: 'Camino de grava', cat: 'Suelos', layer: 'floor', cost: [['piedra', 1]] },
-  muro_madera: { name: 'Muro de madera', cat: 'Muros', layer: 'placed', kind: 'wall', cost: [['tablas', 2]] },
+  muro_madera: { name: 'Muro de madera', cat: 'Muros', layer: 'placed', kind: 'wall', cost: [['tablas', 2]], needs: 'banco' },
   muro_piedra: { name: 'Muro de piedra', cat: 'Muros', layer: 'placed', kind: 'wall', cost: [['piedra', 3]] },
-  muro_entramado: { name: 'Muro de entramado', cat: 'Muros', layer: 'placed', kind: 'wall', cost: [['tablas', 2], ['piedra', 1]] },
-  ventana: { name: 'Ventana', cat: 'Muros', layer: 'placed', kind: 'wall', cost: [['tablas', 3]] },
-  ventana_contraventanas: { name: 'Ventana con contraventanas', cat: 'Muros', layer: 'placed', kind: 'wall', cost: [['tablas', 3], ['piedra', 1]] },
-  muro_cuadro: { name: 'Muro con cuadro', cat: 'Muros', layer: 'placed', kind: 'wall', cost: [['tablas', 2], ['tela', 1]] },
-  puerta: { name: 'Puerta', cat: 'Muros', layer: 'placed', kind: 'door', cost: [['tablas', 3]] },
+  muro_entramado: { name: 'Muro de entramado', cat: 'Muros', layer: 'placed', kind: 'wall', cost: [['tablas', 2], ['piedra', 1]], needs: 'banco' },
+  ventana: { name: 'Ventana', cat: 'Muros', layer: 'placed', kind: 'wall', cost: [['tablas', 3]], needs: 'banco' },
+  ventana_contraventanas: { name: 'Ventana con contraventanas', cat: 'Muros', layer: 'placed', kind: 'wall', cost: [['tablas', 3], ['piedra', 1]], needs: 'banco' },
+  muro_cuadro: { name: 'Muro con cuadro', cat: 'Muros', layer: 'placed', kind: 'wall', cost: [['tablas', 2], ['tela', 1]], needs: 'banco' },
+  puerta: { name: 'Puerta', cat: 'Muros', layer: 'placed', kind: 'door', cost: [['tablas', 3]], needs: 'banco' },
   tejado_rojo: { name: 'Tejado rojo', cat: 'Tejados', layer: 'roof', cost: [['tablas', 1], ['piedra', 1]] },
   tejado_azul: { name: 'Tejado azul', cat: 'Tejados', layer: 'roof', cost: [['tablas', 1], ['piedra', 1]] },
   tejado_paja: { name: 'Tejado de paja', cat: 'Tejados', layer: 'roof', cost: [['fibra', 3]] },
   tejado_gris: { name: 'Tejado de pizarra', cat: 'Tejados', layer: 'roof', cost: [['tablas', 1], ['piedra', 1]] },
   tejado_verde: { name: 'Tejado verde', cat: 'Tejados', layer: 'roof', cost: [['tablas', 1], ['piedra', 1]] },
-  // (la valla de madera es también un objeto, que se fabrica en el banco; palette: además sigue en la paleta de construir)
-  valla: { name: 'Valla de madera', cat: 'Vallas', layer: 'placed', kind: 'fence', cost: [['tablas', 1]], palette: true },
-  puerta_valla: { name: 'Puerta de valla', cat: 'Vallas', layer: 'placed', kind: 'gate', cost: [['tablas', 3]], palette: true },
+  // (las vallas y sus puertas fueron también objetos de la mochila; ya solo se construyen aquí)
+  valla: { name: 'Valla de madera', cat: 'Vallas', layer: 'placed', kind: 'fence', cost: [['tablas', 1]], needs: 'banco' },
+  puerta_valla: { name: 'Puerta de valla', cat: 'Vallas', layer: 'placed', kind: 'gate', cost: [['tablas', 3]], needs: 'banco' },
   valla_piedra: { name: 'Murete de piedra', cat: 'Vallas', layer: 'placed', kind: 'fence', cost: [['piedra', 2]] },
   // El hogar da luz y calor; si hay tejado encima, el tejado dibuja su chimenea. Es también un objeto (se fabrica
   // en el banco, se coloca girándolo y se recoge con X), así que no sale en la paleta de construir

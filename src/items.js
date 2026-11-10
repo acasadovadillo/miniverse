@@ -276,8 +276,6 @@ Object.assign(ITEMS, {
   alacena: { name: 'Alacena', desc: 'Armario de cocina, con platos y tarros en los estantes.', place: 'furniture' },
   mueble_bano: { name: 'Mueble de baño', desc: 'Bajo y blanco, con un cajón y dos puertas; encima, toallas dobladas y jabón.', place: 'furniture' },
   armario: { name: 'Armario', desc: 'Alto, de dos puertas, para el dormitorio: guarda 27 prendas (solo ropa). Ábrelo con E.', place: 'furniture' },
-  valla: { name: 'Valla de madera', desc: 'Se coloca por casillas y se une sola a las de al lado. Para entrar en el cercado, una puerta de valla. Se recoge apuntándola con el ratón y pulsando X.', place: 'furniture', stack: 99 },
-  puerta_valla: { name: 'Puerta de valla', desc: 'Para entrar en un cercado: se une a las vallas de los lados y se abre con E. Empieza cerrada: los animales no la abren. Se recoge apuntándola con el ratón y pulsando X.', place: 'furniture', stack: 99 },
   chimenea: { name: 'Hogar con chimenea', desc: 'De piedra, con su chimenea: da luz y calor. Se arrima a un muro, dentro de casa (R: girar), y se recoge con X.', place: 'furniture' },
   cuadro_valle: { name: 'Cuadro del valle', desc: 'Colinas verdes y montañas al fondo. Se cuelga de un muro, dentro de casa (también encima de un mueble).', place: 'wall' },
   cuadro_mar: { name: 'Cuadro del mar', desc: 'Un velero al atardecer. Se cuelga de un muro, dentro de casa (también encima de un mueble).', place: 'wall' },
@@ -361,3 +359,18 @@ export const START_KIT = [['hacha_hierro', 1], ['pico_hierro', 1], ['guadana_hie
 
 // Golpes que necesita con su herramienta
 export const hitsFor = rule => Math.max(1, Math.ceil(rule.hits / TIERS[4].power));
+
+// Lo que fue un objeto de la mochila y ya no lo es (ahora se construye con B: ver pieces.js): al cargar una partida o
+// abrir un cofre, lo que quede guardado se cambia por los materiales que costaba, para que nadie pierda nada
+export const LEGACY_ITEMS = { valla: ['tablas', 1], puerta_valla: ['tablas', 3] };
+// Pone al día una lista de casillas ({ id, n } o null), en el sitio: lo de LEGACY_ITEMS, por sus materiales; lo que ya
+// no existe, fuera. Devuelve si ha cambiado algo
+export function modernSlots(slots) {
+  let changed = false;
+  if (Array.isArray(slots)) for (let i = 0; i < slots.length; i++) {
+    const s = slots[i], L = s && LEGACY_ITEMS[s.id];
+    if (L) { slots[i] = { id: L[0], n: (s.n || 1) * L[1] }; changed = true; }
+    else if (s && !ITEMS[s.id]) { slots[i] = null; changed = true; }
+  }
+  return changed;
+}
