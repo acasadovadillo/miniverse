@@ -55,6 +55,7 @@ export class Terrain {
     scene.add(this.water.group);
     this.world = null;            // el mundo de la partida (para allanar el suelo junto a lo construido: padK); lo pone engine.js
     this.padCheck = 0;
+    this.padV = 0;                // cuántas veces se ha rehecho la forma de un bloque (remesh: lo de encima mira padStamp)
     this.workers = this.startWorkers();
     village.onVillageChange(() => this.villageChanged());
   }
@@ -252,10 +253,21 @@ export class Terrain {
     return { heights: out, normals: blockNormals(out, e, n) };
   }
   padSigOf(bx, bz) { return this.world?.padSig ? this.world.padSig(bx * BLOCK, bz * BLOCK, (bx + 1) * BLOCK, (bz + 1) * BLOCK) : ''; }
+  // El allanado con el que heightAt da ahora la altura de un rectángulo: por bloque, el de su malla, o el de este momento si
+  // aún no la tiene (heightAt lo calcula al momento). Lo que va encima (la naturaleza, las matas) se rehace cuando cambia:
+  // así no se queda con las alturas de antes mientras la malla espera a padCheck, ni se queda atrás cuando por fin cambia
+  padStamp(x0, z0, x1, z1) {
+    let s = '';
+    for (let bz = Math.floor(z0 / BLOCK); bz <= Math.floor((z1 - 1) / BLOCK); bz++) for (let bx = Math.floor(x0 / BLOCK); bx <= Math.floor((x1 - 1) / BLOCK); bx++) {
+      const b = this.blocks.get(`${bx},${bz}`);
+      s += (b ? b.padSig : this.padSigOf(bx, bz)) + ';';
+    }
+    return s;
+  }
   // Rehacer la forma de un bloque (alguien ha construido cerca: el suelo se allana o vuelve a su altura)
   remesh(b) {
     const p = this.padded(b.bx, b.bz, b.raw, b.edge, b.normals0);
-    b.heights = p.heights; b.padSig = this.padSigOf(b.bx, b.bz);
+    b.heights = p.heights; b.padSig = this.padSigOf(b.bx, b.bz); this.padV++;
     const geo = b.mesh.geometry, pos = geo.attributes.position, nor = geo.attributes.normal;
     for (let v = 0; v < pos.count; v++) pos.setY(v, b.heights[v]);
     nor.array.set(p.normals);

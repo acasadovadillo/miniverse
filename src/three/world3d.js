@@ -247,7 +247,8 @@ export class World3D {
       const rings = [];   // (el anillo de cada trozo: las matas van por trozo)
       for (let j = 0; j < NB; j++) for (let i = 0; i < NB; i++) { const cx = bx * NB + i, cy = by * NB + j, r = Math.max(Math.abs(cx - ccx), Math.abs(cy - ccy)); datas.push([cx, cy, scene.contentFor(cx, cy)]); rings.push(r); ring = Math.min(ring, r); }
       let b = this.nature.get(k);
-      const same = b && b.datas.every((d, i) => d[2] === datas[i][2]);
+      // (también se vuelve a mirar cuando el suelo ha cambiado de forma: ver padStamp)
+      const T = this.view.terrain, padV = T?.padV ?? 0, same = b && b.padV === padV && b.datas.every((d, i) => d[2] === datas[i][2]);
       if (!same || !b) {
         if (b && performance.now() - t0 > budget) { this.natureRing(scene, b, ring, rings); continue; }
         if (!b && performance.now() - t0 > budget * 2) continue;
@@ -257,10 +258,13 @@ export class World3D {
           if (NATURE.has(o.kind) && !o.poi) { nat.push(o); shakers.set(o.key, o); }
           else if (o.sapling) nat.push({ kind: 'sapling', tree: o.sapling, x: o.x, y: o.y, key: o.key });
         }
-        const natSig = nat.map(o => o.key + (o.bare ? '-' : '')).join(',') + '|' + (scene.padSig ? scene.padSig(bx * NB * CHUNK, by * NB * CHUNK, (bx + 1) * NB * CHUNK, (by + 1) * NB * CHUNK) : '');
-        // (las firmas de la hierba, por trozo: lo que hay en él y sus casillas ocupadas, segadas incluidas, aunque lo que
-        // las ocupa sea de otro trozo; la de la cubierta, sin lo segado)
-        const occ = occupied(scene, datas, this.today()), sigs = datas.map(([cx, cy, d]) => this.signature(scene, cx, cy, d)), coverSig = sigs.join('|');
+        // (el allanado, el que tiene ahora el suelo: si se quita algo de antes, el suelo vuelve a subir cuando se rehace su
+        // malla, que puede ser medio segundo después, y lo de encima se rehace entonces; ver padStamp)
+        const pad = (x0, y0, n) => (T?.padStamp && scene.padSig ? T.padStamp(x0 * CHUNK, y0 * CHUNK, (x0 + n) * CHUNK, (y0 + n) * CHUNK) : '');
+        const natSig = nat.map(o => o.key + (o.bare ? '-' : '')).join(',') + '|' + pad(bx * NB, by * NB, NB);
+        // (las firmas de la hierba, por trozo: lo que hay en él, el allanado de su suelo y sus casillas ocupadas, segadas
+        // incluidas, aunque lo que las ocupa sea de otro trozo; la de la cubierta, sin lo segado)
+        const occ = occupied(scene, datas, this.today()), sigs = datas.map(([cx, cy, d]) => this.signature(scene, cx, cy, d) + '|p' + pad(cx, cy, 1)), coverSig = sigs.join('|');
         const oh = occHashes(occ, datas);
         for (let i = 0; i < sigs.length; i++) sigs[i] += '|o' + oh[i];
         if (!b) {
@@ -276,7 +280,7 @@ export class World3D {
         b.shakers = shakers;
         // (si cambia algo, el trabajo a medias se deja y se vuelve a pedir; lo hecho se queda hasta que llega lo nuevo: sin huecos)
         if (b.sigs && (coverSig !== b.coverSig0 || sigs.some((g, i) => g !== b.sigs[i]))) b.groundJob = null;
-        b.sigs = sigs; b.coverSig0 = coverSig; b.datas = datas; b.occ = occ;
+        b.sigs = sigs; b.coverSig0 = coverSig; b.datas = datas; b.occ = occ; b.padV = padV;
       }
       this.natureRing(scene, b, ring, rings);
     }

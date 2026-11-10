@@ -433,6 +433,7 @@ export function* buildGround(chunks, CHUNK, gen, season, free, groundY, cover = 
   const s = gen.seed, out = { pos: [], col: [], sway: [] };
   const GRASS = [['#5f7a3a', '#6a8442', '#56703a'], ['#56692f', '#5f7336', '#4d6130'], ['#8f7d42', '#9c8a4a', '#86743c'], ['#a4ac9e', '#b2b8ae', '#98a094']][season];
   const A = (GROUND ||= groundShapes()), K = MAC_K[season], M = new THREE.Matrix4(), c = new THREE.Color();
+  const REACH = A.tuft[0].userData.reach, TOP = A.tuft[0].userData.top;
   for (const [kx, ky, idx, want] of chunks) {
     const X0 = kx * CHUNK, Y0 = ky * CHUNK, tufts = [];
     let wet = false, y0 = Infinity, y1 = -Infinity, lo = Infinity, hi = -Infinity;
@@ -451,13 +452,14 @@ export function* buildGround(chunks, CHUNK, gen, season, free, groundY, cover = 
         if (!SUELO_V2 && !wet) { wet = true; wetGrid(X0, Y0, s); }
         const mac = SUELO_V2 ? null : macroOf(cx, cy, s, wetAt(cx, cy, X0, Y0), TM);
         tufts.push([cx, gy, cy, ihash(tx, ty, s + 21) * Math.PI * 2, tall * (season === 3 ? 0.6 : 1), sx, sz, GRASS[Math.floor(ihash(tx, ty, s + 22) * 3)], 0.9 + ihash(tx, ty, s + 23) * 0.2, mac ? mac.dry : 0, mac ? mac.lush : 0, mac ? mac.v : 1]);
-        // (lo que ocupa: las hojas salen hasta ~1 m del centro, con lo que se doblan, el viento y lo que se ensanchan de
-        // lejos, y suben o bajan con la cuesta)
-        const S = Math.abs(sx) + Math.abs(sz);
+        // (lo que ocupa: las hojas salen hasta REACH del centro, con lo que se doblan, el viento y lo que se ensanchan de
+        // lejos, y con la cuesta suben o bajan hasta su pendiente por REACH: la fila Y de la matriz de abajo es la cuesta
+        // girada, que mide lo mismo)
+        const S = Math.hypot(sx, sz) * REACH;
         if (gy < y0) y0 = gy;
         if (gy > y1) y1 = gy;
         if (gy - S < lo) lo = gy - S;
-        if (gy + S + tall * 0.42 > hi) hi = gy + S + tall * 0.42;
+        if (gy + S + tall * TOP > hi) hi = gy + S + tall * TOP;
         continue;
       }
       if (!cover) continue;
@@ -494,7 +496,7 @@ export function* buildGround(chunks, CHUNK, gen, season, free, groundY, cover = 
     yield {
       i: idx, tufts: im,
       box: { x0: X0 + 0.5, x1: X0 + CHUNK - 0.5, z0: Y0 + 0.5, z1: Y0 + CHUNK - 0.5, y0: im ? y0 : 0, y1: im ? y1 : 0 },
-      bounds: im ? new THREE.Box3(new THREE.Vector3(X0 - 0.5, lo - 0.05, Y0 - 0.5), new THREE.Vector3(X0 + CHUNK + 0.5, hi + 0.05, Y0 + CHUNK + 0.5)) : null,
+      bounds: im ? new THREE.Box3(new THREE.Vector3(X0 + 0.5 - REACH, lo - 0.05, Y0 + 0.5 - REACH), new THREE.Vector3(X0 + CHUNK - 0.5 + REACH, hi + 0.05, Y0 + CHUNK - 0.5 + REACH)) : null,
     };
   }
   if (!cover || !out.pos.length) return null;
@@ -597,6 +599,14 @@ function tuftGeometry() {
   const nor = new Float32Array(pos.length); for (let i = 1; i < nor.length; i += 3) nor[i] = 1;
   g.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
   g.computeBoundingSphere(); g.computeBoundingBox();
+  // (hasta dónde llega la mata, para la caja de cada trozo: lo más apartado de su centro, con lo que se ensancha de lejos
+  // y lo que la mueve el viento, como en el sombreador; y lo más alto, antes de su altura)
+  let far = 0, sd = 0, top = 0, sw = 0;
+  for (let i = 0; i < pos.length; i += 3) { far = Math.max(far, Math.hypot(pos[i], pos[i + 2])); top = Math.max(top, pos[i + 1]); }
+  for (let i = 0; i < side.length; i += 2) sd = Math.max(sd, Math.hypot(side[i], side[i + 1]));
+  for (const v of sway) sw = Math.max(sw, v);
+  g.userData.reach = far + sd * (TUFT_LOD.WMAX - 1) + 0.9 * 0.35 * Math.hypot(1, 0.5) * sw;
+  g.userData.top = top;
   // (los otros niveles, con los mismos atributos: no se copia nada ni se sube otra vez a la gráfica; solo dibujan menos)
   return TUFT_LOD.N.map((n, k) => {
     if (!k) return g;
@@ -622,17 +632,21 @@ function groundShapes() {
   const shroomStem = flat(new THREE.CylinderGeometry(0.025, 0.03, 0.1, 5).translate(0, 0.05, 0));
   const shroomCap = flat(new THREE.SphereGeometry(0.08, 6, 3, 0, Math.PI * 2, 0, Math.PI / 2).translate(0, 0.09, 0));
   const L = TUFT_LOD, f1 = (L.N[1] / L.N[0]).toFixed(5), f2 = (L.N[2] / L.N[0]).toFixed(5), F = v => v.toFixed(2);
+  const inv = v => (1 / Math.max(v, 1e-3)).toFixed(5);   // (con ?hierba=sinlod los tramos miden 0: sin dividir por 0)
   // Las matas, antes del viento: cuántas hojas quedan a esta distancia (f, de 1 a N[2]/N[0]) y el final suave (fo, de 1 a
-  // 0 en el círculo de GRASS.fade); cada hoja se hunde en su raíz cuando le toca (gk) y las que quedan se ensanchan
-  // (wmul). De cerca (de < G0), gk = 1 y wmul = 1: la mata de siempre. jit, un ruido estable por mata, solo acerca
+  // 0 en el círculo de GRASS.fade); cada hoja se hunde en su raíz cuando le toca (gk, una rampa de 2,5 puestos que acaba
+  // en gn) y las que quedan se ensanchan (wmul). De cerca (de < G0), gn pasa de N[0] en lo que mide la rampa, así que
+  // salen todas enteras, y wmul = 1: la mata de siempre. Ese margen se va hasta G1, donde gn es justo N[1] (y luego N[2]):
+  // ahí se cambia de malla y las que se dejan de dibujar ya están hundidas. jit, un ruido estable por mata, solo acerca
   const LOD = `
         vec3 ip = (modelMatrix * instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
         vec3 hq = fract(ip.xzx * 0.1031); hq += dot(hq, hq.yzx + 33.33);
         float jit = fract((hq.x + hq.y) * hq.z);
         float de = distance(cameraPosition, ip) * grassLodK * (${F(L.JMIN)} + ${F(1 - L.JMIN)} * jit);
-        float f = de < ${F(L.G0)} ? 1.0 : de < ${F(L.G1)} ? mix(1.0, ${f1}, (de - ${F(L.G0)}) / ${F(L.G1 - L.G0)}) : mix(${f1}, ${f2}, clamp((de - ${F(L.G1)}) / ${F(L.G2 - L.G1)}, 0.0, 1.0));
+        float f = de < ${F(L.G0)} ? 1.0 : de < ${F(L.G1)} ? mix(1.0, ${f1}, (de - ${F(L.G0)}) * ${inv(L.G1 - L.G0)}) : mix(${f1}, ${f2}, clamp((de - ${F(L.G1)}) * ${inv(L.G2 - L.G1)}, 0.0, 1.0));
         float fo = 1.0 - smoothstep(grassFade.x, grassFade.y, length(ip.xz - grassCenter));
-        float gk = clamp((f * fo * ${L.N[0].toFixed(1)} - blade.x) / 2.5, 0.0, 1.0) * mix(0.4, 1.0, fo);
+        float gn = fo * (f * ${L.N[0].toFixed(1)} + 2.5 * (1.0 - clamp((de - ${F(L.G0)}) * ${inv(L.G1 - L.G0)}, 0.0, 1.0)));
+        float gk = clamp((gn - blade.x) / 2.5, 0.0, 1.0) * mix(0.4, 1.0, fo);
         float wmul = min(${F(L.WMAX)}, 1.0 / max(f, 0.05));
         vec3 sv = vec3(bside.x, 0.0, bside.y), root = vec3(blade.y, 0.0, blade.z);
         transformed = root + (transformed - sv - root) * gk + sv * (gk * wmul);`;
