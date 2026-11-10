@@ -1027,6 +1027,7 @@ export class Game {
     const still = !this.player || !this.scene;
     if (still !== this.still) { this.still = still; document.body.classList.toggle('still', still); if (!still) this.view3d.snap?.(); }
     if (!still) this.view3d.render(this);
+    else this.view3d.idle?.(this);   // (sin dibujar, se adelanta lo que se puede: los impostores de los árboles lejanos)
     const prey = this.gather.target?.prey, click = prey && this.highlight?.e === prey ? '  ·  Clic: atacar' : '';
     hud.prompt(near && (near.alt ? `${near.text}  ·  X: ${near.alt.text.toLowerCase()}` : near.text) + click, this.highlight ? [m.x, m.y] : null);
     let hint = '';

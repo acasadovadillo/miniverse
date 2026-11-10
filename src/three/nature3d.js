@@ -12,6 +12,7 @@ import { tonos, SUELO_V2 } from '../arte.js';
 import { macroOf, MAC_K, grassKeep } from '../world/ground.js';
 import { climate, wetness } from '../world/biomes.js';
 import { FLOWER_GEO, FLOWER_COLORS } from './flowers3d.js';
+import { ageOf, broadDims, pineDims, palmDims, cactusK } from '../world/treedims.js';
 
 const tmp = new THREE.Object3D(), col = new THREE.Color();
 // Viento: el tiempo que mueve la hierba y las copas (lo avanza el dibujo)
@@ -176,14 +177,7 @@ function pieces(o, season, out, owner, y = 0) {
   }
 }
 
-// La edad del árbol, por su sitio (igual en todas las pantallas): 15 % maduro, 55 % medio, 30 % joven
-const ageOf = (o) => o.age ?? (h => (h < 0.15 ? 1.25 : h < 0.7 ? 1 : 0.75))(ihash(Math.floor(o.x * 5), Math.floor(o.y * 5), 77));
-// Las medidas de un árbol de hoja: altura, radio de la copa y altura de su centro (las usan el de cerca y el lejano)
-function broadDims(o, y) {
-  const k = (0.9 + ihash(Math.floor(o.x * 7), Math.floor(o.y * 7), 11) * 0.2) * ageOf(o), kind = o.kind;
-  const H = (kind === 'fruit' ? 3.6 : kind === 'swampTree' ? 4.6 : 4.8) * k, R = (kind === 'fruit' ? 1.45 : kind === 'swampTree' ? 1.75 : 1.85) * k;
-  return { k, H, R, Ry: R * 0.82, cy: y + H - R * 0.82, th: H * (kind === 'fruit' ? 0.3 : 0.36) };
-}
+// (la edad y las medidas de cada árbol: world/treedims.js, las mismas para el de cerca y el lejano)
 const darker = (c, f) => col.set(c).multiplyScalar(f).getHex();
 const qa = new THREE.Quaternion(), qb = new THREE.Quaternion(), ZV = new THREE.Vector3(0, 0, 1), dv = new THREE.Vector3();
 // Roble, frutal y sauce del pantano: tronco con su pie, ramas que se abren y una copa de varias matas, con un núcleo oscuro
@@ -229,8 +223,6 @@ function broadleaf2(o, season, push, x, z, y, r, rot) {
   }
   if (season === 3) push('snow', { p: [x, cy + Ry * 0.8, z], s: [R * 0.55, R * 0.12, R * 0.55] });
 }
-// Las medidas de un pino
-function pineDims(o, y) { const k = (0.9 + ihash(Math.floor(o.x * 7), Math.floor(o.y * 7), 11) * 0.2) * ageOf(o); return { k, H: 5.6 * k, th: 0.8 * k }; }
 // Pino: tronco recto hasta arriba y siete pisos de ramas que se estrechan, con las puntas caídas (y nieve encima)
 function pine2(o, season, push, x, z, y, r, rot) {
   const { k, H, th } = pineDims(o, y), snowy = o.kind === 'snowPine' || season === 3, n = 11;
@@ -244,7 +236,6 @@ function pine2(o, season, push, x, z, y, r, rot) {
 
 // Palmera: el tronco curvo de ocho tramos anillados y, arriba, doce hojas largas arqueadas (las de dentro, más derechas),
 // con cocos debajo (si no se acaban de coger)
-function palmDims(o, y) { const k = (0.9 + ihash(Math.floor(o.x * 7), Math.floor(o.y * 7), 11) * 0.2) * ageOf(o); return { k, H: 4.6 * k }; }
 function palm2(o, season, push, x, z, y, r, rot) {
   const { k, H } = palmDims(o, y), segs = 8, len = H / segs;
   let px = x, py = y, pz = z;
@@ -264,7 +255,7 @@ function palm2(o, season, push, x, z, y, r, rot) {
 }
 // Cactus: un tronco acanalado con la punta redonda y uno o dos brazos que salen de lado y suben, del mismo grosor
 function cactus2(o, season, push, x, z, y, r, rot) {
-  const k = (0.9 + ihash(Math.floor(x * 7), Math.floor(z * 7), 11) * 0.2) * ageOf(o), th = 2.2 * k, w = 0.2 * Math.sqrt(k), c = tonos('#6a8058')[0];
+  const k = cactusK(o), th = 2.2 * k, w = 0.2 * Math.sqrt(k), c = tonos('#6a8058')[0];
   push('rib', { p: [x, y + th / 2, z], s: [w, th, w], r: [0, rot, 0], c });
   push('ribTop', { p: [x, y + th, z], s: [w, w * 0.8, w], r: [0, rot, 0], c });
   for (const sd of [1, -1]) {
@@ -385,12 +376,52 @@ export function buildNatureChunk(objs, season, groundY, shadows = true) {
     // (las tarjetas de hojas dan sombra moteada: su silueta, con el corte de la textura)
     if (card) im.customDepthMaterial = (CARD_DEPTH[type] ||= new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking, map: m.map, alphaTest: 0.5 }));
     im.userData.cast = !small || card;
+    im.userData.mat = m;   // (su material de siempre: el fundido lo cambia un momento por una copia, ver nearFadeSet)
     im.userData.base = list.map((it, i) => { const mm = new THREE.Matrix4(); im.getMatrixAt(i, mm); return mm; });
     list.forEach((it, i) => { if (!owners.has(it.owner)) owners.set(it.owner, []); owners.get(it.owner).push([im, i]); });
     group.add(im);
   }
   return { group, owners };
 }
+// El fundido entre el árbol de cerca y el lejano (World3D): mientras un bloque de naturaleza aparece o se va, sus mallas
+// usan copias de los materiales que dejan sin pintar parte de los píxeles, con un tramado fijo en la pantalla (DITHER,
+// ruido de gradiente entrelazado): se ve el de cerca donde DITHER < fundido. El lejano (impostor.js) se salta justo los
+// otros, así que entre los dos cubren cada píxel una sola vez: ni doble ni hueco. Las copias van aparte porque un
+// discard en el material de siempre le quitaría a la gráfica el descarte temprano de lo tapado en todos los árboles; así
+// solo lo pagan los bloques que se están fundiendo, durante FADE_MS. Los juegos de copias no se tiran: vuelven a una
+// reserva, con sus programas ya compilados (las copias con la misma clave comparten programa; cada una, su uniforme)
+export const DITHER = 'fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))))';
+const FADE_POOL = [];
+function makeFadeSet() {
+  const u = { value: 1 }, map = new Map();
+  for (const m of Object.values(mats())) {
+    if (!m) continue;
+    // (clone() no copia onBeforeCompile ni la clave: van a mano; la clave, antes de envolver, porque la de por defecto es
+    // el texto de onBeforeCompile y todas las copias acabarían compartiendo un programa)
+    const c = m.clone(), prevKey = m.customProgramCacheKey(), prev = m.onBeforeCompile;
+    c.onBeforeCompile = (sh, r) => {
+      prev.call(m, sh, r);
+      sh.uniforms.uNearFade = u;
+      sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nuniform float uNearFade;')
+        .replace('#include <clipping_planes_fragment>', `#include <clipping_planes_fragment>\n  if (${DITHER} >= uNearFade) discard;`);
+    };
+    c.customProgramCacheKey = () => prevKey + ':nf';
+    map.set(m, c);
+  }
+  return { u, mats: map };
+}
+export const nearFadeSet = () => FADE_POOL.pop() || makeFadeSet();
+export const releaseFadeSet = s => { FADE_POOL.push(s); };
+// Pone (on) o quita el juego de fundido en las mallas de un bloque de naturaleza
+export function fadeMeshes(group, set, on) {
+  for (const im of group.children) {
+    const base = im.userData.mat;
+    if (!base) continue;
+    const c = on && set.mats.get(base);
+    if (c) { c.envMapIntensity = base.envMapIntensity; im.material = c; } else im.material = base;
+  }
+}
+
 // Sacude lo que se está golpeando (un poco de lado a lado) y deja quieto lo demás
 const shakeM = new THREE.Matrix4();
 export function shake(chunk, key, amount) {
@@ -711,7 +742,7 @@ export function buildFarNature(objs, season, groundY) {
       trunks.push({ p: [x + Math.cos(rot) * 0.4 * k, y + H / 2, z + Math.sin(rot) * 0.4 * k], s: [0.9, H, 0.9] });
       lumps.push({ p: [x + Math.cos(rot) * 0.9 * k, y + H - 0.1, z + Math.sin(rot) * 0.9 * k], s: [1.8 * k, 0.35 * k, 1.8 * k], c: '#5d7044' });
     } else if (o.kind === 'cactus') {
-      const k = (0.9 + h * 0.2) * ageOf(o);
+      const k = cactusK(o);
       trunks.push({ p: [x, y + 1.1 * k, z], s: [1.2, 2.2 * k, 1.2] });
     } else if (o.kind === 'boulder' || o.kind === 'snowBoulder') rocks.push({ p: [x, y + 0.25, z], s: [0.9 * s, 0.55 * s, 0.75 * s], r: [0, rot, 0], c: '#9a958c' });
   }

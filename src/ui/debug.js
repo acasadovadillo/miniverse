@@ -53,6 +53,9 @@ export function initDebug(game) {
       for (const b of v.world.nature.values()) for (const pc of b.tufts?.values() || []) { if (!pc.tufts) continue; n++; if (!pc.tufts.visible) { hid++; continue; } lod[pc.lod]++; matas += pc.tufts.count; }
       if (n) lines.push(`hierba: ${n} trozos (cerca ${lod[0]} · media ${lod[1]} · lejos ${lod[2]} · fuera ${hid}) · ${matas} matas`);
     }
+    // (los árboles lejanos: si el atlas está listo o cuánto le queda, y los bloques de cerca que se están fundiendo)
+    const imp = v.world?.impostorStats?.();
+    if (imp) lines.push(imp);
     const a = v.actors?.stats;
     if (a) lines.push(`personas: ${a.modelos} · ${a.vistas} vistas · ${a.dormidas} dormidas · a todo ${a.t0} / 30 Hz ${a.t1} / 15 Hz ${a.t2} · de lejos ${a.lod1} · ${(a.tris / 1000).toFixed(0)}k triángulos${a.protos !== undefined ? ` · ${a.protos} mallas en caché (${a.protosLibres} sin usar), ${a.lienzos} lienzos` : ''}${Number.isFinite(v.actorsMs) ? ` · actores ${n1(v.actorsMs)} ms` : ''}`);
     const l = game.live;

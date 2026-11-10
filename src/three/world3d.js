@@ -1,8 +1,9 @@
 // El mundo de fuera en 3D, por trozos de 16 casillas: lo que el juego dice que hay en cada uno
 // (`Overworld.contentFor`) se convierte en mallas. Cerca de la cámara va todo (naturaleza, hierba, lo
-// construido, muebles, estaciones, cultivos, lugares); más lejos, solo los árboles y las rocas, sencillos y
-// sin sombra, en bloques grandes, hasta donde llega la niebla. Cada trozo se rehace solo cuando cambia lo que
-// tiene. Los tejados van por regiones (toda la superficie unida, aunque cruce trozos) y, con el jugador dentro
+// construido, muebles, estaciones, cultivos, lugares); más lejos, solo los árboles (impostores: impostor.js) y las
+// rocas, sin sombra, en bloques grandes, hasta donde llega la niebla. Entre lo de cerca y lo lejano no hay salto: una
+// máscara por trozo dice dónde está ya el árbol de cerca, y los dos se funden con tramados complementarios. Cada trozo
+// se rehace solo cuando cambia lo que tiene. Los tejados van por regiones (toda la superficie unida, aunque cruce trozos) y, con el jugador dentro
 // de una casa, se ocultan el tejado y las paredes que dan a la cámara (siguen dando sombra).
 import { WATER_Y } from './terrain.js';
 import { boatModel } from './actors.js';
@@ -12,7 +13,9 @@ import * as village from '../world/village.js';
 import { PIECES, parsePlaced } from '../pieces.js';
 import { CAM } from '../camera.js';
 import { Builder } from './geo.js';
-import { buildNatureChunk, buildGround, buildFarNature, shake, WIND, GRASS, TUFT_LOD, tuftLods } from './nature3d.js';
+import { buildNatureChunk, buildGround, buildFarNature, shake, WIND, GRASS, TUFT_LOD, tuftLods, DITHER, nearFadeSet, releaseFadeSet, fadeMeshes } from './nature3d.js';
+import { ImpostorAtlas, buildFarImpostors, IMPOSTORS_ON, MASK, MASK_GLSL } from './impostor.js';
+import { wrapIndex } from '../world/planet.js';
 import { roofShape } from '../world/roof.js';
 import { baseMaterials, wallTile, doorTile, doorLeaf, gateTile, gateLeaf, fenceTile, floorTile, roofRegion, paintKey, WALL_H, ROOF, FLOWER } from './build3d.js';
 import { getModel, modelMat, CHANDELIER } from './models.js';
@@ -34,6 +37,8 @@ const VIEW = new THREE.Frustum(), VIEW_M = new THREE.Matrix4();   // (lo que ve 
 const SHADOW_R = 2;      // … cuya naturaleza da sombra
 const FAR_BLOCK = 4;     // trozos por lado de un bloque lejano
 const FAR_R = 2;         // bloques lejanos alrededor
+const FAR_KINDS = new Set(['oak', 'fruit', 'pine', 'snowPine', 'swampTree', 'cactus', 'palm', 'boulder', 'snowBoulder']);   // lo que se ve de lejos
+const FADE_MS = 600;     // lo que tarda un bloque de naturaleza en fundirse con lo lejano, al llegar y al irse
 const NATURE = new Set(['oak', 'fruit', 'pine', 'snowPine', 'swampTree', 'cactus', 'palm', 'boulder', 'rock', 'bush', 'deadBush', 'snowBoulder', 'margarita', 'diente_leon']);
 
 export class World3D {
@@ -52,7 +57,16 @@ export class World3D {
     this.villageGroup = null; this.villageRef = null;
     this.scene = null; this.season = -1;
     this.insideHouse = null;
-    this.nearUniform = { value: new THREE.Vector4(0, 0, 0, 0) };   // trozos cercanos (los árboles lejanos ahí no se pintan)
+    // La máscara de lo cercano: por trozo, cuánto se ve ya el árbol de cerca (0, nada: se ve el lejano; 255, del todo). La
+    // leen los impostores y los árboles sencillos de lejos, que solo se apartan donde el de cerca ya está hecho: sin
+    // árboles dobles ni huecos mientras se construyen los bloques. Va centrada en la cámara, MASK × MASK trozos: cubre de
+    // sobra lo lejano (FAR_R bloques de FAR_BLOCK). impFar: hasta dónde se pinta lo lejano (la niebla)
+    this.maskData = new Uint8Array(MASK * MASK); this.maskNext = new Uint8Array(MASK * MASK); this.maskAt = [NaN, NaN];
+    this.mask = new THREE.DataTexture(this.maskData, MASK, MASK, THREE.RedFormat);
+    this.mask.minFilter = this.mask.magFilter = THREE.NearestFilter; this.mask.needsUpdate = true;
+    this.maskU = { impMask: { value: this.mask }, impOrigin: { value: new THREE.Vector2() }, impFar: { value: 150 } };
+    this.useImpostors = IMPOSTORS_ON;
+    this.impostors = null;         // el atlas de los árboles lejanos (se hornea en el primer fotograma: en el menú)
   }
 
   // ---------- cada fotograma ----------
@@ -61,7 +75,7 @@ export class World3D {
     this.game = game;
     WIND.value = game.time;
     const ccx = Math.floor(target.x / CHUNK), ccy = Math.floor(target.z / CHUNK);
-    this.nearUniform.value.set((ccx - NEAR) * CHUNK, (ccx + NEAR + 1) * CHUNK, (ccy - NEAR) * CHUNK, (ccy + NEAR + 1) * CHUNK);
+    this.at = [ccx, ccy];
     this.updateVillage(scene);
     // Trozos cercanos: los nuevos o cambiados, del más cercano al más lejano, con un tope de tiempo
     const want = [];
@@ -93,9 +107,12 @@ export class World3D {
       for (const [x, y] of r.tiles) if (this.regionOf.get(`${x},${y}`) === r.key) this.regionOf.delete(`${x},${y}`);
       for (const k of [...this.fadeMats.keys()]) if (k.startsWith(r.key + '|')) { for (const m of this.fadeMats.get(k).values()) m.dispose(); this.fadeMats.delete(k); this.fade.delete(k); }
     }
-    this.updateNature(scene, ccx, ccy, t0, budget);
+    this.updateNature(scene, ccx, ccy, t0, budget, snap);
+    this.updateFades(snap);
+    this.updateMask(ccx, ccy);
     this.updateGrass(target);
     this.updateFar(scene, ccx, ccy, t0, budget);
+    this.updateImpostors(scene, game, snap);
     this.updateRegions(scene);
     // Lo que se golpea tiembla
     for (const b of this.nature.values()) for (const [key, o] of b.shakers) {
@@ -113,7 +130,7 @@ export class World3D {
     for (const [k, c] of this.chunks) this.dropChunk(k, c);
     for (const b of this.nature.values()) this.dropNature(b);
     this.nature.clear();
-    for (const b of this.far.values()) this.group.remove(b);
+    for (const g of this.far.values()) this.dropFar(g);
     this.far.clear();
     for (const r of this.regions.values()) this.dropRegion(r);
     this.regions.clear(); this.regionOf.clear();
@@ -238,8 +255,8 @@ export class World3D {
   setRing(scene, c, ring) { c.ring = ring; }
 
   // ---------- naturaleza y hierba, en bloques de NB × NB trozos ----------
-  updateNature(scene, ccx, ccy, t0, budget) {
-    const keep = new Set(), gy = (x, y) => this.view.groundY(scene, x, y);
+  updateNature(scene, ccx, ccy, t0, budget, snap = false) {
+    const keep = new Set(), gy = (x, y) => this.view.groundY(scene, x, y), now = performance.now();
     for (let by = Math.floor((ccy - NEAR) / NB); by <= Math.floor((ccy + NEAR) / NB); by++) for (let bx = Math.floor((ccx - NEAR) / NB); bx <= Math.floor((ccx + NEAR) / NB); bx++) {
       const k = `${bx},${by}`, datas = [];
       keep.add(k);
@@ -247,6 +264,8 @@ export class World3D {
       const rings = [];   // (el anillo de cada trozo: las matas van por trozo)
       for (let j = 0; j < NB; j++) for (let i = 0; i < NB; i++) { const cx = bx * NB + i, cy = by * NB + j, r = Math.max(Math.abs(cx - ccx), Math.abs(cy - ccy)); datas.push([cx, cy, scene.contentFor(cx, cy)]); rings.push(r); ring = Math.min(ring, r); }
       let b = this.nature.get(k);
+      // (si se estaba yendo, vuelve: se funde de vuelta desde donde iba)
+      if (b && b.leaving != null) { b.born = now - b.fadeNow * FADE_MS; b.leaving = null; }
       // (también se vuelve a mirar cuando el suelo ha cambiado de forma: ver padStamp)
       const T = this.view.terrain, padV = T?.padV ?? 0, same = b && b.padV === padV && b.datas.every((d, i) => d[2] === datas[i][2]);
       if (!same || !b) {
@@ -273,6 +292,7 @@ export class World3D {
         }
         if (natSig !== b.natSig) {
           if (b.nat) { b.group.remove(b.nat.group); b.nat.group.traverse(o => { if (o.isInstancedMesh) o.dispose(); }); }
+          else b.born = snap ? -Infinity : now;   // (la primera vez, aparece fundiéndose con lo lejano; de golpe, si se salta)
           b.nat = buildNatureChunk(nat, scene.gen.season, gy, true);
           b.group.add(b.nat.group);
           b.natSig = natSig; b.shadow = null;
@@ -284,7 +304,15 @@ export class World3D {
       }
       this.natureRing(scene, b, ring, rings);
     }
-    for (const [k, b] of this.nature) if (!keep.has(k)) { this.dropNature(b); this.nature.delete(k); }
+    // Lo que queda lejos se va fundiéndose con lo lejano (updateFades lo suelta al acabar); su hierba y su cubierta, en el
+    // acto (ya quedaban fuera del círculo de la hierba). Al saltar, de golpe
+    for (const [k, b] of this.nature) if (!keep.has(k)) {
+      if (snap || !b.nat || !(b.fadeNow > 0)) { this.dropNature(b); this.nature.delete(k); continue; }
+      if (b.leaving != null) continue;
+      b.leaving = now - (1 - b.fadeNow) * FADE_MS;
+      for (const i of [...b.tufts.keys()]) this.dropTufts(b, i);
+      this.dropCover(b); b.groundJob = null;
+    }
     // La hierba, poco a poco (un trozo cada vez, mientras quede tiempo; de golpe al empezar), de los bloques más cercanos a
     // los más lejanos: lo que se siega junto al jugador sale enseguida. Cada trozo hecho cambia su malla en el acto
     const jobs = [...this.nature.values()].filter(b => b.groundJob).sort((a, b) => a.ring - b.ring);
@@ -361,9 +389,48 @@ export class World3D {
   dropNature(b) {
     this.group.remove(b.group);
     b.nat?.group.traverse(o => { if (o.isInstancedMesh) o.dispose(); });
+    if (b.fadeSet) { releaseFadeSet(b.fadeSet); b.fadeSet = null; b.fadeOn = null; }
     for (const i of [...b.tufts.keys()]) this.dropTufts(b, i);
     this.dropCover(b);
     b.groundJob = null;
+  }
+  // Cada fotograma: cuánto se ve cada bloque de naturaleza (fadeNow, de 0 a 1 en FADE_MS al llegar; de vuelta a 0 al irse)
+  // y, mientras no está del todo, sus mallas con el juego de materiales de fundido (nature3d.js, nearFadeSet). Los que
+  // acaban de irse se sueltan aquí
+  updateFades(snap) {
+    const now = performance.now();
+    for (const [k, b] of this.nature) {
+      if (!b.nat) { b.fadeNow = 0; continue; }
+      let f = b.leaving != null ? 1 - (now - b.leaving) / FADE_MS : snap ? 1 : (now - b.born) / FADE_MS;
+      f = b.fadeNow = Math.max(0, Math.min(1, f));
+      if (b.leaving != null && f <= 0) { this.dropNature(b); this.nature.delete(k); continue; }
+      if (f < 1) {
+        b.fadeSet ||= nearFadeSet();
+        if (b.fadeOn !== b.nat) { fadeMeshes(b.nat.group, b.fadeSet, true); b.fadeOn = b.nat; }   // (también si se ha rehecho a medias)
+        b.fadeSet.u.value = f;
+      } else if (b.fadeSet) {
+        if (b.fadeOn === b.nat) fadeMeshes(b.nat.group, b.fadeSet, false);
+        releaseFadeSet(b.fadeSet); b.fadeSet = null; b.fadeOn = null;
+      }
+    }
+  }
+  // La máscara de lo cercano (ver el constructor), centrada en el trozo de la cámara; solo se sube si cambia (1 KB)
+  updateMask(ccx, ccy) {
+    const N = this.maskNext, ox = ccx - MASK / 2, oy = ccy - MASK / 2;
+    N.fill(0);
+    for (const b of this.nature.values()) {
+      if (!b.nat) continue;
+      const v = Math.round(b.fadeNow * 255);
+      for (let j = 0; j < NB; j++) for (let i = 0; i < NB; i++) {
+        const x = b.bx * NB + i - ox, y = b.by * NB + j - oy;
+        if (x >= 0 && y >= 0 && x < MASK && y < MASK) N[y * MASK + x] = v;
+      }
+    }
+    const D = this.maskData;
+    let same = this.maskAt[0] === ox && this.maskAt[1] === oy;
+    if (same) for (let i = 0; i < D.length; i++) if (D[i] !== N[i]) { same = false; break; }
+    if (!same) { D.set(N); this.mask.needsUpdate = true; this.maskAt = [ox, oy]; this.maskU.impOrigin.value.set(ox, oy); }
+    this.maskU.impFar.value = this.view.scene.fog?.far ?? 150;
   }
   // El día del juego (para la hierba segada, que vuelve a salir)
   today() { return this.game?.days?.dayIndex ?? 0; }
@@ -424,38 +491,130 @@ export class World3D {
   *glassMats() { yield baseMaterials().glass; for (const m of this.fadeMats.values()) if (m.has('glass')) yield m.get('glass'); }
 
   // ---------- lo lejano ----------
+  // Bloques de FAR_BLOCK × FAR_BLOCK trozos alrededor: los árboles como impostores (si el atlas está listo; si no, o con
+  // ?impostores=0, los sencillos de antes) y los peñascos en 3D (un impostor de roca, a ras de suelo, se ve mal). Un
+  // bloque hecho con lo otro, o en el que ha cambiado algo (se ha talado un árbol, aquí o en la partida de otro), se
+  // rehace; al acabar de hornear, se cambian uno a uno, sin dejar hueco
   updateFar(scene, ccx, ccy, t0, budget) {
     const bx = Math.floor(ccx / FAR_BLOCK), by = Math.floor(ccy / FAR_BLOCK), keep = new Set();
+    const A = this.useImpostors && this.impostors?.ready && this.impostors.season === scene.gen.season ? this.impostors : null, mode = A ? 'imp' + A.gen : 'old';
+    const gy = (x, y) => this.view.groundY(scene, x, y);
     for (let dy = -FAR_R; dy <= FAR_R; dy++) for (let dx = -FAR_R; dx <= FAR_R; dx++) {
-      const k = `${bx + dx},${by + dy}`;
+      const k = `${bx + dx},${by + dy}`, old = this.far.get(k), sig = this.farSig(scene, bx + dx, by + dy);
       keep.add(k);
-      if (this.far.has(k) || performance.now() - t0 > budget * 2) continue;
-      const objs = [];
-      for (let j = 0; j < FAR_BLOCK; j++) for (let i = 0; i < FAR_BLOCK; i++) {
-        const cx = (bx + dx) * FAR_BLOCK + i, cy = (by + dy) * FAR_BLOCK + j;
-        for (const o of scene.gen.content(cx, cy).objects) if (NATURE.has(o.kind) && o.kind !== 'bush' && o.kind !== 'rock' && o.kind !== 'deadBush') objs.push(o);
-      }
-      const g = buildFarNature(objs, scene.gen.season, (x, y) => this.view.groundY(scene, x, y));
-      g.traverse(o => { if (o.material) this.hideNear(o.material); });
+      if (old?.userData.mode === mode && old.userData.sig === sig) continue;
+      if (performance.now() - t0 > (old ? budget : budget * 2)) continue;
+      const objs = this.farObjects(scene, bx + dx, by + dy), g = new THREE.Group();
+      if (A) {
+        const trees = buildFarImpostors(objs, gy, A);
+        if (trees) g.add(trees);
+        const rocks = objs.filter(o => o.kind === 'boulder' || o.kind === 'snowBoulder');
+        if (rocks.length) g.add(buildFarNature(rocks, scene.gen.season, gy));
+      } else g.add(buildFarNature(objs, scene.gen.season, gy));
+      g.traverse(o => { if (o.material && o.material !== A?.material) this.hideNear(o.material); });
+      g.userData.mode = mode; g.userData.sig = sig;
+      if (old) this.dropFar(old);
       this.far.set(k, g);
       this.group.add(g);
     }
-    for (const [k, g] of this.far) if (!keep.has(k)) { this.group.remove(g); this.far.delete(k); }
+    for (const [k, g] of this.far) if (!keep.has(k)) { this.dropFar(g); this.far.delete(k); }
   }
-  // Los árboles lejanos que caen en los trozos cercanos no se pintan (ahí están los de verdad)
+  // Lo que se ve de lejos en un bloque: los árboles y peñascos que pone el mundo, sin lo talado o picado (sus cambios por
+  // trozo, sin crearlos: delta() les añadiría campos vacíos) ni lo que tapan los lugares y las aldeas, y más allá de la
+  // costura del planeta, en su sitio de esta vuelta. No pasa por contentFor: con 400 trozos echaría de su caché a los
+  // cercanos
+  farObjects(scene, fbx, fby) {
+    const out = [];
+    for (let j = 0; j < FAR_BLOCK; j++) for (let i = 0; i < FAR_BLOCK; i++) {
+      const cx = fbx * FAR_BLOCK + i, cy = fby * FAR_BLOCK + j, own = wrapIndex(cx, CHUNK), off = (cx - own) * CHUNK;
+      const removed = scene.deltas?.get(`${own},${cy}`)?.removed;
+      for (const o of scene.gen.content(cx, cy).objects) {
+        if (!FAR_KINDS.has(o.kind) || o.poi) continue;
+        if (removed && removed[o.key] !== undefined) continue;
+        if (scene.layers?.some(l => l.hides?.(o))) continue;
+        out.push(off ? { ...o, x: o.x + off } : o);
+      }
+    }
+    return out;
+  }
+  // La firma de un bloque lejano: las versiones de los cambios de sus trozos (cada cambio sube la de su trozo)
+  farSig(scene, fbx, fby) {
+    let h = 0;
+    if (scene.deltas) for (let j = 0; j < FAR_BLOCK; j++) for (let i = 0; i < FAR_BLOCK; i++) {
+      const cx = fbx * FAR_BLOCK + i, cy = fby * FAR_BLOCK + j, d = scene.deltas.get(`${wrapIndex(cx, CHUNK)},${cy}`);
+      h = (Math.imul(h, 31) + (d ? d.v + 1 : 0)) | 0;
+    }
+    return h;
+  }
+  // Un bloque lejano fuera: sus instancias y sus geometrías propias, también de la gráfica
+  dropFar(g) {
+    this.group.remove(g);
+    g.traverse(o => { if (o.isInstancedMesh) o.dispose(); if (o.userData.own) o.geometry.dispose(); });
+  }
+  // Los árboles y peñascos sencillos de lejos: donde ya está el de cerca no se pintan, y mientras se funden, se traman al
+  // revés que él (como los impostores; ver nearFadeSet)
   hideNear(m) {
     if (m.userData.hideNear) return;
     m.userData.hideNear = true;
-    const prev = m.onBeforeCompile, U = this.nearUniform;
+    const prev = m.onBeforeCompile, prevKey = m.customProgramCacheKey(), U = this.maskU;
     m.onBeforeCompile = (sh, r) => {
-      prev?.(sh, r);
-      sh.uniforms.nearBox = U;
-      sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nuniform vec4 nearBox;').replace('#include <project_vertex>', `#include <project_vertex>
+      prev.call(m, sh, r);
+      sh.uniforms.impMask = U.impMask; sh.uniforms.impOrigin = U.impOrigin;
+      sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nuniform sampler2D impMask;\nuniform vec2 impOrigin;\nvarying float vNear;').replace('#include <project_vertex>', `#include <project_vertex>
         vec4 ip = modelMatrix * instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0);
-        if (ip.x > nearBox.x && ip.x < nearBox.y && ip.z > nearBox.z && ip.z < nearBox.w) gl_Position = vec4(0.0, 0.0, 2.0, 1.0);`);
+        ${MASK_GLSL('ip.xz')}
+        if (vNear > 0.999) gl_Position = vec4(0.0, 0.0, 2.0, 1.0);`);
+      sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying float vNear;')
+        .replace('#include <clipping_planes_fragment>', `#include <clipping_planes_fragment>\n  if (${DITHER} < vNear) discard;`);
     };
-    m.customProgramCacheKey = () => 'far' + (prev ? prev.toString().length : 0);
+    m.customProgramCacheKey = () => 'farMask:' + prevKey;
     m.needsUpdate = true;
+  }
+  // El atlas de los impostores: se hornea la estación del mundo que se ve, por pasos (nunca en un fotograma de salto),
+  // más deprisa en el menú. Con él listo, se precompila lo que se usará al jugar (el impostor y el fundido)
+  updateImpostors(scene, game, snap) { this.prebake(scene.gen.season, game, snap); }
+  prebake(season, game, snap = false) {
+    if (!this.useImpostors || !this.view.renderer) return;
+    const A = (this.impostors ||= new ImpostorAtlas(this.view.renderer, this.maskU));
+    if (A.season === -2) return;   // (falló: lo lejano se queda sencillo)
+    if (A.season !== season) A.start(season);
+    const menu = !game?.player || !game.scene;
+    if (!snap && !A.ready) A.step(menu ? 6 : 3, menu);
+    A.material.visible = A.ready;   // (mientras se vuelve a hornear, sus bloques no se pintan: se están cambiando por los sencillos)
+    if (A.ready && this.warmed !== A.gen) { this.warmed = A.gen; this.warm(A); }
+    this.warmStep();
+  }
+  // Los programas del impostor y de los materiales de fundido, compilados en paralelo con la luz y la niebla de la escena
+  // del juego: así el primer bloque que se funde no da un tirón (en una Iris Plus, decenas de ms por programa)
+  // (de uno en uno, un material por fotograma: compilar cuesta algo de procesador aunque sea en paralelo; y con y sin
+  // color por pieza por separado, porque compileAsync solo espera al último programa de cada material)
+  warm(A) {
+    const set = nearFadeSet(), q = [[A.material, true]];
+    for (const m of set.mats.values()) q.push([m, true], [m, false]);
+    this.warming = { q, set, geo: new THREE.PlaneGeometry(1, 1) };
+  }
+  warmStep() {
+    const W = this.warming;
+    if (!W || W.busy) return;
+    const next = W.q.shift();
+    if (!next) { releaseFadeSet(W.set); W.geo.dispose(); this.warming = null; return; }
+    const [m, color] = next, s = new THREE.Scene(), im = new THREE.InstancedMesh(W.geo, m, 1);
+    if (color) im.setColorAt(0, new THREE.Color(1, 1, 1));
+    s.add(im);
+    W.busy = true;
+    this.view.renderer.compileAsync(s, this.view.camera, this.view.scene).catch(() => {}).finally(() => { im.dispose(); W.busy = false; });
+  }
+  // Para F3: cómo van los impostores y cuántos bloques se están fundiendo
+  impostorStats() {
+    let fading = 0;
+    for (const b of this.nature.values()) if (b.fadeSet) fading++;
+    const head = !this.useImpostors ? 'impostores: apagados (?impostores=0)' : this.impostors ? this.impostors.stats() : 'impostores: aún no';
+    return `${head} · ${fading} bloques fundiéndose`;
+  }
+  // Cambiar a impostores o a lo sencillo y rehacer ya todo lo lejano (el banco, para medir los dos en la misma pasada)
+  setImpostors(on) {
+    this.useImpostors = on;
+    if (this.scene && this.at) this.updateFar(this.scene, this.at[0], this.at[1], performance.now(), 1e9);
   }
 
   // ---------- el pueblo ----------

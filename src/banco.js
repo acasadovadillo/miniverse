@@ -404,6 +404,8 @@ function variants(v, want) {
     for (const [k, list] of G) if (want.includes('grupos') || want.includes(k)) out.push([k, hide(list)]);
   }
   if (want.includes('luces')) out.push(['luces de cerca', hide(v.pool)]);
+  // (los árboles lejanos como impostores frente a los sencillos de antes: se rehace todo lo lejano al cambiar)
+  if (want.includes('impostores')) out.push(['impostores', on => v.world.setImpostors(on)]);
   // (resX: cuánto se ahorra bajando de la resolución del banco a ×X)
   for (const w of want) if (/^res[\d.]+$/.test(w)) {
     const x = +w.slice(3), r = v.renderer;
@@ -436,7 +438,8 @@ async function settle(game, v, frame) {
     if (i % 3 === 0) await sleep(0);
     if (i % 10 === 9) {
       const n = size();
-      same = n === last && !T.pending.size && !T.jobs.size ? same + 1 : 0;
+      const I = v.world.useImpostors ? v.world.impostors : null, baked = !I || I.ready || I.season === -2;   // (y los impostores, horneados)
+      same = n === last && !T.pending.size && !T.jobs.size && baked ? same + 1 : 0;
       last = n;
       if (same >= 3 && i >= 60) break;
     }

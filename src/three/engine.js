@@ -66,6 +66,8 @@ export class View3D {
     this.ray = new THREE.Vector3(); this.probe = new THREE.Vector3(); this.probe2 = new THREE.Vector3(); this.from = new THREE.Vector3();
     this.raycaster = new THREE.Raycaster();
     this.frames = 0; this.acc = 0;
+    // (si la gráfica pierde el contexto, al volver los atlas están vacíos: los impostores se hornean otra vez)
+    canvas.addEventListener('webglcontextrestored', () => this.world.impostors?.invalidate());
     this.resize();
     addEventListener('resize', () => this.resize());
   }
@@ -346,6 +348,13 @@ export class View3D {
     if (cave) { this.sun.intensity = 0; this.hemi.intensity = 0.4; this.hemi.color.set('#8a9ac0'); this.hemi.groundColor.set('#2a2018'); this.setEnv(0.1); }
     this.draw();
     this.stats(dt);
+  }
+  // En el menú y al entrar (el mundo no se dibuja: ver Game.render), se hornean los árboles lejanos de la estación de
+  // donde se va a jugar, para que al empezar ya estén
+  idle(game) {
+    let season = 0;
+    try { season = game.days.season; season = game.days.localSeason; } catch {}   // (la del sitio, si ya se sabe)
+    this.world.prebake(season, game);
   }
   // Reparte las luces de cerca entre las fuentes más próximas al jugador (o a lo que mira la cámara)
   updateLights(game, scene, target) {
