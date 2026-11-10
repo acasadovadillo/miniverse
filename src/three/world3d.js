@@ -12,7 +12,7 @@ import * as village from '../world/village.js';
 import { PIECES, parsePlaced } from '../pieces.js';
 import { CAM } from '../camera.js';
 import { Builder } from './geo.js';
-import { buildNatureChunk, buildGround, buildFarNature, shake, WIND } from './nature3d.js';
+import { buildNatureChunk, buildGround, buildFarNature, shake, WIND, GRASS, TUFT_LOD, tuftLods } from './nature3d.js';
 import { roofShape } from '../world/roof.js';
 import { baseMaterials, wallTile, doorTile, doorLeaf, gateTile, gateLeaf, fenceTile, floorTile, roofRegion, paintKey, WALL_H, ROOF, FLOWER } from './build3d.js';
 import { getModel, modelMat, CHANDELIER } from './models.js';
@@ -23,8 +23,14 @@ const UNLIT = { shade: 'cloth', lamp: 'white', ember: 'soot', glow: 'soot', crys
 import { tintMats, tintOf } from './tints.js';
 
 const NEAR = 3;          // trozos alrededor del de la cámara con todo
-const NB = 2;            // la naturaleza y la hierba van en bloques de NB × NB trozos (menos mallas)
-const GROUND_R = 2;      // trozos alrededor con hierba y flores
+const NB = 2;            // la naturaleza y la cubierta del suelo van en bloques de NB × NB trozos (menos mallas)
+const GROUND_R = 3;      // trozos alrededor con matas de hierba (cada trozo, su malla)
+const COVER_R = 2;       // … con la cubierta del suelo (juncos, piedrecitas, setas), por bloque
+// Dónde se acaba la hierba: poco a poco, en un círculo alrededor del objetivo de la cámara. Cabe siempre en los trozos
+// con matas (los de anillo ≤ GROUND_R llegan al menos a GROUND_R × CHUNK casillas en cada eje), así que, al cruzar de
+// trozo, los que entran o salen quedan fuera del círculo: nunca se ve aparecer ni irse un trozo de hierba
+const FADE = [GROUND_R * CHUNK - 10, GROUND_R * CHUNK - 1];
+const VIEW = new THREE.Frustum(), VIEW_M = new THREE.Matrix4();   // (lo que ve la cámara, para recortar las matas)
 const SHADOW_R = 2;      // … cuya naturaleza da sombra
 const FAR_BLOCK = 4;     // trozos por lado de un bloque lejano
 const FAR_R = 2;         // bloques lejanos alrededor
@@ -88,6 +94,7 @@ export class World3D {
       for (const k of [...this.fadeMats.keys()]) if (k.startsWith(r.key + '|')) { for (const m of this.fadeMats.get(k).values()) m.dispose(); this.fadeMats.delete(k); this.fade.delete(k); }
     }
     this.updateNature(scene, ccx, ccy, t0, budget);
+    this.updateGrass(target);
     this.updateFar(scene, ccx, ccy, t0, budget);
     this.updateRegions(scene);
     // Lo que se golpea tiembla
@@ -237,11 +244,12 @@ export class World3D {
       const k = `${bx},${by}`, datas = [];
       keep.add(k);
       let ring = Infinity;
-      for (let j = 0; j < NB; j++) for (let i = 0; i < NB; i++) { const cx = bx * NB + i, cy = by * NB + j; datas.push([cx, cy, scene.contentFor(cx, cy)]); ring = Math.min(ring, Math.max(Math.abs(cx - ccx), Math.abs(cy - ccy))); }
+      const rings = [];   // (el anillo de cada trozo: las matas van por trozo)
+      for (let j = 0; j < NB; j++) for (let i = 0; i < NB; i++) { const cx = bx * NB + i, cy = by * NB + j, r = Math.max(Math.abs(cx - ccx), Math.abs(cy - ccy)); datas.push([cx, cy, scene.contentFor(cx, cy)]); rings.push(r); ring = Math.min(ring, r); }
       let b = this.nature.get(k);
       const same = b && b.datas.every((d, i) => d[2] === datas[i][2]);
       if (!same || !b) {
-        if (b && performance.now() - t0 > budget) { this.natureRing(scene, b, ring); continue; }
+        if (b && performance.now() - t0 > budget) { this.natureRing(scene, b, ring, rings); continue; }
         if (!b && performance.now() - t0 > budget * 2) continue;
         // Qué hay: la naturaleza (lo que genera el mundo y lo plantado) y, para la hierba, todo lo demás
         const nat = [], shakers = new Map();
@@ -249,8 +257,16 @@ export class World3D {
           if (NATURE.has(o.kind) && !o.poi) { nat.push(o); shakers.set(o.key, o); }
           else if (o.sapling) nat.push({ kind: 'sapling', tree: o.sapling, x: o.x, y: o.y, key: o.key });
         }
-        const natSig = nat.map(o => o.key + (o.bare ? '-' : '')).join(',') + '|' + (scene.padSig ? scene.padSig(bx * NB * CHUNK, by * NB * CHUNK, (bx + 1) * NB * CHUNK, (by + 1) * NB * CHUNK) : ''), gSig = datas.map(([cx, cy, d]) => this.signature(scene, cx, cy, d) + mownSig(scene, cx, cy, this.today())).join('|');
-        if (!b) { b = { group: new THREE.Group(), nat: null, ground: null, bx, by }; this.group.add(b.group); this.nature.set(k, b); }
+        const natSig = nat.map(o => o.key + (o.bare ? '-' : '')).join(',') + '|' + (scene.padSig ? scene.padSig(bx * NB * CHUNK, by * NB * CHUNK, (bx + 1) * NB * CHUNK, (by + 1) * NB * CHUNK) : '');
+        // (las firmas de la hierba, por trozo: lo que hay en él y sus casillas ocupadas, segadas incluidas, aunque lo que
+        // las ocupa sea de otro trozo; la de la cubierta, sin lo segado)
+        const occ = occupied(scene, datas, this.today()), sigs = datas.map(([cx, cy, d]) => this.signature(scene, cx, cy, d)), coverSig = sigs.join('|');
+        const oh = occHashes(occ, datas);
+        for (let i = 0; i < sigs.length; i++) sigs[i] += '|o' + oh[i];
+        if (!b) {
+          b = { group: new THREE.Group(), nat: null, ground: new THREE.Group(), tufts: new Map(), cover: null, coverSig: null, bx, by };
+          b.group.add(b.ground); this.group.add(b.group); this.nature.set(k, b);
+        }
         if (natSig !== b.natSig) {
           if (b.nat) { b.group.remove(b.nat.group); b.nat.group.traverse(o => { if (o.isInstancedMesh) o.dispose(); }); }
           b.nat = buildNatureChunk(nat, scene.gen.season, gy, true);
@@ -258,35 +274,92 @@ export class World3D {
           b.natSig = natSig; b.shadow = null;
         }
         b.shakers = shakers;
-        if (gSig !== b.gSig) { if (b.ground) { b.group.remove(b.ground); dropGround(b.ground); b.ground = null; } b.groundJob = null; }
-        b.gSig = gSig; b.datas = datas; b.occ = occupied(scene, datas, this.today());
+        // (si cambia algo, el trabajo a medias se deja y se vuelve a pedir; lo hecho se queda hasta que llega lo nuevo: sin huecos)
+        if (b.sigs && (coverSig !== b.coverSig0 || sigs.some((g, i) => g !== b.sigs[i]))) b.groundJob = null;
+        b.sigs = sigs; b.coverSig0 = coverSig; b.datas = datas; b.occ = occ;
       }
-      this.natureRing(scene, b, ring);
+      this.natureRing(scene, b, ring, rings);
     }
     for (const [k, b] of this.nature) if (!keep.has(k)) { this.dropNature(b); this.nature.delete(k); }
-    // La hierba, poco a poco (un trozo de un bloque cada vez, mientras quede tiempo; de golpe al empezar)
-    for (const b of this.nature.values()) {
+    // La hierba, poco a poco (un trozo cada vez, mientras quede tiempo; de golpe al empezar), de los bloques más cercanos a
+    // los más lejanos: lo que se siega junto al jugador sale enseguida. Cada trozo hecho cambia su malla en el acto
+    const jobs = [...this.nature.values()].filter(b => b.groundJob).sort((a, b) => a.ring - b.ring);
+    for (const b of jobs) {
       while (b.groundJob) {
-        const r = b.groundJob.next();
-        if (r.done) { b.groundJob = null; b.ground = r.value; b.group.add(b.ground); }
+        const job = b.groundJob, r = job.gen.next();
+        if (r.done) {
+          b.groundJob = null;
+          if (job.cover) { this.dropCover(b); b.cover = r.value; b.coverSig = job.coverSig; if (b.cover) b.ground.add(b.cover); }
+        } else if (r.value && job.want.has(r.value.i) && b.rings[r.value.i] <= GROUND_R) this.setTufts(b, r.value, job.sigs[r.value.i]);
         if (performance.now() - t0 > budget) break;
       }
       if (performance.now() - t0 > budget) break;
     }
   }
-  // Lo que depende de lo cerca que está: la hierba (solo cerca) y si da sombra
-  natureRing(scene, b, ring) {
-    const wantGround = ring <= GROUND_R, shadow = ring <= SHADOW_R;
-    if (wantGround && !b.ground && !b.groundJob) {
-      const T = this.view.terrain, occ = b.occ;
-      b.groundJob = buildGround(b.bx * NB, b.by * NB, NB, CHUNK, scene.gen, scene.gen.season, (x, y) => !occ.has(`${Math.floor(x)},${Math.floor(y)}`) && village.isGrass(x, y), (x, y) => T.heightAt(x, y));
-    } else if (!wantGround) { if (b.ground) { b.group.remove(b.ground); dropGround(b.ground); b.ground = null; } b.groundJob = null; }
+  // Las matas de un trozo (i, del 0 al 3 en su bloque): la malla nueva sustituye a la vieja (o a ninguna)
+  setTufts(b, piece, sig) {
+    const old = b.tufts.get(piece.i);
+    if (old?.tufts) { b.ground.remove(old.tufts); old.tufts.dispose(); }
+    const pc = { sig, tufts: piece.tufts, box: piece.box, bounds: piece.bounds, lod: 0 };
+    b.tufts.set(piece.i, pc);
+    if (pc.tufts) b.ground.add(pc.tufts);   // (su nivel de detalle lo pone updateGrass, en este mismo fotograma)
+  }
+  dropTufts(b, i) {
+    const pc = b.tufts.get(i);
+    if (pc?.tufts) { b.ground.remove(pc.tufts); pc.tufts.dispose(); }   // (InstancedMesh.dispose no suelta la mata: es de todas)
+    b.tufts.delete(i);
+  }
+  dropCover(b) { if (b.cover) { b.ground.remove(b.cover); b.cover.geometry.dispose(); b.cover = null; } b.coverSig = null; }
+  // Cada fotograma (tras updateNature, con la cámara ya puesta): el círculo donde se acaba la hierba, cuánto más pequeño
+  // se ve todo con el FOV de ahora y, por trozo, si se dibuja (fuera del círculo o de la vista, ni se manda: la caja de
+  // un trozo recorta mejor que su esfera, que con 16 × 16 casillas y casi nada de alto se sale mucho) y qué malla dibuja
+  // (todas las hojas, las N[1] primeras o las N[2]). Los cambios de malla no se ven: el sombreador ya ha hundido las
+  // hojas que se dejan de dibujar
+  updateGrass(target) {
+    const cam = this.view.camera, k = Math.tan(cam.fov * Math.PI / 360) / Math.tan(Math.PI / 12);
+    GRASS.lodK.value = k; GRASS.center.value.set(target.x, target.z); GRASS.fade.value.set(FADE[0], FADE[1]);
+    cam.updateMatrixWorld();
+    VIEW.setFromProjectionMatrix(VIEW_M.multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse));
+    const p = cam.position, lods = tuftLods(), R2 = FADE[1] * FADE[1];
+    for (const b of this.nature.values()) for (const pc of b.tufts.values()) {
+      const B = pc.box, im = pc.tufts;
+      if (!im) continue;
+      const hx = Math.max(B.x0 - target.x, 0, target.x - B.x1), hz = Math.max(B.z0 - target.z, 0, target.z - B.z1);
+      if (!(im.visible = hx * hx + hz * hz < R2 && VIEW.intersectsBox(pc.bounds))) continue;
+      const dx = Math.max(B.x0 - p.x, 0, p.x - B.x1), dy = Math.max(B.y0 - p.y, 0, p.y - B.y1), dz = Math.max(B.z0 - p.z, 0, p.z - B.z1);
+      const de = Math.hypot(dx, dy, dz) * k, lod = de >= TUFT_LOD.SW[1] ? 2 : de >= TUFT_LOD.SW[0] ? 1 : 0;
+      if (pc.lod !== lod) { pc.lod = lod; im.geometry = lods[lod]; }
+    }
+  }
+  // Lo que depende de lo cerca que está: las matas (por trozo, los de anillo ≤ GROUND_R), la cubierta (por bloque, ≤
+  // COVER_R) y si da sombra. Lo que falta o ha cambiado se pide en un trabajo (buildGround); lo que queda lejos se suelta
+  natureRing(scene, b, ring, rings) {
+    const shadow = ring <= SHADOW_R, wantCover = ring <= COVER_R;
+    b.ring = ring; b.rings = rings;
+    for (let i = 0; i < rings.length; i++) if (rings[i] > GROUND_R && b.tufts.has(i)) this.dropTufts(b, i);
+    if (!wantCover && b.cover) this.dropCover(b);
+    if (!b.groundJob) {
+      const want = new Set();
+      for (let i = 0; i < rings.length; i++) if (rings[i] <= GROUND_R && b.tufts.get(i)?.sig !== b.sigs[i]) want.add(i);
+      const cover = wantCover && b.coverSig !== b.coverSig0;
+      if (want.size || cover) {
+        const T = this.view.terrain, occ = b.occ, list = [];
+        // (con la cubierta se recorren los cuatro trozos; si no, solo los que cambian)
+        b.datas.forEach(([cx, cy], i) => { if (cover || want.has(i)) list.push([cx, cy, i, want.has(i)]); });
+        b.groundJob = {
+          gen: buildGround(list, CHUNK, scene.gen, scene.gen.season, (x, y) => !occ.has(`${Math.floor(x)},${Math.floor(y)}`) && village.isGrass(x, y), (x, y) => T.heightAt(x, y), cover),
+          want, cover, sigs: b.sigs.slice(), coverSig: b.coverSig0,
+        };
+      }
+    }
     if (b.shadow !== shadow) { b.shadow = shadow; b.nat.group.traverse(o => { if (o.isMesh && o.userData.base) o.castShadow = shadow && o.userData.cast !== false; }); }
   }
   dropNature(b) {
     this.group.remove(b.group);
     b.nat?.group.traverse(o => { if (o.isInstancedMesh) o.dispose(); });
-    if (b.ground) dropGround(b.ground);
+    for (const i of [...b.tufts.keys()]) this.dropTufts(b, i);
+    this.dropCover(b);
+    b.groundJob = null;
   }
   // El día del juego (para la hierba segada, que vuelve a salir)
   today() { return this.game?.days?.dayIndex ?? 0; }
@@ -583,12 +656,16 @@ function matKeyOf(m) {
   for (const [k, v] of Object.entries(B)) { if (v === m) return k; if (k === 'roofs') for (const [rk, rv] of Object.entries(v)) if (rv === m) return 'roof:' + rk; }
   return 'stone';
 }
-// La hierba de un bloque se suelta entera: su malla y la de las matas (instancias; su forma es de todas)
-function dropGround(g) { g.geometry.dispose(); for (const c of g.children) c.dispose?.(); }
-// Lo segado de un trozo que aún no ha vuelto a salir (si cambia, se rehace la hierba)
-function mownSig(scene, cx, cy, today) {
-  const m = scene.delta?.(cx, cy)?.mown;
-  return m ? '|m' + Object.keys(m).filter(k => today - m[k] < GRASS_REGROW).join(';') : '';
+// Una huella de las casillas ocupadas de cada trozo de un bloque (si cambia, se rehacen sus matas): cuántas son y una
+// suma de sus posiciones (no depende del orden)
+function occHashes(occ, datas) {
+  const h = datas.map(() => [0, 0]);
+  for (const k of occ) {
+    const c = k.indexOf(','), x = +k.slice(0, c), y = +k.slice(c + 1), cx = Math.floor(x / CHUNK), cy = Math.floor(y / CHUNK);
+    const i = datas.findIndex(d => d[0] === cx && d[1] === cy);
+    if (i >= 0) { h[i][0]++; h[i][1] = (h[i][1] + (Math.imul(x, 73856093) ^ Math.imul(y, 19349663))) | 0; }
+  }
+  return h.map(([n, s]) => n + ':' + s);
 }
 // Casillas ocupadas de unos trozos (ahí no crece hierba): lo construido y colocado, lo labrado, los cultivos, lo
 // segado y los lugares (que ocupan 3 × 3 casillas)

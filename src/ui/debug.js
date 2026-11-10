@@ -47,6 +47,12 @@ export function initDebug(game) {
     if (d) lines.push(`hora ${clock(d.hour)} (aquí ${clock(d.localHour)}) · ${SEASONS[d.localSeason].toLowerCase()} · tiempo ${d.weatherHere} · día ${d.dayIndex} · modo ${GAMEMODES[game.gamemode] || game.gamemode} · dificultad ${game.difficulty} · t ${Math.round(game.time)} s`);
     const rs = v.terrain?.stats;
     if (rs && (rs.calc || rs.hits)) lines.push(`relieve: ${rs.hits} bloques guardados (${n1(rs.msHit / Math.max(1, rs.hits))} ms cada uno) · ${rs.calc} calculados (${n1(rs.msCalc / Math.max(1, rs.calc))} ms) · mallas ${n1(rs.msBuild / Math.max(1, rs.built))} ms` + (rs.padded ? ` (allanar ${n1(rs.msPad / rs.padded)} ms en ${rs.padded})` : ''));
+    if (v.world) {
+      // (las matas de hierba por trozo: cuántas mallas, con qué nivel de detalle, y cuántas matas se mandan a dibujar)
+      let n = 0, hid = 0, matas = 0; const lod = [0, 0, 0];
+      for (const b of v.world.nature.values()) for (const pc of b.tufts?.values() || []) { if (!pc.tufts) continue; n++; if (!pc.tufts.visible) { hid++; continue; } lod[pc.lod]++; matas += pc.tufts.count; }
+      if (n) lines.push(`hierba: ${n} trozos (cerca ${lod[0]} · media ${lod[1]} · lejos ${lod[2]} · fuera ${hid}) · ${matas} matas`);
+    }
     const a = v.actors?.stats;
     if (a) lines.push(`personas: ${a.modelos} · ${a.vistas} vistas · ${a.dormidas} dormidas · a todo ${a.t0} / 30 Hz ${a.t1} / 15 Hz ${a.t2} · de lejos ${a.lod1} · ${(a.tris / 1000).toFixed(0)}k triángulos${a.protos !== undefined ? ` · ${a.protos} mallas en caché (${a.protosLibres} sin usar), ${a.lienzos} lienzos` : ''}${Number.isFinite(v.actorsMs) ? ` · actores ${n1(v.actorsMs)} ms` : ''}`);
     const l = game.live;
