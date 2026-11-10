@@ -93,7 +93,8 @@ export class MapView {
     const fg = this.flat.getContext('2d');
     fg.clearRect(0, 0, side, side);
     for (const key of explored) {
-      const [cx, cy] = key.split(',').map(Number), dcx = wrapIndex(cx - pcx, CHUNK);
+      const [cx, cy] = String(key).split(',').map(Number), dcx = wrapIndex(cx - pcx, CHUNK);
+      if (!Number.isFinite(dcx) || !Number.isFinite(cy)) continue;
       if (Math.abs(dcx) > reach || Math.abs(cy - pcy) > reach) continue;
       const t = this.thumb(gen, key);
       if (t) fg.drawImage(t, (dcx + reach) * CHUNK, (cy - pcy + reach) * CHUNK);
@@ -133,8 +134,11 @@ export class MapView {
     if (c.width !== w * r || c.height !== h * r) { c.width = w * r; c.height = h * r; c.style.width = w + 'px'; c.style.height = h + 'px'; }
     // Que no se pueda ir más allá de lo explorado (y perderse en lo negro)
     const b = this.bounds(explored);
-    this.pan.x = Math.max(b.x0 - px, Math.min(b.x1 - px, this.pan.x));
-    this.pan.y = Math.max(b.y0 - py, Math.min(b.y1 - py, this.pan.y));
+    if (!Number.isFinite(this.pan.x) || !Number.isFinite(this.pan.y)) this.recenter();
+    // (el límite, contando con que lo explorado puede estar al otro lado de la costura del planeta: si el jugador queda
+    // fuera de la caja, no se limita)
+    if (px >= b.x0 - CHUNK && px <= b.x1 + CHUNK) this.pan.x = Math.max(b.x0 - px, Math.min(b.x1 - px, this.pan.x));
+    if (py >= b.y0 - CHUNK && py <= b.y1 + CHUNK) this.pan.y = Math.max(b.y0 - py, Math.min(b.y1 - py, this.pan.y));
     const cx = px + this.pan.x, cy = py + this.pan.y, moved = Math.hypot(this.pan.x, this.pan.y) > 2;
     this.drawFlat(c.getContext('2d'), gen, explored, cx, cy, r, w, h, time, [px, py]);
     this.updateLegend(gen, explored);
@@ -150,7 +154,8 @@ export class MapView {
     g.fillStyle = '#1a1410';
     g.fillRect(0, 0, w, h);
     for (const key of explored) {
-      const [kx, ky] = key.split(',').map(Number), dcx = wrapIndex(kx - pcx, CHUNK);
+      const [kx, ky] = String(key).split(',').map(Number), dcx = wrapIndex(kx - pcx, CHUNK);
+      if (!Number.isFinite(dcx) || !Number.isFinite(ky)) continue;
       if (Math.abs(dcx) > rx + 1 || Math.abs(ky - Math.floor(cy / CHUNK)) > ry + 1) continue;
       const t = this.thumb(gen, key);
       if (!t) continue;
@@ -219,8 +224,8 @@ export class MapView {
   bounds(explored) {
     if (this.boundsFor !== explored.size) {
       let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
-      for (const key of explored) { const [cx, cy] = key.split(',').map(Number); x0 = Math.min(x0, cx); y0 = Math.min(y0, cy); x1 = Math.max(x1, cx); y1 = Math.max(y1, cy); }
-      this.boundsBox = explored.size ? { x0: x0 * CHUNK, y0: y0 * CHUNK, x1: (x1 + 1) * CHUNK, y1: (y1 + 1) * CHUNK } : { x0: 0, y0: 0, x1: 0, y1: 0 };
+      for (const key of explored) { const [cx, cy] = String(key).split(',').map(Number); if (!Number.isFinite(cx) || !Number.isFinite(cy)) continue; x0 = Math.min(x0, cx); y0 = Math.min(y0, cy); x1 = Math.max(x1, cx); y1 = Math.max(y1, cy); }   // (una zona mal apuntada no estropea el mapa)
+      this.boundsBox = Number.isFinite(x0) ? { x0: x0 * CHUNK, y0: y0 * CHUNK, x1: (x1 + 1) * CHUNK, y1: (y1 + 1) * CHUNK } : { x0: 0, y0: 0, x1: 0, y1: 0 };
       this.boundsFor = explored.size;
     }
     return this.boundsBox;

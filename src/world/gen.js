@@ -70,7 +70,7 @@ export class WorldGen {
   }
   computeField(cx, cy) {
     const s = this.seed, nc = CHUNK + 1, c = {};
-    const K = ['T', 'M', 'C', 'R', 'L', 'K', 'P', 'f', 'Q'], coarse = K.map(() => new Float32Array(nc * nc));
+    const K = ['T', 'M', 'C', 'R', 'L', 'K', 'P', 'f', 'Q', 'Tl', 'Ml'], coarse = K.map(() => new Float32Array(nc * nc));
     for (let j = 0, i = 0; j < nc; j++) {
       for (let k = 0; k < nc; k++, i++) {
         climate(cx * CHUNK + k, cy * CHUNK + j, s, c);
@@ -90,7 +90,7 @@ export class WorldGen {
         // bioma se mueve con él (a manchas, no a muestras sueltas: un tramado se vería como un laberinto de casillas)
         const gk = cx * CHUNK * RES + k, gj = cy * CHUNK * RES + j;
         patch[i] = PATCH(gk / RES, gj / RES, s);
-        biome[i] = classify(v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7], (patch[i] - 0.5) * 0.03, v[8]);
+        biome[i] = classify(v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7], (patch[i] - 0.5) * 0.03, v[8], v[9], v[10]);
         for (let q = 0; q < K.length; q++) cw[K[q]] = v[q];
         wet[i] = wetness(cw); shore[i] = shoreOf(v[0], v[1], v[2]);
       }
@@ -151,7 +151,7 @@ export class WorldGen {
         const x = tx + 0.5, y = ty + 0.5;
         if (village.keepClear(x, y) || (village.clearing(x, y) < 0.3 && r > 0.006)) continue;
         const b = this.biomeAt(x, y);
-        if (BIOMES[b].water) continue;
+        if (BIOMES[b].water || b === B.ICE) continue;   // (sobre el agua y el hielo no crece nada)
         if (b === B.DESERT) { add('deadBush', tx, ty, 0); continue; }
         if (b === B.SNOW) { if (r < 0.006) add('snowBoulder', tx, ty, 0.6); continue; }
         if (r < 0.005 || b === B.ROCKY || b === B.BEACH) {

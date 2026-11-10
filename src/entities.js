@@ -4,6 +4,7 @@ import { fromView, toView } from './iso.js';
 import { CAM, screenToWorld, viewFor, screenDirOf } from './camera.js';
 import { collide } from './physics.js';
 import { Audio } from './audio.js';
+import { towerFloor } from './world/tower.js';
 
 export class Person {
   constructor({ x, y, look, view = 'front', flip = false }) {
@@ -25,10 +26,11 @@ const JUMP = 5.0, GRAVITY = 15;   // velocidad al saltar (m/s) y gravedad: sube 
 const HOP = 0.35;                  // saltando, por encima de esta altura se pasa sobre lo bajo (vallas, puertas de valla)
 // La altura del suelo en (x, y) por las rocas (las que tienen top): una cúpula de su altura y algo más ancha que su
 // colisión, para subir andando por el borde
-export function floorAt(x, y, list) {
+export function floorAt(x, y, list, z = 0) {
   let h = 0;
   for (const c of list) {
     if (c.top === undefined) continue;
+    if (c.spiral) { const f = towerFloor(c, x, y, z); if (f !== null) return f; continue; }   // (la escalera de la torre manda)
     const R = c.r + 0.18, d = Math.hypot(x - c.x, y - c.y);
     if (d < R) h = Math.max(h, c.top * Math.sqrt(1 - (d / R) ** 2));
   }
@@ -74,7 +76,7 @@ export class Player extends Person {
       // (las rocas no frenan: se sube uno encima; y saltando, a pie o a caballo, se pasa por encima de las vallas)
       near = scene.collidersNear(p.x, p.y);
       const high = this.z - this.floor > (this.mount ? 0.2 : HOP);
-      collide(p, near.filter(c => c.top === undefined && !(high && c.low)), RADIUS);
+      collide(p, near.filter(c => c.top === undefined && !(high && c.low) && !(c.zmax !== undefined && this.z > c.zmax)), RADIUS);   // (zmax: lo que solo frena abajo)
     }
     // No entrar en agua profunda (o, en barca, no salir a tierra): si se puede, deslizarse por la orilla
     const blocked = this.ghost ? null : this.boat ? (x, y) => !scene.water?.(x, y) : scene.blocked?.bind(scene);
@@ -99,7 +101,7 @@ export class Player extends Person {
     if (CAM.first) { const [fx, fy] = screenToWorld(0, -1); this.face = { x: fx, y: fy }; this.dir = [fx, fy]; [this.view, this.flip] = viewFor(0, -1); }
     // Lo que se pisa: subiendo a una roca, se sube con ella (deprisa, sin saltar); bajando poco, se baja con ella; si
     // no, se cae
-    this.floor = near && !this.mount ? floorAt(this.x, this.y, near) : 0;
+    this.floor = near && !this.mount ? floorAt(this.x, this.y, near, this.z) : 0;
     if (this.vz === 0 && this.z - this.floor < 0.3) { this.z += (this.floor - this.z) * Math.min(1, dt * 14); if (Math.abs(this.z - this.floor) < 0.005) this.z = this.floor; }
     // El salto: sube y baja con la gravedad (en el aire no suenan los pasos)
     else if (this.z > this.floor || this.vz > 0) {

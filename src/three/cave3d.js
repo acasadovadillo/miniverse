@@ -89,6 +89,30 @@ export class Cave3D {
         this.group.add(snow);
       }
     }
+    // El techo (?arte=2): una bóveda de roca irregular sobre todo, con estalactitas colgando donde se anda (en el hielo,
+    // carámbanos; en el templo, losas lisas). Solo en primera persona: desde arriba taparía la cueva (ver update)
+    if (A2) {
+      const H = temple ? 2.8 : 2.5, n = 2, geo = new THREE.PlaneGeometry(sc.w + 2, sc.h + 2, (sc.w + 2) * n, (sc.h + 2) * n).rotateX(Math.PI / 2), p = geo.attributes.position;
+      if (!temple) for (let i = 0; i < p.count; i++) { const x = p.getX(i), z = p.getZ(i); p.setY(i, (rnd(Math.round(x * 4), Math.round(z * 4), 21) - 0.5) * 0.35 + Math.sin(x * 0.9) * Math.cos(z * 0.7) * 0.18); }
+      geo.computeVertexNormals();
+      const tex = temple ? flagstone() : rockFace(sc.style === 'ice' ? '#cfe0ea' : st.wall); tex.repeat.set((sc.w + 2) / 2, (sc.h + 2) / 2);
+      const ceil = new THREE.Mesh(geo, mat({ map: tex, flatShading: !temple, roughness: 0.95, color: temple ? '#b8aa8a' : '#cfc8c0', emissive: temple ? '#2e2a22' : '#2e2820', emissiveMap: tex }));   // (un poco de luz propia: por debajo no le da el sol de la cueva)
+      ceil.position.set(sc.w / 2, H, sc.h / 2); ceil.receiveShadow = true;
+      const roof = new THREE.Group(); roof.add(ceil);
+      if (!temple) {
+        const list = [];
+        for (let ty = 0; ty < sc.h; ty++) for (let tx = 0; tx < sc.w; tx++) {
+          if (sc.wall(tx, ty)) continue;
+          for (let k = 0; k < 3; k++) if (rnd(tx, ty, 30 + k) < 0.16) list.push([tx + 0.15 + rnd(tx, ty, 40 + k) * 0.7, ty + 0.15 + rnd(tx, ty, 50 + k) * 0.7, 0.04 + rnd(tx, ty, 60 + k) * 0.09, 0.15 + rnd(tx, ty, 70 + k) * 0.45]);
+        }
+        const ice = sc.style === 'ice', cone = new THREE.ConeGeometry(1, 1, 7).rotateX(Math.PI).translate(0, -0.5, 0);
+        const im = new THREE.InstancedMesh(cone, ice ? mat({ color: '#d8ecf6', roughness: 0.15, metalness: 0.05, transparent: true, opacity: 0.85 }) : mat({ map: rockFace(st.wall), flatShading: true, roughness: 0.9 }), Math.max(1, list.length));
+        list.forEach(([x, z, r, l], i) => { o.position.set(x, H + 0.08, z); o.rotation.set(0, i, 0); o.scale.set(r, l, r); o.updateMatrix(); im.setMatrixAt(i, o.matrix); });
+        im.count = list.length; roof.add(im);
+      }
+      roof.visible = false;
+      this.roof = roof; this.group.add(roof);
+    }
     // Fuera de la cueva, negro
     const dark = new THREE.Mesh(new THREE.PlaneGeometry(400, 400).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: '#030304' }));
     dark.position.set(sc.w / 2, -0.02, sc.h / 2);
@@ -112,6 +136,7 @@ export class Cave3D {
   update(game, dt) {
     const p = game.player;
     if (p) this.cut.player.value.set(p.x, 0, p.y);
+    if (this.roof) this.roof.visible = !!CAM.first;   // (el techo, solo desde dentro: desde arriba taparía todo)
     if (CAM.first) this.cut.toCam.value.set(0, 0);   // (en primera persona no se recortan las paredes)
     else this.cut.toCam.value.set(Math.sin(CAM.yaw), Math.cos(CAM.yaw));
     // Lo de dentro se rehace cuando cambia (una veta picada, un cofre abierto, una reja, una antorcha…)

@@ -5,7 +5,7 @@
 // temblar cuando se golpea. También las matas de hierba, flores, setas, juncos y piedrecitas del suelo, y
 // los árboles lejanos (más sencillos y sin sombra) para el horizonte.
 import * as THREE from 'three';
-import { mat, rockGeo } from './geo.js';
+import { mat, rockGeo, snowCap } from './geo.js';
 import { bark, rockFace } from './textures.js';
 import { ihash, vnoise } from '../util.js';
 import { tonos, ARTE } from '../arte.js';
@@ -113,7 +113,7 @@ const mats = () => (MATS ||= {
   tier: sway(mat({ roughness: 0.95, side: THREE.DoubleSide, shadowSide: THREE.BackSide, flatShading: true }), 0.02, 0.6),
   rock2: A2 ? mat({ map: (() => { return rockFace(); })(), flatShading: true, roughness: 0.92 }) : null,
   frond2: sway(mat({ color: '#ffffff', side: THREE.DoubleSide, shadowSide: THREE.DoubleSide, roughness: 0.85 }), 0.05, 1.2),
-  cactus2: mat({ color: '#ffffff', roughness: 0.75 }),
+  cactus2: mat({ color: '#ffffff', roughness: 0.75 }), snowRock: snowCap({ flatShading: true }),
 });
 // Colores de las hojas según la estación (0 primavera … 3 invierno), de la paleta sobria (las flores y la fruta, vivas)
 const LEAF = [tonos('#6f8050'), tonos('#59683f'), ['#94703a', '#a07c42', '#7f4e2e', '#8c6438'], tonos('#858c84')];
@@ -400,7 +400,8 @@ function rock2(o, season, push, x, z, y, r, rot, h) {
     push('rock' + ((Math.floor(r(7) * 3) + 1) % 3), { p: [x + Math.cos(rot) * s * 0.75, y + s * 0.05, z + Math.sin(rot) * s * 0.75], s: [s * 0.55, s * 0.5, s * 0.5], r: [0, rot * 2, 0], c: ROCK_C[(Math.floor(r(2) * 3) + 1) % 3] });
     for (let i = 0; i < 4; i++) { const a = rot + 0.8 + i * 1.6, e = r(5 + i) * 0.4; push('gem', { p: [x + Math.cos(a) * s * 0.95, y + s * (0.25 + e * 0.3), z + Math.sin(a) * s * 0.92], s: 0.085, r: [r(i), r(i + 1), 0], c: ['#d8844a', '#b8c2ce', '#f0c840', '#d8844a'][i] }); }
   }
-  if (o.kind === 'snowBoulder' || (season === 3 && big)) push('snow', { p: [x, y + s * 0.62, z], s: [s * 0.8, s * 0.18, s * 0.75], r: [0, rot, 0] });
+  // (la nieve, pegada a la roca: la misma forma algo mayor, solo lo de arriba)
+  if (o.kind === 'snowBoulder' || season === 3) push('snow' + v, { p: [x, y + s * 0.12 + 0.015, z], s: [s * (1.05 + r(1) * 0.35) * 1.04, s * (big ? 0.95 : 0.8) * 1.04, s * (0.95 + r(8) * 0.2) * 1.04], r: [(r(9) - 0.5) * 0.2, rot, (r(10) - 0.5) * 0.2] });
 }
 
 const CARD_DEPTH = {};
@@ -415,6 +416,7 @@ export function buildNatureChunk(objs, season, groundY, shadows = true) {
     card: [GEO.card, M.card], cardS: [GEO.card, M.cardS], cardW: [GEO.card, M.cardW], tier: [GEO.tier, M.tier], snowTier: [GEO.tier, M.snow],
     palmSeg: [GEO.palmSeg, M.palmTrunk], frond2: [GEO.frond2, M.frond2], rib: [GEO.rib, M.cactus2], ribTop: [GEO.ribTop, M.cactus2],
     rock0: [GEO.rock0, M.rock2], rock1: [GEO.rock1, M.rock2], rock2: [GEO.rock2, M.rock2],
+    snowrock0: [GEO.rock0, M.snowRock], snowrock1: [GEO.rock1, M.snowRock], snowrock2: [GEO.rock2, M.snowRock],
   };
   for (const [type, list] of Object.entries(out)) {
     const [geo, m] = spec[type];

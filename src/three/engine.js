@@ -4,6 +4,8 @@
 // (+ −), siempre con aceleración y frenado suaves. No atraviesa el suelo y, si una casa se pone entre ella y
 // el jugador, sube lo justo para verlo por encima del tejado. El sol sigue la hora del juego (y la luna de
 // noche), el cielo tiene nubes, y hay lluvia, nieve, tormentas y niebla según el tiempo.
+import { TOWER_CUT } from './models.js';
+import { TOWER } from '../world/tower.js';
 import * as THREE from 'three';
 import { Outline } from './outline.js';
 import { CAM, PITCH, DIST, LOOK } from '../camera.js';
@@ -190,7 +192,11 @@ export class View3D {
     // A quién sigue: al jugador, o (en el menú) una vuelta lenta por el pueblo
     let tx, ty, tz;
     if (menu) { const t = game.time; tx = CENTER.x + Math.sin(t * 0.07) * 6; tz = CENTER.y + Math.cos(t * 0.05) * 5; ty = 0; CAM.yaw += dt * 0.05; }
-    else { tx = p.x; tz = p.y; ty = this.groundY(scene, p.x, p.y); }
+    else { tx = p.x; tz = p.y; ty = this.groundY(scene, p.x, p.y) + (p.floor || 0); }   // (subido a algo: a una roca, a la torre)
+    // Dentro de una torre (y no en primera persona): lo que tape se recorta (ver models.js, TOWER_CUT)
+    { const tw = !menu && !cave && game.places?.poiNear?.(p.x, p.y, 0), inT = !!tw && tw.kind === 'torre' && Math.hypot(p.x - tw.x, p.y - tw.y) < TOWER.inner + 0.4 && !CAM.first;
+      TOWER_CUT.inside.value = inT ? 1 : 0;
+      if (inT) { TOWER_CUT.player.value.set(p.x, ty + (p.z || 0) - (p.floor || 0), p.y); TOWER_CUT.toCam.value.set(Math.sin(CAM.yaw), Math.cos(CAM.yaw)); } }
     const inside = !menu && !cave && this.world.insideHouse;
     // En cuevas, la cámara va más alta y cerca; dentro de casa, algo más alta
     const wantPitch = cave ? Math.max(0.95, CAM.pitch) : inside ? Math.min(PITCH.max, CAM.pitch + 0.14) : CAM.pitch;

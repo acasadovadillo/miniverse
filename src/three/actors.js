@@ -171,7 +171,13 @@ export class Actors {
     const yaw = e.yaw ?? facing(e);
     let y = view.groundY(scene, x, z);
     if (m.kind === 'baby') { m.root.position.set(x, y + (e.h || 0), z); m.root.rotation.y = e.yaw || 0; return; }
-    const pz = e.pose, lying = pz ? pz.kind === 'lie' || pz.kind === 'floorLie' : e.lying;
+    let pz = e.pose;
+    // (sentado en una silla que aquí no está: otro jugador que la ve donde aquí no hay ninguna; mejor en el suelo que en el aire)
+    if (pz?.kind === 'sit' && e.remote && scene.placedNear) {
+      if (!m.seatAt || m.seatAt.t < t - 0.5 || m.seatAt.x !== x || m.seatAt.z !== z) m.seatAt = { t, x, z, ok: scene.placedNear(x, z, 1).some(o => SEATS.has(o.placed) && Math.hypot(o.x - x, o.y - z) < 0.7) };
+      if (!m.seatAt.ok) pz = { kind: 'floorSit', yaw: pz.yaw, h: -0.28 };
+    }
+    const lying = pz ? pz.kind === 'lie' || pz.kind === 'floorLie' : e.lying;
     if (pz) m.speed = 0;   // (sentado o tumbado, quieto)
     if (e.kid || m.kind === 'person') {   // (tumbados, boca arriba, con la cabeza hacia la almohada; sentados, más abajo)
       m.root.rotation.order = 'YXZ';
@@ -483,6 +489,7 @@ function foodInHand(id) {
   const g = new THREE.Group(); f.scale.setScalar(1.25); f.position.set(0, -0.03, 0.03); g.add(f);
   return g;
 }
+const SEATS = new Set(['silla', 'taburete', 'sofa', 'sillon']);
 export function toolModel(id) {
   const def = ITEMS[id];
   if (!def || !(def.tool || def.weapon || def.bow)) return null;

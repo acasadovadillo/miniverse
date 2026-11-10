@@ -164,3 +164,30 @@ export function rockGeo(seed) {
   }
   return g;
 }
+
+// La nieve encima de algo: se pinta una copia algo mayor de su forma con este material, que solo deja ver lo que mira
+// hacia arriba (con el borde algo irregular). Así la nieve sigue la forma y no flota en placas
+export function snowCap(opts = {}) {
+  const m = mat({ color: '#e8eef0', roughness: 0.8, ...opts });
+  m.onBeforeCompile = sh => {
+    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vSnowN;\nvarying vec3 vSnowP;')
+      .replace('#include <beginnormal_vertex>', `#include <beginnormal_vertex>
+        vec3 sn = objectNormal;
+        #ifdef USE_INSTANCING
+          sn = mat3(instanceMatrix) * sn;
+        #endif
+        vSnowN = normalize(mat3(modelMatrix) * sn);`)
+      .replace('#include <worldpos_vertex>', `#include <worldpos_vertex>
+        vec4 sp = vec4(transformed, 1.0);
+        #ifdef USE_INSTANCING
+          sp = instanceMatrix * sp;
+        #endif
+        vSnowP = (modelMatrix * sp).xyz;`);
+    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec3 vSnowN;\nvarying vec3 vSnowP;')
+      .replace('#include <clipping_planes_fragment>', `#include <clipping_planes_fragment>
+        float wob = sin(vSnowP.x * 7.0 + vSnowP.z * 5.0) * sin(vSnowP.z * 6.0 - vSnowP.y * 4.0) * 0.12;
+        if (normalize(vSnowN).y < 0.6 + wob) discard;`);
+  };
+  m.customProgramCacheKey = () => 'nieve-encima';
+  return m;
+}

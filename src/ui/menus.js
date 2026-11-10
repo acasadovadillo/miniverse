@@ -459,7 +459,7 @@ export function initMenus(game) {
     if (game.busy || hud.dialogOpen) return false;   // (hablando, las ventanas no se ven: Esc no las toca)
     if (game.mode === 'play' && wins.closeTop()) return true;   // (Esc: primero, la ventana de encima)
     if (game.mode === 'play' && game.build.on) { game.build.toggle(false); return true; }
-    if (game.mode === 'play') { game.mode = 'pause'; $('p-msg').textContent = live.guest ? `El mundo compartido lo lleva ${live.host?.server ? 'el servidor' : `ahora el juego de ${live.hostName}`}: lo guarda él para todos, y lo tuyo, tu partida.` : live.role === 'host' && !Profile.admin ? 'El mundo compartido lo lleva ahora tu juego: se guarda para todos.' : ''; show('s-pause'); return true; }
+    if (game.mode === 'play') { game.mode = 'pause'; $('p-msg').textContent = ''; show('s-pause'); return true; }   // (sin explicaciones: la partida se guarda sola)
     if (game.mode === 'pause') { resume(); return true; }
     return false;
   }
@@ -503,7 +503,7 @@ export function initMenus(game) {
     wheel = 0;
   }, { passive: false });
   $('map-legend').open = innerWidth > 700;   // (en una pantalla estrecha, plegada)
-  $('p-save').onclick = async () => { $('p-msg').textContent = 'Guardando…'; $('p-msg').textContent = savedMsg(await save({ upload: true })); };
+  if ($('p-save')) $('p-save').onclick = async () => { $('p-msg').textContent = 'Guardando…'; $('p-msg').textContent = savedMsg(await save({ upload: true })); };
   $('p-menu').onclick = async () => {
     const r = await save({ upload: true });
     game.end(); openMenu();

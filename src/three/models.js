@@ -9,7 +9,7 @@
 // y el frente mirando a +z), con sus piezas agrupadas por material para juntarlas luego con las del resto del
 // trozo en unas pocas mallas. Lo que no se junta (fuego, cristal, agua) va aparte, igual que sus luces.
 import * as THREE from 'three';
-import { Builder, mat, rockGeo } from './geo.js';
+import { Builder, mat, rockGeo, snowCap } from './geo.js';
 import { wood as wood0, stone as stone0, rockFace, rng, rug, rugDesign, notes, awning, planks, furrows, artwork } from './textures.js';
 import { ARTE, apagado } from '../arte.js';
 
@@ -24,6 +24,7 @@ const BEVEL = ARTE === 2 ? Object.assign(
 import { CROPS, ITEMS } from '../items.js';
 import { WALL_H, FLOOR_H } from './build3d.js';
 import { SOLIDS, hull } from '../world/fit.js';
+import { TOWER, inHole } from '../world/tower.js';
 
 // ---------- materiales ----------
 let MATS;
@@ -56,10 +57,32 @@ export function modelMats() {
     art_valle: mat({ map: artwork('valle'), roughness: 0.9 }), art_mar: mat({ map: artwork('mar'), roughness: 0.9 }), art_flores: mat({ map: artwork('flores'), roughness: 0.9 }), art_noche: mat({ map: artwork('noche'), roughness: 0.9 }),
     // (?arte=2) La piedra de los lugares, sin sillares pintados: cada sillar es una pieza
     ashlar: mat({ map: rockFace(apagado('#b4ab9a')), roughness: 0.92 }), marble: mat({ map: rockFace(apagado('#d2c8b0')), roughness: 0.75 }), marbleD: mat({ map: rockFace(apagado('#9a907e')), roughness: 0.85 }),
-    crag: mat({ map: rockFace(apagado('#8e887e')), flatShading: true, roughness: 0.95 }),
+    crag: mat({ map: rockFace(apagado('#8e887e')), flatShading: true, roughness: 0.95 }), snowcap: snowCap({ flatShading: true }),
+    towerWall: towerCut(mat({ map: stone('#a8a090'), roughness: 0.92 })), towerStone: towerCut(mat({ map: rockFace(apagado('#9a907e')), roughness: 0.9 })),
+    towerDark: towerCut(mat({ color: '#1c1714', roughness: 1 })),
+    // (lo de dentro de la boca de la cueva: roca oscura, que se ve hacia el fondo)
+    cavein: mat({ map: rockFace(apagado('#5a524a')), color: '#4a4440', flatShading: true, roughness: 1, side: THREE.BackSide }),
     baby: c('#f4e6c8', { roughness: 0.95 }), mirror: c('#d8eef4', { metalness: 0.6, roughness: 0.08 }), plate: c('#f0ece0', { roughness: 0.4 }), plateB: c('#5a7ab8', { roughness: 0.4 }),
   };
   return MATS;
+}
+
+// La torre por dentro: mientras el jugador está dentro (y no en primera persona), lo que le taparía no se pinta: lo que
+// queda por encima de su cabeza y la pared del lado de la cámara (lo pone engine.js cada fotograma)
+export const TOWER_CUT = { player: { value: new THREE.Vector3() }, toCam: { value: new THREE.Vector2(0, 1) }, inside: { value: 0 } };
+function towerCut(m) {
+  m.onBeforeCompile = sh => {
+    Object.assign(sh.uniforms, { tcPlayer: TOWER_CUT.player, tcCam: TOWER_CUT.toCam, tcIn: TOWER_CUT.inside });
+    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vTcW;').replace('#include <worldpos_vertex>', '#include <worldpos_vertex>\nvTcW = (modelMatrix * vec4(transformed, 1.0)).xyz;');
+    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nuniform vec3 tcPlayer;\nuniform vec2 tcCam;\nuniform float tcIn;\nvarying vec3 vTcW;').replace('#include <clipping_planes_fragment>', `#include <clipping_planes_fragment>
+      if (tcIn > 0.5) {
+        vec2 d = vTcW.xz - tcPlayer.xz;
+        float ahead = dot(d, tcCam);
+        if (length(d) < 6.0 && (vTcW.y > tcPlayer.y + 2.3 || (ahead > 0.3 && vTcW.y > tcPlayer.y + 0.25))) discard;
+      }`);
+  };
+  m.customProgramCacheKey = () => 'torre-recorte';
+  return m;
 }
 
 // ---------- un modelo en construcción ----------
@@ -806,7 +829,52 @@ function column(m, key, x, z, h, whole, R, r = 0.24) {
   for (let y = 0.18; y < h - 0.05; y += 0.55) { const top = Math.min(h, y + 0.55); m.cyl(key, x, y, z, r, r * 0.97, top - y - 0.012, 16, [0, R() * 6, 0]); }
   if (whole) m.box(key, x - r * 1.35, h, z - r * 1.35, x + r * 1.35, h + 0.2, z + r * 1.35, 0.6);
 }
+// La torre vieja, por dentro y por fuera (las medidas, de world/tower.js): el muro redondo con la puerta, las saeteras, el
+// pilar, la escalera de caracol, la terraza con su hueco y las almenas
+function bigTower(m) {
+  const T = TOWER, B = m.B('towerWall'), S = m.B('towerStone'), N = 56, TAU = Math.PI * 2, R = T.R, Ri = T.inner, H = T.H, DOOR = 2.2, TOPW = H + 0.5;
+  const P = (a, r, y) => [Math.sin(a) * r, y, Math.cos(a) * r];
+  // El muro: por fuera y por dentro (junto a la puerta, desde lo alto de ella), y su remate con las almenas
+  for (let i = 0; i < N; i++) {
+    const a0 = (i / N) * TAU, a1 = ((i + 1) / N) * TAU, am = (a0 + a1) / 2, door = am > T.door[0] && am < T.door[1], u0 = a0 * R, u1 = a1 * R, y0 = door ? DOOR : 0;
+    B.quadN(P(a0, R, y0), P(a1, R, y0), P(a1, R, TOPW), P(a0, R, TOPW), [Math.sin(am), 0, Math.cos(am)], [[u0 / 2, y0 / 2], [u1 / 2, y0 / 2], [u1 / 2, TOPW / 2], [u0 / 2, TOPW / 2]]);
+    B.quadN(P(a1, Ri, y0), P(a0, Ri, y0), P(a0, Ri, TOPW), P(a1, Ri, TOPW), [-Math.sin(am), 0, -Math.cos(am)], [[u1 / 2, y0 / 2], [u0 / 2, y0 / 2], [u0 / 2, TOPW / 2], [u1 / 2, TOPW / 2]]);
+    if (door) B.quadN(P(a0, Ri, DOOR), P(a1, Ri, DOOR), P(a1, R, DOOR), P(a0, R, DOOR), [0, -1, 0], [[0, 0], [1, 0], [1, 0.25], [0, 0.25]]);   // (el dintel por debajo)
+    B.quadN(P(a0, Ri, TOPW), P(a1, Ri, TOPW), P(a1, R, TOPW), P(a0, R, TOPW), [0, 1, 0], [[0, 0], [1, 0], [1, 0.25], [0, 0.25]]);
+    if (i % 2 === 0) {   // (una almena de cada dos tramos)
+      const b0 = a0 + 0.015, b1 = a1 - 0.015, z1 = H + T.parapet;
+      B.quadN(P(b0, R, TOPW), P(b1, R, TOPW), P(b1, R, z1), P(b0, R, z1), [Math.sin(am), 0, Math.cos(am)], [[0, 0], [0.4, 0], [0.4, 0.3], [0, 0.3]]);
+      B.quadN(P(b1, Ri, TOPW), P(b0, Ri, TOPW), P(b0, Ri, z1), P(b1, Ri, z1), [-Math.sin(am), 0, -Math.cos(am)], [[0, 0], [0.4, 0], [0.4, 0.3], [0, 0.3]]);
+      for (const [b, sg] of [[b0, -1], [b1, 1]]) B.quadN(P(b, Ri, TOPW), P(b, R, TOPW), P(b, R, z1), P(b, Ri, z1), [sg * Math.cos(b), 0, -sg * Math.sin(b)], [[0, 0], [0.25, 0], [0.25, 0.3], [0, 0.3]]);
+      B.quadN(P(b0, Ri, z1), P(b1, Ri, z1), P(b1, R, z1), P(b0, R, z1), [0, 1, 0], [[0, 0], [0.4, 0], [0.4, 0.25], [0, 0.25]]);
+    }
+  }
+  // Las jambas de la puerta (lo grueso del muro, a los lados)
+  for (const [a, sg] of [[T.door[0], 1], [T.door[1], -1]]) B.quadN(P(a, Ri, 0), P(a, R, 0), P(a, R, DOOR), P(a, Ri, DOOR), [sg * Math.cos(a), 0, -sg * Math.sin(a)], [[0, 0], [0.25, 0], [0.25, 1.1], [0, 1.1]]);
+  // Saeteras: unas rendijas oscuras por fuera, a distintas alturas
+  for (let k = 0; k < 7; k++) { const a = 1.2 + k * 0.85, y = 3 + k * 1.3; m.geo('towerDark', BOXG, Math.sin(a) * (R + 0.01), y, Math.cos(a) * (R + 0.01), [0, a, 0], [0.16, 0.9, 0.04]); }
+  // El pilar y el suelo de dentro
+  m.cyl('towerStone', 0, 0, 0, T.r0, T.r0, H, 14);
+  m.geo('towerStone', CIRCLE, 0, 0.02, 0, [-Math.PI / 2, 0, 0], [Ri, Ri, 1]);
+  // La escalera: peldaños del pilar al muro, cada uno a la altura de la rampa que se anda
+  const n = Math.round(T.turns * T.stepsPerTurn), da = TAU / T.stepsPerTurn, rm = (T.r0 + Ri) / 2, len = Ri - T.r0 + 0.06;
+  for (let k = 0; k < n; k++) {
+    const a = (k + 0.5) * da, top = ((k + 0.75) / T.stepsPerTurn) * T.pitch;
+    m.geo('towerStone', BOXG, Math.sin(a) * rm, top - 0.14, Math.cos(a) * rm, [0, a, 0], [rm * da * 1.15, 0.28, len]);
+  }
+  // La terraza: el suelo de arriba (y por debajo), menos el hueco por donde llega la escalera
+  const W = 40;
+  for (let i = 0; i < W; i++) {
+    const a0 = (i / W) * TAU, a1 = ((i + 1) / W) * TAU;
+    if (inHole((a0 + a1) / 2)) continue;
+    S.quadN(P(a0, T.r0 - 0.1, H), P(a1, T.r0 - 0.1, H), P(a1, Ri + 0.02, H), P(a0, Ri + 0.02, H), [0, 1, 0], [[0, 0], [0.5, 0], [0.5, 1.4], [0, 1.4]]);
+    S.quadN(P(a1, T.r0 - 0.1, H - 0.3), P(a0, T.r0 - 0.1, H - 0.3), P(a0, Ri + 0.02, H - 0.3), P(a1, Ri + 0.02, H - 0.3), [0, -1, 0], [[0, 0], [0.5, 0], [0.5, 1.4], [0, 1.4]]);
+  }
+  m.solids.push([-R, 0, -R, R, H + T.parapet, R]);
+}
+const BOXG = new THREE.BoxGeometry(1, 1, 1), CIRCLE = new THREE.CircleGeometry(1, 28);
 const PLACES2 = {
+  torre: bigTower,
   ruinas(m) {
     const R = rng(31);
     // Las losas del suelo, algunas levantadas y otras que faltan
@@ -846,10 +914,10 @@ const PLACES2 = {
   cueva(m, snow) {
     // Un risco de rocas grandes con la boca (2,2 m de alto) mirando a +z, enmarcada por dos jambas y un dintel de roca
     for (const [x, y, z, sx, sy, sz, i] of [[0, 0, -1.25, 2.2, 2.6, 1.1, 0], [-1.55, 0, -0.3, 0.8, 2.0, 1.0, 1], [1.55, 0, -0.35, 0.85, 1.8, 1.0, 2], [-1.2, 0, 0.35, 0.42, 2.0, 0.5, 2], [1.2, 0, 0.35, 0.45, 1.95, 0.5, 0], [0, 2.1, 0.15, 1.5, 0.5, 0.65, 1], [-1.85, 0, 0.9, 0.45, 0.4, 0.45, 0], [1.75, 0, 1.0, 0.38, 0.32, 0.4, 1]])
-      m.geo('crag', rockG(i), x, y + sy * 0.2, z, [0, x + z, 0], [sx, sy, sz]);
-    m.geo('dark0', ICO1, 0, 1.0, 0.0, [0, 0, 0], [0.78, 1.12, 0.45]);
-    m.box('dark0', -0.6, 0, -0.2, 0.6, 0.015, 0.6);
-    if (snow) for (const [x, y, z, sx] of [[0, 2.68, -1.25, 0.95], [-1.5, 2.0, -0.3, 0.45], [1.5, 1.82, -0.35, 0.45], [0, 2.52, 0.15, 0.75]]) m.geo('snow', ICO1, x, y, z, [0, 0, 0], [sx, sx * 0.22, sx * 0.8]);
+    { m.geo('crag', rockG(i), x, y + sy * 0.2, z, [0, x + z, 0], [sx, sy, sz]); if (snow) m.geo('snowcap', rockG(i), x, y + sy * 0.2 + 0.02, z, [0, x + z, 0], [sx * 1.03, sy * 1.03, sz * 1.03]); }   // (la nieve, pegada a la roca)
+    // La boca: por dentro, una bóveda de roca oscura que se ve hacia el fondo (no un hueco negro), y el suelo que entra
+    m.geo('cavein', ICO1, 0, 0.0, -0.35, [0, 0, 0], [0.85, 2.15, 1.05]);
+    m.box('soot', -0.62, 0, -1.2, 0.62, 0.012, 0.5);
   },
 };
 const PLACES = {

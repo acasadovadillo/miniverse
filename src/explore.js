@@ -4,6 +4,7 @@
 import { ITEMS } from './items.js';
 import { ihash } from './util.js';
 import { CHUNK } from './world/gen.js';
+import { towerColliders, TOWER } from './world/tower.js';
 import { B } from './world/biomes.js';
 import { CENTER } from './world/village.js';
 import { wrapIndex } from './world/planet.js';
@@ -14,7 +15,7 @@ import { SHOPS } from './economy.js';
 import { Audio } from './audio.js';
 import { hud } from './ui/hud.js';
 
-const SIZE = { ruinas: 2.2, campamento: 1.8, torre: 1.3, barco: 2.2, templo: 2.2, cueva: 1.4, aldea: 16, faro: 3 };
+const SIZE = { ruinas: 2.2, campamento: 1.8, torre: 3.7, barco: 2.2, templo: 2.2, cueva: 1.4, aldea: 16, faro: 3 };
 const AROUND = [[-1, -1], [0, -1], [1, -1], [-1, 0], [1, 0], [-1, 1], [0, 1], [1, 1]];
 const NAMES = { ruinas: 'Ruinas', campamento: 'Campamento abandonado', torre: 'Torre vieja', barco: 'Barco hundido', templo: 'Templo antiguo', cueva: 'Cueva', aldea: 'Aldea', faro: 'Faro' };
 SHOPS.viajero = { title: 'Mercader de la aldea', hours: [7, 21], stock: [{ id: 'semilla_manzano', price: 90 }, { id: 'pocion', price: 120 }, { id: 'espada', price: 380 }, { id: 'barca', price: 1500 }, { id: 'caballo', price: 2600 }, { id: 'lingote_oro', price: 300 }, { id: 'semilla_calabaza', price: 60 }] };
@@ -178,13 +179,14 @@ export class Explore {
       return;
     }
     // Ruinas, campamento, torre, barco y templo: el sitio y un cofre al lado (menos el templo, que guarda su tesoro dentro)
-    out.objects.push({ x: p.x, y: p.y, poi: p, fx: [p.x - 1.5, p.x + 1.5], fy: [p.y - 1.5, p.y + 1.5] });
-    if (p.kind === 'torre') out.colliders.push({ x0: p.x - 0.5, y0: p.y - 0.5, x1: p.x + 0.5, y1: p.y + 0.5 });
+    const half = p.kind === 'torre' ? TOWER.R : 1.5;
+    out.objects.push({ x: p.x, y: p.y, poi: p, fx: [p.x - half, p.x + half], fy: [p.y - half, p.y + half] });
+    if (p.kind === 'torre') out.colliders.push(...towerColliders(p.x, p.y));   // (se entra y se sube por dentro: ver world/tower.js)
     else if (p.kind === 'campamento') { out.colliders.push({ x0: p.x - 1.5, y0: p.y - 1.5, x1: p.x + 0.5, y1: p.y + 0.5 }); out.colliders.push({ x: p.x + 1, y: p.y + 1, r: 0.4 }); }
     else out.colliders.push({ x0: p.x - 1.4, y0: p.y - 1.4, x1: p.x + 1.4, y1: p.y + 1.4 });
     if (p.kind === 'campamento') out.lights.push({ x: p.x + 1, y: p.y + 1, z: 6, r: 60 });
     if (p.kind !== 'templo') {
-      const t = [Math.floor(p.x) + 2, Math.floor(p.y)];   // la casilla de al lado, a la derecha del lugar
+      const t = [Math.floor(p.x) + (p.kind === 'torre' ? 5 : 2), Math.floor(p.y)];   // la casilla de al lado, a la derecha del lugar (de la torre, fuera)
       out.objects.push({ x: t[0] + 0.5, y: t[1] + 0.5, treasure: p, tile: t, open: !!opened });
       out.colliders.push({ x: t[0] + 0.5, y: t[1] + 0.5, r: 0.35 });
     }

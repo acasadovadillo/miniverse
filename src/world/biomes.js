@@ -41,8 +41,13 @@ export function climate(x, y, seed, out = {}) {
   const d = Math.hypot(dxOf(x, CENTER.x), y - CENTER.y), f = smoothstep(45, 100, d);
   const local = 0.3 + N[0.07](x, y, seed + 1) * 0.3;   // junto al pueblo: pradera o bosque, nunca pantano
   const lat = latOf(y), band = smoothstep(LAT_KEEP[0], LAT_KEEP[1], Math.abs(y - CENTER.y));
-  out.T = lerp(0.52, N[0.006](wx, wy, seed + 100) * 0.75 + N[0.03](wx, wy, seed + 101) * 0.25, f) + (warmth(lat) - HOME_WARMTH) * band;
-  out.M = lerp(local, N[0.008](wx, wy, seed + 200) * 0.75 + N[0.035](wx, wy, seed + 201) * 0.25, f);
+  const t0 = N[0.006](wx, wy, seed + 100), m0 = N[0.008](wx, wy, seed + 200), lw = (warmth(lat) - HOME_WARMTH) * band;
+  out.T = lerp(0.52, t0 * 0.75 + N[0.03](wx, wy, seed + 101) * 0.25, f) + lw;
+  out.M = lerp(local, m0 * 0.75 + N[0.035](wx, wy, seed + 201) * 0.25, f);
+  // (lo mismo sin el ruido fino, de unos 30 m: el tipo de tierra sale de esto, para que no haya islotes de nieve en el
+  // desierto ni de desierto en el bosque; el agua sigue saliendo de T y M, como siempre)
+  out.Tl = lerp(0.52, t0 * 0.75 + 0.125, f) + lw;
+  out.Ml = lerp(local, m0 * 0.75 + 0.125, f);
   out.C = lerp(0.75, N[0.0035](wx, wy, seed + 300) * 0.7 + N[0.012](wx, wy, seed + 301) * 0.3, f);
   out.R = N[0.011](wx, wy, seed + 400);
   out.L = N[0.04](x, y, seed + 500) * f;
@@ -55,21 +60,24 @@ export function climate(x, y, seed, out = {}) {
 
 // Bioma a partir del clima. j: pequeño desplazamiento aleatorio para que los bordes queden tramados. Q: lo que se
 // está dentro de un casquete polar (todo hielo, también el mar)
-export function classify(T, M, C, R, L, K, P, f, j = 0, Q = 0) {
+export function classify(T, M, C, R, L, K, P, f, j = 0, Q = 0, Tl = T, Ml = M) {
   if (Q + j * 2 > 0.5) return B.ICE;
   const c = C + j * 0.3, t = T + j, m = M + j;   // la costa cambia despacio: poco azar, o la orilla sale muy ancha
   if (c < 0.34) return B.OCEAN;
   if (c < 0.36) return B.SHALLOW;
-  const cold = t < 0.32;
+  const cold = t < 0.32;   // (el agua: con T, igual que wetness)
   if (Math.abs(R - 0.5) + j * 0.3 < 0.008 * f && c > 0.4) return cold ? B.ICE : B.SHALLOW;      // ríos
   if (L + j > 0.82) return cold ? B.ICE : L > 0.85 ? B.LAKE : B.SHALLOW;                        // lagos
-  if (c < 0.41) return cold ? B.SNOW : B.BEACH;
-  if (cold) return B.SNOW;
+  if (m > 0.64 && !cold && P + j > 0.73) return B.SHALLOW;                                        // charcas del pantano (agua: con M)
+  // La tierra, con el clima de gran escala (Tl, Ml)
+  const tl = Tl + j, ml = Ml + j, coldL = tl < 0.32;
+  if (c < 0.41) return coldL ? B.SNOW : B.BEACH;
+  if (coldL) return B.SNOW;
   if (K + j > 0.7) return B.ROCKY;
-  if (t > 0.62 && m < 0.46) return B.DESERT;
-  if (m > 0.64) return P + j > 0.73 ? B.SHALLOW : B.SWAMP;                                     // charcas del pantano
-  if (t < 0.47 && m > 0.4) return B.PINES;
-  if (m > 0.48) return B.FOREST;
+  if (tl > 0.62 && ml < 0.46) return B.DESERT;
+  if (ml > 0.64) return B.SWAMP;
+  if (tl < 0.47 && ml > 0.4) return B.PINES;
+  if (ml > 0.48) return B.FOREST;
   return B.MEADOW;
 }
 
@@ -112,5 +120,5 @@ export const shoreOf = (T, M, C) => (C < 0.41 || (T > 0.62 && M < 0.46) ? 0 : M 
 const tmp = {};
 export function biomeAt(x, y, seed) {
   const c = climate(x, y, seed, tmp);
-  return classify(c.T, c.M, c.C, c.R, c.L, c.K, c.P, c.f, 0, c.Q);
+  return classify(c.T, c.M, c.C, c.R, c.L, c.K, c.P, c.f, 0, c.Q, c.Tl, c.Ml);
 }
