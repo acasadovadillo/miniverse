@@ -11,6 +11,7 @@ import { Outline } from './outline.js';
 import { CAM, PITCH, DIST, LOOK } from '../camera.js';
 import { setViewAngle } from '../iso.js';
 import { CENTER } from '../world/village.js';
+import { latOf } from '../world/planet.js';
 import { Settings } from '../settings.js';
 import { Terrain, WATER_Y, WET, RAIN } from './terrain.js';
 import { World3D } from './world3d.js';
@@ -67,7 +68,7 @@ export class View3D {
     this.raycaster = new THREE.Raycaster();
     this.frames = 0; this.acc = 0;
     // (si la gráfica pierde el contexto, al volver los atlas están vacíos: los impostores se hornean otra vez)
-    canvas.addEventListener('webglcontextrestored', () => this.world.impostors?.invalidate());
+    canvas.addEventListener('webglcontextrestored', () => this.world.impostorsLost());
     this.resize();
     addEventListener('resize', () => this.resize());
   }
@@ -353,7 +354,12 @@ export class View3D {
   // donde se va a jugar, para que al empezar ya estén
   idle(game) {
     let season = 0;
-    try { season = game.days.season; season = game.days.localSeason; } catch {}   // (la del sitio, si ya se sabe)
+    try {
+      // (la del sitio: con jugador, la de donde está; en el menú, la de donde está la partida guardada; si no, la del pueblo)
+      const d = game.days, y = game.player ? null : game.savedY?.();
+      season = d.season;
+      season = y != null ? (latOf(y) < 0 ? (season + 2) % 4 : season) : d.localSeason;
+    } catch {}
     this.world.prebake(season, game);
   }
   // Reparte las luces de cerca entre las fuentes más próximas al jugador (o a lo que mira la cámara)

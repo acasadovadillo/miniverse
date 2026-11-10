@@ -211,6 +211,7 @@ export class Overworld {
     this.bounds = null;
     this.layers = [];             // otras capas de contenido por trozo (cultivos, lugares…): { add(cx, cy, delta, out), baseAt?(layer, tx, ty) }
     this.onTouch = null;          // avisa de cada trozo que cambia (para jugar juntos en directo)
+    this.touches = 0;             // sube con cada cambio de cualquier trozo (lo lejano solo se vuelve a mirar entonces)
   }
 
   // ---------- barcas amarradas ----------
@@ -344,7 +345,7 @@ export class Overworld {
     if (d && !d.floor) Object.assign(d, { floor: {}, roof: {}, chest: {} });
     return d;
   }
-  touch(cx, cy) { cx = wrapIndex(cx, CHUNK); const d = this.delta(cx, cy), k = `${cx},${cy}`; d.v++; this.dirty.add(k); this.onTouch?.(k); }
+  touch(cx, cy) { cx = wrapIndex(cx, CHUNK); const d = this.delta(cx, cy), k = `${cx},${cy}`; d.v++; this.touches++; this.dirty.add(k); this.onTouch?.(k); }
   // Lo que ha puesto el jugador en una capa de una casilla (o undefined)
   ownAt(layer, tx, ty) { return this.delta(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK))?.[layer]?.[`${tx},${ty}`]; }
   // Lo fijo del pueblo y de las aldeas en una casilla

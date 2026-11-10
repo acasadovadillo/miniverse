@@ -986,6 +986,10 @@ export class Game {
     }, 50);
   }
 
+  // Dónde se va a jugar, en el menú (aún sin jugador): donde se quedó la partida guardada, para hornear los árboles
+  // lejanos de la estación de allí (en el otro hemisferio, la contraria). null: no se sabe
+  savedY() { const p = Profile.data?.save?.player; return p && !p.inside && Number.isFinite(p.y) ? p.y : null; }
+
   update(dt) {
     this.time += dt;
     this.live.tick(dt);

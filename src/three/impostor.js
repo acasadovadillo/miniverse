@@ -23,10 +23,13 @@ export const IMPOSTORS_ON = QS.get('impostores') !== '0';
 
 // Las especies (una fila del atlas cada una): el roble en tres (joven y dos adultos distintos) y el pino en tres (el
 // tercero, nevado; en invierno ya nievan todos y es uno más), para que de lejos no se vean todos iguales
+// yaw: hacia dónde gira el árbol con su rot (nature3d.js, pieces). Lo que va puesto con cos/sin(rot) (las ramas del roble
+// y del sauce, la inclinación de la palmera, los brazos del cactus) gira al revés que lo que va con el ángulo rot (los
+// pisos del pino): en cada especie manda lo que más se ve de lado, y el impostor gira con eso
 const SETS = [
   { id: 'roble joven', kind: 'oak', age: 0.75 }, { id: 'roble A', kind: 'oak', age: 1 }, { id: 'roble B', kind: 'oak', age: 1 },
   { id: 'frutal', kind: 'fruit', age: 1 }, { id: 'sauce', kind: 'swampTree', age: 1 },
-  { id: 'pino A', kind: 'pine', age: 1 }, { id: 'pino B', kind: 'pine', age: 1 }, { id: 'pino C', kind: 'snowPine', age: 1 },
+  { id: 'pino A', kind: 'pine', age: 1, yaw: -1 }, { id: 'pino B', kind: 'pine', age: 1, yaw: -1 }, { id: 'pino C', kind: 'snowPine', age: 1, yaw: -1 },
   { id: 'palmera', kind: 'palm', age: 1 }, { id: 'cactus', kind: 'cactus', age: 1 },
 ];
 const AZ = 8, ELEV = [5, 40].map(d => d * Math.PI / 180), COLS = AZ * ELEV.length, ROWS = SETS.length;
@@ -141,14 +144,14 @@ export class ImpostorAtlas {
       g.position.set(-o.x, 0, -o.y);
       g.updateMatrixWorld(true);
       let y0 = Infinity, y1 = -Infinity, R = 0, cr = 0, cg = 0, cb = 0, cn = 0;
+      // (el tamaño, con los vértices de cada pieza ya colocada: con las esquinas de sus cajas, los pisos del pino y las
+      // hojas de la palmera salían bastante más anchos, y su celda del atlas se quedaba medio vacía)
       for (const im of g.children) {
-        const geo = im.geometry;
-        if (!geo.boundingBox) geo.computeBoundingBox();
-        const b = geo.boundingBox;
+        const pos = im.geometry.attributes.position;
         for (let k = 0; k < im.count; k++) {
           im.getMatrixAt(k, m4);
-          for (let c = 0; c < 8; c++) {
-            v3.set(c & 1 ? b.max.x : b.min.x, c & 2 ? b.max.y : b.min.y, c & 4 ? b.max.z : b.min.z).applyMatrix4(m4);
+          for (let c = 0; c < pos.count; c++) {
+            v3.fromBufferAttribute(pos, c).applyMatrix4(m4);
             const x = v3.x - o.x, z = v3.z - o.y;
             y0 = Math.min(y0, v3.y); y1 = Math.max(y1, v3.y); R = Math.max(R, Math.hypot(x, z));
           }
@@ -159,12 +162,13 @@ export class ImpostorAtlas {
         im.frustumCulled = false;
       }
       y0 = Math.max(y0, -0.3);   // (lo que va bajo tierra no cuenta)
+      R += 0.12; y1 += 0.06;     // (y algo más por el vaivén, que con el viento quieto no es cero: ver nature3d.js, sway)
       const H = y1 - y0, hw = R / INNER, hh = Math.max(...ELEV.map(e => (H / 2) * Math.cos(e) + R * Math.sin(e))) / INNER;
       // (el color de relleno de lo transparente, por si los mips lo alcanzan: el medio de las hojas, más oscuro por la textura)
       const fill = cn ? new THREE.Color(cr / cn, cg / cn, cb / cn).multiplyScalar(0.7) : new THREE.Color('#4a3a2c');
       g.visible = false;
       W.scene.add(g); W.groups.push(g);
-      sets.push({ id: def.id, row: i, kind: o.kind, k: treeK(o), rot: rotOf(o), yc: (y0 + y1) / 2, hw, hh, H, R, fill, g });
+      sets.push({ id: def.id, row: i, kind: o.kind, k: treeK(o), rot: rotOf(o), yaw: def.yaw || 1, yc: (y0 + y1) / 2, hw, hh, H, R, fill, g });
       compile(g);
       yield 'arbol';
     }
@@ -295,8 +299,8 @@ export function buildFarImpostors(objs, groundY, atlas) {
     const sg = treeK(o) / s.k, y = groundY(o.x, o.y);
     m4.makeScale(2 * s.hw * sg, 2 * s.hh * sg, 1).setPosition(o.x, y + s.yc * sg, o.y);
     im.setMatrixAt(i, m4);
-    // (girado como su árbol de cerca: rot, en la muestra, va a parar a rot del árbol)
-    aImp[i * 2] = s.rot - rotOf(o); aImp[i * 2 + 1] = s.row;
+    // (girado como su árbol de cerca: rot, en la muestra, va a parar a rot del árbol, en el sentido de su especie)
+    aImp[i * 2] = s.yaw * (s.rot - rotOf(o)); aImp[i * 2 + 1] = s.row;
     const t = 0.94 + 0.12 * ihash(Math.floor(o.x * 3), Math.floor(o.y * 3), 93);
     im.setColorAt(i, col.setRGB(t, t, t));
   });
@@ -337,8 +341,10 @@ function impostorMaterial(U) {
       ${MASK_GLSL('iC.xz')}`)
       .replace('#include <project_vertex>', `vec4 mvPosition = viewMatrix * vec4(transformed, 1.0);
       gl_Position = projectionMatrix * mvPosition;
-      // (donde ya está del todo el de cerca, o más allá de la niebla, ni se pinta)
-      if (vNear > 0.999 || iD > impFar + max(iS.x, iS.y)) gl_Position = vec4(0.0, 0.0, 2.0, 1.0);`)
+      // (donde ya está del todo el de cerca, o donde la niebla ya lo tapa entero, ni se pinta. La niebla va por la
+      // profundidad de la vista, no por la distancia: a los lados de la pantalla, un árbol lejano está menos hondo)
+      float iZ = -(viewMatrix * vec4(iC, 1.0)).z;
+      if (vNear > 0.999 || iZ > impFar + max(iS.x, iS.y)) gl_Position = vec4(0.0, 0.0, 2.0, 1.0);`)
       .replace('#include <worldpos_vertex>', `#if defined( USE_ENVMAP ) || defined( DISTANCE ) || defined ( USE_SHADOWMAP ) || defined ( USE_TRANSMISSION ) || NUM_SPOT_LIGHT_COORDS > 0
         vec4 worldPosition = vec4(transformed, 1.0);
       #endif`);
@@ -375,7 +381,7 @@ function impostorMaterial(U) {
       // (con OPAQUE, Three pondría el alfa a 1 y la cobertura no haría nada)
       .replace('#include <opaque_fragment>', 'gl_FragColor = vec4(outgoingLight, diffuseColor.a);');
   };
-  m.customProgramCacheKey = () => 'impostor-v1' + (LOW_Q ? '-q' : '');
+  m.customProgramCacheKey = () => 'impostor-v2' + (LOW_Q ? '-q' : '');
   return m;
 }
 

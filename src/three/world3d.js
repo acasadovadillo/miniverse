@@ -67,6 +67,8 @@ export class World3D {
     this.maskU = { impMask: { value: this.mask }, impOrigin: { value: new THREE.Vector2() }, impFar: { value: 150 } };
     this.useImpostors = IMPOSTORS_ON;
     this.impostors = null;         // el atlas de los árboles lejanos (se hornea en el primer fotograma: en el menú)
+    this.farSigs = new Map();      // "bx,by" → firma de lo quitado en el bloque lejano (se vuelve a mirar si cambia algún trozo)
+    this.removedN = new WeakMap(); // cambios de un trozo → [su versión, cuántas cosas se han quitado de él]
   }
 
   // ---------- cada fotograma ----------
@@ -137,6 +139,9 @@ export class World3D {
     this.scene = scene; this.season = scene.gen.season;
     if (this.villageGroup) this.group.remove(this.villageGroup);
     this.villageGroup = null; this.villageRef = null;
+    // (lo primero que se monta después, al cambiar de estación o de mundo, sale de golpe: detrás no hay nada con lo que
+    // fundirse, que lo lejano también se está rehaciendo, y su sombra saldría entera mientras él aún va tramado)
+    this.freshNature = true;
   }
 
   // La casa en la que se está (el establo), sin tejado; se rehace su trozo al entrar y al salir
@@ -292,7 +297,7 @@ export class World3D {
         }
         if (natSig !== b.natSig) {
           if (b.nat) { b.group.remove(b.nat.group); b.nat.group.traverse(o => { if (o.isInstancedMesh) o.dispose(); }); }
-          else b.born = snap ? -Infinity : now;   // (la primera vez, aparece fundiéndose con lo lejano; de golpe, si se salta)
+          else b.born = snap || this.freshNature ? -Infinity : now;   // (la primera vez, aparece fundiéndose con lo lejano; de golpe, si se salta o justo después de reset)
           b.nat = buildNatureChunk(nat, scene.gen.season, gy, true);
           b.group.add(b.nat.group);
           b.natSig = natSig; b.shadow = null;
@@ -304,6 +309,8 @@ export class World3D {
       }
       this.natureRing(scene, b, ring, rings);
     }
+    // (en cuanto están todos los de alrededor, lo que llegue ya se funde)
+    if (this.freshNature && [...keep].every(k => this.nature.get(k)?.nat)) this.freshNature = false;
     // Lo que queda lejos se va fundiéndose con lo lejano (updateFades lo suelta al acabar); su hierba y su cubierta, en el
     // acto (ya quedaban fuera del círculo de la hierba). Al saltar, de golpe
     for (const [k, b] of this.nature) if (!keep.has(k)) {
@@ -401,6 +408,8 @@ export class World3D {
     const now = performance.now();
     for (const [k, b] of this.nature) {
       if (!b.nat) { b.fadeNow = 0; continue; }
+      // (al saltar, lo que se estaba fundiendo queda hecho del todo, también en los fotogramas siguientes)
+      if (snap && b.leaving == null) b.born = -Infinity;
       let f = b.leaving != null ? 1 - (now - b.leaving) / FADE_MS : snap ? 1 : (now - b.born) / FADE_MS;
       f = b.fadeNow = Math.max(0, Math.min(1, f));
       if (b.leaving != null && f <= 0) { this.dropNature(b); this.nature.delete(k); continue; }
@@ -499,8 +508,14 @@ export class World3D {
     const bx = Math.floor(ccx / FAR_BLOCK), by = Math.floor(ccy / FAR_BLOCK), keep = new Set();
     const A = this.useImpostors && this.impostors?.ready && this.impostors.season === scene.gen.season ? this.impostors : null, mode = A ? 'imp' + A.gen : 'old';
     const gy = (x, y) => this.view.groundY(scene, x, y);
+    // (las firmas, solo cuando ha cambiado algún trozo del mundo desde la última vez: si no, las de antes)
+    if (scene !== this.farSigScene || scene.touches === undefined || scene.touches !== this.farTouches || this.farSigs.size > 64) {
+      this.farSigs.clear(); this.farSigScene = scene; this.farTouches = scene.touches;
+    }
     for (let dy = -FAR_R; dy <= FAR_R; dy++) for (let dx = -FAR_R; dx <= FAR_R; dx++) {
-      const k = `${bx + dx},${by + dy}`, old = this.far.get(k), sig = this.farSig(scene, bx + dx, by + dy);
+      const k = `${bx + dx},${by + dy}`, old = this.far.get(k);
+      let sig = this.farSigs.get(k);
+      if (sig === undefined) this.farSigs.set(k, (sig = this.farSig(scene, bx + dx, by + dy)));
       keep.add(k);
       if (old?.userData.mode === mode && old.userData.sig === sig) continue;
       if (performance.now() - t0 > (old ? budget : budget * 2)) continue;
@@ -537,14 +552,24 @@ export class World3D {
     }
     return out;
   }
-  // La firma de un bloque lejano: las versiones de los cambios de sus trozos (cada cambio sube la de su trozo)
+  // La firma de un bloque lejano: cuánto se ha quitado de cada uno de sus trozos (lo talado, aquí o en la partida de
+  // otro). Solo eso cambia lo lejano: segar, labrar, poner piezas, abrir puertas o que crezcan los cultivos también suben
+  // la versión del trozo, pero no hace falta rehacer el bloque entero por ello
   farSig(scene, fbx, fby) {
     let h = 0;
     if (scene.deltas) for (let j = 0; j < FAR_BLOCK; j++) for (let i = 0; i < FAR_BLOCK; i++) {
       const cx = fbx * FAR_BLOCK + i, cy = fby * FAR_BLOCK + j, d = scene.deltas.get(`${wrapIndex(cx, CHUNK)},${cy}`);
-      h = (Math.imul(h, 31) + (d ? d.v + 1 : 0)) | 0;
+      h = (Math.imul(h, 31) + (d ? this.removedCount(d) : 0)) | 0;
     }
     return h;
+  }
+  // (contadas una vez por versión del trozo: lo quitado no vuelve, así que si cambia, cambia la cuenta)
+  removedCount(d) {
+    const c = this.removedN.get(d);
+    if (c && c[0] === d.v) return c[1];
+    const n = d.removed ? Object.keys(d.removed).length : 0;
+    this.removedN.set(d, [d.v, n]);
+    return n;
   }
   // Un bloque lejano fuera: sus instancias y sus geometrías propias, también de la gráfica
   dropFar(g) {
@@ -610,6 +635,13 @@ export class World3D {
     for (const b of this.nature.values()) if (b.fadeSet) fading++;
     const head = !this.useImpostors ? 'impostores: apagados (?impostores=0)' : this.impostors ? this.impostors.stats() : 'impostores: aún no';
     return `${head} · ${fading} bloques fundiéndose`;
+  }
+  // Se ha perdido el contexto de WebGL y ha vuelto: el atlas está vacío. Se hornea otra vez y, mientras, todo lo lejano
+  // pasa ya a los árboles sencillos (si se fuera cambiando bloque a bloque, los de impostores dejarían huecos)
+  impostorsLost() {
+    if (!this.impostors) return;
+    this.impostors.invalidate();
+    this.setImpostors(this.useImpostors);
   }
   // Cambiar a impostores o a lo sencillo y rehacer ya todo lo lejano (el banco, para medir los dos en la misma pasada)
   setImpostors(on) {
