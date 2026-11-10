@@ -140,6 +140,9 @@ export class WorldGen {
       if (FLOWER_KINDS.has(kind)) o.flower = true;
       objects.push(o);
     };
+    // (las cuestas donde el suelo es roca: ahí no crecen arbustos ni flores. Con el relieve sin allanar, que es el que se
+    // sabe aquí; sl: lo que sube por metro, con roca desde unos 0,6 (ver terrain.js y grassKeep en ground.js))
+    const steep = (x, y, sl) => !village.inBounds(x, y) && Math.hypot(this.groundAt(x + 0.5, y) - this.groundAt(x - 0.5, y), this.groundAt(x, y + 0.5) - this.groundAt(x, y - 0.5)) > sl;
     // Los arbustos del jardín del pueblo: como los demás, se siegan (y lo segado no vuelve)
     for (const [tx, ty] of village.gardenBushes()) if (Math.floor(tx / CHUNK) === cx && Math.floor(ty / CHUNK) === cy) add('bush', tx, ty, 0.45);
 
@@ -178,7 +181,7 @@ export class WorldGen {
         if (r < 0.005 || b === B.ROCKY || b === B.BEACH) {
           const i = Math.floor(ihash(tx, ty, s + 71) * 4);   // cuatro tamaños de roca
           add('rock', tx, ty, 0.25 + i * 0.05);
-        } else {
+        } else if (!steep(x, y, 0.62)) {
           add('bush', tx, ty, 0.45);
         }
       }
@@ -187,7 +190,7 @@ export class WorldGen {
     for (let ty = cy * CHUNK; ty < (cy + 1) * CHUNK; ty++) for (let tx = cx * CHUNK; tx < (cx + 1) * CHUNK; tx++) {
       if (taken.has(`${tx},${ty}`) || vnoise(tx * 0.21, ty * 0.21, s + 7) < 0.64) continue;
       const x = tx + 0.5, y = ty + 0.5, b = this.biomeAt(x, y);
-      if ((b !== B.MEADOW && b !== B.FOREST) || ihash(tx, ty, s + 75) > (b === B.MEADOW ? 0.42 : 0.12) || village.keepClear(x, y) || !village.isGrass(x, y)) continue;
+      if ((b !== B.MEADOW && b !== B.FOREST) || ihash(tx, ty, s + 75) > (b === B.MEADOW ? 0.42 : 0.12) || village.keepClear(x, y) || !village.isGrass(x, y) || steep(x, y, 0.55)) continue;
       add(vnoise(tx * 0.09 + 3, ty * 0.09, s + 8) > 0.5 ? 'margarita' : 'diente_leon', tx, ty, 0);
     }
     const out = { objects };

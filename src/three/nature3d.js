@@ -9,7 +9,8 @@ import { mat, rockGeo, snowCap } from './geo.js';
 import { bark, rockFace } from './textures.js';
 import { ihash, vnoise } from '../util.js';
 import { tonos, SUELO_V2 } from '../arte.js';
-import { macroOf, MAC_K } from '../world/ground.js';
+import { macroOf, MAC_K, grassKeep } from '../world/ground.js';
+import { climate, wetness } from '../world/biomes.js';
 import { FLOWER_GEO, FLOWER_COLORS } from './flowers3d.js';
 
 const tmp = new THREE.Object3D(), col = new THREE.Color();
@@ -411,11 +412,24 @@ let GROUND;
 // Las matas siguen las manchas grandes del suelo (ground.js, macroOf): hacia qué color van en lo seco y en lo jugoso, por
 // estación (en invierno, nada: solo el valor)
 const TUFT_DRY = ['#7d7a3e', '#9a8a44', '#9c7a3a'].map(c => new THREE.Color(c)), TUFT_LUSH = ['#4f7034', '#4a6630', '#6a6c34'].map(c => new THREE.Color(c)), TM = {};
+// Lo mojado (wetness) para la franja jugosa de las orillas, como la pinta el suelo: el clima de cada trozo en una rejilla de
+// 5 × 5 (cada 4 m) y, entre medias, interpolado, como hace gen.js (computeField) por casilla. Por casilla costaría 1-2 ms
+// por trozo; así, 25 cuentas de clima, y solo en los trozos que tienen hierba
+const WK = ['T', 'C', 'R', 'f', 'L', 'M', 'P', 'Q'], WG = WK.map(() => new Float32Array(25)), WC = {}, WV = {};
+function wetGrid(X0, Y0, seed) {
+  for (let j = 0; j < 5; j++) for (let i = 0; i < 5; i++) { climate(X0 + i * 4, Y0 + j * 4, seed, WC); for (let q = 0; q < WK.length; q++) WG[q][j * 5 + i] = WC[WK[q]]; }
+}
+function wetAt(x, y, X0, Y0) {
+  const fx = (x - X0) / 4, fy = (y - Y0) / 4, i0 = Math.min(3, fx | 0), j0 = Math.min(3, fy | 0), u = fx - i0, v = fy - j0, b = j0 * 5 + i0;
+  for (let q = 0; q < WK.length; q++) { const a = WG[q]; WV[WK[q]] = a[b] + (a[b + 1] - a[b]) * u + (a[b + 5] - a[b]) * v + (a[b] - a[b + 1] - a[b + 5] + a[b + 6]) * u * v; }
+  return wetness(WV);
+}
 // (se hace por pasos, un trozo cada vez: yield entre trozo y trozo; al acabar devuelve la malla)
 export function* buildGround(cx0, cy0, n, CHUNK, gen, season, free, groundY) {
   const s = gen.seed, out = { pos: [], col: [], sway: [] }, tufts = [];
   const GRASS = [['#5f7a3a', '#6a8442', '#56703a'], ['#56692f', '#5f7336', '#4d6130'], ['#8f7d42', '#9c8a4a', '#86743c'], ['#a4ac9e', '#b2b8ae', '#98a094']][season];
   const A = (GROUND ||= groundShapes());
+  let wk = null;   // (el trozo del que está hecha la rejilla de lo mojado)
   for (let cj = 0; cj < n; cj++) for (let ci = 0; ci < n; ci++, yield) for (let ty = (cy0 + cj) * CHUNK; ty < (cy0 + cj + 1) * CHUNK; ty++) for (let tx = (cx0 + ci) * CHUNK; tx < (cx0 + ci + 1) * CHUNK; tx++) {
     const b = gen.biomeAt(tx + 0.5, ty + 0.5), cx = tx + 0.5, cy = ty + 0.5;
     const tall = gen.grassAt(tx, ty);
@@ -424,8 +438,12 @@ export function* buildGround(cx0, cy0, n, CHUNK, gen, season, free, groundY) {
       if (gy > -0.05) {
         // (la mata, a la altura del centro y con la cuesta de la casilla: las hojas siguen de pie)
         const sx = (groundY(cx + 0.5, cy) - groundY(cx - 0.5, cy)), sz = (groundY(cx, cy + 0.5) - groundY(cx, cy - 0.5));
-        // (las manchas, sin lo de la orilla: aquí no hay lo mojado a mano, y calcularlo costaría 1-2 ms por trozo)
-        const mac = SUELO_V2 ? null : macroOf(cx, cy, s, -10, TM);
+        // (en las cuestas fuertes, donde el suelo es roca, no hay; en las medias, menos: grassKeep, como el sombreador)
+        if (ihash(tx, ty, s + 24) > grassKeep(Math.hypot(sx, sz))) continue;
+        // (las manchas, con la franja de la orilla)
+        const X0 = (cx0 + ci) * CHUNK, Y0 = (cy0 + cj) * CHUNK;
+        if (!SUELO_V2 && wk !== ci + cj * n) { wk = ci + cj * n; wetGrid(X0, Y0, s); }
+        const mac = SUELO_V2 ? null : macroOf(cx, cy, s, wetAt(cx, cy, X0, Y0), TM);
         tufts.push([cx, gy, cy, ihash(tx, ty, s + 21) * Math.PI * 2, tall * (season === 3 ? 0.6 : 1), sx, sz, GRASS[Math.floor(ihash(tx, ty, s + 22) * 3)], 0.9 + ihash(tx, ty, s + 23) * 0.2, mac ? mac.dry : 0, mac ? mac.lush : 0, mac ? mac.v : 1]);
       }
       continue;

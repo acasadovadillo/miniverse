@@ -2,7 +2,8 @@
 // el jugador (deltas) y lo fijo del pueblo y de las aldeas (la "capa base", que no se puede quitar). Los trozos se
 // guardan con su número dentro del planeta; los de más allá de la costura (para verlos y chocar con ellos desde el
 // otro lado) son los mismos, corridos una vuelta. Fuera del planeta no se construye.
-import { clamp } from '../util.js';
+import { clamp, ihash } from '../util.js';
+import { groundSmooth, grassKeep } from './ground.js';
 import { WorldGen, CHUNK, GRASS_REGROW, flowerShows } from './gen.js';
 import { inYard, buildVillage, NILO, inBounds, isGrass, inOwnHouse, inVillageHouse } from './village.js';
 import { B, BIOMES } from './biomes.js';
@@ -631,7 +632,10 @@ export class Overworld {
     if (this.at('floor', tx, ty) || this.at('placed', tx, ty)) return false;
     const d = this.delta(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK)), k = `${tx},${ty}`;
     if (d && (d.tilled[k] !== undefined || d.crops?.[k])) return false;
-    return !this.mownAt(tx, ty, today) && !this.layers.some(l => l.blocks?.(tx, ty));
+    if (this.mownAt(tx, ty, today) || this.layers.some(l => l.blocks?.(tx, ty))) return false;
+    // (ni en las cuestas donde el suelo es roca, ni en las que no se pintan: la misma cuenta que las matas, nature3d.js)
+    const g = this.gen, sx = groundSmooth(g, x + 0.5, y, this) - groundSmooth(g, x - 0.5, y, this), sz = groundSmooth(g, x, y + 0.5, this) - groundSmooth(g, x, y - 0.5, this);
+    return ihash(tx, ty, g.seed + 24) <= grassKeep(Math.hypot(sx, sz));
   }
   // Segarla (con la guadaña: ver gather.js): queda segada hasta que vuelve a salir (y lo segado hace mucho se olvida)
   mow(tx, ty, today) {

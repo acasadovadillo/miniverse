@@ -35,7 +35,7 @@ function photoOver(t, key, { meters, grey } = {}) {
     c.width = img.width; c.height = img.height;
     g.drawImage(img, 0, 0);
     const data = g.getImageData(0, 0, c.width, c.height), d = data.data;
-    if (grey) for (let i = 0; i < d.length; i += 4) d[i] = d[i + 1] = d[i + 2] = avg[0] + (d[i] - p.mean) * grey;
+    if (grey) { let sum = 0; for (let i = 0; i < d.length; i += 4) sum += (d[i] = d[i + 1] = d[i + 2] = avg[0] + (d[i] - p.mean) * grey, d[i]); MEANS.set(c, sum / (d.length / 4) / 255); }
     else { const k = avg.map(a => a / p.mean), soft = p.k ?? 1, m = p.mean * (1 - soft); for (let i = 0; i < d.length; i += 4) { d[i] = (m + d[i] * soft) * k[0]; d[i + 1] = (m + d[i + 1] * soft) * k[1]; d[i + 2] = (m + d[i + 2] * soft) * k[2]; } }
     g.putImageData(data, 0, 0);
     if (meters) t.repeat.set(t.repeat.x * meters / p.m[0], t.repeat.y * meters / p.m[1]);
@@ -44,6 +44,20 @@ function photoOver(t, key, { meters, grey } = {}) {
     t.dispose(); t.image = c; t.needsUpdate = true;
   });
   return t;
+}
+
+// La media (de 0 a 1, del canal rojo) de lo que tiene ahora una textura en gris: el suelo divide su detalle por ella
+// (terrain.js). Una vez por lienzo: la de la foto la apunta photoOver al teñirla, y la del lienzo pintado se mide al pedirla
+const MEANS = new WeakMap();
+export function meanOf(t) {
+  const img = t.image;
+  let m = MEANS.get(img);
+  if (m === undefined) {
+    const d = img.getContext('2d').getImageData(0, 0, img.width, img.height).data;
+    let sum = 0; for (let i = 0; i < d.length; i += 4) sum += d[i];
+    MEANS.set(img, m = sum / (d.length / 4) / 255);
+  }
+  return m;
 }
 
 // Ruido de motas: n puntos de tamaño s con colores alrededor de base
@@ -240,13 +254,14 @@ export const soilDetail = () => photoOver(make(256, 256, (g, w, h) => {
 }, { color: false }), 'tierra', { grey: 0.8 });
 // Roca de las cuestas del suelo (terrain.js), en gris: manchas y grietas que bajan; encima, la foto de las rocas (la misma
 // que ya se descarga para ellas)
-export const rockDetail = () => photoOver(make(256, 256, (g, w, h) => {
+// (con menos anisotropía que las demás: se lee en tres planos, y así cuesta menos en las cuestas)
+export const rockDetail = () => { const t = photoOver(make(256, 256, (g, w, h) => {
   const r = rng(13);
   g.fillStyle = '#c4c4c4'; g.fillRect(0, 0, w, h);
   for (let i = 0; i < 80; i++) { const v = 140 + r() * 100; g.fillStyle = `rgba(${v},${v},${v},.4)`; g.beginPath(); g.ellipse(r() * w, r() * h, 10 + r() * 36, 6 + r() * 18, r() * 3, 0, 7); g.fill(); }
   g.strokeStyle = 'rgba(60,60,60,.55)';
   for (let i = 0; i < 14; i++) { g.beginPath(); let x = r() * w, y = r() * h; g.moveTo(x, y); for (let k = 0; k < 5; k++) { x += (r() - 0.5) * 40; y += r() * 24; g.lineTo(x, y); } g.stroke(); }
-}, { color: false }), 'roca', { grey: 0.9 });
+}, { color: false }), 'roca', { grey: 0.9 }); t.anisotropy = 4; return t; };
 
 // Tablas horizontales de una pared de madera (cinco por metro), con juntas y vetas
 export const siding = () => photoOver(make(256, 256, (g, w, h) => {

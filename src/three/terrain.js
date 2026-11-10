@@ -11,7 +11,7 @@ import * as THREE from 'three';
 import { CHUNK } from '../world/gen.js';
 import * as village from '../world/village.js';
 import { BLOCK, PX, groundSmooth, blockHeights, blockNormals, edgeAt, blockColors, paintPixels } from '../world/ground.js';
-import { grassDetail, soilDetail, rockDetail } from './textures.js';
+import { grassDetail, soilDetail, rockDetail, meanOf } from './textures.js';
 import { mat } from './geo.js';
 import { PAL, SUELO_V2 } from '../arte.js';
 // (solo lo usa el hilo aparte, pero se carga también aquí para que index.html lo cuente entre lo que vuelve a pedir sin
@@ -361,49 +361,69 @@ function groundMaterial(map) {
       .replace('#include <color_fragment>', '#include <color_fragment>\n        diffuseColor.rgb *= 1.0 - 0.24 * uWet;   // (y más oscuro)');
     if (SUELO_V2) { oldDetail(sh); return; }
     sh.uniforms.rockMap = D.rock; sh.uniforms.rockCol = D.rockCol; sh.uniforms.uGain = GROUND_GAIN;
+    // (la media de cada detalle, de su lienzo o de su foto, cuando llega: ver meanOf. Se lee al subir los uniformes, así
+    // sigue a la foto sin que cada píxel lea el último mipmap)
+    sh.uniforms.uMean = (D.mean ||= { get value() { return (this.v ||= new THREE.Vector3()).set(meanOf(D.grass.value), meanOf(D.soil.value), meanOf(D.rock.value)); } });
     // (el sitio y la normal en el mundo, para el detalle y para saber cuánta cuesta hay)
     sh.vertexShader = sh.vertexShader
       .replace('#include <common>', '#include <common>\nvarying vec3 vGP;\nvarying vec3 vGN;')
       .replace('#include <begin_vertex>', '#include <begin_vertex>\nvGP = (modelMatrix * vec4(transformed, 1.0)).xyz;\nvGN = mat3(modelMatrix) * objectNormal;');
     sh.fragmentShader = sh.fragmentShader
-      .replace('#include <common>', '#include <common>\nuniform sampler2D grassMap;\nuniform sampler2D soilMap;\nuniform sampler2D rockMap;\nuniform vec3 rockCol;\nuniform float uGain;\nvarying vec3 vGP;\nvarying vec3 vGN;')
+      .replace('#include <common>', '#include <common>\nuniform sampler2D grassMap;\nuniform sampler2D soilMap;\nuniform sampler2D rockMap;\nuniform vec3 rockCol;\nuniform float uGain;\nuniform vec3 uMean;\nvarying vec3 vGP;\nvarying vec3 vGN;\n' + NOISE)
       .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\n        roughnessFactor = mix(roughnessFactor, 0.82, rockK);   // (la roca, algo menos mate)')
       .replace('#include <map_fragment>', `#include <map_fragment>
         vec3 base = diffuseColor.rgb;
         // (lo verde: que no sea más rojo que verde ni tan azul)
         float green = smoothstep(-0.035, 0.015, base.g - base.r) * smoothstep(0.01, 0.06, base.g - base.b);
         vec2 P = vGP.xz;
-        // El detalle, dividido por su media: el último mipmap de cada textura, que es la media de lo que tenga en ese momento
-        // (el lienzo o la foto, cuando llega). Así no aclara ni oscurece el color del suelo, solo le da grano
-        float mG = textureLod(grassMap, vec2(0.5), 16.0).r, mS = textureLod(soilMap, vec2(0.5), 16.0).r;
+        // El detalle, dividido por su media (uMean: la de lo que tenga en ese momento, el lienzo o la foto, cuando llega). Así
+        // no aclara ni oscurece el color del suelo, solo le da grano
+        float mG = uMean.x, mS = uMean.y;
         float g1 = texture2D(grassMap, P * 0.55).r / mG, g2 = texture2D(grassMap, mat2(0.8, -0.6, 0.6, 0.8) * P * 0.13 + 0.37).r / mG;
         float s1 = texture2D(soilMap, P * 0.6).r / mS, s2 = texture2D(soilMap, P * 0.11 + 0.71).r / mS;
         // La cuesta: de 32° a 38°, roca (con nieve, de 43° a 49°: la nieve se queda en lo que no es pared), con el borde roto
-        // por el ruido de tierra grande; y de 14° a 30° la hierba clarea y asoma la tierra. Bajo el agua no hay roca (no
+        // por un ruido; y de 14° a 30° la hierba clarea y asoma la tierra. Bajo el agua no hay roca (no
         // tapa el fondo que pinta ground.js). La nieve, por el color: clara y sin croma
         vec3 nW = normalize(vGN);
         float lum = dot(base, vec3(0.2126, 0.7152, 0.0722)), chroma = max(base.r, max(base.g, base.b)) - min(base.r, min(base.g, base.b));
         float snowy = smoothstep(0.40, 0.60, lum) * (1.0 - smoothstep(0.05, 0.14, chroma));
-        float ny = nW.y + (s2 - 1.0) * 0.2 + (g2 - 1.0) * 0.08;
+        // (el borde, roto con un ruido propio: el de las texturas lo promedian las mipmaps según la distancia, y con él solo, el
+        // contorno de la roca cambiaba de forma al acercarse o girar. Este, de manchas de unos 3 m y de 1 m (giradas, para que
+        // no se note su rejilla), es el mismo de cerca y de lejos, y es el que decide dónde va el borde; solo se apaga muy
+        // lejos, donde un píxel ya abarca más que sus manchas, para que no centellee. Por la distancia y no por lo que mide un
+        // píxel (dFdx), que cambia de golpe de un triángulo a otro. Encima, el grano de la tierra y de la hierba (s2 y g2, de
+        // media 1) lo deshilacha de cerca, como antes; de lejos se va, pero el borde se queda donde estaba)
+        vec3 dPx = dFdx(vGP), dPy = dFdy(vGP);
+        float far = distance(vGP, cameraPosition);
+        float ny = nW.y + (gNoise(P * 0.35) - 0.5) * 0.18 * (1.0 - smoothstep(500.0, 1000.0, far))
+          + (gNoise(mat2(0.8, -0.6, 0.6, 0.8) * P * 1.1 + 7.3) - 0.5) * 0.1 * (1.0 - smoothstep(160.0, 320.0, far))
+          + (s2 - 1.0) * 0.2 + (g2 - 1.0) * 0.08;
         float rockK = smoothstep(0.85 - 0.13 * snowy, 0.79 - 0.12 * snowy, ny) * smoothstep(-0.02, 0.12, vGP.y);
         float mid = smoothstep(0.97, 0.86, ny) * (1.0 - rockK);
         float dG = (1.0 + 0.8 * (g1 - 1.0)) * (1.0 + 0.45 * (g2 - 1.0)), dS = (1.0 + 0.75 * (s1 - 1.0)) * (1.0 + 0.3 * (s2 - 1.0));
         diffuseColor.rgb = base * mix(dS, dG, green * (1.0 - 0.55 * mid)) * uGain;
         diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(1.02, 0.93, 0.80) * 0.9, mid * green * 0.5);
-        // (los cambios del sitio entre píxeles, fuera del if: dentro, con unos píxeles sí y otros no, la gráfica no los sabe)
-        vec3 dPx = dFdx(vGP), dPy = dFdy(vGP);
+        // (los cambios del sitio entre píxeles, dPx y dPy, van fuera del if: dentro, con unos píxeles sí y otros no, la gráfica
+        // no los sabe)
         if (rockK > 0.002) {
           // (la roca, proyectada en los tres planos según hacia dónde mire la cuesta, para que no se estire; encima,
           // bloques grandes vistos desde arriba y estratos: el ruido de tierra estirado en horizontal. Toma un poco del color
           // del bioma, más cálida en el desierto; con nieve, más fría y con nieve en los salientes que miran arriba)
           vec3 aN = abs(nW), w3 = aN * aN * aN;
           w3 /= w3.x + w3.y + w3.z;
-          float mR = textureLod(rockMap, vec2(0.5), 16.0).r;
+          float mR = uMean.z;
           float r1 = (w3.x * textureGrad(rockMap, vGP.zy * 0.5, dPx.zy * 0.5, dPy.zy * 0.5).r + w3.y * textureGrad(rockMap, P * 0.5, dPx.xz * 0.5, dPy.xz * 0.5).r
             + w3.z * textureGrad(rockMap, vGP.xy * 0.5, dPx.xy * 0.5, dPy.xy * 0.5).r) / mR;
           float r3 = textureGrad(rockMap, P * 0.09 + 0.5, dPx.xz * 0.09, dPy.xz * 0.09).r / mR;
-          vec2 sU = vec2((vGP.x + vGP.z) * 0.08, vGP.y * 0.35);
-          float st = 1.0 + (textureGrad(soilMap, sU, vec2((dPx.x + dPx.z) * 0.08, dPx.y * 0.35), vec2((dPy.x + dPy.z) * 0.08, dPy.y * 0.35)).r / mS - 1.0) * (1.0 - w3.y);   // (en las paredes)
+          // (los estratos, en las dos paredes de la proyección: con uno solo, (x + z), en las que miran a (1, 0, 1) no cambiaba a lo
+          // largo de la pared y salían rayas rectas. Solo donde hay pared: en lo más tendido apenas se ven, y se apagan poco a
+          // poco antes de dejar de leerlos, para que no quede una raya en el sitio del corte)
+          float st = 1.0;
+          if (w3.y < 0.9) {
+            float sA = textureGrad(soilMap, vec2(vGP.z * 0.08, vGP.y * 0.35), vec2(dPx.z * 0.08, dPx.y * 0.35), vec2(dPy.z * 0.08, dPy.y * 0.35)).r;
+            float sB = textureGrad(soilMap, vec2(vGP.x * 0.08, vGP.y * 0.35), vec2(dPx.x * 0.08, dPx.y * 0.35), vec2(dPy.x * 0.08, dPy.y * 0.35)).r;
+            st = 1.0 + (mix(sB, sA, w3.x / (w3.x + w3.z + 1e-4)) / mS - 1.0) * (1.0 - w3.y) * smoothstep(0.9, 0.75, w3.y);
+          }
           vec3 rock = mix(rockCol * 0.9, base * 0.8, 0.22 * (1.0 - snowy)) * max(0.25, (1.0 + 1.0 * (r1 - 1.0)) * (1.0 + 1.3 * (r3 - 1.0)) * (1.0 + 0.6 * (st - 1.0)));
           rock = mix(rock, rock * vec3(0.9, 0.95, 1.02), snowy);
           rock = mix(rock, base, snowy * 0.75 * smoothstep(0.62, 0.7, ny + (r1 - 1.0) * 0.6));
@@ -412,6 +432,11 @@ function groundMaterial(map) {
   };
   return m;
 }
+// Ruido de valor del borde de la roca (terrain.js, suelo-v3): el azar de cada punto de la rejilla y, entre medias, suave
+const NOISE = `float gHash(vec2 p) { vec3 q = fract(p.xyx * 0.1031); q += dot(q, q.yzx + 33.33); return fract((q.x + q.y) * q.z); }
+float gNoise(vec2 p) { vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(gHash(i), gHash(i + vec2(1.0, 0.0)), f.x), mix(gHash(i + vec2(0.0, 1.0)), gHash(i + vec2(1.0, 1.0)), f.x), f.y); }
+`;
 // El detalle de antes (?suelo=v2): sin cuestas, y dividido por una media fija, que aclaraba lo verde (×1,5)
 function oldDetail(sh) {
   sh.vertexShader = sh.vertexShader

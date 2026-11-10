@@ -7,6 +7,7 @@ import { B, BIOMES, climate, classify, biomeAt, wetness, depthOfWet, reliefOf } 
 import * as village from './village.js';
 import { seasonalPalette } from '../art/seasons.js';
 import { ihash, vnoise, rgbOf } from '../util.js';
+import { wrapNoise } from './planet.js';
 import { PAL, SUELO_V2 } from '../arte.js';
 
 export const BLOCK = CHUNK * 4;         // lado de un bloque de suelo, en casillas (metros)
@@ -24,15 +25,23 @@ const SHALLOW_W = rgbOf(PAL.agua.orilla), DEEP = rgbOf(PAL.agua.profunda), FOAM 
 export const MAC_K = [[0.35, 0.45, 1], [0.6, 0.35, 1], [0.5, 0.25, 0.9], [0, 0, 0.35]];
 const MAC_DRY = ['#8b8562', '#94864c', '#8e7440'].map(rgbOf), MAC_LUSH = ['#566b35', '#4f6230', '#5f6233'].map(rgbOf), WARM = rgbOf('#a8865a'), MAC = {};
 // Las manchas en (x, y): dry y lush de 0 a 1 y v, el valor (de 0,88 a 1,12). u: lo mojado de ahí (wetness; -10 si no se
-// sabe): junto a la orilla, una franja jugosa de unos 5 m. Se escriben en out para no crear objetos en los bucles grandes
+// sabe): junto a la orilla, una franja jugosa de unos 5 m (lo seco no se quita: si no, en una mancha seca la orilla y sus
+// matas, que la calculan más gruesa, saldrían de colores contrarios). Se escriben en out para no crear objetos en los
+// bucles grandes. (Con el ruido que da la vuelta al planeta: si no, las manchas dibujarían una raya en la costura)
+const MA = wrapNoise(0.021), MB = wrapNoise(0.0065), MC = wrapNoise(0.06);
 export function macroOf(x, y, S, u, out) {
-  const a = vnoise(x * 0.021, y * 0.021, S + 91), b = vnoise(x * 0.0065, y * 0.0065, S + 92), c = vnoise(x * 0.06, y * 0.06, S + 93);
+  const a = MA(x, y, S + 91), b = MB(x, y, S + 92), c = MC(x, y, S + 93);
   const m = a * 0.55 + b * 0.3 + c * 0.15, near = ss(-6, -0.6, u);
-  out.dry = ss(0.5, 0.74, m) * (1 - near);
+  out.dry = ss(0.5, 0.74, m);
   out.lush = Math.max(ss(0.46, 0.24, m), near * 0.85);
   out.v = 0.88 + 0.24 * (a * 0.6 + c * 0.4);
   return out;
 }
+// Cuánta hierba aguanta una cuesta (sl: lo que sube el suelo por metro), con la misma regla que el sombreador del suelo
+// (terrain.js): desde ny 0,85 (sl 0,62) hay roca, y no hay matas; de ny 0,97 a 0,86 (sl 0,25 a 0,59) la hierba clarea y
+// queda algo más de la mitad. Es la probabilidad de que una casilla con hierba la siga teniendo: la usan las matas
+// (nature3d.js) y la guadaña (scenes.js, grassAt), para que no se siegue lo que no se ve
+export const grassKeep = sl => (1 - ss(0.5, 0.72, sl)) * (1 - 0.45 * ss(0.25, 0.55, sl));
 const mix3 = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
 const ss = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 
