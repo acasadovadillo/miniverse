@@ -738,7 +738,7 @@ export class Game {
     setFamilyHouse(true);
     this.world.rebuildVillage();   // (los árboles y arbustos que había donde va la casa ya no están)
     this.layHouse('family', false);
-    await hud.say('Nilo', ['¡Hecho! Ya tienes casa familiar. Fabrica en el banco la cama doble, la cuna, las camas de los niños y lo de la cocina y el baño, y ponlo a tu gusto.']);
+    await hud.say('Nilo', ['¡Hecho! Ya tienes casa familiar. Construye con B la cama doble, la cuna, las camas de los niños y lo de la cocina y el baño (yo vendo los planos de las camas y la cuna; Dani, los demás), y ponlo a tu gusto.']);
     this.onSave?.();
   }
   // Tu casa: su tamaño (false, true o 'family') y su solar

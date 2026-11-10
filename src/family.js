@@ -95,7 +95,7 @@ export class Family {
     if (v.expecting) return `Ya estáis esperando un bebé: nacerá dentro de ${Math.max(1, WAIT - (this.today - v.expecting.since))} días.`;
     if (v.kids.length >= MAX) return 'Ya tenéis dos hijos: la casa está completa.';
     const babies = v.kids.filter(k => this.baby(k)).length;
-    if (this.furniture('cuna').length <= babies) return 'Hace falta una cuna libre en casa (se fabrica en el banco de carpintero).';
+    if (this.furniture('cuna').length <= babies) return 'Hace falta una cuna libre en casa (se construye con B; Nilo vende su plano).';
     return null;
   }
   // Quien se ha tumbado al otro lado de tu cama doble, si es del otro sexo: { conn, peer } o null

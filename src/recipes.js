@@ -5,14 +5,17 @@ import { ITEMS, RUG_MADE, rugId, ARMOR_PIECES, ARMOR_METALS } from './items.js';
 export const STATIONS = {
   mano: { name: 'A mano' },
   banco: { name: 'Banco de carpintero' },
+  cantero: { name: 'Mesa de cantero', fem: true },
   horno: { name: 'Horno' },
   yunque: { name: 'Yunque' },
   telar: { name: 'Telar' },
-  cocina: { name: 'Cocina' },
-  quesera: { name: 'Quesera' },
+  cocina: { name: 'Cocina', fem: true },
+  quesera: { name: 'Quesera', fem: true },
   alambique: { name: 'Alambique' },
-  noria: { name: 'Noria' },
+  noria: { name: 'Noria', fem: true },
 };
+// «un banco de carpintero», «una mesa de cantero»: para los avisos
+export const aStation = id => `${STATIONS[id].fem ? 'una' : 'un'} ${STATIONS[id].name.toLowerCase()}`;
 
 const R = (station, out, n, ins, extra = {}) => ({ id: out, station, out, n, ins, ...extra });
 // Una alfombra de cada tamaño: cuesta según lo que ocupa (la de 2×2, cuatro veces lo de la de 1×1). En la lista sale
@@ -25,8 +28,11 @@ export const RECIPES = [
   R('mano', 'mochila', 1, [['fibra', 8], ['cuerda', 2]]),
   R('mano', 'sombrero', 1, [['fibra', 6], ['cuerda', 1]]),
   R('mano', 'banco', 1, [['tablas', 6], ['piedra', 2]], { teach: 'Nilo' }),
+  // La mesa de cantero, a mano como el banco: con ella cerca se construye lo de piedra (pieces.js) y en ella se hace
+  // lo que es sobre todo de piedra
+  R('mano', 'cantero', 1, [['piedra', 8], ['tablas', 2]]),
 
-  R('banco', 'horno', 1, [['piedra', 14]]),
+  R('cantero', 'horno', 1, [['piedra', 14]]),
   R('banco', 'telar', 1, [['tablas', 8], ['cuerda', 4]]),
   R('banco', 'cocina', 1, [['piedra', 8], ['tablas', 4], ['lingote_cobre', 2]]),
   R('banco', 'silla', 1, [['tablas', 4]]),
@@ -34,7 +40,7 @@ export const RECIPES = [
   R('banco', 'mesa_grande', 1, [['tablas', 12]]),
   R('banco', 'cofre', 1, [['tablas', 8]]),
   R('banco', 'estanteria', 1, [['tablas', 6]]),
-  R('banco', 'maceta', 1, [['piedra', 3], ['fibra', 2]]),
+  R('cantero', 'maceta', 1, [['piedra', 3], ['fibra', 2]]),
   R('banco', 'cama', 1, [['tablas', 6], ['tela', 2]]),
   R('banco', 'cama_doble', 1, [['tablas', 10], ['tela', 4]]),
   R('banco', 'sofa', 1, [['tablas', 8], ['tela', 4], ['fibra', 4]]),
@@ -47,15 +53,15 @@ export const RECIPES = [
   R('banco', 'alacena', 1, [['tablas', 8], ['piedra', 2]]),
   R('banco', 'armario', 1, [['tablas', 10], ['cuerda', 1]]),
   R('banco', 'mueble_bano', 1, [['tablas', 4], ['tela', 1]]),
-  R('banco', 'chimenea', 1, [['piedra', 8]]),
+  R('cantero', 'chimenea', 1, [['piedra', 8]]),
   // (las vallas y sus puertas no se fabrican: se construyen con B, con un banco cerca; ver pieces.js)
   // Cuadros: un marco de tablas, el lienzo de tela y bayas para los colores
   ...['cuadro_valle', 'cuadro_mar', 'cuadro_flores', 'cuadro_noche'].map(id => R('banco', id, 1, [['tablas', 1], ['tela', 1], ['bayas', 2]])),
   R('banco', 'encimera', 1, [['tablas', 5], ['piedra', 1]]),
-  R('banco', 'fregadero', 1, [['piedra', 8], ['tablas', 2], ['lingote_cobre', 1]]),
-  R('banco', 'banera', 1, [['piedra', 12], ['lingote_cobre', 2]]),
-  R('banco', 'inodoro', 1, [['piedra', 6], ['tablas', 1], ['lingote_cobre', 1]]),
-  R('banco', 'lavabo', 1, [['piedra', 5], ['lingote_cobre', 1], ['lingote_hierro', 1]]),
+  R('cantero', 'fregadero', 1, [['piedra', 8], ['tablas', 2], ['lingote_cobre', 1]]),
+  R('cantero', 'banera', 1, [['piedra', 12], ['lingote_cobre', 2]]),
+  R('cantero', 'inodoro', 1, [['piedra', 6], ['tablas', 1], ['lingote_cobre', 1]]),
+  R('cantero', 'lavabo', 1, [['piedra', 5], ['lingote_cobre', 1], ['lingote_hierro', 1]]),
   R('banco', 'lampara', 1, [['lingote_cobre', 1], ['tablas', 1], ['carbon', 1]]),
   R('mano', 'antorcha', 3, [['madera', 1], ['carbon', 1]]),
 

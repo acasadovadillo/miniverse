@@ -1,15 +1,16 @@
 // Piezas de construcción: no son objetos de la mochila, se pagan con materiales al ponerlas
 // y devuelven esos materiales al quitarlas. needs: la estación que hay que tener cerca para ponerlas (lo de madera, el
-// banco de carpintero; los tejados de teja y de pizarra, el horno, donde se cuecen: ver build.js, stationFor). Cada casilla tiene tres capas: suelo, objeto y tejado (y los cuadros,
+// banco de carpintero; lo de piedra, la mesa de cantero; los tejados de teja y de pizarra, el horno, donde se cuecen:
+// ver build.js, stationFor). Cada casilla tiene tres capas: suelo, objeto y tejado (y los cuadros,
 // colgados, la suya).
 import { ITEMS } from './items.js';
 
 export const PIECES = {
   suelo_madera: { name: 'Suelo de madera', cat: 'Suelos', layer: 'floor', cost: [['tablas', 1]], needs: 'banco' },
-  suelo_piedra: { name: 'Suelo de piedra', cat: 'Suelos', layer: 'floor', cost: [['piedra', 2]] },
-  camino: { name: 'Camino de grava', cat: 'Suelos', layer: 'floor', cost: [['piedra', 1]] },
+  suelo_piedra: { name: 'Suelo de piedra', cat: 'Suelos', layer: 'floor', cost: [['piedra', 2]], needs: 'cantero' },
+  camino: { name: 'Camino de grava', cat: 'Suelos', layer: 'floor', cost: [['piedra', 1]], needs: 'cantero' },
   muro_madera: { name: 'Muro de madera', cat: 'Muros', layer: 'placed', kind: 'wall', cost: [['tablas', 2]], needs: 'banco' },
-  muro_piedra: { name: 'Muro de piedra', cat: 'Muros', layer: 'placed', kind: 'wall', cost: [['piedra', 3]] },
+  muro_piedra: { name: 'Muro de piedra', cat: 'Muros', layer: 'placed', kind: 'wall', cost: [['piedra', 3]], needs: 'cantero' },
   muro_entramado: { name: 'Muro de entramado', cat: 'Muros', layer: 'placed', kind: 'wall', cost: [['tablas', 2], ['piedra', 1]], needs: 'banco' },
   ventana: { name: 'Ventana', cat: 'Muros', layer: 'placed', kind: 'wall', cost: [['tablas', 3]], needs: 'banco' },
   ventana_contraventanas: { name: 'Ventana con contraventanas', cat: 'Muros', layer: 'placed', kind: 'wall', cost: [['tablas', 3], ['piedra', 1]], needs: 'banco' },
@@ -23,7 +24,7 @@ export const PIECES = {
   // (las vallas y sus puertas fueron también objetos de la mochila; ya solo se construyen aquí)
   valla: { name: 'Valla de madera', cat: 'Vallas', layer: 'placed', kind: 'fence', cost: [['tablas', 1]], needs: 'banco' },
   puerta_valla: { name: 'Puerta de valla', cat: 'Vallas', layer: 'placed', kind: 'gate', cost: [['tablas', 3]], needs: 'banco' },
-  valla_piedra: { name: 'Murete de piedra', cat: 'Vallas', layer: 'placed', kind: 'fence', cost: [['piedra', 2]] },
+  valla_piedra: { name: 'Murete de piedra', cat: 'Vallas', layer: 'placed', kind: 'fence', cost: [['piedra', 2]], needs: 'cantero' },
   // El hogar da luz y calor; si hay tejado encima, el tejado dibuja su chimenea. Es también un objeto (se fabrica
   // en el banco, se coloca girándolo y se recoge con X), así que no sale en la paleta de construir
   chimenea: { name: 'Hogar con chimenea', cat: 'Casa', layer: 'placed', kind: 'hearth', cost: [['piedra', 8]] },

@@ -40,6 +40,7 @@ export const ITEMS = {
   estofado: { name: 'Estofado de cactus', desc: 'La especialidad del desierto. Quita el hambre para rato.', food: 50 },
   // Cosas que se colocan en el mundo (place: estación de trabajo, mueble o algo plano en el suelo)
   banco: { name: 'Banco de carpintero', desc: 'Estación: muebles y otras estaciones.', place: 'station' },
+  cantero: { name: 'Mesa de cantero', desc: 'Estación: con ella cerca se construye lo de piedra (suelos, muros, muretes, caminos, el hogar y el horno).', place: 'station' },
   horno: { name: 'Horno', desc: 'Estación: funde minerales en lingotes y hace carbón.', place: 'station' },
   yunque: { name: 'Yunque', desc: 'Estación: herramientas de hierro, armaduras y espadas.', place: 'station' },
   telar: { name: 'Telar', desc: 'Estación: teje fibra en tela.', place: 'station' },

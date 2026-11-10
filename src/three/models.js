@@ -380,6 +380,20 @@ const BUILD = {
     m.box('steel', -0.4, 0.865, -0.1, -0.05, 0.875, 0.04).box('dark', -0.48, 0.86, -0.08, -0.38, 0.9, 0.02);   // sierra
     m.box('dark', 0.05, 0.86, -0.2, 0.3, 0.89, -0.17).box('iron', 0.24, 0.86, -0.24, 0.32, 0.92, -0.12);       // martillo
   },
+  // La mesa de cantero: dos caballetes recios con su bastidor, una losa gruesa encima y, sobre ella, un sillar a medio
+  // labrar (con el escalón de lo que falta por quitar), la maza, dos cinceles y la escuadra; debajo, un sillar ya
+  // hecho y cascotes
+  cantero(m) {
+    for (const x of [-0.5, 0.38]) m.box('wood', x, 0, -0.3, x + 0.12, 0.62, -0.19).box('wood', x, 0, 0.19, x + 0.12, 0.62, 0.3).box('dark', x + 0.02, 0.2, -0.19, x + 0.1, 0.28, 0.19);
+    m.box('wood', -0.5, 0.62, -0.32, 0.5, 0.7, 0.32);
+    m.box('marbleD', -0.56, 0.7, -0.36, 0.56, 0.8, 0.36, 0.6);
+    m.box('ashlar', -0.42, 0.8, -0.22, -0.06, 1.02, 0.14, 0.6).box('ashlar', -0.06, 0.8, -0.22, 0.04, 0.92, 0.14, 0.6);
+    m.box('wood', 0.24, 0.8, -0.06, 0.37, 0.91, 0.08).box('dark', 0.285, 0.835, 0.08, 0.325, 0.875, 0.32);   // la maza
+    m.box('steel', 0.1, 0.8, -0.3, 0.13, 0.825, -0.08).box('steel', 0.17, 0.8, -0.31, 0.2, 0.825, -0.12);    // los cinceles
+    m.box('iron', 0.26, 0.8, -0.32, 0.5, 0.81, -0.29).box('iron', 0.47, 0.8, -0.29, 0.5, 0.81, -0.14);        // la escuadra
+    m.box('ashlar', -0.3, 0, -0.14, 0.06, 0.2, 0.14, 0.6);
+    for (const [x, z, s] of [[0.2, 0.06, 0.07], [0.28, -0.1, 0.05], [0.12, -0.08, 0.04], [-0.08, 0.38, 0.05], [0.3, 0.4, 0.04]]) m.ball('ashlar', x, s * 0.4, z, s, s * 0.5, s * 0.8, 6);
+  },
   horno(m) {
     m.box('stone', -0.48, 0, -0.42, 0.48, 0.7, 0.38, 0.6);
     m.ball('stone', 0, 0.7, -0.02, 0.48, 0.42, 0.42, 12);

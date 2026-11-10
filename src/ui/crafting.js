@@ -7,7 +7,7 @@ import { itemIconUrl } from '../art/items.js';
 import { MACHINES, machineAt, settle, fits } from '../machines.js';
 
 const $ = id => document.getElementById(id);
-const TAB_ICON = { mano: null, banco: 'banco', horno: 'horno', yunque: 'yunque', telar: 'telar', cocina: 'cocina', quesera: 'quesera', alambique: 'alambique', noria: 'noria' };
+const TAB_ICON = { mano: null, banco: 'banco', cantero: 'cantero', horno: 'horno', yunque: 'yunque', telar: 'telar', cocina: 'cocina', quesera: 'quesera', alambique: 'alambique', noria: 'noria' };
 
 export function initCraftingUI(game, { onClose, onBag }) {
   const cr = () => game.craft;
