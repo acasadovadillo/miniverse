@@ -46,6 +46,10 @@ export class World3D {
     this.view = view;
     this.group = new THREE.Group();
     view.scene.add(this.group);
+    // Lo que se mueve dentro de los modelos (la rueda de la noria), aparte: no es fijo para el mapa de sombras (ver
+    // sunshadow.js). Cualquier otra cosa que se anime en un modelo va aquí o avisa con stale()
+    this.spin = new THREE.Group();
+    view.scene.add(this.spin);
     this.chunks = new Map();       // "cx,cy" → vista del trozo
     this.nature = new Map();       // "bx,by" → bloque de naturaleza (árboles, rocas…) y hierba
     this.far = new Map();          // "bx,by" → bloque lejano
@@ -119,7 +123,7 @@ export class World3D {
     // Lo que se golpea tiembla
     for (const b of this.nature.values()) for (const [key, o] of b.shakers) {
       const on = o.shakeUntil > game.time;
-      if (on || b.shaking?.has(key)) { shake(b.nat, key, on ? Math.sin(game.time * 90) * 0.04 : 0); if (on) (b.shaking ||= new Set()).add(key); else b.shaking.delete(key); }
+      if (on || b.shaking?.has(key)) { shake(b.nat, key, on ? Math.sin(game.time * 90) * 0.04 : 0); if (on) (b.shaking ||= new Set()).add(key); else b.shaking.delete(key); this.stale(false, [o.x - 4, o.y - 4, o.x + 4, o.y + 4]); }
     }
     this.updateDoors(scene, dt);
     for (const c of this.chunks.values()) if (c.spin) for (const o of c.spin) o.rotation.x += o.userData.spin * dt;
@@ -128,7 +132,12 @@ export class World3D {
     const glow = this.view.night * 1.2;
     for (const m of this.glassMats()) m.emissiveIntensity = glow;
   }
+  // Ha cambiado algo que da sombra y no se mueve: el mapa de sombras repinta lo fijo (now: en este fotograma; si no,
+  // cuando le toque, sin pasar de uno de cada dos)
+  // (box: [x0, z0, x1, z1] de lo que ha cambiado, si se sabe)
+  stale(now = false, box = null) { this.view.shadows?.stale(now, box); }
   reset(scene) {
+    this.stale(true);
     for (const [k, c] of this.chunks) this.dropChunk(k, c);
     for (const b of this.nature.values()) this.dropNature(b);
     this.nature.clear();
@@ -249,10 +258,13 @@ export class World3D {
     }
     group.matrixAutoUpdate = true;
     this.group.add(group);
+    this.stale(false, chunkBox(cx, cy));
     return c;
   }
   dropChunk(k, c, rebuilding = false) {
     this.group.remove(c.group);
+    for (const o of c.spin || []) this.spin.remove(o);
+    this.stale(false, chunkBox(c.cx, c.cy));
     c.group.traverse(o => { if (o.userData.own) o.geometry.dispose(); });
     for (const d of c.doors) { const dk = `${d.tile[0]},${d.tile[1]}`; if (!rebuilding) this.doors.delete(dk); }
     if (!rebuilding) this.chunks.delete(k);
@@ -301,6 +313,7 @@ export class World3D {
           b.nat = buildNatureChunk(nat, scene.gen.season, gy, true);
           b.group.add(b.nat.group);
           b.natSig = natSig; b.shadow = null;
+          this.stale(false, blockBox(b));
         }
         b.shakers = shakers;
         // (si cambia algo, el trabajo a medias se deja y se vuelve a pedir; lo hecho se queda hasta que llega lo nuevo: sin huecos)
@@ -391,10 +404,11 @@ export class World3D {
         };
       }
     }
-    if (b.shadow !== shadow) { b.shadow = shadow; b.nat.group.traverse(o => { if (o.isMesh && o.userData.base) o.castShadow = shadow && o.userData.cast !== false; }); }
+    if (b.shadow !== shadow) { b.shadow = shadow; b.nat.group.traverse(o => { if (o.isMesh && o.userData.base) o.castShadow = shadow && o.userData.cast !== false; }); this.stale(false, blockBox(b)); }
   }
   dropNature(b) {
     this.group.remove(b.group);
+    if (b.nat && b.shadow) this.stale(false, blockBox(b));
     b.nat?.group.traverse(o => { if (o.isInstancedMesh) o.dispose(); });
     if (b.fadeSet) { releaseFadeSet(b.fadeSet); b.fadeSet = null; b.fadeOn = null; }
     for (const i of [...b.tufts.keys()]) this.dropTufts(b, i);
@@ -454,8 +468,8 @@ export class World3D {
       const o = e.clone();
       o.position.set(...at([e.position.x, e.position.y, e.position.z])); o.rotation.y += yaw;
       o.traverse(q => { if (q.isMesh) { q.castShadow = true; q.receiveShadow = true; } });
-      if (o.userData.spin) (c.spin ||= []).push(o);   // (lo que gira: la rueda de la noria)
-      group.add(o);
+      if (o.userData.spin) { (c.spin ||= []).push(o); this.spin.add(o); }   // (lo que gira: la rueda de la noria; ya en su sitio del mundo)
+      else group.add(o);
     }
     if (!off) for (const l of m.lights) c.lights.push({ ...l, ...Object.fromEntries(['x', 'y', 'z'].map((k, i) => [k, at([l.x, l.y, l.z])[i]])) });
     if (!off) for (const f of m.fires) c.flames.push([...at(f), f[3]]);
@@ -653,6 +667,7 @@ export class World3D {
   updateVillage(scene) {
     if (scene.village === this.villageRef) return;
     if (this.villageGroup) this.group.remove(this.villageGroup);
+    for (const o of this.villageLights?.spin || []) this.spin.remove(o);
     this.villageRef = scene.village;
     const g = new THREE.Group(), sinks = new Map(), emit = key => { const tint = tintOf(key), bucket = tint ? tint[0] : key; let b = sinks.get(bucket); if (!b) sinks.set(bucket, (b = new Builder())); return b.tint(tint ? tint[1] : null); };
     const c = { lights: [], flames: [], smoke: [] }, nat = [];
@@ -670,6 +685,7 @@ export class World3D {
     this.villageLights = c;
     this.villageGroup = g;
     this.group.add(g);
+    this.stale();
   }
 
   // ---------- regiones de tejado ----------
@@ -708,6 +724,7 @@ export class World3D {
     for (const c of this.chunks.values()) if (c.regions.has(r.key)) c.force = true;
   }
   dropRegion(r) {
+    if (r.roof) this.stale(false, regionBox(r));
     for (const k of ['roof', 'ceil']) if (r[k]) { this.group.remove(r[k]); r[k].traverse(o => { if (o.isMesh) o.geometry.dispose(); }); }
     if (r.lamp) this.group.remove(r.lamp);
     r.roof = r.lamp = r.ceil = null;
@@ -723,6 +740,7 @@ export class World3D {
       const mats = [];
       r.roof.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; o.material = this.fadeMat(r.key + '|roof', matKeyOf(o.material)); mats.push(o.material); } });
       this.group.add(r.roof);
+      this.stale(false, regionBox(r));
       // El techo por dentro: tablas y vigas (se ve solo con la cámara por debajo, ver updateFade)
       const floor = r.tiles.filter(([x, y]) => scene.at('floor', x, y));
       if (floor.length) { r.ceil = this.ceiling(floor, r.box); r.ceil.position.y = L; this.group.add(r.ceil); }
@@ -789,6 +807,7 @@ export class World3D {
       if (Math.abs(want - d.amount) < 1e-3) continue;
       d.amount += (want - d.amount) * Math.min(1, dt * 7);
       d.leaf.userData.setAngle(d.amount);
+      this.stale(false, [d.tile[0] - 1, d.tile[1] - 1, d.tile[0] + 2, d.tile[1] + 2]);   // (la hoja da sombra: mientras gira, su sombra también)
     }
   }
   updateFade(game, scene, dt) {
@@ -809,7 +828,9 @@ export class World3D {
       if (v === goal) continue;
       const o = goal > v ? Math.min(goal, v + dt * 4) : Math.max(goal, v - dt * 4);
       this.fade.set(fk, o);
-      // Del todo oculta: no se pinta, pero sigue opaca para el mapa de sombras (el tejado da sombra dentro)
+      // Del todo oculta: no se pinta, pero sigue opaca para el mapa de sombras (el tejado da sombra dentro). El material de
+      // profundidad de Three (r160, getDepthMaterial) no copia colorWrite, opacidad ni alphaHash: desvanecer no cambia la
+      // sombra y no hace falta repintar lo fijo (stale) mientras dura
       const on = o > 0.01;
       for (const m of mats.values()) { m.opacity = m.userData.base * (on ? o : 1); if (m.colorWrite !== on) { m.colorWrite = on; m.depthWrite = on && !m.transparent; } }
     }
@@ -845,6 +866,11 @@ export class World3D {
   }
   fountains() { const out = []; for (const c of this.chunks.values()) if (c.fountain) out.push(c.fountain); if (this.villageLights?.fountain) out.push(this.villageLights.fountain); return out; }
 }
+// Lo que abarca (x0, z0, x1, z1 del mundo) un trozo, un bloque de naturaleza (con lo que asoma por los lados: copas,
+// sauces) y una casa (con el alero), para saber si un cambio cae en la zona de sombras (ver SunShadow.stale)
+const chunkBox = (cx, cy) => [cx * CHUNK - 2, cy * CHUNK - 2, (cx + 1) * CHUNK + 2, (cy + 1) * CHUNK + 2];
+const blockBox = b => [b.bx * NB * CHUNK - 6, b.by * NB * CHUNK - 6, (b.bx + 1) * NB * CHUNK + 6, (b.by + 1) * NB * CHUNK + 6];
+const regionBox = r => [r.box.x0 - 3, r.box.y0 - 3, r.box.x1 + 3, r.box.y1 + 3];
 // Clave de un material base (para clonarlo para una región)
 function matKeyOf(m) {
   const B = baseMaterials();

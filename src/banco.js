@@ -28,6 +28,10 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 const now = () => performance.now();
 const sec = ms => +(ms / 1000).toFixed(1);
 const median = a => { const s = [...a].sort((x, y) => x - y); return s[Math.floor(s.length / 2)]; };
+// El próximo fotograma sin tocar el mapa de sombras, o rehaciéndolo entero. Con la caché de lo fijo (sunshadow.js) se le
+// pide a ella; en las versiones de antes, con el contador de fotogramas y la marca de la zona
+const noShadows = v => { if (v.shadows) v.shadows.hold = true; else { v.frames = 1; v.shadowDirty = false; } };
+const allShadows = v => { if (v.shadows) v.shadows.stale(true); else v.frames = 0; };
 // La estación, fija: la del juego sale del calendario de verdad, y en otra cambian la hierba (en invierno queda menos
 // de la mitad), las hojas de los árboles y hasta qué trozo es la pradera. Así una medida de hoy se puede comparar con
 // otra de dentro de un mes. Otoño (2), como la medida de partida (9f538e8, 10-11-2026)
@@ -169,11 +173,14 @@ export async function runBench(game) {
     v.snap();
     const ready = await settle(game, v, frame);
     if (!out.arranque) out.arranque = sec(now());   // (desde que se abre la página hasta la primera parada lista)
-    // Lo que se dibuja: un fotograma sin rehacer el mapa de sombras y otro rehaciéndolo
-    v.frames = 1; v.shadowDirty = false; frame();
+    // Lo que se dibuja: un fotograma sin tocar el mapa de sombras, otro rehaciéndolo entero (lo fijo y lo que se mueve)
+    // y uno normal (solo lo que se mueve, si la versión guarda lo fijo)
+    noShadows(v); frame();
     const main = { ...v.lastInfo };
-    v.frames = 0; frame();
+    allShadows(v); frame();
     const all = { ...v.lastInfo };
+    frame();
+    const moving = { ...v.lastInfo };
     const parts = breakdown(v, frame);
     if (s === STOPS[0]) for (let i = 0; i < 3; i++) { timeLot(frame, sync); await sleep(0); }   // (calentar: la primera tanda sale siempre peor)
     // Lo que tarda: tandas de N fotogramas como en el juego (sombras cada dos) y otras sin rehacer las sombras
@@ -183,7 +190,7 @@ export async function runBench(game) {
       let a = 0, b = 0;
       lots.push(timeLot(() => { const t = now(); step(STEP); const t2 = now(); draw(); a += t2 - t; b += now() - t2; }, sync));
       up.push(a / N); dr.push(b / N);
-      flat.push(timeLot(() => { v.frames = 1; v.shadowDirty = false; frame(); }, sync));
+      flat.push(timeLot(() => { noShadows(v); frame(); }, sync));
       await sleep(0);
     }
     const cpu = cpuSplit(v, frame);
@@ -220,13 +227,14 @@ export async function runBench(game) {
     parts.contadores = counters(v, frame);
     const ms = median(lots), stop = {
       name: s.name, at: [+x.toFixed(1), +y.toFixed(1)], llamadas: main.calls, triangulos: main.triangles, llamadasSombra: all.calls - main.calls, triangulosSombra: all.triangles - main.triangles,
+      llamadasSombraMovil: moving.calls - main.calls, triangulosSombraMovil: moving.triangles - main.triangles,
       ms: +ms.toFixed(1), fps: +(1000 / ms).toFixed(1), msSinSombra: +median(flat).toFixed(1), min: +Math.min(...lots).toFixed(1), max: +Math.max(...lots).toFixed(1),
       avanzar: +median(up).toFixed(2), encargar: +median(dr).toFixed(2), preparar: sec(now() - t0), ...ready, desglose: parts, cpu, ...(ab && { ab }),
       // (si la versión los lleva: los contadores de las personas que guarda el propio juego)
       ...(v.actors.stats && typeof v.actors.stats === 'object' && { personas: { ...v.actors.stats, ...(Number.isFinite(v.actorsMs) && { ms: +v.actorsMs.toFixed(2) }) } }),
     };
     out.paradas.push(stop);
-    console.log(`BANCO ${s.name}: ${stop.ms} ms (${stop.fps} fps), sin sombras ${stop.msSinSombra} ms; ${stop.llamadas} llamadas + ${stop.llamadasSombra} de sombra; ${Math.round(stop.triangulos / 1000)} k + ${Math.round(stop.triangulosSombra / 1000)} k triángulos`);
+    console.log(`BANCO ${s.name}: ${stop.ms} ms (${stop.fps} fps), sin sombras ${stop.msSinSombra} ms; ${stop.llamadas} llamadas + ${stop.llamadasSombra} de sombra (${stop.llamadasSombraMovil} de lo móvil); ${Math.round(stop.triangulos / 1000)} k + ${Math.round(stop.triangulosSombra / 1000)} k triángulos`);
     // La captura, justo después de dibujar (luego el lienzo se borra)
     frame();
     const img = r.domElement.toDataURL('image/jpeg', 0.85);
@@ -252,7 +260,7 @@ export async function runBench(game) {
 function labeler(v) {
   const L = new Map(), put = (o, name) => { if (o) L.set(o, name); };
   put(v.terrain.group, 'suelo'); put(v.terrain.water.group, 'agua'); put(v.sky, 'cielo');
-  put(v.world.group, 'mundo, otros');
+  put(v.world.group, 'mundo, otros'); put(v.world.spin, 'trozos');
   for (const c of v.world.chunks.values()) put(c.group, 'trozos');
   for (const b of v.world.nature.values()) { put(b.group, 'naturaleza'); put(b.ground, 'hierba'); }
   for (const g of v.world.far.values()) put(g, 'lejanos');
@@ -309,7 +317,7 @@ function breakdown(v, frame) {
     e[0]++; e[1] += n;
     return orig.apply(this, arguments);
   }, undo);
-  try { v.frames = 0; frame(); } finally { for (const u of undo.reverse()) u(); }
+  try { allShadows(v); frame(); } finally { for (const u of undo.reverse()) u(); }
   return out;   // grupo → [llamadas, triángulos]
 }
 
@@ -318,7 +326,7 @@ function breakdown(v, frame) {
 // la cámara), en la pasada normal y en la de sombra; en cuántos fotogramas se rehace el mapa de sombras y con cuántas
 // llamadas y triángulos; cuántas instancias se dibujan por grupo (las matas de la hierba, los árboles…) y lo que hay en la
 // gráfica. Va después de medir la parada, así que no cambia lo medido
-const COUNT_N = 12;   // (par: hoy las sombras se rehacen cada dos fotogramas)
+const COUNT_N = 12;   // (par: sin la caché de lo fijo, las sombras se rehacen cada dos fotogramas)
 function counters(v, frame) {
   const labelOf = labeler(v), r = v.renderer, undo = [];
   const owner = new Map(), memo = new Map();
@@ -347,6 +355,7 @@ function counters(v, frame) {
     }
     return orig.apply(this, arguments);
   }, undo);
+  const fixed0 = v.shadows?.nStatic;
   try {
     for (let i = 0; i < COUNT_N; i++) {
       main.clear(); shade.clear();
@@ -364,7 +373,9 @@ function counters(v, frame) {
     personas: { ...tally(models.filter(m => groupOf(m) === 'personas')), dibujadas: per(seen.personas), enSombra: per(seen.personasSombra) },
     animales: { ...tally(models.filter(m => groupOf(m) === 'animales')), dibujados: per(seen.animales), enSombra: per(seen.animalesSombra) },
     monstruos: { ...tally(models.filter(m => groupOf(m) === 'monstruos')), dibujados: per(seen.monstruos), enSombra: per(seen.monstruosSombra) },
-    sombras: { rehechasPorFotograma: per(sh.fotogramas), pasadasPorFotograma: per(sh.pasadas), llamadasPorFotograma: per(sh.llamadas), triangulosPorFotograma: Math.round(sh.triangulos / COUNT_N) },
+    sombras: { rehechasPorFotograma: per(sh.fotogramas), pasadasPorFotograma: per(sh.pasadas), llamadasPorFotograma: per(sh.llamadas), triangulosPorFotograma: Math.round(sh.triangulos / COUNT_N),
+      // (con la caché de lo fijo: en cuántos fotogramas se repinta lo fijo; el resto solo lleva lo que se mueve)
+      ...(fixed0 !== undefined && { fijoPorFotograma: per(v.shadows.nStatic - fixed0) }) },
     instancias: Object.fromEntries(Object.entries(inst).map(([k, n]) => [k, Math.round(n / COUNT_N)])),
     memoria: { geometrias: r.info.memory.geometries, texturas: r.info.memory.textures, programas: r.info.programs?.length ?? null },
   };
@@ -457,8 +468,8 @@ function show(out) {
   const box = document.createElement('div'), pre = document.createElement('pre'), copy = document.createElement('button');
   box.style.cssText = 'position:fixed;inset:12px;z-index:200;overflow:auto;padding:14px;background:rgba(10,8,6,.88);color:#f4ead8;font:13px/1.45 ui-monospace,monospace;border-radius:8px';
   const rows = out.paradas.map(p => { const c = p.desglose?.contadores;
-    return `${p.name.padEnd(16)} ${String(p.ms).padStart(6)} ms ${String(p.fps).padStart(5)} fps  sin sombras ${String(p.msSinSombra).padStart(6)}  llamadas ${p.llamadas}+${p.llamadasSombra}  triángulos ${Math.round(p.triangulos / 1000)}k+${Math.round(p.triangulosSombra / 1000)}k` +
-      (c ? `  personas ${c.personas.dibujadas}/${c.personas.modelos}  sombras ${c.sombras.rehechasPorFotograma}/fotograma` : ''); });
+    return `${p.name.padEnd(16)} ${String(p.ms).padStart(6)} ms ${String(p.fps).padStart(5)} fps  sin sombras ${String(p.msSinSombra).padStart(6)}  llamadas ${p.llamadas}+${p.llamadasSombra}${p.llamadasSombraMovil !== undefined ? ` (móvil ${p.llamadasSombraMovil})` : ''}  triángulos ${Math.round(p.triangulos / 1000)}k+${Math.round(p.triangulosSombra / 1000)}k` +
+      (c ? `  personas ${c.personas.dibujadas}/${c.personas.modelos}  sombras ${c.sombras.rehechasPorFotograma}/fotograma` + (c.sombras.fijoPorFotograma !== undefined ? ` (fijo ${c.sombras.fijoPorFotograma})` : '') : ''); });
   pre.textContent = [`Banco · ${out.version} · ${out.gpu}`, `lienzo ${out.lienzo} (px ${out.px}, pantalla ×${out.dpr}) · listo en ${out.arranque} s · ${out.programas} programas`, '', ...rows].join('\n');
   pre.style.cssText = 'margin:0;white-space:pre-wrap';
   copy.textContent = 'Copiar el resultado';

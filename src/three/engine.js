@@ -20,6 +20,7 @@ import { ITEMS } from '../items.js';
 import { Fx } from './fx.js';
 import { ArrowsView } from './arrows.js';
 import { Cave3D } from './cave3d.js';
+import { SunShadow } from './sunshadow.js';
 import { TONE_MAPPING, CURVA, lightAt, toneOut } from './look.js';
 
 const LOW_Q = new URLSearchParams(location.search).get('q') === 'low';
@@ -46,7 +47,7 @@ export class View3D {
     r.toneMappingExposure = CURVA.exp;
     r.shadowMap.enabled = true;
     r.shadowMap.type = THREE.PCFSoftShadowMap;
-    r.shadowMap.autoUpdate = false;   // se rehace cada dos fotogramas o cuando se mueve su zona (ver draw)
+    r.shadowMap.autoUpdate = false;   // lo fijo, solo cuando hace falta; lo que se mueve, en cada fotograma (ver sunshadow.js)
     r.info.autoReset = false;
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(30, 1, 0.3, 420);
@@ -61,6 +62,7 @@ export class View3D {
     this.viewmodel = new THREE.Group(); this.viewmodel.visible = false; this.scene.add(this.viewmodel);
     this.fx = new Fx(this);
     this.arrows = new ArrowsView(this);
+    this.shadows = new SunShadow(this);   // (después de todo lo que se mueve: son sus grupos)
     this.caves = new Map();       // escena de cueva → su vista
     this.cave = null;
     this.cam = { target: new THREE.Vector3(CENTER.x, 0, CENTER.y), vel: 0, pvel: 0, zvel: 0, pitchNow: null, distNow: null, low: 0 };
@@ -310,7 +312,7 @@ export class View3D {
     if (cave && !this.caves.has(scene)) this.caves.set(scene, new Cave3D(this, scene));
     for (const [s, v] of this.caves) v.group.visible = s === scene;
     this.cave = cave ? this.caves.get(scene) : null;
-    this.terrain.group.visible = this.terrain.water.group.visible = this.world.group.visible = this.sky.visible = !cave;
+    this.terrain.group.visible = this.terrain.water.group.visible = this.world.group.visible = this.world.spin.visible = this.sky.visible = !cave;
     this.updateSky(game, dt);
     // (el fondo, con el color de borrar: un fondo de escena borraría la imagen en cada una de las tres pasadas)
     if (cave) { this.scene.fog.color.set('#05050a'); this.scene.fog.near = 14; this.scene.fog.far = 40; this.renderer.setClearColor('#05050a'); }
@@ -335,17 +337,9 @@ export class View3D {
     this.skyU.time.value = t;
     this.sky.position.copy(this.camera.position);
     this.updateLights(game, scene, target);
-    // Sombras alrededor de lo que se ve (con la cámara baja se ve más lejos: la zona crece y se adelanta),
-    // ajustadas a la rejilla del mapa de sombras para que no tiemblen
-    const low = this.cam.low, half = Math.round((cave ? 16 : 24) + 6 * low), sc = this.sun.shadow.camera;
-    if (sc.right !== half) { Object.assign(sc, { left: -half, right: half, top: half, bottom: -half }); sc.updateProjectionMatrix(); }
-    // (la zona se mueve a saltos de 2 m: entre salto y salto, el mapa de sombras solo se rehace cada dos fotogramas)
-    const ahead = 12 * low, grid = 2;
-    const cx = Math.round((target.x - Math.sin(CAM.yaw) * ahead) / grid) * grid, cz = Math.round((target.z - Math.cos(CAM.yaw) * ahead) / grid) * grid;
-    const dir = cave ? CAVE_SUN : this.sunDir, key = `${cx},${cz},${dir.x.toFixed(3)},${dir.y.toFixed(3)},${half}`;
-    if (key !== this.shadowKey) { this.shadowKey = key; this.shadowDirty = true; }
-    this.sun.target.position.set(cx, 0, cz);
-    this.sun.position.set(cx, 0, cz).addScaledVector(dir, 50);
+    // Sombras alrededor de lo que se ve (con la cámara baja se ve más lejos: la zona crece y se adelanta), alineadas a los
+    // texels del mapa para que no tiemblen; el sol, quieto entre repintado y repintado de lo fijo (ver sunshadow.js)
+    this.shadows.place(target, CAM.yaw, this.cam.low, cave, this.sunDir, 24 + 6 * this.cam.low);
     if (cave) { this.sun.intensity = 0; this.hemi.intensity = 0.4; this.hemi.color.set('#8a9ac0'); this.hemi.groundColor.set('#2a2018'); this.setEnv(0.1); }
     this.draw();
     this.stats(dt);
@@ -386,7 +380,7 @@ export class View3D {
     r.autoClear = true;
     for (const m of mats) { m.colorWrite = false; m.depthWrite = false; }
     this.camera.layers.enableAll(); this.camera.layers.disable(1);
-    if (this.shadowDirty || this.frames % 2 === 0) { r.shadowMap.needsUpdate = true; this.shadowDirty = false; }
+    r.shadowMap.needsUpdate = true;   // (en cada fotograma: sunshadow.js decide qué se rehace)
     r.render(this.scene, this.camera);
     if (this.first) { for (const m of mats) { m.colorWrite = true; m.depthWrite = true; } this.drawOutline(); return; }
     r.autoClear = false;
@@ -481,6 +475,5 @@ export class View3D {
     return new Promise(res => { const look = () => { if (++frames > 2 && (this.cave || this.terrain.ready(target.x, target.z) || performance.now() - t0 > ms)) res(); else requestAnimationFrame(look); }; look(); });
   }
 }
-const CAVE_SUN = new THREE.Vector3(0.2, 1, 0.3).normalize();
 const SILHOUETTE = new THREE.MeshBasicMaterial({ color: '#ffe8b0', transparent: true, opacity: 0.45, depthFunc: THREE.GreaterDepth, depthWrite: false, fog: false });
 const dirOf = (yaw, pitch, out) => out.set(Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), Math.cos(yaw) * Math.cos(pitch));

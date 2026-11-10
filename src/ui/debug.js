@@ -56,6 +56,8 @@ export function initDebug(game) {
     // (los árboles lejanos: si el atlas está listo o cuánto le queda, y los bloques de cerca que se están fundiendo)
     const imp = v.world?.impostorStats?.();
     if (imp) lines.push(imp);
+    // (el mapa de sombras: cuántas veces por segundo se repinta lo fijo y cuánto cuesta lo que se mueve en cada fotograma)
+    if (v.shadows) lines.push(v.shadows.text());
     const a = v.actors?.stats;
     if (a) lines.push(`personas: ${a.modelos} · ${a.vistas} vistas · ${a.dormidas} dormidas · a todo ${a.t0} / 30 Hz ${a.t1} / 15 Hz ${a.t2} · de lejos ${a.lod1} · ${(a.tris / 1000).toFixed(0)}k triángulos${a.protos !== undefined ? ` · ${a.protos} mallas en caché (${a.protosLibres} sin usar), ${a.lienzos} lienzos` : ''}${Number.isFinite(v.actorsMs) ? ` · actores ${n1(v.actorsMs)} ms` : ''}`);
     const l = game.live;
