@@ -4,7 +4,10 @@
 // (+ −), siempre con aceleración y frenado suaves. No atraviesa el suelo y, si una casa se pone entre ella y
 // el jugador, sube lo justo para verlo por encima del tejado. El sol sigue la hora del juego (y la luna de
 // noche), el cielo tiene nubes, y hay lluvia, nieve, tormentas y niebla según el tiempo.
-import { TOWER_CUT } from './models.js';
+import { TOWER_CUT, modelMats } from './models.js';
+import { baseMaterials } from './build3d.js';
+import { tintMats } from './tints.js';
+import { photoBases } from './textures.js';
 import { TOWER } from '../world/tower.js';
 import * as THREE from 'three';
 import { Outline } from './outline.js';
@@ -13,7 +16,7 @@ import { setViewAngle } from '../iso.js';
 import { CENTER } from '../world/village.js';
 import { latOf } from '../world/planet.js';
 import { Settings } from '../settings.js';
-import { Terrain, WATER_Y, WET, RAIN } from './terrain.js';
+import { Terrain, WATER_Y, WET, RAIN, groundDetail } from './terrain.js';
 import { World3D } from './world3d.js';
 import { Actors, toolModel, swingArm, pullBow } from './actors.js';
 import { ITEMS } from '../items.js';
@@ -23,6 +26,8 @@ import { Cave3D } from './cave3d.js';
 import { SunShadow } from './sunshadow.js';
 import { setRenderer as contactRenderer, contactOn, contactSun, contactRestored } from './contact3d.js';
 import { TONE_MAPPING, CURVA, lightAt, toneOut } from './look.js';
+import { preloadPhotos, photosSettled } from './photos.js';
+import { trackVram } from './vram.js';
 
 const LOW_Q = new URLSearchParams(location.search).get('q') === 'low';
 const SKY_LAST = 1e6;   // orden de dibujo del cielo (ver makeSky)
@@ -50,6 +55,9 @@ export class View3D {
     r.shadowMap.type = THREE.PCFSoftShadowMap;
     r.shadowMap.autoUpdate = false;   // lo fijo, solo cuando hace falta; lo que se mueve, en cada fotograma (ver sunshadow.js)
     r.info.autoReset = false;
+    trackVram(r.getContext());   // (lo que ocupa en la gráfica, para F3 y el banco: ver vram.js)
+    // (las fotos de las texturas, desde ya: llegan mientras se entra con la cuenta, antes de hacer ningún material)
+    preloadPhotos();
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(30, 1, 0.3, 420);
     this.camera.layers.enable(2);
@@ -143,6 +151,10 @@ export class View3D {
     const ground = new THREE.Mesh(new THREE.CircleGeometry(9, 16), new THREE.MeshBasicMaterial({ color: '#6b5f4e' }));
     ground.rotation.x = -Math.PI / 2; ground.position.y = -1; env.add(ground);
     this.scene.environment = pm.fromScene(env, 0.04).texture;
+    // (el reflejo se queda; lo de hacerlo, no: el generador guarda un lienzo de trabajo de 768×1024 en coma flotante, 6 MB
+    // de la gráfica que no vuelven a servir)
+    pm.dispose();
+    env.traverse(o => { o.geometry?.dispose(); o.material?.dispose(); });
     this.envNow = -1;
     this.scene.traverse(o => { if (o.isLight) o.layers.enable(2); });
   }
@@ -309,9 +321,19 @@ export class View3D {
     const dt = Math.min(0.05, this.clock.getDelta()), t = game.time;
     const snap = this.snapNext; this.snapNext = false;
     const ease = rate => (snap ? 1 : Math.min(1, dt * rate));
+    // Las fotos de las texturas, antes del primer fotograma del mundo (como mucho 2,5 s; casi siempre ya han llegado en
+    // la pantalla de entrada): así los materiales se hacen ya con la foto compartida (ver textures.js, photoTex). Si no
+    // llegan a tiempo, se sigue con los lienzos pintados y la foto encima cuando llegue: igual de bien, con más memoria
+    if (!this.photosOk) {
+      this.photoT0 ||= performance.now();
+      if (!photosSettled() && performance.now() - this.photoT0 < 2500) { this.renderer.setClearColor('#000000'); this.renderer.clear(); return; }
+      this.photosOk = true;
+    }
     const scene = game.scene || game.menuWorld, cave = scene.kind === 'grid';
     this.shown = scene;
-    // La vista de la cueva en la que se está (o ninguna)
+    // La vista de la cueva en la que se está (o ninguna). Las de las que ya no se pisan se sueltan al final del fotograma
+    // (después de dibujar la nueva, que así hereda sus programas sin compilarlos otra vez): cada vez que se entra o se
+    // cambia de nivel la escena es otra, y nunca se vuelve a la misma
     if (cave && !this.caves.has(scene)) this.caves.set(scene, new Cave3D(this, scene));
     for (const [s, v] of this.caves) v.group.visible = s === scene;
     this.cave = cave ? this.caves.get(scene) : null;
@@ -346,11 +368,20 @@ export class View3D {
     contactSun(this.shadows.dir);   // (la sombra lejana de las copas cae hacia donde está pintado el sol de las sombras)
     if (cave) { this.sun.intensity = 0; this.hemi.intensity = 0.4; this.hemi.color.set('#8a9ac0'); this.hemi.groundColor.set('#2a2018'); this.setEnv(0.1); }
     this.draw();
+    for (const [s, v] of this.caves) if (s !== scene) { v.dispose(); this.caves.delete(s); }
     this.stats(dt);
   }
   // En el menú y al entrar (el mundo no se dibuja: ver Game.render), se hornean los árboles lejanos de la estación de
   // donde se va a jugar, para que al empezar ya estén
   idle(game) {
+    // (con las fotos ya aquí: la corteza de los árboles va en el horneado; como mucho 2,5 s, como el primer fotograma)
+    if (!photosSettled() && performance.now() - (this.idleT0 ||= performance.now()) < 2500) return;
+    // Los materiales de lo construido, de los modelos y de los tintes, el detalle del suelo y las fotos subidas a la gráfica,
+    // uno por fotograma: así no se hacen todos de golpe en el primer fotograma del mundo (pintar la media de cada variante
+    // y subir cada foto es casi un segundo en un portátil)
+    if (!this.warm) this.warm = (function* (r) { baseMaterials(); yield; modelMats(); yield; tintMats(); yield; groundDetail(); yield; for (const t of photoBases()) { r.initTexture(t); yield; } })(this.renderer);
+    if (!this.warm.done && !this.warm.next().done) return;
+    this.warm.done = true;
     let season = 0;
     try {
       // (la del sitio: con jugador, la de donde está; en el menú, la de donde está la partida guardada; si no, la del pueblo)

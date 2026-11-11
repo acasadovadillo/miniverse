@@ -16,7 +16,17 @@ const VIEW = { placed: [-1, 0.95, 1.2], tool: [0.25, 0.5, 1] };   // desde dónd
 const PIXEL = new Set(['cana', 'cana_fibra', 'red']);   // (largos y finos: a 36 píxeles no se leen; siguen a píxel)
 const FLAME = new THREE.MeshBasicMaterial({ color: '#ffb040' }), FLAME_GEO = new THREE.SphereGeometry(0.08, 8, 6);
 const cache = new Map();
-let R = null;
+let R = null, idle = 0;
+// Este renderizador es otro contexto de la gráfica, con su propia copia de cada textura y cada programa que usa. Solo hace
+// falta mientras se piden iconos (al abrir la mochila o el inventario creativo): medio minuto después del último se suelta
+// entero, y se vuelve a crear si hace falta otro. (no menos: al pasar por el inventario creativo los iconos se piden poco
+// a poco, y recrearlo cada rato sería compilar otra vez)
+const IDLE_MS = 30000;
+function release() {
+  if (!R) return;
+  R.renderer.dispose(); R.renderer.forceContextLoss();
+  R = null;
+}
 
 function setup() {
   const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
@@ -84,6 +94,7 @@ export function modelIcon(id) {
   ctx.drawImage(renderer.domElement, 0, 0, ICON3D, ICON3D);
   const icon = outlined(out);
   cache.set(id, icon);
+  clearTimeout(idle); idle = setTimeout(release, IDLE_MS);
   return icon;
 }
 

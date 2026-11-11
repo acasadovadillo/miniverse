@@ -8,6 +8,7 @@ import { BIOMES } from '../world/biomes.js';
 import { latOf, lonOf, dxOf } from '../world/planet.js';
 import { SEASONS } from '../art/seasons.js';
 import { GAMEMODES } from '../game.js';
+import { vramOf } from '../three/vram.js';
 
 const $ = id => document.getElementById(id);
 const n1 = v => v.toFixed(1).replace('.', ',');
@@ -31,7 +32,9 @@ export function initDebug(game) {
     lines.push(`<b>Miniverse ${version}</b> · F3 cierra`);
     lines.push(frameStats());
     if (r) lines.push(`dibujo: ${info.calls} llamadas · ${(info.triangles / 1000).toFixed(0)}k triángulos · ×${v.pixelRatio.toFixed(2)} (${Math.round(innerWidth * v.pixelRatio)}×${Math.round(innerHeight * v.pixelRatio)}) · sombras ${r.shadowMap.enabled ? 'sí' : 'no'}`);
-    if (mem) lines.push(`memoria: ${mem.geometries} geometrías · ${mem.textures} texturas · ${r.info.programs?.length ?? '?'} programas${performance.memory ? ` · JS ${MB(performance.memory.usedJSHeapSize)}` : ''}`);
+    // (lo que ocupan en la gráfica las texturas, compartidas una vez, y los búferes de dibujo: mapas de sombras, atlas…)
+    const vr = r && vramOf(r.getContext());
+    if (mem) lines.push(`memoria: ${mem.geometries} geometrías · ${mem.textures} texturas${vr ? ` (${Math.round(vr.texMB)} MB en la gráfica, más ${Math.round(vr.rbMB)} MB de búferes)` : ''} · ${r.info.programs?.length ?? '?'} programas${performance.memory ? ` · JS ${MB(performance.memory.usedJSHeapSize)}` : ''}`);
     if (v.world && v.terrain) {
       const T = v.terrain;
       lines.push(`trozos: ${v.world.chunks.size} cerca · ${v.world.nature.size} bloques de naturaleza · ${v.world.far.size} lejanos · ${v.world.regions.size} tejados · suelo ${T.blocks.size} bloques (${T.pending.size} pedidos, ${T.jobs.size} trabajos, ${T.workers.length} hilos) · caché ${w?.merged.size ?? 0} trozos, ${w?.gen.cache.size ?? 0} naturaleza, ${w?.gen.biomes.size ?? 0} biomas`);

@@ -248,6 +248,8 @@ export async function runBench(game) {
   out.geometrias = r.info.memory.geometries;
   out.texturas = r.info.memory.textures;
   out.memoria = performance.memory ? Math.round(performance.memory.usedJSHeapSize / 1048576) : null;
+  // (la memoria de vídeo de verdad: lo que piden las texturas y los búferes, ver three/vram.js; las versiones sin él, nada)
+  { const m = vramMB(r); if (m) { out.vramMB = m.tex; out.buferesMB = m.rb; } }
   // (el relieve: cuántos bloques salieron de lo guardado y cuántos se calcularon, y lo que tardó cada uno; con
   // banco.py --mismo-perfil, la primera vuelta sale fría y las demás calientes, como al recargar la página)
   if (v.terrain?.stats) out.relieve = Object.fromEntries(Object.entries(v.terrain.stats).map(([k, x]) => [k, Math.round(x * 10) / 10]));
@@ -380,8 +382,18 @@ function counters(v, frame) {
       // (con la caché de lo fijo: en cuántos fotogramas se repinta lo fijo; el resto solo lleva lo que se mueve)
       ...(fixed0 !== undefined && { fijoPorFotograma: per(v.shadows.nStatic - fixed0) }) },
     instancias: Object.fromEntries(Object.entries(inst).map(([k, n]) => [k, Math.round(n / COUNT_N)])),
-    memoria: { geometrias: r.info.memory.geometries, texturas: r.info.memory.textures, programas: r.info.programs?.length ?? null },
+    memoria: { geometrias: r.info.memory.geometries, texturas: r.info.memory.textures, programas: r.info.programs?.length ?? null, vramMB: vramMB(r)?.tex ?? null },
   };
+}
+// Los MB de la gráfica que apunta vram.js en el contexto del juego (texturas y búferes de dibujo), o null si no lo lleva.
+// Sin importarlo: banco.py --contra pasa este archivo por versiones que no lo tienen
+function vramMB(r) {
+  const V = r.getContext().__vram;
+  if (!V) return null;
+  let t = 0, b = 0;
+  for (const e of V.tex.values()) t += e.bytes;
+  for (const x of V.rb.values()) b += x;
+  return { tex: Math.round(t / 104857.6) / 10, rb: Math.round(b / 104857.6) / 10 };
 }
 
 // En qué se va el tiempo de procesador de cada fotograma (sin esperar a la gráfica), por partes del dibujo: N

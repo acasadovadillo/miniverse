@@ -374,10 +374,12 @@ export class Terrain {
 // Material del suelo: la textura del bloque con el detalle de briznas (sobre lo verde) o de piedrecitas (sobre tierra,
 // arena y nieve), a dos escalas; en las cuestas fuertes, roca, y en las medias asoma la tierra. Con ?suelo=v2, el de antes
 let DETAIL;
+// (las texturas de detalle, una vez para todos los bloques; engine.js las adelanta en el menú, con las fotos ya aquí)
+export const groundDetail = () => (DETAIL ||= { grass: { value: grassDetail() }, soil: { value: soilDetail() }, rock: { value: SUELO_V2 ? null : rockDetail() }, rockCol: { value: new THREE.Color(PAL.suelo.roca) } });
 // (lo que multiplica el color del suelo al final: la perilla para calibrarlo sin tocar la luz ni la curva de tono)
 export const GROUND_GAIN = { value: 1.0 };
 function groundMaterial(map) {
-  const m = mat({ roughness: 0.96, map }), D = (DETAIL ||= { grass: { value: grassDetail() }, soil: { value: soilDetail() }, rock: { value: SUELO_V2 ? null : rockDetail() }, rockCol: { value: new THREE.Color(PAL.suelo.roca) } });
+  const m = mat({ roughness: 0.96, map }), D = groundDetail();
   m.customProgramCacheKey = () => contactKey(SUELO_V2 ? 'suelo-mojado' : 'suelo-v3');
   m.onBeforeCompile = (sh, r) => {
     // (la sombra de contacto: lee el sitio en el mundo que ya declara el detalle, sin otro varying. Solo en el renderer

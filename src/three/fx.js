@@ -14,7 +14,14 @@ import { WATER_Y } from './terrain.js';
 import { nearX } from '../world/planet.js';
 // Texturas pintadas para el fuego, el humo y los copos: una llama en gota (blanca, el color va por instancia) y
 // una bola suave
+// (una por clase: las brasas y la nieve usan la misma bola)
+const SPRITES = new Map();
 function spriteTex(kind) {
+  let t = SPRITES.get(kind);
+  if (!t) SPRITES.set(kind, (t = paintSprite(kind)));
+  return t;
+}
+function paintSprite(kind) {
   const W = 64, H = kind === 'llama' ? 128 : 64, c = document.createElement('canvas'); c.width = W; c.height = H;
   const g = c.getContext('2d');
   if (kind === 'llama') for (let i = 0; i < 40; i++) {

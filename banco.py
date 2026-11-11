@@ -314,7 +314,7 @@ def table(runs):
                 p = next(x for x in runs[l][0]['paradas'] if x['name'] == s).get('personas')
                 if p:
                     print('    personas (del juego): ' + ', '.join(f'{k} {v}' for k, v in p.items() if isinstance(v, (int, float))))
-        print(f"\nListo en {same(l, 'arranque')} s · {same(l, 'programas')} programas · {same(l, 'texturas')} texturas · {same(l, 'geometrias')} geometrías · {same(l, 'memoria')} MB de memoria")
+        print(f"\nListo en {same(l, 'arranque')} s · {same(l, 'programas')} programas · {same(l, 'texturas')} texturas ({same(l, 'vramMB')} MB en la gráfica, más {same(l, 'buferesMB')} MB de búferes) · {same(l, 'geometrias')} geometrías · {same(l, 'memoria')} MB de memoria")
         relief_line(runs, l)
         return
     print(f"{'parada':<16}{'ms antes':>10}{'ahora':>8}{'cambio':>9}   {'llamadas antes':>15}{'ahora':>12}   {'triángulos antes':>17}{'ahora':>14}")
@@ -326,7 +326,7 @@ def table(runs):
         tb = f"{med('ahora', s, 'triangulos') / 1000:.0f}k+{med('ahora', s, 'triangulosSombra') / 1000:.0f}k"
         print(f"{s:<16}{a:>10.1f}{b:>8.1f}{(b - a) / a * 100:>+8.0f}%   {ca:>15}{cb:>12}   {ta:>17}{tb:>14}")
     warn_place(runs, stops)
-    for key, name in (('arranque', 'listo en (s)'), ('programas', 'programas'), ('texturas', 'texturas'), ('geometrias', 'geometrías'), ('memoria', 'memoria (MB)')):
+    for key, name in (('arranque', 'listo en (s)'), ('programas', 'programas'), ('texturas', 'texturas'), ('vramMB', 'texturas (MB)'), ('buferesMB', 'búferes (MB)'), ('geometrias', 'geometrías'), ('memoria', 'memoria (MB)')):
         print(f"{name:<16}{str(same('antes', key)):>10}{str(same('ahora', key)):>10}")
     for l in ('antes', 'ahora'):
         relief_line(runs, l)
@@ -374,7 +374,8 @@ def counters_line(c):
     return (f"personas {p.get('dibujadas')} dibujadas de {p.get('modelos')} ({p.get('enSombra')} en sombra) · animales {a.get('dibujados')} de {a.get('modelos')}"
             + (f" · monstruos {mo.get('dibujados')} de {mo.get('modelos')}" if mo.get('modelos') else '')
             + f" · sombras {sh.get('rehechasPorFotograma')}/fotograma, {sh.get('llamadasPorFotograma')} llamadas y {sh.get('triangulosPorFotograma', 0) / 1000:.0f}k triángulos"
-            f" · instancias: {inst or '-'} · {m.get('geometrias')} geometrías, {m.get('texturas')} texturas, {m.get('programas')} programas")
+            f" · instancias: {inst or '-'} · {m.get('geometrias')} geometrías, {m.get('texturas')} texturas"
+            + (f" ({m.get('vramMB')} MB)" if m.get('vramMB') is not None else '') + f", {m.get('programas')} programas")
 
 
 def compare_breakdown(runs, stops):

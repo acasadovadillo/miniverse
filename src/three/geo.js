@@ -140,8 +140,35 @@ export class Builder {
   }
 }
 
-// Material estándar mate (lo normal)
-export const mat = (opts = {}) => new THREE.MeshStandardMaterial({ roughness: 0.88, metalness: 0, ...opts });
+// Material estándar mate (lo normal). Con una textura de foto compartida (textures.js, photoTex), el tinte de su variante
+// va en el color: la foto tal cual por el color medio del lienzo pintado, que es lo que antes llevaba horneado cada copia.
+// Si la copia de antes recortaba en blanco alguna parte (un tinte claro sobre una foto con zonas claras), el material
+// recorta igual, en su color de antes del tinte (PHOTO_CLAMP): sin eso, las piedras claras saldrían más brillantes
+export const mat = (opts = {}) => {
+  const m = new THREE.MeshStandardMaterial({ roughness: 0.88, metalness: 0, ...opts }), K = opts.map?.userData.photoTint;
+  if (K) {
+    if (opts.map.userData.photoClamp) m.defines = { ...m.defines, PHOTO_CLAMP: `vec3(${[m.color.r, m.color.g, m.color.b].map(x => x.toFixed(4)).join(', ')})` };
+    m.color.setRGB(m.color.r * K[0], m.color.g * K[1], m.color.b * K[2]);
+    // (el techo de la cueva usa la misma textura de luz propia: también teñida, o de noche se vería neutro)
+    if (opts.emissiveMap === opts.map) m.emissive.setRGB(m.emissive.r * K[0], m.emissive.g * K[1], m.emissive.b * K[2]);
+  }
+  return m;
+};
+// El recorte de las fotos teñidas, justo después de multiplicar por la textura (antes del color por vértice, que va
+// encima como antes). Solo en los programas con PHOTO_CLAMP; una vez para todo, antes de compilar nada
+{
+  const C = THREE.ShaderChunk, at = 'diffuseColor *= sampledDiffuseColor;';
+  if (C.map_fragment.includes(at)) C.map_fragment = C.map_fragment.replace(at, `${at}\n\t#ifdef PHOTO_CLAMP\n\t\tdiffuseColor.rgb = min( diffuseColor.rgb, PHOTO_CLAMP );\n\t#endif`);
+  else console.warn('[texturas] map_fragment ha cambiado: las fotos teñidas no recortan (PHOTO_CLAMP)');
+  // (clone() y copy() de MeshStandardMaterial dejan las defines en { STANDARD }: las copias de un material, para el fundido
+  // de los muros o de los árboles y para el horneado de los impostores, perderían el recorte)
+  const copy = THREE.MeshStandardMaterial.prototype.copy;
+  THREE.MeshStandardMaterial.prototype.copy = function (src) {
+    copy.call(this, src);
+    if (src.defines?.PHOTO_CLAMP) this.defines = { ...this.defines, PHOTO_CLAMP: src.defines.PHOTO_CLAMP };
+    return this;
+  };
+}
 const WHITE = new THREE.Color(1, 1, 1);
 // Una roca: una bola de caras deformada por un ruido, aplastada y con la base plana, y la textura proyectada por la
 // cara (de lado o desde arriba) en metros

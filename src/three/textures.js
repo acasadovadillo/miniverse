@@ -1,7 +1,8 @@
 // Texturas pintadas por código en lienzos (yeso, tablas, tejas, piedra, madera, corteza,
-// toldo y el detalle del suelo). Se repiten por metro: los modelos usan coordenadas de textura en metros.
+// toldo y el detalle del suelo). Se repiten por metro: los modelos usan coordenadas de textura en metros. Las que llevan
+// foto comparten una sola textura por foto (ver photoTex).
 import * as THREE from 'three';
-import { PHOTOS, photo } from './photos.js';
+import { PHOTOS, photo, photoNow } from './photos.js';
 
 // Azar con semilla (siempre igual)
 export function rng(seed) {
@@ -10,20 +11,112 @@ export function rng(seed) {
 }
 const hex = (c, k = 0) => { const n = parseInt(c.slice(1), 16), f = v => Math.max(0, Math.min(255, Math.round(v * (1 + k)))); return `rgb(${f(n >> 16)},${f((n >> 8) & 255)},${f(n & 255)})`; };
 
-function make(w, h, draw, { color = true } = {}) {
+// scale: el lienzo, a más resolución con el mismo dibujo (lo que se mira de cerca: cuadros, alfombras, el tablón)
+function make(w, h, draw, { color = true, scale = 1 } = {}) {
   const c = document.createElement('canvas');
-  c.width = w; c.height = h;
-  draw(c.getContext('2d'), w, h);
+  c.width = w * scale; c.height = h * scale;
+  const g = c.getContext('2d');
+  if (scale !== 1) g.scale(scale, scale);
+  draw(g, w, h);
   const t = new THREE.CanvasTexture(c);
   t.wrapS = t.wrapT = THREE.RepeatWrapping;
   t.anisotropy = 8;
   if (color) t.colorSpace = THREE.SRGBColorSpace;
   return t;
 }
-// La foto de la clave encima del lienzo cuando llegue (ver photos.js): su dibujo,
+// Las que no llevan foto y se piden igual más de una vez (el cuadro del valle, los surcos…): una sola textura en la
+// gráfica, y a cada uno una copia (clone) que comparte la imagen, para que cambiar su repetición no toque a los demás
+const SMALL = new Map();
+const once = (id, fn) => { let t = SMALL.get(id); if (!t) SMALL.set(id, (t = fn())); return t.clone(); };
+
+// ---------- fotos ----------
+// Una sola textura de la gráfica por foto, para todas sus variantes: la madera de las vigas, la de los postigos y la de
+// los muebles son la misma foto con otro tinte, y antes cada una era una copia teñida de 512² (unos 43 MB de fotos para
+// 13 distintas). Ahora el tinte va en el color del material (mat(), en geo.js): la textura es la de la foto tal cual, y el
+// material la multiplica por el color medio de su lienzo pintado, que es lo que hacía antes la copia.
+// (en lineal, como pinta la gráfica: el factor de cada canal es el que deja la media de la foto teñida igual que la de la
+// copia de antes, sacado del histograma de la foto; y donde la copia recortaba en 255, el material recorta igual: ver
+// PHOTO_CLAMP en geo.js)
+const lin = x => (x <= 0.04045 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4);
+const BASES = new Map(), AVG = new Map();
+// La base de una foto: la imagen tal cual (la pizarra, con su contraste rebajado: ver photos.js, prep), o el detalle del
+// suelo horneado una vez en gris sobre la media de su lienzo
+function sharedBase(key, ph, grey) {
+  const id = grey ? `${key}|${grey.avg0.toFixed(2)}|${grey.k}|${grey.aniso}` : key;
+  let b = BASES.get(id);
+  if (b) return b;
+  let src = ph.img;
+  if (grey) {
+    // (como antes: la media de su lienzo y el contraste de la foto por k; la media de lo que queda, para meanOf)
+    const p = PHOTOS[key], c = document.createElement('canvas'), data = new ImageData(ph.w, ph.h), d = data.data, R = ph.red;
+    c.width = ph.w; c.height = ph.h;
+    let sum = 0;
+    for (let i = 0, j = 0; j < R.length; i += 4, j++) { sum += (d[i] = d[i + 1] = d[i + 2] = grey.avg0 + (R[j] - p.mean) * grey.k, d[i]); d[i + 3] = 255; }
+    c.getContext('2d').putImageData(data, 0, 0); MEANS.set(c, sum / R.length / 255); src = c;
+  }
+  const t = new THREE.Texture(src);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.anisotropy = grey?.aniso || 8;   // (la de sus copias: con otra, la gráfica la subiría dos veces)
+  t.colorSpace = grey ? THREE.NoColorSpace : THREE.SRGBColorSpace;
+  t.needsUpdate = true;
+  BASES.set(id, (b = { t, hist: ph.hist, k: new Map() }));
+  return b;
+}
+// El tinte en lineal de una variante (k: lo que multiplicaba cada canal de la foto en la copia de antes, en sRGB) y si
+// alguna parte se recortaba en 255
+function tintFor(b, k) {
+  const id = k.map(x => x.toFixed(4)).join(',');
+  let T = b.k.get(id);
+  if (T) return T;
+  const K = [0, 0, 0];
+  let over = false;
+  for (let ch = 0; ch < 3; ch++) {
+    const h = b.hist[ch];
+    let a = 0, z = 0;
+    for (let v = 0; v < 256; v++) if (h[v]) { a += h[v] * lin(v * k[ch] / 255); z += h[v] * lin(v / 255); if (v * k[ch] > 255.5) over = true; }
+    K[ch] = z ? a / z : k[ch];
+  }
+  b.k.set(id, (T = { K, over }));
+  return T;
+}
+// La media de cada canal (de 0 a 255) del lienzo pintado de una variante: su color. Se pinta una vez en memoria (no se
+// sube a la gráfica). (a su tamaño: pintado a un cuarto cuesta lo mismo, porque lo que pesa son las llamadas, y la media
+// se mueve hasta 1,3/255)
+function paintAvg(id, w, h, draw) {
+  let a = AVG.get(id);
+  if (a) return a;
+  const c = document.createElement('canvas'), g = c.getContext('2d', { willReadFrequently: true });
+  c.width = w; c.height = h;
+  draw(g, w, h);
+  const d = g.getImageData(0, 0, w, h).data;
+  a = [0, 0, 0];
+  for (let i = 0; i < d.length; i += 4) { a[0] += d[i]; a[1] += d[i + 1]; a[2] += d[i + 2]; }
+  for (let j = 0; j < 3; j++) a[j] /= d.length / 4;
+  AVG.set(id, a);
+  return a;
+}
+// Las texturas de las fotos que hay ya hechas (una por foto), para subirlas a la gráfica antes de jugar (engine.js, idle)
+export const photoBases = () => [...BASES.values()].map(b => b.t);
+// La textura de una variante: una copia (clone, la misma imagen en la gráfica) de la base de su foto, con su tinte
+// apuntado para mat() y del tamaño que mide la foto de verdad (meters: lo que mide el lienzo pintado). Si la foto aún
+// no ha llegado, el lienzo pintado con la foto encima cuando llegue (photoOver): lo de antes
+function photoTex(id, key, opts, w, h, draw, mk) {
+  const ph = photoNow(key);
+  if (!ph) return photoOver(make(w, h, draw, mk), key, opts);
+  const avg = paintAvg(id, w, h, draw);
+  if (opts.grey) return sharedBase(key, ph, { avg0: avg[0], k: opts.grey, aniso: opts.aniso }).t.clone();
+  const p = PHOTOS[key], b = sharedBase(key, ph), t = b.t.clone(), T = tintFor(b, avg.map(a => a / p.mean));
+  t.userData.photoTint = T.K;
+  if (T.over) t.userData.photoClamp = true;
+  // (después del repeat que ponga quien la pide, como cuando la foto llegaba más tarde: se multiplica)
+  if (opts.meters) { const sx = opts.meters / p.m[0], sy = opts.meters / p.m[1]; queueMicrotask(() => t.repeat.set(t.repeat.x * sx, t.repeat.y * sy)); }
+  return t;
+}
+// Lo de antes, cuando la foto aún no está: la foto de la clave encima del lienzo cuando llegue, su dibujo
 // teñido con el color medio de lo que había pintado, y del tamaño que mide de verdad (meters: lo que mide el lienzo
 // pintado; sin él, el tamaño no cambia: el suelo la muestrea a su escala). grey: en gris, sobre la media del lienzo y
-// con el contraste por k (el suelo la usa de detalle, dividida por su media de siempre)
+// con el contraste por k (el suelo la usa de detalle, dividida por su media de siempre). Correcto, pero cada variante
+// es su propia copia en la gráfica
 function photoOver(t, key, { meters, grey } = {}) {
   const p = PHOTOS[key], wait = photo(key);
   if (wait) wait.then(img => {
@@ -47,7 +140,8 @@ function photoOver(t, key, { meters, grey } = {}) {
 }
 
 // La media (de 0 a 1, del canal rojo) de lo que tiene ahora una textura en gris: el suelo divide su detalle por ella
-// (terrain.js). Una vez por lienzo: la de la foto la apunta photoOver al teñirla, y la del lienzo pintado se mide al pedirla
+// (terrain.js). Una vez por lienzo: la de la foto la apuntan sharedBase o photoOver al hornearla, y la del lienzo pintado se
+// mide al pedirla
 const MEANS = new WeakMap();
 export function meanOf(t) {
   const img = t.image;
@@ -66,15 +160,15 @@ function speckle(g, w, h, r, base, n, s, spread) {
 }
 
 // Yeso claro con manchas suaves
-export const plaster = () => make(256, 256, (g, w, h) => {
+export const plaster = () => once('plaster', () => make(256, 256, (g, w, h) => {
   const r = rng(1);
   g.fillStyle = '#f6efe2'; g.fillRect(0, 0, w, h);
   for (let i = 0; i < 50; i++) { const x = r() * w, y = r() * h, s = 14 + r() * 40, gr = g.createRadialGradient(x, y, 0, x, y, s); gr.addColorStop(0, `rgba(${r() < 0.5 ? '228,214,190' : '255,252,244'},0.18)`); gr.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = gr; g.fillRect(x - s, y - s, s * 2, s * 2); }
   speckle(g, w, h, r, '#efe6d6', 1600, 1, 0.05);
-});
+}));
 
 // Suelo de tablas: el lienzo son 2 × 2 m, con doce hileras de tablas de largo variado, vetas, nudos y juntas
-export const planks = () => photoOver(make(512, 512, (g, w, h) => {
+export const planks = () => photoTex('planks', 'entarimado', { meters: 2 }, 512, 512, (g, w, h) => {
   const r = rng(2), rows = 12, ph = h / rows, cols = ['#b8875c', '#b08056', '#bc8c62', '#ad7d52', '#b5845a'];
   for (let k = 0; k < rows; k++) {
     const y = k * ph;
@@ -94,10 +188,10 @@ export const planks = () => photoOver(make(512, 512, (g, w, h) => {
     g.fillStyle = 'rgba(60,34,18,.6)'; g.fillRect(0, y, w, 2);
     g.fillStyle = 'rgba(255,232,196,.10)'; g.fillRect(0, y + 2, w, 2);
   }
-}), 'entarimado', { meters: 2 });
+});
 
 // Tejas de barro en filas (una fila cada 25 cm), cada una con su borde redondeado y su sombra
-export const roofTiles = (color, photoKey = 'teja') => photoOver(make(256, 256, (g, w, h) => {
+export const roofTiles = (color, photoKey = 'teja') => photoTex(`roof|${color}|${photoKey}`, photoKey, { meters: 1 }, 256, 256, (g, w, h) => {
   const r = rng(3), rows = 4, cols = 6;
   g.fillStyle = hex(color, -0.35); g.fillRect(0, 0, w, h);
   for (let j = 0; j < rows; j++) {
@@ -113,10 +207,10 @@ export const roofTiles = (color, photoKey = 'teja') => photoOver(make(256, 256, 
     g.fillStyle = 'rgba(40,10,5,.35)'; g.fillRect(0, y0 + rh - 3, w, 3);
   }
   speckle(g, w, h, r, color, 900, 1, 0.3);
-}), photoKey, { meters: 1 });
+});
 
 // Piedra: sillares irregulares con mortero
-export const stone = (base = '#a59e92', photoKey = 'piedra') => photoOver(make(256, 256, (g, w, h) => {
+export const stone = (base = '#a59e92', photoKey = 'piedra') => photoTex(`stone|${base}`, photoKey, { meters: 1 }, 256, 256, (g, w, h) => {
   const r = rng(4);
   g.fillStyle = '#6e685f'; g.fillRect(0, 0, w, h);
   const rowH = 32;
@@ -131,52 +225,52 @@ export const stone = (base = '#a59e92', photoKey = 'piedra') => photoOver(make(2
     }
   }
   speckle(g, w, h, r, base, 1800, 1, 0.35);
-}), photoKey, { meters: 1 });
+});
 
 // La cara de una roca suelta (sin sillares): manchas y motas, con la foto de la roca encima cuando llega
-export const rockFace = (base = '#d8d4cc') => photoOver(make(256, 256, (g, w, h) => {
+export const rockFace = (base = '#d8d4cc') => photoTex(`rock|${base}`, 'roca', { meters: 1 }, 256, 256, (g, w, h) => {
   const r = rng(9);
   g.fillStyle = base; g.fillRect(0, 0, w, h);
   for (let i = 0; i < 90; i++) { g.fillStyle = hex(base, (r() - 0.5) * 0.14); g.beginPath(); g.ellipse(r() * w, r() * h, 8 + r() * 30, 6 + r() * 20, r() * 3, 0, Math.PI * 2); g.fill(); }
   g.strokeStyle = hex(base, -0.35); g.lineWidth = 1.2;
   for (let i = 0; i < 10; i++) { g.beginPath(); let x = r() * w, y = r() * h; g.moveTo(x, y); for (let j = 0; j < 5; j++) { x += (r() - 0.5) * 50; y += (r() - 0.3) * 30; g.lineTo(x, y); } g.stroke(); }
   speckle(g, w, h, r, base, 2500, 1, 0.4);
-}), 'roca', { meters: 1 });
+});
 
 // Madera para vigas, marcos y muebles: vetas a lo largo
-export const wood = (base = '#6a4428') => photoOver(make(128, 128, (g, w, h) => {
+export const wood = (base = '#6a4428') => photoTex(`wood|${base}`, 'madera', { meters: 1 }, 128, 128, (g, w, h) => {
   const r = rng(5);
   g.fillStyle = base; g.fillRect(0, 0, w, h);
   for (let i = 0; i < 40; i++) { g.strokeStyle = `rgba(${r() < 0.5 ? '0,0,0' : '255,220,170'},${0.05 + r() * 0.1})`; g.beginPath(); const y = r() * h; g.moveTo(0, y); g.bezierCurveTo(w * 0.3, y + (r() - 0.5) * 8, w * 0.7, y + (r() - 0.5) * 8, w, y); g.stroke(); }
-}), 'madera', { meters: 1 });
+});
 
 // Corteza: vetas verticales oscuras
-export const bark = () => photoOver(make(64, 128, (g, w, h) => {
+export const bark = () => photoTex('bark', 'corteza', { meters: 1 }, 64, 128, (g, w, h) => {
   const r = rng(6);
   g.fillStyle = '#6b4a30'; g.fillRect(0, 0, w, h);
   for (let i = 0; i < 26; i++) { const x = r() * w; g.fillStyle = `rgba(${r() < 0.6 ? '40,25,15' : '150,110,80'},${0.25 + r() * 0.3})`; g.fillRect(x, 0, 1 + r() * 2, h); }
   for (let i = 0; i < 30; i++) { g.fillStyle = 'rgba(40,25,15,.35)'; g.fillRect(r() * w, r() * h, 3 + r() * 5, 1); }
-}), 'corteza', { meters: 1 });
-
-// Toldo a rayas
-export const awning = (red = '#d23c3c', white = '#f6f0e4') => make(128, 64, (g, w, h) => {
-  for (let i = 0; i < 8; i++) { g.fillStyle = i % 2 ? white : red; g.fillRect((i * w) / 8, 0, w / 8, h); }
-  g.fillStyle = 'rgba(0,0,0,.08)'; for (let i = 0; i < 8; i++) g.fillRect((i * w) / 8, 0, 2, h);
 });
 
+// Toldo a rayas
+export const awning = (red = '#d23c3c', white = '#f6f0e4') => once(`awning|${red}|${white}`, () => make(128, 64, (g, w, h) => {
+  for (let i = 0; i < 8; i++) { g.fillStyle = i % 2 ? white : red; g.fillRect((i * w) / 8, 0, w / 8, h); }
+  g.fillStyle = 'rgba(0,0,0,.08)'; for (let i = 0; i < 8; i++) g.fillRect((i * w) / 8, 0, 2, h);
+}));
+
 // Alfombra: borde rojo oscuro, centro rojo y un rombo dorado
-export const rug = () => make(128, 128, (g, w, h) => {
+export const rug = () => once('rug', () => make(128, 128, (g, w, h) => {
   g.fillStyle = '#7e3030'; g.fillRect(0, 0, w, h);
   g.fillStyle = '#b8503e'; g.fillRect(10, 10, w - 20, h - 20);
   g.strokeStyle = '#e8c070'; g.lineWidth = 3; g.strokeRect(18, 18, w - 36, h - 36);
   g.fillStyle = '#e8c070'; g.beginPath(); g.moveTo(w / 2, 34); g.lineTo(w - 34, h / 2); g.lineTo(w / 2, h - 34); g.lineTo(34, h / 2); g.closePath(); g.fill();
   g.fillStyle = '#7e3030'; g.beginPath(); g.moveTo(w / 2, 50); g.lineTo(w - 50, h / 2); g.lineTo(w / 2, h - 50); g.lineTo(50, h / 2); g.closePath(); g.fill();
   for (let x = 4; x < w; x += 8) { g.fillStyle = '#e8d8b0'; g.fillRect(x, 0, 2, 4); g.fillRect(x, h - 4, 2, 4); }
-});
+}, { scale: 2 }));
 
 // Las otras alfombras (el dibujo, a lo largo: de arriba abajo del lienzo): persa, de rayas, de rombos y trenzada
 // (ovalada: fuera del óvalo, transparente)
-export const rugDesign = kind => make(128, 128, (g, w, h) => {
+export const rugDesign = kind => once('rug|' + kind, () => make(128, 128, (g, w, h) => {
   const fringe = c => { for (let x = 4; x < w; x += 8) { g.fillStyle = c; g.fillRect(x, 0, 2, 5); g.fillRect(x, h - 5, 2, 5); } };
   const diamond = (x, y, rx, ry, c) => { g.fillStyle = c; g.beginPath(); g.moveTo(x, y - ry); g.lineTo(x + rx, y); g.lineTo(x, y + ry); g.lineTo(x - rx, y); g.closePath(); g.fill(); };
   if (kind === 'persa') {
@@ -217,10 +311,10 @@ export const rugDesign = kind => make(128, 128, (g, w, h) => {
     }
     g.setLineDash([]);
   }
-});
+}, { scale: 2 }));
 
 // Papeles del tablón
-export const notes = () => make(128, 96, (g, w, h) => {
+export const notes = () => once('notes', () => make(128, 96, (g, w, h) => {
   const r = rng(9);
   g.fillStyle = '#8a5a34'; g.fillRect(0, 0, w, h);
   for (let i = 0; i < 6; i++) {
@@ -229,10 +323,10 @@ export const notes = () => make(128, 96, (g, w, h) => {
     g.fillStyle = 'rgba(60,50,40,.55)'; for (let l = 0; l < 4; l++) g.fillRect(x + 4, y + 8 + l * 6, 18 + r() * 6, 2);
     g.fillStyle = '#d23c3c'; g.fillRect(x + 13, y + 1, 4, 4);
   }
-});
+}, { scale: 2 }));
 
 // Detalle del suelo (en gris neutro: multiplica el color del terreno). Hierba: briznas y motas; tierra: piedrecitas
-export const grassDetail = () => photoOver(make(256, 256, (g, w, h) => {
+export const grassDetail = () => photoTex('grassD', 'hierba', { grey: 0.8 }, 256, 256, (g, w, h) => {
   const r = rng(10);
   g.fillStyle = '#d9d9d9'; g.fillRect(0, 0, w, h);
   for (let i = 0; i < 4200; i++) {
@@ -241,8 +335,8 @@ export const grassDetail = () => photoOver(make(256, 256, (g, w, h) => {
     g.beginPath(); g.moveTo(x, y); g.lineTo(x + (r() - 0.5) * 3, y - l); g.stroke();
   }
   for (let i = 0; i < 900; i++) { const v = 120 + r() * 60; g.fillStyle = `rgb(${v},${v},${v})`; g.fillRect(r() * w, r() * h, 2, 2); }
-}, { color: false }), 'hierba', { grey: 0.8 });
-export const soilDetail = () => photoOver(make(256, 256, (g, w, h) => {
+}, { color: false });
+export const soilDetail = () => photoTex('soilD', 'tierra', { grey: 0.8 }, 256, 256, (g, w, h) => {
   const r = rng(11);
   g.fillStyle = '#d6d6d6'; g.fillRect(0, 0, w, h);
   for (let i = 0; i < 3000; i++) { const v = 170 + r() * 85; g.fillStyle = `rgb(${v},${v},${v})`; g.fillRect(r() * w, r() * h, 1 + r() * 2, 1 + r() * 2); }
@@ -251,20 +345,20 @@ export const soilDetail = () => photoOver(make(256, 256, (g, w, h) => {
     g.fillStyle = `rgb(${v},${v},${v})`; g.beginPath(); g.ellipse(x, y, s, s * 0.7, r() * 3, 0, Math.PI * 2); g.fill();
     g.fillStyle = 'rgba(80,80,80,.5)'; g.beginPath(); g.ellipse(x + 1, y + 1, s, s * 0.7, 0, 0, Math.PI); g.fill();
   }
-}, { color: false }), 'tierra', { grey: 0.8 });
+}, { color: false });
 // Roca de las cuestas del suelo (terrain.js), en gris: manchas y grietas que bajan; encima, la foto de las rocas (la misma
 // que ya se descarga para ellas)
 // (con menos anisotropía que las demás: se lee en tres planos, y así cuesta menos en las cuestas)
-export const rockDetail = () => { const t = photoOver(make(256, 256, (g, w, h) => {
+export const rockDetail = () => { const t = photoTex('rockD', 'roca', { grey: 0.9, aniso: 4 }, 256, 256, (g, w, h) => {
   const r = rng(13);
   g.fillStyle = '#c4c4c4'; g.fillRect(0, 0, w, h);
   for (let i = 0; i < 80; i++) { const v = 140 + r() * 100; g.fillStyle = `rgba(${v},${v},${v},.4)`; g.beginPath(); g.ellipse(r() * w, r() * h, 10 + r() * 36, 6 + r() * 18, r() * 3, 0, 7); g.fill(); }
   g.strokeStyle = 'rgba(60,60,60,.55)';
   for (let i = 0; i < 14; i++) { g.beginPath(); let x = r() * w, y = r() * h; g.moveTo(x, y); for (let k = 0; k < 5; k++) { x += (r() - 0.5) * 40; y += r() * 24; g.lineTo(x, y); } g.stroke(); }
-}, { color: false }), 'roca', { grey: 0.9 }); t.anisotropy = 4; return t; };
+}, { color: false }); t.anisotropy = 4; return t; };
 
 // Tablas horizontales de una pared de madera (cinco por metro), con juntas y vetas
-export const siding = () => photoOver(make(256, 256, (g, w, h) => {
+export const siding = () => photoTex('siding', 'tablas', { meters: 1 }, 256, 256, (g, w, h) => {
   const r = rng(12), rows = 5, rh = h / rows;
   for (let k = 0; k < rows; k++) {
     const y = k * rh;
@@ -274,10 +368,10 @@ export const siding = () => photoOver(make(256, 256, (g, w, h) => {
     g.fillStyle = 'rgba(255,225,180,.14)'; g.fillRect(0, y, w, 2);
     if (r() < 0.6) { g.fillStyle = 'rgba(40,22,10,.6)'; g.fillRect(Math.floor(r() * w), y, 2, rh); }
   }
-}), 'tablas', { meters: 1 });
+});
 
 // Losas de piedra para el suelo (cuatro por metro, a tresbolillo)
-export const flagstone = () => photoOver(make(256, 256, (g, w, h) => {
+export const flagstone = () => photoTex('flag', 'losa', { meters: 1 }, 256, 256, (g, w, h) => {
   const r = rng(13), n = 4, s = w / n;
   g.fillStyle = '#5e5850'; g.fillRect(0, 0, w, h);
   for (let j = 0; j < n; j++) for (let i = -1; i < n; i++) {
@@ -286,10 +380,10 @@ export const flagstone = () => photoOver(make(256, 256, (g, w, h) => {
     g.fillStyle = 'rgba(255,255,255,.08)'; g.fillRect(x + 4, y + 4, s - 10, 3);
   }
   speckle(g, w, h, r, '#9a958a', 1200, 1, 0.3);
-}), 'losa', { meters: 1 });
+});
 
 // Grava del camino: piedrecitas sobre tierra
-export const gravel = () => photoOver(make(256, 256, (g, w, h) => {
+export const gravel = () => photoTex('gravel', 'grava', { meters: 1 }, 256, 256, (g, w, h) => {
   const r = rng(14);
   g.fillStyle = '#b8a07a'; g.fillRect(0, 0, w, h);
   for (let i = 0; i < 900; i++) {
@@ -298,10 +392,10 @@ export const gravel = () => photoOver(make(256, 256, (g, w, h) => {
     g.beginPath(); g.ellipse(x, y, s, s * 0.7, r() * 3, 0, Math.PI * 2); g.fill();
     g.fillStyle = 'rgba(40,30,20,.25)'; g.beginPath(); g.ellipse(x + 1, y + 1.5, s, s * 0.5, 0, 0, Math.PI); g.fill();
   }
-}), 'grava', { meters: 1 });
+});
 
 // Paja de un tejado: manojos en filas, cuesta abajo
-export const thatch = () => photoOver(make(256, 256, (g, w, h) => {
+export const thatch = () => photoTex('thatch', 'paja', { meters: 1 }, 256, 256, (g, w, h) => {
   const r = rng(15);
   g.fillStyle = '#b8903e'; g.fillRect(0, 0, w, h);
   for (let row = 0; row < 4; row++) {
@@ -309,10 +403,10 @@ export const thatch = () => photoOver(make(256, 256, (g, w, h) => {
     for (let i = 0; i < 500; i++) { const x = r() * w, y = y0 + r() * (h / 4); g.strokeStyle = hex(['#d8b060', '#c49a48', '#e8c878', '#a88438'][Math.floor(r() * 4)], (r() - 0.5) * 0.2); g.lineWidth = 1 + r(); g.beginPath(); g.moveTo(x, y); g.lineTo(x + (r() - 0.5) * 4, y + 10 + r() * 14); g.stroke(); }
     g.fillStyle = 'rgba(60,40,10,.35)'; g.fillRect(0, y0 + h / 4 - 4, w, 4);
   }
-}), 'paja', { meters: 1 });
+});
 
 // Tierra labrada: surcos oscuros y húmedos
-export const furrows = () => make(128, 128, (g, w, h) => {
+export const furrows = () => once('furrows', () => make(128, 128, (g, w, h) => {
   const r = rng(16);
   g.fillStyle = '#6a4a30'; g.fillRect(0, 0, w, h);
   for (let k = 0; k < 4; k++) {
@@ -321,11 +415,11 @@ export const furrows = () => make(128, 128, (g, w, h) => {
     g.fillStyle = gr; g.fillRect(0, y, w, h / 4);
   }
   speckle(g, w, h, r, '#6a4a30', 700, 2, 0.4);
-});
+}));
 
-// Los cuadros (128 × 96): el valle, el mar al atardecer, un jarrón de flores y el pueblo de noche
+// Los cuadros (128 × 96, pintados al doble: se miran de cerca): el valle, el mar al atardecer, un jarrón de flores y el pueblo de noche
 export function artwork(kind) {
-  return make(128, 96, (g, w, h) => {
+  return once('art|' + kind, () => make(128, 96, (g, w, h) => {
     const path = pts => { g.beginPath(); g.moveTo(...pts[0]); for (const p of pts.slice(1)) p.length > 2 ? g.quadraticCurveTo(...p) : g.lineTo(...p); g.fill(); };
     const disc = (x, y, r, c, a0 = 0, a1 = Math.PI * 2) => { g.fillStyle = c; g.beginPath(); g.arc(x, y, r, a0, a1); g.fill(); };
     if (kind === 'valle') {
@@ -379,5 +473,5 @@ export function artwork(kind) {
       }
       g.fillStyle = '#121c28'; g.fillRect(0, 76, w, 20);
     }
-  });
+  }, { scale: 2 }));
 }
