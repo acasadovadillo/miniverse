@@ -163,7 +163,7 @@ export class Ranch {
       const a = old.get(s.id);
       if (!a) {
         const n = new Animal({ ...s, x: s.at?.[0], y: s.at?.[1] });
-        if (!n.named && this.game.player) hud.toast(`¡Ha nacido ${an(n.def.baby)} en la granja!`, 'good');
+        this.bornNews(n);
         return n;
       }
       if (s.at && String(s.at) !== String(a.at)) { a.x = a.tx = s.at[0]; a.y = a.ty = s.at[1]; }
@@ -194,12 +194,22 @@ export class Ranch {
         if (!knownAnimal(f)) { if (!u) this.unknown.push({ ...f, id }); continue; }
         const n = new Animal({ ...f, id, x: f.at?.[0], y: f.at?.[1] });
         this.animals.push(n);
-        if (!n.named && this.game.player) hud.toast(`¡Ha nacido ${an(n.def.baby)} en la granja!`, 'good');
+        if (!this.game.live.guest) this.roomFor(n);
+        this.bornNews(n);
         continue;
       }
       if (u) { if (kind === 'set') u[f] = v; else delete u[f]; continue; }
       if (a) this.netField(a, f, kind === 'set' ? v : undefined);
     }
+  }
+  // (un aviso cuando llega una cría que ha nacido en otro juego: no por un callejero, que no nace, ni por uno sin cría)
+  bornNews(n) { if (!n.named && !n.stray && n.def.baby && this.game.player) hud.toast(`¡Ha nacido ${an(n.def.baby)} en la granja!`, 'good'); }
+  // (quien lleva el mundo) Uno nuevo de un invitado en una casa que ya está llena (los dos compraron a la vez para el
+  // último sitio): a otra del mismo tipo con sitio, o sin casa. El cambio se reparte en la vuelta siguiente
+  roomFor(n) {
+    const kind = n.def.home, list = kind && n.home ? this.homes(kind) : [], h = list.find(x => x.tile[0] === n.home[0] && x.tile[1] === n.home[1]);
+    if (!h || h.free >= 0) return;
+    n.home = list.find(x => x.free > 0)?.tile || null;
   }
   // Un campo de un animal: si alguien se bajó de un caballo o lo puso en una casa (at), se pone ahí; si alguien lo llamó
   // (call), quien lleva el mundo lo hace venir. Lo que esta versión no conoce va con lo de una más nueva (more)
@@ -212,9 +222,9 @@ export class Ranch {
   }
   // La granja: lo que no es de ningún animal ('@': el heno del silo, cuándo vino el último callejero…) y cada envío del
   // palomar por su id (los de antes de que lo llevaran, por lo que son: dos iguales, el primero y el segundo)
-  farmItems() {
-    const { mail, ...rest } = this.farm, out = new Map([['@', rest]]), seen = new Map();
-    for (const m of mail || []) out.set(mailKey(m, seen), m);
+  farmItems(farm = this.farm) {   // (farm: la granja entera que se mandó a un juego de antes)
+    const { mail, ...rest } = farm, out = new Map([['@', rest]]), seen = new Map();
+    for (const m of Array.isArray(mail) ? mail : []) out.set(mailKey(m, seen), m);
     return out;
   }
   farmApply(ops) {

@@ -94,30 +94,58 @@ export const BLOBS = {
 // se deshaga un momento con lo que él mandó antes de recibirlo, cada envío del invitado lleva un número (seq) y quien
 // lleva el mundo dice hasta cuál ha aplicado de cada uno (ack): lo suyo que aún no lo incluye no pisa tus campos.
 // Los juegos de antes (sin perItem en el saludo) siguen con las listas enteras de BLOBS: ver syncMode en live.js.
+// Por si algo se ha perdido por el camino (quien lo llevaba se fue sin aplicarlo o sin repartirlo), quien lleva el mundo
+// manda de vez en cuando (y al empezar a llevarlo) la foto entera ('el' con full): quien la recibe pone lo que le falta,
+// quita lo que sobra (salvo lo suyo aún sin aplicar allí) y queda igual. Y el invitado, si lo pasa a llevar otro, le
+// vuelve a mandar lo suyo que el de antes no llegó a aplicar (unsend).
 // counters: los campos que se suman, y entre qué valores quedan. guestDrops: si un invitado puede quitar elementos (los
-// animales y los hijos solo los quita quien lleva el mundo: si a un invitado le falta uno, se le devuelve)
+// animales y los hijos solo los quita quien lleva el mundo: si a un invitado le falta uno, se le devuelve). whole: los
+// elementos de la lista entera de BLOBS (la de los juegos de antes), para partir de lo último que se mandó entero.
+// Los ids no se repiten: uno quitado no vuelve (por eso cada embarazo tiene el suyo: ver Family.netItems)
 export const COLLECTIONS = {
-  animals: { items: g => g.ranch.netItems(), apply: (g, ops) => g.ranch.netApply(ops), counters: { love: [0, 10] }, guestDrops: false },
-  family: { items: g => g.family.netItems(), apply: (g, ops) => g.family.netApply(ops), guestDrops: false },
-  farm: { items: g => g.ranch.farmItems(), apply: (g, ops) => g.ranch.farmApply(ops), counters: { hay: [0, Infinity] }, guestDrops: true },
+  animals: { items: g => g.ranch.netItems(), whole: (g, v) => new Map((Array.isArray(v) ? v : []).filter(s => typeof s?.id === 'string').map(s => [s.id, s])), apply: (g, ops) => g.ranch.netApply(ops), counters: { love: [0, 10] }, guestDrops: false },
+  family: { items: g => g.family.netItems(), whole: (g, v) => g.family.netItems(v || {}), apply: (g, ops) => g.family.netApply(ops), guestDrops: false },
+  farm: { items: g => g.ranch.farmItems(), whole: (g, v) => g.ranch.farmItems(v || {}), apply: (g, ops) => g.ranch.farmApply(ops), counters: { hay: [0, Infinity] }, guestDrops: true },
 };
 const OPS = new Set(['put', 'set', 'del', 'add', 'drop']);
 const BAD_FIELDS = new Set(['__proto__', 'constructor', 'prototype']);
 const valid = op => Array.isArray(op) && OPS.has(op[0]) && typeof op[1] === 'string' && op[1].length <= 400 && !BAD_FIELDS.has(op[1])
   && (op[0] === 'drop' || (op[0] === 'put' ? isMap(op[2]) : typeof op[2] === 'string' && !BAD_FIELDS.has(op[2]) && (op[0] !== 'add' || Number.isFinite(op[3]))));
 const slot = (id, f) => `${id}\u0000${f}`;
+// (en inflight, además de los campos: que el elemento es nuevo, PUT, o que lo has quitado, DROP)
+const PUT = '\u0001put', DROP = '\u0001drop';
 
 // Una colección como se repartió la última vez (base: id → su JSON), lo que se ha quitado (gone) y, en el invitado, lo
 // suyo que ha mandado y aún no ha visto aplicado por quien lleva el mundo (inflight: id + campo → el seq con que se mandó)
 export class ItemSync {
   constructor(name) {
     this.name = name; this.def = COLLECTIONS[name];
-    this.base = new Map(); this.gone = new Set(); this.inflight = new Map();
+    this.base = new Map(); this.gone = new Set(); this.inflight = new Map(); this.redrop = new Set();
   }
-  // Desde lo que hay ahora, sin mandar nada (al entrar en el mundo, o al pasar de las listas enteras a esto)
-  reset(g) {
-    this.base.clear(); this.inflight.clear();
-    for (const [id, o] of this.def.items(g)) this.base.set(id, JSON.stringify(o));
+  // Desde lo que hay ahora, sin mandar nada (al entrar en el mundo), o desde la lista entera que se acaba de mandar o de
+  // recibir (whole: jugando con un juego de antes; al volver a esto, lo cambiado desde entonces sí se manda)
+  reset(g, whole) {
+    this.base.clear(); this.inflight.clear(); this.redrop.clear();
+    for (const [id, o] of whole === undefined ? this.def.items(g) : this.def.whole(g, whole)) this.base.set(id, JSON.stringify(o));
+  }
+  // (invitado) Lo has mandado a quien llevaba el mundo y no sabes si lo aplicó (se ha ido, o lo lleva otro): vuelve a quedar
+  // por mandar. Los campos van con lo que valen (no lo sumado: quien lo lleva ahora puede que ya lo tenga), lo nuevo
+  // otra vez entero y lo quitado otra vez quitado
+  unsend() {
+    for (const k of this.inflight.keys()) {
+      const [id, f] = k.split('\u0000'), was = this.base.get(id);
+      if (f === DROP) this.redrop.add(id);
+      else if (f === PUT) this.base.delete(id);
+      else if (was !== undefined) { const o = JSON.parse(was); delete o[f]; this.base.set(id, JSON.stringify(o)); }
+    }
+    this.inflight.clear();
+  }
+  // (invitado) Si es tuyo y aún no lo han aplicado allí: lo nuevo, lo quitado o alguno de sus campos
+  mine(id) { for (const k of this.inflight.keys()) if (k.startsWith(`${id}\u0000`)) return true; return false; }
+  // (quien lleva el mundo) La foto entera: lo cambiado queda como repartido (y lo quitado, en gone) y va todo como put
+  full(g) {
+    this.diff(g);
+    return [...this.def.items(g)].map(([id, o]) => ['put', id, o]);
   }
   // Lo que ha cambiado desde la última vez, y queda como repartido. seq: el número del envío, si eres invitado (tus
   // contadores van como lo que has sumado; los de quien lleva el mundo, con lo que valen)
@@ -128,7 +156,11 @@ export class ItemSync {
       const s = JSON.stringify(o), was = this.base.get(id);
       if (was === s) continue;
       this.base.set(id, s);
-      if (was === undefined) { const all = JSON.parse(s); ops.push(['put', id, all]); this.gone.delete(id); if (seq !== null) for (const f in all) this.inflight.set(slot(id, f), seq); continue; }
+      if (was === undefined) {
+        const all = JSON.parse(s); ops.push(['put', id, all]); this.gone.delete(id);
+        if (seq !== null) { this.inflight.set(slot(id, PUT), seq); for (const f in all) this.inflight.set(slot(id, f), seq); }
+        continue;
+      }
       const a = JSON.parse(was), b = JSON.parse(s);
       for (const f of new Set([...Object.keys(a), ...Object.keys(b)])) {
         if (!(f in b)) ops.push(['del', id, f]);
@@ -137,12 +169,18 @@ export class ItemSync {
         if (seq !== null) this.inflight.set(slot(id, f), seq);
       }
     }
-    for (const id of [...this.base.keys()]) if (!seen.has(id)) { this.base.delete(id); this.gone.add(id); ops.push(['drop', id]); }
+    for (const id of [...this.base.keys()]) if (!seen.has(id)) {
+      this.base.delete(id); this.gone.add(id); ops.push(['drop', id]);
+      if (seq !== null) { for (const k of [...this.inflight.keys()]) if (k.startsWith(`${id}\u0000`)) this.inflight.delete(k); this.inflight.set(slot(id, DROP), seq); }
+    }
+    for (const id of this.redrop) if (!seen.has(id) && !ops.some(op => op[1] === id)) { ops.push(['drop', id]); if (seq !== null) this.inflight.set(slot(id, DROP), seq); }
+    this.redrop.clear();
     return ops;
   }
-  // Llegan cambios. fromHost: de quien lleva el mundo (ack: hasta qué envío tuyo ha aplicado); si no, de un invitado y
-  // los aplicas tú, que lo llevas: devuelve lo que no se deja, para devolvérselo como está aquí
-  apply(g, ops, fromHost, ack = null) {
+  // Llegan cambios. fromHost: de quien lleva el mundo (ack: hasta qué envío tuyo ha aplicado; full: es la foto entera);
+  // si no, de un invitado y los aplicas tú, que lo llevas: devuelve lo que no se deja, para devolvérselo como está aquí.
+  // trusted: de quien lo llevaba hasta que te lo pasó (el mundo del servidor, mientras se lo pasa): puede quitar
+  apply(g, ops, fromHost, ack = null, { full = false, trusted = false } = {}) {
     const cur = this.def.items(g), out = [], back = [], counters = this.def.counters || {}, sums = new Map();
     if (fromHost) for (const [k, seq] of this.inflight) if (ack !== null && seq <= ack) this.inflight.delete(k);
     const held = (id, f) => fromHost && this.inflight.has(slot(id, f));   // (tuyo y aún sin aplicar allí: se queda lo tuyo)
@@ -150,7 +188,7 @@ export class ItemSync {
       if (!valid(op)) continue;
       const [kind, id, f, v] = op, have = cur.get(id);
       if (kind === 'drop') {
-        if (!fromHost && !this.def.guestDrops) { if (have) back.push(['put', id, JSON.parse(JSON.stringify(have))]); continue; }   // (que lo vuelva a tener)
+        if (!fromHost && !trusted && !this.def.guestDrops) { if (have) back.push(['put', id, JSON.parse(JSON.stringify(have))]); continue; }   // (que lo vuelva a tener)
         this.gone.add(id);
         if (fromHost) for (const k of this.inflight.keys()) if (k.startsWith(`${id}\u0000`)) this.inflight.delete(k);
         if (have) { out.push(op); cur.delete(id); }
@@ -158,7 +196,7 @@ export class ItemSync {
       }
       if (kind === 'put') {
         if (!fromHost && this.gone.has(id)) { back.push(['drop', id]); continue; }   // (ya no está: no se resucita)
-        if (!have) { out.push(['put', id, f]); cur.set(id, f); if (fromHost) this.gone.delete(id); continue; }
+        if (!have) { if (held(id, DROP)) continue; out.push(['put', id, f]); cur.set(id, f); if (fromHost) this.gone.delete(id); continue; }   // (lo acabas de quitar tú: no vuelve)
         // (uno que ya está: campo a campo, como si fueran set y del)
         for (const k of new Set([...Object.keys(have), ...Object.keys(f)])) {
           if (held(id, k) || BAD_FIELDS.has(k)) continue;
@@ -174,6 +212,11 @@ export class ItemSync {
         const n = Math.min(range[1], Math.max(range[0], now + v));
         sums.set(k, n); out.push(['set', id, f, n]);
       } else out.push(kind === 'set' ? ['set', id, f, v] : ['del', id, f]);
+    }
+    // (la foto entera: lo que aquí sobra se quita, salvo lo tuyo que allí aún no han aplicado)
+    if (full) {
+      const there = new Set(ops.filter(valid).map(op => op[1]));
+      for (const id of cur.keys()) if (!there.has(id) && !this.mine(id)) { out.push(['drop', id]); this.gone.add(id); }
     }
     if (out.length) this.def.apply(g, out);
     // (el invitado: lo que acaba de llegar queda como repartido, para no volver a mandarlo)

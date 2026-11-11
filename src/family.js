@@ -59,11 +59,12 @@ export class Family {
     for (const id of [...this.ents.keys()]) if (!this.v.kids.some(k => k.id === id)) this.ents.delete(id);
   }
   // Jugando juntos, hijo a hijo (ver COLLECTIONS en livesync.js): cada hijo ('kid:' y su id), el bebé que se espera
-  // ('expecting') y lo demás ('@': lo de una versión más nueva)
-  netItems() {
-    const { kids, expecting, ...rest } = this.v, out = new Map([['@', rest]]);
-    if (expecting) out.set('expecting', expecting);
-    for (const k of kids || []) out.set(`kid:${k.id}`, k);
+  // ('exp:' y el suyo: cada embarazo uno distinto, que un id quitado no vuelve y puede haber otro después) y lo
+  // demás ('@': lo de una versión más nueva). v: la familia entera que se mandó a un juego de antes
+  netItems(v = this.v) {
+    const { kids, expecting, ...rest } = v, out = new Map([['@', rest]]);
+    if (expecting) out.set(expKey(expecting), expecting);
+    for (const k of Array.isArray(kids) ? kids : []) out.set(`kid:${k?.id}`, k);
     return out;
   }
   netApply(ops) {
@@ -75,10 +76,12 @@ export class Family {
         else if (f !== 'kids' && f !== 'expecting') { if (kind === 'set') this.v[f] = val; else if (kind === 'del') delete this.v[f]; }
         continue;
       }
-      if (id === 'expecting') {
+      if (id.startsWith('exp:')) {
+        const e = this.v.expecting, here = !!e && expKey(e) === id;   // (lo que llega de otro embarazo, de antes, no toca este)
         if (kind === 'put') this.v.expecting = f;
+        else if (!here) continue;
         else if (kind === 'drop') this.v.expecting = null;
-        else if (this.v.expecting) { if (kind === 'set') this.v.expecting[f] = val; else delete this.v.expecting[f]; }
+        else if (f !== 'since' && f !== 'mother' && f !== 'eid') { if (kind === 'set') e[f] = val; else delete e[f]; }
         continue;
       }
       if (!id.startsWith('kid:')) continue;
@@ -191,7 +194,7 @@ export class Family {
     this.glow(true);
     this.paintHeart();
   }
-  conceive(looks) { this.v.expecting = { since: this.today, mother: Profile.id, looks: looks.map(l => { const { wear, ...rest } = l || {}; return rest; }) }; this.game.onSave?.(); }
+  conceive(looks) { this.v.expecting = { eid: Math.random().toString(36).slice(2, 10), since: this.today, mother: Profile.id, looks: looks.map(l => { const { wear, ...rest } = l || {}; return rest; }) }; this.game.onSave?.(); }
   expectingNews() { Audio.unlock(); hud.toast(`¡Vais a tener un bebé! Nacerá dentro de ${WAIT} días.`, 'good'); }
   glow(on) { $('love-glow')?.classList.toggle('on', on); }
   // Los corazones suben balanceándose
@@ -355,3 +358,7 @@ export class Family {
   positions() { return [...this.ents].map(([id, e]) => [id, Math.round(e.x * 100) / 100, Math.round(e.y * 100) / 100, e.lying ? 1 : 0, Math.round(e.yaw * 100) / 100, e.h || 0]); }
   place(list) { for (const [id, ...pos] of list) { const e = this.ents.get(id); if (e) e.netTo = pos; } }
 }
+
+// El id de un embarazo para repartirlo jugando juntos: el suyo (eid) o, en los de antes de que lo llevaran, el día que
+// empezó y la madre
+function expKey(e) { return typeof e.eid === 'string' ? `exp:${e.eid}` : `exp:${e.since ?? ''}:${e.mother ?? ''}`; }

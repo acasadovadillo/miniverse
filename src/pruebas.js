@@ -28,7 +28,7 @@ import { hud } from './ui/hud.js';
 import { freePlace } from './gather.js';
 import { PIECE_IDS } from './build.js';
 import { PIECES, parsePlaced } from './pieces.js';
-import { diffChunk, applyOps } from './livesync.js';
+import { diffChunk, applyOps, ItemSync, COLLECTIONS } from './livesync.js';
 import { wallTile } from './three/build3d.js';
 import { itemIcon } from './art/items.js';
 import { PREY, bodyBox } from './hunt.js';
@@ -1162,6 +1162,56 @@ async function soloTests(game) {
   await test('ganchos: ningún sistema tapa un gancho con otra cosa', async () => {
     const HOOKS = { target: 3, interact: 2, entities: 1, onDay: 1 };   // (los ganchos con parámetros: un método con ese nombre y otro uso los taparía)
     for (const s of game.systems) for (const [h, n] of Object.entries(HOOKS)) if (typeof s[h] === 'function' && s[h].length < n) throw new Error(`${s.constructor.name}.${h} tiene ${s[h].length} parámetros y el gancho pide ${n}`);
+  });
+  await test('red: animales y granja elemento a elemento (cría y caricia a la vez, heno a la vez, otro anfitrión, foto entera, embarazos)', async () => {
+    // Dos juegos de mentira (cada colección, un mapa id → objeto) repartiendo como en live.js, sin relay: H lleva el mundo, I es invitado
+    const fake = () => {
+      const st = { animals: new Map(), family: new Map([['@', {}]]), farm: new Map([['@', { hay: 50 }]]) };
+      const io = name => [() => new Map([...st[name]].map(([k, v]) => [k, structuredClone(v)])), ops => {
+        for (const [k, id, f, v] of ops) { const o = st[name].get(id); if (k === 'put') st[name].set(id, structuredClone(f)); else if (k === 'drop') st[name].delete(id); else if (o) { if (k === 'set') o[f] = v; else delete o[f]; } }
+      }];
+      const [ai, aa] = io('animals'), [fi, fa] = io('farm'), [mi, ma] = io('family');
+      return { st, ranch: { netItems: ai, netApply: aa, farmItems: fi, farmApply: fa }, family: { netItems: mi, netApply: ma } };
+    };
+    const H = fake(), I = fake(), sync = () => Object.fromEntries(Object.keys(COLLECTIONS).map(k => [k, new ItemSync(k)]));
+    for (const g of [H, I]) g.st.animals.set('vaca', { type: 'vaca', love: 5 });
+    const sh = sync(), si = sync();
+    let seq = 0, acked = -1;
+    for (const k in sh) { sh[k].reset(H); si[k].reset(I); }
+    const fromI = n => { const s = ++seq; return { n, ops: si[n].diff(I, s), seq: s }; };
+    const toH = m => { sh[m.n].apply(H, m.ops, false); acked = m.seq; };
+    const fromH = n => ({ n, ops: sh[n].diff(H), ack: acked });
+    const toI = m => si[m.n].apply(I, m.ops, true, m.ack, { full: !!m.full });
+    const json = (g, n) => JSON.stringify([...g.st[n]].sort());
+    const same = () => Object.keys(COLLECTIONS).every(n => json(H, n) === json(I, n));
+    // Nace una cría en H mientras I acaricia la vaca: lo de I llega cuando H ya ha mandado la cría
+    H.st.animals.set('cria', { type: 'vaca', named: false }); I.st.animals.get('vaca').love = 6;
+    const m1 = fromI('animals'), h1 = fromH('animals');
+    toI(h1); check(I.st.animals.get('vaca').love === 6, 'lo de H, de antes de saber lo de I, deshace la caricia');
+    toH(m1); toI(fromH('animals'));
+    check(H.st.animals.has('cria') && I.st.animals.has('cria') && H.st.animals.get('vaca').love === 6 && same(), `cría o caricia perdidas: ${json(H, 'animals')} / ${json(I, 'animals')}`);
+    // Heno a la vez: H saca 20 e I saca 5
+    H.st.farm.get('@').hay = 30; I.st.farm.get('@').hay = 45;
+    const m2 = fromI('farm'); toI(fromH('farm'));
+    check(I.st.farm.get('@').hay === 45, 'lo de I se deshace antes de llegar');
+    toH(m2); toI(fromH('farm'));
+    check(H.st.farm.get('@').hay === 25 && same(), `heno: ${H.st.farm.get('@').hay}/${I.st.farm.get('@').hay}`);
+    // I compra una gallina y quien lo llevaba se va sin aplicarlo: al nuevo (aquí, H otra vez) se le vuelve a mandar
+    I.st.animals.set('gal', { type: 'gallina', love: 1 }); fromI('animals');   // (se pierde)
+    for (const k in si) si[k].unsend();
+    toH(fromI('animals')); toI(fromH('animals'));
+    check(H.st.animals.has('gal') && same(), 'la gallina comprada se pierde al cambiar quien lleva el mundo');
+    // H quita la vaca y no llega (se pierde); I compra otra gallina, aún sin aplicar: la foto entera quita la vaca y no la gallina
+    H.st.animals.delete('vaca'); fromH('animals');
+    I.st.animals.set('gal2', { type: 'gallina' }); const m3 = fromI('animals');
+    toI({ n: 'animals', ops: sh.animals.full(H), ack: acked, full: 1 });
+    check(!I.st.animals.has('vaca') && I.st.animals.has('gal2'), `foto entera: ${json(I, 'animals')}`);
+    toH(m3); toI(fromH('animals'));
+    check(same(), `distintos al final: ${json(H, 'animals')} / ${json(I, 'animals')}`);
+    // El segundo embarazo: el primero ya se quitó, y uno nuevo tiene otro id (que no esté en lo quitado)
+    const F = game.family, k1 = [...F.netItems({ kids: [], expecting: { since: 3, mother: 'x' } }).keys()].find(k => k.startsWith('exp:'));
+    const k2 = [...F.netItems({ kids: [], expecting: { since: 12, mother: 'x' } }).keys()].find(k => k.startsWith('exp:'));
+    check(k1 && k2 && k1 !== k2, `los embarazos tienen el mismo id: ${k1} ${k2}`);
   });
 }
 

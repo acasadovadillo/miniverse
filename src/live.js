@@ -28,6 +28,7 @@ const SEND_EVERY = 0.1, IDLE_EVERY = 1;   // segundos entre mensajes de cómo va
 const SYNC_EVERY = 0.1;                   // cada cuánto se mandan los cambios del mundo
 const POSES = ['sit', 'floorSit', 'lie', 'floorLie'];   // las posturas, por su número (en el estado de cada jugador)
 const BLOB_EVERY = 0.25, TIME_EVERY = 1, HERD_EVERY = 0.2;   // lo de todos, la hora y por dónde van los animales
+const FULL_EVERY = 30;                     // (quien lleva el mundo) cada cuánto manda entera la foto de lo de todos por elementos
 const SNAP = 4;                           // si alguien aparece a más de tantas casillas de donde estaba, salta allí
 const MINE_FIRST = 3;                     // segundos que lo que suelta algo al romperse es solo de quien lo rompió
 const GIVE_FIRST = 5;                     // y que lo que uno tira es solo para los demás (así se dan cosas)
@@ -96,10 +97,10 @@ export class Live {
     this.blobs = {};              // lo de todos que no va en los trozos, como se mandó la última vez
     // (los animales, la familia y la granja, elemento a elemento: ver COLLECTIONS en livesync.js. seq: el número de tu
     // último envío de esos cambios; syncMode: cómo se repartían en la última vuelta; wholeSent: lo mandado entero a los
-    // juegos de antes)
+    // juegos de antes; ackHost: (invitado) a quién le mandas lo tuyo; fullDue: (quien lo lleva) toca mandar la foto entera)
     this.items = Object.fromEntries(Object.keys(COLLECTIONS).map(k => [k, new ItemSync(k)]));
-    this.seq = 0; this.lastMode = null; this.wholeSent = {}; this.ackHost = null;
-    this.timers = { sync: 0, blob: 0, time: 0, herd: 0 };
+    this.seq = 0; this.lastMode = null; this.wholeSent = {}; this.ackHost = null; this.fullDue = false;
+    this.timers = { sync: 0, blob: 0, time: 0, herd: 0, full: 0 };
     this.clockBase = null;        // (invitado) la hora del anfitrión: { c, at, run, sh, db } (sh: lo que ha movido el reloj; db: su día 0)
     this.solo = null;             // (invitado) su partida de siempre, con su mundo: lo que se guarda
     this.wanted = null;           // (invitado) esperando el mundo del anfitrión
@@ -358,19 +359,20 @@ export class Live {
         break;
       // Lo de todos, elemento a elemento (ver COLLECTIONS en livesync.js). Al invitado le llega de quien lleva el mundo:
       // antes, lo suyo sin mandar se le manda (para que no se pierda), y lo suyo que allí aún no han aplicado no se pisa
-      // (ack). A quien lo lleva, de un invitado: lo aplica (lo que no se deja, se le devuelve) y lo reparte en su vuelta
+      // (ack); con full, es la foto entera. A quien lo lleva, de un invitado: lo aplica (lo que no se deja, se le
+      // devuelve) y lo reparte en su vuelta. Al mundo del servidor, de quien lo llevaba mientras se lo pasa: como suyo
       case 'el': {
         const sync = this.items[m.name];
         if (!sync || !Array.isArray(m.ops) || !this.joined) break;
         if (fromHost) {
-          if (this.ackHost !== conn) { this.ackHost = conn; for (const s of Object.values(this.items)) s.inflight.clear(); }   // (otro que lo lleva: sus números son otros)
+          if (this.ackHost !== conn) { this.retarget(conn); this.flushItems(); }   // (lo lleva otro: lo tuyo sin aplicar, a él)
           const mode = this.syncMode();
           if (mode !== this.lastMode) this.switchMode(mode);
           this.flushItems(m.name);
           const ack = m.ack?.[this.net.me];
-          sync.apply(g, m.ops, true, Number.isFinite(ack) ? ack : null);
+          sync.apply(g, m.ops, true, Number.isFinite(ack) ? ack : null, { full: !!m.full });
         } else if (this.takes(peer) && !peer.old) {
-          const back = sync.apply(g, m.ops, false);
+          const back = sync.apply(g, m.ops, false, null, { trusted: peer.host && !!Profile.server });
           if (Number.isFinite(m.seq)) peer.seq = Math.max(peer.seq ?? -1, m.seq);
           if (back.length) this.net.send({ t: 'el', name: m.name, ops: back, ack: this.acks() }, conn);
         }
@@ -547,6 +549,10 @@ export class Live {
   becomeHost() {
     const g = this.game, was = this.hostName || 'El anfitrión';
     this.role = 'host'; this.clockBase = null; this.hostName = g.player?.name || Profile.name;
+    // (lo de todos por elementos: lo que el de antes no llegó a repartir, o lo tuyo que no llegó a aplicar, lo tienes tú y
+    // no los demás, o al revés: la foto entera, ya, los deja a todos como tú)
+    for (const s of Object.values(this.items)) s.inflight.clear();
+    Object.assign(this, { ackHost: null, fullDue: true });
     for (const a of g.ranch.animals) { delete a.netTo; a.grazing = false; }   // (los animales y los niños, ahora los mueve tu juego)
     for (const e of g.family.ents.values()) delete e.netTo;
     this.hi();
@@ -646,7 +652,8 @@ export class Live {
     }
     for (const [name, b] of Object.entries(BLOBS)) this.blobs[name] = JSON.stringify(b.get(g));
     for (const s of Object.values(this.items)) { s.reset(g); s.gone.clear(); }
-    Object.assign(this, { lastMode: null, wholeSent: {}, ackHost: null });
+    // (ackHost: a quien te ha dado el mundo; fullDue: el mundo del servidor que lo recibe de quien lo llevaba, la foto entera)
+    Object.assign(this, { lastMode: null, wholeSent: {}, ackHost: role === 'guest' ? this.hostConn : null, fullDue: role === 'host' });
     this.hi();
   }
   left() {
@@ -714,21 +721,31 @@ export class Live {
     const h = this.host;
     return h && this.hostConn !== null ? (h.perItem ? 'items' : 'whole') : null;
   }
+  // (de enteros a por elementos no hace falta nada: lo repartido ya es lo último que se mandó o llegó entero, ver tick, y
+  // lo cambiado desde entonces se manda; sin nadie que lo lleve, igual)
   switchMode(mode) {
     const g = this.game, was = this.lastMode;
     this.lastMode = mode;
-    // (de enteros a por elementos: se parte de lo que hay; lo que haya cambiado sin nadie que lo lleve, sí se manda)
-    if (mode === 'items' && was === 'whole') for (const s of Object.values(this.items)) s.reset(g);
     // (de por elementos a enteros: lo tuyo entero no se manda de golpe, que pisaría lo que acaba de pasar allí)
     if (mode === 'whole' && was === 'items') for (const name of Object.keys(COLLECTIONS)) this.blobs[name] = JSON.stringify(BLOBS[name].get(g));
   }
+  // (invitado) Lo lleva otro (o es el primero al que se lo mandas): lo tuyo que el de antes no llegó a aplicar vuelve a
+  // quedar por mandar, ahora a este, y sus números de envío aplicado son otros
+  retarget(conn) {
+    this.ackHost = conn;
+    for (const s of Object.values(this.items)) s.unsend();
+  }
   // Lo cambiado de cada elemento: el invitado, a quien lleva el mundo (con su número); quien lo lleva, a todos (con hasta
-  // qué número ha aplicado de cada uno). only: solo esa colección
+  // qué número ha aplicado de cada uno; si toca, la foto entera, aunque no haya nada). only: solo esa colección
   flushItems(only = null) {
     const g = this.game, to = this.guest ? this.hostConn : null;
     if (!this.net || (this.guest && to === null)) return;
+    if (this.guest && to !== this.ackHost) this.retarget(to);
+    const full = !this.guest && this.fullDue && !only;
+    if (full) this.fullDue = false;
     for (const [name, sync] of Object.entries(this.items)) {
       if (only && name !== only) continue;
+      if (full) { this.net.send({ t: 'el', name, ops: sync.full(g), ack: this.acks(), full: 1 }); continue; }
       const seq = this.guest ? this.seq + 1 : null, ops = sync.diff(g, seq);
       if (!ops.length) continue;
       if (this.guest) { this.seq = seq; this.net.send({ t: 'el', name, ops, seq }, to); }
@@ -801,8 +818,12 @@ export class Live {
         if (s === this.blobs[name]) continue;
         this.blobs[name] = s;
         if (!this.guest || this.hostConn !== null) this.net.send({ t: 's', name, v: JSON.parse(s) }, this.guest ? this.hostConn : null);
+        if (this.items[name]) this.items[name].reset(g, JSON.parse(s));   // (lo repartido por elementos, desde lo mandado entero)
       }
-      if (mode === 'items') this.flushItems();
+      if (mode === 'items') {
+        if (this.role === 'host' && T.full >= FULL_EVERY) { T.full = 0; this.fullDue = true; }
+        this.flushItems();
+      }
       if (this.role === 'host') this.sendWhole();
     }
     if (this.role === 'host') {
