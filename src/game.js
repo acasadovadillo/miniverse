@@ -18,7 +18,7 @@ import { Inventory } from './inventory.js';
 import { Gathering } from './gather.js';
 import { Crafting } from './crafting.js';
 import { STATIONS } from './recipes.js';
-import { START_KIT, ITEMS, RUG_MADE, rugId, CHESTS } from './items.js';
+import { START_KIT, ITEMS, RUG_MADE, rugId, CHESTS, UNKNOWN_NAME, knownItem } from './items.js';
 import { clothesFor, dressed } from './looks.js';
 import { WorldStore } from './worldstore.js';
 import { BuildMode } from './build.js';
@@ -349,7 +349,7 @@ export class Game {
       });
       if (!m.id) for (const [slot, it] of Object.entries(inv.equip)) if (ITEMS[it.id]?.armor) { delete inv.equip[slot]; n++; }
       inv.changed();
-      out = `Fuera de tu mochila: ${n} ${m.id ? `× ${ITEMS[m.id].name.toLowerCase()}` : 'cosas'}`;
+      out = `Fuera de tu mochila: ${n} ${m.id ? `× ${ITEMS[m.id]?.name.toLowerCase() || m.id}` : 'cosas'}`;
       said(`ha vaciado tu mochila (${n})`);
     } else if (m.t === 'effect') {
       if (m.give === 'curacion') { this.combat.heal(8); out = 'Te has curado 4 corazones'; }
@@ -568,7 +568,7 @@ export class Game {
   // Lo que se hace con lo apuntado (o null)
   actionFor(a) {
     switch (a.kind) {
-      case 'placed': return (a.o.layer === 'placed' && this.ranch.objectAction(a.o)) || this.placedAction(a.o);
+      case 'placed': return (a.o.layer === 'placed' && !a.o.unknown && this.ranch.objectAction(a.o)) || this.placedAction(a.o);
       case 'door': return this.doorAction(a.tile);
       case 'window': return this.windowAction(a.tile);
       case 'hearth': return this.hearthAction(a.tile);
@@ -598,8 +598,9 @@ export class Game {
   // con E). hungFirst: si encima del mueble cuelga un cuadro, se recoge antes el cuadro (sin apuntar con el ratón)
   placedAction(o, hungFirst = false) {
     const sc = this.scene, save = () => this.onSave?.();
+    if (o.unknown) return { text: UNKNOWN_NAME, run: () => Audio.error() };   // (de una versión más nueva: no se usa ni se recoge)
     if (o.layer === 'rug') return this.rugAction(o);
-    const hung = hungFirst && o.layer !== 'hang' ? [o.tile, ...extraTiles(o.placed, ...o.tile, o.rot)].map(t => [t, sc.ownAt?.('hang', ...t)]).find(([, v]) => v) : null;
+    const hung = hungFirst && o.layer !== 'hang' ? [o.tile, ...extraTiles(o.placed, ...o.tile, o.rot)].map(t => [t, sc.ownAt?.('hang', ...t)]).find(([, v]) => v && ITEMS[v.split('@')[0]]) : null;
     const top = hung ? { tile: hung[0], layer: 'hang', placed: hung[1].split('@')[0] } : o;
     const name = ITEMS[o.placed].name.toLowerCase(), pick = { text: `${BUILDABLE[top.placed] ? 'Desmontar' : 'Recoger'} ${ITEMS[top.placed].name.toLowerCase()}`, run: () => this.pickUp(top) };   // (lo construido, al desmontarlo, devuelve sus materiales)
     if (STATIONS[o.placed]) return { text: `Usar ${name}`, run: () => this.onCraft?.(o.placed), alt: o.fixed ? null : pick };
@@ -670,7 +671,7 @@ export class Game {
     if (!inv.equip.espalda) {
       sc.unplace(o);
       inv.equip.espalda = { id: 'mochila', color: ITEMS.mochila.dye };
-      inside.forEach((s, j) => { if (s) inv.slots[HOTBAR + j] = s; });
+      inside.forEach((s, j) => { if (s && ITEMS[s.id]) inv.slots[HOTBAR + j] = s; else if (s) inv.kept.push({ i: HOTBAR + j, s }); });   // (lo de una versión más nueva, apartado: ver Inventory)
       inv.changed();
       Audio.pickup();
       this.onSave?.();
@@ -687,7 +688,7 @@ export class Game {
     if (!sc.canPlace?.(tx, ty, 'mochila', p)) return 'Aquí delante no hay sitio para dejarla.';
     sc.place(tx, ty, 'mochila', 0);
     const chest = sc.chestAt(tx, ty);
-    for (let j = 0; j < 27; j++) { chest[j] = inv.slots[HOTBAR + j] || null; inv.slots[HOTBAR + j] = null; }
+    for (let j = 0; j < 27; j++) { chest[j] = inv.slots[HOTBAR + j] || inv.takeKept(HOTBAR + j) || null; inv.slots[HOTBAR + j] = null; }   // (lo apartado que iba en ella, también)
     delete inv.equip.espalda;
     inv.changed();
     sc.chestTouched(tx, ty);
@@ -799,6 +800,7 @@ export class Game {
   }
   // Devuelve algo a la mochila; si no cabe, al suelo
   giveBack(id, n = 1, from) {   // (from: la casilla de donde sale, para que la ropa conserve su color)
+    if (!knownItem(id)) { this.inv.keepUnknown({ ...from, id, n }); return; }   // (de una versión más nueva: en el suelo se perdería; se guarda aparte, ver Inventory)
     const left = this.inv.add(id, n, extraOf(from));
     if (left && this.player) this.gather.throwOut(id, left, extraOf(from));
   }

@@ -215,6 +215,11 @@ function potionIcon(R, color) {
   const n = parseInt(color.slice(1), 16), light = [16, 8, 0].map(s => Math.round(((n >> s) & 255) * 0.45 + 255 * 0.55)).reduce((t, v) => t * 256 + v, 0);
   R(6, 8, 2, 2, `#${light.toString(16).padStart(6, '0')}`);
 }
+// Lo que este juego no conoce (de una versión más nueva): un «?» dorado sobre una caja
+function unknownIcon(R) {
+  R(2, 2, 12, 12, '#6a4428'); R(3, 3, 10, 10, '#8a5a34');
+  for (const [x, y, w, h] of [[6, 4, 4, 1], [5, 5, 1, 2], [10, 5, 1, 2], [9, 7, 1, 1], [8, 8, 1, 1], [7, 9, 1, 2], [7, 12, 1, 1]]) R(x, y, w, h, '#f0c840');
+}
 export function itemIcon(id, color) {
   const def = ITEMS[id], k = def?.wear ? `${id}|${color || def.dye}` : id;
   if (cache.has(k)) return cache.get(k);
@@ -224,12 +229,13 @@ export function itemIcon(id, color) {
   g.translate(1, 1);
   const R = (x, y, w, h, col) => { g.fillStyle = col; g.fillRect(Math.round(x), Math.round(y), w, h); };
   if (WEAR_DRAW[id]) WEAR_DRAW[id](R, g, ramp(color || def.dye));
-  else if (def.seed) seedPacket(R, CROPS[def.seed].color, CROPS[def.seed].leaf);
+  else if (def?.seed) seedPacket(R, CROPS[def.seed].color, CROPS[def.seed].leaf);
   else if (CROPS[id]) cropIcon(R, g, CROPS[id], id);
   else if (FISH[id]) fishIcon(R, g, FISH[id]);
   else if (BUGS[id]) bugIcon(R, g, BUGS[id], id);
-  else if (def.potion) potionIcon(R, def.potion);
-  else if (DRAW[id] || DRAW[def.rug]) (DRAW[id] || DRAW[def.rug])(R, g);   // (las alfombras, igual de cualquier tamaño)
+  else if (def?.potion) potionIcon(R, def.potion);
+  else if (DRAW[id] || DRAW[def?.rug]) (DRAW[id] || DRAW[def.rug])(R, g);   // (las alfombras, igual de cualquier tamaño)
+  else if (!def) unknownIcon(R);   // (de una versión más nueva del juego: ver knownItem en items.js)
   else R(4, 4, 8, 8, '#ff00ff');
   const icon = outlined(c);
   cache.set(k, icon);

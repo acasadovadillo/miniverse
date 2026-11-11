@@ -10,7 +10,7 @@
 // cojín, espanta a los ratones del silo y te deja regalos. Y el palomar, para enviarle cosas a otra persona.
 // Jugando juntos todo esto es del mundo del anfitrión: lo lleva su juego y los demás lo ven y lo tocan igual.
 import { CHUNK } from './world/gen.js';
-import { ITEMS } from './items.js';
+import { ITEMS, UNKNOWN_NAME } from './items.js';
 import { ANIMALS, BREED_NAMES, animalSprite } from './art/farm.js';
 import { SPAWN, inBounds, inYard } from './world/village.js';
 import { collide } from './physics.js';
@@ -46,13 +46,20 @@ const DIGS = [['bellota', 0.25], ['fibra', 0.2], ['pina', 0.15], ['semillas', 0.
 const GIFTS = ['sardina', 'plumas', 'bellota', 'fibra', 'bayas', 'carpa'];
 // Lo que se guarda de cada animal (lo demás es de paso: adónde va, si está dentro, si duerme…)
 const KEEP = ['id', 'type', 'name', 'home', 'love', 'ready', 'days', 'petDay', 'fedDay', 'born', 'breed', 'owner', 'expecting', 'bredDay', 'outDay', 'named', 'brushDay', 'carrotDay', 'shod', 'bags', 'rider', 'at', 'call', 'stray', 'sit', 'heat', 'bredAt', 'grazeDay', 'grazeN'];
+// Lo de una versión más nueva del juego: un animal de una clase que esta no conoce no se mueve ni se dibuja, pero se
+// guarda y se reparte tal cual (unknown); y de los demás, lo guardado que esta no conoce (unknownFields) se conserva
+const KNOWN_FIELDS = new Set([...KEEP, 'x', 'y']);
+const knownAnimal = s => !!s && !!ANIMALS[s.type];
+const unknownFields = s => { const o = {}; for (const k in s) if (!KNOWN_FIELDS.has(k)) o[k] = s[k]; return o; };
 const pick = list => list[Math.floor(Math.random() * list.length)];
 const me = () => Profile.id || 'yo';
 const hearts = n => '♥'.repeat(Math.ceil(n / 2)) || '·';
+const mineNow = m => m.to === me() && !!ITEMS[m.id];   // (lo enviado a ti que este juego conoce: lo de una versión más nueva, espera)
 
 class Animal {
   constructor(data) {
     Object.assign(this, { love: 0, ready: false, days: 0, petDay: -1, fedDay: -1, flip: false, step: 0, vx: 0, vy: 0, wait: Math.random() * 3, named: true }, data);
+    this.more = unknownFields(data);   // (lo de una versión más nueva: se vuelve a guardar tal cual)
     this.id ||= `${this.type}-${this.name}-${Math.random().toString(36).slice(2, 7)}`;
     this.breed ||= ANIMALS[this.type].breeds?.[0];
     const at = this.home2;   // (sin sitio guardado: delante de su casa)
@@ -68,7 +75,7 @@ class Animal {
     return Animal.spot?.(this.home, cushion) || [this.home[0] + 0.5, this.home[1] + (cushion ? 0.5 : 1.5)];
   }
   toSave() {
-    const o = { x: +this.x.toFixed(2), y: +this.y.toFixed(2) };
+    const o = { ...this.more, x: +this.x.toFixed(2), y: +this.y.toFixed(2) };
     for (const k of KEEP) if (this[k] !== undefined && this[k] !== null) o[k] = this[k];
     return o;
   }
@@ -117,6 +124,7 @@ export class Ranch {
   constructor(game) {
     this.game = game;
     this.animals = [];
+    this.unknown = [];   // (los de una clase que este juego no conoce: ver knownAnimal)
     this.farm = { hay: 0, mail: [] };   // lo de la granja que no es de un animal: el heno del silo y el correo
     this.crowed = -1;
     Animal.spot = (home, on) => {
@@ -130,14 +138,15 @@ export class Ranch {
   get days() { return this.game.days; }
   get today() { return this.game.days.dayIndex; }
   reset(save) {
-    this.animals = (save.animals || []).map(a => new Animal(a));
+    this.animals = (save.animals || []).filter(knownAnimal).map(a => new Animal(a));
+    this.unknown = (save.animals || []).filter(a => a && !knownAnimal(a));
     this.farm = { hay: 0, mail: [], ...save.farm };
     this.mailSeen = 0;
     this.ball = null;
     this.gone = new Set();
     this.notifyMail();
   }
-  save(out) { out.animals = this.animals.map(a => a.toSave()); out.farm = this.farm; }
+  save(out) { out.animals = [...this.animals.map(a => a.toSave()), ...this.unknown]; out.farm = this.farm; }
   // Uno que ha muerto (gone: para que una lista de antes de saberlo no lo resucite, jugando juntos)
   remove(a) {
     const i = this.animals.indexOf(a);
@@ -148,7 +157,8 @@ export class Ranch {
   // bajó de un caballo (at) se pone ahí; si alguien lo llamó (call), el anfitrión lo hace venir.
   share(list) {
     const old = new Map(this.animals.map(a => [a.id, a]));
-    this.animals = list.filter(s => !this.gone.has(s.id)).map(s => {
+    this.unknown = list.filter(s => s && !knownAnimal(s) && !this.gone.has(s.id));
+    this.animals = list.filter(s => knownAnimal(s) && !this.gone.has(s.id)).map(s => {
       const a = old.get(s.id);
       if (!a) {
         const n = new Animal({ ...s, x: s.at?.[0], y: s.at?.[1] });
@@ -158,6 +168,7 @@ export class Ranch {
       if (s.at && String(s.at) !== String(a.at)) { a.x = a.tx = s.at[0]; a.y = a.ty = s.at[1]; }
       if ((s.call || 0) > (a.call || 0) && !this.game.live.guest) a.calling = true;
       for (const k of KEEP) if (!(k in s)) delete a[k];
+      a.more = unknownFields(s);
       return Object.assign(a, s);
     });
   }
@@ -539,7 +550,7 @@ export class Ranch {
   hatch(day, news) {
     for (const inc of this.placed('incubadora')) {
       const e = inc.d.incub?.[inc.k];
-      if (!e || day - e.day < HATCH) continue;
+      if (!e || day - e.day < HATCH || !ITEMS[e.id]) continue;   // (un huevo de una versión más nueva: espera, tal cual)
       const type = e.id === 'huevo_pato' ? 'pato' : 'gallina', home = this.homes('gallinero').find(h => h.free > 0);
       if (!home) { news.push('Hay un polluelo a punto de salir, pero no cabe en ningún gallinero.'); continue; }
       delete inc.d.incub[inc.k];
@@ -701,6 +712,7 @@ export class Ranch {
       case 'incubadora': {
         d.incub ||= {};
         const e = d.incub[k];
+        if (e && !ITEMS[e.id]) return { text: `Incubadora: ${UNKNOWN_NAME.toLowerCase()}`, run: () => Audio.error() };
         if (e) { const left = Math.max(0, HATCH - (this.today - e.day)); return { text: `Incubadora: ${ITEMS[e.id].name.toLowerCase()}, sale en ${left || 'menos de un'} día${left === 1 ? '' : 's'}`, run: () => Audio.blip() }; }
         const egg = ['huevo', 'huevo_pato'].find(id => inv.count(id) > 0);
         if (!egg) return { text: 'Incubadora (trae un huevo de gallina o de pato)', run: () => Audio.error() };
@@ -927,7 +939,7 @@ export class Ranch {
 
   // ---------- el palomar ----------
   dovecote() {
-    const g = this.game, mail = this.farm.mail.filter(m => m.to === me()), held = g.inv.held;
+    const g = this.game, mail = this.farm.mail.filter(mineNow), held = g.inv.held;
     if (mail.length) return { text: `Recoger lo que te han enviado (${mail.length})`, run: () => this.takeMail() };
     if (!held) return { text: 'Palomar (lleva en la mano lo que quieras enviar)', run: () => Audio.blip() };
     return { text: `Enviar con la paloma: ${held.n > 1 ? held.n + ' × ' : ''}${ITEMS[held.id].name.toLowerCase()}`, run: () => this.send() };
@@ -949,8 +961,8 @@ export class Ranch {
     hud.toast(`La paloma ha salido volando hacia ${to.name}`, 'good');
   }
   takeMail() {
-    const g = this.game, mine = this.farm.mail.filter(m => m.to === me());
-    this.farm.mail = this.farm.mail.filter(m => m.to !== me());
+    const g = this.game, mine = this.farm.mail.filter(mineNow);
+    this.farm.mail = this.farm.mail.filter(m => !mineNow(m));   // (lo de una versión más nueva se queda en el palomar)
     for (const m of mine) { const left = g.inv.add(m.id, m.n, m.extra); if (left) g.gather.throwOut(m.id, left, m.extra); }
     Audio.unlock();
     hud.toast(mine.map(m => `${m.from}: ${m.n > 1 ? m.n + ' × ' : ''}${ITEMS[m.id].name.toLowerCase()}`).join(' · '), 'good');
@@ -958,7 +970,7 @@ export class Ranch {
   }
   // Si te ha llegado algo, se avisa (una vez por cada envío nuevo)
   notifyMail() {
-    const n = this.farm.mail.filter(m => m.to === me()).length;
+    const n = this.farm.mail.filter(mineNow).length;
     if (n > (this.mailSeen || 0) && this.game.player) hud.toast(`Te ha llegado una paloma con ${n} envío${n > 1 ? 's' : ''}: recógelo en un palomar`, 'good');
     this.mailSeen = n;
   }

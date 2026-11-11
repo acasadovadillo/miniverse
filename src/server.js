@@ -16,6 +16,7 @@ import { DEFAULT_LOOK } from './looks.js';
 import { SPAWN } from './world/village.js';
 import { runCommand } from './commands.js';
 import { setFaultSink } from './faults.js';
+import { unknownShared } from './livesync.js';
 
 const SAVE_EVERY = 60000;   // cada cuánto se guarda el mundo (en este navegador; en GitHub, como mucho cada 3 minutos)
 const HOST_WAIT = 3000;     // al llegar, lo que se espera a saber si alguien ya llevaba el mundo
@@ -51,6 +52,7 @@ export async function runServer() {
   }
   if (!world) world = await stored(log);
   if (!world) return;
+  live.extraShared = unknownShared(world.shared);   // (lo de una versión más nueva: se vuelve a guardar tal cual)
   game.start({ ...(world.shared || {}), player: { name: 'Servidor', look: { ...DEFAULT_LOOK }, x: SPAWN.x, y: SPAWN.y, inside: false, view: 'back' }, gamemode: 'spectator' }, new Map(world.deltas || []));
   live.join(null, 'host');
   game.runHeadless();
@@ -68,6 +70,8 @@ export async function runServer() {
   };
   const said = r => log(r ? 'Mundo guardado (también en GitHub).' : `Mundo guardado en este ordenador${r === false ? `, pero no en GitHub: ${Profile.lastError}` : ''}.`);
   live.onServerSave = () => save(true).then(said);
+  // /update en el terminal: se guarda y se avisa; el servidor cierra este Chrome y lo abre con lo publicado de ahora
+  live.onServerRestart = async () => { said(await save(true)); live.net?.sendServer({ t: 'saved' }); };
   // Si se corta o se cierra el servidor: se guarda y, si no es que se cierra, se vuelve a empezar al rato
   live.onHostLeft = async why => {
     said(await save(true));

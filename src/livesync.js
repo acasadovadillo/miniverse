@@ -17,6 +17,12 @@ import { setFamilyHouse } from './world/village.js';
 // puesto un op y la dificultad)
 export const SHARED = ['clock', 'house', 'projects', 'boardDone', 'animals', 'farm', 'family', 'dayBase', 'timeShift', 'seenDay', 'rules', 'worldSpawn', 'weatherLock', 'difficulty', 'maps', 'defaultGamemode', 'frozenHour'];
 
+// Lo del mundo guardado que este juego no conoce: de una versión más nueva (una clave que se añadió después). Quien lleva
+// el mundo lo vuelve a guardar tal cual (ver worldOf en live.js), para no perderlo. RETIRED: lo que se quitó del juego
+// (el museo), que no se arrastra
+const RETIRED_SHARED = new Set(['museum']);
+export const unknownShared = shared => Object.fromEntries(Object.entries(shared || {}).filter(([k]) => !SHARED.includes(k) && !RETIRED_SHARED.has(k)));
+
 const isMap = v => !!v && typeof v === 'object' && !Array.isArray(v);
 const same = (a, b) => a === b || JSON.stringify(a) === JSON.stringify(b);
 export const copy = v => (v === undefined ? v : structuredClone(v));
@@ -63,7 +69,7 @@ export const BLOBS = {
   },
   family: { get: g => g.family.v, set: (g, v) => g.family.share(v) },
   board: { get: g => ({ projects: g.board.projects, done: g.board.done }), set: (g, v) => g.board.share(v) },
-  animals: { get: g => g.ranch.animals.map(a => { const { x, y, ...s } = a.toSave(); return s; }), set: (g, v) => g.ranch.share(v) },
+  animals: { get: g => [...g.ranch.animals.map(a => { const { x, y, ...s } = a.toSave(); return s; }), ...g.ranch.unknown], set: (g, v) => g.ranch.share(v) },   // (unknown: los de una versión más nueva, tal cual)
   farm: { get: g => g.ranch.farm, set: (g, v) => g.ranch.shareFarm(v) },
   rules: { get: g => g.rules, set: (g, v) => { g.rules = { ...g.rules, ...v }; } },
   worldSpawn: { get: g => g.worldSpawn, set: (g, v) => { g.worldSpawn = v; } },

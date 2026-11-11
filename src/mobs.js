@@ -152,7 +152,7 @@ export class Mobs {
   // (invitado) Donde los tiene quien lleva el mundo: [[id, tipo, x, y, herido]]
   netList(arr) {
     const old = new Map(this.list.map(m => [m.id, m]));
-    this.list = arr.map(([id, type, x, y, hurt]) => {
+    this.list = arr.filter(([, type]) => MONSTERS[type]).map(([id, type, x, y, hurt]) => {   // (una criatura de una versión más nueva, que este juego no conoce, no se ve)
       const m = old.get(id) || new Mob(type, x, y, id);
       m.netTo = [x, y];
       if (hurt && m.hurt <= 0) m.hurt = 0.4;

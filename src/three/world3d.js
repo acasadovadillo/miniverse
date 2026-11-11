@@ -224,7 +224,8 @@ export class World3D {
         else if (piece?.kind === 'gate') { const d = gateTile(scene, tx, ty, plain); d.lift = LIFT; c.doors.push(d); }
         else if (piece?.kind === 'fence') fenceTile(scene, tx, ty, o.placed, plain);
         else this.placeModel(o.key === this.insideKey ? `${o.placed}:in` : o.model || o.placed, o.x, o.y, o.yaw ?? yawOf(o.rot), plain, c, group, o.off, LIFT);
-      } else if (o.crop && this.farm(scene)) this.placeModel(`crop:${o.crop.id}:${this.farm(scene).stage(o.crop)}`, o.x, o.y, 0, plain, c, group, false, LIFT);
+      } else if (o.unknown) this.placeModel('unknown', o.x, o.y, o.yaw || 0, plain, c, group, false, LIFT);   // (de una versión más nueva: la caja con «?»)
+      else if (o.crop && this.farm(scene)) this.placeModel(`crop:${o.crop.id}:${this.farm(scene).stage(o.crop)}`, o.x, o.y, 0, plain, c, group, false, LIFT);
       else if (o.boat) { const b = (BOAT ||= boatModel()).clone(true); b.position.set(o.x, WATER_Y - 0.12, o.y); b.rotation.y = o.yaw; b.traverse(q => { if (q.isMesh) { q.castShadow = true; q.receiveShadow = true; } }); group.add(b); }   // (una barca amarrada)
       else if (o.poi) this.placeModel(`poi:${o.poi.kind}${o.poi.snow ? ':snow' : ''}`, o.poi.x, o.poi.y, 0, plain, c, group);
       else if (o.treasure) this.placeModel(`treasure:${o.open ? 1 : 0}`, o.x, o.y, 0, plain, c, group);

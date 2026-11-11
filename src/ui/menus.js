@@ -14,12 +14,16 @@ import { initJournalUI } from './journal.js';
 import { initSettingsUI } from './settings.js';
 import { Settings } from '../settings.js';
 import { SHARED } from '../livesync.js';
+import { GAME_VERSION, checkPublished } from '../version.js';
+import { showUpdateNotice, updateNoticeOpen } from './update.js';
 
 const $ = id => document.getElementById(id);
 const SCREENS = ['s-login', 's-menu', 's-account', 's-creator', 's-pause', 's-map', 's-shop', 's-settings', 's-controls'];
 const AUTOSAVE_MS = 15000;
 const CHEST_REACH = 4;   // (lo que se puede alejar uno de un cofre abierto)
 const ADMIN_NAME = 'Alberto';   // (el dueño del mundo, que abre el servidor)
+const PUBLISHED_EVERY = 5 * 60000;   // cada cuánto se mira si hay una versión nueva publicada (jugando o en el menú)
+const PUBLISHED_FRESH = 2 * 60000;   // al entrar en el mundo, lo mirado hace menos de esto vale
 
 // Lo de la partida que es del mundo (y los ajustes): se conserva al empezar con un personaje nuevo. Lo demás
 // (lo que llevas, dinero, habilidades, recetas, amistades, logros, estadísticas…) es del personaje y se borra
@@ -115,6 +119,7 @@ export function initMenus(game) {
     show('s-menu');
     paintLive();
     findLive();
+    publishedNewer(PUBLISHED_FRESH).catch(() => {});   // (para no esperar luego al pulsar Continuar: ver enter)
   }
   $('m-continue').addEventListener('click', () => { if (currentSave) enter(); });
   // Jugar en local: un mundo solo tuyo, sin servidor ni nadie más, guardado con tu cuenta (Profile.storeLocal). Es una
@@ -137,6 +142,11 @@ export function initMenus(game) {
     const b = $('m-continue'), solo = { save: currentSave, deltas: new Map(Profile.data.deltas) };
     b.disabled = true;
     try {
+      // (con una versión vieja no se entra a tocar el mundo de todos: ver version.js)
+      if (live.newer !== null) { outdatedNotice(live.newer); return; }
+      $('menu-msg').textContent = 'Mirando si hay una versión nueva…';
+      const pub = await publishedNewer(PUBLISHED_FRESH);
+      if (pub) { $('menu-msg').textContent = ''; outdatedNotice(pub, true); return; }
       if (live.status === 'kicked') { live.close(); await findLive(); }   // (te echaron: se vuelve a intentar entrar)
       const on = live.status === 'on';
       if (!on && !Profile.admin) throw new Error(`El servidor está cerrado: se puede jugar cuando ${ADMIN_NAME} lo abre.`);
@@ -152,7 +162,7 @@ export function initMenus(game) {
       const world = await sharedWorld(solo);
       if (on && live.status !== 'on') throw new Error(live.error || 'Se ha cortado la conexión con el servidor.');
       if (world) { const { save, deltas } = live.enter(solo, world); play(save, deltas, Profile.admin ? null : solo, on ? 'host' : null); }
-      else play(currentSave, solo.deltas, null, on ? 'host' : null);   // (el admin, con el mundo de su partida)
+      else { live.extraShared = {}; play(currentSave, solo.deltas, null, on ? 'host' : null); }   // (el admin, con el mundo de su partida)
     } catch (e) { live.unclaim(); $('menu-msg').textContent = e.message; } finally { if (!game.player) { b.disabled = false; paintLive(); } }
   }
   // El mundo compartido como lo guardó la última vez quien lo llevaba. El admin, si el de su partida es más
@@ -209,6 +219,7 @@ export function initMenus(game) {
       else if (s === 'nokey') msg = `Pidiendo la llave del mundo… (te la da el juego de ${ADMIN_NAME} la próxima vez que entre)`;
       else msg = `El servidor está cerrado: se puede jugar cuando ${ADMIN_NAME} lo abre.`;
     }
+    if (live.serverOld && s === 'on') msg += ` ${live.serverOld}`;   // (al admin y a los op: ver live.checkVersion)
     if (!Profile.admin) $('m-continue').disabled = s !== 'on' && s !== 'kicked';   // (echado: al pulsar, se vuelve a intentar)
     const open = s === 'on';
     $('m-live').hidden = !msg;
@@ -223,8 +234,10 @@ export function initMenus(game) {
     game.end();
     openMenu();
     const kept = `Tu personaje y lo que llevas están guardados${r.remote === false ? ' en este ordenador (no en GitHub)' : ''}.`;
-    $('menu-msg').textContent = why === 'conflict' ? `Otro juego ya llevaba el mundo compartido: vuelve a entrar para jugar juntos. ${kept}`
+    $('menu-msg').textContent = why === 'outdated' ? `Hay una versión nueva del juego: recarga la página. ${kept}`
+      : why === 'conflict' ? `Otro juego ya llevaba el mundo compartido: vuelve a entrar para jugar juntos. ${kept}`
       : why === 'kicked' || why === 'stop' ? `${text} ${kept}` : `Se ha cortado la conexión con el mundo compartido. ${kept}`;
+    if (why === 'outdated') outdatedNotice(live.newer);
   };
   // El servidor pide guardar ya (/save-all en su terminal); y cada vez que se sube el mundo, una copia para él
   live.onServerSave = () => save({ upload: true });
@@ -233,6 +246,29 @@ export function initMenus(game) {
   // porque llega el mundo del servidor: se guarda lo tuyo
   live.onHost = () => save({ upload: true });
   live.onYield = () => save({ upload: true });
+
+  // ---------- Versión nueva ----------
+  // Otro juego conectado (o el servidor) tiene una versión más nueva: se sale del mundo compartido (live.outdated) y se
+  // pide recargar. Y cada pocos minutos, y al entrar en el mundo, se mira la versión publicada (una pestaña abierta
+  // desde antes de publicar no se enteraría nunca). El botón guarda antes de recargar
+  const reloadSaved = () => (game.player ? save({ upload: true }) : Promise.resolve());
+  function outdatedNotice(v, published = false) {
+    const detail = `${published ? 'Se ha publicado' : 'Otro juego conectado tiene'} la versión ${v || 'nueva'}; la tuya es la ${GAME_VERSION || 'de antes'}.`
+      + (game.player ? ' Al recargar se guarda antes tu partida.' : ' Hasta que recargues, no puedes entrar en el mundo compartido.');
+    showUpdateNotice({ detail, later: !!game.player, reload: reloadSaved });
+  }
+  live.onOutdated = v => { if (!game.player || !live.joined) outdatedNotice(v); };   // (jugando, sale antes del mundo: ver onHostLeft)
+  let published = { at: -Infinity, v: null }, told = null;
+  async function publishedNewer(fresh = 0) {
+    if (Profile.server) return null;
+    if (performance.now() - published.at > fresh) published = { at: performance.now(), v: await checkPublished() };
+    return published.v;
+  }
+  setInterval(async () => {
+    if (document.visibilityState !== 'visible' || !Profile.id || updateNoticeOpen()) return;
+    const v = await publishedNewer();
+    if (v && v !== told) { told = v; outdatedNotice(v, true); }   // (una vez por versión: luego, al ir a entrar)
+  }, PUBLISHED_EVERY);
   // Nueva partida: antes, un aviso (se borra el personaje de ahora; el mundo, no). Sin personaje, al creador
   const confirming = on => { $('m-confirm').hidden = !on; for (const id of ['m-continue', 'm-new', 'm-local']) $(id).hidden = on || (id !== 'm-new' && !currentSave && !(id === 'm-local' && Profile.data?.local?.save)); };
   $('m-new').addEventListener('click', () => (currentSave ? confirming(true) : openCreator()));

@@ -1,7 +1,7 @@
 // Huerto: sembrar en tierra labrada, regar (o que llueva), abonar y cosechar. Los cultivos crecen un paso
 // cada mañana si la tierra estuvo mojada el día anterior. También se plantan árboles con bellotas, piñas
 // o semillas de manzano; los manzanos dan manzanas y las palmeras, cocos, cada pocos días (se cogen con E).
-import { CROPS } from './items.js';
+import { CROPS, HARVEST } from './items.js';
 import { CHUNK } from './world/gen.js';
 import { B } from './world/biomes.js';
 import { inBounds, isGrass, pondDist } from './world/village.js';
@@ -32,7 +32,7 @@ export class Farm {
 
   d(tx, ty, create) { return this.world.delta(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK), create); }
   cropAt(tx, ty) { return this.d(tx, ty)?.crops?.[key(tx, ty)]; }
-  ready(c) { return c && !c.dead && c.grow >= CROPS[c.id].days; }
+  ready(c) { return !!c && !c.dead && !!CROPS[c.id] && c.grow >= CROPS[c.id].days; }   // (sin CROPS: de una versión más nueva, que este juego no conoce)
   stage(c) {
     if (c.dead) return -1;
     const days = CROPS[c.id].days;
@@ -43,12 +43,16 @@ export class Farm {
   addContent(cx, cy, d, out) {
     if (!d) return;
     if (d.picked) out.objects.forEach((o, i) => { if (FRUIT[o.kind] && !this.hasFruit(d, o)) out.objects[i] = { ...o, bare: true }; });
+    // (un cultivo o un árbol de una versión más nueva que este juego no conoce no se ve ni se toca, pero sigue en el trozo:
+    // la casilla queda ocupada)
     for (const [k, c] of Object.entries(d.crops || {})) {
+      if (!CROPS[c?.id]) continue;
       const [tx, ty] = k.split(',').map(Number);
       out.objects.push({ x: tx + 0.5, y: ty + 0.5, key: 'crop:' + k, tile: [tx, ty], crop: c });
     }
     for (const [k, t] of Object.entries(d.trees || {})) {
       const [tx, ty] = k.split(',').map(Number), x = tx + 0.5, y = ty + 0.5;
+      if (!HARVEST[t?.kind]) { out.colliders.push({ x, y, r: 0.15 }); continue; }
       if (this.today - t.day < TREE_DAYS) {
         out.objects.push({ x, y, key: 'sap:' + k, tile: [tx, ty], sapling: t.kind });
         out.colliders.push({ x, y, r: 0.15 });
@@ -76,7 +80,7 @@ export class Farm {
       let changed = false;
       d.wet ||= {};
       for (const [k, c] of Object.entries(d.crops || {})) {
-        if (c.dead) continue;
+        if (c.dead || !CROPS[c.id]) continue;
         const crop = CROPS[c.id];
         if (!crop.seasons.includes(season)) { c.dead = true; changed = true; continue; }
         if (d.wet[k] === day - 1 && c.grow < crop.days) { c.grow += c.fert ? 1.5 : 1; changed = true; }
@@ -117,7 +121,7 @@ export class Farm {
       if (tilled) return { tile, ok: true, auto: true, label: `Regar (${this.can}/${CAN_MAX})`, use: () => this.water(tx, ty) };
       return null;
     }
-    if (held?.id === 'abono' && crop && !crop.dead && !crop.fert && !this.ready(crop)) return { tile, ok: true, label: 'Abonar', use: () => this.fertilize(crop, tx, ty) };
+    if (held?.id === 'abono' && CROPS[crop?.id] && !crop.dead && !crop.fert && !this.ready(crop)) return { tile, ok: true, label: 'Abonar', use: () => this.fertilize(crop, tx, ty) };
     if (def?.sapling) {
       const ok = this.canPlant(tx, ty);
       return { tile, ok, label: ok ? 'Plantar un árbol' : '', use: () => (ok ? this.plantTree(tx, ty, def.sapling) : Audio.error()) };

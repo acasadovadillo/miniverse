@@ -1,7 +1,7 @@
 // Cofre: dos rejillas (el cofre y la mochila). Un clic en una casilla pasa el montón al otro lado. Sirve también
 // para la mochila dejada en el suelo, las alforjas del caballo, la mesita, la cómoda y el armario (en el que solo
 // cabe ropa).
-import { ITEMS, CHESTS } from '../items.js';
+import { ITEMS, CHESTS, UNKNOWN_NAME } from '../items.js';
 import { SLOTS, extraOf } from '../inventory.js';
 import { itemIconUrl } from '../art/items.js';
 
@@ -17,7 +17,7 @@ function cell(parent, onClick) {
 }
 function paint(el, s) {
   const img = el.querySelector('img');
-  if (s) { const url = itemIconUrl(s.id, s.color); if (img.getAttribute('src') !== url) img.src = url; img.hidden = false; el.title = ITEMS[s.id].name; }
+  if (s) { const url = itemIconUrl(s.id, s.color); if (img.getAttribute('src') !== url) img.src = url; img.hidden = false; el.title = ITEMS[s.id]?.name || UNKNOWN_NAME; }   // (sin ITEMS: de una versión más nueva)
   else { img.hidden = true; el.title = ''; }
   el.querySelector('b').textContent = s && s.n > 1 ? s.n : '';
 }
@@ -35,7 +35,7 @@ export function initChestUI(game, { onClose }) {
   const changed = () => { if (tile) game.scene.chestTouched(...tile); else onChange?.(); refresh(); };
   function toBag(i) {
     const chest = current(), s = chest?.[i];
-    if (!s) return;
+    if (!s || !ITEMS[s.id]) return;   // (lo de una versión más nueva se queda en el cofre: aquí no se puede usar, y no se pierde)
     const left = game.inv.add(s.id, s.n, extraOf(s));
     chest[i] = left ? { ...s, n: left } : null;
     changed();

@@ -9,6 +9,8 @@ whitelist.json
 backups/
 servidor-secretos.json
 servidor-chrome/
+# La copia de lo publicado que multijugador.py sirve al mundo del servidor (la saca de git: ver publish_copy)
+.publicado/
 ajustes.json
 
 # Cifras y capturas del banco de medidas (banco.py)

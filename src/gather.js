@@ -219,7 +219,7 @@ export class Gathering {
       if (d.ttl && d.t > d.ttl) { this.drops.splice(i, 1); continue; }   // (lo que se suelta al morir dura un rato)
       if (!p || d.scene !== g.scene || g.gamemode === 'spectator') continue;   // (el espectador no recoge)
       const dx = p.x - d.x, dy = p.y - d.y, dist = Math.hypot(dx, dy);
-      if (d.t > 0.45 && dist < 1.8 && (d.id !== 'pelota' || d.back) && g.live.mayTake(d)) {   // (la pelota lanzada es para el perro)
+      if (d.t > 0.45 && dist < 1.8 && (d.id !== 'pelota' || d.back) && ITEMS[d.id] && g.live.mayTake(d)) {   // (la pelota lanzada es para el perro; lo de una versión más nueva, sin ITEMS, se queda en el suelo)
         if (dist < 0.35) {
           const n = d.count || 1, left = g.inv.add(d.id, n, d.extra);
           for (let k = left; k < n; k++) this.collected(d.id);

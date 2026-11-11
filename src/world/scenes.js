@@ -196,6 +196,16 @@ function freeObject(o, id, rot, [x, y, a], { colliders, lights, solids }) {
   for (const s of placeBoxes(local, x, y, a)) solids.push(s);
   return false;
 }
+// Lo de una versión más nueva del juego (un id que este no conoce): una caja con «?» donde se puso, que choca y no deja
+// poner nada encima, pero no se usa ni se recoge (en los datos del trozo sigue tal cual: ver knownItem en items.js)
+function unknownObject(o, id, pos, { colliders, solids }) {
+  const [x, y, a] = pos || [o.x, o.y, ((parsePlaced(o.raw)[1] || 0) % 4) * Math.PI / 2];
+  Object.assign(o, { x, y, yaw: a, placed: undefined, unknown: id, model: 'unknown' });
+  const box = placeBoxes([hull(solidsOf('unknown'))], x, y, a)[0];
+  o.obb = box;
+  colliders.push({ ...bounds(box), obb: box, free: true });
+  solids.push(box);
+}
 function itemObject(o, id, rot, colliders, lights, [sx, sy] = [0, 0]) {
   const [tx, ty] = o.tile;
   o.x += sx; o.y += sy;
@@ -755,6 +765,9 @@ export class Overworld {
     };
     // Lo fijo no pisa lo que haya puesto el jugador en la misma casilla y capa
     const taken = (layer, t) => { if (!fixed) return false; const [tx, ty] = t.split(',').map(Number); return this.ownAt(layer, tx, ty) || this.fixedGone(tx, ty, layer); };
+    // (lo de una versión más nueva que no se conoce: los cuadros y las alfombras no se dibujan; los objetos, como una caja
+    // con «?» (ver unknownObject); los suelos y los tejados, como los de madera y los rojos: ver build3d.js)
+    const known = id => fixed || !!PIECES[id] || !!ITEMS[id];
     for (const [t, id] of Object.entries(src.floor || {})) {
       if (taken('floor', t)) continue;
       floors.push(base(t, 'floor', id));
@@ -762,6 +775,7 @@ export class Overworld {
     for (const [t, raw] of Object.entries(src.placed || {})) {
       if (taken('placed', t)) continue;
       const [id, rot] = parsePlaced(raw), piece = PIECES[id], o = base(t, 'placed', id), [tx, ty] = o.tile;
+      if (!known(id)) { o.raw = raw; unknownObject(o, id, src.pos?.[o.key], out); objects.push(o); continue; }
       if (piece?.kind === 'wall') {
         // Tabique fino que se une con los muros y puertas de al lado; choca solo con su grosor
         const joins = (x, y) => ['wall', 'door'].includes(this.pieceAt(x, y)?.kind);
@@ -826,14 +840,14 @@ export class Overworld {
     }
     // Los cuadros: colgados del muro de detrás; no chocan (debajo puede haber un mueble)
     for (const [t, raw] of Object.entries(src.hang || {})) {
-      if (taken('hang', t)) continue;
+      if (taken('hang', t) || !known(parsePlaced(raw)[0])) continue;
       const [id, rot] = parsePlaced(raw), o = base(t, 'hang', id), [sx, sy] = this.wallShift(id, ...o.tile, rot);
       o.x += sx; o.y += sy; o.rot = rot;
       flats.push(o);
     }
     // Las alfombras, del tamaño elegido (su "giro") alrededor de su casilla; tampoco chocan (encima van los muebles)
     for (const [t, raw] of Object.entries(src.rug || {})) {
-      if (taken('rug', t)) continue;
+      if (taken('rug', t) || !known(parsePlaced(raw)[0])) continue;
       const [id, k] = parsePlaced(raw), o = base(t, 'rug', id), r = rugRect(...o.tile, k), fp = src.pos?.[o.key];
       Object.assign(o, { x: r.x0 + r.w / 2, y: r.y0 + r.h / 2, rug: r, model: `rug:${id}:${r.w}x${r.h}`, fx: [r.x0, r.x0 + r.w], fy: [r.y0, r.y0 + r.h] });
       if (fp) { Object.assign(o, { x: fp[0], y: fp[1], yaw: fp[2], free: true, fx: null, fy: null }); o.obb = obb(fp[0], fp[1], r.w / 2 - 0.06, r.h / 2 - 0.06, fp[2]); }   // (libre: donde se puso, girada)
@@ -841,7 +855,7 @@ export class Overworld {
     }
     for (const [t, id] of Object.entries(src.roof || {})) {
       if (taken('roof', t)) continue;
-      const o = base(t, 'roof', id), [tx, ty] = o.tile;
+      const o = base(t, 'roof', known(id) ? id : undefined), [tx, ty] = o.tile;   // (sin placed, lo desconocido: no se apunta)
       const under = this.at('placed', tx, ty), chimney = !!under && parsePlaced(under)[0] === 'chimenea';
       o.roof = true;
       if (chimney) o.chimneyTop = [o.x, o.y];
@@ -1121,7 +1135,7 @@ export class Overworld {
     const dist = o => this.placedDist(o, x, y);
     for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
       const c = this.contentFor(cx + dx, cy + dy);
-      for (const o of c.objects) if (o.placed && !PIECES[o.placed] && dist(o) < r) out.push(o);
+      for (const o of c.objects) if ((o.placed && !PIECES[o.placed]) || o.unknown) if (dist(o) < r) out.push(o);   // (unknown: lo de una versión más nueva, para decir qué es)
       for (const o of c.flats) if (dist(o) < r) out.push(o);
     }
     return out.sort((a, b) => dist(a) - dist(b));

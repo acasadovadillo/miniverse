@@ -17,9 +17,10 @@ import { Person } from './entities.js';
 import { Profile } from './accounts.js';
 import { hud } from './ui/hud.js';
 import { Audio } from './audio.js';
-import { SHARED, BLOBS, diffChunk, applyOps, copy } from './livesync.js';
+import { SHARED, BLOBS, diffChunk, applyOps, copy, unknownShared } from './livesync.js';
 import { toB64 } from './vault.js';
 import { onFault } from './faults.js';
+import { GAME_VERSION, compareVersions } from './version.js';
 import { CHUNK } from './world/gen.js';
 import { wrapIndex, PLANET } from './world/planet.js';
 
@@ -97,7 +98,11 @@ export class Live {
     this.solo = null;             // (invitado) su partida de siempre, con su mundo: lo que se guarda
     this.wanted = null;           // (invitado) esperando el mundo del anfitrión
     this.dropN = 0;
+    this.extraShared = {};        // (lo del mundo de una versión más nueva: se vuelve a guardar tal cual; ver unknownShared)
     this.faultSent = -Infinity;   // (cuándo se mandó el último fallo de este juego al terminal del servidor)
+    this.newer = null;            // la versión más nueva que la tuya que tiene otro juego conectado (ver checkVersion)
+    this.onOutdated = null;       // (para el menú: hay una versión nueva, hay que recargar)
+    this.onServerRestart = null;  // (el mundo del servidor: /update en el terminal; guardar antes de que lo cierren)
     onFault(f => this.sendFault(f));
   }
   get host() { return [...this.peers.values()].find(p => p.host) || null; }
@@ -153,7 +158,7 @@ export class Live {
   up() {
     // (al servidor: de qué cuenta es, para los op, los vetos y la lista blanca; el mundo del servidor, su pase)
     const srv = Profile.server;
-    this.net.sendServer(srv ? { t: 'pase', pase: srv.pase } : { t: 'ident', user: Profile.id });
+    this.net.sendServer(srv ? { t: 'pase', pase: srv.pase, v: GAME_VERSION } : { t: 'ident', user: Profile.id, v: GAME_VERSION });   // (v: ver version.js)
     if (this.net.need) this.giveKeys();
     // (el admin jugando solo en el mundo cuando aparece el servidor: lo lleva su juego, para que entren los demás)
     if (this.net.key && Profile.admin && this.game.player && !this.joined) this.join(null, 'host');
@@ -178,7 +183,7 @@ export class Live {
       let m;
       try { m = JSON.parse(e.data); } catch { return; }
       if (m.t !== 'you') return;
-      if (m.need) { ws.send(JSON.stringify({ t: 'ident', user: Profile.id })); ws.send(JSON.stringify({ t: 'secrets', ...s })); }
+      if (m.need) { ws.send(JSON.stringify({ t: 'ident', user: Profile.id, v: GAME_VERSION })); ws.send(JSON.stringify({ t: 'secrets', ...s })); }
       setTimeout(() => ws.close(), 500);
     };
     ws.onerror = () => { this.handing = null; };
@@ -186,7 +191,7 @@ export class Live {
   hi(to = null, ask = false) {
     const g = this.game;
     const look = g.player ? g.appearance() : null;
-    this.net?.send({ t: 'hi', id: Profile.id, name: g.player?.name || Profile.name, host: this.joined && this.role === 'host' && !!g.player, admin: Profile.admin, server: !!Profile.server, playing: this.joined && !!g.player, look, ask }, to);
+    this.net?.send({ t: 'hi', id: Profile.id, name: g.player?.name || Profile.name, host: this.joined && this.role === 'host' && !!g.player, admin: Profile.admin, server: !!Profile.server, playing: this.joined && !!g.player, look, ask, v: GAME_VERSION }, to);
     this.lastLook = look; this.lastLookJson = JSON.stringify(look);
   }
   plain(conn, p) {
@@ -229,7 +234,10 @@ export class Live {
     else if (m.t === 'tp') this.serverTp(m);
     // (el mundo del servidor: sus claves, la primera vez que enseña su pase)
     else if (m.t === 'secretos') { if (Profile.server && !this.net?.key && m.key) this.onKeys?.(m); }
+    // (/update en el terminal: el mundo del servidor guarda y el servidor lo cierra para abrirlo con el código nuevo)
+    else if (m.t === 'restart') this.onServerRestart?.();
     else if (m.t === 'kicked' || m.t === 'stop') {
+      if (m.outdated) this.outdated(typeof m.v === 'string' ? m.v : '');   // (el servidor tiene una versión más nueva)
       const why = m.t === 'stop' ? 'Se ha cerrado el servidor.' : m.reason || 'Te han echado del servidor.';
       this.setStatus('kicked', why);
       if (this.joined) this.leave(m.t === 'stop' ? 'stop' : 'kicked', why);
@@ -261,7 +269,7 @@ export class Live {
     let peer = this.peers.get(conn);
     if (m.t === 'hi') {
       const was = peer?.playing, wasHost = peer?.host;
-      peer = { ...peer, id: m.id, name: m.name, host: !!m.host, admin: !!m.admin, server: !!m.server && this.serverConns.has(conn), playing: !!m.playing, look: m.look };
+      peer = { ...peer, id: m.id, name: m.name, host: !!m.host, admin: !!m.admin, server: !!m.server && this.serverConns.has(conn), playing: !!m.playing, look: m.look, v: typeof m.v === 'string' ? m.v : '' };
       if (!peer.playing) this.hide(peer);
       this.peers.set(conn, peer);
       if (peer.entity && m.look) peer.entity.look = m.look;
@@ -277,6 +285,7 @@ export class Live {
         else this.hi(conn);
       }
       if (wasHost && !peer.host) this.hostGone();
+      this.checkVersion(peer);
       this.changed();
       return;
     }
@@ -320,14 +329,15 @@ export class Live {
         this.changed();
         break;
       // El mundo compartido
-      case 'want': if (this.role === 'host' && g.player) { this.sendWorld(conn); if (peer.server) this.gaveTo = conn; } break;
+      case 'want': if (this.role === 'host' && g.player) { if (peer.old) { this.tellOld(conn, peer); break; } this.sendWorld(conn); if (peer.server) this.gaveTo = conn; } break;   // (old: con una versión vieja no entra)
       case 'world': if (this.wanted && peer.host) { clearTimeout(this.wanted.timer); this.wanted.resolve(m); this.wanted = null; } break;
       case 'w':
         if (fromHost) this.applyChunk(m.c, m.ops);
-        else if (this.takes(peer)) { if (this.mayEdit(peer, m.c)) this.applyChunk(m.c, m.ops); else this.refuse(conn, peer, m.c, m.ops); }
+        else if (this.takes(peer)) { if (!peer.old && this.mayEdit(peer, m.c)) this.applyChunk(m.c, m.ops); else this.refuse(conn, peer, m.c, m.ops); }
         break;
       case 's':
         if (!BLOBS[m.name] || !(fromHost || this.takes(peer))) break;
+        if (!fromHost && peer.old) { this.net.send({ t: 's', name: m.name, v: BLOBS[m.name].get(g) }, conn); this.tellOld(conn, peer); break; }   // (con una versión vieja, no se deja)
         if (!fromHost && OP_BLOBS.has(m.name) && this.isOp(peer.id) === false) { this.net.send({ t: 's', name: m.name, v: BLOBS[m.name].get(g) }, conn); this.warn(peer, `${peer.name} ha intentado cambiar ${m.name} sin ser op (no se deja)`); break; }
         BLOBS[m.name].set(g, m.v);
         if (fromHost) this.blobs[m.name] = JSON.stringify(BLOBS[m.name].get(g));   // (el anfitrión lo reparte a todos en su próxima vuelta)
@@ -409,7 +419,42 @@ export class Live {
     const cur = this.game.world.deltas.get(k) || {}, isMap = v => !!v && typeof v === 'object' && !Array.isArray(v);
     const back = ops.map(([f, c, v]) => (c === undefined || c === null ? (cur[f] !== undefined ? [f, null, cur[f]] : isMap(v) ? [f, null, {}] : [f]) : cur[f]?.[c] === undefined ? [f, c] : [f, c, cur[f][c]]));
     this.net.send({ t: 'w', c: k, ops: back }, conn);
-    this.warn(peer, `${peer.name} ha intentado cambiar el mundo lejos de donde está (no se deja)`);
+    if (peer.old) this.tellOld(conn, peer);
+    else this.warn(peer, `${peer.name} ha intentado cambiar el mundo lejos de donde está (no se deja)`);
+  }
+  // ---------- versiones ----------
+  // Cada juego dice su versión en el saludo (v; los de antes no la dicen: más viejos que cualquiera). El que tiene la
+  // vieja no toca el mundo: si es tu juego, sales del mundo compartido (guardando) y se te pide recargar la página; si es
+  // otro, quien lleva el mundo no le da el mundo ni le deja cambiarlo (old) y se lo dice. El mundo del servidor, si es él
+  // el viejo, sigue llevándolo (lo que no conoce lo guarda tal cual: ver knownItem en items.js) y avisa en su terminal
+  // de que hay que ponerlo al día (/update)
+  checkVersion(peer) {
+    const cmp = compareVersions(peer.v, GAME_VERSION), g = this.game;
+    peer.old = cmp < 0 && !peer.server;   // (al mundo del servidor viejo sí se le da el mundo: lo va a llevar igualmente)
+    if (cmp > 0) {
+      if (Profile.server) { if (this.toldNewer !== peer.v) { this.toldNewer = peer.v; this.say?.(`${peer.name} tiene una versión más nueva del juego (${peer.v}) que este mundo del servidor (${GAME_VERSION}): escribe /update en este terminal para ponerlo al día.`, 'sys'); } }
+      else this.outdated(peer.v);
+    } else if (cmp < 0 && peer.server && !this.toldServerOld && (Profile.admin || this.amOp)) {
+      this.toldServerOld = true;
+      const text = `El mundo del servidor tiene una versión anterior del juego (${peer.v || 'sin número'}): escribe /update en el terminal del servidor para ponerlo al día.`;
+      if (g.player) hud.toast(text); else this.serverOld = text;
+      this.changed();
+    }
+  }
+  // Hay una versión más nueva que la tuya (la tiene otro juego o el servidor): sales del mundo compartido y el menú lo dice
+  outdated(v) {
+    if (this.newer !== null && compareVersions(v, this.newer) <= 0) return;
+    this.newer = v;
+    if (this.joined && this.game.player) this.leave('outdated');
+    this.onOutdated?.(v);
+  }
+  // (anfitrión) A un juego con una versión vieja se le dice por el chat, que lo enseñan también los de antes de que se
+  // mandara la versión; una vez por conexión. Y en el terminal del servidor, una vez
+  tellOld(conn, peer) {
+    if (peer.toldOld) return;
+    peer.toldOld = true;
+    this.net.send({ t: 'chat', say: true, text: 'Hay una versión nueva del juego: recarga la página.' }, conn);
+    if (Profile.server) this.say?.(`${peer.name} tiene una versión anterior del juego (${peer.v || 'sin número'}): no puede tocar el mundo hasta que recargue la página.`, 'sys');
   }
   // (el mundo del servidor lo cuenta en el terminal; como mucho, una vez cada medio minuto por jugador)
   warn(peer, text) {
@@ -505,10 +550,11 @@ export class Live {
   }
   // El mundo compartido tal como está (lo que se manda a quien entra y lo que guarda el anfitrión para todos), con
   // la ficha de su planeta (cada planeta, su archivo)
-  worldOf(snap, deltas) { return { planet: PLANET, deltas: [...deltas].filter(([k]) => !k.startsWith('u:')), shared: Object.fromEntries(SHARED.map(k => [k, snap[k]])) }; }
+  worldOf(snap, deltas) { return { planet: PLANET, deltas: [...deltas].filter(([k]) => !k.startsWith('u:')), shared: { ...this.extraShared, ...Object.fromEntries(SHARED.map(k => [k, snap[k]])) } }; }
   // La partida con la que empieza quien entra en el mundo compartido: la suya, con ese mundo (y sus propias cuevas)
   enter(solo, world) {
     const her = solo.save;
+    this.extraShared = unknownShared(world.shared);
     const save = { ...her, ...world.shared, player: { ...her.player, inside: false, boat: false, mount: false, ...(her.livePos || {}) } };
     const deltas = new Map(world.deltas);
     for (const [k, v] of solo.deltas) if (k.startsWith('u:')) deltas.set(k, v);

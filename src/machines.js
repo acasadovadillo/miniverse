@@ -110,7 +110,7 @@ export class Machines {
   takeBack(tile, kind, slot) {
     const g = this.game, m = this.get(tile, kind);
     const cur = m?.[slot];
-    if (!cur) return;
+    if (!cur || !ITEMS[cur.id]) return;   // (lo de una versión más nueva se queda: aquí no se puede usar, y no se pierde)
     const left = g.inv.add(cur.id, cur.n);
     const got = cur.n - left;
     if (!got) { g.gather.float('No te cabe: no llevas sitio libre', '#ffb0a0'); Audio.error(); return; }

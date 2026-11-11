@@ -184,6 +184,7 @@ export class BuildMode {
     const g = this.game, sc = g.scene, c = this.check(t), hit = c.ok && this.eraseTarget(t, at);
     if (!hit) { if (c.why) g.gather.float(c.why, '#ffb0a0'); Audio.error(); return; }
     const id = parsePlaced(sc.at(hit.layer, hit.tile[0], hit.tile[1]))[0];
+    if (this.unknown(id, !sc.ownAt || sc.ownAt(hit.layer, hit.tile[0], hit.tile[1]))) return;
     if (!g.pickUp({ tile: hit.tile, layer: hit.layer, placed: id }, true)) return;
     this.carry = { id };
     this.pickV++;
@@ -215,9 +216,10 @@ export class BuildMode {
       const c = sc.contentFor(cx + dx, cy + dy);
       for (const o of c.floors) if (Math.abs(o.x - p.x) < PICK_NEAR && Math.abs(o.y - p.y) < PICK_NEAR) add(o, box(o.tile[0] + 0.5, o.tile[1] + 0.5, 0.5, 0.5, -0.05, 0.05));
       for (const o of [...c.objects, ...c.flats]) {
-        if (!o.placed || !o.tile || !o.layer || Math.abs(o.x - p.x) > PICK_NEAR || Math.abs(o.y - p.y) > PICK_NEAR) continue;
+        if ((!o.placed && !o.unknown) || !o.tile || !o.layer || Math.abs(o.x - p.x) > PICK_NEAR || Math.abs(o.y - p.y) > PICK_NEAR) continue;
         const [tx, ty] = o.tile;
-        if (o.layer === 'roof') {
+        if (o.unknown) add(o, { ...o.obb, y0: 0, y1: 0.75 });   // (la caja con «?»: se apunta, para decir que no se quita)
+        else if (o.layer === 'roof') {
           if (hidden(tx, ty, 'roof')) continue;   // (desde dentro no se ve)
           add(o, box(tx + 0.5, ty + 0.5, 0.5, 0.5, WALL_H, WALL_H + ROOF.thick + ROOF.level * ((sc.roofGeometry?.(tx, ty, memo)?.h.c ?? 0) + 0.5)));
         } else if (o.layer === 'rug') add(o, { ...(o.obb || aabb(o.fx[0], o.fy[0], o.fx[1], o.fy[1])), y0: 0, y1: 0.08 });
@@ -276,6 +278,7 @@ export class BuildMode {
     const raw = sc.at(layer, tile[0], tile[1]);
     if (!raw) return;
     const [id, k] = parsePlaced(raw), own = !sc.ownAt || sc.ownAt(layer, tile[0], tile[1]), o = { tile, layer, placed: id, ...(layer === 'rug' ? { rug: rugRect(tile[0], tile[1], k) } : {}), ...(own ? {} : { fixed: true, build: true }) };
+    if (this.unknown(id, own)) return;
     if (CHESTS[id] && sc.chestAt(...tile)?.some(Boolean)) { g.gather.float(`Vacía ${CHESTS[id][1]} antes`, '#ffb0a0'); Audio.error(); return; }
     if (PIECES[id] && !ITEMS[id]) {
       if (sc.unplace(o) === false) { Audio.error(); return; }
@@ -284,6 +287,13 @@ export class BuildMode {
     this.pickV++;
     g.gather.chips(tile[0] + 0.5, tile[1] + 0.5, 'wood', 6);
     Audio.chop();
+  }
+  // Lo de una versión más nueva del juego (un id que este no conoce) no se quita ni se mueve: se perdería (ver knownItem).
+  // own: si es del jugador (lo fijo del pueblo lo pone el juego: siempre lo conoce)
+  unknown(id, own = true) {
+    if (!own || PIECES[id] || ITEMS[id]) return false;
+    this.game.gather.float('Es de una versión más nueva del juego: recarga la página', '#ffb0a0'); Audio.error();
+    return true;
   }
   // El borde amarillo de lo que se va a quitar
   pickHighlight() {
@@ -295,7 +305,7 @@ export class BuildMode {
   // Lo que se va a quitar, por su nombre
   eraseHint() {
     const sc = this.game.scene, hit = this.eraseTarget(this.target()), raw = hit && sc.at(hit.layer, hit.tile[0], hit.tile[1]), id = raw && parsePlaced(raw)[0], name = id && (PIECES[id]?.name || ITEMS[id]?.name);
-    return name ? `Quitar ${name.toLowerCase()}` : 'Quitar';
+    return name ? `Quitar ${name.toLowerCase()}` : id ? 'No se quita: es de una versión más nueva del juego' : 'Quitar';
   }
   hint() {
     if (!this.on) return '';

@@ -376,20 +376,25 @@ export const START_KIT = [['hacha_hierro', 1], ['pico_hierro', 1], ['guadana_hie
 // Golpes que necesita con su herramienta
 export const hitsFor = rule => Math.max(1, Math.ceil(rule.hits / TIERS[4].power));
 
+// Lo de una versión más nueva del juego: un id que esta no conoce (lo ha guardado un juego más nuevo, o llega de él por
+// la red). No se usa, pero tampoco se borra: en la mochila se aparta y se vuelve a guardar (Inventory), en los cofres se
+// queda en su casilla con un «?» y no se puede sacar, y en el mundo se ve como una caja con «?» (scenes.js, addBuilt)
+export const knownItem = id => !!ITEMS[id] || !!LEGACY_ITEMS[id];
+export const UNKNOWN_NAME = 'Algo de una versión más nueva del juego (recarga la página para verlo)';
+
 // Lo que fue un objeto de la mochila y ya no lo es (ahora se construye con B: ver pieces.js y buildables.js, que añade
 // aquí los muebles y las estaciones): al cargar una partida o abrir un cofre, lo que quede guardado se cambia por los
 // materiales que costaba, para que nadie pierda nada. id → [[material, n]…]
 export const LEGACY_ITEMS = { valla: [['tablas', 1]], puerta_valla: [['tablas', 3]] };
 // Pone al día una lista de casillas ({ id, n } o null), en el sitio: lo de LEGACY_ITEMS, por sus materiales (el primero
-// en su casilla; los demás, con los montones que haya o en los huecos); lo que ya no existe, fuera. Devuelve lo que no
-// ha cabido: [[material, n]…]
+// en su casilla; los demás, con los montones que haya o en los huecos). Lo que este juego no conoce se queda como está
+// (es de una versión más nueva: ver knownItem). Devuelve lo que no ha cabido: [[material, n]…]
 export function modernSlots(slots) {
   const extra = [], spill = [];
   if (!Array.isArray(slots)) return spill;
   for (let i = 0; i < slots.length; i++) {
     const s = slots[i], L = s && LEGACY_ITEMS[s.id];
     if (L) { const n = s.n || 1; slots[i] = { id: L[0][0], n: L[0][1] * n }; for (const [m, k] of L.slice(1)) extra.push([m, k * n]); }
-    else if (s && !ITEMS[s.id]) slots[i] = null;
   }
   for (const [m, n] of extra) {
     const same = slots.find(s => s && s.id === m && !s.color);

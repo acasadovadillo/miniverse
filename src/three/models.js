@@ -188,7 +188,23 @@ const BAIL = new THREE.TorusGeometry(0.128, 0.007, 4, 12, Math.PI);   // (el asa
 
 // ---------- muebles y estaciones ----------
 let DOME;
+// El «?» de lo que este juego no conoce (de una versión más nueva): cinco por siete cuadritos, de arriba abajo
+const QUESTION = ['.###.', '#...#', '....#', '...#.', '..#..', '.....', '..#..'];
 const BUILD = {
+  // Lo de una versión más nueva del juego que este no conoce (ver unknownObject en world/scenes.js): una caja de madera
+  // con un «?» dorado en cada lado, para que se vea que ahí hay algo que hay que recargar la página para ver
+  unknown(m) {
+    const H = 0.7, R = 0.35, P = 0.07, E = 0.012;
+    m.box('wood', -R, 0, -R, R, H, R);
+    for (const y of [0, H - 0.06]) { m.box('dark', -R - 0.01, y, -R - 0.01, R + 0.01, y + 0.06, -R + 0.05); m.box('dark', -R - 0.01, y, R - 0.05, R + 0.01, y + 0.06, R + 0.01); }
+    // (cada cuadrito, en las cuatro caras: u a lo ancho de la cara, v hacia abajo desde arriba)
+    QUESTION.forEach((row, v) => [...row].forEach((ch, u) => {
+      if (ch !== '#') return;
+      const a = -2.5 * P + u * P, y1 = H - 0.1 - v * P, y0 = y1 - P;
+      m.box('gold', a, y0, R, a + P, y1, R + E).box('gold', -a - P, y0, -R - E, -a, y1, -R);
+      m.box('gold', R, y0, -a - P, R + E, y1, -a).box('gold', -R - E, y0, a, -R, y1, a + P);
+    }));
+  },
   cama(m) {
     const L = 1.9, W = 0.98, z0 = -0.46, z1 = z0 + L;
     m.box('dark', -W / 2, 0, z0, -W / 2 + 0.08, 1.0, z0 + 0.08).box('dark', W / 2 - 0.08, 0, z0, W / 2, 1.0, z0 + 0.08).box('wood', -W / 2 + 0.08, 0.35, z0 + 0.01, W / 2 - 0.08, 0.92, z0 + 0.07);

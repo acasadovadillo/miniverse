@@ -1,7 +1,7 @@
 // Pantalla de fabricar: pestañas por estación, recetas (las bloqueadas salen como "???") y detalle con ingredientes.
 // Algunas estaciones tienen además su panel: en el yunque, arreglar y juntar; en el horno, el alambique y la noria,
 // lo que tienen dentro (machines.js).
-import { ITEMS, hungerText } from '../items.js';
+import { ITEMS, hungerText, UNKNOWN_NAME } from '../items.js';
 import { RECIPES, STATIONS, lockedHint } from '../recipes.js';
 import { itemIconUrl } from '../art/items.js';
 import { MACHINES, machineAt, settle, fits } from '../machines.js';
@@ -110,7 +110,7 @@ export function initCraftingUI(game, { onClose, onBag }) {
       cell.className = 'mc-cell';
       b.type = 'button'; b.className = 'slot mc-slot' + (picking === slot ? ' sel' : '');
       b.innerHTML = it ? `<img alt="" src="${itemIconUrl(it.id)}"><b>${it.n > 1 ? it.n : ''}</b>` : '';
-      b.title = it ? `${ITEMS[it.id].name} ×${it.n}` : label;
+      b.title = it ? `${ITEMS[it.id]?.name || UNKNOWN_NAME} ×${it.n}` : label;   // (sin ITEMS: de una versión más nueva)
       b.onclick = () => { if (slot === 'out' || it) { picking = null; M.takeBack(tile, kind, slot); } else picking = picking === slot ? null : slot; refresh(); };
       s.textContent = label;
       cell.append(b, s);
