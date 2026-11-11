@@ -11,16 +11,17 @@ const BPP = {
 };
 const bpp = f => BPP[f] ?? 4;
 
-// Empieza a apuntar en un contexto (una vez; los que ya estaban subidos antes no cuentan). Devuelve la cuenta
+// Empieza a apuntar en un contexto (una vez; los que ya estaban subidos antes no cuentan). Devuelve la cuenta.
+// Solo se envuelven las llamadas que reservan o sueltan, que son pocas (al subir algo): la textura a la que van se le
+// pregunta entonces al contexto (getParameter, sin ir a la gráfica: el navegador lleva la cuenta de lo enlazado). Las de
+// enlazar (bindTexture, activeTexture), que Three hace cientos de veces por fotograma, quedan tal cual
 export function trackVram(gl) {
   if (!gl || gl.__vram) return gl?.__vram || null;
   const V = (gl.__vram = { tex: new Map(), rb: new Map(), uploads: 0 });
-  const bound = new Map(), unit = { v: 0 }, rbNow = { v: null };
-  const TEX2D = gl.TEXTURE_2D, CUBE = gl.TEXTURE_CUBE_MAP, faceOf = t => (t >= gl.TEXTURE_CUBE_MAP_POSITIVE_X && t <= gl.TEXTURE_CUBE_MAP_NEGATIVE_Z ? CUBE : t);
+  const CUBE = gl.TEXTURE_CUBE_MAP, faceOf = t => (t >= gl.TEXTURE_CUBE_MAP_POSITIVE_X && t <= gl.TEXTURE_CUBE_MAP_NEGATIVE_Z ? CUBE : t);
+  const BIND = new Map([[gl.TEXTURE_2D, gl.TEXTURE_BINDING_2D], [CUBE, gl.TEXTURE_BINDING_CUBE_MAP], [gl.TEXTURE_2D_ARRAY, gl.TEXTURE_BINDING_2D_ARRAY], [gl.TEXTURE_3D, gl.TEXTURE_BINDING_3D]].filter(([a, b]) => a !== undefined && b !== undefined));
   const wrap = (name, after) => { const f = gl[name]; if (typeof f !== 'function') return; gl[name] = function (...a) { const r = f.apply(this, a); try { after(a, r); } catch {} return r; }; };
-  const cur = target => bound.get(unit.v + ':' + faceOf(target));
-  wrap('activeTexture', ([u]) => { unit.v = u; });
-  wrap('bindTexture', ([t, tex]) => { bound.set(unit.v + ':' + t, tex); });
+  const cur = target => { const b = BIND.get(faceOf(target)); return b === undefined ? null : gl.getParameter(b); };
   wrap('deleteTexture', ([tex]) => { V.tex.delete(tex); });
   // (texStorage reserva todos los niveles de una vez)
   wrap('texStorage2D', ([t, levels, f, w, h]) => {
@@ -46,10 +47,10 @@ export function trackVram(gl) {
     V.tex.set(tex, e); V.uploads++;
   });
   wrap('generateMipmap', ([t]) => { const e = V.tex.get(cur(t)); if (e?.lv && !e.mip) { e.mip = true; e.bytes *= 4 / 3; } });
-  wrap('bindRenderbuffer', ([, rb]) => { rbNow.v = rb; });
+  const rbNow = () => gl.getParameter(gl.RENDERBUFFER_BINDING);
   wrap('deleteRenderbuffer', ([rb]) => { V.rb.delete(rb); });
-  wrap('renderbufferStorage', ([, f, w, h]) => { if (rbNow.v) V.rb.set(rbNow.v, w * h * bpp(f)); });
-  wrap('renderbufferStorageMultisample', ([, s, f, w, h]) => { if (rbNow.v) V.rb.set(rbNow.v, w * h * bpp(f) * Math.max(1, s)); });
+  wrap('renderbufferStorage', ([, f, w, h]) => { const rb = rbNow(); if (rb) V.rb.set(rb, w * h * bpp(f)); });
+  wrap('renderbufferStorageMultisample', ([, s, f, w, h]) => { const rb = rbNow(); if (rb) V.rb.set(rb, w * h * bpp(f) * Math.max(1, s)); });
   return V;
 }
 // Lo que hay ahora: texturas (número y MB) y búferes de dibujo (MB)

@@ -22,10 +22,21 @@ let R = null, idle = 0;
 // entero, y se vuelve a crear si hace falta otro. (no menos: al pasar por el inventario creativo los iconos se piden poco
 // a poco, y recrearlo cada rato sería compilar otra vez)
 const IDLE_MS = 30000;
+// (al soltarlo, también los oyentes de 'dispose' que puso en los materiales, texturas y geometrías que comparte con el
+// juego: Three no los quita, y cada uno retendría entero el renderizador ya muerto, uno más cada vez que se vuelve a crear.
+// Se apuntan mientras dibuja: en ese rato, lo que se añade es suyo)
+const OWN = [];
 function release() {
   if (!R) return;
+  for (const [o, f] of OWN) o.removeEventListener('dispose', f);
+  OWN.length = 0;
   R.renderer.dispose(); R.renderer.forceContextLoss();
   R = null;
+}
+function drawOwn(renderer, scene, camera) {
+  const ED = THREE.EventDispatcher.prototype, add = ED.addEventListener;
+  ED.addEventListener = function (type, f) { if (type === 'dispose' && !this.hasEventListener(type, f)) OWN.push([this, f]); return add.call(this, type, f); };
+  try { renderer.render(scene, camera); } finally { ED.addEventListener = add; }
 }
 
 function setup() {
@@ -86,9 +97,10 @@ export function modelIcon(id) {
   const half = Math.max(x1 - x0, y1 - y0) / 2 * 1.08, cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
   Object.assign(camera, { left: cx - half, right: cx + half, top: cy + half, bottom: cy - half, near: 0.1, far: 30 });
   camera.updateProjectionMatrix();
-  renderer.render(scene, camera);
+  drawOwn(renderer, scene, camera);
   scene.remove(g);
   for (const geo of made) geo.dispose();
+  if (made.length) { const gone = new Set(made); for (let i = OWN.length; i--;) if (gone.has(OWN[i][0])) OWN.splice(i, 1); }   // (ya soltadas: Three ha quitado su oyente)
   const out = mk(ICON3D, ICON3D), ctx = out.getContext('2d');
   ctx.imageSmoothingQuality = 'high';
   ctx.drawImage(renderer.domElement, 0, 0, ICON3D, ICON3D);

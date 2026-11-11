@@ -27,7 +27,15 @@ function make(w, h, draw, { color = true, scale = 1 } = {}) {
 // Las que no llevan foto y se piden igual más de una vez (el cuadro del valle, los surcos…): una sola textura en la
 // gráfica, y a cada uno una copia (clone) que comparte la imagen, para que cambiar su repetición no toque a los demás
 const SMALL = new Map();
-const once = (id, fn) => { let t = SMALL.get(id); if (!t) SMALL.set(id, (t = fn())); return t.clone(); };
+const once = (id, fn) => { let t = SMALL.get(id); if (!t) SMALL.set(id, (t = fn())); return copyOf(t); };
+// Una copia que comparte la imagen. (clone() marca needsUpdate, y eso sube la versión de la imagen compartida: la gráfica
+// la volvería a subir entera, con sus mipmaps, la primera vez que se usara cualquiera de sus copias. Con la versión de
+// antes, la copia encuentra ya subida la de la base y no sube nada)
+function copyOf(b) {
+  const v = b.source.version, t = b.clone();
+  t.source.version = v;
+  return t;
+}
 
 // ---------- fotos ----------
 // Una sola textura de la gráfica por foto, para todas sus variantes: la madera de las vigas, la de los postigos y la de
@@ -104,13 +112,22 @@ function photoTex(id, key, opts, w, h, draw, mk) {
   const ph = photoNow(key);
   if (!ph) return photoOver(make(w, h, draw, mk), key, opts);
   const avg = paintAvg(id, w, h, draw);
-  if (opts.grey) return sharedBase(key, ph, { avg0: avg[0], k: opts.grey, aniso: opts.aniso }).t.clone();
-  const p = PHOTOS[key], b = sharedBase(key, ph), t = b.t.clone(), T = tintFor(b, avg.map(a => a / p.mean));
+  if (opts.grey) return copyOf(sharedBase(key, ph, { avg0: avg[0], k: opts.grey, aniso: opts.aniso }).t);
+  const p = PHOTOS[key], b = sharedBase(key, ph), t = copyOf(b.t), T = tintFor(b, avg.map(a => a / p.mean));
   t.userData.photoTint = T.K;
   if (T.over) t.userData.photoClamp = true;
-  // (después del repeat que ponga quien la pide, como cuando la foto llegaba más tarde: se multiplica)
-  if (opts.meters) { const sx = opts.meters / p.m[0], sy = opts.meters / p.m[1]; queueMicrotask(() => t.repeat.set(t.repeat.x * sx, t.repeat.y * sy)); }
+  // (después del repeat que ponga quien la pide, como cuando la foto llegaba más tarde: se multiplica. Lo hace mat(), en
+  // geo.js, al hacer su material: todos ponen su repeat antes, y así lo que se hace y se dibuja en el mismo fotograma, como
+  // una cueva al entrar, sale ya a su tamaño. Si nadie la pasa por mat(), al acabar lo que se está haciendo)
+  if (opts.meters) { t.userData.photoScale = [opts.meters / p.m[0], opts.meters / p.m[1]]; queueMicrotask(() => photoScaleOf(t)); }
   return t;
+}
+// Aplica, una vez, el tamaño de la foto a una textura de photoTex (multiplica su repeat)
+export function photoScaleOf(t) {
+  const k = t?.userData.photoScale;
+  if (!k || t.userData.photoScaled) return;
+  t.userData.photoScaled = true;
+  t.repeat.set(t.repeat.x * k[0], t.repeat.y * k[1]);
 }
 // Lo de antes, cuando la foto aún no está: la foto de la clave encima del lienzo cuando llegue, su dibujo
 // teñido con el color medio de lo que había pintado, y del tamaño que mide de verdad (meters: lo que mide el lienzo

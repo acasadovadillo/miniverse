@@ -34,8 +34,10 @@ export function photo(key) {
     img.decoding = 'async';
     img.src = new URL(`../../assets/tex/${p.file}`, import.meta.url).href;
     // (si no se puede preparar, se usa como antes: cada variante, su copia teñida)
-    img.decode().then(() => { try { READY.set(key, prep(p, img)); } catch (e) { console.warn(`No se ha podido preparar la textura ${p.file}`, e); } res(img); },
-      () => { console.warn(`No ha llegado la textura ${p.file}: se queda la pintada`); res(null); });
+    const ok = () => { try { READY.set(key, prep(p, img)); } catch (e) { console.warn(`No se ha podido preparar la textura ${p.file}`, e); } res(img); };
+    const bad = () => { console.warn(`No ha llegado la textura ${p.file}: se queda la pintada`); res(null); };
+    // (decode() puede fallar sin que falle la imagen, por ejemplo con poca memoria: entonces, lo de siempre, al cargar)
+    img.decode().then(ok, () => { if (img.complete) (img.naturalWidth ? ok : bad)(); else { img.onload = ok; img.onerror = bad; } });
   }));
   return LOADS.get(key);
 }

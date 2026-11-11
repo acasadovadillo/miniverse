@@ -8,7 +8,7 @@
 // zócalo de piedra y, en los de entramado, postes, vigas y riostras. Cada tramo va en el grupo de su lado de
 // fuera (n, s, e, o w), para poder quitar las paredes que tapan la vista cuando el jugador está dentro.
 import * as THREE from 'three';
-import { Builder, mat } from './geo.js';
+import { Builder, mat, sameClamp } from './geo.js';
 import { plaster, planks, roofTiles, stone, wood, siding, flagstone, gravel, thatch, artwork } from './textures.js';
 import { PIECES, parsePlaced } from '../pieces.js';
 import { front } from '../art/stations.js';
@@ -56,7 +56,9 @@ export function baseMaterials() {
   // de debajo de los muebles se asientan, sin un triángulo más. Solo en el renderer del juego (los iconos y la vista previa
   // tienen el suyo, y ahí no hay nada que leer). Los tres, con la misma clave: el código que se añade es el mismo, así que
   // comparten programa (uno que compilar, no tres); cada material sigue con sus uniformes, porque Three llama a
-  // onBeforeCompile para cada uno. Y con clave propia, para no compartirlo con los materiales de sin ella
+  // onBeforeCompile para cada uno. Y con clave propia, para no compartirlo con los materiales de sin ella. (si alguno
+  // recorta su foto, los tres con el recorte: si no, el que recorta tendría otro programa; ver geo.js, sameClamp)
+  sameClamp([BASE.floor_madera, BASE.floor_piedra, BASE.floor_camino]);
   for (const key of ['floor_madera', 'floor_piedra', 'floor_camino']) {
     const m = BASE[key];
     m.onBeforeCompile = (sh, r) => injectContact(sh, r, 'frag');

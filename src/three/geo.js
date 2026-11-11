@@ -1,6 +1,7 @@
 // Juntar muchas cajas, caras y figuras en una sola malla (menos llamadas de dibujo), con coordenadas de
 // textura en metros del mundo, para que las texturas sigan de una pieza a la siguiente sin cortes.
 import * as THREE from 'three';
+import { photoScaleOf } from './textures.js';
 
 export class Builder {
   constructor() { this.pos = []; this.nor = []; this.uv = []; this.idx = []; this.col = null; this.color = null; }
@@ -144,10 +145,13 @@ export class Builder {
 // va en el color: la foto tal cual por el color medio del lienzo pintado, que es lo que antes llevaba horneado cada copia.
 // Si la copia de antes recortaba en blanco alguna parte (un tinte claro sobre una foto con zonas claras), el material
 // recorta igual, en su color de antes del tinte (PHOTO_CLAMP): sin eso, las piedras claras saldrían más brillantes
+// (el recorte va en un uniforme, photoClamp, y no en el valor de la define: Three mete las defines en la clave del programa,
+// y cada color recortado sería un programa más que compilar)
 export const mat = (opts = {}) => {
   const m = new THREE.MeshStandardMaterial({ roughness: 0.88, metalness: 0, ...opts }), K = opts.map?.userData.photoTint;
+  photoScaleOf(opts.map);   // (el tamaño de la foto, ya: ver textures.js, photoTex)
   if (K) {
-    if (opts.map.userData.photoClamp) m.defines = { ...m.defines, PHOTO_CLAMP: `vec3(${[m.color.r, m.color.g, m.color.b].map(x => x.toFixed(4)).join(', ')})` };
+    if (opts.map.userData.photoClamp) clampOn(m, m.color);
     m.color.setRGB(m.color.r * K[0], m.color.g * K[1], m.color.b * K[2]);
     // (el techo de la cueva usa la misma textura de luz propia: también teñida, o de noche se vería neutro)
     if (opts.emissiveMap === opts.map) m.emissive.setRGB(m.emissive.r * K[0], m.emissive.g * K[1], m.emissive.b * K[2]);
@@ -158,16 +162,35 @@ export const mat = (opts = {}) => {
 // encima como antes). Solo en los programas con PHOTO_CLAMP; una vez para todo, antes de compilar nada
 {
   const C = THREE.ShaderChunk, at = 'diffuseColor *= sampledDiffuseColor;';
-  if (C.map_fragment.includes(at)) C.map_fragment = C.map_fragment.replace(at, `${at}\n\t#ifdef PHOTO_CLAMP\n\t\tdiffuseColor.rgb = min( diffuseColor.rgb, PHOTO_CLAMP );\n\t#endif`);
+  if (C.map_fragment.includes(at)) {
+    C.map_fragment = C.map_fragment.replace(at, `${at}\n\t#ifdef PHOTO_CLAMP\n\t\tdiffuseColor.rgb = min( diffuseColor.rgb, photoClamp );\n\t#endif`);
+    C.map_pars_fragment += '\n#ifdef PHOTO_CLAMP\n\tuniform vec3 photoClamp;\n#endif\n';
+  }
   else console.warn('[texturas] map_fragment ha cambiado: las fotos teñidas no recortan (PHOTO_CLAMP)');
   // (clone() y copy() de MeshStandardMaterial dejan las defines en { STANDARD }: las copias de un material, para el fundido
   // de los muros o de los árboles y para el horneado de los impostores, perderían el recorte)
-  const copy = THREE.MeshStandardMaterial.prototype.copy;
-  THREE.MeshStandardMaterial.prototype.copy = function (src) {
+  const P = THREE.MeshStandardMaterial.prototype, copy = P.copy, build = P.onBuild;
+  P.copy = function (src) {
     copy.call(this, src);
-    if (src.defines?.PHOTO_CLAMP) this.defines = { ...this.defines, PHOTO_CLAMP: src.defines.PHOTO_CLAMP };
+    if (src.photoClamp) clampOn(this, src.photoClamp);
     return this;
   };
+  // (el uniforme, en los de cada material, al hacer su programa. Con onBuild y no con onBeforeCompile, que muchos
+  // materiales cambian por el suyo: Three lo llama justo antes, con los uniformes del material ya hechos)
+  P.onBuild = function (object, sh, r) {
+    build.call(this, object, sh, r);
+    if (this.photoClamp) sh.uniforms.photoClamp = { value: this.photoClamp };
+  };
+}
+// Un material que recorta en c (su color de antes del tinte)
+function clampOn(m, c) {
+  m.defines = { ...m.defines, PHOTO_CLAMP: '' };
+  m.photoClamp = c.clone();
+}
+// Para que materiales que deben compartir programa (los suelos de las casas) lo hagan aunque solo alguno recorte: los
+// demás, con el recorte puesto muy alto (no recorta nada). Solo si alguno recorta
+export function sameClamp(ms) {
+  if (ms.some(m => m.photoClamp)) for (const m of ms) if (!m.photoClamp) clampOn(m, new THREE.Color(1e4, 1e4, 1e4));
 }
 const WHITE = new THREE.Color(1, 1, 1);
 // Una roca: una bola de caras deformada por un ruido, aplastada y con la base plana, y la textura proyectada por la

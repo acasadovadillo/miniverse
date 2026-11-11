@@ -319,22 +319,27 @@ export class View3D {
   // ---------- fotograma ----------
   render(game) {
     const dt = Math.min(0.05, this.clock.getDelta()), t = game.time;
-    const snap = this.snapNext; this.snapNext = false;
-    const ease = rate => (snap ? 1 : Math.min(1, dt * rate));
     // Las fotos de las texturas, antes del primer fotograma del mundo (como mucho 2,5 s; casi siempre ya han llegado en
     // la pantalla de entrada): así los materiales se hacen ya con la foto compartida (ver textures.js, photoTex). Si no
-    // llegan a tiempo, se sigue con los lienzos pintados y la foto encima cuando llegue: igual de bien, con más memoria
+    // llegan a tiempo, se sigue con los lienzos pintados y la foto encima cuando llegue: igual de bien, con más memoria.
+    // Una sola espera: si el menú ya ha esperado y adelantado los materiales (idle), no se vuelve a esperar; si empezó a
+    // esperar, el plazo cuenta desde entonces. (antes de leer snapNext: el salto de cámara al empezar no se pierde)
     if (!this.photosOk) {
-      this.photoT0 ||= performance.now();
-      if (!photosSettled() && performance.now() - this.photoT0 < 2500) { this.renderer.setClearColor('#000000'); this.renderer.clear(); return; }
+      this.photoT0 ||= this.idleT0 || performance.now();
+      if (!this.warm && !photosSettled() && performance.now() - this.photoT0 < 2500) { this.renderer.setClearColor('#000000'); this.renderer.clear(); return; }
       this.photosOk = true;
     }
+    const snap = this.snapNext; this.snapNext = false;
+    const ease = rate => (snap ? 1 : Math.min(1, dt * rate));
     const scene = game.scene || game.menuWorld, cave = scene.kind === 'grid';
     this.shown = scene;
     // La vista de la cueva en la que se está (o ninguna). Las de las que ya no se pisan se sueltan al final del fotograma
     // (después de dibujar la nueva, que así hereda sus programas sin compilarlos otra vez): cada vez que se entra o se
-    // cambia de nivel la escena es otra, y nunca se vuelve a la misma
+    // cambia de nivel la escena es otra, y nunca se vuelve a la misma. La última se guarda, escondida, al salir al mundo
+    // (unos 3 MB): si no, sus programas (el recorte, el techo, el hielo…) se soltarían con ella y entrar en la próxima
+    // cueva sería compilarlos otra vez, con un tirón
     if (cave && !this.caves.has(scene)) this.caves.set(scene, new Cave3D(this, scene));
+    if (cave) this.lastCave = scene;
     for (const [s, v] of this.caves) v.group.visible = s === scene;
     this.cave = cave ? this.caves.get(scene) : null;
     this.terrain.group.visible = this.terrain.water.group.visible = this.world.group.visible = this.world.spin.visible = this.sky.visible = !cave;
@@ -368,7 +373,7 @@ export class View3D {
     contactSun(this.shadows.dir);   // (la sombra lejana de las copas cae hacia donde está pintado el sol de las sombras)
     if (cave) { this.sun.intensity = 0; this.hemi.intensity = 0.4; this.hemi.color.set('#8a9ac0'); this.hemi.groundColor.set('#2a2018'); this.setEnv(0.1); }
     this.draw();
-    for (const [s, v] of this.caves) if (s !== scene) { v.dispose(); this.caves.delete(s); }
+    for (const [s, v] of this.caves) if (s !== scene && s !== this.lastCave) { v.dispose(); this.caves.delete(s); }
     this.stats(dt);
   }
   // En el menú y al entrar (el mundo no se dibuja: ver Game.render), se hornean los árboles lejanos de la estación de
@@ -509,9 +514,10 @@ export class View3D {
   snap() { this.snapNext = true; this.cam.pitchNow = this.cam.distNow = null; }
   // Espera (como mucho ms) a que el suelo de alrededor de la cámara esté hecho: para no destapar la vista sobre el vacío
   whenReady(ms = 1500) {
-    const t0 = performance.now(), target = this.cam.target;
-    let frames = 0;   // (dos fotogramas de margen: que la vista haya pasado ya al mundo nuevo)
-    return new Promise(res => { const look = () => { if (++frames > 2 && (this.cave || this.terrain.ready(target.x, target.z) || performance.now() - t0 > ms)) res(); else requestAnimationFrame(look); }; look(); });
+    const T0 = performance.now(), target = this.cam.target;
+    let frames = 0, t0 = T0;   // (dos fotogramas de margen: que la vista haya pasado ya al mundo nuevo)
+    // (mientras render espera a las fotos, no se pide suelo: el plazo empieza al acabar esa espera, que dura 2,5 s como mucho)
+    return new Promise(res => { const look = () => { if (!this.photosOk && performance.now() - T0 < ms + 2600) { frames = 0; t0 = performance.now(); } if (++frames > 2 && (this.cave || this.terrain.ready(target.x, target.z) || performance.now() - t0 > ms)) res(); else requestAnimationFrame(look); }; look(); });
   }
 }
 const SILHOUETTE = new THREE.MeshBasicMaterial({ color: '#ffe8b0', transparent: true, opacity: 0.45, depthFunc: THREE.GreaterDepth, depthWrite: false, fog: false });
