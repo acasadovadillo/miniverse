@@ -1,7 +1,8 @@
 // Efectos en 3D: la casilla o el objeto apuntado, la vista previa de lo que se va a colocar o construir, los
 // objetos caídos (con su icono), los textos que suben sobre el jugador, las astillas de lo que se golpea, el
 // fuego de hogares, hornos y antorchas, el humo de las chimeneas, la lluvia y la nieve, el agua
-// de la fuente, los corazones de la cama doble, la luz del faro, el sedal y el corcho al pescar y el destello rojo al recibir un golpe.
+// de la fuente, los corazones de la cama doble, la luz del faro, el sedal y el corcho al pescar, las ondas de quien nada o
+// vadea y el destello rojo al recibir un golpe.
 import * as THREE from 'three';
 import { itemIcon } from '../art/items.js';
 import { dropModel } from './icons.js';
@@ -27,6 +28,10 @@ function paintSprite(kind) {
   if (kind === 'llama') for (let i = 0; i < 40; i++) {
     const t = i / 40, y = H * (0.86 - t * 0.78), r = W * 0.4 * (1 - t) ** 0.75 + 1, gr = g.createRadialGradient(W / 2, y, 0, W / 2, y, r);
     gr.addColorStop(0, 'rgba(255,255,255,0.16)'); gr.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = gr; g.fillRect(0, 0, W, H);
+  } else if (kind === 'onda') {   // (un aro de espuma de bordes suaves: lo de dentro y lo de fuera, transparentes)
+    const gr = g.createRadialGradient(W / 2, H / 2, 0, W / 2, H / 2, W / 2);
+    gr.addColorStop(0, 'rgba(255,255,255,0)'); gr.addColorStop(0.62, 'rgba(255,255,255,0)'); gr.addColorStop(0.82, 'rgba(255,255,255,0.9)'); gr.addColorStop(0.9, 'rgba(255,255,255,0.55)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
+    g.fillStyle = gr; g.fillRect(0, 0, W, H);
   } else { const gr = g.createRadialGradient(W / 2, H / 2, 0, W / 2, H / 2, W / 2); gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(kind === 'copo' ? 0.4 : 0.5, `rgba(255,255,255,${kind === 'copo' ? 0.8 : 0.5})`); gr.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = gr; g.fillRect(0, 0, W, H); }
   const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
 }
@@ -42,6 +47,7 @@ function fading(m) {
 const qCam = new THREE.Quaternion(), qRoll = new THREE.Quaternion(), ZAX = new THREE.Vector3(0, 0, 1);
 
 const tmp = new THREE.Object3D(), col = new THREE.Color(), v3 = new THREE.Vector3();
+const RIPPLES = 48, RIPPLE_LIFE = 1.8;   // (las ondas en el agua: cuántas a la vez y lo que dura cada una, en s)
 
 export class Fx {
   constructor(view) {
@@ -77,6 +83,12 @@ export class Fx {
     this.ember.count = 0; this.ember.frustumCulled = false; this.ember.renderOrder = 4; this.group.add(this.ember);
     const pg = new THREE.PlaneGeometry(1, 1); pg.setAttribute('fade', new THREE.InstancedBufferAttribute(new Float32Array(400), 1));
     this.puff2 = new THREE.InstancedMesh(pg, fading(new THREE.MeshBasicMaterial({ map: spriteTex('humo'), color: '#b8b8bc', transparent: true, depthWrite: false })), 400);
+    // Las ondas en el agua de quien nada o vadea (ver rippleAt; ripple es la del corcho): un aro que se abre y se apaga,
+    // a ras del agua y con la luz que haya (de noche, apenas)
+    const rg = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2); rg.setAttribute('fade', new THREE.InstancedBufferAttribute(new Float32Array(RIPPLES), 1));
+    this.rings = new THREE.InstancedMesh(rg, fading(new THREE.MeshStandardMaterial({ map: spriteTex('onda'), color: '#e4eeee', roughness: 0.4, transparent: true, depthWrite: false })), RIPPLES);
+    this.rings.count = 0; this.rings.frustumCulled = false; this.rings.renderOrder = 2; this.group.add(this.rings);
+    this.ripples = [];
     this.puff2.count = 0; this.puff2.frustumCulled = false; this.puff2.renderOrder = 5; this.group.add(this.puff2);
     this.spray = new THREE.InstancedMesh(new THREE.SphereGeometry(0.035, 6, 4), new THREE.MeshStandardMaterial({ color: '#cfeaff', transparent: true, opacity: 0.8, roughness: 0.1 }), 240);
     this.spray.count = 0; this.spray.frustumCulled = false; this.group.add(this.spray);
@@ -135,6 +147,7 @@ export class Fx {
     this.updateTarget(game, scene, playing, t, gy);
     this.updateDrops(game, scene, playing, t, gy);
     this.updateChips(game, playing);
+    this.updateRipples(t);
     this.updateHearts(game, scene, playing, t);
     this.updateFlames(scene, t);
     this.updateSmoke(scene, t);
@@ -285,13 +298,30 @@ export class Fx {
     this.solids.set(k, geo);
     return geo;
   }
+  // Una onda en el agua en (x, z): size, lo que llega a abrirse (m de radio), y a, lo que se ve al empezar
+  rippleAt(x, z, size = 1, a = 0.5) {
+    if (this.ripples.length >= RIPPLES) this.ripples.shift();
+    this.ripples.push({ x, z, t0: this.view.clock.elapsedTime, size, a });
+  }
+  updateRipples() {
+    const R = this.ripples, now = this.view.clock.elapsedTime, fade = this.rings.geometry.attributes.fade;
+    while (R.length && (now - R[0].t0 > RIPPLE_LIFE || this.view.cave)) R.shift();
+    let n = 0;
+    for (const q of R) {
+      const k = (now - q.t0) / RIPPLE_LIFE, r = q.size * (0.25 + 0.75 * Math.sqrt(k));   // (rápida al principio, luego despacio)
+      tmp.position.set(q.x, WATER_Y + 0.012, q.z); tmp.rotation.set(0, 0, 0); tmp.scale.set(r * 2, 1, r * 2); tmp.updateMatrix();
+      this.rings.setMatrixAt(n, tmp.matrix); fade.array[n] = q.a * (1 - k) * (1 - k) * Math.min(1, k * 12); n++;
+    }
+    this.rings.count = n;
+    if (n) { this.rings.instanceMatrix.needsUpdate = true; fade.needsUpdate = true; }
+  }
   updateChips(game, playing) {
     const parts = playing ? game.gather.parts : [];
     let n = 0;
     for (const q of parts) {
       if (n >= 256 || q.z === undefined) continue;
       const k = 1 - q.t / q.life;
-      tmp.position.set(q.x, q.z, q.y); tmp.rotation.set(q.t * 9, q.t * 7, 0); tmp.scale.setScalar(Math.max(0.1, k));
+      tmp.position.set(q.x, q.z, q.y); tmp.rotation.set(q.t * 9, q.t * 7, 0); tmp.scale.setScalar(Math.max(0.1, k) * (q.s || 1));
       tmp.updateMatrix(); this.chips.setMatrixAt(n, tmp.matrix); this.chips.setColorAt(n, col.set(q.col)); n++;
     }
     this.chips.count = n;

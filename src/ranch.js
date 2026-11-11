@@ -78,7 +78,7 @@ class Animal {
     if (d < 0.15) { this.vx = this.vy = 0; return true; }
     const s = Math.min(d, sp * dt), p = { x: this.x + (dx / d) * s, y: this.y + (dy / d) * s };
     collide(p, world.collidersNear(p.x, p.y), 0.22);
-    if (world.water(p.x, p.y) === 'deep' || Math.hypot(p.x - this.x, p.y - this.y) < s * 0.3) { this.stuck = (this.stuck || 0) + dt; this.vx = this.vy = 0; return this.stuck > 1.5; }
+    if (world.blocked(p.x, p.y) || Math.hypot(p.x - this.x, p.y - this.y) < s * 0.3) { this.stuck = (this.stuck || 0) + dt; this.vx = this.vy = 0; return this.stuck > 1.5; }
     this.stuck = 0;
     this.faceTo(dx, dy);
     this.vx = (p.x - this.x) / dt; this.vy = (p.y - this.y) / dt;
@@ -301,7 +301,7 @@ export class Ranch {
     const ex = t[0] + 0.5, ey = t[1] + 0.5, d = Math.hypot(ex - a.x, ey - a.y), reach = (MOUTH[a.type] || 0.5) * (a.young ? 0.55 : 1);
     const [fx, fy] = d > 0.05 ? [ex - a.x, ey - a.y] : a.worldDir(), fl = Math.hypot(fx, fy) || 1, ux = fx / fl, uy = fy / fl;
     a.grazeAt = t; a.grazeSpot = [ex - ux * reach, ey - uy * reach];
-    if (w.water(...a.grazeSpot) === 'deep') { a.grazeAt = null; return false; }
+    if (w.blocked(...a.grazeSpot)) { a.grazeAt = null; return false; }
     a.wait = 0;
     return true;
   }

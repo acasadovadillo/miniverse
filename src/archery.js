@@ -57,7 +57,7 @@ export class Archery {
     const g = this.game, p = g.player;
     if (!p) return;
     if (this.drawT !== null) {
-      const able = ITEMS[g.inv.held?.id]?.bow && g.mode === 'play' && !g.busy && !p.pose && this.arrows();
+      const able = ITEMS[g.inv.held?.id]?.bow && g.mode === 'play' && !g.busy && !p.pose && !p.swim && this.arrows();
       if (!able) this.drawT = null;
       else if (!keys.use) { this.fire(); this.drawT = null; }
       else { this.drawT += dt; this.turnTo(p); }

@@ -44,6 +44,8 @@ const SKY_LAST = 1e6;   // orden de dibujo del cielo (ver makeSky)
   else console.warn('Luces de cerca: el trozo de Three ha cambiado y no se ahorran');
 }
 
+const SWIM_EYE = 0.7;   // (ver feetY)
+
 export class View3D {
   constructor(canvas) {
     const r = (this.renderer = new THREE.WebGLRenderer({ canvas, antialias: !LOW_Q, stencil: true, powerPreference: 'high-performance' }));
@@ -254,7 +256,7 @@ export class View3D {
     // A quién sigue: al jugador, o (en el menú) una vuelta lenta por el pueblo
     let tx, ty, tz;
     if (menu) { const t = game.time; tx = CENTER.x + Math.sin(t * 0.07) * 6; tz = CENTER.y + Math.cos(t * 0.05) * 5; ty = 0; CAM.yaw += dt * 0.05; }
-    else { tx = p.x; tz = p.y; ty = this.groundY(scene, p.x, p.y) + (p.floor || 0); }   // (subido a algo: a una roca, a la torre)
+    else { tx = p.x; tz = p.y; ty = this.feetY(scene, p); }
     // Dentro de una torre (y no en primera persona): lo que tape se recorta (ver models.js, TOWER_CUT)
     { const tw = !menu && !cave && game.places?.poiNear?.(p.x, p.y, 0), inT = !!tw && tw.kind === 'torre' && Math.hypot(p.x - tw.x, p.y - tw.y) < TOWER.inner + 0.4 && !CAM.first;
       TOWER_CUT.inside.value = inT ? 1 : 0;
@@ -289,8 +291,10 @@ export class View3D {
   firstPerson(game, scene, c, dt) {
     CAM.look = Math.max(LOOK.min, Math.min(LOOK.max, CAM.look + c.pvel * dt * 1.6));
     if (CAM.look === LOOK.min || CAM.look === LOOK.max) c.pvel = 0;
-    const p = game.player, ground = this.groundY(scene, p.x, p.y), head = this.actors.player?.person.head;
+    const p = game.player, ground = this.feetY(scene, p), head = this.actors.player?.person.head;
     const eye = head ? head.getWorldPosition(this.probe) : this.probe.set(p.x, ground + 1.55, p.y);   // (sin cabeza aún: los ojos de una persona de pie)
+    // (en el agua, los ojos nunca por debajo de ella: buceando, la cámara se queda asomada; bajo el agua no se dibuja)
+    if (p.swim || p.depth > 0) eye.y = Math.max(eye.y, WATER_Y + 0.1);
     dirOf(CAM.yaw, 0, this.ray).negate();   // hacia delante, en horizontal
     c.target.set(p.x, ground + 0.9, p.y);
     c.low = 1;
@@ -305,7 +309,7 @@ export class View3D {
   // Lo que se lleva en la mano, en primera persona: abajo a la derecha, con el vaivén de andar y el gesto al usarlo
   updateViewmodel(game, first) {
     const vm = this.viewmodel, m = this.actors.player;
-    const id = first ? (m?.anim ? m.anim.item : game.inv?.held?.id) || null : null;
+    const id = first && !game.player?.swim ? (m?.anim ? m.anim.item : game.inv?.held?.id) || null : null;   // (nadando, se guarda)
     if (this.vmItem !== id) {
       this.vmItem = id;
       vm.clear();
@@ -352,7 +356,7 @@ export class View3D {
   // el natural, en un hoyo el aire de encima contaba como tierra: la cámara se pegaba al jugador o se subía al borde
   camGround(x, z) {
     const D = this.camScene?.digH?.(Math.floor(x), Math.floor(z));
-    return D ?? this.terrain.heightAt(x, z);
+    return D ?? Math.max(this.terrain.heightAt(x, z), WATER_Y);   // (el agua, como el suelo: la cámara no se mete bajo ella)
   }
   // (pit: el jugador está en un hoyo, y el suelo también tapa; ahí se sube hasta 1,45 aunque sea más de 0,8: un hoyo hondo y
   // estrecho solo se ve desde muy arriba)
@@ -362,6 +366,14 @@ export class View3D {
     const top = pit ? Math.max(pitch, 1.45) : Math.min(1.4, pitch + 0.8);
     for (let q = pitch + 0.05; q <= top; q += 0.05) if (!shut(q)) return q;
     return pit ? top : pitch;
+  }
+  // Dónde tiene los pies el jugador (para la cámara): en el agua, en el fondo (como lo dibuja actors.js) o, nadando, donde
+  // la cámara mira a su cabeza, a ras del agua (con los pies de verdad, a un metro largo, miraba bajo el agua y se pegaba a
+  // él). Andando por lo hondo o saltando de ahí a la orilla, no más abajo que nadando: la cámara no se hunde de golpe
+  feetY(scene, p) {
+    if (p.swim) return WATER_Y - SWIM_EYE;
+    if (p.depth > 0 && !p.boat && !p.aboard) return WATER_Y - Math.min(p.depth, SWIM_EYE);
+    return this.groundY(scene, p.x, p.y) + (p.floor || 0);   // (subido a algo: a una roca, a la torre)
   }
   // Altura del suelo donde pisa algo (en cuevas, el suelo es plano)
   groundY(scene, x, y) {
@@ -415,6 +427,7 @@ export class View3D {
     // (lo que tardan los actores, de media cada medio segundo: para F3 y el banco)
     { const t0 = performance.now(); this.actors.update(game, scene, dt, t); const ms = performance.now() - t0; this.actorsAcc = (this.actorsAcc || 0) + ms; this.actorsN = (this.actorsN || 0) + 1; this.actorsT = (this.actorsT || 0) + dt; if (this.actorsT >= 0.5) { this.actorsMs = this.actorsAcc / this.actorsN; this.actorsAcc = this.actorsN = this.actorsT = 0; } }
     this.first = CAM.first && !!game.player && !!game.scene;
+    { const p = game.player; this.wet = !!p && !!game.scene && !p.boat && !p.aboard && (p.swim || p.depth > 0.05); }   // (ver draw)
     this.updateViewmodel(game, this.first);
     this.fx.update(game, scene, dt, t);
     this.arrows.update(game, scene);
@@ -491,11 +504,12 @@ export class View3D {
   }
   // Tres pasadas: el mundo (el jugador solo deja su sombra), su silueta donde algo lo tapa y el jugador.
   // En primera persona, solo la primera: el cuerpo no se ve, pero sigue dando sombra (y la barca o el
-  // caballo se ven con el mundo).
+  // caballo se ven con el mundo). En el agua (wet), solo la primera y con el jugador dentro: lo que queda bajo el agua se
+  // ve a través de ella, como los demás (con la silueta, el agua lo tapaba y salía blanco, como un fantasma)
   draw() {
-    const r = this.renderer, mats = this.actors.playerMaterials(this.first);
+    const r = this.renderer, mats = this.actors.playerMaterials(this.first), wet = this.wet && !this.first;
     r.autoClear = true;
-    for (const m of mats) { m.colorWrite = false; m.depthWrite = false; }
+    if (!wet) for (const m of mats) { m.colorWrite = false; m.depthWrite = false; }
     this.camera.layers.enableAll(); this.camera.layers.disable(1);
     r.shadowMap.needsUpdate = true;   // (en cada fotograma: sunshadow.js decide qué se rehace)
     // (la sombra de contacto, solo en la pasada del mundo y fuera de las cuevas: fuera de draw, quien dibuje con los mismos
@@ -503,7 +517,7 @@ export class View3D {
     contactOn(!this.cave);
     r.render(this.scene, this.camera);
     contactOn(false);
-    if (this.first) { for (const m of mats) { m.colorWrite = true; m.depthWrite = true; } this.drawOutline(); return; }
+    if (this.first || wet) { for (const m of mats) { m.colorWrite = true; m.depthWrite = true; } this.drawOutline(); return; }
     r.autoClear = false;
     this.camera.layers.set(2);
     this.scene.overrideMaterial = SILHOUETTE;

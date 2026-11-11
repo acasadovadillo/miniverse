@@ -4,7 +4,8 @@
 // La barca es para dos: quien está cerca de la barca de otro jugador puede subirse (E). El pasajero va sentado en el
 // banco de atrás, sin remar: su sitio lo da la barca (cada juego lo calcula con lo que ve, para que no se quede
 // atrás con el retraso de la red) y baja con E si hay tierra cerca. Si quien rema baja a tierra, baja con él; si se
-// va del mundo en mitad del agua, la barca se queda para el pasajero.
+// va del mundo en mitad del agua, la barca se queda para el pasajero. Lejos de tierra, uno se puede tirar al agua (la
+// barca se queda amarrada allí) y, nadando, subirse a una barca.
 import { nearX } from './world/planet.js';
 import { Profile } from './accounts.js';
 import { hud } from './ui/hud.js';
@@ -80,8 +81,18 @@ export class Crew {
     const p = this.p, w = this.game.world, ax = p.x + p.face.x * 1.1, ay = p.y + p.face.y * 1.1;
     const free = (x, y) => !w.water(x, y) && !w.blocked(x, y) && !w.collidersNear(x, y).some(c => c.r !== undefined && Math.hypot(c.x - x, c.y - y) < c.r + 0.3);
     const spot = free(ax, ay) ? [ax, ay] : this.land();
-    if (!spot) return { text: 'En la barca', run: () => hud.toast('Acércate a la orilla para bajar') };
+    if (!spot) return this.hasMate() ? { text: 'En la barca', run: () => hud.toast('Acércate a la orilla para bajar') } : { text: 'Tirarse al agua', run: () => this.dive() };
     return { text: 'Bajar a tierra', run: () => this.disembark(spot) };
+  }
+  // Lejos de tierra: al agua, por la borda (a un lado), y la barca se queda amarrada donde está (se vuelve a ella nadando)
+  dive() {
+    const g = this.game, p = this.p, yaw = this.turn(p), sx = Math.cos(yaw), sy = -Math.sin(yaw);
+    if (p.aboard) p.aboard = null;
+    else { p.boat = false; g.world.moorBoat(p.x, p.y, yaw); }
+    p.x += sx * 1.6; p.y += sy * 1.6; p.vx = p.vy = 0;   // (más allá de los remos)
+    // (cae desde la borda: los pies, algo por encima del agua, y la altura va sobre el fondo; ver entities.js, inWater)
+    p.depth = g.world.waterDepth(p.x, p.y); p.z = p.depth + 0.3; p.vz = 0.5;
+    g.onSave?.();
   }
   disembark(spot) {
     const g = this.game, p = this.p, at = [p.x, p.y], yaw = this.turn(p);
@@ -110,7 +121,7 @@ export class Crew {
   action() {
     const d = this.driver(this.p.aboard), name = d?.name || 'otro';
     if (this.land()) return { text: 'Bajar a tierra', run: () => this.leave() };
-    return { text: `En la barca de ${name}`, run: () => hud.toast('Acercaos a la orilla para bajar') };
+    return { text: `En la barca de ${name}`, run: () => hud.toast('Acercaos a la orilla para bajar'), alt: { text: 'Tirarse al agua', run: () => this.dive() } };
   }
   // Cerca de la barca de otro: subirse, si no va ya alguien
   canBoard(p, scene) { const g = this.game; return scene === g.world && g.live.joined && !p.boat && !p.mount && !p.aboard && !p.inside; }

@@ -9,7 +9,7 @@ import { Audio } from './audio.js';
 import { hud } from './ui/hud.js';
 import { RUG_SIZES, TABLE_SIZES } from './art/stations.js';
 import { XP_ORE, roll } from './xp.js';
-import { dxOf } from './world/planet.js';
+import { dxOf, WATER_Y } from './world/planet.js';
 
 // Lo que dice cada efecto al tomarlo (comida o poción)
 const BUFF_TEXT = { rapido: 'Más rápido', incansable: 'Sin cansancio', fuerza: 'Más fuerza', resistencia: 'Más resistencia', regeneracion: 'Regeneración' };
@@ -60,7 +60,7 @@ export class Gathering {
   // Qué hay justo delante del jugador (o qué casilla labraría la azada, o dónde iría lo que se coloca)
   pickTarget() {
     const g = this.game, p = g.player;
-    if (!p || g.mode !== 'play' || g.gamemode === 'spectator') return null;   // (el espectador no toca nada)
+    if (!p || g.mode !== 'play' || g.gamemode === 'spectator' || p.swim) return null;   // (el espectador no toca nada; nadando, tampoco)
     // (en el modo construir, lo que se "lleva" es el mueble o la estación elegidos en la barra, o lo que se mueve)
     const virt = g.build.on ? g.build.heldItem() : null;
     if (g.build.on && !virt) return null;
@@ -234,7 +234,7 @@ export class Gathering {
     }
     for (const f of this.floaters) f.t += dt;
     this.floaters = this.floaters.filter(f => f.t < 1.4);
-    for (const q of this.parts) { q.t += dt; q.vz -= 9.8 * dt; q.x += q.vx * dt; q.y += q.vy * dt; q.z = Math.max(0.02, q.z + q.vz * dt); }
+    for (const q of this.parts) { q.t += dt; q.vz -= 9.8 * dt; q.x += q.vx * dt; q.y += q.vy * dt; q.z = Math.max(q.floor ?? 0.02, q.z + q.vz * dt); }
     this.parts = this.parts.filter(q => q.t < q.life);
   }
 
@@ -263,6 +263,16 @@ export class Gathering {
     }
   }
 
+  // Gotas que salpican del agua (al nadar, al caer en ella): salen de la superficie, poco y cerca, y se hunden al caer
+  splash(x, y, n = 6, k = 1) {
+    if (this.parts.length > 200) return;
+    const cols = CHIPS.water;
+    for (let i = 0; i < n; i++) {
+      const a = Math.random() * Math.PI * 2, v = (0.3 + Math.random() * 0.9) * k;
+      this.parts.push({ x: x + (Math.random() - 0.5) * 0.4, y: y + (Math.random() - 0.5) * 0.4, z: WATER_Y + 0.02, floor: WATER_Y - 0.1, vx: Math.cos(a) * v, vy: Math.sin(a) * v, vz: (1.2 + Math.random() * 1.8) * k, t: 0, life: 0.35 + Math.random() * 0.25, col: cols[i % cols.length], s: 0.5 });
+    }
+  }
+
   // Usar una herramienta cansa (da hambre, como en Minecraft; con la tala o la minería al 5, la mitad) y la gasta un
   // uso. Siempre se puede trabajar: con el hambre a cero lo que baja es la vida (según la dificultad)
   spend(kind) {
@@ -284,7 +294,7 @@ export class Gathering {
   // auto: el botón se mantiene pulsado; sigue golpeando, pero no come sin querer ni golpea al aire.
   use(auto = false) {
     const g = this.game, p = g.player;
-    if (!p || g.busy || hud.dialogOpen || g.mode !== 'play' || this.cooldown > 0 || p.pose || g.gamemode === 'spectator') return;
+    if (!p || g.busy || hud.dialogOpen || g.mode !== 'play' || this.cooldown > 0 || p.pose || p.swim || g.gamemode === 'spectator') return;   // (nadando, las manos son para nadar)
     const held = g.inv.held, def = held && ITEMS[held.id];
     if (def?.food || def?.heal || def?.buff) return auto ? undefined : this.eat(g.inv.selected);
     if (held?.id === 'mapa_vacio') return auto ? undefined : g.maps.create(g.inv.selected);

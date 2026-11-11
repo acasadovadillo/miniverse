@@ -246,6 +246,7 @@ export class Game {
     this.player.ghost = this.gamemode === 'spectator';
     this.player.onExert = n => this.combat.exert(n);   // (correr y saltar dan hambre)
     this.player.onLand = () => this.farm.trample(this.player);   // (caer de un salto sobre tierra labrada la deshace)
+    this.player.onSplash = (x, y, n) => { this.gather.splash(x, y, n); Audio.splash(); };   // (al caer al agua o saltar de ella)
     hud.faces = { ...hud.faces, Nilo: NILO_LOOK, [this.player.name]: this.player.look };
     this.scene = this.world;
     this.underRoof = false;
@@ -470,6 +471,7 @@ export class Game {
     if (p.pose) return { text: 'Levantarse', run: () => this.rest.stand() };
     if (p.aboard) return this.crew.action();
     if (p.boat) return this.crew.ownAction();   // (remando: E baja a tierra y amarra la barca)
+    if (p.swim) return this.crew.interact(p, sc);   // (nadando, las manos son para nadar: solo subirse a una barca)
     // Con ratón, solo lo que se apunta con el cursor (a AIM_REACH casillas como mucho)
     if (this.mouse) { const aim = this.aimed(); return aim ? this.actionFor(aim) : null; }
     // Sin ratón (en pantalla táctil, sin cursor): lo que haya más cerca
@@ -1037,7 +1039,7 @@ export class Game {
     if (aimLock.locked) { const c = this.mouse ||= {}; c.x = innerWidth / 2; c.y = innerHeight / 2; c.in = true; }
     const near = this.nearest(), p = this.player, m = this.mouse;
     // Lo apuntado con el cursor lleva un borde amarillo, y la opción sale a su lado
-    this.highlight = this.build.on ? this.build.pickHighlight() : near && m?.in && !p.pose && !p.aboard ? this.aimed() : null;
+    this.highlight = this.build.on ? this.build.pickHighlight() : near && m?.in && !p.pose && !p.aboard && !p.swim ? this.aimed() : null;
     this.view3d.game = this;
     // (sin partida, al entrar y en el menú, el fondo es una foto fija: body.still, en index.html; el mundo no se dibuja)
     const still = !this.player || !this.scene;

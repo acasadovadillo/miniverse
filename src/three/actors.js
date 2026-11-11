@@ -17,6 +17,7 @@ import { animalModel, animalKey, animateAnimal, horseModel, animateHorse } from 
 import { nearX } from '../world/planet.js';
 import { RealPerson, realBaby, prebuildReal, realStats } from './realperson.js';
 import { apagada } from '../opciones.js';
+import { Audio } from '../audio.js';
 
 // Agachado: cuánto se adelantan los muslos y se doblan las rodillas (rad), cuánto baja el cuerpo (m: lo que suben
 // los pies al doblar las piernas, para que sigan en el suelo) y se echa hacia delante (rad; la cabeza lo compensa
@@ -26,6 +27,28 @@ const CROUCH = { hip: 1.5, knee: 2.5, drop: 0.11, lean: 0.4 };
 // cadera de aquel muñeco sentado, lo que medía tumbado y la escala de sus niños; no cambiarlas sin recolocar muebles)
 const SEAT_HIP = 0.36, LIE_LEN = 1.36, KID_REF = 0.66;
 const LOOK_R = 2.6;      // a qué distancia se mira a quien se tiene al lado
+// Nadar a braza: claves de una brazada (momento de 0 a 1, valor; ver keys). Tira con los brazos abiertos y la cabeza
+// arriba para respirar (0-0,44), las manos se juntan bajo el pecho y salen hacia delante mientras se recogen las piernas
+// (0,44-0,56), patada de rana, abriendo y cerrando (0,52-0,74), y se desliza estirado. pitch: lo que se tumba el cuerpo
+// hacia delante desde la cadera (π/2, del todo); rise: lo que sube la cadera al respirar (m); arm y fore, el hombro y
+// el codo (x: hacia delante, negativo; z: hacia fuera); leg, shin y foot, la cadera, la rodilla y el tobillo (z: abrir)
+const BRAZA = {
+  pitch: [[0, 1.42], [0.25, 1.3], [0.4, 1.17], [0.55, 1.3], [0.72, 1.46], [1, 1.42]],
+  rise: [[0, 0], [0.3, 0.03], [0.42, 0.06], [0.6, -0.01], [0.8, 0], [1, 0]],
+  spine: [[0, 0], [0.4, -0.14], [0.6, 0], [1, 0]],
+  neck: [[0, -0.42], [0.35, -0.6], [0.45, -0.64], [0.62, -0.38], [1, -0.42]],
+  head: [[0, -0.32], [0.35, -0.5], [0.62, -0.28], [1, -0.32]],
+  armX: [[0, -3.0], [0.18, -2.78], [0.34, -2.05], [0.44, -1.8], [0.56, -3.0], [1, -3.0]],
+  armZ: [[0, 0.18], [0.18, 0.78], [0.34, 0.95], [0.44, 0.3], [0.56, 0.18], [1, 0.18]],
+  foreX: [[0, -0.05], [0.18, -0.2], [0.34, -1.4], [0.44, -2.0], [0.56, -0.1], [1, -0.05]],
+  legX: [[0, 0.1], [0.38, 0.1], [0.52, -0.95], [0.6, -0.5], [0.72, 0.12], [1, 0.1]],
+  legZ: [[0, 0.03], [0.4, 0.06], [0.52, 0.3], [0.6, 0.55], [0.72, 0.04], [1, 0.03]],
+  shinX: [[0, 0.05], [0.38, 0.1], [0.52, 2.0], [0.6, 1.1], [0.72, 0.04], [1, 0.05]],
+  footX: [[0, 0.9], [0.4, 0.6], [0.52, -0.25], [0.62, -0.2], [0.74, 0.9], [1, 0.9]],
+};
+// Nadando, la cadera bajo el agua (m): deslizándose, casi en la superficie; quieto, flotando de pie (con los hombros
+// dentro y la cabeza fuera); y lo que queda, como poco, sobre el fondo (tumbado o de pie)
+const SWIM_HIP = { stroke: 0.14, tread: 0.46 }, SWIM_BED = { stroke: 0.38, tread: 0.75 };
 const BUILD_MS = 6;      // lo que se puede ir en hacer modelos nuevos en un fotograma
 // Las personas, según lo que miden en pantalla (px de alto, en píxeles CSS: no le afecta la resolución automática). Con la
 // cámara de siempre (fov 30, 22 m) una persona mide unos 2 260/d px: a todo hasta unos 25 m, a 30 Hz hasta unos 56 m y a
@@ -395,6 +418,22 @@ export class Actors {
       // animate(), y fuera se acumularía en los fotogramas sin pose (el tronco giraría sin parar o el cuerpo se hundiría)
       P.turn(dt);
       if (e.z) y += e.z;   // (saltando o encima de una roca; por debajo de 0, subiendo un escalón de lo cavado: ver entities.js)
+      // En el agua, a pie (ver entities.js): vadeando, con los pies en el fondo (groundY no baja de 30 cm bajo el agua, que
+      // es lo que vale para lo demás); nadando, flota (swimY). De andar a nadar y al revés se pasa poco a poco (swimK)
+      if (!pz && !e.mount && !e.boat && !e.aboard) {
+        const bed = e.depth > 0 ? WATER_Y - e.depth : null;
+        if (bed !== null) y = bed + (e.z || 0);
+        m.swimK = (m.swimK || 0) + ((e.swim ? 1 : 0) - (m.swimK || 0)) * Math.min(1, dt * 5);
+        if (m.swimK < 0.003 && !e.swim) m.swimK = 0;
+        if (m.swimK) y += (this.swimY(m, e, P, dt, bed) - y) * m.swimK;
+        // (vadeando, las piernas abren ondas al andar)
+        else if (e.depth > 0.08 && m.speed > 0.4 && !(e.z > 0.05) && (m.wadeT = (m.wadeT || 0) + dt) > 0.42) { m.wadeT = 0; view.fx.rippleAt(x, z, 0.75, 0.32); }
+      } else {
+        m.swimK = 0;
+        // (a caballo, en el agua: el caballo pisa el fondo; en lo más hondo de un río, con el agua al cuello)
+        if (e.mount && !pz && e.depth > 0) y = WATER_Y - e.depth + (e.z || 0);
+      }
+      if (m.hand) m.hand.visible = m.swimK < 0.5;   // (nadando, lo de la mano se guarda)
       // (cómo se ve, con la altura ya puesta: alguien en lo alto de una torre, mirado allí arriba, tiene los pies a 12 m del suelo)
       const tier = this.grade(m, e, x, y + P.root.position.y, z, lying);
       m.root.visible = tier !== 3;
@@ -434,7 +473,7 @@ export class Actors {
   // La pose de los huesos de una persona: andar (animate), en el aire, lo que lleva en la mano, agachada, sentada, a
   // caballo o en barca, y mirar a quien tiene al lado. dt: el tiempo desde la última pose (ver pose)
   poseBones(m, e, P, pz, lying, dt, game) {
-    P.animate(dt, e.mount || e.boat || e.aboard ? 0 : m.speed);
+    P.animate(dt, e.mount || e.boat || e.aboard || m.swimK ? 0 : m.speed);
     if (e.z - (e.floor || 0) > 0.03) {   // en el aire: con las piernas recogidas
       if (!e.mount) { const k = Math.min(1, (e.z - (e.floor || 0)) / 0.25); P.legs[0].rotation.x = -0.7 * k; P.legs[1].rotation.x = 0.35 * k; }
     }
@@ -443,7 +482,7 @@ export class Actors {
     else if (e.remote) this.hold(m, e, dt);
     // Agachado (Shift): las rodillas dobladas, el cuerpo más bajo y un poco echado hacia delante; andando, a pasitos
     const C = CROUCH;
-    P.crouch = (P.crouch || 0) + ((e.crouch && !pz && !e.mount && !e.boat && !e.aboard ? 1 : 0) - (P.crouch || 0)) * Math.min(1, dt * 12);
+    P.crouch = (P.crouch || 0) + ((e.crouch && !pz && !e.mount && !e.boat && !e.aboard && !m.swimK ? 1 : 0) - (P.crouch || 0)) * Math.min(1, dt * 12);
     if (P.crouch > 0.01) {
       const c = P.crouch;
       for (const l of P.legs) l.rotation.x = l.rotation.x * (1 - c * 0.5) - C.hip * c;
@@ -464,7 +503,48 @@ export class Actors {
     }
     if (e.mount || e.boat || e.aboard) { P.legs[0].rotation.x = P.legs[1].rotation.x = e.mount ? -1.1 : -1.4; P.legs[0].rotation.z = 0.5; P.legs[1].rotation.z = -0.5; for (const k of P.shins || []) k.rotation.x = e.mount ? 1.0 : 1.3; }
     else P.legs[0].rotation.z = P.legs[1].rotation.z = 0;
+    if (m.swimK) this.swimBones(m, P);
     this.lookAt(m, e, dt, lying);
+  }
+
+  // Nadando: dónde va la raíz de la persona (la altura de sus pies de pie), con la brazada que lleva (m.swimS: su momento
+  // p, de 0 a 1, y s, lo que nada de 0, quieto, a 1). La brazada sigue a lo que avanza (una cada 1,6 m) y, quieto, va
+  // despacio. bed: el fondo, del que no baja. De paso, las gotas y el sonido de cada brazada
+  swimY(m, e, P, dt, bed) {
+    const S = (m.swimS ||= { p: Math.random(), s: 0 }), was = S.p;
+    S.s += (Math.min(1, m.speed / 1.0) - S.s) * Math.min(1, dt * 3);
+    S.p = (S.p + dt * Math.max(0.45, m.speed / 1.6)) % 1;
+    if (m.swimK > 0.9 && S.s > 0.3 && this.game?.gather) {
+      const yaw = P.root.rotation.y, fx = Math.sin(yaw), fz = Math.cos(yaw);
+      // (al sacar las manos por delante y al cerrar las piernas, por detrás; el jugador, además, lo oye)
+      if (passed(was, S.p, 0.5)) { this.game.gather.splash(e.x + fx * 0.75, e.y + fz * 0.75, 3, 0.6); this.view.fx.rippleAt(m.root.position.x + fx * 0.55, m.root.position.z + fz * 0.55, 1.3, 0.5); }
+      if (passed(was, S.p, 0.66)) { this.game.gather.splash(e.x - fx * 0.95, e.y - fz * 0.95, 4, 0.7); if (m === this.player) Audio.swim(); }
+    } else if (m.swimK > 0.9 && passed(was, S.p, 0.25)) this.view.fx.rippleAt(m.root.position.x, m.root.position.z, 1.0, 0.35);   // (flotando: una onda suave a cada vaivén)
+    const s = S.s, hip = SWIM_HIP.tread + 0.025 * Math.sin(S.p * Math.PI * 2) + (SWIM_HIP.stroke - keys(BRAZA.rise, S.p) - SWIM_HIP.tread) * s + (e.sink || 0);
+    let y = WATER_Y - hip - P.hipY;
+    if (bed !== null) y = Math.max(y, bed + SWIM_BED.tread + (SWIM_BED.stroke - SWIM_BED.tread) * s - P.hipY);
+    return y;
+  }
+  // La pose de nadar, sobre la de ahora con lo que se nade (m.swimK): quieto, flotando de pie (las piernas a destiempo,
+  // como un batidor, y las manos abiertas, remando); nadando, a braza (BRAZA). Lo que se escribe es el valor entero, no se
+  // suma: animate() lo vuelve a poner todo en cada pose
+  swimBones(m, P) {
+    const b = P.r.bones, S = m.swimS || { p: 0, s: 0 }, K = m.swimK, s = S.s, p = S.p, TAU = Math.PI * 2, w = Math.sin(p * TAU);
+    const L = (v0, tread, stroke) => v0 + (tread + (stroke - tread) * s - v0) * K;
+    b.body.rotation.set(L(b.body.rotation.x, 0.32 + 0.03 * w, keys(BRAZA.pitch, p)), L(b.body.rotation.y, 0, 0), L(b.body.rotation.z, 0, 0));
+    b.spine.rotation.x = L(b.spine.rotation.x, 0.04, keys(BRAZA.spine, p));
+    b.torso.rotation.x = L(b.torso.rotation.x, 0, 0);
+    b.neck.rotation.x = L(b.neck.rotation.x, -0.2, keys(BRAZA.neck, p));
+    b.head.rotation.x = L(b.head.rotation.x, -0.12, keys(BRAZA.head, p));
+    for (const [side, sg, off] of [['L', 1, 0], ['R', -1, 0.5]]) {
+      const A = b['arm' + side], F = b['fore' + side], G = b['leg' + side], K2 = b['shin' + side], Ft = b['foot' + side], q = (p + off) * TAU;
+      A.rotation.set(L(A.rotation.x, -0.7 + 0.12 * w, keys(BRAZA.armX, p)), L(A.rotation.y, 0, 0), L(A.rotation.z, sg * (0.95 + 0.3 * w), sg * keys(BRAZA.armZ, p)));
+      F.rotation.x = L(F.rotation.x, -0.7 + 0.25 * Math.sin(p * TAU + 1), keys(BRAZA.foreX, p));
+      G.rotation.x = L(G.rotation.x, -0.75 + 0.3 * Math.sin(q), keys(BRAZA.legX, p));
+      G.rotation.z = L(G.rotation.z, sg * (0.35 + 0.1 * Math.sin(q)), sg * keys(BRAZA.legZ, p));
+      K2.rotation.x = L(K2.rotation.x, 1.3 + 0.5 * Math.sin(q + 1.2), keys(BRAZA.shinX, p));
+      if (Ft) Ft.rotation.x = L(Ft.rotation.x, 0.1, keys(BRAZA.footX, p));
+    }
   }
 
   // La herramienta (o el arma) en la mano, y el gesto al usarla. Cada golpe nuevo (el temporizador swing de
@@ -528,6 +608,8 @@ function gestureOf(id) {
   if (d.weapon) return 'tajo';
   return { hacha: 'golpe', pico: 'golpe', azada: 'cavar', pala: 'palear', guadana: 'barrer', red: 'barrer', regadera: 'regar', cana: 'lanzar' }[d.tool] || 'golpe';
 }
+// ¿Ha pasado un ciclo (de 0 a 1, que vuelve a empezar) por at, de a a b?
+const passed = (a, b, at) => (a <= b ? a < at && b >= at : a < at || b >= at);
 // El valor en el momento k, suavizado entre clave y clave
 function keys(list, k) {
   for (let i = 1; i < list.length; i++) {

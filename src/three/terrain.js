@@ -21,10 +21,11 @@ import { digGeometry, digMaterial, digShadowMaterial } from './dig3d.js';
 // cargarse)
 import '../world/groundcache.js';
 import { opcion, apagada, paraHilo } from '../opciones.js';
+import { WATER_Y } from '../world/biomes.js';
 
 export { BLOCK };
 const RADIUS = 2;                       // bloques alrededor del de la cámara (5 × 5)
-export const WATER_Y = -0.12;
+export { WATER_Y };   // (la del mundo: planet.js)
 // El clima en el suelo y el agua: WET, de 0 a 1, cuánto ha llovido (oscurece y abrillanta el suelo, y se seca
 // despacio); RAIN, de 0 a 1, lo que llueve ahora (los círculos de las gotas en el agua). Los pone engine.js
 export const WET = { value: 0 }, RAIN = { value: 0 };

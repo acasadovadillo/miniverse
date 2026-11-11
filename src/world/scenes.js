@@ -6,7 +6,7 @@ import { clamp, ihash } from '../util.js';
 import { groundSmooth, grassKeep } from './ground.js';
 import { WorldGen, CHUNK, GRASS_REGROW, flowerShows } from './gen.js';
 import { inYard, buildVillage, NILO, inBounds, isGrass, inOwnHouse, inVillageHouse } from './village.js';
-import { B, BIOMES } from './biomes.js';
+import { B, BIOMES, WATER_Y } from './biomes.js';
 import { ITEMS, CHESTS, modernSlots } from '../items.js';
 import '../buildables.js';   // (LEGACY_ITEMS con los muebles: también en el servidor)
 import { extraTiles, LONG, BED_BACK, HEARTH_BACK, GLOW, LIGHT, front, SIDE, rugRect, RUG_SIZES, TABLE_SIZES, TABLES, TUCK } from '../art/stations.js';
@@ -16,6 +16,8 @@ import { PIECES, layerOf, parsePlaced } from '../pieces.js';
 import { Person } from '../entities.js';
 import { wrapIndex, inPlanet, dxOf } from './planet.js';
 import { roofShape } from './roof.js';
+
+const WADE_MAX = 0.5;   // (ver blocked)
 
 // Lo de un trozo visto desde el otro lado de la costura: lo mismo, corrido off casillas en x
 const X_KEYS = new Set(['x', 'x0', 'x1', 'cx']);
@@ -1198,7 +1200,7 @@ export class Overworld {
     this.gen.cache.clear();   // (los arbustos del jardín, que pone el mundo, dependen de dónde va tu casa)
     this.merged.clear();
   }
-  // Agua: la profunda no se puede pisar; la poco profunda se cruza despacio
+  // Agua: 'deep' (el mar y los lagos) o 'shallow' (ríos, charcas y la costa); lo hondo de verdad, en waterDepth
   water(x, y) { return inBounds(x, y) ? null : BIOMES[this.gen.biomeAt(x, y)].water || null; }
   // ¿Es agua de río (poco profunda y lejos del mar)? (la orilla de un lago o una charca también vale)
   riverAt(x, y) {
@@ -1206,5 +1208,24 @@ export class Overworld {
     for (let r = 2; r <= 8; r += 3) for (let a = 0; a < 6; a++) if (this.gen.biomeAt(x + Math.cos(a) * r, y + Math.sin(a) * r) === B.OCEAN) return false;
     return true;
   }
-  blocked(x, y) { return this.water(x, y) === 'deep'; }
+  // Lo hondo que es el agua en (x, y), en metros: del agua (WATER_Y) al fondo, el de la malla del suelo (0 en tierra y
+  // sobre lo construido). Con lo que cubre se anda, se nada (ver entities.js) o no se pasa
+  waterDepth(x, y) {
+    if (!this.water(x, y) || this.levelAt(x, y) !== null) return 0;
+    const x0 = Math.floor(x), y0 = Math.floor(y), fu = x - x0, fv = y - y0, b = this.bedH(x0 + 1, y0), c = this.bedH(x0, y0 + 1);
+    const h = fu + fv <= 1 ? (a => a + (b - a) * fu + (c - a) * fv)(this.bedH(x0, y0)) : (d => d + (c - d) * (1 - fu) + (b - d) * (1 - fv))(this.bedH(x0 + 1, y0 + 1));
+    return Math.max(0, WATER_Y - h);
+  }
+  // El fondo del agua en una esquina (como la malla del suelo: gen.groundAt, que bajo el agua es negativo; groundRaw lo
+  // deja en 0), guardado: no cambia con lo construido
+  bedH(x, y) {
+    const k = `${x},${y}`, m = (this.beds ||= new Map());
+    let h = m.get(k);
+    if (h === undefined) { h = Math.min(0, this.gen.groundAt(x, y)); if (m.size > 4000) m.clear(); m.set(k, h); }
+    return h;
+  }
+  // Por donde no pasan los animales ni los monstruos (no nadan): el agua que ya les cubre las patas, WADE_MAX (lo que
+  // tenían los ríos antes de que se pudiera nadar: hasta ahí se les dibuja bien, ver engine.js groundY). Los jugadores sí
+  // nadan (ver entities.js)
+  blocked(x, y) { return this.waterDepth(x, y) >= WADE_MAX; }
 }

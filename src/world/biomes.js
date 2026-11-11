@@ -4,8 +4,10 @@
 // de ellos, casquetes de hielo (sobre la tierra y sobre el mar).
 import { lerp, smoothstep, rgbOf } from '../util.js';
 import { CENTER } from './village.js';
-import { wrapNoise, dxOf, latOf, PLANET } from './planet.js';
+import { wrapNoise, dxOf, latOf, PLANET, WATER_Y } from './planet.js';
 import { tonos, tonosSuelo, SUELO_V2 } from '../arte.js';
+
+export { WATER_Y };   // (la altura del agua: ver planet.js)
 
 export const B = { OCEAN: 0, SHALLOW: 1, BEACH: 2, MEADOW: 3, FOREST: 4, PINES: 5, SWAMP: 6, DESERT: 7, SNOW: 8, ROCKY: 9, ICE: 10, LAKE: 11 };
 
@@ -99,8 +101,9 @@ export function wetness(c) {
   return u;
 }
 // Lo que se hunde el suelo con esa agua (metros, negativo): en la orilla hay un escalón de 27 cm (el agua está a
-// -0,12: así el borde es nítido, con 15 cm de agua, y no una lámina), un río llega a casi 60 cm y el mar y los
-// lagos, a más de uno
+// WATER_Y, -0,12: así el borde es nítido, con 15 cm de agua, y no una lámina); luego baja suave (se entra andando) y,
+// hacia el centro de un río, cubre más que la cintura (1,2 m: ahí se nada, ver entities.js); el mar y los lagos, mar
+// adentro, pasan de 2 m
 // El relieve (metros sobre el agua, 0 o más) en tierra, con el clima de ese punto (c, de climate) y lo mojado (u, de
 // wetness): colinas suaves en todas partes (algo más en los bosques y dunas en el desierto) y montañas donde hay roca (K)
 // o hace frío, con crestas. Los ríos, los lagos, el mar y los pantanos van por el fondo de los valles: el relieve baja a
@@ -117,7 +120,7 @@ export function reliefOf(c, u, x, y, seed) {
   if (mask > 0) { const r = 1 - Math.abs(NR.ridge(x, y, seed + 841) * 2 - 1); h += mask * (5 + 17 * r * r * (0.65 + 0.35 * NR.peak(x, y, seed + 842))); }
   return h * valley * smoothstep(0, 0.6, c.f);
 }
-export const depthOfWet = u => (u <= 0 ? 0 : -0.27 - 0.3 * smoothstep(0, 0.6, u) - 0.7 * smoothstep(1, 2.5, u));
+export const depthOfWet = u => (u <= 0 ? 0 : -0.27 - 0.3 * smoothstep(0, 0.6, u) - 0.75 * smoothstep(0.35, 0.8, u) - 0.9 * smoothstep(1, 2.5, u));
 // Qué orilla tiene: arena (costa y desierto), barro (lo normal) o lodo oscuro (pantano)
 export const shoreOf = (T, M, C) => (C < 0.41 || (T > 0.62 && M < 0.46) ? 0 : M > 0.64 ? 2 : 1);
 

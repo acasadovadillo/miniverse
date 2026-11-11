@@ -49,6 +49,7 @@ export class Rest {
     if (this.game.gamemode === 'spectator') return;   // (el espectador no se sienta)
     const p = this.p;
     if (!p || p.boat || p.aboard || p.mount || this.game.busy) return;
+    if (p.swim || p.depth > 0.3) { hud.toast('En el agua no'); return; }   // (nadando, o con el agua por las rodillas)
     if (p.pose) { const was = p.pose.kind; this.stand(); if (was === kind) return; }
     const yaw = Rest.yaw(p.face.x, p.face.y);
     this.take(kind === 'floorLie' ? { kind, yaw: yaw + Math.PI, h: FLOOR_LIE } : { kind, yaw, h: FLOOR_SIT }, kind === 'floorLie' ? p.x - p.face.x * 0.5 : p.x, kind === 'floorLie' ? p.y - p.face.y * 0.5 : p.y);

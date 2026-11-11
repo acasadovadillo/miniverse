@@ -82,6 +82,8 @@ export const Audio = {
   // Pesca: el corcho cae al agua, una picada de mentira, el chapuzón al clavar y el carrete al recoger
   plop() { Audio.noiseHit(900, 0.12, 0.22, 'lowpass'); tone([[420, 0.05, 'sine', 0.05], [260, 0.08, 'sine', 0.04]]); },
   nibble: () => tone([[1200, 0.02, 'sine', 0.025], [1500, 0.02, 'sine', 0.02]]),
+  wade() { Audio.noiseHit(500 + Math.random() * 300, 0.18, 0.06, 'lowpass'); },   // (un paso con el agua por las rodillas)
+  swim() { Audio.noiseHit(700 + Math.random() * 300, 0.32, 0.1, 'lowpass'); setTimeout(() => Audio.noiseHit(2600, 0.12, 0.03, 'highpass'), 60); },   // (una brazada: el agua que se aparta)
   splash() { Audio.noiseHit(1400, 0.3, 0.35, 'lowpass'); Audio.noiseHit(4000, 0.15, 0.1, 'highpass'); },
   // Lluvia de fondo: 0 = nada, 1 = lluvia, 2 = tormenta
   rain(level) {

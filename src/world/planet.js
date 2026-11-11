@@ -10,6 +10,9 @@ export const W = PLANET.W, H = PLANET.H, HALF = W / 2;
 const HOME_Y = 30;   // (la y del pueblo)
 export const NORTH = Math.round(HOME_Y - ((90 - PLANET.homeLat) / 180) * H), SOUTH = NORTH + H;
 export const TILES_PER_DEGREE = H / 180;
+// La altura del agua (ríos, lagos y el mar: toda a la misma), en metros. Aquí, en un módulo que no importa nada del mundo:
+// entities.js no puede importar biomes.js (lo cargaría antes que gen.js, con el que se importa en ciclo, y no arranca)
+export const WATER_Y = -0.12;
 
 // Una x del planeta (entre -W/2 y W/2), y la diferencia más corta entre dos (de b hasta a)
 export const wrapX = x => x - W * Math.floor((x + HALF) / W);
