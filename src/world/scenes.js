@@ -3,7 +3,7 @@
 // guardan con su número dentro del planeta; los de más allá de la costura (para verlos y chocar con ellos desde el
 // otro lado) son los mismos, corridos una vuelta. Fuera del planeta no se construye.
 import { clamp, ihash } from '../util.js';
-import { groundSmooth, grassKeep } from './ground.js';
+import { groundSmooth, grassKeep, groundOf } from './ground.js';
 import { WorldGen, CHUNK, GRASS_REGROW, flowerShows } from './gen.js';
 import { inYard, buildVillage, NILO, inBounds, isGrass, inOwnHouse, inVillageHouse } from './village.js';
 import { B, BIOMES, WATER_Y } from './biomes.js';
@@ -1216,12 +1216,13 @@ export class Overworld {
     const h = fu + fv <= 1 ? (a => a + (b - a) * fu + (c - a) * fv)(this.bedH(x0, y0)) : (d => d + (c - d) * (1 - fu) + (b - d) * (1 - fv))(this.bedH(x0 + 1, y0 + 1));
     return Math.max(0, WATER_Y - h);
   }
-  // El fondo del agua en una esquina (como la malla del suelo: gen.groundAt, que bajo el agua es negativo; groundRaw lo
-  // deja en 0), guardado: no cambia con lo construido
+  // El fondo del agua en una esquina, como la malla del suelo (groundOf, bit a bit: bajo el agua es negativo; groundRaw lo
+  // deja en 0). Las esquinas de tierra de la orilla, con su altura de verdad, para que en el talud los pies no se metan en
+  // él (waterDepth ya recorta a 0 donde el fondo sale del agua). Guardado: no cambia con lo construido
   bedH(x, y) {
     const k = `${x},${y}`, m = (this.beds ||= new Map());
     let h = m.get(k);
-    if (h === undefined) { h = Math.min(0, this.gen.groundAt(x, y)); if (m.size > 4000) m.clear(); m.set(k, h); }
+    if (h === undefined) { h = groundOf(this.gen, x, y); if (m.size > 4000) m.clear(); m.set(k, h); }
     return h;
   }
   // Por donde no pasan los animales ni los monstruos (no nadan): el agua que ya les cubre las patas, WADE_MAX (lo que

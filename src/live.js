@@ -57,7 +57,7 @@ class RemotePlayer extends Person {
     if (!this.to) return;
     const k = 1 - Math.exp(-dt * 12), [x, y, z] = this.to;
     // (el agua donde va, para dibujarlo: con los pies en el fondo vadeando, o nadando; ver actors.js)
-    this.depth = w?.waterDepth && !this.boat && !this.aboard ? w.waterDepth(this.x, this.y) : 0;
+    this.depth = w?.waterDepth && !this.boat && !this.aboard && this.gm !== 3 ? w.waterDepth(this.x, this.y) : 0;   // (el espectador vuela: como en su juego, sin agua)
     this.sink = (this.sink || 0) + ((this.sinkTo || 0) - (this.sink || 0)) * k;
     const dug = !!w && !this.boat && (w.digNear?.(x, y) || w.digNear?.(this.x, this.y));
     if (dug) this.feet ??= w.surfaceAt(this.x, this.y) + this.z;

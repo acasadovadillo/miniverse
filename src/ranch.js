@@ -78,13 +78,20 @@ class Animal {
     if (d < 0.15) { this.vx = this.vy = 0; return true; }
     const s = Math.min(d, sp * dt), p = { x: this.x + (dx / d) * s, y: this.y + (dy / d) * s };
     collide(p, world.collidersNear(p.x, p.y), 0.22);
-    if (world.blocked(p.x, p.y) || Math.hypot(p.x - this.x, p.y - this.y) < s * 0.3) { this.stuck = (this.stuck || 0) + dt; this.vx = this.vy = 0; return this.stuck > 1.5; }
+    if (this.deep(world, p.x, p.y) || Math.hypot(p.x - this.x, p.y - this.y) < s * 0.3) { this.stuck = (this.stuck || 0) + dt; this.vx = this.vy = 0; return this.stuck > 1.5; }
     this.stuck = 0;
     this.faceTo(dx, dy);
     this.vx = (p.x - this.x) / dt; this.vy = (p.y - this.y) / dt;
     this.x = p.x; this.y = p.y;
     this.step += dt * 6;
     return false;
+  }
+  // Si no puede pasar por (x, y): el agua que le cubre (blocked). Si ya está en ella (el caballo que vadea más hondo, al
+  // bajarse de él en un río, o uno de una partida de antes, cuando los ríos eran menos hondos), sí hacia lo menos hondo,
+  // para que salga y no se quede quieto para siempre
+  deep(world, x, y) {
+    if (!world.blocked(x, y)) return false;
+    return !world.waterDepth || !world.blocked(this.x, this.y) || world.waterDepth(x, y) > world.waterDepth(this.x, this.y);
   }
   // Pasear cerca de un sitio
   roam(dt, world, cx, cy, r = ROAM) {
@@ -359,10 +366,13 @@ export class Ranch {
     if (a.calling) {
       const o = this.player(a.owner);
       if (!o) { a.calling = false; return; }
-      if (Math.hypot(a.x - o.x, a.y - o.y) > 30) { const ang = Math.random() * Math.PI * 2; a.x = o.x + Math.cos(ang) * 14; a.y = o.y + Math.sin(ang) * 14; }   // (llega de lejos, al galope)
+      if (Math.hypot(a.x - o.x, a.y - o.y) > 30) {   // (llega de lejos, al galope; por tierra, no del agua)
+        const ang = Math.random() * Math.PI * 2;
+        for (let i = 0; i < 8; i++) { const x = o.x + Math.cos(ang + i * 0.785) * 14, y = o.y + Math.sin(ang + i * 0.785) * 14; if (!this.world.blocked(x, y)) { a.x = x; a.y = y; break; } }
+      }
       a.go(o.x + 1, o.y + 0.5);
       if (a.walk(dt, this.world, RUN.caballo) || Math.hypot(a.x - o.x, a.y - o.y) < 1.8) {
-        if (Math.hypot(a.x - o.x, a.y - o.y) > 2.6) { a.x = a.tx = o.x + 1.2; a.y = a.ty = o.y + 0.6; }   // (si algo le cortaba el paso, llega por otro lado)
+        if (Math.hypot(a.x - o.x, a.y - o.y) > 2.6 && !this.world.blocked(o.x + 1.2, o.y + 0.6)) { a.x = a.tx = o.x + 1.2; a.y = a.ty = o.y + 0.6; }   // (si algo le cortaba el paso, llega por otro lado; si es el agua, se queda en la orilla)
         a.calling = false; a.vx = a.vy = 0; a.wait = 6;
       }
       return;
@@ -384,7 +394,8 @@ export class Ranch {
     if (follow) {
       a.sleep = false;
       const d = Math.hypot(owner.x - a.x, owner.y - a.y);
-      if (d > 16) { a.x = a.tx = owner.x - 1; a.y = a.ty = owner.y - 1; return; }   // (se había quedado atrás: aparece corriendo)
+      // (se había quedado atrás: aparece corriendo; si su dueño nada, no: los perros no nadan, lo espera en la orilla)
+      if (d > 16) { if (!owner.swim && !this.world.blocked(owner.x - 1, owner.y - 1)) { a.x = a.tx = owner.x - 1; a.y = a.ty = owner.y - 1; } else a.vx = a.vy = 0; return; }
       if (d > 2.2) { a.go(owner.x - 0.8, owner.y - 0.8); a.walk(dt, this.world, d > 5 ? RUN.perro * (owner.mount ? 1.4 : 1) : SPEED.perro * 1.8); }
       else { a.vx = a.vy = 0; if (Math.random() < dt * 0.3) a.faceTo(owner.x - a.x, owner.y - a.y); }
       this.dogChores(a, owner, dt);
@@ -848,9 +859,19 @@ export class Ranch {
     Audio.door();
     if (!a) return;
     a.rider = null;
-    a.x = a.tx = p.x + p.face.y * 0.9; a.y = a.ty = p.y - p.face.x * 0.9;   // (a un lado)
-    a.at = [+a.x.toFixed(2), +a.y.toFixed(2)];
-    a.wait = 4;
+    // (a un lado, al que no sea agua honda; si los dos lo son, en un río, donde estaba, y se va solo a lo seco más cerca: de
+    // ahí sale, ver deep, y luego pasta allí y no en el agua)
+    const w = this.world, sides = [1, -1].map(s => [p.x + p.face.y * 0.9 * s, p.y - p.face.x * 0.9 * s]), side = sides.find(([x, y]) => !w.blocked(x, y));
+    a.x = a.tx = side ? side[0] : p.x; a.y = a.ty = side ? side[1] : p.y;
+    const dry = side ? null : this.dryNear(p.x, p.y);
+    a.at = (dry || [a.x, a.y]).map(v => +v.toFixed(2));
+    a.wait = dry ? 0 : 4;
+    if (dry) a.go(dry[0], dry[1]);
+  }
+  // Lo seco (por donde andan los animales) más cerca de (x, y), a 12 m como mucho
+  dryNear(x, y) {
+    for (let r = 1; r <= 12; r++) for (let i = 0; i < 16; i++) { const ax = x + Math.cos(i * 0.3927) * r, ay = y + Math.sin(i * 0.3927) * r; if (!this.world.blocked(ax, ay)) return [ax, ay]; }
+    return null;
   }
   callHorse(a) {
     a.call = (a.call || 0) + 1;

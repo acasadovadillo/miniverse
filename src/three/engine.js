@@ -427,7 +427,7 @@ export class View3D {
     // (lo que tardan los actores, de media cada medio segundo: para F3 y el banco)
     { const t0 = performance.now(); this.actors.update(game, scene, dt, t); const ms = performance.now() - t0; this.actorsAcc = (this.actorsAcc || 0) + ms; this.actorsN = (this.actorsN || 0) + 1; this.actorsT = (this.actorsT || 0) + dt; if (this.actorsT >= 0.5) { this.actorsMs = this.actorsAcc / this.actorsN; this.actorsAcc = this.actorsN = this.actorsT = 0; } }
     this.first = CAM.first && !!game.player && !!game.scene;
-    { const p = game.player; this.wet = !!p && !!game.scene && !p.boat && !p.aboard && (p.swim || p.depth > 0.05); }   // (ver draw)
+    { const p = game.player; this.wet = !!p && !!game.scene && !p.boat && !p.aboard && (p.swim || p.depth > 0.35); }   // (ver draw; vadeando con el agua por debajo de la rodilla, casi todo el cuerpo queda fuera y vale la silueta de siempre, que lo deja ver tras los árboles)
     this.updateViewmodel(game, this.first);
     this.fx.update(game, scene, dt, t);
     this.arrows.update(game, scene);

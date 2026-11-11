@@ -113,10 +113,14 @@ export class Player extends Person {
     const blocked = this.ghost ? null : this.boat ? (x, y) => !scene.water?.(x, y) : world ? (this.mount ? (x, y) => scene.waterDepth(x, y) >= HORSE_DEEP : null) : scene.blocked?.bind(scene);
     if (blocked) {
       const wet = (x, y) => blocked(x, y) || blocked(x + RADIUS, y) || blocked(x - RADIUS, y) || blocked(x, y + RADIUS) || blocked(x, y - RADIUS);
-      // (a caballo ya en lo hondo, llevado allí de otra forma: que pueda salir, y no se quede quieto para siempre)
-      if (wet(p.x, p.y) && !(this.mount && world && wet(this.x, this.y))) {
-        if (!wet(p.x, this.y)) p.y = this.y;
-        else if (!wet(this.x, p.y)) p.x = this.x;
+      // (a caballo ya en lo hondo, llevado allí de otra forma: que pueda salir hacia lo menos hondo, y no se quede quieto
+      // para siempre; hacia lo más hondo, no, o se cabalgaría por el fondo del mar. También deslizándose: el fondo no
+      // siempre sube derecho hacia la orilla)
+      const out = this.mount && world && wet(this.x, this.y), here = out ? scene.waterDepth(this.x, this.y) : 0;
+      const ok = (x, y) => !wet(x, y) || (out && scene.waterDepth(x, y) <= here);
+      if (!ok(p.x, p.y)) {
+        if (ok(p.x, this.y)) p.y = this.y;
+        else if (ok(this.x, p.y)) p.x = this.x;
         else { p.x = this.x; p.y = this.y; }
       }
     }

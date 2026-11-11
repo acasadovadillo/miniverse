@@ -166,6 +166,7 @@ export class Gathering {
   hint() {
     const g = this.game, held = g.inv.held, def = held && ITEMS[held.id], t = this.target;
     if (!g.player || g.mode !== 'play' || g.busy) return '';
+    if (g.player.swim) return '';   // (nadando no se usa nada: ver use)
     if (def?.food) return `${def.drink ? 'Beber' : 'Comer'} ${def.name.toLowerCase()}`;
     if (def?.heal) return `Beber ${def.name.toLowerCase()}`;
     if (t?.free) {

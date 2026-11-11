@@ -28,7 +28,8 @@ const CROUCH = { hip: 1.5, knee: 2.5, drop: 0.11, lean: 0.4 };
 const SEAT_HIP = 0.36, LIE_LEN = 1.36, KID_REF = 0.66;
 const LOOK_R = 2.6;      // a qué distancia se mira a quien se tiene al lado
 // Nadar a braza: claves de una brazada (momento de 0 a 1, valor; ver keys). Tira con los brazos abiertos y la cabeza
-// arriba para respirar (0-0,44), las manos se juntan bajo el pecho y salen hacia delante mientras se recogen las piernas
+// arriba para respirar (0-0,44; los codos bajan y las manos barren por debajo, sin pasar nunca de la horizontal, o salen
+// del agua y parece que saluda), las manos se juntan bajo la barbilla y salen hacia delante mientras se recogen las piernas
 // (0,44-0,56), patada de rana, abriendo y cerrando (0,52-0,74), y se desliza estirado. pitch: lo que se tumba el cuerpo
 // hacia delante desde la cadera (π/2, del todo); rise: lo que sube la cadera al respirar (m); arm y fore, el hombro y
 // el codo (x: hacia delante, negativo; z: hacia fuera); leg, shin y foot, la cadera, la rodilla y el tobillo (z: abrir)
@@ -38,9 +39,9 @@ const BRAZA = {
   spine: [[0, 0], [0.4, -0.14], [0.6, 0], [1, 0]],
   neck: [[0, -0.42], [0.35, -0.6], [0.45, -0.64], [0.62, -0.38], [1, -0.42]],
   head: [[0, -0.32], [0.35, -0.5], [0.62, -0.28], [1, -0.32]],
-  armX: [[0, -3.0], [0.18, -2.78], [0.34, -2.05], [0.44, -1.8], [0.56, -3.0], [1, -3.0]],
+  armX: [[0, -3.0], [0.18, -2.78], [0.34, -2.1], [0.44, -1.55], [0.56, -3.0], [1, -3.0]],
   armZ: [[0, 0.18], [0.18, 0.78], [0.34, 0.95], [0.44, 0.3], [0.56, 0.18], [1, 0.18]],
-  foreX: [[0, -0.05], [0.18, -0.2], [0.34, -1.4], [0.44, -2.0], [0.56, -0.1], [1, -0.05]],
+  foreX: [[0, -0.05], [0.18, -0.2], [0.34, -0.5], [0.44, -1.15], [0.56, -0.1], [1, -0.05]],
   legX: [[0, 0.1], [0.38, 0.1], [0.52, -0.95], [0.6, -0.5], [0.72, 0.12], [1, 0.1]],
   legZ: [[0, 0.03], [0.4, 0.06], [0.52, 0.3], [0.6, 0.55], [0.72, 0.04], [1, 0.03]],
   shinX: [[0, 0.05], [0.38, 0.1], [0.52, 2.0], [0.6, 1.1], [0.72, 0.04], [1, 0.05]],
@@ -425,7 +426,8 @@ export class Actors {
         if (bed !== null) y = bed + (e.z || 0);
         m.swimK = (m.swimK || 0) + ((e.swim ? 1 : 0) - (m.swimK || 0)) * Math.min(1, dt * 5);
         if (m.swimK < 0.003 && !e.swim) m.swimK = 0;
-        if (m.swimK) y += (this.swimY(m, e, P, dt, bed) - y) * m.swimK;
+        // (saliendo, no se tira hacia abajo: andando o saltando a la orilla, la altura de verdad manda si es más alta)
+        if (m.swimK) { const sy = this.swimY(m, e, P, dt, bed); y += ((e.swim ? sy : Math.max(sy, y)) - y) * m.swimK; }
         // (vadeando, las piernas abren ondas al andar)
         else if (e.depth > 0.08 && m.speed > 0.4 && !(e.z > 0.05) && (m.wadeT = (m.wadeT || 0) + dt) > 0.42) { m.wadeT = 0; view.fx.rippleAt(x, z, 0.75, 0.32); }
       } else {
@@ -458,6 +460,8 @@ export class Actors {
       if (yaw !== null) turnTo(m.root, yaw, dt);
       m.root.scale.setScalar(e.young ? 0.55 : 1);
       if (ANIMALS[e.type].swims) y = WATER_Y - 0.06 + Math.sin(t * 1.5 + x) * 0.015;
+      // (el caballo vadea más hondo que lo que da groundY: pisa el fondo, como montado)
+      else if (e.type === 'caballo' && scene.waterDepth) { const dd = scene.waterDepth(e.x, e.y); if (dd > 0.3) y = WATER_Y - dd; }
       animateAnimal(m, dt, t, e);
       m.root.visible = !(e.hurt > 0 && Math.floor(e.hurt * 20) % 2);   // (herido: parpadea)
     } else if (m.kind === 'monster') {
@@ -473,7 +477,7 @@ export class Actors {
   // La pose de los huesos de una persona: andar (animate), en el aire, lo que lleva en la mano, agachada, sentada, a
   // caballo o en barca, y mirar a quien tiene al lado. dt: el tiempo desde la última pose (ver pose)
   poseBones(m, e, P, pz, lying, dt, game) {
-    P.animate(dt, e.mount || e.boat || e.aboard || m.swimK ? 0 : m.speed);
+    P.animate(dt, e.mount || e.boat || e.aboard || m.swimK > 0.5 ? 0 : m.speed);   // (saliendo del agua, ya andando: las piernas, a andar)
     if (e.z - (e.floor || 0) > 0.03) {   // en el aire: con las piernas recogidas
       if (!e.mount) { const k = Math.min(1, (e.z - (e.floor || 0)) / 0.25); P.legs[0].rotation.x = -0.7 * k; P.legs[1].rotation.x = 0.35 * k; }
     }
@@ -482,7 +486,7 @@ export class Actors {
     else if (e.remote) this.hold(m, e, dt);
     // Agachado (Shift): las rodillas dobladas, el cuerpo más bajo y un poco echado hacia delante; andando, a pasitos
     const C = CROUCH;
-    P.crouch = (P.crouch || 0) + ((e.crouch && !pz && !e.mount && !e.boat && !e.aboard && !m.swimK ? 1 : 0) - (P.crouch || 0)) * Math.min(1, dt * 12);
+    P.crouch = (P.crouch || 0) + ((e.crouch && !pz && !e.mount && !e.boat && !e.aboard && !(m.swimK > 0.5) ? 1 : 0) - (P.crouch || 0)) * Math.min(1, dt * 12);
     if (P.crouch > 0.01) {
       const c = P.crouch;
       for (const l of P.legs) l.rotation.x = l.rotation.x * (1 - c * 0.5) - C.hip * c;
