@@ -50,12 +50,51 @@ export class Family {
   }
   save(out) { out.family = this.v; }
   baby(k) { return this.today - k.born < GROW; }
-  // Jugando juntos en directo, como lo tiene el anfitrión (con un aviso cuando ha nacido alguien y ya tiene nombre)
+  // Jugando juntos con un juego de antes (lo manda entero), como lo tiene quien lleva el mundo (con un aviso cuando ha
+  // nacido alguien y ya tiene nombre). Con los de ahora va hijo a hijo: ver netApply
   share(v) {
     const had = new Set(this.v.kids.filter(k => k.named !== false).map(k => k.id));
     this.v = structuredClone(v);
     for (const k of this.v.kids) if (k.named !== false && !had.has(k.id) && this.game.player) hud.toast(`¡Ha nacido ${k.name}!`, 'good');
     for (const id of [...this.ents.keys()]) if (!this.v.kids.some(k => k.id === id)) this.ents.delete(id);
+  }
+  // Jugando juntos, hijo a hijo (ver COLLECTIONS en livesync.js): cada hijo ('kid:' y su id), el bebé que se espera
+  // ('expecting') y lo demás ('@': lo de una versión más nueva)
+  netItems() {
+    const { kids, expecting, ...rest } = this.v, out = new Map([['@', rest]]);
+    if (expecting) out.set('expecting', expecting);
+    for (const k of kids || []) out.set(`kid:${k.id}`, k);
+    return out;
+  }
+  netApply(ops) {
+    const v = this.v;
+    v.kids ||= [];
+    for (const [kind, id, f, val] of ops) {
+      if (id === '@') {
+        if (kind === 'put') this.v = Object.assign({ ...f }, { kids: v.kids, expecting: v.expecting ?? null });
+        else if (f !== 'kids' && f !== 'expecting') { if (kind === 'set') this.v[f] = val; else if (kind === 'del') delete this.v[f]; }
+        continue;
+      }
+      if (id === 'expecting') {
+        if (kind === 'put') this.v.expecting = f;
+        else if (kind === 'drop') this.v.expecting = null;
+        else if (this.v.expecting) { if (kind === 'set') this.v.expecting[f] = val; else delete this.v.expecting[f]; }
+        continue;
+      }
+      if (!id.startsWith('kid:')) continue;
+      const kid = id.slice(4), i = this.v.kids.findIndex(k => k.id === kid), k = this.v.kids[i];
+      if (kind === 'put') {
+        if (k) continue;
+        this.v.kids.push({ ...f, id: kid });
+        if (f.named !== false && this.game.player) hud.toast(`¡Ha nacido ${f.name}!`, 'good');
+      } else if (!k) continue;
+      else if (kind === 'drop') { this.v.kids.splice(i, 1); this.ents.delete(kid); }
+      else if (kind === 'set') {
+        if (f === 'id') continue;
+        if (f === 'named' && val !== false && k.named === false && this.game.player) hud.toast(`¡Ha nacido ${k.name}!`, 'good');   // (ya con su nombre: va antes que named)
+        k[f] = val;
+      } else delete k[f];
+    }
   }
 
   // ---------- la casa ----------

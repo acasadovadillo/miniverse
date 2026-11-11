@@ -153,8 +153,9 @@ export class Ranch {
     if (i >= 0) this.animals.splice(i, 1);
     this.gone.add(a.id);
   }
-  // Jugando juntos en directo, como los tiene el anfitrión (sin dónde están: eso llega aparte). Si alguien
-  // bajó de un caballo (at) se pone ahí; si alguien lo llamó (call), el anfitrión lo hace venir.
+  // Jugando juntos con un juego de antes, que los manda enteros (ver syncMode en live.js): como los tiene quien lleva el
+  // mundo (sin dónde están: eso llega aparte). Si alguien bajó de un caballo (at) se pone ahí; si alguien lo llamó (call),
+  // quien lleva el mundo lo hace venir. Con los de ahora van uno a uno: ver netApply
   share(list) {
     const old = new Map(this.animals.map(a => [a.id, a]));
     this.unknown = list.filter(s => s && !knownAnimal(s) && !this.gone.has(s.id));
@@ -173,6 +174,65 @@ export class Ranch {
     });
   }
   shareFarm(v) { this.farm = { hay: 0, mail: [], ...v }; this.notifyMail(); }
+
+  // ---------- jugando juntos, animal a animal (ver COLLECTIONS en livesync.js) ----------
+  // Cada animal por su id, con lo que se guarda y sin dónde está (eso va aparte y a menudo: herd en live.js). Los de una
+  // clase que este juego no conoce, tal cual
+  netItems() {
+    const out = new Map();
+    for (const a of this.animals) { const { x, y, ...s } = a.toSave(); out.set(a.id, s); }
+    for (const s of this.unknown) if (typeof s?.id === 'string') out.set(s.id, s);
+    return out;
+  }
+  // Lo que llega de cada uno: uno nuevo (nacido o comprado en el otro juego), un campo que cambia o uno que ya no está
+  netApply(ops) {
+    for (const [kind, id, f, v] of ops) {
+      const a = this.animals.find(x => x.id === id), u = a ? null : this.unknown.find(x => x?.id === id);
+      if (kind === 'drop') { if (a) this.remove(a); else if (u) { this.unknown.splice(this.unknown.indexOf(u), 1); this.gone.add(id); } continue; }
+      if (kind === 'put') {
+        this.gone.delete(id);
+        if (!knownAnimal(f)) { if (!u) this.unknown.push({ ...f, id }); continue; }
+        const n = new Animal({ ...f, id, x: f.at?.[0], y: f.at?.[1] });
+        this.animals.push(n);
+        if (!n.named && this.game.player) hud.toast(`¡Ha nacido ${an(n.def.baby)} en la granja!`, 'good');
+        continue;
+      }
+      if (u) { if (kind === 'set') u[f] = v; else delete u[f]; continue; }
+      if (a) this.netField(a, f, kind === 'set' ? v : undefined);
+    }
+  }
+  // Un campo de un animal: si alguien se bajó de un caballo o lo puso en una casa (at), se pone ahí; si alguien lo llamó
+  // (call), quien lleva el mundo lo hace venir. Lo que esta versión no conoce va con lo de una más nueva (more)
+  netField(a, f, v) {
+    if (f === 'id' || f === 'type' || f === 'x' || f === 'y') return;   // (eso no cambia, y dónde está llega aparte)
+    if (!KNOWN_FIELDS.has(f)) { if (v === undefined) delete a.more[f]; else a.more[f] = v; return; }
+    if (f === 'at' && Array.isArray(v) && String(v) !== String(a.at)) { a.x = a.tx = v[0]; a.y = a.ty = v[1]; }
+    if (f === 'call' && (v || 0) > (a.call || 0) && !this.game.live.guest) a.calling = true;
+    if (v === undefined) delete a[f]; else a[f] = v;
+  }
+  // La granja: lo que no es de ningún animal ('@': el heno del silo, cuándo vino el último callejero…) y cada envío del
+  // palomar por su id (los de antes de que lo llevaran, por lo que son: dos iguales, el primero y el segundo)
+  farmItems() {
+    const { mail, ...rest } = this.farm, out = new Map([['@', rest]]), seen = new Map();
+    for (const m of mail || []) out.set(mailKey(m, seen), m);
+    return out;
+  }
+  farmApply(ops) {
+    for (const [kind, id, f, v] of ops) {
+      if (id === '@') {
+        if (kind === 'put') this.farm = { hay: 0, ...f, mail: this.farm.mail };
+        else if (f !== 'mail') { if (kind === 'set') this.farm[f] = v; else if (kind === 'del') delete this.farm[f]; }
+        continue;
+      }
+      const seen = new Map(), i = (this.farm.mail || []).findIndex(m => mailKey(m, seen) === id);
+      if (kind === 'put') { if (i < 0) this.farm.mail = [...(this.farm.mail || []), f]; }
+      else if (i < 0) continue;
+      else if (kind === 'drop') this.farm.mail = this.farm.mail.filter((_, j) => j !== i);
+      else if (kind === 'set') this.farm.mail[i] = { ...this.farm.mail[i], [f]: v };
+      else { const { [f]: _, ...m } = this.farm.mail[i]; this.farm.mail[i] = m; }
+    }
+    this.notifyMail();
+  }
 
   // ---------- casas, puertas y silos ----------
   // Lo colocado en el mundo de un tipo: [{ tile, d (su trozo), k }]
@@ -955,7 +1015,8 @@ export class Ranch {
     if (!to || g.inv.held !== held) return;
     const { id, n, ...extra } = held;
     g.inv.take(g.inv.selected, n, true);
-    this.farm.mail = [...this.farm.mail, { to: to.id, from: g.player.name, id, n, extra: Object.keys(extra).length ? extra : undefined, day: this.today }];
+    // (mid: el id del envío, para repartirlo jugando juntos: ver farmItems)
+    this.farm.mail = [...this.farm.mail, { mid: `${me()}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`, to: to.id, from: g.player.name, id, n, extra: Object.keys(extra).length ? extra : undefined, day: this.today }];
     g.gather.chips(g.player.x, g.player.y, 'feather', 10);
     Audio.swish();
     hud.toast(`La paloma ha salido volando hacia ${to.name}`, 'good');
@@ -986,6 +1047,15 @@ export class Ranch {
     const mail = this.farm.mail.filter(m => m.to === me()).length;
     return `<p class="j-note">Heno en el silo: ${this.farm.hay}${this.siloCap ? ` de ${this.siloCap}` : ' (aún no tienes silo)'}${mail ? ` · ${mail} envío${mail > 1 ? 's' : ''} esperando en el palomar` : ''}. Los animales contentos (caricias cada día) dan más y, a veces, algo especial; dos adultos muy contentos en la misma casa tienen crías. Las vacas, ovejas, cabras, conejos y caballos pastan: con ${GRAZE_NEED} casillas de hierba al día quedan alimentados (si no, comen del comedero o del heno del silo).</p>` + (rows || '<p class="j-note">Aún no tienes animales: Rosa los vende en su puesto.</p>');
   }
+}
+
+// El id de un envío del palomar para repartirlo: el suyo (mid) o, en los de antes de que lo llevaran, lo que es y cuántos
+// iguales van delante (así es el mismo en todos los juegos)
+function mailKey(m, seen) {
+  if (typeof m?.mid === 'string') return `mail:${m.mid}`;
+  const c = JSON.stringify(m), n = seen.get(c) || 0;
+  seen.set(c, n + 1);
+  return `mail:${c}#${n}`;
 }
 
 // "un cordero", "una cría"…
