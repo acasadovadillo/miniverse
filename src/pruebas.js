@@ -991,9 +991,10 @@ async function soloTests(game) {
     const count = id => owed.filter(o => o[0] === id).reduce((n, o) => n + o[1], 0); check(count('amatista') === 12 && count('tablas') === 18 && count('lingote_hierro') === 6, `devuelve: ${JSON.stringify(owed)}`);
   });
   await test('herramientas: solo las de hierro, desde el principio', async () => {
-    const tools = Object.entries(ITEMS).filter(([, d]) => ['hacha', 'pico', 'guadana', 'azada'].includes(d.tool));
-    check(tools.length === 4 && tools.every(([id, d]) => id.endsWith('_hierro') && d.name.endsWith('de hierro')), `hay: ${tools.map(t => t[0]).join(', ')}`);
-    for (const t of ['hacha', 'pico', 'guadana', 'azada']) {
+    // (la pala llena es la misma pala con tierra: no cuenta como otra herramienta)
+    const tools = Object.entries(ITEMS).filter(([, d]) => ['hacha', 'pico', 'guadana', 'azada', 'pala'].includes(d.tool) && !d.empty);
+    check(tools.length === 5 && tools.every(([id, d]) => id.endsWith('_hierro') && d.name.endsWith('de hierro')), `hay: ${tools.map(t => t[0]).join(', ')}`);
+    for (const t of ['hacha', 'pico', 'guadana', 'azada', 'pala']) {
       check(inv().slots.some(s => s?.id === `${t}_hierro`), `no se empieza con ${t} de hierro`);
       check(RECIPES.some(r => r.out === `${t}_hierro` && r.station === 'yunque'), `no se fabrica ${t} de hierro`);
     }

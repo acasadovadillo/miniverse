@@ -9,6 +9,7 @@ import { Audio } from './audio.js';
 import { hud } from './ui/hud.js';
 import { RUG_SIZES, TABLE_SIZES } from './art/stations.js';
 import { XP_ORE, roll } from './xp.js';
+import { dxOf } from './world/planet.js';
 
 // Lo que dice cada efecto al tomarlo (comida o poción)
 const BUFF_TEXT = { rapido: 'Más rápido', incansable: 'Sin cansancio', fuerza: 'Más fuerza', resistencia: 'Más resistencia', regeneracion: 'Regeneración' };
@@ -145,11 +146,20 @@ export class Gathering {
         break;
       }
     }
-    const [tx, ty] = mt && Math.hypot(mt[0] + 0.5 - p.x, mt[1] + 0.5 - p.y) <= DIG_REACH ? mt : g.aimTile();
+    // (con el cursor lejos, esa casilla, en rojo: como al colocar. Sin cursor, la de delante)
+    const [tx, ty] = mt || g.aimTile();
     const far = Math.hypot(tx + 0.5 - p.x, ty + 0.5 - p.y) > DIG_REACH, key = `${tx},${ty},${up},${w.touches},${far}`;
     if (this.digMemo?.key !== key) this.digMemo = { key, why: far ? 'Demasiado lejos' : w.digWhy(tx, ty, up) };
-    const why = this.digMemo.why;
+    // (un animal o una criatura en la casilla: se quedaría dentro de la tierra o en el hoyo, chocando con sus paredes. Va
+    // aparte de lo recordado porque se mueven)
+    const why = this.digMemo.why || (this.someoneOn(tx, ty) ? 'Hay alguien encima' : '');
     return { tile: [tx, ty], ok: !why, why, mark: true, shovel: up ? 'soltar' : 'cavar', label: why || (up ? 'Soltar la tierra' : 'Cavar') };
+  }
+
+  // ¿Hay un animal (del rancho o salvaje) o una criatura en la casilla (o rozándola)?
+  someoneOn(tx, ty) {
+    const g = this.game, on = a => a && !a.inside && !a.dead && Math.abs(dxOf(a.x, tx + 0.5)) < 0.75 && Math.abs(a.y - ty - 0.5) < 0.75;
+    return g.ranch.animals.some(on) || g.wildlife.list.some(on) || g.mobs.list.some(on);
   }
 
   // Texto de ayuda según lo que se tiene en la mano y lo que hay delante

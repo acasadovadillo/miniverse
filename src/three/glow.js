@@ -10,6 +10,7 @@
 // Three le sumaría su color) y de muy cerca el halo se apaga, para no lavar la pantalla en primera persona. Solo se juntan
 // las fuentes de alrededor de lo que mira la cámara (NEAR), y las del borde se van apagando: no saltan al cruzarlo.
 import * as THREE from 'three';
+import { DIG_LAMPS } from './dig3d.js';
 
 const LOW_Q = typeof location !== 'undefined' && new URLSearchParams(location.search).get('q') === 'low';
 const MAX = { halo: 320, card: 192, pool: 128 };
@@ -143,6 +144,8 @@ export class Glow {
     // Halos y charcos de las luces
     const H = this.halo.geometry.attributes, P = this.pool?.geometry.attributes;
     let n = 0, np = 0;
+    const lamps = this.lamps ||= [];
+    lamps.length = 0;
     for (const s of src) {
       const d = near(s.x, s.z);
       if (d <= 0) continue;
@@ -160,6 +163,7 @@ export class Glow {
         this.col.set(s.color || '#ffc070').multiplyScalar(0.22 * k * half);
         P.iPos.setXYZ(np, s.x, (s.gy ?? v.groundY(scene, s.x, s.z)) + 0.04, s.z); P.iAx.setXYZW(np, 1, 0, s.pool, s.pool); P.iSl.setXY(np, sx, sz);
         P.iCol.setXYZW(np, this.col.r, this.col.g, this.col.b, s.flicker ? 1 : 0); np++;
+        lamps.push([(s.x - target.x) ** 2 + (s.z - target.z) ** 2, s, 0.22 * k]);
       }
     }
     // Los fuegos: un halo naranja algo por encima de la llama, que parpadea con ella
@@ -171,6 +175,15 @@ export class Glow {
       H.iPos.setXYZ(n, x, y + 0.12 * s, z); H.iCol.setXYZW(n, this.col.r, this.col.g, this.col.b, (x * 0.53 + z * 0.29) % 7); H.iSize.setXY(n, (0.28 + 0.5 * s) * rK, 1); n++;
     }
     this.flush(this.halo, n);
+    // (los charcos de las seis luces más cercanas, para lo cavado: ver dig3d.js)
+    lamps.sort((a, b) => a[0] - b[0]);
+    const L = DIG_LAMPS;
+    L.n.value = Math.min(6, lamps.length);
+    for (let i = 0; i < L.n.value; i++) {
+      const [, s, k] = lamps[i];
+      this.col.set(s.color || '#ffc070').multiplyScalar(k);
+      L.p.value[i].set(s.x, s.y, s.z, s.pool); L.c.value[i].set(this.col.r, this.col.g, this.col.b, s.gy ?? v.groundY(scene, s.x, s.z));
+    }
     // Las ventanas, solo fuera (las de las cuevas no hay) y de noche: su tarjeta y su charco delante
     const C = this.card.geometry.attributes;
     let nc = 0;

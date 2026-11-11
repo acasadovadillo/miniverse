@@ -416,8 +416,11 @@ export class Overworld {
     if (!struct) return have ?? D ?? this.groundRaw(tx + 0.5, ty + 0.5);
     let L = D ?? Math.ceil(Math.max(this.groundRaw(tx, ty), this.groundRaw(tx + 1, ty), this.groundRaw(tx, ty + 1), this.groundRaw(tx + 1, ty + 1)) / LV_STEP - 0.05) * LV_STEP;
     if (have !== undefined) L = Math.max(L, have);
+    // (en lo cavado no se junta con lo de al lado, ni lo de al lado con lo cavado: el suelo de un hoyo se queda en su fondo)
+    if (D !== null) return L;
     let join = L;
     for (const [nx, ny] of [[tx + 1, ty], [tx - 1, ty], [tx, ty + 1], [tx, ty - 1]]) {
+      if (this.digH(nx, ny) !== null) continue;
       const nd = this.delta(Math.floor(nx / CHUNK), Math.floor(ny / CHUNK)), nk = `${nx},${ny}`, Ln = nd?.lvl?.[nk];
       if (Ln !== undefined && this.structAt(nd, nk) && Ln >= L && Ln - L <= LV_JOIN) join = Math.max(join, Ln);
     }
@@ -432,7 +435,7 @@ export class Overworld {
     const L = this.levelFor(tx, ty, id);
     (d.lvl ||= {})[k] = L;
     const layer = layerOf(id);
-    if (!(layer === 'floor' || layer === 'roof' || PIECES[id])) return;
+    if (!(layer === 'floor' || layer === 'roof' || PIECES[id]) || this.digH(tx, ty) !== null) return;
     const todo = [[tx, ty]], seen = new Set([k]);
     while (todo.length) {
       const [x, y] = todo.pop();
@@ -440,6 +443,7 @@ export class Overworld {
         const nk = `${nx},${ny}`;
         if (seen.has(nk)) continue;
         seen.add(nk);
+        if (this.digH(nx, ny) !== null) continue;   // (lo de dentro de un hoyo o encima de un montón se queda a su altura)
         const nd = this.delta(Math.floor(nx / CHUNK), Math.floor(ny / CHUNK)), Ln = nd?.lvl?.[nk];
         if (Ln === undefined || !this.structAt(nd, nk) || Ln >= L || L - Ln > LV_JOIN) continue;
         nd.lvl[nk] = L; this.touchAround(nx, ny); todo.push([nx, ny]);
@@ -1030,7 +1034,8 @@ export class Overworld {
   obstaclesNear(x, y, rug) {
     const out = [], cx = Math.floor(x / CHUNK), cy = Math.floor(y / CHUNK), near = b => Math.abs(b.x - x) < 5 && Math.abs(b.y - y) < 5;
     for (const c of this.collidersNear(x, y)) {
-      if (c.free || (rug && !c.wall && !c.low && !c.piece)) continue;
+      // (lo cavado no es un obstáculo: es suelo a su altura, y lo que se pone ahí va a ella: levelFor)
+      if (c.free || c.dig || (rug && !c.wall && !c.low && !c.piece)) continue;
       const b = c.r !== undefined ? aabb(c.x - c.r * 0.85, c.y - c.r * 0.85, c.x + c.r * 0.85, c.y + c.r * 0.85) : c.rx ? aabb(c.x - c.rx * 0.8, c.y - c.ry * 0.8, c.x + c.rx * 0.8, c.y + c.ry * 0.8) : aabb(c.x0, c.y0, c.x1, c.y1);
       if (near(b)) out.push({ ...b, y0: 0, y1: c.low ? 1 : 3, wall: !!c.wall });
     }

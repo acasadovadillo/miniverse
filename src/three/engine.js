@@ -259,13 +259,17 @@ export class View3D {
     { const tw = !menu && !cave && game.places?.poiNear?.(p.x, p.y, 0), inT = !!tw && tw.kind === 'torre' && Math.hypot(p.x - tw.x, p.y - tw.y) < TOWER.inner + 0.4 && !CAM.first;
       TOWER_CUT.inside.value = inT ? 1 : 0;
       if (inT) { TOWER_CUT.player.value.set(p.x, ty + (p.z || 0) - (p.floor || 0), p.y); TOWER_CUT.toCam.value.set(Math.sin(CAM.yaw), Math.cos(CAM.yaw)); } }
+    this.camScene = cave ? null : scene;   // (para camGround: lo cavado de ahí)
     const inside = !menu && !cave && this.world.insideHouse;
     // En cuevas, la cámara va más alta y cerca; dentro de casa, algo más alta
     const wantPitch = cave ? Math.max(0.95, CAM.pitch) : inside ? Math.min(PITCH.max, CAM.pitch + 0.14) : CAM.pitch;
     const wantDist = cave ? Math.min(CAM.dist, 18) : inside ? Math.min(CAM.dist, 19) : CAM.dist;
     c.target.lerp(this.from.set(tx, ty + 0.9 + c.low * 0.5, tz), ease(8));
-    // Si una casa tapa al jugador, se sube lo justo para verlo por encima del tejado (comprobado desde la cintura)
-    const goal = menu || cave ? wantPitch : this.pitchOver(this.probe2.set(tx, ty + 0.5, tz), wantPitch, wantDist, inside);
+    // Si una casa tapa al jugador, se sube lo justo para verlo por encima del tejado (comprobado desde la cintura). Dentro de
+    // un hoyo, igual con sus paredes: la cámara se levanta hasta verlo desde arriba (si no, se pegaba a él a ras del borde y
+    // el suelo de alrededor lo tapaba)
+    const pit = !menu && !cave && scene.digH?.(Math.floor(p.x), Math.floor(p.y)) != null;
+    const goal = menu || cave ? wantPitch : this.pitchOver(this.probe2.set(tx, ty + 0.5, tz), wantPitch, wantDist, inside, pit);
     c.pitchNow ??= goal;
     c.pitchNow += (goal - c.pitchNow) * (Math.abs(c.pvel) > 0.01 && goal === wantPitch ? 1 : ease(4));
     c.low = 1 - Math.max(0, Math.min(1, (c.pitchNow - PITCH.min) / 0.75));
@@ -276,7 +280,7 @@ export class View3D {
     c.distNow ??= reach;
     c.distNow += (reach - c.distNow) * (reach < c.distNow ? ease(14) : ease(3));
     this.camera.position.copy(c.target).addScaledVector(this.ray, c.distNow);
-    if (!cave) this.camera.position.y = Math.max(this.camera.position.y, this.terrain.heightAt(this.camera.position.x, this.camera.position.z) + 0.35);
+    if (!cave) this.camera.position.y = Math.max(this.camera.position.y, this.camGround(this.camera.position.x, this.camera.position.z) + 0.35);
     this.camera.lookAt(c.target);
     setViewAngle(CAM.yaw - Math.PI / 4);   // el mapa gira con la cámara
   }
@@ -339,16 +343,25 @@ export class View3D {
     const step = 0.4, boxes = houses ? this.world.houseBoxes() : null;
     for (let d = step; d <= max; d += step) {
       const q = this.probe.copy(from).addScaledVector(dir, d);
-      if (q.y < this.terrain.heightAt(q.x, q.z) + 0.3) return { reach: Math.max(1.5, d * 0.92), blocked: false };
+      if (q.y < this.camGround(q.x, q.z) + 0.3) return { reach: Math.max(1.5, d * 0.92), blocked: false, ground: true };
       if (boxes) for (const h of boxes) if (h !== inside && q.x > h.x0 && q.x < h.x1 && q.z > h.z0 && q.z < h.z1 && q.y < h.top(q.x, q.z) + 0.35) return { reach: d, blocked: true };
     }
     return { reach: max, blocked: false };
   }
-  pitchOver(from, pitch, dist, inside) {
-    const dir = this.probe2.clone();
-    if (!this.clearance(from, dirOf(CAM.yaw, pitch, dir), dist, inside).blocked) return pitch;
-    for (let q = pitch + 0.05; q <= Math.min(1.4, pitch + 0.8); q += 0.05) if (!this.clearance(from, dirOf(CAM.yaw, q, dir), dist, inside).blocked) return q;
-    return pitch;
+  // El suelo para la cámara: el natural (el de la malla) o, en lo cavado y en la tierra apilada, el de esa casilla (llano). Con
+  // el natural, en un hoyo el aire de encima contaba como tierra: la cámara se pegaba al jugador o se subía al borde
+  camGround(x, z) {
+    const D = this.camScene?.digH?.(Math.floor(x), Math.floor(z));
+    return D ?? this.terrain.heightAt(x, z);
+  }
+  // (pit: el jugador está en un hoyo, y el suelo también tapa; ahí se sube hasta 1,45 aunque sea más de 0,8: un hoyo hondo y
+  // estrecho solo se ve desde muy arriba)
+  pitchOver(from, pitch, dist, inside, pit = false) {
+    const dir = this.probe2.clone(), shut = q => { const r = this.clearance(from, dirOf(CAM.yaw, q, dir), dist, inside); return r.blocked || (pit && r.ground); };
+    if (!shut(pitch)) return pitch;
+    const top = pit ? Math.max(pitch, 1.45) : Math.min(1.4, pitch + 0.8);
+    for (let q = pitch + 0.05; q <= top; q += 0.05) if (!shut(q)) return q;
+    return pit ? top : pitch;
   }
   // Altura del suelo donde pisa algo (en cuevas, el suelo es plano)
   groundY(scene, x, y) {

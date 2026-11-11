@@ -45,14 +45,22 @@ class RemotePlayer extends Person {
   }
   apply(st) {
     this.to = [st.x, st.y, st.z || 0]; this.floor = st.fl || 0;   // (fl: la roca que pisa)
-    if (this.fresh || Math.hypot(st.x - this.x, st.y - this.y) > SNAP) { [this.x, this.y, this.z] = this.to; this.fresh = false; }
+    if (this.fresh || Math.hypot(st.x - this.x, st.y - this.y) > SNAP) { [this.x, this.y, this.z] = this.to; this.fresh = false; this.feet = null; }
     this.pose = st.po ? { kind: POSES[st.po[0]], yaw: st.po[1], h: st.po[2] } : null;   // (sentado o tumbado)
     Object.assign(this, { yaw: st.yaw ?? null, inside: !!st.in, mount: !!st.m, horseCoat: st.hc || null, horseBags: !!st.hb, boat: !!st.b, aboard: st.pa || null, crouch: !!st.cr, gm: st.gm || 0, held: st.h || null, swing: st.sw || 0, swingItem: st.si || null, cooldown: st.cd || 0, bowPull: st.dr || 0 });
   }
-  update(dt) {
+  // w: el mundo, si está en él. z va sobre el suelo de donde pisa (surfaceAt); junto a lo cavado, ese suelo cambia de golpe
+  // de una casilla a otra, y suavizando z aparte de x e y se le veía subir antes de caer al hoyo o hundido en el fondo al
+  // salir. Ahí se suaviza la altura de los pies, y z sale de ella y del suelo de donde va ahora
+  update(dt, w) {
     if (!this.to) return;
-    const k = 1 - Math.exp(-dt * 12);
-    this.x += (this.to[0] - this.x) * k; this.y += (this.to[1] - this.y) * k; this.z += (this.to[2] - this.z) * k;
+    const k = 1 - Math.exp(-dt * 12), [x, y, z] = this.to;
+    const dug = !!w && !this.boat && (w.digNear?.(x, y) || w.digNear?.(this.x, this.y));
+    if (dug) this.feet ??= w.surfaceAt(this.x, this.y) + this.z;
+    this.x += (x - this.x) * k; this.y += (y - this.y) * k;
+    if (!dug) { this.z += (z - this.z) * k; this.feet = null; return; }
+    this.feet += (w.surfaceAt(x, y) + z - this.feet) * k;
+    this.z = this.feet - w.surfaceAt(this.x, this.y);
   }
 }
 
@@ -588,7 +596,7 @@ export class Live {
   // Cada paso, también con el juego en pausa o con el inventario abierto
   tick(dt) {
     const g = this.game, p = g.player;
-    for (const peer of this.peers.values()) peer.entity?.update(dt);
+    for (const peer of this.peers.values()) peer.entity?.update(dt, peer.sc === 'world' ? g.world : null);
     if (!this.joined || !p) return;
     // El invitado: la hora y los animales, como los lleva el anfitrión
     if (this.guest) {
