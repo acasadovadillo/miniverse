@@ -10,6 +10,7 @@ import { hud } from './ui/hud.js';
 import { RUG_SIZES, TABLE_SIZES } from './art/stations.js';
 import { XP_ORE, roll } from './xp.js';
 import { dxOf, WATER_Y } from './world/planet.js';
+import { reportFault } from './faults.js';
 
 // Lo que dice cada efecto al tomarlo (comida o poción)
 const BUFF_TEXT = { rapido: 'Más rápido', incansable: 'Sin cansancio', fuerza: 'Más fuerza', resistencia: 'Más resistencia', regeneracion: 'Regeneración' };
@@ -93,7 +94,7 @@ export class Gathering {
       if (fence) rot = 0;
       return { tile: [tx, ty], ok: !far && (!fence || g.scene === g.world) && !!g.scene.canPlace?.(tx, ty, held.id, p, rot), far, place: held.id, rot };
     }
-    for (const s of g.systems) { const t = s.target?.(p, held, def); if (t) return t; }
+    for (const s of g.systems) { let t; try { t = s.target?.(p, held, def); } catch (e) { reportFault(e, `${s.constructor.name}.target`); } if (t) return t; }   // (aislado: ver game.js, hook)
     if (!g.scene.harvestablesNear) return null;
     if (tool === 'azada' && g.scene === g.world) {
       const [tx, ty] = g.aimTile();

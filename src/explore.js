@@ -228,7 +228,7 @@ export class Explore {
       if (!poi) return null;
       if (poi.kind === 'cueva' && Math.hypot(p.x - poi.x, p.y - poi.y) < 2.2) return { text: 'Entrar en la cueva', run: () => this.enterCave(poi, 1) };
       if (poi.kind === 'templo' && p.y > poi.y + 1.2 && Math.abs(p.x - poi.x) < 1.6) return { text: 'Entrar en el templo', run: () => this.enterDungeon(poi) };
-      if (poi.kind === 'faro') return { text: 'Subir al faro', run: () => this.climb(poi) };
+      if (poi.kind === 'faro') return { text: 'Subir al faro', run: () => this.climbLighthouse(poi) };
       if (poi.kind === 'aldea') {
         const t = this.traders.get(poi.key);
         if (t && Math.hypot(p.x - t.x, p.y - t.y) < 1.6) return { text: 'Hablar con el mercader', run: () => g.onShop?.('viajero') };
@@ -276,7 +276,7 @@ export class Explore {
       const add = (x, y, hx, hy, h, act, e) => out.push({ kind: 'sys', e, box: box(x, y, hx, hy, 0, h), act });
       if (poi.kind === 'cueva') add(poi.x, poi.y, 1.1, 1.1, 1.5, () => ({ text: 'Entrar en la cueva', run: () => this.enterCave(poi, 1) }));
       else if (poi.kind === 'templo') add(poi.x, poi.y + 1.2, 0.9, 0.25, 2, () => ({ text: 'Entrar en el templo', run: () => this.enterDungeon(poi) }));
-      else if (poi.kind === 'faro') add(poi.x, poi.y, 1, 1, 4, () => ({ text: 'Subir al faro', run: () => this.climb(poi) }));
+      else if (poi.kind === 'faro') add(poi.x, poi.y, 1, 1, 4, () => ({ text: 'Subir al faro', run: () => this.climbLighthouse(poi) }));
       else if (poi.kind === 'aldea') { const t = this.traders.get(poi.key); if (t) add(t.x, t.y, 0.35, 0.35, 1.5, () => ({ text: 'Hablar con el mercader', run: () => g.onShop?.('viajero') }), t); }
       else {
         const c = this.world.contentFor(Math.floor(poi.x / CHUNK), Math.floor(poi.y / CHUNK)).objects.find(o => o.treasure);
@@ -311,6 +311,8 @@ export class Explore {
     this.current = poi;
     await g.goTo(sc, sc.entry.x, sc.entry.y);
   }
+  // Las escaleras de mano de una cueva (dir 1, bajar un nivel; -1, subir) y la salida del templo (su nivel es el 1).
+  // (el del faro es climbLighthouse: con el mismo nombre, el de abajo tapaba a este y no se bajaba ni se salía)
   async climb(scene, dir) {
     const g = this.game;
     if (dir < 0 && scene.depth <= 1) { await g.goTo(this.world, scene.exitTo.x, scene.exitTo.y, { inside: false }); g.onSave?.(); return; }
@@ -384,7 +386,7 @@ export class Explore {
     return null;
   }
   // Subir a un faro: desde arriba se ve la costa (se descubre lo de alrededor en el mapa)
-  async climb(poi) {
+  async climbLighthouse(poi) {
     const g = this.game, cx = Math.floor(poi.x / CHUNK), cy = Math.floor(poi.y / CHUNK);
     g.busy = true;
     await hud.fade(true);

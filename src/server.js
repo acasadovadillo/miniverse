@@ -15,6 +15,7 @@ import { hud } from './ui/hud.js';
 import { DEFAULT_LOOK } from './looks.js';
 import { SPAWN } from './world/village.js';
 import { runCommand } from './commands.js';
+import { setFaultSink } from './faults.js';
 
 const SAVE_EVERY = 60000;   // cada cuánto se guarda el mundo (en este navegador; en GitHub, como mucho cada 3 minutos)
 const HOST_WAIT = 3000;     // al llegar, lo que se espera a saber si alguien ya llevaba el mundo
@@ -29,7 +30,7 @@ export async function runServer() {
   const log = text => { console.log(text); live.net?.sendServer({ t: 'log', text: String(text) }); };
   live.say = log;   // (el chat y lo que cuenta el juego, al terminal del servidor)
   hud.toast = log;
-  game.onError = e => log(`Fallo: ${e.message}`);
+  setFaultSink(log);   // (un fallo de cualquier parte del mundo sale en el terminal; si se repite, una vez por minuto: ver faults.js)
   document.title = 'Miniverse · mundo del servidor';
 
   // Las claves: las da el servidor al ver el pase

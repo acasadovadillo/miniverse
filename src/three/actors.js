@@ -18,6 +18,7 @@ import { nearX } from '../world/planet.js';
 import { RealPerson, realBaby, prebuildReal, realStats } from './realperson.js';
 import { apagada } from '../opciones.js';
 import { Audio } from '../audio.js';
+import { reportFault } from '../faults.js';
 
 // Agachado: cuánto se adelantan los muslos y se doblan las rodillas (rad), cuánto baja el cuerpo (m: lo que suben
 // los pies al doblar las piernas, para que sigan en el suelo) y se echa hacia delante (rad; la cabeza lo compensa
@@ -115,7 +116,7 @@ export class Actors {
     this.prepView(scene);
     this.prewarm(game);
     const list = [...(scene.entities || [])];
-    if (game.player && game.scene === scene) for (const s of game.systems) { const more = s.entities?.(scene); if (more) list.push(...more); }
+    if (game.player && game.scene === scene) for (const s of game.systems) { let more; try { more = s.entities?.(scene); } catch (e) { reportFault(e, `${s.constructor.name}.entities`); } if (more) list.push(...more); }   // (aislado: ver game.js, hook)
     if (p) list.unshift(p);
     this.around = list; this.me = p; this.game = game;   // (para mirar a quien se tiene al lado)
     const wait = [];   // personas y bebés por hacer, si no caben en este fotograma (ver BUILD_MS)

@@ -33,6 +33,13 @@
   #hurt { position: fixed; inset: 0; pointer-events: none; z-index: 6; opacity: 0; transition: opacity .12s; box-shadow: inset 0 0 160px 40px rgba(220, 40, 40, .55); }
   #debug { position: fixed; left: 12px; top: 54px; z-index: 7; max-width: min(640px, calc(100vw - 24px)); padding: 6px 10px; font: 12px/1.45 ui-monospace, Menlo, Consolas, monospace; color: #e8dcc0; background: rgba(0,0,0,.55); border-radius: 6px; pointer-events: none; white-space: pre-wrap; }
   #debug b { color: #ffd77a; font-weight: normal; }
+  #debug .bad { color: #ff8a80; }
+  /* El punto de los errores (ver src/faults.js): discreto, abajo a la derecha; al pasar el ratón, el último; clic, copiar */
+  #fault { position: fixed; right: 8px; bottom: 8px; z-index: 40; width: 20px; height: 20px; padding: 0; border: 0; background: none; cursor: pointer; }
+  #fault[hidden] { display: none; }
+  #fault::before { content: ''; position: absolute; inset: 5px; border-radius: 50%; background: #e0393e; box-shadow: 0 0 0 2px rgba(0, 0, 0, .45), 0 0 6px rgba(224, 57, 62, .7); }
+  #fault span { display: none; position: absolute; right: 0; bottom: 26px; width: max-content; max-width: min(460px, calc(100vw - 24px)); padding: 6px 10px; font: 12px/1.45 ui-monospace, Menlo, Consolas, monospace; color: #f4e6d0; background: rgba(20, 8, 8, .88); border: 1px solid rgba(224, 57, 62, .7); border-radius: 6px; white-space: pre-wrap; text-align: left; pointer-events: none; }
+  #fault:hover span, #fault:focus-visible span { display: block; }
   button, input { font: inherit; font-variant-ligatures: none; }
 
   .panel { background: var(--wood); border: 3px solid var(--border); border-radius: 6px; box-shadow: inset 0 0 0 2px #5a3a20, 0 4px 0 rgba(0, 0, 0, .35); }
@@ -530,6 +537,7 @@
   <div id="love-glow"></div>
   <div id="love" hidden><button type="button" id="love-heart" aria-label="Tener un bebé" title="Tener un bebé">♥</button><span id="love-text" class="panel"></span></div>
   <div id="debug" hidden></div>
+  <button id="fault" type="button" hidden aria-label="Un error del juego"><span></span></button>
   <div id="clockp" class="panel"><span id="clock"></span></div>
   <div id="quest" class="panel" hidden><button type="button" id="quest-x" aria-label="Quitar los primeros pasos" title="Quitar los primeros pasos">✕</button><small id="quest-title"></small><b id="quest-text"></b><span id="quest-hint"></span></div>
   <div id="place" class="panel"><span id="place-name">Pueblo Brotes</span> <small id="coords"></small></div>

@@ -38,6 +38,7 @@ import { Board } from './board.js';
 import { Combat, DIFFICULTIES, MONSTERS, EFFECT_NAMES } from './combat.js';
 import { Hunt, bodyBox } from './hunt.js';
 import { Archery } from './archery.js';
+import { reportFault } from './faults.js';
 import { ANIMALS } from './art/farm.js';
 import { syncLook, aimLock } from './input.js';
 import { xpTo } from './xp.js';
@@ -191,8 +192,19 @@ export class Game {
   // ---------- sistemas ----------
   // Cada sistema puede tener: reset(save), save(out), update(dt), interact(player, scene), objects(scene),
   // entities(scene), hint(), onDay(day)…
+  // Cada uno va aislado: si uno falla, los de detrás siguen (en el servidor, que no se paren los cultivos y los
+  // animales de todos por un fallo de otra cosa) y se avisa (ver faults.js). Menos al cargar y al guardar: un sistema
+  // que no se carga o no se guarda entero tiene que parar, antes que guardar a medias encima de lo bueno
   addSystem(sys) { this.systems.push(sys); return sys; }
-  hook(name, ...args) { for (const s of this.systems) s[name]?.(...args); }
+  hook(name, ...args) {
+    const strict = name === 'reset' || name === 'save';
+    for (const s of this.systems) {
+      const f = s[name];
+      if (!f) continue;
+      if (strict) f.apply(s, args);
+      else try { f.apply(s, args); } catch (e) { reportFault(e, faultName(s, name)); }
+    }
+  }
 
   // ---------- partida ----------
   // deltas: cambios del jugador en el mundo, cargados de IndexedDB
@@ -265,7 +277,8 @@ export class Game {
     // Las casas tenían un candelabro por su cuenta, que salía también al poner tejados: ya no. En la tuya se cuelga uno de
     // verdad (se apaga, se quita y se mueve como cualquier otro), donde va en las casas nuevas
     if (this.house.v < 4) { this.hangHouseLamp(); this.house.v = 4; }
-    this.explored = new Set(save.explored || []);
+    // (sin el 'NaN,NaN' que apuntaban las escaleras de las cuevas cuando subían al faro por error, hasta 2026-11-11)
+    this.explored = new Set((save.explored || []).filter(k => !k.includes('NaN')));
     // (los iconos de lo que se lleva y de la comida, en ratos libres: ver icons.js)
     if (this.view3d !== NO_VIEW) prewarmIcons(() => this.inv.slots.filter(Boolean).map(s => s.id), itemIcon);
     this.lastChunk = null;
@@ -475,7 +488,7 @@ export class Game {
     // Con ratón, solo lo que se apunta con el cursor (a AIM_REACH casillas como mucho)
     if (this.mouse) { const aim = this.aimed(); return aim ? this.actionFor(aim) : null; }
     // Sin ratón (en pantalla táctil, sin cursor): lo que haya más cerca
-    for (const s of this.systems) { const r = s.interact?.(p, sc); if (r) return r; }
+    for (const s of this.systems) { let r; try { r = s.interact?.(p, sc); } catch (e) { reportFault(e, faultName(s, 'interact')); } if (r) return r; }
     const door = sc.doorNear?.(p.x, p.y), da = door && this.doorAction(door);
     if (da) return da;
     // Lo colocado, lo más cercano primero (la alfombra, al final: lo de encima, las puertas y las ventanas antes).
@@ -536,7 +549,7 @@ export class Game {
       // (las vallas no se apuntan: solo se quitan con Quitar en el modo construir, B)
     }
     // Lo de cada sistema: el tablón, las cuevas y los templos, los árboles con fruta, la barca de otro…
-    for (const s of this.systems) { const more = s.aimables?.(p, sc, box); if (more) out.push(...more); }
+    for (const s of this.systems) { let more; try { more = s.aimables?.(p, sc, box); } catch (e) { reportFault(e, faultName(s, 'aimables')); } if (more) out.push(...more); }
     // En primera persona, también las criaturas: se les pega a las que están en la cruceta
     if (CAM.first) for (const m of this.combat.monsters || []) if (sees(m.x, m.y)) { const fly = MONSTERS[m.type].fly, tall = m.type === 'esqueleto' ? 1.4 : 0.7; out.push({ kind: 'monster', e: m, box: box(m.x, m.y, 0.4, 0.4, fly ? 0.9 : 0, fly ? 1.7 : tall) }); }
     if (sc !== this.world) return out;
@@ -972,11 +985,11 @@ export class Game {
       acc += Math.min(0.25, (now - last) / 1000);
       last = now;
       const t0 = performance.now();
-      // (un fallo al avanzar tampoco: se avisa una vez y el juego sigue respondiendo)
-      try { while (acc >= STEP) { this.update(STEP); acc -= STEP; perf.steps++; } } catch (e) { acc = 0; if (this.updateError !== e.message) console.error(e); this.updateError = e.message; }
+      // (un fallo al avanzar tampoco: se avisa y el juego sigue respondiendo; los de cada sistema ni llegan aquí: ver hook)
+      try { while (acc >= STEP) { this.update(STEP); acc -= STEP; perf.steps++; } } catch (e) { acc = 0; reportFault(e, 'paso'); this.updateError = e.message; }
       const t1 = performance.now();
       // (un fallo al dibujar no para el juego: se avisa y se sigue)
-      try { this.render(); } catch (e) { if (this.renderError !== e.message) console.error(e); this.renderError = e.message; }
+      try { this.render(); } catch (e) { reportFault(e, 'dibujo'); this.renderError = e.message; }
       const t2 = performance.now();
       perf.frames++; perf.update += t1 - t0; perf.draw += t2 - t1; perf.max = Math.max(perf.max, t2 - t0);
       if (this.frameNo % 30 === 0) Music.update(this);
@@ -985,8 +998,8 @@ export class Game {
     requestAnimationFrame(frame);
   }
 
-  // Sin dibujar (el mundo del servidor): solo avanza, a pasos fijos, unas 20 veces por segundo. onError: un fallo al
-  // avanzar (se avisa una vez y se sigue)
+  // Sin dibujar (el mundo del servidor): solo avanza, a pasos fijos, unas 20 veces por segundo. Un fallo al avanzar se
+  // avisa (en el terminal del servidor: ver faults.js) y se sigue
   // (tps: los pasos por segundo de verdad del último segundo, y lo que tardan; para /tps en el terminal)
   runHeadless() {
     let last = performance.now(), acc = 0, steps = 0, busy = 0, t0 = last;
@@ -995,7 +1008,7 @@ export class Game {
       const now = performance.now();
       acc += Math.min(1, (now - last) / 1000);
       last = now;
-      try { while (acc >= STEP) { this.update(STEP); acc -= STEP; steps++; } } catch (e) { acc = 0; if (this.updateError !== e.message) this.onError?.(e); this.updateError = e.message; }
+      try { while (acc >= STEP) { this.update(STEP); acc -= STEP; steps++; } } catch (e) { acc = 0; reportFault(e, 'paso del mundo'); this.updateError = e.message; }
       busy += performance.now() - now;
       if (now - t0 >= 1000) { this.tps = { steps: Math.round((steps * 1000) / (now - t0)), ms: steps ? busy / steps : 0 }; steps = 0; busy = 0; t0 = now; }
     }, 50);
@@ -1007,12 +1020,13 @@ export class Game {
 
   update(dt) {
     this.time += dt;
-    this.live.tick(dt);
+    // (lo de los demás jugadores y lo de recoger, aislados como los sistemas: ver hook)
+    try { this.live.tick(dt); } catch (e) { reportFault(e, 'Live.tick'); }
     const p = this.player;
     if (p && this.mode === 'map') { this.map.update(keys, dt); return; }
     if (!p || this.mode !== 'play') return;
     if (!this.live.guest) this.world.clock += dt;   // (jugando en el mundo de otro, la hora la lleva él)
-    this.gather.update(dt);
+    try { this.gather.update(dt); } catch (e) { reportFault(e, 'Gather.update'); }
     this.hook('update', dt);
     if (keys.use && !this.busy && !this.build.on) this.gather.use(true);
     if (this.busy || hud.dialogOpen || p.pose) { p.stop(); return; }
@@ -1051,7 +1065,7 @@ export class Game {
     hud.prompt(near && (near.alt ? `${near.text}  ·  X: ${near.alt.text.toLowerCase()}` : near.text) + click, this.highlight ? [m.x, m.y] : null);
     let hint = '';
     if (this.player) {
-      for (const s of this.systems) { hint = s.hint?.() || ''; if (hint) break; }
+      for (const s of this.systems) { try { hint = s.hint?.() || ''; } catch (e) { reportFault(e, faultName(s, 'hint')); } if (hint) break; }
       hint ||= this.build.on ? this.build.hint() : this.gather.hint();
     }
     hud.hint(hint);
@@ -1064,6 +1078,9 @@ export class Game {
     }
   }
 }
+
+// El nombre de un sistema y de su gancho, para los avisos de fallo (p. ej. 'Ranch.update')
+function faultName(s, hook) { return `${s.constructor?.name || 'sistema'}.${hook}`; }
 
 // ¿Está este punto bajo un tejado? En la casilla de un muro o de una puerta solo cuenta el lado de dentro
 // (el que tiene suelo): delante de una puerta cerrada se está fuera, aunque el tejado llegue hasta ahí

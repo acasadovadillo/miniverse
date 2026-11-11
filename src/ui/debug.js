@@ -10,11 +10,13 @@ import { SEASONS } from '../art/seasons.js';
 import { GAMEMODES } from '../game.js';
 import { vramOf } from '../three/vram.js';
 import { apagadas } from '../opciones.js';
+import { faults } from '../faults.js';
 
 const $ = id => document.getElementById(id);
 const n1 = v => v.toFixed(1).replace('.', ',');
 const clock = h => { const m = Math.round(h * 60) % 1440; return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`; };
 const MB = b => `${Math.round(b / 1048576)} MB`;
+const esc = t => t.replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]);   // (el panel es HTML; un mensaje de error, no)
 
 export function initDebug(game) {
   const el = $('debug');
@@ -73,13 +75,16 @@ export function initDebug(game) {
       const inWorld = sc === w, tx = Math.floor(p.x), ty = Math.floor(p.y);
       let where = `posición <b>${Math.round(dxOf(p.x, CENTER.x))}, ${Math.round(p.y - CENTER.y)}</b> (x ${n1(p.x)} y ${n1(p.y)} z ${n1(p.z || 0)}) · casilla ${tx},${ty} · trozo ${Math.floor(tx / CHUNK)},${Math.floor(ty / CHUNK)}`;
       if (inWorld) where += ` · bioma ${BIOMES[w.gen.biomeAt(tx + 0.5, ty + 0.5)].name} · luz ${game.mobs?.lightAt(tx, ty) ?? '?'} · lat ${n1(latOf(p.y))}° lon ${n1(lonOf(p.x))}°${p.inside ? ' · dentro' : game.underRoof ? ' · bajo techo' : ''}`;
-      else where += ` · ${sc.kind === 'grid' ? `cueva o mazmorra (nivel ${sc.level ?? '?'})` : sc.kind}`;
+      else where += ` · ${sc.kind === 'grid' ? `${sc.name || 'cueva o mazmorra'} (nivel ${sc.depth ?? '?'})` : sc.kind}`;
       lines.push(where);
     }
     const d = game.days;
     if (d) lines.push(`hora ${clock(d.hour)} (aquí ${clock(d.localHour)}) · ${SEASONS[d.localSeason].toLowerCase()} · tiempo ${d.weatherHere} · día ${d.dayIndex} · modo ${GAMEMODES[game.gamemode] || game.gamemode} · dificultad ${game.difficulty} · t ${Math.round(game.time)} s`);
     lines.push(...parts(v));
     const l = game.live;
+    // (el último fallo, si lo ha habido: el punto rojo de abajo a la derecha lo dice también; ver faults.js)
+    const f = faults.last;
+    if (f) lines.push(`<span class="bad">errores: ${faults.total}${faults.kinds > 1 ? ` (${faults.kinds} distintos)` : ''} · el último hace ${Math.round((Date.now() - f.at) / 1000)} s, en ${f.where}${f.n > 1 ? ` (${f.n} veces)` : ''}: ${esc(f.message)}${f.place}</span>`);
     lines.push(`entidades: ${game.mobs?.list.length ?? 0} criaturas · ${game.wildlife?.list.length ?? 0} salvajes · ${game.ranch?.animals.length ?? 0} animales · ${game.neighbors?.people.length ?? 0} vecinos · ${game.gather.drops.length} en el suelo · juntos: ${l?.joined ? `${l.role === 'host' ? 'anfitrión' : 'invitado'}, ${l.others.filter(o => o.playing).length} más` : l?.status || 'no'}`);
     return lines.join('\n');
   }

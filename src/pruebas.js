@@ -1096,6 +1096,61 @@ async function soloTests(game) {
     const img = await photo('teja');
     check(img && img.width === 512, `la foto de la teja no llega (${img?.width})`);
   });
+  await test('cuevas: se entra, se baja, se sube y se sale; del templo también, y el faro es aparte', async () => {
+    // (hasta 2026-11-11 el del faro se llamaba igual que el de las escaleras y lo tapaba: ni se bajaba ni se salía)
+    const ex = game.places, v = game.view3d, wr = v.whenReady, say = hud.say;
+    v.whenReady = () => sleep(50); hud.say = () => Promise.resolve();   // (sin esperar a la gráfica ni al diálogo del faro)
+    try {
+      const near = kind => { for (let r = 0; r < 30; r++) for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) { if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue; const q = ex.poi(Math.floor(CENTER.x / CHUNK) + dx, Math.floor(CENTER.y / CHUNK) + dy); if (q?.kind === kind) return q; } return null; };
+      const ladder = async (dir, want) => {
+        const o = game.scene.live().find(o => o.ladder === dir);
+        check(o, `no hay escalera para ${dir === 'up' ? 'subir' : 'bajar'}`);
+        p().x = o.x + 0.6; p().y = o.y; await frames(1);
+        const a = ex.interact(p(), game.scene);
+        check(a?.text === want, `la escalera dice «${a?.text}» y no «${want}»`);
+        await a.run(); await frames(2);
+      };
+      const cave = near('cueva'), faros = game.stats.get('faros');
+      check(cave, 'no hay ninguna cueva cerca del pueblo');
+      await goTo(game, cave.x, cave.y + 1.8);
+      const enter = ex.interact(p(), w());
+      check(enter?.text === 'Entrar en la cueva', `en la entrada dice «${enter?.text}»`);
+      await enter.run(); await frames(2);
+      check(game.scene !== w() && game.scene.depth === 1, 'no se entra en la cueva');
+      await ladder('down', 'Bajar al nivel 2');
+      check(game.scene.depth === 2 && game.stats.get('profundidad') >= 2, `después de bajar, en el nivel ${game.scene.depth}`);
+      await ladder('up', 'Subir al nivel 1');
+      check(game.scene.depth === 1, `después de subir, en el nivel ${game.scene.depth}`);
+      await ladder('up', 'Salir');
+      check(game.scene === w() && Math.hypot(p().x - cave.x, p().y - cave.y) < 3, 'no se sale a la entrada de la cueva');
+      check(game.stats.get('faros') === faros && ![...game.explored].some(k => k.includes('NaN')), 'las escaleras suben a un faro');
+      const tem = near('templo');
+      if (tem) { await ex.enterDungeon(tem); await frames(2); check(game.scene.style === 'temple', 'no se entra en el templo'); await ladder('up', 'Salir'); check(game.scene === w(), 'no se sale del templo'); }
+      const faro = near('faro');
+      if (faro) {
+        await goTo(game, faro.x + 1.2, faro.y + 1.2);
+        const a = ex.interact(p(), w()), n = game.explored.size;
+        check(a?.text === 'Subir al faro', `en el faro dice «${a?.text}»`);
+        await a.run();
+        check(game.stats.get('faros') === faros + 1 && game.explored.size > n, 'el faro no descubre la costa');
+      }
+    } finally { v.whenReady = wr; hud.say = say; if (game.scene !== w()) game.teleport(CENTER.x, CENTER.y + 3); }
+  });
+  await test('fallos: un sistema que falla no para a los que van detrás, no inunda la consola y se ve', async () => {
+    let behind = 0;
+    const broken = { constructor: { name: 'Broken' }, update() { throw new Error('fallo a propósito'); } }, after = { update() { behind++; } };
+    const before = errors.length, clock = w().clock, dot = document.getElementById('fault');
+    game.systems.push(broken, after);
+    try {
+      await frames(120);
+      check(behind >= 120 && w().clock > clock, `los de detrás se paran: ${behind} pasos, reloj ${w().clock - clock}`);
+      const said = errors.slice(before);
+      check(said.length === 1 && /fallo a propósito/.test(said[0]), `en la consola: ${said.length} veces`);
+      check(dot && !dot.hidden && /Broken\.update/.test(dot.textContent), 'no sale el punto rojo con el error');
+      dot.click();
+      check(dot.hidden, 'el punto no se esconde con un clic');
+    } finally { game.systems.splice(game.systems.indexOf(broken), 2); errors.length = before; }   // (el fallo era a propósito: no cuenta)
+  });
   await test('ganchos: ningún sistema tapa un gancho con otra cosa', async () => {
     const HOOKS = { target: 3, interact: 2, entities: 1, onDay: 1 };   // (los ganchos con parámetros: un método con ese nombre y otro uso los taparía)
     for (const s of game.systems) for (const [h, n] of Object.entries(HOOKS)) if (typeof s[h] === 'function' && s[h].length < n) throw new Error(`${s.constructor.name}.${h} tiene ${s[h].length} parámetros y el gancho pide ${n}`);
