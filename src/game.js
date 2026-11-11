@@ -533,10 +533,7 @@ export class Game {
       if (o.door) { const y1 = o.gate ? 1 : 2.05, w = o.gate ? 0.5 : 0.46; out.push({ kind: 'door', tile: o.tile, box: alongX ? box(tx + 0.5, ty + 0.5, w, 0.12, 0, y1) : box(tx + 0.5, ty + 0.5, 0.12, w, 0, y1) }); }
       else if (o.window) out.push({ kind: 'window', tile: o.tile, box: alongX ? box(tx + 0.5, ty + 0.5, 0.45, 0.2, 0.9, 2.1) : box(tx + 0.5, ty + 0.5, 0.2, 0.45, 0.9, 2.1) });
       else if (o.hearth) out.push({ kind: 'hearth', tile: o.tile, box: box(o.x, o.y, 0.5, 0.5, 0, 1.4) });
-      else if (o.fence && (!o.fixed || o.yard)) {   // (solo apuntándola: si no, cada valla cercana taparía lo demás)
-        const m = o.mask || 0, x0 = m & 2 ? -0.5 : -0.1, x1 = m & 1 ? 0.5 : 0.1, y0 = m & 8 ? -0.5 : -0.1, y1 = m & 4 ? 0.5 : 0.1;   // (el poste y sus tramos, hacia las de al lado)
-        out.push({ kind: 'fence', o, box: box(o.x + (x0 + x1) / 2, o.y + (y0 + y1) / 2, (x1 - x0) / 2, (y1 - y0) / 2, 0, 0.9) });
-      }
+      // (las vallas no se apuntan: solo se quitan con Quitar en el modo construir, B)
     }
     // Lo de cada sistema: el tablón, las cuevas y los templos, los árboles con fruta, la barca de otro…
     for (const s of this.systems) { const more = s.aimables?.(p, sc, box); if (more) out.push(...more); }
@@ -562,7 +559,6 @@ export class Game {
       case 'door': return this.doorAction(a.tile);
       case 'window': return this.windowAction(a.tile);
       case 'hearth': return this.hearthAction(a.tile);
-      case 'fence': return { text: `Quitar ${(PIECES[a.o.placed] || ITEMS[a.o.placed]).name.toLowerCase()}`, run: () => { if (this.pickUp(a.o)) this.onSave?.(); } };
       case 'npc': return this.neighbors.actionFor(a.n);
       case 'kid': return this.family.actionFor(a.id, a.e);
       case 'animal': return this.ranch.talk(a.e);
@@ -579,9 +575,9 @@ export class Game {
     const sc = this.scene, p = this.player, closed = sc.doorClosed(...door), inGap = Math.hypot(door[0] + 0.5 - p.x, door[1] + 0.5 - p.y) < 0.55, k = String(door);
     const gate = sc.pieceAt?.(...door)?.kind === 'gate';
     if (!gate && closed && !(this.knocked?.k === k && this.time < this.knocked.until) && this.knockable(door)) return { text: 'Llamar a la puerta', run: () => this.knock(door) };
-    const pick = gate ? { text: 'Recoger la puerta de valla', run: () => { if (this.pickUp({ tile: door, layer: 'placed', placed: 'puerta_valla' })) this.onSave?.(); } } : null;
-    if (closed || !inGap) return { text: `${closed ? 'Abrir' : 'Cerrar'} la puerta${gate ? ' de valla' : ''}`, run: () => { sc.toggleDoor(...door); Audio.place(); this.onSave?.(); }, alt: pick };
-    return gate ? { text: 'Puerta de valla', run: () => Audio.blip(), alt: pick } : null;
+    // (la puerta de valla, como las vallas, solo se quita con Quitar en el modo construir, B)
+    if (closed || !inGap) return { text: `${closed ? 'Abrir' : 'Cerrar'} la puerta${gate ? ' de valla' : ''}`, run: () => { sc.toggleDoor(...door); Audio.place(); this.onSave?.(); } };
+    return null;
   }
   // Lo colocado: las estaciones se usan, en la cama te tumbas o duermes, en la silla te sientas, las luces se
   // apagan y se encienden, el cofre, el armario y la mochila se abren; lo demás se recoge (con X, lo que se usa

@@ -827,8 +827,8 @@ async function soloTests(game) {
     check(w().collidersNear(tx + 1, ty + 0.5).some(c => c.low && c.x0 === tx + 0.5), 'no se une a la de al lado');
     const obj = c => c.objects.find(o => o.tile?.[0] === tx && o.tile?.[1] === ty);
     const o = obj(w().contentFor(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK))); check(o?.fence && !o.fixed, 'no se reconoce como valla');
-    const act = game.actionFor({ kind: 'fence', o }); check(act.text.startsWith('Recoger'), `dice: ${act.text}`); act.run();
-    check(!w().ownAt('placed', tx, ty) && inv().count('valla') === n0 + 1, 'no ha vuelto a la mochila');
+    check(!game.aimTargets(p(), w()).some(a => a.kind === 'fence'), 'la valla se puede quitar sin el modo construir');
+    check(game.pickUp(o), 'no se recoge'); check(!w().ownAt('placed', tx, ty) && inv().count('valla') === n0 + 1, 'no ha vuelto a la mochila');
     check(!game.pickUp({ tile: [tx + 1, ty], layer: 'placed', placed: 'valla', fixed: true }), 'lo fijo se ha recogido');
     game.build.piece = 'valla'; game.build.erase = true; game.build.on = true; game.build.remove([tx + 1, ty]); game.build.on = false; game.build.erase = false;
     check(!w().ownAt('placed', tx + 1, ty) && inv().count('valla') === n0 + 2, 'quitarla en el modo construir no la devuelve');
@@ -927,7 +927,7 @@ async function soloTests(game) {
     check(game.steps.journal().includes('Repasarlos'), 'el diario no los lista');
     inv().equip.espalda = equip; inv().changed(); S.reset({ steps: was }); await goTo(game, 60, 36);
   });
-  await test('puerta de valla: se une, empieza cerrada, se abre, y se recoge', async () => {
+  await test('puerta de valla: se une, empieza cerrada, se abre, y se quita en el modo construir', async () => {
     await goTo(game, 60, 36);
     let y = null, x0 = null;
     for (let ty = 30; ty < 50 && y === null; ty++) for (let tx = 56; tx < 80 && y === null; tx++) if ([0, 1, 2].every(i => w().canPlace(tx + i, ty, 'valla', null)) && [0, 1, 2].every(i => w().canPlace(tx + i, ty + 1, 'valla', null)) && [0, 1, 2].every(i => w().canPlace(tx + i, ty - 1, 'valla', null))) { x0 = tx; y = ty; }
@@ -945,7 +945,8 @@ async function soloTests(game) {
     await frames(2); game.doorAction([gx, y]).run(); await frames(2);
     check(!w().doorClosed(gx, y) && !blocks(gx + 0.5, y + 0.5), 'abierta no se puede pasar');
     check(w().collidersNear(x0 + 1, y + 0.5).some(c => c.low && c.x0 === x0 + 0.5), 'la valla no se une a la puerta');
-    const a = game.doorAction([gx, y]); check(a.alt?.text.includes('Recoger'), 'no se puede recoger'); a.alt.run();
+    check(!game.doorAction([gx, y])?.alt, 'la puerta de valla se puede recoger sin el modo construir');
+    game.build.piece = 'puerta_valla'; game.build.erase = true; game.build.on = true; game.build.remove([gx, y]); game.build.on = false; game.build.erase = false;
     check(!w().ownAt('placed', gx, y) && inv().count('puerta_valla') === 1, 'no ha vuelto a la mochila'); check(!w().doorClosed(gx, y), 'se queda apuntada como cerrada');
     inv().remove('puerta_valla', 1); w().setTile(x0, y, 'air'); w().setTile(x0 + 2, y, 'air');
     const r = RECIPES.find(r => r.id === 'puerta_valla'); check(r && r.station === 'banco', 'no se fabrica en el banco'); check(PIECE_IDS.includes('puerta_valla'), 'no está en la paleta');
