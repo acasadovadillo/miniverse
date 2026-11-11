@@ -82,7 +82,9 @@ export class View3D {
     this.raycaster = new THREE.Raycaster();
     this.frames = 0; this.acc = 0;
     this.drawn = 0;   // fotogramas del mundo pintados (antes del primero, nada espera a sus programas: ver gate)
-    this.gateStats = { held: 0, ms: 0, prep: 0, prepMs: 0 };   // (para F3: lo que ha esperado a sus programas y cuánto)
+    // (para F3: lo que ha esperado a sus programas y cuánto, lo que se pintó en el acto por estar cerca, lo que cuesta
+    // pedirlos después de entrar y el último programa que llegó al tope sin estar)
+    this.gateStats = { held: 0, ms: 0, prep: 0, prepMs: 0, near: 0, askMs: 0, asked: 0, known: 0, top: '' };
     // (si la gráfica pierde el contexto: ver restored)
     canvas.addEventListener('webglcontextrestored', () => this.restored());
     this.resize();
@@ -184,10 +186,11 @@ export class View3D {
     this.shadows.restored();
     // (lo que se estaba compilando antes de tiempo para los impostores no acabará: esos programas ya no existen. Se vuelve
     // a pedir cuando el atlas esté horneado otra vez)
-    this.world.warming = null;
+    this.world.stopWarm();
     this.world.impostorsLost();
     contactRestored();
     for (const g of this.gated?.splice(0) || []) { try { g.show(); } catch (e) { console.warn(e); } }
+    this.known = null;   // (lo que se había visto listo ya no lo está)
     if (this.prep) { this.prep.busy = null; this.prep.seen = null; this.prep.warm = false; }
     if (this.glow) this.glow.warm = false;
   }
@@ -415,7 +418,6 @@ export class View3D {
     if (this.prepare()) { this.renderer.setClearColor('#000000'); this.renderer.clear(); return; }
     this.draw();
     this.drawn++;
-    if (this.prep?.end) this.prep.drawn++;
     for (const [s, v] of this.caves) if (s !== scene && s !== this.lastCave) { v.dispose(); this.caves.delete(s); }
     this.stats(dt);
   }
@@ -569,23 +571,29 @@ export class View3D {
     return null;
   }
   // Sin transiciones en el próximo fotograma (al empezar, al cambiar de escena)
-  snap() { this.snapNext = true; this.cam.pitchNow = this.cam.distNow = null; }
+  snap() { this.snapNext = true; this.snapT = performance.now(); this.cam.pitchNow = this.cam.distNow = null; }
   // Espera (como mucho ms) a que el suelo de alrededor de la cámara esté hecho y sus programas de sombreado compilados:
-  // para no destapar la vista sobre el vacío ni con el juego parado compilando (ver prepare)
+  // para no destapar la vista sobre el vacío ni con el juego parado compilando (ver prepare). Siempre acaba: si la vista
+  // no llega a pintar (un error en cada fotograma) o otra espera ocupa su sitio, por tiempo (WAIT_MAX de más)
   whenReady(ms = 1500) {
-    const T0 = performance.now(), target = this.cam.target;
+    const T0 = performance.now(), target = this.cam.target, P = { t0: T0, ms, busy: null };
     let frames = 0, t0 = T0;   // (dos fotogramas de margen: que la vista haya pasado ya al mundo nuevo)
-    this.prep = { t0: T0, ms, busy: null, drawn: 0 };
+    this.prep = P;
     // (mientras render espera a las fotos, no se pide suelo: el plazo empieza al acabar esa espera, que dura 2,5 s como mucho)
     return new Promise(res => {
       const look = () => {
-        if (!this.photosOk && performance.now() - T0 < ms + 2600) { frames = 0; t0 = performance.now(); }
-        const P = this.prep, ground = this.cave || this.terrain.ready(target.x, target.z) || performance.now() - t0 > ms;
+        const now = performance.now();
+        if (!this.photosOk && now - T0 < ms + 2600) { frames = 0; t0 = now; }
+        const mine = this.prep === P, ground = this.cave || this.terrain.ready(target.x, target.z) || now - t0 > ms;
         // (con el suelo listo y lo de alrededor compilado, aún dos fotogramas pintados a oscuras: los programas de la pasada
         // de sombras que no se pueden prever salen ahí, y no al destapar. Compilar puede alargar la espera hasta PREP_MAX)
-        if (P && ground && (P.done || performance.now() - T0 > ms + PREP_MAX)) P.end = true;
-        if (++frames > 2 && ground && (!P || (P.end && P.drawn >= 2))) { if (this.prep === P) this.prep = null; res(); }
-        else requestAnimationFrame(look);
+        if (ground && (P.done || !mine || now - T0 > ms + PREP_MAX)) { P.end = true; P.d0 ??= this.drawn; }
+        const done = ++frames > 2 && P.end && this.drawn - P.d0 >= 2;
+        if (done || now - T0 > ms + 2600 + PREP_MAX + WAIT_MAX) {
+          if (!done) console.warn('Gráfica: la entrada no ha acabado de prepararse a tiempo; se destapa igual');
+          if (this.prep === P) this.prep = null;
+          res();
+        } else requestAnimationFrame(look);
       };
       look();
     });
@@ -598,7 +606,8 @@ export class View3D {
   // - al entrar a jugar o en una cueva (whenReady), a oscuras, se compila todo lo de alrededor antes de pintar nada
   //   (prepare), y el fundido no se queda parado;
   // - después, lo nuevo que montan world3d.js y actors.js pasa por gate: si trae un programa que la gráfica no tiene, se
-  //   esconde hasta que está (unos cientos de ms, en el borde de lo que se ve) en vez de parar todo al pintarlo.
+  //   esconde hasta que está (unos cientos de ms, en el borde de lo que se ve) en vez de parar todo al pintarlo. Lo de
+  //   cerca no: mejor un parón que un hueco junto al jugador (ver gateNear).
   // Cada vez, también los programas de la pasada de sombras que se pueden prever (depthProxies).
   // Lo que ya está compilado se reconoce en el acto (la caché de programas de Three): no cuesta más que preguntar.
   // Devuelve los programas que aún no están: los nuevos y los que ya pidió otro y se están compilando
@@ -608,17 +617,22 @@ export class View3D {
     try {
       // (sin destino: con la curva de tono y el sRGB de la pantalla, como al pintar el mundo)
       r.setRenderTarget(null);
-      for (const m of r.compile(root, this.camera, this.scene)) { const p = r.properties.get(m).currentProgram; if (p && !p.isReady()) wait.add(p); }
+      // (en las dos pasadas, también los que ya había pedido otro y aún no están: Three reutiliza el pendiente)
+      const add = mats => { for (const m of mats) { const p = r.properties.get(m).currentProgram; if (p && !ready(p)) wait.add(p); } };
+      add(r.compile(root, this.camera, this.scene));
       // (la sombra se pinta en su mapa: sin curva y en lineal, y sin escena, así que sin niebla, con las mismas luces. El
       // destino da igual mientras sea uno: el mapa aún no existe antes del primer fotograma)
       const D = this.depthProxies(root), fog = this.scene.fog;
-      if (D.children.length) { r.setRenderTarget(this.depthRT ||= new THREE.WebGLRenderTarget(1, 1)); this.scene.fog = null; try { r.compile(D, this.camera, this.scene); } finally { this.scene.fog = fog; } }
-      D.children.length = 0;
-      // (las copias de profundidad no se quedan con las texturas: las de una persona que ya no está no se soltarían)
-      for (const d of this.depthMats?.values() || []) d.map = d.alphaMap = d.displacementMap = null;
+      if (D.children.length) { r.setRenderTarget(this.depthRT ||= new THREE.WebGLRenderTarget(1, 1)); this.scene.fog = null; try { add(r.compile(D, this.camera, this.scene)); } finally { this.scene.fog = fog; } }
     } catch (e) { console.warn('Programas: no se han podido pedir antes', e); }
-    finally { r.setRenderTarget(rt, face, mip); }
-    if (P) for (let i = n0; i < P.length; i++) if (!P[i].isReady()) wait.add(P[i]);
+    finally {
+      r.setRenderTarget(rt, face, mip);
+      // (las copias, fuera aunque algo falle: retienen los objetos de verdad; y las de profundidad no se quedan con las
+      // texturas: las de una persona que ya no está no se soltarían)
+      if (this.depthRoot) this.depthRoot.children.length = 0;
+      for (const d of this.depthMats?.values() || []) d.map = d.alphaMap = d.displacementMap = null;
+    }
+    if (P) for (let i = n0; i < P.length; i++) if (!ready(P[i])) wait.add(P[i]);
     return [...wait];
   }
   // Lo que da sombra, con el material con el que lo pinta en el mapa la pasada de sombras de Three (getDepthMaterial):
@@ -647,17 +661,53 @@ export class View3D {
     });
     return D;
   }
-  // Lo nuevo que entra en la escena (un trozo, un bloque lejano, una persona o un animal): si sus programas ya están,
-  // show() en el acto; si no, se piden y show() cuando estén. Sin show, se esconde (visible) y se enseña luego: solo para
-  // grupos cuya visibilidad no toca nadie más. Antes del primer fotograma, y mientras prepare, todo pasa sin esperar
-  gate(obj, show = null) {
+  // Lo nuevo que entra en la escena (un trozo, un bloque lejano, un tejado, una persona o un animal): si sus programas ya
+  // están, show() en el acto; si no, se piden y show() cuando estén. Sin show, se esconde (visible) y se enseña luego: solo
+  // para grupos cuya visibilidad no toca nadie más. box ([x0, z0, x1, z1] del mundo, lo que ocupa): si queda cerca, en el
+  // acto (ver gateNear); al enseñarlo, solo se repintan las sombras de lo fijo si cae en su zona. Antes del primer
+  // fotograma, y mientras prepare, todo pasa sin esperar
+  gate(obj, show = null, box = null) {
     if (!this.drawn || this.prep || !this.renderer.extensions.has('KHR_parallel_shader_compile')) { show?.(); return; }
-    const progs = this.compileFor(obj);
-    if (!progs.length) { show?.(); return; }
+    if (this.gateNear(box)) { this.gateStats.near++; show?.(); return; }
+    // (preguntar a Three cuesta: recorre la escena entera para las luces y calcula la clave de cada malla, unos 0,4 ms
+    // por malla en una Iris Plus. Lo que ya se ha visto listo, sin preguntar: ver unknown)
+    const t = performance.now(), fresh = this.unknown(obj), progs = fresh.length ? this.compileFor(obj) : [];
+    this.gateStats.askMs += performance.now() - t; this.gateStats[fresh.length ? 'asked' : 'known']++;
+    if (!progs.length) { this.remember(fresh); show?.(); return; }
     // (al enseñarlo, lo fijo del mapa de sombras se repinta: mientras estaba escondido no daba sombra)
-    if (!show) { obj.visible = false; show = () => { obj.visible = true; this.shadows?.stale(false); }; }
-    (this.gated ||= []).push({ progs, show, t0: performance.now() });
+    if (!show) { obj.visible = false; show = () => { obj.visible = true; this.shadows?.stale(false, box); }; }
+    (this.gated ||= []).push({ progs, show, fresh, t0: performance.now() });
     this.gateStats.held++;
+  }
+  // Las mallas de obj cuyo programa no se ha visto aún listo: material (y su versión), clase de malla (instanciada, con
+  // color por pieza, con esqueleto…), si recibe y da sombra y qué datos trae la geometría; con lo que de la escena cambia
+  // el programa (las luces son siempre las mismas: el sol, el cielo y PointLights fijas). Si algo se escapa, se compila
+  // al pintar, como antes de gate
+  unknown(obj) {
+    const r = this.renderer, fog = this.scene.fog, ctx = `${r.shadowMap.enabled}|${r.toneMapping}|${r.outputColorSpace}|${fog ? fog.isFogExp2 ? 2 : 1 : 0}`;
+    if (this.known?.ctx !== ctx) this.known = { ctx, m: new WeakMap() };
+    const K = this.known.m, out = [];
+    obj.traverse(o => {
+      if (!o.material || !(o.isMesh || o.isLine || o.isPoints)) return;
+      const g = o.geometry, a = g?.attributes, mo = g?.morphAttributes;
+      const sig = `${o.isInstancedMesh ? 'i' : ''}${o.instanceColor ? 'c' : ''}${o.isSkinnedMesh ? 's' : ''}${o.isBatchedMesh ? 'b' : ''}${o.receiveShadow ? 'r' : ''}${o.castShadow ? 'd' + (o.customDepthMaterial?.id ?? '') : ''}${o.isPoints ? 'p' : o.isLine ? 'l' : ''}|${a ? Object.keys(a).join() : ''}|${a?.color?.itemSize || 0}|${mo ? Object.keys(mo).join() : ''}`;
+      for (const m of [].concat(o.material)) if (m && !K.get(m)?.has(sig + '|' + m.version)) out.push([m, sig + '|' + m.version]);
+    });
+    return out;
+  }
+  remember(list) {
+    const K = this.known?.m;
+    if (K) for (const [m, k] of list) { let s = K.get(m); if (!s) K.set(m, (s = new Set())); s.add(k); }
+  }
+  // ¿Cerca de la cámara? Lo que queda a menos de GATE_NEAR no espera escondido a sus programas: un hueco junto al jugador
+  // (el trozo que pisa, la casa que edita, un monstruo que se le acerca) se ve mucho más que un parón. Tras un salto
+  // (snap: /tp, cruzar el polo, volver a casa al morir) lo de alrededor llega en varios fotogramas, todo nuevo: durante
+  // un par de segundos, también lo de un poco más lejos. Lo del borde de lo que se ve sí espera
+  gateNear(box) {
+    if (!box) return false;
+    const t = this.cam.target, dx = Math.max(box[0] - t.x, 0, t.x - box[2]), dz = Math.max(box[1] - t.z, 0, t.z - box[3]);
+    const R = performance.now() - (this.snapT ?? -1e9) < 2000 ? GATE_NEAR_SNAP : GATE_NEAR;
+    return dx * dx + dz * dz < R * R;
   }
   // Cada fotograma, antes de pintar: lo que ya tiene sus programas (o lleva demasiado esperando) se enseña
   openGates() {
@@ -666,9 +716,12 @@ export class View3D {
     const now = performance.now();
     for (let i = G.length - 1; i >= 0; i--) {
       const g = G[i];
-      if (now - g.t0 < GATE_MAX && !g.progs.every(p => p.isReady())) continue;
+      const ok = g.progs.every(ready);
+      if (now - g.t0 < GATE_MAX && !ok) continue;
       G.splice(i, 1);
       this.gateStats.ms = Math.max(this.gateStats.ms, now - g.t0);
+      // (para F3: qué programa no ha llegado a tiempo, para saber por qué)
+      if (ok) this.remember(g.fresh); else this.gateStats.top = g.progs.filter(p => !ready(p)).map(p => p.name).join(', ');
       try { g.show(); } catch (e) { console.warn(e); }
     }
   }
@@ -678,7 +731,7 @@ export class View3D {
     const P = this.prep;
     if (!P || P.end) return false;
     const now = performance.now();
-    if (P.busy) { if (now - P.busyT < PREP_MAX && !P.busy.every(p => p.isReady())) return true; P.busy = null; }
+    if (P.busy) { const ok = P.busy.every(ready); if (now - P.busyT < PREP_MAX && !ok) return true; if (!ok) P.late = true; P.busy = null; }
     // (lo de alrededor llega en varios fotogramas, del otro hilo y por tandas: cada vez, solo lo que no se ha mirado aún,
     // con copias vacías de cada objeto; la primera, también el suelo y el agua, que llegan los últimos)
     const seen = (P.seen ||= new WeakSet()), N = (this.prepRoot ||= new THREE.Group());
@@ -687,11 +740,15 @@ export class View3D {
     let progs = [];
     if (N.children.length) {
       const t = performance.now();
+      (P.fresh ||= []).push(...this.unknown(N));
       progs = this.compileFor(N);
       N.children.length = 0;
       this.gateStats.prepMs += performance.now() - t; this.gateStats.prep += progs.length;
     }
     P.done = !progs.length || !this.renderer.extensions.has('KHR_parallel_shader_compile');
+    // (todo lo de la entrada, listo: gate no lo vuelve a preguntar. Si algo llegó al tope sin estar, no se apunta nada)
+    if (P.done && !progs.length && !P.late) this.remember(P.fresh || []);
+    if (P.done) P.fresh = null;
     if (!P.done) { P.busy = progs; P.busyT = now; return true; }
     return false;
   }
@@ -700,6 +757,12 @@ export class View3D {
 const BANK = ['#4f6a3a', '#5c6a38', '#6e5a36', '#c9ced2'].map(c => new THREE.Color(c)), TMP_C = new THREE.Color();
 const PREP_MAX = 6000;   // ms que compilar puede alargar la espera al entrar (a oscuras, pero sin parar el juego)
 const GATE_MAX = 4000;   // ms que algo nuevo puede quedar escondido esperando a sus programas (luego se pinta igual)
+const WAIT_MAX = 3000;   // ms de más que whenReady espera, como mucho, a que la vista pinte a oscuras (luego se destapa igual)
+const GATE_NEAR = 28;        // m alrededor de la cámara en los que lo nuevo se pinta en el acto (ver gateNear)
+const GATE_NEAR_SNAP = 56;   // y justo después de un salto (lo de alrededor que se hace con todo, NEAR trozos)
+// Un programa listo, o soltado mientras se esperaba (WebGLProgram.destroy deja program sin nada: no estará nunca, y
+// preguntarle da error en cada fotograma)
+const ready = p => p.program === undefined || p.isReady();
 // (la cara que pinta la pasada de sombras de Three según la del material: ver depthProxies)
 const SHADOW_SIDE = { [THREE.FrontSide]: THREE.BackSide, [THREE.BackSide]: THREE.FrontSide, [THREE.DoubleSide]: THREE.DoubleSide };
 const SILHOUETTE = new THREE.MeshBasicMaterial({ color: '#ffe8b0', transparent: true, opacity: 0.45, depthFunc: THREE.GreaterDepth, depthWrite: false, fog: false });

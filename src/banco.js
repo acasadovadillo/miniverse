@@ -248,7 +248,7 @@ export async function runBench(game) {
   out.programas = r.info.programs?.length ?? null;
   // (lo que se compiló antes de pintarlo y lo que esperó a sus programas, ver engine.js, gate; y las partes que la dirección
   // deja como antes, ver opciones.js: así una medida dice con qué se tomó)
-  if (v.gateStats) out.precompilado = Object.fromEntries(Object.entries(v.gateStats).map(([k, x]) => [k, Math.round(x)]));
+  if (v.gateStats) out.precompilado = Object.fromEntries(Object.entries(v.gateStats).map(([k, x]) => [k, typeof x === 'number' ? Math.round(x) : x]));
   out.apagadas = apagadas();
   out.geometrias = r.info.memory.geometries;
   out.texturas = r.info.memory.textures;

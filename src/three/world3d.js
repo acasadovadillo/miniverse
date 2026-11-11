@@ -106,7 +106,7 @@ export class World3D {
       this.chunks.set(k, c);
       // (uno nuevo, en el borde de lo que se ve, espera a sus programas de sombreado si trae alguno que la gráfica aún no
       // tiene; uno que se rehace, no: dejaría un hueco donde estaba)
-      if (!cur) this.view.gate?.(c.group);
+      if (!cur) this.view.gate?.(c.group, null, chunkBox(cx, cy));
     }
     // Las casas que han quedado lejos se olvidan (se vuelven a calcular si se vuelve)
     const lo = (ccx - NEAR - 1) * CHUNK, hi = (ccx + NEAR + 2) * CHUNK, lz = (ccy - NEAR - 1) * CHUNK, hz = (ccy + NEAR + 2) * CHUNK;
@@ -333,7 +333,7 @@ export class World3D {
           b.group.add(b.nat.group);
           b.natSig = natSig; b.shadow = null;
           this.stale(false, blockBox(b));
-          if (fresh) this.view.gate?.(b.group);   // (un bloque nuevo, con un árbol que aún no tiene programa: ver engine.js, gate)
+          if (fresh) this.view.gate?.(b.group, null, blockBox(b));   // (un bloque nuevo, con un árbol que aún no tiene programa: ver engine.js, gate)
         }
         b.shakers = shakers;
         // (si cambia algo, el trabajo a medias se deja y se vuelve a pedir; lo hecho se queda hasta que llega lo nuevo: sin huecos)
@@ -442,6 +442,9 @@ export class World3D {
     const now = performance.now();
     for (const [k, b] of this.nature) {
       if (!b.nat) { b.fadeNow = 0; continue; }
+      // (mientras espera escondido a sus programas, no cuenta: los impostores siguen en su sitio, en la máscara, y el
+      // fundido empieza al enseñarlo)
+      if (!b.group.visible && b.leaving == null) { b.born = now; b.fadeNow = 0; continue; }
       // (al saltar, lo que se estaba fundiendo queda hecho del todo, también en los fotogramas siguientes)
       if (snap && b.leaving == null) b.born = -Infinity;
       let f = b.leaving != null ? 1 - (now - b.leaving) / FADE_MS : snap ? 1 : (now - b.born) / FADE_MS;
@@ -565,7 +568,7 @@ export class World3D {
       if (old) this.dropFar(old);
       this.far.set(k, g);
       this.group.add(g);
-      if (!old) this.view.gate?.(g);   // (los nuevos, en el horizonte; los que se rehacen, en el acto: no dejan hueco)
+      if (!old) this.view.gate?.(g, null, farBox(bx + dx, by + dy));   // (los nuevos, en el horizonte; los que se rehacen, en el acto: no dejan hueco)
     }
     for (const [k, g] of this.far) if (!keep.has(k)) { this.dropFar(g); this.far.delete(k); }
   }
@@ -652,6 +655,13 @@ export class World3D {
     const set = nearFadeSet(), q = [[A.material, true]];
     for (const m of set.mats.values()) q.push([m, true], [m, false]);
     this.warming = { q, set, geo: new THREE.PlaneGeometry(1, 1) };
+  }
+  // (si se pierde el contexto de WebGL: lo que se estaba compilando ya no existe; se suelta y se vuelve a pedir al
+  // hornear otra vez el atlas)
+  stopWarm() {
+    const W = this.warming;
+    if (W) { releaseFadeSet(W.set); W.geo.dispose(); }
+    this.warming = null;
   }
   warmStep() {
     const W = this.warming;
@@ -762,7 +772,9 @@ export class World3D {
       const mats = [];
       r.roof.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; o.material = this.fadeMat(r.key + '|roof', matKeyOf(o.material)); mats.push(o.material); } });
       this.group.add(r.roof);
-      this.view.gate?.(r.roof);   // (casi siempre en el acto: cada casa tiene sus materiales, pero comparten programa)
+      // (casi siempre en el acto: cada casa tiene sus materiales, pero comparten programa; y si se rehace al editar, cerca
+      // de la cámara: también en el acto, sin dejar la casa sin tejado)
+      this.view.gate?.(r.roof, null, regionBox(r));
       this.stale(false, regionBox(r));
       // El techo por dentro: tablas y vigas (se ve solo con la cámara por debajo, ver updateFade)
       const floor = r.tiles.filter(([x, y]) => scene.at('floor', x, y));
@@ -902,6 +914,7 @@ export class World3D {
 const chunkBox = (cx, cy) => [cx * CHUNK - 6, cy * CHUNK - 6, (cx + 1) * CHUNK + 6, (cy + 1) * CHUNK + 6];
 const blockBox = b => [b.bx * NB * CHUNK - 6, b.by * NB * CHUNK - 6, (b.bx + 1) * NB * CHUNK + 6, (b.by + 1) * NB * CHUNK + 6];
 const regionBox = r => [r.box.x0 - 3, r.box.y0 - 3, r.box.x1 + 3, r.box.y1 + 3];
+const farBox = (fbx, fby) => [fbx * FAR_BLOCK * CHUNK, fby * FAR_BLOCK * CHUNK, (fbx + 1) * FAR_BLOCK * CHUNK, (fby + 1) * FAR_BLOCK * CHUNK];
 // Clave de un material base (para clonarlo para una región)
 function matKeyOf(m) {
   const B = baseMaterials();

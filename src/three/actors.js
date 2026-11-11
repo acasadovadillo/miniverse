@@ -243,8 +243,15 @@ export class Actors {
   add(e, isPlayer, look) {
     const m = this.make(e, isPlayer, look);
     // (a la escena cuando sus programas de sombreado están: un animal o un monstruo que no se había visto aún no para el
-    // juego al aparecer; ver engine.js, gate. Mientras, se mueve igual, sin pintarse)
-    if (m) { m.look = look; this.models.set(e, m); const v = this.view; if (v.gate) v.gate(m.root, () => { if (this.models.get(e) === m) this.group.add(m.root); }); else this.group.add(m.root); }
+    // juego al aparecer; ver engine.js, gate. Mientras, se mueve igual, sin pintarse. El jugador y los demás jugadores, no:
+    // al cambiarse de ropa desaparecerían, y lo que se lee de sus huesos, la mano o la herramienta, se quedaría atrás.
+    // Lo que aparece cerca, tampoco: ver gateNear)
+    if (m) {
+      m.look = look; this.models.set(e, m);
+      const v = this.view, x = this.me ? nearX(e.x, this.me.x) : e.x;
+      if (v.gate && !isPlayer && !e.remote) v.gate(m.root, () => { if (this.models.get(e) === m) this.group.add(m.root); }, [x - 1, e.y - 1, x + 1, e.y + 1]);
+      else this.group.add(m.root);
+    }
     return m;
   }
   place(m, e, scene, dt, t, p, game) {

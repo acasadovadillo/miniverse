@@ -52,9 +52,9 @@ export function initDebug(game) {
     const a = v.actors?.stats;
     if (a) row('personas', `${a.modelos} · ${a.vistas} vistas · ${a.dormidas} dormidas · a todo ${a.t0} / 30 Hz ${a.t1} / 15 Hz ${a.t2} · de lejos ${a.lod1} · ${(a.tris / 1000).toFixed(0)}k triángulos${a.protos !== undefined ? ` · ${a.protos} mallas en caché (${a.protosLibres} sin usar), ${a.lienzos} lienzos` : ''}${Number.isFinite(v.actorsMs) ? ` · actores ${n1(v.actorsMs)} ms` : ''}`);
     // (los programas de sombreado: cuántos hay, los que se compilaron antes de pintar al entrar y lo nuevo que esperó a
-    // los suyos escondido en vez de parar el juego; ver engine.js, prepare y gate)
+    // los suyos escondido en vez de parar el juego (y lo de cerca, que no espera); ver engine.js, prepare, gate y gateNear)
     const g = v.gateStats, r = v.renderer;
-    if (g && r) row('programas', `${r.info.programs?.length ?? '?'} · al entrar, ${g.prep} pedidos antes de pintar (${n1(g.prepMs)} ms de este hilo) · después, ${g.held} cosas esperaron a los suyos (la que más, ${n1(g.ms / 1000)} s)${v.gated?.length ? ` · ${v.gated.length} esperando` : ''}`);
+    if (g && r) row('programas', `${r.info.programs?.length ?? '?'} · al entrar, ${g.prep} pedidos antes de pintar (${n1(g.prepMs)} ms de este hilo) · después, ${g.held} cosas esperaron a los suyos (la que más, ${n1(g.ms / 1000)} s), ${g.near} cerca sin esperar, ${g.known} ya vistos listos, ${g.asked} preguntados (${n1(g.askMs)} ms)${v.gated?.length ? ` · ${v.gated.length} esperando` : ''}${g.top ? ` · al tope: ${g.top}` : ''}`);
     return out;
   }
   function text() {

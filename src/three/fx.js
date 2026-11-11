@@ -92,21 +92,22 @@ export class Fx {
     this.snow.frustumCulled = false; this.group.add(this.snow);
     // Faro: un haz que gira de noche. Un cono abierto de 26 m (de la lente, en el origen, hacia +x) que se ve como luz en el
     // aire: más fuerte junto a la lente y nada en la punta, y de canto (por donde se ve menos espesor de haz) se va del todo,
-    // sin borde. La niebla, a mano, como en glow.js: la de Three le sumaría su color (sale un cuadro claro sobre el bosque)
+    // sin borde. Cuando apunta a quien mira (de frente, el cono se ve de canto por todos lados) destella: se mira a lo largo
+    // de todo el haz (también sin borde: el destello se apaga igual de canto, solo que más tarde). La niebla, a mano, como en glow.js: la de Three le sumaría su color (sale un cuadro claro sobre el bosque)
     this.beamU = { k: { value: 0 }, fogNear: { value: 24 }, fogFar: { value: 90 } };
     this.beam = new THREE.Mesh(new THREE.ConeGeometry(3, 26, 24, 1, true).translate(0, -13, 0).rotateZ(Math.PI / 2), new THREE.ShaderMaterial({
       uniforms: this.beamU, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, fog: false,
-      vertexShader: `varying float vT; varying vec3 vN; varying vec3 vV;
+      vertexShader: `varying float vT; varying vec3 vN; varying vec3 vV; varying vec3 vAx;
         void main() {
           vT = clamp(position.x / 26.0, 0.0, 1.0);
           vec4 w = modelMatrix * vec4(position, 1.0);
-          vN = normalize(mat3(modelMatrix) * normal); vV = cameraPosition - w.xyz;
+          vN = normalize(mat3(modelMatrix) * normal); vV = cameraPosition - w.xyz; vAx = normalize(mat3(modelMatrix) * vec3(1.0, 0.0, 0.0));
           gl_Position = projectionMatrix * viewMatrix * w;
         }`,
-      fragmentShader: `uniform float k; uniform float fogNear; uniform float fogFar; varying float vT; varying vec3 vN; varying vec3 vV;
+      fragmentShader: `uniform float k; uniform float fogNear; uniform float fogFar; varying float vT; varying vec3 vN; varying vec3 vV; varying vec3 vAx;
         void main() {
-          float d = length(vV), face = abs(dot(normalize(vN), vV / d));
-          float a = pow(face, 1.6) * (1.0 - vT) * (1.0 - vT) * smoothstep(0.0, 0.06, vT) * smoothstep(1.0, 6.0, d) * (1.0 - smoothstep(fogNear, fogFar, d));
+          float d = length(vV), face = abs(dot(normalize(vN), vV / d)), along = pow(max(dot(normalize(vAx), vV / d), 0.0), 12.0);
+          float a = max(pow(face, 1.6), along * 0.7 * smoothstep(0.0, 0.25, face)) * (1.0 - vT) * (1.0 - vT) * smoothstep(0.0, 0.06, vT) * smoothstep(1.0, 6.0, d) * (1.0 - smoothstep(fogNear, fogFar, d));
           gl_FragColor = vec4(vec3(1.0, 0.957, 0.753) * 0.32 * k, a);
           #include <tonemapping_fragment>
           #include <colorspace_fragment>
