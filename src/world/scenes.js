@@ -356,7 +356,9 @@ export class Overworld {
     if (cur === null && Math.max(...c) - Math.min(...c) > DIG_STEEP) return 'Ahí es roca';
     const d = this.deltas.get(`${wrapIndex(Math.floor(tx / CHUNK), CHUNK)},${Math.floor(ty / CHUNK)}`);
     if (this.wellAt(x, y)) return 'Ahí está el pozo';
-    if (this.builtAt(d, k) || d?.lvl?.[k] !== undefined || d?.crops?.[k] || d?.trees?.[k]) return 'Hay algo encima';
+    // (la tierra labrada sin nada plantado, sí: la pala la deshace, como al saltar encima; ver digTile)
+    const bare = d?.tilled?.[k] !== undefined && !d.crops?.[k] && !d.floor?.[k] && !d.placed?.[k] && !d.roof?.[k];
+    if ((!bare && (this.builtAt(d, k) || d?.lvl?.[k] !== undefined)) || d?.crops?.[k] || d?.trees?.[k]) return 'Hay algo encima';
     for (const layer of ['floor', 'placed', 'roof']) if (this.at(layer, tx, ty)) return 'Hay algo encima';
     if (this.layers.some(l => l.blocks?.(tx, ty))) return 'Ahí no se puede';
     if (this.collidersNear(x, y).some(c => !c.dig && clashes(c, x, y, 0.42))) return 'Hay algo encima';
@@ -379,6 +381,7 @@ export class Overworld {
   // nueva (null: como era)
   digTile(tx, ty, dn, today) {
     const cx = Math.floor(tx / CHUNK), cy = Math.floor(ty / CHUNK), h = this.digNext(tx, ty, dn), d = this.delta(cx, cy, true), k = `${tx},${ty}`;
+    if (d.tilled?.[k] !== undefined) { delete d.tilled[k]; if (d.wet) delete d.wet[k]; this.dropLevel(tx, ty); }   // (lo labrado: se deshace)
     if (h !== null) (d.dig ||= {})[k] = h; else if (d.dig) { delete d.dig[k]; if (!Object.keys(d.dig).length) delete d.dig; }
     const m = (d.mown ||= {});
     for (const [q, v] of Object.entries(m)) if (today - v >= GRASS_REGROW) delete m[q];
@@ -1227,6 +1230,7 @@ export class Overworld {
   }
   // Por donde no pasan los animales ni los monstruos (no nadan): el agua que ya les cubre las patas, WADE_MAX (lo que
   // tenían los ríos antes de que se pudiera nadar: hasta ahí se les dibuja bien, ver engine.js groundY). Los jugadores sí
-  // nadan (ver entities.js)
-  blocked(x, y) { return this.waterDepth(x, y) >= WADE_MAX; }
+  // nadan (ver entities.js). Tampoco lo cavado con la pala (los hoyos y los montones: ya chocan con ello al andar, y así no
+  // aparecen dentro al llegar, al bajarse del caballo o al salir de su casa; y un golpe no echa ahí al jugador)
+  blocked(x, y) { return this.waterDepth(x, y) >= WADE_MAX || (this.digChunks.size > 0 && this.digH(Math.floor(x), Math.floor(y)) !== null); }
 }

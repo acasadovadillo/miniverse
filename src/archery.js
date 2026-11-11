@@ -178,6 +178,7 @@ export class Archery {
   step(dt) {
     const g = this.game, gy = (x, y) => this.ground(x, y);
     let targets = null;
+    if (g.scene === g.world && g.world.digV !== this.digV) { this.digV = g.world.digV; this.settle(); }   // (fuera de una cueva: ground mira el suelo de la escena)
     this.list = this.list.filter(a => {
       a.age += dt;
       if (a.stuck) return a.age < (a.free ? FREE_TTL : STUCK_TTL);
@@ -213,6 +214,9 @@ export class Archery {
       // (la punta: dónde toca el suelo, si lo toca en este paso, y lo primero que encuentra antes)
       const tx = tip[0] + d[0] * len, ty = tip[2] + d[2] * len, th = tip[1] + d[1] * len, over0 = tip[1] - gy(tip[0], tip[2]), over1 = th - gy(tx, ty);
       let t = over1 <= 0 ? len * Math.max(0, over0) / Math.max(1e-6, over0 - over1) : null, into = 'ground';
+      // (junto a lo cavado con la pala el suelo sube de golpe, en las paredes de un hoyo o de un montón: ahí, a ojo entre dos
+      // puntos, la flecha se quedaría en el aire delante de la pared o se metería en ella. Se busca dónde entra de verdad)
+      if (over0 > 0 && g.scene === g.world && g.world.digNear(tip[0], tip[2], 1)) t = this.groundHit(tip, d, len, gy);
       const solid = this.hit(g.scene, tip, d, t ?? len, gy);
       if (solid !== null) { t = solid; into = 'solid'; }
       else if (g.scene === g.world && over1 <= 0.25 && g.world.water(tx, ty)) { g.gather.chips(tx, ty, 'water', 6); return false; }   // (al agua: se hunde)
@@ -221,6 +225,16 @@ export class Archery {
       a.x = g.scene === g.world ? wrapX(nx) : nx; a.y = ny; a.h = nh;
       return true;
     });
+  }
+  // Dónde se mete la punta en el suelo yendo de o hacia d, antes de len (o null): el primer cuarto del paso que acaba bajo
+  // el suelo, y dentro de él, afinando (vale también para un suelo que sube de golpe)
+  groundHit(o, d, len, gy) {
+    const under = s => o[1] + d[1] * s <= gy(o[0] + d[0] * s, o[2] + d[2] * s);
+    let lo = 0, hi = null;
+    for (let k = 1; k <= 4 && hi === null; k++) { const s = len * k / 4; if (under(s)) hi = s; else lo = s; }
+    if (hi === null) return null;
+    for (let i = 0; i < 10; i++) { const m = (lo + hi) / 2; if (under(m)) hi = m; else lo = m; }
+    return hi;
   }
   // Lo primero con lo que choca la punta yendo de o hacia d, antes de len (o null). En el mundo, la forma de lo que se ve
   // (world/shots.js) y los tejados (por dentro, el techo); en una cueva, sus paredes
@@ -264,8 +278,25 @@ export class Archery {
     a.stuck = true; a.age = 0;
     a.x = g.scene === g.world ? wrapX(px - d[0] * back) : px - d[0] * back; a.h = ph - d[1] * back; a.y = py - d[2] * back;
     a.vx = d[0]; a.vh = d[1]; a.vy = d[2];   // (hacia donde apunta clavada)
+    a.bed = sink === SINK.ground && g.scene === g.world ? this.bedOf(a) : null;
     const me = g.player, dist = me ? Math.hypot(nearX(a.x, me.x) - me.x, a.y - me.y) : 0;
     if (dist < 25) Audio.noiseHit(1200, 0.05, 0.15);
+  }
+  // El suelo donde está clavada una flecha en la tierra: bajo la punta y bajo su centro (ver settle)
+  bedOf(a) { return [this.ground(a.x + a.vx * TIP, a.y + a.vy * TIP), this.ground(a.x, a.y)]; }
+  // Ha cambiado lo cavado con la pala (aquí o por la red): las clavadas en un suelo que ya no está a su altura (se ha cavado
+  // debajo, o se ha soltado tierra encima) se sueltan y caen hasta el suelo de ahora, donde se vuelven a clavar. Así no
+  // se quedan en el aire sobre un hoyo ni enterradas en un montón
+  settle() {
+    const w = this.game.world;
+    for (const a of this.list) {
+      if (!a.stuck || !a.bed || a.scene !== w) continue;
+      const [tip, mid] = this.bedOf(a);
+      if (Math.abs(tip - a.bed[0]) < 0.05 && Math.abs(mid - a.bed[1]) < 0.05) continue;
+      a.stuck = false; a.age = 0; a.bed = null; a.from = null;
+      a.h = Math.max(a.h, mid + 0.3);   // (enterrada: sale encima)
+      a.vx *= 0.3; a.vy *= 0.3; a.vh = -1;
+    }
   }
   strike(a, e) {
     const g = this.game;
