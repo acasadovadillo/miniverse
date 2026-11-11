@@ -124,7 +124,8 @@ export class Terrain {
 
   // Pone los bloques que tocan alrededor de (x, z) y quita los lejanos. budget: milisegundos para hacer bloques nuevos
   // (solo cuenta sin hilo aparte)
-  update(gen, x, z, budget = 8) {
+  // (fill: tapado, al entrar o en un salto, lo que llega se hace con ese tope por fotograma en vez de BUILD_MS; ver engine.js)
+  update(gen, x, z, budget = 8, fill = 0) {
     if (gen !== this.gen) this.reset(gen);
     // Cambió la estación: se repinta todo (poco a poco, empezando por lo cercano)
     if (gen.season !== this.season) { this.season = gen.season; for (const b of this.blocks.values()) b.stale = true; }
@@ -139,10 +140,11 @@ export class Terrain {
     for (const [k, b] of this.blocks) if (!keep.has(k)) { this.dispose(b); this.blocks.delete(k); }
     // Las mallas de lo que ha llegado del hilo aparte, de cerca a lejos: las del 3 × 3 de la cámara, todas enseguida (sin
     // ellas no se empieza a jugar: ver ready); las de más allá, al menos una por fotograma y hasta BUILD_MS (todas de
-    // golpe con snap). Si llegan muchas a la vez (al cargar o al volver, del relieve guardado), así no se para un fotograma
+    // golpe con snap). Si llegan muchas a la vez (al cargar o al volver, del relieve guardado), así no se para un fotograma.
+    // Tapado (fill), todas por tandas de fill ms, también las del 3 × 3: nadie las ve y whenReady espera a que estén
     const tb = performance.now(), A = this.arrived, ring = m => Math.max(Math.abs(m.bx - bx), Math.abs(m.bz - bz));
     if (A.length > 1) A.sort((a, b) => ring(a) - ring(b));
-    for (let n = 0; A.length && (budget > 1e8 || !n || ring(A[0]) <= 1 || performance.now() - tb < BUILD_MS); n++) {
+    for (let n = 0; A.length && (budget > 1e8 || !n || (!fill && ring(A[0]) <= 1) || performance.now() - tb < (fill || BUILD_MS)); n++) {
       const m = A.shift(), k = `${m.bx},${m.bz}`;
       this.pending.delete(k);
       if (!keep.has(k) || this.blocks.has(k)) continue;

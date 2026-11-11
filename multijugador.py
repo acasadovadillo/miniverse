@@ -1052,8 +1052,12 @@ async def world_loop():
     stale_chrome()
     while not stopping.is_set():
         url = f'{code_url()}?servidor={quote(f"ws://127.0.0.1:{PORT}", safe="")}&modo=servidor&pase={PASE}'
+        # (con prioridad baja, nice: el mundo del servidor suele ir en el mismo ordenador que el juego de quien lo abre, y su
+        # juego va primero. nice se cambia por Chrome en el mismo proceso, así que chrome sigue siendo Chrome; sus hilos y
+        # sus procesos hijos heredan la prioridad. Sin nice, como antes)
+        low = ['nice', '-n', '10'] if shutil.which('nice') else []
         chrome = await asyncio.create_subprocess_exec(
-            exe, '--headless=new', '--disable-gpu', '--mute-audio', '--no-first-run', '--no-default-browser-check',
+            *low, exe, '--headless=new', '--disable-gpu', '--mute-audio', '--no-first-run', '--no-default-browser-check',
             '--disable-background-timer-throttling', '--disable-renderer-backgrounding', '--disable-backgrounding-occluded-windows',
             f'--user-data-dir={CHROME_DIR}', url, stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL,
             start_new_session=True)

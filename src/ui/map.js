@@ -154,6 +154,13 @@ export class MapView {
     if (px >= b.x0 - CHUNK && px <= b.x1 + CHUNK) this.pan.x = Math.max(b.x0 - px, Math.min(b.x1 - px, this.pan.x));
     if (py >= b.y0 - CHUNK && py <= b.y1 + CHUNK) this.pan.y = Math.max(b.y0 - py, Math.min(b.y1 - py, this.pan.y));
     const cx = px + this.pan.x, cy = py + this.pan.y, moved = Math.hypot(this.pan.x, this.pan.y) > 2;
+    // Solo si cambia algo de lo que se ve: el sitio, el zoom, el tamaño, el parpadeo del jugador, las miniaturas que llegan,
+    // lo explorado, los lugares, los vecinos (por casilla) o la leyenda a medio mirar; y, por si acaso (lo cavado que se
+    // llena de agua), dos veces por segundo. Repintarlo a pantalla entera en cada fotograma, con el mapa quieto, era trabajo
+    // tirado (y, mientras, el mundo de detrás ya no se dibuja: ver Game.render)
+    const key = `${w}x${h}x${r}|${this.zoom}|${cx.toFixed(2)},${cy.toFixed(2)}|${px.toFixed(1)},${py.toFixed(1)}|${Math.sin(time * 6) > 0}|${this.thumbs.size}|${explored.size}|${this.markers?.length}|${this.people.map(q => `${q.x | 0},${q.y | 0}`).join()}|${this.biomesFrom.size}`;
+    if (key === this.bigKey && time - this.bigAt < 0.5 && this.legendGen === gen) return;
+    this.bigKey = key; this.bigAt = time;
     this.drawFlat(c.getContext('2d'), gen, explored, cx, cy, r, w, h, time, [px, py]);
     this.updateLegend(gen, explored);
     $('map-info').textContent = `Posición ${Math.round(px - CENTER.x)}, ${Math.round(py - CENTER.y)}` +

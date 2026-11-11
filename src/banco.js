@@ -13,6 +13,10 @@
 //   &solo=plaza,noche  solo esas paradas
 //   &ab=luces,cielo…   además, lo que cuesta cada cosa (ver variants), quitándola en tandas alternas
 //   &estacion=0..3     otra estación (por defecto, otoño: ver SEASON)
+// Se entra como en el juego (menus.js, play): a oscuras hasta que whenReady dice que está todo, y cada parada lejos es un
+// /tp de los de verdad (a oscuras, si la versión lo hace: Game.coverJump). En cada parada, el peor fotograma (peor) y el
+// peor de los que se ven (peorVisto: sin el fundido a negro delante), que es el parón que nota el jugador. Al final, el
+// mapa grande y la pausa abiertos (mapa, pausa) y cuánto se dibuja con la ventana sin el foco (sinFoco)
 import { CAM, PITCH, DIST } from './camera.js';
 import { Profile } from './accounts.js';
 import { CENTER } from './world/village.js';
@@ -54,6 +58,9 @@ const STOPS = [
   { name: 'pradera-lejos', at: g => meadow(g), cam: { yaw: Math.PI / 4 + 1.2, pitch: 0.6, dist: DIST.max }, hour: 12 },
   { name: 'pradera-baja', at: g => meadow(g), cam: { yaw: Math.PI / 4 + 2, pitch: PITCH.min + 0.05, dist: 18 }, hour: 12 },
   { name: 'pradera-primera', at: g => meadow(g), cam: { yaw: Math.PI / 4 + Math.PI, first: true }, hour: 12 },
+  // (con el mapa grande o la pausa delante, en la plaza: lo que cuesta un fotograma mientras no se ve el mundo)
+  { name: 'mapa', at: PLAZA, cam: { yaw: Math.PI / 4, pitch: 0.84, dist: 22 }, hour: 12, mode: 'map' },
+  { name: 'pausa', at: PLAZA, cam: { yaw: Math.PI / 4, pitch: 0.84, dist: 22 }, hour: 12, mode: 'pause' },
 ].filter(s => !ONLY || ONLY.includes(s.name));
 
 // El trozo con más árboles cerca del pueblo (siempre el mismo: el mundo sale de la misma semilla)
@@ -119,11 +126,18 @@ async function setup(game) {
   Profile.storeWorld = () => Promise.resolve();
   ['s-login', 's-menu', 's-creator'].forEach(id => document.getElementById(id)?.classList.remove('show'));
   document.body.classList.add('playing');
-  document.getElementById('fade')?.classList.remove('on');
+  // (como menus.js, play: a oscuras hasta que la vista dice que está lista)
+  const fade = document.getElementById('fade');
+  fade?.classList.add('on');
   game.visiting = true;
   game.start({ player: { name: 'Banco', x: PLAZA()[0], y: PLAZA()[1], look: { ...LOOK } } });
   game.onSave = null;
+  const t0 = now();
+  (game.view3d.whenReady?.(2000) || Promise.resolve()).then(() => { fade?.classList.remove('on'); entered = sec(now() - t0); });
 }
+let entered = null;   // (segundos hasta destapar al entrar)
+// ¿Tapado? El fundido a negro delante, la vista quieta antes de taparse (hold) o preparándose a oscuras (prep)
+const covered = v => !!v.hold || !!(v.prep && !v.prep.end) || !!document.getElementById('fade')?.classList.contains('on');
 
 export async function runBench(game) {
   const tStart = now();
@@ -167,7 +181,7 @@ export async function runBench(game) {
     const t0 = now();
     if (s.hour !== hour) { runCommand(game, `/time set ${String(s.hour).padStart(2, '0')}:00`, say); hour = s.hour; }
     const [x, y] = s.at(game);
-    game.teleport(x, y);
+    game.teleport(x, y, true);   // (como un /tp: lejos, a oscuras si la versión lo hace)
     Object.assign(CAM, { turn: 0, tilt: 0, zoom: 0, first: !!s.cam.first, look: 0, yaw: s.cam.yaw });
     if (!s.cam.first) Object.assign(CAM, { pitch: s.cam.pitch, dist: s.cam.dist });
     Object.assign(v.cam, { vel: 0, pvel: 0, zvel: 0 });
@@ -187,6 +201,8 @@ export async function runBench(game) {
     const moving = { ...v.lastInfo };
     const parts = breakdown(v, frame);
     if (s === STOPS[0]) for (let i = 0; i < 3; i++) { timeLot(frame, sync); await sleep(0); }   // (calentar: la primera tanda sale siempre peor)
+    // (el mapa o la pausa, delante: el juego decide qué dibuja; la vista, quieta como estaba)
+    if (s.mode) { game.mode = s.mode; frame(); }
     // Lo que tarda: tandas de N fotogramas como en el juego (sombras cada dos) y otras sin rehacer las sombras
     // (y aparte, lo que tarda avanzar el juego y lo que tarda encargar el dibujo, sin esperar a la gráfica)
     const lots = [], flat = [], up = [], dr = [];
@@ -237,6 +253,7 @@ export async function runBench(game) {
       // (si la versión los lleva: los contadores de las personas que guarda el propio juego)
       ...(v.actors.stats && typeof v.actors.stats === 'object' && { personas: { ...v.actors.stats, ...(Number.isFinite(v.actorsMs) && { ms: +v.actorsMs.toFixed(2) }) } }),
     };
+    if (s.mode) { stop.modo = s.mode; game.mode = 'play'; }
     out.paradas.push(stop);
     console.log(`BANCO ${s.name}: ${stop.ms} ms (${stop.fps} fps), sin sombras ${stop.msSinSombra} ms; ${stop.llamadas} llamadas + ${stop.llamadasSombra} de sombra (${stop.llamadasSombraMovil} de lo móvil); ${Math.round(stop.triangulos / 1000)} k + ${Math.round(stop.triangulosSombra / 1000)} k triángulos`);
     // La captura, justo después de dibujar (luego el lienzo se borra)
@@ -245,6 +262,27 @@ export async function runBench(game) {
     await post('/banco/captura', { parada: s.name, img });
   }
   CAM.first = false;
+  out.entrada = entered;
+  // Sin el foco: con el bucle de verdad del juego (requestAnimationFrame), cuántos dibujos por segundo y cuánto procesador
+  // se lleva dibujar, con el foco y sin él (un aviso de blur, como al pasar a otra ventana)
+  if (!ONLY || ONLY.includes('sinfoco')) {
+    game.update = step; game.render = draw;
+    const P = game.perf, look = async () => {
+      const d0 = v.drawn, f0 = P?.frames, w0 = P?.draw, t0 = now();
+      await sleep(3000);
+      const T = (now() - t0) / 1000;
+      return { dibujosPorSegundo: +((v.drawn - d0) / T).toFixed(1), fotogramasPorSegundo: P ? +((P.frames - f0) / T).toFixed(1) : null, msDibujoPorSegundo: P ? +((P.draw - w0) / T).toFixed(0) : null };
+    };
+    await sleep(500);
+    const con = await look();
+    dispatchEvent(new Event('blur'));
+    await sleep(300);
+    const sin = await look();
+    dispatchEvent(new Event('focus'));
+    game.update = () => {}; game.render = () => {};
+    out.sinFoco = { conFoco: con, sinFoco: sin };
+    console.log(`BANCO sin foco: ${con.dibujosPorSegundo} → ${sin.dibujosPorSegundo} dibujos por segundo; dibujar, ${con.msDibujoPorSegundo} → ${sin.msDibujoPorSegundo} ms por segundo`);
+  }
   out.programas = r.info.programs?.length ?? null;
   // (lo que se compiló antes de pintarlo y lo que esperó a sus programas, ver engine.js, gate; y las partes que la dirección
   // deja como antes, ver opciones.js: así una medida dice con qué se tomó)
@@ -462,23 +500,24 @@ function timeLot(fn, sync) {
 // Dibujar hasta que alrededor esté todo hecho: el suelo (lo calcula un hilo aparte) y lo que se monta poco a poco
 async function settle(game, v, frame) {
   const T = v.terrain, size = () => { let n = 0; v.scene.traverse(() => n++); return n; };
-  let last = -1, same = 0, worst = 0, i = 0, slow = 0;
+  let last = -1, same = 0, worst = 0, i = 0, slow = 0, seen = 0, seenSlow = 0, hidden = 0;
   for (; i < 900; i++) {
-    const t = now();
+    const t = now(), dark = covered(v);
     frame();
     const d = now() - t;
     worst = Math.max(worst, d); if (d > 500) slow += d;
+    if (dark) hidden += d; else { seen = Math.max(seen, d); if (d > 500) seenSlow += d; }   // (lo que se ve: sin nada delante)
     if (i % 3 === 0) await sleep(0);
     if (i % 10 === 9) {
       const n = size();
       const I = v.world.useImpostors ? v.world.impostors : null, baked = !I || I.ready || I.season === -2;   // (y los impostores, horneados)
-      same = n === last && !T.pending.size && !T.jobs.size && baked ? same + 1 : 0;
+      same = n === last && !T.pending.size && !T.jobs.size && baked && !covered(v) ? same + 1 : 0;
       last = n;
       if (same >= 3 && i >= 60) break;
     }
   }
   // (cuántos fotogramas hicieron falta, el peor y lo que sumaron los de más de medio segundo: compilar, montar)
-  return { fotogramas: i + 1, peor: Math.round(worst), parones: sec(slow), objetos: last };
+  return { fotogramas: i + 1, peor: Math.round(worst), parones: sec(slow), peorVisto: Math.round(seen), paronesVistos: sec(seenSlow), tapado: sec(hidden), objetos: last };
 }
 
 async function post(path, body) {

@@ -447,7 +447,7 @@ export const COMMANDS = {
       }
       const names = [];
       for (const m of movers) {
-        if (m.me) { if (Profile.server) continue; if (home ? game.teleportHome() : game.teleport(where.x, where.y)) names.push('tú'); }
+        if (m.me) { if (Profile.server) continue; if (home ? game.teleportHome(true) : game.teleport(where.x, where.y, true)) names.push('tú'); }   // (lejos, a oscuras: ver Game.coverJump)
         else { live.sendTp(m.conn, where); names.push(m.peer.name); }
       }
       if (!names.length) say('No se ha podido teletransportar a nadie.', 'err');

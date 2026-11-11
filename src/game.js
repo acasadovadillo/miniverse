@@ -4,7 +4,7 @@ import { View3D } from './three/engine.js';
 import { prewarmIcons } from './three/icons.js';
 import { itemIcon } from './art/items.js';
 import { camToSave, camFromSave, CAM } from './camera.js';
-import { wrapX, wrapIndex, HALF, NORTH, SOUTH } from './world/planet.js';
+import { wrapX, dxOf, wrapIndex, HALF, NORTH, SOUTH } from './world/planet.js';
 import { Overworld, NILO_LOOK } from './world/scenes.js';
 import { houseBlueprint, familyBlueprint, byChunk, doorTile, houseSize } from './world/blueprints.js';
 import { HOUSE, HOUSE_BIG, HOUSE_FAMILY, HOUSES, CENTER, SPAWN, inBounds, inOwnHouse, inTavern, hasProject, setFamilyHouse } from './world/village.js';
@@ -121,6 +121,8 @@ const TAVERN_SEATS = new Set(['silla', 'taburete']);   // (en la taberna, quien 
 const AIM_REACH = 2;   // lo que se apunta con el ratón se usa si está a esto como mucho (casillas)
 const LIGHTS = new Set(['lampara', 'antorcha', 'vela', 'candelabro']);
 const BEDS = new Set(['cama', 'cama_nino', 'cama_doble']);   // lo colocado que se apaga y se enciende con E
+const JUMP_COVER = 24;   // casillas: un salto más largo (/tp) se hace a oscuras (ver coverJump); uno corto, de golpe
+const BLUR_MS = 50;      // sin el foco, un dibujo cada tanto (unos 20 fps; ver run)
 // Sin dibujo (el mundo del servidor, server.js): lo que el juego le pregunta a la vista en 3D, sin vista
 const NO_VIEW = { world: null, actors: { player: null }, snap() {}, resize() {}, render() {}, tileAt: () => null, pointAt: () => null, rayAt: () => null, groundY: () => 0 };
 
@@ -325,7 +327,7 @@ export class Game {
   // algo, matarte, ponerte dónde reaparecer o cambiarte el modo de juego. by: quién lo pide (null: tú)
   fromOp(m, by = null) {
     const said = text => { if (by) hud.toast(`${by} ${text}`); };
-    if (m.t === 'tp') { if (m.home ? this.teleportHome() : this.teleport(m.x, m.y)) said(`te ha teletransportado${m.home ? ' a casa' : ''}`); }
+    if (m.t === 'tp') { if (m.home ? this.teleportHome(true) : this.teleport(m.x, m.y, true)) said(`te ha teletransportado${m.home ? ' a casa' : ''}`); }
     else if (m.t === 'give' && ITEMS[m.id]) {
       const n = Math.max(1, Math.min(9999, m.n | 0)), left = this.inv.add(m.id, n);
       if (left) this.gather.throwOut(m.id, left);
@@ -448,7 +450,7 @@ export class Game {
     p.x = wrapX(p.x + HALF);
     if (p.face) p.face = { x: -p.face.x, y: -p.face.y };
     CAM.yaw += Math.PI;
-    this.view3d.snap();
+    this.coverJump();   // (al otro lado del planeta: todo es nuevo)
     hud.toast(`Has cruzado el polo ${north ? 'norte' : 'sur'}: sigues por el otro lado del planeta`);
   }
   // El espectador que sigue a alguien (/spectate) va donde va él (si deja de estar, o deja de ser espectador, se acaba)
@@ -469,6 +471,7 @@ export class Game {
   }
   end() {
     this.live.left();
+    this.covers = (this.covers || 0) + 1;   // (un salto a oscuras a medias ya no destapa: ver coverJump)
     this.player = null;
     this.scene = null;
     this.mode = 'menu';
@@ -779,20 +782,43 @@ export class Game {
     return [dx + 0.5, dy - 0.5];
   }
   // Llevar al jugador a un sitio del mundo de fuera (/tp): sale de la cueva si está en una, se levanta y, si allí
-  // no hay agua, se baja de la barca (a caballo, va con él)
-  teleport(x, y) {
+  // no hay agua, se baja de la barca (a caballo, va con él). cover: si es lejos, a oscuras (ver coverJump); sin él, de
+  // golpe (las pruebas y el banco, que miran la vista justo después)
+  teleport(x, y, cover = false) {
     const p = this.player;
     if (!p || !this.world || !Number.isFinite(x) || !Number.isFinite(y)) return false;
     x = wrapX(x); y = Math.max(NORTH + 1, Math.min(SOUTH - 1, y));   // (dentro del planeta)
+    const far = this.scene !== this.world || Math.hypot(dxOf(x, p.x), y - p.y) > JUMP_COVER;
     if (p.pose) this.rest.stand();
     if (this.scene !== this.world) { this.scene = this.world; p.inside = false; }
     if (p.boat && !this.world.water(x, y) && !this.crew.hasMate()) this.world.moorBoat(p.x, p.y, 0);   // (te llevan a tierra remando: la barca se queda amarrada donde estabas)
     Object.assign(p, { x, y, vx: 0, vy: 0, z: 0, vz: 0, boat: (p.boat || !!p.aboard) && !!this.world.water(x, y), aboard: null });
-    this.view3d.snap();
+    if (cover && far) this.coverJump(); else this.view3d.snap();
     this.updatePlace();
     return true;
   }
-  teleportHome() { const [x, y] = this.homeSpot(); return this.teleport(x, y); }
+  teleportHome(cover = false) { const [x, y] = this.homeSpot(); return this.teleport(x, y, cover); }
+  // Un salto lejos (/tp, lo que manda el servidor, cruzar un polo): a oscuras, como al entrar en una cueva. Lo de allí (el
+  // suelo, los trozos, los árboles, los programas de sombreado) se hace tapado y por tandas (ver engine.js, whenReady), en
+  // vez de un fotograma de más de un segundo con la imagen parada. Mientras se funde a negro, la vista se queda con la
+  // última imagen (hold): si no, la cámara iría corriendo hasta allí, haciendo de paso todo lo de en medio. El jugador ya
+  // está allí (para el juego y la red): solo espera la vista. Otro salto mientras tanto solo cambia adónde
+  // (covers: cuántas veces otro ha tapado la pantalla por su cuenta, al morir o al salir de la partida; si pasa a medias,
+  // destapa quien tapó después, no este salto)
+  async coverJump() {
+    const v = this.view3d;
+    if (!v.whenReady || this.jumping) { v.snap(); return; }
+    this.jumping = true;
+    const mine = (this.covers = (this.covers || 0) + 1);
+    try {
+      v.hold = true;
+      await hud.fade(true);
+      v.hold = false;
+      v.snap();
+      await v.whenReady(1500);
+    } finally { v.hold = false; this.jumping = false; }
+    if (this.covers === mine) await hud.fade(false);
+  }
   // Llevar al jugador adonde reaparece (cuando cae en combate): su punto (/spawnpoint) o su casa
   goHome() {
     const [x, y] = this.respawnSpot();
@@ -996,17 +1022,26 @@ export class Game {
 
   // ---------- bucle ----------
   run() {
-    let last = performance.now(), acc = 0;
+    let last = performance.now(), acc = 0, drawnAt = -1e9;
     const perf = this.perf = { frames: 0, steps: 0, update: 0, draw: 0, max: 0 };   // (lo que cuesta cada fotograma: para el panel de F3)
-    const frame = now => {
-      acc += Math.min(0.25, (now - last) / 1000);
-      last = now;
-      const t0 = performance.now();
+    // Avanzar el juego (la simulación y la red) hasta ahora, a pasos fijos; cap: lo que se recupera como mucho de una vez
+    const advance = (now, cap) => {
+      acc += Math.min(cap, Math.max(0, (now - last) / 1000));
+      last = Math.max(last, now);
       // (un fallo al avanzar tampoco: se avisa y el juego sigue respondiendo; los de cada sistema ni llegan aquí: ver hook)
       try { while (acc >= STEP) { this.update(STEP); acc -= STEP; perf.steps++; } } catch (e) { acc = 0; reportFault(e, 'paso'); this.updateError = e.message; }
+    };
+    const frame = now => {
+      const t0 = performance.now();
+      advance(now, 0.25);
       const t1 = performance.now();
-      // (un fallo al dibujar no para el juego: se avisa y se sigue)
-      try { this.render(); } catch (e) { reportFault(e, 'dibujo'); this.renderError = e.message; }
+      // Sin el foco (otra ventana delante, con esta aún a la vista), se dibuja a unos 20 fps: menos calor y batería, y la
+      // gráfica para lo que sí se está mirando. El juego y la red siguen a su paso, en cada fotograma
+      if (!this.unfocused || now - drawnAt >= BLUR_MS - 4) {
+        drawnAt = now;
+        // (un fallo al dibujar no para el juego: se avisa y se sigue)
+        try { this.render(); } catch (e) { reportFault(e, 'dibujo'); this.renderError = e.message; }
+      }
       const t2 = performance.now();
       perf.frames++; perf.update += t1 - t0; perf.draw += t2 - t1; perf.max = Math.max(perf.max, t2 - t0);
       // (la música, también aislada: es lo único que queda antes de pedir el fotograma siguiente)
@@ -1014,6 +1049,13 @@ export class Game {
       requestAnimationFrame(frame);
     };
     requestAnimationFrame(frame);
+    // Con la pestaña oculta (o la ventana tapada del todo) el navegador ya no da fotogramas: sin esto se paraba el juego
+    // entero, también la red (los demás te veían quieto y, si llevabas el mundo, el mundo de todos se paraba). Sigue
+    // avanzando con un reloj, sin dibujar (el navegador no deja menos de un segundo entre llamadas en una pestaña oculta)
+    setInterval(() => { if (document.hidden) advance(performance.now(), 1); }, 250);
+    // (el foco, por sus avisos: en un Chrome sin pantalla no llega ninguno y se dibuja siempre a todo)
+    addEventListener('blur', () => { this.unfocused = true; this.view3d.capped = true; });
+    addEventListener('focus', () => { this.unfocused = false; this.view3d.capped = false; });
   }
 
   // Sin dibujar (el mundo del servidor): solo avanza, a pasos fijos, unas 20 veces por segundo. Un fallo al avanzar se
@@ -1082,8 +1124,12 @@ export class Game {
     // (sin partida, al entrar y en el menú, el fondo es una foto fija: body.still, en index.html; el mundo no se dibuja)
     const still = !this.player || !this.scene;
     if (still !== this.still) { this.still = still; document.body.classList.toggle('still', still); if (!still) this.view3d.snap?.(); }
-    if (!still) this.view3d.render(this);
-    else this.view3d.idle?.(this);   // (sin dibujar, se adelanta lo que se puede: los impostores de los árboles lejanos)
+    // Lo que no se ve no se dibuja: con el mapa grande delante (opaco), nada; en la pausa (el juego se ve detrás, quieto), la
+    // última imagen, que se queda en el lienzo, salvo si hay que repintarla (redraw: cambia el tamaño de la ventana o algo
+    // de los ajustes). Lo de la vista que espera (el suelo que llega, los trozos) sigue al volver
+    const v = this.view3d, hidden = this.mode === 'map' || (this.mode === 'pause' && !v.redraw);
+    if (!still && !hidden) { v.redraw = false; v.render(this); }
+    else if (still) v.idle?.(this);   // (sin dibujar, se adelanta lo que se puede: los impostores de los árboles lejanos)
     const prey = this.gather.target?.prey, click = prey && this.highlight?.e === prey ? '  ·  Clic: atacar' : '';
     hud.prompt(near && (near.alt ? `${near.text}  ·  X: ${near.alt.text.toLowerCase()}` : near.text) + click, this.highlight ? [m.x, m.y] : null);
     let hint = '';
@@ -1093,7 +1139,8 @@ export class Game {
     }
     hud.hint(hint);
     if (this.player && this.world) {
-      this.map.markers = this.places.markers();
+      // (los lugares, como mucho cada 0,15 s: el minimapa no se repinta más a menudo, y el grande, solo si algo cambia)
+      if (!(Math.abs(this.time - (this.markersAt ?? -1)) < 0.15)) { this.markersAt = this.time; this.map.markers = this.places.markers(); }
       this.map.world = this.world;   // (lo cavado que tiene agua se pinta de agua)
       if (this.mode === 'map') this.map.people = this.neighbors.people.filter(n => !n.hidden).map(n => ({ x: n.x, y: n.y, name: n.def.name }));
       if (this.mode === 'map') this.map.drawBig(this.world.gen, this.explored, this.player.x, this.player.y, this.time);

@@ -74,10 +74,13 @@ export class World3D {
     this.impostors = null;         // el atlas de los árboles lejanos (se hornea en el primer fotograma: en el menú)
     this.farSigs = new Map();      // "bx,by" → firma de lo quitado en el bloque lejano (se vuelve a mirar si cambia algún trozo)
     this.removedN = new WeakMap(); // cambios de un trozo → [su versión, cuántas cosas se han quitado de él]
+    this.behind = false;           // si en el último fotograma quedó algo por hacer por el tope de tiempo (ver engine.js, whenReady)
   }
 
   // ---------- cada fotograma ----------
-  update(game, scene, target, dt, snap = false) {
+  // snap: un salto (todo de golpe, sin fundidos). fill: tapado (al entrar o en un salto), ms por fotograma para hacer lo que
+  // falte, como en un salto pero por tandas (ver engine.js, render); behind dice si aún queda
+  update(game, scene, target, dt, snap = false, fill = 0) {
     if (scene !== this.scene || scene.gen.season !== this.season) this.reset(scene);
     this.game = game;
     WIND.value = game.time;
@@ -90,13 +93,14 @@ export class World3D {
     want.sort((a, b) => a[2] - b[2]);
     const keep = new Set(want.map(([x, y]) => `${x},${y}`));
     for (const [k, c] of this.chunks) if (!keep.has(k)) this.dropChunk(k, c);
-    const t0 = performance.now(), budget = snap ? 1e9 : 7;
+    const t0 = performance.now(), budget = fill || (snap ? 1e9 : 7), instant = snap || fill > 0;
+    this.behind = false;
     for (const [cx, cy, ring] of want) {
       const k = `${cx},${cy}`, cur = this.chunks.get(k), data = scene.contentFor(cx, cy);
       if (cur && !cur.force && cur.data !== data) { if (this.signature(scene, cx, cy, data) === cur.sig) cur.data = data; }
       if (cur && !cur.force && cur.data === data) { this.setRing(scene, cur, ring); continue; }
-      if (performance.now() - t0 > budget && cur) continue;
-      if (performance.now() - t0 > budget * 2) break;
+      if (performance.now() - t0 > budget && cur) { this.behind = true; continue; }
+      if (performance.now() - t0 > budget * 2) { this.behind = true; break; }
       // Si cambian sus muros o tejados, las casas que tocaba se calculan de nuevo
       const struct = structure(data);
       if (cur && cur.struct !== struct) for (const r of cur.regions) { const reg = this.regions.get(r); if (reg) this.invalidateRegion(reg); }
@@ -117,8 +121,8 @@ export class World3D {
       for (const [x, y] of r.tiles) if (this.regionOf.get(`${x},${y}`) === r.key) this.regionOf.delete(`${x},${y}`);
       for (const k of [...this.fadeMats.keys()]) if (k.startsWith(r.key + '|')) { for (const m of this.fadeMats.get(k).values()) m.dispose(); this.fadeMats.delete(k); this.fade.delete(k); }
     }
-    this.updateNature(scene, ccx, ccy, t0, budget, snap);
-    this.updateFades(snap);
+    this.updateNature(scene, ccx, ccy, t0, budget, instant);
+    this.updateFades(instant);
     this.updateMask(ccx, ccy);
     this.updateGrass(target);
     this.updateFar(scene, ccx, ccy, t0, budget);
@@ -291,7 +295,7 @@ export class World3D {
   setRing(scene, c, ring) { c.ring = ring; }
 
   // ---------- naturaleza y hierba, en bloques de NB × NB trozos ----------
-  updateNature(scene, ccx, ccy, t0, budget, snap = false) {
+  updateNature(scene, ccx, ccy, t0, budget, instant = false) {   // (instant: de golpe, en un salto o tapado)
     const keep = new Set(), gy = (x, y) => this.view.groundY(scene, x, y), now = performance.now();
     for (let by = Math.floor((ccy - NEAR) / NB); by <= Math.floor((ccy + NEAR) / NB); by++) for (let bx = Math.floor((ccx - NEAR) / NB); bx <= Math.floor((ccx + NEAR) / NB); bx++) {
       const k = `${bx},${by}`, datas = [];
@@ -305,8 +309,8 @@ export class World3D {
       // (también se vuelve a mirar cuando el suelo ha cambiado de forma: ver padStamp)
       const T = this.view.terrain, padV = T?.padV ?? 0, same = b && b.padV === padV && b.datas.every((d, i) => d[2] === datas[i][2]);
       if (!same || !b) {
-        if (b && performance.now() - t0 > budget) { this.natureRing(scene, b, ring, rings); continue; }
-        if (!b && performance.now() - t0 > budget * 2) continue;
+        if (b && performance.now() - t0 > budget) { this.behind = true; this.natureRing(scene, b, ring, rings); continue; }
+        if (!b && performance.now() - t0 > budget * 2) { this.behind = true; continue; }
         // Qué hay: la naturaleza (lo que genera el mundo y lo plantado) y, para la hierba, todo lo demás
         const nat = [], shakers = new Map();
         for (const [, , d] of datas) for (const o of d.objects) {
@@ -329,7 +333,7 @@ export class World3D {
         }
         if (natSig !== b.natSig) {
           if (b.nat) { b.group.remove(b.nat.group); b.nat.group.traverse(o => { if (o.isInstancedMesh) o.dispose(); }); }
-          else b.born = snap || this.freshNature ? -Infinity : now;   // (la primera vez, aparece fundiéndose con lo lejano; de golpe, si se salta o justo después de reset)
+          else b.born = instant || this.freshNature ? -Infinity : now;   // (la primera vez, aparece fundiéndose con lo lejano; de golpe, si se salta o justo después de reset)
           b.nat = buildNatureChunk(nat, scene.gen.season, gy, true);
           b.group.add(b.nat.group);
           b.natSig = natSig; b.shadow = null;
@@ -348,7 +352,7 @@ export class World3D {
     // Lo que queda lejos se va fundiéndose con lo lejano (updateFades lo suelta al acabar); su hierba y su cubierta, en el
     // acto (ya quedaban fuera del círculo de la hierba). Al saltar, de golpe
     for (const [k, b] of this.nature) if (!keep.has(k)) {
-      if (snap || !b.nat || !(b.fadeNow > 0)) { this.dropNature(b); this.nature.delete(k); continue; }
+      if (instant || !b.nat || !(b.fadeNow > 0)) { this.dropNature(b); this.nature.delete(k); continue; }
       if (b.leaving != null) continue;
       b.leaving = now - (1 - b.fadeNow) * FADE_MS;
       for (const i of [...b.tufts.keys()]) this.dropTufts(b, i);
@@ -368,6 +372,7 @@ export class World3D {
       }
       if (performance.now() - t0 > budget) break;
     }
+    if (jobs.some(b => b.groundJob)) this.behind = true;
   }
   // Las matas de un trozo (i, del 0 al 3 en su bloque): la malla nueva sustituye a la vieja (o a ninguna)
   setTufts(b, piece, sig) {
@@ -557,7 +562,7 @@ export class World3D {
       if (sig === undefined) this.farSigs.set(k, (sig = this.farSig(scene, bx + dx, by + dy)));
       keep.add(k);
       if (old?.userData.mode === mode && old.userData.sig === sig) continue;
-      if (performance.now() - t0 > (old ? budget : budget * 2)) continue;
+      if (performance.now() - t0 > (old ? budget : budget * 2)) { this.behind = true; continue; }
       const objs = this.farObjects(scene, bx + dx, by + dy), g = new THREE.Group();
       if (A) {
         const trees = buildFarImpostors(objs, gy, A);

@@ -101,6 +101,7 @@ export class View3D {
     this.auto = auto;
     if (fixed && fixed !== this.pixelRatio) { this.pixelRatio = fixed; this.renderer.setPixelRatio(fixed); }
     this.renderer.setSize(innerWidth, innerHeight, false);
+    this.redraw = true;   // (el lienzo se ha borrado: en la pausa, que se repinte la imagen de detrás; ver Game.render)
     this.renderer.domElement.style.width = innerWidth + 'px';
     this.renderer.domElement.style.height = innerHeight + 'px';
     this.camera.aspect = innerWidth / innerHeight;
@@ -399,6 +400,8 @@ export class View3D {
 
   // ---------- fotograma ----------
   render(game) {
+    // (un salto a punto de taparse: la última imagen se queda mientras se funde a negro; ver Game.coverJump)
+    if (this.hold) return;
     const dt = Math.min(0.05, this.clock.getDelta()), t = game.time;
     // Las fotos de las texturas, antes del primer fotograma del mundo (como mucho 2,5 s; casi siempre ya han llegado en
     // la pantalla de entrada): así los materiales se hacen ya con la foto compartida (ver textures.js, photoTex). Si no
@@ -411,6 +414,10 @@ export class View3D {
       this.photosOk = true;
     }
     const snap = this.snapNext; this.snapNext = false;
+    // A oscuras (al entrar, en un salto: whenReady), lo de alrededor se hace por tandas de FILL_MS, sin pintar, en vez de
+    // todo en el primer fotograma: en el Air eran 1,4-2,1 s de un tirón (los trozos, la naturaleza, lo lejano), con el juego
+    // y la red parados. Así el juego sigue respondiendo y whenReady destapa cuando ya está todo (ver World3D.behind)
+    const fill = this.prep && !this.prep.end ? FILL_MS : 0;
     const ease = rate => (snap ? 1 : Math.min(1, dt * rate));
     const scene = game.scene || game.menuWorld, cave = scene.kind === 'grid';
     this.shown = scene;
@@ -432,8 +439,8 @@ export class View3D {
     const target = this.cam.target;
     if (!cave) {
       this.terrain.world = scene.padK ? scene : null;   // (el suelo, llano junto a lo construido)
-      this.terrain.update(scene.gen, target.x, target.z, snap ? 1e9 : 8);
-      this.world.update(game, scene, target, dt, snap);
+      this.terrain.update(scene.gen, target.x, target.z, snap && !fill ? 1e9 : 8, fill);
+      this.world.update(game, scene, target, dt, snap, fill);
     } else this.cave.update(game, dt);
     // (lo que tardan los actores, de media cada medio segundo: para F3 y el banco)
     { const t0 = performance.now(); this.actors.update(game, scene, dt, t); const ms = performance.now() - t0; this.actorsAcc = (this.actorsAcc || 0) + ms; this.actorsN = (this.actorsN || 0) + 1; this.actorsT = (this.actorsT || 0) + dt; if (this.actorsT >= 0.5) { this.actorsMs = this.actorsAcc / this.actorsN; this.actorsAcc = this.actorsN = this.actorsT = 0; } }
@@ -549,7 +556,8 @@ export class View3D {
   stats(dt) {
     const now = performance.now(), real = (now - (this.lastFrame ?? now)) / 1000;
     this.lastFrame = now;
-    if (real > 0 && real < 0.25) { this.frames++; this.acc += real; }   // (un parón o la pestaña oculta no cuentan)
+    // (un parón o la pestaña oculta no cuentan; sin el foco, a 20 fps a propósito, tampoco: la resolución automática bajaría)
+    if (real > 0 && real < 0.25 && !this.capped) { this.frames++; this.acc += real; }
     if (this.acc > 0.5) {
       this.fps = this.frames / this.acc;
       if (this.auto) this.autoScale(this.fps, this.acc);
@@ -613,7 +621,7 @@ export class View3D {
     return null;
   }
   // Sin transiciones en el próximo fotograma (al empezar, al cambiar de escena)
-  snap() { this.snapNext = true; this.snapT = performance.now(); this.cam.pitchNow = this.cam.distNow = null; }
+  snap() { this.snapNext = true; this.snapT = performance.now(); this.cam.pitchNow = this.cam.distNow = null; if (this.world) this.world.behind = true; }
   // Espera (como mucho ms) a que el suelo de alrededor de la cámara esté hecho y sus programas de sombreado compilados:
   // para no destapar la vista sobre el vacío ni con el juego parado compilando (ver prepare). Siempre acaba: si la vista
   // no llega a pintar (un error en cada fotograma) o otra espera ocupa su sitio, por tiempo (WAIT_MAX de más)
@@ -626,7 +634,10 @@ export class View3D {
       const look = () => {
         const now = performance.now();
         if (!this.photosOk && now - T0 < ms + 2600) { frames = 0; t0 = now; }
-        const mine = this.prep === P, ground = this.cave || this.terrain.ready(target.x, target.z) || now - t0 > ms;
+        // (y lo de alrededor, hecho: con fill va por tandas, y las personas de cerca; como mucho hasta PREP_MAX de más, como
+        // compilar)
+        const built = ((this.cave || !this.world.behind) && !this.actors.waitNear) || now - t0 > ms + PREP_MAX;
+        const mine = this.prep === P, ground = (this.cave || this.terrain.ready(target.x, target.z) || now - t0 > ms) && built;
         // (con el suelo listo y lo de alrededor compilado, aún dos fotogramas pintados a oscuras: los programas de la pasada
         // de sombras que no se pueden prever salen ahí, y no al destapar. Compilar puede alargar la espera hasta PREP_MAX)
         if (ground && (P.done || !mine || now - T0 > ms + PREP_MAX)) { P.end = true; P.d0 ??= this.drawn; }
@@ -792,11 +803,23 @@ export class View3D {
     if (P.done && !progs.length && !P.late) this.remember(P.fresh || []);
     if (P.done) P.fresh = null;
     if (!P.done) { P.busy = progs; P.busyT = now; return true; }
-    return false;
+    // (y, hasta que whenReady dice que está todo, tampoco se pinta: está tapado, y lo que va llegando por tandas no se ve;
+    // así la gráfica queda libre para compilar. Los dos fotogramas de después de P.end sí se pintan, aún tapados)
+    return true;
+  }
+  // ¿Hay rato libre a oscuras? Tapado (whenReady), con lo de alrededor ya hecho y esperando a algo que no es este hilo (los
+  // programas que compila la gráfica aparte, el suelo que calcula el otro hilo): ahí se pueden adelantar las personas
+  // (Actors.prewarm) sin alargar lo que se está a oscuras. Sin whenReady, tapado por otra cosa: sí (como antes)
+  coverSpare() {
+    const P = this.prep;
+    if (!P || P.end) return !P;
+    if ((!this.cave && this.world.behind) || this.actors.waitNear) return false;
+    return !!P.busy || (!this.cave && !this.terrain.ready(this.cam.target.x, this.cam.target.z));
   }
 }
 // (el color de la ribera reflejada en el agua, por estación: hierba de primavera, de verano, parda de otoño y nieve)
 const BANK = ['#4f6a3a', '#5c6a38', '#6e5a36', '#c9ced2'].map(c => new THREE.Color(c)), TMP_C = new THREE.Color();
+const FILL_MS = 40;      // ms por fotograma para hacer lo de alrededor mientras está tapado (ver render; el doble para lo nuevo)
 const PREP_MAX = 6000;   // ms que compilar puede alargar la espera al entrar (a oscuras, pero sin parar el juego)
 const GATE_MAX = 4000;   // ms que algo nuevo puede quedar escondido esperando a sus programas (luego se pinta igual)
 const WAIT_MAX = 3000;   // ms de más que whenReady espera, como mucho, a que la vista pinte a oscuras (luego se destapa igual)

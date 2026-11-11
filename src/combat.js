@@ -164,6 +164,7 @@ export class Combat {
     const g = this.game, keep = g.rules.keepInventory || !this.survival, lost = keep ? 0 : Math.floor(g.money * 0.1);
     if (!g.player || g.dying) return 0;
     g.busy = g.dying = true;
+    g.covers = (g.covers || 0) + 1;   // (si se estaba en un salto a oscuras, destapa esto: ver Game.coverJump)
     const dropped = keep ? 0 : this.dropAll();
     if (!keep && g.xp?.points) { g.xp.lose(); hud.toast('Has perdido tu experiencia'); }
     await hud.fade(true);
@@ -172,6 +173,9 @@ export class Combat {
     g.goHome();
     this.hp = HP_MAX; this.paint();
     g.view3d.snap();
+    // (lo de donde se reaparece, a oscuras y por tandas, como al entrar: si no, al destapar había un parón de más de un
+    // segundo con la imagen parada mientras se hacía todo; ver engine.js, whenReady)
+    await g.view3d.whenReady?.(1500);
     await hud.fade(false);
     g.dying = false;
     if (why) { g.busy = false; hud.toast(`${why}${lost ? ` · Se te cayeron ${lost} monedas` : ''}`); }

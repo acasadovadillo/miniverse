@@ -258,9 +258,9 @@ export class Live {
   serverTp(m) {
     const g = this.game;
     if (!this.joined || !g.player || Profile.server) return;
-    if (m.home) { if (g.teleportHome()) hud.toast('El servidor te ha llevado a casa'); return; }
+    if (m.home) { if (g.teleportHome(true)) hud.toast('El servidor te ha llevado a casa'); return; }
     const to = String(m.to || '').toLowerCase(), peer = this.others.find(p => p.playing && p.id === to);
-    if (peer?.entity && peer.sc === 'world' && g.teleport(peer.entity.x, peer.entity.y)) hud.toast(`El servidor te ha llevado adonde está ${peer.name}`);
+    if (peer?.entity && peer.sc === 'world' && g.teleport(peer.entity.x, peer.entity.y, true)) hud.toast(`El servidor te ha llevado adonde está ${peer.name}`);
   }
   // Una copia del mundo (ya cifrada con la clave del mundo: el servidor no puede abrirla) para que la guarde
   // name: una copia fija con ese nombre (solo el mundo del servidor: /backup, antes de /update y de /restore), que el

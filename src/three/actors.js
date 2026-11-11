@@ -52,6 +52,7 @@ const BRAZA = {
 // dentro y la cabeza fuera); y lo que queda, como poco, sobre el fondo (tumbado o de pie)
 const SWIM_HIP = { stroke: 0.14, tread: 0.46 }, SWIM_BED = { stroke: 0.38, tread: 0.75 };
 const BUILD_MS = 6;      // lo que se puede ir en hacer modelos nuevos en un fotograma
+const WAIT_NEAR = 30;    // m: las personas por hacer más cerca que esto se esperan a oscuras al entrar o en un salto
 // Las personas, según lo que miden en pantalla (px de alto, en píxeles CSS: no le afecta la resolución automática). Con la
 // cámara de siempre (fov 30, 22 m) una persona mide unos 2 260/d px: a todo hasta unos 25 m, a 30 Hz hasta unos 56 m y a
 // 15 Hz más allá; de lejos (LOD1, sin dedos ni ojos) desde unos 38 m, y vuelve a cerca por debajo de unos 31 m. Las
@@ -140,11 +141,15 @@ export class Actors {
     }
     // Las personas que faltan: de cerca a lejos, sin pasar de BUILD_MS por fotograma (al menos una cada vez). Así, al
     // llegar a un sitio con mucha gente, no se para todo de golpe y la de al lado sale la primera
+    // (waitNear: las que quedan por hacer cerca del jugador; al entrar o en un salto, whenReady espera a que estén, para no
+    // destapar con un tirón por persona justo después: ver engine.js)
+    this.waitNear = 0;
     if (wait.length) {
-      if (p) { const d = e => Math.hypot((scene.kind === 'world' ? nearX(e.x, p.x) : e.x) - p.x, e.y - p.y); wait.sort((a, b) => d(a) - d(b)); }
+      const d = p ? e => Math.hypot((scene.kind === 'world' ? nearX(e.x, p.x) : e.x) - p.x, e.y - p.y) : () => 0;
+      if (p) wait.sort((a, b) => d(a) - d(b));
       const t0 = performance.now();
       for (const e of wait) {
-        if (e !== wait[0] && performance.now() - t0 > BUILD_MS) break;
+        if (e !== wait[0] && performance.now() - t0 > BUILD_MS) { if (d(e) < WAIT_NEAR) this.waitNear++; continue; }
         const m = this.add(e, false, e.look);
         if (m) this.place(m, e, scene, dt, t, p, game);
       }
@@ -260,7 +265,9 @@ export class Actors {
     if (!this.warm.length) return;
     // (una que haya que hacer de verdad: las que ya están hechas no cuestan nada)
     const one = () => { for (let it; (it = this.warm.shift());) { try { if (prebuildReal(it[0], it[1])) return; } catch (err) { /* (la hará al verla) */ } } };
-    if (typeof document !== 'undefined' && document.getElementById('fade')?.classList.contains('on')) { one(); return; }
+    // (a oscuras, solo en un rato libre: mientras se espera a algo que no es este hilo; ver engine.js, coverSpare. Si no, cada
+    // persona alargaba lo que se está a oscuras al entrar 0,3-0,4 s)
+    if (typeof document !== 'undefined' && document.getElementById('fade')?.classList.contains('on')) { if (this.view.coverSpare?.() ?? true) one(); return; }
     if (this.warmIdle || typeof requestIdleCallback !== 'function') return;
     this.warmIdle = true;
     requestIdleCallback(dl => { this.warmIdle = false; if (dl.timeRemaining() > 40) one(); });

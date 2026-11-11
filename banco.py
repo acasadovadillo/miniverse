@@ -19,6 +19,12 @@
 #   python3 banco.py --mismo-perfil       el mismo perfil de Chrome en todas las vueltas (como recargar la página: la
 #                                         primera vuelta, con lo guardado vacío; las demás, con el relieve guardado)
 #
+# Se entra como en el juego (a oscuras hasta que la vista está lista) y cada parada lejos es un /tp de los de verdad. La
+# tabla «Parones al llegar» da, por parada, el peor fotograma, el peor de los que se ven (sin el fundido a negro delante:
+# el parón que nota el jugador) y lo que se ha estado a oscuras, y cuánto se tarda en destapar al entrar. Las paradas
+# mapa y pausa miden un fotograma con el mapa grande o la pausa delante, y al final se mide cuánto se dibuja sin el
+# foco (sinfoco).
+#
 # Guarda las cifras (resultados.json) y las capturas en .banco/<fecha-hora>/. No lo lances a la vez que probar.py
 # ni que otro Chrome invisible: en este Mac, varios a la vez pueden colgarlo.
 import base64
@@ -320,6 +326,7 @@ def table(runs):
                 p = next(x for x in runs[l][0]['paradas'] if x['name'] == s).get('personas')
                 if p:
                     print('    personas (del juego): ' + ', '.join(f'{k} {v}' for k, v in p.items() if isinstance(v, (int, float))))
+        stalls(runs, stops)
         print(f"\nListo en {same(l, 'arranque')} s · {same(l, 'programas')} programas · {same(l, 'texturas')} texturas ({same(l, 'vramMB')} MB en la gráfica, más {same(l, 'buferesMB')} MB de búferes) · {same(l, 'geometrias')} geometrías · {same(l, 'memoria')} MB de memoria")
         relief_line(runs, l)
         return
@@ -332,12 +339,37 @@ def table(runs):
         tb = f"{med('ahora', s, 'triangulos') / 1000:.0f}k+{med('ahora', s, 'triangulosSombra') / 1000:.0f}k"
         print(f"{s:<16}{a:>10.1f}{b:>8.1f}{(b - a) / a * 100:>+8.0f}%   {ca:>15}{cb:>12}   {ta:>17}{tb:>14}")
     warn_place(runs, stops)
+    stalls(runs, stops)
     for key, name in (('arranque', 'listo en (s)'), ('programas', 'programas'), ('texturas', 'texturas'), ('vramMB', 'texturas (MB)'), ('buferesMB', 'búferes (MB)'), ('geometrias', 'geometrías'), ('memoria', 'memoria (MB)')):
         print(f"{name:<16}{str(same('antes', key)):>10}{str(same('ahora', key)):>10}")
     for l in ('antes', 'ahora'):
         relief_line(runs, l)
     if '--desglose' in sys.argv:
         compare_breakdown(runs, stops)
+
+
+def stalls(runs, stops):
+    # Los parones al llegar a cada parada (la primera, al entrar en la partida; las demás, un /tp): el peor fotograma, el peor
+    # de los que se ven (sin el fundido a negro delante: el que nota el jugador) y cuánto se ha estado a oscuras; y al entrar,
+    # cuánto hasta destapar. Y, si se ha medido, lo que se dibuja sin el foco
+    labels = [l for l in ('antes', 'ahora') if runs.get(l)]
+
+    def med(label, stop, key):
+        vals = [s.get(key) for r in runs[label] for s in r['paradas'] if s['name'] == stop and s.get(key) is not None]
+        return median(vals) if vals else None
+    num = lambda x: '-' if x is None else f'{x:g}'
+    print('\nParones al llegar (ms; peor / peor visto / s a oscuras)' + ('  antes → ahora' if len(labels) > 1 else ''))
+    for st in stops:
+        cells = [f"{num(med(l, st, 'peor'))} / {num(med(l, st, 'peorVisto'))} / {num(med(l, st, 'tapado'))}" for l in labels]
+        print(f'  {st:<16}' + '  →  '.join(cells))
+    for l in labels:
+        vals = [r.get('entrada') for r in runs[l] if r.get('entrada') is not None]
+        if vals:
+            print(f'  entrada ({l}): destapa a los {median(vals):g} s de empezar la partida')
+        sf = [r.get('sinFoco') for r in runs[l] if r.get('sinFoco')]
+        if sf:
+            c, n = sf[0]['conFoco'], sf[0]['sinFoco']
+            print(f"  sin foco ({l}): {c['dibujosPorSegundo']} → {n['dibujosPorSegundo']} dibujos por segundo, dibujar {c['msDibujoPorSegundo']} → {n['msDibujoPorSegundo']} ms de cada segundo")
 
 
 def relief_line(runs, label):
