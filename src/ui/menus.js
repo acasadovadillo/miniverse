@@ -140,10 +140,12 @@ export function initMenus(game) {
   // lo lleva lo guarda para todos.
   async function enter() {
     const b = $('m-continue'), solo = { save: currentSave, deltas: new Map(Profile.data.deltas) };
+    // (con una versión vieja no se entra a tocar el mundo de todos: ver version.js. Se mira también tras cada espera: el
+    // saludo de un juego más nuevo puede llegar mientras)
+    const stale = () => { if (live.newer === null) return false; live.unclaim(); $('menu-msg').textContent = ''; outdatedNotice(live.newer); return true; };
     b.disabled = true;
     try {
-      // (con una versión vieja no se entra a tocar el mundo de todos: ver version.js)
-      if (live.newer !== null) { outdatedNotice(live.newer); return; }
+      if (stale()) return;
       $('menu-msg').textContent = 'Mirando si hay una versión nueva…';
       const pub = await publishedNewer(PUBLISHED_FRESH);
       if (pub) { $('menu-msg').textContent = ''; outdatedNotice(pub, true); return; }
@@ -154,13 +156,16 @@ export function initMenus(game) {
       if (on && live.status !== 'on') throw new Error(live.error || 'Se ha cortado la conexión con el servidor.');   // (te han echado o vetado mientras)
       if (on && live.host?.playing) {
         $('menu-msg').textContent = live.host.server ? 'Entrando en el mundo…' : `Entrando en el mundo con ${live.host.name}…`;
-        const { save, deltas } = live.enter(solo, await live.requestWorld());
+        const world = await live.requestWorld();
+        if (stale()) return;
+        const { save, deltas } = live.enter(solo, world);
         play(save, deltas, solo, 'guest');
         return;
       }
       $('menu-msg').textContent = 'Abriendo el mundo…';
       const world = await sharedWorld(solo);
       if (on && live.status !== 'on') throw new Error(live.error || 'Se ha cortado la conexión con el servidor.');
+      if (stale()) return;
       if (world) { const { save, deltas } = live.enter(solo, world); play(save, deltas, Profile.admin ? null : solo, on ? 'host' : null); }
       else { live.extraShared = {}; play(currentSave, solo.deltas, null, on ? 'host' : null); }   // (el admin, con el mundo de su partida)
     } catch (e) { live.unclaim(); $('menu-msg').textContent = e.message; } finally { if (!game.player) { b.disabled = false; paintLive(); } }

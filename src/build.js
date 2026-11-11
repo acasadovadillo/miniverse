@@ -218,7 +218,8 @@ export class BuildMode {
       for (const o of [...c.objects, ...c.flats]) {
         if ((!o.placed && !o.unknown) || !o.tile || !o.layer || Math.abs(o.x - p.x) > PICK_NEAR || Math.abs(o.y - p.y) > PICK_NEAR) continue;
         const [tx, ty] = o.tile;
-        if (o.unknown) add(o, { ...o.obb, y0: 0, y1: 0.75 });   // (la caja con «?»: se apunta, para decir que no se quita)
+        // (lo de una versión más nueva, con «?»: se apunta, para decir que no se quita)
+        if (o.unknown) add(o, o.layer === 'hang' ? box(o.x, o.y, 0.45, 0.45, 0.9, 2) : o.layer === 'rug' ? { ...aabb(o.fx[0], o.fy[0], o.fx[1], o.fy[1]), y0: 0, y1: 0.08 } : { ...o.obb, y0: 0, y1: 0.75 });
         else if (o.layer === 'roof') {
           if (hidden(tx, ty, 'roof')) continue;   // (desde dentro no se ve)
           add(o, box(tx + 0.5, ty + 0.5, 0.5, 0.5, WALL_H, WALL_H + ROOF.thick + ROOF.level * ((sc.roofGeometry?.(tx, ty, memo)?.h.c ?? 0) + 0.5)));

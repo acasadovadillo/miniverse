@@ -765,8 +765,8 @@ export class Overworld {
     };
     // Lo fijo no pisa lo que haya puesto el jugador en la misma casilla y capa
     const taken = (layer, t) => { if (!fixed) return false; const [tx, ty] = t.split(',').map(Number); return this.ownAt(layer, tx, ty) || this.fixedGone(tx, ty, layer); };
-    // (lo de una versión más nueva que no se conoce: los cuadros y las alfombras no se dibujan; los objetos, como una caja
-    // con «?» (ver unknownObject); los suelos y los tejados, como los de madera y los rojos: ver build3d.js)
+    // (lo de una versión más nueva que no se conoce: los objetos, como una caja con «?» (ver unknownObject); los cuadros y
+    // las alfombras, como un tablón con «?»; los suelos y los tejados, como los de madera y los rojos: ver build3d.js)
     const known = id => fixed || !!PIECES[id] || !!ITEMS[id];
     for (const [t, id] of Object.entries(src.floor || {})) {
       if (taken('floor', t)) continue;
@@ -839,16 +839,20 @@ export class Overworld {
       objects.push(o);
     }
     // Los cuadros: colgados del muro de detrás; no chocan (debajo puede haber un mueble)
+    // (lo de una versión más nueva: un tablón con «?» colgado como un cuadro, que se apunta para decir qué es)
     for (const [t, raw] of Object.entries(src.hang || {})) {
-      if (taken('hang', t) || !known(parsePlaced(raw)[0])) continue;
-      const [id, rot] = parsePlaced(raw), o = base(t, 'hang', id), [sx, sy] = this.wallShift(id, ...o.tile, rot);
+      if (taken('hang', t)) continue;
+      const [id, rot] = parsePlaced(raw), o = base(t, 'hang', id), [sx, sy] = this.wallShift(known(id) ? id : 'cuadro_valle', ...o.tile, rot);
       o.x += sx; o.y += sy; o.rot = rot;
+      if (!known(id)) Object.assign(o, { placed: undefined, unknown: id, model: 'unknown_hang' });
       flats.push(o);
     }
     // Las alfombras, del tamaño elegido (su "giro") alrededor de su casilla; tampoco chocan (encima van los muebles)
     for (const [t, raw] of Object.entries(src.rug || {})) {
-      if (taken('rug', t) || !known(parsePlaced(raw)[0])) continue;
+      if (taken('rug', t)) continue;
       const [id, k] = parsePlaced(raw), o = base(t, 'rug', id), r = rugRect(...o.tile, k), fp = src.pos?.[o.key];
+      // (lo de una versión más nueva: un tablón plano con «?» en medio de lo que ocupa, que se apunta para decir qué es)
+      if (!known(id)) { const [x, y, yaw] = fp || [r.x0 + r.w / 2, r.y0 + r.h / 2, 0]; Object.assign(o, { x, y, yaw, placed: undefined, unknown: id, model: 'unknown_rug', fx: [r.x0, r.x0 + r.w], fy: [r.y0, r.y0 + r.h] }); flats.push(o); continue; }
       Object.assign(o, { x: r.x0 + r.w / 2, y: r.y0 + r.h / 2, rug: r, model: `rug:${id}:${r.w}x${r.h}`, fx: [r.x0, r.x0 + r.w], fy: [r.y0, r.y0 + r.h] });
       if (fp) { Object.assign(o, { x: fp[0], y: fp[1], yaw: fp[2], free: true, fx: null, fy: null }); o.obb = obb(fp[0], fp[1], r.w / 2 - 0.06, r.h / 2 - 0.06, fp[2]); }   // (libre: donde se puso, girada)
       flats.push(o);

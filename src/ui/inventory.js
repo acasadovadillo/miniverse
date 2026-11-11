@@ -154,8 +154,9 @@ export function initInventoryUI(game, { onClose, onCraft }) {
     const worn = picked?.wear, s = worn ? inv.equip[worn] && { ...inv.equip[worn], n: 1 } : picked !== null && inv.slots[picked], def = s && ITEMS[s.id];
     $('inv-info').classList.toggle('empty', !s);
     // (lo apartado de una versión más nueva del juego no se ve: se dice que está, para que nadie crea que lo ha perdido)
-    const kept = inv.kept.length + Object.keys(inv.keptEquip).length;
-    if (!s) { $('inv-name').textContent = 'Toca un objeto para ver qué es'; say('Arrástralo para moverlo, o a tu cuerpo para ponértelo. Suéltalo fuera para tirarlo.' + (kept ? ` Además guardas ${kept === 1 ? 'una cosa' : `${kept} cosas`} de una versión más nueva del juego: recarga la página para ${kept === 1 ? 'verla' : 'verlas'}.` : '')); return; }
+    // (y lo que sí se conoce pero no cupo al cargar: espera aparte y vuelve a la mochila al guardar, si hay sitio)
+    const newer = inv.kept.filter(e => !ITEMS[e.s.id]).length, kept = newer + Object.keys(inv.keptEquip).length, wait = inv.kept.length - newer;
+    if (!s) { $('inv-name').textContent = 'Toca un objeto para ver qué es'; say('Arrástralo para moverlo, o a tu cuerpo para ponértelo. Suéltalo fuera para tirarlo.' + (kept ? ` Además guardas ${kept === 1 ? 'una cosa' : `${kept} cosas`} de una versión más nueva del juego: recarga la página para ${kept === 1 ? 'verla' : 'verlas'}.` : '') + (wait ? ` ${wait === 1 ? 'Una cosa que no te cabía espera' : `${wait} cosas que no te cabían esperan`} aparte: haz sitio y ${wait === 1 ? 'vuelve' : 'vuelven'} a la mochila la próxima vez que entres.` : '')); return; }
     $('inv-icon').src = itemIconUrl(s.id, s.color);
     $('inv-name').textContent = def.name + (s.n > 1 ? ` ×${s.n}` : '') + (worn ? ' (puesto)' : '');
     say(def.desc + (def.food ? ` ${hungerText(def)}` : ''));
@@ -211,7 +212,7 @@ export function initInventoryUI(game, { onClose, onCraft }) {
     const inv = game.inv, worn = picked?.wear, s = worn ? inv.equip[worn] : typeof picked === 'number' ? inv.slots[picked] : null;
     if (!game.admin || !s) return;
     if (worn === 'espalda' && inv.slots.slice(HOTBAR).some(Boolean)) { say('Vacía la mochila antes de eliminarla.'); return; }
-    if (worn) delete inv.equip[worn]; else inv.slots[picked] = null;
+    if (worn) { delete inv.equip[worn]; if (worn === 'espalda') inv.unbag(); } else inv.slots[picked] = null;
     inv.changed();
     picked = null;
     refresh();

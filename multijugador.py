@@ -15,13 +15,15 @@
 #   --datos <carpeta>                    dónde guardar los op, los vetos, las copias… (por omisión, junto a este archivo)
 #   --sin-navegador                      no abrir el juego en el navegador (lo que habría que abrir sale en el terminal)
 #   --codigo <rama|commit>|trabajo       el código del mundo del servidor (por omisión, origin/main: lo publicado)
+#   --update-a-mano                      no pasar solo el mundo del servidor a lo publicado (solo con /update)
 #
 # Además abre el mundo del servidor: el mismo juego en un Chrome invisible (sin dibujo ni jugador visible) que lleva
 # el mundo compartido mientras esto esté abierto, aunque no juegue nadie, como un servidor de Minecraft: hace pasar
 # la hora y crecer los cultivos, reparte los cambios, no deja los que no tocan y lo guarda (cifrado). Ese juego lo
 # sirve este programa solo para este ordenador (http://127.0.0.1:8791), y no desde esta carpeta, donde se edita, sino
-# desde una copia fija de lo publicado (origin/main) en .publicado/: al arrancar y con /update, que la renueva y vuelve
-# a abrir el mundo del servidor (guardando antes). Así, si su Chrome se reinicia, nunca corre código a medias. Para llevar el mundo
+# desde una copia fija de lo publicado (origin/main) en .publicado/: al arrancar, solo en cuanto se publica una versión
+# nueva (cuando la web ya la tiene) y con /update, que la renuevan y vuelven a abrir el mundo del servidor (guardando
+# antes). Así, si su Chrome se reinicia, nunca corre código a medias. Para llevar el mundo
 # necesita la clave del mundo y el token del admin para guardarlo en GitHub: se los da el juego del admin la primera
 # vez que entra con la pestaña que se abre (o tras /link), siempre dentro de este ordenador (nunca por el
 # túnel), y quedan en servidor-secretos.json, junto a los op.
@@ -73,6 +75,7 @@ HERE = os.path.realpath(os.path.dirname(os.path.abspath(__file__)))   # (el jueg
 DATA = os.path.abspath(option('--datos', HERE))
 os.makedirs(DATA, exist_ok=True)
 CODE = option('--codigo', 'origin/main')   # lo que corre el mundo del servidor ('trabajo': esta carpeta, tal cual)
+AUTO_UPDATE = CODE != 'trabajo' and '--update-a-mano' not in sys.argv   # (pasarlo solo a lo publicado: ver watch_published)
 PUBLISHED = os.path.join(DATA, '.publicado')   # las copias fijas de ese código, una carpeta por commit (ver publish_copy)
 OPS_FILE, BANS_FILE, WHITE_FILE = (os.path.join(DATA, n) for n in ('ops.json', 'banned.json', 'whitelist.json'))
 BACKUPS = os.path.join(DATA, 'backups')
@@ -124,9 +127,12 @@ code_dir = None      # la copia de lo publicado que se sirve ahora (su carpeta e
 code_note = ''       # qué código es, para el terminal
 versions = {}        # número de conexión → la versión del juego que dice (al servidor, en ident; '' si no la dice: de antes)
 server_version = None   # la del mundo del servidor (en su pase); None si no la dice o no está
+server_ready = False    # (si ya tiene el mundo en marcha: antes no se echa a nadie, ver reference_version)
 told_newer = set()   # (las versiones más nuevas que la del mundo del servidor de las que ya se ha avisado)
 restart_pending = None  # (/update: esperando a que el mundo del servidor guarde para cerrarlo)
 OUTDATED = 'Hay una versión nueva del juego: recarga la página.'
+VERSION_RE = re.compile(r'<meta name="miniverse-version" content="([^"]+)"')
+WATCH_EVERY = 60     # segundos: cada cuánto se mira si se ha publicado algo nuevo (ver watch_published)
 
 
 def version_key(v):
@@ -164,7 +170,7 @@ def publish_copy():
                     t.extractall(tmp)
             os.replace(tmp, target)
         with open(os.path.join(target, 'index.html'), encoding='utf-8') as f:
-            found = re.search(r'<meta name="miniverse-version" content="([^"]+)"', f.read())
+            found = VERSION_RE.search(f.read())
         changed = code_dir != short
         code_dir, code_note = short, f'lo publicado ({CODE}: {short[:7]}, versión {found.group(1) if found else "?"})'
         return changed
@@ -178,8 +184,31 @@ def publish_copy():
         return False
 
 
+def target_code():
+    # Lo publicado ahora (CODE): (su commit corto, su versión). Sin git o sin ese commit, None
+    try:
+        sha = git('rev-parse', '--verify', CODE + '^{commit}').decode().strip()
+        found = VERSION_RE.search(git('show', f'{sha}:index.html').decode('utf-8', 'replace'))
+        return sha[:12], found.group(1) if found else ''
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+
+def web_version():
+    # La versión que tiene ahora la web (GitHub Pages, GAME): tarda un minuto o dos en tener lo que se acaba de subir con
+    # git push, y los que recargan la página antes siguen con la de antes. None si no se sabe
+    try:
+        url = f'{GAME.rstrip("/")}/index.html?version={int(time.time())}'
+        with urllib.request.urlopen(urllib.request.Request(url, headers={'User-Agent': 'Miniverse', 'Cache-Control': 'no-cache'}), timeout=10) as r:
+            found = VERSION_RE.search(r.read(400000).decode('utf-8', 'replace'))
+        return found.group(1) if found else None
+    except Exception:
+        return None
+
+
 def tidy_copies():
-    # Quita de .publicado/ las copias que ya no se usan (la de ahora se queda)
+    # Quita de .publicado/ las copias que ya no se usan (la de ahora se queda). Solo al arrancar: una pestaña abierta
+    # antes de /update (la de dar las claves) sigue leyendo la suya
     if not os.path.isdir(PUBLISHED):
         return
     for n in os.listdir(PUBLISHED):
@@ -282,23 +311,40 @@ async def check_ident(peer_id):
         kick(peer_id, 'Este servidor tiene lista blanca: actualiza el juego (recarga la página).')
 
 
+def reference_version():
+    # Con qué versión se compara a quien está conectado: la del mundo del servidor, pero solo cuando ya tiene el mundo en
+    # marcha (dice ready): mientras se abre, quien llevaba el mundo (con la versión de antes, tras /update) se lo tiene que
+    # poder dar, con lo hecho mientras tanto. Sin mundo del servidor (--sin-mundo, sin claves, sin Chrome), la más nueva
+    # de las que dicen los juegos conectados: un juego de antes que no sabe de versiones no se entera de otra forma
+    if servers or (world_task and not world_task.done()):
+        return server_version if servers and server_ready else None
+    return max((versions.get(p, '') for p in users if p not in local), key=version_key, default='') or None
+
+
 def check_version(peer_id):
-    # Con el mundo del servidor abierto (y si dice su versión), un juego con una versión más vieja no se queda: no puede
-    # tocar el mundo con código viejo (los de antes de que se mandara la versión, tampoco). Se le dice que recargue (su
-    # juego lo enseña, también los de antes). Uno con una más nueva sí entra, y aquí se avisa de que hay que hacer /update.
-    # (lo de este ordenador, no: la pestaña de dar las claves es de la copia del servidor; el juego también lo comprueba)
-    if server_version is None or peer_id in servers or peer_id in local or peer_id not in users:
+    # Un juego con una versión más vieja no se queda: no puede tocar el mundo con código viejo (los de antes de que se
+    # mandara la versión, tampoco). Se le dice que recargue (su juego lo enseña, también los de antes). Uno con una más
+    # nueva que el mundo del servidor sí entra, y aquí se dice (el mundo del servidor pasa a ella al publicarse: ver
+    # watch_published). (Lo de este ordenador, no: la pestaña de dar las claves es de la copia del servidor)
+    ref = reference_version()
+    if ref is None or peer_id in servers or peer_id in local or peer_id not in users:
         return
     v, who = versions.get(peer_id, ''), users[peer_id]
-    if version_key(v) < version_key(server_version):
-        print(f'  ! {who} tiene una versión anterior del juego ({v or "sin número"}; el mundo del servidor, {server_version}): fuera hasta que recargue la página')
-        send(peer_id, {'t': 'kicked', 'reason': OUTDATED, 'outdated': True, 'v': server_version})
+    if version_key(v) < version_key(ref):
+        print(f'  ! {who} tiene una versión anterior del juego ({v or "sin número"}; {"el mundo del servidor" if servers else "otro juego"}, {ref}): fuera hasta que recargue la página')
+        send(peer_id, {'t': 'kicked', 'reason': OUTDATED, 'outdated': True, 'v': ref})
         w = peers.get(peer_id)
         if w:
             w.close()
-    elif version_key(v) > version_key(server_version) and v not in told_newer:
+    elif servers and version_key(v) > version_key(server_version) and v not in told_newer:
         told_newer.add(v)
-        print(f'  ! {who} tiene una versión más nueva del juego ({v}) que el mundo del servidor ({server_version}): escribe /update')
+        print(f'  ! {who} tiene una versión más nueva del juego ({v}) que el mundo del servidor ({server_version}): '
+              + ('se pasará solo a ella en cuanto esté publicada (o escribe /update)' if AUTO_UPDATE else 'escribe /update'))
+
+
+def check_all():
+    for p in list(users):
+        check_version(p)
 
 
 def backup(data):
@@ -322,7 +368,7 @@ def backup(data):
 
 
 async def handle(reader, writer):
-    global next_id, server_version
+    global next_id, server_version, server_ready
     # La petición: el WebSocket del juego o una visita normal (para comprobar que el servidor está en marcha)
     try:
         head = await asyncio.wait_for(reader.readuntil(b'\r\n\r\n'), 10)
@@ -374,7 +420,7 @@ async def handle(reader, writer):
                     kick(me, why)
                 elif first:
                     print(f'  + {user} ha entrado')
-                    check_version(me)
+                    check_all()   # (sin mundo del servidor, uno más nuevo deja fuera a los demás: ver reference_version)
                 continue
             if msg.get('t') == 'backup' and me in users and isinstance(msg.get('d'), str):
                 backup(msg['d'])
@@ -386,8 +432,7 @@ async def handle(reader, writer):
                 servers.add(me)
                 users[me] = 'servidor'
                 server_version = msg['v'][:32] if isinstance(msg.get('v'), str) and msg['v'] else None
-                for p in list(users):   # (los que ya estaban: con su versión, ¿pueden seguir?)
-                    check_version(p)
+                server_ready = False   # (a los que ya estaban se les mira al tener el mundo en marcha: ready)
                 send(me, {'t': 'secretos', **(world_keys or {}), 'tunnel': tunnel_url})
                 if first:
                     print('  + El mundo del servidor está conectado')
@@ -403,6 +448,12 @@ async def handle(reader, writer):
                 continue
             if msg.get('t') == 'log' and me in servers and isinstance(msg.get('text'), str):
                 print(f'  [mundo] {msg["text"][:300]}')
+                continue
+            if msg.get('t') == 'ready' and me in servers:
+                # (el mundo del servidor ya tiene el mundo: los que ya estaban, con su versión, ¿pueden seguir? Al rato,
+                # para que quien se lo ha dado tenga tiempo de guardar lo suyo)
+                server_ready = True
+                asyncio.get_running_loop().call_later(5, check_all)
                 continue
             if msg.get('t') == 'saved' and me in servers and restart_pending and not stop_asked_at:
                 close_world()   # (/update: ya ha guardado; se abre solo otra vez, con el código nuevo)
@@ -436,7 +487,7 @@ async def handle(reader, writer):
         writer.close()
         if was_server:
             if not servers:
-                server_version = None
+                server_version, server_ready = None, False
             print('  - El mundo del servidor se ha desconectado')
             everyone({'t': 'servers', 'ids': sorted(servers)})
         else:
@@ -511,7 +562,8 @@ HELP = '''  Comandos del servidor:
     ejecuta el mundo del servidor, que es op (tiene que estar abierto)
     /save-all                                 que todos guarden ya (quien lleva el mundo, también el mundo)
     /world                                    cómo está el mundo del servidor (y con qué código)
-    /update                                   tras publicar: el mundo del servidor pasa a lo publicado (guarda antes)
+    /update [ya]                              el mundo del servidor pasa a lo publicado (guarda antes; lo hace solo al
+                                              publicar, si no es con --update-a-mano; ya: sin esperar a que lo tenga la web)
     /link                                     pedir otra vez las claves del mundo al juego del admin (5 minutos)
     /stop                                     guardar y cerrar el servidor (también con Ctrl+C)
     /help                                     esta lista'''
@@ -556,9 +608,11 @@ async def web(reader, writer):
         path = unquote(target.split('?')[0]).lstrip('/')
         root, extra = HERE, ''
         first, _, rest = path.partition('/')
-        if code_dir and re.fullmatch(r'[0-9a-f]{7,40}', first) and os.path.isdir(os.path.join(PUBLISHED, first)):
+        commit = re.fullmatch(r'[0-9a-f]{7,40}', first)
+        if code_dir and commit and os.path.isdir(os.path.join(PUBLISHED, first)):
             root, path = os.path.realpath(os.path.join(PUBLISHED, first)), rest
-        elif code_dir and not path:   # (la dirección de siempre, sin commit: a la copia de ahora)
+        elif code_dir and (path in ('', 'index.html') or (commit and rest in ('', 'index.html'))):
+            # (la dirección de siempre, sin commit, o la de una copia que ya no está: a la página de la copia de ahora)
             extra = f'Location: /{code_dir}/{"?" + target.split("?", 1)[1] if "?" in target else ""}\r\n'
         elif code_dir:
             root = None
@@ -629,10 +683,23 @@ def start_world():
     world_task = asyncio.get_running_loop().create_task(world_loop())
 
 
-async def update_code():
+async def update_code(force=False):
     # /update: renueva la copia de lo publicado y, si es otra, vuelve a abrir el mundo del servidor con ella (guardando
-    # antes: se lo pide y, cuando dice que ya ha guardado, o como mucho al rato, se cierra; world_loop lo abre otra vez)
+    # antes: se lo pide y, cuando dice que ya ha guardado, o como mucho al rato, se cierra; world_loop lo abre otra vez).
+    # Antes mira que la web ya tenga esa versión (GitHub Pages tarda un minuto o dos tras el push): si no, los que
+    # recargan seguirían con la de antes y el servidor los echaría por viejos. Si no la tiene, lo hace solo cuando la
+    # tenga (watch_published); force (/update ya): sin mirar
     global restart_pending
+    if restart_pending:
+        print('  El mundo del servidor ya está pasando al código nuevo: un momento')
+        return
+    target = None if force or CODE == 'trabajo' else await asyncio.to_thread(target_code)
+    if target and target[0] != code_dir:
+        web = await asyncio.to_thread(web_version)
+        if web is None or version_key(web) < version_key(target[1]):
+            print(f'  La web todavía no tiene la versión {target[1] or "nueva"} ({"no responde" if web is None else f"tiene la {web}"}): GitHub Pages tarda un minuto o dos tras publicar. '
+                  + ('Lo hago yo solo en cuanto la tenga' if AUTO_UPDATE else 'Vuelve a escribir /update en un rato') + ' (o /update ya, sin esperar)')
+            return
     changed = await asyncio.to_thread(publish_copy)
     if not changed:
         print(f'  El mundo del servidor ya tiene {code_note}' + ('' if CODE == 'trabajo' else f'. (¿Has publicado? Se toma de {CODE}: lo que se ha subido con git push desde esta carpeta)'))
@@ -655,7 +722,23 @@ def close_world():
     restart_pending = None
     if chrome and chrome.returncode is None:
         chrome.terminate()   # (world_loop lo vuelve a abrir en 5 segundos, ya con la copia nueva)
-    asyncio.get_running_loop().call_later(30, tidy_copies)   # (la de antes ya no la lee nadie)
+
+
+async def watch_published():
+    # Tras publicar (git push desde esta carpeta, que mueve origin/main), el mundo del servidor pasa solo a lo publicado
+    # en cuanto la web lo tiene, como con /update: así no sigue llevando el mundo con el código de antes mientras entran
+    # los que ya tienen el nuevo. Cada minuto mira el commit (barato, sin red); la web, solo si hay uno nuevo
+    while not stopping.is_set():
+        await asyncio.sleep(WATCH_EVERY)
+        if restart_pending or not code_dir:
+            continue
+        target = await asyncio.to_thread(target_code)
+        if not target or target[0] == code_dir:
+            continue
+        web = await asyncio.to_thread(web_version)
+        if web is not None and version_key(web) >= version_key(target[1]):
+            print(f'  Se ha publicado la versión {target[1] or "nueva"}: paso el mundo del servidor a ella (como /update)')
+            await update_code(force=True)
 
 
 def conns_of(user):
@@ -781,7 +864,7 @@ def command(line):
         state = 'conectado' if servers else 'abriéndose' if chrome and chrome.returncode is None else 'cerrado'
         print(f'  Mundo del servidor: {state}' + ('' if world_keys else ' (sin claves: que entre el admin)') + f', con {code_note}')
     elif name == 'update':
-        asyncio.get_running_loop().create_task(update_code())
+        asyncio.get_running_loop().create_task(update_code(force=user == 'ya'))
     elif name == 'link':
         global link_until
         link_until = time.time() + 300
@@ -849,10 +932,12 @@ async def main():
     server = await asyncio.start_server(handle, '127.0.0.1', PORT)
     site = await asyncio.start_server(web, '127.0.0.1', WEB_PORT)
     print(f'Servidor de Miniverse para jugar juntos, en el puerto {PORT}.')
-    if '--sin-mundo' not in sys.argv:
-        publish_copy()
-        tidy_copies()
-        print(f'El mundo del servidor usa {code_note}. Tras publicar una versión nueva, escribe /update.')
+    publish_copy()
+    tidy_copies()
+    print(f'El mundo del servidor usa {code_note}. '
+          + ('Al publicar una versión nueva, pasa solo a ella en cuanto la tenga la web (o con /update).' if AUTO_UPDATE else 'Tras publicar una versión nueva, escribe /update.'))
+    if AUTO_UPDATE:
+        asyncio.get_running_loop().create_task(watch_published())
     print(f'Escribe aquí los comandos del servidor (/help para verlos). Op ahora: {", ".join(sorted(ops)) or "nadie"}.')
     threading.Thread(target=console, args=(asyncio.get_running_loop(),), daemon=True).start()
     asyncio.get_running_loop().add_signal_handler(signal.SIGINT, stop_signal)

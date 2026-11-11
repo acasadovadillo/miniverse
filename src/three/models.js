@@ -205,6 +205,17 @@ const BUILD = {
       m.box('gold', R, y0, -a - P, R + E, y1, -a).box('gold', -R - E, y0, a, -R, y1, a + P);
     }));
   },
+  // (un cuadro o una alfombra de una versión más nueva: un tablón con el «?», colgado del muro o plano en el suelo)
+  unknown_hang(m) {
+    const R = 0.3, y1 = 1.78, P = 0.07, z = -0.02;
+    m.box('wood', -R, y1 - 0.62, -0.05, R, y1, z);
+    QUESTION.forEach((row, v) => [...row].forEach((ch, u) => { if (ch === '#') m.box('gold', -2.5 * P + u * P, y1 - 0.07 - (v + 1) * P, z, -2.5 * P + (u + 1) * P, y1 - 0.07 - v * P, z + 0.012); }));
+  },
+  unknown_rug(m) {
+    const R = 0.42, P = 0.07, y = FLOOR_H + 0.03;
+    m.box('wood', -R, FLOOR_H, -R, R, y, R);
+    QUESTION.forEach((row, v) => [...row].forEach((ch, u) => { if (ch === '#') m.box('gold', -2.5 * P + u * P, y, -3.5 * P + v * P, -2.5 * P + (u + 1) * P, y + 0.006, -3.5 * P + (v + 1) * P); }));
+  },
   cama(m) {
     const L = 1.9, W = 0.98, z0 = -0.46, z1 = z0 + L;
     m.box('dark', -W / 2, 0, z0, -W / 2 + 0.08, 1.0, z0 + 0.08).box('dark', W / 2 - 0.08, 0, z0, W / 2, 1.0, z0 + 0.08).box('wood', -W / 2 + 0.08, 0.35, z0 + 0.01, W / 2 - 0.08, 0.92, z0 + 0.07);

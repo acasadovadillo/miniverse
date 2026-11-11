@@ -57,6 +57,9 @@ export async function runServer() {
   live.join(null, 'host');
   game.runHeadless();
   log(`El mundo está en marcha (${(world.deltas || []).length} trozos con cambios).`);
+  // (al servidor: ya lleva el mundo. Hasta ahora no echa a los juegos con una versión más vieja, para que quien lo llevaba
+  // se lo haya podido dar: ver reference_version en multijugador.py. Un servidor de antes no lo conoce y no hace nada)
+  live.net?.sendServer({ t: 'ready' });
 
   // Guardar: cada minuto y cuando lo pide el servidor (/save-all, /stop); y una copia para él cada vez que se sube
   const save = upload => Profile.storeWorld(live.worldOf(game.snapshot(), game.world.deltas), { upload });

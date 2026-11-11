@@ -19,14 +19,15 @@ export class Inventory {
     // keep: lo que la última vez no tuvo sitio donde volver
     this.kept = [];
     this.slots.forEach((s, i) => { if (s && !ITEMS[s.id]) { this.kept.push({ i, s }); this.slots[i] = null; } });
-    for (const s of Array.isArray(data?.keep) ? data.keep : []) {
-      if (!s?.id) continue;
-      const free = ITEMS[s.id] ? this.slots.findIndex(x => !x) : -1;
-      if (free >= 0) this.slots[free] = { ...s }; else this.kept.push({ i: -1, s: { ...s } });
-    }
     this.selected = data?.selected ?? 0;
     this.equip = Object.fromEntries(Object.entries(data?.equip || {}).filter(([, v]) => v && ITEMS[v.id]));
     this.keptEquip = Object.fromEntries(Object.entries(data?.equip || {}).filter(([, v]) => v?.id && !ITEMS[v.id]));
+    // (lo de keep que ya se conoce, a una casilla que se pueda usar: sin mochila, las suyas no)
+    for (const s of Array.isArray(data?.keep) ? data.keep : []) {
+      if (!s?.id) continue;
+      const free = ITEMS[s.id] ? this.slots.findIndex((x, k) => !x && k < this.cap) : -1;
+      if (free >= 0) this.slots[free] = { ...s }; else this.kept.push({ i: -1, s: { ...s } });
+    }
     this.onChange = null;
     this.infinite = false;   // modo admin: usar o gastar algo no lo quita (moverlo, tirarlo o guardarlo sí)
     this.v = 0;              // sube con cada cambio (para saber si hay que rehacer el muñeco)
@@ -118,20 +119,24 @@ export class Inventory {
     if (free < 0) return 'No tienes un hueco libre donde guardarlo.';
     this.slots[free] = { id: it.id, n: 1, color: it.color, ...(it.dur !== undefined && { dur: it.dur }) };
     delete this.equip[slot];
+    if (slot === 'espalda') this.unbag();
     this.changed();
     return null;
   }
 
+  // Sin mochila, lo apartado que iba en sus casillas ya no tiene casilla propia (se guardaría donde no se puede usar, y
+  // una mochila que te pongas luego lo pisaría): vuelve con lo demás, a donde quepa al guardar (toSave)
+  unbag() { for (const e of this.kept) if (e.i >= HOTBAR) e.i = -1; }
   // Algo de una versión más nueva que vuelve a ti (de un cofre que se cambia de sitio, por ejemplo): se aparta con lo demás
   keepUnknown(s) { this.kept.push({ i: -1, s: { ...s } }); }
   // Lo apartado de una versión más nueva que estaba en esa casilla (para dejarlo con los demás al soltar la mochila)
   takeKept(i) { const k = this.kept.findIndex(e => e.i === i); return k < 0 ? null : this.kept.splice(k, 1)[0].s; }
 
   // wardrobe: qué ropa había cuando se guardó (2: con calcetines), para dar a las partidas de antes la que falte. Lo
-  // apartado (kept) vuelve a su casilla o, si ya está ocupada, a otra libre; si no hay ninguna, a keep
+  // apartado (kept) vuelve a su casilla o, si ya está ocupada, a otra libre que se pueda usar; si no hay ninguna, a keep
   toSave() {
-    const slots = this.slots.map(s => (s ? { ...s } : null)), equip = { ...this.equip }, keep = [];
-    for (const { i, s } of this.kept) { const j = i >= 0 && !slots[i] ? i : slots.findIndex(x => !x); if (j >= 0) slots[j] = { ...s }; else keep.push({ ...s }); }
+    const slots = this.slots.map(s => (s ? { ...s } : null)), equip = { ...this.equip }, keep = [], cap = this.cap;
+    for (const { i, s } of this.kept) { const j = i >= 0 && i < cap && !slots[i] ? i : slots.findIndex((x, k) => !x && k < cap); if (j >= 0) slots[j] = { ...s }; else keep.push({ ...s }); }
     for (const [k, it] of Object.entries(this.keptEquip)) { if (!equip[k]) equip[k] = { ...it }; else keep.push({ ...it, n: 1 }); }
     return { slots, selected: this.selected, equip, wardrobe: 2, ...(keep.length && { keep }) };
   }

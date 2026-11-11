@@ -379,6 +379,8 @@ export const hitsFor = rule => Math.max(1, Math.ceil(rule.hits / TIERS[4].power)
 // Lo de una versión más nueva del juego: un id que esta no conoce (lo ha guardado un juego más nuevo, o llega de él por
 // la red). No se usa, pero tampoco se borra: en la mochila se aparta y se vuelve a guardar (Inventory), en los cofres se
 // queda en su casilla con un «?» y no se puede sacar, y en el mundo se ve como una caja con «?» (scenes.js, addBuilt)
+// NORMA: como lo que no se conoce ya no se borra, un id que se quite del juego tiene que ir en LEGACY_ITEMS (si se cambia
+// por sus materiales) o en RETIRED (game.js); si no, se quedaría apartado para siempre como «de una versión más nueva»
 export const knownItem = id => !!ITEMS[id] || !!LEGACY_ITEMS[id];
 export const UNKNOWN_NAME = 'Algo de una versión más nueva del juego (recarga la página para verlo)';
 

@@ -57,7 +57,8 @@ export function applyOps(d, ops) {
 }
 
 // Lo de todos que no va en los trozos del mundo: cómo leerlo (sin lo que cambia a cada momento, como por
-// dónde va cada animal) y cómo ponerlo
+// dónde va cada animal) y cómo ponerlo. NORMA: uno nuevo se llama igual que su clave de SHARED, y su valor es el que se
+// guarda en ella: así un juego más viejo que lo lleva, que no lo conoce, lo guarda tal cual (unknownBlob en live.js)
 export const BLOBS = {
   house: {
     get: g => g.house,

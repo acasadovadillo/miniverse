@@ -63,6 +63,8 @@ import { hud } from './ui/hud.js';
 // Las herramientas son todas de hierro: las de antes pasan a serlo, con la parte de uso que les quedaba (dur: lo que aguantaban)
 const OLD_TOOLS = {};
 for (const tool of ['hacha', 'pico', 'guadana', 'azada']) for (const [suffix, dur] of [['', 60], ['_piedra', 130], ['_cobre', 190], ['_oro', 500]]) OLD_TOOLS[tool + suffix] = { id: `${tool}_hierro`, dur };
+// (NORMA: todo id que se quite del juego va aquí o en LEGACY_ITEMS; lo que no se conoce se guarda como de una versión más
+// nueva: ver knownItem en items.js)
 const RETIRED = { mesa_encantar: [['amatista', 4], ['tablas', 6], ['lingote_hierro', 2]] };
 export function retireItems(save, deltas) {
   const owed = [], back = (id, n = 1) => { for (const [m, k] of RETIRED[id]) owed.push([m, k * n]); };
@@ -502,7 +504,7 @@ export class Game {
     const win = sc.windowNear?.(p.x, p.y);
     if (win) return this.windowAction(win);
     const rug = near.find(o => o.layer === 'rug');
-    return rug ? this.rugAction(rug) : null;
+    return rug ? this.placedAction(rug) : null;   // (placedAction: la alfombra, o lo de una versión más nueva)
   }
   // Lo que se apunta con el ratón (a AIM_REACH casillas como mucho y, si está suelto, a la vista): lo primero que
   // corta el rayo, { kind, …, t }; o null (sin ratón sobre el juego, o sin apuntar a nada que se use)
@@ -823,7 +825,19 @@ export class Game {
     const clear = (tx, ty) => {
       const cur = w.ownAt('placed', tx, ty);
       if (!cur) return;
-      const [cid] = parsePlaced(cur), o = { tile: [tx, ty], layer: 'placed', placed: cid };
+      const [cid, rot] = parsePlaced(cur), o = { tile: [tx, ty], layer: 'placed', placed: cid };
+      // (de una versión más nueva: no se sabe si es un cofre o una máquina. Se cambia de sitio tal cual, con lo que guarde
+      // dentro; sin sitio, a la mochila (apartado: ver Inventory) y lo de dentro de un cofre, a la mochila también)
+      if (!knownItem(cid)) {
+        const k0 = `${tx},${ty}`, d0 = w.delta(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK)), spot = this.freeTile(H, dx, dy);
+        const inside = Object.fromEntries(['chest', 'machine', 'incub'].filter(l => d0?.[l]?.[k0] !== undefined).map(l => [l, d0[l][k0]]));
+        w.unplace(o);
+        for (const l in inside) delete d0[l][k0];
+        if (spot) { w.place(spot[0], spot[1], cid, rot); const d1 = w.delta(Math.floor(spot[0] / CHUNK), Math.floor(spot[1] / CHUNK), true); for (const l in inside) (d1[l] ||= {})[`${spot[0]},${spot[1]}`] = inside[l]; return; }
+        for (const it of Array.isArray(inside.chest) ? inside.chest : []) if (it?.id) this.giveBack(it.id, it.n || 1, it);
+        this.inv.keepUnknown({ id: cid, n: 1 });
+        return;
+      }
       const items = CHESTS[cid] ? w.chestAt(tx, ty) : null;
       w.unplace(o);
       if (items?.some(Boolean)) {
