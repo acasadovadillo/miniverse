@@ -817,6 +817,9 @@ export class Game {
       }
       if (PIECES[cid] && !ITEMS[cid]) { for (const [m, n] of PIECES[cid].cost) this.giveBack(m, n); } else this.giveBack(cid, 1);
     };
+    // (lo cavado o apilado en el jardín donde va la casa, y delante de su puerta, se allana: la casa va a ras del suelo del
+    // pueblo. Lo que hubiera puesto en un hoyo vuelve a la mochila)
+    for (let ty = H.y0; ty <= H.y1; ty++) for (let tx = H.x0; tx < H.x1; tx++) if ((ty < H.y1 || tx === dx) && w.digH(tx, ty) !== null) { clear(tx, ty); w.digReset(tx, ty); }
     // (en la casa familiar el hogar va en el salón: el de antes, que quedaría en un dormitorio, se cambia allí; si
     // había más, los otros vuelven a la mochila)
     if (size === 'family') {

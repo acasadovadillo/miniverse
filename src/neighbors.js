@@ -3,23 +3,15 @@
 // pequeños eventos y regalos. Nilo es el vecino de siempre: no se mueve de la plaza.
 import { Person } from './entities.js';
 import { ITEMS, CROPS } from './items.js';
-import { NILO, hasProject } from './world/village.js';
+import { NILO, hasProject, WALK_NODES, WALK_EDGES } from './world/village.js';
 import { SHOPS } from './economy.js';
 import { TRADES } from './trades.js';
 import { Audio } from './audio.js';
 import { hud } from './ui/hud.js';
 import { Profile } from './accounts.js';
 
-// Puntos del pueblo por los que se camina (sobre el camino, para no chocar con nada) y cómo se unen
-const NODES = {
-  plaza: [20.4, 23.8], board: [17.6, 23.4], stall: [25.6, 22.1], pond_w: [26.8, 25.8], pond_s: [30.5, 30.6],
-  p29: [19, 29], p34: [17.5, 34], p37: [17.3, 37], p46: [16.6, 46], p52: [16.2, 52.2],
-  p43: [16.8, 43], p55: [16.1, 55], p57: [16.1, 57],
-  door_rosa: [28.5, 42.9], door_bruno: [8.5, 55.1], forge: [12.5, 55.3], door_dani: [27.5, 56.9], easel: [23.2, 29.6],
-};
-const EDGES = [['plaza', 'board'], ['plaza', 'stall'], ['stall', 'pond_w'], ['plaza', 'p29'], ['p29', 'easel'], ['easel', 'pond_s'], ['pond_w', 'pond_s'],
-  ['p29', 'p34'], ['p34', 'p37'], ['p37', 'p43'], ['p43', 'door_rosa'], ['p43', 'p46'], ['p46', 'p52'], ['p52', 'p55'], ['p55', 'door_bruno'], ['door_bruno', 'forge'],
-  ['p55', 'p57'], ['p57', 'door_dani']];
+// Puntos del pueblo por los que se camina (sobre el camino, para no chocar con nada) y cómo se unen: village.js
+const NODES = WALK_NODES, EDGES = WALK_EDGES;
 const LINKS = {};
 for (const [a, b] of EDGES) { (LINKS[a] ||= []).push(b); (LINKS[b] ||= []).push(a); }
 function route(from, to) {

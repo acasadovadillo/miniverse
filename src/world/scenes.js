@@ -5,7 +5,7 @@
 import { clamp, ihash } from '../util.js';
 import { groundSmooth, grassKeep, groundOf } from './ground.js';
 import { WorldGen, CHUNK, GRASS_REGROW, flowerShows } from './gen.js';
-import { inYard, buildVillage, NILO, inBounds, isGrass, inOwnHouse, inVillageHouse } from './village.js';
+import { inYard, buildVillage, NILO, inBounds, isGrass, inOwnHouse, inVillageHouse, townDigWhy } from './village.js';
 import { B, BIOMES, WATER_Y } from './biomes.js';
 import { ITEMS, CHESTS, modernSlots } from '../items.js';
 import '../buildables.js';   // (LEGACY_ITEMS con los muebles: también en el servidor)
@@ -347,12 +347,21 @@ export class Overworld {
   digWhy(tx, ty, up) {
     const x = tx + 0.5, y = ty + 0.5, k = `${tx},${ty}`;
     if (!inPlanet(x, y)) return 'Ahí no se puede';
-    if (inBounds(x, y)) return 'En el pueblo no se cava';
+    // En el pueblo: en tu jardín y en la hierba libre sí; no en lo de los vecinos, el camino ni la plaza (townDigWhy), ni
+    // en las casas (la tuya, de suelo a tejado) ni delante de una puerta, que se taparía la entrada. Su suelo es llano, a 0
+    // (sin el relieve ni el agua de fuera: el estanque lo mira townDigWhy); flat: la casilla entera dentro
+    const town = inBounds(x, y), flat = town && inBounds(tx + 1e-3, ty + 1e-3) && inBounds(tx + 1 - 1e-3, ty + 1 - 1e-3);
+    if (town) {
+      const why = townDigWhy(tx, ty);
+      if (why) return why;
+      if (this.at('floor', tx, ty) || this.at('roof', tx, ty) || ['wall', 'door'].includes(this.pieceAt(tx, ty)?.kind)) return inOwnHouse(x, y) ? 'Es tu casa' : 'Hay algo encima';
+      for (const [nx, ny] of [[tx + 1, ty], [tx - 1, ty], [tx, ty + 1], [tx, ty - 1]]) if (['door', 'gate'].includes(this.pieceAt(nx, ny)?.kind)) return 'Delante de la puerta no';
+    }
     const cur = this.digH(tx, ty);
-    if (cur === null && !DIG_BIOMES.has(this.gen.biomeAt(x, y))) return 'Solo se cava en la tierra y la hierba';
+    if (!flat && cur === null && !DIG_BIOMES.has(this.gen.biomeAt(x, y))) return 'Solo se cava en la tierra y la hierba';
     if (this.water(x, y)) return 'Ahí hay agua';
     const c = [this.cornerH(tx, ty), this.cornerH(tx + 1, ty), this.cornerH(tx, ty + 1), this.cornerH(tx + 1, ty + 1)];
-    if (Math.min(...c) < 0.05) return 'Demasiado cerca del agua';
+    if (!flat && Math.min(...c) < 0.05) return 'Demasiado cerca del agua';
     if (cur === null && Math.max(...c) - Math.min(...c) > DIG_STEEP) return 'Ahí es roca';
     const d = this.deltas.get(`${wrapIndex(Math.floor(tx / CHUNK), CHUNK)},${Math.floor(ty / CHUNK)}`);
     if (this.wellAt(x, y)) return 'Ahí está el pozo';
@@ -390,6 +399,16 @@ export class Overworld {
     this.touchAround(tx, ty);
     return h;
   }
+  // Deja una casilla como era, sin lo cavado ni lo apilado (al levantar tu casa en el jardín: game.js, layHouse)
+  digReset(tx, ty) {
+    const d = this.delta(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK)), k = `${tx},${ty}`;
+    if (d?.dig?.[k] === undefined) return false;
+    delete d.dig[k];
+    if (!Object.keys(d.dig).length) delete d.dig;
+    if (d.lvl) delete d.lvl[k];
+    this.touchAround(tx, ty);
+    return true;
+  }
 
   // ---------- barcas amarradas ----------
   // La barca se construye (B) en el agua, junto a la orilla, y se queda amarrada donde se deja al bajar a tierra: van
@@ -417,7 +436,8 @@ export class Overworld {
   // puso lo primero, y todo lo de esa casilla se dibuja ahí. Las piezas de construcción (suelos, muros, puertas, vallas,
   // tejados) van a la altura más alta de las esquinas de la casilla, en escalones, con un cimiento de piedra debajo hasta
   // el suelo; lo demás (muebles sin suelo, lo labrado), a la del suelo en el centro. Lo construido antes de esto no tiene
-  // altura: va a 0, y el suelo se allana a su alrededor (padK). En el pueblo todo es llano: sin altura.
+  // altura: va a 0, y el suelo se allana a su alrededor (padK). En el pueblo todo es llano: sin altura, salvo en lo cavado
+  // (lo que se pone en un hoyo de tu jardín va a su fondo, y el pozo apunta su losa para bajar hasta él).
   structAt(d, k) { const v = d?.placed?.[k]; return !!(d && (d.floor?.[k] || d.roof?.[k] || (v && PIECES[parsePlaced(v)[0]]))); }
   builtAt(d, k) { return !!(d && (d.floor?.[k] || d.placed?.[k] || d.roof?.[k] || d.hang?.[k] || d.rug?.[k] || d.tilled?.[k] !== undefined)); }
   // La altura de lo construido en (x, y), o null si ahí no hay nada construido
@@ -430,7 +450,7 @@ export class Overworld {
   groundRaw(x, y) { if (inBounds(x, y)) return 0; const h = Math.max(0, this.gen.groundAt(x, y)); return h > 0 ? h * this.padK(x, y) : 0; }   // (el suelo como se ve: allanado junto a lo de antes)
   // La altura que tendría id puesto en la casilla (para colocarlo y para la vista previa)
   levelFor(tx, ty, id) {
-    if (inBounds(tx + 0.5, ty + 0.5)) return 0;
+    if (inBounds(tx + 0.5, ty + 0.5)) return id === 'pozo' ? 0 : this.digH(tx, ty) ?? 0;
     const d = this.delta(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK)), k = `${tx},${ty}`, have = d?.lvl?.[k];
     if (have === undefined && this.builtAt(d, k)) return 0;   // (lo de antes)
     // (el pozo: su losa, por encima de las cuatro esquinas de la casilla, como lo construido; el hoyo queda debajo)
@@ -453,7 +473,7 @@ export class Overworld {
   // Apunta la altura de una casilla al poner algo; si es de construcción, sube a esa altura las de su casa que estén
   // algo más bajas (y se rehacen)
   setLevel(tx, ty, id) {
-    if (inBounds(tx + 0.5, ty + 0.5)) return;
+    if (inBounds(tx + 0.5, ty + 0.5) && this.digH(tx, ty) === null) return;
     const d = this.delta(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK), true), k = `${tx},${ty}`;
     if (d.lvl?.[k] === undefined && this.builtAt(d, k)) return;   // (lo de antes sigue a 0)
     const L = this.levelFor(tx, ty, id);

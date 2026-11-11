@@ -156,10 +156,11 @@ export class Gathering {
     return { tile: [tx, ty], ok: !why, why, mark: true, shovel: up ? 'soltar' : 'cavar', label: why || (up ? 'Soltar la tierra' : 'Cavar') };
   }
 
-  // ¿Hay un animal (del rancho o salvaje) o una criatura en la casilla (o rozándola)?
+  // ¿Hay un animal (del rancho o salvaje), una criatura o alguien del pueblo (un vecino, Nilo, tus hijos) en la casilla (o
+  // rozándola)?
   someoneOn(tx, ty) {
-    const g = this.game, on = a => a && !a.inside && !a.dead && Math.abs(dxOf(a.x, tx + 0.5)) < 0.75 && Math.abs(a.y - ty - 0.5) < 0.75;
-    return g.ranch.animals.some(on) || g.wildlife.list.some(on) || g.mobs.list.some(on);
+    const g = this.game, on = a => a && !a.inside && !a.dead && !a.hidden && Math.abs(dxOf(a.x, tx + 0.5)) < 0.75 && Math.abs(a.y - ty - 0.5) < 0.75;
+    return g.ranch.animals.some(on) || g.wildlife.list.some(on) || g.mobs.list.some(on) || g.neighbors.people.some(on) || on(g.world.nilo) || [...(g.family.ents?.values() || [])].some(on);
   }
 
   // Texto de ayuda según lo que se tiene en la mano y lo que hay delante
