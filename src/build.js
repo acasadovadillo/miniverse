@@ -149,7 +149,7 @@ export class BuildMode {
     if (sc !== g.world) return { ok: false, why: 'Dentro de esta casa solo se ponen muebles' };
     if (!this.affordable(this.piece)) return { ok: false, why: 'Te faltan materiales' };
     if (!this.stationFor(this.piece)) return { ok: false, why: `Necesitas ${aStation(PIECES[this.piece].needs)} cerca` };
-    if (!sc.canPlace(t[0], t[1], this.piece, g.player)) return { ok: false, why: PIECES[this.piece].layer === 'roof' ? 'El tejado va sobre un muro o un suelo' : 'Ahí no cabe' };
+    if (!sc.canPlace(t[0], t[1], this.piece, g.player)) return { ok: false, why: PIECES[this.piece].layer === 'roof' ? 'El tejado va sobre un muro o un suelo' : ['door', 'gate'].includes(PIECES[this.piece].kind) && sc.holeBeside?.(t[0], t[1]) ? 'Hay un hoyo delante' : 'Ahí no cabe' };
     return { ok: true };
   }
 

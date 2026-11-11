@@ -815,7 +815,9 @@ export class Game {
         if (spot) { w.place(spot[0], spot[1], cid); w.delta(Math.floor(spot[0] / CHUNK), Math.floor(spot[1] / CHUNK)).chest[`${spot[0]},${spot[1]}`] = items; return; }
         for (const it of items) if (it) this.giveBack(it.id, it.n, it);
       }
-      if (PIECES[cid] && !ITEMS[cid]) { for (const [m, n] of PIECES[cid].cost) this.giveBack(m, n); } else this.giveBack(cid, 1);
+      // (lo construido, como al desmontarlo: sus materiales; ver pickUp. Un pozo en un hoyo del jardín, por ejemplo)
+      const B = BUILDABLE[cid] || (PIECES[cid] && !ITEMS[cid] ? PIECES[cid] : null);
+      if (B) { for (const [m, n] of B.cost) this.giveBack(m, n); } else this.giveBack(cid, 1);
     };
     // (lo cavado o apilado en el jardín donde va la casa, y delante de su puerta, se allana: la casa va a ras del suelo del
     // pueblo. Lo que hubiera puesto en un hoyo vuelve a la mochila)

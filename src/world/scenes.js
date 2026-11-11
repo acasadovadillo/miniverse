@@ -35,6 +35,9 @@ const wellModel = (lvl, dig) => (typeof lvl === 'number' && typeof dig === 'numb
 // Dónde se cava: en la tierra y la hierba (no en la arena, la roca, la nieve ni el agua), y no en las cuestas de roca
 // (lo que sube la casilla de una esquina a otra: el suelo pinta roca desde una pendiente de 0,62)
 const DIG_BIOMES = new Set([B.MEADOW, B.FOREST, B.PINES, B.SWAMP]), DIG_STEEP = 0.6;
+// Las casas de animales con puerta y de su centro a donde se entra (como FRONT y DOORS en ranch.js): delante, en el pueblo,
+// no se cava (ver animalDoorOn)
+const ANIMAL_DOOR = { gallinero: 2.15, establo: 2.25, conejera: 1 };
 // La firma de lo cavado de un trozo (para saber si ha cambiado, venga de aquí o de la red)
 const digSigOf = dig => (dig ? Object.entries(dig).map(([k, h]) => k + ':' + h).join(';') : '');
 function shifted(v, off) {
@@ -349,15 +352,19 @@ export class Overworld {
     if (!inPlanet(x, y)) return 'Ahí no se puede';
     // En el pueblo: en tu jardín y en la hierba libre sí; no en lo de los vecinos, el camino ni la plaza (townDigWhy), ni
     // en las casas (la tuya, de suelo a tejado) ni delante de una puerta, que se taparía la entrada. Su suelo es llano, a 0
-    // (sin el relieve ni el agua de fuera: el estanque lo mira townDigWhy); flat: la casilla entera dentro
-    const town = inBounds(x, y), flat = town && inBounds(tx + 1e-3, ty + 1e-3) && inBounds(tx + 1 - 1e-3, ty + 1 - 1e-3);
-    if (town) {
+    // (sin el relieve ni el agua de fuera: el estanque lo mira townDigWhy); flat: la casilla entera dentro, con sus cuatro
+    // esquinas (las del borde usan el relieve de fuera: cornerH), y siguen las reglas de fuera.
+    // Lo que deja la casilla más cerca de como era (rellenar un hoyo, rebajar un montón) siempre se puede: si luego se puso
+    // una puerta al lado o el sitio pasó a ser de otro (un caminito nuevo), el hoyo no se queda ahí para siempre
+    const town = inBounds(x, y), flat = town && inBounds(tx, ty) && inBounds(tx + 1, ty) && inBounds(tx, ty + 1) && inBounds(tx + 1, ty + 1);
+    const cur = this.digH(tx, ty), undo = cur !== null && (up ? cur < this.digBase(tx, ty) : cur > this.digBase(tx, ty));
+    if (town && !undo) {
       const why = townDigWhy(tx, ty);
       if (why) return why;
       if (this.at('floor', tx, ty) || this.at('roof', tx, ty) || ['wall', 'door'].includes(this.pieceAt(tx, ty)?.kind)) return inOwnHouse(x, y) ? 'Es tu casa' : 'Hay algo encima';
       for (const [nx, ny] of [[tx + 1, ty], [tx - 1, ty], [tx, ty + 1], [tx, ty - 1]]) if (['door', 'gate'].includes(this.pieceAt(nx, ny)?.kind)) return 'Delante de la puerta no';
+      if (this.animalDoorOn(tx, ty)) return 'Delante de la puerta no';
     }
-    const cur = this.digH(tx, ty);
     if (!flat && cur === null && !DIG_BIOMES.has(this.gen.biomeAt(x, y))) return 'Solo se cava en la tierra y la hierba';
     if (this.water(x, y)) return 'Ahí hay agua';
     const c = [this.cornerH(tx, ty), this.cornerH(tx + 1, ty), this.cornerH(tx, ty + 1), this.cornerH(tx + 1, ty + 1)];
@@ -398,6 +405,21 @@ export class Overworld {
     for (const o of this.gen.content(cx, cy).objects) if (o.flower && Math.floor(o.x) === tx && Math.floor(o.y) === ty) d.removed[o.key] = this.clock;
     this.touchAround(tx, ty);
     return h;
+  }
+  // ¿Se entra por aquí a una casa de animales (gallinero, establo, conejera)? Su entrada está delante de la puerta, a
+  // ANIMAL_DOOR de su centro y mirando hacia donde mira (como Animal.spot en ranch.js); las grandes se ponen libres, así
+  // que se miran las de alrededor
+  animalDoorOn(tx, ty) {
+    for (let j = -3; j <= 3; j++) for (let i = -3; i <= 3; i++) {
+      const hx = tx + i, hy = ty + j, d = this.deltas.get(`${wrapIndex(Math.floor(hx / CHUNK), CHUNK)},${Math.floor(hy / CHUNK)}`), v = d?.placed?.[`${hx},${hy}`];
+      if (!v) continue;
+      const [kind, rot] = v.split('@'), f = ANIMAL_DOOR[kind];
+      if (!f) continue;
+      const p = d.pos?.[`placed:${hx},${hy}`];
+      const [ex, ey] = p ? [p[0] + Math.sin(p[2]) * f, p[1] + Math.cos(p[2]) * f] : kind === 'conejera' ? [hx + 0.5, hy + 1.5] : [hx + 0.5 + front(+rot || 0)[0] * f, hy + 0.5 + front(+rot || 0)[1] * f];
+      if (Math.floor(ex) === tx && Math.floor(ey) === ty) return true;
+    }
+    return false;
   }
   // Deja una casilla como era, sin lo cavado ni lo apilado (al levantar tu casa en el jardín: game.js, layHouse)
   digReset(tx, ty) {
@@ -906,6 +928,9 @@ export class Overworld {
     if (this.water(x, y)) return false;
     // (en el pueblo, en la hierba y en las casas; las vallas y sus puertas, además, en todo tu jardín, también en el hueco del camino; en modo admin, donde sea)
     if (inBounds(x, y) && !isGrass(x, y) && !inOwnHouse(x, y) && !inVillageHouse(x, y) && !this.buildAnywhere && !(['fence', 'gate'].includes(PIECES[id]?.kind) && inYard(x, y, 0.6))) return false;
+    // (en el pueblo, una puerta o una puerta de valla no se pone junto a un hoyo o un montón: delante de una puerta no se
+    // cava, ver digWhy, y la entrada quedaría tapada)
+    if (['door', 'gate'].includes(PIECES[id]?.kind) && this.holeBeside(tx, ty)) return false;
     const d = this.delta(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK));
     if (this.at(layer, tx, ty) || d?.tilled[k] !== undefined) return false;
     if (layer === 'placed' && this.reserved?.has(k) && id !== 'silla' && id !== 'taburete') return false;   // (el sitio de alguien de la taberna, aunque ahora no esté)
@@ -918,6 +943,8 @@ export class Overworld {
     if (player && Math.abs(player.x - x) < 0.8 && Math.abs(player.y - y) < 0.8) return false;   // no encerrarse
     return !this.collidersNear(x, y).some(c => clashes(c, x, y, 0.4));
   }
+  // ¿Hay lo cavado o apilado junto a esta casilla del pueblo? (ahí no va una puerta: canPlace)
+  holeBeside(tx, ty) { return inBounds(tx + 0.5, ty + 0.5) && this.digChunks.size > 0 && [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([i, j]) => this.digH(tx + i, ty + j) !== null); }
   place(tx, ty, id, rot = 0) {
     const cx = Math.floor(tx / CHUNK), cy = Math.floor(ty / CHUNK), layer = layerOf(id), d = this.delta(cx, cy, true);
     this.setLevel(tx, ty, id);   // (antes de ponerlo: lo de antes en la casilla, sin altura, se distingue así)

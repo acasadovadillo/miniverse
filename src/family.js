@@ -255,7 +255,13 @@ export class Family {
       e.vx = e.vy = 0;
       if ((e.wait -= dt) > 0) return;
       const H = this.game.houseRect(), r = (a, b) => a + Math.random() * (b - a);
-      e.to = Math.random() < 0.3 ? [r(H.x0 + 1, H.x1 - 1), r(H.y1 + 0.6, H.y1 + 1.8)] : [r(H.x0 + 1.5, H.x1 - 1.5), r(H.y0 + 1.5, H.y1 - 1.5)];
+      // (lo cavado o apilado del jardín: ni van a un hoyo ni lo cruzan, que se quedarían empujando su pared; si no sale
+      // un sitio libre, esperan)
+      const w = this.world, pick = () => Math.random() < 0.3 ? [r(H.x0 + 1, H.x1 - 1), r(H.y1 + 0.6, H.y1 + 1.8)] : [r(H.x0 + 1.5, H.x1 - 1.5), r(H.y0 + 1.5, H.y1 - 1.5)];
+      const clear = to => { const n = Math.ceil(Math.hypot(to[0] - e.x, to[1] - e.y) / 0.3); for (let i = 1; i <= n; i++) { const t = i / n; if (w.digH(Math.floor(e.x + (to[0] - e.x) * t), Math.floor(e.y + (to[1] - e.y) * t)) !== null) return false; } return true; };
+      e.to = pick();
+      for (let i = 0; i < 6 && w.digChunks?.size && !clear(e.to); i++) e.to = i < 5 ? pick() : null;
+      if (!e.to) { e.wait = 2; return; }
       e.walking = true; e.stuck = 0; e.via = null; e.tries = 0;
     }
     if (e.stuck > 1) {

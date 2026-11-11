@@ -92,11 +92,12 @@ function segTile(ax, ay, bx, by, tx, ty) {
   const box = (px, py) => Math.hypot(Math.max(tx - px, 0, px - tx - 1), Math.max(ty - py, 0, py - ty - 1));
   return Math.min(box(ax, ay), box(bx, by), distSeg(tx, ty, ax, ay, bx, by), distSeg(tx + 1, ty, ax, ay, bx, by), distSeg(tx, ty + 1, ax, ay, bx, by), distSeg(tx + 1, ty + 1, ax, ay, bx, by));
 }
-// Lo más cerca que pasa de una casilla el camino (con los caminitos que ya están) y lo que andan los vecinos
-const pathToTile = (tx, ty) => {
+// Lo más cerca que pasa de una casilla el camino (con los caminitos que ya están; soon: solo los que traerá un proyecto,
+// que se pintarán ahí aunque aún no estén) y lo que andan los vecinos
+const pathToTile = (tx, ty, soon = false) => {
   let d = Infinity;
-  for (let i = 0; i + 1 < PATH.length; i++) d = Math.min(d, segTile(PATH[i][0], PATH[i][1], PATH[i + 1][0], PATH[i + 1][1], tx, ty));
-  for (const [a, b, need] of SPURS) if (!need || projects[need]) d = Math.min(d, segTile(a[0], a[1], b[0], b[1], tx, ty));
+  if (!soon) for (let i = 0; i + 1 < PATH.length; i++) d = Math.min(d, segTile(PATH[i][0], PATH[i][1], PATH[i + 1][0], PATH[i + 1][1], tx, ty));
+  for (const [a, b, need] of SPURS) if (soon ? need && !projects[need] : !need || projects[need]) d = Math.min(d, segTile(a[0], a[1], b[0], b[1], tx, ty));
   return d;
 };
 const walkToTile = (tx, ty) => Math.min(...WALK_EDGES.map(([a, b]) => segTile(...WALK_NODES[a], ...WALK_NODES[b], tx, ty)));
@@ -117,6 +118,7 @@ export function townDigWhy(tx, ty) {
   if (tileInEllipse(tx, ty, POND, 1.3)) return 'Demasiado cerca del estanque';
   if (inRect(tx, ty, DOCK, 1)) return projects.muelle ? 'Es el muelle' : 'Ahí va el muelle';
   if (pathToTile(tx, ty) < 1.05) return 'Ahí hay camino';
+  if (pathToTile(tx, ty, true) < 1.05) return 'Ahí va un camino';
   if (tileInEllipse(tx, ty, PLAZA, 1)) return 'Es la plaza';
   if (MARKET.some(([x, y]) => inRect(tx, ty, { x0: x, y0: y, x1: x + 2, y1: y + 1 }, 1))) return projects.mercado ? 'Es el mercado' : 'Ahí va el mercado';
   if (walkToTile(tx, ty) < 0.75) return 'Por ahí pasan los vecinos';
