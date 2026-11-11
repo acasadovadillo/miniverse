@@ -517,7 +517,8 @@ export class Overworld {
         const alongX = solid(tx - 1, ty) || solid(tx + 1, ty) || !(solid(tx, ty - 1) || solid(tx, ty + 1));
         const closed = this.doorClosed(tx, ty);
         o.wall = true; o.door = alongX ? 'x' : 'y';
-        if (closed) colliders.push(alongX ? { x0: tx, y0: ty + 0.38, x1: tx + 1, y1: ty + 0.62, wall: true } : { x0: tx + 0.38, y0: ty, x1: tx + 0.62, y1: ty + 1, wall: true });
+        // (shut: la hoja cerrada. La sombra de contacto la ve siempre como las dos jambas: ver world/contact.js)
+        if (closed) colliders.push(alongX ? { x0: tx, y0: ty + 0.38, x1: tx + 1, y1: ty + 0.62, wall: true, shut: true } : { x0: tx + 0.38, y0: ty, x1: tx + 0.62, y1: ty + 1, wall: true, shut: true });
         else if (alongX) colliders.push({ x0: tx, y0: ty + 0.38, x1: tx + 0.14, y1: ty + 0.62, wall: true }, { x0: tx + 0.86, y0: ty + 0.38, x1: tx + 1, y1: ty + 0.62, wall: true });
         else colliders.push({ x0: tx + 0.38, y0: ty, x1: tx + 0.62, y1: ty + 0.14, wall: true }, { x0: tx + 0.38, y0: ty + 0.86, x1: tx + 0.62, y1: ty + 1, wall: true });
       } else if (piece?.kind === 'gate') {
@@ -527,7 +528,7 @@ export class Overworld {
         const alongX = f(tx - 1, ty) || f(tx + 1, ty) || !(f(tx, ty - 1) || f(tx, ty + 1));
         o.door = alongX ? 'x' : 'y'; o.gate = true;
         for (const s of [-0.5, 0.5]) colliders.push(alongX ? { x: o.x + s, y: o.y, r: 0.12, low: true } : { x: o.x, y: o.y + s, r: 0.12, low: true });
-        if (this.doorClosed(tx, ty)) colliders.push(alongX ? { x0: tx, y0: o.y - 0.08, x1: tx + 1, y1: o.y + 0.08, low: true } : { x0: o.x - 0.08, y0: ty, x1: o.x + 0.08, y1: ty + 1, low: true });
+        if (this.doorClosed(tx, ty)) colliders.push(alongX ? { x0: tx, y0: o.y - 0.08, x1: tx + 1, y1: o.y + 0.08, low: true, shut: true } : { x0: o.x - 0.08, y0: ty, x1: o.x + 0.08, y1: ty + 1, low: true, shut: true });
       } else if (piece?.kind === 'fence') {
         o.fence = true;
         const f = (x, y) => ['fence', 'gate', 'wall'].includes(this.pieceAt(x, y)?.kind);

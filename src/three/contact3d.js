@@ -40,7 +40,8 @@ export function setRenderer(r) {
   atlas = new THREE.DataTexture(DATA, ATLAS, ATLAS, THREE.RGFormat, THREE.UnsignedByteType);
   atlas.wrapS = atlas.wrapT = THREE.RepeatWrapping;
   atlas.minFilter = THREE.LinearMipmapLinearFilter; atlas.magFilter = THREE.LinearFilter;
-  atlas.generateMipmaps = true; atlas.anisotropy = 4; atlas.flipY = false;
+  // (anisotropía 2: es una textura suave, de 25 cm por píxel; con más, en primera persona solo se pagan más lecturas)
+  atlas.generateMipmaps = true; atlas.anisotropy = 2; atlas.flipY = false;
   atlas.needsUpdate = true;
   CONTACT.map.value = atlas;
   MAIN = r; r.initTexture(atlas);
@@ -94,25 +95,34 @@ export function injectContact(sh, renderer, mode, pos = null) {
       .replace('#include <aomap_fragment>', `#include <aomap_fragment>
   {
     vec2 cUV = ${P} * ${INV}, cDx = dFdx(cUV), cDy = dFdy(cUV);
-    vec2 cA = texture2D(uContact, cUV).rg;
+    vec2 cA = vec2(1.0); float cG = 1.0;
     ${OUTSIDE}
-    // (la copa corrida, solo donde hace falta: fuera de la zona de sombras. Con las derivadas de fuera del if)
-    float cG = 1.0;
-    if (cOut > 0.001) cG = textureGrad(uContact, cUV + uCOff * ${INV}, cDx, cDy).g;
+    // (solo se lee con la sombra encendida: uCK.w es igual en toda la pasada, así que el if no cuesta. La copa corrida,
+    // solo donde hace falta: fuera de la zona de sombras, con las derivadas de fuera del if)
+    if (uCK.w > 0.5) {
+      cA = texture2D(uContact, cUV).rg;
+      if (cOut > 0.001) cG = textureGrad(uContact, cUV + uCOff * ${INV}, cDx, cDy).g;
+    }
     ${APPLY}
   }`);
     return;
   }
   // (en las matas, el pie de cada hoja: la mata ocupa toda su casilla, y junto a un muro su centro queda a casi un metro,
-  // donde ya no llega la sombra; las nueve esquinas de una hoja leen lo mismo, así que toda la hoja se oscurece igual)
+  // donde ya no llega la sombra; las nueve esquinas de una hoja leen lo mismo, así que toda la hoja se oscurece igual.
+  // Las hojas que el nivel de detalle ha hundido en su raíz (gk = 0: de lejos quedan 28 o 10 de 72, y ninguna pasado el
+  // final de la hierba) no leen nada: no se ven. Con if de verdad, no con ?:, para que la segunda lectura no se haga
+  // siempre)
   const root = mode === 'vertInst' ? '(modelMatrix * instanceMatrix * vec4(blade.y, 0.0, blade.z, 1.0)).xz' : '(modelMatrix * vec4(position, 1.0)).xz';
+  const live = mode === 'vertInst' ? 'uCK.w > 0.5 && gk > 0.001' : 'uCK.w > 0.5';
   sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\n' + PARS + 'varying vec4 vAO;')
     .replace('#include <shadowmap_vertex>', `#include <shadowmap_vertex>
-  {
+  vAO = vec4(1.0);
+  if (${live}) {
     vec2 cUV = ${root} * ${INV};
-    vec2 cA = texture2D(uContact, cUV).rg;
+    vAO.rg = texture2D(uContact, cUV).rg;
     ${OUTSIDE}
-    vAO = vec4(cA, cOut > 0.001 ? texture2D(uContact, cUV + uCOff * ${INV}).g : 1.0, cOut);
+    vAO.a = cOut;
+    if (cOut > 0.001) vAO.b = texture2D(uContact, cUV + uCOff * ${INV}).g;
   }`);
   sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\n' + PARS + 'varying vec4 vAO;')
     .replace('#include <aomap_fragment>', `#include <aomap_fragment>
@@ -140,6 +150,11 @@ export class ContactField {
     this.world = null; this.vil = null; this.season = -1;
     this.poll = 0;
     this.area = null;          // [cx0, cy0, cx1, cy1]: los trozos de los 5 × 5 bloques (lo de fuera no se mira)
+    // Los trozos de fuera del área que se han dado por vacíos al pintar un bloque del borde. Cuando el área se mueve y
+    // entran, al juntar sus formas por primera vez se repinta lo de alrededor: si no, en cada línea entre bloques que se
+    // cruza andando quedaría una franja sin la oclusión (ni la copa) de lo que hay al otro lado
+    this.emptied = new Set();
+    this.clean = new Set();    // los huecos del atlas que están en blanco también en la gráfica (no hace falta subirlos)
     this.villageSplit = null;
     this.stats = { tiles: 0, uploads: 0, ms: 0, frames: 0, local: 0, t: performance.now() };
     this.local = false;        // (el hilo aparte ha fallado con un trabajo de estos: se pintan aquí)
@@ -147,16 +162,18 @@ export class ContactField {
   get on() { return !!MAIN; }
   // Otra partida u otro mundo: todo en blanco
   reset() {
-    if (DATA) { DATA.fill(255); atlas.needsUpdate = true; }
-    this.chunks.clear(); this.world = null; this.vil = null; this.villageSplit = null;
+    if (DATA) { DATA.fill(255); atlas.needsUpdate = true; for (let i = 0; i < SLOTS * SLOTS; i++) this.clean.add(i); }
+    this.chunks.clear(); this.emptied.clear(); this.world = null; this.vil = null; this.villageSplit = null;
   }
   // Un bloque nuevo: su hueco en blanco ya (si no, durante un momento se vería la oclusión del bloque que lo ocupaba antes)
   // y sus 16 trozos por pintar
   added(blk) {
-    const hx = slot(blk.bx) * SIDE, hz = slot(blk.bz) * SIDE;
-    if (DATA) for (let j = 0; j < SIDE; j++) DATA.fill(255, ((hz + j) * ATLAS + hx) * 2, ((hz + j) * ATLAS + hx + SIDE) * 2);
-    // (upNow: el hueco en blanco se sube ya, entero)
-    blk.ao = { dirty: new Set(Array.from({ length: 16 }, (_, i) => i)), urgent: false, seq: new Uint32Array(16), flying: new Set(), up: [0, 0, 3, 3], upNow: true };
+    if (!MAIN) return;   // (apagada: nada que pintar ni que esperar)
+    const hx = slot(blk.bx) * SIDE, hz = slot(blk.bz) * SIDE, h = slot(blk.bz) * SLOTS + slot(blk.bx), clean = this.clean.has(h);
+    if (!clean) for (let j = 0; j < SIDE; j++) DATA.fill(255, ((hz + j) * ATLAS + hx) * 2, ((hz + j) * ATLAS + hx + SIDE) * 2);
+    // (upNow: el hueco en blanco se sube ya, entero, si no lo estaba ya en la gráfica; blank: es un hueco recién vaciado,
+    // que va antes que los demás al subir)
+    blk.ao = { dirty: new Set(Array.from({ length: 16 }, (_, i) => i)), urgent: false, seq: new Uint32Array(16), flying: new Set(), up: [0, 0, 3, 3], upNow: !clean, blank: !clean };
   }
   // Cambió la estación: las copas (los de hoja caduca, en invierno, casi no tapan el cielo). Solo cambia su fuerza: se
   // cambia en las formas que ya hay (sin volver a juntarlas: serían 400 trozos) y se pinta otra vez donde hay alguno
@@ -175,7 +192,7 @@ export class ContactField {
     if (!MAIN) return;
     const t0 = performance.now(), T = this.t, w = T.world;
     if (!w?.colliderShapes) return;
-    if (w !== this.world) { this.chunks.clear(); this.world = w; this.vil = w.village; this.villageSplit = null; }
+    if (w !== this.world) { this.chunks.clear(); this.emptied.clear(); this.world = w; this.vil = w.village; this.villageSplit = null; }
     if (w.village !== this.vil) { this.vil = w.village; this.villageSplit = null; for (const c of this.chunks.values()) c.stale = true; }
     if (T.season !== this.season) { const was = this.season; this.season = T.season; if (was !== -1) this.seasonChanged(this.season); }
     const bx = Math.floor(x / BLOCK), bz = Math.floor(z / BLOCK), n = BLOCK / CHUNK;
@@ -183,13 +200,15 @@ export class ContactField {
     if (!this.area || area[0] !== this.area[0] || area[1] !== this.area[1]) {
       this.area = area;
       for (const k of this.chunks.keys()) { const [cx, cy] = k.split(',').map(Number); if (!this.inArea(cx, cy)) this.chunks.delete(k); }
+      // (los dados por vacíos que ya no tocan ningún bloque: ni dentro ni en el anillo de alrededor)
+      for (const k of this.emptied) { const [cx, cy] = k.split(',').map(Number); if (cx < area[0] - 1 || cx > area[2] + 1 || cy < area[1] - 1 || cy > area[3] + 1) this.emptied.delete(k); }
     }
     // (si el hilo aparte ha fallado, lo que se le había pedido vuelve a la lista: se pinta aquí)
     const local = this.local || !T.workers.length;
     if (local) for (const b of T.blocks.values()) if (b.ao?.flying.size) { for (const i of b.ao.flying) b.ao.dirty.add(i); b.ao.flying.clear(); }
     if (t0 > this.poll) { this.poll = t0 + POLL_MS; this.check(t0); }
     this.pump(x, z, t0, local);
-    this.flush();
+    this.flush(x, z);
     const s = this.stats; s.ms += performance.now() - t0; s.frames++;
   }
   inArea(cx, cy) { const a = this.area; return !!a && cx >= a[0] && cx <= a[2] && cy >= a[1] && cy <= a[3]; }
@@ -202,24 +221,27 @@ export class ContactField {
     if (sap) this.sapT = now + SAP_MS;
     for (const c of this.chunks.values()) {
       if (c.stale) continue;
-      if (sap && c.sap) { c.stale = true; continue; }
+      // (primero la versión: un cambio de verdad es urgente y alcanza a los vecinos, aunque toque mirar los arbolitos)
       if (deltaV(w, c.cx, c.cy) !== c.v) {
         c.stale = true; c.near = true;
         for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) { const o = this.chunks.get(`${c.cx + dx},${c.cy + dy}`); if (o) { o.stale = true; o.near = true; } }
-      }
+      } else if (sap && c.sap) c.stale = true;
     }
   }
   // Las formas de un trozo (las de la caché si valen; si no, se rehacen y, si han cambiado, se marcan para pintar los
   // trozos a los que llegan)
   shapes(cx, cy) {
-    if (!this.inArea(cx, cy)) return EMPTY;
-    const k = `${cx},${cy}`, c = this.chunks.get(k);
+    const k = `${cx},${cy}`;
+    if (!this.inArea(cx, cy)) { this.emptied.add(k); return EMPTY; }
+    const c = this.chunks.get(k);
     if (c && !c.stale) return c.S;
     const w = this.world, T = this.t, v = deltaV(w, cx, cy);
     const data = w.colliderShapes(cx, cy);
     const at = { lifted: (tx, ty) => (w.levelAt(tx + 0.5, ty + 0.5) ?? 0) - T.heightAt(tx + 0.5, ty + 0.5) > 0.28, floorAt: (tx, ty) => !!w.at('floor', tx, ty) };
     const S = shapesOf(data, this.season, at, this.villageIn(cx, cy)), hash = hashShapes(S);
-    if (c && c.hash !== hash) this.mark(cx, cy, c.near);
+    // (si ha cambiado; o, la primera vez, si algún bloque del borde lo pintó cuando aún estaba fuera, como vacío)
+    const was = this.emptied.delete(k);
+    if (c ? c.hash !== hash : was && S.length) this.mark(cx, cy, !!c?.near);
     this.chunks.set(k, { cx, cy, v, S, hash, stale: false, near: false, sap: data.objects.some(o => o.sapling) });
     return S;
   }
@@ -311,40 +333,56 @@ export class ContactField {
   // Los píxeles de un trozo, a la copia en memoria y a la lista de lo que hay que subir
   paste(b, ti, px) {
     const ci = ti % 4, cj = (ti / 4) | 0, hx = slot(b.bx) * SIDE + ci * TILE, hz = slot(b.bz) * SIDE + cj * TILE;
+    this.clean.delete(slot(b.bz) * SLOTS + slot(b.bx));
     for (let j = 0; j < TILE; j++) DATA.set(px.subarray(j * TILE * 2, (j + 1) * TILE * 2), ((hz + j) * ATLAS + hx) * 2);
     const u = b.ao.up;
     if (!b.ao.upNow) { b.ao.upNow = true; u[0] = u[2] = ci; u[1] = u[3] = cj; }
     else { u[0] = Math.min(u[0], ci); u[1] = Math.min(u[1], cj); u[2] = Math.max(u[2], ci); u[3] = Math.max(u[3], cj); }
   }
-  // A la gráfica, lo cambiado de unos pocos bloques (un rectángulo por bloque) y, al final, las mipmaps una sola vez
-  flush() {
+  // A la gráfica, lo cambiado de unos pocos bloques (un rectángulo por bloque), de lo más cercano a lo más lejano y los
+  // huecos recién vaciados antes que nada; y las mipmaps de toda la textura, una sola vez al final
+  flush(x, z) {
     const todo = [];
     for (const b of this.t.blocks.values()) if (b.ao?.upNow && b.mesh) todo.push(b);
     if (!todo.length) return;
+    const done = () => { for (const b of todo) { b.ao.upNow = false; b.ao.blank = false; } };
+    // (si ya se va a subir entera, porque se ha pedido y aún no se ha dibujado nada con ella, ya lleva todo: Three la sube
+    // desde la copia en memoria)
+    if (MAIN.properties.get(atlas).__version !== atlas.version) { done(); return; }
+    // (muchos huecos recién vaciados, más que los de una fila y una columna de bloques, como al teletransportarse: entera,
+    // una vez. Si no, durante unos fotogramas el suelo de donde se ha llegado enseñaría la oclusión del sitio de antes.
+    // Andando entran como mucho 9, a dos bloques, en la niebla: esos van por partes, los vacíos primero)
+    let blank = 0;
+    for (const b of todo) if (b.ao.blank) blank++;
+    if (blank > 2 * SLOTS - 1) { atlas.needsUpdate = true; done(); return; }
+    const d = b => (b.ao.blank ? -1e9 : 0) + Math.hypot(b.bx * BLOCK + BLOCK / 2 - x, b.bz * BLOCK + BLOCK / 2 - z);
+    todo.sort((a, b) => d(a) - d(b));
     todo.length = Math.min(todo.length, UPLOADS);
     try {
-      todo.forEach(b => {
+      todo.forEach((b, n) => {
         const u = b.ao.up, ci0 = u[0], cj0 = u[1], wpx = (u[2] - u[0] + 1) * TILE, hpx = (u[3] - u[1] + 1) * TILE;
         const hx = slot(b.bx) * SIDE + ci0 * TILE, hz = slot(b.bz) * SIDE + cj0 * TILE, key = wpx * 10000 + hpx;
         let s = SCRATCH.get(key);
         if (!s) { s = new THREE.DataTexture(new Uint8Array(wpx * hpx * 2), wpx, hpx, THREE.RGFormat, THREE.UnsignedByteType); SCRATCH.set(key, s); }
-        const d = s.image.data;
-        for (let j = 0; j < hpx; j++) d.set(DATA.subarray(((hz + j) * ATLAS + hx) * 2, ((hz + j) * ATLAS + hx + wpx) * 2), j * wpx * 2);
-        // (cada copia rehace las mipmaps de toda la textura: por eso se juntan los trozos de un bloque en un rectángulo y van
-        // pocos bloques por fotograma. No se apagan para las primeras: generateMipmaps entra en la clave con la que Three
-        // guarda la textura en la gráfica, y al cambiarlo crearía otra)
+        const dd = s.image.data;
+        for (let j = 0; j < hpx; j++) dd.set(DATA.subarray(((hz + j) * ATLAS + hx) * 2, ((hz + j) * ATLAS + hx + wpx) * 2), j * wpx * 2);
+        // (copyTextureToTexture rehace las mipmaps de toda la textura en cada copia: se apagan para todas menos la última.
+        // Se puede porque no hay una subida entera pendiente (ver arriba): generateMipmaps entra en la clave con la que Three
+        // guarda la textura en la gráfica, pero esa clave solo se mira al subirla entera)
+        atlas.generateMipmaps = n === todo.length - 1;
         MAIN.copyTextureToTexture(V2.set(hx, hz), s, atlas);
-        b.ao.upNow = false;
+        b.ao.upNow = false; b.ao.blank = false;
         this.stats.uploads++;
       });
     } catch (e) {
       // (si la copia por partes no va, la textura entera, como mucho tres veces por segundo)
-      console.warn('Sombra de contacto: no se puede subir por partes; se sube entera', e);
-      if (performance.now() > (this.whole || 0)) { this.whole = performance.now() + 300; atlas.needsUpdate = true; for (const b of todo) b.ao.upNow = false; }
-    }
+      if (!this.warned) { this.warned = true; console.warn('Sombra de contacto: no se puede subir por partes; se sube entera', e); }
+      if (performance.now() > (this.whole || 0)) { this.whole = performance.now() + 300; atlas.needsUpdate = true; done(); }
+    } finally { atlas.generateMipmaps = true; }
   }
   // ¿Queda algo por hacer? (para las pruebas y el banco)
   busy() {
+    if (!MAIN) return false;
     for (const b of this.t.blocks.values()) if (b.ao && (b.ao.dirty.size || b.ao.flying.size || b.ao.upNow)) return true;
     return false;
   }

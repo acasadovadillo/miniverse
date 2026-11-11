@@ -63,6 +63,15 @@ export function shapesOf(data, season, at, extra = null) {
       continue;
     }
     if (c.x0 === undefined) continue;
+    // Una puerta cerrada, como abierta: sus dos jambas (la de una cerca, sus postes, que ya van aparte). Así, al abrirla
+    // o cerrarla, la huella no cambia: ni salta la oclusión del umbral ni hay nada que repintar
+    if (c.shut) {
+      if (!c.wall) continue;
+      const J = 0.14;
+      if (c.x1 - c.x0 > c.y1 - c.y0) for (const [a, b] of [[c.x0, c.x0 + J], [c.x1 - J, c.x1]]) push(BOX, (a + b) / 2, (c.y0 + c.y1) / 2, J / 2, (c.y1 - c.y0) / 2, 1, 0, 0.6, 1.0, 0);
+      else for (const [a, b] of [[c.y0, c.y0 + J], [c.y1 - J, c.y1]]) push(BOX, (c.x0 + c.x1) / 2, (a + b) / 2, (c.x1 - c.x0) / 2, J / 2, 1, 0, 0.6, 1.0, 0);
+      continue;
+    }
     const hx = (c.x1 - c.x0) / 2, hy = (c.y1 - c.y0) / 2, x = (c.x0 + c.x1) / 2, y = (c.y0 + c.y1) / 2;
     let s, R;
     if (c.wall) [s, R] = [0.6, 1.0];           // (muros y puertas)

@@ -54,12 +54,13 @@ export function baseMaterials() {
   PAINTS.forEach((c, i) => { BASE['paint' + i] = mat({ map: wood(c), roughness: 0.85 }); });
   // Los suelos de las casas, con la sombra de contacto del mundo (contact3d.js): el pie de las paredes, los rincones y lo
   // de debajo de los muebles se asientan, sin un triángulo más. Solo en el renderer del juego (los iconos y la vista previa
-  // tienen el suyo, y ahí no hay nada que leer). Con clave propia: la de por defecto es el texto de onBeforeCompile, igual
-  // para los tres, y además así no comparte programa con el de sin ella
+  // tienen el suyo, y ahí no hay nada que leer). Los tres, con la misma clave: el código que se añade es el mismo, así que
+  // comparten programa (uno que compilar, no tres); cada material sigue con sus uniformes, porque Three llama a
+  // onBeforeCompile para cada uno. Y con clave propia, para no compartirlo con los materiales de sin ella
   for (const key of ['floor_madera', 'floor_piedra', 'floor_camino']) {
     const m = BASE[key];
     m.onBeforeCompile = (sh, r) => injectContact(sh, r, 'frag');
-    m.customProgramCacheKey = () => contactKey(key);
+    m.customProgramCacheKey = () => contactKey('suelo-casa');
   }
   return BASE;
 }
