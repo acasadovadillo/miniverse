@@ -419,7 +419,8 @@ export class World3D {
         // (con la cubierta se recorren los cuatro trozos; si no, solo los que cambian)
         b.datas.forEach(([cx, cy], i) => { if (cover || want.has(i)) list.push([cx, cy, i, want.has(i)]); });
         b.groundJob = {
-          gen: buildGround(list, CHUNK, scene.gen, scene.gen.season, (x, y) => !occ.has(`${Math.floor(x)},${Math.floor(y)}`) && village.isGrass(x, y), (x, y) => T.heightAt(x, y), cover),
+          gen: buildGround(list, CHUNK, scene.gen, scene.gen.season, (x, y) => !occ.has(`${Math.floor(x)},${Math.floor(y)}`) && village.isGrass(x, y), (x, y) => T.heightAt(x, y), cover,
+            (x, y) => occ.stub.has(`${Math.floor(x)},${Math.floor(y)}`) && village.isGrass(x, y)),
           want, cover, sigs: b.sigs.slice(), coverSig: b.coverSig0,
         };
       }
@@ -904,9 +905,10 @@ function occHashes(occ, datas) {
   return h.map(([n, s]) => n + ':' + s);
 }
 // Casillas ocupadas de unos trozos (ahí no crece hierba): lo construido y colocado, lo labrado, los cultivos, lo
-// segado, lo cavado y los lugares (que ocupan 3 × 3 casillas)
+// segado, lo cavado y los lugares (que ocupan 3 × 3 casillas). occ.stub: las segadas o comidas que no tienen nada más
+// (llevan rastrojo: ver buildGround)
 function occupied(scene, datas, today = 0) {
-  const occ = new Set();
+  const occ = new Set(), mown = [];
   for (const [cx, cy, d] of datas) {
     for (const o of d.objects.concat(d.flats, d.floors)) {
       if (o.tile && (o.layer || o.crop || o.treasure)) occ.add(`${o.tile[0]},${o.tile[1]}`);
@@ -915,9 +917,11 @@ function occupied(scene, datas, today = 0) {
     for (const t of d.tilled) occ.add(`${t[0]},${t[1]}`);
     const dl = scene.delta(cx, cy);
     for (const k of Object.keys(dl?.crops || {})) occ.add(k);
-    for (const [k, v] of Object.entries(dl?.mown || {})) if (today - v < GRASS_REGROW) occ.add(k);
+    for (const [k, v] of Object.entries(dl?.mown || {})) if (today - v < GRASS_REGROW) mown.push(k);
     for (const k of Object.keys(dl?.dig || {})) occ.add(k);   // (lo cavado y la tierra apilada: tierra desnuda)
   }
+  occ.stub = new Set(mown.filter(k => !occ.has(k)));
+  for (const k of mown) occ.add(k);
   return occ;
 }
 // Muros y tejados de un trozo (si cambian, cambian las casas)

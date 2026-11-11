@@ -5,9 +5,12 @@
 // Son los mismos para todos, como en Minecraft: jugando juntos los lleva quien lleva el mundo, que los hace aparecer
 // alrededor de cada jugador, los mueve y les dice a los demás dónde están (y si pastan). No se guardan.
 // Los ciervos pastan: al pararse, si tienen hierba delante, bajan la cabeza y se la comen (queda como segada, para todos;
-// ver scenes.js, pasture). Pocas veces y unas pocas casillas cada uno, para que no se coman el campo.
+// ver scenes.js, pasture). Pocas veces y unas pocas casillas cada uno, para que no se coman el campo. Solo la dejan
+// comida en los trozos que ya tienen algo cambiado (lo que se apunta de un trozo se guarda y se manda a quien entra: un
+// trozo que nadie ha tocado no se apunta por un ciervo que pasa); en los demás, bajan la cabeza igual y la hierba sigue.
 import { B } from './world/biomes.js';
 import { inBounds } from './world/village.js';
+import { CHUNK } from './world/gen.js';
 import { collide } from './physics.js';
 import { wrapX, dxOf, distOf } from './world/planet.js';
 
@@ -97,7 +100,9 @@ export class Wildlife {
   // Se la ha comido: queda como segada (si nadie la ha segado mientras)
   ate(w) {
     const [tx, ty] = w.grazeAt, today = this.game.days.dayIndex;
-    if (this.world.pasture(tx, ty, today)) { this.world.mow(tx, ty, today); w.ate = (w.ate || 0) + 1; }
+    const touched = !!this.world.delta(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK));   // (sin crearlo: ver arriba)
+    if (touched && this.world.pasture(tx, ty, today)) this.world.mow(tx, ty, today);
+    w.ate = (w.ate || 0) + 1;
     w.eating = 0; w.grazing = false; w.grazeAt = null;
     w.wait = 1 + Math.random() * 3;
   }

@@ -446,6 +446,8 @@ let GROUND;
 // Las matas siguen las manchas grandes del suelo (ground.js, macroOf): hacia qué color van en lo seco y en lo jugoso, por
 // estación (en invierno, nada: solo el valor)
 const TUFT_DRY = ['#7d7a3e', '#9a8a44', '#9c7a3a'].map(c => new THREE.Color(c)), TUFT_LUSH = ['#4f7034', '#4a6630', '#6a6c34'].map(c => new THREE.Color(c)), TM = {};
+// El rastrojo de lo segado o comido: lo alta que queda la mata y hacia qué color va
+const STUB_H = 0.3, STUB_C = new THREE.Color('#a39a5c');
 // Lo mojado (wetness) para la franja jugosa de las orillas, como la pinta el suelo: el clima de cada trozo en una rejilla de
 // 5 × 5 (cada 4 m) y, entre medias, interpolado, como hace gen.js (computeField) por casilla. Por casilla costaría 1-2 ms
 // por trozo; así, 25 cuentas de clima, y solo en los trozos que tienen hierba
@@ -461,8 +463,9 @@ function wetAt(x, y, X0, Y0) {
 // chunks: [[cx, cy, i, matas]], los trozos que se recorren y si se hacen sus matas; cover: si se hace la cubierta (al
 // segar no hace falta: una casilla con hierba solo lleva su mata, así que lo segado no cambia la cubierta). Se hace por
 // pasos: un yield por trozo, con { i, tufts (la malla de sus matas o null), box y bounds (sus cajas, para el nivel de
-// detalle y para recortar) }; al acabar devuelve la cubierta (o null)
-export function* buildGround(chunks, CHUNK, gen, season, free, groundY, cover = true) {
+// detalle y para recortar) }; al acabar devuelve la cubierta (o null). stub(x, y): si la casilla está segada o comida:
+// lleva rastrojo, la misma mata muy corta y más pajiza (así se ve lo segado y lo que han pastado los animales)
+export function* buildGround(chunks, CHUNK, gen, season, free, groundY, cover = true, stub = null) {
   const s = gen.seed, out = { pos: [], col: [], sway: [] };
   const GRASS = [['#5f7a3a', '#6a8442', '#56703a'], ['#56692f', '#5f7336', '#4d6130'], ['#8f7d42', '#9c8a4a', '#86743c'], ['#a4ac9e', '#b2b8ae', '#98a094']][season];
   const A = (GROUND ||= groundShapes()), K = MAC_K[season], M = new THREE.Matrix4(), c = new THREE.Color();
@@ -474,7 +477,9 @@ export function* buildGround(chunks, CHUNK, gen, season, free, groundY, cover = 
       const cx = tx + 0.5, cy = ty + 0.5, tall = gen.grassAt(tx, ty);
       if (tall) {
         // (una casilla con hierba solo lleva su mata: nada de la cubierta)
-        if (!want || !free(cx, cy)) continue;
+        if (!want) continue;
+        const cut = !free(cx, cy);
+        if (cut && !stub?.(cx, cy)) continue;
         const gy = groundY(cx, cy);
         if (gy <= -0.05) continue;
         // (la mata, a la altura del centro y con la cuesta de la casilla: las hojas siguen de pie)
@@ -484,7 +489,7 @@ export function* buildGround(chunks, CHUNK, gen, season, free, groundY, cover = 
         // (las manchas, con la franja de la orilla)
         if (!SUELO_V2 && !wet) { wet = true; wetGrid(X0, Y0, s); }
         const mac = SUELO_V2 ? null : macroOf(cx, cy, s, wetAt(cx, cy, X0, Y0), TM);
-        tufts.push([cx, gy, cy, ihash(tx, ty, s + 21) * Math.PI * 2, tall * (season === 3 ? 0.6 : 1), sx, sz, GRASS[Math.floor(ihash(tx, ty, s + 22) * 3)], 0.9 + ihash(tx, ty, s + 23) * 0.2, mac ? mac.dry : 0, mac ? mac.lush : 0, mac ? mac.v : 1]);
+        tufts.push([cx, gy, cy, ihash(tx, ty, s + 21) * Math.PI * 2, tall * (season === 3 ? 0.6 : 1) * (cut ? STUB_H : 1), sx, sz, GRASS[Math.floor(ihash(tx, ty, s + 22) * 3)], 0.9 + ihash(tx, ty, s + 23) * 0.2, mac ? mac.dry : 0, mac ? mac.lush : 0, mac ? mac.v : 1, cut]);
         // (lo que ocupa: las hojas salen hasta REACH del centro, con lo que se doblan, el viento y lo que se ensanchan de
         // lejos, y con la cuesta suben o bajan hasta su pendiente por REACH: la fila Y de la matriz de abajo es la cuesta
         // girada, que mide lo mismo)
@@ -510,13 +515,14 @@ export function* buildGround(chunks, CHUNK, gen, season, free, groundY, cover = 
     let im = null;
     if (tufts.length) {
       im = new THREE.InstancedMesh(A.tuft[0], A.tuftMat, tufts.length);
-      tufts.forEach(([x, y, z, rot, h, sx, sz, color, light, dry, lush, v], i) => {
+      tufts.forEach(([x, y, z, rot, h, sx, sz, color, light, dry, lush, v, cut], i) => {
         // girada, con su altura y su anchura, y con la cuesta: cada punto sube lo que sube el suelo bajo él (las hojas, de pie)
         const co = Math.cos(rot), sn = Math.sin(rot), w = 1;
         M.set(co * w, 0, sn * w, x, sx * co * w - sz * sn * w, h, sx * sn * w + sz * co * w, y, -sn * w, 0, co * w, z, 0, 0, 0, 1);
         im.setMatrixAt(i, M);
         c.set(color);
         if (season < 3) c.lerp(TUFT_DRY[season], dry * K[0] * 0.7).lerp(TUFT_LUSH[season], lush * K[1] * 0.6);
+        if (cut) c.lerp(STUB_C, 0.55).multiplyScalar(0.92);   // (el rastrojo, pajizo: lo cortado se seca)
         im.setColorAt(i, c.multiplyScalar(light * (1 + (v - 1) * K[2])));
       });
       im.instanceMatrix.needsUpdate = true; im.instanceColor.needsUpdate = true;

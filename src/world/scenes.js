@@ -839,9 +839,10 @@ export class Overworld {
     const g = this.gen, sx = groundSmooth(g, x + 0.5, y, this) - groundSmooth(g, x - 0.5, y, this), sz = groundSmooth(g, x, y + 0.5, this) - groundSmooth(g, x, y - 0.5, this);
     return ihash(tx, ty, g.seed + 24) <= grassKeep(Math.hypot(sx, sz));
   }
-  // ¿Pueden pastar aquí los animales? La hierba de fuera del pueblo: la del pueblo y la de los jardines (también el de
-  // tu casa) no se la comen, que se estropearían. Lo que se comen queda como segado (mow), para todos
-  pasture(tx, ty, today) { return !inBounds(tx + 0.5, ty + 0.5) && this.grassAt(tx, ty, today); }
+  // ¿Pueden pastar aquí los animales? Toda la hierba (la del pueblo también: los caminos, la plaza, el estanque y las casas
+  // ya no la tienen) menos la de tu jardín, salvo para los que viven en él (yard: su casa está en el jardín). Lo que se
+  // comen queda como segado (mow), para todos
+  pasture(tx, ty, today, yard = false) { return (yard || !inYard(tx + 0.5, ty + 0.5, 0.5)) && this.grassAt(tx, ty, today); }
   // Segarla (con la guadaña: ver gather.js) o comérsela un animal: queda segada hasta que vuelve a salir (y lo segado hace
   // mucho se olvida)
   mow(tx, ty, today) {
@@ -1182,9 +1183,13 @@ export class Overworld {
     return out;
   }
   // ¿Se llega de un punto a otro sin un muro o una puerta cerrada por medio? (para no acariciar, hablar ni
-  // recoger nada a través de ellos)
-  reaches(x0, y0, x1, y1) {
-    for (const c of this.collidersNear((x0 + x1) / 2, (y0 + y1) / 2)) if (c.wall && crosses(x0, y0, x1, y1, c)) return false;
+  // recoger nada a través de ellos). low: tampoco una valla ni una puerta de valla cerrada (andando, para los animales;
+  // sus postes, que van en círculo, no cortan: la valla de al lado sí. La que tiene uno debajo, no cuenta)
+  reaches(x0, y0, x1, y1, low = false) {
+    for (const c of this.collidersNear((x0 + x1) / 2, (y0 + y1) / 2)) {
+      if (!c.wall && !(low && c.low && c.x0 !== undefined && !(x0 > c.x0 && x0 < c.x1 && y0 > c.y0 && y0 < c.y1))) continue;
+      if (crosses(x0, y0, x1, y1, c)) return false;
+    }
     return true;
   }
   // Rehacer el pueblo (se termina un proyecto)

@@ -103,24 +103,30 @@ function neckRig(body, u, m, base, tip, r0, r1, seg, graze, pts = []) {
   const vy = tip[1] - base[1], vz = tip[2] - base[2], L = Math.hypot(vy, vz), a0 = Math.atan2(vz, vy);
   const neck = new THREE.Group(); neck.position.set(0, base[1], base[2]); neck.rotation.x = a0; body.add(neck); u.neck = neck;
   tube(m, [0, 0, 0], [0, L, 0], r0, r1, neck, seg);
+  // (la unión con el cuerpo, redonda y con el cuello, que engorda con él: al bajarlo, la boca plana del tubo no asoma por
+  // encima de la cruz)
+  mesh(G.ball, m, { s: [r0 * 1.03, r0 * 1.03, r0 * 1.03] }, neck);
   const c = Math.cos(a0), s = Math.sin(a0);
   for (const [mm, p, o] of pts) { const dy = p[1] - base[1], dz = p[2] - base[2]; mesh(G.ball, mm, { ...o, p: [p[0], dy * c + dz * s, -dy * s + dz * c], r: o.r && [o.r[0] - a0, o.r[1], o.r[2]] }, neck); }
   u.rig = { by: base[1], bz: base[2], L, a0, ...graze };
 }
-// (con la cabeza ya de su tamaño) El morro, inclinado SNOUT por debajo de la horizontal y a YT del suelo: lo que se
-// estira el cuello (de 1 a 1,8; si llega sin estirarlo, baja menos) y lo que se inclina la cabeza
-const SNOUT = 1.3, YT = 0.12;
+// (con la cabeza ya de su tamaño) El morro, inclinado SNOUT por debajo de la horizontal (la cabeza casi de pie, como
+// pastan) y a YT del suelo, entre las hojas: primero baja el cuello lo suyo (beta); si no llega, se estira, como mucho
+// STRETCH (más, parece de llama), y si aun así no llega, baja más empinado, hasta BETA; lo que falte se queda en las
+// hojas, que son más altas que eso. Si llega sin estirarlo, baja menos. Y lo que se inclina la cabeza
+const SNOUT = 1.45, YT = 0.13, STRETCH = 1.3, BETA = 1.3;
 function settleNeck(u) {
   const r = u.rig, k = u.head.scale.x, S = Math.hypot(...r.S) * k, need = r.by - YT - S * Math.sin(SNOUT);
   r.hr = Math.atan2(r.S[0], r.S[1]) + SNOUT;
   let beta = r.beta, st = need / (r.L * Math.sin(beta));
   if (st < 1) { st = 1; beta = Math.asin(Math.max(0.2, Math.min(1, need / r.L))); }
-  r.s = Math.min(1.8, st); r.ag = Math.PI / 2 + beta;
+  else if (st > STRETCH) { st = STRETCH; beta = Math.max(beta, Math.min(BETA, Math.asin(Math.min(1, need / (r.L * STRETCH))))); }
+  r.s = st; r.ag = Math.PI / 2 + beta;
 }
-// El cuello y la cabeza, de levantados (g = 0) a pastando (g = 1)
+// El cuello y la cabeza, de levantados (g = 0) a pastando (g = 1). Al estirarse engorda algo (si no, se ve fino)
 function neckPose(u, g) {
-  const r = u.rig, a = r.a0 + (r.ag - r.a0) * g, s = 1 + (r.s - 1) * g;
-  u.neck.rotation.x = a; u.neck.scale.y = s;
+  const r = u.rig, a = r.a0 + (r.ag - r.a0) * g, s = 1 + (r.s - 1) * g, w = 1 + (s - 1) * 0.6;
+  u.neck.rotation.x = a; u.neck.scale.set(w, s, w);
   u.head.position.set(0, r.by + Math.cos(a) * r.L * s, r.bz + Math.sin(a) * r.L * s);
 }
 // Ojos: negros y pequeños (sin punto de luz, que los hacía de dibujos animados)
