@@ -76,6 +76,12 @@ def handler(root, label, inject):
             path = self.path.split('?')[0]
             if path == '/src/banco.js' and root != HERE:
                 return self.send_file(os.path.join(HERE, 'src', 'banco.js'), 'text/javascript')
+            # (lo que importa el banco de ahora y la versión de antes aún no tenía, como src/opciones.js: el de ahora.
+            # El código de antes no pide archivos que no tiene, así que esto solo lo usa el banco)
+            if root != HERE and path.startswith('/src/') and '..' not in path:
+                mine, here = os.path.join(root, path[1:]), os.path.join(HERE, path[1:])
+                if not os.path.exists(mine) and os.path.isfile(here):
+                    return self.send_file(here, 'text/javascript')
             if inject and path in ('/', '/index.html'):
                 with open(os.path.join(root, 'index.html'), encoding='utf-8') as f:
                     page = f.read()
