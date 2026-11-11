@@ -44,6 +44,7 @@ export function shapesOf(data, season, at, extra = null) {
   for (const c of colliders) {
     if (c.rx !== undefined) continue;   // (la elipse del estanque del pueblo: no es algo que esté encima del suelo)
     if (c.spiral) continue;             // (el hueco de la escalera de la torre: se pisa, no tapa nada)
+    if (c.dig) continue;                // (lo cavado con la pala: es suelo, más bajo o más alto)
     if (c.obb) {
       // Lo colocado libre (con su giro) y las casas grandes: su caja
       const b = c.obb, big = Math.max(b.hx, b.hy) > 0.75;

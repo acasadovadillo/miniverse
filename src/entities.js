@@ -24,6 +24,10 @@ export class Person {
 const RADIUS = 0.28;
 const JUMP = 5.0, GRAVITY = 15;   // velocidad al saltar (m/s) y gravedad: sube unos 83 cm y está 0,67 s en el aire
 const HOP = 0.35;                  // saltando, por encima de esta altura se pasa sobre lo bajo (vallas, puertas de valla)
+// Junto a lo cavado con la pala (ver scenes.js, digH): lo que queda más de STEP_UP por encima de los pies frena como un
+// muro (medio bloque se sube andando; un bloque, 0,5 m, saltando, que sube 83 cm; dos, no) y al pasar a una casilla más
+// baja se cae
+const STEP_UP = 0.3;
 // La altura del suelo en (x, y) por las rocas (las que tienen top): una cúpula de su altura y algo más ancha que su
 // colisión, para subir andando por el borde
 export function floorAt(x, y, list, z = 0) {
@@ -72,11 +76,14 @@ export class Player extends Person {
     this.vy = lerp(this.vy, wy, k);
     const p = { x: this.x + this.vx * dt, y: this.y + this.vy * dt };
     let near = null;
+    // (cerca de lo cavado: dónde están los pies, de verdad, para las paredes de los hoyos y los montones de tierra)
+    const dug = !this.boat && !this.ghost && !!scene.digNear?.(this.x, this.y), feet = dug ? scene.surfaceAt(this.x, this.y) + this.z : 0;
     if (!this.boat && !this.ghost) {
       // (las rocas no frenan: se sube uno encima; y saltando, a pie o a caballo, se pasa por encima de las vallas)
       near = scene.collidersNear(p.x, p.y);
       const high = this.z - this.floor > (this.mount ? 0.2 : HOP);
-      collide(p, near.filter(c => c.top === undefined && !(high && c.low) && !(c.zmax !== undefined && this.z > c.zmax)), RADIUS);   // (zmax: lo que solo frena abajo)
+      collide(p, near.filter(c => c.top === undefined && !c.dig && !(high && c.low) && !(c.zmax !== undefined && this.z > c.zmax)), RADIUS);   // (zmax: lo que solo frena abajo)
+      if (dug) collide(p, scene.digWalls(p.x, p.y, feet, this.airborne ? 0.05 : STEP_UP), RADIUS);   // (en el aire, sin el escalón: se sube lo que da el salto)
     }
     // No entrar en agua profunda (o, en barca, no salir a tierra): si se puede, deslizarse por la orilla
     const blocked = this.ghost ? null : this.boat ? (x, y) => !scene.water?.(x, y) : scene.blocked?.bind(scene);
@@ -91,6 +98,9 @@ export class Player extends Person {
     if (scene.bounds) { p.x = clamp(p.x, scene.bounds.x0, scene.bounds.x1); p.y = clamp(p.y, scene.bounds.y0, scene.bounds.y1); }
     const moved = Math.hypot(p.x - this.x, p.y - this.y);
     if (keys.run && !this.crouch && !this.mount && !this.boat) this.onExert?.(moved * 0.05);   // (correr da hambre)
+    // (al pasar de una casilla a otra junto a lo cavado, los pies se quedan a su altura: a una más baja se cae; a una algo más
+    // alta, z queda por debajo de 0 y sube suave, como un escalón)
+    if (dug && (Math.floor(p.x) !== Math.floor(this.x) || Math.floor(p.y) !== Math.floor(this.y)) && (scene.digH(Math.floor(this.x), Math.floor(this.y)) !== null || scene.digH(Math.floor(p.x), Math.floor(p.y)) !== null)) this.z = feet - scene.surfaceAt(p.x, p.y);
     this.x = p.x; this.y = p.y;
     this.wading = !this.boat && scene.water?.(this.x, this.y) === 'shallow';
     if (sx || sy) { const fl = Math.hypot(wx, wy); this.face = { x: wx / fl, y: wy / fl }; this.dir = [wx, wy]; }

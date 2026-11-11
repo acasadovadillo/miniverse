@@ -179,7 +179,7 @@ export const RECIPES = [
   R('cocina', 'jabali_asado', 1, [['carne_jabali', 1]]),
 ];
 // Herramientas: todas de hierro, en el yunque
-for (const tool of ['hacha', 'pico', 'guadana', 'azada']) RECIPES.push(R('yunque', `${tool}_hierro`, 1, [['lingote_hierro', 3], ['tablas', 1]]));
+for (const tool of ['hacha', 'pico', 'guadana', 'azada', 'pala']) RECIPES.push(R('yunque', `${tool}_hierro`, 1, [['lingote_hierro', 3], ['tablas', 1]]));
 for (const r of RECIPES) if (!ITEMS[r.out] || r.ins.some(([id]) => !ITEMS[id])) throw new Error(`Receta rota: ${r.id}`);
 
 // ¿Está desbloqueada? `seen`: objetos que el jugador ha tenido alguna vez; `taught`: recetas aprendidas (las que enseña

@@ -1,6 +1,6 @@
 // Objetos (herramientas, materiales, comida y cosas que se colocan) y qué da cada cosa del mundo al recolectarla.
 
-// Las herramientas son todas de hierro (hacha, pico, guadaña y azada). tier: el nivel, que además usan la caña y la red
+// Las herramientas son todas de hierro (hacha, pico, guadaña, azada y pala). tier: el nivel, que además usan la caña y la red
 export const TIERS = {
   4: { name: 'de hierro', head: '#b8c2ce', power: 3, dur: 250 },   // (dur: los usos que aguanta antes de romperse)
 };
@@ -9,6 +9,7 @@ const TOOLS = {
   pico: { name: 'Pico', desc: 'Pica rocas, peñascos y vetas.' },
   guadana: { name: 'Guadaña', desc: 'Siega arbustos y matojos de un tajo.' },
   azada: { name: 'Azada', desc: 'Labra la tierra para sembrar.' },
+  pala: { name: 'Pala', desc: 'Cava un bloque de tierra donde apuntes y se lo queda; el siguiente clic lo suelta donde quieras (rellena un hoyo o hace un montón).' },
 };
 
 export const ITEMS = {
@@ -241,6 +242,10 @@ ITEMS.vitrina = { name: 'Vitrina', desc: 'Para lucir tus colecciones en casa.', 
 for (const [id, f] of Object.entries(FISH)) ITEMS[id] = { name: f.name, desc: f.rare ? '¡Rarísimo! Dicen que da suerte.' : 'Un pez. Se puede asar en la cocina o vender.', food: 6, fish: true };
 
 for (const [tool, def] of Object.entries(TOOLS)) ITEMS[`${tool}_hierro`] = { name: `${def.name} ${TIERS[4].name}`, desc: def.desc, tool, tier: 4, stack: 1, dur: TIERS[4].dur };
+// La pala con un bloque de tierra encima: la misma pala (con su desgaste), que al soltar la tierra vuelve a ser la vacía. No
+// sale en la lista del creativo (hide)
+ITEMS.pala_hierro.full = 'pala_llena';
+ITEMS.pala_llena = { ...ITEMS.pala_hierro, name: 'Pala de hierro con tierra', desc: 'Lleva un bloque de tierra: haz clic donde quieras soltarlo (en un hoyo, lo rellena; en el suelo, hace un montón).', full: undefined, empty: 'pala_hierro', hide: true };
 // Ropa y mochila: se llevan puestas en un hueco del cuerpo (wear). Cada prenda lleva su color (en la casilla
 // de la mochila o en el hueco); dye es el de las que se fabrican.
 export const WEAR_SLOTS = [
@@ -364,8 +369,8 @@ Object.assign(HARVEST, {
 });
 
 // Lo que cansa cada uso de herramienta (en cansancio de combat.js: a 4, medio muslo de hambre menos)
-export const TOOL_COST = { hacha: 1, pico: 1, guadana: 0.5, azada: 1, mano: 0.5, regadera: 0.5, cana: 0.5, red: 0.5 };
-export const START_KIT = [['hacha_hierro', 1], ['pico_hierro', 1], ['guadana_hierro', 1], ['azada_hierro', 1], ['manzana', 3]];
+export const TOOL_COST = { hacha: 1, pico: 1, guadana: 0.5, azada: 1, pala: 1, mano: 0.5, regadera: 0.5, cana: 0.5, red: 0.5 };
+export const START_KIT = [['hacha_hierro', 1], ['pico_hierro', 1], ['guadana_hierro', 1], ['azada_hierro', 1], ['pala_hierro', 1], ['manzana', 3]];
 
 // Golpes que necesita con su herramienta
 export const hitsFor = rule => Math.max(1, Math.ceil(rule.hits / TIERS[4].power));

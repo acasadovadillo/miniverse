@@ -215,8 +215,8 @@ export class Farm {
     const w = this.world, x = tx + 0.5, y = ty + 0.5, b = w.gen.biomeAt(x, y);
     if (![B.MEADOW, B.FOREST, B.PINES, B.SWAMP, B.SNOW].includes(b) || !isGrass(x, y)) return false;
     const d = this.d(tx, ty), k = key(tx, ty);
-    if (d && (d.tilled[k] !== undefined || d.placed?.[k] || d.floor?.[k] || d.trees?.[k])) return false;
-    return !w.collidersNear(x, y).some(c => (c.r !== undefined ? Math.hypot(c.x - x, c.y - y) < c.r + 0.8 : !c.rx && x > c.x0 - 0.6 && x < c.x1 + 0.6 && y > c.y0 - 0.6 && y < c.y1 + 0.6));
+    if (d && (d.tilled[k] !== undefined || d.placed?.[k] || d.floor?.[k] || d.trees?.[k] || d.dig?.[k] !== undefined)) return false;
+    return !w.collidersNear(x, y).some(c => !c.dig && (c.r !== undefined ? Math.hypot(c.x - x, c.y - y) < c.r + 0.8 : !c.rx && x > c.x0 - 0.6 && x < c.x1 + 0.6 && y > c.y0 - 0.6 && y < c.y1 + 0.6));
   }
   plantTree(tx, ty, kind) {
     const g = this.game, d = this.d(tx, ty, true);

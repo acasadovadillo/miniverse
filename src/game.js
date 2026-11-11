@@ -213,6 +213,9 @@ export class Game {
     this.inv = new Inventory(save.inventory);
     if (!save.inventory) for (const [id, n] of START_KIT) this.inv.add(id, n);   // partida nueva: equipo inicial
     this.invSpill = this.inv.spill;   // (materiales de muebles de antes que no han cabido: se dejan a los pies al empezar)
+    // (las partidas de antes de la pala la reciben una vez: la marca pala va en lo guardado; si no cabe, a los pies)
+    const shovel = !!save.inventory && !save.pala;
+    if (shovel && this.inv.add('pala_hierro', 1)) this.invSpill.push(['pala_hierro', 1]);
     // La ropa: la partida nueva empieza con la que se eligió al crear el personaje, sin mochila; las de antes
     // de que hubiera ropa, con la suya y una mochila (así no pierden nada de lo que llevaban)
     if (!save.inventory?.equip) this.inv.equip = clothesFor(save.player.look, !!save.inventory);
@@ -248,6 +251,7 @@ export class Game {
     if (owed.length && !Profile.server) { for (const [id, n] of owed) this.giveBack(id, n); hud.toast('La mesa de encantar ya no está en el juego: te devuelvo sus materiales', 'good'); }
     if (owed.iron && !Profile.server) hud.toast('Ahora todas las herramientas son de hierro: también las tuyas, con el desgaste que llevaban', 'good');
     if (owed.spell && !Profile.server) hud.toast('Los encantamientos ya no están en el juego: tus cosas siguen, pero sin ellos');
+    if (shovel && !Profile.server) hud.toast('Nilo te ha dejado una pala: cava un bloque de tierra con ella y suéltalo donde quieras', 'good');
     // Lo que el jugador tenía en su habitación va primero (dentro de la casa); luego se levanta la casa con
     // sus muebles por defecto, que solo ocupan las casillas que quedan libres. Va después de crear al jugador,
     // porque lo que no quepa vuelve a la mochila a través de él.
@@ -282,7 +286,7 @@ export class Game {
       seed: this.world.seed, player, explored: [...this.explored],
       inventory: this.inv.toSave(), clock: Math.round(this.world.clock),
       ...this.craft.toSave(), house: { big: this.house.big, family: this.house.family, built: true, v: this.house.v }, money: this.money,
-      gamemode: this.gamemode, rules: this.rules, worldSpawn: this.worldSpawn, weatherLock: this.weatherLock, difficulty: this.difficulty, defaultGamemode: this.defaultGamemode, cam3d: camToSave(), volumes: Settings.volumes(),
+      pala: 1, gamemode: this.gamemode, rules: this.rules, worldSpawn: this.worldSpawn, weatherLock: this.weatherLock, difficulty: this.difficulty, defaultGamemode: this.defaultGamemode, cam3d: camToSave(), volumes: Settings.volumes(),
     };
     this.hook('save', out);
     return out;
@@ -708,7 +712,7 @@ export class Game {
     await hud.say('Nilo', first ? [
       `¡Así que tú eres ${p.name}! Por fin llega alguien a la casa del final del camino. Llevaba años vacía.`,
       'Esto es Pueblo Brotes. Pequeño, sí, pero aquí cada cual se construye la vida a su manera.',
-      'Te he dejado unas herramientas de hierro: hacha, pico, guadaña y azada. Elígelas con los números y úsalas con el clic izquierdo. Para usar lo demás, acércate, pon el cursor encima y pulsa E.',
+      'Te he dejado unas herramientas de hierro: hacha, pico, guadaña, azada y pala. Elígelas con los números y úsalas con el clic izquierdo. Para usar lo demás, acércate, pon el cursor encima y pulsa E.',
       'No te agobies, que no hace falta saberlo todo hoy. Te dejo apuntado qué hacer, de uno en uno, arriba a la izquierda.',
     ] : [NILO_TIPS[this.niloTip++ % NILO_TIPS.length]]);
     if (first) this.craft.teach('banco');

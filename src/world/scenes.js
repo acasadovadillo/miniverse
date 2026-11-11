@@ -23,6 +23,14 @@ const PAD_R = 7, NO_TILES = [];   // (el allanado alrededor de lo construido de 
 // La altura de lo construido (ver levelFor): a escalones de LV_STEP; una casilla se junta a la altura de las de al lado si
 // no le sacan más de LV_JOIN (así una casa en cuesta queda a una sola altura, sobre su cimiento)
 const LV_STEP = 0.25, LV_JOIN = 1.5;
+// Lo cavado con la pala (ver digH): cada bloque mide DIG_H (dos escalones de lo construido, así lo que se ponga en un hoyo
+// cae justo en su suelo), se cava hasta DIG_DOWN bloques y se apila hasta DIG_UP por encima del suelo de ahí
+export const DIG_H = 0.5, DIG_DOWN = 16, DIG_UP = 3;
+// Dónde se cava: en la tierra y la hierba (no en la arena, la roca, la nieve ni el agua), y no en las cuestas de roca
+// (lo que sube la casilla de una esquina a otra: el suelo pinta roca desde una pendiente de 0,62)
+const DIG_BIOMES = new Set([B.MEADOW, B.FOREST, B.PINES, B.SWAMP]), DIG_STEEP = 0.6;
+// La firma de lo cavado de un trozo (para saber si ha cambiado, venga de aquí o de la red)
+const digSigOf = dig => (dig ? Object.entries(dig).map(([k, h]) => k + ':' + h).join(';') : '');
 function shifted(v, off) {
   if (Array.isArray(v)) return v.map(e => (e && typeof e === 'object' ? shifted(e, off) : e));
   const o = {};
@@ -42,6 +50,7 @@ export const NILO_LOOK = { sex: 'chico', skin: '#8a5234', hair: '#c8c4cc', eyes:
 // puerta de valla va en su casilla, y como mucho llega al borde (los postes de la puerta van justo ahí): solo se mira de cerca
 const LOW_MARGIN = 0.3;
 function clashes(c, x, y, margin) {
+  if (c.dig) return false;   // (en lo cavado se puede poner lo que sea: va a su altura)
   const m = c.low ? LOW_MARGIN : margin;
   return c.r !== undefined ? Math.hypot(c.x - x, c.y - y) < c.r + m : !c.rx && x > c.x0 - m && x < c.x1 + m && y > c.y0 - m && y < c.y1 + m;
 }
@@ -215,6 +224,149 @@ export class Overworld {
     // (las casas tenían un candelabro por su cuenta, que se apagaba aparte: "c:x,y" en d.off. Ya no lo hay; lo que quede
     // de entonces se olvida y se guarda así)
     for (const [k, d] of deltas) if (d?.off) for (const o of Object.keys(d.off)) if (o.startsWith('c:')) { delete d.off[o]; this.dirty.add(k); }
+    // Lo cavado: los trozos que tienen algo (clave → su firma; ver digNote) y una cuenta que sube con cada cambio (la vista
+    // rehace con ella los hoyos del suelo). Las alturas de las esquinas, guardadas mientras no cambie nada (ver cornerH)
+    this.digChunks = new Map(); this.digV = 0; this.corners = new Map(); this.cornersT = -1;
+    for (const [k, d] of deltas) { const sg = !k.startsWith('u:') && digSigOf(d?.dig); if (sg) this.digChunks.set(k, sg); }
+  }
+
+  // ---------- lo cavado con la pala ----------
+  // Como en Minecraft: la pala saca un bloque de tierra de una casilla (el suelo baja DIG_H) y lo suelta en otra (sube). Va
+  // en el trozo (d.dig: casilla → la altura de su suelo, en metros y a escalones de lo construido), así lo ven todos y se
+  // guarda, y no se mueve aunque cambie el allanado de alrededor. La casilla tocada es llana, con paredes de tierra hasta
+  // las de al lado: las dibuja la vista (three/dig3d.js). De la altura natural (digBase) se parte al tocarla por primera
+  // vez; los bloques se cuentan desde ella (digDepth)
+  // La altura de una casilla tocada, o null si está como era. Rápido: sin nada tocado en el mundo, ni mira; si no, solo los
+  // trozos que tienen algo (también los de más allá de la costura, corridos una vuelta)
+  digH(tx, ty) {
+    if (!this.digChunks.size) return null;
+    const cx = Math.floor(tx / CHUNK), own = wrapIndex(cx, CHUNK), k = `${own},${Math.floor(ty / CHUNK)}`;
+    if (!this.digChunks.has(k)) return null;
+    return this.deltas.get(k)?.dig?.[`${tx - (cx - own) * CHUNK},${ty}`] ?? null;
+  }
+  // La altura del suelo natural en una esquina (como la malla del suelo: el relieve allanado junto a lo de antes), guardada
+  // hasta que cambie algún trozo (el allanado depende de lo construido)
+  cornerH(x, y) {
+    if (this.cornersT !== this.touches) { this.corners.clear(); this.cornersT = this.touches; }
+    const k = `${x},${y}`;
+    let h = this.corners.get(k);
+    if (h === undefined) { h = this.groundRaw(x, y); if (this.corners.size > 4000) this.corners.clear(); this.corners.set(k, h); }
+    return h;
+  }
+  // La altura del suelo natural en un punto, sin lo cavado: la de la malla (cada casilla, dos triángulos entre sus esquinas)
+  naturalAt(x, y) {
+    const x0 = Math.floor(x), y0 = Math.floor(y), fu = x - x0, fv = y - y0, b = this.cornerH(x0 + 1, y0), c = this.cornerH(x0, y0 + 1);
+    if (fu + fv <= 1) { const a = this.cornerH(x0, y0); return a + (b - a) * fu + (c - a) * fv; }
+    const d = this.cornerH(x0 + 1, y0 + 1); return d + (c - d) * (1 - fu) + (b - d) * (1 - fv);
+  }
+  // La altura natural de una casilla para la pala: la media de sus esquinas, a escalones de LV_STEP
+  digBase(tx, ty) { return Math.round((this.cornerH(tx, ty) + this.cornerH(tx + 1, ty) + this.cornerH(tx, ty + 1) + this.cornerH(tx + 1, ty + 1)) / 4 / LV_STEP) * LV_STEP; }
+  // Cuántos bloques está una casilla por debajo de su altura natural (por encima, negativo; 0 si está como era)
+  digDepth(tx, ty) { const h = this.digH(tx, ty); return h === null ? 0 : (this.digBase(tx, ty) - h) / DIG_H; }
+  // El suelo donde se pisa en (x, y): lo construido, lo cavado o el natural (para andar junto a los hoyos: entities.js)
+  surfaceAt(x, y) {
+    const L = this.levelAt(x, y);
+    if (L !== null) return L;
+    return this.digH(Math.floor(x), Math.floor(y)) ?? this.naturalAt(x, y);
+  }
+  // ¿Hay algo cavado a r casillas o menos de (x, y)?
+  digNear(x, y, r = 2) {
+    if (!this.digChunks.size) return false;
+    const tx = Math.floor(x), ty = Math.floor(y);
+    for (let j = -r; j <= r; j++) for (let i = -r; i <= r; i++) if (this.digH(tx + i, ty + j) !== null) return true;
+    return false;
+  }
+  // Lo que frena al andar junto a lo cavado: las casillas de alrededor de (x, y) cuyo suelo queda más de step por encima de
+  // los pies (feet). Las naturales solo cuentan desde una casilla cavada (las paredes del hoyo); entre dos naturales, nada
+  // cambia. De cada una, la altura del punto más cercano (en cuesta, la del borde)
+  digWalls(x, y, feet, step) {
+    const tx = Math.floor(x), ty = Math.floor(y), out = [], inPit = this.digH(tx, ty) !== null;
+    for (let j = -1; j <= 1; j++) for (let i = -1; i <= 1; i++) {
+      if (!i && !j) continue;
+      const ax = tx + i, ay = ty + j, D = this.digH(ax, ay);
+      if (D === null && !inPit) continue;
+      // (lo construido, a su altura: un suelo o una valla junto al hoyo también son pared)
+      const h = this.levelAt(ax + 0.5, ay + 0.5) ?? D ?? this.naturalAt(Math.min(ax + 1, Math.max(ax, x)), Math.min(ay + 1, Math.max(ay, y)));
+      if (h > feet + step) out.push({ x0: ax, y0: ay, x1: ax + 1, y1: ay + 1 });
+    }
+    return out;
+  }
+  // Lo tocado en un rectángulo de casillas [x0, x1) × [y0, y1): [[tx, ty, altura]] (para la vista)
+  digList(x0, y0, x1, y1) {
+    const list = [];
+    if (!this.digChunks.size) return list;
+    // (si el rectángulo cae más allá de la costura, los trozos van corridos una vuelta: off)
+    const mid = Math.floor((x0 + x1) / 2 / CHUNK), off = (mid - wrapIndex(mid, CHUNK)) * CHUNK;
+    for (const k of this.digChunks.keys()) {
+      const [cx, cy] = k.split(',').map(Number);
+      if ((cy + 1) * CHUNK <= y0 || cy * CHUNK >= y1) continue;
+      const sx = cx * CHUNK + off;
+      if (sx + CHUNK <= x0 || sx >= x1) continue;
+      for (const [t, h] of Object.entries(this.deltas.get(k)?.dig || {})) {
+        if (typeof h !== 'number') continue;
+        const c = t.indexOf(','), tx = +t.slice(0, c) + off, ty = +t.slice(c + 1);
+        if (tx >= x0 && tx < x1 && ty >= y0 && ty < y1) list.push([tx, ty, h]);
+      }
+    }
+    return list;
+  }
+  // Al cambiar un trozo (aquí o por la red): si ha cambiado lo cavado, se apunta
+  digNote(k) {
+    if (k.startsWith('u:')) return;
+    const sg = digSigOf(this.deltas.get(k)?.dig), was = this.digChunks.get(k) || '';
+    if (sg === was) return;
+    if (sg) this.digChunks.set(k, sg); else this.digChunks.delete(k);
+    this.digV++;
+  }
+  // La altura que tendría una casilla al cavar (dn -1) o soltar tierra (dn 1), o null si vuelve a estar como era. Un bloque
+  // más abajo o más arriba de lo que tiene; si una vecina tocada queda a un escalón de lo construido (LV_STEP) o menos, a la
+  // suya: así un hoyo de varias casillas en cuesta tiene el fondo llano (y un montón, la cima). Rellenando un hoyo o
+  // quitando un montón, al llegar a un escalón de su altura natural vuelve a estar como era
+  digNext(tx, ty, dn) {
+    const base = this.digBase(tx, ty), cur = this.digH(tx, ty), from = cur ?? base;
+    let h = from + dn * DIG_H;
+    if (cur !== null && (cur < base ? h >= base - LV_STEP - 1e-6 && dn > 0 : h <= base + LV_STEP + 1e-6 && dn < 0)) return null;
+    let best = Infinity;
+    for (const [nx, ny] of [[tx + 1, ty], [tx - 1, ty], [tx, ty + 1], [tx, ty - 1]]) {
+      const o = this.digH(nx, ny);
+      if (o !== null && Math.abs(o - h) <= LV_STEP + 1e-6 && Math.abs(o - h) < Math.abs(best - h)) best = o;
+    }
+    if (best !== Infinity) h = best;
+    return Math.round(h / LV_STEP) * LV_STEP;
+  }
+  // ¿Se puede cavar (up: false) o soltar tierra (up: true) en esta casilla? '' si sí; si no, por qué
+  digWhy(tx, ty, up) {
+    const x = tx + 0.5, y = ty + 0.5, k = `${tx},${ty}`;
+    if (!inPlanet(x, y)) return 'Ahí no se puede';
+    if (inBounds(x, y)) return 'En el pueblo no se cava';
+    const cur = this.digH(tx, ty);
+    if (cur === null && !DIG_BIOMES.has(this.gen.biomeAt(x, y))) return 'Solo se cava en la tierra y la hierba';
+    if (this.water(x, y)) return 'Ahí hay agua';
+    const c = [this.cornerH(tx, ty), this.cornerH(tx + 1, ty), this.cornerH(tx, ty + 1), this.cornerH(tx + 1, ty + 1)];
+    if (Math.min(...c) < 0.05) return 'Demasiado cerca del agua';
+    if (cur === null && Math.max(...c) - Math.min(...c) > DIG_STEEP) return 'Ahí es roca';
+    const d = this.deltas.get(`${wrapIndex(Math.floor(tx / CHUNK), CHUNK)},${Math.floor(ty / CHUNK)}`);
+    if (this.builtAt(d, k) || d?.lvl?.[k] !== undefined || d?.crops?.[k] || d?.trees?.[k]) return 'Hay algo encima';
+    for (const layer of ['floor', 'placed', 'roof']) if (this.at(layer, tx, ty)) return 'Hay algo encima';
+    if (this.layers.some(l => l.blocks?.(tx, ty))) return 'Ahí no se puede';
+    if (this.collidersNear(x, y).some(c => !c.dig && clashes(c, x, y, 0.42))) return 'Hay algo encima';
+    if (this.harvestablesNear(x, y).some(o => !o.flower && Math.floor(o.x) === tx && Math.floor(o.y) === ty)) return 'Hay algo encima';
+    const h = this.digNext(tx, ty, up ? 1 : -1), base = this.digBase(tx, ty);
+    if (h !== null && (up ? h > base + DIG_UP * DIG_H + 1e-6 : h < base - DIG_DOWN * DIG_H - 1e-6)) return up ? 'No se apila más alto' : 'No se cava más hondo';
+    return '';
+  }
+  // Cavar (dn -1) o soltar tierra (dn 1) en una casilla. Se queda sin hierba ni flores (la tierra, desnuda): la hierba vuelve
+  // a salir sola, como lo segado, cuando la casilla vuelve a estar a su altura (today: el día del juego). Devuelve su altura
+  // nueva (null: como era)
+  digTile(tx, ty, dn, today) {
+    const cx = Math.floor(tx / CHUNK), cy = Math.floor(ty / CHUNK), h = this.digNext(tx, ty, dn), d = this.delta(cx, cy, true), k = `${tx},${ty}`;
+    if (h !== null) (d.dig ||= {})[k] = h; else if (d.dig) { delete d.dig[k]; if (!Object.keys(d.dig).length) delete d.dig; }
+    const m = (d.mown ||= {});
+    for (const [q, v] of Object.entries(m)) if (today - v >= GRASS_REGROW) delete m[q];
+    m[k] = today;
+    for (const o of this.gen.content(cx, cy).objects) if (o.flower && Math.floor(o.x) === tx && Math.floor(o.y) === ty) d.removed[o.key] = this.clock;
+    this.touchAround(tx, ty);
+    return h;
   }
 
   // ---------- barcas amarradas ----------
@@ -260,8 +412,9 @@ export class Overworld {
     const d = this.delta(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK)), k = `${tx},${ty}`, have = d?.lvl?.[k];
     if (have === undefined && this.builtAt(d, k)) return 0;   // (lo de antes)
     const layer = layerOf(id), struct = layer === 'floor' || layer === 'roof' || !!PIECES[id];
-    if (!struct) return have ?? this.groundRaw(tx + 0.5, ty + 0.5);
-    let L = Math.ceil(Math.max(this.groundRaw(tx, ty), this.groundRaw(tx + 1, ty), this.groundRaw(tx, ty + 1), this.groundRaw(tx + 1, ty + 1)) / LV_STEP - 0.05) * LV_STEP;
+    const D = this.digH(tx, ty);   // (en lo cavado o en la tierra apilada, a su altura: es llano)
+    if (!struct) return have ?? D ?? this.groundRaw(tx + 0.5, ty + 0.5);
+    let L = D ?? Math.ceil(Math.max(this.groundRaw(tx, ty), this.groundRaw(tx + 1, ty), this.groundRaw(tx, ty + 1), this.groundRaw(tx + 1, ty + 1)) / LV_STEP - 0.05) * LV_STEP;
     if (have !== undefined) L = Math.max(L, have);
     let join = L;
     for (const [nx, ny] of [[tx + 1, ty], [tx - 1, ty], [tx, ty + 1], [tx, ty - 1]]) {
@@ -348,7 +501,7 @@ export class Overworld {
     if (d && !d.floor) Object.assign(d, { floor: {}, roof: {}, chest: {} });
     return d;
   }
-  touch(cx, cy) { cx = wrapIndex(cx, CHUNK); const d = this.delta(cx, cy), k = `${cx},${cy}`; d.v++; this.touches++; this.dirty.add(k); this.onTouch?.(k); }
+  touch(cx, cy) { cx = wrapIndex(cx, CHUNK); const d = this.delta(cx, cy), k = `${cx},${cy}`; d.v++; this.touches++; this.dirty.add(k); this.digNote(k); this.onTouch?.(k); }
   // Lo que ha puesto el jugador en una capa de una casilla (o undefined)
   ownAt(layer, tx, ty) { return this.delta(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK))?.[layer]?.[`${tx},${ty}`]; }
   // Lo fijo del pueblo y de las aldeas en una casilla
@@ -412,6 +565,9 @@ export class Overworld {
     if (d?.tilled) for (const t of Object.keys(d.tilled)) tilled.push(t.split(',').map(Number));
     const out = { objects, colliders, flats, floors, lights, solids: [], roofMemo: new Map() };
     if (d) this.addBuilt(d, out);
+    // (lo cavado y la tierra apilada: los animales y las criaturas no entran; los jugadores van aparte, por alturas: ver
+    // digWalls. dig: no estorba al colocar nada)
+    if (d?.dig) for (const t of Object.keys(d.dig)) { const c = t.indexOf(','), tx = +t.slice(0, c), ty = +t.slice(c + 1); colliders.push({ x0: tx, y0: ty, x1: tx + 1, y1: ty + 1, dig: true }); }
     if (d?.boats) for (const [id, b] of Object.entries(d.boats)) if (Array.isArray(b)) objects.push({ boat: true, id, x: b[0], y: b[1], yaw: b[2] || 0, key: `boat:${id}:${b[2] || 0}` });   // (las barcas amarradas)
     const vb = this.village.built?.[key];
     if (vb) this.addBuilt(vb, out, true);
@@ -640,7 +796,7 @@ export class Overworld {
   flowerHere(o, d) {
     if (!flowerShows(o, this.gen.season)) return false;
     const tx = Math.floor(o.x), ty = Math.floor(o.y), k = `${tx},${ty}`;
-    if (d && (d.tilled[k] !== undefined || d.crops?.[k])) return false;
+    if (d && (d.tilled[k] !== undefined || d.crops?.[k] || d.dig?.[k] !== undefined)) return false;
     return !this.at('floor', tx, ty) && !this.at('placed', tx, ty);
   }
 
@@ -654,7 +810,7 @@ export class Overworld {
     if (this.at('floor', tx, ty) || this.at('placed', tx, ty)) return false;
     const d = this.delta(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK)), k = `${tx},${ty}`;
     if (d && (d.tilled[k] !== undefined || d.crops?.[k])) return false;
-    if (this.mownAt(tx, ty, today) || this.layers.some(l => l.blocks?.(tx, ty))) return false;
+    if (this.mownAt(tx, ty, today) || this.digH(tx, ty) !== null || this.layers.some(l => l.blocks?.(tx, ty))) return false;
     // (ni en las cuestas donde el suelo es roca, ni en las que no se pintan: la misma cuenta que las matas, nature3d.js)
     const g = this.gen, sx = groundSmooth(g, x + 0.5, y, this) - groundSmooth(g, x - 0.5, y, this), sz = groundSmooth(g, x, y + 0.5, this) - groundSmooth(g, x, y - 0.5, this);
     return ihash(tx, ty, g.seed + 24) <= grassKeep(Math.hypot(sx, sz));

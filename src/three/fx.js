@@ -163,7 +163,7 @@ export class Fx {
       } else {
         const tg = game.gather.target;
         if (tg?.free) { ghost = tg.model; ghostOk = tg.ok && (!b.on || b.check().ok); at = [tg.x, tg.y]; yaw = tg.a; }   // (lo libre: donde y como quedaría, sin casilla)
-        else if (tg?.tile && (tg.ok || tg.place)) {
+        else if (tg?.tile && (tg.ok || tg.place || tg.mark)) {   // (mark: la pala, también en rojo donde no se puede)
           this.showTile(tg.tile, gy, tg.ok ? pulse : '#ff7a6a');
           // (la alfombra y la mesa grande, enteras, del tamaño elegido; lo demás, arrimado al muro de detrás)
           if (tg.place && ITEMS[tg.place].place === 'rug') { const r = rugRect(...tg.tile, tg.rot); ghost = `rug:${tg.place}:${r.w}x${r.h}`; ghostOk = tg.ok; at = [r.x0 + r.w / 2, r.y0 + r.h / 2]; }

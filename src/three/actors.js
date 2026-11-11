@@ -394,7 +394,7 @@ export class Actors {
       // mira. Todo lo que escribe en los huesos va dentro de este bloque: lo que suma (+= y -=) parte de la pose de
       // animate(), y fuera se acumularía en los fotogramas sin pose (el tronco giraría sin parar o el cuerpo se hundiría)
       P.turn(dt);
-      if (e.z > 0) y += e.z;   // (saltando o encima de una roca)
+      if (e.z) y += e.z;   // (saltando o encima de una roca; por debajo de 0, subiendo un escalón de lo cavado: ver entities.js)
       // (cómo se ve, con la altura ya puesta: alguien en lo alto de una torre, mirado allí arriba, tiene los pies a 12 m del suelo)
       const tier = this.grade(m, e, x, y + P.root.position.y, z, lying);
       m.root.visible = tier !== 3;
@@ -513,6 +513,7 @@ export class Actors {
 const GESTURES = {
   golpe: { dur: 0.42, arm: [[0, 0], [0.38, -2.7], [0.62, 0.5], [1, 0]], twist: [[0, 0], [0.38, -0.25], [0.62, 0.15], [1, 0]], lean: [[0, 0], [0.38, -0.08], [0.62, 0.18], [1, 0]], side: [[0, 0], [0.38, 0.12], [1, 0]] },
   cavar: { dur: 0.45, arm: [[0, 0], [0.4, -2.6], [0.65, 0.85], [1, 0]], twist: [[0, 0], [0.4, -0.15], [1, 0]], lean: [[0, 0], [0.4, -0.1], [0.65, 0.3], [1, 0]] },
+  palear: { dur: 0.5, arm: [[0, 0], [0.3, -1.1], [0.55, 0.45], [0.8, -0.7], [1, 0]], twist: [[0, 0], [0.3, -0.12], [0.8, 0.2], [1, 0]], lean: [[0, 0], [0.3, 0.05], [0.55, 0.32], [0.8, 0.05], [1, 0]], tilt: [[0, 0], [0.55, 0.35], [0.8, -0.25], [1, 0]] },
   barrer: { dur: 0.4, arm: [[0, 0], [0.25, -1.2], [0.75, -1.15], [1, 0]], twist: [[0, 0], [0.25, 0.9], [0.72, -0.9], [1, 0]], side: [[0, 0], [0.25, -0.25], [0.72, 0.2], [1, 0]] },
   tajo: { dur: 0.36, arm: [[0, 0], [0.32, -2.4], [0.62, 0.3], [1, 0]], side: [[0, 0], [0.32, 0.5], [0.62, -0.5], [1, 0]], twist: [[0, 0], [0.32, -0.4], [0.62, 0.4], [1, 0]] },
   regar: { dur: 0.7, arm: [[0, 0], [0.25, -0.9], [0.75, -0.9], [1, 0]], tilt: [[0, 0], [0.25, 1.5], [0.75, 1.5], [1, 0]] },
@@ -525,7 +526,7 @@ function gestureOf(id) {
   const d = id && ITEMS[id];
   if (!d) return 'mano';
   if (d.weapon) return 'tajo';
-  return { hacha: 'golpe', pico: 'golpe', azada: 'cavar', guadana: 'barrer', red: 'barrer', regadera: 'regar', cana: 'lanzar' }[d.tool] || 'golpe';
+  return { hacha: 'golpe', pico: 'golpe', azada: 'cavar', pala: 'palear', guadana: 'barrer', red: 'barrer', regadera: 'regar', cana: 'lanzar' }[d.tool] || 'golpe';
 }
 // El valor en el momento k, suavizado entre clave y clave
 function keys(list, k) {
@@ -659,6 +660,22 @@ const SCYTHE = sh => { sh.moveTo(-0.01, 0.025); sh.quadraticCurveTo(0.24, 0.07, 
 const SCYTHE_EDGE = sh => { sh.moveTo(0.5, -0.09); sh.quadraticCurveTo(0.27, -0.005, -0.01, -0.03); sh.lineTo(-0.01, -0.018); sh.quadraticCurveTo(0.27, 0.01, 0.5, -0.09); };
 const HOE = sh => { sh.moveTo(-0.075, 0); sh.lineTo(0.075, 0); sh.lineTo(0.06, 0.13); sh.lineTo(-0.06, 0.13); sh.lineTo(-0.075, 0); };
 const BLADE = sh => { sh.moveTo(-0.028, 0); sh.lineTo(0.028, 0); sh.lineTo(0.028, 0.47); sh.lineTo(0, 0.56); sh.lineTo(-0.028, 0.47); sh.lineTo(-0.028, 0); };
+// La pala: la hoja con los hombros rectos (donde se pisa) y la punta redondeada, y su filo, una franja a lo largo de la punta
+const SPADE = sh => { sh.moveTo(-0.03, -0.035); sh.lineTo(0.03, -0.035); sh.lineTo(0.105, 0.012); sh.lineTo(0.115, 0.19); sh.quadraticCurveTo(0.105, 0.285, 0, 0.31); sh.quadraticCurveTo(-0.105, 0.285, -0.115, 0.19); sh.lineTo(-0.105, 0.012); sh.lineTo(-0.03, -0.035); };
+const SPADE_EDGE = sh => { sh.moveTo(0.115, 0.19); sh.quadraticCurveTo(0.105, 0.285, 0, 0.31); sh.quadraticCurveTo(-0.105, 0.285, -0.115, 0.19); sh.lineTo(-0.1, 0.19); sh.quadraticCurveTo(-0.09, 0.27, 0, 0.292); sh.quadraticCurveTo(0.09, 0.27, 0.1, 0.19); sh.lineTo(0.115, 0.19); };
+// El montón de tierra de la pala llena: una bola de caras deformada (terrones), aplastada sobre la hoja. Una vez
+let DIRT_GEO = null;
+function dirtGeo() {
+  if (DIRT_GEO) return DIRT_GEO;
+  const g = new THREE.IcosahedronGeometry(1, 1), p = g.attributes.position, v = new THREE.Vector3();
+  for (let i = 0; i < p.count; i++) {
+    v.fromBufferAttribute(p, i);
+    const k = 1 + 0.18 * Math.sin(v.x * 7.1 + v.y * 3.3) * Math.sin(v.z * 5.7 - v.y * 2.1);
+    p.setXYZ(i, v.x * k, v.y * k, Math.max(-0.35, v.z) * k);
+  }
+  g.computeVertexNormals();
+  return (DIRT_GEO = g);
+}
 
 // El arco: dos palas curvas, con la empuñadura en la mano, y la cuerda en dos tramos, que se tiran hacia atrás al tensar
 // (pullBow). La flecha, solo tensándolo. Mira hacia z+
@@ -744,6 +761,20 @@ export function toolModel(id) {
     at(new THREE.CylinderGeometry(0.012, 0.012, 0.09, 6), head, [0, top - 0.01, 0.04], [Math.PI / 2, 0, 0]);
     const plate = at(profile('hoe', HOE, 0.016), head, [0, top - 0.02, 0.09], [Math.PI - 0.35, 0, 0]);
     at(profile('hoeEdge', sh => { sh.moveTo(-0.075, 0); sh.lineTo(0.075, 0); sh.lineTo(0.073, 0.018); sh.lineTo(-0.073, 0.018); sh.lineTo(-0.075, 0); }, 0.022, 0.002), edge, plate.position.toArray(), [Math.PI - 0.35, 0, 0]);
+  } else if (kind === 'pala') {
+    // Mango largo con el puño en T, el cuello de hierro y la hoja, algo cóncava; llena, con su montón de tierra encima (en la
+    // cara +z, la que queda arriba en la mano: ver el giro de abajo)
+    const top = haft(0.8, 0.02);
+    at(new THREE.CylinderGeometry(0.018, 0.018, 0.13, 8), grip, [0, -0.1, 0], [0, 0, Math.PI / 2]);   // (el travesaño del puño)
+    at(new THREE.CylinderGeometry(0.024, 0.03, 0.12, 8), head, [0, top - 0.02, 0]);
+    at(profile('spade', SPADE, 0.01, 0.003), head, [0, top + 0.07, 0], [0.12, 0, 0]);
+    at(profile('spadeEdge', SPADE_EDGE, 0.014, 0.002), edge, [0, top + 0.07, 0], [0.12, 0, 0]);
+    if (def.empty) {
+      const soilM = mat({ color: '#5a4532', roughness: 1, flatShading: true }), crumb = mat({ color: '#6e5740', roughness: 1, flatShading: true });
+      at(dirtGeo(), soilM, [0, top + 0.2, 0.06], [0.25, 0.4, 0], [0.125, 0.14, 0.1]);
+      at(dirtGeo(), soilM, [0.02, top + 0.27, 0.1], [1.1, 0.3, 0.5], [0.07, 0.065, 0.06]);
+      for (const [x, y, s] of [[0.08, 0.12, 0.032], [-0.085, 0.16, 0.028], [0.035, 0.31, 0.024], [-0.04, 0.09, 0.022]]) at(dirtGeo(), crumb, [x, top + y, (y - 0.07) * 0.12 + 0.012 + s * 0.4], [x * 9, y * 7, 0], s);
+    }
   } else if (kind === 'espada') {
     const gold = def.weapon > 3, brass = M(gold ? '#c8962a' : '#8a6a3a', { metalness: 0.6, roughness: 0.35 });
     at(new THREE.CylinderGeometry(0.02, 0.022, 0.13, 8), grip, [0, 0.0, 0]);
@@ -780,6 +811,7 @@ export function toolModel(id) {
     net.position.set(0, top + 0.13, -0.12); net.rotation.x = -Math.PI / 2; g.add(net);
   } else haft(0.5);
   g.rotation.x = Math.PI / 2 - 0.3;   // en la mano, hacia delante
+  if (kind === 'pala') g.rotation.y = Math.PI;   // (la pala, con la cara de la tierra hacia arriba)
   g.traverse(o => { if (o.isMesh) o.castShadow = true; });
   return g;
 }

@@ -75,6 +75,7 @@ export class View3D {
     this.arrows = new ArrowsView(this);
     this.glow = new Glow(this);   // (los halos, las ventanas y los charcos de luz de noche)
     this.shadows = new SunShadow(this);   // (después de todo lo que se mueve: son sus grupos)
+    this.terrain.onReshape = box => this.shadows.stale(false, box);   // (un hoyo nuevo: sus paredes dan sombra)
     this.caves = new Map();       // escena de cueva → su vista
     this.cave = null;
     this.cam = { target: new THREE.Vector3(CENTER.x, 0, CENTER.y), vel: 0, pvel: 0, zvel: 0, pitchNow: null, distNow: null, low: 0 };
@@ -310,6 +311,7 @@ export class View3D {
         // la pantalla; inclinada hacia delante y hacia dentro)
         const kind = ITEMS[id]?.tool;
         tool.rotation.set(0, ITEMS[id]?.bow ? Math.PI + 0.42 : kind === 'hacha' || kind === 'guadana' ? Math.PI + 0.35 : 0.25, 0);
+        if (kind === 'pala') tool.rotation.set(-1.05, 0.15, 0);   // (la pala, tumbada hacia delante con la hoja arriba: se ve si lleva tierra)
         tool.traverse(o => { if (o.isMesh) o.castShadow = false; });
         const tilt = new THREE.Group(), hold = new THREE.Group();
         tilt.rotation.set(ITEMS[id]?.bow ? 0 : -0.35, 0, ITEMS[id]?.bow ? 0.3 : 0.32);
@@ -354,6 +356,8 @@ export class View3D {
     const L = scene?.levelAt?.(x, y);   // (sobre lo construido: a su altura; ver scenes.js)
     if (L !== null && L !== undefined) return L + (this.world.floorAt(x, y) ? 0.03 : 0);
     if (this.world.floorAt(x, y)) return 0.03;
+    const D = scene?.digH?.(Math.floor(x), Math.floor(y));   // (lo cavado con la pala, llano a su altura: ver scenes.js)
+    if (D !== null && D !== undefined) return D;
     return Math.max(this.terrain.heightAt(x, y), WATER_Y - 0.3);
   }
 

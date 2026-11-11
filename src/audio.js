@@ -50,6 +50,10 @@ export const Audio = {
   clink() { tone([[1400, 0.04, 'square', 0.04], [1050, 0.06, 'square', 0.03]]); Audio.noiseHit(2500, 0.05, 0.15); },
   swish() { Audio.noiseHit(3000, 0.08, 0.12, 'highpass'); },
   till() { Audio.noiseHit(300, 0.12, 0.3); },
+  // La pala: al cavar, el filo que entra raspando y el golpe sordo del bloque que sale; al soltar la tierra, el golpe blando
+  // y unos terrones que caen detrás
+  dig() { Audio.noiseHit(1800, 0.07, 0.12, 'highpass'); setTimeout(() => { Audio.noiseHit(260, 0.16, 0.42); tone([[95, 0.09, 'triangle', 0.07]]); }, 70); },
+  dump() { Audio.noiseHit(170, 0.2, 0.5, 'lowpass'); tone([[80, 0.1, 'sine', 0.08]]); for (let i = 0; i < 3; i++) setTimeout(() => Audio.noiseHit(700 + Math.random() * 600, 0.04, 0.09), 90 + i * 55 + Math.random() * 30); },
   fell: () => tone([[180, 0.08, 'triangle', 0.08], [120, 0.1, 'triangle', 0.08], [80, 0.16, 'triangle', 0.08]]),
   pickup: () => tone([[880, 0.03, 'square', 0.03], [1320, 0.04, 'square', 0.03]]),
   eat: () => tone([[300, 0.05, 'square', 0.04], [240, 0.05, 'square', 0.04], [300, 0.05, 'square', 0.04]]),

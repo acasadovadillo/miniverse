@@ -114,7 +114,7 @@ export function initInventoryUI(game, { onClose, onCraft }) {
     for (const e of seen) if (e.isIntersecting) { lazy.unobserve(e.target); paint(e.target, { id: e.target.dataset.id, n: 1 }); }
   }, { root: all, rootMargin: '96px 0px' });
   for (const id of Object.keys(ITEMS)) {
-    if (LEGACY_ITEMS[id]) continue;   // (lo que se construye con B no es un objeto de la mochila)
+    if (LEGACY_ITEMS[id] || ITEMS[id].hide) continue;   // (lo que se construye con B no es un objeto de la mochila; ni la pala con tierra)
     const el = slotEl(-1, 'slot');
     el.dataset.id = id;
     el.title = ITEMS[id].name;

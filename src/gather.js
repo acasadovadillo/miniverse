@@ -32,6 +32,7 @@ const CHIPS = {
 const TURN_WAIT = 0.22, TURN_SPEED = 1.7;   // R: lo que dura un toque (s) y lo que gira mantenida (rad/s)
 const TURN_STEP = Math.PI / 12;             // los toques de R van de 15° en 15° (encajados: 90° son 6 toques)
 const PLACE_REACH = 4;   // casillas de distancia a las que se puede colocar algo con el ratón
+const DIG_REACH = 3.2;   // metros (de los pies al centro de la casilla) hasta donde llega la pala
 
 export class Gathering {
   constructor(game) {
@@ -97,6 +98,7 @@ export class Gathering {
       const [tx, ty] = g.aimTile();
       return { tile: [tx, ty], ok: g.world.canTill(tx, ty) };
     }
+    if (tool === 'pala' && g.scene === g.world) return this.shovelTarget(def);
     // La guadaña siega también la hierba de la casilla apuntada, si ahí no hay una mata, una flor u otra planta
     if (tool === 'guadana' && g.scene === g.world && g.world.grassAt) {
       const [tx, ty] = g.aimTile();
@@ -126,6 +128,28 @@ export class Gathering {
       if (s < score) { score = s; best = o; }
     }
     return best && { obj: best };
+  }
+
+  // La pala: la casilla del cursor (en primera persona, la de la cruceta), si llega; si no, la de delante. Vacía, cava; con
+  // tierra, la suelta. Lo que dice digWhy se recuerda mientras no cambie la casilla ni el mundo (se mira en cada fotograma)
+  // Apuntando a una pared (la de un hoyo o la de un montón), como en Minecraft: se cava el bloque de la pared y la tierra se
+  // suelta delante de ella, en la casilla más baja (así un hoyo hondo se rellena apuntando a su pared)
+  shovelTarget(def) {
+    const g = this.game, p = g.player, w = g.world, up = !!def.empty, mp = g.mousePoint();
+    let mt = mp && [Math.floor(mp[0]), Math.floor(mp[1])];
+    if (mt && up) {
+      const fx = mp[0] - mt[0], fy = mp[1] - mt[1], hy = g.view3d.groundY(w, mp[0], mp[1]);
+      for (const [edge, dx, dy] of [[fx < 0.03, -1, 0], [fx > 0.97, 1, 0], [fy < 0.03, 0, -1], [fy > 0.97, 0, 1]]) {
+        if (!edge) continue;
+        if (g.view3d.groundY(w, mt[0] + dx + 0.5, mt[1] + dy + 0.5) < hy - 0.1) mt = [mt[0] + dx, mt[1] + dy];
+        break;
+      }
+    }
+    const [tx, ty] = mt && Math.hypot(mt[0] + 0.5 - p.x, mt[1] + 0.5 - p.y) <= DIG_REACH ? mt : g.aimTile();
+    const far = Math.hypot(tx + 0.5 - p.x, ty + 0.5 - p.y) > DIG_REACH, key = `${tx},${ty},${up},${w.touches},${far}`;
+    if (this.digMemo?.key !== key) this.digMemo = { key, why: far ? 'Demasiado lejos' : w.digWhy(tx, ty, up) };
+    const why = this.digMemo.why;
+    return { tile: [tx, ty], ok: !why, why, mark: true, shovel: up ? 'soltar' : 'cavar', label: why || (up ? 'Soltar la tierra' : 'Cavar') };
   }
 
   // Texto de ayuda según lo que se tiene en la mano y lo que hay delante
@@ -262,12 +286,14 @@ export class Gathering {
       return this.target.use();
     }
     if (auto && !(this.target?.obj || this.target?.ok)) return;
+    if (auto && def?.tool === 'pala') return;   // (la pala, clic a clic: mantenido, cavaría y soltaría sin parar)
     if (!g.scene.harvestablesNear) return;
     const tool = def?.tool || null, tier = def?.tier || 1, t = this.target;
     this.cooldown = COOLDOWN * (1 - 0.07 * (tier - 1));   // (las de hierro van más deprisa que la mano)
     this.swing = 0.25;
     this.swingItem = tool ? held.id : null;
 
+    if (tool === 'pala') return this.shovel(t, held);
     if (tool === 'azada') {
       if (!t?.ok || !this.spend('azada')) { if (!t?.ok) Audio.swish(); return; }
       g.world.till(...t.tile);
@@ -310,6 +336,23 @@ export class Gathering {
       if (skill) { g.skills?.gain(skill, 3); g.stats?.add(skill === 'tala' ? 'talados' : skill === 'mineria' ? 'picados' : 'segados', 1); }
       Audio.fell();
     }
+  }
+
+  // Cavar con la pala vacía (se llena) o soltar la tierra que lleva (se vacía): el suelo de la casilla baja o sube un bloque
+  // (ver scenes.js, digTile). Si es la casilla que pisa uno, con ella: cae al hoyo o sube al montón, suave (z)
+  shovel(t, held) {
+    const g = this.game, p = g.player, slot = g.inv.selected, up = !!ITEMS[held.id].empty;
+    if (!t?.shovel || !t.ok) { this.float(t?.why || 'Ahí no', '#ffb0a0'); Audio.error(); this.cooldown = COOLDOWN; return; }
+    const [tx, ty] = t.tile, under = Math.floor(p.x) === tx && Math.floor(p.y) === ty && !p.boat, was = under ? g.world.surfaceAt(p.x, p.y) : 0;
+    g.world.digTile(tx, ty, up ? 1 : -1, g.days.dayIndex);
+    if (under) p.z = (p.z || 0) + was - g.world.surfaceAt(p.x, p.y);   // (los pies, donde estaban: cae o sube suave)
+    // (la misma pala, con su desgaste, llena o vacía; y luego se gasta un uso)
+    g.inv.slots[slot] = { ...held, id: up ? ITEMS[held.id].empty : ITEMS[held.id].full };
+    g.inv.changed();
+    this.spend('pala');
+    this.chips(tx + 0.5, ty + 0.5, 'dirt', up ? 10 : 14);
+    if (up) Audio.dump(); else Audio.dig();
+    g.stats?.add(up ? 'tierra_soltada' : 'cavados', 1);
   }
 
   // Lo que suelta al romperse

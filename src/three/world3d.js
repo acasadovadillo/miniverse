@@ -904,7 +904,7 @@ function occHashes(occ, datas) {
   return h.map(([n, s]) => n + ':' + s);
 }
 // Casillas ocupadas de unos trozos (ahí no crece hierba): lo construido y colocado, lo labrado, los cultivos, lo
-// segado y los lugares (que ocupan 3 × 3 casillas)
+// segado, lo cavado y los lugares (que ocupan 3 × 3 casillas)
 function occupied(scene, datas, today = 0) {
   const occ = new Set();
   for (const [cx, cy, d] of datas) {
@@ -916,6 +916,7 @@ function occupied(scene, datas, today = 0) {
     const dl = scene.delta(cx, cy);
     for (const k of Object.keys(dl?.crops || {})) occ.add(k);
     for (const [k, v] of Object.entries(dl?.mown || {})) if (today - v < GRASS_REGROW) occ.add(k);
+    for (const k of Object.keys(dl?.dig || {})) occ.add(k);   // (lo cavado y la tierra apilada: tierra desnuda)
   }
   return occ;
 }

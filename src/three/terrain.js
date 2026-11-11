@@ -15,6 +15,7 @@ import { grassDetail, soilDetail, rockDetail, meanOf } from './textures.js';
 import { mat } from './geo.js';
 import { PAL, SUELO_V2 } from '../arte.js';
 import { ContactField, injectContact, contactKey } from './contact3d.js';
+import { digGeometry, digMaterial, digShadowMaterial } from './dig3d.js';
 // (solo lo usa el hilo aparte, pero se carga también aquí para que index.html lo cuente entre lo que vuelve a pedir sin
 // caché al publicar otra versión: lo que carga un hilo no sale en la lista de lo cargado por la página. No hace nada al
 // cargarse)
@@ -27,6 +28,8 @@ export const WATER_Y = -0.12;
 // El clima en el suelo y el agua: WET, de 0 a 1, cuánto ha llovido (oscurece y abrillanta el suelo, y se seca
 // despacio); RAIN, de 0 a 1, lo que llueve ahora (los círculos de las gotas en el agua). Los pone engine.js
 export const WET = { value: 0 }, RAIN = { value: 0 };
+// La nieve en lo llano de la tierra cavada (dig3d.js), con la estación
+const DIG_SNOW = { value: 0 };
 // La versión publicada (la meta de index.html; en las páginas de prueba sin ella, ninguna)
 const VERSION = (typeof document !== 'undefined' && document.querySelector('meta[name="miniverse-version"]')?.content) || '';
 const WORKERS = Math.min(2, Math.max(1, (navigator.hardwareConcurrency || 2) - 1));
@@ -62,6 +65,9 @@ export class Terrain {
     // de las casas; se pinta en estos mismos hilos y se rehace donde algo cambia. Ver contact3d.js)
     this.contact = new ContactField(this);
     village.onVillageChange(() => this.villageChanged());
+    // (lo cavado con la pala: el mundo del que son los hoyos hechos y su cuenta de cambios; ver applyDigs)
+    this.digWorld = null; this.digV = -1; this.digMat = null;
+    this.onReshape = null;        // (avisa de un rectángulo [x0, z0, x1, z1] que ha cambiado de forma: las sombras; lo pone engine.js)
   }
   // Los hilos aparte (si el navegador los tiene; si no, todo se hace aquí)
   startWorkers() {
@@ -99,7 +105,7 @@ export class Terrain {
     // (owner: el primer hilo es el que limpia lo guardado de otras versiones del relieve)
     this.workers.forEach((w, i) => w.postMessage({ t: 'init', seed: gen.seed, projects: village.getProjects(), family: village.familyHouse(), owner: i === 0 }));
   }
-  dispose(b) { this.group.remove(b.mesh); b.mesh.geometry.dispose(); b.mesh.material.dispose(); b.tex.dispose(); if (b.waterMesh) { this.water.group.remove(b.waterMesh); b.waterMesh.geometry.dispose(); } }
+  dispose(b) { this.group.remove(b.mesh); b.mesh.geometry.dispose(); b.mesh.material.dispose(); b.tex.dispose(); if (b.waterMesh) { this.water.group.remove(b.waterMesh); b.waterMesh.geometry.dispose(); } this.dropPit(b); }
   dropAll() {
     const byWorker = new Map();
     for (const [id, j] of this.jobs) { if (!byWorker.has(j.worker)) byWorker.set(j.worker, []); byWorker.get(j.worker).push(id); }
@@ -121,6 +127,10 @@ export class Terrain {
     if (gen !== this.gen) this.reset(gen);
     // Cambió la estación: se repinta todo (poco a poco, empezando por lo cercano)
     if (gen.season !== this.season) { this.season = gen.season; for (const b of this.blocks.values()) b.stale = true; }
+    DIG_SNOW.value = this.season === 3 ? 0.55 : 0;
+    // (lo cavado: si ha cambiado algo, aquí o por la red, o es otro mundo, se rehacen los hoyos de los bloques que lo tocan)
+    const w = this.world;
+    if (w?.digList && (w !== this.digWorld || w.digV !== this.digV)) { this.digWorld = w; this.digV = w.digV; for (const b of this.blocks.values()) this.applyDigs(b); }
     const bx = Math.floor(x / BLOCK), bz = Math.floor(z / BLOCK), want = [];
     for (let dz = -RADIUS; dz <= RADIUS; dz++) for (let dx = -RADIUS; dx <= RADIUS; dx++) want.push([bx + dx, bz + dz, dx * dx + dz * dz]);
     want.sort((a, b) => a[2] - b[2]);
@@ -283,6 +293,50 @@ export class Terrain {
     for (let v = 0; v < pos.count; v++) pos.setY(v, b.heights[v]);
     nor.array.set(p.normals);
     pos.needsUpdate = nor.needsUpdate = true; geo.computeBoundingSphere();
+    this.applyDigs(b);   // (las paredes de los hoyos llegan a las esquinas de la malla: con ella)
+  }
+
+  // ---------- lo cavado con la pala ----------
+  // Los hoyos y los montones de tierra de un bloque (ver scenes.js, digH, y dig3d.js): la malla del suelo deja sin dibujar
+  // las casillas tocadas (sus dos triángulos fuera de la lista de índices; se dibuja solo lo que queda) y otra malla pone su
+  // suelo llano y sus paredes. Se rehace si cambia lo tocado del bloque o de su borde (las paredes hacia el bloque de al
+  // lado) o su allanado. Sin nada tocado cerca, ni se mira
+  applyDigs(b) {
+    const w = this.world, list = w?.digList ? w.digList(b.x0 - 1, b.z0 - 1, b.x0 + BLOCK + 1, b.z0 + BLOCK + 1) : [];
+    const sig = list.length ? list.map(([x, y, k]) => `${x},${y},${k}`).join(';') + '|' + b.padSig : '';
+    if (sig === (b.digSig || '')) return;
+    b.digSig = sig;
+    const own = list.filter(([x, y]) => x >= b.x0 && x < b.x0 + BLOCK && y >= b.z0 && y < b.z0 + BLOCK);
+    // (los índices: los de siempre, sin los de las casillas tocadas)
+    const geo = b.mesh.geometry, idx = geo.index, a = idx.array, n = b.n, holes = new Set(own.map(([x, y]) => (y - b.z0) * BLOCK + x - b.x0));
+    let q = 0;
+    for (let j = 0; j < BLOCK; j++) for (let i = 0; i < BLOCK; i++) {
+      if (holes.has(j * BLOCK + i)) continue;
+      const v = j * n + i;
+      a[q++] = v; a[q++] = v + n; a[q++] = v + 1; a[q++] = v + 1; a[q++] = v + n; a[q++] = v + n + 1;
+    }
+    geo.setDrawRange(0, q); idx.needsUpdate = true;
+    this.dropPit(b);
+    const pg = own.length ? digGeometry(own, b.x0, b.z0, n, b.heights, (x, y) => w.digH(x, y)) : null;
+    if (pg) {
+      const m = new THREE.Mesh(pg.geo, this.digMaterial());
+      m.castShadow = m.receiveShadow = true; m.matrixAutoUpdate = false;
+      this.group.add(m); b.pit = m;
+      if (pg.shadow) {
+        const sm = new THREE.Mesh(pg.shadow, this.digShade ||= digShadowMaterial());
+        sm.castShadow = true; sm.matrixAutoUpdate = false;
+        this.group.add(sm); b.pitShade = sm;
+      }
+    }
+    this.onReshape?.([b.x0, b.z0, b.x0 + BLOCK, b.z0 + BLOCK]);
+  }
+  dropPit(b) {
+    for (const k of ['pit', 'pitShade']) if (b[k]) { this.group.remove(b[k]); b[k].geometry.dispose(); b[k] = null; }
+  }
+  digMaterial() {
+    if (!this.digMat) this.digMat = digMaterial(WET, DIG_SNOW);
+    else this.digMat.userData.tone();   // (la foto de la tierra puede haber llegado después: su media)
+    return this.digMat;
   }
   // edge: el anillo de alturas de alrededor (ground.js: blockHeights) y normals: las normales sin allanar (si no vienen,
   // se calculan); shore: la orilla de cada vértice del agua (ground.js: blockShore)
@@ -326,6 +380,7 @@ export class Terrain {
     // (normals0: las de sin allanar, para cuando se quita lo construido; aparte de las de la malla, que remesh cambia)
     const blk = { mesh, tex, ctx: g, heights, raw, edge, normals0: nor === normals ? normals.slice() : normals, padSig: this.padSigOf(bx, bz), x0, z0, n, bx, bz, season: this.season, todo: allChunks(), painted: 0, waterMesh };
     this.contact.added(blk);   // (su hueco de la sombra de contacto, en blanco, y sus 16 trozos por pintar)
+    this.applyDigs(blk);
     return blk;
   }
   // Un trozo de suelo y uno de agua de mentira, con sus materiales y los mismos atributos que los de verdad: para compilar
@@ -347,7 +402,13 @@ export class Terrain {
     wgeo.setAttribute('depth', new THREE.BufferAttribute(new Float32Array(3), 1)); wgeo.setAttribute('shore', new THREE.BufferAttribute(new Float32Array(12), 4));
     const water = new THREE.Mesh(wgeo, this.water.material);
     water.receiveShadow = true;
-    g.add(ground, water);
+    // (y la tierra cavada, con su color por vértice: el primer hoyo no espera a compilar)
+    const dgeo = new THREE.BufferGeometry();
+    dgeo.setAttribute('position', geo.attributes.position); dgeo.setAttribute('normal', geo.attributes.normal); dgeo.setAttribute('uv', geo.attributes.uv);
+    dgeo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(9).fill(1), 3));
+    const dug = new THREE.Mesh(dgeo, this.digMaterial());
+    dug.castShadow = dug.receiveShadow = true;
+    g.add(ground, water, dug);
     return (this.proxyGroup = g);
   }
   // El agua del bloque: la misma rejilla a ras de WATER_Y, con lo que hay de suelo debajo en cada vértice (depth), la
