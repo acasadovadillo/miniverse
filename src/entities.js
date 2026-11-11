@@ -37,6 +37,12 @@ const STEP_UP = 0.3;
 // lo que se hunde agachado (la cabeza, bajo el agua)
 export const SWIM_IN = 1.0, SWIM_OUT = 0.85;
 const HORSE_DEEP = 1.25, SWIM_ROOT = 1.1, SINK = 0.55, SWIM_SPEED = 1.5, SWIM_RUN = 2.2;
+// En el agua de lo cavado (un canal: ver scenes.js, reflood), nadando se pasa por encima de todo lo que queda bajo el agua y
+// solo frena lo que asoma (sus paredes por encima del agua). Para salir, la orilla de tierra de un canal es una pared: el
+// salto desde el agua (nadando, o de pie con el agua por encima de WADE_CLIMB: se toma impulso en el fondo) llega hasta
+// CLIMB más de lo que hace falta para subirla, si no asoma más de CLIMB_MAX del agua. En seco, un hoyo de dos bloques no
+// deja salir (hay que cavar escalones); con agua, sí
+const CLIMB = 0.12, CLIMB_MAX = 0.8, WADE_CLIMB = 0.5;
 // La altura del suelo en (x, y) por las rocas (las que tienen top): una cúpula de su altura y algo más ancha que su
 // colisión, para subir andando por el borde
 export function floorAt(x, y, list, z = 0) {
@@ -65,6 +71,7 @@ export class Player extends Person {
     this.ghost = false;                // espectador: atraviesa todo
     this.swim = false; this.sink = 0;  // nadando, y lo que se hunde (agachado) o se asoma (con espacio) bajo la línea de flotar
     this.depth = 0;                    // lo hondo del agua donde está (0 en tierra)
+    this.bank = null;                  // en el agua junto a la pared de un canal, la altura de su borde (para salir de un salto)
   }
   get airborne() { return this.z > this.floor + 0.01; }
   // Saltar (desde el suelo; en barca no)
@@ -75,10 +82,15 @@ export class Player extends Person {
       if (!this.shore) return;
       this.swim = false; this.sink = 0;
       this.z = Math.max(0, this.depth - SWIM_ROOT); this.vz = JUMP * 1.15;
+      // (a la pared de un canal: hasta su borde, con lo que suba el salto de más; ver inWater, bank)
+      const need = this.bank === null ? 0 : this.bank + CLIMB - (WATER_Y - this.depth + this.z);
+      if (need > this.vz * this.vz / (2 * GRAVITY)) this.vz = Math.sqrt(2 * GRAVITY * need);
       this.onExert?.(0.05); this.onSplash?.(this.x, this.y, 10);
       return;
     }
     this.vz = JUMP * (this.mount ? 1.1 : 1);
+    // (con el agua por la cintura junto a la pared de un canal: hasta su borde, ver CLIMB)
+    if (this.bank !== null && !this.mount && this.depth >= WADE_CLIMB) { const need = this.bank + CLIMB - (WATER_Y - this.depth + this.floor); if (need > this.vz * this.vz / (2 * GRAVITY)) this.vz = Math.sqrt(2 * GRAVITY * need); }
     this.z = this.floor + 0.001;
     this.onExert?.(0.05);
     Audio.swish();
@@ -99,7 +111,8 @@ export class Player extends Person {
     const p = { x: this.x + this.vx * dt, y: this.y + this.vy * dt };
     let near = null;
     // (cerca de lo cavado: dónde están los pies, de verdad, para las paredes de los hoyos y los montones de tierra)
-    const dug = !this.boat && !this.ghost && !!scene.digNear?.(this.x, this.y), feet = dug ? scene.surfaceAt(this.x, this.y) + this.z : 0;
+    // (nadando, los pies van flotando: solo frena lo que asoma del agua, ver CLIMB)
+    const dug = !this.boat && !this.ghost && !!scene.digNear?.(this.x, this.y), feet = !dug ? 0 : this.swim ? WATER_Y - STEP_UP - 0.02 : scene.surfaceAt(this.x, this.y) + this.z;
     if (!this.boat && !this.ghost) {
       // (las rocas no frenan: se sube uno encima; y saltando, a pie o a caballo, se pasa por encima de las vallas)
       near = scene.collidersNear(p.x, p.y);
@@ -129,9 +142,12 @@ export class Player extends Person {
     if (keys.run && !this.crouch && !this.mount && !this.boat) this.onExert?.(moved * 0.05);   // (correr da hambre)
     // (al pasar de una casilla a otra junto a lo cavado, los pies se quedan a su altura: a una más baja se cae; a una algo más
     // alta, z queda por debajo de 0 y sube suave, como un escalón)
-    if (dug && (Math.floor(p.x) !== Math.floor(this.x) || Math.floor(p.y) !== Math.floor(this.y)) && (scene.digH(Math.floor(this.x), Math.floor(this.y)) !== null || scene.digH(Math.floor(p.x), Math.floor(p.y)) !== null)) this.z = feet - scene.surfaceAt(p.x, p.y);
+    // (en lo cavado y al entrar o salir de ello, los pies ya van así a su altura: en el agua de un canal, el agua no los vuelve
+    // a mover, ver inWater)
+    const pit = dug && (scene.digH(Math.floor(this.x), Math.floor(this.y)) !== null || scene.digH(Math.floor(p.x), Math.floor(p.y)) !== null);
+    if (pit && (Math.floor(p.x) !== Math.floor(this.x) || Math.floor(p.y) !== Math.floor(this.y))) this.z = feet - scene.surfaceAt(p.x, p.y);
     this.x = p.x; this.y = p.y;
-    this.inWater(dt, keys, scene, world);
+    this.inWater(dt, keys, scene, world, pit);
     if (sx || sy) { const fl = Math.hypot(wx, wy); this.face = { x: wx / fl, y: wy / fl }; this.dir = [wx, wy]; }
     // Arriba o abajo: de espaldas o de frente; solo a los lados: de perfil
     // Mira hacia donde anda: 8 direcciones (de frente, de espaldas, los dos perfiles y las cuatro diagonales)
@@ -158,11 +174,12 @@ export class Player extends Person {
   }
   // El agua donde se está: lo hondo (depth), si se vadea (wading) o se nada (swim), lo que se hunde (sink) y si hay orilla
   // delante a la que saltar (shore)
-  inWater(dt, keys, scene, world) {
+  // pit: se está en lo cavado o se acaba de salir de ello (ahí el fondo es llano y los pies ya los ha puesto update)
+  inWater(dt, keys, scene, world, pit = false) {
     const d = world && !this.boat && !this.aboard && !this.ghost ? scene.waterDepth(this.x, this.y) : 0;
     // (en el aire, z va sobre el fondo de donde se está: al pasar sobre otro más alto o más bajo, se sigue a la misma altura
     // de verdad. Así se cae al agua desde la orilla y se sale de un salto, en vez de subir y bajar con el fondo)
-    if (world && !this.swim && (this.vz !== 0 || this.z > this.floor + 0.01) && d !== this.depth) {
+    if (world && !this.swim && !pit && (this.vz !== 0 || this.z > this.floor + 0.01) && d !== this.depth) {
       const base = h => (h > 0 ? WATER_Y - h : 0);   // (el fondo; en tierra, a ras)
       this.z += base(this.depth) - base(d);
       if (this.z < this.floor) { this.z = this.floor; if (this.vz < 0) this.vz = 0; }
@@ -177,12 +194,17 @@ export class Player extends Person {
       } else if (this.swim && d < SWIM_OUT) { this.swim = false; this.z = 0; this.vz = 0; this.sink = 0; this.crouch = false; }
     } else this.swim = false;
     this.wading = !this.swim && d > 0;
+    // La pared de un canal delante (a 0,9 m), si se está en el agua con lo cavado cerca: lo alto que está su borde (ver CLIMB;
+    // la orilla de verdad, que sube poco a poco, no hace falta)
+    const f = this.face, ax = this.x + f.x * 0.9, ay = this.y + f.y * 0.9, deepish = this.swim || (d >= WADE_CLIMB && !this.mount);
+    const wall = deepish && scene.digNear?.(this.x, this.y, 1) && (scene.digH(Math.floor(this.x), Math.floor(this.y)) !== null || scene.digH(Math.floor(ax), Math.floor(ay)) !== null) && scene.waterDepth(ax, ay) < SWIM_OUT;
+    const top = wall ? scene.surfaceAt(ax, ay) : null;
+    this.bank = top !== null && top - WATER_Y <= CLIMB_MAX ? top : null;
     if (!this.swim) { this.sink = 0; this.shore = false; return; }
     // Con espacio, se asoma más; agachado, se hunde (sin tocar el fondo)
     const want = keys.space ? -0.12 : this.crouch ? Math.min(SINK, Math.max(0, d - 0.55)) : 0;
     this.sink += (want - this.sink) * Math.min(1, dt * 3);
-    // La orilla: delante (a 0,9 m) se hace pie
-    const f = this.face, ax = this.x + f.x * 0.9, ay = this.y + f.y * 0.9;
+    // La orilla: delante se hace pie
     this.shore = scene.waterDepth(ax, ay) < SWIM_OUT;
     this.onExert?.(Math.hypot(this.vx, this.vy) * dt * 0.04);   // (nadar cansa algo más que andar)
   }

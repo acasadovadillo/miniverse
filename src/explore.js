@@ -75,8 +75,8 @@ export class Explore {
       else if (b === B.DESERT) kind = r < 0.1 ? 'templo' : r < 0.14 ? 'ruinas' : null;
       else if (b === B.BEACH) kind = r < 0.1 ? 'barco' : far && r < 0.13 ? 'faro' : null;   // (algunas costas tienen faro)
       else if (b === B.MEADOW || b === B.FOREST || b === B.PINES) kind = r < 0.03 ? 'ruinas' : r < 0.055 ? 'campamento' : r < 0.075 ? 'torre' : far && r < 0.125 ? 'aldea' : null;
-      // Una aldea necesita la plaza y al menos dos casas en tierra firme
-      if (kind === 'aldea' && (w.water(x, y) || this.aldeaSlots(cx, cy).length < 2)) kind = null;
+      // Una aldea necesita la plaza y al menos dos casas en tierra firme (la del mundo: no cambia con lo cavado)
+      if (kind === 'aldea' && (w.natWater(x, y) || this.aldeaSlots(cx, cy).length < 2)) kind = null;
     }
     this.raw.set(k, kind);
     return kind;
@@ -87,7 +87,7 @@ export class Explore {
     const w = this.world, px = cx * CHUNK + 8, py = cy * CHUNK + 8, { w: hw, h: hh } = houseSize(false), out = [];
     for (const [dx, dy] of [[-14, -12], [2, -13], [-15, 2], [2, 2]]) {
       let dry = true;
-      for (let y = 0; y < hh && dry; y++) for (let x = 0; x < hw; x++) if (w.water(px + dx + x + 0.5, py + dy + y + 0.5)) { dry = false; break; }
+      for (let y = 0; y < hh && dry; y++) for (let x = 0; x < hw; x++) if (w.natWater(px + dx + x + 0.5, py + dy + y + 0.5)) { dry = false; break; }   // (el agua del mundo: los lugares no cambian con lo cavado)
       if (dry) out.push([dx, dy]);
       if (out.length === 3) break;
     }

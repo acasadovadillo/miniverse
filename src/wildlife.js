@@ -82,7 +82,8 @@ export class Wildlife {
     if (dist < 0.2) { const a = Math.random() * Math.PI * 2; w.tx = w.x + Math.cos(a) * 3; w.ty = w.y + Math.sin(a) * 3; w.wait = 2 + Math.random() * 6; w.vx = w.vy = 0; this.tryGraze(w); return; }
     const s = Math.min(dist, sp * dt), p = { x: w.x + (dx / dist) * s, y: w.y + (dy / dist) * s };
     if (!k.water) collide(p, this.world.collidersNear(p.x, p.y), k.r);
-    if (!!this.world.water(p.x, p.y) !== !!k.water || inBounds(p.x, p.y) || this.built(p.x, p.y, k.r)) { w.tx = w.x; w.ty = w.y; w.wait = 1; return; }   // (cada uno en su medio, fuera del pueblo y de lo construido)
+    // (los del agua, en la de verdad: en lo cavado con agua tampoco entran, como los de tierra; ver scenes.js, reflood)
+    if (!!(k.water ? this.world.natWater : this.world.water).call(this.world, p.x, p.y) !== !!k.water || (k.water && this.world.digH(Math.floor(p.x), Math.floor(p.y)) !== null) || inBounds(p.x, p.y) || this.built(p.x, p.y, k.r)) { w.tx = w.x; w.ty = w.y; w.wait = 1; return; }   // (cada uno en su medio, fuera del pueblo y de lo construido)
     w.faceTo(dx, dy);
     w.vx = (p.x - w.x) / dt; w.vy = (p.y - w.y) / dt;
     w.x = wrapX(p.x); w.y = p.y;

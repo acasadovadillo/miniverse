@@ -269,8 +269,8 @@ export class View3D {
     c.target.lerp(this.from.set(tx, ty + 0.9 + c.low * 0.5, tz), ease(8));
     // Si una casa tapa al jugador, se sube lo justo para verlo por encima del tejado (comprobado desde la cintura). Dentro de
     // un hoyo, igual con sus paredes: la cámara se levanta hasta verlo desde arriba (si no, se pegaba a él a ras del borde y
-    // el suelo de alrededor lo tapaba)
-    const pit = !menu && !cave && scene.digH?.(Math.floor(p.x), Math.floor(p.y)) != null;
+    // el suelo de alrededor lo tapaba). En lo cavado que tiene agua, no: se está a ras del agua, como en un río
+    const pit = !menu && !cave && scene.digH?.(Math.floor(p.x), Math.floor(p.y)) != null && scene.floodAt?.(Math.floor(p.x), Math.floor(p.y)) === undefined;
     const goal = menu || cave ? wantPitch : this.pitchOver(this.probe2.set(tx, ty + 0.5, tz), wantPitch, wantDist, inside, pit);
     c.pitchNow ??= goal;
     c.pitchNow += (goal - c.pitchNow) * (Math.abs(c.pvel) > 0.01 && goal === wantPitch ? 1 : ease(4));
@@ -355,8 +355,10 @@ export class View3D {
   // El suelo para la cámara: el natural (el de la malla) o, en lo cavado y en la tierra apilada, el de esa casilla (llano). Con
   // el natural, en un hoyo el aire de encima contaba como tierra: la cámara se pegaba al jugador o se subía al borde
   camGround(x, z) {
-    const D = this.camScene?.digH?.(Math.floor(x), Math.floor(z));
-    return D ?? Math.max(this.terrain.heightAt(x, z), WATER_Y);   // (el agua, como el suelo: la cámara no se mete bajo ella)
+    const S = this.camScene, D = S?.digH?.(Math.floor(x), Math.floor(z));
+    // (en lo cavado con agua, el agua: la cámara no se mete bajo ella, como en el agua de verdad)
+    if (D !== null && D !== undefined) return D < WATER_Y && S.floodAt?.(Math.floor(x), Math.floor(z)) !== undefined ? WATER_Y : D;
+    return Math.max(this.terrain.heightAt(x, z), WATER_Y);   // (el agua, como el suelo: la cámara no se mete bajo ella)
   }
   // (pit: el jugador está en un hoyo, y el suelo también tapa; ahí se sube hasta 1,45 aunque sea más de 0,8: un hoyo hondo y
   // estrecho solo se ve desde muy arriba)

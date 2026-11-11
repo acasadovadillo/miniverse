@@ -1057,6 +1057,7 @@ export class Game {
     hud.hint(hint);
     if (this.player && this.world) {
       this.map.markers = this.places.markers();
+      this.map.world = this.world;   // (lo cavado que tiene agua se pinta de agua)
       if (this.mode === 'map') this.map.people = this.neighbors.people.filter(n => !n.hidden).map(n => ({ x: n.x, y: n.y, name: n.def.name }));
       if (this.mode === 'map') this.map.drawBig(this.world.gen, this.explored, this.player.x, this.player.y, this.time);
       else if (!this.indoors) this.map.drawMini(this.world.gen, this.explored, this.player.x, this.player.y, this.time);

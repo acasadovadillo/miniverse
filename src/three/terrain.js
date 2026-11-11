@@ -15,7 +15,7 @@ import { grassDetail, soilDetail, rockDetail, meanOf } from './textures.js';
 import { mat } from './geo.js';
 import { PAL, SUELO_V2 } from '../arte.js';
 import { ContactField, injectContact, contactKey } from './contact3d.js';
-import { digGeometry, digMaterial, digShadowMaterial } from './dig3d.js';
+import { digGeometry, digMaterial, digShadowMaterial, poolGeometry, SD_OPEN } from './dig3d.js';
 // (solo lo usa el hilo aparte, pero se carga también aquí para que index.html lo cuente entre lo que vuelve a pedir sin
 // caché al publicar otra versión: lo que carga un hilo no sale en la lista de lo cargado por la página. No hace nada al
 // cargarse)
@@ -302,9 +302,13 @@ export class Terrain {
   // las casillas tocadas (sus dos triángulos fuera de la lista de índices; se dibuja solo lo que queda) y otra malla pone su
   // suelo llano y sus paredes. Se rehace si cambia lo tocado del bloque o de su borde (las paredes hacia el bloque de al
   // lado) o su allanado. Sin nada tocado cerca, ni se mira
+  // Lo cavado que se ha llenado de agua (scenes.js, reflood) lleva encima su agua (poolGeometry en dig3d.js), con el mismo
+  // material que la del bloque; el agua del bloque deja sin dibujar las casillas cavadas, como el suelo, y junto a lo que se
+  // ha llenado su orilla queda abierta (sin espuma: el agua sigue por el canal)
   applyDigs(b) {
     const w = this.world, list = w?.digList ? w.digList(b.x0 - 1, b.z0 - 1, b.x0 + BLOCK + 1, b.z0 + BLOCK + 1) : [];
-    const sig = list.length ? list.map(([x, y, k]) => `${x},${y},${k}`).join(';') + '|' + b.padSig : '';
+    const wet = w?.floodAt ? (x, y) => w.floodAt(x, y) !== undefined : () => false;
+    const sig = list.length ? list.map(([x, y, k]) => `${x},${y},${k}${wet(x, y) ? 'w' : ''}`).join(';') + '|' + b.padSig : '';
     if (sig === (b.digSig || '')) return;
     b.digSig = sig;
     const own = list.filter(([x, y]) => x >= b.x0 && x < b.x0 + BLOCK && y >= b.z0 && y < b.z0 + BLOCK);
@@ -317,8 +321,15 @@ export class Terrain {
       a[q++] = v; a[q++] = v + n; a[q++] = v + 1; a[q++] = v + 1; a[q++] = v + n; a[q++] = v + n + 1;
     }
     geo.setDrawRange(0, q); idx.needsUpdate = true;
+    this.openWater(b, holes, list.filter(([x, y]) => wet(x, y)));
     this.dropPit(b);
-    const pg = own.length ? digGeometry(own, b.x0, b.z0, n, b.heights, (x, y) => w.digH(x, y)) : null;
+    const pg = own.length ? digGeometry(own, b.x0, b.z0, n, b.heights, (x, y) => w.digH(x, y), wet) : null;
+    const pool = own.some(([x, y]) => wet(x, y)) ? poolGeometry(own.filter(([x, y]) => wet(x, y)), b.x0, b.z0, n, b.heights, b.waterMesh?.geometry.attributes.shore.array || null, w) : null;
+    if (pool) {
+      const m = new THREE.Mesh(pool, this.water.pool);
+      m.renderOrder = 2; m.receiveShadow = true; m.matrixAutoUpdate = false;
+      this.water.group.add(m); b.pool = m;
+    }
     if (pg) {
       const m = new THREE.Mesh(pg.geo, this.digMaterial());
       m.castShadow = m.receiveShadow = true; m.matrixAutoUpdate = false;
@@ -331,8 +342,28 @@ export class Terrain {
     }
     this.onReshape?.([b.x0, b.z0, b.x0 + BLOCK, b.z0 + BLOCK]);
   }
+  // El agua del bloque sin las casillas cavadas (holes: su número en el bloque) y, en las esquinas de lo que se ha llenado
+  // (flooded: [[tx, ty]], del bloque y de su borde), con la orilla abierta: sin espuma ni borde transparente, como mar
+  // adentro (SD_OPEN), para seguir sin costura con el agua de lo cavado (poolGeometry lee esta misma orilla en esas
+  // esquinas). La de antes se guarda para volver a ella (shore0)
+  openWater(b, holes, flooded) {
+    const wm = b.waterMesh;
+    if (!wm) return;
+    const geo = wm.geometry, ia = geo.index.array, q = waterIndex(ia, wm.userData.cells, b.n, holes);
+    geo.setDrawRange(0, q); geo.index.needsUpdate = true;
+    const sh = geo.attributes.shore, a = sh.array, n = b.n;
+    if (!flooded.length && !b.shore0) return;
+    b.shore0 ||= a.slice();
+    a.set(b.shore0);
+    for (const [x, y] of flooded) for (const [cx, cy] of [[x, y], [x + 1, y], [x, y + 1], [x + 1, y + 1]]) {
+      const i = cx - b.x0, j = cy - b.z0;
+      if (i >= 0 && i < n && j >= 0 && j < n && a[(j * n + i) * 4] < SD_OPEN) a[(j * n + i) * 4] = SD_OPEN;
+    }
+    sh.needsUpdate = true;
+    if (!flooded.length) b.shore0 = null;
+  }
   dropPit(b) {
-    for (const k of ['pit', 'pitShade']) if (b[k]) { this.group.remove(b[k]); b[k].geometry.dispose(); b[k] = null; }
+    for (const k of ['pit', 'pitShade', 'pool']) if (b[k]) { b[k].parent?.remove(b[k]); b[k].geometry.dispose(); b[k] = null; }
   }
   digMaterial() {
     if (!this.digMat) this.digMat = digMaterial(WET, DIG_SNOW);
@@ -401,41 +432,46 @@ export class Terrain {
     const wgeo = new THREE.BufferGeometry();
     wgeo.setAttribute('position', geo.attributes.position); wgeo.setAttribute('normal', geo.attributes.normal);
     wgeo.setAttribute('depth', new THREE.BufferAttribute(new Float32Array(3), 1)); wgeo.setAttribute('shore', new THREE.BufferAttribute(new Float32Array(12), 4));
-    const water = new THREE.Mesh(wgeo, this.water.material);
-    water.receiveShadow = true;
+    const water = new THREE.Mesh(wgeo, this.water.material), pool = new THREE.Mesh(wgeo, this.water.pool);
+    water.receiveShadow = pool.receiveShadow = true;
     // (y la tierra cavada, con su color por vértice: el primer hoyo no espera a compilar)
     const dgeo = new THREE.BufferGeometry();
     dgeo.setAttribute('position', geo.attributes.position); dgeo.setAttribute('normal', geo.attributes.normal); dgeo.setAttribute('uv', geo.attributes.uv);
     dgeo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(9).fill(1), 3));
+    dgeo.setAttribute('sky', new THREE.BufferAttribute(new Float32Array(3).fill(1), 1)); dgeo.setAttribute('wet', new THREE.BufferAttribute(new Float32Array(3), 1));
     const dug = new THREE.Mesh(dgeo, this.digMaterial());
     dug.castShadow = dug.receiveShadow = true;
-    g.add(ground, water, dug);
+    g.add(ground, water, pool, dug);
     return (this.proxyGroup = g);
   }
   // El agua del bloque: la misma rejilla a ras de WATER_Y, con lo que hay de suelo debajo en cada vértice (depth), la
   // orilla (shore: la distancia en metros, > 0 en el agua, hacia dónde queda lo hondo y lo alto de la orilla), y solo las casillas que tocan
   // agua. Sin la orilla (no debería: un hilo aparte de otra versión), una que se le parece, sacada de la profundidad: sin
   // ella el sombreador lee 0 y el agua no se vería
+  // (cells: las casillas con agua, para quitar luego las cavadas: ver applyDigs)
   buildWater(pos, heights, n, shore) {
-    const wpos = new Float32Array(n * n * 3), depth = new Float32Array(n * n), nor = new Float32Array(n * n * 3), idx = [];
+    const wpos = new Float32Array(n * n * 3), depth = new Float32Array(n * n), nor = new Float32Array(n * n * 3), cells = [];
     for (let v = 0; v < n * n; v++) { wpos[v * 3] = pos[v * 3]; wpos[v * 3 + 1] = WATER_Y; wpos[v * 3 + 2] = pos[v * 3 + 2]; depth[v] = WATER_Y - heights[v]; nor[v * 3 + 1] = 1; }
     for (let j = 0; j < n - 1; j++) for (let i = 0; i < n - 1; i++) {
       const a = j * n + i, b = a + 1, c = a + n, d = c + 1;
-      if (depth[a] > 0 || depth[b] > 0 || depth[c] > 0 || depth[d] > 0) idx.push(a, c, b, b, c, d);
+      if (depth[a] > 0 || depth[b] > 0 || depth[c] > 0 || depth[d] > 0) cells.push(j * (n - 1) + i);
     }
-    if (!idx.length) return null;
+    if (!cells.length) return null;
+    const idx = new Uint16Array(cells.length * 6);
+    waterIndex(idx, cells, n, null);
     if (!shore || shore.length !== n * n * 4) { shore = new Float32Array(n * n * 4); for (let v = 0; v < n * n; v++) shore[v * 4] = depth[v] > 0 ? 0.4 + depth[v] * 3 : depth[v] * 4; }
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.BufferAttribute(wpos, 3));
     geo.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
     geo.setAttribute('depth', new THREE.BufferAttribute(depth, 1));
     geo.setAttribute('shore', new THREE.BufferAttribute(shore, 4));
-    geo.setIndex(idx);
+    geo.setIndex(new THREE.BufferAttribute(idx, 1));
     geo.computeBoundingSphere();
     const m = new THREE.Mesh(geo, this.water.material);
     m.renderOrder = 2;
     m.receiveShadow = true;
     m.matrixAutoUpdate = false;
+    m.userData.cells = cells;
     this.water.group.add(m);
     return m;
   }
@@ -457,6 +493,18 @@ export class Terrain {
     // (cada casilla son dos triángulos: a-c-b y b-c-d)
     return fu + fv <= 1 ? a + (bb - a) * fu + (c - a) * fv : d + (c - d) * (1 - fu) + (bb - d) * (1 - fv);
   }
+}
+
+// Los índices del agua de un bloque: dos triángulos por casilla con agua (cells: su número en el bloque), sin las de holes
+// (las cavadas; o ninguna). Devuelve cuántos ha escrito
+function waterIndex(idx, cells, n, holes) {
+  let q = 0;
+  for (const c of cells) {
+    if (holes?.has(c)) continue;
+    const i = c % (n - 1), a = (c - i) / (n - 1) * n + i;
+    idx[q++] = a; idx[q++] = a + n; idx[q++] = a + 1; idx[q++] = a + 1; idx[q++] = a + n; idx[q++] = a + n + 1;
+  }
+  return q;
 }
 
 // Material del suelo: la textura del bloque con el detalle de briznas (sobre lo verde) o de piedrecitas (sobre tierra,
@@ -627,9 +675,15 @@ vec2 wSlope(vec2 p, float t, float far) {
   d = vec2(0.64, -0.77);  g += d * cos(dot(d, p) * 12.9 - t * 4.3 + 5.9) * 0.016 * k2;
   return g * (0.55 + 0.9 * n);
 }`;
-function waterMaterial(uniforms, block) {
+// kind: 'bloque' (el agua de cada bloque), 'fondo' (el plano que sigue a la cámara donde aún no hay bloque) o 'charca' (la de
+// lo cavado que se ha llenado: ver poolGeometry en dig3d.js). La de la charca es la misma agua, con la profundidad y la
+// orilla por vértice, pero sin espuma ni borde transparente: llega a las paredes de tierra del hoyo, que la cortan (vShore.x
+// es de verdad la distancia a la pared, para la ribera reflejada). Donde toca el agua de verdad lleva su orilla, abierta
+// (sin espuma: ver applyDigs), y casan sin costura
+function waterMaterial(uniforms, kind) {
+  const block = kind !== 'fondo', pool = kind === 'charca';
   const m = new THREE.MeshStandardMaterial({ color: WATER.color, roughness: 0.07, metalness: 0, transparent: true, opacity: 0.8 });
-  m.customProgramCacheKey = () => (block ? 'agua-bloque-v2' : 'agua-fondo-v2');   // (si no, Three les da el mismo programa a los dos: el texto de onBeforeCompile es el mismo)
+  m.customProgramCacheKey = () => (pool ? 'agua-charca-v1' : block ? 'agua-bloque-v2' : 'agua-fondo-v2');   // (si no, Three les da el mismo programa a los dos: el texto de onBeforeCompile es el mismo)
   m.onBeforeCompile = sh => {
     Object.assign(sh.uniforms, { rainK: RAIN }, uniforms);
     sh.vertexShader = sh.vertexShader
@@ -649,7 +703,7 @@ function waterMaterial(uniforms, block) {
         // La espuma: la franja del borde y las olas que llegan a la orilla (del agua hacia tierra), rotas a manchas. Solo cerca
         // de la orilla (mar adentro no se calcula)
         float foam = 0.0;
-        if (sd < 1.9) {
+        if (${pool ? 'false' : 'sd < 1.9'}) {
           float n1 = wNoise(vW * 1.7 + vec2(time * 0.07, -time * 0.05)), n2 = wNoise(vW * 4.3 - time * 0.11);
           float edge = smoothstep(0.55, 0.05, sd);
           float waves = smoothstep(0.55, 1.0, 0.5 + 0.5 * sin(sd * 5.5 + time * 1.4 + n1 * 3.0)) * smoothstep(1.8, 0.2, sd);
@@ -659,7 +713,7 @@ function waterMaterial(uniforms, block) {
         // Transparente donde cubre poco (se ve el fondo) y más opaca donde es honda; la espuma tapa. El borde, a cero junto a
         // la orilla: la de verdad (sd) y donde el suelo de la malla sale del agua (dp, que va recto de casilla a casilla: con
         // el agua aún visible ahí, se vería el corte en escalones). La línea de la orilla la pinta el suelo, más fino
-        float wEdge = smoothstep(0.0, 0.18, sd) * smoothstep(0.0, 0.1, dp);
+        float wEdge = ${pool ? '1.0' : 'smoothstep(0.0, 0.18, sd)'} * smoothstep(0.0, 0.1, dp);
         diffuseColor.a = mix(min(0.92, 1.0 - 0.62 * exp(-dp * 1.6)), 0.95, foam * 0.6);   // (cuánto fondo deja ver: Beer-Lambert, como el color)`)
       .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>
         roughnessFactor = mix(roughnessFactor, 0.7, foam);   // (la espuma no brilla)`)
@@ -718,10 +772,10 @@ function makeWater() {
   };
   const geo = new THREE.PlaneGeometry(520, 520, 1, 1);
   geo.rotateX(-Math.PI / 2);
-  const mesh = new THREE.Mesh(geo, waterMaterial(uniforms, false));
+  const mesh = new THREE.Mesh(geo, waterMaterial(uniforms, 'fondo'));
   mesh.renderOrder = 1;
   mesh.receiveShadow = true;
   const group = new THREE.Group();
   group.add(mesh);
-  return { mesh, group, material: waterMaterial(uniforms, true), uniforms };
+  return { mesh, group, material: waterMaterial(uniforms, 'bloque'), pool: waterMaterial(uniforms, 'charca'), uniforms };
 }

@@ -4,7 +4,7 @@
 // van tu casa, las de los vecinos, los vecinos que estén fuera, los lugares descubiertos con su nombre y una leyenda
 // con lo que ya se ha visto.
 import { CHUNK } from '../world/gen.js';
-import { BIOMES } from '../world/biomes.js';
+import { BIOMES, B } from '../world/biomes.js';
 import { toView } from '../iso.js';
 import { CENTER, HOUSE, HOUSES, TAVERN, hasProject } from '../world/village.js';
 import { nearX, wrapIndex } from '../world/planet.js';
@@ -14,6 +14,8 @@ const COL = { cueva: '#4a4a54', ruinas: '#a8a298', campamento: '#e88a3a', torre:
 const HOME = '#c95a3c', HOUSE_COL = '#c8a878', PERSON = '#7ad0ff', ME = '#ffd77a';
 const ZOOM = [1, 8], BIOME_SAMPLES_PER_FRAME = 200;
 const rgbCss = c => `rgb(${c[0]},${c[1]},${c[2]})`;
+// (lo cavado que se ha llenado de agua, del color de las aguas poco profundas: ver floodOver)
+const POOL = () => rgbCss(BIOMES[B.SHALLOW].rgb[1]);
 
 export class MapView {
   constructor() {
@@ -99,6 +101,7 @@ export class MapView {
       const t = this.thumb(gen, key);
       if (t) fg.drawImage(t, (dcx + reach) * CHUNK, (cy - pcy + reach) * CHUNK);
     }
+    this.floodOver(fg, (pcx - reach) * CHUNK, (pcy - reach) * CHUNK, side, side, 1);
     // Cada eje de la imagen plana (x e y del mundo) va adonde lo lleve la cámara
     const ox = (pcx - reach) * CHUNK, oy = (pcy - reach) * CHUNK, [xu, xv] = toView(1, 0), [yu, yv] = toView(0, 1), [u0, v0] = toView(ox, oy);
     g.setTransform(a * (xu - xv), (a / 2) * (xu + xv), a * (yu - yv), (a / 2) * (yu + yv), a * (u0 - v0) + e, (a / 2) * (u0 + v0) + f);
@@ -118,6 +121,16 @@ export class MapView {
     const [mx, my] = toMap(...me), blink = Math.sin(time * 6) > 0;
     g.fillStyle = '#2a1c22'; g.fillRect(mx - 3, my - 3, 7, 7);
     g.fillStyle = blink ? '#ffd77a' : '#ff6a4a'; g.fillRect(mx - 2, my - 2, 5, 5);
+  }
+
+  // Lo cavado que se ha llenado de agua (las miniaturas son del mundo y no lo tienen): una casilla de agua encima, de las de
+  // un rectángulo de casillas [x0, x0 + w) × [y0, y0 + h) que se dibuja desde (ox, oy) con s píxeles por casilla. Son pocas
+  // (las que se han cavado) y el mundo ya las tiene a mano (scenes.js, floodList)
+  floodOver(g, x0, y0, w, h, s, ox = 0, oy = 0) {
+    const list = this.world?.floodList?.(x0, y0, x0 + w, y0 + h);
+    if (!list?.length) return;
+    g.fillStyle = POOL();
+    for (const [x, y] of list) g.fillRect(Math.round(ox + (x - x0) * s), Math.round(oy + (y - y0) * s), Math.ceil(s), Math.ceil(s));
   }
 
   drawMini(gen, explored, px, py, time) {
@@ -162,6 +175,7 @@ export class MapView {
       const [sx, sy] = this.toScreen(kx * CHUNK, ky * CHUNK, cx, cy, w, h);
       g.drawImage(t, Math.round(sx), Math.round(sy), S, S);
     }
+    { const [sx, sy] = this.toScreen(Math.floor(cx - w / 2 / a), Math.floor(cy - h / 2 / a), cx, cy, w, h); this.floodOver(g, Math.floor(cx - w / 2 / a), Math.floor(cy - h / 2 / a), Math.ceil(w / a) + 2, Math.ceil(h / a) + 2, a, sx, sy); }
     // Lo que tiene nombre, por orden de importancia: tú, tu casa, los lugares, las casas y los vecinos. El nombre va al
     // lado del punto, donde quepa; si no cabe sin pisar otro, ese no sale (al acercarse, sí)
     const spots = [{ x: me[0], y: me[1], name: 'Tú', col: Math.sin(time * 6) > 0 ? ME : '#ff6a4a', size: 7 }, { x: (HOUSE.x0 + HOUSE.x1) / 2, y: (HOUSE.y0 + HOUSE.y1) / 2, name: 'Tu casa', col: HOME, size: 8 }];

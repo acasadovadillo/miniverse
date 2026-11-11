@@ -14,7 +14,7 @@ import { solidsOf, hull, placeBoxes, bounds, aabb, sat, hitsCircle, distTo, obb,
 import { wallRuns, WINDOW_Z, T } from '../art/build.js';
 import { PIECES, layerOf, parsePlaced } from '../pieces.js';
 import { Person } from '../entities.js';
-import { wrapIndex, inPlanet, dxOf } from './planet.js';
+import { wrapIndex, inPlanet, dxOf, wrapX, HALF, H as PLANET_H, NORTH } from './planet.js';
 import { roofShape } from './roof.js';
 
 const WADE_MAX = 0.5;   // (ver blocked)
@@ -38,8 +38,15 @@ const DIG_BIOMES = new Set([B.MEADOW, B.FOREST, B.PINES, B.SWAMP]), DIG_STEEP = 
 // Las casas de animales con puerta y de su centro a donde se entra (como FRONT y DOORS en ranch.js): delante, en el pueblo,
 // no se cava (ver animalDoorOn)
 const ANIMAL_DOOR = { gallinero: 2.15, establo: 2.25, conejera: 1 };
-// La firma de lo cavado de un trozo (para saber si ha cambiado, venga de aquí o de la red)
-const digSigOf = dig => (dig ? Object.entries(dig).map(([k, h]) => k + ':' + h).join(';') : '');
+// La firma de lo cavado de un trozo (para saber si ha cambiado, venga de aquí o de la red). Con los pozos (una p): el agua
+// de lo cavado no entra en ellos (ver reflood) y, al ponerlo o quitarlo, se vuelve a mirar
+const wellIn = (d, k) => { const v = d.placed?.[k]; return !!v && (v === 'pozo' || v.startsWith('pozo@')); };
+const digSigOf = d => (d?.dig ? Object.entries(d.dig).map(([k, h]) => k + ':' + h + (wellIn(d, k) ? 'p' : '')).join(';') : '');
+// El agua en lo cavado (ver reflood): un hoyo se llena si su fondo queda más de FLOOD_MIN por debajo del agua (WATER_Y) y
+// toca el agua de verdad, o lo cavado que ya tiene agua; como mucho, a FLOOD_REACH casillas de ella siguiendo lo cavado
+const FLOOD_MIN = 0.01, FLOOD_REACH = 256;
+// La clave de una casilla del planeta (un número: el mapa del agua se mira en cada paso de cada uno)
+const fkey = (tx, ty) => (wrapX(tx) + HALF) * PLANET_H + (ty - NORTH);
 function shifted(v, off) {
   if (Array.isArray(v)) return v.map(e => (e && typeof e === 'object' ? shifted(e, off) : e));
   const o = {};
@@ -239,7 +246,9 @@ export class Overworld {
     // Lo cavado: los trozos que tienen algo (clave → su firma; ver digNote) y una cuenta que sube con cada cambio (la vista
     // rehace con ella los hoyos del suelo). Las alturas de las esquinas, guardadas mientras no cambie nada (ver cornerH)
     this.digChunks = new Map(); this.digV = 0; this.corners = new Map(); this.cornersT = -1;
-    for (const [k, d] of deltas) { const sg = !k.startsWith('u:') && digSigOf(d?.dig); if (sg) this.digChunks.set(k, sg); }
+    for (const [k, d] of deltas) { const sg = !k.startsWith('u:') && digSigOf(d); if (sg) this.digChunks.set(k, sg); }
+    // (el agua de lo cavado: casilla → la de agua de verdad de la que le llega, y lo que ya se ha mirado por trozo; ver reflood)
+    this.flood = new Map(); this.floodV = -1; this.floodCand = new Map();
   }
 
   // ---------- lo cavado con la pala ----------
@@ -265,12 +274,16 @@ export class Overworld {
     if (h === undefined) { h = this.groundRaw(x, y); if (this.corners.size > 4000) this.corners.clear(); this.corners.set(k, h); }
     return h;
   }
-  // La altura del suelo natural en un punto, sin lo cavado: la de la malla (cada casilla, dos triángulos entre sus esquinas)
+  // La altura del suelo natural en un punto, sin lo cavado: la de la malla (cada casilla, dos triángulos entre sus esquinas),
+  // y bajo el agua, su fondo (meshH). Así los pies junto a lo cavado van a la misma altura que en el agua (ver entities.js:
+  // de un río se pasa andando a un canal cavado y al revés)
   naturalAt(x, y) {
-    const x0 = Math.floor(x), y0 = Math.floor(y), fu = x - x0, fv = y - y0, b = this.cornerH(x0 + 1, y0), c = this.cornerH(x0, y0 + 1);
-    if (fu + fv <= 1) { const a = this.cornerH(x0, y0); return a + (b - a) * fu + (c - a) * fv; }
-    const d = this.cornerH(x0 + 1, y0 + 1); return d + (c - d) * (1 - fu) + (b - d) * (1 - fv);
+    const x0 = Math.floor(x), y0 = Math.floor(y), fu = x - x0, fv = y - y0, b = this.meshH(x0 + 1, y0), c = this.meshH(x0, y0 + 1);
+    if (fu + fv <= 1) { const a = this.meshH(x0, y0); return a + (b - a) * fu + (c - a) * fv; }
+    const d = this.meshH(x0 + 1, y0 + 1); return d + (c - d) * (1 - fu) + (b - d) * (1 - fv);
   }
+  // Una esquina de la malla del suelo: la de cornerH en tierra y el fondo bajo el agua (bedH; cornerH lo deja en 0)
+  meshH(x, y) { const b = this.bedH(x, y); return b < 0 ? b : this.cornerH(x, y); }
   // La altura natural de una casilla para la pala: la media de sus esquinas, a escalones de LV_STEP
   digBase(tx, ty) { return Math.round((this.cornerH(tx, ty) + this.cornerH(tx + 1, ty) + this.cornerH(tx, ty + 1) + this.cornerH(tx + 1, ty + 1)) / 4 / LV_STEP) * LV_STEP; }
   // Cuántos bloques está una casilla por debajo de su altura natural (por encima, negativo; 0 si está como era)
@@ -325,7 +338,7 @@ export class Overworld {
   // Al cambiar un trozo (aquí o por la red): si ha cambiado lo cavado, se apunta
   digNote(k) {
     if (k.startsWith('u:')) return;
-    const sg = digSigOf(this.deltas.get(k)?.dig), was = this.digChunks.get(k) || '';
+    const sg = digSigOf(this.deltas.get(k)), was = this.digChunks.get(k) || '';
     if (sg === was) return;
     if (sg) this.digChunks.set(k, sg); else this.digChunks.delete(k);
     this.digV++;
@@ -366,9 +379,10 @@ export class Overworld {
       if (this.animalDoorOn(tx, ty)) return 'Delante de la puerta no';
     }
     if (!flat && cur === null && !DIG_BIOMES.has(this.gen.biomeAt(x, y))) return 'Solo se cava en la tierra y la hierba';
-    if (this.water(x, y)) return 'Ahí hay agua';
+    // (en el agua de verdad, no; junto a ella, sí: el hoyo se llena de agua, ver reflood. En el agua de lo cavado, también:
+    // se cava más hondo, o se le echa tierra y, si el fondo sale del agua, se seca)
+    if (this.natWater(x, y)) return 'Ahí hay agua';
     const c = [this.cornerH(tx, ty), this.cornerH(tx + 1, ty), this.cornerH(tx, ty + 1), this.cornerH(tx + 1, ty + 1)];
-    if (!flat && Math.min(...c) < 0.05) return 'Demasiado cerca del agua';
     if (cur === null && Math.max(...c) - Math.min(...c) > DIG_STEEP) return 'Ahí es roca';
     const d = this.deltas.get(`${wrapIndex(Math.floor(tx / CHUNK), CHUNK)},${Math.floor(ty / CHUNK)}`);
     if (this.wellAt(x, y)) return 'Ahí está el pozo';
@@ -903,7 +917,7 @@ export class Overworld {
   canTill(tx, ty) {
     const x = tx + 0.5, y = ty + 0.5, b = this.gen.biomeAt(x, y);
     if (!inPlanet(x, y)) return false;
-    if (![B.MEADOW, B.FOREST, B.PINES, B.SWAMP].includes(b)) return false;
+    if (![B.MEADOW, B.FOREST, B.PINES, B.SWAMP].includes(b) || this.water(x, y)) return false;   // (ni en lo cavado que tiene agua)
     if (inBounds(x, y) && !isGrass(x, y)) return false;
     const d = this.delta(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK));
     if (d && d.tilled[`${tx},${ty}`] !== undefined) return false;
@@ -1195,6 +1209,7 @@ export class Overworld {
     const res = (ok, why) => ({ ok, why, ox: x, oy: y, a, k: 0, model, cx: box.x, cy: box.y, box, anchor: ok ? [tx, ty] : null });
     if (!inPlanet(x - 1, y) || !inPlanet(x + 1, y)) return res(false, 'Aquí no: es la costura del planeta');
     if (!deep) return res(false, `Hace falta un hoyo de ${WELL_DOWN} bloques cavado con la pala`);
+    if (this.water(x, y)) return res(false, 'Ahí hay agua: el pozo va en un hoyo seco');
     if (this.at('placed', tx, ty) || this.at('floor', tx, ty) || this.at('roof', tx, ty)) return res(false, 'Ahí no cabe');
     const d = this.delta(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK));
     if (d?.lvl?.[k] !== undefined) return res(false, 'Ahí no cabe');
@@ -1250,8 +1265,100 @@ export class Overworld {
     this.gen.cache.clear();   // (los arbustos del jardín, que pone el mundo, dependen de dónde va tu casa)
     this.merged.clear();
   }
-  // Agua: 'deep' (el mar y los lagos) o 'shallow' (ríos, charcas y la costa); lo hondo de verdad, en waterDepth
-  water(x, y) { return inBounds(x, y) ? null : BIOMES[this.gen.biomeAt(x, y)].water || null; }
+  // Agua: 'deep' (el mar y los lagos) o 'shallow' (ríos, charcas y la costa, y lo cavado que se ha llenado: ver reflood); lo
+  // hondo de verdad, en waterDepth. En lo cavado manda lo cavado: con agua o seco, aunque la casilla toque el agua de verdad
+  water(x, y) {
+    if (this.digChunks.size) { const f = this.digWater(Math.floor(x), Math.floor(y)); if (f !== null) return f ? 'shallow' : null; }
+    return this.natWater(x, y);
+  }
+  // El agua de verdad, la del mundo (sin lo cavado): para lo que sale del mundo (los lugares) y para no cavar en ella
+  natWater(x, y) { return inBounds(x, y) ? null : BIOMES[this.gen.biomeAt(x, y)].water || null; }
+
+  // ---------- el agua de lo cavado ----------
+  // Un hoyo junto al agua se llena: lo cavado con el fondo por debajo del agua (WATER_Y, la misma en todo el mundo) que toca
+  // el agua de verdad (una casilla de al lado, sin cavar, con el agua de su malla en el borde que comparten) o lo cavado que
+  // ya tiene agua. Así un canal de varias casillas se llena entero, un estanque cavado junto a un lago también, y soltando
+  // tierra en una casilla (su fondo sale del agua, o vuelve a estar como era) se cierra. Lo cavado que no llega al agua sigue
+  // seco, y el pozo tiene la suya (no entra en él). No se guarda: sale de lo cavado de los trozos (d.dig, que va por la red),
+  // igual en todos los juegos y en el servidor, y se vuelve a mirar cuando cambia (digV). Solo cuenta lo cavado que queda
+  // por debajo del agua (de cada trozo, guardado mientras no cambie: floodCand), y el agua llega como mucho a FLOOD_REACH
+  // casillas por lo cavado
+  // ¿Tiene agua esta casilla cavada? null si no está cavada; si no, true o false
+  digWater(tx, ty) {
+    if (this.digH(tx, ty) === null) return null;
+    return this.floodAt(tx, ty) !== undefined;
+  }
+  // La casilla de agua de verdad de la que le llega el agua a una cavada (su clave: floodSrc), o undefined si está seca
+  floodAt(tx, ty) {
+    if (!this.digChunks.size) return undefined;
+    if (this.floodV !== this.digV) this.reflood();
+    return this.flood.size ? this.flood.get(fkey(tx, ty)) : undefined;
+  }
+  // La casilla de agua de verdad de la que le llega el agua a (x, y), en lo cavado: [x, y] de su centro (la pesca pica lo
+  // de ese agua), o null
+  floodSrc(x, y) {
+    const k = this.floodAt(Math.floor(x), Math.floor(y));
+    return k === undefined ? null : [Math.floor(k / PLANET_H) - HALF + 0.5, (k % PLANET_H) + NORTH + 0.5];
+  }
+  // Lo inundado en un rectángulo de casillas [x0, x1) × [y0, y1), como [[tx, ty]] (el mapa)
+  floodList(x0, y0, x1, y1) {
+    const out = [];
+    if (!this.digChunks.size) return out;
+    if (this.floodV !== this.digV) this.reflood();
+    for (const k of this.flood.keys()) {
+      const tx = Math.floor(k / PLANET_H) - HALF, ty = (k % PLANET_H) + NORTH, nx = x0 + wrapX(tx - x0);
+      if (nx >= x0 && nx < x1 && ty >= y0 && ty < y1) out.push([nx, ty]);
+    }
+    return out;
+  }
+  // ¿Toca el agua de verdad el borde de la casilla (tx, ty) hacia (i, j), con la vecina sin cavar? Su malla tiene agua en ese
+  // borde si alguna de sus dos esquinas está por debajo del agua (bajo el agua, el fondo baja de golpe 27 cm: ver biomes.js,
+  // depthOfWet; así que basta con eso). El estanque del pueblo no cuenta: no es agua del mundo (no se nada en él)
+  wetEdge(tx, ty, i, j) {
+    const nx = tx + i, ny = ty + j;
+    if (inBounds(nx + 0.5, ny + 0.5) || this.digH(nx, ny) !== null) return false;
+    const ax = i > 0 ? tx + 1 : tx, ay = j > 0 ? ty + 1 : ty, bx = i ? ax : tx + 1, by = j ? ay : ty + 1;
+    return Math.min(this.bedH(ax, ay), this.bedH(bx, by)) < WATER_Y;
+  }
+  reflood() {
+    this.floodV = this.digV;
+    const fl = this.flood, cache = this.floodCand;
+    fl.clear();
+    // Lo cavado por debajo del agua, por trozo (sin los pozos): se rehace solo el trozo cuya firma ha cambiado
+    for (const k of cache.keys()) if (!this.digChunks.has(k)) cache.delete(k);
+    const cand = new Map();
+    for (const [k, sg] of this.digChunks) {
+      let c = cache.get(k);
+      if (c?.sg !== sg) {
+        const d = this.deltas.get(k), list = [];
+        for (const [t, h] of Object.entries(d?.dig || {})) {
+          if (typeof h !== 'number' || h >= WATER_Y - FLOOD_MIN || wellIn(d, t)) continue;
+          const i = t.indexOf(','); list.push(+t.slice(0, i), +t.slice(i + 1));
+        }
+        cache.set(k, c = { sg, list });
+      }
+      for (let i = 0; i < c.list.length; i += 2) cand.set(fkey(c.list[i], c.list[i + 1]), true);
+    }
+    if (!cand.size) return;
+    // Las que tocan el agua de verdad, y desde ellas, por lo cavado, casilla a casilla (lo más cerca primero: cada una sabe de
+    // qué agua le llega). Lo que se llena es lo mismo empiece por donde empiece: lo que está a FLOOD_REACH pasos o menos
+    let front = [];
+    for (const c of cache.values()) for (let i = 0; i < c.list.length; i += 2) {
+      const tx = c.list[i], ty = c.list[i + 1];
+      for (const [di, dj] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) if (this.wetEdge(tx, ty, di, dj)) { fl.set(fkey(tx, ty), fkey(tx + di, ty + dj)); front.push(tx, ty); break; }
+    }
+    for (let step = 0; step < FLOOD_REACH && front.length; step++) {
+      const next = [];
+      for (let i = 0; i < front.length; i += 2) {
+        const tx = front[i], ty = front[i + 1], src = fl.get(fkey(tx, ty));
+        for (const [di, dj] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+          const k = fkey(tx + di, ty + dj);
+          if (cand.has(k) && !fl.has(k)) { fl.set(k, src); next.push(tx + di, ty + dj); }
+        }
+      }
+      front = next;
+    }
+  }
   // ¿Es agua de río (poco profunda y lejos del mar)? (la orilla de un lago o una charca también vale)
   riverAt(x, y) {
     if (inBounds(x, y) || this.gen.biomeAt(x, y) !== B.SHALLOW) return false;
@@ -1260,8 +1367,13 @@ export class Overworld {
   }
   // Lo hondo que es el agua en (x, y), en metros: del agua (WATER_Y) al fondo, el de la malla del suelo (0 en tierra y
   // sobre lo construido). Con lo que cubre se anda, se nada (ver entities.js) o no se pasa
+  // En lo cavado con agua, del agua a su fondo (llano)
   waterDepth(x, y) {
-    if (!this.water(x, y) || this.levelAt(x, y) !== null) return 0;
+    if (this.digChunks.size) {
+      const tx = Math.floor(x), ty = Math.floor(y), D = this.digH(tx, ty);
+      if (D !== null) return this.floodAt(tx, ty) !== undefined ? WATER_Y - D : 0;
+    }
+    if (!this.natWater(x, y) || this.levelAt(x, y) !== null) return 0;
     const x0 = Math.floor(x), y0 = Math.floor(y), fu = x - x0, fv = y - y0, b = this.bedH(x0 + 1, y0), c = this.bedH(x0, y0 + 1);
     const h = fu + fv <= 1 ? (a => a + (b - a) * fu + (c - a) * fv)(this.bedH(x0, y0)) : (d => d + (c - d) * (1 - fu) + (b - d) * (1 - fv))(this.bedH(x0 + 1, y0 + 1));
     return Math.max(0, WATER_Y - h);

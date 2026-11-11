@@ -17,7 +17,7 @@ import { ITEMS } from './items.js';
 import { Audio } from './audio.js';
 import { Profile } from './accounts.js';
 import { rayHits, aabb } from './world/fit.js';
-import { wrapX, nearX } from './world/planet.js';
+import { wrapX, nearX, WATER_Y } from './world/planet.js';
 import { shotHit } from './world/shots.js';
 import { WALL_H, ROOF } from './three/build3d.js';
 import { bodyBox, PREY } from './hunt.js';
@@ -219,7 +219,9 @@ export class Archery {
       if (over0 > 0 && g.scene === g.world && g.world.digNear(tip[0], tip[2], 1)) t = this.groundHit(tip, d, len, gy);
       const solid = this.hit(g.scene, tip, d, t ?? len, gy);
       if (solid !== null) { t = solid; into = 'solid'; }
-      else if (g.scene === g.world && over1 <= 0.25 && g.world.water(tx, ty)) { g.gather.chips(tx, ty, 'water', 6); return false; }   // (al agua: se hunde)
+      // (al agua: se hunde. Su altura: la del suelo bajo el agua de verdad no baja de 0,3 por debajo de ella, ver engine.js
+      // groundY; la de un canal cavado es su fondo, y la flecha se hunde al llegar al agua, no al fondo)
+      else if (g.scene === g.world && th - Math.max(gy(tx, ty), WATER_Y - 0.3) <= 0.25 && g.world.water(tx, ty)) { g.gather.chips(tx, ty, 'water', 6); return false; }
       if (t !== null && into === 'ground' && g.scene === g.world && g.world.wellMouth?.(tip[0] + d[0] * t, tip[2] + d[2] * t)) { g.gather.chips(tip[0] + d[0] * t, tip[2] + d[2] * t, 'water', 6); return false; }   // (al agua del pozo)
       if (t !== null) { this.stick(a, tip[0] + d[0] * t, tip[1] + d[1] * t, tip[2] + d[2] * t, d, SINK[into]); return true; }
       a.x = g.scene === g.world ? wrapX(nx) : nx; a.y = ny; a.h = nh;

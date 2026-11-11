@@ -9,6 +9,8 @@
 // coge algo de nieve. Todo va en coordenadas del mundo, en una malla por bloque de suelo.
 import * as THREE from 'three';
 import { soilDetail, meanOf } from './textures.js';
+import { WATER_Y } from '../world/planet.js';
+import { PAL } from '../arte.js';
 
 const S = 0.55;      // repeticiones de la foto por metro (como el detalle del suelo de terrain.js)
 const SKIRT = 0.35, SKIRT_IN = 0.12;   // la lámina de sombra de cada pared: lo que se alarga por cada punta y lo que se mete en la tierra (ver skirt)
@@ -22,6 +24,10 @@ const STRATA = [[-0.5, '#6c5841'], [0, '#7a664d'], [0.18, '#665340'], [0.45, '#8
   .map(([d, c]) => [d, new THREE.Color(c)]);
 const ss = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 const TMP = new THREE.Color();
+// El fondo del agua de verdad, como lo pinta el suelo (ground.js: de la orilla a lo hondo), en lineal para el sombreador: a
+// eso tira la tierra cavada bajo el agua, con su grano
+const linv = c => { const k = new THREE.Color(c); return `vec3(${k.r.toFixed(4)}, ${k.g.toFixed(4)}, ${k.b.toFixed(4)})`; };
+const BED = { shallow: linv(PAL.agua.orilla), deep: linv(PAL.agua.profunda) };
 // El color (lineal) de la tierra a esa profundidad, oscurecido por k
 function soil(depth, k, out) {
   let i = 0;
@@ -35,9 +41,14 @@ function soil(depth, k, out) {
 
 // La malla de lo cavado de un bloque. list: [[tx, ty, altura]] (las casillas del bloque); x0, z0: la esquina del bloque y
 // n, el número de vértices por lado de sus alturas H (las del suelo natural, ya allanado); digH(tx, ty): la altura de
-// cualquier casilla tocada (o null). Devuelve { geo, shadow } (la que se ve y la que solo da sombra), o null si no hay nada
-export function digGeometry(list, x0, z0, n, H, digH) {
-  const pos = [], nor = [], uv = [], col = [], idx = [], shade = [], sky = [];
+// cualquier casilla tocada (o null); wetAt(tx, ty): si una casilla cavada tiene agua (scenes.js, reflood). Devuelve
+// { geo, shadow } (la que se ve y la que solo da sombra), o null si no hay nada.
+// Lo que toca el agua (el fondo y las paredes de lo que se ha llenado, y las que bajan al agua de verdad o a la de lo cavado
+// de al lado) lleva wet: bajo el agua, la tierra mojada y algo verdosa, como el fondo de un río, y por encima, una franja
+// húmeda (ver digMaterial)
+export function digGeometry(list, x0, z0, n, H, digH, wetAt = () => false) {
+  const pos = [], nor = [], uv = [], col = [], idx = [], shade = [], sky = [], wet = [];
+  let W = 0;   // (lo que llevan de wet los vértices que se van haciendo)
   // Cuánto cielo ve cada vértice (de 0 a 1): en cada una de 8 direcciones (en una pared, las que van hacia el aire), lo más
   // alto que se levanta el suelo de alrededor (el horizonte) y, de ahí, lo que queda de cielo (1 − su seno), en media. Va
   // al sombreador y apaga solo la luz del cielo y del entorno (la del sol y la de las antorchas, no): de noche, que es casi
@@ -76,7 +87,7 @@ export function digGeometry(list, x0, z0, n, H, digH) {
   const P = new THREE.Vector3(), Q = new THREE.Vector3(), C = new THREE.Vector3();
   // Un cuadrilátero (a, b, c, d en orden alrededor) con su normal; las caras, giradas para que miren hacia ella
   // Un vértice suelto (devuelve su número) y un triángulo, girado para que mire hacia (nx, ny, nz); los que no tienen área, fuera
-  const vert = (x, y, z, u, w, d, k, nx, ny, nz) => { pos.push(x, y, z); nor.push(nx, ny, nz); uv.push(u, w); soil(d, k, col); sky.push(skyOf(x, y, z, nx, nz)); return pos.length / 3 - 1; };
+  const vert = (x, y, z, u, w, d, k, nx, ny, nz) => { pos.push(x, y, z); nor.push(nx, ny, nz); uv.push(u, w); soil(d, k, col); sky.push(skyOf(x, y, z, nx, nz)); wet.push(W); return pos.length / 3 - 1; };
   const tri = (a, b, c, nx, ny, nz) => {
     const p = i => [pos[i * 3], pos[i * 3 + 1], pos[i * 3 + 2]], [A, B, Cc] = [p(a), p(b), p(c)];
     P.set(B[0] - A[0], B[1] - A[1], B[2] - A[2]); Q.set(Cc[0] - A[0], Cc[1] - A[1], Cc[2] - A[2]); C.crossVectors(P, Q);
@@ -85,7 +96,7 @@ export function digGeometry(list, x0, z0, n, H, digH) {
   };
   const quad = (v, nx, ny, nz) => {
     const o = pos.length / 3;
-    for (const [x, y, z, u, w, d, k] of v) { pos.push(x, y, z); nor.push(nx, ny, nz); uv.push(u, w); soil(d, k, col); sky.push(skyOf(x, y, z, 0, 0)); }
+    for (const [x, y, z, u, w, d, k] of v) { pos.push(x, y, z); nor.push(nx, ny, nz); uv.push(u, w); soil(d, k, col); sky.push(skyOf(x, y, z, 0, 0)); wet.push(W); }
     P.set(v[1][0] - v[0][0], v[1][1] - v[0][1], v[1][2] - v[0][2]); Q.set(v[2][0] - v[0][0], v[2][1] - v[0][1], v[2][2] - v[0][2]);
     C.crossVectors(P, Q);
     // (si es casi plano por un lado, el otro triángulo dice hacia dónde mira)
@@ -131,11 +142,14 @@ export function digGeometry(list, x0, z0, n, H, digH) {
       return 1 - 0.13 * m;
     };
     const fv = (x, z, e) => [x, h, z, x * S, z * S, e - h, above(x, z, e)];
+    const flooded = !!wetAt(tx, ty);
+    W = flooded ? 1 : 0;
     quad([fv(tx, ty, c00), fv(tx + 1, ty, c10), fv(tx + 1, ty + 1, c11), fv(tx, ty + 1, c01)], 0, 1, 0);
     // Las cuatro paredes: hacia cada vecina, de su borde (la línea entre dos esquinas, si está como era; su altura, si está
     // tocada) a este suelo. normal: hacia dentro de esta casilla
     for (const [ax, az, bx, bz, nx, nz, ox, oz] of [[tx, ty, tx + 1, ty, 0, 1, 0, -1], [tx, ty + 1, tx + 1, ty + 1, 0, -1, 0, 1], [tx, ty, tx, ty + 1, 1, 0, -1, 0], [tx + 1, ty, tx + 1, ty + 1, -1, 0, 1, 0]]) {
       const eA = corner(ax, az), eB = corner(bx, bz), o = digH(tx + ox, ty + oz);
+      W = flooded || (o !== null ? !!wetAt(tx + ox, ty + oz) : Math.min(eA, eB) < WATER_Y) ? 1 : 0;
       if (o !== null) {   // (la vecina también está tocada: la pared la pone la más alta, mirando a la más baja)
         if (h > o + 0.005) { wall(ax, az, bx, bz, o, h, o, h, -nx, -nz, eA, eB); skirt(ax, az, bx, bz, o - 0.3, h - 0.03, nx, nz); }
         continue;
@@ -160,9 +174,94 @@ export function digGeometry(list, x0, z0, n, H, digH) {
   g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
   g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
   g.setAttribute('sky', new THREE.Float32BufferAttribute(sky, 1));
+  g.setAttribute('wet', new THREE.Float32BufferAttribute(wet, 1));
   g.setIndex(idx);
   g.computeBoundingSphere();
   return { geo: g, shadow: sg };
+}
+
+// ---------- el agua de lo cavado ----------
+// La orilla que lleva el agua del bloque en las esquinas de lo que se ha llenado (terrain.js, openWater): como mar adentro,
+// sin espuma ni borde transparente (el sombreador del agua solo los hace por debajo de esto)
+export const SD_OPEN = 1.9;
+const POOL_R = 3;   // (casillas: hasta dónde se busca la pared de tierra más cercana de cada punto del agua)
+const DIR4 = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+// El agua de lo cavado que se ha llenado en un bloque (scenes.js, reflood): una lámina a ras del agua (WATER_Y, la de todo el
+// mundo) sobre cada casilla, partida en 2 × 2 para que su color pase suave de una casilla a otra. Lleva lo mismo que el agua
+// del bloque (terrain.js, buildWater), con el mismo material en su variante 'charca': en cada vértice, lo que cubre (depth)
+// y la orilla (shore: la distancia a la pared de tierra más cercana, hacia dónde queda el agua y lo alta que es la pared por
+// encima del agua, con su hierba: lo que refleja a ras). Donde toca el agua de verdad (un vértice en el borde con una casilla
+// sin cavar que ahí tiene agua), lleva justo lo de esa agua en ese punto (H, sus alturas, y shore, su orilla ya abierta): las
+// dos láminas casan sin costura, sin pared de agua entre el río y el canal. Entre dos casillas con agua, la media de las dos.
+// cells: [[tx, ty, altura]] (las del bloque que tienen agua); x0, z0 y n como en digGeometry; w: el mundo (digH, floodAt,
+// floodList, wetEdge, meshH, levelAt)
+export function poolGeometry(cells, x0, z0, n, H, shore, w) {
+  const B = n - 1, R = POOL_R;
+  // Las paredes de alrededor: cada borde de una casilla con agua hacia lo que no tiene (ni la de verdad, ni la de lo cavado),
+  // con su lado de fuera (i, j) y lo alto que queda (lo construido, lo cavado o el suelo natural en ese borde)
+  const walls = new Map();
+  for (const [x, y] of w.floodList(x0 - R - 1, z0 - R - 1, x0 + B + R + 1, z0 + B + R + 1)) for (const [i, j] of DIR4) {
+    const ox = x + i, oy = y + j;
+    if (w.floodAt(ox, oy) !== undefined || w.wetEdge(x, y, i, j)) continue;
+    const ax = i > 0 ? x + 1 : x, az = j > 0 ? y + 1 : y, bx = i ? ax : x + 1, bz = j ? az : y + 1;
+    const top = w.levelAt(ox + 0.5, oy + 0.5) ?? w.digH(ox, oy) ?? Math.max(w.meshH(ax, az), w.meshH(bx, bz));
+    const k = `${x},${y}`;
+    if (!walls.has(k)) walls.set(k, []);
+    walls.get(k).push([ax, az, bx, bz, i, j, top]);
+  }
+  const pos = [], depth = [], sh = [], idx = [], ids = new Map();
+  const wetDepth = (tx, ty) => { const D = w.digH(tx, ty); return D !== null && w.floodAt(tx, ty) !== undefined ? WATER_Y - D : null; };
+  // Un vértice (u, v: en medios metros desde la esquina del bloque)
+  const vertex = (u, v) => {
+    const key = u * 1024 + v;
+    let id = ids.get(key);
+    if (id !== undefined) return id;
+    const px = x0 + u / 2, pz = z0 + v / 2, xs = u % 2 ? [Math.floor(px)] : [px - 1, px], zs = v % 2 ? [Math.floor(pz)] : [pz - 1, pz];
+    // (el agua de verdad en este punto: en una esquina, la del vértice de su malla; en el medio de un borde, la media de sus dos)
+    let nat = null;
+    if (!(u % 2 && v % 2)) {
+      const at = u % 2 ? [[(u - 1) / 2, v / 2], [(u + 1) / 2, v / 2]] : v % 2 ? [[u / 2, (v - 1) / 2], [u / 2, (v + 1) / 2]] : [[u / 2, v / 2]];
+      const touches = xs.some(cx => zs.some(cz => w.digH(cx, cz) === null));
+      const d = at.reduce((s, [i, j]) => s + WATER_Y - H[j * n + i], 0) / at.length;
+      if (touches && d > 0) nat = { d, s: [0, 1, 2, 3].map(c => (shore ? at.reduce((s, [i, j]) => s + shore[(j * n + i) * 4 + c], 0) / at.length : c ? 0 : SD_OPEN)) };
+    }
+    let d, s;
+    if (nat) ({ d, s } = nat);
+    else {
+      let sum = 0, cnt = 0;
+      for (const cx of xs) for (const cz of zs) { const q = wetDepth(cx, cz); if (q !== null) { sum += q; cnt++; } }
+      d = cnt ? sum / cnt : 0;
+      // (la pared más cercana: la distancia a ella, hacia dónde queda el agua desde ella y lo que asoma con la hierba de arriba)
+      let best = R + 0.5, dir = [0, 0], tall = 0;
+      for (let cz = Math.floor(pz) - R; cz <= Math.floor(pz) + R; cz++) for (let cx = Math.floor(px) - R; cx <= Math.floor(px) + R; cx++) {
+        for (const [ax, az, bx, bz, i, j, top] of walls.get(`${cx},${cz}`) || []) {
+          const t = Math.max(0, Math.min(1, ((px - ax) * (bx - ax) + (pz - az) * (bz - az)) / ((bx - ax) ** 2 + (bz - az) ** 2))), qx = ax + (bx - ax) * t, qz = az + (bz - az) * t;
+          const dd = Math.hypot(px - qx, pz - qz);
+          if (dd < best) { best = dd; dir = dd > 1e-3 ? [(px - qx) / dd, (pz - qz) / dd] : [-i, -j]; tall = Math.max(0, top - WATER_Y + 0.3); }
+        }
+      }
+      s = [best, dir[0], dir[1], tall];
+    }
+    pos.push(px, WATER_Y, pz); depth.push(d); sh.push(...s);
+    ids.set(key, id = pos.length / 3 - 1);
+    return id;
+  };
+  for (const [tx, ty] of cells) {
+    const u0 = (tx - x0) * 2, v0 = (ty - z0) * 2;
+    for (let b = 0; b < 2; b++) for (let a = 0; a < 2; a++) {
+      const p = vertex(u0 + a, v0 + b), q = vertex(u0 + a + 1, v0 + b), r = vertex(u0 + a, v0 + b + 1), t = vertex(u0 + a + 1, v0 + b + 1);
+      idx.push(p, r, q, q, r, t);   // (como el agua del bloque: mirando arriba)
+    }
+  }
+  if (!idx.length) return null;
+  const g = new THREE.BufferGeometry(), N = pos.length / 3;
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('normal', new THREE.Float32BufferAttribute(new Float32Array(N * 3).map((_, i) => (i % 3 === 1 ? 1 : 0)), 3));
+  g.setAttribute('depth', new THREE.Float32BufferAttribute(depth, 1));
+  g.setAttribute('shore', new THREE.Float32BufferAttribute(sh, 4));
+  g.setIndex(idx);
+  g.computeBoundingSphere();
+  return g;
 }
 
 // Los charcos de luz de las antorchas, farolas y hogueras de cerca (los pone glow.js en cada fotograma). El suelo los lleva
@@ -190,9 +289,9 @@ export function digMaterial(wet, snow) {
   m.onBeforeCompile = sh => {
     sh.uniforms.uWet = wet; sh.uniforms.uSnow = snow;
     sh.uniforms.uLampP = DIG_LAMPS.p; sh.uniforms.uLampC = DIG_LAMPS.c; sh.uniforms.uLampN = DIG_LAMPS.n;
-    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nattribute float sky;\nvarying float vUp;\nvarying float vSky;\nvarying vec3 vDW;\nvarying vec3 vNW;')
-      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvUp = objectNormal.y;\nvSky = sky;\nvDW = transformed;\nvNW = objectNormal;');
-    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nuniform float uWet;\nuniform float uSnow;\nuniform vec4 uLampP[6];\nuniform vec4 uLampC[6];\nuniform int uLampN;\nvarying float vUp;\nvarying float vSky;\nvarying vec3 vDW;\nvarying vec3 vNW;')
+    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nattribute float sky;\nattribute float wet;\nvarying float vUp;\nvarying float vSky;\nvarying float vPond;\nvarying vec3 vDW;\nvarying vec3 vNW;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvUp = objectNormal.y;\nvSky = sky;\nvPond = wet;\nvDW = transformed;\nvNW = objectNormal;');
+    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nuniform float uWet;\nuniform float uSnow;\nuniform vec4 uLampP[6];\nuniform vec4 uLampC[6];\nuniform int uLampN;\nvarying float vUp;\nvarying float vSky;\nvarying float vPond;\nvarying vec3 vDW;\nvarying vec3 vNW;')
       // (los charcos de luz de cerca: ver DIG_LAMPS. Lo de debajo del suelo de la luz cuenta algo menos lejos, para que el
       // fondo de un hoyo junto a la antorcha también lo coja)
       .replace('#include <opaque_fragment>', `for (int i = 0; i < 6; i++) {
@@ -208,7 +307,8 @@ export function digMaterial(wet, snow) {
       .replace('#include <map_fragment>', '#include <map_fragment>\n        diffuseColor.rgb = pow(max(diffuseColor.rgb, vec3(0.0)), vec3(1.45));')
       // (la luz del cielo y del entorno, según lo que se ve de cielo: ver skyOf)
       .replace('#include <aomap_fragment>', '#include <aomap_fragment>\n        float skyK = 0.28 + 0.72 * vSky;   // (no del todo: algo rebota de las paredes)\n        reflectedLight.indirectDiffuse *= skyK;\n        reflectedLight.indirectSpecular *= skyK;')
-      .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\n        roughnessFactor = mix(roughnessFactor, 0.45, uWet * 0.75);   // (mojada: brilla un poco)')
+      .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>
+        roughnessFactor = mix(roughnessFactor, 0.45, max(uWet * 0.75, pondDamp));   // (mojada: brilla un poco)`)
       .replace('#include <color_fragment>', `#include <color_fragment>
         // (las vetas: franjas de un palmo, onduladas, cada una de un tono; solo en las paredes)
         float vy = vDW.y * 4.0 + 0.35 * sin(vDW.x * 2.1 + vDW.z * 1.3) + 0.2 * sin(vDW.x * 5.3 - vDW.z * 4.1);
@@ -218,9 +318,17 @@ export function digMaterial(wet, snow) {
         float big = texture2D(map, vDW.xz * 0.15 + 0.31).r * diffuse.r;
         diffuseColor.rgb *= mix(1.0, big, 0.55 * smoothstep(0.6, 0.95, vUp));
         diffuseColor.rgb *= 1.0 - 0.26 * uWet;   // (y más oscura)
+        // (lo que toca el agua, ver digGeometry: bajo ella, mojada, más oscura y algo verdosa, y más cuanto más hondo, como el
+        // fondo de un río; por encima, una franja húmeda de un palmo. Ahí no cuaja la nieve)
+        float pondUnder = vPond * (1.0 - smoothstep(${(WATER_Y - 0.03).toFixed(3)}, ${(WATER_Y + 0.02).toFixed(3)}, vDW.y));
+        float pondDamp = vPond * (1.0 - smoothstep(${WATER_Y.toFixed(3)}, ${(WATER_Y + 0.2).toFixed(3)}, vDW.y));
+        diffuseColor.rgb *= 1.0 - 0.28 * pondDamp;
+        float pondK = smoothstep(0.05, 1.3, ${WATER_Y.toFixed(3)} - vDW.y);
+        vec3 pondBed = mix(${BED.shallow}, ${BED.deep}, pondK) * (0.75 + 0.25 * sampledDiffuseColor.r * diffuse.r);   // (con el grano de la foto: media 1)
+        diffuseColor.rgb = mix(diffuseColor.rgb, mix(diffuseColor.rgb * 0.62, pondBed, 0.55 + 0.25 * pondK), pondUnder);
         // (algo de nieve en lo llano, con su grano, donde llega del cielo: en el fondo de un hoyo hondo y estrecho, apenas, y
         // a la sombra de sus paredes)
-        float snowK = uSnow * smoothstep(0.6, 0.95, vUp) * smoothstep(0.3, 0.75, vSky);
+        float snowK = uSnow * smoothstep(0.6, 0.95, vUp) * smoothstep(0.3, 0.75, vSky) * (1.0 - pondDamp);
         diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.72, 0.75, 0.74) * (0.72 + 0.35 * sampledDiffuseColor.r) * mix(0.6, 1.0, vSky), snowK);`);
   };
   return m;

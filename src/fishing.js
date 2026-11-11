@@ -29,6 +29,10 @@ export class Fishing {
     const w = this.world;
     if (inBounds(x, y)) return pondDist(x, y) < 0.95 ? 'estanque' : null;
     if (!w.water(x, y)) return null;
+    // (en lo cavado que se ha llenado, lo del agua de la que le llega: un canal de un río da peces de río; ver scenes.js,
+    // floodSrc. Si esa casilla solo tiene agua en el borde, de río)
+    const src = w.floodSrc?.(x, y);
+    if (src) return this.waterType(src[0], src[1]) || 'rio';
     const b = w.gen.biomeAt(x, y);
     if (b === B.OCEAN) return 'mar';
     if (b === B.LAKE) return 'lago';
