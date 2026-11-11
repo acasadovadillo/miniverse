@@ -15,11 +15,11 @@ import { buildNatureChunk, WIND, DITHER } from './nature3d.js';
 import { treeK, ageOf } from '../world/treedims.js';
 import { CHUNK } from '../world/gen.js';
 import { ihash } from '../util.js';
+import { opcion, apagada } from '../opciones.js';
 
-const QS = (() => { try { return new URLSearchParams(globalThis.location?.search || ''); } catch { return new URLSearchParams(); } })();
-const LOW_Q = QS.get('q') === 'low';
-// ?impostores=0: lo lejano con los árboles sencillos de antes (para comparar en el mismo código)
-export const IMPOSTORS_ON = QS.get('impostores') !== '0';
+const LOW_Q = opcion('q') === 'low';
+// ?impostores=0: lo lejano con los árboles sencillos de antes (para comparar en el mismo código; ver opciones.js)
+export const IMPOSTORS_ON = !apagada('impostores');
 
 // Las especies (una fila del atlas cada una): el roble en tres (joven y dos adultos distintos) y el pino en tres (el
 // tercero, nevado; en invierno ya nievan todos y es uno más), para que de lejos no se vean todos iguales

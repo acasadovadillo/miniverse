@@ -9,9 +9,11 @@ import { setProjects, setFamilyHouse } from './village.js';
 import { blockHeights, blockNormals, blockShore, shoreBiome, blockColors, paintPixels, groundTag, BLOCK } from './ground.js';
 import { openGroundCache } from './groundcache.js';
 import { rasterTile, TILE } from './contact.js';
+import { opcion, apagada } from '../opciones.js';
 
-// (?relieve=0 en la dirección del hilo: sin guardar nada; ?relieve-max=N: cuántos bloques como mucho. Ver terrain.js)
-const OPT = new URLSearchParams(self.location?.search || ''), CACHE = OPT.get('relieve') !== '0', MAX = +OPT.get('relieve-max') || 1024;
+// (?relieve=0 en la dirección del hilo: sin guardar nada; ?relieve-max=N: cuántos bloques como mucho. Ver terrain.js y
+// opciones.js)
+const CACHE = !apagada('relieve'), MAX = +opcion('relieve-max') || 1024;
 let gen = null, tag = '';
 let cache = null, cacheDb = null, cacheTag = '', cleaned = false;   // (cache: la promesa de abrir la base; cacheDb: ya abierta)
 const queue = [];   // trabajos pendientes: { t: 'block' | 'paint' | …, id, pri, … }

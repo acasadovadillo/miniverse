@@ -28,7 +28,7 @@ import { SunShadow } from './sunshadow.js';
 import { setRenderer as contactRenderer, contactOn, contactSun, contactRestored } from './contact3d.js';
 import { TONE_MAPPING, CURVA, lightAt, toneOut } from './look.js';
 import { preloadPhotos, photosSettled } from './photos.js';
-import { trackVram } from './vram.js';
+import { trackVram, vramLost } from './vram.js';
 
 const LOW_Q = new URLSearchParams(location.search).get('q') === 'low';
 const SKY_LAST = 1e6;   // orden de dibujo del cielo (ver makeSky)
@@ -81,9 +81,10 @@ export class View3D {
     this.ray = new THREE.Vector3(); this.probe = new THREE.Vector3(); this.probe2 = new THREE.Vector3(); this.from = new THREE.Vector3();
     this.raycaster = new THREE.Raycaster();
     this.frames = 0; this.acc = 0;
-    // (si la gráfica pierde el contexto, al volver los atlas están vacíos: los impostores se hornean otra vez)
-    // (y la sombra de contacto se vuelve a subir de su copia en memoria)
-    canvas.addEventListener('webglcontextrestored', () => { this.world.impostorsLost(); contactRestored(); });
+    this.drawn = 0;   // fotogramas del mundo pintados (antes del primero, nada espera a sus programas: ver gate)
+    this.gateStats = { held: 0, ms: 0, prep: 0, prepMs: 0 };   // (para F3: lo que ha esperado a sus programas y cuánto)
+    // (si la gráfica pierde el contexto: ver restored)
+    canvas.addEventListener('webglcontextrestored', () => this.restored());
     this.resize();
     addEventListener('resize', () => this.resize());
   }
@@ -152,18 +153,43 @@ export class View3D {
     // Luces de cerca (hogares, antorchas, lámparas, candelabros, cristales): siempre las mismas, que se
     // reparten cada fotograma entre las fuentes más cercanas (así el número de luces no cambia nunca)
     this.pool = Array.from({ length: 6 }, () => { const l = new THREE.PointLight('#ffb870', 0, 9, 1.4); this.scene.add(l); return l; });
-    // Reflejo del cielo
+    this.makeEnv();
+    this.envNow = -1;
+    this.scene.traverse(o => { if (o.isLight) o.layers.enable(2); });
+  }
+  // Reflejo del cielo (se pinta en la gráfica: si se pierde el contexto, se vuelve a hacer)
+  makeEnv() {
     const pm = new THREE.PMREMGenerator(this.renderer), env = new THREE.Scene();
     env.add(new THREE.Mesh(new THREE.SphereGeometry(10, 16, 8), new THREE.MeshBasicMaterial({ side: THREE.BackSide, color: '#b9c6cf' })));
     const ground = new THREE.Mesh(new THREE.CircleGeometry(9, 16), new THREE.MeshBasicMaterial({ color: '#6b5f4e' }));
     ground.rotation.x = -Math.PI / 2; ground.position.y = -1; env.add(ground);
+    const old = this.scene.environment;
     this.scene.environment = pm.fromScene(env, 0.04).texture;
+    old?.dispose();
     // (el reflejo se queda; lo de hacerlo, no: el generador guarda un lienzo de trabajo de 768×1024 en coma flotante, 6 MB
     // de la gráfica que no vuelven a servir)
     pm.dispose();
     env.traverse(o => { o.geometry?.dispose(); o.material?.dispose(); });
+  }
+  // La gráfica ha perdido el contexto (el controlador se ha reiniciado, falta memoria…) y ha vuelto. Three vuelve a subir
+  // solo lo que tiene en memoria (geometrías, texturas con su imagen, programas al pintar); lo que se pintó en la gráfica
+  // se ha perdido y se rehace aquí: el reflejo del cielo, la caché de las sombras de lo fijo, el atlas de los impostores
+  // (se hornea otra vez) y el de la sombra de contacto (de su copia en memoria). Lo que esperaba a sus programas se
+  // enseña ya (esos programas ya no existen) y los que se compilaban antes de tiempo se vuelven a pedir
+  restored() {
+    console.warn('Gráfica: contexto recuperado; se rehace lo pintado en ella');
+    vramLost(this.renderer.getContext());
+    try { this.makeEnv(); } catch (e) { console.warn(e); }
     this.envNow = -1;
-    this.scene.traverse(o => { if (o.isLight) o.layers.enable(2); });
+    this.shadows.restored();
+    // (lo que se estaba compilando antes de tiempo para los impostores no acabará: esos programas ya no existen. Se vuelve
+    // a pedir cuando el atlas esté horneado otra vez)
+    this.world.warming = null;
+    this.world.impostorsLost();
+    contactRestored();
+    for (const g of this.gated?.splice(0) || []) { try { g.show(); } catch (e) { console.warn(e); } }
+    if (this.prep) { this.prep.busy = null; this.prep.seen = null; this.prep.warm = false; }
+    if (this.glow) this.glow.warm = false;
   }
   // Cuánto alumbra el reflejo del cielo (en esta versión de Three va en cada material: se recorre cuando cambia mucho)
   setEnv(v) {
@@ -383,7 +409,13 @@ export class View3D {
     this.shadows.place(target, CAM.yaw, this.cam.low, cave, this.sunDir, 24 + 6 * this.cam.low);
     contactSun(this.shadows.dir);   // (la sombra lejana de las copas cae hacia donde está pintado el sol de las sombras)
     if (cave) { this.sun.intensity = 0; this.hemi.intensity = 0.4; this.hemi.color.set('#8a9ac0'); this.hemi.groundColor.set('#2a2018'); this.setEnv(0.1); }
+    // (lo que esperaba a sus programas y ya los tiene, a la vista; y al entrar, a oscuras hasta que lo de alrededor está
+    // compilado: ver prepare)
+    this.openGates();
+    if (this.prepare()) { this.renderer.setClearColor('#000000'); this.renderer.clear(); return; }
     this.draw();
+    this.drawn++;
+    if (this.prep?.end) this.prep.drawn++;
     for (const [s, v] of this.caves) if (s !== scene && s !== this.lastCave) { v.dispose(); this.caves.delete(s); }
     this.stats(dt);
   }
@@ -538,15 +570,137 @@ export class View3D {
   }
   // Sin transiciones en el próximo fotograma (al empezar, al cambiar de escena)
   snap() { this.snapNext = true; this.cam.pitchNow = this.cam.distNow = null; }
-  // Espera (como mucho ms) a que el suelo de alrededor de la cámara esté hecho: para no destapar la vista sobre el vacío
+  // Espera (como mucho ms) a que el suelo de alrededor de la cámara esté hecho y sus programas de sombreado compilados:
+  // para no destapar la vista sobre el vacío ni con el juego parado compilando (ver prepare)
   whenReady(ms = 1500) {
     const T0 = performance.now(), target = this.cam.target;
     let frames = 0, t0 = T0;   // (dos fotogramas de margen: que la vista haya pasado ya al mundo nuevo)
+    this.prep = { t0: T0, ms, busy: null, drawn: 0 };
     // (mientras render espera a las fotos, no se pide suelo: el plazo empieza al acabar esa espera, que dura 2,5 s como mucho)
-    return new Promise(res => { const look = () => { if (!this.photosOk && performance.now() - T0 < ms + 2600) { frames = 0; t0 = performance.now(); } if (++frames > 2 && (this.cave || this.terrain.ready(target.x, target.z) || performance.now() - t0 > ms)) res(); else requestAnimationFrame(look); }; look(); });
+    return new Promise(res => {
+      const look = () => {
+        if (!this.photosOk && performance.now() - T0 < ms + 2600) { frames = 0; t0 = performance.now(); }
+        const P = this.prep, ground = this.cave || this.terrain.ready(target.x, target.z) || performance.now() - t0 > ms;
+        // (con el suelo listo y lo de alrededor compilado, aún dos fotogramas pintados a oscuras: los programas de la pasada
+        // de sombras que no se pueden prever salen ahí, y no al destapar. Compilar puede alargar la espera hasta PREP_MAX)
+        if (P && ground && (P.done || performance.now() - T0 > ms + PREP_MAX)) P.end = true;
+        if (++frames > 2 && ground && (!P || (P.end && P.drawn >= 2))) { if (this.prep === P) this.prep = null; res(); }
+        else requestAnimationFrame(look);
+      };
+      look();
+    });
+  }
+
+  // ---------- programas de sombreado ----------
+  // Compilar un programa (en una Iris Plus, de decenas a cientos de ms cada uno) al pintar para el juego entero: la gráfica
+  // lo necesita ya. Con KHR_parallel_shader_compile se puede pedir antes y seguir a lo nuestro mientras la gráfica lo hace
+  // aparte. Así:
+  // - al entrar a jugar o en una cueva (whenReady), a oscuras, se compila todo lo de alrededor antes de pintar nada
+  //   (prepare), y el fundido no se queda parado;
+  // - después, lo nuevo que montan world3d.js y actors.js pasa por gate: si trae un programa que la gráfica no tiene, se
+  //   esconde hasta que está (unos cientos de ms, en el borde de lo que se ve) en vez de parar todo al pintarlo.
+  // Cada vez, también los programas de la pasada de sombras que se pueden prever (depthProxies).
+  // Lo que ya está compilado se reconoce en el acto (la caché de programas de Three): no cuesta más que preguntar.
+  // Devuelve los programas que aún no están: los nuevos y los que ya pidió otro y se están compilando
+  compileFor(root) {
+    const r = this.renderer, P = r.info.programs, n0 = P ? P.length : 0, wait = new Set();
+    const rt = r.getRenderTarget(), face = r.getActiveCubeFace(), mip = r.getActiveMipmapLevel();
+    try {
+      // (sin destino: con la curva de tono y el sRGB de la pantalla, como al pintar el mundo)
+      r.setRenderTarget(null);
+      for (const m of r.compile(root, this.camera, this.scene)) { const p = r.properties.get(m).currentProgram; if (p && !p.isReady()) wait.add(p); }
+      // (la sombra se pinta en su mapa: sin curva y en lineal, y sin escena, así que sin niebla, con las mismas luces. El
+      // destino da igual mientras sea uno: el mapa aún no existe antes del primer fotograma)
+      const D = this.depthProxies(root), fog = this.scene.fog;
+      if (D.children.length) { r.setRenderTarget(this.depthRT ||= new THREE.WebGLRenderTarget(1, 1)); this.scene.fog = null; try { r.compile(D, this.camera, this.scene); } finally { this.scene.fog = fog; } }
+      D.children.length = 0;
+      // (las copias de profundidad no se quedan con las texturas: las de una persona que ya no está no se soltarían)
+      for (const d of this.depthMats?.values() || []) d.map = d.alphaMap = d.displacementMap = null;
+    } catch (e) { console.warn('Programas: no se han podido pedir antes', e); }
+    finally { r.setRenderTarget(rt, face, mip); }
+    if (P) for (let i = n0; i < P.length; i++) if (!P[i].isReady()) wait.add(P[i]);
+    return [...wait];
+  }
+  // Lo que da sombra, con el material con el que lo pinta en el mapa la pasada de sombras de Three (getDepthMaterial):
+  // el suyo propio (customDepthMaterial) o uno de profundidad con lo que Three le copia del material (la cara, la textura,
+  // el recorte). El común lo comparten todos y su programa depende del orden en que se pintan: así salen todas las
+  // variantes que pueden tocar (alguna de más, en paralelo; mejor que una de menos al pintar). Son copias vacías del objeto
+  // (Object.create), solo para compilar
+  depthProxies(root) {
+    const D = (this.depthRoot ||= new THREE.Group()), C = (this.depthMats ||= new Map());
+    root.traverse(o => {
+      if (!o.castShadow || !o.material || !(o.isMesh || o.isLine || o.isPoints)) return;
+      for (const m of [].concat(o.material)) {
+        if (!m || !m.visible) continue;
+        let d = o.customDepthMaterial;
+        if (!d) {
+          const k = `${m.side}|${m.shadowSide}|${!!m.map}|${!!m.alphaMap}|${m.alphaTest > 0}|${!!m.displacementMap}`;
+          if (!(d = C.get(k))) C.set(k, (d = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking })));
+        }
+        // (con lo que le pone Three a ese material justo antes de pintar)
+        d.side = m.shadowSide !== null ? m.shadowSide : SHADOW_SIDE[m.side];
+        d.map = m.map; d.alphaMap = m.alphaMap; d.alphaTest = m.alphaTest; d.displacementMap = m.displacementMap; d.displacementScale = m.displacementScale;
+        const p = Object.create(o);
+        p.children = []; p.material = d;
+        D.children.push(p);
+      }
+    });
+    return D;
+  }
+  // Lo nuevo que entra en la escena (un trozo, un bloque lejano, una persona o un animal): si sus programas ya están,
+  // show() en el acto; si no, se piden y show() cuando estén. Sin show, se esconde (visible) y se enseña luego: solo para
+  // grupos cuya visibilidad no toca nadie más. Antes del primer fotograma, y mientras prepare, todo pasa sin esperar
+  gate(obj, show = null) {
+    if (!this.drawn || this.prep || !this.renderer.extensions.has('KHR_parallel_shader_compile')) { show?.(); return; }
+    const progs = this.compileFor(obj);
+    if (!progs.length) { show?.(); return; }
+    // (al enseñarlo, lo fijo del mapa de sombras se repinta: mientras estaba escondido no daba sombra)
+    if (!show) { obj.visible = false; show = () => { obj.visible = true; this.shadows?.stale(false); }; }
+    (this.gated ||= []).push({ progs, show, t0: performance.now() });
+    this.gateStats.held++;
+  }
+  // Cada fotograma, antes de pintar: lo que ya tiene sus programas (o lleva demasiado esperando) se enseña
+  openGates() {
+    const G = this.gated;
+    if (!G?.length) return;
+    const now = performance.now();
+    for (let i = G.length - 1; i >= 0; i--) {
+      const g = G[i];
+      if (now - g.t0 < GATE_MAX && !g.progs.every(p => p.isReady())) continue;
+      G.splice(i, 1);
+      this.gateStats.ms = Math.max(this.gateStats.ms, now - g.t0);
+      try { g.show(); } catch (e) { console.warn(e); }
+    }
+  }
+  // Al entrar (whenReady), hasta destapar: cada vez que hay algo nuevo en la escena se compila todo lo que falte, en
+  // paralelo, y no se pinta hasta que está. Devuelve true si este fotograma no se pinta
+  prepare() {
+    const P = this.prep;
+    if (!P || P.end) return false;
+    const now = performance.now();
+    if (P.busy) { if (now - P.busyT < PREP_MAX && !P.busy.every(p => p.isReady())) return true; P.busy = null; }
+    // (lo de alrededor llega en varios fotogramas, del otro hilo y por tandas: cada vez, solo lo que no se ha mirado aún,
+    // con copias vacías de cada objeto; la primera, también el suelo y el agua, que llegan los últimos)
+    const seen = (P.seen ||= new WeakSet()), N = (this.prepRoot ||= new THREE.Group());
+    if (!P.warm) { P.warm = true; N.children.push(...this.terrain.proxies().children); }
+    this.scene.traverse(o => { if (o.material && !seen.has(o)) { seen.add(o); const q = Object.create(o); q.children = []; N.children.push(q); } });
+    let progs = [];
+    if (N.children.length) {
+      const t = performance.now();
+      progs = this.compileFor(N);
+      N.children.length = 0;
+      this.gateStats.prepMs += performance.now() - t; this.gateStats.prep += progs.length;
+    }
+    P.done = !progs.length || !this.renderer.extensions.has('KHR_parallel_shader_compile');
+    if (!P.done) { P.busy = progs; P.busyT = now; return true; }
+    return false;
   }
 }
 // (el color de la ribera reflejada en el agua, por estación: hierba de primavera, de verano, parda de otoño y nieve)
 const BANK = ['#4f6a3a', '#5c6a38', '#6e5a36', '#c9ced2'].map(c => new THREE.Color(c)), TMP_C = new THREE.Color();
+const PREP_MAX = 6000;   // ms que compilar puede alargar la espera al entrar (a oscuras, pero sin parar el juego)
+const GATE_MAX = 4000;   // ms que algo nuevo puede quedar escondido esperando a sus programas (luego se pinta igual)
+// (la cara que pinta la pasada de sombras de Three según la del material: ver depthProxies)
+const SHADOW_SIDE = { [THREE.FrontSide]: THREE.BackSide, [THREE.BackSide]: THREE.FrontSide, [THREE.DoubleSide]: THREE.DoubleSide };
 const SILHOUETTE = new THREE.MeshBasicMaterial({ color: '#ffe8b0', transparent: true, opacity: 0.45, depthFunc: THREE.GreaterDepth, depthWrite: false, fog: false });
 const dirOf = (yaw, pitch, out) => out.set(Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), Math.cos(yaw) * Math.cos(pitch));

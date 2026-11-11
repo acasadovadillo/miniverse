@@ -90,9 +90,30 @@ export class Fx {
     this.snowGeo = new THREE.BufferGeometry(); this.snowGeo.setAttribute('position', new THREE.BufferAttribute(sp, 3));
     this.snow = new THREE.Points(this.snowGeo, new THREE.PointsMaterial({ color: '#ffffff', size: 0.13, map: spriteTex('copo'), transparent: true, opacity: 0.95, depthWrite: false }));
     this.snow.frustumCulled = false; this.group.add(this.snow);
-    // Faro: un haz que gira de noche
-    this.beam = new THREE.Mesh(new THREE.ConeGeometry(3, 26, 16, 1, true).translate(0, -13, 0).rotateZ(Math.PI / 2), new THREE.MeshBasicMaterial({ color: '#fff4c0', transparent: true, opacity: 0.12, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
+    // Faro: un haz que gira de noche. Un cono abierto de 26 m (de la lente, en el origen, hacia +x) que se ve como luz en el
+    // aire: más fuerte junto a la lente y nada en la punta, y de canto (por donde se ve menos espesor de haz) se va del todo,
+    // sin borde. La niebla, a mano, como en glow.js: la de Three le sumaría su color (sale un cuadro claro sobre el bosque)
+    this.beamU = { k: { value: 0 }, fogNear: { value: 24 }, fogFar: { value: 90 } };
+    this.beam = new THREE.Mesh(new THREE.ConeGeometry(3, 26, 24, 1, true).translate(0, -13, 0).rotateZ(Math.PI / 2), new THREE.ShaderMaterial({
+      uniforms: this.beamU, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, fog: false,
+      vertexShader: `varying float vT; varying vec3 vN; varying vec3 vV;
+        void main() {
+          vT = clamp(position.x / 26.0, 0.0, 1.0);
+          vec4 w = modelMatrix * vec4(position, 1.0);
+          vN = normalize(mat3(modelMatrix) * normal); vV = cameraPosition - w.xyz;
+          gl_Position = projectionMatrix * viewMatrix * w;
+        }`,
+      fragmentShader: `uniform float k; uniform float fogNear; uniform float fogFar; varying float vT; varying vec3 vN; varying vec3 vV;
+        void main() {
+          float d = length(vV), face = abs(dot(normalize(vN), vV / d));
+          float a = pow(face, 1.6) * (1.0 - vT) * (1.0 - vT) * smoothstep(0.0, 0.06, vT) * smoothstep(1.0, 6.0, d) * (1.0 - smoothstep(fogNear, fogFar, d));
+          gl_FragColor = vec4(vec3(1.0, 0.957, 0.753) * 0.32 * k, a);
+          #include <tonemapping_fragment>
+          #include <colorspace_fragment>
+        }`,
+    }));
     this.beam.visible = false; this.group.add(this.beam);
+    this.beams = [this.beam];   // (uno por faro cerca: si hay dos a la vista, los dos giran)
     // Pesca: el sedal y el corcho
     this.line = new THREE.Line(new THREE.BufferGeometry().setFromPoints(Array.from({ length: 21 }, () => new THREE.Vector3())), new THREE.LineBasicMaterial({ color: '#f0f0f0', transparent: true, opacity: 0.8 }));
     this.line.frustumCulled = false;
@@ -355,10 +376,18 @@ export class Fx {
     this.spray.instanceMatrix.needsUpdate = true;
   }
   updateBeacon(scene, t) {
-    let b = null;
-    if (!this.view.cave) for (const c of this.view.world.chunks.values()) if (c.beacon) b = c.beacon;
-    this.beam.visible = !!b && this.view.night > 0.3;
-    if (b) { this.beam.position.set(...b); this.beam.rotation.y = t * 0.8; }
+    const list = [];
+    if (!this.view.cave) for (const c of this.view.world.chunks.values()) if (c.beacon) list.push(c.beacon);
+    // (entra poco a poco al anochecer, en vez de encenderse de golpe)
+    const k = list.length ? Math.max(0, Math.min(1, (this.view.night - 0.3) / 0.3)) : 0, fog = this.view.scene.fog;
+    this.beamU.k.value = k; this.beamU.fogNear.value = fog.near; this.beamU.fogFar.value = fog.far;
+    while (this.beams.length < Math.min(list.length, 4)) { const m = this.beam.clone(); this.beams.push(m); this.group.add(m); }
+    this.beams.forEach((m, i) => {
+      const b = list[i];
+      m.visible = !!b && k > 0;
+      // (cada faro, con su fase: no giran a la vez)
+      if (b) { m.position.set(...b); m.rotation.y = t * 0.8 + b[0] * 0.37 + b[2] * 0.11; }
+    });
   }
 
   // ---------- ambiente ----------

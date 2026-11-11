@@ -16,6 +16,7 @@ import { WATER_Y } from './terrain.js';
 import { animalModel, animalKey, animateAnimal, horseModel, animateHorse } from './animals.js';
 import { nearX } from '../world/planet.js';
 import { RealPerson, realBaby, prebuildReal, realStats } from './realperson.js';
+import { apagada } from '../opciones.js';
 
 // Agachado: cuánto se adelantan los muslos y se doblan las rodillas (rad), cuánto baja el cuerpo (m: lo que suben
 // los pies al doblar las piernas, para que sigan en el suelo) y se echa hacia delante (rad; la cabeza lo compensa
@@ -34,8 +35,8 @@ const TIER_PX = [[90, 81], [40, 36]];      // [para subir, para seguir]: a todo;
 const BONE_DT = [0, 1 / 30, 1 / 15, Infinity];   // cada cuánto se posan los huesos en cada nivel (3: fuera de la vista)
 const LOD_PX = [60, 72];                   // de lejos por debajo de 60 px; de cerca otra vez por encima de 72
 const LOD_GAP = 0.6;                       // segundos, como poco, entre dos cambios de detalle de la misma persona
-// ?personas=todas: todas a todo (sin dormidas, sin LOD1 y animadas en cada fotograma), para comparar
-const ALL = typeof location !== 'undefined' && new URLSearchParams(location.search).get('personas') === 'todas';
+// ?personas=0 (o =todas): todas a todo (sin dormidas, sin LOD1 y animadas en cada fotograma), para comparar (opciones.js)
+const ALL = apagada('personas');
 const FR = new THREE.Frustum(), PV = new THREE.Matrix4(), SPH = new THREE.Sphere(), V3 = new THREE.Vector3(), V2 = new THREE.Vector2(), CAMDIR = new THREE.Vector3();
 
 // Una malla del jugador: con su propio material (para dibujar su silueta) y en la capa 2. En la primera pasada del
@@ -241,7 +242,9 @@ export class Actors {
 
   add(e, isPlayer, look) {
     const m = this.make(e, isPlayer, look);
-    if (m) { m.look = look; this.models.set(e, m); this.group.add(m.root); }
+    // (a la escena cuando sus programas de sombreado están: un animal o un monstruo que no se había visto aún no para el
+    // juego al aparecer; ver engine.js, gate. Mientras, se mueve igual, sin pintarse)
+    if (m) { m.look = look; this.models.set(e, m); const v = this.view; if (v.gate) v.gate(m.root, () => { if (this.models.get(e) === m) this.group.add(m.root); }); else this.group.add(m.root); }
     return m;
   }
   place(m, e, scene, dt, t, p, game) {

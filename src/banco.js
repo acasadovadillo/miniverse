@@ -18,6 +18,7 @@ import { Profile } from './accounts.js';
 import { CENTER } from './world/village.js';
 import { runCommand } from './commands.js';
 import { CHUNK } from './world/gen.js';
+import { apagadas } from './opciones.js';
 
 const T_MODULE = performance.now();   // (cuando llega este código: lo anterior es cargar la página y el juego)
 const Q = new URLSearchParams(location.search);
@@ -245,6 +246,10 @@ export async function runBench(game) {
   }
   CAM.first = false;
   out.programas = r.info.programs?.length ?? null;
+  // (lo que se compiló antes de pintarlo y lo que esperó a sus programas, ver engine.js, gate; y las partes que la dirección
+  // deja como antes, ver opciones.js: así una medida dice con qué se tomó)
+  if (v.gateStats) out.precompilado = Object.fromEntries(Object.entries(v.gateStats).map(([k, x]) => [k, Math.round(x)]));
+  out.apagadas = apagadas();
   out.geometrias = r.info.memory.geometries;
   out.texturas = r.info.memory.textures;
   out.memoria = performance.memory ? Math.round(performance.memory.usedJSHeapSize / 1048576) : null;
@@ -405,6 +410,8 @@ function cpuSplit(v, frame) {
   // (dentro del mundo; las firmas van también dentro de los trozos y de la naturaleza. Lo que no tenga una versión, no sale)
   wrap(v.world, 'updateNature', 'mundo: naturaleza'); wrap(v.world, 'updateGrass', 'mundo: hierba'); wrap(v.world, 'updateFar', 'mundo: lejanos');
   wrap(v.world, 'updateRegions', 'mundo: casas'); wrap(v.world, 'updateFade', 'mundo: desvanecer'); wrap(v.world, 'signature', 'mundo: firmas');
+  // (los programas de sombreado pedidos antes de pintar lo nuevo y lo que espera a los suyos: ver engine.js, gate)
+  if (v.gate) { wrap(v, 'gate', 'programas'); wrap(v, 'openGates', 'programas'); }
   wrap(v.actors, 'update', 'actores'); wrap(v.fx, 'update', 'efectos'); wrap(v, 'updateLights', 'luces'); if (v.glow) wrap(v.glow, 'update', 'luz de noche'); wrap(v, 'updateViewmodel', 'en la mano');
   wrap(v.renderer, 'render', 'three'); wrap(v.scene, 'updateMatrixWorld', 'three: matrices'); wrap(v.renderer.shadowMap, 'render', 'three: sombras');
   wrap(v.renderer, 'renderBufferDirect', 'three: llamadas');   // (dentro de cada llamada: programa, uniformes y dibujo)

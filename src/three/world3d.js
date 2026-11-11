@@ -104,6 +104,9 @@ export class World3D {
       const c = this.buildChunk(scene, cx, cy, data, ring);
       c.struct = struct;
       this.chunks.set(k, c);
+      // (uno nuevo, en el borde de lo que se ve, espera a sus programas de sombreado si trae alguno que la gráfica aún no
+      // tiene; uno que se rehace, no: dejaría un hueco donde estaba)
+      if (!cur) this.view.gate?.(c.group);
     }
     // Las casas que han quedado lejos se olvidan (se vuelven a calcular si se vuelve)
     const lo = (ccx - NEAR - 1) * CHUNK, hi = (ccx + NEAR + 2) * CHUNK, lz = (ccy - NEAR - 1) * CHUNK, hz = (ccy + NEAR + 2) * CHUNK;
@@ -318,6 +321,7 @@ export class World3D {
         const occ = occupied(scene, datas, this.today()), sigs = datas.map(([cx, cy, d]) => this.signature(scene, cx, cy, d) + '|p' + pad(cx, cy, 1)), coverSig = sigs.join('|');
         const oh = occHashes(occ, datas);
         for (let i = 0; i < sigs.length; i++) sigs[i] += '|o' + oh[i];
+        const fresh = !b;
         if (!b) {
           b = { group: new THREE.Group(), nat: null, ground: new THREE.Group(), tufts: new Map(), cover: null, coverSig: null, bx, by };
           b.group.add(b.ground); this.group.add(b.group); this.nature.set(k, b);
@@ -329,6 +333,7 @@ export class World3D {
           b.group.add(b.nat.group);
           b.natSig = natSig; b.shadow = null;
           this.stale(false, blockBox(b));
+          if (fresh) this.view.gate?.(b.group);   // (un bloque nuevo, con un árbol que aún no tiene programa: ver engine.js, gate)
         }
         b.shakers = shakers;
         // (si cambia algo, el trabajo a medias se deja y se vuelve a pedir; lo hecho se queda hasta que llega lo nuevo: sin huecos)
@@ -560,6 +565,7 @@ export class World3D {
       if (old) this.dropFar(old);
       this.far.set(k, g);
       this.group.add(g);
+      if (!old) this.view.gate?.(g);   // (los nuevos, en el horizonte; los que se rehacen, en el acto: no dejan hueco)
     }
     for (const [k, g] of this.far) if (!keep.has(k)) { this.dropFar(g); this.far.delete(k); }
   }
@@ -756,6 +762,7 @@ export class World3D {
       const mats = [];
       r.roof.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; o.material = this.fadeMat(r.key + '|roof', matKeyOf(o.material)); mats.push(o.material); } });
       this.group.add(r.roof);
+      this.view.gate?.(r.roof);   // (casi siempre en el acto: cada casa tiene sus materiales, pero comparten programa)
       this.stale(false, regionBox(r));
       // El techo por dentro: tablas y vigas (se ve solo con la cámara por debajo, ver updateFade)
       const floor = r.tiles.filter(([x, y]) => scene.at('floor', x, y));

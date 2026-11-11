@@ -9,11 +9,12 @@
 //   sombra). Así las sombras de lo que se mueve van en todos los fotogramas, no en uno de cada dos.
 // - La zona de sombras se mueve a saltos de texel del mapa (las sombras fijas no tiemblan ni nadan al andar) y el sol se
 //   queda quieto entre repintado y repintado (si no, la caché no casaría con lo nuevo).
-// ?sombras=todas vuelve a lo de antes (todo el mapa cada dos fotogramas), para comparar; y si la gráfica no deja copiar
-// entre destinos (sin WebGL2), también.
+// ?sombras=0 (o =todas) vuelve a lo de antes (todo el mapa cada dos fotogramas), para comparar (ver opciones.js); y si la
+// gráfica no deja copiar entre destinos (sin WebGL2), también.
 import * as THREE from 'three';
+import { apagada } from '../opciones.js';
 
-const ALL = typeof location !== 'undefined' && new URLSearchParams(location.search).get('sombras') === 'todas';
+const ALL = apagada('sombras');
 const HALF_GAP = 1;      // m que puede apartarse el tamaño de la zona del que se querría antes de rehacerla
 const MOVE = 2;          // m que puede quedar la zona de sombras lejos de donde querría, antes de moverla (el borde fundido de
                          // look.js va pegado a ella: más, y ese borde saltaría a la vista al fondo)
@@ -49,9 +50,21 @@ export class SunShadow {
     // Las cifras para F3 y el banco: repintados de lo fijo, llamadas y rectángulos de lo móvil, en la última media vuelta
     this.stats = { fijos: 0, callsFijo: 0, movil: 0, parches: 0, frames: 0, t: performance.now(), out: null };
     this.nStatic = 0;
-    // (Three llama a shadowMap.render dentro de renderer.render, con las matrices y los esqueletos ya al día: se envuelve ahí)
-    const sm = r.shadowMap, orig = sm.render.bind(sm);
+    this.wrap();
+  }
+  // (Three llama a shadowMap.render dentro de renderer.render, con las matrices y los esqueletos ya al día: se envuelve ahí)
+  wrap() {
+    const sm = this.v.renderer.shadowMap, orig = sm.render.bind(sm);
     sm.render = (lights, scene, cam) => this.render(lights, scene, cam, orig);
+  }
+  // La gráfica ha perdido el contexto y ha vuelto. Three rehace su pasada de sombras (otro shadowMap: hay que envolverlo
+  // otra vez) y vuelve a subir lo que tiene en memoria, pero lo pintado en la gráfica se ha perdido: la caché de lo fijo
+  // se rehace de cero (si no, la copia fallaría y se apagaría para siempre) y lo fijo se repinta ya
+  restored() {
+    const r = this.v.renderer;
+    this.wrap();
+    this.cache = null; this.prev = []; this.checked = false; this.staticDirty = true; this.zoneSet = false;
+    this.ok = !ALL && r.capabilities.isWebGL2 && typeof r.getContext().blitFramebuffer === 'function';
   }
 
   // Lo que se mueve: van en sus propios grupos, colgados de la escena (lo demás de la escena es fijo)
@@ -288,7 +301,7 @@ export class SunShadow {
   // Para F3
   text() {
     const o = this.stats.out;
-    if (!this.ok) return `sombras: todo el mapa cada dos fotogramas${ALL ? ' (?sombras=todas)' : ' (sin copia entre destinos)'}`;
+    if (!this.ok) return `sombras: todo el mapa cada dos fotogramas${ALL ? ' (?sombras=0)' : ' (sin copia entre destinos)'}`;
     if (this.skip) return 'sombras: sin sol (el mapa no se toca)';
     if (!o) return 'sombras: aún sin cifras';
     const f = x => x.toFixed(1).replace('.', ',');

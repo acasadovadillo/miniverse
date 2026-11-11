@@ -9,6 +9,7 @@ import { latOf, lonOf, dxOf } from '../world/planet.js';
 import { SEASONS } from '../art/seasons.js';
 import { GAMEMODES } from '../game.js';
 import { vramOf } from '../three/vram.js';
+import { apagadas } from '../opciones.js';
 
 const $ = id => document.getElementById(id);
 const n1 = v => v.toFixed(1).replace('.', ',');
@@ -25,6 +26,35 @@ export function initDebug(game) {
     if (!p || !p.frames) return 'sin fotogramas';
     const out = `<b>${(p.frames / 0.5).toFixed(0)} fps</b> · fotograma ${n1((p.update + p.draw) / p.frames)} ms (máx ${n1(p.max)}) · simulación ${n1(p.update / p.frames)} ms · dibujo ${n1(p.draw / p.frames)} ms · ${(p.steps / 0.5).toFixed(0)} pasos/s`;
     p.frames = p.steps = 0; p.update = p.draw = p.max = 0;
+    return out;
+  }
+  // Las cifras de cada parte del dibujo, juntas en un bloque: el relieve, la hierba, los árboles lejanos, las sombras, la
+  // sombra de contacto, las personas y los programas de sombreado. Cada línea, la parte y lo suyo; arriba, las que la
+  // dirección deja como antes (ver opciones.js), para no leer unas cifras creyendo que son las de ahora
+  function parts(v) {
+    const out = [], row = (k, t) => out.push(`  <b>${k}</b> ${t}`), off = apagadas();
+    out.push(`<b>por partes</b>${off.length ? ` · como antes por la dirección: ${off.map(p => `?${p}=0`).join(' ')}` : ''}`);
+    const rs = v.terrain?.stats;
+    if (rs && (rs.calc || rs.hits)) row('relieve', `${rs.hits} bloques guardados (${n1(rs.msHit / Math.max(1, rs.hits))} ms cada uno) · ${rs.calc} calculados (${n1(rs.msCalc / Math.max(1, rs.calc))} ms) · mallas ${n1(rs.msBuild / Math.max(1, rs.built))} ms` + (rs.padded ? ` (allanar ${n1(rs.msPad / rs.padded)} ms en ${rs.padded})` : ''));
+    if (v.world) {
+      // (las matas de hierba por trozo: cuántas mallas, con qué nivel de detalle, y cuántas matas se mandan a dibujar)
+      let n = 0, hid = 0, matas = 0; const lod = [0, 0, 0];
+      for (const b of v.world.nature.values()) for (const pc of b.tufts?.values() || []) { if (!pc.tufts) continue; n++; if (!pc.tufts.visible) { hid++; continue; } lod[pc.lod]++; matas += pc.tufts.count; }
+      if (n) row('hierba', `${n} trozos (cerca ${lod[0]} · media ${lod[1]} · lejos ${lod[2]} · fuera ${hid}) · ${matas} matas`);
+    }
+    // (los árboles lejanos: si el atlas está listo o cuánto le queda, y los bloques de cerca que se están fundiendo)
+    const imp = v.world?.impostorStats?.();
+    if (imp) row('lejos', imp.replace(/^impostores: /, 'impostores '));
+    // (el mapa de sombras: cuántas veces por segundo se repinta lo fijo y cuánto cuesta lo que se mueve en cada fotograma)
+    if (v.shadows) row('sombras', v.shadows.text().replace(/^sombras: /, ''));
+    // (la sombra de contacto: lo que falta por pintar y subir, y lo que cuesta en este hilo)
+    if (v.terrain?.contact?.on) row('contacto', v.terrain.contact.text().replace(/^[^:]*: /, ''));
+    const a = v.actors?.stats;
+    if (a) row('personas', `${a.modelos} · ${a.vistas} vistas · ${a.dormidas} dormidas · a todo ${a.t0} / 30 Hz ${a.t1} / 15 Hz ${a.t2} · de lejos ${a.lod1} · ${(a.tris / 1000).toFixed(0)}k triángulos${a.protos !== undefined ? ` · ${a.protos} mallas en caché (${a.protosLibres} sin usar), ${a.lienzos} lienzos` : ''}${Number.isFinite(v.actorsMs) ? ` · actores ${n1(v.actorsMs)} ms` : ''}`);
+    // (los programas de sombreado: cuántos hay, los que se compilaron antes de pintar al entrar y lo nuevo que esperó a
+    // los suyos escondido en vez de parar el juego; ver engine.js, prepare y gate)
+    const g = v.gateStats, r = v.renderer;
+    if (g && r) row('programas', `${r.info.programs?.length ?? '?'} · al entrar, ${g.prep} pedidos antes de pintar (${n1(g.prepMs)} ms de este hilo) · después, ${g.held} cosas esperaron a los suyos (la que más, ${n1(g.ms / 1000)} s)${v.gated?.length ? ` · ${v.gated.length} esperando` : ''}`);
     return out;
   }
   function text() {
@@ -48,23 +78,7 @@ export function initDebug(game) {
     }
     const d = game.days;
     if (d) lines.push(`hora ${clock(d.hour)} (aquí ${clock(d.localHour)}) · ${SEASONS[d.localSeason].toLowerCase()} · tiempo ${d.weatherHere} · día ${d.dayIndex} · modo ${GAMEMODES[game.gamemode] || game.gamemode} · dificultad ${game.difficulty} · t ${Math.round(game.time)} s`);
-    const rs = v.terrain?.stats;
-    if (rs && (rs.calc || rs.hits)) lines.push(`relieve: ${rs.hits} bloques guardados (${n1(rs.msHit / Math.max(1, rs.hits))} ms cada uno) · ${rs.calc} calculados (${n1(rs.msCalc / Math.max(1, rs.calc))} ms) · mallas ${n1(rs.msBuild / Math.max(1, rs.built))} ms` + (rs.padded ? ` (allanar ${n1(rs.msPad / rs.padded)} ms en ${rs.padded})` : ''));
-    if (v.world) {
-      // (las matas de hierba por trozo: cuántas mallas, con qué nivel de detalle, y cuántas matas se mandan a dibujar)
-      let n = 0, hid = 0, matas = 0; const lod = [0, 0, 0];
-      for (const b of v.world.nature.values()) for (const pc of b.tufts?.values() || []) { if (!pc.tufts) continue; n++; if (!pc.tufts.visible) { hid++; continue; } lod[pc.lod]++; matas += pc.tufts.count; }
-      if (n) lines.push(`hierba: ${n} trozos (cerca ${lod[0]} · media ${lod[1]} · lejos ${lod[2]} · fuera ${hid}) · ${matas} matas`);
-    }
-    // (los árboles lejanos: si el atlas está listo o cuánto le queda, y los bloques de cerca que se están fundiendo)
-    const imp = v.world?.impostorStats?.();
-    if (imp) lines.push(imp);
-    // (el mapa de sombras: cuántas veces por segundo se repinta lo fijo y cuánto cuesta lo que se mueve en cada fotograma)
-    if (v.shadows) lines.push(v.shadows.text());
-    // (la sombra de contacto: lo que falta por pintar y subir, y lo que cuesta en este hilo)
-    if (v.terrain?.contact?.on) lines.push(v.terrain.contact.text());
-    const a = v.actors?.stats;
-    if (a) lines.push(`personas: ${a.modelos} · ${a.vistas} vistas · ${a.dormidas} dormidas · a todo ${a.t0} / 30 Hz ${a.t1} / 15 Hz ${a.t2} · de lejos ${a.lod1} · ${(a.tris / 1000).toFixed(0)}k triángulos${a.protos !== undefined ? ` · ${a.protos} mallas en caché (${a.protosLibres} sin usar), ${a.lienzos} lienzos` : ''}${Number.isFinite(v.actorsMs) ? ` · actores ${n1(v.actorsMs)} ms` : ''}`);
+    lines.push(...parts(v));
     const l = game.live;
     lines.push(`entidades: ${game.mobs?.list.length ?? 0} criaturas · ${game.wildlife?.list.length ?? 0} salvajes · ${game.ranch?.animals.length ?? 0} animales · ${game.neighbors?.people.length ?? 0} vecinos · ${game.gather.drops.length} en el suelo · juntos: ${l?.joined ? `${l.role === 'host' ? 'anfitrión' : 'invitado'}, ${l.others.filter(o => o.playing).length} más` : l?.status || 'no'}`);
     return lines.join('\n');

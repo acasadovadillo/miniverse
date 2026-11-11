@@ -26,7 +26,7 @@ export const BIOMES = [
 ];
 // La paleta del suelo (desde 2026-11-10): oliva más rico y algo más oscuro, que case con las matas de hierba de encima (el
 // detalle del suelo ya no aclara: ver terrain.js), con su contraste entre tonos (ver tonosSuelo). El agua y el hielo, y
-// todo con ?suelo=v2, como antes
+// todo con ?suelo=0 (o =v2), como antes
 const SUELO = { [B.BEACH]: ['#c4ae81', 0.6], [B.MEADOW]: ['#6a7845', 1], [B.FOREST]: ['#4d5a33', 1], [B.PINES]: ['#4a5537', 1], [B.SWAMP]: ['#4b5535', 1], [B.DESERT]: ['#b9a275', 0.6], [B.SNOW]: ['#dde1e2', 0.3], [B.ROCKY]: ['#7a766b', 0.8] };
 BIOMES.forEach((b, i) => { const s = !SUELO_V2 && SUELO[i]; b.pal = s ? tonosSuelo(s[0], s[1]) : tonos(b.base); b.rgb = b.pal.map(rgbOf); });
 

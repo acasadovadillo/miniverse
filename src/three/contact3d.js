@@ -10,14 +10,15 @@ import * as THREE from 'three';
 import { CHUNK } from '../world/gen.js';
 import { wrapIndex } from '../world/planet.js';
 import { AO_PX, TILE, shapesOf, shapesIn, rasterTile, hashShapes, seasonShapes } from '../world/contact.js';
+import { opcion, apagada } from '../opciones.js';
 
 const BLOCK = CHUNK * 4;                 // (lo mismo que ground.js: 4 × 4 trozos por bloque)
 const SLOTS = 5;                         // bloques de lado (los 2 × RADIUS + 1 de terrain.js)
 const SIDE = BLOCK * AO_PX;              // píxeles de lado de un bloque (256)
 const ATLAS = SLOTS * SIDE;              // píxeles de lado de la textura (1280)
 const WORLD = ATLAS / AO_PX;             // metros que abarca antes de dar la vuelta (320)
-const Q = typeof location !== 'undefined' ? new URLSearchParams(location.search).get('contacto') : null;
-export const AO_ON = Q !== '0';
+const Q = opcion('contacto');
+export const AO_ON = !apagada('contacto');   // (?contacto=0: sin ella; ver opciones.js)
 // (?contacto=rojo: rojo donde hay contacto y verde donde solo hay copa, para ver hasta dónde llega cada cosa)
 const SEE = Q === 'ver' ? 1 : Q === 'rojo' ? 2 : 0;
 // Cuánto quita el contacto a la luz directa (el sol y las luces de cerca): menos que al cielo, porque el sol ya tiene su

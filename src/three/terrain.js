@@ -19,6 +19,7 @@ import { ContactField, injectContact, contactKey } from './contact3d.js';
 // caché al publicar otra versión: lo que carga un hilo no sale en la lista de lo cargado por la página. No hace nada al
 // cargarse)
 import '../world/groundcache.js';
+import { opcion, apagada, paraHilo } from '../opciones.js';
 
 export { BLOCK };
 const RADIUS = 2;                       // bloques alrededor del de la cámara (5 × 5)
@@ -30,9 +31,8 @@ export const WET = { value: 0 }, RAIN = { value: 0 };
 const VERSION = (typeof document !== 'undefined' && document.querySelector('meta[name="miniverse-version"]')?.content) || '';
 const WORKERS = Math.min(2, Math.max(1, (navigator.hardwareConcurrency || 2) - 1));
 // El relieve guardado: ?relieve=0 lo apaga (todo se calcula, como antes) y ?relieve-max=N cambia cuántos bloques se
-// guardan como mucho (para las pruebas)
-const URLQ = typeof location !== 'undefined' ? new URLSearchParams(location.search) : new URLSearchParams();
-const CACHE = URLQ.get('relieve') !== '0', CACHE_MAX = +URLQ.get('relieve-max') || 1024;
+// guardan como mucho (para las pruebas). Ver opciones.js
+const CACHE = !apagada('relieve'), CACHE_MAX = +opcion('relieve-max') || 1024;
 const PAD_SQ = 8;                       // (padded: el lado de los cuadrados por los que se pregunta si hay algo que allanar)
 const BUILD_MS = 3;                     // lo que se dedica como mucho a hacer mallas de bloques nuevos en cada fotograma
 
@@ -72,7 +72,7 @@ export class Terrain {
         // (con la versión en la dirección: index.html solo vuelve a pedir sin caché lo que carga la página, y este archivo lo
         // carga solo el hilo; uno viejo en caché con lo de ahora podría no arrancar)
         // (y lo del relieve guardado, que el hilo necesita al arrancar: abre la base antes de que se le pida nada)
-        const extra = (CACHE ? '' : '&relieve=0') + (CACHE_MAX !== 1024 ? `&relieve-max=${CACHE_MAX}` : '') + (SUELO_V2 ? '&suelo=v2' : '');   // (y el suelo de antes: ver arte.js)
+        const extra = paraHilo(['relieve', 'suelo']) + (CACHE_MAX !== 1024 ? `&relieve-max=${CACHE_MAX}` : '');   // (y el suelo de antes: ver arte.js)
         const w = new Worker(new URL('../world/genworker.js?v=' + encodeURIComponent(VERSION) + extra, import.meta.url), { type: 'module' });
         w.onmessage = e => this.onResult(e.data, i);
         w.onerror = e => { console.warn('Suelo: el hilo aparte ha fallado; se calcula aquí', e.message); this.workers = []; this.pending.clear(); this.jobs.clear(); this.arrived.length = 0; };
@@ -328,6 +328,28 @@ export class Terrain {
     this.contact.added(blk);   // (su hueco de la sombra de contacto, en blanco, y sus 16 trozos por pintar)
     return blk;
   }
+  // Un trozo de suelo y uno de agua de mentira, con sus materiales y los mismos atributos que los de verdad: para compilar
+  // sus programas antes de que llegue el primer bloque del otro hilo (ver engine.js, prepare). No se sueltan nunca: con
+  // ellos se soltarían también los programas, si aún no los usa ningún bloque
+  proxies() {
+    if (this.proxyGroup) return this.proxyGroup;
+    const g = new THREE.Group(), geo = new THREE.BufferGeometry(), c = document.createElement('canvas');
+    geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(9), 3));
+    geo.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(6), 2));
+    geo.setAttribute('normal', new THREE.BufferAttribute(new Float32Array([0, 1, 0, 0, 1, 0, 0, 1, 0]), 3));
+    c.width = c.height = 4;
+    const tex = new THREE.CanvasTexture(c);
+    tex.colorSpace = THREE.SRGBColorSpace; tex.minFilter = THREE.LinearMipmapLinearFilter;
+    const ground = new THREE.Mesh(geo, groundMaterial(tex));
+    ground.receiveShadow = true;
+    const wgeo = new THREE.BufferGeometry();
+    wgeo.setAttribute('position', geo.attributes.position); wgeo.setAttribute('normal', geo.attributes.normal);
+    wgeo.setAttribute('depth', new THREE.BufferAttribute(new Float32Array(3), 1)); wgeo.setAttribute('shore', new THREE.BufferAttribute(new Float32Array(12), 4));
+    const water = new THREE.Mesh(wgeo, this.water.material);
+    water.receiveShadow = true;
+    g.add(ground, water);
+    return (this.proxyGroup = g);
+  }
   // El agua del bloque: la misma rejilla a ras de WATER_Y, con lo que hay de suelo debajo en cada vértice (depth), la
   // orilla (shore: la distancia en metros, > 0 en el agua, hacia dónde queda lo hondo y lo alto de la orilla), y solo las casillas que tocan
   // agua. Sin la orilla (no debería: un hilo aparte de otra versión), una que se le parece, sacada de la profundidad: sin
@@ -376,7 +398,7 @@ export class Terrain {
 }
 
 // Material del suelo: la textura del bloque con el detalle de briznas (sobre lo verde) o de piedrecitas (sobre tierra,
-// arena y nieve), a dos escalas; en las cuestas fuertes, roca, y en las medias asoma la tierra. Con ?suelo=v2, el de antes
+// arena y nieve), a dos escalas; en las cuestas fuertes, roca, y en las medias asoma la tierra. Con ?suelo=0, el de antes
 let DETAIL;
 // (las texturas de detalle, una vez para todos los bloques; engine.js las adelanta en el menú, con las fotos ya aquí)
 export const groundDetail = () => (DETAIL ||= { grass: { value: grassDetail() }, soil: { value: soilDetail() }, rock: { value: SUELO_V2 ? null : rockDetail() }, rockCol: { value: new THREE.Color(PAL.suelo.roca) } });
@@ -471,7 +493,7 @@ const NOISE = `float gHash(vec2 p) { vec3 q = fract(p.xyx * 0.1031); q += dot(q,
 float gNoise(vec2 p) { vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
   return mix(mix(gHash(i), gHash(i + vec2(1.0, 0.0)), f.x), mix(gHash(i + vec2(0.0, 1.0)), gHash(i + vec2(1.0, 1.0)), f.x), f.y); }
 `;
-// El detalle de antes (?suelo=v2): sin cuestas, y dividido por una media fija, que aclaraba lo verde (×1,5)
+// El detalle de antes (?suelo=0): sin cuestas, y dividido por una media fija, que aclaraba lo verde (×1,5)
 function oldDetail(sh) {
   sh.vertexShader = sh.vertexShader
     .replace('#include <common>', '#include <common>\nvarying vec2 vWorld;')

@@ -2,6 +2,7 @@
 // color sobrios. Aquí está lo que no necesita Three (vale también en el hilo del suelo, genworker.js): la paleta y
 // sobrio(), tonos() y apagado(). (Hasta 2026-11-10 había otro arte, el de antes, que se podía pedir con ?arte=1: ya no
 // está. Si quedan las dos claves con las que se acordaba cada navegador, se borran: solo esas, que son del juego.)
+import { apagada } from './opciones.js';
 if (typeof localStorage !== 'undefined') try { localStorage.removeItem('pueblo-brotes:arte-v2'); localStorage.removeItem('pueblo-brotes:arte'); } catch {}
 
 // La paleta (sección 3 de la propuesta). Suelo y muros, saturación de 30 o menos; la nota de color la ponen las
@@ -52,10 +53,10 @@ export const tonosSuelo = (c, k = 1) => {
   return [[1, 1, 0], [1 + 0.1 * k, 1 - 0.08 * k, -0.08 * k], [1 + 0.2 * k, 1 - 0.15 * k, -0.14 * k], [1 - 0.16 * k, 1 + 0.08 * k, 0.06 * k]]
     .map(([kv, ks, kh]) => hex(...fromHsv((h + kh + 6) % 6, Math.min(1, s * ks), Math.min(255, v * kv))));
 };
-// ?suelo=v2: el suelo de antes (paleta, detalle y matas de hasta 2026-11-10), para compararlo con el de ahora en el mismo
-// código. Se lee en el hilo principal (de la dirección de la página) y en el del suelo (de la suya: terrain.js le pasa la
-// opción al crearlo)
-export const SUELO_V2 = (() => { try { return new URLSearchParams(globalThis.location?.search || '').get('suelo') === 'v2'; } catch { return false; } })();
+// ?suelo=0 (o ?suelo=v2, como antes): el suelo de antes (paleta, detalle y matas de hasta 2026-11-10), para compararlo con
+// el de ahora en el mismo código. Se lee en el hilo principal (de la dirección de la página) y en el del suelo (de la
+// suya: terrain.js le pasa la opción al crearlo). Ver opciones.js
+export const SUELO_V2 = apagada('suelo');
 // Para todo lo demás que no tiene color propio en la paleta (muebles, telas, toldos…): saturación ×0,7 y valor ×0,9,
 // para que no chille sobre el mundo sobrio.
 const APAGADO = new Map();

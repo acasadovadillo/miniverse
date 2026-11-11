@@ -62,6 +62,8 @@ export function vramOf(gl) {
   for (const b of V.rb.values()) rb += b;
   return { n: V.tex.size, texMB: tex / 1048576, rbMB: rb / 1048576, uploads: V.uploads };
 }
+// Se ha perdido el contexto: lo que había en la gráfica ya no existe (Three lo vuelve a subir y se apunta de nuevo)
+export function vramLost(gl) { const V = gl?.__vram; if (V) { V.tex.clear(); V.rb.clear(); } }
 // Las mayores, para buscar qué pesa (ancho×alto, formato, MB)
 export function vramTop(gl, n = 12) {
   const V = gl?.__vram;

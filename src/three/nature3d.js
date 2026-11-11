@@ -14,6 +14,7 @@ import { climate, wetness } from '../world/biomes.js';
 import { FLOWER_GEO, FLOWER_COLORS } from './flowers3d.js';
 import { ageOf, broadDims, pineDims, palmDims, cactusK } from '../world/treedims.js';
 import { injectContact, contactKey } from './contact3d.js';
+import { opcion, apagada } from '../opciones.js';
 
 const tmp = new THREE.Object3D(), col = new THREE.Color();
 // Viento: el tiempo que mueve la hierba y las copas (lo avanza el dibujo)
@@ -571,10 +572,10 @@ const TUFT_N = 72;
 // las hojas que sobran, la malla del trozo pasa a dibujar solo las primeras (drawRange): la imagen es la misma, así que
 // el cambio no se ve. JMIN: el ruido por mata (para que no se vea un anillo), que solo acerca: de JMIN a 1. SW: desde
 // qué distancia (en JS, con la caja del trozo) se cambia de malla; sale de lo mismo para que no haya saltos.
-// ?q=low aclara antes; ?hierba=sinlod las deja todas siempre (para comparar en el mismo código; el final suave sigue)
-const QS = (() => { try { return new URLSearchParams(globalThis.location?.search || ''); } catch { return new URLSearchParams(); } })();
+// ?q=low aclara antes; ?hierba=0 (o =sinlod) las deja todas siempre (para comparar en el mismo código; el final suave
+// sigue. Ver opciones.js)
 export const TUFT_LOD = (() => {
-  const k = QS.get('q') === 'low' ? 0.75 : 1, G = QS.get('hierba') === 'sinlod' ? [1e9, 1e9, 1e9] : [30 * k, 44 * k, 60 * k], JMIN = 0.92;
+  const k = opcion('q') === 'low' ? 0.75 : 1, G = apagada('hierba') ? [1e9, 1e9, 1e9] : [30 * k, 44 * k, 60 * k], JMIN = 0.92;
   return { N: [TUFT_N, 28, 10], G0: G[0], G1: G[1], G2: G[2], JMIN, WMAX: 3.2, SW: [G[1] / JMIN + 0.5, G[2] / JMIN + 0.5] };
 })();
 // Lo que mueve el sombreador de las matas desde fuera (World3D.updateGrass, cada fotograma): lodK, cuánto más pequeño se ve
@@ -664,7 +665,7 @@ function groundShapes() {
   const shroomStem = flat(new THREE.CylinderGeometry(0.025, 0.03, 0.1, 5).translate(0, 0.05, 0));
   const shroomCap = flat(new THREE.SphereGeometry(0.08, 6, 3, 0, Math.PI * 2, 0, Math.PI / 2).translate(0, 0.09, 0));
   const L = TUFT_LOD, f1 = (L.N[1] / L.N[0]).toFixed(5), f2 = (L.N[2] / L.N[0]).toFixed(5), F = v => v.toFixed(2);
-  const inv = v => (1 / Math.max(v, 1e-3)).toFixed(5);   // (con ?hierba=sinlod los tramos miden 0: sin dividir por 0)
+  const inv = v => (1 / Math.max(v, 1e-3)).toFixed(5);   // (con ?hierba=0 los tramos miden 0: sin dividir por 0)
   // Las matas, antes del viento: cuántas hojas quedan a esta distancia (f, de 1 a N[2]/N[0]) y el final suave (fo, de 1 a
   // 0 en el círculo de GRASS.fade); cada hoja se hunde en su raíz cuando le toca (gk, una rampa de 2,5 puestos que acaba
   // en gn) y las que quedan se ensanchan (wmul). De cerca (de < G0), gn pasa de N[0] en lo que mide la rampa, así que
