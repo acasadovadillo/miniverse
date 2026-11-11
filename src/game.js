@@ -593,6 +593,7 @@ export class Game {
     if (o.placed === 'cama' || o.placed === 'cama_nino' || o.placed === 'cama_doble') return { text: 'Usar la cama', run: () => this.bed(o), alt: pick };
     if (o.placed === 'silla' || o.placed === 'taburete' || o.placed === 'sofa' || o.placed === 'sillon') return { text: 'Sentarse', run: () => this.rest.sit(o), alt: o.fixed ? null : pick };
     if (o.placed === 'lavabo') return { text: 'Mirarse en el espejo', run: () => this.onMirror?.(), alt: pick };
+    if (o.placed === 'pozo') return this.farm.wellAction(o, o.fixed ? null : pick);   // (E: llenar la regadera; X: desmontarlo)
     if (CHESTS[o.placed] && o.placed !== 'mochila') return { text: `Abrir ${CHESTS[o.placed][1]}`, run: () => this.onChest?.(sc.chestAt(...o.tile), o.tile), alt: pick };   // (lleno no se recoge: hay que vaciarlo antes)
     if (o.placed === 'mochila') return { text: 'Abrir la mochila', run: () => this.onChest?.(sc.chestAt(...o.tile) || [], o.tile), alt: { text: this.inv.equip.espalda ? 'Recoger la mochila' : 'Ponerse la mochila', run: () => this.takeBackpack(o) } };
     if (LIGHTS.has(o.placed)) return { text: `${o.off ? 'Encender' : 'Apagar'} ${name.replace(/^lámpara/, 'la lámpara').replace(/^antorcha/, 'la antorcha').replace(/^vela/, 'la vela').replace(/^candelabro de techo/, 'el candelabro')}`, run: () => { sc.toggleLight(...o.tile); Audio.blip(); save(); }, alt: pick };

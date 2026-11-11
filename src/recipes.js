@@ -72,6 +72,8 @@ export const RECIPES = [
   R('yunque', 'brujula', 1, [['lingote_hierro', 4], ['amatista', 1]]),
   R('banco', 'mapa_vacio', 1, [['tela', 2], ['carbon', 1]]),
   R('banco', 'noria', 1, [['tablas', 24], ['piedra', 12], ['lingote_hierro', 2]]),
+  // (el pozo: en un hoyo de 5 bloques cavado con la pala; lo caro es cavarlo. Ver scenes.js, fitWell)
+  R('cantero', 'pozo', 1, [['piedra', 16], ['tablas', 6], ['cuerda', 3]]),
 
   R('telar', 'tela', 1, [['fibra', 4]]),
   R('telar', 'tela', 2, [['lana', 1]], { id: 'tela_lana' }),

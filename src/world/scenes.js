@@ -26,6 +26,10 @@ const LV_STEP = 0.25, LV_JOIN = 1.5;
 // Lo cavado con la pala (ver digH): cada bloque mide DIG_H (dos escalones de lo construido, así lo que se ponga en un hoyo
 // cae justo en su suelo), se cava hasta DIG_DOWN bloques y se apila hasta DIG_UP por encima del suelo de ahí
 export const DIG_H = 0.5, DIG_DOWN = 16, DIG_UP = 3;
+// El pozo va en una casilla cavada al menos WELL_DOWN bloques (ver fitWell). Su modelo, 'pozo:n', baja n escalones de
+// LV_STEP desde su brocal hasta el fondo de lo cavado (wellModel)
+export const WELL_DOWN = 5;
+const wellModel = (lvl, dig) => (typeof lvl === 'number' && typeof dig === 'number' && lvl > dig ? `pozo:${Math.min(80, Math.round((lvl - dig) / LV_STEP))}` : 'pozo');
 // Dónde se cava: en la tierra y la hierba (no en la arena, la roca, la nieve ni el agua), y no en las cuestas de roca
 // (lo que sube la casilla de una esquina a otra: el suelo pinta roca desde una pendiente de 0,62)
 const DIG_BIOMES = new Set([B.MEADOW, B.FOREST, B.PINES, B.SWAMP]), DIG_STEEP = 0.6;
@@ -346,6 +350,9 @@ export class Overworld {
     if (Math.min(...c) < 0.05) return 'Demasiado cerca del agua';
     if (cur === null && Math.max(...c) - Math.min(...c) > DIG_STEEP) return 'Ahí es roca';
     const d = this.deltas.get(`${wrapIndex(Math.floor(tx / CHUNK), CHUNK)},${Math.floor(ty / CHUNK)}`);
+    if (this.wellAt(x, y)) return 'Ahí está el pozo';
+    // (pegado a él, tampoco: su losa y su brocal van sobre la tierra de alrededor)
+    for (let j = -1; j <= 1; j++) for (let i = -1; i <= 1; i++) if ((i || j) && this.wellAt(x + i, y + j)) return 'Pegado al pozo no se cava';
     if (this.builtAt(d, k) || d?.lvl?.[k] !== undefined || d?.crops?.[k] || d?.trees?.[k]) return 'Hay algo encima';
     for (const layer of ['floor', 'placed', 'roof']) if (this.at(layer, tx, ty)) return 'Hay algo encima';
     if (this.layers.some(l => l.blocks?.(tx, ty))) return 'Ahí no se puede';
@@ -411,6 +418,8 @@ export class Overworld {
     if (inBounds(tx + 0.5, ty + 0.5)) return 0;
     const d = this.delta(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK)), k = `${tx},${ty}`, have = d?.lvl?.[k];
     if (have === undefined && this.builtAt(d, k)) return 0;   // (lo de antes)
+    // (el pozo: su losa, por encima de las cuatro esquinas de la casilla, como lo construido; el hoyo queda debajo)
+    if (id === 'pozo') return Math.ceil(Math.max(this.cornerH(tx, ty), this.cornerH(tx + 1, ty), this.cornerH(tx, ty + 1), this.cornerH(tx + 1, ty + 1)) / LV_STEP - 0.05) * LV_STEP;
     const layer = layerOf(id), struct = layer === 'floor' || layer === 'roof' || !!PIECES[id];
     const D = this.digH(tx, ty);   // (en lo cavado o en la tierra apilada, a su altura: es llano)
     if (!struct) return have ?? D ?? this.groundRaw(tx + 0.5, ty + 0.5);
@@ -718,6 +727,7 @@ export class Overworld {
         o.off = this.lightOff(tx, ty);
         if (BIG_HOUSE.has(id) && src.door?.[`${tx},${ty}`] === 0) o.model = `${id}:shut`;
         if (id === 'encimera' && !fixed) o.model = this.counterModel(tx, ty);
+        if (id === 'pozo') o.model = wellModel(src.lvl?.[t], src.dig?.[t]);   // (hasta el fondo del hoyo)
         if (freeObject(o, id, rot, src.pos?.[o.key] || [tx + 0.5, ty + 0.5, (rot % 4) * Math.PI / 2], out)) { flats.push(o); continue; }
       } else {
         o.off = this.lightOff(tx, ty);
@@ -1052,6 +1062,7 @@ export class Overworld {
   // se separa; si lo corta, no cabe (la silla sí entra bajo la mesa, mientras el respaldo no toque el tablero). Devuelve dónde (ox, oy:
   // el origen del modelo), si cabe (ok) y, si no, por qué (why); anchor: la casilla donde se apunta
   fitFree(id, px, py, a, k = 0, player = null) {
+    if (id === 'pozo') return this.fitWell(px, py, a, player);
     const def = ITEMS[id], rug = def.place === 'rug', flat = def.place === 'flat';
     let local, model = id, anchor = null;
     if (rug) { const [w, h] = RUG_SIZES[k % RUG_SIZES.length]; local = [[-w / 2 + 0.06, 0, -h / 2 + 0.06, w / 2 - 0.06, 0.05, h / 2 - 0.06]]; model = `rug:${id}:${w}x${h}`; }
@@ -1099,6 +1110,34 @@ export class Overworld {
     anchor = tiles.find(([x, y]) => !this.at(layer, x, y) && (rug || !this.pieceAt(x, y)) && !tilled(x, y)) || null;
     return anchor ? res(true, null) : res(false, 'Ahí no cabe');
   }
+  // El pozo no va libre: ocupa justo la casilla apuntada, que tiene que estar cavada con la pala WELL_DOWN bloques o más
+  // (el hoyo es el pozo: su forro de piedra baja hasta el fondo y su losa lo tapa por arriba). Se gira de cuarto en
+  // cuarto (el tejadillo y la manivela), no se arrima a nada y no puede cortar lo de al lado. Lo mismo que fitFree
+  fitWell(px, py, a, player) {
+    const deepAt = (i, j) => this.digH(i, j) !== null && this.digDepth(i, j) >= WELL_DOWN - 1e-6, Q = Math.PI / 2;
+    let tx = Math.floor(px), ty = Math.floor(py);
+    // (el ratón sobre la pared o el borde de un hoyo hondo y estrecho cae justo en la raya: vale el hoyo de al lado)
+    if (!deepAt(tx, ty)) {
+      const fx = px - tx, fy = py - ty;
+      for (const [e, dx, dy] of [[fx < 0.15, -1, 0], [fx > 0.85, 1, 0], [fy < 0.15, 0, -1], [fy > 0.85, 0, 1]]) if (e && deepAt(tx + dx, ty + dy)) { tx += dx; ty += dy; break; }
+    }
+    const x = tx + 0.5, y = ty + 0.5, deep = deepAt(tx, ty), k = `${tx},${ty}`;
+    a = ((Math.round(a / Q) % 4) + 4) % 4 * Q;
+    const model = deep ? wellModel(this.levelFor(tx, ty, 'pozo'), this.digH(tx, ty)) : 'pozo';
+    const local = solidsOf(model), box = placeBoxes([hull(local)], x, y, a)[0];
+    const res = (ok, why) => ({ ok, why, ox: x, oy: y, a, k: 0, model, cx: box.x, cy: box.y, box, anchor: ok ? [tx, ty] : null });
+    if (!inPlanet(x - 1, y) || !inPlanet(x + 1, y)) return res(false, 'Aquí no: es la costura del planeta');
+    if (!deep) return res(false, `Hace falta un hoyo de ${WELL_DOWN} bloques cavado con la pala`);
+    if (this.at('placed', tx, ty) || this.at('floor', tx, ty) || this.at('roof', tx, ty)) return res(false, 'Ahí no cabe');
+    const d = this.delta(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK));
+    if (d?.lvl?.[k] !== undefined) return res(false, 'Ahí no cabe');
+    const cuts = (s, o) => o.y1 > s.y0 + 0.01 && o.y0 < s.y1 - 0.01 && sat(s, o), obstacles = this.obstaclesNear(x, y, false);
+    for (const s of placeBoxes(local, x, y, a)) for (const o of obstacles) { const hit = cuts(s, o); if (hit && hit.depth > 0.012) return res(false, o.wall ? 'Choca con la pared' : 'Choca con otra cosa'); }
+    if (player && hitsCircle(box, player.x, player.y, 0.2)) return res(false, 'Estás tú en medio');
+    return res(true, null);
+  }
+  // ¿Hay un pozo en la casilla de (x, y)? (para llenar la regadera: farm.js)
+  wellAt(x, y) { const v = this.at('placed', Math.floor(x), Math.floor(y)); return !!v && parsePlaced(v)[0] === 'pozo'; }
   // Ponerlo donde ha dicho fitFree (en su casilla, con su sitio y su giro de verdad)
   // loose: puesto agachado (no se une a lo de al lado)
   placeFree(id, f, loose = false) {

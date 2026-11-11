@@ -112,7 +112,7 @@ export class Farm {
       return { tile, ok: true, label: `Sembrar ${c.name.toLowerCase()}`, use: () => this.sow(tx, ty, def.seed) };
     }
     if (def?.tool === 'regadera') {
-      const water = this.waterAhead(p);
+      const water = this.waterAhead(p) || (this.world.wellAt(tx + 0.5, ty + 0.5) && Math.hypot(tx + 0.5 - p.x, ty + 0.5 - p.y) < 2.4);   // (o el pozo apuntado)
       if (water) return { tile: null, ok: true, label: `Llenar la regadera (${this.can}/${CAN_MAX})`, use: () => this.refill() };
       if (tilled) return { tile, ok: true, auto: true, label: `Regar (${this.can}/${CAN_MAX})`, use: () => this.water(tx, ty) };
       return null;
@@ -146,14 +146,25 @@ export class Farm {
     }
     return out;
   }
+  // ¿Hay agua delante? (la de ríos, lagos y el mar, el estanque del pueblo o un pozo)
   waterAhead(p) {
     for (const r of [1, 1.6]) {
       const x = p.x + p.face.x * r, y = p.y + p.face.y * r;
-      if (this.world.water(x, y) || (inBounds(x, y) && pondDist(x, y) < 1)) return true;
+      if (this.world.water(x, y) || (inBounds(x, y) && pondDist(x, y) < 1) || this.world.wellAt(x, y)) return true;
     }
     return false;
   }
   refill() { this.can = CAN_MAX; Audio.noiseHit(900, 0.3, 0.2); this.game.gather.float('Regadera llena', '#9ad0ff'); }
+  // Con E en el pozo: si se lleva una regadera (en la mano o en la mochila: el agua es de la regadera, no del hueco), se
+  // llena con el cubo; si no, se dice para qué es
+  wellAction(o, alt) {
+    const g = this.game, has = g.inv.held?.id === 'regadera' || g.inv.count('regadera') > 0;
+    const run = () => {
+      g.gather.chips(o.x, o.y, 'water', 10);
+      if (has) this.refill(); else { g.gather.float('Agua fresca. Con una regadera, aquí se llena', '#9ad0ff'); Audio.noiseHit(700, 0.25, 0.15); }
+    };
+    return { text: has ? `Llenar la regadera (${this.can}/${CAN_MAX})` : 'Sacar agua del pozo', run, alt };
+  }
   water(tx, ty) {
     const g = this.game;
     if (this.can <= 0) { g.gather.float('La regadera está vacía: llénala en el agua', '#ffb0a0'); Audio.error(); return; }

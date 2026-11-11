@@ -63,6 +63,9 @@ export function modelMats() {
     towerDark: towerCut(mat({ color: '#1c1714', roughness: 1 })),
     // (lo de dentro de la boca de la cueva: roca oscura, que se ve hacia el fondo)
     cavein: mat({ map: rockFace(apagado('#5a524a')), color: '#4a4440', flatShading: true, roughness: 1, side: THREE.BackSide }),
+    // (el pozo: su forro de piedra, más oscuro hacia el fondo con el color por vértice, y el agua quieta de abajo, oscura y
+    // lisa como un espejo: lo que se ve en ella es el cielo de la boca, apagado, que de noche se apaga con él)
+    wellShaft: mat({ map: rockFace(apagado('#8e867a')), vertexColors: true, roughness: 0.95 }), wellWater: c('#b4c6cc', { metalness: 1, roughness: 0.08 }),
     baby: c('#f4e6c8', { roughness: 0.95 }), mirror: c('#d8eef4', { metalness: 0.6, roughness: 0.08 }), plate: c('#f0ece0', { roughness: 0.4 }), plateB: c('#5a7ab8', { roughness: 0.4 }),
   };
   return MATS;
@@ -129,6 +132,59 @@ function barrelGeo() {
   return (BARREL = g);
 }
 const CONE = new THREE.ConeGeometry(1, 1, 10), ICO = new THREE.IcosahedronGeometry(1, 0), ICO1 = new THREE.IcosahedronGeometry(1, 1), TORUS = new THREE.TorusGeometry(1, 0.08, 6, 20), DODECA = new THREE.DodecahedronGeometry(1, 0);
+
+// ---------- piezas de revolución (el pozo) ----------
+// Un cuadrilátero con una normal por vértice (y, si va con color por vértice, su tono), girado si hace falta para que
+// mire hacia donde dicen sus normales
+function quad4(B, ps, ns, uvs, cs) {
+  const [a, b, c] = ps, u = [b[0] - a[0], b[1] - a[1], b[2] - a[2]], v = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+  const cr = [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]], n = [0, 1, 2].map(k => ns[0][k] + ns[1][k] + ns[2][k] + ns[3][k]);
+  const i = B.pos.length / 3, flip = cr[0] * n[0] + cr[1] * n[1] + cr[2] * n[2] < 0;
+  if (cs && !B.col) B.col = new Array(B.pos.length).fill(1);
+  for (let j = 0; j < 4; j++) {
+    B.pos.push(...ps[j]); B.nor.push(...ns[j]); B.uv.push(...uvs[j]);
+    if (B.col) { const c = cs?.[j] ?? 1; B.col.push(c, c, c); }
+  }
+  B.idx.push(...(flip ? [i, i + 2, i + 1, i, i + 3, i + 2] : [i, i + 1, i + 2, i, i + 2, i + 3]));
+}
+// Una pieza de revolución: el perfil (puntos [r, y], en orden, cerrado) barrido de a0 a a1 alrededor del eje y, con cada
+// lado del perfil liso a lo largo del giro y las dos caras de los extremos planas (una piedra del brocal, la albardilla).
+// s: metros por repetición de la textura
+function sweep(B, prof, a0, a1, s = 0.6) {
+  const seg = Math.max(2, Math.ceil((a1 - a0) / 0.2)), n = prof.length;
+  let cr = 0, cy = 0;
+  for (const [r, y] of prof) { cr += r / n; cy += y / n; }
+  for (let e = 0; e < n; e++) {
+    const [r0, y0] = prof[e], [r1, y1] = prof[(e + 1) % n];
+    let nr = y1 - y0, ny = r0 - r1, l = Math.hypot(nr, ny) || 1;
+    nr /= l; ny /= l;
+    if (nr * ((r0 + r1) / 2 - cr) + ny * ((y0 + y1) / 2 - cy) < 0) { nr = -nr; ny = -ny; }   // (hacia fuera del perfil)
+    for (let i = 0; i < seg; i++) {
+      const aa = a0 + ((a1 - a0) * i) / seg, ab = a0 + ((a1 - a0) * (i + 1)) / seg, P = (r, y, a) => [Math.cos(a) * r, y, Math.sin(a) * r], N = a => [Math.cos(a) * nr, ny, Math.sin(a) * nr];
+      const U = (a, r) => (a * (r0 + r1)) / 2 / s, V = (r, y) => (Math.abs(ny) > 0.7 ? r : y) / s;
+      quad4(B, [P(r0, y0, aa), P(r0, y0, ab), P(r1, y1, ab), P(r1, y1, aa)], [N(aa), N(ab), N(ab), N(aa)], [[U(aa), V(r0, y0)], [U(ab), V(r0, y0)], [U(ab), V(r1, y1)], [U(aa), V(r1, y1)]]);
+    }
+  }
+  // (los extremos: el perfil en abanico desde su centro)
+  for (const [a, sg] of [[a0, -1], [a1, 1]]) {
+    const nn = [-Math.sin(a) * sg, 0, Math.cos(a) * sg], P = (r, y) => [Math.cos(a) * r, y, Math.sin(a) * r], c = P(cr, cy);
+    for (let e = 0; e < n; e++) {
+      const p = prof[e], q = prof[(e + 1) % n];
+      quad4(B, [c, P(...p), P(...q), c], [nn, nn, nn, nn], [[cr / s, cy / s], [p[0] / s, p[1] / s], [q[0] / s, q[1] / s], [cr / s, cy / s]]);
+    }
+  }
+}
+// Un tubo (la cara de dentro o de fuera de un cilindro), liso, por las alturas ys; inward: mirando hacia el eje. tone(y):
+// el tono por vértice a cada altura (para lo que va con color por vértice)
+function tube(B, r, ys, inward, { seg = 28, s = 0.6, tone = null } = {}) {
+  const sg = inward ? -1 : 1;
+  for (let i = 0; i < seg; i++) for (let j = 0; j < ys.length - 1; j++) {
+    const a = (i / seg) * Math.PI * 2, b = ((i + 1) / seg) * Math.PI * 2, y0 = ys[j], y1 = ys[j + 1], P = (q, y) => [Math.cos(q) * r, y, Math.sin(q) * r], N = q => [Math.cos(q) * sg, 0, Math.sin(q) * sg];
+    const t0 = tone?.(y0), t1 = tone?.(y1);
+    quad4(B, [P(a, y0), P(b, y0), P(b, y1), P(a, y1)], [N(a), N(b), N(b), N(a)], [[(a * r) / s, y0 / s], [(b * r) / s, y0 / s], [(b * r) / s, y1 / s], [(a * r) / s, y1 / s]], tone ? [t0, t0, t1, t1] : null);
+  }
+}
+const BAIL = new THREE.TorusGeometry(0.128, 0.007, 4, 12, Math.PI);   // (el asa del cubo: medio aro)
 
 // ---------- muebles y estaciones ----------
 let DOME;
@@ -453,6 +509,82 @@ const BUILD = {
     wheel.position.set(0, H, 0); wheel.rotation.order = 'YXZ'; wheel.userData.spin = -0.7;
     m.extra(wheel);
     m.solids.push([-0.24, 0, -R, 0.24, H + R, R]);   // (lo que ocupa la rueda: no se le pone nada encima)
+  },
+  // El pozo (n: los escalones de LV_STEP, 0,25 m, que baja hasta el fondo de su hoyo; sin n, para el icono y la vista
+  // previa, poco): una losa cuadrada que tapa el hoyo (y, por fuera, su forro de piedra hasta abajo: se ve desde un hoyo de
+  // al lado), el brocal redondo de sillares hasta la cintura con su albardilla, dentro el forro cada vez más oscuro y el
+  // agua quieta al fondo; dos postes de madera metidos en el brocal con el tejadillo de tablillas a dos aguas, el torno
+  // con la cuerda enrollada y su manivela, y el cubo colgando sobre la boca, lleno de agua
+  pozo(m, n) {
+    const D = n ? Math.max(1, +n * 0.25) : 0.15, R = rng2(41), TAU = Math.PI * 2, M = new THREE.Matrix4(), Qt = new THREE.Quaternion(), E = new THREE.Euler();
+    const RI = 0.345, RO = 0.47, SQ = 0.52, TOP = 0.04, CAP = 0.77, H = 0.86;   // (el hueco, el brocal por fuera, media losa, su cara de arriba, la albardilla y su remate)
+    const WY = D > 1.2 ? Math.max(-D + 0.45, -1.1) : -D + 0.12;   // (el agua: a un metro largo bajo el suelo, como la del freático; en un hoyo justo, algo por encima de su fondo)
+    // (sin cajas de choque: las piezas menudas no cuentan; las grandes van al final)
+    const put = (key, g, x, y, z, rot = [0, 0, 0], sc = [1, 1, 1]) => m.B(key).addGeometry(g, M.compose(new THREE.Vector3(x, y, z), Qt.setFromEuler(E.set(...rot)), new THREE.Vector3(...sc)));
+    // La losa: por los lados, el forro de piedra hasta el fondo; por arriba, de su borde cuadrado a la boca redonda
+    const S = m.B('stone');
+    S.box(-SQ, -D, -SQ, SQ, TOP, SQ, { s: 0.6, skip: 'py ny' });
+    const NQ = 32, sq = a => { const c = Math.cos(a), sn = Math.sin(a), k = SQ / Math.max(Math.abs(c), Math.abs(sn)); return [c * k, sn * k]; };
+    for (let i = 0; i < NQ; i++) {
+      const a = (i / NQ) * TAU, b = ((i + 1) / NQ) * TAU, [x0, z0] = sq(a), [x1, z1] = sq(b), up = [0, 1, 0];
+      quad4(S, [[Math.cos(a) * RI, TOP, Math.sin(a) * RI], [Math.cos(b) * RI, TOP, Math.sin(b) * RI], [x1, TOP, z1], [x0, TOP, z0]], [up, up, up, up], [[Math.cos(a) * RI / 0.6, Math.sin(a) * RI / 0.6], [Math.cos(b) * RI / 0.6, Math.sin(b) * RI / 0.6], [x1 / 0.6, z1 / 0.6], [x0 / 0.6, z0 / 0.6]]);
+    }
+    // El forro de dentro, de la boca al agua: más oscuro cuanto más hondo (lo que le llega de luz)
+    const ys = [TOP, -0.25, -0.6, -1.1, -1.7, -2.5, -3.5, -5, -7, -10, -14, -20].filter(y => y > WY - 0.02).concat([WY - 0.02]);
+    tube(m.B('wellShaft'), RI, ys, true, { tone: y => (y > 0 ? 0.92 : 0.16 + 0.72 * Math.exp(y / 0.55)) });
+    // El agua, quieta
+    put('wellWater', CIRCLE, 0, WY, 0, [-Math.PI / 2, 0, 0], [RI + 0.01, RI + 0.01, 1]);
+    // El brocal: tres hiladas de sillares a matajunta (cada uno de su largo y algo salido o metido) sobre un núcleo de
+    // argamasa que asoma en las juntas, y encima la albardilla de losas que vuelan un poco por los dos lados
+    const A = m.B('ashlar'), ch = 0.018;
+    tube(m.B('sand'), RO - 0.012, [TOP, CAP], false, { seg: 24 });
+    tube(m.B('sand'), RI + 0.015, [TOP, CAP], true, { seg: 24 });
+    for (let k = 0; k < 3; k++) {
+      const y0 = TOP + k * 0.245, y1 = y0 + 0.235, nS = 10, lens = Array.from({ length: nS }, () => 0.82 + R() * 0.36), sum = lens.reduce((t, v) => t + v, 0);
+      let a = ((k % 2 ? 0.5 : 0) + R() * 0.2) * (TAU / nS);
+      for (const l of lens) {
+        const b = a + (l / sum) * TAU, out = RO + (R() - 0.5) * 0.016, inn = RI + 0.003 + R() * 0.006, gap = 0.012 / out;
+        sweep(R() < 0.28 ? m.B('marbleD') : A, [[inn, y0], [out, y0], [out, y1 - ch], [out - ch, y1], [inn + ch, y1], [inn, y1 - ch]], a + gap / 2, b - gap / 2, 0.55);   // (alguno, de otra cantera)
+        a = b;
+      }
+    }
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * TAU + 0.2, b = ((i + 1) / 8) * TAU + 0.2, gap = 0.01 / 0.5, y1 = H - R() * 0.008;
+      sweep(A, [[RI - 0.025, CAP], [RO + 0.04, CAP], [RO + 0.04, y1 - 0.02], [RO + 0.02, y1], [RI - 0.005, y1], [RI - 0.025, y1 - 0.02]], a + gap / 2, b - gap / 2, 0.55);
+    }
+    // Los postes, metidos en el brocal, la cumbrera encima y el tejadillo de tablillas a dos aguas (las de arriba montan
+    // sobre las de abajo), con sus cabios y los remates de los lados
+    const PX = 0.405, YR = 2.36, TH = 0.6, ZE = 0.68, L = ZE / Math.cos(TH);
+    for (const sx of [-1, 1]) m.box('wood', sx * PX - 0.055, 0.5, -0.055, sx * PX + 0.055, YR - 0.1, 0.055);
+    m.box('dark', -0.66, YR - 0.12, -0.05, 0.66, YR - 0.02, 0.05);
+    const slope = (sz, sAt, h) => [YR - sAt * Math.sin(TH) + h * Math.cos(TH), sz * (sAt * Math.cos(TH) + h * Math.sin(TH))];
+    for (const sz of [-1, 1]) {
+      for (const x of [-0.62, -PX, PX, 0.62]) { const [y, z] = slope(sz, L / 2, -0.04); put('dark', BOXG, x, y, z, [sz * TH, 0, 0], [0.05, 0.06, L]); }
+      for (let r = 0; r < 4; r++) {
+        const s0 = 0.03 + r * 0.205, len = r === 3 ? L + 0.07 - s0 : 0.27;
+        for (let i = 0; i < 8; i++) {
+          const w = 1.36 / 8, x = -0.68 + (i + 0.5) * w + (R() - 0.5) * 0.01, l = len + (R() - 0.5) * 0.03, [y, z] = slope(sz, s0 + l / 2, 0.012 + (3 - r) * 0.011 + R() * 0.004);
+          put(R() < 0.3 ? 'dark' : 'hull', BOXG, x, y, z, [sz * TH + (R() - 0.5) * 0.03, 0, (R() - 0.5) * 0.02], [w - 0.008, 0.022, l]);
+        }
+      }
+    }
+    put('dark', BOXG, 0, YR + 0.045, 0, [0, 0, 0], [1.38, 0.05, 0.13]);   // (el caballete de arriba)
+    m.solids.push([-0.69, YR - 0.5, -ZE - 0.05, 0.69, YR + 0.08, ZE + 0.05]);
+    // El torno: el rollo con la cuerda enrollada, los pernos por los postes y la manivela por fuera, a la derecha
+    const AY = 1.52;
+    m.cyl('light', -0.35, AY, 0, 0.07, 0.07, 0.7, 12, [0, 0, -Math.PI / 2]);
+    put('iron', cylGeo(0.022, 0.022, 1.02, 6), -0.51, AY, 0, [0, 0, -Math.PI / 2]);
+    for (let i = 0; i < 13; i++) put('rope', cylGeo(0.084, 0.084, 0.02, 10), -0.16 + i * 0.025, AY, 0, [0, 0, -Math.PI / 2]);
+    put('iron', BOXG, 0.5, AY - 0.1, 0, [0, 0, 0], [0.03, 0.24, 0.035]);
+    put('dark', cylGeo(0.022, 0.022, 0.13, 8), 0.5, AY - 0.2, 0, [0, 0, -Math.PI / 2]);
+    // El cubo, colgado sobre la boca y lleno de agua: duelas, dos aros, el asa y la cuerda que baja del torno
+    const BX = 0.05, BZ = 0.084, BY = 0.66, BH = 0.24;
+    m.cyl('wood', BX, BY, BZ, 0.105, 0.13, BH, 14);
+    for (const t of [0.04, 0.19]) put('iron', cylGeo(0.106 + t * 0.105 + 0.004, 0.106 + (t + 0.02) * 0.105 + 0.004, 0.02, 14), BX, BY + t, BZ);
+    put('wellWater', CIRCLE, BX, BY + BH + 0.004, BZ, [-Math.PI / 2, 0, 0], [0.122, 0.122, 1]);
+    put('iron', BAIL, BX, BY + BH, BZ);
+    put('rope', cylGeo(0.011, 0.011, AY - (BY + BH + 0.128), 6), BX, BY + BH + 0.128, BZ);
+    m.solids.push([-SQ, -D, -SQ, SQ, TOP, SQ], [-RO - 0.04, TOP, -RO - 0.04, RO + 0.04, H, RO + 0.04]);
   },
   aspersor(m) {
     m.cyl('copper', 0, 0, 0, 0.12, 0.1, 0.06, 10).cyl('copper', 0, 0.06, 0, 0.025, 0.025, 0.3, 6).box('copper', -0.16, 0.34, -0.02, 0.16, 0.38, 0.02).box('copper', -0.02, 0.34, -0.16, 0.02, 0.38, 0.16);

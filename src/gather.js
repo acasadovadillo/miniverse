@@ -395,6 +395,7 @@ export class Gathering {
     Audio.place();
     if (ITEMS[id].place === 'station') g.stats?.add('estaciones', 1);
     if (ITEMS[id].place === 'station') this.float(`${ITEMS[id].name}: acércate y pulsa E`, '#fff3c0');
+    if (id === 'pozo') this.float('Pozo: con la regadera, E o clic en él la llena', '#9ad0ff');
   }
 
   eat(slot) {
