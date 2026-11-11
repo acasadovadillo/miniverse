@@ -281,7 +281,7 @@ export class Game {
     const out = {
       seed: this.world.seed, player, explored: [...this.explored],
       inventory: this.inv.toSave(), clock: Math.round(this.world.clock),
-      ...this.craft.toSave(), house: { big: this.house.big, family: this.house.family, built: true, v: 3 }, money: this.money,
+      ...this.craft.toSave(), house: { big: this.house.big, family: this.house.family, built: true, v: this.house.v }, money: this.money,
       gamemode: this.gamemode, rules: this.rules, worldSpawn: this.worldSpawn, weatherLock: this.weatherLock, difficulty: this.difficulty, defaultGamemode: this.defaultGamemode, cam3d: camToSave(), volumes: Settings.volumes(),
     };
     this.hook('save', out);

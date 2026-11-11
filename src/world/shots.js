@@ -33,6 +33,7 @@ export function shapesOf(scene, data, gy) {
   for (const o of data.objects) {
     if (o.placed && o.layer === 'placed') {
       const [tx, ty] = o.tile, L = lv(tx, ty), piece = PIECES[o.placed];
+      if (o.fence || o.gate) post(scene, tx, ty, L, out);
       if (o.fence) fence(o, tx, ty, L, out);
       else if (o.gate) gate(scene, o, tx, ty, L, out);
       else if (o.door && !scene.doorClosed?.(tx, ty)) {   // (abierta: el dintel; las jambas y la cerrada van con los muros)
@@ -53,6 +54,14 @@ export function shapesOf(scene, data, gy) {
   return out;
 }
 
+// Bajo la valla alzada en cuesta, el dado de piedra de su poste, hasta la tierra (como three/world3d.js, sus cimientos;
+// los muros y los suelos los tienen de la casilla entera, y para la flecha esa casilla es suelo a su altura: ver
+// archery.js, ground)
+function post(scene, tx, ty, L, out) {
+  if (L <= 0.02 || !scene.groundRaw || scene.at?.('floor', tx, ty)) return;
+  const g0 = Math.min(scene.groundRaw(tx, ty), scene.groundRaw(tx + 1, ty), scene.groundRaw(tx, ty + 1), scene.groundRaw(tx + 1, ty + 1)) - 0.25;
+  if (L - g0 >= 0.28) rect(tx + 0.36, ty + 0.36, tx + 0.64, ty + 0.64, g0, L, out);
+}
 // La valla: el poste y, hacia cada vecina, sus dos barras (como three/build3d.js, fenceTile); la de piedra, maciza
 function fence(o, tx, ty, L, out) {
   const cx = tx + 0.5, cy = ty + 0.5, m = o.mask || 0, stone = o.placed === 'valla_piedra';
@@ -90,11 +99,13 @@ function nature(o, y, out) {
     ell(x, z, y + s * 0.12, s * 1.15, s * (kind === 'rock' ? 0.8 : 0.95), out);
   } else if (kind === 'bush') { const k = 1.1 + ihash(Math.floor(x * 7), Math.floor(z * 7), 11) * 0.35; ell(x, z, y + 0.4 * k, 0.5 * k, 0.42 * k, out); }
 }
-// Los lugares: la torre, su pared en anillo (por dentro se sube); los demás, las piezas de su modelo
+// Los lugares: la torre, su pared en anillo (por dentro se sube; en la puerta, de su dintel arriba); los demás, las piezas
+// de su modelo
+const DOOR_TOP = 2.2;   // (lo alto de la puerta de la torre: ver tower.js)
 function poi(p, out) {
   if (p.kind === 'torre') {
     const T = TOWER, rw = T.R - 0.22;
-    for (let a = 0; a < Math.PI * 2; a += 0.13) if (!(a > T.door[0] && a < T.door[1])) cyl(p.x + Math.sin(a) * rw, p.y + Math.cos(a) * rw, 0.26, 0, T.H + T.parapet, out);
+    for (let a = 0; a < Math.PI * 2; a += 0.13) cyl(p.x + Math.sin(a) * rw, p.y + Math.cos(a) * rw, 0.26, a > T.door[0] && a < T.door[1] ? DOOR_TOP : 0, T.H + T.parapet, out);
     cyl(p.x, p.y, T.r0, 0, T.H, out);
     return;
   }

@@ -354,9 +354,11 @@ export class Live {
       // lleva), a quién muerden y quién ha matado a una (de quien lo lleva)
       case 'mobs': if (fromHost && Array.isArray(m.m)) g.mobs.netList(m.m); break;
       case 'wild': if (fromHost && Array.isArray(m.w)) g.wildlife.netList(m.w); break;
-      // Las flechas: las ve volar todo el mundo y la que ya no está, deja de verse
-      case 'arrow': g.archery.ghost(m); break;
-      case 'arrowgone': g.archery.gone(m.id); break;
+      // Las flechas: las ve volar todo el mundo y la que ya no está, deja de verse (si se le da a alguien, to: a quién). La
+      // clavada del otro se le pide a él para recogerla (arrowtake: ver archery.js)
+      case 'arrow': g.archery.ghost(m, conn); break;
+      case 'arrowgone': g.archery.gone(m.id, Number.isFinite(m.to) ? m.to : null); break;
+      case 'arrowtake': g.archery.asked(m.id, conn); break;
       case 'hitm': if (this.takes(peer)) g.mobs.hitBy(conn, peer, m); break;
       case 'hita': if (this.takes(peer)) g.hunt.hitBy(conn, peer, m); break;
       case 'preydead': if (fromHost) g.hunt.killed(m); break;
