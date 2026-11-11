@@ -11,7 +11,7 @@
 // los árboles sencillos de antes (buildFarNature). Sin pantalla (el servidor, ?modo=servidor) no hay View3D ni World3D:
 // esto ni se carga.
 import * as THREE from 'three';
-import { buildNatureChunk, WIND, DITHER } from './nature3d.js';
+import { buildNatureChunk, WIND, DITHER, leafTint } from './nature3d.js';
 import { treeK, ageOf } from '../world/treedims.js';
 import { CHUNK } from '../world/gen.js';
 import { ihash } from '../util.js';
@@ -21,13 +21,14 @@ const LOW_Q = opcion('q') === 'low';
 // ?impostores=0: lo lejano con los árboles sencillos de antes (para comparar en el mismo código; ver opciones.js)
 export const IMPOSTORS_ON = !apagada('impostores');
 
-// Las especies (una fila del atlas cada una): el roble en tres (joven y dos adultos distintos) y el pino en tres (el
+// Las especies (una fila del atlas cada una): el roble en tres (joven y dos adultos distintos: en otoño, el A con más verde
+// y oro y el B con más naranja y rojizo, como los robles de cerca de su misma variant) y el pino en tres (el
 // tercero, nevado; en invierno ya nievan todos y es uno más), para que de lejos no se vean todos iguales
 // yaw: hacia dónde gira el árbol con su rot (nature3d.js, pieces). Lo que va puesto con cos/sin(rot) (las ramas del roble
 // y del sauce, la inclinación de la palmera, los brazos del cactus) gira al revés que lo que va con el ángulo rot (los
 // pisos del pino): en cada especie manda lo que más se ve de lado, y el impostor gira con eso
 const SETS = [
-  { id: 'roble joven', kind: 'oak', age: 0.75 }, { id: 'roble A', kind: 'oak', age: 1 }, { id: 'roble B', kind: 'oak', age: 1 },
+  { id: 'roble joven', kind: 'oak', age: 0.75 }, { id: 'roble A', kind: 'oak', age: 1, variant: 0 }, { id: 'roble B', kind: 'oak', age: 1, variant: 1 },
   { id: 'frutal', kind: 'fruit', age: 1 }, { id: 'sauce', kind: 'swampTree', age: 1 },
   { id: 'pino A', kind: 'pine', age: 1, yaw: -1 }, { id: 'pino B', kind: 'pine', age: 1, yaw: -1 }, { id: 'pino C', kind: 'snowPine', age: 1, yaw: -1 },
   { id: 'palmera', kind: 'palm', age: 1 }, { id: 'cactus', kind: 'cactus', age: 1 },
@@ -45,12 +46,13 @@ const BAKE_U = { value: 0 };   // 0: el color; 1: la normal
 const v3 = new THREE.Vector3(), m4 = new THREE.Matrix4(), col = new THREE.Color();
 
 // Dónde se planta cada árbol de muestra: un sitio cualquiera en el que su tamaño por el sitio salga en medio (k = su
-// edad), lejos de todo; el giro que le toca ahí se apunta, para orientar cada impostor como su árbol de cerca
+// edad), lejos de todo; el giro que le toca ahí se apunta, para orientar cada impostor como su árbol de cerca. Va sin
+// tinte (neutral: cada árbol lejano lleva el suyo en el color de su tarjeta, ver buildFarImpostors) y con su variant
 function sample(def, i, season) {
   for (let n = 0; n < 400; n++) {
     const x = 9000.5 + i * 37 + n * 3, y = 9000.5 + n * 5;
     if (Math.abs(ihash(Math.floor(x * 7), Math.floor(y * 7), 11) - 0.5) < 0.04 || n === 399)
-      return { kind: def.kind === 'snowPine' && season === 3 ? 'pine' : def.kind, x, y, key: 'impostor:' + i, age: def.age };
+      return { kind: def.kind === 'snowPine' && season === 3 ? 'pine' : def.kind, x, y, key: 'impostor:' + i, age: def.age, variant: def.variant, neutral: true };
   }
 }
 // El giro de un árbol de cerca (nature3d.js, pieces: rot)
@@ -301,8 +303,10 @@ export function buildFarImpostors(objs, groundY, atlas) {
     im.setMatrixAt(i, m4);
     // (girado como su árbol de cerca: rot, en la muestra, va a parar a rot del árbol, en el sentido de su especie)
     aImp[i * 2] = s.yaw * (s.rot - rotOf(o)); aImp[i * 2 + 1] = s.row;
-    const t = 0.94 + 0.12 * ihash(Math.floor(o.x * 3), Math.floor(o.y * 3), 93);
-    im.setColorAt(i, col.setRGB(t, t, t));
+    // (el color: en los de hoja, el tinte de su copa, el mismo que el de cerca, nature3d.js, leafTint; cae también en el
+    // tronco, que de lejos apenas se ve y es oscuro. Los demás, como su muestra, igual que de cerca)
+    if (o.kind === 'oak' || o.kind === 'fruit' || o.kind === 'swampTree') im.setColorAt(i, col.copy(leafTint(o, atlas.season)));
+    else im.setColorAt(i, col.setRGB(1, 1, 1));
   });
   im.instanceMatrix.needsUpdate = true; im.instanceColor.needsUpdate = true;
   im.castShadow = im.receiveShadow = false;

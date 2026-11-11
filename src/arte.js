@@ -57,6 +57,28 @@ export const tonosSuelo = (c, k = 1) => {
 // el de ahora en el mismo código. Se lee en el hilo principal (de la dirección de la página) y en el del suelo (de la
 // suya: terrain.js le pasa la opción al crearlo). Ver opciones.js
 export const SUELO_V2 = apagada('suelo');
+// Las hojas de los árboles de hoja y de los arbustos por estación (0 primavera … 3 invierno): los colores de las matas de
+// la copa, cada uno con lo que se da (w). Cada mata de un árbol toma uno (por su número y la clase de árbol, para que el
+// lejano case: nature3d.js, broadleaf2) y sus hojas casi todas de él: así la copa tiene manchas, no un ruido parejo que de
+// lejos se queda en un solo tono. En primavera, verdes
+// tiernos y claros; en verano, verdes más hondos, unos amarillentos y otros azulados; en otoño, la mezcla de verdad: los
+// verdes que quedan, oro, amarillo, naranja, rojizo y pardo (en `otono`, los dos robles del atlas de lejos: el A, más
+// verde y dorado; el B, más naranja y rojizo). En invierno los árboles se quedan en ramas; el color, de los arbustos.
+// Encima de esto, cada árbol lleva su tinte (nature3d.js, leafTint), el mismo de cerca y de lejos.
+export const HOJAS = [
+  { c: ['#7d9848', '#89a24f', '#6c8a42', '#99aa58', '#76924f'], w: [3, 2, 2, 1, 2] },
+  { c: ['#4c672f', '#587136', '#63783a', '#475f35', '#6a7c3c'], w: [3, 3, 2, 2, 1] },
+  { c: ['#6c7535', '#a2842d', '#b5962f', '#a96a2c', '#8f4529', '#7c5631'], w: [2, 3, 2, 3, 2, 2],
+    otono: [[3, 4, 3, 2, 1, 1], [1, 2, 1, 4, 3, 2]] },
+  { c: ['#858c84', '#8f968d', '#7a8279'], w: [2, 1, 1] },
+];
+// El sauce: verde amarillento (en primavera, casi limón), amarillo en otoño, y en invierno sus ramillas peladas, doradas
+export const SAUCE = [
+  { c: ['#8aa04a', '#94a852', '#7d9446'], w: [2, 1, 1] },
+  { c: ['#6f8542', '#7a8c47', '#64793e'], w: [2, 2, 1] },
+  { c: ['#a99a3f', '#b9a446', '#8f8c40', '#a1823a'], w: [3, 2, 2, 1] },
+  { c: ['#9c8a4c', '#a8955a', '#8a7a44'], w: [2, 1, 1] },
+];
 // Para todo lo demás que no tiene color propio en la paleta (muebles, telas, toldos…): saturación ×0,7 y valor ×0,9,
 // para que no chille sobre el mundo sobrio.
 const APAGADO = new Map();

@@ -8,7 +8,7 @@ import * as THREE from 'three';
 import { mat, rockGeo, snowCap } from './geo.js';
 import { bark, rockFace } from './textures.js';
 import { ihash, vnoise } from '../util.js';
-import { tonos, SUELO_V2 } from '../arte.js';
+import { tonos, SUELO_V2, HOJAS, SAUCE } from '../arte.js';
 import { macroOf, MAC_K, grassKeep } from '../world/ground.js';
 import { climate, wetness } from '../world/biomes.js';
 import { FLOWER_GEO, FLOWER_COLORS } from './flowers3d.js';
@@ -19,16 +19,17 @@ import { opcion, apagada } from '../opciones.js';
 const tmp = new THREE.Object3D(), col = new THREE.Color();
 // Viento: el tiempo que mueve la hierba y las copas (lo avanza el dibujo)
 export const WIND = { value: 0 };
-function sway(material, amount, speed = 1) {
+// hang: lo que cuelga (las ramillas del sauce): se mece más cuanto más abajo, en vez de cuanto más arriba
+function sway(material, amount, speed = 1, hang = false) {
   material.onBeforeCompile = sh => {
     sh.uniforms.windTime = WIND;
     sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nuniform float windTime;').replace('#include <begin_vertex>', `#include <begin_vertex>
       vec4 wp = instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0);
       float t = windTime * ${speed.toFixed(2)};
       float s = sin(t * 1.6 + wp.x * 0.35 + wp.z * 0.25) * 0.6 + sin(t * 2.9 + wp.x * 0.9 - wp.z * 0.4) * 0.3;
-      transformed.xz += vec2(s, s * 0.5) * ${amount.toFixed(3)} * max(position.y, 0.0);`);
+      transformed.xz += vec2(s, s * 0.5) * ${amount.toFixed(3)} * max(${hang ? '-' : ''}position.y, 0.0);`);
   };
-  material.customProgramCacheKey = () => `sway${amount}:${speed}`;
+  material.customProgramCacheKey = () => `sway${amount}:${speed}${hang ? ':cuelga' : ''}`;
   return material;
 }
 
@@ -53,6 +54,7 @@ const GEO = {
   rib: (() => { const g = new THREE.CylinderGeometry(1, 1, 1, 24, 1), p = g.attributes.position; for (let i = 0; i < p.count; i++) { const a = Math.atan2(p.getZ(i), p.getX(i)), f = 1 + 0.1 * Math.cos(a * 10); p.setX(i, p.getX(i) * f); p.setZ(i, p.getZ(i) * f); } g.computeVertexNormals(); return g; })(),
   ribTop: (() => { const g = new THREE.SphereGeometry(1, 24, 8, 0, Math.PI * 2, 0, Math.PI / 2), p = g.attributes.position; for (let i = 0; i < p.count; i++) { const a = Math.atan2(p.getZ(i), p.getX(i)), f = 1 + 0.1 * Math.cos(a * 10); p.setX(i, p.getX(i) * f); p.setZ(i, p.getZ(i) * f); } g.computeVertexNormals(); return g; })(),
   rock0: rockGeo(1), rock1: rockGeo(2), rock2: rockGeo(3),
+  strand: strandGeo(),
 };
 // Una hoja de palmera: el nervio, que se arquea hacia abajo, con sus foliolos largos a los dos lados (a lo largo de +z)
 function frondGeo() {
@@ -64,6 +66,39 @@ function frondGeo() {
   const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.computeVertexNormals();
   return g;
 }
+// Una ramilla colgante del sauce: una tira que sale de lo alto de la copa (el origen) hacia fuera (+z), se arquea sobre la
+// cúpula (hasta z = 1, bajando ARCH) y cae a plomo hasta y = -1, algo abierta al final. Por instancia se escala con su
+// ancho (x), lo que cae (y) y lo que se aparta (z). Así, desde la cámara alta se ve la parte de arriba, tumbada sobre la
+// copa como las ramillas de un sauce de verdad, y de lado, lo que cuelga: nunca una tarjeta de canto. Más estrecha en el
+// arranque (ahí se juntan todas) y algo doblada a lo largo; v: 1 arriba. Las normales, hacia fuera (arriba en lo alto, de
+// lado en lo que cuelga) y apenas abiertas hacia los bordes (más, y cada tira parecía la hoja de una palmera); y el color
+// de cada vértice, la luz del cielo que le llega: entera en lo alto y menos hacia abajo, donde la tapan las de encima (lo
+// mismo de cerca que en el impostor: va en el color)
+function strandGeo() {
+  const ARCH = 0.24, rows = [];
+  for (let k = 0; k <= 3; k++) { const f = (k / 3) * Math.PI / 2; rows.push([Math.sin(f), -(1 - Math.cos(f)) * ARCH]); }
+  for (let k = 1; k <= 2; k++) { const u = k / 2; rows.push([1 + 0.1 * u * u, -ARCH - (1 - ARCH) * u]); }
+  // (lo largo de la tira con unas medidas de sauce, 1,5 m hacia fuera y 3,5 m de caída: para que la textura no se estire)
+  const len = [0];
+  for (let i = 1; i < rows.length; i++) len.push(len[i - 1] + Math.hypot((rows[i][0] - rows[i - 1][0]) * 1.5, (rows[i][1] - rows[i - 1][1]) * 3.5));
+  const L = len[len.length - 1], pos = [], nor = [], uv = [], cl = [], idx = [], FOLD = 0.16;
+  rows.forEach(([zz, yy], i) => {
+    const a = rows[Math.max(0, i - 1)], b = rows[Math.min(rows.length - 1, i + 1)], tz = b[0] - a[0], ty = b[1] - a[1], tl = Math.hypot(tz, ty);
+    const ny = tz / tl, nz = -ty / tl, half = 0.5 * (0.5 + 0.5 * Math.min(1, len[i] / len[3])), q = len[i] / L, sky = 1 - 0.4 * q ** 1.3;
+    // (tres vértices por fila: la tira va doblada a lo largo, con el lomo hacia fuera, como un tejado; así, vista de canto,
+    // cada mitad se sigue viendo algo y no es una raya)
+    for (const sd of [-1, 0, 1]) {
+      const lift = sd ? -FOLD * half : 0, n = new THREE.Vector3(sd * 0.22, ny, nz).normalize();
+      pos.push(sd * half, yy + ny * lift, zz + nz * lift); nor.push(n.x, n.y, n.z); uv.push((sd + 1) / 2, 1 - q); cl.push(sky, sky, sky);
+    }
+    if (i) { const o = (i - 1) * 3; idx.push(o, o + 3, o + 1, o + 1, o + 3, o + 4, o + 1, o + 4, o + 2, o + 2, o + 4, o + 5); }
+  });
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2)); g.setAttribute('color', new THREE.Float32BufferAttribute(cl, 3));
+  g.setIndex(idx);
+  return g;
+}
 // Las tarjetas de hojas se ven por las dos caras con la luz de la de fuera (si no, las de espaldas salen negras)
 function oneSided(m) {
   const before = m.onBeforeCompile;
@@ -71,35 +106,50 @@ function oneSided(m) {
   const key = m.customProgramCacheKey; m.customProgramCacheKey = () => key() + ':una';
   return m;
 }
-// Los atlas de hojas, en gris claro sobre transparente (el color va por tarjeta): 'roble', un manojo de hojas
-// anchas con sus ramitas; 'fina', muchas hojas menudas y apretadas (los arbustos); 'sauce', ramillas que cuelgan con
-// hojas largas y estrechas a los dos lados (el sauce llorón)
+// Los atlas de hojas, en gris sobre transparente (el color va por tarjeta): 'roble', un manojo de hojas anchas con sus
+// ramitas; 'fina', muchas hojas menudas y apretadas (los arbustos); 'sauce', ramillas que cuelgan con hojas largas y
+// estrechas a los dos lados (el sauce llorón); 'ramillas', las del sauce en invierno, peladas. Cada hoja tiene forma de
+// hoja (ovalada, con la base más ancha y la punta más fina), con su nervio, la mitad que da a la luz más clara que la otra y la base en
+// sombra; en el manojo, las de dentro más oscuras y las del borde, encima y claras: así la copa tiene hondura, con el
+// borde iluminado, y no un gris parejo (que, teñido de ocre, parecía paja)
 function leafAtlas(kind = 'roble') {
-  const W = 256, H = kind === 'sauce' ? 512 : 256, c = document.createElement('canvas'); c.width = W; c.height = H;
-  const x = c.getContext('2d'); let seed = kind === 'fina' ? 11 : kind === 'sauce' ? 23 : 7; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  const W = 256, tall = kind === 'sauce' || kind === 'ramillas', H = tall ? 512 : 256, c = document.createElement('canvas'); c.width = W; c.height = H;
+  const x = c.getContext('2d'); let seed = kind === 'fina' ? 11 : tall ? 23 : 7; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  const g = v => { const k = Math.max(0, Math.min(255, Math.round(v))); return `rgb(${k},${k},${k})`; };
   const leaf = (px, py, ang, L, w, v) => {
     x.save(); x.translate(px, py); x.rotate(ang);
-    x.fillStyle = `rgb(${v},${v},${v})`; x.beginPath(); x.ellipse(0, 0, L, w, 0, 0, Math.PI * 2); x.fill();
-    x.strokeStyle = 'rgba(0,0,0,0.22)'; x.lineWidth = 1; x.beginPath(); x.moveTo(-L, 0); x.lineTo(L * 0.9, 0); x.stroke();
+    for (const sd of [-1, 1]) {
+      const k = sd < 0 ? 1.06 : 0.86, gr = x.createLinearGradient(-L, 0, L, 0);
+      gr.addColorStop(0, g(v * k * 0.8)); gr.addColorStop(0.45, g(v * k)); gr.addColorStop(1, g(v * k * 1.04));
+      x.fillStyle = gr; x.beginPath(); x.moveTo(-L, 0); x.bezierCurveTo(-L * 0.95, sd * w * 1.3, L * 0.55, sd * w * 1.35, L, 0); x.closePath(); x.fill();
+    }
+    x.strokeStyle = 'rgba(0,0,0,0.25)'; x.lineWidth = 1; x.beginPath(); x.moveTo(-L, 0); x.lineTo(L * 0.85, 0); x.stroke();
     x.restore();
   };
-  if (kind === 'sauce') {
-    for (let i = 0; i < 15; i++) {
-      let px = 12 + rnd() * (W - 24), py = 0; const len = H * (0.65 + rnd() * 0.35), bend = (rnd() - 0.5) * 0.6;
-      x.strokeStyle = 'rgb(120,110,90)'; x.lineWidth = 1.2; x.beginPath(); x.moveTo(px, py);
+  if (tall) {
+    const bare = kind === 'ramillas';
+    // (las peladas, más y más gruesas: si no, de lejos los mips las borran y el sauce de invierno se queda en una neblina)
+    for (let i = 0; i < (bare ? 38 : 22); i++) {
+      // (las de los lados, más cortas: la tira acaba en punta deshilachada, no en un borde recto)
+      const u = rnd(), px = 12 + u * (W - 24), len = H * (0.5 + rnd() * 0.5) * (0.55 + 0.45 * (1 - Math.abs(2 * u - 1))), bend = (rnd() - 0.5) * 0.6, sv = (bare ? 175 : 150) + rnd() * 70;
+      x.strokeStyle = bare ? g(sv) : 'rgb(120,110,90)'; x.lineWidth = bare ? 2.8 : 1.2; x.beginPath(); x.moveTo(px, 0);
       const pts = [];
-      for (let t = 0; t <= len; t += 6) { const q = t / len, nx = px + Math.sin(q * 2.2 + i) * 6 + bend * t * 0.15; pts.push([nx, t]); x.lineTo(nx, t); }
+      for (let t = 0; t <= len; t += 6) { const q = t / len, nx = px + Math.sin(q * 2.2 + i) * 9 + bend * t * 0.15; pts.push([nx, t]); x.lineTo(nx, t); }
       x.stroke();
-      pts.forEach(([qx, qy], j) => { if (j % 1 === 0 && j > 1) { const sd = j % 2 ? 1 : -1, ang = Math.PI / 2 + sd * (0.35 + rnd() * 0.35); leaf(qx + sd * 5, qy + 4, ang, 9 + rnd() * 6, 2.2 + rnd() * 1.2, 150 + Math.floor(rnd() * 100)); } });
+      if (bare) { x.fillStyle = g(sv * 1.1); pts.forEach(([qx, qy], j) => { if (j > 1 && rnd() < 0.3) { x.beginPath(); x.ellipse(qx + (rnd() < 0.5 ? 2 : -2), qy, 1.8, 2.8, 0, 0, Math.PI * 2); x.fill(); } }); continue; }
+      pts.forEach(([qx, qy], j) => { if (j > 1) { const sd = j % 2 ? 1 : -1, ang = Math.PI / 2 + sd * (0.35 + rnd() * 0.35); leaf(qx + sd * 5, qy + 4, ang, 9 + rnd() * 6, 2.2 + rnd() * 1.2, sv * (0.82 + rnd() * 0.3)); } });
     }
   } else {
-    const fina = kind === 'fina', n = fina ? 260 : 90;
-    x.strokeStyle = 'rgb(90,80,70)'; x.lineWidth = fina ? 1.2 : 2;
+    const fina = kind === 'fina', n = fina ? 260 : 90, Rm = W * (fina ? 0.45 : 0.4), list = [];
+    x.strokeStyle = 'rgb(70,62,54)'; x.lineWidth = fina ? 1.2 : 2;
     for (let i = 0; i < (fina ? 9 : 5); i++) { x.beginPath(); x.moveTo(W / 2, H / 2); x.lineTo(W / 2 + (rnd() - 0.5) * W * 0.8, H / 2 + (rnd() - 0.5) * H * 0.8); x.stroke(); }
     for (let i = 0; i < n; i++) {
-      const a = rnd() * Math.PI * 2, d = Math.sqrt(rnd()) * W * (fina ? 0.42 + 0.06 * Math.sin(a * 5) : 0.4), L = fina ? 6 + rnd() * 5 : 16 + rnd() * 14;
-      leaf(W / 2 + Math.cos(a) * d, H / 2 + Math.sin(a) * d, rnd() * Math.PI * 2, L, L * (fina ? 0.55 : 0.42), (fina ? 130 : 150) + Math.floor(rnd() * (fina ? 125 : 105)));
+      const a = rnd() * Math.PI * 2, d = Math.sqrt(rnd()) * Rm * (fina ? 1 + 0.13 * Math.sin(a * 5) : 1), L = fina ? 6 + rnd() * 5 : 16 + rnd() * 14, f = Math.min(1, d / Rm);
+      // (giradas de cualquier manera, que si miran todas hacia fuera el manojo parece una estrella; de dentro, más oscuras)
+      list.push([d, W / 2 + Math.cos(a) * d, H / 2 + Math.sin(a) * d, rnd() * Math.PI * 2, L, L * (fina ? 0.5 : 0.42), 100 + 135 * f ** 0.8 + (rnd() - 0.5) * 44]);
     }
+    list.sort((p, q) => p[0] - q[0]);
+    for (const [, px, py, ang, L, w, v] of list) leaf(px, py, ang, L, w, v);
   }
   const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4;
   return t;
@@ -113,18 +163,48 @@ const mats = () => (MATS ||= {
   snow: mat({ color: '#dfe4e6', roughness: 0.85 }),
   card: oneSided(sway(mat({ map: leafAtlas(), alphaTest: 0.5, side: THREE.DoubleSide, roughness: 0.9 }), 0.035, 0.7)),
   cardS: oneSided(sway(mat({ map: leafAtlas('fina'), alphaTest: 0.5, side: THREE.DoubleSide, roughness: 0.9 }), 0.03, 0.8)),
-  cardW: oneSided(sway(mat({ map: leafAtlas('sauce'), alphaTest: 0.45, side: THREE.DoubleSide, roughness: 0.85 }), 0.06, 0.6)),
+  strand: oneSided(sway(mat({ map: leafAtlas('sauce'), alphaTest: 0.45, side: THREE.DoubleSide, roughness: 0.85, vertexColors: true }), 0.035, 0.6, true)),
+  strandB: oneSided(sway(mat({ map: leafAtlas('ramillas'), alphaTest: 0.45, side: THREE.DoubleSide, roughness: 0.9, vertexColors: true }), 0.035, 0.6, true)),
   tier: sway(mat({ roughness: 0.95, side: THREE.DoubleSide, shadowSide: THREE.BackSide, flatShading: true }), 0.02, 0.6),
   rock2: mat({ map: rockFace(), flatShading: true, roughness: 0.92 }),
   frond2: sway(mat({ color: '#ffffff', side: THREE.DoubleSide, shadowSide: THREE.DoubleSide, roughness: 0.85 }), 0.05, 1.2),
   cactus2: mat({ color: '#ffffff', roughness: 0.75 }), snowRock: snowCap({ flatShading: true }),
   petal: mat({ roughness: 0.8, side: THREE.DoubleSide }), puff: mat({ roughness: 1, side: THREE.DoubleSide, transparent: true, opacity: 0.9, depthWrite: false }),
 });
-// Colores de las hojas según la estación (0 primavera … 3 invierno), de la paleta sobria (las flores y la fruta, vivas)
-const LEAF = [tonos('#6f8050'), tonos('#59683f'), ['#94703a', '#a07c42', '#7f4e2e', '#8c6438'], tonos('#858c84')];
-const SWAMP = [['#5d6a45', '#65724b'], ['#525f3d', '#5a6743'], ['#86683a', '#93733f'], ['#7a8076', '#868c82']];
+// Colores de las hojas según la estación (0 primavera … 3 invierno): los de la paleta (arte.js: HOJAS y SAUCE), por matas.
+// pickW: uno de ellos, según lo que se da cada uno (u, de 0 a 1)
+function pickW(P, u, w = P.w) {
+  let sum = 0;
+  for (const v of w) sum += v;
+  let t = u * sum;
+  for (let i = 0; i < w.length; i++) if ((t -= w[i]) < 0) return P.c[i];
+  return P.c[P.c.length - 1];
+}
+// El tinte de cada árbol de hoja, por su sitio: lo que se aparta su copa del color de la estación, para que no salgan todos
+// iguales. En primavera, algo más claro u oscuro y más o menos amarillo; en verano, de verde azulado a amarillento; en
+// otoño, de los que aún verdean a los que ya están rojizos, y algunos pardos, apagados. Lo usan el árbol de cerca (en el
+// color de todas sus hojas, sobre el de cada mata) y el lejano (impostor.js: el color de su tarjeta), así que casan; los de
+// muestra del atlas van sin él (o.neutral). Es un factor por canal, en el espacio lineal, como el color de las instancias
+const TINT = new THREE.Color();
+export function leafTint(o, season, out = TINT) {
+  if (o.neutral || season === 3) return out.setRGB(1, 1, 1);
+  const a = ihash(Math.floor(o.x * 5) + 3, Math.floor(o.y * 5), 57), b = ihash(Math.floor(o.x * 5), Math.floor(o.y * 5) + 5, 59);
+  let R = 1, G = 1, B = 1, v;
+  if (season === 0) { v = 0.94 + 0.12 * b; R = 0.94 + 0.12 * a; B = 1.06 - 0.14 * a; }
+  else if (season === 1) { v = 0.86 + 0.2 * b; R = 0.82 + 0.32 * a; G = 0.96 + 0.08 * a; B = 1.16 - 0.38 * a; }
+  else {
+    v = 0.9 + 0.16 * b;
+    if (b < 0.16) { R = 0.9; G = 0.8; B = 0.78; }                                                  // pardo
+    else if (a < 0.35) { const t = a / 0.35; R = 0.78 + 0.22 * t; G = 1.03 - 0.03 * t; B = 0.72 + 0.28 * t; }   // aún verdea
+    else if (a > 0.68) { const t = (a - 0.68) / 0.32; R = 1 + 0.08 * t; G = 1 - 0.26 * t; B = 1 - 0.22 * t; }   // rojizo
+  }
+  return out.setRGB(R * v, G * v, B * v);
+}
+// Cuál de los dos robles adultos del atlas de lejos es (impostor.js, pick: la misma cuenta): en otoño, cada uno con su mezcla
+const variantOf = o => o.variant ?? (ihash(Math.floor(o.x * 3), Math.floor(o.y * 3), 91) < 0.5 ? 0 : 1);
+// Un color de hoja (hex) por f, teñido
+const leafC = (c, f, tint) => col.set(c).multiplyScalar(f).multiply(tint).getHex();
 const PINE = tonos('#3f5240');
-const FRUIT_LEAF = tonos('#66784a').slice(0, 3);
 const BLOSSOM = ['#ffb8d0', '#ffd0e0', '#ffffff'];
 
 // Instancias de una pieza: list = [{ p, s, r, c }]
@@ -175,18 +255,20 @@ function pieces(o, season, out, owner, y = 0) {
     const tree = o.tree || 'oak';
     push('twig', { p: [x, y + 0.25, z], s: [1.2, 0.5, 1.2] });
     if (tree === 'pine') push('cone', { p: [x, y + 0.55, z], s: [0.22, 0.32, 0.22], c: PINE[0] });
-    else for (let i = 0; i < 3; i++) push('lump', { p: [x + (i - 1) * 0.08, y + 0.5 + (i % 2) * 0.08, z], s: 0.12, c: LEAF[season === 3 ? 1 : season][i] });
+    else for (let i = 0; i < 3; i++) push('lump', { p: [x + (i - 1) * 0.08, y + 0.5 + (i % 2) * 0.08, z], s: 0.12, c: HOJAS[season === 3 ? 1 : season].c[i] });
   }
 }
 
 // (la edad y las medidas de cada árbol: world/treedims.js, las mismas para el de cerca y el lejano)
 const darker = (c, f) => col.set(c).multiplyScalar(f).getHex();
 const qa = new THREE.Quaternion(), qb = new THREE.Quaternion(), ZV = new THREE.Vector3(0, 0, 1), dv = new THREE.Vector3();
-// Roble, frutal y sauce del pantano: tronco con su pie, ramas que se abren y una copa de varias matas, con un núcleo oscuro
-// y tarjetas de hojas por fuera (en invierno, los de hoja caduca se quedan en ramas)
+// Roble y frutal: tronco con su pie, ramas que se abren y una copa de varias matas, con un núcleo oscuro y tarjetas de hojas
+// por fuera (en invierno se quedan en ramas). (El sauce del pantano va aparte: willow2)
 function broadleaf2(o, season, push, x, z, y, r, rot) {
-  const kind = o.kind, swamp = kind === 'swampTree', fruit = kind === 'fruit', { k, R, Ry, cy, th } = broadDims(o, y);
-  const bare = season === 3 && !swamp, pal = swamp ? SWAMP[season] : fruit && season < 2 ? FRUIT_LEAF : LEAF[season];
+  const kind = o.kind, fruit = kind === 'fruit', { k, R, Ry, cy, th } = broadDims(o, y);
+  const bare = season === 3, P = HOJAS[season], tint = leafTint(o, season).clone();
+  // (en otoño, los robles adultos con la mezcla de su roble del atlas de lejos; los jóvenes y los demás, con la de siempre)
+  const wts = season === 2 && kind === 'oak' && ageOf(o) > 0.75 ? P.otono[variantOf(o)] : P.w;
   push('trunk', { p: [x, y + 0.15, z], s: [2.3 * k, 0.3, 2.3 * k], r: [0, rot, 0] });   // el pie, más ancho
   // El tronco hasta donde se abren las ramas y, de ahí, la guía, más fina, hasta lo alto de la copa
   const fork = y + th + (cy - y - th) * 0.5;
@@ -206,24 +288,31 @@ function broadleaf2(o, season, push, x, z, y, r, rot) {
     }
   }
   if (bare) return;
-  // La copa: el núcleo (oscuro, el que da sombra) y las tarjetas de hojas alrededor de cada mata
-  for (const [cx, cY, cz, cr] of clumps) push('lump', { p: [cx, cY, cz], s: [cr * 0.5, cr * 0.45, cr * 0.5], r: [r(3), r(4), r(5)], c: darker(pal[0], 0.5) });
+  // La copa: cada mata con su color (casi todas sus hojas de él y alguna de otro: manchas, como en un árbol de verdad), con
+  // su núcleo oscuro (el que da sombra) y las tarjetas de hojas alrededor. Cada tarjeta, más oscura cuanto más dentro de su
+  // mata, más mirando abajo y más baja en la copa (la luz del cielo que le llega), y algo distinta de la de al lado: la copa
+  // tiene hondura, con el borde y lo alto iluminados. El color de cada mata va por su número y la clase de árbol (el roble
+  // adulto, por su variant), no por el sitio: con cinco o seis matas, la mezcla de cada árbol saldría muy distinta de la
+  // de su árbol de muestra del atlas de lejos (impostor.js) y, al acercarse, cambiaría de color; lo que cambia de un árbol a
+  // otro es su tinte (leafTint), que el lejano también lleva, y dónde cae cada mata
+  const seq = kind === 'oak' && ageOf(o) > 0.75 ? variantOf(o) : fruit ? 3 : 2, cc = clumps.map((_, i) => pickW(P, ihash(i, seq, 4242), wts));
+  // (el núcleo, algo subido y aplastado: por debajo de la mata casi no hay hojas, y de cerca, mirando hacia arriba, asomaba
+  // como una bola oscura; por arriba no pasa de donde llegaba)
+  clumps.forEach(([cx, cY, cz, cr], i) => push('lump', { p: [cx, cY + cr * 0.06, cz], s: [cr * 0.48, cr * 0.36, cr * 0.48], r: [r(3) * 0.4, r(4), r(5) * 0.4], c: leafC(cc[i], 0.42, tint) }));
   const cards = Math.round((fruit ? 60 : 50) * ageOf(o) + 8);
   for (let i = 0; i < cards; i++) {
-    const [cx, cY, cz, cr] = clumps[i % clumps.length], u = r(200 + i) * 1.5 - 0.5, f = r(300 + i) * Math.PI * 2, sq = Math.sqrt(1 - u * u);
+    const ci = i % clumps.length, [cx, cY, cz, cr] = clumps[ci], u = r(200 + i) * 1.5 - 0.5, f = r(300 + i) * Math.PI * 2, sq = Math.sqrt(1 - u * u);
     dv.set(sq * Math.cos(f), u, sq * Math.sin(f));
-    const dist = cr * (0.5 + r(400 + i) * 0.45);
+    const depth = r(400 + i), dist = cr * (0.5 + depth * 0.45);
     qa.setFromUnitVectors(ZV, dv); qb.setFromAxisAngle(ZV, r(500 + i) * 6.28); qa.multiply(qb); euler.setFromQuaternion(qa);
-    const sz = cr * (1.1 + r(600 + i) * 0.6);
-    push('card', { p: [cx + dv.x * dist, cY + dv.y * dist * 0.85, cz + dv.z * dist], s: [sz, sz, sz], r: [euler.x, euler.y, euler.z], c: darker(pal[Math.floor(r(700 + i) * pal.length)], 0.85 + r(800 + i) * 0.3) });
+    const sz = cr * (1.1 + r(600 + i) * 0.6), hi = Math.max(0, Math.min(1, (cY - cy) / Ry + 0.5));
+    const light = (0.76 + 0.32 * depth) * (0.86 + 0.18 * (u + 0.5) / 1.5) * (0.9 + 0.14 * hi) * (0.93 + 0.14 * r(800 + i));
+    push('card', { p: [cx + dv.x * dist, cY + dv.y * dist * 0.85, cz + dv.z * dist], s: [sz, sz, sz], r: [euler.x, euler.y, euler.z], c: leafC(r(700 + i) < 0.75 ? cc[ci] : pickW(P, r(750 + i), wts), light, tint) });
   }
-  // El sauce: cortinas de hojas que cuelgan del borde de la copa, de cara a fuera
-  if (swamp) for (let i = 0; i < 10; i++) { const a = (i / 10) * Math.PI * 2 + rot + r(900 + i) * 0.3, d = R * (0.82 + r(910 + i) * 0.12), L = Ry * (0.7 + r(920 + i) * 0.4); push('card', { p: [x + Math.cos(a) * d, cy - Ry * 0.25 - L * 0.4, z + Math.sin(a) * d], s: [R * 0.55, L, 1], r: [0, Math.PI / 2 - a, 0], c: darker(pal[i % pal.length], 0.9) }); }
   if (fruit && season < 3 && !(o.bare && season > 0)) for (let i = 0; i < (season === 0 ? 16 : 10); i++) {
     const a = r(60 + i) * Math.PI * 2, e = r(70 + i) * 0.9 - 0.25, d = R * 0.95;
     push(season === 0 ? 'bloom' : 'apple', { p: [x + Math.cos(a) * Math.cos(e) * d, cy + Ry * 0.25 + Math.sin(e) * Ry, z + Math.sin(a) * Math.cos(e) * d], s: season === 0 ? 0.08 : 0.09, c: season === 0 ? BLOSSOM[i % 3] : '#b8382a' });
   }
-  if (season === 3) push('snow', { p: [x, cy + Ry * 0.8, z], s: [R * 0.55, R * 0.12, R * 0.55] });
 }
 // Pino: tronco recto hasta arriba y siete pisos de ramas que se estrechan, con las puntas caídas (y nieve encima)
 function pine2(o, season, push, x, z, y, r, rot) {
@@ -270,50 +359,76 @@ function cactus2(o, season, push, x, z, y, r, rot) {
   }
   if (season === 0) for (let i = 0; i < 3; i++) push('bloom', { p: [x + (i - 1) * w * 0.5, y + th + w * 0.7, z], s: 0.07, c: ['#e8607a', '#f0d040', '#e8607a'][i] });
 }
-// Sauce llorón: tronco corto y grueso que se abre pronto en tres o cuatro brazos que suben y se arquean hacia fuera; la copa,
-// una cúpula de ramillas colgantes, y alrededor, cortinas de ramillas que caen casi hasta el suelo (verde amarillento)
-const WILLOW = [tonos('#7a8a46'), tonos('#6f7f40'), ['#a08a44', '#94803e'], tonos('#7a8070')];
+// Sauce llorón: tronco corto y grueso que se abre pronto en tres o cuatro brazos que suben y se arquean hacia fuera, con un
+// núcleo oscuro (la sombra de dentro) y, encima, la copa hecha de ramillas colgantes (GEO.strand): salen de lo alto, se
+// tumban sobre la cúpula y caen, en tres capas: las de la coronilla, cortas, que la cubren desde arriba; las de en medio, y
+// las de fuera, la cortina, que caen casi hasta el suelo (unas más que otras), con unas matas de hojas menudas tapando la
+// coronilla. Vista desde arriba es una cúpula de lóbulos, de ramillas que se abren hacia fuera; de lado, una cortina. Cada
+// ramilla, de uno de los colores de SAUCE, con el tinte del árbol; en invierno, peladas: solo las ramillas doradas, sin
+// núcleo ni matas
 function willow2(o, season, push, x, z, y, r, rot) {
-  const { k, Ry, cy } = broadDims(o, y), R = 2.1 * k, pal = WILLOW[season], fork = y + 1.25 * k;
+  const { k, H, Ry, cy } = broadDims(o, y), R = 2.1 * k, fork = y + 1.25 * k, bare = season === 3, P = SAUCE[season], tint = leafTint(o, season).clone();
   push('trunk', { p: [x, y + 0.15, z], s: [2.7 * k, 0.3, 2.7 * k], r: [0, rot, 0] });
   push('trunk', { p: [x, (y + fork) / 2, z], s: [2.1 * k, fork - y, 2.1 * k], r: [0.06, rot, 0.04] });
-  const n = 3 + Math.floor(r(2) * 2), heads = [];
+  const n = 3 + Math.floor(r(2) * 2), arms = [];
   for (let i = 0; i < n; i++) {
     const a = rot + (i / n) * Math.PI * 2 + r(110 + i) * 0.6, mid = [x + Math.cos(a) * R * 0.45, cy + Ry * 0.35, z + Math.sin(a) * R * 0.45], end = [x + Math.cos(a) * R * 0.8, cy + Ry * 0.2, z + Math.sin(a) * R * 0.8];
     branch(push, [x, fork - 0.1, z], mid, 1.2 * k); branch(push, mid, end, 0.65 * k);
-    heads.push(mid, end);
+    arms.push(a);
   }
-  push('lump', { p: [x, cy - Ry * 0.05, z], s: [R * 0.42, Ry * 0.38, R * 0.42], c: darker(pal[0], 0.5) });   // (el núcleo: la sombra)
-  // La cúpula: ramillas que cuelgan de lo alto, de cara a fuera
-  const cards = Math.round(40 * ageOf(o) + 10), yaw = (dx, dz) => Math.atan2(dx, dz);
-  for (let i = 0; i < cards; i++) {
-    const u = 0.15 + r(200 + i) * 0.85, f = r(300 + i) * Math.PI * 2, ring = Math.sqrt(1 - u * u), d = R * (0.35 + 0.6 * ring) * (0.85 + r(400 + i) * 0.2);
-    const px = x + Math.cos(f) * d, pz = z + Math.sin(f) * d, top = cy + Ry * (0.15 + 0.85 * Math.sqrt(Math.max(0, 1 - (d / R) ** 2))), h = Ry * (0.7 + r(600 + i) * 0.5), w = R * (0.32 + r(650 + i) * 0.15);
-    push('cardW', { p: [px, top - h * 0.45, pz], s: [w, h, 1], r: [-0.15, yaw(Math.cos(f), Math.sin(f)) + (r(500 + i) - 0.5) * 0.6, 0], c: darker(pal[Math.floor(r(700 + i) * pal.length)], 0.95 + r(800 + i) * 0.3) });
+  if (!bare) push('lump', { p: [x, cy + Ry * 0.02, z], s: [R * 0.58, Ry * 0.46, R * 0.58], r: [0, rot, 0], c: leafC(P.c[0], 0.32, tint) });
+  // Encima de cada brazo, la copa se abomba (más alta y más ancha): vista desde arriba no es un círculo liso sino de
+  // lóbulos, uno por brazo, como los de un sauce de verdad. lobe(f): de 0 (entre dos brazos) a 1 (encima de uno)
+  const lobe = f => { let m = 0; for (const a of arms) m = Math.max(m, Math.cos(Math.atan2(Math.sin(f - a), Math.cos(f - a)) * n / 2)); return m * m; };
+  // Las ramillas. Cada capa: cuántas, a qué distancia del centro y a qué altura (de H) salen, cuánto se apartan (de R),
+  // hasta qué altura sobre el suelo caen (de H; la de fuera, ver abajo), su ancho (de R) y cuánta luz les llega. Las de la
+  // coronilla salen de cualquier sitio de lo alto (no todas del centro: desde arriba, eso parecía una palmera) y hacia
+  // fuera más o menos; las de las otras dos capas, en corro, hacia fuera
+  const age = ageOf(o), top = y + H, type = bare ? 'cardStrandB' : 'cardStrand', yaw = (dx, dz) => Math.atan2(dx, dz);
+  const layers = [
+    { n: Math.round(11 + 6 * age), d: [0, 0.34], h: [0.95, 1.01], reach: [0.32, 0.48], low: [0.5, 0.66], w: [0.4, 0.54], light: 1.08, crown: true },
+    { n: bare ? 0 : Math.round(9 + 4 * age), d: [0.2, 0.3], h: [0.88, 0.95], reach: [0.44, 0.58], low: [0.3, 0.48], w: [0.4, 0.52], light: 0.96 },
+    { n: Math.round(14 + 5 * age), d: [0.34, 0.46], h: [0.8, 0.88], reach: [0.48, 0.62], low: null, w: [0.36, 0.5], light: 1 },
+  ];
+  let s = 0;
+  layers.forEach((L, li) => {
+    for (let i = 0; i < L.n; i++, s++) {
+      const q = (u, [a, b]) => a + (b - a) * u, ring = rot + ((i + (li % 2) * 0.5) / L.n) * Math.PI * 2 + (r(900 + s) - 0.5) * (5 / L.n);
+      // (la de la coronilla: un sitio cualquiera de lo alto, por área, y hacia fuera de él con hasta ±40°)
+      const at = L.crown ? r(905 + s) * Math.PI * 2 : ring, rd = L.crown ? Math.sqrt(r(910 + s)) : r(910 + s), f = L.crown ? at + (r(915 + s) - 0.5) * 1.4 : ring, lb = lobe(at);
+      const d = R * q(rd, L.d) * (0.85 + 0.25 * lb), dh = L.crown ? 0.1 * rd * rd : 0, ay = Math.min(top, y + H * (q(r(920 + s), L.h) - dh - 0.06 * (1 - lb))), reach = R * q(r(930 + s), L.reach) * (0.88 + 0.2 * lb);
+      // (la cortina: unas casi hasta el suelo y otras a media altura, para que su borde no sea una falda pareja)
+      const bottom = L.low ? y + H * q(r(940 + s), L.low) : y + 0.3 + (r(945 + s) < 0.45 ? r(940 + s) * 0.5 : 0.5 + r(940 + s) * 1.5);
+      // (la luz cambia poco de una a la de al lado: la copa se lee como una sola masa, no como tiras sueltas)
+      const light = L.light * (0.94 + 0.12 * r(950 + s)) * (0.93 + 0.12 * lb);
+      push(type, { p: [x + Math.cos(at) * d, ay, z + Math.sin(at) * d], s: [R * q(r(960 + s), L.w), Math.max(0.6, ay - bottom), reach], r: [0, yaw(Math.cos(f), Math.sin(f)), (r(970 + s) - 0.5) * 0.35], c: leafC(pickW(P, r(980 + s)), light, tint) });
+    }
+  });
+  // La coronilla, tapada: unas matas de hojas menudas tumbadas en lo alto, donde arrancan las ramillas (si no, desde arriba
+  // se veía el núcleo por el centro, como un agujero, y todas las tiras saliendo de él)
+  if (!bare) for (let i = 0, n = Math.round(5 + 4 * age); i < n; i++) {
+    const a = r(1100 + i) * Math.PI * 2, d = R * 0.3 * Math.sqrt(r(1110 + i)), u = 0.55 + r(1120 + i) * 0.45, f = r(1130 + i) * Math.PI * 2, sq = Math.sqrt(1 - u * u);
+    dv.set(sq * Math.cos(f), u, sq * Math.sin(f)); qa.setFromUnitVectors(ZV, dv); qb.setFromAxisAngle(ZV, r(1140 + i) * 6.28); qa.multiply(qb); euler.setFromQuaternion(qa);
+    const sz = R * (0.36 + r(1150 + i) * 0.16);
+    push('cardS', { p: [x + Math.cos(a) * d, top - 0.3 - 0.3 * (d / R) - r(1160 + i) * 0.15, z + Math.sin(a) * d], s: [sz, sz, sz], r: [euler.x, euler.y, euler.z], c: leafC(pickW(P, r(1170 + i)), 1.12 + 0.12 * r(1180 + i), tint) });
   }
-  // Las cortinas: por todo el borde, desde la copa hasta medio metro del suelo
-  // (a distintas distancias, la de fuera más baja de arriba, como sigue la cúpula, y de largos distintos: unas casi hasta
-  // el suelo y otras más cortas; abajo, algo abiertas hacia fuera)
-  if (season !== 3) for (let i = 0; i < 18; i++) {
-    const a = (i / 18) * Math.PI * 2 + rot + r(900 + i) * 0.3, q = 0.7 + r(910 + i) * 0.35, d = R * q, top = cy + Ry * (0.1 + 0.55 * Math.sqrt(Math.max(0, 1 - q * q * 0.8))), bottom = y + 0.4 + r(930 + i) * (r(935 + i) < 0.4 ? 1.4 : 0.5), L = top - bottom;
-    push('cardW', { p: [x + Math.cos(a) * d, top - L / 2, z + Math.sin(a) * d], s: [R * (0.3 + r(940 + i) * 0.14), L, 1], r: [0.1, yaw(Math.cos(a), Math.sin(a)) + (r(950 + i) - 0.5) * 0.7, 0], c: darker(pal[i % pal.length], 0.9 + r(960 + i) * 0.25) });
-  }
-  if (season === 3) push('snow', { p: [x, cy + Ry * 0.9, z], s: [R * 0.45, R * 0.08, R * 0.45] });
 }
 // Arbusto: unas matas pequeñas con su núcleo y tarjetas de hojas, de algo más de un metro (con bayas en verano o flores en
 // primavera, y nieve en invierno)
 function bush2(o, season, push, x, z, y, r, rot, h) {
   // Un monte bajo de cinco matas (una en medio, más alta, y cuatro alrededor), con el núcleo oscuro, muchas hojas menudas
   // y unas ramitas al pie; con bayas en verano o flores en primavera, y nieve en invierno
-  const k = 1.1 + h * 0.35, pal = LEAF[season], clumps = [[x, y + 0.5 * k, z, 0.4 * k]];
+  const k = 1.1 + h * 0.35, P = HOJAS[season], tint = leafTint(o, season).clone(), clumps = [[x, y + 0.5 * k, z, 0.4 * k]];
   for (let i = 0; i < 4; i++) { const a = rot + i * 1.57 + r(10 + i) * 0.5, d = (0.3 + r(15 + i) * 0.1) * k; clumps.push([x + Math.cos(a) * d, y + (0.28 + r(20 + i) * 0.14) * k, z + Math.sin(a) * d, (0.28 + r(25 + i) * 0.08) * k]); }
-  for (const [cx, cY, cz, cr] of clumps) push('lump', { p: [cx, cY, cz], s: [cr * 0.45, cr * 0.38, cr * 0.45], r: [r(3), r(4), 0], c: darker(pal[0], 0.6) });
+  // (cada mata, de un color, como en los árboles)
+  const cc = clumps.map((_, i) => pickW(P, r(1000 + i)));
+  clumps.forEach(([cx, cY, cz, cr], i) => push('lump', { p: [cx, cY + cr * 0.06, cz], s: [cr * 0.42, cr * 0.33, cr * 0.42], r: [r(3) * 0.4, r(4), 0], c: leafC(cc[i], 0.6, tint) }));
   for (let i = 0; i < 4; i++) { const a = rot + i * 1.6 + 0.4; push('twig', { p: [x + Math.cos(a) * 0.12 * k, y + 0.12, z + Math.sin(a) * 0.12 * k], s: [1.4, 0.3, 1.4], r: [Math.sin(a) * 0.5, 0, -Math.cos(a) * 0.5] }); }
   for (let i = 0; i < 36; i++) {
-    const [cx, cY, cz, cr] = clumps[i % clumps.length], u = r(200 + i) * 1.5 - 0.5, f = r(300 + i) * Math.PI * 2, sq = Math.sqrt(1 - u * u);
+    const ci = i % clumps.length, [cx, cY, cz, cr] = clumps[ci], u = r(200 + i) * 1.5 - 0.5, f = r(300 + i) * Math.PI * 2, sq = Math.sqrt(1 - u * u);
     dv.set(sq * Math.cos(f), u, sq * Math.sin(f)); qa.setFromUnitVectors(ZV, dv); qb.setFromAxisAngle(ZV, r(500 + i) * 6.28); qa.multiply(qb); euler.setFromQuaternion(qa);
-    const dist = cr * (0.45 + r(400 + i) * 0.5), sz = cr * (0.95 + r(600 + i) * 0.45);
-    push('cardS', { p: [cx + dv.x * dist, Math.max(y + 0.08, cY + dv.y * dist * 0.85), cz + dv.z * dist], s: [sz, sz, sz], r: [euler.x, euler.y, euler.z], c: darker(pal[Math.floor(r(700 + i) * pal.length)], 1.1 + r(800 + i) * 0.35) });
+    const depth = r(400 + i), dist = cr * (0.45 + depth * 0.5), sz = cr * (0.95 + r(600 + i) * 0.45), light = (0.92 + 0.36 * depth) * (0.9 + 0.2 * (u + 0.5) / 1.5) * (1.02 + r(800 + i) * 0.18);
+    push('cardS', { p: [cx + dv.x * dist, Math.max(y + 0.08, cY + dv.y * dist * 0.85), cz + dv.z * dist], s: [sz, sz, sz], r: [euler.x, euler.y, euler.z], c: leafC(r(700 + i) < 0.75 ? cc[ci] : pickW(P, r(750 + i)), light, tint) });
   }
   if (season === 1 && h < 0.5) for (let i = 0; i < 12; i++) { const a = r(60 + i) * 6.28, d = (0.3 + r(90 + i) * 0.1) * k; push('apple', { p: [x + Math.cos(a) * d, y + (0.3 + r(80 + i) * 0.45) * k, z + Math.sin(a) * d], s: 0.03, c: '#2e2e6a' }); }
   if (season === 0 && h > 0.5) for (let i = 0; i < 14; i++) { const a = r(60 + i) * 6.28, d = (0.32 + r(90 + i) * 0.1) * k; push('bloom', { p: [x + Math.cos(a) * d, y + (0.32 + r(80 + i) * 0.5) * k, z + Math.sin(a) * d], s: 0.04, c: ['#e87aa0', '#f0d84a', '#f4f0e8', '#a888e8'][i % 4] }); }
@@ -365,7 +480,7 @@ export function buildNatureChunk(objs, season, groundY, shadows = true) {
     trunk: [GEO.trunk, M.bark], lump: [GEO.lump, M.leaf], cone: [GEO.cone, M.leaf], snow: [GEO.lump, M.snow],
     apple: [GEO.ball, M.solid], bloom: [GEO.gem, M.solid], coconut: [GEO.ball, M.solid], gem: [GEO.gem, M.solid],
     cactusTop: [GEO.ball, M.cactus], twig: [GEO.twig, M.dry],
-    card: [GEO.card, M.card], cardS: [GEO.card, M.cardS], cardW: [GEO.card, M.cardW], tier: [GEO.tier, M.tier], snowTier: [GEO.tier, M.snow],
+    card: [GEO.card, M.card], cardS: [GEO.card, M.cardS], cardStrand: [GEO.strand, M.strand], cardStrandB: [GEO.strand, M.strandB], tier: [GEO.tier, M.tier], snowTier: [GEO.tier, M.snow],
     palmSeg: [GEO.palmSeg, M.palmTrunk], frond2: [GEO.frond2, M.frond2], rib: [GEO.rib, M.cactus2], ribTop: [GEO.ribTop, M.cactus2],
     rock0: [GEO.rock0, M.rock2], rock1: [GEO.rock1, M.rock2], rock2: [GEO.rock2, M.rock2],
     ...Object.fromEntries([...FLOWER_PART].map(k => [k, [FLOWER_GEO()[k], k === 'puff' ? M.puff : M.petal]])),
@@ -736,7 +851,7 @@ export function buildFarNature(objs, season, groundY) {
   for (const o of objs) {
     const x = o.x, z = o.y, y = groundY(x, z), h = ihash(Math.floor(x * 7), Math.floor(z * 7), 11), s = 0.85 + h * 0.35, rot = h * 6.28;
     if (o.kind === 'oak' || o.kind === 'fruit' || o.kind === 'swampTree') {
-      const { k, R, Ry, cy } = broadDims(o, y), pal = o.kind === 'swampTree' ? SWAMP[season] : LEAF[season];
+      const { k, R, Ry, cy } = broadDims(o, y), P = o.kind === 'swampTree' ? SAUCE[season] : HOJAS[season], tint = leafTint(o, season), pal = P.c.map(c => leafC(c, 0.85, tint));
       trunks.push({ p: [x, (y + cy) / 2, z], s: [1.5 * k, cy - y, 1.5 * k] });
       if (season < 3 || o.kind === 'swampTree') {
         lumps.push({ p: [x, cy + Ry * 0.2, z], s: [R * 0.95, Ry * 0.9, R * 0.95], r: [h, h * 2, 0], c: pal[Math.floor(h * pal.length)] });
