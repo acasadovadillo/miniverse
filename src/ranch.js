@@ -1,6 +1,9 @@
 // Granja: animales que viven en su casa (gallinero, establo, conejera, cuadra), salen de día a pastar si la
 // puerta está abierta, vuelven a dormir de noche (y con lluvia o en invierno se quedan dentro, comiendo del
 // comedero o del heno del silo) y cada mañana tienen su producto; los muy felices, a veces, uno especial.
+// Los herbívoros pastan de verdad: buscan una casilla con hierba cerca, se paran, bajan la cabeza a comer y la casilla
+// queda comida (como segada, para todos; vuelve a salir a los 7 días). Con 5 al día quedan alimentados; si no llegan,
+// tiran del comedero o del heno del silo.
 // Tienen crías: dos adultos contentos en la misma casa (las aves, con la incubadora) o, como en Minecraft, dos adultos
 // a los que se da a mano lo que más les gusta (trigo, semillas o zanahorias), que se buscan y la tienen al momento. El caballo se monta y
 // corre más cuanto más te quiere; el perro te sigue, escarba, avisa y va a por la pelota; el gato duerme en su
@@ -23,6 +26,16 @@ const STALLS = [[-1.5, -0.45], [1.5, -0.45], [-0.5, -0.55], [0.5, -0.55]];   // 
 const DOORS = new Set(['gallinero', 'establo', 'conejera']), MENU_PAGE = 5;   // (las casas con puerta y cuántos animales enseña el menú de una vez)
 const ROAM = 4.5, HONEY_EVERY = 3, GROW = 5, WAIT_BIRTH = 3, HATCH = 4, SILO_CAP = 240, STRAY_EVERY = 7;
 const FEED = ['heno', 'fibra', 'trigo'];
+// Los que pastan (los demás de granja picotean o hozan: con salir les basta) y lo que hace falta para eso: GRAZE_NEED
+// casillas al día; las buscan a menos de GRAZE_R de su casa, mirando GRAZE_TRY casillas al azar cada vez (no todas: es
+// por intervalos, y lo que cuesta no depende de cuánto campo haya). Comer una casilla les lleva EAT segundos y luego
+// descansan GRAZE_REST (unas 5 casillas en 6 minutos fuera); los que quedan lejos de todos, sin moverse, cada FAR_EVERY.
+// MOUTH: del centro del cuerpo al morro, para pararse con el morro encima de la casilla
+export const GRAZERS = new Set(['vaca', 'oveja', 'cabra', 'conejo', 'caballo']);
+export const GRAZE_NEED = 5;
+const GRAZE_R = 8, GRAZE_TRY = 14, EAT = [6, 10], GRAZE_REST = [40, 80], FAR_EVERY = [50, 90];
+const MOUTH = { vaca: 0.8, caballo: 0.85, oveja: 0.55, cabra: 0.6, conejo: 0.2 };
+const within = ([a, b]) => a + Math.random() * (b - a);
 // Lo que se les da a mano para que busquen pareja (las aves, cualquier semilla), cuánto dura y cuánto descansan luego
 const LOVE_FOOD = { gallina: ['trigo'], pato: ['trigo'], vaca: ['trigo'], oveja: ['trigo'], cabra: ['trigo'], cerdo: ['zanahoria'], conejo: ['zanahoria'] };
 const HEAT_MS = 30000, REST_MS = 5 * 60000, MATE_NEAR = 8;
@@ -31,7 +44,7 @@ const RUN = { perro: 4.2, gato: 2.6, caballo: 5 };   // corriendo (siguiendo a s
 const DIGS = [['bellota', 0.25], ['fibra', 0.2], ['pina', 0.15], ['semillas', 0.15], ['fosil_hueso', 0.08], ['moneda_antigua', 0.07], ['amatista', 0.05], ['fosil_concha', 0.05]];
 const GIFTS = ['sardina', 'plumas', 'bellota', 'fibra', 'bayas', 'carpa'];
 // Lo que se guarda de cada animal (lo demás es de paso: adónde va, si está dentro, si duerme…)
-const KEEP = ['id', 'type', 'name', 'home', 'love', 'ready', 'days', 'petDay', 'fedDay', 'born', 'breed', 'owner', 'expecting', 'bredDay', 'outDay', 'named', 'brushDay', 'carrotDay', 'shod', 'bags', 'rider', 'at', 'call', 'stray', 'sit', 'heat', 'bredAt'];
+const KEEP = ['id', 'type', 'name', 'home', 'love', 'ready', 'days', 'petDay', 'fedDay', 'born', 'breed', 'owner', 'expecting', 'bredDay', 'outDay', 'named', 'brushDay', 'carrotDay', 'shod', 'bags', 'rider', 'at', 'call', 'stray', 'sit', 'heat', 'bredAt', 'grazeDay', 'grazeN'];
 const pick = list => list[Math.floor(Math.random() * list.length)];
 const me = () => Profile.id || 'yo';
 const hearts = n => '♥'.repeat(Math.ceil(n / 2)) || '·';
@@ -207,25 +220,31 @@ export class Ranch {
     // El gallo canta al amanecer
     if (h >= 6 && h < 6.5 && this.crowed !== this.today && this.animals.some(a => a.breed === 'gallo' && Math.hypot(a.x - p.x, a.y - p.y) < 30)) { this.crowed = this.today; Audio.crow(); }
     this.mate(Date.now());
+    // (lejos: de todos los que juegan, también los de los demás; el servidor sin pantalla no tiene a nadie suyo)
+    const players = g.mobs.players(), day = !night && !bad;
     for (const a of this.animals) {
-      const def = a.def, far = Math.abs(a.x - p.x) + Math.abs(a.y - p.y) > 60;
+      const def = a.def, far = !players.some(q => Math.abs(a.x - q.x) + Math.abs(a.y - q.y) <= 60), grazer = GRAZERS.has(a.type);
       a.young = this.young(a);
       if (def.pet) { this.updatePet(a, dt, night); continue; }
-      if (def.ride) { this.updateHorse(a, dt); continue; }
+      if (def.ride) { this.updateHorse(a, dt, day); continue; }
       // De granja: fuera de día con la puerta abierta; dentro de noche, con lluvia, en invierno o con la puerta cerrada
-      const out = !night && !bad && this.doorOpen(a) && !!a.home;
+      const out = day && this.doorOpen(a) && !!a.home;
       if (out) a.outDay = this.today;
-      if (far) { if (!out && a.home) a.inside = true; continue; }   // (lejos: si tiene que estar dentro, ya lo está)
+      if (far) {   // (lejos: si tiene que estar dentro, ya lo está; si está fuera, pasta sin moverse)
+        if (!out && a.home) { a.inside = true; this.stopGrazing(a); } else if (out && grazer) this.grazeFar(a, dt);
+        continue;
+      }
       if (!out && a.inside) continue;                               // (dentro no hace nada ni se dibuja: no gasta)
-      if (a.panic > g.time) { a.walk(dt, this.world, (SPEED[a.type] || 1) * 3); continue; }   // (le han pegado: sale corriendo)
-      if (!a.home) { a.inside = false; a.roam(dt, this.world, a.x, a.y, 1); continue; }
+      if (a.panic > g.time) { this.stopGrazing(a); a.walk(dt, this.world, (SPEED[a.type] || 1) * 3); continue; }   // (le han pegado: sale corriendo)
+      if (!a.home) { a.inside = false; if (!(grazer && day && this.graze(a, dt, a.x, a.y))) a.roam(dt, this.world, a.x, a.y, 1); continue; }
       const [hx, hy] = a.home2;
       if (out) {
         if (a.inside) { a.inside = false; a.x = a.tx = hx; a.y = a.ty = hy; }
-        a.roam(dt, this.world, hx, hy);
+        if (!(grazer && this.graze(a, dt, hx, hy))) a.roam(dt, this.world, hx, hy);
         a.digging = def.truffle && !a.vx && !a.vy && Math.sin(g.time * 0.7 + a.x) > 0.6;
       } else if (!a.inside) {
         // Vuelve a casa y entra
+        this.stopGrazing(a);
         if (Math.hypot(a.tx - hx, a.ty - hy) > 0.1) a.go(hx, hy);
         if (a.walk(dt, this.world, (SPEED[a.type] || 1) * 1.4) || Math.hypot(a.x - hx, a.y - hy) < 0.4) { a.inside = true; a.x = hx; a.y = hy; }
       }
@@ -233,9 +252,84 @@ export class Ranch {
     this.updateBall();
   }
 
+  // ---------- pastar ----------
+  // Las casillas que ha pastado hoy (o el día que se diga: la cuenta de la mañana mira la de ayer)
+  grazedOn(a, day = this.today) { return a.grazeDay === day ? a.grazeN || 0 : 0; }
+  // Uno que pasta, cerca de quien juega: si está comiendo, sigue (y al acabar, la casilla queda comida); si va hacia
+  // una casilla, anda; si le hace falta comer y toca mirar, busca una cerca de (cx, cy). Devuelve si se ha ocupado de
+  // él (si no, pasea como siempre)
+  graze(a, dt, cx, cy) {
+    const g = this.game, w = this.world, today = this.today;
+    if (a.heat > Date.now() || a.sit) { this.stopGrazing(a); return false; }   // (buscando pareja, va a lo suyo)
+    if (a.eating > 0) {
+      a.vx = a.vy = 0;
+      if ((a.eating -= dt) > 0) return true;
+      const [tx, ty] = a.grazeAt;
+      if (w.pasture(tx, ty, today)) this.ate(a, tx, ty);   // (si nadie la ha segado mientras)
+      this.stopGrazing(a);
+      a.grazeNext = g.time + within(GRAZE_REST);
+      a.wait = 2 + Math.random() * 4;   // (se queda un rato quieto, rumiando)
+      return true;
+    }
+    if (a.grazeAt) {
+      const [tx, ty] = a.grazeAt, [mx, my] = a.grazeSpot;
+      if (!w.pasture(tx, ty, today)) { this.stopGrazing(a); a.grazeNext = g.time + 2; return false; }   // (alguien se la ha comido o la ha segado antes)
+      a.tx = mx; a.ty = my;
+      if (!a.walk(dt, w, (SPEED[a.type] || 1) * 0.8)) return true;
+      if (Math.hypot(a.x - mx, a.y - my) > 0.45) { this.stopGrazing(a); a.grazeNext = g.time + 4; return false; }   // (no ha podido llegar)
+      a.faceTo(tx + 0.5 - a.x, ty + 0.5 - a.y);
+      a.eating = within(EAT); a.grazing = true;
+      return true;
+    }
+    // (busca cuando le toca echar a andar: si está parado un rato, se queda parado)
+    if (a.wait > 0 || g.time < (a.grazeNext || 0) || this.grazedOn(a) >= GRAZE_NEED) return false;
+    a.grazeNext = g.time + 3 + Math.random() * 3;   // (si no encuentra, vuelve a mirar al rato)
+    const t = this.findGrass(a, a.x, a.y, cx, cy);
+    if (!t) return false;
+    // (se para con el morro encima: un poco antes del centro de la casilla, viniendo desde donde está)
+    const ex = t[0] + 0.5, ey = t[1] + 0.5, d = Math.hypot(ex - a.x, ey - a.y), reach = (MOUTH[a.type] || 0.5) * (a.young ? 0.55 : 1);
+    const [fx, fy] = d > 0.05 ? [ex - a.x, ey - a.y] : a.worldDir(), fl = Math.hypot(fx, fy) || 1, ux = fx / fl, uy = fy / fl;
+    a.grazeAt = t; a.grazeSpot = [ex - ux * reach, ey - uy * reach];
+    if (w.water(...a.grazeSpot) === 'deep') { a.grazeAt = null; return false; }
+    a.wait = 0;
+    return true;
+  }
+  // Una casilla con hierba para pastar, buscando desde (x, y) (primero cerca, luego más lejos) y, si no, alrededor de
+  // su casa (cx, cy); a menos de GRAZE_R de ella, sin muros por medio y que no vaya a comérsela otro. O null
+  findGrass(a, x, y, cx, cy) {
+    const w = this.world, today = this.today, taken = new Set();
+    for (const b of this.animals) if (b !== a && b.grazeAt) taken.add(`${b.grazeAt[0]},${b.grazeAt[1]}`);
+    for (let i = 0; i < GRAZE_TRY; i++) {
+      const near = i < GRAZE_TRY * 0.65, r = near ? 0.7 + (i / GRAZE_TRY) * GRAZE_R * 0.8 : Math.random() * GRAZE_R, ang = Math.random() * Math.PI * 2;
+      const px = (near ? x : cx) + Math.cos(ang) * r, py = (near ? y : cy) + Math.sin(ang) * r, tx = Math.floor(px), ty = Math.floor(py);
+      if (Math.hypot(tx + 0.5 - cx, ty + 0.5 - cy) > GRAZE_R || taken.has(`${tx},${ty}`)) continue;
+      if (w.pasture(tx, ty, today) && w.reaches(x, y, tx + 0.5, ty + 0.5)) return [tx, ty];
+    }
+    return null;
+  }
+  // Lejos de todos (no se le ve): pasta cada poco una casilla de cerca de su casa, sin moverse
+  grazeFar(a, dt) {
+    if (this.grazedOn(a) >= GRAZE_NEED) return;
+    a.farT ??= Math.random() * FAR_EVERY[0];
+    if ((a.farT += dt) < FAR_EVERY[0]) return;
+    a.farT = FAR_EVERY[0] - within(FAR_EVERY);
+    const [hx, hy] = a.home2 || [a.x, a.y], t = this.findGrass(a, hx, hy, hx, hy);
+    if (t) this.ate(a, ...t);
+  }
+  // Se la ha comido: la casilla queda como segada (en el trozo: lo ven todos) y le cuenta para hoy
+  ate(a, tx, ty) {
+    const today = this.today;
+    this.world.mow(tx, ty, today);
+    if (a.grazeDay !== today) { a.grazeDay = today; a.grazeN = 0; }
+    a.grazeN++;
+    if (a.grazeN === GRAZE_NEED && this.game.player && !Profile.server && Math.hypot(a.x - this.game.player.x, a.y - this.game.player.y) < 10) this.game.gather.float(`${a.name} ya ha pastado lo suyo`, '#c8f0a0');
+  }
+  stopGrazing(a) { a.eating = 0; a.grazing = false; a.grazeAt = null; }
+
   // El caballo: si lo monta alguien no se ve; si lo llaman, va al galope hasta su dueño; si no, pasta
-  updateHorse(a, dt) {
+  updateHorse(a, dt, day) {
     a.inside = false;
+    if (a.rider || a.calling) this.stopGrazing(a);
     if (a.rider) { if (a.rider !== me() && !this.player(a.rider)) a.rider = null; else return; }   // (si su jinete se fue, se queda ahí)
     if (a.calling) {
       const o = this.player(a.owner);
@@ -249,7 +343,7 @@ export class Ranch {
       return;
     }
     const [cx, cy] = a.home2 || a.at || [a.x, a.y];
-    a.roam(dt, this.world, cx, cy, a.home ? ROAM : 2);
+    if (!(day && this.graze(a, dt, cx, cy))) a.roam(dt, this.world, cx, cy, a.home ? ROAM : 2);
   }
 
   // Perro y gato: el perro sigue a su dueño cuando está jugando (y escarba, ladra y va a por la pelota); el gato,
@@ -355,8 +449,14 @@ export class Ranch {
     for (const a of this.animals) {
       const def = a.def;
       a.young = this.young(a);
-      if (def.pet || def.ride) { if (a.petDay < day - 3 && a.brushDay !== day - 1 && a.carrotDay !== day - 1) a.love = Math.max(0, a.love - 1); continue; }
-      const grazed = !winter && a.outDay >= day - 1, fed = grazed || this.eatFromFeeder(a) || this.eatHay();
+      if (def.pet || def.ride) {
+        if (a.petDay < day - 3 && a.brushDay !== day - 1 && a.carrotDay !== day - 1) a.love = Math.max(0, a.love - 1);
+        if (def.ride && this.grazedOn(a, day - 1) >= GRAZE_NEED) a.fedDay = day;   // (el caballo pasta, pero no le hace falta)
+        continue;
+      }
+      // (los que pastan, con sus casillas de ayer; los demás, con haber salido)
+      const grazed = GRAZERS.has(a.type) ? this.grazedOn(a, day - 1) >= GRAZE_NEED : !winter && a.outDay >= day - 1;
+      const fed = grazed || this.eatFromFeeder(a) || this.eatHay();
       if (a.petDay < day - 2) a.love = Math.max(0, a.love - 1);
       if (!fed) continue;
       a.fedDay = day;
@@ -613,14 +713,17 @@ export class Ranch {
     const def = a.def, mine = a.owner === me(), g = this.game;
     if (a.stray) return { text: `Adoptar ${a.type === 'perro' ? 'al perro' : 'al gato'}`, run: () => this.adopt(a) };
     if (!a.named && (!a.owner || mine)) return { text: `Ponerle nombre ${a.def.baby ? 'a la cría' : ''}`.trim(), run: () => this.name(a) };
-    if (def.ride && mine) return { text: `${a.name} ${hearts(a.love)}${a.young ? ' (potro)' : ''}`, run: () => this.horseMenu(a) };
+    const grass = GRAZERS.has(a.type) ? `ha pastado ${Math.min(GRAZE_NEED, this.grazedOn(a))}/${GRAZE_NEED}` : '';   // (lo que lleva hoy)
+    if (def.ride && mine) return { text: `${a.name} ${hearts(a.love)} (${a.young ? 'potro · ' : ''}${grass})`, run: () => this.horseMenu(a) };
     if (a.ready) return { text: `${def.verb} (${a.name})`, run: () => this.collect(a) };
     const food = this.loveFood(a);
     if (food) return { text: `Darle ${ITEMS[food].name.toLowerCase()} a ${a.name} (para que tenga una cría)`, run: () => this.court(a, food) };
     const whose = a.owner && !mine ? `, de ${g.live.nameOf?.(a.owner) || 'otra persona'}` : '';
     const sit = def.pet && mine ? { text: a.sit ? 'Que se levante' : 'Que se siente', run: () => this.toggleSit(a) } : null;   // (el perro y el gato propios)
-    if (a.petDay !== this.today) return { text: `Acariciar a ${a.name}${whose}`, run: () => this.pet(a), alt: sit };
-    const state = def.pet || def.ride ? (a.sit ? ' (sentado)' : '') : ` (${a.young ? 'cría · ' : ''}${a.fedDay === this.today ? 'ha comido' : 'tiene hambre'}${a.expecting !== undefined && a.expecting !== null ? ' · espera una cría' : ''})`;
+    if (a.petDay !== this.today) return { text: `Acariciar a ${a.name}${whose}${grass ? ` (${grass})` : ''}`, run: () => this.pet(a), alt: sit };
+    // (los que pastan: lo que llevan hoy, que es lo que cuenta para mañana; los demás, si han comido esta mañana)
+    const fed = grass || (a.fedDay === this.today ? 'ha comido' : 'tiene hambre');
+    const state = def.pet ? (a.sit ? ' (sentado)' : '') : def.ride ? ` (${grass})` : ` (${a.young ? 'cría · ' : ''}${fed}${a.expecting !== undefined && a.expecting !== null ? ' · espera una cría' : ''})`;
     return { text: `${a.name} ${hearts(a.love)}${state}`, run: () => this.pet(a), alt: sit };
   }
   // Sentarse y quedarse ahí, o levantarse (y el perro, volver a seguirte), como en Minecraft
@@ -742,7 +845,7 @@ export class Ranch {
     if (a.bags) opts.push(['Abrir las alforjas', () => g.onChest?.(() => a.bags, null, () => this.bagsChanged(a))]);
     opts.push(['Nada', () => this.pet(a)]);
     g.busy = true;
-    const bits = [a.shod ? 'con herraduras' : 'sin herraduras', a.bags ? 'con alforjas' : 'sin alforjas', `vínculo ${a.love}/10`];
+    const bits = [a.shod ? 'con herraduras' : 'sin herraduras', a.bags ? 'con alforjas' : 'sin alforjas', `vínculo ${a.love}/10`, `hoy ha pastado ${Math.min(GRAZE_NEED, this.grazedOn(a))}/${GRAZE_NEED}`];
     const i = await hud.ask(a.name, `${a.name} (${BREED_NAMES[a.breed]}, ${bits.join(', ')}). ¿Qué quieres hacer?`, opts.map(o => o[0]));
     g.busy = false;
     opts[i]?.[1]();
@@ -817,10 +920,10 @@ export class Ranch {
     const rows = list.map(a => {
       const age = this.young(a) ? ` · ${a.def.baby || 'cría'} de ${this.today - a.born} días` : '', who = a.owner ? ` · de ${a.owner === me() ? 'ti' : this.game.live.nameOf?.(a.owner) || 'otra persona'}` : '';
       const img = icon(a);
-      return `<div class="j-fish"><span class="j-cell done">${img ? `<img alt="" src="${img}">` : `<img alt="" data-icon="${a.def.home}">`}</span><span><b>${a.name}</b><small>${a.breed === 'gallo' ? 'Gallo' : `${a.def.name}${a.breed ? ' ' + BREED_NAMES[a.breed] : ''}`}${age}${who}${a.expecting !== undefined && a.expecting !== null ? ' · espera una cría' : ''}</small></span><span class="lvl">${hearts(a.love)}</span></div>`;
+      return `<div class="j-fish"><span class="j-cell done">${img ? `<img alt="" src="${img}">` : `<img alt="" data-icon="${a.def.home}">`}</span><span><b>${a.name}</b><small>${a.breed === 'gallo' ? 'Gallo' : `${a.def.name}${a.breed ? ' ' + BREED_NAMES[a.breed] : ''}`}${age}${who}${GRAZERS.has(a.type) ? ` · ha pastado ${Math.min(GRAZE_NEED, this.grazedOn(a))}/${GRAZE_NEED}` : ''}${a.expecting !== undefined && a.expecting !== null ? ' · espera una cría' : ''}</small></span><span class="lvl">${hearts(a.love)}</span></div>`;
     }).join('');
     const mail = this.farm.mail.filter(m => m.to === me()).length;
-    return `<p class="j-note">Heno en el silo: ${this.farm.hay}${this.siloCap ? ` de ${this.siloCap}` : ' (aún no tienes silo)'}${mail ? ` · ${mail} envío${mail > 1 ? 's' : ''} esperando en el palomar` : ''}. Los animales contentos (caricias cada día) dan más y, a veces, algo especial; dos adultos muy contentos en la misma casa tienen crías.</p>` + (rows || '<p class="j-note">Aún no tienes animales: Rosa los vende en su puesto.</p>');
+    return `<p class="j-note">Heno en el silo: ${this.farm.hay}${this.siloCap ? ` de ${this.siloCap}` : ' (aún no tienes silo)'}${mail ? ` · ${mail} envío${mail > 1 ? 's' : ''} esperando en el palomar` : ''}. Los animales contentos (caricias cada día) dan más y, a veces, algo especial; dos adultos muy contentos en la misma casa tienen crías. Las vacas, ovejas, cabras, conejos y caballos pastan: con ${GRAZE_NEED} casillas de hierba al día quedan alimentados (si no, comen del comedero o del heno del silo).</p>` + (rows || '<p class="j-note">Aún no tienes animales: Rosa los vende en su puesto.</p>');
   }
 }
 

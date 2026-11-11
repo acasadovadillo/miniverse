@@ -14,9 +14,10 @@ const PATCH = wrapNoise(0.45), THICK = wrapNoise(0.05), PINE_MIX = wrapNoise(0.0
 // (los trozos se cuentan siempre dentro del planeta: el de la otra punta de la costura es el mismo)
 const own = cx => wrapIndex(cx, CHUNK);
 
-// Cuánta hierba hay en cada bioma (la parte de sus casillas que la tienen) y a los cuántos días de segarla vuelve a salir
+// Cuánta hierba hay en cada bioma (la parte de sus casillas que la tienen) y a los cuántos días de segarla (o de que se
+// la coman los animales que pastan: ranch.js y wildlife.js) vuelve a salir
 const GRASS_DENSITY = { [B.MEADOW]: 0.95, [B.FOREST]: 0.78, [B.PINES]: 0.6, [B.SWAMP]: 0.5 };
-export const GRASS_REGROW = 3;
+export const GRASS_REGROW = 7;
 // Las flores silvestres que se cogen (objetos de la naturaleza, en manchas por la pradera y algo por el bosque). Salen
 // todas en primavera, casi todas en verano, menos en otoño y ninguna en invierno
 export const FLOWER_KINDS = new Set(['margarita', 'diente_leon']);

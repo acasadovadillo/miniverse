@@ -94,6 +94,35 @@ function tube(m, a, b, r0, r1, parent, seg = 10) {
   o.quaternion.setFromUnitVectors(UP, d.normalize());
   return o;
 }
+// El cuello de los que pastan, aparte del cuerpo, para que baje: un grupo en su base (girado para que su y vaya de la base
+// a la punta) con el tubo dentro, y la cabeza en la punta (se recoloca al moverlo: neckPose). graze, cómo queda pastando:
+// beta, cuánto baja el cuello por debajo de la horizontal, y S, el morro visto desde la cabeza [y, z]. Con eso (y el
+// tamaño de la cabeza, que se pone después: settleNeck) sale cuánto se estira y cuánto se inclina la cabeza para que el
+// morro quede entre la hierba. pts: lo que va pegado al cuello (la crin), en coordenadas del cuerpo
+function neckRig(body, u, m, base, tip, r0, r1, seg, graze, pts = []) {
+  const vy = tip[1] - base[1], vz = tip[2] - base[2], L = Math.hypot(vy, vz), a0 = Math.atan2(vz, vy);
+  const neck = new THREE.Group(); neck.position.set(0, base[1], base[2]); neck.rotation.x = a0; body.add(neck); u.neck = neck;
+  tube(m, [0, 0, 0], [0, L, 0], r0, r1, neck, seg);
+  const c = Math.cos(a0), s = Math.sin(a0);
+  for (const [mm, p, o] of pts) { const dy = p[1] - base[1], dz = p[2] - base[2]; mesh(G.ball, mm, { ...o, p: [p[0], dy * c + dz * s, -dy * s + dz * c], r: o.r && [o.r[0] - a0, o.r[1], o.r[2]] }, neck); }
+  u.rig = { by: base[1], bz: base[2], L, a0, ...graze };
+}
+// (con la cabeza ya de su tamaño) El morro, inclinado SNOUT por debajo de la horizontal y a YT del suelo: lo que se
+// estira el cuello (de 1 a 1,8; si llega sin estirarlo, baja menos) y lo que se inclina la cabeza
+const SNOUT = 1.3, YT = 0.12;
+function settleNeck(u) {
+  const r = u.rig, k = u.head.scale.x, S = Math.hypot(...r.S) * k, need = r.by - YT - S * Math.sin(SNOUT);
+  r.hr = Math.atan2(r.S[0], r.S[1]) + SNOUT;
+  let beta = r.beta, st = need / (r.L * Math.sin(beta));
+  if (st < 1) { st = 1; beta = Math.asin(Math.max(0.2, Math.min(1, need / r.L))); }
+  r.s = Math.min(1.8, st); r.ag = Math.PI / 2 + beta;
+}
+// El cuello y la cabeza, de levantados (g = 0) a pastando (g = 1)
+function neckPose(u, g) {
+  const r = u.rig, a = r.a0 + (r.ag - r.a0) * g, s = 1 + (r.s - 1) * g;
+  u.neck.rotation.x = a; u.neck.scale.y = s;
+  u.head.position.set(0, r.by + Math.cos(a) * r.L * s, r.bz + Math.sin(a) * r.L * s);
+}
 // Ojos: negros y pequeños (sin punto de luz, que los hacía de dibujos animados)
 function eyes(parent, x, y, z, r, tilt = 0) {
   r *= 0.72;
@@ -141,6 +170,7 @@ export function animalModel(type, breed, bags) {
   const B = BUILD[type];
   if (B) B({ root, body, legs, u, cb, cd, cl, k: 'a2:' + k, breed, bags });
   if (u.head && SMALL_HEAD[type]) u.head.scale.setScalar(SMALL_HEAD[type]);
+  if (u.rig) settleNeck(u);
   return finish(root, u);
 }
 
@@ -153,7 +183,7 @@ const BUILD = {
     for (const [x, z] of [[-0.05, -0.18], [0.05, -0.18], [-0.05, -0.27], [0.05, -0.27]]) mesh(G.cyl, M('#e89a9a'), { p: [x, 0.43, z], s: [0.014, 0.05, 0.014] }, body);
     // Cuello y cabeza
     const head = new THREE.Group(); head.position.set(0, 1.0, 0.66); body.add(head); u.head = head;
-    tube(M(cb), [0, 0.86, 0.42], [0, 1.0, 0.66], 0.24, 0.17, body, 14);
+    neckRig(body, u, M(cb), [0, 0.86, 0.42], [0, 1.0, 0.66], 0.24, 0.17, 14, { beta: 1.0, S: [-0.14, 0.34] });
     mesh(blob(k + ':h', 28, (v, n) => { const f = Math.max(0, n.z); v.set(n.x * 0.14 * (1 - 0.3 * f + 0.15 * f ** 4), n.y * 0.15 * (1 - 0.22 * f) - 0.06 * f * f, n.z * 0.31); }, n => coat(cb, { back: 0.05, spot: cd, spots: pinta ? n2 => (n2.x > 0.3 && n2.y > -0.2 ? 0.9 : 0) : null })(n)), WHITE, { p: [0, 0.02, 0.06] }, head);
     mesh(G.ball, M('#b8908a'), { p: [0, -0.12, 0.29], s: [0.105, 0.075, 0.08] }, head);                   // hocico
     for (const s of [-1, 1]) {
@@ -173,6 +203,7 @@ const BUILD = {
     const lumpy = (v, n) => { const r = 1 + (noise(n.x * 4, n.y * 4, n.z * 4) - 0.5) * 0.22; v.set(n.x * 0.34 * r, n.y * 0.3 * r, n.z * 0.42 * r); };
     mesh(blob(k + ':b', 40, lumpy, n => C.set(cb).multiplyScalar(0.9 + noise(n.x * 6, n.y * 6, n.z * 6) * 0.15)), WHITE, { p: [0, 0.64, 0] }, body);
     const head = new THREE.Group(); head.position.set(0, 0.82, 0.46); body.add(head); u.head = head;
+    neckRig(body, u, M(cb), [0, 0.66, 0.3], [0, 0.8, 0.44], 0.13, 0.1, 12, { beta: 1.15, S: [-0.07, 0.26] });   // (de lana: casi todo dentro del cuerpo hasta que baja)
     mesh(blob(k + ':h', 24, (v, n) => v.set(n.x * 0.12 * (1 - 0.25 * Math.max(0, n.z)), n.y * 0.14, n.z * 0.19), () => C.set(cd)), WHITE, { p: [0, -0.02, 0.06] }, head);
     mesh(blob(k + ':c', 24, (v, n) => { const r = 1 + (noise(n.x * 5, n.y * 5, n.z * 5) - 0.5) * 0.3; v.set(n.x * 0.14 * r, n.y * 0.08 * r, n.z * 0.12 * r); }, () => C.set(cb)), WHITE, { p: [0, 0.1, 0.0] }, head);
     for (const s of [-1, 1]) mesh(G.ball, M(cd), { p: [s * 0.15, 0.03, 0.0], s: [0.08, 0.03, 0.045], r: [0, 0, s * -0.3] }, head);
@@ -185,7 +216,7 @@ const BUILD = {
   cabra({ body, legs, u, cb, cd, k, breed }) {
     mesh(blob(k + ':b', 36, trunk({ L: 0.4, W: 0.22, H: 0.22, belly: 0.04 }), coat(cb, { back: 0.15, belly: breed === 'negra' ? '#5a5048' : null })), WHITE, { p: [0, 0.64, 0] }, body);
     const head = new THREE.Group(); head.position.set(0, 0.98, 0.46); body.add(head); u.head = head;
-    tube(M(cb), [0, 0.7, 0.3], [0, 0.98, 0.46], 0.13, 0.08, body, 12);
+    neckRig(body, u, M(cb), [0, 0.7, 0.3], [0, 0.98, 0.46], 0.13, 0.08, 12, { beta: 1.0, S: [-0.07, 0.27] });
     mesh(blob(k + ':h', 24, (v, n) => v.set(n.x * 0.1 * (1 - 0.3 * Math.max(0, n.z)), n.y * 0.11, n.z * 0.18), () => C.set(cb)), WHITE, { p: [0, 0, 0.08] }, head);
     tube(M(cb), [0, -0.09, 0.14], [0, -0.22, 0.12], 0.035, 0.006, head, 6);                             // barba
     for (const s of [-1, 1]) {
@@ -230,7 +261,7 @@ const BUILD = {
     mesh(blob(k + ':b', 36, trunk({ L: 0.48, W: 0.24, H: 0.26, belly: 0.03 }), coat(fur, { back: 0.18, belly: '#e8dcc0' })), WHITE, { p: [0, 0.98, 0] }, body);
     mesh(G.ball, M('#f4ecdc'), { p: [0, 1.0, -0.47], s: [0.12, 0.14, 0.06] }, body);   // el culo blanco
     const head = new THREE.Group(); head.position.set(0, 1.45, 0.62); body.add(head); u.head = head;
-    tube(M(fur), [0, 1.05, 0.38], [0, 1.45, 0.62], 0.14, 0.08, body, 12);
+    neckRig(body, u, M(fur), [0, 1.05, 0.38], [0, 1.45, 0.62], 0.14, 0.08, 12, { beta: 1.1, S: [-0.05, 0.29] });
     mesh(blob(k + ':h', 24, (v, n) => v.set(n.x * 0.1 * (1 - 0.35 * Math.max(0, n.z)), n.y * 0.11 * (1 - 0.2 * Math.max(0, n.z)), n.z * 0.2), n => coat(fur, { back: 0.1 })(n)), WHITE, { p: [0, 0, 0.08] }, head);
     mesh(G.ball, M('#1a1414'), { p: [0, -0.03, 0.28], s: [0.03, 0.025, 0.02] }, head);
     for (const s of [-1, 1]) {
@@ -364,7 +395,7 @@ function bird({ body, legs, u, cb, cd, cl, k, breed }, duck) {
 const SIT_LEAN = { perro: -0.62, gato: -0.7 };
 export function animateAnimal(m, dt, t, e) {
   const u = m.root.userData;
-  if (u.horse) { animateHorse(m.root, m.speed, t, e); return; }
+  if (u.horse) { animateHorse(m.root, m.speed, t, e, dt); return; }
   const { body, legs, type, head, tail } = u, k = Math.min(1, m.speed / 0.8);
   // Sentado (el perro y el gato): la grupa en el suelo, el cuerpo inclinado hacia arriba, las patas de atrás
   // dobladas y las de delante rectas; la cabeza derecha, mirando alrededor, y la cola barriendo el suelo
@@ -387,11 +418,13 @@ export function animateAnimal(m, dt, t, e) {
   body.scale.set(1, e?.sleep ? 0.62 : 1, 1);   // durmiendo, hecho una bola
   if (tail) tail.rotation.set(type === 'perro' ? -0.3 : 0, 0, Math.sin(t * (type === 'perro' ? 12 : 2.2) + u.seed) * (type === 'perro' ? 0.5 : type === 'vaca' || type === 'ciervo' ? 0.35 : 0.15));
   if (e?.sleep) { body.position.y = 0; body.rotation.x = 0; if (head) head.rotation.x = 0.3; return; }
-  // Los que pastan bajan la cabeza de vez en cuando, parados; los demás miran a un lado y a otro
+  // Pastando (ranch.js y wildlife.js, e.grazing): bajan el cuello y la cabeza hasta la hierba y mordisquean; si no, miran a
+  // un lado y a otro
   if (head) {
-    const graze = (type === 'vaca' || type === 'oveja' || type === 'cabra' || type === 'ciervo') && k < 0.1 && Math.sin(t * 0.35 + u.seed) > 0.2;
-    head.rotation.x += ((graze ? 0.75 : 0) - head.rotation.x) * Math.min(1, dt * 3);
-    head.rotation.y = Math.sin(t * 0.6 + u.seed * 2) * 0.25 * (1 - k);
+    const g = graze(u, e, k, dt), bite = g * (Math.sin(t * 7 + u.seed) * 0.05 + Math.max(0, Math.sin(t * 0.8 + u.seed)) * 0.04);
+    if (u.rig) neckPose(u, g);
+    head.rotation.x += ((u.rig ? u.rig.hr * g : g * 0.6) + bite - head.rotation.x) * Math.min(1, dt * 3);
+    head.rotation.y = Math.sin(t * 0.6 + u.seed * 2) * 0.25 * (1 - k) * (1 - g * 0.7);
   }
   if (type === 'gallina' || type === 'pato') body.rotation.x = k ? Math.sin(m.phase * 2) * 0.08 : Math.max(0, Math.sin(t * 1.3 + m.phase) - 0.7) * 1.2;   // picotea
   else if (type === 'cerdo' && e?.digging) body.rotation.x = 0.25 + Math.sin(t * 9) * 0.06;   // hoza
@@ -407,9 +440,9 @@ export function horseModel(breed = 'castano', bags = false, alone = false) {
   const [cb, cd, cl] = coatOf('caballo', breed), k = `caballo:${breed}`, mane = M(cl || cd), pio = breed === 'pio';
   mesh(blob(k + ':b', pio || breed === 'tordo' ? 64 : 40, trunk({ L: 0.56, W: 0.26, H: 0.29, belly: 0.03, chest: 0.06 }), coat(cb, { back: 0.12, spot: cd, spots: pio ? patches(2, 5.5, 0.55) : breed === 'tordo' ? (n => noise(n.x * 9, n.y * 9, n.z * 9) > 0.62 ? 0.45 : 0) : null })), WHITE, { p: [0, 0.88, 0] }, body);
   // Cuello y cabeza, con la crin
-  tube(M(cb), [0, 0.9, 0.34], [0, 1.36, 0.72], 0.15, 0.075, body, 14);
-  for (let i = 0; i < 6; i++) mesh(G.ball, mane, { p: [0, 1.06 + i * 0.065, 0.4 + i * 0.055], s: [0.045, 0.08, 0.07], r: [0.6, 0, 0] }, body);
   const head = new THREE.Group(); head.position.set(0, 1.38, 0.76); body.add(head); u.head = head;
+  neckRig(body, u, M(cb), [0, 0.9, 0.34], [0, 1.38, 0.76], 0.15, 0.075, 14, { beta: 0.95, S: [-0.24, 0.36] },
+    Array.from({ length: 6 }, (_, i) => [mane, [0, 1.06 + i * 0.065, 0.4 + i * 0.055], { s: [0.045, 0.08, 0.07], r: [0.6, 0, 0] }]));   // (la crin, con el cuello)
   const morro = M(cl && breed === 'palomino' ? cb : breed === 'blanco' ? '#d8cfc4' : mixc(cb, '#000000', 0.25).getStyle());
   // La cabeza larga, en cuña: ancha en la frente y las quijadas y estrecha hacia el morro, con los ojos a los lados
   mesh(blob(k + ':h', 28, (v, n) => { const f = (n.z + 1) / 2, jaw = Gs(n.z + 0.45, 0.3) * Math.max(0, -n.y); v.set(n.x * (0.085 - 0.03 * f + 0.02 * jaw), n.y * (0.105 - 0.04 * f) - 0.03 * jaw, n.z * 0.3); }, n => coat(cb, { back: 0.06 })(n)), WHITE, { p: [0, -0.06, 0.12], r: [0.6, 0, 0] }, head);
@@ -433,9 +466,17 @@ export function horseModel(breed = 'castano', bags = false, alone = false) {
   tail.add(new THREE.Mesh(new THREE.TubeGeometry(tc, 12, 0.05, 8), mane));
   mesh(G.ball, mane, { p: [0, -0.6, -0.14], s: [0.06, 0.08, 0.06] }, tail);
   [[-0.16, 0.38], [0.16, 0.38], [-0.16, -0.38], [0.16, -0.38]].forEach(([x, z], i) => leg(body, legs, { x, y: 0.72, z, up: 0.36, low: 0.29, r0: 0.085, r1: 0.05, r2: 0.04, color: cb, foot: 0.07, footColor: breed === 'blanco' ? '#5a5048' : '#2a2420', phase: TROT[i] }));
+  settleNeck(u);
   return finish(root, u);
 }
-export function animateHorse(h, speed, t, e) {
+// Cuánto está pastando (de 0 a 1, poco a poco: baja la cabeza en algo más de un segundo); andando, nada
+function graze(u, e, k, dt) {
+  const want = e?.grazing && k < 0.15 ? 1 : 0;
+  u.g = (u.g || 0) + (want - (u.g || 0)) * Math.min(1, dt * 2.2);
+  if (u.g < 1e-3) u.g = 0;
+  return u.g;
+}
+export function animateHorse(h, speed, t, e, dt = 1 / 60) {
   const u = h.userData, k = Math.min(1, speed / 3);
   u.phase = t * (4 + speed * 2.2);
   for (const l of u.legs) {
@@ -443,5 +484,8 @@ export function animateHorse(h, speed, t, e) {
     l.knee.rotation.x = Math.max(0, Math.sin(u.phase + l.phase + 1.2)) * 0.9 * k;
   }
   if (u.tail) u.tail.rotation.set(0.25 * k, 0, Math.sin(t * 1.8 + u.seed) * 0.25 * (1 - k * 0.6));
-  if (u.head) { u.head.rotation.x = Math.sin(u.phase) * 0.05 * k + (u.horse && speed < 0.2 && Math.sin(t * 0.3 + u.seed) > 0.4 ? 0.5 : 0) * 0.6; }
+  // (pastando, baja el cuello hasta la hierba; si no, de vez en cuando, parado, agacha un poco la cabeza)
+  const g = graze(u, e, k, dt);
+  if (u.rig) neckPose(u, g);
+  if (u.head) { u.head.rotation.x = Math.sin(u.phase) * 0.05 * k + (u.horse && !g && speed < 0.2 && Math.sin(t * 0.3 + u.seed) > 0.4 ? 0.5 : 0) * 0.6 + g * (u.rig.hr + Math.sin(t * 7 + u.seed) * 0.05); }
 }

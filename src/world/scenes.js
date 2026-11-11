@@ -839,7 +839,11 @@ export class Overworld {
     const g = this.gen, sx = groundSmooth(g, x + 0.5, y, this) - groundSmooth(g, x - 0.5, y, this), sz = groundSmooth(g, x, y + 0.5, this) - groundSmooth(g, x, y - 0.5, this);
     return ihash(tx, ty, g.seed + 24) <= grassKeep(Math.hypot(sx, sz));
   }
-  // Segarla (con la guadaña: ver gather.js): queda segada hasta que vuelve a salir (y lo segado hace mucho se olvida)
+  // ¿Pueden pastar aquí los animales? La hierba de fuera del pueblo: la del pueblo y la de los jardines (también el de
+  // tu casa) no se la comen, que se estropearían. Lo que se comen queda como segado (mow), para todos
+  pasture(tx, ty, today) { return !inBounds(tx + 0.5, ty + 0.5) && this.grassAt(tx, ty, today); }
+  // Segarla (con la guadaña: ver gather.js) o comérsela un animal: queda segada hasta que vuelve a salir (y lo segado hace
+  // mucho se olvida)
   mow(tx, ty, today) {
     const cx = Math.floor(tx / CHUNK), cy = Math.floor(ty / CHUNK), m = (this.delta(cx, cy, true).mown ||= {});
     for (const [k, v] of Object.entries(m)) if (today - v >= GRASS_REGROW) delete m[k];

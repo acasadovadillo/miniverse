@@ -329,7 +329,8 @@ export class Live {
       case 'herd':
         if (!fromHost) break;
         // (van en el orden de la lista: si ha nacido o muerto alguno y aún no ha llegado la lista nueva, se espera a ella)
-        if (m.p.length === g.ranch.animals.length) m.p.forEach((p, i) => { const a = g.ranch.animals[i]; a.netTo = p; a.inside = !!p[2]; });
+        // (p[3]: si está pastando, con la cabeza abajo)
+        if (m.p.length === g.ranch.animals.length) m.p.forEach((p, i) => { const a = g.ranch.animals[i]; a.netTo = p; a.inside = !!p[2]; a.grazing = !!p[3]; });
         if (m.k) g.family.place(m.k);
         break;
       // Alguien llama a una puerta: suena si estás cerca (y, si es la tuya, te avisa)
@@ -433,7 +434,7 @@ export class Live {
   becomeHost() {
     const g = this.game, was = this.hostName || 'El anfitrión';
     this.role = 'host'; this.clockBase = null; this.hostName = g.player?.name || Profile.name;
-    for (const a of g.ranch.animals) delete a.netTo;   // (los animales y los niños, ahora los mueve tu juego)
+    for (const a of g.ranch.animals) { delete a.netTo; a.grazing = false; }   // (los animales y los niños, ahora los mueve tu juego)
     for (const e of g.family.ents.values()) delete e.netTo;
     this.hi();
     hud.toast(`Ahora el mundo compartido lo lleva tu juego (${was} ha salido)`, 'ok');
@@ -537,7 +538,7 @@ export class Live {
     this.net?.send({ t: 'st', sc: null });
     this.hi();
     for (const p of this.peers.values()) this.hide(p);
-    for (const a of this.game.ranch.animals) delete a.netTo;
+    for (const a of this.game.ranch.animals) { delete a.netTo; a.grazing = false; }
   }
   // El nombre de un jugador por su cuenta (de quien está jugando, o de la lista de cuentas)
   nameOf(id) {
@@ -625,7 +626,7 @@ export class Live {
     }
     if (this.role === 'host') {
       if (T.time >= TIME_EVERY) { T.time = 0; this.net.send({ t: 'time', c: r2(g.world.clock), run: g.mode === 'play', sh: g.days.shift, db: g.days.dayBase }); }
-      if (T.herd >= HERD_EVERY && this.others.some(o => o.playing)) { T.herd = 0; this.net.send({ t: 'herd', p: g.ranch.animals.map(a => [r2(a.x), r2(a.y), a.inside ? 1 : 0]), k: g.family.positions() }); }
+      if (T.herd >= HERD_EVERY && this.others.some(o => o.playing)) { T.herd = 0; this.net.send({ t: 'herd', p: g.ranch.animals.map(a => [r2(a.x), r2(a.y), a.inside ? 1 : 0, a.grazing ? 1 : 0]), k: g.family.positions() }); }
     }
     if (Profile.server) return;   // (el mundo del servidor no tiene personaje que los demás vean)
     // (/setidletimeout: si llevas los minutos que diga sin moverte, se lo dices al servidor, que te echa)
