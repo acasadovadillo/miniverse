@@ -6,7 +6,7 @@
 // cuanto se lee (un par de milisegundos), y solo se calcula lo que nunca se ha visto.
 import { WorldGen, WORLD_SEED, CHUNK } from './gen.js';
 import { setProjects, setFamilyHouse } from './village.js';
-import { blockHeights, blockNormals, blockColors, paintPixels, groundTag, BLOCK } from './ground.js';
+import { blockHeights, blockNormals, blockShore, blockColors, paintPixels, groundTag, BLOCK } from './ground.js';
 import { openGroundCache } from './groundcache.js';
 import { rasterTile, TILE } from './contact.js';
 
@@ -73,6 +73,7 @@ function readBatch() {
     const t1 = performance.now();
     d.normals = blockNormals(d.heights, d.edge, d.n);
     d.water = d.heights.some(h => h < 0);
+    d.shore = d.water && d.wet ? blockShore(d.wet, d.n, d.corners) : null;   // (la orilla, de lo mojado guardado)
     stats.hits++; stats.msHit += (d.ms || 0) + performance.now() - t1;   // (lo que cuesta: descomprimir y las normales)
     post(m, d, true);
   };
@@ -83,9 +84,9 @@ function readBatch() {
 
 function post(m, d, cached) {
   const colors = blockColors(gen, m.bx, m.bz, m.season);
-  const { heights, edge, normals, water, corners, centers, n, m: mm } = d;
-  postMessage({ t: 'block', id: m.id, bx: m.bx, bz: m.bz, heights, edge, normals, water, corners, m: mm, centers, w: BLOCK, n, colors, cached, stats },
-    [heights.buffer, edge.buffer, normals.buffer, corners.buffer, centers.buffer, colors.buffer]);
+  const { heights, edge, normals, water, corners, centers, n, m: mm, shore } = d;
+  postMessage({ t: 'block', id: m.id, bx: m.bx, bz: m.bz, heights, edge, normals, water, corners, m: mm, centers, w: BLOCK, n, colors, cached, stats, shore },
+    [heights.buffer, edge.buffer, normals.buffer, corners.buffer, centers.buffer, colors.buffer, ...(shore ? [shore.buffer] : [])]);
 }
 
 // Un trabajo cada vez, dejando entre uno y otro que lleguen mensajes (para quitar trabajos o cambiar prioridades). Si
@@ -109,7 +110,7 @@ function step() {
       // vacíos; si la base aún se está abriendo, se copian ya y se guardan al abrirse. Guardar nunca impide mandarlo)
       try {
         if (cacheDb) cacheDb.put(m.bx, m.bz, d);
-        else if (cache) { const copy = { heights: d.heights.slice(), edge: d.edge.slice(), corners: d.corners.slice(), centers: d.centers.slice() }; cache.then(c => c?.put(m.bx, m.bz, copy)).catch(() => {}); }
+        else if (cache) { const copy = { heights: d.heights.slice(), edge: d.edge.slice(), corners: d.corners.slice(), centers: d.centers.slice(), wet: d.wet && d.wet.slice() }; cache.then(c => c?.put(m.bx, m.bz, copy)).catch(() => {}); }
       } catch { /* (sin guardar) */ }
       post(m, d, false);
     } else {

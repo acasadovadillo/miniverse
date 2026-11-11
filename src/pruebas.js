@@ -181,6 +181,20 @@ async function soloTests(game) {
       for (let i = 0; i < 20; i++) { const x = b.x0 + ((i * 37.31) % 64), z = b.z0 + ((i * 17.77) % 64); check(Math.abs(groundSmooth(g, x, z, T.world) - T.heightAt(x, z)) < 1e-4, `el suelo de reserva no casa con la malla en ${x.toFixed(1)},${z.toFixed(1)}`); }
     }
     check(borders >= 12, `pocas fronteras entre bloques hechos (${borders})`);
+    // (la orilla del agua: la tiene cada bloque con agua, y el borde da lo mismo desde los dos bloques: la espuma no se corta)
+    for (const b of T.blocks.values()) {
+      const sa = b.waterMesh?.geometry.attributes.shore, n = b.n;
+      if (!b.waterMesh) continue;
+      check(sa?.itemSize === 4 && sa.array.every(Number.isFinite), `el agua del bloque ${b.bx},${b.bz} no tiene su orilla`);
+      for (const [dx, dz] of [[1, 0], [0, 1]]) {
+        const sb = T.blocks.get(`${b.bx + dx},${b.bz + dz}`)?.waterMesh?.geometry.attributes.shore;
+        if (!sb) continue;
+        for (let t = 0; t < n; t++) {
+          const va = dx ? t * n + n - 1 : (n - 1) * n + t, vb = dx ? t * n : t;
+          for (let c = 0; c < 3; c++) check(Math.abs(sa.array[va * 4 + c] - sb.array[vb * 4 + c]) < 1e-4, `la orilla del agua se corta entre los bloques ${b.bx},${b.bz} y ${b.bx + dx},${b.bz + dz}`);
+        }
+      }
+    }
   });
   await test('talar: un roble con el hacha da madera', async () => {
     const o = findKind(game, ['oak', 'pine'], p().x, p().y); check(o, 'no hay árboles cerca');
@@ -1016,8 +1030,8 @@ async function soloTests(game) {
     check(/fps|fotogramas/.test(el.textContent) && /bioma/.test(el.textContent) && /trozos/.test(el.textContent), `no dice lo suyo: ${el.textContent.slice(0, 120)}`);
     key(); await frames(2); check(el.hidden, 'no se cierra');
   });
-  await test('iconos: los de lo que se coloca y las herramientas salen del modelo 3D, el resto a píxel', async () => {
-    check(modelKind('silla') === 'placed' && modelKind('hacha_hierro') === 'tool' && !modelKind('madera') && !modelKind('camisa') && !modelKind('alfombra'), 'la clase de icono no es la esperada');
+  await test('iconos: los de lo que se coloca, las herramientas y la comida salen del modelo 3D, el resto a píxel', async () => {
+    check(modelKind('silla') === 'placed' && modelKind('hacha_hierro') === 'tool' && modelKind('estofado') === 'food' && modelKind('carpa') === 'food' && !modelKind('madera') && !modelKind('camisa') && !modelKind('alfombra') && !modelKind('trigo'), 'la clase de icono no es la esperada');
     const bad = [];
     for (const id of Object.keys(ITEMS)) {
       const c = itemIcon(id), d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;

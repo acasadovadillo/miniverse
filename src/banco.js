@@ -405,7 +405,7 @@ function cpuSplit(v, frame) {
   // (dentro del mundo; las firmas van también dentro de los trozos y de la naturaleza. Lo que no tenga una versión, no sale)
   wrap(v.world, 'updateNature', 'mundo: naturaleza'); wrap(v.world, 'updateGrass', 'mundo: hierba'); wrap(v.world, 'updateFar', 'mundo: lejanos');
   wrap(v.world, 'updateRegions', 'mundo: casas'); wrap(v.world, 'updateFade', 'mundo: desvanecer'); wrap(v.world, 'signature', 'mundo: firmas');
-  wrap(v.actors, 'update', 'actores'); wrap(v.fx, 'update', 'efectos'); wrap(v, 'updateLights', 'luces'); wrap(v, 'updateViewmodel', 'en la mano');
+  wrap(v.actors, 'update', 'actores'); wrap(v.fx, 'update', 'efectos'); wrap(v, 'updateLights', 'luces'); if (v.glow) wrap(v.glow, 'update', 'luz de noche'); wrap(v, 'updateViewmodel', 'en la mano');
   wrap(v.renderer, 'render', 'three'); wrap(v.scene, 'updateMatrixWorld', 'three: matrices'); wrap(v.renderer.shadowMap, 'render', 'three: sombras');
   wrap(v.renderer, 'renderBufferDirect', 'three: llamadas');   // (dentro de cada llamada: programa, uniformes y dibujo)
   wrap(v, 'render', 'total');

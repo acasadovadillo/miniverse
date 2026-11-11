@@ -130,9 +130,11 @@ export class World3D {
     this.updateDoors(scene, dt);
     for (const c of this.chunks.values()) if (c.spin) for (const o of c.spin) o.rotation.x += o.userData.spin * dt;
     this.updateFade(game, scene, dt);
-    // Las ventanas se encienden de noche
-    const glow = this.view.night * 1.2;
+    // Las ventanas se encienden de noche; los faroles y las pantallas de las lámparas, también (de día, apagados: antes
+    // brillaban igual a mediodía). Los cristales ('always') brillan siempre
+    const glow = this.view.night * 1.2, k = Math.max(this.view.night, this.game?.indoors ? 0.6 : 0);
     for (const m of this.glassMats()) m.emissiveIntensity = glow;
+    if (k !== this.lampK) { this.lampK = k; modelMat('lamp').emissiveIntensity = 0.25 + 1.5 * k; modelMat('shade').emissiveIntensity = 0.15 + 0.6 * k; modelMat('lens').emissiveIntensity = 0.5 + 1.5 * k; }
   }
   // Ha cambiado algo que da sombra y no se mueve: el mapa de sombras repinta lo fijo (now: en este fotograma; si no,
   // cuando le toque, sin pasar de uno de cada dos)
@@ -154,6 +156,7 @@ export class World3D {
     // (lo primero que se monta después, al cambiar de estación o de mundo, sale de golpe: detrás no hay nada con lo que
     // fundirse, que lo lejano también se está rehaciendo, y su sombra saldría entera mientras él aún va tramado)
     this.freshNature = true;
+    this.view.glow?.reset();
   }
 
   // La casa en la que se está (el establo), sin tejado; se rehace su trozo al entrar y al salir
@@ -182,7 +185,7 @@ export class World3D {
   // ---------- un trozo ----------
   buildChunk(scene, cx, cy, data, ring) {
     const group = new THREE.Group(), view = this.view, gy = (x, y) => view.groundY(scene, x, y);
-    const c = { group, data, ring, sig: this.signature(scene, cx, cy, data), lights: [], flames: [], smoke: [], doors: [], regions: new Set(), cx, cy };
+    const c = { group, data, ring, sig: this.signature(scene, cx, cy, data), lights: [], flames: [], smoke: [], doors: [], regions: new Set(), windows: [], cx, cy };
     // Lo construido y lo colocado, juntado por material (y lo de cada pared de cada casa, aparte)
     const sinks = new Map(), extras = { blooms: [], leaves: [] };
     // La altura de cada casilla (lo construido va a la suya: ver scenes.js, levelAt): lo que se pinta mientras LIFT vale
@@ -211,7 +214,7 @@ export class World3D {
         const [tx, ty] = o.tile, piece = PIECES[o.placed], region = this.regionAt(scene, tx, ty);
         if (region) c.regions.add(region);
         if (piece) { const tk = `${tx},${ty}`; if (struct.get(tk) !== 'full') struct.set(tk, piece.kind === 'fence' || piece.kind === 'gate' ? 'post' : 'full'); }
-        if (piece?.kind === 'wall') { const ex = { blooms: [], leaves: [], paint: paintKey(region), lift: LIFT }; wallTile(scene, tx, ty, o.placed, emitFor(region), ex); this.flowers(ex, region, group); }
+        if (piece?.kind === 'wall') { const ex = { blooms: [], leaves: [], paint: paintKey(region), lift: LIFT, windows: c.windows }; wallTile(scene, tx, ty, o.placed, emitFor(region), ex); this.flowers(ex, region, group); }
         else if (piece?.kind === 'door') { const ex = { blooms: [], leaves: [] }; const d = doorTile(scene, tx, ty, emitFor(region), ex); d.region = region; d.lift = LIFT; c.doors.push(d); }
         else if (piece?.kind === 'gate') { const d = gateTile(scene, tx, ty, plain); d.lift = LIFT; c.doors.push(d); }
         else if (piece?.kind === 'fence') fenceTile(scene, tx, ty, o.placed, plain);
@@ -222,6 +225,8 @@ export class World3D {
       else if (o.treasure) this.placeModel(`treasure:${o.open ? 1 : 0}`, o.x, o.y, 0, plain, c, group);
       else if (o.roof && o.layer === 'roof') { const r = this.regionAt(scene, o.tile[0], o.tile[1]); if (r) c.regions.add(r); }
     }
+    // (el suelo delante de cada ventana, para su charco de luz: ver glow.js)
+    for (const w of c.windows) w.gy = gy(w.p[0] + w.n[0] * 0.9, w.p[2] + w.n[1] * 0.9);
     // Los cimientos: debajo de cada pieza de construcción alzada, piedra hasta el suelo (los suelos y los muros, la casilla
     // entera; las vallas, un dado bajo cada poste)
     LIFT = 0;
@@ -855,7 +860,7 @@ export class World3D {
     const out = [];
     for (const c of this.chunks.values()) for (const l of c.lights) out.push(l);
     if (this.villageLights) for (const l of this.villageLights.lights) out.push(l);
-    for (const r of this.regions.values()) if (r.center && !this.ownLamp(r) && !this.chandelierOff(r)) out.push({ x: r.center[0], y: WALL_H - 0.6 + (r.level || 0), z: r.center[1], color: '#ffd08a', intensity: 4.5, range: 11 });
+    for (const r of this.regions.values()) if (r.center && !this.ownLamp(r) && !this.chandelierOff(r)) out.push({ x: r.center[0], y: WALL_H - 0.6 + (r.level || 0), z: r.center[1], color: '#ffd08a', intensity: 4.5, range: 11, halo: 0 });   // (sin halo: lo llevan sus velas)
     return out;
   }
   flames() {

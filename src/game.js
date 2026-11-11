@@ -1,6 +1,8 @@
 // Núcleo del juego: estado, bucle de paso fijo e interacciones. El dibujo es en 3D (src/three/engine.js).
 import { Player } from './entities.js';
 import { View3D } from './three/engine.js';
+import { prewarmIcons } from './three/icons.js';
+import { itemIcon } from './art/items.js';
 import { camToSave, camFromSave, CAM } from './camera.js';
 import { wrapX, wrapIndex, HALF, NORTH, SOUTH } from './world/planet.js';
 import { Overworld, NILO_LOOK } from './world/scenes.js';
@@ -255,6 +257,8 @@ export class Game {
     // Al crecer, la cama y el hogar se quedaron en medio de la sala: a su sitio, contra la pared
     if (this.house.v < 3) { this.tidyHouse(); this.house.v = 3; }
     this.explored = new Set(save.explored || []);
+    // (los iconos de lo que se lleva y de la comida, en ratos libres: ver icons.js)
+    if (this.view3d !== NO_VIEW) prewarmIcons(() => this.inv.slots.filter(Boolean).map(s => s.id), itemIcon);
     this.lastChunk = null;
     this.placeName = '';
     Audio.indoors = this.indoors;

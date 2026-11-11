@@ -1,7 +1,8 @@
 // La comida y la bebida en 3D, a su tamaño de verdad (o casi: un poco más grande, para que se lea en la mano): frutas
 // y verduras, tarros, jarras y vasos, cuencos, panes, tartas, carnes crudas y asadas, quesos, huevos y peces. Se ven en
-// la mano de quien las lleva (actors.js) y tiradas en el suelo (icons.js, dropModel). Cada una, un grupo con el centro
-// de lo que se agarra en el origen; se hace una vez por objeto y se clona.
+// la mano de quien las lleva (actors.js), tiradas en el suelo (icons.js, dropModel) y en su icono (icons.js, modelIcon,
+// con el encuadre de su familia: foodView). Cada una, un grupo con el centro de lo que se agarra en el origen; se hace una
+// vez por objeto y se clona.
 import * as THREE from 'three';
 import { mat } from './geo.js';
 import { ITEMS, FISH } from '../items.js';
@@ -29,6 +30,14 @@ const LUMP = blob(v => { const k = 1 + 0.12 * Math.sin(v.x * 7) * Math.sin(v.y *
 const SLAB = blob(v => { v.y *= 0.32; v.x *= 1.35; const k = 1 + 0.08 * Math.sin(Math.atan2(v.z, v.x) * 3); v.x *= k; v.z *= k; });
 const LOAF = blob(v => { v.x *= 1.6; v.y = v.y > 0 ? v.y * 0.75 : v.y * 0.3; });
 const FISHG = blob(v => { v.x *= 0.35; v.y *= 0.55 * (1 - 0.6 * Math.max(0, -v.z) ** 2); v.z *= 1.9; });
+// (la anguila: larga, fina y en ese; la cabeza del pulpo, un saco blando)
+const EEL_S = z => 0.35 * Math.sin(z * 1.5);
+const EEL = blob(v => { v.x *= 0.22; v.y *= 0.3 * (1 - 0.5 * Math.max(0, -v.z)); v.z *= 2.6; v.x += EEL_S(v.z); }, 24);
+const MANTLE = blob(v => { v.y = v.y > 0 ? v.y * 1.25 : v.y * 0.7; const k = 1 + 0.06 * Math.sin(v.x * 9) * Math.sin(v.z * 7); v.x *= k; v.z *= k; });
+// Un frasco de botica (las pociones): panza redonda, cuello y tapón de corcho
+const FLASK = new THREE.LatheGeometry([[0, -0.07], [0.045, -0.066], [0.068, -0.035], [0.07, 0], [0.058, 0.032], [0.026, 0.056], [0.019, 0.07], [0.019, 0.1]].map(([x, y]) => new THREE.Vector2(x, y)), 20);
+// (cada familia con su encuadre de icono: ver foodView)
+const viewOf = (f, v) => Object.assign(f, { view: v });
 
 // Familias de comida
 const fruit = (geo, c, s, { stem = '#5a3a20', leaf = null, calyx = null } = {}) => g => {
@@ -37,58 +46,91 @@ const fruit = (geo, c, s, { stem = '#5a3a20', leaf = null, calyx = null } = {}) 
   if (leaf) add(g, BALL, M(leaf, { side: THREE.DoubleSide }), [0.02, s * 1.0, 0], [s * 0.35, 0.004, s * 0.16], [0, 0.5, 0.4]);
   if (calyx) for (let i = 0; i < 5; i++) { const a = i * 1.257; add(g, BALL, M(calyx), [Math.cos(a) * s * 0.25, s * 0.86, Math.sin(a) * s * 0.25], [s * 0.22, 0.006, s * 0.07], [0, -a, 0.25]); }
 };
-const jar = (fill, lid = '#c8b8a0') => g => {
+const jar = (fill, lid = '#c8b8a0') => viewOf(g => {
   add(g, CYL, GLASS(), [0, 0, 0], [0.04, 0.09, 0.04]);
   add(g, CYL, M(fill, { roughness: 0.3 }), [0, -0.008, 0], [0.036, 0.07, 0.036]);
   add(g, CYL, M(lid, { roughness: 0.95 }), [0, 0.05, 0], [0.05, 0.014, 0.05]);
   add(g, TORUS, M('#8a5a34'), [0, 0.042, 0], [0.042, 0.042, 0.03], [Math.PI / 2, 0, 0]);   // (el cordel)
-};
-const mug = (drink, foam = null) => g => {
+}, 'drink');
+const mug = (drink, foam = null) => viewOf(g => {
   add(g, CYL, M('#8a5a34', { roughness: 0.6 }), [0, 0, 0], [0.045, 0.11, 0.045]);   // (de madera, con aros)
   for (const y of [-0.035, 0.035]) add(g, CYL, M('#4a4440', { metalness: 0.5, roughness: 0.4 }), [0, y, 0], [0.047, 0.008, 0.047]);
   add(g, TORUS, M('#7a4e2c'), [0.055, 0, 0], [0.025, 0.035, 0.03], [0, 0, 0]);
   add(g, CYL, M(drink, { roughness: 0.2 }), [0, 0.05, 0], [0.04, 0.008, 0.04]);
   if (foam) add(g, BALL, M(foam, { roughness: 0.9 }), [0, 0.058, 0], [0.042, 0.014, 0.042]);
-};
-const glass = drink => g => {
+}, 'drink');
+const glass = drink => viewOf(g => {
   add(g, CYL, GLASS(), [0, 0, 0], [0.033, 0.1, 0.033]);
   add(g, CYL, M(drink, { roughness: 0.15, transparent: true, opacity: 0.85 }), [0, -0.012, 0], [0.03, 0.07, 0.03]);
-};
-const bottle = (drink, glassy = true) => g => {
+}, 'drink');
+const bottle = (drink, glassy = true) => viewOf(g => {
   add(g, CYL, glassy ? GLASS() : M('#e8e2d6', { roughness: 0.4 }), [0, 0, 0], [0.035, 0.12, 0.035]);
   add(g, CONE, glassy ? GLASS() : M('#e8e2d6', { roughness: 0.4 }), [0, 0.085, 0], [0.035, 0.05, 0.035]);
   add(g, CYL, M('#8a6a4a'), [0, 0.12, 0], [0.012, 0.02, 0.012]);
   if (glassy) add(g, CYL, M(drink, { roughness: 0.2 }), [0, -0.01, 0], [0.032, 0.095, 0.032]);
-};
-const bowl = (soup, bits) => g => {
+}, 'drink');
+// Una poción: el frasco de vidrio con lo de dentro de su color (que brilla un poco), el corcho y su cordel
+// (lo de dentro, con su color entero, sin apagar: es mágico y tiene que leerse; el frasco, de vidrio fino, que no lo tape)
+const FLASK_GLASS = () => (MATS.get('flask') || MATS.set('flask', Object.assign(mat({ color: '#e8f0f2', transparent: true, opacity: 0.28, roughness: 0.05 }), { userData: { clear: true } })).get('flask'));
+const potion = color => viewOf(g => {
+  add(g, FLASK, FLASK_GLASS(), [0, 0, 0], 1);
+  if (!MATS.has('potion' + color)) MATS.set('potion' + color, mat({ color, roughness: 0.15, emissive: color, emissiveIntensity: 0.35 }));
+  add(g, BALL, MATS.get('potion' + color), [0, -0.022, 0], [0.06, 0.045, 0.06]);
+  add(g, CYL, M('#b08a5a', { roughness: 0.95 }), [0, 0.104, 0], [0.017, 0.024, 0.017]);
+  add(g, TORUS, M('#8a5a34'), [0, 0.072, 0], [0.021, 0.021, 0.03], [Math.PI / 2, 0, 0]);
+}, 'drink');
+const bowl = (soup, bits) => viewOf(g => {
   const b = new THREE.SphereGeometry(1, 18, 10, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2);
   add(g, b, M('#a87a50', { side: THREE.DoubleSide }), [0, 0.02, 0], [0.07, 0.05, 0.07]);
   add(g, CYL, M(soup, { roughness: 0.3 }), [0, 0.012, 0], [0.062, 0.004, 0.062]);
   for (let i = 0; i < 6; i++) { const a = i * 1.1; add(g, BALL, M(bits[i % bits.length]), [Math.cos(a) * 0.035, 0.016, Math.sin(a) * 0.03], 0.011); }
-};
+}, 'flat');
 const loaf = (c, round = false) => g => {
   add(g, round ? blob(v => { v.y = v.y > 0 ? v.y * 0.6 : v.y * 0.25; }) : LOAF, M(c, { roughness: 0.9 }), [0, 0, 0], round ? 0.07 : 0.06);
   for (let i = -1; i <= 1; i++) add(g, CYL, M('#e8d0a0', { roughness: 1 }), [round ? 0 : i * 0.03, round ? 0.043 : 0.044, 0], [0.004, 0.003, round ? 0.04 : 0.03], [0, round ? i * 1.05 : 0, Math.PI / 2 * 0]);
 };
-const pie = (filling, crust = '#c8904a') => g => {
+const pie = (filling, crust = '#c8904a') => viewOf(g => {
   add(g, CYL, M(crust, { roughness: 0.9 }), [0, 0, 0], [0.09, 0.03, 0.09]);
   add(g, CYL, M(filling, { roughness: 0.6 }), [0, 0.016, 0], [0.08, 0.004, 0.08]);
   add(g, TORUS, M(crust, { roughness: 0.9 }), [0, 0.016, 0], [0.085, 0.085, 0.04], [Math.PI / 2, 0, 0]);
-};
-const raw = (c, fat = '#f0e0d0') => g => {
+}, 'flat');
+const raw = (c, fat = '#f0e0d0') => viewOf(g => {
   add(g, SLAB, M(c, { roughness: 0.55 }), [0, 0, 0], 0.06);
   add(g, BALL, M(fat, { roughness: 0.6 }), [0.04, 0.004, 0.035], [0.05, 0.016, 0.012], [0, 0.5, 0]);
-};
+}, 'flat');
 const roast = (c, bone = true) => g => {
   add(g, LUMP, M(c, { roughness: 0.8 }), [0, 0, 0], [0.065, 0.045, 0.05]);
   if (bone) { add(g, CYL, M('#efe6d2'), [0.085, 0, 0], [0.01, 0.06, 0.01], [0, 0, Math.PI / 2]); add(g, BALL, M('#efe6d2'), [0.115, 0, 0], 0.016); }
 };
-const fishModel = (c, cooked = false) => g => {
-  const body = M(cooked ? '#a8703a' : c, { roughness: cooked ? 0.8 : 0.35, metalness: cooked ? 0 : 0.15 });
+// Un pez (f: su ficha de FISH, si es de los de pescar): el cuerpo con su cola y sus ojos; la anguila larga y en ese, el
+// siluro con sus barbas, y el pez dorado de metal brillante
+const fishModel = (c, cooked = false, f = {}) => viewOf(g => {
+  const body = M(cooked ? '#a8703a' : c, f.rare ? { roughness: 0.25, metalness: 0.6 } : { roughness: cooked ? 0.8 : 0.35, metalness: cooked ? 0 : 0.15 });
+  if (f.thin) {
+    add(g, EEL, body, [0, 0, 0], 0.06);
+    const at = z => 0.06 * EEL_S(z / 0.06);   // (lo que se aparta de lado en ese sitio, para seguir la ese)
+    add(g, BALL, body, [at(-0.15), 0.004, -0.15], [0.005, 0.02, 0.03]);   // (la aleta de la cola, fina)
+    for (const s of [-1, 1]) add(g, BALL, M('#101010', { roughness: 0.2 }), [at(0.13) + s * 0.01, 0.006, 0.13], 0.005);
+    return;
+  }
   add(g, FISHG, body, [0, 0, 0], 0.06);
   add(g, CONE, body, [0, 0, -0.13], [0.04, 0.05, 0.008], [Math.PI / 2, 0, Math.PI / 2]);   // la cola
   for (const s of [-1, 1]) add(g, BALL, M('#101010', { roughness: 0.2 }), [s * 0.015, 0.008, 0.08], 0.006);
-};
+  if (f.whiskers) for (const s of [-1, 1]) for (const k of [0, 1]) add(g, CYL, M('#3a3428'), [s * (0.016 + k * 0.006), -0.006 - k * 0.01, 0.12], [0.0025, 0.07, 0.0025], [Math.PI / 2 - 0.5 - k * 0.5, 0, s * (0.6 + k * 0.3)]);
+}, 'fish');
+// El pulpo: la cabeza blanda arriba y ocho brazos curvados alrededor, que se afinan
+const octopus = c => viewOf(g => {
+  const m = M(c, { roughness: 0.45 });
+  add(g, MANTLE, m, [0, 0.035, -0.01], [0.042, 0.05, 0.045]);
+  for (const s of [-1, 1]) add(g, BALL, M('#101010', { roughness: 0.2 }), [s * 0.024, 0.03, 0.03], 0.006);
+  for (let i = 0; i < 8; i++) {
+    const a = (i / 8) * Math.PI * 2 + 0.2;
+    for (let k = 0; k < 3; k++) {
+      const r = 0.03 + k * 0.026, y = -0.012 - k * 0.006 + (k === 2 ? 0.01 : 0);
+      add(g, BALL, m, [Math.cos(a) * r, y, Math.sin(a) * r], [0.013 * (1 - k * 0.28), 0.009 * (1 - k * 0.25), 0.017], [0, -a + Math.PI / 2, 0]);
+    }
+  }
+}, 'food');
 const pile = (c, n, r, spread) => g => { for (let i = 0; i < n; i++) { const a = i * 2.4, d = spread * Math.sqrt(i / n); add(g, BALL, M(c, { roughness: 0.4 }), [Math.cos(a) * d, (i % 3) * r * 0.6, Math.sin(a) * d], r); } };
 
 const BUILD = {
@@ -104,10 +146,11 @@ const BUILD = {
   fresa: g => { add(g, blob(v => { if (v.y < 0) { v.x *= 1 + v.y * 0.55; v.z *= 1 + v.y * 0.55; } v.y *= 1.15; }), M('#c8343a', { roughness: 0.4 }), [0, 0, 0], 0.025); for (let i = 0; i < 5; i++) { const a = i * 1.257; add(g, BALL, M('#3f7a2e'), [Math.cos(a) * 0.01, 0.027, Math.sin(a) * 0.01], [0.012, 0.003, 0.005], [0, -a, 0]); } },
   bayas: pile('#3a3a7a', 12, 0.011, 0.035),
   pinones: pile('#d8b888', 14, 0.008, 0.03),
-  trufa: g => add(g, LUMP, M('#2a2420', { roughness: 1 }), [0, 0, 0], 0.035),
+  trufa: g => add(g, LUMP, M('#4a3a2e', { roughness: 1 }), [0, 0, 0], 0.035),
   pulpa: g => { add(g, blob(v => { v.y *= 0.35; v.x *= 1.3; }), M('#7a9a5a', { roughness: 0.5 }), [0, 0, 0], 0.05); add(g, CYL, M('#c8d8a0'), [0, 0.018, 0], [0.05, 0.002, 0.035]); },
   huevo: g => add(g, EGG, M('#e8dcc8', { roughness: 0.5 }), [0, 0, 0], 0.025),
   huevo_pato: g => add(g, EGG, M('#d8e0d0', { roughness: 0.5 }), [0, 0, 0], 0.03),
+  huevo_oro: g => add(g, EGG, M('#f0c040', { roughness: 0.3, metalness: 0.5 }), [0, 0, 0], 0.03),
   queso: g => { add(g, CYL, M('#e8c860', { roughness: 0.6 }), [0, 0, 0], [0.08, 0.06, 0.08]); add(g, CYL, M('#c8a040'), [0, 0.031, 0], [0.082, 0.004, 0.082]); },
   queso_cabra: g => add(g, CYL, M('#f0ead8', { roughness: 0.7 }), [0, 0, 0], [0.06, 0.05, 0.06]),
   mantequilla: g => { add(g, new THREE.BoxGeometry(1, 1, 1), M('#f0d870', { roughness: 0.5 }), [0, 0.012, 0], [0.08, 0.035, 0.05]); add(g, new THREE.BoxGeometry(1, 1, 1), M('#e8e0d0', { roughness: 1 }), [0, -0.008, 0], [0.1, 0.004, 0.07]); },
@@ -127,7 +170,12 @@ const BUILD = {
   chuleta: roast('#9a6034'),
   pescado_asado: fishModel('#a8703a', true),
 };
-for (const [id, f] of Object.entries(FISH)) BUILD[id] ||= f.crab ? g => { add(g, blob(v => { v.y *= 0.45; v.x *= 1.3; }), M(f.color, { roughness: 0.5 }), [0, 0, 0], 0.05); for (const s of [-1, 1]) add(g, BALL, M(f.color), [s * 0.075, 0, 0.03], [0.022, 0.016, 0.03]); } : f.round ? g => add(g, LUMP, M(f.color, { roughness: 0.5 }), [0, 0, 0], 0.05) : fishModel(f.color);
+for (const [id, f] of Object.entries(FISH)) BUILD[id] ||= f.crab ? viewOf(g => { add(g, blob(v => { v.y *= 0.45; v.x *= 1.3; }), M(f.color, { roughness: 0.5 }), [0, 0, 0], 0.05); for (const s of [-1, 1]) add(g, BALL, M(f.color), [s * 0.075, 0, 0.03], [0.022, 0.016, 0.03]); }, 'flat')
+  : f.octo ? octopus(f.color) : f.round ? g => add(g, LUMP, M(f.color, { roughness: 0.5 }), [0, 0, 0], 0.05) : fishModel(f.color, false, f);
+// Las pociones (su color, de la ficha)
+for (const [id, def] of Object.entries(ITEMS)) if (def.potion) BUILD[id] ||= potion(def.potion);
+// Lo plano se ve mejor más desde arriba: los quesos, la mantequilla, la tortilla, la tostada y el filete
+for (const id of ['queso', 'queso_cabra', 'mantequilla', 'tortilla', 'tostada_miel', 'filete', 'pulpa', 'coco_tostado']) viewOf(BUILD[id], 'flat');
 
 const CACHE = new Map();
 // El modelo de una comida o bebida (o null si no lo tiene): un grupo nuevo cada vez (comparte geometrías y materiales)
@@ -138,3 +186,6 @@ export function foodModel(id) {
   return CACHE.get(id).clone();
 }
 export const hasFood = id => !!BUILD[id] && !!ITEMS[id];
+// Desde dónde se mira su icono: 'food' (de tres cuartos), 'flat' (más desde arriba: platos, cuencos, carnes), 'drink'
+// (más de lado: jarras, vasos, botellas, tarros, frascos) o 'fish' (el pez tumbado en diagonal, de lado)
+export const foodView = id => BUILD[id]?.view || 'food';

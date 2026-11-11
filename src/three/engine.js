@@ -22,6 +22,7 @@ import { Actors, toolModel, swingArm, pullBow } from './actors.js';
 import { ITEMS } from '../items.js';
 import { Fx } from './fx.js';
 import { ArrowsView } from './arrows.js';
+import { Glow } from './glow.js';
 import { Cave3D } from './cave3d.js';
 import { SunShadow } from './sunshadow.js';
 import { setRenderer as contactRenderer, contactOn, contactSun, contactRestored } from './contact3d.js';
@@ -72,6 +73,7 @@ export class View3D {
     this.viewmodel = new THREE.Group(); this.viewmodel.visible = false; this.scene.add(this.viewmodel);
     this.fx = new Fx(this);
     this.arrows = new ArrowsView(this);
+    this.glow = new Glow(this);   // (los halos, las ventanas y los charcos de luz de noche)
     this.shadows = new SunShadow(this);   // (después de todo lo que se mueve: son sus grupos)
     this.caves = new Map();       // escena de cueva → su vista
     this.cave = null;
@@ -101,18 +103,23 @@ export class View3D {
 
   // ---------- cielo y luz ----------
   makeSky() {
-    this.skyU = { top: { value: new THREE.Color() }, horizon: { value: new THREE.Color() }, sunDir: { value: new THREE.Vector3(0, 1, 0) }, glow: { value: 1 }, time: { value: 0 }, night: { value: 0 }, cloudy: { value: 0.3 }, cloudK: { value: 1 } };
+    this.skyU = { top: { value: new THREE.Color() }, horizon: { value: new THREE.Color() }, sunDir: { value: new THREE.Vector3(0, 1, 0) }, glow: { value: 1 }, time: { value: 0 }, night: { value: 0 }, moon: { value: 0 }, cloudy: { value: 0.3 }, cloudK: { value: 1 } };
     this.sky = new THREE.Mesh(new THREE.SphereGeometry(300, 32, 16), new THREE.ShaderMaterial({
       uniforms: this.skyU, side: THREE.BackSide, depthWrite: false, fog: false,
       vertexShader: 'varying vec3 vDir; void main(){ vDir = normalize(position); vec4 p = modelViewMatrix * vec4(position, 1.0); gl_Position = projectionMatrix * p; gl_Position.z = gl_Position.w; }',
-      fragmentShader: `uniform vec3 top; uniform vec3 horizon; uniform vec3 sunDir; uniform float glow; uniform float time; uniform float night; uniform float cloudy; uniform float cloudK; varying vec3 vDir;
+      fragmentShader: `uniform vec3 top; uniform vec3 horizon; uniform vec3 sunDir; uniform float glow; uniform float time; uniform float night; uniform float moon; uniform float cloudy; uniform float cloudK; varying vec3 vDir;
         float h2(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
         float n2(vec2 p) { vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f); return mix(mix(h2(i), h2(i + vec2(1.0, 0.0)), f.x), mix(h2(i + vec2(0.0, 1.0)), h2(i + vec2(1.0, 1.0)), f.x), f.y); }
         float fbm(vec2 p) { float v = 0.0, a = 0.5; for (int i = 0; i < 5; i++) { v += a * n2(p); p *= 2.03; a *= 0.5; } return v; }
         void main(){ vec3 d = normalize(vDir); float h = clamp(d.y, 0.0, 1.0); vec3 c = mix(horizon, top, pow(h, 0.55));
           float s = max(dot(d, sunDir), 0.0); c += vec3(1.0, 0.85, 0.6) * (pow(s, 24.0) * 0.35 + pow(s, 600.0) * 1.5) * glow;
-          // Estrellas de noche
-          if (night > 0.0 && d.y > 0.0) { vec2 st = floor(d.xz / (d.y + 0.3) * 160.0); float star = step(0.9975, h2(st)); c += vec3(star) * night * 0.9 * smoothstep(0.05, 0.3, d.y); }
+          // Estrellas de noche y la luna (moon: sunDir es ya la dirección de la luna, no la del sol poniéndose): el disco y un
+          // halo frío alrededor. Antes de las nubes, que la tapan
+          if (night > 0.0) {
+            if (d.y > 0.0) { vec2 st = floor(d.xz / (d.y + 0.3) * 160.0); float star = step(0.9975, h2(st)); c += vec3(star) * night * 0.9 * smoothstep(0.05, 0.3, d.y); }
+            float mo = dot(d, sunDir);
+            c += vec3(0.82, 0.87, 1.0) * (smoothstep(0.99935, 0.99965, mo) * 1.4 + pow(max(mo, 0.0), 60.0) * 0.10) * night * moon;
+          }
           if (d.y > 0.0) {
             vec2 uv = d.xz / (d.y + 0.12) * 1.3 + vec2(time * 0.006, time * 0.003);
             float cl = smoothstep(0.62 - cloudy * 0.3, 0.86 - cloudy * 0.2, fbm(uv)), shade = smoothstep(0.55, 0.95, fbm(uv * 1.3 + 4.0));
@@ -179,9 +186,10 @@ export class View3D {
     this.sunDir = day && night < 0.9 ? sunDir : moonDir;
     this.skyU.night.value = night;
     this.skyU.cloudy.value = rain ? 1 : info.name === 'Nubes' || game.days?.weather === 'nubes' ? 0.75 : 0.3;
-    this.skyU.sunDir.value.copy(day ? sunDir : moonDir);
+    this.skyU.sunDir.value.copy(day ? sunDir : moonDir); this.skyU.moon.value = day ? 0 : 1;
     this.night = night;
     this.weather = { rain: indoors ? 0 : rain, snow: !indoors && snow };
+    this.fogNow = fog && !indoors;
     // La luz de la tabla de look.js, mezclada según la hora y el tiempo. Dentro de casa, la luz del cielo
     // y su reflejo a la mitad: mandan las luces cálidas
     const L = lightAt(night, dusk, rain || fog ? 1 : 0);
@@ -360,13 +368,12 @@ export class View3D {
     this.updateViewmodel(game, this.first);
     this.fx.update(game, scene, dt, t);
     this.arrows.update(game, scene);
-    this.terrain.water.uniforms.time.value = t;
-    this.terrain.water.uniforms.sky.value.copy(this.skyU.horizon.value);
+    this.updateWater(t);
     // El suelo se moja con la lluvia (en un minuto) y se seca despacio (unos cinco); el agua, con sus gotas
     { const r = game.days?.info?.rain || 0, k = r ? 1 : 0; this.wetNow = (this.wetNow || 0) + (k - (this.wetNow || 0)) * Math.min(1, dt * (k > (this.wetNow || 0) ? 0.05 : 0.01)); WET.value = this.wetNow; RAIN.value = r ? (r === 2 ? 1 : 0.6) : 0; }
     this.skyU.time.value = t;
     this.sky.position.copy(this.camera.position);
-    this.updateLights(game, scene, target);
+    { const L = this.updateLights(game, scene, target); this.glow.update(game, scene, L.src, L.lit, this.cave ? this.cave.flames() : this.world.flames(), t); }
     // Sombras alrededor de lo que se ve (con la cámara baja se ve más lejos: la zona crece y se adelanta), alineadas a los
     // texels del mapa para que no tiemblen; el sol, quieto entre repintado y repintado de lo fijo (ver sunshadow.js)
     this.shadows.place(target, CAM.yaw, this.cam.low, cave, this.sunDir, 24 + 6 * this.cam.low);
@@ -396,21 +403,36 @@ export class View3D {
     } catch {}
     this.world.prebake(season, game);
   }
-  // Reparte las luces de cerca entre las fuentes más próximas al jugador (o a lo que mira la cámara)
+  // El cielo que refleja el agua (el mismo que se ve: horizonte y cenit, el sol o la luna, su halo, la noche y las nubes) y
+  // la ribera que se refleja junto a la orilla: el color de la hierba (o de la nieve) de la estación con la luz de ahora,
+  // algo más oscuro (lo que sube en la orilla, hierba alta y árboles, se ve más en sombra que el suelo)
+  updateWater(t) {
+    const U = this.terrain.water.uniforms, S = this.skyU;
+    U.time.value = t;
+    U.sky.value.copy(S.horizon.value); U.skyTop.value.copy(S.top.value); U.sunDir.value.copy(S.sunDir.value);
+    U.glow.value = S.glow.value; U.night.value = S.night.value; U.moon.value = S.moon.value; U.cloudy.value = S.cloudy.value; U.cloudK.value = S.cloudK.value;
+    const a = BANK[this.terrain.season] || BANK[0], k = Math.max(0.15, this.sunDir?.y || 0) * this.sun.intensity;
+    U.bank.value.copy(this.hemi.color).multiplyScalar(this.hemi.intensity).add(TMP_C.copy(this.sun.color).multiplyScalar(k)).multiply(a).multiplyScalar(0.6 / Math.PI);
+  }
+  // Reparte las luces de cerca entre las fuentes más próximas al jugador (o a lo que mira la cámara). Devuelve las fuentes
+  // del mundo o de la cueva (src, sin el farol del jugador) y las que tienen ahora luz de verdad (lit), para los halos y los
+  // charcos de luz (glow.js)
   updateLights(game, scene, target) {
-    const src = this.cave ? this.cave.lights() : this.world.lights();
-    for (const s of this.actors.lights) src.push(s);
-    const near = src.map(s => [s, (s.x - target.x) ** 2 + (s.z - target.z) ** 2]).sort((a, b) => a[1] - b[1]);
+    const src = this.cave ? this.cave.lights() : this.world.lights(), lit = this.litNow ||= new Set();
+    const near = src.concat(this.actors.lights).map(s => [s, (s.x - target.x) ** 2 + (s.z - target.z) ** 2]).sort((a, b) => a[1] - b[1]);
     const t = game.time;
+    lit.clear();
     this.pool.forEach((l, i) => {
       const s = near[i]?.[0];
       if (!s || near[i][1] > 30 * 30) { l.intensity = 0; return; }
+      lit.add(s);
       l.position.set(s.x, s.y, s.z);
       l.color.set(s.color || '#ffb870');
       l.distance = s.range || 8;
       const flick = s.flicker ? 0.86 + Math.sin(t * 13 + i) * 0.07 + Math.sin(t * 29 + i * 2) * 0.06 : 1;
       l.intensity = (s.intensity ?? 3) * flick * (s.always ? 1 : 0.35 + 0.65 * Math.max(this.night, this.cave ? 1 : 0, game.indoors ? 0.8 : 0));
     });
+    return { src, lit };
   }
   // Tres pasadas: el mundo (el jugador solo deja su sombra), su silueta donde algo lo tapa y el jugador.
   // En primera persona, solo la primera: el cuerpo no se ve, pero sigue dando sombra (y la barca o el
@@ -520,5 +542,7 @@ export class View3D {
     return new Promise(res => { const look = () => { if (!this.photosOk && performance.now() - T0 < ms + 2600) { frames = 0; t0 = performance.now(); } if (++frames > 2 && (this.cave || this.terrain.ready(target.x, target.z) || performance.now() - t0 > ms)) res(); else requestAnimationFrame(look); }; look(); });
   }
 }
+// (el color de la ribera reflejada en el agua, por estación: hierba de primavera, de verano, parda de otoño y nieve)
+const BANK = ['#4f6a3a', '#5c6a38', '#6e5a36', '#c9ced2'].map(c => new THREE.Color(c)), TMP_C = new THREE.Color();
 const SILHOUETTE = new THREE.MeshBasicMaterial({ color: '#ffe8b0', transparent: true, opacity: 0.45, depthFunc: THREE.GreaterDepth, depthWrite: false, fog: false });
 const dirOf = (yaw, pitch, out) => out.set(Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), Math.cos(yaw) * Math.cos(pitch));

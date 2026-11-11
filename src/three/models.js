@@ -371,7 +371,7 @@ const BUILD = {
   },
   antorcha(m) {
     m.cyl('dark', 0, 0, 0, 0.04, 0.03, 1.05, 6).cyl('rope', 0, 0.92, 0, 0.055, 0.06, 0.14, 8);
-    m.fire(0, 1.08, 0, 0.7).light(0, 1.25, 0, { color: '#ffa850', intensity: 3.2, range: 9, flicker: true });
+    m.fire(0, 1.08, 0, 0.7).light(0, 1.25, 0, { color: '#ffa850', intensity: 3.2, range: 9, flicker: true, pool: 2.2 });
   },
   // Las flores que se cogen: un ramillete de tres (lo que se lleva y se tira al suelo; ver flowers3d.js)
   margarita(m) { flowerBunch(m, 'margarita'); },
@@ -748,7 +748,7 @@ const VILLAGE = {
   lamp(m) {
     m.cyl('stone', 0, 0, 0, 0.2, 0.16, 0.3, 10).cyl('iron', 0, 0.3, 0, 0.06, 0.045, 2.6, 8);
     m.cyl('lamp', 0, 2.84, 0, 0.1, 0.13, 0.32, 6).geo('iron', CONE, 0, 3.25, 0, [0, 0, 0], [0.2, 0.18, 0.2]);
-    m.light(0, 2.9, 0, { color: '#ffc070', intensity: 6, range: 12 });
+    m.light(0, 2.9, 0, { color: '#ffc070', intensity: 6, range: 12, pool: 3.5 });   // (pool: su charco de luz en el suelo, ver glow.js)
   },
   sign(m) {
     m.box('dark', -0.05, 0, -0.05, 0.05, 1.5, 0.05);
@@ -901,7 +901,7 @@ const PLACES = {
     m.box('soot', -0.65, 0, 0.29, -0.45, 1.0, 0.31);
     for (let i = 0; i < 8; i++) { const a = (i / 8) * Math.PI * 2; m.geo('rock', DODECA, 1 + Math.cos(a) * 0.35, 0.06, 1 + Math.sin(a) * 0.35, [i, i, 0], [0.1, 0.07, 0.09]); }
     for (let i = 0; i < 3; i++) m.cyl('dark', 1 + Math.cos(i * 2.1) * 0.12, 0.05, 1 + Math.sin(i * 2.1) * 0.12, 0.04, 0.04, 0.35, 6, [Math.cos(i * 2.1) * 1.2, 0, Math.sin(i * 2.1) * 1.2]);
-    m.fire(1, 0.08, 1, 0.9).light(1, 0.6, 1, { color: '#ff9a40', intensity: 4, range: 10, flicker: true });
+    m.fire(1, 0.08, 1, 0.9).light(1, 0.6, 1, { color: '#ff9a40', intensity: 4, range: 10, flicker: true, pool: 3 });
     m.smoke.push([1, 1.2, 1]);
     for (const [x, z, r] of [[1.9, 0.6, 0.3], [0.3, 1.9, 1.9]]) m.cyl('wood', x, 0.15, z, 0.14, 0.14, 0.7, 8, [0, r, Math.PI / 2]);
   },
@@ -924,7 +924,7 @@ const PLACES = {
     m.cyl('stone', 0, 0, 0, 1.4, 1.3, 0.6, 16);
     for (let i = 0; i < 6; i++) m.cyl(i % 2 ? 'stripeR' : 'white', 0, 0.6 + i * 1.3, 0, 0.95 - i * 0.07, 0.95 - (i + 1) * 0.07, 1.3, 16);
     m.cyl('iron', 0, 8.4, 0, 0.75, 0.75, 0.12, 16).cyl('glass', 0, 8.52, 0, 0.5, 0.5, 0.9, 12).geo('lens', ICO1, 0, 8.97, 0, [0, 0, 0], 0.3).geo('red', CONE, 0, 9.65, 0, [0, 0, 0], [0.62, 0.55, 0.62]);
-    m.light(0, 9, 0, { color: '#fff0b0', intensity: 12, range: 30, always: true });
+    m.light(0, 9, 0, { color: '#fff0b0', intensity: 12, range: 30, always: true, halo: 3 });
     m.beacon = [0, 8.97, 0];
   },
 };
@@ -1014,4 +1014,4 @@ function chandelier(m, y0) {
 }
 // El de cada casa (el origen arriba) y el que se coloca (origen en el suelo, colgado del techo, con su luz)
 export const CHANDELIER = chandelier(new Model(), 0);
-BUILD.candelabro = m => chandelier(m, WALL_H).light(0, WALL_H - 0.6, 0, { color: '#ffd08a', intensity: 4.5, range: 11 });
+BUILD.candelabro = m => chandelier(m, WALL_H).light(0, WALL_H - 0.6, 0, { color: '#ffd08a', intensity: 4.5, range: 11, halo: 0 });   // (sin halo: lo llevan sus velas)

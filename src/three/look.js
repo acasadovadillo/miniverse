@@ -32,7 +32,7 @@ export const TONE_MAPPING = TONE;
 const H = {
   dia: { cenit: '#7f9fb8', horiz: '#c9d2d0', sol: '#fff0dc', solI: 2.4, hemiC: '#b9c6cf', hemiS: '#6b5f4e', hemiI: 2.1, niebla: [60, 150], cielo: 1.3, nube: 0.82 },
   tarde: { cenit: '#6f7f9a', horiz: '#d9b08c', sol: '#ffc48f', solI: 3.2, hemiC: '#a9a7ae', hemiS: '#5e4e40', hemiI: 2.2, niebla: [50, 140], cielo: 1.15, nube: 0.75 },
-  noche: { cenit: '#141c2a', horiz: '#27303f', sol: '#8ea4c4', solI: 1.4, hemiC: '#2d3a4e', hemiS: '#1c1a18', hemiI: 7, niebla: [24, 90], cielo: 1, nube: 0.5 },
+  noche: { cenit: '#111a2e', horiz: '#263450', sol: '#8aa2cc', solI: 1.4, hemiC: '#2b3a56', hemiS: '#1c1a18', hemiI: 7, niebla: [24, 90], cielo: 1, nube: 0.5 },   // (azulada: con poca luz la curva apaga el color, y con el gris de antes la noche salía sucia)
   lluvia: { cenit: '#7c858b', horiz: '#a3a9aa', sol: '#d9dedf', solI: 0.8, hemiC: '#9aa3a8', hemiS: '#5a5247', hemiI: 2.6, niebla: [40, 120], cielo: 1.1, nube: 0.6 },   // (más gris que en las pruebas: en el juego salía casi como el mediodía)
 };
 // (cada momento en números ya listos para mezclar: los colores en lineal y multiplicados por su intensidad). En el juego,

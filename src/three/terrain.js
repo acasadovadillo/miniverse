@@ -136,7 +136,7 @@ export class Terrain {
       this.pending.delete(k);
       if (!keep.has(k) || this.blocks.has(k)) continue;
       this.gen.seedBiomes(m.bx * BLOCK, m.bz * BLOCK, m.corners, m.m, m.centers, m.w);
-      const t1 = performance.now(), blk = this.build(m.bx, m.bz, m.heights, m.water, m.colors, m.edge, m.normals);
+      const t1 = performance.now(), blk = this.build(m.bx, m.bz, m.heights, m.water, m.colors, m.edge, m.normals, m.shore);
       this.stats.built++; this.stats.msBuild += performance.now() - t1;
       this.blocks.set(k, blk);
       // (sus 16 trozos de textura, tras los bloques que hacen falta para empezar: ver ask)
@@ -175,7 +175,7 @@ export class Terrain {
       if (cur) { if (cur.stale) { cur.stale = false; cur.todo = allChunks(); cur.painted = 0; } continue; }
       if (built && performance.now() - t0 > budget) break;
       const d = blockHeights(gen, a, b);
-      this.blocks.set(k, this.build(a, b, d.heights, d.water, blockColors(gen, a, b, this.season), d.edge, d.normals));
+      this.blocks.set(k, this.build(a, b, d.heights, d.water, blockColors(gen, a, b, this.season), d.edge, d.normals, d.shore));
       built++;
     }
     for (const [a, b] of want) {
@@ -285,8 +285,8 @@ export class Terrain {
     pos.needsUpdate = nor.needsUpdate = true; geo.computeBoundingSphere();
   }
   // edge: el anillo de alturas de alrededor (ground.js: blockHeights) y normals: las normales sin allanar (si no vienen,
-  // se calculan)
-  build(bx, bz, raw, water, colors, edge, normals) {
+  // se calculan); shore: la orilla de cada vértice del agua (ground.js: blockShore)
+  build(bx, bz, raw, water, colors, edge, normals, shore) {
     const x0 = bx * BLOCK, z0 = bz * BLOCK, n = BLOCK + 1, { heights, normals: nor } = this.padded(bx, bz, raw, edge, normals);
     const pos = new Float32Array(n * n * 3), uv = new Float32Array(n * n * 2);
     for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
@@ -322,15 +322,17 @@ export class Terrain {
     mesh.receiveShadow = true;
     mesh.matrixAutoUpdate = false;
     this.group.add(mesh);
-    const waterMesh = water ? this.buildWater(pos, raw, n) : null;
+    const waterMesh = water ? this.buildWater(pos, raw, n, shore) : null;
     // (normals0: las de sin allanar, para cuando se quita lo construido; aparte de las de la malla, que remesh cambia)
     const blk = { mesh, tex, ctx: g, heights, raw, edge, normals0: nor === normals ? normals.slice() : normals, padSig: this.padSigOf(bx, bz), x0, z0, n, bx, bz, season: this.season, todo: allChunks(), painted: 0, waterMesh };
     this.contact.added(blk);   // (su hueco de la sombra de contacto, en blanco, y sus 16 trozos por pintar)
     return blk;
   }
-  // El agua del bloque: la misma rejilla a ras de WATER_Y, con lo que hay de suelo debajo en cada vértice (depth), y
-  // solo las casillas que tocan agua
-  buildWater(pos, heights, n) {
+  // El agua del bloque: la misma rejilla a ras de WATER_Y, con lo que hay de suelo debajo en cada vértice (depth), la
+  // orilla (shore: la distancia en metros, > 0 en el agua, hacia dónde queda lo hondo y lo alto de la orilla), y solo las casillas que tocan
+  // agua. Sin la orilla (no debería: un hilo aparte de otra versión), una que se le parece, sacada de la profundidad: sin
+  // ella el sombreador lee 0 y el agua no se vería
+  buildWater(pos, heights, n, shore) {
     const wpos = new Float32Array(n * n * 3), depth = new Float32Array(n * n), nor = new Float32Array(n * n * 3), idx = [];
     for (let v = 0; v < n * n; v++) { wpos[v * 3] = pos[v * 3]; wpos[v * 3 + 1] = WATER_Y; wpos[v * 3 + 2] = pos[v * 3 + 2]; depth[v] = WATER_Y - heights[v]; nor[v * 3 + 1] = 1; }
     for (let j = 0; j < n - 1; j++) for (let i = 0; i < n - 1; i++) {
@@ -338,10 +340,12 @@ export class Terrain {
       if (depth[a] > 0 || depth[b] > 0 || depth[c] > 0 || depth[d] > 0) idx.push(a, c, b, b, c, d);
     }
     if (!idx.length) return null;
+    if (!shore || shore.length !== n * n * 4) { shore = new Float32Array(n * n * 4); for (let v = 0; v < n * n; v++) shore[v * 4] = depth[v] > 0 ? 0.4 + depth[v] * 3 : depth[v] * 4; }
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.BufferAttribute(wpos, 3));
     geo.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
     geo.setAttribute('depth', new THREE.BufferAttribute(depth, 1));
+    geo.setAttribute('shore', new THREE.BufferAttribute(shore, 4));
     geo.setIndex(idx);
     geo.computeBoundingSphere();
     const m = new THREE.Mesh(geo, this.water.material);
@@ -482,43 +486,102 @@ function oldDetail(sh) {
         diffuseColor.rgb *= mix(mix(0.72, 1.2, s1), mix(0.62, 1.25, g1) * mix(0.68, 1.24, g2), green);`);
 }
 
-// Agua: el material de las mallas por bloque (block: con la profundidad por vértice) y el del plano de fondo (sin
-// ella: como si fuera honda, y descartado donde ya hay bloque). Ondas pequeñas en la normal que van a la deriva,
-// brillos que se mueven, el reflejo del cielo en los ángulos rasantes, el color más claro y verdoso donde cubre
-// poco, espuma que late hacia la orilla y el borde que se desvanece en vez de cortar el suelo (la línea de la orilla
-// la pinta el suelo, ground.js, que es más fino que esta malla)
-// (los colores de la paleta, poca espuma y olas suaves)
+// Agua: el material de las mallas por bloque (block: con la profundidad y la orilla por vértice) y el del plano de fondo
+// (sin ellas: como mar abierto, y descartado donde ya hay bloque). Sin reflejos de verdad (no se vuelve a pintar la escena):
+// - el color va por lo que cubre (Beer-Lambert): claro y verdoso donde hay poca agua, oscuro donde es honda; y donde cubre
+//   poco deja ver el fondo, que pinta el suelo (ground.js), transparente hasta la orilla, sin línea dura;
+// - la espuma va por la distancia a la orilla (no por la profundidad, que salta de golpe en la primera casilla): una franja
+//   en el borde y unas olas que llegan a ella, rotas a manchas por un ruido que se mueve;
+// - la luz del sol y de las luces de cerca, como siempre (con sus sombras y el brillo del sol o de la luna en las ondas), y
+//   encima el cielo reflejado según el ángulo (Fresnel de Schlick): el degradado del horizonte al cenit, el halo del sol,
+//   la luna y las nubes de verdad en esa dirección; cerca de la orilla, si el reflejo va hacia tierra, la ribera oscura. Va
+//   después de la luz: el cielo ya es luz, no se ilumina otra vez. Con la cámara alta se ve sobre todo el agua; a ras, el
+//   cielo, como en el agua de verdad;
+// - ondas pequeñas en la normal (cinco trenes en direcciones sin relación, que se apagan a lo lejos para que no centelleen)
+//   y los círculos de las gotas cuando llueve
 const lin = c => { const k = new THREE.Color(c); return `vec3(${k.r.toFixed(4)}, ${k.g.toFixed(4)}, ${k.b.toFixed(4)})`; };
-const WATER = { color: PAL.agua.media, shallow: lin(PAL.agua.orilla), deep: lin(PAL.agua.profunda), foam: lin(PAL.agua.espuma), foamK: '0.35', wave: '0.7' };
+const WATER = { color: PAL.agua.media, shallow: lin(PAL.agua.orilla), deep: lin(PAL.agua.profunda), foam: lin(PAL.agua.espuma) };
+const N_BUILT = (2 * RADIUS + 1) ** 2;
+const WATER_PARS = `uniform float time;
+uniform vec3 sky;
+uniform vec3 skyTop;
+uniform vec3 sunDir;
+uniform float glow;
+uniform float night;
+uniform float moon;
+uniform float cloudy;
+uniform float cloudK;
+uniform vec3 bank;
+uniform vec2 origin;
+uniform float built[${N_BUILT}];
+uniform float rainK;
+varying vec2 vW;
+varying float vDepth;
+varying vec4 vShore;
+// (ruido de valor barato, para la espuma: cuatro azares por punto)
+float wHash(vec2 p) { vec3 q = fract(p.xyx * 0.1031); q += dot(q, q.yzx + 33.33); return fract((q.x + q.y) * q.z); }
+float wNoise(vec2 p) { vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(wHash(i), wHash(i + vec2(1.0, 0.0)), f.x), mix(wHash(i + vec2(0.0, 1.0)), wHash(i + vec2(1.0, 1.0)), f.x), f.y); }
+// (las nubes del cielo, con su mismo azar y su misma proyección, en tres octavas: en el agua, onduladas, no hace falta más)
+float cH(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+float cN(vec2 p) { vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f); return mix(mix(cH(i), cH(i + vec2(1.0, 0.0)), f.x), mix(cH(i + vec2(0.0, 1.0)), cH(i + vec2(1.0, 1.0)), f.x), f.y); }
+float cFbm(vec2 p) { float v = 0.0, a = 0.5; for (int i = 0; i < 3; i++) { v += a * cN(p); p *= 2.03; a *= 0.5; } return v + 0.0625; }
+// La pendiente de las ondas en p (dh/dx, dh/dz): cinco trenes de olas pequeñas en direcciones sin relación, con el sitio
+// torcido por un ruido para que no se vea ninguna rejilla; las cortas se apagan a lo lejos (far: metros a la cámara)
+vec2 wSlope(vec2 p, float t, float far) {
+  float n = wNoise(p * 0.23 + t * 0.03);
+  p += vec2(n, wNoise(p * 0.23 - 7.1)) * 2.2;
+  float k2 = 1.0 - smoothstep(18.0, 70.0, far), k1 = 1.0 - smoothstep(60.0, 160.0, far) * 0.7;
+  // (y una ondulación sin dirección, del mismo ruido: rompe las franjas que, a ras, dejarían los trenes largos)
+  vec2 q = p * 0.45 + t * 0.04;
+  float m0 = wNoise(q);
+  vec2 g = vec2(wNoise(q + vec2(0.3, 0.0)) - m0, wNoise(q + vec2(0.0, 0.3)) - m0) * 0.25 * k1, d;
+  d = vec2(0.86, 0.51);   g += d * cos(dot(d, p) * 1.9 - t * 1.5) * 0.026 * k1;
+  d = vec2(-0.42, 0.91);  g += d * cos(dot(d, p) * 3.1 - t * 2.0 + 1.7) * 0.024 * k1;
+  d = vec2(0.17, -0.98);  g += d * cos(dot(d, p) * 5.3 - t * 2.6 + 4.1) * 0.030 * k2;
+  d = vec2(-0.93, -0.36); g += d * cos(dot(d, p) * 8.1 - t * 3.3 + 2.3) * 0.022 * k2;
+  d = vec2(0.64, -0.77);  g += d * cos(dot(d, p) * 12.9 - t * 4.3 + 5.9) * 0.016 * k2;
+  return g * (0.55 + 0.9 * n);
+}`;
 function waterMaterial(uniforms, block) {
-  const m = new THREE.MeshStandardMaterial({ color: WATER.color, roughness: 0.08, metalness: 0.1, transparent: true, opacity: 0.8 });
-  m.customProgramCacheKey = () => (block ? 'agua-bloque' : 'agua-fondo');   // (si no, Three les da el mismo programa a los dos: el texto de onBeforeCompile es el mismo)
+  const m = new THREE.MeshStandardMaterial({ color: WATER.color, roughness: 0.07, metalness: 0, transparent: true, opacity: 0.8 });
+  m.customProgramCacheKey = () => (block ? 'agua-bloque-v2' : 'agua-fondo-v2');   // (si no, Three les da el mismo programa a los dos: el texto de onBeforeCompile es el mismo)
   m.onBeforeCompile = sh => {
-    Object.assign(sh.uniforms, { time: uniforms.time, sky: uniforms.sky, origin: uniforms.origin, built: uniforms.built, rainK: RAIN });
+    Object.assign(sh.uniforms, { rainK: RAIN }, uniforms);
     sh.vertexShader = sh.vertexShader
-      .replace('#include <common>', `#include <common>\nvarying vec2 vW;\nvarying float vDepth;${block ? '\nattribute float depth;' : ''}`)
-      .replace('#include <begin_vertex>', `#include <begin_vertex>\nvW = (modelMatrix * vec4(transformed, 1.0)).xz;\nvDepth = ${block ? 'depth' : '1.0'};`);
+      .replace('#include <common>', `#include <common>\nvarying vec2 vW;\nvarying float vDepth;\nvarying vec4 vShore;${block ? '\nattribute float depth;\nattribute vec4 shore;' : ''}`)
+      .replace('#include <begin_vertex>', `#include <begin_vertex>\nvW = (modelMatrix * vec4(transformed, 1.0)).xz;\nvDepth = ${block ? 'depth' : '1.0'};\nvShore = ${block ? 'shore' : 'vec4(50.0, 0.0, 0.0, 0.0)'};`);
     sh.fragmentShader = sh.fragmentShader
-      .replace('#include <common>', `#include <common>\nuniform float time;\nuniform vec3 sky;\nuniform vec2 origin;\nuniform float built[${(2 * RADIUS + 1) ** 2}];\nuniform float rainK;\nvarying vec2 vW;\nvarying float vDepth;`)
+      .replace('#include <common>', `#include <common>\n${WATER_PARS}`)
       .replace('#include <clipping_planes_fragment>', `#include <clipping_planes_fragment>
         ${block ? '' : `vec2 bq = floor((vW - origin) / ${BLOCK}.0);
         if (bq.x >= 0.0 && bq.x < ${2 * RADIUS + 1}.0 && bq.y >= 0.0 && bq.y < ${2 * RADIUS + 1}.0 && built[int(bq.y) * ${2 * RADIUS + 1} + int(bq.x)] > 0.5) discard;`}
         if (vDepth <= 0.0) discard;`)
       .replace('#include <color_fragment>', `#include <color_fragment>
-        float dp = vDepth;
-        vec2 q = vW * 1.7 + vec2(time * 0.22, time * 0.1);
-        float sp = sin(q.x * 3.1 + time * 0.9 + sin(q.y * 1.7) * 1.5) * sin(q.y * 2.7 - time * 0.7 + sin(q.x * 1.3) * 1.5);   // (brillos sin rejilla)
-        diffuseColor.rgb = mix(${WATER.shallow}, diffuseColor.rgb, smoothstep(0.0, 0.4, dp));
-        diffuseColor.rgb = mix(diffuseColor.rgb, ${WATER.deep}, smoothstep(0.6, 2.4, dp) * 0.8);   // (lo hondo, más oscuro)
-        diffuseColor.rgb += vec3(0.06, 0.08, 0.09) * smoothstep(0.75, 1.0, sp);
-        // (espuma: una franja fina junto a la orilla, que late hacia ella)
-        float ring = 0.55 + 0.45 * sin(dp * 40.0 - time * 1.8 + sin(vW.x * 1.3 + vW.y * 0.9) * 2.0);
-        float foam = smoothstep(0.26, 0.04, dp) * ring;
-        diffuseColor.rgb = mix(diffuseColor.rgb, ${WATER.foam}, foam * ${WATER.foamK});
-        diffuseColor.a = mix(diffuseColor.a, 0.9, foam * 0.5) * smoothstep(0.0, 0.22, dp);   // (el borde se desvanece: la orilla la dibuja el suelo)`)
+        float dp = vDepth, sd = vShore.x, far = length(vViewPosition);
+        // El color por lo que cubre: de la orilla (verdoso y claro) al de la paleta en un palmo, y a lo hondo pasado el medio metro
+        vec3 wc = mix(${WATER.shallow}, diffuseColor.rgb, 1.0 - exp(-dp * 2.6));
+        diffuseColor.rgb = mix(wc, ${WATER.deep}, (1.0 - exp(-max(dp - 0.45, 0.0) * 1.1)) * 0.85);
+        // La espuma: la franja del borde y las olas que llegan a la orilla (del agua hacia tierra), rotas a manchas. Solo cerca
+        // de la orilla (mar adentro no se calcula)
+        float foam = 0.0;
+        if (sd < 1.9) {
+          float n1 = wNoise(vW * 1.7 + vec2(time * 0.07, -time * 0.05)), n2 = wNoise(vW * 4.3 - time * 0.11);
+          float edge = smoothstep(0.55, 0.05, sd);
+          float waves = smoothstep(0.55, 1.0, 0.5 + 0.5 * sin(sd * 5.5 + time * 1.4 + n1 * 3.0)) * smoothstep(1.8, 0.2, sd);
+          foam = clamp(edge * 0.8 + waves * 0.55, 0.0, 1.0) * smoothstep(0.25, 0.75, n2 * 0.6 + n1 * 0.4 + 0.15);
+        }
+        diffuseColor.rgb = mix(diffuseColor.rgb, ${WATER.foam}, foam * 0.7);
+        // Transparente donde cubre poco (se ve el fondo) y más opaca donde es honda; la espuma tapa. El borde, a cero junto a
+        // la orilla: la de verdad (sd) y donde el suelo de la malla sale del agua (dp, que va recto de casilla a casilla: con
+        // el agua aún visible ahí, se vería el corte en escalones). La línea de la orilla la pinta el suelo, más fino
+        float wEdge = smoothstep(0.0, 0.18, sd) * smoothstep(0.0, 0.1, dp);
+        diffuseColor.a = mix(min(0.92, 1.0 - 0.62 * exp(-dp * 1.6)), 0.95, foam * 0.6);   // (cuánto fondo deja ver: Beer-Lambert, como el color)`)
+      .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>
+        roughnessFactor = mix(roughnessFactor, 0.7, foam);   // (la espuma no brilla)`)
       .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
-        float w1 = sin(q.x * 1.3 + time * 1.1) * cos(q.y * 1.1 - time * 0.8), w2 = sin((q.x + q.y) * 2.3 - time * 1.7);
-        normal = normalize(normal + (mat3(viewMatrix) * vec3(w1 * 0.06 + w2 * 0.03, 0.0, w2 * 0.05 - w1 * 0.03) * ${WATER.wave}));
+        vec2 wg = wSlope(vW, time, far);
+        normal = normalize(normal + mat3(viewMatrix) * vec3(-wg.x, 0.0, -wg.y));
         // (la lluvia: en cada celda de medio metro, un círculo que se abre y se apaga, a destiempo)
         if (rainK > 0.0) {
           vec2 cell = floor(vW * 2.2), f = fract(vW * 2.2) - 0.5;
@@ -527,15 +590,48 @@ function waterMaterial(uniforms, block) {
           float rr = length(f), ring = smoothstep(0.035, 0.0, abs(rr - tt * 0.42)) * (1.0 - tt) * step(h, 0.35 + rainK * 0.6);
           normal = normalize(normal + (mat3(viewMatrix) * vec3(f.x, 0.0, f.y) * ring * 2.5 * rainK));
           diffuseColor.rgb += vec3(0.05) * ring * rainK;
-        }
-        float fres = pow(1.0 - clamp(dot(normalize(vViewPosition), normal), 0.0, 1.0), 3.0);
-        diffuseColor.rgb = mix(diffuseColor.rgb, sky, fres * 0.4);
-        diffuseColor.a = mix(diffuseColor.a, 1.0, fres * 0.6);`);
+        }`)
+      // (sin el reflejo del entorno de Three: el cielo reflejado va aparte, abajo, y si no saldría dos veces)
+      .replace('#include <lights_fragment_maps>', '')
+      .replace('#include <opaque_fragment>', `
+        // El cielo reflejado, en el mundo: la normal y la dirección a la cámara (de la vista al mundo, con la traspuesta)
+        vec3 Nw = normalize((vec4(normal, 0.0) * viewMatrix).xyz), Vw = normalize((vec4(vViewPosition, 0.0) * viewMatrix).xyz);
+        vec3 Rw = reflect(-Vw, Nw);
+        Rw.y = max(Rw.y, 0.02);
+        float F = mix(0.04, 1.0, pow(1.0 - clamp(dot(Vw, Nw), 0.0, 1.0), 5.0));
+        vec3 refl = mix(sky, skyTop, pow(Rw.y, 0.55));
+        float sr = max(dot(Rw, sunDir), 0.0);
+        refl += vec3(1.0, 0.85, 0.6) * pow(sr, 24.0) * 0.35 * glow;
+        refl += vec3(0.82, 0.87, 1.0) * (smoothstep(0.9985, 0.9995, sr) * 1.6 + pow(sr, 60.0) * 0.12) * night * moon;   // (la luna)
+        vec2 cuv = Rw.xz / (Rw.y + 0.12) * 1.3 + vec2(time * 0.006, time * 0.003);
+        float cl = smoothstep(0.62 - cloudy * 0.3, 0.86 - cloudy * 0.2, cFbm(cuv));
+        refl = mix(refl, mix(vec3(1.0, 0.98, 0.95), vec3(0.62, 0.66, 0.74), 0.4 + cloudy * 0.3) * mix(1.0, 0.2, night) * cloudK, cl * smoothstep(0.0, 0.22, Rw.y) * 0.9);
+        // La ribera: si el reflejo va hacia tierra (vShore.yz: hacia lo hondo) y la orilla está cerca, el rayo da en ella antes
+        // de subir más de lo que es alta (vShore.w: la hierba, los juncos, los árboles; en la arena, casi nada): se refleja
+        // oscura, con la luz de ahora. Hacia dónde va, con el agua lisa (con las ondas, el lado cambiaría de golpe de un píxel
+        // a otro); lo alto que llega, con las ondas, que la ondulan
+        vec3 Rf = reflect(-Vw, vec3(0.0, 1.0, 0.0));
+        float toLand = -dot(normalize(Rf.xz + 1e-5), vShore.yz), run = max(vShore.x, 0.0) / max(toLand, 0.08), bh = max(vShore.w, 0.05);
+        float hit = smoothstep(0.0, 0.3, toLand) * (1.0 - smoothstep(bh * 0.5, bh, run * Rw.y / max(length(Rw.xz), 1e-3))) * smoothstep(9.0, 3.0, vShore.x)
+          * smoothstep(0.1, 0.4, vShore.w) * smoothstep(0.01, 0.2, dot(vShore.yz, vShore.yz));
+        refl = mix(refl, bank, hit);
+        // Lo de debajo (el color del agua con su luz) se cambia por el reflejo según Fresnel; el brillo del sol o de la luna
+        // (la luz directa en las ondas, con su sombra) se queda encima. La espuma no refleja
+        float rk = F * (1.0 - foam);
+        outgoingLight = mix(reflectedLight.directDiffuse + reflectedLight.indirectDiffuse, refl, rk) + (reflectedLight.directSpecular + reflectedLight.indirectSpecular) * (1.0 - foam) + totalEmissiveRadiance;
+        diffuseColor.a = mix(diffuseColor.a, 1.0, rk * 0.6) * wEdge;
+        #include <opaque_fragment>`);
   };
   return m;
 }
+// Los números del agua que pone engine.js cada fotograma: el tiempo, el cielo (horizonte y cenit, el sol o la luna, su halo,
+// la noche y las nubes) y el color de la ribera reflejada
 function makeWater() {
-  const uniforms = { time: { value: 0 }, sky: { value: new THREE.Color('#cfe6f4') }, origin: { value: new THREE.Vector2() }, built: { value: new Float32Array((2 * RADIUS + 1) ** 2) } };
+  const uniforms = {
+    time: { value: 0 }, sky: { value: new THREE.Color('#cfe6f4') }, skyTop: { value: new THREE.Color('#7f9fb8') }, sunDir: { value: new THREE.Vector3(0, 1, 0) },
+    glow: { value: 0.45 }, night: { value: 0 }, moon: { value: 0 }, cloudy: { value: 0.3 }, cloudK: { value: 1 }, bank: { value: new THREE.Color('#2a3320') },
+    origin: { value: new THREE.Vector2() }, built: { value: new Float32Array(N_BUILT) },
+  };
   const geo = new THREE.PlaneGeometry(520, 520, 1, 1);
   geo.rotateX(-Math.PI / 2);
   const mesh = new THREE.Mesh(geo, waterMaterial(uniforms, false));

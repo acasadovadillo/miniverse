@@ -161,7 +161,7 @@ function familyOf(scene, tx, ty, X) {
 }
 
 // Un tramo recto de muro dentro de una casilla, de a hasta b a lo largo de su eje, con sus huecos
-function run(emit, extras, { id, X, c, side, a, b, holes, ends, painting, half }) {
+function run(emit, extras, { id, X, c, side, a, b, holes, ends, painting, half, tile }) {
   // Punto y caja en coordenadas del tramo: u a lo largo, k hacia el lado "más" (+z si X, +x si no)
   const P = (u, y, k = 0) => (X ? [u, y, c + k] : [c + k, y, u]);
   const box = (key, u0, u1, y0, y1, k0, k1, skip = '') => { const B = emit(key, side), a0 = Math.min(u0, u1), a1 = Math.max(u0, u1), c0 = c + Math.min(k0, k1), c1 = c + Math.max(k0, k1); if (X) B.box(a0, y0, c0, a1, y1, c1, { skip }); else B.box(c0, y0, a0, c1, y1, a1, { skip: swapSkip(skip) }); };
@@ -232,6 +232,11 @@ function run(emit, extras, { id, X, c, side, a, b, holes, ends, painting, half }
       box('frame', h0, h1, h.y1, h.y1 + 0.07, k, k + o * 0.05);
     }
     box('glass', h0, h1, h.y0, h.y1, -0.008, 0.008);
+    // (abierta y en una pared que da fuera: su luz de noche, pegada a la fachada; ver glow.js. Las cerradas rehacen su trozo)
+    if (outSign && !h.closed && extras.windows && tile) {
+      const k = outSign * (T + 0.03), y = (h.y0 + h.y1) / 2 + (extras.lift || 0), p = P(h.u, y, k);
+      extras.windows.push({ p, n: X ? [0, outSign] : [outSign, 0], tile, side, gy: 0 });   // (gy: el suelo de delante, lo pone world3d.js)
+    }
     box('frame', h.u - 0.022, h.u + 0.022, h.y0, h.y1, -0.03, 0.03);
     box('frame', h0, h1, (h.y0 + h.y1) / 2 - 0.022, (h.y0 + h.y1) / 2 + 0.022, -0.03, 0.03);
     box('frame', h0 - 0.1, h1 + 0.1, h.y0 - 0.06, h.y0, -T - 0.08, T + 0.08);

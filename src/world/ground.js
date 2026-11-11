@@ -99,14 +99,18 @@ function groundWith(gen, x, z, c) {
 // desde una casilla antes del bloque) y de los centros de sus casillas (BLOCK por lado), para que el juego no los tenga
 // que volver a calcular. water: si hay algo bajo el agua en el bloque (para su malla)
 // (las esquinas de los biomas y los vértices con su anillo son los mismos puntos: el clima se calcula una vez para los dos)
+// Si hay agua, también lo mojado de cada punto (wet, n+2 por lado, como las esquinas: wetOf) y, de ahí, la orilla de cada
+// vértice (shore: blockShore), para la espuma, la transparencia y la ribera reflejada. Sale casi gratis: el clima ya está
+// calculado
 export function blockHeights(gen, bx, bz) {
   const x0 = bx * BLOCK, z0 = bz * BLOCK, n = BLOCK + 1, m = n + 2, S = gen.seed, c = {};
-  const corners = new Uint8Array(m * m), centers = new Uint8Array(BLOCK * BLOCK), heights = new Float32Array(n * n), edge = new Float32Array(4 * n);
+  const corners = new Uint8Array(m * m), centers = new Uint8Array(BLOCK * BLOCK), heights = new Float32Array(n * n), edge = new Float32Array(4 * n), wet = new Float32Array(m * m);
   let water = false;
   for (let j = -1; j <= n; j++) for (let i = -1; i <= n; i++) {
     const x = x0 + i, z = z0 + j;
     climate(x, z, S, c);
     corners[(j + 1) * m + i + 1] = classify(c.T, c.M, c.C, c.R, c.L, c.K, c.P, c.f, 0, c.Q, c.Tl, c.Ml);   // (= biomeAt)
+    wet[(j + 1) * m + i + 1] = wetOf(x, z, c);
     const ii = i < 0 || i === n, jj = j < 0 || j === n;
     if (ii && jj) continue;   // (las esquinas del anillo no hacen falta)
     const h = groundWith(gen, x, z, c);
@@ -114,8 +118,39 @@ export function blockHeights(gen, bx, bz) {
     else edge[ii ? (i < 0 ? 0 : n) + j : (j < 0 ? 2 * n : 3 * n) + i] = h;
   }
   for (let j = 0; j < BLOCK; j++) for (let i = 0; i < BLOCK; i++) centers[j * BLOCK + i] = biomeAt(x0 + i + 0.5, z0 + j + 0.5, S);
-  return { heights, edge, normals: blockNormals(heights, edge, n), water, corners, centers, n, m };
+  return { heights, edge, normals: blockNormals(heights, edge, n), water, corners, centers, n, m, wet: water ? wet : null, shore: water ? blockShore(wet, n, corners) : null };
 }
+// Lo mojado de un punto, seguido y con la orilla en 0 (> 0 en el agua): el de wetness con el clima de ahí (c) y, en el
+// pueblo, el del estanque por su distancia (la orilla de su malla, donde el fondo baja de WATER_Y, en pondDist 0,986; ×3,2:
+// más o menos metros, aunque solo importa su signo y que sea seguido)
+const wetOf = (x, z, c) => village.inBounds(x, z) ? (0.986 - village.pondDist(x, z)) * 3.2 : wetness(c);
+// La orilla de cada vértice de un bloque, desde lo mojado (wet: n+2 por lado, con un punto de margen): cuatro números por
+// vértice, la distancia a la orilla en metros con signo (> 0 en el agua, de -4 a 12), la dirección hacia lo hondo (x, z) y
+// lo alto que es lo que hay en esa orilla (BANK_H, por el bioma de la tierra de detrás: corners, como en blockHeights): lo
+// que el agua refleja a ras. La distancia es u / |∇u|, exacta junto a la línea de la orilla, que es donde importa (la
+// espuma, la transparencia y la ribera reflejada); lejos se queda en 12. Con el gradiente por diferencias centrales, el
+// borde de un bloque da lo mismo desde los dos bloques que lo comparten: la espuma no se corta cada 64 m
+export function blockShore(wet, n, corners, out = new Float32Array(n * n * 4)) {
+  const m = n + 2;
+  for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
+    const c = (j + 1) * m + i + 1, gx = (wet[c + 1] - wet[c - 1]) * 0.5, gz = (wet[c + m] - wet[c - m]) * 0.5, g = Math.hypot(gx, gz), o = (j * n + i) * 4;
+    const sd = Math.max(-4, Math.min(12, wet[c] / Math.max(g, 0.02))), dx = g > 1e-4 ? gx / g : 0, dz = g > 1e-4 ? gz / g : 0;
+    out[o] = sd; out[o + 1] = dx; out[o + 2] = dz;
+    // (lo de la orilla: el primer punto de tierra yendo hacia ella, a metro y medio pasada la línea; si cae fuera del bloque y
+    // su anillo, el del borde)
+    let h = 0;
+    if (corners && (dx || dz) && sd < 9) for (let k = 0; k < 3; k++) {
+      const back = Math.max(sd, 0) + 1.5 + k * 2, bi = Math.max(-1, Math.min(n, Math.round(i - dx * back))), bj = Math.max(-1, Math.min(n, Math.round(j - dz * back)));
+      const b = corners[(bj + 1) * m + bi + 1];
+      if (!BIOMES[b]?.water) { h = BANK_H[b] ?? 1; break; }
+    }
+    out[o + 3] = h;
+  }
+  return out;
+}
+// Lo alto de la orilla por bioma (metros): la arena de la playa y el desierto, casi nada; la hierba y los juncos del prado,
+// algo más de un metro; el bosque y los pinos, los árboles; el pantano, cañas y arbustos; la roca, sus peñas
+const BANK_H = { [B.BEACH]: 0.3, [B.DESERT]: 0.3, [B.MEADOW]: 1.2, [B.FOREST]: 5, [B.PINES]: 6, [B.SWAMP]: 2.5, [B.SNOW]: 0.8, [B.ROCKY]: 1.6, [B.ICE]: 0.4 };
 // El anillo de un bloque: edge[0..n) la columna de antes (x0 - 1, z0 + j), [n..2n) la de después (x0 + n), [2n..3n) la
 // fila de antes (x0 + i, z0 - 1) y [3n..4n) la de después (z0 + n)
 export const edgeAt = (n, i, j) => i < 0 ? j : i >= n ? n + j : j < 0 ? 2 * n + i : 3 * n + i;
@@ -141,7 +176,7 @@ export function groundTag(gen) {
   let h = 2166136261;
   const f = new Float32Array(1), u = new Uint32Array(f.buffer), mix = v => { h = Math.imul(h ^ v, 16777619); };
   const text = fn => { const t = String(fn); for (let i = 0; i < t.length; i++) mix(t.charCodeAt(i)); };
-  for (const fn of [blockHeights, groundWith, groundOf, depthOf, climate, classify, biomeAt, wetness, depthOfWet, reliefOf, gen.groundAt, gen.depthAt, village.pondDist, village.inBounds]) text(fn);
+  for (const fn of [blockHeights, groundWith, groundOf, depthOf, climate, classify, biomeAt, wetness, depthOfWet, reliefOf, gen.groundAt, gen.depthAt, village.pondDist, village.inBounds, wetOf]) text(fn);
   // (puntos de prueba: por todo el planeta, alrededor del pueblo y su estanque, y unos cuantos al azar cerca)
   const P = [];
   for (let j = 0; j < 12; j++) for (let i = 0; i < 12; i++) P.push([-32768 + i * 5461.3 + j * 97, -6000 + j * 1000 + i * 31]);

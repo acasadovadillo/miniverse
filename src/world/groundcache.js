@@ -17,28 +17,40 @@ const TOUCH_MS = 6 * 3600e3;                 // la fecha de uso solo se renueva 
 const QUOTA_MS = 60e3;                       // cada cuánto se mira lo que queda de sitio en el disco
 
 // Las alturas, revueltas por bytes (todos los primeros bytes de cada número, luego los segundos…): el exponente y el
-// principio de la mantisa se repiten mucho, y así el compresor los aprovecha. Es reversible y exacto
+// principio de la mantisa se repiten mucho, y así el compresor los aprovecha. Es reversible y exacto. Si el bloque tiene
+// agua, detrás va lo mojado de cada punto (wet: M × M números, revueltos igual), de lo que sale la orilla (ground.js:
+// blockShore); sin agua no se guarda (los bloques de tierra, la mayoría, ocupan lo mismo que antes)
+const WET = M * M;
+function shuffle(src, raw, at) {
+  const b = new Uint8Array(src.buffer, src.byteOffset, src.length * 4), L = src.length;
+  for (let k = 0; k < 4; k++) for (let i = 0; i < L; i++) raw[at + k * L + i] = b[i * 4 + k];
+}
+function unshuffle(raw, at, L) {
+  const f = new Float32Array(L), b = new Uint8Array(f.buffer);
+  for (let k = 0; k < 4; k++) for (let i = 0; i < L; i++) b[i * 4 + k] = raw[at + k * L + i];
+  return f;
+}
 function pack(d) {
-  const raw = new Uint8Array(BYTES), f = new Float32Array(FLOATS);
+  const raw = new Uint8Array(BYTES + (d.wet ? WET * 4 : 0)), f = new Float32Array(FLOATS);
   f.set(d.heights, 0); f.set(d.edge, N * N);
-  const b = new Uint8Array(f.buffer);
-  for (let k = 0; k < 4; k++) for (let i = 0; i < FLOATS; i++) raw[k * FLOATS + i] = b[i * 4 + k];
+  shuffle(f, raw, 0);
   raw.set(d.corners, FLOATS * 4); raw.set(d.centers, FLOATS * 4 + M * M);
+  if (d.wet) shuffle(d.wet, raw, BYTES);
   return raw;
 }
 function unpack(raw) {
-  if (raw.byteLength !== BYTES) return null;
-  const f = new Float32Array(FLOATS), b = new Uint8Array(f.buffer);
-  for (let k = 0; k < 4; k++) for (let i = 0; i < FLOATS; i++) b[i * 4 + k] = raw[k * FLOATS + i];
+  if (raw.byteLength !== BYTES && raw.byteLength !== BYTES + WET * 4) return null;
+  const f = unshuffle(raw, 0, FLOATS);
   const heights = f.slice(0, N * N), edge = f.slice(N * N);
   for (const v of heights) if (!Number.isFinite(v)) return null;
-  return { heights, edge, corners: raw.slice(FLOATS * 4, FLOATS * 4 + M * M), centers: raw.slice(FLOATS * 4 + M * M), n: N, m: M };
+  const wet = raw.byteLength > BYTES ? unshuffle(raw, BYTES, WET) : null;
+  return { heights, edge, corners: raw.slice(FLOATS * 4, FLOATS * 4 + M * M), centers: raw.slice(FLOATS * 4 + M * M, BYTES), wet, n: N, m: M };
 }
 // (¿comprime el navegador en 'deflate-raw'? Chrome 80-102 tiene las clases pero no ese formato, y entonces lanzan al crearlas)
 const ZIP = (() => { try { new CompressionStream('deflate-raw'); new DecompressionStream('deflate-raw'); return true; } catch { return false; } })();
 // La forma de lo guardado (pack, unpack y su tamaño) va en la clave junto a la huella del relieve: si cambia, lo de antes
 // ya no se lee como si fuera de ahora (y la limpieza de cleanOld se lo lleva, como lo de otra versión del relieve)
-const FORMAT = (() => { let h = 2166136261; for (const c of String(pack) + String(unpack) + BYTES) h = Math.imul(h ^ c.charCodeAt(0), 16777619); return (h >>> 0).toString(36); })();
+const FORMAT = (() => { let h = 2166136261; for (const c of String(pack) + String(unpack) + String(shuffle) + String(unshuffle) + BYTES + ':' + WET) h = Math.imul(h ^ c.charCodeAt(0), 16777619); return (h >>> 0).toString(36); })();
 const through = (u8, stream) => new Response(new Blob([u8]).stream().pipeThrough(stream)).arrayBuffer().then(b => new Uint8Array(b));
 const req = r => new Promise((res, rej) => { r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
 const done = tx => new Promise((res, rej) => { tx.oncomplete = res; tx.onerror = tx.onabort = () => rej(tx.error); });

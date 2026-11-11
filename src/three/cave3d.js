@@ -157,7 +157,7 @@ export class Cave3D {
       } else if (o.ladder) {
         if (o.ladder === 'down') { const m = add(own(new THREE.CircleGeometry(0.45, 20).rotateX(-Math.PI / 2)), x, 0.01, z); m.material = modelMat('dark0'); }
         const lad = ladder(o.ladder === 'down'); lad.position.set(x, o.ladder === 'down' ? -0.6 : 0, z); g.add(lad);
-        if (o.ladder === 'up') this.lightList.push({ x, y: 2.5, z, color: '#bcd8ff', intensity: 2, range: 6, always: true });
+        if (o.ladder === 'up') this.lightList.push({ x, y: 2.5, z, color: '#bcd8ff', intensity: 2, range: 6, always: true, halo: 0 });   // (la luz que baja por el agujero: sin halo, no es una lámpara)
       } else if (o.chest) put(`treasure:${st.opened[o.key] ? 1 : 0}`, x, z);
       else if (o.gate !== undefined) {
         const gate = gateModel(); gate.position.set(x, o.open ? 2.3 : 0, z);
