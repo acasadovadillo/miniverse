@@ -10,7 +10,9 @@
 // contraseña pasa a accounts.json y la invitación se borra.
 //
 // La partida va cifrada en este ordenador (IndexedDB) y en GitHub, y al entrar se usa la más reciente.
-// Descifrada solo está en memoria, mientras dura la sesión.
+// Descifrada solo está en memoria, mientras dura la sesión. Si la de GitHub existe pero no se puede abrir (¿dañada?), no
+// se entra ni se sube nada encima: se avisa y se ofrece la copia de este ordenador o una anterior de GitHub (damaged).
+// Si subir a GitHub falla dos veces seguidas, se avisa con el motivo (onSync: ver savesafety.js).
 //
 // Para jugar juntos en directo, cada cuenta tiene además la clave del mundo compartido (ver worldkey.js) y el
 // admin publica en servidor.json, en el repositorio privado, la dirección de su servidor cuando lo abre. El
@@ -18,15 +20,15 @@
 // entra, sea quien sea), así que se puede jugar en él aunque el admin no esté.
 import { db } from './db.js';
 import { gameData } from './share.js';
-import { GAME_REPO, DATA_REPO, readAccounts, getFile, putFile, deleteFile, canWrite } from './github.js';
+import { GAME_REPO, DATA_REPO, readAccounts, getFile, putFile, deleteFile, canWrite, fileHistory, tokenExpiry } from './github.js';
 import { dataFile, keyFile, toB64, fromB64, newSalt, deriveKey, encryptText, decryptText, seal, unseal, inviteCode, normalizeCode } from './vault.js';
-import { WorldKey, keysFile } from './worldkey.js';
+import { WorldKey, keysFile, WORLD_FILE } from './worldkey.js';
 
 export const ADMIN_ID = 'alberto';
 const UPLOAD_EVERY = 3 * 60 * 1000;   // como mucho, una subida automática a GitHub cada 3 minutos
 const CHORES_EVERY = 3 * 60 * 1000;   // el admin pone al día las cuentas cada tantos minutos mientras juega
 const LIVE_FILE = 'servidor.json';
-const WORLD_FILE = 'mundo.enc';
+const RETRY_AFTER = 60 * 1000;          // tras un fallo al subir, lo que se espera para volver a intentarlo solo
 const SERVER_COPY = 'servidor-mundo';   // (el mundo del servidor guarda aquí, en este navegador, su copia del mundo)
 const NAME_RE = /^[\p{L}\p{N}_-]{3,16}$/u;
 const idOf = name => name.trim().toLowerCase();
@@ -42,6 +44,19 @@ let data = null;            // su partida descifrada
 let remoteSha, lastUpload = 0, changed = false, queue = Promise.resolve();
 let worldKey = Promise.resolve(null), chores = null;   // la clave del mundo compartido (se va abriendo) y las tareas del admin
 let worldSha, worldUploaded = 0, worldQueue = Promise.resolve();   // el mundo compartido: su sha y cuándo se subió
+let damaged = null;         // la partida de GitHub que no se ha podido abrir al entrar: lo que se puede hacer (ver begin)
+let worldKeyError = '';     // (el admin) por qué no se ha podido abrir la llave del mundo
+let renewing = null;        // (el admin, al entrar) su cuenta, si GitHub ya no acepta su token: pega uno nuevo (renewToken)
+// Cómo van las subidas a GitHub, la partida (game) y el mundo compartido (world): cuántos fallos seguidos, desde cuándo y
+// el último error (con su motivo, kind: ver github.js)
+const uploads = { game: { fails: 0, since: 0, at: 0, error: null, okAt: 0 }, world: { fails: 0, since: 0, at: 0, error: null, okAt: 0 } };
+function uploaded(which, error = null) {
+  const u = uploads[which], before = u.fails;
+  if (error) { if (!u.fails) u.since = Date.now(); u.fails++; u.at = Date.now(); u.error = error; }
+  else { u.fails = 0; u.error = null; u.okAt = Date.now(); }
+  if (before !== u.fails) Profile.onSync?.(Profile.syncState());
+}
+const resetUploads = () => { for (const u of Object.values(uploads)) Object.assign(u, { fails: 0, since: 0, at: 0, error: null, okAt: 0 }); };
 
 // El mundo compartido va cifrado con la clave del mundo (AES-GCM): 12 bytes al azar y luego lo cifrado
 async function sealWorld(key, world) {
@@ -70,23 +85,38 @@ async function legacyData() {
 }
 
 // Abre la sesión: trae su partida de GitHub y la de este ordenador, se queda con la más reciente y pone al
-// día la otra. seed: la partida con la que empieza si no tiene ninguna.
+// día la otra. seed: la partida con la que empieza si no tiene ninguna. Si la de GitHub existe pero no se puede
+// abrir, no se entra (y nunca se sube nada encima): queda en damaged lo que se puede hacer y lanza el error (damaged)
 async function begin(account, seed = null) {
-  me = account;
+  me = account; damaged = null;
   const remote = await getFile(me.token, DATA_REPO, dataFile(me.id));
   remoteSha = remote?.sha;
-  const rData = remote ? await unseal(remote.bytes, me.key, me.salt).catch(() => null) : null;
+  let rData = null, rError = null;
+  if (remote) { try { rData = await unseal(remote.bytes, me.key, me.salt); } catch (e) { rError = e; } }
   const local = await db.get('vaults', me.id).catch(() => null);
   const lData = local ? await unseal(local.bytes, me.key, me.salt).catch(() => null) : null;
+  if (rError) {
+    damaged = { account, local: lData, seed, sha: remote.sha, found: undefined };
+    me = null;
+    const why = /otra cuenta/.test(rError.message) ? 'no es de esta cuenta (¿está dañada?)' : /no tiene datos/.test(rError.message) ? 'no tiene el formato de las partidas (¿está dañada o cortada?)' : 'no se descifra con tu contraseña (¿está dañada?)';
+    throw Object.assign(new Error(`No se puede abrir tu partida guardada en GitHub: ${why}. No se ha tocado nada.`), { damaged: true });
+  }
   data = [rData, lData, seed].filter(Boolean).sort((a, b) => timeOf(b) - timeOf(a))[0] || emptyData();
-  changed = false;
-  await Profile.persist({ upload: !rData || timeOf(data) > timeOf(rData) });
+  await opened(!rData || timeOf(data) > timeOf(rData));
+}
+// Lo que sigue a abrir la partida (upload: subirla ya, porque la de GitHub es más vieja o no la había)
+async function opened(upload) {
+  changed = false; renewing = null; worldKeyError = '';
+  resetUploads();
+  await Profile.persist({ upload });
   // La clave del mundo compartido. El admin, además, pone al día las cuentas (pasa a accounts.json las que ya
   // tienen contraseña y da la clave del mundo a quien no la tenga) al entrar y cada pocos minutos
-  worldKey = WorldKey.open(me).catch(e => { console.warn('Clave del mundo:', e); return null; });
+  worldKey = openWorldKey();
   clearInterval(chores);
   if (me.admin) { const run = () => Profile.chores().catch(() => {}); run(); chores = setInterval(run, CHORES_EVERY); }
 }
+// (si no se puede abrir, null; al admin se le dice por qué en el menú y en Ajustes: ver worldKeyError)
+const openWorldKey = () => WorldKey.open(me).then(k => { worldKeyError = ''; return k; }, e => { console.warn('Clave del mundo:', e); if (me?.admin) worldKeyError = e.message; Profile.onWorldKeyError?.(worldKeyError); return null; });
 
 export const Profile = {
   get id() { return me?.id; },
@@ -98,6 +128,13 @@ export const Profile = {
   get server() { return me?.server ? me : null; },
   get data() { return data; },
   lastError: '',
+  // (al entrar) la partida de GitHub no se ha podido abrir: { localAt (la copia de este navegador, o null), found (una
+  // anterior de GitHub: { at } tras findOlder, o null si no hay) }, o null
+  get damaged() { return damaged && { localAt: damaged.local ? timeOf(damaged.local) || -1 : null, found: damaged.found === undefined ? undefined : damaged.found && { at: damaged.found.at } }; },
+  // (al entrar, el admin) GitHub ya no acepta su token: hay que pegar uno nuevo (renewToken)
+  get needsToken() { return !!renewing; },
+  // (el admin) por qué no se puede abrir la llave del mundo ('' si se puede o aún no se sabe)
+  get worldKeyError() { return worldKeyError; },
 
   // Qué hace falta para entrar con este usuario: 'login' (contraseña), 'invite' (primera vez: código de
   // invitación y contraseña nueva), 'setup' (la cuenta de admin todavía no existe) o 'unknown'
@@ -114,7 +151,34 @@ export const Profile = {
     const salt = fromB64(acc.salt), key = await deriveKey(password, salt);
     let token;
     try { token = await decryptText(key, acc.token); } catch (e) { return e.message; }
-    try { await begin({ id, name: acc.name, admin: !!acc.admin, key, salt, token }); } catch (e) { me = null; return e.message; }
+    renewing = null;
+    try { await begin({ id, name: acc.name, admin: !!acc.admin, key, salt, token }); } catch (e) {
+      me = null;
+      // (un token caducado: el admin pega uno nuevo aquí mismo; los demás se lo piden a él)
+      if (e.kind === 'expired' && acc.admin) { renewing = { id, name: acc.name, admin: true, key, salt }; return 'GitHub ya no acepta tu token de admin (¿ha caducado?): crea uno nuevo en GitHub y pégalo aquí.'; }
+      if (e.kind === 'expired') return `GitHub ya no acepta tu permiso de guardado (¿ha caducado?): pide a ${book.accounts[ADMIN_ID]?.name || 'el admin'} uno nuevo (/account reset ${acc.name}) y entra con el código que te dé.`;
+      return e.message;
+    }
+    return null;
+  },
+  // (el admin) Cambia su token de GitHub por uno nuevo: al entrar, si el suyo ya no vale (needsToken), o desde Ajustes.
+  // Tiene que poder escribir en los dos repositorios; queda cifrado con su contraseña en accounts.json. El mundo del
+  // servidor tiene el de antes: con /link en su terminal se le da el nuevo
+  async renewToken(token) {
+    const acc = renewing || (me?.admin ? me : null), atLogin = !!renewing;
+    if (!acc) return 'Solo el admin puede cambiar su token aquí.';
+    token = String(token || '').trim();
+    if (!token) return 'Pega el token nuevo.';
+    try {
+      if (!(await canWrite(token, GAME_REPO)) || !(await canWrite(token, DATA_REPO))) return `Ese token no puede escribir en ${GAME_REPO} y ${DATA_REPO}.`;
+      await loadBook(token);
+      const entry = book.accounts[ADMIN_ID];
+      if (!entry || entry.invite) return 'No encuentro tu cuenta en accounts.json.';
+      const was = me;
+      me = { ...acc, token };
+      try { entry.token = await encryptText(acc.key, token); await writeBook('Token nuevo de Alberto'); } catch (e) { me = was; throw e; }
+      if (atLogin) { renewing = null; await begin(me); }
+    } catch (e) { if (atLogin) me = null; return e.message; }
     return null;
   },
 
@@ -175,7 +239,60 @@ export const Profile = {
   // Solo el admin: lo que necesita el mundo del servidor (la clave del mundo y su token), o null si aún no la tiene
   serverSecrets() { const raw = WorldKey.raw(); return me?.admin && raw ? { key: toB64(raw), token: me.token } : null; },
 
-  logout() { me = null; data = null; clearInterval(chores); WorldKey.forget(); worldKey = Promise.resolve(null); worldSha = undefined; worldUploaded = 0; },
+  logout() { me = null; data = null; damaged = null; renewing = null; worldKeyError = ''; clearInterval(chores); WorldKey.forget(); worldKey = Promise.resolve(null); worldSha = undefined; worldUploaded = 0; resetUploads(); },
+
+  // ---------- La partida de GitHub que no se abre ----------
+  // Busca en el historial de GitHub la versión más reciente que sí se abre (de las 30 últimas subidas). Devuelve { at } o
+  // null si no hay ninguna (y queda para resolveDamaged('older'))
+  async findOlder() {
+    const d = damaged;
+    if (!d) return null;
+    if (d.found !== undefined) return d.found && { at: d.found.at };
+    const a = d.account;
+    let found = null;
+    for (const { commit, at } of await fileHistory(a.token, DATA_REPO, dataFile(a.id))) {
+      const f = await getFile(a.token, DATA_REPO, dataFile(a.id), commit).catch(() => null);
+      if (!f || f.sha === d.sha) continue;   // (la dañada)
+      const v = await unseal(f.bytes, a.key, a.salt).catch(() => null);
+      if (v) { found = { data: v, at: timeOf(v) || at }; break; }
+    }
+    if (damaged === d) d.found = found;
+    return found && { at: found.at };
+  },
+  // Lo que elige el jugador: 'local' (la copia de este navegador), 'older' (la anterior de GitHub, tras findOlder) o
+  // 'empty' (empezar sin partida). Solo entonces se sube a GitHub, encima de la dañada (que sigue en el historial)
+  async resolveDamaged(choice) {
+    const d = damaged;
+    const picked = !d ? null : choice === 'local' ? d.local : choice === 'older' ? d.found?.data : choice === 'empty' ? d.seed || emptyData() : null;
+    if (!picked) return 'Esa copia no está.';
+    try {
+      me = d.account; data = picked; remoteSha = d.sha; damaged = null;
+      await opened(true);
+    } catch (e) { me = null; damaged = d; return e.message; }
+    return null;
+  },
+
+  // ---------- Cómo va el guardado en GitHub ----------
+  // Si falla: { what: 'game' | 'world', fails, since, message, kind } (lo peor de los dos, con dos fallos seguidos o
+  // más), o null si va bien. Cada cambio llega a onSync
+  syncState() {
+    const bad = Object.entries(uploads).filter(([, u]) => u.fails >= 2).sort((a, b) => a[1].since - b[1].since)[0];
+    return bad ? { what: bad[0], fails: bad[1].fails, since: bad[1].since, message: bad[1].error?.message || '', kind: bad[1].error?.kind || 'other' } : null;
+  },
+  // Cuándo caduca su token (ms), si GitHub lo dice (ver tokenExpiry en github.js), o null
+  get tokenExpires() { return me?.token ? tokenExpiry(me.token) : null; },
+
+  // ---------- La llave del mundo (solo el admin) ----------
+  // Su código de recuperación (para su gestor de contraseñas), o null si no tiene la llave abierta
+  worldKeyCode() { return me?.admin ? WorldKey.code() : Promise.resolve(null); },
+  worldKeyId() { return me?.admin ? WorldKey.wid() : null; },
+  // Vuelve a poner la llave del mundo con el código (si no se podía abrir). Devuelve null o el error
+  async recoverWorldKey(code) {
+    if (!me?.admin) return 'Solo el admin tiene la llave del mundo.';
+    try { const key = await WorldKey.recover(me, code); worldKey = Promise.resolve(key); worldKeyError = ''; }
+    catch (e) { return e.message; }
+    return null;
+  },
 
   // Guarda la partida: cifrada en este ordenador siempre y en GitHub si se pide (o si hace rato de la última)
   store(save, deltas, { upload = false } = {}) {
@@ -198,12 +315,13 @@ export const Profile = {
       const bytes = await seal(me.key, me.salt, data);
       let local = true;
       try { await db.put('vaults', { bytes, savedAt: timeOf(data) }, me.id); } catch { local = false; }
-      if (!upload && !(changed && Date.now() - lastUpload > UPLOAD_EVERY)) return { local, remote: null };
+      if (!upload && !(changed && Date.now() - lastUpload > UPLOAD_EVERY && Date.now() - uploads.game.at > RETRY_AFTER)) return { local, remote: null };
       try {
         remoteSha = await putFile(me.token, DATA_REPO, dataFile(me.id), bytes, `Partida de ${me.name}`, remoteSha);
         lastUpload = Date.now(); changed = false; this.lastError = '';
+        uploaded('game');
         return { local, remote: true };
-      } catch (e) { this.lastError = e.message; return { local, remote: false }; }
+      } catch (e) { this.lastError = e.message; uploaded('game', e); return { local, remote: false }; }
     };
     return (queue = queue.then(run, run));
   },
@@ -271,7 +389,7 @@ export const Profile = {
   // La clave del mundo compartido (AES-GCM), o null si el admin todavía no te la ha dado
   worldKey() { return worldKey; },
   // Vuelve a abrirla (cuando el admin acaba de dártela)
-  reopenWorldKey() { if (me) worldKey = WorldKey.open(me).catch(() => null); return worldKey; },
+  reopenWorldKey() { if (me) worldKey = openWorldKey(); return worldKey; },
   // El servidor en directo que ha publicado el admin: { url, host, since } o null
   async liveServer() {
     const f = me && await getFile(me.token, DATA_REPO, LIVE_FILE).catch(() => null);
@@ -298,20 +416,35 @@ export const Profile = {
   // Lo guarda quien lo lleva: { deltas, shared }. Se sube a GitHub si se pide o si hace rato de la última vez
   // (y, al subirlo, onWorldBytes recibe lo subido: el menú se lo pasa al servidor como copia).
   // Devuelve true si se ha subido, false si falló y null si no tocaba
-  // (el mundo del servidor, además, guarda siempre su copia en este navegador)
+  // (el mundo del servidor, además, guarda siempre su copia en este navegador, y se la pasa siempre al servidor para sus
+  // copias: así las hay aunque GitHub falle)
   storeWorld(world, { upload = false } = {}) {
     const run = async () => {
       const key = await worldKey;
       if (!me || !key) return false;
-      const later = !upload && Date.now() - worldUploaded < UPLOAD_EVERY;
+      const later = !upload && (Date.now() - worldUploaded < UPLOAD_EVERY || Date.now() - uploads.world.at < RETRY_AFTER);
       if (later && !me.server) return null;
       const savedAt = Date.now(), bytes = await sealWorld(key, { format: 'miniverse-mundo', savedAt, by: me.id, ...world });
-      if (me.server) await db.put('vaults', { bytes, savedAt }, SERVER_COPY).catch(() => {});
+      if (me.server) { await db.put('vaults', { bytes, savedAt }, SERVER_COPY).catch(() => {}); this.onWorldBytes?.(bytes); }
       if (later || !me.token) return null;
-      try { worldSha = await putFile(me.token, DATA_REPO, WORLD_FILE, bytes, `Mundo compartido (${me.name})`, worldSha); worldUploaded = Date.now(); this.onWorldBytes?.(bytes); return true; }
-      catch (e) { this.lastError = e.message; worldSha = undefined; return false; }
+      try { worldSha = await putFile(me.token, DATA_REPO, WORLD_FILE, bytes, `Mundo compartido (${me.name})`, worldSha); worldUploaded = Date.now(); uploaded('world'); if (!me.server) this.onWorldBytes?.(bytes); return true; }
+      catch (e) { this.lastError = e.message; worldSha = undefined; uploaded('world', e); return false; }
     };
     return (worldQueue = worldQueue.then(run, run));
+  },
+  // El mundo cifrado tal cual se guardaría ahora (para una copia con nombre: ver /backup y /restore en server.js), o null
+  async worldBytes(world) {
+    const key = await worldKey;
+    return key && me ? sealWorld(key, { format: 'miniverse-mundo', savedAt: Date.now(), by: me.id, ...world }) : null;
+  },
+  // Abre una copia del mundo (los bytes de mundo.enc o de una de backups/): el mundo, o lanza por qué no se puede
+  async openWorldCopy(bytes) {
+    const key = await worldKey;
+    if (!key) throw new Error('falta la llave del mundo');
+    let w;
+    try { w = await openWorld(key, bytes); } catch { throw new Error('no se abre con la llave del mundo (¿es de otra llave o está dañada?)'); }
+    if (!w || w.format !== 'miniverse-mundo' || !Array.isArray(w.deltas)) throw new Error('no es una copia del mundo');
+    return w;
   },
   // El admin (o el mundo del servidor): publica la dirección del servidor (o, con null, que está cerrado)
   async announce(url) {

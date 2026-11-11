@@ -16,6 +16,8 @@
 #   --sin-navegador                      no abrir el juego en el navegador (lo que habría que abrir sale en el terminal)
 #   --codigo <rama|commit>|trabajo       el código del mundo del servidor (por omisión, origin/main: lo publicado)
 #   --update-a-mano                      no pasar solo el mundo del servidor a lo publicado (solo con /update)
+#   --copia-fija <nombre>                solo hace una copia fija de la copia más reciente de backups/ y sale (sin abrir
+#                                        nada: vale con el servidor abierto o cerrado; mejor /backup <nombre> en su terminal)
 #
 # Además abre el mundo del servidor: el mismo juego en un Chrome invisible (sin dibujo ni jugador visible) que lleva
 # el mundo compartido mientras esto esté abierto, aunque no juegue nadie, como un servidor de Minecraft: hace pasar
@@ -33,7 +35,10 @@
 # lista blanca, list, say, tp, save-all, save-off y save-on, setidletimeout, tps y stop. Y, como en la consola de
 # Minecraft, cualquier comando del juego (/time, /weather, /give, /fill…): lo ejecuta el mundo del servidor. Cada juego dice al entrar de qué cuenta es (el servidor no lee nada
 # más). Los op, los vetados y la lista blanca se guardan en ops.json, banned.json y whitelist.json, junto a este
-# archivo, y las copias del mundo (cifradas: el servidor no puede abrirlas) en backups/.
+# archivo, y las copias del mundo (cifradas: el servidor no puede abrirlas) en backups/: una cada 15 minutos, de las que se
+# guardan las 12 últimas, la última de cada una de las 24 horas más recientes y la última de cada uno de los 14 días más
+# recientes; y en backups/fijas/, las que no se borran nunca: /backup <nombre>, y solas antes de cada /update (con la
+# versión nueva) y de cada /restore. /restore <copia> vuelve a una (ver restore_cmd).
 #
 # Solo usa la biblioteca estándar de Python. El túnel necesita cloudflared: brew install cloudflared
 import asyncio
@@ -51,8 +56,10 @@ import sys
 import tarfile
 import threading
 import time
+import urllib.error
 import urllib.request
 import webbrowser
+from datetime import datetime
 from urllib.parse import quote
 
 from urllib.parse import unquote
@@ -79,8 +86,16 @@ AUTO_UPDATE = CODE != 'trabajo' and '--update-a-mano' not in sys.argv   # (pasar
 PUBLISHED = os.path.join(DATA, '.publicado')   # las copias fijas de ese código, una carpeta por commit (ver publish_copy)
 OPS_FILE, BANS_FILE, WHITE_FILE = (os.path.join(DATA, n) for n in ('ops.json', 'banned.json', 'whitelist.json'))
 BACKUPS = os.path.join(DATA, 'backups')
+FIXED = os.path.join(BACKUPS, 'fijas')   # las copias fijas, con nombre: no se borran nunca
 BACKUP_EVERY = 15 * 60   # segundos: como mucho, una copia del mundo cada tanto (la manda el juego que lo lleva)
-BACKUP_KEEP = 48         # las copias que se guardan (las más antiguas se borran)
+BACKUP_RECENT = 12       # de las copias, se guardan las últimas (unas 3 horas)…
+BACKUP_HOURS = 24        # …la última de cada una de las horas más recientes con copias…
+BACKUP_DAYS = 14         # …y la última de cada uno de los días más recientes (las demás se borran: ver prune_backups)
+BACKUP_RE = re.compile(r'^mundo-(\d{4}-\d\d-\d\d)_(\d\d)-\d\d\.enc$')   # (las que rotan; las fijas van aparte)
+RESTORE_WAIT = 240       # segundos: lo que se espera, como mucho, a que el mundo del servidor vuelva con la copia restaurada
+RESTORING = 'El servidor está volviendo a una copia del mundo: entra otra vez en un par de minutos.'
+TOKEN_CHECK_EVERY = 6 * 3600   # cada cuánto se mira cuándo caduca el token del mundo del servidor (el del admin)
+TOKEN_WARN = 7 * 86400         # y cuánto antes se avisa
 IDENT_WAIT = 10          # con la lista blanca puesta, lo que se espera a que un juego diga de qué cuenta es
 
 
@@ -103,6 +118,7 @@ white = load_json(WHITE_FILE, {'enabled': False, 'users': []})                  
 white = {'enabled': bool(white.get('enabled')), 'users': sorted({str(u).lower() for u in white.get('users', [])})}
 users = {}           # número de conexión → la cuenta que ha dicho su juego
 SECRETS_FILE = os.path.join(DATA, 'servidor-secretos.json')
+OLD_SECRETS_FILE = os.path.join(DATA, 'servidor-secretos.viejo.json')   # (si /link trae otra llave del mundo, la de antes)
 SETTINGS_FILE = os.path.join(DATA, 'ajustes.json')   # (lo que se pone con comandos del terminal y se queda: /setidletimeout)
 CHROME_DIR = os.path.join(DATA, 'servidor-chrome')
 WEB_FILES = re.compile(r'^(index\.html|accounts\.json|src/[\w/.-]+\.js)$')   # lo único que se sirve
@@ -123,6 +139,7 @@ tunnel_url = None    # wss://… del túnel, cuando lo hay
 stop_asked = False   # (Ctrl+C)
 stop_asked_at = 0    # cuándo se pidió cerrar
 stopping = None      # (se avisa para cerrar el servidor: /stop)
+token_recheck = None  # (para mirar ya cuándo caduca el token: llegan claves nuevas)
 code_dir = None      # la copia de lo publicado que se sirve ahora (su carpeta en .publicado/: el commit corto); None: esta carpeta
 code_note = ''       # qué código es, para el terminal
 versions = {}        # número de conexión → la versión del juego que dice (al servidor, en ident; '' si no la dice: de antes)
@@ -130,6 +147,9 @@ server_version = None   # la del mundo del servidor (en su pase); None si no la 
 server_ready = False    # (si ya tiene el mundo en marcha: antes no se echa a nadie, ver reference_version)
 told_newer = set()   # (las versiones más nuevas que la del mundo del servidor de las que ya se ha avisado)
 restart_pending = None  # (/update: esperando a que el mundo del servidor guarde para cerrarlo)
+code_version = ''       # la versión del juego de la copia de ahora (para la copia fija de antes de /update)
+restoring = None        # (/restore: { label, at, done }; mientras, no entra nadie más que el mundo del servidor)
+token_warning = None    # (lo que hay que decir del token del mundo del servidor: que caduca pronto o que ya no vale)
 OUTDATED = 'Hay una versión nueva del juego: recarga la página.'
 VERSION_RE = re.compile(r'<meta name="miniverse-version" content="([^"]+)"')
 WATCH_EVERY = 60     # segundos: cada cuánto se mira si se ha publicado algo nuevo (ver watch_published)
@@ -149,7 +169,7 @@ def publish_copy():
     # .publicado/<commit>/ (solo lo que se sirve: index.html, accounts.json y src/). No depende de la carpeta de trabajo,
     # donde se edita: si el Chrome del servidor se reinicia a media edición, abre lo publicado. Cada commit, su carpeta
     # (el Chrome que ya está abierto sigue leyendo la suya hasta que se cierra). Devuelve True si ha cambiado
-    global code_dir, code_note
+    global code_dir, code_note, code_version
     if CODE == 'trabajo':
         code_dir, code_note = None, 'la carpeta de trabajo, tal cual (--codigo trabajo)'
         return False
@@ -172,7 +192,8 @@ def publish_copy():
         with open(os.path.join(target, 'index.html'), encoding='utf-8') as f:
             found = VERSION_RE.search(f.read())
         changed = code_dir != short
-        code_dir, code_note = short, f'lo publicado ({CODE}: {short[:7]}, versión {found.group(1) if found else "?"})'
+        code_version = found.group(1) if found else ''
+        code_dir, code_note = short, f'lo publicado ({CODE}: {short[:7]}, versión {code_version or "?"})'
         return changed
     except (OSError, ValueError, subprocess.SubprocessError, tarfile.TarError) as e:
         why = (e.stderr.decode(errors='replace').strip() if isinstance(e, subprocess.CalledProcessError) and e.stderr else str(e))[:200]
@@ -347,28 +368,255 @@ def check_all():
         check_version(p)
 
 
-def backup(data):
+def rotating_backups():
+    # Las copias que rotan, de la más nueva a la más vieja (el nombre lleva la fecha y la hora: se ordenan por él)
+    try:
+        return sorted((n for n in os.listdir(BACKUPS) if BACKUP_RE.match(n)), reverse=True)
+    except OSError:
+        return []
+
+
+def fixed_backups():
+    try:
+        return sorted((n for n in os.listdir(FIXED) if n.startswith('mundo-') and n.endswith('.enc')), reverse=True)
+    except OSError:
+        return []
+
+
+def prune_backups():
+    # Se quedan las BACKUP_RECENT últimas, la última de cada una de las BACKUP_HOURS horas más recientes que tienen copia y
+    # la última de cada uno de los BACKUP_DAYS días más recientes. Se cuentan las horas y los días que tienen copias, no
+    # los del reloj: con el servidor cerrado unas semanas, al volver no se borra todo lo de antes
+    keep, hours, days = set(), [], []
+    names = rotating_backups()
+    for i, n in enumerate(names):
+        m = BACKUP_RE.match(n)
+        day, hour = m.group(1), m.group(1) + m.group(2)
+        if i < BACKUP_RECENT:
+            keep.add(n)
+        if hour not in hours:
+            hours.append(hour)
+            if len(hours) <= BACKUP_HOURS:
+                keep.add(n)
+        if day not in days:
+            days.append(day)
+            if len(days) <= BACKUP_DAYS:
+                keep.add(n)
+    for n in names:
+        if n not in keep:
+            try:
+                os.remove(os.path.join(BACKUPS, n))
+            except OSError:
+                pass
+
+
+def clean_name(name):
+    # Un nombre para una copia fija: letras, números, guiones y puntos (lo demás, guiones)
+    return re.sub(r'-{2,}', '-', re.sub(r'\.{2,}', '-', re.sub(r'[^\w.-]+', '-', str(name)))).strip('-.')[:48] or 'copia'
+
+
+def write_copy(path, raw):
+    # (de una vez: primero a un archivo aparte y luego se cambia el nombre, para que no quede una copia a medias)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tmp = path + '.nuevo'
+    with open(tmp, 'wb') as f:
+        f.write(raw)
+    os.replace(tmp, path)
+
+
+def backup(data, name=None):
+    # Una copia del mundo (cifrada, como en GitHub). Sin nombre, de las que rotan: como mucho una cada BACKUP_EVERY (al
+    # cerrar el servidor, la última siempre). Con nombre, una fija en backups/fijas/, que no se borra nunca
     global last_backup
     now = time.time()
-    if now - last_backup < BACKUP_EVERY:
+    if not name and now - last_backup < BACKUP_EVERY and not stop_asked_at:
         return
     try:
         raw = base64.b64decode(data, validate=True)
     except ValueError:
         return
-    os.makedirs(BACKUPS, exist_ok=True)
-    name = time.strftime('mundo-%Y-%m-%d_%H-%M.enc')
-    with open(os.path.join(BACKUPS, name), 'wb') as f:
-        f.write(raw)
+    stamp = time.strftime('%Y-%m-%d_%H-%M')
+    if name:
+        label = f'fijas/mundo-{clean_name(name)}-{stamp}.enc'
+        write_copy(os.path.join(FIXED, label[len('fijas/'):]), raw)
+        print(f'  Copia fija del mundo: backups/{label} ({len(raw) // 1024} KB; esta no se borra)')
+        return
+    label = f'mundo-{stamp}.enc'
+    write_copy(os.path.join(BACKUPS, label), raw)
     last_backup = now
-    old = sorted(n for n in os.listdir(BACKUPS) if n.startswith('mundo-') and n.endswith('.enc'))
-    for n in old[:-BACKUP_KEEP]:
-        os.remove(os.path.join(BACKUPS, n))
-    print(f'  Copia del mundo: backups/{name} ({len(raw) // 1024} KB)')
+    prune_backups()
+    print(f'  Copia del mundo: backups/{label} ({len(raw) // 1024} KB)')
+
+
+def copy_info(path):
+    # (tamaño y fecha de una copia, para el terminal)
+    try:
+        st = os.stat(path)
+        return f'{max(1, st.st_size // 1024)} KB, del {time.strftime("%d/%m %H:%M", time.localtime(st.st_mtime))}'
+    except OSError:
+        return '?'
+
+
+def find_backup(text):
+    # Las copias que encajan con lo escrito: [(nombre para el terminal, ruta)]. Vale el nombre entero (con o sin
+    # «mundo-», «.enc» o «fijas/») o un trozo (2026-11-10_18, antes-de-…); si hay uno exacto, solo ese
+    want = text.strip().lower().removeprefix('backups/').removesuffix('.enc')
+    if not want:
+        return []
+    found = [(n, os.path.join(BACKUPS, n)) for n in rotating_backups()] + [(f'fijas/{n}', os.path.join(FIXED, n)) for n in fixed_backups()]
+    exact = [c for c in found if c[0].lower().removesuffix('.enc') in (want, f'mundo-{want}', f'fijas/{want}', f'fijas/mundo-{want}')]
+    return exact[:1] or [c for c in found if want in c[0].lower()]
+
+
+def list_backups():
+    fixed, rot = fixed_backups(), rotating_backups()
+    print(f'  Copias del mundo en {BACKUPS}: {len(rot)} que rotan' + (f' y {len(fixed)} fijas' if fixed else '') + ' (de la más nueva a la más vieja)')
+    for n in fixed[:20]:
+        print(f'    fijas/{n}  ({copy_info(os.path.join(FIXED, n))})')
+    for n in rot[:16]:
+        print(f'    {n}  ({copy_info(os.path.join(BACKUPS, n))})')
+    if len(rot) > 16:
+        print(f'    … y {len(rot) - 16} más antiguas (la más vieja: {rot[-1]})')
+    print('  Para volver a una: /restore <copia> (vale un trozo del nombre). Para hacer una fija ahora: /backup <nombre>')
+
+
+def restore_cmd(arg):
+    # /restore <copia> [ya]: el mundo vuelve a esa copia. Sin «ya», solo se dice cuál sería y qué pasará. Lo hace el mundo
+    # del servidor (es quien tiene la llave: aquí no se puede abrir): se echa al menú a los que juegan y no se deja entrar a
+    # nadie hasta que vuelve (si no, el juego de uno pasaría a llevar el mundo de antes y se lo daría al volver); él guarda
+    # el de ahora como copia fija («antes-de-restaurar»), guarda la copia como el mundo de ahora (aquí, en su navegador y en
+    # GitHub, con la fecha de ahora, así que gana a todas) y se vuelve a abrir con ella
+    global restoring
+    words = arg.split()
+    sure = len(words) > 1 and words[-1].lower() == 'ya'
+    which = ' '.join(words[:-1] if sure else words)
+    if not which:
+        print('  Uso: /restore <copia> (/backups las lista)')
+        return
+    if restoring:
+        print(f'  Ya se está volviendo a {restoring["label"]}: un momento')
+        return
+    found = find_backup(which)
+    if not found:
+        print(f'  No hay ninguna copia que encaje con «{which}» (/backups las lista)')
+        return
+    if len(found) > 1:
+        print(f'  Hay {len(found)} copias que encajan con «{which}»: ' + ', '.join(n for n, _ in found[:6]) + (' …' if len(found) > 6 else '') + '. Escribe más del nombre.')
+        return
+    label, path = found[0]
+    if not servers:
+        print('  Para volver a una copia hace falta el mundo del servidor abierto (es quien tiene la llave del mundo): /world dice cómo está')
+        return
+    if not sure:
+        print(f'  Volver a {label} ({copy_info(path)}): el mundo queda como estaba entonces. Antes se guarda el de ahora como copia fija '
+              f'(antes-de-restaurar), y los que estén jugando salen al menú un par de minutos (lo suyo se guarda). Para hacerlo: /restore {which} ya')
+        return
+    try:
+        with open(path, 'rb') as f:
+            raw = f.read()
+    except OSError as e:
+        print(f'  No se puede leer {label}: {e}')
+        return
+    restoring = {'label': label, 'at': time.time(), 'done': False}
+    out = [c for c in users if c not in servers]
+    for c in out:
+        kick(c, RESTORING)
+    print(f'  Volviendo a {label}' + (f' (fuera, un momento: {", ".join(sorted({users[c] for c in out}))})' if out else '') + '…')
+    send(sorted(servers)[0], {'t': 'restore', 'd': base64.b64encode(raw).decode(), 'name': label})
+    asyncio.get_running_loop().call_later(RESTORE_WAIT, restore_timeout, restoring['at'])
+
+
+def restore_timeout(at):
+    global restoring
+    if restoring and restoring['at'] == at:
+        print('  ! El mundo del servidor no ha terminado de volver a la copia' + (' (ya la había guardado: se está abriendo)' if restoring['done'] else
+              ' (no ha contestado: ¿tiene una versión de antes? /update)') + '. Ya se puede entrar otra vez.')
+        restoring = None
+
+
+def keep_cmd(arg):
+    # /backup <nombre>: una copia fija del mundo de ahora (la hace el mundo del servidor, que lo tiene abierto); sin él, de la
+    # copia más reciente de backups/ (fixed_from_latest)
+    name = clean_name(arg) if arg.strip() else 'copia'
+    if servers and server_ready:
+        send(sorted(servers)[0], {'t': 'keep', 'name': name})
+        print(f'  Pidiendo al mundo del servidor una copia fija del mundo de ahora ({name})…')
+    else:
+        fixed_from_latest(name)
+
+
+def fixed_from_latest(name):
+    # Una copia fija de la copia más reciente de backups/ (sin el mundo del servidor: puede ser de hasta 15 minutos antes)
+    rot = rotating_backups()
+    if not rot:
+        print('  No hay ninguna copia en backups/ de la que sacarla')
+        return False
+    with open(os.path.join(BACKUPS, rot[0]), 'rb') as f:
+        raw = f.read()
+    label = f'mundo-{clean_name(name)}-{rot[0][len("mundo-"):-len(".enc")]}.enc'
+    write_copy(os.path.join(FIXED, label), raw)
+    print(f'  Copia fija: backups/fijas/{label} (de {rot[0]}; esta no se borra)')
+    return True
+
+
+def token_expiry():
+    # Cuándo caduca el token del mundo del servidor (el del admin): lo dice GitHub en una cabecera de cada respuesta (el
+    # navegador no la puede leer; aquí sí). /rate_limit no gasta peticiones. Devuelve los segundos que quedan, 0 si GitHub
+    # ya no lo acepta o None si no caduca o no se sabe. (El token no se escribe en ningún sitio)
+    token = (world_keys or {}).get('token')
+    if not token:
+        return None
+    req = urllib.request.Request('https://api.github.com/rate_limit', headers={
+        'Authorization': f'Bearer {token}', 'Accept': 'application/vnd.github+json', 'User-Agent': 'Miniverse'})
+    try:
+        with urllib.request.urlopen(req, timeout=10) as r:
+            text = r.headers.get('github-authentication-token-expiration')
+    except urllib.error.HTTPError as e:
+        return 0 if e.code == 401 else None
+    except Exception:
+        return None
+    m = re.match(r'^(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d) ?(UTC|[+-]\d\d:?\d\d)?$', (text or '').strip())
+    if not m:
+        return None
+    tz = '+0000' if not m.group(2) or m.group(2) == 'UTC' else m.group(2).replace(':', '')
+    try:
+        return max(0.0, datetime.strptime(f'{m.group(1)} {tz}', '%Y-%m-%d %H:%M:%S %z').timestamp() - time.time())
+    except ValueError:
+        return None
+
+
+def token_text(left):
+    # Lo que se dice del token (left: los segundos que quedan, de token_expiry), o None si no hace falta decir nada
+    if left is None or left > TOKEN_WARN:
+        return None
+    if left <= 0:
+        head = 'GitHub ya no acepta el token del mundo del servidor (tu token de admin: ¿ha caducado?)'
+    else:
+        days = max(1, -(-int(left) // 86400))
+        head = f'El token del mundo del servidor (tu token de admin) caduca el {time.strftime("%d/%m", time.localtime(time.time() + left))} ({"en menos de un día" if left < 86400 else f"en {days} días"})'
+    return head + ': crea uno nuevo en GitHub, cámbialo en tu juego (Ajustes › Guardado en GitHub) y escribe /link en este terminal.'
+
+
+async def watch_token():
+    # Cada pocas horas (y en cuanto llegan unas claves nuevas: ver take_keys), cuándo caduca: una semana antes, se dice aquí
+    # y al admin en su juego (a los op conectados: su juego solo lo enseña si es el del admin)
+    global token_warning
+    while not stopping.is_set():
+        token_warning = token_text(await asyncio.to_thread(token_expiry))
+        if token_warning:
+            print(f'  ! {token_warning}')
+            for c, u in list(users.items()):
+                if u in ops:
+                    send(c, {'t': 'notice', 'kind': 'token', 'text': token_warning})
+        try:
+            await asyncio.wait_for(token_recheck.wait(), TOKEN_CHECK_EVERY)
+        except asyncio.TimeoutError:
+            pass
+        token_recheck.clear()
 
 
 async def handle(reader, writer):
-    global next_id, server_version, server_ready
+    global next_id, server_version, server_ready, restoring
     # La petición: el WebSocket del juego o una visita normal (para comprobar que el servidor está en marcha)
     try:
         head = await asyncio.wait_for(reader.readuntil(b'\r\n\r\n'), 10)
@@ -414,16 +662,27 @@ async def handle(reader, writer):
                 first = me not in users
                 users[me] = user
                 versions[me] = msg['v'][:32] if isinstance(msg.get('v'), str) else ''
-                why = refused(user)
+                why = refused(user) or (RESTORING if restoring else None)
                 if why:
                     print(f'  ! {user} no puede entrar: {why}')
                     kick(me, why)
                 elif first:
                     print(f'  + {user} ha entrado')
                     check_all()   # (sin mundo del servidor, uno más nuevo deja fuera a los demás: ver reference_version)
+                    if token_warning and user in ops:
+                        send(me, {'t': 'notice', 'kind': 'token', 'text': token_warning})
                 continue
+            # (las fijas, con nombre, solo del mundo del servidor: /backup, antes de /update y de /restore)
             if msg.get('t') == 'backup' and me in users and isinstance(msg.get('d'), str):
-                backup(msg['d'])
+                backup(msg['d'], msg.get('name') if me in servers and isinstance(msg.get('name'), str) else None)
+                continue
+            if msg.get('t') == 'restored' and me in servers and restoring:
+                # (el mundo del servidor ya ha guardado la copia como el mundo de ahora y se vuelve a abrir; o no ha podido)
+                if msg.get('ok'):
+                    restoring['done'] = True
+                else:
+                    restoring = None
+                    print('  Ya se puede entrar otra vez (el mundo sigue como estaba).')
                 continue
             # El mundo del servidor enseña su pase y recibe las claves; el juego del admin se las da; y lo que va
             # contando el mundo del servidor sale aquí
@@ -454,6 +713,9 @@ async def handle(reader, writer):
                 # para que quien se lo ha dado tenga tiempo de guardar lo suyo)
                 server_ready = True
                 asyncio.get_running_loop().call_later(5, check_all)
+                if restoring and restoring['done']:
+                    print(f'  Hecho: el mundo vuelve a estar como en {restoring["label"]}. Ya se puede entrar.')
+                    restoring = None
                 continue
             if msg.get('t') == 'saved' and me in servers and restart_pending and not stop_asked_at:
                 close_world()   # (/update: ya ha guardado; se abre solo otra vez, con el código nuevo)
@@ -561,6 +823,9 @@ HELP = '''  Comandos del servidor:
     y cualquier comando del juego (/time, /weather, /gamerule, /give, /gamemode, /kill, /fill, /locate…): lo
     ejecuta el mundo del servidor, que es op (tiene que estar abierto)
     /save-all                                 que todos guarden ya (quien lleva el mundo, también el mundo)
+    /backups                                  las copias del mundo que hay (en backups/)
+    /backup <nombre>                          una copia fija del mundo de ahora, que no se borra (antes de un cambio grande)
+    /restore <copia> [ya]                     volver a una copia del mundo (sin ya, dice cuál y qué pasará)
     /world                                    cómo está el mundo del servidor (y con qué código)
     /update [ya]                              el mundo del servidor pasa a lo publicado (guarda antes; lo hace solo al
                                               publicar, si no es con --update-a-mano; ya: sin esperar a que lo tenga la web)
@@ -589,10 +854,18 @@ def take_keys(msg, sender=None):
     except ValueError:
         return
     token = msg.get('token') if isinstance(msg.get('token'), str) else None
+    if world_keys and world_keys.get('key') and world_keys['key'] != msg['key']:
+        # (otra llave del mundo: la de antes no se pierde, que con ella se abren el mundo y las copias de hasta ahora)
+        save_json(OLD_SECRETS_FILE, world_keys)
+        os.chmod(OLD_SECRETS_FILE, 0o600)
+        print('  ! OJO: la llave del mundo que llega no es la de antes. La de antes queda en servidor-secretos.viejo.json: '
+              'sin ella, el mundo guardado y las copias de backups/ no se podrían abrir.')
     world_keys = {'key': msg['key'], 'token': token}
     save_json(SECRETS_FILE, world_keys)
     os.chmod(SECRETS_FILE, 0o600)
     link_until = 0
+    if token_recheck:
+        token_recheck.set()   # (¿cuándo caduca el token nuevo?)
     print(f'  Claves del mundo recibidas (de {users.get(sender, "?")}) y guardadas en servidor-secretos.json')
     if chrome and chrome.returncode is None:
         chrome.terminate()   # (vuelve a abrirse solo, ya con las nuevas)
@@ -711,8 +984,9 @@ async def update_code(force=False):
     print('  Guardando el mundo del servidor para abrirlo con el código nuevo…')
     restart_pending = asyncio.get_running_loop().call_later(20, close_world)
     for c in servers:
-        # (el mundo del servidor que dice su versión entiende restart: guarda y avisa; uno de antes, solo save)
-        send(c, {'t': 'restart'} if server_version else {'t': 'save'})
+        # (el mundo del servidor que dice su versión entiende restart: guarda y avisa; uno de antes, solo save. keep: antes,
+        # una copia fija del mundo de ahora, por si la versión nueva lo estropeara; uno de antes no la hace)
+        send(c, {'t': 'restart', 'keep': f'antes-de-{code_version or "actualizar"}'} if server_version else {'t': 'save'})
 
 
 def close_world():
@@ -865,6 +1139,12 @@ def command(line):
         print(f'  Mundo del servidor: {state}' + ('' if world_keys else ' (sin claves: que entre el admin)') + f', con {code_note}')
     elif name == 'update':
         asyncio.get_running_loop().create_task(update_code(force=user == 'ya'))
+    elif name == 'backups':
+        list_backups()
+    elif name == 'backup':
+        keep_cmd(arg)
+    elif name == 'restore':
+        restore_cmd(arg)
     elif name == 'link':
         global link_until
         link_until = time.time() + 300
@@ -926,8 +1206,9 @@ def shutdown():
 
 
 async def main():
-    global stopping
+    global stopping, token_recheck
     stopping = asyncio.Event()
+    token_recheck = asyncio.Event()
     global tunnel_url
     server = await asyncio.start_server(handle, '127.0.0.1', PORT)
     site = await asyncio.start_server(web, '127.0.0.1', WEB_PORT)
@@ -938,6 +1219,7 @@ async def main():
           + ('Al publicar una versión nueva, pasa solo a ella en cuanto la tenga la web (o con /update).' if AUTO_UPDATE else 'Tras publicar una versión nueva, escribe /update.'))
     if AUTO_UPDATE:
         asyncio.get_running_loop().create_task(watch_published())
+    asyncio.get_running_loop().create_task(watch_token())
     print(f'Escribe aquí los comandos del servidor (/help para verlos). Op ahora: {", ".join(sorted(ops)) or "nadie"}.')
     threading.Thread(target=console, args=(asyncio.get_running_loop(),), daemon=True).start()
     asyncio.get_running_loop().add_signal_handler(signal.SIGINT, stop_signal)
@@ -975,6 +1257,8 @@ async def main():
 
 
 if __name__ == '__main__':
+    if '--copia-fija' in sys.argv:
+        sys.exit(0 if fixed_from_latest(option('--copia-fija', 'copia')) else 1)
     try:
         asyncio.run(main())
     except KeyboardInterrupt:

@@ -69,8 +69,9 @@ export class Net {
     else if (m.t === 'secretos') this.on.server?.(m);   // (al mundo del servidor: sus claves)
     // (cuáles son las conexiones del mundo del servidor; si se guarda el mundo; el tiempo para echar a quien no se
     // mueve; y, al mundo del servidor, un comando del terminal, que diga cómo va o que guarde para abrirlo con el código
-    // nuevo: /update)
-    else if (['servers', 'autosave', 'idle', 'cmd', 'tps', 'restart'].includes(m.t)) this.on.server?.(m);
+    // nuevo: /update, o que abra una copia del mundo: /restore, o haga una con nombre: /backup), y avisos del servidor
+    // (notice: que el token del servidor va a caducar)
+    else if (['servers', 'autosave', 'idle', 'cmd', 'tps', 'restart', 'restore', 'keep', 'notice'].includes(m.t)) this.on.server?.(m);
     else if (m.t === 'ops') this.on.ops?.(m.ops);
     else if (m.t === 'kicked' || m.t === 'say' || m.t === 'save' || m.t === 'stop' || m.t === 'tp') { if (m.t === 'kicked' || m.t === 'stop') this.wanted = false; this.on.server?.(m); }
     else if (m.t === 'join') { this.peers.add(m.id); this.on.join?.(m.id); }

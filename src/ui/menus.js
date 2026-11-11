@@ -16,6 +16,7 @@ import { Settings } from '../settings.js';
 import { SHARED } from '../livesync.js';
 import { GAME_VERSION, checkPublished } from '../version.js';
 import { showUpdateNotice, updateNoticeOpen } from './update.js';
+import { setNotice, syncNoticeText, expiryNoticeText, showKeyCode, saveSettings } from './savesafety.js';
 
 const $ = id => document.getElementById(id);
 const SCREENS = ['s-login', 's-menu', 's-account', 's-creator', 's-pause', 's-map', 's-shop', 's-settings', 's-controls'];
@@ -24,6 +25,8 @@ const CHEST_REACH = 4;   // (lo que se puede alejar uno de un cofre abierto)
 const ADMIN_NAME = 'Alberto';   // (el dueño del mundo, que abre el servidor)
 const PUBLISHED_EVERY = 5 * 60000;   // cada cuánto se mira si hay una versión nueva publicada (jugando o en el menú)
 const PUBLISHED_FRESH = 2 * 60000;   // al entrar en el mundo, lo mirado hace menos de esto vale
+const EXPIRY_EVERY = 60 * 60000;     // cada cuánto se mira si el permiso de guardado va a caducar (si se sabe cuándo)
+const KEY_CODE_SEEN = 'pueblo-brotes:llave-codigo';   // (el número de la llave del mundo cuyo código ya ha visto el admin)
 
 // Lo de la partida que es del mundo (y los ajustes): se conserva al empezar con un personaje nuevo. Lo demás
 // (lo que llevas, dinero, habilidades, recetas, amistades, logros, estadísticas…) es del personaje y se borra
@@ -56,12 +59,14 @@ export function initMenus(game) {
   // Según el usuario hace falta su contraseña; la primera vez, además, su código de invitación (y repetir la
   // contraseña nueva); y para crear la cuenta de admin, su token de GitHub.
   let step = null, stepUser = '';
-  const ROWS = { login: [], invite: ['lg-code-row', 'lg-pass2-row'], setup: ['lg-pass2-row', 'lg-token-row'] };
+  // (renew: el admin cuyo token ya no acepta GitHub pega uno nuevo)
+  const ROWS = { login: [], invite: ['lg-code-row', 'lg-pass2-row'], setup: ['lg-pass2-row', 'lg-token-row'], renew: ['lg-token-row'] };
   function setStep(s) {
     step = s;
     for (const id of ['lg-code-row', 'lg-pass2-row', 'lg-token-row']) $(id).hidden = !ROWS[s || 'login'].includes(id);
-    $('lg-submit').textContent = s === 'setup' ? 'Crear la cuenta de admin' : 'Entrar';
-    $('lg-pass').autocomplete = s === 'login' || !s ? 'current-password' : 'new-password';
+    $('lg-submit').textContent = s === 'setup' ? 'Crear la cuenta de admin' : s === 'renew' ? 'Cambiar el token y entrar' : 'Entrar';
+    $('lg-pass').autocomplete = s === 'login' || !s || s === 'renew' ? 'current-password' : 'new-password';
+    damagedBox(false);
   }
   function openLogin() {
     setStep(null);
@@ -87,14 +92,64 @@ export function initMenus(game) {
         if (s === 'setup') return say('Todavía no existe la cuenta de admin: repite tu contraseña y pega tu token de admin de GitHub.');
       }
       say('Abriendo tus datos…');
+      damagedBox(false);
       const err = step === 'invite' ? await Profile.activate(user, $('lg-code').value, pass, $('lg-pass2').value)
         : step === 'setup' ? await Profile.setup(pass, $('lg-pass2').value, $('lg-token').value)
+        : step === 'renew' ? await Profile.renewToken($('lg-token').value)
         : await Profile.login(user, pass);
-      if (err) return say(err);
-      Settings.useVolumes(Profile.data?.save?.volumes);   // (los volúmenes de tu partida)
-      openMenu();
+      if (err) {
+        if (Profile.damaged) damagedBox(true);   // (la partida de GitHub no se abre: qué hacer, abajo)
+        else if (Profile.needsToken) { setStep('renew'); $('lg-token').value = ''; }
+        return say(err);
+      }
+      if (step === 'renew') $('lg-token').value = '';
+      loggedIn();
     } catch (err) { say(err.message); } finally { $('lg-submit').disabled = false; }
   });
+  function loggedIn() {
+    Settings.useVolumes(Profile.data?.save?.volumes);   // (los volúmenes de tu partida)
+    openMenu();
+    expiryCheck();
+    keyReminder();
+  }
+  // La partida de GitHub no se puede abrir (¿dañada?): no se entra con una vacía (se subiría encima). Se ofrece la copia de
+  // este navegador, si la hay, o buscar una anterior en el historial de GitHub; si no hay ninguna, empezar sin partida
+  // (con un aviso). Lo elegido se sube encima de la dañada, que sigue en el historial de GitHub
+  function damagedBox(open) {
+    let box = $('lg-damaged');
+    if (!open) { box?.remove(); return; }
+    const d = Profile.damaged;
+    if (!d) return;
+    if (!box) { box = document.createElement('div'); box.id = 'lg-damaged'; box.style.cssText = 'display:flex;flex-direction:column;gap:6px;margin:0 0 10px'; $('lg-err').after(box); }
+    box.replaceChildren();
+    const say = m => { $('lg-err').textContent = m; };
+    const button = (text, run, primary = false) => {
+      const b = document.createElement('button');
+      b.type = 'button'; b.className = primary ? 'btn primary' : 'btn'; b.textContent = text; b.style.margin = '0';
+      b.onclick = async () => {
+        for (const x of box.querySelectorAll('button')) x.disabled = true;
+        try { await run(b); } catch (e) { say(e.message); } finally { for (const x of box.querySelectorAll('button')) x.disabled = false; }
+      };
+      box.append(b);
+      return b;
+    };
+    const use = async choice => {
+      say('Abriendo tus datos…');
+      const err = await Profile.resolveDamaged(choice);
+      if (err) return say(err);
+      damagedBox(false);
+      loggedIn();
+    };
+    if (d.localAt !== null) button(`Seguir con la copia de este ordenador${d.localAt > 0 ? ` (guardada el ${when(d.localAt)})` : ''}`, () => use('local'), true);
+    if (d.found) button(`Usar la de GitHub del ${when(d.found.at)}`, () => use('older'), d.localAt === null);
+    else if (d.found === undefined) button('Buscar una versión anterior en GitHub', async b => {
+      b.textContent = 'Buscando en el historial de GitHub…';
+      const found = await Profile.findOlder();
+      if (!found) say('En el historial de GitHub no hay ninguna versión anterior que se pueda abrir.');
+      damagedBox(true);
+    });
+    if (d.localAt === null && d.found === null) button('Empezar sin partida', () => (confirm('¿Empezar sin partida? La de GitHub que no se abre se queda en su historial, pero aquí empezarás de cero.') ? use('empty') : null));
+  }
 
   // ---------- Menú principal ----------
   // Solo hay un mundo, el de todos: con personaje se continúa la partida (en el mundo compartido; los demás, con
@@ -179,7 +234,30 @@ export function initMenus(game) {
     if (!w) throw new Error(`El mundo compartido todavía no está guardado: ${ADMIN_NAME} tiene que entrar una vez para dejarlo listo.`);
     return w;
   }
-  $('m-session').addEventListener('click', () => { live.close(); Profile.logout(); openLogin(); });
+  $('m-session').addEventListener('click', () => { live.close(); Profile.logout(); for (const id of ['sync', 'token', 'server-token', 'key-code', 'key-lost']) setNotice(id, null); openLogin(); });
+
+  // ---------- Guardado seguro ----------
+  // Si subir a GitHub falla dos veces seguidas, un aviso arriba con el motivo (y qué hacer), hasta que vuelve a ir
+  const who = () => ({ admin: Profile.admin, adminName: ADMIN_NAME, user: Profile.name || Profile.id || '' });
+  Profile.onSync = st => setNotice('sync', syncNoticeText(st, who()), 'err');
+  // Una semana antes de que caduque el permiso de guardado, si se sabe la fecha (ver tokenExpiry en github.js); y lo que
+  // diga el servidor del token del mundo del servidor, que es el del admin (multijugador.py sí puede saber la fecha)
+  function expiryCheck() { setNotice('token', expiryNoticeText(Profile.tokenExpires, who()), 'err'); }
+  setInterval(() => { if (Profile.id) expiryCheck(); }, EXPIRY_EVERY);
+  game.live.onNotice = m => { if (Profile.admin && typeof m.text === 'string') setNotice('server-token', m.text.slice(0, 400), 'err'); };
+  // La llave del mundo (el admin): si no se puede abrir, se dice (y en Ajustes se recupera con el código); si se abre y
+  // todavía no ha visto su código de recuperación, se le recuerda guardarlo
+  Profile.onWorldKeyError = e => { if (e) setNotice('key-lost', e, 'err'); if ($('s-menu').classList.contains('show')) paintLive(); };
+  const seenCode = () => { try { return localStorage.getItem(KEY_CODE_SEEN); } catch { return null; } };
+  async function keyReminder() {
+    if (!Profile.admin || !(await Profile.worldKey())) return;
+    const wid = Profile.worldKeyId();
+    setNotice('key-code', wid && seenCode() !== wid ? 'Guarda el código de recuperación de la llave del mundo en tu gestor de contraseñas: Ajustes › Llave del mundo › Ver el código de recuperación.' : null);
+  }
+  function codeSeen() {
+    try { localStorage.setItem(KEY_CODE_SEEN, Profile.worldKeyId() || ''); } catch { /* (sin almacenamiento: se le recordará otra vez) */ }
+    setNotice('key-code', null);
+  }
 
   // ---------- Jugar juntos en directo ----------
   // El admin abre su servidor con multijugador.py, que abre el juego con ?servidor=…: su juego se conecta a
@@ -225,10 +303,11 @@ export function initMenus(game) {
       else msg = `El servidor está cerrado: se puede jugar cuando ${ADMIN_NAME} lo abre.`;
     }
     if (live.serverOld && s === 'on') msg += ` ${live.serverOld}`;   // (al admin y a los op: ver live.checkVersion)
+    if (Profile.admin && Profile.worldKeyError) msg = `${Profile.worldKeyError} ${msg}`.trim();   // (sin ella no se juega con los demás)
     if (!Profile.admin) $('m-continue').disabled = s !== 'on' && s !== 'kicked';   // (echado: al pulsar, se vuelve a intentar)
     const open = s === 'on';
     $('m-live').hidden = !msg;
-    $('m-live').className = s === 'kicked' || (s === 'error' && Profile.admin) ? 'err' : open ? '' : 'wait';
+    $('m-live').className = s === 'kicked' || (s === 'error' && Profile.admin) || (Profile.admin && Profile.worldKeyError) ? 'err' : open ? '' : 'wait';
     $('m-live-msg').textContent = msg;
   }
   live.onChange = () => { announce(); if ($('s-menu').classList.contains('show')) paintLive(); };
@@ -591,7 +670,11 @@ export function initMenus(game) {
   $('ct-close').onclick = () => show('s-pause');
   // Ajustes: desde la pausa o desde el menú principal (vuelve a donde estaba)
   let settingsBack = null;
-  const settingsUI = initSettingsUI({ onClose: () => { const back = settingsBack; settingsBack = null; show(back); } });
+  const settingsUI = initSettingsUI({
+    onClose: () => { const back = settingsBack; settingsBack = null; show(back); },
+    // (Guardado en GitHub: cómo va, el token del admin y la llave del mundo; al recuperarla, se vuelve a conectar con ella)
+    extra: (box, head) => saveSettings(box, head, { onKey: () => { setNotice('key-lost', null); live.close(); findLive(); keyReminder(); settingsUI.refresh(); }, onCodeSeen: codeSeen }),
+  });
   const openSettings = from => { settingsBack = from; settingsUI.refresh(); show('s-settings'); };
   // Los volúmenes se guardan también en tu partida, poco después de dejar de moverlos: jugando, con lo demás;
   // en el menú, en tu partida tal como está (y se sube a GitHub)

@@ -3,7 +3,8 @@ import { Settings } from '../settings.js';
 
 const $ = id => document.getElementById(id);
 
-export function initSettingsUI({ onClose }) {
+// extra(box, head): lo que añade quien la abre al final (el guardado en GitHub y la llave del mundo: ver savesafety.js)
+export function initSettingsUI({ onClose, extra = null }) {
   const box = $('st-body');
   // (se rehace al abrirse: al entrar con tu cuenta, los volúmenes pasan a ser los tuyos)
   const slider = (key, label) => {
@@ -64,6 +65,7 @@ export function initSettingsUI({ onClose }) {
     choice('scale', 'Resolución', [['auto', 'Auto'], [1, 'Máxima'], [2, 'Alta'], [3, 'Media'], [4, 'Baja']]);
     check('bigText', 'Texto más grande');
     check('noFlash', 'Reducir destellos (rayos de las tormentas)');
+    extra?.(box, head);
   }
   build();
   $('st-close').onclick = () => onClose();

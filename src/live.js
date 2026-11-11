@@ -236,7 +236,11 @@ export class Live {
     // (el mundo del servidor: sus claves, la primera vez que enseña su pase)
     else if (m.t === 'secretos') { if (Profile.server && !this.net?.key && m.key) this.onKeys?.(m); }
     // (/update en el terminal: el mundo del servidor guarda y el servidor lo cierra para abrirlo con el código nuevo)
-    else if (m.t === 'restart') this.onServerRestart?.();
+    else if (m.t === 'restart') this.onServerRestart?.(m);
+    // (/restore y /backup en el terminal: el mundo del servidor abre esa copia del mundo, o hace una con nombre)
+    else if (m.t === 'restore' || m.t === 'keep') { if (Profile.server) (m.t === 'restore' ? this.onServerRestore : this.onServerKeep)?.(m); }
+    // (un aviso del servidor para el admin: su token caduca pronto)
+    else if (m.t === 'notice') this.onNotice?.(m);
     else if (m.t === 'kicked' || m.t === 'stop') {
       if (m.outdated) this.outdated(typeof m.v === 'string' ? m.v : '');   // (el servidor tiene una versión más nueva)
       const why = m.t === 'stop' ? 'Se ha cerrado el servidor.' : m.reason || 'Te han echado del servidor.';
@@ -253,7 +257,9 @@ export class Live {
     if (peer?.entity && peer.sc === 'world' && g.teleport(peer.entity.x, peer.entity.y)) hud.toast(`El servidor te ha llevado adonde está ${peer.name}`);
   }
   // Una copia del mundo (ya cifrada con la clave del mundo: el servidor no puede abrirla) para que la guarde
-  backup(bytes) { if (this.joined && this.role === 'host') this.net?.sendServer({ t: 'backup', d: toB64(bytes) }); }
+  // name: una copia fija con ese nombre (solo el mundo del servidor: /backup, antes de /update y de /restore), que el
+  // servidor no borra nunca
+  backup(bytes, name = null) { if ((this.joined && this.role === 'host') || (name && Profile.server)) this.net?.sendServer({ t: 'backup', d: toB64(bytes), ...(name && { name }) }); }
   // Los jugadores con ese nombre (el de su cuenta o el de su personaje, sin mayúsculas; @a: todos; @s: tú),
   // de los que están jugando: [{ me: true } o { conn, peer }]
   playersNamed(name) {
