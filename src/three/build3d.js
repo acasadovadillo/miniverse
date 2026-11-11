@@ -232,9 +232,11 @@ function run(emit, extras, { id, X, c, side, a, b, holes, ends, painting, half, 
       box('frame', h0, h1, h.y1, h.y1 + 0.07, k, k + o * 0.05);
     }
     box('glass', h0, h1, h.y0, h.y1, -0.008, 0.008);
-    // (abierta y en una pared que da fuera: su luz de noche, pegada a la fachada; ver glow.js. Las cerradas rehacen su trozo)
+    // (abierta y en una pared que da fuera: su luz de noche, pegada a la fachada; ver glow.js. Las cerradas rehacen su trozo.
+    // Un centímetro por delante del alféizar y las contraventanas abiertas, lo que más sale: en el plano del marco o detrás
+    // de algo de la fachada, parpadearía con él al mover la cámara)
     if (outSign && !h.closed && extras.windows && tile) {
-      const k = outSign * (T + 0.03), y = (h.y0 + h.y1) / 2 + (extras.lift || 0), p = P(h.u, y, k);
+      const k = outSign * (T + 0.1), y = (h.y0 + h.y1) / 2 + (extras.lift || 0), p = P(h.u, y, k);
       extras.windows.push({ p, n: X ? [0, outSign] : [outSign, 0], tile, side, gy: 0 });   // (gy: el suelo de delante, lo pone world3d.js)
     }
     box('frame', h.u - 0.022, h.u + 0.022, h.y0, h.y1, -0.03, 0.03);

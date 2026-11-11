@@ -118,7 +118,7 @@ export function blockHeights(gen, bx, bz) {
     else edge[ii ? (i < 0 ? 0 : n) + j : (j < 0 ? 2 * n : 3 * n) + i] = h;
   }
   for (let j = 0; j < BLOCK; j++) for (let i = 0; i < BLOCK; i++) centers[j * BLOCK + i] = biomeAt(x0 + i + 0.5, z0 + j + 0.5, S);
-  return { heights, edge, normals: blockNormals(heights, edge, n), water, corners, centers, n, m, wet: water ? wet : null, shore: water ? blockShore(wet, n, corners) : null };
+  return { heights, edge, normals: blockNormals(heights, edge, n), water, corners, centers, n, m, wet: water ? wet : null, shore: water ? blockShore(wet, n, corners, shoreBiome(x0, z0, S)) : null };
 }
 // Lo mojado de un punto, seguido y con la orilla en 0 (> 0 en el agua): el de wetness con el clima de ahí (c) y, en el
 // pueblo, el del estanque por su distancia (la orilla de su malla, donde el fondo baja de WATER_Y, en pondDist 0,986; ×3,2:
@@ -130,24 +130,29 @@ const wetOf = (x, z, c) => village.inBounds(x, z) ? (0.986 - village.pondDist(x,
 // que el agua refleja a ras. La distancia es u / |∇u|, exacta junto a la línea de la orilla, que es donde importa (la
 // espuma, la transparencia y la ribera reflejada); lejos se queda en 12. Con el gradiente por diferencias centrales, el
 // borde de un bloque da lo mismo desde los dos bloques que lo comparten: la espuma no se corta cada 64 m
-export function blockShore(wet, n, corners, out = new Float32Array(n * n * 4)) {
+// (biome(i, j): el bioma de un vértice fuera de las esquinas, en coordenadas del bloque: shoreBiome. Con él, lo alto de la
+// ribera también casa en el borde: los dos bloques miran el mismo punto del mundo, sin recortarlo cada uno a su anillo)
+export function blockShore(wet, n, corners, biome = null, out = new Float32Array(n * n * 4)) {
   const m = n + 2;
   for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
     const c = (j + 1) * m + i + 1, gx = (wet[c + 1] - wet[c - 1]) * 0.5, gz = (wet[c + m] - wet[c - m]) * 0.5, g = Math.hypot(gx, gz), o = (j * n + i) * 4;
     const sd = Math.max(-4, Math.min(12, wet[c] / Math.max(g, 0.02))), dx = g > 1e-4 ? gx / g : 0, dz = g > 1e-4 ? gz / g : 0;
     out[o] = sd; out[o + 1] = dx; out[o + 2] = dz;
     // (lo de la orilla: el primer punto de tierra yendo hacia ella, a metro y medio pasada la línea; si cae fuera del bloque y
-    // su anillo, el del borde)
+    // su anillo, se calcula ahí, que son pocos puntos y solo junto al borde; sin biome, el del borde)
     let h = 0;
     if (corners && (dx || dz) && sd < 9) for (let k = 0; k < 3; k++) {
-      const back = Math.max(sd, 0) + 1.5 + k * 2, bi = Math.max(-1, Math.min(n, Math.round(i - dx * back))), bj = Math.max(-1, Math.min(n, Math.round(j - dz * back)));
-      const b = corners[(bj + 1) * m + bi + 1];
+      const back = Math.max(sd, 0) + 1.5 + k * 2, ri = Math.round(i - dx * back), rj = Math.round(j - dz * back);
+      const b = ri >= -1 && ri <= n && rj >= -1 && rj <= n ? corners[(rj + 1) * m + ri + 1]
+        : biome ? biome(ri, rj) : corners[(Math.max(-1, Math.min(n, rj)) + 1) * m + Math.max(-1, Math.min(n, ri)) + 1];
       if (!BIOMES[b]?.water) { h = BANK_H[b] ?? 1; break; }
     }
     out[o + 3] = h;
   }
   return out;
 }
+// El bioma de un vértice de un bloque (i, j desde su esquina x0, z0), aunque caiga fuera de él: lo mismo que sus esquinas
+export const shoreBiome = (x0, z0, seed) => (i, j) => biomeAt(x0 + i, z0 + j, seed);
 // Lo alto de la orilla por bioma (metros): la arena de la playa y el desierto, casi nada; la hierba y los juncos del prado,
 // algo más de un metro; el bosque y los pinos, los árboles; el pantano, cañas y arbustos; la roca, sus peñas
 const BANK_H = { [B.BEACH]: 0.3, [B.DESERT]: 0.3, [B.MEADOW]: 1.2, [B.FOREST]: 5, [B.PINES]: 6, [B.SWAMP]: 2.5, [B.SNOW]: 0.8, [B.ROCKY]: 1.6, [B.ICE]: 0.4 };

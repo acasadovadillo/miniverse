@@ -19,6 +19,7 @@ import { wrapIndex } from '../world/planet.js';
 import { roofShape } from '../world/roof.js';
 import { baseMaterials, wallTile, doorTile, doorLeaf, gateTile, gateLeaf, fenceTile, floorTile, roofRegion, paintKey, WALL_H, ROOF, FLOWER } from './build3d.js';
 import { getModel, modelMat, CHANDELIER } from './models.js';
+import { poolGround } from './glow.js';
 import { yawOf } from '../art/stations.js';
 // Lo que brilla en los modelos y, apagado, con qué se dibuja
 let BOAT = null;   // (el modelo de la barca, para las amarradas)
@@ -130,11 +131,13 @@ export class World3D {
     this.updateDoors(scene, dt);
     for (const c of this.chunks.values()) if (c.spin) for (const o of c.spin) o.rotation.x += o.userData.spin * dt;
     this.updateFade(game, scene, dt);
-    // Las ventanas se encienden de noche; los faroles y las pantallas de las lámparas, también (de día, apagados: antes
-    // brillaban igual a mediodía). Los cristales ('always') brillan siempre
-    const glow = this.view.night * 1.2, k = Math.max(this.view.night, this.game?.indoors ? 0.6 : 0);
+    // Las ventanas se encienden de noche; los faroles y la lente del faro, también (de día, apagados: antes brillaban igual a
+    // mediodía). Son materiales de todo el mundo: dentro de casa, de día, solo suben las pantallas de las lámparas, que solo
+    // se ponen dentro (los faroles de la calle se verían encendidos alrededor de la casa)
+    const night = this.view.night, glow = night * 1.2, k = night, ks = Math.max(night, this.game?.indoors ? 0.6 : 0);
     for (const m of this.glassMats()) m.emissiveIntensity = glow;
-    if (k !== this.lampK) { this.lampK = k; modelMat('lamp').emissiveIntensity = 0.25 + 1.5 * k; modelMat('shade').emissiveIntensity = 0.15 + 0.6 * k; modelMat('lens').emissiveIntensity = 0.5 + 1.5 * k; }
+    if (k !== this.lampK) { this.lampK = k; modelMat('lamp').emissiveIntensity = 0.25 + 1.5 * k; modelMat('lens').emissiveIntensity = 0.5 + 1.5 * k; }
+    if (ks !== this.shadeK) { this.shadeK = ks; modelMat('shade').emissiveIntensity = 0.15 + 0.6 * ks; }
   }
   // Ha cambiado algo que da sombra y no se mueve: el mapa de sombras repinta lo fijo (now: en este fotograma; si no,
   // cuando le toque, sin pasar de uno de cada dos)
@@ -156,7 +159,6 @@ export class World3D {
     // (lo primero que se monta después, al cambiar de estación o de mundo, sale de golpe: detrás no hay nada con lo que
     // fundirse, que lo lejano también se está rehaciendo, y su sombra saldría entera mientras él aún va tramado)
     this.freshNature = true;
-    this.view.glow?.reset();
   }
 
   // La casa en la que se está (el establo), sin tejado; se rehace su trozo al entrar y al salir
@@ -225,8 +227,9 @@ export class World3D {
       else if (o.treasure) this.placeModel(`treasure:${o.open ? 1 : 0}`, o.x, o.y, 0, plain, c, group);
       else if (o.roof && o.layer === 'roof') { const r = this.regionAt(scene, o.tile[0], o.tile[1]); if (r) c.regions.add(r); }
     }
-    // (el suelo delante de cada ventana, para su charco de luz: ver glow.js)
-    for (const w of c.windows) w.gy = gy(w.p[0] + w.n[0] * 0.9, w.p[2] + w.n[1] * 0.9);
+    // (el suelo bajo cada charco de luz, con su pendiente, al montar el trozo: si cambia el suelo, se rehace con él. Ver glow.js)
+    for (const w of c.windows) poolGround(w, w.p[0] + w.n[0] * 1.0, w.p[2] + w.n[1] * 1.0, gy);
+    for (const l of c.lights) if (l.pool) poolGround(l, l.x, l.z, gy);
     // Los cimientos: debajo de cada pieza de construcción alzada, piedra hasta el suelo (los suelos y los muros, la casilla
     // entera; las vallas, un dado bajo cada poste)
     LIFT = 0;
@@ -694,6 +697,7 @@ export class World3D {
     g.add(buildNatureChunk(nat, scene.gen.season, () => 0, true).group);
     for (const [k, B] of sinks) { const m = B.mesh(this.mat(k)); m.castShadow = m.receiveShadow = true; g.add(m); }
     g.add(pondDecor());
+    for (const l of c.lights) if (l.pool) poolGround(l, l.x, l.z, (x, z) => this.view.groundY(scene, x, z));
     this.villageLights = c;
     this.villageGroup = g;
     this.group.add(g);

@@ -186,7 +186,11 @@ export class View3D {
     this.sunDir = day && night < 0.9 ? sunDir : moonDir;
     this.skyU.night.value = night;
     this.skyU.cloudy.value = rain ? 1 : info.name === 'Nubes' || game.days?.weather === 'nubes' ? 0.75 : 0.3;
-    this.skyU.sunDir.value.copy(day ? sunDir : moonDir); this.skyU.moon.value = day ? 0 : 1;
+    this.skyU.sunDir.value.copy(day ? sunDir : moonDir);
+    // (la luna sale poco a poco al cambiar de dirección: a las 20:30 ya es casi de noche y su disco no salta de golpe, ni en el
+    // cielo ni en el agua; al amanecer se va igual)
+    const ssH = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+    this.skyU.moon.value = day ? 0 : hour >= 12 ? ssH(20.5, 21.3, hour) : 1 - ssH(4.7, 5.5, hour);
     this.night = night;
     this.weather = { rain: indoors ? 0 : rain, snow: !indoors && snow };
     this.fogNow = fog && !indoors;

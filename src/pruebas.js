@@ -191,7 +191,7 @@ async function soloTests(game) {
         if (!sb) continue;
         for (let t = 0; t < n; t++) {
           const va = dx ? t * n + n - 1 : (n - 1) * n + t, vb = dx ? t * n : t;
-          for (let c = 0; c < 3; c++) check(Math.abs(sa.array[va * 4 + c] - sb.array[vb * 4 + c]) < 1e-4, `la orilla del agua se corta entre los bloques ${b.bx},${b.bz} y ${b.bx + dx},${b.bz + dz}`);
+          for (let c = 0; c < 4; c++) check(Math.abs(sa.array[va * 4 + c] - sb.array[vb * 4 + c]) < 1e-4, `la orilla del agua se corta entre los bloques ${b.bx},${b.bz} y ${b.bx + dx},${b.bz + dz}`);
         }
       }
     }

@@ -6,7 +6,7 @@
 // cuanto se lee (un par de milisegundos), y solo se calcula lo que nunca se ha visto.
 import { WorldGen, WORLD_SEED, CHUNK } from './gen.js';
 import { setProjects, setFamilyHouse } from './village.js';
-import { blockHeights, blockNormals, blockShore, blockColors, paintPixels, groundTag, BLOCK } from './ground.js';
+import { blockHeights, blockNormals, blockShore, shoreBiome, blockColors, paintPixels, groundTag, BLOCK } from './ground.js';
 import { openGroundCache } from './groundcache.js';
 import { rasterTile, TILE } from './contact.js';
 
@@ -73,7 +73,7 @@ function readBatch() {
     const t1 = performance.now();
     d.normals = blockNormals(d.heights, d.edge, d.n);
     d.water = d.heights.some(h => h < 0);
-    d.shore = d.water && d.wet ? blockShore(d.wet, d.n, d.corners) : null;   // (la orilla, de lo mojado guardado)
+    d.shore = d.water && d.wet ? blockShore(d.wet, d.n, d.corners, shoreBiome(m.bx * BLOCK, m.bz * BLOCK, gen.seed)) : null;   // (la orilla, de lo mojado guardado)
     stats.hits++; stats.msHit += (d.ms || 0) + performance.now() - t1;   // (lo que cuesta: descomprimir y las normales)
     post(m, d, true);
   };

@@ -7,12 +7,13 @@
 //   PointLight de engine.js) solo alcanzan a las fuentes más cercanas; con esto el pueblo entero se ve encendido.
 // Cada cosa es una sola malla instanciada (tres dibujos como mucho), aditiva, sin escribir profundidad y sin textura (la
 // forma se calcula en el sombreador). De día, sin nada que brille, no se dibuja nada. La niebla se aplica a mano (la de
-// Three le sumaría su color) y de muy cerca el halo se apaga, para no lavar la pantalla en primera persona.
+// Three le sumaría su color) y de muy cerca el halo se apaga, para no lavar la pantalla en primera persona. Solo se juntan
+// las fuentes de alrededor de lo que mira la cámara (NEAR), y las del borde se van apagando: no saltan al cruzarlo.
 import * as THREE from 'three';
 
 const LOW_Q = typeof location !== 'undefined' && new URLSearchParams(location.search).get('q') === 'low';
 const MAX = { halo: 320, card: 192, pool: 128 };
-const NEAR = 45;   // (metros alrededor de lo que mira la cámara: más allá la niebla de noche ya lo ha apagado casi todo)
+const NEAR = 60;   // (metros alrededor de lo que mira la cámara; desde 0,6 de esto se van apagando hasta el borde)
 const ss = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 
 // Lo que comparten los tres: el tiempo (el parpadeo) y la niebla de ahora
@@ -66,7 +67,7 @@ export class Glow {
       varying vec3 vCol; varying vec2 vP;
       void main() {
         vec3 n = vec3(iNrm.x, 0.0, iNrm.y), t = vec3(-n.z, 0.0, n.x);
-        vec3 w = iPos + t * position.x * 1.5 + vec3(0.0, position.y * 1.7, 0.0) + n * 0.02;
+        vec3 w = iPos + t * position.x * 1.5 + vec3(0.0, position.y * 1.7, 0.0);
         vec4 mv = viewMatrix * vec4(w, 1.0);
         gl_Position = projectionMatrix * mv;
         vCol = iCol * smoothstep(0.0, 0.35, dot(normalize(cameraPosition - w), n)) * glowFog(-mv.z);
@@ -79,15 +80,17 @@ export class Glow {
         a *= (1.0 - smoothstep(0.55, 0.75, abs(vP.x))) * (1.0 - smoothstep(0.65, 0.85, abs(vP.y)));
         gl_FragColor = vec4(vCol, a);
         ${OUT_GLSL}
-      }`, 3, { side: THREE.DoubleSide });
+      }`, 3, { side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -4 });
     // Charcos de luz: un cuadrado tumbado en el suelo, con su caída de elipse (iAx: el eje hacia delante y los dos radios;
-    // iCol: el color con su fuerza y, en a, cuánto parpadea). Un poco por encima del suelo y adelantado en profundidad
-    this.pool = LOW_Q ? null : this.mesh(instanced({ iPos: 3, iAx: 4, iCol: 4 }, MAX.pool), `${FOG_GLSL}
-      attribute vec3 iPos; attribute vec4 iAx; attribute vec4 iCol;
+    // iCol: el color con su fuerza y, en a, cuánto parpadea; iSl: la pendiente del suelo, para que en una ladera no quede
+    // medio enterrado y medio en el aire). Un poco por encima del suelo y adelantado en profundidad
+    this.pool = LOW_Q ? null : this.mesh(instanced({ iPos: 3, iAx: 4, iCol: 4, iSl: 2 }, MAX.pool), `${FOG_GLSL}
+      attribute vec3 iPos; attribute vec4 iAx; attribute vec4 iCol; attribute vec2 iSl;
       varying vec3 vCol; varying vec2 vQ;
       void main() {
         vec3 f = vec3(iAx.x, 0.0, iAx.y), s = vec3(-f.z, 0.0, f.x);
         vec3 w = iPos + s * position.x * 2.0 * iAx.z + f * position.y * 2.0 * iAx.w;
+        w.y += iSl.x * (w.x - iPos.x) + iSl.y * (w.z - iPos.z);
         vec4 mv = viewMatrix * vec4(w, 1.0);
         gl_Position = projectionMatrix * mv;
         float fl = 1.0 + iCol.a * (sin(time * 11.0 + iPos.x * 3.0) * 0.08 + sin(time * 23.0 + iPos.z * 2.0) * 0.06);
@@ -101,8 +104,8 @@ export class Glow {
         ${OUT_GLSL}
       }`, 0.6, { polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
     view.scene.add(this.group);
-    this.floor = new Map();   // (la altura del suelo bajo cada farola, por su sitio: no cambia)
     this.col = new THREE.Color();
+    this.warm = false;
   }
   mesh(geo, vs, fs, order, extra) {
     const m = new THREE.Mesh(geo, material(this.U, vs, fs, extra));
@@ -111,21 +114,40 @@ export class Glow {
     return m;
   }
 
+  // Los tres programas, compilados sin parar el juego la primera vez que pasa por aquí (de día no se ven: sin esto, se
+  // compilarían de golpe al anochecer, al entrar en una casa o al bajar a una cueva). Con cero instancias no se dibuja nada
+  prewarm() {
+    this.warm = true;
+    const r = this.view.renderer;
+    if (!r?.compileAsync) return;
+    for (const m of this.group.children) m.visible = true;
+    r.compileAsync(this.group, this.view.camera, this.view.scene).catch(() => {});
+    for (const m of this.group.children) m.visible = m.geometry.instanceCount > 0;
+  }
+
   // Cada fotograma, con las fuentes que ya ha juntado engine.js (src: las luces de cerca del mundo o de la cueva; lit: las
   // que tienen ahora una de las seis luces de verdad; flames: los fuegos)
   update(game, scene, src, lit, flames, t) {
+    if (!this.warm) this.prewarm();
     const v = this.view, cave = !!v.cave, night = v.night || 0, target = v.cam.target, fog = v.scene.fog;
     this.U.time.value = t; this.U.fogNear.value = fog.near; this.U.fogFar.value = fog.far;
-    const kNight = Math.max(ss(0.25, 0.85, night), cave ? 1 : 0), kIn = game.indoors ? 0.5 : 0;
+    const kNight = Math.max(ss(0.25, 0.85, night), cave ? 1 : 0);
+    // Dentro de casa, de día, sus fuegos y sus lámparas se ven encendidos (la casa está en penumbra), pero solo los de esa
+    // casa: los de la calle, que se ven alrededor al quitar el tejado, siguen de día
+    const home = !cave && game.indoors ? v.world?.insideRegion : null, regionOf = v.world?.regionOf;
+    const kAt = (x, z) => home && regionOf.get(`${Math.floor(x)},${Math.floor(z)}`) === home ? Math.max(kNight, 0.5) : kNight;
     // (con lluvia o niebla, la luz se esparce en el aire húmedo: halos más grandes y algo más fuertes)
     const wet = !cave && (v.weather?.rain || v.fogNow) ? 1 : 0, rK = 1 + 0.35 * wet, iK = 1 + 0.2 * wet;
-    const near = (x, z) => Math.abs(x - target.x) < NEAR && Math.abs(z - target.z) < NEAR;
+    // (cuánto queda de cada cosa por su distancia a lo que mira la cámara: entera hasta 0,6 de NEAR y nada en el borde)
+    const near = (x, z) => 1 - ss(NEAR * 0.6, NEAR, Math.max(Math.abs(x - target.x), Math.abs(z - target.z)));
     // Halos y charcos de las luces
     const H = this.halo.geometry.attributes, P = this.pool?.geometry.attributes;
     let n = 0, np = 0;
     for (const s of src) {
-      if (!near(s.x, s.z)) continue;
-      const k = s.always ? 0.35 + 0.65 * night : Math.max(kNight, kIn);
+      const d = near(s.x, s.z);
+      if (d <= 0) continue;
+      // (los cristales brillan siempre, más de noche; en la cueva, igual a cualquier hora, como su luz)
+      const k = (s.always ? (cave ? 1 : 0.35 + 0.65 * night) : kAt(s.x, s.z)) * d;
       if (k < 0.01) continue;
       const I = s.intensity ?? 3;
       if (!s.flicker && s.halo !== 0 && n < MAX.halo) {   // (los fuegos llevan su halo con la llama: ver abajo)
@@ -134,16 +156,17 @@ export class Glow {
         H.iPos.setXYZ(n, s.x, s.y, s.z); H.iCol.setXYZW(n, this.col.r, this.col.g, this.col.b, (s.x * 0.37 + s.z * 0.61) % 7); H.iSize.setXY(n, r, 0); n++;
       }
       if (P && s.pool && !cave && np < MAX.pool) {
-        const y = this.floorAt(scene, s.x, s.z), half = lit?.has(s) ? 0.5 : 1;
+        const half = lit?.has(s) ? 0.5 : 1, [sx, sz] = s.sl || ZERO;
         this.col.set(s.color || '#ffc070').multiplyScalar(0.22 * k * half);
-        P.iPos.setXYZ(np, s.x, y + 0.04, s.z); P.iAx.setXYZW(np, 1, 0, s.pool, s.pool); P.iCol.setXYZW(np, this.col.r, this.col.g, this.col.b, s.flicker ? 1 : 0); np++;
+        P.iPos.setXYZ(np, s.x, (s.gy ?? v.groundY(scene, s.x, s.z)) + 0.04, s.z); P.iAx.setXYZW(np, 1, 0, s.pool, s.pool); P.iSl.setXY(np, sx, sz);
+        P.iCol.setXYZW(np, this.col.r, this.col.g, this.col.b, s.flicker ? 1 : 0); np++;
       }
     }
     // Los fuegos: un halo naranja algo por encima de la llama, que parpadea con ella
-    const kf = Math.max(kNight, kIn);
-    if (kf > 0.01) for (const [x, y, z, s] of flames) {
+    for (const [x, y, z, s] of flames) {
       if (n >= MAX.halo) break;
-      if (!near(x, z)) continue;
+      const kf = kAt(x, z) * near(x, z);
+      if (kf < 0.01) continue;
       this.col.set(s < 0.3 ? '#ffa040' : '#ff8a30').multiplyScalar(0.25 * kf * iK);
       H.iPos.setXYZ(n, x, y + 0.12 * s, z); H.iCol.setXYZW(n, this.col.r, this.col.g, this.col.b, (x * 0.53 + z * 0.29) % 7); H.iSize.setXY(n, (0.28 + 0.5 * s) * rK, 1); n++;
     }
@@ -154,15 +177,16 @@ export class Glow {
     if (!cave && kNight > 0.01) {
       const w = v.world;
       this.col.set('#ffb050');
-      const cr = this.col.r * 0.5 * kNight, cg = this.col.g * 0.5 * kNight, cb = this.col.b * 0.5 * kNight;
-      this.col.set('#ffb050').multiplyScalar(0.11 * kNight);
+      const cr = this.col.r * 0.5 * kNight, cg = this.col.g * 0.5 * kNight, cb = this.col.b * 0.5 * kNight, pk = 0.11 * kNight;
       for (const c of w.chunks.values()) if (c.windows) for (const win of c.windows) {
-        if (!near(win.p[0], win.p[2])) continue;
+        const d = near(win.p[0], win.p[2]);
+        if (d <= 0) continue;
         if (w.faded(win.tile[0], win.tile[1], win.side)) continue;   // (la pared que se oculta con el jugador dentro)
-        if (nc < MAX.card) { C.iPos.setXYZ(nc, win.p[0], win.p[1], win.p[2]); C.iNrm.setXY(nc, win.n[0], win.n[1]); C.iCol.setXYZ(nc, cr, cg, cb); nc++; }
+        if (nc < MAX.card) { C.iPos.setXYZ(nc, win.p[0], win.p[1], win.p[2]); C.iNrm.setXY(nc, win.n[0], win.n[1]); C.iCol.setXYZ(nc, cr * d, cg * d, cb * d); nc++; }
         if (P && np < MAX.pool) {
-          P.iPos.setXYZ(np, win.p[0] + win.n[0] * 1.0, win.gy + 0.04, win.p[2] + win.n[1] * 1.0); P.iAx.setXYZW(np, win.n[0], win.n[1], 1.3, 1.05);
-          P.iCol.setXYZW(np, this.col.r, this.col.g, this.col.b, 0); np++;
+          const [sx, sz] = win.sl || ZERO;
+          P.iPos.setXYZ(np, win.p[0] + win.n[0] * 1.0, win.gy + 0.04, win.p[2] + win.n[1] * 1.0); P.iAx.setXYZW(np, win.n[0], win.n[1], 1.3, 1.05); P.iSl.setXY(np, sx, sz);
+          P.iCol.setXYZW(np, this.col.r * pk * d, this.col.g * pk * d, this.col.b * pk * d, 0); np++;
         }
       }
     }
@@ -175,16 +199,16 @@ export class Glow {
     if (!n) return;
     for (const a of Object.values(mesh.geometry.attributes)) if (a.isInstancedBufferAttribute) { a.clearUpdateRanges?.(); a.addUpdateRange?.(0, n * a.itemSize); a.needsUpdate = true; }
   }
-  // La altura del suelo bajo una farola (se guarda por su sitio; si hay muchas, se empieza de nuevo)
-  floorAt(scene, x, z) {
-    const k = `${Math.round(x * 10)},${Math.round(z * 10)}`;
-    let y = this.floor.get(k);
-    if (y === undefined) {
-      if (this.floor.size > 2000) this.floor.clear();
-      this.floor.set(k, (y = this.view.groundY(scene, x, z)));
-    }
-    return y;
-  }
-  // Otro mundo (otra partida, el menú): las alturas guardadas ya no valen
-  reset() { this.floor.clear(); }
+}
+const ZERO = [0, 0];
+
+// El suelo bajo un charco de luz (o: una farola, una hoguera, una ventana; x, z: el centro del charco), al montar su trozo
+// (world3d.js), para que se rehaga con él si cambia el suelo: o.gy, la altura, y o.sl, la pendiente (dy/dx, dy/dz), con un
+// tope: en el borde de un suelo construido o de un escalón la diferencia no es una ladera, y el charco se queda llano
+export function poolGround(o, x, z, gy) {
+  const y = gy(x, z), D = 0.8, ax = gy(x + D, z), bx = gy(x - D, z), az = gy(x, z + D), bz = gy(x, z - D);
+  o.gy = y;
+  const step = Math.max(Math.abs(ax - y), Math.abs(bx - y), Math.abs(az - y), Math.abs(bz - y)) > 0.45;
+  const cl = v => Math.max(-0.5, Math.min(0.5, v));
+  o.sl = step ? [0, 0] : [cl((ax - bx) / (2 * D)), cl((az - bz) / (2 * D))];
 }

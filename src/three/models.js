@@ -924,7 +924,7 @@ const PLACES = {
     m.cyl('stone', 0, 0, 0, 1.4, 1.3, 0.6, 16);
     for (let i = 0; i < 6; i++) m.cyl(i % 2 ? 'stripeR' : 'white', 0, 0.6 + i * 1.3, 0, 0.95 - i * 0.07, 0.95 - (i + 1) * 0.07, 1.3, 16);
     m.cyl('iron', 0, 8.4, 0, 0.75, 0.75, 0.12, 16).cyl('glass', 0, 8.52, 0, 0.5, 0.5, 0.9, 12).geo('lens', ICO1, 0, 8.97, 0, [0, 0, 0], 0.3).geo('red', CONE, 0, 9.65, 0, [0, 0, 0], [0.62, 0.55, 0.62]);
-    m.light(0, 9, 0, { color: '#fff0b0', intensity: 12, range: 30, always: true, halo: 3 });
+    m.light(0, 9, 0, { color: '#fff0b0', intensity: 12, range: 30, halo: 3 });   // (se enciende de noche, con su haz y su lente: de día, un sol en lo alto)
     m.beacon = [0, 8.97, 0];
   },
 };

@@ -20,6 +20,7 @@ const SS = 4;               // se dibuja a SS veces el tamaño y se reduce, para
 // tumbado en diagonal, de lado, como los de píxel
 const VIEW = { placed: [-1, 0.95, 1.2], tool: [0.25, 0.5, 1], food: [-1, 1.15, 1.2], flat: [-0.6, 1.8, 1.0], drink: [-1, 0.7, 1.3], fish: [0.15, 0.55, 1] };
 const PIXEL = new Set(['cana', 'cana_fibra', 'red']);   // (largos y finos: a 36 píxeles no se leen; siguen a píxel)
+const LIT = [['lamp', 1.5], ['shade', 0.6], ['lens', 2]];   // (el brillo de los que se encienden de noche, para el icono)
 const FLAME = new THREE.MeshBasicMaterial({ color: '#ffb040' }), FLAME_GEO = new THREE.SphereGeometry(0.08, 8, 6);
 const cache = new Map();
 let R = null, idle = 0;
@@ -111,7 +112,10 @@ export function modelIcon(id) {
   camera.updateProjectionMatrix();
   // (la comida, algo más expuesta: sus colores, apagados para el mundo, con esta curva salían oscuros a este tamaño)
   renderer.toneMappingExposure = kind === 'food' ? 1.15 : 1;
-  drawOwn(renderer, scene, camera);
+  // (los faroles, las pantallas y la lente comparten material con el mundo, que los enciende de noche: el icono, siempre
+  // con su brillo de encendido, sea la hora que sea al pedirlo)
+  const lit = kind === 'placed' ? LIT.map(([k, v]) => { const m = modelMat(k), was = m.emissiveIntensity; m.emissiveIntensity = v; return [m, was]; }) : [];
+  try { drawOwn(renderer, scene, camera); } finally { for (const [m, was] of lit) m.emissiveIntensity = was; }
   renderer.toneMappingExposure = 1;
   scene.remove(g);
   for (const geo of made) geo.dispose();
@@ -162,37 +166,53 @@ export function dropModel(id) {
 
 // Adelantar los iconos en ratos libres, al empezar la partida: primero se compilan sin parar el juego los programas de la
 // comida (con su vidrio, sus dos caras y su metal: el primer icono de comida los compilaría de golpe, de 50 a 200 ms), y
-// luego se dibujan, en trozos de pocos milisegundos, los de lo que se lleva (first) y los de toda la comida, la bebida y
-// los peces. draw: el que hace el icono y lo guarda (art/items.js, itemIcon). Nada se guarda en el navegador: en memoria
+// luego se dibujan, de uno en uno y solo en ratos libres de verdad, los de lo que se lleva (first) y los de toda la comida,
+// la bebida y los peces. draw: el que hace el icono y lo guarda (art/items.js, itemIcon). Nada se guarda en el navegador: en memoria
 // ocupan poco y así no se llena el almacenamiento, que comparte el sitio con otros juegos
 let warmT = 0;
 export function prewarmIcons(first, draw) {
   if (typeof document === 'undefined') return;
   const run = ++warmT, later = f => (typeof requestIdleCallback === 'function' ? requestIdleCallback(f, { timeout: 3000 }) : setTimeout(() => f({ timeRemaining: () => 6, didTimeout: true }), 50));
   const food = Object.keys(ITEMS).filter(id => modelKind(id) === 'food');
-  const list = [...new Set([...first().filter(id => ITEMS[id]), ...food])].filter(id => !cache.has(id));
+  const mine = new Set(first().filter(id => ITEMS[id] && !cache.has(id)));
+  const list = [...new Set([...mine, ...food])].filter(id => !cache.has(id));
   if (!list.length) return;
-  later(async () => {
+  // (un rato libre de verdad, con margen: el juego va justo y un icono cuesta varios milisegundos, sobre todo al copiarlo
+  // de la gráfica. Si el rato llega por plazo vencido, la ventana no ha tenido ninguno: solo se adelanta lo de la mochila,
+  // que se va a ver enseguida, y de uno en uno; lo demás espera a un rato libre o a que se pida)
+  const free = deadline => !deadline.didTimeout && deadline.timeRemaining() > 8;
+  // 1) Las mallas de la comida, unas pocas en cada rato (montarlas todas de golpe ya es un tirón): una de cada material
+  const g = new THREE.Group(), seen = new Set(), todo = food.slice();
+  const gather = deadline => {
     if (run !== warmT) return;
-    // (una malla de cada material distinto de la comida, para compilar sus programas en paralelo)
+    const t0 = performance.now(), budget = free(deadline) ? Math.min(10, deadline.timeRemaining() - 4) : 3;
+    while (todo.length && performance.now() - t0 < budget) {
+      const id = todo.shift();
+      try { forIcon(build(id, 'food'), foodView(id)).traverse(o => { if (o.isMesh && !seen.has(o.material)) { seen.add(o.material); g.add(new THREE.Mesh(o.geometry, o.material)); } }); } catch { /* (se hará cuando se pida) */ }
+    }
+    later(todo.length ? gather : compile);
+  };
+  // 2) Sus programas, sin parar el juego: compile los pide sin esperar a que estén (y apunta sus oyentes como suyos);
+  // compileAsync espera a que la gráfica los acabe, con un plazo por si el renderizador se suelta mientras (si no, su
+  // sondeo fallaría y no se seguiría nunca)
+  const compile = async () => {
+    if (run !== warmT) return;
     try {
-      const { renderer, scene, camera } = R || setup(), g = new THREE.Group(), seen = new Set();
-      for (const id of food) forIcon(build(id, 'food'), foodView(id)).traverse(o => { if (o.isMesh && !seen.has(o.material)) { seen.add(o.material); g.add(new THREE.Mesh(o.geometry, o.material)); } });
+      const own = R || setup(), { renderer, scene, camera } = own;
       scene.add(g);
-      // (compile pide los programas sin esperar a que estén y apunta sus oyentes como suyos; compileAsync espera, sin parar
-      // el juego, a que la gráfica los acabe: ya no añade nada)
       drawOwn(renderer, scene, camera, true);
-      if (renderer.compileAsync) await renderer.compileAsync(scene, camera);
+      if (renderer.compileAsync) await Promise.race([renderer.compileAsync(scene, camera).catch(() => {}), new Promise(ok => setTimeout(ok, 8000))]);
       scene.remove(g);
-      clearTimeout(idle); idle = setTimeout(release, IDLE_MS);
+      if (R === own) { clearTimeout(idle); idle = setTimeout(release, IDLE_MS); }
     } catch (e) { console.warn('Iconos: no se han podido adelantar los programas', e); }
-    const step = deadline => {
-      if (run !== warmT) return;
-      const t0 = performance.now();
-      // (en cada rato libre, mientras queden más de 4 ms; si el rato llega por plazo vencido, uno solo)
-      while (list.length && (deadline.didTimeout ? performance.now() - t0 < 4 : deadline.timeRemaining() > 4)) { try { draw(list.shift()); } catch { /* (se hará cuando se pida) */ } }
-      if (list.length) later(step);
-    };
     later(step);
-  });
+  };
+  // 3) Los iconos, de uno en uno por rato libre
+  const step = deadline => {
+    if (run !== warmT) return;
+    const i = free(deadline) ? 0 : list.findIndex(id => mine.has(id));
+    if (i >= 0 && list.length) { const [id] = list.splice(i, 1); if (!cache.has(id)) try { draw(id); } catch { /* (se hará cuando se pida) */ } }
+    if (list.length) later(step);
+  };
+  later(gather);
 }
