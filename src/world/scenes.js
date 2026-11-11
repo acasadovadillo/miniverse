@@ -382,17 +382,19 @@ export class Overworld {
       for (const [nx, ny] of [[tx + 1, ty], [tx - 1, ty], [tx, ty + 1], [tx, ty - 1]]) if (['door', 'gate'].includes(this.pieceAt(nx, ny)?.kind)) return 'Delante de la puerta no';
       if (this.animalDoorOn(tx, ty)) return 'Delante de la puerta no';
     }
-    if (!flat && cur === null && !DIG_BIOMES.has(this.gen.biomeAt(x, y))) return 'Solo se cava en la tierra y la hierba';
+    // (la orilla: una casilla sin cavar casi toda bajo el agua, 3 o 4 esquinas, ya se ve como agua; y en una con alguna
+    // esquina bajo el agua no se apila: el montón se metería en el río, y se harían diques en los ríos y los lagos. Los
+    // canales se cierran soltando tierra en lo cavado, que sí se puede)
+    const wet = cur === null ? [[tx, ty], [tx + 1, ty], [tx, ty + 1], [tx + 1, ty + 1]].filter(([i, j]) => this.bedH(i, j) < WATER_Y).length : 0;
+    // (la del agua con 2 esquinas o menos bajo ella, junto a la tierra o la hierba: medio talud de tierra, se ve seca por
+    // donde toca la tierra. Ahí sí se cava: muchas veces la casilla de tierra de al lado no comparte ninguna esquina con el agua, y
+    // sin cavar esta el canal no llegaba nunca al río)
+    const bank = cur === null && wet < 3 && !up && this.natWater(x, y) && [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([i, j]) => DIG_BIOMES.has(this.gen.biomeAt(x + i, y + j)));
+    if (!flat && cur === null && !bank && !DIG_BIOMES.has(this.gen.biomeAt(x, y))) return this.natWater(x, y) ? 'Ahí hay agua' : 'Solo se cava en la tierra y la hierba';
     // (en el agua de verdad, no; junto a ella, sí: el hoyo se llena de agua, ver reflood. En el agua de lo cavado, también:
     // se cava más hondo, o se le echa tierra y, si el fondo sale del agua, se seca)
-    if (this.natWater(x, y)) return 'Ahí hay agua';
-    // (la orilla: una casilla sin cavar con su centro en tierra pero casi toda bajo el agua, 3 o 4 esquinas, ya se ve como
-    // agua; y en una con alguna esquina bajo el agua no se apila: el montón se metería en el río, y se harían diques en los
-    // ríos y los lagos. Los canales se cierran soltando tierra en lo cavado, que sí se puede)
-    if (cur === null) {
-      const wet = [[tx, ty], [tx + 1, ty], [tx, ty + 1], [tx + 1, ty + 1]].filter(([i, j]) => this.bedH(i, j) < WATER_Y).length;
-      if (wet >= 3 || (up && wet)) return 'Ahí hay agua';
-    }
+    if (cur === null && !bank && this.natWater(x, y)) return 'Ahí hay agua';
+    if (wet >= 3 || (up && wet)) return 'Ahí hay agua';
     // (al echar tierra junto a una barca amarrada: se quedaría en seco o metida en el montón)
     if (up && this.boatsNear(x, y, 1.6).length) return 'Hay una barca';
     const c = [this.cornerH(tx, ty), this.cornerH(tx + 1, ty), this.cornerH(tx, ty + 1), this.cornerH(tx + 1, ty + 1)];
