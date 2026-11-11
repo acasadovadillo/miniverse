@@ -584,7 +584,12 @@ const BUILD = {
     put('wellWater', CIRCLE, BX, BY + BH + 0.004, BZ, [-Math.PI / 2, 0, 0], [0.122, 0.122, 1]);
     put('iron', BAIL, BX, BY + BH, BZ);
     put('rope', cylGeo(0.011, 0.011, AY - (BY + BH + 0.128), 6), BX, BY + BH + 0.128, BZ);
-    m.solids.push([-SQ, -D, -SQ, SQ, TOP, SQ], [-RO - 0.04, TOP, -RO - 0.04, RO + 0.04, H, RO + 0.04]);
+    // (la losa con su forro y el brocal, cada uno un anillo de cuatro cajas alrededor de la boca, que queda hueca: una
+    // flecha que entra por ella cae al agua, y la que da en la piedra se clava en la piedra, no en el aire de encima; y
+    // los postes. Al andar choca la caja que envuelve lo bajo: ver world/scenes.js, freeObject)
+    const ring = (y0, y1, o) => { const i = RI - 0.005; m.solids.push([-o, y0, -o, o, y1, -i], [-o, y0, i, o, y1, o], [-o, y0, -i, -i, y1, i], [i, y0, -i, o, y1, i]); };
+    ring(-D, TOP + 0.002, SQ); ring(TOP, H, RO + 0.04);   // (la losa, un pelo más alta: lo que no sube de 0,04 no cuenta, ver SOLIDS.of)
+    for (const sx of [-1, 1]) m.solids.push([sx * PX - 0.055, H, -0.055, sx * PX + 0.055, YR - 0.1, 0.055]);
   },
   aspersor(m) {
     m.cyl('copper', 0, 0, 0, 0.12, 0.1, 0.06, 10).cyl('copper', 0, 0.06, 0, 0.025, 0.025, 0.3, 6).box('copper', -0.16, 0.34, -0.02, 0.16, 0.38, 0.02).box('copper', -0.02, 0.34, -0.16, 0.02, 0.38, 0.16);

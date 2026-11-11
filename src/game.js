@@ -101,6 +101,7 @@ const NILO_TIPS = [
   'En la taberna, al oeste del camino, Anselmo te da de comer y te cuenta la vida de todos. Sobre todo lo segundo.',
   'Las palmeras de las playas cálidas dan cocos cada pocos días. No hace falta talarlas: basta con sacudirlas.',
   'Una noria en un río muele el trigo en harina y riega sola el huerto de alrededor. Con harina, el pan sale más barato.',
+  'Cava cinco bloques hacia abajo con la pala y, con la mesa de cantero cerca, te haces un pozo: agua para la regadera sin ir al río.',
 ];
 
 // Deltas con tu casa recién hecha: para el fondo del menú, que no tiene partida

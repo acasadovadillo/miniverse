@@ -26,7 +26,7 @@ export const V = 24, G = 16;                    // lo que corre la flecha a toda
 const FULL_DRAW = 1, MIN_POWER = 0.1, MAX_DMG = 6, DRAW_WALK = 0.45;
 const AIR_TTL = 12, STUCK_TTL = 300, FREE_TTL = 60, PICK_AFTER = 0.3, PICK_NEAR = 0.9, REACH = [-0.7, 2.3], ASK_WAIT = 1.5;
 // (la flecha va por su centro, a.x/a.h/a.y; la punta, TIP por delante. Clavada, la punta entra SINK: más en la tierra)
-const TIP = 0.42, SINK = { ground: 0.18, solid: 0.09 };
+const TIP = 0.42, SINK = { ground: 0.18, solid: 0.09 }, WELL_WATER = 1.1;
 const MAX_ARROWS = 60;
 const r2 = v => Math.round(v * 100) / 100;
 
@@ -166,10 +166,12 @@ export class Archery {
     return out;
   }
   // El suelo para la flecha: el del andar, salvo en las casillas de solo valla en cuesta, donde lo construido sube a su
-  // altura para andar pero lo que se ve es la tierra (y, bajo el poste, su dado de piedra: ver world/shots.js)
+  // altura para andar pero lo que se ve es la tierra (y, bajo el poste, su dado de piedra: ver world/shots.js); y en la
+  // boca de un pozo, su agua (WELL_WATER bajo la losa: ver three/models.js, pozo), donde se hunde
   ground(x, y) {
     const g = this.game, sc = g.scene, v = g.view3d.groundY?.(sc, x, y) || 0;
     if (sc !== g.world || !sc.groundRaw) return v;
+    if (sc.wellMouth?.(x, y)) return v - WELL_WATER;
     const tx = Math.floor(x), ty = Math.floor(y), kind = sc.pieceAt(tx, ty)?.kind;
     return (kind === 'fence' || kind === 'gate') && !sc.at('floor', tx, ty) ? Math.min(v, sc.groundRaw(x, y)) : v;
   }
@@ -214,6 +216,7 @@ export class Archery {
       const solid = this.hit(g.scene, tip, d, t ?? len, gy);
       if (solid !== null) { t = solid; into = 'solid'; }
       else if (g.scene === g.world && over1 <= 0.25 && g.world.water(tx, ty)) { g.gather.chips(tx, ty, 'water', 6); return false; }   // (al agua: se hunde)
+      if (t !== null && into === 'ground' && g.scene === g.world && g.world.wellMouth?.(tip[0] + d[0] * t, tip[2] + d[2] * t)) { g.gather.chips(tip[0] + d[0] * t, tip[2] + d[2] * t, 'water', 6); return false; }   // (al agua del pozo)
       if (t !== null) { this.stick(a, tip[0] + d[0] * t, tip[1] + d[1] * t, tip[2] + d[2] * t, d, SINK[into]); return true; }
       a.x = g.scene === g.world ? wrapX(nx) : nx; a.y = ny; a.h = nh;
       return true;

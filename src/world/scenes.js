@@ -173,6 +173,9 @@ function freeObject(o, id, rot, [x, y, a], { colliders, lights, solids }) {
   o.obb = box;
   // (en el establo con la puerta abierta se entra: chocan sus paredes, no todo él; lo alto no molesta)
   if (id === 'establo' && o.model !== 'establo:shut') for (const s of placeBoxes(local.filter(l => l[1] < 1), x, y, a)) colliders.push({ ...bounds(s), obb: s, free: true });
+  // (el pozo: lo bajo, la losa y el brocal; el tejadillo vuela por encima de la cabeza y no quita sitio a la casilla de al
+  // lado, que se puede cercar o labrar pegada)
+  else if (id === 'pozo') { const s = placeBoxes([hull(local.filter(l => l[1] < 1))], x, y, a)[0]; colliders.push({ ...bounds(s), obb: s, free: true }); }
   else colliders.push({ ...bounds(box), obb: box, free: true });
   for (const s of placeBoxes(local, x, y, a)) solids.push(s);
   return false;
@@ -351,8 +354,6 @@ export class Overworld {
     if (cur === null && Math.max(...c) - Math.min(...c) > DIG_STEEP) return 'Ahí es roca';
     const d = this.deltas.get(`${wrapIndex(Math.floor(tx / CHUNK), CHUNK)},${Math.floor(ty / CHUNK)}`);
     if (this.wellAt(x, y)) return 'Ahí está el pozo';
-    // (pegado a él, tampoco: su losa y su brocal van sobre la tierra de alrededor)
-    for (let j = -1; j <= 1; j++) for (let i = -1; i <= 1; i++) if ((i || j) && this.wellAt(x + i, y + j)) return 'Pegado al pozo no se cava';
     if (this.builtAt(d, k) || d?.lvl?.[k] !== undefined || d?.crops?.[k] || d?.trees?.[k]) return 'Hay algo encima';
     for (const layer of ['floor', 'placed', 'roof']) if (this.at(layer, tx, ty)) return 'Hay algo encima';
     if (this.layers.some(l => l.blocks?.(tx, ty))) return 'Ahí no se puede';
@@ -360,6 +361,15 @@ export class Overworld {
     if (this.harvestablesNear(x, y).some(o => !o.flower && Math.floor(o.x) === tx && Math.floor(o.y) === ty)) return 'Hay algo encima';
     const h = this.digNext(tx, ty, up ? 1 : -1), base = this.digBase(tx, ty);
     if (h !== null && (up ? h > base + DIG_UP * DIG_H + 1e-6 : h < base - DIG_DOWN * DIG_H - 1e-6)) return up ? 'No se apila más alto' : 'No se cava más hondo';
+    // Pegado al pozo: se rellena lo cavado para bajar a hacerlo (y se sube), pero no por encima de su losa, que enterraría el
+    // brocal; y se cava, pero no por debajo de su fondo, hasta donde baja su forro de piedra (se ve desde el hoyo de al lado)
+    if (h !== null) for (let j = -1; j <= 1; j++) for (let i = -1; i <= 1; i++) {
+      if (!(i || j) || !this.wellAt(x + i, y + j)) continue;
+      const wk = `${tx + i},${ty + j}`, wd = this.deltas.get(`${wrapIndex(Math.floor((tx + i) / CHUNK), CHUNK)},${Math.floor((ty + j) / CHUNK)}`);
+      const top = wd?.lvl?.[wk], bottom = wd?.dig?.[wk];
+      if (up && typeof top === 'number' && h > top + 1e-6) return 'Taparía el pozo';
+      if (!up && typeof bottom === 'number' && h < bottom - 1e-6) return 'Más hondo que el pozo, no';
+    }
     return '';
   }
   // Cavar (dn -1) o soltar tierra (dn 1) en una casilla. Se queda sin hierba ni flores (la tierra, desnuda): la hierba vuelve
@@ -723,7 +733,7 @@ export class Overworld {
         if (LIGHT[id] && !o.off) { const [lx, ly, lz, lr] = LIGHT[id], [x, y] = at(lx, ly); lights.push({ x, y, z: lz, r: lr }); }
         const [[ax, ay], [bx, by]] = [at(-0.46, -0.44), at(0.46, 0.32)];
         colliders.push({ x0: Math.min(ax, bx), y0: Math.min(ay, by), x1: Math.max(ax, bx), y1: Math.max(ay, by), piece: true });
-      } else if (src.pos?.[o.key] || BIG_HOUSE.has(id)) {   // (las casas grandes, aunque se pusieran por casillas antes de crecer, ocupan lo suyo)
+      } else if (src.pos?.[o.key] || BIG_HOUSE.has(id) || id === 'pozo') {   // (las casas grandes, aunque se pusieran por casillas antes de crecer, ocupan lo suyo; el pozo puesto con /setblock, sin sitio, va en el centro)
         o.off = this.lightOff(tx, ty);
         if (BIG_HOUSE.has(id) && src.door?.[`${tx},${ty}`] === 0) o.model = `${id}:shut`;
         if (id === 'encimera' && !fixed) o.model = this.counterModel(tx, ty);
@@ -1138,6 +1148,9 @@ export class Overworld {
   }
   // ¿Hay un pozo en la casilla de (x, y)? (para llenar la regadera: farm.js)
   wellAt(x, y) { const v = this.at('placed', Math.floor(x), Math.floor(y)); return !!v && parsePlaced(v)[0] === 'pozo'; }
+  // ¿Está (x, y) en la boca de un pozo, por donde se cae al agua? (las flechas: archery.js, ground; el hueco de sus cajas en
+  // three/models.js, pozo)
+  wellMouth(x, y) { const fx = x - Math.floor(x) - 0.5, fy = y - Math.floor(y) - 0.5; return Math.abs(fx) < 0.34 && Math.abs(fy) < 0.34 && this.wellAt(x, y); }
   // Ponerlo donde ha dicho fitFree (en su casilla, con su sitio y su giro de verdad)
   // loose: puesto agachado (no se une a lo de al lado)
   placeFree(id, f, loose = false) {
