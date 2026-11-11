@@ -13,6 +13,7 @@ import { macroOf, MAC_K, grassKeep } from '../world/ground.js';
 import { climate, wetness } from '../world/biomes.js';
 import { FLOWER_GEO, FLOWER_COLORS } from './flowers3d.js';
 import { ageOf, broadDims, pineDims, palmDims, cactusK } from '../world/treedims.js';
+import { injectContact, contactKey } from './contact3d.js';
 
 const tmp = new THREE.Object3D(), col = new THREE.Color();
 // Viento: el tiempo que mueve la hierba y las copas (lo avanza el dibujo)
@@ -682,7 +683,7 @@ function groundShapes() {
         vec3 sv = vec3(bside.x, 0.0, bside.y), root = vec3(blade.y, 0.0, blade.z);
         transformed = root + (transformed - sv - root) * gk + sv * (gk * wmul);`;
   const wind = (m, key, inst) => {
-    m.onBeforeCompile = sh => {
+    m.onBeforeCompile = (sh, r) => {
       sh.uniforms.windTime = WIND;
       if (inst) { sh.uniforms.grassLodK = GRASS.lodK; sh.uniforms.grassCenter = GRASS.center; sh.uniforms.grassFade = GRASS.fade; }
       // (con instancias, la fase del viento sale del sitio de cada mata)
@@ -695,8 +696,10 @@ function groundShapes() {
         transformed.xz += vec2(s, s * 0.5) * ${inst ? '0.35' : '0.3'} * sway${inst ? ' * gk' : ''};`);
       // (las matas, por las dos caras con la luz de arriba: la cara de atrás no da la vuelta a la normal)
       if (inst) sh.fragmentShader = sh.fragmentShader.replace('#include <normal_fragment_begin>', THREE.ShaderChunk.normal_fragment_begin.replace('float faceDirection = gl_FrontFacing ? 1.0 : - 1.0;', 'float faceDirection = 1.0;'));
+      // (la misma sombra de contacto que el suelo de debajo, leída en el vértice: ver contact3d.js)
+      injectContact(sh, r, inst ? 'vertInst' : 'vert');
     };
-    m.customProgramCacheKey = () => key;
+    m.customProgramCacheKey = () => contactKey(key);
     return m;
   };
   const m = wind(mat({ vertexColors: true, roughness: 0.95 }), 'groundcover', false);

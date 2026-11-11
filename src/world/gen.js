@@ -121,10 +121,12 @@ export class WorldGen {
   // Todo va en el centro de su casilla (tx + 0.5, ty + 0.5) y hay como mucho un objeto por casilla,
   // como en Minecraft: así el jugador puede construir casilla a casilla alrededor de lo que hay,
   // y cada casilla está libre u ocupada del todo, nunca a medias.
-  content(cx, cy) {
+  // keep: guardarlo en la caché (false: solo se mira, como la sombra de contacto, que pide muchos trozos una vez)
+  content(cx, cy, keep = true) {
     cx = own(cx);
-    const key = `${cx},${cy}`;
-    if (this.cache.has(key)) return this.cache.get(key);
+    const key = `${cx},${cy}`, hit = this.cache.get(key);
+    // (al acertar, la clave pasa al final: la caché echa lo que menos se ha usado, no lo primero que entró)
+    if (hit) { if (keep) { this.cache.delete(key); this.cache.set(key, hit); } return hit; }
     const s = this.seed;
     const objects = [];
     const taken = new Set();   // casillas ya ocupadas ("tx,ty"): la primera que llega se la queda
@@ -194,6 +196,7 @@ export class WorldGen {
       add(vnoise(tx * 0.09 + 3, ty * 0.09, s + 8) > 0.5 ? 'margarita' : 'diente_leon', tx, ty, 0);
     }
     const out = { objects };
+    if (!keep) return out;
     this.cache.set(key, out);
     if (this.cache.size > 400) this.cache.delete(this.cache.keys().next().value);
     return out;

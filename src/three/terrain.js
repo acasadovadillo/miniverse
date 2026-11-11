@@ -14,6 +14,7 @@ import { BLOCK, PX, groundSmooth, blockHeights, blockNormals, edgeAt, blockColor
 import { grassDetail, soilDetail, rockDetail, meanOf } from './textures.js';
 import { mat } from './geo.js';
 import { PAL, SUELO_V2 } from '../arte.js';
+import { ContactField, injectContact, contactKey } from './contact3d.js';
 // (solo lo usa el hilo aparte, pero se carga también aquí para que index.html lo cuente entre lo que vuelve a pedir sin
 // caché al publicar otra versión: lo que carga un hilo no sale en la lista de lo cargado por la página. No hace nada al
 // cargarse)
@@ -57,6 +58,9 @@ export class Terrain {
     this.padCheck = 0;
     this.padV = 0;                // cuántas veces se ha rehecho la forma de un bloque (remesh: lo de encima mira padStamp)
     this.workers = this.startWorkers();
+    // (la sombra de contacto de lo que hay encima del suelo: una textura del mundo que leen el suelo, la hierba y los suelos
+    // de las casas; se pinta en estos mismos hilos y se rehace donde algo cambia. Ver contact3d.js)
+    this.contact = new ContactField(this);
     village.onVillageChange(() => this.villageChanged());
   }
   // Los hilos aparte (si el navegador los tiene; si no, todo se hace aquí)
@@ -82,12 +86,14 @@ export class Terrain {
     for (const w of this.workers) w.postMessage(m);
     this.gen?.fields.clear();
     for (const b of this.blocks.values()) b.stale = true;
+    this.contact.villageChanged();   // (las casas del pueblo: otras formas)
   }
   // El mundo cambió (otra partida, el menú): fuera todo lo hecho
   reset(gen) {
     for (const b of this.blocks.values()) this.dispose(b);
     this.blocks.clear();
     this.dropAll();
+    this.contact.reset();
     this.gen = gen;
     this.season = gen.season;
     // (owner: el primer hilo es el que limpia lo guardado de otras versiones del relieve)
@@ -101,10 +107,11 @@ export class Terrain {
     this.jobs.clear(); this.pending.clear(); this.arrived.length = 0;
   }
   workerFor(bx, bz) { return this.workers[(((bx + bz) % WORKERS) + WORKERS) % WORKERS]; }
-  ask(kind, key, pri, m) {
+  // (transfer: lo que se le pasa al hilo sin copiarlo)
+  ask(kind, key, pri, m, transfer) {
     const id = this.nextId++, worker = this.workerFor(m.bx, m.bz);
     this.jobs.set(id, { kind, key, worker });
-    worker.postMessage({ ...m, t: kind, id, pri });
+    worker.postMessage({ ...m, t: kind, id, pri }, transfer || []);
     return id;
   }
 
@@ -137,6 +144,8 @@ export class Terrain {
     }
     // (cada medio segundo: ¿se ha construido algo que allane el suelo de un bloque hecho?)
     if (this.world && performance.now() > this.padCheck) { this.padCheck = performance.now() + 500; for (const b of this.blocks.values()) if (b.raw && this.padSigOf(b.bx, b.bz) !== b.padSig) this.remesh(b); }
+    // (la sombra de contacto: mira qué ha cambiado, junta formas, las pide al hilo y sube lo que ha llegado)
+    this.contact.update(x, z);
     this.water.mesh.position.set(x, WATER_Y, z);
     // (el plano de fondo solo donde no hay bloque: el shader descarta lo que cae en un bloque hecho)
     const U = this.water.uniforms; U.origin.value.set((bx - RADIUS) * BLOCK, (bz - RADIUS) * BLOCK);
@@ -191,6 +200,7 @@ export class Terrain {
     this.jobs.delete(m.id);
     const k = `${m.bx},${m.bz}`;
     if (m.t === 'fallo') { this.failed(m, k); return; }
+    if (m.t === 'ao') { this.contact.result(m); return; }
     if (m.t === 'block') {
       if (m.stats) { this.workerStats[wi] = m.stats; for (const f of ['calc', 'msCalc', 'hits', 'msHit']) this.stats[f] = this.workerStats.reduce((a, s) => a + (s?.[f] || 0), 0); }
       if (this.blocks.has(k) || !this.gen) { this.pending.delete(k); return; }
@@ -203,6 +213,7 @@ export class Terrain {
   }
   // Un trabajo que ha fallado en el hilo aparte (no debería): se hace aquí, para que no quede un agujero en el suelo
   failed(m, k) {
+    if (m.job === 'ao') { this.contact.failed(m); return; }   // (lo pinta aquí: ver contact3d.js)
     if (!this.gen) { this.pending.delete(k); return; }
     try {
       if (m.job === 'block') {
@@ -313,7 +324,9 @@ export class Terrain {
     this.group.add(mesh);
     const waterMesh = water ? this.buildWater(pos, raw, n) : null;
     // (normals0: las de sin allanar, para cuando se quita lo construido; aparte de las de la malla, que remesh cambia)
-    return { mesh, tex, ctx: g, heights, raw, edge, normals0: nor === normals ? normals.slice() : normals, padSig: this.padSigOf(bx, bz), x0, z0, n, bx, bz, season: this.season, todo: allChunks(), painted: 0, waterMesh };
+    const blk = { mesh, tex, ctx: g, heights, raw, edge, normals0: nor === normals ? normals.slice() : normals, padSig: this.padSigOf(bx, bz), x0, z0, n, bx, bz, season: this.season, todo: allChunks(), painted: 0, waterMesh };
+    this.contact.added(blk);   // (su hueco de la sombra de contacto, en blanco, y sus 16 trozos por pintar)
+    return blk;
   }
   // El agua del bloque: la misma rejilla a ras de WATER_Y, con lo que hay de suelo debajo en cada vértice (depth), y
   // solo las casillas que tocan agua
@@ -365,8 +378,11 @@ let DETAIL;
 export const GROUND_GAIN = { value: 1.0 };
 function groundMaterial(map) {
   const m = mat({ roughness: 0.96, map }), D = (DETAIL ||= { grass: { value: grassDetail() }, soil: { value: soilDetail() }, rock: { value: SUELO_V2 ? null : rockDetail() }, rockCol: { value: new THREE.Color(PAL.suelo.roca) } });
-  m.customProgramCacheKey = () => (SUELO_V2 ? 'suelo-mojado' : 'suelo-v3');
-  m.onBeforeCompile = sh => {
+  m.customProgramCacheKey = () => contactKey(SUELO_V2 ? 'suelo-mojado' : 'suelo-v3');
+  m.onBeforeCompile = (sh, r) => {
+    // (la sombra de contacto: lee el sitio en el mundo que ya declara el detalle, sin otro varying. Solo en el renderer
+    // del juego; el orden con lo de abajo da igual, cada uno deja '#include <common>' delante de lo suyo)
+    injectContact(sh, r, 'frag', SUELO_V2 ? 'vWorld' : 'vGP.xz');
     sh.uniforms.grassMap = D.grass; sh.uniforms.soilMap = D.soil; sh.uniforms.uWet = WET;
     sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nuniform float uWet;')
       .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\n        roughnessFactor = mix(roughnessFactor, 0.42, uWet * 0.75);   // (mojado: brilla un poco)')

@@ -21,6 +21,7 @@ import { Fx } from './fx.js';
 import { ArrowsView } from './arrows.js';
 import { Cave3D } from './cave3d.js';
 import { SunShadow } from './sunshadow.js';
+import { setRenderer as contactRenderer, contactOn, contactSun, contactRestored } from './contact3d.js';
 import { TONE_MAPPING, CURVA, lightAt, toneOut } from './look.js';
 
 const LOW_Q = new URLSearchParams(location.search).get('q') === 'low';
@@ -56,6 +57,7 @@ export class View3D {
     this.makeSky();
     this.makeLights();
     this.terrain = new Terrain(this.scene);
+    contactRenderer(r);   // (la sombra de contacto, solo en este renderer: ver contact3d.js)
     this.world = new World3D(this);
     this.actors = new Actors(this);
     // En primera persona, lo que se lleva en la mano se ve abajo a la derecha
@@ -70,7 +72,8 @@ export class View3D {
     this.raycaster = new THREE.Raycaster();
     this.frames = 0; this.acc = 0;
     // (si la gráfica pierde el contexto, al volver los atlas están vacíos: los impostores se hornean otra vez)
-    canvas.addEventListener('webglcontextrestored', () => this.world.impostorsLost());
+    // (y la sombra de contacto se vuelve a subir de su copia en memoria)
+    canvas.addEventListener('webglcontextrestored', () => { this.world.impostorsLost(); contactRestored(); });
     this.resize();
     addEventListener('resize', () => this.resize());
   }
@@ -340,6 +343,7 @@ export class View3D {
     // Sombras alrededor de lo que se ve (con la cámara baja se ve más lejos: la zona crece y se adelanta), alineadas a los
     // texels del mapa para que no tiemblen; el sol, quieto entre repintado y repintado de lo fijo (ver sunshadow.js)
     this.shadows.place(target, CAM.yaw, this.cam.low, cave, this.sunDir, 24 + 6 * this.cam.low);
+    contactSun(this.shadows.dir);   // (la sombra lejana de las copas cae hacia donde está pintado el sol de las sombras)
     if (cave) { this.sun.intensity = 0; this.hemi.intensity = 0.4; this.hemi.color.set('#8a9ac0'); this.hemi.groundColor.set('#2a2018'); this.setEnv(0.1); }
     this.draw();
     this.stats(dt);
@@ -381,7 +385,11 @@ export class View3D {
     for (const m of mats) { m.colorWrite = false; m.depthWrite = false; }
     this.camera.layers.enableAll(); this.camera.layers.disable(1);
     r.shadowMap.needsUpdate = true;   // (en cada fotograma: sunshadow.js decide qué se rehace)
+    // (la sombra de contacto, solo en la pasada del mundo y fuera de las cuevas: fuera de draw, quien dibuje con los mismos
+    // materiales no la lee)
+    contactOn(!this.cave);
     r.render(this.scene, this.camera);
+    contactOn(false);
     if (this.first) { for (const m of mats) { m.colorWrite = true; m.depthWrite = true; } this.drawOutline(); return; }
     r.autoClear = false;
     this.camera.layers.set(2);

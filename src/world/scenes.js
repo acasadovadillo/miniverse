@@ -377,26 +377,43 @@ export class Overworld {
     }
     const key = `${cx},${cy}`, d = this.delta(cx, cy), bucket = Math.floor(this.clock / 5);
     const m = this.merged.get(key);
-    if (m && m.v === (d?.v ?? -1) && m.bucket === bucket) return m.data;
-    const base = this.gen.content(cx, cy).objects, objects = [], colliders = [], tilled = [], flats = [], floors = [], lights = [];
+    // (al acertar, la clave pasa al final: la caché echa lo que menos se ha usado, no lo primero que entró)
+    if (m && m.v === (d?.v ?? -1) && m.bucket === bucket) { this.merged.delete(key); this.merged.set(key, m); return m.data; }
+    const data = this.mergeContent(cx, cy, d, this.gen.content(cx, cy).objects, true);
+    this.merged.set(key, { v: d?.v ?? -1, bucket, data });
+    if (this.merged.size > 300) this.merged.delete(this.merged.keys().next().value);
+    return data;
+  }
+  // Lo que hay en un trozo para la sombra de contacto (three/contact3d.js): lo mismo que contentFor, sin las flores y sin
+  // meterlo en ninguna caché. Pide los 400 trozos de alrededor: en la de contentFor echarían a los cercanos (y world3d
+  // rehace las firmas de un trozo cuando cambia su objeto), y en la del generador, a los que usa el resto del juego.
+  // Tampoco usa delta(), que añade campos vacíos a los trozos de las partidas antiguas y engorda el guardado
+  colliderShapes(cx, cy) {
+    const own = wrapIndex(cx, CHUNK);
+    if (own !== cx) return shifted(this.colliderShapes(own, cy), (cx - own) * CHUNK);
+    const key = `${cx},${cy}`, d = this.deltas.get(key), m = this.merged.get(key);
+    if (m && m.v === (d?.v ?? -1)) return m.data;   // (si ya lo tiene contentFor, eso: las flores no cuentan)
+    return this.mergeContent(cx, cy, d, this.gen.content(cx, cy, false).objects, false);
+  }
+  // Lo natural del generador, menos lo quitado, con lo construido, lo fijo del pueblo y lo de las capas
+  mergeContent(cx, cy, d, base, flowers) {
+    const key = `${cx},${cy}`, objects = [], colliders = [], tilled = [], flats = [], floors = [], lights = [];
     for (const o of base) {
+      if (o.flower && !flowers) continue;
       if (this.layers.some(l => l.hides?.(o))) continue;   // donde hay un lugar especial no crecen árboles
-      if (d?.removed[o.key] !== undefined) continue;   // lo talado, picado o segado no vuelve: la casilla queda libre
+      if (d?.removed?.[o.key] !== undefined) continue;   // lo talado, picado o segado no vuelve: la casilla queda libre
       if (o.flower && !this.flowerHere(o, d)) continue;
       objects.push(o);
       if (o.col) colliders.push(o.col);
     }
-    if (d) for (const t of Object.keys(d.tilled)) tilled.push(t.split(',').map(Number));
+    if (d?.tilled) for (const t of Object.keys(d.tilled)) tilled.push(t.split(',').map(Number));
     const out = { objects, colliders, flats, floors, lights, solids: [], roofMemo: new Map() };
     if (d) this.addBuilt(d, out);
     if (d?.boats) for (const [id, b] of Object.entries(d.boats)) if (Array.isArray(b)) objects.push({ boat: true, id, x: b[0], y: b[1], yaw: b[2] || 0, key: `boat:${id}:${b[2] || 0}` });   // (las barcas amarradas)
     const vb = this.village.built?.[key];
     if (vb) this.addBuilt(vb, out, true);
     for (const layer of this.layers) layer.add(cx, cy, d, out);
-    const data = { objects, colliders, tilled, flats, floors, lights, solids: out.solids };
-    this.merged.set(key, { v: d?.v ?? -1, bucket, data });
-    if (this.merged.size > 300) this.merged.delete(this.merged.keys().next().value);
-    return data;
+    return { objects, colliders, tilled, flats, floors, lights, solids: out.solids };
   }
 
   // Una alfombra cabe donde no haya agua, muros, puertas, vallas, tierra labrada ni otra alfombra (y, en el

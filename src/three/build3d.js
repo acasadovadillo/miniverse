@@ -14,6 +14,7 @@ import { PIECES, parsePlaced } from '../pieces.js';
 import { front } from '../art/stations.js';
 import { PAL } from '../arte.js';
 import { roofShape, ROOF_CAP } from '../world/roof.js';
+import { injectContact, contactKey } from './contact3d.js';
 
 // Puertas y contraventanas de tablas pintadas con uno de cinco colores minerales por casa, dintel y alféizar en las
 // ventanas, cornisa, esquinas de sillería o de tablas y tapajuntas en los muros, y tejados a dos aguas (ver roof.js)
@@ -51,6 +52,15 @@ export function baseMaterials() {
     iron: mat({ color: PAL.detalle.hierro, metalness: 0.5, roughness: 0.55 }),
   };
   PAINTS.forEach((c, i) => { BASE['paint' + i] = mat({ map: wood(c), roughness: 0.85 }); });
+  // Los suelos de las casas, con la sombra de contacto del mundo (contact3d.js): el pie de las paredes, los rincones y lo
+  // de debajo de los muebles se asientan, sin un triángulo más. Solo en el renderer del juego (los iconos y la vista previa
+  // tienen el suyo, y ahí no hay nada que leer). Con clave propia: la de por defecto es el texto de onBeforeCompile, igual
+  // para los tres, y además así no comparte programa con el de sin ella
+  for (const key of ['floor_madera', 'floor_piedra', 'floor_camino']) {
+    const m = BASE[key];
+    m.onBeforeCompile = (sh, r) => injectContact(sh, r, 'frag');
+    m.customProgramCacheKey = () => contactKey(key);
+  }
   return BASE;
 }
 const FLOWER = new THREE.IcosahedronGeometry(1, 0), BLOOMS = ['#ff6a8a', '#ffe04a', '#ffffff', '#ff9ab8', '#b48aff'];

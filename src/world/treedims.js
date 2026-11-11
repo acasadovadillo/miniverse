@@ -18,3 +18,10 @@ export function broadDims(o, y) {
 export function pineDims(o) { const k = treeK(o); return { k, H: 5.6 * k, th: 0.8 * k }; }
 export function palmDims(o) { const k = treeK(o); return { k, H: 4.6 * k }; }
 export const cactusK = (o) => treeK(o);
+// El radio de la copa vista desde arriba (para la sombra de contacto, world/contact.js): lo que mide el árbol de cerca.
+// El sauce cuelga más ancho que su copa (willow2: 2,1 k); el pino, su piso de abajo (1,25 k) con algo de margen
+export function canopyOf(o) {
+  const kind = o.kind || o.nature, k = treeK(o);
+  return kind === 'oak' ? 1.85 * k : kind === 'fruit' ? 1.45 * k : kind === 'swampTree' ? 2.1 * k
+    : kind === 'pine' || kind === 'snowPine' ? 1.3 * k : kind === 'palm' ? 1.6 * k : 0;
+}

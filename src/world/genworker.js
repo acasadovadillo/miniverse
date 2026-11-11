@@ -4,10 +4,11 @@
 // devuelve los números, sin copiarlos (transferidos). Así el hilo del juego no se para al estrenar terreno.
 // El relieve ya calculado se guarda en el navegador (groundcache.js): un bloque guardado no pasa por la cola, sale en
 // cuanto se lee (un par de milisegundos), y solo se calcula lo que nunca se ha visto.
-import { WorldGen, WORLD_SEED } from './gen.js';
+import { WorldGen, WORLD_SEED, CHUNK } from './gen.js';
 import { setProjects, setFamilyHouse } from './village.js';
 import { blockHeights, blockNormals, blockColors, paintPixels, groundTag, BLOCK } from './ground.js';
 import { openGroundCache } from './groundcache.js';
+import { rasterTile, TILE } from './contact.js';
 
 // (?relieve=0 en la dirección del hilo: sin guardar nada; ?relieve-max=N: cuántos bloques como mucho. Ver terrain.js)
 const OPT = new URLSearchParams(self.location?.search || ''), CACHE = OPT.get('relieve') !== '0', MAX = +OPT.get('relieve-max') || 1024;
@@ -36,7 +37,7 @@ onmessage = e => {
   else if (m.t === 'block') {
     if (cache) { waiting.set(m.id, m); if (!batching) { batching = true; setTimeout(readBatch, 0); } }
     else { queue.push(m); pump(); }
-  } else if (m.t === 'paint') { queue.push(m); pump(); }
+  } else if (m.t === 'paint' || m.t === 'ao') { queue.push(m); pump(); }
   else if (m.t === 'drop') {
     const ids = new Set(m.ids);
     for (let i = queue.length - 1; i >= 0; i--) if (ids.has(queue[i].id)) queue.splice(i, 1);
@@ -91,12 +92,17 @@ function post(m, d, cached) {
 // uno falla, la cola sigue (si no, se quedaría parada para siempre y no llegaría nada más de este hilo)
 function pump() { if (!pumping) { pumping = true; setTimeout(step, 0); } }
 function step() {
-  if (!queue.length || !gen) { pumping = false; return; }
+  // (la sombra de contacto no necesita el generador: lo que no sea eso espera a que lo haya)
+  if (!queue.length || (!gen && !queue.some(q => q.t === 'ao'))) { pumping = false; return; }
   let m = null;
   try {
     queue.sort((a, b) => a.pri - b.pri || RANK[a.t] - RANK[b.t]);
-    m = queue.shift();
-    if (m.t === 'block') {
+    m = gen ? queue.shift() : queue.splice(queue.findIndex(q => q.t === 'ao'), 1)[0];
+    if (m.t === 'ao') {
+      // La sombra de contacto de unos trozos de un bloque: las formas ya vienen juntas (contact3d.js); aquí, los píxeles
+      const pixels = m.tiles.map(ti => rasterTile(m.shapes, m.x0 + (ti % 4) * CHUNK, m.z0 + ((ti / 4) | 0) * CHUNK, new Uint8Array(TILE * TILE * 2)));
+      postMessage({ t: 'ao', id: m.id, bx: m.bx, bz: m.bz, tiles: m.tiles, seqs: m.seqs, pixels }, pixels.map(p => p.buffer));
+    } else if (m.t === 'block') {
       const t0 = performance.now(), d = blockHeights(gen, m.bx, m.bz);
       stats.calc++; stats.msCalc += performance.now() - t0;
       // (a guardar: put copia los números en el momento, porque luego se transfieren al hilo principal y aquí se quedan
@@ -113,7 +119,7 @@ function step() {
   } catch (e) {
     // (el juego lo hace él: ver terrain.js, onResult)
     console.warn('Suelo (hilo aparte): un trabajo ha fallado', e);
-    if (m) postMessage({ t: 'fallo', job: m.t, id: m.id, bx: m.bx, bz: m.bz, ci: m.ci, cj: m.cj, season: m.season });
+    if (m) postMessage({ t: 'fallo', job: m.t, id: m.id, bx: m.bx, bz: m.bz, ci: m.ci, cj: m.cj, season: m.season, tiles: m.tiles });
   }
   finally { setTimeout(step, 0); }
 }
