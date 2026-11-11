@@ -15,6 +15,7 @@ import { SHOPS } from './economy.js';
 import { repairMat } from './crafting.js';
 import { RECIPES } from './recipes.js';
 import { runCommand } from './commands.js';
+import { faults, resetFaults } from './faults.js';
 import { CHUNK, WorldGen } from './world/gen.js';
 import { B, BIOMES } from './world/biomes.js';
 import { paintPixels, blockHeights, groundSmooth, groundTag } from './world/ground.js';
@@ -70,7 +71,8 @@ async function readyGround(game, ms = 8000) {
 // El estado del dibujo y del suelo (para contarlo si algo falla)
 function health(game) {
   const T = game.view3d.terrain;
-  return `${game.updateError ? `FALLO al avanzar: ${game.updateError}; ` : ''}${game.renderError ? `FALLO al dibujar: ${game.renderError}; ` : ''}modo ${game.mode}${game.busy ? ' (ocupado)' : ''}; suelo: ${T.blocks.size} bloques, ${T.pending.size} pedidos, ${T.jobs.size} trabajos, ${T.workers.length} hilos`;
+  const f = faults.last;   // (los fallos de cada sistema no llegan a updateError: van aislados, ver faults.js)
+  return `${game.updateError ? `FALLO al avanzar: ${game.updateError}; ` : ''}${game.renderError ? `FALLO al dibujar: ${game.renderError}; ` : ''}${f ? `último fallo: ${f.where}: ${f.message}${f.place}; ` : ''}modo ${game.mode}${game.busy ? ' (ocupado)' : ''}; suelo: ${T.blocks.size} bloques, ${T.pending.size} pedidos, ${T.jobs.size} trabajos, ${T.workers.length} hilos`;
 }
 const check = (cond, what) => { if (!cond) throw new Error(what); };
 
@@ -81,6 +83,7 @@ function tell(name, ok, detail = '') {
 }
 async function test(name, fn) {
   const before = errors.length;
+  resetFaults();   // (un fallo que ya salió en otra prueba se vuelve a decir entero en la consola, y cuenta en esta)
   console.log(`▶ ${name}`);   // (con probar.py --ver se ve por dónde va cada juego)
   try {
     const limit = /carga|^dos:/.test(name) ? LOAD_TIMEOUT : TEST_TIMEOUT;   // (lo que espera a otro juego o al primer dibujo, más)
@@ -1102,11 +1105,13 @@ async function soloTests(game) {
     v.whenReady = () => sleep(50); hud.say = () => Promise.resolve();   // (sin esperar a la gráfica ni al diálogo del faro)
     try {
       const near = kind => { for (let r = 0; r < 30; r++) for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) { if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue; const q = ex.poi(Math.floor(CENTER.x / CHUNK) + dx, Math.floor(CENTER.y / CHUNK) + dy); if (q?.kind === kind) return q; } return null; };
-      const ladder = async (dir, want) => {
+      // (aim: como con el ratón, lo que dice la escalera apuntada, que es como se juega en el ordenador; si no, con E)
+      const ladder = async (dir, want, aim = false) => {
         const o = game.scene.live().find(o => o.ladder === dir);
         check(o, `no hay escalera para ${dir === 'up' ? 'subir' : 'bajar'}`);
         p().x = o.x + 0.6; p().y = o.y; await frames(1);
-        const a = ex.interact(p(), game.scene);
+        const a = aim ? game.aimTargets(p(), game.scene).filter(t => t.kind === 'sys' && t.sys === ex && Math.hypot(t.box.x - o.x, t.box.y - o.y) < 0.1).map(t => game.actionFor(t))[0]
+          : ex.interact(p(), game.scene);
         check(a?.text === want, `la escalera dice «${a?.text}» y no «${want}»`);
         await a.run(); await frames(2);
       };
@@ -1117,17 +1122,20 @@ async function soloTests(game) {
       check(enter?.text === 'Entrar en la cueva', `en la entrada dice «${enter?.text}»`);
       await enter.run(); await frames(2);
       check(game.scene !== w() && game.scene.depth === 1, 'no se entra en la cueva');
-      await ladder('down', 'Bajar al nivel 2');
+      await ladder('down', 'Bajar al nivel 2', true);
       check(game.scene.depth === 2 && game.stats.get('profundidad') >= 2, `después de bajar, en el nivel ${game.scene.depth}`);
-      await ladder('up', 'Subir al nivel 1');
+      await ladder('up', 'Subir al nivel 1', true);
       check(game.scene.depth === 1, `después de subir, en el nivel ${game.scene.depth}`);
       await ladder('up', 'Salir');
       check(game.scene === w() && Math.hypot(p().x - cave.x, p().y - cave.y) < 3, 'no se sale a la entrada de la cueva');
       check(game.stats.get('faros') === faros && ![...game.explored].some(k => k.includes('NaN')), 'las escaleras suben a un faro');
+      // (el templo y el faro, si hay alguno cerca del pueblo; si no, se dice, para que no pase por probado)
       const tem = near('templo');
-      if (tem) { await ex.enterDungeon(tem); await frames(2); check(game.scene.style === 'temple', 'no se entra en el templo'); await ladder('up', 'Salir'); check(game.scene === w(), 'no se sale del templo'); }
+      if (!tem) console.log('cuevas: no hay templo cerca del pueblo (no se prueba)');
+      else { await ex.enterDungeon(tem); await frames(2); check(game.scene.style === 'temple', 'no se entra en el templo'); await ladder('up', 'Salir'); check(game.scene === w(), 'no se sale del templo'); }
       const faro = near('faro');
-      if (faro) {
+      if (!faro) console.log('cuevas: no hay faro cerca del pueblo (no se prueba)');
+      else {
         await goTo(game, faro.x + 1.2, faro.y + 1.2);
         const a = ex.interact(p(), w()), n = game.explored.size;
         check(a?.text === 'Subir al faro', `en el faro dice «${a?.text}»`);

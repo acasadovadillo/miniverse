@@ -19,6 +19,7 @@ import { hud } from './ui/hud.js';
 import { Audio } from './audio.js';
 import { SHARED, BLOBS, diffChunk, applyOps, copy } from './livesync.js';
 import { toB64 } from './vault.js';
+import { onFault } from './faults.js';
 import { CHUNK } from './world/gen.js';
 import { wrapIndex, PLANET } from './world/planet.js';
 
@@ -96,6 +97,8 @@ export class Live {
     this.solo = null;             // (invitado) su partida de siempre, con su mundo: lo que se guarda
     this.wanted = null;           // (invitado) esperando el mundo del anfitrión
     this.dropN = 0;
+    this.faultSent = -Infinity;   // (cuándo se mandó el último fallo de este juego al terminal del servidor)
+    onFault(f => this.sendFault(f));
   }
   get host() { return [...this.peers.values()].find(p => p.host) || null; }
   get hostConn() { for (const [conn, p] of this.peers) if (p.host) return conn; return null; }
@@ -370,6 +373,8 @@ export class Live {
       // Las flechas: las ve volar todo el mundo y la que ya no está, deja de verse (si se le da a alguien, to: a quién). La
       // clavada del otro se le pide a él para recogerla (arrowtake: ver archery.js)
       case 'arrow': g.archery.ghost(m, conn); break;
+      // (un fallo en el juego de otro: el mundo del servidor lo saca en su terminal, uno por minuto y jugador)
+      case 'fault': if (Profile.server && typeof m.text === 'string' && g.time - (peer.faultAt ?? -99) >= 60) { peer.faultAt = g.time; this.say?.(`Fallo en el juego de ${peer.name}: ${m.text.slice(0, 240)}`, 'sys'); } break;
       case 'arrowgone': g.archery.gone(m.id, Number.isFinite(m.to) ? m.to : null); break;
       case 'arrowtake': g.archery.asked(m.id, conn); break;
       case 'hitm': if (this.takes(peer)) g.mobs.hitBy(conn, peer, m); break;
@@ -548,6 +553,15 @@ export class Live {
   nameOf(id) {
     for (const peer of this.peers.values()) if (peer.id === id) return peer.name;
     return Profile.players?.().find(x => x.id === id)?.name || null;
+  }
+  // Un fallo nuevo de este juego, al terminal del servidor (si se juega en él): quien lo lleva se entera aunque no
+  // mires el punto rojo. Solo lo que va cifrado al mundo del servidor (no a los demás), y como mucho uno por minuto
+  sendFault(f) {
+    if (!this.joined || Profile.server || !this.net || !this.serverConns.size) return;
+    const now = Date.now();
+    if (now - this.faultSent < 60000) return;
+    this.faultSent = now;
+    for (const c of this.serverConns) this.net.send({ t: 'fault', text: `${f.where}: ${f.message.slice(0, 200)}${f.place}` }, c);
   }
   knock([x, y]) { if (this.joined) this.net?.send({ t: 'knock', x: x + 0.5, y: y + 0.5 }); }
   chat(text, extra = {}, to = null) { if (this.joined) this.net?.send({ t: 'chat', text, ...extra }, to); }

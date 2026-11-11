@@ -278,7 +278,7 @@ export class Game {
     // verdad (se apaga, se quita y se mueve como cualquier otro), donde va en las casas nuevas
     if (this.house.v < 4) { this.hangHouseLamp(); this.house.v = 4; }
     // (sin el 'NaN,NaN' que apuntaban las escaleras de las cuevas cuando subían al faro por error, hasta 2026-11-11)
-    this.explored = new Set((save.explored || []).filter(k => !k.includes('NaN')));
+    this.explored = new Set((save.explored || []).filter(k => typeof k !== 'string' || !k.includes('NaN')));
     // (los iconos de lo que se lleva y de la comida, en ratos libres: ver icons.js)
     if (this.view3d !== NO_VIEW) prewarmIcons(() => this.inv.slots.filter(Boolean).map(s => s.id), itemIcon);
     this.lastChunk = null;
@@ -549,7 +549,7 @@ export class Game {
       // (las vallas no se apuntan: solo se quitan con Quitar en el modo construir, B)
     }
     // Lo de cada sistema: el tablón, las cuevas y los templos, los árboles con fruta, la barca de otro…
-    for (const s of this.systems) { let more; try { more = s.aimables?.(p, sc, box); } catch (e) { reportFault(e, faultName(s, 'aimables')); } if (more) out.push(...more); }
+    for (const s of this.systems) { let more; try { more = s.aimables?.(p, sc, box); } catch (e) { reportFault(e, faultName(s, 'aimables')); } if (more) for (const a of more) { a.sys = s; out.push(a); } }
     // En primera persona, también las criaturas: se les pega a las que están en la cruceta
     if (CAM.first) for (const m of this.combat.monsters || []) if (sees(m.x, m.y)) { const fly = MONSTERS[m.type].fly, tall = m.type === 'esqueleto' ? 1.4 : 0.7; out.push({ kind: 'monster', e: m, box: box(m.x, m.y, 0.4, 0.4, fly ? 0.9 : 0, fly ? 1.7 : tall) }); }
     if (sc !== this.world) return out;
@@ -578,7 +578,8 @@ export class Game {
       case 'wild': return { text: ANIMALS[a.e.type].name, run: () => Audio.blip() };
       case 'monster': return { text: MONSTERS[a.e.type].name, run: () => Audio.blip() };
       case 'crop': return { text: 'Cosechar', run: () => this.farm.harvest(...a.tile) };
-      case 'sys': return a.act();
+      // (lo de cada sistema, aislado como sus ganchos: si falla, no se puede usar eso, pero el resto se sigue viendo)
+      case 'sys': try { return a.act(); } catch (e) { reportFault(e, a.sys ? faultName(a.sys, 'act') : 'apuntar'); return null; }
     }
     return null;
   }
@@ -992,7 +993,8 @@ export class Game {
       try { this.render(); } catch (e) { reportFault(e, 'dibujo'); this.renderError = e.message; }
       const t2 = performance.now();
       perf.frames++; perf.update += t1 - t0; perf.draw += t2 - t1; perf.max = Math.max(perf.max, t2 - t0);
-      if (this.frameNo % 30 === 0) Music.update(this);
+      // (la música, también aislada: es lo único que queda antes de pedir el fotograma siguiente)
+      if (this.frameNo % 30 === 0) try { Music.update(this); } catch (e) { reportFault(e, 'Music.update'); }
       requestAnimationFrame(frame);
     };
     requestAnimationFrame(frame);
@@ -1052,9 +1054,14 @@ export class Game {
     document.body.classList.toggle('talking', this.busy || hud.dialogOpen);   // (hablando, las ventanas se apartan)
     this.onFrame?.();
     if (aimLock.locked) { const c = this.mouse ||= {}; c.x = innerWidth / 2; c.y = innerHeight / 2; c.in = true; }
-    const near = this.nearest(), p = this.player, m = this.mouse;
-    // Lo apuntado con el cursor lleva un borde amarillo, y la opción sale a su lado
-    this.highlight = this.build.on ? this.build.pickHighlight() : near && m?.in && !p.pose && !p.aboard && !p.swim ? this.aimed() : null;
+    const p = this.player, m = this.mouse;
+    // Lo apuntado con el cursor lleva un borde amarillo, y la opción sale a su lado. (Aislado: si falla lo que dice
+    // una cosa apuntada, esa cosa no se usa, pero el mundo se sigue dibujando)
+    let near = null;
+    try {
+      near = this.nearest();
+      this.highlight = this.build.on ? this.build.pickHighlight() : near && m?.in && !p.pose && !p.aboard && !p.swim ? this.aimed() : null;
+    } catch (e) { reportFault(e, 'apuntar'); near = null; this.highlight = null; }
     this.view3d.game = this;
     // (sin partida, al entrar y en el menú, el fondo es una foto fija: body.still, en index.html; el mundo no se dibuja)
     const still = !this.player || !this.scene;
