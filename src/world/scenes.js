@@ -43,8 +43,12 @@ const ANIMAL_DOOR = { gallinero: 2.15, establo: 2.25, conejera: 1 };
 const wellIn = (d, k) => { const v = d.placed?.[k]; return !!v && (v === 'pozo' || v.startsWith('pozo@')); };
 const digSigOf = d => (d?.dig ? Object.entries(d.dig).map(([k, h]) => k + ':' + h + (wellIn(d, k) ? 'p' : '')).join(';') : '');
 // El agua en lo cavado (ver reflood): un hoyo se llena si su fondo queda más de FLOOD_MIN por debajo del agua (WATER_Y) y
-// toca el agua de verdad, o lo cavado que ya tiene agua; como mucho, a FLOOD_REACH casillas de ella siguiendo lo cavado
-const FLOOD_MIN = 0.01, FLOOD_REACH = 256;
+// toca el agua de verdad, o lo cavado que ya tiene agua; como mucho, a FLOOD_REACH casillas de ella siguiendo lo cavado, y
+// como mucho FLOOD_MAX casillas con agua en todo el mundo (un estanque enorme se
+// queda a medio llenar, igual en todos los juegos: ver reflood)
+const FLOOD_MIN = 0.01, FLOOD_REACH = 256, FLOOD_MAX = 4096;
+// Lo que sale el casco de la barca de su centro (actors.js, boatModel: 1,15 a proa; ver boatFits)
+const BOAT_HULL = 1.15;
 // La clave de una casilla del planeta (un número: el mapa del agua se mira en cada paso de cada uno)
 const fkey = (tx, ty) => (wrapX(tx) + HALF) * PLANET_H + (ty - NORTH);
 function shifted(v, off) {
@@ -382,6 +386,15 @@ export class Overworld {
     // (en el agua de verdad, no; junto a ella, sí: el hoyo se llena de agua, ver reflood. En el agua de lo cavado, también:
     // se cava más hondo, o se le echa tierra y, si el fondo sale del agua, se seca)
     if (this.natWater(x, y)) return 'Ahí hay agua';
+    // (la orilla: una casilla sin cavar con su centro en tierra pero casi toda bajo el agua, 3 o 4 esquinas, ya se ve como
+    // agua; y en una con alguna esquina bajo el agua no se apila: el montón se metería en el río, y se harían diques en los
+    // ríos y los lagos. Los canales se cierran soltando tierra en lo cavado, que sí se puede)
+    if (cur === null) {
+      const wet = [[tx, ty], [tx + 1, ty], [tx, ty + 1], [tx + 1, ty + 1]].filter(([i, j]) => this.bedH(i, j) < WATER_Y).length;
+      if (wet >= 3 || (up && wet)) return 'Ahí hay agua';
+    }
+    // (al echar tierra junto a una barca amarrada: se quedaría en seco o metida en el montón)
+    if (up && this.boatsNear(x, y, 1.6).length) return 'Hay una barca';
     const c = [this.cornerH(tx, ty), this.cornerH(tx + 1, ty), this.cornerH(tx, ty + 1), this.cornerH(tx + 1, ty + 1)];
     if (cur === null && Math.max(...c) - Math.min(...c) > DIG_STEEP) return 'Ahí es roca';
     const d = this.deltas.get(`${wrapIndex(Math.floor(tx / CHUNK), CHUNK)},${Math.floor(ty / CHUNK)}`);
@@ -1341,23 +1354,40 @@ export class Overworld {
     }
     if (!cand.size) return;
     // Las que tocan el agua de verdad, y desde ellas, por lo cavado, casilla a casilla (lo más cerca primero: cada una sabe de
-    // qué agua le llega). Lo que se llena es lo mismo empiece por donde empiece: lo que está a FLOOD_REACH pasos o menos
-    let front = [];
+    // qué agua le llega): lo que está a FLOOD_REACH pasos o menos, y hasta FLOOD_MAX casillas. Las de partida, en orden de su
+    // clave (no del orden en que llegaron los trozos): así, con el tope, en todos los juegos se llenan las mismas
+    const seeds = [];
     for (const c of cache.values()) for (let i = 0; i < c.list.length; i += 2) {
       const tx = c.list[i], ty = c.list[i + 1];
-      for (const [di, dj] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) if (this.wetEdge(tx, ty, di, dj)) { fl.set(fkey(tx, ty), fkey(tx + di, ty + dj)); front.push(tx, ty); break; }
+      for (const [di, dj] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) if (this.wetEdge(tx, ty, di, dj)) { seeds.push([fkey(tx, ty), tx, ty, fkey(tx + di, ty + dj)]); break; }
     }
-    for (let step = 0; step < FLOOD_REACH && front.length; step++) {
+    seeds.sort((a, b) => a[0] - b[0]);
+    let front = [];
+    for (const [k, tx, ty, src] of seeds) { if (fl.size >= FLOOD_MAX) break; fl.set(k, src); front.push(tx, ty); }
+    for (let step = 0; step < FLOOD_REACH && front.length && fl.size < FLOOD_MAX; step++) {
       const next = [];
-      for (let i = 0; i < front.length; i += 2) {
+      for (let i = 0; i < front.length && fl.size < FLOOD_MAX; i += 2) {
         const tx = front[i], ty = front[i + 1], src = fl.get(fkey(tx, ty));
         for (const [di, dj] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
           const k = fkey(tx + di, ty + dj);
-          if (cand.has(k) && !fl.has(k)) { fl.set(k, src); next.push(tx + di, ty + dj); }
+          if (cand.has(k) && !fl.has(k) && fl.size < FLOOD_MAX) { fl.set(k, src); next.push(tx + di, ty + dj); }
         }
       }
       front = next;
     }
+  }
+  // ¿Cabe aquí la barca? En el agua de lo cavado, el casco entero (BOAT_HULL a cada lado, en 8 direcciones) tiene que caer en
+  // el agua: un canal de 3 casillas de ancho o más (en uno estrecho se metía en las paredes de tierra). En el agua de verdad,
+  // basta con el agua (su orilla baja poco a poco), salvo lo cavado seco de al lado (un montón junto al río)
+  boatFits(x, y) {
+    if (!this.water(x, y)) return false;
+    if (!this.digChunks.size || !this.digNear(x, y, 2)) return true;
+    const inDug = this.digH(Math.floor(x), Math.floor(y)) !== null;
+    for (let i = 0; i < 8; i++) {
+      const a = i * Math.PI / 4, sx = x + Math.cos(a) * BOAT_HULL, sy = y + Math.sin(a) * BOAT_HULL;
+      if (!this.water(sx, sy) && (inDug || this.digH(Math.floor(sx), Math.floor(sy)) !== null)) return false;
+    }
+    return true;
   }
   // ¿Es agua de río (poco profunda y lejos del mar)? (la orilla de un lago o una charca también vale)
   riverAt(x, y) {

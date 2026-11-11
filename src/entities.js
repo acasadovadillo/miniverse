@@ -130,7 +130,10 @@ export class Player extends Person {
       // para siempre; hacia lo más hondo, no, o se cabalgaría por el fondo del mar. También deslizándose: el fondo no
       // siempre sube derecho hacia la orilla)
       const out = this.mount && world && wet(this.x, this.y), here = out ? scene.waterDepth(this.x, this.y) : 0;
-      const ok = (x, y) => !wet(x, y) || (out && scene.waterDepth(x, y) <= here);
+      // (en barca, por un canal cavado solo si cabe el casco: ver scenes.js, boatFits. Si ya está donde no cabe, amarrada ahí
+      // antes de que se estrechara, se rema como siempre, para poder salir)
+      const fits = this.boat && scene.boatFits && scene.boatFits(this.x, this.y) ? (x, y) => scene.boatFits(x, y) : null;
+      const ok = (x, y) => (!wet(x, y) || (out && scene.waterDepth(x, y) <= here)) && (!fits || fits(x, y));
       if (!ok(p.x, p.y)) {
         if (ok(p.x, this.y)) p.y = this.y;
         else if (ok(this.x, p.y)) p.x = this.x;
@@ -197,7 +200,8 @@ export class Player extends Person {
     // La pared de un canal delante (a 0,9 m), si se está en el agua con lo cavado cerca: lo alto que está su borde (ver CLIMB;
     // la orilla de verdad, que sube poco a poco, no hace falta)
     const f = this.face, ax = this.x + f.x * 0.9, ay = this.y + f.y * 0.9, deepish = this.swim || (d >= WADE_CLIMB && !this.mount);
-    const wall = deepish && scene.digNear?.(this.x, this.y, 1) && (scene.digH(Math.floor(this.x), Math.floor(this.y)) !== null || scene.digH(Math.floor(ax), Math.floor(ay)) !== null) && scene.waterDepth(ax, ay) < SWIM_OUT;
+    // (solo desde el agua de lo cavado: desde un río, a un montón de tierra de la orilla, no hay salto de más)
+    const wall = deepish && scene.digNear?.(this.x, this.y, 1) && scene.floodAt?.(Math.floor(this.x), Math.floor(this.y)) !== undefined && scene.waterDepth(ax, ay) < SWIM_OUT;
     const top = wall ? scene.surfaceAt(ax, ay) : null;
     this.bank = top !== null && top - WATER_Y <= CLIMB_MAX ? top : null;
     if (!this.swim) { this.sink = 0; this.shore = false; return; }

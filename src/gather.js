@@ -366,14 +366,19 @@ export class Gathering {
     const g = this.game, p = g.player, slot = g.inv.selected, up = !!ITEMS[held.id].empty;
     if (!t?.shovel || !t.ok) { this.float(t?.why || 'Ahí no', '#ffb0a0'); Audio.error(); this.cooldown = COOLDOWN; return; }
     const [tx, ty] = t.tile, under = Math.floor(p.x) === tx && Math.floor(p.y) === ty && !p.boat, was = under ? g.world.surfaceAt(p.x, p.y) : 0;
+    const wasWet = !!g.world.water(tx + 0.5, ty + 0.5);
     g.world.digTile(tx, ty, up ? 1 : -1, g.days.dayIndex);
+    const wet = !!g.world.water(tx + 0.5, ty + 0.5);
     if (under) p.z = (p.z || 0) + was - g.world.surfaceAt(p.x, p.y);   // (los pies, donde estaban: cae o sube suave)
     // (la misma pala, con su desgaste, llena o vacía; y luego se gasta un uso)
     g.inv.slots[slot] = { ...held, id: up ? ITEMS[held.id].empty : ITEMS[held.id].full };
     g.inv.changed();
     this.spend('pala');
-    this.chips(tx + 0.5, ty + 0.5, 'dirt', up ? 10 : 14);
-    if (up) Audio.dump(); else Audio.dig();
+    // (en el agua de un canal, o al abrirlo y entrar el agua: salpica y suena a agua; la tierra que salta, solo si queda en
+    // seco, que bajo el agua no se vería)
+    if (wasWet || wet) { this.splash(tx + 0.5, ty + 0.5, 14, 1.3); g.view3d?.fx?.rippleAt?.(tx + 0.5, ty + 0.5, 1.4, 0.6); Audio.splash(); }
+    if (!wet) this.chips(tx + 0.5, ty + 0.5, 'dirt', up ? 10 : 14);
+    if (!wasWet && !wet) { if (up) Audio.dump(); else Audio.dig(); }
     g.stats?.add(up ? 'tierra_soltada' : 'cavados', 1);
   }
 

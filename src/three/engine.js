@@ -375,6 +375,8 @@ export class View3D {
   feetY(scene, p) {
     if (p.swim) return WATER_Y - SWIM_EYE;
     if (p.depth > 0 && !p.boat && !p.aboard) return WATER_Y - Math.min(p.depth, SWIM_EYE);
+    // (en barca por un canal cavado, a ras del agua como en un río: ahí groundY da su fondo, y la cámara se metía en la barca)
+    if (p.boat || p.aboard) return Math.max(this.groundY(scene, p.x, p.y), WATER_Y - 0.3);
     return this.groundY(scene, p.x, p.y) + (p.floor || 0);   // (subido a algo: a una roca, a la torre)
   }
   // Altura del suelo donde pisa algo (en cuevas, el suelo es plano)
@@ -386,6 +388,13 @@ export class View3D {
     const D = scene?.digH?.(Math.floor(x), Math.floor(y));   // (lo cavado con la pala, llano a su altura: ver scenes.js)
     if (D !== null && D !== undefined) return D;
     return Math.max(this.terrain.heightAt(x, y), WATER_Y - 0.3);
+  }
+  // Lo que se apunta con el ratón (y donde va el marco de la casilla): el suelo de groundY, y en lo cavado que tiene agua, su
+  // superficie. Con el fondo, el rayo cruzaba el agua y caía en la pared o en la orilla de enfrente, y el marco quedaba bajo
+  // el agua, sin verse: no se sabía qué casilla del canal se iba a cavar o a rellenar
+  aimY(scene, x, y) {
+    const h = this.groundY(scene, x, y);
+    return h < WATER_Y && scene?.floodAt?.(Math.floor(x), Math.floor(y)) !== undefined ? WATER_Y : h;
   }
 
   // ---------- fotograma ----------
@@ -593,10 +602,10 @@ export class View3D {
     let prev = 0;
     for (let t = 0.05; t < 160; t += 0.08 + t * 0.015) {
       const x = o.x + d.x * t, y = o.y + d.y * t, z = o.z + d.z * t;
-      if (y <= this.groundY(scene, x, z)) {
+      if (y <= this.aimY(scene, x, z)) {
         // Afinar entre el paso anterior y este
         let a = prev, b = t;
-        for (let i = 0; i < 6; i++) { const m = (a + b) / 2; if (o.y + d.y * m <= this.groundY(scene, o.x + d.x * m, o.z + d.z * m)) b = m; else a = m; }
+        for (let i = 0; i < 6; i++) { const m = (a + b) / 2; if (o.y + d.y * m <= this.aimY(scene, o.x + d.x * m, o.z + d.z * m)) b = m; else a = m; }
         return [o.x + d.x * b, o.z + d.z * b];
       }
       prev = t;

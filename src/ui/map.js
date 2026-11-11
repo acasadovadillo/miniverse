@@ -101,7 +101,7 @@ export class MapView {
       const t = this.thumb(gen, key);
       if (t) fg.drawImage(t, (dcx + reach) * CHUNK, (cy - pcy + reach) * CHUNK);
     }
-    this.floodOver(fg, (pcx - reach) * CHUNK, (pcy - reach) * CHUNK, side, side, 1);
+    this.floodOver(fg, explored, (pcx - reach) * CHUNK, (pcy - reach) * CHUNK, side, side, 1);
     // Cada eje de la imagen plana (x e y del mundo) va adonde lo lleve la cámara
     const ox = (pcx - reach) * CHUNK, oy = (pcy - reach) * CHUNK, [xu, xv] = toView(1, 0), [yu, yv] = toView(0, 1), [u0, v0] = toView(ox, oy);
     g.setTransform(a * (xu - xv), (a / 2) * (xu + xv), a * (yu - yv), (a / 2) * (yu + yv), a * (u0 - v0) + e, (a / 2) * (u0 + v0) + f);
@@ -125,12 +125,13 @@ export class MapView {
 
   // Lo cavado que se ha llenado de agua (las miniaturas son del mundo y no lo tienen): una casilla de agua encima, de las de
   // un rectángulo de casillas [x0, x0 + w) × [y0, y0 + h) que se dibuja desde (ox, oy) con s píxeles por casilla. Son pocas
-  // (las que se han cavado) y el mundo ya las tiene a mano (scenes.js, floodList)
-  floodOver(g, x0, y0, w, h, s, ox = 0, oy = 0) {
+  // (las que se han cavado) y el mundo ya las tiene a mano (scenes.js, floodList). Solo en lo explorado (las claves de
+  // explored, como en game.js): los canales que otro haya cavado lejos no salen en lo negro
+  floodOver(g, explored, x0, y0, w, h, s, ox = 0, oy = 0) {
     const list = this.world?.floodList?.(x0, y0, x0 + w, y0 + h);
     if (!list?.length) return;
     g.fillStyle = POOL();
-    for (const [x, y] of list) g.fillRect(Math.round(ox + (x - x0) * s), Math.round(oy + (y - y0) * s), Math.ceil(s), Math.ceil(s));
+    for (const [x, y] of list) if (explored.has(`${wrapIndex(Math.floor(x / CHUNK), CHUNK)},${Math.floor(y / CHUNK)}`)) g.fillRect(Math.round(ox + (x - x0) * s), Math.round(oy + (y - y0) * s), Math.ceil(s), Math.ceil(s));
   }
 
   drawMini(gen, explored, px, py, time) {
@@ -175,7 +176,7 @@ export class MapView {
       const [sx, sy] = this.toScreen(kx * CHUNK, ky * CHUNK, cx, cy, w, h);
       g.drawImage(t, Math.round(sx), Math.round(sy), S, S);
     }
-    { const [sx, sy] = this.toScreen(Math.floor(cx - w / 2 / a), Math.floor(cy - h / 2 / a), cx, cy, w, h); this.floodOver(g, Math.floor(cx - w / 2 / a), Math.floor(cy - h / 2 / a), Math.ceil(w / a) + 2, Math.ceil(h / a) + 2, a, sx, sy); }
+    { const [sx, sy] = this.toScreen(Math.floor(cx - w / 2 / a), Math.floor(cy - h / 2 / a), cx, cy, w, h); this.floodOver(g, explored, Math.floor(cx - w / 2 / a), Math.floor(cy - h / 2 / a), Math.ceil(w / a) + 2, Math.ceil(h / a) + 2, a, sx, sy); }
     // Lo que tiene nombre, por orden de importancia: tú, tu casa, los lugares, las casas y los vecinos. El nombre va al
     // lado del punto, donde quepa; si no cabe sin pisar otro, ese no sale (al acercarse, sí)
     const spots = [{ x: me[0], y: me[1], name: 'Tú', col: Math.sin(time * 6) > 0 ? ME : '#ff6a4a', size: 7 }, { x: (HOUSE.x0 + HOUSE.x1) / 2, y: (HOUSE.y0 + HOUSE.y1) / 2, name: 'Tu casa', col: HOME, size: 8 }];

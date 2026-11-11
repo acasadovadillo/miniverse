@@ -376,8 +376,9 @@ export class Explore {
       // (ya no se lleva en la mano: construyéndola con B, dónde se amarra: en el agua, cerca, donde apunta el ratón)
       if (!g.build.on) return null;
       const mp = g.mousePoint?.(), pt = mp || [p.x + p.face.x * 1.6, p.y + p.face.y * 1.6];
-      const wet = !!this.world.water(pt[0], pt[1]), far = Math.hypot(pt[0] - p.x, pt[1] - p.y) > 5, taken = this.world.boatsNear(pt[0], pt[1], 1.8).length > 0;
-      return { tile: [Math.floor(pt[0]), Math.floor(pt[1])], moor: [pt[0], pt[1], g.gather.angle || 0], place: 'barca', ok: wet && !far && !taken && !p.boat && !p.aboard, far, why: !wet ? 'La barca va en el agua, junto a la orilla' : taken ? 'Ya hay una barca ahí' : '' };
+      // (en un canal cavado, solo si cabe: ver scenes.js, boatFits)
+      const wet = !!this.world.water(pt[0], pt[1]), fits = !wet || this.world.boatFits(pt[0], pt[1]), far = Math.hypot(pt[0] - p.x, pt[1] - p.y) > 5, taken = this.world.boatsNear(pt[0], pt[1], 1.8).length > 0;
+      return { tile: [Math.floor(pt[0]), Math.floor(pt[1])], moor: [pt[0], pt[1], g.gather.angle || 0], place: 'barca', ok: wet && fits && !far && !taken && !p.boat && !p.aboard, far, why: !wet ? 'La barca va en el agua, junto a la orilla' : !fits ? 'Aquí no cabe la barca' : taken ? 'Ya hay una barca ahí' : '' };
     }
     if (def?.vehicle === 'caballo' && !p.boat && !p.aboard) return g.ranch.whistle(p);   // (el caballo es un animal de verdad: ver la granja)
     return null;

@@ -184,7 +184,7 @@ export function digGeometry(list, x0, z0, n, H, digH, wetAt = () => false) {
 // La orilla que lleva el agua del bloque en las esquinas de lo que se ha llenado (terrain.js, openWater): como mar adentro,
 // sin espuma ni borde transparente (el sombreador del agua solo los hace por debajo de esto)
 export const SD_OPEN = 1.9;
-const POOL_R = 3;   // (casillas: hasta dónde se busca la pared de tierra más cercana de cada punto del agua)
+export const POOL_R = 3;   // (casillas: hasta dónde se busca la pared de tierra más cercana de cada punto del agua)
 const DIR4 = [[1, 0], [-1, 0], [0, 1], [0, -1]];
 // El agua de lo cavado que se ha llenado en un bloque (scenes.js, reflood): una lámina a ras del agua (WATER_Y, la de todo el
 // mundo) sobre cada casilla, partida en 2 × 2 para que su color pase suave de una casilla a otra. Lleva lo mismo que el agua

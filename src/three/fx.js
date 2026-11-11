@@ -161,6 +161,7 @@ export class Fx {
 
   // ---------- apuntar y colocar ----------
   updateTarget(game, scene, playing, t, gy) {
+    const ay = (x, y) => this.view.aimY(scene, x, y);   // (el marco de la casilla: ver showTile)
     this.tile.visible = this.tileFill.visible = this.ring.visible = false;
     let ghost = null, ghostOk = true, at = null, yaw = 0;
     if (playing) {
@@ -170,14 +171,14 @@ export class Fx {
         const tt = b.target();
         if (tt) {
           const c = b.check(tt);
-          this.showTile(tt, gy, c.ok ? pulse : '#ff7a6a');
+          this.showTile(tt, ay, c.ok ? pulse : '#ff7a6a');
           if (!b.erase && !b.move) { ghost = 'piece:' + b.piece; ghostOk = c.ok; at = [tt[0] + 0.5, tt[1] + 0.5]; }
         }
       } else {
         const tg = game.gather.target;
         if (tg?.free) { ghost = tg.model; ghostOk = tg.ok && (!b.on || b.check().ok); at = [tg.x, tg.y]; yaw = tg.a; }   // (lo libre: donde y como quedaría, sin casilla)
         else if (tg?.tile && (tg.ok || tg.place || tg.mark)) {   // (mark: la pala, también en rojo donde no se puede)
-          this.showTile(tg.tile, gy, tg.ok ? pulse : '#ff7a6a');
+          this.showTile(tg.tile, ay, tg.ok ? pulse : '#ff7a6a');
           // (la alfombra y la mesa grande, enteras, del tamaño elegido; lo demás, arrimado al muro de detrás)
           if (tg.place && ITEMS[tg.place].place === 'rug') { const r = rugRect(...tg.tile, tg.rot); ghost = `rug:${tg.place}:${r.w}x${r.h}`; ghostOk = tg.ok; at = [r.x0 + r.w / 2, r.y0 + r.h / 2]; }
           else if (tg.place === 'mesa_grande') { const r = tableRect(...tg.tile, tg.rot); ghost = `mesa_grande:${r.w}x${r.h}`; ghostOk = tg.ok; at = [r.x0 + r.w / 2, r.y0 + r.h / 2]; }
@@ -212,6 +213,7 @@ export class Fx {
       this.ghostMat.color.set(ghostOk ? '#c8ffd0' : '#ffb0a0');
     }
   }
+  // (gy: la altura de lo que se apunta, aimY en engine.js: en lo cavado con agua, el marco va sobre el agua)
   showTile([tx, ty], gy, color) {
     const y = gy(tx + 0.5, ty + 0.5) + 0.04;
     this.tile.visible = this.tileFill.visible = true;

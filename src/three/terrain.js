@@ -15,7 +15,7 @@ import { grassDetail, soilDetail, rockDetail, meanOf } from './textures.js';
 import { mat } from './geo.js';
 import { PAL, SUELO_V2 } from '../arte.js';
 import { ContactField, injectContact, contactKey } from './contact3d.js';
-import { digGeometry, digMaterial, digShadowMaterial, poolGeometry, SD_OPEN } from './dig3d.js';
+import { digGeometry, digMaterial, digShadowMaterial, poolGeometry, SD_OPEN, POOL_R } from './dig3d.js';
 // (solo lo usa el hilo aparte, pero se carga también aquí para que index.html lo cuente entre lo que vuelve a pedir sin
 // caché al publicar otra versión: lo que carga un hilo no sale en la lista de lo cargado por la página. No hace nada al
 // cargarse)
@@ -308,7 +308,11 @@ export class Terrain {
   applyDigs(b) {
     const w = this.world, list = w?.digList ? w.digList(b.x0 - 1, b.z0 - 1, b.x0 + BLOCK + 1, b.z0 + BLOCK + 1) : [];
     const wet = w?.floodAt ? (x, y) => w.floodAt(x, y) !== undefined : () => false;
-    const sig = list.length ? list.map(([x, y, k]) => `${x},${y},${k}${wet(x, y) ? 'w' : ''}`).join(';') + '|' + b.padSig : '';
+    let sig = list.length ? list.map(([x, y, k]) => `${x},${y},${k}${wet(x, y) ? 'w' : ''}`).join(';') + '|' + b.padSig : '';
+    // (con agua en el bloque, también lo de más allá de su borde, hasta donde poolGeometry busca las paredes: POOL_R. Si cambia
+    // ahí lo cavado o su agua, cambian la distancia a la pared y la ribera que refleja la lámina)
+    const R = POOL_R + 1;
+    if (list.some(([x, y]) => x >= b.x0 && x < b.x0 + BLOCK && y >= b.z0 && y < b.z0 + BLOCK && wet(x, y))) sig += '|' + w.digList(b.x0 - R, b.z0 - R, b.x0 + BLOCK + R, b.z0 + BLOCK + R).map(([x, y, k]) => `${x},${y},${k}${wet(x, y) ? 'w' : ''}`).join(';');
     if (sig === (b.digSig || '')) return;
     b.digSig = sig;
     const own = list.filter(([x, y]) => x >= b.x0 && x < b.x0 + BLOCK && y >= b.z0 && y < b.z0 + BLOCK);
@@ -355,9 +359,11 @@ export class Terrain {
     if (!flooded.length && !b.shore0) return;
     b.shore0 ||= a.slice();
     a.set(b.shore0);
+    // (solo las esquinas que están en el agua, las que poolGeometry toma de aquí: abriendo también las de tierra, la orilla del
+    // río junto a la boca del canal quedaba cortada en cuña, de su espuma a nada en una arista recta)
     for (const [x, y] of flooded) for (const [cx, cy] of [[x, y], [x + 1, y], [x, y + 1], [x + 1, y + 1]]) {
-      const i = cx - b.x0, j = cy - b.z0;
-      if (i >= 0 && i < n && j >= 0 && j < n && a[(j * n + i) * 4] < SD_OPEN) a[(j * n + i) * 4] = SD_OPEN;
+      const i = cx - b.x0, j = cy - b.z0, v = j * n + i;
+      if (i >= 0 && i < n && j >= 0 && j < n && b.heights[v] < WATER_Y && a[v * 4] < SD_OPEN) a[v * 4] = SD_OPEN;
     }
     sh.needsUpdate = true;
     if (!flooded.length) b.shore0 = null;
