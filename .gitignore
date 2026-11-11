@@ -7,7 +7,7 @@ ops.json
 banned.json
 whitelist.json
 backups/
-servidor-secretos.json
+servidor-secretos*
 servidor-chrome/
 # La copia de lo publicado que multijugador.py sirve al mundo del servidor (la saca de git: ver publish_copy)
 .publicado/

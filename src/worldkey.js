@@ -34,7 +34,8 @@ async function opensWorld(raw, bytes) {
 }
 // La llave del mundo ya existía y no se puede abrir: no se hace otra (dejaría ilegibles el mundo guardado, la copia del
 // servidor y todas las de backups/). keyLost: el menú lo dice y Ajustes ofrece recuperarla con el código de recuperación
-const lost = why => Object.assign(new Error(`${why} No se crea otra, que dejaría el mundo y sus copias sin poder abrirse: recupérala con tu código de recuperación (Ajustes › Llave del mundo).`), { keyLost: true });
+// (si no guardó el código, el servidor tiene la llave: python3 multijugador.py --codigo-llave se lo copia al portapapeles)
+const lost = why => Object.assign(new Error(`${why} No se crea otra, que dejaría el mundo y sus copias sin poder abrirse: recupérala con tu código de recuperación (Ajustes › Llave del mundo). Si no lo guardaste, en el Mac del servidor «python3 multijugador.py --codigo-llave» te lo copia de la llave del servidor.`), { keyLost: true });
 
 // ---------- El código de recuperación ----------
 // La clave del mundo (32 bytes) y 2 bytes de comprobación (del SHA-256 de la clave, para notar una errata), en base 32

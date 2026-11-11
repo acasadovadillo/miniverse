@@ -57,7 +57,7 @@ export function syncNoticeText(st, { admin = false, adminName = 'el admin', user
   const why = {
     offline: 'no hay conexión con GitHub',
     expired: `GitHub no acepta ${admin ? 'tu token' : 'tu permiso de guardado'} (¿ha caducado?). ${admin ? 'Cámbialo en Ajustes › Guardado en GitHub' : `Pide a ${adminName} uno nuevo (/account reset ${user}) y vuelve a entrar con el código que te dé`}`,
-    denied: `${admin ? 'tu token' : 'tu permiso de guardado'} no llega al repositorio de las partidas`,
+    denied: admin ? 'tu token no tiene permiso para guardar las partidas' : 'tu permiso de guardado no sirve para guardar tus partidas',
     limit: 'GitHub ha limitado las peticiones por un rato',
   }[st.kind] || (st.message || 'GitHub ha dado un error').replace(/\.$/, '');
   return `${what} en GitHub desde ${when(st.since)}: ${why}. ${st.what === 'world' ? 'Se sigue guardando en este ordenador' : 'Tu partida sigue guardada en este ordenador'} y se vuelve a intentar sola.`;

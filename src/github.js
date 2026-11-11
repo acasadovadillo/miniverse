@@ -35,8 +35,9 @@ async function call(token, method, path, body) {
 }
 // Un fallo de GitHub, con su motivo (kind): 'expired' (no acepta el token: ¿ha caducado?), 'denied' (no llega a ese
 // repositorio), 'limit' (demasiadas peticiones por ahora), 'offline' (sin conexión; ver call) u 'other'
+// (el límite «secundario» de GitHub, por muchas peticiones seguidas, es un 403 con retry-after aunque queden peticiones)
 const failure = res => {
-  const limited = (res.status === 403 || res.status === 429) && res.headers.get('x-ratelimit-remaining') === '0';
+  const limited = (res.status === 403 || res.status === 429) && (res.headers.get('x-ratelimit-remaining') === '0' || res.headers.has('retry-after'));
   const kind = res.status === 401 ? 'expired' : limited || res.status === 429 ? 'limit' : res.status === 403 || res.status === 404 ? 'denied' : 'other';
   const text = { expired: 'GitHub no acepta el token (¿ha caducado?).', limit: 'GitHub ha limitado las peticiones por un rato.', denied: 'El token no tiene permiso para ese repositorio.' }[kind] || `GitHub ha respondido con un error (${res.status}).`;
   return Object.assign(new Error(text), { kind, status: res.status });

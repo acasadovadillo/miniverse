@@ -19,6 +19,7 @@ import { showUpdateNotice, updateNoticeOpen } from './update.js';
 import { setNotice, syncNoticeText, expiryNoticeText, showKeyCode, saveSettings } from './savesafety.js';
 
 const $ = id => document.getElementById(id);
+const sleep = ms => new Promise(r => setTimeout(r, ms));
 const SCREENS = ['s-login', 's-menu', 's-account', 's-creator', 's-pause', 's-map', 's-shop', 's-settings', 's-controls'];
 const AUTOSAVE_MS = 15000;
 const CHEST_REACH = 4;   // (lo que se puede alejar uno de un cofre abierto)
@@ -144,9 +145,9 @@ export function initMenus(game) {
     if (d.found) button(`Usar la de GitHub del ${when(d.found.at)}`, () => use('older'), d.localAt === null);
     else if (d.found === undefined) button('Buscar una versión anterior en GitHub', async b => {
       b.textContent = 'Buscando en el historial de GitHub…';
-      const found = await Profile.findOlder();
-      if (!found) say('En el historial de GitHub no hay ninguna versión anterior que se pueda abrir.');
-      damagedBox(true);
+      // (si falla, sin conexión o con un error de GitHub, se dice arriba y los botones vuelven a estar como antes)
+      try { if (!(await Profile.findOlder())) say('En el historial de GitHub no hay ninguna versión anterior que se pueda abrir.'); }
+      finally { damagedBox(true); }
     });
     if (d.localAt === null && d.found === null) button('Empezar sin partida', () => (confirm('¿Empezar sin partida? La de GitHub que no se abre se queda en su historial, pero aquí empezarás de cero.') ? use('empty') : null));
   }
@@ -204,7 +205,14 @@ export function initMenus(game) {
       $('menu-msg').textContent = 'Mirando si hay una versión nueva…';
       const pub = await publishedNewer(PUBLISHED_FRESH);
       if (pub) { $('menu-msg').textContent = ''; outdatedNotice(pub, true); return; }
-      if (live.status === 'kicked') { live.close(); await findLive(); }   // (te echaron: se vuelve a intentar entrar)
+      if (live.status === 'kicked') {
+        // (te echaron: se vuelve a intentar entrar, y se espera a saber si ahora te deja)
+        live.close(); await findLive();
+        for (let i = 0; i < 40 && live.status === 'connecting'; i++) await sleep(150);
+      }
+      // El servidor está abierto pero no te deja entrar (p. ej. mientras vuelve a una copia del mundo con /restore): no se
+      // juega sin él, tampoco el admin, que llevaría el mundo de antes y lo guardaría encima del bueno
+      if (live.status === 'kicked') throw new Error(live.error || 'El servidor no te deja entrar ahora.');
       const on = live.status === 'on';
       if (!on && !Profile.admin) throw new Error(`El servidor está cerrado: se puede jugar cuando ${ADMIN_NAME} lo abre.`);
       if (on && !live.host?.playing && !(await live.claim())) await live.waitHost();
@@ -244,10 +252,17 @@ export function initMenus(game) {
   // diga el servidor del token del mundo del servidor, que es el del admin (multijugador.py sí puede saber la fecha)
   function expiryCheck() { setNotice('token', expiryNoticeText(Profile.tokenExpires, who()), 'err'); }
   setInterval(() => { if (Profile.id) expiryCheck(); }, EXPIRY_EVERY);
-  game.live.onNotice = m => { if (Profile.admin && typeof m.text === 'string') setNotice('server-token', m.text.slice(0, 400), 'err'); };
+  // (con el texto vacío, que ya está bien: se quita)
+  game.live.onNotice = m => { if (Profile.admin && typeof m.text === 'string') setNotice('server-token', m.text.slice(0, 400) || null, 'err'); };
   // La llave del mundo (el admin): si no se puede abrir, se dice (y en Ajustes se recupera con el código); si se abre y
   // todavía no ha visto su código de recuperación, se le recuerda guardarlo
-  Profile.onWorldKeyError = e => { if (e) setNotice('key-lost', e, 'err'); if ($('s-menu').classList.contains('show')) paintLive(); };
+  // (al abrirse, e vacío: se quita el aviso y, si ya estaba conectado sin ella, se le da a la conexión)
+  Profile.onWorldKeyError = e => {
+    setNotice('key-lost', e || null, 'err');
+    const net = game.live.net;
+    if (!e) Profile.worldKey().then(k => { if (k && net && game.live.net === net && !net.key) { net.key = k; if (net.ready) game.live.up(); } }).catch(() => {});
+    if ($('s-menu').classList.contains('show')) paintLive();
+  };
   const seenCode = () => { try { return localStorage.getItem(KEY_CODE_SEEN); } catch { return null; } };
   async function keyReminder() {
     if (!Profile.admin || !(await Profile.worldKey())) return;

@@ -48,8 +48,11 @@ export async function runServer() {
   while (live.status !== 'on') await sleep(250);
   log('Con las claves del mundo: abriendo el mundo…');
   // (las subidas a GitHub que fallan, en el terminal: el token caducado o sin conexión no pasan en silencio)
+  // (onSync llega también con el primer fallo, que aún no se avisa: «vuelve a guardarse» solo si antes se dijo que no)
+  let syncWarned = false;
   Profile.onSync = st => {
-    if (!st) { log('Vuelve a guardarse en GitHub.'); return; }
+    if (!st) { if (syncWarned) log('Vuelve a guardarse en GitHub.'); syncWarned = false; return; }
+    syncWarned = true;
     if (st.fails === 2 || st.fails % SYNC_LOG_EVERY === 0) log(`✗ ${st.what === 'world' ? 'El mundo' : 'Lo guardado'} no se sube a GitHub desde las ${new Date(st.since).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })} (${st.fails} fallos seguidos): ${st.message}${st.kind === 'expired' ? ' Cambia el token en tu juego (Ajustes › Guardado en GitHub) y escribe /link.' : ''} Mientras, se guarda en este ordenador y en backups/.`);
   };
   // /restore: desde ya, aunque el mundo no llegue a abrirse (si el de GitHub no se abre, es justo lo que hace falta)
@@ -64,7 +67,7 @@ export async function runServer() {
     try { world = await live.requestWorld(); log(`Mundo recibido de ${live.host.name}: ahora lo lleva el servidor.`); }
     catch (e) { log(`${live.host.name} no ha dado el mundo (${e.message}): se abre el guardado.`); }
   }
-  if (!world) world = await stored(log);
+  if (!world) world = await stored(log, live);
   if (!world || restoring) return;
   live.extraShared = unknownShared(world.shared);   // (lo de una versión más nueva: se vuelve a guardar tal cual)
   game.start({ ...(world.shared || {}), player: { name: 'Servidor', look: { ...DEFAULT_LOOK }, x: SPAWN.x, y: SPAWN.y, inside: false, view: 'back' }, gamemode: 'spectator' }, new Map(world.deltas || []));
@@ -94,7 +97,8 @@ export async function runServer() {
   live.onServerSave = () => save(true).then(said);
   // /update en el terminal: se guarda y se avisa; el servidor cierra este Chrome y lo abre con lo publicado de ahora
   // (keep: antes, una copia fija del mundo de ahora, «antes-de-<versión>», por si la versión nueva lo estropeara)
-  live.onServerRestart = async m => { if (typeof m?.keep === 'string') await keep(m.keep).catch(() => {}); said(await save(true)); live.net?.sendServer({ t: 'saved' }); };
+  // (volviendo a una copia, no: no hay nada que guardar y, si dijera «saved», el servidor lo cerraría a mitad de restaurar)
+  live.onServerRestart = async m => { if (restoring) return; if (typeof m?.keep === 'string') await keep(m.keep).catch(() => {}); said(await save(true)); live.net?.sendServer({ t: 'saved' }); };
   // Si se corta o se cierra el servidor: se guarda y, si no es que se cierra, se vuelve a empezar al rato
   live.onHostLeft = async why => {
     said(await save(true));
@@ -104,14 +108,19 @@ export async function runServer() {
 }
 
 // El mundo más reciente de lo guardado: la copia de este navegador o el de GitHub. Sin ninguno, uno nuevo. Si el de
-// GitHub no se puede abrir con esta clave, no se empieza otro encima: se avisa
-async function stored(log) {
+// GitHub no se puede abrir con esta clave, no se empieza otro encima: se avisa (y, si la copia de este navegador sí se
+// abre, se le pasa al servidor como copia fija, para poder volver a ella con /restore). Recién vuelto a una copia con
+// /restore, la de este navegador es la buena aunque GitHub no deje guardar o su mundo.enc no se abra
+async function stored(log, live) {
   const local = await Profile.localWorld();
+  const restored = local?.restored ? local : null;   // (se quita con el primer guardado normal: ver worldOf en live.js)
+  const useRestored = why => { log(`${why}: se abre la copia restaurada (${restored.restored.from}) de este ordenador; se subirá a GitHub en cuanto se pueda.`); return restored; };
   let warned = false;
   for (;;) {
     try {
       // (con un token que no llega al repositorio, GitHub diría que no hay mundo: antes, se comprueba)
       if (!Profile.server.token || !(await canWrite(Profile.server.token, DATA_REPO))) {
+        if (restored) return useRestored(`El token no puede guardar en ${DATA_REPO} (o GitHub no responde bien)`);
         if (!warned) log(`El token no puede guardar en ${DATA_REPO} (o GitHub no responde bien): lo intento cada poco. Si no se arregla, escribe /link en el terminal y entra con la cuenta del admin.`);
         warned = true;
         await sleep(RETRY * 3);
@@ -122,7 +131,13 @@ async function stored(log) {
       if (!w) log('Todavía no hay mundo guardado: empieza uno nuevo.');
       return w || { deltas: [], shared: {} };
     } catch (e) {
-      if (e.wrongKey) { log(`${e.message} Escribe /link en el terminal y entra con la cuenta del admin.`); return null; }
+      if (e.wrongKey && restored) return useRestored(e.message.replace(/\.$/, ''));
+      if (e.wrongKey) {
+        const bytes = local && await Profile.serverCopyBytes();
+        if (bytes) live.backup(bytes, 'copia-del-servidor');
+        log(`${e.message}${bytes ? ` La copia de este ordenador sí se abre (guardada el ${dateOf(local.savedAt)}): queda en backups/fijas/ como copia-del-servidor; para seguir con ella, /restore copia-del-servidor ya.` : ''} Si el problema es la llave del servidor, escribe /link en el terminal y entra con la cuenta del admin.`);
+        return null;
+      }
       if (local) { log(`GitHub no responde (${e.message}): se abre la copia de este ordenador.`); return local; }
       log(`GitHub no responde (${e.message}): lo intento otra vez en unos segundos.`);
       await sleep(RETRY);
@@ -136,6 +151,7 @@ async function stored(log) {
 // no se toca nada. Si se abre: deja de guardar, manda una copia fija del mundo de ahora («antes-de-restaurar», para poder
 // deshacerlo), guarda la copia como el mundo de ahora (con la fecha de ahora: así gana a todas las demás, la de este
 // navegador, mundo.enc en GitHub y la de la partida del admin) y vuelve a empezar, ya con ella
+const dateOf = t => (t ? new Date(t).toLocaleString('es-ES', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '?');
 async function restore(m, { game, live, log, running, stop }) {
   const answer = (ok, text) => { log(text); live.net?.sendServer({ t: 'restored', ok }); };
   const name = String(m.name || 'copia');
@@ -143,13 +159,13 @@ async function restore(m, { game, live, log, running, stop }) {
   try { w = await Profile.openWorldCopy(fromB64(String(m.d || ''))); }
   catch (e) { answer(false, `✗ No se puede restaurar ${name}: ${e.message}. El mundo sigue como estaba.`); return; }
   stop();
-  if (running()) {
-    const bytes = await Profile.worldBytes(live.worldOf(game.snapshot(), game.world.deltas)).catch(() => null);
-    if (bytes) live.backup(bytes, 'antes-de-restaurar');
-  }
+  // (lo de ahora, para poder deshacerlo: el mundo en marcha o, si no ha llegado a abrirse, la copia de este navegador, que
+  // puede ser más nueva que cualquiera de backups/ y se va a sustituir)
+  const bytes = running() ? await Profile.worldBytes(live.worldOf(game.snapshot(), game.world.deltas)).catch(() => null) : await Profile.serverCopyBytes();
+  if (bytes) live.backup(bytes, 'antes-de-restaurar');
   const { format, savedAt, by, restored, ...world } = w;
   const up = await Profile.storeWorld({ ...world, restored: { from: name, savedAt: savedAt || 0 } }, { upload: true });
-  answer(true, `Copia ${name} (del ${savedAt ? new Date(savedAt).toLocaleString('es-ES', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '?'}) guardada como el mundo de ahora`
+  answer(true, `Copia ${name} (del ${dateOf(savedAt)}) guardada como el mundo de ahora`
     + (up ? ' (aquí y en GitHub)' : ` en este ordenador${up === false ? `; en GitHub no se ha podido (${Profile.lastError}): se sube en cuanto se pueda` : ''}`) + '. Vuelvo a abrir el mundo con ella…');
   setTimeout(() => location.reload(), 1500);
 }

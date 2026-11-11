@@ -29,6 +29,7 @@ const UPLOAD_EVERY = 3 * 60 * 1000;   // como mucho, una subida automática a Gi
 const CHORES_EVERY = 3 * 60 * 1000;   // el admin pone al día las cuentas cada tantos minutos mientras juega
 const LIVE_FILE = 'servidor.json';
 const RETRY_AFTER = 60 * 1000;          // tras un fallo al subir, lo que se espera para volver a intentarlo solo
+const KEY_RETRY = 60 * 1000;            // si la llave del mundo no se ha podido abrir por un fallo de paso, se vuelve a intentar
 const SERVER_COPY = 'servidor-mundo';   // (el mundo del servidor guarda aquí, en este navegador, su copia del mundo)
 const NAME_RE = /^[\p{L}\p{N}_-]{3,16}$/u;
 const idOf = name => name.trim().toLowerCase();
@@ -115,8 +116,22 @@ async function opened(upload) {
   clearInterval(chores);
   if (me.admin) { const run = () => Profile.chores().catch(() => {}); run(); chores = setInterval(run, CHORES_EVERY); }
 }
-// (si no se puede abrir, null; al admin se le dice por qué en el menú y en Ajustes: ver worldKeyError)
-const openWorldKey = () => WorldKey.open(me).then(k => { worldKeyError = ''; return k; }, e => { console.warn('Clave del mundo:', e); if (me?.admin) worldKeyError = e.message; Profile.onWorldKeyError?.(worldKeyError); return null; });
+// (si no se puede abrir, null. Si es que se ha perdido (keyLost), al admin se le dice por qué en el menú y en Ajustes: ver
+// worldKeyError. Si es un fallo de paso (sin conexión, GitHub con un error…), no es eso: se vuelve a intentar al rato. Al
+// abrirse, onWorldKeyError('') quita el aviso)
+let keyRetry = null;
+const openWorldKey = () => {
+  clearTimeout(keyRetry);
+  const who = me;
+  return WorldKey.open(me).then(k => { worldKeyError = ''; Profile.onWorldKeyError?.(''); return k; }, e => {
+    console.warn('Clave del mundo:', e);
+    if (me !== who) return null;
+    if (e.keyLost) worldKeyError = me?.admin ? e.message : '';
+    else keyRetry = setTimeout(() => { if (me === who && !worldKeyError) Profile.reopenWorldKey(); }, KEY_RETRY);
+    Profile.onWorldKeyError?.(worldKeyError);
+    return null;
+  });
+};
 
 export const Profile = {
   get id() { return me?.id; },
@@ -239,7 +254,7 @@ export const Profile = {
   // Solo el admin: lo que necesita el mundo del servidor (la clave del mundo y su token), o null si aún no la tiene
   serverSecrets() { const raw = WorldKey.raw(); return me?.admin && raw ? { key: toB64(raw), token: me.token } : null; },
 
-  logout() { me = null; data = null; damaged = null; renewing = null; worldKeyError = ''; clearInterval(chores); WorldKey.forget(); worldKey = Promise.resolve(null); worldSha = undefined; worldUploaded = 0; resetUploads(); },
+  logout() { clearTimeout(keyRetry); me = null; data = null; damaged = null; renewing = null; worldKeyError = ''; clearInterval(chores); WorldKey.forget(); worldKey = Promise.resolve(null); worldSha = undefined; worldUploaded = 0; resetUploads(); },
 
   // ---------- La partida de GitHub que no se abre ----------
   // Busca en el historial de GitHub la versión más reciente que sí se abre (de las 30 últimas subidas). Devuelve { at } o
@@ -412,6 +427,11 @@ export const Profile = {
     const key = await worldKey, c = await db.get('vaults', SERVER_COPY).catch(() => null);
     if (!key || !c) return null;
     try { return await openWorld(key, c.bytes); } catch { return null; }
+  },
+  // (el mundo del servidor) Los bytes de esa copia, tal cual (cifrados), o null: para una copia fija antes de sustituirla
+  async serverCopyBytes() {
+    const c = me?.server ? await db.get('vaults', SERVER_COPY).catch(() => null) : null;
+    return c?.bytes instanceof Uint8Array ? c.bytes : c?.bytes ? new Uint8Array(c.bytes) : null;
   },
   // Lo guarda quien lo lleva: { deltas, shared }. Se sube a GitHub si se pide o si hace rato de la última vez
   // (y, al subirlo, onWorldBytes recibe lo subido: el menú se lo pasa al servidor como copia).
