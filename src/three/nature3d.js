@@ -73,18 +73,19 @@ function frondGeo() {
 // arranque (ahí se juntan todas) y algo doblada a lo largo; v: 1 arriba. Las normales, hacia fuera (arriba en lo alto, de
 // lado en lo que cuelga) y apenas abiertas hacia los bordes (más, y cada tira parecía la hoja de una palmera); y el color
 // de cada vértice, la luz del cielo que le llega: entera en lo alto y menos hacia abajo, donde la tapan las de encima (lo
-// mismo de cerca que en el impostor: va en el color)
+// mismo de cerca que en el impostor: va en el color). Cuatro filas (tres en el arco y la del final de la caída, que es
+// casi recta): 12 vértices y 12 triángulos, que un pantano lleva cientos de sauces de unas 40 ramillas
 function strandGeo() {
   const ARCH = 0.24, rows = [];
-  for (let k = 0; k <= 3; k++) { const f = (k / 3) * Math.PI / 2; rows.push([Math.sin(f), -(1 - Math.cos(f)) * ARCH]); }
-  for (let k = 1; k <= 2; k++) { const u = k / 2; rows.push([1 + 0.1 * u * u, -ARCH - (1 - ARCH) * u]); }
+  for (let k = 0; k <= 2; k++) { const f = (k / 2) * Math.PI / 2; rows.push([Math.sin(f), -(1 - Math.cos(f)) * ARCH]); }
+  rows.push([1.08, -1]);
   // (lo largo de la tira con unas medidas de sauce, 1,5 m hacia fuera y 3,5 m de caída: para que la textura no se estire)
   const len = [0];
   for (let i = 1; i < rows.length; i++) len.push(len[i - 1] + Math.hypot((rows[i][0] - rows[i - 1][0]) * 1.5, (rows[i][1] - rows[i - 1][1]) * 3.5));
   const L = len[len.length - 1], pos = [], nor = [], uv = [], cl = [], idx = [], FOLD = 0.16;
   rows.forEach(([zz, yy], i) => {
     const a = rows[Math.max(0, i - 1)], b = rows[Math.min(rows.length - 1, i + 1)], tz = b[0] - a[0], ty = b[1] - a[1], tl = Math.hypot(tz, ty);
-    const ny = tz / tl, nz = -ty / tl, half = 0.5 * (0.5 + 0.5 * Math.min(1, len[i] / len[3])), q = len[i] / L, sky = 1 - 0.4 * q ** 1.3;
+    const ny = tz / tl, nz = -ty / tl, half = 0.5 * (0.5 + 0.5 * Math.min(1, len[i] / len[2])), q = len[i] / L, sky = 1 - 0.4 * q ** 1.3;
     // (tres vértices por fila: la tira va doblada a lo largo, con el lomo hacia fuera, como un tejado; así, vista de canto,
     // cada mitad se sigue viendo algo y no es una raya)
     for (const sd of [-1, 0, 1]) {
@@ -144,7 +145,7 @@ function leafAtlas(kind = 'roble') {
     x.strokeStyle = 'rgb(70,62,54)'; x.lineWidth = fina ? 1.2 : 2;
     for (let i = 0; i < (fina ? 9 : 5); i++) { x.beginPath(); x.moveTo(W / 2, H / 2); x.lineTo(W / 2 + (rnd() - 0.5) * W * 0.8, H / 2 + (rnd() - 0.5) * H * 0.8); x.stroke(); }
     for (let i = 0; i < n; i++) {
-      const a = rnd() * Math.PI * 2, d = Math.sqrt(rnd()) * Rm * (fina ? 1 + 0.13 * Math.sin(a * 5) : 1), L = fina ? 6 + rnd() * 5 : 16 + rnd() * 14, f = Math.min(1, d / Rm);
+      const a = rnd() * Math.PI * 2, L = fina ? 6 + rnd() * 5 : 16 + rnd() * 14, d = Math.min(W / 2 - L - 2, Math.sqrt(rnd()) * Rm * (fina ? 1 + 0.13 * Math.sin(a * 5) : 1)), f = Math.min(1, d / Rm);   // (las del borde, dentro del lienzo: si no, se cortaban en recto)
       // (giradas de cualquier manera, que si miran todas hacia fuera el manojo parece una estrella; de dentro, más oscuras)
       list.push([d, W / 2 + Math.cos(a) * d, H / 2 + Math.sin(a) * d, rnd() * Math.PI * 2, L, L * (fina ? 0.5 : 0.42), 100 + 135 * f ** 0.8 + (rnd() - 0.5) * 44]);
     }
@@ -204,6 +205,11 @@ export function leafTint(o, season, out = TINT) {
 const variantOf = o => o.variant ?? (ihash(Math.floor(o.x * 3), Math.floor(o.y * 3), 91) < 0.5 ? 0 : 1);
 // Un color de hoja (hex) por f, teñido
 const leafC = (c, f, tint) => col.set(c).multiplyScalar(f).multiply(tint).getHex();
+// El de un núcleo de copa: oscuro y algo apagado, que lo que asoma entre las hojas se lea como la sombra de dentro de la
+// copa (le da el sol de lleno, y las hojas, con el atlas, salen a poco más de la mitad de su color: con 0,42 asomaban bolas
+// naranjas o rojizas, y más apagado, grises, como piedras)
+const coreC = (c, f, tint) => { col.set(c).multiplyScalar(f).multiply(tint); const l = (col.r + col.g + col.b) / 3; return col.lerp(TINT2.setRGB(l, l, l), 0.25).getHex(); };
+const TINT2 = new THREE.Color();
 const PINE = tonos('#3f5240');
 const BLOSSOM = ['#ffb8d0', '#ffd0e0', '#ffffff'];
 
@@ -291,22 +297,26 @@ function broadleaf2(o, season, push, x, z, y, r, rot) {
   // La copa: cada mata con su color (casi todas sus hojas de él y alguna de otro: manchas, como en un árbol de verdad), con
   // su núcleo oscuro (el que da sombra) y las tarjetas de hojas alrededor. Cada tarjeta, más oscura cuanto más dentro de su
   // mata, más mirando abajo y más baja en la copa (la luz del cielo que le llega), y algo distinta de la de al lado: la copa
-  // tiene hondura, con el borde y lo alto iluminados. El color de cada mata va por su número y la clase de árbol (el roble
-  // adulto, por su variant), no por el sitio: con cinco o seis matas, la mezcla de cada árbol saldría muy distinta de la
-  // de su árbol de muestra del atlas de lejos (impostor.js) y, al acercarse, cambiaría de color; lo que cambia de un árbol a
-  // otro es su tinte (leafTint), que el lejano también lleva, y dónde cae cada mata
-  const seq = kind === 'oak' && ageOf(o) > 0.75 ? variantOf(o) : fruit ? 3 : 2, cc = clumps.map((_, i) => pickW(P, ihash(i, seq, 4242), wts));
+  // tiene hondura, con el borde y lo alto iluminados. Los colores de las matas de un árbol son los de la paleta repartidos
+  // por lo que se da cada uno (por cuantiles: con cinco o seis matas, a suertes salía la mezcla que fuera, y la de un árbol
+  // lejano, del atlas, no casaba con la del de cerca, que al acercarse cambiaba de color), y cada árbol los gira: a cuál
+  // mata le toca cada uno. Así la mezcla es la misma de cerca y de lejos y de un árbol a otro, y lo que cambia es dónde
+  // cae cada color, y el tinte (leafTint), que el lejano también lleva
+  const nc = clumps.length, turnC = Math.floor(r(990) * nc), cc = clumps.map((_, i) => pickW(P, (((i + turnC) % nc) + 0.5) / nc, wts));
   // (el núcleo, algo subido y aplastado: por debajo de la mata casi no hay hojas, y de cerca, mirando hacia arriba, asomaba
-  // como una bola oscura; por arriba no pasa de donde llegaba)
-  clumps.forEach(([cx, cY, cz, cr], i) => push('lump', { p: [cx, cY + cr * 0.06, cz], s: [cr * 0.48, cr * 0.36, cr * 0.48], r: [r(3) * 0.4, r(4), r(5) * 0.4], c: leafC(cc[i], 0.42, tint) }));
-  const cards = Math.round((fruit ? 60 : 50) * ageOf(o) + 8);
+  // como una bola oscura; por arriba no pasa de donde llegaba. Y pequeño, bien dentro de las hojas; el de los frutales, más,
+  // que tienen menos)
+  const kl = fruit ? 0.75 : 0.88;
+  clumps.forEach(([cx, cY, cz, cr], i) => push('lump', { p: [cx, cY + cr * 0.06, cz], s: [cr * 0.48 * kl, cr * 0.36 * kl, cr * 0.48 * kl], r: [r(3) * 0.4, r(4), r(5) * 0.4], c: coreC(cc[i], 0.28, tint) }));
+  const cards = Math.round((fruit ? 70 : 50) * ageOf(o) + (fruit ? 10 : 8));
   for (let i = 0; i < cards; i++) {
     const ci = i % clumps.length, [cx, cY, cz, cr] = clumps[ci], u = r(200 + i) * 1.5 - 0.5, f = r(300 + i) * Math.PI * 2, sq = Math.sqrt(1 - u * u);
     dv.set(sq * Math.cos(f), u, sq * Math.sin(f));
     const depth = r(400 + i), dist = cr * (0.5 + depth * 0.45);
     qa.setFromUnitVectors(ZV, dv); qb.setFromAxisAngle(ZV, r(500 + i) * 6.28); qa.multiply(qb); euler.setFromQuaternion(qa);
     const sz = cr * (1.1 + r(600 + i) * 0.6), hi = Math.max(0, Math.min(1, (cY - cy) / Ry + 0.5));
-    const light = (0.76 + 0.32 * depth) * (0.86 + 0.18 * (u + 0.5) / 1.5) * (0.9 + 0.14 * hi) * (0.93 + 0.14 * r(800 + i));
+    // (la hondura, de 0,82 a 1,08: con más, las tarjetas vistas de canto salían como tajos casi negros; el resto lo da el atlas)
+    const light = (0.82 + 0.26 * depth) * (0.86 + 0.18 * (u + 0.5) / 1.5) * (0.9 + 0.14 * hi) * (0.93 + 0.14 * r(800 + i));
     push('card', { p: [cx + dv.x * dist, cY + dv.y * dist * 0.85, cz + dv.z * dist], s: [sz, sz, sz], r: [euler.x, euler.y, euler.z], c: leafC(r(700 + i) < 0.75 ? cc[ci] : pickW(P, r(750 + i), wts), light, tint) });
   }
   if (fruit && season < 3 && !(o.bare && season > 0)) for (let i = 0; i < (season === 0 ? 16 : 10); i++) {
@@ -376,41 +386,53 @@ function willow2(o, season, push, x, z, y, r, rot) {
     branch(push, [x, fork - 0.1, z], mid, 1.2 * k); branch(push, mid, end, 0.65 * k);
     arms.push(a);
   }
-  if (!bare) push('lump', { p: [x, cy + Ry * 0.02, z], s: [R * 0.58, Ry * 0.46, R * 0.58], r: [0, rot, 0], c: leafC(P.c[0], 0.32, tint) });
+  if (!bare) push('lump', { p: [x, cy + Ry * 0.02, z], s: [R * 0.58, Ry * 0.46, R * 0.58], r: [0, rot, 0], c: leafC(P.c[0], 0.5, tint) });   // (del color de las ramillas, algo oscuro: lo que asoma entre ellas, desde arriba, no hace rayas oscuras, como en una palmera)
   // Encima de cada brazo, la copa se abomba (más alta y más ancha): vista desde arriba no es un círculo liso sino de
   // lóbulos, uno por brazo, como los de un sauce de verdad. lobe(f): de 0 (entre dos brazos) a 1 (encima de uno)
   const lobe = f => { let m = 0; for (const a of arms) m = Math.max(m, Math.cos(Math.atan2(Math.sin(f - a), Math.cos(f - a)) * n / 2)); return m * m; };
+  // El color, por lóbulos: cada brazo con uno de la paleta (repartidos por lo que se da cada uno, en el orden que le toca a
+  // este sauce, como las matas de los robles) y sus ramillas casi todas de él. Ramilla a ramilla, salían rayas de colores
+  // desde el centro y, desde arriba, el sauce parecía una palmera
+  const turnC = Math.floor(r(990) * n), armC = arms.map((_, j) => pickW(P, (((j + turnC) % n) + 0.5) / n));
+  const colorAt = (f, u, u2) => { let best = 0, bd = 9; arms.forEach((a, j) => { const dd = Math.abs(Math.atan2(Math.sin(f - a), Math.cos(f - a))); if (dd < bd) { bd = dd; best = j; } }); return u < 0.72 ? armC[best] : pickW(P, u2); };
   // Las ramillas. Cada capa: cuántas, a qué distancia del centro y a qué altura (de H) salen, cuánto se apartan (de R),
   // hasta qué altura sobre el suelo caen (de H; la de fuera, ver abajo), su ancho (de R) y cuánta luz les llega. Las de la
   // coronilla salen de cualquier sitio de lo alto (no todas del centro: desde arriba, eso parecía una palmera) y hacia
   // fuera más o menos; las de las otras dos capas, en corro, hacia fuera
   const age = ageOf(o), top = y + H, type = bare ? 'cardStrandB' : 'cardStrand', yaw = (dx, dz) => Math.atan2(dx, dz);
+  // (las alturas de las capas se solapan: escalonadas, el codo de la cortina caía por debajo de la cúpula y algunos sauces,
+  // desde arriba, parecían una pagoda de dos tejados)
   const layers = [
-    { n: Math.round(11 + 6 * age), d: [0, 0.34], h: [0.95, 1.01], reach: [0.32, 0.48], low: [0.5, 0.66], w: [0.4, 0.54], light: 1.08, crown: true },
-    { n: bare ? 0 : Math.round(9 + 4 * age), d: [0.2, 0.3], h: [0.88, 0.95], reach: [0.44, 0.58], low: [0.3, 0.48], w: [0.4, 0.52], light: 0.96 },
-    { n: Math.round(14 + 5 * age), d: [0.34, 0.46], h: [0.8, 0.88], reach: [0.48, 0.62], low: null, w: [0.36, 0.5], light: 1 },
+    { n: Math.round(11 + 5 * age), d: [0, 0.34], h: [0.95, 1.01], reach: [0.32, 0.48], low: [0.5, 0.66], w: [0.4, 0.54], light: 1.08, crown: true },
+    { n: bare ? 0 : Math.round(9 + 4 * age), d: [0.2, 0.3], h: [0.86, 0.97], reach: [0.44, 0.58], low: [0.3, 0.48], w: [0.42, 0.54], light: 0.97 },
+    { n: Math.round(14 + 5 * age), d: [0.34, 0.46], h: [0.84, 0.94], reach: [0.46, 0.62], low: null, w: [0.36, 0.5], light: 1 },
   ];
   let s = 0;
   layers.forEach((L, li) => {
     for (let i = 0; i < L.n; i++, s++) {
-      const q = (u, [a, b]) => a + (b - a) * u, ring = rot + ((i + (li % 2) * 0.5) / L.n) * Math.PI * 2 + (r(900 + s) - 0.5) * (5 / L.n);
+      // (cada ramilla con sus propios números: b, de 16 en 16; seguidos, la de al lado reusaba los de esta para otra cosa)
+      const b = 2000 + s * 16, q = (u, [a, c]) => a + (c - a) * u, ring = rot + ((i + (li % 2) * 0.5) / L.n) * Math.PI * 2 + (r(b) - 0.5) * (5 / L.n);
       // (la de la coronilla: un sitio cualquiera de lo alto, por área, y hacia fuera de él con hasta ±40°)
-      const at = L.crown ? r(905 + s) * Math.PI * 2 : ring, rd = L.crown ? Math.sqrt(r(910 + s)) : r(910 + s), f = L.crown ? at + (r(915 + s) - 0.5) * 1.4 : ring, lb = lobe(at);
-      const d = R * q(rd, L.d) * (0.85 + 0.25 * lb), dh = L.crown ? 0.1 * rd * rd : 0, ay = Math.min(top, y + H * (q(r(920 + s), L.h) - dh - 0.06 * (1 - lb))), reach = R * q(r(930 + s), L.reach) * (0.88 + 0.2 * lb);
+      const at = L.crown ? r(b + 1) * Math.PI * 2 : ring, rd = L.crown ? Math.sqrt(r(b + 2)) : r(b + 2), f = L.crown ? at + (r(b + 3) - 0.5) * 1.4 : ring, lb = lobe(at);
+      const d = R * q(rd, L.d) * (0.85 + 0.25 * lb), dh = L.crown ? 0.1 * rd * rd : 0, ay = Math.min(top, y + H * (q(r(b + 4), L.h) - dh - 0.06 * (1 - lb))), reach = R * q(r(b + 5), L.reach) * (0.88 + 0.2 * lb);
       // (la cortina: unas casi hasta el suelo y otras a media altura, para que su borde no sea una falda pareja)
-      const bottom = L.low ? y + H * q(r(940 + s), L.low) : y + 0.3 + (r(945 + s) < 0.45 ? r(940 + s) * 0.5 : 0.5 + r(940 + s) * 1.5);
-      // (la luz cambia poco de una a la de al lado: la copa se lee como una sola masa, no como tiras sueltas)
-      const light = L.light * (0.94 + 0.12 * r(950 + s)) * (0.93 + 0.12 * lb);
-      push(type, { p: [x + Math.cos(at) * d, ay, z + Math.sin(at) * d], s: [R * q(r(960 + s), L.w), Math.max(0.6, ay - bottom), reach], r: [0, yaw(Math.cos(f), Math.sin(f)), (r(970 + s) - 0.5) * 0.35], c: leafC(pickW(P, r(980 + s)), light, tint) });
+      const bottom = L.low ? y + H * q(r(b + 6), L.low) : y + 0.3 + (r(b + 7) < 0.45 ? r(b + 6) * 0.5 : 0.5 + r(b + 6) * 1.5);
+      // (la luz, de 0,9 a 1,1 entre una y otra: pareja, la copa parecía un tejado de paja, y con más, desde arriba, salían
+      // rayos, como en una palmera; y más clara encima de los lóbulos)
+      const light = L.light * (0.9 + 0.2 * r(b + 8)) * (0.93 + 0.12 * lb);
+      // (vuelta hacia fuera, algo cabeceada arriba o abajo, que así el codo de cada una cae a otra altura y el borde de la
+      // cúpula no es una arista, y algo ladeada)
+      qa.setFromAxisAngle(UP, yaw(Math.cos(f), Math.sin(f))); qb.setFromAxisAngle(XV, (r(b + 10) - 0.5) * 0.16); qa.multiply(qb); qb.setFromAxisAngle(ZV, (r(b + 11) - 0.5) * 0.35); qa.multiply(qb); euler.setFromQuaternion(qa);
+      push(type, { p: [x + Math.cos(at) * d, ay, z + Math.sin(at) * d], s: [R * q(r(b + 9), L.w), Math.max(0.6, ay - bottom), reach], r: [euler.x, euler.y, euler.z], c: leafC(colorAt(at, r(b + 12), r(b + 13)), light, tint) });
     }
   });
   // La coronilla, tapada: unas matas de hojas menudas tumbadas en lo alto, donde arrancan las ramillas (si no, desde arriba
   // se veía el núcleo por el centro, como un agujero, y todas las tiras saliendo de él)
-  if (!bare) for (let i = 0, n = Math.round(5 + 4 * age); i < n; i++) {
-    const a = r(1100 + i) * Math.PI * 2, d = R * 0.3 * Math.sqrt(r(1110 + i)), u = 0.55 + r(1120 + i) * 0.45, f = r(1130 + i) * Math.PI * 2, sq = Math.sqrt(1 - u * u);
-    dv.set(sq * Math.cos(f), u, sq * Math.sin(f)); qa.setFromUnitVectors(ZV, dv); qb.setFromAxisAngle(ZV, r(1140 + i) * 6.28); qa.multiply(qb); euler.setFromQuaternion(qa);
-    const sz = R * (0.36 + r(1150 + i) * 0.16);
-    push('cardS', { p: [x + Math.cos(a) * d, top - 0.3 - 0.3 * (d / R) - r(1160 + i) * 0.15, z + Math.sin(a) * d], s: [sz, sz, sz], r: [euler.x, euler.y, euler.z], c: leafC(pickW(P, r(1170 + i)), 1.12 + 0.12 * r(1180 + i), tint) });
+  if (!bare) for (let i = 0, n = Math.round(6 + 5 * age); i < n; i++) {
+    const b = 3000 + i * 10, a = r(b) * Math.PI * 2, d = R * 0.34 * Math.sqrt(r(b + 1)), u = 0.55 + r(b + 2) * 0.45, f = r(b + 3) * Math.PI * 2, sq = Math.sqrt(1 - u * u);
+    dv.set(sq * Math.cos(f), u, sq * Math.sin(f)); qa.setFromUnitVectors(ZV, dv); qb.setFromAxisAngle(ZV, r(b + 4) * 6.28); qa.multiply(qb); euler.setFromQuaternion(qa);
+    const sz = R * (0.36 + r(b + 5) * 0.16);
+    push('cardS', { p: [x + Math.cos(a) * d, top - 0.3 - 0.3 * (d / R) - r(b + 6) * 0.15, z + Math.sin(a) * d], s: [sz, sz, sz], r: [euler.x, euler.y, euler.z], c: leafC(colorAt(a, r(b + 7), r(b + 9)), 1.05 + 0.1 * r(b + 8), tint) });
   }
 }
 // Arbusto: unas matas pequeñas con su núcleo y tarjetas de hojas, de algo más de un metro (con bayas en verano o flores en
@@ -422,7 +444,7 @@ function bush2(o, season, push, x, z, y, r, rot, h) {
   for (let i = 0; i < 4; i++) { const a = rot + i * 1.57 + r(10 + i) * 0.5, d = (0.3 + r(15 + i) * 0.1) * k; clumps.push([x + Math.cos(a) * d, y + (0.28 + r(20 + i) * 0.14) * k, z + Math.sin(a) * d, (0.28 + r(25 + i) * 0.08) * k]); }
   // (cada mata, de un color, como en los árboles)
   const cc = clumps.map((_, i) => pickW(P, r(1000 + i)));
-  clumps.forEach(([cx, cY, cz, cr], i) => push('lump', { p: [cx, cY + cr * 0.06, cz], s: [cr * 0.42, cr * 0.33, cr * 0.42], r: [r(3) * 0.4, r(4), 0], c: leafC(cc[i], 0.6, tint) }));
+  clumps.forEach(([cx, cY, cz, cr], i) => push('lump', { p: [cx, cY + cr * 0.06, cz], s: [cr * 0.36, cr * 0.28, cr * 0.36], r: [r(3) * 0.4, r(4), 0], c: leafC(cc[i], 0.6, tint) }));   // (pequeño: asomaba como una bola lisa)
   for (let i = 0; i < 4; i++) { const a = rot + i * 1.6 + 0.4; push('twig', { p: [x + Math.cos(a) * 0.12 * k, y + 0.12, z + Math.sin(a) * 0.12 * k], s: [1.4, 0.3, 1.4], r: [Math.sin(a) * 0.5, 0, -Math.cos(a) * 0.5] }); }
   for (let i = 0; i < 36; i++) {
     const ci = i % clumps.length, [cx, cY, cz, cr] = clumps[ci], u = r(200 + i) * 1.5 - 0.5, f = r(300 + i) * Math.PI * 2, sq = Math.sqrt(1 - u * u);
@@ -853,7 +875,7 @@ export function buildFarNature(objs, season, groundY) {
     if (o.kind === 'oak' || o.kind === 'fruit' || o.kind === 'swampTree') {
       const { k, R, Ry, cy } = broadDims(o, y), P = o.kind === 'swampTree' ? SAUCE[season] : HOJAS[season], tint = leafTint(o, season), pal = P.c.map(c => leafC(c, 0.85, tint));
       trunks.push({ p: [x, (y + cy) / 2, z], s: [1.5 * k, cy - y, 1.5 * k] });
-      if (season < 3 || o.kind === 'swampTree') {
+      if (season < 3) {   // (en invierno, en ramas: también el sauce, que de cerca y en el impostor son ramillas peladas)
         lumps.push({ p: [x, cy + Ry * 0.2, z], s: [R * 0.95, Ry * 0.9, R * 0.95], r: [h, h * 2, 0], c: pal[Math.floor(h * pal.length)] });
         lumps.push({ p: [x + Math.cos(rot) * R * 0.45, cy - Ry * 0.1, z + Math.sin(rot) * R * 0.45], s: R * 0.6, c: pal[(Math.floor(h * 9)) % pal.length] });
       }

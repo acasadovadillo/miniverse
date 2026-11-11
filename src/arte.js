@@ -47,7 +47,7 @@ export const tonos = c => { const [h, s, v] = hsv(...rgb(c)); return [1, 1.08, 1
 // Los cuatro tonos del suelo de un bioma (el de base, dos más claros y uno más oscuro), con más recorrido que tonos(): los
 // claros salen más secos (más amarillos y menos saturados) y el oscuro, más jugoso. El matiz va en sextos de vuelta
 // (-0,14: unos 8°). k: el contraste de cada bioma (la nieve y la arena, poco). (tonos() se queda como estaba: lo usan
-// las hojas)
+// los pinos, las palmeras y los cactus)
 export const tonosSuelo = (c, k = 1) => {
   const [h, s, v] = hsv(...rgb(c));
   return [[1, 1, 0], [1 + 0.1 * k, 1 - 0.08 * k, -0.08 * k], [1 + 0.2 * k, 1 - 0.15 * k, -0.14 * k], [1 - 0.16 * k, 1 + 0.08 * k, 0.06 * k]]
@@ -58,26 +58,28 @@ export const tonosSuelo = (c, k = 1) => {
 // suya: terrain.js le pasa la opción al crearlo). Ver opciones.js
 export const SUELO_V2 = apagada('suelo');
 // Las hojas de los árboles de hoja y de los arbustos por estación (0 primavera … 3 invierno): los colores de las matas de
-// la copa, cada uno con lo que se da (w). Cada mata de un árbol toma uno (por su número y la clase de árbol, para que el
-// lejano case: nature3d.js, broadleaf2) y sus hojas casi todas de él: así la copa tiene manchas, no un ruido parejo que de
-// lejos se queda en un solo tono. En primavera, verdes
-// tiernos y claros; en verano, verdes más hondos, unos amarillentos y otros azulados; en otoño, la mezcla de verdad: los
+// la copa, cada uno con lo que se da (w). Cada mata de un árbol toma uno (repartidos por lo que se da
+// cada uno, en el orden que le toca a ese árbol, para que el lejano case: nature3d.js, broadleaf2) y sus hojas casi todas
+// de él: así la copa tiene manchas, no un ruido parejo que de lejos se queda en un solo tono. En primavera, verdes tiernos
+// y claros; en verano, verdes más hondos, unos amarillentos y otros azulados; en otoño, la mezcla de verdad: los
 // verdes que quedan, oro, amarillo, naranja, rojizo y pardo (en `otono`, los dos robles del atlas de lejos: el A, más
 // verde y dorado; el B, más naranja y rojizo). En invierno los árboles se quedan en ramas; el color, de los arbustos.
 // Encima de esto, cada árbol lleva su tinte (nature3d.js, leafTint), el mismo de cerca y de lejos.
 export const HOJAS = [
   { c: ['#7d9848', '#89a24f', '#6c8a42', '#99aa58', '#76924f'], w: [3, 2, 2, 1, 2] },
   { c: ['#4c672f', '#587136', '#63783a', '#475f35', '#6a7c3c'], w: [3, 3, 2, 2, 1] },
-  { c: ['#6c7535', '#a2842d', '#b5962f', '#a96a2c', '#8f4529', '#7c5631'], w: [2, 3, 2, 3, 2, 2],
-    otono: [[3, 4, 3, 2, 1, 1], [1, 2, 1, 4, 3, 2]] },
+  { c: ['#5f7a34', '#8a8f34', '#c39a26', '#c06a24', '#9c3c24', '#74502e'], w: [3, 2, 3, 3, 2, 2],
+    otono: [[4, 3, 4, 2, 1, 1], [1, 1, 2, 4, 4, 2]] },
   { c: ['#858c84', '#8f968d', '#7a8279'], w: [2, 1, 1] },
 ];
-// El sauce: verde amarillento (en primavera, casi limón), amarillo en otoño, y en invierno sus ramillas peladas, doradas
+// El sauce: verde amarillento (en primavera, casi limón); en otoño amarillea, pero aguanta verde hasta tarde (un ocre
+// parejo, sobre la cúpula de ramillas, parecía un tejado de paja); y en invierno sus ramillas peladas, de un pardo dorado
+// apagado (doradas, parecían hierba seca)
 export const SAUCE = [
   { c: ['#8aa04a', '#94a852', '#7d9446'], w: [2, 1, 1] },
   { c: ['#6f8542', '#7a8c47', '#64793e'], w: [2, 2, 1] },
-  { c: ['#a99a3f', '#b9a446', '#8f8c40', '#a1823a'], w: [3, 2, 2, 1] },
-  { c: ['#9c8a4c', '#a8955a', '#8a7a44'], w: [2, 1, 1] },
+  { c: ['#7d8c3e', '#6f8040', '#9a983f', '#b4a347', '#8c8a3a', '#a07f38'], w: [3, 2, 3, 2, 2, 1] },
+  { c: ['#7e7353', '#8a7f5e', '#6f6649'], w: [2, 1, 1] },
 ];
 // Para todo lo demás que no tiene color propio en la paleta (muebles, telas, toldos…): saturación ×0,7 y valor ×0,9,
 // para que no chille sobre el mundo sobrio.
