@@ -6,7 +6,7 @@ import { itemIcon } from './art/items.js';
 import { camToSave, camFromSave, CAM } from './camera.js';
 import { wrapX, wrapIndex, HALF, NORTH, SOUTH } from './world/planet.js';
 import { Overworld, NILO_LOOK } from './world/scenes.js';
-import { houseBlueprint, familyBlueprint, byChunk, doorTile } from './world/blueprints.js';
+import { houseBlueprint, familyBlueprint, byChunk, doorTile, houseSize } from './world/blueprints.js';
 import { HOUSE, HOUSE_BIG, HOUSE_FAMILY, HOUSES, CENTER, SPAWN, inBounds, inOwnHouse, inTavern, hasProject, setFamilyHouse } from './world/village.js';
 import { PIECES, parsePlaced } from './pieces.js';
 import { BUILDABLE } from './buildables.js';
@@ -251,11 +251,14 @@ export class Game {
     // Lo que el jugador tenía en su habitación va primero (dentro de la casa); luego se levanta la casa con
     // sus muebles por defecto, que solo ocupan las casillas que quedan libres. Va después de crear al jugador,
     // porque lo que no quepa vuelve a la mochila a través de él.
-    if (!this.house.built) { this.migrateRoom(save.house); this.layHouse(this.houseSize, true); this.house.built = true; this.house.v = 3; }
+    if (!this.house.built) { this.migrateRoom(save.house); this.layHouse(this.houseSize, true); this.house.built = true; this.house.v = 4; }
     // Partidas de cuando las casas medían la mitad: la casa crece hacia atrás y a los lados (la puerta se queda)
     if (this.house.v < 2) { this.layHouse(this.houseSize, false); this.makeRoomForBeds(); this.house.v = 2; }
     // Al crecer, la cama y el hogar se quedaron en medio de la sala: a su sitio, contra la pared
     if (this.house.v < 3) { this.tidyHouse(); this.house.v = 3; }
+    // Las casas tenían un candelabro por su cuenta, que salía también al poner tejados: ya no. En la tuya se cuelga uno de
+    // verdad (se apaga, se quita y se mueve como cualquier otro), donde va en las casas nuevas
+    if (this.house.v < 4) { this.hangHouseLamp(); this.house.v = 4; }
     this.explored = new Set(save.explored || []);
     // (los iconos de lo que se lleva y de la comida, en ratos libres: ver icons.js)
     if (this.view3d !== NO_VIEW) prewarmIcons(() => this.inv.slots.filter(Boolean).map(s => s.id), itemIcon);
@@ -476,8 +479,6 @@ export class Game {
     if (o) return this.placedAction(o, true);
     const hearth = sc.hearthNear?.(p.x, p.y);
     if (hearth) return this.hearthAction(hearth);
-    const lamp = this.lampNear();
-    if (lamp) return this.lampAction(lamp);
     const win = sc.windowNear?.(p.x, p.y);
     if (win) return this.windowAction(win);
     const rug = near.find(o => o.layer === 'rug');
@@ -530,9 +531,6 @@ export class Game {
         out.push({ kind: 'fence', o, box: box(o.x + (x0 + x1) / 2, o.y + (y0 + y1) / 2, (x1 - x0) / 2, (y1 - y0) / 2, 0, 0.9) });
       }
     }
-    // El candelabro de la casa, colgado del techo
-    const lamp = this.lampNear(R), at = lamp && this.view3d.world.chandelierNear(p.x, p.y, R, true);
-    if (lamp) out.push({ kind: 'lamp', tile: lamp, box: box(at[0], at[1], 0.6, 0.6, 1.9, 2.8) });
     // Lo de cada sistema: el tablón, las cuevas y los templos, los árboles con fruta, la barca de otro…
     for (const s of this.systems) { const more = s.aimables?.(p, sc, box); if (more) out.push(...more); }
     // En primera persona, también las criaturas: se les pega a las que están en la cruceta
@@ -558,7 +556,6 @@ export class Game {
       case 'window': return this.windowAction(a.tile);
       case 'hearth': return this.hearthAction(a.tile);
       case 'fence': return { text: `Quitar ${(PIECES[a.o.placed] || ITEMS[a.o.placed]).name.toLowerCase()}`, run: () => { if (this.pickUp(a.o)) this.onSave?.(); } };
-      case 'lamp': return this.lampAction(a.tile);
       case 'npc': return this.neighbors.actionFor(a.n);
       case 'kid': return this.family.actionFor(a.id, a.e);
       case 'animal': return this.ranch.talk(a.e);
@@ -602,9 +599,6 @@ export class Game {
     const sc = this.scene, off = sc.lightOff(...hearth), mine = !!sc.ownAt?.('placed', ...hearth), save = () => this.onSave?.();
     return { text: off ? 'Encender el fuego' : 'Apagar el fuego', run: () => { sc.toggleLight(...hearth); Audio.noiseHit(off ? 900 : 300, 0.25, 0.25); save(); }, alt: mine ? { text: 'Recoger el hogar', run: () => { if (this.pickUp({ tile: hearth, layer: 'placed', placed: 'chimenea' })) save(); } } : null };
   }
-  // El candelabro de la casa en la que se está (la casilla de su centro), o null
-  lampNear(d) { const p = this.player; return (this.scene === this.world && p.inside !== undefined && this.underRoof && this.view3d?.world?.chandelierNear?.(p.x, p.y, d)) || null; }
-  lampAction(lamp) { const sc = this.scene, k = `c:${lamp}`, off = sc.lightOff(...lamp, k); return { text: off ? 'Encender el candelabro' : 'Apagar el candelabro', run: () => { sc.toggleLight(...lamp, k); Audio.blip(); this.onSave?.(); } }; }
   // Una ventana: se abre o se cierra (con contraventanas, por fuera; sin ellas, con postigos por dentro)
   windowAction(win) { const sc = this.scene, closed = sc.doorClosed(...win); return { text: closed ? 'Abrir la ventana' : 'Cerrar la ventana', run: () => { sc.toggleDoor(...win); Audio.door(); this.onSave?.(); } }; }
   // La alfombra: con X se recoge (con E no, para no llevársela sin querer)
@@ -862,6 +856,14 @@ export class Game {
       w.place(spot[0], spot[1], cid, crot);
       if (items) w.delta(Math.floor(spot[0] / CHUNK), Math.floor(spot[1] / CHUNK)).chest[`${spot[0]},${spot[1]}`] = items;
     }
+  }
+  // El candelabro de tu casa, en medio, si ahí no hay nada y no tienes ya otro colgado (la casa familiar no lo trae: la
+  // amuebla el jugador)
+  hangHouseLamp() {
+    if (this.house.family) return;
+    const w = this.world, big = this.house.big, H = big ? HOUSE_BIG : HOUSE, { w: W, h } = houseSize(big), tx = H.x0 + Math.floor(W / 2) - 1, ty = H.y0 + Math.floor(h / 2) - 1;
+    for (let y = H.y0; y < H.y1; y++) for (let x = H.x0; x < H.x1; x++) if (parsePlaced(w.at('placed', x, y) || '')[0] === 'candelabro') return;
+    if (!w.at('placed', tx, ty) && !w.footAt(tx, ty) && w.roofAt(tx, ty)) w.place(tx, ty, 'candelabro');
   }
   // La cama y el hogar de tu casa que no estén contra un muro pasan a su sitio del plano (contra la pared
   // de atrás), si está libre

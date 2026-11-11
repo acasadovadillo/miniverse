@@ -212,6 +212,9 @@ export class Overworld {
     this.layers = [];             // otras capas de contenido por trozo (cultivos, lugares…): { add(cx, cy, delta, out), baseAt?(layer, tx, ty) }
     this.onTouch = null;          // avisa de cada trozo que cambia (para jugar juntos en directo)
     this.touches = 0;             // sube con cada cambio de cualquier trozo (lo lejano solo se vuelve a mirar entonces)
+    // (las casas tenían un candelabro por su cuenta, que se apagaba aparte: "c:x,y" en d.off. Ya no lo hay; lo que quede
+    // de entonces se olvida y se guarda así)
+    for (const [k, d] of deltas) if (d?.off) for (const o of Object.keys(d.off)) if (o.startsWith('c:')) { delete d.off[o]; this.dirty.add(k); }
   }
 
   // ---------- barcas amarradas ----------
@@ -761,11 +764,11 @@ export class Overworld {
     this.touchAround(tx, ty);
     return !!d.closed[k];
   }
-  // Luces apagadas (lámparas, antorchas, velas, hogares y candelabros): se guarda en el trozo, como las puertas.
-  // k: la casilla ("x,y") o, el candelabro de una casa, "c:x,y" (la casilla del centro de la casa)
-  lightOff(tx, ty, k = `${tx},${ty}`) { return !!this.delta(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK))?.off?.[k]; }
-  toggleLight(tx, ty, k = `${tx},${ty}`) {
-    const d = this.delta(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK), true);
+  // Luces apagadas (lámparas, antorchas, velas, hogares y candelabros): se guarda en el trozo, por su casilla ("x,y"),
+  // como las puertas
+  lightOff(tx, ty) { return !!this.delta(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK))?.off?.[`${tx},${ty}`]; }
+  toggleLight(tx, ty) {
+    const d = this.delta(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK), true), k = `${tx},${ty}`;
     d.off ||= {};
     if (d.off[k]) delete d.off[k]; else d.off[k] = 1;
     this.touchAround(tx, ty);

@@ -1,24 +1,29 @@
 // El arco, como en Minecraft: mantener pulsado tensa (un segundo para la fuerza máxima, y se anda despacio), al soltar sale
-// la flecha, que vuela en parábola: cuanto más tensa, más lejos y más daña. Se clava en el suelo, en los muros y en los
-// troncos, y se recoge con solo pasar por encima; la que da a un animal o a una criatura se pierde. Las disparadas en
-// creativo no se recogen. En primera persona va hacia la cruceta; en tercera, hacia el cursor (con el ángulo justo para
-// llegar, si la fuerza da); sin ratón, hacia delante.
+// la flecha, que vuela en parábola: cuanto más tensa, más lejos y más daña. Choca con la forma de lo que se ve (las barras
+// y los postes de las vallas, los muros, los troncos, las rocas, los muebles, los tejados: ver world/shots.js) y se clava
+// por la punta; por donde no hay nada, sigue volando. Se recoge con solo pasar por encima (o junto al muro o al tronco
+// donde se ha clavado, si se alcanza), también en creativo; la que da a un animal o a una criatura se pierde. En primera
+// persona va hacia la cruceta; en tercera, hacia el cursor (con el ángulo justo para llegar, si la fuerza da); sin ratón,
+// hacia delante.
 //
 // Jugando juntos, cada flecha la lleva quien la dispara: él decide a quién da. Los demás la ven volar con los mismos
-// datos, y cualquiera puede recogerla una vez clavada: entonces se avisa a todos de que ya no está.
+// datos, y cualquiera puede recogerla una vez clavada (también las del otro): entonces se avisa a todos de que ya no está.
 import { keys } from './input.js';
 import { CAM } from './camera.js';
 import { ITEMS } from './items.js';
 import { Audio } from './audio.js';
 import { Profile } from './accounts.js';
-import { collide } from './physics.js';
 import { rayHits, aabb } from './world/fit.js';
-import { wrapX } from './world/planet.js';
+import { wrapX, nearX } from './world/planet.js';
+import { shotHit } from './world/shots.js';
+import { WALL_H } from './three/build3d.js';
 import { bodyBox, PREY } from './hunt.js';
 
 export const V = 24, G = 16;                    // lo que corre la flecha a toda fuerza (casillas por segundo) y lo que la baja
 const FULL_DRAW = 1, MIN_POWER = 0.1, MAX_DMG = 6, DRAW_WALK = 0.45;
-const AIR_TTL = 12, STUCK_TTL = 300, FREE_TTL = 60, PICK_AFTER = 0.3, PICK_NEAR = 0.8, HIGH = 2.6, LOW = 1.2;
+const AIR_TTL = 12, STUCK_TTL = 300, FREE_TTL = 60, PICK_AFTER = 0.3, PICK_NEAR = 0.9, REACH = [-0.7, 2.3];
+// (la flecha va por su centro, a.x/a.h/a.y; la punta, TIP por delante. Clavada, la punta entra SINK: más en la tierra)
+const TIP = 0.42, SINK = { ground: 0.18, solid: 0.09 };
 const MAX_ARROWS = 60;
 const r2 = v => Math.round(v * 100) / 100;
 
@@ -137,7 +142,7 @@ export class Archery {
     return out;
   }
   step(dt) {
-    const g = this.game;
+    const g = this.game, gy = (x, y) => g.view3d.groundY?.(g.scene, x, y) || 0;
     let targets = null;
     this.list = this.list.filter(a => {
       a.age += dt;
@@ -145,37 +150,61 @@ export class Archery {
       if (a.age > AIR_TTL) return false;
       if (a.scene !== g.scene) return a.scene === g.world;   // (mientras se está en una cueva, las de fuera se quedan quietas)
       const nx = a.x + a.vx * dt, ny = a.y + a.vy * dt, nh = a.h + a.vh * dt - G * dt * dt / 2, len = Math.hypot(nx - a.x, ny - a.y, nh - a.h) || 1e-6;
+      const d = [(nx - a.x) / len, (nh - a.h) / len, (ny - a.y) / len], tip = [a.x + d[0] * TIP, a.h + d[1] * TIP, a.y + d[2] * TIP];
       if (a.mine) {
-        const o = [a.x, a.h, a.y], d = [(nx - a.x) / len, (nh - a.h) / len, (ny - a.y) / len];
         let hit = null, near = len;
-        for (const [e, b, gy] of (targets ||= this.targets())) {
-          const t = rayHits(o, d, { ...b, y0: b.y0 + gy, y1: b.y1 + gy });
+        for (const [e, b, gy0] of (targets ||= this.targets())) {
+          const t = rayHits(tip, d, { ...b, y0: b.y0 + gy0, y1: b.y1 + gy0 });
           if (t !== null && t <= near) { near = t; hit = e; }
         }
         if (hit) { this.strike(a, hit); return false; }
       }
       a.vh -= G * dt;
-      const ground = g.view3d.groundY?.(g.scene, nx, ny) || 0;
-      if (g.scene === g.world && nh <= ground + 0.25 && g.world.water(nx, ny)) { g.gather.chips(nx, ny, 'water', 6); return false; }   // (al agua: se hunde)
-      if (nh <= ground + 0.02 || this.blocked(g.scene, nx, ny, nh - ground, a)) { this.stick(a, nh <= ground + 0.02 ? ground + 0.02 : nh); return true; }
+      // (la punta: dónde toca el suelo, si lo toca en este paso, y lo primero que encuentra antes)
+      const tx = tip[0] + d[0] * len, ty = tip[2] + d[2] * len, th = tip[1] + d[1] * len, over0 = tip[1] - gy(tip[0], tip[2]), over1 = th - gy(tx, ty);
+      let t = over1 <= 0 ? len * Math.max(0, over0) / Math.max(1e-6, over0 - over1) : null, into = 'ground';
+      const solid = this.hit(g.scene, tip, d, t ?? len, gy);
+      if (solid !== null) { t = solid; into = 'solid'; }
+      else if (g.scene === g.world && over1 <= 0.25 && g.world.water(tx, ty)) { g.gather.chips(tx, ty, 'water', 6); return false; }   // (al agua: se hunde)
+      if (t !== null) { this.stick(a, tip[0] + d[0] * t, tip[1] + d[1] * t, tip[2] + d[2] * t, d, SINK[into]); return true; }
       a.x = g.scene === g.world ? wrapX(nx) : nx; a.y = ny; a.h = nh;
       return true;
     });
   }
-  // ¿Choca aquí con algo? (lo bajo, los muebles, hasta poca altura; muros y troncos, más; por encima de todo, pasa)
-  blocked(sc, x, y, above, a) {
-    if (sc !== this.game.world) return !!sc.blocked?.(x, y);
-    if (above > HIGH) return false;
-    const list = sc.collidersNear(x, y).filter(c => (above < LOW || c.wall || c.piece || c.r !== undefined) && !(c.x === this.game.player?.x));
-    const q = { x, y };
-    collide(q, list, 0.01);
-    if (Math.hypot(q.x - x, q.y - y) < 1e-4) return false;
-    return a.age > 0.05;   // (al salir, no se choca con lo que tiene al lado quien dispara)
+  // Lo primero con lo que choca la punta yendo de o hacia d, antes de len (o null). En el mundo, la forma de lo que se ve
+  // (world/shots.js) y los tejados (por dentro, el techo); en una cueva, sus paredes
+  hit(sc, o, d, len, gy) {
+    if (sc !== this.game.world) {
+      for (let t = 0.1; t <= len; t += 0.1) if (sc.blocked?.(o[0] + d[0] * t, o[2] + d[2] * t)) return t;
+      return null;
+    }
+    const best = shotHit(sc, o, d, len, gy), end = best ?? len;
+    // (el tejado: de lo alto del muro a su cara de arriba, con la forma con que se dibuja: ver three/world3d.js, r.top. Se
+    // mira en tres puntos del paso y, si alguno está dentro, se busca dónde entra)
+    const W = this.game.view3d.world;
+    if (!W?.regionOf || !W.regions.size) return best;
+    const inRoof = t => {
+      const x = o[0] + d[0] * t, y = o[2] + d[2] * t, h = o[1] + d[1] * t, r = W.regions.get(W.regionOf.get(`${Math.floor(x)},${Math.floor(y)}`));
+      return !!r?.top && h > (r.level || 0) + WALL_H - 0.05 && h < r.top(x, y);
+    };
+    if (inRoof(0)) return best;   // (ya dentro: sale de ahí)
+    for (let i = 1; i <= 3; i++) {
+      let hi = end * i / 3;
+      if (!inRoof(hi)) continue;
+      let lo = end * (i - 1) / 3;
+      for (let k = 0; k < 6; k++) { const m = (lo + hi) / 2; if (inRoof(m)) hi = m; else lo = m; }
+      return hi;
+    }
+    return best;
   }
-  stick(a, h) {
-    a.stuck = true; a.age = 0; a.h = h;
-    const d = Math.hypot(a.x - (this.game.player?.x ?? 0), a.y - (this.game.player?.y ?? 0));
-    if (d < 25) Audio.noiseHit(1200, 0.05, 0.15);
+  // Clavada: con la punta SINK dentro de lo que ha tocado (en p), en la dirección en que iba
+  stick(a, px, ph, py, d, sink) {
+    const back = TIP - sink, g = this.game;
+    a.stuck = true; a.age = 0;
+    a.x = g.scene === g.world ? wrapX(px - d[0] * back) : px - d[0] * back; a.h = ph - d[1] * back; a.y = py - d[2] * back;
+    a.vx = d[0]; a.vh = d[1]; a.vy = d[2];   // (hacia donde apunta clavada)
+    const me = g.player, dist = me ? Math.hypot(nearX(a.x, me.x) - me.x, a.y - me.y) : 0;
+    if (dist < 25) Audio.noiseHit(1200, 0.05, 0.15);
   }
   strike(a, e) {
     const g = this.game;
@@ -183,12 +212,16 @@ export class Archery {
     Audio.chop();
     if (a.scene === g.world) g.live.net?.send({ t: 'arrowgone', id: a.id });
   }
-  // Pasar por encima de una clavada: vuelve a la mochila
+  // Pasar por encima de una clavada, o junto al muro o al tronco donde está si se alcanza (en lo alto de un muro o de un
+  // tejado, no): vuelve a la mochila, también en creativo y también las del otro jugador. Se avisa a todos: ya no está
   pickUp(p) {
     const g = this.game;
     if (g.gamemode === 'spectator' || g.busy) return;
+    const feet = (g.view3d.groundY?.(g.scene, p.x, p.y) || 0) + (p.z || 0);
     this.list = this.list.filter(a => {
-      if (!a.stuck || a.free || a.age < PICK_AFTER || a.scene !== g.scene || Math.hypot(a.x - p.x, a.y - p.y) > PICK_NEAR) return true;
+      if (!a.stuck || a.age < PICK_AFTER || a.scene !== g.scene) return true;
+      const up = a.h - feet, x = g.scene === g.world ? nearX(a.x, p.x) : a.x;
+      if (Math.hypot(x - p.x, a.y - p.y) > PICK_NEAR || up < REACH[0] || up > REACH[1]) return true;
       if (g.inv.add('flecha', 1)) return true;   // (si no cabe, se queda)
       Audio.pickup();
       if (a.scene === g.world) g.live.net?.send({ t: 'arrowgone', id: a.id });

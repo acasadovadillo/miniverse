@@ -989,6 +989,12 @@ SOLIDS.of = name => {
   if (!m.boxesFor) { const list = m.solids.filter(b => b[4] > 0.04); m.boxesFor = list.length > 60 ? [hull(list)] : list; }
   return m.boxesFor.length ? m.boxesFor : null;
 };
+SOLIDS.all = name => {
+  const m = getModel(name);
+  if (!m) return null;
+  m.allBoxes ||= m.solids.filter(b => b[4] > 0.04);
+  return m.allBoxes.length ? m.allBoxes : null;
+};
 // Material de una pieza de modelo por su clave ('wood', 'books3', 'fruit:#e04a2a', 'leafc:#3f8a32'…)
 const DYN = new Map();
 export function modelMat(key) {
@@ -1012,6 +1018,5 @@ function chandelier(m, y0) {
   }
   return m;
 }
-// El de cada casa (el origen arriba) y el que se coloca (origen en el suelo, colgado del techo, con su luz)
-export const CHANDELIER = chandelier(new Model(), 0);
+// El que se cuelga (origen en el suelo, colgado del techo, con su luz)
 BUILD.candelabro = m => chandelier(m, WALL_H).light(0, WALL_H - 0.6, 0, { color: '#ffd08a', intensity: 4.5, range: 11, halo: 0 });   // (sin halo: lo llevan sus velas)

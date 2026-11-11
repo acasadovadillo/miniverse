@@ -39,7 +39,8 @@ export function toReal(look, kid = false) {
   if (top === 'delantal') g.push({ id: 'delantal', color: col(W.encima) });
   if (!legs || legs === 'falda') g.push({ id: 'medias', color: col(W.calcetines) || '#5f5346' });
   g.push({ id: W.pies ? 'botas' : 'zapatos', color: col(W.pies) || '#5a4030' });
-  const hat = W.cabeza?.id, seed = hash(JSON.stringify(look));
+  // (la semilla, sin la mochila: ponérsela o quitársela no cambia la cara ni la postura, y se hace sin rehacer la persona)
+  const hat = W.cabeza?.id, seed = hash(JSON.stringify(look.wear?.espalda ? { ...look, wear: { ...look.wear, espalda: undefined } } : look));
   const out = {
     sex: girl ? 'f' : 'm', build: 'medio', skin: L.skin, hair: L.hair, hairStyle: HAIR[L.hairStyle] || 'corto', ojos: L.eyes,
     eyeStyle: L.eyeStyle, brows: L.brows, nose: L.nose, semilla: seed % 97, garments: g,
@@ -98,7 +99,8 @@ export class RealPerson {
     const W = look.wear || clothesFor(fullLook(look)), top = W.encima?.id === 'delantal' ? W.encima : W.torso || W.interiorArriba;
     this.bellyColor = window.LOOK.sobrio(top?.color || fullLook(look).skin);
     this.targetYaw = 0; this.speed = 0;
-    if (W.espalda) this.addBag(W.espalda);   // (la mochila, si la lleva puesta)
+    this.bag = null; this.bagKey = null;
+    if (W.espalda) this.setBag(W.espalda);   // (la mochila, si la lleva puesta)
     r.root.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
     // El esqueleto solo se recalcula (y se sube a la gráfica) si algo ha cambiado: Three lo hace en cada fotograma con
     // cada persona que se ve, aunque esté quieta o se anime a menos fotogramas (ver Actors.pose). Ha cambiado si se ha
@@ -139,22 +141,40 @@ export class RealPerson {
     if (this.belly) { this.belly.geometry.dispose(); this.belly.material.dispose(); }
   }
   clone() { return new RealPerson(this.look, { kid: this.kid }); }
-  // La mochila a la espalda: cuerpo, solapa, bolsillo con su hebilla y las dos correas por encima de los hombros y bajo
-  // los brazos. Cuelga del hueso del pecho y se ajusta a cada cuerpo: dónde le quedan la espalda, el pecho y los
-  // hombros se mide en su malla
-  addBag(item) {
-    const b = this.r.bones, T = b.torso, v = new THREE.Vector3(), W = window.LOOK;
-    this.r.root.updateMatrixWorld(true);
-    const inv = new THREE.Matrix4().copy(T.matrixWorld).invert(), top = b.armL.getWorldPosition(new THREE.Vector3()).applyMatrix4(inv).y;
-    let back = -0.08, front = 0.08;
+  // La mochila a la espalda (item: { id, color }) o ninguna (null): se pone y se quita sin rehacer la persona (rehacerla son
+  // 100-250 ms de tirón). Devuelve la nueva, si la hay, para que quien la dibuja le ponga sus materiales (ver actors.js)
+  setBag(item) {
+    const k = item ? item.color || '#8a5a34' : null;
+    if (k === this.bagKey) return null;
+    this.bagKey = k;
+    if (this.bag) { this.bag.parent?.remove(this.bag); for (const o of this.bag.children) if (o.geometry !== BUCKLE_GEO) o.geometry.dispose(); this.bag = null; }
+    return item ? this.addBag(item) : null;
+  }
+  // Dónde le quedan a este cuerpo la espalda, el pecho y los hombros, en el hueso del pecho y en reposo (con el esqueleto
+  // de cuando se hizo: así sale igual se ponga quieta, andando, sentada o agachada). Se mide una vez en su malla
+  bagFit() {
+    if (this.fit) return this.fit;
+    const b = this.r.bones, v = new THREE.Vector3(), M = new THREE.Matrix4(), A = new THREE.Matrix4();
+    let back = -0.08, front = 0.08, top = null;
     this.r.root.traverse(o => {
       if (!o.isSkinnedMesh) return;
+      const sk = o.skeleton, iT = sk.bones.indexOf(b.torso), iA = sk.bones.indexOf(b.armL);
+      if (iT < 0) return;
+      M.multiplyMatrices(sk.boneInverses[iT], o.bindMatrix);   // (de la malla en reposo al hueso del pecho en reposo)
+      if (top === null && iA >= 0) top = v.setFromMatrixPosition(A.copy(sk.boneInverses[iA]).invert()).applyMatrix4(sk.boneInverses[iT]).y;
+      if (top === null) return;
       const pos = o.geometry.attributes.position;
       for (let i = 0; i < pos.count; i += 3) {
-        o.getVertexPosition(i, v); o.localToWorld(v); v.applyMatrix4(inv);
+        v.fromBufferAttribute(pos, i).applyMatrix4(M);
         if (v.y > -0.02 && v.y < top - 0.05 && Math.abs(v.x) < 0.1) { back = Math.min(back, v.z); front = Math.max(front, v.z); }
       }
     });
+    return (this.fit = { back, front, top: top ?? 0.3 });
+  }
+  // La mochila: cuerpo, solapa, bolsillo con su hebilla y las dos correas por encima de los hombros y bajo los brazos.
+  // Cuelga del hueso del pecho y se ajusta a cada cuerpo (bagFit)
+  addBag(item) {
+    const T = this.r.bones.torso, W = window.LOOK, { back, front, top } = this.bagFit();
     // (todo el cuero en una sola malla con su color por vértice, y la hebilla aparte: 2 llamadas en vez de 14)
     const base = W.sobrio(item.color || '#8a5a34'), leather = base, dark = W.mix(base, '#1a120c', 0.38), parts = [];
     const g = new THREE.Group(), box = (c, x0, y0, z0, x1, y1, z1, r) => { const B = new Builder(); B.tint(c); B.roundBox(x0, y0, z0, x1, y1, z1, r, { s: 1 }); parts.push(B.geometry()); };
@@ -178,6 +198,7 @@ export class RealPerson {
     g.add(new THREE.Mesh(mergeParts(parts), BAG));
     g.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
     T.add(g); this.bag = g;
+    return g;
   }
   // La barriga, de 0 a 1: crece hacia delante más que a lo ancho, sobre el vientre (cuelga del hueso de la cintura)
   setBelly(k) {

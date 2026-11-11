@@ -9,6 +9,8 @@
 export const SOLIDS = { of: null };
 const FALLBACK = [[-0.45, 0, -0.45, 0.45, 1, 0.45]];
 export const solidsOf = name => SOLIDS.of?.(name) || FALLBACK;
+// Todas sus cajas, también las de un modelo con muchas piezas (para lo que vuela: ver shots.js)
+export const partsOf = name => SOLIDS.all?.(name) || solidsOf(name);
 
 // Hacia dónde mira (el frente del modelo, z+) y hacia dónde queda su derecha (x+) con un giro: 0, +y; π/2, +x
 export const dirOf = a => [Math.sin(a), Math.cos(a)], sideOf = a => [Math.cos(a), -Math.sin(a)];

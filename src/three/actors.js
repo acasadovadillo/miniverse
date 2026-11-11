@@ -99,9 +99,10 @@ export class Actors {
       if (!e || seen.has(e)) continue;
       seen.add(e);
       let m = this.models.get(e);
-      // (el jugador y los demás jugadores, con la ropa que llevan: si se ponen o se quitan algo, se rehace su persona)
+      // (el jugador y los demás jugadores, con la ropa que llevan: si se ponen o se quitan algo, se rehace su persona; si solo
+      // cambia la mochila, no: se pone o se quita en la que hay, ver pose)
       const look = e === p ? game.appearance() : e.look;
-      if (m && (e === p || e.remote) && m.look !== look) { this.drop(e, m); m = null; }
+      if (m && (e === p || e.remote) && m.look !== look) { if (m.kind === 'person' && look && m.look && bodyKey(m.look) === bodyKey(look)) m.look = look; else { this.drop(e, m); m = null; } }
       if (m?.kind === 'animal' && m.key !== animalKey(e)) { this.drop(e, m); m = null; }
       if (!m) {
         // (hacer una persona cuesta mucho, 100-250 ms: los vecinos van después, por cercanía. El jugador y los demás
@@ -344,9 +345,13 @@ export class Actors {
       return;
     }
     let pz = e.pose;
-    // (sentado en una silla que aquí no está: otro jugador que la ve donde aquí no hay ninguna; mejor en el suelo que en el aire)
+    // (sentado en una silla que aquí no está: otro jugador que la ve donde aquí no hay ninguna; mejor en el suelo que en el
+    // aire. El asiento se busca por lo que ocupa, no por su casilla: en el sofá, la otra plaza está a una casilla de la suya,
+    // y con la distancia al centro el otro jugador salía sentado en el suelo, hundido en el sofá. Se mira donde dicen sus
+    // mensajes que está, no por donde va llegando, y cada medio segundo por si quitan el asiento)
     if (pz?.kind === 'sit' && e.remote && scene.placedNear) {
-      if (!m.seatAt || m.seatAt.t < t - 0.5 || m.seatAt.x !== x || m.seatAt.z !== z) m.seatAt = { t, x, z, ok: scene.placedNear(x, z, 1).some(o => SEATS.has(o.placed) && Math.hypot(o.x - x, o.y - z) < 0.7) };
+      const sx = e.to ? (this.me && scene.kind === 'world' ? nearX(e.to[0], this.me.x) : e.to[0]) : x, sz = e.to ? e.to[1] : z;
+      if (!m.seatAt || m.seatAt.t < t - 0.5 || m.seatAt.x !== sx || m.seatAt.z !== sz) m.seatAt = { t, x: sx, z: sz, ok: scene.placedNear(sx, sz, 1.5).some(o => SEATS.has(o.placed) && (scene.placedDist ? scene.placedDist(o, sx, sz) : Math.hypot(o.x - sx, o.y - sz)) < 0.7) };
       if (!m.seatAt.ok) pz = { kind: 'floorSit', yaw: pz.yaw, h: -0.28 };
     }
     const lying = pz ? pz.kind === 'lie' || pz.kind === 'floorLie' : e.lying;
@@ -397,9 +402,18 @@ export class Actors {
       const bones = m.acc >= BONE_DT[tier], bdt = bones ? Math.min(0.5, m.acc) : 0;
       if (bones) m.acc = 0;
       if (bones) this.poseBones(m, e, P, pz, lying, bdt, game);
-      if (m.hand) {   // (los jugadores: la barriga, si espera un bebé; no es un hueso)
+      if (m.hand) {   // (los jugadores: la barriga, si espera un bebé, y la mochila, si la lleva; no son huesos)
         const made = P.setBelly(this.game.family.bellyOf(e));
         if (made && m === this.player) ownMesh(made, m, true);
+        const old = P.bag, bag = P.setBag(m.look?.wear?.espalda || null);
+        // (la que se quita se lleva sus materiales propios: los del jugador, para su silueta, y los de un espectador)
+        if (old && old !== P.bag) old.traverse(o => {
+          if (!o.isMesh) return;
+          if (o.userData.solid) o.material.dispose();
+          else if (m.mats?.includes(o.material)) { o.material.dispose(); for (const list of [m.mats, m.body]) { const i = list.indexOf(o.material); if (i >= 0) list.splice(i, 1); } }
+        });
+        if (bag && m === this.player) bag.traverse(o => { if (o.isMesh) ownMesh(o, m, true); });
+        if (bag && m.ghosted) { m.ghosted = false; this.ghost(m, true); }   // (de espectador, también medio transparente)
       }
     } else if (m.kind === 'animal') {
       if (yaw !== null) turnTo(m.root, yaw, dt);
@@ -683,6 +697,13 @@ function foodInHand(id) {
   return g;
 }
 const SEATS = new Set(['silla', 'taburete', 'sofa', 'sillon']);
+// El aspecto sin la mochila (para no rehacer la persona si solo cambia eso), una vez por look
+const BODY_KEYS = new WeakMap();
+function bodyKey(look) {
+  let k = BODY_KEYS.get(look);
+  if (k === undefined) BODY_KEYS.set(look, (k = JSON.stringify(look.wear?.espalda ? { ...look, wear: { ...look.wear, espalda: undefined } } : look)));
+  return k;
+}
 export function toolModel(id) {
   const def = ITEMS[id];
   if (!def || !(def.tool || def.weapon || def.bow)) return null;

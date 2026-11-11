@@ -5,7 +5,7 @@
 // Casa pequeña (12×10) con el origen en la esquina de atrás (x0, y0); la puerta, en medio de la fila de
 // delante (la que mira al jugador). Hay ventanas cada tres casillas en las cuatro paredes y un cuadro en la de atrás.
 // Dentro (10×8): cama (de dos casillas), dos estanterías con una lámpara al lado, hogar y maceta contra la pared de atrás;
-// mesa con dos sillas; alfombra, otra maceta y, en la tuya, un cofre. La casa grande (16×12) tiene el mismo reparto.
+// mesa con dos sillas; alfombra, otra maceta, un candelabro colgado en medio y, en la tuya, un cofre. La casa grande (16×12) tiene el mismo reparto.
 
 export const SMALL = { w: 12, h: 10 };
 export const BIG = { w: 16, h: 12 };
@@ -64,6 +64,7 @@ export function houseBlueprint({ x0, y0, big = false, roof = 'tejado_rojo', wall
     placed[k(x0 + 3, r + 4)] = 'alfombra@2';   // (de 2×1)
     placed[k(x0 + 1, y1 - 1)] = 'maceta';
     if (furnish === 'full') placed[k(x0 + 1, r + 3)] = 'cofre';
+    placed[k(x0 + Math.floor(w / 2) - 1, y0 + Math.floor(h / 2) - 1)] = 'candelabro';   // (colgado del techo, en medio)
   }
   return { placed, floor, roof: roofs };
 }
@@ -85,6 +86,7 @@ export function tavernBlueprint({ x0, y0 }) {
   for (let x = x0 + 1; x <= x0 + 6; x++) placed[k(x, y0 + 2)] = 'barra';
   for (const x of [x0 + 2, x0 + 4, x0 + 6]) placed[k(x, y0 + 3)] = 'taburete@2';
   for (const x of [x0 + 2, x1 - 2]) { placed[k(x, y0 + 5)] = 'mesa'; placed[k(x - 1, y0 + 5)] = 'silla@1'; placed[k(x + 1, y0 + 5)] = 'silla@3'; }
+  placed[k(dx, y0 + 4)] = 'candelabro';   // (en medio, sobre el paso)
   return { placed, floor, roof: roofs };
 }
 

@@ -26,7 +26,7 @@ export const WALL_H = 2.8;
 export const T = 0.12;
 const PLINTH = 0.42;
 const WIN = { half: 0.3, y0: 1.0, y1: 1.95 };
-const DOOR = { half: 0.42, y1: 2.05 };
+export const DOOR = { half: 0.42, y1: 2.05 };
 const BEAM = { post: 0.04, rail: 0.034, brace: 0.028 };
 export const ROOF = { level: 0.62, cap: 6, thick: 0.14, over: 0.32 };
 // Colores de la paleta sobria: cal, piedra y madera gastadas, teja de barro, pizarra y cristal oscuro (los que van sobre

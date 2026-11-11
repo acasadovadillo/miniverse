@@ -31,10 +31,9 @@ export class ArrowsView {
       const g = this.pool[n] ||= this.make();
       n++;
       g.visible = true;
-      // (clavada: con la punta un poco dentro)
-      const sink = a.stuck ? 0.2 : 0;
+      // (clavada, ya está donde queda con la punta dentro: ver archery.js, stick)
       D.set(a.vx, a.vh, a.vy).normalize();
-      g.position.set(nearX(a.x, me?.x ?? a.x) + D.x * sink, a.h + D.y * sink, a.y + D.z * sink);
+      g.position.set(nearX(a.x, me?.x ?? a.x), a.h, a.y);
       g.quaternion.setFromUnitVectors(Z, D);
     }
     for (let i = n; i < this.pool.length; i++) this.pool[i].visible = false;

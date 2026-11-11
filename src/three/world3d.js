@@ -10,7 +10,7 @@ import { boatModel } from './actors.js';
 import * as THREE from 'three';
 import { CHUNK, GRASS_REGROW } from '../world/gen.js';
 import * as village from '../world/village.js';
-import { PIECES, parsePlaced } from '../pieces.js';
+import { PIECES } from '../pieces.js';
 import { CAM } from '../camera.js';
 import { Builder } from './geo.js';
 import { buildNatureChunk, buildGround, buildFarNature, shake, WIND, GRASS, TUFT_LOD, tuftLods, DITHER, nearFadeSet, releaseFadeSet, fadeMeshes } from './nature3d.js';
@@ -18,7 +18,7 @@ import { ImpostorAtlas, buildFarImpostors, IMPOSTORS_ON, MASK, MASK_GLSL } from 
 import { wrapIndex } from '../world/planet.js';
 import { roofShape } from '../world/roof.js';
 import { baseMaterials, wallTile, doorTile, doorLeaf, gateTile, gateLeaf, fenceTile, floorTile, roofRegion, paintKey, WALL_H, ROOF, FLOWER } from './build3d.js';
-import { getModel, modelMat, CHANDELIER } from './models.js';
+import { getModel, modelMat } from './models.js';
 import { poolGround } from './glow.js';
 import { yawOf } from '../art/stations.js';
 // Lo que brilla en los modelos y, apagado, con qué se dibuja
@@ -54,7 +54,7 @@ export class World3D {
     this.chunks = new Map();       // "cx,cy" → vista del trozo
     this.nature = new Map();       // "bx,by" → bloque de naturaleza (árboles, rocas…) y hierba
     this.far = new Map();          // "bx,by" → bloque lejano
-    this.regions = new Map();      // clave → región de tejado { key, tiles, box, roof, lamp, top }
+    this.regions = new Map();      // clave → región de tejado { key, tiles, box, roof, top }
     this.regionOf = new Map();     // "tx,ty" → clave de su región
     this.doors = new Map();        // "tx,ty" → { leaf, amount }
     this.fadeMats = new Map();     // "región|lado" → Map(clave de material → material propio)
@@ -758,8 +758,7 @@ export class World3D {
   dropRegion(r) {
     if (r.roof) this.stale(false, regionBox(r));
     for (const k of ['roof', 'ceil']) if (r[k]) { this.group.remove(r[k]); r[k].traverse(o => { if (o.isMesh) o.geometry.dispose(); }); }
-    if (r.lamp) this.group.remove(r.lamp);
-    r.roof = r.lamp = r.ceil = null;
+    r.roof = r.ceil = null;
   }
   updateRegions(scene) {
     for (const r of this.regions.values()) {
@@ -779,18 +778,8 @@ export class World3D {
       // El techo por dentro: tablas y vigas (se ve solo con la cámara por debajo, ver updateFade)
       const floor = r.tiles.filter(([x, y]) => scene.at('floor', x, y));
       if (floor.length) { r.ceil = this.ceiling(floor, r.box); r.ceil.position.y = L; this.group.add(r.ceil); }
-      // Candelabro en el centro de las casas (las regiones con suelo), salvo si ya tienen uno colgado
-      if (floor.length > 4) {
-        let sx = 0, sy = 0;
-        for (const [x, y] of floor) { sx += x + 0.5; sy += y + 0.5; }
-        r.center = [sx / floor.length, sy / floor.length];
-        const lamp = new THREE.Group(), sinks = new Map();
-        for (const [key, B] of CHANDELIER.parts) { const m = B.mesh(this.mat(key)); m.castShadow = false; lamp.add(m); sinks.set(key, m); }
-        lamp.position.set(r.center[0], WALL_H + L, r.center[1]);
-        r.flames = CHANDELIER.fires.map(f => [f[0] + r.center[0], f[1] + WALL_H + L, f[2] + r.center[1], f[3]]);
-        r.lamp = lamp;
-        this.group.add(lamp);
-      }
+      // (sin candelabro por su cuenta: se cuelga como un objeto más; el de las casas del pueblo, las aldeas y la taberna va
+      // en sus planos, world/blueprints.js)
       // Altura del tejado en (x, z), para que la cámara pase por encima
       // (la misma forma que el dibujo: roof.js, a dos aguas si es rectangular, si no a cuatro)
       const shape = roofShape(r.tiles, (x, y) => this.regionOf.get(`${x},${y}`) === r.key);
@@ -811,15 +800,6 @@ export class World3D {
     for (const [B, key] of [[boards, 'plank'], [beams, 'dark']]) if (!B.empty) { const m = B.mesh(this.mat(key)); m.castShadow = false; m.receiveShadow = false; g.add(m); }
     g.visible = false;
     return g;
-  }
-  // ¿Cuelga de esta casa algún candelabro puesto por el jugador? (entonces no lleva el suyo); se mira de vez en cuando
-  ownLamp(r) {
-    const s = this.game?.world, t = performance.now() / 1000;
-    if (!s || (r.lampAt ?? -9) > t - 0.5) return r.hasLamp;
-    r.lampAt = t;
-    r.hasLamp = r.tiles.some(([x, y]) => { const v = s.at('placed', x, y); return v && parsePlaced(v)[0] === 'candelabro'; });
-    if (r.lamp) r.lamp.visible = !r.hasLamp;
-    return r.hasLamp;
   }
   // Cajas de las casas cercanas (para que la cámara no se meta detrás de un tejado)
   houseBoxes() {
@@ -883,22 +863,13 @@ export class World3D {
     const out = [];
     for (const c of this.chunks.values()) for (const l of c.lights) out.push(l);
     if (this.villageLights) for (const l of this.villageLights.lights) out.push(l);
-    for (const r of this.regions.values()) if (r.center && !this.ownLamp(r) && !this.chandelierOff(r)) out.push({ x: r.center[0], y: WALL_H - 0.6 + (r.level || 0), z: r.center[1], color: '#ffd08a', intensity: 4.5, range: 11, halo: 0 });   // (sin halo: lo llevan sus velas)
     return out;
   }
   flames() {
     const out = [];
     for (const c of this.chunks.values()) for (const f of c.flames) out.push(f);
     if (this.villageLights) for (const f of this.villageLights.flames) out.push(f);
-    for (const r of this.regions.values()) if (r.flames && !this.ownLamp(r) && !this.chandelierOff(r)) for (const f of r.flames) out.push(f);
     return out;
-  }
-  // El candelabro de una casa: se apaga y se enciende como las demás luces (se guarda con la casilla de su centro)
-  chandelierOff(r) { const s = this.game?.world, [x, y] = r.center.map(Math.floor); return !!s?.lightOff(x, y, `c:${x},${y}`); }
-  // (la casilla de su centro; exact: el punto del que cuelga)
-  chandelierNear(x, y, d = 2.2, exact = false) {
-    for (const r of this.regions.values()) if (r.center && !this.ownLamp(r) && Math.hypot(r.center[0] - x, r.center[1] - y) < d) return exact ? r.center : r.center.map(Math.floor);
-    return null;
   }
   smoke() {
     const out = [];
