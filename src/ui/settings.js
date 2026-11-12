@@ -25,7 +25,7 @@ export function initSettingsUI({ onClose, extra = null }) {
   };
   const choice = (key, label, opts) => {
     const row = document.createElement('div');
-    row.className = 'st-row';
+    row.className = opts.length > 3 ? 'st-row wide' : 'st-row';   // (many options: the buttons go below the label, inside the panel)
     row.innerHTML = `<span>${label}</span><div class="seg"></div>`;
     for (const [v, name] of opts) {
       const b = document.createElement('button');

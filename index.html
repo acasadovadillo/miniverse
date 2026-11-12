@@ -301,6 +301,9 @@
   .st-row .seg { display: flex; gap: 3px; grid-column: span 2; }
   .st-row .seg button { padding: 4px 8px; color: var(--dim); background: rgba(0, 0, 0, .25); border: 2px solid #6a4a2a; border-radius: 4px; cursor: pointer; }
   .st-row .seg button.on { color: var(--gold); background: #6a4424; border-color: var(--border); }
+  .st-row.wide { grid-template-columns: 1fr; gap: 4px; }
+  .st-row.wide .seg { grid-column: 1 / -1; }
+  .st-row.wide .seg button { flex: 1; }
   /* Controles (en la pausa) */
   #s-controls { justify-content: flex-start; }                 /* si no cabe, que se pueda bajar sin cortar el principio */
   #s-controls .box.ct-panel { width: min(600px, 100%); margin: auto 0; }
