@@ -143,7 +143,7 @@ SECRETS_FILE = os.path.join(DATA, 'servidor-secretos.json')
 OLD_SECRETS = 'servidor-secretos.viejo-{}.json'   # (si /link trae otra llave del mundo, la de antes: una por fecha, no se pisan)
 SETTINGS_FILE = os.path.join(DATA, 'ajustes.json')   # (lo que se pone con comandos del terminal y se queda: /setidletimeout)
 CHROME_DIR = os.path.join(DATA, 'servidor-chrome')
-WEB_FILES = re.compile(r'^(index\.html|accounts\.json|src/[\w/.-]+\.js)$')   # lo único que se sirve
+WEB_FILES = re.compile(r'^(index\.html|accounts\.json|src/[\w/.-]+\.js|src/lang/[\w-]+\.json)$')   # lo único que se sirve (and the language files: src/i18n.js)
 WEB_TYPES = {'.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.json': 'application/json'}
 CHROMES = ['/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', '/Applications/Chromium.app/Contents/MacOS/Chromium',
            '/Applications/Brave Browser.app/Contents/MacOS/Brave Browser', '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge']

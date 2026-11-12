@@ -4,6 +4,7 @@
 // cualquier ordenador.
 import { Audio } from './audio.js';
 import { Music } from './music.js';
+import { useLangSetting } from './i18n.js';
 
 const KEY = 'pueblo-brotes:ajustes';
 const VOLUMES = ['master', 'music', 'sfx', 'musicOn'];
@@ -19,6 +20,8 @@ export const Settings = {
     this.apply();
     if (VOLUMES.includes(k)) this.onVolume?.();
   },
+  // The language: 'auto', 'en' or 'es' (i18n.js reads it at startup; here it is saved and switched without reloading)
+  setLang(v) { this.set('lang', v); return useLangSetting(v); },
   store() { try { localStorage.setItem(KEY, JSON.stringify(this.v)); } catch { /* no pasa nada */ } },
   // Los volúmenes, para guardarlos en la partida, y ponerlos desde ella
   volumes() { return Object.fromEntries(VOLUMES.map(k => [k, this.v[k]])); },

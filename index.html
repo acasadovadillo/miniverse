@@ -1,11 +1,24 @@
 <!doctype html>
-<html lang="es">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- La versión publicada: se cambia en cada publicación (así el juego sabe que tiene que pedir el código nuevo) -->
 <meta name="miniverse-version" content="2026-11-11.4">
 <title>Miniverse</title>
+<script>
+  // The language of the page until the game's code arrives (src/i18n.js chooses the same way, then takes over): for
+  // <html lang>, the "open it with the launcher" screen and the loading error below. Keep AUTO in step with AUTO_LANGS
+  // in src/i18n.js (tools/i18n_check.py checks it).
+  (() => {
+    const AUTO = ['es'], LANGS = ['en', 'es'], q = new URLSearchParams(location.search);
+    let l = q.get('lang'), s, old = false;
+    try { s = JSON.parse(localStorage.getItem('pueblo-brotes:ajustes') || '{}').lang; for (let i = 0; i < localStorage.length; i++) if (localStorage.key(i).startsWith('pueblo-brotes:')) old = true; } catch {}
+    if (!LANGS.includes(l)) l = ['servidor', 'pruebas'].includes(q.get('modo')) ? 'es' : LANGS.includes(s) ? s : s === undefined && old ? 'es' : null;
+    if (!l) { const b = /^es/i.test(navigator.language || '') ? 'es' : 'en'; l = AUTO.includes(b) ? b : AUTO[0]; }
+    document.documentElement.lang = l;
+  })();
+</script>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏡</text></svg>">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -526,6 +539,14 @@
   .sw { display: flex; flex-wrap: wrap; gap: 6px; }
   .sw button { width: 28px; height: 28px; padding: 0; border-radius: 5px; border: 2px solid rgba(0, 0, 0, .4); cursor: pointer; }
   .sw button.on { outline: 3px solid var(--gold); outline-offset: 2px; }
+  /* The EN | ES picker on the login screen and the main menu (ui/menus.js) */
+  .lang-pick { position: absolute; right: 14px; top: 12px; display: flex; align-items: center; gap: 2px; padding: 3px 8px; font-size: 15px; color: var(--dim); }
+  .lang-pick button { padding: 2px 6px; color: var(--dim); background: none; border: 0; border-radius: 3px; cursor: pointer; }
+  .lang-pick button:hover { color: var(--cream); }
+  .lang-pick button.on { color: var(--gold); background: rgba(255, 220, 140, .14); }
+  .st-row.lang .seg { grid-column: 1 / -1; }
+  .st-row.lang .seg button { flex: 1; }
+  .st-note { margin: 2px 0 6px; font-size: 13px; line-height: 1.35; color: var(--dim); opacity: .85; }
   .cr-actions { display: flex; gap: 10px; margin-top: 4px; }
   .cr-actions .btn { margin: 0; }
 </style>
@@ -535,36 +556,36 @@
   <div id="floaters"></div>
   <div id="hurt"></div>
   <div id="love-glow"></div>
-  <div id="love" hidden><button type="button" id="love-heart" aria-label="Tener un bebé" title="Tener un bebé">♥</button><span id="love-text" class="panel"></span></div>
+  <div id="love" hidden><button type="button" id="love-heart" aria-label="Have a baby" title="Have a baby" data-i18n-attr="aria-label:gui.love.have_baby;title:gui.love.have_baby">♥</button><span id="love-text" class="panel"></span></div>
   <div id="debug" hidden></div>
-  <button id="fault" type="button" hidden aria-label="Un error del juego"><span></span></button>
+  <button id="fault" type="button" hidden aria-label="A game error" data-i18n-attr="aria-label:gui.fault.label"><span></span></button>
   <div id="clockp" class="panel"><span id="clock"></span></div>
-  <div id="quest" class="panel" hidden><button type="button" id="quest-x" aria-label="Quitar los primeros pasos" title="Quitar los primeros pasos">✕</button><small id="quest-title"></small><b id="quest-text"></b><span id="quest-hint"></span></div>
+  <div id="quest" class="panel" hidden><button type="button" id="quest-x" aria-label="Hide the first steps" title="Hide the first steps" data-i18n-attr="aria-label:gui.quest.dismiss;title:gui.quest.dismiss">✕</button><small id="quest-title"></small><b id="quest-text"></b><span id="quest-hint"></span></div>
   <div id="place" class="panel"><span id="place-name">Pueblo Brotes</span> <small id="coords"></small></div>
   <canvas id="minimap" class="panel" width="150" height="100"></canvas>
-  <div id="hint" class="panel"><kbd>Clic</kbd><span id="hint-text"></span></div>
+  <div id="hint" class="panel"><kbd data-i18n="key.click">Click</kbd><span id="hint-text"></span></div>
   <div id="hotbar" class="panel">
-    <div id="vitals"><div id="hearts" title="Vida"></div><div id="hunger" title="Hambre"></div><span id="money" title="Monedas">0 🪙</span></div>
-    <div id="xp" title="Experiencia"><i></i><b></b></div>
+    <div id="vitals"><div id="hearts" title="Health"></div><div id="hunger" title="Hunger"></div><span id="money" title="Coins" data-i18n-attr="title:gui.hud.coins">0 🪙</span></div>
+    <div id="xp" title="Experience"><i></i><b></b></div>
     <div class="slots" id="hotbar-slots"></div>
   </div>
-  <nav id="rail" class="panel" aria-label="Menús">
-    <button type="button" data-rail="inv" aria-label="Mochila" title="Mochila (I)">🎒<kbd>I</kbd></button>
-    <button type="button" data-rail="craft" aria-label="Fabricar" title="Fabricar (C)">⚒<kbd>C</kbd></button>
-    <button type="button" data-rail="build" aria-label="Construir" title="Construir (B)">🔨<kbd>B</kbd></button>
-    <button type="button" data-rail="journal" aria-label="Diario" title="Diario (J)">📖<kbd>J</kbd></button>
-    <button type="button" data-rail="map" aria-label="Mapa" title="Mapa (M)">🗺<kbd>M</kbd></button>
-    <button type="button" data-rail="pause" aria-label="Menú" title="Menú (Esc)">☰</button>
+  <nav id="rail" class="panel" aria-label="Menus" data-i18n-attr="aria-label:gui.rail.label">
+    <button type="button" data-rail="inv" aria-label="Backpack" title="Backpack (I)" data-i18n-attr="aria-label:gui.rail.inventory;title:gui.rail.inventory_key">🎒<kbd>I</kbd></button>
+    <button type="button" data-rail="craft" aria-label="Crafting" title="Crafting (C)" data-i18n-attr="aria-label:gui.rail.craft;title:gui.rail.craft_key">⚒<kbd>C</kbd></button>
+    <button type="button" data-rail="build" aria-label="Build" title="Build (B)" data-i18n-attr="aria-label:gui.rail.build;title:gui.rail.build_key">🔨<kbd>B</kbd></button>
+    <button type="button" data-rail="journal" aria-label="Journal" title="Journal (J)" data-i18n-attr="aria-label:gui.rail.journal;title:gui.rail.journal_key">📖<kbd>J</kbd></button>
+    <button type="button" data-rail="map" aria-label="Map" title="Map (M)" data-i18n-attr="aria-label:gui.rail.map;title:gui.rail.map_key">🗺<kbd>M</kbd></button>
+    <button type="button" data-rail="pause" aria-label="Menu" title="Menu (Esc)" data-i18n-attr="aria-label:gui.rail.menu;title:gui.rail.menu_key">☰</button>
   </nav>
   <div id="crosshair" aria-hidden="true"></div>
-  <div id="aim-free" class="panel">Haz clic para mover la cámara con el ratón</div>
+  <div id="aim-free" class="panel" data-i18n="gui.aim_free">Click to look around with the mouse</div>
   <div id="prompt" class="panel"><kbd>E</kbd><span id="prompt-text"></span></div>
-  <div id="admin-tag" class="panel" title="Modo de juego (/gamemode): en creativo, objetos infinitos y construir gratis; de espectador, atraviesas todo y nadie te ve">CREATIVO</div>
-  <div id="players" class="panel" aria-live="polite"><h3>Jugadores</h3><ul id="players-list"></ul></div>
+  <div id="admin-tag" class="panel" title="Game mode (/gamemode): in creative, infinite items and free building; as a spectator, you go through everything and nobody sees you" data-i18n-attr="title:gui.gamemode_tag.title">CREATIVE</div>
+  <div id="players" class="panel" aria-live="polite"><h3 data-i18n="gui.players.title">Players</h3><ul id="players-list"></ul></div>
   <div id="title-msg" hidden></div>
   <canvas id="held-map" hidden></canvas>
   <div id="compass" hidden><i></i></div>
-  <div id="chat"><div id="chat-log"></div><input id="chat-input" maxlength="120" autocomplete="off" spellcheck="false" placeholder="Escribe un mensaje o un comando (/help)"></div>
+  <div id="chat"><div id="chat-log"></div><input id="chat-input" maxlength="120" autocomplete="off" spellcheck="false" placeholder="Type a message or a command (/help)" data-i18n-attr="placeholder:gui.chat.placeholder"></div>
   <div id="dialog" class="panel"><canvas id="dlg-face" width="192" height="192"></canvas><div class="name" id="dlg-name"></div><div id="dlg-text"></div><div id="dlg-opts"></div><div class="more">▼</div></div>
   <div id="toasts"></div>
 
@@ -572,33 +593,33 @@
   <section id="s-login" class="screen">
     <div class="logo">Miniverse</div>
     <form class="box panel" id="login-form">
-      <h2>Iniciar sesión</h2>
-      <label class="field">Usuario<input id="lg-user" maxlength="16" autocomplete="username" autocapitalize="off" spellcheck="false"></label>
-      <label class="field" id="lg-code-row" hidden>Código de invitación<input id="lg-code" maxlength="20" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="XXXX-XXXX-XXXX"></label>
-      <label class="field">Contraseña<input id="lg-pass" type="password" maxlength="128" autocomplete="current-password"></label>
-      <label class="field" id="lg-pass2-row" hidden>Repite la contraseña<input id="lg-pass2" type="password" maxlength="128" autocomplete="new-password"></label>
-      <label class="field" id="lg-token-row" hidden>Token de admin de GitHub<input id="lg-token" type="password" maxlength="300" autocomplete="off" spellcheck="false"></label>
+      <h2 data-i18n="gui.login.title">Log in</h2>
+      <label class="field"><span data-i18n="gui.login.user">Username</span><input id="lg-user" maxlength="16" autocomplete="username" autocapitalize="off" spellcheck="false"></label>
+      <label class="field" id="lg-code-row" hidden><span data-i18n="gui.login.invite_code">Invite code</span><input id="lg-code" maxlength="20" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="XXXX-XXXX-XXXX"></label>
+      <label class="field"><span data-i18n="gui.login.password">Password</span><input id="lg-pass" type="password" maxlength="128" autocomplete="current-password"></label>
+      <label class="field" id="lg-pass2-row" hidden><span data-i18n="gui.login.repeat_password">Repeat the password</span><input id="lg-pass2" type="password" maxlength="128" autocomplete="new-password"></label>
+      <label class="field" id="lg-token-row" hidden><span data-i18n="gui.login.admin_token">GitHub admin token</span><input id="lg-token" type="password" maxlength="300" autocomplete="off" spellcheck="false"></label>
       <div class="err" id="lg-err"></div>
-      <button class="btn primary" id="lg-submit" type="submit">Entrar</button>
+      <button class="btn primary" id="lg-submit" type="submit">Log in</button>
     </form>
   </section>
 
   <!-- Cuenta nueva (admin): el token de guardado y el código de invitación -->
   <section id="s-account" class="screen">
     <div class="box panel">
-      <h2 id="ac-title">Cuenta nueva</h2>
+      <h2 id="ac-title">New account</h2>
       <form id="ac-form">
-        <p class="note" style="margin:0 0 12px">Pega su token de guardado: un token de GitHub de grano fino con acceso solo al repositorio Miniverse-data y permiso de contenido de lectura y escritura.</p>
-        <label class="field">Token de guardado<input id="ac-token" type="password" maxlength="300" autocomplete="off" spellcheck="false"></label>
+        <p class="note" style="margin:0 0 12px" data-i18n="gui.account.token_help">Paste their save token: a fine-grained GitHub token with access only to the Miniverse-data repository and read and write permission on its contents.</p>
+        <label class="field"><span data-i18n="gui.account.save_token">Save token</span><input id="ac-token" type="password" maxlength="300" autocomplete="off" spellcheck="false"></label>
         <div class="err" id="ac-err"></div>
-        <button class="btn primary" type="submit">Crear la invitación</button>
-        <button class="btn" type="button" id="ac-cancel">Cancelar</button>
+        <button class="btn primary" type="submit" data-i18n="gui.account.create_invite">Create the invite</button>
+        <button class="btn" type="button" id="ac-cancel" data-i18n="common.cancel">Cancel</button>
       </form>
       <div id="ac-result" hidden>
-        <p>Pásale a <b id="ac-who"></b> este código de invitación. Lo necesitará la primera vez, junto a la contraseña que elija:</p>
+        <p data-i18n-html="gui.account.give_code">Give <b id="ac-who"></b> this invite code. They will need it the first time, together with the password they choose:</p>
         <div id="ac-code" class="ac-code"></div>
-        <p class="note">No se vuelve a mostrar: apúntalo ahora. Si se pierde, <b>/account reset</b> da uno nuevo.</p>
-        <button class="btn primary" type="button" id="ac-close">Hecho</button>
+        <p class="note" data-i18n-html="gui.account.code_once">It won't be shown again: write it down now. If it gets lost, <b>/account reset</b> gives a new one.</p>
+        <button class="btn primary" type="button" id="ac-close" data-i18n="common.done">Done</button>
       </div>
     </div>
   </section>
@@ -607,49 +628,49 @@
   <section id="s-menu" class="screen">
     <div class="logo">Miniverse</div>
     <div class="box panel">
-      <h2 id="menu-hello">¡Hola!</h2>
+      <h2 id="menu-hello">Hello!</h2>
       <p class="who" id="menu-save"></p>
       <div id="m-live" hidden><p id="m-live-msg"></p></div>
-      <button class="btn primary" id="m-continue">Continuar partida</button>
-      <button class="btn primary" id="m-new">Crear tu personaje</button>
-      <button class="btn" id="m-local">Jugar en local</button>
+      <button class="btn primary" id="m-continue" data-i18n="gui.menu.continue">Continue</button>
+      <button class="btn primary" id="m-new">Create your character</button>
+      <button class="btn" id="m-local">Play locally</button>
       <div id="m-confirm" hidden>
-        <p>Iniciar una nueva partida borrará a tu personaje actual: lo que llevas, tu dinero, tus habilidades, tus recetas y tus logros. El mundo y lo que hay en él (tu casa, los animales, lo construido) se queda como está. ¿Seguro que quieres continuar?</p>
-        <button class="btn primary" id="m-confirm-yes">Sí, crear un personaje nuevo</button>
-        <button class="btn" id="m-confirm-no">Cancelar</button>
+        <p data-i18n="gui.menu.new_game_warning">Starting a new game will delete your current character: what you carry, your money, your skills, your recipes and your advancements. The world and everything in it (your house, the animals, what you've built) stays as it is. Are you sure you want to continue?</p>
+        <button class="btn primary" id="m-confirm-yes" data-i18n="gui.menu.new_game_confirm">Yes, create a new character</button>
+        <button class="btn" id="m-confirm-no" data-i18n="common.cancel">Cancel</button>
       </div>
-      <button class="btn" id="m-settings">Ajustes</button>
+      <button class="btn" id="m-settings" data-i18n="gui.settings.title">Settings</button>
       <p class="note" id="menu-msg"></p>
-      <button class="btn" id="m-session">Cerrar sesión</button>
+      <button class="btn" id="m-session" data-i18n="gui.menu.log_out">Log out</button>
     </div>
   </section>
 
   <!-- Creador de personaje -->
   <section id="s-creator" class="screen">
     <div class="box panel">
-      <h2>Crea tu personaje</h2>
+      <h2 data-i18n="gui.creator.title">Create your character</h2>
       <div class="cr">
         <div class="cr-stage">
           <div class="cr-room"><canvas id="cr-canvas"></canvas></div>
-          <div class="cr-rot"><button class="sq" id="rot-l" aria-label="Girar a la izquierda (mantén pulsado)">⟲</button><span id="rot-label">De frente</span><button class="sq" id="rot-r" aria-label="Girar a la derecha (mantén pulsado)">⟳</button></div>
+          <div class="cr-rot"><button class="sq" id="rot-l" aria-label="Turn left (hold)" data-i18n-attr="aria-label:gui.creator.turn_left">⟲</button><span id="rot-label">Front</span><button class="sq" id="rot-r" aria-label="Turn right (hold)" data-i18n-attr="aria-label:gui.creator.turn_right">⟳</button></div>
         </div>
         <div class="cr-opts" id="cr-opts">
-          <label class="field" style="margin:0">Nombre<input id="cr-name" maxlength="14"></label>
+          <label class="field" style="margin:0"><span data-i18n="gui.creator.name">Name</span><input id="cr-name" maxlength="14"></label>
         </div>
       </div>
       <div class="err" id="cr-err"></div>
-      <div class="cr-actions"><button class="btn" id="cr-back" style="flex:0 0 auto;width:auto">Volver</button><button class="btn" id="cr-random" style="flex:0 0 auto;width:auto">Aleatorio</button><button class="btn primary" id="cr-start">Empezar</button></div>
+      <div class="cr-actions"><button class="btn" id="cr-back" style="flex:0 0 auto;width:auto" data-i18n="common.back">Back</button><button class="btn" id="cr-random" style="flex:0 0 auto;width:auto" data-i18n="gui.creator.random">Random</button><button class="btn primary" id="cr-start" data-i18n="gui.creator.start">Start</button></div>
     </div>
   </section>
 
   <!-- Pausa -->
   <section id="s-pause" class="screen">
     <div class="box panel">
-      <h2>Pausa</h2>
-      <button class="btn primary" id="p-resume">Continuar</button>
-      <button class="btn" id="p-controls">Controles</button>
-      <button class="btn" id="p-settings">Ajustes</button>
-      <button class="btn" id="p-menu">Guardar y salir al menú</button>
+      <h2 data-i18n="gui.pause.title">Paused</h2>
+      <button class="btn primary" id="p-resume" data-i18n="gui.pause.resume">Back to game</button>
+      <button class="btn" id="p-controls" data-i18n="gui.pause.controls">Controls</button>
+      <button class="btn" id="p-settings" data-i18n="gui.settings.title">Settings</button>
+      <button class="btn" id="p-menu" data-i18n="gui.pause.save_quit">Save and quit to menu</button>
       <div class="err" id="p-msg" style="color:var(--gold);margin:10px 0 0"></div>
     </div>
   </section>
@@ -657,107 +678,100 @@
   <!-- Mapa grande -->
   <section id="s-map" class="screen">
     <canvas id="bigmap"></canvas>
-    <div id="map-north" class="panel" title="El norte está arriba">▲<br>N</div>
-    <details id="map-legend" class="panel" open><summary>Leyenda</summary><div id="map-legend-rows"></div></details>
-    <div class="map-bar panel"><b>Mapa</b><span id="map-info"></span><button class="sq" id="map-out" aria-label="Alejar">−</button><button class="sq" id="map-in" aria-label="Acercar">+</button><button class="sq" id="map-home" aria-label="Volver a tu posición" title="Volver a tu posición">⌖</button><button class="sq" id="map-close" aria-label="Cerrar">✕</button></div>
+    <div id="map-north" class="panel" title="North is up" data-i18n-attr="title:gui.map.north_up">▲<br>N</div>
+    <details id="map-legend" class="panel" open><summary data-i18n="gui.map.legend">Legend</summary><div id="map-legend-rows"></div></details>
+    <div class="map-bar panel"><b data-i18n="gui.map.title">Map</b><span id="map-info"></span><button class="sq" id="map-out" aria-label="Zoom out" data-i18n-attr="aria-label:gui.map.zoom_out">−</button><button class="sq" id="map-in" aria-label="Zoom in" data-i18n-attr="aria-label:gui.map.zoom_in">+</button><button class="sq" id="map-home" aria-label="Back to your position" title="Back to your position" data-i18n-attr="aria-label:gui.map.recenter;title:gui.map.recenter">⌖</button><button class="sq" id="map-close" aria-label="Close" data-i18n-attr="aria-label:common.close">✕</button></div>
   </section>
 
   <!-- Inventario -->
   <section id="s-inv" class="win">
     <div class="inv-panel panel">
-      <h2>Inventario <span><button class="sq" id="inv-craft" aria-label="Fabricar" title="Fabricar (C)">⚒</button><button class="sq" id="inv-close" aria-label="Cerrar">✕</button></span></h2>
+      <h2><span data-i18n="gui.inventory.title">Inventory</span> <span><button class="sq" id="inv-craft" aria-label="Crafting" title="Crafting (C)" data-i18n-attr="aria-label:gui.rail.craft;title:gui.rail.craft_key">⚒</button><button class="sq" id="inv-close" aria-label="Close" data-i18n-attr="aria-label:common.close">✕</button></span></h2>
       <div class="inv-body">
         <div class="inv-me">
-          <div class="inv-sep">Lo que llevas puesto</div>
+          <div class="inv-sep" data-i18n="gui.inventory.wearing">What you're wearing</div>
           <div id="inv-wear"><div class="inv-col" id="inv-wear-l"></div><canvas id="inv-me"></canvas><div class="inv-col" id="inv-wear-r"></div></div>
         </div>
         <div class="inv-bags">
-          <div class="inv-sep">Manos y bolsillos (1-9)</div>
+          <div class="inv-sep" data-i18n="gui.inventory.hands">Hands and pockets (1-9)</div>
           <div class="slots" id="inv-quick"></div>
-          <div class="inv-sep">Mochila</div>
-          <div class="inv-bagbox"><div id="inv-grid"></div><div id="inv-lock">Sin mochila solo llevas lo que cabe en las manos y los bolsillos. Fabrica una (C, a mano: fibra y cuerda) y póntela.</div></div>
+          <div class="inv-sep" data-i18n="gui.inventory.backpack">Backpack</div>
+          <div class="inv-bagbox"><div id="inv-grid"></div><div id="inv-lock" data-i18n="gui.inventory.no_backpack">Without a backpack you only carry what fits in your hands and pockets. Craft one (C, by hand: fiber and rope) and put it on.</div></div>
         </div>
       </div>
       <div id="inv-info" class="empty">
         <img id="inv-icon" alt="">
         <div><div id="inv-name"></div><div id="inv-desc"></div></div>
         <div id="inv-dyes" hidden></div>
-        <div class="inv-acts"><button class="btn primary" id="inv-wearbtn">Ponérmelo</button><button class="btn primary" id="inv-eat">Comer</button><button class="btn" id="inv-drop1">Tirar uno</button><button class="btn" id="inv-drop">Tirar</button><button class="btn danger" id="inv-del" title="Modo admin: lo quita para siempre, sin tirarlo">Eliminar</button></div>
+        <div class="inv-acts"><button class="btn primary" id="inv-wearbtn">Put on</button><button class="btn primary" id="inv-eat" data-i18n="gui.inventory.eat">Eat</button><button class="btn" id="inv-drop1" data-i18n="gui.inventory.drop_one">Drop one</button><button class="btn" id="inv-drop" data-i18n="gui.inventory.drop">Drop</button><button class="btn danger" id="inv-del" title="Admin mode: removes it for good, without dropping it" data-i18n="gui.inventory.delete" data-i18n-attr="title:gui.inventory.delete_title">Delete</button></div>
       </div>
-      <div id="inv-all"><div class="inv-sep inv-allhead">Todos los objetos (admin): toca uno para cogerlo<input id="inv-all-q" type="search" placeholder="Buscar objeto…" autocomplete="off" spellcheck="false"></div><div id="inv-all-grid"></div><div id="inv-all-none" hidden>Ningún objeto se llama así.</div></div>
+      <div id="inv-all"><div class="inv-sep inv-allhead"><span data-i18n="gui.inventory.all_items">All items (admin): click one to take it</span><input id="inv-all-q" type="search" placeholder="Search items…" data-i18n-attr="placeholder:gui.inventory.search" autocomplete="off" spellcheck="false"></div><div id="inv-all-grid"></div><div id="inv-all-none" hidden data-i18n="gui.inventory.no_match">No item has that name.</div></div>
     </div>
     <img id="inv-ghost" alt="" hidden>
   </section>
   <!-- Construcción -->
   <div id="buildbar" class="panel">
-    <div class="bb-top"><b>Construir</b><div id="bb-cats"></div><button class="sq" id="bb-close" aria-label="Salir del modo construcción" title="Salir (B)">✕</button></div>
+    <div class="bb-top"><b data-i18n="gui.build.title">Build</b><div id="bb-cats"></div><button class="sq" id="bb-close" aria-label="Leave build mode" title="Exit (B)" data-i18n-attr="aria-label:gui.build.exit;title:gui.build.exit_key">✕</button></div>
     <div id="bb-pieces"></div>
   </div>
   <!-- Cofre -->
   <section id="s-chest" class="win">
     <div class="ch-panel panel">
-      <h2><span id="ch-title">Cofre</span> <button class="sq" id="ch-close" aria-label="Cerrar">✕</button></h2>
+      <h2><span id="ch-title">Chest</span> <button class="sq" id="ch-close" aria-label="Close" data-i18n-attr="aria-label:common.close">✕</button></h2>
       <div id="ch-grid"></div>
-      <div class="inv-sep" id="ch-hint">Tu mochila (clic para guardar en el cofre)</div>
+      <div class="inv-sep" id="ch-hint">Your backpack (click to put things in the chest)</div>
       <div id="ch-bag"></div>
     </div>
   </section>
   <!-- Ajustes -->
   <section id="s-settings" class="screen">
     <div class="box panel st-panel">
-      <h2>Ajustes <button class="sq" id="st-close" aria-label="Cerrar">✕</button></h2>
+      <h2><span data-i18n="gui.settings.title">Settings</span> <button class="sq" id="st-close" aria-label="Close" data-i18n-attr="aria-label:common.close">✕</button></h2>
       <div id="st-body"></div>
     </div>
   </section>
   <!-- Controles (desde la pausa) -->
   <section id="s-controls" class="screen">
     <div class="box panel st-panel ct-panel">
-      <h2>Controles <button class="sq" id="ct-close" aria-label="Volver a la pausa">✕</button></h2>
-      <h3>Teclado y ratón</h3>
+      <h2><span data-i18n="gui.controls.title">Controls</span> <button class="sq" id="ct-close" aria-label="Back to the pause menu" data-i18n-attr="aria-label:gui.controls.back">✕</button></h2>
+      <h3 data-i18n="gui.controls.keyboard">Keyboard and mouse</h3>
       <dl class="ct-list">
-        <dt><kbd>WASD</kbd></dt><dd>Caminar (arriba es hacia donde mira la cámara)</dd>
-        <dt><kbd>W</kbd> <kbd>W</kbd></dt><dd>Correr: dos toques seguidos de W (se corre mientras la mantienes)</dd>
-        <dt><kbd>Shift</kbd></dt><dd>Agacharse (un toque; otro, de pie). Agachado se anda despacio, y lo que pones no se une a lo de al lado. Nadando, te hundes un poco</dd>
-        <dt>Clic izquierdo</dt><dd>Usar lo que llevas: talar, picar, regar, sembrar, pescar, atacar, comer, colocar… Mantén para seguir.</dd>
-        <dt><kbd>Espacio</kbd></dt><dd>Saltar (con un diálogo abierto, seguir). Nadando, asomarte más; junto a la orilla, salir de un salto</dd>
-        <dt><kbd>E</kbd> o <kbd>Enter</kbd></dt><dd>Interactuar con lo que apuntas con el ratón (a 2 casillas como mucho; sin apuntar a nada, con lo más cercano): hablar, puertas, cofres, estaciones, dormir, cosechar, animales</dd>
-        <dt><kbd>1</kbd>–<kbd>9</kbd> o rueda</dt><dd>Elegir objeto</dd>
-        <dt><kbd>R</kbd></dt><dd>Girar lo que vas a colocar (apunta con el ratón: hasta 4 casillas). Mantenida gira sin parar; a toques, de 15° en 15°, encajando con las casillas</dd>
-        <dt><kbd>←</kbd> / <kbd>→</kbd></dt><dd>Girar la cámara alrededor de ti (mantén pulsado: gira suave)</dd>
-        <dt><kbd>↑</kbd> / <kbd>↓</kbd></dt><dd>Subir la cámara hasta casi verlo desde arriba o bajarla a ras de suelo</dd>
-        <dt><kbd>+</kbd> / <kbd>−</kbd> o <kbd>Ctrl</kbd>+rueda</dt><dd>Acercar y alejar la cámara</dd>
-        <dt><kbd>Z</kbd></dt><dd>Primera o tercera persona (en primera persona, <kbd>↑</kbd> <kbd>↓</kbd> miran arriba y abajo)</dd>
-        <dt><kbd>F</kbd></dt><dd>Ver el rendimiento (fotogramas por segundo)</dd>
-        <dt><kbd>I</kbd> <kbd>C</kbd> <kbd>B</kbd></dt><dd>Inventario (lo que llevas y la ropa), fabricar y construir</dd>
-        <dt><kbd>Tab</kbd></dt><dd>Mientras lo mantienes, quién está jugando</dd>
-        <dt><kbd>J</kbd> <kbd>M</kbd></dt><dd>Diario y mapa</dd>
-        <dt><kbd>T</kbd> o <kbd>/</kbd></dt><dd>Chat y comandos (<b>/help</b> para verlos). Los op (se dan en el terminal del servidor con <b>/op</b>) tienen <b>/gamemode</b>, <b>/tp</b>, <b>/give</b>, <b>/kill</b>, <b>/weather</b>, <b>/gamerule</b>…; el admin, además, <b>/account</b>, para crear cuentas</dd>
-        <dt><kbd>Esc</kbd></dt><dd>Pausa (y cerrar ventanas)</dd>
+        <dt><kbd>WASD</kbd></dt><dd data-i18n="controls.walk">Walk (up is where the camera is looking)</dd>
+        <dt><kbd>W</kbd> <kbd>W</kbd></dt><dd data-i18n="controls.run">Run: tap W twice (you keep running while you hold it)</dd>
+        <dt><kbd>Shift</kbd></dt><dd data-i18n="controls.crouch">Crouch (one tap; another, stand up). Crouching you walk slowly, and what you place doesn't join what's next to it. Swimming, you sink a little</dd>
+        <dt data-i18n="controls.use.keys">Left click</dt><dd data-i18n="controls.use">Use what you're holding: chop, mine, water, sow, fish, attack, eat, place… Hold to keep going.</dd>
+        <dt data-i18n-html="controls.jump.keys"><kbd>Space</kbd></dt><dd data-i18n="controls.jump">Jump (with a dialogue open, continue). Swimming, rise higher; next to the shore, jump out</dd>
+        <dt data-i18n-html="controls.interact.keys"><kbd>E</kbd> or <kbd>Enter</kbd></dt><dd data-i18n="controls.interact">Interact with what you point at with the mouse (2 tiles away at most; pointing at nothing, with the nearest thing): talk, doors, chests, stations, sleep, harvest, animals</dd>
+        <dt data-i18n-html="controls.select.keys"><kbd>1</kbd>–<kbd>9</kbd> or wheel</dt><dd data-i18n="controls.select">Choose an item</dd>
+        <dt><kbd>R</kbd></dt><dd data-i18n="controls.rotate">Rotate what you're about to place (aim with the mouse: up to 4 tiles). Held, it keeps turning; tapped, in 15° steps, snapping to the tiles</dd>
+        <dt><kbd>←</kbd> / <kbd>→</kbd></dt><dd data-i18n="controls.camera_turn">Turn the camera around you (hold: smooth turn)</dd>
+        <dt><kbd>↑</kbd> / <kbd>↓</kbd></dt><dd data-i18n="controls.camera_tilt">Raise the camera until you almost see from above, or lower it to ground level</dd>
+        <dt data-i18n-html="controls.zoom.keys"><kbd>+</kbd> / <kbd>−</kbd> or <kbd>Ctrl</kbd>+wheel</dt><dd data-i18n="controls.zoom">Zoom the camera in and out</dd>
+        <dt><kbd>Z</kbd></dt><dd data-i18n-html="controls.view">First or third person (in first person, <kbd>↑</kbd> <kbd>↓</kbd> look up and down)</dd>
+        <dt><kbd>F</kbd></dt><dd data-i18n="controls.fps">Show performance (frames per second)</dd>
+        <dt><kbd>I</kbd> <kbd>C</kbd> <kbd>B</kbd></dt><dd data-i18n="controls.windows">Inventory (what you carry and your clothes), crafting and building</dd>
+        <dt><kbd>Tab</kbd></dt><dd data-i18n="controls.players">While you hold it, who is playing</dd>
+        <dt><kbd>J</kbd> <kbd>M</kbd></dt><dd data-i18n="controls.journal_map">Journal and map</dd>
+        <dt data-i18n-html="controls.chat.keys"><kbd>T</kbd> or <kbd>/</kbd></dt><dd data-i18n-html="controls.chat">Chat and commands (<b>/help</b> to see them). Ops (given in the server terminal with <b>/op</b>) have <b>/gamemode</b>, <b>/tp</b>, <b>/give</b>, <b>/kill</b>, <b>/weather</b>, <b>/gamerule</b>…; the admin also has <b>/account</b>, to create accounts</dd>
+        <dt><kbd>Esc</kbd></dt><dd data-i18n="controls.pause">Pause (and close windows)</dd>
       </dl>
-      <h3>Construyendo</h3>
+      <h3 data-i18n="gui.controls.building">Building</h3>
       <dl class="ct-list">
-        <dt>Clic</dt><dd>Poner (arrastra para pintar varias casillas)</dd>
-        <dt>Clic derecho o <kbd>X</kbd></dt><dd>Quitar</dd>
+        <dt data-i18n="key.click">Click</dt><dd data-i18n="controls.build.place">Place (drag to paint several tiles)</dd>
+        <dt data-i18n-html="controls.build.remove.keys">Right click or <kbd>X</kbd></dt><dd data-i18n="controls.build.remove">Remove</dd>
       </dl>
-      <h3>En el mapa</h3>
+      <h3 data-i18n="gui.controls.map">On the map</h3>
       <dl class="ct-list">
-        <dt><kbd>WASD</kbd> o arrastrar</dt><dd>Moverlo (<kbd>Shift</kbd>, más rápido)</dd>
-        <dt><kbd>+</kbd> <kbd>−</kbd> o rueda</dt><dd>Acercar y alejar</dd>
-        <dt>⌖</dt><dd>Volver a tu posición</dd>
-      </dl>
-      <h3>En el móvil</h3>
-      <dl class="ct-list">
-        <dt>Cruceta</dt><dd>Caminar</dd>
-        <dt>⚒ y E</dt><dd>Usar e interactuar</dd>
-        <dt>🎒 🧰 🔨 ☰</dt><dd>Inventario, fabricar, construir y pausa</dd>
-        <dt>Minimapa</dt><dd>Abrir el mapa (se mueve arrastrando)</dd>
+        <dt data-i18n-html="controls.map.move.keys"><kbd>WASD</kbd> or drag</dt><dd data-i18n-html="controls.map.move">Move it (<kbd>Shift</kbd>, faster)</dd>
+        <dt data-i18n-html="controls.map.zoom.keys"><kbd>+</kbd> <kbd>−</kbd> or wheel</dt><dd data-i18n="controls.map.zoom">Zoom in and out</dd>
+        <dt>⌖</dt><dd data-i18n="gui.map.recenter">Back to your position</dd>
       </dl>
     </div>
   </section>
   <!-- Diario -->
   <section id="s-journal" class="win">
     <div class="j-panel panel">
-      <h2>Diario <button class="sq" id="j-close" aria-label="Cerrar">✕</button></h2>
+      <h2><span data-i18n="gui.journal.title">Journal</span> <button class="sq" id="j-close" aria-label="Close" data-i18n-attr="aria-label:common.close">✕</button></h2>
       <div id="j-tabs"></div>
       <div id="j-body"></div>
     </div>
@@ -765,15 +779,15 @@
   <!-- Tienda -->
   <section id="s-shop" class="screen">
     <div class="sh-panel panel">
-      <h2><span id="sh-title">Tienda</span><span id="sh-money"></span><button class="sq" id="sh-close" aria-label="Cerrar">✕</button></h2>
-      <div class="sh-tabs"><button type="button" data-shtab="buy">Comprar</button><button type="button" data-shtab="sell">Vender</button><span id="sh-note"></span></div>
+      <h2><span id="sh-title">Shop</span><span id="sh-money"></span><button class="sq" id="sh-close" aria-label="Close" data-i18n-attr="aria-label:common.close">✕</button></h2>
+      <div class="sh-tabs"><button type="button" data-shtab="buy" data-i18n="gui.shop.buy">Buy</button><button type="button" data-shtab="sell" data-i18n="gui.shop.sell">Sell</button><span id="sh-note"></span></div>
       <div id="sh-list"></div>
     </div>
   </section>
   <!-- Fabricar -->
   <section id="s-craft" class="win">
     <div class="cf-panel panel">
-      <h2>Fabricar <span id="cf-note"></span><span><button class="sq" id="cf-bag" aria-label="Inventario" title="Inventario (I)">🎒</button><button class="sq" id="cf-close" aria-label="Cerrar">✕</button></span></h2>
+      <h2><span data-i18n="gui.craft.title">Crafting</span> <span id="cf-note"></span><span><button class="sq" id="cf-bag" aria-label="Inventory" title="Inventory (I)" data-i18n-attr="aria-label:gui.inventory.open;title:gui.inventory.open_key">🎒</button><button class="sq" id="cf-close" aria-label="Close" data-i18n-attr="aria-label:common.close">✕</button></span></h2>
       <div id="cf-tabs"></div>
       <div class="cf-body">
         <div class="cf-left"><div id="cf-list"></div><div id="cf-repair" hidden></div></div>
@@ -782,7 +796,7 @@
           <div id="cf-sizes" hidden></div>
           <div id="cf-ins"></div>
           <div id="cf-msg"></div>
-          <div class="cf-acts"><button class="btn primary" id="cf-make">Fabricar</button><button class="btn" id="cf-make5">×5</button></div>
+          <div class="cf-acts"><button class="btn primary" id="cf-make" data-i18n="gui.craft.make">Craft</button><button class="btn" id="cf-make5">×5</button></div>
         </div>
       </div>
       <div class="cf-foot"><span id="cf-where"></span><button class="btn" id="cf-pick" hidden></button></div>
@@ -792,17 +806,22 @@
   <div id="touch">
     <button class="tb" data-k="up">▲</button><button class="tb" data-k="left">◀</button>
     <button class="tb" data-k="right">▶</button><button class="tb" data-k="down">▼</button>
-    <button class="tb" data-k="act">E</button><button class="tb" data-k="use" aria-label="Usar">⚒</button><button class="tb" data-k="jump" aria-label="Saltar">⤒</button><button class="tb" data-k="bag" aria-label="Inventario">🎒</button><button class="tb" data-k="build" aria-label="Construir">🔨</button><button class="tb" data-k="pause" aria-label="Menú">☰</button><button class="tb" data-k="craft" aria-label="Fabricar">🧰</button>
+    <button class="tb" data-k="act">E</button><button class="tb" data-k="use" aria-label="Use" data-i18n-attr="aria-label:gui.touch.use">⚒</button><button class="tb" data-k="jump" aria-label="Jump" data-i18n-attr="aria-label:gui.touch.jump">⤒</button><button class="tb" data-k="bag" aria-label="Inventory" data-i18n-attr="aria-label:gui.inventory.open">🎒</button><button class="tb" data-k="build" aria-label="Build" data-i18n-attr="aria-label:gui.rail.build">🔨</button><button class="tb" data-k="pause" aria-label="Menu" data-i18n-attr="aria-label:gui.rail.menu">☰</button><button class="tb" data-k="craft" aria-label="Crafting" data-i18n-attr="aria-label:gui.rail.craft">🧰</button>
   </div>
   <section id="s-file" class="screen">
     <div class="box panel">
-      <h2>Hay que abrirlo con el lanzador</h2>
-      <p>El juego necesita un pequeño servidor local para funcionar. Haz doble clic en <b>jugar.command</b> (en la carpeta del juego) y se abrirá solo en el navegador.</p>
-      <p class="note">También puedes ejecutar <code>python3 -m http.server 8000</code> en la carpeta y entrar en http://localhost:8000</p>
+      <h2>Open it with the launcher</h2>
+      <p>The game needs a small local server to work. Double-click <b>jugar.command</b> (in the game's folder) and it will open in the browser by itself.</p>
+      <p class="note">You can also run <code>python3 -m http.server 8000</code> in the folder and go to http://localhost:8000</p>
     </div>
   </section>
   <script>
-    if (location.protocol === 'file:') document.getElementById('s-file').classList.add('show');
+    // (opened as a file, the game's code cannot load: this screen carries its own Spanish)
+    if (location.protocol === 'file:') {
+      const box = document.querySelector('#s-file .box');
+      if (document.documentElement.lang === 'es') box.innerHTML = '<h2>Hay que abrirlo con el lanzador</h2><p>El juego necesita un pequeño servidor local para funcionar. Haz doble clic en <b>jugar.command</b> (en la carpeta del juego) y se abrirá solo en el navegador.</p><p class="note">También puedes ejecutar <code>python3 -m http.server 8000</code> en la carpeta y entrar en http://localhost:8000</p>';
+      document.getElementById('s-file').classList.add('show');
+    }
   </script>
   <script type="importmap">{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }</script>
   <script>
@@ -828,19 +847,23 @@
         let n = 0;
         try { n = +sessionStorage.getItem(RETRY) || 0; } catch {}
         const more = n < WAITS.length, box = document.createElement('div'), card = document.createElement('div'), text = document.createElement('p');
+      // (the game's language files may be what did not load: these three texts go here, in both languages)
+      const T = document.documentElement.lang === 'es'
+        ? { retrying: (i, of) => `El juego no ha terminado de cargar. Volviendo a intentarlo (${i} de ${of})…`, failed: 'No se ha podido cargar el juego. Puede ser la conexión o un fallo momentáneo del servidor.', again: 'Volver a intentarlo' }
+        : { retrying: (i, of) => `The game hasn't finished loading. Trying again (${i} of ${of})…`, failed: "The game couldn't be loaded. It may be the connection or a momentary server error.", again: 'Try again' };
         box.id = 'boot-error';
         box.style.cssText = 'position:fixed;inset:0;z-index:100;display:flex;align-items:center;justify-content:center;padding:16px;background:rgba(10,8,6,.72)';
         card.className = 'panel';
         card.style.cssText = 'max-width:440px;padding:18px 22px;text-align:center;color:var(--cream);font-size:18px';
         text.style.margin = '0';
-        text.textContent = more ? `El juego no ha terminado de cargar. Volviendo a intentarlo (${n + 1} de ${WAITS.length})…` : 'No se ha podido cargar el juego. Puede ser la conexión o un fallo momentáneo del servidor.';
+        text.textContent = more ? T.retrying(n + 1, WAITS.length) : T.failed;
         card.append(text);
         if (more) {
           try { sessionStorage.setItem(RETRY, n + 1); } catch {}
           setTimeout(() => location.reload(), WAITS[n]);
         } else {
           const again = document.createElement('button');
-          again.type = 'button'; again.className = 'btn'; again.textContent = 'Volver a intentarlo';
+          again.type = 'button'; again.className = 'btn'; again.textContent = T.again;
           again.style.cssText = 'margin-top:14px;padding:8px 18px;font-size:18px;cursor:pointer';
           again.onclick = () => { try { sessionStorage.removeItem(RETRY); } catch {} location.reload(); };
           card.append(again);

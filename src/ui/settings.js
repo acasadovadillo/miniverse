@@ -1,5 +1,6 @@
 // Pantalla de ajustes
 import { Settings } from '../settings.js';
+import { t, LANGS, autoLang, getLangSetting, onLangChange } from '../i18n.js';
 
 const $ = id => document.getElementById(id);
 
@@ -40,6 +41,8 @@ export function initSettingsUI({ onClose, extra = null }) {
   // Pantalla completa: el juego ocupa toda la pantalla, sin el navegador, como un vídeo a pantalla completa. Con el
   // teclado bloqueado (Chrome y Edge), Esc sigue abriendo la pausa y para salir se mantiene pulsado; si no, Esc sale
   const full = () => !!document.fullscreenElement;
+  let paintFull = null;   // (one listener for the screen's lifetime: the rows are rebuilt on every open)
+  document.addEventListener('fullscreenchange', () => paintFull?.());
   const fullRow = () => {
     const row = document.createElement('div');
     row.className = 'st-row';
@@ -48,13 +51,40 @@ export function initSettingsUI({ onClose, extra = null }) {
     const paint = () => { on.classList.toggle('on', full()); off.classList.toggle('on', !full()); };
     on.onclick = () => toggleFullscreen(true).finally(paint);
     off.onclick = () => toggleFullscreen(false).finally(paint);
-    document.addEventListener('fullscreenchange', paint);
+    paintFull = paint;
     paint();
     box.append(row);
     if (!document.fullscreenEnabled) { on.disabled = true; row.title = 'Este navegador no deja ponerlo a pantalla completa'; }
   };
+  // Language · Idioma: the heading in both languages, so whoever finds the game in a language they don't read knows
+  // where it is; each language named in itself. English is still partial until all texts go through t() (F5)
+  const langRow = () => {
+    head(t('gui.settings.language'));
+    const row = document.createElement('div'), seg = document.createElement('div');
+    row.className = 'st-row lang';
+    seg.className = 'seg';
+    seg.setAttribute('role', 'group');
+    seg.setAttribute('aria-label', t('gui.settings.language'));
+    for (const v of ['auto', ...Object.keys(LANGS)]) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.textContent = v === 'auto' ? t('gui.settings.language.auto') : t('lang.' + v);
+      if (v !== 'auto') b.lang = v;
+      b.title = v === 'auto' ? t('gui.settings.language.auto_title', { lang: LANGS[autoLang()] }) : v === 'en' ? t('lang.en.in_progress') : '';
+      b.classList.toggle('on', getLangSetting() === v);
+      // (if the language stays the same, as from Spanish to Automatic, there is no langchange: repaint here)
+      b.onclick = () => { if (getLangSetting() !== v) Settings.setLang(v).finally(build); };
+      seg.append(b);
+    }
+    row.append(seg);
+    const note = document.createElement('p');
+    note.className = 'st-note';
+    note.textContent = t('gui.settings.language.note');
+    box.append(row, note);
+  };
   function build() {
     box.replaceChildren();
+    langRow();
     head('Sonido');
     slider('master', 'Volumen general');
     check('musicOn', 'Música');
@@ -68,6 +98,7 @@ export function initSettingsUI({ onClose, extra = null }) {
     extra?.(box, head);
   }
   build();
+  onLangChange(build);
   $('st-close').onclick = () => onClose();
   return { refresh: build };
 }

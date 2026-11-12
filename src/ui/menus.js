@@ -17,6 +17,7 @@ import { SHARED } from '../livesync.js';
 import { GAME_VERSION, checkPublished } from '../version.js';
 import { showUpdateNotice, updateNoticeOpen } from './update.js';
 import { setNotice, syncNoticeText, expiryNoticeText, showKeyCode, saveSettings } from './savesafety.js';
+import { t, LANGS, getLang, onLangChange, setAccountLang, accountLangOf, savedLang } from '../i18n.js';
 
 const $ = id => document.getElementById(id);
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -55,6 +56,32 @@ export function initMenus(game) {
     wrap.append(input, eye);
     paint();
   }
+
+  // ---------- Language: EN | ES in a corner of the login screen and the main menu ----------
+  // (Settings only opens after logging in: the first screen needs its own way to change it. A click is an explicit
+  // choice, saved like the one in Settings)
+  const pickers = [];
+  for (const id of ['s-login', 's-menu']) {
+    const box = document.createElement('div'), mark = text => { const s = document.createElement('span'); s.textContent = text; s.setAttribute('aria-hidden', 'true'); return s; };
+    box.className = 'lang-pick panel';
+    box.setAttribute('role', 'group');
+    box.dataset.i18nAttr = 'aria-label:gui.lang_picker.label';
+    box.setAttribute('aria-label', t('gui.lang_picker.label'));
+    box.append(mark('🌐'));
+    Object.keys(LANGS).forEach((l, i) => {
+      if (i) box.append(mark('|'));
+      const b = document.createElement('button');
+      b.type = 'button'; b.textContent = l.toUpperCase(); b.lang = l; b.dataset.lang = l;
+      b.title = l === 'en' ? t('lang.en.in_progress') : LANGS[l];
+      b.onclick = () => Settings.setLang(l).finally(paintPickers);
+      box.append(b);
+    });
+    $(id).append(box);
+    pickers.push(box);
+  }
+  function paintPickers() { for (const box of pickers) for (const b of box.querySelectorAll('button')) b.classList.toggle('on', b.dataset.lang === getLang()); }
+  paintPickers();
+  onLangChange(paintPickers);
 
   // ---------- Inicio de sesión ----------
   // Según el usuario hace falta su contraseña; la primera vez, además, su código de invitación (y repetir la
@@ -104,11 +131,13 @@ export function initMenus(game) {
         return say(err);
       }
       if (step === 'renew') $('lg-token').value = '';
-      loggedIn();
+      await loggedIn();
     } catch (err) { say(err.message); } finally { $('lg-submit').disabled = false; }
   });
-  function loggedIn() {
+  async function loggedIn() {
     Settings.useVolumes(Profile.data?.save?.volumes);   // (los volúmenes de tu partida)
+    // (on automatic, the language of the account: one from before this version stays in Spanish; see i18n.js)
+    await setAccountLang(accountLangOf(Profile.data?.save));
     openMenu();
     expiryCheck();
     keyReminder();
@@ -139,7 +168,7 @@ export function initMenus(game) {
       const err = await Profile.resolveDamaged(choice);
       if (err) return say(err);
       damagedBox(false);
-      loggedIn();
+      await loggedIn();
     };
     if (d.localAt !== null) button(`Seguir con la copia de este ordenador${d.localAt > 0 ? ` (guardada el ${when(d.localAt)})` : ''}`, () => use('local'), true);
     if (d.found) button(`Usar la de GitHub del ${when(d.found.at)}`, () => use('older'), d.localAt === null);
@@ -245,7 +274,7 @@ export function initMenus(game) {
     if (!w) throw new Error(`El mundo compartido todavía no está guardado: ${ADMIN_NAME} tiene que entrar una vez para dejarlo listo.`);
     return w;
   }
-  $('m-session').addEventListener('click', () => { live.close(); Profile.logout(); for (const id of ['sync', 'token', 'server-token', 'key-code', 'key-lost']) setNotice(id, null); openLogin(); });
+  $('m-session').addEventListener('click', () => { live.close(); Profile.logout(); setAccountLang(null); for (const id of ['sync', 'token', 'server-token', 'key-code', 'key-lost']) setNotice(id, null); openLogin(); });
 
   // ---------- Guardado seguro ----------
   // Si subir a GitHub falla dos veces seguidas, un aviso arriba con el motivo (y qué hacer), hasta que vuelve a ir
@@ -540,7 +569,7 @@ export function initMenus(game) {
     // Un personaje nuevo empieza de cero; si ya había partida, el mundo (y los ajustes) se quedan como estaban
     const keep = currentSave && fresh ? Object.fromEntries(WORLD_KEYS.filter(k => k in currentSave).map(k => [k, currentSave[k]])) : {};
     const deltas = currentSave && fresh ? new Map(Profile.data.deltas) : new Map();
-    const save = { ...keep, player: { name, look: { ...look }, x: SPAWN.x, y: SPAWN.y, inside: false, view: 'back' } };
+    const save = { ...keep, player: { name, look: { ...look }, x: SPAWN.x, y: SPAWN.y, inside: false, view: 'back' }, lang: savedLang() };
     await Profile.store(save, deltas, { upload: true });
     fresh = false;
     // Se entra en el mundo; sin servidor, los demás dejan el personaje listo para cuando esté abierto

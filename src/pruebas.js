@@ -40,6 +40,7 @@ import { View3D } from './three/engine.js';
 import { sobrio, tonosSuelo } from './arte.js';
 import { tintOf } from './three/tints.js';
 import { PHOTOS, photo } from './three/photos.js';
+import { t, tHtml, fmt, formatMessage, defineNames, noun, setLang, getLang, onLangChange, accountLangOf, setAccountLang, savedLang } from './i18n.js';
 
 const GATE_X = 20;   // (el hueco de la valla del jardín, en el camino)
 const q = new URLSearchParams(location.search), WHO = q.get('quien') || 'a', RELAY = q.get('relay'), PART = q.get('parte') || 'solo';   // parte: 'solo' (un jugador), 'dos' o 'mirar' (sin pruebas: el juego con la cuenta de prueba, para verlo)
@@ -161,6 +162,88 @@ async function soloTests(game) {
     await frames(60);
     check(game.time > 0.9, 'la simulación no avanza');
     console.log(health(game));
+  });
+  await test('idioma (language): the static HTML in Spanish as before, hot switch, t(), articles and plurals', async () => {
+    const $ = id => document.getElementById(id), eq = (got, want, what) => check(got === want, `${what}: "${got}" instead of "${want}"`);
+    eq(getLang(), 'es', 'language of the tests');
+    // The Spanish of index.html, letter by letter as it was before the language system
+    const OLD = { 'p-resume': 'Continuar', 'p-menu': 'Guardar y salir al menú', 'm-continue': 'Continuar partida', 'm-session': 'Cerrar sesión', 'cf-make': 'Fabricar', 'inv-drop1': 'Tirar uno',
+      'inv-lock': 'Sin mochila solo llevas lo que cabe en las manos y los bolsillos. Fabrica una (C, a mano: fibra y cuerda) y póntela.', 'aim-free': 'Haz clic para mover la cámara con el ratón' };
+    for (const [id, text] of Object.entries(OLD)) eq($(id).textContent, text, `#${id}`);
+    for (const [id, attr, text] of [['chat-input', 'placeholder', 'Escribe un mensaje o un comando (/help)'], ['love-heart', 'title', 'Tener un bebé'], ['map-home', 'aria-label', 'Volver a tu posición'], ['inv-del', 'title', 'Modo admin: lo quita para siempre, sin tirarlo'], ['rail', 'aria-label', 'Menús']]) eq($(id).getAttribute(attr), text, `#${id} ${attr}`);
+    eq($('lg-user').closest('label').textContent, 'Usuario', 'the user field');
+    eq(document.querySelector('#s-controls dt[data-i18n-html="controls.interact.keys"]').innerHTML, '<kbd>E</kbd> o <kbd>Enter</kbd>', 'controls: E');
+    eq($('ac-result').querySelector('p').innerHTML, 'Pásale a <b id="ac-who"></b> este código de invitación. Lo necesitará la primera vez, junto a la contraseña que elija:', 'the invite');
+    // Hot switch: every translated node changes, and coming back gives exactly the same Spanish
+    const snap = () => [...document.querySelectorAll('[data-i18n],[data-i18n-html],[data-i18n-attr]')].map(el => [el.dataset.i18n ? el.textContent : '', el.dataset.i18nHtml ? el.innerHTML : '', ...['title', 'aria-label', 'placeholder'].map(a => el.getAttribute(a))].join('|')).join('\n');
+    const es = snap();
+    let fired = 0;
+    const off = onLangChange(() => fired++);
+    check(await setLang('en'), 'cannot switch to English');
+    eq(document.documentElement.lang, 'en', '<html lang>');
+    eq($('p-resume').textContent, 'Back to game', '#p-resume in English');
+    eq($('chat-input').placeholder, 'Type a message or a command (/help)', 'the chat in English');
+    eq(fired, 1, 'langchange events');
+    check(game.mode === 'play' && !game.updateError, 'the game stopped while switching');
+    // English grammar
+    eq(formatMessage('{x, a}', { x: { name: 'Anvil' } }), 'an anvil', 'a/an');
+    eq(formatMessage('{x, a}', { x: { name: 'Unicorn', an: false } }), 'a unicorn', 'a/an exception');
+    eq(formatMessage('{x, a}', { x: { name: 'Wood', mass: true } }), 'wood', 'mass noun');
+    eq(formatMessage('{x, The} is here', { x: { name: 'Anvil' } }), 'The anvil is here', 'capital article');
+    eq(formatMessage('Open {x, the}', { x: noun('gui', 'map.legend') }), 'Open the legend', 'noun from the language file');
+    eq(formatMessage('{n, plural, one {# day} other {# days}}', { n: 1 }), '1 day', 'plural one');
+    eq(formatMessage('{n, plural, =0 {nothing} one {# day} other {# days}}', { n: 1000 }), '1,000 days', 'plural other');
+    eq(formatMessage('{n, plural, =0 {nothing} other {# days}}', { n: 0 }), 'nothing', 'plural =0');
+    eq(fmt.list(['Ana', 'Bea', 'Carla']), 'Ana, Bea, and Carla', 'English list');
+    const table = { title: { name: 'Old' }, nope: { name: 'Kept' } };
+    defineNames(table, 'gui.settings', ['name']);
+    eq(table.title.name, 'Settings', 'defineNames (en)');
+    // ?lang=keys: the keys instead of the texts
+    check(await setLang('keys'), 'cannot show the keys');
+    eq($('p-resume').textContent, 'gui.pause.resume', 'keys mode');
+    check(await setLang('es'), 'cannot switch back to Spanish');
+    off();
+    eq(document.documentElement.lang, 'es', '<html lang> back');
+    const back = snap().split('\n'), was = es.split('\n'), diff = back.findIndex((x, i) => x !== was[i]);
+    check(diff < 0, `the Spanish of the page is not the same after switching back: "${was[diff]}" / "${back[diff]}"`);
+    eq(table.title.name, 'Ajustes', 'defineNames (es)');
+    eq(table.nope.name, 'Kept', 'defineNames without a key keeps the old value');
+    // Spanish grammar and numbers
+    eq(formatMessage('Quita {n, plural, one {# muslo} other {# muslos}} de hambre.', { n: 2.5 }), 'Quita 2,5 muslos de hambre.', 'plural with decimals');
+    eq(formatMessage('{n, plural, one {# muslo} other {# muslos}}', { n: 1 }), '1 muslo', 'plural one');
+    eq(formatMessage('{sex, select, girl {¡Qué madrugadora!} other {¡Qué madrugador!}}', { sex: 'girl' }), '¡Qué madrugadora!', 'select');
+    eq(formatMessage('{n, plural, one {{sex, select, girl {una niña} other {un niño}}} other {# niños}}', { n: 1, sex: 'boy' }), 'un niño', 'select inside plural');
+    eq(formatMessage('Necesitas {s, a} cerca', { s: { name: 'Mesa de cantero', g: 'f' } }), 'Necesitas una mesa de cantero cerca', 'una');
+    eq(formatMessage('Atacar {x, al}', { x: { name: 'Ciervo' } }), 'Atacar al ciervo', 'al');
+    eq(formatMessage('Atacar {x, al}', { x: { name: 'Vaca', g: 'f' } }), 'Atacar a la vaca', 'a la');
+    eq(formatMessage('Atacar {x, al}', { x: { name: 'Hacha', g: 'f', the: 'el hacha' } }), 'Atacar al hacha', 'el hacha');
+    eq(formatMessage('Quedan pocas {x, del} montón', { x: { name: 'Tablas', g: 'fp' } }), 'Quedan pocas de las tablas montón', 'de las');
+    eq(formatMessage('{x, The} está aquí', { x: { name: 'Vaca', g: 'f' } }), 'La vaca está aquí', 'capital article');
+    eq(formatMessage('Abrir {x, the}', { x: noun('gui', 'map.legend') }), 'Abrir la leyenda', 'noun and gender from the language file');
+    eq(formatMessage("Don't {x}", {}), "Don't {x}", 'apostrophe, and a missing parameter shows');
+    eq(t('count_item', { n: 12345, item: { name: 'Tablas', g: 'fp' } }), '12.345 × tablas', 'count_item');
+    eq(tHtml('count_item', { n: 2, item: '<b>' }), '2 × &lt;b&gt;', 'tHtml escapes parameters');
+    eq(fmt.list(['Ana', 'Bea', 'Carla']), 'Ana, Bea y Carla', 'Spanish list');
+    const nokey = ['no', 'such', 'key'].join('.');   // (built: i18n_check.py would rightly complain of a literal)
+    eq(t(nokey), nokey, 'a missing key shows the key');
+    // Every key of the base has its Spanish, and t() costs next to nothing (it can run every frame)
+    const [en, esj] = await Promise.all(['en', 'es'].map(l => fetch(`src/lang/${l}.json?t=${Date.now()}`).then(r => r.json())));
+    const missing = Object.keys(en).filter(k => !(k in esj));
+    check(!missing.length, `keys without Spanish: ${missing.join(', ')}`);
+    const t0 = performance.now();
+    for (let i = 0; i < 20000; i++) t('gui.pause.resume');
+    check(performance.now() - t0 < 40, `20000 t() take ${Math.round(performance.now() - t0)} ms`);
+    check(['auto', 'en', 'es'].includes(game.snapshot().lang), `the save carries lang: ${game.snapshot().lang}`);
+    // Accounts from before this version (a save without lang) stay in Spanish; their save keeps saying so
+    eq(accountLangOf({ player: {} }), 'es', 'a save from before');
+    eq(accountLangOf({ lang: 'auto' }), null, 'a save on automatic');
+    eq(accountLangOf({ lang: 'en' }), 'en', 'a save in English');
+    eq(accountLangOf(null), null, 'no save yet');
+    await setAccountLang('es');
+    const kept = savedLang();
+    await setAccountLang(null);
+    check(kept === 'es' || savedLang() === kept, `the save of an old account says ${kept}`);
+    eq(getLang(), 'es', 'language after the account checks');
   });
   await test('relieve: lo guardado da lo mismo que calcularlo, y sin costuras entre bloques', async () => {
     // (lo hecho alrededor, venga de lo guardado o del hilo aparte, frente a lo recién calculado aquí: bit a bit)

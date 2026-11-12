@@ -1,4 +1,5 @@
 // Punto de entrada: prepara el juego, los controles y los menús.
+import './i18n.js';   // (first: the language is chosen and the static HTML translated before anything is shown)
 import { Game, GAMEMODES } from './game.js';
 import { initInput } from './input.js';
 import { initMenus } from './ui/menus.js';
