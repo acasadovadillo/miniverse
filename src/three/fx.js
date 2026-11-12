@@ -183,20 +183,13 @@ export class Fx {
           if (tg.place && ITEMS[tg.place].place === 'rug') { const r = rugRect(...tg.tile, tg.rot); ghost = `rug:${tg.place}:${r.w}x${r.h}`; ghostOk = tg.ok; at = [r.x0 + r.w / 2, r.y0 + r.h / 2]; }
           else if (tg.place === 'mesa_grande') { const r = tableRect(...tg.tile, tg.rot); ghost = `mesa_grande:${r.w}x${r.h}`; ghostOk = tg.ok; at = [r.x0 + r.w / 2, r.y0 + r.h / 2]; }
           else if (tg.place) { const [sx, sy] = game.scene.shiftFor?.(tg.place, ...tg.tile, tg.rot) || [0, 0]; ghost = tg.place; ghostOk = tg.ok; at = [tg.tile[0] + 0.5 + sx, tg.tile[1] + 0.5 + sy]; yaw = yawOf(tg.rot); }
-        } else if (tg?.obj) {
+        } else if (tg?.obj && game.highlight?.tree !== tg.obj && !this.view.gatherAim?.(game)) {   // (a tree, a rock or a bush has its outline instead)
           this.ring.visible = true;
           this.ring.position.set(tg.obj.x, gy(tg.obj.x, tg.obj.y) + 0.04, tg.obj.y);
           this.ring.material.color.set(pulse);
           this.ring.scale.setScalar(1 + Math.sin(t * 6) * 0.06);
         }
       }
-    }
-    const hl = playing && game.highlight;
-    if (hl?.ring) {   // (un árbol con fruta apuntado con el cursor: un aro a sus pies)
-      this.ring.visible = true;
-      this.ring.position.set(hl.box.x, gy(hl.box.x, hl.box.y) + 0.04, hl.box.y);
-      this.ring.material.color.set(Math.sin(t * 6) > 0 ? '#fff3c0' : '#ffd77a');
-      this.ring.scale.setScalar(1.3 + Math.sin(t * 6) * 0.06);
     }
     if (ghost !== this.ghostKey) {
       if (this.ghost) this.group.remove(this.ghost);

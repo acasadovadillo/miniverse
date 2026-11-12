@@ -280,7 +280,7 @@ export class Explore {
       // (the temple is entered by its door: that is what is aimed at, and the outline is the temple)
       else if (poi.kind === 'templo') add(poi.x, poi.y + 1.2, 0.9, 0.25, 2, () => ({ text: 'Entrar en el templo', run: () => this.enterDungeon(poi) }), null, { model, keepBox: true });
       else if (poi.kind === 'faro') add(poi.x, poi.y, 1, 1, 4, () => ({ text: 'Subir al faro', run: () => this.climbLighthouse(poi) }), null, { model, exact: true });
-      else if (poi.kind === 'aldea') { const t = this.traders.get(poi.key); if (t) add(t.x, t.y, 0.35, 0.35, 1.5, () => ({ text: 'Hablar con el mercader', run: () => g.onShop?.('viajero') }), t); }
+      else if (poi.kind === 'aldea') { const t = this.traders.get(poi.key); if (t) add(t.x, t.y, 0.35, 0.35, g.view3d?.personHeight?.(t, 1.5) ?? 1.5, () => ({ text: 'Hablar con el mercader', run: () => g.onShop?.('viajero') }), t); }
       else {
         const c = this.world.contentFor(Math.floor(poi.x / CHUNK), Math.floor(poi.y / CHUNK)).objects.find(o => o.treasure);
         if (c) add(c.x, c.y, 0.45, 0.4, 0.7, () => {

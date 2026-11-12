@@ -498,7 +498,7 @@ export class World3D {
       const o = e.clone();
       o.position.set(...at([e.position.x, e.position.y, e.position.z])); o.rotation.y += yaw;
       o.traverse(q => { if (q.isMesh) { q.castShadow = true; q.receiveShadow = true; } });
-      if (o.userData.spin) { (c.spin ||= []).push(o); this.spin.add(o); }   // (lo que gira: la rueda de la noria; ya en su sitio del mundo)
+      if (o.userData.spin) { o.userData.at = [x, z]; (c.spin ||= []).push(o); this.spin.add(o); }   // (lo que gira: la rueda de la noria; ya en su sitio del mundo. at: whose it is, for the outline)
       else group.add(o);
     }
     if (!off) for (const l of m.lights) c.lights.push({ ...l, ...Object.fromEntries(['x', 'y', 'z'].map((k, i) => [k, at([l.x, l.y, l.z])[i]])) });
@@ -827,6 +827,12 @@ export class World3D {
   // What the outline and the aim of the cursor need (outline.js): the leaf of a door or gate as it is now, a moored boat
   // and the instances of a tree ([instanced mesh, index, part type]), or null
   doorLeaf(tile) { return this.doors.get(`${tile[0]},${tile[1]}`)?.leaf || null; }
+  // What spins of the model placed at (x, y), as it turns (the wheel of a noria)
+  spinningAt(x, y) {
+    let out = null;
+    for (const o of this.spin.children) { const p = o.userData.at; if (p && Math.abs(p[0] - x) < 1e-6 && Math.abs(p[1] - y) < 1e-6) (out ||= []).push(o); }
+    return out;
+  }
   boatObject(key) { for (const c of this.chunks.values()) { const b = c.boats?.get(key); if (b) return b; } return null; }
   natureParts(key) {
     for (const b of this.nature.values()) { const l = b.nat?.owners.get(key); if (l) return l; }

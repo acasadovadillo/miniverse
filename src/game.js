@@ -585,10 +585,11 @@ export class Game {
     if (CAM.first) for (const m of this.combat.monsters || []) if (sees(m.x, m.y)) { const fly = MONSTERS[m.type].fly, tall = m.type === 'esqueleto' ? 1.4 : 0.7; out.push({ kind: 'monster', e: m, box: box(m.x, m.y, 0.4, 0.4, fly ? 0.9 : 0, fly ? 1.7 : tall) }); }
     if (sc !== this.world) return out;
     // La gente, los animales y lo que se puede cosechar
-    const who = (kind, e, r, y1, more) => out.push({ kind, e, ...more, box: box(e.x, e.y, r, r, 0, y1) });
-    if (sees(this.world.nilo.x, this.world.nilo.y)) who('npc', this.world.nilo, 0.35, 1.5, { n: null });
-    for (const n of this.neighbors.people) if (!n.hidden && sees(n.x, n.y)) who('npc', n, 0.35, 1.5, { n });
-    for (const [id, e] of this.family.ents) if (sees(e.x, e.y)) who('kid', e, e.lying ? 0.45 : 0.3, e.lying ? (e.h || 0) + 0.5 : 1.1, { id });
+    // (a person's box is as tall as the person drawn: the head is aimed at too)
+    const who = (kind, e, r, y1, more) => out.push({ kind, e, ...more, box: box(e.x, e.y, r, r, 0, y1) }), tall = (e, y1) => this.view3d?.personHeight?.(e, y1) ?? y1;
+    if (sees(this.world.nilo.x, this.world.nilo.y)) who('npc', this.world.nilo, 0.35, tall(this.world.nilo, 1.5), { n: null });
+    for (const n of this.neighbors.people) if (!n.hidden && sees(n.x, n.y)) who('npc', n, 0.35, tall(n, 1.5), { n });
+    for (const [id, e] of this.family.ents) if (sees(e.x, e.y)) who('kid', e, e.lying ? 0.45 : 0.3, e.lying ? (e.h || 0) + 0.5 : tall(e, 1.1), { id });
     for (const a of this.ranch.animals) if ((!a.inside || this.ranch.stall(a)) && !a.rider && sees(a.x, a.y)) out.push({ kind: 'animal', e: a, box: bodyBox(a) });
     for (const w of this.wildlife.list) if (sees(w.x, w.y)) out.push({ kind: 'wild', e: w, box: bodyBox(w) });
     for (let ty = Math.floor(p.y) - 2; ty <= Math.floor(p.y) + 2; ty++) for (let tx = Math.floor(p.x) - 2; tx <= Math.floor(p.x) + 2; tx++) {

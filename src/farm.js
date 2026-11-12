@@ -7,6 +7,7 @@ import { B } from './world/biomes.js';
 import { inBounds, isGrass, pondDist } from './world/village.js';
 import { Audio } from './audio.js';
 import { parsePlaced } from './pieces.js';
+import { canopyOf, broadDims, palmDims } from './world/treedims.js';
 
 export const CAN_MAX = 20;
 const TREE_DAYS = 3;              // días que tarda un arbolito en hacerse árbol
@@ -146,7 +147,9 @@ export class Farm {
     for (const o of this.world.harvestablesNear(p.x, p.y)) {
       const f = FRUIT[o.kind];
       if (!f || (winter && !f.winter) || Math.hypot(o.x - p.x, o.y - p.y) > 4 || !this.hasFruit(this.d(Math.floor(o.x), Math.floor(o.y)), o)) continue;
-      out.push({ kind: 'sys', tree: o, exact: true, box: box(o.x, o.y, 0.8, 0.8, 0, 3), act: () => ({ text: f.text, run: () => this.pickFruit(o) }) });   // (tree: its outline and aim are the tree's own instances)
+      // (tree: its outline and aim are the tree's own instances; the box, the whole tree, crown and coconuts too)
+      const r = canopyOf(o) + 0.3, h = (o.kind === 'palm' ? palmDims(o).H : broadDims(o, 0).H) + 0.5;
+      out.push({ kind: 'sys', tree: o, exact: true, box: box(o.x, o.y, r, r, 0, h), act: () => ({ text: f.text, run: () => this.pickFruit(o) }) });
     }
     return out;
   }

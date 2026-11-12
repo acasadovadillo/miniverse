@@ -550,9 +550,18 @@ export class View3D {
   }
   // El borde amarillo de lo que se apunta con el cursor (game.highlight)
   drawOutline() {
-    const g = this.game;
-    if (g?.highlight && this.shown === g.scene) this.outliner.draw(this.renderer, this.camera, g.highlight, g.scene, g.player, g.time);
+    const g = this.game, a = g && this.shown === g.scene && (g.highlight || this.gatherAim(g));
+    if (a) this.outliner.draw(this.renderer, this.camera, a, g.scene, g.player, g.time);
   }
+  // What the tool in hand goes for (gather.js target) when it is a tree, a rock or a bush drawn by nature3d.js: outlined
+  // like the rest, with its own instances (fx.js no longer puts a ring at its feet). Null otherwise
+  gatherAim(g) {
+    const o = g.mode === 'play' && !g.highlight && !g.build?.on && g.scene === g.world && g.gather?.target?.obj;
+    if (!o?.key || !this.world.natureParts?.(o.key)?.length) return null;
+    return (this.gatherA?.tree === o) ? this.gatherA : (this.gatherA = { kind: 'gather', tree: o, box: null });
+  }
+  // How tall the person drawn for e is, for its aim box (game.js aimTargets); def if it is not a person
+  personHeight(e, def) { const P = this.actors?.models.get(e)?.person; return P?.height ? P.height + 0.05 : def; }
   // (also what the cursor aims at against the real shapes: game.js aimed)
   get outliner() { return (this.outline ||= new Outline(this)); }
   // Fotogramas por segundo, con el tiempo de verdad (dt viene recortado: con él nunca bajaría de 20). En Auto, si va

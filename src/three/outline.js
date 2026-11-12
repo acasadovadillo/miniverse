@@ -9,15 +9,19 @@
 // - live objects (a door or gate leaf as it swings, a moored boat, what is inside a cave): their meshes as they are.
 // - models merged into the chunk meshes (placed things, the hearth, the village board, places, chests, crops): the
 //   model's pieces where the chunk draws them (same height as buildChunk: the level of its tile).
-// - trees: the instances of that tree, swaying with the wind like them. The leaf cards are flat quads with a cut-out
-//   texture: the mask keeps only their leaves, and the line is each card grown a few pixels around its centre (with the
-//   same cut), so the outline goes round the foliage and not round the quads or the dark core inside.
-// - the rest (a window, a cave gate or plate…): its box.
+// - trees (and the rocks and bushes a tool goes for: engine.js gatherAim): the instances of that tree, swaying with the
+//   wind like them. The leaf cards are flat quads with a cut-out texture: the mask keeps only their leaves, and the line
+//   is each card grown a few pixels around its centre (with the same cut), so the outline goes round the foliage and not
+//   round the quads or the dark core inside.
+// - the rest (a window, a wall or a fence in the build mode, a rug…): its box.
+// The line is hidden where something is in front of it (see DEPTH_PULL).
 // The same shapes give the exact aim test (hit): the cursor ray against the real triangles.
 import * as THREE from 'three';
 import { getModel } from './models.js';
 import { nearX } from '../world/planet.js';
 import { WIND } from './nature3d.js';
+import { PIECES } from '../pieces.js';
+import { yawOf } from '../art/stations.js';
 
 const WIDTH = 2.5;   // grosor, en píxeles de la pantalla
 // The mark is grown too, a little: separate pieces a pixel or two apart (the planks of a door, a bag on a back) close up,
@@ -26,12 +30,23 @@ const SEAM = 1.25;
 const U = { res: { value: new THREE.Vector2(1, 1) }, width: { value: WIDTH + SEAM }, seam: { value: SEAM }, glow: { value: 1 } };
 const STENCIL_MARK = { stencilWrite: true, stencilFunc: THREE.AlwaysStencilFunc, stencilRef: 1, stencilZPass: THREE.ReplaceStencilOp, stencilFail: THREE.ReplaceStencilOp, stencilZFail: THREE.ReplaceStencilOp };
 const STENCIL_LINE = { stencilWrite: true, stencilFunc: THREE.NotEqualStencilFunc, stencilRef: 1, stencilZPass: THREE.KeepStencilOp, stencilFail: THREE.KeepStencilOp, stencilZFail: THREE.KeepStencilOp };
+// The mark covers the whole shape, hidden parts too (depthTest off). The line is depth tested: where a wall, a trunk, the
+// hand or the player's own body is in front, it does not show (a yellow outline of something that cannot be seen there
+// reads as a shape that is not there). Its depth is taken a little nearer the eye (DEPTH_PULL, some pixels' worth), so
+// what it touches, the ground under the feet or the wall an open leaf rests on, does not cut it
+const DEPTH_PULL = `vec4 depthPulled(vec4 v, vec4 c) {
+      float l = length(v.xyz), tol = min(0.04 + 8.0 * width * l / (res.y * projectionMatrix[1][1]), l * 0.5);
+      vec4 q = projectionMatrix * vec4(v.xyz * (1.0 - tol / max(l, 1e-4)), 1.0);
+      c.z = q.z / q.w * c.w;
+      return c;
+    }`;
 // The shape pushed out along its normal on the screen, with the skinning and morph chunks: Three turns them on by itself
 // for a SkinnedMesh or a geometry with morphs, and the normal is the posed one
 const SHELL_VS = `uniform vec2 res; uniform float width;
     #include <common>
     #include <morphtarget_pars_vertex>
     #include <skinning_pars_vertex>
+    ${DEPTH_PULL}
     void main() {
       #include <beginnormal_vertex>
       #include <morphnormal_vertex>
@@ -40,7 +55,7 @@ const SHELL_VS = `uniform vec2 res; uniform float width;
       #include <begin_vertex>
       #include <morphtarget_vertex>
       #include <skinning_vertex>
-      vec4 c = projectionMatrix * modelViewMatrix * vec4(transformed, 1.0);
+      vec4 v = modelViewMatrix * vec4(transformed, 1.0), c = depthPulled(v, projectionMatrix * v);
       vec2 d = (projectionMatrix * vec4(normalMatrix * objectNormal, 0.0)).xy;
       if (dot(d, d) > 1e-8) c.xy += normalize(d) * width * 2.0 / res * c.w;
       gl_Position = c;
@@ -48,7 +63,7 @@ const SHELL_VS = `uniform vec2 res; uniform float width;
 const COLOR_FS = 'uniform float glow; void main() { gl_FragColor = vec4(vec3(1.0, 0.82, 0.2) * glow, 1.0); }';
 const shell = mark => new THREE.ShaderMaterial({
   uniforms: { res: U.res, width: mark ? U.seam : U.width, glow: U.glow }, vertexShader: SHELL_VS, fragmentShader: COLOR_FS,
-  colorWrite: !mark, depthWrite: false, depthTest: false, side: THREE.DoubleSide, toneMapped: false, ...(mark ? STENCIL_MARK : STENCIL_LINE),
+  colorWrite: !mark, depthWrite: false, depthTest: !mark, side: THREE.DoubleSide, toneMapped: false, ...(mark ? STENCIL_MARK : STENCIL_LINE),
 });
 const MASK = shell(true), LINE = shell(false);
 // The parts of a tree (instanced, with the wind of nature3d.js: sway = [amount, speed, 1 or -1 if it hangs]), grown like
@@ -58,6 +73,7 @@ const INST_VS = `uniform vec2 res; uniform float width; uniform float windTime; 
   #ifdef CARD
   varying vec2 vUv;
   #endif
+  ${DEPTH_PULL}
   void main() {
     vec3 p = position;
     vec4 wp = instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0);
@@ -65,7 +81,7 @@ const INST_VS = `uniform vec2 res; uniform float width; uniform float windTime; 
     float s = sin(t * 1.6 + wp.x * 0.35 + wp.z * 0.25) * 0.6 + sin(t * 2.9 + wp.x * 0.9 - wp.z * 0.4) * 0.3;
     p.xz += vec2(s, s * 0.5) * sway.x * max(sway.z * position.y, 0.0);
     mat4 mv = modelViewMatrix * instanceMatrix;
-    vec4 c = projectionMatrix * mv * vec4(p, 1.0);
+    vec4 v = mv * vec4(p, 1.0), c = projectionMatrix * v;
     #ifdef CARD
     vUv = uv;
     vec4 o = projectionMatrix * mv * vec4(0.0, 0.0, 0.0, 1.0);
@@ -73,6 +89,7 @@ const INST_VS = `uniform vec2 res; uniform float width; uniform float windTime; 
     #else
     vec2 d = (projectionMatrix * vec4(normalMatrix * (mat3(instanceMatrix) * normal), 0.0)).xy;
     #endif
+    c = depthPulled(v, c);
     if (dot(d, d) > 1e-12) c.xy += normalize(d) * width * 2.0 / res * c.w;
     gl_Position = c;
   }`;
@@ -85,7 +102,7 @@ const INST_FS = `uniform float glow; uniform sampler2D map; uniform float width;
     // (the leaves grown by the width: the most opaque of 8 texels around, at that many pixels on the screen)
     float a = texture2D(map, vUv).a;
     vec2 ux = dFdx(vUv) * width, uy = dFdy(vUv) * width;
-    for (int i = 0; i < 8; i++) { float k = float(i) * 0.785398; a = max(a, texture2D(map, vUv + ux * cos(k) + uy * sin(k)).a); }
+    if (a < 0.5) for (int i = 0; i < 8; i++) { float k = float(i) * 0.785398; a = max(a, texture2D(map, vUv + ux * cos(k) + uy * sin(k)).a); }   // (inside the leaves, one read is enough)
     if (a < 0.5) discard;
     #endif
     gl_FragColor = vec4(vec3(1.0, 0.82, 0.2) * glow, 1.0);
@@ -95,7 +112,7 @@ function instMat(line, card) {
   return new THREE.ShaderMaterial({
     uniforms: { res: U.res, width: line ? U.width : U.seam, glow: U.glow, windTime: WIND, sway: { value: new THREE.Vector3() }, map: { value: WHITE } },
     vertexShader: INST_VS, fragmentShader: INST_FS, defines: card ? { CARD: '' } : {},
-    colorWrite: line, depthWrite: false, depthTest: false, side: THREE.DoubleSide, toneMapped: false, ...(line ? STENCIL_LINE : STENCIL_MARK),
+    colorWrite: line, depthWrite: false, depthTest: line, side: THREE.DoubleSide, toneMapped: false, ...(line ? STENCIL_LINE : STENCIL_MARK),
   });
 }
 const CARDS = new Set(['card', 'cardS', 'cardStrand', 'cardStrandB', 'frond2']);
@@ -107,6 +124,7 @@ function swayOf(mat) {
   return v;
 }
 const BOX = new THREE.BoxGeometry(1, 1, 1), ME = new THREE.Matrix4(), MI = new THREE.Matrix4(), X = new THREE.Vector3(), Y = new THREE.Vector3(0, 1, 0), Z = new THREE.Vector3();
+const EU = new THREE.Euler(), QU = new THREE.Quaternion();
 const RAY = new THREE.Raycaster(), HITS = [], BB = new THREE.Box3();
 
 export class Outline {
@@ -135,11 +153,14 @@ export class Outline {
     const bone = new THREE.Bone(), sk = new THREE.SkinnedMesh(g, MASK), sl = new THREE.SkinnedMesh(g, LINE);
     sk.add(bone); sk.bind(new THREE.Skeleton([bone]));
     sl.bind(sk.skeleton);
-    const tmp = new THREE.Scene(), mats = [];
+    const tmp = new THREE.Scene(), ims = [];
     tmp.add(new THREE.Mesh(g, MASK), new THREE.Mesh(g, LINE), sk, sl);
-    for (const line of [false, true]) for (const card of [false, true]) { const m = instMat(line, card); mats.push(m); tmp.add(new THREE.InstancedMesh(g, m, 1)); }
+    // (the tree materials are kept for good: Three destroys a program when the last material using it is released, and
+    // the first tree aimed at would compile them again in the middle of the game. Live, one per program key is enough)
+    this.warmMats ||= [false, true].flatMap(line => [false, true].map(card => instMat(line, card)));
+    for (const m of this.warmMats) { const im = new THREE.InstancedMesh(g, m, 1); ims.push(im); tmp.add(im); }
     for (const o of tmp.children) o.frustumCulled = false;
-    r.compileAsync(tmp, this.view.camera).catch(() => {}).finally(() => { sk.skeleton.dispose(); g.dispose(); for (const m of mats) m.dispose(); });
+    r.compileAsync(tmp, this.view.camera).catch(() => {}).finally(() => { sk.skeleton.dispose(); for (const im of ims) im.dispose(); g.dispose(); });
   }
   // Una forma más que dibujar: geometría, dónde y, si es de una malla con esqueleto, esa malla
   add(geo, matrix, src = null) {
@@ -165,9 +186,10 @@ export class Outline {
     const k = this.ni++, card = CARDS.has(type);
     let pair = this.inst[k];
     if (!pair || pair[0].instanceMatrix.count < idx.length) {
-      if (pair) for (const m of pair) { this.scene.remove(m); m.dispose(); m.material.dispose(); }
-      const n = Math.max(64, idx.length);
-      pair = this.inst[k] = [new THREE.InstancedMesh(BOX, instMat(false, false), n), new THREE.InstancedMesh(BOX, instMat(true, false), n)];
+      // (grown: the same materials in bigger meshes; only the old instance buffers are released)
+      const n = Math.max(64, Math.ceil(idx.length * 1.5)), mats = pair ? pair.map(m => m.material) : [instMat(false, false), instMat(true, false)];
+      if (pair) for (const m of pair) { this.scene.remove(m); m.dispose(); }
+      pair = this.inst[k] = mats.map(M => new THREE.InstancedMesh(BOX, M, n));
       this.prep(pair);
     }
     const sway = swayOf(im.userData.mat || im.material), map = (card && (im.userData.mat || im.material).map) || WHITE;
@@ -180,15 +202,29 @@ export class Outline {
       M.uniforms.sway.value.set(...sway); M.uniforms.map.value = map;
     }
   }
+  // The pieces of a model: [geometry, matrix in the model, extra or null]. An extra's matrix is the piece's inside that
+  // extra: placeModel turns the extra itself (rotation.y += yaw), see extraMatrix. What spins (the wheel of a noria) is
+  // not here: it is outlined as it turns, from the world (see collect)
   pieces(name) {
     if (this.models.has(name)) return this.models.get(name);
     const m = getModel(name), out = [];
     if (m) {
-      for (const [, B] of m.parts) if (!B.empty) out.push([B.geometry(), new THREE.Matrix4()]);
-      for (const e of m.extras) { e.updateMatrixWorld(true); e.traverse(q => { if (q.isMesh) out.push([q.geometry, q.matrixWorld.clone()]); }); }
+      for (const [, B] of m.parts) if (!B.empty) out.push([B.geometry(), new THREE.Matrix4(), null]);
+      for (const e of m.extras) {
+        if (e.userData.spin) continue;
+        e.updateMatrixWorld(true);
+        const inv = new THREE.Matrix4().copy(e.matrixWorld).invert();
+        e.traverse(q => { if (q.isMesh) out.push([q.geometry, new THREE.Matrix4().multiplyMatrices(inv, q.matrixWorld), e]); });
+      }
     }
     this.models.set(name, out);
     return out;
+  }
+  // Where placeModel puts an extra of a model at (x, lift, y) turned yaw: its position turned, its own rotation plus yaw
+  extraMatrix(e, x, lift, y, yaw, out) {
+    const c = Math.cos(yaw), s = Math.sin(yaw), p = e.position;
+    EU.set(e.rotation.x, e.rotation.y + yaw, e.rotation.z, e.rotation.order);
+    return out.compose(X.set(x + p.x * c + p.z * s, p.y + lift, y - p.x * s + p.z * c), QU.setFromEuler(EU), e.scale);
   }
   // The box of a model in its own coordinates ([x0, y0, z0, x1, y1, z1]), or null
   modelBounds(name) {
@@ -198,7 +234,8 @@ export class Outline {
     if (list.length) {
       BB.makeEmpty();
       const b = new THREE.Box3();
-      for (const [geo, m] of list) { if (!geo.boundingBox) geo.computeBoundingBox(); BB.union(b.copy(geo.boundingBox).applyMatrix4(m)); }
+      for (const [geo, m, e] of list) { if (!geo.boundingBox) geo.computeBoundingBox(); BB.union(b.copy(geo.boundingBox).applyMatrix4(e ? MI.multiplyMatrices(this.extraMatrix(e, 0, 0, 0, 0, ME), m) : m)); }
+      for (const e of getModel(name)?.extras || []) if (e.userData.spin) { e.updateMatrixWorld(true); BB.union(b.setFromObject(e)); }   // (the wheel, too: it is aimed at)
       out = [BB.min.x, BB.min.y, BB.min.z, BB.max.x, BB.max.y, BB.max.z];
     }
     this.bounds.set(name, out);
@@ -232,10 +269,11 @@ export class Outline {
     // A model merged into its chunk
     const m = this.modelOf(a, scene);
     if (m) {
-      const list = this.pieces(m.name);
-      if (list.length) {
-        ME.makeRotationY(m.yaw || 0).setPosition(nearX(m.x, me.x), m.lift, m.y);
-        for (const [geo, local] of list) L.push([geo, new THREE.Matrix4().multiplyMatrices(ME, local), null, null]);
+      const list = this.pieces(m.name), x = nearX(m.x, me.x), yaw = m.yaw || 0, spin = view.world?.spinningAt?.(m.x, m.y) || [];
+      if (list.length || spin.length) {
+        const at = new THREE.Matrix4().makeRotationY(yaw).setPosition(x, m.lift, m.y);
+        for (const [geo, local, e] of list) L.push([geo, new THREE.Matrix4().multiplyMatrices(e ? this.extraMatrix(e, x, m.lift, m.y, yaw, ME) : at, local), null, null]);
+        for (const o of spin) live(o);   // (as it turns now)
         return true;
       }
     }
@@ -255,8 +293,13 @@ export class Outline {
     if (a.model) return { lift: 0, ...a.model };
     const o = a.kind === 'placed' || a.kind === 'hearth' ? a.o : null;
     if (!o || o.layer === 'rug') return null;
+    // (walls, doors, fences and gates are drawn by build3d.js for their tile, joined to their neighbours: not as their
+    // model, which is the icon's. They keep their box, or the leaf of the door, see objectOf. The hearth is a model)
+    const piece = PIECES[o.placed]?.kind;
+    if (piece && piece !== 'hearth') return null;
     const w = this.view.world, name = o.key && o.key === w?.insideKey ? `${o.placed}:in` : o.model || o.placed;
-    return { name, x: o.x, y: o.y, yaw: o.yaw ?? a.yaw ?? 0, lift: liftOf(scene, o) };
+    // (the yaw the chunk draws it with: the build mode does not say it, and the hearth and the pictures only have rot)
+    return { name, x: o.x, y: o.y, yaw: o.yaw ?? a.yaw ?? yawOf(o.rot), lift: liftOf(scene, o) };
   }
   // The aim box of a model, from what it draws ({ x, y, hx, hy, ux…, y0, y1, abs }), or null
   modelBox(m) {
@@ -303,7 +346,9 @@ export class Outline {
       for (const [geo, m, src, part] of this.list) { if (part) this.addInstances(src, ...part); else this.add(geo, m, src); }
       return;
     }
-    const b = a.box, g = b.abs ? 0 : this.view.groundY(scene, b.x, b.y);
+    const b = a.box;
+    if (!b) return;
+    const g = b.abs ? 0 : this.view.groundY(scene, b.x, b.y);
     X.set(b.ux * b.hx * 2, 0, b.uy * b.hx * 2); Z.set(b.vx * b.hy * 2, 0, b.vy * b.hy * 2); Y.set(0, b.y1 - b.y0, 0);
     ME.makeBasis(X, Y, Z).setPosition(nearX(b.x, me.x), g + (b.y0 + b.y1) / 2, b.y);
     this.add(BOX, ME);
@@ -312,9 +357,11 @@ export class Outline {
     if (!a || !me) return;
     this.fill(a, scene, me);
     this.list.length = 0;
-    for (let i = this.np; i < this.pool.length; i++) this.pool[i][0].visible = this.pool[i][1].visible = false;
-    for (let i = this.ns; i < this.skinned.length; i++) { const p = this.skinned[i]; p[0].visible = p[1].visible = false; p[0].skeleton = p[1].skeleton = undefined; }
-    for (let i = this.ni; i < this.inst.length; i++) this.inst[i][0].visible = this.inst[i][1].visible = false;
+    // (the pairs left over, hidden and pointing at nothing: a person's geometry, a cave's or a tree's texture can go)
+    const off = m => { m.visible = false; m.geometry = BOX; m.morphTargetInfluences = m.morphTargetDictionary = undefined; };
+    for (let i = this.np; i < this.pool.length; i++) for (const m of this.pool[i]) off(m);
+    for (let i = this.ns; i < this.skinned.length; i++) for (const m of this.skinned[i]) { off(m); m.skeleton = undefined; }
+    for (let i = this.ni; i < this.inst.length; i++) for (const m of this.inst[i]) { off(m); m.material.uniforms.map.value = WHITE; }
     const k = renderer.getPixelRatio();
     renderer.getDrawingBufferSize(U.res.value);
     U.width.value = (WIDTH + SEAM) * k; U.seam.value = SEAM * k;
