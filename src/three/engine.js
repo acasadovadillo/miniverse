@@ -197,6 +197,7 @@ export class View3D {
     this.known = null;   // (lo que se había visto listo ya no lo está)
     if (this.prep) { this.prep.busy = null; this.prep.seen = null; this.prep.warm = false; }
     if (this.glow) this.glow.warm = false;
+    if (this.outline) this.outline.warm = false;
   }
   // Cuánto alumbra el reflejo del cielo (en esta versión de Three va en cada material: se recorre cuando cambia mucho)
   setEnv(v) {
@@ -466,6 +467,7 @@ export class View3D {
     if (this.prepare()) { this.renderer.setClearColor('#000000'); this.renderer.clear(); return; }
     this.draw();
     this.drawn++;
+    if (!this.outliner.warm) this.outliner.prewarm();   // (its programs, before the first thing is aimed at)
     for (const [s, v] of this.caves) if (s !== scene && s !== this.lastCave) { v.dispose(); this.caves.delete(s); }
     this.stats(dt);
   }
@@ -549,8 +551,10 @@ export class View3D {
   // El borde amarillo de lo que se apunta con el cursor (game.highlight)
   drawOutline() {
     const g = this.game;
-    if (g?.highlight && this.shown === g.scene) (this.outline ||= new Outline(this)).draw(this.renderer, this.camera, g.highlight, g.scene, g.player, g.time);
+    if (g?.highlight && this.shown === g.scene) this.outliner.draw(this.renderer, this.camera, g.highlight, g.scene, g.player, g.time);
   }
+  // (also what the cursor aims at against the real shapes: game.js aimed)
+  get outliner() { return (this.outline ||= new Outline(this)); }
   // Fotogramas por segundo, con el tiempo de verdad (dt viene recortado: con él nunca bajaría de 20). En Auto, si va
   // lento un rato, se prueba un escalón de resolución menos (ver autoScale)
   stats(dt) {

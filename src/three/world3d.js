@@ -230,7 +230,7 @@ export class World3D {
         else this.placeModel(o.key === this.insideKey ? `${o.placed}:in` : o.model || o.placed, o.x, o.y, o.yaw ?? yawOf(o.rot), plain, c, group, o.off, LIFT);
       } else if (o.unknown) this.placeModel(o.model || 'unknown', o.x, o.y, o.yaw ?? yawOf(o.rot), plain, c, group, false, LIFT);   // (de una versión más nueva: la caja, o el tablón de los cuadros y las alfombras, con «?»)
       else if (o.crop && this.farm(scene)) this.placeModel(`crop:${o.crop.id}:${this.farm(scene).stage(o.crop)}`, o.x, o.y, 0, plain, c, group, false, LIFT);
-      else if (o.boat) { const b = (BOAT ||= boatModel()).clone(true); b.position.set(o.x, WATER_Y - 0.12, o.y); b.rotation.y = o.yaw; b.traverse(q => { if (q.isMesh) { q.castShadow = true; q.receiveShadow = true; } }); group.add(b); }   // (una barca amarrada)
+      else if (o.boat) { const b = (BOAT ||= boatModel()).clone(true); b.position.set(o.x, WATER_Y - 0.12, o.y); b.rotation.y = o.yaw; b.traverse(q => { if (q.isMesh) { q.castShadow = true; q.receiveShadow = true; } }); group.add(b); (c.boats ||= new Map()).set(o.key, b); }   // (una barca amarrada)
       else if (o.poi) this.placeModel(`poi:${o.poi.kind}${o.poi.snow ? ':snow' : ''}`, o.poi.x, o.poi.y, 0, plain, c, group);
       else if (o.treasure) this.placeModel(`treasure:${o.open ? 1 : 0}`, o.x, o.y, 0, plain, c, group);
       else if (o.roof && o.layer === 'roof') { const r = this.regionAt(scene, o.tile[0], o.tile[1]); if (r) c.regions.add(r); }
@@ -717,7 +717,8 @@ export class World3D {
       const name = 'village:' + o.model;
       this.placeModel(name, x, z, 0, emit, c, g);
     }
-    g.add(buildNatureChunk(nat, scene.gen.season, () => 0, true).group);
+    this.villageNat = buildNatureChunk(nat, scene.gen.season, () => 0, true);
+    g.add(this.villageNat.group);
     for (const [k, B] of sinks) { const m = B.mesh(this.mat(k)); m.castShadow = m.receiveShadow = true; g.add(m); }
     g.add(pondDecor());
     for (const l of c.lights) if (l.pool) poolGround(l, l.x, l.z, (x, z) => this.view.groundY(scene, x, z));
@@ -823,6 +824,14 @@ export class World3D {
   floorAt(x, y) { return !!this.scene?.at('floor', Math.floor(x), Math.floor(y)); }
 
   // ---------- puertas y casas por dentro ----------
+  // What the outline and the aim of the cursor need (outline.js): the leaf of a door or gate as it is now, a moored boat
+  // and the instances of a tree ([instanced mesh, index, part type]), or null
+  doorLeaf(tile) { return this.doors.get(`${tile[0]},${tile[1]}`)?.leaf || null; }
+  boatObject(key) { for (const c of this.chunks.values()) { const b = c.boats?.get(key); if (b) return b; } return null; }
+  natureParts(key) {
+    for (const b of this.nature.values()) { const l = b.nat?.owners.get(key); if (l) return l; }
+    return this.villageNat?.owners.get(key) || null;
+  }
   updateDoors(scene, dt) {
     for (const d of this.doors.values()) {
       const want = scene.doorClosed(...d.tile) ? 0 : 1;

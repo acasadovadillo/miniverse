@@ -517,7 +517,7 @@ export function buildNatureChunk(objs, season, groundY, shadows = true) {
     im.userData.cast = !small || card;
     im.userData.mat = m;   // (su material de siempre: el fundido lo cambia un momento por una copia, ver nearFadeSet)
     im.userData.base = list.map((it, i) => { const mm = new THREE.Matrix4(); im.getMatrixAt(i, mm); return mm; });
-    list.forEach((it, i) => { if (!owners.has(it.owner)) owners.set(it.owner, []); owners.get(it.owner).push([im, i]); });
+    list.forEach((it, i) => { if (!owners.has(it.owner)) owners.set(it.owner, []); owners.get(it.owner).push([im, i, type]); });   // (the type: the outline skips the flat leaf cards)
     group.add(im);
   }
   return { group, owners };

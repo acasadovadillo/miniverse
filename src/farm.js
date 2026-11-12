@@ -146,7 +146,7 @@ export class Farm {
     for (const o of this.world.harvestablesNear(p.x, p.y)) {
       const f = FRUIT[o.kind];
       if (!f || (winter && !f.winter) || Math.hypot(o.x - p.x, o.y - p.y) > 4 || !this.hasFruit(this.d(Math.floor(o.x), Math.floor(o.y)), o)) continue;
-      out.push({ kind: 'sys', ring: true, box: box(o.x, o.y, 0.8, 0.8, 0, 3), act: () => ({ text: f.text, run: () => this.pickFruit(o) }) });
+      out.push({ kind: 'sys', tree: o, exact: true, box: box(o.x, o.y, 0.8, 0.8, 0, 3), act: () => ({ text: f.text, run: () => this.pickFruit(o) }) });   // (tree: its outline and aim are the tree's own instances)
     }
     return out;
   }

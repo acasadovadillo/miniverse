@@ -525,10 +525,15 @@ export class Game {
     m.aimFrame = this.frameNo; m.aim = null;
     const ray = this.view3d.rayAt(m.x, m.y);
     if (!ray) return null;
+    const O = this.view3d.outliner;
     for (const c of this.aimTargets(p, sc)) {
       if (distTo(c.box, p.x, p.y) > AIM_REACH) continue;
-      const g = this.view3d.groundY(sc, c.box.x, c.box.y), t = rayHits(ray.o, ray.d, { ...c.box, y0: c.box.y0 + g, y1: c.box.y1 + g });
-      if (t !== null && (!m.aim || t < m.aim.t)) m.aim = { ...c, t };
+      const g = c.box.abs ? 0 : this.view3d.groundY(sc, c.box.x, c.box.y);
+      let t = rayHits(ray.o, ray.d, { ...c.box, y0: c.box.y0 + g, y1: c.box.y1 + g });
+      if (t === null || (m.aim && t >= m.aim.t)) continue;
+      // (the box only says it may be there: what has a shape is aimed at by its real triangles, see outline.js hit)
+      if (c.exact && O) { const e = O.hit(c, sc, p, ray.o, ray.d); if (e === null) continue; if (e !== undefined) t = e; }
+      if (!m.aim || t < m.aim.t) m.aim = { ...c, t };
     }
     return m.aim;
   }
@@ -548,20 +553,34 @@ export class Game {
       if (o.layer === 'rug') { out.push({ kind: 'placed', o, box: { ...(o.obb || aabb(o.fx[0], o.fy[0], o.fx[1], o.fy[1])), y0: 0, y1: 0.06 } }); continue; }
       let h = hull(solidsOf(o.model || o.placed));
       if (!isFinite(h[0])) h = [-0.45, 0, -0.45, 0.45, 0.1, 0.45];
-      out.push({ kind: 'placed', o, yaw: o.yaw ?? yawOf(o.rot), box: placeBoxes([h], o.x, o.y, o.yaw ?? yawOf(o.rot))[0] });
+      // (the box of what it draws, if it draws a model: then the ray goes against its real shape)
+      const a = { kind: 'placed', o, yaw: o.yaw ?? yawOf(o.rot), box: placeBoxes([h], o.x, o.y, o.yaw ?? yawOf(o.rot))[0] }, mb = this.shapeBox(a, sc);
+      if (mb) { a.box = mb; a.exact = true; }
+      out.push(a);
     }
     // Las puertas, las ventanas y el hogar (piezas de construcción)
     const cx = Math.floor(p.x / CHUNK), cy = Math.floor(p.y / CHUNK);
     if (sc.contentFor) for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) for (const o of sc.contentFor(cx + dx, cy + dy).objects) {
       if (!o.tile || Math.abs(o.x - p.x) > R || Math.abs(o.y - p.y) > R) continue;
       const [tx, ty] = o.tile, alongX = o.door ? o.door === 'x' : (o.mask & 3) || !(o.mask & 12);
-      if (o.door) { const y1 = o.gate ? 1 : 2.05, w = o.gate ? 0.5 : 0.46; out.push({ kind: 'door', tile: o.tile, box: alongX ? box(tx + 0.5, ty + 0.5, w, 0.12, 0, y1) : box(tx + 0.5, ty + 0.5, 0.12, w, 0, y1) }); }
-      else if (o.window) out.push({ kind: 'window', tile: o.tile, box: alongX ? box(tx + 0.5, ty + 0.5, 0.45, 0.2, 0.9, 2.1) : box(tx + 0.5, ty + 0.5, 0.2, 0.45, 0.9, 2.1) });
-      else if (o.hearth) out.push({ kind: 'hearth', tile: o.tile, box: box(o.x, o.y, 0.5, 0.5, 0, 1.4) });
+      if (o.door) {
+        // The doorway (open, it still offers to close) and the leaf as it is now: open, it stands inside, by the wall
+        const y1 = o.gate ? 1 : 2.05, w = o.gate ? 0.5 : 0.46;
+        out.push({ kind: 'door', tile: o.tile, box: alongX ? box(tx + 0.5, ty + 0.5, w, 0.12, 0, y1) : box(tx + 0.5, ty + 0.5, 0.12, w, 0, y1) });
+        const leaf = this.view3d?.world?.doorLeaf?.(o.tile), lb = leaf && this.view3d.outliner?.liveBox(leaf);
+        if (lb) out.push({ kind: 'door', tile: o.tile, box: lb, exact: true });
+      }
+      // (the window with its frame, sill and lintel; with open shutters, those too)
+      else if (o.window) { const w = o.placed === 'ventana_contraventanas' && !sc.doorClosed?.(tx, ty) ? 0.7 : 0.45; out.push({ kind: 'window', tile: o.tile, box: alongX ? box(tx + 0.5, ty + 0.5, w, 0.2, 0.88, 2.16) : box(tx + 0.5, ty + 0.5, 0.2, w, 0.88, 2.16) }); }
+      else if (o.hearth) { const a = { kind: 'hearth', tile: o.tile, o, yaw: o.yaw ?? yawOf(o.rot), box: box(o.x, o.y, 0.5, 0.5, 0, 1.4) }, mb = this.shapeBox(a, sc); if (mb) { a.box = mb; a.exact = true; } out.push(a); }
       // (las vallas no se apuntan: solo se quitan con Quitar en el modo construir, B)
     }
     // Lo de cada sistema: el tablón, las cuevas y los templos, los árboles con fruta, la barca de otro…
-    for (const s of this.systems) { let more; try { more = s.aimables?.(p, sc, box); } catch (e) { reportFault(e, faultName(s, 'aimables')); } if (more) for (const a of more) { a.sys = s; out.push(a); } }
+    for (const s of this.systems) {
+      let more; try { more = s.aimables?.(p, sc, box); } catch (e) { reportFault(e, faultName(s, 'aimables')); }
+      // (a model of its own, { name, x, y, yaw }: its box is the model's, and with exact the ray goes against it)
+      if (more) for (const a of more) { a.sys = s; if (a.model) { const mb = this.shapeBox(a, sc); if (mb && !a.keepBox) a.box = mb; } out.push(a); }
+    }
     // En primera persona, también las criaturas: se les pega a las que están en la cruceta
     if (CAM.first) for (const m of this.combat.monsters || []) if (sees(m.x, m.y)) { const fly = MONSTERS[m.type].fly, tall = m.type === 'esqueleto' ? 1.4 : 0.7; out.push({ kind: 'monster', e: m, box: box(m.x, m.y, 0.4, 0.4, fly ? 0.9 : 0, fly ? 1.7 : tall) }); }
     if (sc !== this.world) return out;
@@ -573,9 +592,15 @@ export class Game {
     for (const a of this.ranch.animals) if ((!a.inside || this.ranch.stall(a)) && !a.rider && sees(a.x, a.y)) out.push({ kind: 'animal', e: a, box: bodyBox(a) });
     for (const w of this.wildlife.list) if (sees(w.x, w.y)) out.push({ kind: 'wild', e: w, box: bodyBox(w) });
     for (let ty = Math.floor(p.y) - 2; ty <= Math.floor(p.y) + 2; ty++) for (let tx = Math.floor(p.x) - 2; tx <= Math.floor(p.x) + 2; tx++) {
-      if (this.farm.ready(this.farm.cropAt(tx, ty))) out.push({ kind: 'crop', tile: [tx, ty], box: box(tx + 0.5, ty + 0.5, 0.45, 0.45, 0, 0.7) });
+      const c = this.farm.cropAt(tx, ty);
+      if (this.farm.ready(c)) out.push({ kind: 'crop', tile: [tx, ty], model: { name: `crop:${c.id}:${this.farm.stage(c)}`, x: tx + 0.5, y: ty + 0.5, lift: sc.levelAt?.(tx + 0.5, ty + 0.5) || 0 }, box: box(tx + 0.5, ty + 0.5, 0.45, 0.45, 0, 0.7) });
     }
     return out;
+  }
+  // The box of what a draws, when it is a model (see outline.js modelBox), or null (no view: the server; or no model)
+  shapeBox(a, sc) {
+    const O = this.view3d?.outliner, m = O && O.modelOf(a, sc);
+    return m ? O.modelBox(m) : null;
   }
   // Lo que se hace con lo apuntado (o null)
   actionFor(a) {

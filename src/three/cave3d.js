@@ -143,8 +143,9 @@ export class Cave3D {
     };
     const add = (mesh, x, y, z) => { mesh.position.set(x, y, z); mesh.castShadow = mesh.receiveShadow = true; g.add(mesh); return mesh; };
     const own = geo => Object.assign(new THREE.Mesh(geo, null), { userData: { own: true } });   // (una malla con su geometría propia, que se suelta al rehacer)
+    this.items_ = new Map();   // (what was drawn for each tile, for the outline: see itemsAt)
     for (const o of live) {
-      const x = o.x, z = o.y;
+      const x = o.x, z = o.y, from = g.children.length;
       if (o.kind?.startsWith('veta_')) {
         const ore = o.kind.slice(5), V = vein(), rock = add(new THREE.Mesh(V.rock, V.rockMat), x, 0.42, z);
         rock.rotation.set(0.3, x * 3, 0.2); rock.scale.set(0.62, 0.5, 0.55);
@@ -171,10 +172,13 @@ export class Cave3D {
         add(own(new THREE.BoxGeometry(0.8, on ? 0.02 : 0.08, 0.8)), x, on ? 0.01 : 0.04, z).material = modelMat(on ? 'gold' : 'templeD');
       } else if (o.block) add(own(new THREE.BoxGeometry(0.9, 0.9, 0.9)), x, 0.45, z).material = modelMat('templeD');
       else if (o.placed) put(o.placed, x, z);
+      if (o.tile && g.children.length > from) this.items_.set(`${o.tile[0]},${o.tile[1]}`, g.children.slice(from));
     }
     g.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
     this.group.add(g);
   }
+  // The meshes drawn for what is on a tile (the outline of what is aimed at: a chest, a gate, a lever, a ladder…)
+  itemsAt(tile) { return this.items_?.get(`${tile[0]},${tile[1]}`) || null; }
   // Se suelta todo lo que se hizo para esta cueva: geometrías, instancias, materiales y sus texturas (las de las fotos son
   // copias de una compartida: soltarlas solo resta un uso). Lo compartido con el mundo no se toca
   dispose() {

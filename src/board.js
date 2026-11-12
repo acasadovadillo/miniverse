@@ -60,7 +60,8 @@ export class Board {
 
   aimables(p, scene, box) {
     if (scene !== this.world) return null;
-    return [{ kind: 'sys', box: box(BOARD.x, BOARD.y, 0.75, 0.3, 0, 1.8), act: () => ({ text: 'Mirar el tablón de encargos', run: () => this.open() }) }];
+    // (its model: the outline and the aim follow the board itself, not a box around it; see game.js aimTargets)
+    return [{ kind: 'sys', box: box(BOARD.x, BOARD.y, 0.75, 0.3, 0, 1.8), model: { name: 'village:board', x: BOARD.x, y: BOARD.y }, exact: true, act: () => ({ text: 'Mirar el tablón de encargos', run: () => this.open() }) }];
   }
 
   async open() {

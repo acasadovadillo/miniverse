@@ -273,24 +273,27 @@ export class Explore {
     if (scene === this.world) {
       const poi = this.poiNear(p.x, p.y, 4);
       if (!poi) return null;
-      const add = (x, y, hx, hy, h, act, e) => out.push({ kind: 'sys', e, box: box(x, y, hx, hy, 0, h), act });
-      if (poi.kind === 'cueva') add(poi.x, poi.y, 1.1, 1.1, 1.5, () => ({ text: 'Entrar en la cueva', run: () => this.enterCave(poi, 1) }));
-      else if (poi.kind === 'templo') add(poi.x, poi.y + 1.2, 0.9, 0.25, 2, () => ({ text: 'Entrar en el templo', run: () => this.enterDungeon(poi) }));
-      else if (poi.kind === 'faro') add(poi.x, poi.y, 1, 1, 4, () => ({ text: 'Subir al faro', run: () => this.climbLighthouse(poi) }));
+      // (shape: the model it draws, for the outline and, with exact, for the aim; see game.js aimTargets)
+      const add = (x, y, hx, hy, h, act, e, shape) => out.push({ kind: 'sys', e, box: box(x, y, hx, hy, 0, h), act, ...shape });
+      const model = { name: `poi:${poi.kind}${poi.snow ? ':snow' : ''}`, x: poi.x, y: poi.y };
+      if (poi.kind === 'cueva') add(poi.x, poi.y, 1.1, 1.1, 1.5, () => ({ text: 'Entrar en la cueva', run: () => this.enterCave(poi, 1) }), null, { model, exact: true });
+      // (the temple is entered by its door: that is what is aimed at, and the outline is the temple)
+      else if (poi.kind === 'templo') add(poi.x, poi.y + 1.2, 0.9, 0.25, 2, () => ({ text: 'Entrar en el templo', run: () => this.enterDungeon(poi) }), null, { model, keepBox: true });
+      else if (poi.kind === 'faro') add(poi.x, poi.y, 1, 1, 4, () => ({ text: 'Subir al faro', run: () => this.climbLighthouse(poi) }), null, { model, exact: true });
       else if (poi.kind === 'aldea') { const t = this.traders.get(poi.key); if (t) add(t.x, t.y, 0.35, 0.35, 1.5, () => ({ text: 'Hablar con el mercader', run: () => g.onShop?.('viajero') }), t); }
       else {
         const c = this.world.contentFor(Math.floor(poi.x / CHUNK), Math.floor(poi.y / CHUNK)).objects.find(o => o.treasure);
         if (c) add(c.x, c.y, 0.45, 0.4, 0.7, () => {
           const d = this.world.delta(Math.floor(poi.x / CHUNK), Math.floor(poi.y / CHUNK), true);
           return d.opened?.[poi.key] ? { text: 'Cofre vacío', run: () => Audio.error() } : { text: 'Abrir el cofre', run: () => this.openPoiChest(poi, d) };
-        });
+        }, null, { model: { name: `treasure:${c.open ? 1 : 0}`, x: c.x, y: c.y }, exact: true });
       }
       return out;
     }
     if (scene.kind !== 'grid') return null;
     for (const o of scene.live()) {
       if (!o.tile || Math.abs(o.x - p.x) > 4 || Math.abs(o.y - p.y) > 4 || !this.gridAction(scene, o, p)) continue;
-      out.push({ kind: 'sys', box: box(o.x, o.y, 0.48, 0.48, 0, o.ladder ? 2 : o.gate !== undefined ? 1.8 : 1), act: () => this.gridAction(scene, o, g.player) });
+      out.push({ kind: 'sys', grid: o.tile, box: box(o.x, o.y, 0.48, 0.48, 0, o.ladder ? 2 : o.gate !== undefined ? 1.8 : 1), act: () => this.gridAction(scene, o, g.player) });   // (grid: its outline is what the cave draws on that tile)
     }
     return out;
   }

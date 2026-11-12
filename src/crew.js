@@ -139,7 +139,7 @@ export class Crew {
     return null;
   }
   aimables(p, scene, box) {
-    const moored = this.canRow(p, scene) ? this.game.world.boatsNear(p.x, p.y, 5).map(b => ({ kind: 'sys', e: b, box: box(nearX(b.x, p.x), b.y, 0.9, 0.9, -0.3, 0.9), act: () => this.mooredAction(b) })) : [];
+    const moored = this.canRow(p, scene) ? this.game.world.boatsNear(p.x, p.y, 5).map(b => ({ kind: 'sys', e: b, boat: b.key, exact: true, box: box(nearX(b.x, p.x), b.y, 0.9, 0.9, -0.3, 0.9), act: () => this.mooredAction(b) })) : [];
     if (!this.canBoard(p, scene)) return moored.length ? moored : null;
     return moored.concat(this.game.live.others.filter(q => q.entity?.boat && q.sc === 'world').map(peer => ({ kind: 'sys', e: peer.entity, box: box(peer.entity.x, peer.entity.y, 0.9, 0.9, 0, 1.6), act: () => this.actionOn(peer) })));
   }
