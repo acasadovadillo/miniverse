@@ -4,6 +4,8 @@
 // casas de los animales, las vallas, guardar y cargar) comprobando que pasa lo que tiene que pasar. Cada prueba se cuenta a probar.py (POST /pruebas) y sale
 // también en la consola. Con &parte=dos&relay=ws://…, dos juegos (quien=a, el anfitrión, y quien=b, el invitado)
 // comparten un mundo por el relay de pruebas y comprueban que cada uno ve lo que pone el otro.
+// Con &only=<expresión>, solo las pruebas cuyo nombre la cumple (y la de carga): para probar a mano lo que se ha tocado
+// sin pasar la batería entera (p. ej. &only=cuevas|fallos|ganchos). Al acabar, el resumen también va en document.title.
 import * as THREE from 'three';
 import { Profile } from './accounts.js';
 import { RealPerson } from './three/realperson.js';
@@ -41,6 +43,7 @@ import { PHOTOS, photo } from './three/photos.js';
 
 const GATE_X = 20;   // (el hueco de la valla del jardín, en el camino)
 const q = new URLSearchParams(location.search), WHO = q.get('quien') || 'a', RELAY = q.get('relay'), PART = q.get('parte') || 'solo';   // parte: 'solo' (un jugador), 'dos' o 'mirar' (sin pruebas: el juego con la cuenta de prueba, para verlo)
+const ONLY = q.get('only') ? new RegExp(q.get('only'), 'i') : null;   // (solo esas pruebas: ver arriba)
 const LOOK = { sex: 'chica', hairStyle: 'trenzas', hair: '#2a1e1e', skin: '#c98a5a', outfit: 'delantal', cloth: '#b84a8a', pants: '#4a3a2a', eyes: '#3a2a1e' };
 const TEST_TIMEOUT = 60000, LOAD_TIMEOUT = 90000;
 const results = [];
@@ -82,6 +85,7 @@ function tell(name, ok, detail = '') {
   fetch('/pruebas', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ who: WHO, name, ok, detail }) }).catch(() => {});
 }
 async function test(name, fn) {
+  if (ONLY && !ONLY.test(name) && !/^carga/.test(name)) return;
   const before = errors.length;
   resetFaults();   // (un fallo que ya salió en otra prueba se vuelve a decir entero en la consola, y cuenta en esta)
   console.log(`▶ ${name}`);   // (con probar.py --ver se ve por dónde va cada juego)
@@ -1585,5 +1589,6 @@ export async function runTests(game) {
   } catch (e) { tell('pruebas', false, `se han parado: ${e.message}`); }
   const ko = results.filter(r => !r.ok).length;
   console.log(`FIN ${results.length - ko} bien, ${ko} mal`);
+  document.title = `FIN ${results.length - ko} bien, ${ko} mal ${JSON.stringify(results.filter(r => !r.ok).map(r => `${r.name}: ${r.detail}`.slice(0, 300)))}`;
   fetch('/pruebas', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ who: WHO, fin: true, ok: results.length - ko, ko }) }).catch(() => {});
 }
