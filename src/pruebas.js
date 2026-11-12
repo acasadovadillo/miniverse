@@ -743,6 +743,39 @@ async function soloTests(game) {
     runCommand(game, '/gamemode creative', say); check(game.gamemode === 'creative', `gamemode: ${said.at(-1)}`); runCommand(game, '/gamemode survival', say); check(game.gamemode === 'survival', 'no vuelve a supervivencia');
     runCommand(game, '/help', say); check(said.some(s => s.includes('/tp')), 'help no lista /tp');
   });
+  await test('saltos lejos: a oscuras, con la pausa delante, sin destapar dos veces; con la pausa o el mapa no se dibuja', async () => {
+    const v = game.view3d, fade = document.getElementById('fade'), [hx, hy] = [p().x, p().y];
+    // (hasta que acabe el salto, dibujando como el bucle del juego: whenReady espera a fotogramas pintados)
+    const settle = async (ms = 20000) => { const t0 = performance.now(); while ((game.jumping || v.prep) && performance.now() - t0 < ms) { draw(); await frames(1); await sleep(15); } };
+    try {
+      game.teleport(hx + 200, hy, true);
+      check(game.jumping && fade.classList.contains('on'), 'un /tp lejos no funde a negro');
+      // (con la pausa abierta a medias, como si la hubiera abierto antes de llegar el /tp de un op, la vista se sigue
+      // preparando detrás: antes se quedaba a oscuras unos 13 s)
+      game.mode = 'pause';
+      const t0 = performance.now();
+      await settle();
+      check(!game.jumping && !v.prep, 'el salto no acaba con la pausa abierta');
+      check(performance.now() - t0 < 12000, `con la pausa abierta, el salto tarda ${Math.round(performance.now() - t0)} ms`);
+      await sleep(350);
+      check(!fade.classList.contains('on'), 'el salto no destapa');
+      check(await readyGround(game, 8000), 'el suelo de allí no se hace');
+      // (sin nada que preparar, con la pausa o el mapa delante no se dibuja el mundo)
+      for (const mode of ['pause', 'map']) {
+        game.mode = mode; v.redraw = false;
+        const n = v.drawn;
+        for (let i = 0; i < 4; i++) { draw(); await sleep(10); }
+        check(v.drawn === n, `con ${mode === 'map' ? 'el mapa' : 'la pausa'} se sigue dibujando el mundo`);
+      }
+      game.mode = 'play';
+      // (si otro tapa a medias, al morir o al salir, el salto no destapa: lo hace quien tapó después)
+      game.teleport(hx, hy, true);
+      game.covers++;
+      await settle();
+      await sleep(350);
+      check(fade.classList.contains('on'), 'un salto viejo destapa lo que tapó otro');
+    } finally { game.mode = 'play'; fade.classList.remove('on'); game.jumping = false; v.hold = false; }
+  });
   await test('mapas y brújula: un mapa de la zona y la aguja hacia casa', async () => {
     await goTo(game, 30, 30);
     inv().add('mapa_vacio', 1); const i = inv().slots.findIndex(s => s?.id === 'mapa_vacio'); game.maps.create(i);

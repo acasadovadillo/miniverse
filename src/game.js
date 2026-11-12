@@ -457,7 +457,12 @@ export class Game {
   followSpectated() {
     const peer = this.live.others.find(x => x.id === this.spectating && x.playing), e = peer?.entity;
     if (this.gamemode !== 'spectator' || !peer) { this.spectating = null; return; }
-    if (e && peer.sc === 'world') { this.player.x = e.x; this.player.y = e.y; }
+    if (!e || peer.sc !== 'world') return;
+    // (si el seguido salta lejos, o se empieza a seguir a alguien lejano, a oscuras como un /tp: si no, la cámara correría
+    // hasta allí haciendo de paso todo lo de en medio)
+    const far = Math.hypot(dxOf(e.x, this.player.x), e.y - this.player.y) > JUMP_COVER;
+    this.player.x = e.x; this.player.y = e.y;
+    if (far) this.coverJump();
   }
   // Nombre del lugar (pueblo o bioma) y coordenadas, con el pueblo en (0, 0)
   updatePlace() {
@@ -472,6 +477,7 @@ export class Game {
   end() {
     this.live.left();
     this.covers = (this.covers || 0) + 1;   // (un salto a oscuras a medias ya no destapa: ver coverJump)
+    this.jumping = false; this.view3d.hold = false;
     this.player = null;
     this.scene = null;
     this.mode = 'menu';
@@ -804,19 +810,22 @@ export class Game {
   // última imagen (hold): si no, la cámara iría corriendo hasta allí, haciendo de paso todo lo de en medio. El jugador ya
   // está allí (para el juego y la red): solo espera la vista. Otro salto mientras tanto solo cambia adónde
   // (covers: cuántas veces otro ha tapado la pantalla por su cuenta, al morir o al salir de la partida; si pasa a medias,
-  // destapa quien tapó después, no este salto)
+  // destapa quien tapó después, no este salto). jumping: el número del salto en marcha (al salir de la partida se olvida:
+  // el de una partida vieja no estorba al primero de la nueva). Mientras, a ciegas, el jugador se queda quieto (ver update)
+  // y no se abren la pausa ni el mapa (no se verían: ver menus.js)
   async coverJump() {
     const v = this.view3d;
     if (!v.whenReady || this.jumping) { v.snap(); return; }
-    this.jumping = true;
     const mine = (this.covers = (this.covers || 0) + 1);
+    this.jumping = mine;
     try {
       v.hold = true;
       await hud.fade(true);
+      if (this.jumping !== mine) return;   // (se ha salido de la partida mientras se fundía)
       v.hold = false;
       v.snap();
       await v.whenReady(1500);
-    } finally { v.hold = false; this.jumping = false; }
+    } finally { if (this.jumping === mine) { v.hold = false; this.jumping = false; } }
     if (this.covers === mine) await hud.fade(false);
   }
   // Llevar al jugador adonde reaparece (cuando cae en combate): su punto (/spawnpoint) o su casa
@@ -1022,7 +1031,7 @@ export class Game {
 
   // ---------- bucle ----------
   run() {
-    let last = performance.now(), acc = 0, drawnAt = -1e9;
+    let last = performance.now(), acc = 0, drawnAt = -1e9, ticks = 0;
     const perf = this.perf = { frames: 0, steps: 0, update: 0, draw: 0, max: 0 };   // (lo que cuesta cada fotograma: para el panel de F3)
     // Avanzar el juego (la simulación y la red) hasta ahora, a pasos fijos; cap: lo que se recupera como mucho de una vez
     const advance = (now, cap) => {
@@ -1045,14 +1054,22 @@ export class Game {
       const t2 = performance.now();
       perf.frames++; perf.update += t1 - t0; perf.draw += t2 - t1; perf.max = Math.max(perf.max, t2 - t0);
       // (la música, también aislada: es lo único que queda antes de pedir el fotograma siguiente)
-      if (this.frameNo % 30 === 0) try { Music.update(this); } catch (e) { reportFault(e, 'Music.update'); }
+      if (++ticks % 30 === 0) try { Music.update(this); } catch (e) { reportFault(e, 'Music.update'); }
       requestAnimationFrame(frame);
     };
     requestAnimationFrame(frame);
     // Con la pestaña oculta (o la ventana tapada del todo) el navegador ya no da fotogramas: sin esto se paraba el juego
     // entero, también la red (los demás te veían quieto y, si llevabas el mundo, el mundo de todos se paraba). Sigue
-    // avanzando con un reloj, sin dibujar (el navegador no deja menos de un segundo entre llamadas en una pestaña oculta)
-    setInterval(() => { if (document.hidden) advance(performance.now(), 1); }, 250);
+    // avanzando con un reloj, sin dibujar. El reloj va en un hilo aparte (Worker): en la página, Chrome deja los relojes de
+    // una pestaña oculta en uno por segundo y, pasados 5 minutos, en uno por minuto (con el tope de 1 s por llamada, el
+    // juego iría 60 veces más lento); a los de un Worker no los frena. Sin Worker, el reloj de la página
+    const tick = () => { if (document.hidden) advance(performance.now(), 1); };
+    let clock = null;
+    try {
+      clock = new Worker(URL.createObjectURL(new Blob(['setInterval(() => postMessage(0), 250);'], { type: 'text/javascript' })));
+      clock.onmessage = tick;
+      clock.onerror = () => { clock.terminate(); setInterval(tick, 250); };
+    } catch { setInterval(tick, 250); }
     // (el foco, por sus avisos: en un Chrome sin pantalla no llega ninguno y se dibuja siempre a todo)
     addEventListener('blur', () => { this.unfocused = true; this.view3d.capped = true; });
     addEventListener('focus', () => { this.unfocused = false; this.view3d.capped = false; });
@@ -1088,8 +1105,8 @@ export class Game {
     if (!this.live.guest) this.world.clock += dt;   // (jugando en el mundo de otro, la hora la lleva él)
     try { this.gather.update(dt); } catch (e) { reportFault(e, 'Gather.update'); }
     this.hook('update', dt);
-    if (keys.use && !this.busy && !this.build.on) this.gather.use(true);
-    if (this.busy || hud.dialogOpen || p.pose) { p.stop(); return; }
+    if (keys.use && !this.busy && !this.jumping && !this.build.on) this.gather.use(true);
+    if (this.busy || this.jumping || hud.dialogOpen || p.pose) { p.stop(); return; }
     p.speedMul = (this.buffs.rapido > this.time ? 1.35 : 1) * (p.mount ? this.ranch.rideSpeed() : 1) * this.archery.walk;
     if (Object.values(keys).some(Boolean)) this.lastInput = this.time;   // (para /setidletimeout)
     if (p.aboard) p.stop();   // (de pasajero en una barca, le lleva ella)
@@ -1102,7 +1119,8 @@ export class Game {
     this.view3d.world?.showInside?.(house && !CAM.first ? house : null);   // (dentro del establo, sin tejado: se ve lo de dentro)
     const under = this.scene === this.world && (underRoof(this.world, p.x, p.y) || !!house);
     if (under !== this.underRoof) { this.underRoof = under; p.underRoof = under; Audio.indoors = this.indoors; this.updatePlace(); this.onSave?.(); }
-    if (this.frameNo % 10 === 0) this.updatePlace();
+    // (por pasos, no por dibujos: sin el foco o con la pestaña oculta se dibuja menos o nada, y frameNo se queda quieto)
+    if ((this.stepNo = (this.stepNo || 0) + 1) % 10 === 0) this.updatePlace();
   }
 
   render() {
@@ -1126,8 +1144,10 @@ export class Game {
     if (still !== this.still) { this.still = still; document.body.classList.toggle('still', still); if (!still) this.view3d.snap?.(); }
     // Lo que no se ve no se dibuja: con el mapa grande delante (opaco), nada; en la pausa (el juego se ve detrás, quieto), la
     // última imagen, que se queda en el lienzo, salvo si hay que repintarla (redraw: cambia el tamaño de la ventana o algo
-    // de los ajustes). Lo de la vista que espera (el suelo que llega, los trozos) sigue al volver
-    const v = this.view3d, hidden = this.mode === 'map' || (this.mode === 'pause' && !v.redraw);
+    // de los ajustes). Lo de la vista que espera (el suelo que llega, los trozos) sigue al volver. Mientras la vista se prepara a
+    // oscuras (whenReady: al entrar, en un salto), sí, aunque haya una pantalla delante: sin dibujar no avanza, y se quedaría
+    // a oscuras hasta el tope (unos 13 s). Ahí casi no pinta (ver prepare), y los fotogramas de después ya son la imagen fija
+    const v = this.view3d, hidden = !v.prep && (this.mode === 'map' || (this.mode === 'pause' && !v.redraw));
     if (!still && !hidden) { v.redraw = false; v.render(this); }
     else if (still) v.idle?.(this);   // (sin dibujar, se adelanta lo que se puede: los impostores de los árboles lejanos)
     const prey = this.gather.target?.prey, click = prey && this.highlight?.e === prey ? '  ·  Clic: atacar' : '';

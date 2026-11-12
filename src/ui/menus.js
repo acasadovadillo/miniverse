@@ -160,6 +160,9 @@ export function initMenus(game) {
   const when = ts => new Date(ts).toLocaleString('es-ES', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
   function openMenu() {
     localMode = false; live.local = false;
+    // (si se sale a medias de algo a oscuras, un /tp lejos o al reaparecer, que el menú no se quede tapado: al volver a
+    // jugar, play lo vuelve a tapar, y el salto viejo ya no destapa nada: ver Game.coverJump)
+    $('fade').classList.remove('on');
     currentSave = Profile.data?.save || null;
     $('menu-hello').textContent = `¡Hola, ${Profile.name}!`;
     $('menu-save').textContent = currentSave ? `Tu personaje: ${currentSave.player.name} · guardado el ${when(currentSave.savedAt)}` : 'Todavía no tienes personaje.';
@@ -594,7 +597,10 @@ export function initMenus(game) {
     $('fade').classList.add('on');   // (a oscuras hasta que el suelo de alrededor esté hecho: se calcula en otro hilo)
     try { game.start(data, deltas); }
     catch (e) { console.error(e); $('fade').classList.remove('on'); live.unclaim(); game.end(); openMenu(); $('menu-msg').textContent = `No se ha podido abrir la partida: ${e.message}`; return; }
-    (game.view3d.whenReady?.(2000) || Promise.resolve()).then(() => hud.fade(false));
+    // (destapa esta entrada, salvo si mientras tanto otro ha tapado por su cuenta, un /tp lejos o morir, o se ha salido:
+    // entonces destapa él; ver Game.coverJump)
+    const mine = game.covers;
+    (game.view3d.whenReady?.(2000) || Promise.resolve()).then(() => { if (game.covers === mine) hud.fade(false); });
     if (role && live.net) live.join(solo, role);
     if (role === 'host' || (!role && Profile.admin) || localMode) save({ upload: true });   // (que el mundo quede guardado para los demás cuanto antes)
   }
@@ -607,6 +613,7 @@ export function initMenus(game) {
   function togglePause() {
     if (['map', 'shop'].includes(game.mode)) { resume(); return true; }
     if (game.busy || hud.dialogOpen) return false;   // (hablando, las ventanas no se ven: Esc no las toca)
+    if (game.mode === 'play' && $('fade').classList.contains('on')) return false;   // (a oscuras, al entrar o en un salto: la pausa no se vería)
     if (game.mode === 'play' && wins.closeTop()) return true;   // (Esc: primero, la ventana de encima)
     if (game.mode === 'play' && game.build.on) { game.build.toggle(false); return true; }
     if (game.mode === 'play') { game.mode = 'pause'; $('p-msg').textContent = ''; show('s-pause'); return true; }   // (sin explicaciones: la partida se guarda sola)
@@ -619,6 +626,7 @@ export function initMenus(game) {
   function toggleMap() {
     if (game.mode === 'map') { resume(); return true; }
     if (game.mode !== 'play' || game.busy || hud.dialogOpen || game.player?.inside) return false;
+    if ($('fade').classList.contains('on')) return false;   // (a oscuras, al entrar o en un salto: el mapa no se vería)
     game.mode = 'map';
     game.map.recenter();
     clearKeys();
