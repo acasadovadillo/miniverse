@@ -1,6 +1,6 @@
 // Pantalla de ajustes
 import { Settings } from '../settings.js';
-import { t, LANGS, autoLang, getLangSetting, onLangChange } from '../i18n.js';
+import { t, LANGS, autoLang, getLang, getLangSetting, onLangChange } from '../i18n.js';
 
 const $ = id => document.getElementById(id);
 
@@ -70,10 +70,12 @@ export function initSettingsUI({ onClose, extra = null }) {
       b.type = 'button';
       b.textContent = v === 'auto' ? t('gui.settings.language.auto') : t('lang.' + v);
       if (v !== 'auto') b.lang = v;
-      b.title = v === 'auto' ? t('gui.settings.language.auto_title', { lang: LANGS[autoLang()] }) : v === 'en' ? t('lang.en.in_progress') : '';
+      // (the automatic language by its name in the current one, lowercase in the middle of a Spanish sentence)
+      b.title = v === 'auto' ? t('gui.settings.language.auto_title', { lang: t('lang.name.' + autoLang()) }) : v === 'en' ? t('lang.en.in_progress') : '';
       b.classList.toggle('on', getLangSetting() === v);
-      // (if the language stays the same, as from Spanish to Automatic, there is no langchange: repaint here)
-      b.onclick = () => { if (getLangSetting() !== v) Settings.setLang(v).finally(build); };
+      // (if the language stays the same, as from Spanish to Automatic, there is no langchange: repaint here; if it
+      // changes, langchange has already rebuilt it once)
+      b.onclick = () => { if (getLangSetting() === v) return; const was = getLang(); Settings.setLang(v).finally(() => { if (getLang() === was) build(); }); };
       seg.append(b);
     }
     row.append(seg);

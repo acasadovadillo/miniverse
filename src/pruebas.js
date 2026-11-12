@@ -40,7 +40,7 @@ import { View3D } from './three/engine.js';
 import { sobrio, tonosSuelo } from './arte.js';
 import { tintOf } from './three/tints.js';
 import { PHOTOS, photo } from './three/photos.js';
-import { t, tHtml, fmt, formatMessage, defineNames, noun, setLang, getLang, onLangChange, accountLangOf, setAccountLang, savedLang } from './i18n.js';
+import { t, tHtml, fmt, formatMessage, defineNames, noun, setLang, getLang, onLangChange, accountLangOf, setAccountLang, savedLang, decideFirst, applyDom } from './i18n.js';
 
 const GATE_X = 20;   // (el hueco de la valla del jardín, en el camino)
 const q = new URLSearchParams(location.search), WHO = q.get('quien') || 'a', RELAY = q.get('relay'), PART = q.get('parte') || 'solo';   // parte: 'solo' (un jugador), 'dos' o 'mirar' (sin pruebas: el juego con la cuenta de prueba, para verlo)
@@ -189,12 +189,28 @@ async function soloTests(game) {
     eq(formatMessage('{x, a}', { x: { name: 'Anvil' } }), 'an anvil', 'a/an');
     eq(formatMessage('{x, a}', { x: { name: 'Unicorn', an: false } }), 'a unicorn', 'a/an exception');
     eq(formatMessage('{x, a}', { x: { name: 'Wood', mass: true } }), 'wood', 'mass noun');
+    // (a message never throws, whatever it is given: a number or nothing as a noun, an empty name, odd case names)
+    eq(formatMessage('{x, the}', { x: 5 }), 'the 5', 'a number as a noun');
+    eq(formatMessage('[{x, Lower}]', { x: '' }), '[]', 'an empty noun');
+    eq(formatMessage('{x, select, a {A} other {B}}', { x: 'constructor' }), 'B', 'select on "constructor"');
+    eq(formatMessage('{constructor}', {}), '{constructor}', 'a parameter named "constructor"');
+    eq(formatMessage('{n, plural, one {# day} other {# days}}', {}), '{n}', 'a missing plural parameter shows');
+    // The start button of the creator says "Done" at the mirror, in the current language
+    const start = $('cr-start'), startKey = start.dataset.i18n;
+    start.dataset.i18n = 'gui.creator.done'; applyDom(start);
+    eq(start.textContent, 'Done', 'the mirror button');
+    start.dataset.i18n = startKey; applyDom(start);
+    eq(start.textContent, 'Start', 'the creator button');
     eq(formatMessage('{x, The} is here', { x: { name: 'Anvil' } }), 'The anvil is here', 'capital article');
     eq(formatMessage('Open {x, the}', { x: noun('gui', 'map.legend') }), 'Open the legend', 'noun from the language file');
     eq(formatMessage('{n, plural, one {# day} other {# days}}', { n: 1 }), '1 day', 'plural one');
     eq(formatMessage('{n, plural, =0 {nothing} one {# day} other {# days}}', { n: 1000 }), '1,000 days', 'plural other');
     eq(formatMessage('{n, plural, =0 {nothing} other {# days}}', { n: 0 }), 'nothing', 'plural =0');
     eq(fmt.list(['Ana', 'Bea', 'Carla']), 'Ana, Bea, and Carla', 'English list');
+    // A switch still loading is cancelled by a later one, also one back to the language already shown
+    const race = [setLang('es'), setLang('en')];
+    await Promise.all(race);
+    eq(getLang(), 'en', 'the last switch asked for wins');
     const table = { title: { name: 'Old' }, nope: { name: 'Kept' } };
     defineNames(table, 'gui.settings', ['name']);
     eq(table.title.name, 'Settings', 'defineNames (en)');
@@ -219,10 +235,11 @@ async function soloTests(game) {
     eq(formatMessage('Atacar {x, al}', { x: { name: 'Hacha', g: 'f', the: 'el hacha' } }), 'Atacar al hacha', 'el hacha');
     eq(formatMessage('Quedan pocas {x, del} montón', { x: { name: 'Tablas', g: 'fp' } }), 'Quedan pocas de las tablas montón', 'de las');
     eq(formatMessage('{x, The} está aquí', { x: { name: 'Vaca', g: 'f' } }), 'La vaca está aquí', 'capital article');
-    eq(formatMessage('Abrir {x, the}', { x: noun('gui', 'map.legend') }), 'Abrir la leyenda', 'noun and gender from the language file');
+    eq(formatMessage('Abrir {x, the}', { x: { name: 'Leyenda', g: 'f' } }), 'Abrir la leyenda', 'noun with its gender');
     eq(formatMessage("Don't {x}", {}), "Don't {x}", 'apostrophe, and a missing parameter shows');
-    eq(t('count_item', { n: 12345, item: { name: 'Tablas', g: 'fp' } }), '12.345 × tablas', 'count_item');
-    eq(tHtml('count_item', { n: 2, item: '<b>' }), '2 × &lt;b&gt;', 'tHtml escapes parameters');
+    eq(formatMessage('{n} × {item, lower}', { n: 12345, item: { name: 'Tablas', g: 'fp' } }), '12.345 × tablas', 'number and lowercase noun');
+    eq(tHtml('gui.settings.language.auto_title', { lang: '<b>' }), 'Lo elige el juego (de momento, &lt;b&gt;)', 'tHtml escapes parameters');
+    eq(t('gui.settings.language.auto_title', { lang: t('lang.name.es') }), 'Lo elige el juego (de momento, español)', 'the automatic language, in a sentence');
     eq(fmt.list(['Ana', 'Bea', 'Carla']), 'Ana, Bea y Carla', 'Spanish list');
     const nokey = ['no', 'such', 'key'].join('.');   // (built: i18n_check.py would rightly complain of a literal)
     eq(t(nokey), nokey, 'a missing key shows the key');
@@ -240,9 +257,14 @@ async function soloTests(game) {
     eq(accountLangOf({ lang: 'en' }), 'en', 'a save in English');
     eq(accountLangOf(null), null, 'no save yet');
     await setAccountLang('es');
-    const kept = savedLang();
+    eq(savedLang(), 'es', 'the save of an old account');
     await setAccountLang(null);
-    check(kept === 'es' || savedLang() === kept, `the save of an old account says ${kept}`);
+    eq(savedLang(), 'auto', 'a new account on automatic');
+    // The first run of this version in a browser: with data of the game, Spanish; in a new one, automatic
+    eq(decideFirst(['pueblo-brotes:ajustes', 'other'], []), 'es', 'first run with saved settings');
+    eq(decideFirst([], ['other-db', 'pueblo-brotes']), 'es', 'first run with only the accounts database');
+    eq(decideFirst([], []), 'auto', 'first run in a new browser');
+    eq(decideFirst(['otro-proyecto:x', 'pueblo'], ['pueblo-brotes-relieve']), 'auto', 'first run with data of other projects only');
     eq(getLang(), 'es', 'language after the account checks');
   });
   await test('relieve: lo guardado da lo mismo que calcularlo, y sin costuras entre bloques', async () => {

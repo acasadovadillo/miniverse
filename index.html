@@ -8,14 +8,14 @@
 <title>Miniverse</title>
 <script>
   // The language of the page until the game's code arrives (src/i18n.js chooses the same way, then takes over): for
-  // <html lang>, the "open it with the launcher" screen and the loading error below. Keep AUTO in step with AUTO_LANGS
-  // in src/i18n.js (tools/i18n_check.py checks it).
+  // <html lang>, the "open it with the launcher" screen and the loading error below. Keep LANGS and AUTO in step with
+  // LANGS and AUTO_LANGS in src/i18n.js (tools/i18n_check.py checks both), and the browser rule with browserLang().
   (() => {
     const AUTO = ['es'], LANGS = ['en', 'es'], q = new URLSearchParams(location.search);
     let l = q.get('lang'), s, old = false;
     try { s = JSON.parse(localStorage.getItem('pueblo-brotes:ajustes') || '{}').lang; for (let i = 0; i < localStorage.length; i++) if (localStorage.key(i).startsWith('pueblo-brotes:')) old = true; } catch {}
     if (!LANGS.includes(l)) l = ['servidor', 'pruebas'].includes(q.get('modo')) ? 'es' : LANGS.includes(s) ? s : s === undefined && old ? 'es' : null;
-    if (!l) { const b = /^es/i.test(navigator.language || '') ? 'es' : 'en'; l = AUTO.includes(b) ? b : AUTO[0]; }
+    if (!l) { let b = String(navigator.languages?.[0] || navigator.language || 'en').slice(0, 2).toLowerCase(); if (!LANGS.includes(b)) b = 'en'; l = AUTO.includes(b) ? b : AUTO[0]; }
     document.documentElement.lang = l;
   })();
 </script>
@@ -471,7 +471,8 @@
     #rail button { background: rgba(38, 26, 18, .65); border-color: rgba(232, 196, 122, .8); }
     #rail kbd { display: none; }
   }
-  .screen { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; flex-direction: column; gap: 18px; padding: 16px; background: radial-gradient(ellipse at center, rgba(10, 20, 8, .25), rgba(10, 16, 8, .7)); z-index: 10; overflow-y: auto; touch-action: auto; }
+  /* (safe center: a panel taller than the window starts at the top and scrolls, instead of being cut above) */
+  .screen { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; justify-content: safe center; flex-direction: column; gap: 18px; padding: 16px; background: radial-gradient(ellipse at center, rgba(10, 20, 8, .25), rgba(10, 16, 8, .7)); z-index: 10; overflow-y: auto; touch-action: auto; }
   .screen.show { display: flex; }
   .logo { font-size: clamp(40px, 8vw, 72px); font-weight: 600; color: var(--gold); text-shadow: 4px 4px 0 #6b3a14, 0 0 24px rgba(255, 200, 100, .35); line-height: 1; text-align: center; }
   .logo small { display: block; font-size: .3em; color: var(--cream); text-shadow: 2px 2px 0 #3a2414; margin-top: 8px; font-weight: 400; }
@@ -847,10 +848,10 @@
         let n = 0;
         try { n = +sessionStorage.getItem(RETRY) || 0; } catch {}
         const more = n < WAITS.length, box = document.createElement('div'), card = document.createElement('div'), text = document.createElement('p');
-      // (the game's language files may be what did not load: these three texts go here, in both languages)
-      const T = document.documentElement.lang === 'es'
-        ? { retrying: (i, of) => `El juego no ha terminado de cargar. Volviendo a intentarlo (${i} de ${of})…`, failed: 'No se ha podido cargar el juego. Puede ser la conexión o un fallo momentáneo del servidor.', again: 'Volver a intentarlo' }
-        : { retrying: (i, of) => `The game hasn't finished loading. Trying again (${i} of ${of})…`, failed: "The game couldn't be loaded. It may be the connection or a momentary server error.", again: 'Try again' };
+        // (the game's language files may be what did not load: these three texts go here, in both languages)
+        const T = document.documentElement.lang === 'es'
+          ? { retrying: (i, of) => `El juego no ha terminado de cargar. Volviendo a intentarlo (${i} de ${of})…`, failed: 'No se ha podido cargar el juego. Puede ser la conexión o un fallo momentáneo del servidor.', again: 'Volver a intentarlo' }
+          : { retrying: (i, of) => `The game hasn't finished loading. Trying again (${i} of ${of})…`, failed: "The game couldn't be loaded. It may be the connection or a temporary server error.", again: 'Try again' };
         box.id = 'boot-error';
         box.style.cssText = 'position:fixed;inset:0;z-index:100;display:flex;align-items:center;justify-content:center;padding:16px;background:rgba(10,8,6,.72)';
         card.className = 'panel';

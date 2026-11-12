@@ -30,13 +30,15 @@ const VERSION = hasDoc ? document.querySelector('meta[name="miniverse-version"]'
 // ---------- choosing the language ----------
 // Order: ?lang=en|es|keys (tests; keys shows the keys instead of the texts) → the saved setting (Settings.v.lang:
 // 'en', 'es' or 'auto') → the language of the account that logged in (setAccountLang) → automatic.
+// (user rule: a browser in a language of the game gets it, anything else English. The early script in index.html
+// reads the same navigator.languages[0] with the same rule)
 export function browserLang() {
-  const l = String((typeof navigator !== 'undefined' && (navigator.languages?.[0] || navigator.language)) || 'en').toLowerCase();
-  return l.startsWith('es') ? 'es' : 'en';   // (user rule: a Spanish browser gets Spanish, anything else English)
+  const b = String((typeof navigator !== 'undefined' && (navigator.languages?.[0] || navigator.language)) || 'en').slice(0, 2).toLowerCase();
+  return LANGS[b] ? b : 'en';
 }
 export function autoLang() { const b = browserLang(); return AUTO_LANGS.includes(b) ? b : AUTO_LANGS[0]; }
 const norm = v => (LANGS[v] ? v : 'auto');
-const urlLang = ['en', 'es', 'keys'].includes(query.get('lang')) ? query.get('lang') : null;
+const urlLang = LANGS[query.get('lang')] || query.get('lang') === 'keys' ? query.get('lang') : null;
 let fixed = urlLang || (FIXED_MODE ? 'es' : null);
 let setting = 'auto', account = null;
 const wanted = () => fixed || (setting !== 'auto' ? setting : account || autoLang());
@@ -47,13 +49,18 @@ function readSettings() {
 // Games that already exist stay in Spanish: the first time this version runs in a browser that already has data of
 // the game (any pueblo-brotes:* key, or the accounts database), the setting becomes 'es'; in a new browser, 'auto'.
 // Either way it is saved, so this only happens once. (Old versions just carry the extra field along.)
+// decideFirst is the rule alone, from the localStorage keys and the IndexedDB names (src/pruebas.js tests it)
+export const decideFirst = (keys, dbNames) => (keys.some(k => String(k).startsWith(DATA_PREFIX)) || dbNames.includes(DATA_DB) ? 'es' : 'auto');
 async function firstSetting() {
-  try { for (let i = 0; i < localStorage.length; i++) if (localStorage.key(i)?.startsWith(DATA_PREFIX)) return 'es'; } catch { /* (no storage) */ }
+  const keys = [];
+  try { for (let i = 0; i < localStorage.length; i++) keys.push(localStorage.key(i)); } catch { /* (no storage) */ }
+  if (decideFirst(keys, []) === 'es') return 'es';   // (no need to ask IndexedDB)
+  let names = [];
   try {
     const dbs = await Promise.race([indexedDB.databases?.(), new Promise(r => setTimeout(r, 400))]);
-    if (dbs?.some(d => d.name === DATA_DB)) return 'es';
+    names = (dbs || []).map(d => d.name);
   } catch { /* (no IndexedDB, or no list of databases) */ }
-  return 'auto';
+  return decideFirst(keys, names);
 }
 async function initialSetting() {
   const s = readSettings();
@@ -70,7 +77,8 @@ async function fetchLang(l) {
   const url = new URL(`./lang/${l}.json?v=${encodeURIComponent(VERSION)}`, import.meta.url);
   for (let i = 0; ; i++) {
     try {
-      const r = await fetch(url);
+      // (with a time limit: a hung connection shows the retry screen instead of a blank page forever)
+      const r = await fetch(url, typeof AbortSignal !== 'undefined' && AbortSignal.timeout ? { signal: AbortSignal.timeout(15000) } : undefined);
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       return await r.json();
     } catch (e) {
@@ -86,7 +94,9 @@ const load = l => (dicts[l] ||= fetchLang(l).catch(e => { delete dicts[l]; throw
 
 const baseLoad = load('en');
 baseLoad.catch(() => {});   // (awaited below: no "unhandled" warning meanwhile)
-if (hasDoc && typeof localStorage !== 'undefined') setting = await initialSetting();
+// (reading window.localStorage itself throws when the browser blocks site data: then it is just not used)
+const canStore = (() => { try { return !!localStorage; } catch { return false; } })();
+if (hasDoc && canStore) setting = await initialSetting();
 let lang = wanted();
 const BASE = (await Promise.all([baseLoad, lang !== 'en' && lang !== 'keys' ? load(lang) : null]))[0];
 let locale, dict, showKeys, rules, ordinals;
@@ -103,7 +113,7 @@ export const getLocale = () => locale;             // for Intl and <html lang>
 export const getLangSetting = () => setting;       // what the player chose: 'auto', 'en' or 'es'
 
 // ---------- messages ----------
-const NO_PARAMS = {};
+const NO_PARAMS = Object.freeze(Object.create(null));
 // t('gui.menu.continue'), t('count_item', { n: 3, item: noun('item', 'apple') })
 export function t(key, params) {
   let fn = compiled.get(key);
@@ -111,7 +121,7 @@ export function t(key, params) {
   return fn(params || NO_PARAMS);
 }
 // (own keys only: a key like "constructor" must not find Object's)
-const own = (d, k) => (Object.prototype.hasOwnProperty.call(d, k) ? d[k] : undefined);
+const own = (d, k) => (d != null && Object.prototype.hasOwnProperty.call(d, k) ? d[k] : undefined);
 export const has = key => own(dict, key) !== undefined || own(BASE, key) !== undefined;
 function warn(key, what) {
   if (warned.has(key)) return;
@@ -200,7 +210,7 @@ function parse(src) {
     if (!CASED.has(type)) fail(`unknown type ${type}`);
     if (src[i] !== ',') fail('expected ,');
     i++;
-    const cases = {};
+    const cases = Object.create(null);   // (a case named "constructor" must not find Object's)
     for (;;) {
       ws();
       if (src[i] === '}') { i++; break; }
@@ -230,9 +240,10 @@ function render(parts, p, num) {
   return out;
 }
 function arg(a, p, num) {
-  const v = p[a.name];
+  const v = own(p, a.name);
   if (!a.type) return show(v, a.name);
   if (a.type === 'plural' || a.type === 'selectordinal') {
+    if (v === undefined || v === null) return `{${a.name}}`;   // (missing: shows, rather than "NaN days")
     const n = Number(v), c = a.cases['=' + n] ?? a.cases[(a.type === 'plural' ? rules : ordinals).select(n)] ?? a.cases.other;
     return render(c, p, n);
   }
@@ -249,8 +260,9 @@ function show(v, name) {
 }
 const NOUN_FIELDS = ['g', 'mass', 'plural', 'an', 'keepCase', 'lower', 'the', 'a'];
 function nounOf(v) {
-  if (typeof v === 'string') return { name: v };
-  if (!v.noun) return v;
+  // (anything else than a noun or a name, as a number, still gives a text: a message must never throw)
+  if (v === null || typeof v !== 'object') return { name: String(v) };
+  if (!v.noun) return typeof v.name === 'string' ? v : { ...v, name: String(v.name ?? '') };
   let n = nouns.get(v.noun);
   if (!n) {
     n = { name: t(v.noun) };
@@ -265,7 +277,7 @@ function nounAs(v, style, name) {
   const f = GRAMMAR[locale]?.[s];
   if (!f) { warn(`${name}, ${style}`, `no formatter in ${locale} for`); return show(v, name); }
   const out = f(nounOf(v));
-  return cap ? out[0].toUpperCase() + out.slice(1) : out;
+  return cap && out ? out[0].toUpperCase() + out.slice(1) : out;
 }
 
 // ---------- catalogs ----------
@@ -307,8 +319,8 @@ export function applyDom(root = hasDoc ? document : null) {
 let switching = 0;
 export async function setLang(l) {
   if (l !== 'keys' && !LANGS[l]) return false;
+  const mine = ++switching;   // (first: asking for the current language also cancels a switch still loading)
   if (l === lang) return true;
-  const mine = ++switching;
   try { await load(l === 'keys' ? 'en' : l); } catch (e) { console.warn(e.message); return false; }
   if (mine !== switching) return false;   // (another switch came after this one)
   await use(l);

@@ -122,6 +122,9 @@ for l, d in langs.items():
             err(f'{l}.json: "{k}" is grammar data of a noun this file does not have')
         texts = v if isinstance(v, list) else [v]
         if not all(isinstance(x, str) for x in texts): err(f'{l}.json: "{k}" must be a text or a list of texts'); continue
+        # (an empty translation would show nothing on screen: only where the base is empty too)
+        if l != BASE and isinstance(v, str) and not v.strip() and isinstance(base.get(k), str) and base[k].strip(): err(f'{l}.json: "{k}" is empty')
+        if l == BASE and isinstance(v, str) and not v.strip(): err(f'{l}.json: "{k}" is empty')
         out = []
         for x in texts:
             try: out.append(parse(x))
@@ -172,14 +175,24 @@ for path in files():
     found += [m.group(1) or m.group(3) for m in ATTR.finditer(src)]
     for m in ATTR_PAIRS.finditer(src):
         for pair in (m.group(1) or m.group(3)).split(';'):
-            if ':' in pair: found.append(pair.split(':', 1)[1].strip())
+            # (applyDom skips a pair without "attribute:key": that attribute would stay untranslated for good)
+            if not re.fullmatch(r'\s*[a-zA-Z][\w-]*\s*:\s*\S+\s*', pair): err(f'{rel}: data-i18n-attr "{pair}" is not "attribute:key"'); continue
+            found.append(pair.split(':', 1)[1].strip())
     for k in found:
         used.setdefault(k, rel)
         if k not in base: err(f'{rel}: uses "{k}", which is not in {BASE}.json')
 
-# The early script of index.html chooses the language like i18n.js: the automatic list has to be the same
+# The early script of index.html chooses the language like i18n.js: the languages and the automatic list have to be
+# the same
 with open(os.path.join(ROOT, 'index.html'), encoding='utf-8') as f: html = f.read()
 with open(os.path.join(ROOT, 'src', 'i18n.js'), encoding='utf-8') as f: i18n_src = f.read()
+m1, m2 = re.search(r'\bLANGS = (\[[^\]]*\])', html), re.search(r'export const LANGS = \{([^}]*)\}', i18n_src)
+if not m1 or not m2: err('cannot find LANGS (the early script of index.html, or src/i18n.js)')
+else:
+    early, game_langs = re.findall(r"'(\w+)'", m1.group(1)), re.findall(r'(\w+)\s*:', m2.group(1))
+    if early != game_langs: err(f'index.html LANGS {early} is not LANGS {game_langs} of src/i18n.js')
+    for l in game_langs:
+        if l not in langs: err(f'LANGS has "{l}", which has no src/lang/{l}.json')
 m1, m2 = re.search(r'const AUTO = (\[[^\]]*\])', html), re.search(r'export const AUTO_LANGS = (\[[^\]]*\])', i18n_src)
 if not m1 or not m2: err('cannot find AUTO (index.html) or AUTO_LANGS (src/i18n.js)')
 elif re.findall(r"'(\w+)'", m1.group(1)) != re.findall(r"'(\w+)'", m2.group(1)): err(f'index.html AUTO {m1.group(1)} is not AUTO_LANGS {m2.group(1)} of src/i18n.js')

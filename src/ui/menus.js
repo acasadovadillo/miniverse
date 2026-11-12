@@ -17,7 +17,7 @@ import { SHARED } from '../livesync.js';
 import { GAME_VERSION, checkPublished } from '../version.js';
 import { showUpdateNotice, updateNoticeOpen } from './update.js';
 import { setNotice, syncNoticeText, expiryNoticeText, showKeyCode, saveSettings } from './savesafety.js';
-import { t, LANGS, getLang, onLangChange, setAccountLang, accountLangOf, savedLang } from '../i18n.js';
+import { t, LANGS, getLang, onLangChange, applyDom, setAccountLang, accountLangOf, savedLang } from '../i18n.js';
 
 const $ = id => document.getElementById(id);
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -73,7 +73,9 @@ export function initMenus(game) {
       const b = document.createElement('button');
       b.type = 'button'; b.textContent = l.toUpperCase(); b.lang = l; b.dataset.lang = l;
       b.title = l === 'en' ? t('lang.en.in_progress') : LANGS[l];
-      b.onclick = () => Settings.setLang(l).finally(paintPickers);
+      if (l === 'en') b.dataset.i18nAttr = 'title:lang.en.in_progress';   // (applyDom keeps it in the current language)
+      // (the language already shown does nothing: on automatic, clicking it must not turn it into a fixed choice)
+      b.onclick = () => { if (l !== getLang()) Settings.setLang(l).finally(paintPickers); };
       box.append(b);
     });
     $(id).append(box);
@@ -545,7 +547,7 @@ export function initMenus(game) {
     mirror = { wear: game.appearance().wear };
     Object.assign(look, DEFAULT_LOOK, game.player.look);
     $('cr-name').value = game.player.name; $('cr-name').disabled = true;
-    $('cr-start').textContent = 'Listo';
+    setStartLabel('gui.creator.done');
     for (const el of document.querySelectorAll('#s-creator [data-key]')) el.hidden = MIRROR_HIDES.includes(el.dataset.key);
     $('cr-err').textContent = '';
     spin = 0; turnTo(0); rebuild();
@@ -554,10 +556,12 @@ export function initMenus(game) {
     showPage('cara');
     show('s-creator');
   };
+  // (the start button says "Done" at the mirror: through its data-i18n key, so a language switch keeps it right)
+  function setStartLabel(key) { const b = $('cr-start'); b.dataset.i18n = key; applyDom(b); }
   const closeMirror = apply => {
     if (apply) { const keepOut = ['outfit', 'cloth', 'pants', 'hairAcc', 'accColor']; game.player.look = { ...game.player.look, ...Object.fromEntries(Object.entries(look).filter(([k]) => !keepOut.includes(k))) }; game.inv.changed(); save(); }
     mirror = null;
-    $('cr-name').disabled = false; $('cr-start').textContent = 'Empezar';
+    $('cr-name').disabled = false; setStartLabel('gui.creator.start');
     for (const el of document.querySelectorAll('#s-creator [data-key]')) el.hidden = false;
     resume();
   };
@@ -792,6 +796,9 @@ export function initMenus(game) {
   // ---------- Inicio ----------
   // ---------- Cuentas (solo el admin, con /account en el chat) ----------
   // /account create y /account reset piden aquí el token de guardado de la cuenta y enseñan su código de invitación
+  // (the name goes inside a translated paragraph: a language switch rebuilds it, so it is put back)
+  let invitee = '';
+  onLangChange(() => { const who = $('ac-who'); if (who) who.textContent = invitee; });   // (?lang=keys has no <b>)
   game.onAccount = (name, reset) => new Promise(resolve => {
     const back = game.mode;
     game.mode = 'account';
@@ -809,7 +816,7 @@ export function initMenus(game) {
         const r = await Profile.invite(name, $('ac-token').value, reset);
         $('ac-token').value = '';
         $('ac-form').hidden = true; $('ac-result').hidden = false;
-        $('ac-who').textContent = r.name; $('ac-code').textContent = r.code;
+        $('ac-who').textContent = invitee = r.name; $('ac-code').textContent = r.code;
         $('ac-close').onclick = () => close(r);
       } catch (err) { $('ac-err').textContent = err.message; }
     };
