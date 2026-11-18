@@ -37,3 +37,10 @@ export const CATS = ['Suelos', 'Muros', 'Tejados', 'Vallas'];   // (el hogar, de
 export const layerOf = id => PIECES[id]?.layer || ({ wall: 'hang', rug: 'rug' })[ITEMS[id]?.place] || 'placed';
 // "silla@1" → ['silla', 1] (el número es el giro)
 export const parsePlaced = raw => { const i = raw.indexOf('@'); return i < 0 ? [raw, 0] : [raw.slice(0, i), +raw.slice(i + 1)]; };
+
+// How far a fence arm reaches from its tile's centre towards a neighbour: to the tile edge, or into a wall's tile up to
+// its face, a little further so the rails sink into it (walls run through the middle of their tile, 0.12 to each side:
+// T in three/build3d.js). The same for the drawing (build3d.js, fenceTile), bumping into it (world/scenes.js) and arrows
+// (world/shots.js)
+export const FENCE_WALL_REACH = 1 - 0.12 + 0.03;
+export const fenceReach = (scene, x, y) => (scene.pieceAt?.(x, y)?.kind === 'wall' ? FENCE_WALL_REACH : 0.5);

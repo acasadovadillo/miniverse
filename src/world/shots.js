@@ -65,7 +65,7 @@ function post(scene, tx, ty, L, out) {
 // La valla: el poste y, hacia cada vecina, sus dos barras (como three/build3d.js, fenceTile); la de piedra, maciza
 function fence(o, tx, ty, L, out) {
   const cx = tx + 0.5, cy = ty + 0.5, m = o.mask || 0, stone = o.placed === 'valla_piedra';
-  const arms = [[1, 1, 0], [2, -1, 0], [4, 0, 1], [8, 0, -1]].filter(([bit]) => m & bit);
+  const arms = [[1, 1, 0, 0], [2, -1, 0, 1], [4, 0, 1, 2], [8, 0, -1, 3]].filter(([bit]) => m & bit).map(([bit, dx, dy, i]) => [bit, dx * (o.reach?.[i] ?? 0.5) / 0.5, dy * (o.reach?.[i] ?? 0.5) / 0.5]);   // (towards a wall, longer: o.reach, world/scenes.js)
   if (stone) {
     rect(cx - 0.2, cy - 0.2, cx + 0.2, cy + 0.2, L, L + 0.8, out);
     for (const [, dx, dy] of arms) {

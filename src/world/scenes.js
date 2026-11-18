@@ -12,7 +12,7 @@ import '../buildables.js';   // (LEGACY_ITEMS con los muebles: también en el se
 import { extraTiles, LONG, BED_BACK, HEARTH_BACK, GLOW, LIGHT, front, SIDE, rugRect, RUG_SIZES, TABLE_SIZES, TABLES, TUCK } from '../art/stations.js';
 import { solidsOf, hull, placeBoxes, bounds, aabb, sat, hitsCircle, distTo, obb, dirOf, sideOf } from './fit.js';
 import { wallRuns, WINDOW_Z, T } from '../art/build.js';
-import { PIECES, layerOf, parsePlaced } from '../pieces.js';
+import { PIECES, layerOf, parsePlaced, fenceReach } from '../pieces.js';
 import { Person } from '../entities.js';
 import { wrapIndex, inPlanet, dxOf, wrapX, HALF, H as PLANET_H, NORTH } from './planet.js';
 import { roofShape } from './roof.js';
@@ -808,10 +808,13 @@ export class Overworld {
         o.mask = mask;
         // (low: es baja; a caballo, saltando, se pasa por encima)
         colliders.push({ x: o.x, y: o.y, r: 0.12, low: true });
-        if (mask & 1) colliders.push({ x0: o.x, y0: o.y - 0.08, x1: tx + 1, y1: o.y + 0.08, low: true });
-        if (mask & 2) colliders.push({ x0: tx, y0: o.y - 0.08, x1: o.x, y1: o.y + 0.08, low: true });
-        if (mask & 4) colliders.push({ x0: o.x - 0.08, y0: o.y, x1: o.x + 0.08, y1: ty + 1, low: true });
-        if (mask & 8) colliders.push({ x0: o.x - 0.08, y0: ty, x1: o.x + 0.08, y1: o.y, low: true });
+        // (towards a wall, up to its face: fenceReach in pieces.js, so nothing slips through between the two)
+        const reach = (x, y) => fenceReach(this, x, y);
+        o.reach = [reach(tx + 1, ty), reach(tx - 1, ty), reach(tx, ty + 1), reach(tx, ty - 1)];
+        if (mask & 1) colliders.push({ x0: o.x, y0: o.y - 0.08, x1: o.x + o.reach[0], y1: o.y + 0.08, low: true });
+        if (mask & 2) colliders.push({ x0: o.x - o.reach[1], y0: o.y - 0.08, x1: o.x, y1: o.y + 0.08, low: true });
+        if (mask & 4) colliders.push({ x0: o.x - 0.08, y0: o.y, x1: o.x + 0.08, y1: o.y + o.reach[2], low: true });
+        if (mask & 8) colliders.push({ x0: o.x - 0.08, y0: o.y - o.reach[3], x1: o.x + 0.08, y1: o.y, low: true });
       } else if (piece?.kind === 'hearth') {
         // Hogar con chimenea, de espaldas al muro que tenga detrás: da luz y calor; el fuego lo dibuja el juego en la
         // boca del hogar

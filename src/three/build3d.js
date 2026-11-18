@@ -10,7 +10,7 @@
 import * as THREE from 'three';
 import { Builder, mat, sameClamp } from './geo.js';
 import { plaster, planks, roofTiles, stone, wood, siding, flagstone, gravel, thatch, artwork } from './textures.js';
-import { PIECES, parsePlaced } from '../pieces.js';
+import { PIECES, parsePlaced, fenceReach } from '../pieces.js';
 import { front } from '../art/stations.js';
 import { PAL } from '../arte.js';
 import { roofShape, ROOF_CAP } from '../world/roof.js';
@@ -395,7 +395,8 @@ export function gateLeaf(d, mats) {
 export function fenceTile(scene, tx, ty, id, emit) {
   const f = (x, y) => ['fence', 'gate', 'wall'].includes(scene.pieceAt(x, y)?.kind);
   const cx = tx + 0.5, cz = ty + 0.5, arms = [[f(tx + 1, ty), 1, 0], [f(tx - 1, ty), -1, 0], [f(tx, ty + 1), 0, 1], [f(tx, ty - 1), 0, -1]].filter(a => a[0]);
-  const seg = (dx, dz, fn) => { const x0 = Math.min(cx, cx + dx * 0.5), x1 = Math.max(cx, cx + dx * 0.5), z0 = Math.min(cz, cz + dz * 0.5), z1 = Math.max(cz, cz + dz * 0.5); fn(x0, x1, z0, z1); };
+  // (towards a wall the rails go on to its face: walls run through the middle of their tile, not along its edge)
+  const seg = (dx, dz, fn) => { const r = fenceReach(scene, tx + dx, ty + dz), x0 = Math.min(cx, cx + dx * r), x1 = Math.max(cx, cx + dx * r), z0 = Math.min(cz, cz + dz * r), z1 = Math.max(cz, cz + dz * r); fn(x0, x1, z0, z1); };
   if (id === 'valla_piedra') {
     const B = emit('fenceStone', 'free'), w = 0.17;
     B.box(cx - w, 0, cz - w, cx + w, 0.72, cz + w);
