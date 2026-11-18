@@ -196,7 +196,7 @@ export class MapView {
     { const [sx, sy] = this.toScreen(Math.floor(cx - w / 2 / a), Math.floor(cy - h / 2 / a), cx, cy, w, h); this.floodOver(g, explored, Math.floor(cx - w / 2 / a), Math.floor(cy - h / 2 / a), Math.ceil(w / a) + 2, Math.ceil(h / a) + 2, a, sx, sy); }
     // Lo que tiene nombre, por orden de importancia: tú, tu casa, los lugares, las casas y los vecinos. El nombre va al
     // lado del punto, donde quepa; si no cabe sin pisar otro, ese no sale (al acercarse, sí)
-    const spots = [{ x: me[0], y: me[1], name: 'Tú', col: Math.sin(time * 6) > 0 ? ME : '#ff6a4a', size: 7, dir: this.face ? [this.face.x, this.face.y] : [0, -1] }, { x: (HOUSE.x0 + HOUSE.x1) / 2, y: (HOUSE.y0 + HOUSE.y1) / 2, name: 'Tu casa', col: HOME, size: 8 }];
+    const spots = [{ x: me[0], y: me[1], name: 'Tú', col: Math.sin(time * 6) > 0 ? ME : '#ff6a4a', size: 11, dir: this.face ? [this.face.x, this.face.y] : [0, -1] }, { x: (HOUSE.x0 + HOUSE.x1) / 2, y: (HOUSE.y0 + HOUSE.y1) / 2, name: 'Tu casa', col: HOME, size: 8 }];
     for (const m of this.markers || []) spots.push({ x: m.x, y: m.y, name: m.name, col: COL[m.kind] || '#ffffff', size: 7 });
     for (const q of Object.values(HOUSES)) if (!q.project || hasProject(q.project)) spots.push({ x: (q.x0 + q.x1) / 2, y: (q.y0 + q.y1) / 2, name: `Casa de ${q.name}`, col: HOUSE_COL, size: 7 });
     spots.push({ x: (TAVERN.x0 + TAVERN.x1) / 2, y: (TAVERN.y0 + TAVERN.y1) / 2, name: 'Taberna', col: HOUSE_COL, size: 7 });
