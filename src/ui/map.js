@@ -14,6 +14,15 @@ const COL = { cueva: '#4a4a54', ruinas: '#a8a298', campamento: '#e88a3a', torre:
 const HOME = '#c95a3c', HOUSE_COL = '#c8a878', PERSON = '#7ad0ff', ME = '#ffd77a';
 const ZOOM = [1, 8], BIOME_SAMPLES_PER_FRAME = 200;
 const rgbCss = c => `rgb(${c[0]},${c[1]},${c[2]})`;
+// The player's marker: an arrow at (x, y) pointing along (dx, dy) on the screen, with a dark outline, like the map
+// marker of Minecraft. L: from its middle to the tip, in pixels
+function arrow(g, x, y, dx, dy, L, col) {
+  const n = Math.hypot(dx, dy) || 1, ux = dx / n, uy = dy / n, vx = -uy, vy = ux, W = L * 0.78;
+  const pts = [[L, 0], [-L * 0.8, W], [-L * 0.35, 0], [-L * 0.8, -W]].map(([a, b]) => [x + ux * a + vx * b, y + uy * a + vy * b]);
+  g.beginPath(); pts.forEach(([px, py], i) => (i ? g.lineTo(px, py) : g.moveTo(px, py))); g.closePath();
+  g.lineJoin = 'round'; g.lineWidth = 3; g.strokeStyle = '#2a1c22'; g.stroke();
+  g.fillStyle = col; g.fill();
+}
 // (lo cavado que se ha llenado de agua, del color de las aguas poco profundas: ver floodOver)
 const POOL = () => rgbCss(BIOMES[B.SHALLOW].rgb[1]);
 
@@ -26,6 +35,7 @@ export class MapView {
     this.pan = { x: 0, y: 0 };   // cuánto se ha movido el mapa grande desde el jugador, en casillas
     this.labels = [];            // los nombres que se han podido poner en el último dibujo
     this.people = [];            // los vecinos que están fuera: { x, y, name }
+    this.face = null;            // where the player faces ({ x, y }, from game.js): their arrow points there
     this.seenBiomes = new Set(); // los biomas de lo explorado (para la leyenda)
     this.biomesFrom = new Set(); // los trozos ya mirados
     this.legendKey = '';
@@ -118,9 +128,9 @@ export class MapView {
       g.fillStyle = '#2a1c22'; g.fillRect(x - 3, y - 3, 7, 7);
       g.fillStyle = COL[m.kind] || '#ffffff'; g.fillRect(x - 2, y - 2, 5, 5);
     }
-    const [mx, my] = toMap(...me), blink = Math.sin(time * 6) > 0;
-    g.fillStyle = '#2a1c22'; g.fillRect(mx - 3, my - 3, 7, 7);
-    g.fillStyle = blink ? '#ffd77a' : '#ff6a4a'; g.fillRect(mx - 2, my - 2, 5, 5);
+    // (the player: an arrow where they face, turned like everything else on the minimap)
+    const [mx, my] = toMap(...me), blink = Math.sin(time * 6) > 0, fc = this.face, [fx, fy] = fc ? toMap(me[0] + fc.x * 4, me[1] + fc.y * 4) : [mx, my - 1];
+    arrow(g, mx, my, fx - mx, fy - my, 6, blink ? '#ffd77a' : '#ff6a4a');
   }
 
   // Lo cavado que se ha llenado de agua (las miniaturas son del mundo y no lo tienen): una casilla de agua encima, de las de
@@ -158,7 +168,7 @@ export class MapView {
     // lo explorado, los lugares, los vecinos (por casilla) o la leyenda a medio mirar; y, por si acaso (lo cavado que se
     // llena de agua), dos veces por segundo. Repintarlo a pantalla entera en cada fotograma, con el mapa quieto, era trabajo
     // tirado (y, mientras, el mundo de detrás ya no se dibuja: ver Game.render)
-    const key = `${w}x${h}x${r}|${this.zoom}|${cx.toFixed(2)},${cy.toFixed(2)}|${px.toFixed(1)},${py.toFixed(1)}|${Math.sin(time * 6) > 0}|${this.thumbs.size}|${explored.size}|${this.markers?.length}|${this.people.map(q => `${q.x | 0},${q.y | 0}`).join()}|${this.biomesFrom.size}`;
+    const key = `${w}x${h}x${r}|${this.zoom}|${cx.toFixed(2)},${cy.toFixed(2)}|${px.toFixed(1)},${py.toFixed(1)}|${this.face ? Math.round(Math.atan2(this.face.y, this.face.x) * 36 / Math.PI) : ''}|${Math.sin(time * 6) > 0}|${this.thumbs.size}|${explored.size}|${this.markers?.length}|${this.people.map(q => `${q.x | 0},${q.y | 0}`).join()}|${this.biomesFrom.size}`;
     if (key === this.bigKey && time - this.bigAt < 0.5 && this.legendGen === gen) return;
     this.bigKey = key; this.bigAt = time;
     this.drawFlat(c.getContext('2d'), gen, explored, cx, cy, r, w, h, time, [px, py]);
@@ -186,7 +196,7 @@ export class MapView {
     { const [sx, sy] = this.toScreen(Math.floor(cx - w / 2 / a), Math.floor(cy - h / 2 / a), cx, cy, w, h); this.floodOver(g, explored, Math.floor(cx - w / 2 / a), Math.floor(cy - h / 2 / a), Math.ceil(w / a) + 2, Math.ceil(h / a) + 2, a, sx, sy); }
     // Lo que tiene nombre, por orden de importancia: tú, tu casa, los lugares, las casas y los vecinos. El nombre va al
     // lado del punto, donde quepa; si no cabe sin pisar otro, ese no sale (al acercarse, sí)
-    const spots = [{ x: me[0], y: me[1], name: 'Tú', col: Math.sin(time * 6) > 0 ? ME : '#ff6a4a', size: 7 }, { x: (HOUSE.x0 + HOUSE.x1) / 2, y: (HOUSE.y0 + HOUSE.y1) / 2, name: 'Tu casa', col: HOME, size: 8 }];
+    const spots = [{ x: me[0], y: me[1], name: 'Tú', col: Math.sin(time * 6) > 0 ? ME : '#ff6a4a', size: 7, dir: this.face ? [this.face.x, this.face.y] : [0, -1] }, { x: (HOUSE.x0 + HOUSE.x1) / 2, y: (HOUSE.y0 + HOUSE.y1) / 2, name: 'Tu casa', col: HOME, size: 8 }];
     for (const m of this.markers || []) spots.push({ x: m.x, y: m.y, name: m.name, col: COL[m.kind] || '#ffffff', size: 7 });
     for (const q of Object.values(HOUSES)) if (!q.project || hasProject(q.project)) spots.push({ x: (q.x0 + q.x1) / 2, y: (q.y0 + q.y1) / 2, name: `Casa de ${q.name}`, col: HOUSE_COL, size: 7 });
     spots.push({ x: (TAVERN.x0 + TAVERN.x1) / 2, y: (TAVERN.y0 + TAVERN.y1) / 2, name: 'Taberna', col: HOUSE_COL, size: 7 });
@@ -199,6 +209,7 @@ export class MapView {
     const shown = spots.map(q => { const [sx, sy] = this.toScreen(q.x, q.y, cx, cy, w, h); return { ...q, sx: Math.round(sx), sy: Math.round(sy) }; }).filter(q => q.sx > -60 && q.sx < w + 60 && q.sy > -20 && q.sy < h + 20);
     for (const q of [...shown].reverse()) {
       const n = q.size, m = n >> 1;
+      if (q.dir) { arrow(g, q.sx, q.sy, q.dir[0], q.dir[1], 8, q.col); continue; }   // (you: an arrow where you face; the map has north up, like the world)
       g.fillStyle = '#2a1c22'; g.fillRect(q.sx - m - 1, q.sy - m - 1, n + 2, n + 2);
       g.fillStyle = q.col; g.fillRect(q.sx - m, q.sy - m, n, n);
     }
