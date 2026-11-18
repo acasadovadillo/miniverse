@@ -521,7 +521,8 @@ export class Overworld {
   // La altura que tendría id puesto en la casilla (para colocarlo y para la vista previa)
   levelFor(tx, ty, id) {
     const W = wellSpec(id);
-    if (inBounds(tx + 0.5, ty + 0.5)) return W ? 0 : this.digH(tx, ty) ?? 0;
+    // (a big well across the village's edge: its slab above the ground outside too, from its corners below)
+    if (inBounds(tx + 0.5, ty + 0.5) && !(W?.n > 1)) return W ? 0 : this.digH(tx, ty) ?? 0;
     const d = this.delta(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK)), k = `${tx},${ty}`, have = d?.lvl?.[k];
     if (have === undefined && this.builtAt(d, k)) return 0;   // (lo de antes)
     // (el pozo: su losa, por encima de las cuatro esquinas de la casilla, como lo construido; el hoyo queda debajo. The big
@@ -992,6 +993,7 @@ export class Overworld {
     const x = tx + 0.5, y = ty + 0.5, layer = layerOf(id), k = `${tx},${ty}`;
     if (!inPlanet(x, y)) return false;   // (en la costura del planeta, desde el otro lado, o más allá de un polo)
     if (layer === 'rug') return this.rugFits(rugRect(tx, ty, rot));
+    if (this.wellAt(x, y)) return false;   // (nothing on a well: not even a floor, which would cover its mouth and float when it goes)
     if (this.water(x, y)) return false;
     // (en el pueblo, en la hierba y en las casas; las vallas y sus puertas, además, en todo tu jardín, también en el hueco del camino; en modo admin, donde sea)
     if (inBounds(x, y) && !isGrass(x, y) && !inOwnHouse(x, y) && !inVillageHouse(x, y) && !this.buildAnywhere && !(['fence', 'gate'].includes(PIECES[id]?.kind) && inYard(x, y, 0.6))) return false;
@@ -1240,6 +1242,8 @@ export class Overworld {
       if (this.water(x, y) && id !== 'noria') return res(false, 'Ahí no se puede poner');
       if (inBounds(x, y) && !isGrass(x, y) && !inOwnHouse(x, y) && !inVillageHouse(x, y) && !this.buildAnywhere) return res(false, 'En el camino y en la plaza no se puede');
     }
+    // (nor inside a well's mouth, where its boxes leave room: it would float over the water, and over the hole once it goes)
+    if ([[w.x, w.y], [b.x0, b.y0], [b.x1, b.y0], [b.x0, b.y1], [b.x1, b.y1]].some(([x, y]) => this.wellAt(x, y))) return res(false, 'Ahí está el pozo');
     if (id === 'candelabro' && !this.roofAt(Math.floor(w.x), Math.floor(w.y))) return res(false, 'Se cuelga del techo: solo dentro de casa');
     const t0 = [Math.floor(w.x), Math.floor(w.y)], tilled = (x, y) => this.delta(Math.floor(x / CHUNK), Math.floor(y / CHUNK))?.tilled[`${x},${y}`] !== undefined;
     if (tilled(...t0)) return res(false, 'Ahí no: es tierra labrada');
@@ -1260,12 +1264,15 @@ export class Overworld {
     let tx = Math.floor(px), ty = Math.floor(py);
     if (N > 1) {
       // (the most dug first, so a hole that is not deep enough yet is the one marked in red)
-      const deeps = (ax, ay) => [[0, 0], ...wellTiles(N)].filter(([i, j]) => deepAt(ax + i, ay + j)).length, near = [];
+      // (then the most dug, so a hole on its way, with no tile deep enough yet, is marked whole and not by the nearest corner)
+      const sq = [[0, 0], ...wellTiles(N)], near = [];
+      const deeps = (ax, ay) => sq.filter(([i, j]) => deepAt(ax + i, ay + j)).length;
+      const dug = (ax, ay) => sq.reduce((s, [i, j]) => s + clamp(this.digDepth(ax + i, ay + j), 0, WELL_DOWN), 0);
       for (let ay = ty - N; ay <= ty + 1; ay++) for (let ax = tx - N; ax <= tx + 1; ax++) {
         const ex = Math.abs(px - ax - N / 2), ey = Math.abs(py - ay - N / 2);
-        if (ex <= N / 2 + 0.15 && ey <= N / 2 + 0.15) near.push([ax, ay, Math.hypot(ex, ey), deeps(ax, ay)]);
+        if (ex <= N / 2 + 0.15 && ey <= N / 2 + 0.15) near.push([ax, ay, Math.hypot(ex, ey), deeps(ax, ay), dug(ax, ay)]);
       }
-      near.sort((p, q) => q[3] - p[3] || p[2] - q[2]);
+      near.sort((p, q) => q[3] - p[3] || q[4] - p[4] || p[2] - q[2]);
       [tx, ty] = near[0];
     // (el ratón sobre la pared o el borde de un hoyo hondo y estrecho cae justo en la raya: vale el hoyo de al lado)
     } else if (!deepAt(tx, ty)) {

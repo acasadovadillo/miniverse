@@ -954,7 +954,13 @@ async function soloTests(game) {
     const tiles = [[0, 0], [1, 0], [0, 1], [1, 1]].map(([i, j]) => [A[0] + i, A[1] + j]), sel = inv().selected, keep = inv().slots[sel];
     const dig = (x, y, n) => { for (let i = 0; i < n; i++) W.digTile(x, y, -1, today()); };
     try {
-      tiles.forEach(([x, y], i) => dig(x, y, i === 3 ? 4 : 5));
+      // (a hole on its way, 4 deep: aimed at any of its tiles, the mark is the hole, not the 2 × 2 by the nearest corner)
+      tiles.forEach(([x, y]) => dig(x, y, 4));
+      for (const [x, y] of tiles) for (const [u, v] of [[0.3, 0.3], [0.7, 0.7], [0.3, 0.7]]) {
+        const g = W.fitFree('big_well', x + u, y + v, 0, 0, null);
+        check(g.square?.join() === `${A[0]},${A[1]},2`, `the mark of a hole 4 deep, aiming at ${x - A[0] + u}, ${y - A[1] + v}: ${g.square}`);
+      }
+      tiles.slice(0, 3).forEach(([x, y]) => dig(x, y, 1));
       let f = W.fitFree('big_well', A[0] + 0.3, A[1] + 0.4, 0, 0, null);
       check(!f.ok && f.why === t('why.big_well.dig', { n: 5 }) && f.square?.join() === `${A[0]},${A[1]},2`, `with a shallow tile: ${f.why} ${f.square}`);
       dig(...tiles[3], 2);   // (6 deep: its lining goes down to it)
@@ -967,6 +973,9 @@ async function soloTests(game) {
       check(!W.wellAt(A[0] - 0.5, A[1] + 0.5) && !W.wellAt(A[0] + 2.5, A[1] + 1.5), 'it takes more than its four tiles');
       check(W.wellMouth(A[0] + 1, A[1] + 1) > 1.2 && !W.wellMouth(A[0] + 0.1, A[1] + 1), 'its mouth');
       check(!W.fitFree('pozo', A[0] + 1.5, A[1] + 1.5, 0, 0, null).ok, 'a small well fits on it');
+      // (nothing on it: not in its mouth, where its boxes leave room, nor a floor on any of its tiles)
+      for (const [x, y] of [[A[0] + 1, A[1] + 1], [A[0] + 0.6, A[1] + 1.3]]) { const g = W.fitFree('cofre', x, y, 0, 0, null); check(!g.ok, `a chest fits in its mouth at ${x - A[0]}, ${y - A[1]}`); }
+      check(tiles.every(([x, y]) => !W.canPlace(x, y, 'suelo_madera', null)), 'a floor fits on it');
       W.floodAt(...A);
       check(W.floodCand.get(`${Math.floor(A[0] / CHUNK)},${Math.floor(A[1] / CHUNK)}`)?.cover?.length === 6, 'its other tiles are not left out of the water of the holes');
       // The watering can fills from any side
@@ -975,6 +984,12 @@ async function soloTests(game) {
         p().x = px; p().y = py; p().face = { x: fx, y: fy }; game.farm.can = 0; game.gather.cooldown = 0;
         const tg = game.gather.pickTarget(); check(tg?.use, `the can from ${px - A[0]}, ${py - A[1]}: ${tg?.label}`); tg.use(); check(game.farm.can > 0, 'the can is still empty');
       }
+      // (clicked from a corner, on its far quarter, looking away: in reach, measured to the well and not to that tile)
+      try {
+        game.aimTile = () => [A[0] + 1, A[1] + 1]; p().x = A[0] - 0.34; p().y = A[1] - 0.34; p().face = { x: -1, y: 0 }; game.farm.can = 0;
+        const tg = game.farm.target(p(), { id: 'regadera', n: 1 }, ITEMS.regadera);
+        check(tg?.ok && tg.label.startsWith('Llenar'), `the can from a corner, on the far quarter: ${tg?.label}`);
+      } finally { delete game.aimTile; }   // (back to the class's own)
       const stone = inv().count('piedra');
       check(game.pickUp(W.placedObjectAt(...A)), 'it does not come down');
       check(inv().count('piedra') - stone === 48, 'its stone does not come back');

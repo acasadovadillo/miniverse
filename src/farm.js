@@ -121,7 +121,8 @@ export class Farm {
       return { tile, ok: true, label: `Sembrar ${c.name.toLowerCase()}`, use: () => this.sow(tx, ty, def.seed) };
     }
     if (def?.tool === 'regadera') {
-      const water = this.waterAhead(p) || (this.world.wellAt(tx + 0.5, ty + 0.5) && Math.hypot(tx + 0.5 - p.x, ty + 0.5 - p.y) < 2.4);   // (o el pozo apuntado)
+      // (or the well aimed at, measured to its middle: from a corner of the big one its far quarter is beyond reach)
+      const wo = this.world.wellOf(tx, ty), water = this.waterAhead(p) || (wo && Math.hypot(wo.tx + wo.n / 2 - p.x, wo.ty + wo.n / 2 - p.y) < 2.4 + (wo.n - 1) * 0.75);
       if (water) return { tile: null, ok: true, label: `Llenar la regadera (${this.can}/${CAN_MAX})`, use: () => this.refill() };
       if (tilled) return { tile, ok: true, auto: true, label: `Regar (${this.can}/${CAN_MAX})`, use: () => this.water(tx, ty) };
       return null;

@@ -20,7 +20,8 @@ export const BUILDABLE = {};
 for (const [cat, ids] of Object.entries(BUILD_CATS)) for (const id of ids) {
   const r = RECIPES.find(q => q.out === id && q.n === 1 && !q.variant);
   if (!r || !ITEMS[id]) continue;
-  BUILDABLE[id] = { name: ITEMS[id].name, cat, cost: r.ins, needs: r.station === 'mano' ? null : r.station, recipe: r.id };
+  // (name read when asked: the big well's comes from the language files, which can change while playing)
+  BUILDABLE[id] = { get name() { return ITEMS[id].name; }, cat, cost: r.ins, needs: r.station === 'mano' ? null : r.station, recipe: r.id };
   for (const q of RECIPES) if (q.out === id) q.build = true;   // (ya no sale en la ventana de fabricar)
   LEGACY_ITEMS[id] = r.ins;
 }
