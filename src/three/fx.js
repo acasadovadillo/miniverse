@@ -163,7 +163,7 @@ export class Fx {
   updateTarget(game, scene, playing, t, gy) {
     const ay = (x, y) => this.view.aimY(scene, x, y);   // (el marco de la casilla: ver showTile)
     this.tile.visible = this.tileFill.visible = this.ring.visible = false;
-    let ghost = null, ghostOk = true, at = null, yaw = 0;
+    let ghost = null, ghostOk = true, at = null, yaw = 0, ghostLvl = null;
     if (playing) {
       const b = game.build;
       const pulse = Math.sin(t * 6) > 0 ? '#fff3c0' : '#ffd77a';
@@ -176,7 +176,12 @@ export class Fx {
         }
       } else {
         const tg = game.gather.target;
-        if (tg?.free) { ghost = tg.model; ghostOk = tg.ok && (!b.on || b.check().ok); at = [tg.x, tg.y]; yaw = tg.a; }   // (lo libre: donde y como quedaría, sin casilla)
+        if (tg?.free) {   // (lo libre: donde y como quedaría, sin casilla)
+          ghost = tg.model; ghostOk = tg.ok && (!b.on || b.check().ok); at = [tg.x, tg.y]; yaw = tg.a;
+          // (a well says its height; the big one, also its 2 × 2, marked at that height: see scenes.js, fitWell)
+          if (tg.fit?.lvl !== undefined) ghostLvl = tg.fit.lvl;
+          if (tg.fit?.square) { const [sx, sy, n] = tg.fit.square; this.showTile([sx, sy], ay, ghostOk ? pulse : '#ff7a6a', n, ghostLvl); }
+        }
         else if (tg?.tile && (tg.ok || tg.place || tg.mark)) {   // (mark: la pala, también en rojo donde no se puede)
           this.showTile(tg.tile, ay, tg.ok ? pulse : '#ff7a6a');
           // (la alfombra y la mesa grande, enteras, del tamaño elegido; lo demás, arrimado al muro de detrás)
@@ -199,7 +204,7 @@ export class Fx {
     }
     if (this.ghost) {
       // (a la altura que tendrá: ver scenes.js, levelFor)
-      const gid = ghost.startsWith('piece:') ? ghost.slice(6) : ghost.split(':')[0], lvl = scene.levelFor && scene.kind === 'world' ? scene.levelFor(Math.floor(at[0]), Math.floor(at[1]), gid) : null;
+      const gid = ghost.startsWith('piece:') ? ghost.slice(6) : ghost.split(':')[0], lvl = ghostLvl ?? (scene.levelFor && scene.kind === 'world' ? scene.levelFor(Math.floor(at[0]), Math.floor(at[1]), gid) : null);
       this.ghost.position.set(at[0], (lvl ?? gy(...at)) + 0.01, at[1]);
       this.ghost.rotation.y = yaw;
       this.ghostMat.opacity = ghostOk ? 0.55 : 0.5;   // (en rojo, bien visible: así se ve qué corta)
@@ -207,10 +212,12 @@ export class Fx {
     }
   }
   // (gy: la altura de lo que se apunta, aimY en engine.js: en lo cavado con agua, el marco va sobre el agua)
-  showTile([tx, ty], gy, color) {
-    const y = gy(tx + 0.5, ty + 0.5) + 0.04;
+  // (n: tiles a side, from (tx, ty); at: its height, if it is not the ground's)
+  showTile([tx, ty], gy, color, n = 1, at = null) {
+    const y = (at ?? gy(tx + n / 2, ty + n / 2)) + 0.04;
     this.tile.visible = this.tileFill.visible = true;
-    this.tile.position.set(tx + 0.5, y, ty + 0.5); this.tileFill.position.set(tx + 0.5, y, ty + 0.5);
+    this.tile.position.set(tx + n / 2, y, ty + n / 2); this.tileFill.position.set(tx + n / 2, y, ty + n / 2);
+    this.tile.scale.set(n, 1, n); this.tileFill.scale.set(n, 1, n);
     this.tile.material.color.set(color); this.tileFill.material.color.set(color);
   }
   // Vista previa: el modelo de lo que se coloca, o una forma sencilla de la pieza (muro, suelo, tejado…)

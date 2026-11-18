@@ -132,5 +132,9 @@
  "gui.craft.make": "Fabricar",
  "gui.touch.use": "Usar",
  "gui.touch.jump": "Saltar",
- "farm.cut_crop": "Segar la planta"
+ "farm.cut_crop": "Segar la planta",
+ "item.big_well": "Pozo grande",
+ "item.big_well.desc": "Agua para siempre, en un hoyo más grande: con la regadera, E o clic en él la llena. Se construye en 2 × 2 casillas cavadas 5 bloques con la pala, con la mesa de cantero cerca; al desmontarlo, el hoyo queda como estaba.",
+ "why.big_well.dig": "Cava 2 × 2 casillas, {n} bloques, con la pala",
+ "toast.big_well.placed": "Pozo grande: con la regadera, E o clic en él la llena"
 }

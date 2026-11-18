@@ -542,82 +542,9 @@ const BUILD = {
   // al lado), el brocal redondo de sillares hasta la cintura con su albardilla, dentro el forro cada vez más oscuro y el
   // agua quieta al fondo; dos postes de madera metidos en el brocal con el tejadillo de tablillas a dos aguas, el torno
   // con la cuerda enrollada y su manivela, y el cubo colgando sobre la boca, lleno de agua
-  pozo(m, n) {
-    const D = n ? Math.max(1, +n * 0.25) : 0.15, R = rng2(41), TAU = Math.PI * 2, M = new THREE.Matrix4(), Qt = new THREE.Quaternion(), E = new THREE.Euler();
-    const RI = 0.345, RO = 0.47, SQ = 0.52, TOP = 0.04, CAP = 0.77, H = 0.86;   // (el hueco, el brocal por fuera, media losa, su cara de arriba, la albardilla y su remate)
-    const WY = D > 1.2 ? Math.max(-D + 0.45, -1.1) : -D + 0.12;   // (el agua: a un metro largo bajo el suelo, como la del freático; en un hoyo justo, algo por encima de su fondo)
-    // (sin cajas de choque: las piezas menudas no cuentan; las grandes van al final)
-    const put = (key, g, x, y, z, rot = [0, 0, 0], sc = [1, 1, 1]) => m.B(key).addGeometry(g, M.compose(new THREE.Vector3(x, y, z), Qt.setFromEuler(E.set(...rot)), new THREE.Vector3(...sc)));
-    // La losa: por los lados, el forro de piedra hasta el fondo; por arriba, de su borde cuadrado a la boca redonda
-    const S = m.B('stone');
-    S.box(-SQ, -D, -SQ, SQ, TOP, SQ, { s: 0.6, skip: 'py ny' });
-    const NQ = 32, sq = a => { const c = Math.cos(a), sn = Math.sin(a), k = SQ / Math.max(Math.abs(c), Math.abs(sn)); return [c * k, sn * k]; };
-    for (let i = 0; i < NQ; i++) {
-      const a = (i / NQ) * TAU, b = ((i + 1) / NQ) * TAU, [x0, z0] = sq(a), [x1, z1] = sq(b), up = [0, 1, 0];
-      quad4(S, [[Math.cos(a) * RI, TOP, Math.sin(a) * RI], [Math.cos(b) * RI, TOP, Math.sin(b) * RI], [x1, TOP, z1], [x0, TOP, z0]], [up, up, up, up], [[Math.cos(a) * RI / 0.6, Math.sin(a) * RI / 0.6], [Math.cos(b) * RI / 0.6, Math.sin(b) * RI / 0.6], [x1 / 0.6, z1 / 0.6], [x0 / 0.6, z0 / 0.6]]);
-    }
-    // El forro de dentro, de la boca al agua: más oscuro cuanto más hondo (lo que le llega de luz)
-    const ys = [TOP, -0.25, -0.6, -1.1, -1.7, -2.5, -3.5, -5, -7, -10, -14, -20].filter(y => y > WY - 0.02).concat([WY - 0.02]);
-    tube(m.B('wellShaft'), RI, ys, true, { tone: y => (y > 0 ? 0.92 : 0.16 + 0.72 * Math.exp(y / 0.55)) });
-    // El agua, quieta
-    put('wellWater', CIRCLE, 0, WY, 0, [-Math.PI / 2, 0, 0], [RI + 0.01, RI + 0.01, 1]);
-    // El brocal: tres hiladas de sillares a matajunta (cada uno de su largo y algo salido o metido) sobre un núcleo de
-    // argamasa que asoma en las juntas, y encima la albardilla de losas que vuelan un poco por los dos lados
-    const A = m.B('ashlar'), ch = 0.018;
-    tube(m.B('sand'), RO - 0.012, [TOP, CAP], false, { seg: 24 });
-    tube(m.B('sand'), RI + 0.015, [TOP, CAP], true, { seg: 24 });
-    for (let k = 0; k < 3; k++) {
-      const y0 = TOP + k * 0.245, y1 = y0 + 0.235, nS = 10, lens = Array.from({ length: nS }, () => 0.82 + R() * 0.36), sum = lens.reduce((t, v) => t + v, 0);
-      let a = ((k % 2 ? 0.5 : 0) + R() * 0.2) * (TAU / nS);
-      for (const l of lens) {
-        const b = a + (l / sum) * TAU, out = RO + (R() - 0.5) * 0.016, inn = RI + 0.003 + R() * 0.006, gap = 0.012 / out;
-        sweep(R() < 0.28 ? m.B('marbleD') : A, [[inn, y0], [out, y0], [out, y1 - ch], [out - ch, y1], [inn + ch, y1], [inn, y1 - ch]], a + gap / 2, b - gap / 2, 0.55);   // (alguno, de otra cantera)
-        a = b;
-      }
-    }
-    for (let i = 0; i < 8; i++) {
-      const a = (i / 8) * TAU + 0.2, b = ((i + 1) / 8) * TAU + 0.2, gap = 0.01 / 0.5, y1 = H - R() * 0.008;
-      sweep(A, [[RI - 0.025, CAP], [RO + 0.04, CAP], [RO + 0.04, y1 - 0.02], [RO + 0.02, y1], [RI - 0.005, y1], [RI - 0.025, y1 - 0.02]], a + gap / 2, b - gap / 2, 0.55);
-    }
-    // Los postes, metidos en el brocal, la cumbrera encima y el tejadillo de tablillas a dos aguas (las de arriba montan
-    // sobre las de abajo), con sus cabios y los remates de los lados
-    const PX = 0.405, YR = 2.36, TH = 0.6, ZE = 0.68, L = ZE / Math.cos(TH);
-    for (const sx of [-1, 1]) m.box('wood', sx * PX - 0.055, 0.5, -0.055, sx * PX + 0.055, YR - 0.1, 0.055);
-    m.box('dark', -0.66, YR - 0.12, -0.05, 0.66, YR - 0.02, 0.05);
-    const slope = (sz, sAt, h) => [YR - sAt * Math.sin(TH) + h * Math.cos(TH), sz * (sAt * Math.cos(TH) + h * Math.sin(TH))];
-    for (const sz of [-1, 1]) {
-      for (const x of [-0.62, -PX, PX, 0.62]) { const [y, z] = slope(sz, L / 2, -0.04); put('dark', BOXG, x, y, z, [sz * TH, 0, 0], [0.05, 0.06, L]); }
-      for (let r = 0; r < 4; r++) {
-        const s0 = 0.03 + r * 0.205, len = r === 3 ? L + 0.07 - s0 : 0.27;
-        for (let i = 0; i < 8; i++) {
-          const w = 1.36 / 8, x = -0.68 + (i + 0.5) * w + (R() - 0.5) * 0.01, l = len + (R() - 0.5) * 0.03, [y, z] = slope(sz, s0 + l / 2, 0.012 + (3 - r) * 0.011 + R() * 0.004);
-          put(R() < 0.3 ? 'dark' : 'hull', BOXG, x, y, z, [sz * TH + (R() - 0.5) * 0.03, 0, (R() - 0.5) * 0.02], [w - 0.008, 0.022, l]);
-        }
-      }
-    }
-    put('dark', BOXG, 0, YR + 0.045, 0, [0, 0, 0], [1.38, 0.05, 0.13]);   // (el caballete de arriba)
-    m.solids.push([-0.69, YR - 0.5, -ZE - 0.05, 0.69, YR + 0.08, ZE + 0.05]);
-    // El torno: el rollo con la cuerda enrollada, los pernos por los postes y la manivela por fuera, a la derecha
-    const AY = 1.52;
-    m.cyl('light', -0.35, AY, 0, 0.07, 0.07, 0.7, 12, [0, 0, -Math.PI / 2]);
-    put('iron', cylGeo(0.022, 0.022, 1.02, 6), -0.51, AY, 0, [0, 0, -Math.PI / 2]);
-    for (let i = 0; i < 13; i++) put('rope', cylGeo(0.084, 0.084, 0.02, 10), -0.16 + i * 0.025, AY, 0, [0, 0, -Math.PI / 2]);
-    put('iron', BOXG, 0.5, AY - 0.1, 0, [0, 0, 0], [0.03, 0.24, 0.035]);
-    put('dark', cylGeo(0.022, 0.022, 0.13, 8), 0.5, AY - 0.2, 0, [0, 0, -Math.PI / 2]);
-    // El cubo, colgado sobre la boca y lleno de agua: duelas, dos aros, el asa y la cuerda que baja del torno
-    const BX = 0.05, BZ = 0.084, BY = 0.66, BH = 0.24;
-    m.cyl('wood', BX, BY, BZ, 0.105, 0.13, BH, 14);
-    for (const t of [0.04, 0.19]) put('iron', cylGeo(0.106 + t * 0.105 + 0.004, 0.106 + (t + 0.02) * 0.105 + 0.004, 0.02, 14), BX, BY + t, BZ);
-    put('wellWater', CIRCLE, BX, BY + BH + 0.004, BZ, [-Math.PI / 2, 0, 0], [0.122, 0.122, 1]);
-    put('iron', BAIL, BX, BY + BH, BZ);
-    put('rope', cylGeo(0.011, 0.011, AY - (BY + BH + 0.128), 6), BX, BY + BH + 0.128, BZ);
-    // (la losa con su forro y el brocal, cada uno un anillo de cuatro cajas alrededor de la boca, que queda hueca: una
-    // flecha que entra por ella cae al agua, y la que da en la piedra se clava en la piedra, no en el aire de encima; y
-    // los postes. Al andar choca la caja que envuelve lo bajo: ver world/scenes.js, freeObject)
-    const ring = (y0, y1, o) => { const i = RI - 0.005; m.solids.push([-o, y0, -o, o, y1, -i], [-o, y0, i, o, y1, o], [-o, y0, -i, -i, y1, i], [i, y0, -i, o, y1, i]); };
-    ring(-D, TOP + 0.002, SQ); ring(TOP, H, RO + 0.04);   // (la losa, un pelo más alta: lo que no sube de 0,04 no cuenta, ver SOLIDS.of)
-    for (const sx of [-1, 1]) m.solids.push([sx * PX - 0.055, H, -0.055, sx * PX + 0.055, YR - 0.1, 0.055]);
-  },
+  pozo(m, n) { wellBody(m, wellDepth(n)); },
+  // The big well (big_well): the same well over 2 × 2 tiles (see wellStretch)
+  big_well(m, n) { wellStretch(m, wellDepth(n)); },
   aspersor(m) {
     m.cyl('copper', 0, 0, 0, 0.12, 0.1, 0.06, 10).cyl('copper', 0, 0.06, 0, 0.025, 0.025, 0.3, 6).box('copper', -0.16, 0.34, -0.02, 0.16, 0.38, 0.02).box('copper', -0.02, 0.34, -0.16, 0.02, 0.38, 0.16);
     for (const [x, z] of [[0.16, 0], [-0.16, 0], [0, 0.16], [0, -0.16]]) m.ball('steel', x, 0.36, z, 0.03);
@@ -779,6 +706,107 @@ const BUILD = {
     m.fire(0, 0.12, 0, 0.75).light(0, 0.5, 0.45, { color: '#ff9a4a', intensity: 2.6, range: 7, flicker: true, always: true });
   },
 };
+
+// How far a well goes down (n: the LV_STEP steps, 0.25 m, from its rim to the bottom of its hole; without n, for the icon
+// and the preview, very little)
+const wellDepth = n => (n ? Math.max(1, +n * 0.25) : 0.15);
+// The well itself, going down D metres (see BUILD.pozo). k: how many times wider it will be drawn (the gaps between the
+// roof's boards stay as thin)
+function wellBody(m, D, k = 1) {
+  const R = rng2(41), TAU = Math.PI * 2, M = new THREE.Matrix4(), Qt = new THREE.Quaternion(), E = new THREE.Euler();
+  const RI = 0.345, RO = 0.47, SQ = 0.52, TOP = 0.04, CAP = 0.77, H = 0.86;   // (el hueco, el brocal por fuera, media losa, su cara de arriba, la albardilla y su remate)
+  const WY = D > 1.2 ? Math.max(-D + 0.45, -1.1) : -D + 0.12;   // (el agua: a un metro largo bajo el suelo, como la del freático; en un hoyo justo, algo por encima de su fondo)
+  // (sin cajas de choque: las piezas menudas no cuentan; las grandes van al final)
+  const put = (key, g, x, y, z, rot = [0, 0, 0], sc = [1, 1, 1]) => m.B(key).addGeometry(g, M.compose(new THREE.Vector3(x, y, z), Qt.setFromEuler(E.set(...rot)), new THREE.Vector3(...sc)));
+  // La losa: por los lados, el forro de piedra hasta el fondo; por arriba, de su borde cuadrado a la boca redonda
+  const S = m.B('stone');
+  S.box(-SQ, -D, -SQ, SQ, TOP, SQ, { s: 0.6, skip: 'py ny' });
+  const NQ = 32, sq = a => { const c = Math.cos(a), sn = Math.sin(a), k = SQ / Math.max(Math.abs(c), Math.abs(sn)); return [c * k, sn * k]; };
+  for (let i = 0; i < NQ; i++) {
+    const a = (i / NQ) * TAU, b = ((i + 1) / NQ) * TAU, [x0, z0] = sq(a), [x1, z1] = sq(b), up = [0, 1, 0];
+    quad4(S, [[Math.cos(a) * RI, TOP, Math.sin(a) * RI], [Math.cos(b) * RI, TOP, Math.sin(b) * RI], [x1, TOP, z1], [x0, TOP, z0]], [up, up, up, up], [[Math.cos(a) * RI / 0.6, Math.sin(a) * RI / 0.6], [Math.cos(b) * RI / 0.6, Math.sin(b) * RI / 0.6], [x1 / 0.6, z1 / 0.6], [x0 / 0.6, z0 / 0.6]]);
+  }
+  // El forro de dentro, de la boca al agua: más oscuro cuanto más hondo (lo que le llega de luz)
+  const ys = [TOP, -0.25, -0.6, -1.1, -1.7, -2.5, -3.5, -5, -7, -10, -14, -20].filter(y => y > WY - 0.02).concat([WY - 0.02]);
+  tube(m.B('wellShaft'), RI, ys, true, { tone: y => (y > 0 ? 0.92 : 0.16 + 0.72 * Math.exp(y / 0.55)) });
+  // El agua, quieta
+  put('wellWater', CIRCLE, 0, WY, 0, [-Math.PI / 2, 0, 0], [RI + 0.01, RI + 0.01, 1]);
+  // El brocal: tres hiladas de sillares a matajunta (cada uno de su largo y algo salido o metido) sobre un núcleo de
+  // argamasa que asoma en las juntas, y encima la albardilla de losas que vuelan un poco por los dos lados
+  const A = m.B('ashlar'), ch = 0.018;
+  tube(m.B('sand'), RO - 0.012, [TOP, CAP], false, { seg: 24 });
+  tube(m.B('sand'), RI + 0.015, [TOP, CAP], true, { seg: 24 });
+  for (let k = 0; k < 3; k++) {
+    const y0 = TOP + k * 0.245, y1 = y0 + 0.235, nS = 10, lens = Array.from({ length: nS }, () => 0.82 + R() * 0.36), sum = lens.reduce((t, v) => t + v, 0);
+    let a = ((k % 2 ? 0.5 : 0) + R() * 0.2) * (TAU / nS);
+    for (const l of lens) {
+      const b = a + (l / sum) * TAU, out = RO + (R() - 0.5) * 0.016, inn = RI + 0.003 + R() * 0.006, gap = 0.012 / out;
+      sweep(R() < 0.28 ? m.B('marbleD') : A, [[inn, y0], [out, y0], [out, y1 - ch], [out - ch, y1], [inn + ch, y1], [inn, y1 - ch]], a + gap / 2, b - gap / 2, 0.55);   // (alguno, de otra cantera)
+      a = b;
+    }
+  }
+  for (let i = 0; i < 8; i++) {
+    const a = (i / 8) * TAU + 0.2, b = ((i + 1) / 8) * TAU + 0.2, gap = 0.01 / 0.5, y1 = H - R() * 0.008;
+    sweep(A, [[RI - 0.025, CAP], [RO + 0.04, CAP], [RO + 0.04, y1 - 0.02], [RO + 0.02, y1], [RI - 0.005, y1], [RI - 0.025, y1 - 0.02]], a + gap / 2, b - gap / 2, 0.55);
+  }
+  // Los postes, metidos en el brocal, la cumbrera encima y el tejadillo de tablillas a dos aguas (las de arriba montan
+  // sobre las de abajo), con sus cabios y los remates de los lados
+  const PX = 0.405, YR = 2.36, TH = 0.6, ZE = 0.68, L = ZE / Math.cos(TH);
+  for (const sx of [-1, 1]) m.box('wood', sx * PX - 0.055, 0.5, -0.055, sx * PX + 0.055, YR - 0.1, 0.055);
+  m.box('dark', -0.66, YR - 0.12, -0.05, 0.66, YR - 0.02, 0.05);
+  const slope = (sz, sAt, h) => [YR - sAt * Math.sin(TH) + h * Math.cos(TH), sz * (sAt * Math.cos(TH) + h * Math.sin(TH))];
+  for (const sz of [-1, 1]) {
+    for (const x of [-0.62, -PX, PX, 0.62]) { const [y, z] = slope(sz, L / 2, -0.04); put('dark', BOXG, x, y, z, [sz * TH, 0, 0], [0.05, 0.06, L]); }
+    for (let r = 0; r < 4; r++) {
+      const s0 = 0.03 + r * 0.205, len = r === 3 ? L + 0.07 - s0 : 0.27;
+      for (let i = 0; i < 8; i++) {
+        const w = 1.36 / 8, x = -0.68 + (i + 0.5) * w + (R() - 0.5) * 0.01, l = len + (R() - 0.5) * 0.03, [y, z] = slope(sz, s0 + l / 2, 0.012 + (3 - r) * 0.011 + R() * 0.004);
+        put(R() < 0.3 ? 'dark' : 'hull', BOXG, x, y, z, [sz * TH + (R() - 0.5) * 0.03, 0, (R() - 0.5) * 0.02], [w - 0.008 / k, 0.022, l]);
+      }
+    }
+  }
+  put('dark', BOXG, 0, YR + 0.045, 0, [0, 0, 0], [1.38, 0.05, 0.13]);   // (el caballete de arriba)
+  m.solids.push([-0.69, YR - 0.5, -ZE - 0.05, 0.69, YR + 0.08, ZE + 0.05]);
+  // El torno: el rollo con la cuerda enrollada, los pernos por los postes y la manivela por fuera, a la derecha
+  const AY = 1.52;
+  m.cyl('light', -0.35, AY, 0, 0.07, 0.07, 0.7, 12, [0, 0, -Math.PI / 2]);
+  put('iron', cylGeo(0.022, 0.022, 1.02, 6), -0.51, AY, 0, [0, 0, -Math.PI / 2]);
+  for (let i = 0; i < 13; i++) put('rope', cylGeo(0.084, 0.084, 0.02, 10), -0.16 + i * 0.025, AY, 0, [0, 0, -Math.PI / 2]);
+  put('iron', BOXG, 0.5, AY - 0.1, 0, [0, 0, 0], [0.03, 0.24, 0.035]);
+  put('dark', cylGeo(0.022, 0.022, 0.13, 8), 0.5, AY - 0.2, 0, [0, 0, -Math.PI / 2]);
+  // El cubo, colgado sobre la boca y lleno de agua: duelas, dos aros, el asa y la cuerda que baja del torno
+  const BX = 0.05, BZ = 0.084, BY = 0.66, BH = 0.24;
+  m.cyl('wood', BX, BY, BZ, 0.105, 0.13, BH, 14);
+  for (const t of [0.04, 0.19]) put('iron', cylGeo(0.106 + t * 0.105 + 0.004, 0.106 + (t + 0.02) * 0.105 + 0.004, 0.02, 14), BX, BY + t, BZ);
+  put('wellWater', CIRCLE, BX, BY + BH + 0.004, BZ, [-Math.PI / 2, 0, 0], [0.122, 0.122, 1]);
+  put('iron', BAIL, BX, BY + BH, BZ);
+  put('rope', cylGeo(0.011, 0.011, AY - (BY + BH + 0.128), 6), BX, BY + BH + 0.128, BZ);
+  // (la losa con su forro y el brocal, cada uno un anillo de cuatro cajas alrededor de la boca, que queda hueca: una
+  // flecha que entra por ella cae al agua, y la que da en la piedra se clava en la piedra, no en el aire de encima; y
+  // los postes. Al andar choca la caja que envuelve lo bajo: ver world/scenes.js, freeObject)
+  const ring = (y0, y1, o) => { const i = RI - 0.005; m.solids.push([-o, y0, -o, o, y1, -i], [-o, y0, i, o, y1, o], [-o, y0, -i, -i, y1, i], [i, y0, -i, o, y1, i]); };
+  ring(-D, TOP + 0.002, SQ); ring(TOP, H, RO + 0.04);   // (la losa, un pelo más alta: lo que no sube de 0,04 no cuenta, ver SOLIDS.of)
+  for (const sx of [-1, 1]) m.solids.push([sx * PX - 0.055, H, -0.055, sx * PX + 0.055, YR - 0.1, 0.055]);
+}
+// The big well: the small one twice as wide (x and z), and taller by less, so its rim stays at the waist (KNEE, the top of
+// the rim, goes up LOW times) and, above it, the posts and the roof go up HIGH times: the roof keeps most of its slope and
+// does not look squashed. Its lining goes down to the bottom of the hole all the same (the body is built for D / LOW).
+// Keep LOW in step with WELLS.big_well in world/scenes.js (its water and what you bump into)
+const BIG_WELL = { XZ: 2, LOW: 1.2, HIGH: 1.6, KNEE: 0.86 };
+function wellStretch(m, D) {
+  const { XZ, LOW, HIGH, KNEE } = BIG_WELL, src = new Model(), fy = y => (y <= KNEE ? y * LOW : KNEE * LOW + (y - KNEE) * HIGH);
+  wellBody(src, D / LOW, XZ);
+  for (const [key, B] of src.parts) {
+    const b = new Builder();
+    b.uv = B.uv.slice(); b.idx = B.idx.slice(); b.col = B.col && B.col.slice();
+    for (let i = 0; i < B.pos.length; i += 3) {
+      const y = B.pos[i + 1], sy = y <= KNEE ? LOW : HIGH, nx = B.nor[i] / XZ, ny = B.nor[i + 1] / sy, nz = B.nor[i + 2] / XZ, l = Math.hypot(nx, ny, nz) || 1;
+      b.pos.push(B.pos[i] * XZ, fy(y), B.pos[i + 2] * XZ); b.nor.push(nx / l, ny / l, nz / l);
+    }
+    m.B(key).add(b);
+  }
+  for (const s of src.solids) m.solids.push([s[0] * XZ, fy(s[1]), s[2] * XZ, s[3] * XZ, fy(s[4]), s[5] * XZ]);
+}
 function roofPrism(m, key, x0, x1, z0, z1, y0, h) {
   const B = m.B(key), A = [x0, y0, z0], Bp = [x1, y0, z0], C = [x1, y0, z1], D = [x0, y0, z1], E = [x0, y0 + h, (z0 + z1) / 2], F = [x1, y0 + h, (z0 + z1) / 2];
   B.quadN(D, C, F, E, [0, 0.6, 0.8], [[x0, 0], [x1, 0], [x1, 1], [x0, 1]]);

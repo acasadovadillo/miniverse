@@ -5,7 +5,7 @@ import { prewarmIcons } from './three/icons.js';
 import { itemIcon } from './art/items.js';
 import { camToSave, camFromSave, CAM } from './camera.js';
 import { wrapX, dxOf, wrapIndex, HALF, NORTH, SOUTH } from './world/planet.js';
-import { Overworld, NILO_LOOK } from './world/scenes.js';
+import { Overworld, NILO_LOOK, wellSpec } from './world/scenes.js';
 import { houseBlueprint, familyBlueprint, byChunk, doorTile, houseSize } from './world/blueprints.js';
 import { HOUSE, HOUSE_BIG, HOUSE_FAMILY, HOUSES, CENTER, SPAWN, inBounds, inOwnHouse, inTavern, hasProject, setFamilyHouse } from './world/village.js';
 import { PIECES, parsePlaced } from './pieces.js';
@@ -645,7 +645,7 @@ export class Game {
     if (o.placed === 'cama' || o.placed === 'cama_nino' || o.placed === 'cama_doble') return { text: 'Usar la cama', run: () => this.bed(o), alt: pick };
     if (o.placed === 'silla' || o.placed === 'taburete' || o.placed === 'sofa' || o.placed === 'sillon') return { text: 'Sentarse', run: () => this.rest.sit(o), alt: o.fixed ? null : pick };
     if (o.placed === 'lavabo') return { text: 'Mirarse en el espejo', run: () => this.onMirror?.(), alt: pick };
-    if (o.placed === 'pozo') return this.farm.wellAction(o, o.fixed ? null : pick);   // (E: llenar la regadera; X: desmontarlo)
+    if (wellSpec(o.placed)) return this.farm.wellAction(o, o.fixed ? null : pick);   // (E: llenar la regadera; X: desmontarlo. The big well too)
     if (CHESTS[o.placed] && o.placed !== 'mochila') return { text: `Abrir ${CHESTS[o.placed][1]}`, run: () => this.onChest?.(sc.chestAt(...o.tile), o.tile), alt: pick };   // (lleno no se recoge: hay que vaciarlo antes)
     if (o.placed === 'mochila') return { text: 'Abrir la mochila', run: () => this.onChest?.(sc.chestAt(...o.tile) || [], o.tile), alt: { text: this.inv.equip.espalda ? 'Recoger la mochila' : 'Ponerse la mochila', run: () => this.takeBackpack(o) } };
     if (LIGHTS.has(o.placed)) return { text: `${o.off ? 'Encender' : 'Apagar'} ${name.replace(/^lámpara/, 'la lámpara').replace(/^antorcha/, 'la antorcha').replace(/^vela/, 'la vela').replace(/^candelabro de techo/, 'el candelabro')}`, run: () => { sc.toggleLight(...o.tile); Audio.blip(); save(); }, alt: pick };
@@ -913,7 +913,8 @@ export class Game {
     };
     // (lo cavado o apilado en el jardín donde va la casa, y delante de su puerta, se allana: la casa va a ras del suelo del
     // pueblo. Lo que hubiera puesto en un hoyo vuelve a la mochila)
-    for (let ty = H.y0; ty <= H.y1; ty++) for (let tx = H.x0; tx < H.x1; tx++) if ((ty < H.y1 || tx === dx) && w.digH(tx, ty) !== null) { clear(tx, ty); w.digReset(tx, ty); }
+    // (a big well that takes the tile from its anchor in the next one goes too: see scenes.js, wellOf)
+    for (let ty = H.y0; ty <= H.y1; ty++) for (let tx = H.x0; tx < H.x1; tx++) if ((ty < H.y1 || tx === dx) && w.digH(tx, ty) !== null) { const wa = w.wellOf(tx, ty); if (wa && (wa.tx !== tx || wa.ty !== ty)) clear(wa.tx, wa.ty); clear(tx, ty); w.digReset(tx, ty); }
     // (en la casa familiar el hogar va en el salón: el de antes, que quedaría en un dormitorio, se cambia allí; si
     // había más, los otros vuelven a la mochila)
     if (size === 'family') {

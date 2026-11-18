@@ -132,5 +132,9 @@
  "gui.craft.make": "Craft",
  "gui.touch.use": "Use",
  "gui.touch.jump": "Jump",
- "farm.cut_crop": "Cut down the plant"
+ "farm.cut_crop": "Cut down the plant",
+ "item.big_well": "Big well",
+ "item.big_well.desc": "Water forever, for a bigger hole: with the watering can, press E or click it to fill it. It is built over 2 × 2 tiles dug 5 blocks deep with the shovel, with the stonecutter's table nearby; when you take it down, the hole stays as it was.",
+ "why.big_well.dig": "Dig 2 × 2 tiles, {n} blocks deep, with the shovel",
+ "toast.big_well.placed": "Big well: with the watering can, press E or click it to fill it"
 }

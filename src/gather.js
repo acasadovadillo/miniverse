@@ -11,6 +11,7 @@ import { RUG_SIZES, TABLE_SIZES } from './art/stations.js';
 import { XP_ORE, roll } from './xp.js';
 import { dxOf, WATER_Y } from './world/planet.js';
 import { reportFault } from './faults.js';
+import { t as tr } from './i18n.js';   // (as tr: t is the target in many places here)
 
 // Lo que dice cada efecto al tomarlo (comida o poción)
 const BUFF_TEXT = { rapido: 'Más rápido', incansable: 'Sin cansancio', fuerza: 'Más fuerza', resistencia: 'Más resistencia', regeneracion: 'Regeneración' };
@@ -414,6 +415,7 @@ export class Gathering {
     if (ITEMS[id].place === 'station') g.stats?.add('estaciones', 1);
     if (ITEMS[id].place === 'station') this.float(`${ITEMS[id].name}: acércate y pulsa E`, '#fff3c0');
     if (id === 'pozo') this.float('Pozo: con la regadera, E o clic en él la llena', '#9ad0ff');
+    if (id === 'big_well') this.float(tr('toast.big_well.placed'), '#9ad0ff');
   }
 
   eat(slot) {

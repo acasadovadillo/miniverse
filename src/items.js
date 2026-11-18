@@ -1,4 +1,5 @@
 // Objetos (herramientas, materiales, comida y cosas que se colocan) y qué da cada cosa del mundo al recolectarla.
+import { defineNames } from './i18n.js';
 
 // Las herramientas son todas de hierro (hacha, pico, guadaña, azada y pala). tier: el nivel, que además usan la caña y la red
 export const TIERS = {
@@ -176,7 +177,10 @@ Object.assign(ITEMS, {
   noria: { name: 'Noria', desc: 'Se pone en un río, cerca de la orilla, y gira con el agua: muele el trigo en harina y cada mañana riega sola la tierra labrada de alrededor (hasta 4 casillas a cada lado).', place: 'station' },
   pozo: { name: 'Pozo', desc: 'Agua para siempre: con la regadera, E o clic en él la llena. Se construye en un hoyo de 5 bloques cavado con la pala, con la mesa de cantero cerca; al desmontarlo, el hoyo queda como estaba.', place: 'furniture' },
   harina: { name: 'Harina', desc: 'Trigo molido en la noria. En la cocina, con dos se hace un pan.' },
+  // (the big well: 2 × 2 tiles dug 5 blocks deep; its name and description come from the language files)
+  big_well: { place: 'furniture' },
 });
+defineNames({ big_well: ITEMS.big_well }, 'item');
 // Peces: dónde viven, cuándo (estaciones, horas y tiempo) y lo difíciles que son (los difíciles salen menos y valen más):
 // dif: lo difícil que es (0 a 1); mov: cómo se mueve (calmo, mixto, nervioso, fondo: tira hacia abajo,
 // flota: tira hacia arriba); cm: la talla, de la más pequeña a la más grande

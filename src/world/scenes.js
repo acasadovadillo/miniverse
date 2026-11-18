@@ -16,6 +16,7 @@ import { PIECES, layerOf, parsePlaced, fenceReach } from '../pieces.js';
 import { Person } from '../entities.js';
 import { wrapIndex, inPlanet, dxOf, wrapX, HALF, H as PLANET_H, NORTH } from './planet.js';
 import { roofShape } from './roof.js';
+import { t as tr } from '../i18n.js';   // (as tr: t is a common local name here)
 
 const WADE_MAX = 0.5;   // (ver blocked)
 
@@ -31,7 +32,15 @@ export const DIG_H = 0.5, DIG_DOWN = 16, DIG_UP = 3;
 // El pozo va en una casilla cavada al menos WELL_DOWN bloques (ver fitWell). Su modelo, 'pozo:n', baja n escalones de
 // LV_STEP desde su brocal hasta el fondo de lo cavado (wellModel)
 export const WELL_DOWN = 5;
-const wellModel = (lvl, dig) => (typeof lvl === 'number' && typeof dig === 'number' && lvl > dig ? `pozo:${Math.min(80, Math.round((lvl - dig) / LV_STEP))}` : 'pozo');
+// The wells: the small one (pozo, one tile) and the big one (big_well: 2 × 2 tiles, all dug WELL_DOWN blocks or more; its
+// model is the small one twice as wide, see three/models.js, wellStretch). It is kept in its anchor tile, the one with the
+// lowest x and y (see wellOf). n: tiles a side; low: its boxes under this height are what you bump into (the roof flies
+// over the tiles around); mouth: half the side of its open mouth, from its centre; water: how far its water is under the slab
+export const WELLS = { pozo: { n: 1, low: 1, mouth: 0.34, water: 1.1 }, big_well: { n: 2, low: 1.2, mouth: 0.68, water: 1.32 } };
+export const wellSpec = id => (id && Object.hasOwn(WELLS, id) ? WELLS[id] : null);
+// (the other tiles of an n × n well, from its anchor)
+const wellTiles = n => { const out = []; for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) if (i || j) out.push([i, j]); return out; };
+const wellModel = (lvl, dig, id = 'pozo') => (typeof lvl === 'number' && typeof dig === 'number' && lvl > dig ? `${id}:${Math.min(80, Math.round((lvl - dig) / LV_STEP))}` : id);
 // Dónde se cava: en la tierra y la hierba (no en la arena, la roca, la nieve ni el agua), y no en las cuestas de roca
 // (lo que sube la casilla de una esquina a otra: el suelo pinta roca desde una pendiente de 0,62)
 const DIG_BIOMES = new Set([B.MEADOW, B.FOREST, B.PINES, B.SWAMP]), DIG_STEEP = 0.6;
@@ -40,7 +49,7 @@ const DIG_BIOMES = new Set([B.MEADOW, B.FOREST, B.PINES, B.SWAMP]), DIG_STEEP = 
 const ANIMAL_DOOR = { gallinero: 2.15, establo: 2.25, conejera: 1 };
 // La firma de lo cavado de un trozo (para saber si ha cambiado, venga de aquí o de la red). Con los pozos (una p): el agua
 // de lo cavado no entra en ellos (ver reflood) y, al ponerlo o quitarlo, se vuelve a mirar
-const wellIn = (d, k) => { const v = d.placed?.[k]; return !!v && (v === 'pozo' || v.startsWith('pozo@')); };
+const wellIn = (d, k) => { const v = d.placed?.[k]; return !!v && !!wellSpec(v.split('@')[0]); };   // (a big well, in its anchor tile: the other three, see reflood)
 const digSigOf = d => (d?.dig ? Object.entries(d.dig).map(([k, h]) => k + ':' + h + (wellIn(d, k) ? 'p' : '')).join(';') : '');
 // El agua en lo cavado (ver reflood): un hoyo se llena si su fondo queda más de FLOOD_MIN por debajo del agua (WATER_Y) y
 // toca el agua de verdad, o lo cavado que ya tiene agua; como mucho, a FLOOD_REACH casillas de ella siguiendo lo cavado, y
@@ -191,7 +200,7 @@ function freeObject(o, id, rot, [x, y, a], { colliders, lights, solids }) {
   if (id === 'establo' && o.model !== 'establo:shut') for (const s of placeBoxes(local.filter(l => l[1] < 1), x, y, a)) colliders.push({ ...bounds(s), obb: s, free: true });
   // (el pozo: lo bajo, la losa y el brocal; el tejadillo vuela por encima de la cabeza y no quita sitio a la casilla de al
   // lado, que se puede cercar o labrar pegada)
-  else if (id === 'pozo') { const s = placeBoxes([hull(local.filter(l => l[1] < 1))], x, y, a)[0]; colliders.push({ ...bounds(s), obb: s, free: true }); }
+  else if (wellSpec(id)) { const s = placeBoxes([hull(local.filter(l => l[1] < wellSpec(id).low))], x, y, a)[0]; colliders.push({ ...bounds(s), obb: s, free: true }); }
   else colliders.push({ ...bounds(box), obb: box, free: true });
   for (const s of placeBoxes(local, x, y, a)) solids.push(s);
   return false;
@@ -511,11 +520,13 @@ export class Overworld {
   groundRaw(x, y) { if (inBounds(x, y)) return 0; const h = Math.max(0, this.gen.groundAt(x, y)); return h > 0 ? h * this.padK(x, y) : 0; }   // (el suelo como se ve: allanado junto a lo de antes)
   // La altura que tendría id puesto en la casilla (para colocarlo y para la vista previa)
   levelFor(tx, ty, id) {
-    if (inBounds(tx + 0.5, ty + 0.5)) return id === 'pozo' ? 0 : this.digH(tx, ty) ?? 0;
+    const W = wellSpec(id);
+    if (inBounds(tx + 0.5, ty + 0.5)) return W ? 0 : this.digH(tx, ty) ?? 0;
     const d = this.delta(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK)), k = `${tx},${ty}`, have = d?.lvl?.[k];
     if (have === undefined && this.builtAt(d, k)) return 0;   // (lo de antes)
-    // (el pozo: su losa, por encima de las cuatro esquinas de la casilla, como lo construido; el hoyo queda debajo)
-    if (id === 'pozo') return Math.ceil(Math.max(this.cornerH(tx, ty), this.cornerH(tx + 1, ty), this.cornerH(tx, ty + 1), this.cornerH(tx + 1, ty + 1)) / LV_STEP - 0.05) * LV_STEP;
+    // (el pozo: su losa, por encima de las cuatro esquinas de la casilla, como lo construido; el hoyo queda debajo. The big
+    // one, above the nine corners of its 2 × 2)
+    if (W) { let top = -Infinity; for (let j = 0; j <= W.n; j++) for (let i = 0; i <= W.n; i++) top = Math.max(top, this.cornerH(tx + i, ty + j)); return Math.ceil(top / LV_STEP - 0.05) * LV_STEP; }
     const layer = layerOf(id), struct = layer === 'floor' || layer === 'roof' || !!PIECES[id];
     const D = this.digH(tx, ty);   // (en lo cavado o en la tierra apilada, a su altura: es llano)
     if (!struct) return have ?? D ?? this.groundRaw(tx + 0.5, ty + 0.5);
@@ -539,6 +550,8 @@ export class Overworld {
     if (d.lvl?.[k] === undefined && this.builtAt(d, k)) return;   // (lo de antes sigue a 0)
     const L = this.levelFor(tx, ty, id);
     (d.lvl ||= {})[k] = L;
+    // (the big well: its other tiles at the same height, all of them its slab, like the small one's tile)
+    for (const [i, j] of wellTiles(wellSpec(id)?.n || 1)) { const x = tx + i, y = ty + j; (this.delta(Math.floor(x / CHUNK), Math.floor(y / CHUNK), true).lvl ||= {})[`${x},${y}`] = L; this.touchAround(x, y); }
     const layer = layerOf(id);
     if (!(layer === 'floor' || layer === 'roof' || PIECES[id]) || this.digH(tx, ty) !== null) return;
     const todo = [[tx, ty]], seen = new Set([k]);
@@ -560,6 +573,8 @@ export class Overworld {
     const d = this.delta(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK)), k = `${tx},${ty}`;
     if (d?.lvl?.[k] !== undefined && !this.builtAt(d, k)) delete d.lvl[k];
   }
+  // When a big well goes (id: what was in its anchor tile), its other tiles lose its height
+  dropWell(tx, ty, id) { for (const [i, j] of wellTiles(wellSpec(id)?.n || 1)) { this.dropLevel(tx + i, ty + j); this.touchAround(tx + i, ty + j); } }
 
   // ---------- el suelo, llano junto a lo construido de antes ----------
   // El relieve (biomes.js: reliefOf) se allana donde hay algo hecho: lo colocado, los suelos y lo labrado por los
@@ -826,12 +841,14 @@ export class Overworld {
         if (LIGHT[id] && !o.off) { const [lx, ly, lz, lr] = LIGHT[id], [x, y] = at(lx, ly); lights.push({ x, y, z: lz, r: lr }); }
         const [[ax, ay], [bx, by]] = [at(-0.46, -0.44), at(0.46, 0.32)];
         colliders.push({ x0: Math.min(ax, bx), y0: Math.min(ay, by), x1: Math.max(ax, bx), y1: Math.max(ay, by), piece: true });
-      } else if (src.pos?.[o.key] || BIG_HOUSE.has(id) || id === 'pozo') {   // (las casas grandes, aunque se pusieran por casillas antes de crecer, ocupan lo suyo; el pozo puesto con /setblock, sin sitio, va en el centro)
+      } else if (src.pos?.[o.key] || BIG_HOUSE.has(id) || wellSpec(id)) {   // (las casas grandes, aunque se pusieran por casillas antes de crecer, ocupan lo suyo; el pozo puesto con /setblock, sin sitio, va en el centro)
         o.off = this.lightOff(tx, ty);
         if (BIG_HOUSE.has(id) && src.door?.[`${tx},${ty}`] === 0) o.model = `${id}:shut`;
         if (id === 'encimera' && !fixed) o.model = this.counterModel(tx, ty);
+        const W = wellSpec(id), half = (W?.n || 1) / 2;
         if (id === 'pozo') o.model = wellModel(src.lvl?.[t], src.dig?.[t]);   // (hasta el fondo del hoyo)
-        if (freeObject(o, id, rot, src.pos?.[o.key] || [tx + 0.5, ty + 0.5, (rot % 4) * Math.PI / 2], out)) { flats.push(o); continue; }
+        else if (W) o.model = wellModel(src.lvl?.[t], this.wellBottom(tx, ty, W.n), id);   // (the big one: down to its deepest tile)
+        if (freeObject(o, id, rot, src.pos?.[o.key] || [tx + half, ty + half, (rot % 4) * Math.PI / 2], out)) { flats.push(o); continue; }
       } else {
         o.off = this.lightOff(tx, ty);
         const tuck = this.tuckShift(id, tx, ty, rot);
@@ -1015,27 +1032,32 @@ export class Overworld {
       return true;
     }
     if (!this.ownAt(layer, tx, ty)) return false;
-    const d = this.delta(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK));
+    const d = this.delta(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK)), was = d[layer][k];
     delete d[layer][k];
     if (d.pos) delete d.pos[`${layer}:${k}`];
     if (layer === 'placed' && CHESTS[o.placed]) delete d.chest[k];
     if (layer === 'placed' && d.closed) delete d.closed[k];
     if (layer === 'placed' && d.off) delete d.off[k];
     this.dropLevel(tx, ty);
+    if (layer === 'placed') this.dropWell(tx, ty, parsePlaced(was)[0]);
     this.touchAround(tx, ty);
     return true;
   }
   // Lo que hacen /setblock y /fill: poner una pieza en su capa (sin mirar si cabe, como en Minecraft) o, con 'air',
   // quitar todo lo que haya en la casilla, también lo que venía puesto
   setTile(tx, ty, id) {
-    const d = this.delta(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK), true), k = `${tx},${ty}`;
+    const d = this.delta(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK), true), k = `${tx},${ty}`, was = d.placed?.[k];
     if (id === 'air') {
+      const w = this.wellOf(tx, ty);   // (a tile of a big well that is not its anchor: the well goes, from its anchor)
+      if (w && (w.tx !== tx || w.ty !== ty) && this.ownAt('placed', w.tx, w.ty)) this.setTile(w.tx, w.ty, 'air');
       for (const layer of ['floor', 'placed', 'roof', 'hang', 'rug']) { if (d[layer]) delete d[layer][k]; if (d.pos) delete d.pos[`${layer}:${k}`]; }
       for (const l of ['chest', 'closed', 'off', 'machine', 'tilled']) if (d[l]) delete d[l][k];
       for (const layer of ['floor', 'placed', 'roof', 'hang', 'rug']) if (this.baseAt(layer, tx, ty)) (d.gone ||= {})[goneKey(layer, k)] = true;
       this.dropLevel(tx, ty);
+      if (was) this.dropWell(tx, ty, parsePlaced(was)[0]);
     } else {
       const layer = layerOf(id);
+      if (was && layer === 'placed') this.dropWell(tx, ty, parsePlaced(was)[0]);   // (a big well replaced: before the new one sets its own heights)
       this.setLevel(tx, ty, id);
       if (this.baseAt(layer, tx, ty)) (d.gone ||= {})[goneKey(layer, k)] = true;   // (lo que venía puesto ya no está: al quitar esto no vuelve)
       (d[layer] ||= {})[k] = id;
@@ -1179,7 +1201,7 @@ export class Overworld {
   // se separa; si lo corta, no cabe (la silla sí entra bajo la mesa, mientras el respaldo no toque el tablero). Devuelve dónde (ox, oy:
   // el origen del modelo), si cabe (ok) y, si no, por qué (why); anchor: la casilla donde se apunta
   fitFree(id, px, py, a, k = 0, player = null) {
-    if (id === 'pozo') return this.fitWell(px, py, a, player);
+    if (wellSpec(id)) return this.fitWell(px, py, a, player, id);
     const def = ITEMS[id], rug = def.place === 'rug', flat = def.place === 'flat';
     let local, model = id, anchor = null;
     if (rug) { const [w, h] = RUG_SIZES[k % RUG_SIZES.length]; local = [[-w / 2 + 0.06, 0, -h / 2 + 0.06, w / 2 - 0.06, 0.05, h / 2 - 0.06]]; model = `rug:${id}:${w}x${h}`; }
@@ -1230,35 +1252,67 @@ export class Overworld {
   // El pozo no va libre: ocupa justo la casilla apuntada, que tiene que estar cavada con la pala WELL_DOWN bloques o más
   // (el hoyo es el pozo: su forro de piedra baja hasta el fondo y su losa lo tapa por arriba). Se gira de cuarto en
   // cuarto (el tejadillo y la manivela), no se arrima a nada y no puede cortar lo de al lado. Lo mismo que fitFree
-  fitWell(px, py, a, player) {
-    const deepAt = (i, j) => this.digH(i, j) !== null && this.digDepth(i, j) >= WELL_DOWN - 1e-6, Q = Math.PI / 2;
+  // The big well (id big_well) takes, around the pointer, the 2 × 2 with most tiles dug deep enough (all four, to fit;
+  // if not, it is the one marked, saying why), the nearest of them; each tile must be free like the small one's. The result also says
+  // the height of its slab (lvl) and, for the big one, its 2 × 2 (square: the mark, see three/fx.js)
+  fitWell(px, py, a, player, id = 'pozo') {
+    const deepAt = (i, j) => this.digH(i, j) !== null && this.digDepth(i, j) >= WELL_DOWN - 1e-6, Q = Math.PI / 2, N = wellSpec(id).n;
     let tx = Math.floor(px), ty = Math.floor(py);
+    if (N > 1) {
+      // (the most dug first, so a hole that is not deep enough yet is the one marked in red)
+      const deeps = (ax, ay) => [[0, 0], ...wellTiles(N)].filter(([i, j]) => deepAt(ax + i, ay + j)).length, near = [];
+      for (let ay = ty - N; ay <= ty + 1; ay++) for (let ax = tx - N; ax <= tx + 1; ax++) {
+        const ex = Math.abs(px - ax - N / 2), ey = Math.abs(py - ay - N / 2);
+        if (ex <= N / 2 + 0.15 && ey <= N / 2 + 0.15) near.push([ax, ay, Math.hypot(ex, ey), deeps(ax, ay)]);
+      }
+      near.sort((p, q) => q[3] - p[3] || p[2] - q[2]);
+      [tx, ty] = near[0];
     // (el ratón sobre la pared o el borde de un hoyo hondo y estrecho cae justo en la raya: vale el hoyo de al lado)
-    if (!deepAt(tx, ty)) {
+    } else if (!deepAt(tx, ty)) {
       const fx = px - tx, fy = py - ty;
       for (const [e, dx, dy] of [[fx < 0.15, -1, 0], [fx > 0.85, 1, 0], [fy < 0.15, 0, -1], [fy > 0.85, 0, 1]]) if (e && deepAt(tx + dx, ty + dy)) { tx += dx; ty += dy; break; }
     }
-    const x = tx + 0.5, y = ty + 0.5, deep = deepAt(tx, ty), k = `${tx},${ty}`;
+    const tiles = [[0, 0], ...wellTiles(N)].map(([i, j]) => [tx + i, ty + j]);
+    const x = tx + N / 2, y = ty + N / 2, deep = tiles.every(([i, j]) => deepAt(i, j)), lvl = this.levelFor(tx, ty, id);
     a = ((Math.round(a / Q) % 4) + 4) % 4 * Q;
-    const model = deep ? wellModel(this.levelFor(tx, ty, 'pozo'), this.digH(tx, ty)) : 'pozo';
+    const model = !deep ? id : N > 1 ? wellModel(lvl, this.wellBottom(tx, ty, N), id) : wellModel(this.levelFor(tx, ty, 'pozo'), this.digH(tx, ty));
     const local = solidsOf(model), box = placeBoxes([hull(local)], x, y, a)[0];
-    const res = (ok, why) => ({ ok, why, ox: x, oy: y, a, k: 0, model, cx: box.x, cy: box.y, box, anchor: ok ? [tx, ty] : null });
-    if (!inPlanet(x - 1, y) || !inPlanet(x + 1, y)) return res(false, 'Aquí no: es la costura del planeta');
-    if (!deep) return res(false, `Hace falta un hoyo de ${WELL_DOWN} bloques cavado con la pala`);
-    if (this.water(x, y)) return res(false, 'Ahí hay agua: el pozo va en un hoyo seco');
-    if (this.at('placed', tx, ty) || this.at('floor', tx, ty) || this.at('roof', tx, ty)) return res(false, 'Ahí no cabe');
-    const d = this.delta(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK));
-    if (d?.lvl?.[k] !== undefined) return res(false, 'Ahí no cabe');
+    const res = (ok, why) => ({ ok, why, ox: x, oy: y, a, k: 0, model, cx: box.x, cy: box.y, box, anchor: ok ? [tx, ty] : null, lvl, square: N > 1 ? [tx, ty, N] : null });
+    if (!inPlanet(x - N, y) || !inPlanet(x + N, y)) return res(false, 'Aquí no: es la costura del planeta');
+    if (!deep) return res(false, N > 1 ? tr('why.big_well.dig', { n: WELL_DOWN }) : `Hace falta un hoyo de ${WELL_DOWN} bloques cavado con la pala`);
+    for (const [i, j] of tiles) {
+      if (this.water(i + 0.5, j + 0.5)) return res(false, 'Ahí hay agua: el pozo va en un hoyo seco');
+      if (this.at('placed', i, j) || this.at('floor', i, j) || this.at('roof', i, j)) return res(false, 'Ahí no cabe');
+      if (this.delta(Math.floor(i / CHUNK), Math.floor(j / CHUNK))?.lvl?.[`${i},${j}`] !== undefined) return res(false, 'Ahí no cabe');
+    }
     const cuts = (s, o) => o.y1 > s.y0 + 0.01 && o.y0 < s.y1 - 0.01 && sat(s, o), obstacles = this.obstaclesNear(x, y, false);
     for (const s of placeBoxes(local, x, y, a)) for (const o of obstacles) { const hit = cuts(s, o); if (hit && hit.depth > 0.012) return res(false, o.wall ? 'Choca con la pared' : 'Choca con otra cosa'); }
     if (player && hitsCircle(box, player.x, player.y, 0.2)) return res(false, 'Estás tú en medio');
     return res(true, null);
   }
+  // The well that takes tile (tx, ty), or null: { id, tx, ty, n } with its anchor tile (the small one, in its own; the big
+  // one, in the one with the lowest x and y of its 2 × 2)
+  wellOf(tx, ty) {
+    for (let j = 0; j < 2; j++) for (let i = 0; i < 2; i++) {
+      const v = this.at('placed', tx - i, ty - j), id = v && parsePlaced(v)[0], W = wellSpec(id);
+      if (W && i < W.n && j < W.n) return { id, tx: tx - i, ty: ty - j, n: W.n };
+    }
+    return null;
+  }
+  // The bottom of a well's hole: its deepest tile (the big one's lining goes down to it; under the others it is in the earth)
+  wellBottom(tx, ty, n) {
+    let low = null;
+    for (const [i, j] of [[0, 0], ...wellTiles(n)]) { const h = this.digH(tx + i, ty + j); if (h !== null && (low === null || h < low)) low = h; }
+    return low;
+  }
   // ¿Hay un pozo en la casilla de (x, y)? (para llenar la regadera: farm.js)
-  wellAt(x, y) { const v = this.at('placed', Math.floor(x), Math.floor(y)); return !!v && parsePlaced(v)[0] === 'pozo'; }
+  wellAt(x, y) { return !!this.wellOf(Math.floor(x), Math.floor(y)); }
   // ¿Está (x, y) en la boca de un pozo, por donde se cae al agua? (las flechas: archery.js, ground; el hueco de sus cajas en
-  // three/models.js, pozo)
-  wellMouth(x, y) { const fx = x - Math.floor(x) - 0.5, fy = y - Math.floor(y) - 0.5; return Math.abs(fx) < 0.34 && Math.abs(fy) < 0.34 && this.wellAt(x, y); }
+  // three/models.js, pozo). How far down its water is, or 0
+  wellMouth(x, y) {
+    const w = this.wellOf(Math.floor(x), Math.floor(y)), W = w && WELLS[w.id];
+    return W && Math.abs(x - w.tx - w.n / 2) < W.mouth && Math.abs(y - w.ty - w.n / 2) < W.mouth ? W.water : 0;
+  }
   // Ponerlo donde ha dicho fitFree (en su casilla, con su sitio y su giro de verdad)
   // loose: puesto agachado (no se une a lo de al lado)
   placeFree(id, f, loose = false) {
@@ -1366,15 +1420,21 @@ export class Overworld {
     for (const [k, sg] of this.digChunks) {
       let c = cache.get(k);
       if (c?.sg !== sg) {
-        const d = this.deltas.get(k), list = [];
+        const d = this.deltas.get(k), list = [], cover = [];
         for (const [t, h] of Object.entries(d?.dig || {})) {
           if (typeof h !== 'number' || h >= WATER_Y - FLOOD_MIN || wellIn(d, t)) continue;
           const i = t.indexOf(','); list.push(+t.slice(0, i), +t.slice(i + 1));
         }
-        cache.set(k, c = { sg, list });
+        // (a big well, kept in its anchor tile, also takes the three next to it, maybe in another chunk: left out below)
+        for (const [t, h] of Object.entries(d?.dig || {})) {
+          const n = typeof h === 'number' && wellIn(d, t) ? wellSpec(parsePlaced(d.placed[t])[0]).n : 1;
+          if (n > 1) { const i = t.indexOf(','), x = +t.slice(0, i), y = +t.slice(i + 1); for (const [a, b] of wellTiles(n)) cover.push(x + a, y + b); }
+        }
+        cache.set(k, c = { sg, list, cover });
       }
       for (let i = 0; i < c.list.length; i += 2) cand.set(fkey(c.list[i], c.list[i + 1]), true);
     }
+    for (const c of cache.values()) for (let i = 0; i < c.cover.length; i += 2) cand.delete(fkey(c.cover[i], c.cover[i + 1]));
     if (!cand.size) return;
     // Las que tocan el agua de verdad, y desde ellas, por lo cavado, casilla a casilla (lo más cerca primero: cada una sabe de
     // qué agua le llega): lo que está a FLOOD_REACH pasos o menos, y hasta FLOOD_MAX casillas. Las de partida, en orden de su
@@ -1382,6 +1442,7 @@ export class Overworld {
     const seeds = [];
     for (const c of cache.values()) for (let i = 0; i < c.list.length; i += 2) {
       const tx = c.list[i], ty = c.list[i + 1];
+      if (!cand.has(fkey(tx, ty))) continue;   // (under a big well)
       for (const [di, dj] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) if (this.wetEdge(tx, ty, di, dj)) { seeds.push([fkey(tx, ty), tx, ty, fkey(tx + di, ty + dj)]); break; }
     }
     seeds.sort((a, b) => a[0] - b[0]);

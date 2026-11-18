@@ -29,6 +29,7 @@ import { machineAt, settle, MACHINES } from './machines.js';
 import { hud } from './ui/hud.js';
 import { freePlace } from './gather.js';
 import { PIECE_IDS } from './build.js';
+import { BUILDABLE } from './buildables.js';
 import { PIECES, parsePlaced } from './pieces.js';
 import { diffChunk, applyOps, ItemSync, COLLECTIONS } from './livesync.js';
 import { wallTile } from './three/build3d.js';
@@ -937,6 +938,53 @@ async function soloTests(game) {
     inv().add('trigo', 2); const i = inv().slots.findIndex(s => s?.id === 'trigo'); game.machines.put(tile, 'noria', 'in', i);
     const m = machineAt(w(), tile); m.t -= 13000; settle(m, MACHINES.noria);
     check(m.out?.id === 'harina' && m.out.n === 2, `molido: ${JSON.stringify(m.out)}`);
+  });
+  await test('pozo grande (big well): on 2 × 2 tiles dug 5 deep, water from any side, no digging on it, and it comes down', async () => {
+    const W = w(), today = () => game.days.dayIndex, B = BUILDABLE.big_well;
+    check(B?.cat === 'Exterior' && B.needs === 'cantero' && B.cost.find(([m]) => m === 'piedra')?.[1] === 48 && !RECIPES.find(r => r.id === B.recipe)?.plan, `in B: ${JSON.stringify(B)}`);
+    check(ITEMS.big_well.name === t('item.big_well') && ITEMS.big_well.desc === t('item.big_well.desc'), 'its name is not from the language files');
+    let A = null;
+    find: for (let y = 120; y < 400; y += 5) for (let x = -120; x < 120; x += 7) {
+      let ok = true;
+      for (let j = 0; j < 4 && ok; j++) for (let i = 0; i < 4 && ok; i++) if (W.digWhy(x + i, y + j, false)) ok = false;
+      if (ok) { A = [x + 1, y + 1]; break find; }
+    }
+    check(A, 'nowhere to dig');
+    await goTo(game, A[0] + 1, A[1] - 1.5);
+    const tiles = [[0, 0], [1, 0], [0, 1], [1, 1]].map(([i, j]) => [A[0] + i, A[1] + j]), sel = inv().selected, keep = inv().slots[sel];
+    const dig = (x, y, n) => { for (let i = 0; i < n; i++) W.digTile(x, y, -1, today()); };
+    try {
+      tiles.forEach(([x, y], i) => dig(x, y, i === 3 ? 4 : 5));
+      let f = W.fitFree('big_well', A[0] + 0.3, A[1] + 0.4, 0, 0, null);
+      check(!f.ok && f.why === t('why.big_well.dig', { n: 5 }) && f.square?.join() === `${A[0]},${A[1]},2`, `with a shallow tile: ${f.why} ${f.square}`);
+      dig(...tiles[3], 2);   // (6 deep: its lining goes down to it)
+      f = W.fitFree('big_well', A[0] + 1.7, A[1] + 1.6, 0, 0, null);
+      check(f.ok && f.anchor.join() === A.join(), `it does not fit: ${f.why}`);
+      W.placeFree('big_well', f); await frames(2);
+      const o = W.placedObjectAt(...A), L = W.levelAt(A[0] + 0.5, A[1] + 0.5);
+      check(o?.model === `big_well:${Math.round((L - W.digH(...tiles[3])) / 0.25)}` && Math.abs(o.x - A[0] - 1) < 1e-6, `model ${o?.model} at ${o?.x - A[0]}`);
+      check(tiles.every(([x, y]) => W.levelAt(x + 0.5, y + 0.5) === L && W.wellAt(x + 0.5, y + 0.5) && W.digWhy(x, y, false) === 'Ahí está el pozo'), 'its four tiles');
+      check(!W.wellAt(A[0] - 0.5, A[1] + 0.5) && !W.wellAt(A[0] + 2.5, A[1] + 1.5), 'it takes more than its four tiles');
+      check(W.wellMouth(A[0] + 1, A[1] + 1) > 1.2 && !W.wellMouth(A[0] + 0.1, A[1] + 1), 'its mouth');
+      check(!W.fitFree('pozo', A[0] + 1.5, A[1] + 1.5, 0, 0, null).ok, 'a small well fits on it');
+      W.floodAt(...A);
+      check(W.floodCand.get(`${Math.floor(A[0] / CHUNK)},${Math.floor(A[1] / CHUNK)}`)?.cover?.length === 6, 'its other tiles are not left out of the water of the holes');
+      // The watering can fills from any side
+      inv().slots[sel] = { id: 'regadera', n: 1 }; inv().changed();
+      for (const [px, py, fx, fy] of [[A[0] + 1, A[1] - 0.45, 0, 1], [A[0] + 1, A[1] + 2.45, 0, -1], [A[0] - 0.45, A[1] + 1, 1, 0], [A[0] + 2.45, A[1] + 0.6, -1, 0]]) {
+        p().x = px; p().y = py; p().face = { x: fx, y: fy }; game.farm.can = 0; game.gather.cooldown = 0;
+        const tg = game.gather.pickTarget(); check(tg?.use, `the can from ${px - A[0]}, ${py - A[1]}: ${tg?.label}`); tg.use(); check(game.farm.can > 0, 'the can is still empty');
+      }
+      const stone = inv().count('piedra');
+      check(game.pickUp(W.placedObjectAt(...A)), 'it does not come down');
+      check(inv().count('piedra') - stone === 48, 'its stone does not come back');
+      inv().remove('piedra', 48); inv().remove('tablas', 18); inv().remove('cuerda', 9);
+      check(tiles.every(([x, y]) => W.levelAt(x + 0.5, y + 0.5) === null && W.digH(x, y) !== null && !W.wellAt(x + 0.5, y + 0.5)), 'the hole is not left as it was');
+    } finally {
+      if (W.ownAt('placed', ...A)) W.setTile(...A, 'air');
+      for (const [x, y] of tiles) W.digReset(x, y);
+      inv().slots[sel] = keep; inv().changed();
+    }
   });
   await test('casas: el menú asigna tus animales a una casa con sitio', async () => {
     await goTo(game, 60, 36);
