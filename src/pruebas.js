@@ -336,6 +336,24 @@ async function soloTests(game) {
     game.gather.cooldown = 0; game.gather.target = game.gather.pickTarget(); check(game.gather.target?.ok, 'la azada no apunta a la casilla'); game.gather.use();
     check(w().delta(Math.floor(tile[0] / CHUNK), Math.floor(tile[1] / CHUNK))?.tilled[`${tile[0]},${tile[1]}`] !== undefined, 'la casilla no está labrada');
   });
+  await test('segar cultivo (cut crop): the scythe cuts a growing crop and gives its seed back', async () => {
+    await goTo(game, 60, 30);
+    let tile = null;
+    for (let r = 0; r < 12 && !tile; r++) for (let dx = -r; dx <= r && !tile; dx++) for (let dy = -r; dy <= r && !tile; dy++) if ([0, 1, 2].every(e => w().canTill(60 + dx, 30 + dy + e))) tile = [60 + dx, 30 + dy];   // (open ground below, where the player stands)
+    check(tile, 'nowhere to till');
+    const [tx, ty] = tile, k = `${tx},${ty}`, d = () => w().delta(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK));
+    w().till(tx, ty); inv().add('semilla_trigo', 1); game.farm.sow(tx, ty, 'trigo');
+    check(game.farm.cropAt(tx, ty) && !game.farm.ready(game.farm.cropAt(tx, ty)), 'the crop is not growing');
+    selectTool(game, 'guadana'); game.mouse = null; CAM.first = false;   // (aim at the tile in front, not at the crosshair)
+    p().x = tx + 0.5; p().y = ty + 1.4; p().face = { x: 0, y: -1 }; await frames(2);
+    game.gather.cooldown = 0; game.gather.target = game.gather.pickTarget();
+    check(game.gather.target?.ok && game.gather.target.label === t('farm.cut_crop'), `the scythe does not offer to cut it (${game.gather.target?.label || game.gather.target?.obj?.kind}; aim ${game.aimTile()}; tile ${tx},${ty})`);
+    const seeds = inv().count('semilla_trigo'); game.gather.use(); await frames(30);
+    check(!game.farm.cropAt(tx, ty), 'the crop is still there');
+    check(d()?.tilled[k] !== undefined, 'the tile is no longer tilled');
+    await until(() => inv().count('semilla_trigo') > seeds, 4000, 'the seed to be picked up');
+    w().setTile(tx, ty, 'air');
+  });
   await test('pisotear: saltar sobre tierra labrada sin plantar la deshace', async () => {
     await goTo(game, 60, 30);
     let tile = null;

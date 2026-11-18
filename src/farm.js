@@ -1,7 +1,8 @@
 // Huerto: sembrar en tierra labrada, regar (o que llueva), abonar y cosechar. Los cultivos crecen un paso
 // cada mañana si la tierra estuvo mojada el día anterior. También se plantan árboles con bellotas, piñas
 // o semillas de manzano; los manzanos dan manzanas y las palmeras, cocos, cada pocos días (se cogen con E).
-import { CROPS, HARVEST } from './items.js';
+import { CROPS, HARVEST, ITEMS } from './items.js';
+import { t } from './i18n.js';
 import { CHUNK } from './world/gen.js';
 import { B } from './world/biomes.js';
 import { inBounds, isGrass, pondDist } from './world/village.js';
@@ -110,6 +111,9 @@ export class Farm {
     const crop = d?.crops?.[k], tilled = d?.tilled[k] !== undefined, tile = [tx, ty];
     if (crop && this.ready(crop) && !def?.place) return { tile, ok: true, label: 'Cosechar', use: () => this.harvest(tx, ty) };
     if (crop?.dead && !def?.place) return { tile, ok: true, label: 'Quitar la planta seca', use: () => { delete d.crops[k]; this.world.touchAround(tx, ty); Audio.swish(); } };
+    // The scythe cuts down a crop that is not ready yet (to fix a mistake or clear the field); the seed comes back.
+    // (Not one from a newer version this game doesn't know: it stays as it is.)
+    if (crop && CROPS[crop.id] && def?.tool === 'guadana') return { tile, ok: true, label: t('farm.cut_crop'), use: () => this.cut(tx, ty) };
     if (def?.seed) {
       if (!tilled || crop) return null;
       const c = CROPS[def.seed];
@@ -227,6 +231,17 @@ export class Farm {
     Audio.pickup();
     g.skills?.gain('agricultura', 2);
     g.stats?.add('cosechas', 1);
+  }
+
+  // Cut down a crop that is still growing: the tile stays tilled and its seed drops, to sow it again
+  cut(tx, ty) {
+    const g = this.game, d = this.d(tx, ty), k = key(tx, ty), c = d?.crops?.[k];
+    if (!c || !g.gather.spend('guadana')) return;
+    delete d.crops[k];
+    if (ITEMS['semilla_' + c.id]) g.gather.spawnDrops({ x: tx + 0.5, y: ty + 0.5 }, { drops: [['semilla_' + c.id, 1, 1]] });
+    this.world.touchAround(tx, ty);
+    g.gather.chips(tx + 0.5, ty + 0.5, 'leaf', 8);
+    Audio.swish();
   }
 
   canPlant(tx, ty) {
