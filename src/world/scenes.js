@@ -964,7 +964,7 @@ export class Overworld {
     const cx = Math.floor(tx / CHUNK), cy = Math.floor(ty / CHUNK);
     this.setLevel(tx, ty, 'tierra');   // (lo labrado, a la altura del suelo)
     this.delta(cx, cy, true).tilled[`${tx},${ty}`] = this.clock;
-    this.touch(cx, cy);
+    this.touchAround(tx, ty);   // (a tilled neighbour in the next chunk joins it: three/world3d.js, tilledMask)
   }
 
   // ¿Se puede colocar algo en esta casilla? Tierra firme, libre y sin pisar el camino del pueblo.

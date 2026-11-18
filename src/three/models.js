@@ -1100,10 +1100,19 @@ function treasure(m, open) {
   else m.box('dark', -0.4, 0.42, -0.28, 0.4, 0.62, 0.28).box('gold', -0.06, 0.3, 0.26, 0.06, 0.46, 0.29);
 }
 
-// Tierra labrada de una casilla (seca o mojada)
-function tilled(m, wet) {
-  m.box(wet ? 'dirtWet' : 'dirt', -0.46, 0, -0.46, 0.46, 0.06, 0.46, 1);
-  for (let i = 0; i < 3; i++) m.box(wet ? 'dirtWet' : 'dirt', -0.42, 0.06, -0.36 + i * 0.3, 0.42, 0.1, -0.24 + i * 0.3, 1);
+// Tierra labrada de una casilla (seca o mojada). mask: which neighbours are tilled too (1 +x, 2 -x, 4 +z, 8 -z), like
+// fences: towards them the bed and its furrows reach the tile edge, so a field is one piece of soil with long rows.
+// The rows run along x, or along z in a strip that only has neighbours along z. Three ridges per tile, a third of a
+// tile apart, so they keep the same spacing from one tile to the next
+function tilled(m, wet, mask = 0) {
+  const mat = wet ? 'dirtWet' : 'dirt', e = bit => (mask & bit ? 0.5 : 0.46);
+  m.box(mat, -e(2), 0, -e(8), e(1), 0.06, e(4), 1);
+  const alongZ = !(mask & 3) && (mask & 12), r = bit => (mask & bit ? 0.5 : 0.42);
+  for (let i = -1; i <= 1; i++) {
+    const c = i / 3;
+    if (alongZ) m.box(mat, c - 0.06, 0.06, -r(8), c + 0.06, 0.1, r(4), 1);
+    else m.box(mat, -r(2), 0.06, c - 0.06, r(1), 0.1, c + 0.06, 1);
+  }
 }
 
 // Cuadros: marco con su fondo y el lienzo un poco hundido, a media altura, con la espalda contra el muro (z = -0.05)
@@ -1139,7 +1148,7 @@ export function getModel(name) {
   else if (kind === 'village') { if (a === 'stall2') VILLAGE.stall(m, ['#e0b850', '#f08a2a', '#e83a4a'], 'awningB'); else if (a === 'stall3') VILLAGE.stall(m, ['#9ad0ff', '#c8a870', '#f0e8f0'], 'awningG'); else VILLAGE[a](m); }
   else if (kind === 'poi') PLACES[a](m, b === 'snow');
   else if (kind === 'treasure') treasure(m, a === '1');
-  else if (kind === 'tilled') tilled(m, a === '1');
+  else if (kind === 'tilled') tilled(m, a === '1', +b || 0);
   else if (kind === 'rug') rugModel(m, a, b);
   else return null;
   CACHE.set(name, m);

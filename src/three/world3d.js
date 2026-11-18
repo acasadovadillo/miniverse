@@ -42,6 +42,15 @@ const FAR_KINDS = new Set(['oak', 'fruit', 'pine', 'snowPine', 'swampTree', 'cac
 const FADE_MS = 600;     // lo que tarda un bloque de naturaleza en fundirse con lo lejano, al llegar y al irse
 const NATURE = new Set(['oak', 'fruit', 'pine', 'snowPine', 'swampTree', 'cactus', 'palm', 'boulder', 'rock', 'bush', 'deadBush', 'snowBoulder', 'margarita', 'diente_leon']);
 
+// Which neighbours of a tilled tile are tilled too (1 +x, 2 -x, 4 +z, 8 -z), to join them into one field
+// (models.js, tilled). With lv (the height of each tile), only those at the same height: a step between them stays
+const tilledAt = (scene, x, y) => scene.delta(Math.floor(x / CHUNK), Math.floor(y / CHUNK))?.tilled?.[`${x},${y}`] !== undefined;
+function tilledMask(scene, tx, ty, lift, lv) {
+  let m = 0;
+  for (const [bit, x, y] of [[1, tx + 1, ty], [2, tx - 1, ty], [4, tx, ty + 1], [8, tx, ty - 1]]) if (tilledAt(scene, x, y) && (!lv || lv(x, y) === lift)) m |= bit;
+  return m;
+}
+
 export class World3D {
   constructor(view) {
     this.view = view;
@@ -184,7 +193,7 @@ export class World3D {
     for (const o of data.objects) s += o.key + (o.crop ? ':' + farm.stage(o.crop) : '') + (o.open ? '!' : '') + (o.placed ? o.placed + (o.rot || 0) : '') + (o.model ? ':' + o.model : '') + (o.off ? '~' : '') + (o.tuck ? '^' : '') + (o.mask !== undefined ? `m${o.mask}` : '') + (o.door ? `d${o.door}` : '') + (o.free ? `@${o.x.toFixed(2)},${o.y.toFixed(2)},${o.yaw.toFixed(2)}` : '') + (o.window && scene.doorClosed(...o.tile) ? '#' : '') + ',';   // (~: apagado; #: ventana cerrada)
     for (const o of data.flats) s += o.key + (o.model || o.placed || '') + (o.rot || 0) + (o.free ? `@${o.x.toFixed(2)},${o.y.toFixed(2)},${o.yaw.toFixed(2)}` : '') + ',';
     for (const o of data.floors) s += o.key + ',';
-    for (const t of data.tilled) { const k = `${t[0]},${t[1]}`; s += k + (d?.wet?.[k] === today ? 'w' : '') + ';'; }
+    for (const t of data.tilled) { const k = `${t[0]},${t[1]}`; s += k + (d?.wet?.[k] === today ? 'w' : '') + tilledMask(scene, t[0], t[1]) + ';'; }   // (with its neighbours: one tilled next door, in another chunk too, joins it)
     return s;
   }
 
@@ -215,7 +224,7 @@ export class World3D {
     for (const t of data.tilled) {
       const k = `${t[0]},${t[1]}`, wet = scene.delta(cx, cy)?.wet?.[k] === this.farm(scene)?.today;
       LIFT = lv(t[0], t[1]);
-      this.placeModel(`tilled:${wet ? 1 : 0}`, t[0] + 0.5, t[1] + 0.5, 0, plain, c, group, false, LIFT);
+      this.placeModel(`tilled:${wet ? 1 : 0}:${tilledMask(scene, t[0], t[1], LIFT, lv)}`, t[0] + 0.5, t[1] + 0.5, 0, plain, c, group, false, LIFT);
     }
     for (const o of data.objects.concat(data.flats)) {
       LIFT = o.poi || o.treasure ? 0 : o.tile ? lv(...o.tile) : lv(Math.floor(o.x), Math.floor(o.y));
