@@ -1186,6 +1186,7 @@ export class Game {
       hint ||= this.build.on ? this.build.hint() : this.gather.hint();
     }
     hud.hint(hint);
+    try { this.smartHud?.frame(hint); } catch (e) { reportFault(e, 'SmartHud.frame'); }   // (the smart interface prototype, only with ?hud=minimo: src/ui/smarthud.js)
     if (this.player && this.world) {
       // (los lugares, como mucho cada 0,15 s: el minimapa no se repinta más a menudo, y el grande, solo si algo cambia)
       if (!(Math.abs(this.time - (this.markersAt ?? -1)) < 0.15)) { this.markersAt = this.time; this.map.markers = this.places.markers(); }
@@ -1193,7 +1194,7 @@ export class Game {
       if (this.mode === 'map') this.map.people = this.neighbors.people.filter(n => !n.hidden).map(n => ({ x: n.x, y: n.y, name: n.def.name }));
       this.map.face = this.player.face;   // (their arrow on both maps points where they face)
       if (this.mode === 'map') this.map.drawBig(this.world.gen, this.explored, this.player.x, this.player.y, this.time);
-      else if (!this.indoors) this.map.drawMini(this.world.gen, this.explored, this.player.x, this.player.y, this.time);
+      else if (!this.indoors && this.smartHud?.mini !== false) this.map.drawMini(this.world.gen, this.explored, this.player.x, this.player.y, this.time);   // (hidden, not drawn)
     }
   }
 }

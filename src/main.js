@@ -26,6 +26,8 @@ function play(login = true) {   // (login: abrir la pantalla de entrar)
   initBuildBar(game);
   const chat = initChat(game);
   const debug = initDebug(game);
+  // The smart interface, a prototype (?hud=minimo): loaded only then, so without it nothing changes
+  if (new URLSearchParams(location.search).get('hud') === 'minimo') import('./ui/smarthud.js').then(m => { game.smartHud = new m.SmartHud(game); });
   game.live.say = (text, kind) => chat.say(text, kind);
   const b = game.build;
   initInput({
