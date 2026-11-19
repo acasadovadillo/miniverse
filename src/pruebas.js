@@ -171,7 +171,7 @@ async function soloTests(game) {
     const OLD = { 'p-resume': 'Continuar', 'p-menu': 'Guardar y salir al menú', 'm-continue': 'Continuar partida', 'm-session': 'Cerrar sesión', 'cf-make': 'Fabricar', 'inv-drop1': 'Tirar uno',
       'inv-lock': 'Sin mochila solo llevas lo que cabe en las manos y los bolsillos. Fabrica una (C, a mano: fibra y cuerda) y póntela.', 'aim-free': 'Haz clic para mover la cámara con el ratón' };
     for (const [id, text] of Object.entries(OLD)) eq($(id).textContent, text, `#${id}`);
-    for (const [id, attr, text] of [['chat-input', 'placeholder', 'Escribe un mensaje o un comando (/help)'], ['love-heart', 'title', 'Tener un bebé'], ['map-home', 'aria-label', 'Volver a tu posición'], ['inv-del', 'title', 'Modo admin: lo quita para siempre, sin tirarlo'], ['rail', 'aria-label', 'Menús']]) eq($(id).getAttribute(attr), text, `#${id} ${attr}`);
+    for (const [id, attr, text] of [['chat-input', 'placeholder', 'Escribe un mensaje o un comando (/help)'], ['love-heart', 'title', 'Tener un bebé'], ['map-home', 'aria-label', 'Volver a tu posición'], ['inv-del', 'title', 'Modo admin: lo quita para siempre, sin tirarlo']]) eq($(id).getAttribute(attr), text, `#${id} ${attr}`);
     eq($('lg-user').closest('label').textContent, 'Usuario', 'the user field');
     eq(document.querySelector('#s-controls dt[data-i18n-html="controls.interact.keys"]').innerHTML, '<kbd>E</kbd> o <kbd>Enter</kbd>', 'controls: E');
     eq($('ac-result').querySelector('p').innerHTML, 'Pásale a <b id="ac-who"></b> este código de invitación. Lo necesitará la primera vez, junto a la contraseña que elija:', 'the invite');
@@ -668,15 +668,15 @@ async function soloTests(game) {
   });
   await test('ventanas: encima del mundo, sin parar el juego', async () => {
     const W = game.windows, P = p(), press = (code, type = 'keydown') => dispatchEvent(new KeyboardEvent(type, { code, bubbles: true }));
-    const el = id => document.getElementById(id), rail = k => document.querySelector(`[data-rail="${k}"]`);
+    const el = id => document.getElementById(id);
     const wasPlaying = document.body.classList.contains('playing');
     document.body.classList.add('playing');
     W.closeAll();
     try {
-      // Por el icono y por la tecla, sin salir del juego
-      rail('inv').click(); check(W.isOpen('s-inv') && el('s-inv').classList.contains('show') && game.mode === 'play', `modo ${game.mode}`);
+      // By its key, without leaving the game (there is no icon column any more: just the keys)
+      press('KeyI'); check(W.isOpen('s-inv') && el('s-inv').classList.contains('show') && game.mode === 'play', `modo ${game.mode}`);
       check(getComputedStyle(el('s-inv')).display === 'block', 'no se ve');
-      draw(); check(rail('inv').classList.contains('on'), 'el icono no lo dice');
+      check(!el('rail'), 'the icon column is still there');
       press('KeyI'); check(!W.isOpen('s-inv'), 'I no la cierra'); press('KeyI'); check(W.isOpen('s-inv'), 'I no la abre');
       // Se sigue andando con ella abierta
       await goTo(game, 62, 50); const x0 = P.x, y0 = P.y; keys.up = true; await frames(30); keys.up = false;

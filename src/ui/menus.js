@@ -772,25 +772,12 @@ export function initMenus(game) {
   }
   game.onCraft = openCraft;
 
-  // ---------- La columna de iconos ----------
-  const toggleBuild = () => (game.mode === 'play' && !game.busy && game.gamemode !== 'spectator' ? game.build.toggle() : false);
-  const openPause = () => { if (game.mode === 'play' && !game.busy && !hud.dialogOpen) { game.build.toggle(false); game.mode = 'pause'; $('p-msg').textContent = ''; show('s-pause'); } };
-  const RAIL = { inv: toggleInventory, craft: toggleCraft, build: toggleBuild, journal: toggleJournal, map: toggleMap, pause: openPause };
-  const rail = $('rail'), railBtn = {};
-  for (const b of rail.querySelectorAll('[data-rail]')) {
-    railBtn[b.dataset.rail] = b;
-    b.onclick = () => { b.blur(); RAIL[b.dataset.rail](); };
-  }
-  // Cada fotograma: si te alejas del cofre se cierra, y la columna dice qué hay abierto
+  // Cada fotograma: si te alejas del cofre se cierra
   game.onFrame = () => {
     const p = game.player;
     if (chestAt && p && Math.hypot(p.x - chestAt[0], p.y - chestAt[1]) > CHEST_REACH) wins.close('s-chest');
     // (lo ha quitado alguien, o lo ha cambiado otro jugador: se cierra o se repinta)
     if (wins.isOpen('s-chest') && ++chestTick % 6 === 0 && !chestUI.check()) wins.close('s-chest');
-    railBtn.inv.classList.toggle('on', wins.isOpen('s-inv'));
-    railBtn.craft.classList.toggle('on', wins.isOpen('s-craft'));
-    railBtn.journal.classList.toggle('on', wins.isOpen('s-journal'));
-    railBtn.build.classList.toggle('on', !!game.build.on);
   };
 
   // ---------- Inicio ----------

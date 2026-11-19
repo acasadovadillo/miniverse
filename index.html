@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- La versión publicada: se cambia en cada publicación (así el juego sabe que tiene que pedir el código nuevo) -->
-<meta name="miniverse-version" content="2026-11-19.1">
+<meta name="miniverse-version" content="2026-11-19.2">
 <title>Miniverse</title>
 <script>
   // The language of the page until the game's code arrives (src/i18n.js chooses the same way, then takes over): for
@@ -445,13 +445,6 @@
   .win.collapsed .panel > :not(h2) { display: none !important; }
   .win.collapsed .panel { padding-bottom: 6px; }
   .win.collapsed h2 { margin-bottom: 0; }
-  #rail { position: fixed; left: 8px; top: 50%; transform: translateY(-50%); z-index: 6; display: flex; flex-direction: column; gap: 4px; padding: 5px; }
-  body:not(.playing) #rail { display: none; }
-  #rail button { position: relative; width: 44px; height: 44px; padding: 0; font-size: 22px; line-height: 1; cursor: pointer; color: inherit; background: rgba(0, 0, 0, .18); border: 2px solid transparent; border-radius: 6px; }
-  #rail button:hover { background: rgba(255, 220, 140, .18); }
-  #rail button.on { border-color: var(--gold); background: rgba(255, 220, 140, .24); }
-  #rail kbd { position: absolute; right: 2px; bottom: 1px; font: 600 10px/1 monospace; opacity: .8; }
-  @media (max-height: 560px) { #rail button { width: 36px; height: 36px; font-size: 18px; } }
   /* (con ratón, lo de la izquierda deja sitio a la columna) */
   @media (pointer: fine) {
     #quest { left: 76px; width: min(300px, calc(100vw - 88px)); }
@@ -464,16 +457,11 @@
     .win h2 { cursor: default; }
     .win .win-pin { display: none; }
   }
-  /* En pantalla táctil van entre los controles, que siguen a mano: arriba en vertical, en medio en apaisado. De la
-     columna solo hacen falta el diario y el mapa: lo demás ya tiene su botón */
+  /* En pantalla táctil van entre los controles, que siguen a mano: arriba en vertical, en medio en apaisado */
   @media (pointer: coarse) and (orientation: portrait) { .win { top: 8px; bottom: 284px; max-height: none; } }
   @media (pointer: coarse) and (orientation: landscape) { .win { top: 0; left: 204px; right: 172px; max-height: none; } }
   @media (pointer: coarse) {
-    #rail { left: 70px; top: auto; bottom: 214px; transform: none; flex-direction: row; padding: 0; background: none; box-shadow: none; border: 0; }
-    #rail [data-rail='inv'], #rail [data-rail='craft'], #rail [data-rail='build'], #rail [data-rail='pause'] { display: none; }
-    #rail button { background: rgba(38, 26, 18, .65); border-color: rgba(232, 196, 122, .8); }
-    #rail kbd { display: none; }
-  }
+        }
   /* (safe center: a panel taller than the window starts at the top and scrolls, instead of being cut above) */
   .screen { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; justify-content: safe center; flex-direction: column; gap: 18px; padding: 16px; background: radial-gradient(ellipse at center, rgba(10, 20, 8, .25), rgba(10, 16, 8, .7)); z-index: 10; overflow-y: auto; touch-action: auto; }
   .screen.show { display: flex; }
@@ -573,14 +561,6 @@
     <div id="xp" title="Experience"><i></i><b></b></div>
     <div class="slots" id="hotbar-slots"></div>
   </div>
-  <nav id="rail" class="panel" aria-label="Menus" data-i18n-attr="aria-label:gui.rail.label">
-    <button type="button" data-rail="inv" aria-label="Backpack" title="Backpack (I)" data-i18n-attr="aria-label:gui.rail.inventory;title:gui.rail.inventory_key">🎒<kbd>I</kbd></button>
-    <button type="button" data-rail="craft" aria-label="Crafting" title="Crafting (C)" data-i18n-attr="aria-label:gui.rail.craft;title:gui.rail.craft_key">⚒<kbd>C</kbd></button>
-    <button type="button" data-rail="build" aria-label="Build" title="Build (B)" data-i18n-attr="aria-label:gui.rail.build;title:gui.rail.build_key">🔨<kbd>B</kbd></button>
-    <button type="button" data-rail="journal" aria-label="Journal" title="Journal (J)" data-i18n-attr="aria-label:gui.rail.journal;title:gui.rail.journal_key">📖<kbd>J</kbd></button>
-    <button type="button" data-rail="map" aria-label="Map" title="Map (M)" data-i18n-attr="aria-label:gui.rail.map;title:gui.rail.map_key">🗺<kbd>M</kbd></button>
-    <button type="button" data-rail="pause" aria-label="Menu" title="Menu (Esc)" data-i18n-attr="aria-label:gui.rail.menu;title:gui.rail.menu_key">☰</button>
-  </nav>
   <div id="crosshair" aria-hidden="true"></div>
   <div id="aim-free" class="panel" data-i18n="gui.aim_free">Click to look around with the mouse</div>
   <div id="prompt" class="panel"><kbd>E</kbd><span id="prompt-text"></span></div>
