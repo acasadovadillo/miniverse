@@ -81,7 +81,7 @@ export function showKeyCode(code, onSeen = null) {
   box.id = 'key-code';
   box.style.cssText = 'position:fixed;inset:0;z-index:95;display:flex;align-items:center;justify-content:center;padding:16px;background:rgba(10,8,6,.78)';
   box.innerHTML = '<div class="panel" style="max-width:520px;padding:18px 22px;color:var(--cream);font-size:16px;line-height:1.4">'
-    + '<p style="margin:0;font-size:20px;color:var(--gold)">Código de recuperación de la llave del mundo</p>'
+    + '<h2 style="margin:0;font-size:22px;color:var(--gold)">Código de recuperación de la llave del mundo</h2>'
     + '<p style="margin:10px 0 0;color:var(--dim)">Guárdalo en tu gestor de contraseñas. Si el archivo de la llave del mundo se dañara, con él se recupera (Ajustes › Llave del mundo); sin él, el mundo y sus copias no se podrían volver a abrir. Quien lo tenga puede leer el mundo compartido: no se lo pases a nadie. El juego no lo guarda en ningún sitio.</p>'
     + '<div id="key-code-text" class="ac-code" style="font-size:17px;letter-spacing:1px;word-break:break-all;font-family:ui-monospace,Menlo,Consolas,monospace"></div>'
     + '<div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap"><button type="button" class="btn primary" id="key-code-copy" style="width:auto;padding:8px 18px">Copiar</button>'

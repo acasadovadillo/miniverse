@@ -72,7 +72,8 @@
   b, strong { font-weight: 600; }
   /* Titles (screens, windows, sections), the money, the clock and the big notices: Oswald, tall and narrow, in capitals */
   h1, h2, h3, h4, .logo, .map-bar b, .bb-top b, #title-msg { font-family: var(--font-title); font-weight: 600; text-transform: uppercase; letter-spacing: .03em; }
-  h3 small, h2 small { font-family: var(--font-ui); text-transform: none; letter-spacing: 0; }
+  /* (what sits inside a title but is not one, like the crafting notice in its h2, stays in Barlow) */
+  h3 small, h2 small, #cf-note { font-family: var(--font-ui); text-transform: none; letter-spacing: 0; }
   #money, #sh-money, #clockp { font-family: var(--font-title); font-weight: 500; letter-spacing: .03em; font-variant-numeric: tabular-nums; }
   #clockp { text-transform: uppercase; }
 
@@ -281,7 +282,7 @@
   .cf-in.have { color: var(--cream); }
   .cf-in.have b { color: #a8f07a; }
   #cf-msg { min-height: 18px; font-size: 15px; color: var(--err); }
-  #cf-note { flex: 1; text-align: right; margin-right: 10px; font-size: 16px; color: #ffe08a; }
+  #cf-note { flex: 1; text-align: right; margin-right: 10px; font-size: 16px; font-weight: 500; color: #ffe08a; }
   .cf-acts { display: flex; gap: 6px; margin-top: 4px; }
   .cf-acts .btn { margin: 0; }
   #cf-make { flex: 1; }
