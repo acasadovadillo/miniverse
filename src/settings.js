@@ -1,5 +1,6 @@
 // Ajustes del jugador (de este dispositivo): volúmenes, tamaño de los píxeles, texto grande,
-// reducir destellos y la ayuda de teclas. Se guardan en el navegador; si no se puede, se usan los de siempre.
+// reducir destellos, la interfaz (hud: 'minimal' o 'full'; main.js la cambia en caliente) y la ayuda de teclas. Se
+// guardan en el navegador; si no se puede, se usan los de siempre.
 // Los volúmenes van además en la partida de cada cuenta: al entrar con tu cuenta se usan los tuyos, en
 // cualquier ordenador.
 import { Audio } from './audio.js';
@@ -9,7 +10,7 @@ import { useLangSetting } from './i18n.js';
 const KEY = 'pueblo-brotes:ajustes';
 const VOLUMES = ['master', 'music', 'sfx', 'musicOn'];
 export const Settings = {
-  v: { master: 0.7, music: 0.5, sfx: 1, scale: 'auto', bigText: false, noFlash: false, musicOn: true },
+  v: { master: 0.7, music: 0.5, sfx: 1, scale: 'auto', bigText: false, noFlash: false, musicOn: true, hud: 'minimal' },
   load() {
     try { Object.assign(this.v, JSON.parse(localStorage.getItem(KEY) || '{}')); } catch { /* ajustes por defecto */ }
     this.apply();
@@ -19,6 +20,7 @@ export const Settings = {
     this.store();
     this.apply();
     if (VOLUMES.includes(k)) this.onVolume?.();
+    if (k === 'hud') this.onHud?.(val);   // (the interface, swapped while playing: main.js)
   },
   // The language: 'auto', 'en' or 'es' (i18n.js reads it at startup; here it is saved and switched without reloading)
   setLang(v) { this.set('lang', v); return useLangSetting(v); },

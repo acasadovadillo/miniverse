@@ -37,6 +37,8 @@ import { itemIcon } from './art/items.js';
 import { PREY, bodyBox } from './hunt.js';
 import { priceOf } from './economy.js';
 import { modelKind, ICON3D } from './three/icons.js';
+import { useSmartHud } from './ui/smarthud.js';
+import { Settings } from './settings.js';
 import { View3D } from './three/engine.js';
 import { sobrio, tonosSuelo } from './arte.js';
 import { tintOf } from './three/tints.js';
@@ -665,6 +667,48 @@ async function soloTests(game) {
       check(RECIPES.some(r => r.out === 'arco') && RECIPES.some(r => r.out === 'flecha'), 'sin receta');
       check(itemIcon('arco') && itemIcon('flecha'), 'sin icono');
     } finally { keys.use = false; A.drawT = null; I.slots.splice(0, I.slots.length, ...kept); I.select(sel); game.mouse = was; }
+  });
+  await test('interfaz (interface): the minimal one goes on, off and on again, and off leaves the full one as it was', async () => {
+    const el = id => document.getElementById(id), W = game.windows;
+    // What the full interface is made of: where each part is and its classes (and nothing of the minimal one left)
+    const snap = () => JSON.stringify({
+      hotbar: el('hotbar').outerHTML.replace(/ style="[^"]*"/g, ''), money: el('money').parentNode.id,
+      cls: ['clockp', 'admin-tag', 'place', 'minimap', 'quest', 'hint'].map(id => el(id).className),
+      body: ['hud-min', 'hud-all', 'hm-solo', 'hm-mini'].filter(c => document.body.classList.contains(c)),
+      added: ['hud-status', 'hud-item', 'hud-delta', 'hud-tip', 'hud-build', 'hud-goal', 'hud-bow', 'hud-keys', 'hud-pause-keys'].filter(el),
+      tab: document.querySelector('[data-i18n="controls.players"]')?.textContent, styles: document.head.querySelectorAll('style').length,
+    });
+    const was = Settings.v.hud;
+    check(!game.smartHud, 'the tests start with the minimal interface on');
+    const full = snap();
+    W.closeAll();
+    try {
+      for (let round = 0; round < 2; round++) {
+        // On (the second time, from the setting, as the player does it): the parts go to their places
+        if (round) Settings.set('hud', 'minimal'); else useSmartHud(game, true);
+        const sh = game.smartHud;
+        check(sh && document.body.classList.contains('hud-min'), `round ${round}: it does not go on`);
+        check(el('hearts').parentNode.id === 'hud-status' && el('money').parentNode === document.body, 'the parts are not in their places');
+        await frames(2); draw(); draw();
+        // With a window open, the hotbar shows, and the block of health next to it
+        W.open('s-inv'); draw();
+        check(el('hotbar-slots').classList.contains('hm-on') && el('hud-status').classList.contains('hm-on'), 'with a window open the hotbar does not show');
+        W.close('s-inv'); draw();
+        // Tab's tip by the game mode: no health to see in creative
+        runCommand(game, '/gamemode creative', () => {}); draw();
+        const creative = (sh.paintTip('all'), el('hud-tip').querySelector('span').textContent);
+        runCommand(game, '/gamemode survival', () => {}); draw();
+        const survival = (sh.paintTip('all'), el('hud-tip').querySelector('span').textContent);
+        check(creative === t('hud.tip.all.nohealth') && survival === t('hud.tip.all'), `Tab's tip: ${creative} / ${survival}`);
+        // Off: everything back as it was
+        if (round) Settings.set('hud', 'full'); else useSmartHud(game, false);
+        draw();
+        check(!game.smartHud, `round ${round}: it does not go off`);
+        const now = snap();
+        let at = 0; while (at < now.length && now[at] === full[at]) at++;
+        check(now === full, `off, the full interface is not as it was: …${now.slice(Math.max(0, at - 60), at + 140)} ≠ …${full.slice(Math.max(0, at - 60), at + 140)}`);
+      }
+    } finally { W.closeAll(); Settings.set('hud', was); useSmartHud(game, false); }
   });
   await test('ventanas: encima del mundo, sin parar el juego', async () => {
     const W = game.windows, P = p(), press = (code, type = 'keydown') => dispatchEvent(new KeyboardEvent(type, { code, bubbles: true }));

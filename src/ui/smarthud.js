@@ -1,17 +1,17 @@
-// The smart interface (a PROTOTYPE, only with ?hud=minimo; main.js loads this module only then, so without it nothing
-// changes): like GTA 6, RDR2 or Zelda, each part of the HUD shows up when it matters and fades away by itself when it
-// does not. Health, hunger and experience go together in one small block left of the hotbar (as RDR2's cores): when
-// they change, in danger or when low (low stays); the hotbar when you switch, pick up or use the last of something, then
-// it folds away; the money (top right, as in GTA) when you earn or spend; the time at dawn, dusk, a new day, a weather
-// change, waking up and before a shop closes; the place when you enter a new one; the minimap while you travel, or while
-// a first step sends you somewhere, with a mark over where to go. Holding Tab shows everything (and a card with the
-// keys), and opening a window shows health, hunger, money and the time, as GTA's weapon wheel does. With the icon column
-// gone, keys are taught once, at the moment they are useful (I the first time you pick something up, C with a new
-// recipe…). What needs you shows by itself: hungry, the slot with food beats; drawing the bow, a ring at the cursor with
-// the arrows left.
+// The minimal interface, the one everybody plays with (main.js puts it on; ?hud=completo or Settings › Display ›
+// Interface: Full give the full one back, and destroy() leaves the page as it was): like GTA 6, RDR2 or Zelda, each
+// part of the HUD shows up when it matters and fades away by itself when it does not. Health, hunger and experience go
+// together in one small block left of the hotbar (as RDR2's cores): when they change, in danger or when low (low
+// stays); the hotbar when you switch, pick up or use the last of something, then it folds away; the money (top right,
+// as in GTA) when you earn or spend; the time at dawn, dusk, a new day, a weather change, waking up and before a shop
+// closes; the place when you enter a new one; the minimap while you travel, or while a first step sends you somewhere,
+// with a mark over where to go. Holding Tab shows everything (and a card with the keys), and opening a window shows
+// health, hunger, money and the time, as GTA's weapon wheel does. With the icon column gone, keys are taught once, at
+// the moment they are useful (I the first time you pick something up, C with a new recipe…). What needs you shows by
+// itself: hungry, the slot with food beats; drawing the bow, a ring at the cursor with the arrows left.
 // Nothing here reads the DOM each frame: it compares a few numbers of the game and touches a class only when the
 // answer changes (the mark and the bow ring move with the view, so they are written while they show). The look (fades
-// of 0.15 s in and 0.5 s out) is the CSS below, injected so the prototype stays in this file and is easy to remove.
+// of 0.15 s in and 0.5 s out) is the CSS below, injected so all of it stays in this file and goes away with it.
 import * as THREE from 'three';
 import { t, onLangChange } from '../i18n.js';
 import { ITEMS, HARVEST } from '../items.js';
@@ -24,6 +24,7 @@ import { SHOPS } from '../economy.js';
 import { HOTBAR } from '../inventory.js';
 import { Profile } from '../accounts.js';
 import { CAM } from '../camera.js';
+import { reportFault } from '../faults.js';
 import { hud } from './hud.js';
 
 const $ = id => document.getElementById(id);
@@ -156,9 +157,11 @@ export class SmartHud {
     this.queue = [];       // key tips waiting for their turn
     this.seen = new Set(); // (the ones of the account that plays: read at the start of each game)
     this.v3 = new THREE.Vector3();
-    const style = document.createElement('style');
+    const style = this.style = document.createElement('style');
     style.textContent = CSS;
     document.head.append(style);
+    this.moved = [];   // (what is taken out of its place, with where it was: destroy() puts it back)
+    const move = (el, to) => { if (!el) return; this.moved.push([el, el.parentNode, el.nextSibling]); to.append(el); };
     document.body.classList.add('hud-min');
     // The parts that come and go, and the new ones
     const bar = $('hotbar');
@@ -168,9 +171,9 @@ export class SmartHud {
       status: make('hud-status', '', bar),
     };
     // (health, hunger and experience into their block; the money out of the hotbar, to the top right)
-    this.el.status.append(...['hearts', 'hunger', 'xp'].map($).filter(Boolean));
+    for (const id of ['hearts', 'hunger', 'xp']) move($(id), this.el.status);
     this.coins = make('hud-coins', '', this.el.status);
-    if (this.el.money) { this.el.money.classList.add('panel'); document.body.append(this.el.money); }
+    if (this.el.money) { this.moneyPanel = !this.el.money.classList.contains('panel'); this.el.money.classList.add('panel'); move(this.el.money, document.body); }
     for (const el of Object.values(this.el)) el?.classList.add('hm');
     this.el.item = make('hud-item', 'hmt', bar);
     this.el.delta = make('hud-delta', 'hmt');
@@ -181,22 +184,48 @@ export class SmartHud {
     this.el.bow = make('hud-bow', 'hmt');
     this.el.bow.innerHTML = '<svg viewBox="0 0 44 44"><circle class="bg" cx="22" cy="22" r="17"/><circle class="fg" cx="22" cy="22" r="17" pathLength="100" stroke-dasharray="100" stroke-dashoffset="100"/></svg><b></b>';
     this.keys = make('hud-keys', 'panel hud-keys hm');   // (only with Tab: hud-all)
+    this.made = [this.el.status, this.el.item, this.el.delta, this.el.tip, this.el.build, this.el.goal, this.el.bow, this.keys];
     this.hintEl = $('hint');
     this.pauseKeys = make('hud-pause-keys', 'hud-pause-keys hud-keys', $('s-pause')?.querySelector('.box') || document.body);
+    this.made.push(this.pauseKeys);
     // (Controls: Tab now also shows the whole interface)
     document.querySelector('[data-i18n="controls.players"]')?.setAttribute('data-i18n', 'hud.controls.tab');
     this.paintCards();
-    onLangChange(() => this.paintCards());
+    this.offLang = onLangChange(() => this.paintCards());
     // Tab held: everything in sight (input.js keeps doing the player list and stops the browser from moving the focus).
     // Any key of a tip, pressed: that one is known, whether it was showing or not
-    addEventListener('keydown', e => {
-      if (e.target instanceof HTMLInputElement) return;
-      if (e.code === 'Tab' && !e.repeat && game.mode === 'play' && game.player) { this.hold(true); this.solo(); }
-      const id = Object.keys(TIPS).find(k => TIPS[k].code === e.code);
-      if (id) this.learnt(id);
-    }, true);
-    addEventListener('keyup', e => { if (e.code === 'Tab') this.hold(false); });
-    addEventListener('blur', () => this.hold(false));
+    this.listeners = [
+      ['keydown', e => {
+        if (e.target instanceof HTMLInputElement) return;
+        if (e.code === 'Tab' && !e.repeat && game.mode === 'play' && game.player) { this.hold(true); this.solo(); }
+        const id = Object.keys(TIPS).find(k => TIPS[k].code === e.code);
+        if (id) this.learnt(id);
+      }, true],
+      ['keyup', e => { if (e.code === 'Tab') this.hold(false); }],
+      ['blur', () => this.hold(false)],
+    ];
+    for (const [type, fn, capture] of this.listeners) addEventListener(type, fn, capture);
+  }
+
+  // Off: the full interface back exactly as it was (each part in its place, without the classes and the parts added
+  // here), so the setting can swap them while playing
+  destroy() {
+    for (const [type, fn, capture] of this.listeners) removeEventListener(type, fn, capture);
+    this.offLang?.();
+    this.beat(-1);
+    for (const [el, parent, next] of this.moved.reverse()) parent.insertBefore(el, next?.parentNode === parent ? next : null);
+    if (this.moneyPanel) this.el.money?.classList.remove('panel');
+    for (const el of [...['clock', 'tag', 'place', 'mini', 'money', 'slots', 'quest'].map(k => this.el[k]), this.hintEl]) {
+      el?.classList.remove('hm', 'hm-on', 'hm-compact', 'hm-quiet');
+      if (el?.getAttribute('class') === '') el.removeAttribute('class');   // (the money had none)
+    }
+    for (const el of this.made) el.remove();
+    this.style.remove();
+    document.body.classList.remove('hud-min', 'hud-all', 'hm-solo', 'hm-mini');
+    const tab = document.querySelector('[data-i18n="hud.controls.tab"]');
+    if (tab) { tab.setAttribute('data-i18n', 'controls.players'); tab.textContent = t('controls.players'); }
+    const map = this.game.map;
+    if (map) { map.goal = null; map.lastMini = -Infinity; }   // (the full interface draws the minimap always: now)
   }
 
   paintCards() {
@@ -269,7 +298,7 @@ export class SmartHud {
     // The place, when it is a new one (after a jump or a door in the dark, once it can be seen)
     if (g.placeName !== this.placeName) { this.placeName = g.placeName; this.placeDue = !!g.placeName; }
     if (this.placeDue && !g.jumping && !talking) { this.placeDue = false; show('place', SHOW.place); }
-    if (g.gamemode !== this.gm) { if (this.gm !== undefined) show('tag', SHOW.tag); this.gm = g.gamemode; }
+    if (g.gamemode !== this.gm) { if (this.gm !== undefined) show('tag', SHOW.tag); this.gm = g.gamemode; if (this.tip === 'all') this.paintTip('all'); }
     // After the first look at everything, once: Tab is there
     if (!this.toldTab && T - this.started > SHOW.intro) { this.toldTab = true; this.want('all'); }
     // The minimap: while you travel (outside the village, or riding or sailing anywhere)
@@ -288,9 +317,10 @@ export class SmartHud {
     this.set('money', free && !spect && up('money'));   // (with a window open it would be under it: in survival it is in the block)
     this.set('wins', wins, this.el.status, 'hm-wins');
     // (hungry with food in the hotbar: it stays, and that slot beats; during the first steps, which name the slots by
-    // number, it stays too)
+    // number, it stays too; and with a window open, as in Minecraft: you move things to it and from it, and the block
+    // of health sits next to it instead of floating by an empty place)
     const feed = crit.hunger && this.foodSlot >= 0;
-    this.set('slots', free && (up('slots') || feed || !g.steps.over));
+    this.set('slots', free && (up('slots') || feed || wins || !g.steps.over));
     this.beat(feed && !heldDef?.food ? this.foodSlot : -1);
     this.set('item', free && up('item'));
     this.set('delta', free && up('delta'));
@@ -404,7 +434,7 @@ export class SmartHud {
 
   itemName(s, T) {
     const name = s && ITEMS[s.id]?.name;
-    if (!name) return;
+    if (!name || (ITEMS[s.id].bow && !this.game.archery.arrows())) return;   // (a bow with no arrows: the red ring says it)
     this.el.item.textContent = name;
     this.until.item = T + SHOW.name;
   }
@@ -451,7 +481,8 @@ export class SmartHud {
 
   // ---------- the bow ----------
   // With the bow in hand, the ring at the cursor (at the crosshair in first person): how drawn it is and the arrows left
-  // (red with none). Returns whether it says what the click hint would
+  // (red with none). Returns whether it says what the click hint would: with arrows, after the first draws; with none,
+  // always but the first time (per account), when the text "no arrows left" goes with the ring
   bowRing(g, inv, def, can) {
     const on = !!def?.bow && can;
     this.set('bow', on);
@@ -459,8 +490,10 @@ export class SmartHud {
     if (drawing && !this.drawing && this.bowDraws < BOW_TEXT) { this.bowDraws++; this.seen.add('bow' + this.bowDraws); this.saveSeen(); this.longBow = true; }
     if (!drawing && this.drawing) this.longBow = false;
     this.drawing = drawing;
-    if (!on) return false;
+    if (!on) { this.emptyText = undefined; return false; }
     const el = this.el.bow, n = g.archery.arrows(), k = g.archery.k;
+    if (n) this.emptyText = undefined;
+    else if (this.emptyText === undefined) { this.emptyText = !this.seen.has('bow0'); if (this.emptyText) { this.seen.add('bow0'); this.saveSeen(); } }
     const m = CAM.first || !g.mouse?.in ? { x: innerWidth / 2, y: innerHeight / 2 } : g.mouse;
     if (Math.abs(m.x - this.bowX) > 0.5 || Math.abs(m.y - this.bowY) > 0.5 || !(this.bowX >= 0)) {
       this.bowX = m.x; this.bowY = m.y;
@@ -469,7 +502,7 @@ export class SmartHud {
     const fill = Math.round(k * 100);
     if (fill !== this.bowFill) { this.bowFill = fill; el.querySelector('.fg').setAttribute('stroke-dashoffset', String(100 - fill)); el.classList.toggle('full', fill >= 100); }
     if (n !== this.bowN) { this.bowN = n; el.lastChild.textContent = n === Infinity ? '∞' : String(n); el.classList.toggle('empty', !n); }
-    return !!n && this.bowDraws >= BOW_TEXT && !this.longBow;
+    return n ? this.bowDraws >= BOW_TEXT && !this.longBow : !this.emptyText;
   }
 
   // Is the click hint only "you need the scythe / the axe / the pickaxe" (what you hold cannot take what you point at)?
@@ -516,7 +549,8 @@ export class SmartHud {
     return this.foodBag ? ['I', 'bag'] : [null, 'none'];
   }
   paintTip(id) {
-    const [k, sub, params] = id === 'hungry' ? this.hungryTip() : [TIPS[id].key];
+    // (Tab's: in creative and as a spectator there is no health to see)
+    const [k, sub, params] = id === 'hungry' ? this.hungryTip() : id === 'all' && this.game.gamemode !== 'survival' ? [TIPS.all.key, 'nohealth'] : [TIPS[id].key];
     const text = t(`hud.tip.${id}${sub ? '.' + sub : ''}`, params), sig = `${k}|${text}`;
     if (sig !== this.tipSig) { this.tipSig = sig; this.el.tip.innerHTML = `${k ? kbd(k) : ''}<span>${text}</span>`; }
     return text;
@@ -532,3 +566,14 @@ export class SmartHud {
 }
 
 const now = () => performance.now() / 1000;
+
+// Put the minimal interface on, or take it off and give the full one back as it was: at the start (main.js) and from
+// the setting, while playing, without reloading
+export function useSmartHud(game, on) {
+  if (!on === !game.smartHud) return game.smartHud;
+  try {
+    if (on) game.smartHud = new SmartHud(game);
+    else { const sh = game.smartHud; game.smartHud = null; sh.destroy(); }
+  } catch (e) { reportFault(e, 'SmartHud'); }
+  return game.smartHud;
+}

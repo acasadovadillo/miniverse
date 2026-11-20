@@ -95,6 +95,13 @@ export function initSettingsUI({ onClose, extra = null }) {
     head('Pantalla');
     fullRow();
     choice('scale', 'Resolución', [['auto', 'Auto'], [1, 'Máxima'], [2, 'Alta'], [3, 'Media'], [4, 'Baja']]);
+    // The interface: the minimal one (each part shows when it matters, Tab shows everything) or the full one, always in
+    // sight. It changes at once, while playing
+    choice('hud', t('gui.settings.hud'), [['minimal', t('gui.settings.hud.minimal')], ['full', t('gui.settings.hud.full')]]);
+    const hudNote = document.createElement('p');
+    hudNote.className = 'st-note';
+    hudNote.textContent = t('gui.settings.hud.note');
+    box.append(hudNote);
     check('bigText', 'Texto más grande');
     check('noFlash', 'Reducir destellos (rayos de las tormentas)');
     extra?.(box, head);

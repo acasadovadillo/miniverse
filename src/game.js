@@ -1186,7 +1186,7 @@ export class Game {
       hint ||= this.build.on ? this.build.hint() : this.gather.hint();
     }
     hud.hint(hint);
-    try { this.smartHud?.frame(hint); } catch (e) { reportFault(e, 'SmartHud.frame'); }   // (the smart interface prototype, only with ?hud=minimo: src/ui/smarthud.js)
+    try { this.smartHud?.frame(hint); } catch (e) { reportFault(e, 'SmartHud.frame'); }   // (the minimal interface, unless the full one was chosen: src/ui/smarthud.js)
     if (this.player && this.world) {
       // (los lugares, como mucho cada 0,15 s: el minimapa no se repinta más a menudo, y el grande, solo si algo cambia)
       if (!(Math.abs(this.time - (this.markersAt ?? -1)) < 0.15)) { this.markersAt = this.time; this.map.markers = this.places.markers(); }

@@ -9,6 +9,7 @@ import { initChat } from './ui/chat.js';
 import { initDebug } from './ui/debug.js';
 import { Settings } from './settings.js';
 import { freePlace } from './gather.js';
+import { useSmartHud } from './ui/smarthud.js';
 
 // Con ?modo=servidor, este juego es el mundo del servidor (lo abre multijugador.py): sin dibujo ni menús (server.js).
 // Con ?modo=pruebas, el juego de siempre, pero jugado por las pruebas automáticas (pruebas.js; las lanza probar.py)
@@ -26,8 +27,13 @@ function play(login = true) {   // (login: abrir la pantalla de entrar)
   initBuildBar(game);
   const chat = initChat(game);
   const debug = initDebug(game);
-  // The smart interface, a prototype (?hud=minimo): loaded only then, so without it nothing changes
-  if (new URLSearchParams(location.search).get('hud') === 'minimo') import('./ui/smarthud.js').then(m => { game.smartHud = new m.SmartHud(game); }).catch(e => import('./faults.js').then(f => f.reportFault(e, 'SmartHud')));
+  // The interface: the minimal one (src/ui/smarthud.js: each part shows when it matters, Tab shows everything) unless
+  // the setting (Settings › Display › Interface) says full, or ?hud=completo. The tests and the bench keep the full one
+  // (what they check and measure) unless &hud=minimo. Changing the setting swaps it at once, without reloading
+  const q = new URLSearchParams(location.search), plain = MODE === 'pruebas' || q.has('banco');
+  const pick = { minimo: true, completo: false }[q.get('hud')] ?? (plain ? false : null);
+  useSmartHud(game, pick ?? Settings.v.hud !== 'full');
+  Settings.onHud = v => useSmartHud(game, v !== 'full');
   game.live.say = (text, kind) => chat.say(text, kind);
   const b = game.build;
   initInput({
