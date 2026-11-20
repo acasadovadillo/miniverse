@@ -675,7 +675,7 @@ async function soloTests(game) {
       hotbar: el('hotbar').outerHTML.replace(/ style="[^"]*"/g, ''), money: el('money').parentNode.id,
       cls: ['clockp', 'admin-tag', 'place', 'minimap', 'quest', 'hint'].map(id => el(id).className),
       body: ['hud-min', 'hud-all', 'hm-solo', 'hm-mini'].filter(c => document.body.classList.contains(c)),
-      added: ['hud-status', 'hud-item', 'hud-delta', 'hud-tip', 'hud-build', 'hud-goal', 'hud-bow', 'hud-keys', 'hud-pause-keys'].filter(el),
+      added: ['hud-status', 'hud-item', 'hud-delta', 'hud-tip', 'hud-build', 'hud-goal', 'hud-bow', 'hud-keys'].filter(el),
       tab: document.querySelector('[data-i18n="controls.players"]')?.textContent, styles: document.head.querySelectorAll('style').length,
     });
     const was = Settings.v.hud;

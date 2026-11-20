@@ -133,8 +133,6 @@ body.hud-min #quest.hm-compact:not(:hover) b { font-size: 15px; }
 .hud-keys dt { text-align: right; white-space: nowrap; color: var(--dim); font-size: 13px; }
 .hud-keys dt kbd { margin: 0; }
 .hud-keys dd { margin: 0; color: var(--cream); }
-.hud-pause-keys { margin-top: 4px; padding: 10px 0 0; border-top: 1px solid #4a3220; text-align: left; }
-.hud-pause-keys.hud-keys { padding: 10px 0 0; }
 `;
 
 const kbd = k => `<kbd>${k}</kbd>`;
@@ -187,8 +185,6 @@ export class SmartHud {
     this.keys = make('hud-keys', 'panel hud-keys hm');   // (only with Tab: hud-all)
     this.made = [this.el.status, this.el.item, this.el.delta, this.el.tip, this.el.build, this.el.goal, this.el.bow, this.keys];
     this.hintEl = $('hint');
-    this.pauseKeys = make('hud-pause-keys', 'hud-pause-keys hud-keys', $('s-pause')?.querySelector('.box') || document.body);
-    this.made.push(this.pauseKeys);
     // (Controls: Tab now also shows the whole interface)
     document.querySelector('[data-i18n="controls.players"]')?.setAttribute('data-i18n', 'hud.controls.tab');
     this.paintCards();
@@ -222,7 +218,6 @@ export class SmartHud {
       if (el?.getAttribute('class') === '') el.removeAttribute('class');   // (the money had none)
     }
     for (const el of this.made || Object.values(this.el || {}).filter(el => el?.id?.startsWith('hud-'))) el.remove();
-    document.getElementById('hud-pause-keys')?.remove();
     this.style?.remove();
     document.body.classList.remove('hud-min', 'hud-all', 'hm-solo', 'hm-mini');
     const tab = document.querySelector('[data-i18n="hud.controls.tab"]');
@@ -233,7 +228,6 @@ export class SmartHud {
 
   paintCards() {
     this.keys.innerHTML = keysCard();
-    this.pauseKeys.innerHTML = keysCard();
     this.el.build.innerHTML = buildCard();
     if (this.tip) { this.tipSig = null; this.paintTip(this.tip); }
     const tab = document.querySelector('[data-i18n="hud.controls.tab"]');
