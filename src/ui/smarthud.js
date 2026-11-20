@@ -150,6 +150,7 @@ function buildCard() {
 
 export class SmartHud {
   constructor(game) {
+    building = this;   // (if this fails halfway, useSmartHud undoes what was done)
     this.game = game;
     this.until = {};       // part → until when it shows (seconds)
     this.on = {};          // part → shown now (to touch the page only on a change)
@@ -209,18 +210,20 @@ export class SmartHud {
 
   // Off: the full interface back exactly as it was (each part in its place, without the classes and the parts added
   // here), so the setting can swap them while playing
+  // (it also undoes a constructor that failed halfway: each step only if it was done)
   destroy() {
-    for (const [type, fn, capture] of this.listeners) removeEventListener(type, fn, capture);
+    for (const [type, fn, capture] of this.listeners || []) removeEventListener(type, fn, capture);
     this.offLang?.();
-    this.beat(-1);
-    for (const [el, parent, next] of this.moved.reverse()) parent.insertBefore(el, next?.parentNode === parent ? next : null);
+    if (this.el) this.beat(-1);
+    for (const [el, parent, next] of (this.moved || []).reverse()) parent.insertBefore(el, next?.parentNode === parent ? next : null);
     if (this.moneyPanel) this.el.money?.classList.remove('panel');
-    for (const el of [...['clock', 'tag', 'place', 'mini', 'money', 'slots', 'quest'].map(k => this.el[k]), this.hintEl]) {
+    for (const el of [...['clock', 'tag', 'place', 'mini', 'money', 'slots', 'quest'].map(k => this.el?.[k]), this.hintEl]) {
       el?.classList.remove('hm', 'hm-on', 'hm-compact', 'hm-quiet');
       if (el?.getAttribute('class') === '') el.removeAttribute('class');   // (the money had none)
     }
-    for (const el of this.made) el.remove();
-    this.style.remove();
+    for (const el of this.made || Object.values(this.el || {}).filter(el => el?.id?.startsWith('hud-'))) el.remove();
+    document.getElementById('hud-pause-keys')?.remove();
+    this.style?.remove();
     document.body.classList.remove('hud-min', 'hud-all', 'hm-solo', 'hm-mini');
     const tab = document.querySelector('[data-i18n="hud.controls.tab"]');
     if (tab) { tab.setAttribute('data-i18n', 'controls.players'); tab.textContent = t('controls.players'); }
@@ -434,7 +437,9 @@ export class SmartHud {
 
   itemName(s, T) {
     const name = s && ITEMS[s.id]?.name;
-    if (!name || (ITEMS[s.id].bow && !this.game.archery.arrows())) return;   // (a bow with no arrows: the red ring says it)
+    // (an empty slot: no name; a bow with no arrows: the red ring says it. Either way the name before goes, or it would
+    // stay over the new slot)
+    if (!name || (ITEMS[s.id].bow && !this.game.archery.arrows())) { this.until.item = 0; return; }
     this.el.item.textContent = name;
     this.until.item = T + SHOW.name;
   }
@@ -569,11 +574,17 @@ const now = () => performance.now() / 1000;
 
 // Put the minimal interface on, or take it off and give the full one back as it was: at the start (main.js) and from
 // the setting, while playing, without reloading
+let building = null;   // (the SmartHud being made, so a constructor that fails halfway can be undone)
 export function useSmartHud(game, on) {
   if (!on === !game.smartHud) return game.smartHud;
   try {
     if (on) game.smartHud = new SmartHud(game);
     else { const sh = game.smartHud; game.smartHud = null; sh.destroy(); }
-  } catch (e) { reportFault(e, 'SmartHud'); }
+  } catch (e) {
+    reportFault(e, 'SmartHud');
+    // (failed halfway on: give the full interface back whole, not half moved with the health hidden)
+    if (on && building && !game.smartHud) try { building.destroy(); } catch { /* as it is */ }
+  }
+  building = null;
   return game.smartHud;
 }

@@ -23,7 +23,8 @@ export function initSettingsUI({ onClose, extra = null }) {
     row.querySelector('input').onchange = e => Settings.set(key, e.target.checked);
     box.append(row);
   };
-  const choice = (key, label, opts) => {
+  // (now: what is in use, when something other than the setting can decide it, as ?hud=completo does)
+  const choice = (key, label, opts, now = () => Settings.v[key]) => {
     const row = document.createElement('div');
     row.className = opts.length > 3 ? 'st-row wide' : 'st-row';   // (many options: the buttons go below the label, inside the panel)
     row.innerHTML = `<span>${label}</span><div class="seg"></div>`;
@@ -33,7 +34,7 @@ export function initSettingsUI({ onClose, extra = null }) {
       b.onclick = () => { Settings.set(key, v); paint(); };
       row.querySelector('.seg').append(b);
     }
-    const paint = () => [...row.querySelectorAll('button')].forEach((b, i) => b.classList.toggle('on', opts[i][0] === Settings.v[key]));
+    const paint = () => [...row.querySelectorAll('button')].forEach((b, i) => b.classList.toggle('on', opts[i][0] === now()));
     paint();
     box.append(row);
   };
@@ -97,7 +98,9 @@ export function initSettingsUI({ onClose, extra = null }) {
     choice('scale', 'Resolución', [['auto', 'Auto'], [1, 'Máxima'], [2, 'Alta'], [3, 'Media'], [4, 'Baja']]);
     // The interface: the minimal one (each part shows when it matters, Tab shows everything) or the full one, always in
     // sight. It changes at once, while playing
-    choice('hud', t('gui.settings.hud'), [['minimal', t('gui.settings.hud.minimal')], ['full', t('gui.settings.hud.full')]]);
+    // (lit: the one in sight, which the address, the tests or the bench can choose without saving it: main.js)
+    choice('hud', t('gui.settings.hud'), [['minimal', t('gui.settings.hud.minimal')], ['full', t('gui.settings.hud.full')]],
+      () => Settings.hudNow?.() ?? Settings.v.hud);
     const hudNote = document.createElement('p');
     hudNote.className = 'st-note';
     hudNote.textContent = t('gui.settings.hud.note');

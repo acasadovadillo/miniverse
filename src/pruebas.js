@@ -679,7 +679,7 @@ async function soloTests(game) {
       tab: document.querySelector('[data-i18n="controls.players"]')?.textContent, styles: document.head.querySelectorAll('style').length,
     });
     const was = Settings.v.hud;
-    check(!game.smartHud, 'the tests start with the minimal interface on');
+    check(!game.smartHud, 'the tests do not start with the full interface');
     const full = snap();
     W.closeAll();
     try {
@@ -689,6 +689,9 @@ async function soloTests(game) {
         const sh = game.smartHud;
         check(sh && document.body.classList.contains('hud-min'), `round ${round}: it does not go on`);
         check(el('hearts').parentNode.id === 'hud-status' && el('money').parentNode === document.body, 'the parts are not in their places');
+        // An empty slot or a bow with no arrows: no name, not even the one before
+        sh.until.item = 1e9; sh.itemName(null, 0);
+        check(sh.until.item === 0, 'an empty slot keeps the name of the one before');
         await frames(2); draw(); draw();
         // With a window open, the hotbar shows, and the block of health next to it
         W.open('s-inv'); draw();
@@ -708,6 +711,17 @@ async function soloTests(game) {
         let at = 0; while (at < now.length && now[at] === full[at]) at++;
         check(now === full, `off, the full interface is not as it was: …${now.slice(Math.max(0, at - 60), at + 140)} ≠ …${full.slice(Math.max(0, at - 60), at + 140)}`);
       }
+      // The setting lights the one in sight (here the full one, which the tests choose without saving it), and its
+      // buttons swap it
+      const row = [...el('st-body').querySelectorAll('.st-row')].find(r => r.firstElementChild?.textContent === t('gui.settings.hud'));
+      const [bMin, bFull] = row?.querySelectorAll('button') || [];
+      check(bMin && bFull, 'no Interface row in the settings');
+      const lit = () => (bMin.classList.contains('on') ? 'minimal' : '') + (bFull.classList.contains('on') ? 'full' : '');
+      bMin.click(); draw();
+      check(game.smartHud && lit() === 'minimal', `Minimal pressed: ${!!game.smartHud}, lit ${lit()}`);
+      bFull.click(); draw();
+      check(!game.smartHud && lit() === 'full', `Full pressed: ${!!game.smartHud}, lit ${lit()}`);
+      check(Settings.hudNow?.() === 'full', 'Settings.hudNow does not say the one in sight');
     } finally { W.closeAll(); Settings.set('hud', was); useSmartHud(game, false); }
   });
   await test('ventanas: encima del mundo, sin parar el juego', async () => {

@@ -34,6 +34,7 @@ function play(login = true) {   // (login: abrir la pantalla de entrar)
   const pick = { minimo: true, completo: false }[q.get('hud')] ?? (plain ? false : null);
   useSmartHud(game, pick ?? Settings.v.hud !== 'full');
   Settings.onHud = v => useSmartHud(game, v !== 'full');
+  Settings.hudNow = () => (game.smartHud ? 'minimal' : 'full');   // (what the setting lights: the one in sight)
   game.live.say = (text, kind) => chat.say(text, kind);
   const b = game.build;
   initInput({
