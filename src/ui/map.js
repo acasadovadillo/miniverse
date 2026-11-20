@@ -128,6 +128,12 @@ export class MapView {
       g.fillStyle = '#2a1c22'; g.fillRect(x - 3, y - 3, 7, 7);
       g.fillStyle = COL[m.kind] || '#ffffff'; g.fillRect(x - 2, y - 2, 5, 5);
     }
+    // (where a first step sends you, set by the smart HUD prototype: a gold diamond, held on the edge while it is farther)
+    if (this.goal) {
+      const [x, y] = toMap(this.goal.x, this.goal.y), gx = Math.max(6, Math.min(w - 6, x)), gy = Math.max(6, Math.min(h - 6, y));
+      g.beginPath(); g.moveTo(gx, gy - 6); g.lineTo(gx + 5, gy); g.lineTo(gx, gy + 6); g.lineTo(gx - 5, gy); g.closePath();
+      g.fillStyle = '#ffd77a'; g.fill(); g.lineWidth = 1.5; g.strokeStyle = '#2a1c22'; g.stroke();
+    }
     // (the player: an arrow where they face, turned like everything else on the minimap)
     const [mx, my] = toMap(...me), blink = Math.sin(time * 6) > 0, fc = this.face, [fx, fy] = fc ? toMap(me[0] + fc.x * 4, me[1] + fc.y * 4) : [mx, my - 1];
     arrow(g, mx, my, fx - mx, fy - my, 6, blink ? '#ffd77a' : '#ff6a4a');

@@ -445,12 +445,6 @@
   .win.collapsed .panel > :not(h2) { display: none !important; }
   .win.collapsed .panel { padding-bottom: 6px; }
   .win.collapsed h2 { margin-bottom: 0; }
-  /* (con ratón, lo de la izquierda deja sitio a la columna) */
-  @media (pointer: fine) {
-    #quest { left: 76px; width: min(300px, calc(100vw - 88px)); }
-    #debug { left: 76px; max-width: min(640px, calc(100vw - 88px)); }
-    #chat { left: 76px; width: min(460px, calc(100vw - 88px)); }
-  }
   @media (pointer: coarse), (max-width: 700px) {
     .win { left: 0; right: 0; bottom: 0; width: auto; max-width: none; max-height: 74vh; }
     .win .panel { width: 100%; box-sizing: border-box; }

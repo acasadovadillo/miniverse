@@ -129,6 +129,8 @@
  "why.big_well.dig": "Cava 2 × 2 casillas, {n} bloques, con la pala",
  "toast.big_well.placed": "Pozo grande: con la regadera, E o clic en él la llena",
  "hud.keys.title": "Teclas",
+ "hud.keys.use": "Usar, hablar, abrir",
+ "hud.keys.slots": "Elegir casilla (o la rueda)",
  "hud.keys.bag": "Mochila",
  "hud.keys.craft": "Fabricar",
  "hud.keys.build": "Construir",
@@ -148,8 +150,12 @@
  "hud.tip.build": "Construir: bancos, muebles, muros…",
  "hud.tip.journal": "Diario: tus pasos, los vecinos y los logros",
  "hud.tip.map": "Mapa: dónde estás y lo que has explorado",
- "hud.tip.all": "Mantenla para ver la vida, el hambre, la hora y todo lo demás",
- "hud.tip.hungry": "Tienes hambre: come algo con la comida en la mano",
+ "hud.tip.all": "Mantenla para verlo todo: la vida, la hora, el mapa y las teclas",
+ "hud.tip.hungry.eat": "Tienes hambre: haz clic para comer",
+ "hud.tip.hungry.take": "Tienes hambre: pulsa {n} para coger la comida y haz clic",
+ "hud.tip.hungry.bag": "Tienes hambre y no llevas comida en la barra: pásala desde la mochila",
+ "hud.tip.hungry.none": "Tienes hambre y no llevas comida: la venden Rosa y la taberna",
  "hud.tip.lowhp": "Te queda poca vida: con la tripa llena se recupera sola. Aléjate del peligro",
+ "hud.goal.dist": "{n} m",
  "hud.controls.tab": "Mientras la mantienes, toda la interfaz y quién está jugando"
 }

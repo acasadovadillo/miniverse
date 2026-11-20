@@ -129,6 +129,8 @@
  "why.big_well.dig": "Dig 2 × 2 tiles, {n} blocks deep, with the shovel",
  "toast.big_well.placed": "Big well: with the watering can, press E or click it to fill it",
  "hud.keys.title": "Keys",
+ "hud.keys.use": "Use, talk, open",
+ "hud.keys.slots": "Pick a slot (or the mouse wheel)",
  "hud.keys.bag": "Inventory",
  "hud.keys.craft": "Crafting",
  "hud.keys.build": "Build",
@@ -148,8 +150,12 @@
  "hud.tip.build": "Build: workbenches, furniture, walls…",
  "hud.tip.journal": "Journal: your steps, neighbors and achievements",
  "hud.tip.map": "Map: where you are and what you have explored",
- "hud.tip.all": "Hold it to see health, hunger, the time and everything else",
- "hud.tip.hungry": "You're hungry: eat something with the food in your hand",
+ "hud.tip.all": "Hold it to see everything: health, the time, the map and the keys",
+ "hud.tip.hungry.eat": "You're hungry: click to eat",
+ "hud.tip.hungry.take": "You're hungry: press {n} to take the food, then click",
+ "hud.tip.hungry.bag": "You're hungry and have no food in the hotbar: move some from your inventory",
+ "hud.tip.hungry.none": "You're hungry and carry no food: Rosa and the tavern sell it",
  "hud.tip.lowhp": "Low health: with a full belly it comes back by itself. Get away from danger",
+ "hud.goal.dist": "{n} m",
  "hud.controls.tab": "While you hold it, the whole interface and who is playing"
 }
