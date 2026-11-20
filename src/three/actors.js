@@ -631,20 +631,29 @@ function keys(list, k) {
   return list[list.length - 1][1];
 }
 
-// El nombre encima de la cabeza (de los demás jugadores): se ve siempre, también a través de las paredes
+// El nombre encima de la cabeza (de los demás jugadores): se ve siempre, también a través de las paredes.
+// The label is painted once into a texture: if the game's font is not in yet, it is painted again (with its own width)
+// as soon as it arrives, so it never stays in the fallback font
+const TAG_FONT = '600 30px Barlow, system-ui, sans-serif';
 function nameTag(name) {
-  const c = document.createElement('canvas'), x = c.getContext('2d'), font = '600 30px "Pixelify Sans", sans-serif';
-  x.font = font;
-  const w = Math.ceil(x.measureText(name).width) + 26;
-  c.width = w; c.height = 46;
-  x.fillStyle = 'rgba(30, 20, 14, 0.72)';
-  x.beginPath(); x.roundRect(0, 0, w, 46, 12); x.fill();
-  x.font = font; x.fillStyle = '#ffe7b0'; x.textAlign = 'center'; x.textBaseline = 'middle';
-  x.fillText(name, w / 2, 24);
-  const t = new THREE.CanvasTexture(c);
-  t.colorSpace = THREE.SRGBColorSpace;
-  const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: t, transparent: true, depthTest: false }));
-  s.scale.set(0.3 * w / 46, 0.3, 1);
+  const s = new THREE.Sprite(new THREE.SpriteMaterial({ transparent: true, depthTest: false }));
+  const paint = () => {
+    const c = document.createElement('canvas'), x = c.getContext('2d');
+    x.font = TAG_FONT;
+    const w = Math.ceil(x.measureText(name).width) + 26;
+    c.width = w; c.height = 46;
+    x.fillStyle = 'rgba(30, 20, 14, 0.72)';
+    x.beginPath(); x.roundRect(0, 0, w, 46, 12); x.fill();
+    x.font = TAG_FONT; x.fillStyle = '#ffe7b0'; x.textAlign = 'center'; x.textBaseline = 'middle';
+    x.fillText(name, w / 2, 24);
+    const t = new THREE.CanvasTexture(c), old = s.material.map;
+    t.colorSpace = THREE.SRGBColorSpace;
+    s.material.map = t; s.material.needsUpdate = true;
+    old?.dispose();
+    s.scale.set(0.3 * w / 46, 0.3, 1);
+  };
+  paint();
+  if (document.fonts && !document.fonts.check(TAG_FONT, name)) document.fonts.load(TAG_FONT, name).then(paint, () => {});
   s.position.y = 1.8;
   s.renderOrder = 10;
   return s;

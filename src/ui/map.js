@@ -208,7 +208,7 @@ export class MapView {
     spots.push({ x: (TAVERN.x0 + TAVERN.x1) / 2, y: (TAVERN.y0 + TAVERN.y1) / 2, name: 'Taberna', col: HOUSE_COL, size: 7 });
     for (const q of this.people) spots.push({ x: q.x, y: q.y, name: q.name, col: PERSON, size: 5 });
     const taken = [], labels = [], clear = b => !taken.some(o => b[0] < o[2] && b[2] > o[0] && b[1] < o[3] && b[3] > o[1]);
-    g.font = '13px "Pixelify Sans", system-ui, sans-serif';
+    g.font = '600 14px Barlow, system-ui, sans-serif';   // (the map is drawn again every frame: once the font is in, it is used)
     g.textBaseline = 'middle';
     g.lineJoin = 'round';
     // (primero los puntos, de abajo arriba, para que los importantes queden encima)
