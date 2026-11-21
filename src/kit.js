@@ -23,7 +23,7 @@ export const KIT_SPOTS = {
 };
 export const BACK_SPOTS = new Set(['backA', 'backB', 'quiver', 'bagSide']);   // (hang from the chest bone; the rest from the hip)
 export const MAX_TOOLS = 4;
-// Arms busy with something big (PLAN-C, carrying in arms: always null for now): 'across' (a bundle over both shoulders)
+// Arms busy with something big (carry.js, only with the ?inventario=peso prototype; null otherwise): 'across' (a bundle over both shoulders)
 // hides both diagonals, 'shoulder' (a log on the right shoulder) only the diagonal that rests there
 const BUSY_HIDES = { across: ['backA', 'backB'], shoulder: ['backB'] };
 const ARROWS = 'flecha', MANY_ARROWS = 10;

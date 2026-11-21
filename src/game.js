@@ -55,11 +55,13 @@ import { Music } from './music.js';
 import { Live } from './live.js';
 import { Family } from './family.js';
 import { Settings } from './settings.js';
-import { savedLang } from './i18n.js';
+import { savedLang, t } from './i18n.js';
 import { keys, clearKeys } from './input.js';
 import { Audio } from './audio.js';
 import { hud } from './ui/hud.js';
 import { kitOf, kitKey } from './kit.js';
+import { Carry, WeightInventory, weightMode } from './carry.js';
+import { BULKY } from './carry-items.js';
 
 // Lo que ya no existe en el juego y lo que costó. Al cargar una partida se quita de donde esté (la mochila, los cofres, las
 // alforjas, el correo o puesto en el mundo) y, si no, quedaría un objeto sin datos que rompe la mochila. Devuelve lo que
@@ -170,6 +172,7 @@ export class Game {
     this.stats = this.addSystem(new Stats());
     this.skills = this.addSystem(new Skills(this));
     this.days = this.addSystem(new TimeSystem(this));
+    this.carry = this.addSystem(new Carry(this));   // weight and things in the arms (prototype: ?inventario=peso; before the bow, so its hint wins)
     this.archery = this.addSystem(new Archery(this));   // el arco (antes que lo que se haga con E o con la herramienta)
     this.board = this.addSystem(new Board(this));
     this.farm = this.addSystem(new Farm(this));
@@ -240,7 +243,7 @@ export class Game {
     this.world.onTouch = k => this.live.touched(k);
     if (moved) for (const k of deltas.keys()) this.world.dirty.add(k);   // que se guarde ya así
     this.world.clock = save.clock || 0;
-    this.inv = new Inventory(save.inventory);
+    this.inv = new (weightMode() ? WeightInventory : Inventory)(save.inventory);   // (the weight one only with the prototype: carry.js)
     if (!save.inventory) for (const [id, n] of START_KIT) this.inv.add(id, n);   // partida nueva: equipo inicial
     this.invSpill = this.inv.spill;   // (materiales de muebles de antes que no han cabido: se dejan a los pies al empezar)
     // (las partidas de antes de la pala la reciben una vez: la marca pala va en lo guardado; si no cabe, a los pies)
@@ -335,6 +338,7 @@ export class Game {
     this.combat?.paint();
     document.getElementById('admin-tag').textContent = this.gamemode === 'spectator' ? 'ESPECTADOR' : 'CREATIVO';
     if (this.gamemode === 'spectator') { this.build.toggle(false); if (this.player?.pose) this.rest.stand(); }
+    this.carry?.onMode(this.gamemode);   // (creative and the spectator carry nothing in the arms)
   }
   // Lo que pide un op con un comando a este jugador (desde su juego o desde otro): llevarte a un sitio, darte
   // algo, matarte, ponerte dónde reaparecer o cambiarte el modo de juego. by: quién lo pide (null: tú)
@@ -650,6 +654,8 @@ export class Game {
     const sc = this.scene, save = () => this.onSave?.();
     if (o.unknown) return { text: UNKNOWN_NAME, run: () => Audio.error() };   // (de una versión más nueva: no se usa ni se recoge)
     if (o.layer === 'rug') return this.rugAction(o);
+    if (BULKY[o.placed]) return this.carry.placedAction(o);   // (a log, a carcass: carry.js)
+    if (this.carry.held) { const c = this.carry.stationAction(o); if (c) return c; }   // (with it in the arms: saw it at the bench, butcher it at the kitchen)
     const hung = hungFirst && o.layer !== 'hang' ? [o.tile, ...extraTiles(o.placed, ...o.tile, o.rot)].map(t => [t, sc.ownAt?.('hang', ...t)]).find(([, v]) => v && ITEMS[v.split('@')[0]]) : null;
     const top = hung ? { tile: hung[0], layer: 'hang', placed: hung[1].split('@')[0] } : o;
     const name = ITEMS[o.placed].name.toLowerCase(), pick = { text: `${BUILDABLE[top.placed] ? 'Desmontar' : 'Recoger'} ${ITEMS[top.placed].name.toLowerCase()}`, run: () => this.pickUp(top) };   // (lo construido, al desmontarlo, devuelve sus materiales)
@@ -674,6 +680,7 @@ export class Game {
   rugAction(rug) { return { text: `${ITEMS[rug.placed].plain || ITEMS[rug.placed].name} de ${rug.rug.w}×${rug.rug.h}`, run: () => Audio.blip(), alt: { text: 'Recoger', run: () => { if (this.pickUp(rug)) this.onSave?.(); } } }; }
   // La cama: tumbarse (sin dormir), dormir o, en la doble, lo de la familia
   async bed(o) {
+    if (this.carry.refuse()) return;
     this.bedSpawn(o);   // (como en Minecraft: usar la cama la hace tu punto de reaparición)
     if (o.placed === 'cama_doble') return this.family.bed(o);
     this.busy = true;
@@ -707,6 +714,7 @@ export class Game {
   altAction() { const n = this.nearest(); n?.alt?.run(); }
   // Tirar al suelo lo que se lleva en la mano (uno, o el montón entero)
   toss(all = false) {
+    if (this.carry.held) return this.carry.drop();   // (Q puts down what the arms carry: carry.js)
     const p = this.player, held = this.inv.held, i = this.inv.selected;
     if (!p || !held || this.busy || this.mode !== 'play' || p.pose || this.gamemode === 'spectator') return;
     const n = all ? held.n : 1, { id, n: _, ...extra } = held;
@@ -721,7 +729,9 @@ export class Game {
     if (!inv.equip.espalda) {
       sc.unplace(o);
       inv.equip.espalda = { id: 'mochila', color: ITEMS.mochila.dye };
-      inside.forEach((s, j) => { if (s && ITEMS[s.id]) inv.slots[HOTBAR + j] = s; else if (s) inv.kept.push({ i: HOTBAR + j, s }); });   // (lo de una versión más nueva, apartado: ver Inventory)
+      // (the weight inventory: to its list, whatever it already carried in its slots past the hotbar)
+      if (inv.weight) inside.forEach(s => { if (s && ITEMS[s.id]) inv.add(s.id, s.n, extraOf(s)); else if (s) inv.kept.push({ i: -1, s }); });
+      else inside.forEach((s, j) => { if (s && ITEMS[s.id]) inv.slots[HOTBAR + j] = s; else if (s) inv.kept.push({ i: HOTBAR + j, s }); });   // (lo de una versión más nueva, apartado: ver Inventory)
       inv.changed();
       Audio.pickup();
       this.onSave?.();
@@ -736,9 +746,12 @@ export class Game {
     if (!p || !inv.equip.espalda) return 'No llevas mochila.';
     const tx = Math.floor(p.x + p.face.x * 1.1), ty = Math.floor(p.y + p.face.y * 1.1);
     if (!sc.canPlace?.(tx, ty, 'mochila', p)) return 'Aquí delante no hay sitio para dejarla.';
+    const list = inv.weight ? inv.listSlots() : null;   // (the weight inventory: its list, if it fits in the 27 of the backpack)
+    if (list && list.length > 27) return t('gui.inventory.bag_too_full');
     sc.place(tx, ty, 'mochila', 0);
     const chest = sc.chestAt(tx, ty);
-    for (let j = 0; j < 27; j++) { chest[j] = inv.slots[HOTBAR + j] || inv.takeKept(HOTBAR + j) || null; inv.slots[HOTBAR + j] = null; }   // (lo apartado que iba en ella, también)
+    if (list) { list.forEach((i, j) => { chest[j] = inv.slots[i]; }); inv.slots.length = HOTBAR; }
+    else for (let j = 0; j < 27; j++) { chest[j] = inv.slots[HOTBAR + j] || inv.takeKept(HOTBAR + j) || null; inv.slots[HOTBAR + j] = null; }   // (lo apartado que iba en ella, también)
     delete inv.equip.espalda;
     inv.changed();
     sc.chestTouched(tx, ty);
@@ -772,7 +785,9 @@ export class Game {
   }
   action() {
     if (hud.dialogOpen) return hud.next();
-    this.nearest()?.run();
+    const n = this.nearest();
+    if (n) n.run();
+    else if (this.carry.held) this.carry.drop();   // (E with nothing to do here: put down what the arms carry)
   }
   async talkNilo() {
     this.busy = true;
@@ -1182,7 +1197,8 @@ export class Game {
     this.hook('update', dt);
     if (keys.use && !this.busy && !this.jumping && !this.build.on) this.gather.use(true);
     if (this.busy || this.jumping || hud.dialogOpen || p.pose) { p.stop(); return; }
-    p.speedMul = (this.buffs.rapido > this.time ? 1.35 : 1) * (p.mount ? this.ranch.rideSpeed() : 1) * this.archery.walk;
+    p.speedMul = (this.buffs.rapido > this.time ? 1.35 : 1) * (p.mount ? this.ranch.rideSpeed() : 1) * this.archery.walk * this.carry.speedMul();
+    p.noRun = this.carry.noRun(); p.jumpMul = this.carry.jumpMul();   // (the load and the arms, carry.js: without the prototype, false and 1)
     if (Object.values(keys).some(Boolean)) this.lastInput = this.time;   // (para /setidletimeout)
     if (p.aboard) p.stop();   // (de pasajero en una barca, le lleva ella)
     else p.update(dt, keys, this.scene);

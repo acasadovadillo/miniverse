@@ -9,6 +9,7 @@ import { clearKeys } from '../input.js';
 import { initInventoryUI } from './inventory.js';
 import { initCraftingUI } from './crafting.js';
 import { initChestUI } from './chest.js';
+import { initLoadMeter } from './loadmeter.js';
 import { initShopUI } from './shop.js';
 import { initJournalUI } from './journal.js';
 import { initSettingsUI } from './settings.js';
@@ -706,6 +707,7 @@ export function initMenus(game) {
   const invUI = initInventoryUI(game, { onClose: () => wins.close('s-inv'), onCraft: () => openCraft() });
   const craftUI = initCraftingUI(game, { onClose: () => wins.close('s-craft'), onBag: () => wins.open('s-inv') });
   const chestUI = initChestUI(game, { onClose: () => wins.close('s-chest') });
+  let loadMeter = null;   // (the weight prototype, ?inventario=peso: carry.js; made the first time a game has it)
   let chestAt = null, chestTick = 0;   // (dónde se abrió el cofre: si se aleja, se cierra)
   wins.add('s-inv', { close: 'inv-close', spot: wins.defaults.left, onOpen: () => invUI.open() });
   wins.add('s-craft', { close: 'cf-close', spot: wins.defaults.right });
@@ -775,6 +777,8 @@ export function initMenus(game) {
   // Cada fotograma: si te alejas del cofre se cierra
   game.onFrame = () => {
     const p = game.player;
+    if (game.inv?.weight) loadMeter ||= initLoadMeter(game);
+    loadMeter?.frame();
     if (chestAt && p && Math.hypot(p.x - chestAt[0], p.y - chestAt[1]) > CHEST_REACH) wins.close('s-chest');
     // (lo ha quitado alguien, o lo ha cambiado otro jugador: se cierra o se repinta)
     if (wins.isOpen('s-chest') && ++chestTick % 6 === 0 && !chestUI.check()) wins.close('s-chest');

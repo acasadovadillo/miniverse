@@ -310,7 +310,8 @@ export class SmartHud {
     const free = !talking;   // (talking, only what is critical: as in RDR2)
     const food = surv && heldDef?.food && c.hunger < HUNGER_MAX;
     // (with the tool wheel open, as with a window: health, hunger and the time; the hotbar goes, the wheel is it now)
-    this.set('status', crit.hearts || crit.hunger || (free && (up('status') || this.danger || wins || food || wheel)));
+    // (and with the weight prototype, while the load matters: carry.js; the meter goes in this block, ui/loadmeter.js)
+    this.set('status', crit.hearts || crit.hunger || (free && (up('status') || this.danger || wins || food || wheel || !!g.carry?.showLoad())));
     this.set('money', free && !spect && up('money'));   // (with a window open it would be under it: in survival it is in the block)
     this.set('wins', wins, this.el.status, 'hm-wins');
     // (hungry with food in the hotbar: it stays, and that slot beats; during the first steps, which name the slots by

@@ -172,7 +172,7 @@ export function initCraftingUI(game, { onClose, onBag }) {
     ins.textContent = '';
     if (known) {
       for (const [id, n] of r.ins) {
-        const have = game.inv.count(id), row = document.createElement('div');
+        const have = game.craft.have(id), row = document.createElement('div');
         row.className = 'cf-in' + (have >= n ? ' have' : '');
         row.innerHTML = `<img alt="" src="${itemIconUrl(id)}"><span>${ITEMS[id].name}</span><b>${have}/${n}</b>`;
         ins.append(row);

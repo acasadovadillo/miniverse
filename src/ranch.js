@@ -928,6 +928,7 @@ export class Ranch {
     hud.toast(home ? `${name} vive en tu cuadra. Úsalo con el silbato: cepíllalo y dale zanahorias y correrá más.` : `${name} ya es tuyo. Hazle una cuadra en el banco para que tenga dónde dormir.`, 'good');
   }
   mount(a) {
+    if (this.game.carry?.refuse()) return;   // (with something in the arms: carry.js)
     const p = this.game.player;
     a.rider = me(); a.calling = false;
     Object.assign(p, { mount: true, horseId: a.id, horseCoat: a.breed, horseBags: !!a.bags, x: a.x, y: a.y });

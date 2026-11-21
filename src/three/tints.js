@@ -40,6 +40,7 @@ export function tintOf(key) {
   if (key in TINT) return TINT[key];
   if (key.startsWith('books')) return PAINT(sobrio(BOOKS[+key.slice(5)]));
   if (key.startsWith('fruit:')) return PAINT(sobrio(key.slice(6)));   // (los frutos, algo apagados)
+  if (key.startsWith('hide:')) return PAINT(sobrio(key.slice(5)));    // (the hide of a carcass: carry-items.js; its colour per vertex, as the fruit)
   if (key.startsWith('leafc:')) return ['paintDouble', sobrio(key.slice(6))];
   return null;
 }

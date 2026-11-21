@@ -3,6 +3,7 @@
 // lo que cambia (vetas picadas, cofres abiertos, rejas abiertas) se guarda con el resto del mundo.
 import { ihash } from '../util.js';
 import { LIGHT } from '../art/stations.js';
+import { BULKY } from '../carry-items.js';
 
 export class GridScene {
   constructor(game, { id, w, h, grid, style, name, dark = 0.84 }) {
@@ -59,7 +60,7 @@ export class GridScene {
   }
   // Solo se pueden poner antorchas (y quitarlas)
   at(layer, tx, ty) { return layer === 'placed' ? this.state.placed[`${tx},${ty}`] : undefined; }
-  canPlace(tx, ty, id) { return id === 'antorcha' && !this.wall(tx, ty) && !this.state.placed[`${tx},${ty}`] && !this.live().some(o => o.tile && o.tile[0] === tx && o.tile[1] === ty); }
+  canPlace(tx, ty, id) { return (id === 'antorcha' || !!BULKY[id]) && !this.wall(tx, ty) && !this.state.placed[`${tx},${ty}`] && !this.live().some(o => o.tile && o.tile[0] === tx && o.tile[1] === ty); }
   place(tx, ty, id) { this.state.placed[`${tx},${ty}`] = id; this.touched(); }
   unplace(o) { delete this.state.placed[`${o.tile[0]},${o.tile[1]}`]; this.touched(); }
   placedNear(x, y, r) { return this.live().filter(o => o.placed && Math.hypot(o.x - x, o.y - y) < r); }

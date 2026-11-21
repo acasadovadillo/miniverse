@@ -103,6 +103,7 @@ export class Crew {
   }
   embark(b) {
     const g = this.game, p = this.p;
+    if (g.carry?.refuse()) return;   // (with something in the arms: carry.js)
     if (!g.world.unmoorBoat(b)) return;   // (se la ha llevado otro)
     Object.assign(p, { boat: true, x: b.x, y: b.y, vx: 0, vy: 0, z: 0, vz: 0, crouch: false, wading: false });
     Audio.door();
@@ -144,6 +145,7 @@ export class Crew {
     return moored.concat(this.game.live.others.filter(q => q.entity?.boat && q.sc === 'world').map(peer => ({ kind: 'sys', e: peer.entity, box: box(peer.entity.x, peer.entity.y, 0.9, 0.9, 0, 1.6), act: () => this.actionOn(peer) })));
   }
   board(peer) {
+    if (this.game.carry?.refuse()) return;
     const p = this.p;
     Object.assign(p, { aboard: peer.id, vx: 0, vy: 0, z: 0, vz: 0, crouch: false, wading: false });
     Audio.door();

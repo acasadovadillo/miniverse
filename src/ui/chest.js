@@ -4,6 +4,8 @@
 import { ITEMS, CHESTS, UNKNOWN_NAME } from '../items.js';
 import { SLOTS, extraOf } from '../inventory.js';
 import { itemIconUrl } from '../art/items.js';
+import { HOTBAR } from '../inventory.js';
+import { packRows } from './packlist.js';
 
 const $ = id => document.getElementById(id);
 
@@ -61,7 +63,12 @@ export function initChestUI(game, { onClose }) {
     if (!chest) return;
     shown = JSON.stringify(chest);
     chestCells.forEach((el, i) => { paint(el, chest[i]); el.hidden = i >= chest.length; });
-    bagCells.forEach((el, i) => { paint(el, game.inv.slots[i]); el.classList.toggle('locked', !game.inv.usable(i)); });
+    // (the weight prototype: the hotbar and, below it, the list of the backpack, packlist.js)
+    if (game.inv.weight) { bagCells.forEach((el, i) => { el.hidden = i >= HOTBAR; if (i < HOTBAR) paint(el, game.inv.slots[i]); }); packRows($('ch-bag'), game.inv, toChest).hidden = false; }
+    else {
+      if ($('ch-pack')) { $('ch-pack').hidden = true; for (const el of bagCells) el.hidden = false; }   // (a game without it, after one with it)
+      bagCells.forEach((el, i) => { paint(el, game.inv.slots[i]); el.classList.toggle('locked', !game.inv.usable(i)); });
+    }
   }
   let the = 'el cofre';
   function hint() { const el = $('ch-hint'); el.classList.remove('no'); el.textContent = `Tu mochila (clic para guardar en ${the}${wardrobe ? ': solo ropa' : ''})`; }

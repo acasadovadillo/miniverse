@@ -115,7 +115,7 @@ export class Crafting {
     const inv = this.game.inv;
     if (!this.known.has(r.id)) return 'Todavía no conoces esta receta';
     if (!this.stationsNear()[r.station]) return `Tienes que estar junto a: ${STATIONS[r.station].name.toLowerCase()}`;
-    const missing = !inv.infinite && r.ins.find(([id, n]) => inv.count(id) < n);
+    const missing = !inv.infinite && r.ins.find(([id, n]) => this.have(id) < n);
     if (missing) return `Te falta ${ITEMS[missing[0]].name.toLowerCase()}`;
     if (inv.room(r.out) < r.n && !r.ins.some(([id, n]) => inv.count(id) === n)) return 'No te cabe: no llevas sitio libre';
     return null;
@@ -124,8 +124,10 @@ export class Crafting {
   times(r) {
     const inv = this.game.inv;
     if (inv.infinite) return 99;
-    return Math.min(...r.ins.map(([id, n]) => Math.floor(inv.count(id) / n)));
+    return Math.min(...r.ins.map(([id, n]) => Math.floor(this.have(id) / n)));
   }
+  // How many there are to craft with: the backpack and, with the weight prototype, the chests nearby (carry.js)
+  have(id) { const g = this.game; return g.carry ? g.carry.have(id) : g.inv.count(id); }
 
   // ---------- Reparar en el yunque ----------
   // Lo gastado que se lleva (en las casillas o puesto) y con qué se arregla: cada unidad del material le devuelve
@@ -181,7 +183,7 @@ export class Crafting {
     const g = this.game;
     let made = 0;
     for (let i = 0; i < times && !this.problem(r); i++) {
-      for (const [id, n] of r.ins) g.inv.remove(id, n);
+      if (g.carry) g.carry.spend(r.ins); else for (const [id, n] of r.ins) g.inv.remove(id, n);
       const left = g.inv.add(r.out, r.n);
       if (left) g.gather.throwOut(r.out, left);
       made++;

@@ -7,6 +7,7 @@ import { inTavern } from './world/village.js';
 import { Audio } from './audio.js';
 import { hud } from './ui/hud.js';
 import { Profile } from './accounts.js';
+import { t } from './i18n.js';
 
 const $ = id => document.getElementById(id);
 // Unas semillas que crezcan ahora (en invierno no crece nada)
@@ -109,7 +110,8 @@ export class Steps {
     if (hide) return;
     $('quest-title').textContent = `Primeros pasos · ${this.i + 1} de ${STEPS.length}`;
     $('quest-text').textContent = st.text + (p ? ` (${Math.max(0, p[0])}/${p[1]})` : '');
-    $('quest-hint').textContent = st.hint;
+    // (with the weight prototype a felled tree leaves a log: carry.js)
+    $('quest-hint').textContent = st.id === 'talar' && this.game.carry?.bigNow ? t('steps.fell_carry') : st.hint;
   }
   journal() {
     const rows = STEPS.map((st, i) => `<div class="j-row ach ${i < this.i ? 'done' : ''}"><b>${i < this.i ? '✓' : i === this.i ? '▸' : '·'} ${st.text}</b><small>${st.hint}</small></div>`).join('');

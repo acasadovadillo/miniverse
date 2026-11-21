@@ -88,7 +88,7 @@ export class Player extends Person {
       this.onExert?.(0.05); this.onSplash?.(this.x, this.y, 10);
       return;
     }
-    this.vz = JUMP * (this.mount ? 1.1 : 1);
+    this.vz = JUMP * (this.mount ? 1.1 : 1) * (this.jumpMul ?? 1);   // (jumpMul: loaded or carrying something, carry.js; never too low to leave a hole)
     // (con el agua por la cintura junto a la pared de un canal: hasta su borde, ver CLIMB)
     if (this.bank !== null && !this.mount && this.depth >= WADE_CLIMB) { const need = this.bank + CLIMB - (WATER_Y - this.depth + this.floor); if (need > this.vz * this.vz / (2 * GRAVITY)) this.vz = Math.sqrt(2 * GRAVITY * need); }
     this.z = this.floor + 0.001;
@@ -103,7 +103,8 @@ export class Player extends Person {
     if (this.mount || this.boat || this.aboard || this.ghost || this.pose) this.swim = false;
     // (en el agua: nadando, más despacio y agachado no frena, que es para hundirse; andando, cuanto más hondo más cuesta)
     const wade = this.wading ? 1 - 0.45 * clamp(this.depth / SWIM_OUT, 0, 1) : 1;
-    const speed = (this.swim ? (keys.run ? SWIM_RUN : SWIM_SPEED) : (this.crouch ? 1.4 : keys.run ? 5.3 : 3.2) * wade) / (l || 1) * (this.speedMul || 1) * (this.boat ? 1.4 : 1);
+    const run = keys.run && !this.noRun;   // (noRun: too loaded, or something in the arms: carry.js)
+    const speed = (this.swim ? (run ? SWIM_RUN : SWIM_SPEED) : (this.crouch ? 1.4 : run ? 5.3 : 3.2) * wade) / (l || 1) * (this.speedMul || 1) * (this.boat ? 1.4 : 1);
     const k = 1 - Math.exp(-dt * (this.swim ? 3 : 14));   // (nadando, cada brazada lleva y se para despacio)
     const [dx, dy] = screenToWorld(sx, sy), wx = dx * speed, wy = dy * speed;
     this.vx = lerp(this.vx, wx, k);
@@ -117,19 +118,21 @@ export class Player extends Person {
       // (las rocas no frenan: se sube uno encima; y saltando, a pie o a caballo, se pasa por encima de las vallas)
       near = scene.collidersNear(p.x, p.y);
       const high = this.z - this.floor > (this.mount ? 0.2 : HOP);
-      collide(p, near.filter(c => c.top === undefined && !c.dig && !(high && c.low) && !(c.zmax !== undefined && this.z > c.zmax)), RADIUS);   // (zmax: lo que solo frena abajo)
+      // (with something in the arms no fence is hopped: through the gate)
+      collide(p, near.filter(c => c.top === undefined && !c.dig && !(high && c.low && !this.carrying) && !(c.zmax !== undefined && this.z > c.zmax)), RADIUS);   // (zmax: lo que solo frena abajo)
       if (dug) collide(p, scene.digWalls(p.x, p.y, feet, this.airborne ? 0.05 : STEP_UP), RADIUS);   // (en el aire, sin el escalón: se sube lo que da el salto)
     }
     // En barca, no salir a tierra; a caballo, no entrar en lo que cubre al caballo; a pie se nada (en el mundo: en las
     // cuevas, blocked son sus paredes). Si se puede, deslizarse por la orilla
     const world = !!scene.waterDepth;
-    const blocked = this.ghost ? null : this.boat ? (x, y) => !scene.water?.(x, y) : world ? (this.mount ? (x, y) => scene.waterDepth(x, y) >= HORSE_DEEP : null) : scene.blocked?.bind(scene);
+    // (and with something in the arms, on foot, into nothing that would have to be swum: carry.js)
+    const blocked = this.ghost ? null : this.boat ? (x, y) => !scene.water?.(x, y) : world ? (this.mount ? (x, y) => scene.waterDepth(x, y) >= HORSE_DEEP : this.carrying && !this.swim ? (x, y) => scene.waterDepth(x, y) >= SWIM_IN : null) : scene.blocked?.bind(scene);
     if (blocked) {
       const wet = (x, y) => blocked(x, y) || blocked(x + RADIUS, y) || blocked(x - RADIUS, y) || blocked(x, y + RADIUS) || blocked(x, y - RADIUS);
       // (a caballo ya en lo hondo, llevado allí de otra forma: que pueda salir hacia lo menos hondo, y no se quede quieto
       // para siempre; hacia lo más hondo, no, o se cabalgaría por el fondo del mar. También deslizándose: el fondo no
       // siempre sube derecho hacia la orilla)
-      const out = this.mount && world && wet(this.x, this.y), here = out ? scene.waterDepth(this.x, this.y) : 0;
+      const out = (this.mount || this.carrying) && world && wet(this.x, this.y), here = out ? scene.waterDepth(this.x, this.y) : 0;
       // (en barca, por un canal cavado solo si cabe el casco: ver scenes.js, boatFits. Si ya está donde no cabe, amarrada ahí
       // antes de que se estrechara, se rema como siempre, para poder salir)
       const fits = this.boat && scene.boatFits && scene.boatFits(this.x, this.y) ? (x, y) => scene.boatFits(x, y) : null;
@@ -142,7 +145,7 @@ export class Player extends Person {
     }
     if (scene.bounds) { p.x = clamp(p.x, scene.bounds.x0, scene.bounds.x1); p.y = clamp(p.y, scene.bounds.y0, scene.bounds.y1); }
     const moved = Math.hypot(p.x - this.x, p.y - this.y);
-    if (keys.run && !this.crouch && !this.mount && !this.boat) this.onExert?.(moved * 0.05);   // (correr da hambre)
+    if (run && !this.crouch && !this.mount && !this.boat) this.onExert?.(moved * 0.05);   // (correr da hambre)
     // (al pasar de una casilla a otra junto a lo cavado, los pies se quedan a su altura: a una más baja se cae; a una algo más
     // alta, z queda por debajo de 0 y sube suave, como un escalón)
     // (en lo cavado y al entrar o salir de ello, los pies ya van así a su altura: en el agua de un canal, el agua no los vuelve

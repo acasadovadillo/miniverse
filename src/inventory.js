@@ -4,6 +4,7 @@
 // (ver WEAR_SLOTS en items.js), como { id, color }.
 import { ITEMS, LEGACY_ITEMS, modernSlots } from './items.js';
 import './buildables.js';   // (apunta en LEGACY_ITEMS los muebles y las estaciones, que ya no son objetos)
+import { BULKY, BULKY_PARTS } from './carry-items.js';   // (the big things carried in the arms: see carry.js)
 
 export const SLOTS = 36, HOTBAR = 9;
 const PREV_MS = 500;   // (held this long, what was in hand counts as "the one before" for a tap of F: see remember)
@@ -15,6 +16,12 @@ export class Inventory {
   constructor(data) {
     this.slots = Array.from({ length: SLOTS }, (_, i) => (data?.slots?.[i] ? { ...data.slots[i] } : null));
     this.spill = modernSlots(this.slots);   // (lo que ya no es un objeto, por sus materiales; spill: lo que no ha cabido, que el juego deja a los pies)
+    // A big thing (carry-items.js) is never in a slot or waiting in keep: the first one found goes to armsSaved (the
+    // weight inventory puts it back in the arms; this one gives its parts: Carry.reset), the others become their parts.
+    // (A save of the prototype keeps what is carried in keep, with arms: 1; an older game may have put it in a slot)
+    this.armsSaved = null;
+    const big = s => { if (!this.armsSaved) this.armsSaved = { id: s.id, ...(s.day !== undefined && { day: s.day }) }; else for (const [m, k] of BULKY_PARTS[s.id]) this.spill.push([m, k]); };
+    this.slots.forEach((s, i) => { if (s && BULKY[s.id]) { big(s); this.slots[i] = null; } });
     // Lo de una versión más nueva del juego (un id que este no conoce): no se ve ni se usa, pero no se pierde. Se aparta
     // (kept: [{ i: su casilla, s }]; keptEquip: lo puesto, por hueco del cuerpo) y al guardar vuelve a su sitio (toSave).
     // keep: lo que la última vez no tuvo sitio donde volver
@@ -26,6 +33,7 @@ export class Inventory {
     // (lo de keep que ya se conoce, a una casilla que se pueda usar: sin mochila, las suyas no)
     for (const s of Array.isArray(data?.keep) ? data.keep : []) {
       if (!s?.id) continue;
+      if (BULKY[s.id]) { big(s); continue; }
       const free = ITEMS[s.id] ? this.slots.findIndex((x, k) => !x && k < this.cap) : -1;
       if (free >= 0) this.slots[free] = { ...s }; else this.kept.push({ i: -1, s: { ...s } });
     }
@@ -45,7 +53,7 @@ export class Inventory {
   // Añade y devuelve lo que no haya cabido. Primero completa montones, luego usa huecos (barra rápida antes).
   // extra: lo propio de la prenda (su color); sin él, la ropa sale del color de fábrica
   add(id, n, extra) {
-    const L = LEGACY_ITEMS[id];
+    const L = LEGACY_ITEMS[id] || (!this.weight && BULKY_PARTS[id]);   // (a big thing, in this inventory: its parts)
     if (L) { let left = 0; for (const [m, k] of L) left += this.add(m, n * k); return left; }   // (una valla o un mueble sueltos de antes: sus materiales)
     if (!ITEMS[id]) return n;   // (de una versión más nueva: no cabe, y quien lo daba se lo queda)
     const max = ITEMS[id].stack, cap = this.cap;

@@ -24,6 +24,7 @@ import { Fx } from './fx.js';
 import { ArrowsView } from './arrows.js';
 import { Glow } from './glow.js';
 import { prewarmKit } from './kit3d.js';
+import { carriedView } from './carry3d.js';
 import { Cave3D } from './cave3d.js';
 import { SunShadow } from './sunshadow.js';
 import { setRenderer as contactRenderer, contactOn, contactSun, contactRestored } from './contact3d.js';
@@ -313,11 +314,14 @@ export class View3D {
   // Lo que se lleva en la mano, en primera persona: abajo a la derecha, con el vaivén de andar y el gesto al usarlo
   updateViewmodel(game, first) {
     const vm = this.viewmodel, m = this.actors.player;
-    const id = first && !game.player?.swim ? (m?.anim ? m.anim.item : game.inv?.held?.id) || null : null;   // (nadando, se guarda)
+    // (something big in the arms, with the weight prototype: it shows at the bottom of the screen, carry3d.js)
+    const big = first && !game.player?.swim && game.carry?.held ? game.carry.held : null;
+    const id = big ? 'carry:' + big : first && !game.player?.swim ? (m?.anim ? m.anim.item : game.inv?.held?.id) || null : null;   // (nadando, se guarda)
     if (this.vmItem !== id) {
       this.vmItem = id;
       vm.clear();
-      const tool = id && toolModel(id);
+      if (big) vm.add(carriedView(big));
+      const tool = !big && id && toolModel(id);
       if (tool) {
         // (la herramienta, girada sobre su mango para que el filo del hacha o de la guadaña mire al centro de
         // la pantalla; inclinada hacia delante y hacia dentro)
@@ -337,6 +341,7 @@ export class View3D {
     if (!vm.visible) return;
     vm.position.copy(this.camera.position);
     vm.quaternion.copy(this.camera.quaternion);
+    if (big) { const walk = Math.min(1, (m?.speed || 0) / 3); vm.children[0].position.set(0, Math.abs(Math.sin(game.time * 3.6)) * 0.02 * walk, 0); return; }   // (it sways a little walking)
     const hold = vm.children[0], arm = swingArm(m), walk = Math.min(1, (m?.speed || 0) / 3);
     // (el arco: al tensarlo, al centro y con la cuerda hacia atrás)
     const pull = game.archery?.k || 0;

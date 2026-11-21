@@ -20,6 +20,7 @@ export class Rest {
   // En una silla: en su centro, mirando hacia donde mira ella (con el giro que tenga: o.yaw)
   // En el sofá, en la plaza que quede más cerca (la suya o la de al lado), algo más hundido (y en el sillón)
   sit(o) {
+    if (this.game.carry?.refuse()) return;   // (with something in the arms: carry.js)
     const yaw = o.yaw, p = this.p;
     let [x, y] = [o.x, o.y];
     if (o.placed === 'sofa') { const [sx, sy] = sideOf(yaw); if (Math.hypot(x + sx - p.x, y + sy - p.y) < Math.hypot(x - p.x, y - p.y)) { x += sx; y += sy; } }
@@ -29,6 +30,7 @@ export class Rest {
   // En una cama: boca arriba, con la cabeza en la almohada (la casilla de la cabecera). En la doble, del lado
   // que quede más cerca y esté libre (twin: dónde está el otro lado, para saber quién se tumba ahí: ver la familia)
   lie(o) {
+    if (this.game.carry?.refuse()) return;
     const p = this.p, along = dirOf(o.yaw);
     // (como en Minecraft: con criaturas cerca no se puede descansar)
     if (this.game.gamemode === 'survival' && this.game.mobs?.near(p.x, p.y, 8)) { hud.toast('No puedes descansar: hay criaturas cerca'); return; }
@@ -46,6 +48,7 @@ export class Rest {
   }
   // En el suelo, donde está, mirando hacia donde miraba
   floor(kind) {
+    if (this.game.carry?.refuse()) return;
     if (this.game.gamemode === 'spectator') return;   // (el espectador no se sienta)
     const p = this.p;
     if (!p || p.boat || p.aboard || p.mount || this.game.busy) return;

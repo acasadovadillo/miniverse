@@ -23,6 +23,7 @@ const BEVEL = Object.assign(
   { ashlar: 0.035 },
 );
 import { CROPS, ITEMS } from '../items.js';
+import { BULKY } from '../carry-items.js';
 import { WALL_H, FLOOR_H } from './build3d.js';
 import { SOLIDS, hull } from '../world/fit.js';
 import { TOWER, inHole } from '../world/tower.js';
@@ -1204,7 +1205,7 @@ export function modelMat(key) {
   if (key.startsWith('books')) return M.books[+key.slice(5)];
   if (!DYN.has(key)) {
     const [k, c] = key.split(':');
-    DYN.set(key, k === 'fruit' ? mat({ color: c, roughness: 0.45 }) : k === 'leafc' ? mat({ color: c, flatShading: true, side: THREE.DoubleSide }) : key === 'dry' ? mat({ color: '#8a6a3a' }) : key === 'dirtWet' ? mat({ map: furrows(), color: '#7a6a60', roughness: 0.7 }) : mat({ color: '#ff00ff' }));
+    DYN.set(key, k === 'fruit' ? mat({ color: c, roughness: 0.45 }) : k === 'hide' ? mat({ color: apagado(c), roughness: 0.95 }) : k === 'leafc' ? mat({ color: c, flatShading: true, side: THREE.DoubleSide }) : key === 'dry' ? mat({ color: '#8a6a3a' }) : key === 'dirtWet' ? mat({ map: furrows(), color: '#7a6a60', roughness: 0.7 }) : mat({ color: '#ff00ff' }));
   }
   return DYN.get(key);
 }
@@ -1219,5 +1220,31 @@ function chandelier(m, y0) {
   }
   return m;
 }
+// ---------- the big things carried in the arms (carry-items.js; the prototype: carry.js) ----------
+// A log lying along x, its cut ends lighter and a stub of a branch (also what is carried on the shoulder: carry3d.js)
+export const LOG = { L: 1.3, r: 0.13 };
+BUILD.log = m => {
+  const { L, r } = LOG, along = [0, 0, Math.PI / 2];   // (a cylinder turned onto its side: from +x to -x)
+  m.cyl('dark', L / 2, r, 0, r * 0.94, r, L, 12, along);
+  m.cyl('light', L / 2 + 0.006, r, 0, r * 0.86, r * 0.86, 0.008, 12, along).cyl('light', -L / 2 + 0.002, r, 0, r * 0.84, r * 0.84, 0.008, 12, along);
+  m.cyl('dark', 0.22, r * 1.55, 0.02, 0.035, 0.022, 0.13, 6, [0.5, 0, 0.35]).cyl('dark', -0.36, r * 1.5, -0.03, 0.03, 0.02, 0.1, 6, [-0.6, 0, -0.3]);
+};
+// A carcass lying on its side: the body along x, the head at +x and the legs stiff towards +z (s: its size; the cow is
+// bigger). Plain shapes with the colour of the animal, a darker belly and the hooves
+const CARCASS_SIZE = { carcass_cow: 1.3, carcass_boar: 0.88, carcass_goat: 0.85, carcass_sheep: 0.92, carcass_pig: 0.9 };
+function carcassModel(m, id) {
+  const B = BULKY[id], s = CARCASS_SIZE[id] || 1, K = `hide:${B.color}`, D = `hide:#${new THREE.Color(B.color).multiplyScalar(0.62).getHexString()}`;
+  m.ball(K, 0, 0.21 * s, 0, 0.44 * s, 0.2 * s, 0.23 * s, 12).ball(D, 0, 0.15 * s, 0.09 * s, 0.36 * s, 0.11 * s, 0.14 * s, 10);
+  m.ball(K, 0.5 * s, 0.17 * s, 0.03 * s, 0.11 * s, 0.075 * s, 0.075 * s, 10).ball(K, 0.66 * s, 0.13 * s, 0.05 * s, 0.13 * s, 0.085 * s, 0.075 * s, 10);   // the neck and the head
+  m.ball(D, 0.79 * s, 0.12 * s, 0.05 * s, 0.035 * s, 0.035 * s, 0.035 * s, 6);
+  if (id === 'carcass_deer') for (const z of [-0.03, 0.06]) m.cyl('light', 0.6 * s, 0.2 * s, z * s, 0.012, 0.008, 0.22 * s, 5, [0, 0, 0.9]);   // (the antlers)
+  if (id === 'carcass_goat') m.cyl('dark', 0.62 * s, 0.2 * s, 0, 0.014, 0.006, 0.12 * s, 5, [0, 0, 1.1]);
+  for (const [x, y] of [[0.3, 0.13], [0.22, 0.09], [-0.3, 0.13], [-0.36, 0.09]]) {
+    m.cyl(K, x * s, y * s, 0.12 * s, 0.04 * s, 0.03 * s, 0.34 * s, 6, [Math.PI / 2, 0, 0]);
+    m.cyl('dark0', x * s, y * s, (0.12 + 0.33) * s, 0.032 * s, 0.03 * s, 0.05 * s, 6, [Math.PI / 2, 0, 0]);
+  }
+}
+for (const id of Object.keys(BULKY)) if (BULKY[id].prey) BUILD[id] = m => carcassModel(m, id);
+
 // El que se cuelga (origen en el suelo, colgado del techo, con su luz)
 BUILD.candelabro = m => chandelier(m, WALL_H).light(0, WALL_H - 0.6, 0, { color: '#ffd08a', intensity: 4.5, range: 11, halo: 0 });   // (sin halo: lo llevan sus velas)

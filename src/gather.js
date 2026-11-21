@@ -11,7 +11,8 @@ import { RUG_SIZES, TABLE_SIZES } from './art/stations.js';
 import { XP_ORE, roll } from './xp.js';
 import { dxOf, WATER_Y } from './world/planet.js';
 import { reportFault } from './faults.js';
-import { t as tr } from './i18n.js';   // (as tr: t is the target in many places here)
+import { t as tr } from './i18n.js';
+import { BULKY_PARTS } from './carry-items.js';   // (as tr: t is the target in many places here)
 
 // Lo que dice cada efecto al tomarlo (comida o poción)
 const BUFF_TEXT = { rapido: 'Más rápido', incansable: 'Sin cansancio', fuerza: 'Más fuerza', resistencia: 'Más resistencia', regeneracion: 'Regeneración' };
@@ -299,6 +300,7 @@ export class Gathering {
   use(auto = false) {
     const g = this.game, p = g.player;
     if (!p || g.busy || hud.dialogOpen || g.mode !== 'play' || this.cooldown > 0 || p.pose || p.swim || g.gamemode === 'spectator') return;   // (nadando, las manos son para nadar)
+    if (g.carry?.held) return g.carry.handsFull(auto);   // (something in the arms: no punches, nothing picked by hand; carry.js)
     const held = g.inv.held, def = held && ITEMS[held.id];
     if (def?.food || def?.heal || def?.buff) return auto ? undefined : this.eat(g.inv.selected);
     if (held?.id === 'mapa_vacio') return auto ? undefined : g.maps.create(g.inv.selected);
@@ -353,7 +355,8 @@ export class Gathering {
       g.scene.remove(o);
       this.chips(o.x, o.y, rule.chips, 16);
       const fruit = o.bare && rule.fruit ? { ...rule, drops: rule.drops.filter(([id]) => id !== rule.fruit) } : rule;   // (la palmera a la que se le acaban de coger los cocos ya no tiene)
-      this.spawnDrops(o, fruit, skill && Math.random() < (g.skills?.bonus(skill) || 0));
+      // (with the prototype, a tree leaves its log lying where it falls instead of the wood: carry.js)
+      if (!g.carry?.felled(o, fruit)) this.spawnDrops(o, fruit, skill && Math.random() < (g.skills?.bonus(skill) || 0));
       const ore = rule.drops.find(([id]) => XP_ORE[id]);   // (el carbón y las piedras preciosas dan experiencia)
       if (ore) g.xp?.add(roll(...XP_ORE[ore[0]]));
       if (o.kind === 'bush' && tool === 'guadana') g.ranch?.mowed();   // (con un silo, el heno se guarda solo)
@@ -442,11 +445,15 @@ export class Gathering {
   throwOut(id, n, extra) {
     const p = this.game.player;
     if (!p) return false;
+    if (BULKY_PARTS[id]) { for (const [m, k] of BULKY_PARTS[id]) this.throwOut(m, n * k); return true; }   // (a big thing is never a drop: its parts)
     for (let i = 0; i < n; i++) this.addDrop({ id, extra, x: p.x + p.face.x * 1.2 + (Math.random() - 0.5) * 0.4, y: p.y + p.face.y * 1.2 + (Math.random() - 0.5) * 0.4, z: 6, vz: 40, t: -1.5, scene: this.game.scene });
     return true;
   }
   // Un objeto más en el suelo (jugando juntos, lo ven todos)
-  addDrop(d) { this.drops.push(d); this.game.live.dropped(d); }
+  addDrop(d) {
+    if (BULKY_PARTS[d.id]) { for (const [m, k] of BULKY_PARTS[d.id]) for (let i = 0; i < k * (d.count || 1); i++) this.addDrop({ ...d, id: m, count: undefined }); return; }   // (its parts: a big thing would never be picked up)
+    this.drops.push(d); this.game.live.dropped(d);
+  }
 
 
 

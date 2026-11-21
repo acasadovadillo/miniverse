@@ -87,10 +87,14 @@ export class BuildMode {
   paid(id) {
     const g = this.game;
     if (this.carry) { this.carry = null; this.onChange?.(); return; }
-    if (!g.admin) for (const [m, n] of DEF(id).cost) g.inv.remove(m, n);
+    if (!g.admin) this.spend(DEF(id).cost);
     g.skills?.gain('construccion', 1);
     g.stats?.add('piezas', 1);
   }
+  // (with the weight prototype, what is missing comes from the chests nearby: carry.js have and spend; without it, the
+  // backpack as always)
+  have(id) { return this.game.carry ? this.game.carry.have(id) : this.game.inv.count(id); }
+  spend(cost) { if (this.game.carry) this.game.carry.spend(cost); else for (const [m, n] of cost) this.game.inv.remove(m, n); }
 
   // Casilla objetivo: la del ratón si se ha movido hace poco; si no, la de delante del jugador
   target() {
@@ -119,7 +123,7 @@ export class BuildMode {
     }
     return this.near.found.has(need);
   }
-  affordable(id) { return this.game.admin || !!this.carry || DEF(id).cost.every(([m, n]) => this.game.inv.count(m) >= n); }
+  affordable(id) { return this.game.admin || !!this.carry || DEF(id).cost.every(([m, n]) => this.have(m) >= n); }
 
   // Qué pasaría en la casilla: { ok, why }
   check(t) {
@@ -170,7 +174,7 @@ export class BuildMode {
     this.painted = `${t}`;
     const g = this.game, c = this.check(t);
     if (!c.ok) { if (!drag) { if (c.why) g.gather.float(c.why, '#ffb0a0'); Audio.error(); } return; }
-    if (!g.admin) for (const [m, n] of PIECES[this.piece].cost) g.inv.remove(m, n);
+    if (!g.admin) this.spend(PIECES[this.piece].cost);
     g.scene.place(t[0], t[1], this.piece);
     if (g.scene === g.world) g.rep?.placed(layerOf(this.piece), t[0], t[1]);   // (put back where you took it from: reputation.js)
     g.gather.chips(t[0] + 0.5, t[1] + 0.5, 'wood', 6);

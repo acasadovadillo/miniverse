@@ -187,6 +187,7 @@ export class Combat {
   // está, en esa escena (las cuevas se rehacen al entrar: se guarda cuál es). Devuelve cuántas cosas
   dropAll() {
     const g = this.game, p = g.player, inv = g.inv, out = [];
+    g.carry?.onDeath(DROP_TTL);   // (what the arms carry stays where you fell: carry.js)
     inv.slots.forEach((s, i) => { if (s) { out.push(s); inv.slots[i] = null; } });
     for (const [slot, it] of Object.entries(inv.equip)) if (isArmor(it.id)) { out.push({ ...it, n: 1 }); delete inv.equip[slot]; }
     inv.changed();

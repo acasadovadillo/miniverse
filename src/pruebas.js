@@ -46,8 +46,15 @@ import { sobrio, tonosSuelo } from './arte.js';
 import { tintOf } from './three/tints.js';
 import { PHOTOS, photo } from './three/photos.js';
 import { Inventory, HOTBAR } from './inventory.js';
+import { WeightInventory, Carry } from './carry.js';
+import { BULKY, BULKY_PARTS, CARCASS_OF, weightOf, BASE_CAP, BAG_CAP } from './carry-items.js';
+import { Player } from './entities.js';
+import { screenToWorld } from './camera.js';
+import { makeCave } from './world/underground.js';
+import { START_KIT } from './items.js';
 import { kitOf, kitKey, placeKit, shownOf, splitKit, kindOf, SCABBARD } from './kit.js';
 import { buildKit } from './three/kit3d.js';
+import { holdPose } from './three/carry3d.js';
 import { stowedGeo } from './three/actors.js';
 import { t, tHtml, tList, fmt, formatMessage, defineNames, noun, setLang, getLang, onLangChange, accountLangOf, setAccountLang, savedLang, decideFirst, applyDom } from './i18n.js';
 
@@ -2164,6 +2171,299 @@ async function soloTests(game) {
     const F = game.family, k1 = [...F.netItems({ kids: [], expecting: { since: 3, mother: 'x' } }).keys()].find(k => k.startsWith('exp:'));
     const k2 = [...F.netItems({ kids: [], expecting: { since: 12, mother: 'x' } }).keys()].find(k => k.startsWith('exp:'));
     check(k1 && k2 && k1 !== k2, `los embarazos tienen el mismo id: ${k1} ${k2}`);
+  });
+
+  // ---------- the weight inventory and carrying in the arms (the prototype, ?inventario=peso: carry.js) ----------
+  // The game, once, with the weight inventory (Carry.force, as with the URL) and, at the end, back as it was
+  let weightBack = null;
+  const weightOn = async () => {
+    if (game.inv.weight) return;
+    weightBack = { snap: JSON.stringify(game.snapshot()), deltas: JSON.stringify([...game.world.deltas]) };
+    Carry.force = true;
+    game.end();
+    try { game.start(JSON.parse(weightBack.snap), new Map(JSON.parse(weightBack.deltas))); } catch (e) { throw new Error(`start: ${e.stack?.split('\n').slice(0, 4).join(' < ')}`); }
+    game.onSave = null;
+    await readyGround(game, 8000); await frames(3);
+    check(game.inv.weight, 'the game did not start with the weight inventory');
+  };
+  const near = (id, x, y, r = 3) => { for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) { const tx = Math.floor(x) + dx, ty = Math.floor(y) + dy; if ((w().ownAt('placed', tx, ty) || '').split('@')[0] === id) return w().placedObjectAt(tx, ty) || { tile: [tx, ty], layer: 'placed', placed: id, x: tx + 0.5, y: ty + 0.5 }; } return null; };
+  const fake = (inv, more = {}) => ({ inv, gamemode: 'survival', player: { face: { x: 1, y: 0 } }, gather: { float() {} }, ...more });
+  await test('peso carga (weight load): the game modules load with and without the prototype, without a cycle', async () => {
+    check(WeightInventory.prototype instanceof Inventory, 'WeightInventory is not an Inventory');
+    const src = async f => (await fetch(`src/${f}?t=${Date.now()}`)).text(), imports = text => [...text.matchAll(/^import[^;]*?from '([^']+)'|^import '([^']+)'/gm)].map(m => m[1] || m[2]);
+    const inv = imports(await src('inventory.js')), items = imports(await src('carry-items.js'));
+    check(!inv.some(f => /carry\.js$/.test(f)), `inventory.js imports carry.js: ${inv}`);
+    check(items.every(f => /\/(items|i18n)\.js$/.test(f)), `carry-items.js imports more than items.js and i18n.js: ${items}`);
+    check(ITEMS.log && ITEMS.log.hide && ITEMS.carcass_deer.bulky && !game.inv.weight && Carry.force === null, 'the new ids, or the game started with the prototype without the URL');
+  });
+  await test('peso (weight): each item weighs, the backpack adds capacity and nothing is ever refused', async () => {
+    const W = new WeightInventory();
+    for (const [id, n] of START_KIT) W.add(id, n);
+    check(Math.abs(W.kg - 10.7) < 0.01 && W.capKg === BASE_CAP && BASE_CAP === 25, `the starting kit: ${W.kg} / ${W.capKg} kg`);
+    W.equip.espalda = { id: 'mochila', color: ITEMS.mochila.dye }; W.changed();
+    check(W.capKg === BASE_CAP + BAG_CAP && W.capKg === 70, `with the backpack: ${W.capKg}`);
+    check(W.add('piedra', 500) === 0 && W.count('piedra') === 500 && W.room('piedra') === Infinity, `500 stones: ${W.count('piedra')}, room ${W.room('piedra')}`);
+    check(W.kg > W.capKg && W.load > 1.5, `load ${W.load}`);
+    check(W.add('log', 1) === 1 && !W.count('log'), 'a log went into the backpack');
+    const N = new WeightInventory(); for (let i = 0; i < HOTBAR; i++) N.add('piedra', 99);
+    check(N.room('piedra') === 0 && N.add('madera', 3) === 3, 'without a backpack more than the hotbar fits');
+    const i = W.slots.findIndex((s, k) => k >= HOTBAR && s?.id === 'piedra');
+    W.take(i, 99, true); check(W.slots[i] === null, 'taking leaves no hole');
+    W.add('tablas', 5); check(W.slots[i]?.id === 'tablas', 'add does not fill the hole');
+    const C = new WeightInventory(); C.infinite = true; C.add('piedra', 99); check(C.capKg === Infinity && C.load === 0, 'creative has a limit');
+    check(weightOf('madera') === 2 && weightOf('peto_hierro') === 8 && weightOf('carpa') === 1 && weightOf('semilla_trigo') === 0.01 && weightOf('alfombra_persa_3x4') === 12, 'some weights are not as in the table');
+    const before = W.kg; W.equip.encima = { id: 'peto_hierro' }; W.changed(); check(Math.abs(W.kg - before - 8) < 0.01, 'the armour worn does not count');
+  });
+  await test('peso guardado (weight save): more than 36 stacks and the carried log load in slot mode without losing anything, and back', async () => {
+    const ids = Object.keys(ITEMS).filter(id => !ITEMS[id].wear && !ITEMS[id].hide && !BULKY[id] && !ITEMS[id].place && ITEMS[id].stack > 1).slice(0, 50);
+    check(ids.length === 50, `${ids.length} ids`);
+    const W = new WeightInventory(); W.equip.espalda = { id: 'mochila', color: ITEMS.mochila.dye };
+    for (const id of ids) W.add(id, 3);
+    W.armsItem = { id: 'log', day: null };
+    const save = JSON.parse(JSON.stringify(W.toSave()));
+    check(save.slots.length === 36 && save.keep.length === 50 - 36 + 1 && save.keep.at(-1).arms === 1 && save.w === 1, `slots ${save.slots.length}, keep ${save.keep?.length}`);
+    const S = new Inventory(save), all = I => ids.every(id => I.count(id) + I.kept.filter(e => e.s.id === id).reduce((t, e) => t + e.s.n, 0) === 3);
+    check(all(S), 'the slot inventory loses something');
+    check(S.armsSaved?.id === 'log' && !S.count('log'), 'the log is not set aside');
+    check(S.add('log', 1) === 0 && S.count('madera') >= 4, 'in slot mode a log is not its wood');
+    const back = new WeightInventory(JSON.parse(JSON.stringify(S.toSave())));
+    const want = id => (id === 'madera' ? 7 : 3);   // (the wood: the log's 4 too)
+    check(ids.every(id => back.count(id) === want(id)) && !back.kept.length, `back: ${ids.filter(id => back.count(id) !== want(id))}`);
+    const again = new WeightInventory(save);
+    check(ids.every(id => again.count(id) === 3) && again.armsSaved?.id === 'log', 'weight → weight loses something');
+    check(Object.keys(new Inventory({ slots: [{ id: 'pan', n: 1 }] }).toSave()).sort().join() === 'equip,selected,slots,wardrobe', 'the slot save changed');
+  });
+  await test('peso partida vieja (old save): an overweight slot save keeps everything and walks slower', async () => {
+    const old = { slots: Array.from({ length: 36 }, () => ({ id: 'piedra', n: 99 })), equip: { espalda: { id: 'mochila', color: ITEMS.mochila.dye } }, keep: [{ id: 'madera', n: 40 }, { id: 'cosa_nueva', n: 2 }] };
+    const W = new WeightInventory(JSON.parse(JSON.stringify(old)));
+    check(W.count('piedra') === 3564 && W.count('madera') === 40 && W.kept.some(e => e.s.id === 'cosa_nueva'), `stones ${W.count('piedra')}, wood ${W.count('madera')}`);
+    const C = new Carry(fake(W));
+    check(C.speedMul() === 0.45 && C.noRun() && C.jumpMul() >= 0.82, `speed ${C.speedMul()}`);
+    const s = W.toSave(); check(s.keep.some(k => k.id === 'cosa_nueva') && s.slots.length === 36, 'the save loses what is of a newer version');
+  });
+  await test('peso cargado (encumbered): speed, running, jump and tiredness follow the load; creative and riding ignore it', async () => {
+    const W = new WeightInventory(), C = new Carry(fake(W)), at = kg => { W.slots.length = 0; W.slots.push(...Array(HOTBAR).fill(null)); W.equip.espalda = { id: 'mochila' }; W.add('piedra', kg); return C.speedMul(); };
+    const close = (a, b) => Math.abs(a - b) < 1e-6;
+    check(close(at(70), 1) && !C.noRun() && C.jumpMul() === 1, `r = 1: ${C.speedMul()}`);
+    check(close(at(87.5), 0.8) && !C.noRun(), `r = 1.25: ${C.speedMul()}`);
+    check(close(at(105), 0.6) && C.noRun(), `r = 1.5: ${C.speedMul()}`);
+    check(close(at(210), 0.45) && C.noRun(), `r = 3: ${C.speedMul()}`);
+    const jump = 5 * C.jumpMul(); check(jump * jump / 30 > 0.5, `the jump (${jump}) does not get out of a hole`);
+    for (const more of [{ player: { mount: true } }, { player: { boat: true } }, { player: { aboard: 'x' } }, { gamemode: 'creative' }]) { const D = new Carry(fake(W, more)); check(D.speedMul() === 1 && !D.noRun() && D.jumpMul() === 1, `ignored: ${JSON.stringify(more)}`); }
+    // Tiredness, in the game: walking loaded tires more
+    await weightOn();
+    const g = game, kept = g.inv.slots.slice(), ex = g.combat.exert.bind(g.combat);
+    let n = 0; g.combat.exert = k => { n += k; ex(k); };
+    try {
+      p().vx = 3; p().vy = 0;
+      g.carry.update(1); const light = n; n = 0;
+      g.inv.add('piedra', 300); p().vx = 3; g.carry.update(1);
+      check(n > light + 0.05, `loaded does not tire more: ${light} → ${n}`);
+      g.carry.set('log'); n = 0; g.carry.update(1); check(n > 0.1, `the log does not tire: ${n}`);
+      g.carry.set(null);
+    } finally { g.combat.exert = ex; g.inv.slots.splice(0, g.inv.slots.length, ...kept); g.inv.changed(); p().vx = 0; }
+  });
+  await test('en brazos, tronco (log): a felled oak leaves a log away from you; E on the shoulder, Q down, the axe gives 2 wood and the bench 10 planks', async () => {
+    await weightOn();
+    const C = game.carry, sides = [[0.85, 0], [-0.85, 0], [0, 0.85], [0, -0.85]];
+    for (const [sx, sy] of sides) {
+      const o = findKind(game, ['oak', 'pine'], p().x, p().y); check(o, 'no trees near');
+      await goTo(game, o.x + sx, o.y + sy);
+      selectTool(game, 'hacha'); p().x = o.x + sx; p().y = o.y + sy; p().face = { x: -Math.sign(sx), y: -Math.sign(sy) }; p().vx = p().vy = 0;
+      const madera = inv().count('madera'), alive = () => w().harvestablesNear(o.x, o.y).some(k => k.key === o.key);
+      for (let i = 0; i < 20 && alive(); i++) { game.gather.cooldown = 0; game.gather.target = game.gather.pickTarget(); check(game.gather.target?.obj, `not aiming at the ${o.kind}`); game.gather.use(); await frames(2); }
+      check(!alive(), 'the tree is still there');
+      const log = near('log', o.x, o.y, 2); check(log, `no log from ${[sx, sy]}`);
+      const dl = Math.hypot(log.x - p().x, log.y - p().y), dt = Math.hypot(o.x - p().x, o.y - p().y);
+      check(dl >= dt - 0.2, `the log fell towards you (${dl.toFixed(2)} < ${dt.toFixed(2)})`);
+      await frames(40); check(inv().count('madera') === madera, 'the tree also gave its wood');
+    }
+    // E: on the shoulder; Q: down in front
+    const log = near('log', p().x, p().y, 3); check(log, 'no log near');
+    check(game.placedAction(log).text === t('carry.shoulder', { item: ITEMS.log }), `E says: ${game.placedAction(log).text}`);
+    game.placedAction(log).run(); check(C.held === 'log' && p().carrying === 'log' && p().armsBusy === 'shoulder' && !inv().held, 'not in the arms');
+    check(!near('log', log.x, log.y, 0), 'still on the ground');
+    game.toss(); check(!C.held, 'Q does not put it down');
+    const down = near('log', p().x, p().y, 3); check(down, 'not on the ground');
+    // The axe splits it where it lies: three blows, 2 wood
+    selectTool(game, 'hacha');
+    const wood = inv().count('madera'); for (let i = 0; i < 3; i++) C.split(down);
+    check(!near('log', down.x, down.y, 0), 'three blows and it is still there');
+    await collectDrops(game); check(inv().count('madera') >= wood + 2, `wood: ${inv().count('madera') - wood}`);
+    // The bench: 10 planks
+    const other = near('log', p().x, p().y, 4) || (() => { const [tx, ty] = freeTile(game, [[Math.floor(p().x) + 2, Math.floor(p().y)], [Math.floor(p().x), Math.floor(p().y) + 2], [Math.floor(p().x) - 2, Math.floor(p().y)]]); w().place(tx, ty, 'log'); return w().placedObjectAt(tx, ty); })();
+    C.take(other); check(C.held === 'log', 'the second log is not in the arms');
+    const [bx, by] = freeTile(game, [[Math.floor(p().x) + 1, Math.floor(p().y) + 1], [Math.floor(p().x) - 1, Math.floor(p().y) + 1], [Math.floor(p().x) + 1, Math.floor(p().y) - 1]]);
+    w().place(bx, by, 'banco'); const bench = w().placedObjectAt(bx, by);
+    const a = game.placedAction(bench), planks = inv().count('tablas');
+    check(a.text === t('carry.saw'), `E on the bench says: ${a.text}`);
+    a.run(); check(!C.held && inv().count('tablas') === planks + 10, `planks: ${inv().count('tablas') - planks}`);
+    w().unplace(bench);
+  });
+  await test('en brazos, caza (carcass): a deer leaves its carcass; in the field the least, at the kitchen the most; a hen as before; the parts match PREY; after 2 days it turns to bones', async () => {
+    await weightOn();
+    for (const [id, B] of Object.entries(BULKY)) if (B.prey) check(JSON.stringify(B.drops) === JSON.stringify(PREY[B.prey].drops) && CARCASS_OF[B.prey] === id, `${id} does not match PREY.${B.prey}`);
+    const C = game.carry, X = 62, Y = 44;
+    await goTo(game, X, Y);
+    game.hunt.reward({ type: 'ciervo', young: false, x: X + 2.5, y: Y + 0.5 });
+    const c = near('carcass_deer', X + 2.5, Y + 0.5, 2); check(c, 'no carcass');
+    check(w().delta(Math.floor(c.tile[0] / 16), Math.floor(c.tile[1] / 16))?.carcass?.[`${c.tile}`] === game.days.dayIndex, 'its day is not noted');
+    const meat = inv().count('carne_venado'); game.placedAction(c).alt.run(); check(!near('carcass_deer', c.x, c.y, 0), 'X does not butcher it');
+    await collectDrops(game); check(inv().count('carne_venado') === meat + 2, `field: ${inv().count('carne_venado') - meat} meat`);
+    game.hunt.reward({ type: 'ciervo', young: false, x: X + 2.5, y: Y + 0.5 });
+    const c2 = near('carcass_deer', X + 2.5, Y + 0.5, 2); C.take(c2); check(C.held === 'carcass_deer' && p().armsBusy === 'across', 'not on the shoulders');
+    const [kx, ky] = freeTile(game, [[X + 1, Y + 1], [X - 1, Y + 1], [X + 1, Y - 1]]); w().place(kx, ky, 'cocina');
+    const kitchen = w().placedObjectAt(kx, ky), a = game.placedAction(kitchen), m2 = inv().count('carne_venado'), bone = inv().count('hueso');
+    check(a.text === t('carry.butcher_here'), `the kitchen says: ${a.text}`);
+    a.run(); check(!C.held && inv().count('carne_venado') === m2 + 3 && inv().count('hueso') === bone + 1, 'the kitchen does not give the most and the extra');
+    w().unplace(kitchen);
+    // A hen and a young one: as before; in creative, the meat
+    const drops = game.gather.drops.length; game.hunt.reward({ type: 'gallina', young: false, x: X + 2.5, y: Y });
+    check(game.gather.drops.length > drops && !near('carcass_deer', X + 2.5, Y, 2), 'the hen is not as before');
+    await collectDrops(game);
+    game.hunt.reward({ type: 'ciervo', young: true, x: X + 2.5, y: Y }); check(!near('carcass_deer', X + 2.5, Y, 2), 'a fawn leaves a carcass'); await collectDrops(game);
+    // After 2 days only bones
+    game.hunt.reward({ type: 'vaca', young: false, x: X + 2.5, y: Y + 0.5 });
+    const cow = near('carcass_cow', X + 2.5, Y + 0.5, 2); check(cow, 'no cow carcass');
+    w().delta(Math.floor(cow.tile[0] / 16), Math.floor(cow.tile[1] / 16)).carcass[`${cow.tile}`] = game.days.dayIndex - 2;
+    const bones = game.gather.drops.length; C.rot(); check(!near('carcass_cow', cow.x, cow.y, 0) && game.gather.drops.length > bones && game.gather.drops.at(-1).id === 'hueso', 'no bones after 2 days');
+    await collectDrops(game);
+  });
+  await test('en brazos, límites (carry limits): Q only puts it down, a held click does not punch, no swimming, no running, no fence hopping, no mounting, sitting or sleeping; the backpack does not take it; in slot mode /give log gives wood', async () => {
+    await weightOn();
+    const C = game.carry, G = game.gather;
+    C.set('log');
+    try {
+      G.cooldown = 0; G.swing = 0; G.use(); G.use(true); check(G.swing === 0 && G.cooldown === 0, 'a click with the arms full does something');
+      check(C.noRun() && C.jumpMul() === 0.82 && C.hint() && game.inv.add('log', 1) === 1, 'run, jump, hint or the backpack');
+      check(C.refuse() && C.held === 'log', 'refuse does not refuse');
+      game.ranch.mount({ id: 'x', breed: 'alazan', x: p().x, y: p().y }); check(!p().mount, 'mounted with a log');
+      game.rest.floor('floorSit'); check(!p().pose, 'sat down with a log');
+      check(C.state() === 'log', 'the network does not say it');
+    } finally { C.set(null); }
+    check(!C.state() && !C.noRun(), 'empty arms');
+    // On foot: into deep water, no; over a fence in a jump, no (the same player without it: yes, and yes)
+    const up = screenToWorld(0, -1), l = Math.hypot(...up), d = [up[0] / l, up[1] / l], keysUp = { up: true };
+    const walk = (carrying, scene, steps, high = false) => { const P = new Player({ name: 'x', x: 0, y: 0, look: {} }); P.carrying = carrying; for (let i = 0; i < steps; i++) { if (high) { P.z = 0.6; P.vz = 0; } P.update(1 / 60, keysUp, scene); } return P; };
+    const sea = { waterDepth: (x, y) => (Math.hypot(x, y) > 2 ? 2 : 0), collidersNear: () => [], digNear: () => null };
+    check(Math.hypot(walk('log', sea, 240).x, walk('log', sea, 240).y) < 2.05, 'walked into deep water with a log');
+    check(walk(null, sea, 240).swim, 'without it does not swim');
+    const fence = [{ x: d[0] * 5.8, y: d[1] * 5.8, r: 5, low: true }];   // (a fence 0.8 m ahead: the near edge of a big low circle)
+    const flat = { collidersNear: () => fence, digNear: () => null }, past = P => P.x * d[0] + P.y * d[1];
+    check(past(walk(null, flat, 45, true)) > 1, 'without it the jump does not pass the fence');
+    check(past(walk('log', flat, 45, true)) < 0.8, 'with the log the jump passes the fence');
+    // Slot mode: a log is its wood
+    const S = new Inventory(); S.add('log', 1); check(S.count('madera') === 4 && !S.count('log'), 'slot mode keeps a log');
+  });
+  await test('peso cofres (weight chests): B and C take what is missing from chests within 16 tiles and say from where', async () => {
+    await weightOn();
+    const I = inv(), kept = I.slots.slice();
+    try {
+      for (const id of ['fibra', 'cuerda', 'tablas', 'piedra']) I.remove(id, I.count(id));
+      const [tx, ty] = freeTile(game, [[Math.floor(p().x) + 3, Math.floor(p().y)], [Math.floor(p().x), Math.floor(p().y) + 3], [Math.floor(p().x) - 3, Math.floor(p().y)]]);
+      w().place(tx, ty, 'cofre'); const chest = w().chestAt(tx, ty);
+      chest[0] = { id: 'fibra', n: 5 }; chest[1] = { id: 'tablas', n: 10 }; chest[2] = { id: 'piedra', n: 4 };
+      const r = RECIPES.find(r => r.station === 'mano' && r.out === 'cuerda'); game.craft.grant('cuerda');
+      check(!game.craft.problem(r) && game.craft.times(r) === 1, `crafting does not see the chest: ${game.craft.problem(r)}`);
+      game.craft.craft(r); check(I.count('cuerda') === 1 && chest[0]?.n === 2, `crafting did not take from the chest: ${chest[0]?.n}`);
+      check(game.gather.floaters.some(f => f.text.includes(t('carry.from_chest', { n: 3, item: ITEMS.fibra, chest: { name: ITEMS.cofre.name, g: 'm' } }))), `it does not say from where: ${game.gather.floaters.map(f => f.text)}`);
+      game.build.near = null; check(game.build.affordable('banco'), 'building does not see the chest');
+      I.add('tablas', 2); game.build.paid('banco'); check(!I.count('tablas') && chest[1]?.n === 6 && chest[2]?.n === 2, `building: ${I.count('tablas')} / ${chest[1]?.n} / ${chest[2]?.n}`);
+      // Too far (17 tiles), or a neighbor's: no
+      game.carry.near = null; const far = p().x; p().x += 400; check(game.carry.have('piedra') === 0, 'a chest far away counts'); p().x = far;
+      for (let i = 0; i < chest.length; i++) chest[i] = null;
+      w().unplace({ tile: [tx, ty], layer: 'placed', placed: 'cofre' });
+    } finally { I.slots.splice(0, I.slots.length, ...kept); I.changed(); }
+  });
+  await test('en brazos, cuevas y casas (carry places): down a cave and into a house with it, and put down there', async () => {
+    await weightOn();
+    const cave = makeCave(game, 1, 1, false);
+    const floor = (() => { for (let y = 1; y < 30; y++) for (let x = 1; x < 30; x++) if (cave.canPlace(x, y, 'antorcha')) return [x, y]; return null; })();
+    check(floor && cave.canPlace(...floor, 'log') && cave.canPlace(...floor, 'carcass_deer') && !cave.canPlace(...floor, 'silla'), 'a cave does not let it down');
+    const H = game.houseRect(), C = game.carry;
+    await goTo(game, (H.x0 + H.x1) / 2 + 0.5, H.y0 + 2.5); p().face = { x: 1, y: 0 };
+    C.set('log'); check(C.drop(), 'it cannot be put down in the house'); check(!C.held && near('log', p().x, p().y, 2), 'not in the house');
+    C.take(near('log', p().x, p().y, 2)); check(C.held === 'log', 'not picked up again'); C.set(null);
+  });
+  await test('en brazos, muerte (carry death): the carried log stays where you fell', async () => {
+    await weightOn();
+    await goTo(game, 40, 40);
+    const kept = inv().slots.slice(), equip = { ...inv().equip };
+    game.carry.set('log');
+    try { game.combat.dropAll(); check(!game.carry.held && near('log', 40, 40, 1), 'the log is not where you fell'); }
+    finally { inv().slots.splice(0, inv().slots.length, ...kept); Object.assign(inv().equip, equip); inv().changed(); game.gather.drops.length = 0; }
+  });
+  await test('red en brazos (carry net): the st message says what you carry and a remote player draws it', async () => {
+    await weightOn();
+    const live = game.live, A = game.view3d.actors, ents = live.entities;
+    try {
+      live.receive('c1', { t: 'hi', id: 'id-c1', name: 'c1', playing: true, look: LOOK });
+      live.receive('c1', { t: 'st', sc: 'world', x: p().x + 1.5, y: p().y + 0.5, yaw: 0, ca: 'carcass_deer' });
+      const e = live.peers.get('c1').entity;
+      check(e.carrying === 'carcass_deer' && e.armsBusy === 'across', `carrying: ${e.carrying}`);
+      live.entities = sc => (sc === game.world ? live.others.filter(o => o.entity).map(o => o.entity) : null);
+      draw(); draw();
+      const m = A.models.get(e); check(m?.carriedObj?.parent === m.person.r.bones.torso, 'the other player does not show it');
+      live.receive('c1', { t: 'st', sc: 'world', x: p().x + 1.5, y: p().y + 0.5, yaw: 0, ca: 'cosa_nueva' }); draw();
+      check(!e.carrying && !m.carriedObj, 'an unknown id is carried');
+      // The player: on the body, with the tools hidden as PLAN-A says (kit.js shownOf, arms)
+      game.carry.set('log'); draw(); draw();
+      check(A.player.carriedObj && game.view3d.actors.player.kitSig?.a === 'shoulder', 'the player does not show it, or the kit does not know');
+      game.carry.set(null); draw(); check(!A.player.carriedObj, 'it stays drawn');
+    } finally { live.entities = ents; live.peers.delete('c1'); draw(); }
+  });
+  await test('peso interfaz (weight UI): the list, the load bar and the HUD meter in the minimal and the full interface', async () => {
+    await weightOn();
+    const $ = id => document.getElementById(id), W = game.windows, I = inv(), kept = I.slots.slice();
+    try {
+      I.equip.espalda ||= { id: 'mochila', color: ITEMS.mochila.dye }; I.changed();   // (the list is the backpack's)
+      for (const [id, n] of [['piedra', 30], ['madera', 12], ['manzana', 4], ['tablas', 9], ['carbon', 5], ['fibra', 20], ['cuerda', 3], ['hueso', 2], ['tela', 2], ['cuero', 1], ['lana', 3], ['harina', 2]]) I.add(id, n);   // (more than the hotbar: some go to the list)
+      W.open('s-inv'); await frames(2);
+      check($('pk-box') && !$('pk-box').hidden && getComputedStyle($('inv-grid')).display === 'none', 'the list does not replace the grid');
+      const rows = [...document.querySelectorAll('#pk-box .pk-row')];
+      check(rows.length === I.listSlots().length && rows.length > 0, `${rows.length} rows for ${I.listSlots().length} stacks`);
+      check($('pk-top').querySelector('.pk-load b').textContent === t('gui.inventory.load', { kg: I.kg, cap: I.capKg }), `the load says: ${$('pk-top').querySelector('.pk-load b').textContent}`);
+      rows[0].dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerId: 1 })); rows[0].dispatchEvent(new PointerEvent('pointerup', { bubbles: true, pointerId: 1 }));
+      check($('inv-desc').textContent.includes('kg'), `the details do not say the weight: ${$('inv-desc').textContent}`);
+      W.closeAll();
+      for (const min of [false, true, false, true]) {
+        useSmartHud(game, min); draw();
+        const m = $('hud-load'); check(m?.parentNode?.id === (min ? 'hud-status' : 'hotbar'), `the meter is in ${m?.parentNode?.id} with the ${min ? 'minimal' : 'full'} interface`);
+      }
+    } finally { W.closeAll(); I.slots.splice(0, I.slots.length, ...kept); I.changed(); useSmartHud(game, true); draw(); }
+  });
+  await test('peso coste (weight cost): 4 players carrying cost less than 0.5 ms per frame', async () => {
+    await weightOn();
+    const live = game.live, A = game.view3d.actors, ents = live.entities, C = game.carry, N = 2000;
+    try {
+      for (let k = 0; k < 4; k++) { live.receive('q' + k, { t: 'hi', id: 'id-q' + k, name: 'q' + k, playing: true, look: LOOK }); live.receive('q' + k, { t: 'st', sc: 'world', x: p().x + 1 + k, y: p().y + 1, yaw: 0, ca: k % 2 ? 'log' : 'carcass_deer' }); }
+      live.entities = sc => (sc === game.world ? live.others.filter(o => o.entity).map(o => o.entity) : null);
+      draw(); draw();
+      C.set('log');
+      // The logic of each frame (the load, the speed, the meter) and the pose of the four (each pose, the arms)
+      let t0 = performance.now();
+      for (let i = 0; i < N; i++) { C.update(1 / 60); C.speedMul(); C.noRun(); C.jumpMul(); C.showLoad(); game.onFrame?.(); }
+      const logic = (performance.now() - t0) / N;
+      const Ps = [...live.others].map(o => A.models.get(o.entity)?.person).filter(Boolean);
+      t0 = performance.now();
+      for (let i = 0; i < N; i++) for (const P of Ps) holdPose(P, 'shoulder');
+      const pose = (performance.now() - t0) / N;
+      const calls = [...live.others].reduce((n, o) => { let k = 0; A.models.get(o.entity)?.carriedObj?.traverse(q => { if (q.isMesh) k++; }); return n + k; }, 0);
+      console.log(`peso coste: ${(logic * 1000).toFixed(1)} µs logic, ${(pose * 1000).toFixed(1)} µs pose of 4, ${calls} meshes for 4 players`);
+      check(logic + pose < 0.5 && calls <= 4 * 8, `${logic.toFixed(3)} + ${pose.toFixed(3)} ms, ${calls} meshes`);
+      tell('peso coste: medida', true, `${(logic * 1000).toFixed(1)} µs/frame logic, ${(pose * 1000).toFixed(1)} µs pose ×4, ${calls} meshes ×4`);
+    } finally { C.set(null); live.entities = ents; for (let k = 0; k < 4; k++) live.peers.delete('q' + k); draw(); }
+  });
+  await test('peso y en brazos, fin (weight end): the game back to slots, and a save played with the prototype opens without it', async () => {
+    if (!weightBack) return;
+    const W = game.snapshot();
+    Carry.force = null;
+    game.end(); game.start(JSON.parse(JSON.stringify(W)), new Map(JSON.parse(JSON.stringify([...game.world.deltas])))); game.onSave = null;
+    check(!game.inv.weight && game.inv.slots.length === 36, 'the slot inventory does not come back');
+    const back = weightBack; weightBack = null;
+    game.end(); game.start(JSON.parse(back.snap), new Map(JSON.parse(back.deltas))); game.onSave = null;
+    game.inv.equip.espalda ||= { id: 'mochila', color: ITEMS.mochila.dye }; game.inv.changed();
+    await readyGround(game, 8000);
   });
 }
 

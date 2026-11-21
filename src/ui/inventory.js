@@ -6,6 +6,9 @@ import { DYES } from '../looks.js';
 import { SLOTS, HOTBAR, extraOf } from '../inventory.js';
 import { itemIconUrl } from '../art/items.js';
 import { CharacterPreview } from '../three/preview.js';
+import { initPackList, toList } from './packlist.js';
+import { weightOf } from '../carry-items.js';
+import { t } from '../i18n.js';
 
 const $ = id => document.getElementById(id);
 
@@ -140,11 +143,18 @@ export function initInventoryUI(game, { onClose, onCraft }) {
   });
 
   const say = text => { $('inv-desc').textContent = text; };
+  // (the weight prototype: the backpack is a list, packlist.js, made the first time a game has the weight inventory; its
+  // slots past the hotbar are not drawn here)
+  let pack = null;
+  const packUI = { pick: i => { picked = i; refresh(); }, picked: () => picked, wear: i => { picked = i; wearPicked(); }, drop: (i, n) => drop(i, n), say };
   function refresh() {
     const inv = game.inv;
     hb.forEach((el, i) => { paint(el, inv.slots[i]); el.classList.toggle('sel', i === inv.selected); });
     if (!$('s-inv').classList.contains('show')) return;
-    cells.forEach((el, i) => { paint(el, inv.slots[i]); el.classList.toggle('sel', i === picked); el.classList.toggle('locked', !inv.usable(i)); });
+    if (inv.weight && !pack) pack = initPackList(game, packUI);
+    pack?.show(!!inv.weight);
+    if (pack && inv.weight) { cells.forEach((el, i) => { if (i < HOTBAR) { paint(el, inv.slots[i]); el.classList.toggle('sel', i === picked); } }); pack.refresh(); }
+    else cells.forEach((el, i) => { paint(el, inv.slots[i]); el.classList.toggle('sel', i === picked); el.classList.toggle('locked', !inv.usable(i)); });
     for (const [slot, el] of Object.entries(wears)) {
       const it = inv.equip[slot];
       paint(el, it && { ...it, n: 1 });
@@ -161,7 +171,7 @@ export function initInventoryUI(game, { onClose, onCraft }) {
     if (!s) { $('inv-name').textContent = 'Toca un objeto para ver qué es'; say('Arrástralo para moverlo, o a tu cuerpo para ponértelo. Suéltalo fuera para tirarlo.' + (kept ? ` Además guardas ${kept === 1 ? 'una cosa' : `${kept} cosas`} de una versión más nueva del juego: recarga la página para ${kept === 1 ? 'verla' : 'verlas'}.` : '') + (wait ? ` ${wait === 1 ? 'Una cosa que no te cabía espera' : `${wait} cosas que no te cabían esperan`} aparte: haz sitio y ${wait === 1 ? 'vuelve' : 'vuelven'} a la mochila la próxima vez que entres.` : '')); return; }
     $('inv-icon').src = itemIconUrl(s.id, s.color);
     $('inv-name').textContent = def.name + (s.n > 1 ? ` ×${s.n}` : '') + (worn ? ' (puesto)' : '');
-    say(def.desc + (def.food ? ` ${hungerText(def)}` : ''));
+    say(def.desc + (def.food ? ` ${hungerText(def)}` : '') + (inv.weight ? ` ${t('gui.inventory.weight_each', { kg: weightOf(s.id), total: Math.round(weightOf(s.id) * s.n * 10) / 10 })}` : ''));
     $('inv-wearbtn').hidden = !def.wear;
     // Teñir: las prendas (puestas o en la mochila) se cambian de color tocando uno
     $('inv-dyes').hidden = !def.wear || !!def.noDye;   // (la armadura no se tiñe)
@@ -257,7 +267,8 @@ export function initInventoryUI(game, { onClose, onCraft }) {
       if (!d.moving) { picked = d.i; refresh(); return; }
       const under = document.elementFromPoint(e.clientX, e.clientY);
       const to = under?.closest('#inv-grid .slot, #inv-quick .slot'), onBody = under?.closest('#inv-wear, #inv-me');
-      if (to) { game.inv.move(d.i, +to.dataset.i); picked = +to.dataset.i; refresh(); }
+      if (pack && game.inv.weight && under?.closest('#pk-box') && toList(game.inv, d.i)) { picked = null; refresh(); }   // (a slot of the hotbar to the list)
+      else if (to) { game.inv.move(d.i, +to.dataset.i); picked = +to.dataset.i; refresh(); }
       else if (onBody) { picked = d.i; if (ITEMS[game.inv.slots[d.i].id].wear) wearPicked(); else { refresh(); say('Eso no se lleva puesto.'); } }
       else if (!under?.closest('.inv-panel, .win, #hotbar')) drop(d.i, Infinity);   // (sobre otra ventana o la barra no se tira)
     });

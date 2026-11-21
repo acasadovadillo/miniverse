@@ -330,6 +330,7 @@ src/ui/wheel.js        La rueda de herramientas (F mantenida) y su cámara lenta
 src/social.js          Saludar e increpar (Y o clic derecho sobre alguien): a quién, los gestos, los bocadillos y la red
 src/reputation.js      La reputación del pueblo: niveles, lo que la cambia, precios y diario
 src/kit.js, src/three/kit3d.js   Las herramientas a la vista en el cuerpo: cuáles y dónde, y su dibujo
+src/carry.js (+ carry-items.js, ui/packlist.js, ui/loadmeter.js, three/carry3d.js)   Un interruptor experimental, ?inventario=peso (prototipo; sin él, nada cambia)
 src/family.js          Familia: tener hijos, nacer, crecer y la vida de los niños
 src/live.js, livesync.js, net.js, worldkey.js   Jugar juntos en directo: los demás jugadores, el mundo compartido, la conexión cifrada y la clave del mundo
 src/vault.js, github.js  Cifrado (AES-GCM, PBKDF2) y archivos en GitHub (accounts.json, Miniverse-data)

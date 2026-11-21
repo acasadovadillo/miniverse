@@ -21,6 +21,8 @@ import { Audio } from '../audio.js';
 import { reportFault } from '../faults.js';
 import { kindOf, placeKit, shownOf, splitKit, poseClass } from '../kit.js';
 import { bakeStowed, buildKit } from './kit3d.js';
+import { carriedModel, placeCarried, holdPose } from './carry3d.js';
+import { BULKY } from '../carry-items.js';
 
 // Agachado: cuánto se adelantan los muslos y se doblan las rodillas (rad), cuánto baja el cuerpo (m: lo que suben
 // los pies al doblar las piernas, para que sigan en el suelo) y se echa hacia delante (rad; la cabeza lo compensa
@@ -466,6 +468,7 @@ export class Actors {
         if (bag && m === this.player) bag.traverse(o => { if (o.isMesh) ownMesh(o, m, true); });
         if (bag && m.ghosted) { m.ghosted = false; this.ghost(m, true); }   // (de espectador, también medio transparente)
         this.kit(m, e, P, pz, lying);
+        this.carried(m, e, P);
       }
     } else if (m.kind === 'animal') {
       if (yaw !== null) turnTo(m.root, yaw, dt);
@@ -493,7 +496,7 @@ export class Actors {
   kit(m, e, P, pz, lying) {
     const ids = m === this.player ? this.game.kitIds() : splitKit(e.kitKey), bag = !!P.bag;
     if (ids !== m.kitIds || bag !== m.kitBag) { m.kitIds = ids; m.kitBag = bag; m.kitPlaced = placeKit(ids, { bag }); }
-    // (arms busy with something big, for PLAN-C: always null for now; see kit.js shownOf)
+    // (arms busy with something big: carry.js, only with the weight prototype; see kit.js shownOf)
     const hk = kindOf(m.holding), swim = m.swimK > 0.5, ride = !!(e.mount || e.boat || e.aboard), arms = e.armsBusy || null, S = (m.kitSig ||= {});
     const pc = poseClass(pz?.kind || (lying ? 'lie' : ''), { ride, crouch: !!e.crouch && !pz && !swim });
     if (S.p !== m.kitPlaced || S.h !== hk || S.s !== swim || S.c !== pc || S.a !== arms) {
@@ -516,6 +519,27 @@ export class Actors {
     }
   }
 
+  // What the arms carry (the weight prototype: carry.js; e.carrying, the player's or what another player's messages say),
+  // hung from the chest bone. Made again only when it changes; the geometry is shared (carry3d.js), the player's copy
+  // takes its own materials (for the outline), and they go with it
+  carried(m, e, P) {
+    const id = e.carrying && BULKY[e.carrying] ? e.carrying : null;
+    if (id === m.carriedId) return;
+    const old = m.carriedObj;
+    if (old) {
+      old.parent?.remove(old);
+      old.traverse(o => { if (o.isMesh && m.mats?.includes(o.material)) { o.material.dispose(); for (const list of [m.mats, m.body]) { const i = list.indexOf(o.material); if (i >= 0) list.splice(i, 1); } } });
+    }
+    m.carriedId = id; m.carriedObj = null;
+    if (!id || !P.bagFit) return;
+    const o = carriedModel(id);
+    placeCarried(o, id, P.bagFit());
+    if (m === this.player) o.traverse(q => { if (q.isMesh) ownMesh(q, m, true); });
+    P.torso.add(o);
+    m.carriedObj = o;
+    if (m.ghosted) { m.ghosted = false; this.ghost(m, true); }   // (de espectador, también medio transparente)
+  }
+
   // La pose de los huesos de una persona: andar (animate), en el aire, lo que lleva en la mano, agachada, sentada, a
   // caballo o en barca, y mirar a quien tiene al lado. dt: el tiempo desde la última pose (ver pose)
   poseBones(m, e, P, pz, lying, dt, game) {
@@ -526,6 +550,7 @@ export class Actors {
     // (después de andar: el golpe manda sobre el balanceo del brazo)
     if (game) this.hold(m, { held: game.inv.held?.id || null, swing: game.gather.swing, swingItem: game.gather.swingItem, cooldown: game.gather.cooldown, fishPose: game.fishing?.pose(game.time), bowPull: game.archery?.k || 0 }, dt);
     else if (e.remote) this.hold(m, e, dt);
+    if (e.carrying && BULKY[e.carrying]) holdPose(P, BULKY[e.carrying].hold);   // (something big in the arms: carry3d.js)
     // Agachado (Shift): las rodillas dobladas, el cuerpo más bajo y un poco echado hacia delante; andando, a pasitos
     const C = CROUCH;
     P.crouch = (P.crouch || 0) + ((e.crouch && !pz && !e.mount && !e.boat && !e.aboard && !(m.swimK > 0.5) ? 1 : 0) - (P.crouch || 0)) * Math.min(1, dt * 12);
@@ -550,7 +575,7 @@ export class Actors {
     if (e.mount || e.boat || e.aboard) { P.legs[0].rotation.x = P.legs[1].rotation.x = e.mount ? -1.1 : -1.4; P.legs[0].rotation.z = 0.5; P.legs[1].rotation.z = -0.5; for (const k of P.shins || []) k.rotation.x = e.mount ? 1.0 : 1.3; }
     else P.legs[0].rotation.z = P.legs[1].rotation.z = 0;
     if (m.swimK) this.swimBones(m, P);
-    if (e.emote) this.emote(m, e, P, dt, !!(game || e.remote));
+    if (e.emote && !e.carrying) this.emote(m, e, P, dt, !!(game || e.remote));   // (with the arms busy, no gesture)
     this.lookAt(m, e, dt, lying);
   }
 
