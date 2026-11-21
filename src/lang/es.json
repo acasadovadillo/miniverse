@@ -168,6 +168,6 @@
  "hud.wheel.hands": "Manos libres",
  "hud.wheel.uses": "{left}/{max} usos",
  "hud.wheel.arrows": "{n, plural, =0 {Sin flechas} one {# flecha} other {# flechas}}",
- "hud.wheel.help": "Mueve el ratón · suelta F para equipar · clic derecho: cancelar",
+ "hud.wheel.help": "Mueve el ratón · suelta\u00a0F para equipar · clic derecho: cancelar",
  "hud.controls.tab": "Mientras la mantienes, toda la interfaz y quién está jugando"
 }

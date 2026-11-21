@@ -21,6 +21,7 @@ const STICK = 120, DEAD = 28;   // px of mouse movement: the stick's reach and i
 const R_OUT = 190, R_IN = 92, GAP = 1.6;   // the ring (px) and the gap between slots (degrees)
 const HELP_TIMES = 3;           // the help line under the name, the first times (per account, like the key tips)
 const TIPS_KEY = 'pueblo-brotes:pistas';
+const SWALLOW_MAX = 3000;       // ms: the longest the click that closed it is waited for (see swallow)
 const SECTOR = 360 / HOTBAR;
 
 const CSS = `
@@ -115,16 +116,26 @@ export class ToolWheel {
         lastX = e.clientX; lastY = e.clientY;
         if (Math.abs(dx) < 300 && Math.abs(dy) < 300) this.move(dx, dy);   // (it sometimes jumps hugely: ignored, as input.js does)
       }],
-      ['pointerdown', e => { stop(e); if (e.button !== 0 && e.button !== 2) return; this.swallowUntil = performance.now() + 400; this.close(e.button === 0); }],
+      ['pointerdown', e => { stop(e); if (e.button !== 0 && e.button !== 2) return; this.swallowBtn = e.button; this.swallowUntil = performance.now() + SWALLOW_MAX; this.close(e.button === 0); }],
       ['wheel', e => { stop(e); if (e.ctrlKey || performance.now() - wheelAt < 60) return; wheelAt = performance.now(); this.step(e.deltaY > 0 ? 1 : -1); }],
       ...['pointerup', 'mousedown', 'mouseup', 'click', 'dblclick', 'contextmenu', 'auxclick'].map(type => [type, stop]),
     ];
     this.reset = () => { lastX = lastY = null; };
-    // The click that closed it still has its pointerup and click to come: they are swallowed too, or they would land on
-    // the window under the cursor (a slot of the inventory) or use the tool just equipped
-    // (and the pointerup that would have let go of the use button: it was never pressed, as the pointerdown did not get through)
-    this.swallow = ['pointerup', 'mouseup', 'click', 'contextmenu', 'auxclick'].map(type => [type, e => { if (performance.now() < this.swallowUntil) { stop(e); if (type === 'pointerup') keys.use = false; } }]);
-    this.swallowUntil = 0;
+    // The click that closed it still has its pointerup and click to come, however long the button is held: they are
+    // swallowed too, or they would land on the window under the cursor (a slot of the inventory, its drop or eat button)
+    // or use the tool just equipped. By button, to the end of that click: the left one's click, the right one's mouseup
+    // (its contextmenu, which may come before or after, goes too). SWALLOW_MAX or a new press, in case the end never comes
+    // (let go outside the window). (And the pointerup would have let go of the use button: it was never pressed, as the
+    // pointerdown did not get through)
+    this.swallow = ['pointerdown', 'pointerup', 'mouseup', 'click', 'contextmenu', 'auxclick'].map(type => [type, e => {
+      if (this.swallowBtn === null) return;
+      if (type === 'pointerdown' || performance.now() > this.swallowUntil) { if (!this.isOpen) this.swallowBtn = null; return; }
+      if (e.button !== this.swallowBtn && type !== 'contextmenu') return;
+      stop(e);
+      if (type === 'pointerup') keys.use = false;
+      if (type === 'click' || type === 'auxclick' || (type === 'mouseup' && e.button === 2)) this.swallowBtn = null;
+    }]);
+    this.swallowBtn = null; this.swallowUntil = 0;
     for (const [type, fn] of this.swallow) addEventListener(type, fn, true);
     this.onHide = () => { if (document.hidden) this.cancel(true); };
     document.addEventListener('visibilitychange', this.onHide);
@@ -245,8 +256,13 @@ export class ToolWheel {
       img.classList.toggle('hand', !s);
       n.textContent = s && s.n > 1 ? String(s.n) : '';
     }
+    // (everything unlit, the number and the icon too: the slot lit when it last closed stayed gold and big)
+    for (let i = 0; i < HOTBAR; i++) {
+      const w = this.slots[i];
+      this.paths[i].classList.remove('on'); this.nums[i].classList.remove('on');
+      w.style.transform = `translate(${w.dataset.x}px, ${w.dataset.y}px)`;
+    }
     this.marked = -1;
-    for (const p of this.paths) p.classList.remove('on');
     this.mark();
   }
   // The middle: the name of what is picked, its uses left (the bar as in the inventory, green to red), the arrows left

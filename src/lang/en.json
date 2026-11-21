@@ -168,6 +168,6 @@
  "hud.wheel.hands": "Hands free",
  "hud.wheel.uses": "{left}/{max} uses",
  "hud.wheel.arrows": "{n, plural, =0 {No arrows} one {# arrow} other {# arrows}}",
- "hud.wheel.help": "Move the mouse · let go of F to equip · right click: cancel",
+ "hud.wheel.help": "Move the mouse · let go of\u00a0F to equip · right click: cancel",
  "hud.controls.tab": "While you hold it, the whole interface and who is playing"
 }

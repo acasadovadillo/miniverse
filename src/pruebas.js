@@ -44,7 +44,7 @@ import { sobrio, tonosSuelo } from './arte.js';
 import { tintOf } from './three/tints.js';
 import { PHOTOS, photo } from './three/photos.js';
 import { Inventory, HOTBAR } from './inventory.js';
-import { kitOf, kitKey, placeKit, shownOf, splitKit, kindOf } from './kit.js';
+import { kitOf, kitKey, placeKit, shownOf, splitKit, kindOf, SCABBARD } from './kit.js';
 import { buildKit } from './three/kit3d.js';
 import { stowedGeo } from './three/actors.js';
 import { t, tHtml, fmt, formatMessage, defineNames, noun, setLang, getLang, onLangChange, accountLangOf, setAccountLang, savedLang, decideFirst, applyDom } from './i18n.js';
@@ -879,6 +879,24 @@ async function soloTests(game) {
       el('s-inv').dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
       check(!Wh.open && I.selected === 1 && heard === 0, `the click over the window: open ${Wh.open}, slot ${I.selected}, the window heard ${heard}`);
       for (const t of ['pointermove', 'pointerdown', 'pointerup', 'click', 'wheel']) el('s-inv').removeEventListener(t, spy);
+      // A long click: its up and click come after a while, and still nothing hears them
+      Wh.show(); Wh.move(0, 90);
+      el('s-inv').dispatchEvent(new PointerEvent('pointerdown', { button: 0, bubbles: true, cancelable: true }));
+      await sleep(600);
+      let late = 0; const spy2 = () => { late++; };
+      for (const t of ['pointerup', 'click']) el('s-inv').addEventListener(t, spy2);
+      el('s-inv').dispatchEvent(new PointerEvent('pointerup', { button: 0, bubbles: true, cancelable: true }));
+      el('s-inv').dispatchEvent(new MouseEvent('click', { button: 0, bubbles: true, cancelable: true }));
+      el('s-inv').dispatchEvent(new MouseEvent('click', { button: 0, bubbles: true, cancelable: true }));
+      for (const t of ['pointerup', 'click']) el('s-inv').removeEventListener(t, spy2);
+      check(late === 1, `a long click: the window heard ${late} (wanted only the second click)`);
+      I.select(1);
+      // Opened again after cancelling on another slot: only one slot lit (the number gold and the icon big)
+      Wh.show(); Wh.sx = Wh.sy = 0; Wh.move(0, 90); press('Escape');
+      I.select(2); Wh.show();
+      const lit = Wh.nums.filter(n => n.classList.contains('on')).length, big = Wh.slots.filter(w => /scale/.test(w.style.transform)).length, paths = Wh.paths.filter(q => q.classList.contains('on')).length;
+      check(lit === 1 && big === 1 && paths === 1 && Wh.nums[2].classList.contains('on'), `opened again: ${lit} numbers lit, ${big} icons big, ${paths} sectors`);
+      Wh.close(false); I.select(1);
       Wh.show(); press('Escape'); check(!Wh.open && game.mode === 'play' && W.isOpen('s-inv'), `Esc: open ${Wh.open}, mode ${game.mode}`);
     } finally { Wh.cancel(true); W.closeAll(); useSmartHud(game, false); I.select(sel); draw(); }
   });
@@ -901,7 +919,10 @@ async function soloTests(game) {
     check(kitKey(splitKit('cosa_nueva,hacha_hierro,flecha:6')) === 'hacha_hierro,flecha:6', 'an unknown id gets in');
     check(splitKit('x'.repeat(400)).length === 0, 'a huge kt');
     check(shownOf(placed, 'pico_hierro', { swimming: true }).length === placed.length, 'swimming, the one in hand leaves a gap');
-    check(shownOf(placed, 'pico_hierro', { pose: 'lie' }).length === 0 && shownOf(placed, null, { pose: 'sit' }).every(s => s.spot === 'hipL' || s.spot === 'hipR'), 'lying or sitting');
+    check(shownOf(placed, 'pico_hierro', { pose: 'lie' }).length === 0 && shownOf(placed, null, { pose: 'sit' }).length === 0, 'lying or sitting something shows');
+    const armed = placeKit(kitOf(make(['espada', 'hacha_hierro', 'pico_hierro'])));
+    check(shownOf(armed, null, { pose: 'ride' }).every(s => s.spot !== 'hipL' && s.spot !== 'hipR') && shownOf(armed, null, { pose: 'ride' }).some(s => s.spot === 'backA'), 'riding: the hips show, or the back does not');
+    check(shownOf(armed, 'espada').find(s => s.spot === 'hipL')?.id === SCABBARD && shownOf(armed, 'espada').length === armed.length, 'the sword drawn: its scabbard does not stay');
     check(shownOf(placed, 'pico_hierro', { arms: 'across' }).every(s => s.spot !== 'backA' && s.spot !== 'backB'), 'arms busy across');
   });
   await test('herramientas a la vista: on the body, through the network, hidden lying and far away', async () => {
@@ -936,12 +957,29 @@ async function soloTests(game) {
       I.select(1); draw();
       check(me.mats.length === mats && me.body.length === body, `materials: ${mats} → ${me.mats.length}, ${body} → ${me.body.length}`);
       check(me.person.kit.back === kit.back && me.person.kit.hip === kit.hip, 'the meshes were made again');
+      // The backpack on and off: the same places, somewhere else (on its face, or back on the body)
+      const bagWas = I.equip.espalda;
+      delete I.equip.espalda; I.changed(); draw(); draw();
+      const bagGeo = me.person.kit.back.geometry;
+      I.equip.espalda = { id: 'mochila', color: ITEMS.mochila.dye }; I.changed(); draw(); draw();
+      const onBag = me.person.kit.back.geometry;
+      check(onBag !== bagGeo && me.kitShown.startsWith('B|'), `putting the backpack on leaves the tools where they were: ${me.kitShown}`);
+      delete I.equip.espalda; I.changed(); draw(); draw();
+      check(me.person.kit.back.geometry !== onBag && !me.kitShown.startsWith('B|'), 'taking the backpack off leaves the tools where they were');
+      if (bagWas) { I.equip.espalda = bagWas; I.changed(); draw(); }
+      // Riding and crouching: rebuilt (higher on the back, nothing at the hips; the hips tilted back)
+      const P0 = p(), was = { mount: P0.mount, crouch: P0.crouch };
+      try {
+        P0.crouch = true; draw(); check(me.kitShown.includes('|crouch|'), `crouching: ${me.kitShown}`);
+        P0.crouch = false; P0.mount = true; draw(); check(me.kitShown.includes('|ride|') && !/hip[LR]:/.test(me.kitShown), `riding: ${me.kitShown}`);
+      } finally { P0.mount = was.mount; P0.crouch = was.crouch; draw(); }
       // Far away: hidden
       me.tier = 2; A.kit(me, p(), me.person, null, false); check(!me.person.kit.back.visible, 'far away it shows'); me.tier = 0; A.kit(me, p(), me.person, null, false);
       // The inventory's preview: it gets the tools, and keeps them when the look changes
-      game.windows.open('s-inv'); await sleep(150);
+      game.windows.open('s-inv');
+      for (let i = 0; i < 30 && !game.invPreview?.person?.kit; i++) await sleep(100);   // (its own frame loop: it may take a few)
       const pv = game.invPreview;
-      check(pv?.person?.kit?.back?.userData.has, 'the preview does not show the tools');
+      check(pv?.person?.kit?.back?.userData.has, `the preview does not show the tools: ${pv?.kitIds}, person ${!!pv?.person}, kit ${Object.keys(pv?.person?.kit || {})}, show ${document.getElementById('s-inv').classList.contains('show')}`);
       I.equip.cabeza = { id: 'sombrero', color: ITEMS.sombrero?.dye }; I.changed(); await sleep(150);
       check(pv.person?.kit?.back?.userData.has, 'after a change of clothes the preview lost the tools');
     } finally {

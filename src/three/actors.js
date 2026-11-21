@@ -487,20 +487,22 @@ export class Actors {
 
   // The tools they carry and do not hold, on their body (kit.js says which and where; kit3d.js draws them): the player's
   // from their inventory, another player's from what their messages say (kt). Rebuilt only when what shows changes
-  // (picking up, dropping or moving a tool, the backpack, sitting or lying, swimming, or the hand going from one kind of
-  // tool to another: its gap moves); the two meshes stay the same, so their own materials (the player's, for the
+  // (picking up, dropping or moving a tool, the backpack, sitting, lying, riding or crouching, swimming, or the hand going
+  // from one kind of tool to another: its gap moves); the two meshes stay the same, so their own materials (the player's, for the
   // outline; a spectator's) are made once. Far away (15 Hz or the far detail) they are hidden, and at 30 Hz with no shadow
   kit(m, e, P, pz, lying) {
     const ids = m === this.player ? this.game.kitIds() : splitKit(e.kitKey), bag = !!P.bag;
     if (ids !== m.kitIds || bag !== m.kitBag) { m.kitIds = ids; m.kitBag = bag; m.kitPlaced = placeKit(ids, { bag }); }
     // (arms busy with something big, for PLAN-C: always null for now; see kit.js shownOf)
-    const hk = kindOf(m.holding), swim = m.swimK > 0.5, pc = poseClass(pz?.kind || (lying ? 'lie' : '')), arms = e.armsBusy || null, S = (m.kitSig ||= {});
+    const hk = kindOf(m.holding), swim = m.swimK > 0.5, ride = !!(e.mount || e.boat || e.aboard), arms = e.armsBusy || null, S = (m.kitSig ||= {});
+    const pc = poseClass(pz?.kind || (lying ? 'lie' : ''), { ride, crouch: !!e.crouch && !pz && !swim });
     if (S.p !== m.kitPlaced || S.h !== hk || S.s !== swim || S.c !== pc || S.a !== arms) {
       Object.assign(S, { p: m.kitPlaced, h: hk, s: swim, c: pc, a: arms });
-      const shown = shownOf(m.kitPlaced, m.holding, { swimming: swim, pose: pc, arms }), key = shown.map(o => o.spot + ':' + o.id).join();
+      // (the backpack and the pose go in the key too: the same places, but somewhere else on the body)
+      const shown = shownOf(m.kitPlaced, m.holding, { swimming: swim, pose: pc, arms }), key = (bag ? 'B|' : '|') + pc + '|' + shown.map(o => o.spot + ':' + o.id).join();
       if (key !== m.kitShown) {
         m.kitShown = key;
-        const made = P.setKit(shown.length ? buildKit(shown, P.bagFit(), P.beltFit(), stowedGeo, { bag }) : {});
+        const made = P.setKit(shown.length ? buildKit(shown, P.bagFit(), P.beltFit(), stowedGeo, { bag, pose: pc }) : {});
         for (const o of made) if (m === this.player) ownMesh(o, m, true);
         if (made.length && m.ghosted) { m.ghosted = false; this.ghost(m, true); }   // (de espectador, también medio transparente)
         m.kitNear = undefined;

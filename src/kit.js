@@ -81,13 +81,24 @@ export function placeKit(ids, { bag = false } = {}) {
   return out;
 }
 // What is drawn now: without the place of the kind in hand (swimming, the hand is empty and it goes back to its place),
-// nothing lying down (it would go through the bed), and sitting nothing on the back (it would go through the backrest).
+// nothing lying down or sitting (through the bed, the backrest, the seat or the ground), and riding (a horse, a boat)
+// nothing at the hips (through the saddle or the bench). The sword drawn leaves its scabbard hanging (SCABBARD).
 // arms: see BUSY_HIDES (with the arms busy, the tool in hand hangs in its place too)
+export const SCABBARD = 'espada:vaina';
+const HIP_SPOTS = new Set(['hipL', 'hipR']);
 export function shownOf(placed, held, { swimming = false, pose = null, arms = null } = {}) {
-  if (pose === 'lie' || pose === 'floorLie') return EMPTY;
-  const hk = swimming || arms ? null : kindOf(held), hide = BUSY_HIDES[arms] || EMPTY, sitting = pose === 'sit' || pose === 'floorSit';
-  const out = placed.filter(p => p.kind !== hk && !hide.includes(p.spot) && !(sitting && BACK_SPOTS.has(p.spot)));
-  return out.length === placed.length ? placed : out;
+  if (pose === 'lie' || pose === 'floorLie' || pose === 'sit' || pose === 'floorSit') return EMPTY;
+  const hk = swimming || arms ? null : kindOf(held), hide = BUSY_HIDES[arms] || EMPTY, ride = pose === 'ride';
+  let out = null;
+  for (let i = 0; i < placed.length; i++) {
+    const p = placed[i], gone = hide.includes(p.spot) || (ride && HIP_SPOTS.has(p.spot));
+    const swap = !gone && p.kind === hk && hk === 'espada' ? { ...p, id: SCABBARD } : null;
+    if (!gone && p.kind !== hk) { if (out) out.push(p); continue; }
+    if (!out) out = placed.slice(0, i);
+    if (swap) out.push(swap);
+  }
+  return out || placed;
 }
-// The kind of pose that changes what shows (for the key of what is drawn)
-export const poseClass = kind => (kind === 'lie' || kind === 'floorLie' ? 'lie' : kind === 'sit' || kind === 'floorSit' ? 'sit' : '');
+// The kind of pose that changes what shows or where (for the key of what is drawn): lying, sitting, riding (a horse, a
+// boat: the back ones go higher, over the saddle) and crouching (the hip ones tilt back, off the ground)
+export const poseClass = (kind, { ride = false, crouch = false } = {}) => (kind === 'lie' || kind === 'floorLie' ? 'lie' : kind === 'sit' || kind === 'floorSit' ? 'sit' : ride ? 'ride' : crouch ? 'crouch' : '');

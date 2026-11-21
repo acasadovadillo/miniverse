@@ -23,6 +23,7 @@ import { ITEMS } from '../items.js';
 import { Fx } from './fx.js';
 import { ArrowsView } from './arrows.js';
 import { Glow } from './glow.js';
+import { prewarmKit } from './kit3d.js';
 import { Cave3D } from './cave3d.js';
 import { SunShadow } from './sunshadow.js';
 import { setRenderer as contactRenderer, contactOn, contactSun, contactRestored } from './contact3d.js';
@@ -198,6 +199,7 @@ export class View3D {
     if (this.prep) { this.prep.busy = null; this.prep.seen = null; this.prep.warm = false; }
     if (this.glow) this.glow.warm = false;
     if (this.outline) this.outline.warm = false;
+    this.kitWarm = false;
   }
   // Cuánto alumbra el reflejo del cielo (en esta versión de Three va en cada material: se recorre cuando cambia mucho)
   setEnv(v) {
@@ -470,6 +472,7 @@ export class View3D {
     this.draw();
     this.drawn++;
     if (!this.outliner.warm) this.outliner.prewarm();   // (its programs, before the first thing is aimed at)
+    if (!this.kitWarm) { this.kitWarm = true; prewarmKit(this.renderer, this.camera, this.scene); }   // (and the tools on the body's: kit3d.js)
     for (const [s, v] of this.caves) if (s !== scene && s !== this.lastCave) { v.dispose(); this.caves.delete(s); }
     this.stats(dt);
   }
