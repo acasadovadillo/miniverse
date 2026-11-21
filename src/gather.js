@@ -3,7 +3,7 @@
 import { CAM } from './camera.js';
 import { ITEMS, HARVEST, GRASS_DROPS, TOOL_COST, CROPS, hitsFor, hungerOf } from './items.js';
 import { HUNGER_MAX } from './combat.js';
-import { PIECES } from './pieces.js';
+import { PIECES, layerOf } from './pieces.js';
 import { RECIPES } from './recipes.js';
 import { Audio } from './audio.js';
 import { hud } from './ui/hud.js';
@@ -409,6 +409,7 @@ export class Gathering {
     if (!t?.ok) { this.float(t?.far ? `Demasiado lejos (como mucho a ${PLACE_REACH} casillas)` : t?.why || 'Ahí no cabe', '#ffb0a0'); Audio.error(); return; }
     if (t.moor) g.world.moorBoat(...t.moor);   // (la barca: amarrada en el agua)
     else if (t.free) g.scene.placeFree(id, t.fit, !!g.player.crouch); else g.scene.place(...t.tile, id, t.rot);
+    if (!t.moor && g.scene === g.world) { const at = t.free ? t.fit.anchor : t.tile; g.rep?.placed(layerOf(id), at[0], at[1]); }   // (put back where you took it from: reputation.js)
     if (g.build.on) g.build.paid(id); else g.inv.take(g.inv.selected, 1);   // (construyendo, se pagan sus materiales)
     this.chips(t.free ? t.fit.cx : t.tile[0] + 0.5, t.free ? t.fit.cy : t.tile[1] + 0.5, 'dirt', 8);
     Audio.place();

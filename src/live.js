@@ -24,6 +24,7 @@ import { GAME_VERSION, compareVersions } from './version.js';
 import { CHUNK } from './world/gen.js';
 import { wrapIndex, PLANET } from './world/planet.js';
 import { kitKey } from './kit.js';
+import { EMOTE_KINDS } from './social.js';
 
 const SEND_EVERY = 0.1, IDLE_EVERY = 1;   // segundos entre mensajes de cómo va uno: moviéndose y quieto
 const SYNC_EVERY = 0.1;                   // cada cuánto se mandan los cambios del mundo
@@ -56,6 +57,12 @@ class RemotePlayer extends Person {
     this.swim = !!st.na; this.sinkTo = st.na ? st.hu || 0 : 0;   // (nadando, y lo que se hunde o se asoma)
     // (kt: the tools they carry, seen on their body: see kit.js. A game from before does not send it: none)
     this.kitKey = typeof st.kt === 'string' ? st.kt.slice(0, 160) : '';
+    // (em, ek: their gestures, social.js. A new count is a new gesture; the first one that arrives is only noted, so
+    // coming in does not replay an old gesture. A game from before sends neither)
+    if (Number.isInteger(st.em) && st.em !== this.emSeq) {
+      if (this.emSeq !== undefined) this.emote = { k: EMOTE_KINDS[st.ek] || 'wave', t: 0 };
+      this.emSeq = st.em;
+    }
   }
   // w: el mundo, si está en él. z va sobre el suelo de donde pisa (surfaceAt); junto a lo cavado, ese suelo cambia de golpe
   // de una casilla a otra, y suavizando z aparte de x e y se le veía subir antes de caer al hoyo o hundido en el fondo al
@@ -397,6 +404,7 @@ export class Live {
         if (m.k) g.family.place(m.k);
         break;
       // Alguien llama a una puerta: suena si estás cerca (y, si es la tuya, te avisa)
+      case 'greet': if (!Profile.server && this.joined) g.social.heard(conn, peer, m); break;   // (someone greets: social.js)
       case 'knock':
         if (this.joined && g.player && g.scene === g.world && Math.hypot(g.player.x - m.x, g.player.y - m.y) < 25) { Audio.knock(); if (Math.hypot(g.player.x - m.x, g.player.y - m.y) < 12) hud.toast(`${peer.name} llama a la puerta`); }
         break;
@@ -854,7 +862,7 @@ export class Live {
     }
     this.sent += dt;
     const sc = g.scene === g.world ? 'world' : null;
-    const st = { t: 'st', sc, x: r2(p.x), y: r2(p.y), z: r2(p.z || 0), fl: p.floor ? r2(p.floor) : undefined, yaw: r2(g.view3d.actors.player?.person.facing ?? 0), in: p.inside ? 1 : 0, po: p.pose ? [POSES.indexOf(p.pose.kind), r2(p.pose.yaw), r2(p.pose.h)] : 0, m: p.mount ? 1 : 0, hc: p.mount ? p.horseCoat || null : null, hb: p.mount && p.horseBags ? 1 : 0, b: p.boat ? 1 : 0, pa: p.aboard || 0, cr: p.crouch ? 1 : 0, gm: g.gamemode === 'survival' ? 0 : g.gamemode === 'creative' ? 1 : 3, h: g.inv.held?.id || null, sw: this.swings, si: g.gather.swingItem || null, cd: r2(g.gather.cooldown || 0), dr: r2(g.archery.k), na: p.swim ? 1 : 0, hu: p.swim ? r2(p.sink) : undefined, kt: kitKey(g.kitIds()) || undefined };
+    const st = { t: 'st', sc, x: r2(p.x), y: r2(p.y), z: r2(p.z || 0), fl: p.floor ? r2(p.floor) : undefined, yaw: r2(g.view3d.actors.player?.person.facing ?? 0), in: p.inside ? 1 : 0, po: p.pose ? [POSES.indexOf(p.pose.kind), r2(p.pose.yaw), r2(p.pose.h)] : 0, m: p.mount ? 1 : 0, hc: p.mount ? p.horseCoat || null : null, hb: p.mount && p.horseBags ? 1 : 0, b: p.boat ? 1 : 0, pa: p.aboard || 0, cr: p.crouch ? 1 : 0, gm: g.gamemode === 'survival' ? 0 : g.gamemode === 'creative' ? 1 : 3, h: g.inv.held?.id || null, sw: this.swings, si: g.gather.swingItem || null, cd: r2(g.gather.cooldown || 0), dr: r2(g.archery.k), na: p.swim ? 1 : 0, hu: p.swim ? r2(p.sink) : undefined, kt: kitKey(g.kitIds()) || undefined, em: g.social.emSeq || undefined, ek: g.social.emSeq ? g.social.emKind : undefined };
     const key = JSON.stringify(st);
     if (this.sent < SEND_EVERY || (key === this.lastSent && this.sent < IDLE_EVERY)) return;
     this.sent = 0; this.lastSent = key;

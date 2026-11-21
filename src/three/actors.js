@@ -550,7 +550,31 @@ export class Actors {
     if (e.mount || e.boat || e.aboard) { P.legs[0].rotation.x = P.legs[1].rotation.x = e.mount ? -1.1 : -1.4; P.legs[0].rotation.z = 0.5; P.legs[1].rotation.z = -0.5; for (const k of P.shins || []) k.rotation.x = e.mount ? 1.0 : 1.3; }
     else P.legs[0].rotation.z = P.legs[1].rotation.z = 0;
     if (m.swimK) this.swimBones(m, P);
+    if (e.emote) this.emote(m, e, P, dt, !!(game || e.remote));
     this.lookAt(m, e, dt, lying);
+  }
+
+  // A gesture to say something with the body (social.js: greeting, nodding, a shrug, provoking…), on top of the pose: it
+  // eases in and out, and ends by itself (then animate() puts the arms back). e.emote = { k, t }. A player (player: true)
+  // uses the free arm, the left one (the right holds the tool, or the reins on a horse), and the two-arm ones only with an
+  // empty hand; the neighbors, the right one. Swimming, none
+  emote(m, e, P, dt, player) {
+    const a = e.emote, E = EMOTES[a.k];
+    if (!E || m.swimK > 0.5) { delete e.emote; return; }
+    a.t += dt;
+    const k = Math.min(1, a.t / E.dur), w = Math.max(0, Math.min(1, k / 0.18, (1 - k) / 0.22)), sm = w * w * (3 - 2 * w);
+    const one = player ? 1 - P.toolArm : P.toolArm, arms = E.both && !(player && m.holding) ? [0, 1] : [one];
+    for (const i of arms) {
+      const q = E.pose(k, i === 0 ? -1 : 1), A = P.arms[i], F = P.fore?.[i];
+      if (q.ax !== undefined) A.rotation.x += (q.ax - A.rotation.x) * sm;
+      if (q.az !== undefined) A.rotation.z += (q.az - A.rotation.z) * sm;
+      if (F && q.fx !== undefined) F.rotation.x += (q.fx - F.rotation.x) * sm;
+    }
+    const q = E.pose(k, 1);
+    if (q.hx) P.head.rotation.x += q.hx * sm;
+    if (q.tx) P.torso.rotation.x += q.tx * sm;
+    P.head.rotation.z = (q.hz || 0) * sm;
+    if (k >= 1) { delete e.emote; P.head.rotation.z = 0; }
   }
 
   // Nadando: dónde va la raíz de la persona (la altura de sus pies de pie), con la brazada que lleva (m.swimS: su momento
@@ -653,6 +677,19 @@ const GESTURES = {
   regar: { dur: 0.7, arm: [[0, 0], [0.25, -0.9], [0.75, -0.9], [1, 0]], tilt: [[0, 0], [0.25, 1.5], [0.75, 1.5], [1, 0]] },
   lanzar: { dur: 0.6, arm: [[0, 0], [0.3, -2.6], [0.55, -0.6], [1, 0]], twist: [[0, 0], [0.3, -0.2], [0.55, 0.1], [1, 0]] },
   mano: { dur: 0.3, arm: [[0, 0], [0.4, -1.5], [1, 0]], twist: [[0, 0], [0.4, -0.25], [1, 0]] },
+};
+// The gestures of social.js: what each one does, at its moment k (0 to 1), with s the side of the arm (-1 the right, 1 the
+// left: + raises it outwards). ax: the arm forward (negative raises it), az: sideways, fx: the elbow (negative bends it),
+// hx: the head (positive, down), hz: its tilt, tx: the trunk (positive, forward). How long it lasts, in seconds
+export const EMOTES = {
+  wave: { dur: 1.1, pose: (k, s) => ({ ax: -2.55, az: s * (0.3 + 0.3 * Math.sin(k * Math.PI * 6)), fx: -0.5 }) },
+  nod: { dur: 0.8, pose: k => ({ hx: 0.34 * Math.sin(k * Math.PI * 2) ** 2 }) },
+  shrug: { dur: 1.0, both: true, pose: (k, s) => ({ ax: -0.25, az: s * 0.35, fx: -1.5, hz: 0.16 }) },
+  hips: { dur: 1.4, both: true, pose: (k, s) => ({ ax: 0.35, az: s * 0.55, fx: -1.3, hx: -0.06 }) },
+  fist: { dur: 0.9, pose: (k, s) => ({ ax: -1.15 + 0.18 * Math.sin(k * Math.PI * 8), az: s * 0.22, fx: -1.85, tx: 0.06 }) },
+  flinch: { dur: 0.8, both: true, pose: (k, s) => ({ ax: -1.05, az: s * 0.18, fx: -1.75, tx: -0.16, hx: -0.18 }) },
+  point: { dur: 1.0, pose: (k, s) => ({ ax: -1.5, az: s * 0.06, fx: -0.05 }) },
+  dismiss: { dur: 0.75, pose: (k, s) => ({ ax: -0.95 + 0.65 * k, az: s * (0.12 + 1.05 * k), fx: -0.65 }) },
 };
 // Cuánto levanta el brazo ahora el gesto del jugador (0 si no está usando nada)
 export function swingArm(m) { const a = m?.anim; return a ? keys(GESTURES[a.kind].arm, Math.min(1, a.t / a.dur)) : 0; }

@@ -2,7 +2,7 @@
 // o lo que hay delante del jugador) y se pone pagando sus materiales. Quitar devuelve los materiales
 // (o el mueble a la mochila). Se puede quitar de todo, también de las casas del pueblo y de las aldeas.
 import { STATIONS, aStation } from './recipes.js';
-import { PIECES, parsePlaced } from './pieces.js';
+import { PIECES, parsePlaced, layerOf } from './pieces.js';
 import { ITEMS, CHESTS } from './items.js';
 import { floorSprite, wallSprite, doorSprite, hearthSprite, roofSprite, fenceSprite } from './art/build.js';
 import { Audio } from './audio.js';
@@ -172,6 +172,7 @@ export class BuildMode {
     if (!c.ok) { if (!drag) { if (c.why) g.gather.float(c.why, '#ffb0a0'); Audio.error(); } return; }
     if (!g.admin) for (const [m, n] of PIECES[this.piece].cost) g.inv.remove(m, n);
     g.scene.place(t[0], t[1], this.piece);
+    if (g.scene === g.world) g.rep?.placed(layerOf(this.piece), t[0], t[1]);   // (put back where you took it from: reputation.js)
     g.gather.chips(t[0] + 0.5, t[1] + 0.5, 'wood', 6);
     Audio.place();
     g.skills?.gain('construccion', 1);
@@ -285,6 +286,7 @@ export class BuildMode {
       if (sc.unplace(o) === false) { Audio.error(); return; }
       for (const [m, n] of PIECES[id].cost) { const left = g.inv.add(m, n); if (left) g.gather.throwOut(m, left); }
     } else if (!g.pickUp(o)) return;
+    if (sc === g.world) g.rep?.taken(layer, tile[0], tile[1], own);   // (from a neighbor's house: the village notices, reputation.js)
     this.pickV++;
     g.gather.chips(tile[0] + 0.5, tile[1] + 0.5, 'wood', 6);
     Audio.chop();

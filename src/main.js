@@ -55,6 +55,8 @@ function play(login = true) {   // (login: abrir la pantalla de entrar)
     paint: (x, y, drag) => b.place(game.tileAtScreen(x, y), drag, [x, y]),
     unpaint: (x, y, drag) => b.removeAt(game.tileAtScreen(x, y), drag, [x, y]),
     release: () => { b.painted = null; b.dragLayer = null; },
+    social: (down, src, x, y) => (down ? game.social.press(src, x, y) : game.social.release(src)),   // (Y or right click on someone: social.js)
+    socialCancel: () => game.social.cancel(),
     secondary: (x, y) => { if (game.mode === 'play' && !game.busy) game.ranch.sitAt(game.tileAtScreen(x, y)); },
     // Lo que se coloca libre gira poco a poco mientras se mantiene R; lo que va contra un muro (cuadros, hogar), en
     // cuatro giros desde el que se ve

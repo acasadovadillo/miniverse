@@ -82,6 +82,7 @@ export class Board {
       g.neighbors.addPoints(r.who, 60);
       this.done.ids.push(r.i);
       g.stats?.add('encargos', 1);
+      g.rep?.change(10, 'errand');
       Audio.unlock();
       await hud.say(PEOPLE[r.who].name, ['¡Muchísimas gracias! Te debo una. Bueno, te debo esto:', `+${r.reward} monedas.`]);
     }
@@ -105,6 +106,7 @@ export class Board {
     this.world.rebuildVillage();
     if (id === 'casa') g.neighbors.moveIn('dani');
     g.stats?.add('proyectos', 1);
+    g.rep?.change(60, 'project');
     Audio.unlock();
     hud.toast(`¡Proyecto terminado: ${p.name}!`, 'good');
     await hud.say('Nilo', [id === 'casa' ? '¡Ya tenemos vecino nuevo! Se llama Dani y dice que es artista. Ve a saludar.' : `¡Mira qué maravilla! El pueblo gana mucho con ${p.name.toLowerCase()}.`]);

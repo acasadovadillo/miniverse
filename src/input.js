@@ -5,6 +5,9 @@ import { CAM, DIST, lookBy } from './camera.js';
 // use: el botón de usar se mantiene pulsado (para seguir talando sin repetir la tecla)
 export const keys = { up: false, down: false, left: false, right: false, run: false, use: false, space: false };
 const handlers = { chat: () => false, use: () => {}, jump: () => {}, interact: () => {}, pause: () => {}, map: () => {}, bag: () => {}, craft: () => {}, build: () => {}, rotate: () => {}, erase: () => {}, select: () => {}, cycle: () => {}, enabled: () => false };
+// Greeting (social.js): Y, or right click on a person; a tap greets, held it provokes
+export const SOCIAL_KEY = 'KeyY', SOCIAL_BUTTON = 2;
+let socialBtn = false;   // (the right button went to a greeting: its letting go ends it)
 const KEYMAP = { KeyW: 'up', ArrowUp: 'up', KeyS: 'down', ArrowDown: 'down', KeyA: 'left', ArrowLeft: 'left', KeyD: 'right', ArrowRight: 'right' };
 // En el juego las flechas mueven la cámara (girar e inclinar) y + y − la acercan o alejan; mientras se
 // mantienen, la cámara se mueve suave. Con el mapa abierto, las flechas mueven el mapa como WASD.
@@ -79,6 +82,7 @@ export function initInput(h) {
     if (e.code === 'F3') { e.preventDefault(); if (!e.repeat) handlers.debug?.(); return; }   // (el panel de depuración, como en Minecraft)
     // F held: the tool wheel; a tap, back to what you held before (not with Cmd or Ctrl: Cmd+F is the browser's search)
     if (e.code === 'KeyF' && !e.metaKey && !e.ctrlKey) { e.preventDefault(); if (!e.repeat) handlers.wheelPress?.(); return; }
+    if (e.code === SOCIAL_KEY && !e.metaKey && !e.ctrlKey) { e.preventDefault(); if (!e.repeat) handlers.social?.(true, 'key'); return; }   // (greet; held, provoke)
     if (e.code === 'KeyZ' && !e.repeat) { CAM.first = !CAM.first; e.preventDefault(); return; }   // primera o tercera persona
     if (e.code === 'KeyQ' && !e.repeat) { handlers.drop?.(e.ctrlKey || e.metaKey || e.shiftKey); e.preventDefault(); return; }   // tirar (con Ctrl o Shift, el montón)
     if (e.code === 'KeyG' && !e.repeat) { handlers.sit?.(); return; }    // sentarse en el suelo
@@ -106,8 +110,9 @@ export function initInput(h) {
     if (e.code === 'KeyR') handlers.rotateEnd?.();
     if (e.code === 'Tab') handlers.players?.(false);
     if (e.code === 'KeyF') handlers.wheelRelease?.();
+    if (e.code === SOCIAL_KEY) handlers.social?.(false, 'key');
   });
-  addEventListener('blur', () => { handlers.wheelCancel?.(true); clearKeys(); });
+  addEventListener('blur', () => { handlers.wheelCancel?.(true); handlers.socialCancel?.(); socialBtn = false; clearKeys(); });
 
   // Ratón sobre el juego: clic para usar (mantener para seguir), rueda para cambiar de objeto.
   // En modo construcción, el ratón (o el dedo) apunta a la casilla: clic pone, clic derecho quita, arrastrar pinta.
@@ -144,12 +149,18 @@ export function initInput(h) {
       if (e.button === 2) handlers.unpaint(e.clientX, e.clientY); else handlers.paint(e.clientX, e.clientY, false);
       return;
     }
-    if (e.pointerType === 'mouse' && e.button === 2) { handlers.secondary?.(aimLock.locked ? innerWidth / 2 : e.clientX, aimLock.locked ? innerHeight / 2 : e.clientY); return; }   // (clic derecho: sentar al perro)
+    // (right click: on a person, greet them, held, provoke them, social.js; on nobody, sit the dog down)
+    if (e.pointerType === 'mouse' && e.button === SOCIAL_BUTTON) {
+      const x = aimLock.locked ? innerWidth / 2 : e.clientX, y = aimLock.locked ? innerHeight / 2 : e.clientY;
+      if (handlers.social?.(true, 'mouse', x, y) === true) { socialBtn = true; return; }
+      handlers.secondary?.(x, y);
+      return;
+    }
     if (e.pointerType !== 'mouse' || e.button !== 0) return;
     keys.use = true;
     handlers.use();
   });
-  addEventListener('pointerup', e => { if (e.pointerType === 'mouse') keys.use = false; handlers.release?.(); });
+  addEventListener('pointerup', e => { if (e.pointerType === 'mouse') keys.use = false; if (socialBtn && e.button === SOCIAL_BUTTON) { socialBtn = false; handlers.social?.(false, 'mouse'); } handlers.release?.(); });
   let wheelAt = 0;
   canvas.addEventListener('wheel', e => {
     e.preventDefault();

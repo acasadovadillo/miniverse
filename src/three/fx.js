@@ -156,6 +156,7 @@ export class Fx {
     this.updateFishing(game, scene, playing, t);
     this.updateBeacon(scene, t);
     this.updateFloaters(game, playing);
+    this.updateBubbles(game, playing);
     this.hurt.style.opacity = playing && game.flashHurt > game.time ? '1' : '0';
   }
 
@@ -490,6 +491,40 @@ export class Fx {
       el.style.opacity = String(Math.min(1, 2.5 - f.t * 1.8));
     }
     for (const [f, el] of this.tags) if (!seen.has(f)) { el.remove(); this.tags.delete(f); }
+  }
+  // The lines people say (social.js): a bubble over each one's head, following them (in the layer of the floating texts).
+  // Made when the line is said, measured once; each frame, one projection and one transform. Far away (> 20 tiles) or
+  // behind the camera, hidden. Two that would overlap on screen: the newer one goes up over the older one
+  updateBubbles(game, playing) {
+    const S = game.social, list = playing && S ? S.bubbles : [], els = (this.bubbleEls ||= new Map());
+    if (!list.length && !els.size) return;
+    const cam = this.view.camera, w = innerWidth, h = innerHeight, me = game.player, A = this.view.actors, put = [];
+    const seen = new Set();
+    for (const b of list) {
+      const e = b.e, x = me ? nearX(e.x, me.x) : e.x;
+      let el = els.get(b);
+      if (!el) {
+        el = document.createElement('div'); el.className = 'say-bubble' + (b.mine ? ' mine' : '');
+        if (b.name) { const n = document.createElement('b'); n.textContent = b.name; el.append(n); }
+        el.append(b.text);
+        this.layer.appendChild(el); els.set(b, el);
+        b.w = el.offsetWidth; b.h = el.offsetHeight;
+      }
+      seen.add(b);
+      const P = A?.models.get(e)?.person, far = me && Math.hypot(x - me.x, e.y - me.y) > 20;
+      if (P?.head && A.models.get(e).root.visible) { P.head.getWorldPosition(v3); v3.y += 0.36; }
+      else v3.set(x, this.view.groundY(game.scene, x, e.y) + 1.9, e.y);
+      v3.project(cam);
+      if (far || v3.z > 1) { if (!b.off) { b.off = true; el.style.visibility = 'hidden'; } continue; }
+      if (b.off) { b.off = false; el.style.visibility = ''; }
+      // (kept inside the screen: a person at the edge has their bubble a little to the side, never cut)
+      let sx = Math.max(6, Math.min(w - b.w - 6, ((v3.x + 1) / 2) * w - b.w / 2)), sy = Math.max(6, ((1 - v3.y) / 2) * h - b.h - 9);
+      for (const o of put) if (sx < o[0] + o[2] && sx + b.w > o[0] && sy < o[1] + o[3] && sy + b.h > o[1]) sy = o[1] - b.h - 4;
+      put.push([sx, sy, b.w, b.h]);
+      el.style.transform = `translate(${sx.toFixed(1)}px, ${sy.toFixed(1)}px)`;
+      el.style.opacity = String(Math.max(0, Math.min(1, b.t / 0.15, (b.life - b.t) / 0.4)));
+    }
+    for (const [b, el] of els) if (!seen.has(b)) { el.remove(); els.delete(b); }
   }
 }
 

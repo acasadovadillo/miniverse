@@ -9,6 +9,8 @@ import { TRADES } from './trades.js';
 import { Audio } from './audio.js';
 import { hud } from './ui/hud.js';
 import { Profile } from './accounts.js';
+import { tList, formatMessage } from './i18n.js';
+import { levelIndex } from './reputation.js';
 
 // Puntos del pueblo por los que se camina (sobre el camino, para no chocar con nada) y cómo se unen: village.js
 const NODES = WALK_NODES, EDGES = WALK_EDGES;
@@ -22,9 +24,10 @@ function route(from, to) {
   return out;
 }
 
+// temper: their character, for how they answer a greeting or a provocation (social.js: kind, cheerful, shy, gruff, wry)
 const PEOPLE = {
   nilo: {
-    name: 'Nilo', fixed: true, loves: ['pan', 'tostada_miel', 'tarta_calabaza'], likes: ['manzana', 'miel', 'queso', 'pan_bellota'], hates: ['piedra', 'carbon'],
+    name: 'Nilo', temper: 'kind', fixed: true, loves: ['pan', 'tostada_miel', 'tarta_calabaza'], likes: ['manzana', 'miel', 'queso', 'pan_bellota'], hates: ['piedra', 'carbon'],
     chat: ['Cuando yo era joven, este pueblo tenía hasta panadería. Y un perro que se llamaba Pan.', 'El secreto de una buena vida: dormir la siesta y no discutir con las gallinas.', '¿Has visto qué cielo? Mañana lloverá, o no. Ochenta años y sigo sin acertar.', 'Me alegra ver humo en tu chimenea. Una casa vacía se pone triste.'],
     events: {
       3: { lines: ['¿Sabes? Mi abuelo decía que si andas siempre hacia el oeste, acabas volviendo por el este. Que el mundo da la vuelta.', 'Nadie lo ha comprobado nunca. Pero si alguien puede, eres tú. Toma, era suyo.'], gift: [['semilla_manzano', 2]] },
@@ -32,7 +35,7 @@ const PEOPLE = {
     },
   },
   rosa: {
-    name: 'Rosa', home: 'rosa', look: { sex: 'chica', skin: '#f6c9a0', hair: '#4a2c1c', eyes: '#6a3a1e', cloth: '#c83a3a', pants: '#4a3a2a', hairStyle: 'mono', outfit: 'delantal' },
+    name: 'Rosa', temper: 'cheerful', home: 'rosa', look: { sex: 'chica', skin: '#f6c9a0', hair: '#4a2c1c', eyes: '#6a3a1e', cloth: '#c83a3a', pants: '#4a3a2a', hairStyle: 'mono', outfit: 'delantal' },
     schedule: [[0, 'door_rosa'], [8.5, 'stall'], [18, 'pond_w'], [20.5, 'door_rosa']], work: 'stall', shop: 'rosa',
     loves: ['fresa', 'mermelada_fresa', 'miel'], likes: ['tomate', 'zanahoria', 'huevo', 'flores'], hates: ['anguila', 'carbon'],
     chat: ['¡Semillas frescas, oiga! Bueno, frescas… de este año. Casi todas.', 'Mi hermana Lía se pasa el día pescando. Yo me paso el día vendiendo lo que ella no pesca.', 'Si plantas en la estación equivocada, la planta se enfada y se seca. Como yo sin café.', 'Dicen que si riegas cantando, crece más rápido. Yo no lo he probado: canto fatal.'],
@@ -42,7 +45,7 @@ const PEOPLE = {
     },
   },
   lia: {
-    name: 'Lía', home: 'rosa', look: { sex: 'chica', skin: '#e8b07a', hair: '#e8c060', eyes: '#3a6ab8', cloth: '#2e8a8a', pants: '#3a4a6a', hairStyle: 'largo', outfit: 'chaleco' },
+    name: 'Lía', temper: 'shy', home: 'rosa', look: { sex: 'chica', skin: '#e8b07a', hair: '#e8c060', eyes: '#3a6ab8', cloth: '#2e8a8a', pants: '#3a4a6a', hairStyle: 'largo', outfit: 'chaleco' },
     schedule: [[0, 'door_rosa'], [6, 'pond_s'], [12, 'plaza'], [15, 'pond_s'], [20, 'door_rosa']], work: 'pond_s', shop: 'lia',
     loves: ['pez_dorado', 'salmon', 'pescado_asado'], likes: ['trucha', 'carpa', 'lubina', 'coco'], hates: ['lana', 'calabaza'],
     chat: ['¿Sabías que las anguilas solo salen de noche? Como los búhos. Y como mi hermana cuando hay tarta.', 'El pez dorado existe. Lo vi una vez. Bueno, lo soñé. Pero muy fuerte.', 'En el mar hay sardinas y lubinas; en los ríos, truchas y salmones en otoño.', 'Con una barca podrías llegar a islas que nadie ha pisado. Yo vendo barcas, por cierto.'],
@@ -52,7 +55,7 @@ const PEOPLE = {
     },
   },
   bruno: {
-    name: 'Bruno', home: 'bruno', look: { sex: 'chico', skin: '#8a5234', hair: '#2a1e1e', eyes: '#3a2a1e', cloth: '#4a4a5a', pants: '#3a3a3a', hairStyle: 'rapado', outfit: 'delantal', beard: true },
+    name: 'Bruno', temper: 'gruff', home: 'bruno', look: { sex: 'chico', skin: '#8a5234', hair: '#2a1e1e', eyes: '#3a2a1e', cloth: '#4a4a5a', pants: '#3a3a3a', hairStyle: 'rapado', outfit: 'delantal', beard: true },
     schedule: [[0, 'door_bruno'], [7.5, 'forge'], [17, 'board'], [20, 'door_bruno']], work: 'forge', shop: 'bruno',
     loves: ['diamante', 'rubi', 'lingote_oro'], likes: ['lingote_hierro', 'carbon', 'cobre', 'hierro', 'queso'], hates: ['fresa', 'maceta'],
     chat: ['Golpear metal caliente es lo más relajante del mundo. Después de dormir.', 'En las cuevas, cuanto más bajas, mejores piedras. Y más bichos. Lleva antorchas.', 'Una espada no es para pelear: es para que los bichos lo piensen dos veces.', 'El hierro sale con pico de cobre. El oro, con pico de hierro. Es lo que hay.'],
@@ -62,7 +65,7 @@ const PEOPLE = {
     },
   },
   dani: {
-    name: 'Dani', home: 'dani', project: 'casa', look: { sex: 'chico', skin: '#c98a5a', hair: '#e86aa0', eyes: '#3a8a4a', cloth: '#6a4ab8', pants: '#2a2a3a', hairStyle: 'rizado', outfit: 'larga' },
+    name: 'Dani', temper: 'cheerful', home: 'dani', project: 'casa', look: { sex: 'chico', skin: '#c98a5a', hair: '#e86aa0', eyes: '#3a8a4a', cloth: '#6a4ab8', pants: '#2a2a3a', hairStyle: 'rizado', outfit: 'larga' },
     schedule: [[0, 'door_dani'], [10, 'easel'], [15, 'plaza'], [19, 'door_dani']], work: 'easel', shop: 'dani',
     loves: ['amatista', 'esmeralda', 'tela'], likes: ['miel', 'lana', 'palomitas', 'maceta'], hates: ['carpa', 'piedra'],
     chat: ['Estoy pintando el estanque. Llevo tres días con el mismo pato.', 'El color favorito de este pueblo es el verde. Lo he contado.', 'Gracias por la casa nueva. Huele a madera y a futuro.', 'Si encuentras piedras preciosas en las cuevas, tráemelas: hago pintura con ellas.'],
@@ -77,7 +80,7 @@ const PEOPLE = {
 const STOOL_H = 0.27, CHAIR_H = 0.14, TO_N = Math.PI, TO_E = Math.PI / 2, TO_W = -Math.PI / 2;
 Object.assign(PEOPLE, {
   anselmo: {
-    name: 'Anselmo', seat: [6.5, 33.45, 0], hours: [10, 26], work: 'taberna', shop: 'anselmo',
+    name: 'Anselmo', temper: 'wry', seat: [6.5, 33.45, 0], hours: [10, 26], work: 'taberna', shop: 'anselmo',
     look: { sex: 'chico', skin: '#e8b07a', hair: '#7a4a2a', eyes: '#3a2a1e', cloth: '#efe6d4', pants: '#3a2c22', hairStyle: 'calvo', outfit: 'delantal', beard: 'completa' },
     loves: ['miel', 'filete', 'manzana_asada'], likes: ['trigo', 'manzana', 'queso'], hates: ['baba', 'calavera'],
     chat: ['¿Lo de siempre? Da igual lo que digas, te voy a poner lo de siempre.', 'Aquí se sabe todo antes de que pase. Rosa ya me ha contado lo que vas a hacer mañana.', 'La receta de la cerveza era de mi abuela. La de la sopa, también. Mi abuela no cocinaba bien.', 'Si no pagas hoy, pagas mañana. Y si no, le digo a Bruno que me debes dinero.', 'En esta barra se han arreglado más líos que en todo el ayuntamiento. Bueno, no hay ayuntamiento.'],
@@ -87,28 +90,28 @@ Object.assign(PEOPLE, {
     },
   },
   eusebio: {
-    name: 'Eusebio', seat: [3.5, 35.5, TO_N], sits: STOOL_H, hours: [11, 23],
+    name: 'Eusebio', temper: 'gruff', seat: [3.5, 35.5, TO_N], sits: STOOL_H, hours: [11, 23],
     look: { sex: 'chico', skin: '#f6c9a0', hair: '#a8a4ac', eyes: '#7a7a8a', cloth: '#5a6a4a', pants: '#3a3a3e', hairStyle: 'corto', outfit: 'chaleco', beard: 'bigote' },
     loves: ['pan_bellota', 'pinones'], likes: ['pan', 'queso'], hates: ['anguila'],
     chat: ['Yo llevo en este taburete desde antes de que hubiera taberna.', '¿Tú crees que va a llover? Yo creo que sí. Lo digo todos los días y a veces acierto.', 'Nilo y yo fuimos a la escuela juntos. Él ya era viejo entonces.', 'Dicen que al norte hay hielo que no se acaba nunca. Yo no he ido a mirar: me queda lejos del taburete.'],
     events: { 3: { lines: ['Toma, de mi huerto. Bueno, del huerto de mi cuñada. Bueno, ella no lo sabe.'], gift: [['manzana', 4]] } },
   },
   ines: {
-    name: 'Inés', seat: [7.5, 35.5, TO_N], sits: STOOL_H, hours: [12, 22],
+    name: 'Inés', temper: 'shy', seat: [7.5, 35.5, TO_N], sits: STOOL_H, hours: [12, 22],
     look: { sex: 'chica', skin: '#a86a42', hair: '#2a1e1e', eyes: '#3a2a1e', cloth: '#3a6ab8', pants: '#3a2c22', hairStyle: 'trenza', outfit: 'tunica' },
     loves: ['amatista', 'mapa_vacio'], likes: ['sidra', 'manzana'], hates: ['baba'],
     chat: ['Soy cartógrafa. Bueno, pinto cosas y digo que es el mundo.', 'He estado en un templo que no sale en ningún mapa. Tampoco en los míos: se me olvidó el papel.', 'Si vas de viaje, lleva antorchas. Y un mapa. Y antorchas.', 'Dicen que si andas siempre recto, vuelves aquí. Por eso paro antes: aquí ya estoy.'],
     events: { 3: { lines: ['Toma, un mapa en blanco. Lo importante es lo que le pongas.'], gift: [['mapa_vacio', 1]] } },
   },
   marta: {
-    name: 'Marta', seat: [2.62, 37.5, TO_E], sits: CHAIR_H, hours: [17, 26],
+    name: 'Marta', temper: 'kind', seat: [2.62, 37.5, TO_E], sits: CHAIR_H, hours: [17, 26],
     look: { sex: 'chica', skin: '#ffe0c4', hair: '#a8442a', eyes: '#3a8a4a', cloth: '#7a4a8a', pants: '#2a2a3a', hairStyle: 'melena', outfit: 'tunica' },
     loves: ['fresa', 'mermelada_fresa'], likes: ['pan', 'hidromiel'], hates: ['carbon'],
     chat: ['Vengo a que me cuenten cosas. Anselmo las inventa, pero las cuenta muy bien.', 'Me paso el día tejiendo. Por la tarde, a descansar las manos y a mover la lengua.', '¿Has visto a Dani pintar? Lleva tres días con el mismo pato. Es un pato muy guapo.', 'La sidra de aquí quita las penas. Luego vuelven, pero ya se han cansado.'],
     events: { 3: { lines: ['Te he hecho un gorro. Ya sé que no lo has pedido. Por eso es un regalo.'], gift: [['gorro', 1]] } },
   },
   paco: {
-    name: 'Paco', seat: [7.62, 37.5, TO_E], sits: CHAIR_H, hours: [19, 26],
+    name: 'Paco', temper: 'gruff', seat: [7.62, 37.5, TO_E], sits: CHAIR_H, hours: [19, 26],
     look: { sex: 'chico', skin: '#c98a5a', hair: '#2a1e1e', eyes: '#7a4a24', cloth: '#a8442a', pants: '#4a3a2a', hairStyle: 'rizado', outfit: 'tunica', beard: 'perilla' },
     loves: ['filete', 'jabali_asado'], likes: ['cerveza', 'carpa'], hates: ['nabo'],
     chat: ['Yo cazo. Bueno, yo voy al bosque y a veces vuelvo con algo.', 'Al ciervo hay que acercarse agachado. Si vas de pie, se entera hasta el del pueblo de al lado.', 'El jabalí es listo. Más que mi cuñado, que tampoco es difícil.', 'Con la piel haces cuero y con el cuero, botas. Con las botas, a cazar otra vez.'],
@@ -129,7 +132,7 @@ class Neighbor extends Person {
   constructor(id, def) {
     const [x, y] = def.seat || NODES[def.schedule[0][1]];
     super({ x, y, look: def.look });
-    Object.assign(this, { id, def, node: def.seat ? def.work : def.schedule[0][1], path: [], hidden: true });
+    Object.assign(this, { id, def, node: def.seat ? def.work : def.schedule[0][1], path: [], hidden: true, hold: 0 });   // (hold: s stopped to answer a greeting)
     if (def.seat) { this.yaw = def.seat[2]; this.dir = [Math.sin(def.seat[2]), Math.cos(def.seat[2])]; if (def.sits) this.pose = { kind: 'sit', yaw: def.seat[2], h: def.sits }; }
   }
   // (los de la taberna) ¿Está a esta hora?
@@ -139,6 +142,7 @@ class Neighbor extends Person {
   placeAt(hour) { if (this.def.seat) { this.hidden = !this.isIn(hour); return; } const g = this.goal(hour); this.node = g; [this.x, this.y] = NODES[g]; this.path = []; this.hidden = g.startsWith('door'); }
   update(dt, hour) {
     if (this.def.seat) { this.hidden = !this.isIn(hour); this.vx = this.vy = 0; return; }
+    if (this.hold > 0) { this.hold -= dt; this.vx = this.vy = 0; return; }
     const g = this.goal(hour);
     if (g !== this.node && !this.path.length) { this.path = route(this.node, g); this.hidden = false; }
     if (!this.path.length) { this.vx = this.vy = 0; this.hidden = this.node.startsWith('door'); return; }
@@ -201,6 +205,9 @@ export class Neighbors {
 
   greeting(id) {
     const T = this.game.days, h = T.hour, name = this.game.player.name, pick = a => a[Math.floor(Math.random() * a.length)];
+    // (how the village sees you: a cold or a warm greeting; Nilo too)
+    const R = this.game.rep, mood = R?.counts ? (R.index <= levelIndex('distrusted') ? 'npc.greet.cold' : R.index >= levelIndex('liked') ? 'npc.greet.warm' : null) : null;
+    if (mood && tList(mood).length) return formatMessage(pick(tList(mood)), { name });
     const base = T.info.snow ? GREET.snow : T.info.rain ? GREET.rain : h < 11 ? GREET.morning : h < 18 ? GREET.day : GREET.evening;
     return pick(base).replace('{n}', name);
   }
@@ -211,15 +218,19 @@ export class Neighbors {
     g.player.stop();
     if (npc) { const dx = g.player.x - npc.x, dy = g.player.y - npc.y; npc.faceTo(dx, dy); }   // te mira
     if (first) { await g.talkNilo(); g.busy = false; return; }
-    if (f.talk !== this.today) { f.talk = this.today; this.addPoints(id, 15); }
-    // Eventos de amistad
-    for (const lvl of [3, 6]) {
+    // The reputation (reputation.js): at «Outcast» (or provoked three times today) they do not chat with you, but the shop
+    // (dearer), the trades and gifts stay; provoked today, they start with a reproach and the chat does not count
+    const R = g.rep, cold = !R || R.canTalk(id) ? null : 'refuse', sore = f.insultedAt === this.today;
+    if (!cold && !sore && f.talk !== this.today) { f.talk = this.today; this.addPoints(id, 15); R?.change(1, 'talk'); }
+    // Eventos de amistad (they wait while the village distrusts you)
+    for (const lvl of cold || R?.eventsWait() ? [] : [3, 6]) {
       const ev = def.events?.[lvl];
       if (ev && this.hearts(id) >= lvl && !f.events.includes(lvl)) {
         f.events.push(lvl);
         await hud.say(def.name, ev.lines);
         for (const [item, n] of ev.gift || []) { const left = g.inv.add(item, n); if (left) g.gather.throwOut(item, left); g.gather.float(`+${n} ${ITEMS[item].name}`, '#fff3c0'); }
         if (ev.flag) this.flags[ev.flag] = true;
+        R?.change(15, 'event');
         Audio.unlock();
         g.busy = false;
         return;
@@ -227,7 +238,7 @@ export class Neighbors {
     }
     const held = g.inv.held, giftable = held && !ITEMS[held.id].tool && f.gift !== this.today;
     const shop = def.shop && SHOPS[def.shop], now = shop && shop.hours[1] > 24 && g.days.hour < 6 ? g.days.hour + 24 : g.days.hour, open = shop && this.isWorking(id) && now >= shop.hours[0] && now < shop.hours[1];
-    const opts = ['Charlar'];
+    const opts = cold ? [] : ['Charlar'];
     if (open) opts.push('Ver la tienda');
     if (open && TRADES[id]) opts.push('Hacer tratos');
     if (id === 'nilo') opts.push('Ver sus planos');   // (los de los muebles de siempre: economy.js, SHOPS.nilo)
@@ -235,7 +246,8 @@ export class Neighbors {
     if (id === 'nilo' && !g.house.family && Profile.admin && !g.live.guest) opts.push('Hablar de la casa');   // (la casa es la del dueño del mundo)
     opts.push('Adiós');
     const hearts = '♥'.repeat(this.hearts(id)) || '·';
-    const pick = opts[await hud.ask(`${def.name}  ${hearts}`, this.greeting(id), opts)];
+    const said = cold ? this.line('npc.refuse') : sore ? this.line('npc.reproach') : this.greeting(id);
+    const pick = opts[await hud.ask(`${def.name}  ${hearts}`, said, opts)];
     if (pick === 'Charlar') {
       const line = id === 'nilo' ? this.niloLine() : def.chat[Math.floor(Math.random() * def.chat.length)];
       await hud.say(def.name, [line]);
@@ -260,10 +272,12 @@ export class Neighbors {
       const k = await hud.ask(T.title(id, f, def.name), '¿Qué te interesa? Cada trato se puede hacer unas veces al día.', opts);
       if (!(k >= 0 && k < offers.length)) return;
       const o = offers[k], said = T.make(id, f, o, def.name);
-      if (o.why) Audio.error(); else { Audio.craft(); g.onSave?.(); }
+      if (o.why) Audio.error(); else { Audio.craft(); g.rep?.change(1, 'trade'); g.onSave?.(); }
       await hud.say(def.name, [said]);
     }
   }
+  // A random line of a list in the language files (npc.refuse…), with the player's name
+  line(key) { const l = tList(key); return l.length ? formatMessage(l[Math.floor(Math.random() * l.length)], { name: this.game.player?.name || '' }) : ''; }
   niloLine() {
     const tips = [...PEOPLE.nilo.chat, ...this.game.niloTips];
     return tips[this.niloTip++ % tips.length];
@@ -279,6 +293,9 @@ export class Neighbors {
     else if (def.hates.includes(item)) { pts = -25; line = '¿Esto es… para mí? Ah. Vale. Gracias… supongo.'; }
     this.addPoints(id, pts);
     g.stats?.add('regalos', 1);
+    // (the reputation too; while the village distrusts you, what is good counts double: it is how peace is made)
+    const R = g.rep, rep = pts >= 90 ? [8, 'gift_loved'] : pts >= 50 ? [4, 'gift_liked'] : pts > 0 ? [2, 'gift'] : [-1, 'gift_hated'];
+    if (R) R.change(rep[0] > 0 && R.index <= levelIndex('distrusted') ? rep[0] * 2 : rep[0], rep[1]);
     await hud.say(def.name, [line]);
   }
 

@@ -8,7 +8,7 @@ export function initJournalUI(game, { onClose }) {
   const TABS = {
     pasos: ['Primeros pasos', () => game.steps.journal()],
     historia: ['Historia', () => game.story.journal()],
-    vecinos: ['Vecinos', () => game.neighbors.journal()],
+    vecinos: ['Vecinos', () => game.rep.journal() + game.neighbors.journal()],   // (the village's reputation on top: reputation.js)
     habilidades: ['Habilidades', () => game.skills.journal()],
     granja: ['Granja', () => game.ranch.journal()],
     pesca: ['Pesca', () => game.fishing.journal()],

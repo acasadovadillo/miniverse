@@ -35,7 +35,9 @@ import { diffChunk, applyOps, ItemSync, COLLECTIONS } from './livesync.js';
 import { wallTile } from './three/build3d.js';
 import { itemIcon } from './art/items.js';
 import { PREY, bodyBox } from './hunt.js';
-import { priceOf } from './economy.js';
+import { priceOf, buyPrice } from './economy.js';
+import { levelOf, recent } from './reputation.js';
+import { EMOTE_KINDS, PLAYER_LINES, REPLY_GESTURE } from './social.js';
 import { modelKind, ICON3D } from './three/icons.js';
 import { useSmartHud } from './ui/smarthud.js';
 import { Settings } from './settings.js';
@@ -47,7 +49,7 @@ import { Inventory, HOTBAR } from './inventory.js';
 import { kitOf, kitKey, placeKit, shownOf, splitKit, kindOf, SCABBARD } from './kit.js';
 import { buildKit } from './three/kit3d.js';
 import { stowedGeo } from './three/actors.js';
-import { t, tHtml, fmt, formatMessage, defineNames, noun, setLang, getLang, onLangChange, accountLangOf, setAccountLang, savedLang, decideFirst, applyDom } from './i18n.js';
+import { t, tHtml, tList, fmt, formatMessage, defineNames, noun, setLang, getLang, onLangChange, accountLangOf, setAccountLang, savedLang, decideFirst, applyDom } from './i18n.js';
 
 const GATE_X = 20;   // (el hueco de la valla del jardín, en el camino)
 const q = new URLSearchParams(location.search), WHO = q.get('quien') || 'a', RELAY = q.get('relay'), PART = q.get('parte') || 'solo';   // parte: 'solo' (un jugador), 'dos' o 'mirar' (sin pruebas: el juego con la cuenta de prueba, para verlo)
@@ -988,6 +990,354 @@ async function soloTests(game) {
       I.slots.splice(0, I.slots.length, ...kept); I.select(sel); I.changed(); draw();
     }
   });
+  // ---------- greeting, provoking and the village's reputation (social.js, reputation.js) ----------
+  const So = () => game.social, Rp = () => game.rep, Nb = () => game.neighbors, nb = id => Nb().people.find(n => n.id === id);
+  const keyY = (type = 'keydown') => dispatchEvent(new KeyboardEvent(type, { code: 'KeyY', key: 'y', bubbles: true, cancelable: true }));
+  const aimAtE = (e, h = 1) => { const v = new THREE.Vector3(e.x, game.view3d.groundY(w(), e.x, e.y) + h, e.y).project(game.view3d.camera); game.mouse = { x: (v.x + 1) / 2 * innerWidth, y: (1 - v.y) / 2 * innerHeight, in: true }; };
+  // A neighbor stopped at (x, y), out (their schedule would walk them off: hold keeps them still)
+  const put = (id, x, y) => { const n = nb(id); n.x = x; n.y = y; n.hidden = false; n.path = []; n.hold = 1e6; return n; };
+  const cand = id => So().candidates().find(c => c.id === id);
+  const today = () => game.days.dayIndex;
+  // Each one from a clean state (survival at 11:00, the neighbors held far away, a new reputation and new friendships),
+  // and everything put back after
+  const social = fn => async () => {
+    const keep = { rep: JSON.stringify(Rp().v), friends: JSON.stringify(Nb().friends), flags: JSON.stringify(Nb().flags), mouse: game.mouse, ask: hud.ask, say: hud.say, nilo: [w().nilo.x, w().nilo.y], slots: inv().slots.slice(), sel: inv().selected };
+    runCommand(game, '/gamemode survival', () => {}); runCommand(game, '/time set 11:00', () => {});
+    for (const n of Nb().people) if (!n.def.seat) put(n.id, 300 + Math.random() * 9, 300);
+    Rp().v = { v: 1, pts: 0, lvl: 'newcomer', log: [], cap: {}, taken: {}, knocks: {} };
+    Nb().friends = {}; So().reset(); So().lastAt = -Infinity;
+    hud.say = () => Promise.resolve();
+    try { await fn(); }
+    finally {
+      Rp().v = JSON.parse(keep.rep); Nb().friends = JSON.parse(keep.friends); Nb().flags = JSON.parse(keep.flags);
+      game.mouse = keep.mouse; hud.ask = keep.ask; hud.say = keep.say; [w().nilo.x, w().nilo.y] = keep.nilo;
+      inv().slots.splice(0, inv().slots.length, ...keep.slots); inv().select(keep.sel); inv().changed();
+      So().reset(); So().lastAt = -Infinity; game.busy = false; game.build.on = false; CAM.first = false; game.mode = 'play';
+      runCommand(game, '/gamemode survival', () => {});
+      const P = p(); Object.assign(P, { swim: false, boat: false, mount: false, aboard: null, pose: null });
+      for (const n of Nb().people) { n.hold = 0; n.placeAt(game.days.hour); }
+    }
+  };
+  await test('saludo (greet): Y saluda al vecino apuntado, contesta con gesto y frase, y la amistad sube una vez al día', social(async () => {
+    await goTo(game, 21, 27); const P = p(), r = put('rosa', 23, 27); draw();
+    const gestures = [], em = So().emote.bind(So()); So().emote = (e, k) => { gestures.push([e, k]); em(e, k); };
+    try {
+      aimAtE(r); const seq = So().emSeq;
+      keyY(); await frames(6); keyY('keyup'); r.hold = 0;
+      check(So().emSeq === seq + 1 && gestures.some(([e, k]) => e === P && k === 'wave'), `my gesture: ${gestures.map(g => g[1])}`);
+      const mine = So().bubbles.find(b => b.e === P);
+      check(mine?.mine && tList(So().dayKey()).some(l => mine.text === formatMessage(l, { name: 'Rosa' })), `my line: ${mine?.text}`);
+      await frames(45);
+      const hers = So().bubbles.find(b => b.e === r);
+      check(hers?.name === 'Rosa' && hers.text, 'Rosa does not answer');
+      check(gestures.some(([e, k]) => e === r && k === REPLY_GESTURE.greet.cheerful.neutral), `her gesture: ${gestures.map(g => g[1])}`);
+      check(r.hold > 0 && r.hold <= 1.8, `she does not stop: ${r.hold}`);
+      const f = Nb().friend('rosa');
+      check(f.pts === 5 && f.greet === today() && Rp().pts === 2, `friendship ${f.pts}, reputation ${Rp().pts}`);
+      So().lastAt = -Infinity; So().act(0, cand('rosa'));
+      check(Nb().friend('rosa').pts === 5 && Rp().pts === 2, 'a second greeting the same day counts again');
+    } finally { delete So().emote; }
+  }));
+  await test('saludo: el clic derecho sobre una persona saluda; sobre nada sienta al perro; en modo B quita', social(async () => {
+    await goTo(game, 21, 27); const r = put('rosa', 23, 27); draw();
+    const canvas = document.getElementById('c'), B = game.build, sit = game.ranch.sitAt, rm = B.removeAt;
+    const down = (x, y) => canvas.dispatchEvent(new PointerEvent('pointerdown', { button: 2, clientX: x, clientY: y, bubbles: true, cancelable: true, pointerType: 'mouse' }));
+    const up = () => dispatchEvent(new PointerEvent('pointerup', { button: 2, bubbles: true, pointerType: 'mouse' }));
+    let sat = 0, removed = 0;
+    game.ranch.sitAt = () => { sat++; }; B.removeAt = () => { removed++; };
+    try {
+      aimAtE(r); let seq = So().emSeq;
+      down(game.mouse.x, game.mouse.y); await frames(3); up();
+      check(So().emSeq === seq + 1 && !sat, `on Rosa: gesture ${So().emSeq - seq}, dog ${sat}`);
+      await frames(45); check(So().bubbles.some(b => b.e === r), 'Rosa does not answer the right click');
+      So().lastAt = -Infinity; seq = So().emSeq;
+      down(3, 3); up(); check(sat === 1 && So().emSeq === seq, `on nothing: dog ${sat}, gesture ${So().emSeq - seq}`);
+      B.on = true; So().lastAt = -Infinity;
+      down(game.mouse.x, game.mouse.y); up(); check(removed === 1 && So().emSeq === seq && sat === 1, `in build mode: removed ${removed}, gesture ${So().emSeq - seq}`);
+    } finally { game.ranch.sitAt = sit; B.removeAt = rm; B.on = false; }
+  }));
+  await test('saludo: de lejos se ve pero solo cuenta a 4 casillas; tope de +6 al día; al aire sin nadie; nada en diálogo, mapa o espectador', social(async () => {
+    await goTo(game, 21, 27); const P = p();
+    put('rosa', 26.5, 27); So().act(0, cand('rosa'));
+    check(So().bubbles.some(b => b.e === P) && Nb().friend('rosa').pts === 0 && Rp().pts === 0, `5.5 tiles away it counts: ${Nb().friend('rosa').pts}, ${Rp().pts}`);
+    Rp().v.cap = { day: today(), greet: 4 };
+    put('lia', 22.5, 27); So().lastAt = -Infinity; So().act(0, cand('lia'));
+    put('bruno', 21, 28.5); So().lastAt = -Infinity; So().act(0, cand('bruno'));
+    check(Rp().pts === 2 && Nb().friend('lia').pts === 5 && Nb().friend('bruno').pts === 5, `the cap: reputation ${Rp().pts}, Lía ${Nb().friend('lia').pts}, Bruno ${Nb().friend('bruno').pts}`);
+    // Nobody: to the air (gesture and line, no answer); Y with the cursor out of the game
+    for (const id of ['rosa', 'lia', 'bruno']) put(id, 300, 300);
+    w().nilo.x = 60; game.mouse = { x: 3, y: 3, in: false }; So().reset(); So().lastAt = -Infinity;
+    let seq = So().emSeq; So().press('key'); So().release('key');
+    const air = So().bubbles.find(b => b.e === P);
+    check(So().emSeq === seq + 1 && air && tList('social.say.air').includes(air.text) && !So().queue.length, `to the air: ${air?.text}, queue ${So().queue.length}`);
+    // Talking, the big map, a spectator: nothing
+    seq = So().emSeq;
+    for (const [what, on, off] of [
+      ['a dialogue', () => { game.busy = true; }, () => { game.busy = false; }],
+      ['the map', () => { game.mode = 'map'; }, () => { game.mode = 'play'; }],
+      ['spectator', () => runCommand(game, '/gamemode spectator', () => {}), () => runCommand(game, '/gamemode survival', () => {})],
+    ]) {
+      on(); So().lastAt = -Infinity; keyY(); keyY('keyup'); So().press('key'); So().release('key'); off();
+      check(So().emSeq === seq && !So().hold, `with ${what} it greets`);
+    }
+  }));
+  await test('saludo: el aviso de E solo añade «Y: saludar» si es la misma persona; con la E en una puerta, nada', social(async () => {
+    const text = () => document.getElementById('prompt-text').textContent, look = async e => { aimAtE(e); So().pickT = 0; await frames(2); draw(); };
+    await goTo(game, 21, 27); draw();
+    const r = put('rosa', 22.3, 27); await look(r);
+    check(text().includes('Hablar con Rosa') && text().endsWith(t('social.prompt')), `next to Rosa: «${text()}»`);
+    // Farther than E reaches: only her name and Y
+    put('rosa', 25.5, 27.5); await look(nb('rosa'));
+    check(text() === t('social.prompt.far', { name: 'Rosa' }), `far: «${text()}»`);
+    // E on a door, with Rosa next to it: nothing added
+    await goTo(game, 21.5, 17.8); draw(); put('rosa', 22.6, 18.4);
+    aimAtE({ x: 21.5, y: 16.5 }, 1.1); So().pickT = 0; await frames(2); draw();
+    check(/puerta/i.test(text()) && !text().includes(t('social.prompt')), `on the door: «${text()}»`);
+  }));
+  await test('saludo: la E y el borde amarillo no cambian con otro jugador delante de un cofre', social(async () => {
+    const live = game.live, was = live.joined;
+    await goTo(game, 40, 40); const P = p();
+    const [tx, ty] = freeTile(game, [[41, 38], [42, 38], [41, 39]]); w().place(tx, ty, 'cofre');
+    P.x = tx + 0.5; P.y = ty + 2.1; draw(); draw();
+    // (the other player on the way from the camera to the chest, close to it)
+    const cam = game.view3d.camera.position, dx = tx + 0.5 - cam.x, dy = ty + 0.5 - cam.z, dl = Math.hypot(dx, dy), ox = tx + 0.5 - dx / dl * 0.9, oy = ty + 0.5 - dy / dl * 0.9;
+    try {
+      live.receive('so1', { t: 'hi', id: 'id-so1', name: 'Pepa', playing: true, look: LOOK });
+      live.receive('so1', { t: 'st', sc: 'world', x: ox, y: oy, yaw: 0 });
+      live.joined = true; draw();
+      aimAtE({ x: tx + 0.5, y: ty + 0.5 }, 0.4);
+      check(/cofre/i.test(game.nearest()?.text || ''), `E says: ${game.nearest()?.text}`);
+      draw(); check(game.highlight?.kind === 'placed' && game.highlight.o?.placed === 'cofre', `outlined: ${game.highlight?.kind}`);
+      So().pickT = 0; So().update(0.01);
+      check(So().picked?.kind === 'player', `the greeting does not see the other player on the way: ${So().picked?.kind}`);
+      check(So().promptFor(game.highlight.e || null, true) === '', 'the prompt adds the greeting for someone else');
+    } finally { live.joined = was; live.peers.delete('so1'); w().setTile(tx, ty, 'air'); }
+  }));
+  await test('saludo: nadando y remando solo la frase; a caballo, sentado y de pasajero con gesto; en primera persona, subtítulo', social(async () => {
+    await goTo(game, 21, 27); const P = p(); put('rosa', 22.5, 27);
+    for (const [what, set, gesture] of [['swimming', { swim: true }, false], ['rowing', { boat: true }, false], ['riding', { mount: true }, true], ['sitting', { pose: { kind: 'sit', yaw: 0, h: 0 } }, true],
+      ['aboard', { aboard: 'x' }, true], ['lying', { pose: { kind: 'floorLie', yaw: 0, h: 0 } }, false]]) {
+      Object.assign(P, set); const seq = So().emSeq; So().bubbles = []; So().lastAt = -Infinity;
+      So().act(0, cand('rosa'));
+      const line = So().bubbles.some(b => b.e === P);
+      Object.assign(P, { swim: false, boat: false, mount: false, aboard: null, pose: null });
+      check(line && (So().emSeq > seq) === gesture, `${what}: line ${line}, gesture ${So().emSeq > seq}`);
+    }
+    CAM.first = true; So().bubbles = []; So().lastAt = -Infinity; So().act(0, cand('rosa'));
+    check(So().sub.classList.contains('on') && So().sub.textContent && !So().bubbles.some(b => b.e === P), 'first person: no subtitle, or a bubble over me');
+    await frames(45); check(So().bubbles.some(b => b.e === nb('rosa')), 'first person: Rosa does not answer in her bubble');
+    CAM.first = false;
+  }));
+  await test('increpar (carga): soltar a 0,5 s saluda sin anillo antes de 0,25 s; mantener 0,7 s increpa', social(async () => {
+    await goTo(game, 21, 27); const b = put('bruno', 22.8, 27); draw(); aimAtE(b);
+    const ring = () => So().ring.classList.contains('on');
+    let seq = So().emSeq;
+    So().press('key'); await frames(12); check(!ring(), 'the ring shows at 0.2 s');
+    await frames(18); check(ring(), 'no ring at 0.5 s');
+    So().release('key'); check(!ring() && So().emSeq === seq + 1 && EMOTE_KINDS[So().emKind] === 'wave', `let go at 0.5 s: ${EMOTE_KINDS[So().emKind]}`);
+    So().lastAt = -Infinity; seq = So().emSeq;
+    So().press('key'); await frames(45);
+    check(So().emSeq === seq + 1 && ['fist', 'dismiss'].includes(EMOTE_KINDS[So().emKind]) && !So().hold && !ring(), `held 0.75 s: ${EMOTE_KINDS[So().emKind]}`);
+    So().release('key'); check(So().emSeq === seq + 1, 'letting go after provoking greets too');
+    check(Rp().pts === -6 && Nb().friend('bruno').pts === 0, `greeting and provoking: ${Rp().pts}`);
+  }));
+  await test('increpar (provoke): baja amistad (−10 la primera con un amigo, −20 si no) y reputación, contesta frío ese día y a la tercera no habla', social(async () => {
+    await goTo(game, 21, 27); const r = put('rosa', 22.5, 27), b = put('bruno', 21, 28.5), fr = Nb().friend('rosa');
+    fr.pts = 500; fr.events = [3, 6];   // (her friendship moments, already seen: talking goes straight to the options)
+    check(So().relation('rosa') === 'friend', `5 hearts: ${So().relation('rosa')}`);
+    So().act(1, cand('rosa')); check(fr.pts === 490 && fr.insultedAt === today() && Rp().pts === -8, `first with a friend: ${fr.pts}, ${Rp().pts}`);
+    check(So().relation('rosa') === 'cold', `after: ${So().relation('rosa')}`);
+    So().lastAt = -Infinity; So().act(1, cand('rosa')); check(fr.pts === 470, `second: ${fr.pts}`);
+    const fb = Nb().friend('bruno'); fb.pts = 150;
+    for (let i = 0; i < 3; i++) { So().lastAt = -Infinity; So().act(1, cand('bruno')); }
+    check(fb.pts === 90 && fb.snub === today() && Rp().pts === -40, `Bruno: ${fb.pts}, snub ${fb.snub}, reputation ${Rp().pts} (the day cap is -40)`);
+    let seen = null;
+    hud.ask = (who, text, opts) => { seen = { text, opts }; return Promise.resolve(opts.indexOf('Adiós')); };
+    await Nb().talk('bruno', b);
+    check(!seen.opts.includes('Charlar') && tList('npc.refuse').includes(seen.text), `Bruno talks: «${seen.text}» ${seen.opts}`);
+    const talked = fr.talk; await Nb().talk('rosa', r);
+    check(seen.opts.includes('Charlar') && tList('npc.reproach').includes(seen.text) && fr.talk === talked, `Rosa: «${seen.text}», chat counted ${fr.talk !== talked}`);
+    await frames(45); check(So().bubbles.some(x => x.e === b), 'Bruno does not answer');
+  }));
+  await test('reputacion (reputation): niveles, precios de compra y venta, la línea de la tienda, el diario y el aviso al cambiar de nivel', social(async () => {
+    for (const [pts, id] of [[-1000, 'outcast'], [-401, 'outcast'], [-400, 'distrusted'], [-121, 'distrusted'], [-120, 'newcomer'], [99, 'newcomer'], [100, 'known'], [300, 'liked'], [599, 'liked'], [600, 'beloved'], [1000, 'beloved']]) {
+      check(levelOf(pts).id === id, `${pts}: ${levelOf(pts).id}`);
+    }
+    Rp().v.pts = -800; Rp().v.lvl = 'outcast';
+    check(Rp().buyFactor() === 1.35 && Rp().sellFactor() === 0.75, 'outcast factors');
+    check(Rp().shopNote() === t('rep.shopnote', { sign: '+', n: 35, level: t('rep.level.outcast') }), `shop line: ${Rp().shopNote()}`);
+    runCommand(game, '/gamemode creative', () => {}); check(Rp().buyFactor() === 1 && Rp().shopNote() === '', 'creative changes the prices'); runCommand(game, '/gamemode survival', () => {});
+    // The shop itself: dearer to buy, cheaper to sell, and it says why
+    inv().add('manzana', 2);
+    game.onShop('rosa');
+    try {
+      check(document.getElementById('sh-note').textContent === Rp().shopNote(), `the note: ${document.getElementById('sh-note').textContent}`);
+      const e = SHOPS.rosa.stock.find(s => s.id && (!s.seasons || s.seasons.includes(game.days.season)) && !s.project && !s.plan), d = Nb().flags.descuento ? 0.9 : 1;
+      const want = Math.round((e.price ?? buyPrice(e.id)) * d * 1.35);
+      check([...document.querySelectorAll('#sh-list .sh-row small')].some(s => s.textContent.startsWith(`${want} `)), `no row at ${want} for ${e.id}`);
+      document.querySelector('[data-shtab="sell"]').click();
+      const sell = Math.max(1, Math.round(priceOf('manzana') * 0.75));
+      check([...document.querySelectorAll('#sh-list .sh-row')].some(r => r.textContent.includes(ITEMS.manzana.name) && r.textContent.includes(`${sell} `)), `no apple at ${sell}`);
+    } finally { document.getElementById('sh-close').click(); game.mode = 'play'; }
+    const html = Rp().journal();
+    check(html.includes(t('rep.level.outcast')) && html.includes(t('rep.title')) && html.includes('rep-bar'), 'the journal does not say it');
+    // The notice when the level changes, up and down
+    const toasts = [], toast = hud.toast; hud.toast = (m, k) => toasts.push([m, k]);
+    try {
+      Rp().v.pts = 95; Rp().v.lvl = 'newcomer';
+      Rp().change(10, 'errand'); check(toasts.at(-1)?.[0] === t('rep.toast.up', { level: t('rep.level.known') }) && Rp().v.lvl === 'known', `up: ${toasts.at(-1)}`);
+      Rp().change(3, 'errand'); check(toasts.length === 1, 'a notice without a new level');
+      Rp().change(-20, 'take'); check(toasts.at(-1)?.[0] === t('rep.toast.down', { level: t('rep.level.newcomer') }), `down: ${toasts.at(-1)}`);
+    } finally { hud.toast = toast; }
+  }));
+  await test('reputacion: encargo, proyecto, regalo, trato y perdón diario la suben; topes del día con días de otro mundo (!==)', social(async () => {
+    const I = inv(), B = game.board, rq = B.requests().find(r => !r.done);
+    check(rq, 'no errand left today');
+    I.add(rq.item, rq.n);
+    let asked = 0;
+    hud.ask = (who, text, opts) => Promise.resolve(asked++ ? opts.length - 1 : rq.i);
+    await B.open();
+    check(Rp().pts === 10 && Rp().v.log.at(-1)[2] === 'errand', `errand: ${Rp().pts}`);
+    check(Rp().change(60, 'project') === 60, 'a project');   // (paying one for real changes the village for the other tests)
+    // A gift she loves, while the village distrusts you: double
+    Rp().v.pts = -500; Rp().v.lvl = 'distrusted';
+    I.add('fresa', 1); I.select(I.slots.findIndex(s => s?.id === 'fresa'));
+    await Nb().gift('rosa', I.held);
+    check(Rp().pts === -484 && Rp().v.log.at(-1)[2] === 'gift_loved', `gift: ${Rp().pts}`);
+    // A trade, then at most five a day
+    Rp().v.pts = 0; Rp().v.lvl = 'newcomer'; I.add('trigo', 20); asked = 0;
+    hud.ask = (who, text, opts) => Promise.resolve(asked++ ? opts.length - 1 : 0);
+    await Nb().trade('rosa');
+    check(Rp().pts === 1, `trade: ${Rp().pts}`);
+    for (let i = 0; i < 6; i++) Rp().change(1, 'trade');
+    check(Rp().pts === 5, `five trades a day: ${Rp().pts}`);
+    // Forgiving every morning, only below zero
+    Rp().v.pts = -50; Rp().onDay(today()); check(Rp().pts === -40, `forgive: ${Rp().pts}`);
+    Rp().v.pts = 50; Rp().onDay(today()); check(Rp().pts === 50, 'forgives above zero');
+    // A cap kept with a day of another world (a guest plays with the host's calendar) is not today's
+    Rp().v.cap = { day: today() + 3, greet: 6 }; check(Rp().change(2, 'greet') === 2, 'a cap of another day stops it');
+    check(Rp().change(6, 'greet') === 4, 'the cap of today');
+    check(!recent(today(), today() + 2, 3) && recent(today(), today() - 3, 3) && !recent(today(), today() - 4, 3) && !recent(today(), undefined, 3), 'recent');
+  }));
+  // A wall of Rosa's house with a roof over it, still as the village made it
+  function rosaWall(skip = []) {
+    const h = HOUSES.rosa, W = w();
+    for (let tx = h.x0 + 7; tx < h.x1 - 1; tx++) {
+      const t = [tx, h.y1 - 1], raw = W.at('placed', ...t);
+      if (raw && PIECES[parsePlaced(raw)[0]]?.kind === 'wall' && W.at('roof', ...t) && !W.ownAt('placed', ...t) && !W.ownAt('roof', ...t) && !skip.some(s => s[0] === tx)) return t;
+    }
+    throw new Error('no wall left in Rosa\'s house');
+  }
+  await test('reputacion: quitar de la casa de Rosa baja; con Rosa en casa (escondida) es testigo desde dentro y baja más', social(async () => {
+    const B = game.build, t1 = rosaWall();
+    await goTo(game, t1[0] + 0.5, t1[1] + 1.6); game.mouse = null; w().nilo.x = 60;
+    Nb().friend('rosa').pts = 200;
+    B.toggle(true); B.select('quitar');
+    try {
+      B.remove(t1); check(!w().at('roof', ...t1), 'the roof stays');
+      check(Rp().pts === -12 && Rp().v.log.at(-1)[2] === 'take' && Rp().v.taken[`roof:${t1}`]?.[0] === 12, `nobody saw it: ${Rp().pts} ${JSON.stringify(Rp().v.taken)}`);
+      nb('rosa').hidden = true;   // (at home)
+      B.remove(t1); check(!w().at('placed', ...t1), 'the wall stays');
+      check(Rp().pts === -37 && Rp().v.log.at(-1)[2] === 'take_seen' && Nb().friend('rosa').pts === 190, `Rosa at home: ${Rp().pts}, friendship ${Nb().friend('rosa').pts}`);
+      const said = So().bubbles.find(b => b.name === t('npc.witness.inside', { name: 'Rosa' }));
+      check(said && tList('npc.witness.take.own').includes(said.text), `what she says: ${JSON.stringify(So().bubbles.map(b => [b.name, b.text]))}`);
+    } finally { B.toggle(false); }
+  }));
+  await test('reputacion: devolver una pieza recupera la mitad una vez; poner y quitar la misma pared suma 0; en creativo no cambia', social(async () => {
+    const B = game.build, I = inv(), t1 = rosaWall(), station = B.stationFor;
+    await goTo(game, t1[0] + 0.5, t1[1] + 2.5); game.mouse = null; w().nilo.x = 60;
+    nb('rosa').hidden = true; nb('lia').hidden = false;
+    B.toggle(true); B.select('quitar'); B.stationFor = () => true;   // (the stone wall wants the mason's table near: not what is tested)
+    try {
+      B.remove(t1); B.remove(t1);   // (the roof, then the wall: Rosa hears both)
+      check(Rp().pts === -50, `taken: ${Rp().pts}`);
+      I.add('piedra', 30); B.select('muro_piedra'); B.place(t1);
+      check(w().ownAt('placed', ...t1) === 'muro_piedra' && Rp().pts === -37 && Rp().v.log.at(-1)[2] === 'return', `put back: ${Rp().pts}`);
+      B.select('quitar'); B.remove(t1); check(Rp().pts === -50 && Rp().v.log.at(-1)[2] === 'retake', `taken again: ${Rp().pts}`);
+      B.select('muro_piedra'); B.place(t1); B.select('quitar'); B.remove(t1); B.select('muro_piedra'); B.place(t1);
+      check(Rp().pts === -37, `put and take, put and take: ${Rp().pts}`);
+      B.select('quitar'); B.remove(t1);
+      // In creative nothing changes
+      runCommand(game, '/gamemode creative', () => {}); B.toggle(true); B.select('quitar');
+      const before = Rp().pts, t2 = rosaWall([t1]); p().x = t2[0] + 0.5; p().y = t2[1] + 2.5;
+      B.remove(t2); check(!w().at('roof', ...t2) && Rp().pts === before, `creative: ${Rp().pts}`);
+    } finally { B.toggle(false); B.stationFor = station; }
+  }));
+  await test('reputacion: llamar de noche baja una vez por puerta y noche', social(async () => {
+    const h = HOUSES.rosa, door = [h.x0 + 6, h.y1 - 1];
+    check(game.vecinoAt(door) === 'rosa', 'not Rosa\'s door');
+    await goTo(game, door[0] + 0.5, door[1] + 1.6);
+    runCommand(game, '/time set 23:00', () => {});
+    nb('rosa').hidden = true;
+    game.knock(door); await sleep(1100);
+    check(Rp().pts === -3 && Rp().v.log.at(-1)[2] === 'knock_night', `knocking at night: ${Rp().pts}`);
+    game.knock(door); await sleep(1100);
+    check(Rp().pts === -3, `twice the same night: ${Rp().pts}`);
+  }));
+  await test('reputacion: mal visto no charla pero la tienda abre más cara, los tratos siguen, regalar ayuda y Nilo siempre habla', social(async () => {
+    Rp().v.pts = -800; Rp().v.lvl = 'outcast';
+    runCommand(game, '/time set 12:00', () => {});
+    const r = nb('rosa'); r.hold = 0; r.placeAt(12); r.update(0, 12);
+    await goTo(game, r.x, r.y + 1.3);
+    Nb().friend('rosa').pts = 100;
+    const I = inv(); I.add('fresa', 1); I.select(I.slots.findIndex(s => s?.id === 'fresa'));
+    let seen = null;
+    hud.ask = (who, text, opts) => { seen = { text, opts }; return Promise.resolve(opts.indexOf('Adiós')); };
+    await Nb().talk('rosa', r);
+    check(!seen.opts.includes('Charlar') && seen.opts.includes('Ver la tienda') && seen.opts.includes('Hacer tratos') && seen.opts.some(o => o.startsWith('Regalar')), `options: ${seen.opts}`);
+    check(tList('npc.refuse').includes(seen.text), `she says: ${seen.text}`);
+    check(Rp().buyFactor() === 1.35, 'the shop is not dearer');
+    await Nb().gift('rosa', I.held); check(Rp().pts === -784, `the gift: ${Rp().pts}`);
+    check(Rp().canTalk('nilo'), 'Nilo does not talk');
+    if (game.craft.taught.has('banco')) { await Nb().talk('nilo'); check(seen.opts.includes('Charlar') && tList('npc.greet.cold').some(l => seen.text === formatMessage(l, { name: p().name })), `Nilo: «${seen.text}» ${seen.opts}`); }
+  }));
+  await test('reputacion: una partida vieja nace de lo hecho; se guarda y se carga igual', social(async () => {
+    const st = game.stats, kept = { ...st.v };
+    try {
+      Rp().reset({}); check(Rp().pts === 0 && !Rp().v.seeded, `a new game: ${Rp().pts}`);
+      Object.assign(st.v, { encargos: 10, proyectos: 2, regalos: 5 });
+      Nb().friends = { rosa: { pts: 420, talk: -1, gift: -1, events: [] }, bruno: { pts: 150, talk: -1, gift: -1, events: [] } };
+      Rp().reset({ inventory: {} });
+      check(Rp().pts === 170 && Rp().v.seeded === 1 && Rp().v.lvl === 'known', `an old game: ${Rp().pts} ${Rp().v.lvl}`);
+      st.v.proyectos = 30; Rp().reset({ inventory: {} }); check(Rp().pts === 400 && Rp().level.id === 'liked', `at most «Liked»: ${Rp().pts}`);
+      Rp().change(-12, 'take'); Rp().v.taken['placed:1,2'] = [12, 0];
+      const out = JSON.parse(JSON.stringify({ rep: game.snapshot().rep }));
+      check(out.rep?.pts === 388, 'the save does not carry it');
+      Rp().reset({}); Rp().reset(out);
+      check(Rp().pts === 388 && Rp().v.log.at(-1)[2] === 'take' && Rp().v.taken['placed:1,2']?.[0] === 12 && Rp().v.seeded === 1, `loaded: ${JSON.stringify(Rp().v)}`);
+    } finally { st.v = kept; }
+  }));
+  await test('red (net): el estado sin em/ek y un greet con índices raros o un vecino desconocido no rompen nada; diez greet seguidos del mismo peer dan un aviso', social(async () => {
+    const live = game.live, was = { joined: live.joined, net: live.net }, sent = [], toasts = [], toast = hud.toast;
+    await goTo(game, 21, 27);
+    const st = (more = {}) => live.receive('sn1', { t: 'st', sc: 'world', x: p().x + 1.5, y: p().y, yaw: 0, ...more });
+    try {
+      live.receive('sn1', { t: 'hi', id: 'id-sn1', name: 'Pepa', playing: true, look: LOOK });
+      st(); const e = live.peers.get('sn1').entity;
+      check(e && !e.emote, 'a state without em makes a gesture');
+      st({ em: 4, ek: 0 }); check(!e.emote, 'the first count replays an old gesture');
+      st({ em: 5, ek: 99 }); check(e.emote?.k === 'wave', `an unknown gesture: ${e.emote?.k}`);
+      st({ em: 6, ek: 4 }); check(e.emote?.k === 'fist', `fist: ${e.emote?.k}`);
+      st({ em: 6, ek: 1 }); check(e.emote?.k === 'fist', 'the same count, another gesture');
+      live.joined = true; live.net = { send: m => sent.push(m) };
+      hud.toast = (m, k) => toasts.push(m);
+      for (const m of [{ t: 'greet', a: 7, p: 99, pl: -1, npc: 'nobody', r: 50, rl: 'x', rk: 9 }, { t: 'greet', p: 'x', pl: {} }, { t: 'greet', a: 0, p: 4, pl: 2, to: 'someone-else', npc: 'constructor', rk: 0, rl: 1, rg: 2 },
+        { t: 'greet', kid: 'nope', rk: 3, rl: 0 }, { t: 'greet', a: 0, npc: 'rosa', rk: 0, rl: 1, rg: 77, r: 1 }, { t: 'greet', a: 1, npc: 'nilo', rk: 2, rl: 5, rg: 1, r: 2, p: 8, pl: 1 }]) {
+        live.peers.get('sn1').greetAt = -Infinity; live.receive('sn1', m);
+      }
+      So().update(1);
+      check(So().bubbles.some(b => b.e === w().nilo), 'Nilo does not answer the other player');
+      // Ten greetings in a row to you: one notice; then Y without aiming greets back
+      live.peers.get('sn1').greetAt = -Infinity; live.peers.get('sn1').toastAt = -Infinity; toasts.length = 0;
+      for (let i = 0; i < 10; i++) live.receive('sn1', { t: 'greet', a: 0, to: Profile.id, p: 4, pl: i });
+      game.time += 2; live.receive('sn1', { t: 'greet', a: 0, to: Profile.id, p: 4, pl: 0 });
+      check(toasts.length === 1 && toasts[0] === t('social.toast.greeted', { name: 'Pepa' }), `notices: ${toasts}`);
+      check(So().back?.conn === 'sn1', 'no window to greet back');
+      game.mouse = { x: 3, y: 3, in: false }; So().lastAt = -Infinity;
+      So().press('key'); So().release('key');
+      check(sent.some(m => m.t === 'greet' && m.a === 0 && m.to === 'id-sn1' && PLAYER_LINES[m.p] === 'social.say.greet_player'), `sent: ${JSON.stringify(sent)}`);
+    } finally { live.joined = was.joined; live.net = was.net; hud.toast = toast; live.peers.delete('sn1'); }
+  }));
   await test('inventario: prev is remembered and the save does not change', async () => {
     const I = new Inventory({ slots: [{ id: 'pan', n: 2 }, { id: 'hacha_hierro', n: 1 }] });
     I.select(1, true); I.select(0, true);
@@ -1920,6 +2270,29 @@ async function hostTests(game) {
     await frames(30);
     await until(() => heard('FIN-CAZA'), 40000, 'a que él acabe');
   });
+  // Greeting each other (social.js): the guest greets, the host sees the gesture, the line and the notice, and greets back
+  await test('dos: ve el saludo del invitado, el aviso, y lo devuelve con Y', async () => {
+    const S = game.social, said = [], toasts = [], say = S.say.bind(S), toast = hud.toast;
+    S.say = (e, text, o) => { said.push([e, text]); say(e, text, o); }; hud.toast = (m, k) => { toasts.push(m); toast(m, k); };
+    try {
+      l.chat('SALUDA-YA');
+      await until(() => heard('SALUDO-HECHO'), 60000, 'el saludo del invitado');
+      await frames(10);
+      const g = guest()?.entity;
+      check(g && g.emSeq > 0, 'no gesture of the guest');
+      check(said.some(([e]) => e === g), 'no line over the guest');
+      check(toasts.includes(t('social.toast.greeted', { name: guest().name })), `notices: ${toasts}`);
+      check(S.back && game.time < S.back.until, 'no window to greet back');
+      game.mouse = { x: 3, y: 3, in: false }; S.lastAt = -Infinity;
+      S.press('key'); S.release('key');
+      l.chat('SALUDO-DEVUELTO');
+      // Nilo, greeted by the guest: his answer here too
+      await until(() => heard('NILO-SALUDADO'), 60000, 'el saludo a Nilo');
+      await frames(60);
+      check(said.some(([e]) => e === game.world.nilo), 'Nilo does not answer the guest here');
+      l.chat('NILO-VISTO');
+    } finally { delete S.say; hud.toast = toast; }
+  });
 }
 async function guestTests(game) {
   const l = game.live, { heard } = listen(l);
@@ -2074,6 +2447,28 @@ async function guestTests(game) {
     await frames(30);
     check(!R.animals.some(b => b.id === a.id), 'vuelve a aparecer');
     l.chat('FIN-CAZA');
+  });
+  await test('dos: el invitado saluda al anfitrión con gesto y frase', async () => {
+    const S = game.social, said = [], say = S.say.bind(S);
+    S.say = (e, text, o) => { said.push([e, text]); say(e, text, o); };
+    try {
+      await until(() => heard('SALUDA-YA'), 60000, 'a que el anfitrión espere');
+      const h = await until(() => l.host?.entity, 30000, 'ver al anfitrión');
+      await goTo(game, h.x + 1.5, h.y + 0.5);
+      const c = await until(() => S.candidates().find(c => c.kind === 'player'), 20000, 'al anfitrión entre la gente');
+      const seq = S.emSeq; S.lastAt = -Infinity; S.act(0, c);
+      check(S.emSeq === seq + 1 && said.some(([e]) => e === game.player), 'no gesture or line');
+      await frames(20);
+      l.chat('SALUDO-HECHO');
+      await until(() => heard('SALUDO-DEVUELTO'), 60000, 'el saludo de vuelta');
+      await until(() => said.some(([e]) => e === h), 20000, 'la frase del anfitrión');
+      // Nilo (always in the plaza in both games): the host sees him answer
+      const nilo = game.world.nilo; await goTo(game, nilo.x + 1.4, nilo.y + 1);
+      S.lastAt = -Infinity; S.act(0, S.candidates().find(c => c.id === 'nilo'));
+      await frames(20);
+      l.chat('NILO-SALUDADO');
+      await until(() => heard('NILO-VISTO'), 60000, 'a que el anfitrión lo vea');
+    } finally { delete S.say; }
   });
 }
 

@@ -34,6 +34,8 @@ import { footTile, front, extraTiles, yawOf } from './art/stations.js';
 import { solidsOf, hull, placeBoxes, aabb, distTo, rayHits } from './world/fit.js';
 import { HOTBAR, extraOf } from './inventory.js';
 import { Neighbors } from './neighbors.js';
+import { Reputation } from './reputation.js';
+import { Social } from './social.js';
 import { Board } from './board.js';
 import { Combat, DIFFICULTIES, MONSTERS, EFFECT_NAMES } from './combat.js';
 import { Hunt, bodyBox } from './hunt.js';
@@ -178,6 +180,7 @@ export class Game {
     this.rest = this.addSystem(new Rest(this));
     this.crew = this.addSystem(new Crew(this));   // ir de pasajero en la barca de otro
     this.neighbors = this.addSystem(new Neighbors(this));
+    this.rep = this.addSystem(new Reputation(this));   // the village's reputation (after stats and neighbors: an old game is born from them)
     this.hunt = this.addSystem(new Hunt(this));   // pegar a los animales (antes que a las criaturas: va a lo que se apunta)
     this.combat = this.addSystem(new Combat(this));
     this.mobs =this.addSystem(new Mobs(this));   // la luz y las criaturas de fuera, de noche
@@ -191,6 +194,7 @@ export class Game {
     this.story = this.addSystem(new Story(this));
     this.steps = this.addSystem(new Steps(this));   // los primeros pasos
     this.live = this.addSystem(new Live(this));   // jugar juntos en directo
+    this.social = this.addSystem(new Social(this));   // greeting and provoking people (Y or right click on someone)
     this.niloTips = NILO_TIPS;
     this.money = 0;
     this.buffs = {};             // efectos de comida: { rapido: hasta cuándo, incansable: … }
@@ -694,7 +698,7 @@ export class Game {
     setTimeout(() => {
       if (!home.length) { g.gather.float('No contesta nadie…', '#d8c3a0'); return; }
       const who = home[0].def.name;
-      if (h >= 22 || h < 7) { g.gather.float(`${who} (desde dentro): ¡Son horas de dormir! Vuelve mañana`, '#fff3c0'); return; }
+      if (h >= 22 || h < 7) { g.gather.float(`${who} (desde dentro): ¡Son horas de dormir! Vuelve mañana`, '#fff3c0'); g.rep.knockNight(door, h); return; }
       g.gather.float(`${who}: ¡Voy! … ¡Pasa, pasa!`, '#fff3c0');
       if (this.scene.doorClosed(...door)) { this.scene.toggleDoor(...door); Audio.door(); }
     }, 900);
@@ -1217,7 +1221,10 @@ export class Game {
     if (!still && !hidden) { v.redraw = false; v.render(this); }
     else if (still) v.idle?.(this);   // (sin dibujar, se adelanta lo que se puede: los impostores de los árboles lejanos)
     const prey = this.gather.target?.prey, click = prey && this.highlight?.e === prey ? '  ·  Clic: atacar' : '';
-    hud.prompt(near && (near.alt ? `${near.text}  ·  X: ${near.alt.text.toLowerCase()}` : near.text) + click, this.highlight ? [m.x, m.y] : null);
+    // (and greeting whoever is under the cursor, Y: social.js. Only added if E is about that same person; farther away, alone)
+    const social = this.player ? this.social.promptFor(this.highlight?.e || null, !!near) : '';
+    if (near || !social) hud.prompt(near && (near.alt ? `${near.text}  ·  X: ${near.alt.text.toLowerCase()}` : near.text) + click + social, this.highlight ? [m.x, m.y] : null);
+    else hud.prompt(social, m?.in ? [m.x, m.y] : null);
     let hint = '';
     if (this.player) {
       for (const s of this.systems) { try { hint = s.hint?.() || ''; } catch (e) { reportFault(e, faultName(s, 'hint')); } if (hint) break; }

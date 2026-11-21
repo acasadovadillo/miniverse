@@ -11,7 +11,9 @@ const $ = id => document.getElementById(id);
 
 export function initShopUI(game, { onClose }) {
   let shop = null, tab = 'buy', note = '';
-  const discount = () => (shop === 'rosa' && game.neighbors.flags.descuento ? 0.9 : 1);
+  // (Rosa's discount, and the village's reputation: reputation.js; selling, the reputation only)
+  const discount = () => (shop === 'rosa' && game.neighbors.flags.descuento ? 0.9 : 1) * (game.rep?.buyFactor() ?? 1);
+  const sellPrice = id => { const p = priceOf(id); return p ? Math.max(1, Math.round(p * (game.rep?.sellFactor() ?? 1))) : 0; };
 
   function stock() {
     const s = SHOPS[shop], season = game.days.season, done = game.board.projects;
@@ -37,7 +39,7 @@ export function initShopUI(game, { onClose }) {
     $('sh-title').textContent = SHOPS[shop].title;
     $('sh-money').textContent = `${game.money} 🪙`;
     document.querySelectorAll('[data-shtab]').forEach(b => b.classList.toggle('on', b.dataset.shtab === tab));
-    $('sh-note').textContent = note;
+    $('sh-note').textContent = note || game.rep?.shopNote() || '';   // (why the prices are not the usual ones, until something else is said)
     $('sh-list').textContent = '';
     if (tab === 'buy') {
       for (const e of stock()) {
@@ -70,7 +72,7 @@ export function initShopUI(game, { onClose }) {
       for (const s of game.inv.slots) {
         if (!s || seen.has(s.id)) continue;
         seen.add(s.id);
-        const p = priceOf(s.id), n = game.inv.count(s.id), def = ITEMS[s.id];
+        const p = sellPrice(s.id), n = game.inv.count(s.id), def = ITEMS[s.id];
         if (!p || (def.tool && (def.tier === 1 || TIERS[def.tier]))) continue;   // (las herramientas de siempre no se venden)
         row(itemIconUrl(s.id), `${def.name} ×${n}`, `${p} 🪙 cada uno`, [['Vender 1', () => sell(s.id, 1, p), true], ['Todo', () => sell(s.id, n, p), n > 1]]);
       }

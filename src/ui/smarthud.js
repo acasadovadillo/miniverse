@@ -39,7 +39,7 @@ const TIPS_KEY = 'pueblo-brotes:pistas';   // (the key tips already shown, per a
 // The one-time key tips: the key drawn as a key (hungry and lowhp first; hungry picks its key and text as it goes)
 const TIPS = {
   bag: { code: 'KeyI', key: 'I' }, craft: { code: 'KeyC', key: 'C' }, build: { code: 'KeyB', key: 'B' },
-  journal: { code: 'KeyJ', key: 'J' }, map: { code: 'KeyM', key: 'M' }, all: { code: 'Tab', key: 'Tab' }, wheel: { code: 'KeyF', key: 'F' },
+  journal: { code: 'KeyJ', key: 'J' }, map: { code: 'KeyM', key: 'M' }, all: { code: 'Tab', key: 'Tab' }, wheel: { code: 'KeyF', key: 'F' }, social: { code: 'KeyY', key: 'Y' },
   hungry: {}, lowhp: { key: null },
 };
 const KNOWN = ['bag', 'craft', 'build', 'journal', 'map'];   // (what a player past the first steps already knows)
@@ -138,7 +138,7 @@ body.hud-min #quest.hm-compact:not(:hover) b { font-size: 16px; }
 const kbd = k => `<kbd>${k}</kbd>`;
 // The keys card (holding Tab, and in the pause): the keys there is no longer an icon for
 function keysCard() {
-  const rows = [['E', 'use'], ['1 – 9', 'slots'], ['F', 'wheel'], ['I', 'bag'], ['C', 'craft'], ['B', 'build'], ['J', 'journal'], ['M', 'map'], ['T', 'chat'], ['Z', 'view'], ['Tab', 'all'], ['Esc', 'pause']];
+  const rows = [['E', 'use'], ['1 – 9', 'slots'], ['F', 'wheel'], ['Y', 'social'], ['I', 'bag'], ['C', 'craft'], ['B', 'build'], ['J', 'journal'], ['M', 'map'], ['T', 'chat'], ['Z', 'view'], ['Tab', 'all'], ['Esc', 'pause']];
   return `<h4>${t('hud.keys.title')}</h4><dl>${rows.map(([k, id]) => `<dt>${kbd(k)}</dt><dd>${t('hud.keys.' + id)}</dd>`).join('')}</dl>`;
 }
 function buildCard() {
@@ -374,6 +374,8 @@ export class SmartHud {
         if (left > 0 && left <= 0.5 && this.closing !== key) { this.closing = key; show('clock', SHOW.clock); }
       }
     }
+    // Someone to greet under the cursor (social.js), the first times: Y
+    if (g.social?.picked && T - this.started > 8) this.want('social');
     // Leaving the village for the first time: the map
     if (g.scene === g.world && !g.indoors && !inBounds(p.x, p.y)) this.want('map');
     // A new recipe while playing (not the ones of the start): crafting
