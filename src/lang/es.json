@@ -107,6 +107,7 @@
  "controls.zoom": "Acercar y alejar la cámara",
  "controls.view": "Primera o tercera persona (en primera persona, <kbd>↑</kbd> <kbd>↓</kbd> miran arriba y abajo)",
  "controls.fps": "Ver el rendimiento (fotogramas por segundo)",
+ "controls.wheel": "Rueda de herramientas: mantenla, mueve el ratón y suelta para equipar (jugando solo, el juego va a cámara lenta mientras tanto). Un toque vuelve a lo que llevabas antes",
  "controls.windows": "Inventario (lo que llevas y la ropa), fabricar y construir",
  "controls.players": "Mientras lo mantienes, quién está jugando",
  "controls.journal_map": "Diario y mapa",
@@ -135,6 +136,7 @@
  "hud.keys.title": "Teclas",
  "hud.keys.use": "Usar, hablar, abrir",
  "hud.keys.slots": "Elegir casilla (o la rueda)",
+ "hud.keys.wheel": "Mantener: rueda de herramientas (un toque: la de antes)",
  "hud.keys.bag": "Mochila",
  "hud.keys.craft": "Fabricar",
  "hud.keys.build": "Construir",
@@ -155,6 +157,7 @@
  "hud.tip.journal": "Diario: tus pasos, los vecinos y los logros",
  "hud.tip.map": "Mapa: dónde estás y lo que has explorado",
  "hud.tip.all": "Mantenla para verlo todo: la vida, la hora, el mapa y las teclas",
+ "hud.tip.wheel": "Mantenla para elegir herramienta con el ratón",
  "hud.tip.all.nohealth": "Mantenla para verlo todo: la hora, el mapa y las teclas",
  "hud.tip.hungry.eat": "Tienes hambre: haz clic para comer",
  "hud.tip.hungry.take": "Tienes hambre: pulsa {n} para coger la comida y haz clic",
@@ -162,5 +165,9 @@
  "hud.tip.hungry.none": "Tienes hambre y no llevas comida: la venden Rosa y la taberna",
  "hud.tip.lowhp": "Te queda poca vida: con la tripa llena se recupera sola. Aléjate del peligro",
  "hud.goal.dist": "{n} m",
+ "hud.wheel.hands": "Manos libres",
+ "hud.wheel.uses": "{left}/{max} usos",
+ "hud.wheel.arrows": "{n, plural, =0 {Sin flechas} one {# flecha} other {# flechas}}",
+ "hud.wheel.help": "Mueve el ratón · suelta F para equipar · clic derecho: cancelar",
  "hud.controls.tab": "Mientras la mantienes, toda la interfaz y quién está jugando"
 }

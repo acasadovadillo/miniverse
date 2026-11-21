@@ -6,6 +6,7 @@ import { ITEMS, LEGACY_ITEMS, modernSlots } from './items.js';
 import './buildables.js';   // (apunta en LEGACY_ITEMS los muebles y las estaciones, que ya no son objetos)
 
 export const SLOTS = 36, HOTBAR = 9;
+const PREV_MS = 500;   // (held this long, what was in hand counts as "the one before" for a tap of F: see remember)
 // Lo que distingue una cosa de otra igual (el color de una prenda, lo gastada que está una herramienta o una
 // armadura: dur, los usos que le quedan); undefined si no hay nada
 export const extraOf = s => { const e = {}; if (s?.color) e.color = s.color; if (s?.dur !== undefined) e.dur = s.dur; if (s?.map) e.map = s.map; return Object.keys(e).length ? e : undefined; };
@@ -31,6 +32,9 @@ export class Inventory {
     this.onChange = null;
     this.infinite = false;   // modo admin: usar o gastar algo no lo quita (moverlo, tirarlo o guardarlo sí)
     this.v = 0;              // sube con cada cambio (para saber si hay que rehacer el muñeco)
+    // What was in hand before ({ slot, id }), for a tap of F (src/ui/wheel.js): not saved. selectedAt: when the slot changed
+    this.prev = null;
+    this.selectedAt = 0;
   }
   get held() { return this.slots[this.selected]; }
   // Casillas que se pueden usar: la barra rápida y, con mochila, las suyas
@@ -96,7 +100,30 @@ export class Inventory {
     }
     this.changed();
   }
-  select(i) { this.selected = (i + HOTBAR) % HOTBAR; this.changed(); }
+  // on: picked on purpose (1-9, the tool wheel): what was in hand becomes "the one before" however briefly it was there.
+  // Otherwise only if it stayed PREV_MS (the mouse wheel goes through several slots in a row: those do not count)
+  select(i, on = false) {
+    const j = (i + HOTBAR) % HOTBAR;
+    if (j !== this.selected) {
+      const now = performance.now();
+      if (on || now - this.selectedAt >= PREV_MS) this.remember();
+      this.selectedAt = now;
+    }
+    this.selected = j;
+    this.changed();
+  }
+  remember() { this.prev = { slot: this.selected, id: this.held?.id ?? null }; }
+  // Back to the one before (a tap of F). If that slot no longer has it (used up or moved), the same id elsewhere in the
+  // hotbar; if it is not there, nothing (false)
+  back() {
+    const p = this.prev;
+    if (!p) return false;
+    let i = p.slot;
+    if ((this.slots[i]?.id ?? null) !== p.id) i = p.id ? this.slots.findIndex((s, k) => k < HOTBAR && s?.id === p.id) : -1;
+    if (i < 0 || i === this.selected) return false;
+    this.select(i, true);
+    return true;
+  }
 
   // ---------- Ropa ----------
   // Ponerse lo de una casilla: lo que hubiera en ese hueco del cuerpo pasa a la casilla

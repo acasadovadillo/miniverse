@@ -39,6 +39,15 @@ export function initInput(h) {
 
   addEventListener('keydown', e => {
     if (e.target instanceof HTMLInputElement) return;
+    // The tool wheel open (src/ui/wheel.js): Esc cancels it (without the pause), a digit equips that slot, walking,
+    // running, crouching and jumping go on as always, and nothing else does anything (the hand is on the mouse: an E
+    // by mistake would open a door)
+    if (handlers.wheelOpen?.()) {
+      if (e.code === 'Escape') { e.preventDefault(); handlers.wheelCancel?.(); return; }
+      if (/^Digit[1-9]$/.test(e.code)) { e.preventDefault(); handlers.wheelPick?.(+e.code.slice(5) - 1); return; }
+      if (e.code === 'Tab' || e.code === 'KeyF') { e.preventDefault(); return; }
+      if (!(KEYMAP[e.code] || e.code === 'ShiftLeft' || e.code === 'ShiftRight' || e.code === 'Space')) return;
+    }
     if (e.code === 'Escape') {
       if (aimLock.locked || performance.now() - aimLock.exitAt < 400) return;   // (Esc suelta el puntero y eso ya abre la pausa)
       if (handlers.pause()) e.preventDefault();
@@ -68,6 +77,8 @@ export function initInput(h) {
     // Chat: T lo abre; / lo abre con la barra ya escrita (sin que la tecla se escriba dos veces)
     if ((e.code === 'KeyT' || e.key === '/') && !e.repeat) { if (handlers.chat(e.key === '/' ? '/' : '')) e.preventDefault(); return; }
     if (e.code === 'F3') { e.preventDefault(); if (!e.repeat) handlers.debug?.(); return; }   // (el panel de depuración, como en Minecraft)
+    // F held: the tool wheel; a tap, back to what you held before (not with Cmd or Ctrl: Cmd+F is the browser's search)
+    if (e.code === 'KeyF' && !e.metaKey && !e.ctrlKey) { e.preventDefault(); if (!e.repeat) handlers.wheelPress?.(); return; }
     if (e.code === 'KeyZ' && !e.repeat) { CAM.first = !CAM.first; e.preventDefault(); return; }   // primera o tercera persona
     if (e.code === 'KeyQ' && !e.repeat) { handlers.drop?.(e.ctrlKey || e.metaKey || e.shiftKey); e.preventDefault(); return; }   // tirar (con Ctrl o Shift, el montón)
     if (e.code === 'KeyG' && !e.repeat) { handlers.sit?.(); return; }    // sentarse en el suelo
@@ -94,8 +105,9 @@ export function initInput(h) {
     if (e.code === 'Space') keys.space = false;
     if (e.code === 'KeyR') handlers.rotateEnd?.();
     if (e.code === 'Tab') handlers.players?.(false);
+    if (e.code === 'KeyF') handlers.wheelRelease?.();
   });
-  addEventListener('blur', clearKeys);
+  addEventListener('blur', () => { handlers.wheelCancel?.(true); clearKeys(); });
 
   // Ratón sobre el juego: clic para usar (mantener para seguir), rueda para cambiar de objeto.
   // En modo construcción, el ratón (o el dedo) apunta a la casilla: clic pone, clic derecho quita, arrastrar pinta.
@@ -105,12 +117,14 @@ export function initInput(h) {
     const was = aimLock.locked;
     aimLock.locked = document.pointerLockElement === canvas;
     if (was && !aimLock.locked) {
-      if (!aimLock.freed && aimLock.want) { aimLock.exitAt = performance.now(); handlers.pause(); clearKeys(); }   // (lo ha soltado Esc)
+      if (!aimLock.freed && aimLock.want) { handlers.wheelCancel?.(); aimLock.exitAt = performance.now(); handlers.pause(); clearKeys(); }   // (lo ha soltado Esc; the tool wheel, if open, closes first)
       aimLock.freed = false;
     }
   });
   canvas.addEventListener('pointerleave', e => { if (e.pointerType === 'mouse' && !aimLock.locked) handlers.mouse?.(e.clientX, e.clientY, false); });
+  // (with the tool wheel open the mouse is its own: wheel.js stops these on window before they get here; just in case)
   canvas.addEventListener('pointermove', e => {
+    if (handlers.wheelOpen?.()) return;
     if (aimLock.locked) { if (Math.abs(e.movementX) < 300 && Math.abs(e.movementY) < 300) lookBy(e.movementX, e.movementY); return; }   // (a veces da saltos enormes: se ignoran)
     if (e.pointerType === 'mouse') { handlers.mouse?.(e.clientX, e.clientY, true); handlers.hover?.(e.clientX, e.clientY); }   // la casilla bajo el ratón (para colocar)
     if (!handlers.building?.()) return;
@@ -119,6 +133,7 @@ export function initInput(h) {
     else if (e.buttons === 2) handlers.unpaint(e.clientX, e.clientY, true);
   });
   canvas.addEventListener('pointerdown', e => {
+    if (handlers.wheelOpen?.()) return;
     shiftAlone = false;   // (Shift+clic no agacha)
     if (!handlers.enabled()) return;
     Audio.start();
@@ -139,6 +154,7 @@ export function initInput(h) {
   canvas.addEventListener('wheel', e => {
     e.preventDefault();
     // Ctrl + rueda (o pellizcar el panel táctil): acercar o alejar la cámara; la rueda sola cambia de objeto
+    if (handlers.wheelOpen?.()) return;
     if (e.ctrlKey) { CAM.dist = Math.max(DIST.min, Math.min(DIST.max, CAM.dist * Math.exp(e.deltaY * 0.01))); return; }
     if (!handlers.enabled() || performance.now() - wheelAt < 60) return;
     wheelAt = performance.now();

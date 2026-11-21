@@ -23,6 +23,7 @@ import { onFault } from './faults.js';
 import { GAME_VERSION, compareVersions } from './version.js';
 import { CHUNK } from './world/gen.js';
 import { wrapIndex, PLANET } from './world/planet.js';
+import { kitKey } from './kit.js';
 
 const SEND_EVERY = 0.1, IDLE_EVERY = 1;   // segundos entre mensajes de cómo va uno: moviéndose y quieto
 const SYNC_EVERY = 0.1;                   // cada cuánto se mandan los cambios del mundo
@@ -45,7 +46,7 @@ const session = Math.random().toString(36).slice(2, 6);   // (para que los objet
 class RemotePlayer extends Person {
   constructor(peer) {
     super({ x: 0, y: 0, look: peer.look });
-    Object.assign(this, { remote: true, id: peer.id, name: peer.name, z: 0, yaw: null, held: null, swing: 0, swingItem: null, cooldown: 0, to: null, fresh: true });
+    Object.assign(this, { remote: true, id: peer.id, name: peer.name, z: 0, yaw: null, held: null, swing: 0, swingItem: null, cooldown: 0, to: null, fresh: true, kitKey: '' });
   }
   apply(st) {
     this.to = [st.x, st.y, st.z || 0]; this.floor = st.fl || 0;   // (fl: la roca que pisa)
@@ -53,6 +54,8 @@ class RemotePlayer extends Person {
     this.pose = st.po ? { kind: POSES[st.po[0]], yaw: st.po[1], h: st.po[2] } : null;   // (sentado o tumbado)
     Object.assign(this, { yaw: st.yaw ?? null, inside: !!st.in, mount: !!st.m, horseCoat: st.hc || null, horseBags: !!st.hb, boat: !!st.b, aboard: st.pa || null, crouch: !!st.cr, gm: st.gm || 0, held: st.h || null, swing: st.sw || 0, swingItem: st.si || null, cooldown: st.cd || 0, bowPull: st.dr || 0 });
     this.swim = !!st.na; this.sinkTo = st.na ? st.hu || 0 : 0;   // (nadando, y lo que se hunde o se asoma)
+    // (kt: the tools they carry, seen on their body: see kit.js. A game from before does not send it: none)
+    this.kitKey = typeof st.kt === 'string' ? st.kt.slice(0, 160) : '';
   }
   // w: el mundo, si está en él. z va sobre el suelo de donde pisa (surfaceAt); junto a lo cavado, ese suelo cambia de golpe
   // de una casilla a otra, y suavizando z aparte de x e y se le veía subir antes de caer al hoyo o hundido en el fondo al
@@ -116,6 +119,11 @@ export class Live {
   get hostConn() { for (const [conn, p] of this.peers) if (p.host) return conn; return null; }
   get others() { return [...this.peers.values()]; }
   get guest() { return this.role === 'guest'; }
+  // Someone else is playing with you (the server world does not count)
+  get othersPlaying() { return this.joined && this.others.some(p => p.playing && !p.server); }
+  // Your game runs the world and nobody else is in it: only then can it slow down (the tool wheel's slow motion). As a
+  // guest the world is someone else's, even with nobody else in it
+  get aloneInWorld() { return !this.guest && !this.othersPlaying; }
   changed() { this.onChange?.(); }
   setStatus(s, error = '') { this.status = s; this.error = error; this.changed(); }
 
@@ -846,7 +854,7 @@ export class Live {
     }
     this.sent += dt;
     const sc = g.scene === g.world ? 'world' : null;
-    const st = { t: 'st', sc, x: r2(p.x), y: r2(p.y), z: r2(p.z || 0), fl: p.floor ? r2(p.floor) : undefined, yaw: r2(g.view3d.actors.player?.person.facing ?? 0), in: p.inside ? 1 : 0, po: p.pose ? [POSES.indexOf(p.pose.kind), r2(p.pose.yaw), r2(p.pose.h)] : 0, m: p.mount ? 1 : 0, hc: p.mount ? p.horseCoat || null : null, hb: p.mount && p.horseBags ? 1 : 0, b: p.boat ? 1 : 0, pa: p.aboard || 0, cr: p.crouch ? 1 : 0, gm: g.gamemode === 'survival' ? 0 : g.gamemode === 'creative' ? 1 : 3, h: g.inv.held?.id || null, sw: this.swings, si: g.gather.swingItem || null, cd: r2(g.gather.cooldown || 0), dr: r2(g.archery.k), na: p.swim ? 1 : 0, hu: p.swim ? r2(p.sink) : undefined };
+    const st = { t: 'st', sc, x: r2(p.x), y: r2(p.y), z: r2(p.z || 0), fl: p.floor ? r2(p.floor) : undefined, yaw: r2(g.view3d.actors.player?.person.facing ?? 0), in: p.inside ? 1 : 0, po: p.pose ? [POSES.indexOf(p.pose.kind), r2(p.pose.yaw), r2(p.pose.h)] : 0, m: p.mount ? 1 : 0, hc: p.mount ? p.horseCoat || null : null, hb: p.mount && p.horseBags ? 1 : 0, b: p.boat ? 1 : 0, pa: p.aboard || 0, cr: p.crouch ? 1 : 0, gm: g.gamemode === 'survival' ? 0 : g.gamemode === 'creative' ? 1 : 3, h: g.inv.held?.id || null, sw: this.swings, si: g.gather.swingItem || null, cd: r2(g.gather.cooldown || 0), dr: r2(g.archery.k), na: p.swim ? 1 : 0, hu: p.swim ? r2(p.sink) : undefined, kt: kitKey(g.kitIds()) || undefined };
     const key = JSON.stringify(st);
     if (this.sent < SEND_EVERY || (key === this.lastSent && this.sent < IDLE_EVERY)) return;
     this.sent = 0; this.lastSent = key;

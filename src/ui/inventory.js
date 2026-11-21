@@ -78,15 +78,17 @@ export function initInventoryUI(game, { onClose, onCraft }) {
   const me = new CharacterPreview($('inv-me'));
   if (matchMedia('(max-width: 520px)').matches) me.resize(176, 246); else me.resize(168, 288);
   me.walk = false;
-  let meLook = null, meAngle = 0.3, meDrag = null;
+  game.invPreview = me;   // (for the tests)
+  let meLook = null, meKit = null, meAngle = 0.3, meDrag = null;
   $('inv-me').addEventListener('pointerdown', e => { meDrag = e.clientX; $('inv-me').setPointerCapture(e.pointerId); });
   $('inv-me').addEventListener('pointermove', e => { if (meDrag === null) return; meAngle += (e.clientX - meDrag) * 0.012; meDrag = e.clientX; });
   for (const ev of ['pointerup', 'pointercancel']) $('inv-me').addEventListener(ev, () => { meDrag = null; });
   let last = 0;
   (function spin(t) {
     if ($('s-inv').classList.contains('show')) {
-      const look = game.appearance();
+      const look = game.appearance(), kit = game.kitIds();
       if (look && look !== meLook) { meLook = look; me.setLook(look); }
+      if (kit !== meKit) { meKit = kit; me.setKit(kit); }   // (the tools carried, on the body: see kit.js)
       if (meDrag === null) meAngle += Math.min(0.05, (t - last) / 1000 || 0) * 0.35;
       me.setAngle(meAngle);
       me.render(t);

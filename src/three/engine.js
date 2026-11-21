@@ -404,6 +404,8 @@ export class View3D {
     // (un salto a punto de taparse: la última imagen se queda mientras se funde a negro; ver Game.coverJump)
     if (this.hold) return;
     const dt = Math.min(0.05, this.clock.getDelta()), t = game.time;
+    // (in the tool wheel's slow motion the bodies and the particles go slower too; the camera and the sky, at real pace)
+    const sdt = dt * (game.simScale ?? 1);
     // Las fotos de las texturas, antes del primer fotograma del mundo (como mucho 2,5 s; casi siempre ya han llegado en
     // la pantalla de entrada): así los materiales se hacen ya con la foto compartida (ver textures.js, photoTex). Si no
     // llegan a tiempo, se sigue con los lienzos pintados y la foto encima cuando llegue: igual de bien, con más memoria.
@@ -444,11 +446,11 @@ export class View3D {
       this.world.update(game, scene, target, dt, snap, fill);
     } else this.cave.update(game, dt);
     // (lo que tardan los actores, de media cada medio segundo: para F3 y el banco)
-    { const t0 = performance.now(); this.actors.update(game, scene, dt, t); const ms = performance.now() - t0; this.actorsAcc = (this.actorsAcc || 0) + ms; this.actorsN = (this.actorsN || 0) + 1; this.actorsT = (this.actorsT || 0) + dt; if (this.actorsT >= 0.5) { this.actorsMs = this.actorsAcc / this.actorsN; this.actorsAcc = this.actorsN = this.actorsT = 0; } }
+    { const t0 = performance.now(); this.actors.update(game, scene, sdt, t); const ms = performance.now() - t0; this.actorsAcc = (this.actorsAcc || 0) + ms; this.actorsN = (this.actorsN || 0) + 1; this.actorsT = (this.actorsT || 0) + dt; if (this.actorsT >= 0.5) { this.actorsMs = this.actorsAcc / this.actorsN; this.actorsAcc = this.actorsN = this.actorsT = 0; } }
     this.first = CAM.first && !!game.player && !!game.scene;
     { const p = game.player; this.wet = !!p && !!game.scene && !p.boat && !p.aboard && (p.swim || p.depth > 0.35); }   // (ver draw; vadeando con el agua por debajo de la rodilla, casi todo el cuerpo queda fuera y vale la silueta de siempre, que lo deja ver tras los árboles)
     this.updateViewmodel(game, this.first);
-    this.fx.update(game, scene, dt, t);
+    this.fx.update(game, scene, sdt, t);
     this.arrows.update(game, scene);
     this.updateWater(t);
     // El suelo se moja con la lluvia (en un minuto) y se seca despacio (unos cinco); el agua, con sus gotas

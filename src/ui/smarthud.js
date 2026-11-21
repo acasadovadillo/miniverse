@@ -39,7 +39,7 @@ const TIPS_KEY = 'pueblo-brotes:pistas';   // (the key tips already shown, per a
 // The one-time key tips: the key drawn as a key (hungry and lowhp first; hungry picks its key and text as it goes)
 const TIPS = {
   bag: { code: 'KeyI', key: 'I' }, craft: { code: 'KeyC', key: 'C' }, build: { code: 'KeyB', key: 'B' },
-  journal: { code: 'KeyJ', key: 'J' }, map: { code: 'KeyM', key: 'M' }, all: { code: 'Tab', key: 'Tab' },
+  journal: { code: 'KeyJ', key: 'J' }, map: { code: 'KeyM', key: 'M' }, all: { code: 'Tab', key: 'Tab' }, wheel: { code: 'KeyF', key: 'F' },
   hungry: {}, lowhp: { key: null },
 };
 const KNOWN = ['bag', 'craft', 'build', 'journal', 'map'];   // (what a player past the first steps already knows)
@@ -138,7 +138,7 @@ body.hud-min #quest.hm-compact:not(:hover) b { font-size: 16px; }
 const kbd = k => `<kbd>${k}</kbd>`;
 // The keys card (holding Tab, and in the pause): the keys there is no longer an icon for
 function keysCard() {
-  const rows = [['E', 'use'], ['1 – 9', 'slots'], ['I', 'bag'], ['C', 'craft'], ['B', 'build'], ['J', 'journal'], ['M', 'map'], ['T', 'chat'], ['Z', 'view'], ['Tab', 'all'], ['Esc', 'pause']];
+  const rows = [['E', 'use'], ['1 – 9', 'slots'], ['F', 'wheel'], ['I', 'bag'], ['C', 'craft'], ['B', 'build'], ['J', 'journal'], ['M', 'map'], ['T', 'chat'], ['Z', 'view'], ['Tab', 'all'], ['Esc', 'pause']];
   return `<h4>${t('hud.keys.title')}</h4><dl>${rows.map(([k, id]) => `<dt>${kbd(k)}</dt><dd>${t('hud.keys.' + id)}</dd>`).join('')}</dl>`;
 }
 function buildCard() {
@@ -194,7 +194,7 @@ export class SmartHud {
     this.listeners = [
       ['keydown', e => {
         if (e.target instanceof HTMLInputElement) return;
-        if (e.code === 'Tab' && !e.repeat && game.mode === 'play' && game.player) { this.hold(true); this.solo(); }
+        if (e.code === 'Tab' && !e.repeat && game.mode === 'play' && game.player && !game.wheel?.open) { this.hold(true); this.solo(); }   // (not over the tool wheel)
         const id = Object.keys(TIPS).find(k => TIPS[k].code === e.code);
         if (id) this.learnt(id);
       }, true],
@@ -241,8 +241,7 @@ export class SmartHud {
   }
   // Alone in the world, the list of players (with only you in it) is noise
   solo() {
-    const live = this.game.live, others = live?.joined && live.others?.some(p => p.playing && !p.server);
-    document.body.classList.toggle('hm-solo', !others);
+    document.body.classList.toggle('hm-solo', !this.game.live?.othersPlaying);
   }
 
   // ---------- each frame (from game.render) ----------
@@ -251,7 +250,7 @@ export class SmartHud {
     if (!p || !g.world || g.mode !== 'play') return;
     if (p !== this.player) this.start(p, T);
     const surv = g.gamemode === 'survival', spect = g.gamemode === 'spectator';
-    const talking = g.busy || hud.dialogOpen, wins = !!g.windowsOpen, all = T < this.allUntil;
+    const talking = g.busy || hud.dialogOpen, wins = !!g.windowsOpen, all = T < this.allUntil, wheel = !!g.wheel?.open;
     const c = g.combat, inv = g.inv, show = (k, s) => { this.until[k] = Math.max(this.until[k] || 0, T + s); };
     const dt = Math.min(0.25, T - (this.last ?? T));
     this.last = T;
@@ -310,18 +309,19 @@ export class SmartHud {
     const heldDef = ITEMS[inv.held?.id], up = k => (this.until[k] || 0) > T;
     const free = !talking;   // (talking, only what is critical: as in RDR2)
     const food = surv && heldDef?.food && c.hunger < HUNGER_MAX;
-    this.set('status', crit.hearts || crit.hunger || (free && (up('status') || this.danger || wins || food)));
+    // (with the tool wheel open, as with a window: health, hunger and the time; the hotbar goes, the wheel is it now)
+    this.set('status', crit.hearts || crit.hunger || (free && (up('status') || this.danger || wins || food || wheel)));
     this.set('money', free && !spect && up('money'));   // (with a window open it would be under it: in survival it is in the block)
     this.set('wins', wins, this.el.status, 'hm-wins');
     // (hungry with food in the hotbar: it stays, and that slot beats; during the first steps, which name the slots by
     // number, it stays too; and with a window open, as in Minecraft: you move things to it and from it, and the block
     // of health sits next to it instead of floating by an empty place)
     const feed = crit.hunger && this.foodSlot >= 0;
-    this.set('slots', free && (up('slots') || feed || wins || !g.steps.over));
+    this.set('slots', free && !wheel && (up('slots') || feed || wins || !g.steps.over));
     this.beat(feed && !heldDef?.food ? this.foodSlot : -1);
     this.set('item', free && up('item'));
     this.set('delta', free && up('delta'));
-    this.set('clock', free && (up('clock') || wins));
+    this.set('clock', free && (up('clock') || wins || wheel));
     this.set('tag', free && up('tag'));
     this.set('place', free && up('place'));
     this.set('quest', free);
@@ -343,7 +343,7 @@ export class SmartHud {
     // says it already
     if (hint !== this.hint) { this.hint = hint; this.hintAt = T; this.neg = !!hint && !g.build.on && this.negative(g) && hint === g.gather.hint(); }
     const eating = crit.hunger && heldDef?.food;   // (the "Eat bread" of the hungry: it stays)
-    this.set('quiet', !!hint && !g.build.on && ((T - this.hintAt > STALE_HINT && !eating) || this.neg || bow), this.hintEl, 'hm-quiet');
+    this.set('quiet', !!hint && !g.build.on && ((T - this.hintAt > STALE_HINT && !eating) || this.neg || bow || wheel), this.hintEl, 'hm-quiet');
     // Build mode: its keys, a moment after entering it
     if (g.build.on !== this.building) { this.building = g.build.on; if (g.build.on) show('build', SHOW.build); }
     this.set('build', g.build.on && free && up('build'));
@@ -420,6 +420,10 @@ export class SmartHud {
     const h = inv.held, max = h && ITEMS[h.id]?.dur;
     if (max && h.dur !== undefined && h.dur / max < 0.15 && this.worn !== h) { this.worn = h; show('slots', SHOW.slots); }
     if (inv.count('tablas') >= 6) this.want('build');
+    // (three tools or more in the hotbar: the tool wheel is worth knowing)
+    let tools = 0;
+    for (let i = 0; i < HOTBAR; i++) { const d = ITEMS[inv.slots[i]?.id]; if (d && (d.tool || d.weapon || d.bow)) tools++; }
+    if (tools >= 3 && now() - this.started > 8) this.want('wheel');
   }
   // The slot with food beats (-1: none)
   beat(i) {

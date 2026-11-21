@@ -19,6 +19,8 @@ import { RealPerson, realBaby, prebuildReal, realStats } from './realperson.js';
 import { apagada } from '../opciones.js';
 import { Audio } from '../audio.js';
 import { reportFault } from '../faults.js';
+import { kindOf, placeKit, shownOf, splitKit, poseClass } from '../kit.js';
+import { bakeStowed, buildKit } from './kit3d.js';
 
 // Agachado: cuánto se adelantan los muslos y se doblan las rodillas (rad), cuánto baja el cuerpo (m: lo que suben
 // los pies al doblar las piernas, para que sigan en el suelo) y se echa hacia delante (rad; la cabeza lo compensa
@@ -463,6 +465,7 @@ export class Actors {
         });
         if (bag && m === this.player) bag.traverse(o => { if (o.isMesh) ownMesh(o, m, true); });
         if (bag && m.ghosted) { m.ghosted = false; this.ghost(m, true); }   // (de espectador, también medio transparente)
+        this.kit(m, e, P, pz, lying);
       }
     } else if (m.kind === 'animal') {
       if (yaw !== null) turnTo(m.root, yaw, dt);
@@ -480,6 +483,35 @@ export class Actors {
       m.root.visible = !(e.hurt > 0 && Math.floor(e.hurt * 20) % 2);
     }
     m.root.position.set(x, y, z);
+  }
+
+  // The tools they carry and do not hold, on their body (kit.js says which and where; kit3d.js draws them): the player's
+  // from their inventory, another player's from what their messages say (kt). Rebuilt only when what shows changes
+  // (picking up, dropping or moving a tool, the backpack, sitting or lying, swimming, or the hand going from one kind of
+  // tool to another: its gap moves); the two meshes stay the same, so their own materials (the player's, for the
+  // outline; a spectator's) are made once. Far away (15 Hz or the far detail) they are hidden, and at 30 Hz with no shadow
+  kit(m, e, P, pz, lying) {
+    const ids = m === this.player ? this.game.kitIds() : splitKit(e.kitKey), bag = !!P.bag;
+    if (ids !== m.kitIds || bag !== m.kitBag) { m.kitIds = ids; m.kitBag = bag; m.kitPlaced = placeKit(ids, { bag }); }
+    // (arms busy with something big, for PLAN-C: always null for now; see kit.js shownOf)
+    const hk = kindOf(m.holding), swim = m.swimK > 0.5, pc = poseClass(pz?.kind || (lying ? 'lie' : '')), arms = e.armsBusy || null, S = (m.kitSig ||= {});
+    if (S.p !== m.kitPlaced || S.h !== hk || S.s !== swim || S.c !== pc || S.a !== arms) {
+      Object.assign(S, { p: m.kitPlaced, h: hk, s: swim, c: pc, a: arms });
+      const shown = shownOf(m.kitPlaced, m.holding, { swimming: swim, pose: pc, arms }), key = shown.map(o => o.spot + ':' + o.id).join();
+      if (key !== m.kitShown) {
+        m.kitShown = key;
+        const made = P.setKit(shown.length ? buildKit(shown, P.bagFit(), P.beltFit(), stowedGeo, { bag }) : {});
+        for (const o of made) if (m === this.player) ownMesh(o, m, true);
+        if (made.length && m.ghosted) { m.ghosted = false; this.ghost(m, true); }   // (de espectador, también medio transparente)
+        m.kitNear = undefined;
+      }
+    }
+    if (!P.kit) return;
+    const near = !(m.tier >= 2 || P.lod === 1), shadow = m.tier === 0;
+    if (near !== m.kitNear || shadow !== m.kitShadow) {
+      m.kitNear = near; m.kitShadow = shadow;
+      for (const [k, o] of Object.entries(P.kit)) { o.visible = near && o.userData.has; if (k === 'back') o.castShadow = shadow; }
+    }
   }
 
   // La pose de los huesos de una persona: andar (animate), en el aire, lo que lleva en la mano, agachada, sentada, a
@@ -572,10 +604,18 @@ export class Actors {
     m.lastSwing = g.swing;
     const a = m.anim, show = a ? a.item : id;
     if (m.holding !== show) {
+      // (what was in the hand takes its own materials with it: the player's, for the outline, and a spectator's; they
+      // piled up in m.mats with each switch)
+      for (const c of m.hand.children) c.traverse(o => {
+        if (!o.isMesh) return;
+        if (o.userData.solid) o.material.dispose();
+        else if (m.mats?.includes(o.material)) { o.material.dispose(); for (const list of [m.mats, m.body]) { const i = list.indexOf(o.material); if (i >= 0) list.splice(i, 1); } }
+      });
       m.hand.clear();
       const tool = show && (toolModel(show) || foodInHand(show));
       if (tool && m.mats) tool.traverse(o => { if (o.isMesh) ownMesh(o, m, true); });
       if (tool) m.hand.add(tool);
+      if (tool && m.ghosted) { m.ghosted = false; this.ghost(m, true); }   // (de espectador, también lo de la mano)
       m.holding = show;
     }
     // (el brazo de la mano que lleva la herramienta, la derecha; los gestos se pensaron para la izquierda: de lado y
@@ -823,6 +863,18 @@ function bodyKey(look) {
   let k = BODY_KEYS.get(look);
   if (k === undefined) BODY_KEYS.set(look, (k = JSON.stringify(look.wear?.espalda ? { ...look, wear: { ...look.wear, espalda: undefined } } : look)));
   return k;
+}
+// The tools as they go on the body (kit3d.js bakeStowed), one geometry per id, made the first time: never released
+// (about a dozen small ones), so whoever places them clones them first (buildKit)
+const STOWED = new Map();
+export function stowedGeo(id) {
+  if (!STOWED.has(id)) { const model = toolModel(ITEMS[id]?.empty || id); STOWED.set(id, model ? bakeStowed(model, kindOf(id)) : null); }
+  return STOWED.get(id);
+}
+// The same on any person (the inventory's preview, which has no hand: everything shows)
+export function kitOn(P, ids) {
+  const shown = shownOf(placeKit(ids, { bag: !!P.bag }), null);
+  P.setKit(shown.length ? buildKit(shown, P.bagFit(), P.beltFit(), stowedGeo, { bag: !!P.bag }) : {});
 }
 export function toolModel(id) {
   const def = ITEMS[id];

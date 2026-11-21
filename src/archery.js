@@ -33,6 +33,8 @@ const r2 = v => Math.round(v * 100) / 100;
 export class Archery {
   constructor(game) { this.game = game; this.list = []; this.n = 0; this.drawT = null; }
   reset() { this.list = []; this.drawT = null; }
+  // Let the string go without shooting (opening the tool wheel: releasing the click afterwards must not fire)
+  cancel() { this.drawT = null; }
   // Lo tenso que está (de 0 a 1)
   get k() { return this.drawT === null ? 0 : Math.min(1, this.drawT / FULL_DRAW); }
   get walk() { return this.drawT === null ? 1 : DRAW_WALK; }

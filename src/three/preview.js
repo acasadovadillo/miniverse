@@ -5,6 +5,7 @@ import * as THREE from 'three';
 import { mat } from './geo.js';
 import { planks } from './textures.js';
 import { RealPerson } from './realperson.js';
+import { kitOn } from './actors.js';
 import { TONE_MAPPING, CURVA } from './look.js';
 
 // Las luces del estudio, de las de antes (pensadas para la curva ACES): con la del juego, al 70 %, el color de la mejilla
@@ -47,9 +48,15 @@ export class CharacterPreview {
     const h = this.person?.height ?? 1.7, face = h - 0.12;
     this.shots = { body: [[0, h * 0.72, 4.9], [0, h * 0.52, 0]], face: [[0, face + 0.02, 1.75], [0, face - 0.1, 0]] };
     if (!this.person) return;
+    if (this.kitIds) kitOn(this.person, this.kitIds);   // (the tools on the body: a new person would lose them)
     this.person.root.traverse(o => { if (o.isMesh) o.castShadow = true; });
     this.person.root.rotation.y = this.angle;
     this.scene.add(this.person.root);
+  }
+  // The tools carried, on the body (ids: kit.js kitOf). With no hand here, all of them show
+  setKit(ids) {
+    this.kitIds = ids;
+    if (this.person) kitOn(this.person, ids);
   }
   // Ángulo hacia el que mira (0: de frente a la cámara)
   setAngle(a) { this.want = a; }

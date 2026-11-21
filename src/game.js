@@ -57,6 +57,7 @@ import { savedLang } from './i18n.js';
 import { keys, clearKeys } from './input.js';
 import { Audio } from './audio.js';
 import { hud } from './ui/hud.js';
+import { kitOf, kitKey } from './kit.js';
 
 // Lo que ya no existe en el juego y lo que costó. Al cargar una partida se quita de donde esté (la mochila, los cofres, las
 // alforjas, el correo o puesto en el mundo) y, si no, quedaría un objeto sin datos que rompe la mochila. Devuelve lo que
@@ -95,6 +96,9 @@ export function retireItems(save, deltas) {
   return owed;
 }
 const STEP = 1 / 60;   // la simulación avanza siempre a 60 pasos por segundo
+// The tool wheel's slow motion (src/ui/wheel.js): how fast the game goes while it is open, playing alone, and how fast it
+// gets there and back (per second of real time: about 0.12 s)
+const SLOW_MOTION = 0.3, SLOW_RATE = 25;
 const NILO_TIPS = [
   'Dicen que el mundo no se acaba nunca más allá del bosque. Yo nunca he llegado tan lejos.',
   'Los peñascos grandes dan de todo: piedra, carbón, cobre, hierro y a veces oro. Pero tu pico se gasta: cuídalo.',
@@ -190,6 +194,10 @@ export class Game {
     this.niloTips = NILO_TIPS;
     this.money = 0;
     this.buffs = {};             // efectos de comida: { rapido: hasta cuándo, incansable: … }
+    // Slow motion (see slowScale): timeScale, where it is now; timeScaleTarget, where it goes; simScale, what the last
+    // steps really used (1 unless alone with the tab in sight: what the drawing uses for the bodies and the particles)
+    this.timeScale = 1; this.timeScaleTarget = 1; this.simScale = 1;
+    this.wheel = null;           // the tool wheel (main.js makes it: not on the server)
   }
 
   resize() { this.view3d.resize(); }
@@ -1037,6 +1045,17 @@ export class Game {
     this.looked.v = this.inv.v;
     return this.looked.look;
   }
+  // The tools you carry, for showing them on your body (kit.js): the same array until they change (switching slots
+  // changes inv.v but not this)
+  kitIds() {
+    const inv = this.inv;
+    if (this.kitInv !== inv || this.kitV !== inv.v) {
+      this.kitInv = inv; this.kitV = inv.v;
+      const ids = kitOf(inv), key = kitKey(ids);
+      if (key !== this.kitKeyNow) { this.kitKeyNow = key; this.kitList = ids; }
+    }
+    return this.kitList;
+  }
   tileAtScreen(clientX, clientY) { return this.scene ? this.view3d.tileAt(clientX, clientY) : null; }
   // La casilla con la que se trabaja la tierra: un paso por delante o, en primera persona, la que está en la cruceta (si llega)
   aimTile() {
@@ -1063,11 +1082,16 @@ export class Game {
     const perf = this.perf = { frames: 0, steps: 0, update: 0, draw: 0, max: 0 };   // (lo que cuesta cada fotograma: para el panel de F3)
     // Avanzar el juego (la simulación y la red) hasta ahora, a pasos fijos; cap: lo que se recupera como mucho de una vez
     const advance = (now, cap) => {
-      acc += Math.min(cap, Math.max(0, (now - last) / 1000));
+      const real = Math.min(cap, Math.max(0, (now - last) / 1000));
+      acc += real;
       last = Math.max(last, now);
+      // (slow motion: the same 60 steps a second of real time, each one shorter. With fewer steps the drawing, which does
+      // not interpolate between steps, would move everybody in jumps every 3 or 4 frames. The network, at its real pace)
+      const ts = this.slowScale(real);
       // (un fallo al avanzar tampoco: se avisa y el juego sigue respondiendo; los de cada sistema ni llegan aquí: ver hook)
-      try { while (acc >= STEP) { this.update(STEP); acc -= STEP; perf.steps++; } } catch (e) { acc = 0; reportFault(e, 'paso'); this.updateError = e.message; }
+      try { while (acc >= STEP) { this.update(STEP * ts, STEP); acc -= STEP; perf.steps++; } } catch (e) { acc = 0; reportFault(e, 'paso'); this.updateError = e.message; }
     };
+    this.advance = advance;   // (for the tests)
     const frame = now => {
       const t0 = performance.now();
       advance(now, 0.25);
@@ -1123,10 +1147,24 @@ export class Game {
   // lejanos de la estación de allí (en el otro hemisferio, la contraria). null: no se sabe
   savedY() { const p = Profile.data?.save?.player; return p && !p.inside && Number.isFinite(p.y) ? p.y : null; }
 
-  update(dt) {
+  // How fast the game goes now (1, or less while the tool wheel is open): only playing alone (live.aloneInWorld: the world
+  // of everybody cannot be stopped) and with the tab in sight (the Worker's clock, with it hidden, always goes at 1). It
+  // eases in and out in real time; with someone in or the tab hidden it is 1 at once, so it never stays slowed down
+  slowScale(real) {
+    if (!this.wheel?.open && this.timeScale === 1) { this.timeScaleTarget = 1; return (this.simScale = 1); }   // (nearly always: nothing to ask)
+    const alone = !document.hidden && this.live.aloneInWorld;
+    this.timeScaleTarget = alone && this.wheel?.open ? SLOW_MOTION : 1;
+    if (!alone) this.timeScale = 1;
+    else this.timeScale += (this.timeScaleTarget - this.timeScale) * (1 - Math.exp(-real * SLOW_RATE));
+    if (Math.abs(this.timeScale - this.timeScaleTarget) < 0.003) this.timeScale = this.timeScaleTarget;
+    return (this.simScale = this.timeScale);
+  }
+
+  // dt: the time of the game (shorter in slow motion); realDt: the real one, for the network
+  update(dt, realDt = dt) {
     this.time += dt;
     // (lo de los demás jugadores y lo de recoger, aislados como los sistemas: ver hook)
-    try { this.live.tick(dt); } catch (e) { reportFault(e, 'Live.tick'); }
+    try { this.live.tick(realDt); } catch (e) { reportFault(e, 'Live.tick'); }
     const p = this.player;
     if (p && this.mode === 'map') { this.map.update(keys, dt); return; }
     if (!p || this.mode !== 'play') return;
@@ -1186,6 +1224,7 @@ export class Game {
       hint ||= this.build.on ? this.build.hint() : this.gather.hint();
     }
     hud.hint(hint);
+    try { this.wheel?.frame(); } catch (e) { reportFault(e, 'ToolWheel.frame'); }   // (the tool wheel: src/ui/wheel.js)
     try { this.smartHud?.frame(hint); } catch (e) { reportFault(e, 'SmartHud.frame'); }   // (the minimal interface, unless the full one was chosen: src/ui/smarthud.js)
     if (this.player && this.world) {
       // (los lugares, como mucho cada 0,15 s: el minimapa no se repinta más a menudo, y el grande, solo si algo cambia)

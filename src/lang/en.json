@@ -107,6 +107,7 @@
  "controls.zoom": "Zoom the camera in and out",
  "controls.view": "First or third person (in first person, <kbd>↑</kbd> <kbd>↓</kbd> look up and down)",
  "controls.fps": "Show performance (frames per second)",
+ "controls.wheel": "Tool wheel: hold it, move the mouse and let go to equip (playing alone, the game goes in slow motion meanwhile). A tap goes back to what you held before",
  "controls.windows": "Inventory (what you carry and your clothes), crafting and building",
  "controls.players": "Show who is playing (while held)",
  "controls.journal_map": "Journal and map",
@@ -135,6 +136,7 @@
  "hud.keys.title": "Keys",
  "hud.keys.use": "Use, talk, open",
  "hud.keys.slots": "Pick a slot (or the mouse wheel)",
+ "hud.keys.wheel": "Hold: tool wheel (tap: the one before)",
  "hud.keys.bag": "Inventory",
  "hud.keys.craft": "Crafting",
  "hud.keys.build": "Build",
@@ -155,6 +157,7 @@
  "hud.tip.journal": "Journal: your steps, neighbors and achievements",
  "hud.tip.map": "Map: where you are and what you have explored",
  "hud.tip.all": "Hold it to see everything: health, the time, the map and the keys",
+ "hud.tip.wheel": "Hold it to pick a tool with the mouse",
  "hud.tip.all.nohealth": "Hold it to see everything: the time, the map and the keys",
  "hud.tip.hungry.eat": "You're hungry: click to eat",
  "hud.tip.hungry.take": "You're hungry: press {n} to take the food, then click",
@@ -162,5 +165,9 @@
  "hud.tip.hungry.none": "You're hungry and carry no food: Rosa and the tavern sell it",
  "hud.tip.lowhp": "Low health: with a full belly it comes back by itself. Get away from danger",
  "hud.goal.dist": "{n} m",
+ "hud.wheel.hands": "Hands free",
+ "hud.wheel.uses": "{left}/{max} uses",
+ "hud.wheel.arrows": "{n, plural, =0 {No arrows} one {# arrow} other {# arrows}}",
+ "hud.wheel.help": "Move the mouse · let go of F to equip · right click: cancel",
  "hud.controls.tab": "While you hold it, the whole interface and who is playing"
 }

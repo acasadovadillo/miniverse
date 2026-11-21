@@ -10,6 +10,7 @@ import { initDebug } from './ui/debug.js';
 import { Settings } from './settings.js';
 import { freePlace } from './gather.js';
 import { useSmartHud } from './ui/smarthud.js';
+import { ToolWheel } from './ui/wheel.js';
 
 // Con ?modo=servidor, este juego es el mundo del servidor (lo abre multijugador.py): sin dibujo ni menús (server.js).
 // Con ?modo=pruebas, el juego de siempre, pero jugado por las pruebas automáticas (pruebas.js; las lanza probar.py)
@@ -36,6 +37,7 @@ function play(login = true) {   // (login: abrir la pantalla de entrar)
   Settings.onHud = v => useSmartHud(game, v !== 'full');
   Settings.hudNow = () => (game.smartHud ? 'minimal' : 'full');   // (what the setting lights: the one in sight)
   game.live.say = (text, kind) => chat.say(text, kind);
+  const wheel = game.wheel = new ToolWheel(game);   // (F held: the tool wheel, src/ui/wheel.js)
   const b = game.build;
   initInput({
     chat: prefix => chat.open(prefix),
@@ -70,7 +72,12 @@ function play(login = true) {   // (login: abrir la pantalla de entrar)
     journal: () => menus.toggleJournal(),
     players: on => showPlayers(on),
     debug: () => debug.toggle(),
-    select: i => (b.on ? null : game.inv.select(i)),
+    select: i => (b.on ? null : game.inv.select(i, true)),   // (on purpose: what was in hand is "the one before" for a tap of F)
+    wheelPress: () => wheel.press(),
+    wheelRelease: () => wheel.release(),
+    wheelCancel: hard => wheel.cancel(hard),
+    wheelOpen: () => wheel.open,
+    wheelPick: i => wheel.pick(i),
     cycle: d => (b.on ? b.cycle(d) : game.inv.select(game.inv.selected + d)),
     enabled: () => game.mode === 'play',
   });

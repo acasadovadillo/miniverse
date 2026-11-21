@@ -141,6 +141,37 @@ export class Builder {
   }
 }
 
+// Un color en todos los vértices de una pieza (the backpack and the tools on the body: their material takes the colour
+// per vertex)
+export function paint(geo, c) {
+  const k = new THREE.Color(c), n = geo.attributes.position.count, a = new Float32Array(n * 3);
+  for (let i = 0; i < n; i++) { a[i * 3] = k.r; a[i * 3 + 1] = k.g; a[i * 3 + 2] = k.b; }
+  geo.setAttribute('color', new THREE.BufferAttribute(a, 3));
+  return geo;
+}
+// Varias piezas (posición, normal y color) en una sola geometría con índice. If any carries 'metal' (0 or 1 per vertex:
+// see kit3d.js, KIT_MAT), the result has it too (0 for the pieces without it). The pieces are released
+export function mergeParts(list) {
+  const pos = [], nor = [], col = [], idx = [], metal = list.some(g => g.attributes.metal) ? [] : null;
+  for (const g of list) {
+    const off = pos.length / 3, P = g.attributes.position, N = g.attributes.normal, C = g.attributes.color, Mt = g.attributes.metal;
+    for (let i = 0; i < P.count; i++) {
+      pos.push(P.getX(i), P.getY(i), P.getZ(i)); nor.push(N.getX(i), N.getY(i), N.getZ(i)); col.push(C.getX(i), C.getY(i), C.getZ(i));
+      if (metal) metal.push(Mt ? Mt.getX(i) : 0);
+    }
+    if (g.index) for (let i = 0; i < g.index.count; i++) idx.push(g.index.getX(i) + off);
+    else for (let i = 0; i < P.count; i++) idx.push(i + off);
+    g.dispose();
+  }
+  const out = new THREE.BufferGeometry();
+  out.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  out.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
+  out.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  if (metal) out.setAttribute('metal', new THREE.Float32BufferAttribute(metal, 1));
+  out.setIndex(idx); out.computeBoundingSphere();
+  return out;
+}
+
 // Material estándar mate (lo normal). Con una textura de foto compartida (textures.js, photoTex), el tinte de su variante
 // va en el color: la foto tal cual por el color medio del lienzo pintado, que es lo que antes llevaba horneado cada copia.
 // Si la copia de antes recortaba en blanco alguna parte (un tinte claro sobre una foto con zonas claras), el material

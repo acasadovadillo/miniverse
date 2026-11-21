@@ -4,7 +4,8 @@
 // con ellas (mirar a quien pasa, agacharse, el gesto de la herramienta, sentarse, tumbarse, montar) las mueve igual.
 import * as THREE from 'three';
 import { fullLook, clothesFor } from '../looks.js';
-import { Builder } from './geo.js';
+import { Builder, paint, mergeParts } from './geo.js';
+import { KIT_MAT } from './kit3d.js';
 // (se cargan con el juego, en este orden: base.js deja window.LOOK con sus ayudas, y pelo y persona solo se apuntan en
 // LOOK.parts; THREE lo usan dentro de sus funciones, así que basta con dárselo antes de construir a nadie. Así entran
 // también en la lista de archivos que index.html vuelve a pedir sin caché al cambiar de versión)
@@ -54,34 +55,11 @@ export function toReal(look, kid = false) {
   return out;
 }
 
+const EMPTY_GEO = new THREE.BufferGeometry();   // (a kit mesh with nothing to show keeps this, never released)
+const BELT_Y = [0.02, 0.12];                     // (where the belt is measured, over the hip bone)
 // La mochila: el cuero (con su color por vértice, el de cada mochila) y la hebilla, compartidos por todas
 const BAG = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.84 });
 const BUCKLE = new THREE.MeshStandardMaterial({ color: '#b8964a', metalness: 0.5, roughness: 0.4 }), BUCKLE_GEO = new THREE.BoxGeometry(0.03, 0.03, 0.01);
-// Un color en todos los vértices de una pieza
-function paint(geo, c) {
-  const k = new THREE.Color(c), n = geo.attributes.position.count, a = new Float32Array(n * 3);
-  for (let i = 0; i < n; i++) { a[i * 3] = k.r; a[i * 3 + 1] = k.g; a[i * 3 + 2] = k.b; }
-  geo.setAttribute('color', new THREE.BufferAttribute(a, 3));
-  return geo;
-}
-// Varias piezas (posición, normal y color) en una sola geometría con índice
-function mergeParts(list) {
-  const pos = [], nor = [], col = [], idx = [];
-  for (const g of list) {
-    const off = pos.length / 3, P = g.attributes.position, N = g.attributes.normal, C = g.attributes.color;
-    for (let i = 0; i < P.count; i++) { pos.push(P.getX(i), P.getY(i), P.getZ(i)); nor.push(N.getX(i), N.getY(i), N.getZ(i)); col.push(C.getX(i), C.getY(i), C.getZ(i)); }
-    if (g.index) for (let i = 0; i < g.index.count; i++) idx.push(g.index.getX(i) + off);
-    else for (let i = 0; i < P.count; i++) idx.push(i + off);
-    g.dispose();
-  }
-  const out = new THREE.BufferGeometry();
-  out.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-  out.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
-  out.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
-  out.setIndex(idx); out.computeBoundingSphere();
-  return out;
-}
-
 // Una persona con lo que el juego espera de ella: root, body, torso, head, legs, shins, arms, fore (índice 0 a -x y
 // 1 a +x), facing, update, clone…
 export class RealPerson {
@@ -137,6 +115,7 @@ export class RealPerson {
   // geometría propia con materiales compartidos
   dispose() {
     this.r.release();
+    for (const o of Object.values(this.kit || {})) if (o.geometry !== EMPTY_GEO) o.geometry.dispose();   // (the tools on the body: their geometry is only theirs)
     if (this.bag) for (const o of this.bag.children) if (o.geometry !== BUCKLE_GEO) o.geometry.dispose();   // (la hebilla es de todas)
     if (this.belly) { this.belly.geometry.dispose(); this.belly.material.dispose(); }
   }
@@ -170,6 +149,48 @@ export class RealPerson {
       }
     });
     return (this.fit = { back, front, top: top ?? 0.3 });
+  }
+  // Where the belt goes on this body, in the hip bone and at rest (as bagFit, measured once): w, half the width of the
+  // waist; back and front, how far it goes behind and in front (for the tools hanging at the hip: kit3d.js)
+  beltFit() {
+    if (this.belt) return this.belt;
+    const b = this.r.bones, v = new THREE.Vector3(), M = new THREE.Matrix4();
+    let w = 0.15, back = -0.1, front = 0.1, found = false;
+    this.r.root.traverse(o => {
+      if (!o.isSkinnedMesh || found) return;
+      const sk = o.skeleton, i = sk.bones.indexOf(b.body);
+      if (i < 0) return;
+      found = true; w = 0; back = 0; front = 0;
+      M.multiplyMatrices(sk.boneInverses[i], o.bindMatrix);
+      // (the arms hang by the waist at rest: their vertices do not count)
+      const arm = new Set(['armL', 'armR', 'foreL', 'foreR', 'handL', 'handR'].map(n => sk.bones.indexOf(b[n])).filter(j => j >= 0));
+      const pos = o.geometry.attributes.position, si = o.geometry.attributes.skinIndex, sw = o.geometry.attributes.skinWeight;
+      for (let k = 0; k < pos.count; k += 2) {
+        if (si && sw && ((sw.getX(k) > 0.2 && arm.has(si.getX(k))) || (sw.getY(k) > 0.2 && arm.has(si.getY(k))) || (sw.getZ(k) > 0.2 && arm.has(si.getZ(k))) || (sw.getW(k) > 0.2 && arm.has(si.getW(k))))) continue;
+        v.fromBufferAttribute(pos, k).applyMatrix4(M);
+        if (v.y < BELT_Y[0] || v.y > BELT_Y[1]) continue;
+        if (Math.abs(v.z) < 0.08) w = Math.max(w, Math.abs(v.x));
+        if (Math.abs(v.x) < 0.08) { back = Math.min(back, v.z); front = Math.max(front, v.z); }
+      }
+    });
+    return (this.belt = { w: w || 0.15, back: back || -0.1, front: front || 0.1 });
+  }
+  // The tools on the body ({ back, hip }: geometries from kit3d.js buildKit, or null): two meshes at most, made the first
+  // time and kept (on the chest bone and the hip bone), so only their geometry changes (the one before is released).
+  // Returns the meshes made this time, for whoever draws them to give them their materials (as setBag; see actors.js)
+  setKit({ back = null, hip = null } = {}) {
+    const made = [], kit = (this.kit ||= {});
+    for (const [k, bone, geo] of [['back', this.r.bones.torso, back], ['hip', this.r.bones.body, hip]]) {
+      let o = kit[k];
+      if (!geo) { if (o) { o.geometry.dispose(); o.geometry = EMPTY_GEO; o.userData.has = false; o.visible = false; } continue; }
+      if (!o) {
+        o = kit[k] = new THREE.Mesh(geo, KIT_MAT);
+        o.castShadow = k === 'back'; o.receiveShadow = true;   // (the hip ones give no shadow: it would not be seen, and costs)
+        bone.add(o); made.push(o);
+      } else { if (o.geometry !== EMPTY_GEO) o.geometry.dispose(); o.geometry = geo; }
+      o.userData.has = true; o.visible = true;
+    }
+    return made;
   }
   // La mochila: cuerpo, solapa, bolsillo con su hebilla y las dos correas por encima de los hombros y bajo los brazos.
   // Cuelga del hueso del pecho y se ajusta a cada cuerpo (bagFit)

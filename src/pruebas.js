@@ -43,6 +43,10 @@ import { View3D } from './three/engine.js';
 import { sobrio, tonosSuelo } from './arte.js';
 import { tintOf } from './three/tints.js';
 import { PHOTOS, photo } from './three/photos.js';
+import { Inventory, HOTBAR } from './inventory.js';
+import { kitOf, kitKey, placeKit, shownOf, splitKit, kindOf } from './kit.js';
+import { buildKit } from './three/kit3d.js';
+import { stowedGeo } from './three/actors.js';
 import { t, tHtml, fmt, formatMessage, defineNames, noun, setLang, getLang, onLangChange, accountLangOf, setAccountLang, savedLang, decideFirst, applyDom } from './i18n.js';
 
 const GATE_X = 20;   // (el hueco de la valla del jardín, en el camino)
@@ -723,6 +727,235 @@ async function soloTests(game) {
       check(!game.smartHud && lit() === 'full', `Full pressed: ${!!game.smartHud}, lit ${lit()}`);
       check(Settings.hudNow?.() === 'full', 'Settings.hudNow does not say the one in sight');
     } finally { W.closeAll(); Settings.set('hud', was); useSmartHud(game, false); }
+  });
+  await test('rueda (tool wheel): F held opens it, the mouse direction picks a slot and releasing F equips it', async () => {
+    const Wh = game.wheel, I = inv(), kept = I.slots.slice(), sel = I.selected, press = (code, type = 'keydown', o = {}) => dispatchEvent(new KeyboardEvent(type, { code, bubbles: true, ...o }));
+    const tools = ['hacha_hierro', 'pico_hierro', 'guadana_hierro', 'azada_hierro', 'pala_hierro', 'regadera', 'arco', 'espada', 'cana'];
+    try {
+      check(Wh && !Wh.open, 'no tool wheel, or open at the start');
+      I.slots.fill(null); tools.forEach((id, i) => { I.slots[i] = { id, n: 1 }; }); I.select(0); I.changed();
+      press('KeyF'); check(!Wh.open, 'it opens at once (it must wait 0.18 s)');
+      await sleep(260); Wh.frame();
+      check(Wh.open && document.body.classList.contains('wheel-open') && document.getElementById('wheel').classList.contains('on'), 'held, it does not open');
+      check(Wh.sel === 0, `it does not start on the slot in hand: ${Wh.sel}`);
+      // Each of the nine directions (slot 1 up, clockwise), and the dead zone keeps the one picked
+      for (let i = 0; i < HOTBAR; i++) { Wh.sx = Wh.sy = 0; const a = i * 40 * Math.PI / 180; Wh.move(Math.sin(a) * 90, -Math.cos(a) * 90); check(Wh.sel === i, `direction ${i}: slot ${Wh.sel}`); }
+      Wh.sx = Wh.sy = 0; Wh.move(Math.sin(1.4) * 90, -Math.cos(1.4) * 90); const picked = Wh.sel; Wh.sx = Wh.sy = 0; Wh.move(10, 5); check(Wh.sel === picked, 'the dead zone changes the slot');
+      Wh.step(1); check(Wh.sel === (picked + 1) % HOTBAR, 'the mouse wheel does not step'); Wh.step(-1);
+      press('KeyF', 'keyup'); check(!Wh.open && I.selected === picked, `letting go of F: open ${Wh.open}, slot ${I.selected} (wanted ${picked})`);
+      check(!document.body.classList.contains('wheel-open'), 'body.wheel-open stays');
+      // A digit with it open: that slot, and it closes
+      Wh.show(); press('Digit4'); check(!Wh.open && I.selected === 3, `digit 4: open ${Wh.open}, slot ${I.selected}`);
+      // Right click and Esc cancel without changing anything
+      Wh.show(); Wh.move(0, 90); dispatchEvent(new PointerEvent('pointerdown', { button: 2, bubbles: true, cancelable: true })); check(!Wh.open && I.selected === 3, `right click: open ${Wh.open}, slot ${I.selected}`);
+      Wh.show(); Wh.move(0, 90); press('Escape'); check(!Wh.open && I.selected === 3 && game.mode === 'play', `Esc: open ${Wh.open}, slot ${I.selected}, mode ${game.mode}`);
+    } finally { Wh?.cancel(true); press('KeyF', 'keyup'); I.slots.splice(0, I.slots.length, ...kept); I.select(sel); }
+  });
+  await test('rueda: a short tap goes back to the item before, without showing the wheel', async () => {
+    const Wh = game.wheel, I = inv(), kept = I.slots.slice(), sel = I.selected, press = (code, type = 'keydown', o = {}) => dispatchEvent(new KeyboardEvent(type, { code, bubbles: true, ...o }));
+    const tap = () => { press('KeyF'); press('KeyF', 'keyup'); };
+    try {
+      I.slots.fill(null); ['hacha_hierro', 'pico_hierro', 'pan', 'madera', 'pala_hierro', 'regadera'].forEach((id, i) => { I.slots[i] = { id, n: 1 }; }); I.changed();
+      press('Digit2'); press('Digit5'); check(I.selected === 4, 'the digits do not pick');
+      tap(); check(I.selected === 1, `the tap does not go back: ${I.selected}`);
+      check(!Wh.open && !document.getElementById('wheel').classList.contains('on') && game.timeScale === 1, 'the tap shows the wheel or slows down');
+      tap(); check(I.selected === 4, `the second tap does not come back: ${I.selected}`);
+      // The mouse wheel goes through several slots in a row: those do not count
+      press('Digit2'); I.selectedAt -= 1000;
+      for (let i = 0; i < 4; i++) I.select(I.selected + 1);
+      check(I.selected === 5, `cycling: ${I.selected}`);
+      tap(); check(I.selected === 1, `after cycling, the tap goes to ${I.selected} (wanted the one before starting)`);
+      // Used up or moved: the same id elsewhere in the hotbar; gone, nothing
+      press('Digit1'); press('Digit5'); I.move(0, 7); tap(); check(I.selected === 7 && I.held?.id === 'hacha_hierro', `the one before was moved: ${I.selected}`);
+      press('Digit5'); I.remove('hacha_hierro', 1); tap(); check(I.selected === 4, 'with the one before gone it still changes');
+      // Cmd+F is the browser's
+      press('KeyF', 'keydown', { metaKey: true }); check(Wh.pressAt === null, 'Cmd+F starts the wheel'); press('KeyF', 'keyup');
+    } finally { Wh?.cancel(true); I.slots.splice(0, I.slots.length, ...kept); I.select(sel); }
+  });
+  await test('rueda: slow motion only alone, never in build mode, a dialogue or as a spectator', async () => {
+    const Wh = game.wheel, live = game.live, perf = game.perf, noop = game.update;
+    const was = { joined: live.joined, role: live.role }, hidden = Object.getOwnPropertyDescriptor(document, 'hidden');
+    let now = performance.now() + 1000;
+    const run = n => { for (let i = 0; i < n; i++) { now += 1000 / 60; game.advance(now, 0.25); } };
+    game.update = step;   // (the real steps, for game.time)
+    try {
+      Wh.show(); run(20);
+      check(game.timeScale < 0.4 && game.simScale === game.timeScale, `alone, open: timeScale ${game.timeScale}`);
+      const t0 = game.time, s0 = perf.steps; run(60);
+      check(game.time - t0 < 0.5 && game.time - t0 > 0.2, `in a second of real time the game went ${(game.time - t0).toFixed(3)} s`);
+      check(Math.abs(perf.steps - s0 - 60) <= 2, `steps in a second: ${perf.steps - s0} (they must stay about 60)`);
+      // Closed, back to 1 in about 0.12 s
+      Wh.close(false); run(20); check(game.timeScale === 1, `closed: timeScale ${game.timeScale}`);
+      // Someone else playing: never slowed down; as a guest neither, and the minimal interface still says you are alone
+      live.joined = true; live.peers.set('prueba-otro', { playing: true, server: false });
+      Wh.show(); run(3); check(game.timeScale === 1 && live.othersPlaying && !live.aloneInWorld, `with someone else: ${game.timeScale}`);
+      live.peers.delete('prueba-otro'); live.role = 'guest'; run(3);
+      check(game.timeScale === 1 && !live.aloneInWorld && !live.othersPlaying, `as a guest: ${game.timeScale}, others ${live.othersPlaying}`);
+      live.joined = was.joined; live.role = was.role; Wh.cancel(true);
+      // It does not open (and if open, it closes) in build mode, talking, as a spectator or with the map
+      for (const [what, on, off] of [
+        ['build mode', () => { game.build.on = true; }, () => { game.build.on = false; }],
+        ['busy', () => { game.busy = true; }, () => { game.busy = false; }],
+        ['spectator', () => runCommand(game, '/gamemode spectator', () => {}), () => runCommand(game, '/gamemode survival', () => {})],
+        ['map', () => { game.mode = 'map'; }, () => { game.mode = 'play'; }],
+      ]) {
+        on();
+        try {
+          check(!Wh.press(), `it starts with ${what}`);
+          Wh.show(); Wh.frame(); check(!Wh.open, `open with ${what} it does not close`);
+        } finally { off(); }
+      }
+      // Losing the focus or hiding the tab: closed and at full speed at once
+      Wh.show(); run(20); dispatchEvent(new Event('blur')); dispatchEvent(new Event('focus')); check(!Wh.open && game.timeScale === 1, `blur: open ${Wh.open}, timeScale ${game.timeScale}`);
+      Wh.show(); run(20);
+      Object.defineProperty(document, 'hidden', { get: () => true, configurable: true });
+      document.dispatchEvent(new Event('visibilitychange'));
+      check(!Wh.open && game.timeScale === 1, `hidden: open ${Wh.open}, timeScale ${game.timeScale}`);
+      Wh.show(); run(10); check(game.timeScale === 1, `open with the tab hidden it slows down: ${game.timeScale}`);
+    } finally {
+      if (hidden) Object.defineProperty(document, 'hidden', hidden); else delete document.hidden;
+      Wh.cancel(true); game.update = noop; live.joined = was.joined; live.role = was.role; live.peers.delete('prueba-otro');
+      game.build.on = false; game.busy = false; game.mode = 'play'; game.timeScale = game.timeScaleTarget = 1;
+    }
+  });
+  await test('rueda: first person moves the selection, not the camera; using stops; the bow lets go without shooting', async () => {
+    const Wh = game.wheel, I = inv(), A = game.archery, kept = I.slots.slice(), sel = I.selected, canvas = document.getElementById('c'), g = game.gather, use = g.use;
+    const yaw = CAM.yaw;
+    try {
+      I.slots.fill(null); ['hacha_hierro', 'pico_hierro', 'arco', 'flecha'].forEach((id, i) => { I.slots[i] = { id, n: id === 'flecha' ? 10 : 1 }; }); I.select(0); I.changed();
+      CAM.first = true; draw();
+      Wh.show();
+      canvas.dispatchEvent(new PointerEvent('pointermove', { movementX: 120, movementY: 0, bubbles: true, pointerType: 'mouse' }));
+      check(CAM.yaw === yaw, 'the mouse turns the camera with the wheel open');
+      check(Wh.sel === 2, `the mouse to the right picks slot ${Wh.sel + 1} (wanted 3)`);
+      Wh.close(false);
+      // Using with the click held stops, and nothing is used after closing
+      let used = 0; g.use = () => { used++; };
+      keys.use = true; Wh.show(); check(keys.use === false, 'opening does not stop using'); Wh.close(true); await frames(10);
+      check(used === 0, `used ${used} times after closing`);
+      g.use = use;
+      // The bow, drawn: opening lets go without an arrow
+      I.select(2); keys.use = true; g.cooldown = 0; g.use(); await frames(10);
+      check(A.drawT !== null, 'the bow does not draw');
+      const n = A.list.length, arrows = I.count('flecha');
+      Wh.show(); check(A.drawT === null, 'opening does not let go of the string');
+      keys.use = false; await frames(5); Wh.close(false); await frames(5);
+      check(A.list.length === n && I.count('flecha') === arrows, 'an arrow went off');
+    } finally { g.use = use; keys.use = false; Wh.cancel(true); CAM.first = false; CAM.yaw = yaw; draw(); I.slots.splice(0, I.slots.length, ...kept); I.select(sel); A.drawT = null; }
+  });
+  await test('rueda: with the minimal and the full interface, and over an open window', async () => {
+    const Wh = game.wheel, W = game.windows, el = id => document.getElementById(id), I = inv(), sel = I.selected;
+    const press = (code, type = 'keydown') => dispatchEvent(new KeyboardEvent(type, { code, bubbles: true }));
+    try {
+      useSmartHud(game, true); await frames(2); draw();
+      Wh.show(); draw();
+      check(el('hud-status').classList.contains('hm-on') && !el('hotbar-slots').classList.contains('hm-on'), 'minimal: the health block does not show or the hotbar does');
+      Wh.close(false); draw();
+      // Tab does nothing over it (and the minimal interface does not show everything)
+      Wh.show(); press('Tab'); check(!game.smartHud.held, 'Tab shows everything over the wheel'); press('Tab', 'keyup'); Wh.close(false);
+      useSmartHud(game, false); draw();
+      Wh.show(); draw(); Wh.close(false); draw();
+      check(!document.body.classList.contains('wheel-open') && !el('wheel').classList.contains('on') && !el('wheel-vignette').classList.contains('on'), 'full: classes left behind');
+      // Over a window: on top of it, and the mouse is the wheel's (not the window's, not the canvas's)
+      W.open('s-inv'); draw();
+      Wh.show();
+      check(+getComputedStyle(el('wheel')).zIndex > +(el('s-inv').style.zIndex || getComputedStyle(el('s-inv')).zIndex), 'the wheel is under the window');
+      let heard = 0; const spy = () => { heard++; };
+      for (const t of ['pointermove', 'pointerdown', 'pointerup', 'click', 'wheel']) el('s-inv').addEventListener(t, spy);
+      const mouseWas = JSON.stringify(game.mouse);
+      el('wheel').dispatchEvent(new PointerEvent('pointermove', { movementX: 0, movementY: 90, bubbles: true, pointerType: 'mouse' }));
+      check(Wh.sel === 4 || Wh.sel === 5, `over the wheel the mouse does not pick: ${Wh.sel}`);
+      el('s-inv').dispatchEvent(new PointerEvent('pointermove', { movementX: 0, movementY: -200, bubbles: true, pointerType: 'mouse' }));
+      check(Wh.sel === 0, `over the window the mouse does not reach the wheel: ${Wh.sel}`);
+      document.getElementById('c').dispatchEvent(new PointerEvent('pointermove', { clientX: 5, clientY: 5, movementX: 3, bubbles: true, pointerType: 'mouse' }));
+      check(JSON.stringify(game.mouse) === mouseWas, 'the canvas hears the mouse with the wheel open');
+      const wh = new WheelEvent('wheel', { deltaY: 100, bubbles: true, cancelable: true }); el('s-inv').dispatchEvent(wh);
+      check(Wh.sel === 1 && wh.defaultPrevented, `the mouse wheel over the window: slot ${Wh.sel}, scroll stopped ${wh.defaultPrevented}`);
+      // Keys: nothing opens; Esc closes it without the pause
+      for (const k of ['KeyI', 'KeyC', 'KeyJ', 'KeyM']) press(k);
+      check(!W.isOpen('s-craft') && !W.isOpen('s-journal') && W.isOpen('s-inv') && game.mode === 'play', `a key opened something: mode ${game.mode}`);
+      el('s-inv').dispatchEvent(new PointerEvent('pointerdown', { button: 0, bubbles: true, cancelable: true }));
+      el('s-inv').dispatchEvent(new PointerEvent('pointerup', { button: 0, bubbles: true, cancelable: true }));
+      el('s-inv').dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+      check(!Wh.open && I.selected === 1 && heard === 0, `the click over the window: open ${Wh.open}, slot ${I.selected}, the window heard ${heard}`);
+      for (const t of ['pointermove', 'pointerdown', 'pointerup', 'click', 'wheel']) el('s-inv').removeEventListener(t, spy);
+      Wh.show(); press('Escape'); check(!Wh.open && game.mode === 'play' && W.isOpen('s-inv'), `Esc: open ${Wh.open}, mode ${game.mode}`);
+    } finally { Wh.cancel(true); W.closeAll(); useSmartHud(game, false); I.select(sel); draw(); }
+  });
+  await test('herramientas a la vista (stowed tools): which ones and where, without the one in hand, at most four and the quiver', async () => {
+    const make = (list, bag = false) => { const I = new Inventory({ slots: list.map(id => (id ? { id, n: id === 'flecha' ? 12 : 1 } : null)) }); if (bag) I.equip.espalda = { id: 'mochila' }; return I; };
+    const I = make(['pico_hierro', 'pan', 'guadana_hierro', 'flecha']);
+    const ids = kitOf(I); I.selected = 2; check(kitKey(kitOf(I)) === kitKey(ids), 'what shows depends on the slot picked');
+    check(kitKey(ids) === 'pico_hierro,guadana_hierro,flecha:6', `kit: ${kitKey(ids)}`);
+    const placed = placeKit(ids), spot = (list, id) => list.find(s => s.id === id)?.spot;
+    const free = shownOf(placed, 'pan'), held = shownOf(placed, 'pico_hierro');
+    check(free === placed, 'with bread in hand something hides');
+    check(!spot(held, 'pico_hierro') && spot(held, 'guadana_hierro') === spot(free, 'guadana_hierro'), `the scythe moves when the pickaxe is in hand: ${spot(held, 'guadana_hierro')} / ${spot(free, 'guadana_hierro')}`);
+    const many = placeKit(kitOf(make(['hacha_hierro', 'pico_hierro', 'guadana_hierro', 'azada_hierro', 'pala_hierro', 'cana', 'red', 'espada', 'flecha'])));
+    check(many.filter(s => s.kind !== 'flecha').length <= 4 && many.some(s => s.spot === 'quiver'), `${many.length} shown: ${many.map(s => s.spot + ':' + s.id).join()}`);
+    check(new Set(many.map(s => s.spot)).size === many.length, 'two in the same place');
+    const bow = placeKit(kitOf(make(['arco', 'flecha'])));
+    check(shownOf(bow, 'arco').some(s => s.spot === 'quiver') && !shownOf(bow, 'arco').some(s => s.kind === 'arco'), 'the bow in hand: no quiver, or the bow still on the back');
+    check(spot(placeKit(kitOf(make(['regadera'], true)), { bag: true }), 'regadera') === 'bagSide' && spot(placeKit(kitOf(make(['regadera']))), 'regadera') === 'hipR', 'the watering can');
+    check(kindOf('pala_llena') === 'pala' && kitOf(make(['pala_llena']))[0] === 'pala_hierro', 'the full shovel');
+    check(kitKey(splitKit('cosa_nueva,hacha_hierro,flecha:6')) === 'hacha_hierro,flecha:6', 'an unknown id gets in');
+    check(splitKit('x'.repeat(400)).length === 0, 'a huge kt');
+    check(shownOf(placed, 'pico_hierro', { swimming: true }).length === placed.length, 'swimming, the one in hand leaves a gap');
+    check(shownOf(placed, 'pico_hierro', { pose: 'lie' }).length === 0 && shownOf(placed, null, { pose: 'sit' }).every(s => s.spot === 'hipL' || s.spot === 'hipR'), 'lying or sitting');
+    check(shownOf(placed, 'pico_hierro', { arms: 'across' }).every(s => s.spot !== 'backA' && s.spot !== 'backB'), 'arms busy across');
+  });
+  await test('herramientas a la vista: on the body, through the network, hidden lying and far away', async () => {
+    const P = new RealPerson(LOOK), A = game.view3d.actors, live = game.live, I = inv(), kept = I.slots.slice(), sel = I.selected, ents = live.entities;
+    try {
+      const made = P.setKit(buildKit(shownOf(placeKit(['hacha_hierro', 'pico_hierro', 'espada', 'flecha'])), P.bagFit(), P.beltFit(), stowedGeo));
+      check(made.length === 2 && P.kit.back.parent === P.r.bones.torso && P.kit.hip.parent === P.r.bones.body, `meshes: ${made.length}`);
+      const back = P.kit.back; P.setKit(buildKit(shownOf(placeKit(['pico_hierro'])), P.bagFit(), P.beltFit(), stowedGeo));
+      check(P.kit.back === back && !P.kit.hip.visible, 'a new kit makes new meshes, or the empty hip shows');
+      check(stowedGeo('pico_hierro').attributes.position.array.length > 0, 'the baked tool was released');
+      P.dispose();
+      // Other players: with kt they carry it, without it nothing, and an id from a newer version does not break anything
+      for (const [c, kt] of [['k1', 'hacha_hierro,flecha'], ['k2', undefined], ['k3', 'cosa_nueva']]) {
+        live.receive(c, { t: 'hi', id: 'id-' + c, name: c, playing: true, look: LOOK });
+        live.receive(c, { t: 'st', sc: 'world', x: p().x + 1.5, y: p().y + 0.5, yaw: 0, kt, h: 'pan' });
+      }
+      live.entities = sc => (sc === game.world ? live.others.filter(o => o.entity).map(o => o.entity) : null);
+      draw(); draw();
+      const mOf = c => A.models.get(live.peers.get(c).entity), m1 = mOf('k1');
+      check(m1?.person?.kit?.back?.userData.has, 'the other player shows nothing');
+      check(!mOf('k2')?.person?.kit?.back?.userData.has && !mOf('k3')?.person?.kit?.back?.userData.has, 'without kt (or with an unknown id) something shows');
+      const geo = m1.person.kit.back.geometry;
+      for (let i = 0; i < 10; i++) draw();
+      check(m1.person.kit.back.geometry === geo, 'the same kt rebuilds the kit');
+      live.peers.get('k1').entity.pose = { kind: 'lie', yaw: 0, h: 0 }; draw();
+      check(!m1.person.kit.back.visible && !m1.person.kit.hip.visible, 'lying it shows');
+      // The player: ten switches between tools and other things leave no materials or meshes behind, and kt stays
+      I.slots.fill(null); ['pico_hierro', 'pan', 'pala_hierro', 'madera', 'hacha_hierro', 'espada', 'flecha'].forEach((id, i) => { I.slots[i] = { id, n: 1 }; }); I.select(1); I.changed(); draw(); draw();
+      const me = A.player, mats = me.mats.length, body = me.body.length, kit = { ...me.person.kit }, kt = kitKey(game.kitIds());
+      check(me.person.kit?.back?.userData.has, 'the player shows nothing');
+      for (let i = 0; i < 10; i++) { I.select(i % 7); draw(); check(kitKey(game.kitIds()) === kt, 'kt changes with the slot'); }
+      I.select(1); draw();
+      check(me.mats.length === mats && me.body.length === body, `materials: ${mats} → ${me.mats.length}, ${body} → ${me.body.length}`);
+      check(me.person.kit.back === kit.back && me.person.kit.hip === kit.hip, 'the meshes were made again');
+      // Far away: hidden
+      me.tier = 2; A.kit(me, p(), me.person, null, false); check(!me.person.kit.back.visible, 'far away it shows'); me.tier = 0; A.kit(me, p(), me.person, null, false);
+      // The inventory's preview: it gets the tools, and keeps them when the look changes
+      game.windows.open('s-inv'); await sleep(150);
+      const pv = game.invPreview;
+      check(pv?.person?.kit?.back?.userData.has, 'the preview does not show the tools');
+      I.equip.cabeza = { id: 'sombrero', color: ITEMS.sombrero?.dye }; I.changed(); await sleep(150);
+      check(pv.person?.kit?.back?.userData.has, 'after a change of clothes the preview lost the tools');
+    } finally {
+      delete I.equip.cabeza; game.windows.closeAll(); live.entities = ents;
+      for (const c of ['k1', 'k2', 'k3']) live.peers.delete(c);
+      I.slots.splice(0, I.slots.length, ...kept); I.select(sel); I.changed(); draw();
+    }
+  });
+  await test('inventario: prev is remembered and the save does not change', async () => {
+    const I = new Inventory({ slots: [{ id: 'pan', n: 2 }, { id: 'hacha_hierro', n: 1 }] });
+    I.select(1, true); I.select(0, true);
+    check(I.prev?.slot === 1, 'prev is not remembered');
+    const keys = Object.keys(I.toSave()).sort().join();
+    check(keys === 'equip,selected,slots,wardrobe', `the save has ${keys}`);
   });
   await test('ventanas: encima del mundo, sin parar el juego', async () => {
     const W = game.windows, P = p(), press = (code, type = 'keydown') => dispatchEvent(new KeyboardEvent(type, { code, bubbles: true }));
