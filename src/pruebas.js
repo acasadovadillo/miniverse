@@ -1085,14 +1085,14 @@ async function soloTests(game) {
     const text = () => document.getElementById('prompt-text').textContent, look = async e => { aimAtE(e); So().pickT = 0; await frames(2); draw(); };
     await goTo(game, 21, 27); draw();
     const r = put('rosa', 22.3, 27); await look(r);
-    check(text().includes('Hablar con Rosa') && text().endsWith(t('social.prompt')), `next to Rosa: «${text()}»`);
+    check(text().includes('Hablar con Rosa') && text().endsWith(t('social.prompt')) && document.querySelector('#prompt kbd').textContent === 'E', `next to Rosa: «${text()}»`);
     // Farther than E reaches: only her name and Y
     put('rosa', 25.5, 27.5); await look(nb('rosa'));
-    check(text() === t('social.prompt.far', { name: 'Rosa' }), `far: «${text()}»`);
+    check(text() === t('social.prompt.far', { name: 'Rosa' }) && document.querySelector('#prompt kbd').textContent === 'Y', `far: «${text()}», key ${document.querySelector('#prompt kbd').textContent}`);
     // E on a door, with Rosa next to it: nothing added
     await goTo(game, 21.5, 17.8); draw(); put('rosa', 22.6, 18.4);
     aimAtE({ x: 21.5, y: 16.5 }, 1.1); So().pickT = 0; await frames(2); draw();
-    check(/puerta/i.test(text()) && !text().includes(t('social.prompt')), `on the door: «${text()}»`);
+    check(/puerta/i.test(text()) && !text().includes(t('social.prompt')) && document.querySelector('#prompt kbd').textContent === 'E', `on the door: «${text()}»`);
   }));
   await test('saludo: la E y el borde amarillo no cambian con otro jugador delante de un cofre', social(async () => {
     const live = game.live, was = live.joined;
@@ -1154,7 +1154,7 @@ async function soloTests(game) {
     let seen = null;
     hud.ask = (who, text, opts) => { seen = { text, opts }; return Promise.resolve(opts.indexOf('Adiós')); };
     await Nb().talk('bruno', b);
-    check(!seen.opts.includes('Charlar') && tList('npc.refuse').includes(seen.text), `Bruno talks: «${seen.text}» ${seen.opts}`);
+    check(!seen.opts.includes('Charlar') && tList(seen.opts.includes('Ver la tienda') ? 'npc.refuse.shop' : 'npc.refuse').includes(seen.text), `Bruno talks: «${seen.text}» ${seen.opts}`);
     const talked = fr.talk; await Nb().talk('rosa', r);
     check(seen.opts.includes('Charlar') && tList('npc.reproach').includes(seen.text) && fr.talk === talked, `Rosa: «${seen.text}», chat counted ${fr.talk !== talked}`);
     await frames(45); check(So().bubbles.some(x => x.e === b), 'Bruno does not answer');
@@ -1256,6 +1256,12 @@ async function soloTests(game) {
       B.select('quitar'); B.remove(t1); check(Rp().pts === -50 && Rp().v.log.at(-1)[2] === 'retake', `taken again: ${Rp().pts}`);
       B.select('muro_piedra'); B.place(t1); B.select('quitar'); B.remove(t1); B.select('muro_piedra'); B.place(t1);
       check(Rp().pts === -37, `put and take, put and take: ${Rp().pts}`);
+      // Picked up by hand (X) or moved with B › Move: the same as removing it
+      const wall = { tile: t1, layer: 'placed', placed: 'muro_piedra' }; I.add('piedra', 30);
+      check(game.pickUp(wall) && Rp().pts === -50 && Rp().v.log.at(-1)[2] === 'retake', `picked up with X: ${Rp().pts}`);
+      B.place(t1); check(Rp().pts === -37, `put back again: ${Rp().pts}`);
+      check(game.pickUp(wall, true) && Rp().pts === -50, `moved with B › Move: ${Rp().pts}`);
+      B.place(t1); check(Rp().pts === -37, `and back: ${Rp().pts}`);
       B.select('quitar'); B.remove(t1);
       // In creative nothing changes
       runCommand(game, '/gamemode creative', () => {}); B.toggle(true); B.select('quitar');
@@ -1285,11 +1291,19 @@ async function soloTests(game) {
     hud.ask = (who, text, opts) => { seen = { text, opts }; return Promise.resolve(opts.indexOf('Adiós')); };
     await Nb().talk('rosa', r);
     check(!seen.opts.includes('Charlar') && seen.opts.includes('Ver la tienda') && seen.opts.includes('Hacer tratos') && seen.opts.some(o => o.startsWith('Regalar')), `options: ${seen.opts}`);
-    check(tList('npc.refuse').includes(seen.text), `she says: ${seen.text}`);
+    check(tList('npc.refuse.shop').includes(seen.text), `she says (at her stall): ${seen.text}`);
     check(Rp().buyFactor() === 1.35, 'the shop is not dearer');
     await Nb().gift('rosa', I.held); check(Rp().pts === -784, `the gift: ${Rp().pts}`);
     check(Rp().canTalk('nilo'), 'Nilo does not talk');
     if (game.craft.taught.has('banco')) { await Nb().talk('nilo'); check(seen.opts.includes('Charlar') && tList('npc.greet.cold').some(l => seen.text === formatMessage(l, { name: p().name })), `Nilo: «${seen.text}» ${seen.opts}`); }
+  }));
+  await test('reputacion: en creativo no tiene efectos (charlan, no hay frío por nivel ni «ignore»)', social(async () => {
+    Rp().v.pts = -900; Rp().v.lvl = 'outcast';
+    check(!Rp().canTalk('bruno') && So().relation('bruno') === 'cold', 'outcast in survival: they talk');
+    runCommand(game, '/gamemode creative', () => {});
+    check(Rp().canTalk('bruno') && So().relation('bruno') === 'neutral', `creative: talk ${Rp().canTalk('bruno')}, relation ${So().relation('bruno')}`);
+    check(So().replyFor({ kind: 'npc', id: 'bruno', e: nb('bruno') }, 0, 'neutral').kind !== 'ignore', 'creative: they ignore you');
+    check(Rp().buyFactor() === 1 && !Rp().eventsWait(), 'creative: dearer shop or events waiting');
   }));
   await test('reputacion: una partida vieja nace de lo hecho; se guarda y se carga igual', social(async () => {
     const st = game.stats, kept = { ...st.v };
@@ -1319,6 +1333,14 @@ async function soloTests(game) {
       st({ em: 5, ek: 99 }); check(e.emote?.k === 'wave', `an unknown gesture: ${e.emote?.k}`);
       st({ em: 6, ek: 4 }); check(e.emote?.k === 'fist', `fist: ${e.emote?.k}`);
       st({ em: 6, ek: 1 }); check(e.emote?.k === 'fist', 'the same count, another gesture');
+      check(e.emote.at === game.time && So().emoting.has(e), 'their gesture is not in the clean-up');
+      game.time += 4; So().update(0); check(!e.emote, 'a gesture never drawn stays pending');
+      // A player who has made no gesture yet sends em: 0, so their first one is seen
+      live.receive('sn2', { t: 'hi', id: 'id-sn2', name: 'Teo', playing: true, look: LOOK });
+      live.receive('sn2', { t: 'st', sc: 'world', x: p().x - 1.5, y: p().y, yaw: 0, em: 0, ek: 0 });
+      const e2 = live.peers.get('sn2').entity;
+      check(!e2.emote, 'em: 0 makes a gesture');
+      live.receive('sn2', { t: 'st', sc: 'world', x: p().x - 1.5, y: p().y, yaw: 0, em: 1, ek: 0 }); check(e2.emote?.k === 'wave', `the first gesture: ${e2.emote?.k}`);
       live.joined = true; live.net = { send: m => sent.push(m) };
       hud.toast = (m, k) => toasts.push(m);
       for (const m of [{ t: 'greet', a: 7, p: 99, pl: -1, npc: 'nobody', r: 50, rl: 'x', rk: 9 }, { t: 'greet', p: 'x', pl: {} }, { t: 'greet', a: 0, p: 4, pl: 2, to: 'someone-else', npc: 'constructor', rk: 0, rl: 1, rg: 2 },
@@ -1336,7 +1358,35 @@ async function soloTests(game) {
       game.mouse = { x: 3, y: 3, in: false }; So().lastAt = -Infinity;
       So().press('key'); So().release('key');
       check(sent.some(m => m.t === 'greet' && m.a === 0 && m.to === 'id-sn1' && PLAYER_LINES[m.p] === 'social.say.greet_player'), `sent: ${JSON.stringify(sent)}`);
-    } finally { live.joined = was.joined; live.net = was.net; hud.toast = toast; live.peers.delete('sn1'); }
+    } finally { live.joined = was.joined; live.net = was.net; hud.toast = toast; live.peers.delete('sn1'); live.peers.delete('sn2'); }
+  }));
+  await test('saludo: la pareja es quien tiene un hijo contigo (los dos ids); con hijos de antes, solo si hay un jugador del otro sexo', social(async () => {
+    const live = game.live, F = game.family, keep = F.v, other = (p().look?.sex || 'chico') === 'chica' ? 'chico' : 'chica';
+    try {
+      for (const c of ['pa', 'pb']) { live.receive(c, { t: 'hi', id: 'id-' + c, name: c, playing: true, look: { ...LOOK, sex: other } }); live.receive(c, { t: 'st', sc: 'world', x: p().x + 2, y: p().y, yaw: 0 }); }
+      const A = live.peers.get('pa'), B = live.peers.get('pb');
+      F.v = { kids: [{ id: 'k1', name: 'Ana', parents: [Profile.id, 'id-pa'] }], expecting: null };
+      check(So().isPartner(A) && !So().isPartner(B), 'with both ids: the wrong partner');
+      F.v = { kids: [], expecting: { since: 0, mother: 'id-pb', father: Profile.id } };
+      check(So().isPartner(B) && !So().isPartner(A), 'a pregnancy with both ids');
+      F.v = { kids: [{ id: 'k2', name: 'Leo' }], expecting: null };
+      check(!So().isPartner(A) && !So().isPartner(B), 'an old child and two players of the other sex: someone is the partner');
+      live.peers.delete('pb');
+      check(So().isPartner(A), 'an old child and one player of the other sex: not the partner');
+      F.v = { kids: [], expecting: null }; check(!So().isPartner(A), 'no child: a partner');
+    } finally { F.v = keep; live.peers.delete('pa'); live.peers.delete('pb'); }
+  }));
+  await test('saludo: con una ventana abierta las frases van al subtítulo, encima de las ventanas', social(async () => {
+    await goTo(game, 21, 27); const r = put('rosa', 23, 27); draw();
+    try {
+      game.windows.open('s-inv'); await frames(2);
+      So().say(r, 'Hola', { name: 'Rosa' }); So().say(p(), 'Buenas', { mine: true });
+      const z = +getComputedStyle(So().sub).zIndex, wz = Math.max(...[...document.querySelectorAll('.win')].map(el => +getComputedStyle(el).zIndex || 0));
+      check(!So().bubbles.length && So().sub.textContent === `Rosa: Hola\n${p().name}: Buenas` && So().sub.classList.contains('on'), `subtitle: «${So().sub.textContent}», bubbles ${So().bubbles.length}`);
+      check(z > wz, `the subtitle (${z}) is under the windows (${wz})`);
+      game.time += 3; So().update(0); check(!So().sub.classList.contains('on'), 'the subtitle stays');
+      game.windows.closeAll(); So().say(r, 'Hola', { name: 'Rosa' }); check(So().bubbles.length === 1, 'no bubble with the windows closed');
+    } finally { game.windows.closeAll(); }
   }));
   await test('inventario: prev is remembered and the save does not change', async () => {
     const I = new Inventory({ slots: [{ id: 'pan', n: 2 }, { id: 'hacha_hierro', n: 1 }] });

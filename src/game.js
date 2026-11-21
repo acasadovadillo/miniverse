@@ -759,9 +759,14 @@ export class Game {
     if (!B && this.inv.room(id) < 1) { this.gather.float('No te cabe: no llevas sitio libre', '#ffb0a0'); Audio.error(); return false; }
     if (this.scene === this.world && !machineEmpty(machineAt(this.world, o.tile))) { this.gather.float(`Vacía ${MACHINES[o.placed]?.the || 'la máquina'} antes`, '#ffb0a0'); Audio.error(); return false; }
     if (CHESTS[o.placed] && o.placed !== 'mochila' && this.scene.chestAt(...o.tile)?.some(Boolean)) { this.gather.float(`Vacía ${CHESTS[o.placed][1]} antes`, '#ffb0a0'); Audio.error(); return false; }
+    // (whose it was, before it goes: what came with a neighbor's house, or what you had put back there yourself)
+    const W = this.scene === this.world && o.tile && o.layer ? this.world : null, own = W && (!W.ownAt || !!W.ownAt(o.layer, o.tile[0], o.tile[1]));
     if (this.scene.unplace(o) === false && B) return false;
     if (!B) this.inv.add(id, 1);
     else if (!carry) for (const [m, n] of B.cost) { const left = this.inv.add(m, n); if (left) this.gather.throwOut(m, left); }
+    // (from a neighbor's house the village notices; taking again what you had given back costs again: reputation.js.
+    // Here and not only in B › Remove, so picking it up with X or moving it with B › Move counts the same)
+    if (W) this.rep?.taken(o.layer, o.tile[0], o.tile[1], own);
     Audio.pickup();
     return true;
   }
@@ -1224,7 +1229,7 @@ export class Game {
     // (and greeting whoever is under the cursor, Y: social.js. Only added if E is about that same person; farther away, alone)
     const social = this.player ? this.social.promptFor(this.highlight?.e || null, !!near) : '';
     if (near || !social) hud.prompt(near && (near.alt ? `${near.text}  ·  X: ${near.alt.text.toLowerCase()}` : near.text) + click + social, this.highlight ? [m.x, m.y] : null);
-    else hud.prompt(social, m?.in ? [m.x, m.y] : null);
+    else hud.prompt(social, m?.in ? [m.x, m.y] : null, 'Y');   // («[Y] Greet Lía»: E does nothing with them from here)
     let hint = '';
     if (this.player) {
       for (const s of this.systems) { try { hint = s.hint?.() || ''; } catch (e) { reportFault(e, faultName(s, 'hint')); } if (hint) break; }

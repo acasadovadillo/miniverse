@@ -4,6 +4,7 @@ import { portrait3D } from '../three/portrait.js';
 
 const $ = id => document.getElementById(id);
 let shownPrompt = null, shownCoords = null, shownHint = null, dialog = null;
+let shownKey = 'E';
 
 // Retrato de quien habla (si es una persona conocida): su cara en 3D. El nombre puede llevar detrás los corazones.
 function showFace(name) {
@@ -20,14 +21,15 @@ export const hud = {
   faces: {},   // nombre → aspecto, para poner su retrato en los diálogos
 
   // Solo toca la página cuando el aviso cambia
-  // at: junto a qué punto de la pantalla (el cursor); sin él, abajo, en el centro
-  prompt(text, at = null) {
+  // at: junto a qué punto de la pantalla (el cursor); sin él, abajo, en el centro. key: the key it is about (E unless said)
+  prompt(text, at = null, key = 'E') {
     const label = text || '', el = $('prompt');
     if (label !== shownPrompt) {
       shownPrompt = label;
       el.classList.toggle('show', !!label);
       if (label) $('prompt-text').textContent = label;
     }
+    if (label && key !== shownKey) { shownKey = key; const k = el.querySelector('kbd'); if (k) k.textContent = key; }
     el.classList.toggle('follow', !!(label && at));
     if (label && at) {
       const x = Math.max(6, Math.min(innerWidth - el.offsetWidth - 6, at[0] + 18)), y = Math.max(6, Math.min(innerHeight - el.offsetHeight - 6, at[1] + 18));

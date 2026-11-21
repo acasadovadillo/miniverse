@@ -346,7 +346,7 @@ export class Actors {
         m.hand.scale.x = -1;
         m.horse = horseModel(); m.horse.visible = false; root.add(m.horse);
         m.boat = boatModel(); m.boat.visible = false; root.add(m.boat);
-        if (e.remote) root.add(nameTag(e.name));
+        if (e.remote) root.add(m.tag = nameTag(e.name));   // (m.tag: fx.js keeps the speech bubbles clear of it)
       }
       if (isPlayer) {
         m.mats = []; m.body = [];
@@ -686,7 +686,9 @@ export const EMOTES = {
   nod: { dur: 0.8, pose: k => ({ hx: 0.34 * Math.sin(k * Math.PI * 2) ** 2 }) },
   shrug: { dur: 1.0, both: true, pose: (k, s) => ({ ax: -0.25, az: s * 0.35, fx: -1.5, hz: 0.16 }) },
   hips: { dur: 1.4, both: true, pose: (k, s) => ({ ax: 0.35, az: s * 0.55, fx: -1.3, hx: -0.06 }) },
-  fist: { dur: 0.9, pose: (k, s) => ({ ax: -1.15 + 0.18 * Math.sin(k * Math.PI * 8), az: s * 0.22, fx: -1.85, tx: 0.06 }) },
+  // (a fist shaken at shoulder height, the elbow bent and pumping, the trunk and the head leaning in: never the arm
+  // straight up of wave)
+  fist: { dur: 0.9, pose: (k, s) => { const p = Math.sin(k * Math.PI * 6) ** 2; return { ax: -1.35 + 0.15 * p, az: s * 0.3, fx: -1.15 - 0.4 * p, tx: 0.12, hx: -0.1 }; } },
   flinch: { dur: 0.8, both: true, pose: (k, s) => ({ ax: -1.05, az: s * 0.18, fx: -1.75, tx: -0.16, hx: -0.18 }) },
   point: { dur: 1.0, pose: (k, s) => ({ ax: -1.5, az: s * 0.06, fx: -0.05 }) },
   dismiss: { dur: 0.75, pose: (k, s) => ({ ax: -0.95 + 0.65 * k, az: s * (0.12 + 1.05 * k), fx: -0.65 }) },

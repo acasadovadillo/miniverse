@@ -61,9 +61,10 @@ const CSS = `
 .say-bubble b { display: block; margin-bottom: 1px; font: 600 11px/1.2 var(--font-title); letter-spacing: .07em; text-transform: uppercase; color: #8a5a2a; }
 .say-bubble.mine { background: rgba(38, 26, 18, .92); color: var(--cream); box-shadow: 0 0 0 1px rgba(255, 215, 122, .45), 0 2px 8px rgba(0, 0, 0, .35); }
 .say-bubble.mine::after { border-top-color: rgba(38, 26, 18, .92); }
-#social-sub { position: fixed; left: 50%; bottom: 17%; z-index: 6; max-width: min(640px, 80vw); padding: 6px 16px; transform: translateX(-50%); border-radius: 8px; background: rgba(16, 10, 6, .72);
-  color: var(--cream); font: 500 18px/1.3 var(--font-ui); text-align: center; opacity: 0; visibility: hidden; transition: opacity .2s, visibility 0s linear .2s; pointer-events: none; }
+#social-sub { position: fixed; left: 50%; bottom: 17%; z-index: 23; max-width: min(640px, 80vw); padding: 6px 16px; transform: translateX(-50%); border-radius: 8px; background: rgba(16, 10, 6, .72);
+  color: var(--cream); font: 500 18px/1.3 var(--font-ui); text-align: center; white-space: pre-line; opacity: 0; visibility: hidden; transition: opacity .2s, visibility 0s linear .2s; pointer-events: none; }
 #social-sub.on { opacity: 1; visibility: visible; transition: opacity .12s, visibility 0s; }
+body:not(.playing) #social-sub { display: none; }
 #social-hold { position: fixed; left: 0; top: 0; z-index: 7; display: flex; align-items: center; gap: 6px; pointer-events: none; opacity: 0; visibility: hidden; transition: opacity .12s, visibility 0s linear .12s; }
 #social-hold.on { opacity: 1; visibility: visible; transition: opacity .1s, visibility 0s; }
 #social-hold svg { width: 34px; height: 34px; transform: rotate(-90deg); }
@@ -101,6 +102,7 @@ export class Social {
     this.lastAt = -Infinity;
     this.picked = null; this.pickT = 0;
     this.back = null;        // the player who just greeted you: { conn, until }
+    this.subLines = [];      // the subtitle's lines (the last two): { text, until }
     this.ui = typeof document !== 'undefined' && !Profile.server;
     if (!this.ui) return;
     const style = this.style = document.createElement('style');
@@ -215,7 +217,7 @@ export class Social {
       for (const b of this.bubbles) b.t += dt;
       if (this.bubbles.some(b => b.t >= b.life)) this.bubbles = this.bubbles.filter(b => b.t < b.life);
     }
-    if (this.subUntil && g.time >= this.subUntil) this.subtitle('');
+    if (this.subLines.length && this.subLines.some(l => g.time >= l.until)) { this.subLines = this.subLines.filter(l => g.time < l.until); this.paintSub(); }
     // (a gesture whose body was never drawn, far away or in first person, does not stay pending)
     for (const e of this.emoting) if (!e.emote || g.time - e.emote.at > 3) { if (e.emote && g.time - e.emote.at > 3) delete e.emote; this.emoting.delete(e); }
     if ((this.pickT -= dt) <= 0) {
@@ -239,7 +241,7 @@ export class Social {
     if (!c) key = a ? null : 'social.say.air';
     else if (c.kind === 'player') key = a ? 'social.say.insult_player' : this.isPartner(c.peer) ? 'social.say.greet_partner' : 'social.say.greet_player';
     else key = a ? 'social.say.insult' : this.dayKey();
-    this.emote(p, a ? (Math.random() < 0.5 ? 'fist' : 'dismiss') : 'wave');
+    this.emote(p, a ? (Math.random() < 0.5 ? 'fist' : 'point') : 'wave');   // (provoking: never a hand that could read as a wave)
     if (key) {
       const list = this.lines(key), li = rnd(Math.max(1, list.length));
       msg.p = PLAYER_LINES.indexOf(key); msg.pl = li;
@@ -277,9 +279,9 @@ export class Social {
     f.insultedAt = today; f.insults = [today, n];
     if (n >= 3) f.snub = today;   // (the third time in a day: they do not talk to you today)
   }
-  // How you get along with a neighbor: 'friend', 'neutral' or 'cold'
+  // How you get along with a neighbor: 'friend', 'neutral' or 'cold' (in creative the reputation counts as «Newcomer»)
   relation(id) {
-    const g = this.game, N = g.neighbors, f = N.friend(id), today = this.today, lv = g.rep ? g.rep.index : 2, hearts = N.hearts(id);
+    const g = this.game, N = g.neighbors, f = N.friend(id), today = this.today, lv = g.rep?.counts ? g.rep.index : levelIndex('newcomer'), hearts = N.hearts(id);
     if (f.insultedAt === today) return 'cold';
     if (hearts >= 4 || lv >= levelIndex('beloved')) return 'friend';
     if (lv <= levelIndex('distrusted') || (hearts === 0 && lv === levelIndex('newcomer') && recent(today, f.insultedAt, 3))) return 'cold';
@@ -293,7 +295,7 @@ export class Social {
     else {
       const temper = PEOPLE[c.id]?.temper || 'kind', act = a ? 'insult' : 'greet';
       gesture = REPLY_GESTURE[act][temper][rel];
-      if (!a && c.id !== 'nilo' && g.rep?.level.id === 'outcast' && g.neighbors.hearts(c.id) < 3) { kind = 'ignore'; key = 'npc.reply.ignore'; gesture = 'dismiss'; }
+      if (!a && c.id !== 'nilo' && g.rep?.counts && g.rep.level.id === 'outcast' && g.neighbors.hearts(c.id) < 3) { kind = 'ignore'; key = 'npc.reply.ignore'; gesture = 'dismiss'; }
       else if (!a && rel !== 'cold' && g.days.info?.rain && Math.random() < 1 / 3) { kind = 'rain'; key = 'npc.reply.greet.rain'; }
       else key = `npc.reply.${act}.${temper}.${rel}`;
     }
@@ -320,10 +322,18 @@ export class Social {
     }
     return best;
   }
-  // The couple (a child in common, or one on the way, and of the other sex: see family.js): their own line
+  // The couple (a child in common, or one on the way: see family.js): their own line. The children and pregnancies keep
+  // both parents' ids; the ones from before do not, and then it is the player of the other sex, only if there is one
   isPartner(peer) {
-    const g = this.game, F = g.family.v;
-    return !!peer?.entity && !!(F.kids?.length || F.expecting) && (peer.entity.look?.sex || 'chico') !== (g.player?.look?.sex || 'chico');
+    const g = this.game, F = g.family.v, me = Profile.id, id = peer?.id;
+    if (!peer?.entity || !id) return false;
+    const both = ids => ids.includes(me) && ids.includes(id);
+    const kids = Array.isArray(F.kids) ? F.kids : [], x = F.expecting;
+    if (kids.some(k => Array.isArray(k?.parents) && both(k.parents)) || (x?.father && both([x.mother, x.father]))) return true;
+    if (!kids.some(k => !Array.isArray(k?.parents)) && !(x && !x.father)) return false;   // (no child or pregnancy from before)
+    const sex = e => e?.look?.sex || 'chico', mine = sex(g.player);
+    const others = [...g.live.peers.values()].filter(q => q.playing && !q.server && q.entity && sex(q.entity) !== mine);
+    return others.length === 1 && others[0] === peer;
   }
   dayKey() {
     const h = this.game.days.hour;
@@ -344,18 +354,27 @@ export class Social {
     this.emoting.add(e);
   }
   canEmote(p) { const k = p.pose?.kind; return !p.swim && !p.boat && k !== 'lie' && k !== 'floorLie'; }
-  // A line over someone's head (yours, in first person, as a subtitle: your body is not drawn). One per person
+  // A line over someone's head (yours, in first person, as a subtitle: your body is not drawn). One per person. With a
+  // window open the bubbles would be under it: then every line goes to the subtitle, above the windows, with who says it
   say(e, text, { name = '', life = NPC_LIFE, mine = false } = {}) {
     if (!text || !this.ui) return;
-    if (e === this.game.player && CAM.first) { this.subtitle(text, life); return; }
+    const g = this.game;
+    if (e === g.player && CAM.first) { this.subtitle(text, life); return; }
+    if (g.windowsOpen) { const who = mine ? g.player?.name : name; this.subtitle(who ? `${who}: ${text}` : text, life); return; }
     this.bubbles = this.bubbles.filter(b => b.e !== e);
     this.bubbles.push({ e, text, name: mine ? '' : name, t: 0, life, mine });
     if (this.bubbles.length > MAX_BUBBLES) this.bubbles.shift();
   }
+  // A line in the subtitle, under the one before (two at most); '' clears it
   subtitle(text, life = MY_LIFE) {
     if (!this.ui) return;
-    if (text) { this.sub.textContent = text; this.subUntil = this.game.time + life; }
-    else this.subUntil = 0;
+    if (text) { this.subLines.push({ text, until: this.game.time + life }); if (this.subLines.length > 2) this.subLines.shift(); }
+    else this.subLines = [];
+    this.paintSub();
+  }
+  paintSub() {
+    const text = this.subLines.map(l => l.text).join('\n');
+    if (this.sub.textContent !== text) this.sub.textContent = text;
     this.sub.classList.toggle('on', !!text);
   }
   // The ring while Y (or the right button) is held: next to the cursor, or in the middle (first person, no cursor)

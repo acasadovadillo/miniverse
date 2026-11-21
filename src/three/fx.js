@@ -494,37 +494,60 @@ export class Fx {
   }
   // The lines people say (social.js): a bubble over each one's head, following them (in the layer of the floating texts).
   // Made when the line is said, measured once; each frame, one projection and one transform. Far away (> 20 tiles) or
-  // behind the camera, hidden. Two that would overlap on screen: the newer one goes up over the older one
+  // behind the camera, hidden. Two that would overlap on screen: the newer one goes up over the older one, and the name
+  // labels of the other players are kept clear too (theirs goes over their label, without a name: the label says it).
+  // How far each one went up (b.lift) only grows while it lasts, easing in: one that goes away never makes the others jump
   updateBubbles(game, playing) {
     const S = game.social, list = playing && S ? S.bubbles : [], els = (this.bubbleEls ||= new Map());
     if (!list.length && !els.size) return;
     const cam = this.view.camera, w = innerWidth, h = innerHeight, me = game.player, A = this.view.actors, put = [];
+    const now = performance.now(), dt = Math.min(0.1, (now - (this.bubbleT ?? now)) / 1000), ease = Math.min(1, dt / 0.15);
+    this.bubbleT = list.length ? now : undefined;
     const seen = new Set();
+    // (the other players' labels in sight: obstacles)
+    if (list.length && game.live?.peers) for (const peer of game.live.peers.values()) {
+      const m = peer.entity && A?.models.get(peer.entity), tag = m?.tag;
+      if (!tag || !m.root.visible || !tag.visible) continue;
+      tag.getWorldPosition(v3); const top = v3.y + tag.scale.y / 2;
+      v3.project(cam); if (v3.z > 1) continue;
+      const cx = ((v3.x + 1) / 2) * w, cy = ((1 - v3.y) / 2) * h;
+      tag.getWorldPosition(v3); v3.y = top; v3.project(cam);
+      const th = Math.max(4, 2 * (cy - ((1 - v3.y) / 2) * h)), tw = th * tag.scale.x / tag.scale.y;
+      put.push([cx - tw / 2, cy - th / 2, tw, th]);
+    }
     for (const b of list) {
-      const e = b.e, x = me ? nearX(e.x, me.x) : e.x;
+      const e = b.e, x = me ? nearX(e.x, me.x) : e.x, m = A?.models.get(e);
       let el = els.get(b);
       if (!el) {
         el = document.createElement('div'); el.className = 'say-bubble' + (b.mine ? ' mine' : '');
-        if (b.name) { const n = document.createElement('b'); n.textContent = b.name; el.append(n); }
+        if (b.name && !m?.tag) { const n = document.createElement('b'); n.textContent = b.name; el.append(n); }
         el.append(b.text);
         this.layer.appendChild(el); els.set(b, el);
         b.w = el.offsetWidth; b.h = el.offsetHeight;
       }
       seen.add(b);
-      const P = A?.models.get(e)?.person, far = me && Math.hypot(x - me.x, e.y - me.y) > 20;
-      if (P?.head && A.models.get(e).root.visible) { P.head.getWorldPosition(v3); v3.y += 0.36; }
-      else v3.set(x, this.view.groundY(game.scene, x, e.y) + 1.9, e.y);
+      const P = m?.person, far = me && Math.hypot(x - me.x, e.y - me.y) > 20;
+      if (P?.head && m.root.visible) {
+        P.head.getWorldPosition(v3); v3.y += 0.36;
+        if (m.tag?.visible) { const y = v3.y; m.tag.getWorldPosition(v3); v3.y = Math.max(y, v3.y + m.tag.scale.y / 2 + 0.06); }   // (over their label)
+      } else v3.set(x, this.view.groundY(game.scene, x, e.y) + 1.9, e.y);
       v3.project(cam);
       if (far || v3.z > 1) { if (!b.off) { b.off = true; el.style.visibility = 'hidden'; } continue; }
       if (b.off) { b.off = false; el.style.visibility = ''; }
       // (kept inside the screen: a person at the edge has their bubble a little to the side, never cut)
-      let sx = Math.max(6, Math.min(w - b.w - 6, ((v3.x + 1) / 2) * w - b.w / 2)), sy = Math.max(6, ((1 - v3.y) / 2) * h - b.h - 9);
+      const sx = Math.max(6, Math.min(w - b.w - 6, ((v3.x + 1) / 2) * w - b.w / 2)), nat = ((1 - v3.y) / 2) * h - b.h - 9;
+      let sy = nat - (b.lift || 0);
       for (const o of put) if (sx < o[0] + o[2] && sx + b.w > o[0] && sy < o[1] + o[3] && sy + b.h > o[1]) sy = o[1] - b.h - 4;
+      const need = Math.max(0, nat - sy);
+      if (b.lift === undefined) b.lift = need;   // (a new one: it is still fading in, so straight there)
+      else if (need > b.lift) b.lift += (need - b.lift) * ease;
+      sy = Math.max(6, nat - b.lift);
       put.push([sx, sy, b.w, b.h]);
       el.style.transform = `translate(${sx.toFixed(1)}px, ${sy.toFixed(1)}px)`;
       el.style.opacity = String(Math.max(0, Math.min(1, b.t / 0.15, (b.life - b.t) / 0.4)));
     }
     for (const [b, el] of els) if (!seen.has(b)) { el.remove(); els.delete(b); }
   }
+
 }
 

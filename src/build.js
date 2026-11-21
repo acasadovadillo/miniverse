@@ -285,8 +285,8 @@ export class BuildMode {
     if (PIECES[id] && !ITEMS[id]) {
       if (sc.unplace(o) === false) { Audio.error(); return; }
       for (const [m, n] of PIECES[id].cost) { const left = g.inv.add(m, n); if (left) g.gather.throwOut(m, left); }
+      if (sc === g.world) g.rep?.taken(layer, tile[0], tile[1], own);   // (from a neighbor's house: the village notices, reputation.js; pickUp does it for the rest)
     } else if (!g.pickUp(o)) return;
-    if (sc === g.world) g.rep?.taken(layer, tile[0], tile[1], own);   // (from a neighbor's house: the village notices, reputation.js)
     this.pickV++;
     g.gather.chips(tile[0] + 0.5, tile[1] + 0.5, 'wood', 6);
     Audio.chop();

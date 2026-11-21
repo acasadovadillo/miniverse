@@ -81,7 +81,7 @@ export class Family {
         if (kind === 'put') this.v.expecting = f;
         else if (!here) continue;
         else if (kind === 'drop') this.v.expecting = null;
-        else if (f !== 'since' && f !== 'mother' && f !== 'eid') { if (kind === 'set') e[f] = val; else delete e[f]; }
+        else if (f !== 'since' && f !== 'mother' && f !== 'father' && f !== 'eid') { if (kind === 'set') e[f] = val; else delete e[f]; }
         continue;
       }
       if (!id.startsWith('kid:')) continue;
@@ -93,7 +93,7 @@ export class Family {
       } else if (!k) continue;
       else if (kind === 'drop') { this.v.kids.splice(i, 1); this.ents.delete(kid); }
       else if (kind === 'set') {
-        if (f === 'id') continue;
+        if (f === 'id' || f === 'parents') continue;
         if (f === 'named' && val !== false && k.named === false && this.game.player) hud.toast(`¡Ha nacido ${k.name}!`, 'good');   // (ya con su nombre: va antes que named)
         k[f] = val;
       } else delete k[f];
@@ -186,7 +186,7 @@ export class Family {
     const g = this.game, p = g.player, { peer } = this.pair, twin = g.rest.twin;
     if (!twin) return;
     const x = (p.x + nearX(twin[0], p.x)) / 2, y = (p.y + twin[1]) / 2;
-    if ((p.look?.sex || 'chico') === 'chica') this.conceive([p.look, peer.look]);
+    if ((p.look?.sex || 'chico') === 'chica') this.conceive([p.look, peer.look], peer.id);
     this.pair = null; this.theirs = null;
     this.scene = { t: 0, x, y, next: 0 };
     this.hearts.push({ x, y, z: 2.15, t: 0, life: SCENE, s: 0.36, big: true, ph: 0 });   // (uno grande, por encima de los dos)
@@ -194,7 +194,8 @@ export class Family {
     this.glow(true);
     this.paintHeart();
   }
-  conceive(looks) { this.v.expecting = { eid: Math.random().toString(36).slice(2, 10), since: this.today, mother: Profile.id, looks: looks.map(l => { const { wear, ...rest } = l || {}; return rest; }) }; this.game.onSave?.(); }
+  // (father: the other player's id, so the couple is known: social.js isPartner. A pregnancy from before has none)
+  conceive(looks, father = null) { this.v.expecting = { eid: Math.random().toString(36).slice(2, 10), since: this.today, mother: Profile.id, ...(typeof father === 'string' ? { father } : {}), looks: looks.map(l => { const { wear, ...rest } = l || {}; return rest; }) }; this.game.onSave?.(); }
   expectingNews() { Audio.unlock(); hud.toast(`¡Vais a tener un bebé! Nacerá dentro de ${WAIT} días.`, 'good'); }
   glow(on) { $('love-glow')?.classList.toggle('on', on); }
   // Los corazones suben balanceándose
@@ -233,6 +234,7 @@ export class Family {
       const sex = Math.random() < 0.5 ? 'chico' : 'chica', used = new Set(this.v.kids.map(k => k.name));
       const name = NAMES[sex].find(n => !used.has(n)) || NAMES[sex][0];
       const kid = { id: `h${day}${Math.random().toString(36).slice(2, 6)}`, name, sex, look: childLook(e.looks[0] || {}, e.looks[1] || e.looks[0] || {}, sex), born: day, named: false };
+      if (e.mother && e.father) kid.parents = [e.mother, e.father];   // (whose child it is: see isPartner in social.js)
       this.v.kids.push(kid);
       this.v.expecting = null;
       this.naming = kid.id;

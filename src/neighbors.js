@@ -246,7 +246,7 @@ export class Neighbors {
     if (id === 'nilo' && !g.house.family && Profile.admin && !g.live.guest) opts.push('Hablar de la casa');   // (la casa es la del dueño del mundo)
     opts.push('Adiós');
     const hearts = '♥'.repeat(this.hearts(id)) || '·';
-    const said = cold ? this.line('npc.refuse') : sore ? this.line('npc.reproach') : this.greeting(id);
+    const said = cold ? this.line(open ? 'npc.refuse.shop' : 'npc.refuse') : sore ? this.line('npc.reproach') : this.greeting(id);
     const pick = opts[await hud.ask(`${def.name}  ${hearts}`, said, opts)];
     if (pick === 'Charlar') {
       const line = id === 'nilo' ? this.niloLine() : def.chat[Math.floor(Math.random() * def.chat.length)];

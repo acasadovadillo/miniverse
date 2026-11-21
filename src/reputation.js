@@ -112,9 +112,9 @@ export class Reputation {
 
   // ---------- talking (neighbors.js) ----------
   // Do they chat with you? Not at «Outcast», nor the day you provoked them three times, unless you are good friends.
-  // Nilo always talks (the story and the house go through him)
+  // Nilo always talks (the story and the house go through him), and in creative the reputation has no effects
   canTalk(id) {
-    if (id === 'nilo') return true;
+    if (!this.counts || id === 'nilo') return true;
     const N = this.game.neighbors, f = N.friend(id);
     if (N.hearts(id) >= 3) return true;
     return !(this.level.id === 'outcast' || f.snub === this.today);
@@ -138,7 +138,7 @@ export class Reputation {
     near.sort((a, b) => Math.hypot(a.x - x, a.y - y) - Math.hypot(b.x - x, b.y - y));
     return near[0] ? { n: near[0], inside: false } : null;
   }
-  // Something was just removed (B › Remove) from a tile of the world: from a neighbor's house, what came with it is taken
+  // Something was just removed (B › Remove, or picked up with X or B › Move: game.js pickUp) from a tile of the world: from a neighbor's house, what came with it is taken
   // (take, or take_seen with a witness); what you had put back there yourself, taken again (retake). Per tile, so putting
   // the same wall back and taking it again always adds up to 0
   taken(layer, tx, ty, own) {

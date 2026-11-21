@@ -58,9 +58,10 @@ class RemotePlayer extends Person {
     // (kt: the tools they carry, seen on their body: see kit.js. A game from before does not send it: none)
     this.kitKey = typeof st.kt === 'string' ? st.kt.slice(0, 160) : '';
     // (em, ek: their gestures, social.js. A new count is a new gesture; the first one that arrives is only noted, so
-    // coming in does not replay an old gesture. A game from before sends neither)
+    // coming in does not replay an old gesture. It is always sent, 0 before the first one, so the first gesture of a
+    // session is seen too. A game from before sends neither)
     if (Number.isInteger(st.em) && st.em !== this.emSeq) {
-      if (this.emSeq !== undefined) this.emote = { k: EMOTE_KINDS[st.ek] || 'wave', t: 0 };
+      if (this.emSeq !== undefined && st.em > 0) this.emote = { k: EMOTE_KINDS[st.ek] || 'wave', t: 0 };
       this.emSeq = st.em;
     }
   }
@@ -336,6 +337,8 @@ export class Live {
         if (m.sc === 'world') peer.at = [m.x, m.y];   // (para saber qué puede tocar)
         if (!peer.entity && peer.look) peer.entity = new RemotePlayer(peer);
         peer.entity?.apply(m);
+        // (a gesture of theirs goes in the same clean-up as the neighbors': drawn far away or never, it does not wait)
+        if (peer.entity?.emote && peer.entity.emote.at === undefined) { peer.entity.emote.at = g.time; g.social?.emoting.add(peer.entity); }
         peer.sc = m.sc;
         break;
       case 'look':
@@ -862,7 +865,7 @@ export class Live {
     }
     this.sent += dt;
     const sc = g.scene === g.world ? 'world' : null;
-    const st = { t: 'st', sc, x: r2(p.x), y: r2(p.y), z: r2(p.z || 0), fl: p.floor ? r2(p.floor) : undefined, yaw: r2(g.view3d.actors.player?.person.facing ?? 0), in: p.inside ? 1 : 0, po: p.pose ? [POSES.indexOf(p.pose.kind), r2(p.pose.yaw), r2(p.pose.h)] : 0, m: p.mount ? 1 : 0, hc: p.mount ? p.horseCoat || null : null, hb: p.mount && p.horseBags ? 1 : 0, b: p.boat ? 1 : 0, pa: p.aboard || 0, cr: p.crouch ? 1 : 0, gm: g.gamemode === 'survival' ? 0 : g.gamemode === 'creative' ? 1 : 3, h: g.inv.held?.id || null, sw: this.swings, si: g.gather.swingItem || null, cd: r2(g.gather.cooldown || 0), dr: r2(g.archery.k), na: p.swim ? 1 : 0, hu: p.swim ? r2(p.sink) : undefined, kt: kitKey(g.kitIds()) || undefined, em: g.social.emSeq || undefined, ek: g.social.emSeq ? g.social.emKind : undefined };
+    const st = { t: 'st', sc, x: r2(p.x), y: r2(p.y), z: r2(p.z || 0), fl: p.floor ? r2(p.floor) : undefined, yaw: r2(g.view3d.actors.player?.person.facing ?? 0), in: p.inside ? 1 : 0, po: p.pose ? [POSES.indexOf(p.pose.kind), r2(p.pose.yaw), r2(p.pose.h)] : 0, m: p.mount ? 1 : 0, hc: p.mount ? p.horseCoat || null : null, hb: p.mount && p.horseBags ? 1 : 0, b: p.boat ? 1 : 0, pa: p.aboard || 0, cr: p.crouch ? 1 : 0, gm: g.gamemode === 'survival' ? 0 : g.gamemode === 'creative' ? 1 : 3, h: g.inv.held?.id || null, sw: this.swings, si: g.gather.swingItem || null, cd: r2(g.gather.cooldown || 0), dr: r2(g.archery.k), na: p.swim ? 1 : 0, hu: p.swim ? r2(p.sink) : undefined, kt: kitKey(g.kitIds()) || undefined, em: g.social.emSeq, ek: g.social.emKind };
     const key = JSON.stringify(st);
     if (this.sent < SEND_EVERY || (key === this.lastSent && this.sent < IDLE_EVERY)) return;
     this.sent = 0; this.lastSent = key;
