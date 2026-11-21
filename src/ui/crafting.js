@@ -4,6 +4,7 @@
 import { ITEMS, hungerText, UNKNOWN_NAME } from '../items.js';
 import { RECIPES, STATIONS, lockedHint } from '../recipes.js';
 import { itemIconUrl } from '../art/items.js';
+import { t } from '../i18n.js';
 import { MACHINES, machineAt, settle, fits } from '../machines.js';
 
 const $ = id => document.getElementById(id);
@@ -172,9 +173,10 @@ export function initCraftingUI(game, { onClose, onBag }) {
     ins.textContent = '';
     if (known) {
       for (const [id, n] of r.ins) {
-        const have = game.craft.have(id), row = document.createElement('div');
+        const have = game.craft.have(id), row = document.createElement('div'), chests = have - game.inv.count(id);   // (with the weight prototype, the chests nearby count: carry.js)
         row.className = 'cf-in' + (have >= n ? ' have' : '');
         row.innerHTML = `<img alt="" src="${itemIconUrl(id)}"><span>${ITEMS[id].name}</span><b>${have}/${n}</b>`;
+        if (chests > 0) { const c = document.createElement('small'), b = row.querySelector('b'); c.style.cssText = 'margin-left: auto; font-size: 14px; color: var(--dim)'; c.textContent = t('gui.crafting.in_chests', { n: chests }); b.style.marginLeft = '8px'; b.before(c); }
         ins.append(row);
       }
     }

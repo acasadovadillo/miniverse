@@ -183,7 +183,7 @@ export class Crafting {
     const g = this.game;
     let made = 0;
     for (let i = 0; i < times && !this.problem(r); i++) {
-      if (g.carry) g.carry.spend(r.ins); else for (const [id, n] of r.ins) g.inv.remove(id, n);
+      if (g.carry) { if (!g.carry.spend(r.ins)) break; } else for (const [id, n] of r.ins) g.inv.remove(id, n);   // (all or nothing: carry.js)
       const left = g.inv.add(r.out, r.n);
       if (left) g.gather.throwOut(r.out, left);
       made++;

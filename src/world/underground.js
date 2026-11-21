@@ -60,7 +60,8 @@ export class GridScene {
   }
   // Solo se pueden poner antorchas (y quitarlas)
   at(layer, tx, ty) { return layer === 'placed' ? this.state.placed[`${tx},${ty}`] : undefined; }
-  canPlace(tx, ty, id) { return (id === 'antorcha' || !!BULKY[id]) && !this.wall(tx, ty) && !this.state.placed[`${tx},${ty}`] && !this.live().some(o => o.tile && o.tile[0] === tx && o.tile[1] === ty); }
+  // (and a big thing carried in the arms, carry.js: never on the stairs nor next to them, where it would block them)
+  canPlace(tx, ty, id) { const big = !!BULKY[id]; return (id === 'antorcha' || big) && !this.wall(tx, ty) && !this.state.placed[`${tx},${ty}`] && !this.live().some(o => o.tile && (big && o.ladder ? Math.abs(o.tile[0] - tx) <= 1 && Math.abs(o.tile[1] - ty) <= 1 : o.tile[0] === tx && o.tile[1] === ty)); }
   place(tx, ty, id) { this.state.placed[`${tx},${ty}`] = id; this.touched(); }
   unplace(o) { delete this.state.placed[`${o.tile[0]},${o.tile[1]}`]; this.touched(); }
   placedNear(x, y, r) { return this.live().filter(o => o.placed && Math.hypot(o.x - x, o.y - y) < r); }

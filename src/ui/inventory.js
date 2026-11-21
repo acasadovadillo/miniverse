@@ -277,6 +277,6 @@ export function initInventoryUI(game, { onClose, onCraft }) {
 
   return {
     refresh,
-    open() { picked = null; refresh(); },
+    open() { picked = null; pack?.toTop(); refresh(); },
   };
 }

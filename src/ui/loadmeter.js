@@ -41,7 +41,7 @@ export function initLoadMeter(game) {
       const held = game.carry?.held || '', now = `${inv.kg}|${inv.capKg}|${held}`;
       if (now === sig) return;
       sig = now;
-      loadLine(line, inv);
+      loadLine(line, inv, game.carry?.armsKg() || 0);   // (with what the arms carry apart: "48 + 25 / 70 kg")
       el.classList.toggle('arms', !!held);
       if (held) arms.src = itemIconUrl(held);
     },

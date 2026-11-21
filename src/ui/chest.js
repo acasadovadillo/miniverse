@@ -58,13 +58,13 @@ export function initChestUI(game, { onClose }) {
     game.inv.take(i, s.n - n, true);
     changed();
   }
-  function refresh() {
+  function refresh(top = false) {
     const chest = current();
     if (!chest) return;
     shown = JSON.stringify(chest);
     chestCells.forEach((el, i) => { paint(el, chest[i]); el.hidden = i >= chest.length; });
     // (the weight prototype: the hotbar and, below it, the list of the backpack, packlist.js)
-    if (game.inv.weight) { bagCells.forEach((el, i) => { el.hidden = i >= HOTBAR; if (i < HOTBAR) paint(el, game.inv.slots[i]); }); packRows($('ch-bag'), game.inv, toChest).hidden = false; }
+    if (game.inv.weight) { bagCells.forEach((el, i) => { el.hidden = i >= HOTBAR; if (i < HOTBAR) paint(el, game.inv.slots[i]); }); packRows($('ch-bag'), game.inv, toChest, { top, arms: game.carry?.armsKg() || 0 }).hidden = false; }
     else {
       if ($('ch-pack')) { $('ch-pack').hidden = true; for (const el of bagCells) el.hidden = false; }   // (a game without it, after one with it)
       bagCells.forEach((el, i) => { paint(el, game.inv.slots[i]); el.classList.toggle('locked', !game.inv.usable(i)); });
@@ -90,7 +90,7 @@ export function initChestUI(game, { onClose }) {
       the = !t ? 'las alforjas' : CHESTS[id]?.[1] || 'el cofre'; wardrobe = id === 'armario';
       $('ch-title').textContent = !t ? 'Alforjas' : CHESTS[id] ? ITEMS[id].name : 'Cofre';
       clearTimeout(hintTimer); hint();
-      refresh();
+      refresh(true);
     },
   };
 }

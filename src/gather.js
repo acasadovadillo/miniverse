@@ -11,8 +11,8 @@ import { RUG_SIZES, TABLE_SIZES } from './art/stations.js';
 import { XP_ORE, roll } from './xp.js';
 import { dxOf, WATER_Y } from './world/planet.js';
 import { reportFault } from './faults.js';
-import { t as tr } from './i18n.js';
-import { BULKY_PARTS } from './carry-items.js';   // (as tr: t is the target in many places here)
+import { t as tr } from './i18n.js';   // (as tr: t is the target in many places here)
+import { BULKY_PARTS } from './carry-items.js';   // (the big things carried in the arms: never a drop, their parts)
 
 // Lo que dice cada efecto al tomarlo (comida o poción)
 const BUFF_TEXT = { rapido: 'Más rápido', incansable: 'Sin cansancio', fuerza: 'Más fuerza', resistencia: 'Más resistencia', regeneracion: 'Regeneración' };
@@ -410,6 +410,7 @@ export class Gathering {
     if (auto) return;
     this.cooldown = COOLDOWN;
     if (!t?.ok) { this.float(t?.far ? `Demasiado lejos (como mucho a ${PLACE_REACH} casillas)` : t?.why || 'Ahí no cabe', '#ffb0a0'); Audio.error(); return; }
+    if (g.build.on && !g.build.canPay(id)) { this.float('Te faltan materiales', '#ffb0a0'); Audio.error(); return; }   // (what the chests nearby had may be gone: carry.js)
     if (t.moor) g.world.moorBoat(...t.moor);   // (la barca: amarrada en el agua)
     else if (t.free) g.scene.placeFree(id, t.fit, !!g.player.crouch); else g.scene.place(...t.tile, id, t.rot);
     if (!t.moor && g.scene === g.world) { const at = t.free ? t.fit.anchor : t.tile; g.rep?.placed(layerOf(id), at[0], at[1]); }   // (put back where you took it from: reputation.js)

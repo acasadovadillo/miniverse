@@ -3,7 +3,7 @@ import { Audio } from '../audio.js';
 import { portrait3D } from '../three/portrait.js';
 
 const $ = id => document.getElementById(id);
-let shownPrompt = null, shownCoords = null, shownHint = null, dialog = null;
+let shownPrompt = null, shownCoords = null, shownHint = null, shownHintKey, dialog = null;
 let shownKey = 'E';
 
 // Retrato de quien habla (si es una persona conocida): su cara en 3D. El nombre puede llevar detrás los corazones.
@@ -43,11 +43,17 @@ export const hud = {
     if (flash) $('place').animate([{ transform: 'scale(1.15)', borderColor: '#fff3c0' }, { transform: 'scale(1)' }], { duration: 600, easing: 'ease-out' });
   },
   money(n) { $('money').textContent = `${n} 🪙`; },
-  hint(text) {
-    if (text === shownHint) return;
-    shownHint = text;
+  // key: the key on its label (undefined: the click, as always; '': none; 'Q'…: that one)
+  hint(text, key) {
+    if (text === shownHint && key === shownHintKey) return;
+    shownHint = text; shownHintKey = key;
     $('hint').classList.toggle('show', !!text);
     if (text) $('hint-text').textContent = text;
+    const click = $('hint').querySelector('kbd[data-i18n]');
+    let own = $('hint-key');
+    if (key !== undefined && !own) { own = document.createElement('kbd'); own.id = 'hint-key'; click?.after(own); }
+    if (click) click.style.display = key !== undefined ? 'none' : '';   // (kbd is inline-block: hidden would not hide it)
+    if (own) { own.style.display = key ? '' : 'none'; own.textContent = key || ''; }
   },
   coords(xy) {
     const text = xy ? `${xy[0]}, ${xy[1]}` : '';

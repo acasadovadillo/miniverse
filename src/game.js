@@ -763,7 +763,9 @@ export class Game {
   // Devolver a la mochila algo colocado
   // carry: lo coge el modo construir para moverlo (no devuelve nada: se deja en otro sitio)
   pickUp(o, carry = false) {
-    if (o.fixed && !o.yard && !o.build) return false;   // (lo que venía puesto no se recoge sin querer: solo la valla de tu jardín y, en modo construir, todo)
+    if (o.fixed && !o.yard && !o.build) return false;
+    // (a log or a carcass, taken with B › Remove or X: its parts, as without the prototype; it is never moved. carry.js)
+    if (BULKY[o.placed]) { if (carry || this.scene.unplace(o) === false) return false; this.carry.forget(o.tile); this.carry.giveParts(o.placed); Audio.pickup(); return true; }   // (lo que venía puesto no se recoge sin querer: solo la valla de tu jardín y, en modo construir, todo)
     // Lo que se construye (las piezas, como la valla, y los muebles y las estaciones) no vuelve a la mochila: devuelve
     // sus materiales
     const B = BUILDABLE[o.placed] || (PIECES[o.placed] && !ITEMS[o.placed] ? PIECES[o.placed] : null);
@@ -785,9 +787,7 @@ export class Game {
   }
   action() {
     if (hud.dialogOpen) return hud.next();
-    const n = this.nearest();
-    if (n) n.run();
-    else if (this.carry.held) this.carry.drop();   // (E with nothing to do here: put down what the arms carry)
+    this.nearest()?.run();   // (what the arms carry is only put down with Q: carry.js)
   }
   async talkNilo() {
     this.busy = true;
@@ -1251,7 +1251,10 @@ export class Game {
       for (const s of this.systems) { try { hint = s.hint?.() || ''; } catch (e) { reportFault(e, faultName(s, 'hint')); } if (hint) break; }
       hint ||= this.build.on ? this.build.hint() : this.gather.hint();
     }
-    hud.hint(hint);
+    // (a hint may say its own key, { text, key }: carry.js, "Q Put down the log"; the rest, the click)
+    const hk = hint && typeof hint === 'object' ? hint : null;
+    if (hk) hint = hk.text;
+    hud.hint(hint, hk ? hk.key : undefined);
     try { this.wheel?.frame(); } catch (e) { reportFault(e, 'ToolWheel.frame'); }   // (the tool wheel: src/ui/wheel.js)
     try { this.smartHud?.frame(hint); } catch (e) { reportFault(e, 'SmartHud.frame'); }   // (the minimal interface, unless the full one was chosen: src/ui/smarthud.js)
     if (this.player && this.world) {

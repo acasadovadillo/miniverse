@@ -2280,7 +2280,7 @@ async function soloTests(game) {
     }
     // E: on the shoulder; Q: down in front
     const log = near('log', p().x, p().y, 3); check(log, 'no log near');
-    check(game.placedAction(log).text === t('carry.shoulder', { item: ITEMS.log }), `E says: ${game.placedAction(log).text}`);
+    check(game.placedAction(log).text === t('carry.shoulder', { item: noun('item', 'log') }), `E says: ${game.placedAction(log).text}`);
     game.placedAction(log).run(); check(C.held === 'log' && p().carrying === 'log' && p().armsBusy === 'shoulder' && !inv().held, 'not in the arms');
     check(!near('log', log.x, log.y, 0), 'still on the ground');
     game.toss(); check(!C.held, 'Q does not put it down');
@@ -2335,13 +2335,21 @@ async function soloTests(game) {
     C.set('log');
     try {
       G.cooldown = 0; G.swing = 0; G.use(); G.use(true); check(G.swing === 0 && G.cooldown === 0, 'a click with the arms full does something');
-      check(C.noRun() && C.jumpMul() === 0.82 && C.hint() && game.inv.add('log', 1) === 1, 'run, jump, hint or the backpack');
+      check(C.noRun() && C.jumpMul() >= 0.86 && C.hint()?.key === 'Q' && game.inv.add('log', 1) === 1 && game.inv.room('log') === 0, 'run, jump, hint or the backpack');
+      game.build.toggle(true); check(!C.hint(), 'in build mode the carry hint hides B\'s'); game.build.toggle(false);
       check(C.refuse() && C.held === 'log', 'refuse does not refuse');
       game.ranch.mount({ id: 'x', breed: 'alazan', x: p().x, y: p().y }); check(!p().mount, 'mounted with a log');
       game.rest.floor('floorSit'); check(!p().pose, 'sat down with a log');
       check(C.state() === 'log', 'the network does not say it');
     } finally { C.set(null); }
     check(!C.state() && !C.noRun(), 'empty arms');
+    // E never puts it down (only Q); riding, a log is not taken; B › Remove on a log gives its parts (it is not lost)
+    const [lx, ly] = freeTile(game, [[Math.floor(p().x) + 2, Math.floor(p().y)], [Math.floor(p().x), Math.floor(p().y) + 2], [Math.floor(p().x) - 2, Math.floor(p().y)]]);
+    C.set('log'); game.mouse = null; game.nearest = () => null;
+    try { game.action(); check(C.held === 'log', 'E with nothing to do put it down'); } finally { delete game.nearest; C.set(null); }
+    w().place(lx, ly, 'log'); const lg = w().placedObjectAt(lx, ly);
+    p().mount = { id: 'x' }; try { const a = game.placedAction(lg); check(a.text === t('carry.not_riding'), `riding, E says: ${a.text}`); C.take(lg); check(!C.held && near('log', lx + 0.5, ly + 0.5, 0), 'riding, the log was taken'); } finally { p().mount = null; }
+    const wood = inv().count('madera'); check(game.pickUp(lg) && !near('log', lx + 0.5, ly + 0.5, 0) && inv().count('madera') === wood + 4, `B › Remove on a log: ${inv().count('madera') - wood} wood`);
     // On foot: into deep water, no; over a fence in a jump, no (the same player without it: yes, and yes)
     const up = screenToWorld(0, -1), l = Math.hypot(...up), d = [up[0] / l, up[1] / l], keysUp = { up: true };
     const walk = (carrying, scene, steps, high = false) => { const P = new Player({ name: 'x', x: 0, y: 0, look: {} }); P.carrying = carrying; for (let i = 0; i < steps; i++) { if (high) { P.z = 0.6; P.vz = 0; } P.update(1 / 60, keysUp, scene); } return P; };
@@ -2368,7 +2376,13 @@ async function soloTests(game) {
       game.craft.craft(r); check(I.count('cuerda') === 1 && chest[0]?.n === 2, `crafting did not take from the chest: ${chest[0]?.n}`);
       check(game.gather.floaters.some(f => f.text.includes(t('carry.from_chest', { n: 3, item: ITEMS.fibra, chest: { name: ITEMS.cofre.name, g: 'm' } }))), `it does not say from where: ${game.gather.floaters.map(f => f.text)}`);
       game.build.near = null; check(game.build.affordable('banco'), 'building does not see the chest');
-      I.add('tablas', 2); game.build.paid('banco'); check(!I.count('tablas') && chest[1]?.n === 6 && chest[2]?.n === 2, `building: ${I.count('tablas')} / ${chest[1]?.n} / ${chest[2]?.n}`);
+      // (the stones: from the nearest chest, which may be one an earlier test left closer: counted over all of them)
+      const stones = () => game.carry.chests().reduce((n, { c }) => n + c.reduce((k, s) => k + (s?.id === 'piedra' ? s.n : 0), 0), 0), st0 = stones();
+      I.add('tablas', 2); game.build.paid('banco'); check(!I.count('tablas') && chest[1]?.n === 6 && stones() === st0 - 2, `building: ${I.count('tablas')} / ${chest[1]?.n} / ${st0 - stones()} stones`);
+      // All or nothing: what was counted a moment ago and is gone (another player took it) is not given away
+      I.remove('tablas', I.count('tablas')); game.carry.have('tablas'); const gone = chest[1]; chest[1] = null;
+      const pieces = inv().count('piedra'), st1 = stones(); check(game.carry.spend([['tablas', 2], ['piedra', 1]]) === false && stones() === st1 && inv().count('piedra') === pieces, 'spend took part of a cost it could not pay');
+      chest[1] = gone;
       // Too far (17 tiles), or a neighbor's: no
       game.carry.near = null; const far = p().x; p().x += 400; check(game.carry.have('piedra') === 0, 'a chest far away counts'); p().x = far;
       for (let i = 0; i < chest.length; i++) chest[i] = null;
@@ -2465,6 +2479,12 @@ async function soloTests(game) {
     game.inv.equip.espalda ||= { id: 'mochila', color: ITEMS.mochila.dye }; game.inv.changed();
     await readyGround(game, 8000);
   });
+  // (always back to slots, also when only= chose some weight tests and not the one above: the rest run as always)
+  if (weightBack) {
+    const back = weightBack; weightBack = null; Carry.force = null;
+    game.end(); game.start(JSON.parse(back.snap), new Map(JSON.parse(back.deltas))); game.onSave = null;
+    await readyGround(game, 8000);
+  }
 }
 
 // ---------- dos jugadores por el relay ----------

@@ -93,8 +93,10 @@ export class BuildMode {
   }
   // (with the weight prototype, what is missing comes from the chests nearby: carry.js have and spend; without it, the
   // backpack as always)
-  have(id) { return this.game.carry ? this.game.carry.have(id) : this.game.inv.count(id); }
-  spend(cost) { if (this.game.carry) this.game.carry.spend(cost); else for (const [m, n] of cost) this.game.inv.remove(m, n); }
+  have(id, fresh = false) { return this.game.carry ? this.game.carry.have(id, fresh) : this.game.inv.count(id); }
+  spend(cost) { if (this.game.carry) return this.game.carry.spend(cost); for (const [m, n] of cost) this.game.inv.remove(m, n); return true; }
+  // (just before placing a piece of furniture or a station: counted now, so it is never placed without being paid)
+  canPay(id) { const g = this.game; return g.admin || !!this.carry || DEF(id).cost.every(([m, n]) => this.have(m, true) >= n); }
 
   // Casilla objetivo: la del ratón si se ha movido hace poco; si no, la de delante del jugador
   target() {
@@ -174,7 +176,7 @@ export class BuildMode {
     this.painted = `${t}`;
     const g = this.game, c = this.check(t);
     if (!c.ok) { if (!drag) { if (c.why) g.gather.float(c.why, '#ffb0a0'); Audio.error(); } return; }
-    if (!g.admin) this.spend(PIECES[this.piece].cost);
+    if (!g.admin && !this.spend(PIECES[this.piece].cost)) { if (!drag) { g.gather.float('Te faltan materiales', '#ffb0a0'); Audio.error(); } return; }   // (counted now: the chests nearby may have changed, carry.js)
     g.scene.place(t[0], t[1], this.piece);
     if (g.scene === g.world) g.rep?.placed(layerOf(this.piece), t[0], t[1]);   // (put back where you took it from: reputation.js)
     g.gather.chips(t[0] + 0.5, t[1] + 0.5, 'wood', 6);

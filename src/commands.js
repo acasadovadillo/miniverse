@@ -28,8 +28,10 @@ const plain = s => String(s).normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCas
 // Un objeto por su nombre (sin tildes ni mayúsculas) o por su identificador (con _ o con espacios)
 function findItem(text) {
   const t = plain(text), id = t.replace(/\s+/g, '_');
-  if (ITEMS[id]) return id;
-  return Object.keys(ITEMS).find(k => plain(ITEMS[k].name) === t) || Object.keys(ITEMS).find(k => plain(ITEMS[k].name).startsWith(t)) || null;
+  // (the big things of the weight prototype, carry-items.js, are not given or cleared by name: they are carried)
+  const ok = k => !ITEMS[k].bulky;
+  if (ITEMS[id] && ok(id)) return id;
+  return Object.keys(ITEMS).find(k => ok(k) && plain(ITEMS[k].name) === t) || Object.keys(ITEMS).find(k => ok(k) && plain(ITEMS[k].name).startsWith(t)) || null;
 }
 // Lo que se puede escribir en cada comando (en inglés, como en Minecraft, y en español)
 const GM_NAMES = { supervivencia: 'survival', survival: 'survival', s: 'survival', 0: 'survival', creativo: 'creative', creative: 'creative', c: 'creative', 1: 'creative', espectador: 'spectator', spectator: 'spectator', sp: 'spectator', 3: 'spectator' };

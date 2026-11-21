@@ -1221,27 +1221,52 @@ function chandelier(m, y0) {
   return m;
 }
 // ---------- the big things carried in the arms (carry-items.js; the prototype: carry.js) ----------
-// A log lying along x, its cut ends lighter and a stub of a branch (also what is carried on the shoulder: carry3d.js)
-export const LOG = { L: 1.3, r: 0.13 };
+// A log lying along x, its cut ends lighter and a stub of a branch. Short enough to lie inside its tile (0.95 m); on the
+// shoulder it is drawn longer (carry3d.js)
+export const LOG = { L: 0.95, r: 0.13 };
 BUILD.log = m => {
   const { L, r } = LOG, along = [0, 0, Math.PI / 2];   // (a cylinder turned onto its side: from +x to -x)
   m.cyl('dark', L / 2, r, 0, r * 0.94, r, L, 12, along);
   m.cyl('light', L / 2 + 0.006, r, 0, r * 0.86, r * 0.86, 0.008, 12, along).cyl('light', -L / 2 + 0.002, r, 0, r * 0.84, r * 0.84, 0.008, 12, along);
-  m.cyl('dark', 0.22, r * 1.55, 0.02, 0.035, 0.022, 0.13, 6, [0.5, 0, 0.35]).cyl('dark', -0.36, r * 1.5, -0.03, 0.03, 0.02, 0.1, 6, [-0.6, 0, -0.3]);
+  m.cyl('dark', 0.16, r * 1.5, 0.02, 0.035, 0.004, 0.14, 6, [0.5, 0, 0.35]).cyl('dark', -0.26, r * 1.45, -0.03, 0.03, 0.004, 0.11, 6, [-0.6, 0, -0.3]);   // (broken branches, pointed: a flat cut would look like a hole)
 };
-// A carcass lying on its side: the body along x, the head at +x and the legs stiff towards +z (s: its size; the cow is
-// bigger). Plain shapes with the colour of the animal, a darker belly and the hooves
-const CARCASS_SIZE = { carcass_cow: 1.3, carcass_boar: 0.88, carcass_goat: 0.85, carcass_sheep: 0.92, carcass_pig: 0.9 };
+// A carcass lying on its left side: the body along x (the head at +x, resting on the ground), the spine towards -z and
+// the legs towards +z, bent at the knee, the upper pair above the lower one. The back darker than the belly; the deer
+// with its antlers, the goat and the cow with horns, the boar with tusks, the sheep woolly, the cow with spots.
+// s: its size (the cow, bigger)
+const CARCASS_SIZE = { carcass_deer: 0.9, carcass_cow: 1.3, carcass_boar: 0.85, carcass_goat: 0.8, carcass_sheep: 0.85, carcass_pig: 0.85 };
+const HIDE = (c, k) => `hide:#${new THREE.Color(c).multiplyScalar(k).getHexString()}`;
 function carcassModel(m, id) {
-  const B = BULKY[id], s = CARCASS_SIZE[id] || 1, K = `hide:${B.color}`, D = `hide:#${new THREE.Color(B.color).multiplyScalar(0.62).getHexString()}`;
-  m.ball(K, 0, 0.21 * s, 0, 0.44 * s, 0.2 * s, 0.23 * s, 12).ball(D, 0, 0.15 * s, 0.09 * s, 0.36 * s, 0.11 * s, 0.14 * s, 10);
-  m.ball(K, 0.5 * s, 0.17 * s, 0.03 * s, 0.11 * s, 0.075 * s, 0.075 * s, 10).ball(K, 0.66 * s, 0.13 * s, 0.05 * s, 0.13 * s, 0.085 * s, 0.075 * s, 10);   // the neck and the head
-  m.ball(D, 0.79 * s, 0.12 * s, 0.05 * s, 0.035 * s, 0.035 * s, 0.035 * s, 6);
-  if (id === 'carcass_deer') for (const z of [-0.03, 0.06]) m.cyl('light', 0.6 * s, 0.2 * s, z * s, 0.012, 0.008, 0.22 * s, 5, [0, 0, 0.9]);   // (the antlers)
-  if (id === 'carcass_goat') m.cyl('dark', 0.62 * s, 0.2 * s, 0, 0.014, 0.006, 0.12 * s, 5, [0, 0, 1.1]);
-  for (const [x, y] of [[0.3, 0.13], [0.22, 0.09], [-0.3, 0.13], [-0.36, 0.09]]) {
-    m.cyl(K, x * s, y * s, 0.12 * s, 0.04 * s, 0.03 * s, 0.34 * s, 6, [Math.PI / 2, 0, 0]);
-    m.cyl('dark0', x * s, y * s, (0.12 + 0.33) * s, 0.032 * s, 0.03 * s, 0.05 * s, 6, [Math.PI / 2, 0, 0]);
+  const B = BULKY[id], s = CARCASS_SIZE[id] || 1, K = `hide:${B.color}`, back = HIDE(B.color, 0.68), belly = HIDE(new THREE.Color(B.color).lerp(new THREE.Color('#f4ead8'), 0.45).getStyle(), 1);
+  const pig = id === 'carcass_pig', short = pig || id === 'carcass_boar';
+  // the body: the side, the darker back along the spine and the lighter belly
+  m.ball(K, 0, 0.19 * s, 0, 0.46 * s, 0.19 * s, 0.21 * s, 14);
+  m.ball(back, -0.02 * s, 0.2 * s, -0.1 * s, 0.44 * s, 0.16 * s, 0.16 * s, 12);
+  m.ball(belly, 0.02 * s, 0.15 * s, 0.09 * s, 0.34 * s, 0.11 * s, 0.135 * s, 10);
+  if (id === 'carcass_sheep') for (const [x, y, z] of [[0.2, 0.27, -0.05], [-0.15, 0.28, -0.02], [0.02, 0.3, 0.05], [-0.3, 0.24, 0.06], [0.28, 0.22, 0.08]]) m.ball(K, x * s, y * s, z * s, 0.17 * s, 0.11 * s, 0.13 * s, 8);
+  if (id === 'carcass_cow') for (const [x, y, z, r] of [[0.15, 0.3, -0.04, 0.13], [-0.25, 0.27, 0.05, 0.11], [-0.05, 0.22, -0.14, 0.1], [0.32, 0.2, 0.1, 0.08]]) m.ball('hide:#2e2622', x * s, y * s, z * s, r * s, r * 0.55 * s, r * 0.9 * s, 8);
+  // the neck and the head, on the ground; the muzzle and the ears (the deer's longer)
+  const hx = (short ? 0.58 : 0.66) * s;
+  m.ball(K, 0.44 * s, 0.17 * s, -0.02 * s, 0.15 * s, 0.09 * s, 0.09 * s, 10);
+  m.ball(K, hx, 0.11 * s, 0, 0.15 * s, 0.085 * s, 0.08 * s, 10);
+  if (pig) m.cyl(HIDE(B.color, 0.85), hx + 0.13 * s, 0.1 * s, 0, 0.045 * s, 0.045 * s, 0.035 * s, 10, [0, 0, -Math.PI / 2]);
+  else m.ball(back, hx + 0.13 * s, 0.1 * s, 0, 0.05 * s, 0.05 * s, 0.05 * s, 8);
+  for (const [z, y] of [[-0.06, 0.16], [0.07, 0.13]]) m.ball(back, hx - 0.07 * s, y * s, z * s, (id === 'carcass_deer' ? 0.07 : 0.05) * s, 0.02 * s, 0.035 * s, 6);
+  if (id === 'carcass_deer') for (const z of [-0.05, 0.04]) {   // (the antlers: a beam back over the neck and two tines)
+    m.cyl('hide:#cbb894', hx - 0.04 * s, 0.15 * s, z * s, 0.016, 0.009, 0.32 * s, 5, [0, 0, 1.25]);
+    m.cyl('hide:#cbb894', hx - 0.15 * s, 0.19 * s, z * s, 0.011, 0.006, 0.13 * s, 5, [0, 0, 0.3]);
+    m.cyl('hide:#cbb894', hx - 0.26 * s, 0.22 * s, z * s, 0.01, 0.005, 0.12 * s, 5, [0, 0, 0.5]);
+  }
+  if (id === 'carcass_goat' || id === 'carcass_cow') for (const z of [-0.05, 0.05]) m.cyl('hide:#d8ccb0', hx - 0.06 * s, 0.17 * s, z * s, 0.018 * s, 0.006, 0.11 * s, 5, [0, 0, 1.0]);
+  if (id === 'carcass_boar') for (const z of [-0.035, 0.035]) m.cyl('hide:#efe6d2', hx + 0.09 * s, 0.07 * s, z * s, 0.012, 0.004, 0.07 * s, 5, [0, 0, 0.6]);
+  m.cyl(back, -0.45 * s, 0.2 * s, -0.02 * s, 0.03 * s, 0.015 * s, (short ? 0.07 : 0.12) * s, 5, [0, 0, 2.2]);   // the tail
+  // the legs: from the shoulder or the hip, out to +z, and the lower half bent back; the hooves dark
+  const legR = (short ? 0.045 : 0.038) * s, up = (short ? 0.13 : 0.2) * s, low = (short ? 0.12 : 0.2) * s;
+  for (const [x, y, bend] of [[0.3, 0.16, 0.7], [0.24, 0.07, 0.5], [-0.3, 0.17, -0.5], [-0.36, 0.07, -0.7]]) {
+    const z0 = 0.08 * s, kx = x * s, kz = z0 + up;
+    m.cyl(K, kx, y * s, z0, legR * 1.25, legR, up, 6, [Math.PI / 2, 0, 0]);
+    m.cyl(K, kx, y * s, kz, legR, legR * 0.85, low, 6, [Math.PI / 2, 0, bend]);
+    m.ball('dark0', kx - Math.sin(bend) * low, y * s, kz + Math.cos(bend) * low, legR * 1.1, legR * 1.1, legR * 1.3, 6);
   }
 }
 for (const id of Object.keys(BULKY)) if (BULKY[id].prey) BUILD[id] = m => carcassModel(m, id);
