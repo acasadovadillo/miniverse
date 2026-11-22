@@ -300,7 +300,7 @@ export class Gathering {
   use(auto = false) {
     const g = this.game, p = g.player;
     if (!p || g.busy || hud.dialogOpen || g.mode !== 'play' || this.cooldown > 0 || p.pose || p.swim || g.gamemode === 'spectator') return;   // (nadando, las manos son para nadar)
-    if (g.carry?.held) return g.carry.handsFull(auto);   // (something in the arms: no punches, nothing picked by hand; carry.js)
+    if (g.carry?.handsBusy()) return g.carry.handsFull(auto);   // (something in the arms, or the hands on the wheelbarrow: no punches, nothing picked by hand; carry.js. Riding or rowing with it, the tool works)
     const held = g.inv.held, def = held && ITEMS[held.id];
     if (def?.food || def?.heal || def?.buff) return auto ? undefined : this.eat(g.inv.selected);
     if (held?.id === 'mapa_vacio') return auto ? undefined : g.maps.create(g.inv.selected);
@@ -421,6 +421,7 @@ export class Gathering {
     if (ITEMS[id].place === 'station') this.float(`${ITEMS[id].name}: acércate y pulsa E`, '#fff3c0');
     if (id === 'pozo') this.float('Pozo: con la regadera, E o clic en él la llena', '#9ad0ff');
     if (id === 'big_well') this.float(tr('toast.big_well.placed'), '#9ad0ff');
+    if (id === 'wheelbarrow') this.float(tr('toast.wheelbarrow.placed'), '#fff3c0');
   }
 
   eat(slot) {

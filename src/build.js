@@ -15,6 +15,7 @@ import { yawOf, rugRect } from './art/stations.js';
 const PICK_NEAR = 14;   // (se apunta a lo que haya hasta aquí: lo que está más lejos del alcance, tapa lo de detrás y dice que está lejos)
 export const REACH = 7;   // casillas de distancia a las que se puede construir
 import { BUILDABLE, BUILD_CATS } from './buildables.js';
+import { t as tr } from './i18n.js';   // (as tr: t is the target tile here)
 export const BUILD_STATION_REACH = 16;   // a cuántas casillas puede estar la estación que pide una pieza (el banco, para lo de madera; la mesa de cantero, para lo de piedra)
 export const PIECE_IDS = Object.keys(PIECES).filter(id => !ITEMS[id] || PIECES[id].palette);   // (el hogar se fabrica, como un mueble; la valla, además de fabricarse, se pone aquí)
 
@@ -287,6 +288,7 @@ export class BuildMode {
     if (!raw) return;
     const [id, k] = parsePlaced(raw), own = !sc.ownAt || sc.ownAt(layer, tile[0], tile[1]), o = { tile, layer, placed: id, ...(layer === 'rug' ? { rug: rugRect(tile[0], tile[1], k) } : {}), ...(own ? {} : { fixed: true, build: true }) };
     if (this.unknown(id, own)) return;
+    if (id === 'wheelbarrow' && g.barrow?.loaded(tile)) { g.gather.float(tr('barrow.empty_first'), '#ffb0a0'); Audio.error(); return; }   // (its stacks or its big things: barrow.js)
     if (CHESTS[id] && sc.chestAt(...tile)?.some(Boolean)) { g.gather.float(`Vacía ${CHESTS[id][1]} antes`, '#ffb0a0'); Audio.error(); return; }
     if (PIECES[id] && !ITEMS[id]) {
       if (sc.unplace(o) === false) { Audio.error(); return; }
@@ -311,18 +313,22 @@ export class BuildMode {
     return hit && this.inReach(hit.tile) ? { kind: 'placed', o: hit.o, yaw: hit.o.yaw, box: hit.box } : null;
   }
 
-  // Lo que se va a quitar, por su nombre
+  // Lo que se va a quitar (o mover), por su nombre: { item } (null: nothing there; { newer } a thing of a newer version)
+  aimedThing() {
+    const sc = this.game.scene, hit = this.eraseTarget(this.target()), raw = hit && sc.at(hit.layer, hit.tile[0], hit.tile[1]), id = raw && parsePlaced(raw)[0], def = id && (PIECES[id] || ITEMS[id]);
+    return def?.name ? { item: def } : id ? { newer: true } : null;
+  }
   eraseHint() {
-    const sc = this.game.scene, hit = this.eraseTarget(this.target()), raw = hit && sc.at(hit.layer, hit.tile[0], hit.tile[1]), id = raw && parsePlaced(raw)[0], name = id && (PIECES[id]?.name || ITEMS[id]?.name);
-    return name ? `Quitar ${name.toLowerCase()}` : id ? 'No se quita: es de una versión más nueva del juego' : 'Quitar';
+    const a = this.aimedThing();
+    return a?.item ? tr('build.hint.remove', { item: a.item }) : a?.newer ? tr('build.hint.newer') : tr('build.hint.remove_any');
   }
   hint() {
     if (!this.on) return '';
     const held = this.heldItem();
-    if (held) { const c = this.check(), name = DEF(held.id).name.toLowerCase(); return c.ok ? `${this.carry ? 'Dejar' : 'Colocar'} ${name} (R: girar)` : `${c.why || 'Ahí no cabe'} (R: girar)`; }
-    if (this.move) { const c = this.check(this.target()); return c.ok ? `Mover ${this.eraseHint().replace(/^Quitar /, '')}` : c.why || ''; }
+    if (held) { const c = this.check(), item = DEF(held.id); return c.ok ? tr(this.carry ? 'build.hint.drop' : 'build.hint.place', { item }) : tr('build.hint.why', { why: c.why || tr('build.hint.no_fit') }); }
+    if (this.move) { const c = this.check(this.target()), a = c.ok && this.aimedThing(); return c.ok ? (a?.item ? tr('build.hint.move', { item: a.item }) : a?.newer ? tr('build.hint.newer') : tr('build.hint.move_any')) : c.why || ''; }
     const c = this.check(this.target());
-    return this.erase ? (c.ok ? this.eraseHint() : c.why || '') : c.ok ? `Poner ${PIECES[this.piece].name.toLowerCase()}` : c.why || '';
+    return this.erase ? (c.ok ? this.eraseHint() : c.why || '') : c.ok ? tr('build.hint.piece', { item: PIECES[this.piece] }) : c.why || '';
   }
 
 }

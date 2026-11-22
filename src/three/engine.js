@@ -24,7 +24,7 @@ import { Fx } from './fx.js';
 import { ArrowsView } from './arrows.js';
 import { Glow } from './glow.js';
 import { prewarmKit } from './kit3d.js';
-import { carriedView } from './carry3d.js';
+import { carriedView, pushedView } from './carry3d.js';
 import { Cave3D } from './cave3d.js';
 import { SunShadow } from './sunshadow.js';
 import { setRenderer as contactRenderer, contactOn, contactSun, contactRestored } from './contact3d.js';
@@ -314,13 +314,17 @@ export class View3D {
   // Lo que se lleva en la mano, en primera persona: abajo a la derecha, con el vaivén de andar y el gesto al usarlo
   updateViewmodel(game, first) {
     const vm = this.viewmodel, m = this.actors.player;
-    // (something big in the arms, with the weight inventory: it shows at the bottom of the screen, carry3d.js)
-    const big = first && !game.player?.swim && game.carry?.held ? game.carry.held : null;
-    const id = big ? 'carry:' + big : first && !game.player?.swim ? (m?.anim ? m.anim.item : game.inv?.held?.id) || null : null;   // (nadando, se guarda)
+    // (something big in the arms, with the weight inventory: it shows at the bottom of the screen; the wheelbarrow being
+    // pushed, on the ground ahead. carry.js viewKey: 'carry:<id>', 'push:<key>', 'bow:<id>' (rowing: the boat shows it
+    // already) or null; carry3d.js)
+    const vk = first && !game.player?.swim ? (game.carry?.viewKey ? game.carry.viewKey() : game.carry?.held ? 'carry:' + game.carry.held : null) : null;
+    const big = vk?.startsWith('carry:') ? vk.slice(6) : null, push = vk?.startsWith('push:') ? vk.slice(5) : null;
+    const id = big || push ? vk : first && !game.player?.swim ? (m?.anim ? m.anim.item : game.inv?.held?.id) || null : null;   // (nadando, se guarda)
     if (this.vmItem !== id) {
       this.vmItem = id;
       vm.clear();
       if (big) vm.add(carriedView(big));
+      if (push) vm.add(pushedView(push));
       const tool = !big && id && toolModel(id);
       if (tool) {
         // (la herramienta, girada sobre su mango para que el filo del hacha o de la guadaña mire al centro de
@@ -339,6 +343,19 @@ export class View3D {
     }
     vm.visible = !!vm.children.length;
     if (!vm.visible) return;
+    if (push) {
+      // (at the feet, turned as the camera looks; the wheelbarrow turns slower than the camera: its lag, at most 60° each
+      // way so that it never leaves the screen; and tipped with the ground, as the body's one)
+      const root = m?.root, f = game.player.face || { x: 0, y: 1 }, cam = CAM.yaw + Math.PI;
+      if (root) vm.position.copy(root.position); else vm.position.set(game.player.x, this.feetY(game.scene, game.player), game.player.y);
+      vm.rotation.set(0, cam, 0);
+      let turn = Math.atan2(f.x, f.y) - cam;
+      turn = Math.atan2(Math.sin(turn), Math.cos(turn));
+      const g = vm.children[0];
+      g.rotation.y = Math.max(-Math.PI / 3, Math.min(Math.PI / 3, turn));
+      g.children[0].rotation.x = m?.carriedWhere === 'push' && m.carriedObj ? m.carriedObj.rotation.x : 0;
+      return;
+    }
     vm.position.copy(this.camera.position);
     vm.quaternion.copy(this.camera.quaternion);
     if (big) { const walk = Math.min(1, (m?.speed || 0) / 3); vm.children[0].position.set(0, Math.abs(Math.sin(game.time * 3.6)) * 0.02 * walk, 0); return; }   // (it sways a little walking)

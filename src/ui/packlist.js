@@ -154,7 +154,7 @@ export function initPackList(game, ui) {
     const inv = game.inv;
     if (!inv.weight) return;
     const held = game.carry?.held;
-    loadLine(load, inv, held ? BULKY[held].kg : 0);
+    loadLine(load, inv, game.carry?.armsKg() || 0);   // (riding or rowing: 0, the horse or the boat carries it)
     arms.hidden = !held;
     if (held) {
       const img = arms.children[0], url = itemIconUrl(held);

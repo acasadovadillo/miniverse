@@ -5,7 +5,7 @@ import { prewarmIcons } from './three/icons.js';
 import { itemIcon } from './art/items.js';
 import { camToSave, camFromSave, CAM } from './camera.js';
 import { wrapX, dxOf, wrapIndex, HALF, NORTH, SOUTH } from './world/planet.js';
-import { Overworld, NILO_LOOK, wellSpec } from './world/scenes.js';
+import { Overworld, NILO_LOOK, wellSpec, barrowSolids } from './world/scenes.js';
 import { houseBlueprint, familyBlueprint, byChunk, doorTile, houseSize } from './world/blueprints.js';
 import { HOUSE, HOUSE_BIG, HOUSE_FAMILY, HOUSES, CENTER, SPAWN, inBounds, inOwnHouse, inTavern, hasProject, setFamilyHouse } from './world/village.js';
 import { PIECES, parsePlaced } from './pieces.js';
@@ -61,7 +61,8 @@ import { Audio } from './audio.js';
 import { hud } from './ui/hud.js';
 import { kitOf, kitKey } from './kit.js';
 import { Carry, WeightInventory, weightMode } from './carry.js';
-import { BULKY } from './carry-items.js';
+import { BULKY, BARROW } from './carry-items.js';
+import { Barrow } from './barrow.js';
 
 // Lo que ya no existe en el juego y lo que costó. Al cargar una partida se quita de donde esté (la mochila, los cofres, las
 // alforjas, el correo o puesto en el mundo) y, si no, quedaría un objeto sin datos que rompe la mochila. Devuelve lo que
@@ -172,6 +173,7 @@ export class Game {
     this.stats = this.addSystem(new Stats());
     this.skills = this.addSystem(new Skills(this));
     this.days = this.addSystem(new TimeSystem(this));
+    this.barrow = this.addSystem(new Barrow(this));   // the wheelbarrow, pushed with both hands (before carry: its hint wins)
     this.carry = this.addSystem(new Carry(this));   // weight and things in the arms (the default; ?inventario=casillas: the slots. Before the bow, so its hint wins)
     this.archery = this.addSystem(new Archery(this));   // el arco (antes que lo que se haga con E o con la herramienta)
     this.board = this.addSystem(new Board(this));
@@ -338,6 +340,7 @@ export class Game {
     this.combat?.paint();
     document.getElementById('admin-tag').textContent = this.gamemode === 'spectator' ? 'ESPECTADOR' : 'CREATIVO';
     if (this.gamemode === 'spectator') { this.build.toggle(false); if (this.player?.pose) this.rest.stand(); }
+    this.barrow?.onMode(this.gamemode);   // (the spectator pushes nothing: parked where you are)
     this.carry?.onMode(this.gamemode);   // (creative and the spectator carry nothing in the arms)
   }
   // Lo que pide un op con un comando a este jugador (desde su juego o desde otro): llevarte a un sitio, darte
@@ -492,6 +495,7 @@ export class Game {
     document.body.classList.toggle('underground', sc?.kind === 'grid');
   }
   end() {
+    try { this.barrow?.onEnd(); } catch (e) { reportFault(e, 'Barrow.onEnd'); }   // (pushing it: parked where you are, before leaving the shared world)
     this.live.left();
     this.covers = (this.covers || 0) + 1;   // (un salto a oscuras a medias ya no destapa: ver coverJump)
     this.jumping = false; this.view3d.hold = false;
@@ -510,6 +514,7 @@ export class Game {
     if (this.busy || this.mode !== 'play' || !p || this.gamemode === 'spectator') return null;   // (el espectador no toca nada)
     const sc = this.scene;
     if (p.pose) return { text: 'Levantarse', run: () => this.rest.stand() };
+    if (this.barrow.pushing) return this.barrow.pushAction();   // (the hands on the wheelbarrow: barrow.js)
     if (p.aboard) return this.crew.action();
     if (p.boat) return this.crew.ownAction();   // (remando: E baja a tierra y amarra la barca)
     if (p.swim) return this.crew.interact(p, sc);   // (nadando, las manos son para nadar: solo subirse a una barca)
@@ -567,7 +572,7 @@ export class Game {
         continue;
       }
       if (o.layer === 'rug') { out.push({ kind: 'placed', o, box: { ...(o.obb || aabb(o.fx[0], o.fy[0], o.fx[1], o.fy[1])), y0: 0, y1: 0.06 } }); continue; }
-      let h = hull(solidsOf(o.model || o.placed));
+      let h = hull(o.placed === BARROW.ID ? barrowSolids() : solidsOf(o.model || o.placed));
       if (!isFinite(h[0])) h = [-0.45, 0, -0.45, 0.45, 0.1, 0.45];
       // (the box of what it draws, if it draws a model: then the ray goes against its real shape)
       const a = { kind: 'placed', o, yaw: o.yaw ?? yawOf(o.rot), box: placeBoxes([h], o.x, o.y, o.yaw ?? yawOf(o.rot))[0] }, mb = this.shapeBox(a, sc);
@@ -640,7 +645,8 @@ export class Game {
   // Una puerta: se abre o se cierra (cerrarla con el jugador en el hueco lo dejaría atrapado: null). Cerrada y de
   // otro (de un vecino, o con alguien jugando contigo cerca), primero se llama
   doorAction(door) {
-    const sc = this.scene, p = this.player, closed = sc.doorClosed(...door), inGap = Math.hypot(door[0] + 0.5 - p.x, door[1] + 0.5 - p.y) < 0.55, k = String(door);
+    // (nor on a wheelbarrow in the doorway: yours or another player's, barrow.js)
+    const sc = this.scene, p = this.player, closed = sc.doorClosed(...door), inGap = Math.hypot(door[0] + 0.5 - p.x, door[1] + 0.5 - p.y) < 0.55 || (sc === this.world && !closed && !!this.barrow?.onDoor(door)), k = String(door);
     const gate = sc.pieceAt?.(...door)?.kind === 'gate';
     if (!gate && closed && !(this.knocked?.k === k && this.time < this.knocked.until) && this.knockable(door)) return { text: 'Llamar a la puerta', run: () => this.knock(door) };
     // (la puerta de valla, como las vallas, solo se quita con Quitar en el modo construir, B)
@@ -654,6 +660,7 @@ export class Game {
     const sc = this.scene, save = () => this.onSave?.();
     if (o.unknown) return { text: UNKNOWN_NAME, run: () => Audio.error() };   // (de una versión más nueva: no se usa ni se recoge)
     if (o.layer === 'rug') return this.rugAction(o);
+    if (o.placed === BARROW.ID) return this.barrow.parkedAction(o);   // (E pushes it, X opens it: barrow.js)
     if (BULKY[o.placed]) return this.carry.placedAction(o);   // (a log, a carcass: carry.js)
     if (this.carry.held) { const c = this.carry.stationAction(o); if (c) return c; }   // (with it in the arms: saw it at the bench, butcher it at the kitchen)
     const hung = hungFirst && o.layer !== 'hang' ? [o.tile, ...extraTiles(o.placed, ...o.tile, o.rot)].map(t => [t, sc.ownAt?.('hang', ...t)]).find(([, v]) => v && ITEMS[v.split('@')[0]]) : null;
@@ -714,6 +721,7 @@ export class Game {
   altAction() { const n = this.nearest(); n?.alt?.run(); }
   // Tirar al suelo lo que se lleva en la mano (uno, o el montón entero)
   toss(all = false) {
+    if (this.barrow.pushing) { if (this.mode === 'play' && !this.busy) this.barrow.park(this.barrow.stuckFor() > 2 ? 'q' : false); return; }   // (Q parks the wheelbarrow; stuck in something for 2 s, further away: barrow.js park)
     if (this.carry.held) return this.carry.drop();   // (Q puts down what the arms carry: carry.js)
     const p = this.player, held = this.inv.held, i = this.inv.selected;
     if (!p || !held || this.busy || this.mode !== 'play' || p.pose || this.gamemode === 'spectator') return;
@@ -769,6 +777,8 @@ export class Game {
     // Lo que se construye (las piezas, como la valla, y los muebles y las estaciones) no vuelve a la mochila: devuelve
     // sus materiales
     const B = BUILDABLE[o.placed] || (PIECES[o.placed] && !ITEMS[o.placed] ? PIECES[o.placed] : null);
+    // (a wheelbarrow with stacks or big things on it is not taken down nor moved: barrow.js)
+    if (o.placed === BARROW.ID && this.barrow.loaded(o.tile)) { this.gather.float(t('barrow.empty_first'), '#ffb0a0'); Audio.error(); return false; }
     // (una alfombra vuelve como la del telar de su tamaño; las de antes, de cualquier tamaño, se ponían con V)
     const r = o.layer === 'rug' && o.rug, id = r ? rugId(ITEMS[o.placed].rug || o.placed, RUG_MADE.find(([w, h]) => (w === r.w && h === r.h) || (w === r.h && h === r.w)) || [1, 1]) : o.placed;
     if (!B && this.inv.room(id) < 1) { this.gather.float('No te cabe: no llevas sitio libre', '#ffb0a0'); Audio.error(); return false; }
@@ -853,6 +863,7 @@ export class Game {
     const p = this.player;
     if (!p || !this.world || !Number.isFinite(x) || !Number.isFinite(y)) return false;
     x = wrapX(x); y = Math.max(NORTH + 1, Math.min(SOUTH - 1, y));   // (dentro del planeta)
+    if (this.barrow?.pushing) this.barrow.park(true);   // (the wheelbarrow stays where you were)
     const far = this.scene !== this.world || Math.hypot(dxOf(x, p.x), y - p.y) > JUMP_COVER;
     if (p.pose) this.rest.stand();
     if (this.scene !== this.world) { this.scene = this.world; p.inside = false; }
@@ -933,11 +944,20 @@ export class Game {
         return;
       }
       const items = CHESTS[cid] ? w.chestAt(tx, ty) : null;
+      // (a wheelbarrow: its id and big things too, read before unplace takes them away; with only big things it is not empty)
+      const wb = cid === BARROW.ID ? w.delta(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK))?.barrow?.[`${tx},${ty}`] : null, loads = (wb?.l || []).filter(e => BULKY[e?.[0]]);
       w.unplace(o);
-      if (items?.some(Boolean)) {
+      if (items?.some(Boolean) || loads.length) {
         const spot = this.freeTile(H, dx, dy);
-        if (spot) { w.place(spot[0], spot[1], cid); w.delta(Math.floor(spot[0] / CHUNK), Math.floor(spot[1] / CHUNK)).chest[`${spot[0]},${spot[1]}`] = items; return; }
-        for (const it of items) if (it) this.giveBack(it.id, it.n, it);
+        if (spot) {
+          w.place(spot[0], spot[1], cid);
+          const d1 = w.delta(Math.floor(spot[0] / CHUNK), Math.floor(spot[1] / CHUNK)), k1 = `${spot[0]},${spot[1]}`;
+          d1.chest[k1] = items;
+          if (wb) (d1.barrow ||= {})[k1] = { id: wb.id || 't' + k1, l: loads };
+          return;
+        }
+        for (const it of items || []) if (it) this.giveBack(it.id, it.n, it);
+        for (const [id, day] of loads) this.carry.toShore([id, Profile.id || 'me', day ?? null, dx + 0.5, dy + 1.5], dx + 0.5, dy + 1.5);   // (on the ground in front of the door, out of where the walls go; with no room, its parts to the backpack)
       }
       // (lo construido, como al desmontarlo: sus materiales; ver pickUp. Un pozo en un hoyo del jardín, por ejemplo)
       const B = BUILDABLE[cid] || (PIECES[cid] && !ITEMS[cid] ? PIECES[cid] : null);
@@ -1041,6 +1061,7 @@ export class Game {
   }
   // Cambiar a otra escena (cuevas, mazmorras…) con fundido. `inside`: no se ve el mapa ni el cielo.
   async goTo(scene, x, y, { inside = true, sound = true } = {}) {
+    if (this.barrow?.pushing) this.barrow.park(true);   // (into a cave or out of it: the wheelbarrow stays where you were)
     this.busy = true;
     this.player.stop();
     if (sound) Audio.door();

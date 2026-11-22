@@ -44,8 +44,9 @@ export class Inventory {
     // What was in hand before ({ slot, id }), for a tap of F (src/ui/wheel.js): not saved. selectedAt: when the slot changed
     this.prev = null;
     this.selectedAt = 0;
+    this.armsFull = false;   // (both hands busy, pushing the wheelbarrow: nothing is in the hand. Carry.syncArms sets it, in either inventory)
   }
-  get held() { return this.slots[this.selected]; }
+  get held() { return this.armsFull ? null : this.slots[this.selected]; }
   // Casillas que se pueden usar: la barra rápida y, con mochila, las suyas
   get cap() { const b = this.equip.espalda; return HOTBAR + (b ? ITEMS[b.id].bag || 0 : 0); }
   usable(i) { return i < this.cap; }

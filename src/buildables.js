@@ -11,7 +11,7 @@ export const BUILD_CATS = {
   Muebles: ['silla', 'mesa', 'mesa_grande', 'mesa_baja', 'mesita', 'sofa', 'sillon', 'cama', 'cama_doble', 'cama_nino', 'cuna', 'cofre', 'armario', 'comoda', 'estanteria', 'vitrina', 'chimenea', 'taburete', 'barra', 'barril'],
   'Cocina y baño': ['encimera', 'alacena', 'fregadero', 'banera', 'lavabo', 'inodoro', 'mueble_bano'],
   Estaciones: ['banco', 'cantero', 'horno', 'telar', 'cocina', 'yunque', 'quesera', 'alambique', 'noria'],
-  Exterior: ['barca', 'pozo', 'big_well'],   // (la barca: se amarra en el agua, ver crew.js; el pozo, en un hoyo cavado con la pala, ver scenes.js)
+  Exterior: ['barca', 'pozo', 'big_well', 'wheelbarrow'],   // (la barca: se amarra en el agua, ver crew.js; el pozo, en un hoyo cavado con la pala, ver scenes.js)
   Rancho: ['gallinero', 'establo', 'cuadra', 'conejera', 'caseta', 'palomar', 'comedero', 'silo', 'colmena', 'incubadora'],
 };
 // id → { name, cat, cost: [[material, n]…], needs: la estación que hay que tener cerca (o null: a mano), recipe: la
@@ -30,6 +30,9 @@ for (const [cat, ids] of Object.entries(BUILD_CATS)) for (const id of ids) {
 // al haber tenido sus materiales, como las estaciones y lo del rancho; su plano se compra en una tienda (economy.js,
 // { plan }) y enseña a construirlos para siempre (crafting.js, learnPlan). Quien ya sabía hacerlos cuando llegaron los
 // planos, los conserva (crafting.js, reset; PLANS_V: la tanda de planos, para que valga también al añadir más)
-export const PLANS = new Set([...BUILD_CATS.Muebles, ...BUILD_CATS['Cocina y baño'], 'barca'].filter(id => BUILDABLE[id]));
+export const PLANS = new Set([...BUILD_CATS.Muebles, ...BUILD_CATS['Cocina y baño'], 'barca', 'wheelbarrow'].filter(id => BUILDABLE[id]));
 export const PLANS_V = 2;
+// What was born with its plan: nobody could build it before, so an old save never gets it for free (crafting.js, reset),
+// whatever its planos number
+export const PLAN_BORN = new Set(['wheelbarrow']);
 for (const r of RECIPES) if (PLANS.has(r.out)) r.plan = true;

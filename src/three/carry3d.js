@@ -4,25 +4,29 @@
 // the materials, for the outline: see actors.js). Where each goes on the body (hung from the chest bone, like the
 // backpack) and how the arms hold it.
 import * as THREE from 'three';
-import { getModel, modelMat } from './models.js';
+import { getModel, modelMat, barrowSize, barrowName } from './models.js';
 import { BULKY } from '../carry-items.js';
 
-const GEO = new Map();   // id → [[material key, geometry]]: never released (a few small ones, < 100 KB in all)
-function parts(id) {
-  let list = GEO.get(id);
+// model name → [[material key, geometry]]: never released (the carried things, a few small ones, < 100 KB in all; and
+// each wheelbarrow with a load that has been pushed, some tens of KB each, a handful in a game)
+const GEO = new Map();
+function partsOf(name) {
+  let list = GEO.get(name);
   if (!list) {
-    const m = getModel(BULKY[id]?.prey ? id + ':held' : id);
+    const m = getModel(name);
     list = m ? [...m.parts].map(([key, B]) => [key, B.geometry()]) : [];
-    GEO.set(id, list);
+    GEO.set(name, list);
   }
   return list;
 }
-// The thing as a group of meshes (the models are made with the ground at y = 0 and the centre in the origin)
-export function carriedModel(id) {
+const parts = id => partsOf(BULKY[id]?.prey ? id + ':held' : id);
+function meshes(list) {
   const g = new THREE.Group();
-  for (const [key, geo] of parts(id)) { const o = new THREE.Mesh(geo, modelMat(key)); o.castShadow = true; o.receiveShadow = true; o.userData.shared = true; g.add(o); }
+  for (const [key, geo] of list) { const o = new THREE.Mesh(geo, modelMat(key)); o.castShadow = true; o.receiveShadow = true; o.userData.shared = true; g.add(o); }
   return g;
 }
+// The thing as a group of meshes (the models are made with the ground at y = 0 and the centre in the origin)
+export function carriedModel(id) { return meshes(parts(id)); }
 
 // Where it goes, on the chest bone (x: + is the body's left; y: from the shoulder joints, fit.top; z: + is the front).
 // The log: along the right shoulder, front to back, resting on it beside the neck, a little more of it behind than in
@@ -89,4 +93,137 @@ export function carriedView(id) {
   } else o.position.set(...V.pos);
   g.add(o);
   return g;
+}
+
+// ---------- the wheelbarrow pushed (barrow.js; its model: models.js BUILD.wheelbarrow) ----------
+// Pushed, it hangs from the person's root (it turns with the body, which faces as the wheelbarrow does): the ends of the
+// grips GRIP_AHEAD ahead of the pusher and lifted to GRIP_H (carry-items.js BARROW), the height of the hands, turned round
+// the axle with the wheel on the ground. Lifted, it is shorter than parked: its wheel comes to pushedReach(), which is the
+// logic's WHEEL_AHEAD (carry-items.js does the same turn for the footprint). pitch: the slope ahead (up, positive), turned
+// round the grips: the wheel goes up or down with the ground
+export const GRIP_H = barrowSize().GRIP_H ?? 0.8;
+function lift() {
+  const S = barrowSize(), dy = S.GRIP_Y - S.WHEEL_R, dz = S.WHEEL_Z - S.GRIP_Z, r = Math.hypot(dy, dz);
+  const a = Math.asin(Math.min(1, (GRIP_H - S.WHEEL_R) / r)) - Math.atan2(dy, dz);   // (the turn round the axle that puts the grips at GRIP_H)
+  return { S, a, reach: S.GRIP_AHEAD + r * Math.cos(a + Math.atan2(dy, dz)) };
+}
+// How far ahead of the pusher the wheel is, pushed (for the slope under it)
+export const pushedReach = () => lift().reach;
+// The wheelbarrow to push, with what it carries (key: as in st.ca and o.model, 'wheelbarrow:log:f'). Three groups: the
+// outer one is the pivot at the grips (placePushed puts it and tips it with the slope), the middle one turns round the
+// axle (the lift), the inner one is the model as it is parked
+export function pushedModel(key) {
+  const { S, a } = lift(), o = new THREE.Group(), turn = new THREE.Group(), body = meshes(partsOf(barrowName(key)));
+  body.position.set(0, -S.WHEEL_R, -S.WHEEL_Z);   // (the axle at the middle group's origin)
+  turn.rotation.x = a;
+  const g = new THREE.Vector3(0, S.GRIP_Y - S.WHEEL_R, S.GRIP_Z - S.WHEEL_Z).applyEuler(turn.rotation);
+  turn.position.copy(g).negate();                  // (and the lifted grips at the outer one's)
+  turn.add(body); o.add(turn);
+  placePushed(o);
+  return o;
+}
+export function placePushed(o, pitch = 0) {
+  o.position.set(0, GRIP_H, barrowSize().GRIP_AHEAD);
+  o.rotation.set(-pitch, 0, 0);
+}
+// The arms on the grips, the body leaning into it. Each body is measured once (pushFit): the angles of each arm (persona.js
+// bones: x negative raises the arm forward, z opens it out, the forearm's x negative bends the elbow) that put the
+// hand's grip (where the tools are held, actors.js m.hand) on the grip of its side, a little in from its end, found by
+// trying (a few dozen tries, once); if they do not reach, it leans a little more. Written after the walk: the arms stay
+// on the grips while the legs walk
+export const PUSH = { R: [-0.45, 0, 0.15], L: [-0.45, 0, -0.15], fR: -0.3, fL: -0.3, lean: 0.22, maxLean: 0.6 };
+const GRASP = new THREE.Vector3(0, -0.07, 0.03), HOLD_IN = 0.05;   // (the hand's grip in the hand bone; how far in from the end it holds)
+// The grips, held, in the pusher's frame (pitch 0): the point of each shaft HOLD_IN from its end, lifted round the axle
+function gripsHeld() {
+  const { S, a } = lift(), X = new THREE.Vector3(1, 0, 0), A = new THREE.Vector3(0, S.WHEEL_R, S.WHEEL_Z), G = new THREE.Vector3(0, S.GRIP_Y, S.GRIP_Z);
+  const up = p => p.sub(A).applyAxisAngle(X, a), g0 = up(G.clone()), out = [];
+  for (const sd of [-1, 1]) {
+    const g = new THREE.Vector3(sd * S.GRIP_X, S.GRIP_Y, S.GRIP_Z), ax = new THREE.Vector3(sd * 0.075, S.WHEEL_R, S.WHEEL_Z);
+    g.addScaledVector(ax.sub(g).normalize(), HOLD_IN);
+    out.push(up(g).sub(g0).add(new THREE.Vector3(0, GRIP_H, S.GRIP_AHEAD)));
+  }
+  return out;   // ([right (-x), left (+x)])
+}
+function pushFit(P) {
+  if (P.pushFit) return P.pushFit;
+  const hands = [P.hand, P.r?.bones?.handL], target = gripsHeld(), fit = { lean: PUSH.lean, arms: [] }, w = new THREE.Vector3(), t = new THREE.Vector3();
+  if (!hands[0] || !hands[1]) return (P.pushFit = null);
+  const spine = P.r?.bones?.spine, torso0 = P.torso.rotation.x, spine0 = spine?.rotation.x;
+  for (let tries = 0; tries < 6; tries++) {
+    lean(P, fit.lean, spine, torso0, spine0);
+    P.root.updateMatrixWorld(true);
+    let worst = 0;
+    fit.arms = [0, 1].map(i => {
+      const A = P.arms[i], F = P.fore?.[i], start = i ? [...PUSH.L] : [...PUSH.R];
+      const p = [start[0], start[2], i ? PUSH.fL : PUSH.fR], lo = [-1.6, -0.9, -1.4], hi = [0.4, 0.9, 0];
+      P.root.localToWorld(t.copy(target[i]));
+      const cost = q => { A.rotation.set(q[0], 0, q[1]); if (F) F.rotation.x = q[2]; A.updateMatrixWorld(true); return hands[i].localToWorld(w.copy(GRASP)).distanceToSquared(t); };
+      let best = cost(p);
+      for (let step = 0.3; step > 0.008;) {
+        let better = false;
+        for (let k = 0; k < 3; k++) for (const sg of [1, -1]) {
+          const q = p.slice(); q[k] = Math.max(lo[k], Math.min(hi[k], q[k] + sg * step));
+          const c = cost(q); if (c < best - 1e-7) { best = c; p.splice(0, 3, ...q); better = true; }
+        }
+        if (!better) step /= 2;
+      }
+      worst = Math.max(worst, Math.sqrt(best));
+      return p;
+    });
+    fit.miss = worst;
+    if (worst < 0.025 || fit.lean >= PUSH.maxLean) break;
+    fit.lean = Math.min(PUSH.maxLean, fit.lean + 0.08);
+  }
+  P.torso.rotation.x = torso0; if (spine) spine.rotation.x = spine0;
+  return (P.pushFit = fit);
+}
+// (leaning from the waist, the spine bone, and a little more at the chest; without a spine bone, all at the chest)
+function lean(P, k, spine = P.r?.bones?.spine, torso0 = P.torso.rotation.x, spine0 = spine?.rotation.x) {
+  if (spine) { spine.rotation.x = spine0 + k * 0.75; P.torso.rotation.x = torso0 + k * 0.25; } else P.torso.rotation.x = torso0 + k;
+}
+export function pushPose(P) {
+  const f = pushFit(P), A = PUSH;
+  lean(P, f ? f.lean : A.lean);
+  for (let i = 0; i < 2; i++) {
+    const q = f ? f.arms[i] : i ? [A.L[0], A.L[2], A.fL] : [A.R[0], A.R[2], A.fR];
+    P.arms[i].rotation.set(q[0], 0, q[1]);
+    if (P.fore?.[i]) P.fore[i].rotation.x = q[2];
+  }
+  P.dirty = true;
+}
+// In first person: the same wheelbarrow, on the ground ahead (engine.js puts this group at the player's feet, turned as
+// the camera looks; turn: the wheelbarrow's lag behind the camera, which turns faster, rad), VIEW_AHEAD further on than
+// it is: where it is, right under the eyes, its grips only show looking straight down; so they come up from the bottom
+// of the screen looking a little down, as one looks pushing it. It does not cast a shadow (the body's one does)
+const VIEW_AHEAD = 0.28;
+export function pushedView(key, turn = 0) {
+  const g = new THREE.Group(), o = pushedModel(key);
+  o.traverse(q => { if (q.isMesh) q.castShadow = false; });
+  o.position.z += VIEW_AHEAD;
+  g.add(o); g.rotation.y = turn;
+  return g;
+}
+
+// ---------- a big thing on a horse or in a boat ----------
+// On the horse (animals.js horseModel, in its body: it follows the gait; +z its head, the saddle at z -0.02 and y 1.16,
+// its back falling towards the tail at -0.56): behind the saddle, on the croup. The log lies across it; the carcass as
+// it lies on the ground (models.js, the wheelbarrow's size), slung over the croup: along the horse, its back up towards
+// the far side, its legs hanging down the near flank and its head drooping behind the rump (the angles: its head to the
+// tail, 0.45 rad down; its legs to the horse's left, 0.9 rad down; as YXZ).
+// In the boat (actors.js boatModel: the floor at y 0.335, flat at its +z end, z 0.82, the rower's bench at z -0.1 and their
+// feet up to about z 0.45): at the +z end, on the floor. The log across it (shorter), inside the gunwale and clear of the
+// rower's feet; the carcass lying on its side (as on the ground), its head to the bow and its legs over the gunwale
+export const HORSE_LOAD = {
+  shoulder: { pos: [0, 1.07, -0.46], rot: [0, 0, 0.04], scale: [1, 1, 1] },
+  across: { pos: [0.03, 1.03, -0.55], rot: [0.742, 1.112, -0.631], scale: [0.74, 0.74, 0.74] },
+};
+export const BOW_LOAD = {
+  shoulder: { pos: [0, 0.335, 0.64], rot: [0, 0, 0], scale: [0.85, 0.9, 0.9] },
+  across: { pos: [0, 0.33, 0.6], rot: [0, -Math.PI / 2, 0], scale: [0.72, 0.72, 0.72] },
+};
+// The thing to put there: as it lies on the ground (also the carcass)
+export function loadModel(id) { return meshes(partsOf(id)); }
+export function placeLoad(o, id, where) {
+  const T = where === 'horse' ? HORSE_LOAD : BOW_LOAD, H = T[BULKY[id]?.hold] || T.across;
+  o.position.set(...H.pos); o.rotation.set(...H.rot, 'YXZ'); o.scale.set(...H.scale);
 }

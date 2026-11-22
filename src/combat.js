@@ -11,6 +11,7 @@ import { Audio } from './audio.js';
 import { hud } from './ui/hud.js';
 import { XP_MOB, roll } from './xp.js';
 import { CAM } from './camera.js';
+import { reportFault } from './faults.js';
 
 export const HP_MAX = 20;       // medios corazones
 export const HUNGER_MAX = 20;   // medios muslos
@@ -165,6 +166,9 @@ export class Combat {
     if (!g.player || g.dying) return 0;
     g.busy = g.dying = true;
     g.covers = (g.covers || 0) + 1;   // (si se estaba en un salto a oscuras, destapa esto: ver Game.coverJump)
+    // (also with keepInventory, in creative and with /kill: the boat you row stays moored here, and the wheelbarrow you push
+    // stays parked where you fell; it is the world's. goHome does neither)
+    try { g.crew?.onDeath?.(keep); g.barrow?.onDeath?.(); } catch (e) { reportFault(e, 'Combat.die'); }
     const dropped = keep ? 0 : this.dropAll();
     if (!keep && g.xp?.points) { g.xp.lose(); hud.toast('Has perdido tu experiencia'); }
     await hud.fade(true);

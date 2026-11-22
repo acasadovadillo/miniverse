@@ -21,7 +21,8 @@ import { Audio } from '../audio.js';
 import { reportFault } from '../faults.js';
 import { kindOf, placeKit, shownOf, splitKit, poseClass } from '../kit.js';
 import { bakeStowed, buildKit } from './kit3d.js';
-import { carriedModel, placeCarried, holdPose } from './carry3d.js';
+import { carriedModel, placeCarried, holdPose, pushedModel, placePushed, pushPose, pushedReach, loadModel, placeLoad } from './carry3d.js';
+import { barrowName, barrowSize } from './models.js';
 import { BULKY } from '../carry-items.js';
 
 // Agachado: cuánto se adelantan los muslos y se doblan las rodillas (rad), cuánto baja el cuerpo (m: lo que suben
@@ -179,7 +180,7 @@ export class Actors {
         if (o.isSprite) { o.material.map?.dispose(); o.material.dispose(); }
       });
       // (de espectador, la barca lleva clones, ya soltados arriba: los suyos de verdad están en userData.solid)
-      m.boat?.traverse(o => { if (o.isMesh) { o.geometry.dispose(); if (o.userData.solid) o.userData.solid.dispose(); else if (!m.mats) o.material.dispose(); } });
+      m.boat?.traverse(o => { if (o.isMesh && !o.userData.shared) { o.geometry.dispose(); if (o.userData.solid) o.userData.solid.dispose(); else if (!m.mats) o.material.dispose(); } });   // (a big thing in its bow: shared, carry3d.js)
     } catch (err) { console.warn('Miniverse: no se pudo soltar un modelo', err); }
   }
 
@@ -213,7 +214,7 @@ export class Actors {
     const shLen = Math.min(16, h * this.shK);
     SPH.center.set(x + this.shDir[0] * shLen * 0.5, cy, z + this.shDir[1] * shLen * 0.5);
     // (tumbada, de la raíz a la cabeza y a los pies hay menos de lo que mide: ver LIE_LEN)
-    SPH.radius = (lying ? h : h * 0.75) + shLen * 0.5 + (m.horse?.visible || m.boat?.visible ? 1.3 : 0);
+    SPH.radius = (lying ? h : h * 0.75) + shLen * 0.5 + (m.horse?.visible || m.boat?.visible ? 1.3 : 0) + (m.carriedWhere === 'push' ? 1.2 : 0);   // (pushing a wheelbarrow, it reaches 1.7 m ahead)
     const d = cam.position.distanceTo(V3.set(x, cy, z));
     const near = me ? Math.hypot(x - me.x, z - me.y) : Infinity, cerca = near < 4 || (e.remote && near < 12);
     // (más allá de la niebla ya es de su color; los demás jugadores no, que llevan su nombre encima. La niebla de Three va
@@ -302,7 +303,7 @@ export class Actors {
   lookAt(m, e, dt, lying) {
     const P = m.person;
     let want = 0;
-    if (m.speed < 0.6 && !e.mount && !e.boat && !e.aboard) {
+    if (m.speed < 0.6 && !e.mount && !e.boat && !e.aboard && !e.pushing) {   // (pushing, the hands stay on the grips)
       let best = null, bd = LOOK_R;
       for (const o of this.around || []) {
         if (o === e || !(o === this.me || o.look)) continue;
@@ -468,7 +469,7 @@ export class Actors {
         if (bag && m === this.player) bag.traverse(o => { if (o.isMesh) ownMesh(o, m, true); });
         if (bag && m.ghosted) { m.ghosted = false; this.ghost(m, true); }   // (de espectador, también medio transparente)
         this.kit(m, e, P, pz, lying);
-        this.carried(m, e, P);
+        this.carried(m, e, P, scene);
       }
     } else if (m.kind === 'animal') {
       if (yaw !== null) turnTo(m.root, yaw, dt);
@@ -520,24 +521,46 @@ export class Actors {
   }
 
   // What the arms carry (the weight inventory: carry.js; e.carrying, the player's or what another player's messages say),
-  // hung from the chest bone. Made again only when it changes; the geometry is shared (carry3d.js), the player's copy
-  // takes its own materials (for the outline), and they go with it
-  carried(m, e, P) {
+  // hung from the chest bone; or, riding or rowing, that big thing on the horse (in its body) or in the bow of the boat;
+  // or the wheelbarrow being pushed (e.pushing, its model key), from the root of the person, which faces as it does.
+  // Made again only when it changes (or the horse is made again, with another coat); the geometry is shared
+  // (carry3d.js), the player's copy takes its own materials (for the outline), and they go with it. In first person the
+  // wheelbarrow is hidden with the body (engine.js draws its own); on the horse and in the boat it shows, as they do
+  carried(m, e, P, scene) {
     const id = e.carrying && BULKY[e.carrying] ? e.carrying : null;
-    if (id === m.carriedId) return;
+    const where = e.pushing ? 'push' : id ? (e.mount ? 'horse' : e.boat ? 'bow' : 'arms') : null;
+    const host = where === 'horse' ? m.horse : where === 'bow' ? m.boat : P;
+    const key = where && where + '|' + (where === 'push' ? barrowName(e.pushing) : id);
+    if (key === m.carriedKey && host === m.carriedHost && m.carriedId !== undefined) { if (where === 'push') this.pushTilt(m, e, scene); return; }
     const old = m.carriedObj;
     if (old) {
       old.parent?.remove(old);
-      old.traverse(o => { if (o.isMesh && m.mats?.includes(o.material)) { o.material.dispose(); for (const list of [m.mats, m.body]) { const i = list.indexOf(o.material); if (i >= 0) list.splice(i, 1); } } });
+      old.traverse(o => {
+        if (!o.isMesh) return;
+        if (m.mats?.includes(o.material)) { o.material.dispose(); for (const list of [m.mats, m.body]) { const i = list.indexOf(o.material); if (i >= 0) list.splice(i, 1); } }
+        else if (o.userData.solid) o.material.dispose();   // (a spectator's see-through copy)
+      });
     }
-    m.carriedId = id; m.carriedObj = null;
-    if (!id || !P.bagFit) return;
-    const o = carriedModel(id);
-    placeCarried(o, id, P.bagFit());
-    if (m === this.player) o.traverse(q => { if (q.isMesh) ownMesh(q, m, true); });
-    P.torso.add(o);
+    m.carriedId = id; m.carriedKey = key; m.carriedHost = host; m.carriedWhere = where; m.carriedObj = null; m.pushAt = null;
+    if (!where || (where === 'arms' && !P.bagFit)) return;
+    let o;
+    if (where === 'push') { o = pushedModel(e.pushing); P.root.add(o); }
+    else if (where === 'arms') { o = carriedModel(id); placeCarried(o, id, P.bagFit()); P.torso.add(o); }
+    else { o = loadModel(id, where); placeLoad(o, id, where); (where === 'horse' ? m.horse.userData.body || m.horse : m.boat).add(o); }
+    if (m === this.player) o.traverse(q => { if (q.isMesh) ownMesh(q, m, where === 'arms' || where === 'push'); });
     m.carriedObj = o;
+    if (where === 'push') this.pushTilt(m, e, scene);
     if (m.ghosted) { m.ghosted = false; this.ghost(m, true); }   // (de espectador, también medio transparente)
+  }
+  // The pushed wheelbarrow follows the ground: its wheel as high as the ground under it (from where the feet are). Again
+  // only when it has moved 10 cm or turned, or after a quarter of a second
+  pushTilt(m, e, scene) {
+    const o = m.carriedObj, yaw = e.yaw ?? facing(e), A = m.pushAt, now = this.time;
+    if (!o || !scene || (A && Math.abs(A[0] - e.x) + Math.abs(A[1] - e.y) < 0.1 && Math.abs(A[2] - yaw) < 0.05 && now - A[3] < 0.25)) return;
+    m.pushAt = [e.x, e.y, yaw, now];
+    const ahead = pushedReach(), grip = barrowSize().GRIP_AHEAD, v = this.view;
+    const dh = v.groundY(scene, e.x + Math.sin(yaw) * ahead, e.y + Math.cos(yaw) * ahead) - v.groundY(scene, e.x, e.y);
+    placePushed(o, Math.max(-0.3, Math.min(0.3, Math.atan2(dh, ahead - grip))));
   }
 
   // La pose de los huesos de una persona: andar (animate), en el aire, lo que lleva en la mano, agachada, sentada, a
@@ -550,7 +573,9 @@ export class Actors {
     // (después de andar: el golpe manda sobre el balanceo del brazo)
     if (game) this.hold(m, { held: game.inv.held?.id || null, swing: game.gather.swing, swingItem: game.gather.swingItem, cooldown: game.gather.cooldown, fishPose: game.fishing?.pose(game.time), bowPull: game.archery?.k || 0 }, dt);
     else if (e.remote) this.hold(m, e, dt);
-    if (e.carrying && BULKY[e.carrying]) holdPose(P, BULKY[e.carrying].hold);   // (something big in the arms: carry3d.js)
+    // (the arms busy: something big in them, or the wheelbarrow's grips; riding or rowing with a big thing, the hands are free. carry3d.js)
+    const busy = e.pushing ? 'push' : e.mount || e.boat || e.aboard ? null : e.armsBusy || (e.carrying && BULKY[e.carrying] ? BULKY[e.carrying].hold : null);
+    if (busy === 'push') pushPose(P); else if (busy) holdPose(P, busy);
     // Agachado (Shift): las rodillas dobladas, el cuerpo más bajo y un poco echado hacia delante; andando, a pasitos
     const C = CROUCH;
     P.crouch = (P.crouch || 0) + ((e.crouch && !pz && !e.mount && !e.boat && !e.aboard && !(m.swimK > 0.5) ? 1 : 0) - (P.crouch || 0)) * Math.min(1, dt * 12);
@@ -565,7 +590,7 @@ export class Actors {
       P.body.position.y -= Math.max(0, Lt + Ls - reach);
       P.torso.rotation.x += C.lean * c;
       P.head.rotation.x = -C.lean * 0.8 * c;
-    } else P.head.rotation.x = 0;
+    } else P.head.rotation.x = busy === 'push' ? -(P.pushFit?.lean ?? 0.22) * 0.7 : 0;   // (leaning on the wheelbarrow, the head up: it looks ahead)
     if (pz && !lying) {   // sentado: los muslos hacia delante; en la silla, las piernas colgando; en el suelo, estiradas
       for (const l of P.legs) l.rotation.x = -Math.PI / 2;
       for (const k of P.shins || []) k.rotation.x = pz.kind === 'sit' ? Math.PI / 2 : 0.1;
@@ -575,7 +600,7 @@ export class Actors {
     if (e.mount || e.boat || e.aboard) { P.legs[0].rotation.x = P.legs[1].rotation.x = e.mount ? -1.1 : -1.4; P.legs[0].rotation.z = 0.5; P.legs[1].rotation.z = -0.5; for (const k of P.shins || []) k.rotation.x = e.mount ? 1.0 : 1.3; }
     else P.legs[0].rotation.z = P.legs[1].rotation.z = 0;
     if (m.swimK) this.swimBones(m, P);
-    if (e.emote && !e.carrying) this.emote(m, e, P, dt, !!(game || e.remote));   // (with the arms busy, no gesture)
+    if (e.emote && !busy) this.emote(m, e, P, dt, !!(game || e.remote));   // (with the arms busy, no gesture)
     this.lookAt(m, e, dt, lying);
   }
 

@@ -38,10 +38,10 @@ export function initLoadMeter(game) {
       if (!inv?.weight || !game.player) { if (el.parentNode) el.remove(); hudSeen = undefined; return; }
       // Where it goes: in the block of the minimal interface (made again with each swap) or under the hotbar
       if (game.smartHud !== hudSeen || !el.isConnected) { hudSeen = game.smartHud; (game.smartHud ? $('hud-status') : $('hotbar'))?.append(el); }
-      const held = game.carry?.held || '', now = `${inv.kg}|${inv.capKg}|${held}`;
+      const held = game.carry?.held || '', armsKg = game.carry?.armsKg() || 0, now = `${inv.kg}|${inv.capKg}|${held}|${armsKg}`;   // (armsKg: 0 riding or rowing)
       if (now === sig) return;
       sig = now;
-      loadLine(line, inv, game.carry?.armsKg() || 0);   // (with what the arms carry apart: "48 + 25 / 70 kg")
+      loadLine(line, inv, armsKg);   // (with what the arms carry apart: "48 + 25 / 70 kg")
       el.classList.toggle('arms', !!held);
       if (held) arms.src = itemIconUrl(held);
     },

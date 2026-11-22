@@ -335,6 +335,17 @@ export class Social {
     const others = [...g.live.peers.values()].filter(q => q.playing && !q.server && q.entity && sex(q.entity) !== mine);
     return others.length === 1 && others[0] === peer;
   }
+  // The same by a player's id, also when they are not here (a boat with their big thing in it: carry.js boatGuard): the
+  // children and the pregnancy that name both; if they are here, isPartner (which also knows the couples from before)
+  isPartnerId(id) {
+    const g = this.game, F = g.family?.v || {}, me = Profile.id;
+    if (!id || !me || id === me) return false;
+    const both = ids => Array.isArray(ids) && ids.includes(me) && ids.includes(id);
+    const kids = Array.isArray(F.kids) ? F.kids : [], x = F.expecting;
+    if (kids.some(k => both(k?.parents)) || (x?.father && both([x.mother, x.father]))) return true;
+    for (const peer of g.live?.peers?.values() || []) if (peer.id === id && peer.entity) return this.isPartner(peer);
+    return false;
+  }
   dayKey() {
     const h = this.game.days.hour;
     return PLAYER_LINES[h >= 21 || h < 6 ? 3 : h < 12 ? 0 : h < 19 ? 1 : 2];

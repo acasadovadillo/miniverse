@@ -179,8 +179,11 @@ Object.assign(ITEMS, {
   harina: { name: 'Harina', desc: 'Trigo molido en la noria. En la cocina, con dos se hace un pan.' },
   // (the big well: 2 × 2 tiles dug 5 blocks deep; its name and description come from the language files)
   big_well: { place: 'furniture' },
+  // (the wheelbarrow: built with B, pushed with E, a chest of 12 stacks and up to 3 big things on it; see barrow.js. Its name
+  // and description come from the language files)
+  wheelbarrow: { place: 'furniture' },
 });
-defineNames({ big_well: ITEMS.big_well }, 'item');
+defineNames({ big_well: ITEMS.big_well, wheelbarrow: ITEMS.wheelbarrow }, 'item');
 // Peces: dónde viven, cuándo (estaciones, horas y tiempo) y lo difíciles que son (los difíciles salen menos y valen más):
 // dif: lo difícil que es (0 a 1); mov: cómo se mueve (calmo, mixto, nervioso, fondo: tira hacia abajo,
 // flota: tira hacia arriba); cm: la talla, de la más pequeña a la más grande
@@ -307,7 +310,7 @@ Object.assign(ITEMS, {
   comoda: { name: 'Cómoda', desc: 'Tres cajones grandes con tiradores de latón. Guarda 18 montones de cosas: ábrela con E.', place: 'furniture' },
 });
 // Lo que guarda cosas dentro (se abre con E): cuántos montones y cómo se dice
-export const CHESTS = { cofre: [18, 'el cofre'], armario: [27, 'el armario'], mochila: [27, 'la mochila'], mesita: [9, 'la mesita'], comoda: [18, 'la cómoda'] };
+export const CHESTS = { cofre: [18, 'el cofre'], armario: [27, 'el armario'], mochila: [27, 'la mochila'], mesita: [9, 'la mesita'], comoda: [18, 'la cómoda'], wheelbarrow: [12, 'la carretilla'] };   // (the wheelbarrow's texts go with t(): the second value only gives its gender)
 // Armaduras: casco, peto, grebas y botas de cobre, hierro y oro, que se forjan en el yunque y se llevan puestas en
 // los huecos de la ropa (cabeza, encima, piernas y pies). armor: lo que protege (cada punto quita un 4 % del daño,
 // como en Minecraft); dur: los golpes que aguanta

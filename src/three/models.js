@@ -25,6 +25,7 @@ const BEVEL = Object.assign(
 );
 import { CROPS, ITEMS } from '../items.js';
 import { BULKY } from '../carry-items.js';
+import * as CARRY from '../carry-items.js';   // (BARROW: read as a namespace, so this file loads before the logic has it)
 import { WALL_H, FLOOR_H } from './build3d.js';
 import { SOLIDS, hull } from '../world/fit.js';
 import { TOWER, inHole } from '../world/tower.js';
@@ -1204,6 +1205,8 @@ const DYN = new Map();
 const OWN = {
   logBark: () => mat({ map: bark(), roughness: 0.95 }), logEnd: () => mat({ map: ringsTex(), roughness: 0.85 }),
   carcass: () => mat({ vertexColors: true, roughness: 0.85 }),
+  // (the wheelbarrow's heap of sacks: the burlap of the tarp over them and of the sacks)
+  tarp: () => mat({ color: apagado('#8c7b5a'), roughness: 1, side: THREE.DoubleSide }),
 };
 export function modelMat(key) {
   const M = modelMats();
@@ -1453,6 +1456,186 @@ const v3 = new THREE.Vector3();
 // (the carried pose, made when there is time after the one on the ground: it is the next thing one does with it)
 const later = f => (globalThis.requestIdleCallback ? requestIdleCallback(f, { timeout: 3000 }) : setTimeout(f, 500));
 for (const id of Object.keys(BULKY)) if (BULKY[id].prey) BUILD[id] = (m, pose) => { carcassModel(m, id, pose === 'held'); if (pose !== 'held') later(() => getModel(id + ':held')); };
+
+// ---------- the wheelbarrow (carry-items.js BARROW; barrow.js) ----------
+// An old wooden one: a tray of boards with flared sides and a sloping front over the wheel, on two shafts that run from
+// the grips to the axle; one wheel of eight spokes with an iron tyre; two legs with a stretcher. Its measures are the
+// logic's (BARROW): the origin in the middle of its footprint, on the ground, the wheel to +z and the grips to -z; parked,
+// it rests on the wheel and the legs with the grips at GRIP_Y. What it carries goes in the tray, in the tray's own frame
+// (TRAY: tipped a little, front up, so that pushed, with the grips lifted, it is nearly level): up to three big things
+// (the logs along it, two side by side and one on top; the carcasses lying along it, one on another) and, with stacks
+// in it ('f'), a heap of sacks under a tarp. Its solids are always those of the empty one (the logic, freeObject and
+// fitFree, needs them not to change with what it carries), inside its footprint. One model per key, cached as any other
+const BARROW0 = { ID: 'wheelbarrow', STACKS: 12, LOADS: 3, SLOW: 0.85, DEEP: 0.5, TURN: 3.0, LEN: 1.45, WIDTH: 0.62, WHEEL_Z: 0.55, WHEEL_R: 0.17, GRIP_Z: -0.725, GRIP_X: 0.27, GRIP_Y: 0.42, GRIP_AHEAD: 0.35, GRIP_H: 0.8 };
+// (the logic's measures, or these same ones until carry-items.js has them)
+export const barrowSize = () => CARRY.BARROW || BARROW0;
+// What a model key says ('wheelbarrow', 'wheelbarrow:log,carcass_deer', 'wheelbarrow:log:f', 'wheelbarrow::f'): the big
+// things (only those of BULKY, at most three, sorted) and whether there are stacks in it. Whatever comes from the network
+// gives one of the keys this game makes (so a bad one cannot fill the cache)
+export function barrowOf(key) {
+  const [, a = '', b = ''] = String(key || '').split(':');
+  const ids = a.split(',').filter(id => BULKY[id]).slice(0, 3).sort();
+  return { ids, full: b === 'f' };
+}
+export const barrowName = key => { const { ids, full } = barrowOf(key); return 'wheelbarrow' + (ids.length || full ? ':' + ids.join(',') : '') + (full ? ':f' : ''); };
+// The tray: its floor (x ±HW, z from Z0 to Z1, BOARD thick), the sides H high, flared out by FLARE, the back leaning back
+// by BACK and the front leaning forward, FRONT from the ground; tipped up at the front by TIP and placed with the back of
+// its floor on the shafts (its floor's middle at z = AT)
+export const TRAY = { HW: 0.22, Z0: -0.34, Z1: 0.3, BOARD: 0.025, H: 0.24, T: 0.022, FLARE: 0.25, BACK: 0.24, FRONT: 0.96, TIP: 0.07, AT: -0.04 };
+const AXLE_X = 0.075;   // (the shafts at the axle, either side of the hub)
+// Where a shaft's middle line is at z (x, y), from the grip end to the axle
+function shaftAt(S, z) { const s = (z - S.GRIP_Z) / (S.WHEEL_Z - S.GRIP_Z); return [S.GRIP_X + (AXLE_X - S.GRIP_X) * s, S.GRIP_Y + (S.WHEEL_R - S.GRIP_Y) * s]; }
+// The tray's frame in the model's: its origin under the middle of its floor, tipped by TIP; the back of its floor on the shafts
+function trayFrame(S) {
+  const t = TRAY, back = shaftAt(S, t.AT + t.Z0)[1] + 0.026, y = back - t.Z0 * Math.sin(t.TIP);
+  return new THREE.Matrix4().makeRotationX(-t.TIP).setPosition(0, y, t.AT);
+}
+// (the tray's floor at a z of the model, its height there: for the bearers)
+function trayFloorY(S, F, z) { const v = new THREE.Vector3(0, 0, (z - TRAY.AT) / Math.cos(TRAY.TIP)).applyMatrix4(F); return v.y; }
+
+// A builder's triangles, moved by m4, into another builder (with their colours, if they have them: the carcasses)
+const NM3 = new THREE.Matrix3(), PV = new THREE.Vector3();
+function addBuilder(dst, src, m4) {
+  const off = dst.pos.length / 3, n = src.pos.length / 3;
+  NM3.getNormalMatrix(m4);
+  if (src.col && !dst.col) dst.col = new Array(off * 3).fill(1);
+  for (let i = 0; i < n * 3; i += 3) {
+    PV.set(src.pos[i], src.pos[i + 1], src.pos[i + 2]).applyMatrix4(m4); dst.pos.push(PV.x, PV.y, PV.z);
+    PV.set(src.nor[i], src.nor[i + 1], src.nor[i + 2]).applyMatrix3(NM3).normalize(); dst.nor.push(PV.x, PV.y, PV.z);
+  }
+  for (let i = 0; i < src.uv.length; i++) dst.uv.push(src.uv[i]);
+  if (dst.col) { if (src.col) for (let i = 0; i < src.col.length; i++) dst.col.push(src.col[i]); else dst.pushCol(n); }
+  for (let i = 0; i < src.idx.length; i++) dst.idx.push(src.idx[i] + off);
+}
+// Every part of a model into this one, moved by m4 (its solids are not added)
+function addModel(m, src, m4) { for (const [key, B] of src.parts) addBuilder(m.B(key), B, m4); }
+const M4 = (p, r = [0, 0, 0], s = 1) => new THREE.Matrix4().compose(new THREE.Vector3(...p), new THREE.Quaternion().setFromEuler(new THREE.Euler(...r)), typeof s === 'number' ? new THREE.Vector3(s, s, s) : new THREE.Vector3(...s));
+// The frame of a piece that runs from p0 to p1: its z along it, its x across as square to hint as it can be
+function along(p0, p1, hint = [0, 1, 0]) {
+  const a = new THREE.Vector3(...p0), b = new THREE.Vector3(...p1), z = b.clone().sub(a), L = z.length();
+  z.normalize();
+  const x = new THREE.Vector3().crossVectors(new THREE.Vector3(...hint), z).normalize(), y = new THREE.Vector3().crossVectors(z, x);
+  return { m4: new THREE.Matrix4().makeBasis(x, y, z).setPosition(a.add(b).multiplyScalar(0.5)), L };
+}
+// A beam of w × h from p0 to p1, its edges worn, the grain along it
+function beam(m, key, p0, p1, w, h, hint, frame) {
+  const { m4, L } = along(p0, p1, hint), b = new Builder();
+  b.roundBox(-w / 2, -h / 2, -L / 2, w / 2, h / 2, L / 2, Math.min(0.006, w * 0.3, h * 0.3), { s: 0.5 });
+  addBuilder(m.B(key), b, frame ? frame.clone().multiply(m4) : m4);
+}
+// A round stick of radius r from p0 to p1
+function stick(m, key, p0, p1, r, seg = 8, frame) {
+  const { m4, L } = along(p0, p1, Math.abs(p1[1] - p0[1]) > 0.9 * Math.hypot(p1[0] - p0[0], p1[1] - p0[1], p1[2] - p0[2]) ? [0, 0, 1] : [0, 1, 0]);
+  const g = new THREE.CylinderGeometry(r, r, L, seg, 1); g.rotateX(Math.PI / 2);
+  m.B(key).addGeometry(g, frame ? frame.clone().multiply(m4) : m4); g.dispose();
+}
+// A board cut to a four-sided outline (in its own plane: u across, v up it), T thick, put with the frame of basis (u, v,
+// and its thickness along u × v) at o. The wood's grain repeats every half metre, as in the boxes
+function board(m, key, pts, u, v, o, frame, T = TRAY.T) {
+  const sh = new THREE.Shape(); sh.moveTo(...pts[0]); for (let i = 1; i < pts.length; i++) sh.lineTo(...pts[i]); sh.lineTo(...pts[0]);
+  const g = new THREE.ExtrudeGeometry(sh, { depth: T - 0.006, bevelEnabled: true, bevelThickness: 0.003, bevelSize: 0.003, bevelSegments: 1, curveSegments: 1 });
+  g.translate(0, 0, 0.003);   // (with its bevel, from 0 to T)
+  const uv = g.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * 2, uv.getY(i) * 2);
+  const U = new THREE.Vector3(...u).normalize(), V = new THREE.Vector3(...v).normalize(), W = new THREE.Vector3().crossVectors(U, V);
+  m.B(key).addGeometry(g, frame.clone().multiply(new THREE.Matrix4().makeBasis(U, V, W).setPosition(...o))); g.dispose();
+}
+
+function barrowBody(m, S) {
+  const R = S.WHEEL_R, WZ = S.WHEEL_Z, t = TRAY, F = trayFrame(S);
+  // The shafts: square, from the grips to past the axle, the grips rounded
+  for (const sd of [-1, 1]) {
+    const g0 = [sd * S.GRIP_X, S.GRIP_Y, S.GRIP_Z], a = [sd * AXLE_X, R, WZ], d = [a[0] - g0[0], a[1] - g0[1], a[2] - g0[2]], L = Math.hypot(...d), u = d.map(x => x / L);
+    const at = (p, k) => p.map((x, i) => x + u[i] * k);
+    stick(m, 'dark', at(g0, 0.004), at(g0, 0.16), 0.019, 10);
+    beam(m, 'dark', at(g0, 0.15), at(a, 0.07), 0.042, 0.052);
+    // (the legs, from under the shaft to the ground, a little splayed, with an iron shoe; and an iron plate where the axle goes through)
+    const z = -0.31, [x, y] = shaftAt(S, z);
+    beam(m, 'dark', [sd * x, y - 0.012, z], [sd * (x + 0.035), 0.02, z - 0.025], 0.04, 0.042, [0, 0, 1]);
+    m.B('iron').roundBox(sd * (x + 0.035) - 0.024, 0, z - 0.049, sd * (x + 0.035) + 0.024, 0.025, z - 0.001, 0.004);
+    m.B('iron').roundBox(sd * AXLE_X - 0.024, R - 0.035, WZ - 0.04, sd * AXLE_X + 0.024, R + 0.035, WZ + 0.04, 0.004);
+  }
+  { const z = -0.32, [x] = shaftAt(S, z); stick(m, 'dark', [-(x + 0.03), 0.14, z - 0.02], [x + 0.03, 0.14, z - 0.02], 0.013); }
+  // The wheel: hub, eight spokes, the wooden rim and the iron tyre round it, on an iron axle
+  { const W = new THREE.Matrix4().makeRotationY(Math.PI / 2).setPosition(0, R, WZ), sc = (k) => W.clone().multiply(new THREE.Matrix4().makeScale(1, 1, k));
+    const tyre = new THREE.TorusGeometry(R - 0.013, 0.013, 6, 32), rim = new THREE.TorusGeometry(R - 0.036, 0.019, 6, 28);
+    m.B('iron').addGeometry(tyre, sc(1.9)); m.B('dark').addGeometry(rim, sc(1.15)); tyre.dispose(); rim.dispose();
+    stick(m, 'dark', [-0.05, R, WZ], [0.05, R, WZ], 0.04, 12);
+    stick(m, 'iron', [-AXLE_X - 0.03, R, WZ], [AXLE_X + 0.03, R, WZ], 0.012, 6);
+    for (let i = 0; i < 8; i++) { const q = (i / 8) * Math.PI * 2 + 0.2, c = Math.cos(q), s = Math.sin(q); stick(m, 'dark', [0, R + s * 0.035, WZ + c * 0.035], [0, R + s * (R - 0.045), WZ + c * (R - 0.045)], 0.0095, 6); }
+  }
+  // The bearers: cross pieces on the shafts that hold the floor of the tray
+  for (const z of [t.AT + t.Z0 + 0.05, t.AT - 0.02, t.AT + t.Z1 - 0.06]) {
+    const [x, y] = shaftAt(S, z), top = trayFloorY(S, F, z);
+    m.B('dark').roundBox(-x - 0.035, y + 0.015, z - 0.025, x + 0.035, top + 0.004, z + 0.025, 0.006, { s: 0.5 });
+  }
+  // The tray: three boards for its floor, the two sides (wider at the top and longer forward, where the front leans out),
+  // the back and the front; the sides capped along their top and held by iron straps
+  const H = t.H, out = Math.tan(t.FLARE) * H, hw = t.HW, zf = t.Z1 + H / Math.tan(t.FRONT), zb = t.Z0 - H * Math.tan(t.BACK);
+  for (const x of [-0.149, 0, 0.149]) { const b = new Builder(); b.roundBox(x - 0.071, 0, t.Z0, x + 0.071, t.BOARD, t.Z1, 0.004, { s: 0.5 }); addBuilder(m.B('wood'), b, F); }
+  for (const sd of [-1, 1]) {
+    const u = [0, 0, 1], v = [sd * Math.sin(t.FLARE), Math.cos(t.FLARE), 0], L = H / Math.cos(t.FLARE);
+    // (its thickness goes along u × v: inwards on the right side, outwards on the left; so it starts at its outer face or its inner one)
+    board(m, 'wood', [[t.Z0 - 0.022, 0], [t.Z1 + 0.024, 0], [zf + 0.026, L], [zb - 0.02, L]], u, v, [sd > 0 ? hw + t.T : -hw, 0, 0], F);
+    const top = [sd * (hw + out + t.T * 0.5), H + 0.006];
+    beam(m, 'dark', [top[0], top[1], zb - 0.02], [top[0], top[1], zf + 0.03], 0.034, 0.02, [0, 1, 0], F);
+    for (const z of [t.Z0 + 0.06, t.Z1 - 0.02]) beam(m, 'iron', [sd * (hw + t.T + 0.002), 0.01, z], [sd * (hw + t.T + out + 0.002), H - 0.004, z], 0.005, 0.03, [0, 0, 1], F);
+  }
+  { const L = H / Math.cos(t.BACK); board(m, 'wood', [[-hw, 0], [hw, 0], [hw + out, L], [-hw - out, L]], [1, 0, 0], [0, Math.cos(t.BACK), -Math.sin(t.BACK)], [0, 0, t.Z0 - t.T], F); }
+  { const L = H / Math.sin(t.FRONT); board(m, 'wood', [[-hw, 0], [hw, 0], [hw + out, L], [-hw - out, L]], [1, 0, 0], [0, Math.sin(t.FRONT), Math.cos(t.FRONT)], [0, 0, t.Z1], F); }
+  return F;
+}
+// The heap of sacks under a tarp, h high, on the floor of the tray (F): the tarp over them, lumpy, a strap across it and
+// the corner of a sack showing at the back
+function barrowSacks(m, F, h) {
+  const t = TRAY, rx = t.HW - 0.01, rz = (t.Z1 - t.Z0) / 2 - 0.01, cz = (t.Z0 + t.Z1) / 2, y0 = t.BOARD;
+  const g = new THREE.SphereGeometry(1, 16, 7, 0, Math.PI * 2, 0, Math.PI / 2), p = g.attributes.position;
+  for (let i = 0; i < p.count; i++) {
+    const x = p.getX(i), y = p.getY(i), z = p.getZ(i), k = 1 + 0.07 * Math.sin(x * 9 + z * 5) * Math.sin(z * 7 - x * 3) * y;
+    p.setXYZ(i, x * rx * (1 + 0.12 * y), y0 + y * h * k, cz + z * rz * (1 + 0.12 * y));   // (fuller at the top: it fills the flared tray)
+  }
+  g.computeVertexNormals();
+  m.B('tarp').addGeometry(g, F); g.dispose();
+  const pts = []; for (let i = 0; i <= 8; i++) { const a = (i / 8) * Math.PI; pts.push(new THREE.Vector3(Math.cos(a) * (rx + 0.008) * (1 + 0.12 * Math.sin(a)), y0 + Math.sin(a) * h + 0.008, cz)); }
+  const rope = new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 12, 0.008, 5); m.B('dark').addGeometry(rope, F); rope.dispose();   // (a dark strap: one draw call fewer)
+  const sack = new THREE.SphereGeometry(1, 10, 7); m.B('tarp').addGeometry(sack, F.clone().multiply(M4([rx * 0.55, y0 + h * 0.55, t.Z0 + 0.1], [0.3, 0.4, 0.2], [0.08, Math.max(0.06, h * 0.55), 0.07]))); sack.dispose();
+}
+// (how big a thing lies: the box round its model's solids)
+function lieBox(id) { const m = getModel(id), b = new THREE.Box3(); for (const s of m?.solids || []) { b.expandByPoint(PV.set(s[0], s[1], s[2])); b.expandByPoint(PV.set(s[3], s[4], s[5])); } return b; }
+// What it carries, in the tray (F): the logs along it (thinner than on the ground: 0.7 of their length, so they fit
+// between the front and the back), two side by side and the third on them; then the carcasses on them, lying across
+// it on their side as on the ground (a little smaller), their legs towards the wheel, over the sloping front, and never
+// lower than the top of the sides (they are longer than the tray is wide: their head and rump lie over the sides); the
+// next one on it, turned round (its legs to the grips)
+export const LOAD_IN = { log: { len: 0.68, thick: 0.85, side: 0.088 }, carcass: { k: 0.74, rise: 0.62 } };
+function barrowLoads(m, F, ids, y) {
+  const logs = ids.filter(id => !BULKY[id].prey), meat = ids.filter(id => BULKY[id].prey), L = LOAD_IN.log, cz = (TRAY.Z0 + TRAY.Z1) / 2;
+  if (logs.length) {
+    const at = logs.length === 1 ? [[0, y, cz]] : [[-L.side, y, cz - 0.01], [L.side, y, cz + 0.01]];
+    if (logs.length === 3) at.push([0, y + 0.135, cz]);
+    for (const p of at) addModel(m, getModel('log'), F.clone().multiply(M4(p, [0, Math.PI / 2, 0], [L.len, L.thick, L.thick])));
+    y += logs.length === 3 ? 0.27 : 2 * LOG.r * L.thick - 0.01;
+  }
+  const C = LOAD_IN.carcass;
+  y = Math.max(y, TRAY.H + 0.02);   // (longer than the tray is wide: across its top, its head and its rump over the sides)
+  meat.forEach((id, i) => {
+    const b = lieBox(id);
+    addModel(m, getModel(id), F.clone().multiply(M4([0, y - 0.01, cz + (i % 2 ? 0.05 : -0.05)], [0, i % 2 ? Math.PI : 0, 0], C.k)));
+    y += (b.max.y - b.min.y) * C.k * C.rise;
+  });
+}
+BUILD.wheelbarrow = (m, a, b) => {
+  // (loaded, the empty one's parts copied: made once)
+  const S = barrowSize(), { ids, full } = barrowOf(`wheelbarrow:${a || ''}:${b || ''}`), loaded = ids.length || full;
+  const F = loaded ? trayFrame(S) : barrowBody(m, S);
+  if (loaded) addModel(m, getModel('wheelbarrow'), new THREE.Matrix4());
+  let y = TRAY.BOARD;
+  if (full) { barrowSacks(m, F, ids.length ? 0.09 : 0.2); y += ids.length ? 0.06 : 0; }
+  if (ids.length) barrowLoads(m, F, ids, y);
+  // (the solids, always the empty one's, inside the footprint: the tray, the grips, the legs, the shafts under the front and the wheel)
+  const hx = S.WIDTH / 2, gz = S.GRIP_Z, [lx] = shaftAt(S, -0.31);
+  m.solids = [[-hx, 0.24, -0.42, hx, 0.7, 0.47], [-S.GRIP_X - 0.02, 0.33, gz, S.GRIP_X + 0.02, 0.47, -0.42], [-lx - 0.06, 0, -0.37, lx + 0.06, 0.36, -0.28],
+    [-0.14, 0.15, 0.3, 0.14, 0.3, 0.6], [-0.06, 0, 0.38, 0.06, 2 * S.WHEEL_R, Math.min(S.LEN / 2, S.WHEEL_Z + S.WHEEL_R)]];
+};
 
 // El que se cuelga (origen en el suelo, colgado del techo, con su luz)
 BUILD.candelabro = m => chandelier(m, WALL_H).light(0, WALL_H - 0.6, 0, { color: '#ffd08a', intensity: 4.5, range: 11, halo: 0 });   // (sin halo: lo llevan sus velas)

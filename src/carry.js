@@ -12,11 +12,13 @@
 // `extends Inventory` would stop the game from loading).
 import { Inventory, HOTBAR, SLOTS } from './inventory.js';
 import { ITEMS, LEGACY_ITEMS, CHESTS } from './items.js';
-import { BULKY, BULKY_PARTS, CARCASS_OF, CARCASS_DAYS, BASE_CAP, BAG_CAP, HEAVY, weightOf } from './carry-items.js';
+import { BULKY, BULKY_PARTS, CARCASS_OF, CARCASS_DAYS, BASE_CAP, BAG_CAP, HEAVY, BARROW, weightOf } from './carry-items.js';
+import { reportFault } from './faults.js';
 import { BUILD_STATION_REACH } from './build.js';
 import { apagada } from './opciones.js';
 import { Profile } from './accounts.js';
 import { CHUNK } from './world/gen.js';
+import { wrapIndex } from './world/planet.js';
 import { SWIM_IN } from './entities.js';
 import { Audio } from './audio.js';
 import { t, noun } from './i18n.js';
@@ -157,15 +159,35 @@ export class Carry {
   set(id, day = null) {
     const g = this.game, inv = g.inv, p = g.player;
     this.held = id || null; this.day = id ? day : null; this.owner = p;
-    if (inv.weight) { inv.armsFull = !!id; inv.armsItem = id ? { id, day } : null; }
-    if (p) { p.carrying = this.held; p.armsBusy = id ? BULKY[id].hold : null; }
-    inv.changed();
+    if (inv.weight) inv.armsItem = id ? { id, day } : null;
+    this.syncArms(true);
+  }
+  // Are both hands busy? Pushing the wheelbarrow (barrow.js), or a big thing in the arms on foot (riding or rowing, it goes
+  // on the horse or in the bow: the hands are on the reins or the oars, and the tool can be used)
+  handsBusy() { const g = this.game, p = g.player; return !!g.barrow?.pushing || (!!this.held && !p?.mount && !p?.boat); }
+  // The arms as the inventory (held is null while busy: either inventory) and the body (the drawing and the network:
+  // carrying, armsBusy, pushing) see them. Asked every step: it only writes what changed (changed: always tell the inventory)
+  syncArms(changed = false) {
+    const g = this.game, inv = g.inv, p = g.player, push = g.barrow?.pushing || null, busy = this.handsBusy();
+    if (p) { p.carrying = this.held; p.pushing = push; p.armsBusy = push ? 'push' : this.held && !p.mount && !p.boat ? BULKY[this.held].hold : null; }
+    if (!inv) return;
+    if (inv.armsFull !== busy) { inv.armsFull = busy; changed = true; }
+    if (changed) inv.changed();
+  }
+  // What first person shows in front (three/engine.js): 'carry:<id>' in the arms, 'push:<key>' pushing the wheelbarrow,
+  // 'bow:<id>' rowing with it in the bow; null riding (it goes behind the saddle), swimming or with nothing
+  viewKey() {
+    const g = this.game, p = g.player;
+    if (g.barrow?.pushing) return 'push:' + g.barrow.pushing;
+    if (!this.held || !p || p.swim || p.mount) return null;
+    return p.boat ? 'bow:' + this.held : 'carry:' + this.held;
   }
   reset(save) {
     const g = this.game, inv = g.inv, saved = inv.armsSaved;
     this.held = null; this.day = null; this.owner = g.player; this.splits.clear(); this.saidAt = -1e9;
-    if (g.player) { g.player.carrying = null; g.player.armsBusy = null; }
-    if (inv.weight) { inv.armsFull = false; inv.armsItem = null; }
+    if (g.player) { g.player.carrying = null; g.player.armsBusy = null; g.player.pushing = null; }
+    inv.armsFull = false;
+    if (inv.weight) inv.armsItem = null;
     if (saved) { inv.armsSaved = null; if (this.bigNow && BULKY[saved.id]) this.set(saved.id, saved.day == null ? null : this.dayOf(saved.day)); else this.giveParts(saved.id); }
     // (a game of slots opened for the first time with the weight inventory may carry far too much: nothing is thrown away,
     // it is only said once. Its save has no w until this game saves it, so it is said again only if it is not saved, or
@@ -184,13 +206,19 @@ export class Carry {
   levelOf() { const r = this.on && this.survival ? this.game.inv.load : 0; return r <= 1 ? 0 : r <= HEAVY ? 1 : 2; }
   // Not on a horse, in a boat or as a passenger (the horse and the boat carry it), nor in creative or as a spectator
   free() { const p = this.game.player; return !this.on || !p || !this.survival || p.mount || p.boat || p.aboard; }
+  // (pushing the wheelbarrow, in survival: BARROW.SLOW and no running, with either inventory: before free(), which is 1
+  // without the weight one. What it carries does not count in your kg; your backpack's load still does)
   speedMul() {
-    if (this.free()) return 1;
+    const b = this.game.barrow?.pushing && this.survival ? BARROW.SLOW : 1;
+    if (this.free()) return b;
     const r = this.game.inv.load;
     const k = r <= 1 ? 1 : r <= HEAVY ? 1 - (1 - 0.6) * (r - 1) / (HEAVY - 1) : SLOWEST;
-    return Math.max(FLOOR, k * (this.held ? BULKY[this.held].slow : 1));
+    return Math.max(FLOOR, k * (this.held ? BULKY[this.held].slow : 1)) * b;
   }
-  noRun() { return !this.free() && (!!this.held || this.game.inv.load > NO_RUN); }
+  noRun() {
+    if (this.game.barrow?.pushing && this.survival) return true;
+    return !this.free() && (!!this.held || this.game.inv.load > NO_RUN);
+  }
   jumpMul() {
     if (this.free()) return 1;
     const r = this.game.inv.load;
@@ -198,8 +226,9 @@ export class Carry {
   }
   // For the meter (ui/loadmeter.js) and the minimal interface: { kg, cap, r, bulky }
   hud() { const inv = this.game.inv; return { kg: inv.kg, cap: inv.capKg, r: inv.load, bulky: this.held, arms: this.armsKg() }; }
-  // What the arms carry weighs (kg; 0 with nothing): the meter shows it apart, the speed rules do not add it to the load
-  armsKg() { return this.held ? BULKY[this.held].kg : 0; }
+  // What the arms carry weighs (kg; 0 with nothing): the meter shows it apart, the speed rules do not add it to the load.
+  // Riding or rowing it goes on the horse or in the bow, which carry it: 0 then too (the meter would say overloaded)
+  armsKg() { const p = this.game.player; return this.held && !p?.mount && !p?.boat ? BULKY[this.held].kg : 0; }
   // Should the load show now (the minimal interface)? For a while after it changes, and while it is near the limit
   showLoad() { return this.on && this.survival && (performance.now() < this.shownUntil || this.game.inv.load > 0.9 || !!this.held); }
 
@@ -207,6 +236,7 @@ export class Carry {
     const g = this.game, p = g.player;
     // (the carcasses rot also in a game without the weight inventory, like the world server's: see rot)
     if ((this.rotAt += dt) >= ROT_EVERY) { this.rotAt = 0; this.rot(); }
+    if (p) this.syncArms();   // (mounting, getting off, boarding, the wheelbarrow: the hands follow, in either inventory)
     if (!this.on || !p) return;
     const inv = g.inv;
     if (this.oldWarn && g.mode === 'play' && !globalThis.document?.getElementById('fade')?.classList.contains('on') && (this.oldWarnIn -= dt) <= 0) {
@@ -227,7 +257,7 @@ export class Carry {
     if (Math.abs(inv.kg - this.shownKg) >= 1) { this.shownKg = inv.kg; this.shownUntil = performance.now() + SHOW_LOAD * 1000; }
     // (trying to run when it cannot be: said once in a while, when the key goes down)
     const run = !!keys.run;
-    if (run && !this.runWas && this.noRun() && g.time - this.runSaidAt > SAY_RUN) { this.runSaidAt = g.time; this.say(t(this.held ? 'carry.no_run_arms' : 'carry.no_run_heavy')); }
+    if (run && !this.runWas && this.noRun() && g.time - this.runSaidAt > SAY_RUN) { this.runSaidAt = g.time; this.say(t(g.barrow?.pushing ? 'barrow.no_run' : this.held ? 'carry.no_run_arms' : 'carry.no_run_heavy')); }
     this.runWas = run;
   }
   // The carcasses left on the ground for CARCASS_DAYS days: only bones are left. Playing together, the world's ones are
@@ -256,7 +286,9 @@ export class Carry {
       }
     }
     if (!w?.deltas || !this.rotsWorld()) return;
+    const work = [];   // (the chunks with a wheelbarrow's or a boat's things: barrow.js sweeps them after this loop, which it may add chunks to)
     for (const [key, d] of w.deltas) {
+      if (d && (d.barrow || d.pushed || d.boatLoad || d.claim) && !key.startsWith('u:')) work.push(key);
       const C = d?.carcass;
       if (!C || key.startsWith('u:')) continue;   // (u:… are the caves' states)
       let stale = false;
@@ -269,6 +301,7 @@ export class Carry {
       }
       if (stale) { const [cx, cy] = key.split(',').map(Number); w.touch(cx, cy); }
     }
+    if (work.length && g.barrow) try { g.barrow.sweep(work); } catch (e) { reportFault(e, 'Barrow.sweep'); }
   }
   bones(tx, ty, sc) {
     const n = 1 + (Math.random() < 0.5 ? 1 : 0);
@@ -280,21 +313,32 @@ export class Carry {
   hint() {
     const g = this.game;
     if (!this.held || g.build?.on) return '';
-    const p = g.player, sc = g.scene;
-    if (p && sc?.waterDepth && [0.6, 1, 1.4].some(d => sc.waterDepth(p.x + p.face.x * d, p.y + p.face.y * d) >= SWIM_IN)) return { text: t('carry.no_swim'), key: '' };
-    return { text: t('hud.tip.carry', { item: noun('item', this.held) }), key: 'Q' };
+    const p = g.player, sc = g.scene, item = noun('item', this.held);
+    if (p?.mount) return { text: t('carry.tip_ride', { item }), key: 'Q' };   // (riding: Q puts it down beside the horse)
+    // (rowing: Q puts it on the shore ahead only when there is one close; out on the water nothing, the bow's tip says it)
+    if (p?.boat) return this.dropTile() ? { text: t('hud.tip.carry', { item }), key: 'Q' } : '';
+    if (p && !p.boat && sc?.waterDepth && [0.6, 1, 1.4].some(d => sc.waterDepth(p.x + p.face.x * d, p.y + p.face.y * d) >= SWIM_IN)) return { text: t('carry.no_swim'), key: '' };
+    return { text: t('hud.tip.carry', { item }), key: 'Q' };
   }
-  // A click with something in the arms: nothing (no punches, no picking by hand), and now and then it says why
+  // A click with something in the arms (or the hands on the wheelbarrow): nothing (no punches, no picking by hand), and now
+  // and then it says why
   handsFull(auto = false) {
     const now = this.game.time;
-    if (!auto || now - this.saidAt > SAY_EVERY) { this.saidAt = now; this.say(t('carry.hands_full')); if (!auto) Audio.error(); }
+    if (!auto || now - this.saidAt > SAY_EVERY) { this.saidAt = now; this.say(t(this.game.barrow?.pushing ? 'barrow.hands_full' : 'carry.hands_full')); if (!auto) Audio.error(); }
   }
-  // Mounting, getting in a boat, sitting, lying down or sleeping with it: first put it down (true: refused). dropFirst: what
-  // the hint of those says meanwhile ('' with nothing in the arms)
-  dropFirst() { return this.held ? t('carry.drop_first', { item: noun('item', this.held) }) : ''; }
-  refuse() {
-    if (!this.held) return false;
-    this.say(this.dropFirst());
+  // Mounting, getting in a boat, sitting, lying down, sleeping or going down a cave with it: first put it down (true:
+  // refused). dropFirst: what the hint of those says meanwhile ('' if nothing stops it). kind: 'mount', 'boat' (rowing) and
+  // 'cave' refuse only the wheelbarrow (a big thing rides on the horse, in the bow, and goes down caves as before); without
+  // kind (sitting, the bed, a passenger's seat), the wheelbarrow or a big thing
+  dropFirst(kind) {
+    if (this.game.barrow?.pushing) return t('barrow.drop_first');
+    if (kind === 'mount' || kind === 'boat' || kind === 'cave') return '';
+    return this.held ? t('carry.drop_first', { item: noun('item', this.held) }) : '';
+  }
+  refuse(kind) {
+    const why = this.dropFirst(kind);
+    if (!why) return false;
+    this.say(why);
     Audio.error();
     return true;
   }
@@ -383,6 +427,10 @@ export class Carry {
     const seen = ([x, y]) => this.reached(p, x + 0.5, y + 0.5);
     const door = ([x, y]) => !!sc.doorNear?.(x + 0.5, y + 0.5, 1.05);
     const ok = q => !(player && q[0] === px && q[1] === py) && seen(q) && !door(q) && !!sc.canPlace?.(q[0], q[1], id, player);
+    const at = (a, s) => [Math.floor(p.x + p.face.x * a + p.face.y * s), Math.floor(p.y + p.face.y * a - p.face.x * s)];
+    // (riding: beside the horse, then behind it; rowing: on the shore ahead, 2.5 m at most)
+    if (p.mount) return [at(0, 1.1), at(0, -1.1), at(-1.4, 0), at(-1.1, 1.1), at(-1.1, -1.1)].find(ok) || null;
+    if (p.boat) return [1.1, 1.6, 2.1, 2.5].map(a => at(a, 0)).find(ok) || null;
     const out = [], mt = g.mouse?.in ? g.mouseTile() : null, fx = Math.floor(p.x + p.face.x * 1.1), fy = Math.floor(p.y + p.face.y * 1.1);
     if (mt && Math.hypot(mt[0] + 0.5 - p.x, mt[1] + 0.5 - p.y) <= 2.5) out.push(mt);
     out.push([fx, fy]);
@@ -437,6 +485,21 @@ export class Carry {
     const P = this.picks(tile, true), now = w.clock || 0;
     for (const [k, [, at]] of Object.entries(P)) if (!(now - at < PICK_KEEP)) delete P[k];
     P[String(tile)] = [Profile.id, Math.round(now * 10) / 10];
+  }
+  // The same for another player's id, and also alone (a boat's big thing put on the shore for its owner: see toShore)
+  markFor(tile, id) {
+    const w = this.game.world;
+    if (!id || !w) return;
+    const P = this.picks(tile, true), now = w.clock || 0;
+    for (const [k, [, at]] of Object.entries(P)) if (!(now - at < PICK_KEEP)) delete P[k];
+    P[String(tile)] = [id, Math.round(now * 10) / 10];
+  }
+  // (whoever decides) Is that tile's big thing still only for someone else than by? (a guest's request to load it: barrow.js)
+  reservedFor(tile, by) {
+    const w = this.game.world, m = this.picks(tile, false)?.[String(tile)];
+    if (!Array.isArray(m) || m[0] === by) return false;
+    const age = (w.clock || 0) - m[1];
+    return age >= -MINE_FIRST && age < MINE_FIRST;
   }
   // '' if you may take it; if not, why (for the hint and the notice)
   notYours(o) {
@@ -532,8 +595,83 @@ export class Carry {
     this.set(null);
     this.giveParts(id);
   }
-  // For the network (live.js, st.ca): only when carrying something
-  state() { return this.held && this.game.gamemode !== 'spectator' ? this.held : undefined; }
+  // For the network (live.js, st.ca): only when carrying something, or pushing the wheelbarrow (its model key)
+  state() {
+    if (this.game.gamemode === 'spectator') return undefined;
+    return this.game.barrow?.pushing || this.held || undefined;
+  }
+
+  // ---------- a big thing in a boat (crew.js; PLAN-C2 §4) ----------
+  // The boats have no owner: a boat with a big thing in it belongs, while it is there, to whoever brought it (its owner) and
+  // their partner. d.boatLoad[boat] = [id, owner, day, x, y, n], with n in d.boats[boat][3] too: only then is it that boat's
+  // (a boat's id is its place, rounded: another moored there later does not get an old one)
+  loadOf(b) {
+    const w = this.game.world, d = b && w?.delta(Math.floor(b.x / CHUNK), Math.floor(b.y / CHUNK)), L = d?.boatLoad?.[b.id], n = d?.boats?.[b.id]?.[3];
+    return Array.isArray(L) && BULKY[L[0]] && n && L[5] === n ? { id: L[0], owner: L[1], day: L[2] ?? null, x: L[3], y: L[4], n, raw: L } : null;
+  }
+  mineOrPartner(owner) { return !owner || owner === (Profile.id || 'me') || !!this.game.social?.isPartnerId?.(owner); }
+  // Someone else's big thing in it: nobody else boards it or takes it apart meanwhile (the text; '' if you may)
+  boatGuardText(b) { const L = this.loadOf(b); return L && !this.mineOrPartner(L.owner) ? t('boat.loaded_other', { item: noun('item', L.id) }) : ''; }
+  boatGuard(b) { const why = this.boatGuardText(b); if (!why) return false; this.say(why); Audio.error(); return true; }
+  // Diving off a boat while rowing with it: it stays in the boat, moored (id, n: crew.js dive)
+  toBoat(boatId, n, x, y, quiet = false) {
+    const g = this.game, w = g.world, id = this.held;
+    if (!id || !w) return;
+    const cx = Math.floor(x / CHUNK), cy = Math.floor(y / CHUNK), d = w.delta(cx, cy, true);
+    (d.boatLoad ||= {})[boatId] = [id, Profile.id || 'me', this.day ?? null, Math.round(x * 100) / 100, Math.round(y * 100) / 100, n];
+    this.set(null);
+    w.touch(cx, cy);
+    if (!quiet) hud.toast(t('carry.on_boat_left', { item: noun('item', id) }));
+  }
+  // Boarding (or taking apart: shoreOnly) a moored boat with a big thing in it (L: loadOf, read before unmooring): its owner,
+  // with empty arms, gets it back (in the bow); otherwise it goes on the shore for its owner. Playing together as a guest,
+  // a request: it reaches the arms only with the host's ok (barrow.js resolve)
+  fromBoat(b, shoreOnly = false, L = this.loadOf(b)) {
+    const g = this.game, w = g.world;
+    if (!L || !w) return;
+    const arms = !shoreOnly && L.owner === (Profile.id || 'me') && !this.held && this.bigNow;
+    if (g.barrow?.guest()) {
+      g.barrow.claim('boat', `${wrapIndex(Math.floor(b.x / CHUNK), CHUNK)},${Math.floor(b.y / CHUNK)}`, { boat: b.id, n: L.n, to: arms ? 'arms' : 'shore' }, v => {
+        if (!v?.ok) return;
+        if (arms) { if (!this.held) this.set(v.id || L.id, v.day ?? L.day); else this.toShore([v.id || L.id, L.owner, v.day ?? L.day, b.x, b.y], b.x, b.y); }
+        else if (v.parts) { this.giveParts(v.id || L.id); hud.toast(t('carry.to_parts', { item: noun('item', L.id) })); }   // (no land near: its parts, to you)
+        else hud.toast(t('carry.to_shore', { item: noun('item', L.id) }));
+      });
+      return;
+    }
+    const cx = Math.floor(b.x / CHUNK), cy = Math.floor(b.y / CHUNK), d = w.delta(cx, cy);
+    if (d?.boatLoad) delete d.boatLoad[b.id];
+    w.touch(cx, cy);
+    if (arms) { this.set(L.id, L.day); return; }
+    hud.toast(t(this.toShore(L.raw, b.x, b.y) ? 'carry.to_shore' : 'carry.to_parts', { item: noun('item', L.id) }));
+  }
+  // A big thing on the shore near (x, y), for its owner (L: [id, owner, day…]): the nearest land tile in rings of up to 8; if
+  // there is none, its parts to whoever does it here (local) or as drops where it was. Never lost. true: on land
+  toShore(L, x, y, local = true) {
+    const g = this.game, id = L?.[0];
+    if (!BULKY[id] || !g.world || !Number.isFinite(x) || !Number.isFinite(y)) return false;
+    if (this.toLand(L, x, y)) return true;
+    if (local && g.player) this.giveParts(id);
+    else for (const [m, n] of BULKY_PARTS[id] || []) g.gather?.addDrop({ id: m, count: n, x, y, z: 4, vz: 30, t: 0, scene: g.world });
+    return false;
+  }
+  // (only the land: false, and nothing done, if there is none within 8)
+  toLand(L, x, y) {
+    const w = this.game.world, id = L?.[0];
+    if (!BULKY[id] || !w || !Number.isFinite(x) || !Number.isFinite(y)) return false;
+    const tx0 = Math.floor(x), ty0 = Math.floor(y);
+    for (let r = 0; r <= 8; r++) for (let j = -r; j <= r; j++) for (let i = -r; i <= r; i++) {
+      if (Math.max(Math.abs(i), Math.abs(j)) !== r) continue;
+      const tx = tx0 + i, ty = ty0 + j;
+      if (!w.canPlace(tx, ty, id, null)) continue;
+      const day = Number.isFinite(L[2]) ? L[2] : BULKY[id].prey ? this.today() : null;
+      if (day !== null) { const d = w.delta(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK), true); (d.carcass ||= {})[`${tx},${ty}`] = day; }
+      if (L[1] && L[1] !== 'me') this.markFor([tx, ty], L[1]);
+      w.place(tx, ty, id, 0);
+      return true;
+    }
+    return false;
+  }
 
   // ---------- building and crafting from the chests nearby ----------
   // The chests you would open with E (never a neighbor's), within BUILD_STATION_REACH: [{ o, c }], the nearest first
@@ -590,7 +728,7 @@ export class Carry {
           s.n -= q; n -= q; took += q;
           if (s.n <= 0) c[j] = null;
         }
-        if (took) { g.scene.chestTouched(...o.tile); from.push(t('carry.from_chest', { n: took, item: ITEMS[m], chest: { name: ITEMS[o.placed].name, g: CHESTS[o.placed][1].startsWith('la ') ? 'f' : 'm' } })); }
+        if (took) { g.scene.chestTouched(...o.tile); if (o.placed === BARROW.ID) g.barrow?.stacksChanged(o.tile); from.push(t('carry.from_chest', { n: took, item: ITEMS[m], chest: { name: ITEMS[o.placed].name, g: CHESTS[o.placed][1].startsWith('la ') ? 'f' : 'm' } })); }
         if (n <= 0) break;
       }
     }

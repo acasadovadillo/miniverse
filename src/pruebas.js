@@ -9,10 +9,10 @@
 import * as THREE from 'three';
 import { Profile } from './accounts.js';
 import { RealPerson } from './three/realperson.js';
-import { distTo, dirOf } from './world/fit.js';
+import { distTo, dirOf, obb, bounds } from './world/fit.js';
 import { CAM, lookBy } from './camera.js';
 import { keys, clearKeys } from './input.js';
-import { ITEMS, HARVEST, hitsFor } from './items.js';
+import { ITEMS, HARVEST, hitsFor, CHESTS } from './items.js';
 import { SHOPS } from './economy.js';
 import { repairMat } from './crafting.js';
 import { RECIPES } from './recipes.js';
@@ -29,7 +29,7 @@ import { machineAt, settle, MACHINES } from './machines.js';
 import { hud } from './ui/hud.js';
 import { freePlace } from './gather.js';
 import { PIECE_IDS } from './build.js';
-import { BUILDABLE } from './buildables.js';
+import { BUILDABLE, PLANS, PLANS_V, PLAN_BORN } from './buildables.js';
 import { PIECES, parsePlaced } from './pieces.js';
 import { diffChunk, applyOps, ItemSync, COLLECTIONS } from './livesync.js';
 import { wallTile } from './three/build3d.js';
@@ -47,14 +47,17 @@ import { tintOf } from './three/tints.js';
 import { PHOTOS, photo } from './three/photos.js';
 import { Inventory, HOTBAR } from './inventory.js';
 import { WeightInventory, Carry, weightMode } from './carry.js';
-import { BULKY, BULKY_PARTS, CARCASS_OF, weightOf, BASE_CAP, BAG_CAP } from './carry-items.js';
-import { Player } from './entities.js';
+import { BULKY, BULKY_PARTS, CARCASS_OF, weightOf, BASE_CAP, BAG_CAP, BARROW, CENTER_AHEAD, WHEEL_AHEAD } from './carry-items.js';
+import { Barrow } from './barrow.js';
+import { GAME_VERSION } from './version.js';
+import { Player, barrowPen } from './entities.js';
 import { screenToWorld } from './camera.js';
 import { makeCave } from './world/underground.js';
 import { START_KIT } from './items.js';
 import { kitOf, kitKey, placeKit, shownOf, splitKit, kindOf, SCABBARD } from './kit.js';
 import { buildKit } from './three/kit3d.js';
 import { holdPose } from './three/carry3d.js';
+import * as C3 from './three/carry3d.js';   // (pushPose, if the drawing has it: the wheelbarrow's cost)
 import { stowedGeo } from './three/actors.js';
 import { t, tHtml, tList, fmt, formatMessage, defineNames, noun, setLang, getLang, onLangChange, accountLangOf, setAccountLang, savedLang, decideFirst, applyDom } from './i18n.js';
 
@@ -612,7 +615,7 @@ async function soloTests(game) {
     check(!has('banco') && !has('telar'), 'quedan el banco o el telar');
     check(game.houseName() === 'La taberna', `se llama ${game.houseName()}`);
     for (const id of ['anselmo', 'eusebio', 'ines', 'marta', 'paco']) { const { x, y } = who(id), q = { x, y }; collideNow(q, w().collidersNear(x, y).filter(c => c.r === undefined && !c.piece), 0.05); check(Math.hypot(q.x - x, q.y - y) < 0.4 || who(id).pose, `${id} está dentro de algo`); }
-    check(SHOPS.anselmo.stock.every(i => ITEMS[i.id]), 'vende lo que no existe');
+    check(SHOPS.anselmo.stock.every(i => ITEMS[i.id] || ITEMS[i.plan]), 'vende lo que no existe');   // (Anselmo sells the plans of the tavern's furniture)
     const stool = near.find(o => o.placed === 'taburete'); p().x = stool.x; p().y = stool.y + 1;
     check(game.aimTargets(p(), w()).some(c => c.o === stool), 'el taburete no se apunta');
     const act = game.actionFor({ kind: 'placed', o: stool }); check(act?.text === 'Sentarse' && !act.alt, `dice: ${act?.text}`);
@@ -2380,7 +2383,7 @@ async function soloTests(game) {
     const bones = game.gather.drops.length; C.rot(); check(!near('carcass_cow', cow.x, cow.y, 0) && game.gather.drops.length > bones && game.gather.drops.at(-1).id === 'hueso' && game.gather.drops.at(-1).ttl > 0, 'no bones after 2 days');
     await collectDrops(game);
   });
-  await test('en brazos, límites (carry limits): Q only puts it down, a held click does not punch, no swimming, no running, no fence hopping, no mounting, sitting or sleeping; the backpack does not take it; in slot mode /give log gives wood', async () => {
+  await test('en brazos, límites (carry limits): Q only puts it down, a held click does not punch, no swimming, no running, no fence hopping, sitting or sleeping; the backpack does not take it; in slot mode /give log gives wood', async () => {
     await weightOn();
     const C = game.carry, G = game.gather;
     C.set('log');
@@ -2388,8 +2391,7 @@ async function soloTests(game) {
       G.cooldown = 0; G.swing = 0; G.use(); G.use(true); check(G.swing === 0 && G.cooldown === 0, 'a click with the arms full does something');
       check(C.noRun() && C.jumpMul() >= 0.86 && C.hint()?.key === 'Q' && game.inv.add('log', 1) === 1 && game.inv.room('log') === 0, 'run, jump, hint or the backpack');
       game.build.toggle(true); check(!C.hint(), 'in build mode the carry hint hides B\'s'); game.build.toggle(false);
-      check(C.refuse() && C.held === 'log', 'refuse does not refuse');
-      game.ranch.mount({ id: 'x', breed: 'alazan', x: p().x, y: p().y }); check(!p().mount, 'mounted with a log');
+      check(C.refuse() && C.held === 'log', 'refuse does not refuse');   // (mounting with it is allowed since phase 2: see «caballo con bulto»)
       game.rest.floor('floorSit'); check(!p().pose, 'sat down with a log');
       check(C.state() === 'log', 'the network does not say it');
     } finally { C.set(null); }
@@ -2518,6 +2520,634 @@ async function soloTests(game) {
       check(logic + pose < 0.5 && calls <= 4 * 8, `${logic.toFixed(3)} + ${pose.toFixed(3)} ms, ${calls} meshes`);
       tell('peso coste: medida', true, `${(logic * 1000).toFixed(1)} µs/frame logic, ${(pose * 1000).toFixed(1)} µs pose ×4, ${calls} meshes ×4`);
     } finally { C.set(null); live.entities = ents; for (let k = 0; k < 4; k++) live.peers.delete('q' + k); draw(); }
+  });
+  // ---------- phase 2: the wheelbarrow, a big thing on the horse and in the boat (barrow.js; docs/planes/gta/PLAN-C2-fase2.md) ----------
+  const WB = () => game.barrow, meId = () => Profile.id || 'me', ckey = (tx, ty) => `${Math.floor(tx / CHUNK)},${Math.floor(ty / CHUNK)}`;
+  const dOf = (tx, ty) => w().delta(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK), true);
+  // Open ground (7 × 7 free tiles, out of the village), near (x, y)
+  const openGround = (x = 62, y = 44) => {
+    const free = (cx, cy) => { for (let j = -3; j <= 3; j++) for (let i = -3; i <= 3; i++) if (!w().canPlace(cx + i, cy + j, 'cofre', null) || w().water(cx + i + 0.5, cy + j + 0.5) || inBounds(cx + i + 0.5, cy + j + 0.5)) return false; return true; };
+    for (let r = 0; r < 60; r++) for (let a = 0; a < 16; a++) { const cx = Math.floor(x + Math.cos(a / 16 * 6.283) * r * 2), cy = Math.floor(y + Math.sin(a / 16 * 6.283) * r * 2); if (free(cx, cy)) return [cx, cy]; }
+    throw new Error('no open ground for the wheelbarrow');
+  };
+  // A wheelbarrow placed free with its centre on a tile's centre and heading yaw (as B places it)
+  const placeBarrow = (tx, ty, yaw = 0) => {
+    const f = w().fitFree('wheelbarrow', tx + 0.5, ty + 0.5, yaw, 0, null);
+    check(f.ok, `the wheelbarrow does not fit: ${f.why}`);
+    w().placeFree('wheelbarrow', f);
+    const o = w().placedObjectAt(...f.anchor);
+    check(o?.placed === 'wheelbarrow', 'not placed');
+    return o;
+  };
+  // Stand behind its grips (where push puts you) and push it
+  const pushIt = q => {
+    const o = w().placedObjectAt(...q.tile) || q, [fx, fy] = dirOf(o.yaw ?? 0);   // (as the chunk is now: its own box is skipped by reference)
+    Object.assign(p(), { x: o.x - fx * CENTER_AHEAD, y: o.y - fy * CENTER_AHEAD, vx: 0, vy: 0, z: 0, vz: 0, floor: 0, mount: false, boat: false, aboard: null, swim: false, pose: null });
+    const why = WB().cantPush(o);
+    check(!why && WB().push(o), `push refused: ${why}`);
+  };
+  const parkedNear = (x, y, r = 3) => near('wheelbarrow', x, y, r);
+  const letGo = () => { if (WB().pushing) WB().park(true); if (game.carry.held) game.carry.set(null); };
+  const angle = (a, b) => Math.abs(Math.atan2(Math.sin(a - b), Math.cos(a - b)));
+  await test('carretilla plano (wheelbarrow plan): a B Exterior buildable at the bench, Dani sells its plan for 250 and only the plan teaches it', async () => {
+    const b = BUILDABLE.wheelbarrow;
+    check(b && b.cat === 'Exterior' && b.needs === 'banco' && JSON.stringify(b.cost) === JSON.stringify([['tablas', 10], ['lingote_hierro', 1]]), `buildable: ${JSON.stringify(b && { cat: b.cat, needs: b.needs, cost: b.cost })}`);
+    check(PLANS.has('wheelbarrow') && PLAN_BORN.has('wheelbarrow') && PLANS_V === 2 && ITEMS.wheelbarrow?.name === t('item.wheelbarrow') && CHESTS.wheelbarrow?.[0] === 12, 'its plan, name or chest');
+    check(SHOPS.dani.stock.some(s => s.plan === 'wheelbarrow' && s.price === 250), 'Dani does not sell its plan for 250');
+    const C = game.craft, before = JSON.parse(JSON.stringify(C.toSave()));
+    try {
+      // (old saves, with planks and iron seen, get the plans of then; never the wheelbarrow's)
+      for (const planos of [0, 1, 2]) { C.reset({ seen: ['tablas', 'lingote_hierro', 'cuerda', 'madera'], taught: [], planos }); check(!C.hasPlan('wheelbarrow'), `an old save (planos ${planos}) learnt it for free`); }
+      C.reset({ seen: ['tablas'], taught: [], planos: 0 }); check(C.hasPlan('silla') || !RECIPES.find(r => r.out === 'silla')?.plan, 'the old gift of plans is gone');
+      C.reset(JSON.parse(JSON.stringify(before)));
+      check(!C.hasPlan('wheelbarrow') || before.taught.includes('wheelbarrow'), 'known without its plan');
+      C.learnPlan('wheelbarrow'); check(C.hasPlan('wheelbarrow'), 'learnPlan does not teach it');
+    } finally { C.reset(JSON.parse(JSON.stringify(before))); }
+    const planks = inv().count('tablas'), iron = inv().count('lingote_hierro');
+    inv().add('wheelbarrow', 1); check(inv().count('tablas') === planks + 10 && inv().count('lingote_hierro') === iron + 1 && !inv().count('wheelbarrow'), '/give wheelbarrow does not give its materials');
+    inv().remove('tablas', 10); inv().remove('lingote_hierro', 1);
+  });
+  await test('carretilla cofre (wheelbarrow chest): 12 stacks that B and C pay from; Remove and Move refuse it while it has stacks or bundles', async () => {
+    await weightOn();
+    const [tx, ty] = openGround(); await goTo(game, tx + 0.5, ty + 3.5);
+    const o = placeBarrow(tx, ty), k = `${o.tile}`, d = dOf(...o.tile), chest = w().chestAt(...o.tile);
+    try {
+      check(o.free && chest?.length === 12 && /^[a-z0-9]{8}$/.test(d.barrow?.[k]?.id || ''), `its chest or id: ${chest?.length} ${JSON.stringify(d.barrow?.[k])}`);
+      check(game.carry.chests().some(c => String(c.o.tile) === k), 'B and C do not see it');
+      const empty = o.obb; check(!o.model, `empty, a model: ${o.model}`);
+      for (const id of ['piedra']) inv().remove(id, inv().count(id));
+      chest[0] = { id: 'piedra', n: 5 }; w().chestTouched(...o.tile); WB().stacksChanged(o.tile);
+      check(w().placedObjectAt(...o.tile)?.model === 'wheelbarrow::f', `with stacks: ${w().placedObjectAt(...o.tile)?.model}`);
+      game.carry.near = null; check(game.carry.spend([['piedra', 2]]) && chest[0]?.n === 3, `B/C do not pay from it: ${chest[0]?.n}`);
+      check(!game.pickUp(w().placedObjectAt(...o.tile)) && WB().isAt(o.tile), 'taken down with stacks');
+      chest[0] = null; w().chestTouched(...o.tile); WB().stacksChanged(o.tile);
+      d.barrow[k].l = [['log', null]]; w().touch(...o.tile.map(v => Math.floor(v / CHUNK)));
+      const o2 = w().placedObjectAt(...o.tile);
+      check(o2?.model === 'wheelbarrow:log' && Math.abs(o2.obb.hx - empty.hx) < 1e-6 && Math.abs(o2.obb.hy - empty.hy) < 1e-6, `with a log: ${o2?.model}, its boxes the empty one's`);
+      check(!game.pickUp(o2, true) && WB().isAt(o2.tile), 'moved (B › Move) with a big thing on it');
+      const was = game.mouse; game.mouse = null;
+      try { game.build.removeAt(o2.tile); check(WB().isAt(o2.tile), 'B › Remove took it down with a big thing'); } finally { game.mouse = was; }
+      d.barrow[k].l = [];
+      const planks = inv().count('tablas'), iron = inv().count('lingote_hierro');
+      check(game.pickUp(w().placedObjectAt(...o.tile)) && !WB().isAt(o.tile) && !d.barrow[k], 'empty, not taken down (or its id stays)');
+      check(inv().count('tablas') === planks + 10 && inv().count('lingote_hierro') === iron + 1, 'its materials do not come back');
+      inv().remove('tablas', 10); inv().remove('lingote_hierro', 1);
+      // (put by tiles, /setblock: free, with the empty one's boxes; air takes everything)
+      w().setTile(tx, ty, 'wheelbarrow'); const s = w().placedObjectAt(tx, ty);
+      check(s?.free && Math.abs(s.obb.hx - empty.hx) < 1e-6, `by /setblock: free ${s?.free}`);
+      w().setTile(tx, ty, 'air'); check(!w().ownAt('placed', tx, ty), '/setblock air');
+    } finally { if (WB().isAt(o.tile)) { w().setTile(...o.tile, 'air'); } }
+  });
+  await test('carretilla empujar (wheelbarrow push): E pushes it, it leaves its tile as one world record; ×0.85, no running, no jumping; Q parks it where it is drawn with the same things and id', async () => {
+    await weightOn();
+    const [tx, ty] = openGround(); await goTo(game, tx + 0.5, ty + 3.5);
+    const C = game.carry, kg = inv().kg, base = C.speedMul();
+    try {
+      const o = placeBarrow(tx, ty), k = `${o.tile}`, id = WB().idAt(o.tile);
+      w().chestAt(...o.tile)[0] = { id: 'piedra', n: 3 }; dOf(...o.tile).barrow[k].l = [['log', null]];
+      game.mouse = null; check(game.placedAction(w().placedObjectAt(...o.tile)).text === t('barrow.push'), `E says: ${game.placedAction(w().placedObjectAt(...o.tile)).text}`);
+      pushIt(o);
+      const r = WB().record();
+      check(!w().ownAt('placed', ...o.tile) && r && r.by === meId() && r.c[0]?.id === 'piedra' && r.l[0]?.[0] === 'log', `the record: ${JSON.stringify(r)}`);
+      check(p().pushing === 'wheelbarrow:log:f' && !inv().held && inv().armsFull && p().armsBusy === 'push', `the body: ${p().pushing} ${p().armsBusy} held ${inv().held?.id}`);
+      check(Math.abs(C.speedMul() - base * BARROW.SLOW) < 1e-6 && C.noRun() && C.state() === p().pushing, `speed ${C.speedMul()} (${base} on foot), run ${C.noRun()}`);
+      p().jump(); check(p().vz === 0, 'jumped with it');
+      check(Math.abs(inv().kg - kg) < 1e-6, 'what it carries weighs on you');
+      const stones = Math.max(1, Math.ceil((1.2 * inv().capKg - inv().kg) / weightOf('piedra')));   // (well over what it carries freely, whatever earlier tests left)
+      inv().add('piedra', stones); check(C.speedMul() < base * BARROW.SLOW - 0.01, `the backpack's load does not slow it more: ${C.speedMul()} at ${inv().load.toFixed(2)}`); inv().remove('piedra', stones);
+      // (its x, y: a note, the chunk is not made again)
+      const t0 = w().touches; WB().rec.sentAt = -99; WB().rec.sx = p().x - 5; WB().update(1 / 60);
+      check(w().touches === t0 && WB().record().x === Math.round(p().x * 100) / 100, `writing x, y made the chunk again: ${w().touches - t0}`);
+      // E: a neighbour talks; a station says the hands are full; at nothing, parks it
+      const wasM = game.mouse, n0 = game.neighbors.people[0];
+      try {
+        game.mouse = { in: true, x: 0, y: 0 };
+        game.aimed = () => ({ kind: 'npc', n: n0, e: n0 }); check(game.nearest()?.text === `Hablar con ${n0.def.name}`, `at a neighbour: ${game.nearest()?.text}`);
+        game.aimed = () => ({ kind: 'placed', o: { placed: 'banco', tile: [tx, ty] } }); check(game.nearest()?.text === t('barrow.hands_full'), `at a station: ${game.nearest()?.text}`);
+        game.aimed = () => null; check(game.nearest()?.text === t('barrow.park'), `at nothing: ${game.nearest()?.text}`);
+      } finally { delete game.aimed; game.mouse = wasM; }
+      // No room: it says so and goes on pushing
+      const ff = w().fitFree; w().fitFree = () => ({ ok: false, why: 'x' });
+      try { check(!WB().park() && WB().pushing, 'parked with no room'); } finally { w().fitFree = ff; delete w().fitFree; }
+      const f = p().face, Cx = p().x + f.x * CENTER_AHEAD, Cy = p().y + f.y * CENTER_AHEAD, yaw = Math.atan2(f.x, f.y);
+      game.toss();
+      const back = parkedNear(Cx, Cy, 2);
+      check(!WB().pushing && back && Math.hypot(back.x - Cx, back.y - Cy) < 0.03 && angle(back.yaw, yaw) < 0.01, `Q did not park it where it is drawn: ${back && [back.x - Cx, back.y - Cy, back.yaw - yaw]}`);
+      check(WB().idAt(back.tile) === id && w().chestAt(...back.tile)[0]?.id === 'piedra' && WB().loadsAt(back.tile)[0]?.[0] === 'log', 'not the same things or id');
+      check(!inv().armsFull && !p().pushing && !p().armsBusy, 'the hands are not free');
+      w().chestAt(...back.tile)[0] = null; dOf(...back.tile).barrow[`${back.tile}`].l = []; w().setTile(...back.tile, 'air');
+      // The heading: facing the four ways, parked as it was (the same yaw as fitFree's, risk 1 of the plan)
+      for (const a of [0, Math.PI / 2, Math.PI, Math.PI * 1.5]) {
+        const q = placeBarrow(tx, ty, a); pushIt(q);
+        check(angle(Math.atan2(p().face.x, p().face.y), a) < 0.01, `pushing, the heading is not its own (${a})`);
+        WB().park(); const z = parkedNear(q.x, q.y, 2); check(z && angle(z.yaw, a) < 0.01 && Math.hypot(z.x - q.x, z.y - q.y) < 0.03, `parked facing ${a}: ${z && [z.yaw, z.x - q.x, z.y - q.y]}`);
+        w().setTile(...z.tile, 'air');
+      }
+    } finally { letGo(); }
+  });
+  await test('carretilla límites (wheelbarrow limits): no deep water, fences, rocks or tower stairs, no step down into a hole, no cave, no mounting, boarding, sitting or sleeping; through an open door', async () => {
+    await weightOn();
+    const up = screenToWorld(0, -1), l = Math.hypot(...up), d = [up[0] / l, up[1] / l], side = [d[1], -d[0]], keysUp = { up: true }, past = P => P.x * d[0] + P.y * d[1];
+    const walk = (pushing, scene, steps) => { const P = new Player({ name: 'x', x: 0, y: 0, look: {} }); P.pushing = pushing ? 'wheelbarrow' : null; P.face = { x: d[0], y: d[1] }; for (let i = 0; i < steps; i++) P.update(1 / 60, keysUp, scene); return P; };
+    const flat = list => ({ collidersNear: () => list, digNear: () => null });
+    const shallow = { waterDepth: (x, y) => (x * d[0] + y * d[1] > 2.5 ? 0.6 : 0), collidersNear: () => [], digNear: () => null };
+    // (it stops with its wheel, WHEEL_AHEAD ahead, at the edge: the axle in the water, the tyre on what it bumps)
+    const wet = 2.5 - WHEEL_AHEAD + 0.08, bump = 2.5 - WHEEL_AHEAD - BARROW.WHEEL_R + 0.1;
+    check(past(walk(true, shallow, 240)) < wet && past(walk(false, shallow, 240)) > 2, `into water of 0.6 m: ${past(walk(true, shallow, 240))}`);
+    const ahead = (r, more) => [{ x: d[0] * (2.5 + r), y: d[1] * (2.5 + r), r, ...more }];   // (a big circle whose near edge is 2.5 m ahead)
+    check(past(walk(true, flat(ahead(5, { low: true })), 240)) < bump, 'pushed over a fence');
+    check(past(walk(true, flat(ahead(5, { top: 0.5 })), 240)) < bump && past(walk(false, flat(ahead(5, { top: 0.5 })), 240)) > 2, 'a rock: pushed onto it (or a walker could not climb it)');
+    const hole = { collidersNear: () => [], digNear: () => true, digWalls: () => [], digH: () => null, surfaceAt: (x, y) => (x * d[0] + y * d[1] > 2.5 ? -0.5 : 0), waterDepth: () => 0 };
+    check(past(walk(true, hole, 240)) < wet, `down into a hole: ${past(walk(true, hole, 240))}`);
+    // A doorway: 0.72 m between its posts lets the box (0.62) through; 0.5 does not
+    const posts = gap => [1, -1].map(s => ({ x: d[0] * 3 + side[0] * s * (gap / 2 + 0.1), y: d[1] * 3 + side[1] * s * (gap / 2 + 0.1), r: 0.1 }));
+    check(past(walk(true, flat(posts(0.72)), 300)) > 3.6, `not through an open door: ${past(walk(true, flat(posts(0.72)), 300))}`);
+    check(past(walk(true, flat(posts(0.5)), 300)) < 2, 'through a gap narrower than it');
+    // In the game: no mounting, boarding, sitting, sleeping or caves; goTo parks it; not from a rock
+    const [tx, ty] = openGround(); await goTo(game, tx + 0.5, ty + 3.5);
+    const o = placeBarrow(tx, ty);
+    try {
+      p().floor = 0.3; check(WB().cantPush(o) === t('barrow.cant_here'), 'pushed from a rock'); p().floor = 0;
+      pushIt(o);
+      const C = game.carry;
+      check(C.refuse('mount') && C.refuse('boat') && C.refuse('cave') && C.refuse() && C.dropFirst() === t('barrow.drop_first'), 'refuse does not refuse');
+      game.ranch.mount({ id: 'x', breed: 'alazan', x: p().x, y: p().y }); check(!p().mount, 'mounted pushing it');
+      game.rest.floor('floorSit'); check(!p().pose, 'sat down pushing it');
+      await game.goTo(game.world, p().x, p().y, { inside: false, sound: false });
+      check(!WB().pushing && parkedNear(p().x, p().y, 4), 'goTo did not park it');
+    } finally { letGo(); const z = parkedNear(tx + 0.5, ty + 0.5, 5); if (z) w().setTile(...z.tile, 'air'); }
+  });
+  await test('carretilla muros (wheelbarrow walls): turning is slow and never puts the box through a wall; parking never lands behind a wall, a closed door or in a doorway', async () => {
+    await weightOn();
+    const up = screenToWorld(0, -1), l = Math.hypot(...up), d = [up[0] / l, up[1] / l], a = Math.atan2(d[0], d[1]);
+    // A thin wall 1.2 m behind: turning round (down) stops where the box touches it
+    const box = obb(-d[0] * 1.2, -d[1] * 1.2, 3, 0.05, a), wall = [{ ...bounds(box), obb: box, wall: true }], scene = { collidersNear: () => wall, digNear: () => null };
+    const P = new Player({ name: 'x', x: 0, y: 0, look: {} }); P.pushing = 'wheelbarrow'; P.face = { x: d[0], y: d[1] }; P.speedMul = 1e-4;
+    let worst = 0;
+    const turned = [];
+    for (let i = 0; i < 120; i++) { P.update(1 / 60, { down: true }, scene); worst = Math.max(worst, barrowPen(scene, wall, P.x, P.y, P.face.x, P.face.y)); turned.push(Math.atan2(P.face.x, P.face.y)); }
+    check(worst < 0.01, `the box went into the wall: ${worst.toFixed(3)}`);
+    check(P.face.x * d[0] + P.face.y * d[1] > -0.9, 'turned round through the wall');
+    const steps = turned.map((v, i) => (i ? angle(v, turned[i - 1]) : 0));
+    check(Math.max(...steps) <= BARROW.TURN / 60 + 1e-6, `turned too fast: ${Math.max(...steps)}`);
+    // In the game: behind a wall from the player (reached), or by a door, it is not parked there
+    const [tx, ty] = openGround(); await goTo(game, tx + 0.5, ty + 3.5);
+    const o = placeBarrow(tx, ty);
+    try {
+      pushIt(o);
+      const C = game.carry, R = C.reached, DN = w().doorNear;
+      C.reached = () => false; try { check(!WB().park() && WB().pushing, 'parked behind a wall'); } finally { C.reached = R; delete C.reached; }
+      w().doorNear = (x, y) => [Math.floor(x), Math.floor(y)]; try { check(!WB().park() && WB().pushing, 'parked in a doorway'); } finally { w().doorNear = DN; delete w().doorNear; }
+      check(WB().park(), 'not parked in the open');
+    } finally { letGo(); const z = parkedNear(tx + 0.5, ty + 0.5, 5); if (z) w().setTile(...z.tile, 'air'); }
+  });
+  await test('carretilla atasco (wheelbarrow stuck): a door closed on it is refused; a wall built on it still lets you back out; Q parks it further away after 2 s, never where a normal park could not go', async () => {
+    await weightOn();
+    const up = screenToWorld(0, -1), l = Math.hypot(...up), d = [up[0] / l, up[1] / l], past = P => P.x * d[0] + P.y * d[1];
+    // Something new right on the wheel: forward, no; back, yes
+    const rock = [{ x: d[0] * 1.75, y: d[1] * 1.75, r: 0.3 }], scene = { collidersNear: () => rock, digNear: () => null };
+    const go = keys => { const P = new Player({ name: 'x', x: 0, y: 0, look: {} }); P.pushing = 'wheelbarrow'; P.face = { x: d[0], y: d[1] }; for (let i = 0; i < 40; i++) P.update(1 / 60, keys, scene); return P; };
+    check(past(go({ up: true })) < 0.02, `went further into it: ${past(go({ up: true }))}`);
+    check(past(go({ down: true })) < -0.05, `could not back out: ${past(go({ down: true }))}`);
+    const [tx, ty] = openGround(); await goTo(game, tx + 0.5, ty + 3.5);
+    const o = placeBarrow(tx, ty), L = game.live, was = { joined: L.joined, role: L.role };
+    try {
+      pushIt(o);
+      const f = p().face, c = [Math.floor(p().x + f.x * CENTER_AHEAD), Math.floor(p().y + f.y * CENTER_AHEAD)];
+      check(WB().onDoor(c) && game.doorAction(c) === null, 'a door closes on it');
+      check(!WB().onDoor([c[0] + 6, c[1] + 6]), 'a door far from it is held');
+      // (another player's, pushing it: neither)
+      WB().park();
+      L.joined = true; L.role = 'host';
+      L.receive('c9', { t: 'hi', id: 'id-c9', name: 'c9', playing: true, look: LOOK, v: GAME_VERSION });
+      L.receive('c9', { t: 'st', sc: 'world', x: tx + 0.5, y: ty + 0.5, yaw: 0, ca: 'wheelbarrow' });
+      const e = L.peers.get('c9').entity; e.x = tx + 0.5; e.y = ty + 0.5;
+      check(e.pushing === 'wheelbarrow' && WB().onDoor([Math.floor(e.x), Math.floor(e.y + CENTER_AHEAD)]), 'a door closes on another\'s');
+      L.peers.delete('c9'); L.joined = was.joined; L.role = was.role;
+      // Stuck 2 s: Q parks it further away (no room right there), reached and with the village's rule; with no room at all,
+      // not (as /setblock it would go where a normal park could not: a wall built on it on purpose)
+      const z = parkedNear(tx + 0.5, ty + 0.5, 4); pushIt(z);
+      const ff = w().fitFree, P0 = { x: p().x, y: p().y };
+      w().fitFree = function (id, x, y, ...a) { return Math.hypot(x - P0.x, y - P0.y) < 2.6 ? { ok: false, why: 'x' } : ff.call(this, id, x, y, ...a); };
+      try {
+        const f = p().face, fs = WB().forcedSpot({ x: p().x + f.x * CENTER_AHEAD, y: p().y + f.y * CENTER_AHEAD }, Math.atan2(f.x, f.y), { player: p(), avoid: [p().x, p().y], strict: true });
+        WB().rec.stuck = 2.5; game.toss();
+        check(!WB().pushing && parkedNear(P0.x, P0.y, 10), `Q did not park it further away: ${WB().pushing} ${game.mode} ${game.busy} ${fs && [fs.ok, fs.cx, fs.cy]} ${[P0.x, P0.y]}`);
+      } finally { w().fitFree = ff; delete w().fitFree; }
+      pushIt(parkedNear(P0.x, P0.y, 10));
+      w().fitFree = () => ({ ok: false, why: 'x' });
+      try { WB().rec.stuck = 2.5; game.toss(); check(!!WB().pushing, 'Q parked it with no room at all, as /setblock'); } finally { w().fitFree = ff; delete w().fitFree; }
+    } finally { L.peers.delete('c9'); L.joined = was.joined; L.role = was.role; letGo(); for (let i = 0; i < 3; i++) { const z = parkedNear(tx + 0.5, ty + 0.5, 12); if (z) w().setTile(...z.tile, 'air'); } }
+  });
+  await test('carretilla bultos (wheelbarrow bundles): E on a log while pushing loads it, 3 at most; E with a carcass on the parked one, also on a horse; Take gives it back; carcasses on it rot to bones in its stacks', async () => {
+    await weightOn();
+    const [tx, ty] = openGround(); await goTo(game, tx + 0.5, ty + 3.5);
+    const C = game.carry, wasM = game.mouse;
+    let o = placeBarrow(tx, ty);
+    try {
+      game.mouse = null;
+      pushIt(o);
+      const px = Math.floor(p().x), py = Math.floor(p().y), [lx, ly] = Math.abs(p().face.x) > Math.abs(p().face.y) ? [px, py + 1] : [px + 1, py];   // (the tile beside yours: within 1.7 m)
+      w().place(lx, ly, 'log');
+      const a = game.nearest(); check(a?.text === t('barrow.load', { item: noun('item', 'log') }), `E by a log says: ${a?.text}`);
+      a.run(); check(!near('log', lx + 0.5, ly + 0.5, 0) && WB().record().l.length === 1 && p().pushing === 'wheelbarrow:log', `not loaded: ${p().pushing}`);
+      WB().record().l.push(['log', null], ['log', null]);
+      w().place(lx, ly, 'log'); check(game.nearest()?.text === t('barrow.full'), `a fourth: ${game.nearest()?.text}`);
+      w().unplace({ tile: [lx, ly], layer: 'placed', placed: 'log' });
+      WB().record().l = [];
+      WB().park(); o = parkedNear(tx + 0.5, ty + 0.5, 4); check(o, 'not parked');
+      // With a carcass in the arms: on top (also riding)
+      C.set('carcass_deer', C.today()); check(game.placedAction(o).text === t('barrow.load', { item: noun('item', 'carcass_deer') }), `with a carcass: ${game.placedAction(o).text}`);
+      game.placedAction(o).run(); check(!C.held && WB().loadsAt(o.tile)[0]?.[0] === 'carcass_deer', 'the carcass is not on it');
+      C.set('log'); p().mount = true;
+      try { game.placedAction(o).run(); check(!C.held && WB().loadsAt(o.tile).length === 2, 'riding, not put on it'); } finally { p().mount = false; C.syncArms(); }
+      // Take: to the arms; with the arms full, no; creative (or the slots): its parts
+      WB().takeLoad(o.tile, 1); check(C.held === 'log' && WB().loadsAt(o.tile).length === 1, 'Take does not give it back');
+      WB().takeLoad(o.tile, 0); check(C.held === 'log' && WB().loadsAt(o.tile).length === 1, 'taken with the arms full');
+      C.set(null);
+      Object.defineProperty(C, 'bigNow', { get: () => false, configurable: true });
+      const meat = inv().count('carne_venado');
+      try { WB().takeLoad(o.tile, 0); check(!C.held && inv().count('carne_venado') > meat && !WB().loadsAt(o.tile).length, 'creative: not its parts'); } finally { delete C.bigNow; }
+      // A carcass on it for 2 days: bones in its stacks
+      const k = `${o.tile}`, d = dOf(...o.tile);
+      d.barrow[k].l = [['carcass_deer', C.today() - 2]];
+      WB().sweep([ckey(...o.tile)]);
+      check(!WB().loadsAt(o.tile).length && w().chestAt(...o.tile).some(s => s?.id === 'hueso'), 'it does not rot to bones');
+      // Its tile is something else now (/setblock): its big things to the ground
+      d.barrow[k].l = [['log', null]]; d.placed[k] = 'cofre';
+      WB().sweep([ckey(...o.tile)]);
+      check(!d.barrow[k] && near('log', o.x, o.y, 4), 'the big things of a tile that is no longer a wheelbarrow are lost');
+      w().setTile(...o.tile, 'air');
+    } finally { game.mouse = wasM; letGo(); const lg = near('log', tx + 0.5, ty + 0.5, 5); if (lg) w().unplace(lg); const z = parkedNear(tx + 0.5, ty + 0.5, 5); if (z) w().setTile(...z.tile, 'air'); }
+  });
+  await test('carretilla guardado (wheelbarrow save): saving while pushing, reopening, dying (also with keepInventory), spectator, teleporting and leaving park it where you were with everything; an older game keeps its fields', async () => {
+    await weightOn();
+    const [tx, ty] = openGround(); await goTo(game, tx + 0.5, ty + 3.5);
+    const o = placeBarrow(tx, ty), id = WB().idAt(o.tile);
+    w().chestAt(...o.tile)[0] = { id: 'tablas', n: 7 };
+    pushIt(o);
+    const snap = game.snapshot(), deltas = JSON.stringify([...w().deltas]);
+    check(!JSON.stringify(snap).includes(id) && WB().record()?.x === Math.round(p().x * 100) / 100, 'the save of the player has the wheelbarrow, or the record is not where you are');
+    // Quit while pushing it and open the game again: the first step parks it where you went, with its things
+    game.end(); game.start(snap, new Map(JSON.parse(deltas))); game.onSave = null;
+    await readyGround(game, 8000); await frames(2);
+    const back = parkedNear(snap.player.x, snap.player.y, 4);
+    check(!WB().pushing && back && WB().idAt(back.tile) === id && w().chestAt(...back.tile)[0]?.id === 'tablas', `not parked again with its things: ${back && WB().idAt(back.tile)}`);
+    check(![...w().deltas.values()].some(dd => dd?.pushed?.[id]), 'its record stays');
+    // Dying (keepInventory), the spectator, a teleport
+    const keep = game.rules.keepInventory;
+    try {
+      game.rules.keepInventory = true;
+      pushIt(back); const at = [p().x, p().y];
+      await game.combat.die(null); game.busy = false;
+      check(!WB().pushing && parkedNear(at[0], at[1], 4), 'dying with keepInventory did not park it');
+    } finally { game.rules.keepInventory = keep; game.busy = false; }
+    await goTo(game, tx + 0.5, ty + 3.5);
+    let z = parkedNear(tx + 0.5, ty + 0.5, 6); pushIt(z);
+    game.setGamemode('spectator'); check(!WB().pushing && parkedNear(p().x, p().y, 4), 'the spectator pushes it'); game.setGamemode('survival');
+    z = parkedNear(p().x, p().y, 4); pushIt(z); const at = [p().x, p().y];
+    game.teleport(at[0] + 10, at[1]); check(!WB().pushing && parkedNear(at[0], at[1], 4), 'a teleport took it along');
+    await goTo(game, at[0], at[1]);
+    z = parkedNear(at[0], at[1], 4);
+    // An older game: the wheelbarrow is a «?» box, and its fields are kept as they are
+    const d = dOf(...z.tile), k = `${z.tile}`;
+    d.pushed ||= {}; d.pushed.zz = { by: 'id-old', x: z.x, y: z.y, c: [], l: [], t: 0 }; d.claim = { q1: { by: 'id-old', k: 'take', at: 0 } }; d.boatLoad = { b1: ['log', 'id-old', null, z.x, z.y, 'n1'] };
+    const was = JSON.stringify({ c: d.chest[k], b: d.barrow, p: d.pushed, q: d.claim, l: d.boatLoad }), item = ITEMS.wheelbarrow;
+    try {
+      delete ITEMS.wheelbarrow; w().touch(...z.tile.map(v => Math.floor(v / CHUNK)));
+      const u = w().contentFor(...z.tile.map(v => Math.floor(v / CHUNK))).objects.find(q => q.tile && String(q.tile) === k);
+      check(u?.unknown === 'wheelbarrow', `an older game does not see a «?»: ${u?.unknown}`);
+    } finally { ITEMS.wheelbarrow = item; w().touch(...z.tile.map(v => Math.floor(v / CHUNK))); }
+    check(JSON.stringify({ c: d.chest[k], b: d.barrow, p: d.pushed, q: d.claim, l: d.boatLoad }) === was, 'its fields changed');
+    delete d.pushed.zz; delete d.claim; delete d.boatLoad;
+    w().setTile(...z.tile, 'air'); check(!d.barrow[k] && !d.chest[k], '/setblock air leaves its id or chest');
+  });
+  await test('carretilla forzada (wheelbarrow forced park): with no room around, it skips the village rule and at last goes in like /setblock; nothing is lost', async () => {
+    await weightOn();
+    const [tx, ty] = openGround(); await goTo(game, tx + 0.5, ty + 3.5);
+    const W = w(), drops = game.gather.drops.length, rec = (rid, x, y) => { const d = dOf(Math.floor(x), Math.floor(y)); (d.pushed ||= {})[rid] = { by: 'id-gone', x, y, c: [{ id: 'piedra', n: 4 }, ...Array(11).fill(null)], l: [['log', null]], t: 0 }; return ckey(Math.floor(x), Math.floor(y)); };
+    const ff = W.fitFree;
+    try {
+      // (only fits skipping the village's rule)
+      W.fitFree = function (...a) { return this.buildAnywhere ? ff.apply(this, a) : { ok: false, why: 'plaza' }; };
+      const k1 = rec('aaaa1111', tx + 0.5, ty + 0.5);
+      check(WB().parkRecord('aaaa1111', k1) && !W.buildAnywhere, 'not parked skipping the village rule');
+      let z = parkedNear(tx + 0.5, ty + 0.5, 9); check(z && WB().idAt(z.tile) === 'aaaa1111' && W.chestAt(...z.tile)[0]?.id === 'piedra' && WB().loadsAt(z.tile)[0]?.[0] === 'log', 'not parked with its things');
+      W.setTile(...z.tile, 'air');
+      // (no room anywhere: as /setblock, with everything in it)
+      W.fitFree = () => ({ ok: false, why: 'full' });
+      const k2 = rec('bbbb2222', tx + 0.5, ty + 0.5);
+      check(WB().parkRecord('bbbb2222', k2), 'the last resort failed');
+      z = parkedNear(tx + 0.5, ty + 0.5, 17); check(z && WB().idAt(z.tile) === 'bbbb2222' && W.chestAt(...z.tile)[0]?.id === 'piedra' && WB().loadsAt(z.tile)[0]?.[0] === 'log', 'as /setblock without its things');
+      check(game.gather.drops.length === drops, 'something fell as drops');
+      W.setTile(...z.tile, 'air');
+    } finally { W.fitFree = ff; delete W.fitFree; W.buildAnywhere = false; }
+  });
+  await test('carretilla casa (wheelbarrow house): enlarging the house moves it with its stacks and bundles; with no room, nothing is lost', async () => {
+    await weightOn();
+    const H = game.houseRect(), W = w();
+    let wt = null;
+    for (let ty = H.y0 + 2; ty < H.y1 - 1 && !wt; ty++) if (W.pieceAt(H.x0, ty)?.kind === 'wall' && W.ownAt('placed', H.x0, ty) && !W.ownAt('placed', H.x0, ty).startsWith('ventana')) wt = [H.x0, ty];
+    check(wt, 'no wall of your house to put it on');
+    const wall = W.ownAt('placed', ...wt), kt = `${wt}`, moved = () => { for (let y = H.y0; y < H.y1; y++) for (let x = H.x0; x < H.x1; x++) if (WB().isAt([x, y]) && WB().idAt([x, y]) === 'hhhh0001') return [x, y]; return null; };
+    try {
+      for (const stacks of [false, true]) {
+        W.unplace({ tile: wt, layer: 'placed', placed: parsePlaced(wall)[0] }); W.place(...wt, 'wheelbarrow');
+        const d = dOf(...wt); d.barrow[kt] = { id: 'hhhh0001', l: [['log', null]] }; if (stacks) d.chest[kt][0] = { id: 'piedra', n: 2 };
+        game.layHouse(game.houseSize, false);
+        const m = moved(); check(m && WB().loadsAt(m)[0]?.[0] === 'log' && (!stacks || W.chestAt(...m)[0]?.id === 'piedra'), `not moved with ${stacks ? 'its stacks and ' : ''}its big things`);
+        check(W.ownAt('placed', ...wt) === wall, 'the wall is not back');
+        W.setTile(...m, 'air');
+      }
+      // No room in the house: the stacks to the backpack and the big things to the ground nearby
+      W.unplace({ tile: wt, layer: 'placed', placed: parsePlaced(wall)[0] }); W.place(...wt, 'wheelbarrow');
+      const d = dOf(...wt); d.barrow[kt] = { id: 'hhhh0001', l: [['log', null]] }; d.chest[kt][0] = { id: 'piedra', n: 2 };
+      const stones = inv().count('piedra'), ft = game.freeTile; game.freeTile = () => null;
+      try { game.layHouse(game.houseSize, false); } finally { game.freeTile = ft; delete game.freeTile; }
+      const lg = near('log', (H.x0 + H.x1) / 2, H.y1, 10);
+      check(inv().count('piedra') === stones + 2 && lg, 'with no room something is lost');
+      inv().remove('piedra', 2); if (lg) W.unplace(lg);
+    } finally { if (W.ownAt('placed', ...wt) !== wall) { W.setTile(...wt, 'air'); W.place(...wt, parsePlaced(wall)[0], parsePlaced(wall)[1]); } const m = moved(); if (m) W.setTile(...m, 'air'); }
+  });
+  await test('carretilla red (wheelbarrow net): st.ca carries its model key and a remote draws it; the host lets the first claim win; parks on request; releases a gone or idle player\'s; claims resolve in order', async () => {
+    await weightOn();
+    const [tx, ty] = openGround(); await goTo(game, tx + 0.5, ty + 3.5);
+    const L = game.live, was = { joined: L.joined, role: L.role }, W = w();
+    try {
+      // What the others see
+      L.receive('c1', { t: 'hi', id: 'id-c1', name: 'c1', playing: true, look: LOOK, v: GAME_VERSION, wb: 1 });
+      L.receive('c1', { t: 'st', sc: 'world', x: tx + 0.5, y: ty + 3, yaw: 0, ca: 'wheelbarrow:log:f' });
+      const e = L.peers.get('c1').entity;
+      check(L.peers.get('c1').barrows && e.pushing === 'wheelbarrow:log:f' && e.armsBusy === 'push' && !e.carrying, `a remote pushing: ${e.pushing} ${e.armsBusy}`);
+      L.receive('c1', { t: 'st', sc: 'world', x: tx + 0.5, y: ty + 3, yaw: 0, ca: 'wheelbarrow:zzz,log' }); check(e.pushing === 'wheelbarrow', `garbage: ${e.pushing}`);
+      L.receive('c1', { t: 'st', sc: 'world', x: tx + 0.5, y: ty + 3, yaw: 0, m: 1, ca: 'log' }); check(e.carrying === 'log' && !e.armsBusy && !e.pushing, 'riding with a log: the arms are busy');
+      // The host arbitrates: the first take wins (with its stacks as they are here), the second goes back
+      const o = placeBarrow(tx, ty), kp = `${o.tile}`, k = ckey(...o.tile), d = dOf(...o.tile), id = WB().idAt(o.tile);
+      W.chestAt(...o.tile)[0] = { id: 'piedra', n: 4 };
+      const take = by => [['placed', kp], ['chest', kp], ['barrow', kp], ['pos', 'placed:' + kp], ['pushed', id, { by, x: tx + 0.5, y: ty - 0.5, c: [], l: [['log', null]], t: 0 }]];
+      const A = { id: 'id-c1', at: [tx + 0.5, ty - 0.5] }, Bp = { id: 'id-c2', at: [tx + 0.5, ty - 0.5] };
+      const r1 = WB().arbitrate(A, k, take('id-c1')), r2 = WB().arbitrate(Bp, k, take('id-c2'));
+      const won = r1.ok.find(([f]) => f === 'pushed')?.[2];
+      check(won && won.by === 'id-c1' && won.c[0]?.id === 'piedra' && !won.l.length && !r1.back.length, `the first take: ${JSON.stringify(r1)}`);
+      applyOps(d, [...r1.rest, ...r1.ok]);
+      const r2b = WB().arbitrate(Bp, k, take('id-c2'));
+      check(!r2b.ok.length && r2b.back.some(([f, c, v]) => f === 'pushed' && c === id && v?.by === 'id-c1'), `the second take: ${JSON.stringify(r2b.back)}`);
+      check(r2.ok.length === 1, '(the same moment, before the first is applied: each would win, as the plan says the order decides)');
+      // A late change of its stacks goes into its record, not to an orphan chest
+      const late = WB().arbitrate(Bp, k, [['chest', kp, [{ id: 'tablas', n: 2 }, ...Array(11).fill(null)]]]);
+      WB().afterArbitrate(k, late, Bp);
+      check(!late.rest.length && d.pushed[id].c[0]?.id === 'tablas' && !d.chest[kp], `a late chest: ${JSON.stringify(late)}`);
+      // Its own record: x, y only (l stays the host's); a park near where it is; another's, a delete or the whole field: back
+      const own = WB().arbitrate(A, k, [['pushed', id, { ...d.pushed[id], l: [['log', null], ['log', null]], x: tx + 40, park: [tx + 40, ty, 0] }]]);
+      const nv = own.ok[0]?.[2];
+      check(nv && !nv.l.length && Math.hypot(nv.x - A.at[0], nv.y - A.at[1]) < 0.01 && Math.hypot(nv.park[0] - A.at[0], nv.park[1] - A.at[1]) < 0.01 && own.park[0] === id, `its own: ${JSON.stringify(own)}`);
+      check(WB().arbitrate(Bp, k, [['pushed', id, { ...d.pushed[id], x: 0 }]]).back.length === 1, 'another\'s record changed');
+      check(WB().arbitrate(A, k, [['pushed', id]]).back.length === 1 && WB().arbitrate(A, k, [['pushed', null, {}]]).back.length === 1, 'a guest deleted a record');
+      // A park asked for: parked by whoever decides
+      applyOps(d, own.ok); WB().afterArbitrate(k, own, A);
+      const pk = parkedNear(A.at[0], A.at[1], 5);
+      check(!d.pushed[id] && pk && WB().idAt(pk.tile) === id && W.chestAt(...pk.tile)[0]?.id === 'tablas', 'the park asked for is not done, or not with its things');
+      W.setTile(...pk.tile, 'air');
+      // Only pushed: no chunk made again
+      const t0 = W.touches; L.applyChunk(k, [['pushed', 'xxxx0000', { by: 'id-c1', x: tx, y: ty, c: [], l: [], t: 0 }]]);
+      check(W.touches === t0, 'a record alone made the chunks again');
+      delete d.pushed.xxxx0000;
+      // A player gone (bye, cut off, out to the menu): parked where they were; one present that does not push: after GRACE
+      L.joined = true; L.role = 'host';
+      const rec = (rid, by) => { d.pushed[rid] = { by, x: tx + 0.5, y: ty - 0.5, c: [], l: [], t: 0 }; };
+      for (const how of ['bye', 'drop', 'menu']) {
+        L.receive('c5', { t: 'hi', id: 'id-c5', name: 'c5', playing: true, look: LOOK, v: GAME_VERSION, wb: 1 });
+        L.receive('c5', { t: 'st', sc: 'world', x: tx + 0.5, y: ty - 0.5, yaw: 0, ca: 'wheelbarrow' });
+        rec('gone' + how, 'id-c5');
+        if (how === 'bye') L.receive('c5', { t: 'bye' }); else if (how === 'drop') L.drop('c5', true); else L.receive('c5', { t: 'hi', id: 'id-c5', name: 'c5', playing: false, look: LOOK, v: GAME_VERSION, wb: 1 });
+        check(!d.pushed['gone' + how], `not parked after ${how}`);
+        const z = parkedNear(tx + 0.5, ty - 0.5, 6); if (z) W.setTile(...z.tile, 'air');
+        L.peers.delete('c5');
+      }
+      L.receive('c6', { t: 'hi', id: 'id-c6', name: 'c6', playing: true, look: LOOK, v: GAME_VERSION, wb: 1 });
+      L.receive('c6', { t: 'st', sc: 'world', x: tx + 0.5, y: ty - 0.5, yaw: 0 });
+      rec('idle0001', 'id-c6');
+      WB().sweep([k]); check(d.pushed.idle0001, 'parked at once');
+      WB().idle.set('idle0001', game.time - 9); WB().sweep([k]); check(!d.pushed.idle0001, 'a present player who does not push keeps it hidden');
+      let z = parkedNear(tx + 0.5, ty - 0.5, 6); if (z) W.setTile(...z.tile, 'air');
+      L.receive('c6', { t: 'st', sc: 'world', x: tx + 0.5, y: ty - 0.5, yaw: 0, ca: 'wheelbarrow' });
+      rec('idle0002', 'id-c6'); WB().idle.set('idle0002', game.time - 9); WB().sweep([k]); check(d.pushed.idle0002, 'parked while its pusher pushes it');
+      L.peers.delete('c6'); WB().peerGone('id-c6', [tx + 0.5, ty - 0.5]); z = parkedNear(tx + 0.5, ty - 0.5, 6); if (z) W.setTile(...z.tile, 'air');
+      // Requests, in order: two loads of one log, two takes of one bundle, a put on a full one
+      const [lx, ly] = [tx + 2, ty + 2]; W.place(lx, ly, 'log');
+      rec('load0001', 'id-c7'); rec('load0002', 'id-c8');
+      d.claim = { n1: { by: 'id-c7', k: 'load', rec: 'load0001', tile: [lx, ly], id: 'log', at: W.clock || 0 }, n2: { by: 'id-c8', k: 'load', rec: 'load0002', tile: [lx, ly], id: 'log', at: W.clock || 0 } };
+      WB().resolve(k, 'n1'); WB().resolve(k, 'n2');
+      check(d.claim.n1.ok === true && d.claim.n2.ok === false && d.pushed.load0001.l.length === 1 && !d.pushed.load0002.l.length, `two loads: ${JSON.stringify(d.claim)}`);
+      delete d.pushed.load0001; delete d.pushed.load0002;
+      const q = placeBarrow(tx, ty, 0), qk = ckey(...q.tile), dq = dOf(...q.tile);
+      dq.barrow[`${q.tile}`].l = [['log', null]];
+      dq.claim = { t1: { by: 'id-c7', k: 'take', tile: q.tile, i: 0, id: 'log', at: W.clock || 0 }, t2: { by: 'id-c8', k: 'take', tile: q.tile, i: 0, id: 'log', at: W.clock || 0 } };
+      WB().resolve(qk, 't1'); WB().resolve(qk, 't2');
+      check(dq.claim.t1.ok === true && dq.claim.t2.ok === false && !WB().loadsAt(q.tile).length, `two takes: ${JSON.stringify(dq.claim)}`);
+      dq.barrow[`${q.tile}`].l = [['log', null], ['log', null], ['log', null]];
+      dq.claim.p1 = { by: 'id-c7', k: 'put', tile: q.tile, id: 'log', day: null, at: W.clock || 0 }; WB().resolve(qk, 'p1');
+      check(dq.claim.p1.ok === false && WB().loadsAt(q.tile).length === 3, 'put on a full one');
+      delete dq.claim; delete d.claim; W.setTile(...q.tile, 'air');
+      // A guest's: the host's word confirms it; another's record lets go and says so
+      L.role = 'guest';
+      WB().rec = { id: 'gggg0001', k, key: 'wheelbarrow', confirmed: false, since: game.time, sentAt: game.time, sx: 0, sy: 0, stuck: 0 };
+      WB().onHostOps(k, [['pushed', 'gggg0001', { by: meId(), x: 0, y: 0, c: [], l: [['log', null]] }]]);
+      check(WB().rec?.confirmed && WB().pushing === 'wheelbarrow:log', 'the host\'s word does not confirm it');
+      const said = []; const toast = hud.toast; hud.toast = m => said.push(m);
+      try { WB().onHostOps(k, [['pushed', 'gggg0001', { by: 'id-c1', x: 0, y: 0, c: [], l: [] }]]); } finally { hud.toast = toast; }
+      check(!WB().rec && !p().pushing && said[0] === t('barrow.taken', { name: 'c1' }), `another's: ${JSON.stringify(said)}`);
+    } finally { L.joined = was.joined; L.role = was.role; for (const c of ['c1', 'c5', 'c6']) L.peers.delete(c); WB().rec = null; game.carry.syncArms(); for (let i = 0; i < 4; i++) { const z = parkedNear(tx + 0.5, ty + 0.5, 8); if (z) W.setTile(...z.tile, 'air'); } const lg = near('log', tx + 2.5, ty + 2.5, 1); if (lg) W.unplace(lg); }
+  });
+  await test('carretilla petición (wheelbarrow request): a guest\'s put leaves the arms at once and comes back only on a no or unsent; the host\'s own take catches late chest changes, not a new chest\'s; a boat\'s load with no land gives its parts, no drops', async () => {
+    await weightOn();
+    const [tx, ty] = openGround(); await goTo(game, tx + 0.5, ty + 3.5);
+    const L = game.live, was = { joined: L.joined, role: L.role }, W = w(), C = game.carry, first = () => [...WB().pending.keys()][0];
+    try {
+      const o = placeBarrow(tx, ty), kp = `${o.tile}`, k = ckey(...o.tile), d = dOf(...o.tile);
+      L.joined = true; L.role = 'guest'; L.flush = () => {}; WB().hostOld = () => false;
+      // Put on it: out of the arms now (nothing to drop, to die with or to save twice)
+      C.set('log'); WB().loadParked(o); const n1 = first();
+      check(!C.held && !game.inv.armsItem && d.claim?.[n1]?.k === 'put' && !game.inv.toSave().keep?.some(q => q.arms) && C.drop() === false, 'the put did not leave the arms');
+      WB().onHostOps(k, [['claim', n1, { ...d.claim[n1], ok: false }]]);
+      check(C.held === 'log' && !WB().pending.size, 'a no does not give it back');
+      // Answered in the world (an answer gone by unseen, or this game's own sweep once it decides): it stays on it
+      WB().loadParked(o); const n2 = first(); d.claim[n2] = { ...d.claim[n2], ok: true };
+      game.time += 1; WB().update(0);
+      check(!C.held && !WB().pending.size, 'an answer in the world is not taken');
+      // Gone from the world unanswered (it never reached whoever decides): back; unanswered and there: it waits
+      C.set('log'); WB().loadParked(o); const n3 = first(); delete d.claim[n3]; game.time += 9; WB().update(0);
+      check(C.held === 'log' && !WB().pending.size, 'a request that never reached the host is lost');
+      WB().loadParked(o); game.time += 30; WB().update(0);
+      check(!C.held && WB().pending.size === 1, 'a timer gave it back');
+      WB().pending.clear(); delete d.claim;
+      // The host's own take: a guest's late change of its stacks goes into its record; on a chest placed there since, not
+      L.role = 'host'; pushIt(o);
+      check(WB().recent.get(kp)?.id === WB().rec?.id, 'the host\'s own take does not catch late changes');
+      const peer = { id: 'id-c2', at: [p().x, p().y] }, stacks = [{ id: 'tablas', n: 2 }, ...Array(11).fill(null)];
+      const late = WB().arbitrate(peer, k, [['chest', kp, stacks]]);
+      check(late.late.length === 1 && !late.rest.length, `a late change after the host's take: ${JSON.stringify(late)}`);
+      W.place(...o.tile, 'cofre');
+      const own = WB().arbitrate(peer, k, [['chest', kp, stacks]]);
+      check(!own.late.length && own.rest.length === 1, 'the change of a chest placed there since went into the record');
+      W.unplace({ tile: o.tile, layer: 'placed', placed: 'cofre' });
+      WB().park(true);
+      // A boat's load put on the shore with no land near: its parts to whoever asked, never drops at sea
+      const bid = W.moorBoat(p().x, p().y, 0, 'mmmm0001'), bx = Math.floor(p().x), by = Math.floor(p().y), db = dOf(bx, by), drops = game.gather.drops.length;
+      db.boatLoad = { [bid]: ['log', 'id-c7', null, p().x, p().y, 'mmmm0001'] };
+      db.claim = { s1: { by: 'id-c8', k: 'boat', boat: bid, n: 'mmmm0001', to: 'shore', at: W.clock || 0 } };
+      const cp = W.canPlace; W.canPlace = () => false;
+      try { WB().resolve(ckey(bx, by), 's1'); } finally { W.canPlace = cp; delete W.canPlace; }
+      check(db.claim.s1.ok === true && db.claim.s1.parts && game.gather.drops.length === drops && !db.boatLoad[bid], `no land: ${JSON.stringify(db.claim.s1)}`);
+      delete db.claim;
+    } finally {
+      L.joined = was.joined; L.role = was.role; delete L.flush; delete WB().hostOld; WB().pending.clear(); letGo();
+      for (const b of W.boatsNear(tx + 0.5, ty + 3.5, 8)) W.unmoorBoat(b);
+      for (let i = 0; i < 3; i++) { const z = parkedNear(tx + 0.5, ty + 0.5, 10); if (z) W.setTile(...z.tile, 'air'); }
+      const cf = near('cofre', tx + 0.5, ty + 0.5, 2); if (cf) W.unplace(cf);
+    }
+  });
+  await test('carretilla invitado (wheelbarrow guest start): joining as a guest with an old record of yours does not park it locally; the host does', async () => {
+    await weightOn();
+    const [tx, ty] = openGround(); await goTo(game, tx + 0.5, ty + 3.5);
+    const L = game.live, was = { joined: L.joined, role: L.role }, d = dOf(tx, ty), k = ckey(tx, ty);
+    (d.pushed ||= {}).mine0001 = { by: meId(), x: tx + 0.5, y: ty + 0.5, c: [], l: [], t: 0 };
+    try {
+      L.joined = true; L.role = 'guest'; WB().started = false; WB().update(1 / 60);
+      check(d.pushed.mine0001, 'a guest parked it locally');
+      L.joined = was.joined; L.role = was.role; WB().started = false; WB().update(1 / 60);
+      check(!d.pushed.mine0001 && parkedNear(tx + 0.5, ty + 0.5, 4), 'whoever decides did not park it');
+    } finally { L.joined = was.joined; L.role = was.role; delete d.pushed.mine0001; const z = parkedNear(tx + 0.5, ty + 0.5, 6); if (z) w().setTile(...z.tile, 'air'); }
+    void k;
+  });
+  await test('carretilla servidor (wheelbarrow server): the headless world with the slot inventory parks a gone player\'s record', async () => {
+    await weightOn();
+    const [tx, ty] = openGround(); await goTo(game, tx + 0.5, ty + 3.5);
+    const srv = new Barrow({ world: w(), scene: w(), player: null, carry: game.carry, gather: game.gather, live: { joined: true, role: 'host', peers: new Map(), others: [] }, time: game.time, inv: new Inventory() });
+    const d = dOf(tx, ty), k = ckey(tx, ty);
+    (d.pushed ||= {}).srv00001 = { by: 'id-far', x: tx + 0.5, y: ty + 0.5, c: [], l: [], t: 0 };
+    try {
+      srv.peerGone('id-far', [tx + 0.5, ty + 0.5]); check(!d.pushed.srv00001 && parkedNear(tx + 0.5, ty + 0.5, 4), 'the server did not park it');
+      const z = parkedNear(tx + 0.5, ty + 0.5, 4); w().place(tx + 2, ty + 2, 'log');
+      (d.pushed ||= {}).srv00002 = { by: 'id-far', x: tx + 0.5, y: ty + 0.5, c: [], l: [], t: 0 };
+      d.claim = { s1: { by: 'id-far', k: 'load', rec: 'srv00002', tile: [tx + 2, ty + 2], id: 'log', at: w().clock || 0 } };
+      srv.resolve(k, 's1'); check(d.claim.s1.ok === true && d.pushed.srv00002.l.length === 1, 'the server does not resolve');
+      w().setTile(...z.tile, 'air');
+    } finally { delete d.pushed.srv00001; delete d.pushed.srv00002; delete d.claim; const z = parkedNear(tx + 0.5, ty + 0.5, 6); if (z) w().setTile(...z.tile, 'air'); }
+  });
+  await test('carretilla casillas (wheelbarrow slots): with ?inventario=casillas the hands are busy and it is slowed; carretilla creativo: full speed and running', async () => {
+    const S = new Inventory(); S.add('hacha_hierro', 1);
+    const P = { face: { x: 1, y: 0 } }, bw = { pushing: 'wheelbarrow' };
+    const C = new Carry({ inv: S, gamemode: 'survival', player: P, barrow: bw, gather: { float() {} } });
+    C.syncArms();
+    check(!S.held && S.armsFull && P.armsBusy === 'push' && P.pushing === 'wheelbarrow', 'with the slots the hands are not busy');
+    check(Math.abs(C.speedMul() - BARROW.SLOW) < 1e-6 && C.noRun(), `with the slots: ${C.speedMul()}`);
+    bw.pushing = null; C.syncArms(); check(S.held?.id === 'hacha_hierro' && !S.armsFull && !P.armsBusy, 'parked, the axe is not back');
+    bw.pushing = 'wheelbarrow'; const K = new Carry({ inv: S, gamemode: 'creative', player: P, barrow: bw, gather: { float() {} } });
+    check(K.speedMul() === 1 && !K.noRun(), `creative: ${K.speedMul()} ${K.noRun()}`);
+  });
+  await test('caballo con bulto (horse bundle): mount with a log, not slowed, the hands free, the log rides on the horse; off, back in the arms; Q drops it beside the horse; not off in deep water; pushing refuses mounting', async () => {
+    await weightOn();
+    const [tx, ty] = openGround(); await goTo(game, tx + 0.5, ty + 0.5);
+    const C = game.carry, R = game.ranch, horse = () => ({ id: 'hx', breed: 'alazan', x: p().x, y: p().y });
+    try {
+      selectTool(game, 'hacha');
+      C.set('log');
+      R.mount(horse()); check(p().mount && C.held === 'log', 'not mounted with a log');
+      check(C.speedMul() === 1 && !C.noRun() && inv().held?.id?.startsWith('hacha') && !p().armsBusy && p().carrying === 'log' && C.state() === 'log' && C.viewKey() === null, `riding: ${C.speedMul()} ${inv().held?.id} ${p().armsBusy}`);
+      check(C.hint()?.text === t('carry.tip_ride', { item: noun('item', 'log') }), `the hint: ${C.hint()?.text}`);
+      const wd = w().waterDepth; w().waterDepth = () => 1.5;
+      try { R.dismount(); check(p().mount && C.held === 'log', 'got off into deep water with it'); } finally { w().waterDepth = wd; delete w().waterDepth; }
+      R.dismount(); check(!p().mount && C.held === 'log' && p().armsBusy === 'shoulder' && !inv().held, 'off, not back in the arms');
+      R.mount(horse()); p().face = { x: 1, y: 0 };
+      check(C.drop() && !C.held && near('log', p().x, p().y, 2), 'Q riding did not put it beside the horse');
+      const lg = near('log', p().x, p().y, 2); check(Math.floor(lg.x) !== Math.floor(p().x) || Math.floor(lg.y) !== Math.floor(p().y), 'under the horse'); w().unplace(lg);
+      R.dismount();
+      // Pushing the wheelbarrow, no
+      const o = placeBarrow(tx, ty + 2); pushIt(o);   // (inside openGround's free square: its wheel clear of what grows past it)
+      R.mount(horse()); check(!p().mount, 'mounted pushing the wheelbarrow');
+    } finally { if (p().mount) R.dismount(); letGo(); const z = parkedNear(tx + 0.5, ty + 2.5, 5); if (z) w().setTile(...z.tile, 'air'); }
+  });
+  await test('barca con bulto (boat bundle): board with a log, off with it; diving leaves it in the moored boat; the owner gets it back, the partner puts it on the shore, others cannot board; dying in the boat moors it', async () => {
+    await weightOn();
+    const [tx, ty] = openGround(); await goTo(game, tx + 0.5, ty + 0.5);
+    const C = game.carry, Cr = game.crew, W = w(), boat = () => W.boatsNear(p().x, p().y, 3)[0], F = game.family, kids = F.v.kids;
+    const reset = () => { for (const b of W.boatsNear(tx + 0.5, ty + 0.5, 6)) W.unmoorBoat(b); };
+    try {
+      W.moorBoat(p().x, p().y, 0); C.set('log');
+      Cr.embark(boat()); check(p().boat && C.held === 'log' && !p().armsBusy && C.viewKey() === 'bow:log', 'not boarded with a log');
+      Cr.disembark([p().x, p().y + 1]); check(!p().boat && C.held === 'log' && p().armsBusy === 'shoulder', 'off, not back in the arms');
+      // Diving: it stays in the moored boat, with the same mark in both
+      Cr.embark(boat()); Cr.dive(); const b = boat(), d = dOf(Math.floor(b.x), Math.floor(b.y));
+      check(!C.held && d.boatLoad?.[b.id]?.[0] === 'log' && d.boatLoad[b.id][5] === d.boats[b.id][3] && b.load === 'log' && b.key.endsWith(':log'), `diving: ${JSON.stringify(d.boatLoad)} ${b.key}`);
+      // Its owner: back to the arms
+      Object.assign(p(), { x: b.x, y: b.y + 1, swim: false });
+      Cr.embark(b); check(p().boat && C.held === 'log' && !d.boatLoad[b.id], 'the owner does not get it back');
+      Cr.dive();
+      // Someone else's: no boarding nor taking apart; the partner's: on the shore, for its owner
+      const b2 = boat(); dOf(Math.floor(b2.x), Math.floor(b2.y)).boatLoad[b2.id][1] = 'id-other';
+      Cr.embark(b2); check(!p().boat && boat()?.id === b2.id, 'boarded someone else\'s');
+      Cr.dismantle(b2); check(boat()?.id === b2.id, 'took apart someone else\'s');
+      F.v.kids = [...kids, { id: 'kid-x', parents: [meId(), 'id-other'] }];
+      try { check(game.social.isPartnerId('id-other'), 'the partner by their child is not known'); Cr.embark(b2); } finally { F.v.kids = kids; }
+      const sh = near('log', b2.x, b2.y, 8);
+      check(p().boat && !C.held && sh && C.picks(sh.tile, false)?.[`${sh.tile}`]?.[0] === 'id-other', 'the partner\'s boarding does not leave it on the shore for its owner');
+      W.unplace(sh); Cr.disembark([p().x, p().y + 1]);
+      // Taking it apart: on the shore; with no land near: its parts
+      C.set('log'); Cr.embark(boat()); Cr.dive(); Cr.dismantle(boat()); const sh2 = near('log', p().x, p().y, 8); check(sh2 && !boat(), 'taken apart, it is lost'); W.unplace(sh2);
+      W.moorBoat(p().x, p().y, 0); C.set('log'); Cr.embark(boat()); Cr.dive();
+      const cp = W.canPlace, wood = inv().count('madera'); W.canPlace = () => false;
+      try { Cr.dismantle(boat()); check(inv().count('madera') === wood + 4, 'no land near: not its parts'); } finally { W.canPlace = cp; delete W.canPlace; }
+      // Dying while rowing: moored with it inside; with keep, moored and still in the arms
+      W.moorBoat(p().x, p().y, 0); C.set('log'); Cr.embark(boat());
+      Cr.onDeath(false); const b3 = boat(), d3 = dOf(Math.floor(b3.x), Math.floor(b3.y)); check(!p().boat && !C.held && d3.boatLoad?.[b3.id]?.[0] === 'log', 'dying: the boat or the log is lost');
+      Object.assign(p(), { x: b3.x, y: b3.y + 1 }); Cr.embark(b3); check(C.held === 'log', 'not back'); Cr.onDeath(true); check(!p().boat && C.held === 'log' && boat(), 'dying with keep');
+      // Orphans (no boat, or another mark) and two requests for one: to the shore; only one ok
+      const b4 = boat(), d4 = dOf(Math.floor(b4.x), Math.floor(b4.y)); C.set(null);
+      d4.boatLoad = { [b4.id]: ['log', meId(), null, b4.x, b4.y, 'zzzz9999'], gone0001: ['carcass_deer', meId(), C.today(), b4.x, b4.y, 'yyyy8888'] };
+      WB().sweep([ckey(Math.floor(b4.x), Math.floor(b4.y))]); check(!Object.keys(d4.boatLoad).length && near('log', b4.x, b4.y, 9) && near('carcass_deer', b4.x, b4.y, 9), 'orphans are lost');
+      for (const id of ['log', 'carcass_deer']) { const q = near(id, b4.x, b4.y, 9); if (q) W.unplace(q); }
+      W.unmoorBoat(b4); const bid = W.moorBoat(p().x, p().y, 0, 'nnnn0001'), k5 = ckey(Math.floor(p().x), Math.floor(p().y)), d5 = dOf(Math.floor(p().x), Math.floor(p().y));
+      d5.boatLoad = { [bid]: ['log', 'id-c7', null, p().x, p().y, 'nnnn0001'] };
+      d5.claim = { b1: { by: 'id-c7', k: 'boat', boat: bid, n: 'nnnn0001', to: 'arms', at: W.clock || 0 }, b2: { by: 'id-c7', k: 'boat', boat: bid, n: 'nnnn0001', to: 'arms', at: W.clock || 0 } };
+      WB().resolve(k5, 'b1'); WB().resolve(k5, 'b2'); check(d5.claim.b1.ok === true && d5.claim.b2.ok === false && d5.claim.b1.id === 'log', `two boat requests: ${JSON.stringify(d5.claim)}`);
+      delete d5.claim;
+    } finally { F.v.kids = kids; if (p().boat) p().boat = false; C.set(null); reset(); const q = near('log', tx + 0.5, ty + 0.5, 9); if (q) W.unplace(q); }
+  });
+  await test('cuevas con bulto (cave bundle): a bundle in the arms still goes down into caves; the wheelbarrow does not', async () => {
+    await weightOn();
+    const [tx, ty] = openGround(); await goTo(game, tx + 0.5, ty + 3.5);
+    const C = game.carry, poi = { id: 1, x: p().x, y: p().y, snow: false };
+    const o = placeBarrow(tx, ty);
+    try {
+      pushIt(o); await game.places.enterCave(poi, 1); check(game.scene === w() && WB().pushing, 'down a cave pushing the wheelbarrow');
+      WB().park(true);
+      C.set('log'); check(!C.refuse('cave'), 'a log refuses caves');
+      await game.places.enterCave(poi, 1); check(game.scene !== w() && C.held === 'log', 'a log does not go down a cave');
+      await game.places.climb(game.scene, -1); check(game.scene === w(), 'not out of the cave');
+    } finally { if (game.scene !== w()) await game.goTo(w(), tx + 0.5, ty + 3.5, { inside: false }); C.set(null); letGo(); const z = parkedNear(tx + 0.5, ty + 0.5, 6); if (z) w().setTile(...z.tile, 'air'); }
+  });
+  await test('carretilla coste (wheelbarrow cost): pushing costs less than 0.5 ms per frame', async () => {
+    await weightOn();
+    const H = game.houseRect(); await goTo(game, (H.x0 + H.x1) / 2, H.y1 + 1.5);   // (by your house: walls, the fence of the garden)
+    const live = game.live, ents = live.entities, N = 600;
+    const P = new Player({ name: 'x', x: p().x, y: p().y, look: {} }); P.pushing = 'wheelbarrow'; P.face = { ...p().face };
+    try {
+      for (let k = 0; k < 4; k++) { live.receive('w' + k, { t: 'hi', id: 'id-w' + k, name: 'w' + k, playing: true, look: LOOK, v: GAME_VERSION }); live.receive('w' + k, { t: 'st', sc: 'world', x: p().x + 1 + k, y: p().y + 1, yaw: 0, ca: 'wheelbarrow:log,log:f' }); }
+      live.entities = sc => (sc === game.world ? live.others.filter(o => o.entity).map(o => o.entity) : null);
+      draw(); draw();
+      const keysW = [{ up: true }, { up: true, left: true }, { down: true }, { right: true }];
+      let t0 = performance.now();
+      for (let i = 0; i < N; i++) { P.update(1 / 60, keysW[(i >> 6) & 3], w()); WB().update(1 / 60); }
+      const logic = (performance.now() - t0) / N;
+      const Ps = [...live.others].map(o => game.view3d.actors.models.get(o.entity)?.person).filter(Boolean);
+      t0 = performance.now();
+      for (let i = 0; i < N; i++) for (const Q of Ps) (C3.pushPose || C3.holdPose)(Q, 'shoulder');
+      const pose = (performance.now() - t0) / N;
+      console.log(`carretilla coste: ${(logic * 1000).toFixed(1)} µs logic, ${(pose * 1000).toFixed(1)} µs pose of ${Ps.length}`);
+      check(logic + pose < 0.5, `${logic.toFixed(3)} + ${pose.toFixed(3)} ms`);
+      tell('carretilla coste: medida', true, `${(logic * 1000).toFixed(1)} µs/frame logic, ${(pose * 1000).toFixed(1)} µs pose ×${Ps.length}`);
+    } finally { live.entities = ents; for (let k = 0; k < 4; k++) live.peers.delete('w' + k); draw(); }
   });
   await test('peso y en brazos, fin (weight end): a save played with the weight inventory opens with ?inventario=casillas without losing anything, and back', async () => {
     const W = JSON.stringify(game.snapshot()), D = JSON.stringify([...game.world.deltas]), was = Carry.force;

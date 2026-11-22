@@ -77,3 +77,51 @@ export function weightOf(id) {
 const NEW = {};
 for (const id of Object.keys(BULKY)) NEW[id] = ITEMS[id] = { name: id, desc: '', place: 'furniture', stack: 1, bulky: true, hide: true };
 defineNames(NEW, 'item');
+
+// ---------- the wheelbarrow (barrow.js; docs/planes/gta/PLAN-C2-fase2.md) ----------
+// One geometry for everything that needs it: the movement, parking, doors, and the drawing (three/models.js, carry3d.js).
+// Model space (metres): the origin is the centre of its footprint, on the ground; the wheel towards +z, the grips towards −z.
+// STACKS: what its chest holds; LOADS: the big things on it; SLOW: the speed pushing it (survival); DEEP: the water it does
+// not go into; TURN: how fast it turns (rad/s)
+export const BARROW = {
+  ID: 'wheelbarrow', STACKS: 12, LOADS: 3, SLOW: 0.85, DEEP: 0.5, TURN: 3.0,
+  LEN: 1.45, WIDTH: 0.62,          // the footprint box: x ∈ [−0.31, 0.31], z ∈ [−0.725, 0.725]
+  WHEEL_Z: 0.55, WHEEL_R: 0.17,    // the wheel's axle (z) and radius
+  GRIP_Z: -0.725, GRIP_X: 0.27,    // the grips' ends (±x)
+  GRIP_Y: 0.42,                    // the grips' height when parked (resting on the wheel and the legs)
+  GRIP_AHEAD: 0.35,                // pushed: the grips this far ahead of the pusher's centre (out of the body's 0.28)
+  GRIP_H: 0.8,                     // pushed: the grips lifted to this height (the hands'), turned round the axle
+};
+// Parked by its pusher: the model's origin this far ahead (its grips where the hands were, GRIP_AHEAD)
+export const CENTER_AHEAD = BARROW.GRIP_AHEAD - BARROW.GRIP_Z;   // 1.075
+// Pushed, it is turned round the axle (the wheel on the ground) until the grips are at GRIP_H: LIFT is that turn. Lifted,
+// it is shorter on the ground than parked, so its footprint while pushed (entities.js) is where it is drawn (three/carry3d.js
+// does the same turn): pushedAhead(z, y) is how far ahead of the pusher a point of the model (z along it, y up) is then
+const LIFT_DY = BARROW.GRIP_Y - BARROW.WHEEL_R, LIFT_DZ = BARROW.WHEEL_Z - BARROW.GRIP_Z, LIFT_R = Math.hypot(LIFT_DY, LIFT_DZ);
+export const LIFT = Math.asin(Math.min(1, (BARROW.GRIP_H - BARROW.WHEEL_R) / LIFT_R)) - Math.atan2(LIFT_DY, LIFT_DZ);   // ~0.31 rad
+export const WHEEL_AHEAD = BARROW.GRIP_AHEAD + LIFT_R * Math.cos(LIFT + Math.atan2(LIFT_DY, LIFT_DZ));               // ~1.49: pushed, the axle ahead of the pusher
+export const pushedAhead = (z, y = BARROW.WHEEL_R) => WHEEL_AHEAD + (z - BARROW.WHEEL_Z) * Math.cos(LIFT) + (y - BARROW.WHEEL_R) * Math.sin(LIFT);
+// The key of its model, and of st.ca while pushing it: 'wheelbarrow' (empty), 'wheelbarrow:<ids, sorted, with commas>' (with
+// big things on it), 'wheelbarrow:<ids>:f' or 'wheelbarrow::f' (with stacks in it): 'wheelbarrow:log,log',
+// 'wheelbarrow:carcass_deer,log:f'. Each id one of BULKY, LOADS at most
+export function barrowKey(ids = [], full = false) {
+  const list = (ids || []).filter(id => typeof id === 'string' && BULKY[id]).slice(0, BARROW.LOADS).sort();
+  if (!list.length && !full) return BARROW.ID;
+  return `${BARROW.ID}:${list.join(',')}${full ? ':f' : ''}`;
+}
+// → { ids, full } or null (not a wheelbarrow's key, or an id that is not a big thing, or more than LOADS)
+export function parseBarrowKey(key) {
+  if (typeof key !== 'string' || key.length > 120) return null;
+  const [kind, list = '', flag, more] = key.split(':');
+  if (kind !== BARROW.ID || more !== undefined || (flag !== undefined && flag !== 'f')) return null;
+  const ids = list ? list.split(',') : [];
+  if (ids.length > BARROW.LOADS || ids.some(id => !BULKY[id])) return null;
+  return { ids, full: flag === 'f' };
+}
+// What comes from the network: always a valid key (the plain wheelbarrow if it cannot be read)
+export function cleanBarrowKey(key) {
+  const k = parseBarrowKey(key);
+  return k ? barrowKey(k.ids, k.full) : BARROW.ID;
+}
+// 8 letters at random: a wheelbarrow's id, the mark of a big thing left in a boat, a request (barrow.js)
+export const randomId = () => { let s = ''; for (let i = 0; i < 8; i++) s += 'abcdefghijklmnopqrstuvwxyz0123456789'[Math.floor(Math.random() * 36)]; return s; };

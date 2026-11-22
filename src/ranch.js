@@ -19,6 +19,8 @@ import { toView, fromView } from './iso.js';
 import { Audio } from './audio.js';
 import { hud } from './ui/hud.js';
 import { Profile } from './accounts.js';
+import { SWIM_IN } from './entities.js';
+import { t as tr, noun } from './i18n.js';
 
 const PER_HOME = { gallinero: 4, establo: 4, conejera: 4, cuadra: 2, caseta: 1, cojin: 1 };
 const FRONT = { gallinero: 2.15, establo: 2.25 };   // las casas grandes: del centro a donde se entra (delante de la puerta)
@@ -928,16 +930,20 @@ export class Ranch {
     hud.toast(home ? `${name} vive en tu cuadra. Úsalo con el silbato: cepíllalo y dale zanahorias y correrá más.` : `${name} ya es tuyo. Hazle una cuadra en el banco para que tenga dónde dormir.`, 'good');
   }
   mount(a) {
-    if (this.game.carry?.refuse()) return;   // (with something in the arms: carry.js)
+    if (this.game.carry?.refuse('mount')) return;   // (pushing the wheelbarrow, no; with a big thing in the arms, yes: it rides behind the saddle, carry.js)
     const p = this.game.player;
     a.rider = me(); a.calling = false;
     Object.assign(p, { mount: true, horseId: a.id, horseCoat: a.breed, horseBags: !!a.bags, x: a.x, y: a.y });
+    this.game.carry?.syncArms();   // (the hands on the reins: the tool works)
     this.game.gather.cooldown = 0.4;
     Audio.neigh();
   }
   dismount() {
-    const p = this.game.player, a = this.animals.find(x => x.id === p.horseId) || this.myHorse();
+    const g = this.game, p = g.player, a = this.animals.find(x => x.id === p.horseId) || this.myHorse();
+    // (with a big thing behind the saddle, not into deep water: it comes back to the arms, and nobody swims with it)
+    if (g.carry?.held && this.world.waterDepth(p.x, p.y) >= SWIM_IN) { g.carry.say(tr('carry.no_dismount_water', { item: noun('item', g.carry.held) })); Audio.error(); return; }
     p.mount = false;
+    g.carry?.syncArms();
     this.game.gather.cooldown = 0.4;
     Audio.door();
     if (!a) return;

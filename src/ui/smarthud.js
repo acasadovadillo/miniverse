@@ -44,6 +44,8 @@ const TIPS = {
   hungry: {}, lowhp: { key: null },
   // (no code: E and Q are pressed for many other things, so only being shown makes them known)
   bulky: { key: 'E' }, arms: { key: 'Q' },
+  // (the wheelbarrow, barrow.js: parked within reach, then pushing it; a big thing on the horse or in the bow, carry.js)
+  barrow: { key: 'E' }, pushing: { key: 'Q' }, ride: { key: 'Q' }, bow: { key: null },
 };
 const KNOWN = ['bag', 'craft', 'build', 'journal', 'map'];   // (what a player past the first steps already knows)
 // Closing hours of the shops (hours past 24 are after midnight); the ones open all day never close
@@ -379,8 +381,13 @@ export class SmartHud {
     // A log or a carcass within reach, and then one in the arms (the weight inventory: carry.js), the first times: E, then Q
     const C = g.carry;
     if (C?.bigNow && T - this.started > 8) {
-      if (C.held) this.want('arms');
+      if (C.held) this.want(p.mount ? 'ride' : p.boat ? 'bow' : 'arms');
       else if (!this.seen.has('bulky') && (g.scene?.placedNear?.(p.x, p.y, 2.2) || []).some(o => BULKY[o.placed])) this.want('bulky');   // (four times a second, until it is known)
+    }
+    // A wheelbarrow within reach, and then pushing it (barrow.js), the first times: E, then Q
+    if (g.barrow && T - this.started > 8) {
+      if (g.barrow.pushing) this.want('pushing');
+      else if (!this.seen.has('barrow') && !C?.held && (g.scene?.placedNear?.(p.x, p.y, 2.2) || []).some(o => o.placed === 'wheelbarrow')) this.want('barrow');
     }
     // Leaving the village for the first time: the map
     if (g.scene === g.world && !g.indoors && !inBounds(p.x, p.y)) this.want('map');

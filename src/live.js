@@ -25,7 +25,7 @@ import { CHUNK } from './world/gen.js';
 import { wrapIndex, PLANET } from './world/planet.js';
 import { kitKey } from './kit.js';
 import { EMOTE_KINDS } from './social.js';
-import { BULKY } from './carry-items.js';
+import { BULKY, BARROW, cleanBarrowKey } from './carry-items.js';
 
 const SEND_EVERY = 0.1, IDLE_EVERY = 1;   // segundos entre mensajes de cómo va uno: moviéndose y quieto
 const SYNC_EVERY = 0.1;                   // cada cuánto se mandan los cambios del mundo
@@ -58,9 +58,13 @@ class RemotePlayer extends Person {
     this.swim = !!st.na; this.sinkTo = st.na ? st.hu || 0 : 0;   // (nadando, y lo que se hunde o se asoma)
     // (kt: the tools they carry, seen on their body: see kit.js. A game from before does not send it: none)
     this.kitKey = typeof st.kt === 'string' ? st.kt.slice(0, 160) : '';
-    // (ca: what their arms carry, a log or a carcass: carry.js. Only sent while carrying; an older game sends nothing)
-    this.carrying = typeof st.ca === 'string' && BULKY[st.ca] ? st.ca : null;
-    this.armsBusy = this.carrying ? BULKY[this.carrying].hold : null;
+    // (ca: what their arms carry, a log or a carcass: carry.js; or the wheelbarrow they push, its model key: barrow.js. Only
+    // sent while carrying; an older game sends nothing. Riding or rowing, the big thing goes on the horse or in the bow: the
+    // arms are free)
+    const ca = typeof st.ca === 'string' ? st.ca.slice(0, 120) : null;
+    this.pushing = ca && ca.startsWith(BARROW.ID) ? cleanBarrowKey(ca) : null;
+    this.carrying = !this.pushing && ca && BULKY[ca] ? ca : null;
+    this.armsBusy = this.pushing ? 'push' : this.carrying && !this.mount && !this.boat ? BULKY[this.carrying].hold : null;
     // (em, ek: their gestures, social.js. A new count is a new gesture; the first one that arrives is only noted, so
     // coming in does not replay an old gesture. It is always sent, 0 before the first one, so the first gesture of a
     // session is seen too. A game from before sends neither)
@@ -218,7 +222,7 @@ export class Live {
   hi(to = null, ask = false) {
     const g = this.game;
     const look = g.player ? g.appearance() : null;
-    this.net?.send({ t: 'hi', id: Profile.id, name: g.player?.name || Profile.name, host: this.joined && this.role === 'host' && !!g.player, admin: Profile.admin, server: !!Profile.server, playing: this.joined && !!g.player, look, ask, v: GAME_VERSION, perItem: 1 }, to);   // (perItem: entiende lo de todos por elementos)
+    this.net?.send({ t: 'hi', id: Profile.id, name: g.player?.name || Profile.name, host: this.joined && this.role === 'host' && !!g.player, admin: Profile.admin, server: !!Profile.server, playing: this.joined && !!g.player, look, ask, v: GAME_VERSION, perItem: 1, wb: 1 }, to);   // (perItem: entiende lo de todos por elementos; wb: knows the wheelbarrow, barrow.js)
     this.lastLook = look; this.lastLookJson = JSON.stringify(look);
   }
   plain(conn, p) {
@@ -302,7 +306,8 @@ export class Live {
     let peer = this.peers.get(conn);
     if (m.t === 'hi') {
       const was = peer?.playing, wasHost = peer?.host;
-      peer = { ...peer, id: m.id, name: m.name, host: !!m.host, admin: !!m.admin, server: !!m.server && this.serverConns.has(conn), playing: !!m.playing, look: m.look, v: typeof m.v === 'string' ? m.v : '', perItem: !!m.perItem };
+      peer = { ...peer, id: m.id, name: m.name, host: !!m.host, admin: !!m.admin, server: !!m.server && this.serverConns.has(conn), playing: !!m.playing, look: m.look, v: typeof m.v === 'string' ? m.v : '', perItem: !!m.perItem, barrows: !!m.wb };
+      if (was && !peer.playing) this.gone(peer);   // (out to the menu: what they pushed is parked where they were, barrow.js)
       if (!peer.playing) this.hide(peer);
       this.peers.set(conn, peer);
       if (peer.entity && m.look) peer.entity.look = m.look;
@@ -337,7 +342,7 @@ export class Live {
     switch (m.t) {
       case 'st':
         if (!peer.playing) { peer.playing = true; this.changed(); }
-        if (!m.sc) { this.hide(peer); return; }
+        if (!m.sc) { if (peer.sc === 'world') this.gone(peer); this.hide(peer); return; }   // (out of the world: to the menu, or into a cave)
         if (m.sc === 'world') peer.at = [m.x, m.y];   // (para saber qué puede tocar)
         if (!peer.entity && peer.look) peer.entity = new RemotePlayer(peer);
         peer.entity?.apply(m);
@@ -358,6 +363,7 @@ export class Live {
         break;
       case 'bye':
         if (this.joined && peer.playing && g.player && !peer.server) hud.toast(`${peer.name} ha salido`);
+        this.gone(peer);
         peer.playing = false;
         this.hide(peer);
         if (peer.host) { peer.host = false; this.hostGone(); }
@@ -368,7 +374,14 @@ export class Live {
       case 'world': if (this.wanted && peer.host) { clearTimeout(this.wanted.timer); this.wanted.resolve(m); this.wanted = null; } break;
       case 'w':
         if (fromHost) this.applyChunk(m.c, m.ops);
-        else if (this.takes(peer)) { if (!peer.old && this.mayEdit(peer, m.c)) this.applyChunk(m.c, m.ops); else this.refuse(conn, peer, m.c, m.ops); }
+        else if (this.takes(peer) && Array.isArray(m.ops)) {
+          // (the wheelbarrow's fields are arbitrated apart, also far from where the guest is: barrow.js arbitrate)
+          const edit = !peer.old && this.mayEdit(peer, m.c), B = !peer.old ? g.barrow : null, A = B ? B.arbitrate(peer, m.c, m.ops, edit) : null;
+          const rest = A ? A.rest : m.ops, mine = A ? A.ok : [];
+          if (edit) { if (rest.length || mine.length) this.applyChunk(m.c, [...rest, ...mine]); }
+          else { if (mine.length) this.applyChunk(m.c, mine); if (rest.length) this.refuse(conn, peer, m.c, rest); }
+          if (A) { if (A.back.length) this.net.send({ t: 'w', c: m.c, ops: A.back }, conn); B.afterArbitrate(m.c, A, peer); }
+        }
         break;
       case 's':
         if (!BLOBS[m.name]) { this.unknownBlob(peer, m, fromHost); break; }
@@ -547,11 +560,14 @@ export class Live {
     this.say?.(text, 'sys');
   }
   hide(peer) { peer.entity = null; peer.sc = null; }
+  // A player leaves the world (bye, cut off, the menu, a cave): the wheelbarrow they pushed is parked where they were
+  gone(peer) { try { if (this.joined && peer?.id) this.game.barrow?.peerGone(peer.id, peer.at || null); } catch (e) { console.warn(e); } }
   drop(conn, gone = false) {
     const peer = this.peers.get(conn);
     if (!peer) return;
     if (gone) {
       if (this.joined && peer.playing && this.game.player && !peer.server) hud.toast(`${peer.name} se ha desconectado`);
+      this.gone(peer);
       this.peers.delete(conn);
       if (peer.host) this.hostGone();
       this.changed();
@@ -731,8 +747,13 @@ export class Live {
     const w = this.game.world, [cx, cy] = k.split(',').map(Number);
     applyOps(w.delta(cx, cy, true), ops);
     if (this.guest) { const s = this.synced.get(k) || {}; applyOps(s, ops); this.synced.set(k, s); }
-    w.touch(cx, cy);
-    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (dx || dy) w.merged.delete(`${cx + dx},${cy + dy}`);   // (tejados y vallas miran a sus vecinas)
+    // (only a pushed wheelbarrow's record or a request: nothing new to draw, the chunks are not made again; barrow.js)
+    if (ops.length && ops.every(([f]) => f === 'pushed' || f === 'claim')) w.note(cx, cy);
+    else {
+      w.touch(cx, cy);
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (dx || dy) w.merged.delete(`${cx + dx},${cy + dy}`);   // (tejados y vallas miran a sus vecinas)
+    }
+    if (this.guest) try { this.game.barrow?.onHostOps(k, ops); } catch (e) { console.warn(e); }   // (is the wheelbarrow still yours? a request answered)
   }
 
   // ---------- lo de todos, elemento a elemento ----------

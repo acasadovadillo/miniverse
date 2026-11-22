@@ -11,6 +11,7 @@ import { Profile } from './accounts.js';
 import { hud } from './ui/hud.js';
 import { Audio } from './audio.js';
 import { BUILDABLE } from './buildables.js';
+import { randomId } from './carry-items.js';
 
 const REACH = 2.6, BEHIND = 0.7;   // desde dónde se sube y a qué distancia del que rema se va sentado
 
@@ -85,10 +86,16 @@ export class Crew {
     return { text: 'Bajar a tierra', run: () => this.disembark(spot) };
   }
   // Lejos de tierra: al agua, por la borda (a un lado), y la barca se queda amarrada donde está (se vuelve a ella nadando)
+  // (rowing with a big thing in the bow: it stays in the moored boat, with its mark, d.boatLoad: carry.js toBoat)
   dive() {
     const g = this.game, p = this.p, yaw = this.turn(p), sx = Math.cos(yaw), sy = -Math.sin(yaw);
     if (p.aboard) p.aboard = null;
-    else { p.boat = false; g.world.moorBoat(p.x, p.y, yaw); }
+    else {
+      const n = g.carry?.held ? randomId() : undefined, id = g.world.moorBoat(p.x, p.y, yaw, n);
+      p.boat = false;
+      if (n) g.carry.toBoat(id, n, p.x, p.y);
+      g.carry?.syncArms();
+    }
     p.x += sx * 1.6; p.y += sy * 1.6; p.vx = p.vy = 0;   // (más allá de los remos)
     // (cae desde la borda: los pies, algo por encima del agua, y la altura va sobre el fondo; ver entities.js, inWater)
     p.depth = g.world.waterDepth(p.x, p.y); p.z = p.depth + 0.3; p.vz = 0.5;
@@ -98,25 +105,45 @@ export class Crew {
     const g = this.game, p = this.p, at = [p.x, p.y], yaw = this.turn(p);
     p.boat = false; [p.x, p.y] = spot; p.vx = p.vy = 0;
     if (!this.hasMate()) g.world.moorBoat(at[0], at[1], yaw);   // (con pasajero, se la queda él: ver leave)
+    g.carry?.syncArms();   // (a big thing in the bow: back to the arms)
     Audio.door();
     g.onSave?.();
   }
+  // (with a big thing in the arms, yes: it goes in the bow; pushing the wheelbarrow, no. A boat with someone else's big thing
+  // in it is boarded only by them or their partner: carry.js boatGuard, fromBoat)
   embark(b) {
     const g = this.game, p = this.p;
-    if (g.carry?.refuse()) return;   // (with something in the arms: carry.js)
+    if (g.carry?.refuse('boat') || g.carry?.boatGuard(b)) return;
+    const load = g.carry?.loadOf(b);
     if (!g.world.unmoorBoat(b)) return;   // (se la ha llevado otro)
     Object.assign(p, { boat: true, x: b.x, y: b.y, vx: 0, vy: 0, z: 0, vz: 0, crouch: false, wading: false });
+    if (load) g.carry.fromBoat(b, false, load);
+    g.carry?.syncArms();
     Audio.door();
     g.onSave?.();
   }
   dismantle(b) {
     const g = this.game;
+    if (g.carry?.boatGuard(b)) return;
+    const load = g.carry?.loadOf(b);
     if (!g.world.unmoorBoat(b)) return;
+    if (load) g.carry.fromBoat(b, true, load);   // (its big thing, on the shore: never lost)
     for (const [m, n] of BUILDABLE.barca?.cost || []) { const left = g.inv.add(m, n); if (left) g.gather.throwOut(m, left); }
     Audio.pickup();
     g.onSave?.();
   }
-  mooredAction(b) { return { text: this.game.carry?.dropFirst() || 'Subir a la barca', run: () => this.embark(b), alt: { text: 'Desmontar la barca', run: () => this.dismantle(b) } }; }
+  mooredAction(b) { const C = this.game.carry; return { text: C?.dropFirst('boat') || C?.boatGuardText(b) || 'Subir a la barca', run: () => this.embark(b), alt: { text: 'Desmontar la barca', run: () => this.dismantle(b) } }; }
+  // Dying while rowing (combat.js, before keepInventory is looked at): the boat stays moored where you are (it used to be
+  // lost). Without keep, a big thing stays in it (not into the water); with keep, it stays in your arms
+  onDeath(keep) {
+    const g = this.game, p = this.p;
+    if (!p?.boat || p.aboard || g.scene !== g.world) return;
+    if (this.hasMate()) { p.boat = false; return; }   // (the passenger gets it: see leave)
+    const n = !keep && g.carry?.held ? randomId() : undefined, id = g.world.moorBoat(p.x, p.y, this.turn(p), n);
+    p.boat = false;
+    if (n) g.carry.toBoat(id, n, p.x, p.y, true);
+    g.carry?.syncArms();
+  }
   canRow(p, scene) { return scene === this.game.world && !p.boat && !p.mount && !p.aboard && !p.inside; }
   // Lo que hace E en la barca de otro
   action() {

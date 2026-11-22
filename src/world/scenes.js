@@ -10,7 +10,8 @@ import { B, BIOMES, WATER_Y } from './biomes.js';
 import { ITEMS, CHESTS, modernSlots } from '../items.js';
 import '../buildables.js';   // (LEGACY_ITEMS con los muebles: también en el servidor)
 import { extraTiles, LONG, BED_BACK, HEARTH_BACK, GLOW, LIGHT, front, SIDE, rugRect, RUG_SIZES, TABLE_SIZES, TABLES, TUCK } from '../art/stations.js';
-import { solidsOf, hull, placeBoxes, bounds, aabb, sat, hitsCircle, distTo, obb, dirOf, sideOf } from './fit.js';
+import { solidsOf, hull, placeBoxes, bounds, aabb, sat, hitsCircle, distTo, obb, dirOf, sideOf, SOLIDS } from './fit.js';
+import { BARROW, BULKY, barrowKey, randomId } from '../carry-items.js';
 import { wallRuns, WINDOW_Z, T } from '../art/build.js';
 import { PIECES, layerOf, parsePlaced, fenceReach } from '../pieces.js';
 import { Person } from '../entities.js';
@@ -58,6 +59,10 @@ const digSigOf = d => (d?.dig ? Object.entries(d.dig).map(([k, h]) => k + ':' + 
 const FLOOD_MIN = 0.01, FLOOD_REACH = 256, FLOOD_MAX = 4096;
 // Lo que sale el casco de la barca de su centro (actors.js, boatModel: 1,15 a proa; ver boatFits)
 const BOAT_HULL = 1.15;
+// The wheelbarrow's boxes (barrow.js): always the empty one's, whatever it carries (three/models.js gives them; until it does,
+// its footprint as one box)
+const BARROW_BOX = [[-BARROW.WIDTH / 2, 0, -BARROW.LEN / 2, BARROW.WIDTH / 2, 0.7, BARROW.LEN / 2]];
+export const barrowSolids = () => SOLIDS.of?.(BARROW.ID) || BARROW_BOX;
 // La clave de una casilla del planeta (un número: el mapa del agua se mira en cada paso de cada uno)
 const fkey = (tx, ty) => (wrapX(tx) + HALF) * PLANET_H + (ty - NORTH);
 function shifted(v, off) {
@@ -194,7 +199,7 @@ function freeObject(o, id, rot, [x, y, a], { colliders, lights, solids }) {
   if (LIGHT[id] && !o.off) { const [lx, ly, lz, lr] = LIGHT[id]; lights.push({ x: x + ux * lx + vx * ly, y: y + uy * lx + vy * ly, z: lz, r: lr }); }
   if (LONG[id] === 'table') o.model = `mesa_grande:${TABLE_SIZES[(rot || 0) % TABLE_SIZES.length].join('x')}`;
   if (ITEMS[id].place === 'flat') return true;
-  const local = solidsOf(o.model || id), box = placeBoxes([hull(local)], x, y, a)[0];
+  const local = id === BARROW.ID ? barrowSolids() : solidsOf(o.model || id), box = placeBoxes([hull(local)], x, y, a)[0];
   o.obb = box;
   // (en el establo con la puerta abierta se entra: chocan sus paredes, no todo él; lo alto no molesta)
   if (id === 'establo' && o.model !== 'establo:shut') for (const s of placeBoxes(local.filter(l => l[1] < 1), x, y, a)) colliders.push({ ...bounds(s), obb: s, free: true });
@@ -483,10 +488,12 @@ export class Overworld {
   // ---------- barcas amarradas ----------
   // La barca se construye (B) en el agua, junto a la orilla, y se queda amarrada donde se deja al bajar a tierra: van
   // en el trozo (d.boats: id → [x, y, giro]), así las ve todo el mundo. Al subir, se quita de aquí y va con quien rema
-  moorBoat(x, y, yaw = 0) {
-    const cx = Math.floor(x / CHUNK), cy = Math.floor(y / CHUNK), d = this.delta(cx, cy, true);
-    (d.boats ||= {})[`${Math.round(x * 10)}_${Math.round(y * 10)}`] = [+x.toFixed(2), +y.toFixed(2), +(+yaw || 0).toFixed(2)];
+  // n: the mark of a big thing left in it (d.boatLoad, barrow.js and carry.js): only that one is this boat's. Its id, back
+  moorBoat(x, y, yaw = 0, n) {
+    const cx = Math.floor(x / CHUNK), cy = Math.floor(y / CHUNK), d = this.delta(cx, cy, true), id = `${Math.round(x * 10)}_${Math.round(y * 10)}`;
+    (d.boats ||= {})[id] = [+x.toFixed(2), +y.toFixed(2), +(+yaw || 0).toFixed(2), ...(n ? [n] : [])];
     this.touch(cx, cy);
+    return id;
   }
   unmoorBoat(b) {
     const cx = Math.floor(b.x / CHUNK), cy = Math.floor(b.y / CHUNK), d = this.delta(cx, cy);
@@ -693,7 +700,8 @@ export class Overworld {
     // (lo cavado y la tierra apilada: los animales y las criaturas no entran; los jugadores van aparte, por alturas: ver
     // digWalls. dig: no estorba al colocar nada)
     if (d?.dig) for (const t of Object.keys(d.dig)) { const c = t.indexOf(','), tx = +t.slice(0, c), ty = +t.slice(c + 1); colliders.push({ x0: tx, y0: ty, x1: tx + 1, y1: ty + 1, dig: true }); }
-    if (d?.boats) for (const [id, b] of Object.entries(d.boats)) if (Array.isArray(b)) objects.push({ boat: true, id, x: b[0], y: b[1], yaw: b[2] || 0, key: `boat:${id}:${b[2] || 0}` });   // (las barcas amarradas)
+    // (las barcas amarradas; load: the big thing left in its bow, if its mark is this boat's: d.boatLoad, carry.js)
+    if (d?.boats) for (const [id, b] of Object.entries(d.boats)) if (Array.isArray(b)) { const L = d.boatLoad?.[id], load = Array.isArray(L) && b[3] && L[5] === b[3] && BULKY[L[0]] ? L[0] : undefined; objects.push({ boat: true, id, x: b[0], y: b[1], yaw: b[2] || 0, load, key: `boat:${id}:${b[2] || 0}:${load || ''}` }); }
     const vb = this.village.built?.[key];
     if (vb) this.addBuilt(vb, out, true);
     for (const layer of this.layers) layer.add(cx, cy, d, out);
@@ -842,8 +850,10 @@ export class Overworld {
         if (LIGHT[id] && !o.off) { const [lx, ly, lz, lr] = LIGHT[id], [x, y] = at(lx, ly); lights.push({ x, y, z: lz, r: lr }); }
         const [[ax, ay], [bx, by]] = [at(-0.46, -0.44), at(0.46, 0.32)];
         colliders.push({ x0: Math.min(ax, bx), y0: Math.min(ay, by), x1: Math.max(ax, bx), y1: Math.max(ay, by), piece: true });
-      } else if (src.pos?.[o.key] || BIG_HOUSE.has(id) || wellSpec(id)) {   // (las casas grandes, aunque se pusieran por casillas antes de crecer, ocupan lo suyo; el pozo puesto con /setblock, sin sitio, va en el centro)
+      } else if (src.pos?.[o.key] || BIG_HOUSE.has(id) || wellSpec(id) || id === BARROW.ID) {   // (las casas grandes, aunque se pusieran por casillas antes de crecer, ocupan lo suyo; el pozo puesto con /setblock, sin sitio, va en el centro; the wheelbarrow is always free)
         o.off = this.lightOff(tx, ty);
+        // (the wheelbarrow draws what it carries: its big things and, with stacks in it, a heap. Its boxes stay the empty one's)
+        if (id === BARROW.ID) { const ids = (src.barrow?.[t]?.l || []).map(e => e?.[0]).filter(i => BULKY[i]), full = !!src.chest?.[t]?.some(Boolean); if (ids.length || full) o.model = barrowKey(ids, full); }
         if (BIG_HOUSE.has(id) && src.door?.[`${tx},${ty}`] === 0) o.model = `${id}:shut`;
         if (id === 'encimera' && !fixed) o.model = this.counterModel(tx, ty);
         const W = wellSpec(id), half = (W?.n || 1) / 2;
@@ -1020,6 +1030,8 @@ export class Overworld {
     (d[layer] ||= {})[`${tx},${ty}`] = rot ? `${id}@${rot}` : id;
     if (PIECES[id]?.kind === 'gate') (d.closed ||= {})[`${tx},${ty}`] = true;   // (la puerta de valla empieza cerrada: el cercado ya guarda)
     if (CHESTS[id]) d.chest[`${tx},${ty}`] = Array(CHESTS[id][0]).fill(null);   // (la mochila en el suelo es como un cofre; el armario, para la ropa)
+    // (a wheelbarrow gets its id once, here: it keeps it while pushed and parked again, and the host arbitrates by it; barrow.js)
+    if (id === BARROW.ID) (d.barrow ||= {})[`${tx},${ty}`] = { id: randomId(), l: [] };
     this.touchAround(tx, ty);
   }
   // Quita algo de una casilla: lo que puso alguien o, con o.fixed, lo que venía puesto (se apunta que ya no está)
@@ -1038,6 +1050,7 @@ export class Overworld {
     delete d[layer][k];
     if (d.pos) delete d.pos[`${layer}:${k}`];
     if (layer === 'placed' && CHESTS[o.placed]) delete d.chest[k];
+    if (layer === 'placed' && d.barrow) delete d.barrow[k];   // (a wheelbarrow's id and big things: who takes it has read them first, barrow.js)
     if (layer === 'placed' && d.closed) delete d.closed[k];
     if (layer === 'placed' && d.off) delete d.off[k];
     this.dropLevel(tx, ty);
@@ -1053,7 +1066,7 @@ export class Overworld {
       const w = this.wellOf(tx, ty);   // (a tile of a big well that is not its anchor: the well goes, from its anchor)
       if (w && (w.tx !== tx || w.ty !== ty) && this.ownAt('placed', w.tx, w.ty)) this.setTile(w.tx, w.ty, 'air');
       for (const layer of ['floor', 'placed', 'roof', 'hang', 'rug']) { if (d[layer]) delete d[layer][k]; if (d.pos) delete d.pos[`${layer}:${k}`]; }
-      for (const l of ['chest', 'closed', 'off', 'machine', 'tilled']) if (d[l]) delete d[l][k];
+      for (const l of ['chest', 'closed', 'off', 'machine', 'tilled', 'barrow']) if (d[l]) delete d[l][k];
       for (const layer of ['floor', 'placed', 'roof', 'hang', 'rug']) if (this.baseAt(layer, tx, ty)) (d.gone ||= {})[goneKey(layer, k)] = true;
       this.dropLevel(tx, ty);
       if (was) this.dropWell(tx, ty, parsePlaced(was)[0]);
@@ -1158,6 +1171,9 @@ export class Overworld {
   }
   chestAt(tx, ty) { const c = this.delta(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK))?.chest?.[`${tx},${ty}`]; if (c && !c.modern) { for (const [id, n] of modernSlots(c)) c.push({ id, n }); Object.defineProperty(c, 'modern', { value: true, enumerable: false }); } return c; }   // (lo que ya no es un objeto, por sus materiales)
   chestTouched(tx, ty) { const k = `${Math.floor(tx / CHUNK)},${Math.floor(ty / CHUNK)}`; this.dirty.add(k); this.onTouch?.(k); }
+  // A change of a chunk that draws nothing new (a pushed wheelbarrow's record, a request: barrow.js): saved and sent, as
+  // chestTouched, without making the chunk again
+  note(cx, cy) { cx = wrapIndex(cx, CHUNK); const k = `${cx},${cy}`; this.dirty.add(k); this.onTouch?.(k); }
   // ¿Está esta casilla bajo un tejado? (para ocultar el tejado cuando el jugador entra en casa)
   roofAt(tx, ty) { return !!this.at('roof', tx, ty); }
   // Lo colocado cerca de un punto (para usar estaciones y recoger muebles), lo más cercano primero
@@ -1207,7 +1223,7 @@ export class Overworld {
     const def = ITEMS[id], rug = def.place === 'rug', flat = def.place === 'flat';
     let local, model = id, anchor = null;
     if (rug) { const [w, h] = RUG_SIZES[k % RUG_SIZES.length]; local = [[-w / 2 + 0.06, 0, -h / 2 + 0.06, w / 2 - 0.06, 0.05, h / 2 - 0.06]]; model = `rug:${id}:${w}x${h}`; }
-    else { if (id === 'mesa_grande') model = `mesa_grande:${TABLE_SIZES[k % TABLE_SIZES.length].join('x')}`; local = solidsOf(model); }
+    else { if (id === 'mesa_grande') model = `mesa_grande:${TABLE_SIZES[k % TABLE_SIZES.length].join('x')}`; local = id === BARROW.ID ? barrowSolids() : solidsOf(model); }
     const H = hull(local), lx = (H[0] + H[3]) / 2, lz = (H[2] + H[5]) / 2, [ux, uy] = sideOf(a), [vx, vy] = dirOf(a);
     let ox = px - (ux * lx + vx * lz), oy = py - (uy * lx + vy * lz);
     const obstacles = this.obstaclesNear(px, py, rug), whole = () => placeBoxes([H], ox, oy, a)[0];

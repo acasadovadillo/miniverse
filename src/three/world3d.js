@@ -7,6 +7,8 @@
 // de una casa, se ocultan el tejado y las paredes que dan a la cámara (siguen dando sombra).
 import { WATER_Y } from './terrain.js';
 import { boatModel } from './actors.js';
+import { loadModel, placeLoad } from './carry3d.js';
+import { BULKY } from '../carry-items.js';
 import * as THREE from 'three';
 import { CHUNK, GRASS_REGROW } from '../world/gen.js';
 import * as village from '../world/village.js';
@@ -239,7 +241,11 @@ export class World3D {
         else this.placeModel(o.key === this.insideKey ? `${o.placed}:in` : o.model || o.placed, o.x, o.y, o.yaw ?? yawOf(o.rot), plain, c, group, o.off, LIFT);
       } else if (o.unknown) this.placeModel(o.model || 'unknown', o.x, o.y, o.yaw ?? yawOf(o.rot), plain, c, group, false, LIFT);   // (de una versión más nueva: la caja, o el tablón de los cuadros y las alfombras, con «?»)
       else if (o.crop && this.farm(scene)) this.placeModel(`crop:${o.crop.id}:${this.farm(scene).stage(o.crop)}`, o.x, o.y, 0, plain, c, group, false, LIFT);
-      else if (o.boat) { const b = (BOAT ||= boatModel()).clone(true); b.position.set(o.x, WATER_Y - 0.12, o.y); b.rotation.y = o.yaw; b.traverse(q => { if (q.isMesh) { q.castShadow = true; q.receiveShadow = true; } }); group.add(b); (c.boats ||= new Map()).set(o.key, b); }   // (una barca amarrada)
+      else if (o.boat) {   // (una barca amarrada; with a big thing in its bow, inside its clone: the outline takes it too)
+        const b = (BOAT ||= boatModel()).clone(true); b.position.set(o.x, WATER_Y - 0.12, o.y); b.rotation.y = o.yaw;
+        if (o.load && BULKY[o.load]) { const l = loadModel(o.load, 'bow'); placeLoad(l, o.load, 'bow'); b.add(l); }
+        b.traverse(q => { if (q.isMesh) { q.castShadow = true; q.receiveShadow = true; } }); group.add(b); (c.boats ||= new Map()).set(o.key, b);
+      }
       else if (o.poi) this.placeModel(`poi:${o.poi.kind}${o.poi.snow ? ':snow' : ''}`, o.poi.x, o.poi.y, 0, plain, c, group);
       else if (o.treasure) this.placeModel(`treasure:${o.open ? 1 : 0}`, o.x, o.y, 0, plain, c, group);
       else if (o.roof && o.layer === 'roof') { const r = this.regionAt(scene, o.tile[0], o.tile[1]); if (r) c.regions.add(r); }

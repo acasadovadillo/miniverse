@@ -298,7 +298,9 @@ export class Explore {
     return out;
   }
 
+  // (pushing the wheelbarrow, no: park it first. A big thing in the arms goes down with you, as before: carry.js refuse)
   async enterCave(poi, depth) {
+    if (this.game.carry?.refuse('cave')) return;
     const g = this.game, sc = makeCave(g, poi.id, depth, poi.snow);
     sc.exitTo = { x: poi.x, y: poi.y + 2.2 };
     g.combat.spawn(sc);
@@ -307,6 +309,7 @@ export class Explore {
     g.stats?.max('profundidad', depth);
   }
   async enterDungeon(poi) {
+    if (this.game.carry?.refuse('cave')) return;
     const g = this.game, sc = makeDungeon(g, poi.id);
     sc.exitTo = { x: poi.x, y: poi.y + 2.4 };
     sc.depth = 1;
@@ -318,6 +321,7 @@ export class Explore {
   // (el del faro es climbLighthouse: con el mismo nombre, el de abajo tapaba a este y no se bajaba ni se salía)
   async climb(scene, dir) {
     const g = this.game;
+    if (g.carry?.refuse('cave')) return;
     if (dir < 0 && scene.depth <= 1) { await g.goTo(this.world, scene.exitTo.x, scene.exitTo.y, { inside: false }); g.onSave?.(); return; }
     const sc = makeCave(g, scene.caveId, scene.depth + dir, scene.style === 'ice');
     sc.exitTo = scene.exitTo;
@@ -390,6 +394,7 @@ export class Explore {
   }
   // Subir a un faro: desde arriba se ve la costa (se descubre lo de alrededor en el mapa)
   async climbLighthouse(poi) {
+    if (this.game.carry?.refuse('cave')) return;
     const g = this.game, cx = Math.floor(poi.x / CHUNK), cy = Math.floor(poi.y / CHUNK);
     g.busy = true;
     await hud.fade(true);

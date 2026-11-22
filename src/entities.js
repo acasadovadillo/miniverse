@@ -6,6 +6,7 @@ import { collide } from './physics.js';
 import { Audio } from './audio.js';
 import { towerFloor } from './world/tower.js';
 import { WATER_Y } from './world/planet.js';
+import { BARROW, WHEEL_AHEAD, pushedAhead } from './carry-items.js';
 
 export class Person {
   constructor({ x, y, look, view = 'front', flip = false }) {
@@ -56,6 +57,46 @@ export function floorAt(x, y, list, z = 0) {
   return h;
 }
 
+// ---------- pushing the wheelbarrow (barrow.js) ----------
+// Its footprint, pushed by someone at (x, y) facing (fx, fy): the wheel and the four corners of its box, as circles
+// [ahead, side, radius]. How deep they are in what is around (pen) decides whether a step or a turn is taken: nothing that
+// puts the box further into a wall, a fence, a rock, the water or a hole; anything that takes it out (so it never gets stuck)
+// (lifted, as it is drawn: the corners of the tray's bottom, model z 0.275 and −0.525 at y 0.24, come to ~1.25 and ~0.49)
+const BOX_FRONT = pushedAhead(0.275, 0.24), BOX_BACK = pushedAhead(-0.525, 0.24);
+const BARROW_RING = [[WHEEL_AHEAD, 0, BARROW.WHEEL_R], [BOX_FRONT, 0.27, 0.06], [BOX_FRONT, -0.27, 0.06], [BOX_BACK, 0.27, 0.06], [BOX_BACK, -0.27, 0.06]];
+// (a step or a turn is taken if it leaves the box no deeper than it was, or no deeper than PEN_SLACK at all: grazing a
+// wall is sliding along it. Never "a bit deeper than before": steps of a bit would add up and go through)
+const PEN_SLACK = 0.005, PUSH_NEAR = 2.6;
+const penOk = (now, was) => now <= Math.max(was + 1e-6, PEN_SLACK);
+// What the box bumps into, from the colliders already asked for around the player (no other collidersNear: it copies the
+// village's): the rocks and the tower stairs too, not the dug tiles (their heights go apart)
+export function barrowColliders(near, x, y, skip = null) {
+  const out = [];
+  for (const c of near || []) {
+    if (c.dig || (skip && c.obb === skip)) continue;
+    if (c.x0 !== undefined ? x < c.x0 - PUSH_NEAR || x > c.x1 + PUSH_NEAR || y < c.y0 - PUSH_NEAR || y > c.y1 + PUSH_NEAR : Math.hypot(c.x - x, c.y - y) > PUSH_NEAR + (c.r ?? Math.max(c.rx || 0, c.ry || 0))) continue;
+    out.push(c);
+  }
+  return out;
+}
+// How much of it is inside something: what collide (physics.js) would move each circle, plus 1 for the wheel in water of
+// BARROW.DEEP and for each circle (and the pusher's feet) more than STEP_UP above or below the feet where there is digging
+// (feet: their height there, or null without digging)
+export function barrowPen(scene, list, x, y, fx, fy, feet = null) {
+  let pen = 0;
+  const q = { x: 0, y: 0 };
+  for (let i = 0; i < BARROW_RING.length; i++) {
+    const [a, s, r] = BARROW_RING[i], cx = x + fx * a + fy * s, cy = y + fy * a - fx * s;
+    q.x = cx; q.y = cy;
+    collide(q, list, r);
+    pen += Math.hypot(q.x - cx, q.y - cy);
+    if (i === 0 && scene.waterDepth && scene.waterDepth(cx, cy) >= BARROW.DEEP) pen += 1;
+    if (feet !== null && Math.abs(scene.surfaceAt(cx, cy) - feet) > STEP_UP) pen += 1;
+  }
+  if (feet !== null && scene.surfaceAt(x, y) < feet - STEP_UP) pen += 1;
+  return pen;
+}
+
 export class Player extends Person {
   constructor(data) {
     super({ ...data, view: data.view || 'back' });
@@ -72,11 +113,13 @@ export class Player extends Person {
     this.swim = false; this.sink = 0;  // nadando, y lo que se hunde (agachado) o se asoma (con espacio) bajo la línea de flotar
     this.depth = 0;                    // lo hondo del agua donde está (0 en tierra)
     this.bank = null;                  // en el agua junto a la pared de un canal, la altura de su borde (para salir de un salto)
+    this.pushing = null;               // the wheelbarrow pushed (its model key: barrow.js); not saved
+    this.pushPen = 0;                  // (how far its box is inside something: Barrow.update parks it by force with Q after a while)
   }
   get airborne() { return this.z > this.floor + 0.01; }
   // Saltar (desde el suelo; en barca no)
   jump() {
-    if (this.boat || this.aboard || this.airborne) return;
+    if (this.boat || this.aboard || this.airborne || this.pushing) return;   // (pushing the wheelbarrow, no jumping)
     // Nadando, el espacio sube (lo mira update); junto a la orilla, salta a ella: sale del agua desde donde flota
     if (this.swim) {
       if (!this.shore) return;
@@ -97,7 +140,7 @@ export class Player extends Person {
   }
   // Movimiento con las teclas, que siguen la pantalla: arriba es hacia donde mira la cámara
   update(dt, keys, scene) {
-    if (this.mount || this.boat) this.crouch = false;   // (agachado no se monta ni se rema)
+    if (this.mount || this.boat || this.pushing) this.crouch = false;   // (agachado no se monta ni se rema; nor pushing the wheelbarrow)
     const sx = (keys.right ? 1 : 0) - (keys.left ? 1 : 0), sy = (keys.down ? 1 : 0) - (keys.up ? 1 : 0);
     const l = Math.hypot(sx, sy);
     if (this.mount || this.boat || this.aboard || this.ghost || this.pose) this.swim = false;
@@ -106,7 +149,11 @@ export class Player extends Person {
     const run = keys.run && !this.noRun;   // (noRun: too loaded, or something in the arms: carry.js)
     const speed = (this.swim ? (run ? SWIM_RUN : SWIM_SPEED) : (this.crouch ? 1.4 : run ? 5.3 : 3.2) * wade) / (l || 1) * (this.speedMul || 1) * (this.boat ? 1.4 : 1);
     const k = 1 - Math.exp(-dt * (this.swim ? 3 : 14));   // (nadando, cada brazada lleva y se para despacio)
-    const [dx, dy] = screenToWorld(sx, sy), wx = dx * speed, wy = dy * speed;
+    const [dx, dy] = screenToWorld(sx, sy);
+    let wx = dx * speed, wy = dy * speed;
+    // (pushing the wheelbarrow, only along it: forwards, or back at half the speed; the keys to a side turn it, see below)
+    const push = this.pushing && !this.ghost;
+    if (push) { const f = this.face, s = Math.max(wx * f.x + wy * f.y, -speed * 0.5); wx = f.x * s; wy = f.y * s; }
     this.vx = lerp(this.vx, wx, k);
     this.vy = lerp(this.vy, wy, k);
     const p = { x: this.x + this.vx * dt, y: this.y + this.vy * dt };
@@ -118,21 +165,23 @@ export class Player extends Person {
       // (las rocas no frenan: se sube uno encima; y saltando, a pie o a caballo, se pasa por encima de las vallas)
       near = scene.collidersNear(p.x, p.y);
       const high = this.z - this.floor > (this.mount ? 0.2 : HOP);
-      // (with something in the arms no fence is hopped: through the gate)
-      collide(p, near.filter(c => c.top === undefined && !c.dig && !(high && c.low && !this.carrying) && !(c.zmax !== undefined && this.z > c.zmax)), RADIUS);   // (zmax: lo que solo frena abajo)
+      // (with something in the arms no fence is hopped: through the gate; riding, the big thing goes behind the saddle and the
+      // horse jumps as always. Pushing the wheelbarrow the rocks and the tower stairs are walls: you would climb them and it not)
+      collide(p, near.filter(c => (c.top === undefined || this.pushing) && !c.dig && !(high && c.low && !(this.carrying && !this.mount)) && !(c.zmax !== undefined && this.z > c.zmax)), RADIUS);   // (zmax: lo que solo frena abajo)
       if (dug) collide(p, scene.digWalls(p.x, p.y, feet, this.airborne ? 0.05 : STEP_UP), RADIUS);   // (en el aire, sin el escalón: se sube lo que da el salto)
     }
     // En barca, no salir a tierra; a caballo, no entrar en lo que cubre al caballo; a pie se nada (en el mundo: en las
     // cuevas, blocked son sus paredes). Si se puede, deslizarse por la orilla
     const world = !!scene.waterDepth;
     // (and with something in the arms, on foot, into nothing that would have to be swum: carry.js)
-    const blocked = this.ghost ? null : this.boat ? (x, y) => !scene.water?.(x, y) : world ? (this.mount ? (x, y) => scene.waterDepth(x, y) >= HORSE_DEEP : this.carrying && !this.swim ? (x, y) => scene.waterDepth(x, y) >= SWIM_IN : null) : scene.blocked?.bind(scene);
+    // (and pushing the wheelbarrow, into nothing deeper than BARROW.DEEP)
+    const blocked = this.ghost ? null : this.boat ? (x, y) => !scene.water?.(x, y) : world ? (this.mount ? (x, y) => scene.waterDepth(x, y) >= HORSE_DEEP : push && !this.swim ? (x, y) => scene.waterDepth(x, y) >= BARROW.DEEP : this.carrying && !this.swim ? (x, y) => scene.waterDepth(x, y) >= SWIM_IN : null) : scene.blocked?.bind(scene);
     if (blocked) {
       const wet = (x, y) => blocked(x, y) || blocked(x + RADIUS, y) || blocked(x - RADIUS, y) || blocked(x, y + RADIUS) || blocked(x, y - RADIUS);
       // (a caballo ya en lo hondo, llevado allí de otra forma: que pueda salir hacia lo menos hondo, y no se quede quieto
       // para siempre; hacia lo más hondo, no, o se cabalgaría por el fondo del mar. También deslizándose: el fondo no
       // siempre sube derecho hacia la orilla)
-      const out = (this.mount || this.carrying) && world && wet(this.x, this.y), here = out ? scene.waterDepth(this.x, this.y) : 0;
+      const out = (this.mount || this.carrying || push) && world && wet(this.x, this.y), here = out ? scene.waterDepth(this.x, this.y) : 0;
       // (en barca, por un canal cavado solo si cabe el casco: ver scenes.js, boatFits. Si ya está donde no cabe, amarrada ahí
       // antes de que se estrechara, se rema como siempre, para poder salir)
       const fits = this.boat && scene.boatFits && scene.boatFits(this.x, this.y) ? (x, y) => scene.boatFits(x, y) : null;
@@ -144,6 +193,16 @@ export class Player extends Person {
       }
     }
     if (scene.bounds) { p.x = clamp(p.x, scene.bounds.x0, scene.bounds.x1); p.y = clamp(p.y, scene.bounds.y0, scene.bounds.y1); }
+    // The wheelbarrow's box: a step that puts it further into something is not taken (sliding along x or y, if one does not)
+    const B = push && near ? barrowColliders(near, this.x, this.y) : null, bfeet = dug && !this.swim ? feet : null;
+    if (B) {
+      const f = this.face, pen = (x, y) => barrowPen(scene, B, x, y, f.x, f.y, bfeet), was = pen(this.x, this.y);
+      if (!penOk(pen(p.x, p.y), was)) {
+        if (penOk(pen(p.x, this.y), was)) p.y = this.y;
+        else if (penOk(pen(this.x, p.y), was)) p.x = this.x;
+        else { p.x = this.x; p.y = this.y; }
+      }
+    }
     const moved = Math.hypot(p.x - this.x, p.y - this.y);
     if (run && !this.crouch && !this.mount && !this.boat) this.onExert?.(moved * 0.05);   // (correr da hambre)
     // (al pasar de una casilla a otra junto a lo cavado, los pies se quedan a su altura: a una más baja se cae; a una algo más
@@ -154,12 +213,17 @@ export class Player extends Person {
     if (pit && (Math.floor(p.x) !== Math.floor(this.x) || Math.floor(p.y) !== Math.floor(this.y))) this.z = feet - scene.surfaceAt(p.x, p.y);
     this.x = p.x; this.y = p.y;
     this.inWater(dt, keys, scene, world, pit);
-    if (sx || sy) { const fl = Math.hypot(wx, wy); this.face = { x: wx / fl, y: wy / fl }; this.dir = [wx, wy]; }
+    // (pushing, where the keys point, not where it goes: it goes only along the wheelbarrow)
+    const kx = push ? dx : wx, ky = push ? dy : wy;
+    let want = null;
+    if (sx || sy) { const fl = Math.hypot(kx, ky); if (fl > 1e-9) { want = { x: kx / fl, y: ky / fl }; this.dir = [kx, ky]; } }
     // Arriba o abajo: de espaldas o de frente; solo a los lados: de perfil
     // Mira hacia donde anda: 8 direcciones (de frente, de espaldas, los dos perfiles y las cuatro diagonales)
     if (sx || sy) [this.view, this.flip] = viewFor(sx, sy);
     // En primera persona se mira hacia donde mira la cámara (y lo de delante es lo que se ve)
-    if (CAM.first) { const [fx, fy] = screenToWorld(0, -1); this.face = { x: fx, y: fy }; this.dir = [fx, fy]; [this.view, this.flip] = viewFor(0, -1); }
+    if (CAM.first) { const [fx, fy] = screenToWorld(0, -1); want = { x: fx, y: fy }; this.dir = [fx, fy]; [this.view, this.flip] = viewFor(0, -1); }
+    if (!push) { if (want) this.face = want; this.pushPen = 0; }
+    else { this.turnPushed(want, dt, scene, B, bfeet); this.dir = [this.face.x, this.face.y]; }   // (the body faces as the wheelbarrow does: the drawing turns it by dir)
     // Lo que se pisa: subiendo a una roca, se sube con ella (deprisa, sin saltar); bajando poco, se baja con ella; si
     // no, se cae
     this.floor = near && !this.mount && !this.swim ? floorAt(this.x, this.y, near, this.z) : 0;
@@ -214,6 +278,24 @@ export class Player extends Person {
     // La orilla: delante se hace pie
     this.shore = scene.waterDepth(ax, ay) < SWIM_OUT;
     this.onExert?.(Math.hypot(this.vx, this.vy) * dt * 0.04);   // (nadar cansa algo más que andar)
+  }
+  // Pushing, the body and the wheelbarrow turn towards want at BARROW.TURN at most, and only as far as the box does not go
+  // further into something (half, a quarter, or nothing). face is then the wheelbarrow's heading
+  turnPushed(want, dt, scene, B, feet) {
+    const f = this.face, pen = g => (B ? barrowPen(scene, B, this.x, this.y, g.x, g.y, feet) : 0), was = pen(f);
+    this.pushPen = was;
+    if (!want) return;
+    const a0 = Math.atan2(f.x, f.y);
+    let da = Math.atan2(want.x, want.y) - a0;
+    while (da > Math.PI) da -= Math.PI * 2;
+    while (da < -Math.PI) da += Math.PI * 2;
+    const max = BARROW.TURN * dt;
+    da = clamp(da, -max, max);
+    if (Math.abs(da) < 1e-6) return;
+    for (const k of [1, 0.5, 0.25]) {
+      const a = a0 + da * k, g = { x: Math.sin(a), y: Math.cos(a) };
+      if (penOk(pen(g), was)) { this.face = g; return; }
+    }
   }
   stop() { this.vx = this.vy = 0; }
   toSave() {

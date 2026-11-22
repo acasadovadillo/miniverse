@@ -6,6 +6,7 @@ import { SHOPS, priceOf, buyPrice } from '../economy.js';
 import { itemIconUrl } from '../art/items.js';
 import { animalSprite, ANIMALS } from '../art/farm.js';
 import { Audio } from '../audio.js';
+import { t, fmt } from '../i18n.js';
 
 const $ = id => document.getElementById(id);
 
@@ -53,11 +54,12 @@ export function initShopUI(game, { onClose }) {
           continue;
         }
         if (e.plan) {   // (un plano: se compra una vez y enseña a construir eso con B)
-          const d = BUILDABLE[e.plan], has = game.craft.hasPlan(e.plan), name = d.name.toLowerCase();
-          const how = `${d.cost.map(([m, n]) => `${n} ${ITEMS[m].name.toLowerCase()}`).join(', ')}${d.needs ? `, con ${STATIONS[d.needs].name.toLowerCase()} cerca` : ''}`;
-          row(itemIconUrl(e.plan), `Plano: ${name}`, has ? 'Ya lo tienes: se construye con B.' : `${price} 🪙 · Para construir con B: ${how}.`, [[has ? 'Aprendido' : 'Comprar', () => {
+          const d = BUILDABLE[e.plan], has = game.craft.hasPlan(e.plan), S = d.needs && STATIONS[d.needs];
+          const cost = fmt.list(d.cost.map(([m, n]) => t('shop.cost_part', { n, item: ITEMS[m] })));
+          const offer = S ? t('shop.plan.offer_station', { price, cost, station: { name: S.name, g: S.fem ? 'f' : 'm' } }) : t('shop.plan.offer', { price, cost });
+          row(itemIconUrl(e.plan), t('shop.plan.name', { item: d }), has ? t('shop.plan.has') : offer, [[has ? t('shop.plan.learned_btn') : t('shop.buy'), () => {
             game.addMoney(-price); game.craft.learnPlan(e.plan);
-            note = `Plano aprendido: ${name}. Se construye con B.`; Audio.unlock();
+            note = t('shop.plan.learned', { item: d }); Audio.unlock();
           }, !has && game.money >= price]]);
           continue;
         }
