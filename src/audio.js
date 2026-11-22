@@ -12,7 +12,7 @@ function tone(seq) {
     o.connect(g).connect(sfx); o.start(t); o.stop(t + d + 0.02); t += d;
   }
 }
-let rainSrc = null, rainGain = null;
+let rainSrc = null, rainGain = null, lowpass = null;
 function chirp() {
   if (!ac || !on || Audio.indoors || Audio.quietBirds) return;
   const base = 2600 + Math.random() * 1400;
@@ -103,6 +103,17 @@ export const Audio = {
     src.buffer = noise; src.loop = true; f.type = 'lowpass'; f.frequency.value = 160;
     g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.9, t + 0.08); g.gain.exponentialRampToValueAtTime(0.001, t + 2.2);
     src.connect(f).connect(g).connect(sfx); src.start(t); src.stop(t + 2.4);
+  },
+  // Under the water everything sounds muffled: a lowpass of about 600 Hz on the master bus while on (diving: engine.js
+  // calls it when the camera goes under or comes up), eased over a fifth of a second. Made the first time it is needed
+  muffle(down) {
+    if (!ac || !master) return;
+    if (!lowpass) {
+      if (!down) return;
+      lowpass = ac.createBiquadFilter(); lowpass.type = 'lowpass'; lowpass.frequency.value = 20000; lowpass.Q.value = 0.7;
+      master.disconnect(); master.connect(lowpass).connect(ac.destination);
+    }
+    lowpass.frequency.setTargetAtTime(down ? 600 : 20000, ac.currentTime, 0.06);
   },
   get on() { return on; },
   toggle() { on = !on; if (master) master.gain.value = on ? vol.master : 0; return on; },

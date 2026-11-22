@@ -1,13 +1,13 @@
 // Barra rápida (las 9 primeras casillas: manos y bolsillos) y la pantalla del inventario: el personaje en 3D
 // con lo que lleva puesto, rodeado de los huecos del cuerpo (ropa y mochila), y las casillas, con arrastrar y
 // soltar. Sin mochila, sus 27 casillas están cerradas.
-import { ITEMS, WEAR_SLOTS, hungerText, LEGACY_ITEMS } from '../items.js';
+import { ITEMS, WEAR_SLOTS, restoreText, LEGACY_ITEMS } from '../items.js';
 import { DYES } from '../looks.js';
 import { SLOTS, HOTBAR, extraOf } from '../inventory.js';
 import { itemIconUrl } from '../art/items.js';
 import { CharacterPreview } from '../three/preview.js';
 import { initPackList, toList } from './packlist.js';
-import { weightOf } from '../carry-items.js';
+import { stackKg } from '../carry-items.js';
 import { t } from '../i18n.js';
 
 const $ = id => document.getElementById(id);
@@ -26,22 +26,34 @@ function paint(el, s) {
     if (img.getAttribute('src') !== url) img.src = url;
     img.hidden = false;
     n.textContent = s.n > 1 ? s.n : '';
-    el.title = ITEMS[s.id].dur ? t('gui.inventory.item_uses', { item: ITEMS[s.id].name, n: s.dur ?? ITEMS[s.id].dur, max: ITEMS[s.id].dur }) : ITEMS[s.id].name;
+    const def = ITEMS[s.id];
+    el.title = def.dur ? t('gui.inventory.item_uses', { item: def.name, n: s.dur ?? def.dur, max: def.dur }) : def.canteen ? `${def.name} (${s.sips || 0}/${def.canteen})` : def.name;
   } else {
     img.hidden = true;
     n.textContent = '';
     el.title = '';
   }
   wearBar(el, s);
+  sipsBar(el, s);
 }
 // Lo gastada que está una herramienta o una armadura: una barrita abajo, de verde a rojo (solo si ya se ha usado)
 export function wearBar(el, s) {
   const max = s && ITEMS[s.id].dur, left = max && s.dur !== undefined && s.dur < max ? s.dur / max : null;
-  let bar = el.querySelector('.dur');
+  let bar = el.querySelector('.dur:not(.sips)');
   if (left === null) { bar?.remove(); return; }
   if (!bar) { bar = document.createElement('span'); bar.className = 'dur'; bar.innerHTML = '<span></span>'; el.append(bar); }
   bar.firstChild.style.width = `${Math.max(4, left * 100)}%`;
   bar.firstChild.style.background = `hsl(${Math.round(left * 120)}, 75%, 50%)`;
+}
+// The water left in a canteen or a jug: a second little bar, always there (empty too: it says it can be filled), blue as
+// the thirst bar. Its own class: never .dur alone, which the anvil's repair and wearOut read as wear
+export function sipsBar(el, s) {
+  const max = s && ITEMS[s.id]?.canteen;
+  let bar = el.querySelector('.dur.sips');
+  if (!max) { bar?.remove(); return; }
+  if (!bar) { bar = document.createElement('span'); bar.className = 'dur sips'; bar.innerHTML = '<span></span>'; el.append(bar); }
+  bar.firstChild.style.width = `${Math.min(1, (s.sips || 0) / max) * 100}%`;
+  bar.firstChild.style.background = '#4a9fd8';
 }
 
 export function initInventoryUI(game, { onClose, onCraft }) {
@@ -171,7 +183,8 @@ export function initInventoryUI(game, { onClose, onCraft }) {
     if (!s) { $('inv-name').textContent = t('gui.inventory.pick_title'); say([t(inv.weight ? 'gui.inventory.pick_help_list' : 'gui.inventory.pick_help'), kept && t('gui.inventory.kept_newer', { n: kept }), wait && t('gui.inventory.kept_waiting', { n: wait })].filter(Boolean).join(' ')); return; }
     $('inv-icon').src = itemIconUrl(s.id, s.color);
     $('inv-name').textContent = worn ? t('gui.inventory.item_worn', { item: def.name }) : def.name + (s.n > 1 ? ` ×${s.n}` : '');
-    say(def.desc + (def.food ? ` ${hungerText(def)}` : '') + (inv.weight ? ` ${t('gui.inventory.weight_each', { kg: weightOf(s.id), total: Math.round(weightOf(s.id) * s.n * 10) / 10 })}` : ''));
+    const restores = restoreText(def), all = stackKg(s);
+    say(def.desc + (restores ? ` ${restores}` : '') + (inv.weight ? ` ${t('gui.inventory.weight_each', { kg: Math.round(all / (s.n || 1) * 100) / 100, total: Math.round(all * 10) / 10 })}` : ''));
     $('inv-wearbtn').hidden = !def.wear;
     // Teñir: las prendas (puestas o en la mochila) se cambian de color tocando uno
     $('inv-dyes').hidden = !def.wear || !!def.noDye;   // (la armadura no se tiñe)

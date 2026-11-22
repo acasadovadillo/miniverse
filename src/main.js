@@ -1,5 +1,5 @@
 // Punto de entrada: prepara el juego, los controles y los menús.
-import './i18n.js';   // (first: the language is chosen and the static HTML translated before anything is shown)
+import { t } from './i18n.js';   // (first: the language is chosen and the static HTML translated before anything is shown)
 import { Game, GAMEMODES } from './game.js';
 import { initInput } from './input.js';
 import { initMenus } from './ui/menus.js';
@@ -10,12 +10,15 @@ import { initDebug } from './ui/debug.js';
 import { Settings } from './settings.js';
 import { freePlace } from './gather.js';
 import { useSmartHud } from './ui/smarthud.js';
+import { NeedsBar } from './ui/needsbar.js';
 import { ToolWheel } from './ui/wheel.js';
+import { apagada } from './opciones.js';
 
 // Con ?modo=servidor, este juego es el mundo del servidor (lo abre multijugador.py): sin dibujo ni menús (server.js).
 // Con ?modo=pruebas, el juego de siempre, pero jugado por las pruebas automáticas (pruebas.js; las lanza probar.py)
 // Con ?banco=1, el banco de medidas del dibujo (banco.js; lo lanza banco.py): sin entrar con ninguna cuenta
 const MODE = new URLSearchParams(location.search).get('modo');
+const DIVING = !apagada('buceo');   // (?buceo=0: Shift crouches while swimming, and so sinks a little, as before)
 if (MODE === 'servidor') import('./server.js').then(m => m.runServer());
 else if (new URLSearchParams(location.search).has('banco')) import('./banco.js').then(m => m.runBench(play(false)));
 else if (MODE === 'pruebas' && ['127.0.0.1', 'localhost'].includes(location.hostname)) import('./pruebas.js').then(m => m.runTests(play()));   // (solo en este ordenador)
@@ -33,6 +36,7 @@ function play(login = true) {   // (login: abrir la pantalla de entrar)
   // (what they check and measure) unless &hud=minimo. Changing the setting swaps it at once, without reloading
   const q = new URLSearchParams(location.search), plain = MODE === 'pruebas' || q.has('banco');
   const pick = { minimo: true, completo: false }[q.get('hud')] ?? (plain ? false : null);
+  game.needsBar = new NeedsBar(game);   // (the status bars under the minimap, for both interfaces; before the HUD, which resets it)
   useSmartHud(game, pick ?? Settings.v.hud !== 'full');
   Settings.onHud = v => useSmartHud(game, v !== 'full');
   Settings.hudNow = () => (game.smartHud ? 'minimal' : 'full');   // (what the setting lights: the one in sight)
@@ -46,7 +50,8 @@ function play(login = true) {   // (login: abrir la pantalla de entrar)
     drop: all => game.toss(all),
     sit: () => game.rest.floor('floorSit'),
     lie: () => game.rest.floor('floorLie'),
-    crouch: on => { const p = game.player; if (p && !p.mount && !p.boat && !p.aboard && !p.pose) p.crouch = on ?? !p.crouch; },   // (Shift: agacharse o levantarse)
+    crouch: on => { const p = game.player; if (p && !p.mount && !p.boat && !p.aboard && !p.pose && !(p.swim && DIVING)) p.crouch = on ?? !p.crouch; },   // (Shift: agacharse o levantarse; swimming, Shift dives instead)
+    swimming: () => DIVING && !!game.player?.swim,   // (Shift's tap while swimming: no crouch, and a fast swim goes on)
     build: () => (game.mode === 'play' && !game.busy && game.gamemode !== 'spectator' ? b.toggle() : false),
     building: () => b.on && game.mode === 'play',
     point: (x, y) => b.pointTo(game.tileAtScreen(x, y)),
@@ -92,7 +97,7 @@ function play(login = true) {   // (login: abrir la pantalla de entrar)
     const box = document.getElementById('players'), list = document.getElementById('players-list'), live = game.live;
     box.classList.toggle('show', !!on && game.mode === 'play' && !!game.player);
     if (!box.classList.contains('show')) return;
-    const rows = [[`${game.player.name} (tú)`, live.role === 'host', live.amOp, game.gamemode]];
+    const rows = [[t('players.you', { name: game.player.name }), live.role === 'host', live.amOp, game.gamemode]];
     if (live.joined) for (const p of live.others) if (p.playing && !p.server) rows.push([p.name, p.host, live.isOp(p.id), GM_OF[p.entity?.gm || 0]]);
     list.textContent = '';
     for (const [name, host, op, gm] of rows) {

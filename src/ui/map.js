@@ -150,6 +150,17 @@ export class MapView {
     for (const [x, y] of list) if (explored.has(`${wrapIndex(Math.floor(x / CHUNK), CHUNK)},${Math.floor(y / CHUNK)}`)) g.fillRect(Math.round(ox + (x - x0) * s), Math.round(oy + (y - y0) * s), Math.ceil(s), Math.ceil(s));
   }
 
+  // While the minimap is hidden (minimal HUD, indoors), once a second: ask for the thumbnails it would draw (made in idle
+  // time, schedule), so it is not black for seconds when it shows again (Tab, a swap to the full HUD, out of a house)
+  warmMini(gen, explored, px, py, time) {
+    if (Math.abs(time - (this.warmAt ?? -9)) < 1) return;
+    this.warmAt = time;
+    const c = this.mini, pcx = Math.floor(px / CHUNK), pcy = Math.floor(py / CHUNK), reach = c ? Math.ceil((c.width + c.height * 2) / 1.5 / CHUNK / 2) + 1 : 3;   // (as draw, at drawMini's scale)
+    for (const key of explored) {
+      const [cx, cy] = String(key).split(',').map(Number), dcx = wrapIndex(cx - pcx, CHUNK);
+      if (Number.isFinite(dcx) && Number.isFinite(cy) && Math.abs(dcx) <= reach && Math.abs(cy - pcy) <= reach) this.thumb(gen, key);
+    }
+  }
   drawMini(gen, explored, px, py, time) {
     if (time - this.lastMini < 0.15) return;   // no hace falta redibujarlo en cada fotograma
     this.lastMini = time;

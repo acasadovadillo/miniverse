@@ -1,7 +1,7 @@
 // Pantalla de fabricar: pestañas por estación, recetas (las bloqueadas salen como "???") y detalle con ingredientes.
 // Algunas estaciones tienen además su panel: en el yunque, arreglar y juntar; en el horno, el alambique y la noria,
 // lo que tienen dentro (machines.js).
-import { ITEMS, hungerText, UNKNOWN_NAME } from '../items.js';
+import { ITEMS, restoreText, UNKNOWN_NAME } from '../items.js';
 import { RECIPES, STATIONS, lockedHint } from '../recipes.js';
 import { itemIconUrl } from '../art/items.js';
 import { t } from '../i18n.js';
@@ -156,7 +156,8 @@ export function initCraftingUI(game, { onClose, onBag }) {
     $('cf-icon').src = itemIconUrl(r.out);
     $('cf-icon').classList.toggle('locked', !known);
     $('cf-name').textContent = known ? def.name + (r.n > 1 ? ` ×${r.n}` : '') : '???';
-    $('cf-desc').textContent = known ? def.desc + (def.food ? ` ${hungerText(def)}` : '') : lockedHint(r, c.seen);
+    const restores = known ? restoreText(def) : '';
+    $('cf-desc').textContent = known ? def.desc + (restores ? ` ${restores}` : '') : lockedHint(r, c.seen);
     // Las alfombras: aquí se elige el tamaño (cada uno con su receta, que cuesta según lo que ocupa)
     const sizes = $('cf-sizes'), kind = r.variant || (ITEMS[r.out].rug && r.out);
     sizes.textContent = '';

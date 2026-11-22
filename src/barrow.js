@@ -28,6 +28,7 @@ import { reportFault } from './faults.js';
 import { t, noun } from './i18n.js';
 import { hud } from './ui/hud.js';
 import { Audio } from './audio.js';
+import { CLAIMS } from './claims.js';
 
 const ID = BARROW.ID, LOADS = BARROW.LOADS, Q = Math.PI / 2;
 const GRACE = 8;           // seconds a record whose pusher is not pushing it any more waits before it is parked (by whoever decides)
@@ -596,7 +597,7 @@ export class Barrow {
           w.touch(cx, cy);
           ok = true;
         }
-      }
+      } else if (typeof c.k === 'string' && Object.prototype.hasOwnProperty.call(CLAIMS, c.k)) ok = !!CLAIMS[c.k](g, c, d, k, extra);   // (other systems' requests: claims.js, e.g. dive.js)
     } catch (e) { reportFault(e, 'Barrow.resolve'); ok = false; }
     d.claim[n] = { ...c, ok, ...extra, at: Math.round((w.clock || 0) * 10) / 10 };
     w.note(cx, cy);

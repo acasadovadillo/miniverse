@@ -1,5 +1,5 @@
 // Objetos (herramientas, materiales, comida y cosas que se colocan) y qué da cada cosa del mundo al recolectarla.
-import { defineNames } from './i18n.js';
+import { defineNames, has, noun, t, fmt } from './i18n.js';
 
 // Las herramientas son todas de hierro (hacha, pico, guadaña, azada y pala). tier: el nivel, que además usan la caña y la red
 export const TIERS = {
@@ -30,16 +30,16 @@ export const ITEMS = {
   lingote_hierro: { name: 'Lingote de hierro', desc: 'Para las herramientas y la armadura de hierro, en el yunque.' },
   lingote_oro: { name: 'Lingote de oro', desc: 'Para la espada y la armadura de oro.' },
   // Comida (food: lo que alimenta; hungerOf lo pasa a medios muslos de hambre)
-  coco: { name: 'Coco', desc: 'Se cogen de las palmeras con E (vuelven a salir a los 3 días) o talándolas. Cuesta abrirlo, pero merece la pena.', food: 12 },
+  coco: { name: 'Coco', desc: 'Se cogen de las palmeras con E (vuelven a salir a los 3 días) o talándolas. Cuesta abrirlo, pero merece la pena.', food: 12, thirst: 8 },   // (thirst: on a beach or an island all the water is salt, and palms keep you alive)
   manzana: { name: 'Manzana', desc: 'Crujiente y dulce.', food: 15 },
   bayas: { name: 'Bayas', desc: 'Un puñado de bayas silvestres.', food: 8 },
-  pulpa: { name: 'Pulpa de cactus', desc: 'Jugosa, aunque pincha un poco.', food: 10 },
+  pulpa: { name: 'Pulpa de cactus', desc: 'Jugosa, aunque pincha un poco.', food: 10, thirst: 4 },
   manzana_asada: { name: 'Manzana asada', desc: 'Caliente y con canela imaginaria.', food: 30 },
   mermelada: { name: 'Mermelada de bayas', desc: 'Un tarro entero. No preguntes de dónde ha salido el tarro.', food: 35 },
   coco_tostado: { name: 'Coco tostado', desc: 'Huele a playa.', food: 28 },
   pinones: { name: 'Piñones tostados', desc: 'Pequeños pero llenan.', food: 18 },
   pan_bellota: { name: 'Pan de bellota', desc: 'Denso, rústico y muy de pueblo.', food: 25 },
-  estofado: { name: 'Estofado de cactus', desc: 'La especialidad del desierto. Quita el hambre para rato.', food: 50 },
+  estofado: { name: 'Estofado de cactus', desc: 'La especialidad del desierto. Quita el hambre para rato.', food: 50, thirst: 2 },
   // Cosas que se colocan en el mundo (place: estación de trabajo, mueble o algo plano en el suelo)
   banco: { name: 'Banco de carpintero', desc: 'Estación: muebles y otras estaciones.', place: 'station' },
   cantero: { name: 'Mesa de cantero', desc: 'Estación: con ella cerca se construye lo de piedra (suelos, muros, muretes, caminos, el hogar y el horno).', place: 'station' },
@@ -92,14 +92,14 @@ Object.assign(ITEMS, {
   colmena: { name: 'Colmena', desc: 'Las abejas hacen miel cada pocos días (menos en invierno).', place: 'furniture' },
   comedero: { name: 'Comedero', desc: 'Pon dentro fibra o trigo: tus animales comen de él cada mañana.', place: 'furniture' },
   huevo: { name: 'Huevo', desc: 'Fresco del gallinero.', food: 8 },
-  leche: { name: 'Leche', desc: 'De vaca contenta.', food: 10 },
+  leche: { name: 'Leche', desc: 'De vaca contenta.', food: 10, drink: true, thirst: 6 },
   lana: { name: 'Lana', desc: 'Suave. En el telar se convierte en tela.' },
   miel: { name: 'Miel', desc: 'Dulce y pegajosa.', food: 15 },
   tortilla: { name: 'Tortilla', desc: 'Con o sin cebolla: el eterno debate.', food: 40 },
   queso: { name: 'Queso', desc: 'Curado en tu propia cocina.', food: 35 },
   pan: { name: 'Pan', desc: 'Recién hecho.', food: 30 },
   tarta_calabaza: { name: 'Tarta de calabaza', desc: 'Quita el hambre y te hace ir más rápido un rato.', food: 60, buff: ['rapido', 120] },
-  sopa_verduras: { name: 'Sopa de verduras', desc: 'Durante un rato, trabajar no cansa.', food: 55, buff: ['incansable', 120] },
+  sopa_verduras: { name: 'Sopa de verduras', desc: 'Durante un rato, trabajar no cansa.', food: 55, thirst: 6, buff: ['incansable', 120] },
   pescado_asado: { name: 'Pescado asado', desc: 'Con un chorrito de limón imaginario.', food: 30 },
   mermelada_fresa: { name: 'Mermelada de fresa', desc: 'Para untar en pan.', food: 40 },
   palomitas: { name: 'Palomitas', desc: 'Pop.', food: 20 },
@@ -115,9 +115,9 @@ Object.assign(ITEMS, {
   barra: { name: 'Barra de taberna', desc: 'Madera recia y una jarra siempre a mano. Se une a la de al lado.', place: 'furniture' },
   barril: { name: 'Barril', desc: 'De roble, con su espita.', place: 'furniture' },
   taburete: { name: 'Taburete', desc: 'Alto, para la barra. Siéntate con E.', place: 'furniture' },
-  sidra: { name: 'Vaso de sidra', desc: 'De las manzanas del pueblo: fresca y ácida.', food: 10, drink: true },
-  cerveza: { name: 'Jarra de cerveza', desc: 'Con su espuma. Anselmo dice que la receta es de su abuela.', food: 12, drink: true },
-  hidromiel: { name: 'Hidromiel', desc: 'Miel fermentada: dulce y traicionera. Un rato de alegría en las piernas.', food: 14, drink: true, buff: ['rapido', 60] },
+  sidra: { name: 'Vaso de sidra', desc: 'De las manzanas del pueblo: fresca y ácida.', food: 10, drink: true, thirst: 6 },
+  cerveza: { name: 'Jarra de cerveza', desc: 'Con su espuma. Anselmo dice que la receta es de su abuela.', food: 12, drink: true, thirst: 6 },
+  hidromiel: { name: 'Hidromiel', desc: 'Miel fermentada: dulce y traicionera. Un rato de alegría en las piernas.', food: 14, drink: true, thirst: 4, buff: ['rapido', 60] },
 });
 // ---------- Lo que dan los animales al matarlos (hunt.js) ----------
 Object.assign(ITEMS, {
@@ -152,7 +152,7 @@ Object.assign(ITEMS, {
   huevo_pato: { name: 'Huevo de pato', desc: 'Más grande que el de gallina, y con más sabor.', food: 10 },
   huevo_oro: { name: 'Huevo de oro', desc: 'Solo lo pone un ave muy, muy feliz. Vale una fortuna.' },
   plumas: { name: 'Plumas', desc: 'De pato: suaves y calentitas.' },
-  leche_cabra: { name: 'Leche de cabra', desc: 'Para hacer queso de cabra en la quesera.', food: 10 },
+  leche_cabra: { name: 'Leche de cabra', desc: 'Para hacer queso de cabra en la quesera.', food: 10, drink: true, thirst: 6 },
   nata: { name: 'Nata', desc: 'La da una vaca o una cabra muy contenta. En la quesera se bate en mantequilla.', food: 12 },
   mantequilla: { name: 'Mantequilla', desc: 'Para untar, o para cocinar platos más ricos.', food: 20 },
   queso_cabra: { name: 'Queso de cabra', desc: 'Curado en la quesera: fuerte y cremoso.', food: 40 },
@@ -184,6 +184,22 @@ Object.assign(ITEMS, {
   wheelbarrow: { place: 'furniture' },
 });
 defineNames({ big_well: ITEMS.big_well, wheelbarrow: ITEMS.wheelbarrow }, 'item');
+// ---------- Thirst and diving (docs/planes/gta/PLAN-D-barras-buceo.md §3.2): names and descriptions from the language files ----------
+// canteen: the sips it holds when full. The sips left live on the stack as `s.sips` (inventory.js extraOf): a stack
+// without them is empty (one just made, bought or from an old save). Never `dur`: the anvil and wearOut treat that as wear.
+// thirst: what one quenches, in half-units of 20 (like hunger: thirstOf)
+const THIRST_ITEMS = {
+  canteen: { stack: 1, canteen: 4 },
+  water_jug: { stack: 1, canteen: 10 },
+  apple_juice: { food: 4, drink: true, thirst: 10 },
+  // (found on the sea bed and at the bottom of lakes: dive.js)
+  seashell: { relic: true },
+  pearl: { gem: true },
+  seaweed: { food: 4, thirst: 1 },
+  mussel: { food: 3 },
+};
+Object.assign(ITEMS, THIRST_ITEMS);
+defineNames(THIRST_ITEMS, 'item');
 // Peces: dónde viven, cuándo (estaciones, horas y tiempo) y lo difíciles que son (los difíciles salen menos y valen más):
 // dif: lo difícil que es (0 a 1); mov: cómo se mueve (calmo, mixto, nervioso, fondo: tira hacia abajo,
 // flota: tira hacia arriba); cm: la talla, de la más pequeña a la más grande
@@ -217,12 +233,12 @@ Object.assign(ITEMS, {
   moneda_antigua: { name: 'Moneda antigua', desc: 'De un reino que ya nadie recuerda.', relic: true },
   calavera: { name: 'Calavera de esqueleto', desc: 'Sonríe todo el rato. Da un poco de mal rollo.' },
   baba: { name: 'Baba de limo', desc: 'Pegajosa. A alguien le servirá.' },
-  pocion: { name: 'Poción de vida', desc: 'Cura 6 corazones.', heal: 12, potion: '#e83a5a' },
+  pocion: { name: 'Poción de vida', desc: 'Te devuelve más de la mitad de la salud (un 60 %).', heal: 12, potion: '#e83a5a' },
   // Las del alambique (potion: el color de lo de dentro; buff: el efecto y cuántos segundos dura)
   pocion_rapidez: { name: 'Poción de rapidez', desc: 'Corres más durante 3 minutos.', buff: ['rapido', 180], potion: '#5ac8f0' },
   pocion_fuerza: { name: 'Poción de fuerza', desc: 'Pegas 2 más fuerte durante 3 minutos.', buff: ['fuerza', 180], potion: '#b83a2a' },
   pocion_resistencia: { name: 'Poción de resistencia', desc: 'Te hacen un 30 % menos de daño durante 3 minutos.', buff: ['resistencia', 180], potion: '#8a8ab8' },
-  pocion_regeneracion: { name: 'Poción de regeneración', desc: 'Te cura medio corazón cada 2 segundos y medio durante 45 segundos.', buff: ['regeneracion', 45], potion: '#e86ab8' },
+  pocion_regeneracion: { name: 'Poción de regeneración', desc: 'Te devuelve un poco de salud (un 5 %) cada 2 segundos y medio durante 45 segundos.', buff: ['regeneracion', 45], potion: '#e86ab8' },
   frasco: { name: 'Frasco de vidrio', desc: 'Para el alambique: al destilar se llena con la poción.' },
   espada: { name: 'Espada', desc: 'Para defenderte en cuevas y mazmorras. Úsala con el clic izquierdo.', weapon: 3, stack: 1, dur: 150 },
   espada_oro: { name: 'Espada de oro', desc: 'Pega el doble de fuerte.', weapon: 6, stack: 1, dur: 500 },
@@ -322,8 +338,21 @@ for (const [metal, of, dye, points, base] of ARMOR_METALS) ARMOR_PIECES.forEach(
 export const isArmor = id => !!ITEMS[id]?.armor;
 // Lo que quita el hambre cada comida (en medios muslos, de 20): si no lo dice, según lo que alimenta (food)
 export const hungerOf = def => def.hunger ?? Math.max(1, Math.min(10, Math.round((def.food || 0) / 4)));
-// Lo mismo, dicho en muslos («Quita 2,5 muslos de hambre»)
-export const hungerText = def => { const n = hungerOf(def) / 2; return `Quita ${String(n).replace('.', ',')} muslo${n === 1 ? '' : 's'} de hambre.`; };
+// What each one quenches (half-units of THIRST_MAX = 20): its own `thirst`, or a little for any other drink
+export const thirstOf = def => def?.thirst ?? (def?.drink ? 4 : 0);
+// Units of 20 as the percentage the bars show (12 → 60)
+export const pctOf = units => Math.round(100 * units / 20);
+// "Restores hunger +25 % and thirst +30 %." for the descriptions (inventory, crafting); '' if it restores nothing
+export function restoreText(def) {
+  if (!def) return '';
+  const list = [];
+  if (def.food) list.push(t('item.restores.hunger', { n: pctOf(hungerOf(def)) }));
+  if (thirstOf(def) > 0) list.push(t('item.restores.thirst', { n: pctOf(thirstOf(def)) }));
+  return list.length ? t('item.restores', { list: fmt.list(list) }) : '';
+}
+// A thing's name as a noun for the messages ({item, the}, {item, a}…): from the language files when it has a key
+// (item.canteen, with its gender), else its name as it is (the older ids still have Spanish names in ITEMS)
+export const itemNoun = id => (has(`item.${id}`) ? noun('item', id) : { name: ITEMS[id]?.name ?? String(id) });
 
 // Las alfombras se tejen de cada tamaño en el telar: la de siempre es la de 1×1 y 'alfombra_persa_2x3', la persa de
 // 2×3 (rug: de qué alfombra es; size: lo que ocupa, en casillas; plain: su nombre sin el tamaño)
@@ -378,7 +407,8 @@ Object.assign(HARVEST, {
 
 // Lo que cansa cada uso de herramienta (en cansancio de combat.js: a 4, medio muslo de hambre menos)
 export const TOOL_COST = { hacha: 1, pico: 1, guadana: 0.5, azada: 1, pala: 1, mano: 0.5, regadera: 0.5, cana: 0.5, red: 0.5 };
-export const START_KIT = [['hacha_hierro', 1], ['pico_hierro', 1], ['guadana_hierro', 1], ['azada_hierro', 1], ['pala_hierro', 1], ['manzana', 3]];
+// [id, n, extra?]: the third element is the stack's own data (new players start with a full canteen: game.js passes it)
+export const START_KIT = [['hacha_hierro', 1], ['pico_hierro', 1], ['guadana_hierro', 1], ['azada_hierro', 1], ['pala_hierro', 1], ['manzana', 3], ['canteen', 1, { sips: 4 }]];
 
 // Golpes que necesita con su herramienta
 export const hitsFor = rule => Math.max(1, Math.ceil(rule.hits / TIERS[4].power));

@@ -29,6 +29,14 @@ export { WATER_Y };   // (la del mundo: planet.js)
 // El clima en el suelo y el agua: WET, de 0 a 1, cuánto ha llovido (oscurece y abrillanta el suelo, y se seca
 // despacio); RAIN, de 0 a 1, lo que llueve ahora (los círculos de las gotas en el agua). Los pone engine.js
 export const WET = { value: 0 }, RAIN = { value: 0 };
+// The light the waves focus on the bed (caustics), seen only from under the water: k, from 0 to 1 (engine.js: 0 above the
+// water and at night, so above it the ground pays one uniform branch), t the time, and map the small baked pattern
+// (causticMap). ?caustica=0 takes the code out of the ground shader. Docs: docs/planes/gta/PLAN-D-barras-buceo.md §4.2
+export const CAUST = { k: { value: 0 }, t: { value: 0 }, map: { value: null }, u: { value: 0 } };
+const CAUSTICS = !apagada('caustica');
+// (u: 1 with the camera under the water, by day and by night, else 0; the shore's paint below the waterline turns to wet
+// mud then, BED_GLSL. ?fondo=0: not done)
+const BEDFIX = !apagada('fondo');
 // La nieve en lo llano de la tierra cavada (dig3d.js), con la estación
 const DIG_SNOW = { value: 0 };
 // La versión publicada (la meta de index.html; en las páginas de prueba sin ella, ninguna)
@@ -79,7 +87,7 @@ export class Terrain {
         // (con la versión en la dirección: index.html solo vuelve a pedir sin caché lo que carga la página, y este archivo lo
         // carga solo el hilo; uno viejo en caché con lo de ahora podría no arrancar)
         // (y lo del relieve guardado, que el hilo necesita al arrancar: abre la base antes de que se le pida nada)
-        const extra = paraHilo(['relieve', 'suelo']) + (CACHE_MAX !== 1024 ? `&relieve-max=${CACHE_MAX}` : '');   // (y el suelo de antes: ver arte.js)
+        const extra = paraHilo(['relieve', 'suelo', 'fondo']) + (CACHE_MAX !== 1024 ? `&relieve-max=${CACHE_MAX}` : '');   // (y el suelo de antes: ver arte.js)
         const w = new Worker(new URL('../world/genworker.js?v=' + encodeURIComponent(VERSION) + extra, import.meta.url), { type: 'module' });
         w.onmessage = e => this.onResult(e.data, i);
         w.onerror = e => { console.warn('Suelo: el hilo aparte ha fallado; se calcula aquí', e.message); this.workers = []; this.pending.clear(); this.jobs.clear(); this.arrived.length = 0; };
@@ -160,6 +168,7 @@ export class Terrain {
     // (la sombra de contacto: mira qué ha cambiado, junta formas, las pide al hilo y sube lo que ha llegado)
     this.contact.update(x, z);
     this.water.mesh.position.set(x, WATER_Y, z);
+    this.farDepth(gen, x, z);
     // (el plano de fondo solo donde no hay bloque: el shader descarta lo que cae en un bloque hecho)
     const U = this.water.uniforms; U.origin.value.set((bx - RADIUS) * BLOCK, (bz - RADIUS) * BLOCK);
     for (let dz = -RADIUS; dz <= RADIUS; dz++) for (let dx = -RADIUS; dx <= RADIUS; dx++) U.built.value[(dz + RADIUS) * (2 * RADIUS + 1) + dx + RADIUS] = this.blocks.has(`${bx + dx},${bz + dz}`) ? 1 : 0;
@@ -199,6 +208,20 @@ export class Terrain {
       }
       if (performance.now() - t0 > budget && budget < 1e8) break;
     }
+  }
+  // How deep the water of the plane beyond the blocks is (uFarDepth: it has no depth per vertex): the mean depth of the
+  // water at eight points on the ring where the blocks end, once a second, eased. Over the deep sea that is some 8 m, and
+  // its colour and alpha match the deep blocks next to it (with 1 m, a lighter seam showed at 130-190 m from a high camera)
+  farDepth(gen, x, z) {
+    const U = this.water.uniforms, now = performance.now();
+    if (now > (this.farDepthAt || 0)) {
+      this.farDepthAt = now + 1000;
+      const r = (RADIUS + 0.5) * BLOCK;
+      let sum = 0, n = 0;
+      for (let i = 0; i < 8; i++) { const a = i * Math.PI / 4, h = gen.groundAt(x + Math.cos(a) * r, z + Math.sin(a) * r); if (h < WATER_Y) { sum += WATER_Y - h; n++; } }
+      this.farDepthGoal = n ? Math.max(1, Math.min(8, sum / n)) : 1;
+    }
+    U.uFarDepth.value += ((this.farDepthGoal ?? 1) - U.uFarDepth.value) * 0.05;
   }
   // Pedir al hilo aparte los 16 trozos de la textura de un bloque (tras sus alturas: pri + 0.5)
   repaint(blk, pri) {
@@ -535,6 +558,8 @@ function groundMaterial(map) {
       .replace('#include <color_fragment>', '#include <color_fragment>\n        diffuseColor.rgb *= 1.0 - 0.24 * uWet;   // (y más oscuro)');
     if (SUELO_V2) { oldDetail(sh); return; }
     sh.uniforms.rockMap = D.rock; sh.uniforms.rockCol = D.rockCol; sh.uniforms.uGain = GROUND_GAIN;
+    if (CAUSTICS) { CAUST.map.value ||= causticMap(); sh.uniforms.uCaust = CAUST.k; sh.uniforms.uCaustT = CAUST.t; sh.uniforms.caustMap = CAUST.map; }
+    if (BEDFIX) sh.uniforms.uUnder = CAUST.u;
     // (la media de cada detalle, de su lienzo o de su foto, cuando llega: ver meanOf. Se lee al subir los uniformes, así
     // sigue a la foto sin que cada píxel lea el último mipmap)
     sh.uniforms.uMean = (D.mean ||= { get value() { return (this.v ||= new THREE.Vector3()).set(meanOf(D.grass.value), meanOf(D.soil.value), meanOf(D.rock.value)); } });
@@ -543,7 +568,7 @@ function groundMaterial(map) {
       .replace('#include <common>', '#include <common>\nvarying vec3 vGP;\nvarying vec3 vGN;')
       .replace('#include <begin_vertex>', '#include <begin_vertex>\nvGP = (modelMatrix * vec4(transformed, 1.0)).xyz;\nvGN = mat3(modelMatrix) * objectNormal;');
     sh.fragmentShader = sh.fragmentShader
-      .replace('#include <common>', '#include <common>\nuniform sampler2D grassMap;\nuniform sampler2D soilMap;\nuniform sampler2D rockMap;\nuniform vec3 rockCol;\nuniform float uGain;\nuniform vec3 uMean;\nvarying vec3 vGP;\nvarying vec3 vGN;\n' + NOISE)
+      .replace('#include <common>', '#include <common>\nuniform sampler2D grassMap;\nuniform sampler2D soilMap;\nuniform sampler2D rockMap;\nuniform vec3 rockCol;\nuniform float uGain;\nuniform vec3 uMean;\nvarying vec3 vGP;\nvarying vec3 vGN;\n' + NOISE + (CAUSTICS ? 'uniform float uCaust;\nuniform float uCaustT;\nuniform sampler2D caustMap;\n' : '') + (BEDFIX ? 'uniform float uUnder;\n' : ''))
       .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\n        roughnessFactor = mix(roughnessFactor, 0.82, rockK);   // (la roca, algo menos mate)')
       .replace('#include <map_fragment>', `#include <map_fragment>
         vec3 base = diffuseColor.rgb;
@@ -602,9 +627,57 @@ function groundMaterial(map) {
           rock = mix(rock, rock * vec3(0.9, 0.95, 1.02), snowy);
           rock = mix(rock, base, snowy * 0.75 * smoothstep(0.62, 0.7, ny + (r1 - 1.0) * 0.6));
           diffuseColor.rgb = mix(diffuseColor.rgb, rock, rockK);
-        }`);
+        }${BEDFIX ? BED_GLSL : ''}${CAUSTICS ? CAUSTIC_GLSL : ''}`);
   };
   return m;
+}
+// Seen from under the water, the paint of the shore (the pale water colour and the foam, painted to be seen through the
+// surface from above) reads as a white wall wherever the bed below the waterline is steep, as on the sides of the big
+// lakes: there the texture, laid from above, stretches down the slope. With the camera under the water (uUnder > 0, a
+// uniform: one branch for every pixel), what is pale and not warm below the waterline turns to wet mud; warm sand and the
+// painted deep bed stay. Above the water nothing changes (the water covers it anyway)
+const BED_GLSL = `
+        if (uUnder > 0.0) {
+          float bk = 1.0 - smoothstep(${(WATER_Y - 0.8).toFixed(2)}, ${(WATER_Y - 0.15).toFixed(2)}, vGP.y);
+          float lum = dot(diffuseColor.rgb, vec3(0.299, 0.587, 0.114)), warm = diffuseColor.r - diffuseColor.b;
+          bk *= smoothstep(0.16, 0.34, lum) * (1.0 - smoothstep(0.06, 0.14, warm)) * uUnder;
+          if (bk > 0.0) diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.15, 0.125, 0.085) * (0.8 + 0.5 * lum), bk);
+        }`;
+// The caustics on the bed, only while the camera is under the water (uCaust > 0: a uniform, so the same branch for every
+// pixel): the baked pattern twice, scrolled apart and joined with min(), brightest just under the surface and gone below
+// some 8 m. Two texture reads: cheaper than procedural noise on the Intel GPU
+const CAUSTIC_GLSL = `
+        if (uCaust > 0.0) {
+          float dk = (1.0 - smoothstep(${(WATER_Y - 0.8).toFixed(2)}, ${(WATER_Y - 0.1).toFixed(2)}, vGP.y)) * smoothstep(${(WATER_Y - 9).toFixed(2)}, ${(WATER_Y - 2.5).toFixed(2)}, vGP.y);
+          if (dk > 0.0) {
+            float c1 = texture2D(caustMap, P * 0.21 + vec2(uCaustT * 0.031, uCaustT * 0.017)).r;
+            float c2 = texture2D(caustMap, mat2(0.8, -0.6, 0.6, 0.8) * P * 0.17 + vec2(0.43 - uCaustT * 0.022, 0.17 + uCaustT * 0.027)).r;
+            diffuseColor.rgb *= 1.0 + 1.5 * min(c1, c2) * dk * uCaust;
+          }
+        }`;
+// The caustic pattern: 128² one-channel texels that tile (bright thin lines along the edges of a cellular noise, as light
+// through waves), made once when the first ground material compiles. 16 kB, mipmapped
+function causticMap() {
+  const N = 128, P = [], data = new Uint8Array(N * N);
+  let q = 1234567;
+  const rnd = () => ((q = Math.imul(q ^ (q >>> 15), 2246822519) + 1013904223 >>> 0) / 4294967296);
+  for (let i = 0; i < 18; i++) P.push([rnd(), rnd()]);
+  for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
+    const u = (i + 0.5) / N, v = (j + 0.5) / N;
+    let d1 = 9, d2 = 9;
+    for (const [px, py] of P) {
+      let dx = Math.abs(u - px), dy = Math.abs(v - py);
+      dx = Math.min(dx, 1 - dx); dy = Math.min(dy, 1 - dy);
+      const d = Math.hypot(dx, dy);
+      if (d < d1) { d2 = d1; d1 = d; } else if (d < d2) d2 = d;
+    }
+    const e = Math.max(0, 1 - (d2 - d1) / 0.06);
+    data[j * N + i] = Math.round(255 * e * e);
+  }
+  const t = new THREE.DataTexture(data, N, N, THREE.RedFormat, THREE.UnsignedByteType);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping; t.magFilter = THREE.LinearFilter; t.minFilter = THREE.LinearMipmapLinearFilter; t.generateMipmaps = true;
+  t.needsUpdate = true;
+  return t;
 }
 // Ruido de valor del borde de la roca (terrain.js, suelo-v3): el azar de cada punto de la rejilla y, entre medias, suave
 const NOISE = `float gHash(vec2 p) { vec3 q = fract(p.xyx * 0.1031); q += dot(q, q.yzx + 33.33); return fract((q.x + q.y) * q.z); }
@@ -655,6 +728,7 @@ uniform vec3 bank;
 uniform vec2 origin;
 uniform float built[${N_BUILT}];
 uniform float rainK;
+uniform vec3 uMurk;
 varying vec2 vW;
 varying float vDepth;
 varying vec4 vShore;
@@ -682,21 +756,34 @@ vec2 wSlope(vec2 p, float t, float far) {
   d = vec2(-0.93, -0.36); g += d * cos(dot(d, p) * 8.1 - t * 3.3 + 2.3) * 0.022 * k2;
   d = vec2(0.64, -0.77);  g += d * cos(dot(d, p) * 12.9 - t * 4.3 + 5.9) * 0.016 * k2;
   return g * (0.55 + 0.9 * n);
+}
+// (from below: only the two long trains, with no warp and no fade; enough to bend the edge of Snell's window)
+vec2 wSlopeLong(vec2 p, float t) {
+  vec2 d, g = vec2(0.0);
+  d = vec2(0.86, 0.51);   g += d * cos(dot(d, p) * 1.9 - t * 1.5) * 0.026;
+  d = vec2(-0.42, 0.91);  g += d * cos(dot(d, p) * 3.1 - t * 2.0 + 1.7) * 0.024;
+  return g;
 }`;
 // kind: 'bloque' (el agua de cada bloque), 'fondo' (el plano que sigue a la cámara donde aún no hay bloque) o 'charca' (la de
 // lo cavado que se ha llenado: ver poolGeometry en dig3d.js). La de la charca es la misma agua, con la profundidad y la
 // orilla por vértice, pero sin espuma ni borde transparente: llega a las paredes de tierra del hoyo, que la cortan (vShore.x
 // es de verdad la distancia a la pared, para la ribera reflejada). Donde toca el agua de verdad lleva su orilla, abierta
 // (sin espuma: ver applyDigs), y casan sin costura
+// Seen from under the water (the back faces, since diving: docs/planes/gta/PLAN-D-barras-buceo.md §4.2), the surface is
+// the murk mirrored (total internal reflection) except in Snell's window right overhead, where the sky shows through, its
+// edge bent by the long waves; none of the foam, the short waves, the clouds or the bank. Double-sided but always in a
+// single pass (forceSinglePass: in Three r160 a transparent double-sided material is otherwise drawn twice, back then
+// front, with two programs that prepare() does not compile)
 function waterMaterial(uniforms, kind) {
   const block = kind !== 'fondo', pool = kind === 'charca';
-  const m = new THREE.MeshStandardMaterial({ color: WATER.color, roughness: 0.07, metalness: 0, transparent: true, opacity: 0.8 });
-  m.customProgramCacheKey = () => (pool ? 'agua-charca-v1' : block ? 'agua-bloque-v2' : 'agua-fondo-v2');   // (si no, Three les da el mismo programa a los dos: el texto de onBeforeCompile es el mismo)
+  const m = new THREE.MeshStandardMaterial({ color: WATER.color, roughness: 0.07, metalness: 0, transparent: true, opacity: 0.8, side: THREE.DoubleSide });
+  m.forceSinglePass = true;
+  m.customProgramCacheKey = () => (pool ? 'agua-charca-v2' : block ? 'agua-bloque-v3' : 'agua-fondo-v3');   // (si no, Three les da el mismo programa a los dos: el texto de onBeforeCompile es el mismo)
   m.onBeforeCompile = sh => {
     Object.assign(sh.uniforms, { rainK: RAIN }, uniforms);
     sh.vertexShader = sh.vertexShader
-      .replace('#include <common>', `#include <common>\nvarying vec2 vW;\nvarying float vDepth;\nvarying vec4 vShore;${block ? '\nattribute float depth;\nattribute vec4 shore;' : ''}`)
-      .replace('#include <begin_vertex>', `#include <begin_vertex>\nvW = (modelMatrix * vec4(transformed, 1.0)).xz;\nvDepth = ${block ? 'depth' : '1.0'};\nvShore = ${block ? 'shore' : 'vec4(50.0, 0.0, 0.0, 0.0)'};`);
+      .replace('#include <common>', `#include <common>\nvarying vec2 vW;\nvarying float vDepth;\nvarying vec4 vShore;${block ? '\nattribute float depth;\nattribute vec4 shore;' : '\nuniform float uFarDepth;'}`)
+      .replace('#include <begin_vertex>', `#include <begin_vertex>\nvW = (modelMatrix * vec4(transformed, 1.0)).xz;\nvDepth = ${block ? 'depth' : 'uFarDepth'};\nvShore = ${block ? 'shore' : 'vec4(50.0, 0.0, 0.0, 0.0)'};`);
     sh.fragmentShader = sh.fragmentShader
       .replace('#include <common>', `#include <common>\n${WATER_PARS}`)
       .replace('#include <clipping_planes_fragment>', `#include <clipping_planes_fragment>
@@ -705,13 +792,14 @@ function waterMaterial(uniforms, kind) {
         if (vDepth <= 0.0) discard;`)
       .replace('#include <color_fragment>', `#include <color_fragment>
         float dp = vDepth, sd = vShore.x, far = length(vViewPosition);
+        bool wUp = gl_FrontFacing;   // (false: seen from under the water)
         // El color por lo que cubre: de la orilla (verdoso y claro) al de la paleta en un palmo, y a lo hondo pasado el medio metro
         vec3 wc = mix(${WATER.shallow}, diffuseColor.rgb, 1.0 - exp(-dp * 2.6));
         diffuseColor.rgb = mix(wc, ${WATER.deep}, (1.0 - exp(-max(dp - 0.45, 0.0) * 1.1)) * 0.85);
         // La espuma: la franja del borde y las olas que llegan a la orilla (del agua hacia tierra), rotas a manchas. Solo cerca
         // de la orilla (mar adentro no se calcula)
         float foam = 0.0;
-        if (${pool ? 'false' : 'sd < 1.9'}) {
+        if (${pool ? 'false' : 'wUp && sd < 1.9'}) {
           float n1 = wNoise(vW * 1.7 + vec2(time * 0.07, -time * 0.05)), n2 = wNoise(vW * 4.3 - time * 0.11);
           float edge = smoothstep(0.55, 0.05, sd);
           float waves = smoothstep(0.55, 1.0, 0.5 + 0.5 * sin(sd * 5.5 + time * 1.4 + n1 * 3.0)) * smoothstep(1.8, 0.2, sd);
@@ -726,10 +814,10 @@ function waterMaterial(uniforms, kind) {
       .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>
         roughnessFactor = mix(roughnessFactor, 0.7, foam);   // (la espuma no brilla)`)
       .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
-        vec2 wg = wSlope(vW, time, far);
+        vec2 wg = wUp ? wSlope(vW, time, far) : wSlopeLong(vW, time);
         normal = normalize(normal + mat3(viewMatrix) * vec3(-wg.x, 0.0, -wg.y));
         // (la lluvia: en cada celda de medio metro, un círculo que se abre y se apaga, a destiempo)
-        if (rainK > 0.0) {
+        if (rainK > 0.0 && wUp) {
           vec2 cell = floor(vW * 2.2), f = fract(vW * 2.2) - 0.5;
           float h = fract(sin(dot(cell, vec2(12.9898, 78.233))) * 43758.5453), tt = fract(time * 1.1 + h);
           f -= (vec2(fract(h * 7.3), fract(h * 3.1)) - 0.5) * 0.4;
@@ -741,7 +829,17 @@ function waterMaterial(uniforms, kind) {
       .replace('#include <lights_fragment_maps>', '')
       .replace('#include <opaque_fragment>', `
         // El cielo reflejado, en el mundo: la normal y la dirección a la cámara (de la vista al mundo, con la traspuesta)
-        vec3 Nw = normalize((vec4(normal, 0.0) * viewMatrix).xyz), Vw = normalize((vec4(vViewPosition, 0.0) * viewMatrix).xyz);
+        vec3 Vw = normalize((vec4(vViewPosition, 0.0) * viewMatrix).xyz);
+        if (!wUp) {
+          // From below (Vw points down, to the camera): the sky inside Snell's window (the ray up within some 49° of the
+          // vertical, its edge bent by the waves), darker at night; outside it the murk, opaque (what is above is not seen)
+          vec3 upW = normalize(vec3(-wg.x * 4.0, 1.0, -wg.y * 4.0));
+          float win = smoothstep(0.62, 0.7, dot(-Vw, upW));
+          vec3 skyC = mix(sky, skyTop, 0.5) * (1.0 - 0.85 * night);
+          outgoingLight = mix(uMurk, skyC, win * 0.8);
+          diffuseColor.a = mix(1.0, 0.55, win) * wEdge;
+        } else {
+        vec3 Nw = normalize((vec4(normal, 0.0) * viewMatrix).xyz);
         vec3 Rw = reflect(-Vw, Nw);
         Rw.y = max(Rw.y, 0.02);
         float F = mix(0.04, 1.0, pow(1.0 - clamp(dot(Vw, Nw), 0.0, 1.0), 5.0));
@@ -766,6 +864,7 @@ function waterMaterial(uniforms, kind) {
         float rk = F * (1.0 - foam);
         outgoingLight = mix(reflectedLight.directDiffuse + reflectedLight.indirectDiffuse, refl, rk) + (reflectedLight.directSpecular + reflectedLight.indirectSpecular) * (1.0 - foam) + totalEmissiveRadiance;
         diffuseColor.a = mix(diffuseColor.a, 1.0, rk * 0.6) * wEdge;
+        }
         #include <opaque_fragment>`);
   };
   return m;
@@ -777,6 +876,8 @@ function makeWater() {
     time: { value: 0 }, sky: { value: new THREE.Color('#cfe6f4') }, skyTop: { value: new THREE.Color('#7f9fb8') }, sunDir: { value: new THREE.Vector3(0, 1, 0) },
     glow: { value: 0.45 }, night: { value: 0 }, moon: { value: 0 }, cloudy: { value: 0.3 }, cloudK: { value: 1 }, bank: { value: new THREE.Color('#2a3320') },
     origin: { value: new THREE.Vector2() }, built: { value: new Float32Array(N_BUILT) },
+    // (the colour of the water seen from inside it, linear, and the depth of the far plane: engine.js and farDepth)
+    uMurk: { value: new THREE.Color('#2f4a4f') }, uFarDepth: { value: 1 },
   };
   const geo = new THREE.PlaneGeometry(520, 520, 1, 1);
   geo.rotateX(-Math.PI / 2);

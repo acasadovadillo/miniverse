@@ -14,7 +14,9 @@ export const PAL = {
   pintura: { verdin: '#3f7f5a', ocre: '#b08a4e', almagre: '#8f4a38', anil: '#3a5f8f', ciruela: '#7a3a68' },
   detalle: { hierro: '#4f5254', laton: '#8a7440', cristal: '#39444a' },
   follaje: { primavera: '#6f8050', verano: '#59683f', otono: '#94703a', otono2: '#7f4e2e', pino: '#3f5240', tronco: '#4d4236' },
-  agua: { profunda: '#2f4a4f', media: '#47666a', orilla: '#7f8f83', espuma: '#c7ccc2' },
+  // (bajo and bajoLago: the water seen from inside it, diving, in the sea and in a lake: the muted deep and middle water,
+  // not a saturated teal; engine.js lights and darkens them with the depth and the hour)
+  agua: { profunda: '#2f4a4f', media: '#47666a', orilla: '#7f8f83', espuma: '#c7ccc2', bajo: '#2b4e56', bajoLago: '#3b5048' },
 };
 
 const rgb = hex => { const n = parseInt(String(hex).replace('#', ''), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; };

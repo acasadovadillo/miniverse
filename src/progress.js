@@ -3,6 +3,7 @@
 import { ITEMS, FISH, BUGS, LEGACY_ITEMS } from './items.js';
 import { Audio } from './audio.js';
 import { hud } from './ui/hud.js';
+import { t } from './i18n.js';
 
 // ---------- Estadísticas ----------
 export class Stats {
@@ -15,14 +16,17 @@ export class Stats {
 }
 
 // ---------- Habilidades ----------
+// (diving, the newest, goes through i18n; the others are still Spanish literals here)
 const SKILLS = {
   tala: 'Tala', mineria: 'Minería', agricultura: 'Agricultura', pesca: 'Pesca',
   cocina: 'Cocina', construccion: 'Construcción', granja: 'Granja', combate: 'Combate',
+  get diving() { return t('skill.diving'); },
 };
 const PERKS = {
   tala: 'Nivel 5: talar cansa menos. Cada nivel: más madera.', mineria: 'Nivel 5: picar cansa menos. Cada nivel: más mineral.',
   agricultura: 'Cada nivel: más cosecha.', pesca: 'Cada nivel: salen más peces raros y tesoros.', cocina: 'Cada nivel: platos más sabrosos (quitan más hambre).',
   construccion: 'Por construir, que es muy bonito.', granja: 'Cada nivel: animales más contentos.', combate: 'Nivel 5: golpeas más fuerte.',
+  get diving() { return t('skill.diving.perk'); },   // (2 s more air per level, needs.js airMax; and more pearls, dive.js)
 };
 const xpFor = lvl => 25 * lvl * (lvl + 1);   // experiencia total para llegar a un nivel
 export class Skills {

@@ -182,6 +182,11 @@ export const RECIPES = [
   R('cocina', 'chuleta', 1, [['carne_cerdo', 1]]),
   R('cocina', 'venado_asado', 1, [['carne_venado', 1]]),
   R('cocina', 'jabali_asado', 1, [['carne_jabali', 1]]),
+  // Thirst and diving (docs/planes/gta/PLAN-D-barras-buceo.md §3.2): the canteen and the jug are made empty (no sips)
+  R('telar', 'canteen', 1, [['cuero', 1], ['cuerda', 1]]),
+  R('horno', 'water_jug', 1, [['piedra', 3], ['carbon', 1]]),
+  R('cocina', 'apple_juice', 1, [['manzana', 2]]),
+  R('mano', 'abono', 2, [['seaweed', 3]], { id: 'abono_alga' }),
 ];
 // Herramientas: todas de hierro, en el yunque
 for (const tool of ['hacha', 'pico', 'guadana', 'azada', 'pala']) RECIPES.push(R('yunque', `${tool}_hierro`, 1, [['lingote_hierro', 3], ['tablas', 1]]));

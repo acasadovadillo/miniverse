@@ -16,6 +16,8 @@
 #                                         contadores (personas dibujadas, sombras rehechas, instancias, memoria);
 #                                         con --contra, grupo a grupo antes y ahora
 #   python3 banco.py --perfil --solo X    las funciones que más tiempo de procesador se llevan en la parada X
+#   python3 banco.py --relieve0           sin el relieve guardado (?relieve=0): cada bloque se calcula, en frío (la línea
+#                                         «relieve» da los ms por bloque; para medir lo que cuesta el mar hondo, deepOf)
 #   python3 banco.py --mismo-perfil       el mismo perfil de Chrome en todas las vueltas (como recargar la página: la
 #                                         primera vuelta, con lo guardado vacío; las demás, con el relieve guardado)
 #
@@ -60,6 +62,7 @@ PX = arg('--px', '1')
 SIZE = arg('--tam', '1280x800')
 SW = '--sw' in sys.argv
 SAME_PROFILE = '--mismo-perfil' in sys.argv
+COLD_RELIEF = '--relieve0' in sys.argv
 OUT = os.path.join(HERE, '.banco', time.strftime('%Y%m%d-%H%M%S'))
 
 lock = threading.Lock()
@@ -249,7 +252,7 @@ def free(port):
 
 def run_once(exe, label, port, inject, profile):
     w, h = SIZE.split('x')
-    query = ('modo=pruebas&parte=mirar&' if inject else '') + f'banco=1&px={PX}' + ('&perfil=1' if PERFIL else '') + (f"&diag={arg('--diag')}" if arg('--diag') else '') + (f'&solo={ONLY}' if ONLY else '') + (f"&ab={arg('--ab')}" if arg('--ab') else '')
+    query = ('modo=pruebas&parte=mirar&' if inject else '') + f'banco=1&px={PX}' + ('&perfil=1' if PERFIL else '') + (f"&diag={arg('--diag')}" if arg('--diag') else '') + (f'&solo={ONLY}' if ONLY else '') + (f"&ab={arg('--ab')}" if arg('--ab') else '') + ('&relieve=0' if COLD_RELIEF else '')
     url = f'http://127.0.0.1:{port}/?{query}'
     gpu = ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'] if SW else (['--use-angle=metal'] if sys.platform == 'darwin' else []) + ['--ignore-gpu-blocklist']
     p = subprocess.Popen([exe, '--headless=new', *gpu, '--mute-audio', '--no-first-run', '--no-default-browser-check', '--disable-background-timer-throttling',

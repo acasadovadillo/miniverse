@@ -53,7 +53,11 @@ import { GAME_VERSION } from './version.js';
 import { Player, barrowPen } from './entities.js';
 import { screenToWorld } from './camera.js';
 import { makeCave } from './world/underground.js';
-import { START_KIT } from './items.js';
+import { START_KIT, thirstOf } from './items.js';
+import { stackKg, SIP_KG } from './carry-items.js';
+import { extraOf } from './inventory.js';
+import { WATER_Y } from './world/planet.js';
+import { RELIEF_V } from './world/ground.js';
 import { kitOf, kitKey, placeKit, shownOf, splitKit, kindOf, SCABBARD } from './kit.js';
 import { buildKit } from './three/kit3d.js';
 import { holdPose } from './three/carry3d.js';
@@ -179,6 +183,14 @@ function freeTile(game, from) {
   const w = game.world, p = game.player;
   for (const [tx, ty] of from) if (w.canPlace(tx, ty, 'cofre', p)) return [tx, ty];
   throw new Error('no hay casilla libre para colocar');
+}
+
+// Hold item id: into the selected hotbar slot if it is in the bag (a fuller hotbar since the canteen joined the start kit)
+function holdItem(I, id) {
+  let i = I.slots.findIndex(s => s?.id === id);
+  check(i >= 0, `no ${id}`);
+  if (i >= HOTBAR) { const j = I.selected; [I.slots[j], I.slots[i]] = [I.slots[i], I.slots[j]]; I.changed(); i = j; }
+  I.select(i);
 }
 
 // ---------- las pruebas de un jugador ----------
@@ -416,7 +428,7 @@ async function soloTests(game) {
     c.hunger = 4; c.paint(); inv().add('manzana', 1); const slot = inv().slots.findIndex(s => s?.id === 'manzana'); check(slot >= 0, 'no hay manzana');
     game.gather.cooldown = 0; game.gather.eat(slot); check(c.hunger === 8, `tras la manzana el hambre está a ${c.hunger} (esperaba 8)`);
     runCommand(game, '/time set 23:00', say); check(game.days.hour >= 22, `time set: ${said.at(-1)}`);
-    await game.days.sleep(); check(c.hunger === 14, `tras dormir el hambre está a ${c.hunger} (esperaba 14)`);
+    game.needs.rest = 50; await game.needs.sleep(); if (game.player.pose) game.rest.stand(); check(c.hunger === 14, `tras dormir el hambre está a ${c.hunger} (esperaba 14)`);
     runCommand(game, '/time reset', say);
     c.hunger = 20; c.paint();
   });
@@ -712,6 +724,8 @@ async function soloTests(game) {
     });
     const was = Settings.v.hud;
     check(!game.smartHud, 'the tests do not start with the full interface');
+    // (the inventory list paints its load bar when it opens: with what is carried now, not what a test before carried)
+    W.open('s-inv'); draw(); W.closeAll(); draw();
     const full = snap();
     W.closeAll();
     try {
@@ -720,7 +734,7 @@ async function soloTests(game) {
         if (round) Settings.set('hud', 'minimal'); else useSmartHud(game, true);
         const sh = game.smartHud;
         check(sh && document.body.classList.contains('hud-min'), `round ${round}: it does not go on`);
-        check(el('hearts').parentNode.id === 'hud-status' && el('money').parentNode === document.body, 'the parts are not in their places');
+        check(!el('hearts') && el('needs')?.parentNode === document.body && el('xp').parentNode.id === 'hud-status' && el('money').parentNode === document.body, 'the parts are not in their places');
         // An empty slot or a bow with no arrows: no name, not even the one before
         sh.until.item = 1e9; sh.itemName(null, 0);
         check(sh.until.item === 0, 'an empty slot keeps the name of the one before');
@@ -1163,7 +1177,7 @@ async function soloTests(game) {
     So().release('key'); check(!ring() && So().emSeq === seq + 1 && EMOTE_KINDS[So().emKind] === 'wave', `let go at 0.5 s: ${EMOTE_KINDS[So().emKind]}`);
     So().lastAt = -Infinity; seq = So().emSeq;
     So().press('key'); await frames(45);
-    check(So().emSeq === seq + 1 && ['fist', 'dismiss'].includes(EMOTE_KINDS[So().emKind]) && !So().hold && !ring(), `held 0.75 s: ${EMOTE_KINDS[So().emKind]}`);
+    check(So().emSeq === seq + 1 && ['fist', 'point', 'dismiss'].includes(EMOTE_KINDS[So().emKind]) && !So().hold && !ring(), `held 0.75 s: ${EMOTE_KINDS[So().emKind]}`);
     So().release('key'); check(So().emSeq === seq + 1, 'letting go after provoking greets too');
     check(Rp().pts === -6 && Nb().friend('bruno').pts === 0, `greeting and provoking: ${Rp().pts}`);
   }));
@@ -1227,7 +1241,7 @@ async function soloTests(game) {
     check(Rp().change(60, 'project') === 60, 'a project');   // (paying one for real changes the village for the other tests)
     // A gift she loves, while the village distrusts you: double
     Rp().v.pts = -500; Rp().v.lvl = 'distrusted';
-    I.add('fresa', 1); I.select(I.slots.findIndex(s => s?.id === 'fresa'));
+    I.add('fresa', 1); holdItem(I, 'fresa');
     await Nb().gift('rosa', I.held);
     check(Rp().pts === -484 && Rp().v.log.at(-1)[2] === 'gift_loved', `gift: ${Rp().pts}`);
     // A trade, then at most five a day
@@ -1312,7 +1326,7 @@ async function soloTests(game) {
     const r = nb('rosa'); r.hold = 0; r.placeAt(12); r.update(0, 12);
     await goTo(game, r.x, r.y + 1.3);
     Nb().friend('rosa').pts = 100;
-    const I = inv(); I.add('fresa', 1); I.select(I.slots.findIndex(s => s?.id === 'fresa'));
+    const I = inv(); I.add('fresa', 1); holdItem(I, 'fresa');
     let seen = null;
     hud.ask = (who, text, opts) => { seen = { text, opts }; return Promise.resolve(opts.indexOf('Adiós')); };
     await Nb().talk('rosa', r);
@@ -2223,7 +2237,7 @@ async function soloTests(game) {
   await test('peso (weight): each item weighs, the backpack adds capacity and nothing is ever refused', async () => {
     const W = new WeightInventory();
     for (const [id, n] of START_KIT) W.add(id, n);
-    check(Math.abs(W.kg - 10.7) < 0.01 && W.capKg === BASE_CAP && BASE_CAP === 25, `the starting kit: ${W.kg} / ${W.capKg} kg`);
+    check(Math.abs(W.kg - (10.7 + weightOf('canteen'))) < 0.01 && W.capKg === BASE_CAP && BASE_CAP === 25, `the starting kit: ${W.kg} / ${W.capKg} kg`);
     W.equip.espalda = { id: 'mochila', color: ITEMS.mochila.dye }; W.changed();
     check(W.capKg === BASE_CAP + BAG_CAP && W.capKg === 70, `with the backpack: ${W.capKg}`);
     check(W.add('piedra', 500) === 0 && W.count('piedra') === 500 && W.room('piedra') === Infinity, `500 stones: ${W.count('piedra')}, room ${W.room('piedra')}`);
@@ -2293,6 +2307,7 @@ async function soloTests(game) {
     const g = game, kept = g.inv.slots.slice(), ex = g.combat.exert.bind(g.combat);
     let n = 0; g.combat.exert = k => { n += k; ex(k); };
     try {
+      g.inv.slots.fill(null); g.inv.changed();   // (light: whatever the tests before left in the bag must not count)
       p().vx = 3; p().vy = 0;
       g.carry.update(1); const light = n; n = 0;
       g.inv.add('piedra', 300); p().vx = 3; g.carry.update(1);
@@ -2386,6 +2401,8 @@ async function soloTests(game) {
   await test('en brazos, límites (carry limits): Q only puts it down, a held click does not punch, no swimming, no running, no fence hopping, sitting or sleeping; the backpack does not take it; in slot mode /give log gives wood', async () => {
     await weightOn();
     const C = game.carry, G = game.gather;
+    // (what the tests before piled up in the bag must not leave the player too loaded to run: heavy stacks out)
+    game.inv.slots.forEach((s, i) => { if (s && weightOf(s.id) * s.n > 5) game.inv.slots[i] = null; }); game.inv.changed();
     C.set('log');
     try {
       G.cooldown = 0; G.swing = 0; G.use(); G.use(true); check(G.swing === 0 && G.cooldown === 0, 'a click with the arms full does something');
@@ -3149,6 +3166,459 @@ async function soloTests(game) {
       tell('carretilla coste: medida', true, `${(logic * 1000).toFixed(1)} µs/frame logic, ${(pose * 1000).toFixed(1)} µs pose ×${Ps.length}`);
     } finally { live.entities = ents; for (let k = 0; k < 4; k++) live.peers.delete('w' + k); draw(); }
   });
+  // ---------- the status bars, the needs and diving (docs/planes/gta/PLAN-D-barras-buceo.md §8) ----------
+  const N = () => game.needs, Cb = () => game.combat, say0 = () => {};
+  // Everything as a new game has it, in survival and normal, by day: what each needs test starts from and leaves
+  const needsBase = () => {
+    runCommand(game, '/gamemode survival', say0); game.difficulty = 'normal'; game.rules.doThirst = true; game.rules.doFatigue = true;
+    if (p().pose) game.rest.stand();
+    Object.assign(p(), { swim: false, sink: 0, dive: 0, forceRise: false, sprinting: false, fastSwim: false, sleeping: false });
+    N().reset({}); Cb().hp = 20; Cb().hunger = 20; Cb().regen = 0; Cb().invuln = 0; Cb().paint();
+    delete game.buffs.incansable;
+    clearKeys();
+  };
+  // A spy on the floats and the toasts (what the player is told), undone by the returned function
+  const told = () => {
+    const out = [], G = game.gather, f = G.float, ts = hud.toast;
+    G.float = (text, c) => { out.push(String(text)); return f.call(G, text, c); };
+    hud.toast = (text, k) => { out.push(String(text)); return ts.call(hud, text, k); };
+    return { out, undo: () => { G.float = f; hud.toast = ts; } };
+  };
+  // The cursor on a point given in absolute heights (the water, a find on the bed)
+  // (the needs keep the water under the cursor for the frame: a new cursor within the same frame looks again)
+  const aimAbs = (x, h, y) => { const v = new THREE.Vector3(x, h, y).project(game.view3d.camera); game.mouse = { x: (v.x + 1) / 2 * innerWidth, y: (1 - v.y) / 2 * innerHeight, in: true }; N().aim = null; };
+  // The deep sea nearest the village, the shore on the way to it, and a sea tile next to that shore (found once)
+  let seaAt = null;
+  const sea = () => {
+    if (seaAt) return seaAt;
+    const G = w().gen, W = w();
+    let deep = null;
+    for (let r = 80; r < 1600 && !deep; r += 8) for (let a = 0, n = Math.ceil(r * 6.283 / 8); a < n; a++) {
+      const x = 21 + Math.cos(a / n * 6.283) * r, y = 26 + Math.sin(a / n * 6.283) * r;
+      if (G.biomeAt(x, y) === B.OCEAN && G.groundAt(x, y) < -9) { deep = [Math.floor(x) + 0.5, Math.floor(y) + 0.5]; break; }
+    }
+    check(deep, 'no deep sea within 1.6 km of the village');
+    // (from the deep spot back towards the village: the first land is the shore, and 1.5 tiles out from it the sea)
+    const [dx, dy] = deep, L = Math.hypot(dx - 21, dy - 26), ux = (21 - dx) / L, uy = (26 - dy) / L;
+    let shore = null, water = null;
+    for (let s = 0; s < L; s += 0.25) {
+      const x = dx + ux * s, y = dy + uy * s;
+      if (!W.water(x, y)) { shore = [x + ux * 0.3, y + uy * 0.3]; water = [x - ux * 1.5, y - uy * 1.5]; break; }
+    }
+    // The finds around the deep spot: one down deep (an oyster bed or seaweed: shells stay above 5 m), and a sunken chest
+    // (one chunk in twelve of the deep sea has one)
+    const cx0 = Math.floor(dx / CHUNK), cy0 = Math.floor(dy / CHUNK);
+    let shell = null, chest = null;
+    for (let r = 0; r <= 14 && !(shell && chest); r++) for (let j = -r; j <= r; j++) for (let i = -r; i <= r; i++) {
+      if (Math.max(Math.abs(i), Math.abs(j)) !== r) continue;
+      for (const o of G.seabed(cx0 + i, cy0 + j).finds) {
+        if (!shell && (o.kind === 'oyster' || o.kind === 'seaweed') && o.bed < -6) shell = { o, cx: cx0 + i, cy: cy0 + j };
+        if (!chest && o.kind === 'sunken_chest') chest = { o, cx: cx0 + i, cy: cy0 + j };
+      }
+    }
+    return (seaAt = { deep, shore, water, shell, chest });
+  };
+  // Swimming at (x, y), at the surface (a few frames for the water to take the player)
+  const swimAt = async (x, y) => {
+    await goTo(game, x, y);
+    p().dive = 0; p().sink = 0;
+    await until(() => p().swim, 4000, 'swimming');
+  };
+  // How deep to dive so that the diver's height (dive.js diverY) is a little over a bed at height bed
+  const diveFor = bed => Math.max(0, WATER_Y - 0.7 - (p().sink || 0) - (bed + 0.4));
+
+  await test('needs (english): old save loads full', async () => {
+    try {
+      needsBase();
+      N().reset({ hp: 7, hunger: 9 });
+      check(N().thirst === 20 && N().rest === 100 && N().stamina === 100 && N().air === N().airMax, `an old save: thirst ${N().thirst}, rest ${N().rest}`);
+      N().reset({ thirst: 'x', rest: null, dry: -4 });
+      check(N().thirst === 20 && N().rest === 100 && N().dry === 0, 'bad values do not load full');
+      Object.assign(N(), { thirst: 13.5, dry: 1.2, rest: 42 });
+      const out = {}; N().save(out); N().reset(JSON.parse(JSON.stringify(out)));
+      check(N().thirst === 13.5 && Math.abs(N().dry - 1.2) < 1e-9 && Math.abs(N().rest - 42) < 0.01, `the round trip: ${N().thirst} ${N().dry} ${N().rest}`);
+      const snap = game.snapshot();
+      check('thirst' in snap && 'rest' in snap && 'restAt' in snap && !('energy' in snap), `the save keys: ${Object.keys(snap).filter(k => /thirst|rest|energy|dry|nap/.test(k))}`);
+    } finally { needsBase(); }
+  });
+  await test('needs (english): rest recovers offline', async () => {
+    try {
+      needsBase();
+      N().reset({ rest: 10, restAt: Date.now() - 3 * 3600e3, thirst: 7 });
+      check(Math.abs(N().rest - 60) < 0.5 && N().thirst === 7, `3 h away: rest ${N().rest}, thirst ${N().thirst}`);
+      N().reset({ rest: 10, restAt: Date.now() - 7 * 3600e3 });
+      check(N().rest === 100, `7 h away: rest ${N().rest}`);
+      N().reset({ rest: 10, restAt: Date.now() + 3600e3 });
+      check(N().rest === 10, `a clock from the future: rest ${N().rest}`);
+    } finally { needsBase(); }
+  });
+  await test('needs (english): thirst drains in survival only', async () => {
+    try {
+      needsBase(); await goTo(game, 21, 26);
+      N().update(120); check(N().thirst === 19, `120 s idle: thirst ${N().thirst}`);
+      // (idle exertion does not dry: only the needs' own clock; a non-idle one does a little)
+      N().thirst = 20; N().dry = 0; Cb().exert(1, true); check(N().dry === 0, `idle exertion dried ${N().dry}`);
+      Cb().exert(1); check(N().dry > 0, 'work does not dry');
+      for (const [cmd, what] of [['/gamemode creative', 'creative'], ['/gamemode spectator', 'spectator']]) {
+        N().thirst = 12; runCommand(game, cmd, say0); N().update(240); check(N().thirst === 20, `${what}: ${N().thirst}`);
+        runCommand(game, '/gamemode survival', say0);
+      }
+      game.difficulty = 'peaceful'; N().thirst = 15; N().update(240); check(N().thirst === 15, `peaceful: ${N().thirst}`);
+      // (doThirst false: full, so a thirst left at 0 neither hurts nor blocks healing: review 2026-11-22)
+      game.difficulty = 'normal'; game.rules.doThirst = false; N().update(240); check(N().thirst === 20, `doThirst false: ${N().thirst}`);
+    } finally { needsBase(); }
+  });
+  await test('needs (english): thirst damage floors', async () => {
+    const kept = game.rules.keepInventory, spy = told();
+    try {
+      for (const [d, floor] of [['easy', 10], ['normal', 1]]) {
+        needsBase(); game.difficulty = d; N().thirst = 0;
+        for (let i = 0; i < 30; i++) Cb().update(4.01);
+        check(Cb().hp === floor, `${d}: health ${Cb().hp} (wanted ${floor})`);
+      }
+      needsBase(); game.difficulty = 'peaceful'; N().thirst = 0; Cb().hp = 15;
+      for (let i = 0; i < 5; i++) Cb().update(4.01);
+      check(Cb().hp >= 15, `peaceful hurts: ${Cb().hp}`);
+      // Hard kills, and says why
+      needsBase(); game.rules.keepInventory = true; game.difficulty = 'hard'; N().thirst = 0; Cb().hp = 2;
+      for (let i = 0; i < 4 && !game.dying; i++) Cb().update(4.01);
+      check(game.dying, `hard does not kill: ${Cb().hp}`);
+      await until(() => !game.dying, 20000, 'coming back');
+      check(spy.out.some(s => s.includes(t('needs.dehydrated'))), `the death says: ${spy.out.slice(-3)}`);
+    } finally { spy.undo(); game.rules.keepInventory = kept; game.busy = false; needsBase(); await goTo(game, 21, 26); }
+  });
+  await test('needs (english): regen needs food and water', async () => {
+    try {
+      needsBase(); Cb().hp = 10; N().thirst = 9;
+      Cb().update(4.01); check(Cb().hp === 10, `fed but thirsty heals: ${Cb().hp}`);
+      N().thirst = 10; Cb().update(4.01); check(Cb().hp === 11, `fed and watered does not heal: ${Cb().hp}`);
+      Cb().hunger = 17; Cb().update(4.01); check(Cb().hp === 11, `hungry heals: ${Cb().hp}`);
+    } finally { needsBase(); }
+  });
+  await test('needs (english): drink river not sea', async () => {
+    const was = game.mouse, spy = told();
+    try {
+      needsBase();
+      // The village pond (fresh): aimed from its shore, Drink; one press drinks on, a step stops it, another drinks to full
+      await goTo(game, 27.4, 27); draw(); draw();
+      check(N().waterKind(29.2, 27) === 'fresh', `the pond is ${N().waterKind(29.2, 27)}`);
+      N().thirst = 19; aimAbs(29.2, WATER_Y, 27);
+      check(!game.nearest(), `at 95 % it offers: ${game.nearest()?.text}`);
+      N().thirst = 6; aimAbs(29.2, WATER_Y, 27);
+      let act = game.nearest(); check(act?.text === t('needs.drink_water'), `at the pond it says: ${act?.text}`);
+      act.run(); check(N().drinking && p().crouch, 'it does not start drinking, crouched');
+      await frames(30); const sipped = N().thirst; check(sipped > 7.5, `half a second drank ${sipped - 6}`);
+      keys.up = true; await frames(2); keys.up = false;
+      check(!N().drinking && !p().crouch, 'a step does not stop drinking or leaves the player crouched');
+      await goTo(game, 27.4, 27); draw(); aimAbs(29.2, WATER_Y, 27); game.nearest()?.run();
+      await until(() => !N().drinking, 8000, 'drinking to full');
+      check(N().thirst === 20, `one press drinks to ${N().thirst}`);
+      // Full: no target; in a cave or a house (not the world), none either
+      aimAbs(29.2, WATER_Y, 27); check(!game.nearest(), 'full, it still offers to drink');
+      N().thirst = 5; check(!N().aimables(p(), { placedNear: () => [] }, () => ({})), 'another scene offers water');
+      // A well drinks (the big one and the small one: farm.wellAction)
+      const well = game.farm.wellAction({ x: p().x + 1, y: p().y }, null);
+      check(well?.text === t('needs.well.drink'), `the well says: ${well?.text}`);
+      well.run(); check(N().drinking, 'the well does not drink'); N().stopDrinking();
+      // The sea: salty, and nothing changes
+      const S = sea();
+      check(S.shore && N().waterKind(...S.water) === 'salt', `the sea water there is ${S.water && N().waterKind(...S.water)}`);
+      await goTo(game, ...S.shore); draw(); draw();
+      N().thirst = 6; aimAbs(S.water[0], WATER_Y, S.water[1]);
+      act = game.nearest(); check(act?.text === t('needs.sea_salty'), `at the sea it says: ${act?.text} (aim ${JSON.stringify(N().waterAim(p()))}, at ${p().x.toFixed(2)},${p().y.toFixed(2)} swim ${p().swim}, water ${S.water.map(v => v.toFixed(2))}, ray ${JSON.stringify(game.view3d.rayAt(game.mouse.x, game.mouse.y))})`);
+      act.run(); await frames(30); check(N().thirst <= 6 && !N().drinking, `the sea quenched: ${N().thirst}`);
+    } finally { spy.undo(); game.mouse = was; game.highlight = null; N().stopDrinking(); needsBase(); await goTo(game, 21, 26); }
+  });
+  await test('needs (english): canteen fill sip and keep', async () => {
+    const was = game.mouse, I = inv(), kept = I.slots.slice(), sel = I.selected;
+    try {
+      needsBase();
+      // A new game starts with a full canteen
+      const W = new WeightInventory(); for (const [id, n, extra] of START_KIT) W.add(id, n, extra);
+      check(W.slots.find(s => s?.id === 'canteen')?.sips === 4, 'the start kit has no full canteen');
+      // Empty, filled at the pond (the needs' fill target), then a sip
+      I.slots[I.selected] = { id: 'canteen', n: 1 }; I.changed();
+      await goTo(game, 27.4, 27); draw(); draw(); aimAbs(29.2, WATER_Y, 27);
+      const tg = N().target(p(), I.held, ITEMS.canteen);
+      check(tg?.label === t('needs.canteen.fill', { item: noun('item', 'canteen'), n: 0, max: 4 }), `the fill label: ${tg?.label}`);
+      tg.use(); check(I.held.sips === 4, `filled to ${I.held.sips}`);
+      check(!N().target(p(), I.held, ITEMS.canteen), 'full, it still offers to fill');
+      N().thirst = 10; game.gather.cooldown = 0; game.gather.sip(I.selected);
+      check(I.held.sips === 3 && N().thirst === 15, `a sip: ${I.held.sips} left, thirst ${N().thirst}`);
+      // The sips weigh, in the load (carry), and stay through a chest's copy, a toss and a save
+      const s = I.held, kg = I.kg;
+      check(Math.abs(stackKg(s) - stackKg({ id: 'canteen', n: 1 }) - 3 * SIP_KG) < 1e-9 && SIP_KG === 0.25, `stackKg: ${stackKg(s)}`);
+      s.sips = 4; I.changed(); check(Math.abs(I.kg - kg - 0.25) < 0.051, `the load does not grow with a sip: ${kg} → ${I.kg}`);
+      s.sips = 3; I.changed();
+      check(extraOf(s)?.sips === 3, 'a chest would lose the sips (extraOf)');
+      const saved = new WeightInventory(JSON.parse(JSON.stringify(I.toSave())));
+      check(saved.slots.find(q => q?.id === 'canteen')?.sips === 3, 'the save loses the sips');
+      I.take(I.selected, 1, true); check(!I.held, 'the canteen is still in hand');
+      game.gather.throwOut('canteen', 1, { sips: 3 }); await collectDrops(game);
+      const back = I.slots.find(q => q?.id === 'canteen' && q.sips === 3); check(back, 'a tossed canteen comes back without its water');
+      // The packlist row and the tooltip weigh it with its water (ui/packlist.js, ui/inventory.js)
+      check(stackKg(back) > weightOf('canteen'), 'the stack weight ignores the water');
+    } finally { game.mouse = was; I.slots.splice(0, I.slots.length, ...kept); I.select(sel); I.changed(); needsBase(); await goTo(game, 21, 26); }
+  });
+  await test('needs (english): drinks quench', async () => {
+    const I = inv(), kept = I.slots.slice(), sel = I.selected;
+    try {
+      for (const id of ['leche', 'apple_juice', 'sopa_verduras', 'coco']) {
+        needsBase(); check(ITEMS[id], `no ${id}`);
+        N().thirst = 0; Cb().hunger = 0;
+        I.slots[I.selected] = { id, n: 1 }; I.changed(); game.gather.cooldown = 0; game.gather.eat(I.selected);
+        check(N().thirst === Math.min(20, thirstOf(ITEMS[id])) && thirstOf(ITEMS[id]) > 0, `${id}: thirst ${N().thirst} (its value ${thirstOf(ITEMS[id])})`);
+      }
+      // Full on both (and not hurt): refused, nothing used
+      needsBase(); I.slots[I.selected] = { id: 'leche', n: 1 }; I.changed(); game.gather.cooldown = 0; game.gather.eat(I.selected);
+      check(I.held?.id === 'leche', 'drunk with no thirst and no hunger');
+    } finally { I.slots.splice(0, I.slots.length, ...kept); I.select(sel); I.changed(); needsBase(); }
+  });
+  await test('needs (english): stamina sprint and exhaust', async () => {
+    const spy = told(), step = (secs, f) => { for (let i = 0; i < Math.round(secs * 60); i++) { f?.(); game.time += 1 / 60; N().update(1 / 60); } };
+    const I = inv(), kept = I.slots.slice();
+    try {
+      needsBase();
+      I.slots.fill(null); I.changed();   // (light: what the tests before piled up would stop the running, carry.js)
+      // The keys: running on foot makes the player sprint (entities.js)
+      await goTo(game, 21, 26); keys.up = true; keys.run = true; await frames(20);
+      check(p().sprinting, 'running is not sprinting'); keys.up = false; keys.run = false; await frames(2); check(!p().sprinting, 'stopped, still sprinting');
+      needsBase();
+      p().sprinting = true; step(1, () => { p().sprinting = true; });
+      check(Math.abs(N().stamina - 95) < 0.5, `a second of sprint: ${N().stamina}`);
+      N().stamina = 1; keys.run = true; step(2, () => { p().sprinting = true; });
+      check(N().stamina === 0 && N().exhausted && N().noRun(), `empty: ${N().stamina}, exhausted ${N().exhausted}`);
+      check(spy.out.filter(s => s === t('needs.too_tired')).length === 1, `the "too tired" float: ${spy.out.filter(s => s === t('needs.too_tired')).length} times`);
+      // (riding or rowing spends no stamina: exhausted, the horse still gallops and the boat still rows fast)
+      for (const k of ['mount', 'boat', 'aboard']) { p()[k] = {}; const no = N().noRun(); delete p()[k]; check(!no, `exhausted ${k} cannot run`); }
+      keys.run = false; p().sprinting = false;
+      step(3.4); check(N().exhausted, `exhausted cleared early, at ${N().stamina}`);
+      step(0.3); check(!N().exhausted && N().stamina >= 50, `not cleared at half the cap: ${N().stamina}`);
+      step(3); check(N().stamina === N().cap, `not full in about 6 s: ${N().stamina}`);
+      // Tools spend, but do not delay the refill; the vegetable soup (incansable) spends nothing
+      N().stamina = 50; N().idleT = 9; N().work('hacha'); const after = N().stamina; check(after < 50, 'a tool costs nothing');
+      step(0.2); check(N().stamina > after, 'a tool delays the refill');
+      game.buffs.incansable = game.time + 60; N().stamina = 80; step(1, () => { p().sprinting = true; }); check(N().stamina >= 80, `tireless spends: ${N().stamina}`);
+      delete game.buffs.incansable;
+      // Lying in bed after a sprint: nothing drains
+      p().pose = { kind: 'lie', yaw: 0, h: 0 }; N().stamina = 60; step(0.5, () => { p().sprinting = true; }); check(N().stamina >= 60, `lying drains: ${N().stamina}`);
+    } finally { spy.undo(); I.slots.splice(0, I.slots.length, ...kept); I.changed(); p().pose = null; p().sprinting = false; needsBase(); }
+  });
+  await test('needs (english): rest caps stamina', async () => {
+    try {
+      needsBase();
+      N().rest = 20; check(Math.abs(N().cap - 64) < 1e-9, `cap at rest 20: ${N().cap}`);
+      N().rest = 60; check(N().cap === 100, `cap at rest 60: ${N().cap}`);
+      N().rest = 20; N().stamina = 100; N().update(0.1); check(N().stamina <= 64, `the stamina is over its cap: ${N().stamina}`);
+      p().pose = { kind: 'lie', yaw: 0, h: 0 }; N().update(60); const bed = N().rest - 20;
+      N().rest = 20; p().pose = { kind: 'sit', yaw: 0, h: 0 }; N().update(60); const seat = N().rest - 20;
+      check(Math.abs(bed - 12.5) < 0.1 && seat > 0 && seat < bed / 3, `a minute in bed ${bed}, seated ${seat}`);
+      p().pose = null; N().rest = 50; N().update(60); check(N().rest < 50, 'awake, rest does not fall');
+    } finally { p().pose = null; needsBase(); }
+  });
+  await test('needs (english): sleep restores rest', async () => {
+    const spy = told(), St = game.steps, stepWas = St.i, live = game.live, was = { joined: live.joined, net: live.net, T: { ...live.timers }, lastSent: live.lastSent, sent: live.sent };
+    try {
+      needsBase(); St.i = STEPS.length;   // (the first steps' "try your bed" lets you nap any time: not here)
+      const H = game.houseRect(), bed = w().placedNear((H.x0 + H.x1) / 2, (H.y0 + H.y1) / 2, 16).find(o => o.placed === 'cama'); check(bed, 'no bed');
+      await goTo(game, bed.x + 1.2, bed.y + 1.2);
+      // At night: a mob within 8 refuses; without it, rest 100, "well rested", lying, zz, and fed to 14 at least
+      runCommand(game, '/time set 23:00', say0);
+      const limo = game.mobs.summon('limo', p().x + 3, p().y);
+      N().rest = 40; check(await N().sleep(bed) === false && spy.out.includes(t('needs.sleep.mobs')) && N().rest === 40, 'a creature nearby does not stop sleeping');
+      game.mobs.remove(limo); game.mobs.clearNear(p().x, p().y, 30);
+      Cb().hunger = 3;
+      check(await N().sleep(bed) === true, 'does not sleep at night');
+      check(N().rest === 100 && N().rested > Date.now() && p().pose?.kind === 'lie' && p().sleeping && Cb().hunger >= 14, `asleep: rest ${N().rest}, pose ${p().pose?.kind}, hunger ${Cb().hunger}`);
+      // (what the others are told: zz only lying in bed)
+      const sent = [];
+      live.joined = true; live.net = new Proxy({ ready: true, key: 1, send: m => sent.push(m) }, { get: (o, k) => (k in o ? o[k] : () => {}) });
+      const st = () => { for (const k in live.timers) live.timers[k] = -1e9; live.lastSent = null; sent.length = 0; live.tick(1); return sent.find(m => m.t === 'st'); };
+      check(st()?.zz === 1, 'zz is not sent in bed');
+      game.rest.stand(); check(!p().sleeping, 'standing up does not wake');
+      p().sleeping = true; check(st()?.zz === undefined, 'zz is sent without lying'); p().sleeping = false;
+      live.joined = was.joined; live.net = was.net; Object.assign(live.timers, was.T);
+      // By day: a nap adds 40; a second within the hour is refused; rested, not sleepy
+      runCommand(game, '/time set 12:00', say0);
+      N().rest = 30; N().napAt = 0;
+      check(await N().sleep(bed) === true && Math.abs(N().rest - 70) < 0.5, `the nap: rest ${N().rest}`);
+      game.rest.stand(); N().rest = 30;
+      check(await N().sleep(bed) === false && spy.out.includes(t('needs.sleep.cant_nap')), `a second nap: ${spy.out.slice(-2)}`);
+      N().napAt = 0; N().rest = 95;
+      check(await N().sleep(bed) === false && spy.out.includes(t('needs.sleep.not_tired')), 'rested, sleepy by day');
+    } finally {
+      spy.undo(); St.i = stepWas; live.joined = was.joined; live.net = was.net; Object.assign(live.timers, was.T); live.lastSent = was.lastSent; live.sent = was.sent;
+      if (p().pose) game.rest.stand(); runCommand(game, '/time reset', say0); needsBase(); await goTo(game, 21, 26);
+    }
+  });
+  await test('needs (english): death refills', async () => {
+    const kept = game.rules.keepInventory;
+    try {
+      needsBase(); game.rules.keepInventory = true;
+      Object.assign(N(), { thirst: 2, stamina: 3, exhausted: true, rest: 10, air: 1 }); p().sleeping = true;
+      await Cb().die('test');
+      check(N().thirst === 20 && N().stamina === N().cap && !N().exhausted && N().air === N().airMax && N().rest >= 50 && !p().sleeping, `after dying: thirst ${N().thirst}, stamina ${N().stamina}, air ${N().air}, rest ${N().rest}, asleep ${p().sleeping}`);
+    } finally { game.rules.keepInventory = kept; game.busy = false; needsBase(); await goTo(game, 21, 26); }
+  });
+  await test('dive (english): air drains under water', async () => {
+    const Sk = game.skills, xpWas = Sk.xp.diving, hid = Object.getOwnPropertyDescriptor(Document.prototype, 'hidden');
+    const under = () => Object.assign(p(), { swim: true, sink: 0.5, dive: 1 });
+    try {
+      needsBase(); under();
+      check(p().headUnder && N().headUnder, 'with the head under, headUnder is false');
+      N().update(1); check(Math.abs(N().air - 29) < 1e-6, `a second under: air ${N().air}`);
+      p().dive = 0; p().sink = 0; N().update(0.5); check(N().air === N().airMax, `surfacing does not refill: ${N().air}`);
+      // At 0: drowning ticks every second, floored like hunger (normal: down to 1, then up to the surface)
+      under(); N().air = 0; Cb().hp = 10;
+      for (let i = 0; i < 3; i++) N().update(1.01);
+      check(Cb().hp === 4, `normal: 3 s at air 0 leave ${Cb().hp}`);
+      Cb().hp = 1; N().update(1.01); check(Cb().hp === 1 && p().forceRise, `normal kills or does not push up: ${Cb().hp}, ${p().forceRise}`);
+      // Peaceful: no damage, pushed up at once
+      needsBase(); under(); game.difficulty = 'peaceful'; N().air = 0; N().update(1.01);
+      check(Cb().hp === 20 && p().forceRise, `peaceful: ${Cb().hp}, rise ${p().forceRise}`);
+      // A hidden tab: nothing drains
+      needsBase(); under(); Object.defineProperty(document, 'hidden', { get: () => true, configurable: true });
+      N().update(2); check(N().air === N().airMax, `the hidden tab drains: ${N().air}`);
+      delete document.hidden; if (!hid) check(false, 'no document.hidden');
+      // Creative: full; the diving skill gives more air
+      runCommand(game, '/gamemode creative', say0); under(); N().air = 5; N().update(1); check(N().air === N().airMax, `creative: ${N().air}`);
+      runCommand(game, '/gamemode survival', say0);
+      const base = N().airMax; Sk.xp.diving = 1e7; check(N().airMax === base + 20 && Sk.level('diving') === 10, `level ${Sk.level('diving')}: air ${N().airMax}`);
+    } finally { delete document.hidden; if (xpWas === undefined) delete Sk.xp.diving; else Sk.xp.diving = xpWas; needsBase(); }
+  });
+  await test('dive (english): shift dives space rises', async () => {
+    const S = sea(), press = (code, type) => dispatchEvent(new KeyboardEvent(type, { code, key: 'Shift', bubbles: true }));
+    try {
+      needsBase(); await swimAt(...S.deep);
+      const d = w().waterDepth(p().x, p().y), room = d - 1 - 0.55;
+      check(d > 6, `the deep spot is ${d} m deep`);
+      keys.dive = true; await frames(60);
+      check(p().dive > 0.5 && p().headUnder, `a second of Shift: dive ${p().dive}`);
+      await frames(60 * 12); check(p().dive <= room + 1e-6 && p().dive > room - 0.3, `holding Shift, dive ${p().dive} (the bed lets ${room})`);
+      keys.dive = false;
+      // (S is still backwards, not up: keys.down is not keys.dive)
+      keys.down = true; const dv = p().dive; await frames(30); keys.down = false; check(p().dive > dv - 0.2, `S comes up: ${dv} → ${p().dive}`);
+      const d0 = p().dive; await frames(120); const drift = (d0 - p().dive) / 2;
+      check(drift > 0.1 && drift < 0.2, `nothing held drifts up at ${drift} m/s`);
+      // The jump out at the shore only at the surface
+      p().shore = true; p().jump(); check(p().swim, 'jumped out from depth');
+      keys.space = true; await until(() => !p().dive && !p().headUnder, 15000, 'coming up'); keys.space = false;
+      check(!p().headUnder, 'up, the head is still under');
+      // A Shift tap while swimming neither crouches nor stops a fast swim
+      keys.run = true; press('ShiftLeft', 'keydown'); check(keys.dive, 'Shift does not dive'); press('ShiftLeft', 'keyup');
+      check(keys.run && !keys.dive && !p().crouch, `a Shift tap: run ${keys.run}, crouch ${p().crouch}`);
+    } finally { clearKeys(); needsBase(); await goTo(game, 21, 26); }
+  });
+  await test('dive (english): swimming E reaches finds', async () => {
+    const S = sea(), was = game.mouse;
+    try {
+      needsBase(); check(S.shell, 'no deep find near the deep sea');
+      const { o } = S.shell;
+      await swimAt(o.x + 0.6, o.y);
+      p().dive = diveFor(o.bed); draw(); draw();
+      check(p().headUnder, `not under at the depth of the ${o.kind}`);
+      const bed = game.view3d.bedY(o.x, o.y);
+      aimAbs(o.x, (Number.isFinite(bed) ? bed : o.bed) + 0.1, o.y);
+      const said = t(o.kind === 'oyster' ? 'dive.open_oyster' : 'dive.cut_seaweed'), act = game.nearest(); check(act?.text === said, `aimed at the ${o.kind} it says: ${act?.text}`);
+      draw(); check(game.highlight?.find === o.key, `highlighted: ${game.highlight?.kind} ${game.highlight?.find}`);
+      // Without a mouse: the nearest find
+      game.mouse = null; check(game.nearest()?.text === said, 'without a mouse the find is not offered');
+      // No boat from the bottom
+      check(!game.crew.canRow(p(), w()), 'a boat is offered at depth');
+    } finally { game.mouse = was; game.highlight = null; needsBase(); await goTo(game, 21, 26); }
+  });
+  await test('dive (english): deep sea exists', async () => {
+    const G = w().gen, S = sea();
+    check(RELIEF_V === 2, `RELIEF_V ${RELIEF_V}`);
+    check(G.groundAt(...S.deep) < -9 && G.groundAt(S.deep[0], S.deep[1]) < -6, `the deep sea is at ${G.groundAt(...S.deep)}`);
+    // A river's centre is as before (about -2.2 or more), and the village ground is 0
+    let river = null;
+    for (let r = 40; r < 500 && !river; r += 3) for (let a = 0, n = Math.ceil(r * 6.283 / 3); a < n; a++) {
+      const x = 21 + Math.cos(a / n * 6.283) * r, y = 26 + Math.sin(a / n * 6.283) * r;
+      if (w().water(x, y) && game.fishing.waterType(x, y) === 'rio' && w().water(x + 1, y) && w().water(x - 1, y)) { river = [x, y]; break; }
+    }
+    check(river, 'no river');
+    check(G.groundAt(...river) >= -2.6, `a river is ${G.groundAt(...river)} deep`);
+  });
+  await test('dive (english): finds are deterministic and apart', async () => {
+    const S = sea(), G = w().gen, G2 = new WorldGen(G.seed), { cx, cy } = S.shell;
+    const a = G.seabed(cx, cy).finds, b = G2.seabed(cx, cy).finds;
+    check(a.length && JSON.stringify(a.map(o => o.key)) === JSON.stringify(b.map(o => o.key)), 'two generators give other finds');
+    check(a.every(o => Number.isFinite(o.bed) && o.key.startsWith(o.kind + ':')), 'a find without its bed or key');
+    check(new Set(a.map(o => o.key.split(':')[1])).size === a.length, 'two finds on one tile');
+    const kinds = new Set(['seashell', 'seaweed', 'oyster', 'mussel', 'sunken_chest']);
+    check(!G.content(cx, cy).objects.some(o => kinds.has(o.kind)), 'content holds finds');
+    check(!w().harvestablesNear(S.shell.o.x, S.shell.o.y).some(o => kinds.has(o.kind)), 'harvestablesNear gives finds');
+  });
+  await test('dive (english): reach is vertical', async () => {
+    const S = sea();
+    try {
+      needsBase(); const { o } = S.shell;
+      await swimAt(o.x + 0.5, o.y);
+      check(!game.dive.reachable(p()).some(f => f.o.key === o.key), `a find ${o.bed} m down is reached from the surface`);
+      p().dive = diveFor(o.bed);
+      check(game.dive.reachable(p()).some(f => f.o.key === o.key), `at its depth the ${o.kind} is not reached`);
+    } finally { needsBase(); await goTo(game, 21, 26); }
+  });
+  await test('dive (english): chest alone opens at once', async () => {
+    const S = sea(), spy = told();
+    let d = null;
+    try {
+      needsBase(); check(S.chest, 'no sunken chest near the deep sea');
+      const { o, cx, cy } = S.chest, money = game.money, xp = game.skills.xp.diving || 0;
+      await swimAt(o.x + 0.6, o.y);
+      p().dive = diveFor(o.bed);
+      const f = game.dive.reachable(p()).find(q => q.o.key === o.key); check(f, 'the chest is not in reach at its depth');
+      game.dive.take(f);
+      d = w().delta(cx, cy);
+      check(d?.opened?.[o.key] === Profile.id && game.money > money && (game.skills.xp.diving || 0) > xp, `opened by ${d?.opened?.[o.key]}, money ${money} → ${game.money}`);
+      check(!game.dive.reachable(p()).some(q => q.o.key === o.key), 'an open chest is offered again');
+      await frames(480);
+      check(!spy.out.includes(t('dive.too_late')), '"too late" after opening it alone');
+    } finally { spy.undo(); if (d?.opened && S.chest) delete d.opened[S.chest.o.key]; needsBase(); await goTo(game, 21, 26); }
+  });
+  await test('red (net): dv and zz optional', async () => {
+    const live = game.live;
+    try {
+      live.receive('dv1', { t: 'hi', id: 'id-dv1', name: 'Buzo', playing: true, look: LOOK });
+      live.receive('dv1', { t: 'st', sc: 'world', x: p().x + 2, y: p().y, yaw: 0, na: 1, hu: 0.3 });
+      const e = live.peers.get('dv1').entity;
+      for (let i = 0; i < 30; i++) e.update(1 / 30, w());
+      check(e.dive === 0 && !e.sleeping && !e.headUnder, `without dv/zz: dive ${e.dive}, asleep ${e.sleeping}`);
+      live.receive('dv1', { t: 'st', sc: 'world', x: p().x + 2, y: p().y, yaw: 0, na: 1, hu: 0.5, dv: 5, zz: 1 });
+      e.update(1 / 30, w()); check(e.dive > 0 && e.dive < 5 && e.sleeping, `smoothed: ${e.dive}`);
+      for (let i = 0; i < 120; i++) e.update(1 / 30, w());
+      check(Math.abs(e.dive - 5) < 0.05 && e.headUnder, `dv 5 gives ${e.dive}`);
+      live.receive('dv1', { t: 'st', sc: 'world', x: p().x + 2, y: p().y, yaw: 0, na: 1, hu: 0.5, dv: 999 }); check(e.diveTo === 30, `dv is not clamped: ${e.diveTo}`);
+      live.receive('dv1', { t: 'st', sc: 'world', x: p().x + 2, y: p().y, yaw: 0, dv: 4 }); check(e.diveTo === 0, 'dv without swimming');
+    } finally { live.peers.delete('dv1'); draw(); }
+  });
+  await test('hud (english): bars in place', async () => {
+    const $ = id => document.getElementById(id), on = id => $('nd-' + id).classList.contains('nd-on');
+    try {
+      needsBase(); useSmartHud(game, false); await goTo(game, 21, 26);
+      check($('needs') && !$('hearts') && !$('hunger') && !$('hud-keys'), 'the strip, or the hearts, drumsticks or keys card are there');
+      // The full interface: every row but air
+      draw(); draw();
+      check(['hp', 'food', 'water', 'en'].every(on) && !on('air'), `full: ${['hp', 'food', 'water', 'en', 'air'].filter(on)}`);
+      // The minimal one: the xp in its status block; health after a hit, gone after 5.5 s; a short sprint no energy
+      useSmartHud(game, true); await frames(2); draw(); draw();
+      check($('xp').parentNode.id === 'hud-status' && $('needs').parentNode === document.body, 'minimal: the parts are not in place');
+      check(!['hp', 'food', 'water', 'en', 'air'].some(on), `minimal, nothing happening: ${['hp', 'food', 'water', 'en', 'air'].filter(on)}`);
+      Cb().hp = 16; draw(); draw(); check(on('hp'), 'minimal: a hit does not show the health');
+      const t0 = performance.now(); while (performance.now() - t0 < 5600) { draw(); await sleep(250); }
+      check(!on('hp'), 'minimal: the health stays after 5.5 s');
+      N().stamina = 75; draw(); draw(); check(!on('en'), 'minimal: a 5 s sprint shows the energy');
+      N().stamina = 30; draw(); draw(); check(on('en'), 'minimal: a long sprint does not show the energy');
+      // A hot swap: nothing left on
+      N().stamina = 100; useSmartHud(game, false); draw(); useSmartHud(game, true); draw(); draw();
+      check(!['hp', 'food', 'water', 'en', 'air'].some(on), `after a swap, on: ${['hp', 'food', 'water', 'en', 'air'].filter(on)}`);
+      // Tab: the legend with the bars (and no keys card)
+      game.smartHud.hold(true); draw(); draw();
+      check(!$('hud-keys') && $('nd-legend').textContent.includes(t('hud.need.thirst')), `Tab's legend: ${$('nd-legend').textContent}`);
+      game.smartHud.hold(false);
+    } finally { useSmartHud(game, false); needsBase(); draw(); }
+  });
   await test('peso y en brazos, fin (weight end): a save played with the weight inventory opens with ?inventario=casillas without losing anything, and back', async () => {
     const W = JSON.stringify(game.snapshot()), D = JSON.stringify([...game.world.deltas]), was = Carry.force;
     const all = () => { const n = new Map(); for (const s of game.inv.slots) if (s) n.set(s.id, (n.get(s.id) || 0) + s.n); for (const { s } of game.inv.kept) n.set(s.id, (n.get(s.id) || 0) + s.n); return n; };
@@ -3187,6 +3657,16 @@ function riverSpot(game) {
   for (let r = 60; r < 400; r += 4) for (let a = 0; a < 64; a++) {
     const x = Math.round(21 + Math.cos(a / 64 * 6.283) * r), y = Math.round(24 + Math.sin(a / 64 * 6.283) * r);
     if (w.water(x, y) && w.water(x + 1, y) && w.water(x - 1, y) && w.water(x, y + 1) && w.water(x, y - 1)) return [x, y];
+  }
+  return null;
+}
+// The sunken chest nearest the village (gen.seabed, the same on every peer): { o, cx, cy } or null
+function sunkSpot(game) {
+  const G = game.world.gen, cx0 = Math.floor(21 / CHUNK), cy0 = Math.floor(26 / CHUNK);
+  for (let r = 0; r <= 48; r++) for (let j = -r; j <= r; j++) for (let i = -r; i <= r; i++) {
+    if (Math.max(Math.abs(i), Math.abs(j)) !== r) continue;
+    const o = G.seabed(cx0 + i, cy0 + j).finds.find(q => q.kind === 'sunken_chest');
+    if (o) return { o, cx: cx0 + i, cy: cy0 + j };
   }
   return null;
 }
@@ -3348,6 +3828,21 @@ async function hostTests(game) {
       check(said.some(([e]) => e === game.world.nilo), 'Nilo does not answer the guest here');
       l.chat('NILO-VISTO');
     } finally { delete S.say; hud.toast = toast; }
+  });
+  await test('dos: el cofre hundido, una vez (sunken chest once): the host opens it, the guest who asks after gets nothing', async () => {
+    const c = sunkSpot(game); check(c, 'no sunken chest near the village');
+    const { o, cx, cy } = c, p = game.player;
+    l.chat(`HUNDIDO:${o.key}`);
+    await until(() => heard('HUNDIDO-LISTO'), 85000, 'the guest at the chest');
+    await goTo(game, o.x + 0.6, o.y); await until(() => p.swim, 4000, 'swimming');
+    p.dive = Math.max(0, WATER_Y - 0.7 - (p.sink || 0) - (o.bed + 0.4));
+    const f = game.dive.reachable(p).find(q => q.o.key === o.key); check(f, 'the chest is not in reach');
+    const money = game.money; game.dive.take(f);
+    check(game.world.delta(cx, cy)?.opened?.[o.key] === Profile.id && game.money > money, 'the host does not open it at once');
+    l.chat('HUNDIDO-ABIERTO');
+    const said = await until(() => heard('HUNDIDO-VISTO'), 60000, 'the guest\'s answer');
+    check(said.includes(`by=${Profile.id}`) && said.includes('SIN-BOTIN'), `the guest says: ${said}`);
+    p.dive = 0; await goTo(game, 21, 26);
   });
 }
 async function guestTests(game) {
@@ -3527,6 +4022,29 @@ async function guestTests(game) {
       l.chat('NILO-SALUDADO');
       await until(() => heard('NILO-VISTO'), 60000, 'a que el anfitrión lo vea');
     } finally { delete S.say; }
+  });
+  await test('dos: el cofre hundido (sunken chest): asking after the host opened it gives nothing; both see it open, by the host', async () => {
+    const msg = await until(() => heard('HUNDIDO:'), 90000, 'the host\'s chest'), key = msg.slice(msg.indexOf('HUNDIDO:') + 8).trim().split(/\s/)[0];
+    const c = sunkSpot(game); check(c?.o.key === key, `another chest here: ${c?.o.key} / ${key}`);
+    const { o, cx, cy } = c, p = game.player, toast = hud.toast, toasts = [];
+    await goTo(game, o.x - 0.6, o.y); await until(() => p.swim, 4000, 'swimming');
+    p.dive = Math.max(0, WATER_Y - 0.7 - (p.sink || 0) - (o.bed + 0.4));
+    const f = game.dive.reachable(p).find(q => q.o.key === o.key); check(f, 'the chest is not in reach');
+    const money = game.money;
+    hud.toast = (m, k) => { toasts.push(String(m)); return toast.call(hud, m, k); };
+    try {
+      l.chat('HUNDIDO-LISTO');
+      await until(() => heard('HUNDIDO-ABIERTO'), 85000, 'the host opening it');
+      game.dive.take(f);   // (its claim, if the opened chest has not come yet; else nothing to take)
+      await until(() => game.world.delta(cx, cy)?.opened?.[o.key], 30000, 'the open chest here');
+      await until(() => !game.dive.asked.has(o.key), 15000, 'the host\'s answer');
+      await frames(30);
+      const by = game.world.delta(cx, cy).opened[o.key], got = game.money !== money;
+      l.chat(`HUNDIDO-VISTO by=${by} ${got ? 'BOTIN' : 'SIN-BOTIN'} ${toasts.includes(t('dive.too_late')) ? 'TARDE' : 'NO-PEDIDO'}`);
+      console.log(`sunken chest, the guest: by ${by}, ${got ? 'loot' : 'no loot'}, ${toasts.includes(t('dive.too_late')) ? 'claimed and refused (too late)' : 'not claimed (it came open first)'}`);
+      check(!got && by !== Profile.id, `the guest got the loot (${game.money - money}) or opened it (${by})`);
+    } finally { hud.toast = toast; p.dive = 0; }
+    await goTo(game, 21, 26);
   });
 }
 

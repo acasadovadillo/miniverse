@@ -3,12 +3,13 @@
 // generador, sin nada de dibujo ni de documento: así se calculan igual en el hilo principal (si no hay otro) y en el
 // hilo aparte (genworker.js), que es donde van normalmente para que el juego no dé tirones al estrenar terreno.
 import { CHUNK, RES } from './gen.js';
-import { B, BIOMES, climate, classify, biomeAt, wetness, depthOfWet, reliefOf } from './biomes.js';
+import { B, BIOMES, climate, classify, biomeAt, wetness, depthOfWet, deepOf, reliefOf } from './biomes.js';
 import * as village from './village.js';
 import { seasonalPalette } from '../art/seasons.js';
 import { ihash, vnoise, rgbOf } from '../util.js';
 import { wrapNoise } from './planet.js';
 import { PAL, SUELO_V2 } from '../arte.js';
+import { apagada } from '../opciones.js';
 
 export const BLOCK = CHUNK * 4;         // lado de un bloque de suelo, en casillas (metros)
 export const PX = 4;                    // píxeles de textura por metro
@@ -19,6 +20,12 @@ export const PX = 4;                    // píxeles de textura por metro
 const DUNE = rgbOf('#b3a27c'), DIRT = rgbOf(PAL.suelo.camino), DIRT_D = rgbOf(PAL.suelo.tierra), SAND = rgbOf(PAL.suelo.arena), MUD = rgbOf(PAL.suelo.barro);
 const SHORE = [[SAND, rgbOf('#8f8164')], [rgbOf('#80745d'), rgbOf('#665b48')], [rgbOf('#5a5244'), rgbOf('#3f3a30')]];
 const SHALLOW_W = rgbOf(PAL.agua.orilla), DEEP = rgbOf(PAL.agua.profunda), FOAM = rgbOf(PAL.agua.espuma);
+// The deep bed (deepOf > 0: the open sea and the middle of the big lakes, for diving), seen from under the water: in the sea,
+// rippled sand that gives way to rock further out; in a lake, its mud. Pre-darkened towards the deep water colour, so from
+// above (through the water, 0.85-0.92 opaque) it still reads as deep water, darker the deeper. ?fondo=0: as before
+const BED_SAND = rgbOf('#a39573'), BED_SAND_D = rgbOf('#8a7d60'), BED_ROCK = rgbOf('#6c6a62'), BED_ROCK_D = rgbOf('#55544e');
+const DEEP_PAINT = !apagada('fondo');
+const BR = wrapNoise(0.09), BR2 = wrapNoise(0.35);
 // Las manchas grandes del suelo (de 40 a 200 m): pasto seco y verde jugoso que cambian con la estación, y más claro o más
 // oscuro. Las comparten el suelo (paintPixels) y las matas de hierba de encima (nature3d.js), para que casen. Por estación:
 // cuánto se va a lo seco, cuánto a lo jugoso y cuánto cambia el valor (en invierno, bajo la nieve, casi nada)
@@ -89,7 +96,7 @@ export function groundOf(gen, x, z) {
 function groundWith(gen, x, z, c) {
   if (village.inBounds(x, z)) return depthOf(gen, x, z);
   const u = wetness(c);
-  return u > 0 ? depthOfWet(u) : reliefOf(c, u, x, z, gen.seed);
+  return u > 0 ? depthOfWet(u, c, x, z, gen.seed) : reliefOf(c, u, x, z, gen.seed);
 }
 
 // Las alturas de un bloque, un vértice por casilla y todas exactas (el relieve casilla a casilla, hundido donde hay agua
@@ -176,12 +183,13 @@ export function blockNormals(H, edge, n, out = new Float32Array(n * n * 3)) {
 // lo guardado (groundcache.js): con otra semilla u otro código, lo guardado no vale. Se calcula con el código que corre
 // de verdad en el hilo (un genworker.js viejo de la caché del navegador da otra huella). Sube RELIEF_V a mano si cambia
 // algo que esto no vea
-export const RELIEF_V = 1;
+// (2: the deep sea and the big lakes for diving, deepOf; its noise is a constant outside any function text)
+export const RELIEF_V = 2;
 export function groundTag(gen) {
   let h = 2166136261;
   const f = new Float32Array(1), u = new Uint32Array(f.buffer), mix = v => { h = Math.imul(h ^ v, 16777619); };
   const text = fn => { const t = String(fn); for (let i = 0; i < t.length; i++) mix(t.charCodeAt(i)); };
-  for (const fn of [blockHeights, groundWith, groundOf, depthOf, climate, classify, biomeAt, wetness, depthOfWet, reliefOf, gen.groundAt, gen.depthAt, village.pondDist, village.inBounds, wetOf]) text(fn);
+  for (const fn of [blockHeights, groundWith, groundOf, depthOf, climate, classify, biomeAt, wetness, depthOfWet, deepOf, reliefOf, gen.groundAt, gen.depthAt, village.pondDist, village.inBounds, wetOf]) text(fn);
   // (puntos de prueba: por todo el planeta, alrededor del pueblo y su estanque, y unos cuantos al azar cerca)
   const P = [];
   for (let j = 0; j < 12; j++) for (let i = 0; i < 12; i++) P.push([-32768 + i * 5461.3 + j * 97, -6000 + j * 1000 + i * 31]);
@@ -190,6 +198,20 @@ export function groundTag(gen) {
   for (const [x, z] of P) { f[0] = groundOf(gen, x, z); mix(u[0]); mix(biomeAt(x, z, gen.seed)); }
   mix(BLOCK);
   return `s${gen.seed}.v${RELIEF_V}.${(h >>> 0).toString(36)}`;
+}
+
+// The colour of the deep bed at (x, y), e metres below the shelf (deepOf); lake: a lake's (its mud, mud). The sea: sand
+// with ripples across it (two noises bend them), rock patches growing with the depth, and all pre-darkened towards DEEP
+function deepBed(x, y, S, e, lake, mud) {
+  let bed;
+  if (lake) bed = mix3(mud, DIRT_D, 0.25 + 0.3 * BR(x, y, S + 870));
+  else {
+    const n = BR(x, y, S + 871), ripple = 0.5 + 0.5 * Math.sin((x * 0.83 + y * 0.56) * 2.6 + n * 9 + BR2(x, y, S + 872) * 3);
+    bed = mix3(BED_SAND, BED_SAND_D, ss(0.35, 0.95, ripple) * 0.8);
+    const rock = ss(0.55, 0.75, BR(x, y, S + 873) + e * 0.025);
+    if (rock > 0) bed = mix3(bed, mix3(BED_ROCK, BED_ROCK_D, BR2(x, y, S + 874)), rock);
+  }
+  return mix3(bed, DEEP, 0.45);
 }
 
 // El color medio de cada trozo de un bloque (16 trozos: el bioma del centro con su paleta de la estación), para
@@ -281,6 +303,8 @@ export function paintPixels(gen, cx, cy, season, field = gen.field(cx, cy)) {
     if (u > -0.45) {   // la orilla, el borde mojado y el fondo
       const [dry, wetc] = SHORE[f.shore[s]];
       col = u <= 0 ? mix3(col, mix3(dry, wetc, ss(-0.2, 0, u)), ss(-0.45, -0.15, u)) : mix3(mix3(SHALLOW_W, DEEP, ss(0, 1, u)), FOAM, 0.6 * (1 - ss(0, 0.08, u)));
+      const e = DEEP_PAINT && f.deep ? f.deep[s] : 0;
+      if (e > 0) col = mix3(col, deepBed(gx, gy, S, e, f.lake[s], SHORE[f.shore[s]][1]), ss(0, 3, e));
     }
     const sh = 1 + (h - 0.5) * 0.08;
     if (near && village.inBounds(gx, gy)) col = villageGround(gx, gy, col, S);

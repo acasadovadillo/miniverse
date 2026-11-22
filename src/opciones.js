@@ -11,7 +11,12 @@
 // También en los hilos: cada uno lee la dirección con la que se creó (terrain.js le pasa al del suelo lo que le toca)
 const RAW = (() => { try { return new URLSearchParams(globalThis.location?.search || ''); } catch { return new URLSearchParams(); } })();
 // (cada parte, con el valor que tenía antes para lo mismo)
-export const PARTES = { hierba: 'sinlod', impostores: null, relieve: null, contacto: null, sombras: 'todas', personas: 'todas', suelo: 'v2', inventario: 'casillas' };
+// Plan D (status bars and diving, docs/planes/gta/PLAN-D-barras-buceo.md), each with ?x=0: sed (thirst stays full, its
+// row hidden), cansancio (rest stays 100, no stamina cap), aguante (stamina: unlimited sprint, no row), buceo (no diving
+// and no underwater camera; crouch and sink as before), fondo (no seabed decor and no deep bed paint: drawing only) and
+// caustica (no caustics, a compile-time define). None of them changes gen or the relief, so peers stay in step
+export const PARTES = { hierba: 'sinlod', impostores: null, relieve: null, contacto: null, sombras: 'todas', personas: 'todas', suelo: 'v2', inventario: 'casillas',
+  sed: null, cansancio: null, aguante: null, buceo: null, fondo: null, caustica: null };
 
 // El valor tal cual (o null)
 export const opcion = k => RAW.get(k);

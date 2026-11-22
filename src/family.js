@@ -11,6 +11,7 @@ import { nearX } from './world/planet.js';
 import { Profile } from './accounts.js';
 import { hud } from './ui/hud.js';
 import { Audio } from './audio.js';
+import { t } from './i18n.js';
 
 const WAIT = 7, GROW = 7, MAX = 2;   // días hasta que nace, días de bebé y cuántos hijos como mucho
 const NIGHT = [21, 7];               // de qué hora a qué hora duermen los niños
@@ -126,10 +127,10 @@ export class Family {
   async bed(o) {
     const g = this.game;
     g.busy = true;
-    const pickN = await hud.ask(g.player.name, '¿Qué hacemos?', ['Tumbarse un rato', 'Dormir', 'Nada']);
+    const pickN = await hud.ask(g.player.name, t('bed.q'), [t('bed.lie'), t('bed.sleep'), t('bed.nothing')]);
     g.busy = false;
     if (pickN === 0 && o) return g.rest.lie(o);
-    if (pickN === 1) return g.sleep();
+    if (pickN === 1) return g.sleep(o);   // (needs.js: lies down in it, then sleeps)
   }
   // Lo que impide tener un bebé ahora (o null)
   why() {

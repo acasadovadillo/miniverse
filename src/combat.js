@@ -1,7 +1,7 @@
-// Vida y combate. La vida (en corazones) y el hambre (en muslos) cuentan siempre en supervivencia, como en
-// Minecraft: con el hambre casi llena se cura sola, y sin hambre duele. El hambre baja con el tiempo y con lo que
-// se hace (usar herramientas, correr, saltar, pegar). La armadura quita daño. Al morir se suelta lo que se lleva
-// (salvo con keepInventory) y se reaparece en la cama o en casa. En cuevas y mazmorras, criaturas que persiguen y
+// Vida y combate. La vida y el hambre cuentan siempre en supervivencia (las barras de estado: ui/needsbar.js; la sed, el
+// aguante, el descanso y el aire, en needs.js): con el hambre casi llena y sin sed se cura sola, y sin hambre o sin agua
+// duele. El hambre baja con el tiempo y con lo que se hace (usar herramientas, correr, saltar, pegar). La armadura quita
+// daño. Al morir se suelta lo que se lleva (salvo con keepInventory) y se reaparece en la cama o en casa. En cuevas y mazmorras, criaturas que persiguen y
 // muerden, y golpes con la espada (o con cualquier herramienta, que pega menos); las de fuera, de noche, las lleva
 // mobs.js. La dificultad (/difficulty) cambia cuánto muerden y el hambre: en pacífico no hay criaturas ni baja el
 // hambre; en fácil el hambre no baja la vida de 5 corazones, en normal, de medio, y en difícil mata.
@@ -12,12 +12,15 @@ import { hud } from './ui/hud.js';
 import { XP_MOB, roll } from './xp.js';
 import { CAM } from './camera.js';
 import { reportFault } from './faults.js';
+import { t } from './i18n.js';
+import { DRY_EXERT, RATES } from './needs.js';
 
-export const HP_MAX = 20;       // medios corazones
-export const HUNGER_MAX = 20;   // medios muslos
+export const HP_MAX = 20;       // health, in 20 units (the save keeps this scale; the bar shows it as a share)
+export const HUNGER_MAX = 20;   // hunger, in 20 units (idem)
 const EXHAUST = 4;               // lo que hay que cansarse para perder medio muslo (usar una herramienta: TOOL_COST, de 0,5 a 1;
                                  // pegar: 0,1; correr, 0,05 por metro; saltar, 0,05; curarse medio corazón, 1,5; y, sin hacer nada, esto cada IDLE s)
-const IDLE = 150, TICK = 4;      // y cada TICK s se cura (con el hambre a 18 o más) o duele el hambre (a 0)
+const IDLE = 150, TICK = 4;      // y cada TICK s se cura (con el hambre a 18 o más y la sed a la mitad o más) o duelen el hambre o la sed (a 0)
+const REGEN_FOOD = 18, REGEN_WATER = 10;   // what natural regeneration needs: hunger 18 (as before) and thirst 10 (50 %)
 const DROP_TTL = 300;            // segundos que dura en el suelo lo que se suelta al morir
 
 export const DIFFICULTIES = { peaceful: 'pacífico', easy: 'fácil', normal: 'normal', hard: 'difícil' };
@@ -48,18 +51,20 @@ export class Combat {
     this.exhaust = 0;
     this.invuln = 0;
     this.regen = 0;
-    this.shown = -1; this.shownHunger = -1;
   }
   reset(save) { this.hp = save.hp ?? HP_MAX; this.hunger = save.hunger ?? HUNGER_MAX; this.exhaust = save.exhaust || 0; this.invuln = 0; this.regen = 0; this.paint(); }
   save(out) { out.hp = Math.round(this.hp * 10) / 10; out.hunger = this.hunger; out.exhaust = Math.round(this.exhaust * 100) / 100; }
   get survival() { return this.game.gamemode === 'survival'; }
   get diff() { return DIFF[this.game.difficulty] || DIFF.normal; }
-  // Cansarse: cada EXHAUST, medio muslo menos de hambre (solo en supervivencia, y no en pacífico)
-  exert(n) {
+  // Cansarse: cada EXHAUST, medio muslo menos de hambre (solo en supervivencia, y no en pacífico). What is not idle also
+  // dries a little (DRY_EXERT of it, needs.js); idle thirst comes only from the needs' own clock, so it is not counted twice
+  exert(n, idle = false) {
     if (!this.survival || this.game.difficulty === 'peaceful') return;
+    const was = this.hunger;
     this.exhaust += n;
     while (this.exhaust >= EXHAUST) { this.exhaust -= EXHAUST; if (this.hunger > 0) this.hunger--; }
-    this.paint();
+    if (!idle) this.game.needs?.dryBy(n * DRY_EXERT);
+    if (this.hunger !== was) this.paint();   // (it runs every frame: the bars only on a change)
   }
   feed(n) { this.hunger = Math.min(HUNGER_MAX, this.hunger + n); this.paint(); }
   // Los puntos de armadura que se llevan puestos (cada uno quita un 4 % del daño, hasta el 80 %)
@@ -69,26 +74,20 @@ export class Combat {
   // Las criaturas de esta escena (las de fuera, de mobs.js)
   get monsters() { const g = this.game; return this.scene === g.world ? g.mobs.list : this.scene?.monsters; }
   heal(n) { this.hp = Math.min(HP_MAX, this.hp + n); this.paint(); }
-  paint() {
-    if (this.shown === this.hp) return;
-    this.shown = this.hp;
-    const el = document.getElementById('hearts');
-    let html = '';
-    for (let i = 0; i < HP_MAX / 2; i++) { const v = this.hp - i * 2; html += `<i class="${v >= 2 ? 'f' : v >= 1 ? 'h' : 'e'}">♥</i>`; }
-    el.innerHTML = html;
-    el.title = `Vida: ${String(this.hp / 2).replace('.', ',')} de ${HP_MAX / 2} corazones`;
-    document.body.classList.toggle('hurt', this.hp < HP_MAX);
-    this.paintHunger();
-  }
-  paintHunger() {
-    if (this.shownHunger === this.hunger) return;
-    this.shownHunger = this.hunger;
-    let html = '';
-    for (let i = 0; i < HUNGER_MAX / 2; i++) { const v = this.hunger - i * 2; html += `<i class="${v >= 2 ? 'f' : v >= 1 ? 'h' : 'e'}"></i>`; }
-    const el = document.getElementById('hunger');
-    el.innerHTML = html;
-    el.title = `Hambre: ${this.hunger / 2} de ${HUNGER_MAX / 2} muslos (trabajar, correr y pegar la gastan; comer la quita; con ${18 / 2} o más te curas)`;
-    document.body.classList.toggle('hungry', this.hunger <= 6);
+  // The bars are painted by ui/needsbar.js each frame (the only writer of their classes): this just asks it for a full
+  // repaint next frame. (Kept as the public entry point: game.js, pruebas.js and the rest call it after a change)
+  paint() { this.game.needsBar?.kick(); }
+  // Damage from a need (hunger, thirst, air): no armour, no knockback, no wear. Down to floor at most (DIFF.starve by
+  // default: peaceful none, easy to 10, normal to 1, hard kills). cause: 'starved' | 'dehydrated' | 'drowned' (needs.*)
+  hurt(dmg, cause, floor = this.diff.starve) {
+    const g = this.game;
+    if (!(dmg > 0) || this.hp <= floor || g.dying) return false;
+    this.hp = Math.max(floor, this.hp - dmg);
+    this.paint();
+    Audio.noiseHit(200, 0.12, 0.3);
+    g.flashHurt = g.time + 0.2;   // (the #hurt vignette, three/fx.js)
+    if (this.hp <= 0) this.die(t('needs.' + cause));
+    return true;
   }
 
   update(dt) {
@@ -98,17 +97,15 @@ export class Combat {
     // (con el hambre a 18 o más) o duele el hambre (a 0: hasta medio corazón)
     if (!this.survival) { if (this.hp < HP_MAX || this.hunger < HUNGER_MAX) { this.hp = HP_MAX; this.hunger = HUNGER_MAX; this.paint(); } }
     else if (p && !g.busy) {
-      this.exert(dt * EXHAUST / IDLE);
+      this.exert(dt * EXHAUST / IDLE, true);
       // (con la poción de regeneración, medio corazón cada poco)
       if (g.buffs.regeneracion > g.time && (this.regenPot = (this.regenPot || 0) + dt) >= 2.5) { this.regenPot = 0; this.heal(1); }
       if ((this.regen += dt) >= TICK) {
         this.regen = 0;
-        const starve = this.diff.starve;
-        if (((this.hunger >= 18 && g.rules.naturalRegeneration !== false) || g.difficulty === 'peaceful') && this.hp < HP_MAX) { this.heal(1); this.exert(1.5); }   // (/gamerule naturalRegeneration)
-        else if (this.hunger <= 0 && this.hp > starve) {
-          this.hp = Math.max(starve, this.hp - 1); this.paint(); Audio.noiseHit(200, 0.12, 0.3); g.flashHurt = g.time + 0.2;
-          if (this.hp <= 0) this.die('Has muerto de hambre');
-        }
+        // (hunger and thirst share this clock; without the needs system, thirst counts as full)
+        const water = g.needs ? g.needs.thirst : REGEN_WATER, starved = this.hunger <= 0, dry = water <= 0;
+        if (((this.hunger >= REGEN_FOOD && water >= REGEN_WATER && g.rules.naturalRegeneration !== false) || g.difficulty === 'peaceful') && this.hp < HP_MAX) { this.heal(1); this.exert(1.5); }   // (/gamerule naturalRegeneration)
+        else if (starved || dry) this.hurt(starved && dry ? 2 : 1, starved ? 'starved' : 'dehydrated');
       }
     }
     if (!sc.monsters) return;
@@ -168,12 +165,13 @@ export class Combat {
     g.covers = (g.covers || 0) + 1;   // (si se estaba en un salto a oscuras, destapa esto: ver Game.coverJump)
     // (also with keepInventory, in creative and with /kill: the boat you row stays moored here, and the wheelbarrow you push
     // stays parked where you fell; it is the world's. goHome does neither)
-    try { g.crew?.onDeath?.(keep); g.barrow?.onDeath?.(); } catch (e) { reportFault(e, 'Combat.die'); }
+    try { g.crew?.onDeath?.(keep); g.barrow?.onDeath?.(); g.needs?.stopDrinking?.(); } catch (e) { reportFault(e, 'Combat.die'); }
     const dropped = keep ? 0 : this.dropAll();
-    if (!keep && g.xp?.points) { g.xp.lose(); hud.toast('Has perdido tu experiencia'); }
+    if (!keep && g.xp?.points) { g.xp.lose(); hud.toast(t('death.xp_lost')); }
     await hud.fade(true);
     g.addMoney(-lost);
     this.hunger = HUNGER_MAX; this.exhaust = 0;
+    try { g.needs?.refill({ death: true }); } catch (e) { reportFault(e, 'Needs.refill'); }   // (thirst, stamina and air full, rest at least half, awake)
     g.goHome();
     this.hp = HP_MAX; this.paint();
     g.view3d.snap();
@@ -182,8 +180,8 @@ export class Combat {
     await g.view3d.whenReady?.(1500);
     await hud.fade(false);
     g.dying = false;
-    if (why) { g.busy = false; hud.toast(`${why}${lost ? ` · Se te cayeron ${lost} monedas` : ''}`); }
-    if (dropped) hud.toast(`Lo que llevabas se ha quedado donde caíste: tienes ${DROP_TTL / 60} minutos para recogerlo`);
+    if (why) { g.busy = false; hud.toast(`${why}${lost ? ` · ${t('death.coins_lost', { n: lost })}` : ''}`); }
+    if (dropped) hud.toast(t('death.drops_left', { n: DROP_TTL / 60 }));
     g.onSave?.();
     return lost;
   }
@@ -232,6 +230,7 @@ export class Combat {
     const g = this.game, dmg = (def?.weapon || 1) + (g.skills?.level('combate') >= 5 ? 1 : 0) + (g.buffs.fuerza > g.time ? 2 : 0);
     g.gather.wearOut();   // (el arma, o la herramienta con que se pega, se gasta)
     this.exert(0.1);
+    g.needs?.spend(RATES.blow);   // (a blow costs a little stamina, but does not delay its refill)
     Audio.chop();
     g.skills?.gain('combate', 1);
     return dmg;

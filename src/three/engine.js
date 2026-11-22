@@ -16,7 +16,11 @@ import { setViewAngle } from '../iso.js';
 import { CENTER } from '../world/village.js';
 import { latOf } from '../world/planet.js';
 import { Settings } from '../settings.js';
-import { Terrain, WATER_Y, WET, RAIN, groundDetail } from './terrain.js';
+import { Terrain, WATER_Y, WET, RAIN, CAUST, groundDetail } from './terrain.js';
+import { B, climate } from '../world/biomes.js';
+import { apagada } from '../opciones.js';
+import { Audio } from '../audio.js';
+import { PAL } from '../arte.js';
 import { World3D } from './world3d.js';
 import { Actors, toolModel, swingArm, pullBow } from './actors.js';
 import { ITEMS } from '../items.js';
@@ -47,6 +51,18 @@ const SKY_LAST = 1e6;   // orden de dibujo del cielo (ver makeSky)
 }
 
 const SWIM_EYE = 0.7;   // (ver feetY)
+const FAR = 420;        // (how far the camera sees, as made: under the water, only to the end of the fog)
+// Diving (docs/planes/gta/PLAN-D-barras-buceo.md §4.3; ?buceo=0 turns it off: no underwater camera, as before). With the
+// head under the water (p.headUnder, entities.js), the camera follows the diver close and level; with the camera itself
+// under it, the view goes under (updateUnder): murk fog and background, no sky, less sun, caustics on the bed, everything
+// far hidden and not updated, the sound muffled. UW_*: the murk colours (sea and lake, linear) and how bright they are by
+// day and by night, how long the change lasts when crossing the surface (s) and the tint of the sky light down there
+const DIVING = !apagada('buceo');
+const UW_SEA = new THREE.Color(PAL.agua.bajo), UW_LAKE = new THREE.Color(PAL.agua.bajoLago), UW_HEMI = new THREE.Color('#6ab0c0');
+const UW_DAY = 2.4, UW_NIGHT = 0.16, UW_EASE = 0.3;
+const UW_MURK = new THREE.Color(), UW_OUT = new THREE.Color(), UW_C = {};
+// (the player's head under the water: the getter of entities.js, or the same rule for one from before it)
+const headUnder = p => !!p && (p.headUnder ?? (!!p.swim && (p.sink || 0) + (p.dive || 0) > 0.42));
 
 export class View3D {
   constructor(canvas) {
@@ -253,6 +269,10 @@ export class View3D {
     const cave = scene.kind === 'grid';
     CAM.yaw += c.vel * dt;
     const p = game.player, menu = !p || !game.scene;
+    // (diving: the head under the water. The camera comes close and level behind the diver, and it eases back when the head
+    // comes up: diveK. CAM, the saved camera, does not change)
+    const dive = (this.diveCam = DIVING && !menu && !cave && headUnder(p));
+    c.diveK = (c.diveK || 0) + ((dive ? 1 : 0) - (c.diveK || 0)) * ease(7);
     if (CAM.first && !menu) return this.firstPerson(game, scene, c, dt);
     if (this.camera.near !== 0.3) { this.camera.near = 0.3; this.camera.updateProjectionMatrix(); }
     CAM.pitch = Math.max(PITCH.min, Math.min(PITCH.max, CAM.pitch + c.pvel * dt));
@@ -269,25 +289,36 @@ export class View3D {
     this.camScene = cave ? null : scene;   // (para camGround: lo cavado de ahí)
     const inside = !menu && !cave && this.world.insideHouse;
     // En cuevas, la cámara va más alta y cerca; dentro de casa, algo más alta
-    const wantPitch = cave ? Math.max(0.95, CAM.pitch) : inside ? Math.min(PITCH.max, CAM.pitch + 0.14) : CAM.pitch;
-    const wantDist = cave ? Math.min(CAM.dist, 18) : inside ? Math.min(CAM.dist, 19) : CAM.dist;
-    c.target.lerp(this.from.set(tx, ty + 0.9 + c.low * 0.5, tz), ease(8));
+    // Diving, at most 6 m away and nearly level, just low enough for the whole camera to stay under the water (room: what
+    // there is between the diver and the surface; with little, a little below the diver, looking up at them): with the
+    // camera of always (22 m, pitch 0.84), a diver 10 m down would be 13 m away, lost in the murk
+    const wantDist = dive ? Math.min(CAM.dist, 6) : cave ? Math.min(CAM.dist, 18) : inside ? Math.min(CAM.dist, 19) : CAM.dist;
+    const wantPitch = dive ? Math.max(-0.25, Math.min(0.3, Math.asin(Math.max(-1, Math.min(1, (WATER_Y - 0.25 - (ty + 0.9)) / wantDist))))) : cave ? Math.max(0.95, CAM.pitch) : inside ? Math.min(PITCH.max, CAM.pitch + 0.14) : CAM.pitch;
+    c.target.lerp(this.from.set(tx, ty + 0.9 + (dive ? 0 : c.low * 0.5), tz), ease(8));
     // Si una casa tapa al jugador, se sube lo justo para verlo por encima del tejado (comprobado desde la cintura). Dentro de
     // un hoyo, igual con sus paredes: la cámara se levanta hasta verlo desde arriba (si no, se pegaba a él a ras del borde y
     // el suelo de alrededor lo tapaba). En lo cavado que tiene agua, no: se está a ras del agua, como en un río
     const pit = !menu && !cave && scene.digH?.(Math.floor(p.x), Math.floor(p.y)) != null && scene.floodAt?.(Math.floor(p.x), Math.floor(p.y)) === undefined;
-    const goal = menu || cave ? wantPitch : this.pitchOver(this.probe2.set(tx, ty + 0.5, tz), wantPitch, wantDist, inside, pit);
+    const goal = menu || cave || dive ? wantPitch : this.pitchOver(this.probe2.set(tx, ty + 0.5, tz), wantPitch, wantDist, inside, pit);
     c.pitchNow ??= goal;
     c.pitchNow += (goal - c.pitchNow) * (Math.abs(c.pvel) > 0.01 && goal === wantPitch ? 1 : ease(4));
     c.low = 1 - Math.max(0, Math.min(1, (c.pitchNow - PITCH.min) / 0.75));
-    const fov = 30 + c.low * c.low * 12;
+    const fov0 = 30 + c.low * c.low * 12, fov = fov0 + (50 - fov0) * c.diveK;   // (diving, 50°: close, the diver and round them)
     if (Math.abs(this.camera.fov - fov) > 0.01) { this.camera.fov = fov; this.camera.updateProjectionMatrix(); }
     dirOf(CAM.yaw, c.pitchNow, this.ray);
     const reach = cave ? wantDist : this.clearance(c.target, this.ray, wantDist, inside, false).reach;
     c.distNow ??= reach;
     c.distNow += (reach - c.distNow) * (reach < c.distNow ? ease(14) : ease(3));
+    // (diving: never above WATER_Y - 0.25, along the ray: the distance shortens, the camera does not squash down; so the
+    // near plane never cuts the surface)
+    if (dive && this.ray.y > 1e-3) { const d = (WATER_Y - 0.25 - c.target.y) / this.ray.y; if (d < c.distNow) c.distNow = Math.max(1.2, d); }
     this.camera.position.copy(c.target).addScaledVector(this.ray, c.distNow);
-    if (!cave) this.camera.position.y = Math.max(this.camera.position.y, this.camGround(this.camera.position.x, this.camera.position.z) + 0.35);
+    if (!cave) {
+      // (the floor: the bed while diving and, just after the head comes up, on its way back up to the water: no jump)
+      const cp = this.camera.position, fl = this.camGround(cp.x, cp.z) + 0.35;
+      cp.y = Math.max(cp.y, dive || !c.diveK ? fl : fl - Math.max(0, WATER_Y - this.terrain.heightAt(cp.x, cp.z)) * c.diveK);
+      if (dive) cp.y = Math.min(cp.y, WATER_Y - 0.25);
+    }
     this.camera.lookAt(c.target);
     setViewAngle(CAM.yaw - Math.PI / 4);   // el mapa gira con la cámara
   }
@@ -298,8 +329,9 @@ export class View3D {
     if (CAM.look === LOOK.min || CAM.look === LOOK.max) c.pvel = 0;
     const p = game.player, ground = this.feetY(scene, p), head = this.actors.player?.person.head;
     const eye = head ? head.getWorldPosition(this.probe) : this.probe.set(p.x, ground + 1.55, p.y);   // (sin cabeza aún: los ojos de una persona de pie)
-    // (en el agua, los ojos nunca por debajo de ella: buceando, la cámara se queda asomada; bajo el agua no se dibuja)
-    if (p.swim || p.depth > 0) eye.y = Math.max(eye.y, WATER_Y + 0.1);
+    // (en el agua, los ojos nunca por debajo de ella, salvo buceando: con la cabeza bajo el agua, siempre bajo ella y nunca en
+    // la franja de la superficie, para que el plano cercano no la corte; ?buceo=0, asomada como antes)
+    if (p.swim || p.depth > 0) eye.y = this.diveCam ? Math.min(eye.y, WATER_Y - 0.15) : Math.max(eye.y, WATER_Y + 0.1);
     dirOf(CAM.yaw, 0, this.ray).negate();   // hacia delante, en horizontal
     c.target.set(p.x, ground + 0.9, p.y);
     c.low = 1;
@@ -384,8 +416,11 @@ export class View3D {
     const S = this.camScene, D = S?.digH?.(Math.floor(x), Math.floor(z));
     // (en lo cavado con agua, el agua: la cámara no se mete bajo ella, como en el agua de verdad)
     if (D !== null && D !== undefined) return D < WATER_Y && S.floodAt?.(Math.floor(x), Math.floor(z)) !== undefined ? WATER_Y : D;
-    return Math.max(this.terrain.heightAt(x, z), WATER_Y);   // (el agua, como el suelo: la cámara no se mete bajo ella)
+    // (el agua, como el suelo: la cámara no se mete bajo ella; buceando, sí: el suelo es el fondo)
+    return this.diveCam ? this.terrain.heightAt(x, z) : Math.max(this.terrain.heightAt(x, z), WATER_Y);
   }
+  // The bed under (x, y) as drawn (the mesh), for what goes on it: dive.js reach, seabed3d.js
+  bedY(x, y) { return this.terrain.heightAt(x, y); }
   // (pit: el jugador está en un hoyo, y el suelo también tapa; ahí se sube hasta 1,45 aunque sea más de 0,8: un hoyo hondo y
   // estrecho solo se ve desde muy arriba)
   pitchOver(from, pitch, dist, inside, pit = false) {
@@ -399,7 +434,7 @@ export class View3D {
   // la cámara mira a su cabeza, a ras del agua (con los pies de verdad, a un metro largo, miraba bajo el agua y se pegaba a
   // él). Andando por lo hondo o saltando de ahí a la orilla, no más abajo que nadando: la cámara no se hunde de golpe
   feetY(scene, p) {
-    if (p.swim) return WATER_Y - SWIM_EYE;
+    if (p.swim) return WATER_Y - SWIM_EYE - (DIVING ? (p.dive || 0) + (this.diveCam ? Math.max(0, p.sink || 0) : 0) : 0);   // (diving, that much deeper)
     if (p.depth > 0 && !p.boat && !p.aboard) return WATER_Y - Math.min(p.depth, SWIM_EYE);
     // (en barca por un canal cavado, a ras del agua como en un río: ahí groundY da su fondo, y la cámara se metía en la barca)
     if (p.boat || p.aboard) return Math.max(this.groundY(scene, p.x, p.y), WATER_Y - 0.3);
@@ -463,6 +498,7 @@ export class View3D {
     if (cave) { this.scene.fog.color.set('#05050a'); this.scene.fog.near = 14; this.scene.fog.far = 40; this.renderer.setClearColor('#05050a'); }
     else this.renderer.setClearColor('#000000');
     this.updateCamera(game, scene, dt, ease);
+    this.updateUnder(game, scene, cave, dt);   // (with this frame's camera; after updateSky and the cave's fog, which it overrides)
     const target = this.cam.target;
     if (!cave) {
       this.terrain.world = scene.padK ? scene : null;   // (el suelo, llano junto a lo construido)
@@ -487,6 +523,17 @@ export class View3D {
     this.shadows.place(target, CAM.yaw, this.cam.low, cave, this.sunDir, 24 + 6 * this.cam.low);
     contactSun(this.shadows.dir);   // (la sombra lejana de las copas cae hacia donde está pintado el sol de las sombras)
     if (cave) { this.sun.intensity = 0; this.hemi.intensity = 0.4; this.hemi.color.set('#8a9ac0'); this.hemi.groundColor.set('#2a2018'); this.setEnv(0.1); }
+    // (under the water: less sun the deeper, the sky light tinted by the water, and the caustics on the bed by day; and the
+    // sun's shadow map left as it is, neither what is fixed nor what moves: down there shadows are faint)
+    if (!cave && this.uwK > 0) {
+      const k = this.uwK;
+      this.sun.intensity *= 1 + (Math.exp(-0.12 * (this.uwDepth || 0)) - 1) * k;
+      this.hemi.color.lerp(UW_HEMI, 0.5 * k);
+    }
+    CAUST.k.value = !cave && this.under ? (1 - (this.night || 0)) * Math.max(0, Math.min(1, (this.sunDir?.y || 0) * 2)) * this.uwK : 0;
+    CAUST.t.value = t;
+    CAUST.u.value = !cave && this.under ? this.uwK : 0;   // (the shore's paint under the water, as wet mud: terrain.js BED_GLSL)
+    if (this.under) this.shadows.hold = true;
     // (lo que esperaba a sus programas y ya los tiene, a la vista; y al entrar, a oscuras hasta que lo de alrededor está
     // compilado: ver prepare)
     this.openGates();
@@ -517,6 +564,64 @@ export class View3D {
       season = y != null ? (latOf(y) < 0 ? (season + 2) % 4 : season) : d.localSeason;
     } catch {}
     this.world.prebake(season, game);
+  }
+  // Under the water (diving): is the camera under it (in the sea, a lake, a river or a flooded hole), and the view that goes
+  // with it, eased over UW_EASE so crossing the surface never flashes. The fog and the background, the murk (its colour
+  // through the same tone curve as the sky's horizon, so a level look shows no band between them), darker the deeper and
+  // at night, closing in to 22 m by day, 14 at night and 16 in rain or in a lake, never nearer than 2.6 times the camera's
+  // distance (the diver stays clear of it); no sky; the camera sees only to the fog. Never touches castShadow, the shadow
+  // map switch or the fog's type: each would compile every program again. body.underwater (the #uw vignette, index.html)
+  // and the muffled sound, only when it changes
+  // Out of the water at once (game.render, when the game is left for the menu: render stops, so updateUnder would never
+  // see the camera come out and the sound would stay muffled)
+  leaveUnder() {
+    if (this.under) {
+      this.under = false;
+      try { document.body.classList.remove('underwater'); } catch {}
+      try { Audio.muffle(false); } catch {}
+    }
+    this.uwK = 0; this.underLight = 1;
+    if (this.camera.far !== FAR) { this.camera.far = FAR; this.camera.updateProjectionMatrix(); }
+  }
+  updateUnder(game, scene, cave, dt) {
+    const cp = this.camera.position;
+    let under = false;
+    if (DIVING && !cave && game.player && game.scene && cp.y < WATER_Y - 0.05 && this.terrain.heightAt(cp.x, cp.z) < cp.y)
+      under = !!scene.natWater?.(cp.x, cp.z) || scene.floodAt?.(Math.floor(cp.x), Math.floor(cp.z)) !== undefined;
+    if (under !== !!this.under) {
+      this.under = under;
+      if (under) this.uwKindAt = 0;
+      try { document.body.classList.toggle('underwater', under); } catch {}
+      try { Audio.muffle(under); } catch {}
+    }
+    const k0 = this.uwK || 0, k = (this.uwK = k0 + ((under ? 1 : 0) - k0) * Math.min(1, dt / UW_EASE));
+    if (!under && k < 0.003) {
+      this.uwK = 0; this.underLight = 1;
+      if (this.camera.far !== FAR) { this.camera.far = FAR; this.camera.updateProjectionMatrix(); }
+      return;
+    }
+    const depth = (this.uwDepth = Math.max(0, WATER_Y - cp.y)), now = performance.now();
+    // (sea or fresh water, twice a second: a lake's water is greener and murkier)
+    if (under && now > (this.uwKindAt || 0)) {
+      this.uwKindAt = now + 500;
+      const b = scene.gen?.biomeAt?.(cp.x, cp.z);
+      // (the shallow band of the sea is sea; rivers, lake shores and ponds, fresh: by the coast value, as classify)
+      this.uwLake = b === B.LAKE || (b === B.SHALLOW && !!scene.gen && climate(cp.x, cp.z, scene.gen.seed, UW_C).C >= 0.36);
+    }
+    const night = this.night || 0, rain = this.weather?.rain ? 1 : 0, lake = !!this.uwLake;
+    const light = (UW_DAY + (UW_NIGHT - UW_DAY) * night) * (rain ? 0.75 : 1) * Math.exp(-0.06 * depth);
+    this.underLight = light / UW_DAY;   // (fx.js: the marine snow, lit as the murk)
+    UW_MURK.copy(lake ? UW_LAKE : UW_SEA).multiplyScalar(light);
+    this.terrain.water.uniforms.uMurk.value.copy(UW_MURK);   // (the surface seen from below, outside Snell's window)
+    toneOut(UW_MURK, CURVA.exp, UW_OUT);
+    let far = 22 + (14 - 22) * night;
+    if (rain || lake) far = Math.min(far, 16);
+    if (!CAM.first) far = Math.max(far, 2.6 * cp.distanceTo(this.cam.target));
+    const fog = this.scene.fog;
+    fog.color.lerp(UW_OUT, k); fog.near += (0.5 - fog.near) * k; fog.far += (far - fog.far) * k;
+    if (under) { this.sky.visible = false; this.renderer.setClearColor(fog.color); }
+    const want = under ? Math.ceil(fog.far + 4) : FAR;
+    if (this.camera.far !== want) { this.camera.far = want; this.camera.updateProjectionMatrix(); }
   }
   // El cielo que refleja el agua (el mismo que se ve: horizonte y cenit, el sol o la luna, su halo, la noche y las nubes) y
   // la ribera que se refleja junto a la orilla: el color de la hierba (o de la nieve) de la estación con la luz de ahora,
@@ -828,7 +933,7 @@ export class View3D {
     // (lo de alrededor llega en varios fotogramas, del otro hilo y por tandas: cada vez, solo lo que no se ha mirado aún,
     // con copias vacías de cada objeto; la primera, también el suelo y el agua, que llegan los últimos)
     const seen = (P.seen ||= new WeakSet()), N = (this.prepRoot ||= new THREE.Group());
-    if (!P.warm) { P.warm = true; N.children.push(...this.terrain.proxies().children); }
+    if (!P.warm) { P.warm = true; N.children.push(...this.terrain.proxies().children, ...this.world.seabed.proxies().children, ...this.fx.underProxies().children); }
     this.scene.traverse(o => { if (o.material && !seen.has(o)) { seen.add(o); const q = Object.create(o); q.children = []; N.children.push(q); } });
     let progs = [];
     if (N.children.length) {

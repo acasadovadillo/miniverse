@@ -13,7 +13,7 @@
 // pasa y sigue en él como uno más. Quien lleva el mundo no deja tocarlo lejos de donde está quien lo pide, ni cambiar
 // las reglas a quien no es op: se lo devuelve como estaba.
 import { Net } from './net.js';
-import { Person } from './entities.js';
+import { Person, HEAD_UNDER } from './entities.js';
 import { Profile } from './accounts.js';
 import { hud } from './ui/hud.js';
 import { Audio } from './audio.js';
@@ -41,6 +41,7 @@ const HOST_WAIT = 6000;                   // y lo que se espera a que el que lo 
 const REACH = 3;                          // trozos del mundo alrededor de donde está cada uno que puede tocar
 const OP_BLOBS = new Set(['rules', 'worldSpawn', 'weatherLock', 'difficulty']);   // lo de todos que solo cambian los op
 const r2 = v => Math.round(v * 100) / 100;
+const DIVE_NET = 30;                      // (m: the most of st.dv taken from another; the deepest sea is about 12 m)
 const herdTo = (a, p) => { a.netTo = p; a.inside = !!p[2]; a.grazing = !!p[3]; };   // (por dónde va un animal, de quien lleva el mundo)
 const session = Math.random().toString(36).slice(2, 6);   // (para que los objetos tirados tengan nombres únicos)
 
@@ -56,6 +57,10 @@ class RemotePlayer extends Person {
     this.pose = st.po ? { kind: POSES[st.po[0]], yaw: st.po[1], h: st.po[2] } : null;   // (sentado o tumbado)
     Object.assign(this, { yaw: st.yaw ?? null, inside: !!st.in, mount: !!st.m, horseCoat: st.hc || null, horseBags: !!st.hb, boat: !!st.b, aboard: st.pa || null, crouch: !!st.cr, gm: st.gm || 0, held: st.h || null, swing: st.sw || 0, swingItem: st.si || null, cooldown: st.cd || 0, bowPull: st.dr || 0 });
     this.swim = !!st.na; this.sinkTo = st.na ? st.hu || 0 : 0;   // (nadando, y lo que se hunde o se asoma)
+    // (dv: diving, the depth below sink, smoothed like it in update; zz: asleep in a bed, entities.js. A game from before
+    // sends neither: a swimmer at the surface, and awake)
+    this.diveTo = st.na && Number.isFinite(st.dv) ? Math.max(0, Math.min(DIVE_NET, st.dv)) : 0;
+    this.sleeping = !!st.zz;
     // (kt: the tools they carry, seen on their body: see kit.js. A game from before does not send it: none)
     this.kitKey = typeof st.kt === 'string' ? st.kt.slice(0, 160) : '';
     // (ca: what their arms carry, a log or a carcass: carry.js; or the wheelbarrow they push, its model key: barrow.js. Only
@@ -73,6 +78,8 @@ class RemotePlayer extends Person {
       this.emSeq = st.em;
     }
   }
+  // (as the player's, entities.js: three/fx.js puts bubbles over a diver's head)
+  get headUnder() { return this.swim && (this.sink || 0) + (this.dive || 0) > HEAD_UNDER; }
   // w: el mundo, si está en él. z va sobre el suelo de donde pisa (surfaceAt); junto a lo cavado, ese suelo cambia de golpe
   // de una casilla a otra, y suavizando z aparte de x e y se le veía subir antes de caer al hoyo o hundido en el fondo al
   // salir. Ahí se suaviza la altura de los pies, y z sale de ella y del suelo de donde va ahora
@@ -82,6 +89,8 @@ class RemotePlayer extends Person {
     // (el agua donde va, para dibujarlo: con los pies en el fondo vadeando, o nadando; ver actors.js)
     this.depth = w?.waterDepth && !this.boat && !this.aboard && this.gm !== 3 ? w.waterDepth(this.x, this.y) : 0;   // (el espectador vuela: como en su juego, sin agua)
     this.sink = (this.sink || 0) + ((this.sinkTo || 0) - (this.sink || 0)) * k;
+    this.dive = (this.dive || 0) + ((this.diveTo || 0) - (this.dive || 0)) * k;
+    if (this.dive < 1e-3 && !this.diveTo) this.dive = 0;
     const dug = !!w && !this.boat && (w.digNear?.(x, y) || w.digNear?.(this.x, this.y));
     if (dug) this.feet ??= w.surfaceAt(this.x, this.y) + this.z;
     this.x += (x - this.x) * k; this.y += (y - this.y) * k;
@@ -890,7 +899,7 @@ export class Live {
     }
     this.sent += dt;
     const sc = g.scene === g.world ? 'world' : null;
-    const st = { t: 'st', sc, x: r2(p.x), y: r2(p.y), z: r2(p.z || 0), fl: p.floor ? r2(p.floor) : undefined, yaw: r2(g.view3d.actors.player?.person.facing ?? 0), in: p.inside ? 1 : 0, po: p.pose ? [POSES.indexOf(p.pose.kind), r2(p.pose.yaw), r2(p.pose.h)] : 0, m: p.mount ? 1 : 0, hc: p.mount ? p.horseCoat || null : null, hb: p.mount && p.horseBags ? 1 : 0, b: p.boat ? 1 : 0, pa: p.aboard || 0, cr: p.crouch ? 1 : 0, gm: g.gamemode === 'survival' ? 0 : g.gamemode === 'creative' ? 1 : 3, h: g.inv.held?.id || null, sw: this.swings, si: g.gather.swingItem || null, cd: r2(g.gather.cooldown || 0), dr: r2(g.archery.k), na: p.swim ? 1 : 0, hu: p.swim ? r2(p.sink) : undefined, kt: kitKey(g.kitIds()) || undefined, ca: g.carry?.state(), em: g.social.emSeq, ek: g.social.emKind };
+    const st = { t: 'st', sc, x: r2(p.x), y: r2(p.y), z: r2(p.z || 0), fl: p.floor ? r2(p.floor) : undefined, yaw: r2(g.view3d.actors.player?.person.facing ?? 0), in: p.inside ? 1 : 0, po: p.pose ? [POSES.indexOf(p.pose.kind), r2(p.pose.yaw), r2(p.pose.h)] : 0, m: p.mount ? 1 : 0, hc: p.mount ? p.horseCoat || null : null, hb: p.mount && p.horseBags ? 1 : 0, b: p.boat ? 1 : 0, pa: p.aboard || 0, cr: p.crouch ? 1 : 0, gm: g.gamemode === 'survival' ? 0 : g.gamemode === 'creative' ? 1 : 3, h: g.inv.held?.id || null, sw: this.swings, si: g.gather.swingItem || null, cd: r2(g.gather.cooldown || 0), dr: r2(g.archery.k), na: p.swim ? 1 : 0, hu: p.swim ? r2(p.sink) : undefined, dv: p.swim && p.dive > 0.02 ? r2(p.dive) : undefined, zz: p.sleeping && p.pose?.kind === 'lie' ? 1 : undefined, kt: kitKey(g.kitIds()) || undefined, ca: g.carry?.state(), em: g.social.emSeq, ek: g.social.emKind };
     const key = JSON.stringify(st);
     if (this.sent < SEND_EVERY || (key === this.lastSent && this.sent < IDLE_EVERY)) return;
     this.sent = 0; this.lastSent = key;

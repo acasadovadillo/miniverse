@@ -27,6 +27,7 @@ import { yawOf } from '../art/stations.js';
 let BOAT = null;   // (el modelo de la barca, para las amarradas)
 const UNLIT = { shade: 'cloth', lamp: 'white', ember: 'soot', glow: 'soot', crystal: 'crystal' };
 import { tintMats, tintOf } from './tints.js';
+import { Seabed } from './seabed3d.js';
 
 const NEAR = 3;          // trozos alrededor del de la cámara con todo
 const NB = 2;            // la naturaleza y la cubierta del suelo van en bloques de NB × NB trozos (menos mallas)
@@ -86,6 +87,11 @@ export class World3D {
     this.farSigs = new Map();      // "bx,by" → firma de lo quitado en el bloque lejano (se vuelve a mirar si cambia algún trozo)
     this.removedN = new WeakMap(); // cambios de un trozo → [su versión, cuántas cosas se han quitado de él]
     this.behind = false;           // si en el último fotograma quedó algo por hacer por el tope de tiempo (ver engine.js, whenReady)
+    // (the far blocks go in their own group, so that under the water, where the murk hides them, they are hidden at once and
+    // not updated; the seabed decor near the player, its own layer: seabed3d.js)
+    this.farRoot = new THREE.Group(); this.farRoot.name = 'far';
+    this.group.add(this.farRoot);
+    this.seabed = new Seabed(this);
   }
 
   // ---------- cada fotograma ----------
@@ -135,9 +141,15 @@ export class World3D {
     this.updateNature(scene, ccx, ccy, t0, budget, instant);
     this.updateFades(instant);
     this.updateMask(ccx, ccy);
-    this.updateGrass(target);
-    this.updateFar(scene, ccx, ccy, t0, budget);
-    this.updateImpostors(scene, game, snap);
+    // (with the camera under the water, engine.js view.under: the fog ends some 20 m away, so the grass tufts, the far trees
+    // and the impostors are hidden and not updated; the frame costs less under the water than above it)
+    if (this.view.under) this.hideAbove();
+    else {
+      if (!this.farRoot.visible) this.farRoot.visible = true;
+      this.updateGrass(target);
+      this.updateFar(scene, ccx, ccy, t0, budget);
+      this.updateImpostors(scene, game, snap);
+    }
     this.updateRegions(scene);
     // Lo que se golpea tiembla
     for (const b of this.nature.values()) for (const [key, o] of b.shakers) {
@@ -156,6 +168,12 @@ export class World3D {
     for (const m of this.glassMats()) m.emissiveIntensity = glow;
     if (k !== this.lampK) { this.lampK = k; modelMat('lamp').emissiveIntensity = 0.25 + 1.5 * k; modelMat('lens').emissiveIntensity = 0.5 + 1.5 * k; }
     if (ks !== this.shadeK) { this.shadeK = ks; modelMat('shade').emissiveIntensity = 0.15 + 0.6 * ks; }
+    this.seabed.frame(game, game.time);
+  }
+  // Under the water: what is above it and far away, hidden (updateGrass shows the tufts again when the camera comes up)
+  hideAbove() {
+    this.farRoot.visible = false;
+    for (const b of this.nature.values()) for (const pc of b.tufts.values()) if (pc.tufts?.visible) pc.tufts.visible = false;
   }
   // Ha cambiado algo que da sombra y no se mueve: el mapa de sombras repinta lo fijo (now: en este fotograma; si no,
   // cuando le toque, sin pasar de uno de cada dos)
@@ -177,6 +195,7 @@ export class World3D {
     // (lo primero que se monta después, al cambiar de estación o de mundo, sale de golpe: detrás no hay nada con lo que
     // fundirse, que lo lejano también se está rehaciendo, y su sombra saldría entera mientras él aún va tramado)
     this.freshNature = true;
+    this.seabed.clear();
   }
 
   // La casa en la que se está (el establo), sin tejado; se rehace su trozo al entrar y al salir
@@ -589,7 +608,7 @@ export class World3D {
       g.userData.mode = mode; g.userData.sig = sig;
       if (old) this.dropFar(old);
       this.far.set(k, g);
-      this.group.add(g);
+      this.farRoot.add(g);
       if (!old) this.view.gate?.(g, null, farBox(bx + dx, by + dy));   // (los nuevos, en el horizonte; los que se rehacen, en el acto: no dejan hueco)
     }
     for (const [k, g] of this.far) if (!keep.has(k)) { this.dropFar(g); this.far.delete(k); }
@@ -633,7 +652,7 @@ export class World3D {
   }
   // Un bloque lejano fuera: sus instancias y sus geometrías propias, también de la gráfica
   dropFar(g) {
-    this.group.remove(g);
+    g.parent?.remove(g);
     g.traverse(o => { if (o.isInstancedMesh) o.dispose(); if (o.userData.own) o.geometry.dispose(); });
   }
   // Los árboles y peñascos sencillos de lejos: donde ya está el de cerca no se pintan, y mientras se funden, se traman al

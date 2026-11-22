@@ -3,6 +3,7 @@
 // coordenadas son las que enseña el juego (el pueblo en 0, 0) y ~ es donde está quien lo escribe (~5: cinco más).
 // runCommand(game, texto, say): say(texto, tipo) cuenta lo que pasa.
 import { Profile } from './accounts.js';
+import { t } from './i18n.js';
 import { ITEMS } from './items.js';
 import { GAMEMODES, RULES } from './game.js';
 import { DIFFICULTIES, EFFECT_NAMES } from './combat.js';
@@ -292,7 +293,7 @@ export const COMMANDS = {
       if (!d) { say('Uso: /difficulty peaceful|easy|normal|hard', 'err'); return; }
       game.difficulty = d;
       game.onSave?.();
-      say(`Dificultad: ${DIFFICULTIES[d]}.${d === 'peaceful' ? ' No hay criaturas y el hambre no baja.' : ''}`, 'ok');
+      say(`Dificultad: ${DIFFICULTIES[d]}.${d === 'peaceful' ? ` ${t('commands.difficulty.peaceful')}` : ''}`, 'ok');
     },
   },
   light: {

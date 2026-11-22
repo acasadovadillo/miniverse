@@ -13,7 +13,7 @@ const SEAT = 0.14, STOOL = 0.27, SOFA = 0.1, BED = 0.6, FLOOR_LIE = 0.14, FLOOR_
 export class Rest {
   constructor(game) { this.game = game; }
   get p() { return this.game.player; }
-  reset() { if (this.p) this.p.pose = null; this.twin = null; }
+  reset() { if (this.p) { this.p.pose = null; this.p.sleeping = false; } this.twin = null; }
   // Mirando hacia (dx, dy): el ángulo del modelo (z+ hacia delante)
   static yaw(dx, dy) { return Math.atan2(dx, dy); }
 
@@ -68,6 +68,7 @@ export class Rest {
     const p = this.p;
     if (!p?.pose) return;
     p.pose = null;
+    p.sleeping = false;   // (asleep in bed until you get up: needs.js sleep, st.zz)
     this.twin = null;
     if (this.back) [p.x, p.y] = this.back;
     this.back = null;

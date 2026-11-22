@@ -1,5 +1,6 @@
 // Fabricar: qué recetas conoce el jugador, qué estaciones tiene cerca y hacer las cosas.
-import { ITEMS } from './items.js';
+import { ITEMS, itemNoun } from './items.js';
+import { t } from './i18n.js';
 import { RECIPES, STATIONS, unlocked } from './recipes.js';
 import { Audio } from './audio.js';
 import { parsePlaced } from './pieces.js';
@@ -91,9 +92,9 @@ export class Crafting {
     const shown = news.filter(r => !r.variant);
     if (!silent && shown.length) {
       Audio.unlock();
-      const name = ITEMS[shown[0].out].name;
+      const item = itemNoun(shown[0].out), n = shown.length;
       const built = shown.filter(r => r.build).length;
-      this.say(shown.length === 1 ? (built ? `¡Ya puedes construir: ${name}! (B)` : `¡Receta nueva: ${name}!`) : built === shown.length ? `¡${built} cosas nuevas para construir! (B)` : `¡${shown.length} recetas nuevas! (C para fabricar${built ? ', B para construir' : ''})`, '#ffe08a');
+      this.say(n === 1 ? t(built ? 'craft.new.build_one' : 'craft.new.recipe_one', { item }) : built === n ? t('craft.new.build_many', { n }) : t(built ? 'craft.new.recipes_build' : 'craft.new.recipes', { n }), '#ffe08a');
       this.game.build?.onChange?.();
     }
   }

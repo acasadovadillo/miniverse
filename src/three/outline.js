@@ -253,6 +253,12 @@ export class Outline {
     // Something that moves: a person, an animal, a monster, another player
     const actor = a.e && view.actors.models.get(a.e);
     if (actor) { live(actor.root); return true; }
+    // A find on the sea bed (dive.js): its own instance only, not every shell of the mesh (a sunken chest is not an
+    // instance: dive.js gives it its model, outlined further down as a merged model)
+    if (a.find) {
+      const f = view.world?.seabed?.instanceOf?.(a.find);
+      if (f) { const [im, i] = f; im.updateMatrixWorld(); im.getMatrixAt(i, MI); L.push([im.geometry, new THREE.Matrix4().multiplyMatrices(im.matrixWorld, MI), null, null]); return true; }
+    }
     // Something drawn on its own: the leaf of a door or a gate, a moored boat, what is in a cave
     const obj = this.objectOf(a);
     if (obj) { for (const o of [].concat(obj)) live(o); return true; }

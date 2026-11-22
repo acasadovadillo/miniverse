@@ -23,7 +23,12 @@ export const WEIGHT = {
   mantequilla: 0.25, miel: 0.5, carne_ave: 0.3, carne_conejo: 0.4, estofado: 1, calabaza: 4, sidra: 0.5, cerveza: 0.6, hidromiel: 0.5,
   vela: 0.2, antorcha: 0.5, lampara: 3, candelabro: 4, maceta: 3, mochila: 1.5, alforjas: 2, caballo: 0.05, barca: 0.5,
   pelota: 0.2, cepillo: 0.3, herraduras: 1, trufa: 0.1,
+  // (thirst and diving: the canteen and the jug empty; their water is SIP_KG a sip, see stackKg. The pearl is lighter than
+  // the gem rule's 0.02)
+  canteen: 0.3, water_jug: 1, apple_juice: 0.4, seashell: 0.02, pearl: 0.01, seaweed: 0.1, mussel: 0.05,
 };
+// kg of one sip of water in a canteen or a jug (s.sips)
+export const SIP_KG = 0.25;
 // Armour by piece and metal (copper, iron, gold): the gold is heavier
 const ARMOR_KG = { casco: [1.5, 2, 3], peto: [6, 8, 9], grebas: [3, 4, 5], botas: [1.5, 2, 2.5] }, METALS = ['cobre', 'hierro', 'oro'];
 // Fish by their size (items.js FISH)
@@ -72,6 +77,10 @@ export function weightOf(id) {
   if (d.tool || d.weapon) return 1.5;
   return 0.2;
 }
+
+// kg of a whole stack ({ id, n, sips? }): what it weighs plus the water it holds. Everything that weighs a stack goes
+// through here (the load, the list's rows and their order, the tooltip), so they always agree
+export const stackKg = s => (s ? weightOf(s.id) * (s.n || 1) + (s.sips > 0 ? s.sips * SIP_KG : 0) : 0);
 
 // The new ids, in ITEMS (their names and descriptions come from the language files: item.<id>, item.<id>.desc)
 const NEW = {};

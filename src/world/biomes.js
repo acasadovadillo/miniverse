@@ -120,7 +120,22 @@ export function reliefOf(c, u, x, y, seed) {
   if (mask > 0) { const r = 1 - Math.abs(NR.ridge(x, y, seed + 841) * 2 - 1); h += mask * (5 + 17 * r * r * (0.65 + 0.35 * NR.peak(x, y, seed + 842))); }
   return h * valley * smoothstep(0, 0.6, c.f);
 }
-export const depthOfWet = u => (u <= 0 ? 0 : -0.27 - 0.3 * smoothstep(0, 0.6, u) - 0.75 * smoothstep(0.35, 0.8, u) - 0.9 * smoothstep(1, 2.5, u));
+// Extra depth below the 2.2 m above, for diving (docs/planes/gta/PLAN-D-barras-buceo.md §4.1): only the open sea (its u
+// past 2.5, some 8-16 m from the beach) goes down towards SEA_DEEP more, and the middle of the big lakes towards
+// LAKE_DEEP; rivers (u <= 1) and swamp ponds never reach it, so shores, beaches, wading and fishing stay as they were.
+// Smooth, with sand ridges and rock lumps (±0.8 m) where it is deep. c: the climate of that point (climate), x, y and the
+// seed for the noise (wrapNoise: no seam at the planet's edge). 0 where nothing is added
+export const SEA_DEEP = 10, LAKE_DEEP = 5;
+const NB = wrapNoise(0.06);
+export function deepOf(c, x, y, seed) {
+  const uS = (0.36 - c.C) / 0.02;
+  let e = uS > 2.5 ? SEA_DEEP * smoothstep(2.5, 9, uS) : 0;
+  if (c.T >= 0.32) { const uL = (c.L - 0.82) / 0.03; if (uL > 2.5) e = Math.max(e, LAKE_DEEP * smoothstep(2.5, 6, uL)); }
+  if (e > 0) e += (NB(x, y, seed + 850) - 0.5) * 1.6 * smoothstep(1, 4, e);
+  return Math.max(0, e);
+}
+// (c, x, y, seed: the climate and the point, for deepOf; without c, the depth of before, down to 2.2 m)
+export const depthOfWet = (u, c, x, y, seed) => (u <= 0 ? 0 : -0.27 - 0.3 * smoothstep(0, 0.6, u) - 0.75 * smoothstep(0.35, 0.8, u) - 0.9 * smoothstep(1, 2.5, u) - (c ? deepOf(c, x, y, seed) : 0));
 // Qué orilla tiene: arena (costa y desierto), barro (lo normal) o lodo oscuro (pantano)
 export const shoreOf = (T, M, C) => (C < 0.41 || (T > 0.62 && M < 0.46) ? 0 : M > 0.64 ? 2 : 1);
 

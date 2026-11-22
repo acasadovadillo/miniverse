@@ -10,6 +10,8 @@ const BASE = {
   pocion_rapidez: 60, pocion_fuerza: 80, pocion_resistencia: 90, pocion_regeneracion: 90,
   carne_ave: 14, carne_conejo: 16, carne_vaca: 30, carne_cordero: 26, carne_cabra: 24, carne_cerdo: 26, carne_venado: 30, carne_jabali: 30, piel: 20, hueso: 6, manteca: 14, asta: 60, colmillo: 45,
   huevo_pato: 35, huevo_oro: 300, plumas: 12, leche_cabra: 40, nata: 60, lana_fina: 140, angora: 55, trufa: 250, heno: 3,
+  // Thirst and diving: what the sea bed gives (Rosa buys it all), and what is made, below what the shops sell it for
+  seashell: 5, pearl: 180, mussel: 4, seaweed: 2, canteen: 24, water_jug: 20, apple_juice: 30,
 };
 const cache = new Map();
 const plans = list => Object.entries(list).map(([plan, price]) => ({ plan, price }));
@@ -51,15 +53,16 @@ export const SHOPS = {
   },
   anselmo: {
     title: 'Taberna de Anselmo', hours: [10, 26],
-    stock: [{ id: 'cerveza', price: 45 }, { id: 'sidra', price: 40 }, { id: 'hidromiel', price: 90 }, { id: 'pan', price: 70 }, { id: 'pollo_asado', price: 90 }, { id: 'estofado', price: 150 }, { id: 'filete', price: 130 }, { id: 'venado_asado', price: 160 }, { plan: 'taburete', price: 40 }, { plan: 'barra', price: 90 }, { plan: 'barril', price: 160 }],
+    stock: [{ id: 'cerveza', price: 45 }, { id: 'sidra', price: 40 }, { id: 'apple_juice', price: 35 }, { id: 'hidromiel', price: 90 }, { id: 'pan', price: 70 }, { id: 'pollo_asado', price: 90 }, { id: 'estofado', price: 150 }, { id: 'filete', price: 130 }, { id: 'venado_asado', price: 160 }, { plan: 'taburete', price: 40 }, { plan: 'barra', price: 90 }, { plan: 'barril', price: 160 }],
   },
   bruno: {
     title: 'Herrería de Bruno', hours: [8, 17],
     stock: [{ id: 'carbon', price: 18 }, { id: 'piedra', price: 6 }, { id: 'lingote_cobre', price: 90 }, { id: 'lingote_hierro', price: 160, project: 'mercado' }, { id: 'antorcha', price: 15 }, { id: 'espada', price: 450 }, { id: 'pico_hierro', price: 400 }, { id: 'hacha_hierro', price: 400 }, { id: 'guadana_hierro', price: 400 }, { id: 'azada_hierro', price: 400 }, { id: 'pala_hierro', price: 400 }, { id: 'herraduras', price: 350 }, { id: 'arco', price: 300 }, { id: 'flecha', price: 8 }],
   },
+  // (Lía's canteen is sold empty: shop stacks carry no sips)
   lia: {
     title: 'Aparejos de Lía', hours: [6, 20],
-    stock: [{ id: 'cana', price: 150 }, { id: 'cana_fibra', price: 1500 }, { id: 'regadera', price: 200 }, { plan: 'barca', price: 600 }, { id: 'sardina', price: 65 }],
+    stock: [{ id: 'cana', price: 150 }, { id: 'cana_fibra', price: 1500 }, { id: 'regadera', price: 200 }, { id: 'canteen', price: 60 }, { plan: 'barca', price: 600 }, { id: 'sardina', price: 65 }],
   },
   // Nilo, en la plaza a todas horas: los planos de los muebles de siempre (los demás, Dani, cuando venga al pueblo)
   nilo: {

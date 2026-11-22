@@ -1,7 +1,8 @@
 // Huerto: sembrar en tierra labrada, regar (o que llueva), abonar y cosechar. Los cultivos crecen un paso
 // cada mañana si la tierra estuvo mojada el día anterior. También se plantan árboles con bellotas, piñas
 // o semillas de manzano; los manzanos dan manzanas y las palmeras, cocos, cada pocos días (se cogen con E).
-import { CROPS, HARVEST, ITEMS } from './items.js';
+import { CROPS, HARVEST, ITEMS, itemNoun } from './items.js';
+import { THIRST_MAX } from './needs.js';
 import { t } from './i18n.js';
 import { CHUNK } from './world/gen.js';
 import { B } from './world/biomes.js';
@@ -123,7 +124,7 @@ export class Farm {
     if (def?.tool === 'regadera') {
       // (or the well aimed at, measured to its middle: from a corner of the big one its far quarter is beyond reach)
       const wo = this.world.wellOf(tx, ty), water = this.waterAhead(p) || (wo && Math.hypot(wo.tx + wo.n / 2 - p.x, wo.ty + wo.n / 2 - p.y) < 2.4 + (wo.n - 1) * 0.75);
-      if (water) return { tile: null, ok: true, label: `Llenar la regadera (${this.can}/${CAN_MAX})`, use: () => this.refill() };
+      if (water) return { tile: null, ok: true, label: t('farm.can.fill', { n: this.can, max: CAN_MAX }), use: () => this.refill() };
       if (tilled) return { tile, ok: true, auto: true, label: `Regar (${this.can}/${CAN_MAX})`, use: () => this.water(tx, ty) };
       return null;
     }
@@ -166,20 +167,22 @@ export class Farm {
     }
     return false;
   }
-  refill() { this.can = CAN_MAX; Audio.noiseHit(900, 0.3, 0.2); this.game.gather.float('Regadera llena', '#9ad0ff'); }
-  // Con E en el pozo: si se lleva una regadera (en la mano o en la mochila: el agua es de la regadera, no del hueco), se
-  // llena con el cubo; si no, se dice para qué es
+  refill() { this.can = CAN_MAX; Audio.noiseHit(900, 0.3, 0.2); this.game.gather.float(t('farm.can.full'), '#9ad0ff'); }
+  // Con E en el pozo (the big one too), in this order: a canteen or a jug in hand that is not full, fills it; a watering
+  // can in hand, fills it; thirsty, you drink (needs.drinkAt: one press keeps drinking); a can in the bag (the water is
+  // the can's, not the slot's), fills it; otherwise, it says what it is for. alt: X, take it down
   wellAction(o, alt) {
-    const g = this.game, has = g.inv.held?.id === 'regadera' || g.inv.count('regadera') > 0;
-    const run = () => {
-      g.gather.chips(o.x, o.y, 'water', 10);
-      if (has) this.refill(); else { g.gather.float('Agua fresca. Con una regadera, aquí se llena', '#9ad0ff'); Audio.noiseHit(700, 0.25, 0.15); }
-    };
-    return { text: has ? `Llenar la regadera (${this.can}/${CAN_MAX})` : 'Sacar agua del pozo', run, alt };
+    const g = this.game, held = g.inv.held, hd = held && ITEMS[held.id], splash = () => g.gather.chips(o.x, o.y, 'water', 10);
+    if (hd?.canteen && (held.sips || 0) < hd.canteen) return { text: t('needs.canteen.fill', { item: itemNoun(held.id), n: held.sips || 0, max: hd.canteen }), run: () => { splash(); g.gather.fillCanteen(); }, alt };
+    const can = { text: t('farm.can.fill', { n: this.can, max: CAN_MAX }), run: () => { splash(); this.refill(); }, alt };
+    if (held?.id === 'regadera') return can;
+    if (g.needs && g.needs.thirst < THIRST_MAX) return { text: t('needs.well.drink'), run: () => g.needs.drinkAt(o.x, o.y), alt };
+    if (g.inv.count('regadera') > 0) return can;
+    return { text: t('needs.well.draw'), run: () => { splash(); g.gather.float(t('farm.well.hint'), '#9ad0ff'); Audio.noiseHit(700, 0.25, 0.15); }, alt };
   }
   water(tx, ty) {
     const g = this.game;
-    if (this.can <= 0) { g.gather.float('La regadera está vacía: llénala en el agua', '#ffb0a0'); Audio.error(); return; }
+    if (this.can <= 0) { g.gather.float(t('farm.can.empty'), '#ffb0a0'); Audio.error(); return; }
     if (!g.gather.spend('regadera')) return;
     const d = this.d(tx, ty, true);
     d.wet ||= {};

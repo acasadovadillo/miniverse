@@ -5,7 +5,7 @@
 // rows on the side of the backpack (packRows). Nothing of index.html changes: this file adds its elements and its CSS
 import { ITEMS } from '../items.js';
 import { HOTBAR } from '../inventory.js';
-import { weightOf, BULKY, HEAVY } from '../carry-items.js';
+import { stackKg, BULKY, HEAVY } from '../carry-items.js';
 import { itemIconUrl } from '../art/items.js';
 import { t } from '../i18n.js';
 
@@ -51,7 +51,7 @@ export function kindOf(id) {
   if (!d) return 'other';
   if (d.wear) return 'clothes';
   if (d.tool || d.weapon || d.bow || id === 'flecha' || d.vehicle || id === 'brujula' || /^mapa/.test(id) || id === 'pelota' || id === 'cepillo') return 'tools';
-  if (d.food || d.heal || d.potion || d.buff) return 'food';
+  if (d.food || d.heal || d.potion || d.buff || d.canteen) return 'food';   // (the canteen and the jug go with the drinks)
   if (d.place || d.seed || d.sapling || d.flower || d.bug || d.fossil || d.relic || d.gem) return 'other';
   return 'materials';
 }
@@ -87,8 +87,8 @@ function paintRows(list, inv, slots, picked, onRow) {
     if (img.getAttribute('src') !== url) img.src = url;
     name.textContent = ITEMS[s.id].name;
     n.textContent = s.n > 1 ? `×${s.n}` : '';
-    w.textContent = inv.infinite ? '' : t('gui.inventory.kg', { kg: kg(weightOf(s.id) * s.n) });   // (creative: no limit, so no weights)
-    el.title = ITEMS[s.id].name + (ITEMS[s.id].dur ? ` (${s.dur ?? ITEMS[s.id].dur}/${ITEMS[s.id].dur})` : '');
+    w.textContent = inv.infinite ? '' : t('gui.inventory.kg', { kg: kg(stackKg(s)) });   // (creative: no limit, so no weights)
+    el.title = ITEMS[s.id].name + (ITEMS[s.id].dur ? ` (${s.dur ?? ITEMS[s.id].dur}/${ITEMS[s.id].dur})` : ITEMS[s.id].canteen ? ` (${s.sips || 0}/${ITEMS[s.id].canteen})` : '');
     el.classList.toggle('sel', i === picked);
   });
 }
@@ -103,7 +103,7 @@ function moreBelow(list, more) {
   sync();
 }
 // The slots of the list, the heaviest first, with the tab's kind
-const rowsOf = (inv, tab = 'all') => inv.listSlots().filter(i => tab === 'all' || kindOf(inv.slots[i].id) === tab).sort((a, b) => weightOf(inv.slots[b].id) * inv.slots[b].n - weightOf(inv.slots[a].id) * inv.slots[a].n || a - b);
+const rowsOf = (inv, tab = 'all') => inv.listSlots().filter(i => tab === 'all' || kindOf(inv.slots[i].id) === tab).sort((a, b) => stackKg(inv.slots[b]) - stackKg(inv.slots[a]) || a - b);
 
 // The inventory window. ui: { pick(i), picked(), wear(i), drop(i, n), say(text) } (from ui/inventory.js)
 export function initPackList(game, ui) {

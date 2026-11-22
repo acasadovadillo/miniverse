@@ -10,8 +10,8 @@ import { t } from './i18n.js';
 export const SLOTS = 36, HOTBAR = 9;
 const PREV_MS = 500;   // (held this long, what was in hand counts as "the one before" for a tap of F: see remember)
 // Lo que distingue una cosa de otra igual (el color de una prenda, lo gastada que está una herramienta o una
-// armadura: dur, los usos que le quedan); undefined si no hay nada
-export const extraOf = s => { const e = {}; if (s?.color) e.color = s.color; if (s?.dur !== undefined) e.dur = s.dur; if (s?.map) e.map = s.map; return Object.keys(e).length ? e : undefined; };
+// armadura: dur, los usos que le quedan; the water left in a canteen or a jug: sips); undefined si no hay nada
+export const extraOf = s => { const e = {}; if (s?.color) e.color = s.color; if (s?.dur !== undefined) e.dur = s.dur; if (s?.map) e.map = s.map; if (s?.sips > 0) e.sips = s.sips; return Object.keys(e).length ? e : undefined; };
 
 export class Inventory {
   constructor(data) {

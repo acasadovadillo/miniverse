@@ -14,6 +14,7 @@ import { BUILDABLE } from './buildables.js';
 import { randomId } from './carry-items.js';
 
 const REACH = 2.6, BEHIND = 0.7;   // desde dónde se sube y a qué distancia del que rema se va sentado
+const DEEP_BOARD = 0.3;   // (m of dive, entities.js: deeper than this, no boat is offered)
 
 export class Crew {
   constructor(game) { this.game = game; this.mate = null; }
@@ -144,7 +145,8 @@ export class Crew {
     if (n) g.carry.toBoat(id, n, p.x, p.y, true);
     g.carry?.syncArms();
   }
-  canRow(p, scene) { return scene === this.game.world && !p.boat && !p.mount && !p.aboard && !p.inside; }
+  // (diving, no: a boat is boarded from the surface, not from 3 m under it; entities.js dive)
+  canRow(p, scene) { return scene === this.game.world && !p.boat && !p.mount && !p.aboard && !p.inside && !((p.dive || 0) >= DEEP_BOARD); }
   // Lo que hace E en la barca de otro
   action() {
     const d = this.driver(this.p.aboard), name = d?.name || 'otro';
@@ -152,7 +154,7 @@ export class Crew {
     return { text: `En la barca de ${name}`, run: () => hud.toast('Acercaos a la orilla para bajar'), alt: { text: 'Tirarse al agua', run: () => this.dive() } };
   }
   // Cerca de la barca de otro: subirse, si no va ya alguien
-  canBoard(p, scene) { const g = this.game; return scene === g.world && g.live.joined && !p.boat && !p.mount && !p.aboard && !p.inside; }
+  canBoard(p, scene) { const g = this.game; return scene === g.world && g.live.joined && !p.boat && !p.mount && !p.aboard && !p.inside && !((p.dive || 0) >= DEEP_BOARD); }
   actionOn(peer) {
     if (this.game.live.others.some(q => q.entity?.aboard === peer.id)) return { text: `La barca de ${peer.name} ya va llena`, run: () => hud.toast('En la barca caben dos') };
     return { text: this.game.carry?.dropFirst() || `Subir a la barca de ${peer.name}`, run: () => this.board(peer) };

@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- La versión publicada: se cambia en cada publicación (así el juego sabe que tiene que pedir el código nuevo) -->
-<meta name="miniverse-version" content="2026-11-22.2">
+<meta name="miniverse-version" content="2026-11-22.3">
 <title>Miniverse</title>
 <script>
   // The language of the page until the game's code arrives (src/i18n.js chooses the same way, then takes over): for
@@ -102,7 +102,7 @@
   #dlg-opts button.on { color: var(--gold); border-color: var(--border); background: #6a4424; }
   #dialog.asking .more { display: none; }
   /* Chat (T) */
-  #chat { position: fixed; left: 12px; bottom: 146px; width: min(460px, calc(100vw - 24px)); z-index: 24; pointer-events: none; }
+  #chat { position: fixed; left: 12px; bottom: 166px; width: min(460px, calc(100vw - 24px)); z-index: 24; pointer-events: none; }
   #chat-log { display: flex; flex-direction: column; gap: 2px; max-height: 220px; overflow: hidden; }
   .chat-line { align-self: flex-start; max-width: 100%; padding: 2px 8px; font-size: 16px; line-height: 1.3; color: var(--cream); background: rgba(0, 0, 0, .55); border-radius: 3px; text-shadow: 1px 1px 0 #000; overflow-wrap: anywhere; transition: opacity .6s; }
   .chat-line.ok { color: #b8f08a; }
@@ -146,8 +146,8 @@
   #quest-x { position: absolute; right: 4px; top: 4px; width: 20px; height: 20px; padding: 0; color: var(--dim); background: none; border: 0; cursor: pointer; font-size: 14px; }
   #quest-x:hover { color: var(--cream); }
   #place small { color: var(--dim); margin-left: 6px; }
-  /* (bottom left, as in GTA; the chat sits above it) */
-  #minimap { position: fixed; left: 12px; bottom: 12px; width: 180px; height: 120px; padding: 0; image-rendering: pixelated; cursor: pointer; }
+  /* (bottom left, as in GTA, with the status bars under it (#needs); the chat sits above it) */
+  #minimap { position: fixed; left: 12px; bottom: 32px; width: 180px; height: 120px; padding: 0; image-rendering: pixelated; cursor: pointer; }
   body.indoors #minimap { display: none; }
   #s-map { padding: 0; background: #1a1410; }
   #bigmap { position: fixed; inset: 0; cursor: grab; touch-action: none; }
@@ -181,7 +181,7 @@
   .slot.lift img { opacity: .3; }
   #hint { position: fixed; left: 50%; bottom: 96px; transform: translateX(-50%); padding: 4px 10px; font-size: 16px; opacity: 0; transition: opacity .12s; pointer-events: none; white-space: nowrap; }
   #hint.show { opacity: 1; }
-  body.hurt #hint, body.underground #hint, body.survival #hint { bottom: 114px; }
+  body.underground #hint, body.survival #hint { bottom: 114px; }
   #hint kbd { font-size: 14px; }
   /* Pesca: la barra de fuerza al lanzar y, en la pelea, la columna de agua con la red, el pez, el tesoro y la barra de captura */
   .inv-panel { padding: 14px 16px 16px; }
@@ -387,22 +387,60 @@
   .sh-row .btn { width: auto; margin: 0; padding: 4px 10px; font-size: 15px; }
   .sh-row .btn:disabled { opacity: .4; cursor: default; }
   #money { color: var(--gold); margin-left: auto; white-space: nowrap; font-size: 16px; line-height: 1.2; }
-  /* La vida (corazones), el hambre (muslos, que se vacían desde la izquierda) y el dinero: la vida y el hambre, en
-     supervivencia (y bajo tierra); el dinero, siempre */
+  /* The money (always) on the row over the hotbar; health, hunger and the other needs are the bars under the minimap */
   #vitals { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin: 0 2px 6px; min-height: 14px; }
-  body:not(.survival):not(.underground) #hearts, body:not(.survival):not(.underground) #hunger { display: none; }
-  body.hungry #hunger { animation: blink 1s steps(2) infinite; }
-  #hearts { font-size: 15px; letter-spacing: 1px; line-height: 1; }
-  #hunger { display: flex; flex-direction: row-reverse; gap: 1px; }
-  #hunger i { display: block; width: 13px; height: 13px; background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cellipse cx='7.6' cy='4.4' rx='4' ry='3.3' fill='%23c8743a' transform='rotate(-35 7.6 4.4)'/%3E%3Cellipse cx='8.4' cy='3.4' rx='1.6' ry='1' fill='%23eaa262'/%3E%3Crect x='2.6' y='5.9' width='3.6' height='1.7' rx='.8' fill='%23f4ecdc' transform='rotate(-45 4.4 6.8)'/%3E%3Ccircle cx='2.1' cy='10' r='1.2' fill='%23f4ecdc'/%3E%3Ccircle cx='1.3' cy='8.9' r='1' fill='%23f4ecdc'/%3E%3C/svg%3E") center / contain no-repeat; }
-  #hunger i.h { opacity: .55; }
-  #hunger i.e { filter: grayscale(1) brightness(.45); opacity: .55; }
-  #hearts i { font-style: normal; color: #e83a4a; }
-  /* La experiencia: una barra verde con el nivel encima (en supervivencia) */
-  #xp { display: none; position: relative; height: 5px; margin: 6px 2px 6px; background: rgba(0, 0, 0, .55); border-radius: 3px; }
+  /* The experience: a cream and gold bar with the level over it (in survival; not green, so it is never taken for health) */
+  #xp { display: none; position: relative; height: 5px; margin: 6px 2px 6px; background: rgba(0, 0, 0, .55); border-radius: 0; }
   body.survival #xp { display: block; }
-  #xp i { display: block; height: 100%; width: 0; background: linear-gradient(#b8f070, #6ab82a); border-radius: 3px; }
-  #xp b { position: absolute; left: 50%; top: -8px; transform: translateX(-50%); font-size: 13px; line-height: 1; color: #b8f070; text-shadow: 0 1px 0 #142008, 1px 0 0 #142008, -1px 0 0 #142008, 0 -1px 0 #142008; }
+  #xp i { display: block; height: 100%; width: 0; background: linear-gradient(#d9c27a, #b89a4a); border-radius: 0; }
+  #xp b { position: absolute; left: 50%; top: -8px; transform: translateX(-50%); font-size: 13px; line-height: 1; color: #e8d48a; text-shadow: 0 1px 0 #2a1e08, 1px 0 0 #2a1e08, -1px 0 0 #2a1e08, 0 -1px 0 #2a1e08; }
+  /* The status bars (src/ui/needsbar.js paints them; docs/planes/gta/PLAN-D-barras-buceo.md §1): thin flat bars under the
+     minimap, one colour per need, no icons. Row 1 health; row 2 hunger, thirst and energy (blue between orange and
+     yellow); air above health, only under water. Each slot is fixed, so nothing moves when a bar hides. The colours are
+     about 15 % less saturated than pure hues, to sit with the muted art */
+  :root { --nd-hp: #66b562; --nd-hp-low: #d9503f; --nd-en: #e3c25a; --nd-food: #d98c45; --nd-water: #4a9fd8; --nd-air: #cfe6f0; --nd-track: rgba(8, 8, 10, .62); }
+  #needs { position: fixed; left: 12px; bottom: 12px; width: 180px; display: flex; flex-direction: column; gap: 3px; z-index: 5; pointer-events: none; }
+  body:not(.survival) #needs, body:not(.playing) #needs { display: none; }
+  body:not(.hud-min) #needs { pointer-events: auto; }   /* (full HUD: hovering shows the legend) */
+  .nd-row { display: flex; gap: 4px; }
+  .nd-airrow { position: absolute; left: 0; right: 0; bottom: calc(100% + 3px); }
+  .nd { position: relative; flex: 1 1 0; height: 6px; border-radius: 0; background: var(--nd-track); box-shadow: 0 0 0 1px rgba(0, 0, 0, .55); overflow: hidden; }
+  .nd-top .nd { height: 7px; }
+  .nd > i, .nd > s { position: absolute; inset: 0; transform-origin: 0 50%; will-change: transform; }
+  .nd > i { background: var(--c); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .28); }   /* (a 1 px top highlight) */
+  .nd > s { background: rgba(255, 255, 255, .5); transition: transform .5s ease .45s; }   /* (the ghost of recent damage) */
+  .nd > u { position: absolute; top: 0; bottom: 0; right: 0; width: 0; background: rgba(227, 194, 90, .18); }   /* (the locked tail: what low rest takes) */
+  .nd-hp { --c: var(--nd-hp); } .nd-hp.low { --c: var(--nd-hp-low); }
+  .nd-en { --c: var(--nd-en); } .nd-food { --c: var(--nd-food); } .nd-water { --c: var(--nd-water); } .nd-air { --c: var(--nd-air); }
+  .nd.low > i { animation: nd-pulse 1s ease-in-out infinite; }   /* (a pulse, not only a colour: readable without colour vision) */
+  .nd.zero { animation: nd-zero .5s steps(2) infinite; }         /* (empty and hurting you: the track flashes) */
+  @keyframes nd-pulse { 50% { opacity: .35; } }   /* (a fade, not a brightening: brightened, the orange of hunger read as the yellow of energy) */
+  @keyframes nd-zero { 50% { box-shadow: 0 0 0 1px #ff5a4a, 0 0 7px #ff5a4a; } }
+  .nd-air { transition: opacity .5s ease; }
+  .nd-air:not(.nd-on) { opacity: 0; }   /* (air: only under water, in both HUDs) */
+  .nd.nd-off { visibility: hidden; }     /* (a need turned off with ?sed=0 or ?aguante=0&cansancio=0: its slot stays) */
+  body.hud-min .nd { opacity: 0; transition: opacity .5s ease; }
+  body.hud-min .nd.nd-on, body.hud-min.hud-all .nd:not(.nd-air) { opacity: 1; transition: opacity .15s ease; }
+  /* (the name tag: on a dark chip, as it often sits over the minimap's bottom edge) */
+  #nd-tag { position: absolute; left: 0; bottom: calc(100% + 13px); padding: 2px 5px 3px; border-radius: 3px; background: rgba(8, 8, 10, .62); font: 600 11px/1 var(--font-ui); text-transform: uppercase; letter-spacing: .06em; color: var(--cream); white-space: nowrap; opacity: 0; transition: opacity .2s; }
+  #nd-tag.on { opacity: 1; }
+  /* (the legend: a chip like #hud-status, not the heavy wood .panel; with Tab held, or hovering in the full HUD) */
+  #nd-legend { display: none; position: absolute; left: calc(100% + 8px); bottom: 0; padding: 5px 10px 6px; border-radius: 10px; background: rgba(20, 13, 8, .62); font: 500 14px/1.4 var(--font-ui); white-space: nowrap; color: var(--cream); }
+  body.hud-all #nd-legend, body:not(.hud-min) #needs:hover #nd-legend { display: block; }
+  body.hud-min #nd-legend { bottom: 58px; }   /* (minimal HUD, Tab held: over the block of weight and experience, which sits on the same line as the bars) */
+  #nd-legend b { display: inline-block; width: 12px; height: 4px; margin-right: 7px; vertical-align: middle; background: var(--c); }
+  #nd-legend span { font-family: var(--font-title); font-variant-numeric: tabular-nums; color: var(--cream); margin-left: 6px; }
+  #nd-legend small { margin-left: 8px; font-size: 13px; color: var(--dim); }
+  /* Under water: a vignette only, no full-screen tint (the fog gives the tint). display: none off the water, so it costs
+     no compositor fill. The view sets body.underwater (Track C); needsbar.js sets uw-low (air at 30 % or less) */
+  /* (radial gradients, not an inset box-shadow: on the dark sea, at night most of all, the shadow's blur showed as
+     rectangular bands round the screen. Eased in with several stops: a single linear ramp left a ring where it starts.
+     The low-air one on top, faded in) */
+  #uw { display: none; position: fixed; inset: 0; z-index: 3; pointer-events: none; opacity: 0; transition: opacity .25s; background: radial-gradient(ellipse 72% 72% at 50% 50%, rgba(4, 22, 34, 0) 45%, rgba(4, 22, 34, .04) 58%, rgba(4, 22, 34, .14) 70%, rgba(4, 22, 34, .3) 84%, rgba(4, 22, 34, .5) 100%); }
+  #uw::after { content: ''; position: absolute; inset: 0; opacity: 0; transition: opacity .6s ease; background: radial-gradient(ellipse 66% 66% at 50% 50%, rgba(2, 10, 18, 0) 30%, rgba(2, 10, 18, .08) 45%, rgba(2, 10, 18, .3) 62%, rgba(2, 10, 18, .58) 80%, rgba(2, 10, 18, .82) 100%); }
+  body.underwater #uw { display: block; opacity: 1; }
+  body.underwater.uw-low #uw::after { opacity: 1; }
+  body:not(.playing) #uw { display: none; }   /* (not over the menus) */
   /* /title: un texto grande en el centro */
   #title-msg { position: fixed; left: 0; right: 0; top: 34%; text-align: center; font-size: clamp(28px, 6vw, 56px); color: #fff6d8; text-shadow: 0 3px 0 #2a1c22, 0 0 18px rgba(0, 0, 0, .6); z-index: 26; pointer-events: none; transition: opacity .7s; padding: 0 16px; }
   #title-msg[hidden] { display: none; }
@@ -412,8 +450,6 @@
   #compass { position: fixed; left: 50%; bottom: 112px; width: 54px; height: 54px; margin-left: -27px; border-radius: 50%; background: radial-gradient(#f4ecd8 58%, #c8a030 60%, #8a6a20 72%); box-shadow: 0 3px 10px rgba(0, 0, 0, .45); z-index: 9; pointer-events: none; }
   #compass i { position: absolute; left: 50%; top: 50%; width: 6px; height: 40px; margin: -20px 0 0 -3px; background: linear-gradient(#e83a3a 50%, #4a4a54 50%); clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%); }
   #held-map[hidden], #compass[hidden], body:not(.playing) #held-map, body:not(.playing) #compass { display: none; }
-  #hearts i.h { color: #e8828a; }
-  #hearts i.e { color: #4a3a3a; }
   /* Cofre */
   #ch-hint.no { color: #ff9a7a; }
   .ch-panel { padding: 14px 16px 16px; }
@@ -449,7 +485,7 @@
     #quest, body.admin #quest, body.spectator #quest { top: 112px; }
     #place { top: auto; bottom: 214px; right: 12px; }
     #minimap { top: 96px; width: 120px; height: 80px; }
-    #hint, body.hurt #hint, body.underground #hint, body.survival #hint { bottom: auto; top: 184px; }
+    #hint, body.underground #hint, body.survival #hint { bottom: auto; top: 184px; }
     body.indoors #hint { top: 96px; }
     #clockp { top: auto; bottom: 256px; right: 12px; left: auto; font-size: 14px; }
   }
@@ -572,9 +608,21 @@
   <div id="quest" class="panel" hidden><button type="button" id="quest-x" aria-label="Hide the first steps" title="Hide the first steps" data-i18n-attr="aria-label:gui.quest.dismiss;title:gui.quest.dismiss">✕</button><small id="quest-title"></small><b id="quest-text"></b><span id="quest-hint"></span></div>
   <div id="place" class="panel"><span id="place-name">Pueblo Brotes</span> <small id="coords"></small></div>
   <canvas id="minimap" class="panel" width="150" height="100"></canvas>
+  <div id="needs" aria-hidden="true">
+    <div class="nd-row nd-airrow"><div class="nd nd-air" id="nd-air"><i></i></div></div>
+    <div class="nd-row nd-top"><div class="nd nd-hp" id="nd-hp"><s></s><i></i></div></div>
+    <div class="nd-row">
+      <div class="nd nd-food" id="nd-food"><i></i></div>
+      <div class="nd nd-water" id="nd-water"><i></i></div>
+      <div class="nd nd-en" id="nd-en"><i></i><u></u></div>
+    </div>
+    <div id="nd-tag"></div>
+    <div id="nd-legend"></div>
+  </div>
+  <div id="uw"></div>
   <div id="hint" class="panel"><kbd data-i18n="key.click">Click</kbd><span id="hint-text"></span></div>
   <div id="hotbar" class="panel">
-    <div id="vitals"><div id="hearts" title="Health"></div><div id="hunger" title="Hunger"></div><span id="money" title="Coins" data-i18n-attr="title:gui.hud.coins">0 🪙</span></div>
+    <div id="vitals"><span id="money" title="Coins" data-i18n-attr="title:gui.hud.coins">0 🪙</span></div>
     <div id="xp" title="Experience"><i></i><b></b></div>
     <div class="slots" id="hotbar-slots"></div>
   </div>
@@ -739,11 +787,12 @@
       <dl class="ct-list">
         <dt><kbd>WASD</kbd></dt><dd data-i18n="controls.walk">Walk (up is where the camera is looking)</dd>
         <dt><kbd>W</kbd> <kbd>W</kbd></dt><dd data-i18n="controls.run">Run: tap W twice (you keep running while you hold it)</dd>
-        <dt><kbd>Shift</kbd></dt><dd data-i18n="controls.crouch">Crouch (one tap; another, stand up). Crouching you walk slowly, and what you place doesn't join what's next to it. Swimming, you sink a little</dd>
+        <dt><kbd>Shift</kbd></dt><dd data-i18n="controls.crouch">Crouch (tap again to stand up). While crouching you move slowly and what you place doesn't connect to its neighbors. While swimming, Shift dives: hold it to go down, and Space to come up</dd>
         <dt data-i18n-html="controls.social.keys"><kbd>Y</kbd> or right click</dt><dd data-i18n="controls.social">Greet the person under the cursor or in front of you (a neighbor, your child, another player); hold it to provoke them instead. The village notices: your reputation is in the journal</dd>
         <dt data-i18n="controls.use.keys">Left click</dt><dd data-i18n="controls.use">Use what you're holding: chop, mine, water, sow, fish, attack, eat, place… Hold to keep going.</dd>
-        <dt data-i18n-html="controls.jump.keys"><kbd>Space</kbd></dt><dd data-i18n="controls.jump">Jump (with a dialogue open, continue). Swimming, rise higher; next to the shore, jump out</dd>
+        <dt data-i18n-html="controls.jump.keys"><kbd>Space</kbd></dt><dd data-i18n="controls.jump">Jump (in a dialogue: continue). While swimming, hold it to come up; at the surface next to the shore, climb out</dd>
         <dt data-i18n-html="controls.interact.keys"><kbd>E</kbd> or <kbd>Enter</kbd></dt><dd data-i18n="controls.interact">Interact with what you point at with the mouse (2 tiles away at most; pointing at nothing, with the nearest thing): talk, doors, chests, stations, sleep, harvest, animals</dd>
+        <dt data-i18n-html="controls.drink.keys"><kbd>E</kbd> on water</dt><dd data-i18n="controls.drink">Thirsty, aim at a river, a lake or a well to drink (one press drinks until you're full; moving stops it). Sea water is too salty. With a canteen or a jug in hand: click for a sip, E or click on fresh water to fill it</dd>
         <dt><kbd>Q</kbd></dt><dd data-i18n-html="controls.drop">Drop what you hold (with <kbd>Ctrl</kbd> or <kbd>Shift</kbd>, the whole stack); with something in your arms, put it down</dd>
         <dt><kbd>E</kbd> <kbd>Q</kbd> <kbd>X</kbd></dt><dd data-i18n="controls.carry">A felled tree leaves a log and a hunted animal its carcass. E puts it on your shoulder (one at a time) and Q puts it down; X butchers a carcass where it lies, and the axe splits a log. At the bench (E) a log gives 10 planks; at the kitchen (E) a carcass gives the most. Everything weighs: past what you carry comfortably (25 kg, 70 with the backpack) you walk slower</dd>
         <dt><kbd>E</kbd> <kbd>Q</kbd> <kbd>X</kbd></dt><dd data-i18n="controls.barrow">The wheelbarrow (B › Exterior, its plan at Dani's): E pushes it with both hands (slower, no running, jumping or swimming) and Q parks it; X opens it (12 stacks, which B and C also pay from). Pushing it, E on a log or a carcass loads it (3 at most): what it carries doesn't weigh on you</dd>
@@ -758,6 +807,7 @@
         <dt><kbd>F3</kbd></dt><dd data-i18n="controls.fps">Show performance (frames per second)</dd>
         <dt><kbd>I</kbd> <kbd>C</kbd> <kbd>B</kbd></dt><dd data-i18n="controls.windows">Inventory (what you carry and your clothes), crafting and building</dd>
         <dt><kbd>Tab</kbd></dt><dd data-i18n="controls.players">While you hold it, who is playing</dd>
+        <dt data-i18n="controls.bars.keys">The bars</dt><dd data-i18n="controls.bars">Under the minimap: health, hunger, thirst and energy (and air under water). Food fills hunger, drink fills thirst and sleeping in a bed fills energy; health comes back by itself when you're fed and watered. Hover them (or hold Tab) to see their %</dd>
         <dt><kbd>J</kbd> <kbd>M</kbd></dt><dd data-i18n="controls.journal_map">Journal and map</dd>
         <dt data-i18n-html="controls.chat.keys"><kbd>T</kbd> or <kbd>/</kbd></dt><dd data-i18n-html="controls.chat">Chat and commands (<b>/help</b> to see them). Ops (given in the server terminal with <b>/op</b>) have <b>/gamemode</b>, <b>/tp</b>, <b>/give</b>, <b>/kill</b>, <b>/weather</b>, <b>/gamerule</b>…; the admin also has <b>/account</b>, to create accounts</dd>
         <dt><kbd>Esc</kbd></dt><dd data-i18n="controls.pause">Pause (and close windows)</dd>

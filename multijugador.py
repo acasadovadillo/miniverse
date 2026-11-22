@@ -71,6 +71,16 @@ def option(name, default):
     return sys.argv[sys.argv.index(name) + 1] if name in sys.argv[:-1] else default
 
 
+# -h / --help only print the usage (the header above) and quit: they used to start the real server
+if '-h' in sys.argv[1:] or '--help' in sys.argv[1:]:
+    with open(__file__, encoding='utf-8') as f:
+        for line in f:
+            if not line.startswith('#'):
+                break
+            print(line[2:].rstrip())
+    sys.exit(0)
+
+
 PORT = int(option('--puerto', 8790))
 WEB_PORT = PORT + 1   # el juego, para el mundo del servidor: solo en este ordenador (el túnel no llega)
 GAME = option('--juego', 'https://acasadovadillo.github.io/miniverse/')

@@ -18,6 +18,7 @@ import { Audio } from './audio.js';
 import { Profile } from './accounts.js';
 import { t } from './i18n.js';
 import { rayHits, aabb } from './world/fit.js';
+import { RATES } from './needs.js';
 import { wrapX, nearX, WATER_Y } from './world/planet.js';
 import { shotHit } from './world/shots.js';
 import { WALL_H, ROOF } from './three/build3d.js';
@@ -115,6 +116,7 @@ export class Archery {
     if (!free) g.inv.remove('flecha', 1);
     g.gather.wearOut();
     g.combat.exert(0.1);
+    g.needs?.spend(RATES.bow);   // (drawing the bow costs stamina, but does not delay its refill: needs.js)
     Audio.swish();
     const a = this.add({ id: `${Profile.id || 'yo'}-${++this.n}`, x: o[0], h: o[1], y: o[2], vx: d[0] * speed, vh: d[1] * speed, vy: d[2] * speed, dmg: Math.max(1, Math.round(MAX_DMG * power)), mine: true, free, scene: g.scene, from });
     if (g.scene === g.world) g.live.net?.send({ t: 'arrow', id: a.id, x: r2(a.x), h: r2(a.h), y: r2(a.y), vx: r2(a.vx), vh: r2(a.vh), vy: r2(a.vy), free: free ? 1 : 0, o: from.map(r2) });

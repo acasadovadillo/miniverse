@@ -2,7 +2,8 @@
 // objetos caídos (con su icono), los textos que suben sobre el jugador, las astillas de lo que se golpea, el
 // fuego de hogares, hornos y antorchas, el humo de las chimeneas, la lluvia y la nieve, el agua
 // de la fuente, los corazones de la cama doble, la luz del faro, el sedal y el corcho al pescar, las ondas de quien nada o
-// vadea y el destello rojo al recibir un golpe.
+// vadea y el destello rojo al recibir un golpe. Diving: the bubbles of every diver (also the other players') and the
+// specks drifting in the water around the camera while it is under it.
 import * as THREE from 'three';
 import { itemIcon } from '../art/items.js';
 import { dropModel } from './icons.js';
@@ -46,8 +47,13 @@ function fading(m) {
 }
 const qCam = new THREE.Quaternion(), qRoll = new THREE.Quaternion(), ZAX = new THREE.Vector3(0, 0, 1);
 
-const tmp = new THREE.Object3D(), col = new THREE.Color(), v3 = new THREE.Vector3();
+const tmp = new THREE.Object3D(), col = new THREE.Color(), v3 = new THREE.Vector3(), V2 = new THREE.Vector2();
 const RIPPLES = 48, RIPPLE_LIFE = 1.8;   // (las ondas en el agua: cuántas a la vez y lo que dura cada una, en s)
+// Diving: at most BUBBLES bubbles at once, a puff from each diver's mouth every 1-2 s (BUBBLE_EVERY), rising at some
+// 0.5-0.8 m/s with a wobble until they break at the surface with a small ring; SNOW specks in a SNOW_BOX m box round the
+// camera, seen up to SNOW_R m (one draw call; they move in the shader, nothing on the processor)
+const BUBBLES = 96, BUBBLE_EVERY = [1, 2], SNOW = 300, SNOW_BOX = 12, SNOW_R = 6;
+const HEAD_UNDER = 0.42, SWIM_EYE = 0.7;   // (as entities.js and engine.js: only for a diver without a head drawn yet)
 
 export class Fx {
   constructor(view) {
@@ -139,6 +145,52 @@ export class Fx {
     this.layer = document.getElementById('floaters') || Object.assign(document.body.appendChild(document.createElement('div')), { id: 'floaters' });
     this.hurt = document.getElementById('hurt') || Object.assign(document.body.appendChild(document.createElement('div')), { id: 'hurt' });
     this.tags = new Map();
+    this.makeUnder();
+  }
+  // Diving: the bubbles (instanced little spheres, pale and see-through) and the marine snow (points that wrap round the
+  // camera in the shader, faded with the distance by hand: they are only drawn under the water, inside its murk)
+  makeUnder() {
+    this.bubbleMesh = new THREE.InstancedMesh(new THREE.SphereGeometry(1, 6, 4), new THREE.MeshBasicMaterial({ color: '#d6e8ea', transparent: true, opacity: 0.55, depthWrite: false }), BUBBLES);
+    this.bubbleMesh.count = 0; this.bubbleMesh.visible = false; this.bubbleMesh.frustumCulled = false; this.bubbleMesh.renderOrder = 3; this.group.add(this.bubbleMesh);
+    this.bubbles = []; this.puffAt = new WeakMap();
+    const pos = new Float32Array(SNOW * 3), size = new Float32Array(SNOW);
+    let q = 987654321;
+    const rnd = () => ((q = Math.imul(q ^ (q >>> 13), 1597334677) + 12345 >>> 0) / 4294967296);
+    for (let i = 0; i < SNOW; i++) { pos[i * 3] = rnd() * SNOW_BOX; pos[i * 3 + 1] = rnd() * SNOW_BOX; pos[i * 3 + 2] = rnd() * SNOW_BOX; size[i] = 0.015 + rnd() * 0.03; }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setAttribute('aSize', new THREE.BufferAttribute(size, 1));
+    this.snowU = { uCam: { value: new THREE.Vector3() }, uTime: { value: 0 }, uScale: { value: 400 }, uColor: { value: new THREE.Color('#9fb4b0') } };
+    this.specks = new THREE.Points(g, new THREE.ShaderMaterial({
+      uniforms: this.snowU, transparent: true, depthWrite: false, fog: false,
+      vertexShader: `uniform vec3 uCam; uniform float uTime; uniform float uScale; attribute float aSize; varying float vA;
+        void main() {
+          vec3 p = position + vec3(sin(uTime * 0.13 + position.y) * 0.3, -uTime * 0.05, uTime * 0.08);
+          p = mod(p - uCam + ${SNOW_BOX / 2}.0, ${SNOW_BOX}.0) - ${SNOW_BOX / 2}.0 + uCam;
+          vec4 mv = viewMatrix * vec4(p, 1.0);
+          float d = -mv.z;
+          vA = (1.0 - smoothstep(${SNOW_R - 2}.0, ${SNOW_R}.0, distance(p, uCam))) * smoothstep(0.25, 0.7, d) * step(p.y, ${(WATER_Y - 0.05).toFixed(2)});
+          gl_PointSize = aSize * uScale / max(d, 0.1);
+          gl_Position = projectionMatrix * mv;
+        }`,
+      fragmentShader: `uniform vec3 uColor; varying float vA;
+        void main() {
+          float a = (1.0 - smoothstep(0.12, 0.5, length(gl_PointCoord - 0.5))) * vA * 0.7;
+          if (a < 0.01) discard;
+          gl_FragColor = vec4(uColor, a);
+          #include <tonemapping_fragment>
+          #include <colorspace_fragment>
+        }`,
+    }));
+    this.specks.frustumCulled = false; this.specks.visible = false; this.specks.renderOrder = 3; this.group.add(this.specks);
+  }
+  // Copies of the diving effects, visible, for engine.js prepare: their programs compiled before the first dive (the
+  // originals are hidden, and the compile skips what is hidden)
+  underProxies() {
+    if (this.underProxyGroup) return this.underProxyGroup;
+    const g = new THREE.Group(), b = new THREE.InstancedMesh(this.bubbleMesh.geometry, this.bubbleMesh.material, 1), sp = new THREE.Points(this.specks.geometry, this.specks.material);
+    b.frustumCulled = sp.frustumCulled = false;
+    g.add(b, sp);
+    return (this.underProxyGroup = g);
   }
 
   update(game, scene, dt, t) {
@@ -157,6 +209,7 @@ export class Fx {
     this.updateBeacon(scene, t);
     this.updateFloaters(game, playing);
     this.updateBubbles(game, playing);
+    this.updateDivers(game, scene, playing, dt, t);
     this.hurt.style.opacity = playing && game.flashHurt > game.time ? '1' : '0';
   }
 
@@ -476,6 +529,52 @@ export class Fx {
     this.ripple.position.set(to.x, WATER_Y + 0.01, to.z);
     this.ripple.scale.setScalar((s.nib > 0 ? 0.7 : 1) + w * 1.5);
     this.ripple.material.opacity = (s.nib > 0 ? 0.4 : 0.7) * (1 - w);
+  }
+
+  // ---------- diving ----------
+  // Every diver (the player and the others: their head under the water, headUnder) lets out a puff of 3-5 bubbles from
+  // the mouth every 1-2 s; they rise wobbling and break at the surface with a small ring, so a diver can be found from
+  // above. And under the water, the marine snow round the camera
+  updateDivers(game, scene, playing, dt, t) {
+    const B = this.bubbles, view = this.view, A = view.actors, out = !playing || !!view.cave || scene !== game.world;
+    if (out) { if (B.length) B.length = 0; this.bubbleMesh.count = 0; this.bubbleMesh.visible = this.specks.visible = false; return; }
+    const me = game.player, divers = [];
+    if (me && (me.headUnder ?? (me.swim && (me.sink || 0) + (me.dive || 0) > HEAD_UNDER))) divers.push(me);
+    // (the others, only where they are drawn: in this scene and in sight of the actors)
+    if (game.live?.peers) for (const peer of game.live.peers.values()) { const e = peer.entity; if (e && A?.models.get(e)?.root.visible && (e.headUnder ?? (e.swim && (e.sink || 0) + (e.dive || 0) > HEAD_UNDER))) divers.push(e); }
+    for (const e of divers) {
+      const at = this.puffAt.get(e);
+      if (at === undefined) { this.puffAt.set(e, t + 0.3 + Math.random() * 0.5); continue; }
+      if (t < at) continue;
+      this.puffAt.set(e, t + BUBBLE_EVERY[0] + Math.random() * (BUBBLE_EVERY[1] - BUBBLE_EVERY[0]));
+      const m = A?.models.get(e), head = m?.person?.head, x = me ? nearX(e.x, me.x) : e.x;
+      if (head && m.root.visible) head.getWorldPosition(v3); else v3.set(x, WATER_Y - SWIM_EYE - (e.sink || 0) - (e.dive || 0) + 0.85, e.y);
+      const f = e.face || { x: 0, y: 1 }, n = 3 + Math.floor(Math.random() * 3);
+      for (let i = 0; i < n; i++) {
+        if (B.length >= BUBBLES) B.shift();
+        B.push({ x: v3.x + f.x * 0.12 + (Math.random() - 0.5) * 0.06, y: v3.y - 0.05 - i * 0.07, z: v3.z + f.y * 0.12 + (Math.random() - 0.5) * 0.06, vy: 0.5 + Math.random() * 0.3, r: 0.02 + Math.random() * 0.03, ph: Math.random() * 6.28 });
+      }
+    }
+    let n = 0;
+    for (let i = 0; i < B.length; i++) {
+      const b = B[i];
+      b.y += b.vy * dt; b.vy = Math.min(0.9, b.vy + dt * 0.15);
+      if (b.y >= WATER_Y - 0.04) { this.rippleAt(b.x, b.z, 0.25 + b.r * 4, 0.3); B.splice(i--, 1); continue; }
+      tmp.position.set(b.x + Math.sin(t * 5 + b.ph) * 0.03, b.y, b.z + Math.cos(t * 4.3 + b.ph) * 0.03); tmp.rotation.set(0, 0, 0);
+      tmp.scale.set(b.r, b.r * 0.85, b.r); tmp.updateMatrix(); this.bubbleMesh.setMatrixAt(n++, tmp.matrix);
+    }
+    this.bubbleMesh.count = n;
+    this.bubbleMesh.visible = n > 0;   // (none: not even an empty draw call)
+    if (n) this.bubbleMesh.instanceMatrix.needsUpdate = true;
+    // (the specks: only with the camera under the water; lit by the hour, as the murk)
+    const under = !!view.under;
+    this.specks.visible = under;
+    if (under) {
+      const cam = view.camera, U = this.snowU, k = view.underLight ?? 1;
+      U.uCam.value.copy(cam.position); U.uTime.value = t;
+      U.uScale.value = view.renderer.getDrawingBufferSize(V2).y * 0.5 / Math.tan(cam.fov * Math.PI / 360);
+      U.uColor.value.setRGB(0.35 * k, 0.45 * k, 0.43 * k);
+    }
   }
 
   // ---------- textos flotantes ----------

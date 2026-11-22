@@ -63,6 +63,8 @@ import { kitOf, kitKey } from './kit.js';
 import { Carry, WeightInventory, weightMode } from './carry.js';
 import { BULKY, BARROW } from './carry-items.js';
 import { Barrow } from './barrow.js';
+import { Needs, RATES } from './needs.js';
+import { Dive } from './dive.js';
 
 // Lo que ya no existe en el juego y lo que costó. Al cargar una partida se quita de donde esté (la mochila, los cofres, las
 // alforjas, el correo o puesto en el mundo) y, si no, quedaría un objeto sin datos que rompe la mochila. Devuelve lo que
@@ -126,7 +128,7 @@ function defaultHouseDeltas() {
 
 // Los modos de juego (/gamemode) y las reglas del mundo (/gamerule) con lo que valen al empezar
 export const GAMEMODES = { survival: 'supervivencia', creative: 'creativo', spectator: 'espectador' };
-export const RULES = { keepInventory: false, doMobSpawning: true, doWeatherCycle: true, doDaylightCycle: true, naturalRegeneration: true, announceAdvancements: true };
+export const RULES = { keepInventory: false, doMobSpawning: true, doWeatherCycle: true, doDaylightCycle: true, naturalRegeneration: true, announceAdvancements: true, doThirst: true, doFatigue: true };   // (doThirst, doFatigue: needs.js; old saves get true, and they are read as !== false)
 const TAVERN_SEATS = new Set(['silla', 'taburete']);   // (en la taberna, quien quiere se sienta)
 const AIM_REACH = 2;   // lo que se apunta con el ratón se usa si está a esto como mucho (casillas)
 const LIGHTS = new Set(['lampara', 'antorcha', 'vela', 'candelabro']);
@@ -188,6 +190,8 @@ export class Game {
     this.rep = this.addSystem(new Reputation(this));   // the village's reputation (after stats and neighbors: an old game is born from them)
     this.hunt = this.addSystem(new Hunt(this));   // pegar a los animales (antes que a las criaturas: va a lo que se apunta)
     this.combat = this.addSystem(new Combat(this));
+    this.needs = this.addSystem(new Needs(this));   // thirst, stamina, rest, air and sleep (health and hunger stay in combat)
+    this.dive = this.addSystem(new Dive(this));   // the finds on the sea and lake beds, while swimming
     this.mobs =this.addSystem(new Mobs(this));   // la luz y las criaturas de fuera, de noche
     this.xp = this.addSystem(new Experience(this));   // la experiencia y los niveles
     this.machines = new Machines(this);   // el horno y el alambique, que llevan su tiempo
@@ -207,6 +211,7 @@ export class Game {
     // steps really used (1 unless alone with the tab in sight: what the drawing uses for the bodies and the particles)
     this.timeScale = 1; this.timeScaleTarget = 1; this.simScale = 1;
     this.wheel = null;           // the tool wheel (main.js makes it: not on the server)
+    this.needsBar = null;        // the status bars (main.js makes it: not on the server; src/ui/needsbar.js)
   }
 
   resize() { this.view3d.resize(); }
@@ -237,7 +242,7 @@ export class Game {
     // el mapa explorado y los lugares descubiertos
     const moved = save.seed !== undefined && save.seed !== WORLD_SEED;
     if (moved) {
-      for (const [k, d] of deltas) if (!k.startsWith('u:')) Object.assign(d, { removed: {}, picked: {}, opened: {} });
+      for (const [k, d] of deltas) if (!k.startsWith('u:')) Object.assign(d, { removed: {}, picked: {}, opened: {}, dived: {} });   // (dived: what was taken from the sea bed, dive.js)
       save = { ...save, explored: [], found: [] };
     }
     setFamilyHouse(save.house?.family);   // (antes de hacer el pueblo: con la casa familiar, su jardín cambia)
@@ -246,7 +251,7 @@ export class Game {
     if (moved) for (const k of deltas.keys()) this.world.dirty.add(k);   // que se guarde ya así
     this.world.clock = save.clock || 0;
     this.inv = new (weightMode() ? WeightInventory : Inventory)(save.inventory);   // (the weight one, unless ?inventario=casillas or on the world server: carry.js)
-    if (!save.inventory) for (const [id, n] of START_KIT) this.inv.add(id, n);   // partida nueva: equipo inicial
+    if (!save.inventory) for (const [id, n, extra] of START_KIT) this.inv.add(id, n, extra);   // partida nueva: equipo inicial (extra: a full canteen's sips)
     this.invSpill = this.inv.spill;   // (materiales de muebles de antes que no han cabido: se dejan a los pies al empezar)
     // (las partidas de antes de la pala la reciben una vez: la marca pala va en lo guardado; si no cabe, a los pies)
     const shovel = !!save.inventory && !save.pala;
@@ -279,6 +284,7 @@ export class Game {
     this.player = new Player({ ...p, x: save.inventory ? p.x ?? sx : sx, y: save.inventory ? p.y ?? sy : sy });
     this.player.ghost = this.gamemode === 'spectator';
     this.player.onExert = n => this.combat.exert(n);   // (correr y saltar dan hambre)
+    this.player.onJump = () => this.needs.spend(RATES.jump, true);   // (a jump costs stamina and delays its refill: needs.js)
     this.player.onLand = () => this.farm.trample(this.player);   // (caer de un salto sobre tierra labrada la deshace)
     this.player.onSplash = (x, y, n) => { this.gather.splash(x, y, n); Audio.splash(); };   // (al caer al agua o saltar de ella)
     hud.faces = { ...hud.faces, Nilo: NILO_LOOK, [this.player.name]: this.player.look };
@@ -376,7 +382,7 @@ export class Game {
       out = `Fuera de tu mochila: ${n} ${m.id ? `× ${ITEMS[m.id]?.name.toLowerCase() || m.id}` : 'cosas'}`;
       said(`ha vaciado tu mochila (${n})`);
     } else if (m.t === 'effect') {
-      if (m.give === 'curacion') { this.combat.heal(8); out = 'Te has curado 4 corazones'; }
+      if (m.give === 'curacion') { this.combat.heal(8); out = t('effect.healed'); }
       else if (m.give && EFFECT_NAMES[m.give]) { this.buffs[m.give] = this.time + Math.max(1, Math.min(3600, m.secs || 30)); out = `Efecto ${EFFECT_NAMES[m.give]} durante ${m.secs || 30} s`; }
       else if (m.clear) { if (m.clear === 'all') this.buffs = {}; else delete this.buffs[m.clear]; out = 'Efectos quitados'; }
       if (out) said(`te ha dado: ${out.toLowerCase()}`);
@@ -513,11 +519,18 @@ export class Game {
     const p = this.player;
     if (this.busy || this.mode !== 'play' || !p || this.gamemode === 'spectator') return null;   // (el espectador no toca nada)
     const sc = this.scene;
-    if (p.pose) return { text: 'Levantarse', run: () => this.rest.stand() };
+    if (p.pose) return { text: t('pose.stand_up'), run: () => this.rest.stand() };
     if (this.barrow.pushing) return this.barrow.pushAction();   // (the hands on the wheelbarrow: barrow.js)
     if (p.aboard) return this.crew.action();
     if (p.boat) return this.crew.ownAction();   // (remando: E baja a tierra y amarra la barca)
-    if (p.swim) return this.crew.interact(p, sc);   // (nadando, las manos son para nadar: solo subirse a una barca)
+    // Swimming: a moored boat first (crew.js, only near the surface); then, with a mouse, only the systems' targets the
+    // cursor aims at (a find on the bed, fresh water to drink, a boat: kind 'sys'; never a bed, a chair, a chest or a door
+    // on the bank); without one, the find in reach (dive.js) or a drink of the water here (needs.js)
+    if (p.swim) {
+      const r = this.crew.interact(p, sc); if (r) return r;
+      if (this.mouse) { const aim = this.aimed(); return aim && aim.kind === 'sys' ? this.actionFor(aim) : this.needs.swimAction(p, sc); }
+      return this.dive?.action?.(p, sc) || this.needs.swimAction(p, sc) || null;
+    }
     // Con ratón, solo lo que se apunta con el cursor (a AIM_REACH casillas como mucho)
     if (this.mouse) { const aim = this.aimed(); return aim ? this.actionFor(aim) : null; }
     // Sin ratón (en pantalla táctil, sin cursor): lo que haya más cerca
@@ -544,7 +557,7 @@ export class Game {
     if (!m?.in || !sc || !p) return null;
     if (m.aimFrame === this.frameNo) return m.aim;
     m.aimFrame = this.frameNo; m.aim = null;
-    const ray = this.view3d.rayAt(m.x, m.y);
+    const ray = this.rayNow();
     if (!ray) return null;
     const O = this.view3d.outliner;
     for (const c of this.aimTargets(p, sc)) {
@@ -559,6 +572,14 @@ export class Game {
     return m.aim;
   }
   // Lo que se puede apuntar alrededor del jugador, cada cosa con su caja (girada, con alturas)
+  // The camera ray under the mouse, cast once per frame (aimed and needs.waterAim share it), or null
+  rayNow() {
+    const m = this.mouse;
+    if (!m?.in || !this.view3d?.rayAt) return null;
+    if (m.rayFrame === this.frameNo && m.rayX === m.x && m.rayY === m.y) return m.ray;
+    m.rayFrame = this.frameNo; m.rayX = m.x; m.rayY = m.y;
+    return (m.ray = this.view3d.rayAt(m.x, m.y));
+  }
   aimTargets(p, sc) {
     const out = [], R = AIM_REACH + 1, box = (x, y, hx, hy, y0, y1) => ({ ...aabb(x - hx, y - hy, x + hx, y + hy), y0, y1 });
     const sees = (x, y) => !sc.reaches || sc.reaches(p.x, p.y, x, y);
@@ -667,7 +688,7 @@ export class Game {
     const top = hung ? { tile: hung[0], layer: 'hang', placed: hung[1].split('@')[0] } : o;
     const name = ITEMS[o.placed].name.toLowerCase(), pick = { text: `${BUILDABLE[top.placed] ? 'Desmontar' : 'Recoger'} ${ITEMS[top.placed].name.toLowerCase()}`, run: () => this.pickUp(top) };   // (lo construido, al desmontarlo, devuelve sus materiales)
     if (STATIONS[o.placed]) return { text: `Usar ${name}`, run: () => this.onCraft?.(o.placed), alt: o.fixed ? null : pick };
-    if (o.placed === 'cama' || o.placed === 'cama_nino' || o.placed === 'cama_doble') return { text: this.carry.dropFirst() || 'Usar la cama', run: () => this.bed(o), alt: pick };   // (with something in the arms: put it down first, carry.js)
+    if (o.placed === 'cama' || o.placed === 'cama_nino' || o.placed === 'cama_doble') return { text: this.carry.dropFirst() || t('bed.use'), run: () => this.bed(o), alt: pick };   // (with something in the arms: put it down first, carry.js)
     if (o.placed === 'silla' || o.placed === 'taburete' || o.placed === 'sofa' || o.placed === 'sillon') return { text: this.carry.dropFirst() || 'Sentarse', run: () => this.rest.sit(o), alt: o.fixed ? null : pick };
     if (o.placed === 'lavabo') return { text: 'Mirarse en el espejo', run: () => this.onMirror?.(), alt: pick };
     if (wellSpec(o.placed)) return this.farm.wellAction(o, o.fixed ? null : pick);   // (E: llenar la regadera; X: desmontarlo. The big well too)
@@ -691,10 +712,10 @@ export class Game {
     this.bedSpawn(o);   // (como en Minecraft: usar la cama la hace tu punto de reaparición)
     if (o.placed === 'cama_doble') return this.family.bed(o);
     this.busy = true;
-    const pick = await hud.ask(this.player.name, '¿Qué hacemos?', ['Tumbarse un rato', 'Dormir', 'Nada']);
+    const pick = await hud.ask(this.player.name, t('bed.q'), [t('bed.lie'), t('bed.sleep'), t('bed.nothing')]);
     this.busy = false;
     if (pick === 0) this.rest.lie(o);
-    if (pick === 1) this.sleep();
+    if (pick === 1) this.sleep(o);
   }
   // Llamar a una puerta cerrada: suena para todos los de cerca; si es de un vecino y está en casa, contesta
   knockable(door) {
@@ -767,7 +788,8 @@ export class Game {
     this.onSave?.();
     return null;
   }
-  sleep() { return this.days.sleep(); }
+  // Sleep (in bed o, which you lie down in first; null: where you are). needs.js: refusals, the day nap, the fade, rest
+  sleep(o = null) { return this.needs.sleep(o); }
   // Devolver a la mochila algo colocado
   // carry: lo coge el modo construir para moverlo (no devuelve nada: se deja en otro sitio)
   pickUp(o, carry = false) {
@@ -1219,7 +1241,7 @@ export class Game {
     if (keys.use && !this.busy && !this.jumping && !this.build.on) this.gather.use(true);
     if (this.busy || this.jumping || hud.dialogOpen || p.pose) { p.stop(); return; }
     p.speedMul = (this.buffs.rapido > this.time ? 1.35 : 1) * (p.mount ? this.ranch.rideSpeed() : 1) * this.archery.walk * this.carry.speedMul();
-    p.noRun = this.carry.noRun(); p.jumpMul = this.carry.jumpMul();   // (the load and the arms, carry.js: with the slot inventory, false and 1)
+    p.noRun = this.carry.noRun() || this.needs.noRun(); p.jumpMul = this.carry.jumpMul();   // (the load and the arms, carry.js: with the slot inventory, false and 1; out of stamina, needs.js)
     if (Object.values(keys).some(Boolean)) this.lastInput = this.time;   // (para /setidletimeout)
     if (p.aboard) p.stop();   // (de pasajero en una barca, le lleva ella)
     else p.update(dt, keys, this.scene);
@@ -1248,12 +1270,13 @@ export class Game {
     let near = null;
     try {
       near = this.nearest();
-      this.highlight = this.build.on ? this.build.pickHighlight() : near && m?.in && !p.pose && !p.aboard && !p.swim ? this.aimed() : null;
+      this.highlight = this.build.on ? this.build.pickHighlight() : near && m?.in && !p.pose && !p.aboard ? this.aimed() : null;   // (swimming too: finds on the bed, water)
+      if (p?.swim && this.highlight && this.highlight.kind !== 'sys' && !this.build.on) this.highlight = null;   // (a swimmer uses only those: nearest)
     } catch (e) { reportFault(e, 'apuntar'); near = null; this.highlight = null; }
     this.view3d.game = this;
     // (sin partida, al entrar y en el menú, el fondo es una foto fija: body.still, en index.html; el mundo no se dibuja)
     const still = !this.player || !this.scene;
-    if (still !== this.still) { this.still = still; document.body.classList.toggle('still', still); if (!still) this.view3d.snap?.(); }
+    if (still !== this.still) { this.still = still; document.body.classList.toggle('still', still); if (!still) this.view3d.snap?.(); else this.view3d.leaveUnder?.(); }
     // Lo que no se ve no se dibuja: con el mapa grande delante (opaco), nada; en la pausa (el juego se ve detrás, quieto), la
     // última imagen, que se queda en el lienzo, salvo si hay que repintarla (redraw: cambia el tamaño de la ventana o algo
     // de los ajustes). Lo de la vista que espera (el suelo que llega, los trozos) sigue al volver. Mientras la vista se prepara a
@@ -1278,6 +1301,7 @@ export class Game {
     hud.hint(hint, hk ? hk.key : undefined);
     try { this.wheel?.frame(); } catch (e) { reportFault(e, 'ToolWheel.frame'); }   // (the tool wheel: src/ui/wheel.js)
     try { this.smartHud?.frame(hint); } catch (e) { reportFault(e, 'SmartHud.frame'); }   // (the minimal interface, unless the full one was chosen: src/ui/smarthud.js)
+    try { this.needsBar?.frame(); } catch (e) { reportFault(e, 'NeedsBar.frame'); }   // (the status bars, both HUDs: src/ui/needsbar.js; after smartHud, which sets their timers)
     if (this.player && this.world) {
       // (los lugares, como mucho cada 0,15 s: el minimapa no se repinta más a menudo, y el grande, solo si algo cambia)
       if (!(Math.abs(this.time - (this.markersAt ?? -1)) < 0.15)) { this.markersAt = this.time; this.map.markers = this.places.markers(); }
@@ -1286,6 +1310,7 @@ export class Game {
       this.map.face = this.player.face;   // (their arrow on both maps points where they face)
       if (this.mode === 'map') this.map.drawBig(this.world.gen, this.explored, this.player.x, this.player.y, this.time);
       else if (!this.indoors && this.smartHud?.mini !== false) this.map.drawMini(this.world.gen, this.explored, this.player.x, this.player.y, this.time);   // (hidden, not drawn)
+      else this.map.warmMini?.(this.world.gen, this.explored, this.player.x, this.player.y, this.time);   // (hidden: its thumbnails made in idle time, so it shows whole when it comes back)
     }
   }
 }

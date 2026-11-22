@@ -34,8 +34,10 @@ const BACK_FOR = 6;               // s after someone greets you in which Y greet
 const WITNESS_R = 10;             // tiles: a neighbor this close sees you provoke another player
 const PICK_EVERY = 0.2;           // s between two looks under the cursor for the prompt (5 Hz)
 const MY_LIFE = 2.6, NPC_LIFE = 2.8, STAY = 1.8;   // s: how long the bubbles last, and a walking neighbor stops to answer
-// What goes through the network, by index: only add at the end
-export const EMOTE_KINDS = ['wave', 'nod', 'shrug', 'hips', 'fist', 'flinch', 'point', 'dismiss'];
+// What goes through the network, by index: only add at the end. 'drink': crouched, drinking from a river or a lake with
+// the cupped hand (needs.drinkAt plays it again while drinking; its animation is three/actors.js EMOTES.drink: an old
+// client without it shows 'wave', live.js)
+export const EMOTE_KINDS = ['wave', 'nod', 'shrug', 'hips', 'fist', 'flinch', 'point', 'dismiss', 'drink'];
 export const PLAYER_LINES = ['social.say.greet.morning', 'social.say.greet.day', 'social.say.greet.evening', 'social.say.greet.night', 'social.say.greet_player', 'social.say.greet_partner', 'social.say.insult', 'social.say.insult_player', 'social.say.air'];
 const RELS = ['friend', 'neutral', 'cold'];
 const REPLY_KINDS = ['', 'rain', 'ignore', 'kid'];   // ('' : by character and relation)

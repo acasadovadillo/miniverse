@@ -1,8 +1,9 @@
 // Recolectar: elegir lo que hay delante del jugador, golpearlo con la herramienta,
 // soltar lo que da y recogerlo. También los efectos: astillas, textos flotantes y el golpe de la herramienta.
 import { CAM } from './camera.js';
-import { ITEMS, HARVEST, GRASS_DROPS, TOOL_COST, CROPS, hitsFor, hungerOf } from './items.js';
-import { HUNGER_MAX } from './combat.js';
+import { ITEMS, HARVEST, GRASS_DROPS, TOOL_COST, CROPS, hitsFor, hungerOf, thirstOf, pctOf, itemNoun } from './items.js';
+import { HUNGER_MAX, HP_MAX } from './combat.js';
+import { THIRST_MAX } from './needs.js';
 import { PIECES, layerOf } from './pieces.js';
 import { RECIPES } from './recipes.js';
 import { Audio } from './audio.js';
@@ -15,7 +16,7 @@ import { t as tr } from './i18n.js';   // (as tr: t is the target in many places
 import { BULKY_PARTS } from './carry-items.js';   // (the big things carried in the arms: never a drop, their parts)
 
 // Lo que dice cada efecto al tomarlo (comida o poción)
-const BUFF_TEXT = { rapido: 'Más rápido', incansable: 'Sin cansancio', fuerza: 'Más fuerza', resistencia: 'Más resistencia', regeneracion: 'Regeneración' };
+const BUFF_KINDS = new Set(['rapido', 'incansable', 'fuerza', 'resistencia', 'regeneracion']);   // (their names: buff.name.<kind> in src/lang)
 
 // Lo que se coloca libre (donde se apunte, con cualquier giro): muebles, estaciones, lo que va plano y las
 // alfombras. Los cuadros y el hogar, contra un muro, siguen yendo por casillas
@@ -27,6 +28,12 @@ const rugK = id => Math.max(0, RUG_SIZES.findIndex(([w, h]) => w === ITEMS[id].s
 
 const REACH = 1.7;          // alcance en casillas
 const COOLDOWN = 0.32;      // segundos entre golpes
+// Which system offered each target of pickTarget (a WeakMap: the targets are theirs, not to be written on)
+const OFFERED = new WeakMap();
+const TIRED_SLOW = 1.5;     // with no stamina left (needs.exhausted) tools still work, this much more slowly
+const SIP = 5;              // what a sip from a canteen or a jug quenches (half-units of THIRST_MAX: 25 %)
+// The floats of what eating or drinking gave, in the colour of its bar (ui/needsbar.js: --nd-food, --nd-water, --nd-hp)
+const FLOAT_HUNGER = '#d98c45', FLOAT_THIRST = '#4a9fd8', FLOAT_HEALTH = '#66b562';
 const CHIPS = {
   wood: ['#8a5a30', '#b07a44', '#e0b878'], stone: ['#7e7a72', '#a8a49a', '#5e5a55'], leaf: ['#4a9638', '#7cbf55', '#3a7c2e'],
   cactus: ['#4f9a52', '#7cc07a', '#f4f0d0'], twig: ['#8a6a44', '#a8865a', '#c8a878'], dirt: ['#6a4428', '#8a5a34', '#4a2e1a'],
@@ -96,7 +103,7 @@ export class Gathering {
       if (fence) rot = 0;
       return { tile: [tx, ty], ok: !far && (!fence || g.scene === g.world) && !!g.scene.canPlace?.(tx, ty, held.id, p, rot), far, place: held.id, rot };
     }
-    for (const s of g.systems) { let t; try { t = s.target?.(p, held, def); } catch (e) { reportFault(e, `${s.constructor.name}.target`); } if (t) return t; }   // (aislado: ver game.js, hook)
+    for (const s of g.systems) { let t; try { t = s.target?.(p, held, def); } catch (e) { reportFault(e, `${s.constructor.name}.target`); } if (t) { if (typeof t === 'object') OFFERED.set(t, s); return t; } }   // (aislado: ver game.js, hook. OFFERED: who offers it)
     if (!g.scene.harvestablesNear) return null;
     if (tool === 'azada' && g.scene === g.world) {
       const [tx, ty] = g.aimTile();
@@ -171,8 +178,10 @@ export class Gathering {
     const g = this.game, held = g.inv.held, def = held && ITEMS[held.id], t = this.target;
     if (!g.player || g.mode !== 'play' || g.busy) return '';
     if (g.player.swim) return '';   // (nadando no se usa nada: ver use)
-    if (def?.food) return `${def.drink ? 'Beber' : 'Comer'} ${def.name.toLowerCase()}`;
-    if (def?.heal) return `Beber ${def.name.toLowerCase()}`;
+    if (def?.food) return tr(def.drink ? 'act.drink' : 'act.eat', { item: itemNoun(held.id) });
+    if (def?.heal) return tr('act.drink', { item: itemNoun(held.id) });
+    // (a canteen or a jug: the fresh water aimed at fills it (needs.target); anything else, a sip, or that it is empty)
+    if (def?.canteen) return this.fills(t) && t.label !== undefined ? t.label : tr(held.sips > 0 ? 'needs.canteen.sip' : 'needs.canteen.empty', { item: itemNoun(held.id) });
     if (t?.free) {
       const [w, h] = held.id === 'mesa_grande' ? TABLE_SIZES[t.rot] : [], size = w ? ` de ${w}×${h}` : '', keys = `R: girar${w ? ' · V: tamaño' : ''}`;
       const loose = g.player.crouch && held.id === 'encimera' ? ', suelta (agachado no se une)' : '';
@@ -280,9 +289,12 @@ export class Gathering {
 
   // Usar una herramienta cansa (da hambre, como en Minecraft; con la tala o la minería al 5, la mitad) y la gasta un
   // uso. Siempre se puede trabajar: con el hambre a cero lo que baja es la vida (según la dificultad)
+  // Also stamina (needs.work: TOOL_COST × toolK, halved by the skill; the buff turns it off there): the hunger cost stays
+  // exactly as it was
   spend(kind) {
     const g = this.game;
     if (!(g.buffs?.incansable > g.time)) g.combat?.exert(TOOL_COST[kind] * (g.skills?.costCut(kind) ? 0.5 : 1));   // (la sopa de verduras quita el cansancio un rato)
+    g.needs?.work(kind);
     this.wearOut();
     return true;
   }
@@ -306,16 +318,21 @@ export class Gathering {
     if (held?.id === 'mapa_vacio') return auto ? undefined : g.maps.create(g.inv.selected);
     if (def?.place) return this.place(held.id, auto);
     if (def?.bow) { if (!auto) g.archery.press(); return; }   // (mantener tensa; al soltar, sale)
+    // (a canteen or a jug: a sip, unless the fresh water aimed at fills it (needs.target). Like food, what other systems
+    // offer (a crop to harvest…) waits until it is put away. Never with the button held, like eating)
+    if (def?.canteen && !this.fills(this.target)) return auto ? undefined : this.sip(g.inv.selected);
     if (this.target?.use) {   // lo que propone otro sistema (sembrar, pescar…)
       if (auto && !this.target.auto) return;
       if (def?.tool) { this.swing = 0.25; this.swingItem = held.id; }   // también se ve el gesto (regar, lanzar la caña…)
-      return this.target.use();
+      const r = this.target.use();
+      if (def?.tool && this.tired()) this.cooldown *= TIRED_SLOW;
+      return r;
     }
     if (auto && !(this.target?.obj || this.target?.ok)) return;
     if (auto && def?.tool === 'pala') return;   // (la pala, clic a clic: mantenido, cavaría y soltaría sin parar)
     if (!g.scene.harvestablesNear) return;
     const tool = def?.tool || null, tier = def?.tier || 1, t = this.target;
-    this.cooldown = COOLDOWN * (1 - 0.07 * (tier - 1));   // (las de hierro van más deprisa que la mano)
+    this.cooldown = COOLDOWN * (1 - 0.07 * (tier - 1)) * (this.tired() ? TIRED_SLOW : 1);   // (las de hierro van más deprisa que la mano; with no stamina, slower)
     this.swing = 0.25;
     this.swingItem = tool ? held.id : null;
 
@@ -424,24 +441,62 @@ export class Gathering {
     if (id === 'wheelbarrow') this.float(tr('toast.wheelbarrow.placed'), '#fff3c0');
   }
 
+  // Eat or drink what is in a slot. Refused (with why) when it would do nothing: not hurt, not hungry, no effect, and
+  // not thirsty or it does not quench. What it gave floats up in its bar's colour ("hunger +25 %", "thirst +30 %")
   eat(slot) {
     const g = this.game, it = g.inv.slots[slot], def = it && ITEMS[it.id];
     if (!def?.food && !def?.heal && !def?.buff) return;
-    const hurt = g.combat && g.combat.hp < 20, hungry = g.combat && g.combat.hunger < HUNGER_MAX;
-    if (!hurt && !hungry && !def.buff) { this.float('No tienes hambre', '#d8e8ff'); return; }
+    const quench = thirstOf(def), N = g.needs;
+    const hurt = g.combat && g.combat.hp < HP_MAX, hungry = g.combat && g.combat.hunger < HUNGER_MAX, thirsty = !!N && quench > 0 && N.thirst < THIRST_MAX;
+    if (!hurt && !hungry && !thirsty && !def.buff) { this.float(tr(def.drink ? 'needs.not_thirsty' : 'needs.not_hungry'), '#d8e8ff'); return; }
     g.inv.take(slot, 1);
     // (los platos de la cocina quitan más hambre con cada nivel de cocina)
     const cooked = RECIPES.some(r => r.out === it.id && r.station === 'cocina'), fed = def.food ? Math.max(1, Math.round(hungerOf(def) * (cooked ? 1 + (g.skills?.level('cocina') || 0) * 0.05 : 1))) : 0;
-    if (fed && g.combat) { g.combat.feed(fed); this.float(`+${String(fed / 2).replace('.', ',')} 🍗`, '#f0c890'); }
-    if (g.combat) { const hp = def.heal || (def.food ? Math.ceil(def.food / 12) : 0); if (hurt && hp) { g.combat.heal(hp); this.float(`+${hp / 2} ♥`, '#ff9aaa'); } }
+    if (fed && g.combat) { const was = g.combat.hunger; g.combat.feed(fed); const got = g.combat.hunger - was; if (got > 0) this.float(tr('item.restores.hunger', { n: pctOf(got) }), FLOAT_HUNGER); }
+    if (quench && N) { const was = N.thirst; N.quench(quench); const got = N.thirst - was; if (got > 0) this.float(tr('item.restores.thirst', { n: pctOf(got) }), FLOAT_THIRST); }
+    if (g.combat) { const hp = def.heal || (def.food ? Math.ceil(def.food / 12) : 0); if (hurt && hp) { const was = g.combat.hp; g.combat.heal(hp); const got = g.combat.hp - was; if (got > 0) this.float(tr('item.restores.health', { n: pctOf(got) }), FLOAT_HEALTH); } }
     if (def.buff) {
       const [kind, secs] = def.buff;
       g.buffs[kind] = g.time + secs;
-      this.float(`¡${BUFF_TEXT[kind] || kind} durante ${secs >= 60 ? `${secs / 60} min` : `${secs} s`}!`, '#ffe08a');
+      const name = BUFF_KINDS.has(kind) ? tr(`buff.name.${kind}`) : kind;
+      this.float(secs >= 60 ? tr('buff.for_min', { name, n: secs / 60 }) : tr('buff.for_s', { name, n: secs }), '#ffe08a');
     }
     Audio.eat();
     this.cooldown = COOLDOWN;
   }
+
+  // ---------- the canteen and the jug (items.js: canteen = the sips when full; the stack's s.sips, what is left) ----------
+  // A sip from the one in that slot: SIP of thirst (needs.gulp plays its sound and its drops). Empty or not thirsty: why
+  sip(slot = this.game.inv.selected) {
+    const g = this.game, s = g.inv.slots[slot], def = s && ITEMS[s.id];
+    if (!def?.canteen) return false;
+    this.cooldown = COOLDOWN;
+    if (!(s.sips > 0)) { this.float(tr('needs.canteen.empty', { item: itemNoun(s.id) }), '#ffb0a0'); Audio.error(); return false; }
+    if (!g.needs || g.needs.thirst >= THIRST_MAX) { this.float(tr('needs.not_thirsty'), '#d8e8ff'); return false; }
+    const was = g.needs.thirst;
+    if (!g.inv.infinite) { s.sips--; if (!s.sips) delete s.sips; }   // (empty: no sips at all, as one just made)
+    g.needs.gulp(SIP);
+    const got = g.needs.thirst - was;
+    if (got > 0) this.float(tr('item.restores.thirst', { n: pctOf(got) }), FLOAT_THIRST);
+    g.inv.changed();
+    return true;
+  }
+  // Fill the canteen or the jug in that slot to the top (at a river, a lake or a well: whoever offers it checks the water).
+  // false if it is not one, or it is already full
+  fillCanteen(slot = this.game.inv.selected) {
+    const g = this.game, s = g.inv.slots[slot], def = s && ITEMS[s.id];
+    if (!def?.canteen || (s.sips || 0) >= def.canteen) return false;
+    s.sips = def.canteen;
+    g.inv.changed();
+    this.cooldown = COOLDOWN;
+    Audio.plop();   // (as filling it at a river: needs.fillHeld)
+    this.float(tr('needs.canteen.filled', { item: itemNoun(s.id), n: s.sips, max: def.canteen }), FLOAT_THIRST);
+    return true;
+  }
+  // Is this target the needs' (filling a canteen at fresh water: needs.target)?
+  fills(t) { return !!t?.use && !!this.game.needs && OFFERED.get(t) === this.game.needs; }
+  // No stamina left (needs.js): tools go slower, never stop
+  tired() { return !!this.game.needs?.exhausted; }
 
   // Tirar objetos de la mochila al suelo, delante del jugador
   throwOut(id, n, extra) {

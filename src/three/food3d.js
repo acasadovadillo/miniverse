@@ -131,9 +131,36 @@ const octopus = c => viewOf(g => {
     }
   }
 }, 'food');
+// ---------- Thirst (docs/planes/gta/PLAN-D-barras-buceo.md §3.4) ----------
+const lathe = (pts, seg = 22) => new THREE.LatheGeometry(pts.map(([x, y]) => new THREE.Vector2(x, y)), seg);
+const STITCH = new THREE.TorusGeometry(1, 0.06, 5, 40);
+// The canteen: a flat leather flask (a lathe pressed to half its depth), its stitched seam round the edge, a metal neck
+// with a cork, and the cord tied round the neck. Seen from the side, as the drinks
+const FLASK_BODY = lathe([[0, -0.085], [0.042, -0.082], [0.068, -0.058], [0.08, -0.015], [0.077, 0.03], [0.058, 0.064], [0.03, 0.082], [0.016, 0.09], [0.015, 0.1]]);
+const canteen = viewOf(g => {
+  add(g, FLASK_BODY, M('#6e4426', { roughness: 0.85 }), [0, 0, 0], [1, 1, 0.5]);
+  add(g, STITCH, M('#c8b08a', { roughness: 1 }), [0, -0.003, 0], [0.079, 0.08, 0.06]);   // (the seam: pale thread on the edge)
+  add(g, CYL, M('#4a4440', { metalness: 0.5, roughness: 0.4 }), [0, 0.103, 0], [0.019, 0.012, 0.019]);
+  add(g, CYL, M('#b08a5a', { roughness: 0.95 }), [0, 0.12, 0], [0.014, 0.024, 0.014]);
+  add(g, TORUS, M('#8a5a34'), [0, 0.092, 0], [0.019, 0.019, 0.03], [Math.PI / 2, 0, 0]);   // (the cord)
+  for (const s of [-1, 1]) add(g, CYL, M('#4e2e18', { roughness: 0.9 }), [s * 0.066, 0.05, 0], [0.007, 0.03, 0.012], [0, 0, s * 0.7]);   // (the strap's loops)
+}, 'drink');
+// The stoneware jug: a pale salt-glazed belly, its shoulder and neck dipped in brown glaze, a handle on the side and a cork
+const JUG_BODY = lathe([[0, -0.13], [0.058, -0.128], [0.084, -0.1], [0.096, -0.045], [0.093, 0.005], [0.08, 0.045]]);
+const JUG_TOP = lathe([[0.0812, 0.04], [0.068, 0.072], [0.046, 0.098], [0.036, 0.118], [0.036, 0.132], [0.043, 0.14], [0.036, 0.142], [0, 0.142]]);
+const JUG_HANDLE = new THREE.TubeGeometry(new THREE.CatmullRomCurve3([[0.088, -0.03], [0.124, 0.0], [0.13, 0.05], [0.104, 0.086], [0.06, 0.088]].map(([x, y]) => new THREE.Vector3(x, y, 0))), 14, 0.0095, 6);   // (from the belly up to the shoulder)
+const waterJug = viewOf(g => {
+  add(g, JUG_BODY, M('#c9b898', { roughness: 0.55 }));
+  add(g, JUG_TOP, M('#6a4428', { roughness: 0.35 }));
+  add(g, JUG_HANDLE, M('#6a4428', { roughness: 0.35 }));
+  add(g, CYL, M('#b08a5a', { roughness: 0.95 }), [0, 0.152, 0], [0.03, 0.03, 0.03]);
+}, 'drink');
+
 const pile = (c, n, r, spread) => g => { for (let i = 0; i < n; i++) { const a = i * 2.4, d = spread * Math.sqrt(i / n); add(g, BALL, M(c, { roughness: 0.4 }), [Math.cos(a) * d, (i % 3) * r * 0.6, Math.sin(a) * d], r); } };
 
 const BUILD = {
+  canteen, water_jug: waterJug,
+  apple_juice: glass('#b8702a'),   // (the cider's glass, amber and cloudy)
   manzana: fruit(APPLE, '#b8382a', 0.045, { leaf: '#4a7a32' }),
   manzana_asada: fruit(APPLE, '#7a3a22', 0.045, { stem: '#3a2414' }),
   tomate: fruit(APPLE, '#c83a24', 0.045, { stem: null, calyx: '#3f7a2e' }),
@@ -189,3 +216,39 @@ export const hasFood = id => !!BUILD[id] && !!ITEMS[id];
 // Desde dónde se mira su icono: 'food' (de tres cuartos), 'flat' (más desde arriba: platos, cuencos, carnes), 'drink'
 // (más de lado: jarras, vasos, botellas, tarros, frascos) o 'fish' (el pez tumbado en diagonal, de lado)
 export const foodView = id => BUILD[id]?.view || 'food';
+
+// ---------- What is found on the sea bed (for three/seabed3d.js: one small geometry each, to instance) ----------
+// Real size in metres, the origin at the middle of where it rests on the bed, +y up. color: its colour (already muted
+// like the world's: apagado), for a plain material or an instance colour. The seashell is a scallop (a ribbed fan, its
+// hinge towards −z), the oyster a rough flat lump with a ruffled lip, the mussel a dark blue-black teardrop on its side
+const FIND_GEO = {
+  seashell: () => {
+    const geo = blob(v => {
+      const a = Math.atan2(v.x, v.z + 1.05), rib = 1 + 0.16 * Math.cos(a * 18) ** 2;
+      v.x *= 1 - 0.5 * Math.max(0, -v.z);                         // (narrow towards the hinge)
+      v.y = v.y > 0 ? v.y * 0.3 * rib : v.y * 0.05;              // (a low dome with ribs, flat underneath)
+    }, 28);
+    return geo.translate(0, 0.05, 0).scale(0.065, 0.065, 0.065);   // (its flat underside on the bed)
+  },
+  oyster: () => {
+    const geo = blob(v => {
+      const a = Math.atan2(v.z, v.x), k = 1 + 0.1 * Math.sin(a * 7) + 0.06 * Math.sin(a * 13 + 1);
+      v.x *= 1.2 * k; v.z *= 0.95 * k; v.y = v.y > 0 ? v.y * (0.34 + 0.06 * Math.sin(v.x * 9)) : v.y * 0.12;
+    }, 22);
+    return geo.translate(0, 0.12, 0).scale(0.06, 0.06, 0.06);
+  },
+  mussel: () => {
+    const geo = blob(v => {
+      v.z *= 1.9; v.x *= 0.82 * (1 - 0.32 * Math.max(0, -v.z / 1.9)); v.y = v.y > 0 ? v.y * 0.52 : v.y * 0.4;
+    }, 18);
+    return geo.translate(0, 0.4, 0).scale(0.035, 0.035, 0.035).rotateY(0.6);
+  },
+};
+const FIND_COLOR = { seashell: '#e8cdb8', oyster: '#8a8174', mussel: '#252c3a' };
+const FINDS = new Map();
+// → { geometry, color } for 'seashell' | 'oyster' | 'mussel' (made once and kept: never dispose it), or null
+export function seabedFind(kind) {
+  if (!FIND_GEO[kind]) return null;
+  if (!FINDS.has(kind)) { const geometry = FIND_GEO[kind](); geometry.computeVertexNormals(); geometry.computeBoundingSphere(); FINDS.set(kind, { geometry, color: apagado(FIND_COLOR[kind]) }); }
+  return FINDS.get(kind);
+}

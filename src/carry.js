@@ -12,7 +12,7 @@
 // `extends Inventory` would stop the game from loading).
 import { Inventory, HOTBAR, SLOTS } from './inventory.js';
 import { ITEMS, LEGACY_ITEMS, CHESTS } from './items.js';
-import { BULKY, BULKY_PARTS, CARCASS_OF, CARCASS_DAYS, BASE_CAP, BAG_CAP, HEAVY, BARROW, weightOf } from './carry-items.js';
+import { BULKY, BULKY_PARTS, CARCASS_OF, CARCASS_DAYS, BASE_CAP, BAG_CAP, HEAVY, BARROW, weightOf, stackKg } from './carry-items.js';
 import { reportFault } from './faults.js';
 import { BUILD_STATION_REACH } from './build.js';
 import { apagada } from './opciones.js';
@@ -79,7 +79,7 @@ export class WeightInventory extends Inventory {
   get kg() {
     if (this.kgV !== this.v) {
       let k = 0;
-      for (const s of this.slots) if (s) k += weightOf(s.id) * s.n;
+      for (const s of this.slots) if (s) k += stackKg(s);   // (a canteen's water too)
       for (const it of Object.values(this.equip)) if (it && ITEMS[it.id]?.armor) k += weightOf(it.id);
       this.kgNow = Math.round(k * 10) / 10; this.kgV = this.v;
     }

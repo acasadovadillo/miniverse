@@ -16,7 +16,10 @@
 // Se entra como en el juego (menus.js, play): a oscuras hasta que whenReady dice que está todo, y cada parada lejos es un
 // /tp de los de verdad (a oscuras, si la versión lo hace: Game.coverJump). En cada parada, el peor fotograma (peor) y el
 // peor de los que se ven (peorVisto: sin el fundido a negro delante), que es el parón que nota el jugador. Al final, el
-// mapa grande y la pausa abiertos (mapa, pausa) y cuánto se dibuja con la ventana sin el foco (sinFoco)
+// mapa grande y la pausa abiertos (mapa, pausa) y cuánto se dibuja con la ventana sin el foco (sinFoco). And, last (diving,
+// docs/planes/gta/PLAN-D-barras-buceo.md §4.3): costa, on the beach nearest the village with deep sea in front, the default
+// camera looking out to sea (double-sided water, the bed paint: at most +0.3 ms and the same draw calls as before), and
+// mar, out there diving some 6 m down with the camera under the water (it must cost less than pradera)
 import { CAM, PITCH, DIST } from './camera.js';
 import { Profile } from './accounts.js';
 import { CENTER } from './world/village.js';
@@ -61,7 +64,39 @@ const STOPS = [
   // (con el mapa grande o la pausa delante, en la plaza: lo que cuesta un fotograma mientras no se ve el mundo)
   { name: 'mapa', at: PLAZA, cam: { yaw: Math.PI / 4, pitch: 0.84, dist: 22 }, hour: 12, mode: 'map' },
   { name: 'pausa', at: PLAZA, cam: { yaw: Math.PI / 4, pitch: 0.84, dist: 22 }, hour: 12, mode: 'pause' },
+  // (diving: after all the others, so those are measured as always, in the same order and with the same behind them)
+  { name: 'costa', at: g => sea(g).shore, cam: { yaw: g => sea(g).yaw, pitch: 0.84, dist: 22 }, hour: 12 },
+  { name: 'mar', at: g => sea(g).deep, cam: { yaw: g => sea(g).yaw + Math.PI, pitch: 0.84, dist: 22 }, hour: 12, hold: diveDown },
 ].filter(s => !ONLY || ONLY.includes(s.name));
+
+// The deep sea nearest the village, for costa and mar: on rings round the village every 32 m, the first point with the bed
+// below -9 m (gen.groundAt: the world's, the same for every version of the drawing), and walking back from it towards
+// the village, the first dry land: the beach, 3 m inland. yaw: the camera behind the player looking out to sea (dirOf in
+// engine.js puts the camera at (sin yaw, cos yaw) from the player). Without sea in 2.5 km, the plaza (the stops say so)
+let seaAt = null;
+function sea(game) {
+  if (seaAt) return seaAt;
+  const gen = game.world.gen;
+  for (let r = 64; r <= 2500 && !seaAt; r += 32) {
+    const n = Math.max(8, Math.round(r * Math.PI * 2 / 32));
+    for (let i = 0; i < n && !seaAt; i++) {
+      const a = (i / n) * Math.PI * 2, dx = Math.cos(a), dy = Math.sin(a), x = CENTER.x + dx * r, y = CENTER.y + dy * r;
+      if (!(gen.groundAt(x, y) < -9)) continue;
+      for (let d = 1; d < 400; d++) {
+        const bx = x - dx * d, by = y - dy * d;
+        if (gen.groundAt(bx, by) > 0.15) { seaAt = { deep: [Math.floor(x) + 0.5, Math.floor(y) + 0.5], shore: [Math.floor(bx - dx * 3) + 0.5, Math.floor(by - dy * 3) + 0.5], yaw: Math.atan2(-dx, -dy) }; break; }
+      }
+    }
+  }
+  return (seaAt ||= { deep: PLAZA(), shore: PLAZA(), yaw: Math.PI / 4, none: true });
+}
+// mar: swimming, some 5.3 m below sink (the deepest the bed allows there; entities.js clamps it), every frame after the
+// game has moved (with nothing held, a diver drifts up). A version without diving just swims at the surface
+function diveDown(game) {
+  const p = game.player;
+  if (!p?.swim) return;
+  p.dive = 5.3; p.sink = Math.max(p.sink || 0, 0.5);
+}
 
 // El trozo con más árboles cerca del pueblo (siempre el mismo: el mundo sale de la misma semilla)
 let forestAt = null;
@@ -149,7 +184,8 @@ export async function runBench(game) {
   // El bucle lo lleva el banco: el del navegador ya no avanza ni dibuja
   const step = game.update.bind(game), draw = game.render.bind(game);
   game.update = () => {}; game.render = () => {};
-  const frame = () => { step(STEP); draw(); };
+  let hold = null;   // (what a stop keeps as it is after every step: mar, the depth)
+  const frame = () => { step(STEP); hold?.(game); draw(); };
   const sync = () => gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
   const fixRes = () => { v.resize(); v.auto = false; v.pixelRatio = PX; r.setPixelRatio(PX); r.setSize(innerWidth, innerHeight, false); };
   fixRes();
@@ -181,8 +217,9 @@ export async function runBench(game) {
     const t0 = now();
     if (s.hour !== hour) { runCommand(game, `/time set ${String(s.hour).padStart(2, '0')}:00`, say); hour = s.hour; }
     const [x, y] = s.at(game);
+    hold = s.hold || null;
     game.teleport(x, y, true);   // (como un /tp: lejos, a oscuras si la versión lo hace)
-    Object.assign(CAM, { turn: 0, tilt: 0, zoom: 0, first: !!s.cam.first, look: 0, yaw: s.cam.yaw });
+    Object.assign(CAM, { turn: 0, tilt: 0, zoom: 0, first: !!s.cam.first, look: 0, yaw: typeof s.cam.yaw === 'function' ? s.cam.yaw(game) : s.cam.yaw });
     if (!s.cam.first) Object.assign(CAM, { pitch: s.cam.pitch, dist: s.cam.dist });
     Object.assign(v.cam, { vel: 0, pvel: 0, zvel: 0 });
     v.snap();
@@ -208,7 +245,7 @@ export async function runBench(game) {
     const lots = [], flat = [], up = [], dr = [];
     for (let i = 0; i < LOTS; i++) {
       let a = 0, b = 0;
-      lots.push(timeLot(() => { const t = now(); step(STEP); const t2 = now(); draw(); a += t2 - t; b += now() - t2; }, sync));
+      lots.push(timeLot(() => { const t = now(); step(STEP); hold?.(game); const t2 = now(); draw(); a += t2 - t; b += now() - t2; }, sync));
       up.push(a / N); dr.push(b / N);
       flat.push(timeLot(() => { noShadows(v); frame(); }, sync));
       await sleep(0);
@@ -254,6 +291,7 @@ export async function runBench(game) {
       ...(v.actors.stats && typeof v.actors.stats === 'object' && { personas: { ...v.actors.stats, ...(Number.isFinite(v.actorsMs) && { ms: +v.actorsMs.toFixed(2) }) } }),
     };
     if (s.mode) { stop.modo = s.mode; game.mode = 'play'; }
+    if (s.hold || s.name === 'costa') { stop.bajoAgua = !!v.under; stop.hondo = +(game.world.gen.groundAt(x, y)).toFixed(1); if (sea(game).none) stop.sinMar = true; }
     out.paradas.push(stop);
     console.log(`BANCO ${s.name}: ${stop.ms} ms (${stop.fps} fps), sin sombras ${stop.msSinSombra} ms; ${stop.llamadas} llamadas + ${stop.llamadasSombra} de sombra (${stop.llamadasSombraMovil} de lo móvil); ${Math.round(stop.triangulos / 1000)} k + ${Math.round(stop.triangulosSombra / 1000)} k triángulos`);
     // La captura, justo después de dibujar (luego el lienzo se borra)
@@ -261,7 +299,7 @@ export async function runBench(game) {
     const img = r.domElement.toDataURL('image/jpeg', 0.85);
     await post('/banco/captura', { parada: s.name, img });
   }
-  CAM.first = false;
+  CAM.first = false; hold = null;
   out.entrada = entered;
   // Sin el foco: con el bucle de verdad del juego (requestAnimationFrame), cuántos dibujos por segundo y cuánto procesador
   // se lleva dibujar, con el foco y sin él (un aviso de blur, como al pasar a otra ventana)

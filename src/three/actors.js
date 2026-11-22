@@ -17,6 +17,7 @@ import { animalModel, animalKey, animateAnimal, horseModel, animateHorse } from 
 import { nearX } from '../world/planet.js';
 import { RealPerson, realBaby, prebuildReal, realStats } from './realperson.js';
 import { apagada } from '../opciones.js';
+import { smoothstep } from '../util.js';
 import { Audio } from '../audio.js';
 import { reportFault } from '../faults.js';
 import { kindOf, placeKit, shownOf, splitKit, poseClass } from '../kit.js';
@@ -56,6 +57,12 @@ const BRAZA = {
 // Nadando, la cadera bajo el agua (m): deslizándose, casi en la superficie; quieto, flotando de pie (con los hombros
 // dentro y la cabeza fuera); y lo que queda, como poco, sobre el fondo (tumbado o de pie)
 const SWIM_HIP = { stroke: 0.14, tread: 0.46 }, SWIM_BED = { stroke: 0.38, tread: 0.75 };
+// Diving (entities.js dive, st.dv for the others): from DIVE_POSE[0] m of dive the body goes horizontal (all of it at
+// DIVE_POSE[1]), arms stretched forward and the legs kicking; stroking forwards it is the breaststroke, under water too.
+// Going down tilts the body and the head down; coming up, the body up. Past QUIET m under (sink + dive) no splashes, no
+// rings on the water and no stroke sound
+const DIVE_POSE = [0.3, 1.2], QUIET = 0.35;
+const DIVE = { pitch: 1.35, down: 0.3, up: 0.6, head: 0.44, neck: -0.55, headX: -0.3, armX: -2.9, armZ: 0.25, foreX: -0.15, legX: -0.1, kick: 0.35, shinX: 0.35, footX: 0.9 };
 const BUILD_MS = 6;      // lo que se puede ir en hacer modelos nuevos en un fotograma
 const WAIT_NEAR = 30;    // m: las personas por hacer más cerca que esto se esperan a oscuras al entrar o en un salto
 // Las personas, según lo que miden en pantalla (px de alto, en píxeles CSS: no le afecta la resolución automática). Con la
@@ -448,7 +455,7 @@ export class Actors {
         // (a caballo, en el agua: el caballo pisa el fondo; en lo más hondo de un río, con el agua al cuello)
         if (e.mount && !pz && e.depth > 0) y = WATER_Y - e.depth + (e.z || 0);
       }
-      if (m.hand) m.hand.visible = m.swimK < 0.5;   // (nadando, lo de la mano se guarda)
+      if (m.hand) m.hand.visible = m.swimK < 0.5 && !lying;   // (nadando, lo de la mano se guarda; lying in bed or on the floor, too: no axe by the pillow)
       // (cómo se ve, con la altura ya puesta: alguien en lo alto de una torre, mirado allí arriba, tiene los pies a 12 m del suelo)
       const tier = this.grade(m, e, x, y + P.root.position.y, z, lying);
       m.root.visible = tier !== 3;
@@ -634,15 +641,24 @@ export class Actors {
     const S = (m.swimS ||= { p: Math.random(), s: 0 }), was = S.p;
     S.s += (Math.min(1, m.speed / 1.0) - S.s) * Math.min(1, dt * 3);
     S.p = (S.p + dt * Math.max(0.45, m.speed / 1.6)) % 1;
-    if (m.swimK > 0.9 && S.s > 0.3 && this.game?.gather) {
+    // (diving: how much of the dive pose (k), the vertical speed eased (v, + down) and the kick's phase (ph))
+    const under = (e.sink || 0) + (e.dive || 0), D = (m.diveS ||= { k: 0, v: 0, ph: 0, last: under });
+    if (m.swimK < 0.05) D.v = 0;   // (just in the water: what it was diving before is not a speed)
+    else if (dt > 0) { const v = Math.max(-2, Math.min(2, (under - D.last) / dt)); D.v += (v - D.v) * Math.min(1, dt * 4); }
+    D.last = under; D.k = smoothstep(DIVE_POSE[0], DIVE_POSE[1], e.dive || 0);
+    D.ph = (D.ph + dt * (0.9 + 1.6 * Math.min(1, Math.abs(D.v)))) % 1;
+    const loud = under <= QUIET;   // (under water: no drops, no rings and no sound of strokes)
+    if (loud && m.swimK > 0.9 && S.s > 0.3 && this.game?.gather) {
       const yaw = P.root.rotation.y, fx = Math.sin(yaw), fz = Math.cos(yaw);
       // (al sacar las manos por delante y al cerrar las piernas, por detrás; el jugador, además, lo oye)
       if (passed(was, S.p, 0.5)) { this.game.gather.splash(e.x + fx * 0.75, e.y + fz * 0.75, 3, 0.6); this.view.fx.rippleAt(m.root.position.x + fx * 0.55, m.root.position.z + fz * 0.55, 1.3, 0.5); }
       if (passed(was, S.p, 0.66)) { this.game.gather.splash(e.x - fx * 0.95, e.y - fz * 0.95, 4, 0.7); if (m === this.player) Audio.swim(); }
-    } else if (m.swimK > 0.9 && passed(was, S.p, 0.25)) this.view.fx.rippleAt(m.root.position.x, m.root.position.z, 1.0, 0.35);   // (flotando: una onda suave a cada vaivén)
-    const s = S.s, hip = SWIM_HIP.tread + 0.025 * Math.sin(S.p * Math.PI * 2) + (SWIM_HIP.stroke - keys(BRAZA.rise, S.p) - SWIM_HIP.tread) * s + (e.sink || 0);
+    } else if (loud && m.swimK > 0.9 && passed(was, S.p, 0.25)) this.view.fx.rippleAt(m.root.position.x, m.root.position.z, 1.0, 0.35);   // (flotando: una onda suave a cada vaivén)
+    // (diving, the hip goes from where it floats to where it strokes, so stopping or stroking does not lift it or drop it)
+    const s = S.s, float = SWIM_HIP.tread + 0.025 * Math.sin(S.p * Math.PI * 2) + (SWIM_HIP.stroke - keys(BRAZA.rise, S.p) - SWIM_HIP.tread) * s;
+    const hip = float + (SWIM_HIP.stroke - float) * D.k + under, flat = Math.max(s, D.k);
     let y = WATER_Y - hip - P.hipY;
-    if (bed !== null) y = Math.max(y, bed + SWIM_BED.tread + (SWIM_BED.stroke - SWIM_BED.tread) * s - P.hipY);
+    if (bed !== null) y = Math.max(y, bed + SWIM_BED.tread + (SWIM_BED.stroke - SWIM_BED.tread) * flat - P.hipY);
     return y;
   }
   // La pose de nadar, sobre la de ahora con lo que se nade (m.swimK): quieto, flotando de pie (las piernas a destiempo,
@@ -665,6 +681,38 @@ export class Actors {
       K2.rotation.x = L(K2.rotation.x, 1.3 + 0.5 * Math.sin(q + 1.2), keys(BRAZA.shinX, p));
       if (Ft) Ft.rotation.x = L(Ft.rotation.x, 0.1, keys(BRAZA.footX, p));
     }
+    this.diveBones(m, P);
+  }
+  // Diving, over the swimming pose: still or going up and down, horizontal with the arms forward and the legs kicking (a
+  // flutter kick, faster while it moves up or down); stroking forwards, the breaststroke stays. Going down, the body and
+  // the head tilt down; coming up, the body tilts up (m.diveS, from swimY)
+  diveBones(m, P) {
+    const D = m.diveS, K = m.swimK;
+    if (!D || !(D.k > 0.001)) return;
+    const b = P.r.bones, s = (m.swimS || { s: 0 }).s, k = D.k * (1 - s) * K, tk = D.k * K, TAU = Math.PI * 2;
+    const down = Math.max(0, Math.min(1, D.v / 1.5)), up = Math.max(0, Math.min(1, -D.v / 1.8));
+    const amp = DIVE.kick * (0.45 + 0.55 * Math.min(1, Math.abs(D.v) + 0.2 * (1 - s)));
+    const mix = (o, v) => o + (v - o) * k;
+    if (k > 0.001) {
+      b.body.rotation.x = mix(b.body.rotation.x, DIVE.pitch);
+      b.body.rotation.y = mix(b.body.rotation.y, 0); b.body.rotation.z = mix(b.body.rotation.z, 0);
+      b.spine.rotation.x = mix(b.spine.rotation.x, 0.05);
+      b.neck.rotation.x = mix(b.neck.rotation.x, DIVE.neck);
+      b.head.rotation.x = mix(b.head.rotation.x, DIVE.headX);
+      for (const [side, sg, off] of [['L', 1, 0], ['R', -1, 0.5]]) {
+        const A = b['arm' + side], F = b['fore' + side], G = b['leg' + side], S2 = b['shin' + side], Ft = b['foot' + side], q = (D.ph + off) * TAU;
+        A.rotation.x = mix(A.rotation.x, DIVE.armX + 0.06 * Math.sin(q));
+        A.rotation.y = mix(A.rotation.y, 0);
+        A.rotation.z = mix(A.rotation.z, sg * (DIVE.armZ + 0.08 * Math.sin(D.ph * TAU)));
+        F.rotation.x = mix(F.rotation.x, DIVE.foreX);
+        G.rotation.x = mix(G.rotation.x, DIVE.legX + amp * Math.sin(q));
+        G.rotation.z = mix(G.rotation.z, sg * 0.06);
+        S2.rotation.x = mix(S2.rotation.x, DIVE.shinX + amp * 0.7 * (0.5 + 0.5 * Math.sin(q + 1.1)));
+        if (Ft) Ft.rotation.x = mix(Ft.rotation.x, DIVE.footX);
+      }
+    }
+    b.body.rotation.x += tk * (DIVE.down * down - DIVE.up * up);
+    b.head.rotation.x += tk * DIVE.head * down;
   }
 
   // La herramienta (o el arma) en la mano, y el gesto al usarla. Cada golpe nuevo (el temporizador swing de
@@ -742,6 +790,16 @@ export const EMOTES = {
   flinch: { dur: 0.8, both: true, pose: (k, s) => ({ ax: -1.05, az: s * 0.18, fx: -1.75, tx: -0.16, hx: -0.18 }) },
   point: { dur: 1.0, pose: (k, s) => ({ ax: -1.5, az: s * 0.06, fx: -0.05 }) },
   dismiss: { dur: 0.75, pose: (k, s) => ({ ax: -0.95 + 0.65 * k, az: s * (0.12 + 1.05 * k), fx: -0.65 }) },
+  // (drinking from a river or a lake, crouched: needs.js sets the crouch and plays it again for each sip. The cupped hands
+  // go down to the water, up to the mouth with the head tipped back, and down again)
+  drink: { dur: 1.5, both: true, pose: (k, s) => ({ ax: keys(DRINK.ax, k), az: s * keys(DRINK.az, k), fx: keys(DRINK.fx, k), hx: keys(DRINK.hx, k), tx: keys(DRINK.tx, k) }) },
+};
+const DRINK = {
+  ax: [[0, -0.2], [0.25, -0.55], [0.5, -1.05], [0.7, -1.05], [1, -0.2]],
+  az: [[0, 0.1], [0.25, -0.12], [0.5, -0.22], [0.7, -0.22], [1, 0.1]],
+  fx: [[0, -0.3], [0.25, -0.25], [0.5, -2.15], [0.7, -2.15], [1, -0.3]],
+  hx: [[0, 0.2], [0.25, 0.32], [0.5, -0.12], [0.7, -0.2], [1, 0.2]],
+  tx: [[0, 0.2], [0.25, 0.38], [0.5, 0.06], [0.7, 0.04], [1, 0.2]],
 };
 // Cuánto levanta el brazo ahora el gesto del jugador (0 si no está usando nada)
 export function swingArm(m) { const a = m?.anim; return a ? keys(GESTURES[a.kind].arm, Math.min(1, a.t / a.dur)) : 0; }

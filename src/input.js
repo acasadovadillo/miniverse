@@ -3,7 +3,8 @@ import { Audio } from './audio.js';
 import { CAM, DIST, lookBy } from './camera.js';
 
 // use: el botón de usar se mantiene pulsado (para seguir talando sin repetir la tecla)
-export const keys = { up: false, down: false, left: false, right: false, run: false, use: false, space: false };
+// dive: Shift held (swimming, it dives: entities.js diveStep; down is S, backwards, and has nothing to do with it)
+export const keys = { up: false, down: false, left: false, right: false, run: false, use: false, space: false, dive: false };
 const handlers = { chat: () => false, use: () => {}, jump: () => {}, interact: () => {}, pause: () => {}, map: () => {}, bag: () => {}, craft: () => {}, build: () => {}, rotate: () => {}, erase: () => {}, select: () => {}, cycle: () => {}, enabled: () => false };
 // Greeting (social.js): Y, or right click on a person; a tap greets, held it provokes
 export const SOCIAL_KEY = 'KeyY', SOCIAL_BUTTON = 2;
@@ -73,6 +74,7 @@ export function initInput(h) {
     if (!handlers.enabled()) return;
     const isShift = e.code === 'ShiftLeft' || e.code === 'ShiftRight';
     if (isShift && !e.repeat) shiftAlone = true; else if (!isShift) shiftAlone = false;
+    if (isShift) keys.dive = true;   // (held: swimming, down; it never runs)
     // La cámara: flechas para girarla e inclinarla, + y − para acercarla (Cmd/Ctrl + sigue siendo el zoom del navegador)
     // (en primera persona la cámara va con el ratón: las flechas andan, como WASD)
     if (CAMKEYS[e.code] && !(CAM.first && document.getElementById('c').requestPointerLock)) { held.set(e.code, CAMKEYS[e.code]); camAxes(); e.preventDefault(); return; }
@@ -102,8 +104,10 @@ export function initInput(h) {
     if (KEYMAP[e.code]) keys[KEYMAP[e.code]] = false;
     if (e.code === 'KeyW') keys.run = false;
     if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') {
+      keys.dive = false;
       if (handlers.mapOpen?.()) keys.run = false;   // (con el mapa, Shift lo mueve más rápido)
-      else if (shiftAlone && handlers.enabled()) { keys.run = false; handlers.crouch?.(); }
+      // (swimming, a tap of Shift is a short dive: it neither crouches nor ends a fast swim of double-tap W)
+      else if (shiftAlone && handlers.enabled() && !handlers.swimming?.()) { keys.run = false; handlers.crouch?.(); }
       shiftAlone = false;
     }
     if (e.code === 'Space') keys.space = false;

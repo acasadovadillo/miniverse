@@ -1,21 +1,27 @@
 // The minimal interface, the one everybody plays with (main.js puts it on; ?hud=completo or Settings › Display ›
 // Interface: Full give the full one back, and destroy() leaves the page as it was): like GTA 6, RDR2 or Zelda, each
-// part of the HUD shows up when it matters and fades away by itself when it does not. Health, hunger and experience go
-// together in one small block left of the hotbar (as RDR2's cores): when they change, in danger or when low (low
-// stays); the hotbar when you switch, pick up or use the last of something, then it folds away; the money (top right,
+// part of the HUD shows up when it matters and fades away by itself when it does not. The status bars under the
+// minimap (health, hunger, thirst, energy, air: ui/needsbar.js paints them, this file only says when each one shows)
+// come on when they change, in danger or when low (low stays); experience goes in one small block left of the hotbar,
+// with the load; the hotbar when you switch, pick up or use the last of something, then it folds away; the money (top right,
 // as in GTA) when you earn or spend; the time at dawn, dusk, a new day, a weather change, waking up and before a shop
 // closes; the place when you enter a new one; the minimap while you travel, or while a first step sends you somewhere,
-// with a mark over where to go. Holding Tab shows everything (no keys card: they are in Pause › Controls), and opening a window shows
-// health, hunger, money and the time, as GTA's weapon wheel does. With the icon column gone, keys are taught once, at
-// the moment they are useful (I the first time you pick something up, C with a new recipe…). What needs you shows by
-// itself: hungry, the slot with food beats; drawing the bow, a ring at the cursor with the arrows left.
+// with a mark over where to go. Holding Tab shows everything, with the legend of the bars (no keys card: they are in
+// Pause › Controls), and opening a window shows the bars, money and the time, as GTA's weapon wheel does. With the icon
+// column gone, keys are taught once, at the moment they are useful (I the first time you pick something up, C with a
+// new recipe, Shift the first time you swim…). What needs you shows by itself: hungry (or thirsty), the slot with food
+// (or a drink) beats; drawing the bow, a ring at the cursor with the arrows left.
 // Nothing here reads the DOM each frame: it compares a few numbers of the game and touches a class only when the
 // answer changes (the mark and the bow ring move with the view, so they are written while they show). The look (fades
 // of 0.15 s in and 0.5 s out) is the CSS below, injected so all of it stays in this file and goes away with it.
 import * as THREE from 'three';
 import { t, onLangChange } from '../i18n.js';
 import { ITEMS, HARVEST } from '../items.js';
+import * as items from '../items.js';   // (items.thirstOf, read when it is there: Track A2)
 import { HP_MAX, HUNGER_MAX } from '../combat.js';
+import { THIRST_MAX, STAMINA_MAX, REST_MAX } from '../needs.js';
+import { apagada } from '../opciones.js';
+import { LOW } from './needsbar.js';
 import { inBounds, TAVERN, HOUSE, HOUSE_FAMILY } from '../world/village.js';
 import { doorTile } from '../world/blueprints.js';
 import { nearX } from '../world/planet.js';
@@ -29,10 +35,18 @@ import { reportFault } from '../faults.js';
 import { hud } from './hud.js';
 
 const $ = id => document.getElementById(id);
+// What quenches thirst (items.thirstOf, Track A2; the same rule until it is there), and whether a stack is a drink now
+// (a canteen or a jug counts only with water in it)
+const thirstOf = def => (!def ? 0 : items.thirstOf ? items.thirstOf(def) : def.thirst ?? (def.drink ? 4 : 0));
+const isDrink = s => { const def = s && ITEMS[s.id]; return !!def && (thirstOf(def) > 0 || (!!def.canteen && s.sips > 0)); };
 // How long each thing stays after what brought it (seconds; the fade-out comes after)
-const SHOW = { hurt: 5, heal: 3, hunger: 4, money: 4, xp: 3, level: 5, slots: 3, name: 1.6, place: 4, clock: 6, tag: 4, quest: 10, intro: 4, tip: 9, tipShort: 6, build: 7, all: 1.5, mini: 3 };
+const SHOW = { hurt: 5, heal: 3, hunger: 4, thirst: 4, rest: 4, linger: 1.5, held: 0.5, money: 4, xp: 3, level: 5, slots: 3, name: 1.6, place: 4, clock: 6, tag: 4, quest: 10, intro: 4, tip: 9, tipShort: 6, build: 7, all: 1.5, mini: 3 };
 const LOW_HP = HP_MAX * 0.4, LOW_FOOD = 6, SHOW_FOOD = HUNGER_MAX * 0.6;   // (low health and hunger stay; hunger above 60 % is not news)
-const DANGER = 8;          // tiles: a creature this close keeps the hearts in sight
+const DANGER = 8;          // tiles: a creature this close keeps health in sight
+const HEAL_NEW = 10;       // seconds without healing: the next heal is news (regen starting), not each 4 s tick
+const NEED_GAP = 60;       // seconds: never two tips about needs (hunger, thirst, sleep) closer than this
+const NEED_TIPS = new Set(['hungry', 'thirsty', 'tired']);
+const DIVE_TIP = 3;        // seconds swimming before the dive tip
 const STALE_HINT = 6;      // seconds: a click hint that has not changed by then has been read
 const GOAL_NEAR = 4;       // tiles: the mark of where to go fades this close
 const BOW_TEXT = 2;        // draws of the bow that still get the long text (then the ring says it)
@@ -42,6 +56,8 @@ const TIPS = {
   bag: { code: 'KeyI', key: 'I' }, craft: { code: 'KeyC', key: 'C' }, build: { code: 'KeyB', key: 'B' },
   journal: { code: 'KeyJ', key: 'J' }, map: { code: 'KeyM', key: 'M' }, all: { code: 'Tab', key: 'Tab' }, wheel: { code: 'KeyF', key: 'F' }, social: { code: 'KeyY', key: 'Y' },
   hungry: {}, lowhp: { key: null },
+  // (the needs: thirsty picks its key and text as hungry does; tired and air say their key in the text; dive, Shift)
+  thirsty: {}, tired: { key: null }, dive: { key: 'Shift' }, air: { key: null },
   // (no code: E and Q are pressed for many other things, so only being shown makes them known)
   bulky: { key: 'E' }, arms: { key: 'Q' },
   // (the wheelbarrow, barrow.js: parked within reach, then pushing it; a big thing on the horse or in the bow, carry.js)
@@ -84,13 +100,10 @@ body.hud-min #hotbar .slot { background: rgba(0, 0, 0, .28); border: 1px solid r
 body.hud-min #hotbar .slot.sel { background: rgba(60, 42, 14, .55); border-color: var(--gold); box-shadow: 0 0 0 1px var(--gold), inset 0 0 10px rgba(255, 215, 122, .3); }
 body.hud-min #hotbar .slot.hm-food { animation: hm-beat 1s ease-in-out infinite; }
 @keyframes hm-beat { 50% { border-color: #fff3c0; box-shadow: 0 0 0 2px #ffd77a, 0 0 14px 4px rgba(255, 215, 122, .75); } }
-/* Health, hunger and experience: one block left of the hotbar, at the edge of the screen */
+/* Experience (and the load, with the weight inventory): one block left of the hotbar. Health and the other needs are the
+   bars under the minimap (ui/needsbar.js) */
 #hud-status { position: absolute; right: calc(100% + 8px); bottom: 0; display: flex; flex-direction: column; gap: 5px; padding: 7px 10px 8px; white-space: nowrap; background: rgba(20, 13, 8, .62); border-radius: 10px; pointer-events: none; }
 body.hud-min:not(.survival) #hud-status { display: none; }
-#hud-status #hearts { font-size: 16px; letter-spacing: 1px; line-height: 1; }
-#hud-status #hunger { justify-content: flex-end; }
-#hud-status #hearts i.e { color: #7a6262; }
-#hud-status #hunger i.e { filter: grayscale(1) brightness(.85); opacity: .4; }
 #hud-status #xp { margin: 3px 24px 1px 0; height: 4px; }
 #hud-status #xp b { left: auto; right: -22px; top: -4px; transform: none; }
 #hud-coins { display: none; margin-top: 1px; font: 500 17px/1.2 var(--font-title); letter-spacing: .03em; font-variant-numeric: tabular-nums; color: var(--gold); }
@@ -166,8 +179,8 @@ export class SmartHud {
       clock: $('clockp'), tag: $('admin-tag'), place: $('place'), mini: $('minimap'), money: $('money'), slots: $('hotbar-slots'), quest: $('quest'),
       status: make('hud-status', '', bar),
     };
-    // (health, hunger and experience into their block; the money out of the hotbar, to the top right)
-    for (const id of ['hearts', 'hunger', 'xp']) move($(id), this.el.status);
+    // (experience into its block; the money out of the hotbar, to the top right)
+    for (const id of ['xp']) move($(id), this.el.status);
     this.coins = make('hud-coins', '', this.el.status);
     if (this.el.money) { this.moneyPanel = !this.el.money.classList.contains('panel'); this.el.money.classList.add('panel'); move(this.el.money, document.body); }
     for (const el of Object.values(this.el)) el?.classList.add('hm');
@@ -220,6 +233,8 @@ export class SmartHud {
     if (tab) { tab.setAttribute('data-i18n', 'controls.players'); tab.textContent = t('controls.players'); }
     const map = this.game.map;
     if (map) { map.goal = null; map.lastMini = -Infinity; }   // (the full interface draws the minimap always: now)
+    // (the bars: without the timers of this interface, and painted again for the full one)
+    try { this.game.needsBar?.reset(); this.game.needsBar?.kick(); } catch (e) { reportFault(e, 'NeedsBar.reset'); }
   }
 
   paintCards() {
@@ -250,16 +265,43 @@ export class SmartHud {
     const dt = Math.min(0.25, T - (this.last ?? T));
     this.last = T;
 
-    // Health: when it changes, with a creature close by, and always when low
+    const nb = g.needsBar, n = g.needs || {};
+    const thirst = Number.isFinite(n.thirst) ? n.thirst / THIRST_MAX : 1, rest = Number.isFinite(n.rest) ? n.rest / REST_MAX : 1;
+    const stam = Number.isFinite(n.stamina) ? n.stamina : STAMINA_MAX, cap = Number.isFinite(n.cap) ? n.cap : STAMINA_MAX;
+    const airMax = n.airMax || 1, air = Number.isFinite(n.air) ? n.air : airMax, under = !!n.headUnder;
+    const noThirst = apagada('sed'), noRest = apagada('cansancio');
+    // Health: a hit (5 s); healing when it starts and when it is full again (3 s), not each tick of regen
     if (c.hp !== this.hp) {
-      if (this.hp !== undefined && surv) show('status', c.hp < this.hp ? SHOW.hurt : SHOW.heal);
+      if (this.hp !== undefined && surv) {
+        if (c.hp < this.hp) nb?.show('hp', SHOW.hurt);
+        else if (T - this.healAt > HEAL_NEW || c.hp >= HP_MAX) nb?.show('hp', SHOW.heal);
+        if (c.hp > this.hp) this.healAt = T;
+      }
       this.hp = c.hp;
     }
-    // Hunger: when it drops below 60 % or when eating; always when low
+    // Hunger and thirst: each 10 % step down from 60 %, and eating or drinking (4 s); always when low
+    const foodStep = Math.floor(c.hunger / HUNGER_MAX * 10);
     if (c.hunger !== this.food) {
-      if (this.food !== undefined && surv && (c.hunger > this.food || c.hunger <= SHOW_FOOD)) show('status', SHOW.hunger);
-      this.food = c.hunger;
+      if (this.food !== undefined && surv && (c.hunger > this.food || (foodStep !== this.foodStep && c.hunger <= SHOW_FOOD))) nb?.show('food', SHOW.hunger);
+      this.food = c.hunger; this.foodStep = foodStep;
     }
+    const waterStep = Math.floor(thirst * 10);
+    if (Math.abs(thirst - (this.water ?? thirst)) > 1e-4 || this.water === undefined) {
+      if (this.water !== undefined && surv && !noThirst && (thirst > this.water + 1e-4 || (waterStep !== this.waterStep && thirst <= 0.6))) nb?.show('water', SHOW.thirst);
+      this.water = thirst; this.waterStep = waterStep;
+    }
+    // Energy: a long sprint (stamina under half of its cap, or worn out), until it is back over 60 % and 1.5 s more; a
+    // change of rest (sleeping, a nap, each 10 % step)
+    if (stam < cap * 0.5 || n.exhausted) this.enLow = true;
+    else if (this.enLow && stam > cap * 0.6) this.enLow = false;
+    if (this.enLow && surv) nb?.show('en', SHOW.linger);
+    const restStep = Math.floor(rest * 10);
+    if (restStep !== this.restStep) {
+      if (this.restStep !== undefined && surv && !noRest) nb?.show('en', SHOW.rest);
+      this.restStep = restStep;
+    }
+    // Air: while the head is under water and until it is full again, then 1.5 s
+    if (surv && (under || air < airMax - 1e-3)) nb?.show('air', SHOW.linger);
     if ((this.tick = (this.tick || 0) + dt) >= 0.25) { this.tick = 0; this.slow(g, p, T, show); }
     // Money (with what came in or went out) and experience
     if (g.money !== this.money) {
@@ -277,7 +319,7 @@ export class SmartHud {
     if (inv.selected !== this.sel) {
       if (this.sel !== undefined) { show('slots', SHOW.slots); this.itemName(inv.held, T); }
       this.sel = inv.selected;
-      if (this.tip === 'hungry') this.paintTip('hungry');   // (the food taken: now it says to click)
+      if (this.tip === 'hungry' || this.tip === 'thirsty') this.paintTip(this.tip);   // (the food or the drink taken: now it says to click)
     }
     // The first steps: whole when they change, then just the task
     if (g.steps.shown !== this.stepKey) {
@@ -300,21 +342,39 @@ export class SmartHud {
     if (outside && (riding ? this.moveT > 0.3 : this.moveT > 1 && !inBounds(p.x, p.y))) show('mini', SHOW.mini);
 
     // What shows now
-    const crit = { hearts: surv && c.hp <= LOW_HP, hunger: surv && c.hunger <= LOW_FOOD };
+    const crit = {
+      hearts: surv && c.hp <= LOW_HP, hunger: surv && c.hunger <= LOW_FOOD,
+      water: surv && !noThirst && thirst <= LOW.water, rest: surv && !noRest && rest <= LOW.rest,
+      air: surv && under && air / airMax <= LOW.air,
+    };
     const heldDef = ITEMS[inv.held?.id], up = k => (this.until[k] || 0) > T;
     const free = !talking;   // (talking, only what is critical: as in RDR2)
-    const food = surv && heldDef?.food && c.hunger < HUNGER_MAX;
-    // (with the tool wheel open, as with a window: health, hunger and the time; the hotbar goes, the wheel is it now)
-    // (and with the weight inventory, while the load matters: carry.js; the meter goes in this block, ui/loadmeter.js)
-    this.set('status', crit.hearts || crit.hunger || (free && (up('status') || this.danger || wins || food || wheel || !!g.carry?.showLoad())));
+    const drinkHeld = isDrink(inv.held);
+    // The bars: each one critical while it is (health also in danger, short of air, or starving or parched); holding
+    // food or a drink, that bar; with a window or the tool wheel open, all of them (in a dialogue, only the critical ones)
+    if (nb) {
+      const hpOwn = crit.hearts || (surv && (this.danger || c.hunger <= 0 || (!noThirst && thirst <= 0)));
+      nb.crit('hp', hpOwn || crit.air, !hpOwn);   // (short of air: health shows too, but the name tag is the air's)
+      nb.crit('food', crit.hunger);
+      nb.crit('water', crit.water);
+      nb.crit('en', crit.rest || (surv && !!n.exhausted));
+      nb.crit('air', crit.air);
+      if (free && surv && heldDef?.food && c.hunger < HUNGER_MAX) nb.show('food', SHOW.held);
+      if (free && surv && !noThirst && drinkHeld && thirst < 1) nb.show('water', SHOW.held);
+      nb.context(wins || wheel, talking);
+    }
+    // (the block of experience: with the tool wheel open, as with a window; and with the weight inventory, while the
+    // load matters: carry.js; the meter goes in this block, ui/loadmeter.js)
+    this.set('status', free && (up('status') || wins || wheel || !!g.carry?.showLoad()));
     this.set('money', free && !spect && up('money'));   // (with a window open it would be under it: in survival it is in the block)
     this.set('wins', wins, this.el.status, 'hm-wins');
     // (hungry with food in the hotbar: it stays, and that slot beats; during the first steps, which name the slots by
     // number, it stays too; and with a window open, as in Minecraft: you move things to it and from it, and the block
     // of health sits next to it instead of floating by an empty place)
-    const feed = crit.hunger && this.foodSlot >= 0;
-    this.set('slots', free && !wheel && (up('slots') || feed || wins || !g.steps.over));
-    this.beat(feed && !heldDef?.food ? this.foodSlot : -1);
+    // (thirsty with a drink in the hotbar, the same with that slot; hunger first)
+    const feed = crit.hunger && this.foodSlot >= 0, quench = crit.water && this.drinkSlot >= 0;
+    this.set('slots', free && !wheel && (up('slots') || feed || quench || wins || !g.steps.over));
+    this.beat(feed && !heldDef?.food ? this.foodSlot : quench && !drinkHeld ? this.drinkSlot : -1);
     this.set('item', free && up('item'));
     this.set('delta', free && up('delta'));
     this.set('clock', free && (up('clock') || wins || wheel));
@@ -338,27 +398,45 @@ export class SmartHud {
     // where), when it only says what you cannot do with what you hold (clicking still says it), and when the bow ring
     // says it already
     if (hint !== this.hint) { this.hint = hint; this.hintAt = T; this.neg = !!hint && !g.build.on && this.negative(g) && hint === g.gather.hint(); }
-    const eating = crit.hunger && heldDef?.food;   // (the "Eat bread" of the hungry: it stays)
+    const eating = (crit.hunger && heldDef?.food) || (crit.water && drinkHeld);   // (the "Eat bread" of the hungry, and the "Drink" of the thirsty: it stays)
     this.set('quiet', !!hint && !g.build.on && ((T - this.hintAt > STALE_HINT && !eating) || this.neg || bow || wheel), this.hintEl, 'hm-quiet');
     // Build mode: its keys, a moment after entering it
     if (g.build.on !== this.building) { this.building = g.build.on; if (g.build.on) show('build', SHOW.build); }
     this.set('build', g.build.on && free && up('build'));
-    // The key tips, one at a time, never over a dialogue, a window or the build bar (what to do when hungry or hurt, first)
+    // The key tips, one at a time, never over a dialogue, a window or the build bar (what to do when short of air, hurt,
+    // hungry, thirsty or tired, first: each one put at the front, so the last one asked is shown first; thirst waits
+    // behind hunger, and two tips about needs are never closer than a minute)
+    if (crit.water) this.want('thirsty', true);
+    if (crit.rest) this.want('tired', true);
     if (crit.hunger) this.want('hungry', true);
-    if (crit.hearts) this.want('lowhp', true);
+    if (crit.hearts && !under) this.want('lowhp', true);   // (under water the advice is the air's: "rest and eat" would be wrong)
+    if (crit.air) this.want('air', true);
+    this.swimT = p.swim ? (this.swimT || 0) + dt : 0;
+    if (this.swimT > DIVE_TIP && surv && !apagada('buceo')) this.want('dive');
+    this.critNow = crit;
     const tipNow = free && !wins && !g.build.on;
     if (this.tip && !tipNow) this.tipUntil += dt;   // (it waits, hidden, until the dialogue or the window is over)
-    if (this.tip && (T > this.tipUntil || (this.tip === 'hungry' && !crit.hunger))) this.endTip();
-    else if (!this.tip && this.queue.length && tipNow) this.showTip(this.queue.shift(), T);
+    const over = { hungry: !crit.hunger, thirsty: !crit.water, tired: !crit.rest, air: !crit.air, lowhp: under }[this.tip];   // (the need is met: its tip goes; low health's, under water)
+    if (this.tip && (T > this.tipUntil || over)) this.endTip();
+    else if (!this.tip && this.queue.length && tipNow) {
+      const i = this.queue.findIndex(id => (id !== 'lowhp' || !under) && (!NEED_TIPS.has(id) || T - this.needTipAt >= NEED_GAP));
+      if (i >= 0) this.showTip(this.queue.splice(i, 1)[0], T);
+    }
     this.set('tip', !!this.tip && tipNow);
   }
 
   // Four times a second: what needs a look around or the clock
   slow(g, p, T, show) {
-    // A creature close by: the hearts stay while it is there
+    // A creature close by: health stays in sight while it is there
     const near = (g.combat.monsters || []).some(m => Math.hypot(m.x - p.x, m.y - p.y) < DANGER);
     if (near) show('dangerT', 3);
     this.danger = g.gamemode === 'survival' && (this.until.dangerT || 0) > T;
+    // (a tip about a need still waiting when that need is met: it is not news any more)
+    const cr = this.critNow;
+    if (cr && this.queue.length) {
+      const gone = { hungry: !cr.hunger, thirsty: !cr.water, tired: !cr.rest, air: !cr.air, lowhp: !cr.hearts };
+      if (this.queue.some(id => gone[id])) this.queue = this.queue.filter(id => !gone[id]);
+    }
     // The time: at dawn and dusk, a new day, a weather change, after sleeping and before a shop of the village closes
     const d = g.days, night = d.isNight(), sky = d.weatherHere, day = d.dayOfSeason, slept = g.stats.get('dormido');
     if (this.night !== undefined && (night !== this.night || sky !== this.sky || day !== this.day || slept !== this.slept)) show('clock', SHOW.clock);
@@ -397,9 +475,11 @@ export class SmartHud {
     this.until = {};
     for (const k of ['clock', 'tag', 'place', 'slots']) this.until[k] = T + SHOW.intro;
     this.until.quest = T + SHOW.quest;
-    for (const k of ['hp', 'food', 'money', 'xp', 'level', 'invV', 'sel', 'stepKey', 'stepI', 'placeName', 'gm', 'night', 'count', 'sig', 'bed']) this[k] = undefined;
+    for (const k of ['hp', 'food', 'foodStep', 'water', 'waterStep', 'restStep', 'money', 'xp', 'level', 'invV', 'sel', 'stepKey', 'stepI', 'placeName', 'gm', 'night', 'count', 'sig', 'bed', 'critNow']) this[k] = undefined;
     this.fresh = Infinity;   // (the first look only counts them)
-    this.foodSlot = -1; this.foodBag = false;
+    this.foodSlot = -1; this.foodBag = false; this.drinkSlot = -1; this.drinkBag = false;
+    this.healAt = -Infinity; this.enLow = false; this.swimT = 0; this.needTipAt = -Infinity;
+    try { this.game.needsBar?.reset(); } catch (e) { reportFault(e, 'NeedsBar.reset'); }   // (the bars: no timer of the game before)
     this.px = p.x; this.py = p.y; this.moveT = 0; this.stillT = 0;
     this.started = T; this.toldTab = false;
     this.allUntil = 0; this.held = false;
@@ -414,14 +494,16 @@ export class SmartHud {
   // Something changed in what is carried: the hotbar shows if its nine slots changed (not for the wear of a tool on
   // each blow), or if the tool in hand is about to break. And where the food is, for when you are hungry
   onInventory(g, inv, show) {
-    let sig = '', count = 0, slot = -1, bag = false;
+    let sig = '', count = 0, slot = -1, bag = false, dslot = -1, dbag = false;
     for (let i = 0; i < inv.slots.length; i++) {
       const s = inv.slots[i];
       if (!s) continue;
       count += s.n;
       if (i < HOTBAR) sig += `${i}:${s.id}:${s.n};`;
       if (ITEMS[s.id]?.food) { if (i < HOTBAR) { if (slot < 0) slot = i; } else bag = true; }
+      if (isDrink(s)) { if (i < HOTBAR) { if (dslot < 0) dslot = i; } else dbag = true; }   // (a drink, or a canteen with water)
     }
+    if (dslot !== this.drinkSlot || dbag !== this.drinkBag) { this.drinkSlot = dslot; this.drinkBag = dbag; if (this.tip === 'thirsty') this.paintTip('thirsty'); }
     if (this.sig !== undefined && sig !== this.sig) show('slots', SHOW.slots);
     if (this.count !== undefined && count > this.count && now() - this.started > 8) this.want('bag');   // (picked something up)
     this.sig = sig; this.count = count;
@@ -547,6 +629,7 @@ export class SmartHud {
   }
   showTip(id, T) {
     this.tip = id;
+    if (NEED_TIPS.has(id)) this.needTipAt = T;
     this.seen.add(id);
     this.saveSeen();
     this.tipSig = null;
@@ -560,9 +643,16 @@ export class SmartHud {
     if (i >= 0) return [String(i + 1), 'take', { n: i + 1 }];
     return this.foodBag ? ['I', 'bag'] : [null, 'none'];
   }
+  // Thirsty: the same, with the drinks (a canteen or a jug with water counts); with none, the water of the world, with E
+  thirstyTip() {
+    const i = this.drinkSlot;
+    if (isDrink(this.game.inv.held)) return [t('key.click'), 'drink'];
+    if (i >= 0) return [String(i + 1), 'take', { n: i + 1 }];
+    return this.drinkBag ? ['I', 'bag'] : ['E', 'none'];
+  }
   paintTip(id) {
     // (Tab's: in creative and as a spectator there is no health to see)
-    const [k, sub, params] = id === 'hungry' ? this.hungryTip() : id === 'all' && this.game.gamemode !== 'survival' ? [TIPS.all.key, 'nohealth'] : [TIPS[id].key];
+    const [k, sub, params] = id === 'hungry' ? this.hungryTip() : id === 'thirsty' ? this.thirstyTip() : id === 'all' && this.game.gamemode !== 'survival' ? [TIPS.all.key, 'nohealth'] : [TIPS[id].key];
     const text = t(`hud.tip.${id}${sub ? '.' + sub : ''}`, params), sig = `${k}|${text}`;
     if (sig !== this.tipSig) { this.tipSig = sig; this.el.tip.innerHTML = `${k ? kbd(k) : ''}<span>${text}</span>`; }
     return text;

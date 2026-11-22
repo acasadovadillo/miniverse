@@ -37,7 +37,7 @@ export class Experience {
     this.part -= whole;
     const was = this.level;
     this.set(this.points + whole);
-    this.game.gather.float(`+${whole} XP`, '#b8f070');
+    this.game.gather.float(`+${whole} XP`, '#e8d48a');
     if (this.level > was) { Audio.unlock(); hud.toast(`¡Nivel ${this.level} de experiencia!`, 'ok'); }
   }
   // Gastar niveles (lo que se llevaba del nivel de ahora se conserva). En creativo no se gastan

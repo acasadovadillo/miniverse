@@ -7,6 +7,7 @@ import { Audio } from './audio.js';
 import { towerFloor } from './world/tower.js';
 import { WATER_Y } from './world/planet.js';
 import { BARROW, WHEEL_AHEAD, pushedAhead } from './carry-items.js';
+import { apagada } from './opciones.js';
 
 export class Person {
   constructor({ x, y, look, view = 'front', flip = false }) {
@@ -38,6 +39,15 @@ const STEP_UP = 0.3;
 // lo que se hunde agachado (la cabeza, bajo el agua)
 export const SWIM_IN = 1.0, SWIM_OUT = 0.85;
 const HORSE_DEEP = 1.25, SWIM_ROOT = 1.1, SINK = 0.55, SWIM_SPEED = 1.5, SWIM_RUN = 2.2;
+// Diving (docs/planes/gta/PLAN-D-barras-buceo.md §4.4; ?buceo=0 turns it off: crouching sinks a little, as before).
+// While swimming, Shift held (keys.dive) goes down and Space held comes up; with neither the diver drifts up slowly, so
+// they can look around at the bottom. dive: metres of extra depth below sink (which keeps its meaning: up to SINK, and
+// -0.12 with Space at the surface), never closer to the bed than DIVE_BED. Going down, sink fills first and then dive;
+// coming up, dive empties first. In first person, W also follows the look pitch (looking down goes down).
+// HEAD_UNDER: the head is under water past this much of sink + dive (the water line just above the eyes)
+export const HEAD_UNDER = 0.42;
+const DIVE_DOWN = 1.5, DIVE_UP = 1.8, DIVE_DRIFT = 0.15, DIVE_SPEED = 1.3, DIVE_BED = 1.0, DIVE_PITCH = 0.25;
+const diving = !apagada('buceo');
 // En el agua de lo cavado (un canal: ver scenes.js, reflood), nadando se pasa por encima de todo lo que queda bajo el agua y
 // solo frena lo que asoma (sus paredes por encima del agua). Para salir, la orilla de tierra de un canal es una pared: el
 // salto desde el agua (nadando, o de pie con el agua por encima de WADE_CLIMB: se toma impulso en el fondo) llega hasta
@@ -111,31 +121,37 @@ export class Player extends Person {
     this.spawn = data.spawn || null;   // dónde reaparece al morir (/spawnpoint); sin él, en casa
     this.ghost = false;                // espectador: atraviesa todo
     this.swim = false; this.sink = 0;  // nadando, y lo que se hunde (agachado) o se asoma (con espacio) bajo la línea de flotar
+    this.dive = 0;                     // diving: metres of extra depth below sink (Shift held; see DIVE_*); never saved
+    this.forceRise = false;            // (set by needs.js out of air: up at DIVE_UP until the head is out, then cleared here)
+    this.sprinting = false; this.fastSwim = false;   // (for needs.js stamina: running on foot, swimming fast; see update)
+    this.sleeping = false;             // (asleep in a bed: needs.js sleep sets it, rest.js stand clears it; st.zz)
     this.depth = 0;                    // lo hondo del agua donde está (0 en tierra)
     this.bank = null;                  // en el agua junto a la pared de un canal, la altura de su borde (para salir de un salto)
     this.pushing = null;               // the wheelbarrow pushed (its model key: barrow.js); not saved
     this.pushPen = 0;                  // (how far its box is inside something: Barrow.update parks it by force with Q after a while)
   }
   get airborne() { return this.z > this.floor + 0.01; }
+  // The head under water (needs.js drains air; the view goes under): only swimming, and never with ?buceo=0
+  get headUnder() { return diving && this.swim && this.sink + this.dive > HEAD_UNDER; }
   // Saltar (desde el suelo; en barca no)
   jump() {
     if (this.boat || this.aboard || this.airborne || this.pushing) return;   // (pushing the wheelbarrow, no jumping)
     // Nadando, el espacio sube (lo mira update); junto a la orilla, salta a ella: sale del agua desde donde flota
     if (this.swim) {
-      if (!this.shore) return;
-      this.swim = false; this.sink = 0;
+      if (!this.shore || this.dive >= 0.05) return;   // (diving, Space only comes up: the jump out is at the surface)
+      this.swim = false; this.sink = 0; this.dive = 0;
       this.z = Math.max(0, this.depth - SWIM_ROOT); this.vz = JUMP * 1.15;
       // (a la pared de un canal: hasta su borde, con lo que suba el salto de más; ver inWater, bank)
       const need = this.bank === null ? 0 : this.bank + CLIMB - (WATER_Y - this.depth + this.z);
       if (need > this.vz * this.vz / (2 * GRAVITY)) this.vz = Math.sqrt(2 * GRAVITY * need);
-      this.onExert?.(0.05); this.onSplash?.(this.x, this.y, 10);
+      this.onExert?.(0.05); this.onSplash?.(this.x, this.y, 10); this.onJump?.();
       return;
     }
     this.vz = JUMP * (this.mount ? 1.1 : 1) * (this.jumpMul ?? 1);   // (jumpMul: loaded or carrying something, carry.js; never too low to leave a hole)
     // (con el agua por la cintura junto a la pared de un canal: hasta su borde, ver CLIMB)
     if (this.bank !== null && !this.mount && this.depth >= WADE_CLIMB) { const need = this.bank + CLIMB - (WATER_Y - this.depth + this.floor); if (need > this.vz * this.vz / (2 * GRAVITY)) this.vz = Math.sqrt(2 * GRAVITY * need); }
     this.z = this.floor + 0.001;
-    this.onExert?.(0.05);
+    this.onExert?.(0.05); this.onJump?.();   // (onJump: the stamina of a jump, needs.js)
     Audio.swish();
   }
   // Movimiento con las teclas, que siguen la pantalla: arriba es hacia donde mira la cámara
@@ -143,11 +159,11 @@ export class Player extends Person {
     if (this.mount || this.boat || this.pushing) this.crouch = false;   // (agachado no se monta ni se rema; nor pushing the wheelbarrow)
     const sx = (keys.right ? 1 : 0) - (keys.left ? 1 : 0), sy = (keys.down ? 1 : 0) - (keys.up ? 1 : 0);
     const l = Math.hypot(sx, sy);
-    if (this.mount || this.boat || this.aboard || this.ghost || this.pose) this.swim = false;
+    if (this.mount || this.boat || this.aboard || this.ghost || this.pose) { this.swim = false; this.dive = 0; }
     // (en el agua: nadando, más despacio y agachado no frena, que es para hundirse; andando, cuanto más hondo más cuesta)
     const wade = this.wading ? 1 - 0.45 * clamp(this.depth / SWIM_OUT, 0, 1) : 1;
     const run = keys.run && !this.noRun;   // (noRun: too loaded, or something in the arms: carry.js)
-    const speed = (this.swim ? (run ? SWIM_RUN : SWIM_SPEED) : (this.crouch ? 1.4 : run ? 5.3 : 3.2) * wade) / (l || 1) * (this.speedMul || 1) * (this.boat ? 1.4 : 1);
+    const speed = (this.swim ? (run ? SWIM_RUN : this.dive > 0.3 ? DIVE_SPEED : SWIM_SPEED) : (this.crouch ? 1.4 : run ? 5.3 : 3.2) * wade) / (l || 1) * (this.speedMul || 1) * (this.boat ? 1.4 : 1);
     const k = 1 - Math.exp(-dt * (this.swim ? 3 : 14));   // (nadando, cada brazada lleva y se para despacio)
     const [dx, dy] = screenToWorld(sx, sy);
     let wx = dx * speed, wy = dy * speed;
@@ -212,7 +228,11 @@ export class Player extends Person {
     const pit = dug && (scene.digH(Math.floor(this.x), Math.floor(this.y)) !== null || scene.digH(Math.floor(p.x), Math.floor(p.y)) !== null);
     if (pit && (Math.floor(p.x) !== Math.floor(this.x) || Math.floor(p.y) !== Math.floor(this.y))) this.z = feet - scene.surfaceAt(p.x, p.y);
     this.x = p.x; this.y = p.y;
-    this.inWater(dt, keys, scene, world, pit);
+    this.inWater(dt, keys, scene, world, pit, l ? speed * l : 0);
+    // (for needs.js stamina, from the gated run: running on foot; swimming fast, not while going down)
+    const going = this.moving;
+    this.sprinting = run && going && !this.swim && !this.crouch && !this.mount && !this.boat && !this.aboard && !this.pushing;
+    this.fastSwim = run && going && this.swim && !keys.dive;
     // (pushing, where the keys point, not where it goes: it goes only along the wheelbarrow)
     const kx = push ? dx : wx, ky = push ? dy : wy;
     let want = null;
@@ -245,7 +265,8 @@ export class Player extends Person {
   // El agua donde se está: lo hondo (depth), si se vadea (wading) o se nada (swim), lo que se hunde (sink) y si hay orilla
   // delante a la que saltar (shore)
   // pit: se está en lo cavado o se acaba de salir de ello (ahí el fondo es llano y los pies ya los ha puesto update)
-  inWater(dt, keys, scene, world, pit = false) {
+  // ahead: the swimming speed the keys ask for (first person: W follows the look pitch while diving)
+  inWater(dt, keys, scene, world, pit = false, ahead = 0) {
     const d = world && !this.boat && !this.aboard && !this.ghost ? scene.waterDepth(this.x, this.y) : 0;
     // (en el aire, z va sobre el fondo de donde se está: al pasar sobre otro más alto o más bajo, se sigue a la misma altura
     // de verdad. Así se cae al agua desde la orilla y se sale de un salto, en vez de subir y bajar con el fondo)
@@ -271,13 +292,40 @@ export class Player extends Person {
     const wall = deepish && scene.digNear?.(this.x, this.y, 1) && scene.floodAt?.(Math.floor(this.x), Math.floor(this.y)) !== undefined && scene.waterDepth(ax, ay) < SWIM_OUT;
     const top = wall ? scene.surfaceAt(ax, ay) : null;
     this.bank = top !== null && top - WATER_Y <= CLIMB_MAX ? top : null;
-    if (!this.swim) { this.sink = 0; this.shore = false; return; }
-    // Con espacio, se asoma más; agachado, se hunde (sin tocar el fondo)
-    const want = keys.space ? -0.12 : this.crouch ? Math.min(SINK, Math.max(0, d - 0.55)) : 0;
-    this.sink += (want - this.sink) * Math.min(1, dt * 3);
+    if (!this.swim) { this.sink = 0; this.dive = 0; this.forceRise = false; this.shore = false; return; }
+    if (diving) this.diveStep(dt, keys, d, ahead);
+    else {
+      // Con espacio, se asoma más; agachado, se hunde (sin tocar el fondo)
+      const want = keys.space ? -0.12 : this.crouch ? Math.min(SINK, Math.max(0, d - 0.55)) : 0;
+      this.sink += (want - this.sink) * Math.min(1, dt * 3);
+    }
     // La orilla: delante se hace pie
     this.shore = scene.waterDepth(ax, ay) < SWIM_OUT;
     this.onExert?.(Math.hypot(this.vx, this.vy) * dt * 0.04);   // (nadar cansa algo más que andar)
+  }
+  // Diving, one step (see DIVE_*): d is the water's depth here, ahead the swimming speed asked for
+  diveStep(dt, keys, d, ahead) {
+    const room = Math.max(0, d - DIVE_BED - SINK);   // (dive's limit here: the bed, which pushes a diver up as it rises)
+    let v = 0;                                       // metres down (+) or up (-) this step
+    const up = this.forceRise || keys.space;
+    if (up) v = -DIVE_UP * dt;
+    else if (keys.dive) v = DIVE_DOWN * dt;
+    // (first person, swimming forwards: looking down goes down, looking up comes up)
+    if (!this.forceRise && CAM.first && keys.up && ahead > 0 && Math.abs(CAM.look) > DIVE_PITCH) v -= Math.sin(CAM.look) * ahead * dt;
+    if (v > 0) {
+      const s = Math.min(v, Math.max(0, Math.min(SINK, d - 0.55) - this.sink));   // (sink fills first, as it did crouching)
+      this.sink += s; this.dive += v - s;
+    } else if (v < 0) {
+      const u = Math.min(-v, this.dive);   // (dive empties first; then sink, up to -0.12 with Space)
+      this.dive -= u;
+      const rest = -v - u;
+      if (rest > 0) this.sink = Math.max(up ? -0.12 : 0, this.sink - rest);
+    } else if (this.dive > 0) this.dive = Math.max(0, this.dive - DIVE_DRIFT * dt);   // (nothing held: a slow drift up)
+    else this.sink += (0 - this.sink) * Math.min(1, dt * 3);   // (at the surface, nothing held: floating as always)
+    this.dive = Math.min(this.dive, room);
+    if (this.dive < 1e-4) this.dive = 0;
+    this.sink = Math.min(this.sink, Math.max(0, Math.min(SINK, d - 0.55)));   // (into shallower water, the bed lifts it too)
+    if (this.forceRise && this.sink + this.dive <= HEAD_UNDER) this.forceRise = false;   // (the head is out: needs.js breathes)
   }
   // Pushing, the body and the wheelbarrow turn towards want at BARROW.TURN at most, and only as far as the box does not go
   // further into something (half, a quarter, or nothing). face is then the wheelbarrow's heading
@@ -297,7 +345,8 @@ export class Player extends Person {
       if (penOk(pen(g), was)) { this.face = g; return; }
     }
   }
-  stop() { this.vx = this.vy = 0; }
+  // (game.update skips update while busy, in a dialogue or in a pose: no stale running or fast swimming for needs.js)
+  stop() { this.vx = this.vy = 0; this.sprinting = this.fastSwim = false; }
   toSave() {
     return { name: this.name, look: this.look, x: +this.x.toFixed(2), y: +this.y.toFixed(2), inside: this.inside, view: this.view === 'side' ? 'front' : this.view, boat: !!this.boat || !!this.aboard, mount: !!this.mount, horseId: this.horseId, horseCoat: this.horseCoat, horseBags: this.horseBags, spawn: this.spawn };
   }

@@ -134,6 +134,35 @@ Object.assign(DRAW, {
   caballo(R) { R(6, 2, 4, 12, '#c8a030'); R(6, 2, 4, 2, '#e8c050'); R(4, 12, 8, 2, '#a88020'); R(7, 5, 2, 1, '#6a4a10'); R(10, 3, 3, 1, '#e83a3a'); },
   brujula(R, g) { blob(g, 8, 8, 6, '#c8a030'); blob(g, 8, 8, 5, '#f4ecd8'); line(g, 8, 8, 11, 4, '#e83a3a'); line(g, 8, 8, 5, 12, '#4a4a54'); R(7, 7, 2, 2, '#2a1c22'); },
 });
+// What the sea bed and the bottom of lakes give (dive.js): a scallop shell, a pearl in its open oyster, a frond of
+// seaweed and a mussel. Pale against the dark slot, the way they are found against the sand
+Object.assign(DRAW, {
+  seashell(R, g) {
+    poly(g, [[8, 14], [1.5, 7], [2, 4], [4.5, 2], [8, 1.5], [11.5, 2], [14, 4], [14.5, 7]], '#e8c8b4');
+    poly(g, [[8, 13], [3, 7], [3.5, 4.5], [5.5, 3], [8, 2.5], [10.5, 3], [12.5, 4.5], [13, 7]], '#f4dccb');
+    for (const x of [2, 5, 8, 11, 14]) line(g, 8, 13, x, x === 8 ? 2 : x === 2 || x === 14 ? 6 : 3, '#cfa48e');   // (the ribs, from the hinge)
+    R(5, 12, 6, 2, '#d8b29c'); R(6, 12, 4, 1, '#ecd0bc');   // (the hinge and its ears)
+    R(5, 4, 2, 1, '#fff6ee'); R(10, 4, 1, 2, '#fff6ee');
+  },
+  pearl(R, g) {
+    ellipse(g, 8, 11, 7, 3, '#7a7268'); ellipse(g, 8, 11, 6, 2, '#cfc8d6'); R(4, 11, 3, 1, '#e4dfea');   // (the open oyster, its mother-of-pearl)
+    blob(g, 8, 8, 4, '#d8d0c8'); blob(g, 8, 8, 3, '#f2ede6'); R(6, 6, 2, 2, '#ffffff'); R(9, 10, 2, 1, '#cdbfc4');
+  },
+  seaweed(R) {
+    // (three fronds swaying, a holdfast at the foot)
+    for (const [x0, h, a, b] of [[4, 11, '#3e6a34', '#5a8a44'], [8, 13, '#4a7a3a', '#6a9a4a'], [12, 10, '#3a6232', '#58843f']]) {
+      for (let y = 0; y < h; y++) { const x = Math.round(x0 + Math.sin((y + x0) * 0.7) * 1.2); R(x, 14 - y, 2, 1, y % 3 ? a : b); }
+    }
+    R(3, 14, 11, 2, '#6a5a3a'); R(4, 14, 9, 1, '#8a7a52');
+  },
+  mussel(R, g) {
+    poly(g, [[2.5, 13.5], [3.5, 9], [7, 4.5], [11.5, 2], [14, 2.5], [13, 6], [9, 11], [5, 14]], '#232a38');
+    poly(g, [[4, 12], [5, 9], [8, 5.5], [11.5, 3.5], [12.5, 4], [11, 6.5], [8, 10], [5.5, 12.5]], '#2f3a50');
+    line(g, 4, 12, 12, 4, '#46587a');   // (the gape between the two halves)
+    R(6, 9, 1, 1, '#7a8cb0'); R(9, 5, 2, 1, '#7a8cb0'); R(12, 3, 1, 1, '#9aaac8');
+    R(2, 13, 2, 1, '#5a4a3a');   // (the hinge, brown)
+  },
+});
 DRAW.red = (R, g) => { line(g, 2, 15, 10, 7, '#8a5a30'); line(g, 3, 15, 11, 7, '#6a4422'); ellipse(g, 11, 5, 4, 4, '#e8e0d0'); ellipse(g, 11, 5, 3, 3, 'rgba(232,224,208,.35)'); for (let i = 8; i < 15; i += 2) R(i, 3, 1, 5, '#c8c0b0'); };
 function bugIcon(R, g, b, id) {
   if (id === 'mariposa' || id === 'polilla' || id === 'libelula') { const c = ramp(b.col); poly(g, [[8, 8], [2, 3], [3, 11]], c.b); poly(g, [[8, 8], [14, 3], [13, 11]], c.b); R(7, 4, 2, 10, '#2a1c22'); R(4, 6, 2, 1, c.l); R(10, 6, 2, 1, c.l); return; }

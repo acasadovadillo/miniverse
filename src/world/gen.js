@@ -2,7 +2,7 @@
 // Todo es determinista: la misma semilla y la misma casilla dan siempre lo mismo.
 import { mk, ihash, vnoise, rgbOf } from '../util.js';
 import * as village from './village.js';
-import { B, BIOMES, climate, classify, biomeAt, wetness, depthOfWet, shoreOf, reliefOf } from './biomes.js';
+import { B, BIOMES, climate, classify, biomeAt, wetness, depthOfWet, deepOf, shoreOf, reliefOf, WATER_Y } from './biomes.js';
 import { wrapNoise, wrapIndex } from './planet.js';
 
 export const CHUNK = 16;
@@ -22,6 +22,11 @@ export const GRASS_REGROW = 7;
 // todas en primavera, casi todas en verano, menos en otoño y ninguna en invierno
 export const FLOWER_KINDS = new Set(['margarita', 'diente_leon']);
 export const flowerShows = (o, season) => ihash(Math.floor(o.x), Math.floor(o.y), 77) < [1, 0.85, 0.4, 0][season];
+
+// The seabed finds (seabed): what a chunk without any answers, how many chunks are remembered, one sunken chest in how many
+// chunks (only those with deep sea bed get one) and at most how many seaweeds per chunk
+const NO_SEABED = Object.freeze({ finds: Object.freeze([]) });
+const SEABED_CACHE = 200, SUNK_EVERY = 12, WEEDS_MAX = 32;
 
 export class WorldGen {
   constructor(seed) {
@@ -46,9 +51,9 @@ export class WorldGen {
     return b;
   }
   // Lo que se hunde el suelo por el agua en (x, y), seguido (0 en tierra): ver wetness
-  depthAt(x, y) { return depthOfWet(wetness(climate(x, y, this.seed, this.tmpC ||= {}))); }
+  depthAt(x, y) { const c = climate(x, y, this.seed, this.tmpC ||= {}); return depthOfWet(wetness(c), c, x, y, this.seed); }
   // La altura del suelo en (x, y) sin lo construido: hundido por el agua o, en tierra, el relieve (ver reliefOf)
-  groundAt(x, y) { const c = climate(x, y, this.seed, this.tmpC ||= {}), u = wetness(c); return u > 0 ? depthOfWet(u) : reliefOf(c, u, x, y, this.seed); }
+  groundAt(x, y) { const c = climate(x, y, this.seed, this.tmpC ||= {}), u = wetness(c); return u > 0 ? depthOfWet(u, c, x, y, this.seed) : reliefOf(c, u, x, y, this.seed); }
   // Apuntar biomas ya calculados en otro hilo (ground.js: blockHeights): las esquinas (m por lado desde
   // (x0 - 1, z0 - 1)) y los centros (BLOCK por lado desde el bloque)
   seedBiomes(x0, z0, corners, m, centers, w) {
@@ -98,6 +103,9 @@ export class WorldGen {
     }
     const n = CHUNK * RES + 1, biome = new Uint8Array(n * n), patch = new Float32Array(n * n), v = new Float32Array(K.length);
     const wet = new Float32Array(n * n), shore = new Uint8Array(n * n), cw = {};   // (el agua, seguida, y la clase de orilla)
+    // (the extra depth of the deep sea and the big lakes, deepOf, for the bed paint; with lake 1 where it is a lake's. Both
+    // null in a chunk with nothing deep, which is nearly all of them)
+    let deep = null, lake = null;
     for (let j = 0, i = 0; j < n; j++) {
       for (let k = 0; k < n; k++, i++) {
         const fx = k / RES, fy = j / RES, x0 = Math.min(nc - 2, fx | 0), y0 = Math.min(nc - 2, fy | 0), u = fx - x0, w = fy - y0, b = y0 * nc + x0;
@@ -112,9 +120,84 @@ export class WorldGen {
         biome[i] = classify(v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7], (patch[i] - 0.5) * 0.03, v[8], v[9], v[10]);
         for (let q = 0; q < K.length; q++) cw[K[q]] = v[q];
         wet[i] = wetness(cw); shore[i] = shoreOf(v[0], v[1], v[2]);
+        if (wet[i] > 2.5) {
+          const e = deepOf(cw, gk / RES, gj / RES, s);
+          if (e > 0) {
+            if (!deep) { deep = new Float32Array(n * n); lake = new Uint8Array(n * n); }
+            deep[i] = e; lake[i] = cw.T >= 0.32 && (cw.L - 0.82) / 0.03 > (0.36 - cw.C) / 0.02 ? 1 : 0;
+          }
+        }
       }
     }
-    return { n, biome, patch, wet, shore };
+    return { n, biome, patch, wet, shore, deep, lake };
+  }
+
+  // The finds on the sea and lake beds of a chunk, apart from content() (docs/planes/gta/PLAN-D-barras-buceo.md §4.6):
+  // { finds: [{ kind: 'seashell' | 'seaweed' | 'oyster' | 'mussel' | 'sunken_chest', key: `${kind}:${tx},${ty}`, x, y,
+  // bed (the gen bed height h), tall? (seaweed), yaw? (chest)}] }, deterministic, with its own LRU cache. Only dive.js
+  // and three/seabed3d.js call it; never merged into content, farObjects or colliders (content() runs for hundreds of
+  // chunks: the contact shadows, the far trees; every reader of its objects would pay for these).
+  // Like content(), cx wraps round the planet and x, y are those of the chunk's own copy (the caller adds the offset
+  // beyond the seam). At most one find per tile. Per tile, the cheap roll first, then the cached biome, and only then
+  // one climate call for the bed (sea or lake, and how deep): some 25-70 climate calls in a sea chunk, none on land
+  seabed(cx, cy) {
+    cx = own(cx);
+    const key = `${cx},${cy}`, C = (this.beds ||= new Map()), hit = C.get(key);
+    if (hit) { C.delete(key); C.set(key, hit); return hit; }
+    const out = this.computeSeabed(cx, cy);
+    C.set(key, out);
+    if (C.size > SEABED_CACHE) C.delete(C.keys().next().value);
+    return out;
+  }
+  computeSeabed(cx, cy) {
+    const s = this.seed, x0 = cx * CHUNK, y0 = cy * CHUNK, c = (this.tmpS ||= {});
+    // (nothing of this in the village, nor in a chunk without a water biome at its corners and centre: it would be all land)
+    if (this.nearVillage(cx, cy)) return NO_SEABED;
+    if (![[0.5, 0.5], [CHUNK - 0.5, 0.5], [0.5, CHUNK - 0.5], [CHUNK - 0.5, CHUNK - 0.5], [CHUNK / 2, CHUNK / 2]].some(([i, j]) => BIOMES[this.biomeAt(x0 + i, y0 + j)].water)) return NO_SEABED;
+    const finds = [], taken = new Set();
+    // The bed at (x, y): its height h and whether it is the sea (else a lake, a river or a pond: fresh water). null on land
+    const bed = (x, y) => {
+      climate(x, y, s, c);
+      const u = wetness(c);
+      if (u <= 0) return null;
+      return { h: depthOfWet(u, c, x, y, s), sea: (0.36 - c.C) / 0.02 >= u - 1e-6, lake: c.T >= 0.32 && (c.L - 0.82) / 0.03 >= u - 1e-6 };
+    };
+    const water = (tx, ty) => { const b = this.biomeAt(tx + 0.5, ty + 0.5); return b === B.OCEAN || b === B.SHALLOW || b === B.LAKE; };
+    // (a little off the tile's centre, the same every time: a bed of shells in a grid would look planted)
+    const spot = (tx, ty, k) => [tx + 0.2 + 0.6 * ihash(tx, ty, s + k), ty + 0.2 + 0.6 * ihash(tx, ty, s + k + 1)];
+    const add = (kind, tx, ty, x, y, h, extra) => { taken.add(ty * 65536 + tx); finds.push({ kind, key: `${kind}:${tx},${ty}`, x, y, bed: h, ...extra }); };
+    // A sunken chest: one chunk in SUNK_EVERY, on deep sea bed (up to three tries for its tile)
+    if (ihash(cx, cy, s + 905) < 1 / SUNK_EVERY) for (let i = 0; i < 3; i++) {
+      const tx = x0 + Math.floor(ihash(cx, cy, s + 910 + i) * CHUNK), ty = y0 + Math.floor(ihash(cx, cy, s + 920 + i) * CHUNK);
+      if (!water(tx, ty)) continue;
+      const x = tx + 0.5, y = ty + 0.5, b = bed(x, y);
+      if (!b || !b.sea || b.h > -6) continue;
+      add('sunken_chest', tx, ty, x, y, b.h, { yaw: ihash(tx, ty, s + 930) * Math.PI * 2 });
+      break;
+    }
+    let weeds = 0;
+    for (let ty = y0; ty < y0 + CHUNK; ty++) for (let tx = x0; tx < x0 + CHUNK; tx++) {
+      if (taken.has(ty * 65536 + tx)) continue;
+      // (the rolls, cheapest first: no climate call for a tile that would hold nothing)
+      const oyster = vnoise(tx * 0.05, ty * 0.05, s + 906) > 0.7 && ihash(tx, ty, s + 904) < 0.05;
+      const mussel = !oyster && ihash(tx, ty, s + 907) < 0.006;
+      const shell = !oyster && !mussel && ihash(tx, ty, s + 901) < 0.02;
+      const weed = !oyster && !mussel && !shell && weeds < WEEDS_MAX && vnoise(tx * 0.08, ty * 0.08, s + 902) > 0.62 && ihash(tx, ty, s + 903) < 0.3;
+      if (!(oyster || mussel || shell || weed) || !water(tx, ty)) continue;
+      const [x, y] = spot(tx, ty, oyster ? 940 : mussel ? 942 : shell ? 944 : 946), b = bed(x, y);
+      if (!b) continue;
+      const h = b.h;
+      if (oyster && b.sea && h < -4) add('oyster', tx, ty, x, y, h, { yaw: ihash(tx, ty, s + 950) * Math.PI * 2 });
+      else if (mussel && b.lake && !b.sea && h < -3) add('mussel', tx, ty, x, y, h, { yaw: ihash(tx, ty, s + 951) * Math.PI * 2 });
+      // (shells always at swimming depth, never in the wading band: there they would be gather targets on foot)
+      else if (shell && b.sea && h > -5 && h < -1.2) add('seashell', tx, ty, x, y, h, { yaw: ihash(tx, ty, s + 952) * Math.PI * 2 });
+      else if (weed && (b.sea || b.lake) && h > -10 && h < -1.5) {
+        // (never poking out of the water: at most 0.4 m under it)
+        const tall = Math.min(0.6 + ihash(tx, ty, s + 908) * 1.2, WATER_Y - h - 0.4);
+        if (tall >= 0.3) { add('seaweed', tx, ty, x, y, h, { tall, yaw: ihash(tx, ty, s + 953) * Math.PI * 2 }); weeds++; }
+      }
+    }
+    return finds.length ? { finds } : NO_SEABED;
   }
 
   // Árboles, arbustos y rocas de un trozo. Cada objeto lleva su tipo (kind), una clave única,
