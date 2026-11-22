@@ -5,7 +5,7 @@
 // stays); the hotbar when you switch, pick up or use the last of something, then it folds away; the money (top right,
 // as in GTA) when you earn or spend; the time at dawn, dusk, a new day, a weather change, waking up and before a shop
 // closes; the place when you enter a new one; the minimap while you travel, or while a first step sends you somewhere,
-// with a mark over where to go. Holding Tab shows everything (and a card with the keys), and opening a window shows
+// with a mark over where to go. Holding Tab shows everything (no keys card: they are in Pause › Controls), and opening a window shows
 // health, hunger, money and the time, as GTA's weapon wheel does. With the icon column gone, keys are taught once, at
 // the moment they are useful (I the first time you pick something up, C with a new recipe…). What needs you shows by
 // itself: hungry, the slot with food beats; drawing the bow, a ring at the cursor with the arrows left.
@@ -70,7 +70,7 @@ function findBed(g) {
 const CSS = `
 body.hud-min .hm, body.hud-min .hmt { opacity: 0; visibility: hidden; transition: opacity .5s ease, visibility 0s linear .5s; }
 body.hud-min .hm.hm-on, body.hud-min.hud-all .hm, body.hud-min .hmt.hm-on { opacity: 1; visibility: visible; transition: opacity .15s ease, visibility 0s; }
-body.hud-min.hud-all #hud-tip, body.hud-min.hud-all:not(.building) #hud-build, body.hud-min.hud-all.building #hud-keys { opacity: 0; visibility: hidden; }
+body.hud-min.hud-all #hud-tip, body.hud-min.hud-all:not(.building) #hud-build { opacity: 0; visibility: hidden; }
 body.hud-min.hud-all.building #hud-build { opacity: 1; visibility: visible; transition: opacity .15s ease, visibility 0s; }
 body.hud-min.hm-solo #players.show { display: none; }
 body.hud-min #admin-tag { left: 50%; top: 10px; transform: translateX(-50%); }
@@ -125,7 +125,7 @@ body.hud-min #quest.hm-compact:not(:hover) b { font-size: 16px; }
 #hud-bow.empty .bg { stroke: #ff6a4a; } #hud-bow.empty b { color: #ff8a6a; }
 /* The key tips: next to the hotbar, where the eye already goes */
 #hud-tip { position: absolute; left: calc(100% + 10px); bottom: 0; display: flex; align-items: center; gap: 4px; width: max-content; max-width: min(400px, calc(50vw - 250px)); padding: 7px 12px; font-size: 16px; line-height: 1.3; pointer-events: none; }
-#hud-keys, #hud-build { position: fixed; right: 16px; bottom: 40px; z-index: 8; pointer-events: none; }
+#hud-build { position: fixed; right: 16px; bottom: 40px; z-index: 8; pointer-events: none; }
 #hud-build { bottom: 158px; }   /* (above the build bar) */
 #hud-tip kbd, .hud-keys kbd { flex: none; font-size: 14px; }
 .hud-keys { padding: 8px 12px 10px; font-size: 15px; }
@@ -137,11 +137,7 @@ body.hud-min #quest.hm-compact:not(:hover) b { font-size: 16px; }
 `;
 
 const kbd = k => `<kbd>${k}</kbd>`;
-// The keys card (holding Tab, and in the pause): the keys there is no longer an icon for
-function keysCard() {
-  const rows = [['E', 'use'], ['Q', 'drop'], ['X', 'alt'], ['1 – 9', 'slots'], ['F', 'wheel'], ['Y', 'social'], ['I', 'bag'], ['C', 'craft'], ['B', 'build'], ['J', 'journal'], ['M', 'map'], ['T', 'chat'], ['Z', 'view'], ['Tab', 'all'], ['Esc', 'pause']];
-  return `<h4>${t('hud.keys.title')}</h4><dl>${rows.map(([k, id]) => `<dt>${kbd(k)}</dt><dd>${t('hud.keys.' + id)}</dd>`).join('')}</dl>`;
-}
+// (no keys card with Tab any more: the user asked for it, the keys are in Pause › Controls)
 function buildCard() {
   const rows = [[t('key.click'), 'place'], [`${t('hud.key.right_click')} / ${kbd('X')}`, 'remove'], [kbd('R'), 'rotate'], [kbd('B'), 'exit']];
   return `<h4>${t('gui.build.title')}</h4><dl>${rows.map(([k, id]) => `<dt>${k}</dt><dd>${t('hud.build.' + id)}</dd>`).join('')}</dl>`;
@@ -183,8 +179,7 @@ export class SmartHud {
     this.el.goal.innerHTML = '<i></i><s></s><b></b>';
     this.el.bow = make('hud-bow', 'hmt');
     this.el.bow.innerHTML = '<svg viewBox="0 0 44 44"><circle class="bg" cx="22" cy="22" r="17"/><circle class="fg" cx="22" cy="22" r="17" pathLength="100" stroke-dasharray="100" stroke-dashoffset="100"/></svg><b></b>';
-    this.keys = make('hud-keys', 'panel hud-keys hm');   // (only with Tab: hud-all)
-    this.made = [this.el.status, this.el.item, this.el.delta, this.el.tip, this.el.build, this.el.goal, this.el.bow, this.keys];
+    this.made = [this.el.status, this.el.item, this.el.delta, this.el.tip, this.el.build, this.el.goal, this.el.bow];
     this.hintEl = $('hint');
     // (Controls: Tab now also shows the whole interface)
     document.querySelector('[data-i18n="controls.players"]')?.setAttribute('data-i18n', 'hud.controls.tab');
@@ -228,7 +223,6 @@ export class SmartHud {
   }
 
   paintCards() {
-    this.keys.innerHTML = keysCard();
     this.el.build.innerHTML = buildCard();
     if (this.tip) { this.tipSig = null; this.paintTip(this.tip); }
     const tab = document.querySelector('[data-i18n="hud.controls.tab"]');
