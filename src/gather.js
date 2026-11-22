@@ -355,7 +355,7 @@ export class Gathering {
       g.scene.remove(o);
       this.chips(o.x, o.y, rule.chips, 16);
       const fruit = o.bare && rule.fruit ? { ...rule, drops: rule.drops.filter(([id]) => id !== rule.fruit) } : rule;   // (la palmera a la que se le acaban de coger los cocos ya no tiene)
-      // (with the prototype, a tree leaves its log lying where it falls instead of the wood: carry.js)
+      // (with the weight inventory, a tree leaves its log lying where it falls instead of the wood: carry.js)
       if (!g.carry?.felled(o, fruit)) this.spawnDrops(o, fruit, skill && Math.random() < (g.skills?.bonus(skill) || 0));
       const ore = rule.drops.find(([id]) => XP_ORE[id]);   // (el carbón y las piedras preciosas dan experiencia)
       if (ore) g.xp?.add(roll(...XP_ORE[ore[0]]));

@@ -1,4 +1,4 @@
-// The backpack as a list (the weight prototype, ?inventario=peso: see ../carry.js). Instead of the 27 slots of the
+// The backpack as a list (the weight inventory, the default: see ../carry.js). Instead of the 27 slots of the
 // backpack: the load bar (kg of what you carry and what you carry comfortably), what the arms carry, tabs by kind and one
 // row per stack, the heaviest first. A click shows it in the details below (the same #inv-info); dragging a row to a
 // slot of the hotbar puts it at hand, to the body puts it on, out of the window drops it. The chest window shows the same
@@ -22,7 +22,7 @@ const CSS = `
 .pk-load b { flex: none; font: 500 16px/1 var(--font-title); letter-spacing: .02em; font-variant-numeric: tabular-nums; color: var(--cream); white-space: nowrap; }
 .pk-load.heavy b { color: #ffc86a; } .pk-load.over b { color: #ff8a6a; }
 .pk-arms { display: flex; align-items: center; gap: 8px; padding: 3px 4px 3px 8px; font-size: 15px; background: rgba(255, 215, 122, .1); border: 1px solid rgba(255, 215, 122, .45); border-radius: 6px; }
-.pk-arms img { width: 30px; height: 30px; } .pk-arms span { flex: 1; } .pk-arms .btn { padding: 3px 10px; font-size: 15px; }
+.pk-arms img { width: 30px; height: 30px; } .pk-arms span { flex: 1; } .pk-arms .btn { width: auto; flex: none; margin: 0; padding: 3px 10px; font-size: 15px; }   /* (not the global .btn width: 100%) */
 #pk-box { display: flex; flex-direction: column; gap: 5px; width: 428px; min-height: 120px; }
 .pk-tabs { display: flex; gap: 3px; flex-wrap: wrap; }
 .pk-tabs button { padding: 2px 8px; font: 500 14px var(--font-ui); color: var(--dim); background: rgba(0, 0, 0, .25); border: 1px solid #6a4a2a; border-radius: 4px; cursor: pointer; }

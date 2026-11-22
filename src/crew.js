@@ -116,7 +116,7 @@ export class Crew {
     Audio.pickup();
     g.onSave?.();
   }
-  mooredAction(b) { return { text: 'Subir a la barca', run: () => this.embark(b), alt: { text: 'Desmontar la barca', run: () => this.dismantle(b) } }; }
+  mooredAction(b) { return { text: this.game.carry?.dropFirst() || 'Subir a la barca', run: () => this.embark(b), alt: { text: 'Desmontar la barca', run: () => this.dismantle(b) } }; }
   canRow(p, scene) { return scene === this.game.world && !p.boat && !p.mount && !p.aboard && !p.inside; }
   // Lo que hace E en la barca de otro
   action() {
@@ -128,7 +128,7 @@ export class Crew {
   canBoard(p, scene) { const g = this.game; return scene === g.world && g.live.joined && !p.boat && !p.mount && !p.aboard && !p.inside; }
   actionOn(peer) {
     if (this.game.live.others.some(q => q.entity?.aboard === peer.id)) return { text: `La barca de ${peer.name} ya va llena`, run: () => hud.toast('En la barca caben dos') };
-    return { text: `Subir a la barca de ${peer.name}`, run: () => this.board(peer) };
+    return { text: this.game.carry?.dropFirst() || `Subir a la barca de ${peer.name}`, run: () => this.board(peer) };
   }
   interact(p, scene) {
     if (this.canRow(p, scene)) { const b = this.game.world.boatsNear(p.x, p.y, REACH)[0]; if (b) return this.mooredAction(b); }

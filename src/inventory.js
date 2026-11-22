@@ -5,6 +5,7 @@
 import { ITEMS, LEGACY_ITEMS, modernSlots } from './items.js';
 import './buildables.js';   // (apunta en LEGACY_ITEMS los muebles y las estaciones, que ya no son objetos)
 import { BULKY, BULKY_PARTS } from './carry-items.js';   // (the big things carried in the arms: see carry.js)
+import { t } from './i18n.js';
 
 export const SLOTS = 36, HOTBAR = 9;
 const PREV_MS = 500;   // (held this long, what was in hand counts as "the one before" for a tap of F: see remember)
@@ -18,7 +19,7 @@ export class Inventory {
     this.spill = modernSlots(this.slots);   // (lo que ya no es un objeto, por sus materiales; spill: lo que no ha cabido, que el juego deja a los pies)
     // A big thing (carry-items.js) is never in a slot or waiting in keep: the first one found goes to armsSaved (the
     // weight inventory puts it back in the arms; this one gives its parts: Carry.reset), the others become their parts.
-    // (A save of the prototype keeps what is carried in keep, with arms: 1; an older game may have put it in a slot)
+    // (A save of the weight inventory keeps what is carried in keep, with arms: 1; an older game may have put it in a slot)
     this.armsSaved = null;
     const big = s => { if (!this.armsSaved) this.armsSaved = { id: s.id, ...(s.day !== undefined && { day: s.day }) }; else for (const [m, k] of BULKY_PARTS[s.id]) this.spill.push([m, k]); };
     this.slots.forEach((s, i) => { if (s && BULKY[s.id]) { big(s); this.slots[i] = null; } });
@@ -149,9 +150,9 @@ export class Inventory {
   unwear(slot) {
     const it = this.equip[slot];
     if (!it) return null;
-    if (slot === 'espalda' && this.slots.slice(HOTBAR).some(Boolean)) return 'Vacía la mochila antes de quitártela (o déjala en el suelo, llena).';
+    if (slot === 'espalda' && this.slots.slice(HOTBAR).some(Boolean)) return t('gui.inventory.empty_bag_first');
     const free = this.slots.findIndex((s, i) => !s && i < (slot === 'espalda' ? HOTBAR : this.cap));
-    if (free < 0) return 'No tienes un hueco libre donde guardarlo.';
+    if (free < 0) return t('gui.inventory.no_free_slot');
     this.slots[free] = { id: it.id, n: 1, color: it.color, ...(it.dur !== undefined && { dur: it.dur }) };
     delete this.equip[slot];
     if (slot === 'espalda') this.unbag();

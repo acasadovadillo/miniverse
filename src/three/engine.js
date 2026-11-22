@@ -314,7 +314,7 @@ export class View3D {
   // Lo que se lleva en la mano, en primera persona: abajo a la derecha, con el vaivén de andar y el gesto al usarlo
   updateViewmodel(game, first) {
     const vm = this.viewmodel, m = this.actors.player;
-    // (something big in the arms, with the weight prototype: it shows at the bottom of the screen, carry3d.js)
+    // (something big in the arms, with the weight inventory: it shows at the bottom of the screen, carry3d.js)
     const big = first && !game.player?.swim && game.carry?.held ? game.carry.held : null;
     const id = big ? 'carry:' + big : first && !game.player?.swim ? (m?.anim ? m.anim.item : game.inv?.held?.id) || null : null;   // (nadando, se guarda)
     if (this.vmItem !== id) {

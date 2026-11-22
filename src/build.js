@@ -91,8 +91,8 @@ export class BuildMode {
     g.skills?.gain('construccion', 1);
     g.stats?.add('piezas', 1);
   }
-  // (with the weight prototype, what is missing comes from the chests nearby: carry.js have and spend; without it, the
-  // backpack as always)
+  // (with the weight inventory, what is missing comes from the chests nearby: carry.js have and spend; with the slot one
+  // (?inventario=casillas), the backpack as before)
   have(id, fresh = false) { return this.game.carry ? this.game.carry.have(id, fresh) : this.game.inv.count(id); }
   spend(cost) { if (this.game.carry) return this.game.carry.spend(cost); for (const [m, n] of cost) this.game.inv.remove(m, n); return true; }
   // (just before placing a piece of furniture or a station: counted now, so it is never placed without being paid)

@@ -59,7 +59,7 @@ export function initCraftingUI(game, { onClose, onBag }) {
     // Si hay una estación de esta pestaña cerca, se puede recoger
     const st = near[tab];
     $('cf-pick').hidden = !st || st === true || !!st.fixed;   // (las del taller del pueblo no se recogen)
-    if (st && st !== true) $('cf-pick').textContent = `Guardar ${ITEMS[tab].name.toLowerCase()} en el inventario`;
+    if (st && st !== true) $('cf-pick').textContent = t('gui.crafting.pick_station', { item: { name: ITEMS[tab].name } });
     $('cf-where').textContent = tab === 'mano' ? 'Se fabrica en cualquier sitio.' : near[tab] ? `Estás junto a: ${STATIONS[tab].name.toLowerCase()}.` : `Para esto necesitas estar junto a: ${STATIONS[tab].name.toLowerCase()}.`;
   }
 
@@ -127,7 +127,7 @@ export function initCraftingUI(game, { onClose, onBag }) {
     box.append(wrap);
     if (picking) {
       const opts = game.inv.slots.map((s, i) => ({ s, i })).filter(({ s }) => s && fits(def, picking, s.id));
-      note(opts.length ? `Elige qué poner en «${def.slots[picking].toLowerCase()}»:` : `No llevas nada para «${def.slots[picking].toLowerCase()}».`);
+      note(t(opts.length ? 'gui.crafting.machine_pick' : 'gui.crafting.machine_none', { slot: { name: def.slots[picking] } }));
       for (const { s, i } of opts) {
         const b = document.createElement('button');
         b.type = 'button'; b.className = 'cf-fix';
@@ -173,7 +173,7 @@ export function initCraftingUI(game, { onClose, onBag }) {
     ins.textContent = '';
     if (known) {
       for (const [id, n] of r.ins) {
-        const have = game.craft.have(id), row = document.createElement('div'), chests = have - game.inv.count(id);   // (with the weight prototype, the chests nearby count: carry.js)
+        const have = game.craft.have(id), row = document.createElement('div'), chests = have - game.inv.count(id);   // (with the weight inventory, the chests nearby count: carry.js)
         row.className = 'cf-in' + (have >= n ? ' have' : '');
         row.innerHTML = `<img alt="" src="${itemIconUrl(id)}"><span>${ITEMS[id].name}</span><b>${have}/${n}</b>`;
         if (chests > 0) { const c = document.createElement('small'), b = row.querySelector('b'); c.style.cssText = 'margin-left: auto; font-size: 14px; color: var(--dim)'; c.textContent = t('gui.crafting.in_chests', { n: chests }); b.style.marginLeft = '8px'; b.before(c); }

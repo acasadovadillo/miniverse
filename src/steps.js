@@ -110,11 +110,12 @@ export class Steps {
     if (hide) return;
     $('quest-title').textContent = `Primeros pasos · ${this.i + 1} de ${STEPS.length}`;
     $('quest-text').textContent = st.text + (p ? ` (${Math.max(0, p[0])}/${p[1]})` : '');
-    // (with the weight prototype a felled tree leaves a log: carry.js)
-    $('quest-hint').textContent = st.id === 'talar' && this.game.carry?.bigNow ? t('steps.fell_carry') : st.hint;
+    $('quest-hint').textContent = this.hintOf(st);
   }
+  // A step's hint: felling, with the weight inventory (the default: carry.js), says what to do with the log it leaves
+  hintOf(st) { return st.id === 'talar' && this.game.carry?.bigNow ? t('steps.fell_carry') : st.hint; }
   journal() {
-    const rows = STEPS.map((st, i) => `<div class="j-row ach ${i < this.i ? 'done' : ''}"><b>${i < this.i ? '✓' : i === this.i ? '▸' : '·'} ${st.text}</b><small>${st.hint}</small></div>`).join('');
+    const rows = STEPS.map((st, i) => `<div class="j-row ach ${i < this.i ? 'done' : ''}"><b>${i < this.i ? '✓' : i === this.i ? '▸' : '·'} ${st.text}</b><small>${this.hintOf(st)}</small></div>`).join('');
     return `<p class="j-note">${this.over ? 'Terminados.' : `Vas por el ${this.i + 1} de ${STEPS.length}.`} <button type="button" class="btn" data-steps-restart style="width:auto;display:inline-block;margin:0 0 0 8px;padding:2px 10px;font-size:14px">Repasarlos</button></p>${rows}`;
   }
 }

@@ -16,6 +16,7 @@ import { CAM } from './camera.js';
 import { ITEMS } from './items.js';
 import { Audio } from './audio.js';
 import { Profile } from './accounts.js';
+import { t } from './i18n.js';
 import { rayHits, aabb } from './world/fit.js';
 import { wrapX, nearX, WATER_Y } from './world/planet.js';
 import { shotHit } from './world/shots.js';
@@ -44,9 +45,9 @@ export class Archery {
   target(p, held, def) {
     if (!def?.bow) return null;
     const n = this.arrows();
-    if (!n) return { tile: null, ok: false, label: 'No te quedan flechas' };
-    if (this.drawT !== null) return { tile: null, ok: true, label: `Tensando: ${Math.round(this.k * 100)} % (suelta para disparar)` };
-    return { tile: null, ok: true, label: `Mantén pulsado para tensar${n === Infinity ? '' : ` (${n} flecha${n === 1 ? '' : 's'})`}` };
+    if (!n) return { tile: null, ok: false, label: t('archery.no_arrows') };
+    if (this.drawT !== null) return { tile: null, ok: true, label: t('archery.drawing', { pct: Math.round(this.k * 100) }) };
+    return { tile: null, ok: true, label: n === Infinity ? t('archery.hold_to_draw') : t('archery.hold_to_draw_n', { n }) };
   }
   // Se pulsa el botón con el arco en la mano
   press() {

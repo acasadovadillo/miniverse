@@ -58,11 +58,11 @@ export function initMenus(game) {
     paint();
   }
 
-  // ---------- Language: EN | ES in a corner of the login screen and the main menu ----------
-  // (Settings only opens after logging in: the first screen needs its own way to change it. A click is an explicit
-  // choice, saved like the one in Settings)
+  // ---------- Language: EN | ES in a corner of the login screen ----------
+  // (Settings only opens after logging in: the first screen needs its own way to change it. The main menu has Settings,
+  // so no corner picker there. A click is an explicit choice, saved like the one in Settings)
   const pickers = [];
-  for (const id of ['s-login', 's-menu']) {
+  for (const id of ['s-login']) {
     const box = document.createElement('div'), mark = text => { const s = document.createElement('span'); s.textContent = text; s.setAttribute('aria-hidden', 'true'); return s; };
     box.className = 'lang-pick panel';
     box.setAttribute('role', 'group');
@@ -707,7 +707,7 @@ export function initMenus(game) {
   const invUI = initInventoryUI(game, { onClose: () => wins.close('s-inv'), onCraft: () => openCraft() });
   const craftUI = initCraftingUI(game, { onClose: () => wins.close('s-craft'), onBag: () => wins.open('s-inv') });
   const chestUI = initChestUI(game, { onClose: () => wins.close('s-chest') });
-  let loadMeter = null;   // (the weight prototype, ?inventario=peso: carry.js; made the first time a game has it)
+  let loadMeter = null;   // (the weight inventory, the default: carry.js; made the first time a game has it)
   let chestAt = null, chestTick = 0;   // (dónde se abrió el cofre: si se aleja, se cierra)
   wins.add('s-inv', { close: 'inv-close', spot: wins.defaults.left, onOpen: () => invUI.open() });
   wins.add('s-craft', { close: 'cf-close', spot: wins.defaults.right });

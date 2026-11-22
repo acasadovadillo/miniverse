@@ -126,7 +126,7 @@ export class Crafting {
     if (inv.infinite) return 99;
     return Math.min(...r.ins.map(([id, n]) => Math.floor(this.have(id) / n)));
   }
-  // How many there are to craft with: the backpack and, with the weight prototype, the chests nearby (carry.js)
+  // How many there are to craft with: the backpack and, with the weight inventory, the chests nearby (carry.js)
   have(id) { const g = this.game; return g.carry ? g.carry.have(id) : g.inv.count(id); }
 
   // ---------- Reparar en el yunque ----------

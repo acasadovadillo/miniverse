@@ -22,6 +22,7 @@ import { nearX } from '../world/planet.js';
 import { parsePlaced } from '../pieces.js';
 import { SHOPS } from '../economy.js';
 import { HOTBAR } from '../inventory.js';
+import { BULKY } from '../carry-items.js';
 import { Profile } from '../accounts.js';
 import { CAM } from '../camera.js';
 import { reportFault } from '../faults.js';
@@ -41,6 +42,8 @@ const TIPS = {
   bag: { code: 'KeyI', key: 'I' }, craft: { code: 'KeyC', key: 'C' }, build: { code: 'KeyB', key: 'B' },
   journal: { code: 'KeyJ', key: 'J' }, map: { code: 'KeyM', key: 'M' }, all: { code: 'Tab', key: 'Tab' }, wheel: { code: 'KeyF', key: 'F' }, social: { code: 'KeyY', key: 'Y' },
   hungry: {}, lowhp: { key: null },
+  // (no code: E and Q are pressed for many other things, so only being shown makes them known)
+  bulky: { key: 'E' }, arms: { key: 'Q' },
 };
 const KNOWN = ['bag', 'craft', 'build', 'journal', 'map'];   // (what a player past the first steps already knows)
 // Closing hours of the shops (hours past 24 are after midnight); the ones open all day never close
@@ -90,14 +93,10 @@ body.hud-min:not(.survival) #hud-status { display: none; }
 #hud-status #xp b { left: auto; right: -22px; top: -4px; transform: none; }
 #hud-coins { display: none; margin-top: 1px; font: 500 17px/1.2 var(--font-title); letter-spacing: .03em; font-variant-numeric: tabular-nums; color: var(--gold); }
 #hud-status.hm-wins #hud-coins { display: block; }   /* (with a window open, the money goes here: the windows open at the top right) */
-/* The money, top right as in GTA (under the minimap while it shows), and what came in or went out */
+/* The money, top right as in GTA (the minimap is bottom left), and what came in or went out */
 body.hud-min #money { position: fixed; right: 12px; top: 52px; margin: 0; padding: 5px 12px; font-size: 18px; line-height: 1.2; transition: opacity .5s ease, visibility 0s linear .5s, top .25s ease; }
 body.hud-min #money.hm-on { transition: opacity .15s ease, visibility 0s, top .25s ease; }
-body.hud-min.hm-mini #money, body.hud-min.hud-all #money { top: 182px; }
-body.hud-min.indoors #money { top: 52px; }
 #hud-delta { position: fixed; right: 14px; top: 92px; font: 600 18px/1.2 var(--font-title); letter-spacing: .03em; font-variant-numeric: tabular-nums; white-space: nowrap; pointer-events: none; text-shadow: 1px 0 #2a1c22, -1px 0 #2a1c22, 0 1px #2a1c22, 0 -1px #2a1c22; transition: opacity .5s ease, visibility 0s linear .5s, top .25s ease; }
-body.hud-min.hm-mini #hud-delta, body.hud-min.hud-all #hud-delta { top: 222px; }
-body.hud-min.indoors #hud-delta { top: 92px; }
 #hud-delta.up { color: #a8f07a; } #hud-delta.down { color: #ff9a7a; }
 body:not(.playing) #money, body:not(.playing) #hud-delta, body:not(.playing) #hud-goal, body:not(.playing) #hud-bow { display: none; }
 #hud-item { position: absolute; left: 50%; bottom: 62px; transform: translateX(-50%); padding: 2px 10px; font-size: 16px; white-space: nowrap; color: var(--cream); background: rgba(24, 16, 10, .72); border-radius: 9px; pointer-events: none; }
@@ -138,7 +137,7 @@ body.hud-min #quest.hm-compact:not(:hover) b { font-size: 16px; }
 const kbd = k => `<kbd>${k}</kbd>`;
 // The keys card (holding Tab, and in the pause): the keys there is no longer an icon for
 function keysCard() {
-  const rows = [['E', 'use'], ['1 – 9', 'slots'], ['F', 'wheel'], ['Y', 'social'], ['I', 'bag'], ['C', 'craft'], ['B', 'build'], ['J', 'journal'], ['M', 'map'], ['T', 'chat'], ['Z', 'view'], ['Tab', 'all'], ['Esc', 'pause']];
+  const rows = [['E', 'use'], ['Q', 'drop'], ['X', 'alt'], ['1 – 9', 'slots'], ['F', 'wheel'], ['Y', 'social'], ['I', 'bag'], ['C', 'craft'], ['B', 'build'], ['J', 'journal'], ['M', 'map'], ['T', 'chat'], ['Z', 'view'], ['Tab', 'all'], ['Esc', 'pause']];
   return `<h4>${t('hud.keys.title')}</h4><dl>${rows.map(([k, id]) => `<dt>${kbd(k)}</dt><dd>${t('hud.keys.' + id)}</dd>`).join('')}</dl>`;
 }
 function buildCard() {
@@ -310,7 +309,7 @@ export class SmartHud {
     const free = !talking;   // (talking, only what is critical: as in RDR2)
     const food = surv && heldDef?.food && c.hunger < HUNGER_MAX;
     // (with the tool wheel open, as with a window: health, hunger and the time; the hotbar goes, the wheel is it now)
-    // (and with the weight prototype, while the load matters: carry.js; the meter goes in this block, ui/loadmeter.js)
+    // (and with the weight inventory, while the load matters: carry.js; the meter goes in this block, ui/loadmeter.js)
     this.set('status', crit.hearts || crit.hunger || (free && (up('status') || this.danger || wins || food || wheel || !!g.carry?.showLoad())));
     this.set('money', free && !spect && up('money'));   // (with a window open it would be under it: in survival it is in the block)
     this.set('wins', wins, this.el.status, 'hm-wins');
@@ -377,6 +376,12 @@ export class SmartHud {
     }
     // Someone to greet under the cursor (social.js), the first times: Y
     if (g.social?.picked && T - this.started > 8) this.want('social');
+    // A log or a carcass within reach, and then one in the arms (the weight inventory: carry.js), the first times: E, then Q
+    const C = g.carry;
+    if (C?.bigNow && T - this.started > 8) {
+      if (C.held) this.want('arms');
+      else if (!this.seen.has('bulky') && (g.scene?.placedNear?.(p.x, p.y, 2.2) || []).some(o => BULKY[o.placed])) this.want('bulky');   // (four times a second, until it is known)
+    }
     // Leaving the village for the first time: the map
     if (g.scene === g.world && !g.indoors && !inBounds(p.x, p.y)) this.want('map');
     // A new recipe while playing (not the ones of the start): crafting

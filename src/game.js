@@ -172,7 +172,7 @@ export class Game {
     this.stats = this.addSystem(new Stats());
     this.skills = this.addSystem(new Skills(this));
     this.days = this.addSystem(new TimeSystem(this));
-    this.carry = this.addSystem(new Carry(this));   // weight and things in the arms (prototype: ?inventario=peso; before the bow, so its hint wins)
+    this.carry = this.addSystem(new Carry(this));   // weight and things in the arms (the default; ?inventario=casillas: the slots. Before the bow, so its hint wins)
     this.archery = this.addSystem(new Archery(this));   // el arco (antes que lo que se haga con E o con la herramienta)
     this.board = this.addSystem(new Board(this));
     this.farm = this.addSystem(new Farm(this));
@@ -243,7 +243,7 @@ export class Game {
     this.world.onTouch = k => this.live.touched(k);
     if (moved) for (const k of deltas.keys()) this.world.dirty.add(k);   // que se guarde ya así
     this.world.clock = save.clock || 0;
-    this.inv = new (weightMode() ? WeightInventory : Inventory)(save.inventory);   // (the weight one only with the prototype: carry.js)
+    this.inv = new (weightMode() ? WeightInventory : Inventory)(save.inventory);   // (the weight one, unless ?inventario=casillas or on the world server: carry.js)
     if (!save.inventory) for (const [id, n] of START_KIT) this.inv.add(id, n);   // partida nueva: equipo inicial
     this.invSpill = this.inv.spill;   // (materiales de muebles de antes que no han cabido: se dejan a los pies al empezar)
     // (las partidas de antes de la pala la reciben una vez: la marca pala va en lo guardado; si no cabe, a los pies)
@@ -660,8 +660,8 @@ export class Game {
     const top = hung ? { tile: hung[0], layer: 'hang', placed: hung[1].split('@')[0] } : o;
     const name = ITEMS[o.placed].name.toLowerCase(), pick = { text: `${BUILDABLE[top.placed] ? 'Desmontar' : 'Recoger'} ${ITEMS[top.placed].name.toLowerCase()}`, run: () => this.pickUp(top) };   // (lo construido, al desmontarlo, devuelve sus materiales)
     if (STATIONS[o.placed]) return { text: `Usar ${name}`, run: () => this.onCraft?.(o.placed), alt: o.fixed ? null : pick };
-    if (o.placed === 'cama' || o.placed === 'cama_nino' || o.placed === 'cama_doble') return { text: 'Usar la cama', run: () => this.bed(o), alt: pick };
-    if (o.placed === 'silla' || o.placed === 'taburete' || o.placed === 'sofa' || o.placed === 'sillon') return { text: 'Sentarse', run: () => this.rest.sit(o), alt: o.fixed ? null : pick };
+    if (o.placed === 'cama' || o.placed === 'cama_nino' || o.placed === 'cama_doble') return { text: this.carry.dropFirst() || 'Usar la cama', run: () => this.bed(o), alt: pick };   // (with something in the arms: put it down first, carry.js)
+    if (o.placed === 'silla' || o.placed === 'taburete' || o.placed === 'sofa' || o.placed === 'sillon') return { text: this.carry.dropFirst() || 'Sentarse', run: () => this.rest.sit(o), alt: o.fixed ? null : pick };
     if (o.placed === 'lavabo') return { text: 'Mirarse en el espejo', run: () => this.onMirror?.(), alt: pick };
     if (wellSpec(o.placed)) return this.farm.wellAction(o, o.fixed ? null : pick);   // (E: llenar la regadera; X: desmontarlo. The big well too)
     if (CHESTS[o.placed] && o.placed !== 'mochila') return { text: `Abrir ${CHESTS[o.placed][1]}`, run: () => this.onChest?.(sc.chestAt(...o.tile), o.tile), alt: pick };   // (lleno no se recoge: hay que vaciarlo antes)
@@ -737,15 +737,15 @@ export class Game {
       this.onSave?.();
       return;
     }
-    if (full) { this.gather.float('Ya llevas una mochila: saca antes lo que tenga', '#ffb0a0'); Audio.error(); return; }
+    if (full) { this.gather.float(t('gui.inventory.bag_have_one'), '#ffb0a0'); Audio.error(); return; }
     this.pickUp(o);
   }
   // Dejar en el suelo, delante, la mochila que llevas puesta, con todo lo que lleve dentro
   dropBackpack() {
     const p = this.player, sc = this.scene, inv = this.inv;
-    if (!p || !inv.equip.espalda) return 'No llevas mochila.';
+    if (!p || !inv.equip.espalda) return t('gui.inventory.no_bag');
     const tx = Math.floor(p.x + p.face.x * 1.1), ty = Math.floor(p.y + p.face.y * 1.1);
-    if (!sc.canPlace?.(tx, ty, 'mochila', p)) return 'Aquí delante no hay sitio para dejarla.';
+    if (!sc.canPlace?.(tx, ty, 'mochila', p)) return t('gui.inventory.no_room_bag');
     const list = inv.weight ? inv.listSlots() : null;   // (the weight inventory: its list, if it fits in the 27 of the backpack)
     if (list && list.length > 27) return t('gui.inventory.bag_too_full');
     sc.place(tx, ty, 'mochila', 0);
@@ -764,8 +764,8 @@ export class Game {
   // carry: lo coge el modo construir para moverlo (no devuelve nada: se deja en otro sitio)
   pickUp(o, carry = false) {
     if (o.fixed && !o.yard && !o.build) return false;
-    // (a log or a carcass, taken with B › Remove or X: its parts, as without the prototype; it is never moved. carry.js)
-    if (BULKY[o.placed]) { if (carry || this.scene.unplace(o) === false) return false; this.carry.forget(o.tile); this.carry.giveParts(o.placed); Audio.pickup(); return true; }   // (lo que venía puesto no se recoge sin querer: solo la valla de tu jardín y, en modo construir, todo)
+    // (a log or a carcass, taken with B › Remove or X: its parts, as with the slot inventory; it is never moved. carry.js)
+    if (BULKY[o.placed]) { const wait = this.carry.notYours(o); if (wait) { this.carry.say(wait); Audio.error(); return false; } if (carry || this.scene.unplace(o) === false) return false; this.carry.forget(o.tile); this.carry.giveParts(o.placed); Audio.pickup(); return true; }   // (lo que venía puesto no se recoge sin querer: solo la valla de tu jardín y, en modo construir, todo)
     // Lo que se construye (las piezas, como la valla, y los muebles y las estaciones) no vuelve a la mochila: devuelve
     // sus materiales
     const B = BUILDABLE[o.placed] || (PIECES[o.placed] && !ITEMS[o.placed] ? PIECES[o.placed] : null);
@@ -1198,7 +1198,7 @@ export class Game {
     if (keys.use && !this.busy && !this.jumping && !this.build.on) this.gather.use(true);
     if (this.busy || this.jumping || hud.dialogOpen || p.pose) { p.stop(); return; }
     p.speedMul = (this.buffs.rapido > this.time ? 1.35 : 1) * (p.mount ? this.ranch.rideSpeed() : 1) * this.archery.walk * this.carry.speedMul();
-    p.noRun = this.carry.noRun(); p.jumpMul = this.carry.jumpMul();   // (the load and the arms, carry.js: without the prototype, false and 1)
+    p.noRun = this.carry.noRun(); p.jumpMul = this.carry.jumpMul();   // (the load and the arms, carry.js: with the slot inventory, false and 1)
     if (Object.values(keys).some(Boolean)) this.lastInput = this.time;   // (para /setidletimeout)
     if (p.aboard) p.stop();   // (de pasajero en una barca, le lleva ella)
     else p.update(dt, keys, this.scene);

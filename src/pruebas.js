@@ -46,7 +46,7 @@ import { sobrio, tonosSuelo } from './arte.js';
 import { tintOf } from './three/tints.js';
 import { PHOTOS, photo } from './three/photos.js';
 import { Inventory, HOTBAR } from './inventory.js';
-import { WeightInventory, Carry } from './carry.js';
+import { WeightInventory, Carry, weightMode } from './carry.js';
 import { BULKY, BULKY_PARTS, CARCASS_OF, weightOf, BASE_CAP, BAG_CAP } from './carry-items.js';
 import { Player } from './entities.js';
 import { screenToWorld } from './camera.js';
@@ -158,6 +158,19 @@ async function harvest(game, o, tool) {
 // vendría: se va a por ello)
 async function collectDrops(game, what = 'a recoger lo que ha caído') {
   await until(() => { const d = game.gather.drops[0]; if (d) { game.player.x = d.x; game.player.y = d.y; } return !game.gather.drops.length; }, 30000, what);
+}
+// The weight inventory, the default (carry.js): a felled tree or a hunted adult leaves its big thing lying there (a log,
+// a carcass). Opened where it lies, as a player would (the axe splits the log, X butchers the carcass), it gives its
+// things as before. Nothing to do with the slot inventory (?inventario=casillas), or if there was no room for it (then
+// its things fell as before). true: there was one
+function openBig(game, x, y, r = 3) {
+  const C = game.carry;
+  if (!C?.bigNow) return false;
+  const o = (game.scene.placedNear?.(x, y, r) || []).filter(q => BULKY[q.placed]).sort((a, b) => Math.hypot(a.x - x, a.y - y) - Math.hypot(b.x - x, b.y - y))[0];
+  if (!o) return false;
+  if (BULKY[o.placed].prey) C.butcher(o);
+  else { selectTool(game, 'hacha'); for (let i = 0; i < 3; i++) { game.gather.cooldown = 0; C.split(o); } }
+  return true;
 }
 function freeTile(game, from) {
   const w = game.world, p = game.player;
@@ -328,6 +341,7 @@ async function soloTests(game) {
     const o = findKind(game, ['oak', 'pine'], p().x, p().y); check(o, 'no hay árboles cerca');
     await goTo(game, o.x + 1, o.y);
     const n = inv().count('madera'); await harvest(game, o, 'hacha');
+    if (openBig(game, o.x, o.y)) await collectDrops(game);   // (the default: its log, split with the axe)
     check(inv().count('madera') > n, 'no ha caído madera');
   });
   await test('picar: una roca con el pico da piedra', async () => {
@@ -514,6 +528,7 @@ async function soloTests(game) {
         if (!hits) { check(a.hurt > 0, 'no parpadea'); check(a.panic > game.time, 'no huye'); await frames(30); check(Math.hypot(a.x - X - 1.4, a.y - Y) > 0.5, 'no se mueve al huir'); }
       }
       check(!R.animals.includes(a), `sigue viva tras ${hits} golpes`); check(hits >= 3 && hits <= 4, `${hits} golpes de espada`);
+      check(!game.carry.bigNow || openBig(game, a.x, a.y), 'the cow left no carcass');   // (the default: butchered where it fell, the least of each)
       await collectDrops(game);
       check(count('carne_vaca') >= before[0] + 2 && count('piel') >= before[1] + 1 && count('hueso') >= before[2] + 1, 'la vaca no suelta lo suyo');
       await goTo(game, X, Y);
@@ -540,7 +555,8 @@ async function soloTests(game) {
       if (!W.list.includes(d)) W.list.push(d);
       d.x = X + 1.3; d.y = Y; const v = count('carne_venado');
       for (let i = 0; i < 9 && W.list.includes(d); i++) { game.hunt.hit(d, ITEMS.espada); check(i || d.scared > game.time, 'no se asusta'); }
-      check(!W.list.includes(d), 'el ciervo sigue vivo'); await collectDrops(game); check(count('carne_venado') >= v + 2, 'el ciervo no suelta carne');
+      check(!W.list.includes(d), 'el ciervo sigue vivo'); check(!game.carry.bigNow || openBig(game, d.x, d.y), 'the deer left no carcass');
+      await collectDrops(game); check(count('carne_venado') >= v + 2, 'el ciervo no suelta carne');
       // Todo lo que sueltan existe y vale algo, y la carne se asa en la cocina y alimenta más
       for (const [t, def] of Object.entries(PREY)) for (const [id] of def.drops) { check(ITEMS[id], `${t} suelta ${id}`); check(priceOf(id) > 0, `${id} no vale nada`); }
       for (const id of Object.keys(ITEMS).filter(k => k.startsWith('carne_'))) { const r = RECIPES.find(r => r.station === 'cocina' && r.ins[0][0] === id); check(r && ITEMS[r.out].food > ITEMS[id].food, `${id} no se asa`); check(itemIcon(id) && itemIcon(r.out), `sin icono: ${id}`); }
@@ -1655,7 +1671,8 @@ async function soloTests(game) {
     await until(() => { const d = game.gather.drops[0]; if (d) { p().x = d.x; p().y = d.y; } return !game.gather.drops.length; }, 8000, 'a recoger los cocos');   // (se va a por cada coco: a veces caen lejos)
     check(inv().count('coco') > n, 'no han caído cocos');
     const live = w().harvestablesNear(o.x, o.y).find(k => k.key === o.key); check(live?.bare, 'la palmera no se queda sin cocos');
-    const m = inv().count('madera'); await harvest(game, live, 'hacha'); check(inv().count('madera') > m, 'talarla no da madera');
+    const m = inv().count('madera'); await harvest(game, live, 'hacha'); if (openBig(game, live.x, live.y)) await collectDrops(game);
+    check(inv().count('madera') > m, 'talarla no da madera');
   });
   await test('noria: va en un río y muele trigo', async () => {
     let spot = null;
@@ -2173,8 +2190,9 @@ async function soloTests(game) {
     check(k1 && k2 && k1 !== k2, `los embarazos tienen el mismo id: ${k1} ${k2}`);
   });
 
-  // ---------- the weight inventory and carrying in the arms (the prototype, ?inventario=peso: carry.js) ----------
-  // The game, once, with the weight inventory (Carry.force, as with the URL) and, at the end, back as it was
+  // ---------- the weight inventory and carrying in the arms (the default: carry.js) ----------
+  // The suite's game already has it (a new game, without ?inventario=casillas). If it was started with the slot inventory
+  // (?inventario=casillas in the address), once with the weight one (Carry.force) and, at the end, back as it was
   let weightBack = null;
   const weightOn = async () => {
     if (game.inv.weight) return;
@@ -2188,13 +2206,16 @@ async function soloTests(game) {
   };
   const near = (id, x, y, r = 3) => { for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) { const tx = Math.floor(x) + dx, ty = Math.floor(y) + dy; if ((w().ownAt('placed', tx, ty) || '').split('@')[0] === id) return w().placedObjectAt(tx, ty) || { tile: [tx, ty], layer: 'placed', placed: id, x: tx + 0.5, y: ty + 0.5 }; } return null; };
   const fake = (inv, more = {}) => ({ inv, gamemode: 'survival', player: { face: { x: 1, y: 0 } }, gather: { float() {} }, ...more });
-  await test('peso carga (weight load): the game modules load with and without the prototype, without a cycle', async () => {
+  await test('peso carga (weight load): the game modules load, without a cycle, and the weight inventory is the default', async () => {
     check(WeightInventory.prototype instanceof Inventory, 'WeightInventory is not an Inventory');
     const src = async f => (await fetch(`src/${f}?t=${Date.now()}`)).text(), imports = text => [...text.matchAll(/^import[^;]*?from '([^']+)'|^import '([^']+)'/gm)].map(m => m[1] || m[2]);
     const inv = imports(await src('inventory.js')), items = imports(await src('carry-items.js'));
     check(!inv.some(f => /carry\.js$/.test(f)), `inventory.js imports carry.js: ${inv}`);
     check(items.every(f => /\/(items|i18n)\.js$/.test(f)), `carry-items.js imports more than items.js and i18n.js: ${items}`);
-    check(ITEMS.log && ITEMS.log.hide && ITEMS.carcass_deer.bulky && !game.inv.weight && Carry.force === null, 'the new ids, or the game started with the prototype without the URL');
+    check(ITEMS.log && ITEMS.log.hide && ITEMS.carcass_deer.bulky, 'the new ids');
+    const slotsURL = /[?&]inventario=(casillas|0)(&|$)/.test(location.search);
+    check(Carry.force === null && weightMode() === !slotsURL && !!game.inv.weight === !slotsURL, `the default: weightMode ${weightMode()}, the game's ${!!game.inv.weight}, force ${Carry.force}`);
+    Carry.force = false; check(!weightMode(), 'Carry.force = false does not turn it off'); Carry.force = null;
   });
   await test('peso (weight): each item weighs, the backpack adds capacity and nothing is ever refused', async () => {
     const W = new WeightInventory();
@@ -2231,6 +2252,10 @@ async function soloTests(game) {
     check(ids.every(id => back.count(id) === want(id)) && !back.kept.length, `back: ${ids.filter(id => back.count(id) !== want(id))}`);
     const again = new WeightInventory(save);
     check(ids.every(id => again.count(id) === 3) && again.armsSaved?.id === 'log', 'weight → weight loses something');
+    // (what goes in keep is the end of the list: it comes back there, not to the hotbar's holes)
+    again.slots[6] = again.slots[7] = again.slots[8] = null; again.changed();
+    const holes = new WeightInventory(JSON.parse(JSON.stringify(again.toSave())));
+    check([6, 7, 8].every(k => !holes.slots[k]) && ids.slice(6, 9).every(id => !holes.count(id)) && ids.slice(9).every(id => holes.count(id) === 3), `keep went to the hotbar: ${holes.slots.slice(6, 9).map(x => x?.id)}`);
     check(Object.keys(new Inventory({ slots: [{ id: 'pan', n: 1 }] }).toSave()).sort().join() === 'equip,selected,slots,wardrobe', 'the slot save changed');
   });
   await test('peso partida vieja (old save): an overweight slot save keeps everything and walks slower', async () => {
@@ -2240,6 +2265,16 @@ async function soloTests(game) {
     const C = new Carry(fake(W));
     check(C.speedMul() === 0.45 && C.noRun() && C.jumpMul() >= 0.82, `speed ${C.speedMul()}`);
     const s = W.toSave(); check(s.keep.some(k => k.id === 'cosa_nueva') && s.slots.length === 36, 'the save loses what is of a newer version');
+    // The notice, only the first time a slot save opens with weight (its save has no w yet), once the world is in sight
+    // for a while (not under the dark of the way in); a weight save, never
+    const toast = hud.toast, said = [], fade = document.getElementById('fade'), dark = fade?.classList.contains('on'); hud.toast = m => said.push(m);
+    try {
+      C.game.mode = 'play'; fade?.classList.add('on');
+      C.reset({ inventory: old }); C.update(5); check(!said.length && C.oldWarn, `said in the dark: ${JSON.stringify(said)}`);
+      fade?.classList.remove('on'); C.update(1); check(!said.length, 'said at once');
+      C.update(2); check(said.length === 1 && said[0] === t('hud.load.too_heavy_old'), `a heavy slot save: ${JSON.stringify(said)}`);
+      C.reset({ inventory: s }); C.update(5); check(said.length === 1 && s.w === 1, `a weight save says it again: ${JSON.stringify(said)}`);
+    } finally { hud.toast = toast; fade?.classList.toggle('on', !!dark); }
   });
   await test('peso cargado (encumbered): speed, running, jump and tiredness follow the load; creative and riding ignore it', async () => {
     const W = new WeightInventory(), C = new Carry(fake(W)), at = kg => { W.slots.length = 0; W.slots.push(...Array(HOTBAR).fill(null)); W.equip.espalda = { id: 'mochila' }; W.add('piedra', kg); return C.speedMul(); };
@@ -2307,7 +2342,19 @@ async function soloTests(game) {
     await goTo(game, X, Y);
     game.hunt.reward({ type: 'ciervo', young: false, x: X + 2.5, y: Y + 0.5 });
     const c = near('carcass_deer', X + 2.5, Y + 0.5, 2); check(c, 'no carcass');
-    check(w().delta(Math.floor(c.tile[0] / 16), Math.floor(c.tile[1] / 16))?.carcass?.[`${c.tile}`] === game.days.dayIndex, 'its day is not noted');
+    check(w().delta(Math.floor(c.tile[0] / 16), Math.floor(c.tile[1] / 16))?.carcass?.[`${c.tile}`] === game.days.realDay, 'its day is not noted');
+    check(C.dayOf(game.days.dayIndex) === game.days.realDay && C.dayOf(game.days.realDay + 5) === game.days.realDay, 'a day of the prototype or of the future');
+    // (playing together, for a few seconds only whoever hunted it takes it: the note of its chunk)
+    const L0 = game.live, j0 = L0.joined, P = C.picks(c.tile, true), k0 = `${c.tile}`, clk = w().clock || 0;
+    try {
+      L0.joined = true; P[k0] = ['id-someone-else', clk];
+      const why = C.notYours(c), a0 = game.placedAction(c);
+      check(why && a0.text === why && !a0.alt, `another's carcass: ${a0.text}`);
+      C.take(c); C.butcher(c); check(!C.held && near('carcass_deer', c.x, c.y, 0), 'taken before its time');
+      P[k0] = ['id-someone-else', clk - 4]; check(!C.notYours(c), 'still not free after the seconds');
+      P[k0] = [Profile.id, clk]; check(!C.notYours(c), 'not even its hunter');
+      L0.joined = false; P[k0] = ['id-someone-else', clk]; check(!C.notYours(c), 'alone, not free');
+    } finally { L0.joined = j0; delete P[k0]; }
     const meat = inv().count('carne_venado'); game.placedAction(c).alt.run(); check(!near('carcass_deer', c.x, c.y, 0), 'X does not butcher it');
     await collectDrops(game); check(inv().count('carne_venado') === meat + 2, `field: ${inv().count('carne_venado') - meat} meat`);
     game.hunt.reward({ type: 'ciervo', young: false, x: X + 2.5, y: Y + 0.5 });
@@ -2325,8 +2372,12 @@ async function soloTests(game) {
     // After 2 days only bones
     game.hunt.reward({ type: 'vaca', young: false, x: X + 2.5, y: Y + 0.5 });
     const cow = near('carcass_cow', X + 2.5, Y + 0.5, 2); check(cow, 'no cow carcass');
-    w().delta(Math.floor(cow.tile[0] / 16), Math.floor(cow.tile[1] / 16)).carcass[`${cow.tile}`] = game.days.dayIndex - 2;
-    const bones = game.gather.drops.length; C.rot(); check(!near('carcass_cow', cow.x, cow.y, 0) && game.gather.drops.length > bones && game.gather.drops.at(-1).id === 'hueso', 'no bones after 2 days');
+    w().delta(Math.floor(cow.tile[0] / 16), Math.floor(cow.tile[1] / 16)).carcass[`${cow.tile}`] = game.days.realDay - 2;
+    // (playing together, only the game that decides the world rots it: a guest's, never)
+    const L = game.live, was = { joined: L.joined, role: L.role };
+    try { L.joined = true; L.role = 'guest'; check(!C.rotsWorld(), 'a guest rots'); C.rot(); check(near('carcass_cow', cow.x, cow.y, 0), 'a guest rotted it'); L.role = 'host'; check(C.rotsWorld(), 'the host does not rot'); }
+    finally { L.joined = was.joined; L.role = was.role; }
+    const bones = game.gather.drops.length; C.rot(); check(!near('carcass_cow', cow.x, cow.y, 0) && game.gather.drops.length > bones && game.gather.drops.at(-1).id === 'hueso' && game.gather.drops.at(-1).ttl > 0, 'no bones after 2 days');
     await collectDrops(game);
   });
   await test('en brazos, límites (carry limits): Q only puts it down, a held click does not punch, no swimming, no running, no fence hopping, no mounting, sitting or sleeping; the backpack does not take it; in slot mode /give log gives wood', async () => {
@@ -2468,18 +2519,23 @@ async function soloTests(game) {
       tell('peso coste: medida', true, `${(logic * 1000).toFixed(1)} µs/frame logic, ${(pose * 1000).toFixed(1)} µs pose ×4, ${calls} meshes ×4`);
     } finally { C.set(null); live.entities = ents; for (let k = 0; k < 4; k++) live.peers.delete('q' + k); draw(); }
   });
-  await test('peso y en brazos, fin (weight end): the game back to slots, and a save played with the prototype opens without it', async () => {
-    if (!weightBack) return;
-    const W = game.snapshot();
-    Carry.force = null;
-    game.end(); game.start(JSON.parse(JSON.stringify(W)), new Map(JSON.parse(JSON.stringify([...game.world.deltas])))); game.onSave = null;
-    check(!game.inv.weight && game.inv.slots.length === 36, 'the slot inventory does not come back');
-    const back = weightBack; weightBack = null;
-    game.end(); game.start(JSON.parse(back.snap), new Map(JSON.parse(back.deltas))); game.onSave = null;
-    game.inv.equip.espalda ||= { id: 'mochila', color: ITEMS.mochila.dye }; game.inv.changed();
+  await test('peso y en brazos, fin (weight end): a save played with the weight inventory opens with ?inventario=casillas without losing anything, and back', async () => {
+    const W = JSON.stringify(game.snapshot()), D = JSON.stringify([...game.world.deltas]), was = Carry.force;
+    const all = () => { const n = new Map(); for (const s of game.inv.slots) if (s) n.set(s.id, (n.get(s.id) || 0) + s.n); for (const { s } of game.inv.kept) n.set(s.id, (n.get(s.id) || 0) + s.n); return n; };
+    const before = all();
+    try {
+      Carry.force = false;
+      game.end(); game.start(JSON.parse(W), new Map(JSON.parse(D))); game.onSave = null;
+      check(!game.inv.weight && game.inv.slots.length === 36, 'the slot inventory does not come back');
+      const now = all(); check([...before].every(([id, n]) => now.get(id) === n), `the slot inventory loses: ${[...before].filter(([id, n]) => now.get(id) !== n).map(([id]) => id)}`);
+    } finally {
+      Carry.force = was;   // (null, the default; true only while the group holds it for a game started with the slots)
+      game.end(); game.start(JSON.parse(W), new Map(JSON.parse(D))); game.onSave = null;
+    }
+    check(!!game.inv.weight === weightMode(), 'the game does not come back with its inventory');
     await readyGround(game, 8000);
   });
-  // (always back to slots, also when only= chose some weight tests and not the one above: the rest run as always)
+  // (a game started with the slots, always back to them, also when only= chose some weight tests: the rest run as they started)
   if (weightBack) {
     const back = weightBack; weightBack = null; Carry.force = null;
     game.end(); game.start(JSON.parse(back.snap), new Map(JSON.parse(back.deltas))); game.onSave = null;
@@ -2728,6 +2784,7 @@ async function guestTests(game) {
       return false;
     }, 80000, 'que muera el ciervo');
     game.player.crouch = false;
+    openBig(game, d.x, d.y, 5);
     await collectDrops(game);
     check(inv.count('carne_venado') > before, 'no ha caído carne para él');
     l.chat('CIERVO-MUERTO');
@@ -2810,6 +2867,7 @@ async function guestTests(game) {
       if (performance.now() - last > 1000) { last = performance.now(); game.player.x = a.x; game.player.y = a.y + 1.2; H.hit(a, ITEMS.espada); }
       return false;
     }, 80000, 'que muera la oveja');
+    openBig(game, a.x, a.y, 5);   // (the default: the guest's game leaves the carcass, butchered here)
     await collectDrops(game);
     check(inv.count('carne_cordero') > before, 'no ha caído carne para él');
     l.chat('CAZADA');

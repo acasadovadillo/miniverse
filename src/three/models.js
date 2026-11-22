@@ -11,7 +11,8 @@
 import * as THREE from 'three';
 import { flowerBunch } from './flowers3d.js';
 import { Builder, mat, rockGeo, snowCap } from './geo.js';
-import { wood as wood0, stone as stone0, rockFace, rng, rug, rugDesign, notes, awning, planks, furrows, artwork } from './textures.js';
+import { wood as wood0, stone as stone0, rockFace, rng, rug, rugDesign, notes, awning, planks, furrows, artwork, bark } from './textures.js';
+import { animalModel } from './animals.js';
 import { apagado } from '../arte.js';
 
 // Las cajas de los modelos con los cantos biselados, según su material: redondeadas en lo blando (mantas, sábanas,
@@ -1199,10 +1200,16 @@ SOLIDS.all = name => {
 };
 // Material de una pieza de modelo por su clave ('wood', 'books3', 'fruit:#e04a2a', 'leafc:#3f8a32'…)
 const DYN = new Map();
+// (the big things carried in the arms: made the first time one is drawn)
+const OWN = {
+  logBark: () => mat({ map: bark(), roughness: 0.95 }), logEnd: () => mat({ map: ringsTex(), roughness: 0.85 }),
+  carcass: () => mat({ vertexColors: true, roughness: 0.85 }),
+};
 export function modelMat(key) {
   const M = modelMats();
   if (M[key]) return M[key];
   if (key.startsWith('books')) return M.books[+key.slice(5)];
+  if (OWN[key]) return DYN.get(key) || (DYN.set(key, OWN[key]()), DYN.get(key));
   if (!DYN.has(key)) {
     const [k, c] = key.split(':');
     DYN.set(key, k === 'fruit' ? mat({ color: c, roughness: 0.45 }) : k === 'hide' ? mat({ color: apagado(c), roughness: 0.95 }) : k === 'leafc' ? mat({ color: c, flatShading: true, side: THREE.DoubleSide }) : key === 'dry' ? mat({ color: '#8a6a3a' }) : key === 'dirtWet' ? mat({ map: furrows(), color: '#7a6a60', roughness: 0.7 }) : mat({ color: '#ff00ff' }));
@@ -1220,56 +1227,232 @@ function chandelier(m, y0) {
   }
   return m;
 }
-// ---------- the big things carried in the arms (carry-items.js; the prototype: carry.js) ----------
-// A log lying along x, its cut ends lighter and a stub of a branch. Short enough to lie inside its tile (0.95 m); on the
-// shoulder it is drawn longer (carry3d.js)
-export const LOG = { L: 0.95, r: 0.13 };
-BUILD.log = m => {
-  const { L, r } = LOG, along = [0, 0, Math.PI / 2];   // (a cylinder turned onto its side: from +x to -x)
-  m.cyl('dark', L / 2, r, 0, r * 0.94, r, L, 12, along);
-  m.cyl('light', L / 2 + 0.006, r, 0, r * 0.86, r * 0.86, 0.008, 12, along).cyl('light', -L / 2 + 0.002, r, 0, r * 0.84, r * 0.84, 0.008, 12, along);
-  m.cyl('dark', 0.16, r * 1.5, 0.02, 0.035, 0.004, 0.14, 6, [0.5, 0, 0.35]).cyl('dark', -0.26, r * 1.45, -0.03, 0.03, 0.004, 0.11, 6, [-0.6, 0, -0.3]);   // (broken branches, pointed: a flat cut would look like a hole)
-};
-// A carcass lying on its left side: the body along x (the head at +x, resting on the ground), the spine towards -z and
-// the legs towards +z, bent at the knee, the upper pair above the lower one. The back darker than the belly; the deer
-// with its antlers, the goat and the cow with horns, the boar with tusks, the sheep woolly, the cow with spots.
-// s: its size (the cow, bigger)
-const CARCASS_SIZE = { carcass_deer: 0.9, carcass_cow: 1.3, carcass_boar: 0.85, carcass_goat: 0.8, carcass_sheep: 0.85, carcass_pig: 0.85 };
-const HIDE = (c, k) => `hide:#${new THREE.Color(c).multiplyScalar(k).getHexString()}`;
-function carcassModel(m, id) {
-  const B = BULKY[id], s = CARCASS_SIZE[id] || 1, K = `hide:${B.color}`, back = HIDE(B.color, 0.68), belly = HIDE(new THREE.Color(B.color).lerp(new THREE.Color('#f4ead8'), 0.45).getStyle(), 1);
-  const pig = id === 'carcass_pig', short = pig || id === 'carcass_boar';
-  // the body: the side, the darker back along the spine and the lighter belly
-  m.ball(K, 0, 0.19 * s, 0, 0.46 * s, 0.19 * s, 0.21 * s, 14);
-  m.ball(back, -0.02 * s, 0.2 * s, -0.1 * s, 0.44 * s, 0.16 * s, 0.16 * s, 12);
-  m.ball(belly, 0.02 * s, 0.15 * s, 0.09 * s, 0.34 * s, 0.11 * s, 0.135 * s, 10);
-  if (id === 'carcass_sheep') for (const [x, y, z] of [[0.2, 0.27, -0.05], [-0.15, 0.28, -0.02], [0.02, 0.3, 0.05], [-0.3, 0.24, 0.06], [0.28, 0.22, 0.08]]) m.ball(K, x * s, y * s, z * s, 0.17 * s, 0.11 * s, 0.13 * s, 8);
-  if (id === 'carcass_cow') for (const [x, y, z, r] of [[0.15, 0.3, -0.04, 0.13], [-0.25, 0.27, 0.05, 0.11], [-0.05, 0.22, -0.14, 0.1], [0.32, 0.2, 0.1, 0.08]]) m.ball('hide:#2e2622', x * s, y * s, z * s, r * s, r * 0.55 * s, r * 0.9 * s, 8);
-  // the neck and the head, on the ground; the muzzle and the ears (the deer's longer)
-  const hx = (short ? 0.58 : 0.66) * s;
-  m.ball(K, 0.44 * s, 0.17 * s, -0.02 * s, 0.15 * s, 0.09 * s, 0.09 * s, 10);
-  m.ball(K, hx, 0.11 * s, 0, 0.15 * s, 0.085 * s, 0.08 * s, 10);
-  if (pig) m.cyl(HIDE(B.color, 0.85), hx + 0.13 * s, 0.1 * s, 0, 0.045 * s, 0.045 * s, 0.035 * s, 10, [0, 0, -Math.PI / 2]);
-  else m.ball(back, hx + 0.13 * s, 0.1 * s, 0, 0.05 * s, 0.05 * s, 0.05 * s, 8);
-  for (const [z, y] of [[-0.06, 0.16], [0.07, 0.13]]) m.ball(back, hx - 0.07 * s, y * s, z * s, (id === 'carcass_deer' ? 0.07 : 0.05) * s, 0.02 * s, 0.035 * s, 6);
-  if (id === 'carcass_deer') for (const z of [-0.05, 0.04]) {   // (the antlers: a beam back over the neck and two tines)
-    m.cyl('hide:#cbb894', hx - 0.04 * s, 0.15 * s, z * s, 0.016, 0.009, 0.32 * s, 5, [0, 0, 1.25]);
-    m.cyl('hide:#cbb894', hx - 0.15 * s, 0.19 * s, z * s, 0.011, 0.006, 0.13 * s, 5, [0, 0, 0.3]);
-    m.cyl('hide:#cbb894', hx - 0.26 * s, 0.22 * s, z * s, 0.01, 0.005, 0.12 * s, 5, [0, 0, 0.5]);
+// ---------- the big things carried in the arms (carry-items.js; carry.js) ----------
+// A log lying along x: the trees' own bark round it, a little lumpy and thicker at the butt (+x), the cut ends showing
+// their rings and two broken branch stubs. Short enough to lie inside its tile (0.95 m, some 19 cm thick: what 25 kg of
+// wood is); on the shoulder it is drawn longer, 1.2 m (carry3d.js HOLD.shoulder: the person is 1.7 m tall). Its geometry
+// is made once (the stubs, pointed: a flat cut would look like a hole)
+export const LOG = { L: 0.95, r: 0.095 };
+let LOG_GEO;
+function logGeos() {
+  if (LOG_GEO) return LOG_GEO;
+  const { L, r } = LOG, g = new THREE.CylinderGeometry(r * 0.9, r, L, 18, 6, true), p = g.attributes.position;
+  for (let i = 0; i < p.count; i++) {
+    const x = p.getX(i), y = p.getY(i), z = p.getZ(i), a = Math.atan2(z, x), t = y / L;
+    // (lumps that run along it, and a slight bend: no log is a perfect cylinder)
+    const k = 1 + 0.045 * Math.sin(a * 3 + t * 4) + 0.03 * Math.sin(a * 7 + 1.3 + t * 9) + 0.02 * Math.cos(a * 11 - t * 6);
+    p.setXYZ(i, x * k + 0.012 * Math.sin((t + 0.5) * Math.PI), y, z * k);
   }
-  if (id === 'carcass_goat' || id === 'carcass_cow') for (const z of [-0.05, 0.05]) m.cyl('hide:#d8ccb0', hx - 0.06 * s, 0.17 * s, z * s, 0.018 * s, 0.006, 0.11 * s, 5, [0, 0, 1.0]);
-  if (id === 'carcass_boar') for (const z of [-0.035, 0.035]) m.cyl('hide:#efe6d2', hx + 0.09 * s, 0.07 * s, z * s, 0.012, 0.004, 0.07 * s, 5, [0, 0, 0.6]);
-  m.cyl(back, -0.45 * s, 0.2 * s, -0.02 * s, 0.03 * s, 0.015 * s, (short ? 0.07 : 0.12) * s, 5, [0, 0, 2.2]);   // the tail
-  // the legs: from the shoulder or the hip, out to +z, and the lower half bent back; the hooves dark
-  const legR = (short ? 0.045 : 0.038) * s, up = (short ? 0.13 : 0.2) * s, low = (short ? 0.12 : 0.2) * s;
-  for (const [x, y, bend] of [[0.3, 0.16, 0.7], [0.24, 0.07, 0.5], [-0.3, 0.17, -0.5], [-0.36, 0.07, -0.7]]) {
-    const z0 = 0.08 * s, kx = x * s, kz = z0 + up;
-    m.cyl(K, kx, y * s, z0, legR * 1.25, legR, up, 6, [Math.PI / 2, 0, 0]);
-    m.cyl(K, kx, y * s, kz, legR, legR * 0.85, low, 6, [Math.PI / 2, 0, bend]);
-    m.ball('dark0', kx - Math.sin(bend) * low, y * s, kz + Math.cos(bend) * low, legR * 1.1, legR * 1.1, legR * 1.3, 6);
-  }
+  g.computeVertexNormals();
+  g.rotateZ(Math.PI / 2);   // (the top, thinner, to -x; the butt to +x)
+  const end = (rad, side) => { const c = new THREE.CircleGeometry(rad, 18); c.rotateY(side * Math.PI / 2); c.translate(side * (L / 2 - 0.004), 0, 0); return c; };
+  return (LOG_GEO = { bark: g, butt: end(r * 0.97, 1), top: end(r * 0.87, -1) });
 }
-for (const id of Object.keys(BULKY)) if (BULKY[id].prey) BUILD[id] = m => carcassModel(m, id);
+BUILD.log = m => {
+  const { r } = LOG, G = logGeos();
+  m.geo('logBark', G.bark, 0, r, 0).geo('logEnd', G.butt, 0, r, 0).geo('logEnd', G.top, 0, r, 0);
+  m.cyl('logBark', 0.16, r * 1.75, 0.02, 0.026, 0.004, 0.1, 6, [0.5, 0, 0.35]).cyl('logBark', -0.26, r * 1.7, -0.03, 0.022, 0.004, 0.08, 6, [-0.6, 0, -0.3]);
+};
+// The cut end of a log: the rings round a pith a little off centre, the heartwood darker, the bark round it and two
+// cracks out from the middle
+let RINGS;
+function ringsTex() {
+  if (RINGS) return RINGS;
+  const c = document.createElement('canvas'); c.width = c.height = 128;
+  const g = c.getContext('2d'), R = rng(41), cx = 66, cy = 62;
+  g.fillStyle = apagado('#5a4030'); g.fillRect(0, 0, 128, 128);
+  const grad = g.createRadialGradient(cx, cy, 2, 64, 64, 58);
+  grad.addColorStop(0, apagado('#9a6a42')); grad.addColorStop(0.55, apagado('#b8875a')); grad.addColorStop(1, apagado('#d2aa78'));
+  g.fillStyle = grad; g.beginPath(); g.arc(64, 64, 58, 0, Math.PI * 2); g.fill();
+  for (let i = 1; i <= 16; i++) {
+    const k = i / 16, rr = 3 + k * 54;
+    g.strokeStyle = `rgba(80,48,26,${0.18 + R() * 0.22})`; g.lineWidth = 0.8 + R() * 1.2;
+    g.beginPath(); g.ellipse(cx + (64 - cx) * k, cy + (64 - cy) * k, rr, rr * (0.96 + R() * 0.06), R(), 0, Math.PI * 2); g.stroke();
+  }
+  g.strokeStyle = 'rgba(50,30,16,.55)'; g.lineWidth = 1.2;
+  for (const a of [0.6, 3.9]) { g.beginPath(); g.moveTo(cx, cy); g.lineTo(cx + Math.cos(a) * 30, cy + Math.sin(a) * 30); g.stroke(); }
+  g.fillStyle = 'rgba(60,36,20,.8)'; g.beginPath(); g.arc(cx, cy, 2.2, 0, Math.PI * 2); g.fill();
+  g.strokeStyle = apagado('#3e2a1c'); g.lineWidth = 6; g.beginPath(); g.arc(64, 64, 60, 0, Math.PI * 2); g.stroke();
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4;
+  return (RINGS = t);
+}
+
+// A carcass: the living animal (animals.js, the same body, coat and head) posed dead and baked into one geometry with
+// its colours per vertex (one material, 'carcass': one draw call for all the carcasses of a chunk). Smaller than the
+// living one (CARCASS_SIZE: what one person can carry). Two poses: on the ground (its name), lying on its left side, the
+// head at +x resting on the ground, the spine to -z and the legs to +z, loose; and carried (`<id>:held`, carry3d.js),
+// draped across the back of someone's shoulders, in the chest bone's frame (x: their left, z: their front), as hunters
+// carry a deer: the middle of it on the nape and both halves bending down over the shoulders (DRAPE), the spine up and
+// back, so that from behind it is an arch with the neck and the head hanging at their right and the rump and the tail at
+// their left; the legs come forward over both shoulders and hang in front of the chest, where the hands hold them
+const CARCASS_SIZE = { carcass_deer: 0.66, carcass_cow: 0.6, carcass_boar: 0.68, carcass_goat: 0.72, carcass_sheep: 0.64, carcass_pig: 0.66 };
+const CARCASS_BREED = { vaca: 'pinta', oveja: 'blanca', cabra: 'parda', cerdo: 'rosa' };
+const V3 = (x, y, z) => new THREE.Vector3(x, y, z).normalize();
+// Where the parts point, in the final frame: per leg (f: front, u: the side up when lying / the leg further up when
+// carried), the upper and the lower half; the neck; the head (its nose and the top of its head). Carried, as they end up
+// after the drape (the head and the front legs turn with the front half, the hind legs with the hind one: see unbend)
+const POSE = {
+  ground: {
+    basis: [[0, -1, 0], [0, 0, -1], [1, 0, 0]],   // (the animal's x, y, z: its left side down, its back to -z, its head to +x)
+    leg: (f, u) => f ? [V3(u ? 0.55 : 0.35, u ? -0.3 : -0.12, 1), V3(u ? 0.3 : 0.1, u ? -0.22 : -0.06, 1)] : [V3(u ? -0.3 : -0.55, u ? -0.3 : -0.1, 1), V3(u ? -0.05 : -0.22, u ? -0.25 : -0.05, 1)],
+    neck: V3(1, 0, -0.22), nose: V3(1, -0.1, -0.12), top: V3(0, 0, -1),
+  },
+  held: {
+    basis: null,   // (made below: the head to -x, the back up and behind)
+    leg: (f, u) => f ? [V3(0.12, u ? -0.05 : -0.18, 1), V3(0.03, -1, u ? 0.45 : 0.3)] : [V3(-0.12, u ? -0.05 : -0.18, 1), V3(-0.03, -1, u ? 0.45 : 0.3)],   // (forward over the shoulder, then down in front of it, to the hand)
+    neck: V3(-0.3, -1, -0.12), nose: V3(-0.12, -1, 0.3), top: V3(-1, 0.1, -0.35),
+  },
+};
+{ const z = new THREE.Vector3(-1, 0, 0), y = V3(0, 0.72, -0.7), x = new THREE.Vector3().crossVectors(y, z); POSE.held.basis = [x.toArray(), y.toArray(), z.toArray()]; }
+const qOf = (x, y, z) => new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(new THREE.Vector3(...x), new THREE.Vector3(...y), new THREE.Vector3(...z)));
+// Turn o (in its parent, whose orientation in the final frame is Qp) so that its own direction `rest` points to `dir`
+function aimPart(o, rest, dir, Qp) {
+  o.quaternion.setFromUnitVectors(rest.clone().normalize(), dir.clone().applyQuaternion(Qp.clone().invert()));
+}
+// A head (or anything) turned so that its +z points along nose and its +y as near to top as it can
+function faceTo(o, nose, top, Qp) {
+  const z = nose.clone().normalize(), x = new THREE.Vector3().crossVectors(top, z).normalize(), y = new THREE.Vector3().crossVectors(z, x);
+  o.quaternion.copy(Qp.clone().invert().multiply(new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(x, y, z))));
+}
+// The drape of a carried carcass: its body bent down round a centre R below its middle, as far as X0 each way (beyond,
+// the head and the rump only turn with it: by phi = X0 / R). bend: a point or a direction (w = 0) of the pose before it
+// to after it; unbend: a direction after it to before it, at one end (phi < 0: the head's)
+const DRAPE = { R: 0.3, k: 0.62 };
+function bend(x, y, phi0, w = 1) {
+  const R = DRAPE.R, X0 = phi0 * R, xc = w ? Math.max(-X0, Math.min(X0, x)) : 0, f = w ? xc / R : phi0, u = x - xc, v = y + R * w, c = Math.cos(f), s = Math.sin(f);
+  return [u * c + v * s, -u * s + v * c - R * w];
+}
+const unbend = (d, f) => new THREE.Vector3(d.x * Math.cos(f) - d.y * Math.sin(f), d.x * Math.sin(f) + d.y * Math.cos(f), d.z);
+// (pose: again on the same animal, with the head lower by drop; phi: the drape's turn at its ends, carried)
+function poseCarcass(root, id, held, drop = 0, phi = 0) {
+  const P = POSE[held ? 'held' : 'ground'], u = root.userData, Q = qOf(...P.basis), head0 = u.head0 ||= u.head?.position.clone();
+  const pre = (d, f) => held && phi ? unbend(d, f).normalize() : d;
+  root.quaternion.copy(Q); root.scale.setScalar(CARCASS_SIZE[id] || 0.8);
+  u.body.quaternion.identity(); u.body.position.set(0, 0, 0); u.body.scale.set(1, 1, 1);
+  for (const l of u.legs) {
+    const front = l.hip.position.z > 0, up = held ? l.hip.position.x > 0 : l.hip.position.x < 0, f = front ? -phi : phi, [d0, d1] = P.leg(front, up).map(d => pre(d, f));
+    aimPart(l.hip, l.knee.position, d0, Q);
+    aimPart(l.knee, new THREE.Vector3(0, -1, front ? 0 : 0.25), d1, Q.clone().multiply(l.hip.quaternion));
+  }
+  if (u.head) {
+    if (u.rig) {   // (the neck from its base, then the head at its tip)
+      const r = u.rig, dir = pre(P.neck, -phi);
+      if (drop) { dir.y -= drop / r.L; dir.normalize(); }
+      u.neck.position.set(0, r.by, r.bz); u.neck.scale.set(1, 1, 1);
+      aimPart(u.neck, new THREE.Vector3(0, 1, 0), dir, Q);
+      u.head.position.set(0, r.by, r.bz).add(new THREE.Vector3(0, r.L, 0).applyQuaternion(u.neck.quaternion));
+    } else if (drop) u.head.position.copy(head0).add(new THREE.Vector3(0, -drop, 0).applyQuaternion(Q.clone().invert()));
+    faceTo(u.head, pre(P.nose, -phi), pre(P.top, -phi), Q);
+  }
+  if (u.tail) u.tail.rotation.set(held ? 0.4 : 0.9, 0, 0);
+  root.updateMatrixWorld(true);
+  return root;
+}
+// The animal posed. Carried, the drape measured on its body (the biggest of the body's own meshes) and the pose made
+// again for it. On the ground, the head down to it (the neck lower, or the head of the short-necked ones): measured with
+// the parts' boxes, one try more if it is still off
+const _b = new THREE.Box3();
+function posedCarcass(id, held) {
+  const type = BULKY[id].prey, root = poseCarcass(animalModel(type, CARCASS_BREED[type]), id, held), u = root.userData;
+  if (held) {
+    let len = 0;
+    for (const o of u.body.children) if (o.isMesh) { _b.setFromObject(o, true); len = Math.max(len, _b.max.x - _b.min.x); }
+    u.phi = DRAPE.k * len / 2 / DRAPE.R;
+    return poseCarcass(root, id, held, 0, u.phi);
+  }
+  if (!u.head) return root;
+  const low = f => { let y = Infinity; root.traverse(o => { if (o.isMesh && f(isIn(o, u.head))) y = Math.min(y, _b.setFromObject(o, true).min.y); }); return y; };
+  for (let k = 0, drop = 0; k < 2; k++) {
+    const gap = low(h => h) - low(h => !h) - 0.01;
+    if (gap < 0.02) break;
+    drop += gap / (CARCASS_SIZE[id] || 0.8);
+    poseCarcass(root, id, held, drop);
+  }
+  return root;
+}
+// The meshes of a posed animal in one list of triangles, in the final frame: positions, normals and colours
+function bakeCarcass(root) {
+  const out = [], nm = new THREE.Matrix3(), v = new THREE.Vector3();
+  root.traverse(o => {
+    if (!o.isMesh) return;
+    const g = o.geometry, pos = g.attributes.position, nor = g.attributes.normal, col = g.attributes.color, mc = o.material.color, idx = g.index;
+    nm.getNormalMatrix(o.matrixWorld);
+    // (the animals' meshes come unindexed, three corners per triangle: the same corners are joined again, about a sixth
+    // of them. The corner, in whole numbers, by a hash; the same hash is checked)
+    const P = [], N = [], C = [], I = [], box = new THREE.Box3(), seen = new Map(), at = [], K = [], q = new Int32Array(9);
+    for (let i = 0; i < pos.count; i++) {
+      const r = (col ? col.getX(i) : 1) * mc.r, gg = (col ? col.getY(i) : 1) * mc.g, b = (col ? col.getZ(i) : 1) * mc.b;
+      q[0] = Math.round(pos.getX(i) * 1e4); q[1] = Math.round(pos.getY(i) * 1e4); q[2] = Math.round(pos.getZ(i) * 1e4);
+      q[3] = Math.round(nor.getX(i) * 50); q[4] = Math.round(nor.getY(i) * 50); q[5] = Math.round(nor.getZ(i) * 50);
+      q[6] = Math.round(r * 60); q[7] = Math.round(gg * 60); q[8] = Math.round(b * 60);
+      let h = 0;
+      for (let k = 0; k < 9; k++) h = Math.imul(h ^ q[k], 0x9e3779b1) >>> 0;
+      let j, list = seen.get(h);
+      if (list) for (const c of list) { let same = true; for (let k = 0; k < 9 && same; k++) same = K[c * 9 + k] === q[k]; if (same) { j = c; break; } }
+      if (j === undefined) {
+        j = P.length / 3;
+        if (list) list.push(j); else seen.set(h, [j]);
+        K.push(...q);
+        v.fromBufferAttribute(pos, i).applyMatrix4(o.matrixWorld); P.push(v.x, v.y, v.z); box.expandByPoint(v);
+        v.fromBufferAttribute(nor, i).applyMatrix3(nm).normalize(); N.push(v.x, v.y, v.z);
+        C.push(r, gg, b);
+      }
+      at.push(j);
+    }
+    if (idx) for (let i = 0; i < idx.count; i++) I.push(at[idx.getX(i)]); else for (let i = 0; i < pos.count; i++) I.push(at[i]);
+    out.push({ P, N, C, I, box, body: o.parent === root.userData.body, leg: root.userData.legs.some(l => isIn(o, l.hip)) });
+  });
+  out.phi = root.userData.phi || 0;
+  return out;
+}
+const isIn = (o, g) => { for (let q = o; q; q = q.parent) if (q === g) return true; return false; };
+function carcassModel(m, id, held = false) {
+  const parts = bakeCarcass(posedCarcass(id, held));
+  // Where it goes: on the ground, standing on y = 0 and centred; carried, draped (bend) and its ends a little forward,
+  // round the neck (z += WRAP x²), and the origin where it rests on the nape (HOLD.across): in the middle of it, the
+  // front of its belly (so a fat one, the sheep, the pig, sits further back and does not go into the head) and its
+  // lowest point there
+  const all = new THREE.Box3(), trunk = new THREE.Box3();
+  for (const p of parts) { all.union(p.box); if (p.body) trunk.union(p.box); }
+  const c = (held ? trunk : all).getCenter(new THREE.Vector3()), dy = held ? -c.y : -all.min.y, WRAP = 0.3, phi = parts.phi, o = [0, 0, 0];
+  const at = (p, i) => {
+    let x = p.P[i] - c.x, y = p.P[i + 1] + dy, z = p.P[i + 2] - c.z, nx = p.N[i], ny = p.N[i + 1], nz = p.N[i + 2];
+    if (held) {
+      const f = Math.max(-phi, Math.min(phi, x / DRAPE.R));
+      [nx, ny] = bend(nx, ny, f, 0); [x, y] = bend(x, y, phi);
+      z += WRAP * x * x; nx -= 2 * WRAP * x * nz; const l = Math.hypot(nx, ny, nz) || 1; nx /= l; ny /= l; nz /= l;
+    }
+    return [x - o[0], y - o[1], z - o[2], nx, ny, nz];
+  };
+  if (held) {
+    let y0 = Infinity, z0 = -Infinity;
+    for (const p of parts) if (p.body) for (let i = 0; i < p.P.length; i += 3) { const [x, y, z] = at(p, i); if (Math.abs(x) < 0.1) { y0 = Math.min(y0, y); z0 = Math.max(z0, z); } }
+    if (y0 < Infinity) o[1] = y0, o[2] = z0;
+  }
+  const B = m.B('carcass'), body = [], legs = [];
+  B.col ||= new Array(B.pos.length).fill(1);
+  let tipY = Infinity, tipZ = 0;
+  for (const p of parts) {
+    const off = B.pos.length / 3, box = new THREE.Box3();
+    for (let i = 0; i < p.P.length; i += 3) {
+      const [x, y, z, nx, ny, nz] = at(p, i);
+      if (held && p.leg && z > 0 && y < tipY) { tipY = y; tipZ = z; }
+      B.pos.push(x, y, z); B.nor.push(nx, ny, nz); B.uv.push(0, 0); B.col.push(p.C[i], p.C[i + 1], p.C[i + 2]);
+      box.expandByPoint(v3.set(x, y, z));
+    }
+    for (const i of p.I) B.idx.push(i + off);
+    m.solids.push([box.min.x, box.min.y, box.min.z, box.max.x, box.max.y, box.max.z]);
+    if (held && !p.leg) for (let i = 0, n = Math.ceil(p.P.length / 3 / (p.body ? 500 : 40)); i < p.P.length; i += 3 * n) body.push(...at(p, i).slice(0, 3));   // (the neck and the head too: the sheep's, of wool, is thick)
+    if (held && p.leg) for (let i = 0, n = Math.ceil(p.P.length / 3 / 40); i < p.P.length; i += 3 * n) { const q = at(p, i); if (q[2] > 0) legs.push(q[0], q[1], q[2]); }
+  }
+  // (carried, for the first person view, carry3d.js carriedView: where the hooves hang in front, the lowest of the legs,
+  // and some points of the rest of it, to keep it out of sight, and of its legs in front, to keep them low)
+  if (held) { m.tip = [tipY, tipZ]; m.trunk = body; m.legs = legs; }
+}
+const v3 = new THREE.Vector3();
+// (the carried pose, made when there is time after the one on the ground: it is the next thing one does with it)
+const later = f => (globalThis.requestIdleCallback ? requestIdleCallback(f, { timeout: 3000 }) : setTimeout(f, 500));
+for (const id of Object.keys(BULKY)) if (BULKY[id].prey) BUILD[id] = (m, pose) => { carcassModel(m, id, pose === 'held'); if (pose !== 'held') later(() => getModel(id + ':held')); };
 
 // El que se cuelga (origen en el suelo, colgado del techo, con su luz)
 BUILD.candelabro = m => chandelier(m, WALL_H).light(0, WALL_H - 0.6, 0, { color: '#ffd08a', intensity: 4.5, range: 11, halo: 0 });   // (sin halo: lo llevan sus velas)

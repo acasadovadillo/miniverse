@@ -173,7 +173,7 @@ let warmT = 0;
 export function prewarmIcons(first, draw) {
   if (typeof document === 'undefined') return;
   const run = ++warmT, later = f => (typeof requestIdleCallback === 'function' ? requestIdleCallback(f, { timeout: 3000 }) : setTimeout(() => f({ timeRemaining: () => 6, didTimeout: true }), 50));
-  const food = Object.keys(ITEMS).filter(id => !ITEMS[id].bulky && modelKind(id) === 'food');   // (the big things of the weight prototype: never warmed, carry-items.js)
+  const food = Object.keys(ITEMS).filter(id => !ITEMS[id].bulky && modelKind(id) === 'food');   // (the big things of the weight inventory: never warmed, carry-items.js)
   const mine = new Set(first().filter(id => ITEMS[id] && !cache.has(id)));
   const list = [...new Set([...mine, ...food])].filter(id => !cache.has(id));
   if (!list.length) return;

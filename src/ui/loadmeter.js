@@ -1,4 +1,4 @@
-// The load meter on the HUD (the weight prototype, ?inventario=peso: ../carry.js): a backpack, a bar and "31/70 kg", and
+// The load meter on the HUD (the weight inventory, the default: ../carry.js): a backpack, a bar and "31/70 kg", and
 // the icon of what the arms carry. Its own element, #hud-load, placed again whenever the interface changes (Settings ›
 // Display swaps them while playing: it compares game.smartHud each frame): with the minimal one, in the block of health
 // and hunger (#hud-status, which shows with the load when it matters: Carry.showLoad, read by smarthud.js); with the full

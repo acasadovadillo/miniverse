@@ -496,7 +496,7 @@ export class Actors {
   kit(m, e, P, pz, lying) {
     const ids = m === this.player ? this.game.kitIds() : splitKit(e.kitKey), bag = !!P.bag;
     if (ids !== m.kitIds || bag !== m.kitBag) { m.kitIds = ids; m.kitBag = bag; m.kitPlaced = placeKit(ids, { bag }); }
-    // (arms busy with something big: carry.js, only with the weight prototype; see kit.js shownOf)
+    // (arms busy with something big: carry.js, the weight inventory; see kit.js shownOf)
     const hk = kindOf(m.holding), swim = m.swimK > 0.5, ride = !!(e.mount || e.boat || e.aboard), arms = e.armsBusy || null, S = (m.kitSig ||= {});
     const pc = poseClass(pz?.kind || (lying ? 'lie' : ''), { ride, crouch: !!e.crouch && !pz && !swim });
     if (S.p !== m.kitPlaced || S.h !== hk || S.s !== swim || S.c !== pc || S.a !== arms) {
@@ -519,7 +519,7 @@ export class Actors {
     }
   }
 
-  // What the arms carry (the weight prototype: carry.js; e.carrying, the player's or what another player's messages say),
+  // What the arms carry (the weight inventory: carry.js; e.carrying, the player's or what another player's messages say),
   // hung from the chest bone. Made again only when it changes; the geometry is shared (carry3d.js), the player's copy
   // takes its own materials (for the outline), and they go with it
   carried(m, e, P) {

@@ -26,7 +26,7 @@ function paint(el, s) {
     if (img.getAttribute('src') !== url) img.src = url;
     img.hidden = false;
     n.textContent = s.n > 1 ? s.n : '';
-    el.title = ITEMS[s.id].name + (ITEMS[s.id].dur ? ` (${s.dur ?? ITEMS[s.id].dur}/${ITEMS[s.id].dur} usos)` : '');
+    el.title = ITEMS[s.id].dur ? t('gui.inventory.item_uses', { item: ITEMS[s.id].name, n: s.dur ?? ITEMS[s.id].dur, max: ITEMS[s.id].dur }) : ITEMS[s.id].name;
   } else {
     img.hidden = true;
     n.textContent = '';
@@ -143,7 +143,7 @@ export function initInventoryUI(game, { onClose, onCraft }) {
   });
 
   const say = text => { $('inv-desc').textContent = text; };
-  // (the weight prototype: the backpack is a list, packlist.js, made the first time a game has the weight inventory; its
+  // (the weight inventory: the backpack is a list, packlist.js, made the first time a game has the weight inventory; its
   // slots past the hotbar are not drawn here)
   let pack = null;
   const packUI = { pick: i => { picked = i; refresh(); }, picked: () => picked, wear: i => { picked = i; wearPicked(); }, drop: (i, n) => drop(i, n), say };
@@ -168,9 +168,9 @@ export function initInventoryUI(game, { onClose, onCraft }) {
     // (lo apartado de una versión más nueva del juego no se ve: se dice que está, para que nadie crea que lo ha perdido)
     // (y lo que sí se conoce pero no cupo al cargar: espera aparte y vuelve a la mochila al guardar, si hay sitio)
     const newer = inv.kept.filter(e => !ITEMS[e.s.id]).length, kept = newer + Object.keys(inv.keptEquip).length, wait = inv.kept.length - newer;
-    if (!s) { $('inv-name').textContent = 'Toca un objeto para ver qué es'; say('Arrástralo para moverlo, o a tu cuerpo para ponértelo. Suéltalo fuera para tirarlo.' + (kept ? ` Además guardas ${kept === 1 ? 'una cosa' : `${kept} cosas`} de una versión más nueva del juego: recarga la página para ${kept === 1 ? 'verla' : 'verlas'}.` : '') + (wait ? ` ${wait === 1 ? 'Una cosa que no te cabía espera' : `${wait} cosas que no te cabían esperan`} aparte: haz sitio y ${wait === 1 ? 'vuelve' : 'vuelven'} a la mochila la próxima vez que entres.` : '')); return; }
+    if (!s) { $('inv-name').textContent = t('gui.inventory.pick_title'); say([t(inv.weight ? 'gui.inventory.pick_help_list' : 'gui.inventory.pick_help'), kept && t('gui.inventory.kept_newer', { n: kept }), wait && t('gui.inventory.kept_waiting', { n: wait })].filter(Boolean).join(' ')); return; }
     $('inv-icon').src = itemIconUrl(s.id, s.color);
-    $('inv-name').textContent = def.name + (s.n > 1 ? ` ×${s.n}` : '') + (worn ? ' (puesto)' : '');
+    $('inv-name').textContent = worn ? t('gui.inventory.item_worn', { item: def.name }) : def.name + (s.n > 1 ? ` ×${s.n}` : '');
     say(def.desc + (def.food ? ` ${hungerText(def)}` : '') + (inv.weight ? ` ${t('gui.inventory.weight_each', { kg: weightOf(s.id), total: Math.round(weightOf(s.id) * s.n * 10) / 10 })}` : ''));
     $('inv-wearbtn').hidden = !def.wear;
     // Teñir: las prendas (puestas o en la mochila) se cambian de color tocando uno
@@ -178,12 +178,13 @@ export function initInventoryUI(game, { onClose, onCraft }) {
     if (def.wear) {
       const box = $('inv-dyes');
       if (!box.children.length) {
-        box.innerHTML = '<span>Teñir:</span>';
-        for (const c of DYES) { const b = document.createElement('button'); b.type = 'button'; b.style.background = c; b.dataset.c = c; b.title = 'Teñir de este color'; b.onclick = () => dye(c); box.append(b); }
+        box.innerHTML = '<span></span>';
+        for (const c of DYES) { const b = document.createElement('button'); b.type = 'button'; b.style.background = c; b.dataset.c = c; b.onclick = () => dye(c); box.append(b); }
       }
-      for (const b of box.querySelectorAll('button')) b.classList.toggle('on', b.dataset.c === s.color);
+      box.firstChild.textContent = t('gui.inventory.dye');   // (each time: the language may have changed)
+      for (const b of box.querySelectorAll('button')) { b.classList.toggle('on', b.dataset.c === s.color); b.title = t('gui.inventory.dye_title'); }
     }
-    $('inv-wearbtn').textContent = worn ? 'Quitármelo' : 'Ponérmelo';
+    $('inv-wearbtn').textContent = t(worn ? 'gui.inventory.take_off' : 'gui.inventory.put_on');
     $('inv-eat').hidden = !def.food || !!worn;
     $('inv-drop1').hidden = s.n < 2 || !!worn;
     $('inv-drop').hidden = !!worn;
@@ -204,7 +205,7 @@ export function initInventoryUI(game, { onClose, onCraft }) {
     if (picked?.wear) {
       let why = inv.unwear(picked.wear);
       // (la mochila llena no se guarda: se deja en el suelo, delante, con todo dentro)
-      if (why && picked.wear === 'espalda') { why = game.dropBackpack(); if (!why) { picked = null; say('Has dejado la mochila en el suelo, con todo dentro.'); refresh(); return; } }
+      if (why && picked.wear === 'espalda') { why = game.dropBackpack(); if (!why) { picked = null; say(t('gui.inventory.bag_left')); refresh(); return; } }
       if (why) { say(why); return; }
       picked = null;
     } else if (picked !== null && inv.wear(picked)) picked = null;
@@ -215,7 +216,7 @@ export function initInventoryUI(game, { onClose, onCraft }) {
   const drop = (i, n) => {
     const s = game.inv.slots[i];
     if (s && game.gather.throwOut(s.id, Math.min(n, s.n), extraOf(s))) game.inv.take(i, n, true);
-    else if (s) say('Aquí dentro no: sal de casa para tirar cosas.');
+    else if (s) say(t('gui.inventory.no_drop_inside'));
   };
   $('inv-drop1').onclick = () => { if (typeof picked === 'number') drop(picked, 1); };
   $('inv-drop').onclick = () => { if (typeof picked === 'number') drop(picked, Infinity); };
@@ -223,12 +224,12 @@ export function initInventoryUI(game, { onClose, onCraft }) {
   $('inv-del').onclick = () => {
     const inv = game.inv, worn = picked?.wear, s = worn ? inv.equip[worn] : typeof picked === 'number' ? inv.slots[picked] : null;
     if (!game.admin || !s) return;
-    if (worn === 'espalda' && inv.slots.slice(HOTBAR).some(Boolean)) { say('Vacía la mochila antes de eliminarla.'); return; }
+    if (worn === 'espalda' && inv.slots.slice(HOTBAR).some(Boolean)) { say(t('gui.inventory.empty_bag_delete')); return; }
     if (worn) { delete inv.equip[worn]; if (worn === 'espalda') inv.unbag(); } else inv.slots[picked] = null;
     inv.changed();
     picked = null;
     refresh();
-    $('inv-name').textContent = `Has eliminado ${ITEMS[s.id].name}${s.n > 1 ? ` ×${s.n}` : ''}`;
+    $('inv-name').textContent = t('gui.inventory.deleted', { item: ITEMS[s.id].name + (s.n > 1 ? ` ×${s.n}` : '') });
   };
   $('inv-close').onclick = () => onClose();
   $('inv-craft').onclick = () => onCraft();
@@ -269,7 +270,7 @@ export function initInventoryUI(game, { onClose, onCraft }) {
       const to = under?.closest('#inv-grid .slot, #inv-quick .slot'), onBody = under?.closest('#inv-wear, #inv-me');
       if (pack && game.inv.weight && under?.closest('#pk-box') && toList(game.inv, d.i)) { picked = null; refresh(); }   // (a slot of the hotbar to the list)
       else if (to) { game.inv.move(d.i, +to.dataset.i); picked = +to.dataset.i; refresh(); }
-      else if (onBody) { picked = d.i; if (ITEMS[game.inv.slots[d.i].id].wear) wearPicked(); else { refresh(); say('Eso no se lleva puesto.'); } }
+      else if (onBody) { picked = d.i; if (ITEMS[game.inv.slots[d.i].id].wear) wearPicked(); else { refresh(); say(t('gui.inventory.not_wearable')); } }
       else if (!under?.closest('.inv-panel, .win, #hotbar')) drop(d.i, Infinity);   // (sobre otra ventana o la barra no se tira)
     });
     el.addEventListener('pointercancel', () => { drag = null; ghost.hidden = true; cells.forEach(c => c.classList.remove('lift')); });

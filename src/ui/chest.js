@@ -6,6 +6,7 @@ import { SLOTS, extraOf } from '../inventory.js';
 import { itemIconUrl } from '../art/items.js';
 import { HOTBAR } from '../inventory.js';
 import { packRows } from './packlist.js';
+import { t } from '../i18n.js';
 
 const $ = id => document.getElementById(id);
 
@@ -47,7 +48,7 @@ export function initChestUI(game, { onClose }) {
     if (!chest || !s) return;
     if (wardrobe && !ITEMS[s.id].wear) {
       const el = $('ch-hint');
-      el.textContent = `En el armario solo se guarda ropa (${ITEMS[s.id].name.toLowerCase()} no)`; el.classList.add('no');
+      el.textContent = t('gui.chest.wardrobe_only', { item: { name: ITEMS[s.id].name } }); el.classList.add('no');
       clearTimeout(hintTimer); hintTimer = setTimeout(hint, 1800);
       return;
     }
@@ -63,15 +64,15 @@ export function initChestUI(game, { onClose }) {
     if (!chest) return;
     shown = JSON.stringify(chest);
     chestCells.forEach((el, i) => { paint(el, chest[i]); el.hidden = i >= chest.length; });
-    // (the weight prototype: the hotbar and, below it, the list of the backpack, packlist.js)
+    // (the weight inventory: the hotbar and, below it, the list of the backpack, packlist.js)
     if (game.inv.weight) { bagCells.forEach((el, i) => { el.hidden = i >= HOTBAR; if (i < HOTBAR) paint(el, game.inv.slots[i]); }); packRows($('ch-bag'), game.inv, toChest, { top, arms: game.carry?.armsKg() || 0 }).hidden = false; }
     else {
       if ($('ch-pack')) { $('ch-pack').hidden = true; for (const el of bagCells) el.hidden = false; }   // (a game without it, after one with it)
       bagCells.forEach((el, i) => { paint(el, game.inv.slots[i]); el.classList.toggle('locked', !game.inv.usable(i)); });
     }
   }
-  let the = 'el cofre';
-  function hint() { const el = $('ch-hint'); el.classList.remove('no'); el.textContent = `Tu mochila (clic para guardar en ${the}${wardrobe ? ': solo ropa' : ''})`; }
+  let into = null;   // (the furniture as a noun, { name, g }; null: the saddlebags)
+  function hint() { const el = $('ch-hint'); el.classList.remove('no'); el.textContent = wardrobe ? t('gui.chest.hint_wardrobe') : into ? t('gui.chest.hint', { chest: into }) : t('gui.chest.hint_bags'); }
   $('ch-close').onclick = () => onClose();
   return {
     refresh,
@@ -84,11 +85,11 @@ export function initChestUI(game, { onClose }) {
     },
     close() { tile = scene = source = onChange = null; },
     // src: lo que hay dentro, solo para lo que no está en una casilla: una función que lo devuelve
-    open(src, t, cb) {
-      tile = t; scene = game.scene; source = typeof src === 'function' ? src : () => src; onChange = cb;
-      const id = t && (game.scene.at?.('placed', ...t) || '').split('@')[0];
-      the = !t ? 'las alforjas' : CHESTS[id]?.[1] || 'el cofre'; wardrobe = id === 'armario';
-      $('ch-title').textContent = !t ? 'Alforjas' : CHESTS[id] ? ITEMS[id].name : 'Cofre';
+    open(src, at, cb) {
+      tile = at; scene = game.scene; source = typeof src === 'function' ? src : () => src; onChange = cb;
+      const id = at && (game.scene.at?.('placed', ...at) || '').split('@')[0], c = CHESTS[id] ? id : 'cofre';
+      into = at ? { name: ITEMS[c].name, g: CHESTS[c][1].startsWith('la ') ? 'f' : 'm' } : null; wardrobe = id === 'armario';
+      $('ch-title').textContent = at ? ITEMS[c].name : t('gui.chest.saddlebags');
       clearTimeout(hintTimer); hint();
       refresh(true);
     },

@@ -1,8 +1,8 @@
-// What things weigh, and the big things that are carried in the arms (the weight inventory, a prototype behind
-// ?inventario=peso: see carry.js and docs/planes/gta/PLAN-C-peso.md). Only data: it imports items.js and i18n.js and
-// nothing else (inventory.js imports this file, and carry.js extends Inventory: importing either here would be a cycle).
-// The new ids are always in ITEMS, with or without the prototype, so every game of this version knows them (a log left
-// by a player with the prototype is seen and picked up by one without it, as its parts). Hidden from the creative list
+// What things weigh, and the big things that are carried in the arms (the weight inventory, the default: see carry.js
+// and docs/planes/gta/PLAN-C-peso.md). Only data: it imports items.js and i18n.js and nothing else (inventory.js imports
+// this file, and carry.js extends Inventory: importing either here would be a cycle).
+// The new ids are always in ITEMS, with either inventory, so every game of this version knows them (a log left by a
+// player with the weight inventory is seen and picked up by one with ?inventario=casillas, as its parts). Hidden from the creative list
 import { ITEMS, FISH } from './items.js';
 import { defineNames } from './i18n.js';
 

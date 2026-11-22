@@ -128,7 +128,7 @@ export class Hunt {
   // Lo que suelta (la cría, solo un trozo de carne), y lo que se aprende
   reward({ type, young, x, y }) {
     const g = this.game, def = PREY[type];
-    // (with the prototype, an adult deer, boar, cow, sheep, goat or pig leaves its carcass, to carry in the arms: carry.js)
+    // (with the weight inventory, an adult deer, boar, cow, sheep, goat or pig leaves its carcass, to carry in the arms: carry.js)
     if (young || !g.carry?.hunted(type, x, y)) g.gather.spawnDrops({ x, y }, { drops: young ? [[def.drops[0][0], 1, 1]] : def.drops });
     g.gather.chips(x, y, def.chips || 'dirt', 16);
     Audio.noiseHit(180, 0.2, 0.35);
