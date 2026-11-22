@@ -2223,6 +2223,20 @@ async function soloTests(game) {
   };
   const near = (id, x, y, r = 3) => { for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) { const tx = Math.floor(x) + dx, ty = Math.floor(y) + dy; if ((w().ownAt('placed', tx, ty) || '').split('@')[0] === id) return w().placedObjectAt(tx, ty) || { tile: [tx, ty], layer: 'placed', placed: id, x: tx + 0.5, y: ty + 0.5 }; } return null; };
   const fake = (inv, more = {}) => ({ inv, gamemode: 'survival', player: { face: { x: 1, y: 0 } }, gather: { float() {} }, ...more });
+  await test('pond (english): the player wades across the village pond; animals still go round it', async () => {
+    const W = w(), up = screenToWorld(0, -1), l = Math.hypot(...up), d = [up[0] / l, up[1] / l], keysUp = { up: true };
+    check(W.waterDepth(POND.x, POND.y) > 0.4, `no water in the middle of the pond: ${W.waterDepth(POND.x, POND.y)}`);
+    check(W.waterDepth(POND.x + POND.rx * 1.5, POND.y) === 0, 'water outside the pond');
+    check(!W.natWater(POND.x, POND.y), 'the pond became world water (boats, digging)');
+    check(W.blocked(POND.x, POND.y), 'animals walk into the middle of the pond');
+    const P = new Player({ name: 'x', x: POND.x - d[0] * 5, y: POND.y - d[1] * 5, look: {} });
+    let waded = false, maxDepth = 0;
+    for (let i = 0; i < 60 * 8; i++) { P.update(1 / 60, keysUp, W); waded ||= P.wading; maxDepth = Math.max(maxDepth, P.depth || 0); }
+    const past = (P.x - POND.x) * d[0] + (P.y - POND.y) * d[1];
+    check(past > 2, `stopped at the pond: ${past.toFixed(2)} m past its centre`);
+    check(waded && maxDepth > 0.3, `did not wade (depth ${maxDepth.toFixed(2)})`);
+  });
+
   await test('peso carga (weight load): the game modules load, without a cycle, and the weight inventory is the default', async () => {
     check(WeightInventory.prototype instanceof Inventory, 'WeightInventory is not an Inventory');
     const src = async f => (await fetch(`src/${f}?t=${Date.now()}`)).text(), imports = text => [...text.matchAll(/^import[^;]*?from '([^']+)'|^import '([^']+)'/gm)].map(m => m[1] || m[2]);

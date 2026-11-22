@@ -5,7 +5,7 @@
 import { clamp, ihash } from '../util.js';
 import { groundSmooth, grassKeep, groundOf } from './ground.js';
 import { WorldGen, CHUNK, GRASS_REGROW, flowerShows } from './gen.js';
-import { inYard, buildVillage, NILO, inBounds, isGrass, inOwnHouse, inVillageHouse, townDigWhy } from './village.js';
+import { inYard, buildVillage, NILO, inBounds, isGrass, inOwnHouse, inVillageHouse, townDigWhy, pondDist } from './village.js';
 import { B, BIOMES, WATER_Y } from './biomes.js';
 import { ITEMS, CHESTS, modernSlots } from '../items.js';
 import '../buildables.js';   // (LEGACY_ITEMS con los muebles: también en el servidor)
@@ -1510,7 +1510,8 @@ export class Overworld {
       const tx = Math.floor(x), ty = Math.floor(y), D = this.digH(tx, ty);
       if (D !== null) return this.floodAt(tx, ty) !== undefined ? WATER_Y - D : 0;
     }
-    if (!this.natWater(x, y) || this.levelAt(x, y) !== null) return 0;
+    // (the village pond too: it is not natWater, so it is never mooring or digging water, but you wade through it)
+    if (!(this.natWater(x, y) || (inBounds(x, y) && pondDist(x, y) < 1)) || this.levelAt(x, y) !== null) return 0;
     const x0 = Math.floor(x), y0 = Math.floor(y), fu = x - x0, fv = y - y0, b = this.bedH(x0 + 1, y0), c = this.bedH(x0, y0 + 1);
     const h = fu + fv <= 1 ? (a => a + (b - a) * fu + (c - a) * fv)(this.bedH(x0, y0)) : (d => d + (c - d) * (1 - fu) + (b - d) * (1 - fv))(this.bedH(x0 + 1, y0 + 1));
     return Math.max(0, WATER_Y - h);

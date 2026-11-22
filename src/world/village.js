@@ -207,7 +207,8 @@ export function buildVillage() {
   add(17.5, 26.5, { model: 'sign' }); colliders.push({ x: 17.5, y: 26.5, r: 0.25 });
   add(4.5, 40.6, { model: 'sign' }); colliders.push({ x: 4.5, y: 40.6, r: 0.25 });   // (el cartel de la taberna)
 
-  // Estanque (la orilla y los nenúfares los pone la vista)
-  colliders.push({ x: POND.x, y: POND.y, rx: POND.rx * 0.98, ry: POND.ry * 0.98 });
+  // Estanque (la orilla y los nenúfares los pone la vista). pond: only animals, mobs and children go round it; the player
+  // wades or swims through it (entities.js), as in any other water
+  colliders.push({ x: POND.x, y: POND.y, rx: POND.rx * 0.98, ry: POND.ry * 0.98, pond: true });
   return { objects, colliders, built: byChunk(fixed, CHUNK) };
 }

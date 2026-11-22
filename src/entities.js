@@ -183,7 +183,7 @@ export class Player extends Person {
       const high = this.z - this.floor > (this.mount ? 0.2 : HOP);
       // (with something in the arms no fence is hopped: through the gate; riding, the big thing goes behind the saddle and the
       // horse jumps as always. Pushing the wheelbarrow the rocks and the tower stairs are walls: you would climb them and it not)
-      collide(p, near.filter(c => (c.top === undefined || this.pushing) && !c.dig && !(high && c.low && !(this.carrying && !this.mount)) && !(c.zmax !== undefined && this.z > c.zmax)), RADIUS);   // (zmax: lo que solo frena abajo)
+      collide(p, near.filter(c => (c.top === undefined || this.pushing) && !c.dig && !c.pond && !(high && c.low && !(this.carrying && !this.mount)) && !(c.zmax !== undefined && this.z > c.zmax)), RADIUS);   // (zmax: lo que solo frena abajo)
       if (dug) collide(p, scene.digWalls(p.x, p.y, feet, this.airborne ? 0.05 : STEP_UP), RADIUS);   // (en el aire, sin el escalón: se sube lo que da el salto)
     }
     // En barca, no salir a tierra; a caballo, no entrar en lo que cubre al caballo; a pie se nada (en el mundo: en las
