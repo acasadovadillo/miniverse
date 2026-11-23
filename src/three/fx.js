@@ -3,7 +3,8 @@
 // fuego de hogares, hornos y antorchas, el humo de las chimeneas, la lluvia y la nieve, el agua
 // de la fuente, los corazones de la cama doble, la luz del faro, el sedal y el corcho al pescar, las ondas de quien nada o
 // vadea y el destello rojo al recibir un golpe. Diving: the bubbles of every diver (also the other players') and the
-// specks drifting in the water around the camera while it is under it.
+// specks drifting in the water around the camera while it is under it. The body (Plan E §5.4): the breath of the people
+// near you in the cold, and the drops falling from the soaked ones.
 import * as THREE from 'three';
 import { itemIcon } from '../art/items.js';
 import { dropModel } from './icons.js';
@@ -15,6 +16,11 @@ import { FOUNTAIN_U } from './fountain3d.js';
 import { WALL_H } from './build3d.js';
 import { WATER_Y } from './terrain.js';
 import { nearX } from '../world/planet.js';
+import { climate } from '../world/biomes.js';
+import { TEMP, SEASON_C, WEATHER_C } from '../clothing.js';
+import { apagada } from '../opciones.js';
+// (the URL switches of Plan E §11: ?frio=0, no breath in the cold; ?cuerpo=0, no drops from the soaked)
+const PUFFS_ON = !apagada('frio'), DRIPS_ON = !apagada('cuerpo');
 // Texturas pintadas para el fuego, el humo y los copos: una llama en gota (blanca, el color va por instancia) y
 // una bola suave
 // (una por clase: las brasas y la nieve usan la misma bola)
@@ -55,6 +61,12 @@ const RIPPLES = 48, RIPPLE_LIFE = 1.8;   // (las ondas en el agua: cuántas a la
 // camera, seen up to SNOW_R m (one draw call; they move in the shader, nothing on the processor)
 const BUBBLES = 96, BUBBLE_EVERY = [1, 2], SNOW = 300, SNOW_BOX = 12, SNOW_R = 6;
 const HEAD_UNDER = 0.42, SWIM_EYE = 0.7;   // (as entities.js and engine.js: only for a diver without a head drawn yet)
+// The body: a puff of breath every PUFF_EVERY s from each person within PUFF_R m while the air there is under PUFF_AIR °C
+// (at most PUFFS alive, each PUFF_LIFE s), and DRIP_RATE drops a second from each person within DRIP_R m with wet ≥
+// DRIP_WET (at most DRIPS falling). The air is worked out here, from the climate at the player, once every AIR_EVERY s
+// (people within 15 m share it); under a roof, in a cave or in the water, no breath shows
+const PUFFS = 12, PUFF_EVERY = 2.6, PUFF_LIFE = 1.9, PUFF_R = 15, PUFF_AIR = 3, AIR_EVERY = 1;
+const DRIPS = 20, DRIP_RATE = 2.5, DRIP_R = 12, DRIP_WET = 0.6;
 
 export class Fx {
   constructor(view) {
@@ -145,6 +157,18 @@ export class Fx {
     this.hurt = document.getElementById('hurt') || Object.assign(document.body.appendChild(document.createElement('div')), { id: 'hurt' });
     this.tags = new Map();
     this.makeUnder();
+    this.makeBody();
+  }
+  // The breath puffs (soft sprites facing the camera, fading: the smoke's program) and the drops (small stretched
+  // spheres, pale and see-through like the diving bubbles: their program too; the fountain's old spray is gone, its
+  // water is its own shader since 2026-11-23.2)
+  makeBody() {
+    const pg = new THREE.PlaneGeometry(1, 1); pg.setAttribute('fade', new THREE.InstancedBufferAttribute(new Float32Array(PUFFS), 1));
+    this.breath = new THREE.InstancedMesh(pg, fading(new THREE.MeshBasicMaterial({ map: spriteTex('humo'), color: '#eef1f4', transparent: true, depthWrite: false })), PUFFS);
+    this.breath.count = 0; this.breath.frustumCulled = false; this.breath.renderOrder = 5; this.breath.visible = false; this.group.add(this.breath);
+    this.drips = new THREE.InstancedMesh(new THREE.SphereGeometry(0.011, 5, 3), new THREE.MeshBasicMaterial({ color: '#dcecf4', transparent: true, opacity: 0.7, depthWrite: false }), DRIPS);
+    this.drips.count = 0; this.drips.frustumCulled = false; this.drips.visible = false; this.group.add(this.drips);
+    this.puffs = []; this.falling = []; this.breathAt = new WeakMap(); this.dripAcc = new WeakMap(); this.air = null; this.airAt = -1;
   }
   // Diving: the bubbles (instanced little spheres, pale and see-through) and the marine snow (points that wrap round the
   // camera in the shader, faded with the distance by hand: they are only drawn under the water, inside its murk)
@@ -209,6 +233,7 @@ export class Fx {
     this.updateFloaters(game, playing);
     this.updateBubbles(game, playing);
     this.updateDivers(game, scene, playing, dt, t);
+    this.updateBody(game, scene, playing, dt, t);
     this.hurt.style.opacity = playing && game.flashHurt > game.time ? '1' : '0';
   }
 
@@ -570,6 +595,92 @@ export class Fx {
       U.uScale.value = view.renderer.getDrawingBufferSize(V2).y * 0.5 / Math.tan(cam.fov * Math.PI / 360);
       U.uColor.value.setRGB(0.35 * k, 0.45 * k, 0.43 * k);
     }
+  }
+
+  // ---------- the body (Plan E §5.4) ----------
+  // The air outdoors where the player is (°C): the formula of body.js §2.2 without the roof, the fire or the clothes (those
+  // are the player's own; for the breath of everyone around, the open air is what counts)
+  outdoorAir(game) {
+    const p = game.player, D = game.days, gen = game.world?.gen;
+    if (!p || !D || !gen) return null;
+    const c = climate(p.x, p.y, gen.seed, (this.airC ||= {})), w = D.weatherHere;
+    let a = TEMP.base + (c.Tl - TEMP.tlRef) * TEMP.tlScale + (SEASON_C[D.localSeason] || 0) + TEMP.dayAmp * Math.cos(2 * Math.PI * (D.localHour - TEMP.warmHour) / 24) + (WEATHER_C[w] || 0);
+    if (w === 'nieve') a = Math.min(a, TEMP.snowCap);
+    return Number.isFinite(a) ? a : null;
+  }
+  // Breath in the cold and drops from the soaked: for every person the actors draw (the player, the others, the
+  // neighbours), from what each one's body says (actors.js m.surf: body.surface(), RemotePlayer.grime)
+  updateBody(game, scene, playing, dt, t) {
+    const view = this.view, A = view.actors, me = game.player, P = this.puffs, D = this.falling;
+    const live = playing && !!A && !!me && !view.cave && scene === game.world;
+    if (live && t - this.airAt >= AIR_EVERY) { this.airAt = t; this.air = this.outdoorAir(game); }
+    if (live) {
+      const cold = PUFFS_ON && this.air !== null && this.air < PUFF_AIR, wo = view.world;
+      for (const [e, m] of A.models) {
+        if (m.kind !== 'person' || !m.root.visible || !m.person) continue;
+        const x = nearX(e.x, me.x), d = Math.hypot(x - me.x, e.y - me.y), S = m.surf;
+        const inWater = e.swim || e.depth > 0.5 || e.pose?.kind === 'bath' || e.bathing;
+        // breath: outdoors (the player: not indoors; the others: not on a tile under a roof), head out of the water
+        // (not your own in first person: the puff would fill the view)
+        // (the roof is looked up only when a puff is due: no key string per person per frame)
+        if (cold && d < PUFF_R && !inWater && !(e === me && view.first)) {
+          const at = this.breathAt.get(e);
+          if (at === undefined) this.breathAt.set(e, t + Math.random() * PUFF_EVERY);
+          else if (t >= at) {
+            this.breathAt.set(e, t + PUFF_EVERY * (0.85 + Math.random() * 0.3));
+            if (!(e === me ? game.indoors : wo?.regionOf?.has(`${Math.floor(e.x)},${Math.floor(e.y)}`))) this.puff(m, t);
+          }
+        }
+        // drops: soaked, out of the water
+        if (DRIPS_ON && S && S.wet >= DRIP_WET && d < DRIP_R && !inWater) {
+          let acc = (this.dripAcc.get(e) || 0) + dt * DRIP_RATE * (0.6 + 0.4 * S.wet);
+          for (; acc >= 1; acc--) this.drip(m, scene);
+          this.dripAcc.set(e, acc);
+        }
+      }
+    } else { if (P.length) P.length = 0; if (D.length) D.length = 0; }
+    // the puffs: from the mouth, forward and a little up, growing and fading
+    const fade = this.breath.geometry.attributes.fade;
+    qCam.copy(view.camera.quaternion);
+    let n = 0;
+    for (let i = 0; i < P.length; i++) {
+      const q = P[i], k = (t - q.t0) / PUFF_LIFE;
+      if (k >= 1 || k < 0) { P.splice(i--, 1); continue; }
+      const e = Math.sqrt(k);
+      tmp.position.set(q.x + q.fx * 0.28 * e, q.y + 0.12 * k, q.z + q.fz * 0.28 * e);
+      tmp.quaternion.copy(qCam).multiply(qRoll.setFromAxisAngle(ZAX, q.roll + k));
+      tmp.scale.setScalar(0.08 + 0.36 * e); tmp.updateMatrix();
+      fade.array[n] = Math.min(1, k / 0.1) * (1 - k) * Math.sqrt(1 - k);   // (thinner was lost against snow and a night sky)
+      this.breath.setMatrixAt(n++, tmp.matrix);
+    }
+    this.breath.count = n; this.breath.visible = n > 0;
+    if (n) { this.breath.instanceMatrix.needsUpdate = true; fade.needsUpdate = true; }
+    // the drops: falling until the ground they were above
+    let k = 0;
+    for (let i = 0; i < D.length; i++) {
+      const q = D[i];
+      q.vy -= 9.8 * dt; q.y += q.vy * dt;
+      if (q.y <= q.gy) { D.splice(i--, 1); continue; }
+      tmp.position.set(q.x, q.y, q.z); tmp.rotation.set(0, 0, 0); tmp.scale.set(1, 1.8, 1); tmp.updateMatrix();
+      this.drips.setMatrixAt(k++, tmp.matrix);
+    }
+    this.drips.count = k; this.drips.visible = k > 0;
+    if (k) this.drips.instanceMatrix.needsUpdate = true;
+  }
+  // One puff from this person's mouth (their head bone, forward of it, where they face)
+  puff(m, t) {
+    const P = m.person;
+    if (!P.head || this.puffs.length >= PUFFS) return;
+    P.head.getWorldPosition(v3);
+    const yaw = (m.root.rotation.y || 0) + (P.root.rotation.y || 0), fx = Math.sin(yaw), fz = Math.cos(yaw);
+    this.puffs.push({ x: v3.x + fx * 0.13, y: v3.y + 0.02, z: v3.z + fz * 0.13, fx, fz, roll: Math.random() * 6.28, t0: t });
+  }
+  // One drop from this person: from the hands or the hem, round the body, falling to the ground under it
+  drip(m, scene) {
+    if (this.falling.length >= DRIPS) this.falling.shift();
+    const o = m.root.position, h = m.person.height || 1.7, a = Math.random() * Math.PI * 2, r = 0.16 + Math.random() * 0.1;
+    const x = o.x + Math.cos(a) * r, z = o.z + Math.sin(a) * r;
+    this.falling.push({ x, z, y: o.y + h * (0.32 + Math.random() * 0.25), vy: -0.3 * Math.random(), gy: this.view.groundY(scene, x, z) });
   }
 
   // ---------- textos flotantes ----------

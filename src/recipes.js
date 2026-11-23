@@ -187,6 +187,8 @@ export const RECIPES = [
   R('horno', 'water_jug', 1, [['piedra', 3], ['carbon', 1]]),
   R('cocina', 'apple_juice', 1, [['manzana', 2]]),
   R('mano', 'abono', 2, [['seaweed', 3]], { id: 'abono_alga' }),
+  // The body (docs/planes/gta/PLAN-E-cuerpo-aspecto.md §2.3): soap, from lard and ash (the charcoal), two a time
+  R('cocina', 'soap', 2, [['manteca', 1], ['carbon', 1]]),
 ];
 // Herramientas: todas de hierro, en el yunque
 for (const tool of ['hacha', 'pico', 'guadana', 'azada', 'pala']) RECIPES.push(R('yunque', `${tool}_hierro`, 1, [['lingote_hierro', 3], ['tablas', 1]]));

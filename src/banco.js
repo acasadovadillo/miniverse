@@ -23,7 +23,8 @@
 // §6): the pradera stop again with a 300 m marked route ahead of the camera, its ribbon on the ground; besides the usual
 // figures it measures the ribbon itself (on and off in alternate lots in the same stop, its processor time per frame and
 // what a rebuild costs). banco.py compares it with pradera: it must cost under 0.15 ms. A version without routes measures
-// pradera again (route.none)
+// pradera again (route.none). Then plaza-sucios (Plan E §11): the plaza with the player and four neighbours dirty, for the
+// grime overlay's cost
 import { CAM, PITCH, DIST } from './camera.js';
 import { Profile } from './accounts.js';
 import { CENTER } from './world/village.js';
@@ -73,6 +74,9 @@ const STOPS = [
   { name: 'mar', at: g => sea(g).deep, cam: { yaw: g => sea(g).yaw + Math.PI, pitch: 0.84, dist: 22 }, hour: 12, hold: diveDown },
   // (the marked route: last, so everything before is measured as always; the same place and camera as pradera)
   { name: 'ruta', at: g => meadow(g), cam: { yaw: Math.PI / 4, pitch: 0.84, dist: 22 }, hour: 12, prep: routeOn, measure: routeCost, done: routeOff },
+  // (Plan E §11: the plaza with the player and the four nearest neighbours wearing dirt, mud, wet, snow and blood, to
+  // measure the grime overlay, three/grime.js; last, so the others are measured as always. Compare it with plaza)
+  { name: 'plaza-sucios', at: PLAZA, cam: { yaw: Math.PI / 4, pitch: 0.84, dist: 22 }, hour: 12, hold: grimy },
 ].filter(s => !ONLY || ONLY.includes(s.name));
 
 // The deep sea nearest the village, for costa and mar: on rings round the village every 32 m, the first point with the bed
@@ -150,6 +154,22 @@ async function routeCost(game, v, frame, sync, cpu) {
   };
 }
 function routeOff(game) { game.route?.clear?.('user'); }
+
+// plaza-sucios: creative keeps Body inert (body.js), so the surface is put here: the player's through body.surface (what
+// actors.js draws every frame), the neighbours' as a fixed surface (actors.js surfaceOf, e.grime). Looked for until four
+// are near (they come in after the /tp), for two seconds of frames at most. A version without the overlay draws them clean
+const GRIMY = { dirt: 0.8, mud: 0.6, wet: 0.5, wetLegs: 0, snow: 0.4, blood: 0.5, shiver: 0, sweat: 0 };
+let grimyTries = 0;
+function grimy(game) {
+  if (grimyTries < 0 || grimyTries++ > 120) return;
+  const p = game.player, A = game.view3d?.actors;
+  if (!p || !A?.models) return;
+  if (game.body) game.body.surface = () => GRIMY;
+  const near = [...A.models].filter(([e, m]) => m.kind === 'person' && e !== p && !e.remote && Math.hypot(e.x - p.x, e.y - p.y) < 25)
+    .sort(([a], [b]) => Math.hypot(a.x - p.x, a.y - p.y) - Math.hypot(b.x - p.x, b.y - p.y)).slice(0, 4);
+  for (const [e] of near) e.grime = GRIMY;
+  if (near.length >= 4) grimyTries = -1;   // (done: nothing more per frame)
+}
 
 // El trozo con más árboles cerca del pueblo (siempre el mismo: el mundo sale de la misma semilla)
 let forestAt = null;

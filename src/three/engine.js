@@ -350,9 +350,10 @@ export class View3D {
     // (something big in the arms, with the weight inventory: it shows at the bottom of the screen; the wheelbarrow being
     // pushed, on the ground ahead. carry.js viewKey: 'carry:<id>', 'push:<key>', 'bow:<id>' (rowing: the boat shows it
     // already) or null; carry3d.js)
-    const vk = first && !game.player?.swim ? (game.carry?.viewKey ? game.carry.viewKey() : game.carry?.held ? 'carry:' + game.carry.held : null) : null;
+    const away = game.player?.swim || game.player?.pose?.kind === 'bath';   // (swimming or in the tub, the hands are free: nothing shows)
+    const vk = first && !away ? (game.carry?.viewKey ? game.carry.viewKey() : game.carry?.held ? 'carry:' + game.carry.held : null) : null;
     const big = vk?.startsWith('carry:') ? vk.slice(6) : null, push = vk?.startsWith('push:') ? vk.slice(5) : null;
-    const id = big || push ? vk : first && !game.player?.swim ? (m?.anim ? m.anim.item : game.inv?.held?.id) || null : null;   // (nadando, se guarda)
+    const id = big || push ? vk : first && !away ? (m?.anim ? m.anim.item : game.inv?.held?.id) || null : null;   // (nadando, se guarda)
     if (this.vmItem !== id) {
       this.vmItem = id;
       vm.clear();
@@ -832,7 +833,7 @@ export class View3D {
       if (this.depthRoot) this.depthRoot.children.length = 0;
       for (const d of this.depthMats?.values() || []) d.map = d.alphaMap = d.displacementMap = null;
     }
-    if (P) for (let i = n0; i < P.length; i++) if (!ready(P[i])) wait.add(P[i]);
+    if (P) for (let i = n0; i < P.length; i++) if (P[i] && !ready(P[i])) wait.add(P[i]);   // (the list can shrink meanwhile: a season change rebuilds the ground)
     return [...wait];
   }
   // Lo que da sombra, con el material con el que lo pinta en el mapa la pasada de sombras de Three (getDepthMaterial):

@@ -514,6 +514,18 @@ export const COMMANDS = {
       say(`Ahora son las ${clockText(h)} (el reloj sigue andando desde ahí; /time reset lo devuelve a la hora de Madrid).`, 'ok');
     },
   },
+  // Plan E §2.5: hair and beard grow with real days and the surface with work, so an op can set them to test by playing
+  body: {
+    get help() { return t('cmd.body.help'); },
+    run(game, say, [what = '', n = '']) {
+      if (needOp(game, say, 'body')) return;
+      const w = { hair: 'hair', pelo: 'hair', beard: 'beard', barba: 'beard', dirt: 'dirt', mugre: 'dirt', wet: 'wet', mojado: 'wet', clean: 'clean', limpio: 'clean' }[plain(what)];
+      const needN = w === 'hair' || w === 'beard' || w === 'dirt';
+      const line = w && game.body && game.player && (!needN || num(n) !== null) ? game.body.testSet(w, num(n)) : null;
+      if (line === null) { say(t('cmd.body.usage'), 'err'); return; }
+      say(line, line === t('cmd.body.survival') ? 'err' : 'ok');
+    },
+  },
   sit: { help: 'sentarse en el suelo (también manteniendo Shift)', run(game) { game.rest.floor('floorSit'); } },
   lie: { help: 'tumbarse en el suelo (también manteniendo Shift otra vez, ya sentado)', run(game) { game.rest.floor('floorLie'); } },
   stand: { help: 'levantarse (también moviéndote o con E)', run(game) { game.rest.stand(); } },

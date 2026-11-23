@@ -195,6 +195,9 @@ const BAIL = new THREE.TorusGeometry(0.128, 0.007, 4, 12, Math.PI);   // (el asa
 let DOME;
 // El «?» de lo que este juego no conoce (de una versión más nueva): cinco por siete cuadritos, de arriba abajo
 const QUESTION = ['.###.', '#...#', '....#', '...#.', '..#..', '.....', '..#..'];
+// The tub's measures (BUILD.banera), in its local frame: the outside from z0 to z1 (two tiles along +z), half-width x,
+// wall thickness t, the floor inside at `floor` and the water at `water`. actors.js puts the bather and the foam by them
+export const TUB = { z0: -0.4, z1: 1.38, x: 0.42, t: 0.07, floor: 0.3, water: 0.52 };
 const BUILD = {
   // Lo de una versión más nueva del juego que este no conoce (ver unknownObject en world/scenes.js): una caja de madera
   // con un «?» dorado en cada lado, para que se vea que ahí hay algo que hay que recargar la página para ver
@@ -360,12 +363,12 @@ const BUILD = {
   },
   // Baño: bañera de porcelana con patas de latón (dos casillas de largo), retrete y lavabo con espejo
   banera(m) {
-    const z0 = -0.4, z1 = 1.38, x = 0.42, t = 0.07;
+    const { z0, z1, x, t } = TUB;
     m.box('porcelain', -x, 0.14, z0, x, 0.3, z1);   // el fondo y, alrededor, las paredes con su borde
     m.box('porcelain', -x, 0.3, z0, -x + t, 0.62, z1).box('porcelain', x - t, 0.3, z0, x, 0.62, z1).box('porcelain', -x, 0.3, z0, x, 0.62, z0 + t).box('porcelain', -x, 0.3, z1 - t, x, 0.62, z1);
     m.box('porcelain', -x - 0.03, 0.62, z0 - 0.03, x + 0.03, 0.66, z0 + t).box('porcelain', -x - 0.03, 0.62, z1 - t, x + 0.03, 0.66, z1 + 0.03);
     m.box('porcelain', -x - 0.03, 0.62, z0 + t, -x + t, 0.66, z1 - t).box('porcelain', x - t, 0.62, z0 + t, x + 0.03, 0.66, z1 - t);
-    m.box('water', -x + t, 0.3, z0 + t, x - t, 0.52, z1 - t);
+    m.box('water', -x + t, 0.3, z0 + t, x - t, TUB.water, z1 - t);
     for (const [a, b] of [[-x + 0.06, z0 + 0.08], [x - 0.06, z0 + 0.08], [-x + 0.06, z1 - 0.08], [x - 0.06, z1 - 0.08]]) m.ball('brass', a, 0.09, b, 0.07, 0.09, 0.07);
     m.cyl('brass', 0, 0.66, z0 + 0.04, 0.025, 0.025, 0.2, 8).box('brass', -0.015, 0.84, z0 + 0.04, 0.015, 0.87, z0 + 0.18).ball('brass', -0.08, 0.72, z0 + 0.04, 0.03).ball('brass', 0.08, 0.72, z0 + 0.04, 0.03);
   },
@@ -1635,3 +1638,48 @@ BUILD.wheelbarrow = (m, a, b) => {
 
 // El que se cuelga (origen en el suelo, colgado del techo, con su luz)
 BUILD.candelabro = m => chandelier(m, WALL_H).light(0, WALL_H - 0.6, 0, { color: '#ffd08a', intensity: 4.5, range: 11, halo: 0 });   // (sin halo: lo llevan sus velas)
+
+// ---------- the bath (Plan E §5.4) ----------
+// The foam over the water while someone bathes (actors.js shows it with the bather, so another player's bath shows too):
+// a soft sheet a little smaller than the inside of the tub, around the body, with a few heaps of bubbles. Its origin is at
+// the water level, under the bather's hip, and it reaches forward over the legs (+z). One shared geometry and material,
+// made the first time (vertex colours, as most models: a program the game already has)
+let FOAM = null;
+export function bathFoam() {
+  if (!FOAM) {
+    const parts = [], white = '#f3f0e8', shade = '#dcd8ce';
+    const sheet = new THREE.CircleGeometry(1, 28).rotateX(-Math.PI / 2);
+    sheet.scale(TUB.x - TUB.t - 0.035, 1, 0.6).translate(0, 0.004, 0.32);
+    parts.push(paintGeo(sheet, white));
+    let q = 1234567;
+    const rnd = () => ((q = (Math.imul(q, 1103515245) + 12345) >>> 0) / 4294967296);
+    for (let i = 0; i < 26; i++) {
+      const a = rnd() * Math.PI * 2, rr = Math.sqrt(rnd()), r = 0.03 + rnd() * 0.05;
+      const bx = Math.cos(a) * rr * (TUB.x - TUB.t - 0.09), bz = 0.32 + Math.sin(a) * rr * 0.5;
+      const b = new THREE.SphereGeometry(1, 8, 4, 0, Math.PI * 2, 0, Math.PI / 2).scale(r, r * 0.6, r).translate(bx, 0, bz);
+      parts.push(paintGeo(b, i % 3 ? white : shade));
+    }
+    let n = 0;
+    for (const g of parts) n += g.attributes.position.count;
+    const pos = new Float32Array(n * 3), nor = new Float32Array(n * 3), col = new Float32Array(n * 3), idx = [];
+    let o = 0;
+    for (const g of parts) {
+      pos.set(g.attributes.position.array, o * 3); nor.set(g.attributes.normal.array, o * 3); col.set(g.attributes.color.array, o * 3);
+      for (const k of g.index.array) idx.push(k + o);
+      o += g.attributes.position.count; g.dispose();
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3)); geo.setAttribute('normal', new THREE.BufferAttribute(nor, 3)); geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    geo.setIndex(idx); geo.computeBoundingSphere();
+    FOAM = { geo, mat: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.84 }) };
+  }
+  const m = new THREE.Mesh(FOAM.geo, FOAM.mat);
+  m.receiveShadow = true; m.userData.shared = true;   // (never disposed with the person: shared by every bath)
+  return m;
+}
+function paintGeo(g, c) {
+  const k = new THREE.Color(c), n = g.attributes.position.count, a = new Float32Array(n * 3);
+  for (let i = 0; i < n; i++) { a[i * 3] = k.r; a[i * 3 + 1] = k.g; a[i * 3 + 2] = k.b; }
+  g.setAttribute('color', new THREE.BufferAttribute(a, 3));
+  return g;
+}

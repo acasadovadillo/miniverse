@@ -20,9 +20,14 @@ const RAW = (() => { try { return new URLSearchParams(globalThis.location?.searc
 // ms and nodes), rutasuelo (?rutasuelo=0: no ground ribbon, the maps and the pin stay) and musica (?musica=0 or
 // ?musica=chip: today's music exactly, music.js LegacyMusic chosen at load; ?musica=ver: F3 shows mood, intensity, live
 // voices and the last cue). Local only: none changes gen, saves or the network
+// Plan E (the body and how you look, docs/planes/gta/PLAN-E-cuerpo-aspecto.md §11), each with ?x=0: cuerpo (no surface
+// at all: no dirt, mud, wet, snow or blood, neither gained nor drawn), frio (no temperature effects: body factors 1, no
+// chip), crecer (hair and beard growth never applied to the look), desgaste (clothes never gain tear) and comentarios (no
+// neighbour remarks). None of them changes gen or the world either
 export const PARTES = { hierba: 'sinlod', impostores: null, relieve: null, contacto: null, sombras: 'todas', personas: 'todas', suelo: 'v2', inventario: 'casillas',
   sed: null, cansancio: null, aguante: null, buceo: null, fondo: null, caustica: null,
-  ruta: null, rutasuelo: null, musica: 'chip' };
+  ruta: null, rutasuelo: null, musica: 'chip',
+  cuerpo: null, frio: null, crecer: null, desgaste: null, comentarios: null };
 
 // El valor tal cual (o null)
 export const opcion = k => RAW.get(k);

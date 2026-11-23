@@ -11,6 +11,8 @@
 // column gone, keys are taught once, at the moment they are useful (I the first time you pick something up, C with a
 // new recipe, Shift the first time you swim…). What needs you shows by itself: hungry (or thirsty), the slot with food
 // (or a drink) beats; drawing the bow, a ring at the cursor with the arrows left.
+// The body chip under the bars (cold, hot, soaked, filthy: ui/bodychip.js paints it, for both HUDs) brings its tip
+// once, here, like the needs.
 // Nothing here reads the DOM each frame: it compares a few numbers of the game and touches a class only when the
 // answer changes (the mark and the bow ring move with the view, so they are written while they show). The look (fades
 // of 0.15 s in and 0.5 s out) is the CSS below, injected so all of it stays in this file and goes away with it.
@@ -46,7 +48,10 @@ const LOW_HP = HP_MAX * 0.4, LOW_FOOD = 6, SHOW_FOOD = HUNGER_MAX * 0.6;   // (l
 const DANGER = 8;          // tiles: a creature this close keeps health in sight
 const HEAL_NEW = 10;       // seconds without healing: the next heal is news (regen starting), not each 4 s tick
 const NEED_GAP = 60;       // seconds: never two tips about needs (hunger, thirst, sleep) closer than this
-const NEED_TIPS = new Set(['hungry', 'thirsty', 'tired']);
+// (the body's tips count as needs too: cold, heat, soaked, filthy, torn clothes, grown hair; src/body.js, Plan E §7.1)
+const NEED_TIPS = new Set(['hungry', 'thirsty', 'tired', 'cold', 'hot', 'wet', 'dirty', 'torn', 'hair']);
+// The body chip in sight (ui/bodychip.js) → the tip it brings, once (per account, like the others)
+const CHIP_TIP = { cold: 'cold', freezing: 'cold', hot: 'hot', soaked: 'wet', filthy: 'dirty', torn: 'torn' };
 const DIVE_TIP = 3;        // seconds swimming before the dive tip
 const POSTURE_TIP = 90;    // seconds playing before the posture tip, if no crouch came first
 const GAIT_TIP = 60;       // seconds walking on foot before the tip of the three speeds, if no jog came first
@@ -69,6 +74,8 @@ const TIPS = {
   bulky: { key: 'E' }, arms: { key: 'Q' },
   // (the wheelbarrow, barrow.js: parked within reach, then pushing it; a big thing on the horse or in the bow, carry.js)
   barrow: { key: 'E' }, pushing: { key: 'Q' }, ride: { key: 'Q' }, bow: { key: null },
+  // (the body, Plan E: what to do about the chip under the bars; dirty says its key, X, in the text)
+  cold: { key: null }, hot: { key: null }, wet: { key: null }, dirty: { key: null }, torn: { key: null }, hair: { key: null },
 };
 const KNOWN = ['bag', 'craft', 'build', 'journal', 'map'];   // (what a player past the first steps already knows)
 // Closing hours of the shops (hours past 24 are after midnight); the ones open all day never close
@@ -431,12 +438,17 @@ export class SmartHud {
     if (crit.hunger) this.want('hungry', true);
     if (crit.hearts && !under) this.want('lowhp', true);   // (under water the advice is the air's: "rest and eat" would be wrong)
     if (crit.air) this.want('air', true);
+    // (the body chip, while it shows: what to do about it, once)
+    const bc = g.bodyChip, chipTip = surv && CHIP_TIP[bc?.id];
+    if (chipTip) this.want(chipTip);
     this.swimT = p.swim ? (this.swimT || 0) + dt : 0;
     if (this.swimT > DIVE_TIP && surv && !apagada('buceo')) this.want('dive');
     this.critNow = crit;
     const tipNow = free && !wins && !g.build.on;
     if (this.tip && !tipNow) this.tipUntil += dt;   // (it waits, hidden, until the dialogue or the window is over)
-    const over = { hungry: !crit.hunger, thirsty: !crit.water, tired: !crit.rest, air: !crit.air, lowhp: under }[this.tip];   // (the need is met: its tip goes; low health's, under water)
+    const bcd = bc?.cond;
+    const over = { hungry: !crit.hunger, thirsty: !crit.water, tired: !crit.rest, air: !crit.air, lowhp: under,
+      cold: !!bcd && !bcd.cold, hot: !!bcd && !bcd.hot, wet: !!bcd && !bcd.soaked, dirty: !!bcd && !bcd.dirty }[this.tip];   // (the need is met: its tip goes; low health's, under water; warm, cool, dry or clean again: the body's)
     if (this.tip && (T > this.tipUntil || over)) this.endTip();
     else if (!this.tip && this.queue.length && tipNow) {
       const i = this.queue.findIndex(id => (id !== 'lowhp' || !under) && (!NEED_TIPS.has(id) || T - this.needTipAt >= NEED_GAP));
@@ -454,7 +466,9 @@ export class SmartHud {
     // (a tip about a need still waiting when that need is met: it is not news any more)
     const cr = this.critNow;
     if (cr && this.queue.length) {
-      const gone = { hungry: !cr.hunger, thirsty: !cr.water, tired: !cr.rest, air: !cr.air, lowhp: !cr.hearts };
+      const bcd = g.bodyChip?.cond;
+      const gone = { hungry: !cr.hunger, thirsty: !cr.water, tired: !cr.rest, air: !cr.air, lowhp: !cr.hearts,
+        cold: !!bcd && !bcd.cold, hot: !!bcd && !bcd.hot, wet: !!bcd && !bcd.soaked, dirty: !!bcd && !bcd.dirty };
       if (this.queue.some(id => gone[id])) this.queue = this.queue.filter(id => !gone[id]);
     }
     // The time: at dawn and dusk, a new day, a weather change, after sleeping and before a shop of the village closes
@@ -486,6 +500,13 @@ export class SmartHud {
     // The three speeds, once: after a minute walking on foot without ever jogging (a jog or a sprint makes it known)
     if (p.gait >= 1) { if (!this.seen.has('gait')) this.learnt('gait'); }
     else if (!this.seen.has('gait') && !p.swim && !p.mount && !p.boat && !p.aboard && !p.crouch && !p.pose && Math.hypot(p.vx || 0, p.vy || 0) > 1 && (this.walkT = (this.walkT || 0) + 0.25) > GAIT_TIP) this.want('gait');
+    // Hair or beard grown a step (src/body.js applies it at a hidden moment: Plan E §2.5): where to get it cut, once
+    const ap = g.body?.applied;
+    if (ap) {
+      const grown = (ap.hair || 0) + (ap.beard || 0);
+      if (this.grown !== undefined && grown > this.grown && g.gamemode === 'survival') this.want('hair');
+      this.grown = grown;
+    }
     // Leaving the village for the first time: the map
     if (g.scene === g.world && !g.indoors && !inBounds(p.x, p.y)) this.want('map');
     // A new recipe while playing (not the ones of the start): crafting
@@ -500,7 +521,7 @@ export class SmartHud {
     this.until = {};
     for (const k of ['clock', 'tag', 'place', 'slots']) this.until[k] = T + SHOW.intro;
     this.until.quest = T + SHOW.quest;
-    for (const k of ['hp', 'food', 'foodStep', 'water', 'waterStep', 'restStep', 'money', 'xp', 'level', 'invV', 'sel', 'stepKey', 'stepI', 'placeName', 'gm', 'night', 'count', 'sig', 'bed', 'critNow']) this[k] = undefined;
+    for (const k of ['hp', 'food', 'foodStep', 'water', 'waterStep', 'restStep', 'money', 'xp', 'level', 'invV', 'sel', 'stepKey', 'stepI', 'placeName', 'gm', 'night', 'count', 'sig', 'bed', 'critNow', 'grown']) this[k] = undefined;
     this.fresh = Infinity;   // (the first look only counts them)
     this.foodSlot = -1; this.foodBag = false; this.drinkSlot = -1; this.drinkBag = false;
     this.healAt = -Infinity; this.enLow = false; this.swimT = 0; this.needTipAt = -Infinity;

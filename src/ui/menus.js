@@ -10,6 +10,8 @@ import { initInventoryUI } from './inventory.js';
 import { initCraftingUI } from './crafting.js';
 import { initChestUI } from './chest.js';
 import { initLoadMeter } from './loadmeter.js';
+import { BodyChip } from './bodychip.js';
+import { reportFault } from '../faults.js';
 import { initShopUI } from './shop.js';
 import { initJournalUI } from './journal.js';
 import { initSettingsUI } from './settings.js';
@@ -557,6 +559,21 @@ export function initMenus(game) {
     showPage('cara');
     show('s-creator');
   };
+  // The basin (E on a lavabo, game.placedAction): wash your face and hands (body.washFace, src/body.js) or look in the
+  // mirror, asked like the bed's menu. Without Body, or with ?cuerpo=0 (no dirt to wash), straight to the mirror as
+  // before. With something in the arms the wash is refused (both hands are needed); the mirror is not
+  game.onBasin = async () => {
+    if (game.mode !== 'play' || !game.player || game.busy || hud.dialogOpen) return;
+    const body = game.body;
+    if (!body || body.off?.surface || typeof body.washFace !== 'function') { game.onMirror?.(); return; }
+    game.busy = true;
+    let pick;
+    try { pick = await hud.ask(game.player.name, t('body.basin.q'), [t('body.wash_face'), t('body.mirror'), t('body.basin.nothing')]); }
+    finally { game.busy = false; }
+    if (!game.player || game.mode !== 'play') return;   // (the game ended or a window took over meanwhile)
+    if (pick === 0 && !game.carry?.refuse()) body.washFace();
+    else if (pick === 1) game.onMirror?.();
+  };
   // (the start button says "Done" at the mirror: through its data-i18n key, so a language switch keeps it right)
   function setStartLabel(key) { const b = $('cr-start'); b.dataset.i18n = key; applyDom(b); }
   const closeMirror = apply => {
@@ -727,6 +744,7 @@ export function initMenus(game) {
   const craftUI = initCraftingUI(game, { onClose: () => wins.close('s-craft'), onBag: () => wins.open('s-inv') });
   const chestUI = initChestUI(game, { onClose: () => wins.close('s-chest') });
   let loadMeter = null;   // (the weight inventory, the default: carry.js; made the first time a game has it)
+  const bodyChip = game.bodyChip = new BodyChip(game);   // (the chip under the bars, both HUDs: src/ui/bodychip.js)
   let chestAt = null, chestTick = 0;   // (dónde se abrió el cofre: si se aleja, se cierra)
   wins.add('s-inv', { close: 'inv-close', spot: wins.defaults.left, onOpen: () => invUI.open() });
   wins.add('s-craft', { close: 'cf-close', spot: wins.defaults.right });
@@ -798,6 +816,7 @@ export function initMenus(game) {
     const p = game.player;
     if (game.inv?.weight) loadMeter ||= initLoadMeter(game);
     loadMeter?.frame();
+    try { bodyChip.frame(); } catch (e) { reportFault(e, 'BodyChip.frame'); }   // (isolated: render calls onFrame bare)
     if (chestAt && p && Math.hypot(p.x - chestAt[0], p.y - chestAt[1]) > CHEST_REACH) wins.close('s-chest');
     // (lo ha quitado alguien, o lo ha cambiado otro jugador: se cierra o se repinta)
     if (wins.isOpen('s-chest') && ++chestTick % 6 === 0 && !chestUI.check()) wins.close('s-chest');

@@ -1040,7 +1040,9 @@ LOOK.parts.persona = (THREE, LOOK) => {
     tex.refs++;
     const mapa = tex.mapa;
     const mat = new THREE.MeshStandardMaterial({ map: mapa, vertexColors: true, roughness: 0.86, metalness: 0 });
-    mat.onBeforeCompile = sh => {
+    // (a function, not an arrow: `this` is the material being compiled, which for the copies of actors.js and three/grime.js
+    // is not this one, and the surface overlay reads that one's own uniforms)
+    mat.onBeforeCompile = function (sh) {
       sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nattribute vec3 aPiel; varying vec3 vPiel;').replace('#include <begin_vertex>', '#include <begin_vertex>\nvPiel = aPiel;');
       sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec3 vPiel;').replace('#include <roughnessmap_fragment>', 'float roughnessFactor = vPiel.x;')
         .replace('#include <lights_fragment_end>', `#include <lights_fragment_end>
@@ -1055,8 +1057,12 @@ LOOK.parts.persona = (THREE, LOOK) => {
       const smp = THREE.ShaderChunk.shadowmap_pars_fragment, smp2 = smp.includes('vec2 lkB') ? smp.replace('vec2 lkB', 'lkKS0 = shadow; shadow = mix( 1.0, shadow, lkKS ); vec2 lkB') : smp.replace('return shadow;', 'lkKS0 = shadow; return mix( 1.0, shadow, lkKS );');
       if (lfb2 === lfb || smp2 === smp) console.log('PIEL: no se pudo enganchar la sombra propia');
       sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nfloat lkNL = 1.0; float lkKS = 1.0; float lkKS0 = 1.0; float lkLuz = 0.0;').replace('#include <lights_fragment_begin>', lfb2).replace('#include <shadowmap_pars_fragment>', smp2);
+      // The game's surface overlay (dirt, mud, wet, snow, blood: three/grime.js), when the game installs it in LOOK.grime
+      // (realperson.js). Into every persona material, so the one program carries it; the test pages without it, as before
+      if (LOOK.grime) LOOK.grime(sh, this);
     };
-    mat.customProgramCacheKey = () => 'persona-piel';
+    // (one program for all the people; another one, with the overlay, only once the game has installed it)
+    mat.customProgramCacheKey = () => (LOOK.grime ? 'persona-piel-g1' : 'persona-piel');
     const tris = idx.length / 3, trisL = idxL.length / 3;
 
     // ------------------------------------------------------------ andar: tablas de 8 claves, fase ligada a la distancia

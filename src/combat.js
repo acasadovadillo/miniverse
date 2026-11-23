@@ -97,7 +97,8 @@ export class Combat {
     // (con el hambre a 18 o más) o duele el hambre (a 0: hasta medio corazón)
     if (!this.survival) { if (this.hp < HP_MAX || this.hunger < HUNGER_MAX) { this.hp = HP_MAX; this.hunger = HUNGER_MAX; this.paint(); } }
     else if (p && !g.busy) {
-      this.exert(dt * EXHAUST / IDLE, true);
+      // (the cold makes you hungrier: body.factors.hunger, 1 unless it is cold, Plan E §2.4)
+      this.exert(dt * EXHAUST / IDLE * (g.body?.factors.hunger ?? 1), true);
       // (con la poción de regeneración, medio corazón cada poco)
       if (g.buffs.regeneracion > g.time && (this.regenPot = (this.regenPot || 0) + dt) >= 2.5) { this.regenPot = 0; this.heal(1); }
       if ((this.regen += dt) >= TICK) {
@@ -138,6 +139,7 @@ export class Combat {
     }
     g.inv.changed();
     this.exert(0.1);
+    g.body?.hit();   // (a hit leaves a little dirt: Plan E §2.3)
     this.hp = Math.max(0, this.hp - dmg);
     this.invuln = 0.8;
     const dx = p.x - from.x, dy = p.y - from.y, d = Math.hypot(dx, dy) || 1;
@@ -172,6 +174,8 @@ export class Combat {
     g.addMoney(-lost);
     this.hunger = HUNGER_MAX; this.exhaust = 0;
     try { g.needs?.refill({ death: true }); } catch (e) { reportFault(e, 'Needs.refill'); }   // (thirst, stamina and air full, rest at least half, awake)
+    // (out of the tub or the chair where you fell, without the step back to it, and no scrub: body.js onDeath)
+    try { g.body?.onDeath?.(); } catch (e) { reportFault(e, 'Body.onDeath'); }
     g.goHome();
     this.hp = HP_MAX; this.paint();
     g.view3d.snap();

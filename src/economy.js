@@ -12,6 +12,8 @@ const BASE = {
   huevo_pato: 35, huevo_oro: 300, plumas: 12, leche_cabra: 40, nata: 60, lana_fina: 140, angora: 55, trufa: 250, heno: 3,
   // Thirst and diving: what the sea bed gives (Rosa buys it all), and what is made, below what the shops sell it for
   seashell: 5, pearl: 180, mussel: 4, seaweed: 2, canteen: 24, water_jug: 20, apple_juice: 30,
+  // The body (Plan E §2.3): soap sells for less than Rosa asks
+  soap: 10,
 };
 const cache = new Map();
 const plans = list => Object.entries(list).map(([plan, price]) => ({ plan, price }));
@@ -48,7 +50,7 @@ export const SHOPS = {
       { animal: 'gallina', name: 'Gallina', price: 400 }, { animal: 'pato', name: 'Pato', price: 500 }, { animal: 'conejo', name: 'Conejo', price: 700 },
       { animal: 'cabra', name: 'Cabra', price: 1000 }, { animal: 'cerdo', name: 'Cerdo', price: 1300 }, { animal: 'oveja', name: 'Oveja', price: 1200, project: 'mercado' }, { animal: 'vaca', name: 'Vaca', price: 1500, project: 'mercado' },
       { id: 'maceta', price: 90 }, { id: 'alfombra', price: 160, project: 'mercado' }, { id: 'lampara', price: 220, project: 'mercado' },
-      { id: 'pan', price: 70 }, { id: 'manzana', price: 30 },
+      { id: 'pan', price: 70 }, { id: 'manzana', price: 30 }, { id: 'soap', price: 25 },
     ],
   },
   anselmo: {

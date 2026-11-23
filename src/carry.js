@@ -398,6 +398,7 @@ export class Carry {
     const got = [];   // (all of it in one notice: four at a time at most, and a new recipe would push one out)
     for (const [m, n] of sum) { const left = g.inv.add(m, n); if (left) g.gather.throwOut(m, left); got.push(`+${n} ${ITEMS[m].name}`); }
     g.gather.float(got.join(' · '), '#fff3c0');
+    if (BULKY[id].prey) g.body?.butchered();   // (butchering leaves blood and dirt on you: Plan E §2.3)
     if (BULKY[id].saw) g.gather.chips(g.player.x + g.player.face.x, g.player.y + g.player.face.y, 'wood', 14);
     Audio.craft();
     g.onSave?.();
@@ -410,6 +411,7 @@ export class Carry {
     this.forget(o.tile);
     g.gather.spawnDrops(o, { drops: B.drops.map(([m, min, , chance]) => [m, min, min, chance]) });
     g.gather.chips(o.x, o.y, 'dirt', 14);
+    g.body?.butchered();
     Audio.noiseHit(180, 0.2, 0.35);
     g.onSave?.();
   }

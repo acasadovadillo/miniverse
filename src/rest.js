@@ -1,7 +1,9 @@
 // Posturas: sentarse en una silla, tumbarse en la cama (sin dormir) y sentarse o tumbarse en el suelo (Shift held: posture).
 // Mientras tanto no se anda; moverse, saltar o E (levantarse) devuelven al jugador a donde estaba.
-// La postura va en p.pose = { kind: 'sit' | 'floorSit' | 'lie' | 'floorLie', yaw, h } y la ven los demás
+// La postura va en p.pose = { kind: 'sit' | 'floorSit' | 'lie' | 'floorLie' | 'bath', yaw, h } y la ven los demás
 // jugadores (va con su estado). h: la altura del cuerpo sobre el suelo (en la cama, sobre el colchón).
+// 'bath' (Plan E §4.1): sitting in a tub, p.bathing set; body.js runs the bath. On the network it goes as a sit (index 0)
+// plus st.ba, so an old client sees someone sitting in the tub (live.js)
 import { keys } from './input.js';
 import { dirOf, sideOf } from './world/fit.js';
 import { nearX } from './world/planet.js';
@@ -9,11 +11,12 @@ import { Audio } from './audio.js';
 import { hud } from './ui/hud.js';
 
 const SEAT = 0.14, STOOL = 0.27, SOFA = 0.1, BED = 0.6, FLOOR_LIE = 0.14, FLOOR_SIT = -0.28;
+const BATH = 0.12, BATH_HIP = 0.85;   // the bather's h, and from the tub's anchor along its length to the hips (the taps' end at the feet)
 
 export class Rest {
   constructor(game) { this.game = game; }
   get p() { return this.game.player; }
-  reset() { if (this.p) { this.p.pose = null; this.p.sleeping = false; } this.twin = null; }
+  reset() { if (this.p) { this.p.pose = null; this.p.sleeping = false; this.p.bathing = false; } this.twin = null; }
   // Mirando hacia (dx, dy): el ángulo del modelo (z+ hacia delante)
   static yaw(dx, dy) { return Math.atan2(dx, dy); }
 
@@ -46,6 +49,17 @@ export class Rest {
     this.take({ kind: 'lie', yaw: Rest.yaw(-along[0], -along[1]) + Math.PI, h: BED }, at[0], at[1]);
     this.twin = p.pose ? twin : null;
   }
+  // In a tub (banera: two tiles long, the taps at the anchor's end): sitting with the back at the far end, facing the
+  // taps. body.bathe checks first (the arms, the water, another bather) and runs the bath
+  bathSpot(o) { const [dx, dy] = dirOf(o.yaw ?? 0); return [o.x + dx * BATH_HIP, o.y + dy * BATH_HIP]; }
+  bath(o) {
+    if (this.game.carry?.refuse()) return;
+    const p = this.p, [dx, dy] = dirOf(o.yaw ?? 0), [x, y] = this.bathSpot(o);
+    if (!p) return;
+    if (p.pose) this.stand();
+    this.take({ kind: 'bath', yaw: Rest.yaw(-dx, -dy), h: BATH }, x, y);
+    if (p.pose?.kind === 'bath') p.bathing = true;
+  }
   // En el suelo, donde está, mirando hacia donde miraba. True when the posture changed (sat, lay down or got up)
   floor(kind) {
     if (this.game.carry?.refuse()) return false;
@@ -59,14 +73,21 @@ export class Rest {
   }
   // Shift alone (input.js): a tap or a hold (SHIFT_HOLD). Standing: a tap crouches, a hold sits on the floor. Crouching: a
   // tap stands up, a hold sits. Sitting on the floor: a tap gets up crouching, a hold lies down face up. Lying on the
-  // floor: a tap sits up. Never on a horse, in a boat, on a chair or in a bed (E, Space or walking get up there); a hold
+  // floor: a tap sits up. Never on a horse, in a boat, on a chair, in a bed or in a tub (E, Space or walking get up there; in
+  // the tub body.js runs the bath until then, so Shift must not end it or crouch the bather); a hold
   // while walking does nothing (walking would get up at once); in the water, only the tap's crouch, as before.
   // True when the posture changed (input.js then stops the running; nothing done leaves the gait as it was)
   posture(hold) {
     const p = this.p;
     if (!p || p.mount || p.boat || p.aboard) return false;
     const kind = p.pose?.kind;
-    if (kind === 'sit' || kind === 'lie') return false;
+    if (kind === 'sit' || kind === 'lie' || kind === 'bath' || p.bathing) return false;
+    // (scrubbing at the water, body.js, is its own crouch: a tap ends it, standing as you were before; a hold ends it and
+    // goes on to sit, so the posture's crouch and the scrub's never fight over p.crouch). Drinking on land (needs.js) is
+    // the same kind of crouch, and goes the same way
+    const body = this.game.body, needs = this.game.needs;
+    if (body?.scrubbing) { body.stopScrub(); if (!hold) return true; }
+    if (needs?.drinking?.land) { needs.stopDrinking(); if (!hold) return true; }
     if (p.swim || p.depth > 0.3) { if (hold || kind) return false; p.crouch = !p.crouch; return true; }
     if (!hold) {
       if (kind === 'floorLie') return this.floor('floorSit');
@@ -90,6 +111,7 @@ export class Rest {
     if (!p?.pose) return;
     p.pose = null;
     p.sleeping = false;   // (asleep in bed until you get up: needs.js sleep, st.zz)
+    p.bathing = false;    // (in a tub: body.js, st.ba)
     this.twin = null;
     if (this.back) [p.x, p.y] = this.back;
     this.back = null;

@@ -65,6 +65,8 @@ import { Carry, WeightInventory, weightMode } from './carry.js';
 import { BULKY, BARROW } from './carry-items.js';
 import { Barrow } from './barrow.js';
 import { Needs, RATES } from './needs.js';
+import { Body } from './body.js';
+import { Remarks } from './remarks.js';
 import { Dive } from './dive.js';
 
 // Lo que ya no existe en el juego y lo que costó. Al cargar una partida se quita de donde esté (la mochila, los cofres, las
@@ -129,7 +131,7 @@ function defaultHouseDeltas() {
 
 // Los modos de juego (/gamemode) y las reglas del mundo (/gamerule) con lo que valen al empezar
 export const GAMEMODES = { survival: 'supervivencia', creative: 'creativo', spectator: 'espectador' };
-export const RULES = { keepInventory: false, doMobSpawning: true, doWeatherCycle: true, doDaylightCycle: true, naturalRegeneration: true, announceAdvancements: true, doThirst: true, doFatigue: true };   // (doThirst, doFatigue: needs.js; old saves get true, and they are read as !== false)
+export const RULES = { keepInventory: false, doMobSpawning: true, doWeatherCycle: true, doDaylightCycle: true, naturalRegeneration: true, announceAdvancements: true, doThirst: true, doFatigue: true, doBodyWeather: true };   // (doThirst, doFatigue: needs.js; doBodyWeather: body.js, cold and heat on the needs; old saves get true, and they are read as !== false)
 const TAVERN_SEATS = new Set(['silla', 'taburete']);   // (en la taberna, quien quiere se sienta)
 const AIM_REACH = 2;   // lo que se apunta con el ratón se usa si está a esto como mucho (casillas)
 const LIGHTS = new Set(['lampara', 'antorcha', 'vela', 'candelabro']);
@@ -192,6 +194,7 @@ export class Game {
     this.hunt = this.addSystem(new Hunt(this));   // pegar a los animales (antes que a las criaturas: va a lo que se apunta)
     this.combat = this.addSystem(new Combat(this));
     this.needs = this.addSystem(new Needs(this));   // thirst, stamina, rest, air and sleep (health and hunger stay in combat)
+    this.body = this.addSystem(new Body(this));   // the body: dirt, mud, wet, snow, blood, felt temperature, growth clocks (feeds needs through body.factors: right after needs)
     this.dive = this.addSystem(new Dive(this));   // the finds on the sea and lake beds, while swimming
     this.mobs =this.addSystem(new Mobs(this));   // la luz y las criaturas de fuera, de noche
     this.xp = this.addSystem(new Experience(this));   // la experiencia y los niveles
@@ -206,6 +209,7 @@ export class Game {
     this.steps = this.addSystem(new Steps(this));   // los primeros pasos
     this.live = this.addSystem(new Live(this));   // jugar juntos en directo
     this.social = this.addSystem(new Social(this));   // greeting and provoking people (Y or right click on someone)
+    this.remarks = this.addSystem(new Remarks(this));   // what the neighbours say about how you look (src/remarks.js; after social: it speaks through social.say)
     this.niloTips = NILO_TIPS;
     this.money = 0;
     this.buffs = {};             // efectos de comida: { rapido: hasta cuándo, incansable: … }
@@ -692,7 +696,11 @@ export class Game {
     if (STATIONS[o.placed]) return { text: `Usar ${name}`, run: () => this.onCraft?.(o.placed), alt: o.fixed ? null : pick };
     if (o.placed === 'cama' || o.placed === 'cama_nino' || o.placed === 'cama_doble') return { text: this.carry.dropFirst() || t('bed.use'), run: () => this.bed(o), alt: pick };   // (with something in the arms: put it down first, carry.js)
     if (o.placed === 'silla' || o.placed === 'taburete' || o.placed === 'sofa' || o.placed === 'sillon') return { text: this.carry.dropFirst() || 'Sentarse', run: () => this.rest.sit(o), alt: o.fixed ? null : pick };
-    if (o.placed === 'lavabo') return { text: 'Mirarse en el espejo', run: () => this.onMirror?.(), alt: pick };
+    // (the bathroom, Plan E §4.1: E on the tub takes a bath, body.js; E on the basin asks: wash, or the mirror as before,
+    // ui/menus.js onBasin)
+    if (o.placed === 'banera') return { text: this.carry.dropFirst() || t(this.body.hasSoap() && this.gamemode === 'survival' ? 'body.bath.soap' : 'body.bath'), run: () => this.body.bathe(o), alt: pick };
+    // (no dropFirst here: the mirror still works with full arms; the wash itself refuses them, menus.js)
+    if (o.placed === 'lavabo') return { text: this.onBasin && this.body && !this.body.off?.surface ? t('body.basin.use') : t('body.mirror'), run: () => (this.onBasin ? this.onBasin(o) : this.onMirror?.()), alt: pick };   // (onBasin: ui/menus.js asks wash or mirror)
     if (wellSpec(o.placed)) return this.farm.wellAction(o, o.fixed ? null : pick);   // (E: llenar la regadera; X: desmontarlo. The big well too)
     if (CHESTS[o.placed] && o.placed !== 'mochila') return { text: `Abrir ${CHESTS[o.placed][1]}`, run: () => this.onChest?.(sc.chestAt(...o.tile), o.tile), alt: pick };   // (lleno no se recoge: hay que vaciarlo antes)
     if (o.placed === 'mochila') return { text: 'Abrir la mochila', run: () => this.onChest?.(sc.chestAt(...o.tile) || [], o.tile), alt: { text: this.inv.equip.espalda ? 'Recoger la mochila' : 'Ponerse la mochila', run: () => this.takeBackpack(o) } };

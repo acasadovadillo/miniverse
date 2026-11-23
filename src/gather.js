@@ -290,11 +290,12 @@ export class Gathering {
   // Usar una herramienta cansa (da hambre, como en Minecraft; con la tala o la minería al 5, la mitad) y la gasta un
   // uso. Siempre se puede trabajar: con el hambre a cero lo que baja es la vida (según la dificultad)
   // Also stamina (needs.work: TOOL_COST × toolK, halved by the skill; the buff turns it off there): the hunger cost stays
-  // exactly as it was
+  // exactly as it was. And dirt on the body (body.work: a little per use, Plan E §2.3), whatever the buff
   spend(kind) {
     const g = this.game;
     if (!(g.buffs?.incansable > g.time)) g.combat?.exert(TOOL_COST[kind] * (g.skills?.costCut(kind) ? 0.5 : 1));   // (la sopa de verduras quita el cansancio un rato)
     g.needs?.work(kind);
+    g.body?.work(kind);   // (and it dirties you a little: Plan E §2.3, per use)
     this.wearOut();
     return true;
   }

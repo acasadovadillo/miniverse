@@ -14,11 +14,11 @@ export function initWindows(game) {
   let order = [];   // las abiertas, la última, la de encima
   const persist = () => { try { localStorage.setItem(KEY, JSON.stringify(saved)); } catch { /* (sin almacenamiento: se olvida al recargar) */ } };
   const changed = () => { game.windowsOpen = order.length > 0; cover(); };
-  // The clock and the first steps at the top left hide while an open window lies over them (the windows are a little
-  // see-through: the clock's text would show through the title), and come back when it goes, folds or moves away
+  // The clock, the first steps and the body chip at the top left hide while an open window lies over them (the windows
+  // are a little see-through: the clock's text would show through the title), and come back when it goes, folds or moves away
   function cover() {
     const rs = order.map(id => wins.get(id).el.getBoundingClientRect()).filter(r => r.width);
-    for (const el of [$('clockp'), $('quest')]) {
+    for (const el of [$('clockp'), $('quest'), $('body-chip')]) {
       if (!el) continue;
       const was = el.classList.contains('under-win');
       if (was) el.classList.remove('under-win');   // (measured where it would be)
@@ -27,7 +27,7 @@ export function initWindows(game) {
     }
   }
   // (and again when they have slid to a new place: the bars over them came or went, index.html --hud-top)
-  for (const id of ['clockp', 'quest']) $(id)?.addEventListener('transitionend', e => { if (e.propertyName === 'top') cover(); });
+  for (const id of ['clockp', 'quest', 'body-chip']) $(id)?.addEventListener('transitionend', e => { if (e.propertyName === 'top') cover(); });
   function stack() { order.forEach((id, i) => { wins.get(id).el.style.zIndex = BASE_Z + i; }); }
   function front(id) { order = [...order.filter(x => x !== id), id]; stack(); }
   // What no window covers at the top left, in survival: the status bars, with every row an open window shows (where they
@@ -48,7 +48,9 @@ export function initWindows(game) {
   // a screen too short even for that, place() makes it end over them and scroll (you drag things to the hotbar from it)
   function leftSpot(w, h) {
     const bars = barsEnd(), ch = $('clockp')?.offsetHeight || 0, floor = bars ? bars + GAP : EDGE;
-    const under = floor + (ch ? ch + GAP : 0);
+    // (the body chip in sight, right under the bars (ui/bodychip.js): the clock is under it, and so is the window)
+    const bc = $('body-chip'), chip = bc?.classList.contains('on') ? bc.offsetHeight + GAP : 0;
+    const under = floor + chip + (ch ? ch + GAP : 0);
     return [EDGE, under + h <= bottomLimit(EDGE, w) ? under : floor];
   }
   // Ponerla donde toca, sin que se salga: siempre queda a la vista su título

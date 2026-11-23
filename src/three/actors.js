@@ -23,7 +23,8 @@ import { reportFault } from '../faults.js';
 import { kindOf, placeKit, shownOf, splitKit, poseClass } from '../kit.js';
 import { bakeStowed, buildKit } from './kit3d.js';
 import { carriedModel, placeCarried, holdPose, pushedModel, placePushed, pushPose, pushedReach, loadModel, placeLoad } from './carry3d.js';
-import { barrowName, barrowSize } from './models.js';
+import { barrowName, barrowSize, TUB, bathFoam } from './models.js';
+import { unpackBd } from '../body.js';
 import { BULKY } from '../carry-items.js';
 
 // Agachado: cuánto se adelantan los muslos y se doblan las rodillas (rad), cuánto baja el cuerpo (m: lo que suben
@@ -33,6 +34,12 @@ const CROUCH = { hip: 1.5, knee: 2.5, drop: 0.11, lean: 0.4 };
 // (asientos, camas y barca se calibraron con los muñecos de antes: la persona realista se ajusta a esas medidas. La
 // cadera de aquel muñeco sentado, lo que medía tumbado y la escala de sus niños; no cambiarlas sin recolocar muebles)
 const SEAT_HIP = 0.36, LIE_LEN = 1.36, KID_REF = 0.66;
+// In the tub (pose kind 'bath', body.js bathe; another player's: 'sit' with st.ba): the hip this high over the tub's
+// ground plus the pose's h, on the tub's floor (models.js TUB) with the legs straight forward
+const BATH_HIP = 0.26;
+// Shivering (body.js cold ≥ 0.6: surface().shiver, or another player's bd bit) while standing still: how fast it comes in
+// and goes (1/s) and the tremble (Hz)
+export const SHIVER = { in: 3, out: 2, hz: 8, ax: -0.3, az: 0.5, ay: 0, fx: -1.9 };   // (and the hug: shoulder forward, shoulder in, elbow; see shiverBones)
 const LOOK_R = 2.6;      // a qué distancia se mira a quien se tiene al lado
 // Nadar a braza: claves de una brazada (momento de 0 a 1, valor; ver keys). Tira con los brazos abiertos y la cabeza
 // arriba para respirar (0-0,44; los codos bajan y las manos barren por debajo, sin pasar nunca de la horizontal, o salen
@@ -389,6 +396,9 @@ export class Actors {
       return;
     }
     let pz = e.pose;
+    // (another player in a tub: their state says 'sit' with ba, so an older game sees them sitting; here, the bath pose.
+    // The pose object is new with each message: the bath one is made again only then)
+    if (pz?.kind === 'sit' && e.remote && e.bathing) pz = m.bathPz?.src === pz ? m.bathPz : (m.bathPz = { kind: 'bath', yaw: pz.yaw, h: pz.h, src: pz });
     // (sentado en una silla que aquí no está: otro jugador que la ve donde aquí no hay ninguna; mejor en el suelo que en el
     // aire. El asiento se busca por lo que ocupa, no por su casilla: en el sofá, la otra plaza está a una casilla de la suya,
     // y con la distancia al centro el otro jugador salía sentado en el suelo, hundido en el sofá. Se mira donde dicen sus
@@ -405,10 +415,21 @@ export class Actors {
       m.root.rotation.x = lying ? -Math.PI / 2 : 0;
       m.root.rotation.y = lying ? (pz ? pz.yaw : e.yaw || 0) : 0;
       y += pz ? pz.h : lying ? e.h || 0 : 0;
-      if (pz && !lying && m.person) y += SEAT_HIP * (m.person.kid ? KID_REF : 1) - m.person.hipY;   // (con la cadera en el asiento)
+      if (pz && !lying && m.person) y += (pz.kind === 'bath' ? BATH_HIP : SEAT_HIP) * (m.person.kid ? KID_REF : 1) - m.person.hipY;   // (con la cadera en el asiento; in the tub, on its floor)
     }
     if (m.kind === 'person') {
       const P = m.person;
+      // (what the world has left on the body, drawn by the shader: three/grime.js. Kept on the model for the bones and fx.js.
+      // The player's changes all the time: written every frame. Anyone else's only when their packed bd (or their fixed
+      // surface) or the material changes: §6, no uniform writes per frame for unchanged values)
+      m.surf = this.surfaceOf(m, e);
+      if (P.setGrime) {
+        const gk = e.bd !== undefined ? e.bd : e.grime, mat = P.r?.mesh?.material;
+        if (m === this.player || gk !== m.grimeKey || mat !== m.grimeMat || P !== m.grimeP) {
+          P.setGrime(m.surf);
+          m.grimeKey = gk; m.grimeMat = P.r?.mesh?.material; m.grimeP = P;
+        }
+      }
       if ((e.kid && e.lying) || (pz && lying)) { P.facing = 0; P.root.rotation.y = 0; }
       // (tumbada, se corre hacia los pies lo que mide de más que la cama pensada: la cabeza, en la almohada)
       P.r.root.position.y = lying ? -(P.height - LIE_LEN * (P.kid ? KID_REF : 1)) : 0;
@@ -455,7 +476,9 @@ export class Actors {
         // (a caballo, en el agua: el caballo pisa el fondo; en lo más hondo de un río, con el agua al cuello)
         if (e.mount && !pz && e.depth > 0) y = WATER_Y - e.depth + (e.z || 0);
       }
-      if (m.hand) m.hand.visible = m.swimK < 0.5 && !lying && pz?.kind !== 'floorSit';   // (nadando, lo de la mano se guarda; lying in bed or on the floor, too: no axe by the pillow; sitting on the floor, no shovel through the legs)
+      const bath = pz?.kind === 'bath';
+      if (m.hand) m.hand.visible = m.swimK < 0.5 && !lying && pz?.kind !== 'floorSit' && !bath;   // (nadando, lo de la mano se guarda; lying in bed or on the floor, too: no axe by the pillow; sitting on the floor, no shovel through the legs; nor in the tub)
+      if (bath || m.foam) this.foam(m, P, bath ? pz : null);
       // (cómo se ve, con la altura ya puesta: alguien en lo alto de una torre, mirado allí arriba, tiene los pies a 12 m del suelo)
       const tier = this.grade(m, e, x, y + P.root.position.y, z, lying);
       m.root.visible = tier !== 3;
@@ -475,6 +498,9 @@ export class Actors {
         });
         if (bag && m === this.player) bag.traverse(o => { if (o.isMesh) ownMesh(o, m, true); });
         if (bag && m.ghosted) { m.ghosted = false; this.ghost(m, true); }   // (de espectador, también medio transparente)
+        // (in the tub, the backpack and the tools on the body are left aside: hidden while the bath lasts)
+        if (P.bag) P.bag.visible = !bath;
+        if (bath !== !!m.kitBath) { m.kitBath = bath; m.kitNear = undefined; }
         this.kit(m, e, P, pz, lying);
         this.carried(m, e, P, scene);
       }
@@ -506,7 +532,7 @@ export class Actors {
     if (ids !== m.kitIds || bag !== m.kitBag) { m.kitIds = ids; m.kitBag = bag; m.kitPlaced = placeKit(ids, { bag }); }
     // (arms busy with something big: carry.js, the weight inventory; see kit.js shownOf)
     const hk = kindOf(m.holding), swim = m.swimK > 0.5, ride = !!(e.mount || e.boat || e.aboard), arms = e.armsBusy || null, S = (m.kitSig ||= {});
-    const pc = poseClass(pz?.kind || (lying ? 'lie' : ''), { ride, crouch: !!e.crouch && !pz && !swim });
+    const pc = poseClass(pz?.kind === 'bath' ? 'sit' : pz?.kind || (lying ? 'lie' : ''), { ride, crouch: !!e.crouch && !pz && !swim });   // (in the tub, as sitting)
     if (S.p !== m.kitPlaced || S.h !== hk || S.s !== swim || S.c !== pc || S.a !== arms) {
       Object.assign(S, { p: m.kitPlaced, h: hk, s: swim, c: pc, a: arms });
       // (the backpack and the pose go in the key too: the same places, but somewhere else on the body)
@@ -523,7 +549,7 @@ export class Actors {
     const near = !(m.tier >= 2 || P.lod === 1), shadow = m.tier === 0;
     if (near !== m.kitNear || shadow !== m.kitShadow) {
       m.kitNear = near; m.kitShadow = shadow;
-      for (const [k, o] of Object.entries(P.kit)) { o.visible = near && o.userData.has; if (k === 'back') o.castShadow = shadow; }
+      for (const [k, o] of Object.entries(P.kit)) { o.visible = near && o.userData.has && !m.kitBath; if (k === 'back') o.castShadow = shadow; }
     }
   }
 
@@ -601,7 +627,8 @@ export class Actors {
       P.head.rotation.x = -C.lean * 0.8 * c;
       if (m.holdTool && m.toolIdle && !busy && m.hand) { P.arms[P.toolArm].rotation.x += 0.2 * c; m.hand.rotation.x = -1.1 * c; }   // (a tool held crouching: upright beside the knee, not across the legs)
     } else P.head.rotation.x = busy === 'push' ? -(P.pushFit?.lean ?? 0.22) * 0.7 : 0;   // (leaning on the wheelbarrow, the head up: it looks ahead)
-    if (pz && !lying) {   // sentado: los muslos hacia delante; en la silla, las piernas colgando; en el suelo, estiradas
+    if (pz?.kind === 'bath') bathBones(P);
+    else if (pz && !lying) {   // sentado: los muslos hacia delante; en la silla, las piernas colgando; en el suelo, estiradas
       for (const l of P.legs) l.rotation.x = -Math.PI / 2;
       for (const k of P.shins || []) k.rotation.x = pz.kind === 'sit' ? Math.PI / 2 : 0.1;
       if (pz.kind === 'floorSit') { for (const a of P.arms) a.rotation.x = 0.45; P.torso.rotation.x = -0.12; }
@@ -611,7 +638,32 @@ export class Actors {
     else P.legs[0].rotation.z = P.legs[1].rotation.z = 0;
     if (m.swimK) this.swimBones(m, P);
     if (e.emote && !busy) this.emote(m, e, P, dt, !!(game || e.remote));   // (with the arms busy, no gesture)
+    // Shivering with cold, standing still and with nothing else to do: shoulders up, arms hugging the chest, a small
+    // tremble (an idle layer over the pose, eased in and out)
+    const shiver = !!m.surf?.shiver && !pz && !lying && !busy && !m.anim && !e.emote && m.speed < 0.3 && !(m.swimK > 0.05) && !e.mount && !e.boat && !e.aboard && !(P.crouch > 0.1);
+    m.shivK = (m.shivK || 0) + ((shiver ? 1 : 0) - (m.shivK || 0)) * Math.min(1, dt * (shiver ? SHIVER.in : SHIVER.out));
+    if (m.shivK > 0.01) { shiverBones(m, P, m.shivK, this.time, !!(game || e.remote)); m.shivTw = true; }
+    else if (m.shivTw) { m.shivTw = false; for (const A of P.arms) A.rotation.y = 0; }
+    else m.shivK = 0;
     this.lookAt(m, e, dt, lying);
+  }
+  // What the world has left on this person's body (body.surface()'s shape, 0..1), or null: the player's from their Body;
+  // another player's from their messages (RemotePlayer.grime: the unpacked st.bd, or the packed int); a neighbour's, a
+  // fixed one by trade if they have it (PEOPLE grime)
+  surfaceOf(m, e) {
+    if (m === this.player) return this.game?.body?.surface?.() || null;
+    const g = e.grime;
+    if (typeof g === 'number') { if (g !== m.grimeN) { m.grimeN = g; if (g > 0) unpackBd(g, (m.grimeS ||= {})); } return g > 0 ? m.grimeS : null; }
+    return g && typeof g === 'object' ? g : null;
+  }
+  // The foam over the tub's water while this person bathes (pz: the bath pose, or null to hide it): made the first time,
+  // on the person's root, so it turns with them and goes where their bath goes (models.js bathFoam, shared)
+  foam(m, P, pz) {
+    if (pz && !m.foam) P.root.add((m.foam = bathFoam()));
+    if (!m.foam) return;
+    m.foam.visible = !!pz;
+    // (at the water: the root is BATH_HIP + h over the tub's ground, minus the hip; the water is TUB.water over it)
+    if (pz) m.foam.position.set(0, TUB.water - (pz.h || 0) - BATH_HIP * (P.kid ? KID_REF : 1) + P.hipY, 0);
   }
 
   // A gesture to say something with the body (social.js: greeting, nodding, a shrug, provoking…), on top of the pose: it
@@ -806,7 +858,43 @@ export const EMOTES = {
   // (drinking from a river or a lake, crouched: needs.js sets the crouch and plays it again for each sip. The cupped hands
   // go down to the water, up to the mouth with the head tipped back, and down again)
   drink: { dur: 1.5, both: true, pose: (k, s) => ({ ax: keys(DRINK.ax, k), az: s * keys(DRINK.az, k), fx: keys(DRINK.fx, k), hx: keys(DRINK.hx, k), tx: keys(DRINK.tx, k) }) },
+  // (scrubbing at a river or a lake, crouched in the shallows or at the bank: body.js sets the crouch and plays it again
+  // while the scrub lasts, as needs.js does with drink. Both forearms rub low over the water, out of step, the head down)
+  scrub: { dur: 2.4, both: true, pose: (k, s) => { const r = Math.sin(k * Math.PI * 12 + (s > 0 ? 0 : Math.PI)); return { ax: -0.95 + 0.08 * r, az: -s * 0.18, fx: -0.75 + 0.3 * r, hx: 0.25, tx: 0.22 }; } },
+  // (shivering on purpose, as a gesture: the same as the idle layer of the cold, see shiverBones)
+  shiver: { dur: 2.0, both: true, pose: (k, s) => ({ ax: SHIVER.ax, az: -s * SHIVER.az + 0.02 * Math.sin(k * Math.PI * 2 * 16), fx: SHIVER.fx, hx: 0.08, tx: 0.07 }) },
 };
+// In the tub: sitting on its floor with the legs straight forward under the water, the back leaning on its end, the head
+// up to look ahead and the arms resting on the rims (after animate() and the crouch: written whole, not added)
+function bathBones(P) {
+  for (const l of P.legs) { l.rotation.x = -1.42; l.rotation.z = 0; }
+  for (const k of P.shins || []) k.rotation.x = 0.18;
+  P.torso.rotation.x = -0.3;
+  P.head.rotation.x = 0.24;
+  for (let i = 0; i < 2; i++) {
+    const s = i === 0 ? -1 : 1;   // (arms[0], the right one, goes out to -x: see EMOTES)
+    P.arms[i].rotation.x = 0.2; P.arms[i].rotation.z = s * 0.62;
+    if (P.fore?.[i]) P.fore[i].rotation.x = -0.35;
+  }
+}
+// Shivering (k 0..1 eases it in and out; t the time, for the tremble): the shoulders up, the arms hugging the chest (only
+// the free one when the hand holds something: a player's tool hand is P.toolArm), and the trunk trembling
+function shiverBones(m, P, k, t, player) {
+  const b = P.r.bones, tr = Math.sin(t * Math.PI * 2 * SHIVER.hz) * 0.02 * k;
+  if (b.clavL && b.clavR) { b.clavL.rotation.z += 0.13 * k; b.clavR.rotation.z -= 0.13 * k; }
+  const arms = player && m.holding ? [1 - P.toolArm] : [0, 1];
+  for (const i of arms) {
+    const s = i === 0 ? -1 : 1, A = P.arms[i], F = P.fore?.[i];
+    // (the upper arm close to the side and in towards the chest, the forearm folded across it: a hug, the hand on the
+    // other side's ribs. Raised higher, the hand came up by the face, palm out, and read as a wave)
+    A.rotation.x += (SHIVER.ax - A.rotation.x) * k;
+    A.rotation.z += (-s * SHIVER.az - A.rotation.z) * k + s * tr;
+    A.rotation.y = s * SHIVER.ay * k;   // (nothing else turns the arm about its length: put back to 0 when it ends)
+    if (F) F.rotation.x += (SHIVER.fx - F.rotation.x) * k;
+  }
+  P.torso.rotation.x += 0.07 * k; P.torso.rotation.z += tr * 0.5;
+  P.head.rotation.x += 0.08 * k;
+}
 const DRINK = {
   ax: [[0, -0.2], [0.25, -0.55], [0.5, -1.05], [0.7, -1.05], [1, -0.2]],
   az: [[0, 0.1], [0.25, -0.12], [0.5, -0.22], [0.7, -0.22], [1, 0.1]],

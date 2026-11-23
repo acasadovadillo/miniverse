@@ -197,6 +197,7 @@ export class Needs {
     if (this.idleT > REGEN_DELAY) {
       let rate = p.pose ? RATES.regenSeated : p.headUnder ? RATES.regenUnder : p.swim ? RATES.regenSwim : p.jogging ? RATES.regenJog : RATES.regen;
       if (this.rest < 50) rate *= RATES.regenTired + (1 - RATES.regenTired) * (this.rest / 50);
+      rate *= g.body?.factors.regen ?? 1;   // (cold and heat refill it more slowly: body.js, Plan E §2.4)
       this.stamina += rate * dt;
     }
     this.stamina = Math.max(0, Math.min(this.cap, this.stamina));   // (falling rest pulls it down)
@@ -210,12 +211,15 @@ export class Needs {
 
   // 5. Rest: falls while you are up (faster while active, at half speed while "well rested"); comes back lying in bed,
   // on the floor and, more slowly, sitting. (p.pose has no object: its kind is enough; only beds use 'lie', rest.js)
+  // (a bath in a tub, Plan E §4.1, rests at twice a chair; cold makes rest fall faster and a soap bath slower: the body's
+  // factor, body.js §2.4)
   updateRest(dt, p) {
     const k = p.pose?.kind;
     if (k === 'lie') this.rest += RATES.restBed * dt;
     else if (k === 'floorLie') this.rest += RATES.restFloorLie * dt;
+    else if (k === 'bath') this.rest += 2 * RATES.restSit * dt;
     else if (k === 'sit' || k === 'floorSit') this.rest += RATES.restSit * dt;
-    else if (this.fatigueOn && !this.tireless) this.rest -= dt * AWAKE_RATE * (this.idleT < 2 ? REST_BUSY : 1) * (Date.now() < this.rested ? 0.5 : 1);
+    else if (this.fatigueOn && !this.tireless) this.rest -= dt * AWAKE_RATE * (this.idleT < 2 ? REST_BUSY : 1) * (Date.now() < this.rested ? 0.5 : 1) * (this.game.body?.factors.rest ?? 1);
     if (this.off.rest) this.rest = REST_MAX;   // (?cansancio=0: always rested, no cap)
     this.rest = Math.max(0, Math.min(REST_MAX, this.rest));
   }
@@ -232,7 +236,7 @@ export class Needs {
       this.heatT = HEAT_POLL;
       this.heat = g.scene === g.world && g.world?.gen?.biomeAt?.(p.x, p.y) === B.DESERT ? DESERT_HEAT : 1;
     }
-    this.dryBy(dt * DRY / DRY_IDLE * this.heat);
+    this.dryBy(dt * DRY / DRY_IDLE * Math.max(this.heat, g.body?.factors.thirst ?? 1));   // (a hot afternoon adds to the desert's floor: body.js)
   }
 
   // ---------- API for the other systems ----------
@@ -294,6 +298,7 @@ export class Needs {
     if (this.drinking) { this.stopDrinking(); return; }
     if (this.thirst >= THIRST_MAX) { g.gather?.float(t('needs.not_thirsty'), '#d8c3a0'); Audio.error(); return; }
     if (p.headUnder) return;
+    g.body?.stopScrub?.();   // (scrubbing there: it stops first, or both would put the crouch back, each its own way)
     const land = !p.swim;
     this.drinking = { x, y, px: p.x, py: p.y, sc: g.scene, land, crouch: !!p.crouch, step: Math.floor(this.thirst / DRINK_STEP), emoteAt: -Infinity, from: this.thirst };
     if (land) p.crouch = true;   // (st.cr shows it to the others)
@@ -361,7 +366,13 @@ export class Needs {
   // act }. Only in survival, in the world (fishing.waterType reads world coordinates: not in a cave or a house), at or
   // below 90 % of thirst (or while drinking: E again stops). The sea says why it cannot be drunk (not to a swimmer, who
   // would see it over all the water around)
+  // (what it gave this frame is kept for body.js, which asks right after: aimFrame, aimGave)
   aimables(p, sc, box) {
+    const r = this.waterTargets(p, sc, box);
+    this.aimFrame = this.game.frameNo; this.aimGave = !!r;
+    return r;
+  }
+  waterTargets(p, sc, box) {
     const g = this.game;
     if (!this.survival || sc !== g.world || !p || p.headUnder || p.boat || p.aboard) return null;
     if (this.thirst > DRINK_OFFER * THIRST_MAX && !this.drinking) return null;
@@ -370,8 +381,9 @@ export class Needs {
     // (a swimmer with a find in reach: the slab at the surface would cover it; E on nothing aimed still drinks, swimAction)
     if (p.swim && g.dive?.reachable?.(p).length) return null;
     const slab = { ...aabb(hit.tx, hit.ty, hit.tx + 1, hit.ty + 1), y0: WATER_Y - 0.06, y1: WATER_Y + 0.02, abs: true };
-    if (hit.kind === 'salt') return [{ kind: 'sys', box: slab, act: () => ({ text: t('needs.sea_salty'), run: () => Audio.error() }) }];
-    return [{ kind: 'sys', box: slab, act: () => ({ text: t('needs.drink_water'), run: () => this.drinkAt(hit.x, hit.y) }) }];
+    // (alt, X: scrub yourself there, body.js washAlt, Plan E §4.2; the sea washes too)
+    if (hit.kind === 'salt') return [{ kind: 'sys', box: slab, act: () => ({ text: t('needs.sea_salty'), run: () => Audio.error(), alt: g.body?.washAlt(hit.x, hit.y) || null }) }];
+    return [{ kind: 'sys', box: slab, act: () => ({ text: t('needs.drink_water'), run: () => this.drinkAt(hit.x, hit.y), alt: g.body?.washAlt(hit.x, hit.y) || null }) }];
   }
   // Swimming E without a mouse target (game.js nearest while p.swim: no mouse, or nothing of the systems aimed at): drink if the water here is fresh and the
   // head is above it. An action { text, run }, or null
@@ -458,6 +470,7 @@ export class Needs {
         if (c && c.hunger < SLEEP_FED) c.feed(SLEEP_FED - c.hunger);   // (thirst does not change)
         g.stats?.add('dormido', 1);   // (the first steps and the HUD's clock count it)
         slept = true;
+        try { g.body?.applyGrowth?.(); } catch {}   // (hair and beard grown meanwhile, while the screen is dark: body.js §2.5)
       }
       await hud.fade(false);
     } finally {

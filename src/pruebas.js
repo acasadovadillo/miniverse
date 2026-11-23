@@ -19,7 +19,9 @@ import { RECIPES } from './recipes.js';
 import { runCommand } from './commands.js';
 import { faults, resetFaults } from './faults.js';
 import { CHUNK, WorldGen } from './world/gen.js';
-import { B, BIOMES } from './world/biomes.js';
+import { B, BIOMES, climate } from './world/biomes.js';
+import { packBd, unpackBd } from './body.js';
+import { feelOf, TEMP, clothesOf } from './clothing.js';
 import { paintPixels, blockHeights, groundSmooth, groundTag } from './world/ground.js';
 import { retireItems } from './game.js';
 import { HOUSE, HOUSES, POND, YARD, BOUNDS, BOARD, CENTER, TAVERN, inBounds } from './world/village.js';
@@ -54,7 +56,7 @@ import { Player, barrowPen, GAIT } from './entities.js';
 import { horseModel, animateHorse, horseCadence } from './three/animals.js';
 import { screenToWorld } from './camera.js';
 import { makeCave } from './world/underground.js';
-import { START_KIT, thirstOf } from './items.js';
+import { START_KIT, thirstOf, clothesText } from './items.js';
 import { stackKg, SIP_KG } from './carry-items.js';
 import { extraOf } from './inventory.js';
 import { WATER_Y } from './world/planet.js';
@@ -3201,6 +3203,10 @@ async function soloTests(game) {
     Object.assign(p(), { swim: false, sink: 0, dive: 0, forceRise: false, sprinting: false, fastSwim: false, sleeping: false });
     N().reset({}); Cb().hp = 20; Cb().hunger = 20; Cb().regen = 0; Cb().invuln = 0; Cb().paint();
     delete game.buffs.incansable;
+    // (clean and dry: the hunt, the carcass or a swim before leave dirt, blood or wet, and a dirty body offers to scrub
+    // at the water where Plan D's tests expect no target: body.js aimables, Plan E §4.2)
+    const bo = game.body;
+    if (bo) { bo.stopScrub?.(); bo.dirt = bo.mud = bo.wet = bo.wetLegs = bo.snow = bo.blood = 0; bo.tickT = 0; }
     clearKeys();
   };
   // A spy on the floats and the toasts (what the player is told), undone by the returned function
@@ -3969,12 +3975,16 @@ async function soloTests(game) {
     const box = id => $(id).getBoundingClientRect(), cross = (a, b) => a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
     const r4 = b => [b.left, b.top, b.right, b.bottom].map(Math.round).join(',');
     // Where they are (after the rows' and the clock's .2 s slide): the bars in the top-left corner and the clock under
-    // the last bar in sight, the minimap in the bottom-left corner and the chat over it, none over another
+    // the last bar in sight (or under the body chip, when it shows: it goes right under the bars, ui/bodychip.js), the
+    // minimap in the bottom-left corner and the chat over it, none over another
     const places = async (what, last) => {
       for (let i = 0; i < 4; i++) { draw(); await sleep(120); }
       const n = box('needs'), c = box('clockp'), m = box('minimap'), ch = box('chat'), b = last && box('nd-' + last);
+      const k = $('body-chip')?.classList.contains('on') && box('body-chip'), u = k || b;   // (u: what the clock goes under)
       check(n.left <= 20 && n.top <= 20 && n.width >= 240, `${what}: the bars at ${r4(n)}`);
-      if (b) check(b.top <= 40 + (last === 'hp' ? 0 : 60) && c.top >= b.bottom + 4 && c.top <= b.bottom + 12 && !cross(n, c), `${what}: the clock at ${r4(c)}, its last bar at ${r4(b)}`);
+      if (b) check(b.top <= 40 + (last === 'hp' ? 0 : 60) && !cross(n, c), `${what}: the clock at ${r4(c)}, its last bar at ${r4(b)}`);
+      if (k) check(k.left <= 20 && (b ? k.top >= b.bottom + 4 && k.top <= b.bottom + 12 : k.top <= 20) && !cross(n, k) && !cross(k, c), `${what}: the body chip at ${r4(k)}, the bars at ${r4(n)}, the clock at ${r4(c)}`);
+      if (u) check(c.top >= u.bottom + 4 && c.top <= u.bottom + 12, `${what}: the clock at ${r4(c)}, under ${k ? 'the body chip' : 'its last bar'} at ${r4(u)}`);
       else check(c.top <= 20, `${what}: no bar in sight and the clock at ${r4(c)}`);
       if (m.width) check(m.left <= 20 && innerHeight - m.bottom >= 12 && innerHeight - m.bottom <= 20 && !cross(n, m), `${what}: the minimap at ${r4(m)}`);
       if (m.width && ch.width) check(ch.bottom <= m.top, `${what}: the chat at ${r4(ch)} over the minimap at ${r4(m)}`);
@@ -4471,6 +4481,397 @@ async function soloTests(game) {
     check(bandOf(g(8), TAVERN_VENUE, pin) === 0, 'the band plays out of hours');
     const T = recordNotes(20, [{ at: 0, mood: 'tavern', intensity: 1, band: 1, patrons: 3, claps: true }]);
     check(T.some(e => e.ok && ['clap', 'hat', 'frame'].includes(e.voice)) && !T.some(e => e.layer === 'pad' && e.ok), 'inside the tavern the band does not play, or the score does');
+  });
+  // ---------- the body: dirt, wet, snow, the felt temperature, the bath (docs/planes/gta/PLAN-E-cuerpo-aspecto.md §12, E1) ----------
+  const Bo = () => game.body;
+  // Clean, dry and comfortable, with the factors and the chip from scratch (what each body test starts from and leaves)
+  const bodyBase = () => {
+    needsBase(); game.rules.doBodyWeather = true; game.underRoof = false;
+    if (Bo().bath || p().bathing) { game.rest.stand(); Bo().endBath(); }
+    Bo().reset({}); Bo().off.surface = false; Bo().off.cold = false; delete Bo().groundKind;
+  };
+  // W 3: the creator's "shirt and apron" outfit (the feel table of §2.2 is made with it)
+  const W3 = { torso: { id: 'camisa' }, encima: { id: 'delantal' }, piernas: { id: 'pantalon' }, pies: { id: 'botas' }, calcetines: { id: 'calcetines' } };
+  const near1 = (a, b, e = 0.05) => Math.abs(a - b) <= e;
+  await test('body (english): old save loads clean', async () => {
+    try {
+      bodyBase();
+      Bo().reset({ hp: 7 });
+      const b = Bo(), now = Date.now();
+      check(b.dirt === 0 && b.mud === 0 && b.wet === 0 && b.snow === 0 && b.blood === 0 && !b.fresh && b.beardGrows, `an old save: dirt ${b.dirt}, mud ${b.mud}, wet ${b.wet}, blood ${b.blood}`);
+      check(Math.abs(b.cutAt - now) < 5000 && Math.abs(b.shaveAt - now) < 5000, 'an old save does not start its clocks now (it would wake up with a beard)');
+      Bo().reset({ body: { dirt: 'x', mud: -4, wet: 1e9, blood: null, cutAt: now + 864e5, freshUntil: 'y' } });
+      check(b.dirt === 0 && b.mud === 0 && b.wet === 100 && b.blood === 0 && b.cutAt <= Date.now() && b.freshUntil === 0, `bad values: dirt ${b.dirt} mud ${b.mud} wet ${b.wet} cutAt ${b.cutAt - now}`);
+      Object.assign(b, { dirt: 33.3, mud: 12, wet: 40.5, blood: 5, freshUntil: now + 3600e3, cutAt: now - 5 * 864e5, shaveAt: now - 2 * 864e5, beardGrows: false });
+      const out = {}; b.save(out); Bo().reset(JSON.parse(JSON.stringify(out)));
+      check(b.dirt === 33.3 && b.mud === 12 && b.wet === 40.5 && b.blood === 5 && b.freshUntil === now + 3600e3 && b.cutAt === now - 5 * 864e5 && b.shaveAt === now - 2 * 864e5 && b.beardGrows === false, `the round trip: ${JSON.stringify(out.body)}`);
+      check(b.snow === 0 && b.wetLegs === 0, 'snow or the wet legs were saved');
+      check(game.snapshot().body?.v === 1, `the save has no body: ${JSON.stringify(game.snapshot().body)}`);
+    } finally { bodyBase(); }
+  });
+  await test('body (english): temperature', async () => {
+    const eqWas = Bo().cl;
+    try {
+      bodyBase();
+      const W = clothesOf(W3, {}).warm; check(W === 3, `the default outfit gives W ${W}`);
+      // The village is Tl 0.52 (the formula's reference)
+      const Tl = climate(21, 26, w().gen.seed, {}).Tl; check(near1(Tl, TEMP.tlRef, 0.01), `the village's Tl is ${Tl}`);
+      const env = (o = {}) => ({ Tl: 0.52, season: 0, hour: 12, weather: 'sol', indoors: false, cave: false, fireD: Infinity, swim: null, W: 3, rain: 0, shade: 0, wet: 0, raining: false, ...o });
+      // The feel table of §2.2, row by row: [what, env, airC, cold, heat]
+      const rows = [
+        ['village, summer 15:00', { season: 1, hour: 15 }, 27, 0, 0],
+        ['village, spring noon', { season: 0 }, 17.8, 0, 0],
+        ['village, autumn noon', { season: 2 }, 16.8, 0, 0],
+        ['village, winter noon', { season: 3 }, 9.8, 0, 0],
+        ['village, winter 03:00', { season: 3, hour: 3 }, 3, 0.31, 0],
+        ['village, snowy morning', { season: 3, hour: 9, weather: 'nieve' }, 1, 0.44, 0],
+        ['village, snowy morning in a wool coat (W 6)', { season: 3, hour: 9, weather: 'nieve', W: 6 }, 1, 0.06, 0],
+        ['village, autumn rain at 20:00, soaked', { season: 2, hour: 20, weather: 'lluvia', wet: 100, raining: true }, 12, 0.25, 0],
+        ['snow land, winter noon', { Tl: 0.25, season: 3 }, -6.4, 0.9, 0],
+        ['snow land, winter noon, full kit (W 9)', { Tl: 0.25, season: 3, W: 9 }, -6.4, 0.15, 0],
+        ['snow land, winter 03:00, full kit', { Tl: 0.25, season: 3, hour: 3, W: 9 }, -13.2, 0.58, 0],
+        ['desert, summer 15:00', { Tl: 0.7, season: 1, hour: 15 }, 37.8, 0, 0.98],
+        ['desert, summer 15:00, straw hat', { Tl: 0.7, season: 1, hour: 15, shade: 1 }, 37.8, 0, 0.68],
+        ['desert, spring noon', { Tl: 0.7, season: 0 }, 28.6, 0, 0.06],
+        ['village, summer 15:00 in a coat (W 6)', { season: 1, hour: 15, W: 6 }, 27, 0, 0.15],
+      ];
+      for (const [what, o, air, cold, heat] of rows) {
+        const f = feelOf(env(o), {});
+        check(near1(f.airC, air, 0.1) && near1(f.cold, cold) && near1(f.heat, heat), `${what}: airC ${f.airC.toFixed(2)} (${air}), cold ${f.cold.toFixed(3)} (${cold}), heat ${f.heat.toFixed(3)} (${heat})`);
+      }
+      // Every clear noon of the four seasons in the village: nothing
+      for (let s = 0; s < 4; s++) { const f = feelOf(env({ Tl, season: s }), {}); check(f.cold === 0 && f.heat === 0, `the village, season ${s}: cold ${f.cold}, heat ${f.heat}`); }
+      // Indoors pulls toward 17; a lit hearth within 5 raises it; wet lowers the feel; a wool coat (+3) adds 6
+      const cold = env({ season: 3, hour: 3 }), base = feelOf(cold, {});
+      const inside = feelOf({ ...cold, indoors: true }, {}); check(near1(inside.airC, 3 + (17 - 3) * 0.7, 0.01) && inside.cold === 0, `indoors: ${inside.airC}`);
+      const fire = feelOf({ ...cold, fireD: 2 }, {}); check(near1(fire.airC - base.airC, 12 * (1 - 2 / 5), 0.01), `a hearth at 2: +${fire.airC - base.airC}`);
+      check(feelOf({ ...cold, fireD: 6 }, {}).airC === base.airC, 'a hearth at 6 still warms');
+      const wet = feelOf({ ...cold, wet: 50 }, {}); check(near1(base.feelC - wet.feelC, 3, 0.01), `wet 50 lowers the feel by ${base.feelC - wet.feelC}`);
+      check(near1(feelOf({ ...cold, W: 6 }, {}).feelC - base.feelC, 6, 0.01), 'a wool coat does not add 6');
+      check(feelOf({ ...cold, cave: true }, {}).airC === TEMP.caveC, 'a cave is not at 12');
+      // The real Body polls the same formula (no lag on the first poll) and its clothes come from inv.equip
+      Bo().snap = true; Bo().poll(p());
+      const f = feelOf(Bo()._env, {});
+      check(near1(Bo().airC, f.airC, 0.01) && near1(Bo().feelC, f.feelC, 0.01) && near1(Bo().cold, f.cold, 0.01) && Number.isFinite(Bo().feelC), `the poll: ${Bo().airC} vs ${f.airC}`);
+      check(Bo().cl.warm === clothesOf(game.inv.equip, {}).warm, 'the poll does not read the worn clothes');
+    } finally { Bo().cl = eqWas; bodyBase(); }
+  });
+  await test('body (english): factors feed needs', async () => {
+    const mode = game.difficulty;
+    try {
+      bodyBase(); await goTo(game, 21, 26);
+      const drain = cold => { Bo().cold = cold; Bo().heat = 0; Bo().tick(); N().rest = 80; N().idleT = 10; N().rested = 0; N().update(60); return 80 - N().rest; };
+      const d0 = drain(0), d1 = drain(1);
+      check(d0 > 0 && near1(d1 / d0, 2, 0.02), `cold 1: the rest drain ×${(d1 / d0).toFixed(3)} (${d0.toFixed(3)} → ${d1.toFixed(3)})`);
+      check(Bo().factors.hunger === 1.3 && near1(Bo().factors.regen, 0.6, 1e-9), `cold 1: hunger ×${Bo().factors.hunger}, regen ×${Bo().factors.regen}`);
+      // The bath pose rests at twice a chair
+      const sitting = kind => { p().pose = { kind, yaw: 0, h: 0 }; N().rest = 20; N().update(60); const r = N().rest - 20; p().pose = null; return r; };
+      const sit = sitting('sit'), bath = sitting('bath');
+      check(sit > 0 && near1(bath / sit, 2, 0.01), `a minute in the tub ${bath}, seated ${sit}`);
+      // Heat: idle thirst ×1.8 outside the desert; in it, never below Plan D's ×1.5
+      const dried = (heat, desert = false) => {
+        Bo().cold = 0; Bo().heat = heat; Bo().tick(); let got = 0; N().dryBy = n => { got += n; };
+        try { N().heatT = 1e9; N().heat = desert ? 1.5 : 1; N().thirst = 20; N().update(10); } finally { delete N().dryBy; N().heatT = 0; }
+        return got;
+      };
+      const t0 = dried(0), t1 = dried(1);
+      check(t0 > 0 && near1(t1 / t0, 1.8, 0.01), `heat 1: thirst ×${(t1 / t0).toFixed(3)}`);
+      check(near1(dried(0.25, true) / t0, 1.5, 0.01) && near1(dried(1, true) / t0, 1.8, 0.01), 'the desert floor of ×1.5 is lost, or heat does not add to it');
+      // Switched off: ?frio=0, doBodyWeather false, peaceful, creative: factors 1
+      const ones = () => Object.values(Bo().factors).every(v => v === 1);
+      Bo().cold = 1; Bo().heat = 1;
+      Bo().off.cold = true; Bo().tick(); check(ones(), `?frio=0: ${JSON.stringify(Bo().factors)}`); Bo().off.cold = false;
+      game.rules.doBodyWeather = false; Bo().tick(); check(ones(), 'doBodyWeather false changes the factors'); game.rules.doBodyWeather = true;
+      game.difficulty = 'peaceful'; Bo().tick(); check(ones(), 'peaceful changes the factors'); game.difficulty = mode;
+      Bo().tick(); check(Bo().factors.rest === 2, 'the factors do not come back');
+      runCommand(game, '/gamemode creative', say0); Bo().update(0.6); check(ones() && Bo().cold === 0, `creative: ${JSON.stringify(Bo().factors)}`);
+    } finally { game.difficulty = mode; bodyBase(); }
+  });
+  await test('body (english): surface grows and washes', async () => {
+    const I = inv(), kept = I.slots.slice(), sel = I.selected, clWas = Bo().cl, eqPies = I.equip.pies;
+    try {
+      bodyBase(); runCommand(game, '/weather clear forever', say0); await goTo(game, 21, 26); await frames(2); bodyBase();
+      // Tool work counts the seconds worked, not the uses: 100 hoe uses a second apart +4.5 (an apron: ×0.7); uses that
+      // come faster add only the time between them (45 min of steady work to Filthy at any swing speed, §2.3)
+      const uses = (kind, n, gap) => { for (let i = 0; i < n; i++) { Bo().workAt = game.time - gap; Bo().work(kind); } };
+      Bo().cl = clothesOf({}, {}); uses('azada', 100, 5);
+      check(near1(Bo().dirt, 4.5, 1e-6), `100 hoe uses: dirt ${Bo().dirt}`);
+      Bo().dirt = 0; uses('azada', 100, 0.32); check(near1(Bo().dirt, 100 * 0.32 * 0.045, 1e-6), `100 quick hoe uses: dirt ${Bo().dirt}`);
+      Bo().dirt = 0; Bo().workAt = game.time; for (let i = 0; i < 10; i++) Bo().work('azada'); check(Bo().dirt === 0, `ten uses at once: dirt ${Bo().dirt}`);
+      Bo().dirt = 0; Bo().cl = clothesOf({ encima: { id: 'delantal' } }, {}); uses('azada', 100, 5);
+      check(near1(Bo().dirt, 3.15, 1e-6), `with an apron: dirt ${Bo().dirt}`);
+      Bo().dirt = 0; uses('hacha', 100, 5); check(near1(Bo().dirt, 100 * 0.026 * 0.7, 1e-6), `an axe dirties less than a hoe: ${Bo().dirt}`);
+      Bo().cl = clWas;
+      // 10 m on tilled soil, with shoes: +0.8 mud; on a path, not raining, it dries
+      if (!I.equip.pies) I.equip.pies = { id: 'botas' };
+      Bo().dirt = 0; Bo().mud = 0; Bo().groundKind = () => 3; Bo().last = null;
+      const x0 = p().x;
+      for (let i = 0; i <= 100; i++) { p().x = x0 + i * 0.1; Bo().surfaceStep(1 / 60, p()); }
+      p().x = x0;
+      check(near1(Bo().mud, 0.8, 0.01), `10 m on tilled soil: mud ${Bo().mud}`);
+      Bo().groundKind = () => 1; Bo().last = null; Bo().mud = 10; Bo().surfaceStep(10, p());
+      check(near1(Bo().mud, 9.4, 0.01), `on a path, dry: mud ${Bo().mud}`);
+      delete Bo().groundKind;
+      // Swimming: wet 100 at once, dirt down to 15 and no further
+      Object.assign(Bo(), { dirt: 40, mud: 30, blood: 20 }); p().swim = true;
+      Bo().surfaceStep(1, p()); check(Bo().wet === 100 && Bo().mud === 0 && Bo().dirt === 32 && Bo().blood === 10, `a second swimming: wet ${Bo().wet}, dirt ${Bo().dirt}, mud ${Bo().mud}, blood ${Bo().blood}`);
+      Bo().surfaceStep(10, p()); check(Bo().dirt === 15, `swimming washes below 15: ${Bo().dirt}`);
+      p().swim = false; Bo().wet = 0;
+      // A carcass cut up: dirt and blood; a hit: dirt
+      Bo().dirt = 0; Bo().blood = 0; Bo().butchered(); Bo().hit(); check(Bo().dirt === 13 && Bo().blood === 8, `butchered and hit: dirt ${Bo().dirt}, blood ${Bo().blood}`);
+      // The basin: −30 once, never below 25
+      Bo().dirt = 40; Bo().washFace(); check(Bo().dirt === 25, `the basin at 40 gives ${Bo().dirt}`);
+      Bo().dirt = 70; Bo().washFace(); check(Bo().dirt === 40, `the basin at 70 gives ${Bo().dirt}`);
+      Bo().dirt = 20; Bo().washFace(); check(Bo().dirt === 20, 'the basin washes below 25');
+      // The tub with soap: everything off by 12 s, one soap used, fresh; out at 15 s, towelled (wet 30)
+      const had = I.count('soap'); if (had) I.remove('soap', had);
+      I.add('soap', 2); I.changed();
+      Object.assign(Bo(), { dirt: 80, mud: 50, blood: 30, wet: 0 });
+      const tub = { tile: [Math.floor(p().x) + 2, Math.floor(p().y)], layer: 'placed', placed: 'banera', x: Math.floor(p().x) + 2.5, y: Math.floor(p().y) + 0.5, yaw: 0 };
+      check(game.placedAction(tub)?.text === t('body.bath.soap'), `E on the tub says: ${game.placedAction(tub)?.text}`);
+      check(Bo().bathe(tub) && p().pose?.kind === 'bath' && p().bathing && Bo().bathing, `no bath: pose ${p().pose?.kind}`);
+      let s = 0;
+      for (; s < 119; s++) Bo().update(0.1);
+      check(Bo().dirt > 0 && I.count('soap') === 2, `clean before 12 s: dirt ${Bo().dirt}`);
+      for (; s < 125 && I.count('soap') === 2; s++) Bo().update(0.1);
+      check(Bo().dirt === 0 && Bo().mud === 0 && Bo().blood === 0 && I.count('soap') === 1 && Bo().fresh && p().pose?.kind === 'bath', `at 12 s: dirt ${Bo().dirt}, soap ${I.count('soap')}, fresh ${Bo().fresh}, pose ${p().pose?.kind}`);
+      for (; s < 200 && p().pose; s++) Bo().update(0.1);
+      check(!p().pose && !p().bathing && !Bo().bathing && Bo().wet <= 30 && Bo().wet >= 29, `out of the tub: pose ${p().pose?.kind}, wet ${Bo().wet}, after ${(s / 10).toFixed(1)} s`);
+      check(s >= 149 && s <= 152, `the bath lasted ${(s / 10).toFixed(1)} s`);
+      // Without soap: clean, not fresh
+      I.remove('soap', 1); I.changed(); Bo().freshUntil = 0; Bo().dirt = 50;
+      check(game.placedAction(tub)?.text === t('body.bath'), `without soap E says: ${game.placedAction(tub)?.text}`);
+      Bo().bathe(tub); for (s = 0; s < 200 && p().pose; s++) Bo().update(0.1);
+      check(Bo().dirt === 0 && !Bo().fresh, `a bath without soap: dirt ${Bo().dirt}, fresh ${Bo().fresh}`);
+      // Moving gets you out early (rest.js stands you up), with something in the arms you put it down first
+      Bo().bathe(tub); game.rest.stand(); Bo().update(0.1); check(!Bo().bathing && !p().bathing, 'standing up leaves the bath on');
+      // Dying in the tub (combat.die calls onDeath before going home): out of it, and no step back to it later
+      const at = [p().x, p().y]; Bo().bathe(tub); check(Bo().bathing, 'no bath to die in'); Bo().onDeath();
+      check(!p().pose && !p().bathing && !Bo().bathing && !game.rest.back && Math.hypot(p().x - at[0], p().y - at[1]) > 0.3, `after dying in the tub: pose ${p().pose?.kind}, bathing ${Bo().bathing}, back ${game.rest.back}`);
+      p().x = at[0]; p().y = at[1];
+    } finally {
+      if (p().pose) game.rest.stand(); Bo().endBath(); delete Bo().groundKind; Bo().cl = clWas;
+      if (eqPies) I.equip.pies = eqPies; else delete I.equip.pies;
+      I.slots.splice(0, I.slots.length, ...kept); I.select(sel); I.changed(); runCommand(game, '/weather reset', say0); bodyBase(); await goTo(game, 21, 26);
+    }
+  });
+  await test('body (english): snow melts to wet', async () => {
+    try {
+      bodyBase(); runCommand(game, '/weather snow forever', say0); await goTo(game, 21, 26); await frames(3); bodyBase();
+      check(game.days.info.snow && !game.indoors, `not snowing outdoors: ${game.days.weatherHere}, indoors ${game.indoors}`);
+      Bo().snap = true; Bo().poll(p());
+      check(Bo().airC <= 1 && Bo().fireD === Infinity, `snowing in the village: airC ${Bo().airC}, a fire at ${Bo().fireD}`);
+      for (let i = 0; i < 10; i++) Bo().surfaceStep(1, p());
+      check(near1(Bo().snow, 8, 0.01) && Bo().wet === 0, `10 s of snow outdoors: snow ${Bo().snow}, wet ${Bo().wet}`);
+      // Under a roof: it melts (2/s) and the body gets wet (0.8 per point), and nothing dries while it melts
+      game.underRoof = true;
+      try { Bo().surfaceStep(2, p()); } finally { game.underRoof = false; }
+      check(near1(Bo().snow, 4, 0.01) && near1(Bo().wet, 3.2, 0.01), `2 s indoors: snow ${Bo().snow}, wet ${Bo().wet}`);
+      // By a lit hearth too: a full coat of snow melted soaks you (wet 80, the Soaked of §1.1), then it dries
+      Bo().snow = 100; Bo().wet = 0; const fd = Bo().fireD; Bo().fireD = 1;
+      try { for (let i = 0; i < 50; i++) Bo().surfaceStep(1, p()); check(Bo().snow === 0 && near1(Bo().wet, 80, 0.01), `100 snow melted by the fire: wet ${Bo().wet}`);
+        Bo().surfaceStep(1, p()); check(Bo().wet < 80, `by the fire it does not dry: ${Bo().wet}`); } finally { Bo().fireD = fd; }
+      // Cold makes rest fall faster: 1 + cold
+      Bo().wet = 0; Bo().snow = 0; Bo().cold = 0.44; Bo().tick();
+      check(near1(Bo().factors.rest, 1.44, 1e-9), `rest factor ${Bo().factors.rest}`);
+    } finally { game.underRoof = false; runCommand(game, '/weather reset', say0); bodyBase(); }
+  });
+  await test('body (english): bath pose and tub taken', async () => {
+    const live = game.live, was = { joined: live.joined, net: live.net, T: { ...live.timers }, lastSent: live.lastSent, sent: live.sent }, spy = told();
+    try {
+      bodyBase(); await goTo(game, 21, 26);
+      const tub = { tile: [Math.floor(p().x) + 2, Math.floor(p().y)], layer: 'placed', placed: 'banera', x: Math.floor(p().x) + 2.5, y: Math.floor(p().y) + 0.5, yaw: Math.PI / 2 };
+      game.placedAction(tub).run();
+      check(p().pose?.kind === 'bath' && p().bathing, `E on a tub gives ${p().pose?.kind}`);
+      // The spot: along the tub (its +z, from the anchor) and facing the taps
+      const spot = game.rest.bathSpot(tub);
+      check(near1(p().x, spot[0], 1e-6) && near1(p().y, spot[1], 1e-6) && near1(spot[0] - tub.x, 0.85, 1e-6), `the bather is at ${p().x},${p().y}, the spot ${spot}`);
+      // What the others are told: a sit (index 0, an old game sees someone sitting) with ba: 1, and bd when there is something on the body
+      const sent = [];
+      live.joined = true; live.net = new Proxy({ ready: true, key: 1, send: m => sent.push(m) }, { get: (o, k) => (k in o ? o[k] : () => {}) });
+      const st = () => { for (const k in live.timers) live.timers[k] = -1e9; live.lastSent = null; sent.length = 0; live.tick(1); return sent.find(m => m.t === 'st'); };
+      let m = st(); check(m?.po?.[0] === 0 && m.ba === 1, `in the tub sends po ${JSON.stringify(m?.po)}, ba ${m?.ba}`);
+      Bo().update(0.6); m = st(); check(m.bd > 0, `in the tub (wet) bd is ${m.bd}`);
+      game.rest.stand(); Bo().update(0.1); Bo().reset({}); Bo().tickT = 0; Bo().update(0.01);
+      m = st(); check(m.ba === undefined && m.bd === undefined && !m.po, `out of it, clean: ba ${m.ba}, bd ${m.bd}, po ${JSON.stringify(m.po)}`);
+      live.joined = was.joined; live.net = was.net;
+      // Another player in that tub: refused with "The tub is taken"
+      live.receive('tb1', { t: 'hi', id: '!tb1', name: 'Bañista', playing: true, look: LOOK });
+      live.receive('tb1', { t: 'st', sc: 'world', x: spot[0], y: spot[1], yaw: 0, po: [0, 0, 0.12], ba: 1 });
+      const e = live.peers.get('tb1').entity;
+      check(e.bathing && e.pose?.kind === 'bath', `the other bather: ${e.bathing}, ${e.pose?.kind}`);
+      live.joined = true;
+      check(Bo().bathe(tub) === false && !p().pose && spy.out.includes(t('body.bath.taken')), `a second bather gets in: pose ${p().pose?.kind}`);
+      // Both in at once: the one whose id sorts later gets out (here, this one: '!tb1' sorts first)
+      live.joined = false; check(Bo().bathe(tub), 'alone, no bath'); live.joined = true;
+      Bo().tickT = 0; Bo().update(0.01); Bo().update(0.01);
+      check(!p().pose && !Bo().bathing && spy.out.filter(s => s === t('body.bath.taken')).length === 2, 'two in one tub: the later id stays in');
+      live.receive('tb1', { t: 'hi', id: '~tb1', name: 'Bañista', playing: true, look: LOOK });
+      live.receive('tb1', { t: 'st', sc: 'world', x: spot[0], y: spot[1], yaw: 0, po: [0, 0, 0.12], ba: 1 });
+      live.joined = false; Bo().bathe(tub); live.joined = true; Bo().tickT = 0; Bo().update(0.01);
+      check(p().pose?.kind === 'bath', 'two in one tub: the earlier id gets out');
+    } finally {
+      spy.undo(); live.peers.delete('tb1'); live.joined = was.joined; live.net = was.net; Object.assign(live.timers, was.T); live.lastSent = was.lastSent; live.sent = was.sent;
+      if (p().pose) game.rest.stand(); Bo().endBath(); bodyBase(); draw();
+    }
+  });
+  await test('body (english): Shift in the tub and at the scrub', async () => {
+    try {
+      bodyBase(); await goTo(game, 21, 26);
+      const tub = { tile: [Math.floor(p().x) + 2, Math.floor(p().y)], layer: 'placed', placed: 'banera', x: Math.floor(p().x) + 2.5, y: Math.floor(p().y) + 0.5, yaw: Math.PI / 2 };
+      game.placedAction(tub).run();
+      check(p().pose?.kind === 'bath', `E on a tub gives ${p().pose?.kind}`);
+      // (the posture key never ends the bath nor crouches the bather: E, Space or walking get out)
+      const tap = game.rest.posture(false), hold = game.rest.posture(true);
+      check(!tap && !hold && p().pose?.kind === 'bath' && p().bathing && !p().crouch, `Shift in the tub: tap ${tap}, hold ${hold}, pose ${p().pose?.kind}, crouch ${p().crouch}`);
+      game.rest.stand(); Bo().update(0.1);
+      // (scrubbing is its own crouch: a tap ends it and stands as before; a hold ends it and sits on the floor)
+      for (const hold of [false, true]) {
+        p().crouch = true; Bo().scrubbing = { x: p().x, y: p().y, px: p().x, py: p().y, sc: game.scene, t: 0, crouch: false, land: true, emoteAt: -Infinity };
+        const did = game.rest.posture(hold);
+        check(did && !Bo().scrubbing && (hold ? p().pose?.kind === 'floorSit' : !p().crouch && !p().pose), `Shift ${hold ? 'held' : 'tapped'} while scrubbing: ${did}, scrub ${!!Bo().scrubbing}, crouch ${p().crouch}, pose ${p().pose?.kind}`);
+        if (p().pose) game.rest.stand();
+      }
+      // (drinking on land, needs.js, is the same kind of crouch: the same two answers)
+      const N = game.needs;
+      for (const hold of [false, true]) {
+        p().crouch = true; N.drinking = { x: p().x, y: p().y, px: p().x, py: p().y, sc: game.scene, land: true, crouch: false, step: 0, emoteAt: -Infinity, from: N.thirst };
+        const did = game.rest.posture(hold);
+        check(did && !N.drinking && (hold ? p().pose?.kind === 'floorSit' && !p().crouch : !p().crouch && !p().pose), `Shift ${hold ? 'held' : 'tapped'} while drinking: ${did}, drinking ${!!N.drinking}, crouch ${p().crouch}, pose ${p().pose?.kind}`);
+        if (p().pose) game.rest.stand();
+      }
+    } finally {
+      Bo().scrubbing = null; if (game.needs) game.needs.drinking = null; if (p().pose) game.rest.stand(); p().crouch = false; Bo().endBath(); bodyBase(); draw();
+    }
+  });
+  await test('looks (english): growth clocks count, nothing applied yet (E1)', async () => {
+    const lookWas = p().look, spy = [];
+    try {
+      bodyBase();
+      const before = JSON.stringify(game.appearance());
+      runCommand(game, '/body hair 30', s => spy.push(s));
+      const b = Bo(), now = Date.now();
+      check(Math.abs(b.cutAt - (now - 30 * 864e5)) < 5000 && spy.length === 1, `/body hair 30: cutAt ${(now - b.cutAt) / 864e5} days, said ${spy}`);
+      check(b.growth().hairStep === 3 && !b.growth().pending && b.applied.hair === 0 && b.applyGrowth() === false, `the hair step ${b.growth().hairStep}, applied ${b.applied.hair}`);
+      check(!('hairGrow' in p().look) && !('beardGrow' in p().look) && JSON.stringify(game.appearance()) === before, 'the growth got into the look');
+      // The steps (§2.5): hair 8 days 1, 30 days 3; a beard 2 days 1, 20 days 4; a female body or beardGrows false: 0
+      b.cutAt = now - 8 * 864e5; check(b.growth().hairStep === 1, `8 days: hair ${b.growth().hairStep}`);
+      p().look = { ...lookWas, sex: 'chico' };
+      b.shaveAt = now - 2 * 864e5; check(b.growth().beardStep === 1, `2 days: beard ${b.growth().beardStep}`);
+      b.shaveAt = now - 20 * 864e5; check(b.growth().beardStep === 4, `20 days: beard ${b.growth().beardStep}`);
+      b.beardGrows = false; check(b.growth().beardStep === 0, 'beardGrows false still grows'); b.beardGrows = true;
+      p().look = { ...lookWas, sex: 'chica' }; check(b.growth().beardStep === 0, 'a female body grows a beard');
+      p().look = lookWas;
+      // /body dirt and clean in survival; the usage line on nonsense
+      spy.length = 0; runCommand(game, '/body dirt 55', s => spy.push(s)); check(b.dirt === 55, `/body dirt 55: ${b.dirt}`);
+      runCommand(game, '/body clean', s => spy.push(s)); check(b.dirt === 0, `/body clean: ${b.dirt}`);
+      runCommand(game, '/body nothing', s => spy.push(s)); check(spy.at(-1) === t('cmd.body.usage'), `nonsense says: ${spy.at(-1)}`);
+      // The clocks go in the save
+      const out = {}; b.save(out); check(out.body.cutAt === b.cutAt && out.body.shaveAt === b.shaveAt, 'the clocks are not saved');
+    } finally { p().look = lookWas; bodyBase(); }
+  });
+  await test('clothes (english): warmth values and soap', async () => {
+    check(ITEMS.camisa.warm === 1 && ITEMS.delantal.work === 0.3 && ITEMS.sombrero.shade === 1 && ITEMS.gorro.warm === 1.5, 'garment values are not on the items');
+    check(clothesText(ITEMS.calzoncillos) === '' && clothesText(ITEMS.camisa) === t('item.warmth', { n: 1 }), `the warmth line: «${clothesText(ITEMS.camisa)}»`);
+    const r = RECIPES.find(q => q.out === 'soap');
+    check(r?.station === 'cocina' && r.n === 2 && r.ins.some(([id]) => id === 'manteca') && r.ins.some(([id]) => id === 'carbon'), `soap: ${JSON.stringify(r)}`);
+    check(SHOPS.rosa.stock.find(s => s.id === 'soap')?.price === 25, 'Rosa does not sell soap at 25');
+    check(ITEMS.soap?.name && noun('item', 'soap'), 'soap has no name');
+  });
+  await test('red (net): bd and ba optional', async () => {
+    const live = game.live;
+    try {
+      live.receive('bd1', { t: 'hi', id: 'id-bd1', name: 'Sucia', playing: true, look: LOOK });
+      live.receive('bd1', { t: 'st', sc: 'world', x: p().x + 2, y: p().y, yaw: 0, po: [0, 0, 0.14] });
+      const e = live.peers.get('bd1').entity;
+      check(!e.grime && !e.bathing && e.pose?.kind === 'sit', `without bd and ba: grime ${JSON.stringify(e.grime)}, bathing ${e.bathing}, pose ${e.pose?.kind}`);
+      const s = { dirt: 0.5, mud: 0.2, wet: 1, snow: 0, blood: 0.33, shiver: 1, sweat: 0 };
+      live.receive('bd1', { t: 'st', sc: 'world', x: p().x + 2, y: p().y, yaw: 0, bd: packBd(s), po: [0, 0, 0.12], ba: 1 });
+      check(['dirt', 'mud', 'wet', 'snow', 'blood'].every(k => Math.abs(e.grime[k] - s[k]) <= 1 / 15) && e.grime.shiver === 1 && e.grime.sweat === 0, `unpacked: ${JSON.stringify(e.grime)}`);
+      check(e.bathing && e.pose.kind === 'bath', `ba 1 with a sit: bathing ${e.bathing}, pose ${e.pose.kind}`);
+      const obj = e.grime;
+      live.receive('bd1', { t: 'st', sc: 'world', x: p().x + 2, y: p().y, yaw: 0, bd: packBd(s) });
+      check(e.grime === obj && !e.bathing && !e.pose, 'the same bd makes a new grime, or ba stays');
+      live.receive('bd1', { t: 'st', sc: 'world', x: p().x + 2, y: p().y, yaw: 0, po: [2, 0, 0.1], ba: 1 });
+      check(!e.grime && !e.bathing && e.pose.kind === 'lie', `ba with a lying pose, no bd: ${e.bathing}, ${e.pose.kind}, ${JSON.stringify(e.grime)}`);
+      for (const bad of ['x', -5, 1.5, 1e12, null]) { live.receive('bd1', { t: 'st', sc: 'world', x: p().x + 2, y: p().y, yaw: 0, bd: bad }); check(!e.grime, `bd ${bad} gives ${JSON.stringify(e.grime)}`); }
+      check(unpackBd(packBd(null)).dirt === 0 && packBd(unpackBd(packBd(s))) === packBd(s), 'packBd does not round-trip');
+      // A message this game does not know (a later phase's remarks): dropped
+      live.receive('bd1', { t: 'rmk', npc: 'rosa', rc: 3, li: 0 });
+      draw();
+    } finally { live.peers.delete('bd1'); draw(); }
+  });
+  await test('grime (english): one program', async () => {
+    const live = game.live, A = game.view3d.actors, R = game.view3d.renderer, ents = live.entities;
+    try {
+      bodyBase(); await goTo(game, 21, 26);
+      live.receive('gr1', { t: 'hi', id: 'id-gr1', name: 'Sucia', playing: true, look: LOOK });
+      live.receive('gr1', { t: 'st', sc: 'world', x: p().x + 1.2, y: p().y + 0.6, yaw: 0 });
+      live.entities = sc => (sc === game.world ? live.others.filter(o => o.entity).map(o => o.entity) : null);
+      for (let i = 0; i < 4; i++) draw();
+      const e = live.peers.get('gr1').entity, m = A.models.get(e), P = m?.person;
+      check(P?.shared && P.r.mesh.material === P.shared, 'the other player is not on the shared material');
+      // (a material never written draws nothing: every component 0, w too, on the shared one and the player's own copy)
+      const zero = mt => { const u = R.properties.get(mt).uniforms; return !!u?.uGrime && [u.uGrime.value, u.uGrime2.value].every(v => v.x === 0 && v.y === 0 && v.z === 0 && v.w === 0); };
+      check(zero(P.shared) && zero(A.player.person.r.mesh.material), 'a clean material has a nonzero overlay uniform (snow or shiver on everyone)');
+      const n0 = R.info.programs.length;
+      // The player dirty, the other one muddy and wet: drawn, and no program more
+      Bo().dirt = 60; Bo().blood = 20;
+      live.receive('gr1', { t: 'st', sc: 'world', x: p().x + 1.2, y: p().y + 0.6, yaw: 0, bd: packBd({ mud: 0.8, wet: 0.5 }) });
+      for (let i = 0; i < 4; i++) draw();
+      check(P.r.mesh.material !== P.shared && P.r.mesh.material === P.grimeMat, 'the muddy one has no material of its own');
+      check(A.player.person.r.mesh.material !== A.player.person.grimeMat && !A.player.person.grimeMat, 'the player got one more material');
+      check(R.info.programs.length === n0, `programs ${n0} → ${R.info.programs.length}`);
+      // (the overlay compiles: a GLSL error, such as a reserved word, would leave every person undrawn)
+      const bad = R.info.programs.filter(pg => pg.diagnostics && !pg.diagnostics.runnable);
+      check(!bad.length, `a program did not compile: ${bad.map(pg => pg.diagnostics.fragmentShader?.log || pg.diagnostics.programLog).join(' | ').slice(0, 300)}`);
+      // Clean again: back on the shared one, its own released
+      live.receive('gr1', { t: 'st', sc: 'world', x: p().x + 1.2, y: p().y + 0.6, yaw: 0 });
+      draw(); draw();
+      check(P.r.mesh.material === P.shared && !P.grimeMat, 'clean, still on its own material');
+      check(R.info.programs.length === n0, `programs after cleaning ${n0} → ${R.info.programs.length}`);
+    } finally { live.entities = ents; live.peers.delete('gr1'); bodyBase(); draw(); }
+  });
+  await test('hud (english): body chip', async () => {
+    const $ = id => document.getElementById(id), C = () => game.bodyChip, el = () => $('body-chip');
+    // (Body's own update would poll the real weather between frames: everything here is set and read in one go)
+    const set = o => { const b = Bo(); Object.assign(b, { cold: 0, heat: 0, wet: 0, dirt: 0, feelC: 20 }, o); };
+    try {
+      bodyBase(); useSmartHud(game, true); await goTo(game, 21, 26); draw(); draw();
+      check(el() && el().parentNode.id === 'needs', 'no #body-chip in #needs');
+      let T = performance.now() / 1000 + 0.01;
+      // (what the tests before left on the chip, a cold that lingers 2 s, goes first)
+      set({}); C().frame(T); C().frame(T += 2.5); check(!C().id && !el().classList.contains('on'), `at 20 °C a chip shows: ${C().id}`);
+      set({ cold: 0.5 }); C().frame(T += 1);
+      check(C().id === 'cold' && el().classList.contains('on') && el().textContent === t('body.chip.cold'), `cold 0.5: ${C().id} «${el().textContent}»`);
+      // (right under the bars in sight, in the corner column, and the clock under it: index.html)
+      await sleep(300);
+      { const nb = $('needs').getBoundingClientRect(), kb = el().getBoundingClientRect(), cb = $('clockp').getBoundingClientRect();
+        check(kb.left <= 20 && kb.top >= nb.bottom - 1 && kb.top <= nb.bottom + 12 && cb.top >= kb.bottom + 4, `the chip at ${Math.round(kb.left)},${Math.round(kb.top)}, the bars end at ${Math.round(nb.bottom)}, the clock at ${Math.round(cb.top)}`); }
+      set({ cold: 0.1 }); C().frame(T += 1); check(C().id === 'cold', 'the chip goes at once');
+      C().frame(T += 2.1); check(!C().id && !el().classList.contains('on'), `still there 2 s after: ${C().id}`);
+      set({ cold: 0.8 }); C().frame(T += 1); check(C().id === 'freezing', `cold 0.8: ${C().id}`);
+      // One at a time: cold wins over filthy, which waits and shows once the cold is gone, for 4 s
+      set({ cold: 0.5, dirt: 80 }); C().frame(T += 1); check(C().id === 'cold', `cold and filthy: ${C().id}`);
+      set({ cold: 0, dirt: 80 }); C().frame(T += 0.5); C().frame(T += 2.1); check(C().id === 'filthy' && el().textContent === t('body.chip.filthy'), `after the cold: ${C().id}`);
+      C().frame(T += 4.1); check(!C().id, 'filthy stays more than 4 s');
+      set({ dirt: 90 }); C().frame(T += 1); check(!C().id, 'filthy shows twice in a session');
+      // Soaked: wet and chilled
+      set({ wet: 90, cold: 0.2 }); C().frame(T += 1); check(C().id === 'soaked', `soaked: ${C().id}`);
+      set({ wet: 90, cold: 0 }); C().frame(T += 1); check(!C().id, 'soaked without the cold');
+      // Tab: the felt temperature
+      set({}); game.smartHud.hold(true); draw(); set({}); C().frame(T += 1);
+      check(el().classList.contains('on') && el().textContent === t('journal.body.feels', { c: '20' }), `Tab says «${el().textContent}»`);
+      set({ cold: 0.5, feelC: 4.4 }); C().frame(T += 1);
+      check(el().textContent === t('body.chip.feels', { state: t('body.chip.cold'), c: '4' }), `Tab, cold: «${el().textContent}»`);
+      game.smartHud.hold(false);
+      // Peaceful or doBodyWeather false: no cold chip; creative: nothing at all
+      game.difficulty = 'peaceful'; set({ cold: 0.9 }); C().frame(T += 0.1); C().frame(T += 2.5); check(!C().id, `peaceful: ${C().id}`); game.difficulty = 'normal';
+      runCommand(game, '/gamemode creative', say0); set({ cold: 0.9, dirt: 99 }); C().frame(T += 3); check(!C().id && !el().classList.contains('on'), `creative: ${C().id}`);
+      runCommand(game, '/gamemode survival', say0);
+      // The full interface: any cold at all shows
+      useSmartHud(game, false); set({ cold: 0.05 }); C().frame(T += 3); check(C().id === 'cold', `full HUD, cold 0.05: ${C().id}`);
+    } finally { game.smartHud?.hold(false); useSmartHud(game, false); game.difficulty = 'normal'; bodyBase(); draw(); }
   });
   await test('peso y en brazos, fin (weight end): a save played with the weight inventory opens with ?inventario=casillas without losing anything, and back', async () => {
     const W = JSON.stringify(game.snapshot()), D = JSON.stringify([...game.world.deltas]), was = Carry.force;

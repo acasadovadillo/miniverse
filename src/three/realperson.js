@@ -6,6 +6,8 @@ import * as THREE from 'three';
 import { fullLook, clothesFor } from '../looks.js';
 import { Builder, paint, mergeParts } from './geo.js';
 import { KIT_MAT } from './kit3d.js';
+import { injectGrime, grimeMaterial, writeGrime, clearGrime, hasGrime } from './grime.js';
+import { apagada } from '../opciones.js';
 // (se cargan con el juego, en este orden: base.js deja window.LOOK con sus ayudas, y pelo y persona solo se apuntan en
 // LOOK.parts; THREE lo usan dentro de sus funciones, así que basta con dárselo antes de construir a nadie. Así entran
 // también en la lista de archivos que index.html vuelve a pedir sin caché al cambiar de versión)
@@ -15,8 +17,12 @@ import './real/persona.js';
 
 let P = null;
 const KID = 0.68;   // la estatura de un niño, de la de un adulto
+// The surface overlay (three/grime.js: dirt, mud, wet, snow, blood, sweat), installed for every persona material before
+// the first person is built, so the one persona program carries it. ?cuerpo=0: not installed, the program of before
+const GRIME = !apagada('cuerpo');
+const grimeHook = (sh, mat) => injectGrime(sh, mat, { skin: 'vPiel.y', hair: 'vPiel.z', rough: 'float roughnessFactor = vPiel.x;' });
 // El generador, la primera vez que hace falta (el servidor sin pantalla no construye a nadie)
-const persona = () => (P ||= ((window.LOOK.THREE = THREE), window.LOOK.parts.persona(THREE, window.LOOK)));
+const persona = () => (P ||= ((window.LOOK.THREE = THREE), GRIME && (window.LOOK.grime = grimeHook), window.LOOK.parts.persona(THREE, window.LOOK)));
 // (las páginas de prueba lo esperan: docs/pruebas-arte/t10/hoja.html y medir.html)
 export const loadReal = () => Promise.resolve(persona());
 
@@ -78,6 +84,8 @@ export class RealPerson {
     this.bellyColor = window.LOOK.sobrio(top?.color || fullLook(look).skin);
     this.targetYaw = 0; this.speed = 0;
     this.bag = null; this.bagKey = null;
+    // (the surface overlay: the shared material of its look, the own one while it has a surface, and its height at rest)
+    this.shared = r.mesh.material; this.grimeMat = null; this.grimeOn = false; this.grimeTall = r.d?.alto || 1.7;
     if (W.espalda) this.setBag(W.espalda);   // (la mochila, si la lleva puesta)
     r.root.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
     // El esqueleto solo se recalcula (y se sube a la gráfica) si algo ha cambiado: Three lo hace en cada fotograma con
@@ -119,6 +127,36 @@ export class RealPerson {
     for (const o of Object.values(this.kit || {})) if (o.geometry !== EMPTY_GEO) o.geometry.dispose();   // (the tools on the body: their geometry is only theirs)
     if (this.bag) for (const o of this.bag.children) if (o.geometry !== BUCKLE_GEO) o.geometry.dispose();   // (la hebilla es de todas)
     if (this.belly) { this.belly.geometry.dispose(); this.belly.material.dispose(); }
+    if (this.grimeMat) { this.grimeMat.dispose(); this.grimeMat = null; }   // (never its map: the look's, shared)
+  }
+  // What the world has left on this body (body.surface()'s shape, each 0..1: dirt, mud, wet, wetLegs, snow, blood, sweat,
+  // shiver), or null for clean: drawn by the shader overlay (three/grime.js), never repainted, so it costs no rebuild.
+  // Someone on the shared material of their look gets a material of their own while they have a surface (same program:
+  // nothing is compiled) and goes back to the shared one when clean; a copy someone else made (the player's, for the
+  // outline; a spectator's see-through one) just gets the values. Cheap enough to call every frame
+  setGrime(s) {
+    if (!GRIME) return;
+    const mesh = this.r.mesh, on = hasGrime(s);
+    if (!on) {
+      if (!this.grimeOn) return;
+      this.grimeOn = false;
+      const cur = mesh.material;
+      if (cur !== this.shared && cur !== this.grimeMat) clearGrime(cur);
+      if (this.grimeMat) {
+        if (mesh.material === this.grimeMat) mesh.material = this.shared;
+        if (mesh.userData.solid === this.grimeMat) mesh.userData.solid = this.shared;   // (a spectator's: actors.js ghost)
+        this.grimeMat.dispose(); this.grimeMat = null;
+      }
+      return;
+    }
+    this.grimeOn = true;
+    const cur = mesh.material;
+    if (cur === this.shared || mesh.userData.solid === this.shared) {
+      this.grimeMat = grimeMaterial(this.shared);
+      if (cur === this.shared) mesh.material = this.grimeMat; else mesh.userData.solid = this.grimeMat;
+    }
+    if (this.grimeMat) writeGrime(this.grimeMat, s, this.grimeTall);
+    if (mesh.material !== this.grimeMat) writeGrime(mesh.material, s, this.grimeTall);
   }
   clone() { return new RealPerson(this.look, { kid: this.kid }); }
   // La mochila a la espalda (item: { id, color }) o ninguna (null): se pone y se quita sin rehacer la persona (rehacerla son

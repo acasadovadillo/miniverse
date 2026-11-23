@@ -1,5 +1,6 @@
 // Objetos (herramientas, materiales, comida y cosas que se colocan) y qué da cada cosa del mundo al recolectarla.
 import { defineNames, has, noun, t, fmt } from './i18n.js';
+import { GARMENTS } from './clothing.js';
 
 // Las herramientas son todas de hierro (hacha, pico, guadaña, azada y pala). tier: el nivel, que además usan la caña y la red
 export const TIERS = {
@@ -300,6 +301,23 @@ Object.assign(ITEMS, {
   hijab: { name: 'Hiyab', desc: 'Pañuelo que cubre el pelo y el cuello y deja la cara a la vista.', wear: 'cabeza', dye: '#1c1c22' },
   mochila: { name: 'Mochila', desc: 'Póntela a la espalda y podrás llevar 27 cosas más. Sin ella solo llevas lo que cabe en las manos y los bolsillos. También se deja en el suelo, llena, como un cofre que se lleva.', wear: 'espalda', bag: 27, dye: '#8a5a34', place: 'furniture' },
 });
+// What each garment does for the body (docs/planes/gta/PLAN-E-cuerpo-aspecto.md §3.1): warm (insulation points), rain
+// (0..1 rainproof share), shade (sun shade) and work (the share of the torso's dirt it takes). One source of truth, the
+// GARMENTS table of clothing.js (what body.js computes with); copied here only so the windows can say it (clothesText).
+// Only items this game already has: the new garments of a later phase get theirs when they are added
+for (const [id, g] of Object.entries(GARMENTS)) {
+  const def = ITEMS[id];
+  if (!def?.wear) continue;
+  def.warm = g.warm || 0;
+  if (g.rain) def.rain = g.rain;
+  if (g.shade) def.shade = g.shade;
+  if (g.work) def.work = g.work;
+}
+// ---------- The body (Plan E §2.3): soap. A bath or a scrub at the water with soap in the bag uses one (body.js). Its name
+// and description come from the language files ----------
+const BODY_ITEMS = { soap: {} };
+Object.assign(ITEMS, BODY_ITEMS);
+defineNames(BODY_ITEMS, 'item');
 // Muebles de la casa familiar: dormitorios, cocina y baño
 Object.assign(ITEMS, {
   sofa: { name: 'Sofá', desc: 'De dos plazas, con cojines. Arrímalo a la pared y siéntate en él con E.', place: 'furniture' },
@@ -349,6 +367,17 @@ export function restoreText(def) {
   if (def.food) list.push(t('item.restores.hunger', { n: pctOf(hungerOf(def)) }));
   if (thirstOf(def) > 0) list.push(t('item.restores.thirst', { n: pctOf(thirstOf(def)) }));
   return list.length ? t('item.restores', { list: fmt.list(list) }) : '';
+}
+// "Warmth +1 · Keeps off rain" for a garment's description (inventory, crafting); '' if it does nothing for the body
+// (underwear, hair accessories, the backpack, armour)
+export function clothesText(def) {
+  if (!def?.wear) return '';
+  const list = [];
+  if (def.warm > 0) list.push(t('item.warmth', { n: def.warm }));
+  if (def.rain > 0) list.push(t('item.rain'));
+  if (def.shade > 0) list.push(t('item.shade'));
+  if (def.work > 0) list.push(t('item.work'));
+  return list.join(' · ');
 }
 // A thing's name as a noun for the messages ({item, the}, {item, a}…): from the language files when it has a key
 // (item.canteen, with its gender), else its name as it is (the older ids still have Spanish names in ITEMS)

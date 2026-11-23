@@ -1,7 +1,7 @@
 // Barra rápida (las 9 primeras casillas: manos y bolsillos) y la pantalla del inventario: el personaje en 3D
 // con lo que lleva puesto, rodeado de los huecos del cuerpo (ropa y mochila), y las casillas, con arrastrar y
 // soltar. Sin mochila, sus 27 casillas están cerradas.
-import { ITEMS, WEAR_SLOTS, restoreText, LEGACY_ITEMS } from '../items.js';
+import { ITEMS, WEAR_SLOTS, restoreText, clothesText, LEGACY_ITEMS } from '../items.js';
 import { DYES } from '../looks.js';
 import { SLOTS, HOTBAR, extraOf } from '../inventory.js';
 import { itemIconUrl } from '../art/items.js';
@@ -27,7 +27,8 @@ function paint(el, s) {
     img.hidden = false;
     n.textContent = s.n > 1 ? s.n : '';
     const def = ITEMS[s.id];
-    el.title = def.dur ? t('gui.inventory.item_uses', { item: def.name, n: s.dur ?? def.dur, max: def.dur }) : def.canteen ? `${def.name} (${s.sips || 0}/${def.canteen})` : def.name;
+    const clothes = !def.dur && clothesText(def);   // (a garment: what it does for the body, "Warmth +1")
+    el.title = def.dur ? t('gui.inventory.item_uses', { item: def.name, n: s.dur ?? def.dur, max: def.dur }) : def.canteen ? `${def.name} (${s.sips || 0}/${def.canteen})` : clothes ? `${def.name} (${clothes})` : def.name;
   } else {
     img.hidden = true;
     n.textContent = '';
@@ -183,8 +184,8 @@ export function initInventoryUI(game, { onClose, onCraft }) {
     if (!s) { $('inv-name').textContent = t('gui.inventory.pick_title'); say([t(inv.weight ? 'gui.inventory.pick_help_list' : 'gui.inventory.pick_help'), kept && t('gui.inventory.kept_newer', { n: kept }), wait && t('gui.inventory.kept_waiting', { n: wait })].filter(Boolean).join(' ')); return; }
     $('inv-icon').src = itemIconUrl(s.id, s.color);
     $('inv-name').textContent = worn ? t('gui.inventory.item_worn', { item: def.name }) : def.name + (s.n > 1 ? ` ×${s.n}` : '');
-    const restores = restoreText(def), all = stackKg(s);
-    say(def.desc + (restores ? ` ${restores}` : '') + (inv.weight ? ` ${t('gui.inventory.weight_each', { kg: Math.round(all / (s.n || 1) * 100) / 100, total: Math.round(all * 10) / 10 })}` : ''));
+    const restores = restoreText(def), clothes = clothesText(def), all = stackKg(s);
+    say(def.desc + (restores ? ` ${restores}` : '') + (clothes ? ` ${clothes}.` : '') + (inv.weight ? ` ${t('gui.inventory.weight_each', { kg: Math.round(all / (s.n || 1) * 100) / 100, total: Math.round(all * 10) / 10 })}` : ''));
     $('inv-wearbtn').hidden = !def.wear;
     // Teñir: las prendas (puestas o en la mochila) se cambian de color tocando uno
     $('inv-dyes').hidden = !def.wear || !!def.noDye;   // (la armadura no se tiñe)

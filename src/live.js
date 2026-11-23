@@ -26,10 +26,14 @@ import { wrapIndex, PLANET } from './world/planet.js';
 import { kitKey } from './kit.js';
 import { EMOTE_KINDS } from './social.js';
 import { BULKY, BARROW, cleanBarrowKey } from './carry-items.js';
+import { unpackBd, BD_MAX } from './body.js';
 
 const SEND_EVERY = 0.1, IDLE_EVERY = 1;   // segundos entre mensajes de cómo va uno: moviéndose y quieto
 const SYNC_EVERY = 0.1;                   // cada cuánto se mandan los cambios del mundo
 const POSES = ['sit', 'floorSit', 'lie', 'floorLie'];   // las posturas, por su número (en el estado de cada jugador)
+// (the bath pose of Plan E, rest.js, goes as a sit, index 0, plus st.ba: never append 'bath' to POSES, an old client would
+// read index 4 as kind undefined; this way it sees someone sitting in the tub)
+const poseIndex = kind => (kind === 'bath' ? 0 : POSES.indexOf(kind));
 const BLOB_EVERY = 0.25, TIME_EVERY = 1, HERD_EVERY = 0.2;   // lo de todos, la hora y por dónde van los animales
 const FULL_EVERY = 30;                     // (quien lleva el mundo) cada cuánto manda entera la foto de lo de todos por elementos
 const SNAP = 4;                           // si alguien aparece a más de tantas casillas de donde estaba, salta allí
@@ -54,7 +58,14 @@ class RemotePlayer extends Person {
   apply(st) {
     this.to = [st.x, st.y, st.z || 0]; this.floor = st.fl || 0;   // (fl: la roca que pisa)
     if (this.fresh || Math.hypot(st.x - this.x, st.y - this.y) > SNAP) { [this.x, this.y, this.z] = this.to; this.fresh = false; this.feet = null; }
-    this.pose = st.po ? { kind: POSES[st.po[0]], yaw: st.po[1], h: st.po[2] } : null;   // (sentado o tumbado)
+    // (ba: bathing in a tub, Plan E: the pose goes as a sit and is read back as 'bath'. A game from before sends no ba)
+    this.bathing = !!st.ba && Array.isArray(st.po) && st.po[0] === 0;
+    this.pose = st.po ? { kind: this.bathing ? 'bath' : POSES[st.po[0]], yaw: st.po[1], h: st.po[2] } : null;   // (sentado o tumbado)
+    // (bd: what is on their body, packed, body.js packBd: dirt, mud, wet, snow, blood, shivering, sweat. Only sent when
+    // nonzero; without it, clean. grime is null when clean and only changes when bd does, so the drawing (actors.js,
+    // RealPerson.setGrime) rewrites its uniforms only then: compare bd)
+    const bd = Number.isInteger(st.bd) && st.bd > 0 && st.bd < BD_MAX ? st.bd : 0;   // (a value out of range from a broken peer: clean)
+    if (bd !== (this.bd || 0)) { this.bd = bd; this.grime = bd ? unpackBd(bd, this.grime || {}) : null; }
     Object.assign(this, { yaw: st.yaw ?? null, inside: !!st.in, mount: !!st.m, horseCoat: st.hc || null, horseBags: !!st.hb, boat: !!st.b, aboard: st.pa || null, crouch: !!st.cr, gm: st.gm || 0, held: st.h || null, swing: st.sw || 0, swingItem: st.si || null, cooldown: st.cd || 0, bowPull: st.dr || 0 });
     this.swim = !!st.na; this.sinkTo = st.na ? st.hu || 0 : 0;   // (nadando, y lo que se hunde o se asoma)
     // (dv: diving, the depth below sink, smoothed like it in update; zz: asleep in a bed, entities.js. A game from before
@@ -903,7 +914,7 @@ export class Live {
     }
     this.sent += dt;
     const sc = g.scene === g.world ? 'world' : null;
-    const st = { t: 'st', sc, x: r2(p.x), y: r2(p.y), z: r2(p.z || 0), fl: p.floor ? r2(p.floor) : undefined, yaw: r2(g.view3d.actors.player?.person.facing ?? 0), in: p.inside ? 1 : 0, po: p.pose ? [POSES.indexOf(p.pose.kind), r2(p.pose.yaw), r2(p.pose.h)] : 0, m: p.mount ? 1 : 0, hc: p.mount ? p.horseCoat || null : null, hb: p.mount && p.horseBags ? 1 : 0, b: p.boat ? 1 : 0, pa: p.aboard || 0, cr: p.crouch ? 1 : 0, gm: g.gamemode === 'survival' ? 0 : g.gamemode === 'creative' ? 1 : 3, h: g.inv.held?.id || null, sw: this.swings, si: g.gather.swingItem || null, cd: r2(g.gather.cooldown || 0), dr: r2(g.archery.k), na: p.swim ? 1 : 0, hu: p.swim ? r2(p.sink) : undefined, dv: p.swim && p.dive > 0.02 ? r2(p.dive) : undefined, zz: p.sleeping && p.pose?.kind === 'lie' ? 1 : undefined, kt: kitKey(g.kitIds()) || undefined, gt: p.gait || 0, ca: g.carry?.state(), em: g.social.emSeq, ek: g.social.emKind };
+    const st = { t: 'st', sc, x: r2(p.x), y: r2(p.y), z: r2(p.z || 0), fl: p.floor ? r2(p.floor) : undefined, yaw: r2(g.view3d.actors.player?.person.facing ?? 0), in: p.inside ? 1 : 0, po: p.pose ? [poseIndex(p.pose.kind), r2(p.pose.yaw), r2(p.pose.h)] : 0, ba: p.bathing && p.pose?.kind === 'bath' ? 1 : undefined, bd: g.body?.bd || undefined, m: p.mount ? 1 : 0, hc: p.mount ? p.horseCoat || null : null, hb: p.mount && p.horseBags ? 1 : 0, b: p.boat ? 1 : 0, pa: p.aboard || 0, cr: p.crouch ? 1 : 0, gm: g.gamemode === 'survival' ? 0 : g.gamemode === 'creative' ? 1 : 3, h: g.inv.held?.id || null, sw: this.swings, si: g.gather.swingItem || null, cd: r2(g.gather.cooldown || 0), dr: r2(g.archery.k), na: p.swim ? 1 : 0, hu: p.swim ? r2(p.sink) : undefined, dv: p.swim && p.dive > 0.02 ? r2(p.dive) : undefined, zz: p.sleeping && p.pose?.kind === 'lie' ? 1 : undefined, kt: kitKey(g.kitIds()) || undefined, gt: p.gait || 0, ca: g.carry?.state(), em: g.social.emSeq, ek: g.social.emKind };
     const key = JSON.stringify(st);
     if (this.sent < SEND_EVERY || (key === this.lastSent && this.sent < IDLE_EVERY)) return;
     this.sent = 0; this.lastSent = key;

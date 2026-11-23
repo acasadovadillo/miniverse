@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- La versión publicada: se cambia en cada publicación (así el juego sabe que tiene que pedir el código nuevo) -->
-<meta name="miniverse-version" content="2026-11-23.3">
+<meta name="miniverse-version" content="2026-11-23.4">
 <title>Miniverse</title>
 <script>
   // The language of the page until the game's code arrives (src/i18n.js chooses the same way, then takes over): for
@@ -458,6 +458,20 @@
   #nd-legend > div:last-child { margin-bottom: 0; }
   #nd-legend span { font: 500 13px/1 var(--font-title); font-variant-numeric: tabular-nums; letter-spacing: .03em; color: var(--cream); margin-left: 6px; }
   #nd-legend small { margin-left: 8px; font-size: 11px; color: var(--dim); }
+  /* The body chip (src/ui/bodychip.js paints it; docs/planes/gta/PLAN-E-cuerpo-aspecto.md §7.1): one small pill ("Cold",
+     "Hot", "Soaked", "Filthy") right under the bars in sight, in the corner column (--nd-end: where they end; none in
+     sight, the corner itself), only while it changes a stat or the first time; Tab adds the felt temperature. No icon: a
+     3 px edge in its colour. Inside #needs, so it hides with the bars (not in survival, not playing). While it shows,
+     the clock and the first steps go under it (--hud-top), as they go under the bars; the name tag and the legend stay
+     right of the bars, so nothing overlaps it */
+  :root { --bc-cold: #7ab4e8; --bc-freezing: #cfe6f0; --bc-hot: #e8a050; --bc-soaked: #4a9fd8; --bc-filthy: #8a6a48; --bc-worn: #b39a74; --bc-torn: #c47a52; --bc-h: 24px; }
+  #body-chip { position: absolute; left: 0; top: calc(var(--nd-end) + 8px - var(--nd-y)); box-sizing: border-box; height: var(--bc-h); padding: 0 10px 0 8px; border-left: 3px solid var(--bc, var(--dim)); border-radius: 0 9px 9px 0; background: rgba(20, 13, 8, .62); box-shadow: 0 1px 3px rgba(0, 0, 0, .35); font: 600 14px/var(--bc-h) var(--font-ui); letter-spacing: .02em; font-variant-numeric: tabular-nums; color: var(--cream); white-space: nowrap; opacity: 0; visibility: hidden; transition: opacity .5s ease, visibility 0s linear .5s, top .2s ease; }
+  #body-chip.on { opacity: 1; visibility: visible; transition: opacity .15s ease, visibility 0s, top .2s ease; }
+  #body-chip.under-win { opacity: 0 !important; visibility: hidden !important; }   /* (an open window over it: src/ui/windows.js, as the clock) */
+  body.survival:has(#needs.bc-on) { --hud-top: calc(var(--nd-end) + 8px + var(--bc-h) + 8px); }   /* (the clock under the chip) */
+  #body-chip.bc-cold { --bc: var(--bc-cold); } #body-chip.bc-freezing { --bc: var(--bc-freezing); } #body-chip.bc-hot { --bc: var(--bc-hot); }
+  #body-chip.bc-soaked { --bc: var(--bc-soaked); } #body-chip.bc-filthy { --bc: var(--bc-filthy); } #body-chip.bc-worn { --bc: var(--bc-worn); } #body-chip.bc-torn { --bc: var(--bc-torn); }
+  #body-chip.bc-none { --bc: var(--dim); }   /* (Tab with nothing wrong: only the felt temperature) */
   /* Under water: a vignette only, no full-screen tint (the fog gives the tint). display: none off the water, so it costs
      no compositor fill. The view sets body.underwater (Track C); needsbar.js sets uw-low (air at 30 % or less) */
   /* (radial gradients, not an inset box-shadow: on the dark sea, at night most of all, the shadow's blur showed as
@@ -643,6 +657,7 @@
     <div class="nd-row"><div class="nd nd-en" id="nd-en"><i></i><u></u></div></div>
     <div id="nd-tag"></div>
     <div id="nd-legend"></div>
+    <div id="body-chip"></div>
   </div>
   <div id="uw"></div>
   <div id="hint" class="panel"><kbd data-i18n="key.click">Click</kbd><span id="hint-text"></span></div>
@@ -832,7 +847,9 @@
         <dt><kbd>F3</kbd></dt><dd data-i18n="controls.fps">Show performance (frames per second)</dd>
         <dt><kbd>I</kbd> <kbd>C</kbd> <kbd>B</kbd></dt><dd data-i18n="controls.windows">Inventory (what you carry and your clothes), crafting and building</dd>
         <dt><kbd>Tab</kbd></dt><dd data-i18n="controls.players">While you hold it, who is playing</dd>
+        <dt data-i18n-html="controls.wash.keys"><kbd>X</kbd> on water</dt><dd data-i18n="controls.wash">Muddy, dirty or bloody: aim at a river, a lake or the sea while wading or from the bank to scrub yourself (about 8 s; moving stops it). E on a bathtub takes a bath, and E on a basin washes your face and hands. Soap in your bag washes you fully clean</dd>
         <dt data-i18n="controls.bars.keys">The bars</dt><dd data-i18n="controls.bars">Top left: health, hunger, thirst and energy (and air under water). Food fills hunger, drink fills thirst and sleeping in a bed fills energy; health comes back by itself when you're fed and watered. Hover them (or hold Tab) to see their %</dd>
+        <dt data-i18n="controls.body.keys">The body chip</dt><dd data-i18n="controls.body">Under the bars, only when it matters: Cold, Freezing, Hot, Soaked or Filthy. Hold Tab to see how warm you feel</dd>
         <dt><kbd>J</kbd> <kbd>M</kbd></dt><dd data-i18n="controls.journal_map">Journal and map</dd>
         <dt data-i18n-html="controls.chat.keys"><kbd>T</kbd> or <kbd>/</kbd></dt><dd data-i18n-html="controls.chat">Chat and commands (<b>/help</b> to see them). Ops (given in the server terminal with <b>/op</b>) have <b>/gamemode</b>, <b>/tp</b>, <b>/give</b>, <b>/kill</b>, <b>/weather</b>, <b>/gamerule</b>…; the admin also has <b>/account</b>, to create accounts</dd>
         <dt><kbd>Esc</kbd></dt><dd data-i18n="controls.pause">Pause (and close windows)</dd>
