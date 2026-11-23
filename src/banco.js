@@ -19,7 +19,11 @@
 // mapa grande y la pausa abiertos (mapa, pausa) y cuánto se dibuja con la ventana sin el foco (sinFoco). And, last (diving,
 // docs/planes/gta/PLAN-D-barras-buceo.md §4.3): costa, on the beach nearest the village with deep sea in front, the default
 // camera looking out to sea (double-sided water, the bed paint: at most +0.3 ms and the same draw calls as before), and
-// mar, out there diving some 6 m down with the camera under the water (it must cost less than pradera)
+// mar, out there diving some 6 m down with the camera under the water (it must cost less than pradera). And ruta (Plan J
+// §6): the pradera stop again with a 300 m marked route ahead of the camera, its ribbon on the ground; besides the usual
+// figures it measures the ribbon itself (on and off in alternate lots in the same stop, its processor time per frame and
+// what a rebuild costs). banco.py compares it with pradera: it must cost under 0.15 ms. A version without routes measures
+// pradera again (route.none)
 import { CAM, PITCH, DIST } from './camera.js';
 import { Profile } from './accounts.js';
 import { CENTER } from './world/village.js';
@@ -67,6 +71,8 @@ const STOPS = [
   // (diving: after all the others, so those are measured as always, in the same order and with the same behind them)
   { name: 'costa', at: g => sea(g).shore, cam: { yaw: g => sea(g).yaw, pitch: 0.84, dist: 22 }, hour: 12 },
   { name: 'mar', at: g => sea(g).deep, cam: { yaw: g => sea(g).yaw + Math.PI, pitch: 0.84, dist: 22 }, hour: 12, hold: diveDown },
+  // (the marked route: last, so everything before is measured as always; the same place and camera as pradera)
+  { name: 'ruta', at: g => meadow(g), cam: { yaw: Math.PI / 4, pitch: 0.84, dist: 22 }, hour: 12, prep: routeOn, measure: routeCost, done: routeOff },
 ].filter(s => !ONLY || ONLY.includes(s.name));
 
 // The deep sea nearest the village, for costa and mar: on rings round the village every 32 m, the first point with the bed
@@ -97,6 +103,53 @@ function diveDown(game) {
   if (!p?.swim) return;
   p.dive = 5.3; p.sink = Math.max(p.sink || 0, 0.5);
 }
+
+// ruta: a 300 m route from the player straight away from the camera (engine.js puts it at (sin yaw, cos yaw) from the
+// player, so the ribbon runs up the screen), through land marked explored (a fresh game knows only the 5×5 chunks round
+// it, and unexplored stretches have no ribbon). Then it waits for the worker's path (up to ROUTE_WAIT ms); without one (a
+// version whose search is not there yet, or it failed) a made-up path of the same length with gentle bends, all land, so the
+// ribbon is still measured (route.madeUp). Last, frames until the ribbon's program is ready and it is fully shown
+const ROUTE_M = 300, ROUTE_WAIT = 10000;
+async function routeOn(game, v, frame) {
+  const r = game.route, p = game.player;
+  if (!r?.set || !p) return { none: true };
+  const yaw = Math.PI / 4, dx = -Math.sin(yaw), dy = -Math.cos(yaw);
+  for (let d = -32; d <= ROUTE_M + 48; d += 8) for (let o = -32; o <= 32; o += 16) game.explored.add(`${Math.floor((p.x + dx * d - dy * o) / CHUNK)},${Math.floor((p.y + dy * d + dx * o) / CHUNK)}`);
+  r.set({ x: p.x + dx * ROUTE_M, y: p.y + dy * ROUTE_M, kind: 'point' }, { quiet: true });
+  const t0 = now();
+  while (r.state !== 'ready' && now() - t0 < ROUTE_WAIT) { frame(); await sleep(30); }
+  const out = { state: r.state, waitMs: Math.round(now() - t0) };
+  if (r.state !== 'ready') {
+    const n = ROUTE_M / 4 + 1, pts = new Float32Array(n * 2);
+    for (let i = 0; i < n; i++) { const d = i * 4, o = Math.sin(d / 40) * 6; pts[2 * i] = p.x + dx * d - dy * o; pts[2 * i + 1] = p.y + dy * d + dx * o; }
+    try { Object.assign(r, { pts, kinds: new Uint8Array(n), len: ROUTE_M, state: 'ready' }); r.version++; out.madeUp = true; }
+    catch { out.madeUp = 'failed'; }
+  }
+  out.metres = Math.round(r.len);
+  for (let i = 0; i < 120 && !(v.routeView?.compiled && v.routeView.vis >= 1); i++) { frame(); await sleep(16); }
+  return out;
+}
+// What the ribbon costs, in the same stop: lots with it and without it, alternate (the minimum of each side, as &ab); its
+// processor time per frame (cpu.ruta, from cpuSplit) and ROUTE_REBUILDS rebuilds in a row (the median and the worst)
+const ROUTE_REBUILDS = 30;
+async function routeCost(game, v, frame, sync, cpu) {
+  const rv = v.routeView;
+  if (!rv) return { shown: false };
+  const on = [], off = [];
+  for (let i = 0; i < Math.max(LOTS, 9); i++) {
+    rv.muted = true; frame(); off.push(timeLot(frame, sync));
+    rv.muted = false; rv.vis = 1; frame(); on.push(timeLot(frame, sync));
+    await sleep(0);
+  }
+  const ms = [];
+  for (let i = 0; i < ROUTE_REBUILDS; i++) { const t = now(); rv.rebuild(game, game.scene, performance.now() / 1000); ms.push(now() - t); }
+  frame();
+  return {
+    shown: rv.mesh.visible, vertices: rv.n * 2, costMs: +(Math.min(...on) - Math.min(...off)).toFixed(2),
+    cpuMs: cpu?.ruta ?? null, rebuildMs: +median(ms).toFixed(3), rebuildMaxMs: +Math.max(...ms).toFixed(3),
+  };
+}
+function routeOff(game) { game.route?.clear?.('user'); }
 
 // El trozo con más árboles cerca del pueblo (siempre el mismo: el mundo sale de la misma semilla)
 let forestAt = null;
@@ -224,6 +277,7 @@ export async function runBench(game) {
     Object.assign(v.cam, { vel: 0, pvel: 0, zvel: 0 });
     v.snap();
     const ready = await settle(game, v, frame);
+    const extra = s.prep ? await s.prep(game, v, frame) : null;   // (ruta: the route set and its ribbon shown)
     if (!out.arranque) out.arranque = sec(now());   // (desde que se abre la página hasta la primera parada lista)
     // Lo que se dibuja: un fotograma sin tocar el mapa de sombras, otro rehaciéndolo entero (lo fijo y lo que se mueve)
     // y uno normal (solo lo que se mueve, si la versión guarda lo fijo)
@@ -251,6 +305,7 @@ export async function runBench(game) {
       await sleep(0);
     }
     const cpu = cpuSplit(v, frame);
+    if (extra && s.measure && !extra.none) Object.assign(extra, await s.measure(game, v, frame, sync, cpu));
     if (Q.get('diag') === 'programas') {   // (qué materiales hacen a Three volver a elegir programa en cada fotograma)
       const count = new Map(), users = new Map();
       v.scene.traverse(o => { if (!o.material) return; for (const m of [].concat(o.material)) {
@@ -291,6 +346,7 @@ export async function runBench(game) {
       ...(v.actors.stats && typeof v.actors.stats === 'object' && { personas: { ...v.actors.stats, ...(Number.isFinite(v.actorsMs) && { ms: +v.actorsMs.toFixed(2) }) } }),
     };
     if (s.mode) { stop.modo = s.mode; game.mode = 'play'; }
+    if (extra) { stop.route = extra; console.log(`BANCO ${s.name}: route ${JSON.stringify(extra)}`); }
     if (s.hold || s.name === 'costa') { stop.bajoAgua = !!v.under; stop.hondo = +(game.world.gen.groundAt(x, y)).toFixed(1); if (sea(game).none) stop.sinMar = true; }
     out.paradas.push(stop);
     console.log(`BANCO ${s.name}: ${stop.ms} ms (${stop.fps} fps), sin sombras ${stop.msSinSombra} ms; ${stop.llamadas} llamadas + ${stop.llamadasSombra} de sombra (${stop.llamadasSombraMovil} de lo móvil); ${Math.round(stop.triangulos / 1000)} k + ${Math.round(stop.triangulosSombra / 1000)} k triángulos`);
@@ -298,6 +354,7 @@ export async function runBench(game) {
     frame();
     const img = r.domElement.toDataURL('image/jpeg', 0.85);
     await post('/banco/captura', { parada: s.name, img });
+    s.done?.(game);
   }
   CAM.first = false; hold = null;
   out.entrada = entered;
@@ -488,6 +545,7 @@ function cpuSplit(v, frame) {
   wrap(v.world, 'updateRegions', 'mundo: casas'); wrap(v.world, 'updateFade', 'mundo: desvanecer'); wrap(v.world, 'signature', 'mundo: firmas');
   // (los programas de sombreado pedidos antes de pintar lo nuevo y lo que espera a los suyos: ver engine.js, gate)
   if (v.gate) { wrap(v, 'gate', 'programas'); wrap(v, 'openGates', 'programas'); }
+  wrap(v.routeView, 'update', 'ruta');   // (the marked route's ribbon, once there is one: three/route3d.js)
   wrap(v.actors, 'update', 'actores'); wrap(v.fx, 'update', 'efectos'); wrap(v, 'updateLights', 'luces'); if (v.glow) wrap(v.glow, 'update', 'luz de noche'); wrap(v, 'updateViewmodel', 'en la mano');
   wrap(v.renderer, 'render', 'three'); wrap(v.scene, 'updateMatrixWorld', 'three: matrices'); wrap(v.renderer.shadowMap, 'render', 'three: sombras');
   wrap(v.renderer, 'renderBufferDirect', 'three: llamadas');   // (dentro de cada llamada: programa, uniformes y dibujo)

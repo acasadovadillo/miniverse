@@ -49,6 +49,7 @@ import { Experience } from './xp.js';
 import { Machines, MACHINES, machineAt, machineEmpty } from './machines.js';
 import { Trades } from './trades.js';
 import { Maps } from './maps.js';
+import { Route } from './route.js';
 import { Explore } from './explore.js';
 import { Stats, Skills, Collection, Achievements, Story } from './progress.js';
 import { Music } from './music.js';
@@ -197,6 +198,7 @@ export class Game {
     this.machines = new Machines(this);   // el horno y el alambique, que llevan su tiempo
     this.trades = new Trades(this);       // los tratos con los vecinos
     this.maps = this.addSystem(new Maps(this));   // los mapas (objetos) y la brújula
+    this.route = this.addSystem(new Route(this));   // the marked route: a pin on the big map and the way to it (Plan J)
     this.places = this.addSystem(new Explore(this));
     this.collection = this.addSystem(new Collection(this));
     this.achievements = this.addSystem(new Achievements(this));

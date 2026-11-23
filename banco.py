@@ -26,6 +26,9 @@
 # el parón que nota el jugador) y lo que se ha estado a oscuras, y cuánto se tarda en destapar al entrar. Las paradas
 # mapa y pausa miden un fotograma con el mapa grande o la pausa delante, y al final se mide cuánto se dibuja sin el
 # foco (sinfoco).
+# The last stop, ruta (Plan J §6), is pradera again with a 300 m marked route and its ribbon on the ground: the line
+# "Route" under the table gives ruta minus pradera, the ribbon measured on and off inside ruta itself, its processor time
+# per frame and what a rebuild costs, against the budget (under 0.15 ms per frame, a rebuild under 0.3 ms).
 #
 # Guarda las cifras (resultados.json) y las capturas en .banco/<fecha-hora>/. No lo lances a la vez que probar.py
 # ni que otro Chrome invisible: en este Mac, varios a la vez pueden colgarlo.
@@ -47,7 +50,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 PORTS = {'ahora': 8798, 'antes': 8799}
 CHROMES = ['/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', '/Applications/Chromium.app/Contents/MacOS/Chromium',
            '/Applications/Brave Browser.app/Contents/MacOS/Brave Browser', '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge']
-TIMEOUT = 720   # segundos por vuelta (con las doce paradas, en este Mac una vuelta va por los 7 minutos; por software, más)
+TIMEOUT = 780   # segundos por vuelta (con las doce paradas, en este Mac una vuelta va por los 7 minutos; por software, más; ruta adds about half a minute)
+ROUTE_BUDGET, REBUILD_BUDGET = 0.15, 0.3   # ms: what the marked route may add per frame, and per ribbon rebuild (Plan J §6)
 
 
 def arg(name, default=None):
@@ -330,6 +334,7 @@ def table(runs):
                 if p:
                     print('    personas (del juego): ' + ', '.join(f'{k} {v}' for k, v in p.items() if isinstance(v, (int, float))))
         stalls(runs, stops)
+        route_line(runs, stops)
         print(f"\nListo en {same(l, 'arranque')} s · {same(l, 'programas')} programas · {same(l, 'texturas')} texturas ({same(l, 'vramMB')} MB en la gráfica, más {same(l, 'buferesMB')} MB de búferes) · {same(l, 'geometrias')} geometrías · {same(l, 'memoria')} MB de memoria")
         relief_line(runs, l)
         return
@@ -347,6 +352,7 @@ def table(runs):
         print(f"{name:<16}{str(same('antes', key)):>10}{str(same('ahora', key)):>10}")
     for l in ('antes', 'ahora'):
         relief_line(runs, l)
+    route_line(runs, stops)
     if '--desglose' in sys.argv:
         compare_breakdown(runs, stops)
 
@@ -373,6 +379,48 @@ def stalls(runs, stops):
         if sf:
             c, n = sf[0]['conFoco'], sf[0]['sinFoco']
             print(f"  sin foco ({l}): {c['dibujosPorSegundo']} → {n['dibujosPorSegundo']} dibujos por segundo, dibujar {c['msDibujoPorSegundo']} → {n['msDibujoPorSegundo']} ms de cada segundo")
+
+
+def route_line(runs, stops):
+    # The marked route (Plan J §6), per version: ruta minus pradera (the same place, camera and hour; two stops apart, so
+    # with their noise), and the ribbon inside ruta itself: on and off in alternate lots (the minimum of each side), its
+    # processor time per frame and a rebuild (median and worst), against ROUTE_BUDGET and REBUILD_BUDGET
+    if 'ruta' not in stops:
+        return
+    print()
+    for l in [l for l in ('antes', 'ahora') if runs.get(l)]:
+        mine = [x for r in runs[l] for x in r['paradas'] if x['name'] == 'ruta']
+        info = [x.get('route') or {} for x in mine]
+        if not info or any(i.get('none') for i in info):
+            print(f'Route ({l}): this version has no marked route (ruta measures pradera again)')
+            continue
+
+        def med(key):
+            vals = [i[key] for i in info if isinstance(i.get(key), (int, float))]
+            return median(vals) if vals else None
+        parts = []
+        if 'pradera' in stops:
+            a = [x['ms'] for r in runs[l] for x in r['paradas'] if x['name'] == 'pradera']
+            b = [x['ms'] for x in mine]
+            if a and b:
+                parts.append(f'ruta - pradera {median(b) - median(a):+.2f} ms')
+        cost, cpu, reb, worst, verts = med('costMs'), med('cpuMs'), med('rebuildMs'), med('rebuildMaxMs'), med('vertices')
+        if cost is not None:
+            parts.append(f'ribbon on/off in ruta {cost:+.2f} ms')
+        if cpu is not None:
+            parts.append(f'processor {cpu:.3f} ms/frame')
+        if reb is not None:
+            parts.append(f'rebuild {reb:.3f} ms (worst {worst:.3f})')
+        if verts is not None:
+            parts.append(f'{verts:.0f} vertices')
+        flags = []
+        if any(i.get('madeUp') for i in info):
+            flags.append('made-up path: the search gave none in time')
+        if not all(i.get('shown', True) for i in info):
+            flags.append('ribbon NOT shown')
+        ok = (cost is None or cost < ROUTE_BUDGET) and (reb is None or reb < REBUILD_BUDGET)
+        verdict = 'within budget' if ok else 'OVER BUDGET'
+        print(f"Route ({l}): " + ', '.join(parts) + f" -> {verdict} (< {ROUTE_BUDGET} ms/frame, rebuild < {REBUILD_BUDGET} ms)" + (f" [{'; '.join(flags)}]" if flags else ''))
 
 
 def relief_line(runs, label):

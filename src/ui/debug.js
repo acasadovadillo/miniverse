@@ -11,6 +11,7 @@ import { GAMEMODES } from '../game.js';
 import { vramOf } from '../three/vram.js';
 import { apagadas } from '../opciones.js';
 import { faults, recentFaults, faultLabel } from '../faults.js';
+import { Music, MUSIC_DEBUG } from '../music.js';
 
 const $ = id => document.getElementById(id);
 const n1 = v => v.toFixed(1).replace('.', ',');
@@ -80,6 +81,10 @@ export function initDebug(game) {
     }
     const d = game.days;
     if (d) lines.push(`hora ${clock(d.hour)} (aquí ${clock(d.localHour)}) · ${SEASONS[d.localSeason].toLowerCase()} · tiempo ${d.weatherHere} · día ${d.dayIndex} · modo ${GAMEMODES[game.gamemode] || game.gamemode} · dificultad ${game.difficulty} · t ${Math.round(game.time)} s`);
+    // (Plan J: with ?ruta=ver the marked route's state and its last search; with ?musica=ver the conductor's line)
+    const R = game.route;
+    if (R?.dbg && R.active) lines.push(`route: ${R.state} · ${Math.round(R.left())} tiles left${R.debugText ? ` · last search ${esc(R.debugText)}` : ''}${R.worker ? ' · worker on' : ''}`);
+    if (MUSIC_DEBUG) { let m = ''; try { m = Music.debugLine?.() || ''; } catch (e) { m = String(e?.message || e); } if (m) lines.push(esc(m)); }
     lines.push(...parts(v));
     const l = game.live;
     // (los últimos fallos distintos, si los ha habido: el punto rojo de abajo a la derecha dice el último; ver faults.js)

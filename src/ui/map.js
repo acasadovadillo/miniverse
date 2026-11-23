@@ -3,17 +3,56 @@
 // en plano y con el norte arriba, como los mapas de papel: cada casilla mide 2 píxeles por unidad de zoom, y encima
 // van tu casa, las de los vecinos, los vecinos que estén fuera, los lugares descubiertos con su nombre y una leyenda
 // con lo que ya se ha visto.
+// The marked route (Plan J §2.7, §4.2; route.js sets map.route): its line and pin on both maps, the pins other players
+// shared, toWorld for map clicks (menus.js) and spotAt to snap a click to a named spot.
 import { CHUNK } from '../world/gen.js';
 import { BIOMES, B } from '../world/biomes.js';
 import { toView } from '../iso.js';
-import { CENTER, HOUSE, HOUSES, TAVERN, hasProject } from '../world/village.js';
-import { nearX, wrapIndex } from '../world/planet.js';
+import { CENTER, HOUSE, HOUSES, TAVERN, DOOR, doorOf, hasProject } from '../world/village.js';
+import { nearX, wrapIndex, wrapX } from '../world/planet.js';
+import { KIND } from '../world/routegrid.js';
+import { t, getLang } from '../i18n.js';
 
 const $ = id => document.getElementById(id);
 const COL = { cueva: '#4a4a54', ruinas: '#a8a298', campamento: '#e88a3a', torre: '#d8d0c0', barco: '#7a5030', templo: '#e8c070', aldea: '#4a6aa8', faro: '#ff4a4a' };
 const HOME = '#c95a3c', HOUSE_COL = '#c8a878', PERSON = '#7ad0ff', ME = '#ffd77a';
 const ZOOM = [1, 8], BIOME_SAMPLES_PER_FRAME = 200;
 const rgbCss = c => `rgb(${c[0]},${c[1]},${c[2]})`;
+// The route: the HUD cream with a dark outline; the pins shared by others, blue (not the neighbours' light blue)
+const ROUTE = '#f2e2b0', OUTLINE = '#2a1c22', SHARED = '#5a8cff';
+const TAVERN_DOOR = { x: TAVERN.x0 + 5.5, y: TAVERN.y1 + 1 };   // (as the first steps' mark: the middle of its front)
+// How a stretch of the route is drawn, by the kind of its points (routegrid.js KIND): solid on land and roads, dotted
+// through water, dashed where the land is unexplored (a straight line that reveals nothing)
+const DOTS = [2, 3], DASH = [7, 5];
+const styleOf = (a, b) => (a === KIND.unknown || b === KIND.unknown ? 2 : a === KIND.wade || a === KIND.swim || b === KIND.wade || b === KIND.swim ? 1 : 0);
+// The route from point i0 on, through proj(x, y, out) (world → canvas pixels), in runs of one style, outline first
+function routeLine(g, pts, kinds, i0, proj, width) {
+  const n = pts.length >> 1, a = [0, 0];
+  if (n - i0 < 2) return;
+  g.lineJoin = 'round'; g.lineCap = 'round';
+  let i = Math.max(0, i0);
+  while (i < n - 1) {
+    const st = styleOf(kinds[i], kinds[i + 1]);
+    let j = i + 1;
+    while (j < n - 1 && styleOf(kinds[j], kinds[j + 1]) === st) j++;
+    const dash = st === 2 ? DASH : st === 1 ? DOTS : [];
+    for (const [col, w] of [[OUTLINE, width + 2], [ROUTE, width]]) {
+      g.beginPath();
+      for (let k = i; k <= j; k++) { proj(pts[k * 2], pts[k * 2 + 1], a); if (k === i) g.moveTo(a[0], a[1]); else g.lineTo(a[0], a[1]); }
+      g.setLineDash(dash.map(d => d * width / 3)); g.lineWidth = w; g.strokeStyle = col; g.stroke();
+    }
+    i = j;
+  }
+  g.setLineDash([]); g.lineCap = 'butt';
+}
+// A map pin: a teardrop whose tip is on (x, y); r: its head's radius
+function pin(g, x, y, r, col) {
+  const cy = y - r * 1.9;
+  g.beginPath(); g.moveTo(x, y); g.arc(x, cy, r, Math.PI * 0.78, Math.PI * 0.22); g.closePath();
+  g.lineJoin = 'round'; g.lineWidth = 2; g.strokeStyle = OUTLINE; g.stroke();
+  g.fillStyle = col; g.fill();
+  g.beginPath(); g.arc(x, cy, r * 0.38, 0, Math.PI * 2); g.fillStyle = OUTLINE; g.fill();
+}
 // The player's marker: an arrow at (x, y) pointing along (dx, dy) on the screen, with a dark outline, like the map
 // marker of Minecraft. L: from its middle to the tip, in pixels
 function arrow(g, x, y, dx, dy, L, col) {
@@ -41,6 +80,9 @@ export class MapView {
     this.legendKey = '';
     this.lastMini = 0;
     this.queue = [];
+    this.route = null;           // the marked route (route.js puts itself here)
+    this.center = null;          // where the big map was centred in its last drawing ([x, y], for toWorld)
+    this.hits = [];              // the named spots and pins of the last big map, with their place on the screen (sx, sy)
   }
 
   // Las miniaturas que faltan se preparan en los ratos libres del navegador
@@ -128,6 +170,18 @@ export class MapView {
       g.fillStyle = '#2a1c22'; g.fillRect(x - 3, y - 3, 7, 7);
       g.fillStyle = COL[m.kind] || '#ffffff'; g.fillRect(x - 2, y - 2, 5, 5);
     }
+    // (the marked route and its pin, held on the edge like the goal; the pins others shared, only while on the map)
+    const R = this.route;
+    if (R?.shown) {
+      const proj = (x, y, o) => { const [u, v] = toView(nearX(x, px), y); o[0] = a * (u - v) + e; o[1] = (a / 2) * (u + v) + f; };
+      routeLine(g, R.pts, R.kinds, R.seg, proj, 2);
+      const [x, y] = toMap(R.target.x, R.target.y);
+      pin(g, Math.max(6, Math.min(w - 6, x)), Math.max(12, Math.min(h - 2, y)), 4, ROUTE);
+    }
+    if (R?.pins.size && R.outside) for (const q of R.pins.values()) {
+      const [x, y] = toMap(q.x, q.y);
+      if (x > 0 && x < w && y > 0 && y < h) pin(g, x, y, 3.5, SHARED);
+    }
     // (where a first step sends you, set by the smart HUD prototype: a gold diamond, held on the edge while it is farther)
     if (this.goal) {
       const [x, y] = toMap(this.goal.x, this.goal.y), gx = Math.max(6, Math.min(w - 6, x)), gy = Math.max(6, Math.min(h - 6, y));
@@ -169,6 +223,22 @@ export class MapView {
 
   // Dónde cae en la pantalla un punto del mundo, con el mapa grande centrado en (cx, cy) y el norte arriba
   toScreen(x, y, cx, cy, w = innerWidth, h = innerHeight) { return [w / 2 + this.tile * (nearX(x, cx) - cx), h / 2 + this.tile * (y - cy)]; }
+  // The other way: the world point (tiles, x inside the planet) under the screen pixel (sx, sy) of the big map as it was
+  // last drawn (null before the first drawing)
+  toWorld(sx, sy, w = innerWidth, h = innerHeight) {
+    if (!this.center) return null;
+    return [wrapX(this.center[0] + (sx - w / 2) / this.tile), this.center[1] + (sy - h / 2) / this.tile];
+  }
+  // The named spot or pin nearest to the screen pixel (sx, sy) within r pixels in the last big map (not you), or null
+  spotAt(sx, sy, r) {
+    let best = null, bd = r;
+    for (const q of this.hits) {
+      if (q.dir) continue;
+      const d = Math.hypot(q.sx - sx, (q.pin ? q.sy - 8 : q.sy) - sy);   // (a pin is aimed at by its head, above its tip)
+      if (d <= bd) { bd = d; best = q; }
+    }
+    return best;
+  }
 
   drawBig(gen, explored, px, py, time) {
     const c = this.big, r = Math.max(1, Math.round(devicePixelRatio || 1)), w = innerWidth, h = innerHeight;
@@ -180,19 +250,45 @@ export class MapView {
     // fuera de la caja, no se limita)
     if (px >= b.x0 - CHUNK && px <= b.x1 + CHUNK) this.pan.x = Math.max(b.x0 - px, Math.min(b.x1 - px, this.pan.x));
     if (py >= b.y0 - CHUNK && py <= b.y1 + CHUNK) this.pan.y = Math.max(b.y0 - py, Math.min(b.y1 - py, this.pan.y));
-    const cx = px + this.pan.x, cy = py + this.pan.y, moved = Math.hypot(this.pan.x, this.pan.y) > 2;
+    const cx = px + this.pan.x, cy = py + this.pan.y, moved = Math.hypot(this.pan.x, this.pan.y) > 2, R = this.route;
+    this.center = [cx, cy];
     // Solo si cambia algo de lo que se ve: el sitio, el zoom, el tamaño, el parpadeo del jugador, las miniaturas que llegan,
     // lo explorado, los lugares, los vecinos (por casilla) o la leyenda a medio mirar; y, por si acaso (lo cavado que se
     // llena de agua), dos veces por segundo. Repintarlo a pantalla entera en cada fotograma, con el mapa quieto, era trabajo
     // tirado (y, mientras, el mundo de detrás ya no se dibuja: ver Game.render)
-    const key = `${w}x${h}x${r}|${this.zoom}|${cx.toFixed(2)},${cy.toFixed(2)}|${px.toFixed(1)},${py.toFixed(1)}|${this.face ? Math.round(Math.atan2(this.face.y, this.face.x) * 36 / Math.PI) : ''}|${Math.sin(time * 6) > 0}|${this.thumbs.size}|${explored.size}|${this.markers?.length}|${this.people.map(q => `${q.x | 0},${q.y | 0}`).join()}|${this.biomesFrom.size}`;
+    const key = `${w}x${h}x${r}|${this.zoom}|${cx.toFixed(2)},${cy.toFixed(2)}|${px.toFixed(1)},${py.toFixed(1)}|${this.face ? Math.round(Math.atan2(this.face.y, this.face.x) * 36 / Math.PI) : ''}|${Math.sin(time * 6) > 0}|${this.thumbs.size}|${explored.size}|${this.markers?.length}|${this.people.map(q => `${q.x | 0},${q.y | 0}`).join()}|${this.biomesFrom.size}|${R ? `${R.version}:${R.pinsVersion}:${R.state}` : ''}|${getLang()}`;
     if (key === this.bigKey && time - this.bigAt < 0.5 && this.legendGen === gen) return;
     this.bigKey = key; this.bigAt = time;
     this.drawFlat(c.getContext('2d'), gen, explored, cx, cy, r, w, h, time, [px, py]);
     this.updateLegend(gen, explored);
-    $('map-info').textContent = `Posición ${Math.round(px - CENTER.x)}, ${Math.round(py - CENTER.y)}` +
-      (moved ? ` · Mirando ${Math.round(cx - CENTER.x)}, ${Math.round(cy - CENTER.y)}` : ` · ${explored.size} zonas exploradas`);
+    this.info(t('gui.map.position', { x: Math.round(px - CENTER.x), y: Math.round(py - CENTER.y) }) +
+      ' · ' + (moved ? t('gui.map.looking', { x: Math.round(cx - CENTER.x), y: Math.round(cy - CENTER.y) }) : t('gui.map.explored', { n: explored.size })));
     $('map-home').disabled = !moved;
+    const rb = $('map-route'), sb = $('map-share');
+    if (rb) rb.hidden = !R?.active;
+    if (sb) sb.hidden = !(R?.active && R.canShare);
+  }
+  // The line under the map's title: where you are, and the route (how far, to where, whether part of it is unexplored),
+  // or, with none, a faint "Click: mark a route"
+  info(main) {
+    const box = $('map-info');
+    if (!box) return;
+    if (!this.infoEls) { box.textContent = ''; this.infoEls = [document.createElement('span'), document.createElement('span')]; this.infoEls[1].className = 'mi-route'; box.append(...this.infoEls); }
+    const R = this.route;
+    let route = '', help = false;
+    if (R?.active) {
+      const name = R.target.name;
+      if (R.state === 'finding') route = (name ? name + ' · ' : '') + t('map.route.finding');   // (the target's name at once: the search may take a second)
+      else {
+        const n = Math.round(R.left() || R.len);
+        route = name ? t('map.route.to', { name, n }) : t('map.route.len', { n });
+        if (R.unknownPart) route += ' · ' + t('map.route.straight');
+      }
+      if (R.debugText) route += ' · ' + R.debugText;
+    } else if (R && !R.off) { route = t('map.route.help'); help = true; }
+    this.infoEls[0].textContent = main;
+    this.infoEls[1].textContent = route ? ' · ' + route : '';
+    this.infoEls[1].classList.toggle('mi-help', help);
   }
   // Lo explorado en plano, con cada trozo en su sitio, y encima lo que tiene nombre
   drawFlat(g, gen, explored, cx, cy, r, w, h, time, me) {
@@ -211,13 +307,24 @@ export class MapView {
       g.drawImage(t, Math.round(sx), Math.round(sy), S, S);
     }
     { const [sx, sy] = this.toScreen(Math.floor(cx - w / 2 / a), Math.floor(cy - h / 2 / a), cx, cy, w, h); this.floodOver(g, explored, Math.floor(cx - w / 2 / a), Math.floor(cy - h / 2 / a), Math.ceil(w / a) + 2, Math.ceil(h / a) + 2, a, sx, sy); }
+    // The marked route: from where you are on it to the pin (the pin goes with the spots, for its label)
+    const R = this.route;
+    if (R?.dbgCells?.length) {   // (?ruta=ver: the tiles the last search expanded)
+      g.fillStyle = 'rgba(255, 90, 200, .28)';
+      const c = R.dbgCells;
+      for (let i = 0; i < c.length; i += 2) { const [sx, sy] = this.toScreen(c[i], c[i + 1], cx, cy, w, h); g.fillRect(sx, sy, Math.max(1, a), Math.max(1, a)); }
+    }
+    if (R?.active) routeLine(g, R.pts, R.kinds, R.seg, (x, y, o) => { o[0] = w / 2 + a * (nearX(x, cx) - cx); o[1] = h / 2 + a * (y - cy); }, 3);
     // Lo que tiene nombre, por orden de importancia: tú, tu casa, los lugares, las casas y los vecinos. El nombre va al
     // lado del punto, donde quepa; si no cabe sin pisar otro, ese no sale (al acercarse, sí)
-    const spots = [{ x: me[0], y: me[1], name: 'Tú', col: Math.sin(time * 6) > 0 ? ME : '#ff6a4a', size: 11, dir: this.face ? [this.face.x, this.face.y] : [0, -1] }, { x: (HOUSE.x0 + HOUSE.x1) / 2, y: (HOUSE.y0 + HOUSE.y1) / 2, name: 'Tu casa', col: HOME, size: 8 }];
-    for (const m of this.markers || []) spots.push({ x: m.x, y: m.y, name: m.name, col: COL[m.kind] || '#ffffff', size: 7 });
-    for (const q of Object.values(HOUSES)) if (!q.project || hasProject(q.project)) spots.push({ x: (q.x0 + q.x1) / 2, y: (q.y0 + q.y1) / 2, name: `Casa de ${q.name}`, col: HOUSE_COL, size: 7 });
-    spots.push({ x: (TAVERN.x0 + TAVERN.x1) / 2, y: (TAVERN.y0 + TAVERN.y1) / 2, name: 'Taberna', col: HOUSE_COL, size: 7 });
-    for (const q of this.people) spots.push({ x: q.x, y: q.y, name: q.name, col: PERSON, size: 5 });
+    // (to: where a route to it goes, Plan J: a house's door, a place's centre, where a neighbour is now)
+    const spots = [{ x: me[0], y: me[1], name: t('gui.map.you'), col: Math.sin(time * 6) > 0 ? ME : '#ff6a4a', size: 11, dir: this.face ? [this.face.x, this.face.y] : [0, -1] }, { x: (HOUSE.x0 + HOUSE.x1) / 2, y: (HOUSE.y0 + HOUSE.y1) / 2, name: t('gui.map.home'), col: HOME, size: 8, to: { ...DOOR, kind: 'place', id: 'home' } }];
+    if (R?.active) spots.push({ x: R.target.x, y: R.target.y, name: R.target.name, col: ROUTE, size: 9, pin: 'route' });
+    for (const m of this.markers || []) spots.push({ x: m.x, y: m.y, name: m.name, col: COL[m.kind] || '#ffffff', size: 7, to: { x: m.x, y: m.y, kind: 'place', id: `poi:${Math.floor(m.x / CHUNK)},${Math.floor(m.y / CHUNK)}` } });
+    for (const [k, q] of Object.entries(HOUSES)) if (!q.project || hasProject(q.project)) spots.push({ x: (q.x0 + q.x1) / 2, y: (q.y0 + q.y1) / 2, name: t('gui.map.house_of', { name: q.name }), col: HOUSE_COL, size: 7, to: { ...doorOf(q), kind: 'place', id: 'house:' + k } });
+    spots.push({ x: (TAVERN.x0 + TAVERN.x1) / 2, y: (TAVERN.y0 + TAVERN.y1) / 2, name: t('gui.map.tavern'), col: HOUSE_COL, size: 7, to: { ...TAVERN_DOOR, kind: 'place', id: 'tavern' } });
+    for (const q of this.people) spots.push({ x: q.x, y: q.y, name: q.name, col: PERSON, size: 5, to: { x: q.x, y: q.y, kind: 'point' } });
+    if (R) for (const [conn, q] of R.pins) spots.push({ x: q.x, y: q.y, name: q.own ? q.name : q.name ? `${q.by}: ${q.name}` : q.by, col: SHARED, size: 8, pin: 'shared', conn });
     const taken = [], labels = [], clear = b => !taken.some(o => b[0] < o[2] && b[2] > o[0] && b[1] < o[3] && b[3] > o[1]);
     g.font = '600 14px Barlow, system-ui, sans-serif';   // (the map is repainted at least twice a second, so once the font is in, it is used)
     g.textBaseline = 'middle';
@@ -227,14 +334,16 @@ export class MapView {
     for (const q of [...shown].reverse()) {
       const n = q.size, m = n >> 1;
       if (q.dir) { arrow(g, q.sx, q.sy, q.dir[0], q.dir[1], 8, q.col); continue; }   // (you: an arrow where you face; the map has north up, like the world)
+      if (q.pin) { pin(g, q.sx, q.sy, q.size * 0.55, q.col); continue; }   // (the route's pin and the shared ones: a teardrop on the spot)
       g.fillStyle = '#2a1c22'; g.fillRect(q.sx - m - 1, q.sy - m - 1, n + 2, n + 2);
       g.fillStyle = q.col; g.fillRect(q.sx - m, q.sy - m, n, n);
     }
-    for (const q of shown) taken.push([q.sx - 5, q.sy - 5, q.sx + 5, q.sy + 5]);
+    for (const q of shown) taken.push(q.pin ? [q.sx - 5, q.sy - 14, q.sx + 5, q.sy] : [q.sx - 5, q.sy - 5, q.sx + 5, q.sy + 5]);
+    this.hits = shown;
     for (const q of shown) {
       if (!q.name || (q.col === PERSON && this.zoom < 3)) continue;
-      const tw = g.measureText(q.name).width, off = (q.size >> 1) + 4;
-      const at = [[q.sx + off, q.sy], [q.sx - off - tw, q.sy], [q.sx - tw / 2, q.sy - off - 7], [q.sx - tw / 2, q.sy + off + 7]].find(([tx, ty]) => clear([tx - 1, ty - 8, tx + tw + 1, ty + 8]) && tx > 0 && tx + tw < w && ty > 8 && ty < h - 8);
+      const tw = g.measureText(q.name).width, off = (q.size >> 1) + 4, ly = q.pin ? q.sy - 9 : q.sy;   // (a pin's label beside its head)
+      const at = [[q.sx + off, ly], [q.sx - off - tw, ly], [q.sx - tw / 2, ly - off - 7], [q.sx - tw / 2, q.sy + off + 7]].find(([tx, ty]) => clear([tx - 1, ty - 8, tx + tw + 1, ty + 8]) && tx > 0 && tx + tw < w && ty > 8 && ty < h - 8);
       if (!at) continue;
       taken.push([at[0] - 1, at[1] - 8, at[0] + tw + 1, at[1] + 8]);
       g.strokeStyle = 'rgba(26,18,14,.9)'; g.lineWidth = 3; g.strokeText(q.name, at[0], at[1]);
@@ -257,10 +366,12 @@ export class MapView {
         if (++n >= BIOME_SAMPLES_PER_FRAME) break;
       }
     }
-    const kinds = [...new Map((this.markers || []).map(m => [m.kind, m.name])).entries()], key = `${[...this.seenBiomes].sort().join()}|${kinds.map(k => k[0]).sort().join()}`;
+    const R = this.route, route = !!R?.active, pins = !!R?.pins.size, unknown = route && !!R.unknownPart;
+    const kinds = [...new Map((this.markers || []).map(m => [m.kind, m.name])).entries()], key = `${[...this.seenBiomes].sort().join()}|${kinds.map(k => k[0]).sort().join()}|${route}${pins}${unknown}|${getLang()}`;
     if (key === this.legendKey) return;
     this.legendKey = key;
-    const rows = [[ME, 'Tú'], [HOME, 'Tu casa'], [HOUSE_COL, 'Casas y taberna'], [PERSON, 'Vecinos'], ...kinds.map(([k, name]) => [COL[k] || '#ffffff', name]).sort((a, b) => a[1].localeCompare(b[1])), ...[...this.seenBiomes].sort((a, b) => a - b).map(b => [rgbCss(BIOMES[b].rgb[1]), BIOMES[b].name])];
+    const extra = [...(route ? [[ROUTE, t('map.legend.route')]] : []), ...(pins ? [[SHARED, t('map.legend.pins')]] : []), ...(unknown ? [['#1a1410', t('map.route.unknown')]] : [])];
+    const rows = [[ME, t('gui.map.you')], [HOME, t('gui.map.home')], ...extra, [HOUSE_COL, t('gui.map.houses')], [PERSON, t('gui.map.neighbors')], ...kinds.map(([k, name]) => [COL[k] || '#ffffff', name]).sort((a, b) => a[1].localeCompare(b[1])), ...[...this.seenBiomes].sort((a, b) => a - b).map(b => [rgbCss(BIOMES[b].rgb[1]), BIOMES[b].name])];
     const box = $('map-legend-rows');
     box.textContent = '';
     for (const [col, name] of rows) {

@@ -26,6 +26,7 @@ import { Actors, toolModel, swingArm, pullBow } from './actors.js';
 import { ITEMS } from '../items.js';
 import { Fx } from './fx.js';
 import { ArrowsView } from './arrows.js';
+import { routeGround } from './route3d.js';
 import { Glow } from './glow.js';
 import { prewarmKit } from './kit3d.js';
 import { carriedView, pushedView } from './carry3d.js';
@@ -511,6 +512,7 @@ export class View3D {
     { const p = game.player; this.wet = !!p && !!game.scene && !p.boat && !p.aboard && (p.swim || p.depth > 0.35); }   // (ver draw; vadeando con el agua por debajo de la rodilla, casi todo el cuerpo queda fuera y vale la silueta de siempre, que lo deja ver tras los árboles)
     this.updateViewmodel(game, this.first);
     this.fx.update(game, scene, sdt, t);
+    routeGround(this, game, scene, t);   // (the marked route on the ground: nothing at all without one, route3d.js)
     this.arrows.update(game, scene);
     this.updateWater(t);
     // El suelo se moja con la lluvia (en un minuto) y se seca despacio (unos cinco); el agua, con sus gotas

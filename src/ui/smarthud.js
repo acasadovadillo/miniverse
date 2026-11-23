@@ -33,6 +33,7 @@ import { Profile } from '../accounts.js';
 import { CAM } from '../camera.js';
 import { reportFault } from '../faults.js';
 import { hud } from './hud.js';
+import { markAt } from './routemark.js';
 
 const $ = id => document.getElementById(id);
 // What quenches thirst (items.thirstOf, Track A2; the same rule until it is there), and whether a stack is a drink now
@@ -40,7 +41,7 @@ const $ = id => document.getElementById(id);
 const thirstOf = def => (!def ? 0 : items.thirstOf ? items.thirstOf(def) : def.thirst ?? (def.drink ? 4 : 0));
 const isDrink = s => { const def = s && ITEMS[s.id]; return !!def && (thirstOf(def) > 0 || (!!def.canteen && s.sips > 0)); };
 // How long each thing stays after what brought it (seconds; the fade-out comes after)
-const SHOW = { hurt: 5, heal: 3, hunger: 4, thirst: 4, rest: 4, linger: 1.5, held: 0.5, money: 4, xp: 3, level: 5, slots: 3, name: 1.6, place: 4, clock: 6, tag: 4, quest: 10, intro: 4, tip: 9, tipShort: 6, build: 7, all: 1.5, mini: 3 };
+const SHOW = { hurt: 5, heal: 3, hunger: 4, thirst: 4, rest: 4, linger: 1.5, held: 0.5, money: 4, xp: 3, level: 5, slots: 3, name: 1.6, place: 4, clock: 6, tag: 4, quest: 10, intro: 4, tip: 9, tipShort: 6, build: 7, all: 1.5, mini: 3, routeMini: 4 };   // (routeMini: the minimap after you stop, with a route)
 const LOW_HP = HP_MAX * 0.4, LOW_FOOD = 6, SHOW_FOOD = HUNGER_MAX * 0.6;   // (low health and hunger stay; hunger above 60 % is not news)
 const DANGER = 8;          // tiles: a creature this close keeps health in sight
 const HEAL_NEW = 10;       // seconds without healing: the next heal is news (regen starting), not each 4 s tick
@@ -343,6 +344,13 @@ export class SmartHud {
     if (moved > 0.004 && moved < 2) { this.moveT += dt; this.stillT = 0; } else if ((this.stillT += dt) > 0.6) this.moveT = 0;
     const riding = p.mount || p.boat || p.aboard, world = g.scene === g.world, outside = world && !g.indoors;
     if (outside && (riding ? this.moveT > 0.3 : this.moveT > 1 && !inBounds(p.x, p.y))) show('mini', SHOW.mini);
+    // (with a marked route, Plan J §4.1: 3 s when it is set or found again, and while you move with it, 4 s more after
+    // stopping; route.flash counts the sets and re-plans that should show it)
+    const R = g.route;
+    if (R?.active && outside) {
+      if (R.flash !== this.routeFlash) { this.routeFlash = R.flash; show('mini', SHOW.mini); }
+      if (this.moveT > 0.3) show('mini', SHOW.routeMini);
+    }
 
     // What shows now
     const crit = {
@@ -389,6 +397,8 @@ export class SmartHud {
     const goal = this.goal(g, p, world && free && !wins && !g.build.on);
     if (!goal !== !this.mapGoal) g.map.lastMini = -Infinity;   // (it comes or goes: drawn now; while it moves, the minimap's own pace)
     this.mapGoal = g.map.goal = goal;
+    // The route's pin over its target (routemark.js; in the full HUD route.js moves it), like the goal's mark
+    try { R?.mark?.frame(g, outside && free && !wins && !g.build.on, GOAL_NEAR); } catch (e) { reportFault(e, 'RouteMark.frame'); }
     const mini = free && (up('mini') || !!goal);
     this.set('mini', mini);
     this.set('miniBody', (mini || all) && outside, document.body, 'hm-mini');
@@ -484,6 +494,7 @@ export class SmartHud {
     this.healAt = -Infinity; this.enLow = false; this.swimT = 0; this.needTipAt = -Infinity;
     try { this.game.needsBar?.reset(); } catch (e) { reportFault(e, 'NeedsBar.reset'); }   // (the bars: no timer of the game before)
     this.px = p.x; this.py = p.y; this.moveT = 0; this.stillT = 0;
+    this.routeFlash = this.game.route?.flash;   // (a route loaded with the game is no news)
     this.started = T; this.toldTab = false;
     this.allUntil = 0; this.held = false;
     this.queue = []; this.endTip();
@@ -552,26 +563,7 @@ export class SmartHud {
     const on = !!at && can && dist > GOAL_NEAR;
     this.set('goal', on);
     if (!on) return null;
-    const W = innerWidth, H = innerHeight, v = this.v3, view = g.view3d;
-    v.set(p.x + dx, (view.groundY?.(g.scene, at.x, at.y) || 0) + at.h, at.y).project(view.camera);
-    let x = (v.x + 1) / 2 * W, y = (1 - v.y) / 2 * H;
-    const behind = v.z > 1, M = 40, top = 60, bottom = 110;
-    if (behind) { x = W - x; y = H - y; }
-    const edge = behind || x < M || x > W - M || y < top || y > H - bottom;
-    let angle = 0;
-    if (edge) {   // (on the edge of the screen, toward it)
-      const cx = W / 2, cy = (top + H - bottom) / 2, ex = x - cx, ey = y - cy;
-      const k = Math.min(Math.abs(ex) > 1e-3 ? (cx - M) / Math.abs(ex) : Infinity, Math.abs(ey) > 1e-3 ? (cy - top) / Math.abs(ey) : Infinity);
-      x = cx + ex * k; y = cy + ey * k; angle = Math.atan2(ey, ex);
-    }
-    const n = Math.round(dist), el = this.el.goal;
-    if (n !== this.goalN) { this.goalN = n; el.lastChild.textContent = t('hud.goal.dist', { n }); }
-    if (edge !== this.goalEdge) { this.goalEdge = edge; el.classList.toggle('edge', edge); }
-    if (Math.abs(x - this.goalX) > 0.5 || Math.abs(y - this.goalY) > 0.5 || !(this.goalX >= 0)) {
-      this.goalX = x; this.goalY = y;
-      el.style.transform = `translate(${x.toFixed(1)}px, ${y.toFixed(1)}px) translate(-50%, -100%)`;
-    }
-    if (edge && Math.abs(angle - (this.goalA ?? 9)) > 0.02) { this.goalA = angle; el.children[1].style.transform = `rotate(${angle.toFixed(3)}rad) translateX(13px)`; }
+    markAt(this.el.goal, at, p, g.view3d, g.scene, this.goalCache ||= {}, this.v3);   // (the projection, shared with the route's pin: routemark.js)
     if (!this.goalAt || this.goalAt.x !== at.x || this.goalAt.y !== at.y) this.goalAt = { x: at.x, y: at.y };
     return this.goalAt;
   }

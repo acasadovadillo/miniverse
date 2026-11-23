@@ -12,7 +12,8 @@ function tone(seq) {
     o.connect(g).connect(sfx); o.start(t); o.stop(t + d + 0.02); t += d;
   }
 }
-let rainSrc = null, rainGain = null, lowpass = null;
+let rainSrc = null, rainGain = null, lowpass = null, musicLow = null;
+const MUFFLE_HZ = { sfx: 600, music: 1600 };   // (the lowpass of each bus under the water: see muffle)
 function chirp() {
   if (!ac || !on || Audio.indoors || Audio.quietBirds) return;
   const base = 2600 + Math.random() * 1400;
@@ -104,16 +105,21 @@ export const Audio = {
     g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.9, t + 0.08); g.gain.exponentialRampToValueAtTime(0.001, t + 2.2);
     src.connect(f).connect(g).connect(sfx); src.start(t); src.stop(t + 2.4);
   },
-  // Under the water everything sounds muffled: a lowpass of about 600 Hz on the master bus while on (diving: engine.js
-  // calls it when the camera goes under or comes up), eased over a fifth of a second. Made the first time it is needed
+  // Under the water the world sounds muffled: a lowpass of about 600 Hz on the effects bus while on (diving: engine.js
+  // calls it when the camera goes under or comes up), eased over a fifth of a second. The music gets its own gentler one
+  // (1.6 kHz, Plan J §3.5) on the same call, so the score stays soft but clear instead of turning to mud. Both are made
+  // the first time they are needed (sfx → lowpass → master, musicBus → musicLow → master)
   muffle(down) {
     if (!ac || !master) return;
     if (!lowpass) {
       if (!down) return;
-      lowpass = ac.createBiquadFilter(); lowpass.type = 'lowpass'; lowpass.frequency.value = 20000; lowpass.Q.value = 0.7;
-      master.disconnect(); master.connect(lowpass).connect(ac.destination);
+      const lp = () => { const f = ac.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 20000; f.Q.value = 0.7; return f; };
+      lowpass = lp(); musicLow = lp();
+      sfx.disconnect(); sfx.connect(lowpass).connect(master);
+      musicBus.disconnect(); musicBus.connect(musicLow).connect(master);
     }
-    lowpass.frequency.setTargetAtTime(down ? 600 : 20000, ac.currentTime, 0.06);
+    lowpass.frequency.setTargetAtTime(down ? MUFFLE_HZ.sfx : 20000, ac.currentTime, 0.06);
+    musicLow.frequency.setTargetAtTime(down ? MUFFLE_HZ.music : 20000, ac.currentTime, 0.06);
   },
   get on() { return on; },
   toggle() { on = !on; if (master) master.gain.value = on ? vol.master : 0; return on; },

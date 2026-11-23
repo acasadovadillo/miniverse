@@ -15,8 +15,14 @@ const RAW = (() => { try { return new URLSearchParams(globalThis.location?.searc
 // row hidden), cansancio (rest stays 100, no stamina cap), aguante (stamina: unlimited sprint, no row), buceo (no diving
 // and no underwater camera; crouch and sink as before), fondo (no seabed decor and no deep bed paint: drawing only) and
 // caustica (no caustics, a compile-time define). None of them changes gen or the relief, so peers stay in step
+// Plan J (marked route and dynamic music, docs/planes/gta/PLAN-J-ruta-musica.md §7): ruta (?ruta=0: no routes at all, map
+// clicks do nothing, no worker, no pin; ?ruta=ver: the big map tints the cells the last search expanded and F3 shows its
+// ms and nodes), rutasuelo (?rutasuelo=0: no ground ribbon, the maps and the pin stay) and musica (?musica=0 or
+// ?musica=chip: today's music exactly, music.js LegacyMusic chosen at load; ?musica=ver: F3 shows mood, intensity, live
+// voices and the last cue). Local only: none changes gen, saves or the network
 export const PARTES = { hierba: 'sinlod', impostores: null, relieve: null, contacto: null, sombras: 'todas', personas: 'todas', suelo: 'v2', inventario: 'casillas',
-  sed: null, cansancio: null, aguante: null, buceo: null, fondo: null, caustica: null };
+  sed: null, cansancio: null, aguante: null, buceo: null, fondo: null, caustica: null,
+  ruta: null, rutasuelo: null, musica: 'chip' };
 
 // El valor tal cual (o null)
 export const opcion = k => RAW.get(k);

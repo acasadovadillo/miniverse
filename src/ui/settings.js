@@ -1,6 +1,7 @@
 // Pantalla de ajustes
 import { Settings } from '../settings.js';
 import { t, LANGS, autoLang, getLang, getLangSetting, onLangChange } from '../i18n.js';
+import { apagada } from '../opciones.js';
 
 const $ = id => document.getElementById(id);
 
@@ -91,6 +92,9 @@ export function initSettingsUI({ onClose, extra = null }) {
     head('Sonido');
     slider('master', 'Volumen general');
     check('musicOn', 'Música');
+    // Dynamic music (Plan J §3.6): the score follows what happens, or only its calm side. Not with ?musica=0 (the old
+    // music, which has no modes)
+    if (!apagada('musica')) choice('musicMode', t('settings.music.mode'), [['dynamic', t('settings.music.dynamic')], ['calm', t('settings.music.calm')]], () => Settings.musicMode);
     slider('music', 'Volumen de la música');
     slider('sfx', 'Volumen de los efectos');
     head('Pantalla');

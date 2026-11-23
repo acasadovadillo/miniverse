@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- La versión publicada: se cambia en cada publicación (así el juego sabe que tiene que pedir el código nuevo) -->
-<meta name="miniverse-version" content="2026-11-23.2">
+<meta name="miniverse-version" content="2026-11-23.3">
 <title>Miniverse</title>
 <script>
   // The language of the page until the game's code arrives (src/i18n.js chooses the same way, then takes over): for
@@ -166,6 +166,17 @@
   .map-bar b { color: var(--gold); font-size: 20px; }
   #map-info { color: var(--dim); }
   .map-bar .sq { width: 34px; height: 30px; }
+  /* The marked route (Plan J §4): its buttons in the map bar, the faint help in the info line, and its pin in the world
+     (#hud-wp, src/ui/routemark.js; both HUDs) */
+  .map-bar .map-btn { position: static; width: auto; height: 30px; padding: 0 10px; color: var(--cream); background: #4a2c18; border: 2px solid #9a6a34; border-radius: 4px; cursor: pointer; font-size: 15px; }
+  #map-info .mi-help { opacity: .7; }
+  #hud-wp { position: fixed; left: 0; top: 0; z-index: 4; display: flex; flex-direction: column; align-items: center; gap: 4px; pointer-events: none; will-change: transform; opacity: 0; visibility: hidden; transition: opacity .5s ease, visibility 0s linear .5s; }
+  #hud-wp.on { opacity: 1; visibility: visible; transition: opacity .15s ease, visibility 0s; }
+  #hud-wp i { width: 13px; height: 13px; background: #f2e2b0; border: 2px solid #2a1c22; border-radius: 50% 50% 50% 0; transform: rotate(-45deg); box-shadow: 0 0 8px rgba(242, 226, 176, .5); }
+  #hud-wp b { font-size: 15px; font-weight: 600; color: var(--cream); text-shadow: 1px 0 #2a1c22, -1px 0 #2a1c22, 0 1px #2a1c22, 0 -1px #2a1c22; }
+  #hud-wp s { display: none; position: absolute; left: 50%; top: 8px; width: 0; height: 0; margin-top: -6px; border: 6px solid transparent; border-right: 0; border-left: 9px solid #f2e2b0; transform-origin: 0 6px; }
+  #hud-wp.edge s { display: block; }
+  body:not(.playing) #hud-wp { display: none; }
   @media (max-width: 640px) { #map-info { display: none; } #map-north { top: 66px; left: 12px; } .map-bar { gap: 8px; padding: 6px 10px; } }   /* (en un móvil, que quepan los botones) */
   #fade { position: fixed; inset: 0; background: #000; opacity: 0; pointer-events: none; transition: opacity .25s; z-index: 20; }
   #fade.on { opacity: 1; }
@@ -743,7 +754,7 @@
     <canvas id="bigmap"></canvas>
     <div id="map-north" class="panel" title="North is up" data-i18n-attr="title:gui.map.north_up">▲<br>N</div>
     <details id="map-legend" class="panel" open><summary data-i18n="gui.map.legend">Legend</summary><div id="map-legend-rows"></div></details>
-    <div class="map-bar panel"><b data-i18n="gui.map.title">Map</b><span id="map-info"></span><button class="sq" id="map-out" aria-label="Zoom out" data-i18n-attr="aria-label:gui.map.zoom_out">−</button><button class="sq" id="map-in" aria-label="Zoom in" data-i18n-attr="aria-label:gui.map.zoom_in">+</button><button class="sq" id="map-home" aria-label="Back to your position" title="Back to your position" data-i18n-attr="aria-label:gui.map.recenter;title:gui.map.recenter">⌖</button><button class="sq" id="map-close" aria-label="Close" data-i18n-attr="aria-label:common.close">✕</button></div>
+    <div class="map-bar panel"><b data-i18n="gui.map.title">Map</b><span id="map-info"></span><button class="sq" id="map-out" aria-label="Zoom out" data-i18n-attr="aria-label:gui.map.zoom_out">−</button><button class="sq" id="map-in" aria-label="Zoom in" data-i18n-attr="aria-label:gui.map.zoom_in">+</button><button class="sq" id="map-home" aria-label="Back to your position" title="Back to your position" data-i18n-attr="aria-label:gui.map.recenter;title:gui.map.recenter">⌖</button><button class="map-btn" id="map-share" hidden data-i18n="map.pin.share">Share the mark</button><button class="map-btn" id="map-route" hidden data-i18n="gui.map.route_clear">Remove route</button><button class="sq" id="map-close" aria-label="Close" data-i18n-attr="aria-label:common.close">✕</button></div>
   </section>
 
   <!-- Inventario -->
@@ -835,6 +846,7 @@
       <dl class="ct-list">
         <dt data-i18n-html="controls.map.move.keys"><kbd>WASD</kbd> or drag</dt><dd data-i18n-html="controls.map.move">Move it (<kbd>Shift</kbd>, faster)</dd>
         <dt data-i18n-html="controls.map.zoom.keys"><kbd>+</kbd> <kbd>−</kbd> or wheel</dt><dd data-i18n="controls.map.zoom">Zoom in and out</dd>
+        <dt data-i18n="controls.map.route.keys">Click · right click</dt><dd data-i18n="controls.map.route">Mark a route to that point (near a house, the tavern or a place, it goes to its door) · remove it. A line on the ground and on the minimap leads you there, along roads where it can, and only through land you have explored. «Share the mark» sends it to the players with you; your partner sees your marks by themselves</dd>
         <dt>⌖</dt><dd data-i18n="gui.map.recenter">Back to your position</dd>
       </dl>
     </div>

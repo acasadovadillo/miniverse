@@ -64,6 +64,15 @@ import { holdPose } from './three/carry3d.js';
 import * as C3 from './three/carry3d.js';   // (pushPose, if the drawing has it: the wheelbarrow's cost)
 import { stowedGeo } from './three/actors.js';
 import { t, tHtml, tList, fmt, formatMessage, defineNames, noun, setLang, getLang, onLangChange, accountLangOf, setAccountLang, savedLang, decideFirst, applyDom } from './i18n.js';
+import { findPath, KIND as RKIND, LIMITS as RLIMITS, releasePool, chunkMask, OVR as ROVR } from './world/routegrid.js';
+import { MAX_VERTS as RIBBON_MAX, OFF as RIBBON_OFF, STILL_S as RIBBON_STILL, routeGround } from './three/route3d.js';
+import { musicState, pickMood, bandOf, TAVERN_VENUE, BAND_R } from './musicstate.js';
+import { Music, LegacyMusic, DynamicMusic, Conductor } from './music.js';
+import { Voices, MAX_VOICES, renderPart } from './musicvoices.js';
+import { SCORES, barS, unitS, stingerNotes, resolveScore } from './musicscore.js';
+import { apagada } from './opciones.js';
+import { NORTH, HALF as PHALF, nearX } from './world/planet.js';
+import { DOOR, PLAZA, distToPath, doorOf, getProjects, familyHouse } from './world/village.js';
 
 const GATE_X = 20;   // (el hueco de la valla del jardín, en el camino)
 const q = new URLSearchParams(location.search), WHO = q.get('quien') || 'a', RELAY = q.get('relay'), PART = q.get('parte') || 'solo';   // parte: 'solo' (un jugador), 'dos' o 'mirar' (sin pruebas: el juego con la cuenta de prueba, para verlo)
@@ -3656,6 +3665,465 @@ async function soloTests(game) {
       game.smartHud.hold(false);
     } finally { useSmartHud(game, false); needsBase(); draw(); }
   });
+  // ---------- the marked route and the dynamic music (docs/planes/gta/PLAN-J-ruta-musica.md §10) ----------
+  const R = () => game.route;
+  // A synthetic cost grid (× 10, 255 blocked) of gw × gh tiles, blocked outside
+  const grid = (gw, gh, f) => { const a = new Uint8Array(gw * gh); for (let y = 0; y < gh; y++) for (let x = 0; x < gw; x++) a[y * gw + x] = f(x, y); return (x, y) => (x < 0 || y < 0 || x >= gw || y >= gh ? 255 : a[y * gw + x]); };
+  // The points of a path sampled every quarter tile (as [x, y] pairs), and how far it strays from the straight line a → b
+  const along = (pts, step = 0.25) => { const out = []; for (let i = 2; i < pts.length; i += 2) { const ax = pts[i - 2], ay = pts[i - 1], bx = pts[i], by = pts[i + 1], n = Math.max(1, Math.ceil(Math.hypot(bx - ax, by - ay) / step)); for (let k = i === 2 ? 0 : 1; k <= n; k++) out.push([ax + (bx - ax) * k / n, ay + (by - ay) * k / n]); } return out; };
+  const stray = (pts, a, b) => { const dx = b.x - a.x, dy = b.y - a.y, L = Math.hypot(dx, dy) || 1; let m = 0; for (let i = 0; i < pts.length; i += 2) m = Math.max(m, Math.abs((pts[i] - a.x) * dy - (pts[i + 1] - a.y) * dx) / L); return m; };
+  // (no tile of the path is blocked, but its two ends: the goal may sit on one)
+  const clearOf = (r, c) => along(r.pts).slice(1, -1).every(([x, y]) => c(Math.floor(x), Math.floor(y)) !== 255);
+  // A route worker of our own (the one route.js makes, spoken to directly): ask(msg) → its 'path' answer; 'need' is
+  // answered with no masks (the untouched world) unless maskOf(key) gives one
+  const routeWorker = (maskOf = null) => {
+    const wk = new Worker(new URL('./world/routeworker.js?v=' + encodeURIComponent(GAME_VERSION), import.meta.url), { type: 'module' });
+    const waiting = new Map();
+    let id = 0;
+    wk.onmessage = e => {
+      const m = e.data;
+      if (m.t === 'need') wk.postMessage({ t: 'masks', id: m.id, masks: maskOf ? m.chunks.map(k => { const v = maskOf(k); return v ? [k, 0, v] : [k, -1, null]; }) : [] });
+      else if (m.t === 'path') waiting.get(m.id)?.(m);
+    };
+    wk.postMessage({ t: 'init', seed: w().seed, projects: getProjects(), family: familyHouse() });
+    return {
+      ask: msg => new Promise((res, rej) => { const i = ++id; const tm = setTimeout(() => rej(new Error('the route worker does not answer')), 30000); waiting.set(i, m => { clearTimeout(tm); res(m); }); wk.postMessage({ t: 'route', id: i, mode: 'walk', explored: [], ...msg }); }),
+      end: () => wk.terminate(),
+    };
+  };
+  // The explored keys of the box of a and b plus m chunks (all of them: as if the player had been everywhere there)
+  const boxKeys = (a, b, m = 2) => { const out = []; for (let cy = Math.floor(Math.min(a.y, b.y) / CHUNK) - m; cy <= Math.floor(Math.max(a.y, b.y) / CHUNK) + m; cy++) for (let cx = Math.floor(Math.min(a.x, b.x) / CHUNK) - m; cx <= Math.floor(Math.max(a.x, b.x) / CHUNK) + m; cx++) out.push(`${cx},${cy}`); return out; };
+  // Waits for the route's search: ready or straight
+  const routed = async (ms = 20000) => { await until(() => R().state === 'ready' || R().state === 'straight', ms, 'the route search'); return R().state; };
+  // Real time passing while the game steps (route.js and the ribbon run on real seconds)
+  const realWait = async ms => { const t0 = performance.now(); while (performance.now() - t0 < ms) { await frames(2); await sleep(25); } };
+  const keyM = () => document.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyM', key: 'm', bubbles: true, cancelable: true }));
+
+  await test('route (english): costs and modes', async () => {
+    try {
+      // A road detour: a wall across a swamp, a cheap road round its end
+      let c = grid(100, 60, (x, y) => (y === 30 && x > 5 ? 255 : x <= 5 ? 6 : 22));
+      let r = findPath(c, { x: 50, y: 10 }, { x: 50, y: 50 });
+      check(r.ok && clearOf(r, c), `the detour: ${r.why}, or a blocked tile on it`);
+      check(Math.min(...along(r.pts).map(q => q[0])) < 6.5, 'the detour does not take the road');
+      // A road cheaper than the straight way through a forest is taken, and its points say road
+      c = grid(80, 30, (x, y) => (y === 16 ? 6 : 15));
+      r = findPath(c, { x: 5, y: 10 }, { x: 70, y: 10 }, { kindAt: (x, y) => (y === 16 ? RKIND.road : RKIND.land) });
+      const onRoad = along(r.pts).filter(([, y]) => Math.floor(y) === 16).length / along(r.pts).length;
+      check(r.ok && onRoad > 0.6 && r.kinds.includes(RKIND.road), `the road: ${(onRoad * 100).toFixed(0)}% on it`);
+      // The ends are exact, the steps continuous (no NaN, each segment clear)
+      check(r.pts[0] === 5 && r.pts[1] === 10 && r.pts[r.pts.length - 2] === 70 && r.pts.every(Number.isFinite), 'the ends are not exact');
+      // A lake: walking swims only when it is much shorter; riding goes round; nothing at all cuts a corner
+      const lake = sw => grid(200, 120, (x, y) => (Math.hypot(x - 100, y - 60) < 40 ? sw : 10));
+      r = findPath(lake(90), { x: 50, y: 60 }, { x: 150, y: 60 });
+      check(r.ok && r.len > 110, `walking swims across the lake: ${r.len.toFixed(1)}`);
+      const river = sw => grid(200, 300, (x, y) => (x >= 100 && x < 102 ? (y > 290 ? 10 : sw) : 10));   // (a river 2 wide, a ford at its far end)
+      r = findPath(river(90), { x: 60, y: 20 }, { x: 140, y: 20 }, { kindAt: (x, y) => (x >= 100 && x < 102 && y <= 290 ? RKIND.swim : RKIND.land) });
+      check(r.ok && r.len < 90 && r.kinds.includes(RKIND.swim), `walking does not swim a narrow river: ${r.len.toFixed(1)}`);
+      r = findPath(river(255), { x: 60, y: 20 }, { x: 140, y: 20 });
+      check(r.ok && r.len > 500, `riding crosses deep water: ${r.len.toFixed(1)}`);
+      // Rowing: water costs 1, land 6: it rows to the shore nearest an inland pin and walks only from there
+      c = grid(120, 100, (x, y) => (y < 50 ? 10 : 60));
+      r = findPath(c, { x: 10, y: 10 }, { x: 80, y: 70 }, { kindAt: (x, y) => (y < 50 ? RKIND.swim : RKIND.land) });   // (as combine marks them: a kind change is always a point)
+      const land = along(r.pts).filter(([, y]) => y >= 50), landAt = land[0];
+      check(r.ok && landAt && landAt[0] > 70 && land.length * 0.25 < 26, `rowing lands at x ${landAt?.[0].toFixed(1)}, ${(land.length * 0.25).toFixed(1)} tiles on land`);
+      // No path at all: the straight line, both points unknown
+      r = findPath(grid(50, 50, x => (x === 25 ? 255 : 10)), { x: 1, y: 1 }, { x: 40, y: 40 });
+      check(!r.ok && r.why === 'nopath' && r.pts.length === 4 && r.kinds[0] === RKIND.unknown, `no path: ${r.why}`);
+    } finally { releasePool(); }
+  });
+
+  await test('route (english): explored only, seam, poles', async () => {
+    const wk = routeWorker();
+    try {
+      // A lake near the village (the same gen for everyone): seen, the way goes round it; not seen, straight across
+      const G = w().gen, W = w();
+      let spot = null;
+      for (let r = 40; r < 1500 && !spot; r += 6) for (let a = 0, n = Math.ceil(r * 6.283 / 6); a < n && !spot; a++) {
+        const x = Math.floor(21 + Math.cos(a / n * 6.283) * r) + 0.5, y = Math.floor(26 + Math.sin(a / n * 6.283) * r) + 0.5;
+        if (G.biomeAt(x, y) !== B.LAKE || !W.water(x, y)) continue;
+        let x0 = x, x1 = x;
+        while (W.water(x0 - 1, y) && x - x0 < 200) x0--;
+        while (W.water(x1 + 1, y) && x1 - x < 200) x1++;
+        if (x1 - x0 >= 10 && x1 - x0 < 150) spot = { y, x0, x1 };
+      }
+      check(spot, 'no lake within 1.5 km of the village');
+      const from = { x: spot.x0 - 8, y: spot.y }, to = { x: spot.x1 + 8, y: spot.y };
+      const wet = r => [...r.kinds].some(k => k === RKIND.swim || k === RKIND.wade);
+      const seen = await wk.ask({ from, to, explored: boxKeys(from, to, 6), margin: 6 });
+      console.log(`route by a lake ${spot.x1 - spot.x0} tiles wide at ${spot.x0},${spot.y}: seen ${seen.len.toFixed(1)} tiles (${seen.why}), strays ${stray(seen.pts, from, to).toFixed(1)}, kinds ${[...new Set(seen.kinds)]}`);
+      check(seen.ok && (stray(seen.pts, from, to) > 2 || wet(seen)), `seen: ${seen.why}, it strays ${stray(seen.pts, from, to).toFixed(1)} tiles and knows no water`);
+      const blind = await wk.ask({ from, to, explored: [], margin: 3 });
+      check(stray(blind.pts, from, to) < 0.75 && !wet(blind) && [...blind.kinds].includes(RKIND.unknown), `unexplored: it strays ${stray(blind.pts, from, to).toFixed(2)} tiles, kinds ${[...blind.kinds]}`);
+      // Over LIMITS.maxTiles: straight and 'far' at once
+      const far = await wk.ask({ from: { x: 21, y: 26 }, to: { x: 21 + RLIMITS.maxTiles + 50, y: 26 } });
+      check(!far.ok && far.why === 'far' && far.pts.length === 4, `far: ${far.why}`);
+      // Across the seam: a short way (to.x is brought next to from.x)
+      const seam = await wk.ask({ from: { x: PHALF - 20.5, y: 26 }, to: { x: nearX(-PHALF + 20.5, PHALF - 20.5), y: 26 } });
+      check(seam.len < 60 && seam.pts.every(Number.isFinite), `across the seam: ${seam.len}`);
+      // Next to the north pole: nothing goes beyond it
+      const pole = await wk.ask({ from: { x: 100.5, y: NORTH + 3.5 }, to: { x: 300.5, y: NORTH + 2.5 } });
+      let north = Infinity; for (let i = 1; i < pole.pts.length; i += 2) north = Math.min(north, pole.pts[i]);
+      check(north >= NORTH, `beyond the pole: y ${north} < ${NORTH}`);
+    } finally { wk.end(); }
+    // Masks drawn by a rule (x, y → OVR bits) for the chunks that have any
+    const maskBy = f => key => {
+      const c = key.indexOf(','), x0 = +key.slice(0, c) * CHUNK, y0 = +key.slice(c + 1) * CHUNK, m = new Uint8Array(256).fill(ROVR.own);
+      let any = false;
+      for (let j = 0; j < CHUNK; j++) for (let i = 0; i < CHUNK; i++) { const v = f(x0 + i, y0 + j); if (v) { m[j * CHUNK + i] |= v; any = true; } }
+      return any ? m : null;
+    };
+    // A pin shut in by a 13 × 13 block: the way goes to the nearest open tile, and the last stretch to the pin is a gap
+    const wk2 = routeWorker(maskBy((x, y) => (x >= 44 && x <= 56 && y >= 30 && y <= 42 ? ROVR.blocked : 0)));
+    try {
+      const a = { x: 50.5, y: 2.5 }, b = { x: 50.5, y: 36.5 };
+      const r = await wk2.ask({ from: a, to: b, explored: boxKeys(a, b) });
+      const n = r.pts.length >> 1, lx = r.pts[n * 2 - 4], ly = r.pts[n * 2 - 3];
+      check(r.ok && r.cut && r.kinds[n - 1] === RKIND.unknown && r.pts[n * 2 - 2] === b.x && r.pts[n * 2 - 1] === b.y && ly < 30 && Math.hypot(lx - b.x, ly - b.y) < 9,
+        `a shut-in pin: ${r.why}, cut ${r.cut}, the way ends at ${lx},${ly}`);
+    } finally { wk2.end(); }
+    // A pin in a pocket (open inside, a ring of walls round it, as a cave's mouth): the way to the nearest tile reached
+    const wk4 = routeWorker(maskBy((x, y) => (Math.max(Math.abs(x - 50), Math.abs(y - 36)) === 4 ? ROVR.blocked : 0)));
+    try {
+      const a = { x: 50.5, y: 2.5 }, b = { x: 50.5, y: 36.5 };
+      const r = await wk4.ask({ from: a, to: b, explored: boxKeys(a, b, 8), margin: 2, wide: 8 });
+      const n = r.pts.length >> 1, lx = r.pts[n * 2 - 4], ly = r.pts[n * 2 - 3];
+      check(r.ok && r.cut && r.kinds[n - 1] === RKIND.unknown && ly < 32 && Math.hypot(lx - b.x, ly - b.y) < 8,
+        `a pin in a pocket: ${r.why}, cut ${r.cut}, the way ends at ${lx},${ly} (${r.expanded} nodes)`);
+    } finally { wk4.end(); }
+    // A wall 2 tiles wide across the first box (2 chunks round): no way there; the wide box (8) finds the road round its end
+    const wk3 = routeWorker(maskBy((x, y) => (x >= 50 && x <= 51 && y >= -110 && y <= 200 ? ROVR.blocked : (y === -115 && x >= 20 && x <= 81) || ((x === 20 || x === 81) && y >= -115 && y <= 3) ? ROVR.road : 0)));
+    try {
+      const a = { x: 20.5, y: 2.5 }, b = { x: 81.5, y: 2.5 };
+      const narrow = await wk3.ask({ from: a, to: b, explored: boxKeys(a, b, 8), margin: 2 });
+      check(!narrow.ok && narrow.why === 'nopath', `the first box alone: ${narrow.why}`);
+      const r = await wk3.ask({ from: a, to: b, explored: boxKeys(a, b, 8), margin: 2, wide: 8 });
+      let minY = Infinity; for (let i = 1; i < r.pts.length; i += 2) minY = Math.min(minY, r.pts[i]);
+      check(r.ok && minY < -100, `the wide box: ${r.why}, as far north as ${minY.toFixed(1)} (${Math.round(r.ms)} ms, ${r.expanded} nodes)`);
+    } finally { wk3.end(); }
+  });
+
+  await test('route (english): ribbon bounded and idle free', async () => {
+    const v = game.view3d;
+    try {
+      // Nothing yet: no worker, no mesh, no pin
+      if (!R().active && !R().worker) check(!v.routeView && !document.getElementById('hud-wp'), 'without a route there is a ribbon or a pin already');
+      await goTo(game, 50.5, 2.5);
+      check(R().set({ x: 50.5, y: 36.5, kind: 'point' }), 'the route is not set');
+      check(await routed() === 'ready', `the search: ${R().state} (${R().debug?.why})`);
+      for (let i = 0; i < 4; i++) { draw(); await sleep(40); }
+      if (RIBBON_OFF) { check(!v.routeView, '?rutasuelo=0 and a ribbon'); return; }
+      const rv = v.routeView;
+      check(rv && rv.mesh.isMesh && !rv.mesh.children.length, 'no ribbon, or more than one mesh');
+      await until(() => { draw(); return rv.mesh.visible && rv.vis >= 1; }, 6000, 'the ribbon shown');
+      check(rv.n * 2 <= RIBBON_MAX && rv.geom.drawRange.count > 0 && rv.geom.attributes.position.count <= RIBBON_MAX, `vertices: ${rv.n * 2}, buffer ${rv.geom.attributes.position.count}`);
+      const fadeOut = async () => { for (let i = 0; i < 30 && rv.mesh.visible; i++) { draw(); await sleep(40); } return !rv.mesh.visible; };
+      const fadeIn = async () => { for (let i = 0; i < 30 && !(rv.mesh.visible && rv.vis >= 1); i++) { draw(); await sleep(40); } return rv.mesh.visible; };
+      // Indoors it fades out; outside again it comes back
+      game.underRoof = true; check(await fadeOut(), 'it shows under a roof');
+      game.underRoof = false; check(await fadeIn(), 'it does not come back outside');
+      // A cave (a grid scene): hidden at once
+      const sc = game.scene; game.scene = { kind: 'grid' };
+      try { routeGround(v, game, game.scene, 0); } finally { game.scene = sc; }
+      check(!rv.mesh.visible, 'it shows in a cave');
+      check(await fadeIn(), 'it does not come back from the cave');
+      // Standing still 10 s: the full HUD keeps it; the minimal one fades it, and Tab brings it back
+      rv.stillT = RIBBON_STILL + 1; draw(); check(rv.mesh.visible, 'the full HUD hides it standing still');
+      useSmartHud(game, true);
+      rv.stillT = RIBBON_STILL + 1; check(await fadeOut(), 'the minimal HUD keeps it after 10 s still');
+      game.smartHud.hold(true); check(await fadeIn(), 'Tab does not bring it back');
+      game.smartHud.hold(false);
+    } finally { useSmartHud(game, false); game.underRoof = false; R().clear('user'); draw(); }
+    // Cleared: it goes, and nothing is rebuilt
+    const rv = v.routeView;
+    if (rv) { for (let i = 0; i < 20 && rv.mesh.visible; i++) { draw(); await sleep(40); } check(!rv.mesh.visible, 'the ribbon stays after clearing'); const n = rv.stats.rebuilds; draw(); draw(); check(rv.stats.rebuilds === n, 'cleared, it is still rebuilt'); }
+  });
+
+  await test('route (english): save round trip', async () => {
+    try {
+      R().set({ x: 60.257, y: 30.5, kind: 'place', name: 'Prueba', id: 'poi:3,1' }, { quiet: true });
+      const out = {}; R().save(out);
+      check(JSON.stringify(out.route) === JSON.stringify({ v: 1, x: 60.26, y: 30.5, kind: 'place', name: 'Prueba', id: 'poi:3,1' }), `saved: ${JSON.stringify(out.route)}`);
+      check(JSON.stringify(game.snapshot().route) === JSON.stringify(out.route), 'the snapshot has no route');
+      R().reset(JSON.parse(JSON.stringify(out)));
+      check(R().active && R().target.x === 60.26 && R().target.name === 'Prueba' && R().target.kind === 'place', `loaded: ${JSON.stringify(R().target)}`);
+      // No key, no route; bad numbers or out of the planet load none without throwing; an unknown kind is a point
+      R().reset({}); check(!R().active, 'a save without a route has one');
+      for (const bad of [{ v: 1, x: NaN, y: 3 }, { v: 1, x: 'a', y: 3 }, { v: 1, x: 3, y: NORTH - 20 }, null, 7, { x: Infinity, y: 0 }]) { R().reset({ route: bad }); check(!R().active, `loaded ${JSON.stringify(bad)}`); }
+      R().reset({ route: { v: 1, x: 40, y: 20, kind: 'person', name: 'x'.repeat(90) } });
+      check(R().target?.kind === 'point' && R().target.name.length === 40, `an old kind: ${JSON.stringify(R().target)}`);
+      const o2 = {}; R().clear('user'); R().save(o2); check(!('route' in o2), 'cleared, it is saved');
+    } finally { R().clear('user'); }
+  });
+
+  await test('route (english): map click', async () => {
+    const M = game.map, big = document.getElementById('bigmap');
+    const ptr = (type, x, y, o = {}) => big.dispatchEvent(new PointerEvent(type, { clientX: x, clientY: y, button: 0, buttons: type === 'pointerup' ? 0 : 1, pointerId: 1, pointerType: 'mouse', bubbles: true, cancelable: true, ...o }));
+    const click = (x, y) => { ptr('pointerdown', x, y); ptr('pointerup', x, y); };
+    try {
+      R().clear('user');
+      await goTo(game, CENTER.x, CENTER.y);
+      keyM(); await frames(2); check(game.mode === 'map', `the map does not open: ${game.mode}`);
+      M.zoom = 4; M.recenter(); draw();
+      check(document.getElementById('map-info').textContent.includes(t('map.route.help')), `no help line: ${document.getElementById('map-info').textContent}`);
+      // A free spot on the screen (no named spot within 20 px)
+      let sx = innerWidth / 2 + 70, sy = innerHeight / 2 + 50;
+      for (let k = 0; k < 30 && M.spotAt(sx, sy, 20); k++) { sx += 13; sy -= 7; }
+      const at = M.toWorld(sx, sy);
+      click(sx, sy); await frames(1);
+      check(R().active && R().target.kind === 'point' && Math.abs(R().target.x - at[0]) < 0.01 && Math.abs(R().target.y - at[1]) < 0.01, `a click does not set: ${JSON.stringify(R().target)} / ${at}`);
+      draw(); check(!document.getElementById('map-route').hidden, 'no Remove route button');
+      // A drag pans and sets nothing
+      R().clear('user'); const pan = M.pan.x;
+      ptr('pointerdown', sx, sy); ptr('pointermove', sx + 40, sy); ptr('pointerup', sx + 40, sy); await frames(1);
+      check(!R().active && M.pan.x !== pan, 'a drag sets a route, or does not pan');
+      // A click on the pin clears it; so does a right click
+      // (the map is drawn before each click, as every frame in play: its spots are those of the last drawing)
+      M.recenter(); draw(); click(sx, sy); draw();
+      const pin = M.hits.find(q => q.pin === 'route'); check(pin, 'the pin is not drawn');
+      click(pin.sx, pin.sy - 8); await frames(1); check(!R().active, 'a click on the pin does not clear');
+      draw(); click(sx, sy); check(R().active, 'not set again');
+      const cm = new MouseEvent('contextmenu', { clientX: sx, clientY: sy, button: 2, bubbles: true, cancelable: true });
+      big.dispatchEvent(cm); check(!R().active && cm.defaultPrevented, 'a right click does not clear');
+      // Near "Your house" it snaps to its door and takes the name
+      draw(); const home = M.hits.find(q => q.name === t('gui.map.home')); check(home, `no house on the map: ${M.hits.map(q => q.name)}`);
+      click(home.sx + 6, home.sy + 4); await frames(1);
+      check(R().target?.id === 'home' && R().target.name === t('gui.map.home') && R().target.x === DOOR.x && R().target.y === DOOR.y, `no snap: ${JSON.stringify(R().target)}`);
+      draw(); check(document.getElementById('map-info').textContent.includes(t('gui.map.home')), `the info line: ${document.getElementById('map-info').textContent}`);
+      // A shared pin of someone's house is named from this side ("Hafsa's house", not "Your house"); the tavern in this
+      // player's language; an old peer's plain name stays as sent
+      const prune = R().prunePins; R().prunePins = () => {};
+      try {
+        R().heard(9101, { name: 'Hafsa', playing: true }, { t: 'wp', x: game.player.x + 6, y: game.player.y - 6, name: '', id: 'home' });
+        R().heard(9102, { name: 'Lía', playing: true }, { t: 'wp', x: game.player.x - 8, y: game.player.y + 7, name: 'Tavern', id: 'tavern' });
+        R().heard(9103, { name: 'Bo', playing: true }, { t: 'wp', x: game.player.x + 9, y: game.player.y + 9, name: 'Old pin' });
+        const P = R().pins;
+        check(P.get(9101)?.name === t('gui.map.house_of', { name: 'Hafsa' }) && P.get(9101).own, `home pin: ${JSON.stringify(P.get(9101))}`);
+        check(P.get(9102)?.name === t('gui.map.tavern') && P.get(9103)?.name === 'Old pin', `pins: ${JSON.stringify([...P.values()])}`);
+        draw(); check(M.hits.some(q => q.pin === 'shared' && q.name === t('gui.map.house_of', { name: 'Hafsa' })), `home pin label: ${M.hits.filter(q => q.pin).map(q => q.name)}`);
+      } finally { for (const k of [9101, 9102, 9103]) R().pins.delete(k); R().pinsVersion++; R().prunePins = prune; }
+    } finally { if (game.mode === 'map') keyM(); await frames(2); R().clear('user'); }
+    check(game.mode === 'play', `the map stays open: ${game.mode}`);
+  });
+
+  await test('route (english): roads used', async () => {
+    const placed = [], cut = [];
+    try {
+      // Plaza → Bruno's door: along the village path
+      await goTo(game, PLAZA.x, PLAZA.y);
+      const door = doorOf(HOUSES.bruno);
+      R().set({ x: door.x, y: door.y, kind: 'place' }, { quiet: true });
+      check(await routed() === 'ready', `the search: ${R().state} (${R().debug?.why})`);
+      const S = along(R().pts, 0.5), onPath = S.filter(([x, y]) => distToPath(x, y) < 0.8 || ((x - PLAZA.x) / PLAZA.rx) ** 2 + ((y - PLAZA.y) / PLAZA.ry) ** 2 < 1).length / S.length;
+      console.log(`route plaza → Bruno: ${R().len.toFixed(1)} tiles, ${(onPath * 100).toFixed(0)}% on the path, ${R().pts.length / 2} points`);
+      check(onPath >= 0.6, `only ${(onPath * 100).toFixed(0)}% on the village path`);
+      check(Math.hypot(R().pts[R().pts.length - 2] - door.x, R().pts[R().pts.length - 1] - door.y) < 1e-3, 'it does not end on the door');
+      // A gravel path built across the field east of the village is used the next time: a column 5 or more tiles east
+      // of the straight way, from y -9 to 39, with its two spurs (the first column with no water and nothing built or of
+      // the village on it; the trees and rocks of the world on it are cleared first, as a player would)
+      const A = { x: 50.5, y: -8.5 }, Bp = { x: 50.5, y: 38.5 }, strip = RX => { const t = []; for (let y = -9; y <= 39; y++) t.push([RX, y]); for (let x = 51; x < RX; x++) t.push([x, -9], [x, 38]); return t; };
+      const genOn = (x, y) => w().colliderShapes(Math.floor(x / CHUNK), Math.floor(y / CHUNK)).objects.filter(o => o.col && !o.placed && !o.fixed && !o.boat && Math.floor(o.x) === x && Math.floor(o.y) === y);
+      const builtOn = (x, y) => w().colliderShapes(Math.floor(x / CHUNK), Math.floor(y / CHUNK)).colliders.some(c => !c.pond && !c.dig && !genOn(x, y).some(o => o.col === c) && (c.r !== undefined ? Math.hypot(x + 0.5 - c.x, y + 0.5 - c.y) < c.r + 0.3 : c.rx !== undefined ? Math.hypot((x + 0.5 - c.x) / (c.rx + 0.3), (y + 0.5 - c.y) / (c.ry + 0.3)) < 1 : c.x0 !== undefined && x + 0.5 > c.x0 - 0.3 && x + 0.5 < c.x1 + 0.3 && y + 0.5 > c.y0 - 0.3 && y + 0.5 < c.y1 + 0.3));
+      let RX = 0;
+      for (let x = 56; x <= 70 && !RX; x++) if (strip(x).every(([tx, ty]) => !w().water(tx + 0.5, ty + 0.5) && !builtOn(tx, ty) && !w().at('floor', tx, ty))) RX = x;
+      check(RX, 'no column for the gravel path east of the village');
+      for (const [tx, ty] of strip(RX)) for (const o of genOn(tx, ty)) { w().remove(o); cut.push(o); }
+      await goTo(game, A.x, A.y);
+      R().set({ x: Bp.x, y: Bp.y, kind: 'point' }, { quiet: true });
+      check(await routed() === 'ready', `before: ${R().state}`);
+      const roadOf = () => { const s = along(R().pts, 0.5); return s.filter(([x, y]) => w().at('floor', Math.floor(x), Math.floor(y)) === 'camino').length / s.length; };
+      const before = roadOf();
+      const lay = (x, y) => { if (!w().water(x + 0.5, y + 0.5) && !w().at('floor', x, y)) { w().place(x, y, 'camino'); placed.push([x, y]); } };
+      for (const [tx, ty] of strip(RX)) lay(tx, ty);
+      const key = `${Math.floor(RX / CHUNK)},0`, dv = w().deltas.get(key)?.v;
+      R().set({ x: Bp.x, y: Bp.y, kind: 'point' }, { quiet: true });
+      check(await routed() === 'ready', `after: ${R().state}`);
+      const after = roadOf();
+      console.log(`route over the gravel path: ${(before * 100).toFixed(0)}% before, ${(after * 100).toFixed(0)}% after (${placed.length} tiles)`);
+      const mbits = R().masks.get(key)?.mask, fresh = chunkMask(w(), Math.floor(RX / CHUNK), 0), li = 5 * CHUNK + RX - Math.floor(RX / CHUNK) * CHUNK;
+      check(after >= 0.5 && after > before + 0.3 && R().kinds.includes(RKIND.road), `the gravel path is not used: ${(before * 100).toFixed(0)}% → ${(after * 100).toFixed(0)}% (column ${RX}, ${cut.length} cleared, mask bits at ${RX},5: sent ${mbits?.[li]}, now ${fresh[li]}; kinds ${[...R().kinds]}; pts ${[...R().pts].map(v => v.toFixed(1))})`);
+      check(R().masks.get(key)?.v === dv, `the mask of ${key} is not of its d.v ${dv}: ${R().masks.get(key)?.v}`);
+    } finally {
+      for (const [x, y] of placed) w().unplace({ tile: [x, y], layer: 'floor', placed: 'camino' });
+      for (const o of cut) { const cx = Math.floor(o.x / CHUNK), cy = Math.floor(o.y / CHUNK), d = w().delta(cx, cy); if (d?.removed) { delete d.removed[o.key]; w().touch(cx, cy); } }
+      R().clear('user'); await goTo(game, 21, 26);
+    }
+  });
+
+  await test('route (english): follow and arrive', async () => {
+    const cue = Music.cue, cues = [], told0 = told();
+    let plans = 0; const plan = R().plan;
+    R().plan = function () { plans++; return plan.call(this); };
+    Music.cue = function (id, o) { cues.push(id); return cue.call(this, id, o); };
+    try {
+      await goTo(game, 50.5, 0.5);
+      await goTo(game, 50.5, 80.5); await realWait(400); await goTo(game, 50.5, 0.5);   // (a long move without a route: not a teleport for the next one)
+      // (all the land round explored: no quiet search again for land explored on the way while this measures searches)
+      for (let cy = -3; cy <= 5; cy++) for (let cx = 0; cx <= 6; cx++) game.explored.add(`${cx},${cy}`);
+      R().set({ x: 50.5, y: 36.5, kind: 'point' }, { quiet: true });
+      check(await routed() === 'ready', `the search: ${R().state}`);
+      await realWait(3200);   // (past REPLAN_GAP since that search)
+      check(plans === 1, `${plans} searches for one set (a move before it taken as a teleport)`);
+      // The pin in the world (full HUD): on, with its distance
+      check(document.getElementById('hud-wp')?.classList.contains('on'), 'no pin in the world');
+      // 9 tiles off the line for 2 s: one search again (and only one)
+      plans = 0;
+      let off = 0; for (let k = 9; k < 16 && off <= 8.5; k++) { await goTo(game, R().pts[0] + k, R().pts[1] + 2); off = R().follow(p()); }
+      check(off > 8, `not off the line: ${off.toFixed(1)}`);
+      await until(() => plans >= 1, 9000, 'the search again');
+      await routed(); await realWait(2600);
+      check(plans === 1, `${plans} searches again`);
+      await until(() => !R().pending, 9000, 'the answer');
+      check(R().follow(p()) < 1, `the new way does not start where the player is: ${R().follow(p()).toFixed(1)} tiles off (${R().state}, ${R().debugText || R().debug?.why}, unknown ${R().unknownPart})`);
+      // Mounting: a search in riding mode
+      await realWait(3200); plans = 0;
+      const mount = p().mount; p().mount = { fake: true };
+      try { R().tickAt = -Infinity; R().update(0); } finally { p().mount = mount; }
+      check(plans === 1 && R().mode === 'ride', `mounting: ${plans} searches, mode ${R().mode}`);
+      await routed();
+      // Within 4 tiles: cleared, the arrive cue and the float
+      await goTo(game, 50.5, 33.5); R().tickAt = -Infinity; R().update(0);
+      check(!R().active && cues.includes('arrive') && told0.out.includes(t('route.arrived')), `arriving: active ${R().active}, cues ${cues}, said ${told0.out}`);
+      draw(); check(!document.getElementById('hud-wp')?.classList.contains('on'), 'the pin stays after arriving');
+    } finally { R().plan = plan; Music.cue = cue; told0.undo(); R().clear('user'); await goTo(game, 21, 26); }
+  });
+
+  // The music: musicState on a made-up game (nothing real moves), and offline renders recording every note
+  const mgame = (o = {}) => {
+    const pl = { x: 200.5, y: 26.5, moving: true, vx: 1, vy: 0, speedMul: 1, ...(o.player || {}) }, Wd = { kind: 'world' };
+    return { mode: 'play', player: pl, scene: o.scene || Wd, world: Wd, indoors: false, underRoof: false, gamemode: 'survival', difficulty: 'normal',
+      days: { hour: 12, localHour: 12, localSeason: 1, info: {}, ...(o.days || {}) }, combat: { monsters: o.monsters || [] }, neighbors: { people: [] }, ...(o.game || {}) };
+  };
+  const recordNotes = (secs, script) => {
+    const rec = [], orig = Voices.prototype.play;
+    Voices.prototype.play = function (voice, at, midi, dur, vel, dest, layer) { const r = orig.call(this, voice, at, midi, dur, vel, dest, layer); rec.push({ voice, at, midi, layer, ok: !!r, live: this.liveAt(at) }); return r; };
+    try { DynamicMusic.render(new OfflineAudioContext(2, 8000 * secs, 8000), script); } finally { Voices.prototype.play = orig; }
+    return rec;
+  };
+
+  await test('music (english): state priorities', async () => {
+    const mood = o => pickMood(mgame(o));
+    check(mood({ player: { headUnder: true } }) === 'deep', 'under water is not deep');
+    check(mood({ scene: { kind: 'grid' } }) === 'cave' && mood({ scene: { kind: 'grid', style: 'temple' } }) === 'temple', 'a cave is not cave');
+    const inside = { player: { x: TAVERN.x0 + 4, y: TAVERN.y0 + 3 }, game: { underRoof: true, indoors: true } };
+    check(mood({ ...inside, days: { hour: 21, localHour: 21 } }) === 'tavern' && mood({ ...inside, days: { hour: 1, localHour: 1 } }) === 'tavern', 'the tavern at 21:00 or 1:00 is not tavern');
+    check(mood({ ...inside, days: { hour: 8, localHour: 8 } }) === 'home', 'the closed tavern is not home');
+    check(mood({ player: { sleeping: true, headUnder: true } }) === 'sleep', 'sleep does not win');
+    // The local hour: far east it is night while the village has noon (and the other way round)
+    check(mood({ days: { hour: 12, localHour: 23 } }) === 'night' && mood({ days: { hour: 23, localHour: 12 } }) === 'day', 'the mood follows the village hour, not the local one');
+    check(mood({ days: { info: { rain: 1 } } }) === 'rain' && mood({ days: { localSeason: 3 } }) === 'winter' && mood({ days: { localHour: 18 } }) === 'dusk', 'rain, winter or dusk');
+    check(pickMood({ mode: 'menu' }) === 'menu', 'the menu');
+    // A new mood holds a second before it plays; leaving deep three
+    let s = musicState(mgame(), null, { now: 0 }); check(s.mood === 'day', `first: ${s.mood}`);
+    s = musicState(mgame({ days: { localHour: 23 } }), s, { now: 500 }); check(s.mood === 'day' && s.want === 'night', 'night at once');
+    s = musicState(mgame({ days: { localHour: 23 } }), s, { now: 1550 }); check(s.mood === 'night', 'night after a second');
+    s = musicState(mgame({ player: { headUnder: true } }), s, { now: 2000 }); s = musicState(mgame({ player: { headUnder: true } }), s, { now: 3100 }); check(s.mood === 'deep', 'deep');
+    s = musicState(mgame(), s, { now: 4000 }); s = musicState(mgame(), s, { now: 5100 }); check(s.mood === 'deep', 'left deep after one second');
+    s = musicState(mgame(), s, { now: 7100 }); check(s.mood === 'day', 'deep does not end');
+  });
+
+  await test('music (english): intensity hysteresis', async () => {
+    const mob = d => [{ x: 200.5 + d, y: 26.5 }];
+    // Danger: a creature 9 tiles away, at once; it holds 6 s after it goes (polls at 1 Hz); 10.5 tiles is not danger
+    let s = null;
+    for (let i = 0; i <= 3; i++) s = musicState(mgame({ monsters: mob(9) }), s, { now: i * 1000 });
+    check(s.intensity === 3, `danger at 9 tiles: ${s.intensity}`);
+    for (let i = 4; i <= 9; i++) s = musicState(mgame(), s, { now: i * 1000 });
+    check(s.intensity === 3, 'danger ends before 6 s');
+    s = musicState(mgame(), s, { now: 10000 }); check(s.intensity === 1, `danger does not end: ${s.intensity}`);
+    s = musicState(mgame({ monsters: mob(10.5) }), null, { now: 0 }); check(s.intensity === 1, 'danger at 10.5 tiles');
+    // In the village, a creature outside it is no danger; peaceful and creative never
+    check(musicState(mgame({ player: { x: 21, y: 4 }, monsters: [{ x: 21, y: -3 }] }), null, { now: 0 }).intensity === 1 && musicState(mgame({ player: { x: 21, y: 4 }, monsters: [{ x: 21, y: 9 }] }), null, { now: 0 }).intensity === 3, 'danger from outside the village, or none from inside it');
+    check(musicState(mgame({ monsters: mob(3), game: { difficulty: 'peaceful' } }), null, { now: 0 }).intensity === 1 && musicState(mgame({ monsters: mob(3), game: { gamemode: 'creative' } }), null, { now: 0 }).intensity === 1, 'danger in peaceful or creative');
+    // Ride: after 1.5 s of gallop (Plan F's flag or the fallback speed), off 3 s after it stops
+    const gallop = mgame({ player: { mount: {}, vx: 6 } });
+    s = null;
+    for (const t0 of [0, 1000]) s = musicState(gallop, s, { now: t0 });
+    check(s.intensity === 1, 'ride before 1.5 s');
+    s = musicState(gallop, s, { now: 2000 }); check(s.intensity === 2, `no ride after 2 s of gallop: ${s.intensity}`);
+    for (const t0 of [3000, 4000, 5000]) s = musicState(mgame({ player: { mount: {}, vx: 2 } }), s, { now: t0 });
+    check(s.intensity === 2, 'ride ends before 3 s');
+    s = musicState(mgame({ player: { mount: {}, vx: 2 } }), s, { now: 6000 }); check(s.intensity === 1, `ride does not end: ${s.intensity}`);
+    s = musicState(mgame({ player: { mount: {}, vx: 0.5 }, game: { horse: { galloping: true } } }), null, { now: 0 });
+    s = musicState(mgame({ player: { mount: {}, vx: 0.5 }, game: { horse: { galloping: true } } }), s, { now: 1600 });
+    check(s.intensity === 2, 'Plan F\'s galloping flag is not read');
+    // Danger beats ride; calm mode never rides or fears
+    s = musicState(mgame({ player: { mount: {}, vx: 6 }, monsters: mob(5) }), s, { now: 2600 }); check(s.intensity === 3, 'ride beats danger');
+    let c = null; for (const t0 of [0, 1000, 2000, 3000]) c = musicState(mgame({ player: { mount: {}, vx: 6 }, monsters: mob(5) }), c, { now: t0, calm: true });
+    check(c.intensity === 1, `calm: ${c.intensity}`);
+    // Idle after 30 s still, back after 1 s moving
+    s = null; for (let i = 0; i <= 31; i += 1) s = musicState(mgame({ player: { moving: false, vx: 0 } }), s, { now: i * 1000 });
+    check(s.intensity === 0, `not idle after 31 s: ${s.intensity}`);
+    s = musicState(mgame(), s, { now: 32000 }); s = musicState(mgame(), s, { now: 33100 }); check(s.intensity === 1, 'idle after moving');
+  });
+
+  await test('music (english): bars, stingers, voices', async () => {
+    // A change in the middle of a bar lands on the next bar line, the danger stinger on the next beat
+    const B1 = recordNotes(20, [{ at: 0, mood: 'day', intensity: 1 }, { at: 1.3, intensity: 3 }]);
+    const t0 = B1.find(e => e.layer === 'pad').at, bs = barS(SCORES.day), tense = B1.find(e => e.layer === 'tense' && e.ok);
+    const bar = Math.ceil((1.3 - t0) / bs - 1e-9) * bs + t0;
+    check(tense && Math.abs(tense.at - bar) < 1e-3, `the change lands at ${tense?.at.toFixed(3)}, the bar at ${bar.toFixed(3)}`);
+    const st = B1.find(e => e.layer === 'stinger'), beat = unitS(SCORES.day);
+    check(st && st.at > 1.3 && st.at - 1.3 <= beat + 1e-3, `the danger stinger at ${st?.at}`);
+    // The same stinger not again within 20 s
+    const K = recordNotes(40, [{ at: 0, mood: 'day', intensity: 1 }, { at: 2, cue: 'arrive' }, { at: 4, cue: 'arrive' }, { at: 25, cue: 'arrive' }]);
+    const arr = K.filter(e => e.layer === 'stinger' && e.ok).map(e => e.at), starts = arr.filter((v, i) => !i || v - arr[i - 1] > 1.5);
+    check(starts.length === 2 && starts[0] < 3 && starts[1] > 25, `arrive played at ${starts.map(v => v.toFixed(1))}`);
+    // The cap: 28 voices; pad and bass always play
+    const A = recordNotes(60, [{ at: 0, mood: 'day', intensity: 1 }, { at: 20, intensity: 2 }, { at: 40, intensity: 3 }]);
+    check(Math.max(...A.map(e => e.live)) <= MAX_VOICES && A.filter(e => e.layer === 'pad').every(e => e.ok), `live ${Math.max(...A.map(e => e.live))}, pads dropped ${A.filter(e => e.layer === 'pad' && !e.ok).length}`);
+    const ctx = new OfflineAudioContext(1, 8000 * 10, 8000), V = new Voices(ctx, ctx.destination);
+    V.ignoreHidden = true;   // (a hidden page plays only pad and bass: not what this measures)
+    let leads = 0; for (let i = 0; i < 40; i++) if (V.play('pluck', 1, 60 + (i % 12), 2, 0.5, null, 'lead')) leads++;
+    let pads = 0; for (let i = 0; i < 5; i++) if (V.play('pad', 1, 60, 2, 0.5, null, 'pad')) pads++;
+    check(leads === MAX_VOICES && pads === 5 && V.liveAt(1) <= MAX_VOICES, `${leads} leads, ${pads} pads, ${V.liveAt(1)} live`);
+    // The danger stinger's swell in every score within what the pad and the bass play (C3 less half an octave; the bass range)
+    const lowS = Object.keys(SCORES).flatMap(id => stingerNotes('danger', resolveScore(id, 62)).filter(n => (n.voice === 'pad' && n.midi < 42) || (n.voice === 'bass' && (n.midi < 29 || n.midi > 55))).map(n => `${id} ${n.voice} ${n.midi}`));
+    check(!lowS.length, `danger stinger notes out of range: ${lowS}`);
+    // The voices' worker renders the same buffers as this thread (the synthesis is deterministic)
+    const vw = new Worker(new URL('./musicworker.js?v=' + encodeURIComponent(GAME_VERSION), import.meta.url), { type: 'module' });
+    try {
+      const parts = await new Promise((res, rej) => { const got = []; const tm = setTimeout(() => rej(new Error('the voices worker does not answer')), 20000); vw.onerror = e => { clearTimeout(tm); rej(new Error('the voices worker failed: ' + (e.message || ''))); }; vw.onmessage = e => { if (e.data?.t === 'part') got.push(e.data); else if (e.data?.t === 'done') { clearTimeout(tm); res(got); } }; vw.postMessage({ t: 'render', jobs: [['pad', 0], ['pluck', 1]] }); });
+      const same = parts.length === 2 && parts.every(m => { const o = renderPart(m.voice, m.i); return m.data instanceof Float32Array && m.data.length === o.data.length && m.sr === o.sr && m.data.every((v, k) => v === o.data[k]); });
+      check(same, `the voices worker: ${parts.map(m => `${m.voice} ${m.i} ${m.data?.length ?? m.error}`)}`);
+    } finally { vw.terminate(); }
+    // A hidden tab: the clock jumps ahead and the score resyncs to now, no burst of old notes
+    const ctx2 = new OfflineAudioContext(2, 8000 * 60, 8000), out = ctx2.createGain(), c = new Conductor(ctx2, out, { offline: true });
+    c.voices.prerender(null);
+    const rec = [], orig = Voices.prototype.play;
+    Voices.prototype.play = function (voice, at, ...rest) { const r = orig.call(this, voice, at, ...rest); rec.push(at); return r; };
+    try {
+      c.apply({ mood: 'day', intensity: 1 }, 0);
+      for (let t1 = 0; t1 <= 10; t1 += 0.09) c.pump(t1 + 0.35, t1);
+      const n = rec.length; c.pump(41.6, 40);
+      const late = rec.slice(n);
+      check(late.every(a => a >= 40) && late.length < 40, `after the gap: ${late.length} notes, the first at ${late[0]}`);
+    } finally { Voices.prototype.play = orig; }
+  });
+
+  await test('music (english): calm, legacy, tavern', async () => {
+    // Calm: no ride, tense or stingers
+    const D = recordNotes(30, [{ at: 0, mood: 'day', intensity: 3, calm: true }, { at: 10, intensity: 2, calm: true }, { at: 12, cue: 'arrive' }]);
+    check(D.length > 20 && !D.some(e => ['ride', 'tense', 'stinger'].includes(e.layer)), `calm plays ${[...new Set(D.map(e => e.layer))]}`);
+    // ?musica=0 (or chip): the old music, chosen at load
+    check(Music === (apagada('musica') ? LegacyMusic : DynamicMusic) && typeof LegacyMusic.render === 'function', 'the music is not the one the address asks for');
+    // A save without musicMode reads dynamic; calm in the save sets Music.calm
+    const was = Settings.v.musicMode;
+    try {
+      Settings.v.musicMode = undefined; check(Settings.musicMode === 'dynamic', 'no musicMode does not read dynamic');
+      Settings.useVolumes({ musicMode: 'loud' }); check(Settings.musicMode === 'dynamic', 'an unknown mode is taken');
+      Settings.useVolumes({ musicMode: 'calm' }); check(Settings.musicMode === 'calm' && Settings.volumes().musicMode === 'calm', 'calm is not kept');
+      if (Music === DynamicMusic) check(Music.isCalm, 'Music.calm is not set');
+    } finally { Settings.useVolumes({ musicMode: was || 'dynamic' }); }
+    check(!Music.isCalm || Settings.musicMode === 'calm', 'Music stays calm');
+    // The tavern band: 1 inside (under its roof), about a third at the wall, 0 from 25 m, none out of hours
+    const g = h => mgame({ days: { hour: h, localHour: h }, game: { underRoof: true } }), pin = { x: TAVERN.x0 + 4, y: TAVERN.y0 + 3 };
+    check(bandOf(g(21), TAVERN_VENUE, pin) === 1, 'inside is not 1');
+    check(bandOf(g(21), TAVERN_VENUE, { x: TAVERN.x1 + BAND_R + 1, y: TAVERN.y0 + 3 }) === 0 && bandOf(g(21), TAVERN_VENUE, { x: TAVERN.x1 + 10, y: TAVERN.y0 + 3 }) > 0, 'outside the band is not heard as it should');
+    check(bandOf(g(8), TAVERN_VENUE, pin) === 0, 'the band plays out of hours');
+    const T = recordNotes(20, [{ at: 0, mood: 'tavern', intensity: 1, band: 1, patrons: 3, claps: true }]);
+    check(T.some(e => e.ok && ['clap', 'hat', 'frame'].includes(e.voice)) && !T.some(e => e.layer === 'pad' && e.ok), 'inside the tavern the band does not play, or the score does');
+  });
   await test('peso y en brazos, fin (weight end): a save played with the weight inventory opens with ?inventario=casillas without losing anything, and back', async () => {
     const W = JSON.stringify(game.snapshot()), D = JSON.stringify([...game.world.deltas]), was = Carry.force;
     const all = () => { const n = new Map(); for (const s of game.inv.slots) if (s) n.set(s.id, (n.get(s.id) || 0) + s.n); for (const { s } of game.inv.kept) n.set(s.id, (n.get(s.id) || 0) + s.n); return n; };
@@ -3871,7 +4339,10 @@ async function hostTests(game) {
     const { o, cx, cy } = c, p = game.player;
     l.chat(`HUNDIDO:${o.key}`);
     await until(() => heard('HUNDIDO-LISTO'), 85000, 'the guest at the chest');
-    await goTo(game, o.x + 0.6, o.y); await until(() => p.swim, 4000, 'swimming');
+    // (a talk left open by the greeting tests before, when they fail, would keep the host from moving: closed)
+    if (hud.dialogOpen || game.busy) { hud.closeDialog(); game.busy = false; await frames(2); }
+    await goTo(game, o.x + 0.6, o.y);
+    await until(() => p.swim, 4000, 'swimming');
     p.dive = Math.max(0, WATER_Y - 0.7 - (p.sink || 0) - (o.bed + 0.4));
     const f = game.dive.reachable(p).find(q => q.o.key === o.key); check(f, 'the chest is not in reach');
     const money = game.money; game.dive.take(f);
@@ -3880,6 +4351,21 @@ async function hostTests(game) {
     const said = await until(() => heard('HUNDIDO-VISTO'), 60000, 'the guest\'s answer');
     check(said.includes(`by=${Profile.id}`) && said.includes('SIN-BOTIN'), `the guest says: ${said}`);
     p.dive = 0; await goTo(game, 21, 26);
+  });
+  // The marked route's pin, shared (Plan J §2.9): the guest sees it and adopts it; a second share within 2 s is dropped
+  await test('dos: shared mark (english): the guest sees the host\'s pin and adopts it; a second within 2 s is dropped', async () => {
+    const R = game.route;
+    await until(() => heard('WP-LISTO'), 85000, 'the guest ready for the mark');
+    try {
+      check(R.set({ x: 60.5, y: 40.5, kind: 'point', name: 'Mark test' }, { quiet: true }), 'the route is not set');
+      check(R.canShare, 'the route cannot be shared');
+      R.share(); R.share();   // (the second within 2 s: the guest drops it)
+      l.chat('WP-ENVIADO');
+      const said = await until(() => heard('WP-VISTO'), 60000, 'the guest\'s answer');
+      await frames(30);
+      check(said.includes('WP-VISTO ok'), `the guest says: ${said}`);
+      check(!R.pins.size, 'the adopted pin came back to the host');
+    } finally { R.clear('user'); }
   });
 }
 async function guestTests(game) {
@@ -4082,6 +4568,26 @@ async function guestTests(game) {
       check(!got && by !== Profile.id, `the guest got the loot (${game.money - money}) or opened it (${by})`);
     } finally { hud.toast = toast; p.dive = 0; }
     await goTo(game, 21, 26);
+  });
+  await test('dos: shared mark (english): sees the host\'s pin with a toast, drops the second, adopts it from the map', async () => {
+    const R = game.route, M = game.map, p = game.player, toast = hud.toast, toasts = [], v0 = R.pinsVersion;
+    hud.toast = (m, k) => { toasts.push(String(m)); return toast.call(hud, m, k); };
+    try {
+      l.chat('WP-LISTO');
+      await until(() => heard('WP-ENVIADO'), 85000, 'the host\'s mark');
+      await until(() => R.pins.size > 0, 20000, 'the shared pin');
+      const t0 = performance.now(); while (performance.now() - t0 < 2500) { await frames(2); await sleep(25); }
+      const q = [...R.pins.values()][0], once = R.pinsVersion - v0 === 1;
+      // (adopted from the big map: a click on the pin's head)
+      // (the map centred on the pin: the guest may be anywhere by now)
+      M.zoom = 4; M.recenter(); if (q) { M.pan.x = nearX(q.x, p.x) - p.x; M.pan.y = q.y - p.y; } M.drawBig(game.world.gen, game.explored, p.x, p.y, 0);
+      const h = M.hits.find(s => s.pin === 'shared');
+      if (h) R.pickAt(...M.toWorld(h.sx, h.sy - 8), h.sx, h.sy - 8);
+      const ok = once && q?.x === 60.5 && q.y === 40.5 && q.name === 'Mark test' && !!h && R.active && R.target.x === 60.5 && R.target.y === 40.5 && !R.pins.size && toasts.some(m => m.includes(q.by) && q.by);
+      const why = `once ${once} (${R.pinsVersion - v0}), pin ${JSON.stringify(q)}, on the map ${!!h}, route ${JSON.stringify(R.target)}, pins left ${R.pins.size}, toasts ${toasts.join(' / ')}`;
+      l.chat(`WP-VISTO ${ok ? 'ok' : 'mal'} ${why}`.slice(0, 280));
+      check(ok, why);
+    } finally { hud.toast = toast; R.clear('user'); }
   });
 }
 

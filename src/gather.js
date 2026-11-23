@@ -103,7 +103,7 @@ export class Gathering {
       if (fence) rot = 0;
       return { tile: [tx, ty], ok: !far && (!fence || g.scene === g.world) && !!g.scene.canPlace?.(tx, ty, held.id, p, rot), far, place: held.id, rot };
     }
-    for (const s of g.systems) { let t; try { t = s.target?.(p, held, def); } catch (e) { reportFault(e, `${s.constructor.name}.target`); } if (t) { if (typeof t === 'object') OFFERED.set(t, s); return t; } }   // (aislado: ver game.js, hook. OFFERED: who offers it)
+    for (const s of g.systems) { if (typeof s.target !== 'function') continue; let t; try { t = s.target(p, held, def); } catch (e) { reportFault(e, `${s.constructor.name}.target`); } if (t) { if (typeof t === 'object') OFFERED.set(t, s); return t; } }   // (aislado: ver game.js, hook. OFFERED: who offers it)
     if (!g.scene.harvestablesNear) return null;
     if (tool === 'azada' && g.scene === g.world) {
       const [tx, ty] = g.aimTile();

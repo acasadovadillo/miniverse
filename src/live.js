@@ -434,6 +434,7 @@ export class Live {
         break;
       // Alguien llama a una puerta: suena si estás cerca (y, si es la tuya, te avisa)
       case 'greet': if (!Profile.server && this.joined) g.social.heard(conn, peer, m); break;   // (someone greets: social.js)
+      case 'wp': g.route?.heard(conn, peer, m); break;   // (a map pin shared by someone: route.js)
       case 'knock':
         if (this.joined && g.player && g.scene === g.world && Math.hypot(g.player.x - m.x, g.player.y - m.y) < 25) { Audio.knock(); if (Math.hypot(g.player.x - m.x, g.player.y - m.y) < 12) hud.toast(`${peer.name} llama a la puerta`); }
         break;
