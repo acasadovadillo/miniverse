@@ -14,6 +14,8 @@ import { Builder, mat, rockGeo, snowCap } from './geo.js';
 import { wood as wood0, stone as stone0, rockFace, rng, rug, rugDesign, notes, awning, planks, furrows, artwork, bark } from './textures.js';
 import { animalModel } from './animals.js';
 import { apagado } from '../arte.js';
+import { fountain, FOUNT_MATS } from './fountain3d.js';
+import { mailbox, MAIL_MATS } from './mailbox3d.js';
 
 // Las cajas de los modelos con los cantos biselados, según su material: redondeadas en lo blando (mantas, sábanas,
 // cojines, cuero), con el canto gastado en la madera y un poco en la piedra
@@ -935,11 +937,8 @@ const VILLAGE = {
     m.box('dark', -0.62, 1.86, -0.2, 0.65, 1.92, 0.2).box('wood', -0.5, 0.93, -0.03, 0.52, 1.68, 0.02);
     m.B('notes').quad([-0.48, 0.95, 0.025], [0.5, 0.95, 0.025], [0.5, 1.66, 0.025], [-0.48, 1.66, 0.025], [0, 0, 1], [[0, 0], [1, 0], [1, 1], [0, 1]]);
   },
-  mailbox(m) {
-    m.box('dark', -0.05, 0, -0.05, 0.05, 1.0, 0.05).box('awningB', -0.15, 0.98, -0.21, 0.15, 1.0, 0.21);
-    m.geo('awningB', new THREE.CylinderGeometry(0.15, 0.15, 0.42, 12, 1, false, 0, Math.PI), 0, 1.0, 0, [Math.PI / 2, 0, Math.PI / 2]);
-    m.box('red', 0.15, 1.0, -0.02, 0.17, 1.32, 0.02).box('red', 0.15, 1.2, 0.02, 0.17, 1.32, 0.16);
-  },
+  // The rural mailbox by the plaza: painted sheet metal on a wooden post, door in front, flag raised (mailbox3d.js)
+  mailbox(m) { mailbox(m); },
   lamp(m) {
     m.cyl('stone', 0, 0, 0, 0.2, 0.16, 0.3, 10).cyl('iron', 0, 0.3, 0, 0.06, 0.045, 2.6, 8);
     m.cyl('lamp', 0, 2.84, 0, 0.1, 0.13, 0.32, 6).geo('iron', CONE, 0, 3.25, 0, [0, 0, 0], [0.2, 0.18, 0.2]);
@@ -950,13 +949,8 @@ const VILLAGE = {
     const s = new THREE.Shape([[-0.42, -0.14], [0.3, -0.14], [0.44, 0], [0.3, 0.14], [-0.42, 0.14]].map(([a, c]) => new THREE.Vector2(a, c)));
     m.geo('wood', new THREE.ExtrudeGeometry(s, { depth: 0.05, bevelEnabled: false }), 0.05, 1.25, -0.025);
   },
-  // Fuente de 3×3 casillas: pilón redondo de piedra, columna y chorro
-  fountain(m) {
-    m.cyl('stone', 0, 0, 0, 1.4, 1.4, 0.5, 24).cyl('stone', 0, 0.5, 0, 1.45, 1.45, 0.08, 24).cyl('stone', 0, 0, 0, 0.25, 0.2, 1.3, 12).cyl('stone', 0, 1.3, 0, 0.5, 0.45, 0.12, 16);
-    const w = new THREE.Mesh(new THREE.CylinderGeometry(1.3, 1.3, 0.04, 24), modelMats().water); w.position.y = 0.45; m.extra(w);
-    const w2 = new THREE.Mesh(new THREE.CylinderGeometry(0.44, 0.44, 0.03, 16), modelMats().water); w2.position.y = 1.4; m.extra(w2);
-    m.fountain = [0, 1.45, 0];
-  },
+  // The 3×3 plaza fountain: stone basin, baluster and bowl, real water, the jet, the falling sheet and the spray (fountain3d.js)
+  fountain(m) { fountain(m, modelMats().water); },
   // Muelle de 4×1 casillas sobre el agua
   dock(m) {
     for (let i = 0; i < 9; i++) m.box('plank', -2 + i * 0.44, 0.0, -0.5, -2 + i * 0.44 + 0.4, 0.08, 0.5);
@@ -1207,6 +1201,8 @@ const OWN = {
   carcass: () => mat({ vertexColors: true, roughness: 0.85 }),
   // (the wheelbarrow's heap of sacks: the burlap of the tarp over them and of the sacks)
   tarp: () => mat({ color: apagado('#8c7b5a'), roughness: 1, side: THREE.DoubleSide }),
+  // (the village mailbox's paints and wood: mailbox3d.js; the fountain's stone: fountain3d.js)
+  ...MAIL_MATS, ...FOUNT_MATS,
 };
 export function modelMat(key) {
   const M = modelMats();

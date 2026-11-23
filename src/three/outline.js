@@ -211,7 +211,7 @@ export class Outline {
     if (m) {
       for (const [, B] of m.parts) if (!B.empty) out.push([B.geometry(), new THREE.Matrix4(), null]);
       for (const e of m.extras) {
-        if (e.userData.spin) continue;
+        if (e.userData.spin || e.userData.fx) continue;   // (nor the water and spray of the fountain)
         e.updateMatrixWorld(true);
         const inv = new THREE.Matrix4().copy(e.matrixWorld).invert();
         e.traverse(q => { if (q.isMesh) out.push([q.geometry, new THREE.Matrix4().multiplyMatrices(inv, q.matrixWorld), e]); });

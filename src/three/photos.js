@@ -21,7 +21,7 @@ export const PHOTOS = {
   roca: { file: 'roca.c0f05b83.webp', mean: 136, m: [2.0, 2.0], detail: true },   // Rock030, 512×512
   hierba: { file: 'hierba.72d24a93.webp', mean: 183, m: [1.4, 1.4], detail: true },   // Grass004, 512×512
   tierra: { file: 'tierra.a7d15c50.webp', mean: 183, m: [2.0, 2.0], detail: true },   // Ground103, 512×512
-  arena: { file: 'arena.9221d77b.webp', mean: 191, m: [2.0, 2.0] },   // Ground080, 512×512 (no la usa nadie: no se precarga)
+  arena: { file: 'arena.9221d77b.webp', mean: 191, m: [2.0, 2.0] },   // Ground080, 512×512 (the pitted surface of the fountain's limestone: fountain3d.js)
 };
 const LOADS = new Map(), READY = new Map();
 // La foto de una clave, cuando llegue (o null si falla); null en seguida si no hay a dónde (sin documento). Se descodifica
@@ -62,7 +62,7 @@ export const photoNow = key => READY.get(key) || null;
 let ALL = null, settled = false;
 export function preloadPhotos() {
   if (ALL) return ALL;
-  const t0 = performance.now(), keys = Object.keys(PHOTOS).filter(k => k !== 'arena');
+  const t0 = performance.now(), keys = Object.keys(PHOTOS);
   ALL = Promise.all(keys.map(k => photo(k))).then(list => {
     settled = true;
     console.info(`[texturas] fotos listas en ${Math.round(performance.now() - t0)} ms (${list.filter(Boolean).length} de ${keys.length})`);

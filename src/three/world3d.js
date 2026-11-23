@@ -531,14 +531,15 @@ export class World3D {
     for (const e of m.extras) {
       const o = e.clone();
       o.position.set(...at([e.position.x, e.position.y, e.position.z])); o.rotation.y += yaw;
-      o.traverse(q => { if (q.isMesh) { q.castShadow = true; q.receiveShadow = true; } });
+      o.traverse(q => { if (q.isMesh) { q.castShadow = !q.userData.fx; q.receiveShadow = true; } });
+      // (the water of a model, such as the fountain's: the game's own water, with its waves, its sky and its night)
+      if (o.userData.water && this.view.terrain?.water) o.material = this.view.terrain.water.pool;
       if (o.userData.spin) { o.userData.at = [x, z]; (c.spin ||= []).push(o); this.spin.add(o); }   // (lo que gira: la rueda de la noria; ya en su sitio del mundo. at: whose it is, for the outline)
       else group.add(o);
     }
     if (!off) for (const l of m.lights) c.lights.push({ ...l, ...Object.fromEntries(['x', 'y', 'z'].map((k, i) => [k, at([l.x, l.y, l.z])[i]])) });
     if (!off) for (const f of m.fires) c.flames.push([...at(f), f[3]]);
     if (!off) for (const s of m.smoke) c.smoke.push(at(s));
-    if (m.fountain) c.fountain = at(m.fountain);
     if (m.beacon) c.beacon = at(m.beacon);
   }
   // Flores y hojas de las jardineras (instancias, en el grupo de su pared)
@@ -933,7 +934,6 @@ export class World3D {
     for (const r of this.regions.values()) if (r.roof) for (const s of r.roof.userData.chimneys) out.push(s);
     return out;
   }
-  fountains() { const out = []; for (const c of this.chunks.values()) if (c.fountain) out.push(c.fountain); if (this.villageLights?.fountain) out.push(this.villageLights.fountain); return out; }
 }
 // Lo que abarca (x0, z0, x1, z1 del mundo) un trozo, un bloque de naturaleza (con lo que asoma por los lados: copas,
 // sauces) y una casa (con el alero), para saber si un cambio cae en la zona de sombras (ver SunShadow.stale)
@@ -975,6 +975,8 @@ function occupied(scene, datas, today = 0) {
     for (const [k, v] of Object.entries(dl?.mown || {})) if (today - v < GRASS_REGROW) mown.push(k);
     for (const k of Object.keys(dl?.dig || {})) occ.add(k);   // (lo cavado y la tierra apilada: tierra desnuda)
   }
+  // (the plaza fountain: no grass under its stone and its paving, nor poking up through the bed of its basin)
+  for (const o of scene.village?.objects || []) if (o.model === 'fountain') for (let y = Math.floor(o.fy[0]); y < Math.ceil(o.fy[1]); y++) for (let x = Math.floor(o.fx[0]); x < Math.ceil(o.fx[1]); x++) occ.add(`${x},${y}`);
   occ.stub = new Set(mown.filter(k => !occ.has(k)));
   for (const k of mown) occ.add(k);
   return occ;

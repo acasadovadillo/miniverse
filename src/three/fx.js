@@ -11,6 +11,7 @@ import { yawOf, rugRect, tableRect } from '../art/stations.js';
 import { ITEMS } from '../items.js';
 import { PIECES } from '../pieces.js';
 import { getModel } from './models.js';
+import { FOUNTAIN_U } from './fountain3d.js';
 import { WALL_H } from './build3d.js';
 import { WATER_Y } from './terrain.js';
 import { nearX } from '../world/planet.js';
@@ -96,8 +97,6 @@ export class Fx {
     this.rings.count = 0; this.rings.frustumCulled = false; this.rings.renderOrder = 2; this.group.add(this.rings);
     this.ripples = [];
     this.puff2.count = 0; this.puff2.frustumCulled = false; this.puff2.renderOrder = 5; this.group.add(this.puff2);
-    this.spray = new THREE.InstancedMesh(new THREE.SphereGeometry(0.035, 6, 4), new THREE.MeshStandardMaterial({ color: '#cfeaff', transparent: true, opacity: 0.8, roughness: 0.1 }), 240);
-    this.spray.count = 0; this.spray.frustumCulled = false; this.group.add(this.spray);
     // Lluvia (rayas) y nieve (copos), en una caja alrededor de la cámara
     const N = 1800, rp = new Float32Array(N * 6);
     this.rainGeo = new THREE.BufferGeometry(); this.rainGeo.setAttribute('position', new THREE.BufferAttribute(rp, 3));
@@ -203,7 +202,7 @@ export class Fx {
     this.updateHearts(game, scene, playing, t);
     this.updateFlames(scene, t);
     this.updateSmoke(scene, t);
-    this.updateFountains(scene, t);
+    this.updateFountains(t);
     this.updateWeather(t);
     this.updateFishing(game, scene, playing, t);
     this.updateBeacon(scene, t);
@@ -451,16 +450,12 @@ export class Fx {
     this.puff2.count = n;
     this.puff2.instanceMatrix.needsUpdate = true; fade.needsUpdate = true;
   }
-  updateFountains(scene, t) {
-    const src = this.view.cave ? [] : this.view.world.fountains();
-    let n = 0;
-    for (const [x, y, z] of src) for (let i = 0; i < 60 && n < 240; i++) {
-      const a = (i / 60) * Math.PI * 2, q = (t * 0.9 + (i * 0.37) % 1) % 1, r = q * 0.9;
-      tmp.position.set(x + Math.cos(a) * r, y + 0.1 + Math.sin(q * Math.PI) * 0.7 - q * 0.6, z + Math.sin(a) * r);
-      tmp.scale.setScalar(1); tmp.updateMatrix(); this.spray.setMatrixAt(n++, tmp.matrix);
-    }
-    this.spray.count = n;
-    this.spray.instanceMatrix.needsUpdate = true;
+  // The fountains' falling water, spray and rings move in their own shader (fountain3d.js): here only its clock and the sky
+  // its water reflects, as the game's water (darker at night)
+  updateFountains(t) {
+    const U = this.view.terrain?.water?.uniforms;
+    FOUNTAIN_U.fTime.value = t;
+    if (U) FOUNTAIN_U.fSky.value.copy(U.sky.value).lerp(U.skyTop.value, 0.5).multiplyScalar(1 - 0.85 * U.night.value);
   }
   updateBeacon(scene, t) {
     const list = [];

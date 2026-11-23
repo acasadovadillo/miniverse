@@ -114,14 +114,24 @@ function poi(p, out) {
 }
 // Lo del pueblo que no va por trozos: los dos árboles del jardín y el puesto, el tablón, la fuente, el buzón, la farola…
 const VILLAGE = new WeakMap();
-const TALL = { stall: 2.3, stall2: 2.3, stall3: 2.3, board: 2, fountain: 0.9, mailbox: 1.2, lamp: 2.6, sign: 1.6 };
+const TALL = { stall: 2.3, stall2: 2.3, stall3: 2.3, board: 2, mailbox: 1.25, lamp: 2.6, sign: 1.6 };
+// The plaza fountain's real shape (its sizes: FOUNT in three/fountain3d.js): the plinth and the basin up to the water,
+// the coping round it (a ring of short posts), the baluster with the finial and the bowl
+function fountain(x, y, y0, out) {
+  cyl(x, y, 1.45, y0, y0 + 0.07, out);
+  cyl(x, y, 1.38, y0, y0 + 0.44, out);
+  for (let i = 0; i < 16; i++) { const a = (i / 16) * Math.PI * 2; cyl(x + Math.sin(a) * 1.22, y + Math.cos(a) * 1.22, 0.27, y0 + 0.44, y0 + 0.61, out); }
+  cyl(x, y, 0.2, y0 + 0.44, y0 + 1.62, out);
+  cyl(x, y, 0.66, y0 + 1.0, y0 + 1.3, out);
+}
 function villageShapes(village, gy) {
   let out = VILLAGE.get(village);
   if (out) return out;
   out = [];
   for (const o of village.objects) {
     if (o.nature) nature({ ...o, kind: o.nature }, gy(o.x, o.y), out);
-    else if (TALL[o.model]) { const y = gy(o.x, o.y); if (o.fx) rect(o.fx[0], o.fy[0], o.fx[1], o.fy[1], y, y + TALL[o.model], out); else cyl(o.x, o.y, o.model === 'fountain' ? 1.05 : 0.22, y, y + TALL[o.model], out); }
+    else if (o.model === 'fountain') fountain(o.x, o.y, gy(o.x, o.y), out);
+    else if (TALL[o.model]) { const y = gy(o.x, o.y); if (o.fx) rect(o.fx[0], o.fy[0], o.fx[1], o.fy[1], y, y + TALL[o.model], out); else cyl(o.x, o.y, 0.22, y, y + TALL[o.model], out); }
   }
   VILLAGE.set(village, out);
   return out;
