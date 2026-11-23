@@ -7,8 +7,8 @@
 //
 // Phase E1: the surface, the temperature, the factors, washing (tub, river, basin) and the chip are real. Phase E2: the
 // clothes tear (§3.2: in place on inv.equip, inv.changed() only at a stage crossing), the remark conditions are complete
-// (new_clothes, couple; haircut waits for E3) and the worn or torn piece chip comes from the tear. The growth clocks count
-// and are saved, but nothing is applied to the look yet (APPLY_GROWTH, E3).
+// (new_clothes, couple) and the worn or torn piece chip comes from the tear. Phase E3: the growth clocks show in the look
+// (applied, read by game.appearance()), only at hidden moments, and the barber and the mirror (barber.js) set them back.
 //
 // Contract (plan §10; keep the names, other tracks code against them):
 //   channels, 0..100:  body.dirt  body.mud  body.wet  body.wetLegs  body.snow  body.blood
@@ -49,7 +49,7 @@
 //   body.beardGrows    false stops beard growth (the mirror's "Let the beard grow" switch)
 //   body.condition()   the REMARKS id (remarks.js) that holds for the player now, or null; conditions(out) gives all of
 //                      them, good news first (fresh, haircut, new_clothes, couple, wrapped_up), then by REMARKS order.
-//                      haircut is always false until E3 (APPLY_GROWTH); new_clothes: a garment never worn before put on
+//                      haircut: the day of a haircut at the barber's; new_clothes: a garment never worn before put on
 //                      today (and still on); couple: your partner (social.isPartner) within 3 tiles, both outdoors
 //   body.chip()        { id, text } of a garment that just crossed a tear stage (ids worn, torn; keys body.chip.<id>),
 //                      for 4 s, or null. The other chips (cold, freezing, hot, soaked, filthy) are decided by
@@ -78,6 +78,7 @@ import { aabb } from './world/fit.js';
 import { inBounds, distToPath } from './world/village.js';
 import { CHUNK } from './world/gen.js';
 import { BULKY } from './carry-items.js';
+import { dressed } from './looks.js';
 import { clothesOf, feelOf, TEMP, TEAR, TEAR_RATE, TEAR_TOUGH, tearStage, canTear } from './clothing.js';
 
 export const BODY_V = 1;
@@ -86,9 +87,8 @@ const fin = (v, def, max = MAX) => (Number.isFinite(v) ? Math.min(max, Math.max(
 const r1 = v => Math.round(v * 10) / 10;
 const cap = v => (v > MAX ? MAX : v < 0 ? 0 : v);
 
-// E1: the clocks count and are saved, nothing is applied to the look (E3 turns this on, with appearance() and the art)
-const APPLY_GROWTH = false;
 const DAY_MS = 864e5, HOUR_MS = 36e5;
+const GROW_WAIT = 1800;   // s a grown step waits for a hidden moment before showing while you stand still (§2.5)
 
 // ---------- rates (§2.3: per second unless noted) ----------
 // Tool work, per second worked (§2.3: about 45 min of steady work reach Filthy, 70; pick, hoe and shovel about 26 min).
@@ -208,7 +208,9 @@ export class Body {
     // a piece is put on, so taking it off and on again keeps it new that day)
     this.invRef = null; this.invV = -1;
     this.newDay = -1; this.newSlot = ''; this.newKey = '';
-    this.cutDay = -1;        // (the day of a haircut: the haircut remark, E3)
+    this.cutDay = -1;        // (the day of a haircut: the haircut remark)
+    this.growT = 0;          // (how long a growth step has waited for a hidden moment)
+    this.warmK = -1; this.warmBase = null;   // (the look to come asked for: growthTick)
   }
 
   // Only playing for real (survival with a player): creative, spectator and the world server keep everything at 0
@@ -236,6 +238,7 @@ export class Body {
     this.clear();
     const p = this.game.player;
     if (p) p.bathing = false;
+    this.applyGrowth();   // (the load is a hidden moment: what grew while away shows from the start)
   }
   save(out) {
     out.body = { v: BODY_V, dirt: r1(this.dirt), mud: r1(this.mud), wet: r1(this.wet), blood: r1(this.blood), freshUntil: this.freshUntil, cutAt: this.cutAt, shaveAt: this.shaveAt, beardGrows: this.beardGrows };
@@ -417,6 +420,7 @@ export class Body {
     this.bd = packBd(this.surface());
     this.flushTear();
     this.scanWorn();
+    this.growthTick();
     // (two players who got into the same tub at once: the one whose id sorts later gets out)
     if (this.bath) { const q = this.tubTaken(this.bath.spot); if (q && String(q.id) < me()) { g.rest?.stand(); hud.toast(t('body.bath.taken')); } }
   }
@@ -437,11 +441,11 @@ export class Body {
     g.hairStep = days < 7 ? 0 : days < 14 ? 1 : days < 28 ? 2 : 3;
     const h = Math.max(0, now - this.shaveAt) / HOUR_MS, male = look?.sex === 'chico';
     g.beardStep = !male || !this.beardGrows ? 0 : h < 20 ? 0 : h < 72 ? 1 : h < 192 ? 2 : h < 384 ? 3 : 4;
-    g.pending = APPLY_GROWTH && !this.off.grow && this.counts && (g.hairStep !== this.applied.hair || g.beardStep !== this.applied.beard);
+    g.pending = !this.off.grow && this.counts && (g.hairStep !== this.applied.hair || g.beardStep !== this.applied.beard);
     return g;
   }
   // The REMARKS ids (remarks.js) that hold for the player now, good news first (§4.5), into out (reused). The ones Body
-  // cannot see (haircut, new_clothes, couple) are for E2/E3 to add where that data lives
+  // cannot see come from where that data lives
   conditions(out = []) {
     out.length = 0;
     const g = this.game, p = g.player;
@@ -450,7 +454,7 @@ export class Body {
     // good news (in REMARKS order)
     const today = g.days?.dayIndex;
     if (this.freshUntil - FRESH_MS + FRESH_REMARK_MS > Date.now()) out.push('fresh');
-    if (APPLY_GROWTH && this.cutDay >= 0 && this.cutDay === today) out.push('haircut');
+    if (this.cutDay >= 0 && this.cutDay === today) out.push('haircut');
     const np = this.newKey && this.newDay === today && eq[this.newSlot];
     if (np && np.id + ':' + (np.color || '') === this.newKey && !((np.tear || 0) >= NEW_TEAR)) out.push('new_clothes');
     if (this.partnerNear(p)) out.push('couple');
@@ -765,25 +769,41 @@ export class Body {
   }
 
   // ---------- growth (§2.5) ----------
-  // Apply a pending step now (only at a hidden moment: the load, the sleep fade, a door, the mirror, the barber). In E1
-  // nothing is applied (APPLY_GROWTH): the clocks only count
+  // Apply a pending step now (only at a hidden moment: the load, the sleep fade, a door, a respawn, the mirror, the
+  // barber). game.appearance() reads `applied`
   applyGrowth() {
     const g = this.growth();
+    this.growT = 0;
     if (!g.pending) return false;
     this.applied.hair = g.hairStep; this.applied.beard = g.beardStep;
+    this.game.view3d?.actors?.rush?.();
     return true;
   }
-  cut() { this.cutAt = Date.now(); this.cutDay = this.game.days?.dayIndex ?? -1; }
-  shave() { this.shaveAt = Date.now(); }
+  // A haircut or a shave shows at once, in creative too (what had grown in survival goes)
+  cut() { this.cutAt = Date.now(); this.cutDay = this.game.days?.dayIndex ?? -1; this.applied.hair = 0; this.game.view3d?.actors?.rush?.(); }
+  shave() { this.shaveAt = Date.now(); this.applied.beard = 0; this.game.view3d?.actors?.rush?.(); }
+  // A pending step, twice a second: the look to come is made in idle time (actors.js prewarm), so the swap at the hidden
+  // moment costs nothing; after half an hour without one, it is applied while the player stands still
+  growthTick() {
+    const g = this.game, G = this.growth();
+    if (!G.pending) { this.growT = 0; return; }
+    this.growT += TICK;
+    const p = g.player, now = g.appearance(), key = G.hairStep * 10 + G.beardStep;
+    if (this.warmK !== key || this.warmBase !== now) {
+      this.warmK = key; this.warmBase = now;
+      g.view3d?.actors?.warmUp?.(dressed(p.look, g.inv.equip, { hair: G.hairStep, beard: G.beardStep }));
+    }
+    if (this.growT > GROW_WAIT && !g.busy && !p.vx && !p.vy && !p.z) this.applyGrowth();
+  }
 
   // ---------- /body (commands.js, op only): for testing without waiting for real days ----------
   // what: 'hair' | 'beard' (n days since the cut or the shave), 'dirt' (n 0..100), 'tear' (n 0..100 on every worn piece),
   // 'wet', 'clean'. Returns the line to say, or null for a usage error
   testSet(what, n) {
     const now = Date.now(), days = Math.max(0, Math.min(365, Number(n) || 0));
+    if (!this.counts) return t('cmd.body.survival');
     if (what === 'hair') { this.cutAt = now - days * DAY_MS; this.applyGrowth(); return t('cmd.body.hair', { n: days }); }
     if (what === 'beard') { this.shaveAt = now - days * DAY_MS; this.applyGrowth(); return t('cmd.body.beard', { n: days }); }
-    if (!this.counts) return t('cmd.body.survival');
     if (what === 'dirt') { if (!Number.isFinite(Number(n))) return null; this.dirt = cap(Number(n)); this.tickT = 0; return t('cmd.body.dirt', { n: Math.round(this.dirt) }); }
     if (what === 'wet') { this.wet = MAX; this.tickT = 0; return t('cmd.body.wet'); }
     if (what === 'tear') {

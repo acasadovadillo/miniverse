@@ -621,6 +621,23 @@ const BUILD = {
     m.box('dark', -0.14, 0.24, -0.14, 0.14, 0.27, 0.14);
     m.cyl('wood', 0, 0.6, 0, 0.2, 0.2, 0.05, 10);
   },
+  // The barber's chair: an iron foot and column, a wooden seat and arms with leather, a leaning back with its headrest and a
+  // footrest in front (Plan E §4.3). The seat's top, at 0.53 (rest.js BARBER)
+  barber_chair(m) {
+    m.cyl('iron', 0, 0, 0, 0.27, 0.25, 0.035, 14).cyl('iron', 0, 0.035, 0, 0.11, 0.06, 0.06, 10).cyl('iron', 0, 0.09, 0, 0.05, 0.05, 0.28, 8);
+    m.box('dark', -0.25, 0.37, -0.25, 0.25, 0.44, 0.24);                                             // the seat's frame
+    m.box('leather', -0.23, 0.44, -0.22, 0.23, 0.53, 0.23, 0.6);                                     // its cushion
+    m.geo('dark', new THREE.BoxGeometry(0.46, 0.66, 0.04), 0, 0.8, -0.285, [-0.14, 0, 0]);           // the back, leaning
+    for (const [y, h] of [[0.665, 0.2], [0.885, 0.2]]) m.geo('leather', new THREE.BoxGeometry(0.4, h, 0.07), 0, y, -0.222 - (y - 0.6) * 0.141, [-0.14, 0, 0]);
+    m.geo('iron', new THREE.BoxGeometry(0.03, 0.22, 0.02), 0, 1.16, -0.335, [-0.14, 0, 0]).geo('leatherD', new THREE.BoxGeometry(0.2, 0.11, 0.07), 0, 1.23, -0.315, [-0.14, 0, 0]);   // the headrest
+    for (const s of [-1, 1]) {
+      const x0 = s < 0 ? -0.31 : 0.25;
+      m.box('iron', s * 0.28 - 0.015, 0.42, 0.15, s * 0.28 + 0.015, 0.68, 0.18).box('iron', s * 0.28 - 0.015, 0.42, -0.2, s * 0.28 + 0.015, 0.68, -0.17);
+      m.box('wood', x0, 0.68, -0.25, x0 + 0.06, 0.715, 0.22).box('leatherD', x0 + 0.005, 0.715, -0.12, x0 + 0.055, 0.735, 0.19);   // the arms
+      m.geo('iron', new THREE.BoxGeometry(0.025, 0.025, 0.36), s * 0.15, 0.275, 0.34, [0.82, 0, 0]);   // the footrest's bars
+    }
+    m.box('dark', -0.2, 0.13, 0.36, 0.2, 0.155, 0.48).box('iron', -0.18, 0.155, 0.38, 0.18, 0.16, 0.395).box('iron', -0.18, 0.155, 0.43, 0.18, 0.16, 0.445);
+  },
   colmena(m) {
     for (const [x, z] of [[-0.25, -0.2], [0.21, -0.2], [-0.25, 0.16], [0.21, 0.16]]) m.box('dark', x, 0, z, x + 0.04, 0.3, z + 0.04);
     m.box('wood', -0.3, 0.3, -0.25, 0.3, 0.34, 0.25);

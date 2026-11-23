@@ -38,6 +38,8 @@ import { wallTile } from './three/build3d.js';
 import { itemIcon } from './art/items.js';
 import { PREY, bodyBox } from './hunt.js';
 import { priceOf, buyPrice, mendPrice, MEND_SHARE } from './economy.js';
+import { openBarber, barberBill, barberStyles, payBarber, applyMirror, PRICES } from './barber.js';
+import { toReal, realHair, realReady } from './three/realperson.js';
 import { levelOf, recent } from './reputation.js';
 import { EMOTE_KINDS, PLAYER_LINES, REPLY_GESTURE, areCouple } from './social.js';
 import { modelKind, ICON3D } from './three/icons.js';
@@ -4776,31 +4778,49 @@ async function soloTests(game) {
       Bo().scrubbing = null; if (game.needs) game.needs.drinking = null; if (p().pose) game.rest.stand(); p().crouch = false; Bo().endBath(); bodyBase(); draw();
     }
   });
-  await test('looks (english): growth clocks count, nothing applied yet (E1)', async () => {
-    const lookWas = p().look, spy = [];
+  await test('looks (english): growth steps, at a hidden moment, out of the saved look', async () => {
+    const lookWas = p().look, spy = [], b = Bo(), now = Date.now(), DAY = 864e5;
     try {
-      bodyBase();
-      const before = JSON.stringify(game.appearance());
-      runCommand(game, '/body hair 30', s => spy.push(s));
-      const b = Bo(), now = Date.now();
-      check(Math.abs(b.cutAt - (now - 30 * 864e5)) < 5000 && spy.length === 1, `/body hair 30: cutAt ${(now - b.cutAt) / 864e5} days, said ${spy}`);
-      check(b.growth().hairStep === 3 && !b.growth().pending && b.applied.hair === 0 && b.applyGrowth() === false, `the hair step ${b.growth().hairStep}, applied ${b.applied.hair}`);
-      check(!('hairGrow' in p().look) && !('beardGrow' in p().look) && JSON.stringify(game.appearance()) === before, 'the growth got into the look');
+      bodyBase(); runCommand(game, '/gamemode survival', say0);
       // The steps (§2.5): hair 8 days 1, 30 days 3; a beard 2 days 1, 20 days 4; a female body or beardGrows false: 0
-      b.cutAt = now - 8 * 864e5; check(b.growth().hairStep === 1, `8 days: hair ${b.growth().hairStep}`);
-      p().look = { ...lookWas, sex: 'chico' };
-      b.shaveAt = now - 2 * 864e5; check(b.growth().beardStep === 1, `2 days: beard ${b.growth().beardStep}`);
-      b.shaveAt = now - 20 * 864e5; check(b.growth().beardStep === 4, `20 days: beard ${b.growth().beardStep}`);
+      p().look = { ...lookWas, sex: 'chico', hairStyle: 'corto', beard: 'no' };
+      for (const [d, step] of [[6, 0], [8, 1], [15, 2], [30, 3]]) { b.cutAt = now - d * DAY; check(b.growth().hairStep === step, `${d} days: hair ${b.growth().hairStep}`); }
+      for (const [d, step] of [[0.5, 0], [2, 1], [5, 2], [10, 3], [20, 4]]) { b.shaveAt = now - d * DAY; check(b.growth().beardStep === step, `${d} days: beard ${b.growth().beardStep}`); }
       b.beardGrows = false; check(b.growth().beardStep === 0, 'beardGrows false still grows'); b.beardGrows = true;
       p().look = { ...lookWas, sex: 'chica' }; check(b.growth().beardStep === 0, 'a female body grows a beard');
-      p().look = lookWas;
+      // Not applied mid-play: pending until a hidden moment, then in appearance() and never in the saved look
+      const male = p().look = { ...lookWas, sex: 'chico', hairStyle: 'corto', beard: 'perilla' };
+      b.cutAt = now - 8 * DAY; b.shaveAt = now - 2 * DAY;
+      const before = game.appearance();
+      for (let k = 0; k < 4; k++) b.tick();
+      check(b.growth().pending && game.appearance() === before && b.applied.hair === 0 && !('hairGrow' in before) && !('beardGrow' in before), 'a step applied mid-play');
+      check(b.applyGrowth() === true && b.applyGrowth() === false, 'applyGrowth does not apply once');
+      const after = game.appearance();
+      check(after !== before && after.hairGrow === 1 && after.beardGrow === 1 && game.appearance() === after, `the steps in the look: ${after.hairGrow}, ${after.beardGrow}`);
+      check(p().look === male && !('hairGrow' in male) && !('beardGrow' in male), 'the growth got into the saved look');
+      const out = {}; game.save?.(out); b.save(out); check(out.body.cutAt === b.cutAt && out.body.shaveAt === b.shaveAt && !JSON.stringify(p().look).includes('Grow'), 'the save');
+      // The face seed is the same with and without growth and with torn clothes
+      const seed = l => toReal(l).semilla;
+      check(seed(after) === seed(before), 'the growth changes the face');
+      check(toReal(after).crece === 1 && toReal(after).barbaLargo === 1 && toReal(after).barba === 'perilla' && !('crece' in toReal(before)), 'the real person does not get the steps');
+      const torn = { ...before, wear: { ...before.wear, torso: { ...(before.wear.torso || { id: 'camisa', color: '#3a5ab8' }), r: 2 } } };
+      check(seed(torn) === seed({ ...torn, wear: { ...torn.wear, torso: { ...torn.wear.torso, r: undefined } } }), 'a torn shirt changes the face');
+      // Half an hour without a hidden moment: applied while standing still
+      b.cutAt = now - 30 * DAY; b.growT = 1801; p().vx = p().vy = 0; game.busy = false; b.growthTick(); check(b.applied.hair === 3, `after half an hour: ${b.applied.hair}`);
+      // A load applies at once; a haircut takes it off at once
+      const sv = {}; b.save(sv); b.reset(sv); check(b.applied.hair === 3 && b.applied.beard === 1, `the load: ${b.applied.hair}, ${b.applied.beard}`);
+      b.cut(); b.shave(); check(b.applied.hair === 0 && b.applied.beard === 0 && b.conditions([]).includes('haircut'), 'a haircut');
+      // /body hair and /body beard show at once, and say no more than the days
+      runCommand(game, '/body hair 30', s => spy.push(s)); runCommand(game, '/body beard 20', s => spy.push(s));
+      check(game.appearance().hairGrow === 3 && game.appearance().beardGrow === 4 && spy.length === 2 && !/versión|version/.test(spy.join()), `/body: ${spy}`);
+      // The journal's box, the switch ?crecer=0, and creative: nothing grows
+      b.off.grow = true; b.cutAt = now; check(!b.growth().pending, '?crecer=0 still applies'); b.off.grow = false;
+      runCommand(game, '/gamemode creative', say0); check(!b.growth().pending && b.applyGrowth() === false, 'creative grows'); runCommand(game, '/gamemode survival', say0);
       // /body dirt and clean in survival; the usage line on nonsense
       spy.length = 0; runCommand(game, '/body dirt 55', s => spy.push(s)); check(b.dirt === 55, `/body dirt 55: ${b.dirt}`);
       runCommand(game, '/body clean', s => spy.push(s)); check(b.dirt === 0, `/body clean: ${b.dirt}`);
       runCommand(game, '/body nothing', s => spy.push(s)); check(spy.at(-1) === t('cmd.body.usage'), `nonsense says: ${spy.at(-1)}`);
-      // The clocks go in the save
-      const out = {}; b.save(out); check(out.body.cutAt === b.cutAt && out.body.shaveAt === b.shaveAt, 'the clocks are not saved');
-    } finally { p().look = lookWas; bodyBase(); }
+    } finally { b.off.grow = false; b.beardGrows = true; p().look = lookWas; bodyBase(); draw(); }
   });
   await test('clothes (english): warmth values and soap', async () => {
     check(ITEMS.camisa.warm === 1 && ITEMS.delantal.work === 0.3 && ITEMS.sombrero.shade === 1 && ITEMS.gorro.warm === 1.5, 'garment values are not on the items');
@@ -5015,6 +5035,76 @@ async function soloTests(game) {
       await game.neighbors.talk('marta', m);
       check(opts?.includes(t('npc.opt.clothes')) && opts.includes(t('npc.opt.mend')) && !opts.includes(t('npc.opt.shop')), `Marta's options at 18:30: ${opts}`);
     } finally { C.stationsNear = near; hud.ask = ask; hud.say = sayWas; game.busy = false; I.infinite = infinite; backWear(k); runCommand(game, '/time set 11:00', say0); bodyBase(); }
+  }));
+  await test('looks (english): rebuild only on stage', async () => {
+    const I = inv(), k = keepWear();
+    try {
+      bodyBase(); I.equip = { torso: { ...SHIRT(), tear: 41 }, pies: { id: 'botas', color: '#5a3a22', tear: 80 }, calcetines: { id: 'calcetines', tear: 90 } }; I.changed();
+      const a = game.appearance(); check(a.wear.torso.r === 1 && !('r' in a.wear.pies) && !('r' in a.wear.calcetines), `the stages: ${JSON.stringify(a.wear)}`);   // (only the pieces whose wear is drawn)
+      I.equip.torso.tear = 60; I.changed(); check(game.appearance() === a, 'a new look inside a stage');
+      I.equip.torso.tear = 75; I.changed(); const c = game.appearance(); check(c !== a && c.wear.torso.r === 2, 'no new look at 75');
+      I.equip.torso.tear = 0; I.changed(); check(!('r' in game.appearance().wear.torso), 'a mended shirt still torn');
+      // On screen, what only changes the wear or the growth waits for an idle moment; the clothes, at once
+      const A = game.view3d.actors;
+      if (A?.later) {
+        const m = { kind: 'person', look: c, tier: 0, speed: 1 }, l2 = { ...c, hairGrow: 3 }, l3 = { ...c, wear: { ...c.wear, torso: { id: 'camisa', color: '#101010' } } };
+        check(A.later(m, {}, l3) === false && (A.later(m, {}, l2) === true || A.built.has(l2) || realReady(l2)), 'later');
+        A.warm = A.warm.filter(x => x[0] !== l2);
+      }
+    } finally { backWear(k); bodyBase(); draw(); }
+  });
+  await test('barber (english): no empty shop', social(async () => {
+    const ask = hud.ask, was = game.onMirror;
+    try {
+      runCommand(game, '/time set 13:00', say0);
+      const e = game.neighbors.people.find(n => n.id === 'eusebio'); e.placeAt(game.days.hour);
+      let opts = null, mode = null; hud.ask = (who, text, o) => { opts = o; return Promise.resolve(o.length - 1); };
+      await game.neighbors.talk('eusebio', e);
+      check(opts?.includes(t('npc.opt.haircut')) && !opts.includes(t('npc.opt.shop')) && !opts.includes(t('npc.opt.clothes')), `Eusebio's options: ${opts}`);
+      await game.neighbors.talk('paco', game.neighbors.people.find(n => n.id === 'paco')); check(!opts.includes(t('npc.opt.haircut')), 'Paco cuts hair');
+      // The window opens at once, with you in the tavern's chair; it does not need the chair
+      const chair = w().placedNear(6, 36, 9).find(o => o.placed === 'barber_chair'); check(chair?.fixed, 'no barber chair in the tavern');
+      await goTo(game, 6.5, 36.5); p().pose = null; game.busy = false; game.mode = 'play';
+      game.onMirror = m => { mode = m; return true; };
+      hud.ask = (who, text, o) => Promise.resolve(o.indexOf(t('npc.opt.haircut')));
+      await game.neighbors.talk('eusebio', e);
+      check(mode === 'barber' && p().pose?.kind === 'sit' && Math.hypot(p().x - chair.x, p().y - chair.y) < 0.2 && !game.busy, `the window ${mode}, pose ${p().pose?.kind}`);
+      game.rest.stand(); mode = null;
+      const near = w().placedNear; w().placedNear = (...a) => near.apply(w(), a).filter(o => o.placed !== 'barber_chair');
+      try { check(openBarber(game) && mode === 'barber' && !p().pose, 'the service needs the chair'); } finally { delete w().placedNear; }
+      // Styles drawn the same: one choice, nothing to pay for
+      const L = { ...p().look, hairStyle: 'corto', hair: '#2a1e1e', beard: 'no' };
+      check(barberBill(L, { ...L, hairStyle: 'tazon' }).total === 0 && barberBill(L, { ...L, hairStyle: 'largo' }).total === PRICES.style, 'the price of styles drawn the same');
+      const list = barberStyles('tazon').map(([v]) => v); check(list.includes('tazon') && !list.includes('corto') && new Set(list.map(realHair)).size === list.length, `the styles: ${list}`);
+      check(barberBill({ ...L, beard: true }, { ...L, beard: 'completa' }).total === 0 && barberBill(L, L).total === 0, 'nothing changed, something charged');
+    } finally { hud.ask = ask; game.onMirror = was; if (p().pose) game.rest.stand(); game.busy = false; game.mode = 'play'; runCommand(game, '/time set 11:00', say0); bodyBase(); }
+  }));
+  await test('barber (english): pay and apply; the mirror leaves the style', social(async () => {
+    const lookWas = p().look, money = game.money, b = Bo(), now = Date.now();
+    try {
+      bodyBase(); runCommand(game, '/gamemode survival', say0); game.smartHud?.hold(true);
+      p().look = { ...lookWas, sex: 'chico', hairStyle: 'corto', hair: '#2a1e1e', beard: 'completa' };
+      const grow = () => { b.cutAt = now - 30 * 864e5; b.shaveAt = now - 20 * 864e5; b.applyGrowth(); };
+      grow(); game.money = 0;
+      const from = p().look, to = { ...from, hairStyle: 'rizado', beard: 'perilla' }, f = game.rep?.buyFactor() ?? 1, cost = Math.round(80 * f) + Math.round(50 * f);
+      check(payBarber(game, to) === 'poor' && p().look === from && b.applied.hair === 3 && b.applied.beard === 4 && game.money === 0, 'without coins something changes');
+      game.money = 1000; const a0 = game.appearance();
+      check(payBarber(game, to) === null && game.money === 1000 - cost, `charged ${1000 - game.money}, not ${cost}`);
+      check(p().look.hairStyle === 'rizado' && p().look.beard === 'perilla' && b.applied.hair === 0 && b.applied.beard === 0 && Date.now() - b.cutAt < 5000 && Date.now() - b.shaveAt < 5000, 'the look or the clocks');
+      const a1 = game.appearance(); check(a1 !== a0 && !('hairGrow' in a1) && game.appearance() === a1 && b.conditions([]).includes('haircut'), 'the look changes more than once, or no remark');
+      // The same cut and a trim: 40 and 25; a dye alone does not cut
+      grow(); game.money = 1000; payBarber(game, p().look, { cut: true, trim: true }); check(game.money === 1000 - Math.round(40 * f) - Math.round(25 * f) && b.applied.hair === 0 && b.applied.beard === 0, `cut and trim: ${1000 - game.money}`);
+      grow(); game.money = 1000; payBarber(game, { ...p().look, hair: '#e8c060' }); check(game.money === 1000 - Math.round(120 * f) && b.applied.hair === 3 && p().look.hair === '#e8c060', 'the dye');
+      // The mirror: the face yes; the cut, the style, the colour and the beard's shape no; shave and tidy free
+      const l = p().look; game.money = 7;
+      applyMirror(game, { ...l, hairStyle: 'cresta', hair: '#4a7ae8', beard: 'larga', eyes: '#3a6ab8', cloth: '#c83a3a' }, { act: 'tidy', grow: true });
+      check(p().look.hairStyle === l.hairStyle && p().look.hair === l.hair && p().look.beard === l.beard && p().look.cloth === l.cloth && p().look.eyes === '#3a6ab8', 'the mirror changes the style');
+      check(b.applied.beard === 0 && b.applied.hair === 3 && game.money === 7, 'tidying does not, or costs');
+      b.shaveAt = now - 20 * 864e5; b.applyGrowth(); applyMirror(game, p().look, { grow: false }); check(!b.beardGrows && b.applied.beard === 0, 'the beard keeps growing'); b.beardGrows = true;
+      applyMirror(game, p().look, { act: 'shave' }); check(p().look.beard === 'no' && b.applied.hair === 3, 'shaving');
+      // The chair: tavern furniture, its plan at Anselmo's, never known for free
+      check(BUILDABLE.barber_chair?.needs === 'banco' && PLANS.has('barber_chair') && PLAN_BORN.has('barber_chair') && SHOPS.anselmo.stock.some(x => x.plan === 'barber_chair') && ITEMS.barber_chair.name === t('item.barber_chair'), 'the chair');
+    } finally { game.smartHud?.hold(false); b.beardGrows = true; p().look = lookWas; game.money = money; bodyBase(); draw(); }
   }));
   await test('clothes (english): new clothes once per piece, only visible tears, a coat in the heat', async () => {
     const I = inv(), k = keepWear(), B = Bo(), today = game.days.dayIndex;

@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- La versión publicada: se cambia en cada publicación (así el juego sabe que tiene que pedir el código nuevo) -->
-<meta name="miniverse-version" content="2026-11-23.6">
+<meta name="miniverse-version" content="2026-11-23.7">
 <title>Miniverse</title>
 <script>
   // The language of the page until the game's code arrives (src/i18n.js chooses the same way, then takes over): for
@@ -638,6 +638,16 @@
   .ac-code { margin: 10px 0; padding: 12px; text-align: center; font-size: 28px; letter-spacing: 3px; color: var(--gold); background: rgba(0, 0, 0, .35); border-radius: 4px; user-select: all; -webkit-user-select: all; }
   .cr-tabs { margin: 0; }
   .cr-page { display: grid; gap: 12px; }
+  /* the barber's and the mirror's: a button that stays pressed with its price, and the bill */
+  .cr-mark { display: flex; align-items: center; gap: 10px; }
+  .cr-mark[hidden] { display: none; }
+  .cr-mark button { flex: 1; padding: 7px; color: var(--dim); background: rgba(0, 0, 0, .25); border: 2px solid #6a4a2a; border-radius: 4px; cursor: pointer; }
+  .cr-mark button.on { color: var(--gold); background: #6a4424; border-color: var(--border); }
+  .cr-mark b { min-width: 84px; text-align: right; font-weight: 500; color: var(--dim); }
+  .cr-mark b:empty { display: none; }
+  .cr-bill { padding-top: 10px; border-top: 1px solid #6a4a2a; text-align: right; color: var(--gold); }
+  .cr-bill.poor { color: #e08070; }
+  .cr-bill[hidden], .cr-tabs[hidden], .cr-opts .field[hidden] { display: none; }
   .cr-page[hidden] { display: none; }
   #cr-canvas { touch-action: none; cursor: grab; }
   .cr-rot .sq { touch-action: none; user-select: none; -webkit-user-select: none; }

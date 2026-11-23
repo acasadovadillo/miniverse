@@ -2,9 +2,11 @@
 import { initWindows } from './windows.js';
 import { Profile } from '../accounts.js';
 import { LOOK_OPTIONS, DEFAULT_LOOK } from '../looks.js';
+import { barberStyles, barberBill, payBarber, applyMirror, MIRROR_HIDES } from '../barber.js';
 import { CharacterPreview } from '../three/preview.js';
 import { SPAWN } from '../world/village.js';
 import { hud } from './hud.js';
+import { Audio } from '../audio.js';
 import { clearKeys } from '../input.js';
 import { initInventoryUI } from './inventory.js';
 import { initCraftingUI } from './crafting.js';
@@ -433,13 +435,15 @@ export function initMenus(game) {
   $('cr-opts').append(tabs, ...Object.values(pages));
   function showPage(id) {
     for (const b of tabs.children) b.classList.toggle('on', b.dataset.page === id);
-    for (const [k, el] of Object.entries(pages)) el.hidden = k !== id;
-    preview.focus(id === 'cara' ? 'face' : 'body');
+    // (at the barber's, the hair and the face together, without tabs: what is left of the two fits one page)
+    for (const [k, el] of Object.entries(pages)) el.hidden = mirror?.barber ? k === 'cuerpo' : k !== id;
+    preview.focus(id === 'cara' || mirror?.barber || (mirror && id === 'pelo') ? 'face' : 'body');
   }
 
   function rebuild() {
-    preview.setLook(mirror ? { ...look, wear: mirror.wear } : look);
+    preview.setLook(mirror ? mirrorLook() : look);
     rows.forEach(r => r());
+    if (mirror) paintMirror();
   }
   function addRow(page, title, el, key) {
     const wrap = document.createElement('div');
@@ -465,11 +469,11 @@ export function initMenus(game) {
     const box = document.createElement('div');
     box.className = 'cyc';
     box.innerHTML = '<button type="button" class="sq" aria-label="Anterior">◀</button><span></span><button type="button" class="sq" aria-label="Siguiente">▶</button>';
-    const [prev, next] = box.querySelectorAll('button'), label = box.querySelector('span'), list = LOOK_OPTIONS[key];
-    const step = d => { const i = list.findIndex(([v]) => v === look[key]); look[key] = list[(i + d + list.length) % list.length][0]; rebuild(); };
+    const [prev, next] = box.querySelectorAll('button'), label = box.querySelector('span'), list = () => (key === 'hairStyle' && mirror?.styles) || LOOK_OPTIONS[key];
+    const step = d => { const l = list(), i = l.findIndex(([v]) => v === look[key]); look[key] = l[(i + d + l.length) % l.length][0]; rebuild(); };
     prev.onclick = () => step(-1);
     next.onclick = () => step(1);
-    rows.push(() => { label.textContent = (list.find(([v]) => v === look[key]) || list[0])[1]; });
+    rows.push(() => { const l = list(); label.textContent = (l.find(([v]) => v === look[key]) || l[0])[1]; });
     addRow(page, title, box, key);
   }
   function swRow(page, title, key) {
@@ -485,6 +489,17 @@ export function initMenus(game) {
     }
     rows.push(() => [...box.children].forEach((b, i) => b.classList.toggle('on', LOOK_OPTIONS[key][i] === look[key])));
     addRow(page, title, box, key);
+  }
+  // A button that stays pressed, with its price beside it when it has one: the barber's services and the mirror's beard
+  // options (paintMirror shows and presses them). It goes on page, hidden outside its window (data-win)
+  const marks = {};
+  function markRow(page, win, id, run) {
+    const box = document.createElement('div');
+    box.className = 'cr-mark'; box.dataset.win = win; box.hidden = true;
+    box.innerHTML = '<button type="button"></button><b></b>';
+    box.firstChild.onclick = () => { run(); rebuild(); };
+    pages[page].append(box);
+    marks[id] = box;
   }
   segRow('cuerpo', 'Sexo', 'sex');
   swRow('cuerpo', 'Tono de piel', 'skin');
@@ -502,9 +517,9 @@ export function initMenus(game) {
 
   const pickOf = arr => arr[Math.floor(Math.random() * arr.length)];
   $('cr-random').onclick = () => {
-    for (const [key, list] of Object.entries(LOOK_OPTIONS)) { const v = pickOf(list); look[key] = Array.isArray(v) ? v[0] : v; }
+    for (const [key, list] of Object.entries(LOOK_OPTIONS)) { if (mirror?.hides.includes(key)) continue; const v = pickOf(list); look[key] = Array.isArray(v) ? v[0] : v; }
     // Barba solo a veces (y no a las chicas), y casi siempre con mofletes
-    look.beard = look.sex === 'chico' && Math.random() < 0.4 ? pickOf(LOOK_OPTIONS.beard.slice(1))[0] : 'no';
+    if (!mirror) look.beard = look.sex === 'chico' && Math.random() < 0.4 ? pickOf(LOOK_OPTIONS.beard.slice(1))[0] : 'no';
     look.cheeks = Math.random() < 0.75;
     rebuild();
   };
@@ -540,25 +555,91 @@ export function initMenus(game) {
   cv.addEventListener('pointermove', e => { if (dragX === null) return; turnTo(angle + (e.clientX - dragX) * 0.012); dragX = e.clientX; });
   for (const ev of ['pointerup', 'pointercancel']) cv.addEventListener(ev, () => { dragX = null; });
 
-  // El espejo (en el lavabo): cambiarse la cara y el pelo sin empezar de nuevo (la ropa y los accesorios se
-  // cambian en la mochila). Al terminar se vuelve al juego
+  // The mirror (at a basin) and the barber's window (barber.js): the creator's pages without starting anew. The mirror, free,
+  // keeps the face, and shaves, tidies the beard and lets it grow or not; the hair (cut, style and colour) and the beard's
+  // shape are Eusebio's, priced (Plan E §4.3, Decision 1a). The clothes change in the backpack. Growth grown meanwhile is
+  // applied as the window opens (a hidden moment: body.js §2.5)
   let mirror = null;
-  const MIRROR_HIDES = ['outfit', 'cloth', 'hairAcc', 'accColor'];
-  game.onMirror = () => {
-    if (game.mode !== 'play' || !game.player) return;
+  const toggle = k => () => { mirror[k] = !mirror[k]; };
+  markRow('pelo', 'barber', 'cut', toggle('cut'));
+  markRow('pelo', 'barber', 'trim', toggle('trim'));
+  markRow('pelo', 'mirror', 'shave', () => { mirror.act = mirror.act === 'shave' ? null : 'shave'; });
+  markRow('pelo', 'mirror', 'tidy', () => { mirror.act = mirror.act === 'tidy' ? null : 'tidy'; });
+  markRow('pelo', 'mirror', 'grow', toggle('grow'));
+  const billEl = document.createElement('div');
+  billEl.className = 'cr-bill'; billEl.dataset.win = 'barber'; billEl.hidden = true;
+  $('cr-opts').append(billEl);
+  const bill = () => barberBill(game.player.look, look, mirror, game.rep?.buyFactor() ?? 1);
+  // What the window would leave: the look chosen, with the growth that stays
+  function mirrorLook() {
+    const now = game.body?.applied, b = mirror.barber ? bill() : null, out = { ...look, wear: mirror.wear };
+    const hair = now && !(b && b.cut) ? now.hair : 0, beard = now && !(b ? b.shave : mirror.act || !mirror.grow) ? now.beard : 0;
+    if (!b && mirror.act === 'shave') out.beard = 'no';
+    if (hair) out.hairGrow = hair;
+    if (beard && look.sex === 'chico') out.beardGrow = beard;
+    return out;
+  }
+  // The marks (pressed, with their prices), the bill and the button
+  function paintMirror() {
+    const mark = (id, on, text, price = '') => { const el = marks[id]; el.firstChild.classList.toggle('on', !!on); el.firstChild.setAttribute('aria-pressed', String(!!on)); el.firstChild.textContent = text; el.lastChild.textContent = price; };
+    const grown = game.body?.applied, male = look.sex === 'chico', bearded = (look.beard || 'no') !== 'no';
+    if (mirror.barber) {
+      const b = bill(), f = game.rep?.buyFactor() ?? 1, price = ask => t('barber.price', { n: barberBill(game.player.look, game.player.look, ask, f).total }), has = id => b.lines.some(l => l.id === id);
+      mark('cut', mirror.cut || has('style'), t('barber.cut'), has('style') ? '' : price({ cut: true }));
+      const stubble = !bearded && male && (grown?.beard || 0) > 0;
+      marks.trim.hidden = !bearded && !stubble;
+      mark('trim', mirror.trim || has('beard'), t(bearded ? 'barber.trim' : 'mirror.shave'), has('beard') ? '' : price({ trim: true }));
+      billEl.textContent = [...b.lines.map(l => `${t('barber.line.' + l.id)}: ${t('barber.price', { n: l.n })}`), t('barber.total', { n: b.total })].join('  ·  ');
+      billEl.classList.toggle('poor', b.total > game.money);
+      $('cr-err').textContent = b.total > game.money ? t('barber.poor') : '';
+      setStartLabel(b.total ? 'barber.pay' : 'gui.creator.done');
+    } else {
+      const some = bearded || (male && (grown?.beard || 0) > 0);
+      marks.shave.hidden = !some; marks.tidy.hidden = !bearded || !male || !(grown?.beard > 0);
+      marks.grow.hidden = !male;
+      mark('shave', mirror.act === 'shave', t('mirror.shave'));
+      mark('tidy', mirror.act === 'tidy', t('mirror.tidy'));
+      mark('grow', mirror.grow, t('mirror.grow'));
+      tabs.children[2].hidden = !some && !male;   // (no beard to see to: no tab)
+    }
+  }
+  game.onMirror = (mode = 'mirror') => {
+    if (game.mode !== 'play' || !game.player) return false;
+    const barber = mode === 'barber', hides = MIRROR_HIDES[barber ? 'barber' : 'mirror'];
+    game.body?.applyGrowth();
     game.mode = 'mirror';
-    mirror = { wear: game.appearance().wear };
+    const wear = { ...game.appearance().wear };
+    if (barber && wear.cabeza?.id !== 'hijab') delete wear.cabeza;   // (the hat off, to see the hair; a hijab stays on)
+    mirror = { wear, hides, barber, cut: false, trim: false, act: null, grow: game.body?.beardGrows !== false, styles: barber ? barberStyles(game.player.look.hairStyle) : null };
     Object.assign(look, DEFAULT_LOOK, game.player.look);
-    $('cr-name').value = game.player.name; $('cr-name').disabled = true;
+    if (typeof look.beard !== 'string') look.beard = look.beard ? 'completa' : 'no';   // (an old look's true)
+    $('cr-name').value = game.player.name; $('cr-name').disabled = true; $('cr-name').parentElement.hidden = barber;
+    $('cr-random').hidden = barber;
+    const title = document.querySelector('#s-creator h2');
+    title.dataset.i18n = barber ? 'barber.title' : 'mirror.title'; applyDom(title);
     setStartLabel('gui.creator.done');
-    for (const el of document.querySelectorAll('#s-creator [data-key]')) el.hidden = MIRROR_HIDES.includes(el.dataset.key);
+    for (const el of document.querySelectorAll('#s-creator [data-key]')) el.hidden = hides.includes(el.dataset.key);
+    for (const el of document.querySelectorAll('#s-creator [data-win]')) el.hidden = el.dataset.win !== (barber ? 'barber' : 'mirror');
+    tabs.hidden = barber; tabs.children[2].textContent = t('mirror.beard');
     $('cr-err').textContent = '';
     spin = 0; turnTo(0); rebuild();
     const w = Math.max(160, Math.min(240, innerWidth - 80));
     preview.resize(w, Math.round(w * 1.25));
     showPage('cara');
     show('s-creator');
+    return true;
   };
+  // Back to the creator as it is for a new character (also when the game ended with one of these windows open)
+  function leaveMirror() {
+    mirror = null;
+    $('cr-name').disabled = false; $('cr-name').parentElement.hidden = false; $('cr-random').hidden = false;
+    const title = document.querySelector('#s-creator h2');
+    title.dataset.i18n = 'gui.creator.title'; applyDom(title);
+    setStartLabel('gui.creator.start');
+    for (const el of document.querySelectorAll('#s-creator [data-key]')) el.hidden = false;
+    for (const el of document.querySelectorAll('#s-creator [data-win]')) el.hidden = true;
+    tabs.hidden = false; tabs.children[2].hidden = false; tabs.children[2].textContent = PAGES[2][1];
+  }
   // The basin (E on a lavabo, game.placedAction): wash your face and hands (body.washFace, src/body.js) or look in the
   // mirror, asked like the bed's menu. Without Body, or with ?cuerpo=0 (no dirt to wash), straight to the mirror as
   // before. With something in the arms the wash is refused (both hands are needed); the mirror is not
@@ -577,10 +658,16 @@ export function initMenus(game) {
   // (the start button says "Done" at the mirror: through its data-i18n key, so a language switch keeps it right)
   function setStartLabel(key) { const b = $('cr-start'); b.dataset.i18n = key; applyDom(b); }
   const closeMirror = apply => {
-    if (apply) { const keepOut = ['outfit', 'cloth', 'pants', 'hairAcc', 'accColor']; game.player.look = { ...game.player.look, ...Object.fromEntries(Object.entries(look).filter(([k]) => !keepOut.includes(k))) }; game.inv.changed(); save(); }
-    mirror = null;
-    $('cr-name').disabled = false; setStartLabel('gui.creator.start');
-    for (const el of document.querySelectorAll('#s-creator [data-key]')) el.hidden = false;
+    const p = game.player, barber = mirror.barber;
+    if (apply && barber) {
+      // (not enough coins: the window says so and stays, nothing changes)
+      if (payBarber(game, look, mirror)) { Audio.error(); $('cr-err').textContent = t('barber.poor'); return; }
+      Audio.craft(); save();
+    } else if (apply) {
+      applyMirror(game, look, mirror); save();
+    }
+    leaveMirror();
+    if (barber && p?.pose?.kind === 'sit') game.rest.stand();   // (up from the chair)
     resume();
   };
   $('cr-back').onclick = () => (mirror ? closeMirror(false) : openMenu());
@@ -602,6 +689,7 @@ export function initMenus(game) {
 
   let fresh = false;   // (empezando de nuevo con un personaje nuevo, aunque ya hubiera uno)
   function openCreator(again = false) {
+    if (mirror) leaveMirror();
     fresh = again;
     $('cr-name').value = again ? Profile.name || '' : currentSave?.player.name || Profile.name || '';
     $('cr-err').textContent = '';

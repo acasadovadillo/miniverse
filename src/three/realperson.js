@@ -28,59 +28,76 @@ export const loadReal = () => Promise.resolve(persona());
 
 // Los peinados del juego, en los de la prueba (los que no tiene, el más parecido)
 const HAIR = {
-  corto: 'corto', largo: 'largo', coleta: 'coleta', rizado: 'rizado', mono: 'mono', rapado: 'corto', calvo: 'corto', pinchos: 'pinchos', melena: 'largo',
+  corto: 'corto', largo: 'largo', coleta: 'coleta', rizado: 'rizado', mono: 'mono', rapado: 'rapado', calvo: 'calvo', pinchos: 'pinchos', melena: 'largo',
   coletas: 'coleta', trenza: 'trenza', cresta: 'cresta', tupe: 'tupe', afro: 'rizado', rastas: 'largo', coletaAlta: 'coleta', monos: 'mono', trenzas: 'trenza',
   ondas: 'largo', flequillo: 'corto', mullet: 'corto', tazon: 'corto', samurai: 'mono',
 };
+// The real style a hairstyle of the game is drawn with: two that share one look the same (the barber charges nothing for
+// going from one to the other: barber.js)
+export const realHair = style => HAIR[style] || 'corto';
 const hash = s => { let h = 7; for (const ch of s) h = (Math.imul(h, 31) + ch.charCodeAt(0)) | 0; return h >>> 0; };
-// The new garments of Plan E (docs/planes/gta/PLAN-E-cuerpo-aspecto.md §3.1), drawn on today's garment shapes until the
-// E3 art (§5.3 fallback), each with its own look: the wool coat is the tunic's body and skirt over what you wear, to the
-// knee (over a tunic it keeps the tunic's length, since it covers it), with a dark trim, buttons and a twill weave; the
-// sheepskin jacket is the waistcoat's body in leather, with fleece edges and sleeves of its own; the linen shirt, the
-// wool socks, the lined boots and the leather apron are the shirt, the stockings, the boots and the apron with a
-// finer weave, a knit, a fleece cuff and a leather finish. (Only the fields a garment needs are set, so the looks of
-// before keep their prototype keys.)
-const FLEECE = '#e4d8c0';      // the sheepskin's fleece, undyed
-const COAT_TRIM = '#241a14';   // mixed into the coat's colour by persona.js (30 %): a darker edge
-const COAT_HEM = 0.40;         // m from the ground: the hem of a knee-length coat (look.largoFalda)
+// The new garments of Plan E (docs/planes/gta/PLAN-E-cuerpo-aspecto.md §3.1) in the shapes of E3 (§5.3, real/persona.js
+// GARMENTS): the wool coat is `abrigo` (to the knee; over a tunic it takes the tunic's place and the tunic shows under its
+// hem), the sheepskin jacket `zamarra` (over the waistcoat, which it covers), the linen shirt a shirt with short sleeves,
+// the lined boots have a fleece cuff, the leather apron is a hide. A torn piece (wear[slot].r, 1 worn or 2 torn, §3.2)
+// carries `rota`. (Only the fields a garment needs are set, so the looks of before keep their prototype keys.)
+const FLEECE = '#d9cbae';      // the sheepskin's fleece, undyed
+const COAT_HEM = 0.42;         // m from the ground: the hem of a knee-length coat
 // El look del juego, en el de la persona realista: sexo, piel, pelo, cara y la ropa que lleva puesta
 export function toReal(look, kid = false) {
   const L = fullLook(look), W = look.wear || clothesFor(L), girl = L.sex === 'chica', g = [];
-  const col = it => it && it.color;
+  const col = it => it && it.color, torn = (o, it) => { if (it && it.r > 0) o.rota = Math.min(2, it.r | 0); return o; };
   const torso = W.torso?.id, top = W.encima?.id, legs = W.piernas?.id, outer = W.outer?.id;
-  const tunic = torso === 'tunica' || torso === 'tunica_larga';
-  if (tunic) g.push({ id: 'tunica', color: col(W.torso) });
-  else if (torso) g.push(torso === 'linen_shirt' ? { id: 'camisa', color: col(W.torso), fino: true } : { id: 'camisa', color: col(W.torso) });
-  else if (W.interiorArriba) g.push({ id: 'camisa', color: col(W.interiorArriba) });
+  const tunic = torso === 'tunica' || torso === 'tunica_larga', coat = outer === 'wool_coat', jacket = outer === 'sheepskin_jacket';
+  if (tunic) g.push(torn({ id: 'tunica', color: col(W.torso) }, W.torso));
+  else if (torso) {
+    const shirt = torso === 'linen_shirt' ? { id: 'camisa', color: col(W.torso), fino: true, manga: 'corta' } : { id: 'camisa', color: col(W.torso) };
+    if (W.torso.r > 0 && W.interiorArriba) shirt.debajo = col(W.interiorArriba);   // (what a hole shows)
+    g.push(torn(shirt, W.torso));
+  } else if (W.interiorArriba) g.push({ id: 'camisa', color: col(W.interiorArriba) });
   let coatHem = 0;
-  if (outer === 'wool_coat') {
-    // (first in the list: its sleeves, the tunic's, are the ones that shape the arm; what it covers shows at the neck)
-    const coat = { id: 'tunica', color: col(W.outer), ribete: COAT_TRIM, camisola: col(W.torso || W.interiorArriba) || '#d3c9b4', tela: 'sarga', botones: true };
-    if (tunic) g[0] = coat; else { g.unshift(coat); coatHem = COAT_HEM; }
+  if (coat) {
+    // (first in the list; what it covers shows at the neck and through a torn elbow)
+    const c = torn({ id: 'abrigo', color: col(W.outer), camisola: col(W.torso || W.interiorArriba) || '#d3c9b4' }, W.outer);
+    if (tunic) { c.bajo = COAT_HEM; c.debajo = torn({ color: col(W.torso) }, W.torso); g[0] = c; } else { g.unshift(c); coatHem = COAT_HEM; }
   }
-  if (legs === 'pantalon' || legs?.startsWith('grebas_')) g.push({ id: 'pantalon', color: col(W.piernas) });
-  if (outer === 'sheepskin_jacket') g.push({ id: 'chaleco', color: col(W.outer), ribete: FLEECE, vellon: true, mangas: true });
-  else if (top === 'chaleco' && outer !== 'wool_coat') g.push({ id: 'chaleco', color: col(W.encima) });   // (the coat covers it)
-  // (an apron goes under the wool coat, which covers it to the knee, as it does the waistcoat; the short jacket leaves it seen)
-  if (outer === 'wool_coat') { /* covered */ }
+  if (legs === 'pantalon') g.push(torn({ id: 'pantalon', color: col(W.piernas) }, W.piernas));
+  else if (legs?.startsWith('grebas_')) g.push({ id: 'pantalon', color: col(W.piernas) });
+  if (jacket) g.push({ id: 'zamarra', color: col(W.outer), vellon: FLEECE });
+  else if (top === 'chaleco' && !coat) g.push({ id: 'chaleco', color: col(W.encima) });   // (the coat and the jacket cover it)
+  // (an apron goes under the wool coat, which covers it to the knee)
+  if (coat) { /* covered */ }
   else if (top === 'delantal') g.push({ id: 'delantal', color: col(W.encima) });
   else if (top === 'leather_apron') g.push({ id: 'delantal', color: col(W.encima), cuero: true });
   if (!legs || legs === 'falda') g.push(W.calcetines?.id === 'wool_socks' ? { id: 'medias', color: col(W.calcetines), lana: true } : { id: 'medias', color: col(W.calcetines) || '#5f5346' });
   g.push(W.pies?.id === 'lined_boots' ? { id: 'botas', color: col(W.pies) || '#5a4030', forro: FLEECE } : { id: W.pies ? 'botas' : 'zapatos', color: col(W.pies) || '#5a4030' });
   // (la semilla, sin la mochila ni el abrigo: ponérselos o quitárselos no cambia la cara ni la postura; la mochila se pone
   // sin rehacer la persona)
-  const hat = W.cabeza?.id, lw = look.wear, seed = hash(JSON.stringify(lw?.espalda || lw?.outer ? { ...look, wear: { ...lw, espalda: undefined, outer: undefined } } : look));
+  // (and without the growth steps, hairGrow and beardGrow, that game.appearance() adds, nor the tear stage of a piece,
+  // wear[slot].r: hair that grows and a shirt that tears keep the face and the posture; a look without them hashes as it
+  // always did)
+  const hat = W.cabeza?.id, lw = look.wear, grown = look.hairGrow !== undefined || look.beardGrow !== undefined;
+  const bare = grown ? { ...look, hairGrow: undefined, beardGrow: undefined } : look, tears = lw && Object.values(lw).some(it => it && it.r !== undefined);
+  let wearH = null;
+  if (lw?.espalda || lw?.outer || tears) {
+    wearH = { ...lw, espalda: undefined, outer: undefined };
+    if (tears) for (const k in wearH) if (wearH[k] && wearH[k].r !== undefined) { const { r, ...rest } = wearH[k]; wearH[k] = rest; }
+  }
+  const seed = hash(JSON.stringify(wearH ? { ...bare, wear: wearH } : bare));
   const out = {
     sex: girl ? 'f' : 'm', build: 'medio', skin: L.skin, hair: L.hair, hairStyle: HAIR[L.hairStyle] || 'corto', ojos: L.eyes,
     eyeStyle: L.eyeStyle, brows: L.brows, nose: L.nose, semilla: seed % 97, garments: g,
   };
-  if (L.beard && L.beard !== 'no' && !kid) out.barba = 'corta';
+  // The beard: the shape chosen (bigote, perilla, candado, completa, larga; an old `beard: true` is completa, fullLook) and
+  // how far it has grown (Plan E §2.5: beardGrow 0..4), and the hair's growth (hairGrow 0..3: real/pelo.js crece)
+  if (L.beard && L.beard !== 'no' && !kid) out.barba = L.beard;
+  if (look.beardGrow > 0 && !kid && !girl) out.barbaLargo = Math.min(4, look.beardGrow | 0);
+  if (look.hairGrow > 0) out.crece = Math.min(3, look.hairGrow | 0);
   // Un niño: la cabeza más grande para su cuerpo (5 cabezas de alto en vez de 6,8), más fino y a 1,17 m
   if (kid) Object.assign(out, { cabezas: 5, build: 'fino', escala: KID });
   if (coatHem) out.largoFalda = coatHem;
-  // (the leather apron, a new garment, hangs as a 3D plate over the trousers: persona.js delantalPlancha. The cloth apron
-  // keeps the look it had until the E3 art is approved)
-  if (top === 'leather_apron' && outer !== 'wool_coat') out.delantalPlancha = true;
+  // (an apron hangs as a 3D plate over the trousers: persona.js delantalPlancha. Over a skirt, it always had it)
+  if (!coat && (top === 'leather_apron' || (top === 'delantal' && legs && legs !== 'falda'))) out.delantalPlancha = true;
   if (hat === 'sombrero') out.sombrero = 'paja';
   else if (hat === 'gorro') out.sombrero = 'boina';
   else if (hat === 'hijab') { out.hairStyle = 'panuelo'; out.panuelo = col(W.cabeza); }
@@ -325,5 +342,7 @@ export function realBaby(look) {
 const BLANKET_BALL = new THREE.SphereGeometry(1, 20, 14), BLANKET = new Map();
 // Deja hecho el prototipo de una persona (persona.js prebuild), para que salga sin tirón cuando haga falta
 export const prebuildReal = (look, kid = false) => persona().prebuild(toReal(look, kid));
+// Is it made already (so putting it on screen costs nothing)?
+export const realReady = (look, kid = false) => persona().ready(toReal(look, kid));
 // Cuántos prototipos hay, cuántos sin usar y cuántos lienzos
 export const realStats = () => (P ? P.stats() : null);

@@ -12,6 +12,7 @@ import { Profile } from './accounts.js';
 import { t, tHtml, tList, formatMessage } from './i18n.js';
 import { levelIndex, recent } from './reputation.js';
 import { tearStage, TEAR } from './clothing.js';
+import { openBarber } from './barber.js';
 import { RECALLS } from './remarks.js';   // (a cycle, read only inside functions: remarks.js reads PEOPLE the same way)
 
 // Puntos del pueblo por los que se camina (sobre el camino, para no chocar con nada) y cómo se unen: village.js
@@ -92,7 +93,8 @@ Object.assign(PEOPLE, {
     },
   },
   eusebio: {
-    name: 'Eusebio', temper: 'gruff', seat: [3.5, 35.5, TO_N], sits: STOOL_H, hours: [11, 23],
+    // (the barber, Plan E §4.3: while he is in, 'Get a haircut'; a service, not a shop: he sells nothing)
+    name: 'Eusebio', temper: 'gruff', seat: [3.5, 35.5, TO_N], sits: STOOL_H, hours: [11, 23], service: 'barber',
     look: { sex: 'chico', skin: '#f6c9a0', hair: '#a8a4ac', eyes: '#7a7a8a', cloth: '#5a6a4a', pants: '#3a3a3e', hairStyle: 'corto', outfit: 'chaleco', beard: 'bigote' },
     loves: ['pan_bellota', 'pinones'], likes: ['pan', 'queso'], hates: ['anguila'],
     chat: ['Yo llevo en este taburete desde antes de que hubiera taberna.', '¿Tú crees que va a llover? Yo creo que sí. Lo digo todos los días y a veces acierto.', 'Nilo y yo fuimos a la escuela juntos. Él ya era viejo entonces.', 'Dicen que al norte hay hielo que no se acaba nunca. Yo no he ido a mirar: me queda lejos del taburete.'],
@@ -263,6 +265,7 @@ export class Neighbors {
     if (!cold) add('chat', t('npc.opt.chat'));
     if (open) add('shop', t(def.shopOpt || 'npc.opt.shop'));
     if (def.mends && (open || !shop)) add('mend', t('npc.opt.mend'));
+    if (def.service === 'barber') add('haircut', t('npc.opt.haircut'));
     if (open && TRADES[id]) add('trade', t('npc.opt.trade'));
     if (id === 'nilo') add('plans', t('npc.opt.plans'));   // (los de los muebles de siempre: economy.js, SHOPS.nilo)
     if (giftable) add('gift', t('npc.opt.gift', { item: itemNoun(held.id) }));
@@ -277,6 +280,10 @@ export class Neighbors {
     } else if (pick === 'shop' || pick === 'plans') {
       g.busy = false;
       g.onShop?.(pick === 'plans' ? 'nilo' : def.shop);
+      return;
+    } else if (pick === 'haircut') {
+      g.busy = false;
+      openBarber(g);
       return;
     } else if (pick === 'mend') {
       await this.mend(id);

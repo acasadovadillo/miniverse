@@ -15,7 +15,7 @@ import { ITEMS, TIERS } from '../items.js';
 import { WATER_Y } from './terrain.js';
 import { animalModel, animalKey, animateAnimal, horseModel, animateHorse, setHorseDirt, disposeAnimal, prewarmHorse, HORSE_ACTS } from './animals.js';
 import { nearX } from '../world/planet.js';
-import { RealPerson, realBaby, prebuildReal, realStats } from './realperson.js';
+import { RealPerson, realBaby, prebuildReal, realReady, realStats } from './realperson.js';
 import { apagada } from '../opciones.js';
 import { smoothstep } from '../util.js';
 import { Audio } from '../audio.js';
@@ -136,6 +136,8 @@ export class Actors {
     this.player = null;
     this.time = 0; this.stats = null;
     this.warm = []; this.warmKey = null;   // las personas por hacer de antemano (ver prewarm)
+    this.built = new WeakSet();   // (the looks made that way: later)
+    this.rushing = 0;
   }
   // Los materiales del jugador (para su silueta); body: solo los de su cuerpo y lo que lleva en la mano
   // Un jugador espectador se ve como un fantasma (solo lo ven los otros espectadores, y él mismo)
@@ -174,7 +176,8 @@ export class Actors {
       // (el jugador y los demás jugadores, con la ropa que llevan: si se ponen o se quitan algo, se rehace su persona; si solo
       // cambia la mochila, no: se pone o se quita en la que hay, ver pose)
       const look = e === p ? game.appearance() : e.look;
-      if (m && (e === p || e.remote) && m.look !== look) { if (m.kind === 'person' && look && m.look && bodyKey(m.look) === bodyKey(look)) m.look = look; else { this.drop(e, m); m = null; } }
+      if (m && (e === p || e.remote) && m.look !== look) { if (m.kind === 'person' && look && m.look && bodyKey(m.look) === bodyKey(look)) { m.look = look; m.nextLook = null; } else if (this.later(m, e, look)) { /* (the one there is stays meanwhile) */ } else { this.drop(e, m); m = null; } }
+      else if (m?.nextLook) m.nextLook = null;
       if (m?.kind === 'animal' && !this.sameAnimal(m, e)) { this.drop(e, m); m = null; }
       if (!m) {
         // (hacer una persona cuesta mucho, 100-250 ms: los vecinos van después, por cercanía. El jugador y los demás
@@ -201,6 +204,7 @@ export class Actors {
       }
     }
     for (const [e, m] of this.models) if (!seen.has(e)) this.drop(e, m);
+    if (this.rushing > 0) this.rushing--;
     this.count();
     // En cuevas y mazmorras el jugador lleva un farol
     this.lights.length = 0;
@@ -312,13 +316,41 @@ export class Actors {
     }
     if (!this.warm.length) return;
     // (una que haya que hacer de verdad: las que ya están hechas no cuestan nada)
-    const one = () => { for (let it; (it = this.warm.shift());) { try { if (prebuildReal(it[0], it[1])) return; } catch (err) { /* (la hará al verla) */ } } };
+    const one = () => { for (let it; (it = this.warm.shift());) { this.built.add(it[0]); try { if (prebuildReal(it[0], it[1])) return; } catch (err) { /* (la hará al verla) */ } } };
     // (a oscuras, solo en un rato libre: mientras se espera a algo que no es este hilo; ver engine.js, coverSpare. Si no, cada
     // persona alargaba lo que se está a oscuras al entrar 0,3-0,4 s)
-    if (typeof document !== 'undefined' && document.getElementById('fade')?.classList.contains('on')) { if (this.view.coverSpare?.() ?? true) one(); return; }
+    if (covered()) { if (this.view.coverSpare?.() ?? true) one(); return; }
     if (this.warmIdle || typeof requestIdleCallback !== 'function') return;
     this.warmIdle = true;
     requestIdleCallback(dl => { this.warmIdle = false; if (dl.timeRemaining() > 40) one(); });
+  }
+
+  // A look to make in idle time, first in line (the player's grown hair: body.js growthTick; a swap that waits: later)
+  warmUp(look) {
+    for (const w of this.warm) if (w[0] === look) return;
+    this.warm.unshift([look, false]);
+    if (this.warm.length > 40) this.warm.length = 40;
+  }
+  // The player's next change shows at once (a hidden moment, a haircut, /body): for a couple of frames, later() does not wait
+  rush() { this.rushing = 3; }
+  // Can the change from this model's look to `look` wait? Only when the hair or beard growth or the wear of the clothes is
+  // all that changed (calmKey): the model there is stays while the new one is made in idle time (prewarm), so the change
+  // costs no hitch, neither yours nor another player's. At once when it is made already, when the screen is dark and,
+  // for a game that never rests, after a while (out of sight or standing still; or anyway, later)
+  later(m, e, look) {
+    if (m.kind !== 'person' || !look || !m.look || calmKey(m.look) !== calmKey(look)) return false;
+    if (this.rushing > 0 && m === this.player) return false;
+    if (m.nextLook !== look) {
+      m.nextLook = look; m.nextAt = this.time;
+      if (realReady(look) || covered()) return false;
+      this.warmUp(look);
+      return true;
+    }
+    if (this.built.has(look) || covered()) return false;
+    const t = this.time - m.nextAt;
+    if (t > LATER_MAX || (t > LATER_STILL && (m.tier === 3 || (m.speed || 0) < 0.1))) return false;
+    this.warmUp(look);   // (the list is made again when the village changes)
+    return true;
   }
 
   add(e, isPlayer, look) {
@@ -522,7 +554,7 @@ export class Actors {
       if (m.hand) {   // (los jugadores: la barriga, si espera un bebé, y la mochila, si la lleva; no son huesos)
         const made = P.setBelly(this.game.family.bellyOf(e));
         if (made && m === this.player) ownMesh(made, m, true);
-        const old = P.bag, bag = P.setBag(m.look?.wear?.espalda || null);
+        const old = P.bag, bag = P.setBag((m.nextLook || m.look)?.wear?.espalda || null);
         // (la que se quita se lleva sus materiales propios: los del jugador, para su silueta, y los de un espectador)
         if (old && old !== P.bag) old.traverse(o => {
           if (!o.isMesh) return;
@@ -1287,7 +1319,23 @@ function foodInHand(id) {
   const g = new THREE.Group(); f.scale.setScalar(1.25); f.position.set(0, -0.03, 0.03); g.add(f);
   return g;
 }
-const SEATS = new Set(['silla', 'taburete', 'sofa', 'sillon']);
+const SEATS = new Set(['silla', 'taburete', 'sofa', 'sillon', 'barber_chair']);
+// Is the screen dark (a door, a jump, sleeping)?
+let FADE = null;
+const covered = () => typeof document !== 'undefined' && !!(FADE ||= document.getElementById('fade'))?.classList.contains('on');
+// The swap that waits for an idle moment (Actors.later): s before it is done anyway, standing still or out of sight, and at most
+const LATER_STILL = 45, LATER_MAX = 600;
+// The look without what may wait: the backpack (as bodyKey), the growth steps and the wear of the clothes; once per look
+const CALM_KEYS = new WeakMap();
+function calmKey(look) {
+  let k = CALM_KEYS.get(look);
+  if (k === undefined) {
+    const { hairGrow, beardGrow, wear, ...rest } = look, w = wear && {};
+    if (wear) for (const s in wear) if (s !== 'espalda') { const it = wear[s]; w[s] = it && it.r !== undefined ? { ...it, r: undefined } : it; }
+    CALM_KEYS.set(look, (k = JSON.stringify([rest, w])));
+  }
+  return k;
+}
 // El aspecto sin la mochila (para no rehacer la persona si solo cambia eso), una vez por look
 const BODY_KEYS = new WeakMap();
 function bodyKey(look) {

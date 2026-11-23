@@ -19,7 +19,7 @@ import { Gathering } from './gather.js';
 import { Crafting } from './crafting.js';
 import { STATIONS } from './recipes.js';
 import { START_KIT, ITEMS, RUG_MADE, rugId, CHESTS, UNKNOWN_NAME, knownItem } from './items.js';
-import { clothesFor, dressed } from './looks.js';
+import { clothesFor, dressed, wearStage } from './looks.js';
 import { WorldStore } from './worldstore.js';
 import { BuildMode } from './build.js';
 import { TimeSystem } from './time.js';
@@ -134,7 +134,7 @@ function defaultHouseDeltas() {
 // Los modos de juego (/gamemode) y las reglas del mundo (/gamerule) con lo que valen al empezar
 export const GAMEMODES = { survival: 'supervivencia', creative: 'creativo', spectator: 'espectador' };
 export const RULES = { keepInventory: false, doMobSpawning: true, doWeatherCycle: true, doDaylightCycle: true, naturalRegeneration: true, announceAdvancements: true, doThirst: true, doFatigue: true, doBodyWeather: true };   // (doThirst, doFatigue: needs.js; doBodyWeather: body.js, cold and heat on the needs; old saves get true, and they are read as !== false)
-const TAVERN_SEATS = new Set(['silla', 'taburete']);   // (en la taberna, quien quiere se sienta)
+const TAVERN_SEATS = new Set(['silla', 'taburete', 'barber_chair']);   // (en la taberna, quien quiere se sienta)
 // (no key held: what a rearing horse's rider moves with, horse.js held; frozen, never written)
 const NO_KEYS = Object.freeze({ up: false, down: false, left: false, right: false, run: false, sprint: false, use: false, space: false, dive: false, mapFast: false });
 const AIM_REACH = 2;   // lo que se apunta con el ratón se usa si está a esto como mucho (casillas)
@@ -704,7 +704,7 @@ export class Game {
     const name = ITEMS[o.placed].name.toLowerCase(), pick = { text: `${BUILDABLE[top.placed] ? 'Desmontar' : 'Recoger'} ${ITEMS[top.placed].name.toLowerCase()}`, run: () => this.pickUp(top) };   // (lo construido, al desmontarlo, devuelve sus materiales)
     if (STATIONS[o.placed]) return { text: `Usar ${name}`, run: () => this.onCraft?.(o.placed), alt: o.fixed ? null : pick };
     if (o.placed === 'cama' || o.placed === 'cama_nino' || o.placed === 'cama_doble') return { text: this.carry.dropFirst() || t('bed.use'), run: () => this.bed(o), alt: pick };   // (with something in the arms: put it down first, carry.js)
-    if (o.placed === 'silla' || o.placed === 'taburete' || o.placed === 'sofa' || o.placed === 'sillon') return { text: this.carry.dropFirst() || 'Sentarse', run: () => this.rest.sit(o), alt: o.fixed ? null : pick };
+    if (o.placed === 'silla' || o.placed === 'taburete' || o.placed === 'sofa' || o.placed === 'sillon' || o.placed === 'barber_chair') return { text: this.carry.dropFirst() || 'Sentarse', run: () => this.rest.sit(o), alt: o.fixed ? null : pick };
     // (the bathroom, Plan E §4.1: E on the tub takes a bath, body.js; E on the basin asks: wash, or the mirror as before,
     // ui/menus.js onBasin)
     if (o.placed === 'banera') return { text: this.carry.dropFirst() || t(this.body.hasSoap() && this.gamemode === 'survival' ? 'body.bath.soap' : 'body.bath'), run: () => this.body.bathe(o), alt: pick };
@@ -933,6 +933,7 @@ export class Game {
       v.hold = true;
       await hud.fade(true);
       if (this.jumping !== mine) return;   // (se ha salido de la partida mientras se fundía)
+      this.body?.applyGrowth();   // (hair and beard grown: only where it does not show, body.js §2.5)
       v.hold = false;
       v.snap();
       await v.whenReady(1500);
@@ -1107,6 +1108,7 @@ export class Game {
     this.player.stop();
     if (sound) Audio.door();
     await hud.fade(true);
+    this.body?.applyGrowth();
     Object.assign(this.player, { x, y, inside, view: 'front', dir: null });
     this.scene = scene;
     // (lo que se soltó al morir en esta cueva o mazmorra sigue ahí: las cuevas se rehacen al entrar)
@@ -1124,10 +1126,12 @@ export class Game {
   // El aspecto del jugador con la ropa que lleva puesta (cambia al ponerse o quitarse algo)
   appearance() {
     if (!this.player) return null;
-    // (solo cambia con la ropa puesta y su color: lo gastada que esté la armadura no rehace el muñeco)
-    if (this.looked?.v === this.inv.v && this.looked.base === this.player.look) return this.looked.look;
-    const key = Object.entries(this.inv.equip).map(([k, it]) => `${k}:${it.id}:${it.color}`).sort().join('|');
-    if (this.looked?.key !== key || this.looked.base !== this.player.look) this.looked = { key, base: this.player.look, look: dressed(this.player.look, this.inv.equip) };
+    // (solo cambia con la ropa puesta y su color, con la etapa de su desgaste y con lo crecidos que estén el pelo y la barba
+    // (body.applied); lo gastada que esté la armadura no rehace el muñeco)
+    const L = this.looked, grow = this.body.applied;
+    if (L && L.v === this.inv.v && L.base === this.player.look && L.hair === grow.hair && L.beard === grow.beard) return L.look;
+    const key = Object.entries(this.inv.equip).map(([k, it]) => `${k}:${it.id}:${it.color}:${wearStage(k, it)}`).sort().join('|') + `|g${grow.hair}${grow.beard}`;
+    if (L?.key !== key || L.base !== this.player.look) this.looked = { key, base: this.player.look, look: dressed(this.player.look, this.inv.equip, grow), hair: grow.hair, beard: grow.beard };
     this.looked.v = this.inv.v;
     return this.looked.look;
   }

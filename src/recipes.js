@@ -175,6 +175,7 @@ export const RECIPES = [
   R('banco', 'barra', 1, [['tablas', 4]]),
   R('banco', 'barril', 1, [['tablas', 5], ['lingote_hierro', 1]]),
   R('banco', 'taburete', 1, [['tablas', 2]]),
+  R('banco', 'barber_chair', 1, [['tablas', 4], ['cuero', 2], ['lingote_hierro', 1]]),
   R('cocina', 'sidra', 2, [['manzana', 3]]),
   R('cocina', 'cerveza', 2, [['trigo', 2], ['miel', 1]]),
   R('cocina', 'hidromiel', 1, [['miel', 2]]),

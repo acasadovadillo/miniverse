@@ -522,7 +522,7 @@ export class SmartHud {
     const ap = g.body?.applied;
     if (ap) {
       const grown = (ap.hair || 0) + (ap.beard || 0);
-      if (this.grown !== undefined && grown > this.grown && g.gamemode === 'survival') this.want('hair');
+      if (grown > (this.grown ?? 0) && g.gamemode === 'survival') this.want('hair');
       this.grown = grown;
     }
     // The horse (Plan F): its marker on the minimap, and its tips

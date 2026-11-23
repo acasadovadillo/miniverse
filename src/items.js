@@ -184,8 +184,10 @@ Object.assign(ITEMS, {
   // (the wheelbarrow: built with B, pushed with E, a chest of 12 stacks and up to 3 big things on it; see barrow.js. Its name
   // and description come from the language files)
   wheelbarrow: { place: 'furniture' },
+  // (the barber's chair: tavern furniture, a seat like any other; Eusebio cuts hair in the tavern's, neighbors.js)
+  barber_chair: { place: 'furniture' },
 });
-defineNames({ big_well: ITEMS.big_well, wheelbarrow: ITEMS.wheelbarrow }, 'item');
+defineNames({ big_well: ITEMS.big_well, wheelbarrow: ITEMS.wheelbarrow, barber_chair: ITEMS.barber_chair }, 'item');
 // (the saddlebags hold 12 stacks since Plan F, saddlebags.js: their description comes from the language files; with
 // ?alforjas=0 they keep 9, and the old text)
 if (!apagada('alforjas')) defineNames({ alforjas: ITEMS.alforjas }, 'item', ['desc']);
@@ -310,8 +312,8 @@ Object.assign(ITEMS, {
   mochila: { name: 'Mochila', desc: 'Póntela a la espalda y podrás llevar 27 cosas más. Sin ella solo llevas lo que cabe en las manos y los bolsillos. También se deja en el suelo, llena, como un cofre que se lleva.', wear: 'espalda', bag: 27, dye: '#8a5a34', place: 'furniture' },
 });
 // ---------- The new garments (Plan E §3.1, phase E2): English ids, names and descriptions from the language files ----------
-// Woven at the loom with no plan (recipes.js) and sold by Marta, by season (economy.js). Until the E3 art they are drawn
-// with today's garment shapes (plan §5.3 fallback). Like every garment they carry their colour and never stack
+// Woven at the loom with no plan (recipes.js) and sold by Marta, by season (economy.js). Drawn in
+// their own shapes (three/real/persona.js). Like every garment they carry their colour and never stack
 const GARMENT_ITEMS = {
   wool_coat: { wear: 'outer', dye: '#5e5648' },
   sheepskin_jacket: { wear: 'outer', dye: '#8a6440' },

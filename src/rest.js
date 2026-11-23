@@ -10,7 +10,7 @@ import { nearX } from './world/planet.js';
 import { Audio } from './audio.js';
 import { hud } from './ui/hud.js';
 
-const SEAT = 0.14, STOOL = 0.27, SOFA = 0.1, BED = 0.6, FLOOR_LIE = 0.14, FLOOR_SIT = -0.28;
+const SEAT = 0.14, STOOL = 0.27, SOFA = 0.1, BARBER = 0.2, BED = 0.6, FLOOR_LIE = 0.14, FLOOR_SIT = -0.28;
 const BATH = 0.12, BATH_HIP = 0.85;   // the bather's h, and from the tub's anchor along its length to the hips (the taps' end at the feet)
 
 export class Rest {
@@ -28,7 +28,8 @@ export class Rest {
     let [x, y] = [o.x, o.y];
     if (o.placed === 'sofa') { const [sx, sy] = sideOf(yaw); if (Math.hypot(x + sx - p.x, y + sy - p.y) < Math.hypot(x - p.x, y - p.y)) { x += sx; y += sy; } }
     const soft = o.placed === 'sofa' || o.placed === 'sillon';   // (en el sofá y en el sillón, más hundido y algo más adelante)
-    this.take({ kind: 'sit', yaw, h: soft ? SOFA : o.placed === 'taburete' ? STOOL : SEAT }, x + Math.sin(yaw) * (soft ? 0.05 : -0.04), y + Math.cos(yaw) * (soft ? 0.05 : -0.04));
+    const barber = o.placed === 'barber_chair', fwd = soft ? 0.05 : barber ? -0.1 : -0.04;
+    this.take({ kind: 'sit', yaw, h: soft ? SOFA : o.placed === 'taburete' ? STOOL : barber ? BARBER : SEAT }, x + Math.sin(yaw) * fwd, y + Math.cos(yaw) * fwd);
   }
   // En una cama: boca arriba, con la cabeza en la almohada (la casilla de la cabecera). En la doble, del lado
   // que quede más cerca y esté libre (twin: dónde está el otro lado, para saber quién se tumba ahí: ver la familia)

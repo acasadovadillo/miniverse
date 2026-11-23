@@ -4,6 +4,11 @@
      P.build({ sex: 'f', skin: '#e8b07a', hair: '#7a4a2a', hairStyle: 'largo', ... }, { det: 1 | 2, res: 512 | 1024 })
    hairStyle: corto, largo, coleta, rizado, mono, tupe, pinchos, cresta.
    look.hairVersion: pinchos 'puntas' (8-11 cm, sin pico único) | 'cepillo' (romo, 3-4 cm); cresta 'alta' (8-11 cm) | 'baja' (4 cm, borde romo).
+   look.crece 0..3 (Plan E §5.3, hair that grows with real days): each step lengthens the edge about 1.5 cm (more at the
+   nape), lets the fringe fall over the forehead and, on the long styles, lengthens the ends; tied styles (coleta, mono,
+   and trenza through sueltos) only get loose strands round the face. calvo: no cap, the hair left on the sides and the
+   back painted short; rapado: shaved to the skin (painted) and filling in, a brush cut (pinchos cepillo) at step 2 and a
+   short cut (corto) at step 3.
    Lo demás (trenza, panuelo) sigue en persona.js. Sin este archivo, persona funciona con sus peinados de siempre.
 
    LO QUE EXPORTA: peinado(look) devuelve { cola, tapaOrejas, forma(C), malla(C), pinta(Q) } o null; ESTILOS, los ids; PRESUPUESTO, triángulos de la sección 4.2 a det 1.
@@ -245,42 +250,56 @@ LOOK.parts.pelo = (THREE, LOOK) => {
   const ESTILOS = {};
 
   // ---------------------------------------------------------------- corto: arriba con volumen y flequillo roto; lados y nuca pegados, oreja a la vista
+  // How much a grown cut drops its edge at |th| (in head heights: a little over the ear, about 0.7 cm a step at the nape,
+  // the same all across the back so the nape stays straight, never a V; nothing at the forehead, where the fringe falls
+  // instead), and the number of steps
+  const crece = look => min(3, max(0, look.crece | 0));
+  // (how far a fringe comes down, in first steps: the third one barely lower than the second, never a bowl cut)
+  const FRENTE = [0, 1, 1.5, 1.75];
+  const caeBorde = (a, k) => k * (0.014 * sm(30, 60, a) * sm(118, 84, a) + 0.03 * sm(96, 128, a));
   ESTILOS.corto = {
     forma: C => {
-      const hl0 = C.curva1(HL.corto), hc0 = C.curva1(HL.cortoC), ent = a => (C.look.edad === 'mayor' ? 0.055 * G(a - 36, 15) + 0.02 * G(a, 22) : 0);
-      return { hl: a => hl0(a) + ent(a), hlC: a => hc0(a) + ent(a), raya: false };
+      const hl0 = C.curva1(HL.corto), hc0 = C.curva1(HL.cortoC), ent = a => (C.look.edad === 'mayor' ? 0.055 * G(a - 36, 15) + 0.02 * G(a, 22) : 0), k = crece(C.look);
+      // (grown, the cap itself comes down a little over the forehead too, under the fringe, so no skin shows between its
+      // strands; less and less each step: the hair on top gains body, the forehead stays open)
+      const frente = a => 0.016 * FRENTE[k] * sm(72, 28, a);
+      return k ? { hl: a => hl0(a) + ent(a) - 0.8 * caeBorde(a, k), hlC: a => max(0.14, hc0(a) + ent(a) - caeBorde(a, k) - frente(a)), raya: false } : { hl: a => hl0(a) + ent(a), hlC: a => hc0(a) + ent(a), raya: false };
     },
     malla(T, C) {
-      const { det, est, look, rng } = C, d2 = det > 1, sg0 = barrido(look), hE = t => est.hlC(abs(t)), seg = d2 ? 5 : 2;
-      const borde = th => hE(th) - 0.014 * ruidoP(th, 7.3) * sm(40, 110, abs(th));
+      const { det, est, look, rng } = C, d2 = det > 1, sg0 = barrido(look), hE = t => est.hlC(abs(t)), seg = d2 ? 5 : 2, k = crece(look), kf = FRENTE[k];
+      // (the fringe's edge, swept: lower on the side it falls to, higher on the other, so it never draws a level line)
+      const ladea = th => 0.012 * kf * sm(-50, 50, th * sg0) * sm(86, 60, abs(th)) - 0.008 * kf * sm(70, 45, abs(th));
+      const borde = th => hE(th) - 0.014 * (1 + 0.5 * k) * ruidoP(th, 7.3) * sm(40, 110, abs(th)) - (k ? 0.012 * kf * (ruidoP(th * 3.2, 4.1) - 0.3) * sm(70, 20, abs(th)) + ladea(th) : 0);
       T.casco({
-        nT: d2 ? 56 : 28, nS: d2 ? 9 : 4, borde, lump: d2 ? 0.005 : 0.009,
-        grueso: (th, s) => { const a = abs(th); return (0.019 + 0.006 * G(a, 42)) * lerp(1, 0.28, sm(48, 88, a) * sm(0.15, 0.6, s)) * lerp(1, 0.55, sm(112, 170, a) * sm(0.25, 0.8, s)); },
+        nT: d2 ? 56 : 28, nS: d2 ? 9 : 4, borde, lump: (d2 ? 0.005 : 0.009) * (1 + 0.25 * k),
+        grueso: (th, s) => { const a = abs(th); return (0.019 + 0.006 * G(a, 42) + 0.0022 * k * G(a, 90) * sm(0.9, 0.3, s)) * lerp(1, 0.28 + 0.1 * k, sm(48, 88, a) * sm(0.15, 0.6, s)) * lerp(1, 0.55 + 0.08 * k, sm(112, 170, a) * sm(0.25, 0.8, s)); },
         osc: (th, s) => lerp(1, 0.82, sm(0.55, 1, s)),
       });
       if (!look.sombrero) {
         // Flequillo: mechones que salen de atrás, barridos a un lado, con la punta a alturas distintas sobre la frente
+        // (grown, the fringe falls a little lower, swept to its side and broken into strands of their own lengths; the
+        // edges of every strand sink into the cap under it: no daylight between the two)
         const nF = d2 ? 20 : 5;
         for (let i = 0; i < nF; i++) {
-          const t = lerp(-56, 56, (i + 0.5) / nF) + (rng() - 0.5) * (d2 ? 6 : 9), he = hE(t), corte = 0.004 + pow(rng(), 1.6) * (d2 ? 0.034 : 0.06);
-          T.cinta(T.ruta([[t - sg0 * 24, min(0.95, he + 0.19), 0.006], [t - sg0 * 9, he + 0.07, 0.007], [t + sg0 * 3, he - corte, 0.0028]], d2 ? 9 : 3), { w: (d2 ? 0.0118 : 0.023) * (0.75 + rng() * 0.5), alto: 0.0034, punta: d2 ? 0.16 : 0.3, afina: 0.75, redonda: true, oscR: 0.86, borde: 0.86 });
+          const t = lerp(-56, 56, (i + 0.5) / nF) + (rng() - 0.5) * (d2 ? 6 : 9), he = hE(t), corte0 = 0.004 + pow(rng(), 1.6) * (d2 ? 0.034 : 0.06), corte = k ? corte0 * (1 - 0.12 * k) + ladea(t) : corte0;
+          T.cinta(T.ruta([[t - sg0 * 24, min(0.95, he + 0.19), 0.006], [t - sg0 * (9 + 2 * k), he + 0.07 - 0.006 * kf, (0.006 + 0.001 * k) * lerp(1, 0.25, sm(28, 52, abs(t)))], [t + sg0 * (3 + 2 * k), he - corte, 0.0028 * lerp(1, 0.2, sm(28, 52, abs(t)))]], d2 ? 9 : 3), { w: (d2 ? 0.0118 : 0.023) * (0.75 + rng() * 0.5) * (1 + 0.05 * k), alto: 0.0034, baja: d2 ? 0.0055 : 0.014, punta: d2 ? 0.16 : 0.3 + 0.03 * k, afina: 0.75, redonda: true, oscR: 0.86, borde: 0.86 });
         }
         // Remolino: la coronilla no queda lisa
         const nR = d2 ? 10 : 3;
-        for (let i = 0; i < nR; i++) { const t = nor180(-180 + 360 * (i + 0.5) / nR + (rng() - 0.5) * 16); T.cinta(T.ruta([[nor180(t - sg0 * 50), 0.992, 0.002], [nor180(t - sg0 * 18), 0.955, 0.004], [t, 0.885, 0.003]], d2 ? 4 : 2), { w: (d2 ? 0.0135 : 0.023), alto: 0.0035, punta: 0.3, oscR: 0.9 }); }
+        for (let i = 0; i < nR; i++) { const t = nor180(-180 + 360 * (i + 0.5) / nR + (rng() - 0.5) * 16); T.cinta(T.ruta([[nor180(t - sg0 * 50), 0.992, 0.002], [nor180(t - sg0 * 18), 0.95, 0.003], [t, 0.86, -0.006]], d2 ? 4 : 2), { w: (d2 ? 0.0135 : 0.026), alto: 0.003, baja: d2 ? 0.006 : 0.012, punta: 0.3, raiz: 0.8, oscR: 0.96 }); }
         // Encima: del remolino hacia delante y a los lados
         const nA = d2 ? 18 : 4;
         for (let i = 0; i < nA; i++) {
-          const t = lerp(-110, 110, (i + 0.5) / nA) + (rng() - 0.5) * 9, he = hE(t), e = (0.002 + rng() * 0.007) * lerp(1, 0.3, sm(45, 95, abs(t)));
-          T.cinta(T.ruta([[t * 1.5 + sg0 * 20, 0.985, e * 0.5], [t * 1.15 + sg0 * 8, lerp(0.985, he, 0.42), e], [t + sg0 * 2, lerp(0.985, he, 0.82), e * 0.6 * lerp(1, 0.4, sm(45, 95, abs(t)))]], seg), { w: (d2 ? 0.0145 : 0.024) * (0.85 + rng() * 0.3), alto: 0.004, punta: 0.3, oscR: 0.86 });
+          const t = lerp(-110, 110, (i + 0.5) / nA) + (rng() - 0.5) * 9, he = hE(t), e = (0.002 + rng() * (d2 ? 0.007 : 0.0045)) * lerp(1, 0.3, sm(45, 95, abs(t)));
+          T.cinta(T.ruta([[t * 1.5 + sg0 * 20, 0.985, e * 0.5], [t * 1.15 + sg0 * 8, lerp(0.985, he, 0.42), e], [t + sg0 * 2, lerp(0.985, he, 0.82), e * 0.6 * lerp(1, 0.4, sm(45, 95, abs(t)))]], seg), { w: (d2 ? 0.0145 : 0.024) * (0.85 + rng() * 0.3), alto: 0.004, baja: d2 ? 0.006 : 0.014, punta: 0.3, oscR: 0.86 });
         }
       }
       // Lados y nuca: cortos, hacia abajo y atrás, con la punta irregular
       for (const sg of [1, -1]) {
         const nL = d2 ? 7 : 2;
-        for (let i = 0; i < nL; i++) { const a = lerp(68, 118, (i + 0.5) / nL) + rng() * 4, he = hE(a); T.cinta(T.ruta([[sg * (a - 8), min(0.86, he + 0.2), 0.001], [sg * (a - 1), he + 0.09, 0.0015], [sg * (a + 5), he - 0.006 - rng() * 0.018, 0.0012]], seg), { w: (d2 ? 0.0105 : 0.017), alto: 0.0022, baja: 0.002, punta: 0.3, oscR: 0.88 }); }
+        for (let i = 0; i < nL; i++) { const a = lerp(68, 118, (i + 0.5) / nL) + rng() * 4, he = hE(a); T.cinta(T.ruta([[sg * (a - 8), min(0.86, he + 0.2), 0.001], [sg * (a - 1), he + 0.09, 0.0015], [sg * (a + 5), he - 0.006 - rng() * 0.018, 0.0012]], seg), { w: (d2 ? 0.0105 : 0.017), alto: 0.0022, baja: d2 ? 0.003 : 0.006, punta: 0.3, oscR: 0.88 }); }
         const nB = d2 ? 8 : 3;
-        for (let i = 0; i < nB; i++) { const a = lerp(124, 180, (i + 0.5) / nB) + (rng() - 0.5) * 4, he = hE(a); T.cinta(T.ruta([[sg * a, 0.88, 0.002], [sg * a, lerp(0.88, he, 0.55), 0.0025], [sg * (a + 1), he - 0.008 - rng() * 0.03, 0.0012]], seg), { w: (d2 ? 0.0125 : 0.021), alto: 0.0028, baja: 0.0025, punta: 0.34, oscR: 0.88 }); }
+        for (let i = 0; i < nB; i++) { const a = lerp(124, 180, (i + 0.5) / nB) + (rng() - 0.5) * 4, he = hE(a); T.cinta(T.ruta([[sg * a, 0.95, -0.004], [sg * a, lerp(0.9, he, 0.45), 0.0025], [sg * (a + 1), he - 0.008 - rng() * 0.03, 0.0012]], seg), { w: (d2 ? 0.0125 : 0.022), alto: 0.0028, baja: d2 ? 0.004 : 0.007, punta: 0.34, raiz: 0.8, oscR: 0.94 }); }
       }
     },
     pinta(Q) { const sg0 = barrido(Q.look); pintaCasco(Q, (th, s) => [sg0 * 26 * (1 - s) + (abs(th) > 100 ? 0 : 0), 1]); pintaMechon(Q); },
@@ -293,12 +312,12 @@ LOOK.parts.pelo = (THREE, LOOK) => {
       return { hl: hl0, hlC: hc0, raya: false };
     },
     malla(T, C) {
-      const { det, est, look, rng } = C, d2 = det > 1, sg0 = barrido(look), hE = t => est.hlC(abs(t)), seg = d2 ? 6 : 3;
+      const { det, est, look, rng } = C, d2 = det > 1, sg0 = barrido(look), k = crece(look), hE = t => max(0.14, est.hlC(abs(t)) - caeBorde(abs(t), k)), seg = d2 ? 6 : 3;
       T.casco({
-        nT: d2 ? 56 : 28, nS: d2 ? 11 : 5, caida: 7, lump: d2 ? 0.003 : 0.005, borde: th => hE(th) - 0.01 * ruidoP(th, 3.1) * sm(50, 110, abs(th)),
+        nT: d2 ? 56 : 28, nS: d2 ? 11 : 5, caida: 7, lump: d2 ? 0.003 : 0.005, borde: th => hE(th) - 0.01 * (1 + 0.5 * k) * ruidoP(th, 3.1) * sm(50, 110, abs(th)),
         grueso: (th, s) => {
-          const a = abs(th), ola = 0.042 * G(th - sg0 * 7, 38) * G(s - 0.74, 0.26);
-          return (ola + 0.015 + 0.006 * G(a, 70)) * lerp(1, 0.24, sm(52, 90, a) * sm(0.1, 0.5, s)) * lerp(1, 0.5, sm(112, 170, a) * sm(0.3, 0.8, s));
+          const a = abs(th), ola = 0.042 * (1 + 0.16 * k) * G(th - sg0 * 7, 38) * G(s - 0.74, 0.26 + 0.02 * k);
+          return (ola + 0.015 + 0.006 * G(a, 70) + 0.0015 * k) * lerp(1, 0.24 + 0.12 * k, sm(52, 90, a) * sm(0.1, 0.5, s)) * lerp(1, 0.5 + 0.1 * k, sm(112, 170, a) * sm(0.3, 0.8, s));
         },
         osc: (th, s) => lerp(1, 0.8, sm(0.8, 1, s) * sm(70, 30, abs(th)) + 0.75 * sm(0.55, 1, s) * sm(50, 90, abs(th))),
       });
@@ -306,7 +325,7 @@ LOOK.parts.pelo = (THREE, LOOK) => {
       const nQ = d2 ? 15 : 6;
       for (let i = 0; i < nQ; i++) {
         const t = lerp(-56, 56, (i + 0.5) / nQ) + (rng() - 0.5) * 5, he = hE(t), off = sg0 * (6 + rng() * 5);
-        T.cinta(T.ruta([[t, he + 0.004, 0.001], [t + off * 0.5, he + 0.05, 0.007], [t + off, he + 0.14, 0.007], [t * 0.8 + off * 1.3, min(0.97, he + 0.2), -0.006]], seg), { w: (d2 ? 0.0145 : 0.024) * (0.9 + rng() * 0.25), alto: 0.0045, raiz: 0.75, punta: 0.3, oscR: 0.74, oscP: 1 });
+        T.cinta(T.ruta([[t, he + 0.004, 0.001], [t + off * 0.5, he + 0.05, 0.007 + 0.0018 * k], [t + off, he + 0.14, 0.007 + 0.0016 * k], [t * 0.8 + off * 1.3, min(0.97, he + 0.2), -0.006]], seg), { w: (d2 ? 0.0145 : 0.024) * (0.9 + rng() * 0.25), alto: 0.0045, raiz: 0.75, punta: 0.3, oscR: 0.74, oscP: 1 });
       }
       for (const sg of [1, -1]) {
         // Lados peinados hacia atrás, tirantes
@@ -324,20 +343,29 @@ LOOK.parts.pelo = (THREE, LOOK) => {
     tapaOrejas: true,
     forma: C => { const hl = C.curva1(HL.largo); return { hl, hlC: a => hl(a) + 0.012 - 0.07 * G(a - 96, 16), raya: true }; },
     malla(T, C) {
-      const { det, est, rng, chin, H, d, sec, V, oscV, R, bridge, zCab } = C, d2 = det > 1, BM = R.mechon, off = 2.5 * barrido(C.look), hE = t => est.hlC(abs(t)), yFin = 1.18;
+      // (grown: the same hair, and below the chin its ends drawn out about 4.5 cm a step, each strand by its own amount
+      // within 20 % so the hem is uneven, following the body's curve and no further from it; a touch more volume)
+      const { det, est, rng, chin, H, d, sec, V, oscV, R, bridge, zCab } = C, d2 = det > 1, BM = R.mechon, off = 2.5 * barrido(C.look), hE = t => est.hlC(abs(t)), k = crece(C.look), yFin = 1.18;
       const raya = th => abs(nor180(th - off));
       T.casco({
         nT: d2 ? 56 : 28, nS: d2 ? 8 : 3, lump: d2 ? 0.003 : 0.006, borde: th => hE(th),
-        grueso: (th, s) => { const a = abs(th); return (0.0125 + 0.0065 * sm(15, 85, a)) * (1 - 0.6 * G(raya(th), 4.5) * sm(1, 0.35, s) * sm(120, 40, a)); },
+        grueso: (th, s) => { const a = abs(th); return (0.0125 + 0.0065 * sm(15, 85, a) + 0.0008 * k) * (1 - 0.6 * G(raya(th), 4.5) * sm(1, 0.35, s) * sm(120, 40, a)); },
         osc: (th, s) => lerp(1, 0.86, sm(0.6, 1, s)) * lerp(0.74, 1, sm(0, 6, raya(th)) + sm(110, 150, abs(th))),
       });
       const zPecho = y => { const s = sec(clamp(y, d.yP, chin)); return s[3] + s[1] + 0.012; }, zEspalda = y => { const s = sec(clamp(y, d.yP, chin)); return s[3] - s[2] - 0.016; };
+      const yA = chin - 0.06, extra = (th, i) => k * 0.045 * (1 + 0.2 * sin(th * 0.37 + i * 1.7));
+      const estira = (pts, ex, lado) => {
+        if (!ex) return pts;
+        let yE = Infinity; for (const p of pts) yE = min(yE, p[1]);
+        const span = max(0.05, yA - yE), guia = lado > 0 ? zPecho : zEspalda;
+        return pts.map(p => { if (p[1] >= yA) return p; const y = p[1] - ex * min(1, (yA - p[1]) / span); return [p[0], y, p[2] + guia(y) - guia(p[1])]; });
+      };
 
       // Pared trasera: filas de hilos que caen del occipital. Dos caras: la de dentro, oscura, tapa el hueco detrás del cuello
       const cols = d2 ? 28 : 10, filas = d2 ? 9 : 4, thA = 84, colsP = [], colsI = [];
       for (let j = 0; j <= cols; j++) {
         const th = nor180(lerp(thA, 360 - thA, j / cols)), a = abs(th), h0 = 0.64, n0 = C.dirCraneo(th, h0), p0 = vadd(T.craneo(th, h0), vmul(n0, T.tCap(th, h0) * 0.7));
-        const fin = yFin + 0.014 * ruidoP(th, 11.5) + 0.08 * sm(150, 110, a), hilo = T.cae(p0, [n0[0] * 0.25, -1, n0[2] * 0.4], 1.1, { g: 0.32, cl: 0.011, yFin: fin, soloZ: -1, kg: 0.24, guia: p => [p[0] * 0.965, zEspalda(p[1]) - 0.006] }), pts = T.ondula(T.muestra(hilo, filas), 0.004, 1.6, th * 0.09), col = [];
+        const fin = yFin + 0.014 * ruidoP(th, 11.5) + 0.08 * sm(150, 110, a), hilo = T.cae(p0, [n0[0] * 0.25, -1, n0[2] * 0.4], 1.1, { g: 0.32, cl: 0.011, yFin: fin, soloZ: -1, kg: 0.24, guia: p => [p[0] * 0.965, zEspalda(p[1]) - 0.006] }), pts = estira(T.ondula(T.muestra(hilo, filas), 0.004, 1.6, th * 0.09), extra(th, j), -1), col = [];
         pts.forEach((p, r) => { const iv = V(p, BM.x + BM.w * 0.9 * j / cols, BM.y + BM.h * 0.9 * r / filas, T.pesoCuelga(p), 'pelo', 'H'); oscV[iv] = lerp(0.74, 0.86, r / filas); col.push(iv); });
         colsP.push(col);
         const colI = []; pts.forEach((p, r) => { const iv = V(p, BM.x + BM.w * 0.9 * j / cols, BM.y + BM.h * 0.9 * r / filas, T.pesoCuelga(p), 'mono', 'H'); oscV[iv] = 0.62; colI.push(iv); });
@@ -354,7 +382,7 @@ LOOK.parts.pelo = (THREE, LOOK) => {
         const k = (i + 0.5) / nB, th = nor180(lerp(118, 242, k) + (rng() - 0.5) * 6), sg = signo(th), a = abs(th);
         const ruta = T.ruta([[off + sg * 5, 0.962, 0], [sg * lerp(52, 120, sm(110, 180, a)), 0.90, 0.002], [th, 0.76, 0.006], [th, 0.60, 0.007]], d2 ? 12 : 4), fin = T.ruta([[th, 0.62, 0.007], [th, 0.60, 0.007]], 1)[1];
         const hilo = T.cae(fin, [0, -1, 0], 1.1, { g: 0.3, cl: 0.018, soloZ: -1, yFin: yFin - 0.015 - rng() * 0.05 + 0.07 * sm(150, 118, a), kg: 0.24, guia: p => [p[0] * 0.965, zEspalda(p[1]) - 0.012] });
-        T.cinta(T.ondula(T.muestra(ruta.concat(hilo.slice(1)), tramos + 2), 0.0055, 1.4 + rng(), rng() * 6), { w: (d2 ? 0.017 : 0.028) * (0.85 + rng() * 0.3), alto: 0.0042, baja: 0.003, punta: 0.3, afina: 0.78, raiz: 0.25, oscR: 0.92, borde: 0.84, peso: T.pesoCuelga });
+        T.cinta(estira(T.ondula(T.muestra(ruta.concat(hilo.slice(1)), tramos + 2), 0.0055, 1.4 + rng(), rng() * 6), extra(th, i), -1), { w: (d2 ? 0.017 : 0.028) * (0.85 + rng() * 0.3), alto: 0.0042, baja: 0.003, punta: 0.3, afina: 0.78, raiz: 0.25, oscR: 0.92, borde: 0.84, peso: T.pesoCuelga });
       }
       // Cortinas: delante, enmarcan la cara y caen sobre el pecho; las de atrás pasan por la oreja y se van detrás del hombro
       const planes = d2
@@ -363,7 +391,7 @@ LOOK.parts.pelo = (THREE, LOOK) => {
       for (const sg of [1, -1]) for (const [xG, a1, a2, lado, w] of planes) {
         const ruta = T.ruta([[off + sg * 3.5, 0.93 + (a1 - 60) * 0.0012, 0.002], [sg * (a1 * 0.45), 0.875, 0.004], [sg * a1, 0.73, 0.0045], [sg * a2, 0.56, 0.0055], [sg * (a2 + 3), 0.44, 0.0068]], d2 ? 12 : 3), ult = ruta[ruta.length - 1];
         const hilo = T.cae(ult, [0, -1, lado * 0.15], 1.0, { g: 0.26, cl: 0.015, soloZ: lado, yFin: yFin + 0.012 - rng() * 0.05, kg: 0.42, guia: p => [sg * xG, lado > 0 ? zPecho(p[1]) : zEspalda(p[1])] });
-        T.cinta(T.ondula(T.muestra(ruta.concat(hilo.slice(1)), d2 ? 22 : 4), 0.005, 1.2 + rng(), rng() * 6), { w: w * (0.9 + rng() * 0.2), alto: 0.0055, baja: 0.0035, cerrada: true, punta: 0.3, afina: 0.74, raiz: 0.25, oscR: 0.92, borde: 0.84, peso: T.pesoCuelga });
+        T.cinta(estira(T.ondula(T.muestra(ruta.concat(hilo.slice(1)), d2 ? 22 : 4), 0.005, 1.2 + rng(), rng() * 6), extra(a1 * sg, a2), lado), { w: w * (0.9 + rng() * 0.2), alto: 0.0055, baja: 0.0035, cerrada: true, punta: 0.3, afina: 0.74, raiz: 0.25, oscR: 0.92, borde: 0.84, peso: T.pesoCuelga });
       }
     },
     pinta(Q) {
@@ -401,6 +429,21 @@ LOOK.parts.pelo = (THREE, LOOK) => {
   };
   const pintaAtadura = (Q) => { const { g, R } = Q, r = R.mono; g.fillStyle = LOOK.sobrio('#6d5c4c'); g.fillRect(r.x, r.y + r.h - 12, r.w, 12); };
 
+  // Loose strands round the face: a tied style that has grown (crece k) lets what does not reach the tie fall by the
+  // temples and over a corner of the forehead. 2, 4 and 5 thin strands (2.5 mm wide at the root, 1 mm at the tip), two
+  // segments each (8 triangles): the root 3-4 mm inside the cap's edge, on it, then down by the face 3 mm off the skin
+  // with a slight wave. capT: the thickness of a cap the Taller does not know (the trenza's, in persona.js)
+  const sueltos = (T, C, k, capT = null) => {
+    if (!k) return;
+    const { est, rng } = C, sg0 = barrido(C.look), hE = t => est.hlC(abs(t)), sitios = [[-48, 48], [-44, 44, -68, 68], [-44, 44, -68, 68, sg0 * 16]][k - 1];
+    for (const t of sitios) {
+      const sg = signo(t), a = abs(t), he = hE(t), sien = a > 55, cae = (sien ? 0.075 : 0.045) + 0.022 * k + 0.012 * rng(), sale = sien ? 1.5 : 3 + 3 * rng(), ola = (rng() - 0.5) * 3;
+      const h0 = he + 0.016, c0 = capT ? capT(t - sg * 1.5, h0) * 0.85 : 0;
+      T.cinta(T.ruta([[t - sg * 1.5, h0, c0 + 0.0008], [t + sg * sale * 0.45 + ola, he - cae * 0.42, sien ? 0.0016 : 0.003], [t + sg * sale, he - cae, sien ? 0.0014 : 0.0026]], 2),
+        { w: 0.0015 * (0.9 + rng() * 0.2), alto: 0.0006, baja: 0.0005, raiz: 1, punta: 0.45, afina: 0.35, oscR: 1, oscP: 1.08, borde: 0.95 });
+    }
+  };
+
   // ---------------------------------------------------------------- coleta: cola de 28 cm desde el occipital
   ESTILOS.coleta = {
     cola: true,
@@ -409,6 +452,7 @@ LOOK.parts.pelo = (THREE, LOOK) => {
       const { det, rng, H, chin } = C, d2 = det > 1, hTie = 0.47;
       cascoRecogido(T, C);
       recogeHacia(T, C, 180, hTie, 8, 26);
+      sueltos(T, C, crece(C.look));
       // La cola: varias guedejas que nacen de la atadura, se abren un poco y acaban a distinto largo
       const c0 = vadd(T.craneo(180, hTie), [0, 0, -T.tCap(180, hTie) - 0.012]), nG = d2 ? 7 : 3, sgL = barrido(C.look), yn = chin + 0.1 * H;
       const peso = (p, k) => { const wN = sm(0.06, 0.3, k), w2 = sm(0.3, 0.65, k); return { neck: (1 - wN) * 0.3, head: (1 - wN) * 0.7, torso: wN * (1 - w2), braid: wN * w2 }; };
@@ -432,6 +476,7 @@ LOOK.parts.pelo = (THREE, LOOK) => {
       const { det, rng, m } = C, d2 = det > 1, hTie = 0.53;
       cascoRecogido(T, C);
       recogeHacia(T, C, 180, hTie, 8, 26);
+      sueltos(T, C, crece(C.look));
       const k0 = m ? 1.06 : 1, c0 = vadd(T.craneo(180, hTie), [0, 0, -T.tCap(180, hTie) - 0.004]), a = vnorm([0, 0.16, -1]), e1 = [1, 0, 0], e2 = vcross(a, e1);
       // La espiral sale de fuera y acaba en el centro, en lo alto del moño
       const vueltas = d2 ? 2.7 : 1.45, n = d2 ? 58 : 12, pts = [];
@@ -447,8 +492,10 @@ LOOK.parts.pelo = (THREE, LOOK) => {
     tapaOrejas: true,
     forma: C => { const hl = C.curva1(HL.rizado); return { hl, hlC: a => hl(a) + 0.008, raya: false }; },
     malla(T, C) {
-      const { det, est, rng } = C, d2 = det > 1, hE = t => est.hlC(abs(t)), lobos = [], nL = d2 ? 170 : 30, rL = d2 ? 0.0175 : 0.037;
-      const borde = th => hE(th) - 0.05 * (0.5 + 0.5 * sin(th * PI / 180 * (d2 ? 11 : 7) + 1.3)) - 0.02 * ruidoP(th, 5.5);
+      // (grown: the edge lower, all round and most at the nape, bigger lobes and a thicker mass, longer ringlets)
+      // (at most 8-10 % more a step, and the front not lowered: the curls at the forehead stay up, off the eyes)
+      const { det, est, rng } = C, d2 = det > 1, kc = crece(C.look), hE = t => est.hlC(abs(t)) - kc * (0.004 * sm(30, 70, abs(t)) + 0.02 * sm(70, 150, abs(t))), lobos = [], nL = d2 ? 170 : 30, rL = (d2 ? 0.0175 : 0.037) * (1 + 0.04 * kc);
+      const borde = th => { const b = hE(th) - 0.05 * (0.5 + 0.5 * sin(th * PI / 180 * (d2 ? 11 : 7) + 1.3)) - 0.02 * ruidoP(th, 5.5); return kc ? max(0.12, b) : b; };
       // Lóbulos: lo que se solapan decide si hay valle o no. Unos 66 de 2,5 cm cubren el casquete casi sin pisarse
       for (let i = 0; i < nL; i++) {
         const k = (i + 0.5) / nL, th = nor180(i * 137.508 + (rng() - 0.5) * 14), s = pow(k, 0.5) * 1.02, h = lerp(0.985, borde(th) - 0.01, pow(min(s, 1), 1.6));
@@ -457,13 +504,13 @@ LOOK.parts.pelo = (THREE, LOOK) => {
       const campo = q => { let F = 0; for (const l of lobos) { const dd = hypot(q[0] - l.q[0], q[1] - l.q[1], q[2] - l.q[2]) / l.r; if (dd < 1) F = max(F, Math.sqrt(1 - dd * dd)); } return F; };
       T.casco({
         nT: d2 ? 132 : 36, nS: d2 ? 34 : 8, caida: 7, borde, base: 1,
-        grueso: (th, s, h) => { const a = abs(th), b = 0.0165 + 0.006 * sm(50, 100, a); return b + (d2 ? 0.026 : 0.025) * campo(T.craneo(th, h)); },
+        grueso: (th, s, h) => { const a = abs(th), b = 0.0165 + 0.006 * sm(50, 100, a) + 0.0016 * kc; return b + (d2 ? 0.026 : 0.025) * (1 + 0.05 * kc) * campo(T.craneo(th, h)); },
         osc: (th, s, h) => lerp(LOOK.hsv(LOOK.sobrio(C.look.hair || '#3a2a20'))[2] > 0.5 ? 0.52 : 0.66, 1.03, pow(campo(T.craneo(th, h)), 0.7)) * lerp(1, 0.9, sm(0.85, 1, s)),
       });
       // Guedejas en S de la coronilla al borde. Las del borde se pasan y rompen la línea
       const nS = d2 ? 0 : 13;
       for (let i = 0; i < nS; i++) {
-        const k = (i + 0.5) / nS, th0 = nor180(i * 137.508 + 40 + (rng() - 0.5) * 16), ed = borde(th0), u0 = pow(k, 0.55), h0 = d2 ? lerp(0.86, ed + 0.07, u0) : lerp(0.985, ed + 0.09, u0), largo = (d2 ? 0.1 : 0.26) + rng() * (d2 ? 0.06 : 0.12), sgS = rng() < 0.5 ? -1 : 1, am = (d2 ? 6 : 10) + rng() * 4, ctrl = [], nC = 6;
+        const k = (i + 0.5) / nS, th0 = nor180(i * 137.508 + 40 + (rng() - 0.5) * 16), ed = borde(th0), u0 = pow(k, 0.55), h0 = d2 ? lerp(0.86, ed + 0.07, u0) : lerp(0.985, ed + 0.09, u0), largo = ((d2 ? 0.1 : 0.26) + rng() * (d2 ? 0.06 : 0.12)) * (1 + 0.08 * kc * sm(50, 110, abs(th0))), sgS = rng() < 0.5 ? -1 : 1, am = (d2 ? 6 : 10) + rng() * 4, ctrl = [], nC = 6;
         for (let j = 0; j <= nC; j++) { const q = j / nC; ctrl.push([nor180(th0 + sgS * am * sin(q * 2 * PI * 1.25) * sm(0, 0.25, q)), max(ed - 0.07, h0 - largo * q), (d2 ? 0.0035 : 0.002) + (d2 ? 0.0035 : 0.005) * sin(q * PI)]); }
         if (d2) { const r0 = 0.0105 * (0.85 + rng() * 0.3); T.tubo(T.ruta(ctrl, 6), q => r0 * lerp(0.55, 1, sm(0, 0.25, q)) * lerp(1, 0.5, sm(0.6, 1, q)), { n: 6, oscR: 0.86, oscP: 1.04, achata: 0.78 }); }
         else T.cinta(T.ruta(ctrl, 3), { w: 0.017 * (0.85 + rng() * 0.3), alto: 0.0058, baja: 0.004, punta: 0.45, raiz: 0.6, afina: 0.6, oscR: 0.8, oscP: 1.06, borde: 0.66 });
@@ -490,34 +537,38 @@ LOOK.parts.pelo = (THREE, LOOK) => {
     defecto: 'puntas',
     forma: C => { const hl = C.curva1(HL.corto), hc = C.curva1(HL.cortoC); return { hl, hlC: hc, raya: false }; },
     malla(T, C, v) {
-      const { det, est, rng, H, chin, PH } = C, d2 = det > 1, hE = t => est.hlC(abs(t)), cepillo = v === 'cepillo', sg0 = barrido(C.look);
+      // (grown: only volume, thicker spikes and a deeper cap under them, barely higher; the nape as the short cut's)
+      const { det, est, rng, H, chin, PH } = C, d2 = det > 1, kc = crece(C.look), hE = t => max(0.14, est.hlC(abs(t)) - caeBorde(abs(t), kc)), cepillo = v === 'cepillo', sg0 = barrido(C.look);
       const borde = th => hE(th) - 0.012 * ruidoP(th, 9.1) * sm(50, 110, abs(th));
       if (!cepillo) {
         T.casco({
           nT: d2 ? 56 : 28, nS: d2 ? 8 : 3, lump: d2 ? 0.003 : 0.004, borde, base: 0.74,
-          grueso: (th, s) => { const a = abs(th); return 0.015 * lerp(1, 0.42, sm(50, 92, a) * sm(0.15, 0.6, s)) * lerp(1, 0.6, sm(115, 170, a) * sm(0.3, 0.8, s)); },
+          grueso: (th, s) => { const a = abs(th); return (0.015 + 0.0025 * kc * sm(0.9, 0.5, s)) * lerp(1, 0.42, sm(50, 92, a) * sm(0.15, 0.6, s)) * lerp(1, 0.6, sm(115, 170, a) * sm(0.3, 0.8, s)); },
           osc: (th, s) => lerp(1, 0.86, sm(0.5, 1, s)),
         });
-        // Arriba y delante, mechones gruesos de raíz que suben como llamas, de 8-10 cm. Ninguno en el centro: no hay un pico único
-        const nP = d2 ? 52 : 15;
+        // Arriba, mechones gruesos de raíz que suben como llamas, de 6-7 cm en lo alto y de 3-4 en el borde. Ninguno en el
+        // centro: no hay un pico único. (All of them point up, at least 45° over the horizon, none under the crown: behind,
+        // where the skull turns down, they would stick out flat like horns)
+        const nP = d2 ? 56 : 18;
         for (let i = 0; i < nP; i++) {
-          const k = (i + 0.9) / (nP + 0.9), s = 0.13 + 0.46 * pow(k, 0.6), th = nor180(i * 137.508 + (rng() - 0.5) * 18), ed = borde(th), h = lerp(0.992, ed + 0.015, pow(s, 1.6)), a = abs(th), nrm = C.dirCraneo(th, h);
-          const b = vadd(T.craneo(th, h), vmul(nrm, T.tCap(th, h) * 0.5)), L = lerp(0.092, 0.068, sm(50, 150, a)) * lerp(1, 0.72, sm(0.32, 0.6, s)) * (0.84 + rng() * 0.16);
-          const ax = vnorm(vadd(vadd(vmul(nrm, 0.62), [0, 0.62, -0.1 - 0.18 * sm(90, 160, a)]), [(rng() - 0.5) * 0.3 + sg0 * 0.06, (rng() - 0.5) * 0.12, (rng() - 0.5) * 0.28]));
-          const cae2 = vnorm(vadd(ax, [0, -0.5, -0.3])), N = d2 ? 6 : 2, pts = []; for (let j = 0; j <= N; j++) { const q = j / N; pts.push(vadd(b, vadd(vmul(ax, L * q), vmul(cae2, L * (d2 ? 0.32 : 0.2) * q * q)))); }
-          const r0 = (d2 ? 0.0108 : 0.0215) * (0.85 + rng() * 0.3);
-          T.tubo(pts, q => r0 * pow(1 - q, d2 ? 0.95 : 0.72) * lerp(1, 1.12, G(q - 0.25, 0.15)) + 0.0006, { n: d2 ? 5 : 4, oscR: 0.84, oscP: 1.06, achata: d2 ? 0.42 : 0.66 });
+          const k = (i + 0.9) / (nP + 0.9), th = nor180(i * 137.508 + (rng() - 0.5) * 22), a = abs(th), h = max(lerp(0.985, lerp(0.89, 0.87, sm(40, 110, a)), pow(k, 0.85)), borde(th) + 0.03), nrm = C.dirCraneo(th, h);
+          const b = vadd(T.craneo(th, h), vmul(nrm, T.tCap(th, h) * 0.3)), L = lerp(0.074, 0.044, k) * lerp(1.05, 0.82, sm(50, 140, a)) * (0.8 + rng() * 0.28) * (1 + 0.05 * kc);
+          let ax = vnorm(vadd(vmul(nrm, 0.8), [(rng() - 0.5) * 0.34 + sg0 * 0.06, 0.55 + (rng() - 0.5) * 0.12, (rng() - 0.5) * 0.22]));
+          if (ax[1] < 0.71) { const r = hypot(ax[0], ax[2]) || 1, f = 0.704 / r; ax = [ax[0] * f, 0.71, ax[2] * f]; }
+          const cae2 = vnorm(vadd(ax, [sg0 * 0.12, -0.35, -0.12])), N = d2 ? 6 : 2, pts = []; for (let j = 0; j <= N; j++) { const q = j / N; pts.push(vadd(b, vadd(vmul(ax, L * q), vmul(cae2, L * (d2 ? 0.24 : 0.18) * q * q)))); }
+          const r0 = (d2 ? 0.0112 : 0.021) * (0.85 + rng() * 0.3) * (1 + 0.12 * kc);
+          T.tubo(pts, q => r0 * pow(1 - q, d2 ? 0.8 : 0.55) * lerp(1, 1.1, G(q - 0.25, 0.15)) + 0.0006, { n: d2 ? 5 : 4, oscR: 0.84, oscP: 1.06, achata: d2 ? 0.5 : 0.75 });
         }
-        // Lados y nuca: pegados, hacia abajo y atrás, con la punta un poco fuera
-        const nF = d2 ? 44 : 11;
+        // Lados y nuca: pegados, hacia abajo y atrás (hundidos por los bordes y por la punta: ninguno es una lámina al aire)
+        const nF = d2 ? 44 : 9;
         for (let i = 0; i < nF; i++) {
-          const k = (i + 0.5) / nF, th = nor180(i * 137.508 + 70 + (rng() - 0.5) * 14), ed = borde(th), s = 0.5 + 0.42 * pow(k, 0.7), h = lerp(0.992, ed + 0.02, pow(s, 1.6)), a = abs(th), sg = signo(th), dth = a < 130 ? sg * 10 : sg * 2, largo = lerp(0.14, 0.08, s);
-          if (a < 42 && s > 0.62) continue;   // la frente queda limpia
-          T.cinta(T.ruta([[th - dth * 0.4, h + largo * 0.5, 0.001], [th + dth * 0.3, h, 0.005], [th + dth, h - largo * 0.5, 0.013]], d2 ? 4 : 2), { w: (d2 ? 0.0135 : 0.02) * (0.8 + rng() * 0.4), alto: 0.004, baja: 0.003, punta: 0.12, raiz: 0.75, oscR: 0.8, oscP: 1.04 });
+          const k = (i + 0.5) / nF, th = nor180(i * 137.508 + 70 + (rng() - 0.5) * 14), ed = borde(th), s = 0.5 + 0.36 * pow(k, 0.7), h = lerp(0.992, ed + 0.02, pow(s, 1.6)), a = abs(th), sg = signo(th), dth = a < 130 ? sg * 10 : sg * 2, largo = lerp(0.14, 0.08, s);
+          if (a < 52) continue;   // la frente queda limpia
+          T.cinta(T.ruta([[th - dth * 0.4, h + largo * 0.5, -0.002], [th + dth * 0.3, h, a < 105 ? 0 : 0.0015], [th + dth, max(ed + 0.004, h - largo * 0.5), -0.003]], d2 ? 4 : 2), { w: (d2 ? 0.0135 : 0.02) * (0.8 + rng() * 0.4) * (1 + 0.06 * kc), alto: 0.0032, baja: d2 ? 0.005 : 0.011, punta: 0.16, raiz: 0.75, oscR: 0.86, oscP: 1.02 });
         }
       } else {
         // Cepillo romo: un casquete que llega casi a un plano, de 3-4 cm arriba y 1 cm en lados y nuca. Encima, tacos pequeños que rompen el borde
-        const yTop = chin + H + 0.024, rugo = q => LOOK.noise2(q[0] * 95 + q[1] * 31 + 40, q[2] * 95 - q[1] * 27 + 40, 256, 256);
+        const yTop = chin + H + 0.024 + 0.012 * kc, rugo = q => LOOK.noise2(q[0] * 95 + q[1] * 31 + 40, q[2] * 95 - q[1] * 27 + 40, 256, 256);
         T.casco({
           nT: d2 ? 128 : 28, nS: d2 ? 26 : 5, lump: d2 ? 0.003 : 0.004, caida: 8, borde, base: 0.92,
           grueso: (th, s, h) => { const a = abs(th), q = T.craneo(th, h), nr = C.dirCraneo(th, h), arriba = clamp((yTop - q[1]) / max(0.5, nr[1]), 0.012, 0.034) * sm(0.45, 0.86, nr[1]) * lerp(1, 0.86, sm(100, 170, a)), lado = lerp(0.011, 0.0065, sm(0.55, 0.95, s)) * lerp(1, 0.8, sm(50, 95, a) * sm(120, 95, a)); return max(arriba, lado) + (rugo(q) - 0.5) * (d2 ? 0.0055 : 0.004) * sm(0.8, 0.45, s); },
@@ -542,7 +593,9 @@ LOOK.parts.pelo = (THREE, LOOK) => {
     defecto: 'alta',
     forma: () => ({ hl: () => 1.2, hlC: () => 1.2, raya: false }),
     malla(T, C, v) {
-      const { det, rng, V, oscV, R, dirCraneo, m } = C, d2 = det > 1, BM = R.mechon, baja = v === 'baja', N = d2 ? 72 : 19, nTuf = d2 ? 21 : 9, seccion = d2 ? 3 : 2;
+      // (grown: a little taller and broader at the top and the front, falling a little to the sides, but not further down
+      // the nape; the shaved sides fill in, in the paint)
+      const { det, rng, V, oscV, R, dirCraneo, m } = C, d2 = det > 1, BM = R.mechon, baja = v === 'baja', N = d2 ? 72 : 19, nTuf = d2 ? 21 : 9, seccion = d2 ? 3 : 2, kC = crece(C.look);
       T.grueso = null;
       // Eje: de la frente a la nuca por encima de la coronilla
       const mundo = [[0, 0.81], [0, 0.90], [0, 0.965], [180, 0.985], [180, 0.90], [180, 0.74], [180, 0.56], [180, 0.40], [180, 0.30]].map(c => T.craneo(c[0], c[1]));
@@ -552,10 +605,10 @@ LOOK.parts.pelo = (THREE, LOOK) => {
       eje.forEach((c, i) => {
         const u = i / N, q = T.aCraneo(c), dir = dirCraneo(q[0], q[1]), flow = vnorm(vsub(eje[min(i + 1, N)], eje[max(i - 1, 0)])), lado = vnorm(vcross(flow, dir)), up = vnorm(vcross(lado, flow));
         // Altura: 8-11 cm la alta, con mechones; 4 cm y borde romo la baja
-        const env = baja ? lerp(0.042, 0.03, sm(0.75, 1, u)) * sm(0, 0.09, u) * lerp(1, 0.85, sm(0.85, 1, u)) + 0.006 : lerp(0.086, 0.046, sm(0.42, 1, u)) * sm(0, 0.12, u) + 0.012;
+        const env = (baja ? lerp(0.042, 0.03, sm(0.75, 1, u)) * sm(0, 0.09, u) * lerp(1, 0.85, sm(0.85, 1, u)) + 0.006 : lerp(0.086, 0.046, sm(0.42, 1, u)) * sm(0, 0.12, u) + 0.012) * (1 + 0.13 * kC * sm(0.7, 0.3, u));
         let pk = 0; for (const t of tufos) { const dq = abs(u - t.u) / t.w; if (dq < 1) pk = max(pk, t.h * pow(1 - dq, 0.6)); }
         const ft = pk, pico = baja ? 0.96 + 0.05 * sin(u * 61) : lerp(0.62, 1.04, pk), alto = env * pico;
-        const bw = (baja ? 0.021 : 0.019) * (m ? 1 : 0.92) * sm(0, 0.05, u + 0.012) * sm(1, 0.95, u - 0.012) + 0.002;
+        const bw = (baja ? 0.021 : 0.019) * (m ? 1 : 0.92) * sm(0, 0.05, u + 0.012) * sm(1, 0.95, u - 0.012) * (1 + 0.14 * kC) + 0.002;
         const lean = baja ? 0.05 : 0.34 * sm(0.05, 0.7, u) - 0.02;
         const secc = [];   // de un lado de la base, por lo alto, al otro lado
         const perfil = d2 ? [[-1, -0.04], [-0.86, 0.34], [-0.52, 0.72], [0, 1], [0.52, 0.72], [0.86, 0.34], [1, -0.04]] : [[-1, -0.04], [-0.72, 0.5], [0, 1], [0.72, 0.5], [1, -0.04]];
@@ -579,19 +632,107 @@ LOOK.parts.pelo = (THREE, LOOK) => {
       // Lados al uno: una sombra del color del pelo, con borde blando y puntitos. Se lee como pelo rapado, no como calva
       const zona = (k2, dh) => { k2.beginPath(); k2.moveTo(CX(-180), CY(hl(180) + dh)); for (let t = -180; t <= 180; t += 3) k2.lineTo(CX(t), CY(hl(abs(t)) + dh)); k2.lineTo(CX(180), CY(1.01)); k2.lineTo(CX(-180), CY(1.01)); k2.closePath(); k2.fill(); };
       const vC = LOOK.hsv(capa)[2], vP = LOOK.hsv(piel)[2], claroSobre = vC > vP + 0.08, tono = LOOK.mix(LOOK.mix(capa, oscu, claroSobre ? 0.4 : 0.25), piel, claroSobre ? 0.62 : 0.3);
-      suave(R.cara, 7, 'source-over', 0.2, k2 => { k2.fillStyle = tono; zona(k2, -0.025); });
-      suave(R.cara, 5, 'source-over', 0.38, k2 => { k2.fillStyle = tono; zona(k2, -0.004); });
-      suave(R.cara, 4, 'source-over', claroSobre ? 0.42 : 0.6, k2 => { k2.fillStyle = tono; zona(k2, 0.02); });
+      const kc = crece(Q.look), kS = 1 + 0.45 * kc;   // (grown, the sides fill in: denser, darker, more cut ends)
+      suave(R.cara, 7, 'source-over', min(0.9, 0.2 * kS), k2 => { k2.fillStyle = tono; zona(k2, -0.025); });
+      suave(R.cara, 5, 'source-over', min(0.9, 0.38 * kS), k2 => { k2.fillStyle = tono; zona(k2, -0.004); });
+      suave(R.cara, 4, 'source-over', min(0.92, (claroSobre ? 0.42 : 0.6) * kS), k2 => { k2.fillStyle = tono; zona(k2, 0.02); });
       g.save(); g.beginPath(); g.rect(R.cara.x, R.cara.y, R.cara.w, R.cara.h); g.clip();
-      const nD = res > 512 ? 18000 : 5000, tam = res > 512 ? 0.3 : 0.5;
-      for (let i = 0; i < nD; i++) { const t = -180 + rn() * 360, h = lerp(hl(abs(t)) - 0.02 * rn(), 1, rn()); g.fillStyle = rn() < 0.6 ? capa : oscu; g.globalAlpha = (0.14 + rn() * 0.28) * (claroSobre ? 0.7 : 1); g.fillRect(CX(t), CY(h), tam, tam); }
+      const nD = (res > 512 ? 18000 : 5000) * (1 + 0.6 * kc), tam = res > 512 ? 0.3 : 0.5;
+      for (let i = 0; i < nD; i++) { const t = -180 + rn() * 360, h = lerp(hl(abs(t)) - 0.02 * rn(), 1, rn()); g.fillStyle = rn() < 0.6 ? capa : oscu; g.globalAlpha = (0.14 + rn() * 0.28) * (claroSobre ? 0.7 : 1) * (1 + 0.15 * kc); g.fillRect(CX(t), CY(h), tam, tam); }
       g.restore(); g.globalAlpha = 1;
+      if (kc) costuraNuca(Q);
       pintaMechon(Q);
       void claro;
     },
   };
 
-  const PRESUPUESTO = { corto: 420, tupe: 460, largo: 700, mono: 460, coleta: 520, rizado: 760, pinchos: 520, cresta: 240 };
+  // ---------------------------------------------------------------- calvo: no cap at all; what is left on the sides and the
+  // back (from the temples round the nape) painted short, like the cresta's sides. It never grows
+  const HLc = HL.corto, hlCorto = a => { let i = 0; while (i < HLc.length - 2 && HLc[i + 1][0] < a) i++; return lerp(HLc[i][1], HLc[i + 1][1], clamp((a - HLc[i][0]) / (HLc[i + 1][0] - HLc[i][0]))); };
+  // The back of the face block is a seam (th -180 and 180 meet at the nape): after painting hair there, the texels just
+  // outside each edge copy the edge's own column, so the texture's filtering reads the same colour on both sides
+  const costuraNuca = Q => {
+    const { g, R, s } = Q, r = R.cara, c = g.canvas, X0 = Math.round(r.x * s), Y0 = Math.round(r.y * s), W0 = Math.round(r.w * s), H0 = Math.round(r.h * s), mg = Math.ceil(2 * s);
+    g.save(); g.setTransform(1, 0, 0, 1, 0, 0); g.globalAlpha = 1; g.globalCompositeOperation = 'source-over';
+    g.drawImage(c, X0 + 1, Y0, 1, H0, X0 - mg, Y0, mg + 1, H0);
+    g.drawImage(c, X0 + W0 - 2, Y0, 1, H0, X0 + W0 - 1, Y0, mg + 1, H0);
+    g.restore();
+  };
+  // Short hair painted on the skin between the hairline (lo) and hi (both by |th|): a soft tone of hair and skin, then the
+  // dots of the cut ends, and above hi a few more that thin out over about 1.5 cm (no ribbon edge). k: how dense (1 shaved
+  // to the skin, more as it fills in)
+  const pintaCorto = (Q, lo, hi, k = 1) => {
+    const { g, R, capa, oscu, piel, rn, res, CX, CY, suave } = Q;
+    const bajo = (a, dh) => lo(a) + dh, sobre = (a, dh) => max(bajo(a, dh), hi(a) + dh * 0.4);   // (no width where hi is under lo)
+    // (past both ends of the block by 3 texels: the back of the head is where they meet)
+    const X = t => (t <= -180 ? R.cara.x - 3 : t >= 180 ? R.cara.x + R.cara.w + 3 : CX(t));
+    const zona = (k2, dh) => { k2.beginPath(); for (let t = -180; t <= 180; t += 3) k2.lineTo(X(t), CY(sobre(abs(t), dh))); for (let t = 180; t >= -180; t -= 3) k2.lineTo(X(t), CY(bajo(abs(t), dh))); k2.closePath(); k2.fill(); };
+    const vC = LOOK.hsv(capa)[2], vP = LOOK.hsv(piel)[2], claroSobre = vC > vP + 0.08, tono = LOOK.mix(LOOK.mix(capa, oscu, claroSobre ? 0.4 : 0.25), piel, claroSobre ? 0.62 : 0.3);
+    suave(R.cara, 7, 'source-over', 0.2 * k, k2 => { k2.fillStyle = tono; zona(k2, -0.02); });
+    suave(R.cara, 5, 'source-over', min(0.9, 0.36 * k), k2 => { k2.fillStyle = tono; zona(k2, -0.004); });
+    suave(R.cara, 4, 'source-over', min(0.92, (claroSobre ? 0.4 : 0.56) * k), k2 => { k2.fillStyle = tono; zona(k2, 0.018); });
+    g.save(); g.beginPath(); g.rect(R.cara.x, R.cara.y, R.cara.w, R.cara.h); g.clip();
+    const nD = (res > 512 ? 16000 : 4600) * min(1.6, k), tam = res > 512 ? 0.3 : 0.5;
+    for (let i = 0; i < nD; i++) {
+      const t = -180 + rn() * 360, a = abs(t), h1 = hi(a); if (h1 <= lo(a)) continue;
+      // (a fifth of them above hi, fewer the higher: the edge of what is left frays out)
+      const l0 = lo(a) - 0.015 * rn(), arriba = rn() < 0.3, h = arriba ? h1 + 0.055 * pow(rn(), 1.6) : lerp(l0, h1, rn());
+      g.fillStyle = rn() < 0.6 ? capa : oscu; g.globalAlpha = (0.14 + rn() * 0.28) * (claroSobre ? 0.7 : 1) * min(1.3, k) * (arriba ? 0.8 : 1); g.fillRect(CX(t), CY(h), tam, tam);
+    }
+    g.restore(); g.globalAlpha = 1;
+    costuraNuca(Q);
+  };
+  ESTILOS.calvo = {
+    forma: () => ({ hl: () => 1.2, hlC: () => 1.2, raya: false }),
+    malla(T) { T.grueso = null; },
+    pinta(Q) {
+      // (a horseshoe: nothing at the temples, it starts over the ear and widens behind it to the nape, its top edge wavy)
+      const ola = a => 0.007 * sin(a * 0.11 + 1.7) + 0.004 * sin(a * 0.27 + 0.4);
+      const alto = a => (lerp(0.6, 0.66, sm(110, 150, a)) + 0.025 * sm(130, 180, a) + ola(a)) * (Q.look.edad === 'mayor' ? 0.97 : 1);
+      const base = a => hlCorto(a) - 0.004 - 0.02 * sm(96, 118, a) * sm(150, 120, a);
+      pintaCorto(Q, base, a => (a < 88 ? 0 : lerp(base(a), max(hlCorto(a), alto(a)), sm(88, 108, a))), 0.9);
+    },
+  };
+  // ---------------------------------------------------------------- rapado: shaved to the skin and filling in (painted),
+  // at step 2 a thin cap (5 mm) that follows the skull with the cut ends painted thick on it, and at step 3 the short cut
+  const comoCorto = C => ({ ...C, look: { ...C.look, crece: 0 } });
+  ESTILOS.rapado = {
+    forma: C => { const k = crece(C.look); return k >= 2 ? ESTILOS.corto.forma(comoCorto(C)) : { hl: () => 1.2, hlC: C.curva1(HL.cortoC), raya: false }; },
+    malla(T, C) {
+      const k = crece(C.look);
+      if (k >= 3) return ESTILOS.corto.malla(T, comoCorto(C));
+      if (k === 2) {
+        const d2 = C.det > 1, hE = t => C.est.hlC(abs(t));
+        T.casco({
+          nT: d2 ? 56 : 32, nS: d2 ? 8 : 6, lump: 0.0012, caida: 5, base: 0.92, borde: th => hE(th) + 0.006 - 0.006 * ruidoP(th, 5.3) * sm(50, 110, abs(th)),
+          grueso: (th, s) => lerp(0.0062, 0.0042, sm(0.5, 1, s)) * lerp(1, 0.8, sm(60, 100, abs(th)) * sm(130, 100, abs(th))),
+          osc: (th, s) => lerp(1, 0.9, sm(0.6, 1, s)),
+        });
+        return;
+      }
+      T.grueso = null;
+    },
+    pinta(Q) {
+      const k = crece(Q.look), Q0 = { ...Q, look: { ...Q.look, crece: 0 } };
+      if (k >= 3) return ESTILOS.corto.pinta(Q0);
+      if (k === 2) {
+        // (the cap's own block: the hair's colour with the cut ends dense on it, no long strokes; on the face, the hairline
+        // under it filled in as at step 1, so the cap's edge has hair round it and not skin)
+        const { g, R, capa, claro, oscu, rn, res, relleno } = Q, r = R.casco2;
+        pintaCorto(Q, a => hlCorto(a) - 0.012, () => 1.02, 2.4);
+        relleno(r, LOOK.mix(capa, oscu, 0.15), 2);
+        g.save(); g.beginPath(); g.rect(r.x, r.y, r.w, r.h); g.clip(); g.lineCap = 'round';
+        const n = res > 512 ? 9000 : 4000;
+        for (let i = 0; i < n; i++) { const x = r.x + rn() * r.w, y = r.y + rn() * r.h, l = 0.6 + rn() * 1.2, cl = rn() < 0.4; g.strokeStyle = cl ? claro : oscu; g.globalAlpha = (cl ? 0.22 : 0.3) * (0.5 + rn() * 0.5); g.lineWidth = 0.3 + rn() * 0.3; g.beginPath(); g.moveTo(x, y); g.lineTo(x + (rn() - 0.5) * 0.8, y + l); g.stroke(); }
+        g.restore(); g.globalAlpha = 1;
+        const gg = g.createLinearGradient(0, r.y, 0, r.y + r.h); gg.addColorStop(0, 'rgba(255,240,215,0.06)'); gg.addColorStop(1, 'rgba(0,0,0,0.12)'); g.fillStyle = gg; g.fillRect(r.x, r.y, r.w, r.h);
+        return;
+      }
+      pintaCorto(Q, a => hlCorto(a) - 0.006 * k, () => 1.02, 1.25 + 0.55 * k);
+    },
+  };
+
+  const PRESUPUESTO = { corto: 420, tupe: 460, largo: 700, mono: 460, coleta: 520, rizado: 760, pinchos: 520, cresta: 240, calvo: 0, rapado: 520 };
   function peinado(look) {
     const e = ESTILOS[look.hairStyle]; if (!e) return null;
     const v = look.hairVersion || e.defecto;
@@ -602,5 +743,7 @@ LOOK.parts.pelo = (THREE, LOOK) => {
       pinta: Q => e.pinta(Q, v),
     };
   }
-  return { peinado, ESTILOS: Object.keys(ESTILOS), PRESUPUESTO };
+  // (for the trenza, which persona.js builds itself: its loose strands when grown, and the strand paint they use)
+  const sueltosTrenza = C => sueltos(Taller(C), C, crece(C.look), C.capT);
+  return { peinado, ESTILOS: Object.keys(ESTILOS), PRESUPUESTO, sueltosTrenza, pintaMechon };
 };

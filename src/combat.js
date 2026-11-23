@@ -171,6 +171,7 @@ export class Combat {
     const dropped = keep ? 0 : this.dropAll();
     if (!keep && g.xp?.points) { g.xp.lose(); hud.toast(t('death.xp_lost')); }
     await hud.fade(true);
+    g.body?.applyGrowth();   // (hair and beard grown, while it is dark)
     g.addMoney(-lost);
     this.hunger = HUNGER_MAX; this.exhaust = 0;
     try { g.needs?.refill({ death: true }); } catch (e) { reportFault(e, 'Needs.refill'); }   // (thirst, stamina and air full, rest at least half, awake)

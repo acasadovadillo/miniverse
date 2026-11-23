@@ -1,6 +1,7 @@
 // Aspecto de las personas ("look"): opciones del creador de personaje y valores por defecto. Las partidas y
 // los vecinos de antes no tienen los rasgos que se añadieron después (ojos, cejas, nariz, orejas, barba y
 // mofletes): fullLook los completa a partir de lo que sí tienen.
+import { tearStage, canTear } from './clothing.js';
 export const LOOK_OPTIONS = {
   sex: [['chico', 'Chico'], ['chica', 'Chica']],
   hairStyle: [['corto', 'Corto'], ['largo', 'Largo'], ['coleta', 'Coleta'], ['rizado', 'Rizado'], ['mono', 'Moño'], ['rapado', 'Rapado'], ['calvo', 'Calvo'], ['pinchos', 'Pinchos'],
@@ -63,8 +64,23 @@ export function childLook(a, b, sex, rnd = Math.random) {
   };
 }
 
-// El look con la ropa que se lleva puesta (es lo que dibuja el muñeco)
-export const dressed = (look, equip) => ({ ...look, wear: Object.fromEntries(Object.entries(equip).map(([k, v]) => [k, { id: v.id, color: v.color }])) });
+// El look con la ropa que se lleva puesta (es lo que dibuja el muñeco). Plan E §5.1: a worn or torn piece says so (r, 1 or
+// 2) in the slots whose wear is drawn (real/persona.js), and grow ({ hair, beard }, body.applied) adds the growth steps of
+// the hair and the beard. They go only in what is built here, never in the saved look; without wear or growth the result
+// is the one of always
+const TEAR_DRAWN = new Set(['torso', 'piernas', 'outer']);
+export const wearStage = (slot, it) => (TEAR_DRAWN.has(slot) && it.tear > 0 && canTear(slot, it) ? tearStage(it.tear) : 0);
+export function dressed(look, equip, grow = null) {
+  const wear = {};
+  for (const [k, it] of Object.entries(equip)) {
+    const r = wearStage(k, it);
+    wear[k] = r ? { id: it.id, color: it.color, r } : { id: it.id, color: it.color };
+  }
+  const out = { ...look, wear };
+  if (grow?.hair > 0) out.hairGrow = grow.hair;
+  if (grow?.beard > 0) out.beardGrow = grow.beard;
+  return out;
+}
 
 // Un look con todos sus rasgos (lo que falta se deduce: las chicas de antes tenían pestañas; los chicos, cejas rectas)
 export function fullLook(L) {

@@ -86,6 +86,7 @@ export function tavernBlueprint({ x0, y0 }) {
   for (let x = x0 + 1; x <= x0 + 6; x++) placed[k(x, y0 + 2)] = 'barra';
   for (const x of [x0 + 2, x0 + 4, x0 + 6]) placed[k(x, y0 + 3)] = 'taburete@2';
   for (const x of [x0 + 2, x1 - 2]) { placed[k(x, y0 + 5)] = 'mesa'; placed[k(x - 1, y0 + 5)] = 'silla@1'; placed[k(x + 1, y0 + 5)] = 'silla@3'; }
+  placed[k(x1 - 1, y0 + 2)] = 'barber_chair@3';   // (Eusebio's barber chair, by the window at the end of the bar, facing the room)
   placed[k(dx, y0 + 4)] = 'candelabro';   // (en medio, sobre el paso)
   return { placed, floor, roof: roofs };
 }
