@@ -14,7 +14,7 @@ const CSS = `
 #hud-load .pk-load { flex: 1; gap: 6px; } #hud-load .pk-load > span { display: none; }
 #hud-load .pk-bar { min-width: 60px; height: 7px; }
 #hud-load .pk-load b { font-size: 15px; }
-#hud-load .hl-arms { display: none; width: 24px; height: 24px; flex: none; padding: 1px; background: rgba(255, 215, 122, .18); border: 1px solid rgba(255, 215, 122, .6); border-radius: 5px; }
+#hud-load .hl-arms { display: none; width: 24px; height: 24px; flex: none; padding: 1px; background: rgba(255, 178, 74, .18); border: 1px solid rgba(255, 178, 74, .6); border-radius: var(--r-s); }
 #hud-load.arms .hl-arms { display: block; }
 #hotbar > #hud-load { margin: 6px 2px 0; }
 #hud-status > #hud-load { margin-top: 3px; min-width: 150px; }

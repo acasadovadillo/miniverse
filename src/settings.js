@@ -1,5 +1,6 @@
 // Ajustes del jugador (de este dispositivo): volúmenes, tamaño de los píxeles, texto grande,
-// reducir destellos, la interfaz (hud: 'minimal' o 'full'; main.js la cambia en caliente) y la ayuda de teclas. Se
+// reducir destellos, la interfaz (hud: 'minimal' o 'full'; main.js la cambia en caliente), su aspecto (skin: 'glass' o
+// 'wood', ui/skin.js), los sonidos de los menús (menuSfx), su movimiento (motion: 'full' o 'reduced') y la ayuda de teclas. Se
 // guardan en el navegador; si no se puede, se usan los de siempre.
 // Los volúmenes van además en la partida de cada cuenta: al entrar con tu cuenta se usan los tuyos, en
 // cualquier ordenador.
@@ -10,12 +11,13 @@
 import { Audio } from './audio.js';
 import { Music } from './music.js';
 import { useLangSetting } from './i18n.js';
+import { applySkin } from './ui/skin.js';
 
 const KEY = 'pueblo-brotes:ajustes';
 const VOLUMES = ['master', 'music', 'sfx', 'musicOn', 'musicMode'];
 export const MUSIC_MODES = ['dynamic', 'calm'];
 export const Settings = {
-  v: { master: 0.7, music: 0.5, sfx: 1, scale: 'auto', bigText: false, noFlash: false, musicOn: true, musicMode: 'dynamic', hud: 'minimal' },
+  v: { master: 0.7, music: 0.5, sfx: 1, scale: 'auto', bigText: false, noFlash: false, musicOn: true, musicMode: 'dynamic', hud: 'minimal', skin: 'glass', menuSfx: true, motion: 'full' },
   load() {
     try { Object.assign(this.v, JSON.parse(localStorage.getItem(KEY) || '{}')); } catch { /* ajustes por defecto */ }
     this.apply();
@@ -45,7 +47,10 @@ export const Settings = {
     Audio.setVolumes({ master: v.master, music: v.musicOn ? v.music : 0, sfx: v.sfx });
     Music.enabled = v.musicOn;
     Music.calm = this.musicMode === 'calm';
+    Audio.menuSounds = v.menuSfx !== false;
     document.body.classList.toggle('big-text', v.bigText);
+    document.body.classList.toggle('still-menus', v.motion === 'reduced');
+    applySkin(v.skin);   // (dark glass, or the wood of before: ui/skin.js)
     this.onApply?.();
   },
 };

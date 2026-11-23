@@ -44,6 +44,7 @@ function play(login = true) {   // (login: abrir la pantalla de entrar)
   const wheel = game.wheel = new ToolWheel(game);   // (F held: the tool wheel, src/ui/wheel.js)
   const b = game.build;
   initInput({
+    frontKey: e => menus.frontKey(e),   // (a menu screen of ui/frontend.js open: the keys are its own)
     chat: prefix => chat.open(prefix),
     use: () => (hud.dialogOpen ? game.action() : b.on ? b.place() : game.gather.use()),
     jump: () => (hud.dialogOpen ? game.action() : game.player?.pose ? game.rest.stand() : game.fishing.space() ? null : game.player?.jump()),

@@ -45,6 +45,9 @@ import { EMOTE_KINDS, PLAYER_LINES, REPLY_GESTURE, areCouple } from './social.js
 import { modelKind, ICON3D } from './three/icons.js';
 import { useSmartHud } from './ui/smarthud.js';
 import { Settings } from './settings.js';
+import { FE, alertBox, tabStrip, list, optionRow, legend } from './ui/frontend.js';
+import { ACCENTS, accentOf, useAccent, skinNow } from './ui/skin.js';
+import { Audio as GameAudio } from './audio.js';
 import { View3D } from './three/engine.js';
 import { sobrio, tonosSuelo } from './arte.js';
 import { tintOf } from './three/tints.js';
@@ -790,6 +793,126 @@ async function soloTests(game) {
       check(!game.smartHud && lit() === 'full', `Full pressed: ${!!game.smartHud}, lit ${lit()}`);
       check(Settings.hudNow?.() === 'full', 'Settings.hudNow does not say the one in sight');
     } finally { W.closeAll(); Settings.set('hud', was); useSmartHud(game, false); }
+  });
+  // ---------- UI-0: the glass look and the menus' own pieces (PLAN-R8-hud-mapa.md §8, PLAN-R9-menus.md §8) ----------
+  await test('ui skin (english): .panel has no border and a glass background; wood (?ui=madera, the setting) brings the old look back', async () => {
+    const $ = id => document.getElementById(id), was = Settings.v.skin, style = el => getComputedStyle(el), panel = $('clockp');
+    try {
+      Settings.set('skin', 'glass');
+      const p = document.querySelector('#s-pause .panel');
+      check(style(p).borderTopWidth === '0px' && style(p).backgroundColor === 'rgba(10, 12, 16, 0.82)', `glass: ${style(p).borderTopWidth} ${style(p).backgroundColor}`);
+      check(style(panel).backgroundColor === 'rgba(10, 12, 16, 0.62)' && style(panel).borderTopLeftRadius === '10px', `HUD plate: ${style(panel).backgroundColor}`);
+      for (const el of document.querySelectorAll('.panel')) { const b = style(el).backdropFilter; check(!b || b === 'none', `backdrop-filter on #${el.id}`); }
+      // The chosen one of a list: a white bar with dark text; the other, light text
+      const row = document.createElement('div'); row.id = 'dlg-opts-x'; row.className = 'tabs'; row.innerHTML = '<button>a</button><button class="on">b</button>'; document.body.append(row);
+      check(style(row.children[1]).backgroundColor === 'rgb(255, 255, 255)' && style(row.children[1]).color === 'rgb(12, 14, 18)', `chosen: ${style(row.children[1]).backgroundColor}`);
+      row.remove();
+      const k = style(document.querySelector('#hint kbd'));
+      check(k.backgroundColor === 'rgb(255, 255, 255)' && parseFloat(k.minWidth) === 22, 'key chip');
+      Settings.set('skin', 'wood');
+      check(document.body.classList.contains('ui-wood') && style(p).borderTopWidth === '3px' && style(p).backgroundColor === 'rgba(38, 26, 18, 0.94)', `wood: ${style(p).borderTopWidth} ${style(p).backgroundColor}`);
+      check(skinNow('nonsense') === 'glass', 'an unknown look is not glass');
+      Settings.set('skin', 'glass');
+      check(!document.body.classList.contains('ui-wood') && style(p).borderTopWidth === '0px', 'the glass does not come back');
+    } finally { Settings.set('skin', was || 'glass'); }
+  });
+  await test('ui accent (english): eight colours; the save\'s or a steady one by the name; Alberto and Hafsa differ', async () => {
+    const root = document.documentElement.style, was = root.getPropertyValue('--me');
+    try {
+      check(ACCENTS.length === 8 && new Set(ACCENTS).size === 8, 'not eight different colours');
+      check(accentOf('Alberto') !== accentOf('Hafsa'), 'Alberto and Hafsa share a colour');
+      check(accentOf('Hafsa') === accentOf(' hafsa ') && accentOf('Hafsa', 5) === 5 && accentOf('Hafsa', 8) === accentOf('Hafsa') && accentOf('Hafsa', '3') === accentOf('Hafsa'), 'the pick is not steady, or the save does not decide');
+      useAccent({ player: { name: 'Hafsa' }, ui: { accent: 2 } });
+      check(getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() === '#37c9c3', '--accent does not follow');
+      useAccent(null);
+      check(getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() === '#ff4f9a', 'no pink without a character');
+    } finally { if (was) root.setProperty('--me', was); else root.removeProperty('--me'); }
+  });
+  await test('menu (english): alert: Esc and right click say no, Enter says yes, a held Enter needs its ring; window.confirm is gone', async () => {
+    const press = (code, type = 'keydown', o = {}) => document.body.dispatchEvent(new KeyboardEvent(type, { code, key: code, bubbles: true, cancelable: true, ...o }));
+    const band = () => document.getElementById('fe-alert');
+    let p = alertBox({ title: 'A', text: 'B' });
+    check(band() && FE.active() === 'fe-alert' && band().getAttribute('role') === 'alertdialog', 'no band');
+    check(band().contains(document.activeElement), 'the focus stays outside');
+    press('Enter', 'keydown', { repeat: true }); await sleep(30); check(FE.active() === 'fe-alert', 'a repeated Enter answers');
+    press('Escape'); check(await p === false, 'Esc is not no');
+    check(!band() && FE.active() === null && game.mode === 'play', 'the band stays, or the game paused');
+    p = alertBox({ title: 'A' }); press('Enter'); check(await p === true, 'Enter is not yes');
+    p = alertBox({ title: 'A' }); band().dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true })); check(await p === false, 'right click is not no');
+    p = alertBox({ title: 'A', yes: 'si', no: 'no' }); band().querySelectorAll('.fe-key')[1].click(); check(await p === false, 'the No key cannot be clicked');
+    const q = alertBox({ title: 'first' }); p = alertBox({ title: 'second' }); check(await q === false && document.querySelectorAll('#fe-alert:not(.out)').length === 1, 'two bands'); press('Enter'); check(await p === true, 'the second band');
+    // Held: the ring at about half after half the time; letting go empties it, and the whole time answers
+    p = alertBox({ title: 'A', hold: 600 });
+    press('Enter'); await sleep(300);
+    const fg = band().querySelector('.chip.hold .fg'), at = +getComputedStyle(fg).strokeDashoffset.replace('px', '');
+    check(at > 0.15 && at < 0.8, `the ring at half the time: ${at}`);
+    press('Enter', 'keyup'); await sleep(500); check(FE.active() === 'fe-alert' && +getComputedStyle(fg).strokeDashoffset.replace('px', '') > 0.95, 'letting go does not empty the ring');
+    press('Enter'); check(await p === true, 'held to the end does not answer'); press('Enter', 'keyup');
+    const src = await (await fetch('./src/ui/menus.js')).text();
+    check(!/[^\w.]confirm\(/.test(src) && src.includes("t('gui.alert.new_title')") && src.includes("t('gui.alert.empty_title')") && !document.getElementById('m-confirm'), 'the old confirmations are still there');
+  });
+  await test('menu (english): keys do not leak: with a menu screen open nothing pressed acts in the game', async () => {
+    const press = (code, o = {}) => { const e = new KeyboardEvent('keydown', { code, key: code, bubbles: true, cancelable: true, ...o }); document.body.dispatchEvent(e); dispatchEvent(new KeyboardEvent('keyup', { code, bubbles: true })); return e; };
+    const I = inv(), sel = I.selected, p = alertBox({ title: 'A' });
+    I.select(0);
+    const held = JSON.stringify(I.slots);
+    for (const c of ['KeyE', 'KeyQ', 'KeyX', 'KeyB', 'KeyI', 'KeyC', 'KeyJ', 'KeyM', 'KeyP', 'KeyT', 'KeyZ', 'KeyF', 'Digit4', 'Space', 'KeyW', 'Tab']) press(c);
+    await sleep(60);
+    check(game.mode === 'play' && !game.build.on && I.selected === 0 && JSON.stringify(I.slots) === held && !game.windows.isOpen('s-inv') && !game.windows.isOpen('s-craft') && !game.windows.isOpen('s-journal') && !game.wheel.open && !keys.up && !document.getElementById('chat').classList.contains('open') && !document.getElementById('players').classList.contains('show'), 'a key got through');
+    check(!press('KeyR', { metaKey: true }).defaultPrevented, 'the browser\'s own shortcuts are blocked');
+    check(!press('Escape', { repeat: true }).defaultPrevented && FE.active() === 'fe-alert', 'a held Esc (leaving full screen) closes the band or is blocked');
+    press('Escape'); check(await p === false, 'the band');
+    I.select(sel);
+  });
+  await test('menu (english): pause: P opens and closes it as Esc does, and the texts and ids are kept', async () => {
+    const press = code => document.body.dispatchEvent(new KeyboardEvent('keydown', { code, key: code, bubbles: true, cancelable: true })), shown = () => document.getElementById('s-pause').classList.contains('show');
+    for (const id of ['p-resume', 'p-menu', 'p-controls', 'p-settings', 'm-continue', 'm-new', 'm-local', 'm-session', 'm-settings', 'st-close']) check(document.getElementById(id), `#${id} is gone`);
+    press('KeyP'); check(game.mode === 'pause' && shown(), 'P does not pause');
+    press('KeyP'); check(game.mode === 'play' && !shown(), 'P does not go back');
+    game.windows.open('s-inv'); press('KeyP'); check(game.mode === 'play' && !game.windows.isOpen('s-inv'), 'P does not close the window first'); await sleep(40);
+    const i = document.createElement('input'); document.body.append(i); i.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyP', key: 'p', bubbles: true })); i.remove(); check(game.mode === 'play', 'writing a p pauses');
+  });
+  await test('menu (english): the pieces: a list, tabs, option rows and the legend', async () => {
+    const ev = (code, o = {}) => new KeyboardEvent('keydown', { code, key: code, ...o }), up = code => dispatchEvent(new KeyboardEvent('keyup', { code }));
+    const box = document.createElement('div'); box.style.cssText = 'position:fixed;left:0;top:0;width:500px;z-index:99'; box.innerHTML = '<div></div><div></div><div></div><p></p>'; document.body.append(box);
+    const [T, L, G, D] = box.children;
+    try {
+      let got = [], picked = null;
+      const tabs = tabStrip(T, [{ id: 'a', text: 'A' }, { id: 'b', text: 'B' }, { id: 'c', text: 'C' }], { current: 'b', onPick: id => got.push(id) });
+      tabs.key(ev('KeyE')); tabs.key(ev('KeyE')); tabs.key(ev('KeyQ')); tabs.key(ev('Digit2')); tabs.key(ev('KeyE', { repeat: true }));
+      check(got.join('') === 'cacb' && tabs.current === 'b' && T.querySelector('.on').textContent === 'B' && !tabs.key(ev('Digit9')), `tabs: ${got}`);
+      T.querySelectorAll('.fe-tab')[0].click(); check(tabs.current === 'a' && T.querySelectorAll('[aria-selected="true"]').length === 1, 'a click on a tab');
+      tabs.destroy();
+      const li = list(L, [{ text: 'one', desc: 'd1' }, { text: 'two', desc: 'd2' }, { text: 'off', disabled: true, desc: 'd3' }], { desc: D, onPick: r => { picked = r.text; } });
+      check(li.index === 0 && D.textContent === 'd1', 'it does not start at the first');
+      li.key(ev('ArrowDown')); up('ArrowDown'); check(li.index === 1 && L.querySelector('.sel').textContent === 'two' && D.textContent === 'd2', 'down');
+      const s = getComputedStyle(L.querySelector('.sel')); await sleep(160); check(s.backgroundColor === 'rgb(255, 255, 255)' && s.color === 'rgb(12, 14, 18)', `the white bar: ${s.backgroundColor} ${s.color}`);
+      li.key(ev('Enter')); check(picked === 'two', 'Enter'); picked = null;
+      li.key(ev('KeyS')); up('KeyS'); li.key(ev('Space')); check(li.index === 2 && picked === null, 'a disabled row is picked');
+      li.key(ev('ArrowDown')); up('ArrowDown'); check(li.index === 0, 'it does not go round');
+      li.key(ev('ArrowDown')); await sleep(620); up('ArrowDown'); const n = li.index; await sleep(200); check(li.index === n, 'it goes on after letting go');
+      L.children[1].dispatchEvent(new PointerEvent('pointerenter')); check(li.index === 1, 'the mouse does not select'); L.children[0].click(); check(picked === 'one', 'a click');
+      let v = 50, m = 'a';
+      const vol = optionRow({ label: 'V', get: () => v, set: x => { v = x; }, min: 0, max: 100, step: 5, def: 50 }), mode = optionRow({ label: 'M', get: () => m, set: x => { m = x; }, values: [['a', 'Aa'], ['b', 'Bb'], ['c', 'Cc']], def: 'a' });
+      vol.key(ev('ArrowRight')); up('ArrowRight'); check(v === 55 && vol.el.querySelector('b').textContent === '55', `right: ${v}`);
+      vol.key(ev('KeyD', { shiftKey: true })); up('KeyD'); check(v === 75, `Shift: ${v}`);
+      vol.key(ev('KeyR')); check(v === 50, `R: ${v}`);
+      for (let i = 0; i < 12; i++) vol.change(-1); check(v === 0, 'past the minimum');
+      mode.key(ev('ArrowLeft')); up('ArrowLeft'); check(m === 'c', 'it does not go round'); mode.key(ev('Enter')); check(m === 'a', 'Enter does not change it');
+      legend(G, [{ keys: ['Q', 'E'], text: 'x' }, { keys: ['mouse:r'], text: 'y' }, { keys: ['R'], hold: true, text: 'z' }]);
+      check(G.querySelectorAll('.chip').length === 4 && G.querySelector('.chip.mouse.r') && G.querySelector('.chip.hold .ring .fg'), 'legend');
+    } finally { box.remove(); clearKeys(); }
+  });
+  await test('menu (english): i18n: the new keys are in both languages and the menu sounds have their switch', async () => {
+    const [en, es] = await Promise.all(['en', 'es'].map(l => fetch(`./src/lang/${l}.json`).then(r => r.json())));
+    const need = k => /^(gui\.(pause\.tab|legend|brief|char|progress|game|alert|load|login|settings\.(tab|row|desc))\.|tip\.|stat\.|credits\.|load\.recap\.|minimap\.|quick\.|feed\.|big\.|prompt\.|map\.(zoom|view|keys|card|marker|places)\.)/.test(k);
+    const mine = Object.keys(en).filter(need);
+    check(mine.length > 250, `only ${mine.length} keys`);
+    for (const k of mine) check(typeof es[k] === 'string' && es[k], `${k} without Spanish`);
+    for (let i = 1; i <= 40; i++) check(en[`tip.${i}`] && es[`tip.${i}`], `tip.${i}`);
+    for (const id of ['master', 'music_on', 'music_mode', 'music', 'sfx', 'menu_sfx', 'fullscreen', 'scale', 'big_text', 'no_flash', 'motion', 'hud', 'accent', 'lang', 'mini', 'mini_size', 'blip_size', 'route_col', 'prompts', 'feed', 'skin']) check(es[`gui.settings.row.${id}`] && es[`gui.settings.desc.${id}`], `setting ${id}`);
+    const was = Settings.v.menuSfx;
+    try { Settings.set('menuSfx', false); check(GameAudio.menuSounds === false, 'off'); Settings.set('menuSfx', true); check(GameAudio.menuSounds === true, 'on'); } finally { Settings.set('menuSfx', was !== false); }
   });
   await test('rueda (tool wheel): F held opens it, the mouse direction picks a slot and releasing F equips it', async () => {
     const Wh = game.wheel, I = inv(), kept = I.slots.slice(), sel = I.selected, press = (code, type = 'keydown', o = {}) => dispatchEvent(new KeyboardEvent(type, { code, bubbles: true, ...o }));

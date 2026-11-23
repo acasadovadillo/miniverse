@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- La versión publicada: se cambia en cada publicación (así el juego sabe que tiene que pedir el código nuevo) -->
-<meta name="miniverse-version" content="2026-11-23.7">
+<meta name="miniverse-version" content="2026-11-24.1">
 <title>Miniverse</title>
 <script>
   // The language of the page until the game's code arrives (src/i18n.js chooses the same way, then takes over): for
@@ -40,6 +40,18 @@
   @font-face { font-family: 'Oswald'; font-style: normal; font-weight: 500 700; font-display: swap; src: url(assets/fonts/oswald-500-700-latin-ext.7b629573.woff2) format('woff2'); unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF; }
   :root { --gold: #ffd77a; --cream: #fff8e8; --border: #e8c47a; --wood: rgba(38, 26, 18, .94); --dim: #d8c3a0; --err: #ff8a7a;
     --font-ui: 'Barlow', system-ui, sans-serif; --font-title: 'Oswald', 'Barlow', system-ui, sans-serif; }
+  /* The tokens of the whole interface (PLAN-R8-hud-mapa.md §3.1): HUD, windows, maps and menus share colours, corners and
+     timings. --ui-s: one pixel of the 1920 × 1080 reference (sizes are calc(n * var(--ui-s))); --me: the player's own colour
+     (src/ui/skin.js). From --tab-bg on, what the two looks colour differently in the CSS that the code injects: here the
+     wood's, and the glass's in #ui-glass */
+  :root { --ui-s: clamp(.85px, calc(100vh / 1080), 1.3px); --safe: calc(24 * var(--ui-s));
+    --glass: rgba(10, 12, 16, .62); --glass-hi: rgba(10, 12, 16, .82); --hair: rgba(255, 255, 255, .1);
+    --ink: #ffffff; --ink-2: rgba(255, 255, 255, .72); --ink-3: rgba(255, 255, 255, .45);
+    --accent: var(--me, #ff4f9a); --accent-2: #ffb24a; --cool: #37c9c3; --good: #7fe08a; --bad: #ff6a5a;
+    --shadow-text: 0 1px 2px rgba(0, 0, 0, .85), 0 0 8px rgba(0, 0, 0, .35);
+    --r-s: 4px; --r-m: 10px; --r-l: 14px;
+    --t-in: .15s ease-out; --t-out: .5s ease-in; --t-slide: .18s cubic-bezier(.2, .8, .2, 1); --t-sel: .08s; --t-open: .14s; --t-close: .1s;
+    --tab-bg: rgba(0, 0, 0, .25); --tab-line: #6a4a2a; --tab-ink: var(--dim); --tab-on-bg: rgba(60, 42, 14, .5); --tab-on-ink: var(--cream); --tab-on-line: var(--gold); --plate: rgba(20, 13, 8, .62); --mark: var(--gold); --coins: var(--gold); }
   * { box-sizing: border-box; }
   html, body { margin: 0; height: 100%; overflow: hidden; background: #1d2a1a; font-family: var(--font-ui); font-weight: 500; color: var(--cream); touch-action: none; -webkit-user-select: none; user-select: none; }
   #c { position: fixed; left: 0; top: 0; display: block; }
@@ -620,10 +632,6 @@
   #inv-dyes span { font-size: 14px; color: var(--dim); margin-right: 4px; }
   #inv-dyes button { width: 22px; height: 22px; padding: 0; border: 2px solid #2a1c12; border-radius: 4px; cursor: pointer; }
   #inv-dyes button.on { border-color: var(--gold); box-shadow: 0 0 0 1px var(--gold); }
-  #m-confirm { margin: 0 0 12px; padding: 10px 12px; border: 2px solid #b8483a; border-radius: 6px; background: rgba(96, 30, 24, .45); }
-  #m-confirm p { margin: 0 0 10px; color: var(--cream); font-size: 16px; line-height: 1.4; }
-  #m-confirm p::before { content: '⚠ '; color: #ffb07a; }
-  #m-confirm .btn:last-child { margin-bottom: 0; }
 
   #s-creator .box { width: min(820px, 100%); }
   .cr { display: grid; grid-template-columns: 250px 1fr; gap: 22px; align-items: start; }
@@ -670,6 +678,167 @@
   .st-note { margin: 2px 0 6px; font-size: 14px; line-height: 1.35; color: var(--dim); opacity: .85; }
   .cr-actions { display: flex; gap: 10px; margin-top: 4px; }
   .cr-actions .btn { margin: 0; }
+</style>
+<style>
+  /* ---------- The menus' own pieces (src/ui/frontend.js; PLAN-R9-menus.md §3.2): always dark glass, with either look ---------- */
+  :root { --fe-glass: var(--glass-hi); --fe-glass-2: var(--glass-hi); --fe-solid: #0c0e12; --fe-line: var(--hair); --fe-text: var(--ink); --fe-dim: var(--ink-2); --fe-faint: var(--ink-3);
+    --fe-sel-bg: #fff; --fe-sel-text: #0c0e12; --fe-accent: var(--accent); --fe-good: var(--good); --fe-warn: var(--accent-2); --fe-bad: var(--bad); }
+  /* A row of any list: the selected one is a solid white bar with dark text */
+  .row { display: flex; align-items: center; gap: 10px; min-height: 40px; padding: 4px 14px; border-radius: var(--r-s); font: 500 20px/1.2 var(--font-title); letter-spacing: .04em; text-transform: uppercase; color: var(--ink); cursor: pointer; transition: background-color var(--t-sel), color var(--t-sel); }
+  .row > span { flex: 1; min-width: 0; }
+  .row > b { font-weight: 500; font-variant-numeric: tabular-nums; }
+  .row:hover { background: rgba(255, 255, 255, .08); }
+  .row.off { color: var(--ink-3); cursor: default; }
+  .row.sel { background: var(--fe-sel-bg); color: var(--fe-sel-text); }
+  .row.sel.off { color: rgba(12, 14, 18, .5); }
+  .fe-opt { min-height: 38px; font: 500 17px/1.2 var(--font-ui); letter-spacing: 0; text-transform: none; }
+  .fe-opt > b { min-width: 92px; text-align: center; font: 500 17px/1.2 var(--font-title); letter-spacing: .03em; }
+  .fe-arrow { width: 22px; height: 26px; padding: 0; color: inherit; background: none; border: 0; border-radius: var(--r-s); font: 500 20px/1 var(--font-title); opacity: .75; cursor: pointer; }
+  .fe-arrow:hover { opacity: 1; background: rgba(128, 128, 128, .22); }
+  .fe-bar { position: relative; width: 120px; height: 4px; border-radius: 2px; background: rgba(128, 128, 128, .4); overflow: hidden; }
+  .fe-bar::after { content: ''; position: absolute; inset: 0; background: var(--accent); transform: scaleX(var(--v, 0)); transform-origin: 0 50%; }
+  /* Tabs: capitals, and a line under the current one that slides */
+  .fe-tabs { position: relative; display: flex; align-items: center; gap: 6px; border-bottom: 1px solid var(--fe-line); }
+  .fe-tab { padding: 8px 12px 10px; color: var(--fe-dim); background: none; border: 0; cursor: pointer; font: 600 17px/1.2 var(--font-title); letter-spacing: .08em; text-transform: uppercase; transition: color var(--t-sel); }
+  .fe-tab:hover, .fe-tab.on { color: var(--fe-text); }
+  .fe-line { position: absolute; left: 0; bottom: -1px; width: 100px; height: 3px; background: var(--fe-accent); transform-origin: 0 50%; transition: transform var(--t-slide); }
+  /* Key chips (the same for the legend, the alert and, later, the prompts), and the ring of a key that has to be held */
+  .chip, kbd.chip { position: relative; display: inline-block; box-sizing: border-box; min-width: 22px; height: 22px; margin: 0; padding: 0 6px; border-radius: var(--r-s); background: #fff; color: #14171c; box-shadow: 0 1px 2px rgba(0, 0, 0, .45); font: 600 13px/22px var(--font-ui); text-align: center; white-space: nowrap; }
+  .chip.mouse { padding: 0; background: #fff center / 14px 18px no-repeat; }
+  .chip.mouse.l { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 14 18'%3E%3Crect x='1' y='1' width='12' height='16' rx='6' fill='none' stroke='%2314171c' stroke-width='1.6'/%3E%3Cpath d='M7 1a6 6 0 0 0-6 6v1h6z' fill='%2314171c'/%3E%3C/svg%3E"); }
+  .chip.mouse.r { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 14 18'%3E%3Crect x='1' y='1' width='12' height='16' rx='6' fill='none' stroke='%2314171c' stroke-width='1.6'/%3E%3Cpath d='M7 1a6 6 0 0 1 6 6v1H7z' fill='%2314171c'/%3E%3C/svg%3E"); }
+  .chip.hold { margin: 0 6px; }
+  .chip .ring { position: absolute; left: -6px; top: -6px; width: calc(100% + 12px); height: calc(100% + 12px); overflow: visible; pointer-events: none; }
+  .chip .ring rect { x: 1.25px; y: 1.25px; width: calc(100% - 2.5px); height: calc(100% - 2.5px); rx: 9px; fill: none; stroke-width: 2.5; }
+  .chip .ring .bg { stroke: rgba(255, 255, 255, .28); }
+  .chip .ring .fg { stroke: var(--ink); stroke-dasharray: 1 2; stroke-dashoffset: calc(1px - 1px * var(--p, 0)); }
+  .fe-legend { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px 18px; font: 500 16px/1.2 var(--font-ui); color: var(--fe-text); }
+  .fe-key { display: inline-flex; align-items: center; gap: 5px; padding: 0; color: inherit; background: none; border: 0; text-shadow: var(--shadow-text); }
+  .fe-key > span { margin-left: 3px; }
+  button.fe-key { padding: 8px 12px; border-radius: var(--r-s); cursor: pointer; }
+  button.fe-key:hover { background: rgba(255, 255, 255, .12); }
+  /* The alert: a dark band across the screen */
+  .fe-alert { position: fixed; inset: 0; z-index: 80; display: flex; align-items: center; background: rgba(6, 7, 9, .55); outline: none; animation: fe-in var(--t-open); touch-action: auto; }
+  .fe-alert.out { opacity: 0; transition: opacity var(--t-close); }
+  .fe-band { width: 100%; max-height: 100%; overflow-y: auto; padding: 30px max(24px, calc(50vw - 380px)); background: rgba(8, 9, 12, .92); box-shadow: inset 0 1px 0 var(--fe-line), inset 0 -1px 0 var(--fe-line); text-align: center; animation: fe-rise var(--t-open); }
+  .fe-band h2 { margin: 0 0 10px; font-size: 38px; line-height: 1.1; letter-spacing: .06em; color: var(--fe-accent); }
+  .fe-band p { margin: 0 0 20px; font-size: 18px; line-height: 1.45; color: var(--fe-text); }
+  .fe-band .fe-legend { justify-content: center; }
+  @keyframes fe-in { from { opacity: 0; } }
+  @keyframes fe-rise { from { transform: translateY(12px); } }
+  body.still-menus .fe-alert, body.still-menus .fe-band { animation: none; }
+  body.still-menus .fe-alert.out, body.still-menus .fe-line { transition: none; }
+  @media (prefers-reduced-motion: reduce) { .fe-alert, .fe-band { animation: none; } .fe-alert.out, .fe-line { transition: none; } }
+  body.big-text .fe-legend, body.big-text .fe-opt { font-size: 17.9px; }
+  body.big-text .fe-band p { font-size: 20px; }
+</style>
+<!-- The glass look (PLAN-R8-hud-mapa.md §3.1): its rules over the wooden ones above, which src/ui/skin.js brings back by turning
+     this sheet off (?ui=madera, or Settings › Look; for one version). No backdrop-filter while playing: plain alpha -->
+<style id="ui-glass">
+  :root { --gold: #ffffff; --cream: #ffffff; --border: rgba(255, 255, 255, .16); --wood: var(--glass-hi); --dim: var(--ink-2); --err: #ff8577;
+    --tab-bg: rgba(255, 255, 255, .07); --tab-line: transparent; --tab-ink: rgba(255, 255, 255, .8); --tab-on-bg: #fff; --tab-on-ink: #0c0e12; --tab-on-line: #fff; --plate: var(--glass); --mark: var(--accent); --coins: var(--accent-2); }
+  html, body { background: #0c0e12; }
+  h1, h2, h3, h4, .logo, .map-bar b, .bb-top b, #title-msg { letter-spacing: .06em; }
+  h3 small, h2 small, #cf-note { letter-spacing: 0; }
+  /* Plates: windows and boxes; those of the HUD are lighter, with their text's shadow */
+  .panel { background: var(--glass-hi); border: 0; border-radius: var(--r-m); box-shadow: inset 0 0 0 1px var(--hair), 0 8px 24px rgba(0, 0, 0, .35); }
+  #clockp, #place, #money.panel, #hint, #prompt, #quest, #admin-tag, #aim-free, #hotbar, .toast, #hud-tip, #love-text { background: var(--glass); box-shadow: inset 0 0 0 1px var(--hair), 0 2px 8px rgba(0, 0, 0, .25); text-shadow: var(--shadow-text); }
+  #hint kbd, #prompt kbd, #hud-tip kbd { text-shadow: none; }
+  #minimap { background: rgba(10, 12, 16, .82); box-shadow: 0 0 0 1px var(--hair), 0 4px 14px rgba(0, 0, 0, .35); }
+  .toast { color: var(--ink); } .toast.good { color: var(--good); }
+  #quest { box-shadow: inset 3px 0 0 var(--accent), inset 0 0 0 1px var(--hair), 0 2px 8px rgba(0, 0, 0, .25); }
+  #players h3 { text-align: left; }
+  #players-list .op { color: var(--accent-2); }
+  #money, #sh-money { color: var(--coins); }
+  #body-chip, #nd-legend { background: rgba(10, 12, 16, .7); }
+  /* The keys */
+  kbd { min-width: 22px; padding: 0 6px; border-radius: var(--r-s); background: #fff; color: #14171c; box-shadow: 0 1px 2px rgba(0, 0, 0, .45); font: 600 14px/22px var(--font-ui); }
+  .ct-list kbd, #hud-tip kbd, .hud-keys kbd, #hint kbd { font-size: 13px; }
+  /* Titles: a short line of the player's colour under them */
+  .box h2, .inv-panel h2, .cf-panel h2, .j-panel h2, .sh-panel h2, .ch-panel h2 { padding-bottom: 8px; background: linear-gradient(var(--accent), var(--accent)) left bottom / 28px 2px no-repeat; color: var(--ink); }
+  .win.collapsed h2 { padding-bottom: 0; background: none; }
+  .st-head, .ct-panel h3, #j-body h3, #cf-repair h3 { font-weight: 600; letter-spacing: .06em; color: var(--ink); }
+  .st-head { border-bottom: 0; padding-bottom: 5px; margin-bottom: 4px; background: linear-gradient(var(--accent), var(--accent)) left bottom / 28px 2px no-repeat; }
+  .inv-sep { color: var(--ink-2); }
+  /* Buttons: plain ones a light wash, the main one white */
+  .btn { color: var(--ink); background: rgba(255, 255, 255, .1); border-color: transparent; border-radius: var(--r-s); transition: background-color var(--t-sel), color var(--t-sel); }
+  .btn:hover:not(:disabled) { border-color: transparent; background: rgba(255, 255, 255, .2); }
+  .btn.primary { color: #0c0e12; background: #fff; border: 2px solid transparent; box-shadow: none; }
+  .btn.primary:hover:not(:disabled) { background: #fff; border-color: var(--accent); }
+  .btn.danger { color: #ffd9d4; background: rgba(255, 106, 90, .22); box-shadow: none; }
+  .btn.danger:hover:not(:disabled) { color: #1a0a08; background: var(--bad); }
+  .sq { color: var(--ink); background: rgba(255, 255, 255, .1); border: 0; border-radius: var(--r-s); transition: background-color var(--t-sel), color var(--t-sel); }
+  .sq:hover:not(:disabled) { color: #0c0e12; background: #fff; }
+  button:focus-visible, input:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  /* Tabs, choices and lists: the one chosen is a white bar with dark text */
+  .tabs button, .seg button, .st-row .seg button, .cf-tab, .cf-size, #bb-cats button, #j-tabs button, .sh-tabs button, #dlg-opts button, .cf-fix, .bb-piece, .map-bar .map-btn { color: rgba(255, 255, 255, .8); background: rgba(255, 255, 255, .07); border-color: transparent; border-radius: var(--r-s); transition: background-color var(--t-sel), color var(--t-sel); }
+  .tabs button:hover, .seg button:hover, .st-row .seg button:hover, .cf-tab:hover, .cf-size:hover, #bb-cats button:hover, #j-tabs button:hover, .sh-tabs button:hover, #dlg-opts button:hover, .cf-fix:hover:not(:disabled), .bb-piece:hover:not(:disabled), .map-bar .map-btn:hover { color: var(--ink); background: rgba(255, 255, 255, .16); }
+  .tabs button.on, .seg button.on, .st-row .seg button.on, .cf-tab.on, .cf-size.on, #bb-cats button.on, #j-tabs button.on, .sh-tabs button.on, #dlg-opts button.on, .bb-piece.on { color: #0c0e12; background: #fff; border-color: transparent; box-shadow: none; }
+  #dlg-opts { gap: 2px; }
+  #dlg-opts button { padding: 6px 12px; }
+  #dlg-opts button.on { font-weight: 600; }
+  .bb-piece, .bb-piece:hover:not(:disabled) { color: var(--ink); }
+  .bb-piece.on, .bb-piece.on:hover:not(:disabled) { color: #0c0e12; background: #fff; }
+  .bb-piece.on small { color: rgba(12, 14, 18, .72); } .bb-piece.on.poor small { color: #b3261e; }
+  .bb-piece.on img { filter: drop-shadow(0 0 1px rgba(0, 0, 0, .5)); }
+  .cyc span { background: rgba(255, 255, 255, .07); }
+  .sw button { border-color: rgba(255, 255, 255, .18); } .sw button.on { outline-color: #fff; }
+  .cf-tab.new::after, .cf-r.new::after { background: var(--accent); box-shadow: 0 0 0 2px #14171c; }
+  .lang-pick button.on { color: #0c0e12; background: #fff; }
+  .lang-pick { border-radius: var(--r-s); }
+  /* Fields */
+  .field input, .dlg-input, #inv-all-q, #chat-input { background: rgba(255, 255, 255, .08); border: 1px solid rgba(255, 255, 255, .18); border-radius: var(--r-s); color: var(--ink); }
+  .field input:focus, .dlg-input:focus, #inv-all-q:focus, #chat-input:focus { border-color: var(--accent); box-shadow: inset 0 -2px 0 var(--accent); outline: none; }
+  #chat-input { background: rgba(10, 12, 16, .82); }
+  .st-row input[type=range], .st-row input[type=checkbox] { accent-color: var(--accent); }
+  .st-row { color: var(--ink); }
+  .chat-line { background: rgba(10, 12, 16, .62); border-radius: var(--r-s); }
+  .chat-line.sys { color: #ffd9a0; }
+  /* The dialogue */
+  #dialog { background: rgba(10, 12, 16, .9); }   /* (it lies over the hotbar) */
+  #dialog .name { color: var(--accent); letter-spacing: .02em; }
+  #dialog .more { color: var(--accent); }
+  #dlg-face { background: radial-gradient(circle at 50% 38%, #414750, #15181d 72%); border: 1px solid var(--hair); border-radius: var(--r-s); }
+  /* Slots */
+  .slot { background: rgba(255, 255, 255, .1); border: 1px solid rgba(255, 255, 255, .14); border-radius: var(--r-s); }
+  .slot:hover { border-color: rgba(255, 255, 255, .4); }
+  .slot.sel { border-color: #fff; background: rgba(255, 255, 255, .2); box-shadow: 0 0 0 1px #fff; }
+  .slot.drop-ok { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+  .slot.wear { background: rgba(255, 255, 255, .06); }
+  .slot .dur, .slot .tear { background: rgba(0, 0, 0, .6); }
+  .cf-r.ok { border-color: rgba(127, 224, 138, .75); } .cf-r.sel { border-color: #fff; }
+  #inv-wear { border: 0; border-radius: var(--r-s); background: radial-gradient(ellipse at 50% 44%, #3b4149, #16191e 74%); box-shadow: inset 0 0 0 1px var(--hair); }
+  #inv-lock { background: rgba(10, 12, 16, .72); }
+  #inv-info, .cf-foot { border-top: 1px solid var(--hair); }
+  .mc-fire, .j-cell { border-color: rgba(255, 255, 255, .16); } .j-cell { border-width: 1px; background: rgba(255, 255, 255, .06); } .j-cell.done { border-color: rgba(127, 224, 138, .75); }
+  .mc-arrow i { background: var(--accent); }
+  /* Journal and shop */
+  .j-row, .j-fish { border-bottom-color: var(--hair); }
+  .j-row .lvl, .j-fish .lvl { color: var(--accent-2); }
+  .hearts i { color: rgba(255, 255, 255, .22); }
+  .j-goal { background: rgba(255, 255, 255, .07); box-shadow: inset 3px 0 0 var(--accent); color: var(--ink); }
+  .j-page { color: var(--ink); background: rgba(255, 255, 255, .07); box-shadow: inset 3px 0 0 var(--ink-3); }
+  .j-bodybox, .rep-box { background: rgba(255, 255, 255, .06); }
+  .j-row small.j-mem { color: #e0cfae; }
+  #sh-note, #cf-note { color: #ffd9a0; }
+  .sh-row { background: rgba(255, 255, 255, .05); border-radius: var(--r-s); transition: background-color var(--t-sel); } .sh-row:hover { background: rgba(255, 255, 255, .12); }
+  .sh-row small { color: var(--ink-2); }
+  /* Screens */
+  .screen { background: radial-gradient(ellipse at center, rgba(8, 9, 12, .4), rgba(8, 9, 12, .76)); }
+  #s-shop { background: rgba(8, 9, 12, .5); }
+  #s-map { background: #0c0e12; }
+  #map-legend-rows i, #hud-wp i { border-color: rgba(8, 9, 12, .85); }
+  .logo { font-weight: 700; letter-spacing: .12em; text-shadow: 0 2px 18px rgba(0, 0, 0, .55); }
+  .logo small { text-shadow: 0 1px 4px rgba(0, 0, 0, .6); }
+  .cr-room { background: linear-gradient(#383e46, #23272d 72%, #181b20 72%); }
+  .ac-code { background: rgba(255, 255, 255, .08); }
+  #m-live { border: 0; border-radius: var(--r-s); background: rgba(127, 224, 138, .14); box-shadow: inset 3px 0 0 var(--good); }
+  #m-live.wait { background: rgba(255, 178, 74, .14); box-shadow: inset 3px 0 0 var(--accent-2); }
+  #m-live.err { background: rgba(255, 106, 90, .16); box-shadow: inset 3px 0 0 var(--bad); }
+  #title-msg { color: #fff; text-shadow: 0 2px 14px rgba(0, 0, 0, .7); }
+  .win, .panel, .box, #j-body, #sh-list, #cf-repair, #bb-pieces, #inv-all-grid, #map-legend, .screen { scrollbar-width: thin; scrollbar-color: rgba(255, 255, 255, .32) transparent; }
+  .floater { text-shadow: 1px 0 #0c0e12, -1px 0 #0c0e12, 0 1px #0c0e12, 0 -1px #0c0e12, 0 2px 3px rgba(0, 0, 0, .4); }
+  .tb { background: rgba(10, 12, 16, .62); border-color: rgba(255, 255, 255, .3); color: #fff; }
 </style>
 </head>
 <body class="still">
@@ -759,11 +928,6 @@
       <button class="btn primary" id="m-continue" data-i18n="gui.menu.continue">Continue</button>
       <button class="btn primary" id="m-new">Create your character</button>
       <button class="btn" id="m-local">Play locally</button>
-      <div id="m-confirm" hidden>
-        <p data-i18n="gui.menu.new_game_warning">Starting a new game will delete your current character: what you carry, your money, your skills, your recipes and your advancements. The world and everything in it (your house, the animals, what you've built) stays as it is. Are you sure you want to continue?</p>
-        <button class="btn primary" id="m-confirm-yes" data-i18n="gui.menu.new_game_confirm">Yes, create a new character</button>
-        <button class="btn" id="m-confirm-no" data-i18n="common.cancel">Cancel</button>
-      </div>
       <button class="btn" id="m-settings" data-i18n="gui.settings.title">Settings</button>
       <p class="note" id="menu-msg"></p>
       <button class="btn" id="m-session" data-i18n="gui.menu.log_out">Log out</button>
@@ -893,7 +1057,7 @@
         <dt data-i18n="controls.body.keys">The body chip</dt><dd data-i18n="controls.body">Under the bars, only when it matters: Cold, Freezing, Hot, Soaked or Filthy. Hold Tab to see how warm you feel</dd>
         <dt><kbd>J</kbd> <kbd>M</kbd></dt><dd data-i18n="controls.journal_map">Journal and map</dd>
         <dt data-i18n-html="controls.chat.keys"><kbd>T</kbd> or <kbd>/</kbd></dt><dd data-i18n-html="controls.chat">Chat and commands (<b>/help</b> to see them). Ops (given in the server terminal with <b>/op</b>) have <b>/gamemode</b>, <b>/tp</b>, <b>/give</b>, <b>/kill</b>, <b>/weather</b>, <b>/gamerule</b>…; the admin also has <b>/account</b>, to create accounts</dd>
-        <dt><kbd>Esc</kbd></dt><dd data-i18n="controls.pause">Pause (and close windows)</dd>
+        <dt><kbd>Esc</kbd> <kbd>P</kbd></dt><dd data-i18n="controls.pause">Pause (and close windows)</dd>
       </dl>
       <h3 data-i18n="gui.controls.building">Building</h3>
       <dl class="ct-list">

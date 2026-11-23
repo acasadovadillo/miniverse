@@ -28,6 +28,8 @@ const RAW = (() => { try { return new URLSearchParams(globalThis.location?.searc
 // gallop as before; no spooks, tricks, N key, dirt, horse bar or new bond gains: brushing or a carrot is +1 heart as
 // before) and alforjas (no saddlebag lock or guard: last write wins as before; new bags get 9 stacks, B and C never pay
 // from them, no kg in the title). Neither changes gen or the save shape (the fields just stay unused)
+// And ui (not a part: ui/skin.js reads it): ?ui=madera, the wooden interface of before, for one version; ?ui=cristal, the
+// glass, whatever Settings › Look says
 export const PARTES = { hierba: 'sinlod', impostores: null, relieve: null, contacto: null, sombras: 'todas', personas: 'todas', suelo: 'v2', inventario: 'casillas',
   sed: null, cansancio: null, aguante: null, buceo: null, fondo: null, caustica: null,
   ruta: null, rutasuelo: null, musica: 'chip',

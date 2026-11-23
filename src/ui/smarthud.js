@@ -121,19 +121,19 @@ body.hud-min #clockp.hm-on, body.hud-min.hud-all #clockp, body.hud-min #quest.hm
 body.hud-min.spectator #hotbar-slots, body.hud-min:not(.hud-all) #coords, body.hud-min #vitals { display: none; }
 /* The hotbar: light slots that rise into sight and fold away */
 body.hud-min #hotbar { background: none; border: 0; box-shadow: none; padding: 0; }
-body.hud-min #hotbar .slots { padding: 4px; background: rgba(16, 10, 6, .4); border-radius: 9px; transform: translateY(14px); transition: opacity .5s ease, transform .5s ease, visibility 0s linear .5s; }
+body.hud-min #hotbar .slots { padding: 4px; background: rgba(10, 12, 16, .42); border-radius: 8px; transform: translateY(14px); transition: opacity .5s ease, transform .5s ease, visibility 0s linear .5s; }
 body.hud-min #hotbar .slots.hm-on, body.hud-min.hud-all #hotbar .slots { transform: none; transition: opacity .15s ease, transform .2s ease-out, visibility 0s; }
-body.hud-min #hotbar .slot { background: rgba(0, 0, 0, .28); border: 1px solid rgba(255, 240, 210, .3); border-radius: 6px; }
-body.hud-min #hotbar .slot.sel { background: rgba(60, 42, 14, .55); border-color: var(--gold); box-shadow: 0 0 0 1px var(--gold), inset 0 0 10px rgba(255, 215, 122, .3); }
+body.hud-min #hotbar .slot { background: rgba(0, 0, 0, .28); border: 1px solid rgba(255, 255, 255, .22); border-radius: var(--r-s); }
+body.hud-min #hotbar .slot.sel { background: rgba(255, 255, 255, .24); border-color: var(--gold); box-shadow: 0 0 0 1px var(--gold); }
 body.hud-min #hotbar .slot.hm-food { animation: hm-beat 1s ease-in-out infinite; }
-@keyframes hm-beat { 50% { border-color: #fff3c0; box-shadow: 0 0 0 2px #ffd77a, 0 0 14px 4px rgba(255, 215, 122, .75); } }
+@keyframes hm-beat { 50% { border-color: #fff; box-shadow: 0 0 0 2px var(--accent-2), 0 0 14px 4px rgba(255, 178, 74, .7); } }
 /* Experience (and the load, with the weight inventory): one block left of the hotbar. Health and the other needs are the
    bars at the top left (ui/needsbar.js) */
-#hud-status { position: absolute; right: calc(100% + 8px); bottom: 0; display: flex; flex-direction: column; gap: 5px; padding: 7px 10px 8px; white-space: nowrap; background: rgba(20, 13, 8, .62); border-radius: 10px; pointer-events: none; }
+#hud-status { position: absolute; right: calc(100% + 8px); bottom: 0; display: flex; flex-direction: column; gap: 5px; padding: 7px 10px 8px; white-space: nowrap; background: var(--plate); border-radius: var(--r-m); pointer-events: none; }
 body.hud-min:not(.survival) #hud-status { display: none; }
 #hud-status #xp { margin: 3px 24px 1px 0; height: 4px; }
 #hud-status #xp b { left: auto; right: -22px; top: -4px; transform: none; }
-#hud-coins { display: none; margin-top: 1px; font: 500 17px/1.2 var(--font-title); letter-spacing: .03em; font-variant-numeric: tabular-nums; color: var(--gold); }
+#hud-coins { display: none; margin-top: 1px; font: 500 17px/1.2 var(--font-title); letter-spacing: .03em; font-variant-numeric: tabular-nums; color: var(--coins); }
 #hud-status.hm-wins #hud-coins { display: block; }   /* (with a window open, the money goes here: the windows open at the top right) */
 /* The money, top right as in GTA (the minimap is bottom left), and what came in or went out */
 body.hud-min #money { position: fixed; right: 16px; top: 60px; margin: 0; padding: 5px 12px; font-size: 18px; line-height: 1.2; transition: opacity .5s ease, visibility 0s linear .5s, top .25s ease; }
@@ -141,7 +141,7 @@ body.hud-min #money.hm-on { transition: opacity .15s ease, visibility 0s, top .2
 #hud-delta { position: fixed; right: 18px; top: 100px; font: 600 18px/1.2 var(--font-title); letter-spacing: .03em; font-variant-numeric: tabular-nums; white-space: nowrap; pointer-events: none; text-shadow: 1px 0 #2a1c22, -1px 0 #2a1c22, 0 1px #2a1c22, 0 -1px #2a1c22; transition: opacity .5s ease, visibility 0s linear .5s, top .25s ease; }
 #hud-delta.up { color: #a8f07a; } #hud-delta.down { color: #ff9a7a; }
 body:not(.playing) #money, body:not(.playing) #hud-delta, body:not(.playing) #hud-goal, body:not(.playing) #hud-bow { display: none; }
-#hud-item { position: absolute; left: 50%; bottom: 62px; transform: translateX(-50%); padding: 2px 10px; font-size: 16px; white-space: nowrap; color: var(--cream); background: rgba(24, 16, 10, .72); border-radius: 9px; pointer-events: none; }
+#hud-item { position: absolute; left: 50%; bottom: 62px; transform: translateX(-50%); padding: 2px 10px; font-size: 16px; white-space: nowrap; color: var(--cream); background: rgba(10, 12, 16, .72); border-radius: var(--r-s); pointer-events: none; }
 body.hud-min #hint { bottom: 106px; }
 body.hud-min.building #hint { bottom: 156px; }   /* (above the build bar, which is taller than the hotbar) */
 body.hud-min #hint.hm-quiet { opacity: 0; transition: opacity .5s; }
@@ -150,18 +150,18 @@ body.hud-min #quest.hm-compact:not(:hover) > :not(b) { display: none; }
 body.hud-min #quest.hm-compact:not(:hover) b { font-size: 16px; }
 /* Where the first step sends you: a diamond over it with the distance, on the edge of the screen when it is off it */
 #hud-goal { position: fixed; left: 0; top: 0; z-index: 4; display: flex; flex-direction: column; align-items: center; gap: 3px; pointer-events: none; will-change: transform; }
-#hud-goal i { width: 13px; height: 13px; background: var(--gold); border: 2px solid #2a1c22; transform: rotate(45deg); box-shadow: 0 0 10px rgba(255, 215, 122, .7); }
+#hud-goal i { width: 13px; height: 13px; background: var(--mark); border: 2px solid #14171c; transform: rotate(45deg); box-shadow: 0 0 10px rgba(255, 255, 255, .35); }
 #hud-goal b { font-size: 15px; font-weight: 600; color: var(--cream); text-shadow: 1px 0 #2a1c22, -1px 0 #2a1c22, 0 1px #2a1c22, 0 -1px #2a1c22; }
-#hud-goal s { display: none; position: absolute; left: 50%; top: 8px; width: 0; height: 0; margin-top: -6px; border: 6px solid transparent; border-right: 0; border-left: 9px solid var(--gold); transform-origin: 0 6px; }
+#hud-goal s { display: none; position: absolute; left: 50%; top: 8px; width: 0; height: 0; margin-top: -6px; border: 6px solid transparent; border-right: 0; border-left: 9px solid var(--mark); transform-origin: 0 6px; }
 #hud-goal.edge s { display: block; }
 /* The bow: a ring at the cursor that fills as it is drawn, with the arrows left */
 #hud-bow { position: fixed; left: 0; top: 0; z-index: 6; width: 44px; height: 44px; margin: -22px 0 0 -22px; pointer-events: none; will-change: transform; }
 #hud-bow svg { width: 100%; height: 100%; transform: rotate(-90deg); }
 #hud-bow circle { fill: none; stroke-width: 3; }
-#hud-bow .bg { stroke: rgba(20, 13, 8, .55); }
+#hud-bow .bg { stroke: rgba(10, 12, 16, .55); }
 #hud-bow .fg { stroke: var(--cream); transition: stroke .15s; }
-#hud-bow.full .fg { stroke: var(--gold); }
-#hud-bow b { position: absolute; left: 46px; top: 10px; padding: 1px 7px; font-size: 17px; font-weight: 600; color: var(--cream); background: rgba(20, 13, 8, .6); border-radius: 8px; text-shadow: 1px 0 #2a1c22, -1px 0 #2a1c22, 0 1px #2a1c22, 0 -1px #2a1c22; }
+#hud-bow.full .fg { stroke: var(--mark); }
+#hud-bow b { position: absolute; left: 46px; top: 10px; padding: 1px 7px; font-size: 17px; font-weight: 600; color: var(--cream); background: rgba(10, 12, 16, .6); border-radius: var(--r-s); text-shadow: 1px 0 #2a1c22, -1px 0 #2a1c22, 0 1px #2a1c22, 0 -1px #2a1c22; }
 #hud-bow.empty .bg { stroke: #ff6a4a; } #hud-bow.empty b { color: #ff8a6a; }
 /* The key tips: next to the hotbar, where the eye already goes */
 #hud-tip { position: absolute; left: calc(100% + 10px); bottom: 0; display: flex; align-items: center; gap: 4px; width: max-content; max-width: min(400px, calc(50vw - 250px)); padding: 7px 12px; font-size: 16px; line-height: 1.3; pointer-events: none; }

@@ -66,9 +66,9 @@ const CSS = `
   color: #2a1c12; font: 500 16px/1.25 var(--font-ui); text-align: center; white-space: normal; box-shadow: 0 2px 8px rgba(0, 0, 0, .35); will-change: transform, opacity; pointer-events: none; }
 .say-bubble::after { content: ''; position: absolute; left: 50%; bottom: -7px; margin-left: -7px; border: 7px solid transparent; border-bottom: 0; border-top-color: rgba(255, 248, 232, .95); }
 .say-bubble b { display: block; margin-bottom: 1px; font: 600 11px/1.2 var(--font-title); letter-spacing: .07em; text-transform: uppercase; color: #8a5a2a; }
-.say-bubble.mine { background: rgba(38, 26, 18, .92); color: var(--cream); box-shadow: 0 0 0 1px rgba(255, 215, 122, .45), 0 2px 8px rgba(0, 0, 0, .35); }
-.say-bubble.mine::after { border-top-color: rgba(38, 26, 18, .92); }
-#social-sub { position: fixed; left: 50%; bottom: 17%; z-index: 23; max-width: min(640px, 80vw); padding: 6px 16px; transform: translateX(-50%); border-radius: 8px; background: rgba(16, 10, 6, .72);
+.say-bubble.mine { background: rgba(10, 12, 16, .88); color: var(--cream); box-shadow: 0 0 0 1px rgba(255, 255, 255, .16), 0 2px 8px rgba(0, 0, 0, .35); }
+.say-bubble.mine::after { border-top-color: rgba(10, 12, 16, .88); }
+#social-sub { position: fixed; left: 50%; bottom: 17%; z-index: 23; max-width: min(640px, 80vw); padding: 6px 16px; transform: translateX(-50%); border-radius: var(--r-s); background: rgba(10, 12, 16, .72);
   color: var(--cream); font: 500 18px/1.3 var(--font-ui); text-align: center; white-space: pre-line; opacity: 0; visibility: hidden; transition: opacity .2s, visibility 0s linear .2s; pointer-events: none; }
 #social-sub.on { opacity: 1; visibility: visible; transition: opacity .12s, visibility 0s; }
 body:not(.playing) #social-sub { display: none; }

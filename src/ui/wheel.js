@@ -18,7 +18,7 @@ import { hud } from './hud.js';
 
 export const HOLD_MS = 180;     // how long F is held before the ring shows (shorter: a tap)
 const STICK = 120, DEAD = 28;   // px of mouse movement: the stick's reach and its dead zone
-const R_OUT = 190, R_IN = 92, GAP = 1.6;   // the ring (px) and the gap between slots (degrees)
+const R_OUT = 170, R_IN = 84, GAP = 1.6;   // the ring (px) and the gap between slots (degrees)
 const HELP_TIMES = 3;           // the help line under the name, the first times (per account, like the key tips)
 const TIPS_KEY = 'pueblo-brotes:pistas';
 const SWALLOW_MAX = 3000;       // ms: the longest the click that closed it is waited for (see swallow)
@@ -26,39 +26,39 @@ const SECTOR = 360 / HOTBAR;
 
 const CSS = `
 #wheel-vignette { position: fixed; inset: 0; z-index: 27; pointer-events: none; opacity: 0; visibility: hidden; transition: opacity .12s ease, visibility 0s linear .12s;
-  background: radial-gradient(ellipse at center, rgba(8, 5, 3, 0) 38%, rgba(8, 5, 3, .42) 100%); }
-#wheel-vignette.slow { background: radial-gradient(ellipse at center, rgba(8, 5, 3, 0) 30%, rgba(8, 5, 3, .66) 100%); }
+  background: radial-gradient(ellipse at center, rgba(6, 7, 9, 0) 38%, rgba(6, 7, 9, .42) 100%); }
+#wheel-vignette.slow { background: radial-gradient(ellipse at center, rgba(6, 7, 9, 0) 30%, rgba(6, 7, 9, .66) 100%); }
 #wheel-vignette.on { opacity: 1; visibility: visible; transition: opacity .12s ease, visibility 0s; }
 #wheel { position: fixed; left: 50%; top: 50%; z-index: 28; width: ${R_OUT * 2 + 20}px; height: ${R_OUT * 2 + 20}px; margin: ${-(R_OUT + 10)}px 0 0 ${-(R_OUT + 10)}px; pointer-events: none;
   opacity: 0; visibility: hidden; transform: scale(.92); transition: opacity .12s ease, transform .12s ease, visibility 0s linear .12s; }
 #wheel.on { opacity: 1; visibility: visible; transform: none; transition: opacity .12s ease, transform .12s ease-out, visibility 0s; }
 #wheel svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
-#wheel path { fill: rgba(20, 13, 8, .7); stroke: rgba(255, 240, 210, .22); stroke-width: 1.2; transition: transform .08s ease-out; }
-#wheel path.on { fill: rgba(64, 44, 14, .86); stroke: var(--gold); stroke-width: 2.4; transform: scale(1.06); }
-#wheel .ws { position: absolute; left: 50%; top: 50%; width: 56px; height: 56px; margin: -28px 0 0 -28px; transition: transform .08s ease-out; }
+#wheel path { fill: var(--glass); stroke: var(--hair); stroke-width: 1; transition: transform .08s ease-out, fill var(--t-sel); }
+#wheel path.on { fill: rgba(62, 68, 78, .82); stroke: #fff; stroke-width: 2.5; transform: scale(1.06); }
+#wheel .ws { position: absolute; left: 50%; top: 50%; width: 52px; height: 52px; margin: -26px 0 0 -26px; transition: transform .08s ease-out; }
 #wheel .ws img { width: 100%; height: 100%; image-rendering: pixelated; filter: drop-shadow(0 2px 2px rgba(0, 0, 0, .55)); }
-#wheel .ws img.hand { width: 34px; height: 34px; margin: 11px; opacity: .45; image-rendering: auto; filter: none; }
-#wheel .ws b { position: absolute; right: -4px; bottom: -2px; font: 600 16px/1 var(--font-ui); color: var(--cream); text-shadow: 1px 0 #2a1c22, -1px 0 #2a1c22, 0 1px #2a1c22, 0 -1px #2a1c22; }
-#wheel .wn { position: absolute; left: 50%; top: 50%; width: 20px; margin: -9px 0 0 -10px; text-align: center; font: 500 14px/18px var(--font-title); color: var(--dim); }
-#wheel .wn.on { color: var(--gold); }
+#wheel .ws img.hand { width: 32px; height: 32px; margin: 10px; opacity: .45; image-rendering: auto; filter: none; }
+#wheel .ws b { position: absolute; right: 2px; bottom: 0; font: 600 16px/1 var(--font-ui); color: var(--ink); text-shadow: var(--shadow-text), 0 0 2px #000; }
+#wheel .wn { position: absolute; left: 50%; top: 50%; width: 20px; margin: -9px 0 0 -10px; text-align: center; font: 500 13px/18px var(--font-title); color: var(--ink-2); }
+#wheel .wn.on { color: #fff; }
 #wheel-mid { position: absolute; left: 50%; top: 50%; width: ${R_IN * 2 - 14}px; height: ${R_IN * 2 - 14}px; margin: ${-(R_IN - 7)}px 0 0 ${-(R_IN - 7)}px; border-radius: 50%;
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px; padding: 0 14px; box-sizing: border-box; text-align: center;
-  background: radial-gradient(circle, rgba(16, 10, 6, .9) 60%, rgba(16, 10, 6, .78)); box-shadow: inset 0 0 0 1px rgba(255, 240, 210, .14); }
-#wheel-name { font: 600 19px/1.1 var(--font-title); text-transform: uppercase; letter-spacing: .03em; color: var(--cream); }
-#wheel-name.empty { color: var(--dim); }
-#wheel-uses { display: flex; flex-direction: column; align-items: center; gap: 3px; font: 500 14px/1 var(--font-ui); color: var(--dim); }
-#wheel-uses i { display: block; width: 74px; height: 5px; border-radius: 3px; background: rgba(255, 255, 255, .16); overflow: hidden; }
+  background: var(--glass-hi); box-shadow: inset 0 0 0 1px var(--hair); }
+#wheel-name { font: 600 18px/1.1 var(--font-title); text-transform: uppercase; letter-spacing: .06em; color: var(--ink); }
+#wheel-name.empty { color: var(--ink-2); }
+#wheel-uses { display: flex; flex-direction: column; align-items: center; gap: 3px; font: 500 14px/1 var(--font-ui); color: var(--ink-2); }
+#wheel-uses i { display: block; width: 70px; height: 4px; border-radius: 2px; background: rgba(255, 255, 255, .16); overflow: hidden; }
 #wheel-uses i s { display: block; height: 100%; text-decoration: none; }
 #wheel-uses em { font-style: normal; }
 #wheel-uses em.none { color: #ff8a6a; }
-#wheel-help { max-width: 150px; font: 500 12px/1.25 var(--font-ui); color: var(--dim); }
-#wheel-dot { position: absolute; left: 50%; top: 50%; width: 10px; height: 10px; margin: -5px 0 0 -5px; border-radius: 50%; background: var(--gold); box-shadow: 0 0 6px rgba(255, 215, 122, .8); opacity: .8; }
+#wheel-help { max-width: 128px; font: 500 12px/1.2 var(--font-ui); color: var(--ink-2); }
+#wheel-dot { position: absolute; left: 50%; top: 50%; width: 10px; height: 10px; margin: -5px 0 0 -5px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 6px rgba(0, 0, 0, .6); opacity: .95; }
 body.wheel-open, body.wheel-open * { cursor: none !important; }
 body.wheel-open #crosshair, body.wheel-open #aim-free, body.wheel-open #hud-bow, body.wheel-open #prompt, body.wheel-open #hint, body.wheel-open #hud-item, body.wheel-open #hud-tip { visibility: hidden !important; }
 `;
 
 // An empty slot: an open hand, drawn once (light lines on transparent)
-const HAND = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#fff3d6" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M8 13V5.5a1.5 1.5 0 0 1 3 0V12M11 11.5V4a1.5 1.5 0 0 1 3 0v7.5M14 11.5V5.5a1.5 1.5 0 0 1 3 0V13M17 9.5a1.5 1.5 0 0 1 3 0V15a7 7 0 0 1-7 7h-1a7 7 0 0 1-5.6-2.8L3.2 15.4a1.6 1.6 0 0 1 2.5-2l2.3 2.6"/></svg>')}`;
+const HAND = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M8 13V5.5a1.5 1.5 0 0 1 3 0V12M11 11.5V4a1.5 1.5 0 0 1 3 0v7.5M14 11.5V5.5a1.5 1.5 0 0 1 3 0V13M17 9.5a1.5 1.5 0 0 1 3 0V15a7 7 0 0 1-7 7h-1a7 7 0 0 1-5.6-2.8L3.2 15.4a1.6 1.6 0 0 1 2.5-2l2.3 2.6"/></svg>')}`;
 
 // Whether it can open now (and stay open): playing, not in build mode (its bar is another one), nor talking, nor in a long
 // jump in the dark, nor as a spectator (who uses nothing), nor typing

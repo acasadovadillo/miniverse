@@ -118,6 +118,7 @@ export function initInput(h) {
   Object.assign(handlers, h);
 
   addEventListener('keydown', e => {
+    if (handlers.frontKey?.(e)) return;   // (a menu screen is open: ui/frontend.js)
     if (e.target instanceof HTMLInputElement) return;
     // The tool wheel open (src/ui/wheel.js): Esc cancels it (without the pause), a digit equips that slot, walking,
     // running, crouching and jumping go on as always, and nothing else does anything (the hand is on the mouse: an E
@@ -133,6 +134,7 @@ export function initInput(h) {
       if (handlers.pause()) e.preventDefault();
       return;
     }
+    if (e.code === 'KeyP' && !e.repeat && !e.metaKey && !e.ctrlKey) { if (handlers.pause()) e.preventDefault(); return; }   // (P: the pause too)
     if (e.code === 'KeyM' && !e.repeat) { if (handlers.map()) e.preventDefault(); return; }
     if (e.code === 'Tab') { e.preventDefault(); if (!e.repeat) handlers.players?.(true); return; }   // (mantenido: quién está jugando)
     if (e.code === 'KeyI' && !e.repeat) { if (handlers.bag()) e.preventDefault(); return; }

@@ -39,7 +39,7 @@ function paintNotices() {
     if (n.closed) continue;
     const row = document.createElement('div'), p = document.createElement('p'), x = document.createElement('button');
     row.dataset.notice = id;
-    row.style.cssText = `display:flex;gap:10px;align-items:flex-start;padding:8px 10px;border-radius:6px;pointer-events:auto;background:rgba(38,26,18,.94);border:2px solid ${n.kind === 'err' ? '#b8483a' : '#a8883a'};box-shadow:0 3px 10px rgba(0,0,0,.4)`;
+    row.style.cssText = `display:flex;gap:10px;align-items:flex-start;padding:8px 10px;border-radius:var(--r-s);pointer-events:auto;background:var(--glass-hi);border-left:3px solid ${n.kind === 'err' ? 'var(--bad)' : 'var(--accent-2)'};box-shadow:0 3px 10px rgba(0,0,0,.4)`;
     p.style.cssText = 'margin:0;flex:1;color:var(--cream);font-size:15px;line-height:1.35';
     p.textContent = `${n.kind === 'err' ? '✕' : '⚠'} ${n.text}`;
     x.type = 'button'; x.className = 'sq'; x.textContent = '✕'; x.setAttribute('aria-label', 'Cerrar el aviso');

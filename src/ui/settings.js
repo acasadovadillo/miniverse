@@ -2,6 +2,7 @@
 import { Settings } from '../settings.js';
 import { t, LANGS, autoLang, getLang, getLangSetting, onLangChange } from '../i18n.js';
 import { apagada } from '../opciones.js';
+import { skinNow } from './skin.js';
 
 const $ = id => document.getElementById(id);
 
@@ -97,6 +98,7 @@ export function initSettingsUI({ onClose, extra = null }) {
     if (!apagada('musica')) choice('musicMode', t('settings.music.mode'), [['dynamic', t('settings.music.dynamic')], ['calm', t('settings.music.calm')]], () => Settings.musicMode);
     slider('music', 'Volumen de la música');
     slider('sfx', 'Volumen de los efectos');
+    check('menuSfx', t('gui.settings.row.menu_sfx'));
     head('Pantalla');
     fullRow();
     choice('scale', 'Resolución', [['auto', 'Auto'], [1, 'Máxima'], [2, 'Alta'], [3, 'Media'], [4, 'Baja']]);
@@ -109,6 +111,7 @@ export function initSettingsUI({ onClose, extra = null }) {
     hudNote.className = 'st-note';
     hudNote.textContent = t('gui.settings.hud.note');
     box.append(hudNote);
+    choice('skin', t('gui.settings.row.skin'), [['glass', t('gui.settings.row.skin.glass')], ['wood', t('gui.settings.row.skin.wood')]], () => skinNow(Settings.v.skin));   // (lit: the one in sight, ?ui=madera included)
     check('bigText', 'Texto más grande');
     check('noFlash', 'Reducir destellos (rayos de las tormentas)');
     extra?.(box, head);

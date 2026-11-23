@@ -73,6 +73,23 @@ export const Audio = {
   pickup: () => tone([[880, 0.03, 'square', 0.03], [1320, 0.04, 'square', 0.03]]),
   eat: () => tone([[300, 0.05, 'square', 0.04], [240, 0.05, 'square', 0.04], [300, 0.05, 'square', 0.04]]),
   error: () => tone([[160, 0.1, 'sawtooth', 0.04]]),
+  // The menus (src/ui/frontend.js): short, soft, at half the volume of the effects; none with Settings › Menu sounds off
+  menuSounds: true,
+  ui(name) {
+    if (!ac || !on || !Audio.menuSounds) return;
+    if (name === 'tick') tone([[1600, 0.018, 'sine', 0.03]]);
+    else if (name === 'select') tone([[660, 0.05, 'triangle', 0.04], [990, 0.05, 'triangle', 0.04]]);
+    else if (name === 'back') tone([[990, 0.05, 'triangle', 0.035], [660, 0.05, 'triangle', 0.035]]);
+    else if (name === 'deny') tone([[220, 0.04, 'square', 0.02], [1, 0.03, 'sine', 0.0002], [220, 0.04, 'square', 0.02]]);
+    else if (name === 'tab' || name === 'open') {   // (a short airy sweep; opening, over a low thump)
+      const src = ac.createBufferSource(), f = ac.createBiquadFilter(), g = ac.createGain(), now = ac.currentTime;
+      src.buffer = noise; f.type = 'bandpass'; f.Q.value = 1.2;
+      f.frequency.setValueAtTime(900, now); f.frequency.exponentialRampToValueAtTime(2800, now + 0.09);
+      g.gain.setValueAtTime(0.05, now); g.gain.exponentialRampToValueAtTime(0.0005, now + 0.09);
+      src.connect(f).connect(g).connect(sfx); src.start(now, Math.random() * 0.8, 0.1);
+      if (name === 'open') tone([[110, 0.06, 'sine', 0.05]]);
+    }
+  },
   place() { Audio.noiseHit(220, 0.1, 0.35); tone([[140, 0.08, 'triangle', 0.08]]); },
   craft() { Audio.clink(); setTimeout(() => tone([[660, 0.05, 'square', 0.03], [880, 0.05, 'square', 0.03], [1320, 0.08, 'square', 0.03]]), 120); },
   love: () => tone([[523, 0.22, 'sine', 0.06], [659, 0.22, 'sine', 0.06], [784, 0.22, 'sine', 0.06], [659, 0.22, 'sine', 0.05], [880, 0.3, 'sine', 0.06], [784, 0.3, 'sine', 0.05], [1047, 0.7, 'sine', 0.06]]),

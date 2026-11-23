@@ -22,6 +22,8 @@ import { SHARED } from '../livesync.js';
 import { GAME_VERSION, checkPublished } from '../version.js';
 import { showUpdateNotice, updateNoticeOpen } from './update.js';
 import { setNotice, syncNoticeText, expiryNoticeText, showKeyCode, saveSettings } from './savesafety.js';
+import { FE, alertBox, initMenuSounds } from './frontend.js';
+import { useAccent } from './skin.js';
 import { t, LANGS, getLang, onLangChange, applyDom, setAccountLang, accountLangOf, savedLang } from '../i18n.js';
 
 const $ = id => document.getElementById(id);
@@ -105,6 +107,7 @@ export function initMenus(game) {
   }
   function openLogin() {
     setStep(null);
+    useAccent(null);
     for (const id of ['lg-pass', 'lg-pass2', 'lg-code', 'lg-token']) $(id).value = '';
     $('lg-err').textContent = '';
     show('s-login');
@@ -185,7 +188,7 @@ export function initMenus(game) {
       try { if (!(await Profile.findOlder())) say('En el historial de GitHub no hay ninguna versión anterior que se pueda abrir.'); }
       finally { damagedBox(true); }
     });
-    if (d.localAt === null && d.found === null) button('Empezar sin partida', () => (confirm('¿Empezar sin partida? La de GitHub que no se abre se queda en su historial, pero aquí empezarás de cero.') ? use('empty') : null));
+    if (d.localAt === null && d.found === null) button('Empezar sin partida', async () => { if (await alertBox({ title: t('gui.alert.empty_title'), text: t('gui.alert.empty_text') })) await use('empty'); });
   }
 
   // ---------- Menú principal ----------
@@ -209,7 +212,7 @@ export function initMenus(game) {
     const loc = Profile.data?.local?.save;
     $('m-local').hidden = !currentSave && !loc;   // (hace falta un personaje: el mundo local empieza con el mismo aspecto)
     $('m-local').textContent = loc ? `Jugar en local · guardado el ${when(loc.savedAt)}` : 'Jugar en local';
-    $('m-confirm').hidden = true;
+    useAccent(currentSave);
     $('menu-msg').textContent = '';
     show('s-menu');
     paintLive();
@@ -408,10 +411,11 @@ export function initMenus(game) {
     if (v && v !== told) { told = v; outdatedNotice(v, true); }   // (una vez por versión: luego, al ir a entrar)
   }, PUBLISHED_EVERY);
   // Nueva partida: antes, un aviso (se borra el personaje de ahora; el mundo, no). Sin personaje, al creador
-  const confirming = on => { $('m-confirm').hidden = !on; for (const id of ['m-continue', 'm-new', 'm-local']) $(id).hidden = on || (id !== 'm-new' && !currentSave && !(id === 'm-local' && Profile.data?.local?.save)); };
-  $('m-new').addEventListener('click', () => (currentSave ? confirming(true) : openCreator()));
-  $('m-confirm-no').addEventListener('click', () => confirming(false));
-  $('m-confirm-yes').addEventListener('click', () => { confirming(false); openCreator(true); });
+  $('m-new').addEventListener('click', async () => {
+    if (!currentSave) { openCreator(); return; }
+    if (await alertBox({ title: t('gui.alert.new_title'), text: t('gui.menu.new_game_warning'), yes: t('gui.menu.new_game_confirm'), no: t('common.cancel') }) && $('s-menu').classList.contains('show')) openCreator(true);
+  });
+  initMenuSounds(['s-login', 's-menu', 's-account', 's-creator', 's-pause', 's-settings', 's-controls']);
 
   // ---------- Creador de personaje ----------
   // (la vista previa es el mismo modelo en 3D que en el juego)
@@ -735,6 +739,7 @@ export function initMenus(game) {
     // (si la partida no se puede abrir, se vuelve al menú diciendo por qué, en vez de quedarse parado)
     $('fade').classList.add('on');   // (a oscuras hasta que el suelo de alrededor esté hecho: se calcula en otro hilo)
     live.entering = role;   // (ranch.reset: in a world somebody else runs, the horses' locks are true and stay)
+    useAccent(data);
     try { game.start(data, deltas); }
     catch (e) { console.error(e); $('fade').classList.remove('on'); live.unclaim(); game.end(); openMenu(); $('menu-msg').textContent = `No se ha podido abrir la partida: ${e.message}`; return; }
     finally { live.entering = null; }
@@ -757,8 +762,8 @@ export function initMenus(game) {
     if (game.mode === 'play' && $('fade').classList.contains('on')) return false;   // (a oscuras, al entrar o en un salto: la pausa no se vería)
     if (game.mode === 'play' && wins.closeTop()) return true;   // (Esc: primero, la ventana de encima)
     if (game.mode === 'play' && game.build.on) { game.build.toggle(false); return true; }
-    if (game.mode === 'play') { game.mode = 'pause'; $('p-msg').textContent = ''; show('s-pause'); return true; }   // (sin explicaciones: la partida se guarda sola)
-    if (game.mode === 'pause') { resume(); return true; }
+    if (game.mode === 'play') { game.mode = 'pause'; $('p-msg').textContent = ''; show('s-pause'); Audio.ui('open'); return true; }   // (sin explicaciones: la partida se guarda sola)
+    if (game.mode === 'pause') { Audio.ui('back'); resume(); return true; }
     return false;
   }
   $('p-resume').onclick = resume;
@@ -951,5 +956,5 @@ export function initMenus(game) {
   async function boot() {
     openLogin();
   }
-  return { boot, togglePause, toggleMap, zoomMap: zoom, toggleInventory, toggleCraft, toggleJournal };
+  return { boot, frontKey: e => FE.key(e), togglePause, toggleMap, zoomMap: zoom, toggleInventory, toggleCraft, toggleJournal };
 }
