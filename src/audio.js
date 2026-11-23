@@ -139,9 +139,20 @@ export const Audio = {
   // (a soft, low thud). k: how loud, 0..1 (another's horse further away, quieter); the walk is lighter
   hooves(gait = 1, hard = false, k = 1) {
     if (!ac || !on || !(k > 0.01)) return;
-    const t = ac.currentTime, v = k * (gait === 0 ? 0.7 : 1);
+    const t = ac.currentTime, v = k * (gait === 0 ? 0.7 : 1);   // (3, the canter: its three beats are three calls a cycle, the diagonal pair in one)
     clop(t, hard, v);
     if (gait === 2) clop(t + 0.034, hard, v * 0.8);
+  },
+  // A sliding stop: hooves ploughing the ground, a rasp that falls and dies in about 0.6 s, with a low thump as it digs in
+  skid(k = 1) {
+    if (!ac || !on || !(k > 0.01)) return;
+    const t = ac.currentTime, src = ac.createBufferSource(), f = ac.createBiquadFilter(), g = ac.createGain();
+    src.buffer = noise; src.loop = true; f.type = 'bandpass'; f.Q.value = 0.8;
+    f.frequency.setValueAtTime(900, t); f.frequency.exponentialRampToValueAtTime(260, t + 0.6);
+    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.3 * k, t + 0.04); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.65);
+    src.connect(f).connect(g).connect(sfx);
+    src.start(t, Math.random() * 0.4); src.stop(t + 0.7);
+    clop(t, false, k); clop(t + 0.07, false, k * 0.8);
   },
   // Pesca: el corcho cae al agua, una picada de mentira, el chapuzón al clavar y el carrete al recoger
   plop() { Audio.noiseHit(900, 0.12, 0.22, 'lowpass'); tone([[420, 0.05, 'sine', 0.05], [260, 0.08, 'sine', 0.04]]); },

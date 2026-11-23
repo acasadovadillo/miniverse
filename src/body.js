@@ -117,7 +117,7 @@ const TICK = 0.5;                                        // s between two refres
 // The garment chip (§7.1: the rest of the chip is ui/bodychip.js) and the shiver and the sweat of the surface
 const FLASH = 4, SHIVER = 0.6, SWEAT = 0.35;
 // The ground under the feet, for mud (looked at when the tile changes)
-const G_FLOOR = 0, G_PATH = 1, G_SOIL = 2, G_SOFT = 3, G_DRY = 4;
+export const G_FLOOR = 0, G_PATH = 1, G_SOIL = 2, G_SOFT = 3, G_DRY = 4;
 const DRY_LAND = new Set([B.BEACH, B.DESERT, B.SNOW, B.ICE, B.ROCKY]);
 // Tear (§3.2; the rates are clothing.js TEAR_RATE). Where it lands: the torso layer (tools, lying down), the legs
 // (sprinting through the undergrowth, crawling), everything (swimming)
@@ -327,7 +327,7 @@ export class Body {
     const g = this.game, w = g.world, tx = Math.floor(p.x), ty = Math.floor(p.y), c = this.tile;
     const under = sc !== w || g.indoors;
     if (c && c.tx === tx && c.ty === ty && c.sc === sc && c.under === under) return c.kind;
-    let kind = G_FLOOR, rough = false;
+    let kind = G_FLOOR, rough = false, biome;
     if (!under) {
       const d = sc.delta?.(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK)), k = `${tx},${ty}`;
       if (d?.tilled?.[k] !== undefined || (sc.digH?.(tx, ty) ?? null) !== null) kind = G_SOFT;
@@ -337,11 +337,12 @@ export class Body {
         const b = w?.gen?.biomeAt?.(tx + 0.5, ty + 0.5);
         kind = b === B.SWAMP ? G_SOFT : DRY_LAND.has(b) ? G_DRY : G_SOIL;
         rough = ROUGH.has(b);
+        biome = b;
       }
     }
     // (bush: whether one is within reach, looked at only when asked, sprinting: null until then)
     const tl = c || (this.tile = {});
-    tl.tx = tx; tl.ty = ty; tl.sc = sc; tl.under = under; tl.kind = kind; tl.rough = rough; tl.bush = null;
+    tl.tx = tx; tl.ty = ty; tl.sc = sc; tl.under = under; tl.kind = kind; tl.rough = rough; tl.biome = biome; tl.bush = null;
     return kind;
   }
   // Is the ground under the feet undergrowth that tears the legs at a sprint? A forest or pines off the paths, or a bush

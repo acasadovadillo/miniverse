@@ -8,9 +8,10 @@
 //   horse.update(dt)        stamina, ride time → bx, dirt by distance, spook checks for the ridden horse, level-up toasts
 //   horse.noGallop()        winded && survival (game.js: no sprint tier while mounted)
 //   horse.canJump()         a winded horse does not jump (entities.js Player.canJump)
-//   horse.rideMul()         the mounted speed factor (today's ranch.rideSpeed: no balance change)
+//   horse.prepRide(p, sc)   before each mounted step: what the riding physics must know (hearts, shoes, breath, ground, setting)
+//   horse.onRide(ev)        what happened riding: a sliding stop, a fence or a slope refused, a crash (entities.js onRide)
 //   horse.jumpSpend()       a mounted jump: true = jumped (and paid JUMP_COST), false = refused (winded)
-//   horse.held()            the horse is rearing: the rider has no control (game.js feeds the player no keys)
+//   horse.held()            the horse is rearing or staggering: the rider has no control (game.js feeds the player no keys)
 //   horse.whistle(want?, item?)   N (§1.3); the held whistle item calls it too, with its horse and item = true (any distance)
 //   horse.halt(a, s)        it stands still for s seconds (its menu, care): a.halt, read by whoever runs the world
 //   horse.promptShown()     whether the get-off prompt of action() shows now (game.js render)
@@ -35,6 +36,9 @@ import { CAM } from './camera.js';
 import { distOf, dxOf } from './world/planet.js';
 import { collide } from './physics.js';
 import { fillOf } from './saddlebags.js';
+import { GROUND, CLIMB, CLIMB_DRAIN, VERY, STEEP_WALK, STAGGER, STUMBLE_STAM } from './horseride.js';
+import { G_FLOOR, G_PATH, G_SOFT } from './body.js';
+import { B } from './world/biomes.js';
 
 // ---------- the rules (§2.3) ----------
 export const LEVEL_AT = [0, 3, 6, 9];                     // hearts where levels 1..4 start
@@ -56,6 +60,7 @@ export const RIDE_CHUNK = 20;        // s in the saddle per GAIN.ride20s
 const WADE_WASH = 0.6, WASH = 0.02;  // wading deeper than this (m) washes the legs: −0.2 per 10 s
 const DIRT_KM = 0.1, DIRT_WET_KM = 0.15, DIRT_WRITE = 10, DIRT_STEP = 0.05;   // §1.7; a.dirt at most every 10 s, by 0.05
 const SPOOK_TICK = 0.25, MOB_R = 5, BOAR_R = 4, THUNDER_K = 0.25, CALM_WINDOW = 3, CALM_FOR = 60;
+const SLIDE_S = 0.85, SAY_EVERY = 4;   // s: the sliding stop's pose; between two texts about the same refusal
 const REAR_S = 1.2, TOSS_S = 0.6, FALL_S = 1.1, PAT_S = 1.3;   // (PAT_S: the gesture's length, between two pats in the saddle)
 const PROMPT_S = 4, PROMPT_STILL = 1, CLAIM_AFTER = 1;   // s: the get-off prompt after mounting, or standing; a claim of the seat after coming out of a cave
 const HALT = { brush: 3.2, feed: 2, pat: 2 };            // s it stands still for each care
@@ -105,6 +110,7 @@ export class Horse {
     this.known = new Map();   // horse id → the level last seen (the first value only primes it: no toasts on joining)
     this.actSeq = 0;
     this.spooks = 0;          // (every spook in the saddle: smarthud.js shows the pat tip on the first one)
+    this.fences = 0;          // (every fence refused: smarthud.js shows the jump tip on the first one)
     this.resetRide();
   }
   get survival() { return this.game.gamemode === 'survival'; }
@@ -124,6 +130,7 @@ export class Horse {
     this.actKind = null; this.actUntil = -Infinity;
     this.mobNear = false; this.boarNear = false; this.boltsSeen = this.game.days?.bolts || 0;
     this.patAt = -Infinity; this.rideAt = this.game.time || 0; this.stillT = 0;
+    this.tileX = this.tileY = null; this.tileScene = null; this.said = null; this.saidAt = -Infinity;
     this.claims = 0; this.outT = 0;   // (a guest) 1: asked for the seat and not answered yet; s out in the world
   }
 
@@ -195,6 +202,7 @@ export class Horse {
     if (was) this.writeDirt(was, true);
     this.ridden = a;
     this.resetRide();
+    p.ride.on = false;   // (another horse under you: from a standstill, horseride.js)
     if (a && a.rider === me()) this.claims = 1;   // (a guest: asked just now, until the host's answer)
     if (!a) { p.horseAct = null; p.horseWinded = false; return; }
     if (a.id !== this.lastId) { this.stam = STAM_MAX; this.winded = false; }
@@ -210,8 +218,16 @@ export class Horse {
     if (this.off || !this.survival) { this.stam = STAM_MAX; this.winded = false; return; }
     if (this.galloping) {
       this.restT = 0;
-      this.stam -= drainOf(levelOf(a.love), !!a.shod, this.game.saddlebags?.kg?.(a) || 0) * dt;
+      // (sand, snow, mud and uphill tire it more, a path a little less: horseride.js GROUND, CLIMB)
+      const R = this.game.player.ride;
+      this.stam -= drainOf(levelOf(a.love), !!a.shod, this.game.saddlebags?.kg?.(a) || 0) * R.ground.drain * (R.grade >= CLIMB ? CLIMB_DRAIN : 1) * dt;
       if (this.stam <= 0) this.blow(a);
+      return;
+    }
+    // (walking up something very steep tires it too)
+    if (moving && this.game.player.ride.on && this.game.player.ride.grade >= VERY) {
+      this.restT = 0;
+      if (this.stam > 0 && (this.stam -= STEEP_WALK * dt) <= 0) this.blow(a);
       return;
     }
     if ((this.restT += dt) < STAM_DELAY) return;
@@ -228,7 +244,6 @@ export class Horse {
   }
   noGallop() { return !this.off && this.winded && this.survival; }
   canJump() { return !this.noGallop() && !this.held(); }
-  rideMul() { return this.game.ranch?.rideSpeed?.() ?? 1; }
   // A mounted jump: the horse pays it, never the rider (§6.2)
   jumpSpend() {
     if (this.off || !this.survival) return true;
@@ -237,7 +252,77 @@ export class Horse {
     if (this.stam <= 0) { const a = this.ridden; if (a) this.blow(a); else { this.stam = 0; this.winded = true; } }
     return true;
   }
-  held() { return this.actKind === 'rear' && this.game.time < this.actUntil; }
+  held() { return (this.actKind === 'rear' || this.actKind === 'stumble') && this.game.time < this.actUntil; }
+
+  // ---------- riding with weight (R4-1; the physics is horseride.js, moved by entities.js) ----------
+  // Before each mounted step (game.update). arcade: the setting (Ajustes › Juego › Montar, or ?montar=arcade)
+  prepRide(p, sc, arcade) {
+    const R = p.ride, a = this.ridden;
+    R.love = a ? a.love : 5; R.shod = !!a?.shod;
+    R.winded = this.noGallop(); R.noGallop = R.winded;
+    R.hold = this.held(); R.arcade = !!arcade;
+    const tx = Math.floor(p.x), ty = Math.floor(p.y);
+    if (tx === this.tileX && ty === this.tileY && sc === this.tileScene && R.on) return;
+    this.tileX = tx; this.tileY = ty; this.tileScene = sc;
+    R.ground = this.groundAt(p, sc, tx, ty);
+  }
+  // What the horse treads on this tile (asked when the tile changes): what is built, the paths and the soft ground as the
+  // body has them (body.js groundKind), the rest by the biome, as the route's costs (routegrid.js)
+  groundAt(p, sc, tx, ty) {
+    const g = this.game, kind = g.body?.groundKind ? g.body.groundKind(p, sc) : null;
+    if (kind === G_FLOOR || kind === G_PATH) return GROUND.hard;
+    if (kind === G_SOFT) return GROUND.mud;
+    // (the body has just looked the biome up for this tile; without it, asked here)
+    switch (sc !== g.world ? undefined : kind === null ? g.world.gen?.biomeAt?.(tx + 0.5, ty + 0.5) : g.body.tile?.biome) {
+      case B.BEACH: case B.DESERT: case B.OCEAN: case B.SHALLOW: case B.LAKE: return GROUND.sand;
+      case B.FOREST: case B.PINES: return GROUND.forest;
+      case B.SWAMP: return GROUND.mud;
+      case B.SNOW: return GROUND.snow;
+      case B.ICE: return GROUND.ice;
+      case B.ROCKY: return GROUND.rocky;
+    }
+    return GROUND.open;
+  }
+  // What happened in a step (Player.onRide)
+  onRide(ev) {
+    const g = this.game, p = g.player, R = p.ride;
+    if (ev === 'crash') { this.crash(); return; }
+    if (ev === 'slide' || ev === 'fence') {
+      this.act('slide', SLIDE_S);
+      Audio.skid?.();
+      g.gather.chips(p.x + p.face.x * 0.8, p.y + p.face.y * 0.8, this.slideKind(R), 10);
+    } else if (ev === 'stopped') {
+      // (only now, stopped: Space while it slides still goes over)
+      if (R.fence) { R.fence = false; this.fences++; this.act('toss', TOSS_S); Audio.snort?.(); this.say('horse.refuse.fence'); }
+    } else if (ev === 'up' || ev === 'down') {
+      if (this.actKind && g.time < this.actUntil) return;
+      this.act('toss', TOSS_S);
+      Audio.snort?.();
+      this.say(ev === 'up' ? 'horse.refuse.slope' : 'horse.refuse.down');
+    }
+  }
+  slideKind(R) { return R.ground === GROUND.snow || R.ground === GROUND.ice ? 'water' : 'dirt'; }
+  // (the same refusal again and again, as when W stays held against a fence, is said once in a while)
+  say(key) {
+    const g = this.game;
+    if (this.said === key && g.time - this.saidAt < SAY_EVERY) return;
+    this.said = key; this.saidAt = g.time;
+    g.gather.float(t(key, { name: this.ridden?.name || t('horse.your') }), '#fff3c0');
+  }
+  // It hit something at speed: a stumble, with no control for STAGGER and some of its breath; at level 1 it may throw you (F's
+  // throw, at most once per SPOOK_EVERY; G within it calms the horse, as after a scare). Only in survival and not in peaceful
+  crash() {
+    const g = this.game, p = g.player, a = this.ridden;
+    Audio.dump?.();
+    if (!this.survival || g.difficulty === 'peaceful') return;
+    this.act('stumble', STAGGER);
+    Audio.snort?.();
+    this.say('horse.stumble');
+    if (this.off) return;
+    this.stam = Math.max(0, this.stam - STUMBLE_STAM); this.restT = 0;
+    if (this.stam <= 0 && a) this.blow(a);
+    if (a && p.mount && levelOf(a.love) === 1 && g.time - this.lastSpook >= SPOOK_EVERY && Math.random() < THROW_L1) { this.lastSpook = this.spookAt = g.time; this.throwAt = g.time + STAGGER; }
+  }
 
   // ---------- the bond ----------
   // Time in the saddle: one GAIN.ride20s per RIDE_CHUNK, up to CAPS.rideBx a day (written once a chunk, not each step)

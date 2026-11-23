@@ -1150,12 +1150,6 @@ export class Ranch {
     this.game.gather.float(tr('horse.whistle.come', { name: a.name }), '#fff3c0');
     Audio.whistle();
   }
-  // Cuánto corre montado: más cuanto más te quiere, y con herraduras
-  rideSpeed() {
-    const id = this.game.player?.horseId, r = this.game.horse?.ridden;   // (asked every step while riding: the ridden one first, no search)
-    const a = r && r.id === id ? r : this.animals.find(x => x.id === id);
-    return a ? 1.6 + a.love * 0.035 + (a.shod ? 0.15 : 0) : 1.8;
-  }
   // The horse's menu (Plan F §4.3): what you have and what it knows. Yours or your partner's (horseTalk)
   async horseMenu(a) {
     const g = this.game, inv = g.inv, H = g.horse, opts = [], off = !H || H.off, L = levelOf(a.love);

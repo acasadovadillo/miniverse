@@ -39,7 +39,7 @@ const FULL_EVERY = 30;                     // (quien lleva el mundo) cada cuánt
 const HERD_SNAP = 8;                      // m: an animal the host has put farther than this is put there too (a called horse's jump-in)
 const SNAP = 4;                           // si alguien aparece a más de tantas casillas de donde estaba, salta allí
 // (st.ht: what a rider's horse does, by its number. Append only: the index travels. Plan F §3.3, drawn by three/animals.js)
-export const HORSE_ACTS = ['rear', 'toss', 'shake', 'shy'];
+export const HORSE_ACTS = ['rear', 'toss', 'shake', 'shy', 'slide', 'stumble'];
 const MINE_FIRST = 3;                     // segundos que lo que suelta algo al romperse es solo de quien lo rompió
 const GIVE_FIRST = 5;                     // y que lo que uno tira es solo para los demás (así se dan cosas)
 const WORLD_WAIT = 20000;                 // lo que se espera, como mucho, a que llegue el mundo del anfitrión
@@ -47,7 +47,8 @@ const CLAIM_WAIT = 900;                   // al entrar sin anfitrión, lo que se
 const HOST_WAIT = 6000;                   // y lo que se espera a que el que lo lleva diga que ya está
 const REACH = 3;                          // trozos del mundo alrededor de donde está cada uno que puede tocar
 const OP_BLOBS = new Set(['rules', 'worldSpawn', 'weatherLock', 'difficulty']);   // lo de todos que solo cambian los op
-const r2 = v => Math.round(v * 100) / 100;
+const r2 = v => Math.round(v * 100) / 100, r1 = v => Math.round(v * 10) / 10;
+const RIDE_NET = 20, RIDE_LEAD = 0.2;     // m/s: the most of st.rv taken from another; s it goes on for with no new message (two sends)
 const DIVE_NET = 30;                      // (m: the most of st.dv taken from another; the deepest sea is about 12 m)
 // (st.ht, sent while mounted: [what, count]. With none now, [-1, the last count]: a remote notes the count and plays
 // nothing, so getting on again never replays the last act, and the first real one after it is new)
@@ -100,7 +101,12 @@ class RemotePlayer extends Person {
     this.kitKey = typeof st.kt === 'string' ? st.kt.slice(0, 160) : '';
     // (gt: the gait they move with, 0 walk, 1 jog or trot, 2 sprint or gallop: entities.js GAIT. A game from before does
     // not send it: undefined, and the drawing picks the gait by the speed alone, as it did)
-    this.gait = st.gt === 0 || st.gt === 1 || st.gt === 2 ? st.gt : undefined;
+    // (3: the canter, only riding: horseride.js GT)
+    this.gait = st.gt === 0 || st.gt === 1 || st.gt === 2 || (st.gt === 3 && st.m) ? st.gt : undefined;
+    // (rv: how fast their horse goes, m/s, only sent riding and moving: between two messages it goes on along its heading,
+    // so it does not pulse ten times a second. A game from before sends none: as it was)
+    this.rideV = st.m && Number.isFinite(st.rv) ? Math.max(0, Math.min(RIDE_NET, st.rv)) : 0;
+    this.toAge = 0;
     // (ca: what their arms carry, a log or a carcass: carry.js; or the wheelbarrow they push, its model key: barrow.js. Only
     // sent while carrying; an older game sends nothing. Riding or rowing, the big thing goes on the horse or in the bow: the
     // arms are free)
@@ -123,7 +129,12 @@ class RemotePlayer extends Person {
   // salir. Ahí se suaviza la altura de los pies, y z sale de ella y del suelo de donde va ahora
   update(dt, w) {
     if (!this.to) return;
-    const k = 1 - Math.exp(-dt * 12), [x, y, z] = this.to;
+    const k = 1 - Math.exp(-dt * 12);
+    let [x, y, z] = this.to;
+    if (this.rideV > 0 && this.yaw !== null) {
+      this.toAge = Math.min(RIDE_LEAD, (this.toAge || 0) + dt);
+      x += Math.sin(this.yaw) * this.rideV * this.toAge; y += Math.cos(this.yaw) * this.rideV * this.toAge;
+    }
     // (el agua donde va, para dibujarlo: con los pies en el fondo vadeando, o nadando; ver actors.js)
     this.depth = w?.waterDepth && !this.boat && !this.aboard && this.gm !== 3 ? w.waterDepth(this.x, this.y) : 0;   // (el espectador vuela: como en su juego, sin agua)
     this.sink = (this.sink || 0) + ((this.sinkTo || 0) - (this.sink || 0)) * k;
@@ -945,7 +956,7 @@ export class Live {
     }
     this.sent += dt;
     const sc = g.scene === g.world ? 'world' : null;
-    const st = { t: 'st', sc, x: r2(p.x), y: r2(p.y), z: r2(p.z || 0), fl: p.floor ? r2(p.floor) : undefined, yaw: r2(g.view3d.actors.player?.person.facing ?? 0), in: p.inside ? 1 : 0, po: p.pose ? [poseIndex(p.pose.kind), r2(p.pose.yaw), r2(p.pose.h)] : 0, ba: p.bathing && p.pose?.kind === 'bath' ? 1 : undefined, bd: g.body?.bd || undefined, m: p.mount ? 1 : 0, hc: p.mount ? p.horseCoat || null : null, hb: p.mount && p.horseBags ? 1 + (p.horseFill > 0 ? Math.min(2, p.horseFill | 0) : 0) : 0, hd: p.mount && p.horseDirt > 0 ? Math.min(3, Math.round(p.horseDirt * 3)) || undefined : undefined, hw: p.mount && p.horseWinded ? 1 : undefined, ht: p.mount ? horseAct(p.horseAct) : undefined, b: p.boat ? 1 : 0, pa: p.aboard || 0, cr: p.crouch ? 1 : 0, gm: g.gamemode === 'survival' ? 0 : g.gamemode === 'creative' ? 1 : 3, h: g.inv.held?.id || null, sw: this.swings, si: g.gather.swingItem || null, cd: r2(g.gather.cooldown || 0), dr: r2(g.archery.k), na: p.swim ? 1 : 0, hu: p.swim ? r2(p.sink) : undefined, dv: p.swim && p.dive > 0.02 ? r2(p.dive) : undefined, zz: p.sleeping && p.pose?.kind === 'lie' ? 1 : undefined, kt: kitKey(g.kitIds()) || undefined, gt: p.gait || 0, ca: g.carry?.state(), em: g.social.emSeq, ek: g.social.emKind };
+    const st = { t: 'st', sc, x: r2(p.x), y: r2(p.y), z: r2(p.z || 0), fl: p.floor ? r2(p.floor) : undefined, yaw: r2(g.view3d.actors.player?.person.facing ?? 0), in: p.inside ? 1 : 0, po: p.pose ? [poseIndex(p.pose.kind), r2(p.pose.yaw), r2(p.pose.h)] : 0, ba: p.bathing && p.pose?.kind === 'bath' ? 1 : undefined, bd: g.body?.bd || undefined, m: p.mount ? 1 : 0, hc: p.mount ? p.horseCoat || null : null, hb: p.mount && p.horseBags ? 1 + (p.horseFill > 0 ? Math.min(2, p.horseFill | 0) : 0) : 0, hd: p.mount && p.horseDirt > 0 ? Math.min(3, Math.round(p.horseDirt * 3)) || undefined : undefined, hw: p.mount && p.horseWinded ? 1 : undefined, ht: p.mount ? horseAct(p.horseAct) : undefined, b: p.boat ? 1 : 0, pa: p.aboard || 0, cr: p.crouch ? 1 : 0, gm: g.gamemode === 'survival' ? 0 : g.gamemode === 'creative' ? 1 : 3, h: g.inv.held?.id || null, sw: this.swings, si: g.gather.swingItem || null, cd: r2(g.gather.cooldown || 0), dr: r2(g.archery.k), na: p.swim ? 1 : 0, hu: p.swim ? r2(p.sink) : undefined, dv: p.swim && p.dive > 0.02 ? r2(p.dive) : undefined, zz: p.sleeping && p.pose?.kind === 'lie' ? 1 : undefined, kt: kitKey(g.kitIds()) || undefined, gt: p.gait || 0, rv: p.mount && p.ride?.v > 0.5 ? r1(p.ride.v) : undefined, ca: g.carry?.state(), em: g.social.emSeq, ek: g.social.emKind };
     const key = JSON.stringify(st);
     if (this.sent < SEND_EVERY || (key === this.lastSent && this.sent < IDLE_EVERY)) return;
     this.sent = 0; this.lastSent = key;

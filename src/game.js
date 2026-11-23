@@ -58,6 +58,7 @@ import { Music } from './music.js';
 import { Live } from './live.js';
 import { Family } from './family.js';
 import { Settings } from './settings.js';
+import { apagada } from './opciones.js';
 import { savedLang, t } from './i18n.js';
 import { keys, clearKeys, dropSprint } from './input.js';
 import { Audio } from './audio.js';
@@ -299,6 +300,7 @@ export class Game {
     // (a jump costs stamina and delays its refill: needs.js; riding, the horse pays it, and a winded horse does not jump: horse.js)
     this.player.onJump = () => (this.player.mount ? this.horse.jumpSpend() : this.needs.spend(RATES.jump, true));
     this.player.canJump = () => !this.player.mount || this.horse.canJump();
+    this.player.onRide = ev => this.horse.onRide(ev);   // (riding: a sliding stop, a refusal, a crash: horse.js)
     this.player.onLand = () => this.farm.trample(this.player);   // (caer de un salto sobre tierra labrada la deshace)
     this.player.onSplash = (x, y, n) => { this.gather.splash(x, y, n); Audio.splash(); };   // (al caer al agua o saltar de ella)
     hud.faces = { ...hud.faces, Nilo: NILO_LOOK, [this.player.name]: this.player.look };
@@ -1263,17 +1265,18 @@ export class Game {
     this.hook('update', dt);
     if (keys.use && !this.busy && !this.jumping && !this.build.on) this.gather.use(true);
     if (this.busy || this.jumping || hud.dialogOpen || p.pose) { p.stop(); return; }
-    p.speedMul = (this.buffs.rapido > this.time ? 1.35 : 1) * (p.mount ? this.horse.rideMul() : 1) * this.archery.walk * this.carry.speedMul();
+    p.speedMul = (this.buffs.rapido > this.time ? 1.35 : 1) * this.archery.walk * this.carry.speedMul();
     // (the three speeds, entities.js GAIT: the load and the arms stop the sprint, carry.js; overloaded or pushing the wheelbarrow,
     // only walking; out of stamina, a sprint drops to a jog, and sprinting again needs three new taps: input.js dropSprint)
     // (riding, the sprint tier is the gallop and the horse's stamina gates it, never the rider's: a winded horse trots at most
-    // until it is back at 40 %, horse.js)
+    // until it is back at 40 %, horse.js; its speeds, its weight and the ground: horseride.js)
     const tired = p.mount ? this.horse.noGallop() : this.needs.noRun();
     if (tired && keys.sprint) dropSprint();
     p.noSprint = this.carry.noRun() || tired; p.noJog = this.carry.noJog(); p.jumpMul = this.carry.jumpMul();   // (with the slot inventory, false and 1)
     if (Object.values(keys).some(Boolean)) this.lastInput = this.time;   // (para /setidletimeout)
+    if (p.mount) this.horse.prepRide(p, this.scene, Settings.v.ride === 'arcade' || apagada('montar'));
     if (p.aboard) p.stop();   // (de pasajero en una barca, le lleva ella)
-    else p.update(dt, p.mount && this.horse.held() ? NO_KEYS : keys, this.scene);   // (a rearing horse: no control for a moment, horse.js)
+    else p.update(dt, p.mount && this.horse.held() ? NO_KEYS : keys, this.scene);   // (a rearing or staggering horse: no control for a moment, horse.js)
     if (this.spectating) this.followSpectated();
     if (this.scene === this.world) this.aroundPlanet();
     if (!p.inside) this.explore();

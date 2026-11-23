@@ -85,7 +85,7 @@ const TIPS = {
   cold: { key: null }, hot: { key: null }, wet: { key: null }, dirty: { key: null }, torn: { key: null }, hair: { key: null },
   // (the horse, Plan F: their texts say their key, "N: whistle for Rayo". N is only the whistle, so pressing it makes it
   // known; G and H count only in the saddle, where they are pat and rear (ride); X does many things, so only being shown)
-  whistle: { code: 'KeyN', key: null }, bags: { key: null }, pat: { code: 'KeyG', key: null, ride: true }, rear: { code: 'KeyH', key: null, ride: true },
+  whistle: { code: 'KeyN', key: null }, bags: { key: null }, jump_fence: { key: null }, pat: { code: 'KeyG', key: null, ride: true }, rear: { code: 'KeyH', key: null, ride: true },
 };
 const KNOWN = ['bag', 'craft', 'build', 'journal', 'map'];   // (what a player past the first steps already knows)
 // Closing hours of the shops (hours past 24 are after midnight); the ones open all day never close
@@ -550,6 +550,8 @@ export class SmartHud {
       const mine = g.ranch?.myHorse?.();
       if (mine) { this.names.whistle = mine.name || ''; this.want('whistle'); }
     }
+    // (Space over a fence, the first time the horse refuses one: horse.fences counts them, R4-1)
+    if (H.fences > 0 && p.mount && !this.seen.has('jump_fence')) this.want('jump_fence', true);
     if (!p.mount || (this.seen.has('bags') && this.seen.has('pat') && this.seen.has('rear'))) { this.spooks = H.spooks; return; }
     // (the horse under you: horse.js keeps it in ridden; until then, the one ranch.mount wrote in horseId)
     const rid = H.ridden || g.ranch?.animals?.find(a => a.id === p.horseId) || null;

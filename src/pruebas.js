@@ -59,6 +59,7 @@ import { Barrow } from './barrow.js';
 import { GAME_VERSION } from './version.js';
 import { Player, barrowPen, GAIT } from './entities.js';
 import { horseModel, animateHorse, horseCadence, animalKey, setHorseDirt, disposeAnimal, HORSE_ACTS as HACTS } from './three/animals.js';
+import * as RIDE from './horseride.js';   // (R4-1: riding with weight)
 import * as HR from './horse.js';   // (Plan F: the horse's pure rules; as a namespace, levelOf and settle are taken)
 import { HORSE_ACTS as LIVE_HORSE_ACTS } from './live.js';
 import { screenToWorld } from './camera.js';
@@ -3651,11 +3652,11 @@ async function soloTests(game) {
       keys.up = false; keys.run = keys.sprint = false; await frames(30); check(p().gait === 0 && !p().sprinting, `stopped: gait ${p().gait}`);
       // Crouching: always slow (the taps stand up first: see the taps test)
       p().crouch = true; v = await at(false, false); check(near(v, 1.4) && p().gait === 0, `crouching ${v}`); p().crouch = false;
-      // Riding: walk, trot, gallop (the gallop is the run of before); out of breath the horse still gallops
-      p().mount = true; await frames(2);
-      for (let k = 0; k < 3; k++) { v = await at(k > 0, k > 1); check(near(v, GAIT.ride[k]) && p().gait === k && !p().sprinting && !p().jogging, `riding, tier ${k}: ${v}, gait ${p().gait}`); }
-      check(GAIT.ride[2] === 5.3, `the gallop: ${GAIT.ride[2]}`);
-      N().stamina = 0; N().exhausted = true; v = await at(true, true); check(near(v, GAIT.ride[2]) && keys.sprint, `exhausted, the gallop: ${v}`);
+      // Riding: the walk, the canter and the gallop have the horse's own weight (the «montar» tests); here, the walk, and that
+      // out of breath the rider's third press still asks for the gallop
+      await goTo(game, 21, 26); p().mount = true; await frames(2);
+      v = await at(false, false, 90); check(near(v, RIDE.SPEED.walk) && p().gait === 0 && !p().sprinting && !p().jogging, `riding, the walk: ${v}, gait ${p().gait}`);
+      N().stamina = 0; N().exhausted = true; await at(true, true, 10); check(keys.sprint && !p().noSprint && p().ride.tier === 2, `exhausted, the gallop: sprint ${keys.sprint}, tier ${p().ride.tier}`);
       p().mount = false; N().reset({});
       // Rowing (on land the boat does not move, but the stroke asks for the speed): the fast row from the jog up
       p().boat = true;
@@ -3741,10 +3742,13 @@ async function soloTests(game) {
     // Without a gait (a free horse, a rider of an old game): the cycle of before, by the time
     const F = horseModel('castano'), k = Math.min(1, 6 / 3); animateHorse(F, 6, 2, null, 1 / 60);
     check(F.userData.legs.every(l => Math.abs(l.hip.rotation.x - Math.sin(2 * (4 + 6 * 2.2) + l.phase) * 0.6 * k) < 1e-9) && !F.userData.bob, 'a free horse changed');
-    // The cadence follows the stride (with rideSpeed 1.8: 5.76, 7.92 and 9.54 m/s), near the free horse's 2.6 to 3.4 cycles
-    // a second, never paddling; and the hooves stay down while the trunk bobs and rocks
-    const hz = [[0, 5.76], [1, 7.92], [2, 9.54]].map(([g, v]) => horseCadence(g, v));
-    check(hz.every(f => f > 2 && f < 3.5) && hz[0] < hz[1] && hz[1] < hz[2], `cycles per second: ${hz.map(f => f.toFixed(2))}`);
+    // The canter: three beats, a back leg, the other with its diagonal, the leading front one
+    h.g = 3; for (let f = 0; f < 300; f++) animateHorse(h, 7.6, 0, null, 1 / 60, 3);
+    check(spread(0, 3) < 0.1 && spread(1, 2) > 0.2 && Math.abs(u.body.rotation.x) <= 0.06, `the canter: ${spread(0, 3)} ${spread(1, 2)}`);
+    // The cadence follows the stride (at 3.4, 5.6, 7.6 and 10.4 m/s), faster with each gait and never paddling (2.6 at most);
+    // and the hooves stay down while the trunk bobs and rocks
+    const hz = [[0, 3.4], [1, 5.6], [3, 7.6], [2, 10.4]].map(([g, v]) => horseCadence(g, v));
+    check(hz.every((f, i) => f > 1.2 && f <= 2.6 && (!i || f > hz[i - 1])), `cycles per second: ${hz.map(f => f.toFixed(2))}`);
     const H = horseModel('castano'), HU = H.userData, hipW = new THREE.Vector3(); let worst = 0;
     H.updateMatrixWorld(true); const rest = HU.legs.map(l => l.hip.getWorldPosition(hipW).y);
     for (let f = 0; f < 240; f++) {
@@ -3761,6 +3765,8 @@ async function soloTests(game) {
       const st = more => L.receive('g1', { t: 'st', sc: 'world', x: 21, y: 27, yaw: 0, ...more }), e = () => L.peers.get('g1').entity;
       st({ gt: 2 }); check(e().gait === 2, `gt 2: ${e().gait}`);
       st({ gt: 1, m: 1 }); check(e().gait === 1 && e().mount, `gt 1 riding: ${e().gait}`);
+      st({ gt: 3, m: 1 }); check(e().gait === 3, `gt 3 riding, the canter: ${e().gait}`);
+      st({ gt: 3 }); check(e().gait === undefined, `gt 3 on foot: ${e().gait}`);
       st({ gt: 0 }); check(e().gait === 0, `gt 0: ${e().gait}`);
       st({}); check(e().gait === undefined, `a game from before: ${e().gait}`);
       st({ gt: 9 }); check(e().gait === undefined, `garbage: ${e().gait}`);
@@ -3899,10 +3905,18 @@ async function soloTests(game) {
       await frames(30); check(speedNow() < 0.02, `still going after Cmd: ${speedNow()}`);
     } finally { clearKeys(); I.slots.splice(0, I.slots.length, ...kept); I.changed(); needsBase(); await goTo(game, 21, 26); }
   });
-  await test('stop (english): riding, letting go of W stops at walk, trot and gallop', async () => {
+  // (riding, the horse's weight: a short natural braking, about a second and 5 m from a gallop, and never a coast or a latch)
+  await test('stop (english): riding, letting go of W brakes to a stop at walk, canter and gallop', async () => {
     try {
       needsBase(); await goTo(game, 21, 26); p().mount = true; await frames(2);
-      for (let k = 0; k < 3; k++) { const r = await letGoOfW(k); stopped(r, `riding, tier ${k}`, 0.3, 0.9); p().x = 21; p().y = 26; await frames(2); }
+      for (let k = 0; k < 3; k++) {
+        clearKeys(); for (let i = 0; i < k; i++) { keyEv('KeyW', 'keydown'); keyEv('KeyW', 'keyup'); }
+        keyEv('KeyW', 'keydown'); await frames(40); const tier = p().ride.tier;
+        p().ride.v = RIDE.speedOf([0, 2, 3][k]); const x0 = p().x, y0 = p().y, v0 = p().ride.v;
+        keyEv('KeyW', 'keyup'); await frames(75);
+        check(tier === k && speedNow() < 0.02 && !keys.up && !keys.run && Math.hypot(p().x - x0, p().y - y0) < v0 * v0 / 20 + 0.6, `riding, tier ${tier}: ${speedNow()} after ${Math.hypot(p().x - x0, p().y - y0)} m`);
+        p().x = 21; p().y = 26; await frames(2);
+      }
     } finally { clearKeys(); p().mount = false; needsBase(); await goTo(game, 21, 26); }
   });
   await test('stop (english): rowing, letting go of W stops the boat', async () => {
@@ -5882,6 +5896,201 @@ async function soloTests(game) {
     check(u.rear > 0.8 && u.seatDy > 0.05 && hip.distanceTo(hip0) < 0.05, `the rear: ${u.rear?.toFixed(2)}, seat +${u.seatDy?.toFixed(3)}, hip moved ${hip.distanceTo(hip0).toFixed(3)}`);
     check(u.geos?.length > 0, 'no merged geometry recorded'); disposeAnimal(h); check(!u.geos.length && !u.dirtMat, 'not disposed');
     check(HACTS.rear && HACTS.toss && HACTS.shake && ['rear', 'toss', 'shake'].every(k => LIVE_HORSE_ACTS.includes(k)), 'the acts the network sends and the art plays differ');
+  });
+  // ---------- R4-1: riding with weight (src/horseride.js; docs/planes/realismo/PLAN-R4-caballo.md §8) ----------
+  // A rider on a scene of nothing, or of what is given (colliders, depth, the height of the ground), moved by fixed steps
+  const rider = (o = {}) => {
+    const sc = { kind: 'world', collidersNear: () => o.walls || [], waterDepth: o.depth || (() => 0), surfaceAt: o.height || (() => 0), digNear: () => false };
+    const P = new Player({ name: 'x', x: 0, y: 0, look: {}, mount: true }), K = { up: false, down: false, left: false, right: false, run: false, sprint: false, space: false, dive: false };
+    const [fx, fy] = screenToWorld(0, -1), l = Math.hypot(fx, fy), ev = [];
+    P.face = { x: fx / l, y: fy / l }; P.onRide = e => { ev.push(e); if (e === 'stopped') P.ride.fence = false; };
+    const R = P.ride;
+    return {
+      P, R, K, ev, sc, f: { x: fx / l, y: fy / l },
+      go(tier) { K.up = true; K.run = tier > 0; K.sprint = tier > 1; },
+      stop() { K.up = K.down = K.left = K.right = K.run = K.sprint = false; },
+      // (until(P, seconds) ends it early; returns the seconds and the metres)
+      run(secs, until = null, dt = 1 / 60) { let t = 0, m = 0; while (t < secs - 1e-9) { const x = P.x, y = P.y; P.update(dt, K, sc); t += dt; m += Math.hypot(P.x - x, P.y - y); if (until?.(P, t)) break; } return { t, m }; },
+      away() { return P.x * this.f.x + P.y * this.f.y; },   // m forward from the start
+    };
+  };
+  const first = CAM.first;   // (third person: the keys go with the camera, whatever it looks at)
+  const riding = (name, fn) => test(name, async () => { CAM.first = false; try { await fn(); } finally { CAM.first = first; } });
+  await riding('montar peso (ride momentum): the gallop takes 2.8-3.6 s from a stop; letting go stops it in 0.9-1.2 s and 6 m at most; the opposite way at speed is a sliding stop; the arcade turns and brakes more', async () => {
+    let r = rider(); r.go(2); let a = r.run(6, P => P.ride.v >= RIDE.speedOf(3) - 0.02);
+    check(a.t > 2.8 && a.t < 3.6, `to the gallop: ${a.t.toFixed(2)} s`);
+    check(r.P.gait === 2 && r.P.moving, `the gait: ${r.P.gait}`);
+    r.stop(); a = r.run(3, P => P.ride.v === 0); check(a.t > 0.9 && a.t < 1.2 && a.m < 6 && a.m > 4, `stopped in ${a.t.toFixed(2)} s, ${a.m.toFixed(2)} m`);
+    const x = r.P.x; r.run(1); check(r.P.x === x && !r.P.moving, 'it moves on its own after stopping');
+    // Another frame rate, the same stop; the canter and the walk stop in less
+    r = rider(); r.go(2); r.run(5, null, 1 / 20); r.stop(); a = r.run(3, P => P.ride.v === 0, 1 / 20); check(a.t < 1.25 && a.m < 6, `at 20 fps: ${a.t.toFixed(2)} s, ${a.m.toFixed(2)} m`);
+    for (const [tier, t, m] of [[0, 0.4, 0.7], [1, 0.85, 3.2]]) { r = rider(); r.go(tier); r.run(5); r.stop(); a = r.run(3, P => P.ride.v === 0); check(a.t < t && a.m < m, `tier ${tier}: ${a.t.toFixed(2)} s, ${a.m.toFixed(2)} m`); }
+    // Straight back: the sliding stop, then it turns round on the spot
+    r = rider(); r.go(1); r.run(5); r.stop(); r.K.down = true; a = r.run(2, () => r.ev.includes('stopped'));
+    check(r.ev[0] === 'slide' && a.t < 0.9 && a.m < 3, `the sliding stop: ${r.ev} ${a.t.toFixed(2)} s ${a.m.toFixed(2)} m`);
+    a = r.run(3, P => Math.abs(RIDE.headingErr(P.ride)) < 0.1); check(a.t < 1.3 && a.m < 1.2, `the turn on the haunches: ${a.t.toFixed(2)} s, ${a.m.toFixed(2)} m`);
+    // From a walk, no slide
+    r = rider(); r.go(0); r.run(3); r.stop(); r.K.down = true; r.run(2); check(!r.ev.length, `walking: ${r.ev}`);
+    // Arcade: it stops in two thirds, never slides, and turns 1.8 times as fast
+    r = rider(); r.R.arcade = true; r.go(2); r.run(6); const w = r.R.a; r.K.right = true; r.run(1 / 60); const da = Math.abs(r.R.a - w);
+    check(Math.abs(da - RIDE.turnRate(r.R.v) * 1.8 / 60) < 1e-3, `arcade turns ${da}`); r.stop(); a = r.run(3, P => P.ride.v === 0); check(a.t < 0.8 && a.m < 4, `arcade stops in ${a.t.toFixed(2)} s, ${a.m.toFixed(2)} m`);
+    r = rider(); r.R.arcade = true; r.go(2); r.run(6); r.stop(); r.K.down = true; r.run(3); check(!r.ev.length, `arcade slides: ${r.ev}`);
+    // No control (rearing, staggering): at once
+    r = rider(); r.go(2); r.run(6); r.R.hold = true; r.stop(); a = r.run(2, P => P.ride.v === 0); check(a.t < 0.4, `held: ${a.t}`);
+  });
+  await riding('montar giro (turn circle): the circle grows with the speed, 9-12 m at the gallop; 120 degrees at the gallop collects to a trot; standing it pivots round in about 1 s', async () => {
+    // (a circle: always asked 60 degrees ahead)
+    const circle = tier => { const R = RIDE.makeRide(); RIDE.startRide(R, { x: 0, y: 1 }); R.going = true; R.tier = tier; for (let i = 0; i < 360; i++) RIDE.rideStep(R, 1 / 60); let turn = 0, m = 0; for (let i = 0; i < 4000 && turn < Math.PI * 2; i++) { const w = R.a + 1; R.wx = Math.sin(w); R.wy = Math.cos(w); const a = R.a; RIDE.rideStep(R, 1 / 60); turn += Math.abs(Math.atan2(Math.sin(R.a - a), Math.cos(R.a - a))); m += R.v / 60; } return m / (Math.PI * 2); };
+    const rad = [0, 1, 2].map(circle); check(rad[0] < 1.8 && rad[1] > 4.5 && rad[1] < 6.5 && rad[2] > 9 && rad[2] < 12, `radii: ${rad.map(v => v.toFixed(2))}`);
+    // 120 degrees at the gallop: down to the trot, then off again; 90: to the canter
+    for (const [deg, gait] of [[120, 1], [90, 2]]) {
+      const R = RIDE.makeRide(); RIDE.startRide(R, { x: 0, y: 1 }); R.going = true; R.tier = 2; for (let i = 0; i < 360; i++) RIDE.rideStep(R, 1 / 60);
+      const w = deg * Math.PI / 180; R.wx = Math.sin(w); R.wy = Math.cos(w); RIDE.rideStep(R, 1 / 60); check(Math.abs(R.target - RIDE.speedOf(gait)) < 1e-6 && !R.slide, `${deg} degrees: ${R.target}`);
+      for (let i = 0; i < 240; i++) RIDE.rideStep(R, 1 / 60); check(Math.abs(RIDE.headingErr(R)) < 0.02 && R.v > 9, `after ${deg}: ${RIDE.headingErr(R)} ${R.v}`);
+    }
+    const r = rider(); r.K.down = true; const a = r.run(3, P => Math.abs(RIDE.headingErr(P.ride)) < 0.05); check(a.t > 0.7 && a.t < 1.3 && a.m < 1.2, `pivot: ${a.t.toFixed(2)} s, ${a.m.toFixed(2)} m`);
+    // First person, standing: looking round does not turn the horse; turned from outside (the bow, a greeting), it goes round to it
+    CAM.first = true; const s = rider(), a0 = s.R.a, yaw = CAM.yaw; try { s.run(0.1); CAM.yaw += 1.5; s.run(1); check(Math.abs(s.P.face.x - s.f.x) < 1e-6, 'the horse snaps to the look'); } finally { CAM.yaw = yaw; CAM.first = false; }
+    s.P.face = { x: -s.f.x, y: -s.f.y }; s.run(0.2); check(Math.abs(s.P.face.x + s.f.x) > 0.05 || Math.abs(s.P.face.y + s.f.y) > 0.05, 'it snapped round'); s.run(1.2); check(Math.hypot(s.P.face.x + s.f.x, s.P.face.y + s.f.y) < 0.05 && s.P.x === 0, `turned to: ${JSON.stringify(s.P.face)}`);
+  });
+  await riding('montar marchas (gaits): the three W tiers walk 3.4, canter 7.6 and gallop 10.2 and the bond; the trot shows on the way; winded it trots; a trip takes what it took', async () => {
+    const at = (tier, set = {}) => { const r = rider(); Object.assign(r.R, set); r.go(tier); const seen = new Set(); r.run(7, P => { seen.add(P.gait); return false; }); return { v: r.R.v, gait: r.P.gait, seen }; };
+    let a = at(0); check(Math.abs(a.v - 3.4) < 0.01 && a.gait === 0 && a.seen.size === 1, `walk ${a.v} ${a.gait}`);
+    a = at(1); check(Math.abs(a.v - 7.6) < 0.01 && a.gait === 3 && a.seen.has(1) && !a.seen.has(2), `canter ${a.v} ${a.gait} ${[...a.seen]}`);
+    a = at(2); check(Math.abs(a.v - 10.45) < 0.01 && a.gait === 2 && a.seen.has(1) && a.seen.has(3), `gallop ${a.v} ${a.gait} ${[...a.seen]}`);
+    a = at(2, { love: 0 }); check(Math.abs(a.v - 10.2) < 0.01, `no heart: ${a.v}`); a = at(2, { love: 10 }); check(a.v > 10.65 && a.v <= 11.1, `ten hearts: ${a.v}`);
+    a = at(2, { winded: true, noGallop: true }); check(Math.abs(a.v - 5.6) < 0.01 && a.gait === 1, `winded: ${a.v} ${a.gait}`);
+    // A kilometre at the free cruise, from a standing start: within 5 % of before (4.4 × (1.6 + 0.035 × love)), at any bond;
+    // and with the gallop for as long as it lasts, no slower than before
+    for (const love of [0, 5, 10]) {
+      const old = 4.4 * (1.6 + 0.035 * love), r = rider(); r.R.love = love; r.go(1); const k = r.run(300, () => r.away() >= 1000), was = 1000 / old;
+      check(Math.abs(k.t - was) < was * 0.05, `1 km with ${love} hearts: ${k.t.toFixed(1)} s, before ${was.toFixed(1)} s`);
+      // (a gallop of so many seconds, then back to the full bar at the canter)
+      const G = HR.GALLOP_S[HR.levelOf(love) - 1], rest = HR.STAM_DELAY + HR.STAM_MAX / HR.STAM_WALK, mix = (g, c) => (g * G + c * rest) / (G + rest), r2 = rider(); r2.R.love = love; r2.go(1); r2.run(4); r2.go(2); const x0 = r2.away(); r2.run(G); r2.go(1); r2.run(rest);
+      const now = (r2.away() - x0) / (G + rest), before = mix(5.3 * (1.6 + 0.035 * love), old); check(now > before * 0.97, `gallop and canter with ${love} hearts: ${now.toFixed(2)} m/s, before ${before.toFixed(2)}`);
+    }
+    // A fast potion, the drawn bow: the gait goes with the speed, the stamina never with a potion's
+    const r = rider(); r.P.speedMul = 1.35; r.go(1); r.run(6); check(Math.abs(r.R.v - 7.6 * 1.35) < 0.01 && r.P.gait === 3, `a potion: ${r.R.v} ${r.P.gait}`);
+  });
+  await riding('montar terreno (ground, slope and water): grade 0.45 the canter, 0.65 the walk, 0.9 refuses; mud and 0.6 m of water the trot; sand and snow slower, a shod horse faster on paths', async () => {
+    const at = (o, set = {}, tier = 2, secs = 8) => { const r = rider(o); r.go(tier); r.run(0.05); Object.assign(r.R, set); r.run(secs); return r; }, up = g => ({ height: (x, y) => g * (x * F.x + y * F.y) }), F = rider().f;
+    let r = at(up(0.2)); check(r.P.gait === 2 && r.R.grade > 0.15, `a gentle slope: ${r.P.gait}, grade ${r.R.grade}`);
+    for (const g of [0.45, -0.45]) { r = at(up(g)); check(Math.abs(r.R.v - 7.6) < 0.05 && r.P.gait === 3, `grade ${g}: ${r.R.v}`); }
+    for (const g of [0.65, -0.65]) { r = at(up(g)); check(Math.abs(r.R.v - 3.4) < 0.05 && r.P.gait === 0, `grade ${g}: ${r.R.v}`); }
+    r = at(up(0.9)); check(r.R.v === 0 && r.R.cliff && r.ev.filter(e => e === 'up').length === 1 && r.away() < 1, `grade 0.9: ${r.R.v}, ${r.away().toFixed(2)} m, ${r.ev}`);
+    r = at(up(-0.9)); check(r.R.v === 0 && r.ev[0] === 'down', `down 0.9: ${r.ev}`);
+    // Across the cliff it goes; a cliff ahead is braked for, and it stops at its foot
+    r = at(up(0.9)); r.stop(); r.K.right = true; r.run(3); check(Math.abs(r.R.v - 3.4) < 0.05, `along the cliff: ${r.R.v}`);
+    r = rider({ height: (x, y) => Math.max(0, x * F.x + y * F.y - 40) * 1.2 }); r.go(2); r.run(8); check(r.away() > 37 && r.away() < 42 && r.R.v === 0 && r.ev[0] === 'up' && !r.ev.includes('crash'), `the foot of a cliff: ${r.away().toFixed(1)} m, ${r.R.v}, ${r.ev}`);
+    // The ground
+    const G = RIDE.GROUND; r = at({}, { ground: G.mud }); check(Math.abs(r.R.v - 5.6 * 0.75) < 0.05 && r.P.gait === 1, `mud: ${r.R.v} ${r.P.gait}`);
+    r = at({}, { ground: G.ice }); check(r.P.gait === 1, `ice: ${r.P.gait}`);
+    r = at({}, { ground: G.sand }); check(Math.abs(r.R.v - 10.45 * 0.9) < 0.05 && r.P.gait === 2, `sand: ${r.R.v} ${r.P.gait}`);
+    r = at({}, { ground: G.forest }); check(Math.abs(r.R.v - 10.45 * 0.85) < 0.05 && r.P.gait === 2, `forest, gallop: ${r.R.v} ${r.P.gait}`); r = at({}, { ground: G.forest }, 1); check(Math.abs(r.R.v - 7.6) < 0.05, `forest, canter: ${r.R.v}`);
+    r = at({}, { ground: G.hard }, 1); const bare = r.R.v; r = at({}, { ground: G.hard, shod: true }, 1); check(Math.abs(bare - 7.6) < 0.01 && Math.abs(r.R.v - 7.6 * 1.04) < 0.01, `a path: ${bare}, shod ${r.R.v}`);
+    // From grass onto sand or snow at the gallop, the gait shown does not flicker
+    for (const k of ['sand', 'snow', 'rocky', 'forest']) { r = rider(); r.go(2); r.run(6); r.R.ground = G[k]; const seen = new Set(); r.run(3, P => { seen.add(P.gait); return false; }); check(seen.size === 1 && seen.has(2), `onto ${k}: ${[...seen]}`); }
+    // The water: the canter at 0.3 m, the trot at 0.6, the walk at 0.9; at 1.25 it does not go in, and it is no stumble
+    for (const [d, gait, v] of [[0.35, 3, 7.6], [0.65, 1, 5.6], [0.95, 0, 3.4]]) { r = at({ depth: () => d }); check(r.P.gait === gait && Math.abs(r.R.v - v) < 0.05, `${d} m of water: ${r.P.gait} ${r.R.v}`); }
+    r = rider({ depth: (x, y) => (x * F.x + y * F.y > 30 ? 2 : 0) }); r.go(2); r.run(8); check(r.away() > 27 && r.away() < 30.1 && !r.ev.includes('crash'), `the sea: ${r.away().toFixed(2)} m ${r.ev}`);
+    // In the game: the ground under the horse, by its tile (horse.groundAt); a gallop on sand tires more
+    await withHorses([aHorse({ love: 4 })], async a => {
+      game.gamemode = 'survival'; game.difficulty = 'peaceful'; RN().mount(a);
+      const H = HS(), B0 = game.body, w0 = game.world.gen.biomeAt, at = (kind, biome) => { game.body = kind === null ? null : { groundKind: () => kind, tile: { biome } }; game.world.gen.biomeAt = () => biome; try { return H.groundAt(p(), game.world, 0, 0); } finally { game.body = B0; delete game.world.gen.biomeAt; if (game.world.gen.biomeAt !== w0) game.world.gen.biomeAt = w0; } };
+      check(at(1, 0) === G.hard && at(0, 0) === G.hard && at(3, 0) === G.mud && at(2, 3) === G.open && at(2, 4) === G.forest && at(4, 2) === G.sand && at(4, 8) === G.snow && at(4, 9) === G.rocky && at(4, 10) === G.ice && at(null, 6) === G.mud, 'the ground table');
+      const spend = (ground, grade, v) => { H.stam = 100; p().ride.ground = ground; p().ride.grade = grade; p().vx = v; p().gait = v > 8 ? 2 : 0; H.restT = 0; H.stamina(1, a, true); return 100 - H.stam; };
+      H.galloping = true; const s0 = spend(G.open, 0, 10), s1 = spend(G.snow, 0, 10), s2 = spend(G.open, 0.3, 10); check(Math.abs(s1 / s0 - 1.3) < 1e-6 && Math.abs(s2 / s0 - 1.5) < 1e-6, `the drain: ${s0} ${s1} ${s2}`);
+      H.galloping = false; p().ride.on = true; check(Math.abs(spend(G.open, 0.65, 3) - RIDE.STEEP_WALK) < 1e-6, 'a steep walk does not tire it'); p().vx = 0; p().ride.grade = 0; H.stam = 100;
+    });
+  });
+  await riding('montar choque (obstacles): a wall is braked for; a fence without Space is refused; a sudden crash above 6 m/s is a stumble, and only level 1 can throw; peaceful never', async () => {
+    const F = rider().f, N = { x: -F.y, y: F.x }, at = (d, s = 0) => ({ x: F.x * d + N.x * s, y: F.y * d + N.y * s });
+    // A wall (a row of posts, so it works at any camera angle), trees, a boulder: it stops before them by itself, at no more than a slow walk
+    const row = (d, extra = {}) => Array.from({ length: 41 }, (_, i) => ({ ...at(d, (i - 20) * 0.5), r: 0.3, ...extra }));
+    for (const [what, walls] of [['a wall', row(40)], ['a tall rock', row(40, { top: 0.85 })], ['a house', [{ ...at(40 + 3), r: 3 }]]]) {
+      let hitV = 0; const r = rider({ walls }); r.go(2); r.run(12, P => { if (r.away() > 38.9) hitV = Math.max(hitV, P.ride.v); return false; });
+      check(!r.ev.length && r.away() > 37 && r.away() < 40 && hitV < 3, `${what}: ${r.away().toFixed(2)} m at ${hitV.toFixed(1)} m/s, ${r.ev}`);
+    }
+    // A lone tree off the middle, or a wood of them: it bends round each and goes on, with no crash and hardly any braking
+    let w = rider({ walls: [{ ...at(40, 0.2), r: 0.35 }] }); w.go(2); w.run(8); check(w.away() > 45 && !w.ev.length && w.R.v > 9, `round a tree: ${w.away().toFixed(1)} m at ${w.R.v.toFixed(1)}, ${w.ev}`);
+    check(Math.abs(w.P.x * N.x + w.P.y * N.y) < 2 && Math.abs(RIDE.headingErr(w.R)) < 0.05, 'it does not come back to its heading');
+    w = rider({ walls: Array.from({ length: 12 }, (_, i) => ({ ...at(30 + i * 9, [0.1, -0.3, 0.25, 0, -0.15, 0.4][i % 6]), r: 0.4 })) }); w.go(1); const woods = w.run(60, () => w.away() > 140); check(woods.t < 140 / 7 && !w.ev.length, `through the trees: ${woods.t.toFixed(1)} s, ${w.ev}`);
+    // Head on against a trunk, at a standstill: it goes round it
+    w = rider({ walls: [{ ...at(0.64, 0), r: 0.35 }] }); w.go(1); w.run(5); check(w.away() > 15, `stuck against a tree: ${w.away().toFixed(2)} m`);
+    w = rider({ walls: [{ ...at(0.66, 0.01), r: 0.35 }] }); w.go(0); w.run(5); check(w.away() > 5, `stuck against a tree, walking: ${w.away().toFixed(2)} m`);
+    // A pebble is a step, and riding along a wall does not brake
+    let r = rider({ walls: [{ ...at(40), r: 0.4, top: 0.3 }] }); r.go(2); r.run(6); check(r.away() > 41, `a pebble stops it: ${r.away()}`);
+    r = rider({ walls: Array.from({ length: 200 }, (_, i) => ({ ...at(i * 0.5, 0.56), r: 0.3 })) }); r.go(2); r.run(7); check(r.R.v > 10, `along a wall: ${r.R.v}`);
+    // Walking, nothing is refused: up to the wall
+    r = rider({ walls: row(5) }); r.go(0); r.run(4); check(r.away() > 4 && r.away() < 4.5 && r.R.v <= RIDE.SLIP_V && !r.ev.length, `walking into a wall: ${r.away()} ${r.R.v}`);
+    // A fence: refused with a sliding stop, and it stays there while W is held; Space clears it at the canter and at the gallop
+    for (const tier of [1, 2]) {
+      r = rider({ walls: row(40, { low: true }) }); r.go(tier); r.run(12); check(r.ev[0] === 'fence' && r.ev[1] === 'stopped' && r.ev.length === 2 && r.away() > 38 && r.away() < 40, `a fence at tier ${tier}: ${r.ev}, ${r.away().toFixed(2)} m`);
+      r = rider({ walls: row(40, { low: true }) }); r.go(tier); r.run(12, P => { if (!P.airborne && !r.j && r.away() > 37) { r.j = 1; P.jump(); } return r.away() > 43; }); check(r.away() > 43 && !r.ev.includes('crash'), `jumping at tier ${tier}: ${r.away().toFixed(2)} ${r.ev}`);
+    }
+    // Space in the last strides, already refusing, still goes over
+    r = rider({ walls: row(40, { low: true }) }); r.go(2); r.run(12, P => { if (r.ev.includes('fence') && !r.j && P.ride.v < 8) { r.j = 1; P.jump(); } return r.away() > 43; }); check(r.j && r.away() > 43, `a late jump: ${r.away().toFixed(2)}`);
+    // A sudden crash: a tree that was not there
+    r = rider(); r.go(2); r.run(6); r.sc.collidersNear = () => [{ x: r.P.x + F.x * 0.7, y: r.P.y + F.y * 0.7, r: 0.35 }]; r.R.probeT = 9; r.run(0.1); check(r.ev[0] === 'crash' && r.R.v < 1, `a crash: ${r.ev} ${r.R.v}`);
+    r = rider(); r.go(0); r.run(3); r.sc.collidersNear = () => [{ x: r.P.x + F.x * 0.7, y: r.P.y + F.y * 0.7, r: 0.35 }]; r.run(0.5); check(!r.ev.length, 'a stumble at a walk');
+    // In the game: no control for 0.8 s, 15 of stamina; level 1 may throw (25 %), never in peaceful or creative
+    const rnd = Math.random, hp = game.combat.hp;
+    try {
+      await withHorses([aHorse({ love: 0 }), aHorse({ love: 4 })], async (a, b) => {
+        const H = HS(); game.gamemode = 'survival'; game.difficulty = 'normal'; RN().mount(b); H.stam = 100; Math.random = () => 0;
+        p().onRide('crash'); check(H.stam === 100 - RIDE.STUMBLE_STAM && H.held() && p().horseAct?.kind === 'stumble' && H.throwAt === null, `level 2: ${H.stam} ${H.throwAt}`);
+        game.time += 0.85; H.update(1 / 60); check(!H.held() && p().mount, 'still staggering');
+        RN().dismount(); RN().mount(a); p().onRide('crash'); check(H.throwAt !== null, 'level 1 does not throw'); game.time += 0.9; H.update(1 / 60); check(!p().mount, 'not thrown');
+        game.time += 5; H.update(1 / 60); if (p().pose) game.rest.stand();
+        RN().mount(a); H.lastSpook = game.time; p().onRide('crash'); check(H.throwAt === null, 'a throw within 20 s of the last one');
+        for (const [m, d] of [['survival', 'peaceful'], ['creative', 'normal']]) { H.resetRide(); H.stam = 100; game.gamemode = m; game.difficulty = d; p().onRide('crash'); check(H.stam === 100 && !H.held() && H.throwAt === null, `${m} ${d}: ${H.stam}`); }
+        // The refusals: a toss, and the text once
+        game.gamemode = 'survival'; H.resetRide(); const said = [], fl = game.gather.float; game.gather.float = t => said.push(t); try { p().onRide('fence'); p().ride.fence = true; p().onRide('stopped'); check(p().horseAct.kind === 'toss' && H.fences > 0, `a fence: ${p().horseAct.kind}`); p().onRide('fence'); game.time += 2; H.update(1 / 60); p().onRide('up'); } finally { game.gather.float = fl; }
+        check(said.length === 2 && said[0] === t('horse.refuse.fence', { name: a.name }) && said[1] === t('horse.refuse.slope', { name: a.name }), `said: ${said}`);
+      });
+    } finally { Math.random = rnd; game.combat.hp = hp; if (p().pose) game.rest.stand(); p().ride.fence = false; }
+  });
+  await riding('montar salto (jump by speed): a standing hop does not clear a fence, a canter jump does; by a hole it still jumps two blocks; on foot the jump is the same', async () => {
+    const top = r => { let z = 0; r.run(1.2, P => { z = Math.max(z, P.z); return false; }); return z; };
+    let r = rider(); r.run(0.1); r.P.jump(); check(!r.R.clears && Math.abs(top(r) - 0.54) < 0.05, 'the hop');
+    r = rider(); r.go(1); r.run(5); r.P.jump(); const z = top(r); check(r.R.clears && z > 1.1 && z < 1.35, `the canter jump: ${z}`);
+    r = rider(); r.run(0.1); r.P.byHole = true; r.P.jump(); check(r.P.vz >= 5.5 - 1e-6, `by a hole: ${r.P.vz}`);
+    const P = new Player({ name: 'x', x: 0, y: 0, look: {} }); P.jump(); check(P.vz === 5, `on foot: ${P.vz}`);
+    // A fence touched: the hop stays on its side
+    const F = r.f, N = { x: -F.y, y: F.x }, walls = Array.from({ length: 21 }, (_, i) => ({ x: F.x * 1 + N.x * (i - 10) * 0.5, y: F.y + N.y * (i - 10) * 0.5, r: 0.12, low: true }));
+    r = rider({ walls }); r.go(0); r.run(1.5); r.P.jump(); r.run(1); check(r.away() < 1, `hopped over: ${r.away()}`);
+  });
+  await riding('montar red (riding and the others): the canter, the sliding stop and the stumble reach them; between two messages their horse goes on smoothly; an old game sends no speed', async () => {
+    const L = game.live;
+    try {
+      L.receive('g1', { t: 'hi', id: 'id-g1', name: 'g1', playing: true, look: LOOK, v: GAME_VERSION });
+      const st = more => L.receive('g1', { t: 'st', sc: 'world', x: 60, y: 60, yaw: 0, m: 1, gt: 2, ht: [-1, 0], ...more }), e = () => L.peers.get('g1').entity;
+      // (ten messages a second at 10 m/s along +y: the drawn speed, in steps of a frame, keeps within a third of it; without rv it pulses)
+      const wave = rv => { st({ x: 60, y: 60, rv }); e().x = 60; e().y = 60; let lo = 99, hi = 0; for (let i = 0; i < 12; i++) { st({ x: 60, y: 60 + i, rv }); for (let f = 0; f < 6; f++) { const y = e().y; e().update(1 / 60, null); const v = (e().y - y) * 60; if (i > 5) { lo = Math.min(lo, v); hi = Math.max(hi, v); } } } return [lo, hi]; };
+      const a = wave(10), b = wave(undefined); check(a[0] > 7.5 && a[1] < 12.5 && b[1] - b[0] > a[1] - a[0], `with rv ${a.map(v => v.toFixed(1))}, without ${b.map(v => v.toFixed(1))}`);
+      // Two messages late: it does not run off
+      st({ x: 60, y: 60, rv: 10 }); e().x = 60; e().y = 60; for (let i = 0; i < 120; i++) e().update(1 / 60, null); check(e().y < 62.1, `a lost peer rides on: ${e().y}`);
+      st({ rv: 'x' }); check(e().rideV === 0, 'garbage'); st({ rv: 1e9 }); check(e().rideV <= 20, 'too fast'); st({ m: 0, rv: 10 }); check(e().rideV === 0, 'on foot');
+      check(LIVE_HORSE_ACTS.join() === 'rear,toss,shake,shy,slide,stumble' && ['slide', 'stumble'].every(k => HACTS[k]), `acts: ${LIVE_HORSE_ACTS}`);
+      st({ ht: [4, 1] }); check(e().horseAct?.kind === 'slide', `the slide: ${JSON.stringify(e().horseAct)}`);
+      st({ ht: [99, 2] }); check(e().horseAct?.kind === 'slide', 'an act of a newer game');
+    } finally { L.peers.delete('g1'); }
+    // The setting, and the keys of the texts in both languages
+    const was = Settings.v.ride; try { Settings.v.ride = 'arcade'; p().mount = true; step(1 / 60); check(p().ride.arcade, 'the setting does not reach the horse'); Settings.v.ride = 'realistic'; step(1 / 60); check(!p().ride.arcade, 'realistic'); } finally { Settings.v.ride = was; p().mount = false; }
+  });
+  await riding('montar arte (riding art): the slide sits the horse back, the stumble drops its front; both put everything back; the rider leans with them', async () => {
+    const h = horseModel('castano'), u = h.userData, play = (act, at) => { animateHorse(h, 0, 0, null, 1 / 60, 0, act ? { act, at } : null); };
+    for (let i = 0; i < 30; i++) play(null); const y0 = u.body.position.y;
+    play('slide', 0.4); check(u.slide > 0.9 && u.body.rotation.x < -0.2 && u.seatDy < -0.05 && u.legs[2].hip.rotation.x < -0.4, `slide: ${u.body.rotation.x.toFixed(2)} ${u.seatDy?.toFixed(2)}`);
+    play('stumble', 0.25); check(u.stumble > 0.9 && u.slide === 0 && u.body.rotation.x > 0.18 && u.legs[1].knee.rotation.x > 0.8, `stumble: ${u.body.rotation.x.toFixed(2)}`);
+    // (the hooves stay on the ground all through both: none sinks or floats more than 5 cm)
+    const hoof = new THREE.Vector3();
+    for (const [act, D] of [['slide', 0.85], ['stumble', 0.8]]) for (let f = 2; f <= 8; f++) {
+      for (let i = 0; i < 30; i++) play(null); play(act, D * f / 10); h.updateMatrixWorld(true);
+      u.legs.forEach((l, i) => { const up = -l.knee.position.y; l.knee.localToWorld(hoof.set(0, up - u.hipRest[i], i >= 2 ? up * 0.24 : -up * 0.03)); check(Math.abs(hoof.y) < 0.055, `${act} ${f / 10}, leg ${i}: the hoof at ${hoof.y.toFixed(3)} m`); });
+    }
+    for (let i = 0; i < 30; i++) play(null); check(u.body.position.z === 0 && u.body.rotation.z === 0 && Math.abs(u.body.position.y - y0) < 1e-6 && Math.abs(u.body.rotation.x) < 1e-3 && u.stumble === 0, 'not put back');
+    disposeAnimal(h);
   });
   await test('peso y en brazos, fin (weight end): a save played with the weight inventory opens with ?inventario=casillas without losing anything, and back', async () => {
     const W = JSON.stringify(game.snapshot()), D = JSON.stringify([...game.world.deltas]), was = Carry.force;

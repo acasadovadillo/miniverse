@@ -9,6 +9,7 @@ import { WATER_Y } from './world/planet.js';
 import { BARROW, WHEEL_AHEAD, pushedAhead } from './carry-items.js';
 import { apagada } from './opciones.js';
 import { gaitOf } from './input.js';
+import { makeRide, startRide, rideStep, slopeStep, braking, probeAhead, dodging, jumpK, CLEAR_V, GT, STUMBLE_V, SLIP_V, ROCK_TOP } from './horseride.js';
 
 export class Person {
   constructor({ x, y, look, view = 'front', flip = false }) {
@@ -40,11 +41,12 @@ const STEP_UP = 0.3;
 // lo que se hunde agachado (la cabeza, bajo el agua)
 export const SWIM_IN = 1.0, SWIM_OUT = 0.85;
 const HORSE_DEEP = 1.25, SWIM_ROOT = 1.1, SINK = 0.55, SWIM_SPEED = 1.5, SWIM_RUN = 2.2;
-// The three speeds (input.js gaitOf: 0 walk, 1 jog, 2 sprint), in m/s before speedMul (the load, the bow, a potion and,
-// riding, the horse's rideSpeed). Only the sprint spends stamina (needs.js). Riding: walk, trot, gallop (the gallop is
-// the run of before); rowing: the fast row of before from the jog up. Swimming: the jog is a steady crawl that spends
-// nothing; the sprint is the fast swim (it spends stamina and air). Crouching is always CROUCH_SPEED
+// The three speeds (input.js gaitOf: 0 walk, 1 jog, 2 sprint), in m/s before speedMul (the load, the bow, a potion). Only
+// the sprint spends stamina (needs.js). Riding has its own: walk, canter and gallop, with the horse's weight (horseride.js,
+// Player.riding); ride here is only a spectator's. Rowing: the fast row of before from the jog up. Swimming: the jog is a
+// steady crawl that spends nothing; the sprint is the fast swim (it spends stamina and air). Crouching is always CROUCH_SPEED
 export const GAIT = { foot: [3.2, 4.8, 5.8], ride: [3.2, 4.4, 5.3], row: [3.2, 5.3, 5.3], swim: [SWIM_SPEED, 1.85, SWIM_RUN] };
+const HEAD_ON = 0.75;   // (riding: a push back within some 40° of straight back is hitting it head on)
 const CROUCH_SPEED = 1.4, BOAT_MUL = 1.4, STOP_SWIM = 8;
 // Hunger from running, per metre (combat.exert): the sprint as the run of before, the jog less than half
 const EXERT = [0, 0.02, 0.05];
@@ -140,6 +142,9 @@ export class Player extends Person {
     this.depth = 0;                    // lo hondo del agua donde está (0 en tierra)
     this.bank = null;                  // en el agua junto a la pared de un canal, la altura de su borde (para salir de un salto)
     this.pushing = null;               // the wheelbarrow pushed (its model key: barrow.js); not saved
+    this.ride = makeRide();            // riding: the horse's speed, heading, gait and what it brakes for (horseride.js)
+    this.onRide = null;                // (what happens riding: 'slide', 'stopped', 'fence', 'up', 'down', 'crash': horse.js onRide)
+    this.lookAhead = reach => this.rideAhead(reach);
     this.pushPen = 0;                  // (how far its box is inside something: Barrow.update parks it by force with Q after a while)
   }
   get airborne() { return this.z > this.floor + 0.01; }
@@ -160,7 +165,11 @@ export class Player extends Person {
       return;
     }
     if (this.canJump && !this.canJump()) return;   // (riding a winded horse: no jump, horse.js; game.js sets it)
-    this.vz = JUMP * (this.mount ? 1.1 : 1) * (this.jumpMul ?? 1);   // (jumpMul: loaded or carrying something, carry.js; never too low to leave a hole)
+    // (riding, the jump grows with the speed: standing the horse only hops, over no fence (R.clears, see update); by a hole it
+    // always jumps as high as before, so it can get out. Space also takes back a refusal: it gathers itself and goes over)
+    const R = this.mount && this.ride.on ? this.ride : null;
+    if (R) { R.clears = R.v >= CLEAR_V; R.slide = 0; R.fence = R.blocked = false; R.max = R.obs = Infinity; }
+    this.vz = JUMP * (this.mount ? 1.1 * (R ? Math.max(jumpK(R.v), this.byHole ? 1 : 0) : 1) : 1) * (this.jumpMul ?? 1);   // (jumpMul: loaded or carrying something, carry.js; never too low to leave a hole)
     // (con el agua por la cintura junto a la pared de un canal: hasta su borde, ver CLIMB)
     if (this.bank !== null && !this.mount && this.depth >= WADE_CLIMB) { const need = this.bank + CLIMB - (WATER_Y - this.depth + this.floor); if (need > this.vz * this.vz / (2 * GRAVITY)) this.vz = Math.sqrt(2 * GRAVITY * need); }
     this.z = this.floor + 0.001;
@@ -190,8 +199,10 @@ export class Player extends Person {
     // (pushing the wheelbarrow, only along it: forwards, or back at half the speed; the keys to a side turn it, see below)
     const push = this.pushing && !this.ghost;
     if (push) { const f = this.face, s = Math.max(wx * f.x + wy * f.y, -speed * 0.5); wx = f.x * s; wy = f.y * s; }
-    this.vx = lerp(this.vx, wx, k);
-    this.vy = lerp(this.vy, wy, k);
+    // (riding: the horse's own speed and heading, with its weight: horseride.js)
+    const R = this.mount && !this.boat && !this.ghost && !this.aboard ? this.riding(dt, l, dx, dy, tier, scene) : null;
+    if (R) { this.vx = R.face.x * R.v; this.vy = R.face.y * R.v; }
+    else { this.ride.on = false; this.vx = lerp(this.vx, wx, k); this.vy = lerp(this.vy, wy, k); }
     const p = { x: this.x + this.vx * dt, y: this.y + this.vy * dt };
     let near = null;
     // (cerca de lo cavado: dónde están los pies, de verdad, para las paredes de los hoyos y los montones de tierra)
@@ -200,12 +211,15 @@ export class Player extends Person {
     if (!this.boat && !this.ghost) {
       // (las rocas no frenan: se sube uno encima; y saltando, a pie o a caballo, se pasa por encima de las vallas)
       near = scene.collidersNear(p.x, p.y);
-      const high = this.z - this.floor > (this.mount ? 0.2 : HOP);
+      const high = this.mount ? this.z - this.floor > 0.2 && (!R || R.clears) : this.z - this.floor > HOP;
       // (with something in the arms no fence is hopped: through the gate; riding, the big thing goes behind the saddle and the
       // horse jumps as always. Pushing the wheelbarrow the rocks and the tower stairs are walls: you would climb them and it not)
-      collide(p, near.filter(c => (c.top === undefined || this.pushing) && !c.dig && !c.pond && !(high && c.low && !(this.carrying && !this.mount)) && !(c.zmax !== undefined && this.z > c.zmax)), RADIUS);   // (zmax: lo que solo frena abajo)
+      // (riding, a tall rock is a wall too: the horse does not climb it. A small one it goes through, as before)
+      collide(p, near.filter(c => (c.top === undefined || this.pushing || (R && !c.spiral && c.top >= ROCK_TOP)) && !c.dig && !c.pond && !(high && c.low && !(this.carrying && !this.mount)) && !(c.zmax !== undefined && this.z > c.zmax)), RADIUS);   // (zmax: lo que solo frena abajo)
       if (dug) collide(p, scene.digWalls(p.x, p.y, feet, this.airborne ? 0.05 : STEP_UP), RADIUS);   // (en el aire, sin el escalón: se sube lo que da el salto)
     }
+    // (the horse hit something: head on at speed, a stumble)
+    if (R) this.hit(R, dt, p);
     // En barca, no salir a tierra; a caballo, no entrar en lo que cubre al caballo; a pie se nada (en el mundo: en las
     // cuevas, blocked son sus paredes). Si se puede, deslizarse por la orilla
     const world = !!scene.waterDepth;
@@ -240,6 +254,7 @@ export class Player extends Person {
       }
     }
     const moved = Math.hypot(p.x - this.x, p.y - this.y);
+    if (R && moved < R.v * dt * 0.6) R.v = Math.max(moved / dt, Math.min(R.v, SLIP_V));   // (stopped by something: it slips along it slowly; a glancing touch goes on at its speed)
     if (tier && !this.crouch && !this.mount && !this.boat) this.onExert?.(moved * EXERT[tier]);   // (correr da hambre)
     // (al pasar de una casilla a otra junto a lo cavado, los pies se quedan a su altura: a una más baja se cae; a una algo más
     // alta, z queda por debajo de 0 y sube suave, como un escalón)
@@ -248,13 +263,14 @@ export class Player extends Person {
     const pit = dug && (scene.digH(Math.floor(this.x), Math.floor(this.y)) !== null || scene.digH(Math.floor(p.x), Math.floor(p.y)) !== null);
     if (pit && (Math.floor(p.x) !== Math.floor(this.x) || Math.floor(p.y) !== Math.floor(this.y))) this.z = feet - scene.surfaceAt(p.x, p.y);
     this.x = p.x; this.y = p.y;
+    if (R) { this.byHole = dug; this.rideNear = near; this.rideScene = scene; }
     this.inWater(dt, keys, scene, world, pit, l ? speed * l : 0);
     // (for needs.js stamina, from the gated tier: sprinting or jogging on foot; swimming fast, not while going down)
     const going = this.moving, afoot = going && !this.swim && !this.crouch && !this.mount && !this.boat && !this.aboard && !this.pushing;
     this.sprinting = afoot && tier === 2;
     this.jogging = afoot && tier === 1;
     this.fastSwim = tier === 2 && going && this.swim && !keys.dive;
-    this.gait = going && !this.crouch && !this.aboard ? tier : 0;
+    this.gait = going && !this.crouch && !this.aboard ? (R ? GT[R.gait] : tier) : 0;
     // (pushing, where the keys point, not where it goes: it goes only along the wheelbarrow)
     const kx = push ? dx : wx, ky = push ? dy : wy;
     let want = null;
@@ -264,7 +280,8 @@ export class Player extends Person {
     if (sx || sy) [this.view, this.flip] = viewFor(sx, sy);
     // En primera persona se mira hacia donde mira la cámara (y lo de delante es lo que se ve)
     if (CAM.first) { const [fx, fy] = screenToWorld(0, -1); want = { x: fx, y: fy }; this.dir = [fx, fy]; [this.view, this.flip] = viewFor(0, -1); }
-    if (!push) { if (want) this.face = want; this.pushPen = 0; }
+    if (R) { this.face = R.face; this.dir = R.dir; this.pushPen = 0; }   // (the horse turns at its own rate: the camera and the keys only say where to)
+    else if (!push) { if (want) this.face = want; this.pushPen = 0; }
     else { this.turnPushed(want, dt, scene, B, bfeet); this.dir = [this.face.x, this.face.y]; }   // (the body faces as the wheelbarrow does: the drawing turns it by dir)
     // Lo que se pisa: subiendo a una roca, se sube con ella (deprisa, sin saltar); bajando poco, se baja con ella; si
     // no, se cae
@@ -283,6 +300,49 @@ export class Player extends Person {
     const before = Math.floor(this.step);
     this.step = moved < 0.002 ? 0 : this.step + moved * 3.2;
     if (!this.airborne && !this.mount && Math.floor(this.step) !== before && Math.floor(this.step) % 2 === 1) { if (this.wading && this.depth > 0.12) Audio.wade(); else Audio.step(this.inside || this.underRoof); }   // (en el agua, chapoteando)
+  }
+  // Riding, one step (horseride.js): what the keys ask, the slope and the water, what is ahead, and the horse's speed and
+  // heading. l: how much the keys ask (0: nothing); (dx, dy): where, in the world. tier: gated by the load (never riding)
+  riding(dt, l, dx, dy, tier, scene) {
+    const R = this.ride;
+    if (!R.on) { startRide(R, this.face); this.rideNear = null; }
+    // (turned from outside, the bow aimed or a greeting: standing, the horse turns round to it)
+    else if (this.face !== R.face) { if (R.v < 1) R.look = Math.atan2(this.face.x, this.face.y); this.face = R.face; }
+    R.going = l > 0; R.tier = tier; R.mul = this.speedMul || 1; R.air = this.airborne;
+    if (l > 0) { const n = Math.hypot(dx, dy) || 1; R.wx = dx / n; R.wy = dy / n; }
+    const slope = slopeStep(R, dt, scene, this.x, this.y, this.depth);
+    if (slope) this.onRide?.(slope);
+    const brake = this.rideNear && this.rideScene === scene ? braking(R, dt, this.lookAhead) : '';
+    if (brake) this.onRide?.(brake);
+    const ev = rideStep(R, dt);
+    if (ev) this.onRide?.(ev);
+    return R;
+  }
+  // What is ahead (braking asks, ten times a second): the colliders of the last step, and deep water and dug walls or holes
+  rideAhead(reach) {
+    const R = this.ride, scene = this.rideScene, f = R.face;
+    probeAhead(R, this.x, this.y, this.z, this.rideNear, reach, R.air);
+    dodging(R, this.x, this.y, this.z, this.rideNear, reach);
+    if (!scene.waterDepth || this.airborne) return;
+    // (the water at the end of it and half way: only if one is too deep, where it starts)
+    const far = Math.min(reach, R.obs), deep = Math.max(HORSE_DEEP, this.depth), wet = d => scene.waterDepth(this.x + f.x * d, this.y + f.y * d) >= deep;
+    if (far > 1 && (wet(far) || wet(far / 2))) for (let d = 1; d < far + 1; d++) if (wet(d)) { R.obs = Math.max(0, d - 0.5); R.obsLow = false; R.obsAt = null; break; }
+    if (!scene.digChunks?.size) return;
+    for (let d = 1, h = scene.surfaceAt(this.x, this.y); d < far && d < R.obs; d++) {
+      const x = this.x + f.x * d, y = this.y + f.y * d, hd = scene.surfaceAt(x, y), step = hd - h;
+      if ((step > STEP_UP || step < -2 * STEP_UP) && (scene.digH(Math.floor(x), Math.floor(y)) !== null || scene.digH(Math.floor(x - f.x), Math.floor(y - f.y)) !== null)) { R.obs = Math.max(0, d - 0.7); R.obsLow = false; R.obsAt = null; return; }
+      h = hd;
+    }
+  }
+  // After the collisions (p: where it got to): hitting something head on at speed is a stumble, whatever it was; the probe
+  // brakes for what it sees, so this is a sharp turn into a tree
+  hit(R, dt, p) {
+    if (R.v < STUMBLE_V) return;
+    // (what it was pushed back by: mostly against its heading is head on, to a side is a brush past)
+    const dx = this.x + this.vx * dt - p.x, dy = this.y + this.vy * dt - p.y, push = Math.hypot(dx, dy);
+    if (push < 1e-3 || dx * R.face.x + dy * R.face.y < push * HEAD_ON) return;
+    R.v = 0; R.slide = 0; R.fence = false;
+    this.onRide?.('crash');
   }
   // El agua donde se está: lo hondo (depth), si se vadea (wading) o se nada (swim), lo que se hunde (sink) y si hay orilla
   // delante a la que saltar (shore)
@@ -368,7 +428,7 @@ export class Player extends Person {
     }
   }
   // (game.update skips update while busy, in a dialogue or in a pose: no stale running or fast swimming for needs.js)
-  stop() { this.vx = this.vy = 0; this.sprinting = this.fastSwim = this.jogging = false; this.gait = 0; }
+  stop() { this.vx = this.vy = 0; this.ride.v = 0; this.ride.slide = 0; this.ride.gait = 0; this.sprinting = this.fastSwim = this.jogging = false; this.gait = 0; }
   toSave() {
     return { name: this.name, look: this.look, x: +this.x.toFixed(2), y: +this.y.toFixed(2), inside: this.inside, view: this.view === 'side' ? 'front' : this.view, boat: !!this.boat || !!this.aboard, mount: !!this.mount, horseId: this.horseId, horseCoat: this.horseCoat, horseBags: this.horseBags, spawn: this.spawn };
   }

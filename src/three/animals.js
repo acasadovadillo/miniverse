@@ -691,29 +691,37 @@ function graze(u, e, k, dt) {
   if (u.g < 1e-3) u.g = 0;
   return u.g;
 }
-// The ridden horse's three gaits (the rider's: entities.js GAIT, 0 walk, 1 trot, 2 gallop): the phase of each leg (the
+// The ridden horse's four gaits (horseride.js GT: 0 walk, 1 trot, 2 gallop, 3 canter): the phase of each leg (the
 // order of horseModel's legs: front -x, front +x, back -x, back +x), how far they swing and bend, the stride (metres a
 // leg cycle covers: the cadence is speed / stride, so the legs never paddle in place) and the body's rocking and bob. With
-// rideSpeed 1.8 that is about 2.4 cycles a second at the walk, 2.8 at the trot and 3.0 at the gallop (the free horse's
+// 3.4, 5.6, 7.6 and 10.4 m/s that is about 1.4 cycles a second walking, 2.0 trotting, 2.3 cantering and 2.5 galloping (the free horse's
 // cycle, by the time, is 2.6 to 3.4). The walk goes one leg at a time (back, front on the same side, then the other side),
 // the trot by diagonal pairs (TROT), the gallop with the back legs together a little apart, then the front (a transverse
-// gallop: four beats, the hind pair a tenth of a cycle apart and the front pair a tenth too)
+// gallop: four beats, the hind pair a tenth of a cycle apart and the front pair a tenth too), and the canter in three beats:
+// a back leg, the other back one with its diagonal, the leading front one, and then all four in the air
 const TAU = Math.PI * 2;
 const HORSE_GAITS = [
   { legs: [0, 0.5, 0.75, 0.25].map(f => f * TAU), hip: 0.42, knee: 0.75, stride: 2.4, pitch: 0, bob: 0.015 },
   { legs: TROT, hip: 0.55, knee: 0.95, stride: 2.8, pitch: 0.01, bob: 0.045 },
-  { legs: [0.6, 0.5, 0.09, 0].map(f => f * TAU), hip: 0.8, knee: 1.1, stride: 3.2, pitch: 0.07, bob: 0.07 },
+  { legs: [0.6, 0.5, 0.09, 0].map(f => f * TAU), hip: 0.85, knee: 1.1, stride: 4.2, pitch: 0.07, bob: 0.07 },
+  { legs: [0.35, 0, 0.7, 0.35].map(f => f * TAU), hip: 0.66, knee: 1, stride: 3.3, pitch: 0.045, bob: 0.06 },
 ];
 // At the gallop (GALLOP, by how much it is galloping, eased over about 0.3 s): the hind legs reach further back under
 // the push and the front ones further forward, the front knees fold higher, the neck and head pump with the stride and
 // the tail streams out behind
 const GALLOP = { hindBack: 0.1, foreFwd: 0.06, foreFold: 0.15, neck: 0.1, head: 0.08, tail: 0.42, ease: 3.3 };
+const CANTER_K = 0.35;   // (how much of it the canter has)
 // The tricks and starts (st.act, how long each lasts in seconds): the rear (1.2 s: the body up about 38° on the hind hips,
 // the hind legs bent under it, the forelegs pawing, the head up and the tail hanging), the shake after a brushing (0.8 s:
 // the body rolls fast from side to side, the head with it) and the toss of the head (0.6 s: a trick it does not know yet)
-export const HORSE_ACTS = { rear: 1.2, shake: 0.8, toss: 0.6 };
+export const HORSE_ACTS = { rear: 1.2, shake: 0.8, toss: 0.6, slide: 0.85, stumble: 0.8 };
 const REAR = { pitch: 0.66, py: 0.72, pz: -0.38, crouch: 0.035, hindHip: 0.35, hindKnee: 0.55, foreHip: 1.1, foreKnee: 1.7, paw: 0.3, pawHz: 1.5, neck: -0.45, head: -0.35 };
 const REAR_FP = { pitch: 0.6, neck: 0.5, head: 0.25 };   // (from the rider's own eyes: less of the pitch, the neck stretched forward and down)
+// The sliding stop (Plan R4 §5): the trunk sits back about the shoulders (pz), the hind legs under it and the forelegs braced
+// ahead, the head up. The stumble: the trunk goes down in front about the hind hips, the fore knees give way, the head drops
+// and it sways until it finds its feet
+const SLIDE = { pitch: -0.27, py: 0.72, pz: 0.38, down: 0.025, hindHip: 1.05, foreHip: 0.32, neck: -0.28, head: 0.22 };
+const STUMBLE = { pitch: 0.24, py: 0.72, pz: -0.38, foreHip: 0.5, down: 0, neck: 0.34, head: 0.12, roll: 0.07, hz: 2.2 };
 const SHAKE = { roll: 0.12, hz: 5.6, head: 0.35 };
 const SEAT = [1.16, -0.02];   // (the saddle's seat on the body, y and z: where the rider sits, for the rider's rear)
 // (winded: the flanks heave at 1.6 breaths a second and the head hangs low)
@@ -728,8 +736,8 @@ const struck = (a0, a1) => { const d = wrapT(a1 - a0); return d > 0 && d < Math.
 // u.bob (the trunk's bob, for the rider), u.rear (0..1) with u.seatDy, u.seatDz and u.seatPitch (where the seat goes while
 // it rears) and u.hits (hooves that landed this frame, for the sound)
 export function animateHorse(h, speed, t, e, dt = 1 / 60, gait, st = null) {
-  const u = h.userData, k = Math.min(1, speed / 3), ridden = gait === 0 || gait === 1 || gait === 2;
-  u.gk = (u.gk || 0) + ((gait === 2 ? 1 : 0) - (u.gk || 0)) * Math.min(1, dt * GALLOP.ease);
+  const u = h.userData, k = Math.min(1, speed / 3), ridden = gait === 0 || gait === 1 || gait === 2 || gait === 3;
+  u.gk = (u.gk || 0) + ((gait === 2 ? 1 : gait === 3 ? CANTER_K : 0) - (u.gk || 0)) * Math.min(1, dt * GALLOP.ease);
   if (u.gk < 1e-3) u.gk = 0;
   const gk = u.gk * k;
   u.hits = 0;
@@ -743,9 +751,9 @@ export function animateHorse(h, speed, t, e, dt = 1 / 60, gait, st = null) {
     const prev = u.gaitPhase;
     u.gaitPhase = (u.gaitPhase + dt * TAU * speed / u.amp[4]) % TAU;
     const ph = u.phase = u.gaitPhase;
-    // (the gallop rocks the body, nose down as the front legs land; the trot bounces twice a cycle, the gallop once)
+    // (the gallop rocks the body, nose down as the front legs land; the trot bounces twice a cycle, the gallop and the canter once)
     const pitch = u.body.rotation.x = Math.sin(ph + 0.9) * u.amp[2] * k;
-    u.bob = (gait === 2 ? 0.5 + 0.5 * Math.sin(ph) : Math.abs(Math.sin(ph))) * u.amp[3] * k;
+    u.bob = (gait >= 2 ? 0.5 + 0.5 * Math.sin(ph) : Math.abs(Math.sin(ph))) * u.amp[3] * k;
     u.body.position.y = u.bob;
     // (the legs hang from the body: each hip is moved back by what the bob and the rocking move it, so only the trunk rides
     // and the hooves stay on the ground)
@@ -773,26 +781,28 @@ export function animateHorse(h, speed, t, e, dt = 1 / 60, gait, st = null) {
   const rear = act === 'rear' ? sm(0, 0.28, ak) * (1 - sm(0.7, 1, ak)) : 0;
   const shake = act === 'shake' ? sm(0, 0.12, ak) * (1 - sm(0.72, 1, ak)) : 0;
   const toss = act === 'toss' ? Math.sin(Math.PI * ak) : 0;
+  const slide = act === 'slide' ? sm(0, 0.16, ak) * (1 - sm(0.72, 1, ak)) : 0, stumble = act === 'stumble' ? sm(0, 0.14, ak) * (1 - sm(0.5, 1, ak)) : 0;
   const w = st?.winded > 0 ? Math.min(1, st.winded) : 0, breath = Math.sin(t * TAU * WINDED.hz);
   if (u.tail) u.tail.rotation.set(0.25 * k + gk * (GALLOP.tail + 0.07 * Math.sin(2 * u.phase + 1)), 0, Math.sin(t * 1.8 + u.seed) * 0.25 * (1 - k * 0.6) + gk * 0.06 * Math.sin(u.phase));
   // (pastando, baja el cuello hasta la hierba; si no, de vez en cuando, parado, agacha un poco la cabeza. Winded, low; at
   // the gallop it pumps; rearing or tossing it, up)
   const g = graze(u, e, k, dt), low = Math.max(g, WINDED.low * w);
-  if (u.rig) neckPose(u, low, gk * GALLOP.neck * Math.sin(u.phase + 0.9) + (st?.fp ? REAR_FP.neck : REAR.neck) * rear - 0.3 * toss + 0.08 * shake * Math.sin(ak * TAU * SHAKE.hz * HORSE_ACTS.shake));
+  if (u.rig) neckPose(u, low, gk * GALLOP.neck * Math.sin(u.phase + 0.9) + (st?.fp ? REAR_FP.neck : REAR.neck) * rear - 0.3 * toss + SLIDE.neck * slide + STUMBLE.neck * stumble + 0.08 * shake * Math.sin(ak * TAU * SHAKE.hz * HORSE_ACTS.shake));
   if (u.head) {
     u.head.rotation.x = Math.sin(u.phase) * 0.05 * k + (u.horse && !g && speed < 0.2 && Math.sin(t * 0.3 + u.seed) > 0.4 ? 0.5 : 0) * 0.6 + g * (u.rig.hr + Math.sin(t * 7 + u.seed) * 0.05)
-      + gk * GALLOP.head * Math.sin(u.phase + 0.4) + w * (WINDED.head + 0.05 * breath) + (st?.fp ? REAR_FP.head : REAR.head) * rear - 0.4 * toss;
+      + gk * GALLOP.head * Math.sin(u.phase + 0.4) + w * (WINDED.head + 0.05 * breath) + (st?.fp ? REAR_FP.head : REAR.head) * rear - 0.4 * toss + SLIDE.head * slide + STUMBLE.head * stumble;
     u.head.rotation.z = shake * SHAKE.head * Math.sin(ak * TAU * SHAKE.hz * HORSE_ACTS.shake + 0.9) + 0.2 * toss * Math.sin(ak * TAU * 2);
   }
   // (winded: the flanks heave; the trunk's own scale, so the legs barely notice)
   u.body.scale.set(1 + WINDED.flank * w * breath, 1, 1 + 0.01 * w * breath);
-  posedAct(u, rear, shake, ak, t, st?.fp ? REAR_FP.pitch : 1);
+  posedAct(u, rear, shake, ak, t, st?.fp ? REAR_FP.pitch : 1, slide, stumble);
 }
 // The rear and the shake over the gait (rear, shake: their weights; ak: how far through it is). The channels nothing else
 // writes (the trunk's sideways and forward offsets, its roll, the legs' roll) are put back when it ends
-function posedAct(u, rear, shake, ak, t, pk = 1) {   // (pk: how much of the rear's pitch)
+function posedAct(u, rear, shake, ak, t, pk = 1, slide = 0, stumble = 0) {   // (pk: how much of the rear's pitch)
   const B = u.body;
-  if (!rear && !shake) {
+  u.slide = slide; u.stumble = stumble;
+  if (!rear && !shake && !slide && !stumble) {
     if (u.posed) {
       u.posed = false; B.position.x = B.position.z = 0; B.rotation.z = 0;
       for (const l of u.legs) l.hip.rotation.z = 0;
@@ -824,10 +834,32 @@ function posedAct(u, rear, shake, ak, t, pk = 1) {   // (pk: how much of the rea
     u.seatPitch = rx;
   }
   u.rear = rear;
+  if (slide || stumble) {
+    // (the trunk turns about the shoulders, or about the hind hips; the legs are counter-turned and take their own pose)
+    const S = slide ? SLIDE : STUMBLE, w = slide || stumble, rx = B.rotation.x * (1 - w) + S.pitch * pk * w, c = Math.cos(rx), s = Math.sin(rx);
+    B.rotation.x = rx;
+    B.position.y = S.py - (S.py * c - S.pz * s) + bob * (1 - w) - S.down * w;
+    B.position.z = S.pz - (S.py * s + S.pz * c);
+    for (let i = 0; i < 4; i++) {
+      const l = u.legs[i], hind = i >= 2;
+      l.hip.position.y += (u.hipRest[i] - l.hip.position.y) * w;
+      // (the legs that fold do it as much as it takes for the hoof to stay on the ground: leg, above)
+      const aim = slide ? (hind ? SLIDE.hindHip : SLIDE.foreHip - (i ? 0.08 : 0)) : hind ? 0 : STUMBLE.foreHip * (i ? 1 : 0.6);
+      const hx = l.hip.rotation.x + (-rx - aim - l.hip.rotation.x) * w, at = hx + rx, up = -l.knee.position.y, kz = l.knee.position.z, L = u.hipRest[i] - up, fz = hind ? up * 0.24 : -up * 0.03;
+      const hipY = B.position.y + l.hip.position.y * c - l.hip.position.z * s, D = hipY - up * Math.cos(at) - kz * Math.sin(at), A = Math.hypot(L, fz);
+      l.hip.rotation.x = hx;
+      l.knee.rotation.x += (Math.max(0, Math.atan2(fz, L) + Math.acos(Math.max(-1, Math.min(1, D / A))) - at) - l.knee.rotation.x) * Math.min(1, w * 2);
+    }
+    if (stumble) B.rotation.z = STUMBLE.roll * w * Math.sin(ak * TAU * STUMBLE.hz);
+    else if (B.rotation.z) B.rotation.z = 0;
+    u.seatDy = B.position.y + SEAT[0] * c - SEAT[1] * s - SEAT[0];
+    u.seatDz = B.position.z + SEAT[0] * s + SEAT[1] * c - SEAT[1];
+    u.seatPitch = rx;
+  }
   if (shake) {
     // (a roll about the hips' height, the legs counter-rolled so the hooves stay put)
     const r = SHAKE.roll * shake * Math.sin(ak * TAU * SHAKE.hz * HORSE_ACTS.shake), py = REAR.py;
     B.rotation.z = r; B.position.x = py * Math.sin(r); B.position.y += py * (1 - Math.cos(r));
     for (const l of u.legs) l.hip.rotation.z = -r;
-  } else if (B.rotation.z) { B.rotation.z = 0; B.position.x = 0; for (const l of u.legs) l.hip.rotation.z = 0; }
+  } else if (B.rotation.z && !stumble) { B.rotation.z = 0; B.position.x = 0; for (const l of u.legs) l.hip.rotation.z = 0; }
 }

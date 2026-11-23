@@ -114,6 +114,9 @@ export function initSettingsUI({ onClose, extra = null }) {
     choice('skin', t('gui.settings.row.skin'), [['glass', t('gui.settings.row.skin.glass')], ['wood', t('gui.settings.row.skin.wood')]], () => skinNow(Settings.v.skin));   // (lit: the one in sight, ?ui=madera included)
     check('bigText', 'Texto más grande');
     check('noFlash', 'Reducir destellos (rayos de las tormentas)');
+    // Riding (Plan R4-1): the horse's real weight, or quicker turns and stops
+    head(t('settings.game'));
+    choice('ride', t('settings.ride'), [['realistic', t('settings.ride.realistic')], ['arcade', t('settings.ride.arcade')]], () => (apagada('montar') ? 'arcade' : Settings.v.ride));
     extra?.(box, head);
   }
   build();

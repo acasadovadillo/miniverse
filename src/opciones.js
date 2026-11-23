@@ -30,11 +30,13 @@ const RAW = (() => { try { return new URLSearchParams(globalThis.location?.searc
 // from them, no kg in the title). Neither changes gen or the save shape (the fields just stay unused)
 // And ui (not a part: ui/skin.js reads it): ?ui=madera, the wooden interface of before, for one version; ?ui=cristal, the
 // glass, whatever Settings › Look says
+// Plan R4-1 (riding with weight, docs/planes/realismo/PLAN-R4-caballo.md): montar (?montar=arcade or =0: the horse turns
+// and brakes more sharply and never collects itself, whatever Ajustes › Juego › Montar says). Local only
 export const PARTES = { hierba: 'sinlod', impostores: null, relieve: null, contacto: null, sombras: 'todas', personas: 'todas', suelo: 'v2', inventario: 'casillas',
   sed: null, cansancio: null, aguante: null, buceo: null, fondo: null, caustica: null,
   ruta: null, rutasuelo: null, musica: 'chip',
   cuerpo: null, frio: null, crecer: null, desgaste: null, comentarios: null,
-  vinculo: null, alforjas: null };
+  vinculo: null, alforjas: null, montar: 'arcade' };
 
 // El valor tal cual (o null)
 export const opcion = k => RAW.get(k);

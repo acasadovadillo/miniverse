@@ -1,5 +1,5 @@
 // Ajustes del jugador (de este dispositivo): volúmenes, tamaño de los píxeles, texto grande,
-// reducir destellos, la interfaz (hud: 'minimal' o 'full'; main.js la cambia en caliente), su aspecto (skin: 'glass' o
+// reducir destellos, cómo se monta a caballo (ride: 'realistic' o 'arcade', game.js), la interfaz (hud: 'minimal' o 'full'; main.js la cambia en caliente), su aspecto (skin: 'glass' o
 // 'wood', ui/skin.js), los sonidos de los menús (menuSfx), su movimiento (motion: 'full' o 'reduced') y la ayuda de teclas. Se
 // guardan en el navegador; si no se puede, se usan los de siempre.
 // Los volúmenes van además en la partida de cada cuenta: al entrar con tu cuenta se usan los tuyos, en
@@ -17,7 +17,7 @@ const KEY = 'pueblo-brotes:ajustes';
 const VOLUMES = ['master', 'music', 'sfx', 'musicOn', 'musicMode'];
 export const MUSIC_MODES = ['dynamic', 'calm'];
 export const Settings = {
-  v: { master: 0.7, music: 0.5, sfx: 1, scale: 'auto', bigText: false, noFlash: false, musicOn: true, musicMode: 'dynamic', hud: 'minimal', skin: 'glass', menuSfx: true, motion: 'full' },
+  v: { master: 0.7, music: 0.5, sfx: 1, scale: 'auto', bigText: false, noFlash: false, musicOn: true, musicMode: 'dynamic', hud: 'minimal', skin: 'glass', menuSfx: true, motion: 'full', ride: 'realistic' },
   load() {
     try { Object.assign(this.v, JSON.parse(localStorage.getItem(KEY) || '{}')); } catch { /* ajustes por defecto */ }
     this.apply();

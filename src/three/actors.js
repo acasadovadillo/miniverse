@@ -86,7 +86,9 @@ const TIER_PX = [[90, 81], [40, 36]];      // [para subir, para seguir]: a todo;
 // rise out of the saddle (m) with the stride, late on the horse's own bob (bouncePh, rad). While the horse rears: the
 // rider turns back with it, but only rearTilt of its pitch, and leans in at the waist (rearLean), both hands on its neck
 // (the grip: the arm forward and in, the elbow bent)
-const RIDE = { lean: 0.25, bounce: 0.025, bouncePh: 2.2, rearTilt: 0.55, rearLean: 0.5, gripArm: -0.75, gripIn: -0.12, gripFore: -0.85 };
+// Turning at speed the horse and its rider lean into the turn (bank: by how hard they turn, at most so many rad). On the
+// sliding stop the rider sits back (back), and is thrown forward onto the neck when it stumbles (fall)
+const RIDE = { bank: 0.012, bankMax: 0.2, back: 0.42, fall: 0.6, lean: 0.25, bounce: 0.025, bouncePh: 2.2, rearTilt: 0.55, rearLean: 0.5, gripArm: -0.75, gripIn: -0.12, gripFore: -0.85 };
 // Horses heard (m): the hooves, the snort and the neigh of another player's horse, or of your own nobody rides, fade out
 // to nothing at this distance; yours under you, always at full
 const HEAR_M = 20;
@@ -517,7 +519,7 @@ export class Actors {
         }
         else if (e.mount) this.rideHorse(m, e, P, seat, x, z, scene, dt, t);
         else P.root.position.y = 0;
-        if (m.reared && !e.mount) this.unrear(m, P);
+        if (!e.mount && (m.reared || m.bankYaw !== undefined)) { this.unrear(m, P); P.root.rotation.z = 0; m.bankYaw = undefined; m.bankK = 0; m.banked = false; }
       }
       // Los huesos se posan en cada fotograma de cerca, y de lejos cada 1/30 o 1/15 s con el tiempo que haya pasado (ver
       // grade; desfasadas, para que no les toque a todas en el mismo fotograma). Girar, siempre: crew.js lee hacia dónde
@@ -708,33 +710,56 @@ export class Actors {
   // rider on its seat (rising a little at the gallop, carried up and back while it rears) and its sounds
   rideHorse(m, e, P, seat, x, z, scene, dt, t) {
     const H = m.horse.userData, vol = this.hearing(m, x, z);
-    m.horse.rotation.y = P.root.rotation.y;
+    const yaw = (m.horse.rotation.y = P.root.rotation.y);
+    this.bank(m, yaw, dt);
     setHorseDirt(m.horse, e.horseDirt || 0);
     animateHorse(m.horse, m.speed, t, null, dt, e.gait, this.horseState(m, e, e.horseAct, !!e.horseWinded, dt, vol));
-    m.gallopK = (m.gallopK || 0) + ((e.gait === 2 && m.speed > 3 ? 1 : 0) - (m.gallopK || 0)) * Math.min(1, dt * 4);
+    m.gallopK = (m.gallopK || 0) + ((m.speed > 3 ? (e.gait === 2 ? 1 : e.gait === 3 ? 0.35 : 0) : 0) - (m.gallopK || 0)) * Math.min(1, dt * 4);
     if (m.gallopK < 1e-3) m.gallopK = 0;
     let y = 0.92 + seat + (H.bob || 0) + RIDE.bounce * m.gallopK * (0.5 + 0.5 * Math.sin((H.phase || 0) + RIDE.bouncePh));
-    const rk = H.rear || 0;
+    const rk = Math.max(H.rear || 0, H.slide || 0, H.stumble || 0);
     if (rk > 0.001) {
       // (the hips go where the seat goes; the body turns back about them by part of the horse's pitch: the root turns
       // about its feet, so it is moved back by what that turn moves the hips)
-      const phi = (H.seatPitch || 0) * RIDE.rearTilt, hip = P.hipY, yaw = P.root.rotation.y, dz = (H.seatDz || 0) - hip * Math.sin(phi);
+      const phi = (H.seatPitch || 0) * RIDE.rearTilt, hip = P.hipY, dz = (H.seatDz || 0) - hip * Math.sin(phi);
       P.root.rotation.x = phi;
       y = 0.92 + seat + (H.seatDy || 0) - hip * (Math.cos(phi) - 1);
       P.root.position.x = Math.sin(yaw) * dz; P.root.position.z = Math.cos(yaw) * dz;
       m.reared = true;
     } else if (m.reared) this.unrear(m, P);
+    // (leaning into the turn: the horse about its feet, the rider with it about the same point on the ground)
+    const bk = m.bankK || 0;
+    m.horse.rotation.z = bk;
+    if (bk || m.banked) {
+      const s = -Math.sin(bk) * y;   // (to the horse's left)
+      if (!m.reared) P.root.position.x = P.root.position.z = 0;
+      P.root.rotation.z = bk;
+      P.root.position.x += Math.cos(yaw) * s; P.root.position.z -= Math.sin(yaw) * s;
+      m.banked = !!bk;
+    }
     P.root.position.y = y;
     if (H.hits) this.hooves(m, e, e.gait, scene, vol);
   }
   unrear(m, P) { m.reared = false; P.root.rotation.x = 0; P.root.position.x = P.root.position.z = 0; }
+  // How much a ridden horse leans now (rad, + to its right), eased: by its turning rate and its speed
+  bank(m, yaw, dt) {
+    if (m.bankYaw === undefined || !(dt > 0)) { m.bankYaw = yaw; return; }
+    let d = yaw - m.bankYaw;
+    m.bankYaw = yaw;
+    d = Math.atan2(Math.sin(d), Math.cos(d));
+    const want = Math.max(-RIDE.bankMax, Math.min(RIDE.bankMax, -(d / dt) * m.speed * RIDE.bank));
+    m.bankK = (m.bankK || 0) + (want - (m.bankK || 0)) * Math.min(1, dt * 5);
+    if (Math.abs(m.bankK) < 1e-3) m.bankK = 0;
+  }
   // On a horse (poseBones, after the gestures): leaning into the gallop with the head up to look ahead; and while it rears,
   // forward against its neck with both hands on it, whatever the gesture was
   riderBones(m, P) {
-    const g = m.gallopK || 0, rk = m.horse?.userData.rear || 0;
+    const g = m.gallopK || 0, U = m.horse?.userData, rk = Math.max(U?.rear || 0, U?.stumble || 0), sl = U?.slide || 0;
     if (g > 0.01) { P.torso.rotation.x += RIDE.lean * g; P.head.rotation.x -= RIDE.lean * 0.7 * g; }
+    if (sl > 0.01) { P.torso.rotation.x -= RIDE.back * sl; P.head.rotation.x += RIDE.back * 0.6 * sl; }
     if (rk < 0.01) return;
-    P.torso.rotation.x += RIDE.rearLean * rk; P.head.rotation.x -= RIDE.rearLean * 0.6 * rk;
+    const lean = U.stumble > 0.01 ? RIDE.fall : RIDE.rearLean;
+    P.torso.rotation.x += lean * rk; P.head.rotation.x -= lean * 0.6 * rk;
     // (the body turns back by only part of the horse's pitch: the legs make up the rest, astride as at rest, not inside it)
     const legK = (m.horse.userData.seatPitch || 0) * (1 - RIDE.rearTilt);
     P.legs[0].rotation.x += legK; P.legs[1].rotation.x += legK;
@@ -764,7 +789,7 @@ export class Actors {
       if (D && at >= 0 && at < D) { S.act = A; S.at = at; }
     }
     if (S.act && vol > 0.3) {
-      if (S.act !== was && !mine) { if (S.act === 'rear') Audio.neigh(vol); else if (S.act === 'toss') Audio.snort(vol * 0.7); }
+      if (S.act !== was && !mine) { if (S.act === 'rear') Audio.neigh(vol); else if (S.act === 'toss' || S.act === 'stumble') Audio.snort(vol * 0.7); else if (S.act === 'slide') Audio.skid(vol); }
       if (S.act === 'shake' && (was !== 'shake' || wasAt < SHAKE_SNORT) && S.at >= SHAKE_SNORT) Audio.snort(vol);   // (shaking off the dust)
     }
     const on = S.on;
