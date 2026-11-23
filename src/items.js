@@ -1,6 +1,7 @@
 // Objetos (herramientas, materiales, comida y cosas que se colocan) y qué da cada cosa del mundo al recolectarla.
 import { defineNames, has, noun, t, fmt, getLang } from './i18n.js';
 import { GARMENTS, TEAR, tearMul } from './clothing.js';
+import { apagada } from './opciones.js';
 
 // Las herramientas son todas de hierro (hacha, pico, guadaña, azada y pala). tier: el nivel, que además usan la caña y la red
 export const TIERS = {
@@ -185,6 +186,9 @@ Object.assign(ITEMS, {
   wheelbarrow: { place: 'furniture' },
 });
 defineNames({ big_well: ITEMS.big_well, wheelbarrow: ITEMS.wheelbarrow }, 'item');
+// (the saddlebags hold 12 stacks since Plan F, saddlebags.js: their description comes from the language files; with
+// ?alforjas=0 they keep 9, and the old text)
+if (!apagada('alforjas')) defineNames({ alforjas: ITEMS.alforjas }, 'item', ['desc']);
 // ---------- Thirst and diving (docs/planes/gta/PLAN-D-barras-buceo.md §3.2): names and descriptions from the language files ----------
 // canteen: the sips it holds when full. The sips left live on the stack as `s.sips` (inventory.js extraOf): a stack
 // without them is empty (one just made, bought or from an old save). Never `dur`: the anvil and wearOut treat that as wear.

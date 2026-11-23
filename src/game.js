@@ -25,6 +25,8 @@ import { BuildMode } from './build.js';
 import { TimeSystem } from './time.js';
 import { Farm } from './farm.js';
 import { Ranch } from './ranch.js';
+import { Horse } from './horse.js';
+import { Saddlebags } from './saddlebags.js';
 import { Steps } from './steps.js';
 import { Fishing } from './fishing.js';
 import { Wildlife } from './wildlife.js';
@@ -133,6 +135,8 @@ function defaultHouseDeltas() {
 export const GAMEMODES = { survival: 'supervivencia', creative: 'creativo', spectator: 'espectador' };
 export const RULES = { keepInventory: false, doMobSpawning: true, doWeatherCycle: true, doDaylightCycle: true, naturalRegeneration: true, announceAdvancements: true, doThirst: true, doFatigue: true, doBodyWeather: true };   // (doThirst, doFatigue: needs.js; doBodyWeather: body.js, cold and heat on the needs; old saves get true, and they are read as !== false)
 const TAVERN_SEATS = new Set(['silla', 'taburete']);   // (en la taberna, quien quiere se sienta)
+// (no key held: what a rearing horse's rider moves with, horse.js held; frozen, never written)
+const NO_KEYS = Object.freeze({ up: false, down: false, left: false, right: false, run: false, sprint: false, use: false, space: false, dive: false, mapFast: false });
 const AIM_REACH = 2;   // lo que se apunta con el ratón se usa si está a esto como mucho (casillas)
 const LIGHTS = new Set(['lampara', 'antorcha', 'vela', 'candelabro']);
 const BEDS = new Set(['cama', 'cama_nino', 'cama_doble']);   // lo colocado que se apaga y se enciende con E
@@ -184,6 +188,8 @@ export class Game {
     this.board = this.addSystem(new Board(this));
     this.farm = this.addSystem(new Farm(this));
     this.ranch = this.addSystem(new Ranch(this));
+    this.horse = this.addSystem(new Horse(this));   // the horse from the saddle: bond, whistle (N), gallop stamina, spooks (Plan F, src/horse.js)
+    this.saddlebags = this.addSystem(new Saddlebags(this));   // the horse's saddlebags: shared with the couple, one writer at a time (Plan F, src/saddlebags.js)
     this.family = this.addSystem(new Family(this));
     this.fishing = this.addSystem(new Fishing(this));
     this.wildlife = this.addSystem(new Wildlife(this));
@@ -290,7 +296,9 @@ export class Game {
     this.player = new Player({ ...p, x: save.inventory ? p.x ?? sx : sx, y: save.inventory ? p.y ?? sy : sy });
     this.player.ghost = this.gamemode === 'spectator';
     this.player.onExert = n => this.combat.exert(n);   // (correr y saltar dan hambre)
-    this.player.onJump = () => this.needs.spend(RATES.jump, true);   // (a jump costs stamina and delays its refill: needs.js)
+    // (a jump costs stamina and delays its refill: needs.js; riding, the horse pays it, and a winded horse does not jump: horse.js)
+    this.player.onJump = () => (this.player.mount ? this.horse.jumpSpend() : this.needs.spend(RATES.jump, true));
+    this.player.canJump = () => !this.player.mount || this.horse.canJump();
     this.player.onLand = () => this.farm.trample(this.player);   // (caer de un salto sobre tierra labrada la deshace)
     this.player.onSplash = (x, y, n) => { this.gather.splash(x, y, n); Audio.splash(); };   // (al caer al agua o saltar de ella)
     hud.faces = { ...hud.faces, Nilo: NILO_LOOK, [this.player.name]: this.player.look };
@@ -537,8 +545,9 @@ export class Game {
       if (this.mouse) { const aim = this.aimed(); return aim && aim.kind === 'sys' ? this.actionFor(aim) : this.needs.swimAction(p, sc); }
       return this.dive?.action?.(p, sc) || this.needs.swimAction(p, sc) || null;
     }
-    // Con ratón, solo lo que se apunta con el cursor (a AIM_REACH casillas como mucho)
-    if (this.mouse) { const aim = this.aimed(); return aim ? this.actionFor(aim) : null; }
+    // Con ratón, solo lo que se apunta con el cursor (a AIM_REACH casillas como mucho). Riding with nothing aimed: get off,
+    // and X the saddlebags (horse.js action; anything aimed wins, as for every prompt)
+    if (this.mouse) { const aim = this.aimed(); return aim ? this.actionFor(aim) : p.mount ? this.horse.action() : null; }
     // Sin ratón (en pantalla táctil, sin cursor): lo que haya más cerca
     for (const s of this.systems) { let r; try { r = s.interact?.(p, sc); } catch (e) { reportFault(e, faultName(s, 'interact')); } if (r) return r; }
     const door = sc.doorNear?.(p.x, p.y), da = door && this.doorAction(door);
@@ -554,7 +563,7 @@ export class Game {
     const win = sc.windowNear?.(p.x, p.y);
     if (win) return this.windowAction(win);
     const rug = near.find(o => o.layer === 'rug');
-    return rug ? this.placedAction(rug) : null;   // (placedAction: la alfombra, o lo de una versión más nueva)
+    return rug ? this.placedAction(rug) : p.mount ? this.horse.action() : null;   // (placedAction: la alfombra, o lo de una versión más nueva)
   }
   // Lo que se apunta con el ratón (a AIM_REACH casillas como mucho y, si está suelto, a la vista): lo primero que
   // corta el rayo, { kind, …, t }; o null (sin ratón sobre el juego, o sin apuntar a nada que se use)
@@ -1250,15 +1259,17 @@ export class Game {
     this.hook('update', dt);
     if (keys.use && !this.busy && !this.jumping && !this.build.on) this.gather.use(true);
     if (this.busy || this.jumping || hud.dialogOpen || p.pose) { p.stop(); return; }
-    p.speedMul = (this.buffs.rapido > this.time ? 1.35 : 1) * (p.mount ? this.ranch.rideSpeed() : 1) * this.archery.walk * this.carry.speedMul();
+    p.speedMul = (this.buffs.rapido > this.time ? 1.35 : 1) * (p.mount ? this.horse.rideMul() : 1) * this.archery.walk * this.carry.speedMul();
     // (the three speeds, entities.js GAIT: the load and the arms stop the sprint, carry.js; overloaded or pushing the wheelbarrow,
     // only walking; out of stamina, a sprint drops to a jog, and sprinting again needs three new taps: input.js dropSprint)
-    const tired = this.needs.noRun();
+    // (riding, the sprint tier is the gallop and the horse's stamina gates it, never the rider's: a winded horse trots at most
+    // until it is back at 40 %, horse.js)
+    const tired = p.mount ? this.horse.noGallop() : this.needs.noRun();
     if (tired && keys.sprint) dropSprint();
     p.noSprint = this.carry.noRun() || tired; p.noJog = this.carry.noJog(); p.jumpMul = this.carry.jumpMul();   // (with the slot inventory, false and 1)
     if (Object.values(keys).some(Boolean)) this.lastInput = this.time;   // (para /setidletimeout)
     if (p.aboard) p.stop();   // (de pasajero en una barca, le lleva ella)
-    else p.update(dt, keys, this.scene);
+    else p.update(dt, p.mount && this.horse.held() ? NO_KEYS : keys, this.scene);   // (a rearing horse: no control for a moment, horse.js)
     if (this.spectating) this.followSpectated();
     if (this.scene === this.world) this.aroundPlanet();
     if (!p.inside) this.explore();
@@ -1302,6 +1313,7 @@ export class Game {
     const prey = this.gather.target?.prey, click = prey && this.highlight?.e === prey ? '  ·  Clic: atacar' : '';
     // (and greeting whoever is under the cursor, Y: social.js. Only added if E is about that same person; farther away, alone)
     const social = this.player ? this.social.promptFor(this.highlight?.e || null, !!near) : '';
+    if (near?.riding && !this.horse.promptShown()) near = null;   // (riding: «Get off» does not stay on the screen the whole ride)
     if (near || !social) hud.prompt(near && (near.alt ? `${near.text}  ·  X: ${near.alt.text.toLowerCase()}` : near.text) + click + social, this.highlight ? [m.x, m.y] : null);
     else hud.prompt(social, m?.in ? [m.x, m.y] : null, 'Y');   // («[Y] Greet Lía»: E does nothing with them from here)
     let hint = '';
@@ -1318,7 +1330,7 @@ export class Game {
     try { this.needsBar?.frame(); } catch (e) { reportFault(e, 'NeedsBar.frame'); }   // (the status bars, both HUDs: src/ui/needsbar.js; after smartHud, which sets their timers)
     if (this.player && this.world) {
       // (los lugares, como mucho cada 0,15 s: el minimapa no se repinta más a menudo, y el grande, solo si algo cambia)
-      if (!(Math.abs(this.time - (this.markersAt ?? -1)) < 0.15)) { this.markersAt = this.time; this.map.markers = this.places.markers(); }
+      if (!(Math.abs(this.time - (this.markersAt ?? -1)) < 0.15)) { this.markersAt = this.time; this.map.markers = [...this.places.markers(), ...this.horse.marks()]; }
       this.map.world = this.world;   // (lo cavado que tiene agua se pinta de agua)
       if (this.mode === 'map') this.map.people = this.neighbors.people.filter(n => !n.hidden).map(n => ({ x: n.x, y: n.y, name: n.def.name }));
       this.map.face = this.player.face;   // (their arrow on both maps points where they face)

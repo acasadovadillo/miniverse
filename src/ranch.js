@@ -10,7 +10,7 @@
 // cojín, espanta a los ratones del silo y te deja regalos. Y el palomar, para enviarle cosas a otra persona.
 // Jugando juntos todo esto es del mundo del anfitrión: lo lleva su juego y los demás lo ven y lo tocan igual.
 import { CHUNK } from './world/gen.js';
-import { ITEMS, UNKNOWN_NAME } from './items.js';
+import { ITEMS, UNKNOWN_NAME, itemNoun } from './items.js';
 import { ANIMALS, BREED_NAMES, animalSprite } from './art/farm.js';
 import { SPAWN, inBounds, inYard } from './world/village.js';
 import { collide } from './physics.js';
@@ -21,6 +21,10 @@ import { hud } from './ui/hud.js';
 import { Profile } from './accounts.js';
 import { SWIM_IN } from './entities.js';
 import { t as tr, noun } from './i18n.js';
+import { HALF, distOf, dxOf, nearX, wrapX } from './world/planet.js';
+import { dropSprint } from './input.js';
+import { levelOf, settle, BX_AFTER_LOSS, TREATS } from './horse.js';
+import { padBags } from './saddlebags.js';
 
 const PER_HOME = { gallinero: 4, establo: 4, conejera: 4, cuadra: 2, caseta: 1, cojin: 1 };
 const FRONT = { gallinero: 2.15, establo: 2.25 };   // las casas grandes: del centro a donde se entra (delante de la puerta)
@@ -36,6 +40,7 @@ const FEED = ['heno', 'fibra', 'trigo'];
 export const GRAZERS = new Set(['vaca', 'oveja', 'cabra', 'conejo', 'caballo']);
 export const GRAZE_NEED = 5;
 // STAY_R: los que no tienen casa (y el caballo que se deja suelto) no se apartan más de eso de donde se quedaron
+const STAY_GRAZE = 1, STAY_ROAM = 0.6;   // (the horse's Stay trick: it grazes within 1 m of where it was left, Plan F §1.6)
 const GRAZE_R = 8, STAY_R = 2.5, GRAZE_TRY = 14, EAT = [6, 10], GRAZE_REST = [40, 80], FAR_EVERY = [50, 90];
 const MOUTH = { vaca: 0.8, caballo: 0.85, oveja: 0.55, cabra: 0.6, conejo: 0.2 };
 const within = ([a, b]) => a + Math.random() * (b - a);
@@ -44,10 +49,22 @@ const LOVE_FOOD = { gallina: ['trigo'], pato: ['trigo'], vaca: ['trigo'], oveja:
 const HEAT_MS = 30000, REST_MS = 5 * 60000, MATE_NEAR = 8;
 const SPEED = { gallina: 1.1, pato: 0.9, conejo: 1.3, cerdo: 0.8, cabra: 1, caballo: 1.3, perro: 1.6, gato: 1.2 };
 const RUN = { perro: 4.2, gato: 2.6, caballo: 5 };   // corriendo (siguiendo a su dueño o al llamarlo)
+// A called horse (Plan F §1.3): its speed by level (always faster than a player who walks, 3.2, so it catches up), slower for
+// the last COME_SLOW m. Cut off by something (a rock, a wall) for STUCK s, it goes around it (goAround): up to COME_TRIES
+// tries without getting any closer; then, farther than COME_NEAR m, it starts again once from out of sight, and nearer (a
+// fence, the water) it waits where it got to. Never a jump in plain view
+const COME = [3.8, 4.6, 6.2, 6.2], COME_SLOW = 5, COME_END = 3.4, STUCK = 0.3, COME_TRIES = 8, COME_NEAR = 12;
+const AROUND = [0.9, 1.25, 1.6, 2, 2.5];   // (rad off the straight line, tried to either side)
+const BACK = [0, 0.25, -0.25, 0.5, -0.5, 0.75, -0.75];   // (and off straight back)
+const DRAWN = 30, DRAWN_HORSE = 60;        // m (Manhattan): how far animals are drawn (a horse, farther: you watch it come)
 const DIGS = [['bellota', 0.25], ['fibra', 0.2], ['pina', 0.15], ['semillas', 0.15], ['fosil_hueso', 0.08], ['moneda_antigua', 0.07], ['amatista', 0.05], ['fosil_concha', 0.05]];
 const GIFTS = ['sardina', 'plumas', 'bellota', 'fibra', 'bayas', 'carpa'];
 // Lo que se guarda de cada animal (lo demás es de paso: adónde va, si está dentro, si duerme…)
-const KEEP = ['id', 'type', 'name', 'home', 'love', 'ready', 'days', 'petDay', 'fedDay', 'born', 'breed', 'owner', 'expecting', 'bredDay', 'outDay', 'named', 'brushDay', 'carrotDay', 'shod', 'bags', 'rider', 'at', 'call', 'stray', 'sit', 'heat', 'bredAt', 'grazeDay', 'grazeN'];
+const KEEP = ['id', 'type', 'name', 'home', 'love', 'ready', 'days', 'petDay', 'fedDay', 'born', 'breed', 'owner', 'expecting', 'bredDay', 'outDay', 'named', 'brushDay', 'carrotDay', 'shod', 'bags', 'rider', 'at', 'call', 'stray', 'sit', 'heat', 'bredAt', 'grazeDay', 'grazeN',
+  // (the horse, Plan F §2.1: bond progress, today's care, dirt, the Stay trick, who called it and from where, who has its
+  // saddlebags open. callBy, callAt and bagsBy never survive a reload: see reset)
+  // halt: until when (world clock) it stands still because its menu is open or it is being looked after
+  'bx', 'care', 'dirt', 'stay', 'callBy', 'callAt', 'bagsBy', 'halt'];
 // Lo de una versión más nueva del juego: un animal de una clase que esta no conoce no se mueve ni se dibuja, pero se
 // guarda y se reparte tal cual (unknown); y de los demás, lo guardado que esta no conoce (unknownFields) se conserva
 const KNOWN_FIELDS = new Set([...KEEP, 'x', 'y']);
@@ -56,6 +73,7 @@ const unknownFields = s => { const o = {}; for (const k in s) if (!KNOWN_FIELDS.
 const pick = list => list[Math.floor(Math.random() * list.length)];
 const me = () => Profile.id || 'yo';
 const hearts = n => '♥'.repeat(Math.ceil(n / 2)) || '·';
+const horseHearts = n => `${'♥'.repeat(Math.ceil((n || 0) / 2))} ${Math.round(n || 0)}/10`.trim();   // (a horse's: the number too, as its level goes by single hearts)
 const mineNow = m => m.to === me() && !!ITEMS[m.id];   // (lo enviado a ti que este juego conoce: lo de una versión más nueva, espera)
 
 class Animal {
@@ -142,6 +160,10 @@ export class Ranch {
   reset(save) {
     this.animals = (save.animals || []).filter(knownAnimal).map(a => new Animal(a));
     this.unknown = (save.animals || []).filter(a => a && !knownAnimal(a));
+    // (the horses: a lock, a call or its jump-in spot never survive a reload; bags of 9 stacks from before Plan F, to 12)
+    // (entering a world somebody else runs, the lock stays: it is theirs, and true)
+    const guest = this.game.live?.entering === 'guest';
+    for (const a of this.animals) if (a.def.ride) { if (!guest) { delete a.bagsBy; delete a.callBy; delete a.callAt; delete a.halt; } if (Array.isArray(a.bags)) a.bags = padBags(a.bags); }
     this.farm = { hay: 0, mail: [], ...save.farm };
     this.mailSeen = 0;
     this.ball = null;
@@ -169,7 +191,7 @@ export class Ranch {
         return n;
       }
       if (s.at && String(s.at) !== String(a.at)) { a.x = a.tx = s.at[0]; a.y = a.ty = s.at[1]; }
-      if ((s.call || 0) > (a.call || 0) && !this.game.live.guest) a.calling = true;
+      if ((s.call || 0) > (a.call || 0) && !this.game.live.guest) this.called(a);
       for (const k of KEEP) if (!(k in s)) delete a[k];
       a.more = unknownFields(s);
       return Object.assign(a, s);
@@ -219,7 +241,7 @@ export class Ranch {
     if (f === 'id' || f === 'type' || f === 'x' || f === 'y') return;   // (eso no cambia, y dónde está llega aparte)
     if (!KNOWN_FIELDS.has(f)) { if (v === undefined) delete a.more[f]; else a.more[f] = v; return; }
     if (f === 'at' && Array.isArray(v) && String(v) !== String(a.at)) { a.x = a.tx = v[0]; a.y = a.ty = v[1]; }
-    if (f === 'call' && (v || 0) > (a.call || 0) && !this.game.live.guest) a.calling = true;
+    if (f === 'call' && (v || 0) > (a.call || 0) && !this.game.live.guest) this.called(a);
     if (v === undefined) delete a[f]; else a[f] = v;
   }
   // La granja: lo que no es de ningún animal ('@': el heno del silo, cuándo vino el último callejero…) y cada envío del
@@ -307,6 +329,7 @@ export class Ranch {
   update(dt) {
     const g = this.game, p = g.player;
     if (g.live.guest) return;   // (en el mundo de otro, pasean donde dice su juego)
+    if ((this.booksT = (this.booksT || 0) + dt) >= 1) { this.booksT = 0; this.horseBooks(); }   // (once a second, wherever you are)
     const T = this.days, h = T.hour, night = h >= 19.5 || h < 6.5, bad = !!T.info.rain || T.season === 3, day = !night && !bad;
     if (g.scene !== this.world) { if (day) this.awayDay(dt); return; }   // (dentro de una casa o en una cueva: ver awayDay)
     this.looked = false;   // (una búsqueda de hierba por fotograma para todo el rebaño: ver graze)
@@ -441,28 +464,128 @@ export class Ranch {
   }
   stopGrazing(a) { a.eating = 0; a.grazing = false; a.grazeAt = null; }
 
-  // El caballo: si lo monta alguien no se ve; si lo llaman, va al galope hasta su dueño; si no, pasta
+  // The horse (whoever runs the world moves it), in this order (Plan F §6.4): ridden, it is not drawn and its rider moves it;
+  // thrown, it trots off a few metres and stops; called, it goes to whoever whistled (callBy; before Plan F, its owner) at
+  // the gait of its level, from the jump-in spot the caller picked (callAt, once: never a blind pop-in where it could be
+  // seen); told to stay, it grazes where it was left (a.at) instead of walking home; else it grazes as always
   updateHorse(a, dt, day) {
+    this.moveHorse(a, dt, day);
+    if (a.x >= HALF || a.x < -HALF) { const x = wrapX(a.x); a.tx += x - a.x; a.x = x; }   // (across the planet's seam)
+  }
+  moveHorse(a, dt, day) {
     a.inside = false;
     if (a.rider || a.calling) { this.stopGrazing(a); a.grazeHome = null; }   // (luego pasta donde se quede)
-    if (a.rider) { if (a.rider !== me() && !this.player(a.rider)) a.rider = null; else return; }   // (si su jinete se fue, se queda ahí)
-    if (a.calling) {
-      const o = this.player(a.owner);
-      if (!o) { a.calling = false; return; }
-      if (Math.hypot(a.x - o.x, a.y - o.y) > 30) {   // (llega de lejos, al galope; por tierra, no del agua)
-        const ang = Math.random() * Math.PI * 2;
-        for (let i = 0; i < 8; i++) { const x = o.x + Math.cos(ang + i * 0.785) * 14, y = o.y + Math.sin(ang + i * 0.785) * 14; if (!this.world.blocked(x, y)) { a.x = x; a.y = y; break; } }
+    if (a.rider) {
+      if (a.rider !== me() && !this.player(a.rider)) a.rider = null;   // (si su jinete se fue, se queda ahí)
+      else {   // (whoever rides it, a call or a bolt under way is over: it must not go on when they get off)
+        if (a.calling) { a.calling = false; delete a.callBy; delete a.callAt; }
+        a.bolt = null;
+        return;
       }
-      a.go(o.x + 1, o.y + 0.5);
-      if (a.walk(dt, this.world, RUN.caballo) || Math.hypot(a.x - o.x, a.y - o.y) < 1.8) {
-        if (Math.hypot(a.x - o.x, a.y - o.y) > 2.6 && !this.world.blocked(o.x + 1.2, o.y + 0.6)) { a.x = a.tx = o.x + 1.2; a.y = a.ty = o.y + 0.6; }   // (si algo le cortaba el paso, llega por otro lado; si es el agua, se queda en la orilla)
-        a.calling = false; a.vx = a.vy = 0; a.wait = 6;
-      }
+    }
+    if (a.bolt) {
+      a.go(nearX(a.bolt[0], a.x), a.bolt[1]);
+      if (a.walk(dt, this.world, SPEED.caballo * 2)) { a.bolt = null; a.vx = a.vy = 0; a.wait = 8; }
       return;
     }
+    if (a.calling) {
+      const o = this.player(a.callBy || a.owner);
+      if (!o) { a.calling = false; delete a.callBy; delete a.callAt; return; }
+      const at = a.callAt;
+      if (at) {
+        delete a.callAt;
+        if (Array.isArray(at) && Number.isFinite(at[0]) && Number.isFinite(at[1]) && !this.world.blocked(at[0], at[1])) { a.x = a.tx = at[0]; a.y = a.ty = at[1]; a.vx = a.vy = 0; }
+      }
+      this.comeTo(a, dt, o);
+      return;
+    }
+    if (a.halt !== undefined) {   // (its menu is open, or it is being brushed, fed or patted: it stands still)
+      const left = a.halt - (this.world.clock || 0);
+      if (left > 0 && left < 60) { this.stopGrazing(a); a.vx = a.vy = 0; a.tx = a.x; a.ty = a.y; return; }
+      delete a.halt;
+    }
     if (!day) this.stopGrazing(a);   // (si anochece o llueve comiendo, lo deja)
-    const [cx, cy] = a.home2 || a.at || (a.grazeHome ??= [a.x, a.y]);
+    if (a.stay && a.at) {   // (Stay: around where it was left, not at home)
+      const cx = nearX(a.at[0], a.x), cy = a.at[1];
+      if (!(day && this.graze(a, dt, cx, cy, STAY_GRAZE))) a.roam(dt, this.world, cx, cy, STAY_ROAM);
+      return;
+    }
+    const spot = a.home2 || a.at || (a.grazeHome ??= [a.x, a.y]), cx = nearX(spot[0], a.x), cy = spot[1];
     if (!(day && this.graze(a, dt, cx, cy, a.home2 ? GRAZE_R : STAY_R, !!a.home2 && inYard(cx, cy)))) a.roam(dt, this.world, cx, cy, a.home ? ROAM : 2);
+  }
+  // Called (whoever runs the world): its way starts now, with nothing left of the one before
+  called(a) { a.calling = true; a.stuck = 0; a.around = null; a.swing = undefined; a.tries = 0; a.best = undefined; a.replaced = false; }
+  // On its way to whoever whistled (o), at the gait of its level (level 1 trots, level 2 canters, from level 3 it gallops;
+  // ?vinculo=0, the gallop of before)
+  comeTo(a, dt, o) {
+    const g = this.game, off = g.horse?.off, ox = nearX(o.x, a.x), d = Math.hypot(ox - a.x, o.y - a.y), R = a.around;
+    let sp = off ? RUN.caballo : COME[levelOf(a.love) - 1];
+    if (!off && d < COME_SLOW) sp = Math.max(COME_END, sp * 0.7);
+    if (R) a.go(R[0], R[1]); else a.go(ox + 1, o.y + 0.5);
+    const there = a.walk(dt, this.world, sp);
+    if (distOf(a.x, a.y, o.x, o.y) < 1.8) { this.callDone(a); return; }
+    if (R && (there || g.time > R[2])) {
+      a.around = null; a.stuck = 0;
+      if (a.swing !== undefined) { const s = a.swing; a.swing = undefined; this.sideRun(a, s, 5 + a.tries, sp); }   // (out of a pocket: now to the side of it)
+      return;
+    }
+    if (a.stuck > STUCK) this.goAround(a, o, ox, d, sp);
+  }
+  callDone(a) { a.calling = false; a.vx = a.vy = 0; a.around = null; a.swing = undefined; a.stuck = 0; a.wait = 6; delete a.callBy; }
+  // Something cuts its way: to one side of the straight line, the first direction with room to run (the same side as the
+  // last time first, and farther each time, so it follows a long wall), and then straight again. Every third try it backs out
+  // and goes wide of it (a pocket open towards it)
+  goAround(a, o, ox, d, sp) {
+    const g = this.game;
+    a.stuck = 0; a.swing = undefined;
+    if (!(a.best - d < 1.5)) { a.best = d; a.tries = 0; }   // (getting closer: it starts counting again)
+    if (++a.tries > COME_TRIES) {
+      if (d <= COME_NEAR || a.replaced) { this.callDone(a); return; }
+      // (the last resort: from behind the camera of whoever called, as the jump-in; of another player only their facing is known)
+      const at = g.horse?.jumpSpot?.(o, o === g.player ? undefined : Math.atan2(-Math.cos(o.yaw || 0), -Math.sin(o.yaw || 0)));
+      if (!at) { this.callDone(a); return; }
+      a.x = a.tx = at[0]; a.y = a.ty = at[1]; a.vx = a.vy = 0;
+      a.replaced = true; a.around = null; a.tries = 0; a.best = undefined;
+      return;
+    }
+    const base = Math.atan2(o.y + 0.5 - a.y, ox + 1 - a.x), reach = Math.min(10, 2.5 + a.tries * 1.2);
+    a.side ||= Math.random() < 0.5 ? 1 : -1;
+    if (a.tries % 3 === 0) {
+      let back = 0, far = 0;
+      for (const off of BACK) { const n = this.clearRun(a, base + Math.PI + off, 3 + a.tries); if (n > far) { far = n; back = off; } }
+      if (this.sideRun(a, base + Math.PI + back, far, sp)) { a.swing = base + a.side * Math.PI / 2; a.side = -a.side; return; }
+    }
+    for (const s of [a.side, -a.side]) for (const off of AROUND) if (this.sideRun(a, base + off * s, reach, sp)) { a.side = s; return; }
+  }
+  // A run that way, if there is room for one: its next stretch, instead of straight to whoever called
+  sideRun(a, ang, reach, sp) {
+    const n = this.clearRun(a, ang, reach);
+    if (n < 1.5) return false;
+    a.around = [a.x + Math.cos(ang) * n, a.y + Math.sin(ang) * n, this.game.time + n / sp + 0.5];
+    return true;
+  }
+  // How far it could run that way (m, up to reach) with nothing in between
+  clearRun(a, ang, reach) {
+    const w = this.world, dx = Math.cos(ang), dy = Math.sin(ang), q = { x: 0, y: 0 };
+    for (let r = 0.5; r <= reach; r += 0.5) {
+      const x = q.x = a.x + dx * r, y = q.y = a.y + dy * r;
+      if (a.deep(w, x, y)) return r - 0.5;
+      collide(q, w.collidersNear(x, y), 0.26);
+      if (Math.abs(q.x - x) + Math.abs(q.y - y) > 0.03) return r - 0.5;
+    }
+    return reach;
+  }
+  // (whoever runs the world, once a second) The horses' books (Plan F §3.1): progress (bx, a counter every partner adds to)
+  // turned into hearts here only, so none is counted twice. (The saddlebags' stale locks: Saddlebags.sweep)
+  horseBooks() {
+    for (const a of this.animals) {
+      if (!a.def.ride) continue;
+      if (a.bx !== undefined) {
+        const s = settle(a.love, a.bx);
+        if (s.love !== a.love) { a.love = s.love; this.game.gather?.chips?.(a.x, a.y, 'heart', 10); }
+        if (s.bx !== a.bx) a.bx = s.bx;
+      }
+    }
   }
 
   // Perro y gato: el perro sigue a su dueño cuando está jugando (y escarba, ladra y va a por la pelota); el gato,
@@ -555,7 +678,7 @@ export class Ranch {
       a.young = this.young(a);
       if (a.rider) return false;
       if (a.inside) { const s = this.stall(a); if (!s) return false; a.x = s[0]; a.y = s[1]; a.dir = s[2]; a.vx = a.vy = 0; }
-      return Math.abs(a.x - p.x) + Math.abs(a.y - p.y) < 30;
+      return Math.abs(dxOf(a.x, p.x)) + Math.abs(a.y - p.y) < (a.def.ride ? DRAWN_HORSE : DRAWN);   // (a called horse is seen coming from afar)
     });
   }
 
@@ -570,7 +693,10 @@ export class Ranch {
       const def = a.def;
       a.young = this.young(a);
       if (def.pet || def.ride) {
-        if (a.petDay < day - 3 && a.brushDay !== day - 1 && a.carrotDay !== day - 1) a.love = Math.max(0, a.love - 1);
+        if (a.petDay < day - 3 && a.brushDay !== day - 1 && a.carrotDay !== day - 1 && a.love > 0) {
+          a.love--;
+          if (def.ride && !this.game.horse?.off) a.bx = BX_AFTER_LOSS;   // (one bad week does not wipe out a level: Plan F §1.2)
+        }
         if (def.ride && this.grazedOn(a, day - 1) >= GRAZE_NEED) a.fedDay = day;   // (el caballo pasta, pero no le hace falta)
         continue;
       }
@@ -675,7 +801,7 @@ export class Ranch {
   interact(p, scene) {
     if (scene !== this.world) return null;
     let best = null, bd = 1.4;
-    for (const a of this.animals) { if (a.inside || a.rider) continue; const d = Math.hypot(a.x - p.x, a.y - p.y); if (d < bd && scene.reaches(p.x, p.y, a.x, a.y)) { bd = d; best = a; } }
+    for (const a of this.animals) { if (a.inside || a.rider) continue; const d = distOf(a.x, a.y, p.x, p.y); if (d < bd && scene.reaches(p.x, p.y, nearX(a.x, p.x), a.y)) { bd = d; best = a; } }
     if (best) return this.talk(best);
     const o = this.world.placedNear(p.x, p.y, 1.3).find(o => !o.fixed && scene.reaches(p.x, p.y, o.x, o.y));
     return o ? this.objectAction(o) : null;
@@ -837,7 +963,7 @@ export class Ranch {
     if (a.stray) return { text: `Adoptar ${a.type === 'perro' ? 'al perro' : 'al gato'}`, run: () => this.adopt(a) };
     if (!a.named && (!a.owner || mine)) return { text: `Ponerle nombre ${a.def.baby ? 'a la cría' : ''}`.trim(), run: () => this.name(a) };
     const grass = GRAZERS.has(a.type) ? `ha pastado ${Math.min(GRAZE_NEED, this.grazedOn(a))}/${GRAZE_NEED}` : '';   // (lo que lleva hoy)
-    if (def.ride && mine) return { text: `${a.name} ${hearts(a.love)} (${a.young ? 'potro · ' : ''}${grass})`, run: () => this.horseMenu(a) };
+    if (def.ride) { const h = this.horseTalk(a); if (h) return h; }
     if (a.ready) return { text: `${def.verb} (${a.name})`, run: () => this.collect(a) };
     const food = this.loveFood(a);
     if (food) return { text: `Darle ${ITEMS[food].name.toLowerCase()} a ${a.name} (para que tenga una cría)`, run: () => this.court(a, food) };
@@ -869,6 +995,10 @@ export class Ranch {
     return true;
   }
   pet(a) {
+    if (a.def.ride && this.game.horse && !this.game.horse.off) { this.game.horse.care(a, 'pat'); return; }   // (the horse's bond: horse.js)
+    this.petAsBefore(a);
+  }
+  petAsBefore(a) {
     if (a.petDay !== this.today) { a.petDay = this.today; a.love = Math.min(10, a.love + 1); this.game.skills?.gain('granja', 1); }
     this.game.gather.chips(a.x, a.y, 'heart', 6);
     a.wait = 1.5;
@@ -905,49 +1035,95 @@ export class Ranch {
   }
 
   // ---------- el caballo ----------
-  // El silbato: si no tienes caballo aún, lo eliges; si está cerca, montas; si no, viene; montado, bajas
+  // E on a horse (Plan F): yours or your partner's opens its menu (X: its saddlebags); anyone else's, only a pat. null:
+  // ?vinculo=0 and not yours (as before: the farm animals' prompt)
+  horseTalk(a) {
+    const H = this.game.horse, g = this.game;
+    if (H?.ours(a)) {
+      const bits = [a.young && tr('horse.foal'), GRAZERS.has(a.type) && tr('horse.grazed', { g: Math.min(GRAZE_NEED, this.grazedOn(a)), max: GRAZE_NEED })].filter(Boolean).join(' · ');
+      const alt = a.bags ? { text: tr('horse.alt_bags'), run: () => g.saddlebags?.open(a) } : null;
+      return { text: `${tr('horse.prompt', { name: a.name, hearts: horseHearts(a.love) })}${bits ? ` (${bits})` : ''}`, run: () => this.horseMenu(a), alt };
+    }
+    if (!H || H.off) return null;
+    return { text: tr('horse.prompt_other', { name: a.name, who: g.live.nameOf?.(a.owner) || tr('horse.someone') }), run: () => H.care(a, 'pat') };
+  }
+  // El silbato en la mano: si no tienes caballo aún, lo eliges; si está cerca, montas; si no, viene; montado, bajas
   whistle(p) {
-    const horse = this.myHorse();
-    if (p.mount) return { tile: null, ok: true, label: 'Bajar del caballo', use: () => this.dismount() };
-    if (!horse) return { tile: null, ok: true, label: 'Tocar el silbato', use: () => this.newHorse() };
-    if (Math.hypot(horse.x - p.x, horse.y - p.y) < 2.6 && !horse.rider) return { tile: null, ok: true, label: `Montar a ${horse.name}`, use: () => this.mount(horse) };
-    return { tile: null, ok: true, label: `Llamar a ${horse.name}`, use: () => this.callHorse(horse) };
+    const horse = this.myHorse(), own = this.animals.some(a => a.def.ride && a.owner === me() && !this.young(a));
+    if (p.mount) return { tile: null, ok: true, label: tr('horse.item.get_off'), use: () => this.dismount() };
+    // (a whistle of your own and no horse of your own yet: it is yours now, even if your partner has one)
+    if (!horse || !own) return { tile: null, ok: true, label: tr('horse.item.blow'), use: () => this.newHorse() };
+    if (distOf(horse.x, horse.y, p.x, p.y) < 2.6 && !horse.rider) return { tile: null, ok: true, label: tr('horse.item.mount', { name: horse.name }), use: () => this.mount(horse) };
+    return { tile: null, ok: true, label: tr('horse.item.call', { name: horse.name }), use: () => this.callHorse(horse) };
   }
-  myHorse() {
-    const list = this.mine('caballo').filter(a => !this.young(a));
-    return list.find(a => a.id === this.game.player?.horseId) || list.sort((a, b) => b.love - a.love)[0];
-  }
+  // The horse the whistle is for: the last ridden, else your own, else your partner's (never a foal: horse.js pick)
+  myHorse() { return this.game.horse?.pick() || null; }
   async newHorse() {
-    const g = this.game, p = g.player, B = ANIMALS.caballo.breeds;
+    const g = this.game, p = g.player, B = ANIMALS.caballo.breeds, coat = b => { const s = tr('horse.coat.' + b); return s[0].toUpperCase() + s.slice(1); };
     g.busy = true;
-    const i = await hud.ask('Tu caballo', 'Con este silbato tienes un caballo. ¿De qué pelaje es?', B.map(b => BREED_NAMES[b][0].toUpperCase() + BREED_NAMES[b].slice(1)));
-    const name = (await hud.askText('Tu caballo', '¿Cómo se llama?', this.freeName('caballo')) || '').trim().slice(0, 18) || this.freeName('caballo');
+    const i = await hud.ask(tr('horse.new.title'), tr('horse.new.coat_q'), B.map(coat));
+    const name = (await hud.askText(tr('horse.new.title'), tr('horse.new.name_q'), this.freeName('caballo')) || '').trim().slice(0, 18) || this.freeName('caballo');
     g.busy = false;
     const home = this.homes('cuadra').find(h => h.free > 0);
     const a = new Animal({ type: 'caballo', name, owner: me(), breed: B[i] || B[0], home: home?.tile || null, x: p.x + 1.2, y: p.y + 0.4, born: this.today - 7, at: [+(p.x + 1.2).toFixed(2), +(p.y + 0.4).toFixed(2)] });
     this.animals.push(a);
     Audio.neigh();
-    hud.toast(home ? `${name} vive en tu cuadra. Úsalo con el silbato: cepíllalo y dale zanahorias y correrá más.` : `${name} ya es tuyo. Hazle una cuadra en el banco para que tenga dónde dormir.`, 'good');
+    hud.toast(tr(home ? 'horse.new.home' : 'horse.new.no_home', { name }), 'good');
   }
   mount(a) {
-    if (this.game.carry?.refuse('mount')) return;   // (pushing the wheelbarrow, no; with a big thing in the arms, yes: it rides behind the saddle, carry.js)
-    const p = this.game.player;
+    const g = this.game, p = g.player, H = g.horse;
+    if (g.carry?.refuse('mount')) return;   // (pushing the wheelbarrow, no; with a big thing in the arms, yes: it rides behind the saddle, carry.js)
+    if (a.rider && a.rider !== me()) { g.gather.float(tr('horse.whistle.ridden', { who: g.live.nameOf?.(a.rider) || tr('horse.someone'), name: a.name }), '#fff3c0'); Audio.error(); return; }
+    // (one writer for the saddlebags, the rider too: not while someone else has them open, Plan F §1.8)
+    const holder = g.saddlebags?.holder?.(a);
+    if (holder && holder !== me()) { g.gather.float(tr('horse.bags.busy', { who: g.live.nameOf?.(holder) || tr('horse.someone') }), '#fff3c0'); Audio.error(); return; }
+    if (p.pose) g.rest?.stand();   // (sitting where it threw you)
     a.rider = me(); a.calling = false;
-    Object.assign(p, { mount: true, horseId: a.id, horseCoat: a.breed, horseBags: !!a.bags, x: a.x, y: a.y });
-    this.game.carry?.syncArms();   // (the hands on the reins: the tool works)
-    this.game.gather.cooldown = 0.4;
+    delete a.stay; delete a.callBy; delete a.callAt; delete a.halt; a.bolt = null;   // (riding it ends Stay and a call)
+    Object.assign(p, { mount: true, horseId: a.id, horseCoat: a.breed, horseBags: !!a.bags, horseFill: 0, horseDirt: +a.dirt || 0, horseAct: null, horseWinded: false, x: a.x, y: a.y });
+    g.carry?.syncArms();   // (the hands on the reins: the tool works)
+    g.gather.cooldown = 0.4;
+    H?.update?.(0);   // (the horse under you now: its stamina, dirt and bags, before the first step)
     Audio.neigh();
   }
   dismount() {
-    const g = this.game, p = g.player, a = this.animals.find(x => x.id === p.horseId) || this.myHorse();
+    const g = this.game, p = g.player, a = this.animals.find(x => x.id === p.horseId);   // (no horse of that id: never another one)
     // (with a big thing behind the saddle, not into deep water: it comes back to the arms, and nobody swims with it)
-    if (g.carry?.held && this.world.waterDepth(p.x, p.y) >= SWIM_IN) { g.carry.say(tr('carry.no_dismount_water', { item: noun('item', g.carry.held) })); Audio.error(); return; }
+    if (g.carry?.held && g.scene === this.world && this.world.waterDepth(p.x, p.y) >= SWIM_IN) { g.carry.say(tr('carry.no_dismount_water', { item: noun('item', g.carry.held) })); Audio.error(); return; }
+    g.horse?.onDismount?.(a);   // (its dirt, written now)
     p.mount = false;
+    p.horseAct = null; p.horseWinded = false;
+    dropSprint();   // (never off a gallop straight into a sprint on foot)
     g.carry?.syncArms();
     this.game.gather.cooldown = 0.4;
     Audio.door();
+    this.leave(a);
+  }
+  // Dying in the saddle (combat.die, before going home): the horse stays where you fell. (Without it, it kept you as its
+  // rider for good: seen by nobody, and its saddlebags with it)
+  onDeath() {
+    const g = this.game, p = g.player;
+    if (!p?.mount) return;
+    const a = this.animals.find(x => x.id === p.horseId);
+    g.horse?.onDismount?.(a);
+    p.mount = false;
+    p.horseAct = null; p.horseWinded = false;
+    g.carry?.syncArms();
+    this.leave(a);
+  }
+  // The horse under this player is left: nobody's to ride now, beside the player (or at the mouth of the cave they are in)
+  leave(a) {
+    const g = this.game, p = g.player;
     if (!a) return;
+    g.saddlebags?.release?.(a);   // (the saddlebags' lock goes with the saddle)
+    if (a.rider && a.rider !== me()) return;   // (someone else rides it now: nothing is written)
     a.rider = null;
+    if (g.scene !== this.world) {
+      const e = g.scene?.exitTo;
+      if (e) { const x = e.x + (this.world.blocked(e.x + 1.2, e.y) ? 0 : 1.2); a.x = a.tx = x; a.y = a.ty = e.y; }
+      a.at = [+a.x.toFixed(2), +a.y.toFixed(2)]; a.wait = 4;
+      return;
+    }
     // (a un lado, al que no sea agua honda; si los dos lo son, en un río, donde estaba, y se va solo a lo seco más cerca: de
     // ahí sale, ver deep, y luego pasta allí y no en el agua)
     const w = this.world, sides = [1, -1].map(s => [p.x + p.face.y * 0.9 * s, p.y - p.face.x * 0.9 * s]), side = sides.find(([x, y]) => !w.blocked(x, y));
@@ -962,31 +1138,60 @@ export class Ranch {
     for (let r = 1; r <= 12; r++) for (let i = 0; i < 16; i++) { const ax = x + Math.cos(i * 0.3927) * r, ay = y + Math.sin(i * 0.3927) * r; if (!this.world.blocked(ax, ay)) return [ax, ay]; }
     return null;
   }
+  // Call it with the held whistle: as N (horse.js whistle) but from any distance, as it always did; ?vinculo=0, as before
   callHorse(a) {
+    const H = this.game.horse;
+    if (H && !H.off) { H.whistle(a, true); return; }
+    const p = this.game.player, spot = H && p && distOf(a.x, a.y, p.x, p.y) > 30 ? H.jumpSpot(p) : null;   // (far: it comes in from out of sight)
     a.call = (a.call || 0) + 1;
-    if (!this.game.live.guest) a.calling = true;
-    this.game.gather.float(`¡Fiuuu! ${a.name} viene al galope`, '#fff3c0');
+    a.callBy = me();
+    if (spot) a.callAt = spot; else delete a.callAt;
+    if (!this.game.live.guest) this.called(a);
+    this.game.gather.float(tr('horse.whistle.come', { name: a.name }), '#fff3c0');
     Audio.whistle();
   }
   // Cuánto corre montado: más cuanto más te quiere, y con herraduras
   rideSpeed() {
-    const a = this.animals.find(x => x.id === this.game.player?.horseId);
+    const id = this.game.player?.horseId, r = this.game.horse?.ridden;   // (asked every step while riding: the ridden one first, no search)
+    const a = r && r.id === id ? r : this.animals.find(x => x.id === id);
     return a ? 1.6 + a.love * 0.035 + (a.shod ? 0.15 : 0) : 1.8;
   }
+  // The horse's menu (Plan F §4.3): what you have and what it knows. Yours or your partner's (horseTalk)
   async horseMenu(a) {
-    const g = this.game, inv = g.inv, opts = [];
-    if (!this.young(a)) opts.push(['Montar', () => this.mount(a)]);
-    if (inv.count('cepillo') && a.brushDay !== this.today) opts.push(['Cepillarlo', () => { a.brushDay = this.today; this.bond(a, 'Le encanta que lo cepilles'); }]);
-    if (inv.count('zanahoria') && a.carrotDay !== this.today) opts.push(['Darle una zanahoria', () => { inv.remove('zanahoria', 1); a.carrotDay = this.today; this.bond(a, '¡Ñam!'); }]);
-    if (inv.count('herraduras') && !a.shod) opts.push(['Ponerle las herraduras', () => { inv.remove('herraduras', 1); a.shod = true; Audio.clink(); g.gather.float('Ahora corre más', '#a8f07a'); }]);
-    if (inv.count('alforjas') && !a.bags) opts.push(['Ponerle las alforjas', () => { inv.remove('alforjas', 1); a.bags = Array(9).fill(null); Audio.place(); }]);
-    if (a.bags) opts.push(['Abrir las alforjas', () => g.onChest?.(() => a.bags, null, () => this.bagsChanged(a))]);
-    opts.push(['Nada', () => this.pet(a)]);
+    const g = this.game, inv = g.inv, H = g.horse, opts = [], off = !H || H.off, L = levelOf(a.love);
+    const treat = TREATS.find(id => inv.count(id) && (!off || id === 'zanahoria'));
+    if (!this.young(a)) opts.push([tr('horse.ride'), () => this.mount(a)]);
+    if (inv.count('cepillo') && (!off || a.brushDay !== this.today)) opts.push([tr('horse.brush'), () => H.care(a, 'brush')]);
+    if (treat && (!off || a.carrotDay !== this.today)) opts.push([tr('horse.feed', { item: itemNoun(treat) }), () => H.care(a, 'feed', treat)]);
+    if (!off) opts.push([tr('horse.pat'), () => H.care(a, 'pat')]);
+    if (!off && a.stay) opts.push([tr('horse.graze'), () => H.trick('graze', a)]);
+    else if (!off && L >= 2) opts.push([tr('horse.stay'), () => H.trick('stay', a)]);
+    // (putting them on and taking them off: saddlebags.js when it has them, the one place that knows the lock)
+    if (inv.count('alforjas') && !a.bags) opts.push([tr('horse.bags.on'), () => { if (g.saddlebags?.putOn) g.saddlebags.putOn(a); else { inv.remove('alforjas', 1); a.bags = padBags([]); Audio.place(); } g.onSave?.(); }]);
+    if (a.bags) opts.push([tr('horse.bags.open'), () => g.saddlebags?.open(a)]);
+    if (a.bags) opts.push([tr('horse.bags.off'), () => { if (g.saddlebags?.takeOff) g.saddlebags.takeOff(a); else this.bagsOff(a); g.onSave?.(); }]);
+    if (inv.count('herraduras') && !a.shod) opts.push([tr('horse.shoes'), () => { inv.remove('herraduras', 1); a.shod = true; Audio.clink(); g.gather.float(tr('horse.shoes_on'), '#a8f07a'); }]);
+    opts.push([tr('horse.nothing'), () => { if (off) this.petAsBefore(a); }]);
     g.busy = true;
-    const bits = [a.shod ? 'con herraduras' : 'sin herraduras', a.bags ? 'con alforjas' : 'sin alforjas', `vínculo ${a.love}/10`, `hoy ha pastado ${Math.min(GRAZE_NEED, this.grazedOn(a))}/${GRAZE_NEED}`];
-    const i = await hud.ask(a.name, `${a.name} (${BREED_NAMES[a.breed]}, ${bits.join(', ')}). ¿Qué quieres hacer?`, opts.map(o => o[0]));
+    H?.halt(a, 25);   // (it stands still while you choose)
+    const pct = a.love >= 10 ? 100 : Math.max(0, Math.min(99, Math.floor(+a.bx || 0)));
+    const head = tr('horse.menu.head', { name: a.name, coat: tr('horse.coat.' + (ANIMALS.caballo.breeds.includes(a.breed) ? a.breed : 'castano')), n: L, level: tr('horse.level.' + L), hearts: horseHearts(a.love), pct, g: Math.min(GRAZE_NEED, this.grazedOn(a)), max: GRAZE_NEED });
+    const tail = [tr(a.shod ? 'horse.menu.shod' : 'horse.menu.unshod'), tr(a.bags ? 'horse.menu.bags' : 'horse.menu.no_bags')].join(' · ');
+    const i = await hud.ask(a.name, `${head} · ${tail}. ${tr('horse.menu.q')}`, opts.map(o => o[0]));
     g.busy = false;
+    delete a.halt;
     opts[i]?.[1]();
+  }
+  // Take the saddlebags off (when saddlebags.js has no takeOff): only empty, and only when nobody else has them open; the item comes back
+  bagsOff(a) {
+    const g = this.game, holder = g.saddlebags?.holder?.(a);
+    if (holder && holder !== me()) { g.gather.float(tr('horse.bags.busy', { who: g.live.nameOf?.(holder) || tr('horse.someone') }), '#fff3c0'); Audio.error(); return; }
+    if (!Array.isArray(a.bags) || a.bags.some(Boolean)) { g.gather.float(tr('horse.bags.not_empty'), '#ffb0a0'); Audio.error(); return; }
+    delete a.bags;
+    const left = g.inv.add('alforjas', 1);
+    if (left) g.gather.throwOut('alforjas', left);
+    Audio.pickup();
+    g.onSave?.();
   }
   bond(a, text) {
     a.love = Math.min(10, a.love + 1);
@@ -1059,7 +1264,10 @@ export class Ranch {
     const rows = list.map(a => {
       const age = this.young(a) ? ` · ${a.def.baby || 'cría'} de ${this.today - a.born} días` : '', who = a.owner ? ` · de ${a.owner === me() ? 'ti' : this.game.live.nameOf?.(a.owner) || 'otra persona'}` : '';
       const img = icon(a);
-      return `<div class="j-fish"><span class="j-cell done">${img ? `<img alt="" src="${img}">` : `<img alt="" data-icon="${a.def.home}">`}</span><span><b>${a.name}</b><small>${a.breed === 'gallo' ? 'Gallo' : `${a.def.name}${a.breed ? ' ' + BREED_NAMES[a.breed] : ''}`}${age}${who}${GRAZERS.has(a.type) ? ` · ha pastado ${Math.min(GRAZE_NEED, this.grazedOn(a))}/${GRAZE_NEED}` : ''}${a.expecting !== undefined && a.expecting !== null ? ' · espera una cría' : ''}</small></span><span class="lvl">${hearts(a.love)}</span></div>`;
+      // (a horse: its bond level and a thin line of the progress to the next heart, under the hearts; Plan F §4.3, the look
+      // is index.html .j-hlv / .j-bx)
+      const bond = a.def.ride && this.game.horse && !this.game.horse.off ? `<small class="j-hlv">${tr('journal.horse.level', { n: levelOf(a.love) })}</small><i class="j-bx" style="--p:${a.love >= 10 ? 100 : Math.max(0, Math.min(99, Math.floor(+a.bx || 0)))}%"></i>` : '';
+      return `<div class="j-fish"><span class="j-cell done">${img ? `<img alt="" src="${img}">` : `<img alt="" data-icon="${a.def.home}">`}</span><span><b>${a.name}</b><small>${a.breed === 'gallo' ? 'Gallo' : `${a.def.name}${a.breed ? ' ' + BREED_NAMES[a.breed] : ''}`}${age}${who}${GRAZERS.has(a.type) ? ` · ha pastado ${Math.min(GRAZE_NEED, this.grazedOn(a))}/${GRAZE_NEED}` : ''}${a.expecting !== undefined && a.expecting !== null ? ' · espera una cría' : ''}</small></span><span class="lvl">${hearts(a.love)}${bond}</span></div>`;
     }).join('');
     const mail = this.farm.mail.filter(m => m.to === me()).length;
     return `<p class="j-note">Heno en el silo: ${this.farm.hay}${this.siloCap ? ` de ${this.siloCap}` : ' (aún no tienes silo)'}${mail ? ` · ${mail} envío${mail > 1 ? 's' : ''} esperando en el palomar` : ''}. Los animales contentos (caricias cada día) dan más y, a veces, algo especial; dos adultos muy contentos en la misma casa tienen crías. Las vacas, ovejas, cabras, conejos y caballos pastan: con ${GRAZE_NEED} casillas de hierba al día quedan alimentados (si no, comen del comedero o del heno del silo).</p>` + (rows || '<p class="j-note">Aún no tienes animales: Rosa los vende en su puesto.</p>');

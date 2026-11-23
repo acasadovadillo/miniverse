@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- La versión publicada: se cambia en cada publicación (así el juego sabe que tiene que pedir el código nuevo) -->
-<meta name="miniverse-version" content="2026-11-23.5">
+<meta name="miniverse-version" content="2026-11-23.6">
 <title>Miniverse</title>
 <script>
   // The language of the page until the game's code arrives (src/i18n.js chooses the same way, then takes over): for
@@ -382,6 +382,10 @@
   .j-fish { display: grid; grid-template-columns: 38px 1fr auto; column-gap: 10px; align-items: center; padding: 4px 6px; border-bottom: 1px solid #4a3220; }
   .j-fish small { display: block; color: var(--dim); font-size: 14px; }
   .j-fish .lvl { color: var(--gold); }
+  /* (Journal › Animals, a horse's row: its level under the hearts and a 40 px line of the progress to the next heart.
+     ranch.journal writes <small class="j-hlv">level 3</small><i class="j-bx" style="--p:42%"></i> inside .lvl; Plan F §4.3) */
+  .j-fish .lvl .j-hlv { display: block; text-align: right; font-size: 13px; color: var(--dim); }
+  .j-fish .lvl .j-bx { display: block; width: 40px; height: 3px; margin: 3px 0 0 auto; border-radius: 2px; background: linear-gradient(90deg, var(--nd-horse) var(--p, 0%), rgba(255, 240, 210, .16) var(--p, 0%)); box-shadow: 0 0 0 1px rgba(0, 0, 0, .35); }
   .j-cell.seen img { opacity: .6; }
   .j-cell.done { border-color: #6aa84a; }
   .j-goal { padding: 8px 10px; background: rgba(0, 0, 0, .25); border-radius: 4px; color: var(--gold); }
@@ -428,7 +432,7 @@
      pixels: 240 px wide and 9 px thick up to 1535 px, 288 and 10 from 1536. The colours are about 15 % less saturated
      than pure hues, to sit with the muted art. Under the strip go the clock and then the first steps and the F3 panel
      (--hud-top: the clock's top; --nd-end: where the bars in sight end, which needsbar.js writes on the page) */
-  :root { --nd-hp: #66b562; --nd-hp-low: #d9503f; --nd-en: #e3c25a; --nd-food: #d98c45; --nd-water: #4a9fd8; --nd-air: #cfe6f0; --nd-track: rgba(8, 8, 10, .72);
+  :root { --nd-hp: #66b562; --nd-hp-low: #d9503f; --nd-en: #e3c25a; --nd-food: #d98c45; --nd-water: #4a9fd8; --nd-air: #cfe6f0; --nd-horse: #c49a64; --nd-track: rgba(8, 8, 10, .72);
     --nd-x: 16px; --nd-y: 16px; --nd-w: 240px; --nd-h: 9px; --nd-gap: 5px;
     --nd-end: calc(var(--nd-y) + 4 * var(--nd-h) + 2px + 3 * var(--nd-gap)); --hud-top: 16px; }
   @media (min-width: 1536px) { :root { --nd-w: 288px; --nd-h: 10px; --nd-gap: 6px; } }
@@ -454,9 +458,18 @@
   @keyframes nd-zero { 50% { box-shadow: 0 0 0 1px #ff5a4a, 0 0 7px #ff5a4a; } }
   .nd-air { transition: opacity .5s ease; }
   .nd-air:not(.nd-on) { opacity: 0; }   /* (air: only under water, in both HUDs) */
+  .nd-horse { --c: var(--nd-horse); transition: opacity .5s ease; }
+  .nd-horse:not(.nd-on) { opacity: 0; }   /* (the horse's stamina, Plan F: only while riding, in its row under health like air; needsbar.js shows it) */
+  /* (under 20 %: a quicker pulse, a change of brightness like the others, so it does not rely on colour. Winded: the fill
+     greys and a cream tick marks where it gallops again (--nd-wind, needsbar.js: horse.js WINDED_CLEAR)) */
+  .nd-horse.low > i { animation-duration: .7s; }
+  .nd-horse > i { transition: filter .3s ease; }
+  .nd-horse.winded > i { filter: saturate(.35) brightness(.82); }
+  .nd-horse::after { content: ''; position: absolute; top: 0; bottom: 0; left: var(--nd-wind, 40%); width: 2px; margin-left: -1px; background: var(--cream); box-shadow: 0 0 0 1px rgba(0, 0, 0, .45); opacity: 0; transition: opacity .3s ease; }
+  .nd-horse.winded::after { opacity: .85; }
   .nd.nd-off { visibility: hidden; }     /* (a need turned off with ?sed=0 or ?aguante=0&cansancio=0: its row is folded away too) */
   body.hud-min .nd { opacity: 0; transition: opacity .5s ease; }
-  body.hud-min .nd.nd-on, body.hud-min.hud-all .nd:not(.nd-air) { opacity: 1; transition: opacity .15s ease; }
+  body.hud-min .nd.nd-on, body.hud-min.hud-all .nd:not(.nd-air):not(.nd-horse) { opacity: 1; transition: opacity .15s ease; }
   /* (the name tag: on a dark chip, right of its bar (needsbar.js sets its top); not with the legend, which names them all) */
   #nd-tag { position: absolute; left: calc(100% + 8px); top: 0; transform: translateY(-50%); padding: 3px 6px 4px; border-radius: 3px; background: rgba(8, 8, 10, .62); font: 600 12px/1 var(--font-ui); text-transform: uppercase; letter-spacing: .06em; color: var(--cream); white-space: nowrap; opacity: 0; transition: opacity .2s, top .2s ease; }
   #nd-tag.on { opacity: 1; }
@@ -664,6 +677,7 @@
   <div id="needs" aria-hidden="true">
     <div class="nd-row nd-top"><div class="nd nd-hp" id="nd-hp"><s></s><i></i></div></div>
     <div class="nd-row nd-gone"><div class="nd nd-air" id="nd-air"><i></i></div></div>
+    <div class="nd-row nd-gone nd-horserow"><div class="nd nd-horse" id="nd-horse"><i></i></div></div>
     <div class="nd-row"><div class="nd nd-food" id="nd-food"><i></i></div></div>
     <div class="nd-row"><div class="nd nd-water" id="nd-water"><i></i></div></div>
     <div class="nd-row"><div class="nd nd-en" id="nd-en"><i></i><u></u></div></div>
@@ -849,6 +863,10 @@
         <dt><kbd>E</kbd> <kbd>Q</kbd> <kbd>X</kbd></dt><dd data-i18n="controls.carry">A felled tree leaves a log and a hunted animal its carcass. E puts it on your shoulder (one at a time) and Q puts it down; X butchers a carcass where it lies, and the axe splits a log. At the bench (E) a log gives 10 planks; at the kitchen (E) a carcass gives the most. Everything weighs: past what you carry comfortably (25 kg, 70 with the backpack) you walk slower</dd>
         <dt><kbd>E</kbd> <kbd>Q</kbd> <kbd>X</kbd></dt><dd data-i18n="controls.barrow">The wheelbarrow (B › Exterior, its plan at Dani's): E pushes it with both hands (slower, no running, jumping or swimming) and Q parks it; X opens it (12 stacks, which B and C also pay from). Pushing it, E on a log or a carcass loads it (3 at most): what it carries doesn't weigh on you</dd>
         <dt><kbd>E</kbd> <kbd>Q</kbd></dt><dd data-i18n="controls.carry_ride">With a log or a carcass in your arms you can mount your horse (it rides behind the saddle, and the horse is not slowed: Q puts it down beside it) or row a boat (it rides in the bow; if you jump into the water it stays in the boat). Getting off, it's back in your arms</dd>
+        <dt><kbd>N</kbd></dt><dd data-i18n="controls.whistle">Whistle for your horse (or your partner's) from a distance: the closer the bond, the farther it hears you</dd>
+        <dt data-i18n-html="controls.horse.keys">Riding</dt><dd data-i18n="controls.horse">The gallop tires the horse: its bar sits with yours while you ride, and when it is winded it only trots until it gets its breath back. E with nothing aimed gets off. Brush it, feed it and pat it every day (E on it): a closer bond means a longer gallop, fewer scares and new tricks</dd>
+        <dt data-i18n-html="controls.ride_keys.keys"><kbd>G</kbd> <kbd>H</kbd> riding</dt><dd data-i18n="controls.ride_keys">Riding: G pats the horse (and calms it after a scare), H rears (level 3)</dd>
+        <dt data-i18n-html="controls.bags.keys"><kbd>X</kbd> on your horse</dt><dd data-i18n="controls.bags">Saddlebags: X on your horse, or riding (12 stacks; B and C also pay from them)</dd>
         <dt data-i18n-html="controls.select.keys"><kbd>1</kbd>–<kbd>9</kbd> or wheel</dt><dd data-i18n="controls.select">Choose an item</dd>
         <dt><kbd>R</kbd></dt><dd data-i18n="controls.rotate">Rotate what you're about to place (aim with the mouse: up to 4 tiles). Held, it keeps turning; tapped, in 15° steps, snapping to the tiles</dd>
         <dt><kbd>←</kbd> / <kbd>→</kbd></dt><dd data-i18n="controls.camera_turn">Turn the camera around you (hold: smooth turn)</dd>

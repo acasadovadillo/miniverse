@@ -646,8 +646,10 @@ export function initMenus(game) {
     show(null);
     // (si la partida no se puede abrir, se vuelve al menú diciendo por qué, en vez de quedarse parado)
     $('fade').classList.add('on');   // (a oscuras hasta que el suelo de alrededor esté hecho: se calcula en otro hilo)
+    live.entering = role;   // (ranch.reset: in a world somebody else runs, the horses' locks are true and stay)
     try { game.start(data, deltas); }
     catch (e) { console.error(e); $('fade').classList.remove('on'); live.unclaim(); game.end(); openMenu(); $('menu-msg').textContent = `No se ha podido abrir la partida: ${e.message}`; return; }
+    finally { live.entering = null; }
     // (destapa esta entrada, salvo si mientras tanto otro ha tapado por su cuenta, un /tp lejos o morir, o se ha salido:
     // entonces destapa él; ver Game.coverJump)
     const mine = game.covers;
@@ -746,9 +748,11 @@ export function initMenus(game) {
   let loadMeter = null;   // (the weight inventory, the default: carry.js; made the first time a game has it)
   const bodyChip = game.bodyChip = new BodyChip(game);   // (the chip under the bars, both HUDs: src/ui/bodychip.js)
   let chestAt = null, chestTick = 0;   // (dónde se abrió el cofre: si se aleja, se cierra)
+  let chestOpts = null;   // (a window with its own rules: the saddlebags follow the horse, keep() says when it closes)
+  const chestDone = () => { const o = chestOpts; chestOpts = null; try { o?.onClose?.(); } catch (e) { reportFault(e, 'chest.onClose'); } };
   wins.add('s-inv', { close: 'inv-close', spot: wins.defaults.left, onOpen: () => invUI.open() });
   wins.add('s-craft', { close: 'cf-close', spot: wins.defaults.right });
-  wins.add('s-chest', { close: 'ch-close', spot: wins.defaults.right, onClose: () => { chestAt = null; chestUI.close(); } });
+  wins.add('s-chest', { close: 'ch-close', spot: wins.defaults.right, onClose: () => { chestAt = null; chestUI.close(); chestDone(); } });
   wins.add('s-journal', { close: 'j-close', spot: wins.defaults.center, onOpen: () => journalUI.open() });
   game.onInventory = () => { invUI.refresh(); craftUI.refresh(); if (wins.isOpen('s-chest')) chestUI.refresh(); };
   const shopUI = initShopUI(game, { onClose: resume });
@@ -784,12 +788,16 @@ export function initMenus(game) {
   $('p-settings').onclick = () => openSettings('s-pause');
   $('m-settings').onclick = () => openSettings('s-menu');
   game.onShop = id => { if (game.mode !== 'play') return; game.mode = 'shop'; show('s-shop'); shopUI.open(id); };
-  game.onChest = (chest, tile, onChange) => {
+  // opts (optional): { title() its title, may() may the stacks move now, keep() may it stay open (instead of the distance to
+  // where it was opened), onClose() } — the saddlebags (saddlebags.js)
+  game.onChest = (chest, tile, onChange, opts = null) => {
     if (!chest || game.mode !== 'play') return;
-    chestUI.open(chest, tile, onChange);
+    if (chestOpts && chestOpts !== opts) chestDone();   // (another one takes the window: the one before is closed)
+    chestOpts = opts;
+    chestUI.open(chest, tile, onChange, opts || {});
     wins.open('s-chest');
     const p = game.player;
-    chestAt = p ? [p.x, p.y] : null;
+    chestAt = p && !opts?.keep ? [p.x, p.y] : null;
   };
   function toggleInventory() {
     if (game.mode !== 'play' || game.busy || hud.dialogOpen) return false;
@@ -818,6 +826,7 @@ export function initMenus(game) {
     loadMeter?.frame();
     try { bodyChip.frame(); } catch (e) { reportFault(e, 'BodyChip.frame'); }   // (isolated: render calls onFrame bare)
     if (chestAt && p && Math.hypot(p.x - chestAt[0], p.y - chestAt[1]) > CHEST_REACH) wins.close('s-chest');
+    else if (chestOpts?.keep && wins.isOpen('s-chest') && !chestOpts.keep()) wins.close('s-chest');
     // (lo ha quitado alguien, o lo ha cambiado otro jugador: se cierra o se repinta)
     if (wins.isOpen('s-chest') && ++chestTick % 6 === 0 && !chestUI.check()) wins.close('s-chest');
   };

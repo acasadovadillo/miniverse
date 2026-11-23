@@ -159,6 +159,7 @@ export class Player extends Person {
       this.onExert?.(0.05); this.onSplash?.(this.x, this.y, 10); this.onJump?.();
       return;
     }
+    if (this.canJump && !this.canJump()) return;   // (riding a winded horse: no jump, horse.js; game.js sets it)
     this.vz = JUMP * (this.mount ? 1.1 : 1) * (this.jumpMul ?? 1);   // (jumpMul: loaded or carrying something, carry.js; never too low to leave a hole)
     // (con el agua por la cintura junto a la pared de un canal: hasta su borde, ver CLIMB)
     if (this.bank !== null && !this.mount && this.depth >= WADE_CLIMB) { const need = this.bank + CLIMB - (WATER_Y - this.depth + this.floor); if (need > this.vz * this.vz / (2 * GRAVITY)) this.vz = Math.sqrt(2 * GRAVITY * need); }
@@ -281,7 +282,7 @@ export class Player extends Person {
     }
     const before = Math.floor(this.step);
     this.step = moved < 0.002 ? 0 : this.step + moved * 3.2;
-    if (!this.airborne && Math.floor(this.step) !== before && Math.floor(this.step) % 2 === 1) { if (this.wading && this.depth > 0.12) Audio.wade(); else Audio.step(this.inside || this.underRoof); }   // (en el agua, chapoteando)
+    if (!this.airborne && !this.mount && Math.floor(this.step) !== before && Math.floor(this.step) % 2 === 1) { if (this.wading && this.depth > 0.12) Audio.wade(); else Audio.step(this.inside || this.underRoof); }   // (en el agua, chapoteando)
   }
   // El agua donde se está: lo hondo (depth), si se vadea (wading) o se nada (swim), lo que se hunde (sink) y si hay orilla
   // delante a la que saltar (shore)

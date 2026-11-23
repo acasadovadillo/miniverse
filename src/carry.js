@@ -682,7 +682,9 @@ export class Carry {
   }
 
   // ---------- building and crafting from the chests nearby ----------
-  // The chests you would open with E (never a neighbor's), within BUILD_STATION_REACH: [{ o, c }], the nearest first
+  // The chests you would open with E (never a neighbor's), within BUILD_STATION_REACH: [{ o, c }], the nearest first. Also
+  // the saddlebags of your (or your partner's) horse that this game may write now (Plan F §1.8, saddlebags.js canTouch):
+  // { o: { tile: null, placed: 'alforjas', horse }, c: its bags }
   chests() {
     const g = this.game, p = g.player, sc = g.scene, out = [];
     if (!p || !sc?.placedNear) return out;
@@ -691,6 +693,7 @@ export class Carry {
       const c = sc.chestAt?.(...o.tile);
       if (c) out.push({ o, c, d: Math.hypot(o.x - p.x, o.y - p.y) });
     }
+    if (g.saddlebags) for (const { a, d } of g.saddlebags.nearby(p.x, p.y, BUILD_STATION_REACH)) out.push({ o: { tile: null, placed: 'alforjas', x: a.x, y: a.y, horse: a }, c: a.bags, d });
     return out.sort((a, b) => a.d - b.d);   // (placedNear does not sort them)
   }
   // How many of a thing there are to build or craft with: in the backpack and, with the weight inventory, in the chests nearby.
@@ -736,7 +739,8 @@ export class Carry {
           s.n -= q; n -= q; took += q;
           if (s.n <= 0) c[j] = null;
         }
-        if (took) { g.scene.chestTouched(...o.tile); if (o.placed === BARROW.ID) g.barrow?.stacksChanged(o.tile); from.push(t('carry.from_chest', { n: took, item: ITEMS[m], chest: { name: ITEMS[o.placed].name, g: CHESTS[o.placed][1].startsWith('la ') ? 'f' : 'm' } })); }
+        if (took && o.horse) { g.saddlebags?.changed(o.horse); from.push(t('carry.from_chest', { n: took, item: ITEMS[m], chest: { name: t('gui.chest.saddlebags'), g: 'fp', plural: true } })); }
+        else if (took) { g.scene.chestTouched(...o.tile); if (o.placed === BARROW.ID) g.barrow?.stacksChanged(o.tile); from.push(t('carry.from_chest', { n: took, item: ITEMS[m], chest: { name: ITEMS[o.placed].name, g: CHESTS[o.placed][1].startsWith('la ') ? 'f' : 'm' } })); }
         if (n <= 0) break;
       }
     }

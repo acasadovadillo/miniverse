@@ -116,9 +116,9 @@ export class Rest {
     if (this.back) [p.x, p.y] = this.back;
     this.back = null;
   }
-  // Moverse levanta; con una postura no se usa nada (E: levantarse)
+  // Moverse levanta; con una postura no se usa nada (E: levantarse). pose.min: not before (thrown off a horse, horse.js)
   update() {
     const p = this.p;
-    if (p?.pose && !this.game.family.scene && (keys.up || keys.down || keys.left || keys.right)) this.stand();   // (mientras salen los corazones, no)
+    if (p?.pose && !this.game.family.scene && !(p.pose.min > this.game.time) && (keys.up || keys.down || keys.left || keys.right)) this.stand();   // (mientras salen los corazones, no)
   }
 }

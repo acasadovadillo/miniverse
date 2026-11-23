@@ -13,17 +13,22 @@
 // (or a drink) beats; drawing the bow, a ring at the cursor with the arrows left.
 // The body chip under the bars (cold, hot, soaked, filthy: ui/bodychip.js paints it, for both HUDs) brings its tip
 // once, here, like the needs.
+// The horse (Plan F §4.1): its stamina row while you gallop or it is not full, 2 s more once it is, and kept on while
+// under 20 % (it pulses); the minimap while a horse comes to your whistle or is just out of earshot (its marker,
+// ui/map.js); and four tips, once each: N the first time you have a horse, X the first ride with saddlebags, G the
+// first time it gets scared under you, H once it has learnt to rear (level 3).
 // Nothing here reads the DOM each frame: it compares a few numbers of the game and touches a class only when the
 // answer changes (the mark and the bow ring move with the view, so they are written while they show). The look (fades
 // of 0.15 s in and 0.5 s out) is the CSS below, injected so all of it stays in this file and goes away with it.
 import * as THREE from 'three';
-import { t, onLangChange } from '../i18n.js';
+import { tHtml, t, onLangChange } from '../i18n.js';
 import { ITEMS, HARVEST } from '../items.js';
 import * as items from '../items.js';   // (items.thirstOf, read when it is there: Track A2)
 import { HP_MAX, HUNGER_MAX } from '../combat.js';
 import { THIRST_MAX, STAMINA_MAX, REST_MAX } from '../needs.js';
 import { apagada } from '../opciones.js';
 import { LOW } from './needsbar.js';
+import { STAM_MAX, levelOf } from '../horse.js';
 import { inBounds, TAVERN, HOUSE, HOUSE_FAMILY } from '../world/village.js';
 import { doorTile } from '../world/blueprints.js';
 import { nearX } from '../world/planet.js';
@@ -43,7 +48,7 @@ const $ = id => document.getElementById(id);
 const thirstOf = def => (!def ? 0 : items.thirstOf ? items.thirstOf(def) : def.thirst ?? (def.drink ? 4 : 0));
 const isDrink = s => { const def = s && ITEMS[s.id]; return !!def && (thirstOf(def) > 0 || (!!def.canteen && s.sips > 0)); };
 // How long each thing stays after what brought it (seconds; the fade-out comes after)
-const SHOW = { sprint: 3, hurt: 5, heal: 3, hunger: 4, thirst: 4, rest: 4, linger: 1.5, held: 0.5, money: 4, xp: 3, level: 5, slots: 3, name: 1.6, place: 4, clock: 6, tag: 4, quest: 10, intro: 4, tip: 9, tipShort: 6, build: 7, all: 1.5, mini: 3, routeMini: 4 };   // (routeMini: the minimap after you stop, with a route)
+const SHOW = { sprint: 3, hurt: 5, heal: 3, hunger: 4, thirst: 4, rest: 4, linger: 1.5, held: 0.5, money: 4, xp: 3, level: 5, slots: 3, name: 1.6, place: 4, clock: 6, tag: 4, quest: 10, intro: 4, tip: 9, tipShort: 6, build: 7, all: 1.5, mini: 3, routeMini: 4, horse: 2 };   // (routeMini: the minimap after you stop, with a route; horse: its row after it is full again)
 const LOW_HP = HP_MAX * 0.4, LOW_FOOD = 6, SHOW_FOOD = HUNGER_MAX * 0.6;   // (low health and hunger stay; hunger above 60 % is not news)
 const DANGER = 8;          // tiles: a creature this close keeps health in sight
 const HEAL_NEW = 10;       // seconds without healing: the next heal is news (regen starting), not each 4 s tick
@@ -57,6 +62,8 @@ const POSTURE_TIP = 90;    // seconds playing before the posture tip, if no crou
 const GAIT_TIP = 60;       // seconds walking on foot before the tip of the three speeds, if no jog came first
 const STALE_HINT = 6;      // seconds: a click hint that has not changed by then has been read
 const GOAL_NEAR = 4;       // tiles: the mark of where to go fades this close
+const HORSE_FULL = 0.98;   // share of the horse's stamina under which its row stays in sight (riding)
+const REAR_LEVEL = 3;      // the bond level that teaches the rear (horse.js levelOf; Plan F §1.2)
 const BOW_TEXT = 2;        // draws of the bow that still get the long text (then the ring says it)
 const TIPS_KEY = 'pueblo-brotes:pistas';   // (the key tips already shown, per account, in this browser: like Minecraft's tutorial)
 // The one-time key tips: the key drawn as a key (hungry and lowhp first; hungry picks its key and text as it goes)
@@ -76,6 +83,9 @@ const TIPS = {
   barrow: { key: 'E' }, pushing: { key: 'Q' }, ride: { key: 'Q' }, bow: { key: null },
   // (the body, Plan E: what to do about the chip under the bars; dirty says its key, X, in the text)
   cold: { key: null }, hot: { key: null }, wet: { key: null }, dirty: { key: null }, torn: { key: null }, hair: { key: null },
+  // (the horse, Plan F: their texts say their key, "N: whistle for Rayo". N is only the whistle, so pressing it makes it
+  // known; G and H count only in the saddle, where they are pat and rear (ride); X does many things, so only being shown)
+  whistle: { code: 'KeyN', key: null }, bags: { key: null }, pat: { code: 'KeyG', key: null, ride: true }, rear: { code: 'KeyH', key: null, ride: true },
 };
 const KNOWN = ['bag', 'craft', 'build', 'journal', 'map'];   // (what a player past the first steps already knows)
 // Closing hours of the shops (hours past 24 are after midnight); the ones open all day never close
@@ -222,7 +232,7 @@ export class SmartHud {
         if (e.target instanceof HTMLInputElement) return;
         if (e.code === 'Tab' && !e.repeat && game.mode === 'play' && game.player && !game.wheel?.open) { this.hold(true); this.solo(); }   // (not over the tool wheel)
         const id = Object.keys(TIPS).find(k => TIPS[k].code === e.code);
-        if (id) this.learnt(id);
+        if (id && (!TIPS[id].ride || game.player?.mount)) this.learnt(id);
       }, true],
       ['keyup', e => { if (e.code === 'Tab') this.hold(false); }],
       ['blur', () => this.hold(false)],
@@ -365,6 +375,9 @@ export class SmartHud {
       if (R.flash !== this.routeFlash) { this.routeFlash = R.flash; show('mini', SHOW.mini); }
       if (this.moveT > 0.3) show('mini', SHOW.routeMini);
     }
+    // (a horse coming to your whistle, or just out of earshot: its marker is on the minimap, so the minimap shows; slow()
+    // looks four times a second)
+    if (this.horseMini && outside) show('mini', SHOW.mini);
 
     // What shows now
     const crit = {
@@ -384,6 +397,11 @@ export class SmartHud {
       nb.crit('water', crit.water);
       nb.crit('en', crit.rest || (surv && !!n.exhausted));
       nb.crit('air', crit.air);
+      // (the horse's stamina, riding: while it gallops or is not full, and 2 s more; critical under 20 %. NeedsBar hides
+      // the row on foot whatever is asked here)
+      const H = g.horse, rides = surv && !!p.mount && !!H && !H.off, hs = rides && Number.isFinite(H.stam) ? H.stam / STAM_MAX : 1;
+      if (rides && (H.galloping === true || hs < HORSE_FULL)) nb.show('horse', SHOW.horse);
+      nb.crit('horse', rides && hs < LOW.horse);
       if (free && surv && heldDef?.food && c.hunger < HUNGER_MAX) nb.show('food', SHOW.held);
       if (free && surv && !noThirst && drinkHeld && thirst < 1) nb.show('water', SHOW.held);
       nb.context(wins || wheel, talking);
@@ -507,12 +525,40 @@ export class SmartHud {
       if (this.grown !== undefined && grown > this.grown && g.gamemode === 'survival') this.want('hair');
       this.grown = grown;
     }
+    // The horse (Plan F): its marker on the minimap, and its tips
+    this.horseLook(g, p, T);
     // Leaving the village for the first time: the map
     if (g.scene === g.world && !g.indoors && !inBounds(p.x, p.y)) this.want('map');
     // A new recipe while playing (not the ones of the start): crafting
     const fresh = g.craft.fresh?.size || 0;
     if (fresh > this.fresh && T - this.started > 8) this.want('craft');
     this.fresh = fresh;
+  }
+
+  // Four times a second: whether a horse marker is on the minimap (map.markers, game.js: horse.marks() with mini), and the
+  // horse's one-time tips: N once you have a horse, X on the first ride with saddlebags, G after the first scare in the
+  // saddle (horse.spooks counts them), H riding a horse that can rear. With ?vinculo=0 there is no whistle, scare or rear
+  horseLook(g, p, T) {
+    const marks = g.map?.markers;
+    let mini = false;
+    if (marks) for (let i = 0; i < marks.length && !mini; i++) mini = marks[i].kind === 'horse' && !!marks[i].mini;
+    this.horseMini = mini;
+    const H = g.horse;
+    if (!H || T - this.started < 8) return;
+    const on = !H.off;
+    if (on && !p.mount && !this.seen.has('whistle')) {
+      const mine = g.ranch?.myHorse?.();
+      if (mine) { this.names.whistle = mine.name || ''; this.want('whistle'); }
+    }
+    if (!p.mount || (this.seen.has('bags') && this.seen.has('pat') && this.seen.has('rear'))) { this.spooks = H.spooks; return; }
+    // (the horse under you: horse.js keeps it in ridden; until then, the one ranch.mount wrote in horseId)
+    const rid = H.ridden || g.ranch?.animals?.find(a => a.id === p.horseId) || null;
+    if (!this.seen.has('bags') && (rid ? Array.isArray(rid.bags) : !!p.horseBags)) this.want('bags');
+    if (on && Number.isFinite(H.spooks)) {
+      if (Number.isFinite(this.spooks) && H.spooks > this.spooks && !this.seen.has('pat')) { this.names.pat = rid?.name || ''; this.want('pat', true); }
+      this.spooks = H.spooks;
+    }
+    if (on && rid && !this.seen.has('rear') && levelOf(rid.love || 0) >= REAR_LEVEL) this.want('rear');
   }
 
   // A new game: a short look at everything that matters, then it goes
@@ -525,6 +571,7 @@ export class SmartHud {
     this.fresh = Infinity;   // (the first look only counts them)
     this.foodSlot = -1; this.foodBag = false; this.drinkSlot = -1; this.drinkBag = false;
     this.healAt = -Infinity; this.enLow = false; this.swimT = 0; this.needTipAt = -Infinity;
+    this.horseMini = false; this.spooks = undefined; this.names = { whistle: '', pat: '' };   // (the horse: its marker, its scares and the names its tips say)
     try { this.game.needsBar?.reset(); } catch (e) { reportFault(e, 'NeedsBar.reset'); }   // (the bars: no timer of the game before)
     this.px = p.x; this.py = p.y; this.moveT = 0; this.stillT = 0;
     this.routeFlash = this.game.route?.flash;   // (a route loaded with the game is no news)
@@ -680,8 +727,10 @@ export class SmartHud {
   }
   paintTip(id) {
     // (Tab's: in creative and as a spectator there is no health to see)
-    const [k, sub, params] = id === 'hungry' ? this.hungryTip() : id === 'thirsty' ? this.thirstyTip() : id === 'all' && this.game.gamemode !== 'survival' ? [TIPS.all.key, 'nohealth'] : [TIPS[id].key];
-    const text = t(`hud.tip.${id}${sub ? '.' + sub : ''}`, params), sig = `${k}|${text}`;
+    // (the horse's: its name, whichever horse it was about; escaped, it may come from another player)
+    const [k, sub, params] = id === 'hungry' ? this.hungryTip() : id === 'thirsty' ? this.thirstyTip() : id === 'all' && this.game.gamemode !== 'survival' ? [TIPS.all.key, 'nohealth']
+      : id === 'whistle' || id === 'pat' ? [TIPS[id].key, null, { name: this.names?.[id] || '' }] : [TIPS[id].key];
+    const text = tHtml(`hud.tip.${id}${sub ? '.' + sub : ''}`, params), sig = `${k}|${text}`;
     if (sig !== this.tipSig) { this.tipSig = sig; this.el.tip.innerHTML = `${k ? kbd(k) : ''}<span>${text}</span>`; }
     return text;
   }

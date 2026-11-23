@@ -50,6 +50,7 @@ La partida se guarda sola cada 15 segundos, al entrar o salir de una casa y al d
 | Un tronco o una pieza de caza: echártelo al hombro / dejarlo en el suelo / despiezar la pieza ahí mismo (el tronco se parte con el hacha) | E / Q / X | — |
 | La carretilla: empujarla con las dos manos / aparcarla / abrirla (12 montones). Empujándola, E sobre un tronco o una pieza lo carga (3 como mucho); con uno en brazos, E sobre la aparcada lo pone encima | E / Q / X | — |
 | Con un tronco o una pieza en brazos: montar a caballo (va detrás de la silla; Q lo deja a su lado) o remar en tu barca (va en la proa); al bajar, vuelve a tus brazos | E / Q | — |
+| El caballo: silbarle desde lejos / montado, palmada (y calmarlo tras un susto) / montado, encabritarse (nivel 3) / montado, bajarse / abrir las alforjas | N / G / H / E sin apuntar a nada / X sobre él o montado | — |
 | Elegir objeto | 1–9 o rueda | Tocar la casilla |
 | Rueda de herramientas (mantener, mover el ratón y soltar para equipar; un toque vuelve a lo de antes) | F | — |
 | Girar lo que vas a colocar | R (los cuadros y el hogar, contra un muro, en cuatro giros) | — |
@@ -150,7 +151,13 @@ La partida se guarda sola cada 15 segundos, al entrar o salir de una casa y al d
   - La quesera hace queso, queso de cabra y mantequilla; el telar, fieltro de angora. Cada animal tiene su ficha en la pestaña Granja del diario.
 - **Caballo y mascotas**:
   - El silbato da un caballo de verdad: eliges el pelaje y el nombre, lo llamas y viene al galope, montas y bajas, y se queda donde lo dejas.
-  - Cepillarlo y darle zanahorias sube el vínculo y lo hace más rápido; las herraduras de Bruno, más aún. Con las alforjas lleva 9 montones y, montado, salta las vallas. Tiene potros.
+  - **Vínculo** (2026-11-23, Plan F fase 1; `src/horse.js`, `src/saddlebags.js`; plan en `docs/planes/gta/PLAN-F-caballo.md`): cuatro niveles según los corazones (0–2 receloso, 3–5 acostumbrado, 6–8 confiado, 9–10 unido). Cepillarlo (más si está sucio), darle una golosina (zanahoria, manzana, heno o trigo; 3 al día), darle palmadas (5 al día) y montarlo dan progreso, y cada 100 de progreso es un corazón más; quien solo pasa por allí lo acaricia, pero no cuenta. A más nivel, galopa más rato, se asusta menos, te oye desde más lejos y aprende trucos: «quédate aquí» (nivel 2, ya no vuelve solo a la cuadra) y encabritarse (nivel 3, H montado). Las partidas de antes conservan sus corazones.
+  - **Silbido (N)**: llama a tu caballo (el último que montaste, si no el tuyo, si no el de tu pareja) desde cualquier sitio al aire libre; con nivel 1 te oye a 60 m, y con nivel 4, en cualquier parte. Si está lejos aparece por detrás de la cámara, a 32–40 m, y llega al galope; si no te oye, sale en el mapa unos segundos.
+  - **El galope cansa**: su barra (color avena, con las demás, solo mientras montas) baja galopando (12 s a nivel 1, 36 s a nivel 4; más con herraduras, menos con más de 30 kg en las alforjas) y se recupera al paso o parado. Sin aliento, trota hasta que recupera el 40 %; saltar montado le cuesta a él, nunca a ti.
+  - **Sustos**: de noche, un monstruo cerca, un jabalí o un rayo pueden asustarlo (en pacífico, nunca): se encabrita un momento y, a nivel 1, a veces te tira (poco daño, nunca mata en fácil ni en normal). G montado le da una palmada, y justo después del susto lo calma y te libra de caer.
+  - **Suciedad**: se ensucia al cabalgar (más con lluvia, nieve o vadeando) y se ve en las patas y la tripa; el cepillo lo deja limpio y se sacude. Vadear hondo le lava las patas.
+  - **Alforjas**: 12 montones (las de antes se amplían solas), compartidas con tu pareja; X sobre el caballo o montado las abre, y B y C también pagan de ellas. Solo una persona a la vez puede mirar dentro. Abultan más cuanto más llevan, y lo que llevan no pesa en ti.
+  - Con las herraduras de Bruno es más rápido y, montado, salta las vallas. Tiene potros. Montado, E sin apuntar a nada te baja. `?vinculo=0` deja el caballo de antes (galope sin fin, sin sustos ni silbido con N) y `?alforjas=0` las alforjas de antes.
   - En la plaza aparece de vez en cuando un perro o un gato callejero para adoptar. El perro te sigue, escarba y encuentra cosas, ladra a los animales salvajes, espanta al zorro y te trae la pelota. Con clic derecho sobre él (o X a su lado) se sienta y se queda ahí, como el gato, hasta que lo levantas igual. El gato duerme en su cojín, espanta a los ratones y te deja regalos.
   - El palomar envía lo que llevas en la mano a otra persona, aunque no esté jugando, y lo recoge en cualquier palomar.
   - Por el mundo pasean ciervos, jabalíes y cisnes, que huyen si te acercas.
@@ -329,6 +336,8 @@ src/machines.js        Horno, alambique y noria: lo que llevan dentro y lo que h
 src/trades.js          Tratos con los vecinos según su oficio
 src/steps.js           Primeros pasos (lo que toca hacer al empezar)
 src/ranch.js           Ganadería: animales, crías, puertas, silo, incubadora, caballo, mascotas y palomar
+src/horse.js           El caballo desde la silla: vínculo y niveles, silbido (N), aguante del galope, sustos, trucos y suciedad
+src/saddlebags.js      Las alforjas: compartidas con la pareja, una persona a la vez (el cerrojo) y la guarda del anfitrión
 src/fishing.js         Pesca: lanzar, picadas, la pelea con el pez, tesoros, tallas y cuaderno de pesca
 src/rest.js            Posturas: sentarse en sillas y en el suelo, tumbarse en la cama y en el suelo
 src/crew.js            Ir de pasajero en la barca de otro jugador

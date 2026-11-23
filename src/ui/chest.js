@@ -31,6 +31,7 @@ export function initChestUI(game, { onClose }) {
   // abierta. tile: dónde está el mueble (y scene, en qué escena); source: de dónde leer lo que no está en una casilla
   // (las alforjas del caballo, que avisan con onChange)
   let tile = null, scene = null, source = null, onChange = null, wardrobe = false, hintTimer = 0, shown = '';
+  let titleOf = null, may = null;   // (the saddlebags: their title with the kg, and whether this game may move their stacks now)
   const chestCells = [], bagCells = [];
   for (let i = 0; i < 27; i++) chestCells.push(cell($('ch-grid'), () => toBag(i)));
   for (let i = 0; i < SLOTS; i++) bagCells.push(cell($('ch-bag'), () => toChest(i)));
@@ -61,7 +62,9 @@ export function initChestUI(game, { onClose }) {
       loadsEl.append(b);
     });
   }
+  const frozen = () => !!may && !may();   // (the saddlebags' lock is not, or no longer, this game's: nothing moves)
   function toBag(i) {
+    if (frozen()) return;
     const chest = current(), s = chest?.[i];
     if (!s || !ITEMS[s.id]) return;   // (lo de una versión más nueva se queda en el cofre: aquí no se puede usar, y no se pierde)
     const left = game.inv.add(s.id, s.n, extraOf(s));
@@ -69,6 +72,7 @@ export function initChestUI(game, { onClose }) {
     changed();
   }
   function toChest(i) {
+    if (frozen()) return;
     const chest = current(), s = game.inv.slots[i];
     if (!chest || !s) return;
     if (wardrobe && !ITEMS[s.id].wear) {
@@ -89,6 +93,7 @@ export function initChestUI(game, { onClose }) {
     if (!chest) return;
     const loads = loadsOf();
     shown = JSON.stringify(chest) + loadsSig(loads);
+    if (titleOf) { const s = titleOf(); if ($('ch-title').textContent !== s) $('ch-title').textContent = s; }
     chestCells.forEach((el, i) => { paint(el, chest[i]); el.hidden = i >= chest.length; });
     paintLoads(loads);
     // (the weight inventory: the hotbar and, below it, the list of the backpack, packlist.js)
@@ -110,13 +115,15 @@ export function initChestUI(game, { onClose }) {
       if (JSON.stringify(chest) + loadsSig(loadsOf()) !== shown) refresh();
       return true;
     },
-    close() { tile = scene = source = onChange = null; loadsEl.style.display = 'none'; },
+    close() { tile = scene = source = onChange = titleOf = may = null; loadsEl.style.display = 'none'; },
     // src: lo que hay dentro, solo para lo que no está en una casilla: una función que lo devuelve
-    open(src, at, cb) {
+    // opts: { title, may } (the saddlebags: see game.onChest in menus.js)
+    open(src, at, cb, opts = {}) {
       tile = at; scene = game.scene; source = typeof src === 'function' ? src : () => src; onChange = cb;
+      titleOf = typeof opts.title === 'function' ? opts.title : null; may = typeof opts.may === 'function' ? opts.may : null;
       const id = at && (game.scene.at?.('placed', ...at) || '').split('@')[0], c = CHESTS[id] ? id : 'cofre';
       into = at ? { name: ITEMS[c].name, g: CHESTS[c][1].startsWith('la ') ? 'f' : 'm' } : null; wardrobe = id === 'armario';
-      $('ch-title').textContent = at ? ITEMS[c].name : t('gui.chest.saddlebags');
+      $('ch-title').textContent = at ? ITEMS[c].name : titleOf ? titleOf() : t('gui.chest.saddlebags');
       clearTimeout(hintTimer); hint();
       refresh(true);
     },

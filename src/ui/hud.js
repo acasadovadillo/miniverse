@@ -1,6 +1,7 @@
 // Interfaz durante la partida: aviso de interacción, diálogos, nombre del lugar y fundido a negro.
 import { Audio } from '../audio.js';
 import { portrait3D } from '../three/portrait.js';
+import { t } from '../i18n.js';
 
 const $ = id => document.getElementById(id);
 let shownPrompt = null, shownCoords = null, shownHint = null, shownHintKey, dialog = null;
@@ -119,7 +120,7 @@ export const hud = {
       const box = $('dlg-opts'), input = document.createElement('input'), ok = document.createElement('button');
       box.textContent = '';
       Object.assign(input, { type: 'text', maxLength: 16, value: def, className: 'dlg-input', autocomplete: 'off' });
-      ok.type = 'button'; ok.textContent = 'Aceptar';
+      ok.type = 'button'; ok.textContent = t('common.ok');
       box.append(input, ok);
       $('dialog').classList.add('show', 'asking');
       const done = () => { const v = input.value.trim() || def; box.textContent = ''; Audio.blip(); hud.closeDialog(); resolve(v); };

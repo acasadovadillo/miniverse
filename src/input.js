@@ -165,6 +165,9 @@ export function initInput(h) {
     if (e.code === 'KeyZ' && !e.repeat) { CAM.first = !CAM.first; e.preventDefault(); return; }   // primera o tercera persona
     if (e.code === 'KeyQ' && !e.repeat) { handlers.drop?.(e.ctrlKey || e.metaKey || e.shiftKey); e.preventDefault(); return; }   // tirar (con Ctrl o Shift, el montón)
     Audio.start();
+    // (after Audio.start: the whistle is heard) The horse (Plan F): N whistles for it from anywhere; riding, G pats it and H rears (on foot G and H do nothing yet)
+    if (e.code === 'KeyN' && !e.metaKey && !e.ctrlKey) { e.preventDefault(); if (!e.repeat) handlers.whistle?.(); return; }
+    if ((e.code === 'KeyG' || e.code === 'KeyH') && !e.metaKey && !e.ctrlKey && !e.repeat) { if (handlers.ride?.(e.code === 'KeyG' ? 'pat' : 'rear')) e.preventDefault(); return; }
     if (KEYMAP[e.code]) { keys[KEYMAP[e.code]] = true; e.preventDefault(); }
     if (e.code === 'KeyW' && !e.repeat) pressW(evTime(e));
     if (/^Digit[1-9]$/.test(e.code)) handlers.select(+e.code.slice(5) - 1);

@@ -69,6 +69,7 @@ export class TimeSystem {
     this.light = mk(1, 1);
     this.drops = [];
     this.flash = 0;
+    this.bolts = 0;          // how many bolts have struck (horse.js counts them: the flash is too short to look at, and may be off)
     this.nextBolt = 5;
     this.shown = '';
   }
@@ -157,7 +158,7 @@ export class TimeSystem {
     Audio.quietBirds = this.isNight() || !!w.rain || !!w.snow;
     if (w.rain === 2 && outside) {
       this.nextBolt -= dt;
-      if (this.nextBolt <= 0) { this.nextBolt = 7 + Math.random() * 10; this.flash = Settings.v.noFlash ? 0.15 : 1; Audio.thunder(); }
+      if (this.nextBolt <= 0) { this.nextBolt = 7 + Math.random() * 10; this.flash = Settings.v.noFlash ? 0.15 : 1; this.bolts++; Audio.thunder(); }
     }
     this.flash = Math.max(0, this.flash - dt * 2.5);
   }

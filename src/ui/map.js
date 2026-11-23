@@ -5,6 +5,11 @@
 // con lo que ya se ha visto.
 // The marked route (Plan J §2.7, §4.2; route.js sets map.route): its line and pin on both maps, the pins other players
 // shared, toWorld for map clicks (menus.js) and spotAt to snap a click to a named spot.
+// Horses (Plan F §4.1): this.markers also carries the horses of horse.marks() (yours and your partner's), as
+// { x, y, kind: 'horse', name, mini }. The big map shows them always; the minimap only those with mini (coming to a
+// whistle, or for 6 s after "too far"), held on its edge while they are farther, so you know which way to walk. A horse is
+// a round tan dot with a light centre (it moves: not a square like the places), its legend row is map.legend.horse, and a
+// click on it marks a route to where it is now.
 import { CHUNK } from '../world/gen.js';
 import { BIOMES, B } from '../world/biomes.js';
 import { toView } from '../iso.js';
@@ -16,6 +21,7 @@ import { t, getLang } from '../i18n.js';
 const $ = id => document.getElementById(id);
 const COL = { cueva: '#4a4a54', ruinas: '#a8a298', campamento: '#e88a3a', torre: '#d8d0c0', barco: '#7a5030', templo: '#e8c070', aldea: '#4a6aa8', faro: '#ff4a4a' };
 const HOME = '#c95a3c', HOUSE_COL = '#c8a878', PERSON = '#7ad0ff', ME = '#ffd77a';
+const HORSE = '#a8662c', HORSE_IN = '#fff0d8';   // (a deeper tan than the horse's stamina bar, index.html --nd-horse: sand and houses are that one's colour)
 const ZOOM = [1, 8], BIOME_SAMPLES_PER_FRAME = 200;
 const rgbCss = c => `rgb(${c[0]},${c[1]},${c[2]})`;
 // The route: the HUD cream with a dark outline; the pins shared by others, blue (not the neighbours' light blue)
@@ -61,6 +67,19 @@ function arrow(g, x, y, dx, dy, L, col) {
   g.beginPath(); pts.forEach(([px, py], i) => (i ? g.lineTo(px, py) : g.moveTo(px, py))); g.closePath();
   g.lineJoin = 'round'; g.lineWidth = 3; g.strokeStyle = '#2a1c22'; g.stroke();
   g.fillStyle = col; g.fill();
+}
+// A horse on a map: a round dot with the dark outline and a light centre, so it reads on sand and beach too (r: its radius)
+function dot(g, x, y, r, col) {
+  g.beginPath(); g.arc(x, y, r + 2, 0, Math.PI * 2); g.fillStyle = OUTLINE; g.fill();
+  g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.fillStyle = col; g.fill();
+  g.beginPath(); g.arc(x, y, r * 0.45, 0, Math.PI * 2); g.fillStyle = HORSE_IN; g.fill();
+}
+// The key of what moves among the markers (the horses), for the big map's redraw test: their tiles, without building
+// an array (it runs each frame while the map is open)
+function movingKey(markers) {
+  let k = '';
+  if (markers) for (let i = 0; i < markers.length; i++) { const m = markers[i]; if (m.kind === 'horse') k += `${m.x | 0},${m.y | 0};`; }
+  return k;
 }
 // (lo cavado que se ha llenado de agua, del color de las aguas poco profundas: ver floodOver)
 const POOL = () => rgbCss(BIOMES[B.SHALLOW].rgb[1]);
@@ -164,9 +183,10 @@ export class MapView {
     g.fillStyle = '#2a1c22'; g.fillRect(hx - 3, hy - 3, 7, 6);
     g.fillStyle = '#c95a3c'; g.fillRect(hx - 2, hy - 3, 5, 2);
     g.fillStyle = '#f2e2c0'; g.fillRect(hx - 2, hy - 1, 5, 3);
-    // Lugares descubiertos
+    // Lugares descubiertos (and the horses that matter now: coming to a whistle, or just out of earshot, held on the edge)
     for (const m of this.markers || []) {
       const [x, y] = toMap(m.x, m.y);
+      if (m.kind === 'horse') { if (m.mini) dot(g, Math.max(5, Math.min(w - 5, x)), Math.max(5, Math.min(h - 5, y)), 4.5, HORSE); continue; }
       g.fillStyle = '#2a1c22'; g.fillRect(x - 3, y - 3, 7, 7);
       g.fillStyle = COL[m.kind] || '#ffffff'; g.fillRect(x - 2, y - 2, 5, 5);
     }
@@ -256,7 +276,7 @@ export class MapView {
     // lo explorado, los lugares, los vecinos (por casilla) o la leyenda a medio mirar; y, por si acaso (lo cavado que se
     // llena de agua), dos veces por segundo. Repintarlo a pantalla entera en cada fotograma, con el mapa quieto, era trabajo
     // tirado (y, mientras, el mundo de detrás ya no se dibuja: ver Game.render)
-    const key = `${w}x${h}x${r}|${this.zoom}|${cx.toFixed(2)},${cy.toFixed(2)}|${px.toFixed(1)},${py.toFixed(1)}|${this.face ? Math.round(Math.atan2(this.face.y, this.face.x) * 36 / Math.PI) : ''}|${Math.sin(time * 6) > 0}|${this.thumbs.size}|${explored.size}|${this.markers?.length}|${this.people.map(q => `${q.x | 0},${q.y | 0}`).join()}|${this.biomesFrom.size}|${R ? `${R.version}:${R.pinsVersion}:${R.state}` : ''}|${getLang()}`;
+    const key = `${w}x${h}x${r}|${this.zoom}|${cx.toFixed(2)},${cy.toFixed(2)}|${px.toFixed(1)},${py.toFixed(1)}|${this.face ? Math.round(Math.atan2(this.face.y, this.face.x) * 36 / Math.PI) : ''}|${Math.sin(time * 6) > 0}|${this.thumbs.size}|${explored.size}|${this.markers?.length}|${movingKey(this.markers)}|${this.people.map(q => `${q.x | 0},${q.y | 0}`).join()}|${this.biomesFrom.size}|${R ? `${R.version}:${R.pinsVersion}:${R.state}` : ''}|${getLang()}`;
     if (key === this.bigKey && time - this.bigAt < 0.5 && this.legendGen === gen) return;
     this.bigKey = key; this.bigAt = time;
     this.drawFlat(c.getContext('2d'), gen, explored, cx, cy, r, w, h, time, [px, py]);
@@ -320,7 +340,10 @@ export class MapView {
     // (to: where a route to it goes, Plan J: a house's door, a place's centre, where a neighbour is now)
     const spots = [{ x: me[0], y: me[1], name: t('gui.map.you'), col: Math.sin(time * 6) > 0 ? ME : '#ff6a4a', size: 11, dir: this.face ? [this.face.x, this.face.y] : [0, -1] }, { x: (HOUSE.x0 + HOUSE.x1) / 2, y: (HOUSE.y0 + HOUSE.y1) / 2, name: t('gui.map.home'), col: HOME, size: 8, to: { ...DOOR, kind: 'place', id: 'home' } }];
     if (R?.active) spots.push({ x: R.target.x, y: R.target.y, name: R.target.name, col: ROUTE, size: 9, pin: 'route' });
-    for (const m of this.markers || []) spots.push({ x: m.x, y: m.y, name: m.name, col: COL[m.kind] || '#ffffff', size: 7, to: { x: m.x, y: m.y, kind: 'place', id: `poi:${Math.floor(m.x / CHUNK)},${Math.floor(m.y / CHUNK)}` } });
+    for (const m of this.markers || []) {
+      if (m.kind === 'horse') { spots.push({ x: m.x, y: m.y, name: m.name, col: HORSE, size: 7, round: true, to: { x: m.x, y: m.y, kind: 'point' } }); continue; }   // (a horse: where it is now)
+      spots.push({ x: m.x, y: m.y, name: m.name, col: COL[m.kind] || '#ffffff', size: 7, to: { x: m.x, y: m.y, kind: 'place', id: `poi:${Math.floor(m.x / CHUNK)},${Math.floor(m.y / CHUNK)}` } });
+    }
     for (const [k, q] of Object.entries(HOUSES)) if (!q.project || hasProject(q.project)) spots.push({ x: (q.x0 + q.x1) / 2, y: (q.y0 + q.y1) / 2, name: t('gui.map.house_of', { name: q.name }), col: HOUSE_COL, size: 7, to: { ...doorOf(q), kind: 'place', id: 'house:' + k } });
     spots.push({ x: (TAVERN.x0 + TAVERN.x1) / 2, y: (TAVERN.y0 + TAVERN.y1) / 2, name: t('gui.map.tavern'), col: HOUSE_COL, size: 7, to: { ...TAVERN_DOOR, kind: 'place', id: 'tavern' } });
     for (const q of this.people) spots.push({ x: q.x, y: q.y, name: q.name, col: PERSON, size: 5, to: { x: q.x, y: q.y, kind: 'point' } });
@@ -335,6 +358,7 @@ export class MapView {
       const n = q.size, m = n >> 1;
       if (q.dir) { arrow(g, q.sx, q.sy, q.dir[0], q.dir[1], 8, q.col); continue; }   // (you: an arrow where you face; the map has north up, like the world)
       if (q.pin) { pin(g, q.sx, q.sy, q.size * 0.55, q.col); continue; }   // (the route's pin and the shared ones: a teardrop on the spot)
+      if (q.round) { dot(g, q.sx, q.sy, m + 2, q.col); continue; }   // (a horse: round, it moves)
       g.fillStyle = '#2a1c22'; g.fillRect(q.sx - m - 1, q.sy - m - 1, n + 2, n + 2);
       g.fillStyle = q.col; g.fillRect(q.sx - m, q.sy - m, n, n);
     }
@@ -367,17 +391,20 @@ export class MapView {
       }
     }
     const R = this.route, route = !!R?.active, pins = !!R?.pins.size, unknown = route && !!R.unknownPart;
-    const kinds = [...new Map((this.markers || []).map(m => [m.kind, m.name])).entries()], key = `${[...this.seenBiomes].sort().join()}|${kinds.map(k => k[0]).sort().join()}|${route}${pins}${unknown}|${getLang()}`;
+    // (the places by kind, with their name; the horses are one row, map.legend.horse, not one per horse's name)
+    const marks = this.markers || [], horses = marks.some(m => m.kind === 'horse');
+    const kinds = [...new Map(marks.filter(m => m.kind !== 'horse').map(m => [m.kind, m.name])).entries()], key = `${[...this.seenBiomes].sort().join()}|${kinds.map(k => k[0]).sort().join()}|${route}${pins}${unknown}${horses}|${getLang()}`;
     if (key === this.legendKey) return;
     this.legendKey = key;
     const extra = [...(route ? [[ROUTE, t('map.legend.route')]] : []), ...(pins ? [[SHARED, t('map.legend.pins')]] : []), ...(unknown ? [['#1a1410', t('map.route.unknown')]] : [])];
-    const rows = [[ME, t('gui.map.you')], [HOME, t('gui.map.home')], ...extra, [HOUSE_COL, t('gui.map.houses')], [PERSON, t('gui.map.neighbors')], ...kinds.map(([k, name]) => [COL[k] || '#ffffff', name]).sort((a, b) => a[1].localeCompare(b[1])), ...[...this.seenBiomes].sort((a, b) => a - b).map(b => [rgbCss(BIOMES[b].rgb[1]), BIOMES[b].name])];
+    const rows = [[ME, t('gui.map.you')], [HOME, t('gui.map.home')], ...extra, [HOUSE_COL, t('gui.map.houses')], [PERSON, t('gui.map.neighbors')], ...(horses ? [[HORSE, t('map.legend.horse'), true]] : []), ...kinds.map(([k, name]) => [COL[k] || '#ffffff', name]).sort((a, b) => a[1].localeCompare(b[1])), ...[...this.seenBiomes].sort((a, b) => a - b).map(b => [rgbCss(BIOMES[b].rgb[1]), BIOMES[b].name])];
     const box = $('map-legend-rows');
     box.textContent = '';
-    for (const [col, name] of rows) {
-      const row = document.createElement('div'), dot = document.createElement('i');
-      dot.style.background = col;
-      row.append(dot, name);
+    for (const [col, name, round] of rows) {
+      const row = document.createElement('div'), chip = document.createElement('i');
+      chip.style.background = col;
+      if (round) { chip.style.borderRadius = '50%'; chip.style.background = `radial-gradient(circle, ${HORSE_IN} 0 30%, ${col} 34%)`; }   // (as on the map: a horse is round)
+      row.append(chip, name);
       box.append(row);
     }
   }

@@ -103,7 +103,13 @@ export const BLOBS = {
 // elementos de la lista entera de BLOBS (la de los juegos de antes), para partir de lo último que se mandó entero.
 // Los ids no se repiten: uno quitado no vuelve (por eso cada embarazo tiene el suyo: ver Family.netItems)
 export const COLLECTIONS = {
-  animals: { items: g => g.ranch.netItems(), whole: (g, v) => new Map((Array.isArray(v) ? v : []).filter(s => typeof s?.id === 'string').map(s => [s.id, s])), apply: (g, ops) => g.ranch.netApply(ops), counters: { love: [0, 10] }, guestDrops: false },
+  // (bx: a horse's progress to its next heart, Plan F §3.1: added like love, so two partners brushing at once both count;
+  // whoever decides the world turns it into hearts)
+  animals: { items: g => g.ranch.netItems(), whole: (g, v) => new Map((Array.isArray(v) ? v : []).filter(s => typeof s?.id === 'string').map(s => [s.id, s])), apply: (g, ops) => g.ranch.netApply(ops), counters: { love: [0, 10], bx: [0, 299] }, guestDrops: false,
+    // guard(g, id, field, value, peerId, el) → may this guest's change of one field stand? el: the element as the guest's
+    // batch leaves it so far. Plan F §3.2: the horses' rider, bagsBy, bags, bond and whistle fields (saddlebags.js
+    // horseGuard); every other field and animal passes
+    guard: (g, id, f, v, pid, el) => (g.saddlebags?.guard ? g.saddlebags.guard(id, f, v, pid, el) : true) },
   family: { items: g => g.family.netItems(), whole: (g, v) => g.family.netItems(v || {}), apply: (g, ops) => g.family.netApply(ops), guestDrops: false },
   farm: { items: g => g.ranch.farmItems(), whole: (g, v) => g.ranch.farmItems(v || {}), apply: (g, ops) => g.ranch.farmApply(ops), counters: { hay: [0, Infinity] }, guestDrops: true },
 };
@@ -121,11 +127,12 @@ export class ItemSync {
   constructor(name) {
     this.name = name; this.def = COLLECTIONS[name];
     this.base = new Map(); this.gone = new Set(); this.inflight = new Map(); this.redrop = new Set();
+    this.resend = new Map();   // (whoever runs the world) id → fields its guard refused: the next diff sends them to all, as they are
   }
   // Desde lo que hay ahora, sin mandar nada (al entrar en el mundo), o desde la lista entera que se acaba de mandar o de
   // recibir (whole: jugando con un juego de antes; al volver a esto, lo cambiado desde entonces sí se manda)
   reset(g, whole) {
-    this.base.clear(); this.inflight.clear(); this.redrop.clear();
+    this.base.clear(); this.inflight.clear(); this.redrop.clear(); this.resend.clear();
     for (const [id, o] of whole === undefined ? this.def.items(g) : this.def.whole(g, whole)) this.base.set(id, JSON.stringify(o));
   }
   // (invitado) Lo has mandado a quien llevaba el mundo y no sabes si lo aplicó (se ha ido, o lo lleva otro): vuelve a quedar
@@ -142,6 +149,14 @@ export class ItemSync {
   }
   // (invitado) Si es tuyo y aún no lo han aplicado allí: lo nuevo, lo quitado o alguno de sus campos
   mine(id) { for (const k of this.inflight.keys()) if (k.startsWith(`${id}\u0000`)) return true; return false; }
+  // (a guest) That one field of it is sent and not yet applied by whoever runs the world (saddlebags.js: the lock's answer)
+  pending(id, f) { return this.inflight.has(slot(id, f)); }
+  // (a guest) That field went out as v, or came from whoever runs the world as v: what was last shared has it
+  synced(id, f, v) {
+    const was = this.base.get(id);
+    if (was === undefined) return false;
+    try { return JSON.stringify(JSON.parse(was)[f]) === JSON.stringify(v); } catch { return false; }
+  }
   // (quien lleva el mundo) La foto entera: lo cambiado queda como repartido (y lo quitado, en gone) y va todo como put
   full(g) {
     this.diff(g);
@@ -153,8 +168,8 @@ export class ItemSync {
     const ops = [], seen = new Set(), counters = this.def.counters || {};
     for (const [id, o] of this.def.items(g)) {
       seen.add(id);
-      const s = JSON.stringify(o), was = this.base.get(id);
-      if (was === s) continue;
+      const s = JSON.stringify(o), was = this.base.get(id), fx = this.resend.size ? this.resend.get(id) : undefined;
+      if (was === s && !fx) continue;
       this.base.set(id, s);
       if (was === undefined) {
         const all = JSON.parse(s); ops.push(['put', id, all]); this.gone.delete(id);
@@ -162,9 +177,11 @@ export class ItemSync {
         continue;
       }
       const a = JSON.parse(was), b = JSON.parse(s);
-      for (const f of new Set([...Object.keys(a), ...Object.keys(b)])) {
-        if (!(f in b)) ops.push(['del', id, f]);
-        else if (!(f in a) || JSON.stringify(a[f]) !== JSON.stringify(b[f])) ops.push(seq !== null && counters[f] && typeof a[f] === 'number' && typeof b[f] === 'number' ? ['add', id, f, b[f] - a[f]] : ['set', id, f, b[f]]);
+      // (a refused field goes again as it is, also when it did not change here: the guest that was refused may hold
+      // something this game never shared, see apply)
+      for (const f of new Set([...Object.keys(a), ...Object.keys(b), ...(fx || [])])) {
+        if (!(f in b)) { if (f in a || fx?.has(f)) ops.push(['del', id, f]); else continue; }
+        else if (!(f in a) || fx?.has(f) || JSON.stringify(a[f]) !== JSON.stringify(b[f])) ops.push(seq !== null && counters[f] && typeof a[f] === 'number' && typeof b[f] === 'number' && !fx?.has(f) ? ['add', id, f, b[f] - a[f]] : ['set', id, f, b[f]]);
         else continue;
         if (seq !== null) this.inflight.set(slot(id, f), seq);
       }
@@ -174,14 +191,35 @@ export class ItemSync {
       if (seq !== null) { for (const k of [...this.inflight.keys()]) if (k.startsWith(`${id}\u0000`)) this.inflight.delete(k); this.inflight.set(slot(id, DROP), seq); }
     }
     for (const id of this.redrop) if (!seen.has(id) && !ops.some(op => op[1] === id)) { ops.push(['drop', id]); if (seq !== null) this.inflight.set(slot(id, DROP), seq); }
-    this.redrop.clear();
+    this.redrop.clear(); this.resend.clear();
     return ops;
   }
   // Llegan cambios. fromHost: de quien lleva el mundo (ack: hasta qué envío tuyo ha aplicado; full: es la foto entera);
   // si no, de un invitado y los aplicas tú, que lo llevas: devuelve lo que no se deja, para devolvérselo como está aquí.
   // trusted: de quien lo llevaba hasta que te lo pasó (el mundo del servidor, mientras se lo pasa): puede quitar
-  apply(g, ops, fromHost, ack = null, { full = false, trusted = false } = {}) {
+  // peer: the guest who sent them ({ id, old }). With it, the collection's guard is asked for every field change (set, del,
+  // add, and each field a put changes on one that is already here); a refused one goes back as it is here. Without a peer
+  // (a caller from before) or with an old one, nothing is asked, as before
+  apply(g, ops, fromHost, ack = null, { full = false, trusted = false, peer = null } = {}) {
     const cur = this.def.items(g), out = [], back = [], counters = this.def.counters || {}, sums = new Map();
+    const guard = !fromHost && !trusted && this.def.guard && typeof peer?.id === 'string' && peer.id && !peer.old ? this.def.guard : null;
+    const staged = guard ? new Map() : null;   // (id → the element as this batch leaves it so far: what the guard reads)
+    const view = id => { let o = staged.get(id); if (!o) staged.set(id, (o = { ...cur.get(id) })); return o; };
+    // May this field change stand? If not, it goes back to the guest as it is here (as this batch leaves it)
+    const allow = (id, f, v) => {
+      if (!guard) return true;
+      const el = view(id);
+      let yes = true;
+      try { yes = guard(g, id, f, v, peer.id, el) !== false; } catch (e) { console.warn('guard', this.name, f, e); }   // (a broken rule must not stop the world: as before)
+      if (yes) { if (v === undefined) delete el[f]; else el[f] = v; }
+      else {
+        back.push(f in el ? ['set', id, f, copy(el[f])] : ['del', id, f]);
+        // (what is sent back may be newer than what this game last shared, a lock taken here a moment ago: the next diff
+        // sends that field to everybody again, so nobody keeps a value that is no longer here)
+        let fs = this.resend.get(id); if (!fs) this.resend.set(id, (fs = new Set())); fs.add(f);
+      }
+      return yes;
+    };
     if (fromHost) for (const [k, seq] of this.inflight) if (ack !== null && seq <= ack) this.inflight.delete(k);
     const held = (id, f) => fromHost && this.inflight.has(slot(id, f));   // (tuyo y aún sin aplicar allí: se queda lo tuyo)
     for (const op of ops) {
@@ -197,11 +235,11 @@ export class ItemSync {
       if (kind === 'put') {
         if (!fromHost && this.gone.has(id)) { back.push(['drop', id]); continue; }   // (ya no está: no se resucita)
         if (!have) { if (held(id, DROP)) continue; out.push(['put', id, f]); cur.set(id, f); if (fromHost) this.gone.delete(id); continue; }   // (lo acabas de quitar tú: no vuelve)
-        // (uno que ya está: campo a campo, como si fueran set y del)
+        // (uno que ya está: campo a campo, como si fueran set y del; the guard sees each of them, so a put does not get past it)
         for (const k of new Set([...Object.keys(have), ...Object.keys(f)])) {
           if (held(id, k) || BAD_FIELDS.has(k)) continue;
-          if (!(k in f)) out.push(['del', id, k]);
-          else if (JSON.stringify(have[k]) !== JSON.stringify(f[k])) out.push(['set', id, k, f[k]]);
+          if (!(k in f)) { if (allow(id, k, undefined)) out.push(['del', id, k]); }
+          else if (JSON.stringify(have[k]) !== JSON.stringify(f[k]) && allow(id, k, f[k])) out.push(['set', id, k, f[k]]);
         }
         continue;
       }
@@ -210,8 +248,9 @@ export class ItemSync {
       if (kind === 'add') {
         const range = counters[f] || [-Infinity, Infinity], k = slot(id, f), now = sums.has(k) ? sums.get(k) : Number(have[f]) || 0;
         const n = Math.min(range[1], Math.max(range[0], now + v));
+        if (!allow(id, f, n)) continue;
         sums.set(k, n); out.push(['set', id, f, n]);
-      } else out.push(kind === 'set' ? ['set', id, f, v] : ['del', id, f]);
+      } else if (allow(id, f, kind === 'set' ? v : undefined)) out.push(kind === 'set' ? ['set', id, f, v] : ['del', id, f]);
     }
     // (la foto entera: lo que aquí sobra se quita, salvo lo tuyo que allí aún no han aplicado)
     if (full) {

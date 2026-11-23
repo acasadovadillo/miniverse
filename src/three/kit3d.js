@@ -97,6 +97,23 @@ export function bakeStowed(model, kind) {
   return geo;
 }
 
+// The grooming brush in the hand while brushing a horse (actors.js hold, the 'brush' gesture; Plan F §5.1.4): a wooden back
+// with a leather strap over it for the hand, and the stiff bristles under it on the side a tool's edge faces (+x: what
+// faces the work as the arm strokes, as an axe's edge does). Along +y from the grip, as the tools; about 15 cm long. One
+// geometry, made once and never released (shared by every hand: hold() releases only materials), with KIT_MAT
+let BRUSH_GEO = null;
+export function brushModel() {
+  if (!BRUSH_GEO) BRUSH_GEO = mergeParts([
+    box('#8a5a32', -0.012, -0.05, -0.032, 0.012, 0.1, 0.032, 0.01),           // the wooden back
+    box('#2e2620', 0.012, -0.044, -0.028, 0.036, 0.094, 0.028, 0.004),       // the bristles
+    box(LEATHER_DARK, -0.017, -0.008, -0.036, 0.004, 0.032, 0.036, 0.004),    // the strap over the back
+  ]);
+  const g = new THREE.Group(), o = new THREE.Mesh(BRUSH_GEO, KIT_MAT);
+  o.castShadow = true; o.userData.shared = true;
+  g.add(o);
+  return g;
+}
+
 // The quiver: a leather tube with its rim, and the arrows showing at the top (three feathers, or six with ten or more).
 // Along +y from its bottom
 const QUIVER = new Map();

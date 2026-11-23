@@ -39,7 +39,7 @@ import { itemIcon } from './art/items.js';
 import { PREY, bodyBox } from './hunt.js';
 import { priceOf, buyPrice, mendPrice, MEND_SHARE } from './economy.js';
 import { levelOf, recent } from './reputation.js';
-import { EMOTE_KINDS, PLAYER_LINES, REPLY_GESTURE } from './social.js';
+import { EMOTE_KINDS, PLAYER_LINES, REPLY_GESTURE, areCouple } from './social.js';
 import { modelKind, ICON3D } from './three/icons.js';
 import { useSmartHud } from './ui/smarthud.js';
 import { Settings } from './settings.js';
@@ -53,7 +53,9 @@ import { BULKY, BULKY_PARTS, CARCASS_OF, weightOf, BASE_CAP, BAG_CAP, BARROW, CE
 import { Barrow } from './barrow.js';
 import { GAME_VERSION } from './version.js';
 import { Player, barrowPen, GAIT } from './entities.js';
-import { horseModel, animateHorse, horseCadence } from './three/animals.js';
+import { horseModel, animateHorse, horseCadence, animalKey, setHorseDirt, disposeAnimal, HORSE_ACTS as HACTS } from './three/animals.js';
+import * as HR from './horse.js';   // (Plan F: the horse's pure rules; as a namespace, levelOf and settle are taken)
+import { HORSE_ACTS as LIVE_HORSE_ACTS } from './live.js';
 import { screenToWorld } from './camera.js';
 import { makeCave } from './world/underground.js';
 import { START_KIT, thirstOf, clothesText, WEAR_SLOTS, wearSlotLabel, itemNoun } from './items.js';
@@ -76,7 +78,7 @@ import { Music, LegacyMusic, DynamicMusic, Conductor } from './music.js';
 import { Voices, MAX_VOICES, renderPart } from './musicvoices.js';
 import { SCORES, barS, unitS, stingerNotes, resolveScore } from './musicscore.js';
 import { apagada } from './opciones.js';
-import { NORTH, HALF as PHALF, nearX } from './world/planet.js';
+import { NORTH, HALF as PHALF, nearX, W as PW } from './world/planet.js';
 import { DOOR, PLAZA, distToPath, doorOf, getProjects, familyHouse } from './world/village.js';
 
 const GATE_X = 20;   // (el hueco de la valla del jardín, en el camino)
@@ -1524,7 +1526,8 @@ async function soloTests(game) {
       check(game.pickUp(game.world.placedObjectAt(cx, cy)), 'no se recoge el cofre vacío'); const keepWood = I.count('madera'); for (let i = 0; i < 8; i++) draw(); check(!W.isOpen('s-chest'), 'sigue abierta sin cofre');
       I.remove('cofre', 1); check(I.count('madera') === keepWood, 'cambia lo que llevas');
       // Las alforjas: todos los movimientos de una apertura se quedan
-      const horse = { bags: [{ id: 'cuerda', n: 2 }, { id: 'fibra', n: 3 }, ...Array(7).fill(null)] }; game.onChest(() => horse.bags, null, () => game.ranch.bagsChanged(horse));
+      const horse = { bags: [{ id: 'cuerda', n: 2 }, { id: 'fibra', n: 3 }, ...Array(10).fill(null)] }; game.onChest(() => horse.bags, null, () => game.saddlebags.changed(horse), { title: () => t('gui.chest.saddlebags_kg', { kg: 0 }) });   // (12 stacks since Plan F; the 4th argument: the title)
+      check([...cells()].filter(c => !c.hidden).length === 12, `alforjas: ${[...cells()].filter(c => !c.hidden).length} cells`);
       const rope = I.count('cuerda'), fib = I.count('fibra'); click(cells()[0]); click(cells()[1]); check(I.count('cuerda') === rope + 2 && I.count('fibra') === fib + 3 && !horse.bags.some(Boolean), `alforjas: ${JSON.stringify(horse.bags.slice(0, 2))}`);
       W.close('s-chest'); I.remove('cuerda', 2); I.remove('fibra', 3); I.remove('madera', 10); I.remove('piedra', 7);
       // En primera persona, con una ventana, el puntero queda libre
@@ -5199,6 +5202,474 @@ async function soloTests(game) {
     const out = JSON.parse(JSON.stringify(N.friends.rosa));
     check(Array.isArray(out.mem) && out.mem.length >= 2 && out.mem.every(m => Array.isArray(m) && m.length === 4), `the memory saved: ${JSON.stringify(out.mem)}`);
   }));
+  // ---------- Plan F phase 1: the horse's bond, the N whistle, the gallop's stamina, spooks, tricks and the saddlebags
+  // (src/horse.js, src/saddlebags.js; docs/planes/gta/PLAN-F-caballo.md §11) ----------
+  const HS = () => game.horse, SBg = () => game.saddlebags, RN = () => game.ranch, myId = () => Profile.id || 'yo';
+  // Run fn with these horses in the ranch (built by ranch.reset, as a save loads them), then the ranch as it was
+  const withHorses = async (list, fn) => {
+    const keep = {}; RN().save(keep);
+    const was = JSON.stringify(keep), dif = game.difficulty, mode = game.gamemode;
+    try {
+      const out = JSON.parse(was); out.animals.push(...list);
+      RN().reset(out); SBg().reset(); HS().reset();
+      await fn(...list.map(d => RN().animals.find(a => a.id === d.id)));
+    } finally {
+      Object.assign(p(), { mount: false, horseId: null, horseAct: null, horseWinded: false, inside: false });
+      game.difficulty = dif; game.gamemode = mode;
+      RN().reset(JSON.parse(was)); SBg().reset(); HS().reset();
+      game.live.items.animals.resend.clear();
+      game.windows?.close?.('s-chest');
+    }
+  };
+  const aHorse = (o = {}) => ({ id: `hf-${Math.random().toString(36).slice(2, 7)}`, type: 'caballo', name: 'Rayo', owner: myId(), breed: 'castano', love: 0, born: game.days.dayIndex - 60, outDay: game.days.dayIndex, x: p().x + 1, y: p().y, at: [+(p().x + 1).toFixed(2), +p().y.toFixed(2)], ...o });
+  // The horse's own clock: dt s of H.update with the player as given (galloping: moving at the sprint tier)
+  const ride = (secs, gallop, dt = 1 / 20) => { for (let i = 0; i < Math.round(secs / dt); i++) { p().vx = gallop === null ? 0 : 6; p().vy = 0; p().gait = gallop ? 2 : 0; game.time += dt; HS().update(dt); } p().vx = 0; };
+  // A partner: Bea (prueba_b) and this player are a couple while fn runs (the family as social.areCouple reads it)
+  const asCouple = async fn => { const S = game.social, was = S.areCouple; S.areCouple = (x, y) => areCouple({ kids: [{ parents: [myId(), 'prueba_b'] }] }, x, y); try { await fn(); } finally { S.areCouple = was; } };
+
+  await test('vinculo (horse bond): brush, feed and pat give progress with their daily caps; 100 progress is one more heart; levels from hearts 0-2/3-5/6-8/9-10', async () => {
+    const { gainFor, settle: settleBx, levelOf: lv, GAIN } = HR, T = 50;
+    check(gainFor({ dirt: 0 }, 'brush', T) === GAIN.brush && gainFor({ dirt: 1 }, 'brush', T) === GAIN.brush + GAIN.brushDirt, `a brush: ${gainFor({ dirt: 1 }, 'brush', T)}`);
+    check(gainFor({ dirt: 0, care: { d: T, b: 1 } }, 'brush', T) === 0 && gainFor({ dirt: 0.5, care: { d: T, b: 1 } }, 'brush', T) === GAIN.brushAgain, 'a second brush');
+    check(gainFor({ care: { d: T, f: 2 } }, 'feed', T, 'zanahoria') === GAIN.carrot && gainFor({ care: { d: T, f: 3 } }, 'feed', T, 'zanahoria') === 0, 'the fourth treat gives');
+    check(gainFor({ care: { d: T - 1, f: 3 } }, 'feed', T, 'heno') === GAIN.hay, 'yesterday\'s treats count today');
+    check(gainFor({}, 'pat', T) === GAIN.pat1 && gainFor({ care: { d: T, p: 1 } }, 'pat', T) === GAIN.pat && gainFor({ care: { d: T, p: 5 } }, 'pat', T) === 0, 'the sixth pat gives');
+    let s = settleBx(4, 120); check(s.love === 5 && s.bx === 20, `bx 120: ${JSON.stringify(s)}`);
+    s = settleBx(9, 250); check(s.love === 10 && s.bx === 99, `at 10 hearts: ${JSON.stringify(s)}`);
+    check([0, 1, 2].every(n => lv(n) === 1) && [3, 4, 5].every(n => lv(n) === 2) && [6, 7, 8].every(n => lv(n) === 3) && [9, 10].every(n => lv(n) === 4), 'the levels');
+    // In the game: the host's books turn bx into hearts; the menu's care, with the caps
+    await withHorses([aHorse({ love: 4, bx: 120, dirt: 1 })], async a => {
+      RN().horseBooks(); check(a.love === 5 && a.bx === 20, `the books: ${a.love} ${a.bx}`);
+      check(HS().care(a, 'brush') && a.bx === 20 + GAIN.brush + GAIN.brushDirt && a.dirt === 0 && a.act?.kind === 'shake', `a dirty brush: bx ${a.bx}, dirt ${a.dirt}`);
+      check(!HS().care(a, 'brush') && a.bx === 70, 'a clean horse brushed twice');
+      const n0 = inv().count('zanahoria'); inv().add('zanahoria', 4);
+      try {
+        for (let i = 0; i < 3; i++) check(HS().care(a, 'feed', 'zanahoria'), `treat ${i + 1}`);
+        check(!HS().care(a, 'feed', 'zanahoria') && inv().count('zanahoria') === n0 + 1 && a.bx === 70 + 3 * GAIN.carrot, `the fourth treat: bx ${a.bx}, carrots ${inv().count('zanahoria') - n0}`);
+      } finally { inv().remove('zanahoria', inv().count('zanahoria') - n0); }
+      const b = a.bx; for (let i = 0; i < 7; i++) HS().care(a, 'pat');
+      check(a.bx === b + GAIN.pat1 + 4 * GAIN.pat, `seven pats: +${a.bx - b}`);
+      RN().horseBooks(); check(a.love === 6 && a.bx === b + GAIN.pat1 + 4 * GAIN.pat - 100, `one more heart: ${a.love} ${a.bx}`);
+      // The journal: the level and the progress line under the hearts
+      const j = RN().journal(); check(j.includes('class="j-hlv"') && j.includes('class="j-bx"') && j.includes(t('journal.horse.level', { n: 3 })), 'the journal line');
+    });
+  });
+  await test('vinculo vieja (old horse save): a save with love 7, bags of 9 and no bx loads as level 3 with 12 bag slots and nothing lost', async () => {
+    const bags = [{ id: 'cuerda', n: 2 }, ...Array(7).fill(null), { id: 'fibra', n: 3 }];
+    await withHorses([aHorse({ love: 7, bags, shod: true, brushDay: 3, carrotDay: 3, bagsBy: ['prueba_x', 5], callAt: [1, 2], callBy: 'prueba_x' })], async a => {
+      check(HR.levelOf(a.love) === 3 && a.love === 7 && a.bx === undefined && a.shod, `old horse: love ${a.love}, bx ${a.bx}`);
+      check(a.bags.length === 12 && a.bags[0]?.id === 'cuerda' && a.bags[0].n === 2 && a.bags.some(s => s?.id === 'fibra' && s.n === 3) && a.bags.filter(Boolean).length === 2, `bags: ${JSON.stringify(a.bags)}`);
+      check(a.bagsBy === undefined && a.callAt === undefined && a.callBy === undefined, 'a lock or a call survived the load');
+      RN().horseBooks(); check(a.love === 7, 'the books changed an old horse');
+      const saved = a.toSave(); check(saved.bags.length === 12 && saved.love === 7 && !('bagsBy' in saved), 'saved');
+    });
+  });
+  await test('galope (gallop): stamina falls only while galloping, by level and shod; winded blocks running until 40 %; the rider\'s needs stamina is untouched; a mounted jump costs the horse', async () => {
+    await withHorses([aHorse({ love: 0 })], async a => {
+      game.difficulty = 'peaceful'; game.gamemode = 'survival';   // (peaceful: no spook in the middle of the counting)
+      RN().mount(a); check(p().mount && HS().ridden === a && HS().stam === HR.STAM_MAX, 'not riding it');
+      const N = game.needs, st0 = N.stamina;
+      ride(1, false); check(HS().stam === HR.STAM_MAX, `walking spends: ${HS().stam}`);
+      ride(6, true); check(Math.abs(HS().stam - (100 - 6 * 100 / 12)) < 1.5 && HS().galloping === true, `6 s of gallop at level 1: ${HS().stam}`);
+      check(N.stamina === st0, `the rider's stamina moved: ${st0} → ${N.stamina}`);
+      ride(6.5, true); check(HS().stam === 0 && HS().winded && HS().noGallop() && p().horseWinded, `empty: ${HS().stam} winded ${HS().winded}`);
+      check(!p().canJump() && !HS().jumpSpend(), 'a winded horse jumps');
+      // game.js drops the sprint tier while winded
+      keys.up = keys.run = keys.sprint = true; p().gait = 2;
+      try { step(1 / 60); check(!keys.sprint, 'the sprint tier stays while winded'); } finally { clearKeys(); }
+      ride(1.4, false); check(HS().stam === 0, `refills before 1.5 s: ${HS().stam}`);
+      ride(2.2, false); check(HS().winded, `cleared before 40 %: ${HS().stam}`);
+      ride(1, false); check(!HS().winded && HS().stam >= 40, `still winded at ${HS().stam}`);
+      // A mounted jump: the horse pays 8, the rider nothing
+      const s1 = HS().stam, n1 = N.stamina; check(HS().jumpSpend() && Math.abs(HS().stam - (s1 - HR.JUMP_COST)) < 1e-6 && N.stamina === n1, `the jump: ${s1} → ${HS().stam}`);
+      // By level and shod; creative and ?vinculo=0 never tire
+      check(HR.drainOf(4, false) < HR.drainOf(1, false) && Math.abs(HR.drainOf(4, false) - 100 / 36) < 1e-9 && HR.drainOf(1, true) < HR.drainOf(1, false), 'drain by level and shod');
+      game.gamemode = 'creative'; ride(20, true); check(HS().stam === HR.STAM_MAX && !HS().noGallop(), `creative tires: ${HS().stam}`); game.gamemode = 'survival';
+      HS().off = true; try { ride(20, true); check(HS().stam === HR.STAM_MAX && !HS().noGallop() && HS().jumpSpend(), `?vinculo=0 tires: ${HS().stam}`); } finally { HS().off = false; }
+      RN().dismount(); HS().update(1 / 60); check(!p().mount && !HS().ridden && HS().galloping === false, 'off, still galloping');
+    });
+  });
+  await test('alforjas peso (saddlebags weight): above 30 kg the gallop is shorter; what they hold never weighs on the rider', async () => {
+    check(HR.drainOf(1, false, 30) === HR.drainOf(1, false, 0) && Math.abs(HR.drainOf(1, false, 70) / HR.drainOf(1, false, 0) - 2) < 1e-9, 'drain by kg');
+    const per = stackKg({ id: 'piedra', n: 1 }) || 1, n = Math.min(99, Math.ceil(50 / per));
+    await withHorses([aHorse({ bags: [{ id: 'piedra', n }, ...Array(11).fill(null)] })], async a => {
+      game.difficulty = 'peaceful'; game.gamemode = 'survival';
+      const kg = SBg().kg(a); check(kg > 30, `the bags weigh ${kg} kg`);
+      const load = inv().load;
+      RN().mount(a); const mul = game.carry.speedMul(); ride(2, true);
+      const drained = HR.STAM_MAX - HS().stam, want = 2 * HR.drainOf(1, false, kg);
+      check(Math.abs(drained - want) < 1 && drained > 2 * HR.drainOf(1, false) + 1, `2 s of gallop with ${kg.toFixed(1)} kg: ${drained.toFixed(1)} (want ${want.toFixed(1)})`);
+      const full = a.bags; a.bags = Array(12).fill(null);
+      check(inv().load === load && game.carry.speedMul() === mul, `the bags weigh on the rider: ${load} → ${inv().load}`); a.bags = full;
+      check(p().horseBags && p().horseFill === 2, `the rider's fill: ${p().horseFill}`);
+    });
+  });
+  await test('silbido (whistle): N in range calls the right horse (last ridden, own, partner\'s); out of range says too far; a partner\'s whistle brings it to the partner, not the owner; the jump-in spot is behind the camera and 32-40 m away; no spot means no jump-in; indoors sends nothing; range across the planet seam uses the wrap', async () => {
+    const spy = told(), W = w(), yaw = CAM.yaw;
+    const [gx, gy] = openGround(); await goTo(game, gx + 0.5, gy + 0.5); p().horseId = null;
+    const stub = (blocked = false) => { W.blocked = () => blocked; W.waterDepth = () => 0; W.collidersNear = () => []; };
+    const unstub = () => { delete W.blocked; delete W.waterDepth; delete W.collidersNear; };
+    try {
+      await asCouple(async () => {
+        const x0 = p().x, y0 = p().y;
+        await withHorses([aHorse({ id: 'hf-own', love: 0, x: x0 + 45, at: [x0 + 45, y0] }), aHorse({ id: 'hf-own2', love: 2, x: x0 + 5, at: [x0 + 5, y0] }), aHorse({ id: 'hf-bea', owner: 'prueba_b', love: 10, x: x0 - 5, at: [x0 - 5, y0] })], async (far, own2, bea) => {
+          // Which horse: your own with the most hearts, the last ridden first; never your partner's while you have one
+          check(HS().pick() === own2, `pick: ${HS().pick()?.id}`);
+          p().horseId = 'hf-own'; check(HS().pick() === far, 'the last ridden is not picked'); p().horseId = null;
+          // In range at 45 m (level 1: 60 m): it comes, from a spot behind the camera 32-40 m away
+          CAM.yaw = 0.7; stub();
+          const c0 = far.call || 0; check(HS().whistle(far), 'the whistle in range');
+          const [sx, sy] = far.callAt || [], d = Math.hypot(sx - p().x, sy - p().y), bx = Math.sin(CAM.yaw), by = Math.cos(CAM.yaw);
+          check(far.call === c0 + 1 && far.callBy === myId() && far.calling, `the call: ${far.call} ${far.callBy}`);
+          check(d >= 32 - 1e-6 && d <= 40 + 1e-6 && ((sx - p().x) * bx + (sy - p().y) * by) / d >= 0.5 - 1e-6, `the spot: ${far.callAt}, ${d.toFixed(1)} m, ${(((sx - p().x) * bx + (sy - p().y) * by) / d).toFixed(2)}`);
+          check(spy.out.includes(t('horse.whistle.come', { name: far.name })), 'no "is coming"');
+          // No spot (everything blocked): no jump-in, it walks the whole way
+          stub(true); far.calling = false; check(HS().whistle(far) && far.callAt === undefined, `a jump-in with no spot: ${far.callAt}`); stub();
+          // The held whistle: from any distance, as it always did (an old level-1 horse 100 m away)
+          { const x1 = far.x; far.x = p().x + 100; far.calling = false; check(HS().whistle(far, true) && far.calling, 'the held whistle has the range of N'); far.x = x1; }
+          // Beside you: the gesture, and nothing is sent
+          { const x1 = own2.x, c = own2.call || 0; own2.x = p().x + 1.3; own2.y = p().y; check(HS().whistle(own2) && (own2.call || 0) === c && !own2.calling, 'called from 1.3 m'); own2.x = x1; }
+          // Near: no jump-in either
+          check(HS().whistle(own2) && own2.callAt === undefined, 'a jump-in from 5 m');
+          // Out of range: too far, nothing sent, on the minimap for a moment
+          far.x = p().x + 100; far.calling = false; const c1 = far.call;
+          check(!HS().whistle(far) && far.call === c1 && spy.out.includes(t('horse.whistle.far', { name: far.name })), 'too far is called');
+          check(HS().marks().some(m => m.id === far.id && m.mini), 'too far is not on the minimap');
+          // Indoors: nothing
+          p().inside = true; const c2 = own2.call; check(!HS().whistle(own2) && own2.call === c2 && spy.out.includes(t('horse.whistle.inside', { name: own2.name })), 'indoors sends'); p().inside = false;
+          // Ridden by someone else
+          own2.rider = 'prueba_b'; const c3 = own2.call; check(!HS().whistle(own2) && own2.call === c3, 'a ridden horse is called'); delete own2.rider;
+          // Across the planet seam (level 1, 60 m): 30 m the short way round
+          own2.x = p().x + PW - 30; own2.calling = false; const c4 = own2.call || 0; check(HS().whistle(own2) && own2.call === c4 + 1, 'across the seam it does not hear');
+          // The partner's horse comes to the partner (this game), not to its owner
+          bea.x = p().x - 20; check(HS().whistle(bea) && bea.callBy === myId() && bea.calling, 'the partner\'s horse is not called');
+          unstub(); delete bea.callAt; RN().updateHorse(bea, 0.1, true);
+          check(Math.abs(bea.tx - (p().x + 1)) < 0.6 && Math.abs(bea.ty - (p().y + 0.5)) < 0.6, `it goes to ${bea.tx.toFixed(1)}, ${bea.ty.toFixed(1)}, not to the whistler at ${p().x.toFixed(1)}`);
+          // A call by a player who is gone ends
+          bea.callBy = 'prueba_b'; bea.calling = true; RN().updateHorse(bea, 0.1, true); check(!bea.calling && bea.callBy === undefined, 'a call to an absent player goes on');
+          // No horse of yours: your partner's
+          RN().animals.splice(RN().animals.indexOf(far), 1); RN().animals.splice(RN().animals.indexOf(own2), 1);
+          check(HS().pick() === bea, `no own horse, the partner's: ${HS().pick()?.id}`);
+        });
+      });
+      // N itself (input.js): the key reaches the whistle
+      const was = HS().whistle; let heard = 0; HS().whistle = () => { heard++; return true; };
+      try { for (const type of ['keydown', 'keyup']) dispatchEvent(new KeyboardEvent(type, { code: 'KeyN', key: 'n', bubbles: true })); check(heard === 1, `N: ${heard}`); } finally { HS().whistle = was; }
+    } finally { unstub(); CAM.yaw = yaw; spy.undo(); }
+  });
+  await test('susto (spook): level 1 rears and can throw (hurt 2, floor of diff.starve, never kills on normal); level 4 never throws; a pat within 3 s calms; peaceful never spooks', async () => {
+    const rnd = Math.random, C = game.combat, hp0 = C.hp, spy = told(), M = game.mobs, near = M.near;
+    try {
+      const [gx, gy] = openGround(); await goTo(game, gx + 0.5, gy + 0.5);
+      await withHorses([aHorse({ love: 0 })], async a => {
+        game.gamemode = 'survival'; game.difficulty = 'normal';
+        RN().mount(a); Math.random = () => 0;
+        const n0 = HS().spooks; check(HS().spook('mob') && HS().held() && p().horseAct?.kind === 'rear' && HS().spooks === n0 + 1 && HS().throwAt !== null, 'a level-1 spook');
+        C.hp = 2; game.time += 1.3; HS().update(1 / 60);
+        check(!p().mount && C.hp === 1 && !game.dying && Array.isArray(a.bolt) && spy.out.includes(t('horse.thrown', { name: a.name })), `thrown: mount ${p().mount}, hp ${C.hp}, bolt ${a.bolt}`);
+        // A pat within 3 s calms it: no throw, +8 bx
+        C.hp = hp0; delete a.bolt; RN().mount(a); game.time += 30;
+        const bx = +a.bx || 0; HS().spook('mob'); game.time += 1;
+        check(HS().pat() && HS().throwAt === null && a.bx === bx + HR.GAIN.calm && spy.out.includes(t('horse.calmed', { name: a.name })), `the pat: bx ${a.bx}`);
+        game.time += 2; HS().update(1 / 60); check(p().mount, 'calmed, still thrown');
+        // Level 4: rears, never throws
+        a.love = 10; game.time += 30; HS().spook('mob'); check(HS().held() && HS().throwAt === null, 'level 4 throws');
+        game.time += 2; HS().update(1 / 60); check(p().mount, 'level 4 threw');
+        // The checks: a monster comes near (its rising edge); peaceful never, normal yes
+        a.love = 0; M.near = () => true; game.time += 30; HS().lastSpook = -Infinity;
+        game.difficulty = 'peaceful'; HS().mobNear = false; const n1 = HS().spooks; HS().spookCheck(a, p()); check(HS().spooks === n1, 'peaceful spooks');
+        game.difficulty = 'normal'; HS().mobNear = false; HS().spookCheck(a, p()); check(HS().spooks === n1 + 1, 'a monster near does not spook');
+        HS().spookCheck(a, p()); check(HS().spooks === n1 + 1, 'the same monster spooks twice');
+        // G riding (input.js): a pat
+        const was = HS().pat; let g = 0; HS().pat = () => { g++; return true; };
+        try { for (const type of ['keydown', 'keyup']) dispatchEvent(new KeyboardEvent(type, { code: 'KeyG', key: 'g', bubbles: true })); check(g === 1, `G: ${g}`); } finally { HS().pat = was; }
+      });
+    } finally { Math.random = rnd; M.near = near; C.hp = hp0; spy.undo(); }
+  });
+  await test('trucos (tricks): stay from level 2 keeps a stabled horse at the door instead of walking home; rear from 3 (H riding); H below level 3 says not yet', async () => {
+    const spy = told();
+    try {
+      const [tx, ty] = openGround(); await goTo(game, tx + 0.5, ty + 0.5);
+      await withHorses([aHorse({ love: 2, home: [tx + 18, ty - 1], x: tx + 0.5, y: ty + 2.5, at: [tx + 0.5, ty + 2.5] })], async a => {
+        check(!HS().trick('stay', a) && !a.stay, 'stays at level 1');
+        a.love = 3; check(HS().trick('stay', a) && a.stay === 1 && spy.out.includes(t('horse.stays', { name: a.name })), 'does not stay at level 2');
+        const at = [...a.at], home = a.home2, dHome = () => Math.hypot(a.x - home[0], a.y - home[1]);
+        for (let i = 0; i < 300; i++) RN().updateHorse(a, 0.1, false);
+        check(Math.hypot(a.x - at[0], a.y - at[1]) < 1.6, `stay: ${Math.hypot(a.x - at[0], a.y - at[1]).toFixed(2)} m away`);
+        const d0 = dHome(); check(HS().trick('graze', a) && !a.stay, 'graze');
+        for (let i = 0; i < 400; i++) RN().updateHorse(a, 0.1, false);
+        check(dHome() < d0 - 3, `let graze, it does not go home: ${d0.toFixed(1)} → ${dHome().toFixed(1)} m`);
+        // Rear: H riding. Below level 3 a toss of the head and "not yet"; from 3 a rear, and no control meanwhile
+        a.love = 3; RN().mount(a);
+        for (const type of ['keydown', 'keyup']) dispatchEvent(new KeyboardEvent(type, { code: 'KeyH', key: 'h', bubbles: true }));
+        check(p().horseAct?.kind === 'toss' && !HS().held() && spy.out.includes(t('horse.not_yet', { name: a.name })), `H at level 2: ${p().horseAct?.kind}`);
+        a.love = 6; game.time += 2;
+        check(HS().trick('rear') && p().horseAct?.kind === 'rear' && HS().held(), `H at level 3: ${p().horseAct?.kind}`);
+        await frames(4); const x0 = p().x, y0 = p().y; keys.up = true; try { await frames(20); } finally { keys.up = false; }   // (4 frames first: a collider may nudge the rider where the horse stood)
+        check(HS().held() && Math.hypot(p().x - x0, p().y - y0) < 0.05, `the rider moves while it rears: ${Math.hypot(p().x - x0, p().y - y0).toFixed(3)} m`);
+        // Stay at level 2 for the menu; mounting ends it
+        a.stay = 1; RN().dismount(); RN().mount(a); check(!a.stay, 'mounting keeps Stay');
+      });
+    } finally { spy.undo(); }
+  });
+  await test('alforjas pareja (saddlebags couple): areCouple from kids\' parents; a partner opens them, a stranger only pats and earns no bond; the guard refuses bags from a non-holder (set and put), rider from a second rider, mount while another holds the lock, and a stranger\'s bx add', async () => {
+    check(areCouple({ kids: [{ parents: ['x', 'y'] }] }, 'y', 'x') && !areCouple({ kids: [{ parents: ['x'] }] }, 'x', 'y') && areCouple({ kids: [], expecting: { mother: 'x', father: 'y' } }, 'x', 'y'), 'areCouple');
+    check(!areCouple({ expecting: { mother: 'x' } }, 'x', 'y') && !areCouple({ kids: [{ parents: ['x', 'x'] }] }, 'x', 'x') && !areCouple(null, 'x', 'y') && !areCouple({ kids: [{ parents: ['x', ''] }] }, 'x', ''), 'areCouple says yes');
+    const S = game.live.items.animals, apply = (ops, id) => S.apply(game, ops, false, null, { peer: { id } });
+    await asCouple(async () => {
+      await withHorses([aHorse({ id: 'hf-c', bags: [{ id: 'cuerda', n: 2 }, ...Array(11).fill(null)] }), aHorse({ id: 'hf-s', owner: 'prueba_z', name: 'Nube' })], async (a, other) => {
+        // Yours: the menu (and X the bags); a stranger's: a pat, no progress
+        const mine = RN().horseTalk(a); check(mine?.alt?.text === t('horse.alt_bags') && mine.text.includes(a.name), `your horse's prompt: ${mine?.text}`);
+        const theirs = RN().horseTalk(other); check(theirs?.text?.includes(other.name) && !theirs.alt, `a stranger's prompt: ${theirs?.text}`);
+        theirs.run(); check(!(other.bx > 0) && other.petDay === RN().today && !other.care, `a stranger's pat counts: bx ${other.bx}`);
+        check(HS().ours(a, 'prueba_b') && !HS().ours(a, 'prueba_c'), 'the partner is not ours');
+        // The guard: rider. A stranger, no; a second rider, no; the partner while you hold the lock, no; free, yes
+        let back = apply([['set', a.id, 'rider', 'prueba_c']], 'prueba_c'); check(!a.rider && back.length === 1, `a stranger mounts: ${JSON.stringify(back)}`);
+        a.rider = myId(); back = apply([['set', a.id, 'rider', 'prueba_b']], 'prueba_b'); check(a.rider === myId() && back[0]?.[3] === myId(), `a second rider: ${a.rider}`);
+        a.rider = null; SBg().take(a); check(SBg().holder(a) === myId(), 'the lock is not mine');
+        back = apply([['set', a.id, 'rider', 'prueba_b']], 'prueba_b'); check(!a.rider && back.length === 1, 'mounted while I hold the lock');
+        // bags: only the holder; a put with other bags does not get past it
+        back = apply([['set', a.id, 'bags', Array(12).fill(null)]], 'prueba_b'); check(a.bags[0]?.id === 'cuerda' && back.length === 1, 'the bags from a non-holder (set)');
+        const el = { ...S.def.items(game).get(a.id), bags: Array(12).fill(null), name: 'Otro' };
+        back = apply([['put', a.id, el]], 'prueba_b'); check(a.bags[0]?.id === 'cuerda' && a.name === 'Otro' && back.some(op => op[2] === 'bags'), `the bags from a non-holder (put): ${JSON.stringify(back)}`);
+        // bagsBy: not while it is mine; a stale one (its player gone) can be taken
+        back = apply([['set', a.id, 'bagsBy', ['prueba_b', Math.round(SBg().clock)]]], 'prueba_b'); check(a.bagsBy?.[0] === myId(), 'took my lock');
+        SBg().release(a); check(a.bagsBy === undefined, 'release keeps the lock');
+        back = apply([['set', a.id, 'bagsBy', ['prueba_b', Math.round(SBg().clock)]]], 'prueba_b'); check(a.bagsBy?.[0] === 'prueba_b' && !back.length, `the partner cannot take a free lock: ${JSON.stringify(back)}`);
+        back = apply([['set', a.id, 'bags', Array(12).fill(null)]], 'prueba_b'); check(!a.bags.some(Boolean) && !back.length, 'the holder cannot write');
+        // bx: the partner adds, a stranger does not
+        const b0 = +a.bx || 0; back = apply([['add', a.id, 'bx', 10]], 'prueba_b'); check(a.bx === b0 + 10 && !back.length, `the partner's bx: ${a.bx}`);
+        back = apply([['add', a.id, 'bx', 10]], 'prueba_c'); check(a.bx === b0 + 10 && back.length === 1, `a stranger's bx: ${a.bx}`);
+        back = apply([['add', other.id, 'love', 1]], 'prueba_b'); check(!(other.love > 0), 'love from someone who is not its owner');
+        // Old peers and no peer: as before
+        check(!S.apply(game, [['set', other.id, 'name', 'Nube2']], false, null, { peer: { id: 'prueba_c', old: true } }).length && other.name === 'Nube2', 'an old peer is checked');
+      });
+    });
+  });
+  await test('bajarse (get off): riding, E with nothing aimed gets off; with a door aimed, the door wins; the held whistle still mounts and gets off as before', async () => {
+    const was = { mouse: game.mouse };
+    const [gx, gy] = openGround(); await goTo(game, gx + 0.5, gy + 0.5);
+    try {
+      await withHorses([aHorse({ love: 2, bags: Array(12).fill(null) })], async a => {
+        RN().mount(a);
+        game.mouse = true; game.aimed = () => null;
+        const n = game.nearest(); check(n?.text === t('horse.get_off', { name: a.name }) && n.alt?.text === t('horse.alt_bags'), `riding, nothing aimed: ${n?.text}`);
+        check(game.nearest() === n, 'a new action object each frame');
+        const door = { text: 'door', run() {} }; game.aimed = () => ({ kind: 'door' }); game.actionFor = () => door;
+        check(game.nearest() === door, 'the horse wins over the door');
+        game.aimed = () => null; game.mouse = false; check(!!game.nearest(), 'without a mouse, nothing');
+        game.mouse = true; n.run(); check(!p().mount && !a.rider, 'E did not get off');
+        // The held whistle: near, it mounts; riding, it gets off
+        const wh = RN().whistle(p()); check(wh.label === t('horse.item.mount', { name: a.name }), `the whistle near: ${wh.label}`);
+        wh.use(); check(p().mount && a.rider === myId(), 'the whistle did not mount');
+        const off = RN().whistle(p()); check(off.label === t('horse.item.get_off'), `the whistle riding: ${off.label}`);
+        off.use(); check(!p().mount, 'the whistle did not get off');
+      });
+    } finally { game.mouse = was.mouse; delete game.aimed; delete game.actionFor; }
+  });
+  await test('alforjas cerrojo (saddlebags lock): a guest\'s window waits for the host\'s lock; a stale lock (120 s or player gone) is cleared; closing releases it; B pays from the bags only while this game may touch them', async () => {
+    const SB = SBg(), Wn = game.windows;
+    const [gx, gy] = openGround(); await goTo(game, gx + 0.5, gy + 0.5);
+    try {
+      await withHorses([aHorse({ bags: [{ id: 'cuerda', n: 2 }, ...Array(11).fill(null)] })], async a => {
+        // Alone (this game decides): the window opens at once with its title, and closing it gives the lock back
+        check(SB.open(a) && Wn.isOpen('s-chest') && a.bagsBy?.[0] === myId() && SB.canTouch(a), 'alone, the window does not open');
+        draw(); check(document.getElementById('ch-title')?.textContent === t('gui.chest.saddlebags_kg', { kg: Math.round(SB.kg(a)) }), `the title: ${document.getElementById('ch-title')?.textContent}`);
+        Wn.close('s-chest'); SB.update(1 / 60); check(a.bagsBy === undefined && !SB.lock, `closed, the lock stays: ${a.bagsBy}`);
+        // A guest: asks, waits, and opens once the host has applied it
+        let pend = true, syn = false;
+        SB.decides = () => false; SB.guest = () => true; SB.sync = () => ({ pending: () => pend, synced: () => syn });
+        check(!SB.open(a) && !Wn.isOpen('s-chest') && SB.waiting(a) && !SB.canTouch(a), 'a guest opens before the host answers');
+        SB.update(1 / 60); check(!Wn.isOpen('s-chest'), 'opened while in flight');
+        pend = false; syn = true; SB.update(1 / 60); check(Wn.isOpen('s-chest') && SB.canTouch(a), 'the confirmed lock does not open it');
+        // The host gives it to someone else: the window closes at once
+        a.bagsBy = ['prueba_b', Math.round(SB.clock)]; SB.present = id => true;
+        SB.update(1 / 60); check(!Wn.isOpen('s-chest') && !SB.lock && !SB.canTouch(a), 'the lost lock leaves the window open');
+        delete SB.decides; delete SB.guest; delete SB.sync; delete SB.present;
+        // Stale locks: whoever decides clears them (too old, or their player gone); a fresh own one stays
+        a.bagsBy = ['prueba_b', Math.round(SB.clock) - 200]; SB.sweep(); check(a.bagsBy === undefined, 'a 200 s lock stays');
+        a.bagsBy = ['prueba_b', Math.round(SB.clock)]; SB.sweep(); check(a.bagsBy === undefined, 'a gone player\'s lock stays');
+        a.bagsBy = [myId(), Math.round(SB.clock)]; SB.sweep(); check(a.bagsBy?.[0] === myId(), 'my own fresh lock is cleared');
+        delete a.bagsBy;
+        // B and C pay from them (within 16 m) only while this game may touch them
+        a.x = p().x + 3; a.y = p().y;
+        check(game.carry.chests().some(c => c.o.horse === a && c.c === a.bags), 'B and C do not see the bags');
+        a.bagsBy = ['prueba_b', Math.round(SB.clock)]; SB.present = id => true;
+        try { check(!game.carry.chests().some(c => c.o.horse === a), 'B and C pay from bags someone else holds'); } finally { delete SB.present; }
+        delete a.bagsBy; a.x = p().x + 30; check(!game.carry.chests().some(c => c.o.horse === a), 'B and C pay from bags 30 m away');
+      });
+    } finally { delete SB.decides; delete SB.guest; delete SB.sync; delete SB.present; Wn.close('s-chest'); }
+  });
+  await test('alforjas quitar (saddlebags off): take off only when empty, the item comes back; put on pads to 12', async () => {
+    const SB = SBg(), n0 = inv().count('alforjas');
+    try {
+      await withHorses([aHorse()], async a => {
+        inv().add('alforjas', 1);
+        check(SB.putOn(a) && Array.isArray(a.bags) && a.bags.length === 12 && !a.bags.some(Boolean) && inv().count('alforjas') === n0, `put on: ${a.bags?.length}`);
+        a.bags[3] = { id: 'cuerda', n: 1 };
+        check(!SB.takeOff(a) && a.bags?.[3]?.id === 'cuerda', 'taken off full');
+        a.bags[3] = null; check(SB.takeOff(a) && a.bags === undefined && inv().count('alforjas') === n0 + 1, 'not taken off empty, or the item is lost');
+        // The menu offers it (through saddlebags.js)
+        check(SB.putOn(a) && !SB.putOn(a), 'put on twice');
+      });
+    } finally { const k = inv().count('alforjas') - n0; if (k > 0) inv().remove('alforjas', k); }
+  });
+  await test('caballo menu (horse menu): no raw key in any option, whatever treat you carry; the hearts as a number; it stands still while the menu is open and while it is cared for; a pat past the day\'s five writes nothing', async () => {
+    const ask = hud.ask, kept = inv().slots.map(s => (s ? { ...s } : null));
+    const [gx, gy] = openGround(); await goTo(game, gx + 0.5, gy + 0.5);
+    try {
+      inv().slots.forEach((s, i) => { inv().slots[i] = null; }); inv().changed();
+      await withHorses([aHorse({ love: 3 })], async a => {
+        for (const id of HR.TREATS) {
+          inv().slots.forEach((s, i) => { inv().slots[i] = null; }); inv().add(id, 1);
+          let opts = null, text = '', held = 0;
+          hud.ask = async (n, tx, o) => { opts = o; text = tx; held = a.halt - game.world.clock; return o.length - 1; };
+          await RN().horseMenu(a);
+          check(opts.length && ![...opts, text].some(s => /item\.|horse\.|undefined|\{/.test(s)), `${id}: ${JSON.stringify(opts)} ${text}`);
+          check(opts.some(s => s.includes(ITEMS[id].name.toLowerCase())), `${id} is not offered: ${JSON.stringify(opts)}`);
+          check(text.includes('3/10') && held > 20 && a.halt === undefined, `the header ${text}; stands still ${held}, after ${a.halt}`);
+        }
+        // Cared for: it stands where it is (a.halt), also on its way to some grass, and then goes on
+        a.tx = a.x + 5; a.wait = 0; check(HS().care(a, 'pat') && a.halt > game.world.clock + 1.5, `the pat: halt ${a.halt}`);
+        const x0 = a.x, y0 = a.y; for (let i = 0; i < 20; i++) RN().updateHorse(a, 0.1, false);
+        check(a.x === x0 && a.y === y0, 'it walks while it is patted');
+        a.halt = game.world.clock - 1; RN().updateHorse(a, 0.1, false); check(a.halt === undefined, 'it never goes on');
+        a.halt = game.world.clock + 1e6; RN().updateHorse(a, 0.1, false); check(a.halt === undefined, 'a halt for ever is believed');
+        for (let i = 0; i < 4; i++) HS().care(a, 'pat');
+        const care = a.care, bx = a.bx; check(HS().care(a, 'pat') && a.care === care && a.bx === bx, 'the sixth pat writes');
+      });
+    } finally { hud.ask = ask; kept.forEach((s, i) => { inv().slots[i] = s; }); inv().changed(); }
+  });
+  await test('caballo rodea (horse goes around): a called horse gets around a rock, a wall and a pocket without a jump; shut off it stops where it got to; far and shut off it starts again once from out of sight; a call or a bolt ends when someone mounts', async () => {
+    const W = w(), RNh = RN();
+    const [gx, gy] = openGround(); await goTo(game, gx + 0.5, gy + 0.5);
+    const stub = cs => { W.blocked = () => false; W.waterDepth = () => 0; W.collidersNear = () => cs; }, unstub = () => { delete W.blocked; delete W.waterDepth; delete W.collidersNear; };
+    const run = (a, secs, dt = 1 / 20) => { let top = 0, n = 0; for (; n < secs / dt && a.calling; n++) { const x = a.x, y = a.y; game.time += dt; RNh.updateHorse(a, dt, true); top = Math.max(top, Math.hypot(a.x - x, a.y - y)); } return { top, secs: n * dt, d: Math.hypot(a.x - p().x, a.y - p().y) }; };
+    try {
+      await withHorses([aHorse({ love: 0 })], async a => {
+        const x0 = p().x, y0 = p().y, at = (dx, dy) => { Object.assign(a, { x: x0 + dx, y: y0 + dy, tx: x0 + dx, ty: y0 + dy, callBy: myId() }); delete a.callAt; RNh.called(a); };
+        // Head on into a rock: its line to the spot beside you goes through the middle of it
+        const line = (dx, dy, k) => ({ x: x0 + 1 + (dx - 1) * k, y: y0 + 0.5 + (dy - 0.5) * k, r: 0.8 });
+        at(22, 3); stub([line(22, 3, 0.5)]); let r = run(a, 40); check(!a.calling && r.d < 1.9 && r.top < 0.4, `a rock: ${JSON.stringify(r)}`);
+        // A wall 10 m long across its way
+        at(22, 0.5); stub([{ x0: x0 + 10, x1: x0 + 10.4, y0: y0 - 5, y1: y0 + 5 }]); r = run(a, 60); check(!a.calling && r.d < 1.9 && r.top < 0.4, `a wall: ${JSON.stringify(r)}`);
+        // A pocket open towards it
+        at(22, 0.5); stub([{ x0: x0 + 10, x1: x0 + 10.4, y0: y0 - 2, y1: y0 + 3 }, { x0: x0 + 10, x1: x0 + 13, y0: y0 - 2.4, y1: y0 - 2 }, { x0: x0 + 10, x1: x0 + 13, y0: y0 + 3, y1: y0 + 3.4 }]); r = run(a, 60); check(!a.calling && r.d < 1.9 && r.top < 0.4, `a pocket: ${JSON.stringify(r)}`);
+        // You inside a pen: it stops outside it, and never jumps in
+        const pen = [{ x0: x0 - 4, x1: x0 + 4, y0: y0 - 4.2, y1: y0 - 4 }, { x0: x0 - 4, x1: x0 + 4, y0: y0 + 4, y1: y0 + 4.2 }, { x0: x0 - 4.2, x1: x0 - 4, y0: y0 - 4, y1: y0 + 4 }, { x0: x0 + 4, x1: x0 + 4.2, y0: y0 - 4, y1: y0 + 4 }];
+        at(18, 2); stub(pen); r = run(a, 120); check(!a.calling && r.d > 3.9 && r.d < 13 && r.top < 0.4, `a pen: ${JSON.stringify(r)}`);
+        // It in a pen, far: once from behind the camera, then it comes
+        const q = pen.map(c => ({ x0: c.x0 + 45, x1: c.x1 + 45, y0: c.y0, y1: c.y1 }));
+        at(45, 0); stub(q); r = run(a, 120); check(!a.calling && r.d < 1.9 && a.replaced && r.top > 5, `shut off far away: ${JSON.stringify(r)}`);
+        // Faster than a walk at every level
+        for (const love of [0, 3, 6, 9]) { a.love = love; at(30, 0.5); stub([]); r = run(a, 1); check(a.calling && Math.hypot(a.x - x0 - 30, a.y - y0 - 0.5) > GAIT.foot[0] * 1.1, `level ${HR.levelOf(love)}: ${Math.hypot(a.x - x0 - 30, a.y - y0 - 0.5).toFixed(2)} m in 1 s`); }
+        unstub();
+        // Someone gets on: the call and the bolt are over
+        at(10, 0); a.bolt = [x0 + 5, y0]; a.rider = myId(); RNh.updateHorse(a, 0.1, true); check(!a.calling && !a.bolt && a.callBy === undefined, 'a call goes on under its rider'); a.rider = null;
+        // Across the seam, its x comes back to the planet
+        a.x = PHALF + 2; a.tx = PHALF + 2; a.wait = 5; a.y = y0; RNh.updateHorse(a, 0.1, false); check(a.x < 0 && Math.abs(a.x - (2 - PHALF)) < 1, `x beyond the seam: ${a.x}`);
+      });
+    } finally { unstub(); }
+  });
+  await test('caballo libre (horse set free): dying in the saddle leaves it where you fell; an old save with you as its rider is healed; a cave leaves it at its mouth; with no such horse, getting off takes no other', async () => {
+    const [gx, gy] = openGround(); await goTo(game, gx + 0.5, gy + 0.5);
+    await withHorses([aHorse({ love: 2, bags: Array(12).fill(null) }), aHorse({ id: 'hf-o', love: 5 })], async (a, b) => {
+      RN().mount(a); p().x += 3; RN().onDeath();
+      check(!p().mount && !a.rider && Math.hypot(a.x - p().x, a.y - p().y) < 1.5 && Math.hypot(a.at[0] - a.x, a.at[1] - a.y) < 0.02, `died riding: rider ${a.rider}, ${Math.hypot(a.x - p().x, a.y - p().y).toFixed(1)} m`);
+      check(RN().entities(w()).includes(a), 'it is not drawn');
+      a.rider = myId(); HS().update(1); check(!a.rider, 'an old rider stays for good');
+      // In a cave: the saddlebags stay shut, and getting off leaves it outside, at the mouth
+      RN().mount(a); const sc = game.scene; game.scene = { kind: 'grid', exitTo: { x: p().x + 20, y: p().y } };
+      try { HS().actCache = null; check(HS().action() && !HS().action().alt, 'the saddlebags in a cave'); RN().dismount(); } finally { game.scene = sc; }
+      check(!a.rider && Math.hypot(a.x - p().x - 20, a.y - p().y) < 1.3, `left at ${(a.x - p().x).toFixed(1)}`);
+      // Another rides it now: nothing is written
+      RN().mount(a); a.rider = 'prueba_b'; const x = a.x; RN().dismount(); check(!p().mount && a.rider === 'prueba_b' && a.x === x, 'pulled from under its rider'); a.rider = null;
+      // A horse that is not there any more
+      Object.assign(p(), { mount: true, horseId: 'gone' }); b.rider = 'prueba_b'; const bx = b.x; RN().dismount(); check(!p().mount && b.rider === 'prueba_b' && b.x === bx, 'another horse is dragged'); b.rider = null;
+    });
+  });
+  await test('caballo invitado (a guest\'s horse): the mount the host refuses (an empty rider comes back) gets you off; back from a cave it is asked for again; a horse the host moves far is put there at once; saddlebags on and off wait for the lock', async () => {
+    const L = game.live, S = L.items.animals, SB = SBg(), spy = told(), pend0 = S.pending, syn0 = S.synced;
+    let pend = false, syn = false;
+    const guest = () => Object.defineProperty(L, 'guest', { value: true, configurable: true });
+    const was = { joined: L.joined, role: L.role, net: L.net };
+    const [gx, gy] = openGround(); await goTo(game, gx + 0.5, gy + 0.5);
+    try {
+      await withHorses([aHorse({ love: 2 })], async a => {
+        S.pending = () => pend; S.synced = () => syn;
+        // Refused: the host sends the rider back empty
+        guest(); RN().mount(a); pend = true; HS().update(0.1); check(p().mount, 'off before the answer');
+        pend = false; delete a.rider; a.at = [1, 2]; HS().update(0.1); check(!p().mount && a.at[0] === 1 && spy.out.includes(t('horse.refused', { name: a.name })), 'the refused mount rides on');
+        // Confirmed, then the host gives the rider up (a cave): asked for again once out, and refused, off
+        RN().mount(a); syn = true; HS().update(0.1); syn = false; delete a.rider; HS().update(0.1); check(p().mount && !a.rider, 'asked at once');
+        HS().update(1.2); check(p().mount && a.rider === myId(), 'not asked for again');
+        delete a.rider; HS().update(0.1); check(!p().mount, 'refused again, still riding');
+        // The host's herd: far, at once; near, smoothly
+        Object.assign(L, { joined: true, net: null }); a.netTo = [a.x + 200, a.y]; const x0 = a.x; L.tick(1 / 60); check(a.x === x0 + 200 && a.vx === 0, `swept: ${a.x - x0}`);
+        a.netTo = [a.x + 1, a.y]; L.tick(1 / 60); check(a.x - x0 - 200 > 0.05 && a.x - x0 - 200 < 0.5, `near: ${a.x - x0 - 200}`); delete a.netTo;
+        Object.assign(L, was); delete L.guest;
+      });
+      const n0 = inv().count('alforjas');
+      await withHorses([aHorse()], async a => {
+        SB.decides = () => false; SB.guest = () => true; SB.sync = () => ({ pending: () => pend, synced: () => syn });
+        pend = true; syn = false; inv().add('alforjas', 1);
+        check(!SB.putOn(a) && !a.bags && inv().count('alforjas') === n0 + 1, 'put on before the answer');
+        SB.update(1 / 60); check(!a.bags, 'put on in flight');
+        pend = false; syn = true; SB.update(1 / 60); check(a.bags?.length === 12 && inv().count('alforjas') === n0 && !SB.lock && a.bagsBy === undefined, `put on: ${a.bags?.length}, lock ${JSON.stringify(a.bagsBy)}`);
+        pend = true; syn = false; check(!SB.takeOff(a) && a.bags, 'taken off before the answer');
+        pend = false; a.bagsBy = ['prueba_b', Math.round(SB.clock)]; SB.update(1 / 60); check(a.bags && inv().count('alforjas') === n0 && !SB.lock, 'refused, and taken off');
+        delete a.bagsBy; pend = false; syn = true; SB.takeOff(a); SB.update(1 / 60); check(!a.bags && inv().count('alforjas') === n0 + 1, 'not taken off');
+        inv().remove('alforjas', 1);
+      });
+      delete SB.decides; delete SB.guest; delete SB.sync;
+      // The host's side: with no lock, only their presence may change, once
+      await asCouple(async () => withHorses([aHorse({ bags: Array(12).fill(null) })], async a => {
+        const ap = ops => { S.pending = pend0; return S.apply(game, ops, false, null, { peer: { id: 'prueba_b' } }); };
+        let back = ap([['set', a.id, 'bags', [{ id: 'cuerda', n: 1 }]]]); check(!a.bags.some(Boolean) && back.length, 'things in with no lock');
+        back = ap([['del', a.id, 'bags']]); check(!a.bags && !back.length, 'the first take-off'); back = ap([['del', a.id, 'bags']]); check(back.length === 1, 'a second take-off is accepted');
+        back = ap([['set', a.id, 'bags', Array(12).fill(null)]]); check(a.bags && !back.length, 'put on'); back = ap([['set', a.id, 'bags', Array(12).fill(null)]]); check(back.length === 1, 'put on twice');
+        back = ap([['set', a.id, 'halt', 5]]); check(a.halt === 5 && !back.length, 'the partner cannot make it stand'); back = S.apply(game, [['set', a.id, 'halt', 9]], false, null, { peer: { id: 'prueba_c' } }); check(a.halt === 5 && back.length === 1, 'a stranger makes it stand');
+        // The partner's ride on the maps: where they are, or nowhere
+        a.rider = 'prueba_b'; const pl = RN().player; RN().player = id => (id === 'prueba_b' ? { x: p().x + 40, y: p().y } : null);
+        try { const m = HS().marks().find(m => m.id === a.id); check(m && Math.abs(m.x - p().x - 40) < 0.01, `the partner's ride: ${m?.x - p().x}`); RN().player = () => null; check(!HS().marks().some(m => m.id === a.id), 'a ride nobody sees is marked'); } finally { RN().player = pl; a.rider = null; }
+      }));
+    } finally { S.pending = pend0; S.synced = syn0; delete L.guest; Object.assign(L, was); delete SB.decides; delete SB.guest; delete SB.sync; delete S.pending; delete S.synced; spy.undo(); }
+  });
+  await test('caballo detalles (horse details): the thunder scare counts bolts (also with no flash); one pat at a time and none while it rears; no jump while it rears; the get-off prompt hides while you ride and follows the language; thrown, you sit for a moment', async () => {
+    const [gx, gy] = openGround(); await goTo(game, gx + 0.5, gy + 0.5);
+    const rnd = Math.random, D = game.days, b0 = D.bolts, hp0 = game.combat.hp, near = game.mobs.near, lang = getLang(), sh = game.smartHud;
+    try {
+      await withHorses([aHorse({ love: 6 })], async a => {
+        game.gamemode = 'survival'; game.difficulty = 'normal'; game.mobs.near = () => false;
+        RN().mount(a); Math.random = () => 0;
+        const n = HS().spooks; HS().spookCheck(a, p()); check(HS().spooks === n, 'spooked by nothing'); D.bolts++; HS().spookCheck(a, p()); check(HS().spooks === n + 1, 'a bolt does not scare it');
+        check(HS().held() && !p().canJump(), 'a jump while it rears');
+        game.time += 2; HS().update(1 / 60); Math.random = rnd; HS().spookAt = -Infinity;
+        const c0 = a.care?.p || 0; HS().pat(); HS().pat(); check((a.care?.p || 0) === c0 + 1, `two pats at once: ${a.care?.p}`);
+        game.time += 2; HS().trick('rear'); HS().pat(); check(a.care.p === c0 + 1, 'a pat while it rears');
+        game.time += 2; HS().update(1 / 60);
+        // The prompt (the minimal interface)
+        game.smartHud = { held: false }; HS().rideAt = game.time - 10; HS().stillT = 0; check(!HS().promptShown(), 'the prompt stays while riding');
+        HS().stillT = 1.1; check(HS().promptShown(), 'no prompt standing'); HS().stillT = 0; game.smartHud.held = true; check(HS().promptShown(), 'no prompt with Tab'); game.smartHud = sh;
+        await setLang(lang === 'es' ? 'en' : 'es'); const tx = HS().action().text; check(tx === t('horse.get_off', { name: a.name }), `in the old language: ${tx}`); await setLang(lang);
+        // Thrown: sitting on the ground for a moment
+        a.love = 0; RN().mount(a); Math.random = () => 0; game.time += 30; HS().spook('mob'); Math.random = rnd; game.time += 1.3; HS().update(1 / 60);
+        check(!p().mount && p().pose?.kind === 'floorSit' && p().pose.min > game.time, `thrown: ${JSON.stringify(p().pose)}`);
+        game.time += 2; HS().update(1 / 60); check(!p().pose, 'still sitting');
+      });
+    } finally { Math.random = rnd; D.bolts = b0; game.combat.hp = hp0; game.mobs.near = near; game.smartHud = sh; if (getLang() !== lang) await setLang(lang); if (p().pose) game.rest.stand(); }
+  });
+  await test('caballo arte (horse art): the bags fill in the model key; mud is a uniform; the rear lifts the seat on the hind hips; disposing frees the merged geometry', async () => {
+    check(animalKey({ type: 'caballo', breed: 'negro', bags: [] }, 0) !== animalKey({ type: 'caballo', breed: 'negro', bags: [] }, 2) && animalKey({ type: 'caballo', breed: 'negro' }, 2) === animalKey({ type: 'caballo', breed: 'negro' }, 0), 'the key by fill');
+    const h = horseModel('castano', true, true, 2), u = h.userData;
+    check(u.dirtU && u.dirtU.value === 0, 'no mud uniform'); setHorseDirt(h, 0.7); check(Math.abs(u.dirtU.value - 0.7) < 1e-6, `mud ${u.dirtU.value}`);
+    const hip = new THREE.Vector3(), hip0 = new THREE.Vector3();
+    animateHorse(h, 0, 0, null, 1 / 60, 0, null); h.updateMatrixWorld(true); u.legs[2].hip.getWorldPosition(hip0);
+    animateHorse(h, 0, 0.6, null, 1 / 60, 0, { act: 'rear', at: 0.6 }); h.updateMatrixWorld(true); u.legs[2].hip.getWorldPosition(hip);
+    check(u.rear > 0.8 && u.seatDy > 0.05 && hip.distanceTo(hip0) < 0.05, `the rear: ${u.rear?.toFixed(2)}, seat +${u.seatDy?.toFixed(3)}, hip moved ${hip.distanceTo(hip0).toFixed(3)}`);
+    check(u.geos?.length > 0, 'no merged geometry recorded'); disposeAnimal(h); check(!u.geos.length && !u.dirtMat, 'not disposed');
+    check(HACTS.rear && HACTS.toss && HACTS.shake && ['rear', 'toss', 'shake'].every(k => LIVE_HORSE_ACTS.includes(k)), 'the acts the network sends and the art plays differ');
+  });
   await test('peso y en brazos, fin (weight end): a save played with the weight inventory opens with ?inventario=casillas without losing anything, and back', async () => {
     const W = JSON.stringify(game.snapshot()), D = JSON.stringify([...game.world.deltas]), was = Carry.force;
     const all = () => { const n = new Map(); for (const s of game.inv.slots) if (s) n.set(s.id, (n.get(s.id) || 0) + s.n); for (const { s } of game.inv.kept) n.set(s.id, (n.get(s.id) || 0) + s.n); return n; };

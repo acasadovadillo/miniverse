@@ -3,7 +3,9 @@
 //
 // One bar, one job: health (green, red when low) comes back by itself when fed and watered; hunger (orange) is food;
 // thirst (blue) is drink; energy (yellow) is stamina, with the part of the track that low rest takes away drawn as a
-// faint locked tail on the right; air (pale cyan) shows only under water, in its own row right under health. A row
+// faint locked tail on the right; air (pale cyan) shows only under water, in its own row right under health; the horse's
+// stamina (warm tan, Plan F §1.4 and §4.1) shows only while riding, in the next row (air and riding never happen
+// together: a horse does not swim), with a tick at the 40 % it must reach again while it is winded. A row
 // takes room only while its bar is in sight (and for the half second it takes to fade out): the bars in sight sit packed
 // from the corner down, and the clock and the first steps under them follow (--nd-end, written here on the page).
 //
@@ -14,14 +16,16 @@
 //   #nd-legend, of body.uw-low and of --nd-end on the page. windows.js asks bottomAll() where to open the left window.
 //   SmartHud never touches them: it calls show(id, secs), crit(id, on) and context(all, quiet), and reset() from its
 //   start() and destroy() (then kick()).
-//   Bar ids: 'hp' | 'food' | 'water' | 'en' | 'air'. Their name key is 'hud.need.' + NEED_KEY[id].
+//   Bar ids: 'hp' | 'air' | 'horse' | 'food' | 'water' | 'en'. Their name key is 'hud.need.' + NEED_KEY[id].
 //   Values read in frame(): combat.hp / HP_MAX, combat.hunger / HUNGER_MAX, needs.thirst / THIRST_MAX,
-//   needs.stamina / STAMINA_MAX, needs.cap / STAMINA_MAX, needs.rest / REST_MAX, needs.air / needs.airMax.
+//   needs.stamina / STAMINA_MAX, needs.cap / STAMINA_MAX, needs.rest / REST_MAX, needs.air / needs.airMax,
+//   horse.stam / STAM_MAX and horse.winded (src/horse.js; the horse row only while player.mount, never with ?vinculo=0).
 //   body.underwater is set by the view (Track C); NeedsBar sets body.uw-low (air ≤ 30 % while the head is under).
 //
-// Full HUD: health, hunger, thirst and energy always in sight, air while under water or not yet full again; hovering
-// the strip shows the legend. Minimal HUD (body.hud-min): each bar on only while SmartHud keeps it on (show, crit) or
-// while a window or the tool wheel is open (context); Tab shows every row but air, with the legend. The first 3 times
+// Full HUD: health, hunger, thirst and energy always in sight, air while under water or not yet full again, the horse
+// whenever you ride; hovering the strip shows the legend. Minimal HUD (body.hud-min): each bar on only while SmartHud
+// keeps it on (show, crit) or while a window or the tool wheel is open (context); Tab shows every row but air, with the
+// legend (the horse, only while riding: it is never in sight on foot). The first 3 times
 // a bar comes on by itself (per device, Settings.v.ndSeen) and whenever it turns critical, its name shows right of its
 // bar for 2 s, so a lone blue bar is known to be thirst. The legend (Tab, or hovering in the full HUD) puts each bar's
 // name and % on its row, right of it.
@@ -31,15 +35,19 @@
 import { t, onLangChange } from '../i18n.js';
 import { HP_MAX, HUNGER_MAX } from '../combat.js';
 import { THIRST_MAX, STAMINA_MAX, REST_MAX, AIR_MAX } from '../needs.js';
+import { STAM_MAX, WINDED_CLEAR } from '../horse.js';
 import { apagada } from '../opciones.js';
 import { Settings } from '../settings.js';
 import { Audio } from '../audio.js';
 
 // Bar id → its i18n name key suffix (hud.need.health…)
-export const NEED_KEY = { hp: 'health', food: 'hunger', water: 'thirst', en: 'energy', air: 'air' };
-const IDS = ['hp', 'air', 'food', 'water', 'en'];   // (top to bottom, as on the page)
-// Thresholds (shares of the bar). LOW: the bar pulses; air at LOW also darkens the vignette and beats
-export const LOW = { hp: 0.4, food: 0.3, water: 0.3, rest: 0.25, air: 0.3 };
+export const NEED_KEY = { hp: 'health', food: 'hunger', water: 'thirst', en: 'energy', air: 'air', horse: 'horse' };
+const IDS = ['hp', 'air', 'horse', 'food', 'water', 'en'];   // (top to bottom, as on the page; horse: Plan F's row, #nd-horse)
+// The bars that only some pages have: without their element the rest still works (a test page from before them)
+const OPTIONAL = new Set(['horse']);
+// Thresholds (shares of the bar). LOW: the bar pulses; air at LOW also darkens the vignette and beats; the horse at LOW
+// pulses (SmartHud keeps it in sight then: crit)
+export const LOW = { hp: 0.4, food: 0.3, water: 0.3, rest: 0.25, air: 0.3, horse: 0.2 };
 const TAG_SECS = 2, TAG_TIMES = 3;   // the name over a bar that comes on: for 2 s, the first 3 times
 const BEAT_EVERY = 1;                // seconds between heartbeats with little air left
 const LEGEND_EVERY = 0.25;           // seconds between legend repaints while it shows
@@ -56,6 +64,7 @@ export class NeedsBar {
     this.all = false;        // context: a window or the tool wheel open (every row but air)
     this.quiet = false;      // context: in a dialogue (only the critical rows)
     this.hover = false;      // the mouse over the strip (full HUD: the legend)
+    this.ids = IDS;          // (the bars this page has: IDS, less an OPTIONAL one without its element; find() sets it)
     this.offLang = onLangChange(() => this.kick());
     addEventListener('resize', () => { this.laySig = ''; });   // (the rows are thicker from 1536 px wide: measured again)
     this.clear();
@@ -79,7 +88,7 @@ export class NeedsBar {
     this.until = {}; this.critOn = {}; this.all = false; this.quiet = false;
     const el = this.el;
     if (el) {
-      for (const id of IDS) el.bar[id].classList.remove('nd-on', 'low', 'zero');
+      for (const id of this.ids) el.bar[id].classList.remove('nd-on', 'low', 'zero', 'winded');
       el.tag.classList.remove('on');
     }
     document.body.classList.remove('uw-low');
@@ -101,6 +110,7 @@ export class NeedsBar {
     this.legendOn = false; this.legendSig = ''; this.legendAt = 0; this.lockW = undefined;
     this.dirty = false; this.gm = undefined; this.min = undefined;
     this.laid = {}; this.goneAt = {}; this.at = {}; this.laySig = ''; this.m = null; this.tagId = null; this.tagMoved = false;
+    this.shown = {};         // (reused each frame: the rows in sight)
   }
 
   // ---------- each frame ----------
@@ -115,7 +125,7 @@ export class NeedsBar {
     this.gm = g.gamemode; this.min = min;
     if (!surv) { this.setUwLow(false); return; }   // (creative and spectator: the strip is hidden by the CSS)
 
-    const c = g.combat, n = g.needs || {};
+    const c = g.combat, n = g.needs || {}, H = g.horse;
     const airMax = n.airMax || AIR_MAX, under = !!n.headUnder;
     const cap = Number.isFinite(n.cap) ? n.cap : STAMINA_MAX;
     const val = {
@@ -124,14 +134,16 @@ export class NeedsBar {
       water: Number.isFinite(n.thirst) ? n.thirst / THIRST_MAX : 1,
       en: Number.isFinite(n.stamina) ? n.stamina / STAMINA_MAX : 1,
       air: Number.isFinite(n.air) ? n.air / airMax : 1,
+      horse: Number.isFinite(H?.stam) ? H.stam / STAM_MAX : 1,
     };
     const rest = Number.isFinite(n.rest) ? n.rest / REST_MAX : 1;
-    const off = this.offs();
+    const off = this.offs(), ids = this.ids;
+    const riding = !!p.mount && ids === IDS;   // (the horse row: only in the saddle, and only on a page that has it)
 
     // The fills (and the ghost of recent damage on health: what the frame before left pending, first)
     if (this.ghostSnap) { this.ghostSnap = false; this.el.ghost.style.transition = ''; }   // (after an instant rise: the transition back)
     if (this.ghostDue !== undefined) { this.el.ghost.style.transform = `scaleX(${this.ghostDue})`; this.ghostDue = undefined; }   // (a drop: one frame later, so the delayed shrink plays)
-    for (const id of IDS) {
+    for (const id of ids) {
       const v = q(val[id]);
       if (v === this.v[id]) continue;
       const was = this.v[id];
@@ -149,19 +161,21 @@ export class NeedsBar {
     this.klass('water', 'low', val.water <= LOW.water); this.klass('water', 'zero', val.water <= 0);
     this.klass('en', 'low', rest <= LOW.rest || val.en <= 0);
     this.klass('air', 'low', val.air <= LOW.air); this.klass('air', 'zero', under && val.air <= 0);
-    for (const id of IDS) this.klass(id, 'nd-off', !!off[id]);
+    if (ids === IDS) { this.klass('horse', 'low', riding && val.horse < LOW.horse); this.klass('horse', 'winded', riding && !!H?.winded); }
+    for (const id of ids) this.klass(id, 'nd-off', !!off[id]);
 
     // Which are on (and, in the minimal HUD, which Tab shows: every bar but air)
     const tab = min && !!g.smartHud?.on?.all;
     const airLive = under || (n.air ?? airMax) < airMax - 1e-3;
-    for (const id of IDS) {
+    for (const id of ids) {
       let on, own = false, critical = false;
-      if (off[id]) on = false;
+      if (off[id] || (id === 'horse' && !riding)) on = false;   // (the horse: never on foot, whatever SmartHud last asked)
       else if (!min) on = id === 'air' ? airLive : true;
       else {
         critical = !!this.critOn[id];
         own = critical || (this.until[id] || 0) > T;
-        on = critical || (!this.quiet && (own || (this.all && id !== 'air')));
+        // (a window, the tool wheel or Tab: every row but air; the horse's, only here, since the CSS of Tab leaves it out)
+        on = critical || (!this.quiet && (own || (this.all && id !== 'air') || (tab && id === 'horse')));
         // (its name by its bar: when it turns critical, and the first times it comes on by itself)
         if (on && critical && !this.wasCrit[id]) { if (this.critOn[id] !== 'quiet') this.nameTag(id, T); }
         else if (on && own && !this.own[id] && this.seenTimes(id) < TAG_TIMES) { this.countSeen(id); this.nameTag(id, T); }
@@ -172,8 +186,8 @@ export class NeedsBar {
       this.on[id] = on;
     }
     if (this.tagOn && T > this.tagUntil) this.setTag(false);
-    const shown = {};
-    for (const id of IDS) shown[id] = !off[id] && (this.on[id] || (tab && id !== 'air'));
+    const shown = this.shown;
+    for (const id of ids) shown[id] = !off[id] && (this.on[id] || (tab && id !== 'air' && id !== 'horse'));
     this.lay(shown, T);
     if (this.tagMoved) this.placeTag(true);
 
@@ -193,7 +207,14 @@ export class NeedsBar {
     const $ = id => document.getElementById(id), root = $('needs');
     if (!root) return false;
     const bar = {}, fill = {}, row = {};
-    for (const id of IDS) { bar[id] = $('nd-' + id); fill[id] = bar[id]?.querySelector('i'); row[id] = bar[id]?.parentElement; if (!fill[id]) return false; }
+    const ids = [];
+    for (const id of IDS) {
+      bar[id] = $('nd-' + id); fill[id] = bar[id]?.querySelector('i'); row[id] = bar[id]?.parentElement;
+      if (fill[id]) ids.push(id); else if (!OPTIONAL.has(id)) return false;
+    }
+    this.ids = ids.length === IDS.length ? IDS : ids;
+    // (a winded horse gallops again at WINDED_CLEAR: its tick goes there, index.html .nd-horse.winded)
+    bar.horse?.style.setProperty('--nd-wind', `${WINDED_CLEAR * 100}%`);
     this.el = { root, bar, fill, row, ghost: bar.hp.querySelector('s'), lock: bar.en.querySelector('u'), tag: $('nd-tag'), legend: $('nd-legend') };
     if (!this.el.ghost || !this.el.lock || !this.el.tag || !this.el.legend) { this.el = null; return false; }
     root.addEventListener('mouseenter', () => { this.hover = true; });
@@ -205,7 +226,7 @@ export class NeedsBar {
     if (!this.offCache) {
       const noStam = apagada('aguante'), noRest = apagada('cansancio');
       // (energy shows rest too: it hides only when both stamina and rest are off)
-      this.offCache = { water: apagada('sed'), en: noStam && noRest, air: apagada('buceo') };
+      this.offCache = { water: apagada('sed'), en: noStam && noRest, air: apagada('buceo'), horse: apagada('vinculo') };
     }
     return this.offCache;
   }
@@ -249,7 +270,7 @@ export class NeedsBar {
   // clock and the first steps go under it, index.html) and the name tag's place
   lay(shown, T) {
     let sig = '';
-    for (const id of IDS) {
+    for (const id of this.ids) {
       if (shown[id]) { this.laid[id] = true; this.goneAt[id] = undefined; }
       else if (this.laid[id]) { this.goneAt[id] ??= T + FOLD_AFTER; if (T >= this.goneAt[id]) this.laid[id] = false; }
       if (!this.laid[id]) this.goneAt[id] = undefined;
@@ -259,7 +280,7 @@ export class NeedsBar {
     this.laySig = sig;
     const m = this.m = this.metrics();
     let y = 0;
-    for (const id of IDS) {
+    for (const id of this.ids) {
       this.el.row[id].classList.toggle('nd-gone', !this.laid[id]);
       this.at[id] = y;   // (its top in the strip, once the rows have moved)
       if (this.laid[id]) y += this.rowH(id, m) + m.gap;
@@ -274,13 +295,14 @@ export class NeedsBar {
     return { y: px('--nd-y'), h: px('--nd-h'), gap: px('--nd-gap') };
   }
   rowH(id, m) { return m.h + (id === 'hp' ? 2 : 0); }
-  // Where the strip ends (page y) with the rows an open window shows (every bar but air, and air while it is in sight),
-  // or 0 when there is no strip (creative, spectator): windows.js opens the left window under it, and keeps windows off it
+  // Where the strip ends (page y) with the rows an open window shows (every bar but air and the horse, and those two while
+  // they are in sight), or 0 when there is no strip (creative, spectator): windows.js opens the left window under it, and
+  // keeps windows off it
   bottomAll() {
     if (this.game.gamemode !== 'survival' || !document.getElementById('needs')) return 0;
     const m = this.metrics(), off = this.offs();
     let y = 0;
-    for (const id of IDS) if (!off[id] && (id !== 'air' || this.on.air)) y += this.rowH(id, m) + m.gap;
+    for (const id of this.ids) if (!off[id] && ((id !== 'air' && id !== 'horse') || this.on[id] || (id === 'horse' && !!this.game.player?.mount))) y += this.rowH(id, m) + m.gap;
     return y ? m.y + y - m.gap : 0;
   }
   setTag(on) {
@@ -299,18 +321,30 @@ export class NeedsBar {
     s[id] = (s[id] || 0) + 1;
     Settings.store();
   }
-  // The legend: the name and the percentage of each bar in sight, each on its bar's row (energy with its rest)
+  // The legend: the name and the percentage of each bar in sight, each on its bar's row (energy with its rest; the horse
+  // as one line, "Horse 80 %", with the number set like the others')
   paintLegend(val, rest, off) {
     const pct = v => t('hud.need.pct', { pct: Math.round(Math.max(0, Math.min(1, v)) * 100) });
     const rows = [];
-    for (const id of IDS) {
-      if (off[id] || (id === 'air' && !this.on.air)) continue;
+    for (const id of this.ids) {
+      if (off[id] || (id === 'air' && !this.on.air) || (id === 'horse' && !this.shown.horse)) continue;
+      if (id === 'horse') { rows.push(`<div class="l-horse">${horseLine(val.horse)}</div>`); continue; }
       const extra = id === 'en' && !apagada('cansancio') ? `<small>${t('hud.need.rest', { pct: Math.round(rest * 100) })}</small>` : '';
       rows.push(`<div class="l-${id}">${t('hud.need.' + NEED_KEY[id])}<span>${pct(val[id])}</span>${extra}</div>`);
     }
     const html = rows.join('');
     if (html !== this.legendSig) { this.legendSig = html; this.el.legend.innerHTML = html; }
   }
+}
+
+// The horse's legend line: hud.need.horse_pct, with its number (and what follows it, " %") in the span the other rows
+// put their % in, so the numbers line up. The language decides where the number goes
+const PCT_MARK = '\u0001';
+const esc = s => s.replace(/[&<>]/g, c => (c === '&' ? '&amp;' : c === '<' ? '&lt;' : '&gt;'));
+function horseLine(v) {
+  const n = Math.round(Math.max(0, Math.min(1, v)) * 100), line = t('hud.need.horse_pct', { pct: PCT_MARK }), i = line.indexOf(PCT_MARK);
+  if (i < 0) return esc(line);
+  return `${esc(line.slice(0, i).trimEnd())}<span>${n}${esc(line.slice(i + 1))}</span>`;
 }
 
 // A soft heartbeat (lub-dub): low and short filtered noise

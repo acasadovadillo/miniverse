@@ -61,6 +61,8 @@ function play(login = true) {   // (login: abrir la pantalla de entrar)
     release: () => { b.painted = null; b.dragLayer = null; },
     social: (down, src, x, y) => (down ? game.social.press(src, x, y) : game.social.release(src)),   // (Y or right click on someone: social.js)
     socialCancel: () => game.social.cancel(),
+    whistle: () => game.horse.whistle(),   // (N: Plan F, src/horse.js)
+    ride: k => (game.player?.mount && !game.busy && !hud.dialogOpen ? (k === 'pat' ? game.horse.pat() : game.horse.trick('rear')) : false),   // (G and H riding)
     secondary: (x, y) => { if (game.mode === 'play' && !game.busy) game.ranch.sitAt(game.tileAtScreen(x, y)); },
     // Lo que se coloca libre gira poco a poco mientras se mantiene R; lo que va contra un muro (cuadros, hogar), en
     // cuatro giros desde el que se ve

@@ -10,10 +10,10 @@ import { mesh, mergeInto, G, M } from './shapes.js';
 import { mat } from './geo.js';
 import { ANIMALS } from '../art/farm.js';
 import { MONSTERS } from '../combat.js';
-import { screenToWorld, screenDirOf } from '../camera.js';
+import { CAM, screenToWorld, screenDirOf } from '../camera.js';
 import { ITEMS, TIERS } from '../items.js';
 import { WATER_Y } from './terrain.js';
-import { animalModel, animalKey, animateAnimal, horseModel, animateHorse } from './animals.js';
+import { animalModel, animalKey, animateAnimal, horseModel, animateHorse, setHorseDirt, disposeAnimal, prewarmHorse, HORSE_ACTS } from './animals.js';
 import { nearX } from '../world/planet.js';
 import { RealPerson, realBaby, prebuildReal, realStats } from './realperson.js';
 import { apagada } from '../opciones.js';
@@ -21,11 +21,16 @@ import { smoothstep } from '../util.js';
 import { Audio } from '../audio.js';
 import { reportFault } from '../faults.js';
 import { kindOf, placeKit, shownOf, splitKit, poseClass } from '../kit.js';
-import { bakeStowed, buildKit } from './kit3d.js';
+import { bakeStowed, buildKit, brushModel } from './kit3d.js';
 import { carriedModel, placeCarried, holdPose, pushedModel, placePushed, pushPose, pushedReach, loadModel, placeLoad } from './carry3d.js';
 import { barrowName, barrowSize, TUB, bathFoam } from './models.js';
 import { unpackBd } from '../body.js';
 import { BULKY } from '../carry-items.js';
+import { inBounds, distToPath } from '../world/village.js';
+// (saddlebags.js fillOf, read lazily as needs.js reads the gestures: a static import would pull the game's modules,
+// barrow.js and entities.js, into the drawing's)
+let fillOfKg = null;
+import('../saddlebags.js').then(m => { fillOfKg = m.fillOf || null; }, () => {});
 
 // Agachado: cuánto se adelantan los muslos y se doblan las rodillas (rad), cuánto baja el cuerpo (m: lo que suben
 // los pies al doblar las piernas, para que sigan en el suelo) y se echa hacia delante (rad; la cabeza lo compensa
@@ -77,6 +82,27 @@ const WAIT_NEAR = 30;    // m: las personas por hacer más cerca que esto se esp
 // 15 Hz más allá; de lejos (LOD1, sin dedos ni ojos) desde unos 38 m, y vuelve a cerca por debajo de unos 31 m. Las
 // cifras de subir son un 10 % más que las de bajar, para que no cambie a cada momento en el borde
 const TIER_PX = [[90, 81], [40, 36]];      // [para subir, para seguir]: a todo; a 30 Hz; si no, a 15 Hz
+// The rider (Plan F §5.3). At the gallop: the trunk forward (rad; the head up by most of it, to look ahead) and a small
+// rise out of the saddle (m) with the stride, late on the horse's own bob (bouncePh, rad). While the horse rears: the
+// rider turns back with it, but only rearTilt of its pitch, and leans in at the waist (rearLean), both hands on its neck
+// (the grip: the arm forward and in, the elbow bent)
+const RIDE = { lean: 0.25, bounce: 0.025, bouncePh: 2.2, rearTilt: 0.55, rearLean: 0.5, gripArm: -0.75, gripIn: -0.12, gripFore: -0.85 };
+// Horses heard (m): the hooves, the snort and the neigh of another player's horse, or of your own nobody rides, fade out
+// to nothing at this distance; yours under you, always at full
+const HEAR_M = 20;
+// A start another game names otherwise: a spook is a rear here
+const ACT_ALIAS = { spook: 'rear', scared: 'rear' };
+// When an act with no start time was first seen (a game that sends none): kept by the act, never on it
+const ACT_T = new WeakMap();
+const SHAKE_SNORT = 0.45;   // (s into a shake: it blows out through its nose)
+// Hard ground under hooves (louder, a clop with a ring): a cave, inside, anything built, the village's path and plaza
+function hardGround(scene, e) {
+  if (!scene || scene.kind !== 'world' || e.inside) return true;
+  if (scene.levelAt && scene.levelAt(e.x, e.y) !== null) return true;
+  return inBounds(e.x, e.y) && distToPath(e.x, e.y) < 1.1;
+}
+// What a brushing hand holds (no item: hold() shows brushModel while the 'brush' gesture lasts)
+const BRUSH = '\u0001brush';
 const BONE_DT = [0, 1 / 30, 1 / 15, Infinity];   // cada cuánto se posan los huesos en cada nivel (3: fuera de la vista)
 const LOD_PX = [60, 72];                   // de lejos por debajo de 60 px; de cerca otra vez por encima de 72
 const LOD_GAP = 0.6;                       // segundos, como poco, entre dos cambios de detalle de la misma persona
@@ -135,6 +161,7 @@ export class Actors {
     this.time += dt;
     this.prepView(scene);
     this.prewarm(game);
+    if (!this.horseWarm && this.view.drawn) { this.horseWarm = true; prewarmHorse(this.view.renderer, this.view.camera, this.view.scene); }   // (the horse's mud program: animals.js)
     const list = [...(scene.entities || [])];
     if (game.player && game.scene === scene) for (const s of game.systems) { let more; try { more = s.entities?.(scene); } catch (e) { reportFault(e, `${s.constructor.name}.entities`); } if (more) list.push(...more); }   // (aislado: ver game.js, hook)
     if (p) list.unshift(p);
@@ -148,7 +175,7 @@ export class Actors {
       // cambia la mochila, no: se pone o se quita en la que hay, ver pose)
       const look = e === p ? game.appearance() : e.look;
       if (m && (e === p || e.remote) && m.look !== look) { if (m.kind === 'person' && look && m.look && bodyKey(m.look) === bodyKey(look)) m.look = look; else { this.drop(e, m); m = null; } }
-      if (m?.kind === 'animal' && m.key !== animalKey(e)) { this.drop(e, m); m = null; }
+      if (m?.kind === 'animal' && !this.sameAnimal(m, e)) { this.drop(e, m); m = null; }
       if (!m) {
         // (hacer una persona cuesta mucho, 100-250 ms: los vecinos van después, por cercanía. El jugador y los demás
         // jugadores, al momento, para que no desaparezcan al cambiarse de ropa; animales y monstruos son baratos)
@@ -189,6 +216,8 @@ export class Actors {
     try {
       m.person?.dispose?.(); m.release?.();
       for (const x of m.mats || []) x.dispose();
+      if (m.kind === 'animal') disposeAnimal(m.root);   // (its merged geometries and a horse's mud material)
+      if (m.horse) disposeAnimal(m.horse);
       m.root.traverse(o => {
         if (o.userData.solid) o.material.dispose();
         if (o.isSprite) { o.material.map?.dispose(); o.material.dispose(); }
@@ -362,6 +391,7 @@ export class Actors {
         // (las herramientas se hicieron para la mano izquierda: en la derecha, reflejadas, para que apunten hacia fuera)
         m.hand.scale.x = -1;
         m.horse = horseModel(); m.horse.visible = false; root.add(m.horse);
+        person.root.rotation.order = 'YXZ';   // (the rider tilts with a rearing horse about their own side axis: rideHorse)
         m.boat = boatModel(); m.boat.visible = false; root.add(m.boat);
         if (e.remote) root.add(m.tag = nameTag(e.name));   // (m.tag: fx.js keeps the speech bubbles clear of it)
       }
@@ -375,7 +405,10 @@ export class Actors {
     }
   }
   makeThing(e) {
-    if (ANIMALS[e.type]) return { kind: 'animal', root: animalModel(e.type, e.breed, e.bags), key: animalKey(e), prev: null, speed: 0, phase: Math.random() * 6 };
+    if (ANIMALS[e.type]) {
+      const fill = this.bagFill(null, e);
+      return { kind: 'animal', root: animalModel(e.type, e.breed, e.bags, fill), key: animalKey(e, fill), aType: e.type, aBreed: e.breed || '', aBags: e.bags ? 1 + fill : 0, prev: null, speed: 0, phase: Math.random() * 6 };
+    }
     if (MONSTERS[e.type]) return { kind: 'monster', root: monsterModel(e.type), prev: null, speed: 0, phase: Math.random() * 6 };
     return null;
   }
@@ -436,10 +469,9 @@ export class Actors {
       if ((e.kid && e.lying) || (pz && lying)) {}
       else if (pz) { P.facing = pz.yaw; P.root.rotation.y = pz.yaw; }
       else if (yaw !== null) P.facing = yaw;
-      if (m.horse && m.horseCoat !== (e.horseCoat || 'castano')) {   // (el caballo del jinete, con el pelaje del suyo)
-        const h = horseModel(e.horseCoat, e.horseBags);
-        if (m === this.player) h.traverse(q => { if (q.isMesh) ownMesh(q, m); });
-        m.root.remove(m.horse); m.root.add(h); m.horse = h; m.horseCoat = e.horseCoat || 'castano';
+      if (m.horse) {   // (el caballo del jinete, con el pelaje del suyo; and its saddlebags, as full as they look: horseFill 0..2)
+        const coat = e.horseCoat || 'castano', f = e.horseFill, bagK = e.horseBags ? 1 + (f === 0 || f === 1 || f === 2 ? f : 1) : 0;
+        if (m.horseCoat !== coat || m.horseBagK !== bagK) this.newHorse(m, coat, bagK);
       }
       if (m.boat) {
         // Barca y caballo
@@ -451,8 +483,9 @@ export class Actors {
           const row = Math.min(1, m.speed / 1.5);
           for (const o of m.boat.userData.oars) { const a = t * 5, sd = o.userData.side; o.rotation.y = sd * Math.sin(a) * 0.5 * row; o.rotation.z = sd * (Math.PI / 2 - OAR_DIP + Math.cos(a) * 0.15 * row); }   // (los dos a la vez; al volver, la pala sale del agua)
         }
-        else if (e.mount) { m.horse.rotation.y = P.root.rotation.y; animateHorse(m.horse, m.speed, t, null, dt, e.gait); P.root.position.y = 0.92 + seat + (m.horse.userData.bob || 0); }
+        else if (e.mount) this.rideHorse(m, e, P, seat, x, z, scene, dt, t);
         else P.root.position.y = 0;
+        if (m.reared && !e.mount) this.unrear(m, P);
       }
       // Los huesos se posan en cada fotograma de cerca, y de lejos cada 1/30 o 1/15 s con el tiempo que haya pasado (ver
       // grade; desfasadas, para que no les toque a todas en el mismo fotograma). Girar, siempre: crew.js lee hacia dónde
@@ -510,7 +543,17 @@ export class Actors {
       if (ANIMALS[e.type].swims) y = WATER_Y - 0.06 + Math.sin(t * 1.5 + x) * 0.015;
       // (el caballo vadea más hondo que lo que da groundY: pisa el fondo, como montado)
       else if (e.type === 'caballo' && scene.waterDepth) { const dd = scene.waterDepth(e.x, e.y); if (dd > 0.3) y = WATER_Y - dd; }
-      animateAnimal(m, dt, t, e);
+      if (m.root.userData.horse) {
+        // (a horse: its mud, the shake after a brushing (a.act, local) and, if it is yours or your partner's and comes at a
+        // trot or a gallop, its hooves)
+        const vol = this.hearing(m, x, z);
+        // (the mud comes off over the strokes of the brush, not at once)
+        const dirt = e.dirt || 0;
+        m.dirtK = m.dirtK > dirt ? Math.max(dirt, m.dirtK - dt * 0.55) : dirt;
+        setHorseDirt(m.root, m.dirtK);
+        animateAnimal(m, dt, t, e, this.horseState(m, e, e.act, false, dt, vol));
+        if (m.root.userData.hits && m.speed > 1.5 && this.game?.horse?.ours?.(e)) this.hooves(m, e, m.speed > 4.5 ? 2 : 1, scene, vol);
+      } else animateAnimal(m, dt, t, e);
       m.root.visible = !(e.hurt > 0 && Math.floor(e.hurt * 20) % 2);   // (herido: parpadea)
     } else if (m.kind === 'monster') {
       if (yaw !== null && (e.dir?.[0] || e.dir?.[1])) turnTo(m.root, yaw, dt);
@@ -596,6 +639,131 @@ export class Actors {
     placePushed(o, Math.max(-0.3, Math.min(0.3, Math.atan2(dh, ahead - grip))));
   }
 
+  // ---------- the horse (Plan F phase 1: docs/planes/gta/PLAN-F-caballo.md §5) ----------
+  // Does an animal's model still fit it (type, breed, and a horse's saddlebags with how full they look)? Compared field by
+  // field: no key string made for every animal in every frame
+  sameAnimal(m, e) {
+    return m.aType === e.type && m.aBreed === (e.breed || '') && m.aBags === (e.bags ? 1 + this.bagFill(m, e) : 0);
+  }
+  // How full a horse's saddlebags look, 0..2 (saddlebags.js: by what they weigh), asked at most twice a second per horse.
+  // Until that module is read, or with no saddlebags system, half full: the look closest to the bags of before
+  bagFill(m, e) {
+    if (e.type !== 'caballo' || !e.bags) return 0;
+    if (m && this.time - (m.fillT ?? -1) < 0.5) return m.fill;
+    const sb = this.game?.saddlebags, f = fillOfKg && typeof sb?.kg === 'function' ? fillOfKg(sb.kg(e) || 0) : 1;
+    if (m) { m.fillT = this.time; m.fill = f; }
+    return f;
+  }
+  // The rider's horse made again (another coat, or bags that look fuller or emptier: bagK 0 none, else 1 + fill). The old
+  // one takes its own materials with it: the player's copies (for the outline), a spectator's see-through ones and its mud
+  // material; the big thing on its back is moved by carried(), which sees another host
+  newHorse(m, coat, bagK) {
+    const old = m.horse, h = horseModel(coat, bagK > 0, false, Math.max(0, bagK - 1));
+    if (m === this.player) h.traverse(q => { if (q.isMesh) ownMesh(q, m); });
+    h.visible = old.visible;
+    m.root.remove(old); m.root.add(h);
+    m.horse = h; m.horseCoat = coat; m.horseBagK = bagK;
+    old.traverse(o => {
+      if (!o.isMesh || o.userData.shared) return;
+      if (o.userData.solid) o.material.dispose();
+      else if (m.mats?.includes(o.material)) { o.material.dispose(); for (const list of [m.mats, m.body]) { const i = list.indexOf(o.material); if (i >= 0) list.splice(i, 1); } }
+    });
+    disposeAnimal(old);
+    if (m.ghosted) { m.ghosted = false; this.ghost(m, true); }   // (de espectador, también medio transparente)
+  }
+  // The ridden horse under a player (pose, every frame): its mud, its gait with the trick or start it plays and how winded
+  // it is (from horse.js for yours, from their messages for another player's: e.horseDirt, horseAct, horseWinded), the
+  // rider on its seat (rising a little at the gallop, carried up and back while it rears) and its sounds
+  rideHorse(m, e, P, seat, x, z, scene, dt, t) {
+    const H = m.horse.userData, vol = this.hearing(m, x, z);
+    m.horse.rotation.y = P.root.rotation.y;
+    setHorseDirt(m.horse, e.horseDirt || 0);
+    animateHorse(m.horse, m.speed, t, null, dt, e.gait, this.horseState(m, e, e.horseAct, !!e.horseWinded, dt, vol));
+    m.gallopK = (m.gallopK || 0) + ((e.gait === 2 && m.speed > 3 ? 1 : 0) - (m.gallopK || 0)) * Math.min(1, dt * 4);
+    if (m.gallopK < 1e-3) m.gallopK = 0;
+    let y = 0.92 + seat + (H.bob || 0) + RIDE.bounce * m.gallopK * (0.5 + 0.5 * Math.sin((H.phase || 0) + RIDE.bouncePh));
+    const rk = H.rear || 0;
+    if (rk > 0.001) {
+      // (the hips go where the seat goes; the body turns back about them by part of the horse's pitch: the root turns
+      // about its feet, so it is moved back by what that turn moves the hips)
+      const phi = (H.seatPitch || 0) * RIDE.rearTilt, hip = P.hipY, yaw = P.root.rotation.y, dz = (H.seatDz || 0) - hip * Math.sin(phi);
+      P.root.rotation.x = phi;
+      y = 0.92 + seat + (H.seatDy || 0) - hip * (Math.cos(phi) - 1);
+      P.root.position.x = Math.sin(yaw) * dz; P.root.position.z = Math.cos(yaw) * dz;
+      m.reared = true;
+    } else if (m.reared) this.unrear(m, P);
+    P.root.position.y = y;
+    if (H.hits) this.hooves(m, e, e.gait, scene, vol);
+  }
+  unrear(m, P) { m.reared = false; P.root.rotation.x = 0; P.root.position.x = P.root.position.z = 0; }
+  // On a horse (poseBones, after the gestures): leaning into the gallop with the head up to look ahead; and while it rears,
+  // forward against its neck with both hands on it, whatever the gesture was
+  riderBones(m, P) {
+    const g = m.gallopK || 0, rk = m.horse?.userData.rear || 0;
+    if (g > 0.01) { P.torso.rotation.x += RIDE.lean * g; P.head.rotation.x -= RIDE.lean * 0.7 * g; }
+    if (rk < 0.01) return;
+    P.torso.rotation.x += RIDE.rearLean * rk; P.head.rotation.x -= RIDE.rearLean * 0.6 * rk;
+    // (the body turns back by only part of the horse's pitch: the legs make up the rest, astride as at rest, not inside it)
+    const legK = (m.horse.userData.seatPitch || 0) * (1 - RIDE.rearTilt);
+    P.legs[0].rotation.x += legK; P.legs[1].rotation.x += legK;
+    for (let i = 0; i < 2; i++) {
+      const s = i === 0 ? -1 : 1, A = P.arms[i], F = P.fore?.[i];
+      A.rotation.x += (RIDE.gripArm - A.rotation.x) * rk;
+      A.rotation.z += (s * RIDE.gripIn - A.rotation.z) * rk;
+      if (F) F.rotation.x += (RIDE.gripFore - F.rotation.x) * rk;
+    }
+  }
+  // What a horse plays, for animateHorse ({ act, at, winded }, kept on its model m). act: { kind, t } from horse.js (yours:
+  // p.horseAct; a brushed horse's shake: a.act) or from another player's messages (live.js RemotePlayer.horseAct), t the
+  // game's clock when it starts (the shake after a brushing starts when the strokes end: in the future). So it plays from
+  // the clock, never twice, and a model made again in the middle of it goes on where it was. Its sounds: horse.js plays
+  // yours when they happen (the neigh of a rear, the snort of getting winded); here, another player's, the snort that
+  // ends a shake, and the snorts of a winded horse now and then
+  horseState(m, e, act, winded, dt, vol) {
+    const S = (m.hs ||= { act: null, at: 0, winded: 0, on: false, nextSnort: 0 }), now = this.game?.time ?? 0, mine = m === this.player;
+    const was = S.act, wasAt = S.at;
+    S.act = null; S.fp = mine && CAM.first;   // (from its rider's own eyes: the rear's head and neck stay out of the view)
+    if (act?.kind) {
+      const A = ACT_ALIAS[act.kind] || act.kind, D = HORSE_ACTS[A];
+      // (no start time from a game that sends none: from when it was first seen)
+      let t0 = act.t;
+      if (typeof t0 !== 'number') { t0 = ACT_T.get(act); if (t0 === undefined) ACT_T.set(act, (t0 = now)); }
+      const at = now - t0;
+      if (D && at >= 0 && at < D) { S.act = A; S.at = at; }
+    }
+    if (S.act && vol > 0.3) {
+      if (S.act !== was && !mine) { if (S.act === 'rear') Audio.neigh(vol); else if (S.act === 'toss') Audio.snort(vol * 0.7); }
+      if (S.act === 'shake' && (was !== 'shake' || wasAt < SHAKE_SNORT) && S.at >= SHAKE_SNORT) Audio.snort(vol);   // (shaking off the dust)
+    }
+    const on = S.on;
+    S.on = winded;
+    S.winded += ((winded ? 1 : 0) - S.winded) * Math.min(1, dt * (winded ? 2.5 : 0.7));
+    if (!winded && S.winded < 0.01) S.winded = 0;
+    if (winded && !on) S.nextSnort = this.time + (mine ? 2.8 : 0);   // (yours: horse.js snorted as it happened)
+    if (winded && vol > 0.3 && this.time >= S.nextSnort) { Audio.snort(vol); S.nextSnort = this.time + 2.6 + Math.random() * 1.2; }
+    return S;
+  }
+  // How loud this one's horse sounds here (0..1): yours under you, all of it; another's fades out at HEAR_M
+  hearing(m, x, z) {
+    if (m === this.player) return 1;
+    const me = this.me;
+    if (!me) return 0;
+    const d = Math.hypot(x - me.x, z - me.y);
+    return d < HEAR_M ? 1 - d / HEAR_M : 0;
+  }
+  // The hooves that landed this frame (animateHorse counts them: u.hits), as one strike (the trot's pair lands at once; the
+  // gallop's strike sounds its pair: Audio.hooves); on hard ground a ringing clop, on grass a thud, in water a splash
+  hooves(m, e, gait, scene, vol) {
+    if (vol <= 0.02 || this.time - (m.hoofT || 0) < 0.045) return;
+    m.hoofT = this.time;
+    if (this.time - (m.hardT ?? -9) > 0.3) {
+      m.hardT = this.time; m.hard = hardGround(scene, e);
+      m.wet = e.remote || e === this.me ? e.depth > 0.15 : !!(scene?.waterDepth && scene.waterDepth(e.x, e.y) > 0.15);
+    }
+    if (m.wet) { if (vol > 0.4 && this.time - (m.wadeT2 || 0) > 0.3) { m.wadeT2 = this.time; Audio.wade(); } return; }
+    Audio.hooves(gait, m.hard, vol);
+  }
+
   // La pose de los huesos de una persona: andar (animate), en el aire, lo que lleva en la mano, agachada, sentada, a
   // caballo o en barca, y mirar a quien tiene al lado. dt: el tiempo desde la última pose (ver pose)
   poseBones(m, e, P, pz, lying, dt, game) {
@@ -606,7 +774,7 @@ export class Actors {
     // (running with a tool in the hand, its arm swings less: how much, easing with the gait; see hold)
     m.runArm = (m.runArm || 0) + ((e.mount || e.boat || e.aboard || m.swimK > 0.5 ? 0 : e.gait === 2 ? 1 : e.gait === 1 ? 0.5 : 0) - (m.runArm || 0)) * Math.min(1, dt * 6);
     // (después de andar: el golpe manda sobre el balanceo del brazo)
-    if (game) this.hold(m, { held: game.inv.held?.id || null, swing: game.gather.swing, swingItem: game.gather.swingItem, cooldown: game.gather.cooldown, fishPose: game.fishing?.pose(game.time), bowPull: game.archery?.k || 0 }, dt);
+    if (game) this.hold(m, { held: game.inv.held?.id || null, swing: game.gather.swing, swingItem: game.gather.swingItem, cooldown: game.gather.cooldown, fishPose: game.fishing?.pose(game.time), bowPull: game.archery?.k || 0, brush: e.emote?.k === 'brush' }, dt);
     else if (e.remote) this.hold(m, e, dt);
     // (the arms busy: something big in them, or the wheelbarrow's grips; riding or rowing with a big thing, the hands are free. carry3d.js)
     const busy = e.pushing ? 'push' : e.mount || e.boat || e.aboard ? null : e.armsBusy || (e.carrying && BULKY[e.carrying] ? BULKY[e.carrying].hold : null);
@@ -638,6 +806,7 @@ export class Actors {
     else P.legs[0].rotation.z = P.legs[1].rotation.z = 0;
     if (m.swimK) this.swimBones(m, P);
     if (e.emote && !busy) this.emote(m, e, P, dt, !!(game || e.remote));   // (with the arms busy, no gesture)
+    if (e.mount) this.riderBones(m, P);
     // Shivering with cold, standing still and with nothing else to do: shoulders up, arms hugging the chest, a small
     // tremble (an idle layer over the pose, eased in and out)
     const shiver = !!m.surf?.shiver && !pz && !lying && !busy && !m.anim && !e.emote && m.speed < 0.3 && !(m.swimK > 0.05) && !e.mount && !e.boat && !e.aboard && !(P.crouch > 0.1);
@@ -672,17 +841,20 @@ export class Actors {
   // empty hand; the neighbors, the right one. Swimming, none
   emote(m, e, P, dt, player) {
     const a = e.emote, E = EMOTES[a.k];
-    if (!E || m.swimK > 0.5) { delete e.emote; return; }
+    if (!E || m.swimK > 0.5) { delete e.emote; if (m.emTw) { m.emTw = false; for (const A of P.arms) A.rotation.y = 0; } return; }
     a.t += dt;
     const k = Math.min(1, a.t / E.dur), w = Math.max(0, Math.min(1, k / 0.18, (1 - k) / 0.22)), sm = w * w * (3 - 2 * w);
-    const one = player ? 1 - P.toolArm : P.toolArm, arms = E.both && !(player && m.holding) ? [0, 1] : [one];
+    // (tool: the hand with the tool in it, the right one, as the brush is held there: see hold)
+    const one = E.tool ? P.toolArm : player ? 1 - P.toolArm : P.toolArm, arms = E.both && !(player && m.holding) ? [0, 1] : [one], ride = !!e.mount;
     for (const i of arms) {
-      const q = E.pose(k, i === 0 ? -1 : 1), A = P.arms[i], F = P.fore?.[i];
+      const q = E.pose(k, i === 0 ? -1 : 1, ride), A = P.arms[i], F = P.fore?.[i];
       if (q.ax !== undefined) A.rotation.x += (q.ax - A.rotation.x) * sm;
       if (q.az !== undefined) A.rotation.z += (q.az - A.rotation.z) * sm;
+      if (q.ay !== undefined) { A.rotation.y = q.ay * sm; m.emTw = true; }   // (animate() never writes it: put back below)
       if (F && q.fx !== undefined) F.rotation.x += (q.fx - F.rotation.x) * sm;
     }
-    const q = E.pose(k, 1);
+    const q = E.pose(k, 1, ride);
+    if (m.emTw && (q.ay === undefined || k >= 1)) { m.emTw = false; for (const A of P.arms) A.rotation.y = 0; }
     if (q.hx) P.head.rotation.x += q.hx * sm;
     if (q.tx) P.torso.rotation.x += q.tx * sm;
     P.head.rotation.z = (q.hz || 0) * sm;
@@ -781,7 +953,8 @@ export class Actors {
       m.anim = { t: 0, item: g.swingItem, kind, dur: g.cooldown > 0 ? Math.max(0.22, Math.min(base, g.cooldown)) : base };
     }
     m.lastSwing = g.swing;
-    const a = m.anim, show = a ? a.item : id;
+    // (brushing a horse, the brush in the hand while the gesture lasts: g.brush for yours, another player's from their gesture)
+    const a = m.anim, show = a ? a.item : (g.brush ?? g.emote?.k === 'brush') ? BRUSH : id;
     if (m.holding !== show) {
       // (what was in the hand takes its own materials with it: the player's, for the outline, and a spectator's; they
       // piled up in m.mats with each switch)
@@ -791,7 +964,7 @@ export class Actors {
         else if (m.mats?.includes(o.material)) { o.material.dispose(); for (const list of [m.mats, m.body]) { const i = list.indexOf(o.material); if (i >= 0) list.splice(i, 1); } }
       });
       m.hand.clear();
-      const tm = show && toolModel(show), tool = tm || (show && foodInHand(show));
+      const tm = show && show !== BRUSH && toolModel(show), tool = show === BRUSH ? brushModel() : tm || (show && foodInHand(show));
       m.holdTool = !!tm;   // (a tool or a weapon: long, it would swing up into the face running)
       if (tool && m.mats) tool.traverse(o => { if (o.isMesh) ownMesh(o, m, true); });
       if (tool) m.hand.add(tool);
@@ -843,7 +1016,7 @@ const GESTURES = {
 };
 // The gestures of social.js: what each one does, at its moment k (0 to 1), with s the side of the arm (-1 the right, 1 the
 // left: + raises it outwards). ax: the arm forward (negative raises it), az: sideways, fx: the elbow (negative bends it),
-// hx: the head (positive, down), hz: its tilt, tx: the trunk (positive, forward). How long it lasts, in seconds
+// ay: the arm's turn about its length (- turns the forearm in), hx: the head (positive, down), hz: its tilt, tx: the trunk (positive, forward). How long it lasts, in seconds
 export const EMOTES = {
   wave: { dur: 1.1, pose: (k, s) => ({ ax: -2.55, az: s * (0.3 + 0.3 * Math.sin(k * Math.PI * 6)), fx: -0.5 }) },
   nod: { dur: 0.8, pose: k => ({ hx: 0.34 * Math.sin(k * Math.PI * 2) ** 2 }) },
@@ -863,6 +1036,14 @@ export const EMOTES = {
   scrub: { dur: 2.4, both: true, pose: (k, s) => { const r = Math.sin(k * Math.PI * 12 + (s > 0 ? 0 : Math.PI)); return { ax: -0.95 + 0.08 * r, az: -s * 0.18, fx: -0.75 + 0.3 * r, hx: 0.25, tx: 0.22 }; } },
   // (shivering on purpose, as a gesture: the same as the idle layer of the cold, see shiverBones)
   shiver: { dur: 2.0, both: true, pose: (k, s) => ({ ax: SHIVER.ax, az: -s * SHIVER.az + 0.02 * Math.sin(k * Math.PI * 2 * 16), fx: SHIVER.fx, hx: 0.08, tx: 0.07 }) },
+  // The horse (Plan F §5.3; the third argument: riding). brush: with the tool hand (tool: the brush is in it, see hold),
+  // three strokes along the flank at the height of its ribs, out and back with the lay of the coat, the trunk leaning in
+  brush: { dur: 2.0, tool: true, pose: (k, s) => { const r = Math.sin(k * Math.PI * 6); return { ax: -0.98 + 0.12 * r, az: s * (0.06 + 0.22 * r), fx: -0.45 - 0.25 * r, tx: 0.14, hx: 0.12 }; } },
+  // pat: on foot, the hand on its neck at shoulder height, three light pats; riding, a lean forward and the hand down on
+  // its neck in front of the saddle
+  pat: { dur: 1.3, pose: (k, s, ride) => { const p = Math.max(0, Math.sin(k * Math.PI * 6)); return ride ? { ax: -0.74 + 0.08 * p, az: -s * 0.12, fx: -0.36 - 0.2 * p, tx: 0.46, hx: 0.06 } : { ax: -1.38 + 0.1 * p, az: s * 0.04, fx: -0.35 - 0.25 * p, tx: 0.04 }; } },
+  // whistle: the fingers to the mouth, the head up a touch, held for about half a second
+  whistle: { dur: 0.9, pose: (k, s) => ({ ax: -1.2, az: -s * 0.1, ay: -s * 0.85, fx: -2.25, hx: -0.06 }) },
 };
 // In the tub: sitting on its floor with the legs straight forward under the water, the back leaning on its end, the head
 // up to look ahead and the arms resting on the rims (after animate() and the crouch: written whole, not added)

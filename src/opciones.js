@@ -24,10 +24,15 @@ const RAW = (() => { try { return new URLSearchParams(globalThis.location?.searc
 // at all: no dirt, mud, wet, snow or blood, neither gained nor drawn), frio (no temperature effects: body factors 1, no
 // chip), crecer (hair and beard growth never applied to the look), desgaste (clothes never gain tear) and comentarios (no
 // neighbour remarks). None of them changes gen or the world either
+// Plan F (the horse, docs/planes/gta/PLAN-F-caballo.md §8), each with ?x=0: vinculo (no horse stamina: an unlimited
+// gallop as before; no spooks, tricks, N key, dirt, horse bar or new bond gains: brushing or a carrot is +1 heart as
+// before) and alforjas (no saddlebag lock or guard: last write wins as before; new bags get 9 stacks, B and C never pay
+// from them, no kg in the title). Neither changes gen or the save shape (the fields just stay unused)
 export const PARTES = { hierba: 'sinlod', impostores: null, relieve: null, contacto: null, sombras: 'todas', personas: 'todas', suelo: 'v2', inventario: 'casillas',
   sed: null, cansancio: null, aguante: null, buceo: null, fondo: null, caustica: null,
   ruta: null, rutasuelo: null, musica: 'chip',
-  cuerpo: null, frio: null, crecer: null, desgaste: null, comentarios: null };
+  cuerpo: null, frio: null, crecer: null, desgaste: null, comentarios: null,
+  vinculo: null, alforjas: null };
 
 // El valor tal cual (o null)
 export const opcion = k => RAW.get(k);

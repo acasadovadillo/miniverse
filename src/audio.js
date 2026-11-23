@@ -26,6 +26,20 @@ function chirp() {
   }
 }
 
+// One hoof on the ground at time t (see Audio.hooves): filtered noise for the impact, and a short tone under it (on hard
+// ground the shoe's knock, on soft ground the thump)
+function clop(t, hard, v) {
+  const src = ac.createBufferSource(), f = ac.createBiquadFilter(), g = ac.createGain(), o = ac.createOscillator(), og = ac.createGain();
+  src.buffer = noise;
+  if (hard) { f.type = 'bandpass'; f.frequency.value = 1500 + Math.random() * 500; f.Q.value = 1.4; } else { f.type = 'lowpass'; f.frequency.value = 360 + Math.random() * 80; }
+  const d = hard ? 0.07 : 0.11;
+  g.gain.setValueAtTime((hard ? 0.26 : 0.2) * v, t); g.gain.exponentialRampToValueAtTime(0.001, t + d);
+  src.connect(f).connect(g).connect(sfx); src.start(t, Math.random() * 0.8, d + 0.03);
+  o.type = hard ? 'triangle' : 'sine'; o.frequency.setValueAtTime(hard ? 280 + Math.random() * 40 : 95, t); o.frequency.exponentialRampToValueAtTime(hard ? 180 : 60, t + d);
+  og.gain.setValueAtTime((hard ? 0.05 : 0.09) * v, t); og.gain.exponentialRampToValueAtTime(0.0001, t + d);
+  o.connect(og).connect(sfx); o.start(t); o.stop(t + d + 0.02);
+}
+
 export const Audio = {
   indoors: false,
   start() {
@@ -78,8 +92,40 @@ export const Audio = {
   crow() { tone([[520, 0.12, 'sawtooth', 0.025], [700, 0.1, 'sawtooth', 0.03], [880, 0.35, 'sawtooth', 0.025], [620, 0.2, 'sawtooth', 0.02]]); },
   bark() { tone([[320, 0.06, 'sawtooth', 0.05], [240, 0.08, 'square', 0.03]]); Audio.noiseHit(600, 0.08, 0.2); },
   meow() { if (!ac || !on) return; const o = ac.createOscillator(), g = ac.createGain(), t = ac.currentTime; o.type = 'triangle'; o.frequency.setValueAtTime(600, t); o.frequency.linearRampToValueAtTime(900, t + 0.15); o.frequency.linearRampToValueAtTime(500, t + 0.4); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.05, t + 0.05); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.42); o.connect(g).connect(sfx); o.start(t); o.stop(t + 0.45); },
-  neigh() { tone([[700, 0.08, 'sawtooth', 0.025], [900, 0.1, 'sawtooth', 0.025], [760, 0.12, 'sawtooth', 0.02], [600, 0.18, 'sawtooth', 0.015]]); },
+  neigh(k = 1) { tone([[700, 0.08, 'sawtooth', 0.025 * k], [900, 0.1, 'sawtooth', 0.025 * k], [760, 0.12, 'sawtooth', 0.02 * k], [600, 0.18, 'sawtooth', 0.015 * k]]); },
   whistle() { tone([[1800, 0.12, 'sine', 0.05], [2400, 0.25, 'sine', 0.05]]); },
+  // The horse (Plan F §5.4). The long whistle that gets no answer (too far): up, held, and falling away
+  whistleLong() {
+    if (!ac || !on) return;
+    const o = ac.createOscillator(), g = ac.createGain(), t = ac.currentTime;
+    o.type = 'sine';
+    o.frequency.setValueAtTime(1650, t); o.frequency.exponentialRampToValueAtTime(2450, t + 0.22); o.frequency.setValueAtTime(2450, t + 0.62); o.frequency.exponentialRampToValueAtTime(1750, t + 1.05);
+    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.05, t + 0.04); g.gain.setValueAtTime(0.05, t + 0.62); g.gain.exponentialRampToValueAtTime(0.0001, t + 1.1);
+    o.connect(g).connect(sfx); o.start(t); o.stop(t + 1.15);
+  },
+  // A snort: air blown hard through the nostrils, a breathy hiss that falls, fluttering (the lips) at about 26 Hz.
+  // k: how loud (a horse further away, quieter)
+  snort(k = 1) {
+    if (!ac || !on || !(k > 0.01)) return;
+    const t = ac.currentTime, src = ac.createBufferSource(), f = ac.createBiquadFilter(), g = ac.createGain(), am = ac.createGain(), lfo = ac.createOscillator(), depth = ac.createGain();
+    src.buffer = noise; f.type = 'bandpass'; f.Q.value = 0.9;
+    f.frequency.setValueAtTime(1100, t); f.frequency.exponentialRampToValueAtTime(420, t + 0.5);
+    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.34 * k, t + 0.035); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.55);
+    am.gain.value = 0.6; lfo.frequency.value = 26 + Math.random() * 6; depth.gain.value = 0.4;
+    lfo.connect(depth).connect(am.gain);
+    src.connect(f).connect(am).connect(g).connect(sfx);
+    src.start(t, Math.random() * 0.4, 0.6); lfo.start(t); lfo.stop(t + 0.6);
+  },
+  // One hoof strike (three/actors.js plays it as each hoof lands: 2 a cycle at the trot, its diagonal pairs land
+  // together; at the gallop each strike sounds its pair, a beat apart, so the four beats come from 2 calls a cycle).
+  // hard: a path, stone or something built (a ringing clop: a sharp click and the shoe's knock); otherwise grass or earth
+  // (a soft, low thud). k: how loud, 0..1 (another's horse further away, quieter); the walk is lighter
+  hooves(gait = 1, hard = false, k = 1) {
+    if (!ac || !on || !(k > 0.01)) return;
+    const t = ac.currentTime, v = k * (gait === 0 ? 0.7 : 1);
+    clop(t, hard, v);
+    if (gait === 2) clop(t + 0.034, hard, v * 0.8);
+  },
   // Pesca: el corcho cae al agua, una picada de mentira, el chapuzón al clavar y el carrete al recoger
   plop() { Audio.noiseHit(900, 0.12, 0.22, 'lowpass'); tone([[420, 0.05, 'sine', 0.05], [260, 0.08, 'sine', 0.04]]); },
   nibble: () => tone([[1200, 0.02, 'sine', 0.025], [1500, 0.02, 'sine', 0.02]]),

@@ -22,7 +22,7 @@ import { toB64 } from './vault.js';
 import { onFault } from './faults.js';
 import { GAME_VERSION, compareVersions } from './version.js';
 import { CHUNK } from './world/gen.js';
-import { wrapIndex, PLANET } from './world/planet.js';
+import { wrapIndex, PLANET, dxOf } from './world/planet.js';
 import { kitKey } from './kit.js';
 import { EMOTE_KINDS } from './social.js';
 import { BULKY, BARROW, cleanBarrowKey } from './carry-items.js';
@@ -36,7 +36,10 @@ const POSES = ['sit', 'floorSit', 'lie', 'floorLie'];   // las posturas, por su 
 const poseIndex = kind => (kind === 'bath' ? 0 : POSES.indexOf(kind));
 const BLOB_EVERY = 0.25, TIME_EVERY = 1, HERD_EVERY = 0.2;   // lo de todos, la hora y por dónde van los animales
 const FULL_EVERY = 30;                     // (quien lleva el mundo) cada cuánto manda entera la foto de lo de todos por elementos
+const HERD_SNAP = 8;                      // m: an animal the host has put farther than this is put there too (a called horse's jump-in)
 const SNAP = 4;                           // si alguien aparece a más de tantas casillas de donde estaba, salta allí
+// (st.ht: what a rider's horse does, by its number. Append only: the index travels. Plan F §3.3, drawn by three/animals.js)
+export const HORSE_ACTS = ['rear', 'toss', 'shake', 'shy'];
 const MINE_FIRST = 3;                     // segundos que lo que suelta algo al romperse es solo de quien lo rompió
 const GIVE_FIRST = 5;                     // y que lo que uno tira es solo para los demás (así se dan cosas)
 const WORLD_WAIT = 20000;                 // lo que se espera, como mucho, a que llegue el mundo del anfitrión
@@ -46,6 +49,14 @@ const REACH = 3;                          // trozos del mundo alrededor de donde
 const OP_BLOBS = new Set(['rules', 'worldSpawn', 'weatherLock', 'difficulty']);   // lo de todos que solo cambian los op
 const r2 = v => Math.round(v * 100) / 100;
 const DIVE_NET = 30;                      // (m: the most of st.dv taken from another; the deepest sea is about 12 m)
+// (st.ht, sent while mounted: [what, count]. With none now, [-1, the last count]: a remote notes the count and plays
+// nothing, so getting on again never replays the last act, and the first real one after it is new)
+let htLast = 0;
+const horseAct = h => {
+  const i = h ? HORSE_ACTS.indexOf(h.kind) : -1;
+  if (i >= 0 && Number.isInteger(h.seq)) { htLast = h.seq; return [i, h.seq]; }
+  return [-1, htLast];
+};
 const herdTo = (a, p) => { a.netTo = p; a.inside = !!p[2]; a.grazing = !!p[3]; };   // (por dónde va un animal, de quien lleva el mundo)
 const session = Math.random().toString(36).slice(2, 6);   // (para que los objetos tirados tengan nombres únicos)
 
@@ -55,7 +66,8 @@ class RemotePlayer extends Person {
     super({ x: 0, y: 0, look: peer.look });
     Object.assign(this, { remote: true, id: peer.id, name: peer.name, z: 0, yaw: null, held: null, swing: 0, swingItem: null, cooldown: 0, to: null, fresh: true, kitKey: '' });
   }
-  apply(st) {
+  // now: this game's clock (g.time), the start of a horse's new act (as the rider's own p.horseAct.t)
+  apply(st, now = 0) {
     this.to = [st.x, st.y, st.z || 0]; this.floor = st.fl || 0;   // (fl: la roca que pisa)
     if (this.fresh || Math.hypot(st.x - this.x, st.y - this.y) > SNAP) { [this.x, this.y, this.z] = this.to; this.fresh = false; this.feet = null; }
     // (ba: bathing in a tub, Plan E: the pose goes as a sit and is read back as 'bath'. A game from before sends no ba)
@@ -67,6 +79,18 @@ class RemotePlayer extends Person {
     const bd = Number.isInteger(st.bd) && st.bd > 0 && st.bd < BD_MAX ? st.bd : 0;   // (a value out of range from a broken peer: clean)
     if (bd !== (this.bd || 0)) { this.bd = bd; this.grime = bd ? unpackBd(bd, this.grime || {}) : null; }
     Object.assign(this, { yaw: st.yaw ?? null, inside: !!st.in, mount: !!st.m, horseCoat: st.hc || null, horseBags: !!st.hb, boat: !!st.b, aboard: st.pa || null, crouch: !!st.cr, gm: st.gm || 0, held: st.h || null, swing: st.sw || 0, swingItem: st.si || null, cooldown: st.cd || 0, bowPull: st.dr || 0 });
+    // (their horse, Plan F §3.3, only sent while mounted: hb = 1 + how full the bags look (0 flat, 1 half, 2 bulging; a game
+    // from before sends 1, flat); hd its dirt 0..3; hw winded; ht [what it does, its count]: a new count is played once, the
+    // first one only noted, as em)
+    const hb = Number.isInteger(st.hb) ? st.hb : st.hb ? 1 : 0;
+    this.horseFill = st.m && hb > 1 ? Math.min(2, hb - 1) : 0;
+    this.horseDirt = st.m && Number.isInteger(st.hd) ? Math.max(0, Math.min(3, st.hd)) / 3 : 0;
+    this.horseWinded = !!st.m && !!st.hw;
+    if (!st.m) this.horseAct = null;
+    else if (Array.isArray(st.ht) && Number.isInteger(st.ht[0]) && Number.isInteger(st.ht[1])) {
+      if (this.htSeq !== undefined && st.ht[1] !== this.htSeq && HORSE_ACTS[st.ht[0]]) this.horseAct = { kind: HORSE_ACTS[st.ht[0]], t: now, seq: st.ht[1] };
+      this.htSeq = st.ht[1];
+    }
     this.swim = !!st.na; this.sinkTo = st.na ? st.hu || 0 : 0;   // (nadando, y lo que se hunde o se asoma)
     // (dv: diving, the depth below sink, smoothed like it in update; zz: asleep in a bed, entities.js. A game from before
     // sends neither: a swimmer at the surface, and awake)
@@ -368,7 +392,7 @@ export class Live {
         if (!m.sc) { if (peer.sc === 'world') this.gone(peer); this.hide(peer); return; }   // (out of the world: to the menu, or into a cave)
         if (m.sc === 'world') peer.at = [m.x, m.y];   // (para saber qué puede tocar)
         if (!peer.entity && peer.look) peer.entity = new RemotePlayer(peer);
-        peer.entity?.apply(m);
+        peer.entity?.apply(m, g.time);
         // (a gesture of theirs goes in the same clean-up as the neighbors': drawn far away or never, it does not wait)
         if (peer.entity?.emote && peer.entity.emote.at === undefined) { peer.entity.emote.at = g.time; g.social?.emoting.add(peer.entity); }
         peer.sc = m.sc;
@@ -430,7 +454,7 @@ export class Live {
           const ack = m.ack?.[this.net.me];
           sync.apply(g, m.ops, true, Number.isFinite(ack) ? ack : null, { full: !!m.full });
         } else if (this.takes(peer) && !peer.old) {
-          const back = sync.apply(g, m.ops, false, null, { trusted: peer.host && !!Profile.server });
+          const back = sync.apply(g, m.ops, false, null, { trusted: peer.host && !!Profile.server, peer });   // (peer: the guard asks who sent it, Plan F §3.2)
           if (Number.isFinite(m.seq)) peer.seq = Math.max(peer.seq ?? -1, m.seq);
           if (back.length) this.net.send({ t: 'el', name: m.name, ops: back, ack: this.acks() }, conn);
         }
@@ -726,6 +750,7 @@ export class Live {
     clearTimeout(this.waitTimer);
     if (!this.joined) return;
     this.joined = false; this.role = null; this.solo = null;
+    try { this.game.saddlebags?.left?.(); } catch (e) { console.warn(e); }   // (the saddlebags' lock stays there: the host clears it, its player gone)
     this.net?.send({ t: 'st', sc: null });
     this.hi();
     for (const p of this.peers.values()) this.hide(p);
@@ -870,7 +895,10 @@ export class Live {
       const k = 1 - Math.exp(-dt * 8);
       for (const a of g.ranch.animals) {
         if (!a.netTo || a.inside) continue;   // (dentro, en su sitio del establo)
-        const dx = (a.netTo[0] - a.x) * k, dy = (a.netTo[1] - a.y) * k, moving = Math.abs(dx) + Math.abs(dy) > 1e-3;
+        // (moved at once, a called horse's jump-in, or across the planet's seam: never a sweep over the screen)
+        const ddx = dxOf(a.netTo[0], a.x), ddy = a.netTo[1] - a.y;
+        if (Math.abs(ddx) > HERD_SNAP || Math.abs(ddy) > HERD_SNAP || Math.abs(a.netTo[0] - a.x) > HERD_SNAP) { a.x = a.netTo[0]; a.y = a.netTo[1]; a.vx = a.vy = 0; continue; }
+        const dx = ddx * k, dy = ddy * k, moving = Math.abs(dx) + Math.abs(dy) > 1e-3;
         a.x += dx; a.y += dy; a.vx = moving ? dx / dt : 0; a.vy = moving ? dy / dt : 0;
       }
     }
@@ -917,7 +945,7 @@ export class Live {
     }
     this.sent += dt;
     const sc = g.scene === g.world ? 'world' : null;
-    const st = { t: 'st', sc, x: r2(p.x), y: r2(p.y), z: r2(p.z || 0), fl: p.floor ? r2(p.floor) : undefined, yaw: r2(g.view3d.actors.player?.person.facing ?? 0), in: p.inside ? 1 : 0, po: p.pose ? [poseIndex(p.pose.kind), r2(p.pose.yaw), r2(p.pose.h)] : 0, ba: p.bathing && p.pose?.kind === 'bath' ? 1 : undefined, bd: g.body?.bd || undefined, m: p.mount ? 1 : 0, hc: p.mount ? p.horseCoat || null : null, hb: p.mount && p.horseBags ? 1 : 0, b: p.boat ? 1 : 0, pa: p.aboard || 0, cr: p.crouch ? 1 : 0, gm: g.gamemode === 'survival' ? 0 : g.gamemode === 'creative' ? 1 : 3, h: g.inv.held?.id || null, sw: this.swings, si: g.gather.swingItem || null, cd: r2(g.gather.cooldown || 0), dr: r2(g.archery.k), na: p.swim ? 1 : 0, hu: p.swim ? r2(p.sink) : undefined, dv: p.swim && p.dive > 0.02 ? r2(p.dive) : undefined, zz: p.sleeping && p.pose?.kind === 'lie' ? 1 : undefined, kt: kitKey(g.kitIds()) || undefined, gt: p.gait || 0, ca: g.carry?.state(), em: g.social.emSeq, ek: g.social.emKind };
+    const st = { t: 'st', sc, x: r2(p.x), y: r2(p.y), z: r2(p.z || 0), fl: p.floor ? r2(p.floor) : undefined, yaw: r2(g.view3d.actors.player?.person.facing ?? 0), in: p.inside ? 1 : 0, po: p.pose ? [poseIndex(p.pose.kind), r2(p.pose.yaw), r2(p.pose.h)] : 0, ba: p.bathing && p.pose?.kind === 'bath' ? 1 : undefined, bd: g.body?.bd || undefined, m: p.mount ? 1 : 0, hc: p.mount ? p.horseCoat || null : null, hb: p.mount && p.horseBags ? 1 + (p.horseFill > 0 ? Math.min(2, p.horseFill | 0) : 0) : 0, hd: p.mount && p.horseDirt > 0 ? Math.min(3, Math.round(p.horseDirt * 3)) || undefined : undefined, hw: p.mount && p.horseWinded ? 1 : undefined, ht: p.mount ? horseAct(p.horseAct) : undefined, b: p.boat ? 1 : 0, pa: p.aboard || 0, cr: p.crouch ? 1 : 0, gm: g.gamemode === 'survival' ? 0 : g.gamemode === 'creative' ? 1 : 3, h: g.inv.held?.id || null, sw: this.swings, si: g.gather.swingItem || null, cd: r2(g.gather.cooldown || 0), dr: r2(g.archery.k), na: p.swim ? 1 : 0, hu: p.swim ? r2(p.sink) : undefined, dv: p.swim && p.dive > 0.02 ? r2(p.dive) : undefined, zz: p.sleeping && p.pose?.kind === 'lie' ? 1 : undefined, kt: kitKey(g.kitIds()) || undefined, gt: p.gait || 0, ca: g.carry?.state(), em: g.social.emSeq, ek: g.social.emKind };
     const key = JSON.stringify(st);
     if (this.sent < SEND_EVERY || (key === this.lastSent && this.sent < IDLE_EVERY)) return;
     this.sent = 0; this.lastSent = key;

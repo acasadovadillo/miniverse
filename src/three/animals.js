@@ -4,8 +4,16 @@
 // Los cuerpos son de una pieza: una esfera deformada (pecho, barriga, grupa, lomo) con el color por vértice,
 // así las manchas, la tripa más clara o el lomo más oscuro van pintados en la propia piel. Las patas tienen
 // rodilla (se doblan al andar), la cabeza va unida por el cuello y se mueve (pastan, miran), y la cola se agita.
+//
+// The horse (Plan F phase 1, docs/planes/gta/PLAN-F-caballo.md §5): its leather saddlebags with a blanket roll, drawn
+// flat, half full or bulging (the fill is part of animalKey, so the model is made again only when it changes); the mud
+// of its lower legs and belly, drawn by its own copy of the material with one uniform (uDirt: setHorseDirt, never a
+// rebuild); the ridden gaits with the gallop's lean, the head and neck pumping and the tail streaming; the rear, the
+// shake and the toss (st.act) and the heaving flanks of a winded horse (st.winded); and the hoof strikes it counts for
+// the sound (u.hits, read by actors.js).
 import * as THREE from 'three';
 import { mesh, mergeInto, G, M } from './shapes.js';
+import { Builder } from './geo.js';
 import { sobrio } from '../arte.js';
 
 // (menos de dibujos animados: pelaje apagado y con variación de tono, ojos pequeños sin punto de brillo, patas más finas
@@ -26,7 +34,9 @@ const COATS = {
   perro: { canela: ['#c88a4a', '#8a5a30'], negro: ['#2a2624', '#c88a4a'], manchado: ['#f0ece4', '#2a2624'], gris: ['#8a8a90', '#5a5a60'] },
   gato: { naranja: ['#e8903a', '#b8602a'], gris: ['#8a8a92', '#5a5a62'], negro: ['#2a2628', '#1a1618'], blanco: ['#f4f2ee', '#e0dcd6'], tricolor: ['#f4f2ee', '#e8903a', '#2a2628'] },
 };
-export const animalKey = e => `${e.type}:${e.breed || ''}:${e.bags ? 1 : 0}`;
+// (fill: how full a horse's saddlebags look, 0 flat, 1 half, 2 bulging: saddlebags.js fillOf. With bags the key says
+// 1 + fill, so the model is made again only when the fill level changes)
+export const animalKey = (e, fill = 1) => `${e.type}:${e.breed || ''}:${e.bags ? 1 + fill : 0}`;
 function coatOf(type, breed) { const c = COATS[type]; return c ? c[breed] || Object.values(c)[0] : []; }
 
 // ---------- herramientas ----------
@@ -124,8 +134,9 @@ function settleNeck(u) {
   r.s = st; r.ag = Math.PI / 2 + beta;
 }
 // El cuello y la cabeza, de levantados (g = 0) a pastando (g = 1). Al estirarse engorda algo (si no, se ve fino)
-function neckPose(u, g) {
-  const r = u.rig, a = r.a0 + (r.ag - r.a0) * g, s = 1 + (r.s - 1) * g, w = 1 + (s - 1) * 0.6;
+// (da: an extra turn of the neck, + down: the horse's gallop pumps it, a rear lifts it)
+function neckPose(u, g, da = 0) {
+  const r = u.rig, a = r.a0 + (r.ag - r.a0) * g + da, s = 1 + (r.s - 1) * g, w = 1 + (s - 1) * 0.6;
   u.neck.rotation.x = a; u.neck.scale.set(w, s, w);
   u.head.position.set(0, r.by + Math.cos(a) * r.L * s, r.bz + Math.sin(a) * r.L * s);
 }
@@ -157,19 +168,33 @@ function leg(body, legs, { x, y, z, up, low, r0, r1, r2, color, foot, footColor,
   return knee;
 }
 // Juntar cada parte (cuerpo, cabeza, cola, patas) en una malla
+// (u.geos: the geometries the merge made, this model's own: disposeAnimal releases them. What was not merged, a group with
+// a single piece, keeps a shared one: the cached blobs, G.ball)
 function finish(root, u) {
+  const before = new Set();
+  root.traverse(o => { if (o.isMesh) before.add(o.geometry); });
   mergeInto(u.body);
   for (const k of ['head', 'tail', 'neck']) if (u[k]) mergeInto(u[k]);
   for (const l of u.legs) { mergeInto(l.hip); mergeInto(l.knee); }
-  root.traverse(o => { if (o.isMesh) o.castShadow = true; });
+  u.geos = [];
+  root.traverse(o => { if (o.isMesh) { o.castShadow = true; if (!before.has(o.geometry)) u.geos.push(o.geometry); } });
   root.userData = u;
   return root;
+}
+// Release what is this model's own (actors.js, when it goes): the merged geometries and the horse's mud material. Never
+// the shared materials or geometries
+export function disposeAnimal(root) {
+  const u = root?.userData;
+  if (!u?.geos) return;
+  for (const g of u.geos) g.dispose();
+  u.geos = [];
+  u.dirtMat?.dispose(); u.dirtMat = null;
 }
 const TROT = [0, Math.PI, Math.PI, 0];   // patas: delante izquierda y detrás derecha a la vez, y al revés
 
 // ---------- los animales ----------
-export function animalModel(type, breed, bags) {
-  if (type === 'caballo') return horseModel(breed, bags, true);
+export function animalModel(type, breed, bags, fill = 1) {
+  if (type === 'caballo') return horseModel(breed, bags, true, fill);
   const root = new THREE.Group(), body = new THREE.Group(), legs = [], u = { body, legs, type, seed: Math.random() * 10 };
   root.add(body);
   const [cb, cd, cl] = coatOf(type, breed), k = `${type}:${breed}`;
@@ -399,9 +424,10 @@ function bird({ body, legs, u, cb, cd, cl, k, breed }, duck) {
 
 // ---------- cómo se mueven ----------
 const SIT_LEAN = { perro: -0.62, gato: -0.7 };
-export function animateAnimal(m, dt, t, e) {
+// (st: a horse's trick or shake and how winded it is, from actors.js: see animateHorse)
+export function animateAnimal(m, dt, t, e, st = null) {
   const u = m.root.userData;
-  if (u.horse) { animateHorse(m.root, m.speed, t, e, dt); return; }
+  if (u.horse) { animateHorse(m.root, m.speed, t, e, dt, undefined, st); return; }
   const { body, legs, type, head, tail } = u, k = Math.min(1, m.speed / 0.8);
   // Sentado (el perro y el gato): la grupa en el suelo, el cuerpo inclinado hacia arriba, las patas de atrás
   // dobladas y las de delante rectas; la cabeza derecha, mirando alrededor, y la cola barriendo el suelo
@@ -440,7 +466,8 @@ export function animateAnimal(m, dt, t, e) {
 
 // ---------- el caballo ----------
 // También el del jinete: con su pelaje, la silla con su manta y los estribos y, si las tiene, las alforjas
-export function horseModel(breed = 'castano', bags = false, alone = false) {
+// (fill: how full the saddlebags look, 0 flat, 1 half, 2 bulging; see saddlebags)
+export function horseModel(breed = 'castano', bags = false, alone = false, fill = 1) {
   const root = new THREE.Group(), body = new THREE.Group(), legs = [], u = { body, legs, type: 'caballo', horse: alone, seed: Math.random() * 10 };
   root.add(body);
   const [cb, cd, cl] = coatOf('caballo', breed), k = `caballo:${breed}`, mane = M(cl || cd), pio = breed === 'pio';
@@ -453,7 +480,7 @@ export function horseModel(breed = 'castano', bags = false, alone = false) {
   // La cabeza larga, en cuña: ancha en la frente y las quijadas y estrecha hacia el morro, con los ojos a los lados
   mesh(blob(k + ':h', 28, (v, n) => { const f = (n.z + 1) / 2, jaw = Gs(n.z + 0.45, 0.3) * Math.max(0, -n.y); v.set(n.x * (0.085 - 0.03 * f + 0.02 * jaw), n.y * (0.105 - 0.04 * f) - 0.03 * jaw, n.z * 0.3); }, n => coat(cb, { back: 0.06 })(n)), WHITE, { p: [0, -0.06, 0.12], r: [0.6, 0, 0] }, head);
   mesh(G.ball, morro, { p: [0, -0.2, 0.31], s: [0.052, 0.05, 0.07], r: [0.6, 0, 0] }, head);   // el morro
-  if (breed === 'blanco' || breed === 'tordo' || breed === 'palomino' || pio) mesh(G.ball, M('#f8f4ee'), { p: [0, 0.0, 0.17], s: [0.03, 0.09, 0.016], r: [0.6, 0, 0] }, head);   // lucero
+  if (breed === 'blanco' || breed === 'tordo' || breed === 'palomino' || pio) mesh(G.ball, M('#f8f4ee'), { p: [0, -0.057, 0.243], s: [0.028, 0.012, 0.085], r: [0.76, 0, 0] }, head);   // the blaze, lying on the face
   for (const s of [-1, 1]) {
     mesh(G.cone, M(cb), { p: [s * 0.045, 0.1, -0.06], s: [0.025, 0.08, 0.02], r: [-0.25, 0, -s * 0.12] }, head);
     mesh(G.ball, M('#2a1a14'), { p: [s * 0.026, -0.205, 0.345], s: [0.012, 0.015, 0.012], r: [0.6, 0, 0] }, head);   // ollares
@@ -465,7 +492,7 @@ export function horseModel(breed = 'castano', bags = false, alone = false) {
   mesh(G.cyl, blanket, { p: [0, 1.13, -0.02], s: [0.3, 0.025, 0.34] }, body);
   mesh(blob('silla', 20, (v, n) => v.set(n.x * 0.2, n.y * 0.05 + (Math.abs(n.z) > 0.6 && n.y > 0 ? 0.04 * (Math.abs(n.z) - 0.6) * 4 : 0), n.z * 0.24), () => C.set('#ffffff')), saddle, { p: [0, 1.16, -0.02] }, body);
   for (const s of [-1, 1]) { tube(M('#4a2a1a'), [s * 0.2, 1.15, 0.02], [s * 0.26, 0.86, 0.04], 0.008, 0.008, body, 4); mesh(new THREE.TorusGeometry(0.035, 0.008, 4, 10), steel, { p: [s * 0.26, 0.84, 0.04], r: [0, Math.PI / 2, 0] }, body); }
-  if (bags) for (const s of [-1, 1]) { mesh(G.box, M('#8a5a34'), { p: [s * 0.3, 0.92, -0.3], s: [0.08, 0.2, 0.24] }, body); mesh(G.box, M('#6a4422'), { p: [s * 0.31, 1.0, -0.3], s: [0.085, 0.06, 0.25] }, body); mesh(G.ball, M('#c89a48', { metalness: 0.5 }), { p: [s * 0.345, 0.97, -0.3], s: 0.015 }, body); }
+  if (bags) saddlebags(body, fill);
   // La cola, larga
   const tail = new THREE.Group(); tail.position.set(0, 1.04, -0.56); body.add(tail); u.tail = tail;
   const tc = new THREE.CatmullRomCurve3([new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, -0.1, -0.12), new THREE.Vector3(0, -0.4, -0.18), new THREE.Vector3(0, -0.62, -0.14)]);
@@ -473,8 +500,190 @@ export function horseModel(breed = 'castano', bags = false, alone = false) {
   mesh(G.ball, mane, { p: [0, -0.6, -0.14], s: [0.06, 0.08, 0.06] }, tail);
   [[-0.16, 0.38], [0.16, 0.38], [-0.16, -0.38], [0.16, -0.38]].forEach(([x, z], i) => leg(body, legs, { x, y: 0.72, z, up: 0.36, low: 0.29, r0: 0.085, r1: 0.05, r2: 0.04, color: cb, foot: 0.07, footColor: breed === 'blanco' ? '#5a5048' : '#2a2420', phase: TROT[i] }));
   settleNeck(u);
-  return finish(root, u);
+  u.hipRest = legs.map(l => l.hip.position.y);
+  finish(root, u);
+  dirtify(root, u);
+  return root;
 }
+// ---------- the saddlebags ----------
+// Two leather bags behind the cantle, one on each flank, each with its flap, a strap down the flap and a brass buckle,
+// hung by a strap over the loins; and a blanket rolled across the croup, tied with two straps. fill (0 flat, 1 half,
+// 2 bulging) makes them thin and limp, or fat and round with the flap riding over what is inside. About 430 triangles.
+// Placed against the trunk as horseModel makes it (at z -0.27 its flank is about 0.21 m out at mid height and 0.18 at
+// y 1.02, and it narrows towards the tail, so each bag leans out at the bottom and toes in at the back). Clear of the big
+// thing behind the saddle (carry3d.js HORSE_LOAD: the log across the croup at z -0.46, r 0.095, from y 1.07): the roll
+// ends at z -0.35 and the bags' tops stay under y 1.05. The seat behind the saddle stays free when there are no bags
+const BAG = {
+  pivot: [0.188, 1.026, -0.27], lean: 0.14, toeIn: 0.25,   // (the top inner edge of the right-hand bag, +x; its tilts)
+  depth: [0.035, 0.068, 0.095], height: [0.175, 0.2, 0.215], half: [0.112, 0.118, 0.126], round: [0.01, 0.022, 0.032], bulge: [0, 0.012, 0.03],
+};
+const ROLL = { y: 1.164, z: -0.305, r: 0.046, len: 0.4, ties: 0.12 };
+const BAG_COLORS = { leather: '#7a4a2a', flap: '#5e3820', strap: '#3a2416', brass: '#b8913e', wool: '#7a3a30', woolEnd: '#5e2c26' };
+const BAG_GEO = new Map();
+const rbox = (x0, y0, z0, x1, y1, z1, r) => { const B = new Builder(); B.roundBox(x0, y0, z0, x1, y1, z1, r); return B.geometry(); };   // (Builder's shapes return nothing: no chaining)
+const sbox = (x0, y0, z0, x1, y1, z1) => { const B = new Builder(); B.box(x0, y0, z0, x1, y1, z1); return B.geometry(); };
+// The other side's piece: x mirrored, and its triangles turned round so they still face out
+function mirrorX(g) {
+  const p = g.attributes.position, n = g.attributes.normal;
+  for (let i = 0; i < p.count; i++) { p.setX(i, -p.getX(i)); n.setX(i, -n.getX(i)); }
+  const I = g.index;
+  if (I) for (let i = 0; i < I.count; i += 3) { const a = I.getX(i + 1); I.setX(i + 1, I.getX(i + 2)); I.setX(i + 2, a); }
+  return g;
+}
+// The pieces of one bag (side s, fill f) as [geometry, colour], in the horse's body: made once each, shared (mergeInto
+// copies them into each horse's body)
+function bagParts(s, f) {
+  const key = s + ':' + f;
+  if (BAG_GEO.has(key)) return BAG_GEO.get(key);
+  const d = BAG.depth[f], h = BAG.half[f], H = BAG.height[f], b = BAG.bulge[f], C = BAG_COLORS;
+  // (in the bag's own frame: x out from its inner face, y down from its top, z along the horse; the pivot at 0)
+  const parts = [
+    [rbox(0, -H, -h, d, 0, h, BAG.round[f]), C.leather],
+    [rbox(-0.008, -0.006, -h - 0.005, d + 0.012, 0.014, h + 0.005, 0.006), C.flap],             // the flap over the top
+    [rbox(d - 0.002, -H * 0.55, -h + 0.006, d + 0.009, 0.004, h - 0.006, 0.005), C.flap],        // and down the outside
+    [sbox(d + 0.008, -H * 0.72, -0.011, d + 0.014, 0.002, 0.011), C.strap],
+    [rbox(d + 0.011, -H * 0.6, -0.02, d + 0.019, -H * 0.6 + 0.026, 0.02, 0.003), C.brass],         // the buckle
+  ];
+  // (what is inside pushes the outside out, most in the middle: every piece out there follows the same swell)
+  const M4 = new THREE.Matrix4().compose(new THREE.Vector3(...BAG.pivot), new THREE.Quaternion().setFromEuler(new THREE.Euler(0, BAG.toeIn, BAG.lean, 'YXZ')), new THREE.Vector3(1, 1, 1));
+  for (const [g] of parts) {
+    const p = g.attributes.position;
+    if (b) for (let i = 0; i < p.count; i++) {
+      const x = p.getX(i);
+      if (x < d * 0.5) continue;
+      const qy = (p.getY(i) + H / 2) / (H / 2), qz = p.getZ(i) / h, w = Math.max(0, 1 - qy * qy) * Math.max(0, 1 - qz * qz);
+      p.setX(i, x + b * w);
+    }
+    g.applyMatrix4(M4);
+    if (s < 0) mirrorX(g);
+  }
+  // (the strap that hangs it, from the top of the bag over the loins to under the roll, lying on the trunk)
+  for (const [a, c] of [[[0.196, 1.02], [0.148, 1.074]], [[0.148, 1.074], [0.055, 1.122]]]) parts.push([strap([s * a[0], a[1], ROLL.z], [s * c[0], c[1], ROLL.z], 0.034, 0.006, s), C.strap]);
+  BAG_GEO.set(key, parts);
+  return parts;
+}
+// A flat strap from a to b (its width along z, its thickness out from the trunk)
+function strap(a, b, w, t, s) {
+  const A = new THREE.Vector3(...a), dv = new THREE.Vector3(...b).sub(A), len = dv.length(), g = new THREE.BoxGeometry(t, len, w);
+  g.deleteAttribute('uv');
+  const q = new THREE.Quaternion().setFromUnitVectors(UP, dv.normalize());
+  return g.applyMatrix4(new THREE.Matrix4().compose(A.addScaledVector(dv, len * 0.5), q, new THREE.Vector3(1, 1, 1)));
+}
+let ROLL_GEO = null;
+function rollParts() {
+  if (ROLL_GEO) return ROLL_GEO;
+  const R = ROLL, C = BAG_COLORS, across = new THREE.Matrix4().makeRotationZ(Math.PI / 2), at = (x, g) => g.applyMatrix4(across).translate(x, R.y, R.z);
+  ROLL_GEO = [[at(0, new THREE.CylinderGeometry(R.r, R.r, R.len, 12, 1, true)), C.wool]];
+  for (const s of [-1, 1]) {
+    ROLL_GEO.push([at(s * R.len / 2, new THREE.CircleGeometry(R.r, 12).rotateY(s * Math.PI / 2).rotateZ(-Math.PI / 2)), C.woolEnd]);   // (the rolled end)
+    ROLL_GEO.push([at(s * R.ties, new THREE.CylinderGeometry(R.r + 0.004, R.r + 0.004, 0.022, 12, 1, true)), C.strap]);
+  }
+  for (const [g] of ROLL_GEO) g.deleteAttribute('uv');
+  return ROLL_GEO;
+}
+function saddlebags(body, fill) {
+  const f = Math.max(0, Math.min(2, fill | 0));
+  for (const s of [-1, 1]) for (const [g, c] of bagParts(s, f)) mesh(g, M(c, { roughness: 0.8 }), {}, body);
+  for (const [g, c] of rollParts()) mesh(g, M(c, { roughness: 0.9 }), {}, body);
+}
+
+// ---------- the horse's mud ----------
+// Ridden, the horse gets muddy (horse.js: a.dirt, or the rider's p.horseDirt, 0..1): darker and speckled on the lower
+// legs, under the belly and in the elbows, as if splashed from below. How muddy each part can get is baked into the
+// geometry when the model is made (aDirt, from where each vertex is at rest, so it never slides on a moving leg; its
+// whole part is a seed for the speckle, so the four legs do not get the same spots); how muddy the horse is now is one
+// uniform, uDirt, on the horse's own copy of the merged vertex-colour material. One program for every horse (a fixed
+// customProgramCacheKey; Three runs onBeforeCompile once per material, each with its own uniform). With uDirt at 0 the
+// branch is skipped: a clean horse costs a uniform test per fragment
+const DIRT_VERT_DECL = 'attribute float aDirt;\nvarying float vDirt;\nvarying vec3 vDirtP;';
+const DIRT_VERT = 'float dSeed = floor(aDirt * 0.5); vDirt = aDirt - 2.0 * dSeed; vDirtP = position + dSeed * vec3(3.7, 1.9, 5.3);';
+const DIRT_FRAG_DECL = `uniform float uDirt;
+varying float vDirt;
+varying vec3 vDirtP;
+float hdHash(vec3 p) { p = fract(p * 0.3183099 + 0.1); p *= 17.0; return fract(p.x * p.y * p.z * (p.x + p.y + p.z)); }
+float hdNoise(vec3 x) {
+  vec3 i = floor(x), f = fract(x); f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(mix(hdHash(i), hdHash(i + vec3(1.0, 0.0, 0.0)), f.x), mix(hdHash(i + vec3(0.0, 1.0, 0.0)), hdHash(i + vec3(1.0, 1.0, 0.0)), f.x), f.y),
+             mix(mix(hdHash(i + vec3(0.0, 0.0, 1.0)), hdHash(i + vec3(1.0, 0.0, 1.0)), f.x), mix(hdHash(i + vec3(0.0, 1.0, 1.0)), hdHash(i + vec3(1.0, 1.0, 1.0)), f.x), f.y), f.z);
+}`;
+// (a film that climbs with the mud, its edge broken into splashes, and spots above it; the colours are LINEAR, as
+// diffuseColor is: dark wet earth where it is thickest, dry grey-brown dust around it, so it reads on a bay or black coat
+// too, not only on a white one. Every smoothstep has edge0 < edge1)
+const DIRT_FRAG = `if (uDirt > 0.0 && vDirt > 0.002) {
+  float n = hdNoise(vDirtP * 34.0), m = vDirt * uDirt;
+  float film = smoothstep(0.16, 0.5, m * (0.55 + 0.9 * n));
+  float spots = smoothstep(0.62, 0.78, n) * smoothstep(0.03, 0.25, m);
+  float k = clamp(max(film * (0.72 + 0.25 * n), spots * 0.75), 0.0, 0.9);
+  vec3 dry = vec3(0.2, 0.158, 0.108) * (0.85 + 0.3 * n), wet = vec3(0.062, 0.045, 0.028) * (0.8 + 0.4 * n);
+  diffuseColor.rgb = mix(diffuseColor.rgb, mix(dry, wet, smoothstep(0.45, 0.85, n + 0.35 * m)), k);
+}`;
+const DIRT_KEY = () => 'horse-dirt';
+let dirtWarned = false;
+// The horse's copy of base (its merged material), reading U.value as uDirt
+function dirtMaterial(base, U) {
+  const m = base.clone();
+  m.onBeforeCompile = sh => {
+    sh.uniforms.uDirt = U;
+    const v = sh.vertexShader.replace('#include <common>', `#include <common>\n${DIRT_VERT_DECL}`).replace('#include <begin_vertex>', `#include <begin_vertex>\n${DIRT_VERT}`);
+    const f = sh.fragmentShader.replace('#include <common>', `#include <common>\n${DIRT_FRAG_DECL}`).replace('#include <color_fragment>', `#include <color_fragment>\n${DIRT_FRAG}`);
+    // (all or nothing: a half-patched shader would not compile)
+    if (v === sh.vertexShader || !f.includes('uDirt > 0.0') || !f.includes('varying float vDirt')) { if (!dirtWarned) { dirtWarned = true; console.warn('Miniverse: the horse mud could not hook the shader (drawn clean)'); } return; }
+    sh.vertexShader = v; sh.fragmentShader = f;
+  };
+  m.customProgramCacheKey = DIRT_KEY;
+  return m;
+}
+// How muddy a vertex can get, from where it is on the horse at rest (x, y, z) and where it faces (ny, its normal's y)
+function dirtMask(x, y, z, ny) {
+  let k = 1 - sm(0.16, 0.54, y);                                                                 // up the legs, to the knees
+  if (y > 0.45 && Math.abs(x) < 0.2) k = Math.max(k, 0.85 * sm(-0.3, -0.85, ny) * (1 - sm(0.64, 0.76, y)));   // under the belly
+  if (z < -0.2 && y < 0.75) k = Math.min(1, k * 1.15 + 0.06 * (1 - sm(0.5, 0.75, y)));         // (the hind legs: what the front ones throw)
+  return k;
+}
+const DV = new THREE.Vector3(), DN = new THREE.Vector3(), DM3 = new THREE.Matrix3();
+function dirtify(root, u) {
+  root.updateMatrixWorld(true);
+  let base = null, seed = 0;
+  root.traverse(o => {
+    if (!o.isMesh || !o.material.vertexColors || o.material.map || !u.geos.includes(o.geometry)) return;
+    base ||= o.material;
+    const g = o.geometry, P = g.attributes.position, N = g.attributes.normal, a = new Float32Array(P.count), s = 2 * (seed++ % 16);
+    DM3.getNormalMatrix(o.matrixWorld);
+    for (let i = 0; i < P.count; i++) {
+      DV.fromBufferAttribute(P, i).applyMatrix4(o.matrixWorld); DN.fromBufferAttribute(N, i).applyMatrix3(DM3).normalize();
+      a[i] = s + Math.min(1, dirtMask(DV.x, DV.y, DV.z, DN.y));
+    }
+    g.setAttribute('aDirt', new THREE.BufferAttribute(a, 1));
+  });
+  if (!base) return;
+  u.dirtU = { value: 0 };
+  u.dirtMat = dirtMaterial(base, u.dirtU);
+  root.traverse(o => { if (o.isMesh && o.material === base) o.material = u.dirtMat; });
+}
+// How muddy the horse looks now (0..1): a uniform, never a rebuild
+export function setHorseDirt(root, v) {
+  const U = root?.userData?.dirtU;
+  if (!U) return;
+  v = v > 0 ? (v < 1 ? v : 1) : 0;
+  if (Math.abs(U.value - v) > 0.004 || (v === 0 && U.value !== 0)) U.value = v;
+}
+// Its program (and the shadow pass's, the common one), compiled without stopping the game when the world first shows
+// (actors.js): otherwise the first horse in view, or the first time you mount, would compile it mid-game. A one-triangle
+// mesh with the same attributes; the material is kept for good, so the program stays while no horse is in view
+let DIRT_PROTO = null;
+export function prewarmHorse(renderer, camera, scene) {
+  if (!renderer?.compileAsync) return;
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute([0, 0, 0, 1, 0, 0, 0, 1, 0], 3));
+  g.setAttribute('normal', new THREE.Float32BufferAttribute([0, 0, 1, 0, 0, 1, 0, 0, 1], 3));
+  g.setAttribute('color', new THREE.Float32BufferAttribute([1, 1, 1, 1, 1, 1, 1, 1, 1], 3));
+  g.setAttribute('aDirt', new THREE.Float32BufferAttribute([0, 1, 0], 1));
+  DIRT_PROTO ||= dirtMaterial(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.7, metalness: 0 }), { value: 0 });
+  const o = new THREE.Mesh(g, DIRT_PROTO);
+  o.frustumCulled = false; o.castShadow = true;
+  renderer.compileAsync(o, camera, scene).catch(() => {}).finally(() => g.dispose());
+}
+
 // Cuánto está pastando (de 0 a 1, poco a poco: baja la cabeza en algo más de un segundo); andando, nada
 function graze(u, e, k, dt) {
   const want = e?.grazing && k < 0.15 ? 1 : 0;
@@ -487,23 +696,51 @@ function graze(u, e, k, dt) {
 // leg cycle covers: the cadence is speed / stride, so the legs never paddle in place) and the body's rocking and bob. With
 // rideSpeed 1.8 that is about 2.4 cycles a second at the walk, 2.8 at the trot and 3.0 at the gallop (the free horse's
 // cycle, by the time, is 2.6 to 3.4). The walk goes one leg at a time (back, front on the same side, then the other side),
-// the trot by diagonal pairs (TROT), the gallop with the back legs together a little apart, then the front
+// the trot by diagonal pairs (TROT), the gallop with the back legs together a little apart, then the front (a transverse
+// gallop: four beats, the hind pair a tenth of a cycle apart and the front pair a tenth too)
 const TAU = Math.PI * 2;
 const HORSE_GAITS = [
   { legs: [0, 0.5, 0.75, 0.25].map(f => f * TAU), hip: 0.42, knee: 0.75, stride: 2.4, pitch: 0, bob: 0.015 },
   { legs: TROT, hip: 0.55, knee: 0.95, stride: 2.8, pitch: 0.01, bob: 0.045 },
-  { legs: [0.58, 0.48, 0.08, 0].map(f => f * TAU), hip: 0.78, knee: 1.0, stride: 3.2, pitch: 0.06, bob: 0.07 },
+  { legs: [0.6, 0.5, 0.09, 0].map(f => f * TAU), hip: 0.8, knee: 1.1, stride: 3.2, pitch: 0.07, bob: 0.07 },
 ];
+// At the gallop (GALLOP, by how much it is galloping, eased over about 0.3 s): the hind legs reach further back under
+// the push and the front ones further forward, the front knees fold higher, the neck and head pump with the stride and
+// the tail streams out behind
+const GALLOP = { hindBack: 0.1, foreFwd: 0.06, foreFold: 0.15, neck: 0.1, head: 0.08, tail: 0.42, ease: 3.3 };
+// The tricks and starts (st.act, how long each lasts in seconds): the rear (1.2 s: the body up about 38° on the hind hips,
+// the hind legs bent under it, the forelegs pawing, the head up and the tail hanging), the shake after a brushing (0.8 s:
+// the body rolls fast from side to side, the head with it) and the toss of the head (0.6 s: a trick it does not know yet)
+export const HORSE_ACTS = { rear: 1.2, shake: 0.8, toss: 0.6 };
+const REAR = { pitch: 0.66, py: 0.72, pz: -0.38, crouch: 0.035, hindHip: 0.35, hindKnee: 0.55, foreHip: 1.1, foreKnee: 1.7, paw: 0.3, pawHz: 1.5, neck: -0.45, head: -0.35 };
+const REAR_FP = { pitch: 0.6, neck: 0.5, head: 0.25 };   // (from the rider's own eyes: less of the pitch, the neck stretched forward and down)
+const SHAKE = { roll: 0.12, hz: 5.6, head: 0.35 };
+const SEAT = [1.16, -0.02];   // (the saddle's seat on the body, y and z: where the rider sits, for the rider's rear)
+// (winded: the flanks heave at 1.6 breaths a second and the head hangs low)
+const WINDED = { hz: 1.6, flank: 0.035, low: 0.4, head: 0.28 };
 export const horseCadence = (gait, speed) => speed / HORSE_GAITS[gait].stride;   // (cycles a second)
-export function animateHorse(h, speed, t, e, dt = 1 / 60, gait) {
-  const u = h.userData, k = Math.min(1, speed / 3);
-  if (gait === 0 || gait === 1 || gait === 2) {
+// A hoof lands when its leg is furthest forward (the hip's swing at its lowest, sin = -1): did the phase a0 → a1 pass it?
+const FOOT = Math.PI * 1.5, wrapT = a => a - TAU * Math.floor(a / TAU);
+const struck = (a0, a1) => { const d = wrapT(a1 - a0); return d > 0 && d < Math.PI && wrapT(a1 - FOOT) < d; };
+// h: the horse (horseModel); speed in m/s; t the time; e what it is doing (e.grazing), or null; gait: the rider's gait, or
+// undefined for a horse nobody rides (its cycle by the time, as always). st: { act, at, winded, fp } or null, from actors.js:
+// the trick or start it is playing (HORSE_ACTS) and the seconds since it began, and how winded it is (0..1). Writes
+// u.bob (the trunk's bob, for the rider), u.rear (0..1) with u.seatDy, u.seatDz and u.seatPitch (where the seat goes while
+// it rears) and u.hits (hooves that landed this frame, for the sound)
+export function animateHorse(h, speed, t, e, dt = 1 / 60, gait, st = null) {
+  const u = h.userData, k = Math.min(1, speed / 3), ridden = gait === 0 || gait === 1 || gait === 2;
+  u.gk = (u.gk || 0) + ((gait === 2 ? 1 : 0) - (u.gk || 0)) * Math.min(1, dt * GALLOP.ease);
+  if (u.gk < 1e-3) u.gk = 0;
+  const gk = u.gk * k;
+  u.hits = 0;
+  if (ridden) {
     // (ridden by a player: by its gait, the legs easing from one gait's phases to the next; the phase is its own, so a change
     // of speed never jumps it)
     const G = HORSE_GAITS[gait], ease = Math.min(1, dt * 5);
     if (!u.lp) { u.lp = G.legs.slice(); u.amp = [G.hip, G.knee, G.pitch, G.bob, G.stride]; u.gaitPhase = u.gaitPhase || 0; u.hipY = u.legs.map(l => l.hip.position.y); }
     for (let i = 0; i < 4; i++) { let d = G.legs[i] - u.lp[i]; d = Math.atan2(Math.sin(d), Math.cos(d)); u.lp[i] += d * ease; }
     u.amp[0] += (G.hip - u.amp[0]) * ease; u.amp[1] += (G.knee - u.amp[1]) * ease; u.amp[2] += (G.pitch - u.amp[2]) * ease; u.amp[3] += (G.bob - u.amp[3]) * ease; u.amp[4] += (G.stride - u.amp[4]) * ease;
+    const prev = u.gaitPhase;
     u.gaitPhase = (u.gaitPhase + dt * TAU * speed / u.amp[4]) % TAU;
     const ph = u.phase = u.gaitPhase;
     // (the gallop rocks the body, nose down as the front legs land; the trot bounces twice a cycle, the gallop once)
@@ -514,23 +751,83 @@ export function animateHorse(h, speed, t, e, dt = 1 / 60, gait) {
     // and the hooves stay on the ground)
     const c = Math.cos(pitch), sn = Math.sin(pitch);
     for (let i = 0; i < 4; i++) {
-      const l = u.legs[i];
-      l.hip.rotation.x = Math.sin(ph + u.lp[i]) * u.amp[0] * k;
-      l.knee.rotation.x = Math.max(0, Math.sin(ph + u.lp[i] + 1.2)) * u.amp[1] * k;
+      const l = u.legs[i], hind = i >= 2;
+      l.hip.rotation.x = Math.sin(ph + u.lp[i]) * u.amp[0] * k + (hind ? GALLOP.hindBack : -GALLOP.foreFwd) * gk;
+      l.knee.rotation.x = Math.max(0, Math.sin(ph + u.lp[i] + 1.2)) * u.amp[1] * k * (hind ? 1 : 1 + GALLOP.foreFold * u.gk);
       const y0 = u.hipY[i], z = l.hip.position.z;
       l.hip.position.y = y0 + (y0 - y0 * c + z * sn - u.bob) / c;
+      if (k > 0.2 && struck(prev + u.lp[i], ph + u.lp[i])) u.hits++;
     }
   } else {
+    const prev = u.phase;
     u.phase = t * (4 + speed * 2.2);
     for (const l of u.legs) {
       l.hip.rotation.x = Math.sin(u.phase + l.phase) * 0.6 * k;
       l.knee.rotation.x = Math.max(0, Math.sin(u.phase + l.phase + 1.2)) * 0.9 * k;
+      if (k > 0.3 && prev !== undefined && struck(prev + l.phase, u.phase + l.phase)) u.hits++;
     }
     if (u.lp) { for (let i = 0; i < 4; i++) u.legs[i].hip.position.y = u.hipY[i]; u.lp = null; u.body.rotation.x = 0; u.body.position.y = 0; u.bob = 0; }
   }
-  if (u.tail) u.tail.rotation.set(0.25 * k, 0, Math.sin(t * 1.8 + u.seed) * 0.25 * (1 - k * 0.6));
-  // (pastando, baja el cuello hasta la hierba; si no, de vez en cuando, parado, agacha un poco la cabeza)
-  const g = graze(u, e, k, dt);
-  if (u.rig) neckPose(u, g);
-  if (u.head) { u.head.rotation.x = Math.sin(u.phase) * 0.05 * k + (u.horse && !g && speed < 0.2 && Math.sin(t * 0.3 + u.seed) > 0.4 ? 0.5 : 0) * 0.6 + g * (u.rig.hr + Math.sin(t * 7 + u.seed) * 0.05); }
+  // (what it is playing now: each a 0..1 weight that eases in and out over its time)
+  const act = st?.act || null, ak = act ? Math.min(1, (st.at || 0) / (HORSE_ACTS[act] || 1)) : 0;
+  const rear = act === 'rear' ? sm(0, 0.28, ak) * (1 - sm(0.7, 1, ak)) : 0;
+  const shake = act === 'shake' ? sm(0, 0.12, ak) * (1 - sm(0.72, 1, ak)) : 0;
+  const toss = act === 'toss' ? Math.sin(Math.PI * ak) : 0;
+  const w = st?.winded > 0 ? Math.min(1, st.winded) : 0, breath = Math.sin(t * TAU * WINDED.hz);
+  if (u.tail) u.tail.rotation.set(0.25 * k + gk * (GALLOP.tail + 0.07 * Math.sin(2 * u.phase + 1)), 0, Math.sin(t * 1.8 + u.seed) * 0.25 * (1 - k * 0.6) + gk * 0.06 * Math.sin(u.phase));
+  // (pastando, baja el cuello hasta la hierba; si no, de vez en cuando, parado, agacha un poco la cabeza. Winded, low; at
+  // the gallop it pumps; rearing or tossing it, up)
+  const g = graze(u, e, k, dt), low = Math.max(g, WINDED.low * w);
+  if (u.rig) neckPose(u, low, gk * GALLOP.neck * Math.sin(u.phase + 0.9) + (st?.fp ? REAR_FP.neck : REAR.neck) * rear - 0.3 * toss + 0.08 * shake * Math.sin(ak * TAU * SHAKE.hz * HORSE_ACTS.shake));
+  if (u.head) {
+    u.head.rotation.x = Math.sin(u.phase) * 0.05 * k + (u.horse && !g && speed < 0.2 && Math.sin(t * 0.3 + u.seed) > 0.4 ? 0.5 : 0) * 0.6 + g * (u.rig.hr + Math.sin(t * 7 + u.seed) * 0.05)
+      + gk * GALLOP.head * Math.sin(u.phase + 0.4) + w * (WINDED.head + 0.05 * breath) + (st?.fp ? REAR_FP.head : REAR.head) * rear - 0.4 * toss;
+    u.head.rotation.z = shake * SHAKE.head * Math.sin(ak * TAU * SHAKE.hz * HORSE_ACTS.shake + 0.9) + 0.2 * toss * Math.sin(ak * TAU * 2);
+  }
+  // (winded: the flanks heave; the trunk's own scale, so the legs barely notice)
+  u.body.scale.set(1 + WINDED.flank * w * breath, 1, 1 + 0.01 * w * breath);
+  posedAct(u, rear, shake, ak, t, st?.fp ? REAR_FP.pitch : 1);
+}
+// The rear and the shake over the gait (rear, shake: their weights; ak: how far through it is). The channels nothing else
+// writes (the trunk's sideways and forward offsets, its roll, the legs' roll) are put back when it ends
+function posedAct(u, rear, shake, ak, t, pk = 1) {   // (pk: how much of the rear's pitch)
+  const B = u.body;
+  if (!rear && !shake) {
+    if (u.posed) {
+      u.posed = false; B.position.x = B.position.z = 0; B.rotation.z = 0;
+      for (const l of u.legs) l.hip.rotation.z = 0;
+      if (!u.lp) { B.rotation.x = 0; B.position.y = 0; for (let i = 0; i < 4; i++) u.legs[i].hip.position.y = u.hipRest[i]; }
+    }
+    u.rear = 0;
+    return;
+  }
+  u.posed = true;
+  if (!u.lp) { B.position.y = 0; B.rotation.x = 0; }   // (a horse nobody rides has no bob or rocking of its own: from rest)
+  const bob = B.position.y;
+  if (rear) {
+    // (the whole trunk turns about the hind hips: it goes up and back, and the hind legs, counter-turned, stay under it)
+    const R = REAR, rx = B.rotation.x * (1 - rear) - R.pitch * pk * rear, c = Math.cos(rx), s = Math.sin(rx);
+    B.rotation.x = rx;
+    B.position.y = R.py - (R.py * c - R.pz * s) + bob * (1 - rear) - R.crouch * rear;
+    B.position.z = R.pz - (R.py * s + R.pz * c);
+    for (let i = 0; i < 4; i++) {
+      const l = u.legs[i], hind = i >= 2, paw = Math.sin(t * TAU * R.pawHz + i * Math.PI);
+      l.hip.position.y += (u.hipRest[i] - l.hip.position.y) * rear;
+      const hx = hind ? -rx - R.hindHip * rear : -rx * 0.4 - R.foreHip * rear + R.paw * paw * rear, kx = hind ? R.hindKnee : R.foreKnee + 0.4 * paw;
+      l.hip.rotation.x += (hx - l.hip.rotation.x) * rear;
+      l.knee.rotation.x += (kx - l.knee.rotation.x) * rear;
+    }
+    if (u.tail) u.tail.rotation.x += (-rx * 0.95 - u.tail.rotation.x) * rear;
+    // (where the seat goes, for the rider: actors.js)
+    u.seatDy = B.position.y + SEAT[0] * c - SEAT[1] * s - SEAT[0];
+    u.seatDz = B.position.z + SEAT[0] * s + SEAT[1] * c - SEAT[1];
+    u.seatPitch = rx;
+  }
+  u.rear = rear;
+  if (shake) {
+    // (a roll about the hips' height, the legs counter-rolled so the hooves stay put)
+    const r = SHAKE.roll * shake * Math.sin(ak * TAU * SHAKE.hz * HORSE_ACTS.shake), py = REAR.py;
+    B.rotation.z = r; B.position.x = py * Math.sin(r); B.position.y += py * (1 - Math.cos(r));
+    for (const l of u.legs) l.hip.rotation.z = -r;
+  } else if (B.rotation.z) { B.rotation.z = 0; B.position.x = 0; for (const l of u.legs) l.hip.rotation.z = 0; }
 }
