@@ -101,7 +101,7 @@
  "controls.drink.keys": "<kbd>E</kbd> on water",
  "controls.drink": "Thirsty, aim at a river, a lake or a well to drink (one press drinks until you're full; moving stops it). Sea water is too salty. With a canteen or a jug in hand: click for a sip, E or click on fresh water to fill it",
  "controls.bars.keys": "The bars",
- "controls.bars": "Under the minimap: health, hunger, thirst and energy (and air under water). Food fills hunger, drink fills thirst and sleeping in a bed fills energy; health comes back by itself when you're fed and watered. Hover them (or hold Tab) to see their %",
+ "controls.bars": "Top left: health, hunger, thirst and energy (and air under water). Food fills hunger, drink fills thirst and sleeping in a bed fills energy; health comes back by itself when you're fed and watered. Hover them (or hold Tab) to see their %",
  "controls.select.keys": "<kbd>1</kbd>–<kbd>9</kbd> or wheel",
  "controls.select": "Choose an item",
  "controls.rotate": "Rotate what you're about to place (aim with the mouse: up to 4 tiles). Held, it keeps turning; tapped, in 15° steps, snapping to the tiles",

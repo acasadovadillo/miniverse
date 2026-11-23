@@ -3609,21 +3609,44 @@ async function soloTests(game) {
   });
   await test('hud (english): bars in place', async () => {
     const $ = id => document.getElementById(id), on = id => $('nd-' + id).classList.contains('nd-on');
+    const box = id => $(id).getBoundingClientRect(), cross = (a, b) => a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+    const r4 = b => [b.left, b.top, b.right, b.bottom].map(Math.round).join(',');
+    // Where they are (after the rows' and the clock's .2 s slide): the bars in the top-left corner and the clock under
+    // the last bar in sight, the minimap in the bottom-left corner and the chat over it, none over another
+    const places = async (what, last) => {
+      for (let i = 0; i < 4; i++) { draw(); await sleep(120); }
+      const n = box('needs'), c = box('clockp'), m = box('minimap'), ch = box('chat'), b = last && box('nd-' + last);
+      check(n.left <= 20 && n.top <= 20 && n.width >= 240, `${what}: the bars at ${r4(n)}`);
+      if (b) check(b.top <= 40 + (last === 'hp' ? 0 : 60) && c.top >= b.bottom + 4 && c.top <= b.bottom + 12 && !cross(n, c), `${what}: the clock at ${r4(c)}, its last bar at ${r4(b)}`);
+      else check(c.top <= 20, `${what}: no bar in sight and the clock at ${r4(c)}`);
+      if (m.width) check(m.left <= 20 && innerHeight - m.bottom >= 12 && innerHeight - m.bottom <= 20 && !cross(n, m), `${what}: the minimap at ${r4(m)}`);
+      if (m.width && ch.width) check(ch.bottom <= m.top, `${what}: the chat at ${r4(ch)} over the minimap at ${r4(m)}`);
+    };
     try {
       needsBase(); useSmartHud(game, false); await goTo(game, 21, 26);
       check($('needs') && !$('hearts') && !$('hunger') && !$('hud-keys'), 'the strip, or the hearts, drumsticks or keys card are there');
       // The full interface: every row but air
       draw(); draw();
       check(['hp', 'food', 'water', 'en'].every(on) && !on('air'), `full: ${['hp', 'food', 'water', 'en', 'air'].filter(on)}`);
+      await places('full', 'en');
+      // A window on the left: under the bars, never over them
+      game.windows.open('s-inv'); draw();
+      check(!cross(box('s-inv'), box('needs')) && box('s-inv').left <= 20, `full: the inventory at ${r4(box('s-inv'))}, the bars at ${r4(box('needs'))}`);
+      game.windows.close('s-inv'); draw();
       // The minimal one: the xp in its status block; health after a hit, gone after 5.5 s; a short sprint no energy
       useSmartHud(game, true); await frames(2); draw(); draw();
       check($('xp').parentNode.id === 'hud-status' && $('needs').parentNode === document.body, 'minimal: the parts are not in place');
       check(!['hp', 'food', 'water', 'en', 'air'].some(on), `minimal, nothing happening: ${['hp', 'food', 'water', 'en', 'air'].filter(on)}`);
+      await places('minimal, nothing in sight', null);
       Cb().hp = 16; draw(); draw(); check(on('hp'), 'minimal: a hit does not show the health');
+      await places('minimal, health', 'hp');
       const t0 = performance.now(); while (performance.now() - t0 < 5600) { draw(); await sleep(250); }
       check(!on('hp'), 'minimal: the health stays after 5.5 s');
       N().stamina = 75; draw(); draw(); check(!on('en'), 'minimal: a 5 s sprint shows the energy');
       N().stamina = 30; draw(); draw(); check(on('en'), 'minimal: a long sprint does not show the energy');
+      // (energy alone: packed up into the corner, with the clock right under it)
+      await sleep(700); await places('minimal, energy alone', 'en');
+      check(box('nd-en').top <= 20, `minimal: energy alone is not in the corner, at ${r4(box('nd-en'))}`);
       // A hot swap: nothing left on
       N().stamina = 100; useSmartHud(game, false); draw(); useSmartHud(game, true); draw(); draw();
       check(!['hp', 'food', 'water', 'en', 'air'].some(on), `after a swap, on: ${['hp', 'food', 'water', 'en', 'air'].filter(on)}`);

@@ -1,14 +1,17 @@
-// The status bars under the minimap (health, hunger, thirst, energy, air), for both HUDs. Design:
+// The status bars at the top left (health, hunger, thirst, energy, air), for both HUDs, as in GTA V and VI. Design:
 // docs/planes/gta/PLAN-D-barras-buceo.md §1 (markup and CSS in index.html, the rules in §1.3 and §1.4).
 //
 // One bar, one job: health (green, red when low) comes back by itself when fed and watered; hunger (orange) is food;
 // thirst (blue) is drink; energy (yellow) is stamina, with the part of the track that low rest takes away drawn as a
-// faint locked tail on the right; air (pale cyan) shows only under water, in its own row above health.
+// faint locked tail on the right; air (pale cyan) shows only under water, in its own row right under health. A row
+// takes room only while its bar is in sight (and for the half second it takes to fade out): the bars in sight sit packed
+// from the corner down, and the clock and the first steps under them follow (--nd-end, written here on the page).
 //
 // Contract:
 //   main.js builds it once, before useSmartHud: game.needsBar = new NeedsBar(game) (not on the world server, so
 //   callers use game.needsBar?.…); game.js calls game.needsBar?.frame() every frame, right after smartHud.frame.
-//   NeedsBar is the ONLY writer of the classes nd-on, nd-off, low and zero, of #nd-tag, #nd-legend and of body.uw-low.
+//   NeedsBar is the ONLY writer of the classes nd-on, nd-off, low, zero and nd-gone (on the rows), of #nd-tag,
+//   #nd-legend, of body.uw-low and of --nd-end on the page. windows.js asks bottomAll() where to open the left window.
 //   SmartHud never touches them: it calls show(id, secs), crit(id, on) and context(all, quiet), and reset() from its
 //   start() and destroy() (then kick()).
 //   Bar ids: 'hp' | 'food' | 'water' | 'en' | 'air'. Their name key is 'hud.need.' + NEED_KEY[id].
@@ -19,10 +22,12 @@
 // Full HUD: health, hunger, thirst and energy always in sight, air while under water or not yet full again; hovering
 // the strip shows the legend. Minimal HUD (body.hud-min): each bar on only while SmartHud keeps it on (show, crit) or
 // while a window or the tool wheel is open (context); Tab shows every row but air, with the legend. The first 3 times
-// a bar comes on by itself (per device, Settings.v.ndSeen) and whenever it turns critical, its name shows over its slot
-// for 2 s, so a lone blue bar is known to be thirst.
+// a bar comes on by itself (per device, Settings.v.ndSeen) and whenever it turns critical, its name shows right of its
+// bar for 2 s, so a lone blue bar is known to be thirst. The legend (Tab, or hovering in the full HUD) puts each bar's
+// name and % on its row, right of it.
 //
-// Nothing here reads the DOM each frame: values are rounded to 1/200 and the page is written only when one changes.
+// Nothing here reads the DOM each frame: values are rounded to 1/200 and the page is written only when one changes (the
+// sizes of the rows are read from the CSS only when the rows in sight change, or the window is resized).
 import { t, onLangChange } from '../i18n.js';
 import { HP_MAX, HUNGER_MAX } from '../combat.js';
 import { THIRST_MAX, STAMINA_MAX, REST_MAX, AIR_MAX } from '../needs.js';
@@ -32,12 +37,13 @@ import { Audio } from '../audio.js';
 
 // Bar id → its i18n name key suffix (hud.need.health…)
 export const NEED_KEY = { hp: 'health', food: 'hunger', water: 'thirst', en: 'energy', air: 'air' };
-const IDS = ['hp', 'food', 'water', 'en', 'air'];
+const IDS = ['hp', 'air', 'food', 'water', 'en'];   // (top to bottom, as on the page)
 // Thresholds (shares of the bar). LOW: the bar pulses; air at LOW also darkens the vignette and beats
 export const LOW = { hp: 0.4, food: 0.3, water: 0.3, rest: 0.25, air: 0.3 };
 const TAG_SECS = 2, TAG_TIMES = 3;   // the name over a bar that comes on: for 2 s, the first 3 times
 const BEAT_EVERY = 1;                // seconds between heartbeats with little air left
 const LEGEND_EVERY = 0.25;           // seconds between legend repaints while it shows
+const FOLD_AFTER = 0.5;              // seconds a bar that goes keeps its row (its fade out, in index.html), before the row folds away
 const q = v => Math.round(Math.max(0, Math.min(1, v)) * 200) / 200;   // (rounded to 1/200: a write only on a real change)
 const now = () => performance.now() / 1000;
 
@@ -51,6 +57,7 @@ export class NeedsBar {
     this.quiet = false;      // context: in a dialogue (only the critical rows)
     this.hover = false;      // the mouse over the strip (full HUD: the legend)
     this.offLang = onLangChange(() => this.kick());
+    addEventListener('resize', () => { this.laySig = ''; });   // (the rows are thicker from 1536 px wide: measured again)
     this.clear();
   }
 
@@ -62,7 +69,7 @@ export class NeedsBar {
   // (minimal HUD) Keep bar id on for secs from now
   show(id, secs) { const T = now() + secs; if (!(this.until[id] >= T)) this.until[id] = T; }
   // (minimal HUD) Keep bar id on while on is true (critical); quiet: on, but without its name tag (health while short of
-  // air: the tag goes over the air's row, which is the one that matters)
+  // air: the tag goes by the air's row, which is the one that matters)
   crit(id, on, quiet = false) { this.critOn[id] = on ? (quiet ? 'quiet' : true) : false; }
   // (minimal HUD, each frame) all: a window or the tool wheel is open, every row but air shows; quiet: a dialogue, only
   // the critical rows show
@@ -93,6 +100,7 @@ export class NeedsBar {
     this.tagUntil = 0; this.tagOn = false; this.uwLow = false; this.beatAt = 0;
     this.legendOn = false; this.legendSig = ''; this.legendAt = 0; this.lockW = undefined;
     this.dirty = false; this.gm = undefined; this.min = undefined;
+    this.laid = {}; this.goneAt = {}; this.at = {}; this.laySig = ''; this.m = null; this.tagId = null; this.tagMoved = false;
   }
 
   // ---------- each frame ----------
@@ -143,7 +151,8 @@ export class NeedsBar {
     this.klass('air', 'low', val.air <= LOW.air); this.klass('air', 'zero', under && val.air <= 0);
     for (const id of IDS) this.klass(id, 'nd-off', !!off[id]);
 
-    // Which are on
+    // Which are on (and, in the minimal HUD, which Tab shows: every bar but air)
+    const tab = min && !!g.smartHud?.on?.all;
     const airLive = under || (n.air ?? airMax) < airMax - 1e-3;
     for (const id of IDS) {
       let on, own = false, critical = false;
@@ -153,7 +162,7 @@ export class NeedsBar {
         critical = !!this.critOn[id];
         own = critical || (this.until[id] || 0) > T;
         on = critical || (!this.quiet && (own || (this.all && id !== 'air')));
-        // (its name over its slot: when it turns critical, and the first times it comes on by itself)
+        // (its name by its bar: when it turns critical, and the first times it comes on by itself)
         if (on && critical && !this.wasCrit[id]) { if (this.critOn[id] !== 'quiet') this.nameTag(id, T); }
         else if (on && own && !this.own[id] && this.seenTimes(id) < TAG_TIMES) { this.countSeen(id); this.nameTag(id, T); }
       }
@@ -163,6 +172,10 @@ export class NeedsBar {
       this.on[id] = on;
     }
     if (this.tagOn && T > this.tagUntil) this.setTag(false);
+    const shown = {};
+    for (const id of IDS) shown[id] = !off[id] && (this.on[id] || (tab && id !== 'air'));
+    this.lay(shown, T);
+    if (this.tagMoved) this.placeTag(true);
 
     // Little air left under water: the vignette closes in and a soft heartbeat, once a second
     const uwLow = under && val.air <= LOW.air && !off.air;
@@ -170,7 +183,7 @@ export class NeedsBar {
     if (uwLow && g.mode === 'play' && T >= this.beatAt) { this.beatAt = T + BEAT_EVERY; heartbeat(); }   // (not over the pause menu)
 
     // The legend: with Tab held (minimal HUD) or the mouse over the strip (full HUD)
-    const legend = min ? !!g.smartHud?.on?.all : this.hover;
+    const legend = min ? tab : this.hover;
     if (legend !== this.legendOn) { this.legendOn = legend; this.legendSig = ''; this.legendAt = 0; }
     if (legend && T >= this.legendAt) { this.legendAt = T + LEGEND_EVERY; this.paintLegend(val, rest, off); }
   }
@@ -179,15 +192,15 @@ export class NeedsBar {
   find() {
     const $ = id => document.getElementById(id), root = $('needs');
     if (!root) return false;
-    const bar = {}, fill = {};
-    for (const id of IDS) { bar[id] = $('nd-' + id); fill[id] = bar[id]?.querySelector('i'); if (!fill[id]) return false; }
-    this.el = { root, bar, fill, ghost: bar.hp.querySelector('s'), lock: bar.en.querySelector('u'), tag: $('nd-tag'), legend: $('nd-legend') };
+    const bar = {}, fill = {}, row = {};
+    for (const id of IDS) { bar[id] = $('nd-' + id); fill[id] = bar[id]?.querySelector('i'); row[id] = bar[id]?.parentElement; if (!fill[id]) return false; }
+    this.el = { root, bar, fill, row, ghost: bar.hp.querySelector('s'), lock: bar.en.querySelector('u'), tag: $('nd-tag'), legend: $('nd-legend') };
     if (!this.el.ghost || !this.el.lock || !this.el.tag || !this.el.legend) { this.el = null; return false; }
     root.addEventListener('mouseenter', () => { this.hover = true; });
     root.addEventListener('mouseleave', () => { this.hover = false; });
     return true;
   }
-  // The needs turned off by a URL switch (src/opciones.js): their slot stays, empty
+  // The needs turned off by a URL switch (src/opciones.js): never in sight, their row folded away
   offs() {
     if (!this.offCache) {
       const noStam = apagada('aguante'), noRest = apagada('cansancio');
@@ -215,12 +228,60 @@ export class NeedsBar {
     this.ghost = v;
   }
   nameTag(id, T) {
-    const el = this.el.tag, slot = this.el.bar[id];
-    el.textContent = t('hud.need.' + NEED_KEY[id]);
-    // (over its slot: the slots never move, so their place is read only now, when a name shows)
-    el.style.left = `${slot.offsetLeft}px`;
+    this.el.tag.textContent = t('hud.need.' + NEED_KEY[id]);
+    this.tagId = id; this.tagMoved = !this.tagOn;   // (put by its bar once this frame's rows are laid out: lay())
+    if (this.tagOn) this.placeTag(false);
     this.tagUntil = T + TAG_SECS;
     this.setTag(true);
+  }
+  // The name tag right of its bar, level with the middle of it (where the bar is going, when the rows move); fresh: it is
+  // only now coming into sight, so it goes there at once instead of sliding from where the last one was
+  placeTag(fresh) {
+    this.tagMoved = false;
+    const id = this.tagId, el = this.el.tag, m = this.m;
+    if (!id || !m) return;
+    if (fresh) el.style.transition = 'none';
+    el.style.top = `${this.at[id] + (m.h + (id === 'hp' ? 2 : 0)) / 2}px`;
+    if (fresh) { void el.offsetWidth; el.style.transition = ''; }   // (one layout, only when a name comes into sight)
+  }
+  // Which rows take room: the bars in sight, and for FOLD_AFTER more the ones fading out, so the bars in sight sit packed
+  // from the corner down. Written only on a change: the rows (.nd-gone), where the strip ends (--nd-end, on the page: the
+  // clock and the first steps go under it, index.html) and the name tag's place
+  lay(shown, T) {
+    let sig = '';
+    for (const id of IDS) {
+      if (shown[id]) { this.laid[id] = true; this.goneAt[id] = undefined; }
+      else if (this.laid[id]) { this.goneAt[id] ??= T + FOLD_AFTER; if (T >= this.goneAt[id]) this.laid[id] = false; }
+      if (!this.laid[id]) this.goneAt[id] = undefined;
+      sig += this.laid[id] ? '1' : '0';
+    }
+    if (sig === this.laySig) return;
+    this.laySig = sig;
+    const m = this.m = this.metrics();
+    let y = 0;
+    for (const id of IDS) {
+      this.el.row[id].classList.toggle('nd-gone', !this.laid[id]);
+      this.at[id] = y;   // (its top in the strip, once the rows have moved)
+      if (this.laid[id]) y += this.rowH(id, m) + m.gap;
+    }
+    // (no bar in sight: --hud-top, 8 px under it, is the corner)
+    document.documentElement.style.setProperty('--nd-end', `${y ? m.y + y - m.gap : m.y - 8}px`);
+    if (this.tagOn) this.placeTag(false);
+  }
+  // The sizes of the strip, from the CSS (whole pixels: index.html)
+  metrics() {
+    const cs = getComputedStyle(document.documentElement), px = k => parseFloat(cs.getPropertyValue(k)) || 0;
+    return { y: px('--nd-y'), h: px('--nd-h'), gap: px('--nd-gap') };
+  }
+  rowH(id, m) { return m.h + (id === 'hp' ? 2 : 0); }
+  // Where the strip ends (page y) with the rows an open window shows (every bar but air, and air while it is in sight),
+  // or 0 when there is no strip (creative, spectator): windows.js opens the left window under it, and keeps windows off it
+  bottomAll() {
+    if (this.game.gamemode !== 'survival' || !document.getElementById('needs')) return 0;
+    const m = this.metrics(), off = this.offs();
+    let y = 0;
+    for (const id of IDS) if (!off[id] && (id !== 'air' || this.on.air)) y += this.rowH(id, m) + m.gap;
+    return y ? m.y + y - m.gap : 0;
   }
   setTag(on) {
     if (on === this.tagOn) return;
@@ -238,14 +299,14 @@ export class NeedsBar {
     s[id] = (s[id] || 0) + 1;
     Settings.store();
   }
-  // The legend: a swatch, the name and the percentage of each bar in sight (energy with its rest)
+  // The legend: the name and the percentage of each bar in sight, each on its bar's row (energy with its rest)
   paintLegend(val, rest, off) {
     const pct = v => t('hud.need.pct', { pct: Math.round(Math.max(0, Math.min(1, v)) * 100) });
     const rows = [];
     for (const id of IDS) {
       if (off[id] || (id === 'air' && !this.on.air)) continue;
       const extra = id === 'en' && !apagada('cansancio') ? `<small>${t('hud.need.rest', { pct: Math.round(rest * 100) })}</small>` : '';
-      rows.push(`<div style="--c: var(--nd-${id})"><b></b>${t('hud.need.' + NEED_KEY[id])}<span>${pct(val[id])}</span>${extra}</div>`);
+      rows.push(`<div class="l-${id}">${t('hud.need.' + NEED_KEY[id])}<span>${pct(val[id])}</span>${extra}</div>`);
     }
     const html = rows.join('');
     if (html !== this.legendSig) { this.legendSig = html; this.el.legend.innerHTML = html; }

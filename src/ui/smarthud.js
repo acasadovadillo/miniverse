@@ -1,7 +1,7 @@
 // The minimal interface, the one everybody plays with (main.js puts it on; ?hud=completo or Settings › Display ›
 // Interface: Full give the full one back, and destroy() leaves the page as it was): like GTA 6, RDR2 or Zelda, each
-// part of the HUD shows up when it matters and fades away by itself when it does not. The status bars under the
-// minimap (health, hunger, thirst, energy, air: ui/needsbar.js paints them, this file only says when each one shows)
+// part of the HUD shows up when it matters and fades away by itself when it does not. The status bars at the top
+// left (health, hunger, thirst, energy, air: ui/needsbar.js paints them, this file only says when each one shows)
 // come on when they change, in danger or when low (low stays); experience goes in one small block left of the hotbar,
 // with the load; the hotbar when you switch, pick up or use the last of something, then it folds away; the money (top right,
 // as in GTA) when you earn or spend; the time at dawn, dusk, a new day, a weather change, waking up and before a shop
@@ -89,8 +89,11 @@ body.hud-min .hm.hm-on, body.hud-min.hud-all .hm, body.hud-min .hmt.hm-on { opac
 body.hud-min.hud-all #hud-tip, body.hud-min.hud-all:not(.building) #hud-build { opacity: 0; visibility: hidden; }
 body.hud-min.hud-all.building #hud-build { opacity: 1; visibility: visible; transition: opacity .15s ease, visibility 0s; }
 body.hud-min.hm-solo #players.show { display: none; }
-body.hud-min #admin-tag { left: 50%; top: 10px; transform: translateX(-50%); }
-body.hud-min.admin #quest, body.hud-min.spectator #quest { top: 54px; }
+body.hud-min #admin-tag { left: 50%; top: 16px; transform: translateX(-50%); }
+body.hud-min.admin #quest, body.hud-min.spectator #quest { top: calc(var(--hud-top) + 53px); }
+/* (the clock and the first steps slide with the bars over them, which come and go: index.html, --hud-top) */
+body.hud-min #clockp, body.hud-min #quest { transition: opacity .5s ease, visibility 0s linear .5s, top .2s ease; }
+body.hud-min #clockp.hm-on, body.hud-min.hud-all #clockp, body.hud-min #quest.hm-on, body.hud-min.hud-all #quest { transition: opacity .15s ease, visibility 0s, top .2s ease; }
 body.hud-min.spectator #hotbar-slots, body.hud-min:not(.hud-all) #coords, body.hud-min #vitals { display: none; }
 /* The hotbar: light slots that rise into sight and fold away */
 body.hud-min #hotbar { background: none; border: 0; box-shadow: none; padding: 0; }
@@ -101,7 +104,7 @@ body.hud-min #hotbar .slot.sel { background: rgba(60, 42, 14, .55); border-color
 body.hud-min #hotbar .slot.hm-food { animation: hm-beat 1s ease-in-out infinite; }
 @keyframes hm-beat { 50% { border-color: #fff3c0; box-shadow: 0 0 0 2px #ffd77a, 0 0 14px 4px rgba(255, 215, 122, .75); } }
 /* Experience (and the load, with the weight inventory): one block left of the hotbar. Health and the other needs are the
-   bars under the minimap (ui/needsbar.js) */
+   bars at the top left (ui/needsbar.js) */
 #hud-status { position: absolute; right: calc(100% + 8px); bottom: 0; display: flex; flex-direction: column; gap: 5px; padding: 7px 10px 8px; white-space: nowrap; background: rgba(20, 13, 8, .62); border-radius: 10px; pointer-events: none; }
 body.hud-min:not(.survival) #hud-status { display: none; }
 #hud-status #xp { margin: 3px 24px 1px 0; height: 4px; }
@@ -109,14 +112,14 @@ body.hud-min:not(.survival) #hud-status { display: none; }
 #hud-coins { display: none; margin-top: 1px; font: 500 17px/1.2 var(--font-title); letter-spacing: .03em; font-variant-numeric: tabular-nums; color: var(--gold); }
 #hud-status.hm-wins #hud-coins { display: block; }   /* (with a window open, the money goes here: the windows open at the top right) */
 /* The money, top right as in GTA (the minimap is bottom left), and what came in or went out */
-body.hud-min #money { position: fixed; right: 12px; top: 52px; margin: 0; padding: 5px 12px; font-size: 18px; line-height: 1.2; transition: opacity .5s ease, visibility 0s linear .5s, top .25s ease; }
+body.hud-min #money { position: fixed; right: 16px; top: 60px; margin: 0; padding: 5px 12px; font-size: 18px; line-height: 1.2; transition: opacity .5s ease, visibility 0s linear .5s, top .25s ease; }
 body.hud-min #money.hm-on { transition: opacity .15s ease, visibility 0s, top .25s ease; }
-#hud-delta { position: fixed; right: 14px; top: 92px; font: 600 18px/1.2 var(--font-title); letter-spacing: .03em; font-variant-numeric: tabular-nums; white-space: nowrap; pointer-events: none; text-shadow: 1px 0 #2a1c22, -1px 0 #2a1c22, 0 1px #2a1c22, 0 -1px #2a1c22; transition: opacity .5s ease, visibility 0s linear .5s, top .25s ease; }
+#hud-delta { position: fixed; right: 18px; top: 100px; font: 600 18px/1.2 var(--font-title); letter-spacing: .03em; font-variant-numeric: tabular-nums; white-space: nowrap; pointer-events: none; text-shadow: 1px 0 #2a1c22, -1px 0 #2a1c22, 0 1px #2a1c22, 0 -1px #2a1c22; transition: opacity .5s ease, visibility 0s linear .5s, top .25s ease; }
 #hud-delta.up { color: #a8f07a; } #hud-delta.down { color: #ff9a7a; }
 body:not(.playing) #money, body:not(.playing) #hud-delta, body:not(.playing) #hud-goal, body:not(.playing) #hud-bow { display: none; }
 #hud-item { position: absolute; left: 50%; bottom: 62px; transform: translateX(-50%); padding: 2px 10px; font-size: 16px; white-space: nowrap; color: var(--cream); background: rgba(24, 16, 10, .72); border-radius: 9px; pointer-events: none; }
-body.hud-min #hint { bottom: 100px; }
-body.hud-min.building #hint { bottom: 150px; }   /* (above the build bar, which is taller than the hotbar) */
+body.hud-min #hint { bottom: 106px; }
+body.hud-min.building #hint { bottom: 156px; }   /* (above the build bar, which is taller than the hotbar) */
 body.hud-min #hint.hm-quiet { opacity: 0; transition: opacity .5s; }
 body.hud-min #quest.hm-compact:not(:hover) { padding: 5px 12px; width: auto; max-width: min(300px, calc(100vw - 24px)); }
 body.hud-min #quest.hm-compact:not(:hover) > :not(b) { display: none; }
@@ -139,7 +142,7 @@ body.hud-min #quest.hm-compact:not(:hover) b { font-size: 16px; }
 /* The key tips: next to the hotbar, where the eye already goes */
 #hud-tip { position: absolute; left: calc(100% + 10px); bottom: 0; display: flex; align-items: center; gap: 4px; width: max-content; max-width: min(400px, calc(50vw - 250px)); padding: 7px 12px; font-size: 16px; line-height: 1.3; pointer-events: none; }
 #hud-build { position: fixed; right: 16px; bottom: 40px; z-index: 8; pointer-events: none; }
-#hud-build { bottom: 158px; }   /* (above the build bar) */
+#hud-build { bottom: 164px; }   /* (above the build bar) */
 #hud-tip kbd, .hud-keys kbd { flex: none; font-size: 14px; }
 .hud-keys { padding: 8px 12px 10px; font-size: 15px; }
 .hud-keys h4 { margin: 0 0 6px; font-size: 15px; font-weight: 400; color: var(--gold); }

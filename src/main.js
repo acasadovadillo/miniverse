@@ -36,7 +36,7 @@ function play(login = true) {   // (login: abrir la pantalla de entrar)
   // (what they check and measure) unless &hud=minimo. Changing the setting swaps it at once, without reloading
   const q = new URLSearchParams(location.search), plain = MODE === 'pruebas' || q.has('banco');
   const pick = { minimo: true, completo: false }[q.get('hud')] ?? (plain ? false : null);
-  game.needsBar = new NeedsBar(game);   // (the status bars under the minimap, for both interfaces; before the HUD, which resets it)
+  game.needsBar = new NeedsBar(game);   // (the status bars at the top left, for both interfaces; before the HUD, which resets it)
   useSmartHud(game, pick ?? Settings.v.hud !== 'full');
   Settings.onHud = v => useSmartHud(game, v !== 'full');
   Settings.hudNow = () => (game.smartHud ? 'minimal' : 'full');   // (what the setting lights: the one in sight)

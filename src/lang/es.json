@@ -101,7 +101,7 @@
  "controls.drink.keys": "<kbd>E</kbd> en el agua",
  "controls.drink": "Con sed, apunta a un río, un lago o un pozo para beber (una vez bebe hasta llenarte; moverte lo para). El agua del mar es salada. Con la cantimplora o el cántaro en la mano: clic, un trago; E o clic en agua dulce, llenarla",
  "controls.bars.keys": "Las barras",
- "controls.bars": "Bajo el minimapa: salud, hambre, sed y energía (y, bajo el agua, el aire). La comida llena el hambre, la bebida la sed y dormir en una cama la energía; la salud vuelve sola si no tienes hambre ni sed. Pasa el ratón por encima (o mantén Tab) para ver sus %",
+ "controls.bars": "Arriba a la izquierda: salud, hambre, sed y energía (y, bajo el agua, el aire). La comida llena el hambre, la bebida la sed y dormir en una cama la energía; la salud vuelve sola si no tienes hambre ni sed. Pasa el ratón por encima (o mantén Tab) para ver sus %",
  "controls.select.keys": "<kbd>1</kbd>–<kbd>9</kbd> o rueda",
  "controls.select": "Elegir objeto",
  "controls.rotate": "Girar lo que vas a colocar (apunta con el ratón: hasta 4 casillas). Mantenida gira sin parar; a toques, de 15° en 15°, encajando con las casillas",

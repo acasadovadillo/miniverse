@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- La versión publicada: se cambia en cada publicación (así el juego sabe que tiene que pedir el código nuevo) -->
-<meta name="miniverse-version" content="2026-11-22.4">
+<meta name="miniverse-version" content="2026-11-23.1">
 <title>Miniverse</title>
 <script>
   // The language of the page until the game's code arrives (src/i18n.js chooses the same way, then takes over): for
@@ -59,7 +59,7 @@
   #love-text { padding: 2px 12px; font-size: 17px; color: var(--cream); white-space: nowrap; }
   @keyframes love-beat { 0%, 100% { transform: scale(1); } 15% { transform: scale(1.16); } 30% { transform: scale(1); } 45% { transform: scale(1.1); } 60% { transform: scale(1); } }
   #hurt { position: fixed; inset: 0; pointer-events: none; z-index: 6; opacity: 0; transition: opacity .12s; box-shadow: inset 0 0 160px 40px rgba(220, 40, 40, .55); }
-  #debug { position: fixed; left: 12px; top: 54px; z-index: 7; max-width: min(640px, calc(100vw - 24px)); padding: 6px 10px; font: 12px/1.45 ui-monospace, Menlo, Consolas, monospace; color: #e8dcc0; background: rgba(0,0,0,.55); border-radius: 6px; pointer-events: none; white-space: pre-wrap; }
+  #debug { position: fixed; left: 16px; top: calc(var(--hud-top) + 53px); z-index: 7; max-width: min(640px, calc(100vw - 24px)); padding: 6px 10px; font: 12px/1.45 ui-monospace, Menlo, Consolas, monospace; color: #e8dcc0; background: rgba(0,0,0,.55); border-radius: 6px; pointer-events: none; white-space: pre-wrap; }
   #debug b { color: #ffd77a; font-weight: normal; }
   #debug .bad { color: #ff8a80; }
   /* El punto de los errores (ver src/faults.js): discreto, abajo a la derecha; al pasar el ratón, el último; clic, copiar */
@@ -102,7 +102,7 @@
   #dlg-opts button.on { color: var(--gold); border-color: var(--border); background: #6a4424; }
   #dialog.asking .more { display: none; }
   /* Chat (T) */
-  #chat { position: fixed; left: 12px; bottom: 166px; width: min(460px, calc(100vw - 24px)); z-index: 24; pointer-events: none; }
+  #chat { position: fixed; left: 16px; bottom: 154px; width: min(460px, calc(100vw - 24px)); z-index: 24; pointer-events: none; }
   #chat-log { display: flex; flex-direction: column; gap: 2px; max-height: 220px; overflow: hidden; }
   .chat-line { align-self: flex-start; max-width: 100%; padding: 2px 8px; font-size: 16px; line-height: 1.3; color: var(--cream); background: rgba(0, 0, 0, .55); border-radius: 3px; text-shadow: 1px 1px 0 #000; overflow-wrap: anywhere; transition: opacity .6s; }
   .chat-line.ok { color: #b8f08a; }
@@ -117,7 +117,9 @@
   #chat.open .chat-line.old { opacity: 1; }
   #chat.open #chat-input { display: block; }
   body:not(.playing) #chat { display: none; }
-  #admin-tag { display: none; position: fixed; left: 12px; top: 50px; padding: 3px 10px; font-size: 15px; color: #ff9a5a; letter-spacing: 1px; }
+  /* (indoors, minimal HUD: no minimap, so lower, over the block of weight and experience; not over the build bar or a dialogue) */
+  body.hud-min.indoors:not(.building):not(:has(#dialog.show)) #chat { bottom: 106px; }
+  #admin-tag { display: none; position: fixed; left: 16px; top: calc(var(--hud-top) + 53px); padding: 3px 10px; font-size: 15px; color: #ff9a5a; letter-spacing: 1px; }
   body.admin.playing #admin-tag, body.spectator.playing #admin-tag { display: block; }
   /* La lista de jugadores (mientras se mantiene Tab) */
   #players { display: none; position: fixed; left: 50%; top: 70px; transform: translateX(-50%); min-width: 260px; max-width: calc(100vw - 32px); padding: 10px 14px; z-index: 30; }
@@ -134,20 +136,21 @@
   .toast.out { opacity: 0; transform: translateY(-8px); }
   .toast.good { color: #a8f07a; }
 
-  #place { position: fixed; right: 12px; top: 10px; padding: 6px 12px; font-size: 17px; }
-  #clockp { position: fixed; left: 12px; top: 10px; padding: 6px 12px; font-size: 17px; white-space: nowrap; }
+  #place { position: fixed; right: 16px; top: 16px; z-index: 4; padding: 6px 12px; font-size: 17px; }
+  #clockp { position: fixed; left: 16px; top: var(--hud-top); z-index: 4; padding: 6px 12px; font-size: 17px; white-space: nowrap; transition: top .2s ease; }
   /* Primeros pasos: lo que toca hacer, debajo del reloj (con el panel F3 abierto, no) */
-  #quest { position: fixed; left: 12px; top: 54px; z-index: 6; width: min(300px, calc(100vw - 24px)); padding: 7px 26px 8px 12px; display: flex; flex-direction: column; gap: 2px; pointer-events: auto; }
+  #quest { position: fixed; left: 16px; top: calc(var(--hud-top) + 53px); z-index: 6; transition: top .2s ease; width: min(300px, calc(100vw - 24px)); padding: 7px 26px 8px 12px; display: flex; flex-direction: column; gap: 2px; pointer-events: auto; }
   #quest[hidden], body:not(.playing) #quest, #debug:not([hidden]) ~ #quest { display: none; }
-  body.admin #quest, body.spectator #quest { top: 88px; }
+  #clockp.under-win, #quest.under-win { opacity: 0 !important; visibility: hidden !important; transition: top .2s ease !important; }   /* (an open window over them: src/ui/windows.js) */
+  body.admin #quest, body.spectator #quest { top: calc(var(--hud-top) + 91px); }   /* (under the full HUD's game mode tag) */
   #quest small { color: var(--dim); font-size: 13px; }
   #quest b { color: var(--gold); font-size: 17px; font-weight: 600; line-height: 1.2; }
   #quest span { color: var(--cream); font-size: 14px; line-height: 1.25; }
   #quest-x { position: absolute; right: 4px; top: 4px; width: 20px; height: 20px; padding: 0; color: var(--dim); background: none; border: 0; cursor: pointer; font-size: 14px; }
   #quest-x:hover { color: var(--cream); }
   #place small { color: var(--dim); margin-left: 6px; }
-  /* (bottom left, as in GTA, with the status bars under it (#needs); the chat sits above it) */
-  #minimap { position: fixed; left: 12px; bottom: 32px; width: 180px; height: 120px; padding: 0; image-rendering: pixelated; cursor: pointer; }
+  /* (bottom left, as in GTA, in the very corner: the status bars (#needs) are at the top left; the chat sits above it) */
+  #minimap { position: fixed; left: 16px; bottom: 16px; z-index: 4; width: 180px; height: 120px; padding: 0; image-rendering: pixelated; cursor: pointer; }
   body.indoors #minimap { display: none; }
   #s-map { padding: 0; background: #1a1410; }
   #bigmap { position: fixed; inset: 0; cursor: grab; touch-action: none; }
@@ -169,7 +172,7 @@
   body:not(.playing) #clockp, body:not(.playing) #place, body:not(.playing) #touch, body:not(.playing) #prompt, body:not(.playing) #minimap, body:not(.playing) #hotbar, body:not(.playing) #hint { display: none !important; }
 
   /* ---------- Barra rápida, vida, hambre y mochila ---------- */
-  #hotbar { position: fixed; left: 50%; bottom: 10px; transform: translateX(-50%); padding: 6px 8px 8px; }
+  #hotbar { position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%); padding: 6px 8px 8px; }
   .slots { display: flex; gap: 4px; }
   .slot { position: relative; width: 44px; height: 44px; background: rgba(0, 0, 0, .35); border: 2px solid #6a4a2a; border-radius: 4px; cursor: pointer; touch-action: none; }
   .slot img { position: absolute; left: 50%; top: 50%; width: 36px; height: 36px; transform: translate(-50%, -50%); image-rendering: pixelated; pointer-events: none; }
@@ -179,9 +182,9 @@
   .slot .dur span { display: block; height: 100%; }
   .slot.sel { border-color: var(--gold); box-shadow: 0 0 0 2px var(--gold), inset 0 0 8px rgba(255, 215, 122, .35); }
   .slot.lift img { opacity: .3; }
-  #hint { position: fixed; left: 50%; bottom: 96px; transform: translateX(-50%); padding: 4px 10px; font-size: 16px; opacity: 0; transition: opacity .12s; pointer-events: none; white-space: nowrap; }
+  #hint { position: fixed; left: 50%; bottom: 102px; transform: translateX(-50%); padding: 4px 10px; font-size: 16px; opacity: 0; transition: opacity .12s; pointer-events: none; white-space: nowrap; }
   #hint.show { opacity: 1; }
-  body.underground #hint, body.survival #hint { bottom: 114px; }
+  body.underground #hint, body.survival #hint { bottom: 120px; }
   #hint kbd { font-size: 14px; }
   /* Pesca: la barra de fuerza al lanzar y, en la pelea, la columna de agua con la red, el pez, el tesoro y la barra de captura */
   .inv-panel { padding: 14px 16px 16px; }
@@ -293,7 +296,7 @@
   #cf-pick { width: auto; margin: 0 0 0 auto; padding: 5px 12px; font-size: 15px; }
   @media (max-width: 560px) { .cf-body { flex-direction: column; } #cf-list { grid-template-columns: repeat(7, 38px); } .cf-r { width: 38px; height: 38px; } .cf-tab span:last-child { display: none; } }
   /* Construcción */
-  #buildbar { display: none; position: fixed; left: 50%; bottom: 10px; transform: translateX(-50%); padding: 8px 10px; width: min(760px, calc(100vw - 20px)); }
+  #buildbar { display: none; position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%); padding: 8px 10px; width: min(760px, calc(100vw - 20px)); }
   body.building #buildbar { display: block; }
   body.building #hotbar { display: none; }
   .bb-top { display: flex; align-items: center; gap: 4px; margin-bottom: 6px; flex-wrap: wrap; }
@@ -310,7 +313,7 @@
   .bb-piece.on { border-color: var(--gold); box-shadow: 0 0 0 1px var(--gold); }
   .bb-piece.poor small { color: var(--err); }
   .bb-note { font-size: 15px; color: var(--dim); padding: 6px 2px; }
-  body.building #hint { bottom: 118px; }
+  body.building #hint { bottom: 156px; }   /* (above the build bar, which is taller than the hotbar: both HUDs) */
   body:not(.playing) #buildbar { display: none !important; }
   /* Ajustes */
   .st-panel h2 { display: flex; align-items: center; justify-content: space-between; }
@@ -387,25 +390,35 @@
   .sh-row .btn { width: auto; margin: 0; padding: 4px 10px; font-size: 15px; }
   .sh-row .btn:disabled { opacity: .4; cursor: default; }
   #money { color: var(--gold); margin-left: auto; white-space: nowrap; font-size: 16px; line-height: 1.2; }
-  /* The money (always) on the row over the hotbar; health, hunger and the other needs are the bars under the minimap */
+  /* The money (always) on the row over the hotbar; health, hunger and the other needs are the bars at the top left */
   #vitals { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin: 0 2px 6px; min-height: 14px; }
   /* The experience: a cream and gold bar with the level over it (in survival; not green, so it is never taken for health) */
   #xp { display: none; position: relative; height: 5px; margin: 6px 2px 6px; background: rgba(0, 0, 0, .55); border-radius: 0; }
   body.survival #xp { display: block; }
   #xp i { display: block; height: 100%; width: 0; background: linear-gradient(#d9c27a, #b89a4a); border-radius: 0; }
   #xp b { position: absolute; left: 50%; top: -8px; transform: translateX(-50%); font-size: 13px; line-height: 1; color: #e8d48a; text-shadow: 0 1px 0 #2a1e08, 1px 0 0 #2a1e08, -1px 0 0 #2a1e08, 0 -1px 0 #2a1e08; }
-  /* The status bars (src/ui/needsbar.js paints them; docs/planes/gta/PLAN-D-barras-buceo.md §1): thin flat bars under the
-     minimap, one colour per need, no icons. Row 1 health; row 2 hunger, thirst and energy (blue between orange and
-     yellow); air above health, only under water. Each slot is fixed, so nothing moves when a bar hides. The colours are
-     about 15 % less saturated than pure hues, to sit with the muted art */
-  :root { --nd-hp: #66b562; --nd-hp-low: #d9503f; --nd-en: #e3c25a; --nd-food: #d98c45; --nd-water: #4a9fd8; --nd-air: #cfe6f0; --nd-track: rgba(8, 8, 10, .62); }
-  #needs { position: fixed; left: 12px; bottom: 12px; width: 180px; display: flex; flex-direction: column; gap: 3px; z-index: 5; pointer-events: none; }
+  /* The status bars (src/ui/needsbar.js paints them; docs/planes/gta/PLAN-D-barras-buceo.md §1): at the top left, as in
+     GTA V and VI, a stack of flat horizontal bars, one colour per need, no icons: health (a little thicker), air (only
+     under water, right under health), hunger, thirst (blue between orange and yellow) and energy. A row takes room only
+     while its bar is in sight (needsbar.js folds the others away, .nd-gone, once they have faded), so the bars in sight
+     always sit packed from the corner down; the full HUD shows the four always, so only air comes and goes there. Whole
+     pixels: 240 px wide and 9 px thick up to 1535 px, 288 and 10 from 1536. The colours are about 15 % less saturated
+     than pure hues, to sit with the muted art. Under the strip go the clock and then the first steps and the F3 panel
+     (--hud-top: the clock's top; --nd-end: where the bars in sight end, which needsbar.js writes on the page) */
+  :root { --nd-hp: #66b562; --nd-hp-low: #d9503f; --nd-en: #e3c25a; --nd-food: #d98c45; --nd-water: #4a9fd8; --nd-air: #cfe6f0; --nd-track: rgba(8, 8, 10, .72);
+    --nd-x: 16px; --nd-y: 16px; --nd-w: 240px; --nd-h: 9px; --nd-gap: 5px;
+    --nd-end: calc(var(--nd-y) + 4 * var(--nd-h) + 2px + 3 * var(--nd-gap)); --hud-top: 16px; }
+  @media (min-width: 1536px) { :root { --nd-w: 288px; --nd-h: 10px; --nd-gap: 6px; } }
+  body.survival { --hud-top: calc(var(--nd-end) + 8px); }   /* (in creative and spectator there are no bars: the clock in the corner) */
+  #needs { position: fixed; left: var(--nd-x); top: var(--nd-y); width: var(--nd-w); display: flex; flex-direction: column; z-index: 5; pointer-events: none; }
   body:not(.survival) #needs, body:not(.playing) #needs { display: none; }
   body:not(.hud-min) #needs { pointer-events: auto; }   /* (full HUD: hovering shows the legend) */
-  .nd-row { display: flex; gap: 4px; }
-  .nd-airrow { position: absolute; left: 0; right: 0; bottom: calc(100% + 3px); }
-  .nd { position: relative; flex: 1 1 0; height: 6px; border-radius: 0; background: var(--nd-track); box-shadow: 0 0 0 1px rgba(0, 0, 0, .55); overflow: hidden; }
-  .nd-top .nd { height: 7px; }
+  /* (a row: its bar and the gap under it; folded away, nothing; clipped, so a row that opens wipes its bar in) */
+  .nd-row { display: flex; height: var(--nd-h); margin-bottom: var(--nd-gap); overflow: clip; overflow-clip-margin: 4px; transition: height .2s ease, margin-bottom .2s ease; }
+  .nd-row.nd-top { height: calc(var(--nd-h) + 2px); }
+  .nd-row.nd-gone { height: 0; margin-bottom: 0; }
+  .nd { position: relative; flex: 1 1 0; height: var(--nd-h); border-radius: 0; background: var(--nd-track); box-shadow: 0 0 0 1px rgba(0, 0, 0, .55), 0 1px 3px rgba(0, 0, 0, .35); overflow: hidden; }
+  .nd-top .nd { height: calc(var(--nd-h) + 2px); }
   .nd > i, .nd > s { position: absolute; inset: 0; transform-origin: 0 50%; will-change: transform; }
   .nd > i { background: var(--c); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .28); }   /* (a 1 px top highlight) */
   .nd > s { background: rgba(255, 255, 255, .5); transition: transform .5s ease .45s; }   /* (the ghost of recent damage) */
@@ -418,19 +431,22 @@
   @keyframes nd-zero { 50% { box-shadow: 0 0 0 1px #ff5a4a, 0 0 7px #ff5a4a; } }
   .nd-air { transition: opacity .5s ease; }
   .nd-air:not(.nd-on) { opacity: 0; }   /* (air: only under water, in both HUDs) */
-  .nd.nd-off { visibility: hidden; }     /* (a need turned off with ?sed=0 or ?aguante=0&cansancio=0: its slot stays) */
+  .nd.nd-off { visibility: hidden; }     /* (a need turned off with ?sed=0 or ?aguante=0&cansancio=0: its row is folded away too) */
   body.hud-min .nd { opacity: 0; transition: opacity .5s ease; }
   body.hud-min .nd.nd-on, body.hud-min.hud-all .nd:not(.nd-air) { opacity: 1; transition: opacity .15s ease; }
-  /* (the name tag: on a dark chip, as it often sits over the minimap's bottom edge) */
-  #nd-tag { position: absolute; left: 0; bottom: calc(100% + 13px); padding: 2px 5px 3px; border-radius: 3px; background: rgba(8, 8, 10, .62); font: 600 11px/1 var(--font-ui); text-transform: uppercase; letter-spacing: .06em; color: var(--cream); white-space: nowrap; opacity: 0; transition: opacity .2s; }
+  /* (the name tag: on a dark chip, right of its bar (needsbar.js sets its top); not with the legend, which names them all) */
+  #nd-tag { position: absolute; left: calc(100% + 8px); top: 0; transform: translateY(-50%); padding: 3px 6px 4px; border-radius: 3px; background: rgba(8, 8, 10, .62); font: 600 12px/1 var(--font-ui); text-transform: uppercase; letter-spacing: .06em; color: var(--cream); white-space: nowrap; opacity: 0; transition: opacity .2s, top .2s ease; }
   #nd-tag.on { opacity: 1; }
-  /* (the legend: a chip like #hud-status, not the heavy wood .panel; with Tab held, or hovering in the full HUD) */
-  #nd-legend { display: none; position: absolute; left: calc(100% + 8px); bottom: 0; padding: 5px 10px 6px; border-radius: 10px; background: rgba(20, 13, 8, .62); font: 500 14px/1.4 var(--font-ui); white-space: nowrap; color: var(--cream); }
+  body.hud-all #nd-tag, body:not(.hud-min) #needs:hover #nd-tag { opacity: 0; }
+  /* (the legend: each bar's name and % right of it, on its own row (the same heights and gaps as the bars), on one dark
+     chip like #hud-status; with Tab held, or hovering in the full HUD) */
+  #nd-legend { display: none; position: absolute; left: calc(100% + 10px); top: -4px; padding: 4px 9px; border-radius: 6px; background: rgba(20, 13, 8, .66); font: 600 12px/1 var(--font-ui); text-transform: uppercase; letter-spacing: .05em; white-space: nowrap; color: var(--cream); }
   body.hud-all #nd-legend, body:not(.hud-min) #needs:hover #nd-legend { display: block; }
-  body.hud-min #nd-legend { bottom: 58px; }   /* (minimal HUD, Tab held: over the block of weight and experience, which sits on the same line as the bars) */
-  #nd-legend b { display: inline-block; width: 12px; height: 4px; margin-right: 7px; vertical-align: middle; background: var(--c); }
-  #nd-legend span { font-family: var(--font-title); font-variant-numeric: tabular-nums; color: var(--cream); margin-left: 6px; }
-  #nd-legend small { margin-left: 8px; font-size: 13px; color: var(--dim); }
+  #nd-legend > div { display: flex; align-items: center; height: var(--nd-h); margin-bottom: var(--nd-gap); }
+  #nd-legend > div.l-hp { height: calc(var(--nd-h) + 2px); }
+  #nd-legend > div:last-child { margin-bottom: 0; }
+  #nd-legend span { font: 500 13px/1 var(--font-title); font-variant-numeric: tabular-nums; letter-spacing: .03em; color: var(--cream); margin-left: 6px; }
+  #nd-legend small { margin-left: 8px; font-size: 11px; color: var(--dim); }
   /* Under water: a vignette only, no full-screen tint (the fog gives the tint). display: none off the water, so it costs
      no compositor fill. The view sets body.underwater (Track C); needsbar.js sets uw-low (air at 30 % or less) */
   /* (radial gradients, not an inset box-shadow: on the dark sea, at night most of all, the shadow's blur showed as
@@ -447,7 +463,7 @@
   #title-msg.out { opacity: 0; }
   /* El mapa en la mano (con el norte arriba) y la aguja de la brújula */
   #held-map { position: fixed; right: 16px; bottom: 96px; width: 216px; height: 216px; image-rendering: pixelated; border: 6px solid #8a5a34; border-radius: 4px; box-shadow: 0 4px 14px rgba(0, 0, 0, .45); background: #e8d8b0; z-index: 9; pointer-events: none; }
-  #compass { position: fixed; left: 50%; bottom: 112px; width: 54px; height: 54px; margin-left: -27px; border-radius: 50%; background: radial-gradient(#f4ecd8 58%, #c8a030 60%, #8a6a20 72%); box-shadow: 0 3px 10px rgba(0, 0, 0, .45); z-index: 9; pointer-events: none; }
+  #compass { position: fixed; left: 50%; bottom: 118px; width: 54px; height: 54px; margin-left: -27px; border-radius: 50%; background: radial-gradient(#f4ecd8 58%, #c8a030 60%, #8a6a20 72%); box-shadow: 0 3px 10px rgba(0, 0, 0, .45); z-index: 9; pointer-events: none; }
   #compass i { position: absolute; left: 50%; top: 50%; width: 6px; height: 40px; margin: -20px 0 0 -3px; background: linear-gradient(#e83a3a 50%, #4a4a54 50%); clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%); }
   #held-map[hidden], #compass[hidden], body:not(.playing) #held-map, body:not(.playing) #compass { display: none; }
   /* Cofre */
@@ -609,13 +625,11 @@
   <div id="place" class="panel"><span id="place-name">Pueblo Brotes</span> <small id="coords"></small></div>
   <canvas id="minimap" class="panel" width="150" height="100"></canvas>
   <div id="needs" aria-hidden="true">
-    <div class="nd-row nd-airrow"><div class="nd nd-air" id="nd-air"><i></i></div></div>
     <div class="nd-row nd-top"><div class="nd nd-hp" id="nd-hp"><s></s><i></i></div></div>
-    <div class="nd-row">
-      <div class="nd nd-food" id="nd-food"><i></i></div>
-      <div class="nd nd-water" id="nd-water"><i></i></div>
-      <div class="nd nd-en" id="nd-en"><i></i><u></u></div>
-    </div>
+    <div class="nd-row nd-gone"><div class="nd nd-air" id="nd-air"><i></i></div></div>
+    <div class="nd-row"><div class="nd nd-food" id="nd-food"><i></i></div></div>
+    <div class="nd-row"><div class="nd nd-water" id="nd-water"><i></i></div></div>
+    <div class="nd-row"><div class="nd nd-en" id="nd-en"><i></i><u></u></div></div>
     <div id="nd-tag"></div>
     <div id="nd-legend"></div>
   </div>
@@ -807,7 +821,7 @@
         <dt><kbd>F3</kbd></dt><dd data-i18n="controls.fps">Show performance (frames per second)</dd>
         <dt><kbd>I</kbd> <kbd>C</kbd> <kbd>B</kbd></dt><dd data-i18n="controls.windows">Inventory (what you carry and your clothes), crafting and building</dd>
         <dt><kbd>Tab</kbd></dt><dd data-i18n="controls.players">While you hold it, who is playing</dd>
-        <dt data-i18n="controls.bars.keys">The bars</dt><dd data-i18n="controls.bars">Under the minimap: health, hunger, thirst and energy (and air under water). Food fills hunger, drink fills thirst and sleeping in a bed fills energy; health comes back by itself when you're fed and watered. Hover them (or hold Tab) to see their %</dd>
+        <dt data-i18n="controls.bars.keys">The bars</dt><dd data-i18n="controls.bars">Top left: health, hunger, thirst and energy (and air under water). Food fills hunger, drink fills thirst and sleeping in a bed fills energy; health comes back by itself when you're fed and watered. Hover them (or hold Tab) to see their %</dd>
         <dt><kbd>J</kbd> <kbd>M</kbd></dt><dd data-i18n="controls.journal_map">Journal and map</dd>
         <dt data-i18n-html="controls.chat.keys"><kbd>T</kbd> or <kbd>/</kbd></dt><dd data-i18n-html="controls.chat">Chat and commands (<b>/help</b> to see them). Ops (given in the server terminal with <b>/op</b>) have <b>/gamemode</b>, <b>/tp</b>, <b>/give</b>, <b>/kill</b>, <b>/weather</b>, <b>/gamerule</b>…; the admin also has <b>/account</b>, to create accounts</dd>
         <dt><kbd>Esc</kbd></dt><dd data-i18n="controls.pause">Pause (and close windows)</dd>

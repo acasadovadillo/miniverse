@@ -4,7 +4,7 @@
 // vuelve el cursor. Esc cierra la de encima. En una pantalla táctil van entre los controles, que siguen a mano; en una
 // estrecha, abajo; en las dos, no se mueven.
 const $ = id => document.getElementById(id);
-const KEY = 'pueblo-brotes:ventanas', COLLAPSE_AFTER = 400, BASE_Z = 11, MARGIN = 8, RAIL = 74, TITLE_H = 44;
+const KEY = 'pueblo-brotes:ventanas', COLLAPSE_AFTER = 400, BASE_Z = 11, MARGIN = 8, EDGE = 16, GAP = 8, TITLE_H = 44;   // (EDGE: the HUD's corner margin)
 const fixedLayout = () => matchMedia('(pointer: coarse), (max-width: 700px)').matches;
 
 function loadSaved() { try { return JSON.parse(localStorage.getItem(KEY)) || {}; } catch { return {}; } }
@@ -13,23 +13,65 @@ export function initWindows(game) {
   const wins = new Map(), saved = loadSaved();
   let order = [];   // las abiertas, la última, la de encima
   const persist = () => { try { localStorage.setItem(KEY, JSON.stringify(saved)); } catch { /* (sin almacenamiento: se olvida al recargar) */ } };
-  const changed = () => { game.windowsOpen = order.length > 0; };
+  const changed = () => { game.windowsOpen = order.length > 0; cover(); };
+  // The clock and the first steps at the top left hide while an open window lies over them (the windows are a little
+  // see-through: the clock's text would show through the title), and come back when it goes, folds or moves away
+  function cover() {
+    const rs = order.map(id => wins.get(id).el.getBoundingClientRect()).filter(r => r.width);
+    for (const el of [$('clockp'), $('quest')]) {
+      if (!el) continue;
+      const was = el.classList.contains('under-win');
+      if (was) el.classList.remove('under-win');   // (measured where it would be)
+      const b = el.getBoundingClientRect();
+      el.classList.toggle('under-win', !!b.width && rs.some(r => r.left < b.right && b.left < r.right && r.top < b.bottom && b.top < r.bottom));
+    }
+  }
+  // (and again when they have slid to a new place: the bars over them came or went, index.html --hud-top)
+  for (const id of ['clockp', 'quest']) $(id)?.addEventListener('transitionend', e => { if (e.propertyName === 'top') cover(); });
   function stack() { order.forEach((id, i) => { wins.get(id).el.style.zIndex = BASE_Z + i; }); }
   function front(id) { order = [...order.filter(x => x !== id), id]; stack(); }
+  // What no window covers at the top left, in survival: the status bars, with every row an open window shows (where they
+  // end, page y: ui/needsbar.js; 0, none: creative, spectator)
+  const barsEnd = () => game.needsBar?.bottomAll?.() || 0;
+  // How low a window from x, w wide, can end: 6 px over the minimap and the hotbar, where they are under it (so the
+  // inventory still fits under the clock at 1280 × 800)
+  function bottomLimit(x, w) {
+    let lim = innerHeight - MARGIN;
+    for (const id of ['minimap', 'hotbar']) {
+      const r = $(id)?.getBoundingClientRect();
+      if (r?.width && r.left < x + w && x < r.right) lim = Math.min(lim, r.top - 6);
+    }
+    return lim;
+  }
+  // The left window: in the corner column, under the bars and the clock; if it does not fit there over the minimap and
+  // the hotbar, right under the bars, covering the whole clock (never half of it; windows.js hides it then: cover()); on
+  // a screen too short even for that, place() makes it end over them and scroll (you drag things to the hotbar from it)
+  function leftSpot(w, h) {
+    const bars = barsEnd(), ch = $('clockp')?.offsetHeight || 0, floor = bars ? bars + GAP : EDGE;
+    const under = floor + (ch ? ch + GAP : 0);
+    return [EDGE, under + h <= bottomLimit(EDGE, w) ? under : floor];
+  }
   // Ponerla donde toca, sin que se salga: siempre queda a la vista su título
   function place(w) {
     const { el, spot } = w;
     if (fixedLayout()) { el.style.left = el.style.top = el.style.maxHeight = ''; return; }
+    el.style.maxHeight = '';   // (measured at its full height: a cap from an earlier place would choose another spot)
     const r = el.getBoundingClientRect();
     if (!r.width) return;   // (oculta, en la pausa, el mapa o una tienda: se coloca al volver)
     const s = saved[w.id] || {}, [dx, dy] = spot(r.width, r.height);
     // (entera en la pantalla, si cabe; si no, con el título a la vista y lo demás con su barra)
-    const x = Math.max(MARGIN, Math.min(innerWidth - r.width - MARGIN, s.x ?? dx)), y = Math.max(MARGIN, Math.min(innerHeight - r.height - MARGIN, s.y ?? dy));
+    const x = Math.max(MARGIN, Math.min(innerWidth - r.width - MARGIN, s.x ?? dx));
+    let y = Math.max(MARGIN, Math.min(innerHeight - r.height - MARGIN, s.y ?? dy));
+    // (never over the status bars: a place saved before they went to the top left, or a tall window pushed up)
+    const bars = barsEnd(), nr = bars && $('needs')?.getBoundingClientRect();
+    if (nr && x < nr.right + GAP && y < bars + GAP) y = bars + GAP;
     el.style.left = `${x}px`; el.style.top = `${y}px`;
-    fit(el, y);
+    fit(el, y, spot === leftSpot && s.y == null ? bottomLimit(x, r.width) : innerHeight - MARGIN);
+    cover();
   }
   // Lo que puede medir, según dónde queda: así siempre se llega a su final con la barra
-  const fit = (el, top) => { el.style.maxHeight = `${Math.max(TITLE_H * 3, innerHeight - top - MARGIN)}px`; };
+  // (bottom: how low it may end; the left window in its own place, over the minimap and the hotbar)
+  const fit = (el, top, bottom = innerHeight - MARGIN) => { el.style.maxHeight = `${Math.max(TITLE_H * 3, bottom - top)}px`; };
   function setPin(w, on) {
     w.pinned = on;
     w.pin.classList.toggle('on', on);
@@ -58,11 +100,11 @@ export function initWindows(game) {
       if (w.pinned || e.pointerType !== 'mouse' || w.drag) return;
       clearTimeout(w.timer);
       w.timer = setTimeout(() => {
-        el.classList.add('collapsed');
+        el.classList.add('collapsed'); cover();
         if (el.contains(document.activeElement)) document.activeElement.blur();   // (lo que se siga tecleando no va a un buscador oculto)
       }, COLLAPSE_AFTER);
     });
-    el.addEventListener('pointerenter', () => { clearTimeout(w.timer); el.classList.remove('collapsed'); });
+    el.addEventListener('pointerenter', () => { clearTimeout(w.timer); if (el.classList.contains('collapsed')) { el.classList.remove('collapsed'); cover(); } });
     // Arrastrarla por el título
     head.addEventListener('pointerdown', e => {
       if (e.target.closest('button, input') || fixedLayout() || e.button !== 0) return;
@@ -78,6 +120,7 @@ export function initWindows(game) {
       const top = Math.max(MARGIN, Math.min(innerHeight - TITLE_H, e.clientY - w.drag.dy));
       el.style.top = `${top}px`;
       fit(el, top);
+      cover();
     });
     const endDrag = () => {
       if (!w.drag) return;
@@ -117,6 +160,7 @@ export function initWindows(game) {
     add, open, close, isOpen, placeAll,
     closeTop() { return order.length ? close(order.at(-1)) : false; },
     closeAll() { for (const id of [...order]) close(id); },
-    defaults: { left: () => [RAIL, 56], right: w => [innerWidth - w - 16, 56], center: (w, h) => [(innerWidth - w) / 2, Math.max(MARGIN, (innerHeight - h) / 2)] },
+    // (the left one under the bars and the clock, at the top left: leftSpot)
+    defaults: { left: leftSpot, right: w => [innerWidth - w - 16, 56], center: (w, h) => [(innerWidth - w) / 2, Math.max(MARGIN, (innerHeight - h) / 2)] },
   };
 }
