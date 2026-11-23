@@ -97,10 +97,11 @@ export class RealPerson {
   get facing() { return this.targetYaw; }
   // Andar y posar (los huesos) y girar hacia donde mira, por separado: el juego gira a todos en cada fotograma (crew.js lee
   // hacia dónde mira) y anima a los de lejos a menos fotogramas, con el tiempo que haya pasado desde la última vez
-  update(dt, speed) { this.animate(dt, speed); this.turn(dt); }
-  animate(dt, speed) {
+  // (gait: 0 walk, 1 jog, 2 sprint, or undefined to go by the speed alone: real/persona.js update)
+  update(dt, speed, gait) { this.animate(dt, speed, gait); this.turn(dt); }
+  animate(dt, speed, gait) {
     this.speed += (speed - this.speed) * Math.min(1, dt * 10);
-    this.r.update(dt, this.speed);
+    this.r.update(dt, this.speed, gait);
     this.dirty = true;
   }
   turn(dt) {

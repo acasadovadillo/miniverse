@@ -1064,22 +1064,32 @@ LOOK.parts.persona = (THREE, LOOK) => {
       //       0 pisa talón ...................................... despegue ... vuelo
       andar: { hip: [19, 16, 7, -3, -10, -3, 14, 21], knee: [4, 13, 7, 4, 9, 34, 52, 20], ank: [3, -5, -1, 7, 8, -14, 2, 6], toe: [0, 0, 0, 2, 14, 24, 2, 0] },
       trote: { hip: [28, 22, 8, -8, -22, -8, 18, 31], knee: [12, 28, 16, 10, 22, 58, 84, 36], ank: [2, -8, 4, 8, -4, -22, 0, 4], toe: [0, 0, 0, 4, 20, 30, 2, 0] },
+      // The jog and the sprint (the three speeds of the game: update's gait 1 and 2) are runs: a short stance (the foot
+      // down from 0 to CONTACT) and a flight, the knee folding under the hip and driving forward; the sprint, with more of it
+      jog: { hip: [24, 8, -12, -22, -6, 20, 36, 34], knee: [18, 32, 20, 50, 92, 90, 56, 28], ank: [4, -6, -14, -22, -2, 8, 10, 6], toe: [0, 0, 16, 24, 4, 0, 0, 0] },
+      sprint: { hip: [26, 6, -16, -26, -8, 30, 56, 44], knee: [22, 36, 22, 64, 118, 112, 78, 36], ank: [6, -6, -20, -30, -4, 10, 14, 8], toe: [0, 0, 22, 30, 6, 0, 0, 0] },
     };
+    const CONTACT = { trote: 0.5, jog: 0.25, sprint: 0.24 };   // (trote: always a foot down, as walking; the stride below goes by its old window)
     const cyc = (k, p) => { const n = k.length, x = ((p % 1) + 1) % 1 * n, i = floor(x), t = x - i, a = k[(i + n - 1) % n], b = k[i], c = k[(i + 1) % n], e = k[(i + 2) % n]; return 0.5 * (2 * b + (c - a) * t + (2 * a - 5 * b + 4 * c - e) * t * t + (3 * b - a - 3 * c + e) * t * t * t); };
     const L1 = d.cadera - d.rodilla, L2 = d.rodilla - tob[1], hA = tob[1], talon = -0.058 * kf, bola = 0.125 * kf, punta = 0.178 * kf;
-    function piernaFK(hip, knee, ank, toe) {  // devuelve altura mínima bajo la cadera y z del punto de apoyo
+    // Writes in out (and returns it) the lowest height under the hip and the z of the point it rests on (no new array:
+    // every person, every frame)
+    function piernaFK(hip, knee, ank, toe, out) {
       const a1 = rad(hip), a2 = rad(hip - knee), pitch = rad(hip - knee + ank), tb = rad(hip - knee + ank + toe);
-      const z0 = L1 * sin(a1) + L2 * sin(a2), y0 = -L1 * cos(a1) - L2 * cos(a2);
-      const yf = (z, y) => y0 + y * cos(pitch) + z * sin(pitch), zf = (z, y) => z0 - y * sin(pitch) + z * cos(pitch);
-      const yT = yf(talon, -hA), yB = yf(bola, -hA), zB = zf(bola, -hA), yP = yB + (punta - bola) * sin(tb), zP = zB + (punta - bola) * cos(tb);
-      let yMin = yT, zMin = zf(talon, -hA); if (yB < yMin) { yMin = yB; zMin = zB; } if (yP < yMin) { yMin = yP; zMin = zP; }
-      return [yMin, zMin];
+      const z0 = L1 * sin(a1) + L2 * sin(a2), y0 = -L1 * cos(a1) - L2 * cos(a2), cp = cos(pitch), sn = sin(pitch);
+      const yT = y0 - hA * cp + talon * sn, zT = z0 + hA * sn + talon * cp, yB = y0 - hA * cp + bola * sn, zB = z0 + hA * sn + bola * cp;
+      const yP = yB + (punta - bola) * sin(tb), zP = zB + (punta - bola) * cos(tb);
+      let yMin = yT, zMin = zT; if (yB < yMin) { yMin = yB; zMin = zB; } if (yP < yMin) { yMin = yP; zMin = zP; }
+      out[0] = yMin; out[1] = zMin;
+      return out;
     }
-    const zancada = g => {  // lo que recorre el tobillo mientras esa pierna apoya, llevado al ciclo entero
+    const zancada = (g, a = 0.03, b = 0.5) => {  // lo que recorre el tobillo mientras esa pierna apoya, llevado al ciclo entero
       const K = CL[g], zT = p => L1 * sin(rad(cyc(K.hip, p))) + L2 * sin(rad(cyc(K.hip, p) - cyc(K.knee, p)));
-      return (zT(0.03) - zT(0.5)) / 0.47;
+      return (zT(a) - zT(b)) / (b - a);
     };
-    const ZA = zancada('andar'), ZT = zancada('trote');
+    const ZA = zancada('andar'), ZT = zancada('trote'), ZJ = zancada('jog', 0, CONTACT.jog), ZS = zancada('sprint', 0, CONTACT.sprint);
+    // (the run of the gait r: 0 the trote, 1 the jog, 2 the sprint, and between them blended)
+    const runOf = (a, b, c, r) => (r <= 1 ? lerp(a, b, r) : lerp(b, c, r - 1));
     const POST = look.postura && POSTURAS[look.postura], enc = look.encorvado || 0;
 
     // El prototipo: lo de arriba (malla, lienzo, material y tablas de andar) se hace una vez por look y lo comparten
@@ -1098,37 +1108,59 @@ LOOK.parts.persona = (THREE, LOOK) => {
       root.updateMatrixWorld(true);
       mesh.bind(new THREE.Skeleton(huesos));
       root.userData = { body: porNombre.body, torso: porNombre.torso, head: porNombre.head, legs: [porNombre.legL, porNombre.legR], shins: [porNombre.shinL, porNombre.shinR], arms: [porNombre.armL, porNombre.armR], fore: [porNombre.foreL, porNombre.foreR], skirt: porNombre.skirt, neck: porNombre.neck };
-      let fase = 0, mezcla = 0, tiempo = 0, suelta = false;
+      let fase = 0, mezcla = 0, tiempo = 0, suelta = false, carrera = 0, gT = 0;   // (carrera: the run blend r of pose; gT: walk → trote)
       // De pie nadie está en firmes: carga el peso en una pierna, afloja la otra y gira un poco la cabeza. Cambia con la semilla
       const QP = { s: vari.lado, giro: vari.giro * 26, incl: vari.incl * 9, brazo: vari.brazo, miraY: 0, miraX: 0 };
       if (POST) for (const S of ['L', 'R']) porNombre['arm' + S].rotation.order = 'ZYX';
       if (look.escala) root.scale.setScalar(look.escala);
-      function pose(p, g, w) {  // p fase, g 0 andar 1 trote, w 0 quieto 1 en marcha
-        const ky2 = (arr, ph) => lerp(cyc(CL.andar[arr], ph), cyc(CL.trote[arr], ph), g);
-        const b = porNombre, tilt = lerp(rad(1.5), rad(5), g) * w, ss = sin(2 * PI * p), cc = cos(2 * PI * p), rs = 1 - w;
-        const lado = (S, ph) => {
-          const libre = (S === 'L') === (QP.s > 0), hipR = libre ? 7 : -1, kneeR = libre ? 15 : 2 + 6 * enc;
-          const hip = ky2('hip', ph) * w + rs * hipR, knee = lerp(kneeR, ky2('knee', ph), w), ank = ky2('ank', ph) * w + rs * (kneeR - hipR), toe = ky2('toe', ph) * w;
-          b['leg' + S].rotation.x = -rad(hip) - tilt; b['shin' + S].rotation.x = rad(knee); b['foot' + S].rotation.x = -rad(ank); b['toe' + S].rotation.x = -rad(toe);
-          return piernaFK(hip, knee, ank, toe);
-        };
-        const A = lado('L', p), Bb = lado('R', p + 0.5);
+      // The legs of pose, made once per person (no closures each frame): ky2 is a key of the gait at phase ph with the blend
+      // kG (walk → trote) and kR (the run: trote, jog, sprint); lado poses one leg with lw (moving), lrs (still) and ltilt
+      let kG = 0, kR = 0, lw = 0, lrs = 1, ltilt = 0;
+      const FK_L = [0, 0], FK_R = [0, 0], FK_Q = [0, 0];
+      const PIERNA = { L: [porNombre.legL, porNombre.shinL, porNombre.footL, porNombre.toeL], R: [porNombre.legR, porNombre.shinR, porNombre.footR, porNombre.toeR] };
+      const ky2 = (arr, ph) => lerp(cyc(CL.andar[arr], ph), kR > 0 ? runOf(cyc(CL.trote[arr], ph), cyc(CL.jog[arr], ph), cyc(CL.sprint[arr], ph), kR) : cyc(CL.trote[arr], ph), kG);
+      const lado = (S, ph, out) => {
+        const libre = (S === 'L') === (QP.s > 0), hipR = libre ? 7 : -1, kneeR = libre ? 15 : 2 + 6 * enc, w = lw, rs = lrs;
+        const hip = ky2('hip', ph) * w + rs * hipR, knee = lerp(kneeR, ky2('knee', ph), w), ank = ky2('ank', ph) * w + rs * (kneeR - hipR), toe = ky2('toe', ph) * w;
+        const B = PIERNA[S]; B[0].rotation.x = -rad(hip) - ltilt; B[1].rotation.x = rad(knee); B[2].rotation.x = -rad(ank); B[3].rotation.x = -rad(toe);
+        return piernaFK(hip, knee, ank, toe, out);
+      };
+      const legLow = q => { const hp = ky2('hip', q), kn = ky2('knee', q); return piernaFK(hp, kn, ky2('ank', q), ky2('toe', q), FK_Q)[0]; };   // (a leg at phase q while running: how low its foot goes)
+      // p fase, g 0 andar 1 trote, w 0 quieto 1 en marcha, r the run (0 the trote, 1 the jog, 2 the sprint: only with g)
+      function pose(p, g, w, r = 0) {
+        const jg = min(1, r) * g, sp = max(0, r - 1) * g;   // (how much of a jog and of a sprint)
+        // (running, the body leans into it: a jog a little, a sprint well forward)
+        const b = porNombre, tilt = (lerp(rad(1.5), rad(5), g) + rad(4) * jg + rad(9) * sp) * w, ss = sin(2 * PI * p), cc = cos(2 * PI * p), rs = 1 - w;
+        kG = g; kR = r; lw = w; lrs = rs; ltilt = tilt;
+        const A = lado('L', p, FK_L), Bb = lado('R', p + 0.5, FK_R);
+        // Running (jg), the hips do not ride on the lower foot: on the foot that is down while one is, and in the flight
+        // between the two stances, from where one leaves the ground to where the other lands, a little higher midway
+        let corre = 0;
+        if (jg * w > 0.01) {
+          const c = runOf(CONTACT.trote, CONTACT.jog, CONTACT.sprint, r), qL = ((p % 1) + 1) % 1, qR = (qL + 0.5) % 1;
+          if (qL < c) corre = -A[0]; else if (qR < c) corre = -Bb[0];
+          else {   // (in the air: q is how far into the flight, the next foot to land is the other one)
+            const f = qL < 0.5 ? (qL - c) / (0.5 - c) : (qL - 0.5 - c) / (0.5 - c), off = -legLow(c), on = -legLow(0);
+            corre = lerp(off, on, f) + (0.03 * jg + 0.025 * sp) * sin(PI * f);
+          }
+        }
         // Pies hacia el centro: ligera aducción, más al apoyar. En reposo la pelvis cae hacia la pierna libre
         const ad = rad(lerp(1.8, 1.0, g)) * w, cad = 0.04 * rs * QP.s;
         b.legL.rotation.z = -ad - cad; b.legR.rotation.z = ad - cad;
-        const yaw = rad(m ? 6 : 7) * lerp(1, 1.3, g) * w, list = rad(m ? 1.6 : 3) * w, sway = (m ? 0.012 : 0.016) * w * (1 - 0.5 * g);
-        const altura = -min(A[0], Bb[0]);
+        const yaw = rad(m ? 6 : 7) * (lerp(1, 1.3, g) + 0.3 * sp) * w, list = rad(m ? 1.6 : 3) * w * (1 - 0.4 * jg), sway = (m ? 0.012 : 0.016) * w * (1 - 0.5 * g) * (1 - 0.6 * jg);
+        const altura = lerp(-min(A[0], Bb[0]), corre, min(1, jg * w * 4));
         const respira = (1 - w) * 0.002 * sin(tiempo * 1.5);
         b.body.position.set(sway * ss - 0.016 * rs * QP.s, altura + respira + 0.002 * (g * w), 0);
         b.body.rotation.set(tilt, -yaw * cc + rad(3) * rs * QP.s, list * ss + cad);
-        b.spine.rotation.set(lerp(rad(1), rad(4), g) * w, yaw * cc * 0.8, -list * ss * 0.6 - cad * 1.1);
+        b.spine.rotation.set((lerp(rad(1), rad(4), g) + rad(2) * jg + rad(4) * sp) * w, yaw * cc * (0.8 + 0.3 * sp), -list * ss * 0.6 - cad * 1.1);
         b.torso.rotation.set(rad(0.5) * w, yaw * cc * 0.9 - rad(2) * rs * QP.s, -list * ss * 0.25 - cad * 0.5);
         // La cabeza va algo alta: desde la cámara del juego se ve más cara. Quieto, mira un poco a un lado
         b.neck.rotation.set(-tilt * 0.6 - rad(2), -yaw * cc * 0.5 + rad(QP.giro) * 0.4 * rs + rad(QP.miraY) * 0.4, rad(QP.incl) * 0.4 * rs);
         b.head.rotation.set(-lerp(rad(1), rad(4), g) * w - rad(3) + rad(QP.miraX), -yaw * cc * 0.2 + rad(QP.giro) * 0.6 * rs + rad(QP.miraY) * 0.6, list * ss * 0.2 + rad(QP.incl) * 0.6 * rs);
-        const aA = lerp(m ? 14 : 11, m ? 24 : 20, g) * w, baseF = lerp(lerp(21, 18, w), 58, g * w), flexA = lerp(14, 12, g) * w;
-        const abre = rad(hayFalda ? 2.2 : 1.2) + rad(4) * g * w + rad(3) * (look.panza || 0), bR = rs * QP.brazo;
-        b.armL.rotation.set(rad(aA * cc) + bR * 0.12, 0, abre); b.armR.rotation.set(rad(-aA * cc) - bR * 0.12, 0, -abre);
+        // (the arms: running, they swing wider with the elbows bent more; sprinting, pumping, the hands coming up in front)
+        const aA = (lerp(m ? 14 : 11, m ? 24 : 20, g) + 10 * jg + 22 * sp) * w, baseF = lerp(lerp(21, 18, w), 58, g * w) + (16 * jg + 8 * sp) * w, flexA = (lerp(14, 12, g) + 2 * sp) * w;
+        const abre = rad(hayFalda ? 2.2 : 1.2) + rad(4) * g * w + rad(3) * sp * w + rad(3) * (look.panza || 0), bR = rs * QP.brazo, alza = rad(5) * sp * w;
+        b.armL.rotation.set(rad(aA * cc) + bR * 0.12 - alza, 0, abre); b.armR.rotation.set(rad(-aA * cc) - bR * 0.12 - alza, 0, -abre);
         b.foreL.rotation.x = -rad(baseF + flexA * max(0, -cc) + bR * 14); b.foreR.rotation.x = -rad(baseF + flexA * max(0, cc) - bR * 14);
         b.handL.rotation.set(-rad(3) * w - rad(5) * rs, 0, 0); b.handR.rotation.set(-rad(3) * w - rad(5) * rs, 0, 0);
         b.clavL.rotation.set(rad(aA * cc * 0.12), 0, -list * ss * 0.2); b.clavR.rotation.set(rad(-aA * cc * 0.12), 0, -list * ss * 0.2);
@@ -1149,18 +1181,25 @@ LOOK.parts.persona = (THREE, LOOK) => {
         b.skirt.rotation.x = 0.06 * w * lerp(1, 2, g) * sin(4 * PI * p + 1);
         if (b.braid) b.braid.rotation.set(w * (0.05 + 0.1 * g + 0.035 * sin(4 * PI * p + 0.8)), 0, 0.05 * w * sin(2 * PI * p + 0.7));
       }
-      function update(dt, speed = 0) {
+      // gait: 0 walk, 1 jog, 2 sprint (the player's three speeds: entities.js GAIT); undefined (the neighbours, a player of
+      // a game from before), by the speed alone, as it always was. The run blend eases in and out with the gait
+      function update(dt, speed = 0, gait) {
         tiempo += dt;
-        const gT = sm(1.9, 3.0, speed), obj = clamp(speed / 0.5);
+        gT = sm(1.9, 3.0, speed); const obj = clamp(speed / 0.5);
         mezcla += (obj - mezcla) * (1 - exp(-dt * 9));
-        const paso = lerp(ZA, ZT, gT);
+        const want = gait === 1 || gait === 2 ? gait * sm(1.9, 3.0, speed) : 0;
+        carrera += (want - carrera) * (1 - exp(-dt * 6));
+        if (abs(carrera - want) < 1e-3) carrera = want;
+        const paso = lerp(ZA, runOf(ZT, ZJ, ZS, carrera), gT);
         fase = (fase + speed * dt / paso) % 1;
-        pose(fase, gT, mezcla);
+        pose(fase, gT, mezcla, carrera);
       }
       pose(0, 0, 0);
 
       return {
-        root, update, pose: (p, g = 0, w = 1) => { mezcla = w; fase = p; pose(p, g, w); }, mirar: (y = 0, x = 0) => { QP.miraY = y; QP.miraX = x; QP.giro = 0; }, mesh, bones: porNombre, tris, trisL, atlas, look, d, zancadas: [ZA, ZT], msLienzo, trisPelo,
+        root, update, pose: (p, g = 0, w = 1, r = 0) => { mezcla = w; fase = p; carrera = r; pose(p, g, w, r); },
+        seek: p => { fase = p; pose(p, gT, mezcla, carrera); },   // (the same gait at another phase: the art sheets)
+        mirar: (y = 0, x = 0) => { QP.miraY = y; QP.miraX = x; QP.giro = 0; }, mesh, bones: porNombre, tris, trisL, atlas, look, d, zancadas: [ZA, ZT, ZJ, ZS], msLienzo, trisPelo,
         // El detalle: 0 de cerca, 1 de lejos (el otro índice, con los mismos vértices y el mismo esqueleto)
         setLod: n => { mesh.geometry = n ? geoL : geo; },
         // Ya no se usa: suelta su parte del prototipo (que se libera del todo cuando sobran, ver trim). Nunca geometry.dispose

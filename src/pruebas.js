@@ -11,7 +11,7 @@ import { Profile } from './accounts.js';
 import { RealPerson } from './three/realperson.js';
 import { distTo, dirOf, obb, bounds } from './world/fit.js';
 import { CAM, lookBy } from './camera.js';
-import { keys, clearKeys } from './input.js';
+import { keys, clearKeys, pressW, releaseW, dropSprint, gaitOf, TAP_WINDOW, TAP_GAP, TAP_HOLD, pressShift, releaseShift, shiftTick, shiftWithOther, SHIFT_HOLD } from './input.js';
 import { ITEMS, HARVEST, hitsFor, CHESTS } from './items.js';
 import { SHOPS } from './economy.js';
 import { repairMat } from './crafting.js';
@@ -50,7 +50,8 @@ import { WeightInventory, Carry, weightMode } from './carry.js';
 import { BULKY, BULKY_PARTS, CARCASS_OF, weightOf, BASE_CAP, BAG_CAP, BARROW, CENTER_AHEAD, WHEEL_AHEAD } from './carry-items.js';
 import { Barrow } from './barrow.js';
 import { GAME_VERSION } from './version.js';
-import { Player, barrowPen } from './entities.js';
+import { Player, barrowPen, GAIT } from './entities.js';
+import { horseModel, animateHorse, horseCadence } from './three/animals.js';
 import { screenToWorld } from './camera.js';
 import { makeCave } from './world/underground.js';
 import { START_KIT, thirstOf } from './items.js';
@@ -2319,12 +2320,14 @@ async function soloTests(game) {
   await test('peso cargado (encumbered): speed, running, jump and tiredness follow the load; creative and riding ignore it', async () => {
     const W = new WeightInventory(), C = new Carry(fake(W)), at = kg => { W.slots.length = 0; W.slots.push(...Array(HOTBAR).fill(null)); W.equip.espalda = { id: 'mochila' }; W.add('piedra', kg); return C.speedMul(); };
     const close = (a, b) => Math.abs(a - b) < 1e-6;
-    check(close(at(70), 1) && !C.noRun() && C.jumpMul() === 1, `r = 1: ${C.speedMul()}`);
-    check(close(at(87.5), 0.8) && !C.noRun(), `r = 1.25: ${C.speedMul()}`);
-    check(close(at(105), 0.6) && C.noRun(), `r = 1.5: ${C.speedMul()}`);
-    check(close(at(210), 0.45) && C.noRun(), `r = 3: ${C.speedMul()}`);
+    // (noRun: no sprint, past 125 %; noJog: only walking, past 150 %: the three speeds, entities.js GAIT)
+    check(close(at(70), 1) && !C.noRun() && !C.noJog() && C.jumpMul() === 1, `r = 1: ${C.speedMul()}`);
+    check(close(at(87.5), 0.8) && !C.noRun() && !C.noJog(), `r = 1.25: ${C.speedMul()}`);
+    check(close(at(105), 0.6) && C.noRun() && !C.noJog(), `r = 1.5: ${C.speedMul()}`);
+    at(106); check(C.noRun() && C.noJog(), `r = 1.51 still jogs: ${C.speedMul()}`);
+    check(close(at(210), 0.45) && C.noRun() && C.noJog(), `r = 3: ${C.speedMul()}`);
     const jump = 5 * C.jumpMul(); check(jump * jump / 30 > 0.5, `the jump (${jump}) does not get out of a hole`);
-    for (const more of [{ player: { mount: true } }, { player: { boat: true } }, { player: { aboard: 'x' } }, { gamemode: 'creative' }]) { const D = new Carry(fake(W, more)); check(D.speedMul() === 1 && !D.noRun() && D.jumpMul() === 1, `ignored: ${JSON.stringify(more)}`); }
+    for (const more of [{ player: { mount: true } }, { player: { boat: true } }, { player: { aboard: 'x' } }, { gamemode: 'creative' }]) { const D = new Carry(fake(W, more)); check(D.speedMul() === 1 && !D.noRun() && !D.noJog() && D.jumpMul() === 1, `ignored: ${JSON.stringify(more)}`); }
     // Tiredness, in the game: walking loaded tires more
     await weightOn();
     const g = game, kept = g.inv.slots.slice(), ex = g.combat.exert.bind(g.combat);
@@ -2421,7 +2424,7 @@ async function soloTests(game) {
     const bones = game.gather.drops.length; C.rot(); check(!near('carcass_cow', cow.x, cow.y, 0) && game.gather.drops.length > bones && game.gather.drops.at(-1).id === 'hueso' && game.gather.drops.at(-1).ttl > 0, 'no bones after 2 days');
     await collectDrops(game);
   });
-  await test('en brazos, límites (carry limits): Q only puts it down, a held click does not punch, no swimming, no running, no fence hopping, sitting or sleeping; the backpack does not take it; in slot mode /give log gives wood', async () => {
+  await test('en brazos, límites (carry limits): Q only puts it down, a held click does not punch, no swimming, no sprinting (a jog is fine), no fence hopping, sitting or sleeping; the backpack does not take it; in slot mode /give log gives wood', async () => {
     await weightOn();
     const C = game.carry, G = game.gather;
     // (what the tests before piled up in the bag must not leave the player too loaded to run: heavy stacks out)
@@ -2650,7 +2653,7 @@ async function soloTests(game) {
       const r = WB().record();
       check(!w().ownAt('placed', ...o.tile) && r && r.by === meId() && r.c[0]?.id === 'piedra' && r.l[0]?.[0] === 'log', `the record: ${JSON.stringify(r)}`);
       check(p().pushing === 'wheelbarrow:log:f' && !inv().held && inv().armsFull && p().armsBusy === 'push', `the body: ${p().pushing} ${p().armsBusy} held ${inv().held?.id}`);
-      check(Math.abs(C.speedMul() - base * BARROW.SLOW) < 1e-6 && C.noRun() && C.state() === p().pushing, `speed ${C.speedMul()} (${base} on foot), run ${C.noRun()}`);
+      check(Math.abs(C.speedMul() - base * BARROW.SLOW) < 1e-6 && C.noRun() && C.noJog() && C.state() === p().pushing, `speed ${C.speedMul()} (${base} on foot), run ${C.noRun()} jog ${C.noJog()}`);
       p().jump(); check(p().vz === 0, 'jumped with it');
       check(Math.abs(inv().kg - kg) < 1e-6, 'what it carries weighs on you');
       const stones = Math.max(1, Math.ceil((1.2 * inv().capKg - inv().kg) / weightOf('piedra')));   // (well over what it carries freely, whatever earlier tests left)
@@ -3403,18 +3406,20 @@ async function soloTests(game) {
     try {
       needsBase();
       I.slots.fill(null); I.changed();   // (light: what the tests before piled up would stop the running, carry.js)
-      // The keys: running on foot makes the player sprint (entities.js)
+      // The keys: the third tap of W makes the player sprint (entities.js); the second only jogs
       await goTo(game, 21, 26); keys.up = true; keys.run = true; await frames(20);
-      check(p().sprinting, 'running is not sprinting'); keys.up = false; keys.run = false; await frames(2); check(!p().sprinting, 'stopped, still sprinting');
+      check(!p().sprinting && p().jogging, 'jogging is sprinting');
+      keys.sprint = true; await frames(5);
+      check(p().sprinting, 'sprinting is not sprinting'); keys.up = false; keys.run = keys.sprint = false; await frames(2); check(!p().sprinting, 'stopped, still sprinting');
       needsBase();
       p().sprinting = true; step(1, () => { p().sprinting = true; });
       check(Math.abs(N().stamina - 95) < 0.5, `a second of sprint: ${N().stamina}`);
-      N().stamina = 1; keys.run = true; step(2, () => { p().sprinting = true; });
+      N().stamina = 1; keys.run = keys.sprint = true; step(2, () => { p().sprinting = true; });
       check(N().stamina === 0 && N().exhausted && N().noRun(), `empty: ${N().stamina}, exhausted ${N().exhausted}`);
       check(spy.out.filter(s => s === t('needs.too_tired')).length === 1, `the "too tired" float: ${spy.out.filter(s => s === t('needs.too_tired')).length} times`);
       // (riding or rowing spends no stamina: exhausted, the horse still gallops and the boat still rows fast)
       for (const k of ['mount', 'boat', 'aboard']) { p()[k] = {}; const no = N().noRun(); delete p()[k]; check(!no, `exhausted ${k} cannot run`); }
-      keys.run = false; p().sprinting = false;
+      keys.run = keys.sprint = false; p().sprinting = false;
       step(3.4); check(N().exhausted, `exhausted cleared early, at ${N().stamina}`);
       step(0.3); check(!N().exhausted && N().stamina >= 50, `not cleared at half the cap: ${N().stamina}`);
       step(3); check(N().stamina === N().cap, `not full in about 6 s: ${N().stamina}`);
@@ -3426,6 +3431,346 @@ async function soloTests(game) {
       // Lying in bed after a sprint: nothing drains
       p().pose = { kind: 'lie', yaw: 0, h: 0 }; N().stamina = 60; step(0.5, () => { p().sprinting = true; }); check(N().stamina >= 60, `lying drains: ${N().stamina}`);
     } finally { spy.undo(); I.slots.splice(0, I.slots.length, ...kept); I.changed(); p().pose = null; p().sprinting = false; needsBase(); }
+  });
+  // ---------- the three speeds: W walks, a second tap jogs, a third sprints (input.js pressW, entities.js GAIT) ----------
+  const tapW = (at, hold = 80) => { pressW(at); releaseW(at + hold); };
+  const tier = () => gaitOf(keys);
+  const keyW = (type, repeat = false) => dispatchEvent(new KeyboardEvent(type, { code: 'KeyW', key: 'w', repeat, bubbles: true }));
+  const shiftTap = () => { for (const type of ['keydown', 'keyup']) dispatchEvent(new KeyboardEvent(type, { code: 'ShiftLeft', key: 'Shift', bubbles: true })); };
+  await test('gait (english): taps of W pick walk jog sprint, and letting go walks', async () => {
+    try {
+      clearKeys();
+      let t0 = performance.now() - 9e5;   // (times in the past: a real key event later never chains to them)
+      pressW(t0); check(tier() === 0, `one press walks: ${tier()}`); releaseW(t0 + 80);
+      pressW(t0 + 200); check(tier() === 1 && keys.run && !keys.sprint, `a tap and a press jog: ${tier()}`); releaseW(t0 + 260);
+      pressW(t0 + 400); check(tier() === 2 && keys.run && keys.sprint, `two taps and a press sprint: ${tier()}`);
+      pressW(t0 + 500); pressW(t0 + 520); check(tier() === 2, 'a keydown without its keyup changed the tier');
+      releaseW(t0 + 4000); check(tier() === 0 && !keys.run && !keys.sprint, `let go, still ${tier()}`);
+      pressW(t0 + 4100); check(tier() === 0, `after a long sprint a quick press walks: ${tier()}`); releaseW(t0 + 4150);
+      // Timing out: a second press too late walks
+      t0 += 1e4; tapW(t0); pressW(t0 + TAP_WINDOW + TAP_GAP); check(tier() === 0, `a late second press: ${tier()}`); releaseW(t0 + 900);
+      t0 += 1e4; tapW(t0); pressW(t0 + TAP_WINDOW - 10); check(tier() === 1, `just in the window: ${tier()}`); releaseW(t0 + 900);
+      // A slow tap (a long press, a short gap) still counts; a hold does not
+      t0 += 1e4; pressW(t0); releaseW(t0 + TAP_HOLD - 20); pressW(t0 + TAP_HOLD - 20 + TAP_GAP - 20); check(tier() === 1, `a slow tap: ${tier()}`); releaseW(t0 + 1500);
+      t0 += 1e4; pressW(t0); releaseW(t0 + TAP_HOLD + 100); pressW(t0 + TAP_HOLD + 150); check(tier() === 0, `a hold counted as a tap: ${tier()}`); releaseW(t0 + 2000);
+      // More taps than three: still a sprint; a jog let go and pressed again: walking
+      t0 += 1e4; tapW(t0); tapW(t0 + 150); tapW(t0 + 300); pressW(t0 + 450); check(tier() === 2, `four taps: ${tier()}`); releaseW(t0 + 600);
+      t0 += 1e4; tapW(t0); pressW(t0 + 150); releaseW(t0 + 3000); pressW(t0 + 3100); check(tier() === 0, `a jog let go: ${tier()}`); releaseW(t0 + 3200);
+      // Out of breath (dropSprint): down to a jog while held; then three new taps to sprint again
+      t0 += 1e4; tapW(t0); tapW(t0 + 150); pressW(t0 + 300); dropSprint(); check(tier() === 1 && keys.run && !keys.sprint, `dropped: ${tier()}`);
+      releaseW(t0 + 5000); pressW(t0 + 5100); check(tier() === 0, `after the drop: ${tier()}`); releaseW(t0 + 5150);
+      t0 += 1e4; tapW(t0); tapW(t0 + 150); pressW(t0 + 300); check(tier() === 2, `three new taps: ${tier()}`); releaseW(t0 + 400);
+      // The real keys: key repeat never counts, and the second tap stands up from a crouch (and jogs). (A first key warms
+      // the sound up: the first keydown of a page starts it, slowly, and a synthetic keyup made after it takes that time
+      // as a long hold; a real one has its own time)
+      keyW('keydown'); keyW('keyup'); clearKeys(); await frames(2); p().crouch = true;
+      keyW('keydown'); for (let i = 0; i < 5; i++) keyW('keydown', true);
+      check(keys.up && tier() === 0 && p().crouch, `held W with key repeat: tier ${tier()}, crouch ${p().crouch}`);
+      keyW('keyup'); keyW('keydown');
+      check(keys.up && tier() === 1 && !p().crouch, `the second tap: tier ${tier()}, crouch ${p().crouch}`);
+      keyW('keyup'); keyW('keydown'); check(tier() === 2, `the third tap: ${tier()}`);
+      for (let i = 0; i < 5; i++) keyW('keydown', true); check(tier() === 2, 'key repeat dropped the sprint');
+      // A Shift tap crouches and walks; letting go of W, nothing is left held
+      shiftTap(); check(tier() === 0 && p().crouch, `a Shift tap: tier ${tier()}, crouch ${p().crouch}`);
+      keyW('keyup'); check(!keys.up && tier() === 0, 'let go');
+      // The pause (clearKeys) forgets the taps
+      keyW('keydown'); keyW('keyup'); clearKeys(); keyW('keydown'); check(tier() === 0, `a tap before the pause chained: ${tier()}`); keyW('keyup');
+    } finally { p().crouch = false; clearKeys(); }
+  });
+  await test('gait (english): speeds per tier on foot, crouching, riding, rowing and swimming', async () => {
+    const I = inv(), kept = I.slots.slice();
+    const at = async (run, sprint, n = 40) => { keys.up = true; keys.run = run; keys.sprint = sprint; await frames(n); return Math.hypot(p().vx, p().vy) / (p().speedMul || 1); };
+    const near = (a, b) => Math.abs(a - b) < 0.04 * b;
+    try {
+      needsBase(); I.slots.fill(null); I.changed();
+      await goTo(game, 21, 26);
+      const [w0, j0, s0] = GAIT.foot;
+      check(w0 === 3.2 && j0 > w0 && s0 > j0 && s0 <= 5.3 * 1.1 + 1e-9 && (j0 - w0) / (s0 - w0) >= 0.6 && (j0 - w0) / (s0 - w0) <= 0.7, `the numbers: ${GAIT.foot}`);
+      let v = await at(false, false); check(near(v, w0) && p().gait === 0 && !p().jogging && !p().sprinting, `walk ${v}, gait ${p().gait}`);
+      v = await at(true, false); check(near(v, j0) && p().gait === 1 && p().jogging && !p().sprinting, `jog ${v}, gait ${p().gait}`);
+      v = await at(true, true); check(near(v, s0) && p().gait === 2 && p().sprinting && !p().jogging, `sprint ${v}, gait ${p().gait}`);
+      keys.up = false; keys.run = keys.sprint = false; await frames(30); check(p().gait === 0 && !p().sprinting, `stopped: gait ${p().gait}`);
+      // Crouching: always slow (the taps stand up first: see the taps test)
+      p().crouch = true; v = await at(false, false); check(near(v, 1.4) && p().gait === 0, `crouching ${v}`); p().crouch = false;
+      // Riding: walk, trot, gallop (the gallop is the run of before); out of breath the horse still gallops
+      p().mount = true; await frames(2);
+      for (let k = 0; k < 3; k++) { v = await at(k > 0, k > 1); check(near(v, GAIT.ride[k]) && p().gait === k && !p().sprinting && !p().jogging, `riding, tier ${k}: ${v}, gait ${p().gait}`); }
+      check(GAIT.ride[2] === 5.3, `the gallop: ${GAIT.ride[2]}`);
+      N().stamina = 0; N().exhausted = true; v = await at(true, true); check(near(v, GAIT.ride[2]) && keys.sprint, `exhausted, the gallop: ${v}`);
+      p().mount = false; N().reset({});
+      // Rowing (on land the boat does not move, but the stroke asks for the speed): the fast row from the jog up
+      p().boat = true;
+      for (let k = 0; k < 3; k++) { v = await at(k > 0, k > 1); check(near(v, GAIT.row[k] * 1.4), `rowing, tier ${k}: ${v}`); }
+      p().boat = false;
+      // Swimming: the jog is a steady crawl, the sprint the fast swim (the only one that spends)
+      const S = sea(); await swimAt(...S.deep);
+      for (let k = 0; k < 3; k++) { v = await at(k > 0, k > 1, 150); check(near(v, GAIT.swim[k]) && p().fastSwim === (k === 2) && !p().sprinting && !p().jogging, `swimming, tier ${k}: ${v}, fast ${p().fastSwim}`); }
+    } finally { clearKeys(); p().mount = false; p().boat = false; p().crouch = false; I.slots.splice(0, I.slots.length, ...kept); I.changed(); needsBase(); await goTo(game, 21, 26); }
+  });
+  await test('gait (english): only the sprint spends stamina; out of breath drops to a jog', async () => {
+    const I = inv(), kept = I.slots.slice(), spy = told();
+    try {
+      needsBase(); I.slots.fill(null); I.changed();
+      await goTo(game, 21, 26);
+      const run = async (k, secs) => { keys.up = k >= 0; keys.run = k > 0; keys.sprint = k > 1; await frames(Math.round(secs * 60)); };
+      N().stamina = 40; N().idleT = 9; await run(-1, 1); const still = N().stamina - 40;
+      N().stamina = 40; N().idleT = 9; await run(1, 1); const jog = N().stamina - 40;
+      N().stamina = 40; N().idleT = 9; await run(2, 1); const sprint = N().stamina - 40;
+      check(jog > 2 && jog < still - 2, `a second: standing +${still}, jogging +${jog}`);
+      check(sprint < -3 && sprint > -7, `a second of sprint: ${sprint}`);
+      keys.up = false; clearKeys(); await frames(5);
+      // Out of breath sprinting: a jog (it never stops), and after the refill still a jog until three new taps
+      N().tooTiredSaidAt = -Infinity; const t0 = performance.now() - 6e4; tapW(t0); tapW(t0 + 150); pressW(t0 + 300); keys.up = true;
+      N().stamina = 0.5; await frames(20);
+      check(N().exhausted && keys.run && !keys.sprint && p().gait === 1 && p().jogging && !p().sprinting, `exhausted: run ${keys.run}, sprint ${keys.sprint}, gait ${p().gait}`);
+      const v = Math.hypot(p().vx, p().vy) / (p().speedMul || 1); check(Math.abs(v - GAIT.foot[1]) < 0.2, `exhausted speed ${v}`);
+      check(spy.out.filter(s => s === t('needs.too_tired')).length === 1, `the "too tired" float: ${spy.out.filter(s => s === t('needs.too_tired')).length}`);
+      await frames(120); check(N().stamina > 5, `jogging does not refill: ${N().stamina}`);
+      N().stamina = N().cap; N().exhausted = false; await frames(10);
+      check(p().gait === 1 && !keys.sprint, `recovered, sprinting again without taps: ${p().gait}`);
+      releaseW();
+      // Peaceful or creative: no stamina, the sprint never drops
+      runCommand(game, '/gamemode creative', () => {}); tapW(t0 + 9e3); tapW(t0 + 9e3 + 150); pressW(t0 + 9e3 + 300); await frames(60);
+      check(keys.sprint && p().gait === 2, `creative: sprint ${keys.sprint}, gait ${p().gait}`);
+    } finally { spy.undo(); clearKeys(); I.slots.splice(0, I.slots.length, ...kept); I.changed(); needsBase(); }
+  });
+  await test('gait (english): a load stops the sprint, overloaded or the wheelbarrow only walk, the arms jog', async () => {
+    const W = new WeightInventory(), C = new Carry(fake(W)), load = kg => { W.slots.length = 0; W.slots.push(...Array(HOTBAR).fill(null)); W.equip.espalda = { id: 'mochila' }; W.add('piedra', kg); };
+    load(80); check(!C.noRun() && !C.noJog(), 'light, held back');
+    load(95); check(C.noRun() && !C.noJog(), 'loaded: no sprint, but jogging');
+    load(120); check(C.noRun() && C.noJog(), 'overloaded: walking');
+    load(10); C.held = 'log'; check(C.noRun() && !C.noJog(), 'in the arms: no sprint, but jogging'); C.held = null;
+    const B = new Carry(fake(W, { barrow: { pushing: true } })); load(10); check(B.noRun() && B.noJog(), 'pushing the wheelbarrow: walking');
+    // In the game: the gate of the tier, and what the player is told
+    await weightOn();
+    const I = inv(), kept = I.slots.slice(), spy = told(), G = game.carry;
+    const fill = r => { I.slots.fill(null); I.changed(); const n = Math.ceil((r * I.capKg - I.kg) / weightOf('piedra')); if (n > 0) I.add('piedra', n); };
+    try {
+      needsBase(); await goTo(game, 21, 26);
+      fill(1.35); G.runSaidAt = -1e9; G.runWas = false;
+      keys.up = true; keys.run = keys.sprint = true; await frames(20);
+      check(p().gait === 1 && !p().sprinting && p().noSprint && !p().noJog, `loaded, sprinting: gait ${p().gait} at ${I.load.toFixed(2)}`);
+      check(spy.out.includes(t('carry.no_sprint_heavy')), `told: ${JSON.stringify(spy.out)}`);
+      fill(1.7); G.runSaidAt = -1e9; G.runWas = false; keys.sprint = false; await frames(20);
+      check(p().gait === 0 && p().noJog, `overloaded, jogging: gait ${p().gait} at ${I.load.toFixed(2)}`);
+      check(spy.out.includes(t('carry.no_run_heavy')), `told: ${JSON.stringify(spy.out)}`);
+    } finally { spy.undo(); clearKeys(); I.slots.splice(0, I.slots.length, ...kept); I.changed(); needsBase(); }
+  });
+  await test('gait (english): the jog and the sprint look like runs; old calls keep their look', async () => {
+    const look = { ...LOOK }, A = new RealPerson(look), Bp = new RealPerson(look), b = P => P.r.bones;
+    try {
+      // (the same calls give the same bones: an old call without gait is the walk tier's look)
+      for (let i = 0; i < 90; i++) { A.animate(1 / 60, 5.3); Bp.animate(1 / 60, 5.3, 0); }
+      check(['legL', 'armL', 'body', 'foreR'].every(k => Math.abs(b(A)[k].rotation.x - b(Bp)[k].rotation.x) < 1e-9), 'without the gait the old look changed');
+      const measure = (P, speed, gait) => { let lean = 0, arm = 0, elbow = 0, high = -9, low = 9; for (let i = 0; i < 180; i++) { P.animate(1 / 60, speed, gait); if (i < 60) continue; const B = b(P); lean += B.body.rotation.x; arm = Math.max(arm, Math.abs(B.armL.rotation.x)); elbow = Math.max(elbow, -B.foreL.rotation.x); high = Math.max(high, B.body.position.y); low = Math.min(low, B.body.position.y); } return { lean: lean / 120, arm, elbow, bob: high - low }; };
+      const W0 = measure(A, 3.2, 0), J = measure(A, 4.8, 1), S = measure(A, 5.8, 2);
+      check(J.lean > W0.lean + 0.03 && S.lean > J.lean + 0.06, `the lean: ${W0.lean} ${J.lean} ${S.lean}`);
+      check(J.arm > W0.arm && S.arm > J.arm + 0.15 && S.elbow > J.elbow && J.elbow > W0.elbow, `the arms: ${JSON.stringify([W0, J, S])}`);
+      check(J.bob > 0.02 && S.bob > 0.02, `no flight: ${J.bob} ${S.bob}`);
+      const [ZA, ZT, ZJ, ZS] = A.r.zancadas, hz = [3.2 / ZT, 4.8 / ZJ, 5.8 / ZS];
+      check(hz[0] < hz[1] && hz[1] < hz[2] && hz[2] < 3, `cycles per second: ${hz}`);
+    } finally { A.dispose(); Bp.dispose(); }
+  });
+  await test('gait (english): the ridden horse walks, trots and gallops; a free horse as before', async () => {
+    const h = horseModel('castano'), u = h.userData, hips = () => u.legs.map(l => l.hip.rotation.x), spread = (i, j, sign = 1) => { let m = 0; for (let f = 0; f < 60; f++) { animateHorse(h, 8, 0, null, 1 / 60, h.g); const a = hips(); m = Math.max(m, Math.abs(a[i] - sign * a[j])); } return m; };
+    h.g = 1; for (let f = 0; f < 300; f++) animateHorse(h, 8, 0, null, 1 / 60, 1);
+    check(spread(0, 3) < 0.02 && spread(1, 2) < 0.02 && spread(0, 1, -1) < 0.02, `the trot is not by diagonal pairs: ${spread(0, 3)} ${spread(0, 1, -1)}`);
+    h.g = 2; for (let f = 0; f < 300; f++) animateHorse(h, 9.5, 0, null, 1 / 60, 2);
+    check(spread(0, 3) > 0.2 && spread(2, 3) < 0.6 && Math.abs(u.body.rotation.x) <= 0.08, `the gallop: ${spread(0, 3)} ${spread(2, 3)}`);
+    h.g = 0; for (let f = 0; f < 300; f++) animateHorse(h, 5.8, 0, null, 1 / 60, 0);
+    check(spread(0, 3) > 0.2 && spread(0, 1, -1) < 0.03 && u.amp[0] < 0.5, `the walk: ${spread(0, 3)} ${spread(0, 1, -1)}`);
+    // Without a gait (a free horse, a rider of an old game): the cycle of before, by the time
+    const F = horseModel('castano'), k = Math.min(1, 6 / 3); animateHorse(F, 6, 2, null, 1 / 60);
+    check(F.userData.legs.every(l => Math.abs(l.hip.rotation.x - Math.sin(2 * (4 + 6 * 2.2) + l.phase) * 0.6 * k) < 1e-9) && !F.userData.bob, 'a free horse changed');
+    // The cadence follows the stride (with rideSpeed 1.8: 5.76, 7.92 and 9.54 m/s), near the free horse's 2.6 to 3.4 cycles
+    // a second, never paddling; and the hooves stay down while the trunk bobs and rocks
+    const hz = [[0, 5.76], [1, 7.92], [2, 9.54]].map(([g, v]) => horseCadence(g, v));
+    check(hz.every(f => f > 2 && f < 3.5) && hz[0] < hz[1] && hz[1] < hz[2], `cycles per second: ${hz.map(f => f.toFixed(2))}`);
+    const H = horseModel('castano'), HU = H.userData, hipW = new THREE.Vector3(); let worst = 0;
+    H.updateMatrixWorld(true); const rest = HU.legs.map(l => l.hip.getWorldPosition(hipW).y);
+    for (let f = 0; f < 240; f++) {
+      animateHorse(H, 9.54, 0, null, 1 / 60, 2); H.updateMatrixWorld(true);
+      HU.legs.forEach((l, i) => { worst = Math.max(worst, Math.abs(l.hip.getWorldPosition(hipW).y - rest[i])); });
+    }
+    check(HU.bob > 0 || HU.body.rotation.x !== 0, 'the gallop no longer bobs');
+    check(worst < 0.004, `the hips ride with the trunk at the gallop: ${worst.toFixed(4)} m`);
+  });
+  await test('gait (english): the gait goes to the others as an optional field', async () => {
+    const L = game.live;
+    try {
+      L.receive('g1', { t: 'hi', id: 'id-g1', name: 'g1', playing: true, look: LOOK, v: GAME_VERSION });
+      const st = more => L.receive('g1', { t: 'st', sc: 'world', x: 21, y: 27, yaw: 0, ...more }), e = () => L.peers.get('g1').entity;
+      st({ gt: 2 }); check(e().gait === 2, `gt 2: ${e().gait}`);
+      st({ gt: 1, m: 1 }); check(e().gait === 1 && e().mount, `gt 1 riding: ${e().gait}`);
+      st({ gt: 0 }); check(e().gait === 0, `gt 0: ${e().gait}`);
+      st({}); check(e().gait === undefined, `a game from before: ${e().gait}`);
+      st({ gt: 9 }); check(e().gait === undefined, `garbage: ${e().gait}`);
+      st({ gt: 'x' }); check(e().gait === undefined, `garbage: ${e().gait}`);
+      const text = await (await fetch(`src/live.js?t=${Date.now()}`)).text();
+      check(/gt: p\.gait \|\| 0/.test(text), 'the state does not send the gait');
+    } finally { L.peers.delete('g1'); }
+  });
+  // ---------- Shift, the posture key: a tap or a hold (input.js pressShift/releaseShift, rest.js posture) ----------
+  const shiftHeld = (at, ms) => { pressShift(at); if (ms >= SHIFT_HOLD) shiftTick(at + SHIFT_HOLD); releaseShift(at + ms); };
+  const poseNow = () => p().pose?.kind || (p().crouch ? 'crouch' : 'stand');
+  const keyEv = (code, type, more = {}) => dispatchEvent(new KeyboardEvent(type, { code, key: code.startsWith('Shift') ? 'Shift' : code.startsWith('Meta') ? 'Meta' : code.slice(3).toLowerCase(), bubbles: true, ...more }));
+  await test('posture (english): Shift taps and holds go stand, crouch, sit on the floor and lie face up', async () => {
+    await weightOn();
+    const I = inv(), kept = I.slots.slice();
+    try {
+      clearKeys(); needsBase(); I.slots.fill(null); I.changed(); await goTo(game, 21, 26);
+      Object.assign(p(), { pose: null, crouch: false });
+      let t0 = performance.now() - 9e5;
+      const go = (ms, want, what) => { shiftHeld(t0, ms); t0 += 2000; check(poseNow() === want, `${what}: ${poseNow()}, wanted ${want}`); };
+      go(80, 'crouch', 'standing, a tap');
+      go(80, 'stand', 'crouching, a tap');
+      go(SHIFT_HOLD + 200, 'floorSit', 'standing, a hold');
+      check(p().pose.h < 0 && !p().crouch, `sitting on the floor: ${JSON.stringify(p().pose)}`);
+      go(80, 'crouch', 'sitting, a tap');
+      go(SHIFT_HOLD + 200, 'floorSit', 'crouching, a hold');
+      go(SHIFT_HOLD + 200, 'floorLie', 'sitting, a hold');
+      go(SHIFT_HOLD + 200, 'floorLie', 'lying, a hold');
+      go(80, 'floorSit', 'lying, a tap');
+      // (the hold acts when it is reached, before letting go; a late timer: the hold at the letting go)
+      game.rest.stand(); pressShift(t0); shiftTick(t0 + SHIFT_HOLD - 30); check(poseNow() === 'stand', `before the hold: ${poseNow()}`);
+      shiftTick(t0 + SHIFT_HOLD); check(poseNow() === 'floorSit', `the hold reached: ${poseNow()}`); releaseShift(t0 + 900); check(poseNow() === 'floorSit', `its letting go: ${poseNow()}`); t0 += 2000;
+      game.rest.stand(); pressShift(t0); releaseShift(t0 + SHIFT_HOLD + 60); check(poseNow() === 'floorSit', `a late timer: ${poseNow()}`); t0 += 2000;
+      game.rest.stand();
+      // With another key meanwhile (Shift+R, Shift+Q, Shift+click): no posture, neither the tap nor the hold
+      pressShift(t0); shiftWithOther(); releaseShift(t0 + 80); check(poseNow() === 'stand', `Shift with another key, a tap: ${poseNow()}`); t0 += 2000;
+      pressShift(t0); shiftWithOther(); shiftTick(t0 + SHIFT_HOLD + 50); releaseShift(t0 + 900); check(poseNow() === 'stand', `Shift with another key, a hold: ${poseNow()}`); t0 += 2000;
+      keyEv('ShiftLeft', 'keydown'); keyEv('KeyR', 'keydown', { shiftKey: true }); keyEv('KeyR', 'keyup', { shiftKey: true }); keyEv('ShiftLeft', 'keyup');
+      check(poseNow() === 'stand', `the real Shift+R: ${poseNow()}`);
+      keyEv('ShiftLeft', 'keydown'); keyEv('ShiftLeft', 'keyup'); check(poseNow() === 'crouch', `the real Shift tap: ${poseNow()}`);
+      keyEv('ShiftLeft', 'keydown'); await sleep(SHIFT_HOLD + 120); check(poseNow() === 'floorSit', `the real Shift held: ${poseNow()}`); keyEv('ShiftLeft', 'keyup'); check(poseNow() === 'floorSit', `its letting go: ${poseNow()}`);
+      // G and H do nothing any more (the floor poses are Shift's)
+      game.rest.stand(); p().crouch = false;
+      for (const c of ['KeyG', 'KeyH']) { keyEv(c, 'keydown'); keyEv(c, 'keyup'); check(poseNow() === 'stand', `${c}: ${poseNow()}`); }
+      // Walking gets up from the floor; W W from a crouch stands up and jogs
+      shiftHeld(t0, SHIFT_HOLD + 100); t0 += 2000; check(poseNow() === 'floorSit', `sat: ${poseNow()}`);
+      keys.up = true; await frames(3); check(!p().pose, `walking did not get up: ${poseNow()}`); keys.up = false; await frames(20);
+      shiftHeld(t0, SHIFT_HOLD + 100); t0 += 2000; shiftHeld(t0, SHIFT_HOLD + 100); t0 += 2000; check(poseNow() === 'floorLie', `lying: ${poseNow()}`);
+      keys.up = true; await frames(3); check(!p().pose, `walking did not get up from lying: ${poseNow()}`); keys.up = false; await frames(20);
+      shiftHeld(t0, 80); t0 += 2000; check(poseNow() === 'crouch', 'not crouched');
+      tapW(t0); pressW(t0 + 150); check(poseNow() === 'stand' && gaitOf(keys) === 1, `W W from a crouch: ${poseNow()}, tier ${gaitOf(keys)}`); releaseW(t0 + 400); t0 += 2000;
+      // A hold while walking: nothing (walking would get up at once); the tap while walking crouches, and walks
+      keys.up = true; shiftHeld(t0, SHIFT_HOLD + 100); t0 += 2000; check(poseNow() === 'stand', `a hold while walking: ${poseNow()}`);
+      tapW(t0); pressW(t0 + 150); shiftHeld(t0 + 200, 80); check(poseNow() === 'crouch' && gaitOf(keys) === 0, `a tap while jogging: ${poseNow()}, tier ${gaitOf(keys)}`); releaseW(t0 + 500); t0 += 2000;
+      keys.up = false; p().crouch = false; await frames(20);
+      // Riding, in a boat, on a chair or in a bed: Shift is no posture
+      for (const [what, set] of [['riding', { mount: true }], ['rowing', { boat: true }], ['on a chair', { pose: { kind: 'sit', yaw: 0, h: 0.14 } }], ['in bed', { pose: { kind: 'lie', yaw: 0, h: 0.6 } }]]) {
+        Object.assign(p(), set); const was = JSON.stringify(p().pose);
+        shiftHeld(t0, 80); t0 += 2000; shiftHeld(t0, SHIFT_HOLD + 100); t0 += 2000;
+        check(!p().crouch && JSON.stringify(p().pose) === was, `${what}: crouch ${p().crouch}, pose ${JSON.stringify(p().pose)}`);
+        Object.assign(p(), { mount: false, boat: false, pose: null });
+      }
+      // With something in the arms: no sitting (carry.js refuse), the crouch still
+      game.carry.set('log');
+      shiftHeld(t0, SHIFT_HOLD + 100); t0 += 2000; check(!p().pose, `sat down with a log: ${poseNow()}`);
+      game.carry.set(null);
+      // The tip of the minimal HUD, once, through t()
+      check(t('hud.tip.posture') !== 'hud.tip.posture', 'the posture tip has no text');
+    } finally { clearKeys(); game.carry.set?.(null); Object.assign(p(), { pose: null, crouch: false, mount: false, boat: false }); I.slots.splice(0, I.slots.length, ...kept); I.changed(); needsBase(); }
+  });
+  await test('posture (english): taps go by the events own times, key repeat is no other key, a refused posture keeps the gait', async () => {
+    const busy = ms => { const end = performance.now() + ms; while (performance.now() < end) { /* (a long frame) */ } };
+    const ev = (code, type, more = {}) => new KeyboardEvent(type, { code, key: code.startsWith('Shift') ? 'Shift' : code.slice(3).toLowerCase(), bubbles: true, ...more });
+    try {
+      clearKeys(); needsBase(); await goTo(game, 21, 26); Object.assign(p(), { pose: null, crouch: false });
+      // A 90 ms tap whose keyup is handled 450 ms late (a long frame between them): still a tap
+      keyEv('ShiftLeft', 'keydown'); busy(90); const up = ev('ShiftLeft', 'keyup'); busy(450); dispatchEvent(up);
+      check(poseNow() === 'crouch', `a tap handled late: ${poseNow()}`);
+      // The same, with the hold's timer firing late before the keyup is read: it waits, and the keyup decides
+      p().crouch = false; await sleep(50);
+      keyEv('ShiftLeft', 'keydown'); busy(90); const up2 = ev('ShiftLeft', 'keyup'); busy(450); await sleep(0); dispatchEvent(up2); await sleep(60);
+      check(poseNow() === 'crouch', `a late timer before the keyup: ${poseNow()}`);
+      // A W double tap whose second keydown is handled 400 ms late: by its own time, a jog
+      clearKeys(); p().crouch = false;
+      keyEv('KeyW', 'keydown'); busy(60); keyEv('KeyW', 'keyup'); const w2 = ev('KeyW', 'keydown'); busy(400); dispatchEvent(w2);
+      check(tier() === 1, `a second press handled late: tier ${tier()}`); keyEv('KeyW', 'keyup'); clearKeys(); await frames(5);
+      // W held with key repeat, then a Shift tap: it crouches (the repeats are not another key); a real other key still is
+      keyEv('KeyW', 'keydown'); keyEv('ShiftLeft', 'keydown'); for (let i = 0; i < 4; i++) keyEv('KeyW', 'keydown', { repeat: true }); keyEv('ShiftLeft', 'keyup');
+      check(p().crouch, `a Shift tap with W repeating: ${poseNow()}`); keyEv('KeyW', 'keyup'); p().crouch = false; await frames(5);
+      keyEv('ShiftLeft', 'keydown'); keyEv('KeyD', 'keydown'); keyEv('KeyD', 'keyup'); keyEv('ShiftLeft', 'keyup');
+      check(poseNow() === 'stand', `Shift with D pressed meanwhile: ${poseNow()}`); clearKeys(); await frames(5);
+      // A hold while sprinting changes no posture (moving): the sprint goes on; riding, a tap keeps the gallop
+      let t0 = performance.now() - 7e5;
+      keys.up = true; tapW(t0); tapW(t0 + 150); pressW(t0 + 300); shiftHeld(t0 + 400, SHIFT_HOLD + 100);
+      check(poseNow() === 'stand' && tier() === 2, `a hold while sprinting: ${poseNow()}, tier ${tier()}`); releaseW(t0 + 1500); t0 += 4000;
+      p().mount = true; tapW(t0); tapW(t0 + 150); pressW(t0 + 300); shiftHeld(t0 + 400, 80);
+      check(tier() === 2 && !p().crouch, `a tap at the gallop: tier ${tier()}, crouch ${p().crouch}`); releaseW(t0 + 1500); t0 += 4000;
+      p().mount = false; keys.up = false;
+      // The map's fast move is its own key: closing the map with Shift held leaves no jog behind
+      keys.mapFast = true; keyEv('ShiftLeft', 'keyup'); check(!keys.mapFast && !keys.run && tier() === 0, `after the map: mapFast ${keys.mapFast}, run ${keys.run}`);
+    } finally { Object.assign(p(), { mount: false, crouch: false, pose: null }); clearKeys(); await frames(10); }
+  });
+  await test('posture (english): swimming, a Shift hold dives and a tap does nothing', async () => {
+    try {
+      needsBase(); const S = sea(); await swimAt(...S.deep);
+      let t0 = performance.now() - 9e5;
+      pressShift(t0); check(keys.dive, 'Shift held does not dive'); shiftTick(t0 + SHIFT_HOLD + 50); check(keys.dive && !p().pose && !p().crouch, `the hold swimming: dive ${keys.dive}, ${poseNow()}`);
+      releaseShift(t0 + 900); check(!keys.dive && !p().pose && !p().crouch, `let go: ${poseNow()}`); t0 += 2000;
+      keys.run = keys.sprint = true; shiftHeld(t0, 80); check(!p().pose && !p().crouch && keys.sprint, `a tap swimming: ${poseNow()}, sprint ${keys.sprint}`);
+    } finally { clearKeys(); needsBase(); await goTo(game, 21, 26); }
+  });
+  // ---------- letting go of W stops, at any speed and on anything (entities.js STOP_SWIM; input.js releaseMoves) ----------
+  const speedNow = () => Math.hypot(p().vx, p().vy);
+  // Moving at the tier k with real W events (tier 0 one press, 1 tap and press, 2 two taps and press), then let go:
+  // the speed and the way gone 0.3 s and 0.6 s later
+  const letGoOfW = async (k, n = 40) => {
+    clearKeys();
+    for (let i = 0; i < k; i++) { keyEv('KeyW', 'keydown'); keyEv('KeyW', 'keyup'); }
+    keyEv('KeyW', 'keydown'); await frames(n);
+    const v0 = speedNow(), x0 = p().x, y0 = p().y, tier = gaitOf(keys), gait = p().gait;
+    keyEv('KeyW', 'keyup'); await frames(18); const v1 = speedNow(); await frames(18);
+    return { v0, v1, v2: speedNow(), way: Math.hypot(p().x - x0, p().y - y0), tier, gait };
+  };
+  const stopped = (r, what, v1 = 0.3, way = 0.8, v2 = 0.02) => check(r.v0 > 1 && r.v1 < v1 && r.v2 < v2 && r.way < way && !keys.up && !keys.run && !keys.sprint, `${what}: ${JSON.stringify(r)}`);
+  await test('stop (english): on foot, letting go of W stops at walk, jog and sprint', async () => {
+    const I = inv(), kept = I.slots.slice();
+    try {
+      needsBase(); I.slots.fill(null); I.changed(); await goTo(game, 21, 26);
+      for (let k = 0; k < 3; k++) { const r = await letGoOfW(k); check(r.tier === k, `tier ${r.tier}, wanted ${k}`); stopped(r, `on foot, tier ${k}`); await goTo(game, 21, 26); }
+      // S, A and D still move while held, and stop too
+      keys.down = true; await frames(40); check(speedNow() > 2, `S does not move: ${speedNow()}`); keyEv('KeyS', 'keyup'); await frames(30); check(speedNow() < 0.02 && !keys.down, `S let go: ${speedNow()}`);
+      keys.left = true; await frames(40); check(speedNow() > 2, `A does not move: ${speedNow()}`); keyEv('KeyA', 'keyup'); await frames(30); check(speedNow() < 0.02, `A let go: ${speedNow()}`);
+      // Cmd (macOS sends no keyup for W let go while Cmd is down): letting go of Cmd lets go of W
+      clearKeys(); keyEv('KeyW', 'keydown'); keyEv('KeyW', 'keyup'); keyEv('KeyW', 'keydown'); keyEv('MetaLeft', 'keydown', { metaKey: true }); keyEv('MetaLeft', 'keyup');
+      check(!keys.up && !keys.run && gaitOf(keys) === 0, `W stuck after Cmd: up ${keys.up}, tier ${gaitOf(keys)}`);
+      await frames(30); check(speedNow() < 0.02, `still going after Cmd: ${speedNow()}`);
+    } finally { clearKeys(); I.slots.splice(0, I.slots.length, ...kept); I.changed(); needsBase(); await goTo(game, 21, 26); }
+  });
+  await test('stop (english): riding, letting go of W stops at walk, trot and gallop', async () => {
+    try {
+      needsBase(); await goTo(game, 21, 26); p().mount = true; await frames(2);
+      for (let k = 0; k < 3; k++) { const r = await letGoOfW(k); stopped(r, `riding, tier ${k}`, 0.3, 0.9); p().x = 21; p().y = 26; await frames(2); }
+    } finally { clearKeys(); p().mount = false; needsBase(); await goTo(game, 21, 26); }
+  });
+  await test('stop (english): rowing, letting go of W stops the boat', async () => {
+    try {
+      needsBase(); await goTo(game, 21, 26); p().boat = true; await frames(2);
+      // (on land the boat does not move, but the stroke asks for the speed: vx and vy are the boat's)
+      for (let k = 0; k < 3; k++) { const r = await letGoOfW(k); check(r.v0 > 1 && r.v1 < 0.3 && r.v2 < 0.02 && !keys.up, `rowing, tier ${k}: ${JSON.stringify(r)}`); }
+    } finally { clearKeys(); p().boat = false; needsBase(); await goTo(game, 21, 26); }
+  });
+  await test('stop (english): swimming, letting go of W stops in under half a second', async () => {
+    const I = inv(), kept = I.slots.slice();
+    try {
+      needsBase(); I.slots.fill(null); I.changed(); const S = sea(); await swimAt(...S.deep);   // (empty-handed: a load left by an earlier test slows the swim)
+      for (let k = 0; k < 3; k++) {
+        const r = await letGoOfW(k, 150); stopped(r, `swimming, tier ${k}`, 0.35, 0.7, 0.05);
+        await swimAt(...S.deep);
+      }
+    } finally { clearKeys(); needsBase(); I.slots.splice(0, I.slots.length, ...kept); I.changed(); await goTo(game, 21, 26); }
+  });
+  await test('stop (english): pushing the wheelbarrow, letting go of W stops it', async () => {
+    await weightOn();
+    const [tx, ty] = openGround(); await goTo(game, tx + 0.5, ty + 3.5);
+    try {
+      const o = placeBarrow(tx, ty); pushIt(o);
+      check(p().pushing, 'not pushing');
+      const r = await letGoOfW(2, 90); check(r.tier === 2 && r.gait === 0, `pushing, the taps still walk: ${JSON.stringify(r)}`); stopped(r, 'pushing', 0.3, 0.6);
+    } finally { clearKeys(); letGo(); const z = parkedNear(tx + 0.5, ty + 0.5, 5); if (z) w().setTile(...z.tile, 'air'); await goTo(game, 21, 26); }
   });
   await test('needs (english): rest caps stamina', async () => {
     try {
@@ -3528,8 +3873,11 @@ async function soloTests(game) {
       keys.space = true; await until(() => !p().dive && !p().headUnder, 15000, 'coming up'); keys.space = false;
       check(!p().headUnder, 'up, the head is still under');
       // A Shift tap while swimming neither crouches nor stops a fast swim
-      keys.run = true; press('ShiftLeft', 'keydown'); check(keys.dive, 'Shift does not dive'); press('ShiftLeft', 'keyup');
-      check(keys.run && !keys.dive && !p().crouch, `a Shift tap: run ${keys.run}, crouch ${p().crouch}`);
+      keys.up = true; keys.run = keys.sprint = true; await frames(6);
+      const fast = p().fastSwim; check(fast || p().noSprint || N().exhausted, `W W W held does not swim fast: gait ${p().gait}`);
+      press('ShiftLeft', 'keydown'); check(keys.dive, 'Shift does not dive'); press('ShiftLeft', 'keyup'); await frames(3);
+      check(keys.run && keys.sprint && p().fastSwim === fast && !keys.dive && !p().crouch, `a Shift tap: run ${keys.run}, sprint ${keys.sprint}, fast ${p().fastSwim}, crouch ${p().crouch}`);
+      keys.up = keys.run = keys.sprint = false;
     } finally { clearKeys(); needsBase(); await goTo(game, 21, 26); }
   });
   await test('dive (english): swimming E reaches finds', async () => {

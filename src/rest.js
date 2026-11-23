@@ -1,4 +1,4 @@
-// Posturas: sentarse en una silla, tumbarse en la cama (sin dormir) y sentarse o tumbarse en el suelo (G y H).
+// Posturas: sentarse en una silla, tumbarse en la cama (sin dormir) y sentarse o tumbarse en el suelo (Shift held: posture).
 // Mientras tanto no se anda; moverse, saltar o E (levantarse) devuelven al jugador a donde estaba.
 // La postura va en p.pose = { kind: 'sit' | 'floorSit' | 'lie' | 'floorLie', yaw, h } y la ven los demás
 // jugadores (va con su estado). h: la altura del cuerpo sobre el suelo (en la cama, sobre el colchón).
@@ -46,23 +46,44 @@ export class Rest {
     this.take({ kind: 'lie', yaw: Rest.yaw(-along[0], -along[1]) + Math.PI, h: BED }, at[0], at[1]);
     this.twin = p.pose ? twin : null;
   }
-  // En el suelo, donde está, mirando hacia donde miraba
+  // En el suelo, donde está, mirando hacia donde miraba. True when the posture changed (sat, lay down or got up)
   floor(kind) {
-    if (this.game.carry?.refuse()) return;
-    if (this.game.gamemode === 'spectator') return;   // (el espectador no se sienta)
+    if (this.game.carry?.refuse()) return false;
+    if (this.game.gamemode === 'spectator') return false;   // (el espectador no se sienta)
     const p = this.p;
-    if (!p || p.boat || p.aboard || p.mount || this.game.busy) return;
-    if (p.swim || p.depth > 0.3) { hud.toast('En el agua no'); return; }   // (nadando, o con el agua por las rodillas)
-    if (p.pose) { const was = p.pose.kind; this.stand(); if (was === kind) return; }
+    if (!p || p.boat || p.aboard || p.mount || this.game.busy) return false;
+    if (p.swim || p.depth > 0.3) { hud.toast('En el agua no'); return false; }   // (nadando, o con el agua por las rodillas)
+    if (p.pose) { const was = p.pose.kind; this.stand(); if (was === kind) return true; }
     const yaw = Rest.yaw(p.face.x, p.face.y);
-    this.take(kind === 'floorLie' ? { kind, yaw: yaw + Math.PI, h: FLOOR_LIE } : { kind, yaw, h: FLOOR_SIT }, kind === 'floorLie' ? p.x - p.face.x * 0.5 : p.x, kind === 'floorLie' ? p.y - p.face.y * 0.5 : p.y);
+    return !!this.take(kind === 'floorLie' ? { kind, yaw: yaw + Math.PI, h: FLOOR_LIE } : { kind, yaw, h: FLOOR_SIT }, kind === 'floorLie' ? p.x - p.face.x * 0.5 : p.x, kind === 'floorLie' ? p.y - p.face.y * 0.5 : p.y);
+  }
+  // Shift alone (input.js): a tap or a hold (SHIFT_HOLD). Standing: a tap crouches, a hold sits on the floor. Crouching: a
+  // tap stands up, a hold sits. Sitting on the floor: a tap gets up crouching, a hold lies down face up. Lying on the
+  // floor: a tap sits up. Never on a horse, in a boat, on a chair or in a bed (E, Space or walking get up there); a hold
+  // while walking does nothing (walking would get up at once); in the water, only the tap's crouch, as before.
+  // True when the posture changed (input.js then stops the running; nothing done leaves the gait as it was)
+  posture(hold) {
+    const p = this.p;
+    if (!p || p.mount || p.boat || p.aboard) return false;
+    const kind = p.pose?.kind;
+    if (kind === 'sit' || kind === 'lie') return false;
+    if (p.swim || p.depth > 0.3) { if (hold || kind) return false; p.crouch = !p.crouch; return true; }
+    if (!hold) {
+      if (kind === 'floorLie') return this.floor('floorSit');
+      if (kind === 'floorSit') { this.stand(); p.crouch = true; return true; }
+      p.crouch = !p.crouch;
+      return true;
+    }
+    if (kind === 'floorLie' || keys.up || keys.down || keys.left || keys.right) return false;
+    return this.floor(kind === 'floorSit' ? 'floorLie' : 'floorSit');
   }
   take(pose, x, y) {
     const p = this.p;
-    if (!p || p.mount || p.boat || p.aboard) return;
+    if (!p || p.mount || p.boat || p.aboard) return false;
     this.back = [p.x, p.y];   // (al levantarse, vuelve aquí)
     Object.assign(p, { pose, x, y, vx: 0, vy: 0, z: 0, vz: 0, crouch: false });
     Audio.place();
+    return true;
   }
   stand() {
     const p = this.p;

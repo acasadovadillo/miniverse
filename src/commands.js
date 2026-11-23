@@ -514,8 +514,8 @@ export const COMMANDS = {
       say(`Ahora son las ${clockText(h)} (el reloj sigue andando desde ahí; /time reset lo devuelve a la hora de Madrid).`, 'ok');
     },
   },
-  sit: { help: 'sentarse en el suelo (también con la tecla G)', run(game) { game.rest.floor('floorSit'); } },
-  lie: { help: 'tumbarse en el suelo (también con la tecla H)', run(game) { game.rest.floor('floorLie'); } },
+  sit: { help: 'sentarse en el suelo (también manteniendo Shift)', run(game) { game.rest.floor('floorSit'); } },
+  lie: { help: 'tumbarse en el suelo (también manteniendo Shift otra vez, ya sentado)', run(game) { game.rest.floor('floorLie'); } },
   stand: { help: 'levantarse (también moviéndote o con E)', run(game) { game.rest.stand(); } },
   help: {
     help: 'lista los comandos',

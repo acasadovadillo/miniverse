@@ -378,7 +378,7 @@ export class Actors {
     // Velocidad (para animar) a partir de lo que se ha movido
     const d = m.prev ? Math.hypot(x - m.prev[0], z - m.prev[1]) : 0;
     m.prev = [x, z];
-    const v = dt > 0 ? Math.min(8, d / dt) : 0;
+    const v = dt > 0 ? Math.min(e.mount ? 12 : 8, d / dt) : 0;   // (a cap against jumps; on a horse higher: its gallop, 9.5, is not drawn at its trot)
     m.speed += (v - m.speed) * Math.min(1, dt * 10);
     const yaw = e.yaw ?? facing(e);
     let y = view.groundY(scene, x, z);
@@ -430,7 +430,7 @@ export class Actors {
           const row = Math.min(1, m.speed / 1.5);
           for (const o of m.boat.userData.oars) { const a = t * 5, sd = o.userData.side; o.rotation.y = sd * Math.sin(a) * 0.5 * row; o.rotation.z = sd * (Math.PI / 2 - OAR_DIP + Math.cos(a) * 0.15 * row); }   // (los dos a la vez; al volver, la pala sale del agua)
         }
-        else if (e.mount) { m.horse.rotation.y = P.root.rotation.y; animateHorse(m.horse, m.speed, t); P.root.position.y = 0.92 + seat; }
+        else if (e.mount) { m.horse.rotation.y = P.root.rotation.y; animateHorse(m.horse, m.speed, t, null, dt, e.gait); P.root.position.y = 0.92 + seat + (m.horse.userData.bob || 0); }
         else P.root.position.y = 0;
       }
       // Los huesos se posan en cada fotograma de cerca, y de lejos cada 1/30 o 1/15 s con el tiempo que haya pasado (ver
@@ -455,7 +455,7 @@ export class Actors {
         // (a caballo, en el agua: el caballo pisa el fondo; en lo más hondo de un río, con el agua al cuello)
         if (e.mount && !pz && e.depth > 0) y = WATER_Y - e.depth + (e.z || 0);
       }
-      if (m.hand) m.hand.visible = m.swimK < 0.5 && !lying;   // (nadando, lo de la mano se guarda; lying in bed or on the floor, too: no axe by the pillow)
+      if (m.hand) m.hand.visible = m.swimK < 0.5 && !lying && pz?.kind !== 'floorSit';   // (nadando, lo de la mano se guarda; lying in bed or on the floor, too: no axe by the pillow; sitting on the floor, no shovel through the legs)
       // (cómo se ve, con la altura ya puesta: alguien en lo alto de una torre, mirado allí arriba, tiene los pies a 12 m del suelo)
       const tier = this.grade(m, e, x, y + P.root.position.y, z, lying);
       m.root.visible = tier !== 3;
@@ -573,10 +573,12 @@ export class Actors {
   // La pose de los huesos de una persona: andar (animate), en el aire, lo que lleva en la mano, agachada, sentada, a
   // caballo o en barca, y mirar a quien tiene al lado. dt: el tiempo desde la última pose (ver pose)
   poseBones(m, e, P, pz, lying, dt, game) {
-    P.animate(dt, e.mount || e.boat || e.aboard || m.swimK > 0.5 ? 0 : m.speed);   // (saliendo del agua, ya andando: las piernas, a andar)
+    P.animate(dt, e.mount || e.boat || e.aboard || m.swimK > 0.5 ? 0 : m.speed, e.gait);   // (saliendo del agua, ya andando: las piernas, a andar; gait: the player's three speeds, entities.js)
     if (e.z - (e.floor || 0) > 0.03) {   // en el aire: con las piernas recogidas
       if (!e.mount) { const k = Math.min(1, (e.z - (e.floor || 0)) / 0.25); P.legs[0].rotation.x = -0.7 * k; P.legs[1].rotation.x = 0.35 * k; }
     }
+    // (running with a tool in the hand, its arm swings less: how much, easing with the gait; see hold)
+    m.runArm = (m.runArm || 0) + ((e.mount || e.boat || e.aboard || m.swimK > 0.5 ? 0 : e.gait === 2 ? 1 : e.gait === 1 ? 0.5 : 0) - (m.runArm || 0)) * Math.min(1, dt * 6);
     // (después de andar: el golpe manda sobre el balanceo del brazo)
     if (game) this.hold(m, { held: game.inv.held?.id || null, swing: game.gather.swing, swingItem: game.gather.swingItem, cooldown: game.gather.cooldown, fishPose: game.fishing?.pose(game.time), bowPull: game.archery?.k || 0 }, dt);
     else if (e.remote) this.hold(m, e, dt);
@@ -597,6 +599,7 @@ export class Actors {
       P.body.position.y -= Math.max(0, Lt + Ls - reach);
       P.torso.rotation.x += C.lean * c;
       P.head.rotation.x = -C.lean * 0.8 * c;
+      if (m.holdTool && m.toolIdle && !busy && m.hand) { P.arms[P.toolArm].rotation.x += 0.2 * c; m.hand.rotation.x = -1.1 * c; }   // (a tool held crouching: upright beside the knee, not across the legs)
     } else P.head.rotation.x = busy === 'push' ? -(P.pushFit?.lean ?? 0.22) * 0.7 : 0;   // (leaning on the wheelbarrow, the head up: it looks ahead)
     if (pz && !lying) {   // sentado: los muslos hacia delante; en la silla, las piernas colgando; en el suelo, estiradas
       for (const l of P.legs) l.rotation.x = -Math.PI / 2;
@@ -736,7 +739,8 @@ export class Actors {
         else if (m.mats?.includes(o.material)) { o.material.dispose(); for (const list of [m.mats, m.body]) { const i = list.indexOf(o.material); if (i >= 0) list.splice(i, 1); } }
       });
       m.hand.clear();
-      const tool = show && (toolModel(show) || foodInHand(show));
+      const tm = show && toolModel(show), tool = tm || (show && foodInHand(show));
+      m.holdTool = !!tm;   // (a tool or a weapon: long, it would swing up into the face running)
       if (tool && m.mats) tool.traverse(o => { if (o.isMesh) ownMesh(o, m, true); });
       if (tool) m.hand.add(tool);
       if (tool && m.ghosted) { m.ghosted = false; this.ghost(m, true); }   // (de espectador, también lo de la mano)
@@ -746,12 +750,21 @@ export class Actors {
     // el giro del tronco, al revés)
     const T = P.toolArm, arm = P.arms[T], mir = T === 0 ? -1 : 1;
     arm.rotation.z = 0; m.hand.rotation.x = 0; P.torso.rotation.x = 0;
+    m.toolIdle = !a && !g.fishPose && !(g.bowPull > 0);   // (held, not in use: poseBones may carry it otherwise, crouching)
     pullBow(m.hand, g.bowPull || 0);
     // (tensando el arco: el brazo estirado y el arco de pie)
     if (g.bowPull > 0 && !a) { arm.rotation.x = -1.5; m.hand.rotation.x = 1.5; if (P.fore) P.fore[T].rotation.x = -0.1; return; }
     if ((a || g.fishPose) && P.fore) P.fore[T].rotation.x = -0.1;   // (usando algo, el brazo casi estirado)
     // (una postura fija: pescando. fishPose, no pose: pose es sentarse o tumbarse, y los demás jugadores la traen)
-    if (!a) { if (g.fishPose) { arm.rotation.x = g.fishPose.arm; P.torso.rotation.x = g.fishPose.lean; } return; }
+    if (!a) {
+      if (g.fishPose) { arm.rotation.x = g.fishPose.arm; P.torso.rotation.x = g.fishPose.lean; }
+      else if (m.holdTool && m.runArm > 0.01) {   // (jogging or sprinting with a tool: its arm swings less forward, a little lower, the elbow straighter)
+        const k = m.runArm, x = arm.rotation.x;
+        arm.rotation.x = (x < 0 ? x * (1 - 0.65 * k) : x * (1 - 0.3 * k)) + 0.1 * k;
+        if (P.fore) P.fore[T].rotation.x *= 1 - 0.45 * k;
+      }
+      return;
+    }
     a.t += dt;
     const k = Math.min(1, a.t / a.dur), ge = GESTURES[a.kind];
     arm.rotation.x = keys(ge.arm, k);

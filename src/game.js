@@ -57,7 +57,7 @@ import { Live } from './live.js';
 import { Family } from './family.js';
 import { Settings } from './settings.js';
 import { savedLang, t } from './i18n.js';
-import { keys, clearKeys } from './input.js';
+import { keys, clearKeys, dropSprint } from './input.js';
 import { Audio } from './audio.js';
 import { hud } from './ui/hud.js';
 import { kitOf, kitKey } from './kit.js';
@@ -1243,7 +1243,11 @@ export class Game {
     if (keys.use && !this.busy && !this.jumping && !this.build.on) this.gather.use(true);
     if (this.busy || this.jumping || hud.dialogOpen || p.pose) { p.stop(); return; }
     p.speedMul = (this.buffs.rapido > this.time ? 1.35 : 1) * (p.mount ? this.ranch.rideSpeed() : 1) * this.archery.walk * this.carry.speedMul();
-    p.noRun = this.carry.noRun() || this.needs.noRun(); p.jumpMul = this.carry.jumpMul();   // (the load and the arms, carry.js: with the slot inventory, false and 1; out of stamina, needs.js)
+    // (the three speeds, entities.js GAIT: the load and the arms stop the sprint, carry.js; overloaded or pushing the wheelbarrow,
+    // only walking; out of stamina, a sprint drops to a jog, and sprinting again needs three new taps: input.js dropSprint)
+    const tired = this.needs.noRun();
+    if (tired && keys.sprint) dropSprint();
+    p.noSprint = this.carry.noRun() || tired; p.noJog = this.carry.noJog(); p.jumpMul = this.carry.jumpMul();   // (with the slot inventory, false and 1)
     if (Object.values(keys).some(Boolean)) this.lastInput = this.time;   // (para /setidletimeout)
     if (p.aboard) p.stop();   // (de pasajero en una barca, le lleva ella)
     else p.update(dt, keys, this.scene);

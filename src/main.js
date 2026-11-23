@@ -48,10 +48,9 @@ function play(login = true) {   // (login: abrir la pantalla de entrar)
     use: () => (hud.dialogOpen ? game.action() : b.on ? b.place() : game.gather.use()),
     jump: () => (hud.dialogOpen ? game.action() : game.player?.pose ? game.rest.stand() : game.fishing.space() ? null : game.player?.jump()),
     drop: all => game.toss(all),
-    sit: () => game.rest.floor('floorSit'),
-    lie: () => game.rest.floor('floorLie'),
-    crouch: on => { const p = game.player; if (p && !p.mount && !p.boat && !p.aboard && !p.pose && !(p.swim && DIVING)) p.crouch = on ?? !p.crouch; },   // (Shift: agacharse o levantarse; swimming, Shift dives instead)
-    swimming: () => DIVING && !!game.player?.swim,   // (Shift's tap while swimming: no crouch, and a fast swim goes on)
+    posture: hold => game.rest.posture(hold),   // (Shift alone: a tap or a hold; rest.js posture)
+    crouch: on => { const p = game.player; if (p && !p.mount && !p.boat && !p.aboard && !p.pose && !(p.swim && DIVING)) p.crouch = on ?? !p.crouch; },   // (the second tap of W stands up)
+    swimming: () => DIVING && !!game.player?.swim,   // (swimming, Shift dives: neither its tap nor its hold is a posture, and a fast swim goes on)
     build: () => (game.mode === 'play' && !game.busy && game.gamemode !== 'spectator' ? b.toggle() : false),
     building: () => b.on && game.mode === 'play',
     point: (x, y) => b.pointTo(game.tileAtScreen(x, y)),

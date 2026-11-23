@@ -3,13 +3,13 @@
 //
 // One bar, one job: food fills hunger, drink fills thirst, resting and sleeping fill energy (rest, and the stamina cap
 // it gives), health comes back by itself when you are fed and watered, air comes back at the surface. Eating never
-// refills energy. Under water only air drains; walking around, only sprinting spends stamina.
+// refills energy. Under water only air drains; walking around, only sprinting spends stamina (jogging refills it slowly).
 //
 // Save keys: thirst, dry, rest, restAt, napAt, rested. Never `energy` (an old field from before 2026-11-04.2, which old
 // saves may still hold). Stamina, air and the dive are not saved. The needs values never travel on the network.
 //
 // Contract with the other tracks (keep the names):
-//   from the player (entities.js): p.sprinting, p.fastSwim (from the gated run), p.headUnder, p.swim, p.pose,
+//   from the player (entities.js): p.sprinting, p.jogging, p.fastSwim (from the gated tier), p.headUnder, p.swim, p.pose,
 //     p.forceRise (set here: push the diver up until the head is out), p.onJump (wired in game.js to spend), p.sleeping
 //     (set here while asleep in a bed; cleared by rest.stand, Rest.reset and refill)
 //   for the others: quench, dryBy, spend, work, noRun, refill, gulp, drinkAt, isFresh, sleep, target, swimAction, aimables
@@ -33,7 +33,7 @@ export const NAP = 40, NAP_EVERY_MIN = 60, RESTED_MIN = 30;   // a day nap, how 
 export const AIR_MAX = 30, AIR_PER_LEVEL = 2;                 // seconds of breath; +2 s per diving level (50 s at level 10)
 export const RATES = {                                         // per second unless noted
   sprint: 5, swimFast: 12, dive: 0, jump: 4 /*each*/, blow: 2 /*each*/, bow: 5 /*each shot*/, toolK: 2.5 /*x TOOL_COST per use*/,
-  regen: 20, regenSeated: 35, regenSwim: 12, regenUnder: 6, regenTired: 0.5 /*factor at rest 0*/,
+  regen: 20, regenJog: 8, regenSeated: 35, regenSwim: 12, regenUnder: 6, regenTired: 0.5 /*factor at rest 0*/,
   airDrain: 1, airDrainFast: 1.15, airRefill: 8,
   restBed: 100 / (8 * 60), restFloorLie: 100 / (25 * 60), restSit: 100 / (40 * 60),
 };
@@ -184,7 +184,8 @@ export class Needs {
   }
 
   // 4. Stamina: sprinting and fast swimming spend it each second; jumps, blows, the bow and tools once each (spend, work).
-  // Only movement spends delay the refill. At 0 you cannot run (exhausted) until half the cap is back
+  // Only movement spends delay the refill; jogging spends nothing and refills at regenJog. At 0 you cannot sprint
+  // (exhausted: game.js drops a sprint to a jog) until half the cap is back
   updateStamina(dt, p) {
     const g = this.game;
     if (!this.staminaOn) { this.stamina = this.cap; this.exhausted = false; this.idleT = REGEN_DELAY; return; }
@@ -194,14 +195,14 @@ export class Needs {
     if (drain > 0) { this.stamina -= drain * dt; this.idleT = 0; }
     else this.idleT += dt;
     if (this.idleT > REGEN_DELAY) {
-      let rate = p.pose ? RATES.regenSeated : p.headUnder ? RATES.regenUnder : p.swim ? RATES.regenSwim : RATES.regen;
+      let rate = p.pose ? RATES.regenSeated : p.headUnder ? RATES.regenUnder : p.swim ? RATES.regenSwim : p.jogging ? RATES.regenJog : RATES.regen;
       if (this.rest < 50) rate *= RATES.regenTired + (1 - RATES.regenTired) * (this.rest / 50);
       this.stamina += rate * dt;
     }
     this.stamina = Math.max(0, Math.min(this.cap, this.stamina));   // (falling rest pulls it down)
     if (this.stamina <= 0) this.exhausted = true;
     else if (this.exhausted && this.stamina >= EXHAUST_CLEAR * this.cap) this.exhausted = false;
-    if (this.exhausted && keys.run && !this.mounted() && g.time - this.tooTiredSaidAt > TOO_TIRED_EVERY) {
+    if (this.exhausted && keys.sprint && !this.mounted() && g.time - this.tooTiredSaidAt > TOO_TIRED_EVERY) {
       this.tooTiredSaidAt = g.time;
       g.gather?.float(t('needs.too_tired'), '#ffd890');
     }
@@ -260,8 +261,8 @@ export class Needs {
     if (!c) return;
     this.spend(c * RATES.toolK * (this.game.skills?.costCut(kind) ? 0.5 : 1));
   }
-  // true while running is blocked by exhaustion (survival only, on foot: a horse gallops and a boat rows on its own
-  // strength, and neither spends stamina); game.js ORs it into p.noRun
+  // true while sprinting is blocked by exhaustion (survival only, on foot: a horse gallops and a boat rows on its own
+  // strength, and neither spends stamina); game.js ORs it into p.noSprint (jogging stays)
   noRun() { return this.exhausted && this.survival && !this.mounted(); }
   mounted() { const p = this.game.player; return !!(p && (p.mount || p.boat || p.aboard)); }
   // Fill the needs. opts: { death: true } fills thirst, stamina and air, sets rest = max(rest, 50) and clears p.sleeping;

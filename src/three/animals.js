@@ -482,12 +482,51 @@ function graze(u, e, k, dt) {
   if (u.g < 1e-3) u.g = 0;
   return u.g;
 }
-export function animateHorse(h, speed, t, e, dt = 1 / 60) {
+// The ridden horse's three gaits (the rider's: entities.js GAIT, 0 walk, 1 trot, 2 gallop): the phase of each leg (the
+// order of horseModel's legs: front -x, front +x, back -x, back +x), how far they swing and bend, the stride (metres a
+// leg cycle covers: the cadence is speed / stride, so the legs never paddle in place) and the body's rocking and bob. With
+// rideSpeed 1.8 that is about 2.4 cycles a second at the walk, 2.8 at the trot and 3.0 at the gallop (the free horse's
+// cycle, by the time, is 2.6 to 3.4). The walk goes one leg at a time (back, front on the same side, then the other side),
+// the trot by diagonal pairs (TROT), the gallop with the back legs together a little apart, then the front
+const TAU = Math.PI * 2;
+const HORSE_GAITS = [
+  { legs: [0, 0.5, 0.75, 0.25].map(f => f * TAU), hip: 0.42, knee: 0.75, stride: 2.4, pitch: 0, bob: 0.015 },
+  { legs: TROT, hip: 0.55, knee: 0.95, stride: 2.8, pitch: 0.01, bob: 0.045 },
+  { legs: [0.58, 0.48, 0.08, 0].map(f => f * TAU), hip: 0.78, knee: 1.0, stride: 3.2, pitch: 0.06, bob: 0.07 },
+];
+export const horseCadence = (gait, speed) => speed / HORSE_GAITS[gait].stride;   // (cycles a second)
+export function animateHorse(h, speed, t, e, dt = 1 / 60, gait) {
   const u = h.userData, k = Math.min(1, speed / 3);
-  u.phase = t * (4 + speed * 2.2);
-  for (const l of u.legs) {
-    l.hip.rotation.x = Math.sin(u.phase + l.phase) * 0.6 * k;
-    l.knee.rotation.x = Math.max(0, Math.sin(u.phase + l.phase + 1.2)) * 0.9 * k;
+  if (gait === 0 || gait === 1 || gait === 2) {
+    // (ridden by a player: by its gait, the legs easing from one gait's phases to the next; the phase is its own, so a change
+    // of speed never jumps it)
+    const G = HORSE_GAITS[gait], ease = Math.min(1, dt * 5);
+    if (!u.lp) { u.lp = G.legs.slice(); u.amp = [G.hip, G.knee, G.pitch, G.bob, G.stride]; u.gaitPhase = u.gaitPhase || 0; u.hipY = u.legs.map(l => l.hip.position.y); }
+    for (let i = 0; i < 4; i++) { let d = G.legs[i] - u.lp[i]; d = Math.atan2(Math.sin(d), Math.cos(d)); u.lp[i] += d * ease; }
+    u.amp[0] += (G.hip - u.amp[0]) * ease; u.amp[1] += (G.knee - u.amp[1]) * ease; u.amp[2] += (G.pitch - u.amp[2]) * ease; u.amp[3] += (G.bob - u.amp[3]) * ease; u.amp[4] += (G.stride - u.amp[4]) * ease;
+    u.gaitPhase = (u.gaitPhase + dt * TAU * speed / u.amp[4]) % TAU;
+    const ph = u.phase = u.gaitPhase;
+    // (the gallop rocks the body, nose down as the front legs land; the trot bounces twice a cycle, the gallop once)
+    const pitch = u.body.rotation.x = Math.sin(ph + 0.9) * u.amp[2] * k;
+    u.bob = (gait === 2 ? 0.5 + 0.5 * Math.sin(ph) : Math.abs(Math.sin(ph))) * u.amp[3] * k;
+    u.body.position.y = u.bob;
+    // (the legs hang from the body: each hip is moved back by what the bob and the rocking move it, so only the trunk rides
+    // and the hooves stay on the ground)
+    const c = Math.cos(pitch), sn = Math.sin(pitch);
+    for (let i = 0; i < 4; i++) {
+      const l = u.legs[i];
+      l.hip.rotation.x = Math.sin(ph + u.lp[i]) * u.amp[0] * k;
+      l.knee.rotation.x = Math.max(0, Math.sin(ph + u.lp[i] + 1.2)) * u.amp[1] * k;
+      const y0 = u.hipY[i], z = l.hip.position.z;
+      l.hip.position.y = y0 + (y0 - y0 * c + z * sn - u.bob) / c;
+    }
+  } else {
+    u.phase = t * (4 + speed * 2.2);
+    for (const l of u.legs) {
+      l.hip.rotation.x = Math.sin(u.phase + l.phase) * 0.6 * k;
+      l.knee.rotation.x = Math.max(0, Math.sin(u.phase + l.phase + 1.2)) * 0.9 * k;
+    }
+    if (u.lp) { for (let i = 0; i < 4; i++) u.legs[i].hip.position.y = u.hipY[i]; u.lp = null; u.body.rotation.x = 0; u.body.position.y = 0; u.bob = 0; }
   }
   if (u.tail) u.tail.rotation.set(0.25 * k, 0, Math.sin(t * 1.8 + u.seed) * 0.25 * (1 - k * 0.6));
   // (pastando, baja el cuello hasta la hierba; si no, de vez en cuando, parado, agacha un poco la cabeza)

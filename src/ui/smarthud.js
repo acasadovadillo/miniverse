@@ -41,13 +41,15 @@ const $ = id => document.getElementById(id);
 const thirstOf = def => (!def ? 0 : items.thirstOf ? items.thirstOf(def) : def.thirst ?? (def.drink ? 4 : 0));
 const isDrink = s => { const def = s && ITEMS[s.id]; return !!def && (thirstOf(def) > 0 || (!!def.canteen && s.sips > 0)); };
 // How long each thing stays after what brought it (seconds; the fade-out comes after)
-const SHOW = { hurt: 5, heal: 3, hunger: 4, thirst: 4, rest: 4, linger: 1.5, held: 0.5, money: 4, xp: 3, level: 5, slots: 3, name: 1.6, place: 4, clock: 6, tag: 4, quest: 10, intro: 4, tip: 9, tipShort: 6, build: 7, all: 1.5, mini: 3, routeMini: 4 };   // (routeMini: the minimap after you stop, with a route)
+const SHOW = { sprint: 3, hurt: 5, heal: 3, hunger: 4, thirst: 4, rest: 4, linger: 1.5, held: 0.5, money: 4, xp: 3, level: 5, slots: 3, name: 1.6, place: 4, clock: 6, tag: 4, quest: 10, intro: 4, tip: 9, tipShort: 6, build: 7, all: 1.5, mini: 3, routeMini: 4 };   // (routeMini: the minimap after you stop, with a route)
 const LOW_HP = HP_MAX * 0.4, LOW_FOOD = 6, SHOW_FOOD = HUNGER_MAX * 0.6;   // (low health and hunger stay; hunger above 60 % is not news)
 const DANGER = 8;          // tiles: a creature this close keeps health in sight
 const HEAL_NEW = 10;       // seconds without healing: the next heal is news (regen starting), not each 4 s tick
 const NEED_GAP = 60;       // seconds: never two tips about needs (hunger, thirst, sleep) closer than this
 const NEED_TIPS = new Set(['hungry', 'thirsty', 'tired']);
 const DIVE_TIP = 3;        // seconds swimming before the dive tip
+const POSTURE_TIP = 90;    // seconds playing before the posture tip, if no crouch came first
+const GAIT_TIP = 60;       // seconds walking on foot before the tip of the three speeds, if no jog came first
 const STALE_HINT = 6;      // seconds: a click hint that has not changed by then has been read
 const GOAL_NEAR = 4;       // tiles: the mark of where to go fades this close
 const BOW_TEXT = 2;        // draws of the bow that still get the long text (then the ring says it)
@@ -59,6 +61,10 @@ const TIPS = {
   hungry: {}, lowhp: { key: null },
   // (the needs: thirsty picks its key and text as hungry does; tired and air say their key in the text; dive, Shift)
   thirsty: {}, tired: { key: null }, dive: { key: 'Shift' }, air: { key: null },
+  // (Shift, the posture key: input.js, rest.js posture. No code: a Shift for Shift+R or a crouch does not teach the hold)
+  posture: { key: 'Shift' },
+  // (the three speeds: input.js pressW. Known once the player jogs or sprints, shown or not)
+  gait: { key: 'W' },
   // (no code: E and Q are pressed for many other things, so only being shown makes them known)
   bulky: { key: 'E' }, arms: { key: 'Q' },
   // (the wheelbarrow, barrow.js: parked within reach, then pushing it; a big thing on the horse or in the bow, carry.js)
@@ -299,6 +305,7 @@ export class SmartHud {
     if (stam < cap * 0.5 || n.exhausted) this.enLow = true;
     else if (this.enLow && stam > cap * 0.6) this.enLow = false;
     if (this.enLow && surv) nb?.show('en', SHOW.linger);
+    else if (surv && (p.sprinting || p.fastSwim) && stam < cap * 0.95) nb?.show('en', SHOW.sprint);   // (only the sprint spends it: in sight while it drains, as in GTA)
     const restStep = Math.floor(rest * 10);
     if (restStep !== this.restStep) {
       if (this.restStep !== undefined && surv && !noRest) nb?.show('en', SHOW.rest);
@@ -474,6 +481,11 @@ export class SmartHud {
       if (g.barrow.pushing) this.want('pushing');
       else if (!this.seen.has('barrow') && !C?.held && (g.scene?.placedNear?.(p.x, p.y, 2.2) || []).some(o => o.placed === 'wheelbarrow')) this.want('barrow');
     }
+    // The posture key, once: the first crouch or sitting on the floor, or after a while on foot
+    if (T - this.started > 8 && !p.swim && !p.mount && !p.boat && !p.aboard && (p.crouch || p.pose?.kind === 'floorSit' || p.pose?.kind === 'floorLie' || T - this.started > POSTURE_TIP)) this.want('posture');
+    // The three speeds, once: after a minute walking on foot without ever jogging (a jog or a sprint makes it known)
+    if (p.gait >= 1) { if (!this.seen.has('gait')) this.learnt('gait'); }
+    else if (!this.seen.has('gait') && !p.swim && !p.mount && !p.boat && !p.aboard && !p.crouch && !p.pose && Math.hypot(p.vx || 0, p.vy || 0) > 1 && (this.walkT = (this.walkT || 0) + 0.25) > GAIT_TIP) this.want('gait');
     // Leaving the village for the first time: the map
     if (g.scene === g.world && !g.indoors && !inBounds(p.x, p.y)) this.want('map');
     // A new recipe while playing (not the ones of the start): crafting

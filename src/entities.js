@@ -8,6 +8,7 @@ import { towerFloor } from './world/tower.js';
 import { WATER_Y } from './world/planet.js';
 import { BARROW, WHEEL_AHEAD, pushedAhead } from './carry-items.js';
 import { apagada } from './opciones.js';
+import { gaitOf } from './input.js';
 
 export class Person {
   constructor({ x, y, look, view = 'front', flip = false }) {
@@ -39,6 +40,14 @@ const STEP_UP = 0.3;
 // lo que se hunde agachado (la cabeza, bajo el agua)
 export const SWIM_IN = 1.0, SWIM_OUT = 0.85;
 const HORSE_DEEP = 1.25, SWIM_ROOT = 1.1, SINK = 0.55, SWIM_SPEED = 1.5, SWIM_RUN = 2.2;
+// The three speeds (input.js gaitOf: 0 walk, 1 jog, 2 sprint), in m/s before speedMul (the load, the bow, a potion and,
+// riding, the horse's rideSpeed). Only the sprint spends stamina (needs.js). Riding: walk, trot, gallop (the gallop is
+// the run of before); rowing: the fast row of before from the jog up. Swimming: the jog is a steady crawl that spends
+// nothing; the sprint is the fast swim (it spends stamina and air). Crouching is always CROUCH_SPEED
+export const GAIT = { foot: [3.2, 4.8, 5.8], ride: [3.2, 4.4, 5.3], row: [3.2, 5.3, 5.3], swim: [SWIM_SPEED, 1.85, SWIM_RUN] };
+const CROUCH_SPEED = 1.4, BOAT_MUL = 1.4, STOP_SWIM = 8;
+// Hunger from running, per metre (combat.exert): the sprint as the run of before, the jog less than half
+const EXERT = [0, 0.02, 0.05];
 // Diving (docs/planes/gta/PLAN-D-barras-buceo.md §4.4; ?buceo=0 turns it off: crouching sinks a little, as before).
 // While swimming, Shift held (keys.dive) goes down and Space held comes up; with neither the diver drifts up slowly, so
 // they can look around at the bottom. dive: metres of extra depth below sink (which keeps its meaning: up to SINK, and
@@ -123,7 +132,10 @@ export class Player extends Person {
     this.swim = false; this.sink = 0;  // nadando, y lo que se hunde (agachado) o se asoma (con espacio) bajo la línea de flotar
     this.dive = 0;                     // diving: metres of extra depth below sink (Shift held; see DIVE_*); never saved
     this.forceRise = false;            // (set by needs.js out of air: up at DIVE_UP until the head is out, then cleared here)
-    this.sprinting = false; this.fastSwim = false;   // (for needs.js stamina: running on foot, swimming fast; see update)
+    this.sprinting = false; this.fastSwim = false;   // (for needs.js stamina: sprinting on foot, swimming fast; see update)
+    this.jogging = false;              // (jogging on foot: needs.js refills stamina more slowly meanwhile)
+    this.gait = 0;                     // the gait it moves with (0 walk, 1 jog or trot, 2 sprint or gallop): the drawing and the network
+    this.noSprint = false; this.noJog = false;   // (set by game.js each step: a load, the arms, exhaustion; the wheelbarrow)
     this.sleeping = false;             // (asleep in a bed: needs.js sleep sets it, rest.js stand clears it; st.zz)
     this.depth = 0;                    // lo hondo del agua donde está (0 en tierra)
     this.bank = null;                  // en el agua junto a la pared de un canal, la altura de su borde (para salir de un salto)
@@ -162,9 +174,16 @@ export class Player extends Person {
     if (this.mount || this.boat || this.aboard || this.ghost || this.pose) { this.swim = false; this.dive = 0; }
     // (en el agua: nadando, más despacio y agachado no frena, que es para hundirse; andando, cuanto más hondo más cuesta)
     const wade = this.wading ? 1 - 0.45 * clamp(this.depth / SWIM_OUT, 0, 1) : 1;
-    const run = keys.run && !this.noRun;   // (noRun: too loaded, or something in the arms: carry.js)
-    const speed = (this.swim ? (run ? SWIM_RUN : this.dive > 0.3 ? DIVE_SPEED : SWIM_SPEED) : (this.crouch ? 1.4 : run ? 5.3 : 3.2) * wade) / (l || 1) * (this.speedMul || 1) * (this.boat ? 1.4 : 1);
-    const k = 1 - Math.exp(-dt * (this.swim ? 3 : 14));   // (nadando, cada brazada lleva y se para despacio)
+    // The tier the keys ask for, as far as it can be: noJog (the wheelbarrow, overloaded: carry.js) walks; noSprint (loaded,
+    // something in the arms, out of breath: carry.js, needs.js) jogs at most
+    const asked = gaitOf(keys), tier = this.noJog ? 0 : this.noSprint ? Math.min(1, asked) : asked;
+    // (swimming under water, the walk and the jog both dive at DIVE_SPEED; the sprint is the fast swim, also under water)
+    const base = this.swim ? (tier < 2 && this.dive > 0.3 ? DIVE_SPEED : GAIT.swim[tier])
+      : this.crouch ? CROUCH_SPEED : (this.boat ? GAIT.row : this.mount ? GAIT.ride : GAIT.foot)[tier];
+    const speed = base * (this.swim ? 1 : wade) / (l || 1) * (this.speedMul || 1) * (this.boat ? BOAT_MUL : 1);
+    // (nadando, cada brazada lleva; letting go of the keys always stops, at any speed and on anything: on foot, riding,
+    // rowing and pushing in a fifth of a second or so, swimming in under half a second: STOP_SWIM)
+    const k = 1 - Math.exp(-dt * (this.swim ? (l ? 3 : STOP_SWIM) : 14));
     const [dx, dy] = screenToWorld(sx, sy);
     let wx = dx * speed, wy = dy * speed;
     // (pushing the wheelbarrow, only along it: forwards, or back at half the speed; the keys to a side turn it, see below)
@@ -220,7 +239,7 @@ export class Player extends Person {
       }
     }
     const moved = Math.hypot(p.x - this.x, p.y - this.y);
-    if (run && !this.crouch && !this.mount && !this.boat) this.onExert?.(moved * 0.05);   // (correr da hambre)
+    if (tier && !this.crouch && !this.mount && !this.boat) this.onExert?.(moved * EXERT[tier]);   // (correr da hambre)
     // (al pasar de una casilla a otra junto a lo cavado, los pies se quedan a su altura: a una más baja se cae; a una algo más
     // alta, z queda por debajo de 0 y sube suave, como un escalón)
     // (en lo cavado y al entrar o salir de ello, los pies ya van así a su altura: en el agua de un canal, el agua no los vuelve
@@ -229,10 +248,12 @@ export class Player extends Person {
     if (pit && (Math.floor(p.x) !== Math.floor(this.x) || Math.floor(p.y) !== Math.floor(this.y))) this.z = feet - scene.surfaceAt(p.x, p.y);
     this.x = p.x; this.y = p.y;
     this.inWater(dt, keys, scene, world, pit, l ? speed * l : 0);
-    // (for needs.js stamina, from the gated run: running on foot; swimming fast, not while going down)
-    const going = this.moving;
-    this.sprinting = run && going && !this.swim && !this.crouch && !this.mount && !this.boat && !this.aboard && !this.pushing;
-    this.fastSwim = run && going && this.swim && !keys.dive;
+    // (for needs.js stamina, from the gated tier: sprinting or jogging on foot; swimming fast, not while going down)
+    const going = this.moving, afoot = going && !this.swim && !this.crouch && !this.mount && !this.boat && !this.aboard && !this.pushing;
+    this.sprinting = afoot && tier === 2;
+    this.jogging = afoot && tier === 1;
+    this.fastSwim = tier === 2 && going && this.swim && !keys.dive;
+    this.gait = going && !this.crouch && !this.aboard ? tier : 0;
     // (pushing, where the keys point, not where it goes: it goes only along the wheelbarrow)
     const kx = push ? dx : wx, ky = push ? dy : wy;
     let want = null;
@@ -346,7 +367,7 @@ export class Player extends Person {
     }
   }
   // (game.update skips update while busy, in a dialogue or in a pose: no stale running or fast swimming for needs.js)
-  stop() { this.vx = this.vy = 0; this.sprinting = this.fastSwim = false; }
+  stop() { this.vx = this.vy = 0; this.sprinting = this.fastSwim = this.jogging = false; this.gait = 0; }
   toSave() {
     return { name: this.name, look: this.look, x: +this.x.toFixed(2), y: +this.y.toFixed(2), inside: this.inside, view: this.view === 'side' ? 'front' : this.view, boat: !!this.boat || !!this.aboard, mount: !!this.mount, horseId: this.horseId, horseCoat: this.horseCoat, horseBags: this.horseBags, spawn: this.spawn };
   }

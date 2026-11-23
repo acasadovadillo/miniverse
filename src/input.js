@@ -4,7 +4,9 @@ import { CAM, DIST, lookBy } from './camera.js';
 
 // use: el botón de usar se mantiene pulsado (para seguir talando sin repetir la tecla)
 // dive: Shift held (swimming, it dives: entities.js diveStep; down is S, backwards, and has nothing to do with it)
-export const keys = { up: false, down: false, left: false, right: false, run: false, use: false, space: false, dive: false };
+// run: W held after a second tap (jog, or sprint with sprint too). sprint: W held after a third tap. See pressW and gaitOf.
+// mapFast: on the map, Shift held (it moves faster; its own key, so it never leaves a jog behind when the map closes)
+export const keys = { up: false, down: false, left: false, right: false, run: false, sprint: false, use: false, space: false, dive: false, mapFast: false };
 const handlers = { chat: () => false, use: () => {}, jump: () => {}, interact: () => {}, pause: () => {}, map: () => {}, bag: () => {}, craft: () => {}, build: () => {}, rotate: () => {}, erase: () => {}, select: () => {}, cycle: () => {}, enabled: () => false };
 // Greeting (social.js): Y, or right click on a person; a tap greets, held it provokes
 export const SOCIAL_KEY = 'KeyY', SOCIAL_BUTTON = 2;
@@ -30,13 +32,87 @@ function camAxes() {
   CAM.turn = CAM.tilt = CAM.zoom = 0;
   for (const [axis, d] of held.values()) CAM[axis] = Math.max(-1, Math.min(1, CAM[axis] + d));
 }
-// Correr: dos toques seguidos de W (se corre mientras se mantiene). Agacharse: un toque de Shift solo (sin otra
-// tecla a la vez, así Shift+R y Shift+Q siguen siendo lo que eran); otro toque, de pie
-const DOUBLE_TAP = 350;   // ms entre los dos toques de W
-let lastW = 0, shiftAlone = false;
+// Three speeds, as in GTA: W walks; a second press soon after the first (a tap, then press and hold) jogs, and a third
+// press soon after the second (tap, tap, press and hold) sprints. Letting go of W goes back to walking: the next press
+// walks unless it comes soon after a tap. A press counts as "soon" within TAP_WINDOW of the press before, or within
+// TAP_GAP of letting go when that press was a tap (held up to TAP_HOLD: a slow tap). Key repeat never counts. The
+// times are the events' own (e.timeStamp), so a long frame does not stretch or squeeze the taps.
+// Crouching, the second tap of W stands up too, and jogs
+export const TAP_WINDOW = 350, TAP_GAP = 250, TAP_HOLD = 300;   // ms
+const W_TAPS = { down: -1e9, up: -1e9, tier: 0, held: false };
+// Shift is the posture key (rest.js posture): a tap (let go before SHIFT_HOLD) acts when it is let go, a hold acts when
+// SHIFT_HOLD is reached (or, if the timer was late, when it is let go). Only Shift alone: with another key pressed meanwhile
+// (Shift+R, Shift+Q, the map's fast move) it is neither. Swimming (handlers.swimming), a hold dives (keys.dive, held) and
+// a tap does nothing. Times are the events' own (e.timeStamp, the clock of performance.now()): a long frame between the
+// keydown and the keyup does not turn a quick tap into a hold. The hold's timer, if it fires late (that long frame), waits
+// once more (SHIFT_LATE) so that a keyup already queued is read first
+export const SHIFT_HOLD = 300, SHIFT_LATE = 80;   // ms
+const SHIFT = { down: null, alone: false, done: false, timer: 0, late: false };
+export function pressShift(now = performance.now()) {
+  const S = SHIFT;
+  clearTimeout(S.timer);
+  Object.assign(S, { down: now, alone: true, done: false, late: false });
+  keys.dive = true;
+}
+// The hold's timer (the keydown arms it): on time, the hold acts; late, it looks again a little later (a keyup in between
+// decides by its own time)
+function shiftTimer() {
+  const S = SHIFT, now = performance.now();
+  if (S.down === null) return;
+  if (!S.late && now - S.down > SHIFT_HOLD + SHIFT_LATE) { S.late = true; S.timer = setTimeout(shiftTimer, 30); return; }
+  shiftTick(now);
+}
+// A posture that changed (rest.js posture says so) stops the running; one that did nothing (walking, on a horse, in a
+// boat) leaves the gait as it was
+const posture = hold => { if (handlers.posture?.(hold)) walkOnly(); };
+export function shiftWithOther() { SHIFT.alone = false; }
+export function shiftTick(now = performance.now()) {
+  const S = SHIFT;
+  if (S.down === null || !S.alone || S.done || now - S.down < SHIFT_HOLD) return;
+  S.done = true;
+  if (!handlers.enabled() || handlers.mapOpen?.() || handlers.swimming?.()) return;
+  posture(true);
+}
+export function releaseShift(now = performance.now()) {
+  const S = SHIFT;
+  clearTimeout(S.timer);
+  keys.dive = false;
+  if (S.down !== null && S.alone && !S.done) {
+    shiftTick(now);
+    if (!S.done && handlers.enabled() && !handlers.mapOpen?.() && !handlers.swimming?.()) posture(false);
+  }
+  Object.assign(S, { down: null, alone: false, done: false, late: false });
+}
+function forgetShift() { clearTimeout(SHIFT.timer); Object.assign(SHIFT, { down: null, alone: false, done: false, late: false }); }
+// The tier the keys ask for: 0 walk, 1 jog, 2 sprint (entities.js gates it: a load, the wheelbarrow, exhaustion)
+export const gaitOf = k => (k.run ? (k.sprint ? 2 : 1) : 0);
+export function pressW(now = performance.now()) {
+  const T = W_TAPS;
+  if (T.held) return;   // (a second keydown without its keyup: the press already counted)
+  const soon = now - T.down <= TAP_WINDOW || (now - T.up <= TAP_GAP && T.up - T.down <= TAP_HOLD);
+  T.tier = soon ? Math.min(2, T.tier + 1) : 0;
+  T.down = now; T.held = true;
+  keys.run = T.tier >= 1; keys.sprint = T.tier === 2;
+  if (T.tier === 1) handlers.crouch?.(false);   // (crouching, the second tap stands up, jogging)
+}
+export function releaseW(now = performance.now()) {
+  const T = W_TAPS;
+  if (T.held) T.up = now;
+  T.held = false;
+  keys.run = keys.sprint = false;
+}
+// Out of breath while sprinting (needs.js, through game.update): down to a jog; sprinting again needs three new taps
+export function dropSprint() { if (W_TAPS.tier === 2) W_TAPS.tier = 1; keys.sprint = false; }
+// A Shift posture (crouching, sitting) or anything else that stops the running: walking, and the taps start again
+function walkOnly() { W_TAPS.tier = 0; W_TAPS.down = W_TAPS.up = -1e9; keys.run = keys.sprint = false; }
+// An event's own time, on performance.now()'s clock (0 or a time from the future, as some synthetic events have: now)
+const evTime = e => { const n = performance.now(), t = e.timeStamp; return t > 0 && t <= n ? t : n; };
 const zoomOf = e => (e.key === '+' || e.key === '=' || e.code === 'NumpadAdd' ? -1 : e.key === '-' || e.key === '_' || e.code === 'NumpadSubtract' ? 1 : 0);
 
-export function clearKeys() { for (const k in keys) keys[k] = false; held.clear(); camAxes(); }
+export function clearKeys() { for (const k in keys) keys[k] = false; walkOnly(); W_TAPS.held = false; forgetShift(); held.clear(); camAxes(); }
+// Letting go of W (or A, S, D) always stops: macOS sends no keyup for a key let go while Cmd is down, so letting go of Cmd
+// lets go of the movement keys too (one still held comes back with its next key repeat)
+function releaseMoves() { keys.up = keys.down = keys.left = keys.right = false; releaseW(); }
 
 export function initInput(h) {
   Object.assign(handlers, h);
@@ -66,14 +142,15 @@ export function initInput(h) {
     // Con el mapa abierto, WASD, flechas y Shift mueven el mapa
     if (handlers.mapOpen?.()) {
       if (KEYMAP[e.code]) { keys[KEYMAP[e.code]] = true; e.preventDefault(); }
-      if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') keys.run = true;
+      if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') keys.mapFast = true;
       if (e.key === '+' || e.key === '=' || e.code === 'NumpadAdd') { handlers.mapZoom?.(1); e.preventDefault(); }
       if (e.key === '-' || e.code === 'NumpadSubtract') { handlers.mapZoom?.(-1); e.preventDefault(); }
       return;
     }
     if (!handlers.enabled()) return;
     const isShift = e.code === 'ShiftLeft' || e.code === 'ShiftRight';
-    if (isShift && !e.repeat) shiftAlone = true; else if (!isShift) shiftAlone = false;
+    if (isShift && !e.repeat) { pressShift(evTime(e)); SHIFT.timer = setTimeout(shiftTimer, SHIFT_HOLD + 5); }
+    else if (!isShift && !e.repeat) shiftWithOther();   // (a held W's key repeat is not another key)
     if (isShift) keys.dive = true;   // (held: swimming, down; it never runs)
     // La cámara: flechas para girarla e inclinarla, + y − para acercarla (Cmd/Ctrl + sigue siendo el zoom del navegador)
     // (en primera persona la cámara va con el ratón: las flechas andan, como WASD)
@@ -87,11 +164,9 @@ export function initInput(h) {
     if (e.code === SOCIAL_KEY && !e.metaKey && !e.ctrlKey) { e.preventDefault(); if (!e.repeat) handlers.social?.(true, 'key'); return; }   // (greet; held, provoke)
     if (e.code === 'KeyZ' && !e.repeat) { CAM.first = !CAM.first; e.preventDefault(); return; }   // primera o tercera persona
     if (e.code === 'KeyQ' && !e.repeat) { handlers.drop?.(e.ctrlKey || e.metaKey || e.shiftKey); e.preventDefault(); return; }   // tirar (con Ctrl o Shift, el montón)
-    if (e.code === 'KeyG' && !e.repeat) { handlers.sit?.(); return; }    // sentarse en el suelo
-    if (e.code === 'KeyH' && !e.repeat) { handlers.lie?.(); return; }    // tumbarse en el suelo
     Audio.start();
     if (KEYMAP[e.code]) { keys[KEYMAP[e.code]] = true; e.preventDefault(); }
-    if (e.code === 'KeyW' && !e.repeat) { const now = performance.now(); if (now - lastW < DOUBLE_TAP) { keys.run = true; handlers.crouch?.(false); } lastW = now; }
+    if (e.code === 'KeyW' && !e.repeat) pressW(evTime(e));
     if (/^Digit[1-9]$/.test(e.code)) handlers.select(+e.code.slice(5) - 1);
     if (e.code === 'KeyR' && !e.repeat) handlers.rotate(e.shiftKey ? -1 : 1);   // (lo libre gira mientras se mantiene)
     if (e.code === 'KeyV' && !e.repeat) handlers.size?.();
@@ -102,14 +177,13 @@ export function initInput(h) {
   addEventListener('keyup', e => {
     if (held.delete(e.code)) camAxes();
     if (KEYMAP[e.code]) keys[KEYMAP[e.code]] = false;
-    if (e.code === 'KeyW') keys.run = false;
+    if (e.code === 'KeyW') releaseW(evTime(e));
     if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') {
-      keys.dive = false;
-      if (handlers.mapOpen?.()) keys.run = false;   // (con el mapa, Shift lo mueve más rápido)
-      // (swimming, a tap of Shift is a short dive: it neither crouches nor ends a fast swim of double-tap W)
-      else if (shiftAlone && handlers.enabled() && !handlers.swimming?.()) { keys.run = false; handlers.crouch?.(); }
-      shiftAlone = false;
+      keys.mapFast = false;
+      if (handlers.mapOpen?.()) { keys.dive = false; forgetShift(); }   // (con el mapa, Shift lo mueve más rápido)
+      else releaseShift(evTime(e));   // (the posture: a tap; swimming, nothing, and a fast swim goes on)
     }
+    if (e.key === 'Meta') releaseMoves();
     if (e.code === 'Space') keys.space = false;
     if (e.code === 'KeyR') handlers.rotateEnd?.();
     if (e.code === 'Tab') handlers.players?.(false);
@@ -143,7 +217,7 @@ export function initInput(h) {
   });
   canvas.addEventListener('pointerdown', e => {
     if (handlers.wheelOpen?.()) return;
-    shiftAlone = false;   // (Shift+clic no agacha)
+    shiftWithOther();   // (Shift+clic no agacha ni se sienta)
     if (!handlers.enabled()) return;
     Audio.start();
     if (document.activeElement instanceof HTMLInputElement) document.activeElement.blur();   // (si se escribía en un buscador, WASD vuelve a mover)

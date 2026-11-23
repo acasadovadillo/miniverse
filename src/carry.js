@@ -215,9 +215,15 @@ export class Carry {
     const k = r <= 1 ? 1 : r <= HEAVY ? 1 - (1 - 0.6) * (r - 1) / (HEAVY - 1) : SLOWEST;
     return Math.max(FLOOR, k * (this.held ? BULKY[this.held].slow : 1)) * b;
   }
+  // No sprinting (the three speeds, entities.js GAIT): loaded past NO_RUN, something in the arms or the wheelbarrow
   noRun() {
     if (this.game.barrow?.pushing && this.survival) return true;
     return !this.free() && (!!this.held || this.game.inv.load > NO_RUN);
+  }
+  // Not even jogging, only walking: pushing the wheelbarrow, or overloaded (past HEAVY). In the arms you can jog
+  noJog() {
+    if (this.game.barrow?.pushing && this.survival) return true;
+    return !this.free() && this.game.inv.load > HEAVY;
   }
   jumpMul() {
     if (this.free()) return 1;
@@ -255,9 +261,9 @@ export class Carry {
     const lv = this.levelOf();
     if (lv !== this.level) { this.level = lv; g.gather.float(t(['hud.load.normal', 'hud.load.heavy', 'hud.load.overloaded'][lv]), lv ? '#ffd07a' : '#d8f0c0'); this.shownUntil = performance.now() + SHOW_LOAD * 1000; }
     if (Math.abs(inv.kg - this.shownKg) >= 1) { this.shownKg = inv.kg; this.shownUntil = performance.now() + SHOW_LOAD * 1000; }
-    // (trying to run when it cannot be: said once in a while, when the key goes down)
-    const run = !!keys.run;
-    if (run && !this.runWas && this.noRun() && g.time - this.runSaidAt > SAY_RUN) { this.runSaidAt = g.time; this.say(t(g.barrow?.pushing ? 'barrow.no_run' : this.held ? 'carry.no_run_arms' : 'carry.no_run_heavy')); }
+    // (trying to jog or sprint when it cannot be: said once in a while, when the tap asks for it)
+    const jogNo = !!keys.run && this.noJog(), sprintNo = !!keys.sprint && !jogNo && this.noRun(), run = jogNo || sprintNo;
+    if (run && !this.runWas && g.time - this.runSaidAt > SAY_RUN) { this.runSaidAt = g.time; this.say(t(g.barrow?.pushing ? 'barrow.no_run' : jogNo ? 'carry.no_run_heavy' : this.held ? 'carry.no_sprint_arms' : 'carry.no_sprint_heavy')); }
     this.runWas = run;
   }
   // The carcasses left on the ground for CARCASS_DAYS days: only bones are left. Playing together, the world's ones are

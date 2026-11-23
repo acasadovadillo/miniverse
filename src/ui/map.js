@@ -126,7 +126,7 @@ export class MapView {
   }
   // WASD o flechas con el mapa abierto (Shift, más rápido)
   update(keys, dt) {
-    const v = (keys.run ? 450 : 180) * dt, dx = (keys.right ? 1 : 0) - (keys.left ? 1 : 0), dy = (keys.down ? 1 : 0) - (keys.up ? 1 : 0);
+    const v = (keys.mapFast ? 450 : 180) * dt, dx = (keys.right ? 1 : 0) - (keys.left ? 1 : 0), dy = (keys.down ? 1 : 0) - (keys.up ? 1 : 0);
     if (dx || dy) this.scroll(dx * v, dy * v);
   }
   recenter() { this.pan.x = this.pan.y = 0; }
