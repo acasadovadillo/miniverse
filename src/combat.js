@@ -139,7 +139,7 @@ export class Combat {
     }
     g.inv.changed();
     this.exert(0.1);
-    g.body?.hit();   // (a hit leaves a little dirt: Plan E §2.3)
+    g.body?.hit();   // (a hit leaves a little dirt and tears one of the clothes on a little: Plan E §2.3, §3.2)
     this.hp = Math.max(0, this.hp - dmg);
     this.invuln = 0.8;
     const dx = p.x - from.x, dy = p.y - from.y, d = Math.hypot(dx, dy) || 1;

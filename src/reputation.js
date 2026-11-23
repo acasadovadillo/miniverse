@@ -156,6 +156,10 @@ export class Reputation {
     if (n > 0) T[k] = [n, 0];
     if (!seen) return;
     const id = seen.n === this.game.world.nilo ? 'nilo' : seen.n.id, name = PEOPLE[id]?.name || '', theirs = seen.inside || seen.n.def?.home === house || (house === 'taberna' && id === 'anselmo');
+    // (they remember it, and so do the owners of the house: the village talks. Plan E §4.5: cold to you for 3 days)
+    const N = this.game.neighbors;
+    N.remember?.(id, 'take_seen');
+    for (const o of this.ownersOf(house)) if (o !== id) N.remember?.(o, 'take_seen');
     const lines = this.game.social?.lines(theirs ? 'npc.witness.take.own' : 'npc.witness.take') || [];
     const line = lines.length ? lines[Math.floor(Math.random() * lines.length)] : '';
     this.game.neighbors.addPoints(id, -10);
@@ -168,12 +172,20 @@ export class Reputation {
     const e = this.v.taken[`${layer}:${tx},${ty}`];
     if (e?.[1] === 0 && this.game.world.ownAt?.(layer, tx, ty)) { this.change(Math.round(e[0] / 2), 'return'); e[1] = 1; }
   }
-  // Knocking at a neighbor's door at night, with them in: once per door and night (the night of 1 a.m. is the day before's)
+  // The ids of who lives in that house ('taberna': Anselmo)
+  ownersOf(house) {
+    if (house === 'taberna') return ['anselmo'];
+    return house ? Object.keys(PEOPLE).filter(id => PEOPLE[id].home === house) : [];
+  }
+  // Knocking at a neighbor's door at night, with them in: once per door and night (the night of 1 a.m. is the day before's).
+  // Who is in remembers it (the house found from the door's tile, as witness does)
   knockNight(door, hour) {
     const night = hour < 7 ? this.today - 1 : this.today, k = String(door);
     if (this.v.knocks[k] === night) return;
     this.v.knocks[k] = night;
     this.change(-3, 'knock_night');
+    const N = this.game.neighbors, house = Array.isArray(door) ? this.houseAt(Math.floor(door[0]), Math.floor(door[1])) : null;
+    if (house && this.counts) for (const n of N.people) if (n.def.home === house && n.hidden) N.remember?.(n.id, 'knock_night');
   }
 
   // ---------- the journal (the Neighbors tab, above the friendships) ----------

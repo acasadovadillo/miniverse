@@ -3,7 +3,8 @@
 // row per stack, the heaviest first. A click shows it in the details below (the same #inv-info); dragging a row to a
 // slot of the hotbar puts it at hand, to the body puts it on, out of the window drops it. The chest window shows the same
 // rows on the side of the backpack (packRows). Nothing of index.html changes: this file adds its elements and its CSS
-import { ITEMS } from '../items.js';
+import { ITEMS, conditionText } from '../items.js';
+import { tearStage } from '../clothing.js';
 import { HOTBAR } from '../inventory.js';
 import { stackKg, BULKY, HEAVY } from '../carry-items.js';
 import { itemIconUrl } from '../art/items.js';
@@ -33,6 +34,9 @@ const CSS = `
 .pk-more { margin-top: -2px; font-size: 13px; text-align: center; color: var(--gold); pointer-events: none; }
 .pk-more[hidden] { display: none; }
 .pk-row { display: grid; grid-template-columns: 30px 1fr auto 62px; align-items: center; gap: 8px; min-height: 32px; padding: 1px 6px; font-size: 15px; background: rgba(0, 0, 0, .28); border: 1px solid transparent; border-radius: 4px; cursor: pointer; touch-action: none; }
+.pk-row { position: relative; }   /* (a garment's tear bar, under its name) */
+.pk-row .tear { position: absolute; left: 44px; width: 120px; bottom: 2px; height: 3px; background: #1a120c; pointer-events: none; }
+.pk-row .tear span { display: block; height: 100%; background: #a8865a; } .pk-row .tear.torn span { background: #7e4a2c; }
 .pk-row:hover { background: rgba(255, 240, 210, .07); } .pk-row.sel { border-color: var(--gold); } .pk-row.lift { opacity: .4; }
 .pk-row img { width: 30px; height: 30px; } .pk-row span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--cream); }
 .pk-row em { font-style: normal; color: var(--dim); font-variant-numeric: tabular-nums; } .pk-row b { font-weight: 500; text-align: right; color: var(--dim); font-variant-numeric: tabular-nums; white-space: nowrap; }
@@ -88,9 +92,21 @@ function paintRows(list, inv, slots, picked, onRow) {
     name.textContent = ITEMS[s.id].name;
     n.textContent = s.n > 1 ? `×${s.n}` : '';
     w.textContent = inv.infinite ? '' : t('gui.inventory.kg', { kg: kg(stackKg(s)) });   // (creative: no limit, so no weights)
-    el.title = ITEMS[s.id].name + (ITEMS[s.id].dur ? ` (${s.dur ?? ITEMS[s.id].dur}/${ITEMS[s.id].dur})` : ITEMS[s.id].canteen ? ` (${s.sips || 0}/${ITEMS[s.id].canteen})` : '');
+    el.title = ITEMS[s.id].name + (ITEMS[s.id].dur ? ` (${s.dur ?? ITEMS[s.id].dur}/${ITEMS[s.id].dur})` : ITEMS[s.id].canteen ? ` (${s.sips || 0}/${ITEMS[s.id].canteen})` : s.tear >= 40 ? ` (${conditionText(s)})` : '');   // (a worn garment: its condition, Plan E §3.2)
     el.classList.toggle('sel', i === picked);
+    rowTear(el, s);
   });
+}
+// A garment's condition (Plan E §3.2 and §7.2): the same muted brown bar as on the slots (ui/inventory.js tearBar), thin,
+// under the name, once it has some tear; darker once torn
+function rowTear(el, s) {
+  const tear = s && !ITEMS[s.id]?.dur && ITEMS[s.id]?.wear ? s.tear || 0 : 0;
+  let bar = el.querySelector('.tear');
+  if (!(tear >= 0.5)) { bar?.remove(); return; }
+  if (!bar) { bar = document.createElement('i'); bar.className = 'tear'; bar.innerHTML = '<span></span>'; el.append(bar); }
+  const w = `${Math.max(4, 100 - tear)}%`;
+  if (bar.firstChild.style.width !== w) bar.firstChild.style.width = w;
+  bar.classList.toggle('torn', tearStage(tear) >= 2);
 }
 // The list says when there is more below than shows (a fade at the bottom and "+8 more"), as it scrolls
 function moreBelow(list, more) {

@@ -1,7 +1,7 @@
 // Pantalla de fabricar: pestañas por estación, recetas (las bloqueadas salen como "???") y detalle con ingredientes.
 // Algunas estaciones tienen además su panel: en el yunque, arreglar y juntar; en el horno, el alambique y la noria,
 // lo que tienen dentro (machines.js).
-import { ITEMS, restoreText, clothesText, UNKNOWN_NAME } from '../items.js';
+import { ITEMS, restoreText, clothesText, conditionText, itemNoun, UNKNOWN_NAME } from '../items.js';
 import { RECIPES, STATIONS, lockedHint } from '../recipes.js';
 import { itemIconUrl } from '../art/items.js';
 import { t } from '../i18n.js';
@@ -70,10 +70,10 @@ export function initCraftingUI(game, { onClose, onBag }) {
     box.textContent = '';
     const head = text => { const e = document.createElement('h3'); e.textContent = text; box.append(e); };
     const note = text => { const e = document.createElement('p'); e.className = 'cf-hint'; e.textContent = text; box.append(e); };
-    const row = (id, label, sub, run, off) => {
+    const row = (id, label, sub, run, off, color) => {
       const b = document.createElement('button');
       b.type = 'button'; b.className = 'cf-fix';
-      b.innerHTML = `<img alt="" src="${itemIconUrl(id)}"><span></span><b></b>`;
+      b.innerHTML = `<img alt="" src="${itemIconUrl(id, color)}"><span></span><b></b>`;
       b.querySelector('span').textContent = label; b.querySelector('b').textContent = sub;
       b.disabled = !!off;
       b.onclick = () => { const why = run(); if (why) c.onNotice?.(why); refresh(); };
@@ -86,6 +86,14 @@ export function initCraftingUI(game, { onClose, onBag }) {
       for (const r of worn) row(r.it.id, `${ITEMS[r.it.id].name} (${r.it.dur}/${ITEMS[r.it.id].dur})`, `1 × ${ITEMS[r.mat].name.toLowerCase()} (tienes ${game.inv.count(r.mat)})`, () => c.repair(r), !near.yunque);
       if (pairs.length) head('Juntar dos iguales');
       for (const p of pairs) row(p.it.id, `2 × ${ITEMS[p.it.id].name} → ${p.it.dur}/${ITEMS[p.it.id].dur}`, `${p.cost} niveles`, () => c.merge(p), !near.yunque);
+    } else if (tab === 'telar') {
+      // Mend the torn clothes (Plan E §3.2): one cloth, wool or leather each, back as new; no experience, unlike the anvil
+      const torn = c.mendable();
+      if (torn.length) head(t('craft.mend.title'));
+      for (const r of torn) {
+        const have = c.have(r.mat), pct = Math.round(100 - (r.it.tear || 0)), cond = conditionText(r.it);
+        row(r.it.id, t('craft.mend', { item: itemNoun(r.it.id) }), `${cond ? `${cond} · ` : ''}${pct} % · ${t('craft.mend.cost', { mat: itemNoun(r.mat), n: have })}`, () => c.mend(r), !near.telar || (have < 1 && !game.inv.infinite), r.it.color);
+      }
     } else if (MACHINES[tab] && st && st !== true) machinePanel(box, st.tile, head, note);
     else if (tab === 'banco') {
       // Los mapas que llevas: copiarlos (con un mapa en blanco) o ampliarlos al doble (con telas)

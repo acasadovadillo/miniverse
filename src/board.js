@@ -80,6 +80,7 @@ export class Board {
       g.inv.remove(r.item, r.n);
       g.addMoney(r.reward);
       g.neighbors.addPoints(r.who, 60);
+      g.neighbors.remember?.(r.who, 'helped', r.item);   // (they remember it: neighbors.js, Plan E §4.5)
       this.done.ids.push(r.i);
       g.stats?.add('encargos', 1);
       g.rep?.change(10, 'errand');
@@ -107,6 +108,8 @@ export class Board {
     if (id === 'casa') g.neighbors.moveIn('dani');
     g.stats?.add('proyectos', 1);
     g.rep?.change(60, 'project');
+    // (the whole village remembers it: Nilo and everyone who lives here)
+    for (const who of ['nilo', ...g.neighbors.people.map(n => n.id)]) g.neighbors.remember?.(who, 'project', id);
     Audio.unlock();
     hud.toast(`¡Proyecto terminado: ${p.name}!`, 'good');
     await hud.say('Nilo', [id === 'casa' ? '¡Ya tenemos vecino nuevo! Se llama Dani y dice que es artista. Ve a saludar.' : `¡Mira qué maravilla! El pueblo gana mucho con ${p.name.toLowerCase()}.`]);

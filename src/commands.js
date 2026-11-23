@@ -519,8 +519,8 @@ export const COMMANDS = {
     get help() { return t('cmd.body.help'); },
     run(game, say, [what = '', n = '']) {
       if (needOp(game, say, 'body')) return;
-      const w = { hair: 'hair', pelo: 'hair', beard: 'beard', barba: 'beard', dirt: 'dirt', mugre: 'dirt', wet: 'wet', mojado: 'wet', clean: 'clean', limpio: 'clean' }[plain(what)];
-      const needN = w === 'hair' || w === 'beard' || w === 'dirt';
+      const w = { hair: 'hair', pelo: 'hair', beard: 'beard', barba: 'beard', dirt: 'dirt', mugre: 'dirt', tear: 'tear', desgaste: 'tear', ropa: 'tear', wet: 'wet', mojado: 'wet', clean: 'clean', limpio: 'clean' }[plain(what)];
+      const needN = w === 'hair' || w === 'beard' || w === 'dirt' || w === 'tear';
       const line = w && game.body && game.player && (!needN || num(n) !== null) ? game.body.testSet(w, num(n)) : null;
       if (line === null) { say(t('cmd.body.usage'), 'err'); return; }
       say(line, line === t('cmd.body.survival') ? 'err' : 'ok');

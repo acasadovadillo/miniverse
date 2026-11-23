@@ -19,6 +19,7 @@ import { aabb, rayHits } from './world/fit.js';
 import { Audio } from './audio.js';
 import { hud } from './ui/hud.js';
 import { levelIndex, recent } from './reputation.js';
+import { REMARKS, remarkLines, remarkLife } from './remarks.js';
 
 export const HOLD = 0.7;          // s held: provoke instead of greeting
 export const RING_FROM = 0.25;    // s held before the ring shows
@@ -41,7 +42,10 @@ const MY_LIFE = 2.6, NPC_LIFE = 2.8, STAY = 1.8;   // s: how long the bubbles la
 export const EMOTE_KINDS = ['wave', 'nod', 'shrug', 'hips', 'fist', 'flinch', 'point', 'dismiss', 'drink', 'scrub', 'shiver'];
 export const PLAYER_LINES = ['social.say.greet.morning', 'social.say.greet.day', 'social.say.greet.evening', 'social.say.greet.night', 'social.say.greet_player', 'social.say.greet_partner', 'social.say.insult', 'social.say.insult_player', 'social.say.air'];
 const RELS = ['friend', 'neutral', 'cold'];
-const REPLY_KINDS = ['', 'rain', 'ignore', 'kid'];   // ('' : by character and relation)
+const MEM_DAYS = 2;   // (a memory of today or the 2 days before: «the last 3 days» of relation())
+// ('' : by character and relation; 'remark': about how you look, remarks.js, with the message's rc = the REMARKS index.
+// An old client finds REPLY_KINDS[4] undefined and skips the answer)
+const REPLY_KINDS = ['', 'rain', 'ignore', 'kid', 'remark'];
 export const TEMPERS = ['kind', 'cheerful', 'shy', 'gruff', 'wry'];
 // How a neighbor answers with the body: [greet | insult][temper][relation]
 export const REPLY_GESTURE = {
@@ -262,7 +266,8 @@ export class Social {
       const r = this.replyFor(c, a, rel);
       if (c.kind === 'kid') msg.kid = c.id; else msg.npc = c.id;
       Object.assign(msg, { r: RELS.indexOf(rel), rl: r.li, rg: EMOTE_KINDS.indexOf(r.gesture), rk: REPLY_KINDS.indexOf(r.kind) });
-      this.later(() => this.reply(c.e, r.text, r.gesture, c.name, true));
+      if (r.rc >= 0) msg.rc = r.rc;
+      this.later(() => this.reply(c.e, r.text, r.gesture, c.name, true, null, r.kind === 'remark' ? remarkLife(r.text) : NPC_LIFE));
     }
     if (a) Audio.error(); else Audio.blip();
     this.send(msg);
@@ -279,40 +284,49 @@ export class Social {
     const first = !(Array.isArray(f.insults) && f.insults[0] === today), n = first ? 1 : (f.insults[1] || 0) + 1;
     N.addPoints(c.id, first && N.hearts(c.id) >= 3 ? -10 : -20);   // (a slip with a friend does not cost Rosa's discount)
     R.change(-8, 'insult');
+    N.remember(c.id, 'insult');
     f.insultedAt = today; f.insults = [today, n];
     if (n >= 3) f.snub = today;   // (the third time in a day: they do not talk to you today)
   }
-  // How you get along with a neighbor: 'friend', 'neutral' or 'cold' (in creative the reputation counts as «Newcomer»)
+  // How you get along with a neighbor: 'friend', 'neutral' or 'cold' (in creative the reputation counts as «Newcomer»).
+  // Their memory (neighbors.js, Plan E §4.5): having seen you take something from a house in the last 3 days makes them
+  // cold whatever the hearts, unless you have helped them since; having helped them in the last 3 days lifts any other
+  // coldness to neutral. It only changes the answers and gestures, never prices or whether they talk (R.canTalk)
   relation(id) {
     const g = this.game, N = g.neighbors, f = N.friend(id), today = this.today, lv = g.rep?.counts ? g.rep.index : levelIndex('newcomer'), hearts = N.hearts(id);
-    if (f.insultedAt === today) return 'cold';
-    if (hearts >= 4 || lv >= levelIndex('beloved')) return 'friend';
-    if (lv <= levelIndex('distrusted') || (hearts === 0 && lv === levelIndex('newcomer') && recent(today, f.insultedAt, 3))) return 'cold';
-    return 'neutral';
+    const seen = N.memIndex?.(id, 'take_seen', MEM_DAYS) ?? -1, helped = N.memIndex?.(id, 'helped', MEM_DAYS) ?? -1;
+    if (seen >= 0 && helped < seen) return 'cold';
+    let rel = 'neutral';
+    if (f.insultedAt === today) rel = 'cold';
+    else if (hearts >= 4 || lv >= levelIndex('beloved')) rel = 'friend';
+    else if (lv <= levelIndex('distrusted') || (hearts === 0 && lv === levelIndex('newcomer') && recent(today, f.insultedAt, 3))) rel = 'cold';
+    return rel === 'cold' && helped >= 0 ? 'neutral' : rel;
   }
-  // A neighbor's answer: { kind (REPLY_KINDS), key, li, text, gesture }
+  // A neighbor's answer: { kind (REPLY_KINDS), key, li, text, gesture, rc (a remark's REMARKS index, or -1) }
   replyFor(c, a, rel) {
     const g = this.game;
-    let kind = '', key, gesture;
+    let kind = '', key, gesture, rm = null;
     if (c.kind === 'kid') { kind = 'kid'; key = 'npc.reply.kid'; gesture = 'wave'; }
     else {
       const temper = PEOPLE[c.id]?.temper || 'kind', act = a ? 'insult' : 'greet';
       gesture = REPLY_GESTURE[act][temper][rel];
       if (!a && c.id !== 'nilo' && g.rep?.counts && g.rep.level.id === 'outcast' && g.neighbors.hearts(c.id) < 3) { kind = 'ignore'; key = 'npc.reply.ignore'; gesture = 'dismiss'; }
+      else if (!a && (rm = g.remarks?.forGreet(c.id, rel))) { kind = 'remark'; key = rm.key; gesture = rm.gesture; }   // (how you look: remarks.js)
       else if (!a && rel !== 'cold' && g.days.info?.rain && Math.random() < 1 / 3) { kind = 'rain'; key = 'npc.reply.greet.rain'; }
       else key = `npc.reply.${act}.${temper}.${rel}`;
     }
+    if (rm) return { kind, key, li: rm.li, gesture, text: rm.text, rc: rm.rc };
     const list = this.lines(key), li = rnd(Math.max(1, list.length));
-    return { kind, key, li, gesture, text: say1(list, li, { name: g.player?.name || '' }) };
+    return { kind, key, li, gesture, text: say1(list, li, { name: g.player?.name || '' }), rc: -1 };
   }
-  // The neighbor (or child) answers: stops, looks at whoever greeted, gestures and says it
-  reply(e, text, gesture, name, toMe, from = null) {
+  // The neighbor (or child) answers: stops, looks at whoever greeted, gestures and says it (life: the bubble's seconds)
+  reply(e, text, gesture, name, toMe, from = null, life = NPC_LIFE) {
     const g = this.game, who = toMe ? g.player : from;
     if (!e || e.hidden) return;
     if (!e.def?.seat && 'hold' in e) e.hold = STAY;   // (walking: stops for a moment)
     if (who && typeof e.faceTo === 'function' && !e.pose) e.faceTo(nearX(who.x, e.x) - e.x, who.y - e.y);
     if (gesture) this.emote(e, gesture);
-    this.say(e, text, { name, life: NPC_LIFE });
+    this.say(e, text, { name, life });
   }
   // A neighbor who sees you (within WITNESS_R, in sight) provoking someone: { e, name } or null
   witnessOf() {
@@ -426,9 +440,11 @@ export class Social {
     if (int(m.p) && PLAYER_LINES[m.p] && int(m.pl)) this.say(e, say1(this.lines(PLAYER_LINES[m.p]), m.pl, { name }), { name: peer.name, life: MY_LIFE });
     if ((npc || kid) && int(m.rl) && int(m.rk) && REPLY_KINDS[m.rk] !== undefined) {
       const kind = REPLY_KINDS[m.rk], rel = RELS[m.r] || 'neutral', temper = PEOPLE[npcId]?.temper || 'kind';
-      const key = kid ? 'npc.reply.kid' : kind ? (kind === 'rain' ? 'npc.reply.greet.rain' : 'npc.reply.' + kind) : `npc.reply.${a ? 'insult' : 'greet'}.${temper}.${rel}`;
-      const text = say1(this.lines(key), m.rl, { name: peer.name }), gesture = EMOTE_KINDS[m.rg] || null;
-      this.later(() => this.reply(npc || kid, text, gesture, npcId ? PEOPLE[npcId].name : name, false, e));
+      const cond = kind === 'remark' && Number.isInteger(m.rc) && m.rc >= 0 ? REMARKS[m.rc] : null;
+      const key = kid ? 'npc.reply.kid' : kind === 'remark' ? null : kind ? (kind === 'rain' ? 'npc.reply.greet.rain' : 'npc.reply.' + kind) : `npc.reply.${a ? 'insult' : 'greet'}.${temper}.${rel}`;
+      const list = kind === 'remark' ? (cond ? remarkLines(cond, temper) : null) : this.lines(key);   // (a remark: li into the joined list, remarks.js)
+      const text = list ? say1(list, m.rl, { name: peer.name }) : '', gesture = EMOTE_KINDS[m.rg] || null;
+      if (list) this.later(() => this.reply(npc || kid, text, gesture, npcId ? PEOPLE[npcId].name : name, false, e, kind === 'remark' ? remarkLife(text) : NPC_LIFE));   // (a remark this game cannot read: no answer)
     }
     if (toMe) {
       if (!a) this.back = { conn, until: g.time + BACK_FOR };

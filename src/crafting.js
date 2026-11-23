@@ -5,6 +5,7 @@ import { RECIPES, STATIONS, unlocked } from './recipes.js';
 import { Audio } from './audio.js';
 import { parsePlaced } from './pieces.js';
 import { BUILDABLE, PLANS_V, PLAN_BORN } from './buildables.js';
+import { GARMENTS } from './clothing.js';
 
 export const STATION_REACH = 2.4;   // a cuántas casillas puede estar una estación para usarla
 const worn = it => !!it && !!ITEMS[it.id]?.dur && it.dur !== undefined && it.dur < ITEMS[it.id].dur;
@@ -17,6 +18,14 @@ export function repairMat(id) {
   if (def.tool === 'cana' || def.tool === 'red') return 'cuerda';
   return def.tool ? 'lingote_hierro' : null;
 }
+
+// Mending clothes (Plan E §3.2): what each garment is mended with at the loom (one unit sets its tear back to 0, no xp):
+// wool with wool, leather with leather, the straw hat with fiber, the rest with cloth. MEND_MIN: less tear than this is
+// not worth a mend (it is not listed)
+const MEND_MAT = { wool_coat: 'lana', wool_socks: 'lana', gorro: 'lana', sheepskin_jacket: 'cuero', lined_boots: 'cuero', botas: 'cuero', leather_apron: 'cuero', sombrero: 'fibra' };
+export const MEND_MIN = 1;
+export const mendMat = id => MEND_MAT[id] || 'tela';
+const torn = it => !!it && !!GARMENTS[it.id] && !GARMENTS[it.id].noTear && (it.tear || 0) >= MEND_MIN;
 
 export class Crafting {
   constructor(game) {
@@ -150,6 +159,38 @@ export class Crafting {
     inv.changed();
     Audio.craft();
     this.say(`${ITEMS[it.id].name}: ${it.dur}/${max} usos`, '#fff3c0');
+    return null;
+  }
+
+  // ---------- Mending clothes at the loom (Plan E §3.2), or paying Marta ----------
+  // The torn clothes carried (in the slots or worn) and what mends each: [{ where: slot index or body slot, it, mat }],
+  // the worn ones first
+  mendable() {
+    const inv = this.game.inv, out = [];
+    for (const [slot, it] of Object.entries(inv.equip)) if (torn(it)) out.push({ where: slot, it, mat: mendMat(it.id) });
+    inv.slots.forEach((it, i) => { if (torn(it)) out.push({ where: i, it, mat: mendMat(it.id) }); });
+    return out;
+  }
+  // Mend one (r from mendable): its tear back to 0. At the loom it takes one of its material (with the weight inventory,
+  // also from the chests nearby, as crafting does); coins: Marta's mend instead, paid in coins anywhere (neighbors.js,
+  // at economy.js mendPrice). Returns why not, or null when done
+  mend(r, coins) {
+    const g = this.game, inv = g.inv, it = typeof r?.where === 'number' ? inv.slots[r.where] : inv.equip[r?.where];
+    if (!it || it !== r.it) return t('craft.mend.gone');
+    if (!torn(it)) return null;   // (already mended)
+    if (coins !== undefined) {
+      if (g.money < coins) return t('barber.poor');
+      g.addMoney(-coins);
+    } else {
+      if (!this.stationsNear().telar) return t('craft.mend.loom');
+      const mat = [[r.mat, 1]];
+      if (!inv.infinite && this.have(r.mat) < 1) return t('craft.mend.need', { mat: itemNoun(r.mat) });
+      if (g.carry) { if (!g.carry.spend(mat)) return t('craft.mend.need', { mat: itemNoun(r.mat) }); } else inv.remove(r.mat, 1);
+    }
+    delete it.tear;
+    inv.changed();
+    Audio.craft();
+    if (coins === undefined) this.say(t('craft.mend.done', { item: itemNoun(it.id) }), '#fff3c0');   // (Marta says it in the dialogue)
     return null;
   }
 

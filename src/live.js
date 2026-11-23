@@ -449,6 +449,9 @@ export class Live {
       // Alguien llama a una puerta: suena si estás cerca (y, si es la tuya, te avisa)
       case 'greet': if (!Profile.server && this.joined) g.social.heard(conn, peer, m); break;   // (someone greets: social.js)
       case 'wp': g.route?.heard(conn, peer, m); break;   // (a map pin shared by someone: route.js)
+      // A neighbour's passing remark about another player (Plan E §4.5, §6: { t: 'rmk', npc, rc, li }): the same bubble here,
+      // and that neighbour keeps quiet a while. Cosmetic, nothing arbitrated; remarks.js checks the indexes
+      case 'rmk': if (!Profile.server && this.joined && g.player) g.remarks?.heard?.(m, peer, conn); break;
       case 'knock':
         if (this.joined && g.player && g.scene === g.world && Math.hypot(g.player.x - m.x, g.player.y - m.y) < 25) { Audio.knock(); if (Math.hypot(g.player.x - m.x, g.player.y - m.y) < 12) hud.toast(`${peer.name} llama a la puerta`); }
         break;

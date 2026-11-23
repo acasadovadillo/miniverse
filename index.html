@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- La versión publicada: se cambia en cada publicación (así el juego sabe que tiene que pedir el código nuevo) -->
-<meta name="miniverse-version" content="2026-11-23.4">
+<meta name="miniverse-version" content="2026-11-23.5">
 <title>Miniverse</title>
 <script>
   // The language of the page until the game's code arrives (src/i18n.js chooses the same way, then takes over): for
@@ -191,6 +191,11 @@
   .slot i { position: absolute; left: 3px; top: 0; font-size: 11px; font-style: normal; color: var(--dim); opacity: .7; pointer-events: none; }
   .slot .dur { position: absolute; left: 4px; right: 4px; bottom: 3px; height: 3px; background: #1a120c; pointer-events: none; }
   .slot .dur span { display: block; height: 100%; }
+  /* A garment's condition (its tear, Plan E §7.2): the condition left, in a muted brown; its own class, never .dur (the
+     anvil's repair and wearOut read .dur as metal wear). Darker once torn */
+  .slot .tear { position: absolute; left: 4px; right: 4px; bottom: 3px; height: 3px; background: #1a120c; pointer-events: none; }
+  .slot .tear span { display: block; height: 100%; background: #a8865a; }
+  .slot .tear.torn span { background: #7e4a2c; }
   .slot.sel { border-color: var(--gold); box-shadow: 0 0 0 2px var(--gold), inset 0 0 8px rgba(255, 215, 122, .35); }
   .slot.lift img { opacity: .3; }
   #hint { position: fixed; left: 50%; bottom: 102px; transform: translateX(-50%); padding: 4px 10px; font-size: 16px; opacity: 0; transition: opacity .12s; pointer-events: none; white-space: nowrap; }
@@ -206,11 +211,12 @@
   .inv-me { flex: none; }
   /* Lo que se lleva puesto: el personaje en el centro y los huecos del cuerpo a los dos lados */
   #inv-wear { display: flex; gap: 10px; padding: 10px; border: 2px solid #6a4a2a; border-radius: 6px; background: radial-gradient(ellipse at 50% 44%, #7a5232, #3e2614 72%); }
-  .inv-col { display: flex; flex-direction: column; justify-content: space-between; }
-  #inv-me { display: block; touch-action: none; cursor: grab; }
-  .slot.wear { width: 52px; height: 52px; background: rgba(24, 14, 8, .6); }
-  .slot.wear img { width: 40px; height: 40px; }
-  .slot.wear img.ph { top: 3px; width: 30px; height: 30px; transform: translateX(-50%); opacity: .2; filter: grayscale(1) brightness(1.8); }
+  /* (six slots fit the left column since the coat slot, `outer`: 48 px slots with a small gap, the figure centred) */
+  .inv-col { display: flex; flex-direction: column; justify-content: space-between; gap: 4px; }
+  #inv-me { display: block; align-self: center; touch-action: none; cursor: grab; }
+  .slot.wear { width: 48px; height: 48px; background: rgba(24, 14, 8, .6); }
+  .slot.wear img { width: 38px; height: 38px; }
+  .slot.wear img.ph { top: 3px; width: 28px; height: 28px; transform: translateX(-50%); opacity: .2; filter: grayscale(1) brightness(1.8); }
   .slot.wear i { left: 0; right: 0; top: auto; bottom: 2px; text-align: center; font-size: 10px; line-height: 1; opacity: .75; }
   .slot.wear.on i, .slot.wear.on img.ph { display: none; }
   .slot.drop-ok { border-color: var(--gold); }
@@ -382,6 +388,12 @@
   .j-page { padding: 6px 10px; margin: 6px 0; background: #f4ecd8; color: #3a2414; border-radius: 3px; }
   .j-page p { margin: 4px 0 0; }
   .j-note { color: var(--dim); }
+  /* The neighbour's latest memory, under the friendship (Plan E §4.5), and the Body box on top of the statistics (§7.2) */
+  .j-row small.j-mem { font-style: italic; color: #d8c49a; }
+  .j-bodybox { display: flex; flex-wrap: wrap; gap: 4px 16px; padding: 6px 8px 8px; margin-bottom: 8px; background: rgba(0, 0, 0, .22); border-radius: 4px; }
+  #j-body .j-bodybox h3 { flex-basis: 100%; margin: 2px 0 0; }
+  .j-bodybox span { color: var(--cream); font-size: 15px; }
+  .j-bodybox span.cold { color: #9ccaf0; } .j-bodybox span.hot { color: #f0b070; } .j-bodybox span.dirty { color: #c8a478; }
   /* Tienda */
   #s-shop { background: rgba(10, 16, 8, .55); }
   .sh-panel { padding: 14px 16px 16px; width: min(620px, calc(100vw - 24px)); }
@@ -848,6 +860,7 @@
         <dt><kbd>I</kbd> <kbd>C</kbd> <kbd>B</kbd></dt><dd data-i18n="controls.windows">Inventory (what you carry and your clothes), crafting and building</dd>
         <dt><kbd>Tab</kbd></dt><dd data-i18n="controls.players">While you hold it, who is playing</dd>
         <dt data-i18n-html="controls.wash.keys"><kbd>X</kbd> on water</dt><dd data-i18n="controls.wash">Muddy, dirty or bloody: aim at a river, a lake or the sea while wading or from the bank to scrub yourself (about 8 s; moving stops it). E on a bathtub takes a bath, and E on a basin washes your face and hands. Soap in your bag washes you fully clean</dd>
+        <dt data-i18n="controls.clothes.keys">The clothes</dt><dd data-i18n="controls.clothes">Clothes wear out with tool work, sprinting through the woods, lying on the ground, swimming dressed and hits; the bar in their slot shows what is left, and torn clothes keep you less warm. Mend them at the loom (C: one cloth, wool or leather) or for coins with Marta, at the tavern in the evening, who also sells warm clothes by season. The neighbours notice how you look and remember what you do</dd>
         <dt data-i18n="controls.bars.keys">The bars</dt><dd data-i18n="controls.bars">Top left: health, hunger, thirst and energy (and air under water). Food fills hunger, drink fills thirst and sleeping in a bed fills energy; health comes back by itself when you're fed and watered. Hover them (or hold Tab) to see their %</dd>
         <dt data-i18n="controls.body.keys">The body chip</dt><dd data-i18n="controls.body">Under the bars, only when it matters: Cold, Freezing, Hot, Soaked or Filthy. Hold Tab to see how warm you feel</dd>
         <dt><kbd>J</kbd> <kbd>M</kbd></dt><dd data-i18n="controls.journal_map">Journal and map</dd>

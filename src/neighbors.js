@@ -2,15 +2,17 @@
 // lo que le gusta que le regalen y una amistad que sube hablando y regalando. Con los corazones llegan
 // pequeños eventos y regalos. Nilo es el vecino de siempre: no se mueve de la plaza.
 import { Person } from './entities.js';
-import { ITEMS, CROPS } from './items.js';
+import { ITEMS, CROPS, itemNoun } from './items.js';
 import { NILO, hasProject, WALK_NODES, WALK_EDGES } from './world/village.js';
-import { SHOPS } from './economy.js';
+import { SHOPS, mendPrice } from './economy.js';
 import { TRADES } from './trades.js';
 import { Audio } from './audio.js';
 import { hud } from './ui/hud.js';
 import { Profile } from './accounts.js';
-import { tList, formatMessage } from './i18n.js';
-import { levelIndex } from './reputation.js';
+import { t, tHtml, tList, formatMessage } from './i18n.js';
+import { levelIndex, recent } from './reputation.js';
+import { tearStage, TEAR } from './clothing.js';
+import { RECALLS } from './remarks.js';   // (a cycle, read only inside functions: remarks.js reads PEOPLE the same way)
 
 // Puntos del pueblo por los que se camina (sobre el camino, para no chocar con nada) y cómo se unen: village.js
 const NODES = WALK_NODES, EDGES = WALK_EDGES;
@@ -104,7 +106,8 @@ Object.assign(PEOPLE, {
     events: { 3: { lines: ['Toma, un mapa en blanco. Lo importante es lo que le pongas.'], gift: [['mapa_vacio', 1]] } },
   },
   marta: {
-    name: 'Marta', temper: 'kind', seat: [2.62, 37.5, TO_E], sits: CHAIR_H, hours: [17, 26],
+    // (the tailor, Plan E §4.4: her clothes in SHOPS.marta, seasonal, and mending for coins; shopOpt: her option's label)
+    name: 'Marta', temper: 'kind', seat: [2.62, 37.5, TO_E], sits: CHAIR_H, hours: [17, 26], work: 'taberna', shop: 'marta', shopOpt: 'npc.opt.clothes', mends: true,
     look: { sex: 'chica', skin: '#ffe0c4', hair: '#a8442a', eyes: '#3a8a4a', cloth: '#7a4a8a', pants: '#2a2a3a', hairStyle: 'melena', outfit: 'tunica' },
     loves: ['fresa', 'mermelada_fresa'], likes: ['pan', 'hidromiel'], hates: ['carbon'],
     chat: ['Vengo a que me cuenten cosas. Anselmo las inventa, pero las cuenta muy bien.', 'Me paso el día tejiendo. Por la tarde, a descansar las manos y a mover la lengua.', '¿Has visto a Dani pintar? Lleva tres días con el mismo pato. Es un pato muy guapo.', 'La sidra de aquí quita las penas. Luego vuelven, pero ya se han cansado.'],
@@ -119,6 +122,14 @@ Object.assign(PEOPLE, {
   },
 });
 for (const p of Object.values(PEOPLE)) hud.faces[p.name] = p.look;
+
+// The neighbours' memory (Plan E §4.5): friends[id].mem, up to MEM entries [day, kind, item | null, said 0 | 1], newest
+// last. Kinds: remarks.js RECALLS (gift_loved, gift_hated, insult, take_seen, helped, knock_night, project)
+export const MEM = 6;
+const RECALL_CHANCE = 0.35, RECALL_FROM = 1, RECALL_TO = 14;   // a talk: how often, and how many days old a memory can be
+const CHAT_PTS = 15, FRESH_PTS = 5;
+// The word for how worn a garment is (Marta's mend list)
+const condKey = tear => (tear >= TEAR.rags ? 'item.cond.rags' : tearStage(tear) >= 2 ? 'item.cond.torn' : tearStage(tear) >= 1 ? 'item.cond.worn' : 'item.cond.used');
 
 const GREET = {
   morning: ['¡Buenos días, {n}!', 'Hola, {n}. ¿Has desayunado?', '¡Qué madrugador!'],
@@ -205,6 +216,11 @@ export class Neighbors {
 
   greeting(id) {
     const T = this.game.days, h = T.hour, name = this.game.player.name, pick = a => a[Math.floor(Math.random() * a.length)];
+    // (how you look, then what they remember: remarks.js, Plan E §4.5)
+    const rm = this.game.remarks?.forTalk(id);
+    if (rm?.text) return rm.text;
+    const rc = this.recall(id);
+    if (rc) return rc;
     // (how the village sees you: a cold or a warm greeting; Nilo too)
     const R = this.game.rep, mood = R?.counts ? (R.index <= levelIndex('distrusted') ? 'npc.greet.cold' : R.index >= levelIndex('liked') ? 'npc.greet.warm' : null) : null;
     if (mood && tList(mood).length) return formatMessage(pick(tList(mood)), { name });
@@ -221,7 +237,11 @@ export class Neighbors {
     // The reputation (reputation.js): at «Outcast» (or provoked three times today) they do not chat with you, but the shop
     // (dearer), the trades and gifts stay; provoked today, they start with a reproach and the chat does not count
     const R = g.rep, cold = !R || R.canTalk(id) ? null : 'refuse', sore = f.insultedAt === this.today;
-    if (!cold && !sore && f.talk !== this.today) { f.talk = this.today; this.addPoints(id, 15); R?.change(1, 'talk'); }
+    // (filthy or with a carcass in the arms, the first chat of the day counts half; freshly bathed, +5 once a day: Plan E §4.5)
+    // ('fresh' is the remark's condition: the half hour after a soap bath, not the whole soap spell)
+    const Rm = g.remarks, messy = Rm && (Rm.holds('filthy') || Rm.holds('carcass'));
+    if (!cold && !sore && f.talk !== this.today) { f.talk = this.today; this.addPoints(id, messy ? Math.ceil(CHAT_PTS / 2) : CHAT_PTS); R?.change(1, 'talk'); }
+    if (!cold && !sore && Rm?.holds('fresh') && f.freshDay !== this.today) { f.freshDay = this.today; this.addPoints(id, FRESH_PTS); }
     // Eventos de amistad (they wait while the village distrusts you)
     for (const lvl of cold || R?.eventsWait() ? [] : [3, 6]) {
       const ev = def.events?.[lvl];
@@ -238,31 +258,55 @@ export class Neighbors {
     }
     const held = g.inv.held, giftable = held && !ITEMS[held.id].tool && f.gift !== this.today;
     const shop = def.shop && SHOPS[def.shop], now = shop && shop.hours[1] > 24 && g.days.hour < 6 ? g.days.hour + 24 : g.days.hour, open = shop && this.isWorking(id) && now >= shop.hours[0] && now < shop.hours[1];
-    const opts = cold ? [] : ['Charlar'];
-    if (open) opts.push('Ver la tienda');
-    if (open && TRADES[id]) opts.push('Hacer tratos');
-    if (id === 'nilo') opts.push('Ver sus planos');   // (los de los muebles de siempre: economy.js, SHOPS.nilo)
-    if (giftable) opts.push(`Regalar: ${ITEMS[held.id].name.toLowerCase()}`);
-    if (id === 'nilo' && !g.house.family && Profile.admin && !g.live.guest) opts.push('Hablar de la casa');   // (la casa es la del dueño del mundo)
-    opts.push('Adiós');
+    // (the options by id; their texts through t(). A tailor mends while she is in, even before her shop exists: Plan E §4.4)
+    const opts = [], add = (k, text) => opts.push({ k, text });
+    if (!cold) add('chat', t('npc.opt.chat'));
+    if (open) add('shop', t(def.shopOpt || 'npc.opt.shop'));
+    if (def.mends && (open || !shop)) add('mend', t('npc.opt.mend'));
+    if (open && TRADES[id]) add('trade', t('npc.opt.trade'));
+    if (id === 'nilo') add('plans', t('npc.opt.plans'));   // (los de los muebles de siempre: economy.js, SHOPS.nilo)
+    if (giftable) add('gift', t('npc.opt.gift', { item: itemNoun(held.id) }));
+    if (id === 'nilo' && !g.house.family && Profile.admin && !g.live.guest) add('house', t('npc.opt.house'));   // (la casa es la del dueño del mundo)
+    add('bye', t('npc.opt.bye'));
     const hearts = '♥'.repeat(this.hearts(id)) || '·';
     const said = cold ? this.line(open ? 'npc.refuse.shop' : 'npc.refuse') : sore ? this.line('npc.reproach') : this.greeting(id);
-    const pick = opts[await hud.ask(`${def.name}  ${hearts}`, said, opts)];
-    if (pick === 'Charlar') {
+    const pick = opts[await hud.ask(`${def.name}  ${hearts}`, said, opts.map(o => o.text))]?.k;
+    if (pick === 'chat') {
       const line = id === 'nilo' ? this.niloLine() : def.chat[Math.floor(Math.random() * def.chat.length)];
       await hud.say(def.name, [line]);
-    } else if (pick === 'Ver la tienda' || pick === 'Ver sus planos') {
+    } else if (pick === 'shop' || pick === 'plans') {
       g.busy = false;
-      g.onShop?.(pick === 'Ver sus planos' ? 'nilo' : def.shop);
+      g.onShop?.(pick === 'plans' ? 'nilo' : def.shop);
       return;
-    } else if (pick === 'Hacer tratos') {
+    } else if (pick === 'mend') {
+      await this.mend(id);
+    } else if (pick === 'trade') {
       await this.trade(id);
-    } else if (pick?.startsWith('Regalar')) {
+    } else if (pick === 'gift') {
       await this.gift(id, held);
-    } else if (pick === 'Hablar de la casa') {
+    } else if (pick === 'house') {
       await (g.house.big ? g.offerFamily() : g.offerReform());
     }
     g.busy = false;
+  }
+  // ---------- mending (Marta, Plan E §4.4) ----------
+  // One piece per choice, until goodbye (like the trades). What can be mended and the mending itself are crafting.js's
+  // (mendable, mend with coins); the price, economy.js mendPrice × the reputation's buy factor
+  async mend(id) {
+    const g = this.game, def = PEOPLE[id], C = g.craft;
+    for (;;) {
+      const list = C?.mendable?.() || [], factor = g.rep?.buyFactor() ?? 1, prices = list.map(r => mendPrice(r.it.id, factor));
+      if (!list.length) { await hud.say(def.name, [t('npc.mend.none')]); return; }
+      const opts = [...list.map((r, i) => t('npc.mend.row', { item: itemNoun(r.it.id), cond: t(condKey(r.it.tear)).toLocaleLowerCase(), n: prices[i] })), t('npc.opt.bye')];
+      const k = await hud.ask(def.name, t('npc.mend.ask'), opts);
+      if (!(k >= 0 && k < list.length)) return;
+      const r = list[k], price = prices[k];
+      if (g.money < price) { Audio.error(); await hud.say(def.name, [t('npc.mend.poor', { n: price })]); continue; }
+      const why = C.mend(r, price);
+      if (why) { Audio.error(); await hud.say(def.name, [why]); continue; }
+      g.onSave?.();
+      await hud.say(def.name, [t('npc.mend.done', { item: itemNoun(r.it.id) })]);
+    }
   }
   // Tratos (trades.js): los que ofrece, uno detrás de otro, hasta que te despides
   async trade(id) {
@@ -278,6 +322,47 @@ export class Neighbors {
   }
   // A random line of a list in the language files (npc.refuse…), with the player's name
   line(key) { const l = tList(key); return l.length ? formatMessage(l[Math.floor(Math.random() * l.length)], { name: this.game.player?.name || '' }) : ''; }
+  // ---------- memory (Plan E §4.5) ----------
+  // Neighbour id remembers something you did today (kind: remarks.js RECALLS; item: an item id, a project id or nothing).
+  // The same thing twice in a day is one memory, moved to the end; the oldest go first
+  remember(id, kind, item = null) {
+    if (typeof id !== 'string' || !Object.prototype.hasOwnProperty.call(PEOPLE, id) || !RECALLS.includes(kind)) return;
+    const f = this.friend(id), mem = Array.isArray(f.mem) ? f.mem : (f.mem = []), today = this.today, it = item ?? null;
+    const same = mem.findIndex(m => Array.isArray(m) && m[0] === today && m[1] === kind && (m[2] ?? null) === it);
+    if (same >= 0) mem.splice(same, 1);
+    mem.push([today, kind, it, 0]);
+    if (mem.length > MEM) mem.splice(0, mem.length - MEM);
+  }
+  // What neighbour id remembers, oldest first (newest last): [{ day, kind, item, said }] (a copy: ui/journal.js shows the
+  // newest; batch H's law reads the witnessed ones)
+  memories(id) {
+    const mem = this.friends[id]?.mem;
+    return Array.isArray(mem) ? mem.filter(m => Array.isArray(m) && typeof m[1] === 'string').map(([day, kind, item, said]) => ({ day, kind, item: item ?? null, said: !!said })) : [];
+  }
+  // Where in the memory is the newest `kind` of the last days + 1 days (0: only today), or -1 (social.relation compares them)
+  memIndex(id, kind, days) {
+    const mem = this.friends[id]?.mem;
+    if (!Array.isArray(mem)) return -1;
+    for (let i = mem.length - 1; i >= 0; i--) { const m = mem[i]; if (Array.isArray(m) && m[1] === kind && recent(this.today, m[0], days)) return i; }
+    return -1;
+  }
+  // A talk's greeting from memory, RECALL_CHANCE of the time: the newest thing from RECALL_FROM to RECALL_TO days ago not
+  // brought up yet (then it is marked said). null: nothing to recall
+  recall(id) {
+    const f = this.friends[id], mem = f?.mem;
+    if (!Array.isArray(mem) || !mem.length || Math.random() >= RECALL_CHANCE) return null;
+    for (let i = mem.length - 1; i >= 0; i--) {
+      const m = mem[i];
+      if (!Array.isArray(m) || m[3] || !RECALLS.includes(m[1])) continue;
+      const age = this.today - m[0];
+      if (!(age >= RECALL_FROM && age <= RECALL_TO)) continue;
+      const list = tList('npc.recall.' + m[1]);
+      if (!list.length) continue;
+      m[3] = 1;
+      return formatMessage(list[Math.floor(Math.random() * list.length)], { name: this.game.player?.name || '', item: m[2] && ITEMS[m[2]] ? itemNoun(m[2]) : '' });
+    }
+    return null;
+  }
   niloLine() {
     const tips = [...PEOPLE.nilo.chat, ...this.game.niloTips];
     return tips[this.niloTip++ % tips.length];
@@ -292,6 +377,7 @@ export class Neighbors {
     else if (def.likes.includes(item) || (isFlower && def.likes.includes('flores')) || (CROPS[item] && def.likes.includes('cultivos'))) { pts = 50; line = '¡Oh, me encanta! Gracias de verdad.'; }
     else if (def.hates.includes(item)) { pts = -25; line = '¿Esto es… para mí? Ah. Vale. Gracias… supongo.'; }
     this.addPoints(id, pts);
+    if (pts >= 90) this.remember(id, 'gift_loved', item); else if (pts < 0) this.remember(id, 'gift_hated', item);
     g.stats?.add('regalos', 1);
     // (the reputation too; while the village distrusts you, what is good counts double: it is how peace is made)
     const R = g.rep, rep = pts >= 90 ? [8, 'gift_loved'] : pts >= 50 ? [4, 'gift_liked'] : pts > 0 ? [2, 'gift'] : [-1, 'gift_hated'];
@@ -304,7 +390,8 @@ export class Neighbors {
     const all = Object.entries(PEOPLE).filter(([id, d]) => d.fixed || this.people.some(p => p.id === id));
     return all.map(([id, d]) => {
       const h = this.hearts(id), love = d.loves.map(i => ITEMS[i]?.name).filter(Boolean).slice(0, 2).join(', ');
-      return `<div class="j-row"><b>${d.name}</b><span class="hearts">${'♥'.repeat(h)}<i>${'♥'.repeat(10 - h)}</i></span><small>${this.friend(id).events.length ? 'Le encanta: ' + love : 'Regálale cosas para descubrir lo que le gusta'}</small></div>`;
+      // (data-npc: ui/journal.js adds the line of their latest memory under it, from memories(id))
+      return `<div class="j-row" data-npc="${id}"><b>${d.name}</b><span class="hearts">${'♥'.repeat(h)}<i>${'♥'.repeat(10 - h)}</i></span><small>${this.friend(id).events.length ? tHtml('journal.loves', { list: love }) : tHtml('journal.loves.unknown')}</small></div>`;
     }).join('');
   }
 }

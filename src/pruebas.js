@@ -21,7 +21,7 @@ import { faults, resetFaults } from './faults.js';
 import { CHUNK, WorldGen } from './world/gen.js';
 import { B, BIOMES, climate } from './world/biomes.js';
 import { packBd, unpackBd } from './body.js';
-import { feelOf, TEMP, clothesOf } from './clothing.js';
+import { feelOf, TEMP, clothesOf, warmthOf, tearStage, canTear } from './clothing.js';
 import { paintPixels, blockHeights, groundSmooth, groundTag } from './world/ground.js';
 import { retireItems } from './game.js';
 import { HOUSE, HOUSES, POND, YARD, BOUNDS, BOARD, CENTER, TAVERN, inBounds } from './world/village.js';
@@ -37,7 +37,7 @@ import { diffChunk, applyOps, ItemSync, COLLECTIONS } from './livesync.js';
 import { wallTile } from './three/build3d.js';
 import { itemIcon } from './art/items.js';
 import { PREY, bodyBox } from './hunt.js';
-import { priceOf, buyPrice } from './economy.js';
+import { priceOf, buyPrice, mendPrice, MEND_SHARE } from './economy.js';
 import { levelOf, recent } from './reputation.js';
 import { EMOTE_KINDS, PLAYER_LINES, REPLY_GESTURE } from './social.js';
 import { modelKind, ICON3D } from './three/icons.js';
@@ -56,7 +56,9 @@ import { Player, barrowPen, GAIT } from './entities.js';
 import { horseModel, animateHorse, horseCadence } from './three/animals.js';
 import { screenToWorld } from './camera.js';
 import { makeCave } from './world/underground.js';
-import { START_KIT, thirstOf, clothesText } from './items.js';
+import { START_KIT, thirstOf, clothesText, WEAR_SLOTS, wearSlotLabel, itemNoun } from './items.js';
+import { REMARKS, remarkKey, remarkLines } from './remarks.js';
+import { PEOPLE } from './neighbors.js';
 import { stackKg, SIP_KG } from './carry-items.js';
 import { extraOf } from './inventory.js';
 import { WATER_Y } from './world/planet.js';
@@ -219,6 +221,9 @@ async function soloTests(game) {
     check(game.time > 0.9, 'la simulación no avanza');
     console.log(health(game));
   });
+  // (the neighbours' remarks about how the test player looks, off for every test but their own: a greeting or a bubble
+  // would otherwise change at random with the clothes and the dirt the tests leave; remarking() turns them on)
+  if (game.remarks) game.remarks.off = true;
   await test('idioma (language): the static HTML in Spanish as before, hot switch, t(), articles and plurals', async () => {
     const $ = id => document.getElementById(id), eq = (got, want, what) => check(got === want, `${what}: "${got}" instead of "${want}"`);
     eq(getLang(), 'es', 'language of the tests');
@@ -1411,6 +1416,26 @@ async function soloTests(game) {
       So().press('key'); So().release('key');
       check(sent.some(m => m.t === 'greet' && m.a === 0 && m.to === 'id-sn1' && PLAYER_LINES[m.p] === 'social.say.greet_player'), `sent: ${JSON.stringify(sent)}`);
     } finally { live.joined = was.joined; live.net = was.net; hud.toast = toast; live.peers.delete('sn1'); live.peers.delete('sn2'); }
+  }));
+  await test('red (net): rmk optional: a remark reply needs its rc, a received rmk shows the bubble and quiets that neighbour, a bad one does nothing', social(async () => {
+    const live = game.live, was = { joined: live.joined, net: live.net, off: game.remarks.off };
+    await goTo(game, 21, 27); const r = put('rosa', 22.5, 27); w().nilo.x = 300;
+    try {
+      live.joined = true; live.net = { send: () => {} }; game.remarks.off = false; game.remarks.reset({});
+      live.receive('rm1', { t: 'hi', id: 'id-rm1', name: 'Pepa', playing: true, look: LOOK });
+      live.receive('rm1', { t: 'st', sc: 'world', x: p().x + 1.5, y: p().y + 1, yaw: 0 });
+      const mine = () => So().bubbles.filter(b => b.e === r).length;
+      // (an old client's greet answered with a remark has no rc: no answer, no error)
+      live.peers.get('rm1').greetAt = -Infinity; live.receive('rm1', { t: 'greet', a: 0, npc: 'rosa', r: 1, rl: 0, rg: 1, rk: 4 });
+      await frames(45); check(mine() === 0, 'a remark reply without rc answers');
+      live.peers.get('rm1').greetAt = -Infinity; live.receive('rm1', { t: 'greet', a: 0, npc: 'rosa', r: 1, rl: 0, rg: 1, rk: 4, rc: REMARKS.indexOf('muddy') });
+      await frames(45); check(mine() === 1, 'a remark reply with rc does not answer');
+      So().bubbles = [];
+      live.receive('rm1', { t: 'rmk', npc: 'rosa', rc: 999, li: 0 }); live.receive('rm1', { t: 'rmk', npc: 'nobody', rc: 0, li: 0 }); live.receive('rm1', { t: 'rmk' });
+      check(mine() === 0 && game.remarks.npcSaidAt.rosa === undefined, 'a bad rmk shows a bubble or quiets Rosa');
+      live.receive('rm1', { t: 'rmk', npc: 'rosa', rc: REMARKS.indexOf('soaked'), li: 1 });
+      check(mine() === 1 && game.remarks.npcSaidAt.rosa === game.time, 'a received rmk shows no bubble or does not quiet Rosa');
+    } finally { live.joined = was.joined; live.net = was.net; game.remarks.off = was.off; game.remarks.reset({}); live.peers.delete('rm1'); }
   }));
   await test('saludo: la pareja es quien tiene un hijo contigo (los dos ids); con hijos de antes, solo si hay un jugador del otro sexo', social(async () => {
     const live = game.live, F = game.family, keep = F.v, other = (p().look?.sex || 'chico') === 'chica' ? 'chico' : 'chica';
@@ -4549,6 +4574,10 @@ async function soloTests(game) {
       const wet = feelOf({ ...cold, wet: 50 }, {}); check(near1(base.feelC - wet.feelC, 3, 0.01), `wet 50 lowers the feel by ${base.feelC - wet.feelC}`);
       check(near1(feelOf({ ...cold, W: 6 }, {}).feelC - base.feelC, 6, 0.01), 'a wool coat does not add 6');
       check(feelOf({ ...cold, cave: true }, {}).airC === TEMP.caveC, 'a cave is not at 12');
+      // What is shown follows the stress it explains: a coat in summer reads as the heat counts it (27 + 6 − 3.5), the
+      // usual clothes on a warm day at most heatAt (comfortable), not air + 2 × W
+      const coatSummer = feelOf(env({ season: 1, hour: 15, W: 6 }), {}), shirtSummer = feelOf(env({ season: 1, hour: 15 }), {});
+      check(near1(coatSummer.feelC, 29.5, 0.1) && shirtSummer.feelC <= TEMP.heatAt && shirtSummer.heat === 0, `shown in summer: coat ${coatSummer.feelC}, shirt ${shirtSummer.feelC}`);
       // The real Body polls the same formula (no lag on the first poll) and its clothes come from inv.equip
       Bo().snap = true; Bo().poll(p());
       const f = feelOf(Bo()._env, {});
@@ -4796,8 +4825,6 @@ async function soloTests(game) {
       check(!e.grime && !e.bathing && e.pose.kind === 'lie', `ba with a lying pose, no bd: ${e.bathing}, ${e.pose.kind}, ${JSON.stringify(e.grime)}`);
       for (const bad of ['x', -5, 1.5, 1e12, null]) { live.receive('bd1', { t: 'st', sc: 'world', x: p().x + 2, y: p().y, yaw: 0, bd: bad }); check(!e.grime, `bd ${bad} gives ${JSON.stringify(e.grime)}`); }
       check(unpackBd(packBd(null)).dirt === 0 && packBd(unpackBd(packBd(s))) === packBd(s), 'packBd does not round-trip');
-      // A message this game does not know (a later phase's remarks): dropped
-      live.receive('bd1', { t: 'rmk', npc: 'rosa', rc: 3, li: 0 });
       draw();
     } finally { live.peers.delete('bd1'); draw(); }
   });
@@ -4873,6 +4900,305 @@ async function soloTests(game) {
       useSmartHud(game, false); set({ cold: 0.05 }); C().frame(T += 3); check(C().id === 'cold', `full HUD, cold 0.05: ${C().id}`);
     } finally { game.smartHud?.hold(false); useSmartHud(game, false); game.difficulty = 'normal'; bodyBase(); draw(); }
   });
+  // ---------- clothes: tear, mending, the coat slot; the neighbours' remarks and memory (PLAN-E §12, E2) ----------
+  // (the worn clothes and the slots, put back after each test)
+  const keepWear = () => { const I = inv(); return { equip: JSON.parse(JSON.stringify(I.equip)), slots: I.slots.map(s => s && { ...s }), sel: I.selected, money: game.money }; };
+  const backWear = k => { const I = inv(); I.equip = k.equip; I.slots.splice(0, I.slots.length, ...k.slots); I.select(k.sel); game.money = k.money; I.changed(); };
+  const SHIRT = () => ({ id: 'camisa', color: '#3a5ab8' });
+  const flushWork = s => { Bo().wearAcc.work += s; Bo().flushTear(); };
+  await test('clothes (english): tear keeps and stages', async () => {
+    const I = inv(), k = keepWear(), clWas = Bo().cl;
+    try {
+      bodyBase(); runCommand(game, '/gamemode survival', say0); I.slots.fill(null); I.changed();   // (room in the hand slots, whatever the tests before left)
+      // It travels with the piece: unwear, wear, the extra of chests, drops and the network, and the save
+      I.equip = { torso: { ...SHIRT(), tear: 10 } }; I.changed();
+      check(I.unwear('torso') === true || !I.equip.torso, 'the shirt does not come off');
+      const at = I.slots.findIndex(s => s?.id === 'camisa'); check(at >= 0 && I.slots[at].tear === 10, `unworn: ${JSON.stringify(I.slots[at])}`);
+      const ex = extraOf(I.slots[at]); check(ex?.tear === 10 && ex.color === '#3a5ab8', `extraOf: ${JSON.stringify(ex)}`);
+      check(JSON.parse(JSON.stringify(ex)).tear === 10, 'the network extra loses it');
+      I.wear(at); check(I.equip.torso?.tear === 10 && I.equip.torso.color === '#3a5ab8', `worn again: ${JSON.stringify(I.equip.torso)}`);
+      const loaded = new I.constructor(JSON.parse(JSON.stringify(I.toSave())));
+      check(loaded.equip.torso?.tear === 10, `save and load: ${JSON.stringify(loaded.equip.torso)}`);
+      I.slots[0] = null; I.add('camisa', 1, ex); check(I.slots.some(s => s?.id === 'camisa' && s.tear === 10), 'from a chest or a drop (add with its extra) it comes back new');
+      check(extraOf({ id: 'camisa', n: 1, color: '#fff', tear: 0 })?.tear === undefined, 'a new piece carries tear 0');
+      // Calibration on worked time: an unprotected shirt is Torn after 15 h of steady tool work, at any click rate
+      Bo().cl = clothesOf({ torso: SHIRT() }, {});
+      const work = (secs, gap) => { const n = Math.round(secs / gap); for (let i = 0; i < n; i++) { Bo().workAt = game.time - gap; Bo().work('azada'); } Bo().flushTear(); };
+      I.equip = { torso: SHIRT() }; work(15 * 3600, 0.32);
+      check(near1(I.equip.torso.tear, 75, 0.05), `15 h at one use per 0.32 s: tear ${I.equip.torso.tear}`);
+      I.equip = { torso: SHIRT() }; work(3600, 0.05); const fast = I.equip.torso.tear;
+      I.equip = { torso: SHIRT() }; work(3600, 1); const slow = I.equip.torso.tear;
+      check(near1(fast, 5, 0.01) && near1(slow, 5, 0.01), `one hour at 20 uses a second ${fast}, at one a second ${slow}`);
+      I.equip = { torso: SHIRT() }; Bo().workAt = game.time; for (let i = 0; i < 50; i++) Bo().work('azada'); Bo().flushTear();
+      check(!(I.equip.torso.tear > 0), `fifty uses at once tear ${I.equip.torso.tear}`);
+      // An apron takes its share: the shirt under it keeps 1 − work, the apron the full share (leather lasts twice as long)
+      I.equip = { torso: SHIRT(), encima: { id: 'delantal' } }; Bo().cl = clothesOf(I.equip, {}); flushWork(3600);
+      check(near1(I.equip.torso.tear, 5 * 0.7, 0.01) && near1(I.equip.encima.tear, 5, 0.01), `under an apron: shirt ${I.equip.torso.tear}, apron ${I.equip.encima.tear}`);
+      I.equip = { torso: SHIRT(), encima: { id: 'leather_apron' } }; Bo().cl = clothesOf(I.equip, {}); flushWork(3600);
+      check(near1(I.equip.torso.tear, 5 * 0.3, 0.01) && near1(I.equip.encima.tear, 2.5, 0.01), `under a leather apron: shirt ${I.equip.torso.tear}, apron ${I.equip.encima.tear}`);
+      // inv.v does not move while tear grows inside a stage, once at a crossing (and the chip shows it)
+      Bo().cl = clothesOf({ torso: SHIRT() }, {});
+      I.equip = { torso: { ...SHIRT(), tear: 41 } }; I.changed();
+      let v = I.v; for (let i = 0; i < 20; i++) flushWork(60); check(I.v === v && I.equip.torso.tear > 41, `inside a stage inv.v moved ${I.v - v}`);
+      I.equip.torso.tear = 74.99; v = I.v; flushWork(60); flushWork(60);
+      check(I.v === v + 1 && Bo().chip()?.id === 'torn' && Bo().chip().text === t('body.chip.torn', { item: itemNoun('camisa') }) && !Bo().chip().text.includes('item.'), `at 75: inv.v +${I.v - v}, chip ${JSON.stringify(Bo().chip())}`);
+      // (an older id with no key: its Spanish name, with a guessed gender for the articles; the garments, the mending
+      // materials and the loved gifts have keys now, so they read in English too)
+      check(itemNoun('manzana').g === 'f' && itemNoun('queso').g === 'm' && (getLang() !== 'es' || itemNoun('hacha_hierro').g === 'f'), `old nouns: ${JSON.stringify(['manzana', 'queso', 'hacha_hierro'].map(itemNoun))}`);
+      check(['camisa', 'botas', 'tela', 'lana', 'fresa', 'miel'].every(id => itemNoun(id).noun === `item.${id}`) && t('body.chip.torn', { item: itemNoun('camisa') }).toLowerCase().includes(t('item.camisa').toLowerCase()), `keyed nouns: ${t('body.chip.torn', { item: itemNoun('camisa') })}`);
+      // The stages, the warmth of a torn piece and rags still worn
+      check(tearStage(39.9) === 0 && tearStage(40) === 1 && tearStage(74.9) === 1 && tearStage(75) === 2 && tearStage(100) === 2, 'the stages are not 40 and 75');
+      check(near1(warmthOf({ torso: { id: 'camisa', tear: 80 } }), 0.6, 1e-9) && near1(warmthOf({ torso: { id: 'camisa', tear: 100 } }), 0.4, 1e-9) && warmthOf({ torso: { id: 'camisa', tear: 74 } }) === 1, 'a torn shirt does not keep ×0.6 (rags ×0.4)');
+      check(clothesText(ITEMS.wool_coat, { tear: 80 }).includes(t('item.cond.torn')) && clothesText(ITEMS.wool_coat, { tear: 80 }).includes(t('item.warmth', { n: 1.8 })), `the tooltip of a torn coat: ${clothesText(ITEMS.wool_coat, { tear: 80 })}`);
+      I.equip.torso.tear = 99.9; flushWork(3600); check(I.equip.torso?.tear === 100 && I.equip.torso.id === 'camisa', 'at 100 the piece is gone');
+      v = I.v; flushWork(3600); check(I.v === v && I.equip.torso.tear === 100, 'rags keep changing');
+      // Armour, underwear and the backpack never tear; ?desgaste=0 and creative stop it all
+      I.equip = { piernas: { id: 'grebas_hierro', dur: 50 }, interiorArriba: { id: 'camiseta_interior' }, torso: SHIRT() };
+      Bo().wearAcc.ground += 3600; Bo().wearAcc.swim += 3600; Bo().flushTear();
+      check(!(I.equip.piernas.tear > 0) && !(I.equip.interiorArriba.tear > 0) && I.equip.torso.tear > 0, `armour ${I.equip.piernas.tear}, underwear ${I.equip.interiorArriba.tear}`);
+      check(!canTear('piernas', I.equip.piernas) && !canTear('espalda', { id: 'mochila' }), 'armour or the backpack can tear');
+      I.equip = { torso: SHIRT() }; Bo().off.tear = true; flushWork(3600); Bo().hit(); check(!(I.equip.torso.tear > 0), '?desgaste=0 still tears'); Bo().off.tear = false;
+      runCommand(game, '/gamemode creative', say0); flushWork(3600); Bo().hit(); check(!(I.equip.torso.tear > 0), 'creative tears');
+      runCommand(game, '/gamemode survival', say0);
+      // A hit tears one piece by 0.6; /body tear sets them all and repaints once
+      I.equip = { torso: SHIRT(), piernas: { id: 'pantalon' } }; Bo().hit();
+      const hits = ['torso', 'piernas'].map(s => I.equip[s].tear || 0); check(near1(hits[0] + hits[1], 0.6, 1e-9) && hits.includes(0), `a hit: ${hits}`);
+      v = I.v; runCommand(game, '/body tear 80', say0); check(I.v === v + 1 && I.equip.torso.tear === 80 && I.equip.piernas.tear === 80, `/body tear 80: ${JSON.stringify(I.equip)}`);
+    } finally { Bo().cl = clWas; Bo().off.tear = false; backWear(k); bodyBase(); runCommand(game, '/gamemode survival', say0); }
+  });
+  await test('clothes (english): mend', social(async () => {
+    const I = inv(), k = keepWear(), C = game.craft, near = C.stationsNear, xp = game.xp.points, infinite = I.infinite;
+    const ask = hud.ask, sayWas = hud.say;
+    try {
+      bodyBase(); runCommand(game, '/gamemode survival', say0); I.infinite = false; I.slots.fill(null); I.changed();
+      for (const m of ['tela', 'lana', 'cuero', 'fibra']) { const n = I.count(m); if (n) I.remove(m, n); }
+      I.equip = { torso: { ...SHIRT(), tear: 80 }, outer: { id: 'wool_coat', color: '#5e5648', tear: 50 }, pies: { id: 'botas', color: '#5a3a22', tear: 45 }, piernas: { id: 'pantalon', tear: 0.5 } };
+      I.slots[1] = { id: 'sombrero', n: 1, color: '#e8c870', tear: 60 }; I.changed();
+      const list = C.mendable(), mats = Object.fromEntries(list.map(r => [r.it.id, r.mat]));
+      check(list.length === 4 && list[list.length - 1].it.id === 'sombrero', `mendable: ${list.map(r => r.it.id)}`);
+      check(mats.camisa === 'tela' && mats.wool_coat === 'lana' && mats.botas === 'cuero' && mats.sombrero === 'fibra', `the materials: ${JSON.stringify(mats)}`);
+      // Away from a loom: no; without the material: no; at the loom with one cloth: as new, the cloth spent, no xp
+      C.stationsNear = () => ({});
+      check(C.mend(list.find(r => r.it.id === 'camisa')) === t('craft.mend.loom'), 'mends away from the loom');
+      C.stationsNear = () => ({ telar: true });
+      if (C.have('tela') === 0) check(C.mend(list.find(r => r.it.id === 'camisa')) === t('craft.mend.need', { mat: itemNoun('tela') }) && I.equip.torso.tear === 80, 'mends with no cloth');
+      I.add('tela', 1); I.add('lana', 1);
+      const v = I.v, tela = C.have('tela'), lana = C.have('lana');
+      check(C.mend(list.find(r => r.it.id === 'camisa')) === null && !(I.equip.torso.tear > 0) && C.have('tela') === tela - 1 && I.v > v, `the shirt mended: ${JSON.stringify(I.equip.torso)}, cloth ${tela} → ${C.have('tela')}`);
+      check(C.mend(list.find(r => r.it.id === 'wool_coat')) === null && !(I.equip.outer.tear > 0) && C.have('lana') === lana - 1, 'the coat is not mended with wool');
+      check(game.xp.points === xp, `mending cost xp: ${xp} → ${game.xp.points}`);
+      // Marta: a quarter of what it costs new (her stall's price), × the reputation's buy factor
+      check(mendPrice('wool_coat') === Math.round(450 * MEND_SHARE) && mendPrice('camisa') === Math.max(1, Math.round(buyPrice('camisa') * MEND_SHARE)), `mend prices: coat ${mendPrice('wool_coat')}, shirt ${mendPrice('camisa')}`);
+      C.stationsNear = near;
+      game.money = 1000; const price = mendPrice('botas', game.rep?.buyFactor() ?? 1);
+      let rows = null, round = 0;
+      hud.say = () => Promise.resolve();
+      hud.ask = (who, text, opts) => { if (!round++) { rows = opts; return Promise.resolve(opts.findIndex(o => o.startsWith(t('item.botas')))); } return Promise.resolve(opts.length - 1); };
+      await game.neighbors.mend('marta');
+      check(rows && rows.length === 3 && !(I.equip.pies.tear > 0) && game.money === 1000 - price, `Marta mends the boots for ${price}: money ${game.money}, rows ${rows}`);
+      // Marta's talk: See her clothes and Mend clothes in the evening; the stall by season; the recipes need no plan
+      const S = SHOPS.marta, of = s => S.stock.filter(e => !e.seasons || e.seasons.includes(s)).map(e => e.id);
+      check(of(3).includes('wool_coat') && of(3).includes('sheepskin_jacket') && of(3).includes('lined_boots') && !of(3).includes('linen_shirt'), `winter: ${of(3)}`);
+      check(of(2).includes('wool_coat') && !of(2).includes('sheepskin_jacket') && of(1).includes('linen_shirt') && !of(1).includes('wool_coat') && of(1).includes('leather_apron'), `autumn ${of(2)}, summer ${of(1)}`);
+      check(S.hours[0] === 17 && S.hours[1] === 26 && t('shop.title.marta') === S.title, 'her hours or title');
+      for (const id of ['wool_coat', 'sheepskin_jacket', 'linen_shirt', 'wool_socks', 'lined_boots', 'leather_apron']) {
+        const r = RECIPES.find(x => x.id === id || x.out === id || x.item === id);
+        check(r && r.station === 'telar' && !r.plan, `the ${id} recipe: ${JSON.stringify(r)}`);
+        check(ITEMS[id]?.wear && ITEMS[id].name && ITEMS[id].stack === 1, `the ${id} item`);
+      }
+      runCommand(game, '/time set 18:30', say0);
+      const m = game.neighbors.people.find(n => n.id === 'marta'); m.placeAt(game.days.hour); m.path = [];
+      let opts = null; hud.ask = (who, text, o) => { opts = o; return Promise.resolve(o.length - 1); };
+      await game.neighbors.talk('marta', m);
+      check(opts?.includes(t('npc.opt.clothes')) && opts.includes(t('npc.opt.mend')) && !opts.includes(t('npc.opt.shop')), `Marta's options at 18:30: ${opts}`);
+    } finally { C.stationsNear = near; hud.ask = ask; hud.say = sayWas; game.busy = false; I.infinite = infinite; backWear(k); runCommand(game, '/time set 11:00', say0); bodyBase(); }
+  }));
+  await test('clothes (english): new clothes once per piece, only visible tears, a coat in the heat', async () => {
+    const I = inv(), k = keepWear(), B = Bo(), today = game.days.dayIndex;
+    try {
+      bodyBase(); runCommand(game, '/gamemode survival', say0);
+      const has = c => B.conditions([]).includes(c);
+      // The first look marks what is on (an older save's clothes are not new)
+      I.slots.fill(null); I.equip = { torso: SHIRT(), piernas: { id: 'pantalon', color: '#5a4a3a' }, pies: { id: 'botas', color: '#5a3a22' } }; I.changed();
+      B.invRef = null; B.scanWorn();
+      check(I.equip.torso.donned === 1 && !has('new_clothes'), `at load: ${JSON.stringify(I.equip.torso)}, ${B.conditions([])}`);
+      // A coat never worn: new; off and on again the same day: still new; the mark goes with the piece (extraOf)
+      I.slots[0] = { id: 'wool_coat', n: 1, color: '#5e5648' }; I.changed(); B.scanWorn();
+      I.wear(0); B.scanWorn(); check(has('new_clothes') && I.equip.outer.donned === 1 && B.newDay === today, 'a coat bought and put on is not new');
+      I.unwear('outer'); B.scanWorn(); check(!has('new_clothes'), 'a coat in the backpack is still new clothes');
+      const i = I.slots.findIndex(x => x?.id === 'wool_coat'); check(I.slots[i].donned === 1 && extraOf(I.slots[i]).donned === 1, 'the backpack coat lost its mark');
+      I.wear(i); B.scanWorn(); check(has('new_clothes'), 'off and on the same day: no longer new');
+      // A later session (Body reset): the same coat put on again is not new
+      I.unwear('outer'); B.reset({}); B.invRef = null; B.scanWorn(); I.wear(I.slots.findIndex(x => x?.id === 'wool_coat')); B.scanWorn();
+      check(!has('new_clothes'), 'the coat is new again in a later session');
+      // Torn: only what can be seen (socks inside boots, a shirt or apron under the wool coat do not count)
+      I.equip.calcetines = { id: 'calcetines', color: '#5f5346', tear: 90 }; check(!has('torn'), 'torn socks inside boots are remarked');
+      I.equip.torso.tear = 90; I.equip.encima = { id: 'delantal', color: '#c8b48a', tear: 90 }; check(!has('torn'), 'a torn shirt under the coat is remarked');
+      I.unwear('outer'); check(has('torn'), 'a torn shirt in sight is not remarked');
+      I.equip.torso.tear = 0; I.equip.encima.tear = 0; delete I.equip.pies; check(has('torn'), 'torn socks without boots are not remarked');
+      // A coat when it is warm enough to feel it: overdressed (heat 0.1, a village summer afternoon)
+      delete I.equip.calcetines; I.equip.pies = { id: 'botas', color: '#5a3a22' }; I.wear(I.slots.findIndex(x => x?.id === 'wool_coat'));
+      B.heat = 0.15; B.cold = 0; check(has('overdressed'), 'a coat at heat 0.15 is not overdressed');
+      B.heat = 0.05; check(!has('overdressed'), 'a coat at heat 0.05 is overdressed');
+    } finally { backWear(k); bodyBase(); }
+  });
+  await test('clothes (english): outer slot backward', async () => {
+    const k = keepWear();
+    try {
+      check(WEAR_SLOTS.findIndex(([s]) => s === 'outer') === WEAR_SLOTS.findIndex(([s]) => s === 'encima') + 1, 'outer is not right after encima');
+      check(wearSlotLabel('outer') === t('wear.slot.outer'), 'the coat slot label');
+      // A newer game's coat (an id this one does not know) stays aside and comes back on save
+      const data = { slots: [], equip: { torso: { id: 'camisa', color: '#3a5ab8' }, outer: { id: 'future_cape', color: '#123456', tear: 12 } } };
+      for (const Cls of [Inventory, WeightInventory]) {
+        const a = new Cls(JSON.parse(JSON.stringify(data)));
+        check(!a.equip.outer && a.keptEquip.outer?.id === 'future_cape', `${Cls.name}: the unknown coat is worn or lost`);
+        const back = a.toSave();
+        check(back.equip.outer?.id === 'future_cape' && back.equip.outer.tear === 12 && back.equip.torso?.id === 'camisa', `${Cls.name}: on save ${JSON.stringify(back.equip)}`);
+      }
+      // A known one is worn; the inventory window has its slot, after encima
+      const b = new Inventory({ slots: [], equip: { outer: { id: 'wool_coat', color: '#5e5648' } } });
+      check(b.equip.outer?.id === 'wool_coat' && !Object.keys(b.keptEquip).length, 'the wool coat does not load in its slot');
+      const col = [...document.querySelectorAll('#inv-wear-l [data-wear]')].map(e => e.dataset.wear);
+      check(col.join() === 'cabeza,torso,encima,outer,piernas,pies', `the left column: ${col}`);
+      inv().equip.outer = { id: 'wool_coat', color: '#5e5648', tear: 80 }; inv().changed();
+      check(warmthOf(inv().equip) >= 3 * 0.6 && game.appearance(), 'a worn coat breaks the look or the warmth');
+    } finally { backWear(k); }
+  });
+  // ---------- remarks ----------
+  const Rm = () => game.remarks;
+  // Remarks on, with the conditions given (Body's list replaced), the replies recorded; everything back after
+  const remarking = fn => social(async () => {
+    const was = { off: Rm().off, conds: Object.prototype.hasOwnProperty.call(Bo(), 'conditions'), reply: So().reply, save: {} };
+    Rm().save(was.save);
+    const said = [];
+    let conds = [];
+    Bo().conditions = out => { out.length = 0; out.push(...conds); return out; };
+    So().reply = (e, text, gesture, name) => { said.push({ e, text, gesture, name }); };
+    Rm().off = false; Rm().reset({});
+    w().nilo.x = 300;
+    try { await fn({ said, set: c => { conds = c; } }); }
+    finally {
+      Rm().off = was.off; Rm().reset(was.save); So().reply = was.reply;
+      if (!was.conds) delete Bo().conditions;
+    }
+  });
+  const lines = key => tList(key).map(l => formatMessage(l, { name: p().name }));
+  const rlines = (cond, temper) => remarkLines(cond, temper).map(l => formatMessage(l, { name: p().name }));
+  const near2 = id => { const P = p(), n = put(id, P.x + 2, P.y); n.hold = 0; return n; };
+  await test('remarks (english): once a day and spaced', remarking(async ({ said, set }) => {
+    await goTo(game, 21, 27);
+    const go = () => { Rm().acc = 1; Rm().update(0); };
+    const fresh = () => { Rm().lastAt = -Infinity; Rm().ownAt = {}; Rm().condAt = {}; for (const n of Nb().people) n.hold = n.hold > 1e5 ? n.hold : 0; };
+    const r = near2('rosa');
+    set(['muddy']); go();
+    check(said.length === 1 && said[0].e === r && rlines('muddy', 'cheerful').includes(said[0].text) && Nb().friend('rosa').rem?.muddy === today(), `a muddy player near Rosa: ${JSON.stringify(said.map(s => [s.name, s.text]))}`);
+    fresh(); r.hold = 0; go(); check(said.length === 1, 'Rosa remarks the mud twice in a day');
+    // Bruno, within 40 s of the last remark: none; after, his own
+    put('rosa', 300, 300); const b = near2('bruno');
+    Rm().lastAt = game.time - 10; go(); check(said.length === 1, 'a remark within 40 s of the last');
+    Rm().lastAt = game.time - 41; go(); check(said.length === 2 && said[1].e === b, 'Bruno does not remark after 40 s');
+    // A carcass beats mud, and good news beats both (Body's order; Remarks puts the good first anyway)
+    put('bruno', 300, 300); near2('lia');
+    fresh(); set(['carcass', 'muddy']); go(); check(said.at(-1).e.id === 'lia' && Nb().friend('lia').rem?.carcass === today() && Nb().friend('lia').rem?.muddy === undefined, `carcass and mud: ${JSON.stringify(Nb().friend('lia').rem)}`);
+    fresh(); set(['muddy', 'fresh']); Rm().ownAt = {}; go(); check(Nb().friend('lia').rem?.fresh === today() && Nb().friend('lia').rem?.muddy === undefined, `fresh and mud: ${JSON.stringify(Nb().friend('lia').rem)}`);
+    // A received rmk from Rosa about another player keeps her quiet 40 s; garbage is ignored
+    put('lia', 300, 300); const r2 = near2('rosa'); Nb().friend('rosa').rem = {};
+    const n0 = said.length;
+    Rm().heard({ t: 'rmk', npc: 'rosa', rc: REMARKS.indexOf('soaked'), li: 0 }, { name: 'Otro', entity: null });
+    check(said.length === n0 + 1 && said.at(-1).e === r2 && Rm().npcSaidAt.rosa === game.time, 'a received rmk shows no bubble or does not block her');
+    fresh(); set(['soaked']); go(); check(said.length === n0 + 1, 'Rosa remarks within 40 s of remarking another player');
+    Rm().npcSaidAt.rosa = game.time - 41; fresh(); go(); check(said.length === n0 + 2 && said.at(-1).e === r2, 'Rosa stays quiet after 40 s');
+    // The same bad condition by the whole village: once in BAD_GAP s (Bruno, after Rosa's soaked, says nothing for 10 min)
+    put('rosa', 300, 300); near2('bruno'); Nb().friend('bruno').rem = {};
+    Rm().lastAt = -Infinity; Rm().ownAt = {}; go(); check(said.length === n0 + 2, 'a second soaked remark by another neighbour within 10 min');
+    Rm().condAt.soaked = game.time - 601; go(); check(said.length === n0 + 3 && said.at(-1).e.id === 'bruno', 'Bruno does not remark the soaked after 10 min');
+    put('bruno', 300, 300); near2('rosa');
+    // The lines: the temper's and the general ones together (Rosa, cheerful, has her own filthy lines)
+    check(remarkLines('filthy', 'cheerful').length === tList('npc.remark.filthy.cheerful').length + tList('npc.remark.filthy').length && remarkLines('muddy', 'kind') === tList('npc.remark.muddy'), 'the remark lines are not joined');
+    // A received rmk from a neighbour far away: no bubble, but she still waits
+    { const nf = said.length; put('rosa', 300, 300); Rm().npcSaidAt = {}; Rm().heard({ npc: 'rosa', rc: 0, li: 0 }, { name: 'Lejos' });
+      check(said.length === nf && Rm().npcSaidAt.rosa === game.time, 'a far neighbour remarks another player'); near2('rosa'); }
+    const n1 = said.length;
+    for (const m of [null, {}, { npc: 'nobody', rc: 0, li: 0 }, { npc: 'rosa', rc: 999, li: 0 }, { npc: 'rosa', rc: -1, li: 0 }, { npc: 'rosa', rc: 1.5, li: 0 }, { npc: 'rosa', rc: 0, li: -3 }, { npc: '__proto__', rc: 0, li: 0 }, { npc: 'rosa', rc: '3', li: 'x' }]) Rm().heard(m, { name: 'X' });
+    check(said.length === n1, `bad rmk messages made ${said.length - n1} bubbles`);
+    const peer = { name: 'Otro' }; Rm().heard({ npc: 'rosa', rc: 0, li: 0 }, peer); Rm().heard({ npc: 'rosa', rc: 0, li: 0 }, peer);
+    check(said.length === n1 + 1, 'two rmk of one player within 10 s both show');
+    // Six an hour at most; logs once a day for the whole village; never with a window open or in a dialogue
+    Nb().friend('rosa').rem = {}; fresh(); Rm().npcSaidAt = {}; set(['underwear']);
+    Rm().stamps = Array(6).fill(Date.now()); go(); check(said.length === n1 + 1, 'a seventh remark in an hour');
+    Rm().stamps = []; game.busy = true; go(); game.busy = false; check(said.length === n1 + 1, 'a remark in a dialogue');
+    go(); check(said.length === n1 + 2, 'no remark after the hour');
+    put('rosa', 300, 300); near2('bruno'); fresh(); set(['log']); go(); const nl = said.length;
+    put('bruno', 300, 300); near2('lia'); fresh(); go(); check(said.length === nl && Rm().v.logDay === today(), 'the logs remarked by two neighbours in a day');
+    // In a talk: 60 % (here forced) the greeting is the remark; a compliment on new clothes +3 once; filthy chats count half
+    put('lia', 300, 300); const r3 = near2('rosa'); Nb().friend('rosa').rem = {};
+    const rnd = Math.random;
+    try {
+      Math.random = () => 0; set(['new_clothes']);
+      const pts = Nb().friend('rosa').pts || 0, ft = Rm().forTalk('rosa');
+      check(ft?.cond === 'new_clothes' && rlines('new_clothes', 'cheerful').includes(ft.text) && (Nb().friend('rosa').pts || 0) === pts + 3, `forTalk: ${JSON.stringify(ft)}, points ${Nb().friend('rosa').pts}`);
+      check(Rm().forTalk('rosa') === null, 'the same compliment twice in a day');
+      set(['muddy']); check(Rm().forGreet('rosa', 'neutral')?.rc === REMARKS.indexOf('muddy'), 'a Y-greet is not answered with the remark');
+      set(['fresh']); check(Rm().forGreet('rosa', 'cold') === null, 'a cold neighbour pays a compliment');
+      Math.random = () => 0.99; set(['soaked']); check(Rm().forTalk('rosa') === null, 'forTalk ignores the chance');
+    } finally { Math.random = rnd; }
+    set(['filthy']); const f = Nb().friend('rosa'); f.talk = null; const before = f.pts || 0;
+    let seen = null; hud.ask = (who, text, opts) => { seen = { text, opts }; return Promise.resolve(opts.indexOf(t('npc.opt.bye'))); };
+    await Nb().talk('rosa', r3);
+    check((f.pts || 0) - before === 8 && seen?.opts.includes(t('npc.opt.chat')), `a filthy chat gives ${(f.pts || 0) - before} points`);
+    // ?comentarios=0: nothing
+    Rm().off = true; Nb().friend('bruno').rem = {}; near2('bruno'); fresh(); set(['muddy']); const no = said.length; go();
+    check(said.length === no && Rm().forTalk('bruno') === null, 'remarks with ?comentarios=0');
+  }));
+  await test('remarks (english): memory', remarking(async ({ set }) => {
+    await goTo(game, 21, 27);
+    const N = Nb(), T = today();
+    N.remember('rosa', 'gift_loved', 'fresa'); N.remember('rosa', 'gift_loved', 'fresa');
+    check(N.memories('rosa').length === 1 && N.memories('rosa')[0].kind === 'gift_loved' && N.memories('rosa')[0].item === 'fresa', `memories: ${JSON.stringify(N.memories('rosa'))}`);
+    N.remember('rosa', 'nonsense'); N.remember('nobody', 'insult'); N.remember('__proto__', 'insult');
+    check(N.memories('rosa').length === 1 && !N.friends.nobody, 'an unknown kind or neighbour is remembered');
+    for (let i = 0; i < 8; i++) N.remember('bruno', 'helped', `x${i}`);
+    check(N.memories('bruno').length === 6 && N.memories('bruno').at(-1).item === 'x7', 'more than 6 memories');
+    // A loved gift is recalled 1–14 days later, once; not on the same day, not after 14
+    const rnd = Math.random;
+    try {
+      Math.random = () => 0;
+      check(N.recall('rosa') === null, 'a memory of today is recalled');
+      N.friends.rosa.mem[0][0] = T - 15; check(N.recall('rosa') === null, 'a memory of 15 days ago is recalled');
+      N.friends.rosa.mem[0][0] = T - 3;
+      const line = N.recall('rosa');
+      check(line && tList('npc.recall.gift_loved').some(l => formatMessage(l, { name: p().name, item: itemNoun('fresa') }) === line), `the recall: ${line}`);
+      check(N.recall('rosa') === null && N.memories('rosa')[0].said, 'recalled twice');
+      // The greeting of a talk recalls (when no remark holds)
+      set([]); N.remember('bruno', 'insult'); N.friends.bruno.mem.at(-1)[0] = T - 2;
+      check(tList('npc.recall.insult').some(l => formatMessage(l, { name: p().name, item: '' }) === N.greeting('bruno')), 'a talk does not recall');
+    } finally { Math.random = rnd; }
+    // A take_seen makes the relation cold for 3 days even at 5 hearts; day 4, a friend again; helped since lifts it
+    const f = N.friend('rosa'); f.pts = 500; f.events = [3, 6];
+    check(So().relation('rosa') === 'friend', `5 hearts: ${So().relation('rosa')}`);
+    N.remember('rosa', 'take_seen'); check(So().relation('rosa') === 'cold', 'seen taking: not cold');
+    const seen = f.mem.at(-1);
+    seen[0] = T - 2; check(So().relation('rosa') === 'cold', 'two days later: not cold');
+    seen[0] = T - 3; check(So().relation('rosa') === 'friend', `day 4: ${So().relation('rosa')}`);
+    seen[0] = T - 1; N.remember('rosa', 'helped', 'fresa'); check(So().relation('rosa') === 'friend', 'helped since: still cold');
+    // Who remembers what: an insult, a loved gift, a delivered request, the journal line
+    put('rosa', 300, 300); N.friend('bruno').pts = 150; put('bruno', 21, 28.5);
+    So().lastAt = -Infinity; So().act(1, cand('bruno')); check(N.memIndex('bruno', 'insult', 0) >= 0, 'an insult is not remembered');
+    const I = inv(), was = I.slots[I.selected];
+    try {
+      hud.say = () => Promise.resolve();
+      I.slots[I.selected] = { id: 'fresa', n: 1 }; await N.gift('lia', I.slots[I.selected]);
+      check(N.memIndex('lia', 'gift_loved', 0) >= 0 || !PEOPLE.lia.loves.includes('fresa'), 'a loved gift is not remembered');
+      I.slots[I.selected] = { id: 'carbon', n: 1 }; await N.gift('rosa', I.slots[I.selected]);
+      check(N.memIndex('rosa', 'gift_hated', 0) >= 0, 'a hated gift is not remembered');
+    } finally { I.slots[I.selected] = was; I.changed(); }
+    check(N.journal().includes('data-npc="rosa"'), 'the journal rows have no data-npc');
+    const line = t('journal.mem.gift_hated', { item: itemNoun('carbon') });
+    check(line && !/\{/.test(line), `the journal line: ${line}`);
+    // Saved with the friends, and an old game's save keeps them (unknown fields in a friend stay)
+    const out = JSON.parse(JSON.stringify(N.friends.rosa));
+    check(Array.isArray(out.mem) && out.mem.length >= 2 && out.mem.every(m => Array.isArray(m) && m.length === 4), `the memory saved: ${JSON.stringify(out.mem)}`);
+  }));
   await test('peso y en brazos, fin (weight end): a save played with the weight inventory opens with ?inventario=casillas without losing anything, and back', async () => {
     const W = JSON.stringify(game.snapshot()), D = JSON.stringify([...game.world.deltas]), was = Carry.force;
     const all = () => { const n = new Map(); for (const s of game.inv.slots) if (s) n.set(s.id, (n.get(s.id) || 0) + s.n); for (const { s } of game.inv.kept) n.set(s.id, (n.get(s.id) || 0) + s.n); return n; };

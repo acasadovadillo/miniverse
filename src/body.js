@@ -5,8 +5,10 @@
 // Body never owns a bar: it feeds Plan D's needs (needs.js) through `factors`, and those reads are guarded
 // (`g.body?.factors.rest ?? 1`), so needs.js works without it. No health damage from cold or heat (user decision 2).
 //
-// Phase E1: the surface, the temperature, the factors, washing (tub, river, basin) and the chip are real. The growth
-// clocks count and are saved, but nothing is applied to the look yet (APPLY_GROWTH, E3).
+// Phase E1: the surface, the temperature, the factors, washing (tub, river, basin) and the chip are real. Phase E2: the
+// clothes tear (§3.2: in place on inv.equip, inv.changed() only at a stage crossing), the remark conditions are complete
+// (new_clothes, couple; haircut waits for E3) and the worn or torn piece chip comes from the tear. The growth clocks count
+// and are saved, but nothing is applied to the look yet (APPLY_GROWTH, E3).
 //
 // Contract (plan §10; keep the names, other tracks code against them):
 //   channels, 0..100:  body.dirt  body.mud  body.wet  body.wetLegs  body.snow  body.blood
@@ -27,8 +29,9 @@
 //   body.bathing       true while in a tub (p.bathing too, and p.pose.kind === 'bath')
 //   body.work(kind)    one tool use (gather.spend), kind as TOOL_COST's (pick, hoe and shovel dirty more). It counts
 //                      the time worked, not the uses: a use adds the seconds since the last one (1 s at most), so the
-//                      rate is the same at any swing speed (a use can come every 0.32 s, about 190 a minute)
-//   body.hit()         a hit taken (combat)
+//                      rate is the same at any swing speed (a use can come every 0.32 s, about 190 a minute). The same
+//                      worked time tears the torso layer (torso, encima, outer), less under an apron (§3.2)
+//   body.hit()         a hit taken (combat): a little dirt, and tear on one random worn piece
 //   body.butchered()   a carcass cut up (carry.js butcher / convert)
 //   body.bathe(o)      E on a tub (game.placedAction 'banera'): true if the bath started, false if refused
 //   body.scrub(x, y)   X at the water while wading or at the bank (true if it started; again: stop)
@@ -44,18 +47,28 @@
 //   body.cut()         a haircut: cutAt = now (hair step back to 0 at the next apply)
 //   body.shave()       a shave or beard trim: shaveAt = now
 //   body.beardGrows    false stops beard growth (the mirror's "Let the beard grow" switch)
-//   body.condition()   the REMARKS id (remarks.js) that holds for the player now, or null (conditions(out): all of them)
+//   body.condition()   the REMARKS id (remarks.js) that holds for the player now, or null; conditions(out) gives all of
+//                      them, good news first (fresh, haircut, new_clothes, couple, wrapped_up), then by REMARKS order.
+//                      haircut is always false until E3 (APPLY_GROWTH); new_clothes: a garment never worn before put on
+//                      today (and still on); couple: your partner (social.isPartner) within 3 tiles, both outdoors
 //   body.chip()        { id, text } of a garment that just crossed a tear stage (ids worn, torn; keys body.chip.<id>),
 //                      for 4 s, or null. The other chips (cold, freezing, hot, soaked, filthy) are decided by
 //                      ui/bodychip.js from the fields above, with its own thresholds (CHIP there): the one place
-//   body.tore(id, stage) a worn piece crossed a tear stage (1 worn, 2 torn): the chip shows it for 4 s (E2, A2's tear)
+//   body.tore(id, stage) a worn piece crossed a tear stage (1 worn, 2 torn): the chip shows it for 4 s
+//   tear (§3.2)        it.tear 0..100 on the pieces of inv.equip (inventory.js keeps it in extraOf and wear/unwear),
+//                      grown in place by Body: worked time with the tools (torso layer), sprinting through a forest, pines
+//                      or past a bush (legs), lying on the ground (torso layer and legs) or crawling crouched (legs),
+//                      swimming clothed (all), a hit (one piece). Rates in clothing.js TEAR_RATE. Accumulated every frame
+//                      in a few numbers and laid on the pieces at 2 Hz; inv.changed() once, only when a piece crosses 40,
+//                      75 or 100. Never in creative, spectator, on the server, or with ?desgaste=0
 //   packBd(surface) / unpackBd(bd, out)  the network int st.bd (§6), exported below
 //
 // Save (§2.1): out.body = { v: 1, dirt, mud, wet, blood, freshUntil, cutAt, shaveAt, beardGrows }. wetLegs, snow and
 // the temperature are not saved. A save without `body` starts clean and dry, with cutAt and shaveAt = now (an old save
 // never wakes up with a beard). reset() must never throw (strict hook).
 import { apagada } from './opciones.js';
-import { t, noun } from './i18n.js';
+import { t } from './i18n.js';
+import { itemNoun } from './items.js';
 import { hud } from './ui/hud.js';
 import { Audio } from './audio.js';
 import { keys } from './input.js';
@@ -65,7 +78,7 @@ import { aabb } from './world/fit.js';
 import { inBounds, distToPath } from './world/village.js';
 import { CHUNK } from './world/gen.js';
 import { BULKY } from './carry-items.js';
-import { clothesOf, feelOf, TEMP } from './clothing.js';
+import { clothesOf, feelOf, TEMP, TEAR, TEAR_RATE, TEAR_TOUGH, tearStage, canTear } from './clothing.js';
 
 export const BODY_V = 1;
 const MAX = 100;
@@ -106,6 +119,14 @@ const FLASH = 4, SHIVER = 0.6, SWEAT = 0.35;
 // The ground under the feet, for mud (looked at when the tile changes)
 const G_FLOOR = 0, G_PATH = 1, G_SOIL = 2, G_SOFT = 3, G_DRY = 4;
 const DRY_LAND = new Set([B.BEACH, B.DESERT, B.SNOW, B.ICE, B.ROCKY]);
+// Tear (§3.2; the rates are clothing.js TEAR_RATE). Where it lands: the torso layer (tools, lying down), the legs
+// (sprinting through the undergrowth, crawling), everything (swimming)
+const TORSO_LAYER = ['torso', 'encima', 'outer'], GROUND_LAYER = ['torso', 'encima', 'outer', 'piernas'];
+const ROUGH = new Set([B.FOREST, B.PINES, B.SWAMP]);   // sprinting here tears the legs (and past a bush anywhere: BUSH_R)
+const BUSH_R = 1.1;                           // tiles from a bush's centre (a bush is solid: this is brushing past it)
+const OVERDRESSED_HEAT = 0.1;                 // a coat on when it is warm enough to feel it: the 'overdressed' remark (a coat in a village summer afternoon)
+const NEW_TEAR = 0.5;                         // a piece with less tear than this has never really been worn (new_clothes)
+const COUPLE_R = 3;                           // tiles to your partner for the couple remark
 
 // The gestures the network knows (social.js EMOTE_KINDS), read lazily as needs.js does (a static import would close an
 // import cycle). Until it is in, or while 'scrub' is not in it, the scrub has no gesture
@@ -165,6 +186,8 @@ export class Body {
     this._clim = {};
     this.cl = clothesOf(null, {});   // what the worn clothes do (warm, rain, shade, work, outer), at every poll
     this.bd = 0;
+    // Seconds of each tearing action since the last flush (tick): grown every frame, laid on the pieces at 2 Hz
+    this.wearAcc = { work: 0, sprint: 0, ground: 0, crawl: 0, swim: 0 };
     // (the URL switches of src/opciones.js, §11: ?cuerpo=0, ?frio=0, ?crecer=0, ?desgaste=0)
     this.off = { surface: apagada('cuerpo'), cold: apagada('frio'), grow: apagada('crecer'), tear: apagada('desgaste') };
     this.clear();
@@ -176,10 +199,16 @@ export class Body {
     this.pollT = 0; this.tickT = 0; this.snap = true;
     this.fireD = Infinity; this.sunny = false; this.blizzard = false;
     this.workAt = -Infinity; // (g.time of the last tool use: work())
-    this.tear = null;        // { id, stage, until }: the last worn piece that crossed a stage (the chip)
+    this.tearFlash = null;   // { id, stage, until }: the last worn piece that crossed a stage (the chip)
     this.last = null;        // { x, y, sc }: where the feet were last frame (mud per metre)
     this.tile = null;        // { tx, ty, sc, kind }: the ground kind under the feet
     this.peak = 0;           // the highest z of the current fall
+    const a = this.wearAcc; if (a) { a.work = 0; a.sprint = 0; a.ground = 0; a.crawl = 0; a.swim = 0; }
+    // new_clothes: the never-worn piece put on today, by slot and id:colour (the inventory makes a new object each time
+    // a piece is put on, so taking it off and on again keeps it new that day)
+    this.invRef = null; this.invV = -1;
+    this.newDay = -1; this.newSlot = ''; this.newKey = '';
+    this.cutDay = -1;        // (the day of a haircut: the haircut remark, E3)
   }
 
   // Only playing for real (survival with a player): creative, spectator and the world server keep everything at 0
@@ -217,6 +246,7 @@ export class Body {
     if (!p || !this.counts) { this.idle(dt, p); return; }
     if (this.off.surface) { this.dirt = this.mud = this.wet = this.wetLegs = this.snow = this.blood = 0; this.last = null; }
     else this.surfaceStep(dt, p);
+    if (!this.off.tear) this.tearStep(dt, p);
     if (this.bath) this.bathStep(dt, p);
     if (this.scrubbing) this.scrubStep(dt, p);
     if ((this.pollT -= dt) <= 0 || this.snap) { this.pollT = TEMP.poll; this.poll(p); }
@@ -294,7 +324,7 @@ export class Body {
     const g = this.game, w = g.world, tx = Math.floor(p.x), ty = Math.floor(p.y), c = this.tile;
     const under = sc !== w || g.indoors;
     if (c && c.tx === tx && c.ty === ty && c.sc === sc && c.under === under) return c.kind;
-    let kind = G_FLOOR;
+    let kind = G_FLOOR, rough = false;
     if (!under) {
       const d = sc.delta?.(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK)), k = `${tx},${ty}`;
       if (d?.tilled?.[k] !== undefined || (sc.digH?.(tx, ty) ?? null) !== null) kind = G_SOFT;
@@ -303,10 +333,26 @@ export class Body {
       else {
         const b = w?.gen?.biomeAt?.(tx + 0.5, ty + 0.5);
         kind = b === B.SWAMP ? G_SOFT : DRY_LAND.has(b) ? G_DRY : G_SOIL;
+        rough = ROUGH.has(b);
       }
     }
-    if (c) Object.assign(c, { tx, ty, sc, under, kind }); else this.tile = { tx, ty, sc, under, kind };
+    // (bush: whether one is within reach, looked at only when asked, sprinting: null until then)
+    const tl = c || (this.tile = {});
+    tl.tx = tx; tl.ty = ty; tl.sc = sc; tl.under = under; tl.kind = kind; tl.rough = rough; tl.bush = null;
     return kind;
+  }
+  // Is the ground under the feet undergrowth that tears the legs at a sprint? A forest or pines off the paths, or a bush
+  // within BUSH_R anywhere outdoors (in the chunk underfoot: the content is cached by the scene)
+  roughUnder(p, sc) {
+    const kind = this.groundKind(p, sc), c = this.tile;
+    if (c.rough) return true;
+    if (c.under || kind === G_FLOOR || kind === G_PATH) return false;
+    if (c.bush === null) {
+      c.bush = false;
+      const list = sc.contentFor?.(Math.floor(p.x / CHUNK), Math.floor(p.y / CHUNK))?.objects;
+      if (list) for (const o of list) if (o.kind === 'bush' && Math.hypot(o.x - p.x, o.y - p.y) < BUSH_R) { c.bush = true; break; }
+    }
+    return c.bush;
   }
 
   // ---------- the temperature, every 2 s (§2.2) ----------
@@ -369,6 +415,8 @@ export class Body {
       f.hunger = 1 + 0.3 * cold;
     } else { f.rest = 1; f.regen = 1; f.thirst = 1; f.hunger = 1; }
     this.bd = packBd(this.surface());
+    this.flushTear();
+    this.scanWorn();
     // (two players who got into the same tub at once: the one whose id sorts later gets out)
     if (this.bath) { const q = this.tubTaken(this.bath.spot); if (q && String(q.id) < me()) { g.rest?.stand(); hud.toast(t('body.bath.taken')); } }
   }
@@ -399,8 +447,13 @@ export class Body {
     const g = this.game, p = g.player;
     if (!p || !this.counts) return out;
     const eq = g.inv?.equip || {}, snowing = !!g.days?.info?.snow && g.scene === g.world && !g.indoors;
-    // good news
+    // good news (in REMARKS order)
+    const today = g.days?.dayIndex;
     if (this.freshUntil - FRESH_MS + FRESH_REMARK_MS > Date.now()) out.push('fresh');
+    if (APPLY_GROWTH && this.cutDay >= 0 && this.cutDay === today) out.push('haircut');
+    const np = this.newKey && this.newDay === today && eq[this.newSlot];
+    if (np && np.id + ':' + (np.color || '') === this.newKey && !((np.tear || 0) >= NEW_TEAR)) out.push('new_clothes');
+    if (this.partnerNear(p)) out.push('couple');
     if (eq.outer && snowing) out.push('wrapped_up');
     // the rest, by priority
     const held = g.carry?.held, hk = held && BULKY[held]?.hold;
@@ -413,42 +466,142 @@ export class Body {
       if (this.mud >= 60) out.push('muddy');
       if (this.dirt >= 70) out.push('filthy');
     }
-    for (const k in eq) if ((eq[k]?.tear || 0) >= 75 && k !== 'interiorArriba' && k !== 'interiorAbajo') { out.push('torn'); break; }
+    // (a piece that can be seen: socks inside boots and what the wool coat covers do not count; realperson.js toReal)
+    const coat = eq.outer?.id === 'wool_coat';
+    for (const k in eq) {
+      if (!canTear(k, eq[k]) || tearStage(eq[k].tear || 0) < 2) continue;
+      if ((k === 'calcetines' && eq.pies) || (coat && (k === 'torso' || k === 'encima'))) continue;
+      out.push('torn'); break;
+    }
     if (!eq.torso && !eq.piernas) out.push('underwear');
     else if (!eq.pies) out.push('barefoot');
     if (this.weatherOn) {
       if (this.cold >= 0.6) out.push('underdressed');
-      else if (this.heat >= 0.5 && eq.outer) out.push('overdressed');
+      else if (this.heat >= OVERDRESSED_HEAT && eq.outer) out.push('overdressed');
     }
     return out;
   }
   condition() { return this.conditions(this._conds ||= [])[0] || null; }
+  // Your partner (a child in common: social.isPartner) within COUPLE_R tiles, both out in the world
+  partnerNear(p) {
+    const g = this.game, L = g.live, S = g.social;
+    if (!L?.joined || !L.peers?.size || typeof S?.isPartner !== 'function' || g.scene !== g.world || g.indoors) return false;
+    for (const q of L.peers.values()) {
+      const e = q.entity;
+      if (!e || !q.playing || q.server || q.sc !== 'world' || e.gm === 3) continue;
+      if (Math.hypot(nearX(e.x, p.x) - p.x, e.y - p.y) <= COUPLE_R && S.isPartner(q)) return true;
+    }
+    return false;
+  }
   // The garment chip (§7.1): a piece that just crossed a tear stage, with its name, for 4 s; null otherwise. The other
   // chips are ui/bodychip.js's (it reads the fields: one set of rules, there)
   chip() {
-    if (!this.counts || !this.tear || this.game.time >= this.tear.until) return null;
-    const id = this.tear.stage >= 2 ? 'torn' : 'worn', item = this.tear.id, out = this._chip, k = this._chipKey;
+    if (!this.counts || !this.tearFlash || this.game.time >= this.tearFlash.until) return null;
+    const id = this.tearFlash.stage >= 2 ? 'torn' : 'worn', item = this.tearFlash.id, out = this._chip, k = this._chipKey;
     if (k.id !== id || k.item !== item) {   // (the text is made again only when it changes: no garbage per frame)
       k.id = id; k.item = item;
-      out.id = id; out.text = t(`body.chip.${id}`, { item: noun('item', item) });
+      out.id = id; out.text = t(`body.chip.${id}`, { item: itemNoun(item) });   // (itemNoun: the older ids, camisa…, have no key)
     }
     return out;
   }
-  // A worn piece crossed a tear stage (A2's tear calls it, E2): its chip for 4 s
-  tore(id, stage) { if (stage > 0 && id) this.tear = { id, stage, until: this.game.time + FLASH }; }
+  // A worn piece crossed a tear stage (addTear, /body tear): its chip for 4 s
+  tore(id, stage) { if (stage > 0 && id) this.tearFlash = { id, stage, until: this.game.time + FLASH }; }
 
   // ---------- what the other systems call ----------
   work(kind) {
-    if (!this.counts || this.off.surface) return;
+    if (!this.counts) return;
     const now = this.game.time, worked = Math.min(WORK_GAP, Math.max(0, now - this.workAt));
     this.workAt = now;
-    this.dirt = Math.min(MAX, this.dirt + (HARD_TOOLS.has(kind) ? DIRT_WORK_HARD : DIRT_WORK) * worked * (1 - (this.cl.work || 0)));
+    if (!this.off.surface) this.dirt = Math.min(MAX, this.dirt + (HARD_TOOLS.has(kind) ? DIRT_WORK_HARD : DIRT_WORK) * worked * (1 - (this.cl.work || 0)));
+    if (!this.off.tear) this.wearAcc.work += worked;
   }
-  hit() { if (this.counts && !this.off.surface) this.dirt = Math.min(MAX, this.dirt + DIRT_HIT); }
+  hit() {
+    if (!this.counts) return;
+    if (!this.off.surface) this.dirt = Math.min(MAX, this.dirt + DIRT_HIT);
+    if (!this.off.tear) this.tearRandom(TEAR_RATE.hit);
+  }
   butchered() {
     if (!this.counts || this.off.surface) return;
     this.dirt = Math.min(MAX, this.dirt + DIRT_BUTCHER);
     this.blood = Math.min(MAX, this.blood + BLOOD_BUTCHER);
+  }
+
+  // ---------- tear (§3.2) ----------
+  // Every frame: only seconds are added up here (no piece is touched, nothing allocated)
+  tearStep(dt, p) {
+    const a = this.wearAcc;
+    if (p.swim) { a.swim += dt; return; }
+    const k = p.pose?.kind;
+    if (k === 'floorLie') { a.ground += dt; return; }
+    if (p.pose || p.mount || p.boat || p.aboard || p.airborne || !p.moving) return;
+    if (p.crouch) a.crawl += dt;
+    else if (p.sprinting && this.roughUnder(p, this.game.scene)) a.sprint += dt;
+  }
+  // At 2 Hz (tick): the seconds added up, laid on the worn pieces in place. inv.changed() once if a piece crossed a stage
+  flushTear() {
+    const a = this.wearAcc, eq = this.game.inv?.equip;
+    if (!eq || !this.counts || this.off.tear) { a.work = 0; a.sprint = 0; a.ground = 0; a.crawl = 0; a.swim = 0; return; }
+    const R = TEAR_RATE;
+    let crossed = false;
+    // (tool work: the apron or coat takes its full share, the torso piece under it keeps 1 − work)
+    if (a.work > 0) crossed = this.tearSlots(eq, TORSO_LAYER, R.work * a.work, 1 - (this.cl.work || 0)) || crossed;
+    if (a.ground > 0) crossed = this.tearSlots(eq, GROUND_LAYER, R.ground * a.ground) || crossed;
+    if (a.crawl > 0 || a.sprint > 0) {
+      // (the legs: trousers or a skirt; with neither, a long tunic takes it)
+      const legs = eq.piernas ? 'piernas' : eq.torso?.id === 'tunica_larga' ? 'torso' : null, it = legs && eq[legs];
+      if (canTear(legs, it)) crossed = this.addTear(it, R.ground * a.crawl + R.sprint * a.sprint) || crossed;
+    }
+    if (a.swim > 0) { const n = R.swim * a.swim; for (const k in eq) if (canTear(k, eq[k])) crossed = this.addTear(eq[k], n) || crossed; }
+    a.work = 0; a.sprint = 0; a.ground = 0; a.crawl = 0; a.swim = 0;
+    if (crossed) this.game.inv.changed();
+  }
+  tearSlots(eq, slots, n, torsoMul = 1) {
+    if (!(n > 0)) return false;
+    let crossed = false;
+    for (let i = 0; i < slots.length; i++) {
+      const k = slots[i], it = eq[k];
+      if (canTear(k, it)) crossed = this.addTear(it, k === 'torso' ? n * torsoMul : n) || crossed;
+    }
+    return crossed;
+  }
+  // A hit taken: n of tear on one worn piece picked at random (none worn: nothing)
+  tearRandom(n) {
+    const eq = this.game.inv?.equip;
+    if (!eq) return;
+    let count = 0;
+    for (const k in eq) if (canTear(k, eq[k])) count++;
+    if (!count) return;
+    let pick = Math.floor(Math.random() * count);
+    for (const k in eq) if (canTear(k, eq[k]) && pick-- === 0) { if (this.addTear(eq[k], n)) this.game.inv.changed(); return; }
+  }
+  // n more tear on one piece, in place (up to 100: rags, the piece stays). True when it crossed 40, 75 or 100; a new stage
+  // shows its chip (body.chip)
+  addTear(it, n) {
+    const t0 = Number.isFinite(it.tear) ? Math.max(0, it.tear) : 0;
+    n *= TEAR_TOUGH[it.id] ?? 1;
+    if (t0 >= TEAR.rags || !(n > 0)) return false;
+    const t1 = Math.min(TEAR.rags, t0 + n), s0 = tearStage(t0), s1 = tearStage(t1);
+    it.tear = t1;
+    if (s1 !== s0) this.tore(it.id, s1);
+    return s1 !== s0 || t1 >= TEAR.rags;
+  }
+  // When what is worn changes (inv.v): a garment never worn before (no donned mark on the piece, little tear) put on today
+  // is new clothes. Putting it on marks the piece itself (donned: 1, kept by the inventory, chests, drops and the saves:
+  // inventory.js extraOf), so taking it off and on, a later session or a mend never make it new again. The first look at
+  // an inventory only marks what is on (an older save's clothes are not new)
+  scanWorn() {
+    const inv = this.game.inv;
+    if (!inv?.equip) return;
+    const first = inv !== this.invRef;
+    if (!first && inv.v === this.invV) return;
+    this.invRef = inv; this.invV = inv.v;
+    const eq = inv.equip;
+    for (const k in eq) {
+      const it = eq[k];
+      if (!canTear(k, it) || it.donned) continue;
+      it.donned = 1;   // (in place: saved with the equip; no inv.changed needed)
+      if (!first && this.counts && !((it.tear || 0) >= NEW_TEAR)) { this.newDay = this.game.days?.dayIndex ?? -1; this.newSlot = k; this.newKey = `${it.id}:${it.color || ''}`; }
+    }
   }
 
   // ---------- the bath (§4.1) ----------
@@ -620,12 +773,12 @@ export class Body {
     this.applied.hair = g.hairStep; this.applied.beard = g.beardStep;
     return true;
   }
-  cut() { this.cutAt = Date.now(); }
+  cut() { this.cutAt = Date.now(); this.cutDay = this.game.days?.dayIndex ?? -1; }
   shave() { this.shaveAt = Date.now(); }
 
   // ---------- /body (commands.js, op only): for testing without waiting for real days ----------
-  // what: 'hair' | 'beard' (n days since the cut or the shave), 'dirt' (n 0..100), 'wet', 'clean'. Returns the line to
-  // say, or null for a usage error
+  // what: 'hair' | 'beard' (n days since the cut or the shave), 'dirt' (n 0..100), 'tear' (n 0..100 on every worn piece),
+  // 'wet', 'clean'. Returns the line to say, or null for a usage error
   testSet(what, n) {
     const now = Date.now(), days = Math.max(0, Math.min(365, Number(n) || 0));
     if (what === 'hair') { this.cutAt = now - days * DAY_MS; this.applyGrowth(); return t('cmd.body.hair', { n: days }); }
@@ -633,6 +786,19 @@ export class Body {
     if (!this.counts) return t('cmd.body.survival');
     if (what === 'dirt') { if (!Number.isFinite(Number(n))) return null; this.dirt = cap(Number(n)); this.tickT = 0; return t('cmd.body.dirt', { n: Math.round(this.dirt) }); }
     if (what === 'wet') { this.wet = MAX; this.tickT = 0; return t('cmd.body.wet'); }
+    if (what === 'tear') {
+      // every worn piece that can tear set to n (0..100), its stage applied at once (the chip and the look)
+      if (!Number.isFinite(Number(n))) return null;
+      const v = cap(Number(n)), eq = this.game.inv?.equip;
+      let any = false;
+      if (eq) for (const k in eq) if (canTear(k, eq[k])) {
+        const it = eq[k], s0 = tearStage(it.tear || 0);
+        it.tear = v; any = true;
+        if (tearStage(v) !== s0) this.tore(it.id, tearStage(v));
+      }
+      if (any) this.game.inv.changed();
+      return any ? t('cmd.body.tear', { n: Math.round(v) }) : t('cmd.body.tear_none');
+    }
     if (what === 'clean') { this.dirt = this.mud = this.wet = this.wetLegs = this.snow = this.blood = 0; this.tickT = 0; return t('cmd.body.clean'); }
     return null;
   }

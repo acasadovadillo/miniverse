@@ -227,6 +227,53 @@ const WEAR_DRAW = {
   horquillas(R, g, c) { for (const [x, y] of [[3, 5], [7, 9]]) { R(x, y, 8, 2, c.b); R(x, y, 8, 1, c.l); R(x + 7, y - 1, 2, 4, c.d); } },
   corona_flores(R, g, c) { g.strokeStyle = '#4a9a3a'; g.lineWidth = 1.5; g.beginPath(); g.ellipse(8, 9, 6.5, 3.5, 0, 0, Math.PI * 2); g.stroke(); for (const [x, y] of [[2, 9], [5, 6], [8, 5.5], [11, 6], [14, 9], [11, 12], [5, 12]]) blob(g, x, y, 1.6, c.b); for (const [x, y] of [[5, 6], [11, 6], [8, 12.5]]) R(x, y, 1, 1, '#f0c030'); },
   gorro(R, g, c) { ellipse(g, 8, 9, 6, 6, c.b); R(2, 10, 12, 4, c.d); ellipse(g, 8, 3, 2, 2, '#f4f0e8'); R(5, 6, 2, 2, c.l); },
+  // The garments of Plan E (§3.1): a long coat with lapels, a belt and buttons; a short sheepskin jacket with the fleece
+  // at the collar, the front, the hem and the cuffs; a short-sleeved linen shirt laced at the neck; thick wool socks with
+  // a ribbed top; boots lined with fleece; a leather apron with a stitched edge, rivets and a pocket
+  wool_coat(R, g, c) {
+    poly(g, [[4, 1], [12, 1], [14, 4], [15, 11], [13, 11], [12, 6], [13, 15], [3, 15], [4, 6], [3, 11], [1, 11], [2, 4]], c.b);
+    R(5, 6, 1, 8, c.l); R(11, 6, 1, 8, c.d); R(8, 4, 1, 11, c.d2); R(3, 14, 10, 1, c.d);
+    poly(g, [[5, 1], [8, 5], [11, 1], [11, 3], [8, 7], [5, 3]], c.d); R(7, 1, 2, 2, '#d8cfba');
+    R(4, 9, 8, 1, c.d2); R(9, 9, 1, 1, '#c8a050');
+    for (const y of [6, 11, 13]) R(9, y, 1, 1, '#e8d8b0');
+    R(1, 10, 2, 1, c.d); R(13, 10, 2, 1, c.d);
+  },
+  sheepskin_jacket(R, g, c) {
+    const f = '#e4d8c0', fd = '#c4b494';
+    poly(g, [[4, 3], [12, 3], [14, 5], [15, 12], [13, 12], [12, 7], [12, 13], [4, 13], [4, 7], [3, 12], [1, 12], [2, 5]], c.b);
+    R(4, 7, 1, 5, c.l); R(11, 7, 1, 5, c.d);
+    R(4, 2, 8, 2, f); R(7, 4, 2, 9, f); R(4, 12, 8, 2, f); R(1, 11, 2, 2, f); R(13, 11, 2, 2, f);
+    for (const [x, y] of [[5, 2], [9, 3], [11, 2], [7, 6], [8, 9], [7, 11], [5, 13], [10, 12], [1, 12], [14, 11]]) R(x, y, 1, 1, fd);
+    R(6, 6, 1, 1, '#3a2a1a'); R(6, 9, 1, 1, '#3a2a1a');
+  },
+  linen_shirt(R, g, c) {
+    poly(g, [[4, 3], [12, 3], [14, 5], [13, 7], [12, 6], [12, 15], [4, 15], [4, 6], [3, 7], [2, 5]], c.b);
+    R(6, 3, 4, 1, c.d); R(8, 4, 1, 4, c.d2); R(4, 14, 8, 1, c.d); R(5, 8, 1, 5, c.l);
+    for (const [x, y] of [[7, 4], [9, 4], [7, 6], [9, 6]]) R(x, y, 1, 1, '#8a6a44');
+    for (const [x, y] of [[10, 9], [6, 11], [10, 12], [7, 13]]) R(x, y, 1, 1, c.l);
+    R(13, 6, 1, 1, c.d); R(2, 6, 1, 1, c.d);
+  },
+  wool_socks(R, g, c) {
+    R(4, 1, 7, 3, c.d); for (let x = 4; x < 11; x += 2) R(x, 1, 1, 3, c.l);
+    R(4, 4, 7, 6, c.b); R(4, 10, 10, 4, c.b); R(4, 12, 3, 2, c.d); R(12, 10, 2, 4, c.d);
+    for (const [x, y] of [[5, 5], [8, 6], [6, 8], [9, 8], [8, 11], [10, 12]]) R(x, y, 1, 1, c.l);
+    for (const [x, y] of [[6, 6], [9, 7], [7, 9]]) R(x, y, 1, 1, c.d);
+  },
+  lined_boots(R, g, c) {
+    const f = '#e4d8c0', fd = '#c4b494';
+    R(3, 4, 4, 7, c.b); R(3, 10, 6, 4, c.b); R(9, 4, 4, 7, c.d); R(9, 10, 6, 4, c.d);
+    R(4, 5, 1, 5, c.l); R(3, 13, 6, 1, '#2a1c14'); R(9, 13, 6, 1, '#2a1c14');
+    R(2, 2, 6, 2, f); R(8, 2, 6, 2, fd);
+    for (const [x, y] of [[3, 2], [6, 3], [9, 3], [12, 2]]) R(x, y, 1, 1, x < 8 ? fd : '#a89878');
+  },
+  leather_apron(R, g, c) {
+    R(5, 2, 6, 6, c.b); R(3, 8, 10, 7, c.b); R(2, 8, 12, 1, c.d2); R(5, 0, 1, 2, c.d); R(10, 0, 1, 2, c.d);
+    R(6, 3, 1, 4, c.l); R(4, 9, 1, 4, c.l);
+    for (let x = 4; x < 12; x += 2) R(x, 13, 1, 1, c.l2);
+    for (let y = 9; y < 13; y += 2) { R(3, y, 1, 1, c.l2); R(12, y, 1, 1, c.l2); }
+    R(7, 10, 4, 3, c.d); R(7, 10, 4, 1, c.d2);
+    R(5, 2, 1, 1, '#d8b878'); R(10, 2, 1, 1, '#d8b878'); R(7, 12, 1, 1, '#d8b878'); R(10, 12, 1, 1, '#d8b878');
+  },
   mochila(R, g, c) { R(3, 3, 10, 12, c.b); R(3, 3, 10, 4, c.d); R(5, 9, 6, 4, c.d); R(7, 6, 2, 2, '#c8a048'); R(4, 2, 1, 2, c.d); R(11, 2, 1, 2, c.d); },
 };
 // Armaduras: cada pieza con su forma, del color del metal (con brillo)

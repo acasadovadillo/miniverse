@@ -8,11 +8,14 @@
 //   SEASON_C, WEATHER_C       °C added by the local season (index of time.js localSeason) and by the weather id (time.js)
 //   GARMENTS                  id → { warm, rain?, shade?, work?, slot?, noTear? } for every garment (existing and new ones)
 //   TEAR                      the tear thresholds and warmth multipliers
+//   TEAR_RATE                 what tears the clothes and how fast (Body applies it, on worked time)
+//   TEAR_TOUGH                id → multiplier for the leather pieces (they last longer)
 //   tearStage(t)              0 new, 1 worn (≥ 40), 2 torn (≥ 75); rags (100) is stage 2 too (it stays worn, warmth ×0.4)
 //   tearMul(t)                the warmth multiplier of a piece by its tear: 1, ×0.6 torn, ×0.4 rags
 //   warmthOf(equip)           W: Σ warm of the worn pieces × tearMul (inv.equip: slot → { id, color, tear? })
 //   clothesOf(equip, out)     fills out (reused, never allocated per call) with { warm, rain, shade, work, outer }
 //   wornPieces(equip, out)    the worn pieces that can tear, as [slot, piece] pairs (no underwear, hair, backpack, armour)
+//   canTear(slot, piece)      the same test for one piece (Body's tear loops use it: no pairs allocated)
 //   feelOf(env, out)          the §2.2 formula, pure: { airC, feelC, cold, heat } from what Body polls (the §12 feel table
 //                             test calls it with made-up places and hours)
 // A piece whose id is not in GARMENTS (armour, the backpack, a newer game's item) counts 0 and never tears.
@@ -52,7 +55,7 @@ const clamp01 = v => (v > 0 ? (v < 1 ? v : 1) : 0);
 //   fireD    tiles to the nearest lit fire (Infinity: none);  swim: 'sea' | 'fresh' | null
 //   W, rain, shade   from clothesOf (warmth, rainproof share, sun shade)
 //   wet      0..100 (Body passes wet plus a third of wetLegs);  raining: rain is falling on you (outdoors)
-// out (reused): { airC, feelC, cold, heat }, cold and heat 0..1
+// out (reused): { airC, feelC, cold, heat }, cold and heat 0..1; feelC is the shown feel (see the end)
 export function feelOf(env, out = {}) {
   const T = TEMP;
   let air;
@@ -66,10 +69,14 @@ export function feelOf(env, out = {}) {
   if (env.swim) air += env.swim === 'sea' ? T.swimSea : T.swimFresh;
   const W = env.W || 0;
   const feel = air + T.warmK * W - clamp01((env.wet || 0) / 100) * T.wetK * (1 - (env.rain || 0)) - (env.raining ? T.rainK : 0);
+  const hot = air + Math.max(0, W - T.heatW) - T.shadeK * (env.shade || 0);
   out.airC = air;
-  out.feelC = feel;
   out.cold = clamp01((T.coldAt - feel) / T.coldSpan);
-  out.heat = clamp01((air + Math.max(0, W - T.heatW) - T.shadeK * (env.shade || 0) - T.heatAt) / T.heatSpan);
+  out.heat = clamp01((hot - T.heatAt) / T.heatSpan);
+  // What is shown (Tab, the diary) follows the same rule as the stress it explains: the cold side's feel while it is not
+  // hot (at most heatAt: warm clothes on a mild day read "comfortable", not 36 °C), the heat side's when it is (a coat in
+  // summer: the air plus what the coat adds over heatW, as the heat counts it)
+  out.feelC = out.heat > 0 ? hot : Math.min(feel, T.heatAt);
   return out;
 }
 
@@ -107,6 +114,20 @@ const NO_TEAR_SLOTS = new Set(['pelo', 'espalda', 'interiorArriba', 'interiorAba
 
 // ---------- tear (§3.2) ----------
 export const TEAR = { worn: 40, torn: 75, rags: 100, tornWarm: 0.6, ragsWarm: 0.4 };
+// What tears the clothes (Body applies it, §3.2), per second of the action. Like the dirt (E1's lesson), tool work counts the
+// TIME worked, never the uses (a use credits the seconds since the one before, 1 s at most), so the click rate changes
+// nothing: a shirt with nothing over it reaches Torn (75) after 15 hours of steady tool work; under the default apron
+// (work 0.3: the torso piece takes 1 − work of it, the apron itself the full share) after about 21 h, under a leather
+// apron (0.7) after about 50 h
+export const TEAR_RATE = {
+  work: TEAR.torn / (15 * 3600),   // torso, encima and outer, × (1 − the worn apron's work)
+  sprint: 0.002,                   // legs: sprinting through a forest, pines or a bush
+  ground: 0.0005,                  // lying on the ground (torso layer and legs); crawling, crouched on the move (legs)
+  swim: 0.001,                     // every worn piece, swimming clothed
+  hit: 0.6,                        // one random worn piece, once per hit taken
+};
+// Leather wears slower than cloth (× this on every source): the leather apron takes the work's wear and lasts
+export const TEAR_TOUGH = { leather_apron: 0.5, sheepskin_jacket: 0.6, lined_boots: 0.6, botas: 0.6 };
 export const tearStage = t => (!(t >= TEAR.worn) ? 0 : t < TEAR.torn ? 1 : 2);
 export const tearMul = t => (t >= TEAR.rags ? TEAR.ragsWarm : t >= TEAR.torn ? TEAR.tornWarm : 1);
 
@@ -128,8 +149,11 @@ export function clothesOf(equip, out = {}) {
   }
   return out;
 }
+// Can the piece `it` worn in `slot` tear? (a garment of GARMENTS, not underwear, a hair accessory or the backpack; armour
+// and a newer game's items are not in GARMENTS: they never tear)
+export function canTear(slot, it) { const g = it && GARMENTS[it.id]; return !!g && !g.noTear && !NO_TEAR_SLOTS.has(slot); }
 export function wornPieces(equip, out = []) {
   out.length = 0;
-  if (equip) for (const k in equip) { const it = equip[k], g = it && GARMENTS[it.id]; if (g && !g.noTear && !NO_TEAR_SLOTS.has(k)) out.push([k, it]); }
+  if (equip) for (const k in equip) { const it = equip[k]; if (canTear(k, it)) out.push([k, it]); }
   return out;
 }

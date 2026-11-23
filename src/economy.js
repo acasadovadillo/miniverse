@@ -1,5 +1,6 @@
 // Economía: lo que vale cada cosa al venderla y lo que cuesta comprarla en las tiendas de los vecinos.
 import { ITEMS, CROPS, FISH } from './items.js';
+import { t } from './i18n.js';
 import { RECIPES } from './recipes.js';
 
 const BASE = {
@@ -37,6 +38,10 @@ export function priceOf(id) {
   return p;
 }
 export const buyPrice = id => Math.max(5, Math.round(priceOf(id) * 2.5));
+// What Marta asks to mend a garment (Plan E §3.2): a quarter of what it costs new (her stall's price when she sells it,
+// else buyPrice), × factor (the reputation's buyFactor)
+export const MEND_SHARE = 0.25;
+export const mendPrice = (id, factor = 1) => Math.max(1, Math.round((SHOPS.marta.stock.find(e => e.id === id)?.price ?? buyPrice(id)) * MEND_SHARE * factor));
 
 // Lo que vende cada vecino. `season`: solo esa estación; `project`: solo con ese proyecto terminado;
 // `animal`: no es un objeto, es un animal para tu granja; `price`: precio fijo; `plan`: tampoco es un objeto, es el plano
@@ -70,6 +75,19 @@ export const SHOPS = {
   nilo: {
     title: 'Planos de Nilo', hours: [0, 24],
     stock: plans({ silla: 30, mesa: 40, cofre: 60, estanteria: 50, mesita: 60, cama: 120, cama_nino: 100, cuna: 100, cama_doble: 250, chimenea: 150 }),
+  },
+  // Marta, the tavern regular who spends the day knitting (Plan E §4.4): clothes by the village season (0 spring, 1 summer,
+  // 2 autumn, 3 winter: game.days.season, which the shop window filters by), plus wool and cloth; at her tavern seat's
+  // hours. She also mends (neighbors.js, at mendPrice). Her title comes from the language files
+  marta: {
+    get title() { return t('shop.title.marta'); }, hours: [17, 26],
+    stock: [
+      { id: 'wool_coat', price: 450, seasons: [2, 3] }, { id: 'sheepskin_jacket', price: 600, seasons: [3] },
+      { id: 'wool_socks', price: 90, seasons: [2, 3] }, { id: 'lined_boots', price: 280, seasons: [3] }, { id: 'gorro', price: 120, seasons: [2, 3] },
+      { id: 'linen_shirt', price: 120, seasons: [0, 1] }, { id: 'sombrero', seasons: [0, 1] },
+      // (her wool at a knitter's price, not buyPrice's 113: the socks are made of one and must cost more than it)
+      { id: 'leather_apron', price: 220 }, { id: 'lana', price: 60 }, { id: 'tela' },
+    ],
   },
   dani: {
     title: 'Taller de Dani', hours: [10, 19],

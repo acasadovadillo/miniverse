@@ -33,21 +33,43 @@ const HAIR = {
   ondas: 'largo', flequillo: 'corto', mullet: 'corto', tazon: 'corto', samurai: 'mono',
 };
 const hash = s => { let h = 7; for (const ch of s) h = (Math.imul(h, 31) + ch.charCodeAt(0)) | 0; return h >>> 0; };
+// The new garments of Plan E (docs/planes/gta/PLAN-E-cuerpo-aspecto.md §3.1), drawn on today's garment shapes until the
+// E3 art (§5.3 fallback), each with its own look: the wool coat is the tunic's body and skirt over what you wear, to the
+// knee (over a tunic it keeps the tunic's length, since it covers it), with a dark trim, buttons and a twill weave; the
+// sheepskin jacket is the waistcoat's body in leather, with fleece edges and sleeves of its own; the linen shirt, the
+// wool socks, the lined boots and the leather apron are the shirt, the stockings, the boots and the apron with a
+// finer weave, a knit, a fleece cuff and a leather finish. (Only the fields a garment needs are set, so the looks of
+// before keep their prototype keys.)
+const FLEECE = '#e4d8c0';      // the sheepskin's fleece, undyed
+const COAT_TRIM = '#241a14';   // mixed into the coat's colour by persona.js (30 %): a darker edge
+const COAT_HEM = 0.40;         // m from the ground: the hem of a knee-length coat (look.largoFalda)
 // El look del juego, en el de la persona realista: sexo, piel, pelo, cara y la ropa que lleva puesta
 export function toReal(look, kid = false) {
   const L = fullLook(look), W = look.wear || clothesFor(L), girl = L.sex === 'chica', g = [];
   const col = it => it && it.color;
-  const torso = W.torso?.id, top = W.encima?.id, legs = W.piernas?.id;
-  if (torso === 'tunica' || torso === 'tunica_larga') g.push({ id: 'tunica', color: col(W.torso) });
-  else if (torso) g.push({ id: 'camisa', color: col(W.torso) });
+  const torso = W.torso?.id, top = W.encima?.id, legs = W.piernas?.id, outer = W.outer?.id;
+  const tunic = torso === 'tunica' || torso === 'tunica_larga';
+  if (tunic) g.push({ id: 'tunica', color: col(W.torso) });
+  else if (torso) g.push(torso === 'linen_shirt' ? { id: 'camisa', color: col(W.torso), fino: true } : { id: 'camisa', color: col(W.torso) });
   else if (W.interiorArriba) g.push({ id: 'camisa', color: col(W.interiorArriba) });
+  let coatHem = 0;
+  if (outer === 'wool_coat') {
+    // (first in the list: its sleeves, the tunic's, are the ones that shape the arm; what it covers shows at the neck)
+    const coat = { id: 'tunica', color: col(W.outer), ribete: COAT_TRIM, camisola: col(W.torso || W.interiorArriba) || '#d3c9b4', tela: 'sarga', botones: true };
+    if (tunic) g[0] = coat; else { g.unshift(coat); coatHem = COAT_HEM; }
+  }
   if (legs === 'pantalon' || legs?.startsWith('grebas_')) g.push({ id: 'pantalon', color: col(W.piernas) });
-  if (top === 'chaleco') g.push({ id: 'chaleco', color: col(W.encima) });
-  if (top === 'delantal') g.push({ id: 'delantal', color: col(W.encima) });
-  if (!legs || legs === 'falda') g.push({ id: 'medias', color: col(W.calcetines) || '#5f5346' });
-  g.push({ id: W.pies ? 'botas' : 'zapatos', color: col(W.pies) || '#5a4030' });
-  // (la semilla, sin la mochila: ponérsela o quitársela no cambia la cara ni la postura, y se hace sin rehacer la persona)
-  const hat = W.cabeza?.id, seed = hash(JSON.stringify(look.wear?.espalda ? { ...look, wear: { ...look.wear, espalda: undefined } } : look));
+  if (outer === 'sheepskin_jacket') g.push({ id: 'chaleco', color: col(W.outer), ribete: FLEECE, vellon: true, mangas: true });
+  else if (top === 'chaleco' && outer !== 'wool_coat') g.push({ id: 'chaleco', color: col(W.encima) });   // (the coat covers it)
+  // (an apron goes under the wool coat, which covers it to the knee, as it does the waistcoat; the short jacket leaves it seen)
+  if (outer === 'wool_coat') { /* covered */ }
+  else if (top === 'delantal') g.push({ id: 'delantal', color: col(W.encima) });
+  else if (top === 'leather_apron') g.push({ id: 'delantal', color: col(W.encima), cuero: true });
+  if (!legs || legs === 'falda') g.push(W.calcetines?.id === 'wool_socks' ? { id: 'medias', color: col(W.calcetines), lana: true } : { id: 'medias', color: col(W.calcetines) || '#5f5346' });
+  g.push(W.pies?.id === 'lined_boots' ? { id: 'botas', color: col(W.pies) || '#5a4030', forro: FLEECE } : { id: W.pies ? 'botas' : 'zapatos', color: col(W.pies) || '#5a4030' });
+  // (la semilla, sin la mochila ni el abrigo: ponérselos o quitárselos no cambia la cara ni la postura; la mochila se pone
+  // sin rehacer la persona)
+  const hat = W.cabeza?.id, lw = look.wear, seed = hash(JSON.stringify(lw?.espalda || lw?.outer ? { ...look, wear: { ...lw, espalda: undefined, outer: undefined } } : look));
   const out = {
     sex: girl ? 'f' : 'm', build: 'medio', skin: L.skin, hair: L.hair, hairStyle: HAIR[L.hairStyle] || 'corto', ojos: L.eyes,
     eyeStyle: L.eyeStyle, brows: L.brows, nose: L.nose, semilla: seed % 97, garments: g,
@@ -55,6 +77,10 @@ export function toReal(look, kid = false) {
   if (L.beard && L.beard !== 'no' && !kid) out.barba = 'corta';
   // Un niño: la cabeza más grande para su cuerpo (5 cabezas de alto en vez de 6,8), más fino y a 1,17 m
   if (kid) Object.assign(out, { cabezas: 5, build: 'fino', escala: KID });
+  if (coatHem) out.largoFalda = coatHem;
+  // (the leather apron, a new garment, hangs as a 3D plate over the trousers: persona.js delantalPlancha. The cloth apron
+  // keeps the look it had until the E3 art is approved)
+  if (top === 'leather_apron' && outer !== 'wool_coat') out.delantalPlancha = true;
   if (hat === 'sombrero') out.sombrero = 'paja';
   else if (hat === 'gorro') out.sombrero = 'boina';
   else if (hat === 'hijab') { out.hairStyle = 'panuelo'; out.panuelo = col(W.cabeza); }
@@ -80,7 +106,7 @@ export class RealPerson {
     // Para el juego: la cadera (lo que hay que bajar al sentarse: ver SEAT_HIP en actors.js) y la estatura
     this.hipY = b.body.position.y * k; this.height = (r.d?.alto || 1.7) * k;
     // La barriga del embarazo: del color de lo que se lleva encima (ver setBelly)
-    const W = look.wear || clothesFor(fullLook(look)), top = W.encima?.id === 'delantal' ? W.encima : W.torso || W.interiorArriba;
+    const W = look.wear || clothesFor(fullLook(look)), top = W.outer || (W.encima?.id === 'delantal' || W.encima?.id === 'leather_apron' ? W.encima : W.torso || W.interiorArriba);
     this.bellyColor = window.LOOK.sobrio(top?.color || fullLook(look).skin);
     this.targetYaw = 0; this.speed = 0;
     this.bag = null; this.bagKey = null;

@@ -1,8 +1,9 @@
 // Barra rápida (las 9 primeras casillas: manos y bolsillos) y la pantalla del inventario: el personaje en 3D
 // con lo que lleva puesto, rodeado de los huecos del cuerpo (ropa y mochila), y las casillas, con arrastrar y
 // soltar. Sin mochila, sus 27 casillas están cerradas.
-import { ITEMS, WEAR_SLOTS, restoreText, clothesText, LEGACY_ITEMS } from '../items.js';
+import { ITEMS, WEAR_SLOTS, wearSlotLabel, restoreText, clothesText, LEGACY_ITEMS } from '../items.js';
 import { DYES } from '../looks.js';
+import { tearStage } from '../clothing.js';
 import { SLOTS, HOTBAR, extraOf } from '../inventory.js';
 import { itemIconUrl } from '../art/items.js';
 import { CharacterPreview } from '../three/preview.js';
@@ -27,7 +28,7 @@ function paint(el, s) {
     img.hidden = false;
     n.textContent = s.n > 1 ? s.n : '';
     const def = ITEMS[s.id];
-    const clothes = !def.dur && clothesText(def);   // (a garment: what it does for the body, "Warmth +1")
+    const clothes = !def.dur && clothesText(def, s);   // (a garment: what it does for the body, "Warmth +1", and how worn it is)
     el.title = def.dur ? t('gui.inventory.item_uses', { item: def.name, n: s.dur ?? def.dur, max: def.dur }) : def.canteen ? `${def.name} (${s.sips || 0}/${def.canteen})` : clothes ? `${def.name} (${clothes})` : def.name;
   } else {
     img.hidden = true;
@@ -36,6 +37,7 @@ function paint(el, s) {
   }
   wearBar(el, s);
   sipsBar(el, s);
+  tearBar(el, s);
 }
 // Lo gastada que está una herramienta o una armadura: una barrita abajo, de verde a rojo (solo si ya se ha usado)
 export function wearBar(el, s) {
@@ -55,6 +57,19 @@ export function sipsBar(el, s) {
   if (!bar) { bar = document.createElement('span'); bar.className = 'dur sips'; bar.innerHTML = '<span></span>'; el.append(bar); }
   bar.firstChild.style.width = `${Math.min(1, (s.sips || 0) / max) * 100}%`;
   bar.firstChild.style.background = '#4a9fd8';
+}
+
+// How worn a garment is (Plan E §3.2: tear 0..100 on the piece): a muted brown bar of what is left, only once it has some
+// tear, darker once torn (index.html .slot .tear). Its own class, never .dur (the anvil's repair and wearOut read that as
+// metal wear)
+export function tearBar(el, s) {
+  const tear = s && !ITEMS[s.id]?.dur ? s.tear || 0 : 0;
+  let bar = el.querySelector('.tear');
+  if (!(tear >= 0.5)) { bar?.remove(); return; }
+  if (!bar) { bar = document.createElement('span'); bar.className = 'tear'; bar.innerHTML = '<span></span>'; el.append(bar); }
+  const w = `${Math.max(4, 100 - tear)}%`;
+  if (bar.firstChild.style.width !== w) bar.firstChild.style.width = w;
+  bar.classList.toggle('torn', tearStage(tear) >= 2);
 }
 
 export function initInventoryUI(game, { onClose, onCraft }) {
@@ -79,9 +94,10 @@ export function initInventoryUI(game, { onClose, onCraft }) {
   // Los huecos a los dos lados del personaje, más o menos a la altura de lo que visten: a la izquierda la
   // ropa de fuera, de la cabeza a los pies; a la derecha la mochila y lo de debajo (ropa interior y calcetines).
   // Vacíos, muestran en gris una prenda de ejemplo y su nombre.
-  const wears = {}, LABEL = Object.fromEntries(WEAR_SLOTS);
-  const SIDES = { 'inv-wear-l': ['cabeza', 'torso', 'encima', 'piernas', 'pies'], 'inv-wear-r': ['pelo', 'espalda', 'interiorArriba', 'interiorAbajo', 'calcetines'] };
-  const SAMPLE = { cabeza: 'sombrero', torso: 'camisa', encima: 'chaleco', piernas: 'pantalon', pies: 'botas', interiorArriba: 'camiseta_interior', interiorAbajo: 'calzoncillos', calcetines: 'calcetines', espalda: 'mochila', pelo: 'lazo' };
+  // (the coats' slot, outer, goes after encima: Plan E §3.1. The labels are read again on each refresh: wearSlotLabel)
+  const wears = {}, LABEL = Object.fromEntries(WEAR_SLOTS.map(([k]) => [k, wearSlotLabel(k)]));
+  const SIDES = { 'inv-wear-l': ['cabeza', 'torso', 'encima', 'outer', 'piernas', 'pies'], 'inv-wear-r': ['pelo', 'espalda', 'interiorArriba', 'interiorAbajo', 'calcetines'] };
+  const SAMPLE = { cabeza: 'sombrero', torso: 'camisa', encima: 'chaleco', outer: 'wool_coat', piernas: 'pantalon', pies: 'botas', interiorArriba: 'camiseta_interior', interiorAbajo: 'calzoncillos', calcetines: 'calcetines', espalda: 'mochila', pelo: 'lazo' };
   for (const [col, slots] of Object.entries(SIDES)) for (const slot of slots) {
     const el = slotEl(-1, 'slot wear');
     el.dataset.wear = slot;
@@ -92,7 +108,8 @@ export function initInventoryUI(game, { onClose, onCraft }) {
   }
   // El personaje en 3D, girando despacio (o arrastrándolo)
   const me = new CharacterPreview($('inv-me'));
-  if (matchMedia('(max-width: 520px)').matches) me.resize(176, 246); else me.resize(168, 288);
+  // (as tall as the six slots of the left column: 6 × 48 px with 4 px gaps)
+  if (matchMedia('(max-width: 520px)').matches) me.resize(176, 264); else me.resize(168, 308);
   me.walk = false;
   game.invPreview = me;   // (for the tests)
   let meLook = null, meKit = null, meAngle = 0.3, meDrag = null;
@@ -169,9 +186,10 @@ export function initInventoryUI(game, { onClose, onCraft }) {
     if (pack && inv.weight) { cells.forEach((el, i) => { if (i < HOTBAR) { paint(el, inv.slots[i]); el.classList.toggle('sel', i === picked); } }); pack.refresh(); }
     else cells.forEach((el, i) => { paint(el, inv.slots[i]); el.classList.toggle('sel', i === picked); el.classList.toggle('locked', !inv.usable(i)); });
     for (const [slot, el] of Object.entries(wears)) {
-      const it = inv.equip[slot];
+      const it = inv.equip[slot], label = wearSlotLabel(slot), tag = el.querySelector('i');
+      if (label !== LABEL[slot]) { LABEL[slot] = label; tag.textContent = label; }   // (the language may have changed)
       paint(el, it && { ...it, n: 1 });
-      if (!it) el.title = LABEL[slot];
+      if (!it) el.title = label;
       el.classList.toggle('on', !!it);
       el.classList.toggle('sel', picked?.wear === slot);
     }
@@ -184,7 +202,7 @@ export function initInventoryUI(game, { onClose, onCraft }) {
     if (!s) { $('inv-name').textContent = t('gui.inventory.pick_title'); say([t(inv.weight ? 'gui.inventory.pick_help_list' : 'gui.inventory.pick_help'), kept && t('gui.inventory.kept_newer', { n: kept }), wait && t('gui.inventory.kept_waiting', { n: wait })].filter(Boolean).join(' ')); return; }
     $('inv-icon').src = itemIconUrl(s.id, s.color);
     $('inv-name').textContent = worn ? t('gui.inventory.item_worn', { item: def.name }) : def.name + (s.n > 1 ? ` ×${s.n}` : '');
-    const restores = restoreText(def), clothes = clothesText(def), all = stackKg(s);
+    const restores = restoreText(def), clothes = clothesText(def, s), all = stackKg(s);
     say(def.desc + (restores ? ` ${restores}` : '') + (clothes ? ` ${clothes}.` : '') + (inv.weight ? ` ${t('gui.inventory.weight_each', { kg: Math.round(all / (s.n || 1) * 100) / 100, total: Math.round(all * 10) / 10 })}` : ''));
     $('inv-wearbtn').hidden = !def.wear;
     // Teñir: las prendas (puestas o en la mochila) se cambian de color tocando uno

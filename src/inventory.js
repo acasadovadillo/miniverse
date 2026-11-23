@@ -10,8 +10,12 @@ import { t } from './i18n.js';
 export const SLOTS = 36, HOTBAR = 9;
 const PREV_MS = 500;   // (held this long, what was in hand counts as "the one before" for a tap of F: see remember)
 // Lo que distingue una cosa de otra igual (el color de una prenda, lo gastada que está una herramienta o una
-// armadura: dur, los usos que le quedan; the water left in a canteen or a jug: sips); undefined si no hay nada
-export const extraOf = s => { const e = {}; if (s?.color) e.color = s.color; if (s?.dur !== undefined) e.dur = s.dur; if (s?.map) e.map = s.map; if (s?.sips > 0) e.sips = s.sips; return Object.keys(e).length ? e : undefined; };
+// armadura: dur, los usos que le quedan; the water left in a canteen or a jug: sips; how worn a garment is: tear, 0..100,
+// Plan E §3.2, never dur, which the anvil reads as metal wear; a garment that has been worn: donned, 1, so putting it on
+// again is never "new clothes", body.js scanWorn); undefined si no hay nada
+export const extraOf = s => { const e = {}; if (s?.color) e.color = s.color; if (s?.dur !== undefined) e.dur = s.dur; if (s?.map) e.map = s.map; if (s?.sips > 0) e.sips = s.sips; if (s?.tear > 0) e.tear = s.tear; if (s?.donned) e.donned = 1; return Object.keys(e).length ? e : undefined; };
+// What a piece keeps when it goes from a slot to the body or back: its colour, its wear (dur), its tear and donned
+const pieceOf = (s, color) => ({ color, ...(s.dur !== undefined && { dur: s.dur }), ...(s.tear > 0 && { tear: s.tear }), ...(s.donned && { donned: 1 }) });
 
 export class Inventory {
   constructor(data) {
@@ -141,8 +145,8 @@ export class Inventory {
     const s = this.slots[i], slot = s && ITEMS[s.id].wear;
     if (!slot) return false;
     const old = this.equip[slot];
-    this.equip[slot] = { id: s.id, color: s.color || ITEMS[s.id].dye, ...(s.dur !== undefined && { dur: s.dur }) };
-    this.slots[i] = old ? { id: old.id, n: 1, color: old.color, ...(old.dur !== undefined && { dur: old.dur }) } : null;
+    this.equip[slot] = { id: s.id, ...pieceOf(s, s.color || ITEMS[s.id].dye) };
+    this.slots[i] = old ? { id: old.id, n: 1, ...pieceOf(old, old.color) } : null;
     this.changed();
     return true;
   }
@@ -154,7 +158,7 @@ export class Inventory {
     if (slot === 'espalda' && this.slots.slice(HOTBAR).some(Boolean)) return t('gui.inventory.empty_bag_first');
     const free = this.slots.findIndex((s, i) => !s && i < (slot === 'espalda' ? HOTBAR : this.cap));
     if (free < 0) return t('gui.inventory.no_free_slot');
-    this.slots[free] = { id: it.id, n: 1, color: it.color, ...(it.dur !== undefined && { dur: it.dur }) };
+    this.slots[free] = { id: it.id, n: 1, ...pieceOf(it, it.color) };
     delete this.equip[slot];
     if (slot === 'espalda') this.unbag();
     this.changed();

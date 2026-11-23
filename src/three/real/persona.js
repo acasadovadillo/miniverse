@@ -701,12 +701,46 @@ LOOK.parts.persona = (THREE, LOOK) => {
     if (look.hairStyle !== 'panuelo' && !(peinado && peinado.tapaOrejas)) { hazOreja('L', 1); hazOreja('R', -1); }
 
     // ------------------------------------------------------------ prendas con forma propia
+    // The apron (delantal): a plate over the front (on the skirt's profile, radioFalda), and its two strings down the back
+    function delantal(radioFalda, skinF, yTop, bajo) {
+      const yD = [d.cintura + 0.005, d.cintura - 0.06, d.cadera, d.cadera - 0.12, d.cadera - 0.27, (look.largoDelantal || 0.44) * ky], thD = [47, 46, 44, 42, 41, 40], nD = 12 * det;
+      let pr = null;
+      const fD = dobla(yD, det), fTh = dobla(thD, det);
+      fD.forEach((y, n) => {
+        const ring = [], ma = fTh[n];
+        for (let j = 0; j <= nD; j++) {
+          const th = ma * (j / nD * 2 - 1), q = radioFalda(th, y), L = hypot(q[0], q[2]) || 1, fy = clamp((yTop - y) / (yTop - bajo)), ond = (sin(rad(th) * 9 + 1.1) * 0.65 + sin(rad(th) * 14 + 2.6) * 0.35) * sm(0, 0.3, fy), off = 0.009 + 0.024 * pow(fy, 0.85) + 0.012 * ond;
+          const ivD = V([q[0] + q[0] / L * off, y, q[2] + q[2] / L * off], R.delantal.x + R.delantal.w * j / nD, R.delantal.y + R.delantal.h * n / (fD.length - 1), skinF(th, y), 'delantal', 'f2');
+          oscV[ivD] = 1 - 0.5 * max(0, -ond); ring.push(ivD);
+        }
+        if (pr) bridge(pr, ring); pr = ring;
+      });
+    }
+    function lazada(radioFalda, skinF) {
+      // (lazada: two strings that fall down the back)
+      for (const sg of [1, -1]) {
+        let pr = null;
+        for (let i = 0; i <= 3; i++) {
+          const k = i / 3, y = d.cintura - 0.012 - k * 0.24, th = sg * (172 - k * 6), q = radioFalda(th, y), L = hypot(q[0], q[2]) || 1, off = 0.013 + 0.004 * k, cx = sg * (0.008 + 0.012 * k), ring = [];
+          for (const dx of [-0.011, 0.011]) ring.push(V([q[0] + q[0] / L * off + cx + dx, y, q[2] + q[2] / L * off], R.delantal.x + R.delantal.w * (dx < 0 ? 0.1 : 0.2), R.delantal.y + R.delantal.h * k * 0.4, skinF(th, y), 'delantal', 'f2'));
+          if (pr) bridge(pr, ring, [0, 0, -1]); pr = ring;
+        }
+      }
+    }
     const hayFalda = tiene('tunica');
     let radioFalda = null;
     if (hayFalda) {
       const bajo = bajoFalda, kw = lerp(1, bw, 0.7), yTop = d.cintura + 0.01;
       const TF = [[yTop, sec(yTop)[0] + 0.009, sec(yTop)[1] + 0.009, sec(yTop)[2] + 0.009], [d.cintura - 0.055, 0.158 * kw + 0.026 * panza, 0.094 + 0.05 * panza, 0.099], [d.cadera + 0.02, 0.192 * kw + 0.012 * panza, 0.110 + 0.03 * panza, 0.128], [d.cadera - 0.09, 0.206 * kw, 0.128 + 0.012 * panza, 0.150],
         [0.60, 0.214 * kw, 0.136, 0.160], [0.44, 0.224 * kw, 0.152, 0.176], [0.30, 0.234 * kw, 0.162, 0.188], [bajo, 0.244 * kw, 0.170, 0.198]];
+      // A shorter skirt (look.largoFalda above the 0.30 row: a knee-length coat): the profile is cut at its hem, with the
+      // width it has there plus a little flare, and the rows within 3 cm above the hem go (the curve needs them in order)
+      if (bajo > 0.33) {
+        const j = TF.findIndex(r => r[0] < bajo), a = TF[j - 1], b = TF[j], t = (a[0] - bajo) / (a[0] - b[0]);
+        const hem = [bajo, lerp(a[1], b[1], t) + 0.006 * kw, lerp(a[2], b[2], t) + 0.004, lerp(a[3], b[3], t) + 0.004];
+        TF.splice(j, TF.length - j, hem);
+        for (let i = TF.length - 2; i > 0 && TF[i][0] < bajo + 0.03; i--) TF.splice(i, 1);
+      }
       const fT = curva(TF.slice().reverse()), yF = dobla(TF.map(r => r[0]), det), nF = 28 * det;
       radioFalda = (th, y) => { const [w, f, b] = fT(y), t = rad(th), s = sin(t), c = cos(t); return [w * pw(s, 0.92), y, (c >= 0 ? f : b) * pw(c, 0.92)]; };
       const skinF = (th, y) => {
@@ -729,20 +763,7 @@ LOOK.parts.persona = (THREE, LOOK) => {
       const fin = []; for (let j = 0; j <= nF; j++) { const th = -180 + 360 * j / nF, q = radioFalda(th, bajo + 0.03); fin.push(V([q[0] * 0.8, bajo + 0.04, q[2] * 0.8], R.falda.x + 2, R.falda.y + R.falda.h - 1, skinF(th, bajo), 'faldaIn', 'f')); }
       { const a = prev, b = fin; for (let i = 0; i < a.length - 1; i++) idx.push(a[i], b[i + 1], a[i + 1], a[i], b[i], b[i + 1]); }
       // Delantal: una plancha sobre la falda, sin los pliegues
-      if (tiene('delantal')) {
-        const yD = [d.cintura + 0.005, d.cintura - 0.06, d.cadera, d.cadera - 0.12, d.cadera - 0.27, (look.largoDelantal || 0.44) * ky], thD = [47, 46, 44, 42, 41, 40], nD = 12 * det;
-        let pr = null;
-        const fD = dobla(yD, det), fTh = dobla(thD, det);
-        fD.forEach((y, n) => {
-          const ring = [], ma = fTh[n];
-          for (let j = 0; j <= nD; j++) {
-            const th = ma * (j / nD * 2 - 1), q = radioFalda(th, y), L = hypot(q[0], q[2]) || 1, fy = clamp((yTop - y) / (yTop - bajo)), ond = (sin(rad(th) * 9 + 1.1) * 0.65 + sin(rad(th) * 14 + 2.6) * 0.35) * sm(0, 0.3, fy), off = 0.009 + 0.024 * pow(fy, 0.85) + 0.012 * ond;
-            const ivD = V([q[0] + q[0] / L * off, y, q[2] + q[2] / L * off], R.delantal.x + R.delantal.w * j / nD, R.delantal.y + R.delantal.h * n / (fD.length - 1), skinF(th, y), 'delantal', 'f2');
-            oscV[ivD] = 1 - 0.5 * max(0, -ond); ring.push(ivD);
-          }
-          if (pr) bridge(pr, ring); pr = ring;
-        });
-      }
+      if (tiene('delantal')) delantal(radioFalda, skinF, yTop, bajo);
       // Ribete del escote: una cinta en relieve que tapa el borde pintado
       {
         const nR = 32 * det, grueso = gruesoEscote;
@@ -757,14 +778,20 @@ LOOK.parts.persona = (THREE, LOOK) => {
         for (let j = 0; j <= nC; j++) { const th = -180 + 360 * j / nC, q = radioFalda(th, min(y, yTop)), L = hypot(q[0], q[2]) || 1, off = n === 1 ? 0.0165 : 0.012, sy = max(y, d.cintura - 0.05); ring.push(V([q[0] + q[0] / L * off, y, q[2] + q[2] / L * off], R.cinto.x + R.cinto.w * j / nC, R.cinto.y + R.cinto.h * n / 2, { spine: 0.5, body: 0.5 }, 'cinto', 'f2')); }
         if (pc) bridge(pc, ring); pc = ring;
       });
-      if (tiene('delantal')) for (const sg of [1, -1]) {   // lazada: dos cabos que caen por detrás
-        let pr = null;
-        for (let i = 0; i <= 3; i++) {
-          const k = i / 3, y = d.cintura - 0.012 - k * 0.24, th = sg * (172 - k * 6), q = radioFalda(th, y), L = hypot(q[0], q[2]) || 1, off = 0.013 + 0.004 * k, cx = sg * (0.008 + 0.012 * k), ring = [];
-          for (const dx of [-0.011, 0.011]) ring.push(V([q[0] + q[0] / L * off + cx + dx, y, q[2] + q[2] / L * off], R.delantal.x + R.delantal.w * (dx < 0 ? 0.1 : 0.2), R.delantal.y + R.delantal.h * k * 0.4, skinF(th, y), 'delantal', 'f2'));
-          if (pr) bridge(pr, ring, [0, 0, -1]); pr = ring;
-        }
-      }
+      if (tiene('delantal')) lazada(radioFalda, skinF);
+    } else if (tiene('delantal') && look.delantalPlancha) {
+      // Without a skirt (an apron over trousers: the creator's "shirt and apron", the leather apron) the plate hangs on the
+      // profile the skirt would have, cut at the apron's hem, and moves with the legs as the skirt does. Only where
+      // look.delantalPlancha asks for it (realperson.js toReal: the leather apron, a new garment); the cloth apron over
+      // trousers keeps its look of before until the E3 art is approved (Plan E §5.3)
+      const yTop = d.cintura + 0.01, bajo = (look.largoDelantal || 0.44) * ky - 0.02, kw = lerp(1, bw, 0.7);
+      const TF = [[yTop, sec(yTop)[0] + 0.009, sec(yTop)[1] + 0.009, sec(yTop)[2] + 0.009], [d.cintura - 0.055, 0.158 * kw + 0.026 * panza, 0.094 + 0.05 * panza, 0.099], [d.cadera + 0.02, 0.192 * kw + 0.012 * panza, 0.110 + 0.03 * panza, 0.128], [d.cadera - 0.09, 0.206 * kw, 0.128 + 0.012 * panza, 0.150],
+        [0.60, 0.214 * kw, 0.136, 0.160], [bajo, 0.222 * kw, 0.148, 0.172]];
+      const fT = curva(TF.slice().reverse()), radio = (th, y) => { const [w, f, b] = fT(max(bajo, min(yTop, y))), t = rad(th), s2 = sin(t), c = cos(t); return [w * pw(s2, 0.92), y, (c >= 0 ? f : b) * pw(c, 0.92)]; };
+      // (the legs are seen here, not hidden as under a skirt: each half of the plate follows the thigh behind it, so a
+      // step or a seat folds it over the leg instead of the knee coming through it)
+      const skinD = (th, y) => { const k = clamp((yTop - 0.04 - y) / (yTop - 0.04 - bajo)), wl = clamp(0.5 + 1.3 * sin(rad(th))), tw = 0.97 * sm(0, 0.55, k); return { body: 1 - tw, legL: tw * wl, legR: tw * (1 - wl) }; };
+      delantal(radio, skinD, yTop, bajo); lazada(radio, skinD);
     }
     if (tiene('camisa')) {
       // Cuello doblado: sigue el borde de la uve y detrás rodea el cuello. La vuelta cae sobre el hombro y el pecho (unos 100 triángulos)
@@ -1225,6 +1252,14 @@ LOOK.parts.persona = (THREE, LOOK) => {
         const relleno = (r, col, m0 = 3) => { g.fillStyle = col; g.fillRect(r.x - m0, r.y - m0, r.w + 2 * m0, r.h + 2 * m0); };
         const motivo = (k) => patron(k);
         const trama = (r, k, a) => { g.save(); g.beginPath(); g.rect(r.x, r.y, r.w, r.h); g.clip(); g.globalCompositeOperation = 'overlay'; g.globalAlpha = a; g.fillStyle = g.createPattern(motivo(k), 'repeat'); g.fillRect(r.x, r.y, r.w, r.h); g.restore(); };
+        // Fleece (sheepskin turned out): the wool colour with small curls, lighter on top and darker between them
+        const fleece = (r, col) => {
+          relleno(r, col, 1); trama(r, 'punto', 0.3);
+          const lz = LOOK.mix(col, '#ffffff', 0.35), os = LOOK.mix(col, '#5a4a36', 0.5), n = max(24, Math.round(r.w * r.h / 9));
+          g.save(); g.beginPath(); g.rect(r.x, r.y, r.w, r.h); g.clip();
+          for (let i = 0; i < n; i++) { const x = r.x + rn() * r.w, y = r.y + rn() * r.h, k = 0.8 + rn() * 1.1; g.fillStyle = os; g.globalAlpha = 0.28; g.beginPath(); g.ellipse(x + 0.4, y + 0.5, k, k * 0.8, 0, 0, 7); g.fill(); g.fillStyle = lz; g.globalAlpha = 0.34; g.beginPath(); g.ellipse(x - 0.2, y - 0.2, k * 0.6, k * 0.5, 0, 0, 7); g.fill(); }
+          g.restore(); g.globalAlpha = 1;
+        };
         const suave = (r, esc, modo, alfa, fn) => { const c = document.createElement('canvas'); c.width = ceil(r.w / esc * s); c.height = ceil(r.h / esc * s); const k = c.getContext('2d'); k.scale(s / esc, s / esc); k.translate(-r.x, -r.y); k.lineCap = 'round'; k.lineJoin = 'round'; fn(k); g.save(); g.globalCompositeOperation = modo; g.globalAlpha = alfa; g.imageSmoothingEnabled = true; g.imageSmoothingQuality = 'high'; g.drawImage(c, r.x, r.y, r.w, r.h); g.restore(); };
         const curvaT = (k, pts, w, col) => { k.strokeStyle = col; k.lineWidth = w; k.beginPath(); k.moveTo(pts[0][0], pts[0][1]); if (pts.length === 3) k.quadraticCurveTo(pts[1][0], pts[1][1], pts[2][0], pts[2][1]); else for (let i = 1; i < pts.length; i++) k.lineTo(pts[i][0], pts[i][1]); k.stroke(); };
 
@@ -1370,7 +1405,11 @@ LOOK.parts.persona = (THREE, LOOK) => {
         const pieR = R.pie, piernaR = R.pierna, YP = y => vP(y), UP = u => piernaR.x + piernaR.w * u;
         for (const pr of prendas) {
           const col = LOOK.sobrio(pr.color || '#6a5a4a');
-          if (pr.id === 'medias') { g.fillStyle = col; g.fillRect(piernaR.x, YP(d.rodilla + 0.03), piernaR.w, piernaR.y + piernaR.h - YP(d.rodilla + 0.03)); trama(piernaR, 'punto', 0.25); relleno(pieR, col, 1); }
+          if (pr.id === 'medias') {
+            g.fillStyle = col; g.fillRect(piernaR.x, YP(d.rodilla + 0.03), piernaR.w, piernaR.y + piernaR.h - YP(d.rodilla + 0.03)); trama(piernaR, 'punto', pr.lana ? 0.5 : 0.25); relleno(pieR, col, 1);
+            // Wool socks: a thick knit and a ribbed band at the top, turned down
+            if (pr.lana) { trama(pieR, 'punto', 0.45); const yT = YP(d.rodilla + 0.03), osc = LOOK.mix(col, '#2a2018', 0.35); g.fillStyle = LOOK.mix(col, '#ffffff', 0.06); g.fillRect(piernaR.x, yT, piernaR.w, 7); g.fillStyle = osc; for (let x = piernaR.x + 1; x < piernaR.x + piernaR.w; x += 2.4) g.fillRect(x, yT, 0.8, 7); g.fillStyle = 'rgba(40,30,20,0.3)'; g.fillRect(piernaR.x, yT + 7, piernaR.w, 1.6); }
+          }
           if (pr.id === 'botas' || pr.id === 'zapatos') {
             relleno(pieR, col, 2); trama(pieR, 'cuero', 0.4);
             // Suela, oscura; desgaste claro en puntera y talón
@@ -1381,6 +1420,7 @@ LOOK.parts.persona = (THREE, LOOK) => {
             // Cordones
             g.strokeStyle = LOOK.mix(col, '#10100e', 0.55); g.lineWidth = 1; const mitad = pieR.x + pieR.w * 0.25;
             for (let i = 0; i < 4; i++) { const yy = pieR.y + pieR.h * (0.12 + i * 0.09); g.beginPath(); g.moveTo(mitad - 5, yy); g.lineTo(mitad + 5, yy + 1.5); g.moveTo(mitad + 5, yy); g.lineTo(mitad - 5, yy + 1.5); g.stroke(); }
+            if (pr.forro && !botaAlta) { fleece({ x: pieR.x, y: pieR.y, w: pieR.w, h: pieR.h * 0.14 }, LOOK.sobrio(pr.forro)); g.fillStyle = 'rgba(30,20,12,0.35)'; g.fillRect(pieR.x, pieR.y + pieR.h * 0.14, pieR.w, 1.2); }
             if (pr.id === 'zapatos') { const yt = pieR.y + 1; g.fillStyle = LOOK.sobrio((prendas.find(o => o.id === 'medias') || {}).color || look.skin); g.fillRect(pieR.x, pieR.y, pieR.w * 0.56, pieR.h * 0.14); g.fillRect(pieR.x + pieR.w * 0.92, pieR.y, pieR.w * 0.08, pieR.h * 0.14); }
           }
         }
@@ -1412,6 +1452,8 @@ LOOK.parts.persona = (THREE, LOOK) => {
             g.fillStyle = bc; g.fillRect(r.x - 2, yB, r.w + 4, rb.h + 3); trama(rb, 'cuero', 0.42);
             suave(rb, 2, 'multiply', 0.3, k => { for (const c of [0.25, 0.75]) for (const [yy, w] of [[0.135, 2], [0.105, 1.6]]) curvaT(k, [[UP(c - 0.2), YP(yy * ky)], [UP(c), YP((yy - 0.012) * ky)], [UP(c + 0.2), YP((yy + 0.006) * ky)]], w, LOOK.mix(bc, '#0c0806', 0.7)); });
             suave(rb, 2, 'screen', 0.16, k => { for (const c of [0.25, 0.75]) curvaT(k, [[UP(c - 0.12), YP(0.25 * ky)], [UP(c), YP(0.2 * ky)], [UP(c + 0.1), YP(0.13 * ky)]], 3, LOOK.mix(bc, '#c7ab86', 0.5)); });
+            const forro = tiene('botas').forro;   // (lined boots: the fleece turned down over the top of the shaft)
+            if (forro) { fleece({ x: r.x, y: yB, w: r.w, h: 8 }, LOOK.sobrio(forro)); g.fillStyle = 'rgba(30,20,12,0.35)'; g.fillRect(r.x, yB + 8, r.w, 1.4); }
             g.fillStyle = 'rgba(16,10,6,0.6)'; g.fillRect(r.x, yB - 0.6, r.w, 2.2);
           } else { g.fillStyle = LOOK.mix(col, '#100c08', 0.28); g.fillRect(r.x, yH0 - 1.2, r.w, 1.2); }
         }
@@ -1440,7 +1482,7 @@ LOOK.parts.persona = (THREE, LOOK) => {
           const col = LOOK.sobrio(camisa.color), osc = LOOK.mix(col, '#3a2c20', 0.55), luz = LOOK.mix(col, '#ffffff', 0.25);
           g.save(); clipTr();
           const sup = borde(cuelloCam); const yw = d.cintura - 0.02; poli(sup.concat([[TX(180), TY(yw)], [TX(-180), TY(yw)]])); g.fillStyle = col; g.fill(); g.restore();
-          trama({ x: tb.x, y: TY(d.yt + 0.05), w: tb.w, h: TY(yw) - TY(d.yt + 0.05) }, 'lino', 0.3);
+          trama({ x: tb.x, y: TY(d.yt + 0.05), w: tb.w, h: TY(yw) - TY(d.yt + 0.05) }, 'lino', camisa.fino ? 0.55 : 0.3);   // (the linen shirt: an open weave)
           g.save(); clipTr(); poli(sup.concat([[TX(180), TY(yw)], [TX(-180), TY(yw)]])); g.clip();
           suave(tb, 2.4, 'multiply', 0.65, k => {
             for (const sg of [1, -1]) {
@@ -1449,9 +1491,17 @@ LOOK.parts.persona = (THREE, LOOK) => {
               for (let i = 0; i < 3; i++) curvaT(k, [[TX(sg * (28 + i * 34)), TY(d.cintura + 0.012 + i * 0.006)], [TX(sg * (44 + i * 34)), TY(d.cintura + 0.04 + i * 0.006)], [TX(sg * (64 + i * 34)), TY(d.cintura + 0.01)]], 1.8, osc);
             }
           });
-          // Tapeta y botones
-          g.fillStyle = LOOK.mix(col, '#3a2c20', 0.07); g.fillRect(TX(-2), TY(d.yt + 0.016), TX(2) - TX(-2), TY(yw) - TY(d.yt + 0.016));
-          g.strokeStyle = LOOK.mix(col, '#3a2c20', 0.2); g.lineWidth = 0.5; g.beginPath(); g.moveTo(TX(2), TY(d.yt + 0.016)); g.lineTo(TX(2), TY(yw)); g.stroke();
+          // Tapeta y botones (the linen shirt is pulled on: a short slit at the neck, laced with a cord)
+          if (camisa.fino) {
+            const y0 = d.yt + 0.016, y1 = d.yt - 0.07, cord = LOOK.mix(col, '#5a4630', 0.6);
+            g.fillStyle = LOOK.mix(col, '#3a2c20', 0.3); g.fillRect(TX(-0.8), TY(y0), TX(0.8) - TX(-0.8), TY(y1) - TY(y0));
+            g.strokeStyle = cord; g.lineWidth = 0.7; g.beginPath();
+            for (let i = 0; i < 3; i++) { const ya = lerp(y0 - 0.008, y1 + 0.01, i / 3), yb2 = lerp(y0 - 0.008, y1 + 0.01, (i + 1) / 3); g.moveTo(TX(-2.2), TY(ya)); g.lineTo(TX(2.2), TY(yb2)); g.moveTo(TX(2.2), TY(ya)); g.lineTo(TX(-2.2), TY(yb2)); }
+            g.stroke();
+          } else {
+            g.fillStyle = LOOK.mix(col, '#3a2c20', 0.07); g.fillRect(TX(-2), TY(d.yt + 0.016), TX(2) - TX(-2), TY(yw) - TY(d.yt + 0.016));
+            g.strokeStyle = LOOK.mix(col, '#3a2c20', 0.2); g.lineWidth = 0.5; g.beginPath(); g.moveTo(TX(2), TY(d.yt + 0.016)); g.lineTo(TX(2), TY(yw)); g.stroke();
+          }
           g.restore();
           manga(col, camisa.fin || finManga, null, 'lino'); puno(col, finManga);
           // Tirilla
@@ -1461,8 +1511,9 @@ LOOK.parts.persona = (THREE, LOOK) => {
           const col = LOOK.sobrio(tunica.color), rib = LOOK.mix(col, LOOK.sobrio(tunica.ribete || '#b08a4e'), 0.3), osc = LOOK.mix(col, '#2b1612', 0.55), luz = LOOK.mix(col, '#f0d8c0', 0.25);
           const cuelloT = cuelloTunica;
           const sup = borde(t => cuelloT(t) - gruesoEscote(t) * 0.5);
+          const telaT = tunica.tela || 'lino';   // (the wool coat: twill)
           g.save(); clipTr(); poli(sup.concat([[TX(180), tb.y + tb.h + 3], [TX(-180), tb.y + tb.h + 3]])); g.fillStyle = col; g.fill(); g.clip();
-          trama(tb, 'lino', 0.4);
+          trama(tb, telaT, 0.4);
           suave(tb, 2.4, 'multiply', 0.7, k => {
             for (const sg of [1, -1]) {
               curvaT(k, [[TX(sg * 60), TY(d.ya + 0.01)], [TX(sg * 44), TY(d.ya - 0.08)], [TX(sg * 26), TY(d.cintura + 0.05)]], 2.2, osc);
@@ -1473,13 +1524,22 @@ LOOK.parts.persona = (THREE, LOOK) => {
           });
           g.restore();
           g.save(); clipTr(); g.strokeStyle = LOOK.mix(col, '#2b1612', 0.14); g.lineWidth = 0.5; g.beginPath(); g.moveTo(TX(0), TY(d.yt - 0.05)); g.lineTo(TX(0), TY(d.cintura)); g.stroke(); g.restore();
+          // A coat (botones): the front closes edge over edge, with a darker facing, the shadow it casts and a row of horn
+          // buttons down the chest
+          if (tunica.botones) {
+            g.save(); clipTr();
+            g.fillStyle = LOOK.mix(col, '#2b1612', 0.22); g.fillRect(TX(-1.2), TY(d.yt - 0.045), TX(1.2) - TX(-1.2), TY(d.cintura) - TY(d.yt - 0.045));
+            g.fillStyle = 'rgba(30,18,12,0.35)'; g.fillRect(TX(1.2), TY(d.yt - 0.045), 1.1, TY(d.cintura) - TY(d.yt - 0.045));
+            for (let i = 0; i < 5; i++) { const yy = lerp(d.yt - 0.06, d.cintura + 0.035, i / 4); g.fillStyle = LOOK.sobrio('#3a2a1c'); g.beginPath(); g.ellipse(TX(4), TY(yy), 1.7, 1.7, 0, 0, 7); g.fill(); g.fillStyle = 'rgba(255,236,210,0.22)'; g.beginPath(); g.ellipse(TX(4) - 0.4, TY(yy) - 0.5, 0.7, 0.7, 0, 0, 7); g.fill(); }
+            g.restore();
+          }
           // Ribete de contraste del escote: la tira que lleva la cinta en relieve
           { const cu2 = R.cuello, cL2 = LOOK.mix(LOOK.sobrio(tunica.camisola || '#d3c9b4'), LOOK.sobrio(tunica.color), 0.12), hL = cu2.h * 0.44; g.fillStyle = rib; g.fillRect(cu2.x, cu2.y, cu2.w, cu2.h); trama(cu2, 'lino', 0.35); g.fillStyle = LOOK.mix(rib, '#2b1612', 0.4); g.fillRect(cu2.x, cu2.y + cu2.h - 2.5, cu2.w, 2.5);
             g.fillStyle = cL2; g.fillRect(cu2.x, cu2.y, cu2.w, hL); g.strokeStyle = LOOK.mix(cL2, '#4a3a2a', 0.45); g.lineWidth = 0.6; for (let u = 0; u < cu2.w; u += 1.7) { g.globalAlpha = 0.12 + rn() * 0.16; g.beginPath(); g.moveTo(cu2.x + u, cu2.y); g.lineTo(cu2.x + u + (rn() - 0.5) * 1.2, cu2.y + hL); g.stroke(); } g.globalAlpha = 1;
             g.fillStyle = 'rgba(50,34,24,0.3)'; g.fillRect(cu2.x, cu2.y + hL - 1.2, cu2.w, 1.2); g.fillStyle = LOOK.mix(cL2, '#4a3a2a', 0.22); g.fillRect(cu2.x, cu2.y, cu2.w, 1); }
-          manga(col, finManga, null, 'lino'); puno(col, finManga);
+          manga(col, finManga, null, telaT); puno(col, finManga);
           // Falda
-          const f = R.falda; relleno(f, col, 2); trama(f, 'lino', 0.36);
+          const f = R.falda; relleno(f, col, 2); trama(f, telaT, 0.36);
           const XF = t => f.x + f.w * (t + 180) / 360;
           suave(f, 4, 'multiply', 0.26, k => {
             for (let i = 0; i < 11; i++) { const t = -180 + 33 * i + rn() * 16, w = 5 + rn() * 5; curvaT(k, [[XF(t), f.y + 14 + rn() * 26], [XF(t + (rn() - 0.5) * 6), f.y + f.h * 0.55], [XF(t + (rn() - 0.5) * 8), f.y + f.h]], w, osc); }
@@ -1489,7 +1549,9 @@ LOOK.parts.persona = (THREE, LOOK) => {
           // Suciedad abajo y ribete del bajo
           const gd = g.createLinearGradient(0, f.y + f.h * 0.62, 0, f.y + f.h); gd.addColorStop(0, 'rgba(84,66,48,0)'); gd.addColorStop(1, 'rgba(84,66,48,0.42)'); g.fillStyle = gd; g.fillRect(f.x, f.y + f.h * 0.62, f.w, f.h * 0.38);
           g.fillStyle = LOOK.mix(col, '#100a08', 0.28); g.fillRect(f.x, f.y + f.h - 6, f.w, 0.8); g.fillStyle = LOOK.mix(col, '#100a08', 0.45); g.fillRect(f.x, f.y + f.h - 1.4, f.w, 1.4);
-          { const xP = XF(112), yP = f.y + f.h * 0.56, cP = LOOK.mix(col, '#4a3024', 0.34); g.fillStyle = cP; g.fillRect(xP, yP, 13, 11); trama({ x: xP, y: yP, w: 13, h: 11 }, 'lino', 0.5); g.strokeStyle = LOOK.mix(col, '#e8d8c0', 0.4); g.lineWidth = 0.5; g.setLineDash([1.2, 1.1]); g.strokeRect(xP + 0.5, yP + 0.5, 12, 10); g.setLineDash([]); }   // remiendo
+          // The coat's skirt opens at the front, down to the hem: the overlapping edge, its facing and its shadow
+          if (tunica.botones) { g.fillStyle = LOOK.mix(col, '#2b1612', 0.22); g.fillRect(XF(-1.6), f.y, XF(1.6) - XF(-1.6), f.h); g.fillStyle = 'rgba(30,18,12,0.4)'; g.fillRect(XF(1.6), f.y, 1.2, f.h); g.fillStyle = LOOK.mix(col, '#f0d8c0', 0.12); g.fillRect(XF(-1.6), f.y, 0.7, f.h); }
+          if (!tunica.botones) { const xP = XF(112), yP = f.y + f.h * 0.56, cP = LOOK.mix(col, '#4a3024', 0.34); g.fillStyle = cP; g.fillRect(xP, yP, 13, 11); trama({ x: xP, y: yP, w: 13, h: 11 }, 'lino', 0.5); g.strokeStyle = LOOK.mix(col, '#e8d8c0', 0.4); g.lineWidth = 0.5; g.setLineDash([1.2, 1.1]); g.strokeRect(xP + 0.5, yP + 0.5, 12, 10); g.setLineDash([]); }   // remiendo
           // Interior oscuro y cinturón
           const ci = R.cinto, deli = tiene('delantal'); g.fillStyle = deli ? LOOK.mix(LOOK.sobrio(deli.color), '#6a5a44', 0.2) : LOOK.mix(rib, '#2b2016', 0.55); g.fillRect(ci.x, ci.y, ci.w, ci.h); trama(ci, deli ? 'lino' : 'cuero', 0.3);
         }
@@ -1506,7 +1568,7 @@ LOOK.parts.persona = (THREE, LOOK) => {
           const sup = []; for (let t = -180; t <= 180; t += 2) sup.push([TX(t), TY(tope(t))]);
           const inf = []; for (let t = 180; t >= -180; t -= 4) inf.push([TX(t), TY(baj(t))]);
           g.save(); clipTr(); poli(sup.concat(inf)); g.fillStyle = col; g.fill(); g.clip();
-          trama(tb, 'sarga', 0.3);
+          trama(tb, chal.vellon ? 'cuero' : 'sarga', chal.vellon ? 0.45 : 0.3);   // (the sheepskin jacket: suede)
           // Espalda de otro paño, más mate, y pinzas
           suave(tb, 2.2, 'multiply', 0.7, k => {
             for (const sg of [1, -1]) {
@@ -1519,11 +1581,13 @@ LOOK.parts.persona = (THREE, LOOK) => {
           g.restore();
           // Sisa: la camisa asoma en un óvalo alrededor del brazo, y la manga sigue sin corte hasta el hombro
           const cam2 = tiene('camisa');
-          if (cam2) for (const sg of [1, -1]) { g.fillStyle = LOOK.sobrio(cam2.color); const ov = []; for (let i = 0; i < 32; i++) { const f = 2 * PI * i / 32; ov.push([TX(sg * (90 + sisa.rt * pw(cos(f), 0.55))), TY(sisa.yc + sisa.ry * pw(sin(f), 0.55))]); } poli(ov); g.fill(); }
+          if (cam2 && !chal.mangas) for (const sg of [1, -1]) { g.fillStyle = LOOK.sobrio(cam2.color); const ov = []; for (let i = 0; i < 32; i++) { const f = 2 * PI * i / 32; ov.push([TX(sg * (90 + sisa.rt * pw(cos(f), 0.55))), TY(sisa.yc + sisa.ry * pw(sin(f), 0.55))]); } poli(ov); g.fill(); }
           // La cinta en relieve de los bordes, algo más oscura que el paño
-          { const cu3 = R.cinto, cc3 = LOOK.mix(col, '#10141c', 0.3); g.fillStyle = cc3; g.fillRect(cu3.x - 1, cu3.y - 1, cu3.w + 2, cu3.h + 2); trama(cu3, 'sarga', 0.3); g.fillStyle = LOOK.mix(col, '#d8d8c8', 0.06); g.fillRect(cu3.x, cu3.y + cu3.h * 0.46, cu3.w, 1); }
-          // Un remiendo atrás: la prenda ha vivido
-          { const xP = TX(-146), yP = TY(d.cintura + 0.09), cP = LOOK.mix(col, '#3a3428', 0.4); g.fillStyle = cP; g.fillRect(xP, yP, 11, 10); g.strokeStyle = LOOK.mix(col, '#d8d0b8', 0.35); g.lineWidth = 0.5; g.setLineDash([1.2, 1.1]); g.strokeRect(xP + 0.5, yP + 0.5, 10, 9); g.setLineDash([]); }
+          // (the jacket: fleece turned out at the edges; over a tunic that strip is also the tunic's belt, so it stays leather)
+          if (chal.vellon && !tiene('tunica')) fleece(R.cinto, LOOK.sobrio(chal.ribete || '#e4d8c0'));
+          else { const cu3 = R.cinto, cc3 = LOOK.mix(col, '#10141c', 0.3); g.fillStyle = cc3; g.fillRect(cu3.x - 1, cu3.y - 1, cu3.w + 2, cu3.h + 2); trama(cu3, 'sarga', 0.3); g.fillStyle = LOOK.mix(col, '#d8d8c8', 0.06); g.fillRect(cu3.x, cu3.y + cu3.h * 0.46, cu3.w, 1); }
+          // Un remiendo atrás: la prenda ha vivido (not on the new jacket)
+          if (!chal.vellon) { const xP = TX(-146), yP = TY(d.cintura + 0.09), cP = LOOK.mix(col, '#3a3428', 0.4); g.fillStyle = cP; g.fillRect(xP, yP, 11, 10); g.strokeStyle = LOOK.mix(col, '#d8d0b8', 0.35); g.lineWidth = 0.5; g.setLineDash([1.2, 1.1]); g.strokeRect(xP + 0.5, yP + 0.5, 10, 9); g.setLineDash([]); }
           // Ribete, botones
           g.save(); clipTr(); g.lineJoin = 'round'; g.strokeStyle = rib; g.lineWidth = 1.5;
                     g.lineWidth = 1.2; poli(inf.filter(p => p[0] > TX(-40) && p[0] < TX(40)), false); g.stroke();
@@ -1532,6 +1596,12 @@ LOOK.parts.persona = (THREE, LOOK) => {
           // Bolsillo
           for (const sg of [1, -1]) { g.strokeStyle = LOOK.mix(col, '#10141c', 0.55); g.lineWidth = 0.9; g.beginPath(); g.moveTo(TX(sg * 19), TY(d.cintura + 0.012)); g.lineTo(TX(sg * 40), TY(d.cintura + 0.020)); g.stroke(); }
           g.restore();
+          // The jacket's own sleeves, over the shirt's, to where they end, with a fleece cuff
+          if (chal.mangas && finManga > 0) {
+            const br = R.brazo, yF = br.y + br.h * clamp((yMap(1.40) - (jy - finManga * largoB)) / (yMap(1.40) - mun[1]));
+            manga(col, finManga, null, chal.vellon ? 'cuero' : 'sarga');
+            if (chal.vellon) fleece({ x: br.x, y: yF - 8, w: br.w, h: 8 }, LOOK.sobrio(chal.ribete || '#e4d8c0'));
+          }
           // Sombra que deja el chaleco sobre lo de abajo
           g.fillStyle = 'rgba(30,24,18,0.45)'; g.fillRect(tb.x, TY(baj(90)) + 0.2, tb.w, 2);
         }
@@ -1539,12 +1609,18 @@ LOOK.parts.persona = (THREE, LOOK) => {
         const del = tiene('delantal');
         if (del) {
           const col = LOOK.sobrio(del.color), osc = LOOK.mix(col, '#4a3a2a', 0.55), r = R.delantal;
-          relleno(r, col, 2); trama(r, 'lino', 0.55);
-          suave(r, 3.5, 'multiply', 0.42, k => { for (let i = 0; i < 6; i++) { const x = r.x + r.w * (0.1 + i * 0.16 + rn() * 0.05); curvaT(k, [[x, r.y + 1], [x + (rn() - 0.5) * 7, r.y + r.h * 0.5], [x + (rn() - 0.5) * 9, r.y + r.h]], 3.4, osc); } });
+          relleno(r, col, 2); trama(r, del.cuero ? 'cuero' : 'lino', 0.55);
+          suave(r, 3.5, 'multiply', del.cuero ? 0.2 : 0.42, k => { for (let i = 0; i < 6; i++) { const x = r.x + r.w * (0.1 + i * 0.16 + rn() * 0.05); curvaT(k, [[x, r.y + 1], [x + (rn() - 0.5) * 7, r.y + r.h * 0.5], [x + (rn() - 0.5) * 9, r.y + r.h]], 3.4, osc); } });
           // Mancha de uso en el centro y al borde
           suave(r, 4, 'multiply', 0.14, k => { k.fillStyle = LOOK.mix(col, '#7c6a52', 0.8); k.beginPath(); k.ellipse(r.x + r.w * 0.5, r.y + r.h * 0.42, r.w * 0.22, r.h * 0.18, 0, 0, 7); k.fill(); });
           const gr = g.createLinearGradient(0, r.y + r.h * 0.7, 0, r.y + r.h); gr.addColorStop(0, 'rgba(110,90,66,0)'); gr.addColorStop(1, 'rgba(110,90,66,0.35)'); g.fillStyle = gr; g.fillRect(r.x, r.y + r.h * 0.7, r.w, r.h * 0.3);
           g.fillStyle = LOOK.mix(col, '#4a3a2a', 0.45); g.fillRect(r.x, r.y + r.h - 3.5, r.w, 0.8); g.fillRect(r.x + 1.2, r.y, 0.8, r.h); g.fillRect(r.x + r.w - 2, r.y, 0.8, r.h);
+          // The leather apron: a dark burnished edge, a stitched seam inside it and a sheen where it is rubbed
+          if (del.cuero) {
+            g.fillStyle = LOOK.mix(col, '#140c08', 0.45); g.fillRect(r.x, r.y, r.w, 1.6); g.fillRect(r.x, r.y + r.h - 2, r.w, 2); g.fillRect(r.x, r.y, 1.4, r.h); g.fillRect(r.x + r.w - 1.4, r.y, 1.4, r.h);
+            g.strokeStyle = LOOK.mix(col, '#e8d4b0', 0.4); g.lineWidth = 0.5; g.setLineDash([1.4, 1.2]); g.strokeRect(r.x + 3, r.y + 3, r.w - 6, r.h - 6); g.setLineDash([]);
+            suave(r, 4, 'screen', 0.14, k => { k.fillStyle = LOOK.mix(col, '#f0dcc0', 0.5); k.beginPath(); k.ellipse(r.x + r.w * 0.5, r.y + r.h * 0.38, r.w * 0.26, r.h * 0.16, 0, 0, 7); k.fill(); });
+          }
         }
         // ---- 7. polvo y capa
         const conP = look.hairStyle && estilos[look.hairStyle], esPanuelo = look.hairStyle === 'panuelo', capa = esPanuelo ? LOOK.sobrio(look.panuelo || '#6f5f44') : pelo;

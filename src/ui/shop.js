@@ -1,12 +1,12 @@
 // Tienda de un vecino: comprar lo que vende y venderle lo que lleves.
-import { ITEMS, TIERS, LEGACY_ITEMS } from '../items.js';
+import { ITEMS, TIERS, LEGACY_ITEMS, clothesText } from '../items.js';
 import { STATIONS } from '../recipes.js';
 import { BUILDABLE, PLANS } from '../buildables.js';
 import { SHOPS, priceOf, buyPrice } from '../economy.js';
 import { itemIconUrl } from '../art/items.js';
 import { animalSprite, ANIMALS } from '../art/farm.js';
 import { Audio } from '../audio.js';
-import { t, fmt } from '../i18n.js';
+import { t, fmt, has } from '../i18n.js';
 
 const $ = id => document.getElementById(id);
 
@@ -26,6 +26,7 @@ export function initShopUI(game, { onClose }) {
     const el = document.createElement('div');
     el.className = 'sh-row';
     el.innerHTML = `<img alt="" src="${icon}"><div><b>${name}</b><small>${sub}</small></div>`;
+    el.querySelector('small').title = el.querySelector('small').textContent;   // (the line is cut with … when long: the whole of it on hover)
     for (const [label, fn, ok] of actions) {
       const b = document.createElement('button');
       b.type = 'button'; b.className = 'btn'; b.textContent = label; b.disabled = !ok;
@@ -36,8 +37,9 @@ export function initShopUI(game, { onClose }) {
   }
 
   function render() {
-    if (!shop) return;
-    $('sh-title').textContent = SHOPS[shop].title;
+    if (!shop || !SHOPS[shop]) return;
+    // (the title from the language files when the shop has one, shop.title.<id>: Marta's, Plan E §4.4; else its own)
+    $('sh-title').textContent = has(`shop.title.${shop}`) ? t(`shop.title.${shop}`) : SHOPS[shop].title ?? '';
     $('sh-money').textContent = `${game.money} 🪙`;
     document.querySelectorAll('[data-shtab]').forEach(b => b.classList.toggle('on', b.dataset.shtab === tab));
     $('sh-note').textContent = note || game.rep?.shopNote() || '';   // (why the prices are not the usual ones, until something else is said)
@@ -63,9 +65,9 @@ export function initShopUI(game, { onClose }) {
           }, !has && game.money >= price]]);
           continue;
         }
-        const def = ITEMS[e.id];
-        row(itemIconUrl(e.id), def.name, `${price} 🪙 · ${def.desc}`, [
-          ['Comprar', () => buy(e.id, price, 1), game.money >= price],
+        const def = ITEMS[e.id], clothes = clothesText(def);   // (a garment also says what it does: "Warmth +3 · Keeps off rain")
+        row(itemIconUrl(e.id), def.name, `${price} 🪙 · ${clothes ? `${clothes} · ` : ''}${def.desc}`, [   // (what it does first: the line is cut when long)
+          [t('shop.buy'), () => buy(e.id, price, 1), game.money >= price],
           ['×5', () => buy(e.id, price, 5), game.money >= price * 5 && def.stack > 1],
         ]);
       }

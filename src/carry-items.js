@@ -26,6 +26,8 @@ export const WEIGHT = {
   // (thirst and diving: the canteen and the jug empty; their water is SIP_KG a sip, see stackKg. The pearl is lighter than
   // the gem rule's 0.02)
   canteen: 0.3, water_jug: 1, apple_juice: 0.4, seashell: 0.02, pearl: 0.01, seaweed: 0.1, mussel: 0.05,
+  // (Plan E §3.1: the coats and the heavier new garments; the rest are clothes, 0.4)
+  wool_coat: 1.5, sheepskin_jacket: 2, lined_boots: 1.2, leather_apron: 0.8,
 };
 // kg of one sip of water in a canteen or a jug (s.sips)
 export const SIP_KG = 0.25;

@@ -1,6 +1,6 @@
 // Objetos (herramientas, materiales, comida y cosas que se colocan) y qué da cada cosa del mundo al recolectarla.
-import { defineNames, has, noun, t, fmt } from './i18n.js';
-import { GARMENTS } from './clothing.js';
+import { defineNames, has, noun, t, fmt, getLang } from './i18n.js';
+import { GARMENTS, TEAR, tearMul } from './clothing.js';
 
 // Las herramientas son todas de hierro (hacha, pico, guadaña, azada y pala). tier: el nivel, que además usan la caña y la red
 export const TIERS = {
@@ -277,6 +277,10 @@ export const WEAR_SLOTS = [
   ['cabeza', 'Cabeza'], ['pelo', 'Pelo'], ['torso', 'Torso'], ['encima', 'Encima'], ['piernas', 'Piernas'], ['pies', 'Pies'],
   ['interiorArriba', 'Interior arriba'], ['interiorAbajo', 'Interior abajo'], ['calcetines', 'Calcetines'], ['espalda', 'Espalda'],
 ];
+// The coats' slot (Plan E §3.1), over everything else, right after `encima`. Its label comes from the language files
+// (read when it is shown: wearSlotLabel); an older game does not know it and keeps what is worn there (keptEquip)
+WEAR_SLOTS.splice(WEAR_SLOTS.findIndex(([k]) => k === 'encima') + 1, 0, ['outer', 'Outer']);
+export const wearSlotLabel = slot => (has(`wear.slot.${slot}`) ? t(`wear.slot.${slot}`) : WEAR_SLOTS.find(([k]) => k === slot)?.[1] ?? slot);
 Object.assign(ITEMS, {
   camisa: { name: 'Camisa', desc: 'De manga larga. Encima puede ir un chaleco o un delantal.', wear: 'torso', dye: '#3a5ab8' },
   tunica: { name: 'Túnica con cinturón', desc: 'Hasta las caderas, con cinturón y hebilla.', wear: 'torso', dye: '#4a9a4a' },
@@ -301,10 +305,23 @@ Object.assign(ITEMS, {
   hijab: { name: 'Hiyab', desc: 'Pañuelo que cubre el pelo y el cuello y deja la cara a la vista.', wear: 'cabeza', dye: '#1c1c22' },
   mochila: { name: 'Mochila', desc: 'Póntela a la espalda y podrás llevar 27 cosas más. Sin ella solo llevas lo que cabe en las manos y los bolsillos. También se deja en el suelo, llena, como un cofre que se lleva.', wear: 'espalda', bag: 27, dye: '#8a5a34', place: 'furniture' },
 });
+// ---------- The new garments (Plan E §3.1, phase E2): English ids, names and descriptions from the language files ----------
+// Woven at the loom with no plan (recipes.js) and sold by Marta, by season (economy.js). Until the E3 art they are drawn
+// with today's garment shapes (plan §5.3 fallback). Like every garment they carry their colour and never stack
+const GARMENT_ITEMS = {
+  wool_coat: { wear: 'outer', dye: '#5e5648' },
+  sheepskin_jacket: { wear: 'outer', dye: '#8a6440' },
+  linen_shirt: { wear: 'torso', dye: '#e6dcc4' },
+  wool_socks: { wear: 'calcetines', dye: '#b8a688' },
+  lined_boots: { wear: 'pies', dye: '#6a4a30' },
+  leather_apron: { wear: 'encima', dye: '#7a5232' },
+};
+Object.assign(ITEMS, GARMENT_ITEMS);
+defineNames(GARMENT_ITEMS, 'item');
 // What each garment does for the body (docs/planes/gta/PLAN-E-cuerpo-aspecto.md §3.1): warm (insulation points), rain
 // (0..1 rainproof share), shade (sun shade) and work (the share of the torso's dirt it takes). One source of truth, the
 // GARMENTS table of clothing.js (what body.js computes with); copied here only so the windows can say it (clothesText).
-// Only items this game already has: the new garments of a later phase get theirs when they are added
+// (only items this game has: a garment of clothing.js that is not an item yet is skipped)
 for (const [id, g] of Object.entries(GARMENTS)) {
   const def = ITEMS[id];
   if (!def?.wear) continue;
@@ -369,19 +386,46 @@ export function restoreText(def) {
   return list.length ? t('item.restores', { list: fmt.list(list) }) : '';
 }
 // "Warmth +1 · Keeps off rain" for a garment's description (inventory, crafting); '' if it does nothing for the body
-// (underwear, hair accessories, the backpack, armour)
-export function clothesText(def) {
+// (underwear, hair accessories, the backpack, armour). s: the stack or the worn piece, when there is one: the warmth is
+// then what it gives with its tear (a torn piece keeps less warm) and its condition word goes last ("Torn")
+export function clothesText(def, s) {
   if (!def?.wear) return '';
-  const list = [];
-  if (def.warm > 0) list.push(t('item.warmth', { n: def.warm }));
+  const list = [], tear = s?.tear || 0;
+  if (def.warm > 0) list.push(t('item.warmth', { n: Math.round(def.warm * tearMul(tear) * 10) / 10 }));
   if (def.rain > 0) list.push(t('item.rain'));
   if (def.shade > 0) list.push(t('item.shade'));
   if (def.work > 0) list.push(t('item.work'));
+  const cond = conditionText(s);
+  if (cond) list.push(cond);
   return list.join(' · ');
 }
+// The condition of a garment by its tear (Plan E §3.2): '' while it looks new, then Worn (40), Torn (75), In rags (100)
+export function conditionText(s) {
+  const tear = s?.tear || 0;
+  return tear >= TEAR.rags ? t('item.cond.rags') : tear >= TEAR.torn ? t('item.cond.torn') : tear >= TEAR.worn ? t('item.cond.worn') : '';
+}
 // A thing's name as a noun for the messages ({item, the}, {item, a}…): from the language files when it has a key
-// (item.canteen, with its gender), else its name as it is (the older ids still have Spanish names in ITEMS)
-export const itemNoun = id => (has(`item.${id}`) ? noun('item', id) : { name: ITEMS[id]?.name ?? String(id) });
+// (item.canteen, with its gender), else its Spanish name from ITEMS with a guessed gender (oldNoun)
+export const itemNoun = id => (has(`item.${id}`) ? noun('item', id) : oldNoun(ITEMS[id]?.name ?? String(id)));
+// An older id with no language key has only its Spanish name: its gender and number (for el/la/los/las, un/una) are
+// guessed from the first word, with the usual exceptions, so "la fresa", "las botas", "el hacha" read right ("item.x.g"
+// in the language files wins once the id gets a key). Made once per name
+const ES_M = new Set(['mapa', 'día', 'problema', 'tema', 'sistema', 'clima', 'idioma', 'pijama', 'planeta', 'cometa', 'tranvía', 'sofá']);
+const ES_F = new Set(['leche', 'carne', 'miel', 'sal', 'piel', 'red', 'nuez', 'llave', 'flor', 'col', 'coliflor', 'lombriz', 'raíz', 'perdiz', 'codorniz', 'liebre', 'nieve', 'torre', 'fuente', 'mano', 'nave', 'cruz', 'luz', 'pared', 'semilla', 'gente']);
+const ES_EL = new Set(['hacha', 'agua', 'águila', 'arma', 'ala', 'alma', 'área', 'hambre', 'arca', 'asa', 'ancla', 'ave', 'hada', 'aula', 'haba']);   // (feminine, but "el": stressed a)
+const oldNouns = new Map();
+function oldNoun(name) {
+  let n = oldNouns.get(name);
+  if (n) return getLang() === 'es' || !n.the ? n : { name };
+  const w = name.split(/[\s,(]/)[0].toLowerCase();
+  const plural = w.length > 3 && /[^áéíóú]s$/.test(w) && !/(sis|tis|us)$/.test(w);
+  const one = !plural ? w : /(ion|ión)es$/.test(w) ? w.replace(/es$/, '') : /[aeiouáéíóú]s$/.test(w) ? w.slice(0, -1) : w.replace(/es$/, '');
+  const fem = !ES_M.has(one) && (ES_F.has(one) || ES_EL.has(one) || /a$/.test(one) || /(ión|ion|dad|tad|tud|umbre|ez)$/.test(one));
+  n = { name, g: (fem ? 'f' : 'm') + (plural ? 'p' : '') };
+  if (!plural && ES_EL.has(one)) Object.assign(n, { the: `el ${name.toLowerCase()}`, a: `un ${name.toLowerCase()}` });
+  oldNouns.set(name, n);
+  return getLang() === 'es' || !n.the ? n : { name };
+}
 
 // Las alfombras se tejen de cada tamaño en el telar: la de siempre es la de 1×1 y 'alfombra_persa_2x3', la persa de
 // 2×3 (rug: de qué alfombra es; size: lo que ocupa, en casillas; plain: su nombre sin el tamaño)

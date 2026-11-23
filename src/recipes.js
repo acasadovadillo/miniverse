@@ -154,6 +154,13 @@ export const RECIPES = [
   R('telar', 'hijab', 1, [['tela', 2]]),
   R('telar', 'lazo', 1, [['tela', 1]]),
   R('telar', 'diadema', 1, [['tela', 1], ['tablas', 1]]),
+  // The warm and the light clothes (docs/planes/gta/PLAN-E-cuerpo-aspecto.md §3.1): small things, so no plan, as the shirt
+  R('telar', 'wool_coat', 1, [['lana', 3], ['tela', 2]]),
+  R('telar', 'sheepskin_jacket', 1, [['cuero', 2], ['lana', 2]]),
+  R('telar', 'linen_shirt', 1, [['tela', 2], ['fibra', 2]]),
+  R('telar', 'wool_socks', 1, [['lana', 1]]),
+  R('telar', 'lined_boots', 1, [['cuero', 2], ['lana', 1]]),
+  R('telar', 'leather_apron', 1, [['cuero', 3]]),
   R('mano', 'flor_pelo', 1, [['fibra', 2], ['bayas', 1]]),
   R('yunque', 'horquillas', 2, [['lingote_cobre', 1]]),
   R('mano', 'corona_flores', 1, [['fibra', 4], ['bayas', 2]]),
