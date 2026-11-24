@@ -176,12 +176,17 @@ function spotMatrix(s, geo, fit, belt, bag, pose) {
     case 'quiver': pos = [-0.07, fit.top - 0.36 + (bag ? S.bagUp : 0), bz - S.quiverOut]; rot = [0, 0, 0.32]; anchor = 0; break;
     case 'bagSide': pos = [-0.19, fit.top - 0.1, fit.back - 0.08]; rot = [0, Math.PI / 2, 0]; anchor = hi; break;   // (hanging from the backpack's side by its handle)
     // (the sword, hilt up, the tip well back: upright it crossed the leg behind when running)
-    case 'hipL': order = 'XYZ'; pos = [belt.w + 0.06, 0.03, 0.01]; rot = [crouch ? 1.25 : 0.75, Math.PI / 2, Math.PI]; anchor = 0.1; break;
+    case 'hipL':
+      order = 'XYZ';
+      // (the hammer in its loop: the head on the belt, the handle hanging, a little back)
+      if (s.kind === 'hammer') { pos = [belt.w + 0.045, 0.02, 0.0]; rot = [crouch ? 1.05 : 0.38, Math.PI / 2, 0]; anchor = hi - 0.035; break; }
+      pos = [belt.w + 0.06, 0.03, 0.01]; rot = [crouch ? 1.25 : 0.75, Math.PI / 2, Math.PI]; anchor = 0.1; break;
     case 'hipR':
       order = 'XYZ';
       // (the watering can behind the right hip, the spout back: at the side it was where the right hand hangs)
       if (s.kind === 'regadera') { pos = [-(belt.w - 0.02), 0.04, belt.back - 0.09]; rot = [0, Math.PI / 2, 0]; anchor = hi; }
       // (the axe through the belt, the head just over it and the edge back, the handle tilted back: clear of the thigh)
+      else if (s.kind === 'hammer') { pos = [-(belt.w + 0.045), 0.02, 0.0]; rot = [crouch ? 1.05 : 0.38, Math.PI / 2, 0]; anchor = hi - 0.035; }
       else { pos = [-(belt.w + 0.05), 0.02, 0.0]; rot = [crouch ? 1.25 : 0.65, Math.PI / 2, 0]; anchor = hi - 0.02; }
       break;
     default: pos = [0, 0, 0]; rot = [0, 0, 0];

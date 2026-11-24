@@ -284,6 +284,9 @@ for (const [tool, def] of Object.entries(TOOLS)) ITEMS[`${tool}_hierro`] = { nam
 // sale en la lista del creativo (hide)
 ITEMS.pala_hierro.full = 'pala_llena';
 ITEMS.pala_llena = { ...ITEMS.pala_hierro, name: 'Pala de hierro con tierra', desc: 'Lleva un bloque de tierra: haz clic donde quieras soltarlo (en un hoyo, lo rellena; en el suelo, hace un montón).', full: undefined, empty: 'pala_hierro', hide: true };
+// The hammer builds what is drawn with B (plans.js): some 500 swings a small house, so it lasts about two
+ITEMS.hammer = { tool: 'hammer', tier: 4, stack: 1, dur: 1000 };
+defineNames({ hammer: ITEMS.hammer }, 'item');
 // Ropa y mochila: se llevan puestas en un hueco del cuerpo (wear). Cada prenda lleva su color (en la casilla
 // de la mochila o en el hueco); dye es el de las que se fabrican.
 export const WEAR_SLOTS = [
@@ -499,9 +502,9 @@ Object.assign(HARVEST, {
 });
 
 // Lo que cansa cada uso de herramienta (en cansancio de combat.js: a 4, medio muslo de hambre menos)
-export const TOOL_COST = { hacha: 1, pico: 1, guadana: 0.5, azada: 1, pala: 1, mano: 0.5, regadera: 0.5, cana: 0.5, red: 0.5 };
+export const TOOL_COST = { hacha: 1, pico: 1, guadana: 0.5, azada: 1, pala: 1, mano: 0.5, regadera: 0.5, cana: 0.5, red: 0.5, hammer: 0.08 };
 // [id, n, extra?]: the third element is the stack's own data (new players start with a full canteen: game.js passes it)
-export const START_KIT = [['hacha_hierro', 1], ['pico_hierro', 1], ['guadana_hierro', 1], ['azada_hierro', 1], ['pala_hierro', 1], ['manzana', 3], ['canteen', 1, { sips: 4 }]];
+export const START_KIT = [['hacha_hierro', 1], ['pico_hierro', 1], ['guadana_hierro', 1], ['azada_hierro', 1], ['pala_hierro', 1], ['hammer', 1], ['manzana', 3], ['canteen', 1, { sips: 4 }]];
 
 // Golpes que necesita con su herramienta
 export const hitsFor = rule => Math.max(1, Math.ceil(rule.hits / TIERS[4].power));

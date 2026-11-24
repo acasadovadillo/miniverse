@@ -26,10 +26,13 @@ export const STEPS = [
   { id: 'picar', stat: 'picados', need: 1, money: 20 },
   { id: 'taller', done: g => inTavern(g.player.x, g.player.y), money: 20 },
   { id: 'banco', stat: 'estaciones', need: 1, money: 60 },
+  { id: 'obra', stat: 'obra', need: 4, money: 40, skip: g => !g.plans?.on },
   { id: 'dormir', stat: 'dormido', need: 1, money: 30 },
   { id: 'labrar', stat: 'labrados', need: 3, money: 40, items: g => { const s = seedNow(g); return s ? [[s, 3]] : []; } },
   { id: 'sembrar', stat: 'sembrados', need: 1, money: 40, skip: g => !seedNow(g) },
 ];
+// (what is saved counts the steps: the ones from 'obra' on moved one place when it came. V says which count it is)
+const V = 2, NEW_AT = STEPS.findIndex(s => s.id === 'obra');
 for (const st of STEPS) Object.defineProperties(st, { text: { get: () => t(`steps.${st.id}`), enumerable: true }, hint: { get: () => t(`steps.${st.id}.hint`), enumerable: true } });
 
 export class Steps {
@@ -46,12 +49,12 @@ export class Steps {
   get step() { return STEPS[this.i]; }
   reset(save) {
     const s = save.steps;
-    if (s) { this.i = Math.min(s.i, STEPS.length); this.base = s.base ?? null; this.pay = s.pay !== false; }
+    if (s) { this.i = Math.min((s.v || 1) < V && s.i >= NEW_AT ? s.i + 1 : s.i, STEPS.length); this.base = s.base ?? null; this.pay = s.pay !== false; }
     else { this.i = save.inventory ? STEPS.length : 0; this.base = null; this.pay = !save.inventory; }   // (una partida de antes de esto: ya sabe jugar)
     this.shown = null;
     this.paint();
   }
-  save(out) { out.steps = { i: this.i, base: this.base, pay: this.pay }; }
+  save(out) { out.steps = { i: this.i, base: this.base, pay: this.pay, v: V }; }
   // Lo que se lleva de este paso: [hecho, de cuánto] (si es de los que se cuentan)
   progress(st = this.step) {
     const g = this.game;
@@ -60,10 +63,10 @@ export class Steps {
   }
   update(dt) {
     const g = this.game;
-    if (this.over || !g.player || g.mode !== 'play' || Profile.server) return;
+    if (!g.player || g.mode !== 'play' || Profile.server) return;
     if ((this.t += dt) < 0.25) return;
     this.t = 0;
-    this.check();
+    if (this.over) this.paint(); else this.check();   // (over, its place is the site's: plans.js line)
   }
   // Mira si el paso actual está hecho y, si lo está, pasa al siguiente. Los que ahora no se pueden hacer se saltan
   check() {
@@ -105,12 +108,16 @@ export class Steps {
   paint() {
     const el = $('quest');
     if (!el) return;
-    const st = this.step, p = st && this.progress(st), hide = this.over || Profile.server;
-    const key = hide ? '' : `${this.i}|${p || ''}|${getLang()}`;   // (and the language: it follows a switch)
+    // (with the steps done, the building site around: what is left and what is missing)
+    const site = this.over && !Profile.server ? this.game.plans?.line() || '' : '';
+    const st = this.step, p = st && this.progress(st), hide = (this.over && !site) || Profile.server;
+    const key = hide ? '' : site || `${this.i}|${p || ''}|${getLang()}`;   // (and the language: it follows a switch)
     if (key === this.shown) return;
     this.shown = key;
     el.hidden = hide;
+    el.classList.toggle('site', !!site);
     if (hide) return;
+    if (site) { $('quest-title').textContent = ''; $('quest-text').textContent = site; $('quest-hint').textContent = ''; return; }
     $('quest-title').textContent = t('steps.title', { n: this.i + 1, total: STEPS.length });
     $('quest-text').textContent = st.text + (p ? ` (${Math.max(0, p[0])}/${p[1]})` : '');
     $('quest-hint').textContent = this.hintOf(st);

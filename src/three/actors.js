@@ -831,7 +831,7 @@ export class Actors {
     // (running with a tool in the hand, its arm swings less: how much, easing with the gait; see hold)
     m.runArm = (m.runArm || 0) + ((e.mount || e.boat || e.aboard || m.swimK > 0.5 ? 0 : e.gait === 2 ? 1 : e.gait === 1 ? 0.5 : 0) - (m.runArm || 0)) * Math.min(1, dt * 6);
     // (después de andar: el golpe manda sobre el balanceo del brazo)
-    if (game) this.hold(m, { held: game.inv.held?.id || null, swing: game.gather.swing, swingItem: game.gather.swingItem, cooldown: game.gather.cooldown, fishPose: game.fishing?.pose() || null, bowPull: game.archery?.k || 0, brush: e.emote?.k === 'brush' }, dt);
+    if (game) this.hold(m, { held: (game.plans?.handId() ?? game.inv.held?.id) || null, swing: game.gather.swing, swingItem: game.gather.swingItem, cooldown: game.gather.cooldown, fishPose: game.fishing?.pose() || null, bowPull: game.archery?.k || 0, brush: e.emote?.k === 'brush' }, dt);
     else if (e.remote) this.hold(m, e, dt);
     const casting = m.anim?.kind === 'lanzar' ? P.arms[P.toolArm].rotation.x : null;
     // (the arms busy: something big in them, or the wheelbarrow's grips; riding or rowing with a big thing, the hands are free. carry3d.js)
@@ -1081,6 +1081,8 @@ const GESTURES = {
   tajo: { dur: 0.36, arm: [[0, 0], [0.32, -2.4], [0.62, 0.3], [1, 0]], side: [[0, 0], [0.32, 0.5], [0.62, -0.5], [1, 0]], twist: [[0, 0], [0.32, -0.4], [0.62, 0.4], [1, 0]] },
   regar: { dur: 0.7, arm: [[0, 0], [0.25, -0.9], [0.75, -0.9], [1, 0]], tilt: [[0, 0], [0.25, 1.5], [0.75, 1.5], [1, 0]] },
   lanzar: { dur: 0.6, arm: [[0, 0], [0.3, -2.6], [0.55, -0.6], [1, 0]], twist: [[0, 0], [0.3, -0.2], [0.55, 0.1], [1, 0]] },
+  // (the hammer: up beside the head and down in front of the chest, from the elbow)
+  nail: { dur: 0.55, arm: [[0, 0], [0.34, -2.05], [0.55, -0.62], [0.68, -0.75], [1, 0]], twist: [[0, 0], [0.34, -0.14], [0.55, 0.08], [1, 0]], lean: [[0, 0], [0.34, -0.04], [0.55, 0.1], [1, 0]], side: [[0, 0], [0.34, 0.1], [0.55, -0.06], [1, 0]], tilt: [[0, 0], [0.34, -0.45], [0.55, 0.12], [1, 0]] },
   mano: { dur: 0.3, arm: [[0, 0], [0.4, -1.5], [1, 0]], twist: [[0, 0], [0.4, -0.25], [1, 0]] },
 };
 // The gestures of social.js: what each one does, at its moment k (0 to 1), with s the side of the arm (-1 the right, 1 the
@@ -1158,7 +1160,7 @@ function gestureOf(id) {
   const d = id && ITEMS[id];
   if (!d) return 'mano';
   if (d.weapon) return 'tajo';
-  return { hacha: 'golpe', pico: 'golpe', azada: 'cavar', pala: 'palear', guadana: 'barrer', red: 'barrer', regadera: 'regar', cana: 'lanzar' }[d.tool] || 'golpe';
+  return { hacha: 'golpe', pico: 'golpe', azada: 'cavar', pala: 'palear', guadana: 'barrer', red: 'barrer', regadera: 'regar', cana: 'lanzar', hammer: 'nail' }[d.tool] || 'golpe';
 }
 // ¿Ha pasado un ciclo (de 0 a 1, que vuelve a empezar) por at, de a a b?
 const passed = (a, b, at) => (a <= b ? a < at && b >= at : a < at || b >= at);
@@ -1301,6 +1303,10 @@ const AXE_EDGE = sh => { sh.moveTo(0.125, -0.115); sh.quadraticCurveTo(0.175, 0,
 const PICK = sh => { sh.moveTo(-0.27, -0.07); sh.quadraticCurveTo(-0.13, 0.06, 0, 0.05); sh.quadraticCurveTo(0.13, 0.06, 0.27, -0.07); sh.quadraticCurveTo(0.12, -0.005, 0, -0.025); sh.quadraticCurveTo(-0.12, -0.005, -0.27, -0.07); };
 const SCYTHE = sh => { sh.moveTo(-0.01, 0.025); sh.quadraticCurveTo(0.24, 0.07, 0.5, -0.09); sh.quadraticCurveTo(0.27, -0.005, -0.01, -0.03); sh.lineTo(-0.01, 0.025); };
 const SCYTHE_EDGE = sh => { sh.moveTo(0.5, -0.09); sh.quadraticCurveTo(0.27, -0.005, -0.01, -0.03); sh.lineTo(-0.01, -0.018); sh.quadraticCurveTo(0.27, 0.01, 0.5, -0.09); };
+// The claw hammer, seen from its side (its face to x+, as an axe's edge): the cheek with the neck of its face, and one prong
+// of the claw (two, side by side, with a gap between)
+const HAMMER_CHEEK = sh => { sh.moveTo(-0.03, -0.021); sh.lineTo(0.026, -0.021); sh.quadraticCurveTo(0.04, -0.014, 0.058, -0.014); sh.lineTo(0.058, 0.014); sh.quadraticCurveTo(0.04, 0.014, 0.026, 0.023); sh.lineTo(-0.03, 0.025); sh.lineTo(-0.03, -0.021); };
+const HAMMER_CLAW = sh => { sh.moveTo(-0.026, 0.025); sh.quadraticCurveTo(-0.08, 0.03, -0.122, -0.026); sh.lineTo(-0.114, -0.031); sh.quadraticCurveTo(-0.076, 0.004, -0.026, -0.016); sh.lineTo(-0.026, 0.025); };
 const HOE = sh => { sh.moveTo(-0.075, 0); sh.lineTo(0.075, 0); sh.lineTo(0.06, 0.13); sh.lineTo(-0.06, 0.13); sh.lineTo(-0.075, 0); };
 const BLADE = sh => { sh.moveTo(-0.028, 0); sh.lineTo(0.028, 0); sh.lineTo(0.028, 0.47); sh.lineTo(0, 0.56); sh.lineTo(-0.028, 0.47); sh.lineTo(-0.028, 0); };
 // La pala: la hoja con los hombros rectos (donde se pisa) y la punta redondeada, y su filo, una franja a lo largo de la punta
@@ -1419,6 +1425,15 @@ export function toolModel(id) {
     at(profile('pick', PICK, 0.036), head, [0, y, 0]);
     at(new THREE.CylinderGeometry(0.034, 0.034, 0.09, 8), head, [0, y, 0]);
     for (const sx of [-1, 1]) at(G.cone, edge, [sx * 0.262, y - 0.068, 0], [0, 0, sx * 2.25], [0.018, 0.05, 0.018]);
+  } else if (kind === 'hammer') {
+    // A carpenter's hammer: the ash handle, swelling at the grip, through the eye of the head; the round face and the claw
+    const top = haft(0.4, 0.02), y = top - 0.03;
+    at(new THREE.CylinderGeometry(0.0135, 0.018, 0.1, 8), wood, [0, top - 0.08, 0]);
+    at(profile('hammerCheek', HAMMER_CHEEK, 0.034), head, [0, y, 0], [0, 0, 0], [1.2, 1.2, 1.1]);
+    at(new THREE.CylinderGeometry(0.024, 0.019, 0.032, 14), head, [0.084, y, 0], [0, 0, -Math.PI / 2]);
+    at(new THREE.CylinderGeometry(0.0255, 0.025, 0.013, 14), edge, [0.105, y, 0], [0, 0, -Math.PI / 2]);
+    for (const sz of [-1, 1]) at(profile('hammerClaw', HAMMER_CLAW, 0.011, 0.003), head, [0, y, sz * 0.0125], [0, sz * -0.07, 0], [1.2, 1.2, 1.1]);
+    at(new THREE.BoxGeometry(0.026, 0.012, 0.02), wood, [0, top + 0.004, 0]);   // (the end of the handle, showing through the eye)
   } else if (kind === 'guadana') {
     const top = haft(0.9, 0.02);
     at(new THREE.CylinderGeometry(0.016, 0.016, 0.12, 6), wood, [0, 0.32, 0.06], [Math.PI / 2, 0, 0]);   // asidero

@@ -75,6 +75,14 @@ export const Audio = {
   door: () => tone([[180, 0.08, 'triangle', 0.08], [140, 0.12, 'triangle', 0.08]]),
   chop() { Audio.noiseHit(500, 0.09, 0.35); tone([[110, 0.06, 'triangle', 0.08]]); },
   clink() { tone([[1400, 0.04, 'square', 0.04], [1050, 0.06, 'square', 0.03]]); Audio.noiseHit(2500, 0.05, 0.15); },
+  // The hammer: a short knock of iron on wood (or on stone, or into straw); and the chalk line of a plan
+  hammer(kind) {
+    const k = 0.92 + Math.random() * 0.16;
+    if (kind === 'stone') { tone([[1250 * k, 0.03, 'square', 0.022], [820 * k, 0.05, 'triangle', 0.04]]); Audio.noiseHit(1900 * k, 0.05, 0.2); }
+    else if (kind === 'twig') { Audio.noiseHit(1400 * k, 0.07, 0.2); tone([[150 * k, 0.05, 'triangle', 0.05]]); }
+    else { Audio.noiseHit(850 * k, 0.045, 0.32); tone([[310 * k, 0.025, 'triangle', 0.09], [165 * k, 0.06, 'triangle', 0.08]]); }
+  },
+  chalk() { Audio.noiseHit(2600, 0.06, 0.05, 'highpass'); },
   swish() { Audio.noiseHit(3000, 0.08, 0.12, 'highpass'); },
   till() { Audio.noiseHit(300, 0.12, 0.3); },
   // La pala: al cavar, el filo que entra raspando y el golpe sordo del bloque que sale; al soltar la tierra, el golpe blando

@@ -36,7 +36,7 @@ class Look {
     let c = this.chunks.get(k);
     if (c === undefined) {
       c = null;
-      if (S.deltas && S.contentFor) { const q = S.contentFor(cx, cy); if (!q.objects.some(o => o.fixed) && !q.floors.some(o => o.fixed)) c = S.deltas.get(`${wrapIndex(cx, CHUNK)},${cy}`) || 0; }
+      if (S.deltas && S.contentFor && !S.overlay) { const q = S.contentFor(cx, cy); if (!q.objects.some(o => o.fixed) && !q.floors.some(o => o.fixed)) c = S.deltas.get(`${wrapIndex(cx, CHUNK)},${cy}`) || 0; }
       this.chunks.set(k, c);
     }
     return c;   // (its changes, 0: none; null: ask the scene)

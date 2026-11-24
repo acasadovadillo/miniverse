@@ -23,6 +23,7 @@ import { START_KIT, ITEMS, RUG_MADE, rugId, CHESTS, UNKNOWN_NAME, knownItem } fr
 import { clothesFor, dressed, wearStage } from './looks.js';
 import { WorldStore } from './worldstore.js';
 import { BuildMode } from './build.js';
+import { Plans } from './plans.js';
 import { TimeSystem } from './time.js';
 import { Farm } from './farm.js';
 import { Ranch } from './ranch.js';
@@ -180,6 +181,7 @@ export class Game {
     this.skills = this.addSystem(new Skills(this));
     this.days = this.addSystem(new TimeSystem(this));
     this.barrow = this.addSystem(new Barrow(this));   // the wheelbarrow, pushed with both hands (before carry: its hint wins)
+    this.plans = this.addSystem(new Plans(this));   // what is drawn with B, and the hammer that builds it (src/plans.js; before whatever else offers a target)
     this.carry = this.addSystem(new Carry(this));   // weight and things in the arms (the default; ?inventario=casillas: the slots. Before the bow, so its hint wins)
     this.archery = this.addSystem(new Archery(this));   // el arco (antes que lo que se haga con E o con la herramienta)
     this.board = this.addSystem(new Board(this));
@@ -271,6 +273,10 @@ export class Game {
     // (las partidas de antes de la pala la reciben una vez: la marca pala va en lo guardado; si no cabe, a los pies)
     const shovel = !!save.inventory && !save.pala;
     if (shovel && this.inv.add('pala_hierro', 1)) this.invSpill.push(['pala_hierro', 1]);
+    // (and the hammer, the same way: the mark is hammer, 2 once Nilo has told what it is for)
+    const hammer = !!save.inventory && !save.hammer && !Profile.server;
+    if (hammer && this.inv.add('hammer', 1)) this.invSpill.push(['hammer', 1]);
+    this.hammerTold = !save.inventory || save.hammer === 2;
     // La ropa: la partida nueva empieza con la que se eligió al crear el personaje, sin mochila; las de antes
     // de que hubiera ropa, con la suya y una mochila (así no pierden nada de lo que llevaban)
     if (!save.inventory?.equip) this.inv.equip = clothesFor(save.player.look, !!save.inventory);
@@ -312,6 +318,7 @@ export class Game {
     if (owed.length && !Profile.server) { for (const [id, n] of owed) this.giveBack(id, n); hud.toast('La mesa de encantar ya no está en el juego: te devuelvo sus materiales', 'good'); }
     if (owed.iron && !Profile.server) hud.toast('Ahora todas las herramientas son de hierro: también las tuyas, con el desgaste que llevaban', 'good');
     if (owed.spell && !Profile.server) hud.toast('Los encantamientos ya no están en el juego: tus cosas siguen, pero sin ellos');
+    if (hammer) hud.toast(t('toast.hammer'), 'good');
     if (shovel && !Profile.server) hud.toast('Nilo te ha dejado una pala: cava un bloque de tierra con ella y suéltalo donde quieras', 'good');
     // Lo que el jugador tenía en su habitación va primero (dentro de la casa); luego se levanta la casa con
     // sus muebles por defecto, que solo ocupan las casillas que quedan libres. Va después de crear al jugador,
@@ -349,7 +356,7 @@ export class Game {
       seed: this.world.seed, player, explored: [...this.explored],
       inventory: this.inv.toSave(), clock: Math.round(this.world.clock),
       ...this.craft.toSave(), house: { big: this.house.big, family: this.house.family, built: true, v: this.house.v }, money: this.money,
-      pala: 1, gamemode: this.gamemode, rules: this.rules, worldSpawn: this.worldSpawn, weatherLock: this.weatherLock, difficulty: this.difficulty, defaultGamemode: this.defaultGamemode, cam3d: camToSave(), volumes: Settings.volumes(), lang: savedLang(),
+      pala: 1, hammer: this.hammerTold ? 2 : 1, gamemode: this.gamemode, rules: this.rules, worldSpawn: this.worldSpawn, weatherLock: this.weatherLock, difficulty: this.difficulty, defaultGamemode: this.defaultGamemode, cam3d: camToSave(), volumes: Settings.volumes(), lang: savedLang(),
     };
     if (this.ui) out.ui = this.ui;
     this.hook('save', out);
@@ -865,8 +872,11 @@ export class Game {
     nilo.flip = p.x - p.y < nilo.x - nilo.y;
     const first = !this.craft.taught.has('banco');
     const tips = tList('npc.chat.nilo.tip');
-    await hud.say('Nilo', first ? tList('npc.nilo.first').map(l => formatMessage(l, { name: p.name })) : [tips[Math.floor(Math.random() * tips.length)] || '…']);
+    // (a game of before the hammer: what it is for, once)
+    const hammer = !first && !this.hammerTold && this.plans.on;
+    await hud.say('Nilo', first ? tList('npc.nilo.first').map(l => formatMessage(l, { name: p.name })) : hammer ? tList('npc.nilo.hammer') : [tips[Math.floor(Math.random() * tips.length)] || '…']);
     if (first) this.craft.teach('banco');
+    if (first || hammer) this.hammerTold = true;
     this.busy = false;
   }
   // Nilo amplía la casa del pueblo a cambio de materiales

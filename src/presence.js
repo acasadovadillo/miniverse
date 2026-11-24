@@ -12,7 +12,7 @@ import { weatherAt } from './wind.js';
 import { EXPO, NOISE, EVENT, EVENT_S, groundNoise, weatherNoise, weatherSight, woods, scentOf } from './senses.js';
 
 const MOVING = 0.35, JUMP = 15;        // m/s: from this it moves; faster than this it was a jump (a teleport), not a run
-const TOOL_HIT = new Set(['hacha', 'pico', 'pala', 'azada', 'guadana']);
+const TOOL_HIT = new Set(['hacha', 'pico', 'pala', 'azada', 'guadana', 'hammer']);
 const MSG_EVERY = 0.2, MSG_FAR = 70;   // seconds between two loud things a guest tells the host; how far from them it may be
 const NO_SURFACE = null;
 

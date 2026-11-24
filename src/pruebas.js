@@ -17,7 +17,7 @@ import { SHOPS, FISH_PRICE_K } from './economy.js';
 import * as FW from './fishwater.js';
 import { BITES, breakP, fightS } from './fishing.js';
 import { repairMat } from './crafting.js';
-import { RECIPES } from './recipes.js';
+import { RECIPES, aStation } from './recipes.js';
 import { runCommand } from './commands.js';
 import { faults, resetFaults } from './faults.js';
 import { CHUNK, WorldGen, WORLD_SEED } from './world/gen.js';
@@ -46,7 +46,8 @@ import { portraitMemory } from './three/portrait.js';
 import { machineAt, settle, MACHINES } from './machines.js';
 import { hud } from './ui/hud.js';
 import { freePlace } from './gather.js';
-import { PIECE_IDS, salvage, UNDO_MS, HOLD_S } from './build.js';
+import { PIECE_IDS, salvage, UNDO_MS, HOLD_S, matText } from './build.js';
+import { planned, hitsOf } from './plans.js';
 import * as ST from './structure.js';   // (R5-1: building that holds)
 import { houseBlueprint, familyBlueprint, tavernBlueprint } from './world/blueprints.js';
 import { BUILDABLE, PLANS, PLANS_V, PLAN_BORN } from './buildables.js';
@@ -4230,7 +4231,7 @@ async function soloTests(game) {
   await test('peso (weight): each item weighs, the backpack adds capacity and nothing is ever refused', async () => {
     const W = new WeightInventory();
     for (const [id, n] of START_KIT) W.add(id, n);
-    check(Math.abs(W.kg - (10.7 + weightOf('canteen'))) < 0.01 && W.capKg === BASE_CAP && BASE_CAP === 25, `the starting kit: ${W.kg} / ${W.capKg} kg`);
+    check(Math.abs(W.kg - (10.7 + weightOf('canteen') + weightOf('hammer'))) < 0.01 && W.capKg === BASE_CAP && BASE_CAP === 25, `the starting kit: ${W.kg} / ${W.capKg} kg`);
     W.equip.espalda = { id: 'mochila', color: ITEMS.mochila.dye }; W.changed();
     check(W.capKg === BASE_CAP + BAG_CAP && W.capKg === 70, `with the backpack: ${W.capKg}`);
     check(W.add('piedra', 500) === 0 && W.count('piedra') === 500 && W.room('piedra') === Infinity, `500 stones: ${W.count('piedra')}, room ${W.room('piedra')}`);
@@ -7100,6 +7101,255 @@ async function soloTests(game) {
       for (let i = 0; i < 3; i++) W.setTile(x + i, y, 'air');
     }
   });
+  // ---------- plan and hammer (docs/planes/realismo/PLAN-R5-construccion.md P2: src/plans.js) ----------
+  // The rest of the tests build at once, as with ?obra=0 (runTests turns plans off); these turn them on
+  const PL = () => game.plans;
+  // A site: open ground, a pocket of materials and a hammer, the stations near (or not), and everything as it was after
+  const atSite = async (fn, { mats = 40, stations = true } = {}) => {
+    const W = w(), B = game.build, I = inv(), P = PL(), mouse = game.mouse, [x, y] = openGround(), kept = I.slots.slice(), sel = I.selected, drops = game.gather.drops.slice(), wasV = P.on, lvl = game.skills.xp.construccion;
+    await goTo(game, x + 0.5, y + 2.4); game.mouse = null;
+    try {
+      P.on = true; P.strike = null; P.pend.clear(); game.skills.xp.construccion = 0;
+      I.slots.fill(null); I.add('hammer', 1); if (mats) { I.add('tablas', mats); I.add('piedra', mats); I.add('fibra', mats); }
+      I.select(I.slots.findIndex(s => s?.id === 'hammer'));
+      if (stations) B.stationFor = () => true;
+      game.carry.near = null; P.refresh();
+      await fn({ W, B, I, P, x, y, k: ckey(x, y), d: () => dOf(x, y), key: (l, i = 0, j = 0) => `${l}:${x + i},${y + j}` });
+    } finally {
+      delete B.stationFor; runCommand(game, '/gamemode survival', () => {}); B.select(PIECE_IDS[0]); B.toggle(false); P.on = wasV; P.strike = null; P.pend.clear(); P.release(); game.mouse = mouse;
+      game.skills.xp.construccion = lvl;
+      I.slots.splice(0, I.slots.length, ...kept); I.select(sel); I.changed(); game.gather.drops = drops; game.gather.cooldown = 0; game.gather.swing = 0;
+      for (let j = -3; j <= 3; j++) for (let i = -3; i <= 3; i++) W.setTile(x + i, y + j, 'air');
+      for (const D of W.deltas.values()) { if (D.plan) D.plan = {}; delete D.claim; }
+      W.planV++; P.refresh();
+    }
+  };
+  // One swing on a plan, from its start until it lands. Returns whether it landed
+  const swingAt = async key => {
+    const P = PL(), g = game.gather;
+    P.refresh(); g.cooldown = 0; P.strike = null; P.rest = null;
+    const e = P.byKey.get(key); check(e, `no plan at ${key}`);
+    if (!P.swing(e, P.slot())) return false;
+    for (let i = 0; i < 120 && P.strike; i++) await frames(1);
+    check(!P.strike, 'the swing never lands');
+    return true;
+  };
+  const drawAt = (B, id, t) => { B.toggle(true); B.select(id); B.place(t); B.release(); };
+  await test('plan (english): drawing costs nothing and needs no station; the first swing pays once; the last places it', async () => {
+    await atSite(async ({ W, B, I, P, x, y, key }) => {
+      const stat = game.stats.get('obra'), had = I.count('tablas');
+      drawAt(B, 'muro_madera', [x, y]);
+      const r = P.recAt(key('placed'));
+      check(r && r.id === 'muro_madera' && r.w === 0 && !r.p && r.by === Profile.id, `the record: ${JSON.stringify(r)}`);
+      check(!W.at('placed', x, y) && I.count('tablas') === had, 'drawing builds or pays');
+      check(!W.collidersNear(x + 0.5, y + 0.5).some(c => Math.abs(c.x - x - 0.5) < 0.6 && Math.abs(c.y - y - 0.5) < 0.6), 'one bumps into a drawing');
+      // No bench near: drawn, but not hammered (and it says so)
+      check(!(await swingAt(key('placed'))) && PL().why(P.byKey.get(key('placed'))) === t('build.why.station', { station: aStation('banco') }), 'hammered without its station');
+      B.stationFor = () => true;
+      const dur = I.slots[P.slot()].dur ?? ITEMS.hammer.dur;
+      check(await swingAt(key('placed')), PL().why(P.byKey.get(key('placed'))));
+      check(I.count('tablas') === had - 2 && P.recAt(key('placed')).w === 1 && P.recAt(key('placed')).p === Profile.id, 'the first swing does not pay');
+      check(!W.at('placed', x, y), 'placed too soon');
+      check(await swingAt(key('placed')) && I.count('tablas') === had - 2 && P.recAt(key('placed')).w === 2, 'the second pays again');
+      check(await swingAt(key('placed')), 'the third');
+      check(W.at('placed', x, y) === 'muro_madera' && !P.recAt(key('placed')) && I.count('tablas') === had - 2, 'the last one does not place it');
+      check((I.slots[P.slot()].dur ?? 0) === dur - 3, 'the hammer does not wear');
+      check(game.stats.get('obra') === stat + 1 && B.isRecent(key('placed'), 'muro_madera'), 'it does not count as put by you');
+      // Every piece of the palette has its swings, and the plan's numbers are kept
+      for (const id of PIECE_IDS) if (planned(id)) check(hitsOf(id) >= 1 && hitsOf(id) <= 5, `${id}: ${hitsOf(id)}`);
+      check(hitsOf('suelo_madera') === 1 && hitsOf('valla') === 1 && hitsOf('tejado_paja') === 2 && hitsOf('post') === 2 && hitsOf('muro_entramado') === 4 && hitsOf('muro_piedra') === 5, 'the swings');
+      // Drawing over a drawing: another piece takes its place, the same one is hammered; what stands is not drawn over
+      drawAt(B, 'muro_madera', [x + 1, y]); drawAt(B, 'ventana', [x + 1, y]);
+      check(P.recAt(key('placed', 1)).id === 'ventana', `changed: ${P.recAt(key('placed', 1)).id}`);
+      check(B.check([x + 1, y]).plan === 'hammer' && !B.check([x, y]).plan, `on the same: ${JSON.stringify(B.check([x + 1, y]))}`);
+      // Farther than one can build, one can draw
+      B.select('suelo_madera'); check(B.check([x + 18, y]).plan === 'new' || B.check([x + 18, y]).code !== 'far', 'too far to draw'); check(B.check([x + 30, y]).code === 'far', 'drawn at 30 tiles');
+    }, { stations: false });
+  });
+  await test('plan (english): what is drawn counts for what is drawn; a roof is hammered only over what stands; materials, hands and who is in the way', async () => {
+    await atSite(async ({ W, B, I, P, x, y, key }) => {
+      // A door beside a drawn wall, a roof over it; alone, not
+      B.toggle(true); B.select('puerta'); check(B.check([x, y]).code === 'frame', `a door alone: ${JSON.stringify(B.check([x, y]))}`);
+      drawAt(B, 'muro_madera', [x - 1, y]); drawAt(B, 'puerta', [x, y]); check(P.recAt(key('placed'))?.id === 'puerta', 'a door by a drawn wall');
+      B.select('tejado_paja'); check(B.check([x + 2, y + 2]).code === 'unheld', `a roof in the air: ${B.check([x + 2, y + 2]).code}`);
+      drawAt(B, 'tejado_paja', [x - 1, y]); check(P.recAt(key('roof', -1)), 'a roof over a drawn wall');
+      check(!W.roofAt(x - 1, y) && !W.pieceAt(x - 1, y) && P.view.roofAt(x - 1, y) && P.view.pieceAt(x - 1, y)?.kind === 'wall', 'the drawing leaks into the world');
+      P.refresh(); check(P.why(P.byKey.get(key('roof', -1))) === t('build.why.roof_first'), `the roof before its wall: ${P.why(P.byKey.get(key('roof', -1)))}`);
+      check(!P.why(P.byKey.get(key('placed'))), `the door before its wall: ${P.why(P.byKey.get(key('placed')))}`);
+      for (let i = 0; i < 3; i++) await swingAt(key('placed', -1));
+      check(W.pieceAt(x - 1, y)?.kind === 'wall' && !P.why(P.byKey.get(key('roof', -1))), 'the roof over its wall');
+      // Who is in the way, what is missing, the hands full, riding, no hammer
+      const e = () => (P.refresh(), P.byKey.get(key('placed')));
+      P.recAt(key('placed')).w = 3; P.recAt(key('placed')).p = Profile.id; const at = [p().x, p().y]; p().x = x + 0.5; p().y = y + 0.5;
+      check(P.why(e()) === t('build.why.someone'), `standing in it: ${P.why(e())}`); [p().x, p().y] = at; check(!P.why(e()), P.why(e()));
+      P.recAt(key('placed')).w = 0; delete P.recAt(key('placed')).p; I.remove('tablas', 99); game.carry.near = null;
+      check(P.why(e()) === t('build.why.lack', { what: matText([['tablas', 3]]) }), `missing: ${P.why(e())}`);
+      p().mount = {}; check(P.why(e()) === t('build.why.riding'), 'riding'); p().mount = null;
+      const hands = game.carry.handsBusy; game.carry.handsBusy = () => true; check(P.why(e()) === t('build.why.hands'), 'with the hands full'); game.carry.handsBusy = hands;
+      I.slots[P.slot()] = null; check(P.why(e()) === t('build.hint.no_hammer'), 'without a hammer');
+      I.add('hammer', 1); p().pose = { kind: 'sit', yaw: 0, h: 0 }; game.gather.cooldown = 0; game.gather.use(); check(!P.strike, 'sitting'); p().pose = null;
+      // Doorways and spans: a wide roof is refused in the drawing too
+      for (const id of ['cofre']) check(!planned(id), `${id} is drawn`);
+      check(!planned('chimenea') && planned('post') && planned('valla'), 'what is drawn first');
+      // The site line: what is left and what is missing
+      P.lineMemo.t = -1e9; const line = P.line(), n = P.list.length; check(line === t('site.line', { n, missing: matText([['tablas', 3]]) }), `the line: ${line}`);
+      I.add('tablas', 20); game.carry.near = null; P.lineMemo.t = -1e9; check(P.line() === t('site.ready', { n }), `ready: ${P.line()}`);
+    });
+  });
+  await test('plan (english): two players swinging on one piece pay once and place once (claims, fake peer)', async () => {
+    await atSite(async ({ W, B, I, P, x, y, k, d, key }) => {
+      drawAt(B, 'muro_madera', [x, y]); const had = I.count('tablas'), K = key('placed');
+      // The guest's first swing pays (its request), the host's does not, and the other way round
+      const ask = (n, kind, by = 'id-guest', extra = {}) => { (d().claim ||= {})[n] = { by, k: kind, key: K, at: W.clock || 0, ...extra }; game.barrow.resolve(k, n); return d().claim[n]; };
+      let c = ask('a1', 'plan_hit'); check(c.ok === false, 'a swing before anyone has paid');
+      c = ask('a2', 'plan_start'); check(c.ok && !c.free && P.recAt(K).p === 'id-guest' && P.recAt(K).w === 1, `start: ${JSON.stringify(c)}`);
+      c = ask('a3', 'plan_start', 'id-other'); check(c.ok && c.free && P.recAt(K).p === 'id-guest' && P.recAt(K).w === 2, `the second start: ${JSON.stringify(c)}`);
+      check(await swingAt(K) && I.count('tablas') === had && W.at('placed', x, y) === 'muro_madera' && !P.recAt(K), 'the host pays what is paid, or does not finish it');
+      c = ask('a4', 'plan_finish'); check(c.ok === false && W.at('placed', x, y) === 'muro_madera', 'finished twice');
+      // The host pays, the guest's last swing places it; garbage does nothing
+      drawAt(B, 'muro_madera', [x + 1, y]); const K2 = key('placed', 1); await swingAt(K2); await swingAt(K2); check(I.count('tablas') === had - 2, 'the host');
+      (d().claim ||= {}).b1 = { by: 'id-guest', k: 'plan_finish', key: K2, at: W.clock || 0 }; game.barrow.resolve(k, 'b1');
+      check(d().claim.b1.ok && d().claim.b1.done && W.at('placed', x + 1, y) === 'muro_madera' && I.count('tablas') === had - 2, `the guest finishes: ${JSON.stringify(d().claim.b1)}`);
+      for (const bad of ['', 'placed:1', 'x', null, 'rug:1,1', `placed:${x + 400},${y}`]) { d().claim.z = { by: 'id-guest', k: 'plan_start', key: bad, at: 0 }; game.barrow.resolve(k, 'z'); check(d().claim.z.ok === false, `garbage: ${bad}`); }
+      // What a guest may write: drawing, changing and erasing what nobody has begun, as itself; never the swings or who paid
+      const peer = { id: 'id-guest' }, L = key('placed', 2);
+      let A = P.arbitrate(peer, k, [['plan', L, { id: 'muro_piedra', r: 0, by: 'someone', w: 4, p: 'id-guest' }], ['floor', '1,1', 'suelo_madera']]);
+      check(A.ok.length === 2 && A.ok[0][2].by === 'id-guest' && A.ok[0][2].w === 0 && !A.ok[0][2].p && A.back.length === 1, `drawing: ${JSON.stringify(A)}`);
+      A = P.arbitrate(peer, k, [['plan', L, { id: 'cofre', w: 0 }], ['plan', key('floor', 2), { id: 'muro_madera' }], ['plan', key('placed'), { id: 'muro_madera' }], ['plan', null, {}], ['plan', 'placed:99999,9', { id: 'valla' }]]);
+      check(!A.ok.length && A.back.length === 5, `refused: ${JSON.stringify(A)}`);
+      drawAt(B, 'muro_piedra', [x + 2, y]); check(P.arbitrate(peer, k, [['plan', L]]).ok.length === 1, 'erasing what nobody has begun');
+      await swingAt(L); A = P.arbitrate(peer, k, [['plan', L]]); check(!A.ok.length && A.back[0][2].p === Profile.id, 'erasing what is begun');
+      // The changes of a chunk that arrive show at once
+      const v = W.planV; P.onOps(k, [['plan', L, {}]]); check(W.planV === v + 1, 'a plan that arrives');
+    });
+  });
+  await test('plan (english): a guest pays when it asks, gets it back if it was not to be paid, and never swings ahead of the host', async () => {
+    await atSite(async ({ W, B, I, P, x, y, key }) => {
+      const G = game.barrow, real = { claim: G.claim, decides: G.decides }, asked = [];
+      try {
+        drawAt(B, 'muro_madera', [x, y]); const K = key('placed'), had = I.count('tablas');
+        G.decides = () => false; G.claim = (kind, ck, data, done) => asked.push({ kind, ck, data, done });
+        await swingAt(K); check(asked.length === 1 && asked[0].kind === 'plan_start' && asked[0].data.key === K && I.count('tablas') === had - 2, `asked: ${JSON.stringify(asked)}`);
+        check(P.recAt(K).w === 0 && !P.recAt(K).p && P.done(P.byKey.get(K)) === 1, 'it writes the swing itself');
+        await swingAt(K); await swingAt(K); check(asked.map(a => a.kind).join() === 'plan_start,plan_hit,plan_finish' && I.count('tablas') === had - 2, `the rest: ${asked.map(a => a.kind)}`);
+        asked[0].done({ ok: true, free: 1 }); check(I.count('tablas') === had, 'paid twice: it does not come back');
+        asked[1].done({ ok: true }); const stat = game.stats.get('obra'); asked[2].done({ ok: true, done: 1 }); check(game.stats.get('obra') === stat + 1 && !P.pend.size, 'finished by the guest');
+        // Lost (never answered), and refused
+        asked.length = 0; await swingAt(K); asked[0].done(null); check(I.count('tablas') === had && !P.pend.size, 'lost'); asked.length = 0; await swingAt(K); asked[0].done({ ok: false }); check(I.count('tablas') === had, 'refused');
+        // Erasing: what nobody has begun at once; what is begun, asking
+        asked.length = 0; P.recAt(K).w = 1; P.recAt(K).p = Profile.id; P.cancel(K); check(asked[0]?.kind === 'plan_cancel' && P.recAt(K), 'cancels what is begun by itself');
+      } finally { Object.assign(G, real); delete G.claim; delete G.decides; }
+    });
+  });
+  await test('plan (english): erasing is free; cancelling a started plan drops its materials on the tile', async () => {
+    await atSite(async ({ W, B, I, P, x, y, k, d, key }) => {
+      const had = I.count('tablas'), drops = () => game.gather.drops.filter(q => q.id === 'tablas' && Math.abs(q.x - x - 0.5) < 0.6 && Math.abs(q.y - y - 0.5) < 0.6).length;
+      game.gather.drops = [];
+      drawAt(B, 'muro_madera', [x, y]); B.toggle(true); B.select('quitar'); check(B.eraseTarget([x, y])?.plan && B.check([x, y]).ok, 'a plan is not something to remove');
+      B.remove([x, y]); check(!P.recAt(key('placed')) && !drops() && I.count('tablas') === had, 'erasing is not free');
+      // From as far as it is drawn; dragging, only what is like the first one
+      B.select('suelo_madera'); B.place([x, y]); B.place([x + 1, y]); B.select('muro_madera'); B.place([x + 1, y]); B.select('quitar');
+      B.remove([x, y]); B.removeAt([x + 1, y], true); check(!P.recAt(key('floor')) && P.recAt(key('placed', 1)) && P.recAt(key('floor', 1)), 'the drag takes something else'); B.release();
+      // Begun: held, and what was paid stays on the ground
+      B.select('muro_madera'); B.place([x, y]); B.release(); await swingAt(key('placed')); check(I.count('tablas') === had - 2, 'not paid');
+      B.select('quitar'); B.remove([x, y]); check(B.held && P.recAt(key('placed')), 'what is begun goes at a tap'); B.held.ms = HOLD_S * 1000; B.tick();
+      check(!P.recAt(key('placed')) && drops() === 2 && I.count('tablas') === had - 2, `on the ground: ${drops()}`);
+      // Together: who began to draw it, their couple or an op; nobody else
+      const L = game.live, was = { joined: L.joined, role: L.role, ops: L.ops }, F = game.family.v, kids = F.kids;
+      try {
+        drawAt(B, 'muro_madera', [x, y]); const r = P.recAt(key('placed')); r.by = 'id-owner'; r.w = 1; r.p = 'id-owner'; L.joined = true; L.role = 'host'; L.ops = new Set();
+        check(P.mayCancel(r, 'id-owner') && !P.mayCancel(r, 'id-guest'), 'anyone cancels it'); F.kids = [{ name: 'K', parents: ['id-owner', 'id-guest'] }]; check(P.mayCancel(r, 'id-guest'), 'the couple'); F.kids = kids;
+        L.ops = new Set(['id-op']); check(P.mayCancel(r, 'id-op'), 'an op'); check(!P.cancel(key('placed')) && P.recAt(key('placed')), 'I cancel what is not mine');
+        (d().claim ||= {}).c1 = { by: 'id-guest', k: 'plan_cancel', key: key('placed'), at: 0 }; game.barrow.resolve(k, 'c1'); check(d().claim.c1.ok === false && P.recAt(key('placed')), 'a claim cancels it');
+        d().claim.c2 = { by: 'id-owner', k: 'plan_cancel', key: key('placed'), at: 0 }; game.barrow.resolve(k, 'c2'); check(d().claim.c2.ok && !P.recAt(key('placed')), 'its owner does not');
+        r.w = 0; delete r.p; check(P.mayCancel(r, 'id-guest'), 'not begun, anyone');
+      } finally { Object.assign(L, was); F.kids = kids; }
+    });
+  });
+  await test('plan (english): admin and ?obra=0 place instantly as before; furniture and stations always do', async () => {
+    await atSite(async ({ W, B, I, P, x, y, key }) => {
+      const had = I.count('tablas');
+      runCommand(game, '/gamemode creative', () => {}); B.toggle(true); B.select('muro_madera'); B.place([x, y]); check(W.at('placed', x, y) === 'muro_madera' && !P.recAt(key('placed')), 'creative draws');
+      runCommand(game, '/gamemode survival', () => {});
+      P.on = false; B.toggle(true); B.select('muro_madera'); B.place([x + 1, y]); check(W.at('placed', x + 1, y) === 'muro_madera' && I.count('tablas') === had - 2, '?obra=0 draws'); P.on = true;
+      B.select('suelo_madera'); B.place([x, y + 1]); check(!W.at('floor', x, y + 1) && P.recAt(key('floor', 0, 1)), 'survival does not draw');
+      // /setblock builds at once and takes the place of a drawing; air erases it too
+      runCommand(game, `/setblock ${x} ${y + 1} suelo_piedra`, () => {}); if (W.at('floor', x, y + 1) !== 'suelo_piedra') W.setTile(x, y + 1, 'suelo_piedra');
+      check(W.at('floor', x, y + 1) === 'suelo_piedra' && !P.recAt(key('floor', 0, 1)), 'a drawing stays under /setblock');
+      B.place([x + 1, y + 1]); check(P.recAt(key('floor', 1, 1)), 'drawing'); W.setTile(x + 1, y + 1, 'air'); check(!P.recAt(key('floor', 1, 1)), 'air leaves it');
+      // In creative, one swing builds a drawing, for nothing
+      B.select('muro_piedra'); B.place([x + 2, y]); const n = I.count('piedra'); runCommand(game, '/gamemode creative', () => {}); await swingAt(key('placed', 2)); check(W.at('placed', x + 2, y) === 'muro_piedra', 'creative hammers it in one'); runCommand(game, '/gamemode survival', () => {}); check(I.count('piedra') === n || I.infinite, 'creative pays');
+      // A wall that stands is still swapped in one go
+      B.toggle(true); B.select('ventana'); B.place([x + 1, y]); check(W.at('placed', x + 1, y) === 'ventana', 'the swap');
+      // A chest is put at once
+      check(BUILDABLE.cofre && !B.check([x, y + 2]).plan, 'a station is drawn'); B.select('cofre'); check(!B.check([x, y + 2])?.plan, 'a chest is drawn');
+    });
+  });
+  await test("plan (english): an old client's piece on a planned tile drops the plan and its materials", async () => {
+    await atSite(async ({ W, B, I, P, x, y, k, d, key }) => {
+      game.gather.drops = [];
+      drawAt(B, 'muro_madera', [x, y]); await swingAt(key('placed')); drawAt(B, 'suelo_madera', [x + 1, y]);
+      // (as live.js applies what a guest of before sends)
+      game.live.applyChunk(k, [['placed', `${x},${y}`, 'muro_piedra'], ['floor', `${x + 1},${y}`, 'camino']]);
+      check(!P.recAt(key('placed')) && !P.recAt(key('floor', 1)) && W.at('placed', x, y) === 'muro_piedra', 'the plan stays under it');
+      check(game.gather.drops.filter(q => q.id === 'tablas').length === 2, `its materials: ${game.gather.drops.length}`);
+      // And an old game keeps the field it does not know: it goes with the chunk (diffChunk, applyOps) and is saved
+      drawAt(B, 'valla', [x + 2, y]); const before = structuredClone(d()), far = { v: 0 }; applyOps(far, diffChunk({}, before)); check(far.plan[key('placed', 2)].id === 'valla', 'the plan does not travel');
+      check(JSON.parse(JSON.stringify(d())).plan[key('placed', 2)].w === 0, 'it is not saved');
+      // What it does not know (a newer game's) is left alone
+      d().plan[key('placed', -1)] = { id: 'from_the_future', r: 0, by: 'x', w: 2, p: 'x' }; W.planV++; P.refresh(); check(!P.byKey.has(key('placed', -1)) && d().plan[key('placed', -1)], 'a plan of a newer game'); delete d().plan[key('placed', -1)];
+    });
+  });
+  await test('hammer (english): every save gets one hammer once; a save of before loads with no plans; the belt and the first steps', async () => {
+    check(START_KIT.some(([id, n]) => id === 'hammer' && n === 1) && ITEMS.hammer.tool === 'hammer' && ITEMS.hammer.tier === 4, 'the start kit');
+    check(RECIPES.some(r => r.out === 'hammer' && r.station === 'yunque') && SHOPS.bruno.stock.some(e => e.id === 'hammer' && e.price === 60), 'made and sold');
+    const snap = game.snapshot(), deltas = JSON.stringify([...w().deltas]);
+    check(snap.hammer >= 1, 'the save does not say it has been given');
+    try {
+      const old = JSON.parse(JSON.stringify(snap)), hammers = () => inv().slots.filter(s => s?.id === 'hammer').length + (game.gather.drops || []).filter(q => q.id === 'hammer').length;
+      delete old.hammer; for (const l of [old.inventory.slots, old.inventory.keep, old.inventory.over]) if (Array.isArray(l)) for (let i = 0; i < l.length; i++) if (l[i]?.id === 'hammer' || l[i]?.[0] === 'hammer') l[i] = null;
+      game.end(); game.start(old, new Map(JSON.parse(deltas))); game.onSave = null;
+      check(hammers() === 1 && !game.hammerTold, `given: ${hammers()}`); check(!PL().list.length && ![...w().deltas.values()].some(D => D.plan && Object.keys(D.plan).length), 'plans in an old save');
+      const next = game.snapshot(); check(next.hammer === 1, `the mark: ${next.hammer}`);
+      game.end(); game.start(JSON.parse(JSON.stringify(next)), new Map(JSON.parse(deltas))); game.onSave = null; check(hammers() === 1, `again: ${hammers()}`);
+      const say = hud.say, said = []; hud.say = (who, l) => { said.push(...l); return Promise.resolve(); };
+      try { const on = PL().on; PL().on = true; game.craft.taught.add('banco'); await game.talkNilo(); check(said.join() === tList('npc.nilo.hammer').join() && game.hammerTold && game.snapshot().hammer === 2, 'Nilo says nothing of it'); said.length = 0; await game.talkNilo(); check(said[0] && !tList('npc.nilo.hammer').includes(said[0]), 'twice'); PL().on = on; } finally { hud.say = say; game.busy = false; }
+    } finally { game.end(); game.start(snap, new Map(JSON.parse(deltas))); game.onSave = null; }
+    // On the belt: the left hip, or the right one with a sword
+    const spot = (ids, id) => placeKit(ids).find(q => q.id === id)?.spot;
+    check(kindOf('hammer') === 'hammer' && spot(['hacha_hierro', 'hammer'], 'hammer') === 'hipL' && spot(['hammer', 'espada'], 'hammer') === 'hipR' && spot(['hammer', 'espada'], 'espada') === 'hipL', 'the places');
+    check(!shownOf(placeKit(['hammer']), 'hammer').length && shownOf(placeKit(['hammer']), null).length === 1, 'in the hand, not on the belt');
+    // The step that came between two: where each was is kept
+    const at = STEPS.findIndex(s => s.id === 'obra'), S = game.steps, was = { i: S.i, base: S.base, pay: S.pay };
+    try {
+      S.reset({ steps: { i: at, base: null, pay: true }, inventory: {} }); check(S.step.id === STEPS[at + 1].id, `it was at what came after: ${S.step?.id}`);
+      S.reset({ steps: { i: at - 1, base: null, pay: true }, inventory: {} }); check(S.step.id === 'banco', 'before it'); S.reset({ steps: { i: STEPS.length - 1, base: null, pay: true }, inventory: {} }); check(S.over, 'the ones who had finished start again');
+      S.reset({ steps: { i: at, base: null, pay: true, v: 2 }, inventory: {} }); check(S.step.id === 'obra', 'saved today');
+    } finally { Object.assign(S, was); S.paint(); }
+  });
+  await test('plan (english): the hammer in the hand: aimed, held and swept; in build mode it is in the hand while it is used; drawn and cleared', async () => {
+    await atSite(async ({ W, B, I, P, x, y, key }) => {
+      for (let i = 0; i < 3; i++) drawAt(B, 'suelo_madera', [x + i, y]);
+      drawAt(B, 'muro_madera', [x + 1, y - 1]); B.toggle(false);
+      p().x = x + 0.5; p().y = y + 1.4; p().face = { x: 0, y: -1 }; P.refresh(); P.aimMemo.frame = -1;
+      game.gather.cooldown = 0; game.gather.target = game.gather.pickTarget(); check(game.gather.target === P.tg && P.tg.plan, 'with no mouse, what is in front');
+      check(game.gather.hint() === t('build.hint.hammer', { item: PIECES[P.tg.plan.id], cost: matText(PIECES[P.tg.plan.id].cost) }), `the hint: ${game.gather.hint()}`);
+      check(P.row()?.k === 0, 'the ring');
+      // Held: swing after swing, of one piece (it is faster with the skill)
+      const K = P.tg.plan.key; keys.use = true; try { await until(() => !P.recAt(K), 6000, 'the held hammer'); await frames(60); check(P.rest && !P.strike && !P.list.some(e => e.rec.w), 'it goes on by itself with what is behind'); } finally { keys.use = false; }
+      await frames(2); check(!P.rest, 'letting go');
+      game.skills.xp.construccion = 1e9; check(Math.abs(P.swingTime() - 0.55 * 0.7) < 1e-6, `at level 10: ${P.swingTime()}`); game.skills.xp.construccion = 0; check(P.swingTime() === 0.55, 'level 0');
+      // In build mode, pressing on a drawing of that piece hammers it, with the hammer from the pack
+      I.select(I.slots.findIndex(s => s?.id !== 'hammer')); B.toggle(true); B.select('suelo_madera');
+      const left = P.list.filter(e => e.layer === 'floor')[0]; p().x = left.tx + 0.5; p().y = left.ty + 1.4; P.strike = null; game.gather.cooldown = 0;
+      B.place([left.tx, left.ty]); check(P.holding && P.strike && P.handId() === 'hammer', `pressing on it: ${P.holding} ${P.why(left)}`);
+      await until(() => !P.recAt(left.key), 3000, 'the piece in build mode'); B.release(); check(!P.holding, 'letting go'); B.toggle(false); check(P.handId() === undefined, 'it stays in the hand');
+      // What is drawn: one mesh, one box per part; half built, its own; nothing when there is nothing
+      I.select(P.slot()); const S3 = game.view3d.world.site; draw(); check(S3.mesh?.visible && S3.mesh.count === P.list.reduce((n, e) => n + e.boxes.length, 0), `the blueprint: ${S3.mesh?.count}`);
+      p().x = x + 1.5; p().y = y + 0.6; await swingAt(key('placed', 1, -1)); draw(); check(S3.part.children.length > 0, 'nothing half built'); const tall = Math.max(...S3.part.children.map(o => { o.geometry.computeBoundingBox(); return o.geometry.boundingBox.max.y; })); check(tall < 2.0, `a third of a wall: ${tall}`);
+      for (const e of [...P.list]) P.drop(e.key); P.refresh(); draw(); draw(); check(!S3.mesh.visible && !S3.part.children.length && !S3.scaff, 'something stays drawn');
+    });
+  });
   await test('hud (english): body chip', async () => {
     const $ = id => document.getElementById(id), C = () => game.bodyChip, el = () => $('body-chip');
     // (Body's own update would poll the real weather between frames: everything here is set and read in one go)
@@ -9832,6 +10082,7 @@ export async function runTests(game) {
   step = game.update.bind(game); draw = game.render.bind(game);
   game.update = () => {}; game.render = () => {};
   game.start(fresh());
+  game.plans.on = false;   // (building at once, as with ?obra=0: what most tests need. The ones of plan and hammer turn it on)
   game.inv.equip.espalda = { id: 'mochila', color: ITEMS.mochila.dye }; game.inv.changed();   // (con mochila: que quepa lo que se recoge)
   game.onSave = null;
   if (game.mouse) game.mouse.in = false;

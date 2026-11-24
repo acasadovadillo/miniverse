@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- La versión publicada: se cambia en cada publicación (así el juego sabe que tiene que pedir el código nuevo) -->
-<meta name="miniverse-version" content="2026-11-24.7">
+<meta name="miniverse-version" content="2026-11-24.8">
 <title>Miniverse</title>
 <script>
   // The language of the page until the game's code arrives (src/i18n.js chooses the same way, then takes over): for
@@ -199,6 +199,7 @@
   #quest span { color: var(--cream); font-size: 14px; line-height: 1.25; }
   #quest-x { position: absolute; right: 4px; top: 4px; width: 20px; height: 20px; padding: 0; color: var(--dim); background: none; border: 0; cursor: pointer; font-size: 14px; }
   #quest-x:hover { color: var(--cream); }
+  #quest.site { padding-right: 12px; } #quest.site b { font-size: 15px; font-weight: 500; } #quest.site > :not(b) { display: none; }   /* (a building site around: one line) */
   #place small { color: var(--dim); margin-left: 6px; }
   /* (bottom left, as in GTA, in the very corner: the status bars (#needs) are at the top left; the chat sits above it) */
   /* The minimap: its look is in src/ui/minimap.js, which says how big it is too (--mm) */

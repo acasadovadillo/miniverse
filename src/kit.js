@@ -20,6 +20,7 @@ export const KIT_SPOTS = {
   cana: ['backB', 'backA'],
   red: ['backB', 'backA'],
   regadera: ['hipR'],
+  hammer: ['hipL', 'hipR'],
 };
 export const BACK_SPOTS = new Set(['backA', 'backB', 'quiver', 'bagSide']);   // (hang from the chest bone; the rest from the hip)
 export const MAX_TOOLS = 4;
@@ -68,12 +69,14 @@ export function splitKit(key) {
 // place the same with the same ids, so only the ids travel
 export function placeKit(ids, { bag = false } = {}) {
   const out = [], used = new Set();
+  // (the sword has only the left hip: the hammer leaves it)
+  const sword = ids.some(id => kindOf(id) === 'espada');
   let arrows = null;
   for (const id of ids) {
     if (id === ARROWS || id.startsWith(ARROWS + ':')) { arrows = id; continue; }
     if (out.length >= MAX_TOOLS) continue;
     const kind = kindOf(id), spots = kind === 'regadera' && bag ? ['bagSide'] : KIT_SPOTS[kind];
-    const spot = spots?.find(s => !used.has(s));
+    const spot = spots?.find(s => !used.has(s) && !(sword && kind === 'hammer' && s === 'hipL'));
     if (!spot) continue;
     used.add(spot);
     out.push({ id, kind, spot });

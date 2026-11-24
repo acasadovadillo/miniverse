@@ -4,6 +4,7 @@ import { STATIONS } from '../recipes.js';
 import { PIECES } from '../pieces.js';
 import { pieceSprite, BUILD_IDS, ALL_CATS, DEF, matText } from '../build.js';
 import { BUILDABLE, PLANS } from '../buildables.js';
+import { hitsOf, planned } from '../plans.js';
 import { SHOPS } from '../economy.js';
 import { t } from '../i18n.js';
 import { pieceIcon } from '../art/build.js';
@@ -44,13 +45,14 @@ export function initBuildBar(game) {
       box.innerHTML = `<div class="bb-note">${tool === 'Quitar' ? t('build.bar.remove') : b.carry ? t('build.bar.carrying', { item: DEF(b.carry.id) }) : t('build.bar.move')}</div>`;
       return;
     }
+    if (game.plans?.active && game.plans.slot() < 0 && shown(cat).some(planned)) box.innerHTML = `<div class="bb-note">${t('build.bar.no_hammer')}</div>`;
     for (const id of shown(cat)) {
       const p = DEF(id);
-      const btn = document.createElement('button'), near = b.stationFor(id), ok = b.affordable(id) && near;
+      const btn = document.createElement('button'), near = b.stationFor(id), draw = !!game.plans?.active && planned(id), ok = draw || (b.affordable(id) && near);   // (drawing costs nothing: what it takes is for the hammer)
       btn.type = 'button';
       btn.className = 'bb-piece' + (id === b.piece ? ' on' : '') + (ok ? '' : ' poor');
       btn.title = p.name;
-      btn.innerHTML = `<img alt="" src="${iconOf(id)}"><span>${p.name}</span><small>${game.admin ? t('build.bar.free') : matText(p.cost) + (near ? '' : ` · ${t('build.bar.lacks', { station: STATIONS[p.needs] })}`)}</small>`;
+      btn.innerHTML = `<img alt="" src="${iconOf(id)}"><span>${p.name}</span><small>${game.admin ? t('build.bar.free') : matText(p.cost) + (draw ? ` · ${t('build.cost.swings', { n: hitsOf(id) })}` : '') + (near ? '' : ` · ${t('build.bar.lacks', { station: STATIONS[p.needs] })}`)}</small>`;
       btn.onclick = () => b.select(id);
       box.append(btn);
     }

@@ -297,13 +297,13 @@ export class Gathering {
   // uso. Siempre se puede trabajar: con el hambre a cero lo que baja es la vida (según la dificultad)
   // Also stamina (needs.work: TOOL_COST × toolK, halved by the skill; the buff turns it off there): the hunger cost stays
   // exactly as it was. And dirt on the body (body.work: a little per use, Plan E §2.3), whatever the buff
-  spend(kind) {
+  spend(kind, slot = this.game.inv.selected) {   // (slot: the hammer of build mode is not in the hand: plans.js)
     const g = this.game;
     if (!(g.buffs?.incansable > g.time)) g.combat?.exert(TOOL_COST[kind] * (g.skills?.costCut(kind) ? 0.5 : 1));   // (la sopa de verduras quita el cansancio un rato)
     g.needs?.work(kind);
     g.wildlife?.toolHit();   // (heard by the wild animals: presence.js)
     g.body?.work(kind);   // (and it dirties you and wears the clothes on a little: Plan E §2.3, §3.2, on the time worked)
-    this.wearOut();
+    this.wearOut(slot);
     return true;
   }
   // Lo que se lleva en la mano (herramienta o arma) se gasta un uso; si se acaba, se rompe (en creativo, no)

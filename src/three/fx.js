@@ -240,7 +240,7 @@ export class Fx {
   updateTarget(game, scene, playing, t, gy) {
     const ay = (x, y) => this.view.aimY(scene, x, y);   // (el marco de la casilla: ver showTile)
     this.tile.visible = this.tileFill.visible = this.ring.visible = false;
-    let ghost = null, ghostOk = true, at = null, yaw = 0, ghostLvl = null, swap = false;
+    let ghost = null, ghostOk = true, at = null, yaw = 0, ghostLvl = null, swap = false, plan = false;
     if (playing) {
       const b = game.build;
       const pulse = Math.sin(t * 6) > 0 ? '#fff3c0' : '#ffd77a';
@@ -248,8 +248,8 @@ export class Fx {
         const tt = b.target();
         if (tt) {
           const c = b.check(tt);
-          this.showTile(tt, ay, c.ok ? pulse : '#ff7a6a');
-          if (!b.erase && !b.move) { ghost = 'piece:' + b.piece; ghostOk = c.ok; at = [tt[0] + 0.5, tt[1] + 0.5]; swap = !!c.swap && c.ok; if (swap) yaw = wallYaw(game.scene, tt[0], tt[1]); }
+          this.showTile(tt, ay, c.ok ? (c.plan ? '#9ad2ff' : pulse) : '#ff7a6a');
+          if (!b.erase && !b.move && c.plan !== 'hammer' && !game.plans?.holding) { plan = !!c.plan; ghost = 'piece:' + b.piece; ghostOk = c.ok; at = [tt[0] + 0.5, tt[1] + 0.5]; swap = !!c.swap && c.ok; if (swap) yaw = wallYaw(game.scene, tt[0], tt[1]); }
         }
       } else {
         const tg = game.gather.target;
@@ -286,7 +286,8 @@ export class Fx {
       this.ghost.rotation.y = yaw;
       this.ghost.scale.set(swap ? 1.02 : 1, 1, swap ? 1.3 : 1);   // (over the wall it takes the place of, not inside it)
       this.ghostMat.opacity = ghostOk ? 0.55 : 0.5;   // (en rojo, bien visible: así se ve qué corta)
-      this.ghostMat.color.set(swap ? '#8dffa0' : ghostOk ? '#c8ffd0' : '#ffb0a0');
+      this.ghostMat.color.set(swap ? '#8dffa0' : plan && ghostOk ? '#8ec6ff' : ghostOk ? '#c8ffd0' : '#ffb0a0');   // (a plan: blueprint blue)
+      this.ghostMat.emissive.set(plan && ghostOk ? '#1c4a7a' : '#2a6a3a');
     }
   }
   // (gy: la altura de lo que se apunta, aimY en engine.js: en lo cavado con agua, el marco va sobre el agua)

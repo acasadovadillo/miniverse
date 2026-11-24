@@ -41,6 +41,8 @@ const RAW = (() => { try { return new URLSearchParams(globalThis.location?.searc
 // Plan R5-1 (building that holds, docs/planes/realismo/PLAN-R5-construccion.md), each with ?x=0: soporte (a roof goes on any
 // floor or wall, doors go anywhere, a wall under a roof can be taken away, and removing gives everything back with a click,
 // as before; swapping stays) and refugio (no rooms: under any roof the same warmth, and the old names). Local only
+// And R5-2 (plan and hammer): obra (?obra=0: in survival too, a piece is placed at once and paid then, with no hammer; the plans
+// already drawn stay, and can be erased). Local only
 // Plan R3-1 (the wild animals' senses, docs/planes/realismo/PLAN-R3-caza.md): sentidos (?sentidos=0 on the host: they run from
 // whoever comes within their fear radius, as before; no heel or point of the dog; nor the ring and the wind mark)
 // Plan R8-2 (the maps, docs/planes/realismo/PLAN-R8-hud-mapa.md): sat (?sat=0: the maps' ground as before, 1 px per tile made
@@ -54,7 +56,7 @@ export const PARTES = { hierba: 'sinlod', impostores: null, relieve: null, conta
   vinculo: null, alforjas: null, montar: 'arcade',
   tracks: null, wounds: null, naturebook: null,
   sentidos: null,
-  soporte: null, refugio: null, sat: null, sitios: '1' };
+  soporte: null, refugio: null, obra: null, sat: null, sitios: '1' };
 
 // El valor tal cual (o null)
 export const opcion = k => RAW.get(k);

@@ -30,6 +30,7 @@ import { Tracks3D } from './tracks3d.js';
 import { routeGround } from './route3d.js';
 import { Glow } from './glow.js';
 import { prewarmKit } from './kit3d.js';
+import { prewarmSite } from './site3d.js';
 import { carriedView, pushedView } from './carry3d.js';
 import { Cave3D } from './cave3d.js';
 import { SunShadow } from './sunshadow.js';
@@ -355,7 +356,7 @@ export class View3D {
     const away = game.player?.swim || game.player?.pose?.kind === 'bath';   // (swimming or in the tub, the hands are free: nothing shows)
     const vk = first && !away ? (game.carry?.viewKey ? game.carry.viewKey() : game.carry?.held ? 'carry:' + game.carry.held : null) : null;
     const big = vk?.startsWith('carry:') ? vk.slice(6) : null, push = vk?.startsWith('push:') ? vk.slice(5) : null;
-    const id = big || push ? vk : first && !away ? (m?.anim ? m.anim.item : game.inv?.held?.id) || null : null;   // (nadando, se guarda)
+    const id = big || push ? vk : first && !away ? (m?.anim ? m.anim.item : game.plans?.handId() ?? game.inv?.held?.id) || null : null;   // (nadando, se guarda)
     if (this.vmItem !== id) {
       this.vmItem = id;
       vm.clear();
@@ -366,7 +367,7 @@ export class View3D {
         // (la herramienta, girada sobre su mango para que el filo del hacha o de la guadaña mire al centro de
         // la pantalla; inclinada hacia delante y hacia dentro)
         const kind = ITEMS[id]?.tool;
-        tool.rotation.set(0, ITEMS[id]?.bow ? Math.PI + 0.42 : kind === 'hacha' || kind === 'guadana' ? Math.PI + 0.35 : 0.25, 0);
+        tool.rotation.set(0, ITEMS[id]?.bow ? Math.PI + 0.42 : kind === 'hacha' || kind === 'guadana' || kind === 'hammer' ? Math.PI + 0.35 : 0.25, 0);
         if (kind === 'pala') tool.rotation.set(-1.05, 0.15, 0);   // (la pala, tumbada hacia delante con la hoja arriba: se ve si lleva tierra)
         tool.traverse(o => { if (o.isMesh) o.castShadow = false; });
         const tilt = new THREE.Group(), hold = new THREE.Group();
@@ -547,7 +548,7 @@ export class View3D {
     this.draw();
     this.drawn++;
     if (!this.outliner.warm) this.outliner.prewarm();   // (its programs, before the first thing is aimed at)
-    if (!this.kitWarm) { this.kitWarm = true; prewarmKit(this.renderer, this.camera, this.scene); }   // (and the tools on the body's: kit3d.js)
+    if (!this.kitWarm) { this.kitWarm = true; prewarmKit(this.renderer, this.camera, this.scene); prewarmSite(this.renderer, this.camera, this.scene); }   // (and the tools on the body's: kit3d.js)
     for (const [s, v] of this.caves) if (s !== scene && s !== this.lastCave) { v.dispose(); this.caves.delete(s); }
     this.stats(dt);
   }

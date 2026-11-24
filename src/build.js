@@ -4,6 +4,8 @@
 // What holds and what does not, structure.js: a roof needs a support, a door its frame, and a wall that holds a roof stays.
 // A wall, a window, a door, a post or a fence goes in the place of another in one go (swapFor). What you put less than UNDO_MS
 // ago comes back whole, at a tap; the rest of the pieces are taken down holding (needsHold), and give back part (salvage).
+// In survival, the pieces are drawn first, for free, and the hammer builds them (plans.js): placing one here draws its plan, and
+// pressing on one already drawn hammers it. Furniture and stations, and everything in creative, are placed at once.
 import { STATIONS, aStation } from './recipes.js';
 import { PIECES, parsePlaced, layerOf } from './pieces.js';
 import { ITEMS, CHESTS } from './items.js';
@@ -19,6 +21,7 @@ const PICK_NEAR = 14;   // (se apunta a lo que haya hasta aquí: lo que está m�
 export const REACH = 7;   // casillas de distancia a las que se puede construir
 import { BUILDABLE, BUILD_CATS } from './buildables.js';
 import { t as tr, has } from './i18n.js';   // (as tr: t is the target tile here)
+import { planKey, PLAN_REACH } from './plans.js';
 import { supportOn, roofWhy, holdsRoof, isSupport, frameKind, frameOk, swaps, swappable, SPAN } from './structure.js';
 export const BUILD_STATION_REACH = 16;   // a cuántas casillas puede estar la estación que pide una pieza (el banco, para lo de madera; la mesa de cantero, para lo de piedra)
 export const UNDO_MS = 10 * 60 * 1000;   // what you have just put comes back whole, this long
@@ -131,6 +134,8 @@ export class BuildMode {
     return [Math.floor(p.x + p.face.x), Math.floor(p.y + p.face.y)];
   }
   pointTo(tile) { this.cursor = tile; this.cursorAt = performance.now(); }
+  // (a plan is erased from as far as it is drawn)
+  reaches(hit) { const p = this.game.player; return hit.plan ? Math.hypot(hit.plan.x + 0.5 - p.x, hit.plan.ty + 0.5 - p.y) <= PLAN_REACH : this.inReach(hit.tile); }
   inReach(t) { const p = this.game.player; return Math.hypot(t[0] + 0.5 - p.x, t[1] + 0.5 - p.y) <= REACH; }
   // ¿Está cerca la estación que pide la pieza? (lo de madera, el banco de carpintero; en creativo, nada). Se mira dos
   // veces por segundo: esto se pregunta en cada fotograma
@@ -153,7 +158,7 @@ export class BuildMode {
     if (this.erase) {
       const hit = this.eraseTarget(t);
       if (!hit) return no('nothing');
-      if (!this.inReach(hit.tile)) return no('far');
+      if (!this.reaches(hit)) return no('far');
       return this.holds(hit) ? no('holds_roof') : { ok: true };
     }
     // Un mueble o una estación (o lo que se mueve): que se pueda pagar, con su estación cerca y donde quepa (lo dice
@@ -173,9 +178,11 @@ export class BuildMode {
       return this.holds(hit) ? no('holds_roof') : { ok: true };
     }
     if (!t) return { ok: false };
-    if (!this.inReach(t)) return no('far');
     if (sc !== g.world) return no('indoors');
     const id = this.piece, sw = this.swapFor(t);
+    // (drawing it: from farther away, with nothing in hand nor near. A wall that stands is still swapped at once)
+    if (!sw && g.plans?.active) { const c = g.plans.check(t, id); return c.ok ? c : no(c.code, { n: SPAN }); }
+    if (!this.inReach(t)) return no('far');
     if (!(sw ? this.canPayNet(sw) : this.affordable(id))) return no('materials');
     if (!this.stationFor(id)) return no('station', { station: aStation(PIECES[id].needs) });
     if (sw) return sw.why ? no(sw.why) : { ok: true, swap: sw };
@@ -183,8 +190,8 @@ export class BuildMode {
     return { ok: true };
   }
   // Why a piece does not go in a tile (the code of build.why.<code>)
-  whyNot(t, id) {
-    const sc = this.game.scene, kind = PIECES[id].kind, [x, y] = t;
+  whyNot(t, id, sc = this.game.scene) {
+    const kind = PIECES[id].kind, [x, y] = t;
     if ((kind === 'door' || kind === 'gate') && sc.holeBeside?.(x, y)) return 'hole';
     if (!supportOn()) return PIECES[id].layer === 'roof' ? 'roof' : 'no_fit';
     if (sc.at(layerOf(id), x, y) || inWater(sc, x, y)) return 'no_fit';
@@ -195,7 +202,7 @@ export class BuildMode {
   // Asked in every frame while aiming at it: kept until something around changes
   holds(hit) {
     const g = this.game, sc = g.scene, [x, y] = hit.tile;
-    if (hit.layer !== 'placed' || g.admin || sc !== g.world || !supportOn()) return false;
+    if (hit.plan || hit.layer !== 'placed' || g.admin || sc !== g.world || !supportOn()) return false;
     const raw = sc.at('placed', x, y);
     if (!raw || !isSupport(parsePlaced(raw)[0])) return false;
     const k = `${x},${y},${sc.touches}`, M = this.holdsMemo;
@@ -273,9 +280,10 @@ export class BuildMode {
     return !!r && r.id === id;
   }
   // What comes back of the piece in that layer and tile
-  backOf(hit, id) { return !supportOn() || this.game.admin || this.isRecent(`${hit.layer}:${hit.tile}`, id) ? PIECES[id].cost : salvage(PIECES[id].cost); }
+  backOf(hit, id) { return hit.plan || !supportOn() || this.game.admin || this.isRecent(`${hit.layer}:${hit.tile}`, id) ? PIECES[id].cost : salvage(PIECES[id].cost); }
   // Is it taken down only by holding? (a piece of the palette you have not just put. Furniture and stations come apart cleanly)
-  needsHold(hit, id) { return supportOn() && !this.game.admin && !!PIECES[id] && !ITEMS[id] && !this.isRecent(`${hit.layer}:${hit.tile}`, id); }
+  // (nor a plan, but one already begun: what was hammered is lost)
+  needsHold(hit, id) { return hit.plan ? !this.game.admin && (hit.plan.rec.w > 0 || !!hit.plan.rec.p) : supportOn() && !this.game.admin && !!PIECES[id] && !ITEMS[id] && !this.isRecent(`${hit.layer}:${hit.tile}`, id); }
 
   place(t = this.target(), drag = false, at = null) {
     if (!this.on) return;
@@ -290,12 +298,20 @@ export class BuildMode {
     }
     if (this.move) return this.lift(t, drag, at);
     if (!drag) this.stroke = undefined;
+    const g = this.game;
+    if (drag && g.plans?.holding) return;   // (hammering: the cursor picks the next one, plans.js)
     t = this.swapTile(at) || t;
     if (!t) return;
     if (drag && this.painted === `${t}`) return;
     this.painted = `${t}`;
-    const g = this.game, c = this.check(t);
+    const c = this.check(t);
     if (!drag) this.stroke = c.swap ? c.swap.from : null;   // (dragging on swaps only the same as the first one, and painting new ones swaps nothing)
+    if (!drag) this.drawing = c.plan || null;
+    if (c.plan) {
+      if (c.plan === 'hammer') { if (!drag) g.plans.hold(c.key); }
+      else if (c.plan === this.drawing) g.plans.draw(c.key, this.piece);   // (a stroke that draws new ones changes none of the old, nor the other way round)
+      return;
+    }
     if (c.swap) { if (!this.doSwap(c.swap)) return; return this.placedFx(t); }
     if (!c.ok) { if (!drag) { if (c.why) g.gather.float(c.why, '#ffb0a0'); Audio.error(); } return; }
     if (!g.admin && !this.spend(PIECES[this.piece].cost)) { if (!drag) { g.gather.float(tr('build.why.materials'), '#ffb0a0'); Audio.error(); } return; }   // (counted now: the chests nearby may have changed, carry.js)
@@ -331,6 +347,7 @@ export class BuildMode {
   removableAt(t) {
     const sc = this.game.scene;
     if (!t || !sc.at) return null;
+    if (!this.move) for (const layer of ['roof', 'placed', 'floor']) { const e = this.planHit(planKey(layer, t[0], t[1])); if (e) return e; }
     for (const layer of ['roof', 'hang', 'placed']) if (sc.at(layer, t[0], t[1])) return { tile: t, layer };
     const long = sc.anchorOf?.(t[0], t[1]);
     if (long) return { tile: long, layer: 'placed' };
@@ -339,6 +356,11 @@ export class BuildMode {
     return sc.at('floor', t[0], t[1]) ? { tile: t, layer: 'floor' } : null;
   }
   removable(t) { return this.removableAt(t)?.layer || null; }
+  // A plan as something to remove: { tile, layer, plan: its entry, o, box }, or null
+  planHit(key) {
+    const P = this.game.plans, e = P && this.game.scene === this.game.world && (P.refresh(), P.byKey.get(key));
+    return e ? { tile: e.tile, layer: e.layer, plan: e, o: { tile: e.tile, layer: e.layer, placed: e.id, plan: true }, box: P.boxOf(e) } : null;
+  }
   // The boxes of a wall, a door, a post or a fence, to aim at it (those hidden from inside the house, not): add(box). false:
   // it is none of these
   pieceBoxes(o, hidden, add) {
@@ -400,6 +422,10 @@ export class BuildMode {
       const gy = g.view3d.groundY(sc, c.box.x, c.box.y), t = rayHits(ray.o, ray.d, { ...c.box, y0: c.box.y0 + gy, y1: c.box.y1 + gy });
       if (t !== null && t < near) { near = t; best = c; }
     }
+    if (ray && !this.move && g.plans?.list.length) {
+      const e = g.plans.pickAt(at ? at[0] : m.x, at ? at[1] : m.y, PLAN_REACH, false, near);
+      if (e) best = this.planHit(e.key);
+    }
     if (!at) { m.pick = best; m.pickFrame = g.frameNo; m.pickV = this.pickV; }
     return best;
   }
@@ -415,16 +441,16 @@ export class BuildMode {
   removeAt(t, drag = false, at = null) {
     const g = this.game, sc = g.scene, hit = this.eraseTarget(t, at);
     if (!hit) { this.held = null; if (!drag) Audio.error(); return; }
-    const { tile, layer } = hit, key = `${layer}:${tile}`;
-    if (drag && (this.painted === key || this.held?.key === key || (this.dragLayer && this.dragLayer !== layer))) return;
+    const { tile, layer } = hit, key = keyOf(hit), dl = (hit.plan ? 'plan:' : '') + layer;
+    if (drag && (this.painted === key || this.held?.key === key || (this.dragLayer && this.dragLayer !== dl))) return;
     this.held = null;
-    if (!this.inReach(tile)) { if (!drag) Audio.error(); return; }
-    const raw = sc.at(layer, tile[0], tile[1]);
+    if (!this.reaches(hit)) { if (!drag) Audio.error(); return; }
+    const raw = hit.plan ? hit.plan.id : sc.at(layer, tile[0], tile[1]);
     if (!raw) return;
     if (this.holds(hit)) { if (!drag) { g.gather.float(tr('build.why.holds_roof'), '#ffb0a0'); Audio.error(); } return; }
     const id = parsePlaced(raw)[0];
-    this.dragLayer = layer;
-    if (this.needsHold(hit, id) && !this.unknown(id, !sc.ownAt || sc.ownAt(layer, tile[0], tile[1]))) {
+    this.dragLayer = dl;
+    if (this.needsHold(hit, id) && (hit.plan || !this.unknown(id, !sc.ownAt || sc.ownAt(layer, tile[0], tile[1])))) {
       this.held = { key, tile, layer, id, o: hit.o || null, box: hit.box || null, ms: 0, last: performance.now(), at };
       return;
     }
@@ -434,7 +460,8 @@ export class BuildMode {
   // Letting go of the mouse (or of X, or leaving the mode): the drag is over, and what was being held stays
   release() {
     const h = this.held;
-    this.painted = null; this.dragLayer = null; this.held = null; this.stroke = undefined;
+    this.painted = null; this.dragLayer = null; this.held = null; this.stroke = undefined; this.drawing = null;
+    this.game.plans?.release();
     if (h) this.game.gather?.float(tr('build.hold_on'), '#fff3c0');
   }
   // Each frame: what is being taken down, holding. Aiming at something else (or out of reach) stops it
@@ -442,7 +469,7 @@ export class BuildMode {
     const h = this.held, g = this.game;
     if (!h) return;
     const m = g.mouse, hit = g.mode === 'play' && !g.busy && this.on ? this.eraseTarget(h.tile, m?.in ? [m.x, m.y] : h.at) : null;
-    if (!hit || `${hit.layer}:${hit.tile}` !== h.key || !this.inReach(hit.tile)) { this.held = null; return; }
+    if (!hit || keyOf(hit) !== h.key || !this.reaches(hit)) { this.held = null; return; }
     const now = performance.now();
     h.ms += Math.min(FRAME_MS, now - h.last); h.last = now;   // (a long frame, with the key let go of waiting behind it, does not end a tap)
     if (h.ms < HOLD_S * 1000) return;
@@ -453,6 +480,7 @@ export class BuildMode {
   // How much of the hold is done (0 to 1; -1: none)
   holdK() { return this.held ? Math.min(1, this.held.ms / (HOLD_S * 1000)) : -1; }
   takeDown(hit) {
+    if (hit.plan) { if (this.game.plans.cancel(hit.plan.key)) { this.pickV++; Audio.chalk(); } return; }
     const g = this.game, sc = g.scene, { tile, layer } = hit, raw = sc.at(layer, tile[0], tile[1]);
     if (!raw) return;
     const [id, k] = parsePlaced(raw), own = !sc.ownAt || sc.ownAt(layer, tile[0], tile[1]), o = { tile, layer, placed: id, ...(layer === 'rug' ? { rug: rugRect(tile[0], tile[1], k) } : {}), ...(own ? {} : { fixed: true, build: true }) };
@@ -482,18 +510,24 @@ export class BuildMode {
   pickHighlight() {
     if (!this.on || !(this.erase || (this.move && !this.carry))) return null;
     const hit = this.pick();
-    return hit && this.inReach(hit.tile) ? { kind: 'placed', o: hit.o, yaw: hit.o.yaw, box: hit.box } : null;
+    return hit && this.reaches(hit) ? { kind: 'placed', o: hit.o, yaw: hit.o.yaw, box: hit.box } : null;
   }
 
   // Lo que se va a quitar (o mover), por su nombre: { item, id, hit } (null: nothing there; { newer } a thing of a newer version)
   aimedThing() {
-    const sc = this.game.scene, hit = this.eraseTarget(this.target()), raw = hit && sc.at(hit.layer, hit.tile[0], hit.tile[1]), id = raw && parsePlaced(raw)[0], def = id && (PIECES[id] || ITEMS[id]);
+    const sc = this.game.scene, hit = this.eraseTarget(this.target()), raw = hit && (hit.plan ? hit.plan.id : sc.at(hit.layer, hit.tile[0], hit.tile[1])), id = raw && parsePlaced(raw)[0], def = id && (PIECES[id] || ITEMS[id]);
     return def?.name ? { item: def, id, hit } : id ? { newer: true } : null;
   }
   eraseHint() {
     const a = this.aimedThing();
+    if (a?.hit?.plan) return this.needsHold(a.hit, a.id) ? tr('build.hint.erase_begun', { item: a.item, back: matText(PIECES[a.id].cost) }) : tr('build.hint.erase', { item: a.item });
     if (a?.item && this.needsHold(a.hit, a.id)) { const back = this.backOf(a.hit, a.id); return back.length ? tr('build.hint.remove_hold', { item: a.item, back: matText(back) }) : tr('build.hint.remove_hold_none', { item: a.item }); }
     return a?.item ? tr('build.hint.remove', { item: a.item }) : a?.newer ? tr('build.hint.newer') : tr('build.hint.remove_any');
+  }
+  // Drawing a piece, or hammering the one drawn there
+  planHint(c) {
+    const P = this.game.plans, item = PIECES[this.piece], e = c.plan === 'hammer' && P.byKey.get(c.key);
+    return e ? (P.inReach(e) ? P.label(e) : tr('build.why.far')) : tr('build.hint.plan', { item });
   }
   swapHint(sw) {
     const cost = this.game.admin ? '' : [matText(sw.pay, '+'), sw.back.length ? tr('build.swap_back', { back: matText(sw.back) }) : ''].filter(Boolean).join(' · ');
@@ -503,11 +537,11 @@ export class BuildMode {
   holdRow() {
     if (!this.on) return null;
     const h = this.held, hit = h || (this.erase ? this.pick() : null), sc = this.game.scene;
-    if (!hit || !this.inReach(hit.tile)) return null;
-    const raw = sc.at(hit.layer, hit.tile[0], hit.tile[1]), id = raw && parsePlaced(raw)[0];
+    if (!hit || !this.reaches(hit)) return null;
+    const raw = hit.plan ? hit.plan.id : sc.at(hit.layer, hit.tile[0], hit.tile[1]), id = raw && parsePlaced(raw)[0];
     if (!id || !PIECES[id]?.name || !this.needsHold(hit, id) || (!h && this.holds(hit))) return null;
     const R = (this.row ||= { text: '', target: null, k: -1 });
-    R.text = tr('build.prompt.take_down', { item: PIECES[id] });
+    R.text = tr(hit.plan ? 'build.prompt.erase' : 'build.prompt.take_down', { item: PIECES[id] });
     R.target = hit.o && hit.box ? { kind: 'placed', o: hit.o, box: hit.box } : null;
     R.k = this.holdK();
     return R;
@@ -518,9 +552,11 @@ export class BuildMode {
     if (held) { const c = this.check(), item = DEF(held.id); return c.ok ? tr(this.carry ? 'build.hint.drop' : 'build.hint.place', { item }) : tr('build.hint.why', { why: c.why || tr('build.hint.no_fit') }); }
     if (this.move) { const c = this.check(this.target()), a = c.ok && this.aimedThing(); return c.ok ? (a?.item ? tr('build.hint.move', { item: a.item }) : a?.newer ? tr('build.hint.newer') : tr('build.hint.move_any')) : c.why || ''; }
     const c = this.check(this.target());
-    return this.erase ? (c.ok ? this.eraseHint() : c.why || '') : c.ok ? (c.swap ? this.swapHint(c.swap) : tr('build.hint.piece', { item: PIECES[this.piece] })) : c.why || '';
+    return this.erase ? (c.ok ? this.eraseHint() : c.why || '') : c.ok ? (c.swap ? this.swapHint(c.swap) : c.plan ? this.planHint(c) : tr('build.hint.piece', { item: PIECES[this.piece] })) : c.why || '';
   }
 
 }
+// (what is being removed: a plan and the piece under it are two things)
+const keyOf = hit => `${hit.plan ? 'plan:' : ''}${hit.layer}:${hit.tile}`;
 // (a roof over the water, a wall in it: it does not fit, whatever holds it)
 const inWater = (sc, x, y) => !!sc.water?.(x + 0.5, y + 0.5);

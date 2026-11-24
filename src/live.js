@@ -19,7 +19,7 @@ import { hud } from './ui/hud.js';
 import { Audio } from './audio.js';
 import { SHARED, BLOBS, COLLECTIONS, ItemSync, diffChunk, applyOps, copy, unknownShared } from './livesync.js';
 import { toB64 } from './vault.js';
-import { onFault } from './faults.js';
+import { onFault, reportFault } from './faults.js';
 import { GAME_VERSION, compareVersions } from './version.js';
 import { CHUNK } from './world/gen.js';
 import { wrapIndex, PLANET, dxOf } from './world/planet.js';
@@ -445,9 +445,10 @@ export class Live {
         else if (this.takes(peer) && Array.isArray(m.ops)) {
           // (the wheelbarrow's fields are arbitrated apart, also far from where the guest is: barrow.js arbitrate)
           const edit = !peer.old && this.mayEdit(peer, m.c), B = !peer.old ? g.barrow : null, A = B ? B.arbitrate(peer, m.c, m.ops, edit) : null;
-          const rest = A ? A.rest : m.ops, mine = A ? A.ok : [];
+          const PA = g.plans?.arbitrate(peer, m.c, A ? A.rest : m.ops), rest = PA ? PA.ok : A ? A.rest : m.ops, mine = A ? A.ok : [];
           if (edit) { if (rest.length || mine.length) this.applyChunk(m.c, [...rest, ...mine]); }
           else { if (mine.length) this.applyChunk(m.c, mine); if (rest.length) this.refuse(conn, peer, m.c, rest); }
+          if (PA?.back.length) this.net.send({ t: 'w', c: m.c, ops: PA.back }, conn);   // (plans of a building: plans.js)
           if (A) { if (A.back.length) this.net.send({ t: 'w', c: m.c, ops: A.back }, conn); B.afterArbitrate(m.c, A, peer); }
         }
         break;
@@ -825,12 +826,13 @@ export class Live {
     const w = this.game.world, [cx, cy] = k.split(',').map(Number);
     applyOps(w.delta(cx, cy, true), ops);
     if (this.guest) { const s = this.synced.get(k) || {}; applyOps(s, ops); this.synced.set(k, s); }
-    // (only a pushed wheelbarrow's record or a request: nothing new to draw, the chunks are not made again; barrow.js)
-    if (ops.length && ops.every(([f]) => f === 'pushed' || f === 'claim')) w.note(cx, cy);
+    // (only a pushed wheelbarrow's record, a plan of a building or a request: nothing new to draw, the chunks are not made again; barrow.js)
+    if (ops.length && ops.every(([f]) => f === 'pushed' || f === 'claim' || f === 'plan')) w.note(cx, cy);
     else {
       w.touch(cx, cy);
       for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (dx || dy) w.merged.delete(`${cx + dx},${cy + dy}`);   // (tejados y vallas miran a sus vecinas)
     }
+    try { this.game.plans?.onOps(k, ops); } catch (e) { reportFault(e, 'Plans.onOps'); }   // (plans drawn or gone, or built over)
     if (this.guest) try { this.game.barrow?.onHostOps(k, ops); } catch (e) { console.warn(e); }   // (is the wheelbarrow still yours? a request answered)
   }
 
@@ -971,7 +973,7 @@ export class Live {
     }
     this.sent += dt;
     const sc = g.scene === g.world ? 'world' : null;
-    const st = { t: 'st', sc, x: r2(p.x), y: r2(p.y), z: r2(p.z || 0), fl: p.floor ? r2(p.floor) : undefined, yaw: r2(g.view3d.actors.player?.person.facing ?? 0), in: p.inside ? 1 : 0, po: p.pose ? [poseIndex(p.pose.kind), r2(p.pose.yaw), r2(p.pose.h)] : 0, ba: p.bathing && p.pose?.kind === 'bath' ? 1 : undefined, bd: g.body?.bd || undefined, fr: g.body?.fresh ? 1 : undefined, m: p.mount ? 1 : 0, hc: p.mount ? p.horseCoat || null : null, hb: p.mount && p.horseBags ? 1 + (p.horseFill > 0 ? Math.min(2, p.horseFill | 0) : 0) : 0, hd: p.mount && p.horseDirt > 0 ? Math.min(3, Math.round(p.horseDirt * 3)) || undefined : undefined, hw: p.mount && p.horseWinded ? 1 : undefined, ht: p.mount ? horseAct(p.horseAct) : undefined, b: p.boat ? 1 : 0, pa: p.aboard || 0, cr: p.crouch ? 1 : 0, gm: g.gamemode === 'survival' ? 0 : g.gamemode === 'creative' ? 1 : 3, h: g.inv.held?.id || null, sw: this.swings, si: g.gather.swingItem || null, cd: r2(g.gather.cooldown || 0), dr: r2(g.archery.k), na: p.swim ? 1 : 0, hu: p.swim ? r2(p.sink) : undefined, dv: p.swim && p.dive > 0.02 ? r2(p.dive) : undefined, zz: p.sleeping && p.pose?.kind === 'lie' ? 1 : undefined, fb: sc ? g.fishing?.net() : undefined, kt: kitKey(g.kitIds()) || undefined, gt: p.gait || 0, rv: p.mount && g.mode === 'play' && p.ride?.v > 0.5 ? r1(p.ride.v) : undefined, ca: g.carry?.state(), em: g.social.emSeq, ek: g.social.emKind, ac: accentOf(p.name, g.ui?.accent) };
+    const st = { t: 'st', sc, x: r2(p.x), y: r2(p.y), z: r2(p.z || 0), fl: p.floor ? r2(p.floor) : undefined, yaw: r2(g.view3d.actors.player?.person.facing ?? 0), in: p.inside ? 1 : 0, po: p.pose ? [poseIndex(p.pose.kind), r2(p.pose.yaw), r2(p.pose.h)] : 0, ba: p.bathing && p.pose?.kind === 'bath' ? 1 : undefined, bd: g.body?.bd || undefined, fr: g.body?.fresh ? 1 : undefined, m: p.mount ? 1 : 0, hc: p.mount ? p.horseCoat || null : null, hb: p.mount && p.horseBags ? 1 + (p.horseFill > 0 ? Math.min(2, p.horseFill | 0) : 0) : 0, hd: p.mount && p.horseDirt > 0 ? Math.min(3, Math.round(p.horseDirt * 3)) || undefined : undefined, hw: p.mount && p.horseWinded ? 1 : undefined, ht: p.mount ? horseAct(p.horseAct) : undefined, b: p.boat ? 1 : 0, pa: p.aboard || 0, cr: p.crouch ? 1 : 0, gm: g.gamemode === 'survival' ? 0 : g.gamemode === 'creative' ? 1 : 3, h: (g.plans?.handId() ?? g.inv.held?.id) || null, sw: this.swings, si: g.gather.swingItem || null, cd: r2(g.gather.cooldown || 0), dr: r2(g.archery.k), na: p.swim ? 1 : 0, hu: p.swim ? r2(p.sink) : undefined, dv: p.swim && p.dive > 0.02 ? r2(p.dive) : undefined, zz: p.sleeping && p.pose?.kind === 'lie' ? 1 : undefined, fb: sc ? g.fishing?.net() : undefined, kt: kitKey(g.kitIds()) || undefined, gt: p.gait || 0, rv: p.mount && g.mode === 'play' && p.ride?.v > 0.5 ? r1(p.ride.v) : undefined, ca: g.carry?.state(), em: g.social.emSeq, ek: g.social.emKind, ac: accentOf(p.name, g.ui?.accent) };
     const key = JSON.stringify(st);
     if (this.sent < SEND_EVERY || (key === this.lastSent && this.sent < IDLE_EVERY)) return;
     this.sent = 0; this.lastSent = key;

@@ -14,7 +14,7 @@ export const CARCASS_DAYS = 2;
 
 // kg each, where the rule by kind (weightOf) is not enough
 export const WEIGHT = {
-  hacha_hierro: 1.8, pico_hierro: 2.5, guadana_hierro: 2, azada_hierro: 1.6, pala_hierro: 2.2, pala_llena: 8.2,
+  hacha_hierro: 1.8, pico_hierro: 2.5, guadana_hierro: 2, azada_hierro: 1.6, pala_hierro: 2.2, pala_llena: 8.2, hammer: 0.9,
   regadera: 1, cana: 0.6, cana_fibra: 0.5, red: 0.4, arco: 1, flecha: 0.03, espada: 1.5, espada_oro: 2, brujula: 0.1, mapa: 0.05, mapa_vacio: 0.05,
   madera: 2, tablas: 0.5, piedra: 1, cobre: 1.5, hierro: 1.5, oro: 1.5, lingote_cobre: 1, lingote_hierro: 1, lingote_oro: 1.2, carbon: 0.3,
   fibra: 0.02, cuerda: 0.05, tela: 0.2, cuero: 0.5, piel: 1, lana: 0.1, lana_fina: 0.1, angora: 0.05, fieltro: 0.2, heno: 0.3, straw: 0.1, harina: 0.5,

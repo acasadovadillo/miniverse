@@ -271,6 +271,8 @@ export class Overworld {
     this.layers = [];             // otras capas de contenido por trozo (cultivos, lugares…): { add(cx, cy, delta, out), baseAt?(layer, tx, ty) }
     this.onTouch = null;          // avisa de cada trozo que cambia (para jugar juntos en directo)
     this.touches = 0;             // sube con cada cambio de cualquier trozo (lo lejano solo se vuelve a mirar entonces)
+    this.planV = 0;               // goes up with each plan drawn, begun or gone (plans.js)
+    this.onPlanTaken = null;      // told of a plan (its key) whose tile and layer something real takes
     // (las casas tenían un candelabro por su cuenta, que se apagaba aparte: "c:x,y" en d.off. Ya no lo hay; lo que quede
     // de entonces se olvida y se guarda así)
     for (const [k, d] of deltas) if (d?.off) for (const o of Object.keys(d.off)) if (o.startsWith('c:')) { delete d.off[o]; this.dirty.add(k); }
@@ -1059,12 +1061,16 @@ export class Overworld {
     const cx = Math.floor(tx / CHUNK), cy = Math.floor(ty / CHUNK), layer = layerOf(id), d = this.delta(cx, cy, true);
     this.setLevel(tx, ty, id);   // (antes de ponerlo: lo de antes en la casilla, sin altura, se distingue así)
     (d[layer] ||= {})[`${tx},${ty}`] = rot ? `${id}@${rot}` : id;
+    this.planGone(d, layer, tx, ty);
     if (PIECES[id]?.kind === 'gate') (d.closed ||= {})[`${tx},${ty}`] = true;   // (la puerta de valla empieza cerrada: el cercado ya guarda)
     if (CHESTS[id]) d.chest[`${tx},${ty}`] = Array(CHESTS[id][0]).fill(null);   // (la mochila en el suelo es como un cofre; el armario, para la ropa)
     // (a wheelbarrow gets its id once, here: it keeps it while pushed and parked again, and the host arbitrates by it; barrow.js)
     if (id === BARROW.ID) (d.barrow ||= {})[`${tx},${ty}`] = { id: randomId(), l: [] };
     this.touchAround(tx, ty);
   }
+  // Plans (plans.js): drawn, begun or gone, nothing the chunk is made of changes
+  planNote(cx, cy) { this.planV++; this.note(cx, cy); }
+  planGone(d, layer, tx, ty) { const key = `${layer}:${tx},${ty}`; if (d.plan?.[key]) this.onPlanTaken?.(key); }
   // One piece of the placed layer for another in its place (a window in a wall: build.js, swapFor), in one go: its tile keeps
   // its level and what was shut is open again. What came with the village or an aldea is noted as gone
   swapPiece(tx, ty, id) {
@@ -1113,6 +1119,7 @@ export class Overworld {
       if (w && (w.tx !== tx || w.ty !== ty) && this.ownAt('placed', w.tx, w.ty)) this.setTile(w.tx, w.ty, 'air');
       for (const layer of ['floor', 'placed', 'roof', 'hang', 'rug']) { if (d[layer]) delete d[layer][k]; if (d.pos) delete d.pos[`${layer}:${k}`]; }
       for (const l of ['chest', 'closed', 'off', 'machine', 'tilled', 'barrow']) if (d[l]) delete d[l][k];
+      for (const layer of ['floor', 'placed', 'roof']) this.planGone(d, layer, tx, ty);
       for (const layer of ['floor', 'placed', 'roof', 'hang', 'rug']) if (this.baseAt(layer, tx, ty)) (d.gone ||= {})[goneKey(layer, k)] = true;
       this.dropLevel(tx, ty);
       if (was) this.dropWell(tx, ty, parsePlaced(was)[0]);
@@ -1122,6 +1129,7 @@ export class Overworld {
       this.setLevel(tx, ty, id);
       if (this.baseAt(layer, tx, ty)) (d.gone ||= {})[goneKey(layer, k)] = true;   // (lo que venía puesto ya no está: al quitar esto no vuelve)
       (d[layer] ||= {})[k] = id;
+      this.planGone(d, layer, tx, ty);
     }
     this.touchAround(tx, ty);
   }
