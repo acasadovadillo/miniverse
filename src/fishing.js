@@ -115,7 +115,9 @@ export class Fishing {
     g.skills?.gain('pesca', Math.round(3 + f.dif * 9));
     g.stats?.add('peces', 1);
     g.xp?.add(1 + Math.floor(Math.random() * 6));   // (como en Minecraft, de 1 a 6 de experiencia)
+    const fresh = !!g.collection && !g.collection.got.has(id);   // (Collections' "new" toast wins over the book's message)
     g.collection?.found(id);
+    g.nature?.harvested(id, 1, fresh);   // (the nature book: Studied, five catches Known)
   }
   treasure() {
     const g = this.game, lvl = g.skills?.level('pesca') || 0, got = [];

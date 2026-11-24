@@ -8,6 +8,8 @@
 // change, never ride, tense or stingers). It travels with the volumes in the save (a save without it keeps
 // this device's, 'dynamic' by default); an unknown value reads 'dynamic'.
 // Music reads it as Music.calm, set in apply() (music.js cannot import this file: it would be a cycle)
+// blood (Plan G §5.3, §8): wounded animals' trails are drawn with a muted red; off, scuffed soil instead (no red). Only
+// on this device (not in the save); three/tracks3d.js reads Settings.v.blood and fieldhud.js says "scuffed" with it off
 import { Audio } from './audio.js';
 import { Music } from './music.js';
 import { useLangSetting } from './i18n.js';
@@ -17,7 +19,7 @@ const KEY = 'pueblo-brotes:ajustes';
 const VOLUMES = ['master', 'music', 'sfx', 'musicOn', 'musicMode'];
 export const MUSIC_MODES = ['dynamic', 'calm'];
 export const Settings = {
-  v: { master: 0.7, music: 0.5, sfx: 1, scale: 'auto', bigText: false, noFlash: false, musicOn: true, musicMode: 'dynamic', hud: 'minimal', skin: 'glass', menuSfx: true, motion: 'full', ride: 'realistic' },
+  v: { master: 0.7, music: 0.5, sfx: 1, scale: 'auto', bigText: false, noFlash: false, musicOn: true, musicMode: 'dynamic', hud: 'minimal', skin: 'glass', menuSfx: true, motion: 'full', ride: 'realistic', blood: true },
   load() {
     try { Object.assign(this.v, JSON.parse(localStorage.getItem(KEY) || '{}')); } catch { /* ajustes por defecto */ }
     this.apply();

@@ -114,6 +114,14 @@ export function initSettingsUI({ onClose, extra = null }) {
     choice('skin', t('gui.settings.row.skin'), [['glass', t('gui.settings.row.skin.glass')], ['wood', t('gui.settings.row.skin.wood')]], () => skinNow(Settings.v.skin));   // (lit: the one in sight, ?ui=madera included)
     check('bigText', 'Texto más grande');
     check('noFlash', 'Reducir destellos (rayos de las tormentas)');
+    // Blood on the trails of wounded animals (Plan G), or scuffed ground instead. Not with ?tracks=0 (nothing is drawn)
+    if (!apagada('tracks')) {
+      check('blood', t('settings.blood'));
+      const bloodNote = document.createElement('p');
+      bloodNote.className = 'st-note';
+      bloodNote.textContent = t('settings.blood.off_hint');
+      box.append(bloodNote);
+    }
     // Riding (Plan R4-1): the horse's real weight, or quicker turns and stops
     head(t('settings.game'));
     choice('ride', t('settings.ride'), [['realistic', t('settings.ride.realistic')], ['arcade', t('settings.ride.arcade')]], () => (apagada('montar') ? 'arcade' : Settings.v.ride));

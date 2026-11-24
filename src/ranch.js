@@ -999,7 +999,7 @@ export class Ranch {
     this.petAsBefore(a);
   }
   petAsBefore(a) {
-    if (a.petDay !== this.today) { a.petDay = this.today; a.love = Math.min(10, a.love + 1); this.game.skills?.gain('granja', 1); }
+    if (a.petDay !== this.today) { a.petDay = this.today; a.love = Math.min(10, a.love + 1); this.game.skills?.gain('granja', 1); this.game.nature?.petted(a.type); }   // (the nature book: petted on 5 days, Known)
     this.game.gather.chips(a.x, a.y, 'heart', 6);
     a.wait = 1.5;
     if (a.type === 'perro') Audio.bark(); else if (a.type === 'gato') Audio.meow(); else if (a.type === 'caballo') Audio.neigh(); else Audio.blip();
@@ -1032,6 +1032,7 @@ export class Ranch {
     Audio.pickup();
     g.skills?.gain('granja', 2);
     g.stats?.add('productos', 1);
+    g.nature?.harvested(a.type);   // (its product collected: Known in the nature book)
   }
 
   // ---------- el caballo ----------

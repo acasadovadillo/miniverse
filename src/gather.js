@@ -372,6 +372,7 @@ export class Gathering {
     if (o.hits >= hits) {
       o.hits = 0;
       g.scene.remove(o);
+      if (g.scene === g.world) g.nature?.harvested(o.kind);   // (felled or picked: Known in the nature book)
       this.chips(o.x, o.y, rule.chips, 16);
       const fruit = o.bare && rule.fruit ? { ...rule, drops: rule.drops.filter(([id]) => id !== rule.fruit) } : rule;   // (la palmera a la que se le acaban de coger los cocos ya no tiene)
       // (with the weight inventory, a tree leaves its log lying where it falls instead of the wood: carry.js)

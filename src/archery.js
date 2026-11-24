@@ -22,7 +22,7 @@ import { RATES } from './needs.js';
 import { wrapX, nearX, WATER_Y } from './world/planet.js';
 import { shotHit } from './world/shots.js';
 import { WALL_H, ROOF } from './three/build3d.js';
-import { bodyBox, PREY } from './hunt.js';
+import { bodyBox, PREY, zoneOf } from './hunt.js';
 
 export const V = 24, G = 16;                    // lo que corre la flecha a toda fuerza (casillas por segundo) y lo que la baja
 const FULL_DRAW = 1, MIN_POWER = 0.1, MAX_DMG = 6, DRAW_WALK = 0.45;
@@ -203,7 +203,7 @@ export class Archery {
             const t = rayHits(f, u, { ...b, y0: b.y0 + gy0, y1: b.y1 + gy0 });
             if (t !== null && t <= near) { near = t; hit = e; }
           }
-          if (hit) { this.strike(a, hit); return false; }
+          if (hit) { this.strike(a, hit, [f[0] + u[0] * near, f[1] + u[1] * near, f[2] + u[2] * near]); return false; }
         }
         const t = this.hit(g.scene, f, u, l, gy);
         if (t !== null) { this.stick(a, f[0] + u[0] * t, f[1] + u[1] * t, f[2] + u[2] * t, d, SINK.solid); return true; }
@@ -214,7 +214,7 @@ export class Archery {
           const t = rayHits(tip, d, { ...b, y0: b.y0 + gy0, y1: b.y1 + gy0 });
           if (t !== null && t <= near) { near = t; hit = e; }
         }
-        if (hit) { this.strike(a, hit); return false; }
+        if (hit) { this.strike(a, hit, [tip[0] + d[0] * near, tip[1] + d[1] * near, tip[2] + d[2] * near]); return false; }
       }
       a.vh -= G * dt;
       // (la punta: dónde toca el suelo, si lo toca en este paso, y lo primero que encuentra antes)
@@ -306,9 +306,11 @@ export class Archery {
       a.vx *= 0.3; a.vy *= 0.3; a.vh = -1;
     }
   }
-  strike(a, e) {
+  // It hit e at the point hit ([x, height, y], where the ray met its box; null from an old caller): an animal is told where
+  // (the zone of a wild one: hunt.js zoneOf, Plan G §3.2), a creature only how hard
+  strike(a, e, hit = null) {
     const g = this.game;
-    if (PREY[e.type]) g.hunt.shot(e, a.dmg); else g.combat.shot(e, a.dmg);
+    if (PREY[e.type]) g.hunt.shot(e, a.dmg, zoneOf(e, hit, g.view3d.groundY?.(g.scene, e.x, e.y) || 0, a.dmg)); else g.combat.shot(e, a.dmg);
     Audio.chop();
     if (a.scene === g.world) g.live.net?.send({ t: 'arrowgone', id: a.id });
   }

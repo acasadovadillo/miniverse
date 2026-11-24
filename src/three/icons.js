@@ -46,6 +46,83 @@ function drawOwn(renderer, scene, camera, compile = false) {
   try { if (compile) renderer.compile(scene, camera); else renderer.render(scene, camera); } finally { ED.addEventListener = add; }
 }
 
+// A drawing of the nature book (three/plates.js) in this same renderer (no second WebGL context), through drawOwn, in steps
+// that never make the game wait for the card: the programs are asked for and left to compile; then it is drawn and its
+// pixels asked for through a pixel buffer (reading them at once, or a 2D canvas of them, waits for every frame the game
+// has queued: 0.1-0.7 s on the user's Mac); then they are fetched when they have arrived. made: what only this drawing
+// owned (geometries, InstancedMeshes), freed after it with the 'dispose' listeners it left. Plan G §4.3
+// → a job: step() → undefined (call it again in another frame), the pixels (Uint8Array, RGBA premultiplied, bottom row
+// first) or null (no document: a worker; or the graphics failed); cancel() frees it
+const POLLS = 600;
+// (its own picture of the plate's size, kept with the renderer: sizing the canvas of the icons instead waits for the card,
+// twice a plate. isXRRenderTarget: Three tones it and gives it its colours as it does on a canvas, with the same programs)
+function plateTarget(own, w, h) {
+  if (own.rt?.width === w && own.rt.height === h) return own.rt;
+  own.rt?.dispose();
+  const rt = own.rt = new THREE.WebGLRenderTarget(w, h, { samples: 4, internalFormat: 'RGBA8', colorSpace: THREE.SRGBColorSpace, generateMipmaps: false });
+  rt.isXRRenderTarget = true;
+  return rt;
+}
+export function offscreenJob(scene, camera, w, h, made) {
+  let own = null, mats = null, sync = null, pbo = null, n = 0, done = typeof document === 'undefined';
+  const awake = () => { clearTimeout(idle); idle = setTimeout(release, IDLE_MS); };
+  const end = out => {
+    done = true;
+    const gl = own?.renderer.getContext();
+    if (gl && !gl.isContextLost()) { if (sync) gl.deleteSync(sync); if (pbo) gl.deleteBuffer(pbo); }
+    sync = pbo = null;
+    if (made?.length) {
+      for (const o of made) o.dispose?.();
+      const gone = new Set(made);
+      for (let i = OWN.length; i--;) if (gone.has(OWN[i][0])) OWN.splice(i, 1);   // (already freed: Three removed its listener)
+    }
+    return out;
+  };
+  const step = () => {
+    if (done) return null;
+    try {
+      if (!own) {
+        own = R || setup();
+        awake();
+        const ED = THREE.EventDispatcher.prototype, add = ED.addEventListener;
+        ED.addEventListener = function (type, f) { if (type === 'dispose' && !this.hasEventListener(type, f)) OWN.push([this, f]); return add.call(this, type, f); };
+        try { mats = [...own.renderer.compile(scene, camera)]; } finally { ED.addEventListener = add; }
+        return undefined;
+      }
+      if (R !== own) return end(null);   // (let go meanwhile)
+      awake();
+      const { renderer } = own, gl = renderer.getContext();
+      if (mats) {
+        if (n++ < POLLS && mats.some(m => renderer.properties.get(m).currentProgram?.isReady?.() === false)) return undefined;
+        mats = null; n = 0;
+        const rt = plateTarget(own, w, h), READ = gl.READ_FRAMEBUFFER;
+        try {
+          renderer.setRenderTarget(rt);
+          drawOwn(renderer, scene, camera);
+          renderer.state.bindFramebuffer(READ, renderer.properties.get(rt).__webglFramebuffer);
+          pbo = gl.createBuffer();
+          gl.bindBuffer(gl.PIXEL_PACK_BUFFER, pbo);
+          gl.bufferData(gl.PIXEL_PACK_BUFFER, w * h * 4, gl.STREAM_READ);
+          gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, 0);
+          gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
+          sync = gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0);
+          gl.flush();
+        } finally { renderer.state.bindFramebuffer(READ, null); renderer.setRenderTarget(null); }
+        return undefined;
+      }
+      const st = gl.clientWaitSync(sync, 0, 0);
+      if (st === gl.TIMEOUT_EXPIRED && n++ < POLLS) return undefined;
+      if (st === gl.WAIT_FAILED || st === gl.TIMEOUT_EXPIRED) return end(null);
+      const px = new Uint8Array(w * h * 4);
+      gl.bindBuffer(gl.PIXEL_PACK_BUFFER, pbo);
+      gl.getBufferSubData(gl.PIXEL_PACK_BUFFER, 0, px);
+      gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
+      return end(px);
+    } catch (e) { console.warn('Plates: the drawing failed', e); return end(null); }
+  };
+  return { step, cancel: () => { if (!done) end(null); } };
+}
+
 function setup() {
   const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
   renderer.setPixelRatio(1);

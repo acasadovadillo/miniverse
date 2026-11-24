@@ -71,6 +71,8 @@ import { Needs, RATES } from './needs.js';
 import { Body } from './body.js';
 import { Remarks } from './remarks.js';
 import { Dive } from './dive.js';
+import { Tracks } from './tracks.js';
+import { NatureBook } from './nature.js';
 
 // Lo que ya no existe en el juego y lo que costó. Al cargar una partida se quita de donde esté (la mochila, los cofres, las
 // alforjas, el correo o puesto en el mundo) y, si no, quedaría un objeto sin datos que rompe la mochila. Devuelve lo que
@@ -186,6 +188,7 @@ export class Game {
     this.neighbors = this.addSystem(new Neighbors(this));
     this.rep = this.addSystem(new Reputation(this));   // the village's reputation (after stats and neighbors: an old game is born from them)
     this.hunt = this.addSystem(new Hunt(this));   // pegar a los animales (antes que a las criaturas: va a lo que se apunta)
+    this.tracks = this.addSystem(new Tracks(this));   // prints, blood and the locked trail (src/tracks.js, Plan G; drawn by three/tracks3d.js)
     this.combat = this.addSystem(new Combat(this));
     this.needs = this.addSystem(new Needs(this));   // thirst, stamina, rest, air and sleep (health and hunger stay in combat)
     this.body = this.addSystem(new Body(this));   // the body: dirt, mud, wet, snow, blood, felt temperature, growth clocks (feeds needs through body.factors: right after needs)
@@ -198,6 +201,7 @@ export class Game {
     this.route = this.addSystem(new Route(this));   // the marked route: a pin on the big map and the way to it (Plan J)
     this.places = this.addSystem(new Explore(this));
     this.collection = this.addSystem(new Collection(this));
+    this.nature = this.addSystem(new NatureBook(this));   // the nature book (src/nature.js, Plan G; after collection: its backfill reads it)
     this.achievements = this.addSystem(new Achievements(this));
     this.story = this.addSystem(new Story(this));
     this.steps = this.addSystem(new Steps(this));   // los primeros pasos

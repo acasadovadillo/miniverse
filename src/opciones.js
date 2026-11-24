@@ -32,11 +32,17 @@ const RAW = (() => { try { return new URLSearchParams(globalThis.location?.searc
 // glass, whatever Settings › Look says
 // Plan R4-1 (riding with weight, docs/planes/realismo/PLAN-R4-caballo.md): montar (?montar=arcade or =0: the horse turns
 // and brakes more sharply and never collects itself, whatever Ajustes › Juego › Montar says). Local only
+// Plan G (tracking and the nature book, docs/planes/gta/PLAN-G-caza.md §10), each with ?x=0: tracks (no prints, blood or
+// bent grass, made or drawn; no crouch aid, track tag or E study: local only), wounds (the host runs hits as before:
+// heal after 30 s, gone beyond 42 m, no bleed sent, no vital multiplier; a guest's switch does nothing) and naturebook
+// (no study ray or ring, no Nature tab, no book hooks: Collections as before, a save's `nature` kept untouched). None of
+// them changes gen, so peers stay in step
 export const PARTES = { hierba: 'sinlod', impostores: null, relieve: null, contacto: null, sombras: 'todas', personas: 'todas', suelo: 'v2', inventario: 'casillas',
   sed: null, cansancio: null, aguante: null, buceo: null, fondo: null, caustica: null,
   ruta: null, rutasuelo: null, musica: 'chip',
   cuerpo: null, frio: null, crecer: null, desgaste: null, comentarios: null,
-  vinculo: null, alforjas: null, montar: 'arcade' };
+  vinculo: null, alforjas: null, montar: 'arcade',
+  tracks: null, wounds: null, naturebook: null };
 
 // El valor tal cual (o null)
 export const opcion = k => RAW.get(k);

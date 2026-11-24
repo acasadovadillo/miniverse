@@ -26,6 +26,7 @@ import { Actors, toolModel, swingArm, pullBow } from './actors.js';
 import { ITEMS } from '../items.js';
 import { Fx } from './fx.js';
 import { ArrowsView } from './arrows.js';
+import { Tracks3D } from './tracks3d.js';
 import { routeGround } from './route3d.js';
 import { Glow } from './glow.js';
 import { prewarmKit } from './kit3d.js';
@@ -94,6 +95,7 @@ export class View3D {
     this.viewmodel = new THREE.Group(); this.viewmodel.visible = false; this.scene.add(this.viewmodel);
     this.fx = new Fx(this);
     this.arrows = new ArrowsView(this);
+    this.tracks3d = new Tracks3D(this);   // (prints, blood and bent grass on the ground: src/tracks.js, Plan G)
     this.glow = new Glow(this);   // (los halos, las ventanas y los charcos de luz de noche)
     this.shadows = new SunShadow(this);   // (después de todo lo que se mueve: son sus grupos)
     this.terrain.onReshape = box => this.shadows.stale(false, box);   // (un hoyo nuevo: sus paredes dan sombra)
@@ -515,6 +517,7 @@ export class View3D {
     this.fx.update(game, scene, sdt, t);
     routeGround(this, game, scene, t);   // (the marked route on the ground: nothing at all without one, route3d.js)
     this.arrows.update(game, scene);
+    this.tracks3d.update(game, scene);
     this.updateWater(t);
     // El suelo se moja con la lluvia (en un minuto) y se seca despacio (unos cinco); el agua, con sus gotas
     { const r = game.days?.info?.rain || 0, k = r ? 1 : 0; this.wetNow = (this.wetNow || 0) + (k - (this.wetNow || 0)) * Math.min(1, dt * (k > (this.wetNow || 0) ? 0.05 : 0.01)); WET.value = this.wetNow; RAIN.value = r ? (r === 2 ? 1 : 0.6) : 0; }
@@ -683,15 +686,16 @@ export class View3D {
     this.camera.layers.enableAll(); this.camera.layers.disable(1);
     this.drawOutline();
   }
-  // El borde amarillo de lo que se apunta con el cursor (game.highlight)
+  // El borde amarillo de lo que se apunta con el cursor (game.highlight). Not a mark on the ground (tracks.js): its tag
+  // says it, and what the click would take there keeps its own outline
   drawOutline() {
-    const g = this.game, a = g && this.shown === g.scene && (g.highlight || this.gatherAim(g));
+    const g = this.game, h = g?.highlight, a = g && this.shown === g.scene && ((h && h.track === undefined ? h : null) || this.gatherAim(g));
     if (a) this.outliner.draw(this.renderer, this.camera, a, g.scene, g.player, g.time);
   }
   // What the tool in hand goes for (gather.js target) when it is a tree, a rock or a bush drawn by nature3d.js: outlined
   // like the rest, with its own instances (fx.js no longer puts a ring at its feet). Null otherwise
   gatherAim(g) {
-    const o = g.mode === 'play' && !g.highlight && !g.build?.on && g.scene === g.world && g.gather?.target?.obj;
+    const o = g.mode === 'play' && !(g.highlight && g.highlight.track === undefined) && !g.build?.on && g.scene === g.world && g.gather?.target?.obj;
     if (!o?.key || !this.world.natureParts?.(o.key)?.length) return null;
     return (this.gatherA?.tree === o) ? this.gatherA : (this.gatherA = { kind: 'gather', tree: o, box: null });
   }
@@ -936,7 +940,7 @@ export class View3D {
     // (lo de alrededor llega en varios fotogramas, del otro hilo y por tandas: cada vez, solo lo que no se ha mirado aún,
     // con copias vacías de cada objeto; la primera, también el suelo y el agua, que llegan los últimos)
     const seen = (P.seen ||= new WeakSet()), N = (this.prepRoot ||= new THREE.Group());
-    if (!P.warm) { P.warm = true; N.children.push(...this.terrain.proxies().children, ...this.world.seabed.proxies().children, ...this.fx.underProxies().children); }
+    if (!P.warm) { P.warm = true; N.children.push(...this.terrain.proxies().children, ...this.world.seabed.proxies().children, ...this.fx.underProxies().children, ...this.tracks3d.proxies().children); }
     this.scene.traverse(o => { if (o.material && !seen.has(o)) { seen.add(o); const q = Object.create(o); q.children = []; N.children.push(q); } });
     let progs = [];
     if (N.children.length) {

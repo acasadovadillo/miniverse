@@ -11,16 +11,18 @@
 //   moodOf(id, realDay, game, f)  -1 low, 0 fine, 1 high (a pure function of the day, the weather and a loved gift)
 //   forecastBy(id, game)       { w, sure, rain? } or null: tomorrow's weather as this neighbour says it. Never a false one
 //                              told as true: who is not sure says so (Eusebio always says rain, and says he always does)
-//   tierOf(hearts), seasonDaysLeft(days, seasons), thing(id)
+//   cropNews(ctx)              what Rosa can say of each crop today (the village's field weather, farm.js almanac)
+//   tierOf(hearts), thing(id)
 //
 // The lines: npc.topic.<topic>[.<sub>].<id> (that neighbour's own), .<temper> and the plain key, all pooled. A line is
 // skipped for REST days after it was said to you (f.said), and a topic for the next KEEP_TOPICS picks (f.tops).
 // Every line must be true: a topic without its data is not offered.
 import { PEOPLE } from './neighbors.js';   // (a cycle, read only inside functions)
 import { ITEMS, CROPS, FISH, itemNoun } from './items.js';
+import { GROW, MULCH_FROST, rateAt, seedOf } from './cropdata.js';
 import { SHOPS } from './economy.js';
 import { ORES } from './world/underground.js';
-import { seasonOf, DAY_MS } from './time.js';
+import { DAY_MS } from './time.js';
 import { Profile } from './accounts.js';
 import { ihash } from './util.js';
 import { recent } from './reputation.js';
@@ -49,11 +51,6 @@ export const someOf = id => (has(`some.${id}`) ? noun('some', id) : thing(id));
 // "3 eggs", "20 de madera": a number of things as it is said
 export const countOf = (id, n) => (has(`npc.count.${id}`) ? t(`npc.count.${id}`, { n }) : t('npc.count.other', { n, item: thing(id) }));
 export const tierOf = hearts => (hearts >= 6 ? 'close' : hearts >= 2 ? 'friend' : 'acquaintance');
-// The days left (today included) of a run of these seasons, or 0 if today is not one of them
-export function seasonDaysLeft(realDay, seasons, max = 200) {
-  for (let k = 0; k < max; k++) if (!seasons.includes(seasonOf(realDay + k).season)) return k;
-  return max;
-}
 const weatherOn = (game, realDay) => { const T = game.days; return realDay === T.realDay ? T.weather : T.weatherFor(realDay - T.base); };
 
 // ---------- mood ----------
@@ -124,6 +121,37 @@ function cropsIn(ctx) {
   for (const d of ctx.game.world?.deltas?.values?.() || []) if (d.crops) for (const c of Object.values(d.crops)) if (c && !c.dead && CROPS[c.id]) out.add(c.id);
   return (ctx.crops = out);
 }
+// What there is to say of the crops in the village today: what decides is the weather of its fields (farm.js), as the
+// diary's almanac has it. [{ sub, params }]: 'sow' (a good day: about n days), 'slow' (it grows, but little by little),
+// 'cold' / 'hot' (nothing today: a seed would wait), 'frost' (a fine day, but tonight would kill what is sown), 'wont' (it
+// would not make it), 'none_sown' (a good one that nobody has in the ground, and Rosa sells), 'grow' (in the ground),
+// 'frost_sown' (near you, and tonight may bite it) and 'no_crops' (too cold for all of them)
+const FIELDS = { x: 0, y: 30 };    // (a tile of the village: its fields' weather)
+const GOOD = 0.5, SLOWER = 1.5;    // sow: a day at least this good, and no more than this many times the days of its best
+const SOLD = (id, season) => (SHOPS.rosa?.stock || []).some(e => e.id === seedOf(id) && (!e.seasons || e.seasons.includes(season)));
+export function cropNews(ctx) {
+  const farm = ctx.game.farm, out = [];
+  if (!farm) return out;
+  const a = farm.almanac(FIELDS.x, FIELDS.y), grown = cropsIn(ctx), danger = ctx.hour >= 5 ? farm.frostTonight() : [];   // (after midnight «tonight» could be either night)
+  let alive = false;
+  for (const { id, days: n } of a.crops) {
+    const g = GROW[id], r = rateAt(id, a.mean), P = { id, crop: someOf(id), n, c: Math.round(a.min) };
+    if (r > 0) alive = true;
+    if (danger.includes(id)) out.push({ sub: 'frost_sown', params: P });
+    if (grown?.has(id)) { out.push({ sub: 'grow', params: P }); continue; }
+    if (a.min <= g.kill) { if (r > 0 && ctx.hour >= 5 && a.min + MULCH_FROST <= g.kill) out.push({ sub: 'frost', params: P }); }
+    else if (!Number.isFinite(n)) out.push({ sub: 'wont', params: P });
+    else if (a.mean <= g.base) out.push({ sub: 'cold', params: P });
+    else if (a.mean >= g.stop) out.push({ sub: 'hot', params: P });
+    else {
+      const good = r >= GOOD && n <= CROPS[id].days * SLOWER;
+      out.push({ sub: good ? 'sow' : 'slow', params: P });
+      if (good && grown && SOLD(id, ctx.season)) out.push({ sub: 'none_sown', params: P });
+    }
+  }
+  if (!alive && a.mean <= Math.min(...Object.values(GROW).map(g => g.base))) out.push({ sub: 'no_crops' });
+  return out;
+}
 // What bites now and where, as fishing.js picks it: the ones with their own season, hour or weather first
 function fishNow(ctx) {
   const T = ctx.game.days, h = T.hour, season = T.season, rain = !!T.info?.rain;
@@ -156,16 +184,7 @@ export const TOPICS = {
     weight: () => 2,
     subs: c => {
       const out = [{ sub: c.seasonId }];
-      if (c.id === 'rosa') {
-        const grown = cropsIn(c), inSeason = Object.keys(CROPS).filter(k => CROPS[k].seasons.includes(c.season));
-        for (const k of inSeason) {
-          const left = seasonDaysLeft(c.realDay, CROPS[k].seasons), days = CROPS[k].days, P = { crop: someOf(k), n: days };
-          if (grown?.has(k)) out.push({ sub: 'grow', params: P });
-          else if (left - 1 < days) out.push({ sub: 'late', params: { crop: someOf(k), n: left } });
-          else { out.push({ sub: 'sow', params: P }); if (grown) out.push({ sub: 'none_sown', params: P }); }
-        }
-        if (!inSeason.length) out.push({ sub: 'no_crops' });
-      }
+      if (c.id === 'rosa') out.push(...cropNews(c));
       if (c.id === 'lia') for (const o of fishNow(c)) out.push({ sub: 'fish', params: { fish: thing(o.id), water: t(`npc.water.${pick(o.water)}`) } });
       if (c.id === 'bruno') for (const [id, lvl] of ORES) if (GEMS.includes(id) && lvl > 1) out.push({ sub: 'ore', params: { item: someOf(id), n: lvl } });
       if (c.id === 'anselmo' && c.place === 'work') for (const e of shopStock('anselmo')) out.push({ sub: 'menu', params: { item: thing(e.id) } });

@@ -343,6 +343,7 @@ export class Horse {
     if (!this.ours(a)) {
       // (anyone may pat it: the hearts and the nuzzle, never progress. petDay stays free, as before)
       if (kind !== 'pat') return false;
+      if (a.petDay !== today) g.nature?.petted(a.type);   // (the nature book, as any other animal: ranch.js petAsBefore)
       a.petDay = today;
       this.fondness(a, 6);
       g.gather.float(t('horse.patted'), '#ff9ac8');
@@ -368,6 +369,7 @@ export class Horse {
     } else if (kind === 'pat') {
       g.social?.emote(g.player, 'pat');
       if (!gain) { this.halt(a, HALT.pat); g.gather.float(t('horse.pat_enough'), '#fff3c0'); return true; }   // (the day's pats are done: the gesture, and nothing written)
+      if (a.petDay !== today) g.nature?.petted(a.type);
       c.p++; a.petDay = today;
       g.gather.float(t(a === this.ridden ? 'horse.patted_riding' : 'horse.patted'), '#ff9ac8');
     } else return false;

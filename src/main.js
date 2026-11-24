@@ -13,6 +13,8 @@ import { useSmartHud } from './ui/smarthud.js';
 import { NeedsBar } from './ui/needsbar.js';
 import { ToolWheel } from './ui/wheel.js';
 import { apagada } from './opciones.js';
+import { FieldHud } from './ui/fieldhud.js';
+import { reportFault } from './faults.js';
 
 // Con ?modo=servidor, este juego es el mundo del servidor (lo abre multijugador.py): sin dibujo ni menús (server.js).
 // Con ?modo=pruebas, el juego de siempre, pero jugado por las pruebas automáticas (pruebas.js; las lanza probar.py)
@@ -42,6 +44,9 @@ function play(login = true) {   // (login: abrir la pantalla de entrar)
   Settings.hudNow = () => (game.smartHud ? 'minimal' : 'full');   // (what the setting lights: the one in sight)
   game.live.say = (text, kind) => chat.say(text, kind);
   const wheel = game.wheel = new ToolWheel(game);   // (F held: the tool wheel, src/ui/wheel.js)
+  // The study ring and the track tag (src/ui/fieldhud.js, Plan G), for both interfaces: drawn after menus.js's frame hook
+  const fieldHud = game.fieldHud = new FieldHud(game), menusFrame = game.onFrame;
+  game.onFrame = () => { menusFrame?.(); try { fieldHud.frame(); } catch (e) { reportFault(e, 'FieldHud.frame'); } };
   const b = game.build;
   initInput({
     frontKey: e => menus.frontKey(e),   // (a menu screen of ui/frontend.js open: the keys are its own)

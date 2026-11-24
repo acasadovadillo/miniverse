@@ -12,7 +12,7 @@ import { RealPerson } from './three/realperson.js';
 import { distTo, dirOf, obb, bounds } from './world/fit.js';
 import { CAM, lookBy } from './camera.js';
 import { keys, clearKeys, pressW, releaseW, dropSprint, gaitOf, TAP_WINDOW, TAP_GAP, TAP_HOLD, pressShift, releaseShift, shiftTick, shiftWithOther, SHIFT_HOLD } from './input.js';
-import { ITEMS, HARVEST, hitsFor, CHESTS } from './items.js';
+import { ITEMS, HARVEST, hitsFor, CHESTS, BUGS } from './items.js';
 import { SHOPS } from './economy.js';
 import { repairMat } from './crafting.js';
 import { RECIPES } from './recipes.js';
@@ -67,7 +67,7 @@ import { makeCave } from './world/underground.js';
 import { CROPS, START_KIT, thirstOf, clothesText, WEAR_SLOTS, wearSlotLabel, itemNoun } from './items.js';
 import { REMARKS, remarkKey, remarkLines } from './remarks.js';
 import { PEOPLE } from './neighbors.js';
-import { talkContext, pickTopic, topicWeights, topicLines, moodOf, forecastBy, tomorrowsWeather, lineHash, thing, someOf, TOPICS } from './talktopics.js';
+import { talkContext, pickTopic, topicWeights, topicLines, cropNews, moodOf, forecastBy, tomorrowsWeather, lineHash, thing, someOf, TOPICS } from './talktopics.js';
 import { stackKg, SIP_KG } from './carry-items.js';
 import { extraOf } from './inventory.js';
 import { WATER_Y } from './world/planet.js';
@@ -90,6 +90,10 @@ import { seasonOf } from './time.js';
 import { seasonC, fieldDay } from './fieldclimate.js';
 import { GROW, seedOf, rateAt } from './cropdata.js';
 import { NORTH, HALF as PHALF, nearX, W as PW } from './world/planet.js';
+import { Tracks, K, CAP, TTL, S, DEAD, F_LEFT, F_FLEE, F_SECOND, STRIDE, RAIN_K } from './tracks.js';
+import { Wildlife, WOUND, trailKey } from './wildlife.js';
+import { ZONE, zoneOf } from './hunt.js';
+import { SPECIES, SPECIES_IDS, GROUPS, REWARDS } from './nature.js';
 import { DOOR, PLAZA, distToPath, doorOf, getProjects, familyHouse } from './world/village.js';
 
 const GATE_X = 20;   // (el hueco de la valla del jardín, en el camino)
@@ -5650,9 +5654,23 @@ async function soloTests(game) {
       check(k.kids.length === 1 && kl.length && kl.every(l => l.params.kid === 'Vera' && l.key.includes('.kid')), `the child: ${kl.map(l => l.key)}`);
       game.family.v = { kids: [{ id: 'k2', name: 'Ajena', sex: 'chica', born: 0, parents: ['x', 'y'] }], expecting: null }; check(ctxOf('nilo').kids.length === 0, "someone else's child");
       // Rosa: only crops of this season; Lía: only fish that bite now; Bruno: the real levels of the caves
-      const cropName = id => formatMessage('{x}', { x: someOf(id) }), inSeason = Object.keys(CROPS).filter(id => CROPS[id].seasons.includes(T.season)).map(cropName);
-      for (const l of topicLines(ctxOf('rosa'), 'season_work')) if (l.params?.crop) check(inSeason.includes(formatMessage('{x}', { x: l.params.crop })), `out of season: ${formatMessage('{x}', { x: l.params.crop })} (${inSeason})`);
-      const spring = onDay(0, () => topicLines({ ...ctxOf('rosa'), season: 3, seasonId: 'winter' }, 'season_work')); check(spring.length && spring.every(l => l.key.endsWith('no_crops.rosa')), `winter: ${spring.map(l => l.key)}`);
+      // (what decides about the crops is the weather of the village's fields, every day of the year: never the calendar)
+      const subs = new Set(), lock = game.weatherLock;
+      game.weatherLock = null;
+      try {
+        for (let d = 0; d < 365; d += 5) onDay(d, T2 => {
+          const c2 = ctxOf('rosa', 12), al = game.farm.almanac(0, 30), news = cropNews(c2);
+          for (const { sub, params: P } of news) {
+            subs.add(sub);
+            if (sub === 'no_crops') { check(al.mean <= 3 && Object.keys(GROW).every(id => rateAt(id, al.mean) === 0), `no crops at ${al.mean}`); continue; }
+            const g = GROW[P.id], r = rateAt(P.id, al.mean), n = game.farm.daysHere(P.id, 0, 30), kills = al.min <= g.kill;
+            const fits = { sow: n === P.n && r >= 0.5 && n <= CROPS[P.id].days * 1.5 && !kills, slow: n === P.n && r > 0 && n < Infinity && !kills, cold: r === 0 && al.mean <= g.base && n < Infinity, hot: r === 0 && al.mean >= g.stop && n < Infinity, frost: kills && r > 0, wont: n === Infinity, none_sown: !c2.crops.has(P.id) && r > 0, grow: c2.crops.has(P.id), frost_sown: game.farm.frostTonight().includes(P.id) }[sub];
+            check(fits, `day ${d}, ${al.mean.toFixed(1)}° (night ${al.min.toFixed(1)}°): ${sub} ${JSON.stringify(P)}, ${n} days, rate ${r.toFixed(2)}`);
+          }
+          for (const l of topicLines(c2, 'season_work')) { check(l.key.endsWith('.rosa') && tList(l.key).length, l.key); check(!/[{}]/.test(formatMessage(l.src, l.params || {})), `broken: ${l.src}`); }
+        });
+      } finally { game.weatherLock = lock; }
+      for (const k of ['sow', 'slow', 'cold', 'wont', 'no_crops']) check(subs.has(k), `never in a year: ${k} (${[...subs]})`);
       // Nobody who does not live here is mentioned
       const gone = N.people.filter(n => n.id !== 'dani'), all = N.people; N.people = gone;
       try { check(!topicLines(ctxOf('nilo'), 'village').some(l => l.key.endsWith('.dani')), 'talks of Dani before he comes'); } finally { N.people = all; }
@@ -6497,6 +6515,670 @@ async function soloTests(game) {
     }
     for (let i = 0; i < 30; i++) play(null); check(u.body.position.z === 0 && u.body.rotation.z === 0 && Math.abs(u.body.position.y - y0) < 1e-6 && Math.abs(u.body.rotation.x) < 1e-3 && u.stumble === 0, 'not put back');
     disposeAnimal(h);
+  });
+  // ---------- Plan G (tracking, wounds and the nature book: docs/planes/gta/PLAN-G-caza.md §13) ----------
+  const TR = () => game.tracks, WL = () => game.wildlife, NB = () => game.nature;
+  // A straight stretch along x (len m from (x, y)), out of the village and the water, every tile taking prints (ok: the
+  // surfaces wanted); null if there is none near
+  const trackLine = (len = 12, ok = s => s !== 'none', x0 = 72, y0 = 52) => {
+    for (let r = 0; r < 70; r++) for (let a = 0; a < 16; a++) {
+      const x = Math.floor(x0 + Math.cos(a / 16 * 6.283) * r * 3) + 0.5, y = Math.floor(y0 + Math.sin(a / 16 * 6.283) * r * 3) + 0.5;
+      let good = true;
+      for (let i = -2; i <= len + 2 && good; i++) { const s = TR().surfaceAt(x + i, y); good = ok(s) && !inBounds(x + i, y) && !w().water(x + i, y) && !inBounds(x + i, y + 4); }
+      if (good) return { x, y };
+    }
+    return null;
+  };
+  const SOFT = s => s === 'soil' || s === 'mud' || s === 'sand' || s === 'snow';
+  // Wild animals only the test moves (their AI paused; no new ones spawn), dropped at the end
+  const stillWild = async fn => {
+    const W = WL(), made = [], summon = (type, x, y) => { const a = W.summon(type, x, y); made.push(a); return a; };
+    W.move = () => {}; W.t = -999;
+    try { return await fn(W, summon); } finally { delete W.move; W.list = W.list.filter(a => !made.includes(a)); }
+  };
+  // The fresh marks of a trail made since the marks' clock read c0 (not the backtrail, which is minutes old), oldest first
+  const freshOf = (key, c0, kind = K.deer) => { const T = TR(); return T.trail(key).filter(i => T.BORN[i] >= c0 - 1e-3 && T.SUB[i] === kind && !(T.FL[i] & F_SECOND)); };
+  // The nature book as it was before a test (its levels, tracks and rewards), put back after it
+  const bookKept = async fn => {
+    const N = NB(), kept = {}; N.save(kept);
+    const toast = hud.toast, toasts = []; hud.toast = (m, k) => { toasts.push(String(m)); return toast.call(hud, m, k); };
+    try { return await fn(N, toasts); } finally { hud.toast = toast; N.reset(JSON.parse(JSON.stringify(kept))); }
+  };
+  const dropCarcass = (x, y) => { const c = near('carcass_deer', x, y, 3) || near('carcass_boar', x, y, 3); if (c) w().setTile(...c.tile, 'air'); return c; };
+
+  await test('tracks (english): a walking deer leaves prints', async () => {
+    const s = trackLine(12, SOFT) || trackLine(12); check(s, 'no open stretch for a deer');
+    await goTo(game, s.x + 5, s.y + 22);
+    await stillWild(async (W, summon) => {
+      const T = TR(), d = summon('ciervo', s.x, s.y), key = trailKey(d), c0 = T.clkP;
+      await frames(2);
+      for (let i = 1; i <= 100; i++) { d.x = s.x + i * 0.1; d.vx = d.vy = 0; await frames(1); }
+      const mine = freshOf(key, c0);
+      check(mine.length >= 10 && mine.length <= 12, `${mine.length} prints for 10 m`);
+      const side = mine.map(i => T.FL[i] & F_LEFT);
+      check(side.every((v, j) => !j || v !== side[j - 1]), `the feet do not alternate: ${side}`);
+      check(mine.every(i => Math.abs(Math.abs(T.Y[i] - s.y) - 0.09) < 0.02), 'not 9 cm beside the line');
+      check(mine.every(i => !(T.FL[i] & F_FLEE)), 'walking prints flagged as a flight');
+      const inf = T.info(mine.at(-1));
+      check(inf?.type === 'ciervo' && inf.print === 'deer' && inf.ageKey === 'fresh' && inf.heading === 'e' && inf.blood === 0, `info: ${JSON.stringify(inf)}`);
+    });
+    // Nothing on a village path, under a roof or on water
+    const T = TR(), C0 = [CENTER.x, CENTER.y];
+    let path = null, roof = null;
+    for (let r = 0; r < 40 && !(path && roof); r++) for (let a = 0; a < 24; a++) {
+      const x = Math.floor(C0[0] + Math.cos(a / 24 * 6.283) * r) + 0.5, y = Math.floor(C0[1] + Math.sin(a / 24 * 6.283) * r) + 0.5;
+      if (!path && inBounds(x, y) && distToPath(x, y) < 0.5 && !w().water(x, y)) path = [x, y];
+      if (!roof && w().roofAt(Math.floor(x), Math.floor(y))) roof = [x, y];
+    }
+    const river = riverSpot(game);
+    for (const [what, at] of [['a village path', path], ['a floor', roof], ['water', river]]) {
+      check(at, `no ${what} found`);
+      check(T.surfaceAt(...at) === 'none' && T.print('test:none', 'deer', at[0], at[1], 0) === -1, `a print on ${what} (${T.surfaceAt(...at)})`);
+    }
+    // In the snow biome: snow, kept 1200 s
+    let snow = null;
+    for (let r = 64; r < 2400 && !snow; r += 32) for (let a = 0; a < 48 && !snow; a++) { const x = Math.floor(21 + Math.cos(a / 48 * 6.283) * r) + 0.5, y = Math.floor(26 + Math.sin(a / 48 * 6.283) * r) + 0.5; if (w().gen.biomeAt(x, y) === B.SNOW && !w().water(x, y)) snow = [x, y]; }
+    if (snow) {
+      const i = T.print('test:snow', 'deer', snow[0], snow[1], 0);
+      check(T.surfaceAt(...snow) === 'snow' && i >= 0 && T.TTL[i] === 1200 && T.SURF[i] === S.snow, `in the snow: ${T.surfaceAt(...snow)}, ttl ${T.TTL[i]}`);
+      T.kill(i);
+    } else console.log('tracks: no snow biome within 2.4 km, its print not checked');
+  });
+  await test('tracks (english): flight prints are longer apart', async () => {
+    const s = trackLine(12, SOFT) || trackLine(12); check(s, 'no open stretch for a deer');
+    await goTo(game, s.x + 5, s.y + 22);
+    await stillWild(async (W, summon) => {
+      const T = TR(), d = summon('ciervo', s.x, s.y), key = trailKey(d), c0 = T.clkP;
+      await frames(2);
+      for (let i = 1; i <= 100; i++) { d.x = s.x + i * 0.1; d.scared = game.time + 99; await frames(1); }
+      const mine = freshOf(key, c0);
+      check(mine.length >= 5 && mine.length <= 7, `${mine.length} flight prints for 10 m`);
+      const gaps = mine.slice(1).map((i, j) => T.X[i] - T.X[mine[j]]);
+      check(gaps.every(g => Math.abs(g - STRIDE.ciervo[1]) < 0.06), `the stride: ${gaps.map(g => g.toFixed(2))}`);
+      check(mine.every(i => T.FL[i] & F_FLEE && T.info(i).flee && T.SC[i] >= 1.12 - 1e-6), 'flight prints not flagged or not splayed');
+    });
+  });
+  await test('tracks (english): prints fade, cap and wash', async () => {
+    const s = trackLine(4); check(s, 'no open ground');
+    await goTo(game, s.x, s.y + 3);
+    const T = TR(), D = game.days;
+    try {
+      // Expiry: past its TTL on the prints' clock, it goes (a slice of the ring per frame)
+      const i = T.print('test:fade', 'deer', s.x, s.y, 0, { surf: 'soil' }), q = T.SEQ[i];
+      check(i >= 0 && T.TTL[i] === TTL[S.soil], `on soil: ${i}, ttl ${T.TTL[i]}`);
+      await frames(20); check(T.SEQ[i] === q && T.KIND[i] !== DEAD, 'it went before its time');
+      T.clkP += TTL[S.soil] + 1; await frames(20);
+      check(T.SEQ[i] !== q || T.KIND[i] === DEAD, 'an expired print stays');
+      // The cap: the oldest go first
+      const first = T.print('test:cap', 'deer', s.x, s.y, 0, { surf: 'soil' }), fq = T.SEQ[first];
+      for (let n = 0; n < CAP; n++) T.print('test:cap', 'deer', s.x + (n % 40) * 0.05, s.y + 0.3, 0, { surf: 'soil' });
+      check(T.SEQ[first] !== fq && T.count <= CAP && T.trail('test:cap').length <= CAP, `past the cap: ${T.count} marks, the first still there ${T.SEQ[first] === fq}`);
+      T.reset();
+      // Rain ages every mark 2.5 times as fast
+      const real = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(D), 'info').get;
+      Object.defineProperty(D, 'info', { get: () => ({ ...real.call(D), rain: 1, snow: 0 }), configurable: true });
+      let p0 = T.clkP, b0 = T.clkB; await frames(60);
+      const dp = T.clkP - p0, db = T.clkB - b0;
+      delete D.info;
+      p0 = T.clkP; await frames(60);
+      const dry = T.clkP - p0;
+      check(Math.abs(dp / dry - RAIN_K) < 0.05 && Math.abs(db / dry - RAIN_K) < 0.05, `rain ages prints ${(dp / dry).toFixed(2)}× and blood ${(db / dry).toFixed(2)}×`);
+      // Digging the tile takes its print with it
+      const tx = Math.floor(s.x), ty = Math.floor(s.y), j = T.print('test:dig', 'deer', tx + 0.5, ty + 0.5, 0, { surf: 'soil' }), jq = T.SEQ[j], other = T.print('test:dig', 'deer', tx + 2.5, ty + 0.5, 0, { surf: 'soil' }), oq = T.SEQ[other];
+      check(j >= 0 && other >= 0, 'no print to dig');
+      w().digTile(tx, ty, -1, game.days.dayIndex);
+      try {
+        await frames(2);
+        check(T.SEQ[j] !== jq || T.KIND[j] === DEAD, 'a dug tile keeps its print');
+        check(T.SEQ[other] === oq && T.KIND[other] !== DEAD, 'digging took a print two tiles away');
+      } finally { w().digTile(tx, ty, 1, game.days.dayIndex); }
+      // Cut grass: a bent-grass fleck becomes the flat print it stands for
+      const gs = trackLine(1, q => q === 'grass');
+      if (gs) {
+        const gx = Math.floor(gs.x), gy = Math.floor(gs.y);
+        const b = T.print('test:grass', 'deer', gx + 0.5, gy + 0.5, 0);
+        check(b >= 0 && T.KIND[b] === K.bentGrass && T.info(b).print === 'deer', `in tall grass: ${b}, kind ${T.KIND[b]}`);
+        await frames(10);
+        const d = w().delta(Math.floor(gx / CHUNK), Math.floor(gy / CHUNK), true), had = d.mown && { ...d.mown };
+        w().mow(gx, gy, game.days.dayIndex);
+        try { await frames(20); check(T.KIND[b] === K.deer && T.SURF[b] === S.soil && T.trail('test:grass').length === 1, `on cut grass: kind ${T.KIND[b]}, ${T.trail('test:grass').length} marks`); }
+        finally { if (had) d.mown = had; else delete d.mown; w().touch(Math.floor(gx / CHUNK), Math.floor(gy / CHUNK)); }
+      } else console.log('tracks: no tall grass near, the cut-grass check skipped');
+    } finally { delete D.info; T.reset(); }
+  });
+  await test('tracks (english): backtrail is deterministic', async () => {
+    const s = trackLine(4); check(s, 'no open ground');
+    await goTo(game, s.x, s.y + 3);
+    const make = () => {
+      const T = new Tracks(game), a = { id: 'w42', type: 'ciervo', x: s.x, y: s.y, sx: s.x, sy: s.y }, rec = T.recFor(trailKey(a), 'ciervo');
+      T.planBack(rec, a);
+      for (let n = 0; n < 500 && T.backQ.length; n++) T.pumpBack();
+      return [T, rec.list];
+    };
+    const [A, la] = make(), [B, lb] = make();
+    check(la.length >= 15, `a backtrail of ${la.length} marks`);
+    check(la.length === lb.length && la.every((i, n) => A.X[i] === B.X[lb[n]] && A.Y[i] === B.Y[lb[n]] && A.BORN[i] === B.BORN[lb[n]]), 'two games lay different backtrails');
+    const wet = la.filter(i => w().water(A.X[i], A.Y[i]) || inBounds(A.X[i], A.Y[i]));
+    check(!wet.length, `the backtrail goes through water or the village: ${wet.length} of ${la.length}, ${wet.slice(0, 3).map(i => `${A.X[i].toFixed(2)},${A.Y[i].toFixed(2)} water ${!!w().water(A.X[i], A.Y[i])}`)}; spawn ${s.x},${s.y}`);
+    const end = A.info(la.at(-1)), start = A.info(la[0]);
+    check(end.age >= 59 && end.age <= 241 && start.age > end.age && Math.hypot(end.x - s.x, end.y - s.y) < 0.6, `ages ${start.age.toFixed(0)} → ${end.age.toFixed(0)} s, ending ${Math.hypot(end.x - s.x, end.y - s.y).toFixed(2)} m from the spawn point`);
+  });
+  await test('tracks (english): a trail stays in order through snow, and a blocked spawn lays nothing', async () => {
+    const s = trackLine(14); check(s, 'no open ground');
+    await goTo(game, s.x, s.y + 3);
+    const T = new Tracks(game), rec = T.recFor('test:order', 'ciervo');
+    T.now = 60; T.clkP = 120; T.clkB = 60;   // (a minute of snow: prints age twice as fast, blood does not)
+    for (let k = 0; k < 12; k++) { T.now += 1; T.clkP += 1; T.clkB += 1; T.lay(rec, k % 2 ? K.blood : K.deer, s.x + k, s.y, 0, S.soil, false, 1, k % 2 ? 1 : 0, 0, false); }
+    const xs = rec.list.map(i => Math.round(T.X[i] - s.x));
+    check(xs.length === 12 && xs.every((x, j) => x === j), `the order: ${xs}`);
+    T.locked = 'test:order'; T.findAhead(rec, { x: s.x + 3, y: s.y }, 25);
+    check(String(T.ahead().map(i => Math.round(T.X[i] - s.x))) === '4,5,6,7,8,9,10,11', `ahead from 3: ${T.ahead().map(i => Math.round(T.X[i] - s.x))}`);
+    // (a spawn point with no way out: no marks, and never one at NaN)
+    const B2 = new Tracks(game), a = { id: 'w43', type: 'ciervo', x: s.x, y: s.y, sx: s.x, sy: s.y }, r2 = B2.recFor(trailKey(a), 'ciervo');
+    B2.walkable = () => false;
+    B2.planBack(r2, a);
+    for (let n = 0; n < 50 && B2.backQ.length; n++) B2.pumpBack();
+    check(!B2.backQ.length && !r2.list.length && B2.count === 0, `a blocked backtrail lays ${r2.list.length} marks`);
+    check(B2.print('test:nan', 'deer', NaN, 0, 0) === -1, 'a mark at NaN');
+  });
+  await test('tracks (english): following, the fallen animal and the tracker credit', async () => {
+    const s = trackLine(14, SOFT) || trackLine(14); check(s, 'no open ground');
+    await goTo(game, s.x, s.y + 1);
+    const floats = [], float = game.gather.float, n0 = game.stats.get('trailsFollowed') || 0;
+    game.gather.float = (m, c) => { floats.push(String(m)); return float.call(game.gather, m, c); };
+    try {
+      await stillWild(async (W, summon) => {
+        const T = TR(), d = summon('ciervo', s.x + 60, s.y), key = trailKey(d), rec = T.recFor(key, 'ciervo');
+        rec.back = true;   // (no backtrail)
+        // Wandering marks from before the hit, then the run
+        for (let k = 0; k < 6; k++) { T.now += 1; T.lay(rec, K.deer, s.x - k, s.y, Math.PI, S.soil, false, 1, 0, 0, false); }
+        T.now += 1; T.lock(key, 'blood');
+        for (let k = 0; k < 80; k++) { T.now += 0.1; T.lay(rec, k % 2 ? K.blood : K.deer, s.x + k, s.y, 0, S.soil, true, 1, 1, 0, false); }
+        d.bleed = 2; rec.w = d;
+        const tick = (x, y = s.y) => { const at = { x, y }; if (!Number.isNaN(T.lastPX)) T.walked += Math.hypot(x - T.lastPX, y - T.lastPY); T.lastPX = x; T.lastPY = y; T.lockTick(at); };
+        T.lastPX = NaN; tick(s.x - 3);
+        check(T.ahead().length && T.ahead().every(i => T.X[i] >= s.x - 0.01 && T.ORD[i] >= rec.from), 'the marks before the hit are highlighted');
+        check(T.why === 'blood' && T.bleeding, `why ${T.why}, bleeding ${T.bleeding}`);
+        // Circles away from the trail add nothing; along it, its metres
+        tick(s.x + 2); const f0 = T.followed;
+        for (let k = 0; k < 40; k++) tick(s.x + 2 + Math.cos(k) * 8, s.y + 12 + Math.sin(k) * 8);
+        check(T.followed - f0 < 0.5, `circles count ${(T.followed - f0).toFixed(1)} m`);
+        for (let k = 3; k <= 75; k++) tick(s.x + k);
+        check(T.followed >= 60 && T.followed < 90, `followed ${T.followed.toFixed(1)} m of about 73`);
+        // Found while it bleeds: still locked (it may get up and run); not bleeding any more: the trail ends
+        T.lockGone = true; d.x = s.x + 78; d.lying = true; tick(s.x + 70);
+        check(T.locked === key && T.saidBed && floats.includes(t('tracks.bedded')), 'the bedded one: unlocked or not said');
+        d.lying = false; tick(s.x + 70);
+        check(T.locked === key && !T.saidBed, 'it got up bleeding: the trail goes');
+        // It bleeds out far from you: the credit, the float, and the highlight until its body
+        W.list = W.list.filter(a => a !== d);
+        tick(s.x + 60);
+        p().x = s.x + 60; p().y = s.y;
+        T.taken('another@0,0', true); check((game.stats.get('trailsFollowed') || 0) === n0, 'another animal gives the credit');
+        T.taken(key, true);
+        check((game.stats.get('trailsFollowed') || 0) === n0 + 1 && T.locked === key && T.fallen && floats.includes(t('tracks.fallen')), `fallen: trails ${(game.stats.get('trailsFollowed') || 0) - n0}, locked ${T.locked}, fallen ${T.fallen}`);
+        tick(s.x + 66); check(T.locked === key && T.ahead().length, 'the trail to the body is dropped');
+        tick(s.x + 76); check(T.locked === null && !floats.includes(t('tracks.lost')), 'at the body it is still locked, or lost');
+      });
+    } finally { game.gather.float = float; TR().unlock(); TR().reset(); }
+  });
+  await test('wounds (english): a healthy deer fleeing into a bank turns along it', async () => {
+    const r = riverSpot(game); check(r, 'no river');
+    let P = null, dir = null;
+    for (let a = 0; a < 16 && !P; a++) {
+      const ux = Math.cos(a / 16 * 6.283), uy = Math.sin(a / 16 * 6.283);
+      for (let k = 1; k < 30; k++) { const x = r[0] + ux * k, y = r[1] + uy * k; if (!w().water(x, y)) { if ([1, 2, 3, 6].every(m => !w().water(x + ux * m, y + uy * m) && !inBounds(x + ux * m, y + uy * m))) { P = [x + ux, y + uy]; dir = [ux, uy]; } break; } }
+    }
+    check(P, 'no bank');
+    await goTo(game, P[0] + dir[0] * 4, P[1] + dir[1] * 4);
+    const W = WL(); W.t = -999;
+    const d = W.summon('ciervo', P[0], P[1]), at = [d.x, d.y];
+    try {
+      await frames(120);
+      check(!w().water(d.x, d.y), 'it went into the water');
+      const far = Math.hypot(d.x - at[0], d.y - at[1]), me = Math.hypot(d.x - p().x, d.y - p().y);
+      check(far > 2 && me > 4, `it moved ${far.toFixed(1)} m and is ${me.toFixed(1)} m from the player`);
+    } finally { W.list = W.list.filter(a => a !== d); }
+  });
+  await test('tracks (english): a reused wild id does not join trails', async () => {
+    const s = trackLine(8, SOFT) || trackLine(8); check(s, 'no open stretch');
+    await goTo(game, s.x + 4, s.y + 22);
+    await stillWild(async (W, summon) => {
+      const T = TR(), a = summon('ciervo', s.x, s.y), b = summon('ciervo', s.x, s.y + 3), c0 = T.clkP;
+      a.id = b.id = 'w-twice';
+      const ka = trailKey(a), kb = trailKey(b);
+      check(ka !== kb, `one trail key for both: ${ka}`);
+      await frames(2);
+      for (let i = 1; i <= 50; i++) { a.x = b.x = s.x + i * 0.1; await frames(1); }
+      const A = freshOf(ka, c0), Bm = freshOf(kb, c0), all = new Set(T.trail(ka));
+      check(A.length >= 4 && Bm.length >= 4, `prints: ${A.length} and ${Bm.length}`);
+      check(T.trail(kb).every(i => !all.has(i)), 'a mark in both trails');
+      check(A.every(i => Math.abs(T.Y[i] - s.y) < 0.2) && Bm.every(i => Math.abs(T.Y[i] - s.y - 3) < 0.2), 'one animal\'s prints in the other\'s trail');
+    });
+  });
+  await test('tracks (english): study locks and highlights', async () => {
+    const s = trackLine(14, SOFT) || trackLine(14); check(s, 'no open stretch');
+    await goTo(game, s.x + 1, s.y + 1);
+    const floats = [], float = game.gather.float;
+    game.gather.float = (m, c) => { floats.push(String(m)); return float.call(game.gather, m, c); };
+    try {
+      await bookKept(async N => stillWild(async (W, summon) => {
+        const T = TR(), d = summon('ciervo', s.x + 2, s.y), key = trailKey(d);
+        N.tr.delete('ciervo');
+        await frames(2);
+        for (let i = 1; i <= 100; i++) { d.x = s.x + 2 + i * 0.1; await frames(1); }
+        // (the cursor on its nearest print; the E target is the tag's mark, chosen ten times a second)
+        const m0 = game.mouse, near0 = freshOf(key, -Infinity).reduce((b, i) => (b < 0 || Math.hypot(T.X[i] - p().x, T.Y[i] - p().y) < Math.hypot(T.X[b] - p().x, T.Y[b] - p().y) ? i : b), -1);
+        const onMark = i => { draw(); const v = new THREE.Vector3(T.X[i], T.H[i], T.Y[i]).project(game.view3d.camera); game.mouse = { x: (v.x + 1) / 2 * innerWidth, y: (1 - v.y) / 2 * innerHeight, in: true }; };
+        let a = null;
+        try {
+          onMark(near0); await frames(20);
+          check(T.hover?.reach, `no tag on the print in reach: ${JSON.stringify(T.hover)}`);
+          game.mouse.aimFrame = -1;   // (the tests' steps are not frames: what it aimed at before is kept otherwise)
+          a = game.aimed();
+          check(a?.track === T.hover.idx, `the tag says ${T.hover.idx}, E ${a?.kind} ${a?.track}`);
+        } finally { game.mouse = m0; }
+        const act = game.actionFor(a);
+        check(act?.text === t('tracks.study'), `the action says «${act?.text}»`);
+        act.run();
+        check(N.knowsTracks('ciervo') && N.level('ciervo') >= 2 && T.locked === key, `after E: tracks ${N.knowsTracks('ciervo')}, level ${N.level('ciervo')}, locked ${T.locked}`);
+        check(floats.includes(t('tracks.learned', { name: t('nature.name.ciervo') })), `no «tracks learned»: ${floats}`);
+        await frames(8);
+        const L = T.trail(key), A = [...T.ahead()];
+        check(A.length > 0 && A.every(i => T.HL[i]), `${A.length} marks ahead, highlighted ${A.filter(i => T.HL[i]).length}`);
+        let nearest = 0, bd = Infinity;
+        L.forEach((i, j) => { const dd = Math.hypot(T.X[i] - p().x, T.Y[i] - p().y); if (dd < bd) { bd = dd; nearest = j; } });
+        check(A.every(i => L.indexOf(i) > nearest), 'a mark behind the player is highlighted');
+        // Lost: standing at its end, the animal gone far, 20 s with nothing ahead
+        const last = L.at(-1); p().x = T.X[last]; p().y = T.Y[last] + 0.3; d.x += 60;
+        await frames(8);
+        check(T.locked === key && !T.ahead().length, `at the end: locked ${T.locked}, ${T.ahead().length} ahead`);
+        T.aheadAt = T.liveT - 21;   // (20 s with nothing ahead, without waiting them)
+        await frames(8);
+        check(!T.locked && floats.includes(t('tracks.lost')), `not lost: locked ${T.locked}, said ${floats.slice(-3)}`);
+      }));
+    } finally { game.gather.float = float; TR().unlock(); }
+  });
+  await test('wounds (english): the zone uses the impact point', async () => {
+    const s = trackLine(4); check(s, 'no open ground');
+    await goTo(game, s.x, s.y + 12);
+    await stillWild(async (W, summon) => {
+      const d = summon('ciervo', s.x, s.y); d.dir = [1, 0];
+      const gy = game.view3d.groundY(w(), d.x, d.y), b = bodyBox(d), H = b.y1 - b.y0;
+      const at = (along, up) => { const v = b.hy - along * 2 * b.hy; return [b.x + b.vx * v, gy + b.y0 + up * H, b.y + b.vy * v]; };
+      check(zoneOf(d, at(0.3, 0.55), gy, 6) === ZONE.vital, 'the chest is not vital');
+      check(zoneOf(d, at(0.3, 0.15), gy, 6) === ZONE.body, 'a leg is vital');
+      check(zoneOf(d, at(0.95, 0.5), gy, 6) === ZONE.graze, 'the rump is not a graze');
+      check(zoneOf(d, at(0.3, 0.95), gy, 6) === ZONE.graze, 'the top of the back is not a graze');
+      check(zoneOf(d, at(0.3, 0.55), gy, 2) === ZONE.graze, 'a weak arrow in the chest is not a graze');
+      check(zoneOf(d, null, gy, 6) === ZONE.body, 'no point is not the body');
+      check(zoneOf(game.ranch.summon('vaca', s.x + 3, s.y), at(0.3, 0.55), gy, 6) === ZONE.body, 'a cow has zones');
+      game.ranch.remove(game.ranch.animals.at(-1));
+      // archery.strike: the zone from where the arrow met the box; an old caller without a point, the body
+      const Hn = game.hunt, got = [];
+      Hn.shot = (e, dmg, z) => got.push(z);
+      try { game.archery.strike({ dmg: 6, scene: null }, d); game.archery.strike({ dmg: 6, scene: null }, d, at(0.3, 0.55)); } finally { delete Hn.shot; }
+      check(got[0] === ZONE.body && got[1] === ZONE.vital, `strike gives zones ${got}`);
+    });
+  });
+  await test('wounds (english): a blocked flight re-aims', async () => {
+    const r = riverSpot(game); check(r, 'no river');
+    // The bank: from the water outwards, the first dry ground; the deer stands there and flees towards the water
+    let P = null, dir = null;
+    for (let a = 0; a < 16 && !P; a++) {
+      const ux = Math.cos(a / 16 * 6.283), uy = Math.sin(a / 16 * 6.283);
+      for (let k = 1; k < 30; k++) { const x = r[0] + ux * k, y = r[1] + uy * k; if (!w().water(x, y)) { if ([1, 2, 3, 6].every(m => !w().water(x + ux * m, y + uy * m) && !inBounds(x + ux * m, y + uy * m))) { P = [x + ux, y + uy]; dir = [ux, uy]; } break; } }
+    }
+    check(P, 'no bank');
+    await goTo(game, P[0] + dir[0] * 7, P[1] + dir[1] * 7);
+    const W = WL(); W.t = -999;
+    const d = W.summon('ciervo', P[0], P[1]);
+    try {
+      d.hpMax = 8; d.hp = 2;
+      W.wound(d, 2, [p().x, p().y]);
+      check(d.bleed === 2 && d.run, 'it does not run');
+      let still = 0, last = [d.x, d.y], moved = 0;
+      for (let n = 0; n < 24 && !d.lying; n++) {
+        await frames(30);
+        check(!w().water(d.x, d.y), 'it went into the water');
+        const m = Math.hypot(d.x - last[0], d.y - last[1]); moved += m; last = [d.x, d.y];
+        still = m < 0.05 && !d.lying ? still + 1 : 0;
+        check(still < 4, `frozen at the water for 2 s (moved ${moved.toFixed(1)} m, ${d.blocks} blocks)`);
+      }
+      check(d.lying || moved > 5, `not lying and moved only ${moved.toFixed(1)} m`);
+    } finally { W.list = W.list.filter(a => a !== d); }
+  });
+  await test('wounds (english): heavy wound bleeds, beds down and bleeds out', async () => {
+    await weightOn();
+    const [tx, ty] = openGround(96, 60); await goTo(game, tx + 0.5, ty + 8.5);
+    const W = WL(), H = game.hunt, from = [p().x, p().y], k0 = game.stats.get('cazados');
+    W.t = -999;
+    const d = W.summon('ciervo', tx + 0.5, ty + 0.5), key = trailKey(d);
+    try {
+      H.shot(d, 6, ZONE.body);   // (a full-draw arrow in the haunch: 6 of its 8)
+      check(d.bleed === 2 && d.hp === 2 && d.by?.me && W.list.includes(d), `damage 6: bleed ${d.bleed}, hp ${d.hp}`);
+      check(TR().locked === key, `its trail is not locked for the hunter: ${TR().locked}`);
+      const at = [d.x, d.y], t0 = game.time;
+      console.log(`heavy wound: its run ends ${Math.hypot(d.tx - d.x, d.ty - d.y).toFixed(1)} m away`);
+      let far = 0;
+      while (!d.lying && game.time - t0 < 46) { await frames(30); check(W.list.includes(d), 'it went (beyond GONE?)'); far = Math.max(far, Math.hypot(d.x - from[0], d.y - from[1])); }
+      const ran = Math.hypot(d.x - at[0], d.y - at[1]);
+      console.log(`heavy wound: ran ${ran.toFixed(1)} m in ${(game.time - t0).toFixed(1)} s, ${far.toFixed(1)} m from the hunter at most`);
+      check(d.lying, `not lying after ${(game.time - t0).toFixed(1)} s`);
+      check(ran >= 30, `it ran only ${ran.toFixed(1)} m`);
+      // Kept beyond GONE (42 m) while it bleeds; it does not heal after 30 s
+      if (Math.hypot(d.x - p().x, d.y - p().y) > 42) { await frames(30); check(W.list.includes(d), 'gone beyond 42 m'); }
+      d.hitAt -= 31000; H.damage(d, 0, from, null);
+      check(d.hp === 2 || d.hp === 1, `its hp healed to ${d.hp}`);   // (1: a run of more than BLEED_TICK already cost it one)
+      // It dies of it: the next tick takes its last hp; with the weight inventory, its carcass is left where it lies
+      d.hp = 1; d.tickT = WOUND.BLEED_TICK - 0.001;
+      const x = d.x, y = d.y;
+      await frames(2);
+      check(!W.list.includes(d), 'it does not bleed out');
+      check(game.stats.get('cazados') === k0 + 1, `the hunt counts ${game.stats.get('cazados') - k0}`);
+      check(NB().level('ciervo') === 3, `the book: level ${NB().level('ciervo')}`);
+      check(near('carcass_deer', x, y, 2), 'no carcass where it lay');
+      check(!game.gather.drops.some(q => Math.hypot(q.x - x, q.y - y) < 3), 'it also dropped its things');
+    } finally { W.list = W.list.filter(a => a !== d); dropCarcass(d.x, d.y); TR().unlock(); }
+  });
+  await test('wounds (english): bleed-out carcass is placed by the host anywhere', async () => {
+    await weightOn();
+    const [tx, ty] = openGround(96, 70); await goTo(game, tx + 0.5, ty + 3.5);
+    const W = WL(), d = W.summon('ciervo', tx + 0.5, ty + 0.5), k0 = game.stats.get('cazados');
+    W.t = -999;
+    Object.assign(d, { hpMax: 8, hp: 8, bleed: 2, lying: true, downTill: game.time + 99, by: { me: true } });
+    const poi = { id: 1, x: p().x, y: p().y, snow: false };
+    try {
+      await game.places.enterCave(poi, 1);
+      const cave = game.scene; check(cave !== w(), 'not in the cave');
+      // (nobody is in the world, and it stays, because whoever wounded it is in a cave: then it bleeds out by its own clock)
+      await frames(30);
+      check(W.list.includes(d), 'it went when its hunter entered a cave');
+      d.hp = 1; d.tickT = WOUND.BLEED_TICK - 0.001;
+      await frames(3);
+      check(!W.list.includes(d), 'it does not bleed out');
+      check(near('carcass_deer', tx + 0.5, ty + 0.5, 2), 'no carcass in the world at the deer');
+      const c = near('carcass_deer', tx + 0.5, ty + 0.5, 2), k = String(c.tile);
+      check(w().delta(Math.floor(c.tile[0] / CHUNK), Math.floor(c.tile[1] / CHUNK))?.carcass?.[k] !== undefined, 'the carcass has no day (it would not rot)');
+      check(!(cave.placedNear?.(p().x, p().y, 6) || []).some(o => BULKY[o.placed]?.prey), 'a carcass in the cave');
+      check(game.stats.get('cazados') === k0 + 1 && !game.gather.drops.length, `in the cave: hunt ${game.stats.get('cazados') - k0}, drops ${game.gather.drops.length}`);
+    } finally {
+      if (game.scene !== w()) await game.places.climb(game.scene, -1);
+      if (game.scene !== w()) await game.goTo(w(), tx + 0.5, ty + 3.5, { inside: false });
+      W.list = W.list.filter(a => a !== d); dropCarcass(tx + 0.5, ty + 0.5);
+    }
+  });
+  // (both ends of it in one game, with a fake connection: the host's hit and bleed-out, then what the wounder's game does)
+  await test('wounds (english): a guest\'s wound, its trail fields and its bled-out carcass', async () => {
+    await weightOn();
+    const [tx, ty] = openGround(96, 64); await goTo(game, tx + 0.5, ty + 5.5);
+    const W = WL(), H = game.hunt, live = game.live, sent = [], was = { joined: live.joined, net: live.net }; W.t = -999;
+    const d = W.summon('ciervo', tx + 0.5, ty + 0.5), k0 = game.stats.get('cazados'), keep = W.list;
+    try {
+      live.joined = true; live.net = { send: (m, c) => sent.push([m, c]), peers: new Map([['g1', {}]]) };
+      const hit = { id: d.id, dmg: 10, far: 1, z: 0, x: p().x, y: p().y };
+      H.hitBy('g1', { id: 'guest-1', at: [p().x, p().y] }, hit);
+      check(d.bleed === 2 && d.hp === 2 && d.by?.conn === 'g1' && d.by.id === 'guest-1', `a guest's arrow: bleed ${d.bleed}, hp ${d.hp}, by ${JSON.stringify(d.by)}`);
+      check(TR().locked !== trailKey(d), 'a guest\'s hit locks the host\'s trail');
+      W.list = [d]; W.sendT = 1; W.update(1 / 60);
+      const wild = sent.map(q => q[0]).find(m => m.t === 'wild')?.w?.find(e => e[0] === d.id);
+      check(wild?.length === 11 && wild[6] === 2 && wild[8] === d.sx && wild[9] === d.sy && wild[10] === d.limp, `the wild message: ${JSON.stringify(wild)}`);
+      // (a message that says nowhere does not break it)
+      H.hitBy('g1', { id: 'guest-1' }, { id: d.id, dmg: 0, far: 1 });
+      check(Number.isFinite(d.tx) && Number.isFinite(d.ty), `it flees to ${d.tx}, ${d.ty}`);
+      d.x = tx + 0.5; d.y = ty + 0.5;
+      check(H.bledOut(d), 'bledOut did nothing');
+      const dead = sent.find(q => q[0].t === 'preydead'), c = near('carcass_deer', tx + 0.5, ty + 0.5, 2);
+      check(dead && dead[1] === 'g1' && dead[0].bled === 1 && dead[0].placed === 1 && dead[0].id === d.id, `told: ${JSON.stringify(dead)}`);
+      check(c && game.carry.picks(c.tile)?.[String(c.tile)]?.[0] === 'guest-1', 'its carcass is not kept for the guest');
+      check(game.stats.get('cazados') === k0, 'the host counts the guest\'s hunt');
+      // A guest whose connection dropped and came back (another one, the same profile) is still told, and still counts
+      { const e = W.summon('ciervo', tx + 0.5, ty + 6.5); Object.assign(e, { hpMax: 8, hp: 1, bleed: 2, lying: true, by: { conn: 'gone', id: 'guest-2' } });
+        const peers = live.peers; live.peers = new Map([['g2', { id: 'guest-2', playing: true, sc: 'cave' }]]);
+        try {
+          check(W.woundedBy(e, { conn: 'g2' }) && !W.woundedBy(e, { conn: 'g3' }), 'the guest back is not who wounded it');
+          check(W.wounderAway(e), 'a guest in a cave is not away'); live.peers.get('g2').sc = 'world'; check(!W.wounderAway(e), 'a guest in the world is away');
+          live.peers.clear(); check(!W.wounderAway(e), 'a guest who left keeps it'); live.peers.set('g2', { id: 'guest-2', playing: true, sc: 'world' });
+          live.net.peers.set('g2', {}); sent.length = 0;
+          if (!W.list.includes(e)) W.list.push(e);
+          H.bledOut(e);
+          const m = sent.find(q => q[0].t === 'preydead');
+          check(m?.[1] === 'g2' && m[0].sx === e.sx && m[0].sy === e.sy, `the guest back is told: ${JSON.stringify(m)}`);
+        } finally { live.peers = peers; dropCarcass(tx + 0.5, ty + 6.5); } }
+      // The wounder's game: xp, the book, nothing placed or dropped
+      dropCarcass(tx + 0.5, ty + 0.5);
+      await bookKept(async N => {
+        N.s.delete('ciervo'); N.cnt = null;
+        H.killed(dead[0]);
+        check(game.stats.get('cazados') === k0 + 1 && N.level('ciervo') === 3, `the wounder: hunt ${game.stats.get('cazados') - k0}, book ${N.level('ciervo')}`);
+        check(!near('carcass_deer', tx + 0.5, ty + 0.5, 3) && !game.gather.drops.length, 'the wounder places or drops something');
+      });
+    } finally { live.joined = was.joined; live.net = was.net; W.list = keep.filter(a => a !== d); dropCarcass(tx + 0.5, ty + 0.5); TR().unlock(); }
+  });
+  await test('wounds (english): light wound stops and heals', async () => {
+    const [tx, ty] = openGround(96, 50); await goTo(game, tx + 0.5, ty + 6.5);
+    const W = WL(), H = game.hunt, from = [p().x, p().y]; W.t = -999;
+    const d = W.summon('ciervo', tx + 0.5, ty + 0.5), g2 = W.summon('ciervo', tx + 3.5, ty + 0.5);
+    try {
+      H.damage(d, 5, from, null);
+      check(d.bleed === 1 && d.hp === 3, `damage 5 (37 %): bleed ${d.bleed}, hp ${d.hp}`);
+      H.damage(g2, 6, from, null, { zone: ZONE.graze });
+      check(g2.bleed === 1, `a graze to 25 %: bleed ${g2.bleed}`);
+      d.bleedT = WOUND.LIGHT_FOR - 0.001; await frames(2);
+      check(d.bleed === 0, `still bleeding after ${WOUND.LIGHT_FOR} s`);
+      d.hitAt -= 29000; H.damage(d, 0, from, null); check(d.hp === 3 && d.bleed === 1, `healed before 30 s: hp ${d.hp}`);
+      d.bleedT = WOUND.LIGHT_FOR - 0.001; await frames(2);
+      d.hitAt -= 30001; H.damage(d, 1, from, null); check(d.hp === 7, `not healed 30 s after it stopped: hp ${d.hp}`);
+    } finally { W.list = W.list.filter(a => a !== d && a !== g2); }
+  });
+  await test('wounds (english): a vital full-draw arrow kills a deer', async () => {
+    const [tx, ty] = openGround(96, 50); await goTo(game, tx + 0.5, ty + 6.5);
+    const W = WL(), H = game.hunt; W.t = -999;
+    const d = W.summon('ciervo', tx + 0.5, ty + 0.5), g2 = W.summon('ciervo', tx + 3.5, ty + 0.5);
+    try {
+      check(H.arrowDmg(6, ZONE.vital) === 9 && H.arrowDmg(20, ZONE.body) === 6 && H.arrowDmg(20, ZONE.vital) === 9, 'the arrow damage');
+      H.shot(d, 6, ZONE.vital);
+      check(!W.list.includes(d), `a vital full draw leaves it alive: hp ${d.hp}`);
+      H.shot(g2, 6, ZONE.graze);
+      check(W.list.includes(g2) && g2.bleed === 1, `a graze: bleed ${g2.bleed}`);
+    } finally { W.list = W.list.filter(a => a !== d && a !== g2); dropCarcass(tx + 0.5, ty + 0.5); await collectDrops(game); }
+  });
+  await test('wounds (english): wild array fields are optional', async () => {
+    const W = WL(), keep = W.list;
+    try {
+      W.netList([['w900', 'ciervo', 60.04, 60, 0, 0]]);
+      const a = W.list[0];
+      check(a && a.bleed === 0 && a.lying === false && a.limp === 0 && a.sx === 60 && a.sy === 60, `six fields: ${JSON.stringify(a)}`);
+      W.netList([['w900', 'ciervo', 61, 60, 1, 0, 2, 1, 60, 60, 0.4]]);
+      check(W.list[0] === a && a.bleed === 2 && a.lying && a.limp === 0.4 && a.sx === 60, `eleven fields: ${JSON.stringify(W.list[0])}`);
+      W.netList([['w900', 'ciervo', 61, 60, 0, 0, 7, 0, 60, 60, 3]]);
+      check(a.bleed === 0 && a.limp === 1, `not sanitised: bleed ${a.bleed}, limp ${a.limp}`);
+      W.netList([['w900', 'ciervo', 61, 60, 0, 0, 0, 0, 70, 71, 0]]);
+      check(W.list[0] !== a && trailKey(W.list[0]) !== trailKey(a), 'a reused id with another spawn point is the same animal');
+    } finally { W.list = keep; }
+  });
+  await test('wounds (english): the wounds switch keeps the old behaviour', async () => {
+    const [tx, ty] = openGround(96, 50); await goTo(game, tx + 0.5, ty + 6.5);
+    const W = WL(), H = game.hunt, from = [p().x, p().y], was = Wildlife.wounds; W.t = -999;
+    const d = W.summon('ciervo', tx + 0.5, ty + 0.5);
+    Wildlife.wounds = false;
+    try {
+      H.damage(d, 6, from, null);
+      check(!d.bleed && !d.lying && d.hp === 2, `wounds off: bleed ${d.bleed}, hp ${d.hp}`);
+      check(H.arrowDmg(6, ZONE.vital) === 6 && H.arrowDmg(9, ZONE.body) === 9, 'wounds off: the arrow damage changes');
+      d.hitAt -= 30001; H.damage(d, 1, from, null); check(d.hp === 7, `wounds off: not healed after 30 s (hp ${d.hp})`);
+    } finally { Wildlife.wounds = was; W.list = W.list.filter(a => a !== d); }
+  });
+  await test('nature (english): looking fills a new page', async () => {
+    const s = trackLine(8); check(s, 'no open ground');
+    await goTo(game, s.x, s.y + 1);
+    await bookKept(async (N, toasts) => stillWild(async (W, summon) => {
+      N.s.delete('jabali'); N.cnt = null; N.lastToast = -Infinity;
+      const b = summon('jabali', s.x + 6, s.y + 1), was = game.mouse;
+      const aim = () => { draw(); const v = new THREE.Vector3(b.x, game.view3d.groundY(w(), b.x, b.y) + 0.45, b.y).project(game.view3d.camera); game.mouse = { x: (v.x + 1) / 2 * innerWidth, y: (1 - v.y) / 2 * innerHeight, in: true }; };
+      const away = () => { game.mouse = { x: innerWidth / 2, y: 4, in: true }; };
+      try {
+        aim(); await frames(60);
+        check(N.study?.id === 'jabali' && N.study.k > 0.4 && N.study.k < 0.9 && N.level('jabali') === 0, `after 1 s: ${JSON.stringify(N.study)}, level ${N.level('jabali')}`);
+        game.fieldHud?.frame(); check(!game.fieldHud || document.getElementById('hud-study')?.classList.contains('on'), 'the ring does not show');
+        away(); await frames(30);
+        check(!N.study && N.level('jabali') === 0, `looking away keeps ${JSON.stringify(N.study)}`);
+        aim(); await frames(60);
+        check(N.level('jabali') === 0, 'looking away did not reset the look');
+        await frames(45);
+        check(N.level('jabali') === 1, `after 1.75 s: level ${N.level('jabali')}`);
+        check(toasts.includes(t('nature.new', { name: noun('nature.name', 'jabali') })), `no «new» toast: ${toasts}`);
+        await frames(30); check(!N.study, 'a ring for a species already seen');
+        // A spectator studies nothing
+        N.s.delete('jabali'); N.cnt = null; game.gamemode = 'spectator';
+        try { aim(); await frames(110); check(N.level('jabali') === 0 && !N.study, 'a spectator studies'); } finally { game.gamemode = 'survival'; }
+      } finally { game.mouse = was; }
+    }));
+  });
+  await test('nature (english): village species are silent', async () => {
+    await bookKept(async (N, toasts) => {
+      for (const id of ['gallina', 'trigo', 'ciervo', 'jabali', 'cisne']) N.s.delete(id);
+      N.cnt = null; N.lastToast = -Infinity; N.pend.length = 0;
+      N.saw('gallina', 1.6); N.saw('trigo', 1.6);
+      check(N.level('gallina') === 1 && N.level('trigo') === 1 && !toasts.length, `village: levels ${N.level('gallina')}/${N.level('trigo')}, toasts ${toasts}`);
+      N.saw('ciervo', 1.6); N.saw('jabali', 1.6); N.saw('cisne', 1.6);
+      check(toasts.length === 1 && toasts[0] === t('nature.new', { name: noun('nature.name', 'ciervo') }), `three wild ones at once: ${toasts}`);
+      N.clock += 20; N.flush();
+      check(toasts.length === 2 && toasts[1] === t('nature.new_more', { name: noun('nature.name', 'jabali'), n: 1 }), `the merged one: ${toasts}`);
+    });
+  });
+  await test('nature (english): kill, pick, catch and net', async () => {
+    const [tx, ty] = openGround(96, 50); await goTo(game, tx + 0.5, ty + 0.5);
+    await bookKept(async N => {
+      for (const id of ['ciervo', 'oak', 'carpa', 'nabo', ...Object.keys(BUGS)]) N.s.delete(id);
+      N.cnt = null;
+      game.hunt.reward({ type: 'ciervo', young: false, x: tx + 0.5, y: ty + 0.5 });
+      dropCarcass(tx + 0.5, ty + 0.5); await collectDrops(game);
+      check(N.level('ciervo') === 3, `hunted: level ${N.level('ciervo')}`);
+      // Fished: the first Studied, five Known
+      const F = game.fishing;
+      F.pick = () => 'carpa';
+      try {
+        F.state = { water: 'lago', bx: p().x, by: p().y }; F.land();
+        check(N.level('carpa') === 2, `one carp: level ${N.level('carpa')}`);
+        for (let i = 0; i < 4; i++) { F.state = { water: 'lago', bx: p().x, by: p().y }; F.land(); }
+        check(N.level('carpa') === 3, `five carps: level ${N.level('carpa')}`);
+      } finally { delete F.pick; F.state = null; }
+      await frames(30); await collectDrops(game);
+      // Harvested: Known
+      const C = game.farm, cx = tx + 2, cy = ty + 2, d = C.d(cx, cy, true);
+      (d.crops ||= {})[`${cx},${cy}`] = { id: 'nabo', grow: 99, day: C.today };
+      C.harvest(cx, cy);
+      check(N.level('nabo') === 3, `a turnip harvested: level ${N.level('nabo')}`);
+      await collectDrops(game);
+      // Netted: Studied (the net catches at random, and only what is about at this hour and season)
+      const I = game.inv, rnd = Math.random;
+      if (!I.count('red')) I.add('red', 1);
+      Math.random = () => 0.1;
+      try { game.collection.net(); } finally { Math.random = rnd; }
+      const bug = Object.keys(BUGS).find(id => N.level(id) > 0);
+      if (bug) check(N.level(bug) === 2, `a ${bug} netted: level ${N.level(bug)}`);
+      else console.log('nature: no insect about now, the net hook not checked');
+      // Felled: Known
+      const oak = findKind(game, ['oak'], tx, ty);
+      check(oak, 'no oak near');
+      await harvest(game, oak, 'hacha');
+      check(N.level('oak') === 3, `an oak felled: level ${N.level('oak')}`);
+    });
+  });
+  await test('nature (english): old save backfills quietly', async () => {
+    const C = game.collection, F = game.fishing, seen = game.craft.seen;
+    const had = [C.got.has('carpa'), F.records.trucha, seen.has('carne_venado')];
+    await bookKept(async (N, toasts) => {
+      try {
+        C.got.add('carpa'); F.records.trucha ||= 30; seen.add('carne_venado');
+        N.reset({});   // (a save from before the book: no `nature`)
+        check(N.level('carpa') >= 2 && N.level('trucha') >= 2 && N.level('ciervo') === 3 && !toasts.length, `backfill: carp ${N.level('carpa')}, trout ${N.level('trucha')}, deer ${N.level('ciervo')}, toasts ${toasts}`);
+        if (game.ranch.mine('vaca').length) check(N.level('vaca') >= 2, `an owned cow: level ${N.level('vaca')}`);
+        // The save round trip keeps it, and what a newer version wrote
+        N.learnTracks('jabali');
+        const out = {}; N.save(out);
+        out.nature.s.coral = [2, 3, 1, 5]; out.nature.tr.push('coral');
+        N.reset(JSON.parse(JSON.stringify(out)));
+        const again = {}; N.save(again);
+        check(SPECIES_IDS.every(id => N.level(id) === (out.nature.s[id]?.[0] || 0)) && N.knowsTracks('jabali'), 'the round trip changes the levels');
+        check(JSON.stringify(again.nature.s.coral) === '[2,3,1,5]' && again.nature.tr.includes('coral'), `a newer version's page is lost: ${JSON.stringify(again.nature.s.coral)}`);
+        N.reset({ nature: { v: 1, s: { ciervo: [9, 'x', -3], oak: 'bad' }, tr: [5, 'ciervo'], paid: 99 } });
+        check(N.level('ciervo') === 3 && N.level('oak') === 0 && N.paid === REWARDS.length, 'a broken save is not cleaned');
+      } finally {
+        if (!had[0]) C.got.delete('carpa');
+        if (had[1] === undefined) delete F.records.trucha;
+        if (!had[2]) seen.delete('carne_venado');
+      }
+    });
+  });
+  await test('nature (english): every species has names, facts and a model', async () => {
+    check(SPECIES_IDS.length === 55 && GROUPS.every(gr => SPECIES_IDS.some(id => SPECIES[id].group === gr)), `${SPECIES_IDS.length} species`);
+    const [en, es] = await Promise.all(['en', 'es'].map(l => fetch(`src/lang/${l}.json`).then(r => r.json())));
+    const miss = SPECIES_IDS.flatMap(id => ['name', 'note'].flatMap(k => [en, es].filter(L => !L[`nature.${k}.${id}`]).map(L => `${L === en ? 'en' : 'es'} nature.${k}.${id}`)));
+    check(!miss.length, `missing: ${miss.slice(0, 8)}`);
+    for (const id of SPECIES_IDS) {
+      const sp = SPECIES[id];
+      let facts;
+      try { facts = sp.facts(game); } catch (e) { throw new Error(`facts of ${id}: ${e.message}`); }
+      check(Array.isArray(facts) && facts.every(f => Array.isArray(f) && en[f[0]] && es[f[0]]), `facts of ${id}: ${JSON.stringify(facts)?.slice(0, 160)}`);
+      for (const [k, prm] of facts) { const s = t(k, prm || undefined); check(s && !/\{/.test(s), `${id}: «${s}»`); }
+      const m = sp.model();
+      if (sp.group === 'bug') check(m === null, `an insect with a model: ${id}`);
+      else check(m?.isObject3D, `no model for ${id}`);
+    }
+  });
+  await test('nature (english): collections cells open the page', async () => {
+    const html = game.collection.journal();
+    for (const id of ['carpa', 'mariposa', 'margarita']) check(html.includes(`data-nature="${id}"`), `no data-nature on ${id}`);
+    const W = game.windows, el = id => document.getElementById(id);
+    W.open('s-journal');
+    try {
+      document.querySelector('[data-jtab="colecciones"]').click();
+      const cell = el('j-body').querySelector('[data-nature="carpa"]');
+      check(cell, 'no carp cell in Collections');
+      cell.click();
+      check(document.querySelector('[data-jtab="nature"]')?.classList.contains('on'), 'the Nature tab is not on');
+      check(el('j-body').querySelector('[data-nb-id="carpa"].on') && el('j-body').querySelector('.nb-page .nb-name'), 'the carp page is not open');
+    } finally { W.close('s-journal'); }
+  });
+  await test('hud (english): study ring and track tag only when relevant', async () => {
+    const FH = game.fieldHud; check(FH, 'no FieldHud');
+    const N = NB(), T = TR(), ring = () => document.getElementById('hud-study').classList.contains('on'), tag = () => document.getElementById('hud-track').classList.contains('on');
+    const s = trackLine(4); check(s, 'no open ground'); await goTo(game, s.x, s.y + 1);
+    const was = game.mouse, keep = N.study, smart = !!game.smartHud;
+    game.mouse = { x: innerWidth / 2, y: innerHeight / 2, in: true };
+    try {
+      N.study = { id: 'ciervo', k: 0.5, done: false }; FH.frame(); check(ring(), 'no ring while studying');
+      game.windows.open('s-inv'); FH.frame(); check(!ring(), 'the ring with a window open'); game.windows.close('s-inv');
+      document.body.classList.add('hud-all'); FH.frame(); check(!ring(), 'the ring in Tab'); document.body.classList.remove('hud-all');
+      FH.frame(); check(ring(), 'no ring back');
+      N.study = null; FH.frame(); check(!ring(), 'the ring stays');
+      // The tag: over a mark only (and a moment after)
+      const i = T.print('test:tag', 'deer', s.x, s.y, 0, { surf: 'soil', type: 'ciervo' }); check(i >= 0, 'no mark');
+      T.hover = { idx: i, reach: true }; FH.tagNext = 0; FH.frame();
+      const txt = document.getElementById('hud-track').textContent;
+      check(tag() && txt.includes(t('tracks.age.fresh')), `the tag: ${tag()} «${txt}»`);
+      // (blood: its own title; on the trail of the animal you hit, the species is known and there is nothing to come closer for)
+      const b = T.print('test:tag', 'blood', s.x + 1, s.y, 0, { surf: 'soil', type: 'ciervo' }), m0 = [N.tr.has('ciervo'), Settings.v.blood];
+      N.tr.delete('ciervo'); Settings.v.blood = true;
+      N.level = () => 1;
+      try {
+        const read = idx => { T.hover = { idx, reach: false }; FH.tagNext = 0; FH.frame(); return document.getElementById('hud-track').textContent; };
+        check(read(b).includes(t('tracks.blood_of.unknown')) && read(b).includes(t('tracks.closer_follow')), `blood of an unknown animal: «${read(b)}»`);
+        T.lock('test:tag', 'blood');
+        check(read(b).includes(t('tracks.blood_of.ciervo')) && !read(b).includes(t('tracks.closer_follow')), `blood of the one you hit: «${read(b)}»`);
+        check(read(i).includes(t('tracks.label.ciervo')), `prints of the one you hit: «${read(i)}»`);
+        Settings.v.blood = false;
+        check(read(b).includes(t('tracks.label.ciervo')) && !document.querySelector('#hud-track .bl'), `with blood off: «${read(b)}»`);
+      } finally { delete N.level; if (m0[0]) N.tr.add('ciervo'); Settings.v.blood = m0[1]; T.unlock(); }
+      T.hover = null; FH.tagNext = 0; FH.frame(); check(tag(), 'the tag goes at once');
+      FH.tagSeen -= 1; FH.tagNext = 0; FH.frame(); check(!tag(), 'the tag stays');
+      // A HUD hot-swap leaves nothing on
+      N.study = { id: 'ciervo', k: 0.5, done: false }; T.hover = { idx: i, reach: false }; FH.tagNext = 0; FH.frame(); check(ring() && tag(), 'nothing to swap');
+      useSmartHud(game, !smart); N.study = null; T.hover = null; FH.frame();
+      check(!ring() && !tag(), `after the swap: ring ${ring()}, tag ${tag()}`);
+    } finally { useSmartHud(game, smart); game.mouse = was; N.study = keep; T.hover = null; T.reset(); FH.reset(); }
   });
   await test('peso y en brazos, fin (weight end): a save played with the weight inventory opens with ?inventario=casillas without losing anything, and back', async () => {
     const W = JSON.stringify(game.snapshot()), D = JSON.stringify([...game.world.deltas]), was = Carry.force;

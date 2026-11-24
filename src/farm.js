@@ -425,6 +425,7 @@ export class Farm {
       if (Math.random() < (g.skills?.bonus('agricultura') || 0)) n++;
       g.gather.spawnDrops(at, { drops: straw ? [[c.id, n, n], ['straw', straw, straw]] : [[c.id, n, n]] });
       if (word && !quiet) g.gather.float(t('farm.harvest.quality.' + word), HARVEST_COLOR[word]);
+      g.nature?.harvested(c.id);   // (harvested: Known in the nature book)
     }
     if (crop.regrow && c.bolt === undefined) { c.grow = crop.days - crop.regrow; delete c.ripe; }
     else delete d.crops[k];
@@ -597,6 +598,7 @@ export class Farm {
     this.world.touch(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK));
     o.shakeUntil = this.game.time + 0.3;
     this.game.gather.spawnDrops(o, { drops: FRUIT[o.kind].drops });
+    this.game.nature?.harvested(o.kind);   // (its fruit picked: Known in the nature book)
     Audio.swish();
   }
 

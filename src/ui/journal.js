@@ -3,7 +3,9 @@ import { itemIconUrl } from '../art/items.js';
 import { itemNoun } from '../items.js';
 import { PEOPLE } from '../neighbors.js';
 import { warmthOf } from '../clothing.js';
-import { t, tHtml, has, fmt } from '../i18n.js';
+import { t, tHtml, has, fmt, onLangChange } from '../i18n.js';
+import { NatureBookUI } from './naturebook.js';
+import { apagada } from '../opciones.js';
 
 const $ = id => document.getElementById(id);
 const DAY_MS = 86400000;
@@ -60,6 +62,7 @@ function addMemories(game, box) {
 const STAT_NAMES = { talados: 'Árboles talados', picados: 'Rocas picadas', cosechas: 'Cosechas', peces: 'Peces', tesoros: 'Tesoros del agua', criaturas: 'Criaturas derrotadas', cofres: 'Cofres abiertos', lugares: 'Lugares descubiertos', profundidad: 'Nivel más hondo de cueva', encargos: 'Encargos cumplidos', regalos: 'Regalos hechos', piezas: 'Piezas construidas', cocinados: 'Platos cocinados', productos: 'Productos de la granja', mascotas: 'Mascotas adoptadas', ganado: 'Monedas ganadas', donados: 'Piezas donadas' };
 
 export function initJournalUI(game, { onClose }) {
+  const natureBook = apagada('naturebook') ? null : new NatureBookUI(game);   // (the Nature tab, Plan G: src/ui/naturebook.js)
   const TABS = {
     pasos: ['Primeros pasos', () => game.steps.journal()],
     historia: ['Historia', () => game.story.journal()],
@@ -68,23 +71,41 @@ export function initJournalUI(game, { onClose }) {
     granja: ['Granja', () => game.farm.journal() + game.ranch.journal()],
     pesca: ['Pesca', () => game.fishing.journal()],
     colecciones: ['Colecciones', () => game.collection.journal()],
+    ...(natureBook ? { nature: [t('journal.tab.nature'), () => natureBook.html()] } : {}),
     logros: ['Logros', () => game.achievements.journal()],
     datos: ['Estadísticas', () => bodyBox(game) + `<p class="j-note">Día ${game.days.dayIndex + 1} · ${game.money} monedas</p>` + Object.entries(STAT_NAMES).map(([k, n]) => `<div class="j-row"><b>${n}</b><span class="lvl">${Math.round(game.stats.get(k))}</span></div>`).join('')],
   };
   let tab = 'historia';
-  $('j-body').addEventListener('click', e => { if (e.target.closest?.('[data-steps-restart]')) { game.steps.restart(); render(); } });
+  $('j-body').addEventListener('click', e => {
+    if (e.target.closest?.('[data-steps-restart]')) { game.steps.restart(); render(); return; }
+    // (a fish, insect or flower cell of Collections opens its page of the nature book: progress.js data-nature)
+    const cell = natureBook && tab !== 'nature' && e.target.closest?.('[data-nature]');
+    if (cell) open('nature', cell.dataset.nature);
+  });
   for (const [k, [name]] of Object.entries(TABS)) {
     const b = document.createElement('button');
     b.type = 'button'; b.textContent = name; b.dataset.jtab = k;
     b.onclick = () => { tab = k; render(); };
     $('j-tabs').append(b);
   }
+  if (natureBook) onLangChange(() => { const b = document.querySelector('[data-jtab="nature"]'); if (b) b.textContent = t('journal.tab.nature'); });
   function render() {
     document.querySelectorAll('[data-jtab]').forEach(b => b.classList.toggle('on', b.dataset.jtab === tab));
     $('j-body').innerHTML = TABS[tab][1]();
     if (tab === 'vecinos') addMemories(game, $('j-body'));
+    if (natureBook) { if (tab === 'nature') natureBook.bind($('j-body')); else natureBook.hide(); }
     $('j-body').querySelectorAll('[data-icon]').forEach(img => { img.src = itemIconUrl(img.dataset.icon); });
+    // (a taller tab than the one the window was placed with: placed again, whole on the screen if it fits)
+    const win = $('s-journal');
+    if (win.classList.contains('show') && win.scrollHeight > win.clientHeight + 1) game.windows?.placeAll?.();
   }
-  $('j-close').onclick = () => onClose();
-  return { open() { render(); } };
+  // open(): the tab shown last; open(tab, id): that tab (and, for 'nature', that species' page). It renders the body:
+  // the caller opens the window (menus.js does it with J, and calls open() itself when the window opens)
+  function open(to, id) {
+    if (to && TABS[to]) tab = to;
+    if (to === 'nature' && id) natureBook?.page(id);
+    render();
+  }
+  $('j-close').onclick = () => { natureBook?.hide(); onClose(); };
+  return { open };
 }

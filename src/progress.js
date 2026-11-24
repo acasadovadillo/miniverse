@@ -4,6 +4,9 @@ import { ITEMS, FISH, BUGS, LEGACY_ITEMS } from './items.js';
 import { Audio } from './audio.js';
 import { hud } from './ui/hud.js';
 import { t } from './i18n.js';
+import { apagada } from './opciones.js';
+import { SPECIES } from './nature.js';
+import { trackerDone } from './tracks.js';
 
 // ---------- Estadísticas ----------
 export class Stats {
@@ -21,12 +24,14 @@ const SKILLS = {
   tala: 'Tala', mineria: 'Minería', agricultura: 'Agricultura', pesca: 'Pesca',
   cocina: 'Cocina', construccion: 'Construcción', granja: 'Granja', combate: 'Combate',
   get diving() { return t('skill.diving'); },
+  get tracking() { return t('skill.tracking'); },   // (Plan G: studying tracks and following trails, tracks.js)
 };
 const PERKS = {
   tala: 'Nivel 5: talar cansa menos. Cada nivel: más madera.', mineria: 'Nivel 5: picar cansa menos. Cada nivel: más mineral.',
   agricultura: 'Cada nivel: más cosecha.', pesca: 'Cada nivel: salen más peces raros y tesoros.', cocina: 'Cada nivel: platos más sabrosos (quitan más hambre).',
   construccion: 'Por construir, que es muy bonito.', granja: 'Cada nivel: animales más contentos.', combate: 'Nivel 5: golpeas más fuerte.',
   get diving() { return t('skill.diving.perk'); },   // (2 s more air per level, needs.js airMax; and more pearls, dive.js)
+  get tracking() { return t('skill.tracking.perk'); },   // (the locked trail reaches 2 m further per level: tracks.js HL_R)
 };
 const xpFor = lvl => 25 * lvl * (lvl + 1);   // experiencia total para llegar a un nivel
 export class Skills {
@@ -60,6 +65,9 @@ const FLOWERS = ['margarita', 'diente_leon'];
 const RARE = ['huevo_oro', 'trufa', 'lana_fina', 'asta', 'colmillo'];
 export const COLLECTIONS = { 'Minerales y gemas': MINERALS, 'Fósiles y reliquias': FOSSILS, Peces: Object.keys(FISH), Insectos: Object.keys(BUGS), Flores: FLOWERS, Rarezas: RARE };
 const ALL = Object.values(COLLECTIONS).flat(), IN = new Set(ALL);
+// (the fish, insect and flower cells open their nature book page: data-nature, read by the journal; not with ?naturebook=0)
+const BOOK = !apagada('naturebook');
+const bookCell = id => (BOOK && SPECIES[id] ? ` data-nature="${id}"` : '');
 const REWARDS = [[5, 300, 'pocion', 2], [12, 800, 'semilla_manzano', 3], [20, 1500, 'lampara', 1], [30, 3000, 'espada_oro', 1], [ALL.length, 8000, 'vitrina', 3]];
 
 export class Collection {
@@ -96,7 +104,7 @@ export class Collection {
     const head = `<p class="j-note">Llevas ${this.got.size} de ${ALL.length}. Cada cosa cuenta en cuanto la tienes una vez, sin entregarla.${next ? ` Próximo premio, a las ${next[0]}: ${next[1]} monedas y ${next[3]} × ${ITEMS[next[2]].name.toLowerCase()}.` : ' Las tienes todas.'}</p>`;
     return head + Object.entries(COLLECTIONS).map(([title, ids]) => `<h3>${title} <small>${ids.filter(i => this.got.has(i)).length}/${ids.length}</small></h3><div class="j-grid">${ids.map(id => {
       const state = this.got.has(id) ? 'done' : 'none';
-      return `<div class="j-cell ${state}" title="${state === 'none' ? '???' : ITEMS[id].name}"><img alt="" data-icon="${id}"></div>`;
+      return `<div class="j-cell ${state}" title="${state === 'none' ? '???' : ITEMS[id].name}"${bookCell(id)}><img alt="" data-icon="${id}"></div>`;
     }).join('')}</div>`).join('');
   }
 
@@ -119,7 +127,9 @@ export class Collection {
     const [id] = list[Math.floor(Math.random() * list.length)];
     const left = g.inv.add(id, 1);
     if (left) g.gather.throwOut(id, left);
+    const fresh = !this.got.has(id);   // (its "new" toast wins over the nature book's message)
     this.found(id);
+    g.nature?.harvested(id, 1, fresh);   // (the nature book: Studied, three netted Known)
     g.gather.float(`¡${ITEMS[id].name}!`, '#ffe08a');
     Audio.pickup();
   }
@@ -127,6 +137,14 @@ export class Collection {
 
 // ---------- Logros ----------
 const S = (k, n) => g => g.stats.get(k) >= n;
+// An achievement whose name and description come from the language files (ach.<id>, ach.<id>.desc): the same
+// [id, name, desc, check] row, with the texts read when shown, so they follow a language switch
+function tAch(id, check) {
+  const row = [id, '', '', check];
+  Object.defineProperty(row, 1, { get: () => t(`ach.${id}`), enumerable: true });
+  Object.defineProperty(row, 2, { get: () => t(`ach.${id}.desc`), enumerable: true });
+  return row;
+}
 export const ACH = [
   ['primer_arbol', 'Leñador novato', 'Tala tu primer árbol', S('talados', 1)],
   ['talador', 'Leñador de verdad', 'Tala 100 árboles', S('talados', 100)],
@@ -149,6 +167,11 @@ export const ACH = [
   ['chef', 'Chef', 'Cocina 20 platos', S('cocinados', 20)],
   ['valiente', 'Valiente', 'Derrota 50 criaturas', S('criaturas', 50)],
   ['faro', 'Desde lo alto', 'Sube a un faro', S('faros', 1)],
+  // Plan G: the nature book and tracking (names through t(); tracker: a trail followed 60 m or more to the prey, which
+  // tracks.js counts in the stat 'trailsFollowed')
+  tAch('naturalist', g => (g.nature?.count().n || 0) >= 15),
+  tAch('naturalist_all', g => !!g.nature && g.nature.count().n >= g.nature.count().total),
+  tAch('tracker', trackerDone),
 ];
 export class Achievements {
   constructor(game) { this.game = game; this.got = new Set(); this.t = 0; }

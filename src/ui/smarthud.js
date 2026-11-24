@@ -86,7 +86,15 @@ const TIPS = {
   // (the horse, Plan F: their texts say their key, "N: whistle for Rayo". N is only the whistle, so pressing it makes it
   // known; G and H count only in the saddle, where they are pat and rear (ride); X does many things, so only being shown)
   whistle: { code: 'KeyN', key: null }, bags: { key: null }, jump_fence: { key: null }, pat: { code: 'KeyG', key: null, ride: true }, rear: { code: 'KeyH', key: null, ride: true },
+  // (tracking and the nature book, Plan G §5.1: a fresh trail close by, the first study ring, the first wounded animal's
+  // trail locked. No key drawn: the text says it)
+  tracks: { key: null }, study: { key: null }, blood: { key: null },
 };
+// (those three wait at least a minute after any other tip, and are only asked for when they could show at once: a tip
+// about prints that already went by would be noise. Not the blood one: it answers your own shot, and it is asked for as
+// long as the animal you hit still bleeds)
+const FIELD_TIPS = new Set(['tracks', 'study', 'blood']);
+const FIELD_GAP = 60, FIELD_WAIT = 8;   // seconds: after any tip; the longest one waits (a window open) before it is dropped
 const KNOWN = ['bag', 'craft', 'build', 'journal', 'map'];   // (what a player past the first steps already knows)
 // Closing hours of the shops (hours past 24 are after midnight); the ones open all day never close
 const CLOSING = [...new Set(Object.values(SHOPS).filter(s => s.hours[1] - s.hours[0] < 24).map(s => s.hours[1] % 24))];
@@ -469,7 +477,7 @@ export class SmartHud {
       cold: !!bcd && !bcd.cold, hot: !!bcd && !bcd.hot, wet: !!bcd && !bcd.soaked, dirty: !!bcd && !bcd.dirty }[this.tip];   // (the need is met: its tip goes; low health's, under water; warm, cool, dry or clean again: the body's)
     if (this.tip && (T > this.tipUntil || over)) this.endTip();
     else if (!this.tip && this.queue.length && tipNow) {
-      const i = this.queue.findIndex(id => (id !== 'lowhp' || !under) && (!NEED_TIPS.has(id) || T - this.needTipAt >= NEED_GAP));
+      const i = this.queue.findIndex(id => (id !== 'lowhp' || !under) && (!NEED_TIPS.has(id) || T - this.needTipAt >= NEED_GAP) && (!FIELD_TIPS.has(id) || id === 'blood' || T - this.tipAt >= FIELD_GAP));
       if (i >= 0) this.showTip(this.queue.splice(i, 1)[0], T);
     }
     this.set('tip', !!this.tip && tipNow);
@@ -527,6 +535,9 @@ export class SmartHud {
     }
     // The horse (Plan F): its marker on the minimap, and its tips
     this.horseLook(g, p, T);
+    // Tracking and the nature book (Plan G): a fresh trail within 4 m, a study ring filling, a wounded animal's trail
+    // locked for you (tracks.js, nature.js)
+    this.fieldTips(g, p, T);
     // Leaving the village for the first time: the map
     if (g.scene === g.world && !g.indoors && !inBounds(p.x, p.y)) this.want('map');
     // A new recipe while playing (not the ones of the start): crafting
@@ -572,7 +583,7 @@ export class SmartHud {
     for (const k of ['hp', 'food', 'foodStep', 'water', 'waterStep', 'restStep', 'money', 'xp', 'level', 'invV', 'sel', 'stepKey', 'stepI', 'placeName', 'gm', 'night', 'count', 'sig', 'bed', 'critNow', 'grown']) this[k] = undefined;
     this.fresh = Infinity;   // (the first look only counts them)
     this.foodSlot = -1; this.foodBag = false; this.drinkSlot = -1; this.drinkBag = false;
-    this.healAt = -Infinity; this.enLow = false; this.swimT = 0; this.needTipAt = -Infinity;
+    this.healAt = -Infinity; this.enLow = false; this.swimT = 0; this.needTipAt = -Infinity; this.tipAt = -Infinity; this.fieldAt = 0;
     this.horseMini = false; this.spooks = undefined; this.names = { whistle: '', pat: '' };   // (the horse: its marker, its scares and the names its tips say)
     try { this.game.needsBar?.reset(); } catch (e) { reportFault(e, 'NeedsBar.reset'); }   // (the bars: no timer of the game before)
     this.px = p.x; this.py = p.y; this.moveT = 0; this.stillT = 0;
@@ -683,6 +694,19 @@ export class SmartHud {
     return !(def?.tool === rule.tool || (!def?.tool && rule.hand));
   }
 
+  // The tips of tracking and the nature book: each one asked for only while it is true and could show now (no tip in
+  // sight, a minute since the last one); one that could not show within FIELD_WAIT (a window open) is dropped
+  fieldTips(g, p, T) {
+    const tr = g.tracks, st = g.nature?.study, blood = !!tr?.bleeding && !this.seen.has('blood');
+    if (!this.seen.has('tracks') && g.nature?.tr?.size) this.learnt('tracks');   // (E on a print already: it knows how)
+    if (this.queue.length && T - this.fieldAt > FIELD_WAIT && this.queue.some(id => FIELD_TIPS.has(id))) this.queue = this.queue.filter(id => !FIELD_TIPS.has(id));
+    if (g.gamemode === 'spectator' || this.tip || (!blood && T - this.tipAt < FIELD_GAP) || T - this.started < 8) return;
+    const id = blood ? 'blood' : st && !st.done && st.k > 0.15 ? 'study' : tr?.freshNear && g.scene === g.world && !p.swim ? 'tracks' : null;
+    if (!id || this.seen.has(id) || this.queue.includes(id)) return;
+    this.fieldAt = T;
+    this.want(id, true);
+  }
+
   // ---------- one-time key tips ----------
   loadSeen() {
     try { return new Set((JSON.parse(localStorage.getItem(TIPS_KEY) || '{}') || {})[Profile.id || '-'] || []); } catch { return new Set(); }
@@ -706,6 +730,7 @@ export class SmartHud {
   }
   showTip(id, T) {
     this.tip = id;
+    this.tipAt = T;
     if (NEED_TIPS.has(id)) this.needTipAt = T;
     this.seen.add(id);
     this.saveSeen();

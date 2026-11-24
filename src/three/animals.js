@@ -424,6 +424,14 @@ function bird({ body, legs, u, cb, cd, cl, k, breed }, duck) {
 
 // ---------- cómo se mueven ----------
 const SIT_LEAN = { perro: -0.62, gato: -0.7 };
+// A wounded wild animal (Plan G §8.2; wildlife.js sets e.lying and e.limp, 0..1, and sends them). Bedded: the belly on the
+// ground, the front legs folded with the knees forward and the hooves tucked back, the hind ones folded under the belly
+// (how far the body goes down and [hip, knee] angles, front and hind, worked out from each build's leg lengths so that
+// knees and shins lie on the ground); head up, slow deep breaths, a look around now and then, and the head lower as its hp
+// falls (limp grows with the missing hp). Limping: the back right leg swings less and the body dips and rolls on that
+// step. Only the existing rig moves: no new meshes
+const BED = { ciervo: [0.69, [-1.34, 2.87], [-1.6, 3.42]], jabali: [0.15, [-0.83, 2.37], [-1.05, 2.91]] };
+const LIMP_SWING = 0.6, LIMP_DIP = 0.05, LIMP_ROLL = 0.07;
 // (st: a horse's trick or shake and how winded it is, from actors.js: see animateHorse)
 export function animateAnimal(m, dt, t, e, st = null) {
   const u = m.root.userData;
@@ -445,8 +453,11 @@ export function animateAnimal(m, dt, t, e, st = null) {
     l.hip.rotation.x = s * (l.bird ? 0.5 : 0.55) * k;
     l.knee.rotation.x = l.bird ? 0 : Math.max(0, Math.sin(m.phase + l.phase + 1.2)) * 0.8 * k;   // la rodilla se dobla al levantar la pata
   }
-  body.position.y = Math.abs(Math.sin(m.phase)) * (type === 'conejo' ? 0.1 : 0.025) * k;
-  body.rotation.z = type === 'pato' ? Math.sin(m.phase) * 0.12 * k : 0;   // el pato se bambolea
+  // (limping: the bad leg barely swings; while it bears the weight, the body sinks and rolls towards it)
+  const limp = e?.limp > 0 && legs.length === 4 ? Math.min(1, e.limp) * k : 0, bear = limp ? Math.max(0, -Math.sin(m.phase + legs[3].phase)) * limp : 0;
+  if (limp) { legs[3].hip.rotation.x *= 1 - LIMP_SWING * limp; legs[3].knee.rotation.x *= 1 - LIMP_SWING * 0.6 * limp; }
+  body.position.y = Math.abs(Math.sin(m.phase)) * (type === 'conejo' ? 0.1 : 0.025) * k - bear * LIMP_DIP;
+  body.rotation.z = type === 'pato' ? Math.sin(m.phase) * 0.12 * k : -bear * LIMP_ROLL;   // el pato se bambolea
   body.scale.set(1, e?.sleep ? 0.62 : 1, 1);   // durmiendo, hecho una bola
   if (tail) tail.rotation.set(type === 'perro' ? -0.3 : 0, 0, Math.sin(t * (type === 'perro' ? 12 : 2.2) + u.seed) * (type === 'perro' ? 0.5 : type === 'vaca' || type === 'ciervo' ? 0.35 : 0.15));
   if (e?.sleep) { body.position.y = 0; body.rotation.x = 0; if (head) head.rotation.x = 0.3; return; }
@@ -462,6 +473,21 @@ export function animateAnimal(m, dt, t, e, st = null) {
   else if (type === 'cerdo' && e?.digging) body.rotation.x = 0.25 + Math.sin(t * 9) * 0.06;   // hoza
   else body.rotation.x = Math.sin(t * 0.8 + m.phase) * 0.01;
   body.scale.x = body.scale.z = 1 + Math.sin(t * 2 + u.seed) * 0.01 * (1 - k);   // respira
+  // (bedded: eased in and out over about a second, so getting up and lying down are seen)
+  const bed = BED[type], want = e?.lying && bed ? 1 : 0;
+  if (want || u.lie > 0) {
+    const lie = u.lie = (u.lie || 0) + (want - (u.lie || 0)) * Math.min(1, dt * 1.6);
+    if (lie < 1e-3) { u.lie = 0; return; }
+    for (const l of legs) { const b = bed[l.hip.position.z < 0 ? 2 : 1]; l.hip.rotation.x += (b[0] - l.hip.rotation.x) * lie; l.knee.rotation.x += (b[1] - l.knee.rotation.x) * lie; }
+    body.position.y = body.position.y * (1 - lie) - bed[0] * lie;
+    body.rotation.x *= 1 - lie; body.rotation.z *= 1 - lie;
+    body.scale.x = body.scale.z = 1 + Math.sin(t * 1.3 + u.seed) * 0.025 * lie;   // (slow, deep breaths)
+    if (head) {
+      const up = -0.12 + Math.min(1, e?.limp || 0) * 0.8, look = Math.sin(t * 0.45 + u.seed * 3) > 0.85 ? Math.sin(t * 0.9 + u.seed) * 0.6 : 0;
+      head.rotation.x += (up - head.rotation.x) * lie;
+      head.rotation.y += (look - head.rotation.y) * lie;
+    }
+  }
 }
 
 // ---------- el caballo ----------
