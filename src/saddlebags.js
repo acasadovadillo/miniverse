@@ -106,7 +106,7 @@ export class Saddlebags {
     return !!this.game.ranch?.player?.(id);
   }
   nameOf(id) { return (id && this.game.live?.nameOf?.(id)) || t('horse.someone'); }   // (never a raw account id on screen)
-  say(text) { hud.toast(text); Audio.error(); }
+  say(text) { hud.toast(text, 'warn'); Audio.error(); }
 
   reset() {
     this.lock = null; this.win = null; this.wasMount = false;

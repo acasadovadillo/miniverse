@@ -188,7 +188,7 @@ export class Dive {
       else { this.asked.delete(o.key); this.late(); }
     });
   }
-  late() { hud.toast(t('dive.too_late')); Audio.error(); }
+  late() { hud.toast(t('dive.too_late'), 'warn'); Audio.error(); }
   // What a find gives (rolled from its key and day), into the inventory (what does not fit, thrown out by the player)
   got(o, day) {
     const g = this.game, key = o.key;

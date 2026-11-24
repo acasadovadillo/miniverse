@@ -45,6 +45,7 @@ function play(login = true) {   // (login: abrir la pantalla de entrar)
   Settings.onHud = v => useSmartHud(game, v !== 'full');
   Settings.hudNow = () => (game.smartHud ? 'minimal' : 'full');   // (what the setting lights: the one in sight)
   game.live.say = (text, kind) => chat.say(text, kind);
+  hud.feed.busy = () => hud.dialogOpen || !!game.wheel?.open;   // (meanwhile its lines wait: ui/feed.js)
   const wheel = game.wheel = new ToolWheel(game);   // (F held: the tool wheel, src/ui/wheel.js)
   // The study ring and the track tag (src/ui/fieldhud.js, Plan G), for both interfaces: drawn after menus.js's frame hook
   game.huntOverlay = new HuntOverlay(game);   // (while hunting: your noise ring and the wind, on the minimap)
@@ -80,6 +81,7 @@ function play(login = true) {   // (login: abrir la pantalla de entrar)
     rotateEnd: () => game.gather.turnEnd(),
     size: () => game.gather.nextSize(),
     erase: () => { if (b.on) b.remove(); else game.altAction(); },
+    eraseEnd: () => game.altRelease(),   // (X let go of: what it was holding is off)
     interact: () => game.action(),
     pause: () => menus.togglePause(),
     map: () => menus.toggleMap(),

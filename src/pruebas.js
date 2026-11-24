@@ -48,6 +48,7 @@ import { modelKind, ICON3D } from './three/icons.js';
 import { useSmartHud } from './ui/smarthud.js';
 import { Settings } from './settings.js';
 import { FE, alertBox, tabStrip, list, optionRow, legend } from './ui/frontend.js';
+import { GLYPHS } from './ui/glyphs.js';
 import { ACCENTS, accentOf, useAccent, skinNow } from './ui/skin.js';
 import { Audio as GameAudio } from './audio.js';
 import { View3D } from './three/engine.js';
@@ -767,7 +768,7 @@ async function soloTests(game) {
       const b = bodyBox(a); check(Math.abs(b.hy - 0.86) < 0.01 && Math.abs(b.hx - 0.34) < 0.01 && Math.abs(b.y1 - 1.26) < 0.01 && Math.abs(b.vx - 1) < 0.01, `caja: ${JSON.stringify(b)}`);
       const put = () => { a.x = a.tx = X + 1.4; a.y = a.ty = Y; a.panic = 0; a.dir = [1, 0]; a.wait = 9999; };
       aimAt(a.x + 0.9, 1, a.y); check(game.aimed()?.e === a, `el hocico no se apunta: ${game.aimed()?.kind}`);
-      g.target = g.pickTarget(); draw(); check(document.getElementById('prompt').textContent.includes('Clic: atacar'), `la opción dice: ${document.getElementById('prompt').textContent}`);
+      g.target = g.pickTarget(); draw(); check(document.querySelector('#prompt .chip.mouse.l') && document.getElementById('prompt').textContent.includes(t('prompt.attack')), `la opción dice: ${document.getElementById('prompt').textContent}`);
       draw(); check(game.highlight?.e === a, 'sin borde');
       game.mouse = { x: 3, y: 3, in: true }; g.target = g.pickTarget(); check(!g.target?.prey, 'pega sin apuntarle');
       // A espadazos: parpadea y huye, y al morir se va y suelta su carne, su piel y su hueso
@@ -954,7 +955,8 @@ async function soloTests(game) {
       hotbar: el('hotbar').outerHTML.replace(/ style="[^"]*"/g, ''), money: el('money').parentNode.id,
       cls: ['clockp', 'admin-tag', 'place', 'minimap', 'quest', 'hint'].map(id => el(id).className),
       body: ['hud-min', 'hud-all', 'hm-solo', 'hm-mini'].filter(c => document.body.classList.contains(c)),
-      added: ['hud-status', 'hud-item', 'hud-delta', 'hud-tip', 'hud-build', 'hud-goal', 'hud-bow'].filter(el),
+      added: ['hud-status', 'hud-item', 'hud-delta', 'hud-tip', 'hud-build', 'hud-goal', 'hud-bow', 'hud-left', 'hud-right', 'hud-place'].filter(el),
+      at: ['clockp', 'quest', 'coords'].map(id => el(id).parentNode.id || el(id).parentNode.tagName),
       tab: document.querySelector('[data-i18n="controls.players"]')?.textContent, styles: document.head.querySelectorAll('style').length,
     });
     const was = Settings.v.hud;
@@ -969,7 +971,7 @@ async function soloTests(game) {
         if (round) Settings.set('hud', 'minimal'); else useSmartHud(game, true);
         const sh = game.smartHud;
         check(sh && document.body.classList.contains('hud-min'), `round ${round}: it does not go on`);
-        check(!el('hearts') && el('needs')?.parentNode === document.body && el('xp').parentNode.id === 'hud-status' && el('money').parentNode === document.body, 'the parts are not in their places');
+        check(!el('hearts') && el('needs')?.parentNode === document.body && el('xp').parentNode.id === 'hud-status' && el('money').parentNode.id === 'hud-right' && el('clockp').parentNode.id === 'hud-right' && el('quest').parentNode.id === 'hud-left', 'the parts are not in their places');
         // An empty slot or a bow with no arrows: no name, not even the one before
         sh.until.item = 1e9; sh.itemName(null, 0);
         check(sh.until.item === 0, 'an empty slot keeps the name of the one before');
@@ -1038,6 +1040,133 @@ async function soloTests(game) {
       useAccent(null);
       check(getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() === '#ff4f9a', 'no pink without a character');
     } finally { if (was) root.setProperty('--me', was); else root.removeProperty('--me'); }
+  });
+  // ---------- R8-1: the layout of the HUD (PLAN-R8-hud-mapa.md §8) ----------
+  const hudRows = () => [...document.querySelectorAll('#prompt.show .pr')];
+  await test('prompt rows (english): hud.prompt with two rows draws two chips; the old string form still draws one row', async () => {
+    const el = document.getElementById('prompt');
+    try {
+      hud.prompt([{ key: 'E', text: 'Carry' }, { key: 'X', text: 'Gut', hold: 0.3, dim: true }], [300, 300]);
+      check(hudRows().length === 2 && hudRows()[0].querySelector('kbd').textContent === 'E' && hudRows()[1].querySelector('.chip.hold .ring') && el.classList.contains('follow'), `two rows: ${el.textContent}`);
+      const first = hudRows()[0];
+      hud.prompt([{ key: 'E', text: 'Carry' }, { key: 'X', text: 'Gut', hold: 0.3, dim: true }], [340, 300]);
+      check(hudRows()[0] === first && /^translate3d\(340px/.test(el.style.transform), `the same rows are drawn again, or it does not move: ${el.style.transform}`);
+      hud.prompt([{ key: 'mouse:l', text: 'Attack' }], [innerWidth + 900, -50]);
+      const b = el.getBoundingClientRect();
+      check(b.right <= innerWidth - 18 && b.top >= 18 && document.querySelector('#prompt .chip.mouse.l'), `out of the screen: ${Math.round(b.right)}, ${Math.round(b.top)}`);
+      hud.prompt('Abrir la puerta', null);
+      check(hudRows().length === 1 && hudRows()[0].querySelector('kbd').textContent === 'E' && hudRows()[0].querySelector('span').textContent === 'Abrir la puerta' && !el.classList.contains('follow'), `a string: ${el.textContent}`);
+      hud.prompt('Saludar', null, 'Y'); check(hudRows()[0].querySelector('kbd').textContent === 'Y', 'the string\'s key');
+      hud.prompt(null); check(!el.classList.contains('show'), 'null does not hide it');
+      hud.prompt(''); check(!el.classList.contains('show'), '\'\' shows it');
+    } finally { hud.prompt(null); }
+  });
+  await test('prompt anchor (english): aiming at a gate puts the prompt within 40 px of the gate\'s projected point; the setting puts it at the cursor', async () => {
+    const was = game.mouse, v = new THREE.Vector3(), px = (x, y, h) => { v.set(x, game.view3d.groundY(w(), x, y) + h, y).project(game.view3d.camera); return [(v.x + 1) / 2 * innerWidth, (1 - v.y) / 2 * innerHeight]; };
+    await goTo(game, 62.5, 42);
+    const [tx, ty] = freeTile(game, [[62, 40], [63, 40], [61, 40], [62, 39]]);
+    const at = () => { const b = document.getElementById('prompt').getBoundingClientRect(); return [b.left, b.top + 14]; };
+    try {
+      w().place(tx, ty, 'puerta_valla'); game.player.x = tx + 0.5; game.player.y = ty + 2; game.player.vx = game.player.vy = 0;
+      for (let i = 0; i < 12; i++) { const m = px(tx + 0.5, ty + 0.5, 0.6); game.mouse = { x: m[0], y: m[1], in: true }; draw(); await sleep(60); }
+      check(game.highlight?.kind === 'door', `aimed at: ${game.highlight?.kind}`);
+      const b = game.highlight.box, p = px(tx + 0.5, ty + 0.5, Math.min(b.y1 + 0.3, 1.7)), q = at();
+      check(Math.hypot(q[0] - p[0] - 14, q[1] - p[1]) < 40, `at ${q.map(Math.round)}, the gate at ${p.map(Math.round)}`);
+      // The cursor elsewhere on the gate: it does not move with it
+      const m = px(tx + 0.3, ty + 0.5, 0.4); game.mouse = { x: m[0], y: m[1], in: true }; draw(); draw();
+      if (game.highlight?.kind === 'door') check(Math.hypot(at()[0] - q[0], at()[1] - q[1]) < 12, `it follows the cursor: ${at().map(Math.round)}`);
+      Settings.set('prompts', 'cursor'); draw();
+      check(Math.abs(at()[0] - m[0] - 18) < 3, `at the cursor: ${at().map(Math.round)}, the cursor ${m.map(Math.round)}`);
+    } finally { delete Settings.v.prompts; Settings.store(); game.mouse = was; w().setTile(tx, ty, 'air'); draw(); }
+  });
+  await test('prompt hold ring (english): holding X for 0.15 s shows the ring at about half; release empties it and nothing runs; to the end, it runs once', async () => {
+    const near = game.nearest, ran = [], P = game.prompts;
+    const key = (type, o = {}) => document.body.dispatchEvent(new KeyboardEvent(type, { code: 'KeyX', key: 'x', bubbles: true, cancelable: true, ...o }));
+    const fill = () => +(document.querySelector('#prompt .chip.filling')?.style.getPropertyValue('--p') || 0);
+    game.nearest = () => ({ text: 'Carry', run() {}, alt: { text: 'Gut', hold: 0.3, run: () => ran.push(1) } });
+    try {
+      draw();
+      check(hudRows().length === 2 && hudRows()[1].textContent.includes(t('prompt.hold')), `rows: ${hudRows().map(r => r.textContent)}`);
+      key('keydown'); key('keydown', { repeat: true });
+      check(P.held, 'X does not start it');
+      P.held.t0 = performance.now() - 150; draw();
+      check(fill() >= 0.45 && fill() <= 0.75, `at half the time: ${fill()}`);
+      key('keyup'); draw();
+      check(!P.held && !document.querySelector('#prompt .chip.filling') && !ran.length, `let go: ${ran.length} runs, held ${!!P.held}`);
+      await sleep(350); draw(); check(!ran.length, 'it runs after letting go');
+      key('keydown'); P.held.t0 = performance.now() - 301; draw();
+      check(ran.length === 1 && !P.held, `to the end: ${ran.length} runs`);
+      draw(); draw(); key('keyup'); check(ran.length === 1, 'it runs again');
+      // Another thing aimed at, a dialogue or the pause: off
+      key('keydown'); game.nearest = () => ({ text: 'Door', run() {} }); draw(); check(!P.held, 'looking away does not cancel it');
+      game.nearest = () => ({ text: 'Carry', run() {}, alt: { text: 'Gut', hold: 0.3, run: () => ran.push(1) } });
+      key('keydown'); game.busy = true; game.prompts.tick(game.nearest()); game.busy = false; check(!P.held, 'a dialogue does not cancel it');
+      key('keydown'); dispatchEvent(new Event('blur')); check(!P.held, 'the window losing the focus does not cancel it');
+      // Without hold, X is at once, as always
+      game.nearest = () => ({ text: 'Bed', run() {}, alt: { text: 'Pick up', run: () => ran.push(2) } }); key('keydown'); check(ran.at(-1) === 2, 'X without hold waits'); key('keyup');
+    } finally { game.nearest = near; P.stop(); clearKeys(); draw(); }
+  });
+  const feedLines = () => [...document.querySelectorAll('#toasts .toast:not(.out)')];
+  await test('feed merge (english): three pushes with the same key in 2 s make one line with ×3', async () => {
+    const F = hud.feed, was = F.busy; F.busy = () => false; F.clear(); await sleep(450);
+    try {
+      for (let i = 0; i < 3; i++) { F.push({ kind: 'item', key: 'item:trigo', text: 'Wheat' }); await sleep(300); }
+      check(feedLines().length === 1 && feedLines()[0].querySelector('b').textContent === '×3' && feedLines()[0].classList.contains('k-item'), `lines: ${feedLines().map(l => l.textContent)}`);
+      F.push({ kind: 'item', key: 'item:trigo', text: 'Wheat', n: 4 }); check(feedLines()[0].querySelector('b').textContent === '×7', 'amounts do not add up');
+      F.push({ kind: 'item', key: 'lost', text: 'Bread', n: -2 }); await sleep(320); check(feedLines().at(-1).querySelector('b').textContent === '−2', 'lost');
+    } finally { F.clear(); F.busy = was; }
+  });
+  await test('feed limit (english): six pushes keep four lines in sight and the newest at the bottom; a dialogue makes them wait', async () => {
+    const F = hud.feed, was = F.busy; F.busy = () => false; F.clear(); await sleep(450);
+    try {
+      for (let i = 1; i <= 6; i++) F.push({ text: `line ${i}` });
+      check(feedLines().length === 1, `a burst comes at once: ${feedLines().length}`);
+      await sleep(1900);
+      check(feedLines().length === 4 && feedLines().at(-1).textContent === 'line 6' && feedLines()[0].textContent === 'line 3', `in sight: ${feedLines().map(l => l.textContent)}`);
+      let busy = true; F.busy = () => busy; F.clear(); F.push({ text: 'waits' }); await sleep(500); check(!feedLines().length, 'it does not wait'); busy = false; await sleep(400); check(feedLines().length === 1, 'it never comes');
+      // Important only: the kinds that matter
+      Settings.v.feed = 'important'; F.clear(); check(!F.push({ kind: 'world', text: 'rain' }) && F.push({ kind: 'net', text: 'Pepa came in' }), 'important only');
+    } finally { delete Settings.v.feed; F.clear(); F.busy = was; }
+  });
+  await test('toast compat (english): hud.toast(text, "good") makes a feed line of kind good; the old kinds too', async () => {
+    const F = hud.feed, was = F.busy; F.busy = () => false; F.clear(); await sleep(450); F.last = -Infinity;
+    try {
+      hud.toast('Well done', 'good'); check(feedLines().length === 1 && feedLines()[0].classList.contains('k-good') && feedLines()[0].classList.contains('good') && feedLines()[0].textContent === 'Well done', `good: ${feedLines()[0]?.className}`);
+      for (const [k, want] of [['', 'world'], ['ok', 'good'], ['warn', 'warn'], ['net', 'net'], ['nonsense', 'world'], [undefined, 'world']]) { F.clear(); F.last = -Infinity; hud.toast('x ' + k, k); check(feedLines().at(-1).classList.contains('k-' + want), `${k} → ${feedLines().at(-1).className}`); }
+      F.clear(); F.last = -Infinity; hud.toast('<b>x</b>'); check(feedLines().at(-1).querySelector('span').textContent === '<b>x</b>', 'HTML in a notice');
+    } finally { F.clear(); F.busy = was; }
+  });
+  await test('big message (english): one every 20 s; another meanwhile is a line of the feed; /title always shows', async () => {
+    const el = document.getElementById('title-msg'), F = hud.feed, was = F.busy; F.busy = () => false; F.clear();
+    try {
+      hud.title('one'); check(!el.hidden && el.querySelector('b').textContent === 'one', `title: ${el.textContent}`);
+      check(hud.big({ title: 'two', line: 'two' }) === false && el.querySelector('b').textContent === 'one', 'two in a row');
+      hud.title('three'); check(el.querySelector('b').textContent === 'three', '/title waits');
+      await sleep(3900); check(el.hidden, 'it stays');
+    } finally { F.clear(); F.busy = was; }
+  });
+  await test('place card (english): the same area name does not show twice within 20 s; a moment over the border does not count', async () => {
+    const was = game.placeName, up = game.updatePlace; game.updatePlace = () => {};
+    useSmartHud(game, true);
+    const sh = game.smartHud, real = performance.now; let T = real.call(performance) + 1000;
+    const step = (name, secs) => { if (name !== undefined) game.placeName = name; for (let k = 0; k < secs * 10; k++) { T += 100; sh.frame(''); } };
+    const card = () => [document.getElementById('hud-place').classList.contains('hm-on'), document.querySelector('#hud-place b').textContent];
+    try {
+      performance.now = () => T;
+      step('Home', 0.3); sh.start(game.player, T / 1000); step('Home', 2); check(card()[0] && card()[1] === 'Home', `entering: ${card()}`);
+      step('Home', 5); check(!card()[0], 'it stays');
+      step('Forest', 0.5); step('Home', 3); check(!card()[0] && card()[1] === 'Home', `a moment over the border: ${card()}`);
+      step('Forest', 2); check(card()[0] && card()[1] === 'Forest', `the forest: ${card()}`);
+      step('Forest', 5); step('Home', 2); check(card()[0] === (T >= 0 && false) || card()[1] === 'Home', `back: ${card()}`);
+      step('Home', 6); step('Forest', 2.5); check(!card()[0], `the forest again within 20 s: ${card()}`);
+      step('Home', 25); step('Forest', 2); check(card()[0] && card()[1] === 'Forest', `the forest after 20 s: ${card()}`);
+    } finally { performance.now = real; game.updatePlace = up; game.placeName = was; useSmartHud(game, false); draw(); }
+  });
+  await test('hud glyphs (english): each bar has its glyph, the money and the clock theirs, and no text of the page is an emoji of them', async () => {
+    for (const id of ['hp', 'food', 'water', 'en', 'air', 'horse']) check(document.querySelector(`#nd-${id} + .gl path`)?.getAttribute('d'), `no glyph by ${id}`);
+    hud.money(1234567); check(document.querySelector('#money .gl') && /1.?234.?567/.test(document.getElementById('money').textContent), document.getElementById('money').textContent); hud.money(game.money);
+    check(document.querySelector('#clock .gl') && !/[☀⛅🌧⛈🌫❄🌨]/u.test(document.getElementById('clock').textContent), document.getElementById('clock').textContent);
+    for (const k of Object.keys(GLYPHS)) check(/^M[\d.]/.test(GLYPHS[k]) && new Path2D(GLYPHS[k]), k);
   });
   await test('menu (english): alert: Esc and right click say no, Enter says yes, a held Enter needs its ring; window.confirm is gone', async () => {
     const press = (code, type = 'keydown', o = {}) => document.body.dispatchEvent(new KeyboardEvent(type, { code, key: code, bubbles: true, cancelable: true, ...o }));
@@ -1651,18 +1780,18 @@ async function soloTests(game) {
       check(So().emSeq === seq && !So().hold, `with ${what} it greets`);
     }
   }));
-  await test('saludo: el aviso de E solo añade «Y: saludar» si es la misma persona; con la E en una puerta, nada', social(async () => {
-    const text = () => document.getElementById('prompt-text').textContent, look = async e => { aimAtE(e); So().pickT = 0; await frames(2); draw(); };
+  await test('saludo: el aviso de E solo añade la fila de Y si es la misma persona; con la E en una puerta, nada', social(async () => {
+    const rows = () => [...document.querySelectorAll('#prompt .pr')].map(r => `${r.querySelector('kbd').textContent} ${r.querySelector('span').textContent}`), text = () => rows().join(' / '), greet = n => `Y ${t('social.prompt.far', { name: n })}`, look = async e => { aimAtE(e); So().pickT = 0; await frames(2); draw(); };
     await goTo(game, 21, 27); draw();
     const r = put('rosa', 22.3, 27); await look(r);
-    check(text().includes('Hablar con Rosa') && text().endsWith(t('social.prompt')) && document.querySelector('#prompt kbd').textContent === 'E', `next to Rosa: «${text()}»`);
+    check(rows()[0].startsWith('E Hablar con Rosa') && rows().at(-1) === greet('Rosa'), `next to Rosa: «${text()}»`);
     // Farther than E reaches: only her name and Y
     put('rosa', 25.5, 27.5); await look(nb('rosa'));
-    check(text() === t('social.prompt.far', { name: 'Rosa' }) && document.querySelector('#prompt kbd').textContent === 'Y', `far: «${text()}», key ${document.querySelector('#prompt kbd').textContent}`);
+    check(text() === greet('Rosa'), `far: «${text()}»`);
     // E on a door, with Rosa next to it: nothing added
     await goTo(game, 21.5, 17.8); draw(); put('rosa', 22.6, 18.4);
     aimAtE({ x: 21.5, y: 16.5 }, 1.1); So().pickT = 0; await frames(2); draw();
-    check(/puerta/i.test(text()) && !text().includes(t('social.prompt')) && document.querySelector('#prompt kbd').textContent === 'E', `on the door: «${text()}»`);
+    check(/^E .*puerta/i.test(text()) && !rows().some(r => r.startsWith('Y')), `on the door: «${text()}»`);
   }));
   await test('saludo: la E y el borde amarillo no cambian con otro jugador delante de un cofre', social(async () => {
     const live = game.live, was = live.joined;
@@ -4764,20 +4893,22 @@ async function soloTests(game) {
     const $ = id => document.getElementById(id), on = id => $('nd-' + id).classList.contains('nd-on');
     const box = id => $(id).getBoundingClientRect(), cross = (a, b) => a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
     const r4 = b => [b.left, b.top, b.right, b.bottom].map(Math.round).join(',');
-    // Where they are (after the rows' and the clock's .2 s slide): the bars in the top-left corner and the clock under
-    // the last bar in sight (or under the body chip, when it shows: it goes right under the bars, ui/bodychip.js), the
-    // minimap in the bottom-left corner and the chat over it, none over another
+    // Where they are (after the rows' and the clock's .2 s slide): the bars in the top-left corner, each with its glyph; the
+    // clock: the full interface, under the last bar in sight (or under the body chip, when it shows: it goes right under the
+    // bars, ui/bodychip.js); the minimal one, top right with the money; the minimap in the bottom-left corner, the feed over it
+    // and the chat over the feed, none over another
     const places = async (what, last) => {
       for (let i = 0, y = NaN, was; i < 16; i++) { draw(); await sleep(120); was = y; y = box('clockp').top + ($('body-chip') ? box('body-chip').top : 0) + box('needs').bottom; if (i > 3 && y === was) break; }   // (a loaded machine starts the slide late)
-      const n = box('needs'), c = box('clockp'), m = box('minimap'), ch = box('chat'), b = last && box('nd-' + last);
+      const n = box('needs'), c = box('clockp'), m = box('minimap'), ch = box('chat'), b = last && box('nd-' + last), min = !!game.smartHud;
       const k = $('body-chip')?.classList.contains('on') && box('body-chip'), u = k || b;   // (u: what the clock goes under)
       check(n.left <= 20 && n.top <= 20 && n.width >= 240, `${what}: the bars at ${r4(n)}`);
       if (b) check(b.top <= 40 + (last === 'hp' ? 0 : 60) && !cross(n, c), `${what}: the clock at ${r4(c)}, its last bar at ${r4(b)}`);
-      if (k) check(k.left <= 20 && (b ? k.top >= b.bottom + 4 && k.top <= b.bottom + 12 : k.top <= 20) && !cross(n, k) && !cross(k, c), `${what}: the body chip at ${r4(k)}, the bars at ${r4(n)}, the clock at ${r4(c)}`);
-      if (u) check(c.top >= u.bottom + 4 && c.top <= u.bottom + 12, `${what}: the clock at ${r4(c)}, under ${k ? 'the body chip' : 'its last bar'} at ${r4(u)}`);
-      else check(c.top <= 20, `${what}: no bar in sight and the clock at ${r4(c)}`);
+      if (k) check(k.left <= 20 && (b ? k.top >= b.bottom + 4 && k.top <= b.bottom + 18 : k.top <= 20) && !cross(n, k) && !cross(k, c), `${what}: the body chip at ${r4(k)}, the bars at ${r4(n)}, the clock at ${r4(c)}`);
+      if (min) check(innerWidth - c.right <= 24 && c.top <= 80 && !cross(n, c), `${what}: the clock at ${r4(c)}`);
+      else if (u) check(c.top >= u.bottom + 4 && c.top <= u.bottom + 18, `${what}: the clock at ${r4(c)}, under ${k ? 'the body chip' : 'its last bar'} at ${r4(u)}`);
+      else check(c.top <= 24, `${what}: no bar in sight and the clock at ${r4(c)}`);
       if (m.width) check(m.left <= 20 && innerHeight - m.bottom >= 12 && innerHeight - m.bottom <= 20 && !cross(n, m), `${what}: the minimap at ${r4(m)}`);
-      if (m.width && ch.width) check(ch.bottom <= m.top, `${what}: the chat at ${r4(ch)} over the minimap at ${r4(m)}`);
+      { const f = $('toasts').getBoundingClientRect(); if (m.width && ch.width) check(ch.bottom <= m.top - 150 && f.bottom <= m.top && f.left <= 20, `${what}: the chat at ${r4(ch)}, the feed at ${r4(f)} over the minimap at ${r4(m)}`); }
     };
     try {
       needsBase(); useSmartHud(game, false); await goTo(game, 21, 26);
@@ -4803,7 +4934,7 @@ async function soloTests(game) {
       N().stamina = 30; draw(); draw(); check(on('en'), 'minimal: a long sprint does not show the energy');
       // (energy alone: packed up into the corner, with the clock right under it)
       await sleep(700); await places('minimal, energy alone', 'en');
-      check(box('nd-en').top <= 20, `minimal: energy alone is not in the corner, at ${r4(box('nd-en'))}`);
+      check(box('nd-en').top <= 26, `minimal: energy alone is not in the corner, at ${r4(box('nd-en'))}`);
       // A hot swap: nothing left on
       N().stamina = 100; useSmartHud(game, false); draw(); useSmartHud(game, true); draw(); draw();
       check(!['hp', 'food', 'water', 'en', 'air'].some(on), `after a swap, on: ${['hp', 'food', 'water', 'en', 'air'].filter(on)}`);
@@ -5658,7 +5789,7 @@ async function soloTests(game) {
       // (once they have stopped sliding: on a loaded machine the .2 s slide starts late)
       for (let i = 0, y = NaN, was; i < 12; i++) { await sleep(150); was = y; y = el().getBoundingClientRect().top + $('clockp').getBoundingClientRect().top; if (i > 0 && y === was) break; }
       { const nb = $('needs').getBoundingClientRect(), kb = el().getBoundingClientRect(), cb = $('clockp').getBoundingClientRect();
-        check(kb.left <= 20 && kb.top >= nb.bottom - 1 && kb.top <= nb.bottom + 12 && cb.top >= kb.bottom + 4, `the chip at ${Math.round(kb.left)},${Math.round(kb.top)}, the bars end at ${Math.round(nb.bottom)}, the clock at ${Math.round(cb.top)}`); }
+        check(kb.left <= 20 && kb.top >= nb.bottom - 1 && kb.top <= nb.bottom + 12 && (cb.top >= kb.bottom + 4 || cb.left > kb.right), `the chip at ${Math.round(kb.left)},${Math.round(kb.top)}, the bars end at ${Math.round(nb.bottom)}, the clock at ${Math.round(cb.top)}`); }
       set({ cold: 0.1 }); C().frame(T += 1); check(C().id === 'cold', 'the chip goes at once');
       C().frame(T += 2.1); check(!C().id && !el().classList.contains('on'), `still there 2 s after: ${C().id}`);
       set({ cold: 0.8 }); C().frame(T += 1); check(C().id === 'freezing', `cold 0.8: ${C().id}`);

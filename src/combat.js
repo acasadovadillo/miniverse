@@ -169,7 +169,7 @@ export class Combat {
     // stays parked where you fell; it is the world's; and the horse you ride stays there too. goHome does none of it)
     try { g.crew?.onDeath?.(keep); g.barrow?.onDeath?.(); g.ranch?.onDeath?.(); g.needs?.stopDrinking?.(); } catch (e) { reportFault(e, 'Combat.die'); }
     const dropped = keep ? 0 : this.dropAll();
-    if (!keep && g.xp?.points) { g.xp.lose(); hud.toast(t('death.xp_lost')); }
+    if (!keep && g.xp?.points) { g.xp.lose(); hud.toast(t('death.xp_lost'), 'warn'); }
     await hud.fade(true);
     g.body?.applyGrowth();   // (hair and beard grown, while it is dark)
     g.addMoney(-lost);
@@ -185,8 +185,8 @@ export class Combat {
     await g.view3d.whenReady?.(1500);
     await hud.fade(false);
     g.dying = false;
-    if (why) { g.busy = false; hud.toast(`${why}${lost ? ` · ${t('death.coins_lost', { n: lost })}` : ''}`); }
-    if (dropped) hud.toast(t('death.drops_left', { n: DROP_TTL / 60 }));
+    if (why) { g.busy = false; hud.toast(`${why}${lost ? ` · ${t('death.coins_lost', { n: lost })}` : ''}`, 'warn'); }
+    if (dropped) hud.toast(t('death.drops_left', { n: DROP_TTL / 60 }), 'warn');
     g.onSave?.();
     return lost;
   }

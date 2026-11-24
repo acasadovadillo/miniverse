@@ -50,6 +50,7 @@ function clop(t, hard, v) {
   o.connect(og).connect(sfx); o.start(t); o.stop(t + d + 0.02);
 }
 
+let feedAt = -1;
 export const Audio = {
   indoors: false,
   start() {
@@ -88,7 +89,9 @@ export const Audio = {
   menuSounds: true,
   ui(name) {
     if (!ac || !on || !Audio.menuSounds) return;
-    if (name === 'tick') tone([[1600, 0.018, 'sine', 0.03]]);
+    if (name === 'feed') { const T = ac.currentTime; if (T - feedAt < 0.5) return; feedAt = T; Audio.noiseHit(1500, 0.12, 0.035); }   // (a line of the feed: a soft airy touch, one every half second at most)
+    else if (name === 'stamp') { tone([[82, 0.22, 'sine', 0.09], [61, 0.3, 'sine', 0.06]]); Audio.noiseHit(180, 0.25, 0.1, 'lowpass'); }   // (a big message)
+    else if (name === 'tick') tone([[1600, 0.018, 'sine', 0.03]]);
     else if (name === 'select') tone([[660, 0.05, 'triangle', 0.04], [990, 0.05, 'triangle', 0.04]]);
     else if (name === 'back') tone([[990, 0.05, 'triangle', 0.035], [660, 0.05, 'triangle', 0.035]]);
     else if (name === 'deny') tone([[220, 0.04, 'square', 0.02], [1, 0.03, 'sine', 0.0002], [220, 0.04, 'square', 0.02]]);

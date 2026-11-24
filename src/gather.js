@@ -3,6 +3,7 @@
 import { CAM } from './camera.js';
 import { ITEMS, HARVEST, GRASS_DROPS, TOOL_COST, CROPS, hitsFor, hungerOf, thirstOf, pctOf, itemNoun } from './items.js';
 import { seedOf } from './cropdata.js';
+import { itemIconUrl } from './art/items.js';
 import { HUNGER_MAX, HP_MAX } from './combat.js';
 import { THIRST_MAX } from './needs.js';
 import { PIECES, layerOf } from './pieces.js';
@@ -245,7 +246,11 @@ export class Gathering {
     // Los objetos recogidos seguidos se juntan en un solo texto ("+4 Madera")
     for (const [id, e] of this.pending) {
       e.t += dt;
-      if (e.t > 0.25) { this.float(`+${e.n} ${ITEMS[id].name}`, '#fff3c0'); this.pending.delete(id); }
+      if (e.t > 0.25) {
+        this.pending.delete(id);
+        // (the minimal interface says it in the feed, above the minimap; the full one, over the player, as always)
+        if (!this.game.smartHud || !hud.feed.push({ kind: 'item', key: 'item:' + id, text: ITEMS[id].name, n: e.n, icon: itemIconUrl(id) })) this.float(`+${e.n} ${ITEMS[id].name}`, '#fff3c0');
+      }
     }
     for (const f of this.floaters) f.t += dt;
     this.floaters = this.floaters.filter(f => f.t < 1.4);

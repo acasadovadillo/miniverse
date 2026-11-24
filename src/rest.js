@@ -37,14 +37,14 @@ export class Rest {
     if (this.game.carry?.refuse()) return;
     const p = this.p, along = dirOf(o.yaw);
     // (como en Minecraft: con criaturas cerca no se puede descansar)
-    if (this.game.gamemode === 'survival' && this.game.mobs?.near(p.x, p.y, 8)) { hud.toast('No puedes descansar: hay criaturas cerca'); return; }
+    if (this.game.gamemode === 'survival' && this.game.mobs?.near(p.x, p.y, 8)) { hud.toast('No puedes descansar: hay criaturas cerca', 'warn'); return; }
     const foot = o.placed === 'cama_nino' ? 0.85 : 1.05;   // (de los pies a la cabecera)
     const spot = (x, y) => [x + along[0] * foot, y + along[1] * foot];
     let at = spot(o.x, o.y), twin = null;
     if (o.placed === 'cama_doble') {   // (la otra mitad, a su derecha)
       const [ux, uy] = sideOf(o.yaw), sides = [[o.x, o.y], [o.x + ux, o.y + uy]].sort((a, b) => Math.hypot(a[0] - p.x, a[1] - p.y) - Math.hypot(b[0] - p.x, b[1] - p.y)).map(s => spot(...s));
       const taken = s => this.game.live.others.some(q => q.sc === 'world' && q.entity?.pose?.kind === 'lie' && Math.hypot(nearX(q.entity.x, s[0]) - s[0], q.entity.y - s[1]) < 0.4);
-      if (taken(sides[0]) && taken(sides[1])) { hud.toast('La cama ya está ocupada'); return; }
+      if (taken(sides[0]) && taken(sides[1])) { hud.toast('La cama ya está ocupada', 'warn'); return; }
       [at, twin] = taken(sides[0]) ? [sides[1], sides[0]] : sides;
     }
     this.take({ kind: 'lie', yaw: Rest.yaw(-along[0], -along[1]) + Math.PI, h: BED }, at[0], at[1]);
@@ -67,7 +67,7 @@ export class Rest {
     if (this.game.gamemode === 'spectator') return false;   // (el espectador no se sienta)
     const p = this.p;
     if (!p || p.boat || p.aboard || p.mount || this.game.busy) return false;
-    if (p.swim || p.depth > 0.3) { hud.toast('En el agua no'); return false; }   // (nadando, o con el agua por las rodillas)
+    if (p.swim || p.depth > 0.3) { hud.toast('En el agua no', 'warn'); return false; }   // (nadando, o con el agua por las rodillas)
     if (p.pose) { const was = p.pose.kind; this.stand(); if (was === kind) return true; }
     const yaw = Rest.yaw(p.face.x, p.face.y);
     return !!this.take(kind === 'floorLie' ? { kind, yaw: yaw + Math.PI, h: FLOOR_LIE } : { kind, yaw, h: FLOOR_SIT }, kind === 'floorLie' ? p.x - p.face.x * 0.5 : p.x, kind === 'floorLie' ? p.y - p.face.y * 0.5 : p.y);

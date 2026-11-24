@@ -39,9 +39,11 @@ import { STAM_MAX, WINDED_CLEAR } from '../horse.js';
 import { apagada } from '../opciones.js';
 import { Settings } from '../settings.js';
 import { Audio } from '../audio.js';
+import { glyph } from './glyphs.js';
 
 // Bar id → its i18n name key suffix (hud.need.health…)
 export const NEED_KEY = { hp: 'health', food: 'hunger', water: 'thirst', en: 'energy', air: 'air', horse: 'horse' };
+const GLYPH = { hp: 'heart', food: 'drumstick', water: 'droplet', en: 'bolt', air: 'bubbles', horse: 'horseshoe' };   // (at its left, ui/glyphs.js)
 const IDS = ['hp', 'air', 'horse', 'food', 'water', 'en'];   // (top to bottom, as on the page; horse: Plan F's row, #nd-horse)
 // The bars that only some pages have: without their element the rest still works (a test page from before them)
 const OPTIONAL = new Set(['horse']);
@@ -213,6 +215,7 @@ export class NeedsBar {
       if (fill[id]) ids.push(id); else if (!OPTIONAL.has(id)) return false;
     }
     this.ids = ids.length === IDS.length ? IDS : ids;
+    for (const id of ids) if (!row[id].querySelector('.gl')) bar[id].insertAdjacentHTML('afterend', glyph(GLYPH[id]));
     // (a winded horse gallops again at WINDED_CLEAR: its tick goes there, index.html .nd-horse.winded)
     bar.horse?.style.setProperty('--nd-wind', `${WINDED_CLEAR * 100}%`);
     this.el = { root, bar, fill, row, ghost: bar.hp.querySelector('s'), lock: bar.en.querySelector('u'), tag: $('nd-tag'), legend: $('nd-legend') };
@@ -262,7 +265,7 @@ export class NeedsBar {
     const id = this.tagId, el = this.el.tag, m = this.m;
     if (!id || !m) return;
     if (fresh) el.style.transition = 'none';
-    el.style.top = `${this.at[id] + (m.h + (id === 'hp' ? 2 : 0)) / 2}px`;
+    el.style.top = `${this.at[id] + m.h / 2}px`;
     if (fresh) { void el.offsetWidth; el.style.transition = ''; }   // (one layout, only when a name comes into sight)
   }
   // Which rows take room: the bars in sight, and for FOLD_AFTER more the ones fading out, so the bars in sight sit packed
@@ -292,9 +295,9 @@ export class NeedsBar {
   // The sizes of the strip, from the CSS (whole pixels: index.html)
   metrics() {
     const cs = getComputedStyle(document.documentElement), px = k => parseFloat(cs.getPropertyValue(k)) || 0;
-    return { y: px('--nd-y'), h: px('--nd-h'), gap: px('--nd-gap') };
+    return { y: px('--nd-y'), h: px('--nd-r') || px('--nd-h'), gap: px('--nd-gap') };
   }
-  rowH(id, m) { return m.h + (id === 'hp' ? 2 : 0); }
+  rowH(id, m) { return m.h; }
   // Where the strip ends (page y) with the rows an open window shows (every bar but air and the horse, and those two while
   // they are in sight), or 0 when there is no strip (creative, spectator): windows.js opens the left window under it, and
   // keeps windows off it

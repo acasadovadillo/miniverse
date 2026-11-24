@@ -1,11 +1,13 @@
 // Interfaz durante la partida: aviso de interacción, diálogos, nombre del lugar y fundido a negro.
 import { Audio } from '../audio.js';
 import { portrait3D } from '../three/portrait.js';
-import { t } from '../i18n.js';
+import { t, fmt } from '../i18n.js';
+import { chip } from './frontend.js';
+import { feed, KINDS } from './feed.js';
+import { glyph } from './glyphs.js';
 
 const $ = id => document.getElementById(id);
-let shownPrompt = null, shownCoords = null, shownHint = null, shownHintKey, dialog = null;
-let shownKey = 'E';
+let shownCoords = null, shownHint = null, shownHintKey, shownClock = null, dialog = null;
 
 // Retrato de quien habla (si es una persona conocida): su cara en 3D. El nombre puede llevar detrás los corazones.
 function showFace(name) {
@@ -17,33 +19,106 @@ function showFace(name) {
   g.drawImage(portrait3D(look), 0, 0, cv.width, cv.height);
 }
 
+// The prompt in sight
+const prompt = { el: null, sig: '', chips: [], follow: false, x: NaN, y: NaN, w: 0, h: 0, held: null, heldK: 0 };
+const one = { key: 'E', text: '' }, single = [one], none = [];
+addEventListener('resize', () => { prompt.w = 0; });
+// An amount of money in el, with the coin after it
+function coins(el, n) {
+  if (!el) return;
+  if (!el.querySelector('.gl')) el.innerHTML = `<span></span>${glyph('coin')}`;
+  el.firstChild.textContent = fmt.num(Number(n) || 0);
+}
+const BIG_GAP = 20, BIG_HOLD = 3000, BIG_OUT = 700;
+let bigAt = -Infinity, bigT = 0, bigOut = 0;
+function big(title, sub) {
+  const el = $('title-msg');
+  el.textContent = '';
+  for (const [tag, text] of [['b', title], ['i', ''], ['span', sub]]) { const e = document.createElement(tag); e.textContent = text; el.append(e); }
+  el.classList.remove('out'); el.hidden = false;
+  bigAt = performance.now() / 1000;
+  clearTimeout(bigT); clearTimeout(bigOut);
+  bigT = setTimeout(() => el.classList.add('out'), BIG_HOLD);
+  bigOut = setTimeout(() => { el.hidden = true; }, BIG_HOLD + BIG_OUT);
+}
+
 export const hud = {
   get dialogOpen() { return !!dialog; },
   faces: {},   // nombre → aspecto, para poner su retrato en los diálogos
 
-  // Solo toca la página cuando el aviso cambia
-  // at: junto a qué punto de la pantalla (el cursor); sin él, abajo, en el centro. key: the key it is about (E unless said)
-  prompt(text, at = null, key = 'E') {
-    const label = text || '', el = $('prompt');
-    if (label !== shownPrompt) {
-      shownPrompt = label;
-      el.classList.toggle('show', !!label);
-      if (label) $('prompt-text').textContent = label;
+  feed,        // the lines above the minimap (ui/feed.js); toast() is its old door
+
+  // What the keys do here: up to three rows, each a key and a text ([{ key: 'E', text, hold?, dim? }]; a key of chip(),
+  // ui/frontend.js: 'E', 'mouse:l'…), or one text (a string, the old form: one row with key). hold: that key has to be held
+  // (its chip has a ring: promptHold). at: [x, y] on the screen, beside which it goes (ui/prompts.js: the thing aimed at, or
+  // the cursor); without it, at the bottom, in the middle. The page is written only when the rows change or it moves a pixel
+  prompt(rows, at = null, key = 'E') {
+    if (typeof rows === 'string' || rows === null || rows === undefined) { one.key = key; one.text = rows || ''; rows = rows ? single : none; }
+    const P = prompt, el = P.el ||= $('prompt');
+    let sig = '';
+    for (const r of rows) sig += `${r.key}\u0001${r.text}\u0001${r.hold ? 1 : 0}${r.dim ? 1 : 0}\u0002`;
+    if (sig !== P.sig) {
+      P.sig = sig;
+      el.classList.toggle('show', !!rows.length);
+      if (rows.length) this.paintPrompt(rows);   // (none: the last ones fade where they were)
     }
-    if (label && key !== shownKey) { shownKey = key; const k = el.querySelector('kbd'); if (k) k.textContent = key; }
-    el.classList.toggle('follow', !!(label && at));
-    if (label && at) {
-      const x = Math.max(6, Math.min(innerWidth - el.offsetWidth - 6, at[0] + 18)), y = Math.max(6, Math.min(innerHeight - el.offsetHeight - 6, at[1] + 18));
-      el.style.transform = `translate(${x}px, ${y}px)`;
-    } else el.style.transform = '';
+    if (!rows.length) return;
+    const follow = !!at;
+    if (follow !== P.follow) { P.follow = follow; P.x = P.y = NaN; el.classList.toggle('follow', follow); if (!follow) el.style.transform = ''; }
+    if (!follow) return;
+    if (!P.w) { P.w = el.offsetWidth; P.h = el.offsetHeight; }   // (measured once per content, not per frame)
+    const safe = 24 * Math.max(0.85, Math.min(1.3, innerHeight / 1080));
+    const x = Math.round(Math.max(safe, Math.min(innerWidth - P.w - safe, at[0]))), y = Math.round(Math.max(safe, Math.min(innerHeight - P.h - safe, at[1])));
+    if (x !== P.x || y !== P.y) { P.x = x; P.y = y; el.style.transform = `translate3d(${x}px, ${y}px, 0)`; }
+  },
+  paintPrompt(rows) {
+    const P = prompt, box = $('prompt-text');
+    box.textContent = '';
+    P.chips = rows.map(r => {
+      const row = document.createElement('div'), k = chip(r.key, !!r.hold), text = document.createElement('span');
+      row.className = r.dim ? 'pr dim' : 'pr';
+      text.textContent = r.text;
+      row.append(k, text);
+      box.append(row);
+      return { key: r.key, el: k, hold: !!r.hold };
+    });
+    P.w = 0;
+    if (P.held) this.promptHold(P.held, P.heldK);
+  },
+  // (it goes to another thing: a short fade, so it does not look like a jump)
+  promptFade() { prompt.el?.animate?.([{ opacity: 0.2 }, { opacity: 1 }], { duration: 120, easing: 'ease-out' }); },
+  // The key of a row, being held: its ring at k (0 to 1), or let go of (k < 0: it empties). done: it filled, a white flash.
+  // Returns whether that key has a row in sight
+  promptHold(key, k, done = false) {
+    const P = prompt, c = P.sig ? P.chips.find(c => c.key === key) : null;
+    P.held = c && k >= 0 && !done ? key : null; P.heldK = k;
+    if (!c) return false;
+    const n = k < 0 ? 0 : Math.round(Math.min(1, k) * 100);
+    if (n && !c.el.querySelector('.ring')) { const full = chip(key, true); full.className = c.el.className + ' hold'; c.el.replaceWith(full); c.el = full; }   // (a tap key that can also be held: its ring comes with the hold)
+    if (c.n !== n || done) {
+      c.n = n;
+      c.el.classList.toggle('filling', k >= 0 && !done);   // (no transition while it fills; emptying, 0.15 s)
+      c.el.style.setProperty('--p', done ? 0 : n / 100);
+      if (done) c.el.animate?.([{ filter: 'brightness(1.8)', boxShadow: '0 0 14px #fff' }, { filter: 'none', boxShadow: 'none' }], { duration: 220 });
+    }
+    return true;
   },
 
-  // Nombre del lugar; con flash, destaca un momento (al cambiar de bioma)
+  // Nombre del lugar (la interfaz completa; la mínima tiene su ficha, smarthud.js); con flash, destaca un momento
   place(text, flash = false) {
     $('place-name').textContent = text;
     if (flash) $('place').animate([{ transform: 'scale(1.15)', borderColor: '#fff3c0' }, { transform: 'scale(1)' }], { duration: 600, easing: 'ease-out' });
   },
-  money(n) { $('money').textContent = `${n} 🪙`; },
+  money(n) { coins($('money'), n); },
+  coins,
+  // The time, and the glyph of the weather after it
+  clock(text, sky) {
+    const el = $('clock');
+    if (shownClock === null) { el.textContent = ''; el.append(document.createElement('span')); el.insertAdjacentHTML('beforeend', '<i></i>'); }
+    if (shownClock?.text !== text) el.firstChild.textContent = text;
+    if (shownClock?.sky !== sky) el.lastChild.innerHTML = glyph(sky);
+    shownClock = { text, sky };
+  },
   // key: the key on its label (undefined: the click, as always; '': none; 'Q'…: that one)
   hint(text, key) {
     if (text === shownHint && key === shownHintKey) return;
@@ -136,23 +211,18 @@ export const hud = {
   closeDialog() { $('dialog').classList.remove('show', 'asking'); dialog = null; },
 
   // Un texto grande en el centro de la pantalla (/title), que se va solo
-  title(text) {
-    const el = $('title-msg');
-    el.textContent = text;
-    el.classList.remove('out'); el.hidden = false;
-    clearTimeout(this.titleT); clearTimeout(this.titleOut);
-    this.titleT = setTimeout(() => el.classList.add('out'), 3500);
-    this.titleOut = setTimeout(() => { el.hidden = true; }, 4200);
+  title(text) { big(text, ''); },
+  // A big message in the middle for what happens seldom: a new day, a level, a record, the first time in a place. One every
+  // BIG_GAP seconds at most, and never over a dialogue, the tool wheel or a menu: then it is not shown (false), and who
+  // asks says it in the feed. line: that line of the feed, if given (it is pushed here)
+  big({ title, sub = '', line = '', kind = 'good' }) {
+    const T = performance.now() / 1000;
+    if (T - bigAt >= BIG_GAP && !feed.busy() && document.body.classList.contains('playing')) { big(title, sub); Audio.ui('stamp'); return true; }
+    if (line) feed.push({ kind, text: line });
+    return false;
   },
-  // Aviso breve arriba en el centro (logros, días nuevos…)
-  toast(text, kind = '') {
-    const el = document.createElement('div');
-    el.className = 'toast panel ' + kind;
-    el.textContent = text;
-    $('toasts').append(el);
-    setTimeout(() => el.classList.add('out'), 3200);
-    setTimeout(() => el.remove(), 3700);
-  },
+  // A notice: a line of the feed (ui/feed.js). kind: one of its KINDS ('good' for good news); the old '' and 'ok' still do
+  toast(text, kind = '') { feed.push({ kind: KINDS[kind] ? kind : kind === 'ok' ? 'good' : 'world', text: String(text) }); },
 
   fade(on) {
     $('fade').classList.toggle('on', on);

@@ -8,6 +8,7 @@
 // change, never ride, tense or stingers). It travels with the volumes in the save (a save without it keeps
 // this device's, 'dynamic' by default); an unknown value reads 'dynamic'.
 // Music reads it as Music.calm, set in apply() (music.js cannot import this file: it would be a cycle)
+// prompts ('object' or 'cursor': where what the keys do shows) and feed ('all' or 'important': which notices show), PLAN-R8
 // blood (Plan G §5.3, §8): wounded animals' trails are drawn with a muted red; off, scuffed soil instead (no red). Only
 // on this device (not in the save); three/tracks3d.js reads Settings.v.blood and fieldhud.js says "scuffed" with it off
 import { Audio } from './audio.js';

@@ -65,6 +65,7 @@ import { savedLang, t, tList, formatMessage } from './i18n.js';
 import { keys, clearKeys, dropSprint } from './input.js';
 import { Audio } from './audio.js';
 import { hud } from './ui/hud.js';
+import { Prompts } from './ui/prompts.js';
 import { kitOf, kitKey } from './kit.js';
 import { Carry, WeightInventory, weightMode } from './carry.js';
 import { BULKY, BARROW } from './carry-items.js';
@@ -152,6 +153,7 @@ export class Game {
     this.onSave = null;
     this.time = 0;
     this.frameNo = 0;
+    this.prompts = new Prompts(this);   // (what the keys do, at what is aimed at: ui/prompts.js)
     this.map = new MapView();
     this.inv = new Inventory();
     this.gather = new Gathering(this);
@@ -363,7 +365,7 @@ export class Game {
   // Lo que pide un op con un comando a este jugador (desde su juego o desde otro): llevarte a un sitio, darte
   // algo, matarte, ponerte dónde reaparecer o cambiarte el modo de juego. by: quién lo pide (null: tú)
   fromOp(m, by = null) {
-    const said = text => { if (by) hud.toast(`${by} ${text}`); };
+    const said = text => { if (by) hud.toast(`${by} ${text}`, 'net'); };
     if (m.t === 'tp') { if (m.home ? this.teleportHome(true) : this.teleport(m.x, m.y, true)) said(`te ha teletransportado${m.home ? ' a casa' : ''}`); }
     else if (m.t === 'give' && ITEMS[m.id]) {
       const n = Math.max(1, Math.min(9999, m.n | 0)), left = this.inv.add(m.id, n);
@@ -432,7 +434,7 @@ export class Game {
     const s = this.player?.spawn;
     if (s?.length === 4) {
       const v = this.world.ownAt('placed', s[2], s[3]), id = v && parsePlaced(v)[0];
-      if (!BEDS.has(id)) { this.player.spawn = null; hud.toast('Tu cama ya no está: apareces en casa'); return this.homeSpot(); }
+      if (!BEDS.has(id)) { this.player.spawn = null; hud.toast('Tu cama ya no está: apareces en casa', 'warn'); return this.homeSpot(); }
     }
     return s ? [s[0], s[1]] : this.homeSpot();
   }
@@ -440,7 +442,7 @@ export class Game {
     const p = this.player, [tx, ty] = o.tile, s = p.spawn;
     if (s?.length === 4 && s[2] === tx && s[3] === ty) return;
     p.spawn = [Math.round(p.x * 100) / 100, Math.round(p.y * 100) / 100, tx, ty];
-    hud.toast('Punto de reaparición: tu cama');
+    hud.toast('Punto de reaparición: tu cama', 'good');
   }
   // Un nombre fijo para cada escena (el mundo, o tal nivel de tal cueva), que no cambia aunque se rehaga
   sceneKey(sc) { return !sc || sc === this.world ? 'world' : `g:${sc.id ?? `${sc.caveId}:${sc.depth}`}`; }
@@ -521,6 +523,7 @@ export class Game {
     this.mode = 'menu';
     this.busy = false;
     hud.closeDialog();
+    this.prompts.stop();
     hud.prompt(null);
   }
 
@@ -755,7 +758,13 @@ export class Game {
     }, 900);
   }
   // X: lo segundo que se puede hacer aquí (recoger lo que se usa con E)
-  altAction() { if (this.mode === 'play' && this.fishing.holdX()) return; const n = this.nearest(); n?.alt?.run(); }
+  // (X: at once, or, if it has to be held, from now on: ui/prompts.js; altRelease, letting go of it)
+  altAction() {
+    if (this.mode === 'play' && this.fishing.holdX()) return;
+    const act = this.nearest()?.alt;
+    if (act?.hold) this.prompts.start(act); else act?.run();
+  }
+  altRelease() { this.prompts.stop(); }
   // Tirar al suelo lo que se lleva en la mano (uno, o el montón entero)
   toss(all = false) {
     if (this.barrow.pushing) { if (this.mode === 'play' && !this.busy) this.barrow.park(this.barrow.stuckFor() > 2 ? 'q' : false); return; }   // (Q parks the wheelbarrow; stuck in something for 2 s, further away: barrow.js park)
@@ -1314,13 +1323,12 @@ export class Game {
       if (this.onShot) { if (v.drawn !== n) { const fn = this.onShot; this.onShot = null; fn(v.renderer.domElement); } else v.redraw = true; }
     }
     else if (still) v.idle?.(this);   // (sin dibujar, se adelanta lo que se puede: los impostores de los árboles lejanos)
-    const prey = this.gather.target?.prey, click = prey && this.highlight?.e === prey ? '  ·  Clic: atacar' : '';
+    const prey = this.gather.target?.prey;
     // (and greeting whoever is under the cursor, Y: social.js. Only added if E is about that same person; farther away, alone)
     const social = this.player ? this.social.promptFor(this.highlight?.e || null, !!near) : '';
     if (this.fishing.card) near = null;   // (the catch card says what E and X do)
     if (near?.riding && !this.horse.promptShown()) near = null;   // (riding: «Get off» does not stay on the screen the whole ride)
-    if (near || !social) hud.prompt(near && (near.alt ? `${near.text}  ·  X: ${near.alt.text.toLowerCase()}` : near.text) + click + social, this.highlight ? [m.x, m.y] : null);
-    else hud.prompt(social, m?.in ? [m.x, m.y] : null, 'Y');   // («[Y] Greet Lía»: E does nothing with them from here)
+    this.prompts.frame(near, this.highlight, !!prey && this.highlight?.e === prey, social);   // (at what is aimed at: ui/prompts.js)
     let hint = '';
     if (this.player) {
       for (const s of this.systems) { try { hint = s.hint?.() || ''; } catch (e) { reportFault(e, faultName(s, 'hint')); } if (hint) break; }

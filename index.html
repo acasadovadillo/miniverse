@@ -49,6 +49,7 @@
     --ink: #ffffff; --ink-2: rgba(255, 255, 255, .72); --ink-3: rgba(255, 255, 255, .45);
     --accent: var(--me, #ff4f9a); --accent-2: #ffb24a; --cool: #37c9c3; --good: #7fe08a; --bad: #ff6a5a;
     --shadow-text: 0 1px 2px rgba(0, 0, 0, .85), 0 0 8px rgba(0, 0, 0, .35);
+    --shadow-bare: 0 0 2px rgba(0, 0, 0, .9), 0 1px 2px rgba(0, 0, 0, .9), 0 0 7px rgba(0, 0, 0, .7), 0 0 16px rgba(0, 0, 0, .4);   /* (text with no plate, also over snow) */
     --r-s: 4px; --r-m: 10px; --r-l: 14px;
     --t-in: .15s ease-out; --t-out: .5s ease-in; --t-slide: .18s cubic-bezier(.2, .8, .2, 1); --t-sel: .08s; --t-open: .14s; --t-close: .1s;
     --tab-bg: rgba(0, 0, 0, .25); --tab-line: #6a4a2a; --tab-ink: var(--dim); --tab-on-bg: rgba(60, 42, 14, .5); --tab-on-ink: var(--cream); --tab-on-line: var(--gold); --plate: rgba(20, 13, 8, .62); --mark: var(--gold); --coins: var(--gold); }
@@ -83,7 +84,7 @@
   button, input { font: inherit; }
   b, strong { font-weight: 600; }
   /* Titles (screens, windows, sections), the money, the clock and the big notices: Oswald, tall and narrow, in capitals */
-  h1, h2, h3, h4, .logo, .map-bar b, .bb-top b, #title-msg { font-family: var(--font-title); font-weight: 600; text-transform: uppercase; letter-spacing: .03em; }
+  h1, h2, h3, h4, .logo, .map-bar b, .bb-top b { font-family: var(--font-title); font-weight: 600; text-transform: uppercase; letter-spacing: .03em; }
   /* (what sits inside a title but is not one, like the crafting notice in its h2, stays in Barlow) */
   h3 small, h2 small, #cf-note { font-family: var(--font-ui); text-transform: none; letter-spacing: 0; }
   #money, #sh-money, #clockp { font-family: var(--font-title); font-weight: 500; letter-spacing: .03em; font-variant-numeric: tabular-nums; }
@@ -94,9 +95,17 @@
   body.playing.aiming #crosshair { display: block; }
   #aim-free { display: none; position: fixed; left: 50%; top: 58%; transform: translateX(-50%); padding: 4px 10px; font-size: 16px; pointer-events: none; z-index: 5; }
   body.playing.aim-free #aim-free { display: block; }
-  #prompt.follow { left: 0; top: 0; bottom: auto; transition: opacity .12s; }
-  #prompt { position: fixed; left: 50%; bottom: 22%; transform: translateX(-50%); padding: 6px 14px; font-size: 18px; opacity: 0; transition: opacity .12s; pointer-events: none; white-space: nowrap; }
+  /* What the keys do (hud.prompt; ui/prompts.js puts it at the thing aimed at): a key and a text per row; what is not aimed at,
+     at the bottom, in the middle (over the subtitles) */
+  #prompt { position: fixed; left: 50%; bottom: calc(17% + 92px); z-index: 5; transform: translateX(-50%); padding: 6px 14px; font: 600 17px/1.2 var(--font-ui); opacity: 0; transition: opacity .12s; pointer-events: none; white-space: nowrap; }
+  #prompt.follow { left: 0; top: 0; bottom: auto; transform: none; will-change: transform; }
   #prompt.show { opacity: 1; }
+  #prompt .pr { display: flex; align-items: center; min-height: 28px; }
+  #prompt .pr + .pr { margin-top: 2px; }
+  #prompt .pr.dim span { opacity: .9; }
+  #prompt .chip { flex: none; margin: 0 9px 0 6px; }
+  #prompt .chip .fg { transition: stroke-dashoffset .15s; }
+  #prompt .chip.filling .fg { transition: none; }
   kbd { display: inline-block; min-width: 1.5em; padding: 0 6px; margin-right: 4px; border-radius: 4px; background: #fff3d6; color: #3a2414; font: 600 16px var(--font-ui); text-align: center; box-shadow: 0 2px 0 #b8935a; }
 
   #dialog { position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); width: min(640px, calc(100vw - 24px)); padding: 14px 18px 16px; font-size: 19px; line-height: 1.4; display: none; cursor: pointer; }
@@ -114,8 +123,9 @@
   #dlg-opts button.on { color: var(--gold); border-color: var(--border); background: #6a4424; }
   #dialog.asking .more { display: none; }
   /* Chat (T) */
-  #chat { position: fixed; left: 16px; bottom: 154px; width: min(460px, calc(100vw - 24px)); z-index: 24; pointer-events: none; }
-  #chat-log { display: flex; flex-direction: column; gap: 2px; max-height: 220px; overflow: hidden; }
+  /* (left, in the middle: under the bars, the body chip, the first steps and the help box (--chat-top), over the feed) */
+  #chat { position: fixed; left: 16px; top: var(--chat-top); bottom: calc(var(--feed-b) + 208 * var(--ui-s)); width: min(440px, 34vw); display: flex; flex-direction: column; z-index: 24; pointer-events: none; transition: top .2s ease; }
+  #chat-log { display: flex; flex-direction: column; gap: 2px; min-height: 0; overflow: hidden; }
   .chat-line { align-self: flex-start; max-width: 100%; padding: 2px 8px; font-size: 16px; line-height: 1.3; color: var(--cream); background: rgba(0, 0, 0, .55); border-radius: 3px; text-shadow: 1px 1px 0 #000; overflow-wrap: anywhere; transition: opacity .6s; }
   .chat-line.ok { color: #b8f08a; }
   .chat-line.err { color: var(--err); }
@@ -123,14 +133,13 @@
   .chat-line.say { color: #ffd76a; }
   .chat-line.dm { color: #c9b8ff; font-style: italic; }
   .chat-line.old { opacity: 0; }
+  #chat:not(.open) .chat-line.gone { display: none; }
   #chat-input { display: none; width: 100%; box-sizing: border-box; margin-top: 4px; padding: 6px 8px; font: inherit; font-size: 16px; color: var(--cream); background: rgba(0, 0, 0, .7); border: 2px solid var(--border); border-radius: 4px; outline: none; -webkit-user-select: text; user-select: text; }
   #chat.open { pointer-events: auto; }
   #chat.open #chat-log { overflow-y: auto; }
   #chat.open .chat-line.old { opacity: 1; }
   #chat.open #chat-input { display: block; }
   body:not(.playing) #chat { display: none; }
-  /* (indoors, minimal HUD: no minimap, so lower, over the block of weight and experience; not over the build bar or a dialogue) */
-  body.hud-min.indoors:not(.building):not(:has(#dialog.show)) #chat { bottom: 106px; }
   #admin-tag { display: none; position: fixed; left: 16px; top: calc(var(--hud-top) + 53px); padding: 3px 10px; font-size: 15px; color: #ff9a5a; letter-spacing: 1px; }
   body.admin.playing #admin-tag, body.spectator.playing #admin-tag { display: block; }
   /* La lista de jugadores (mientras se mantiene Tab) */
@@ -143,17 +152,37 @@
   #players-list b { font-weight: 600; flex: 1; }
   #players-list small { font-size: 13px; color: var(--dim); }
   #players-list .op { color: #ffb15a; }
-  #toasts { position: fixed; left: 50%; top: 56px; transform: translateX(-50%); display: flex; flex-direction: column; gap: 6px; align-items: center; z-index: 25; pointer-events: none; }
-  .toast { padding: 6px 14px; font-size: 17px; color: var(--gold); transition: opacity .4s, transform .4s; }
-  .toast.out { opacity: 0; transform: translateY(-8px); }
-  .toast.good { color: #a8f07a; }
+  /* The feed (ui/feed.js): while playing, the lines stack over the minimap (or where it goes), the newest at the bottom; in the
+     menus and the pause, at the top in the middle. --feed-b: how far from the bottom (the minimap, and room over it) */
+  :root { --feed-b: calc(136px + 30 * var(--ui-s)); }
+  body { --chat-top: max(36vh, calc(var(--hud-top) + 160px)); }
+  #toasts { position: fixed; left: 50%; top: 56px; transform: translateX(-50%); display: flex; flex-direction: column; gap: 4px; align-items: center; z-index: 25; pointer-events: none; }
+  body.playing #toasts { left: 16px; top: auto; bottom: var(--feed-b); transform: none; align-items: flex-start; }
+  /* (with a window open, which lies there: two lines at the top, between the bars and the money) */
+  body.playing.win-open #toasts { left: 50%; top: 8px; bottom: auto; transform: translateX(-50%); align-items: center; }
+  body.win-open .toast { max-width: 44vw; }
+  body.win-open .toast span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  body.win-open .toast:nth-last-child(n + 3) { display: none; }
+  .toast { --k: rgba(255, 255, 255, .5); box-sizing: border-box; display: flex; align-items: center; gap: 8px; max-width: calc(400 * var(--ui-s)); padding: calc(5 * var(--ui-s)) calc(12 * var(--ui-s)) calc(5 * var(--ui-s)) calc(8 * var(--ui-s)); font-size: calc(16 * var(--ui-s)); line-height: 1.25; color: var(--cream); background: var(--plate); border-left: 3px solid var(--k); border-radius: var(--r-s); text-shadow: 0 1px 2px rgba(0, 0, 0, .7); animation: feed-in .18s cubic-bezier(.2, .8, .2, 1); transition: opacity .4s, transform .4s; }
+  @keyframes feed-in { from { opacity: 0; transform: translateX(-16px); } }
+  .toast.out { opacity: 0; transform: translateX(-8px); }
+  .toast i { flex: none; width: calc(20 * var(--ui-s)); height: calc(20 * var(--ui-s)); color: var(--k); }
+  .toast i img { width: 100%; height: 100%; object-fit: contain; image-rendering: pixelated; }
+  .toast b { margin-left: auto; padding-left: 4px; font: 500 calc(16 * var(--ui-s))/1.2 var(--font-title); font-variant-numeric: tabular-nums; }
+  .toast b:empty { display: none; }
+  .toast.k-good { --k: var(--good); } .toast.k-warn { --k: var(--accent-2); } .toast.k-net, .toast.k-social { --k: var(--cool); } .toast.k-place { --k: var(--accent); } .toast.k-money { --k: var(--accent-2); } .toast.k-item, .toast.k-craft { --k: rgba(255, 255, 255, .75); }
+  .gl { display: block; width: 100%; height: 100%; fill: currentColor; }
+  #money { display: inline-flex; align-items: center; gap: 6px; }
+  #money .gl, #sh-money .gl, #hud-coins .gl { width: .95em; height: .95em; color: var(--accent-2); }
+  #clock { display: inline-flex; align-items: center; gap: 7px; }
+  #clock i { width: 1em; height: 1em; }
 
   #place { position: fixed; right: 16px; top: 16px; z-index: 4; padding: 6px 12px; font-size: 17px; }
   #clockp { position: fixed; left: 16px; top: var(--hud-top); z-index: 4; padding: 6px 12px; font-size: 17px; white-space: nowrap; transition: top .2s ease; }
   /* Primeros pasos: lo que toca hacer, debajo del reloj (con el panel F3 abierto, no) */
   #quest { position: fixed; left: 16px; top: calc(var(--hud-top) + 53px); z-index: 6; transition: top .2s ease; width: min(300px, calc(100vw - 24px)); padding: 7px 26px 8px 12px; display: flex; flex-direction: column; gap: 2px; pointer-events: auto; }
   #quest[hidden], body:not(.playing) #quest, #debug:not([hidden]) ~ #quest { display: none; }
-  #clockp.under-win, #quest.under-win { opacity: 0 !important; visibility: hidden !important; transition: top .2s ease !important; }   /* (an open window over them: src/ui/windows.js) */
+  #clockp.under-win, #quest.under-win, #hud-right.under-win { opacity: 0 !important; visibility: hidden !important; transition: top .2s ease !important; }   /* (an open window over them: src/ui/windows.js) */
   body.admin #quest, body.spectator #quest { top: calc(var(--hud-top) + 91px); }   /* (under the full HUD's game mode tag) */
   #quest small { color: var(--dim); font-size: 13px; }
   #quest b { color: var(--gold); font-size: 17px; font-weight: 600; line-height: 1.2; }
@@ -366,6 +395,8 @@
   .ct-list dd { margin: 0; color: var(--dim); line-height: 1.35; }
   .ct-list kbd { font-size: 15px; }
   body.big-text #prompt, body.big-text #hint, body.big-text #dialog { font-size: 22px; }
+  body.big-text #prompt .chip { min-width: 26px; height: 26px; line-height: 26px; font-size: 16px; }
+  body.big-text .toast { font-size: calc(19 * var(--ui-s)); max-width: calc(460 * var(--ui-s)); }
   body.big-text .panel { font-size: 1.12em; }
   /* Diario */
   #j-body h3 { margin: 10px 0 6px; font-size: 17px; color: var(--gold); }
@@ -427,7 +458,7 @@
   #xp i { display: block; height: 100%; width: 0; background: linear-gradient(#d9c27a, #b89a4a); border-radius: 0; }
   #xp b { position: absolute; left: 50%; top: -8px; transform: translateX(-50%); font-size: 13px; line-height: 1; color: #e8d48a; text-shadow: 0 1px 0 #2a1e08, 1px 0 0 #2a1e08, -1px 0 0 #2a1e08, 0 -1px 0 #2a1e08; }
   /* The status bars (src/ui/needsbar.js paints them; docs/planes/gta/PLAN-D-barras-buceo.md §1): at the top left, as in
-     GTA V and VI, a stack of flat horizontal bars, one colour per need, no icons: health (a little thicker), air (only
+     GTA V and VI, a stack of flat horizontal bars, one colour and one glyph per need: health (a little thicker), air (only
      under water, right under health), hunger, thirst (blue between orange and yellow) and energy. A row takes room only
      while its bar is in sight (needsbar.js folds the others away, .nd-gone, once they have faded), so the bars in sight
      always sit packed from the corner down; the full HUD shows the four always, so only air comes and goes there. Whole
@@ -435,17 +466,23 @@
      than pure hues, to sit with the muted art. Under the strip go the clock and then the first steps and the F3 panel
      (--hud-top: the clock's top; --nd-end: where the bars in sight end, which needsbar.js writes on the page) */
   :root { --nd-hp: #66b562; --nd-hp-low: #d9503f; --nd-en: #e3c25a; --nd-food: #d98c45; --nd-water: #4a9fd8; --nd-air: #cfe6f0; --nd-horse: #c49a64; --nd-track: rgba(8, 8, 10, .72);
-    --nd-x: 16px; --nd-y: 16px; --nd-w: 240px; --nd-h: 9px; --nd-gap: 5px;
-    --nd-end: calc(var(--nd-y) + 4 * var(--nd-h) + 2px + 3 * var(--nd-gap)); --hud-top: 16px; }
-  @media (min-width: 1536px) { :root { --nd-w: 288px; --nd-h: 10px; --nd-gap: 6px; } }
+    --nd-x: 16px; --nd-y: 16px; --nd-w: 240px; --nd-h: 9px; --nd-r: 18px; --nd-g: 26px; --nd-gap: 3px;
+    --nd-end: calc(var(--nd-y) + 4 * var(--nd-r) + 3 * var(--nd-gap)); --hud-top: 16px; }
+  @media (min-width: 1536px) { :root { --nd-w: 288px; --nd-h: 10px; --nd-r: 20px; --nd-g: 29px; --nd-gap: 3px; } }
   body.survival { --hud-top: calc(var(--nd-end) + 8px); }   /* (in creative and spectator there are no bars: the clock in the corner) */
-  #needs { position: fixed; left: var(--nd-x); top: var(--nd-y); width: var(--nd-w); display: flex; flex-direction: column; z-index: 5; pointer-events: none; }
+  #needs { position: fixed; left: var(--nd-x); top: var(--nd-y); width: calc(var(--nd-g) + var(--nd-w)); display: flex; flex-direction: column; z-index: 5; pointer-events: none; }
   body:not(.survival) #needs, body:not(.playing) #needs { display: none; }
   body:not(.hud-min) #needs { pointer-events: auto; }   /* (full HUD: hovering shows the legend) */
   /* (a row: its bar and the gap under it; folded away, nothing; clipped, so a row that opens wipes its bar in) */
-  .nd-row { display: flex; height: var(--nd-h); margin-bottom: var(--nd-gap); overflow: clip; overflow-clip-margin: 4px; transition: height .2s ease, margin-bottom .2s ease; }
-  .nd-row.nd-top { height: calc(var(--nd-h) + 2px); }
+  .nd-row { display: flex; align-items: center; height: var(--nd-r); margin-bottom: var(--nd-gap); overflow: clip; overflow-clip-margin: 4px; transition: height .2s ease, margin-bottom .2s ease; }
   .nd-row.nd-gone { height: 0; margin-bottom: 0; }
+  /* (its glyph, at its left: needsbar.js puts it after the bar, so it shows and fades with it) */
+  .nd-row > .gl { order: -1; flex: none; width: var(--nd-r); height: var(--nd-r); margin-right: calc(var(--nd-g) - var(--nd-r)); padding: 1px; color: #fff; filter: drop-shadow(0 1px 1px rgba(0, 0, 0, .75)); }
+  .nd-hp.low + .gl { color: var(--nd-hp-low); animation: nd-pulse 1s ease-in-out infinite; }
+  .nd-air:not(.nd-on) + .gl, .nd-horse:not(.nd-on) + .gl, .nd-off + .gl { visibility: hidden; }
+  body.hud-min .nd:not(.nd-on) + .gl { opacity: 0; }
+  body.hud-min .nd + .gl { transition: opacity .5s ease; }
+  body.hud-min .nd.nd-on + .gl, body.hud-min.hud-all .nd:not(.nd-air):not(.nd-horse) + .gl { opacity: 1; transition: opacity .15s ease; }
   .nd { position: relative; flex: 1 1 0; height: var(--nd-h); border-radius: 0; background: var(--nd-track); box-shadow: 0 0 0 1px rgba(0, 0, 0, .55), 0 1px 3px rgba(0, 0, 0, .35); overflow: hidden; }
   .nd-top .nd { height: calc(var(--nd-h) + 2px); }
   .nd > i, .nd > s { position: absolute; inset: 0; transform-origin: 0 50%; will-change: transform; }
@@ -480,8 +517,7 @@
      chip like #hud-status; with Tab held, or hovering in the full HUD) */
   #nd-legend { display: none; position: absolute; left: calc(100% + 10px); top: -4px; padding: 4px 9px; border-radius: 6px; background: rgba(20, 13, 8, .66); font: 600 12px/1 var(--font-ui); text-transform: uppercase; letter-spacing: .05em; white-space: nowrap; color: var(--cream); }
   body.hud-all #nd-legend, body:not(.hud-min) #needs:hover #nd-legend { display: block; }
-  #nd-legend > div { display: flex; align-items: center; height: var(--nd-h); margin-bottom: var(--nd-gap); }
-  #nd-legend > div.l-hp { height: calc(var(--nd-h) + 2px); }
+  #nd-legend > div { display: flex; align-items: center; height: var(--nd-r); margin-bottom: var(--nd-gap); }
   #nd-legend > div:last-child { margin-bottom: 0; }
   #nd-legend span { font: 500 13px/1 var(--font-title); font-variant-numeric: tabular-nums; letter-spacing: .03em; color: var(--cream); margin-left: 6px; }
   #nd-legend small { margin-left: 8px; font-size: 11px; color: var(--dim); }
@@ -509,8 +545,14 @@
   body.underwater #uw { display: block; opacity: 1; }
   body.underwater.uw-low #uw::after { opacity: 1; }
   body:not(.playing) #uw { display: none; }   /* (not over the menus) */
-  /* /title: un texto grande en el centro */
-  #title-msg { position: fixed; left: 0; right: 0; top: 34%; text-align: center; font-size: clamp(28px, 6vw, 56px); color: #fff6d8; text-shadow: 0 3px 0 #2a1c22, 0 0 18px rgba(0, 0, 0, .6); z-index: 26; pointer-events: none; transition: opacity .7s; padding: 0 16px; }
+  /* A big message in the middle (hud.big: a new day, a level, a record, a place; and /title) */
+  #title-msg { position: fixed; left: 0; right: 0; top: 26%; display: flex; flex-direction: column; align-items: center; padding: 0 16px; text-align: center; color: #fff6d8; text-shadow: 0 3px 0 #2a1c22, 0 0 18px rgba(0, 0, 0, .6); z-index: 26; pointer-events: none; transition: opacity .6s; animation: big-in .25s ease-out; }
+  #title-msg b { font: 600 clamp(28px, calc(56 * var(--ui-s)), 6vw)/1.15 var(--font-title); letter-spacing: .08em; text-transform: uppercase; }
+  #title-msg i { width: 220px; height: 2px; margin: 8px 0 6px; background: var(--accent); animation: big-line .4s ease-out; }
+  #title-msg span { font: 500 calc(20 * var(--ui-s))/1.3 var(--font-ui); }
+  #title-msg span:empty { display: none; }
+  @keyframes big-in { from { opacity: 0; } }
+  @keyframes big-line { from { transform: scaleX(0); } }
   #title-msg[hidden] { display: none; }
   #title-msg.out { opacity: 0; }
   /* El mapa en la mano (con el norte arriba) y la aguja de la brújula */
@@ -764,7 +806,7 @@
   #s-pause.on-map .ps-foot { margin-top: auto; background: var(--fe-glass-2); padding-bottom: 6px; }
   #ps-note { font: 500 15px/1.3 var(--font-ui); color: var(--fe-dim); text-shadow: var(--shadow-text); }
   #ps-note:empty { visibility: hidden; }
-  body.in-pause #toasts { top: 190px; }
+  body.in-pause:not(.playing) #toasts { top: 190px; }
   body.big-text .ps-page { font-size: 17.9px; }
   /* (the journal's pages, without their old window) */
   #s-pause #j-body { height: auto; max-height: none; font-size: 16px; }
@@ -786,14 +828,15 @@
   :root { --gold: #ffffff; --cream: #ffffff; --border: rgba(255, 255, 255, .16); --wood: var(--glass-hi); --dim: var(--ink-2); --err: #ff8577;
     --tab-bg: rgba(255, 255, 255, .07); --tab-line: transparent; --tab-ink: rgba(255, 255, 255, .8); --tab-on-bg: #fff; --tab-on-ink: #0c0e12; --tab-on-line: #fff; --plate: var(--glass); --mark: var(--accent); --coins: var(--accent-2); }
   html, body { background: #0c0e12; }
-  h1, h2, h3, h4, .logo, .map-bar b, .bb-top b, #title-msg { letter-spacing: .06em; }
+  h1, h2, h3, h4, .logo, .map-bar b, .bb-top b { letter-spacing: .06em; }
   h3 small, h2 small, #cf-note { letter-spacing: 0; }
   /* Plates: windows and boxes; those of the HUD are lighter, with their text's shadow */
   .panel { background: var(--glass-hi); border: 0; border-radius: var(--r-m); box-shadow: inset 0 0 0 1px var(--hair), 0 8px 24px rgba(0, 0, 0, .35); }
-  #clockp, #place, #money.panel, #hint, #prompt, #quest, #admin-tag, #aim-free, #hotbar, .toast, #hud-tip, #love-text { background: var(--glass); box-shadow: inset 0 0 0 1px var(--hair), 0 2px 8px rgba(0, 0, 0, .25); text-shadow: var(--shadow-text); }
+  #prompt { padding: 0; background: none; box-shadow: none; color: var(--ink); text-shadow: var(--shadow-bare); }
+  #clockp, #place, #hint, #quest, #admin-tag, #aim-free, #hotbar, #hud-tip, #love-text { background: var(--glass); box-shadow: inset 0 0 0 1px var(--hair), 0 2px 8px rgba(0, 0, 0, .25); text-shadow: var(--shadow-text); }
   #hint kbd, #prompt kbd, #hud-tip kbd { text-shadow: none; }
   #minimap { background: rgba(10, 12, 16, .82); box-shadow: 0 0 0 1px var(--hair), 0 4px 14px rgba(0, 0, 0, .35); }
-  .toast { color: var(--ink); } .toast.good { color: var(--good); }
+  .toast { box-shadow: inset 0 0 0 1px var(--hair), 0 2px 8px rgba(0, 0, 0, .25); color: var(--ink); text-shadow: var(--shadow-text); }
   #quest { box-shadow: inset 3px 0 0 var(--accent), inset 0 0 0 1px var(--hair), 0 2px 8px rgba(0, 0, 0, .25); }
   #players h3 { text-align: left; }
   #players-list .op { color: var(--accent-2); }
@@ -882,7 +925,7 @@
   #m-live { border: 0; border-radius: var(--r-s); background: rgba(127, 224, 138, .14); box-shadow: inset 3px 0 0 var(--good); }
   #m-live.wait { background: rgba(255, 178, 74, .14); box-shadow: inset 3px 0 0 var(--accent-2); }
   #m-live.err { background: rgba(255, 106, 90, .16); box-shadow: inset 3px 0 0 var(--bad); }
-  #title-msg { color: #fff; text-shadow: 0 2px 14px rgba(0, 0, 0, .7); }
+  #title-msg { color: #fff; text-shadow: 0 2px 14px rgba(0, 0, 0, .7), 0 1px 2px rgba(0, 0, 0, .6); }
   .win, .panel, .box, #j-body, #sh-list, #cf-repair, #bb-pieces, #inv-all-grid, #map-legend, .screen { scrollbar-width: thin; scrollbar-color: rgba(255, 255, 255, .32) transparent; }
   .floater { text-shadow: 1px 0 #0c0e12, -1px 0 #0c0e12, 0 1px #0c0e12, 0 -1px #0c0e12, 0 2px 3px rgba(0, 0, 0, .4); }
   .tb { background: rgba(10, 12, 16, .62); border-color: rgba(255, 255, 255, .3); color: #fff; }
@@ -920,7 +963,7 @@
   </div>
   <div id="crosshair" aria-hidden="true"></div>
   <div id="aim-free" class="panel" data-i18n="gui.aim_free">Click to look around with the mouse</div>
-  <div id="prompt" class="panel"><kbd>E</kbd><span id="prompt-text"></span></div>
+  <div id="prompt" class="panel"><div id="prompt-text"></div></div>
   <div id="admin-tag" class="panel" title="Game mode (/gamemode): in creative, infinite items and free building; as a spectator, you go through everything and nobody sees you" data-i18n-attr="title:gui.gamemode_tag.title">CREATIVE</div>
   <div id="players" class="panel" aria-live="polite"><h3 data-i18n="gui.players.title">Players</h3><ul id="players-list"></ul></div>
   <div id="title-msg" hidden></div>
@@ -1048,10 +1091,10 @@
             <dt data-i18n-html="controls.social.keys"><kbd>Y</kbd> or right click</dt><dd data-i18n="controls.social">Greet the person under the cursor or in front of you (a neighbor, your child, another player); hold it to provoke them instead. The village notices: your reputation is in the journal</dd>
             <dt data-i18n="controls.use.keys">Left click</dt><dd data-i18n="controls.use">Use what you're holding: chop, mine, water, sow, fish, attack, eat, place… Hold to keep going.</dd>
             <dt data-i18n-html="controls.jump.keys"><kbd>Space</kbd></dt><dd data-i18n="controls.jump">Jump (in a dialogue: continue). While swimming, hold it to come up; at the surface next to the shore, climb out</dd>
-            <dt data-i18n-html="controls.interact.keys"><kbd>E</kbd> or <kbd>Enter</kbd></dt><dd data-i18n="controls.interact">Interact with what you point at with the mouse (2 tiles away at most; pointing at nothing, with the nearest thing): talk, doors, chests, stations, sleep, harvest, animals</dd>
+            <dt data-i18n-html="controls.interact.keys"><kbd>E</kbd> or <kbd>Enter</kbd></dt><dd data-i18n="controls.interact">Interact with what you point at with the mouse (2 tiles away at most; pointing at nothing, with the nearest thing): talk, doors, chests, stations, sleep, harvest, animals. What each key does shows at the thing; a key with a ring has to be held</dd>
             <dt data-i18n-html="controls.drink.keys"><kbd>E</kbd> on water</dt><dd data-i18n="controls.drink">Thirsty, aim at a river, a lake or a well to drink (one press drinks until you're full; moving stops it). Sea water is too salty. With a canteen or a jug in hand: click for a sip, E or click on fresh water to fill it</dd>
             <dt><kbd>Q</kbd></dt><dd data-i18n-html="controls.drop">Drop what you hold (with <kbd>Ctrl</kbd> or <kbd>Shift</kbd>, the whole stack); with something in your arms, put it down</dd>
-            <dt><kbd>E</kbd> <kbd>Q</kbd> <kbd>X</kbd></dt><dd data-i18n="controls.carry">A felled tree leaves a log and a hunted animal its carcass. E puts it on your shoulder (one at a time) and Q puts it down; X butchers a carcass where it lies, and the axe splits a log. At the bench (E) a log gives 10 planks; at the kitchen (E) a carcass gives the most. Everything weighs: past what you carry comfortably (25 kg, 70 with the backpack) you walk slower</dd>
+            <dt><kbd>E</kbd> <kbd>Q</kbd> <kbd>X</kbd></dt><dd data-i18n="controls.carry">A felled tree leaves a log and a hunted animal its carcass. E puts it on your shoulder (one at a time) and Q puts it down; X, held, butchers a carcass where it lies, and the axe splits a log. At the bench (E) a log gives 10 planks; at the kitchen (E) a carcass gives the most. Everything weighs: past what you carry comfortably (25 kg, 70 with the backpack) you walk slower</dd>
             <dt><kbd>E</kbd> <kbd>Q</kbd> <kbd>X</kbd></dt><dd data-i18n="controls.barrow">The wheelbarrow (B › Exterior, its plan at Dani's): E pushes it with both hands (slower, no running, jumping or swimming) and Q parks it; X opens it (12 stacks, which B and C also pay from). Pushing it, E on a log or a carcass loads it (3 at most): what it carries doesn't weigh on you</dd>
             <dt><kbd>E</kbd> <kbd>Q</kbd></dt><dd data-i18n="controls.carry_ride">With a log or a carcass in your arms you can mount your horse (it rides behind the saddle, and the horse is not slowed: Q puts it down beside it) or row a boat (it rides in the bow; if you jump into the water it stays in the boat). Getting off, it's back in your arms</dd>
             <dt><kbd>N</kbd></dt><dd data-i18n="controls.whistle">Whistle for your horse (or your partner's) from a distance: the closer the bond, the farther it hears you</dd>

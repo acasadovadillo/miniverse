@@ -47,6 +47,7 @@ const W_TAPS = { down: -1e9, up: -1e9, tier: 0, held: false };
 // keydown and the keyup does not turn a quick tap into a hold. The hold's timer, if it fires late (that long frame), waits
 // once more (SHIFT_LATE) so that a keyup already queued is read first
 export const SHIFT_HOLD = 300, SHIFT_LATE = 80;   // ms
+export const HOLD_X = 0.3;   // s: X held, for what is not undone (ui/prompts.js: an action's alt.hold)
 const SHIFT = { down: null, alone: false, done: false, timer: 0, late: false };
 export function pressShift(now = performance.now()) {
   const S = SHIFT;
@@ -191,11 +192,12 @@ export function initInput(h) {
     if (e.key === 'Meta') releaseMoves();
     if (e.code === 'Space') keys.space = false;
     if (e.code === 'KeyR') handlers.rotateEnd?.();
+    if (e.code === 'KeyX' || e.code === 'Delete' || e.code === 'Backspace') handlers.eraseEnd?.();
     if (e.code === 'Tab') handlers.players?.(false);
     if (e.code === 'KeyF') handlers.wheelRelease?.();
     if (e.code === SOCIAL_KEY) handlers.social?.(false, 'key');
   });
-  addEventListener('blur', () => { handlers.wheelCancel?.(true); handlers.socialCancel?.(); socialBtn = false; clearKeys(); });
+  addEventListener('blur', () => { handlers.wheelCancel?.(true); handlers.socialCancel?.(); handlers.eraseEnd?.(); socialBtn = false; clearKeys(); });
 
   // Ratón sobre el juego: clic para usar (mantener para seguir), rueda para cambiar de objeto.
   // En modo construcción, el ratón (o el dedo) apunta a la casilla: clic pone, clic derecho quita, arrastrar pinta.

@@ -181,13 +181,13 @@ export class Social {
     }
     return best;
   }
-  // The piece of the cursor's prompt: with something to do with E (near), « · Y: greet» only if E is about the same person
-  // (aimE: who E aims at); without it, «Rosa · Y: greet» for whoever is under the cursor farther away. '' : nothing
+  // The prompt's Y row: «Greet Rosa», with something to do with E (near) only if E is about the same person (aimE: who E aims
+  // at); without it, for whoever is under the cursor farther away. While Y is held, what it is about to do. '' : nothing
   promptFor(aimE, near) {
     const c = this.picked;
     if (!c) return '';
-    if (near) return aimE && c.e === aimE ? `  ·  ${t('social.prompt')}` : '';
-    return t('social.prompt.far', { name: c.name });
+    if (near && !(aimE && c.e === aimE)) return '';
+    return this.ringOn && c.kind !== 'kid' && this.hold?.target?.e === c.e ? t('social.hold') : t('social.prompt.far', { name: c.name });
   }
 
   // ---------- pressing ----------
@@ -222,7 +222,7 @@ export class Social {
       if (!this.can()) this.cancel();
       else {
         h.t += dt;
-        if (h.t >= HOLD) { this.hold = null; this.showRing(-1); this.act(h.target?.kind === 'kid' ? 0 : 1, h.target); }   // (a child is never provoked)
+        if (h.t >= HOLD) { this.hold = null; if (this.rowed) hud.promptHold('Y', 1, true); this.showRing(-1); this.act(h.target?.kind === 'kid' ? 0 : 1, h.target); }   // (a child is never provoked)
         else this.showRing(h.t < RING_FROM ? -1 : (h.t - RING_FROM) / (HOLD - RING_FROM), h);
       }
     }
@@ -422,13 +422,16 @@ export class Social {
   // The ring while Y (or the right button) is held: next to the cursor, or in the middle (first person, no cursor)
   showRing(k, h) {
     if (!this.ui) return;
-    const on = k >= 0;
-    if (on !== this.ringOn) {
-      this.ringOn = on;
-      this.ring.classList.toggle('on', on);
-      if (on) this.ring.lastChild.textContent = t('social.hold');
+    // (on the prompt's Y, if it says it about someone; greeting the air, a ring of its own at the cursor)
+    const on = k >= 0, rowed = on && !!h.target && hud.promptHold('Y', k);
+    if (!rowed && this.rowed) hud.promptHold('Y', -1);
+    this.rowed = rowed; this.ringOn = on;
+    if ((on && !rowed) !== this.ownRing) {
+      this.ownRing = on && !rowed;
+      this.ring.classList.toggle('on', this.ownRing);
+      if (this.ownRing) this.ring.lastChild.textContent = t('social.hold');
     }
-    if (!on) { this.ringK = -1; return; }
+    if (!this.ownRing) { this.ringK = -1; return; }
     const x = CAM.first || h.x === null ? innerWidth / 2 : h.x, y = CAM.first || h.y === null ? innerHeight / 2 : h.y;
     if (x !== this.ringX || y !== this.ringY) { this.ringX = x; this.ringY = y; this.ring.style.transform = `translate(${Math.round(x + 16)}px, ${Math.round(y - 17)}px)`; }
     const fill = Math.round(Math.min(1, k) * 100);
@@ -462,7 +465,7 @@ export class Social {
     }
     if (toMe) {
       if (!a) this.back = { conn, until: g.time + BACK_FOR };
-      if (g.time - (peer.toastAt ?? -Infinity) >= TOAST_GAP) { peer.toastAt = g.time; hud.toast(t(a ? 'social.toast.insulted' : 'social.toast.greeted', { name: peer.name }), a ? '' : 'good'); }
+      if (g.time - (peer.toastAt ?? -Infinity) >= TOAST_GAP) { peer.toastAt = g.time; hud.toast(t(a ? 'social.toast.insulted' : 'social.toast.greeted', { name: peer.name }), 'social'); }
     }
   }
 }

@@ -1284,7 +1284,7 @@ export class Ranch {
   async send() {
     const g = this.game, held = g.inv.held, list = (Profile.players?.() || []).filter(x => x.id !== me());
     if (!held) return;
-    if (!list.length) { hud.toast('No hay nadie más a quien enviar nada'); return; }
+    if (!list.length) { hud.toast('No hay nadie más a quien enviar nada', 'warn'); return; }
     g.busy = true;
     const i = await hud.ask('Palomar', `¿A quién le envías ${held.n > 1 ? held.n + ' × ' : ''}${ITEMS[held.id].name.toLowerCase()}?`, [...list.map(x => x.name), 'A nadie']);
     g.busy = false;

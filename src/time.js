@@ -9,6 +9,8 @@ import { Audio } from './audio.js';
 import { Settings } from './settings.js';
 import { hud } from './ui/hud.js';
 import { lonOf, latOf } from './world/planet.js';
+import { t as tr, onLangChange } from './i18n.js';
+import { skyGlyph } from './ui/glyphs.js';
 
 // (antes, un día duraba 20 minutos y empezaba a las 7: con eso se sabe en qué día iban las partidas de entonces)
 const OLD_DAY_LEN = 1200, OLD_START_HOUR = 7;
@@ -59,6 +61,8 @@ export function seasonOf(day) {
 }
 
 export const WEATHERS = Object.keys(WEATHER);   // (para /weather)
+let langV = 0;   // (how many times the language has changed)
+onLangChange(() => { langV++; });
 export class TimeSystem {
   constructor(game) {
     this.game = game;
@@ -72,7 +76,7 @@ export class TimeSystem {
     this.flash = 0;
     this.bolts = 0;          // how many bolts have struck (horse.js counts them: the flash is too short to look at, and may be off)
     this.nextBolt = 5;
-    this.shown = '';
+    this.shown = -1; this.shownSky = '';
   }
   // Jugando en el mundo de otro, su día 0 y su reloj (los manda su juego con la hora)
   get remote() { return this.game.live?.guest ? this.game.live.clockBase : null; }
@@ -97,7 +101,7 @@ export class TimeSystem {
   isNight() { const h = this.localHour; return h >= 20 || h < 6; }
   label() {
     const hl = this.localHour, h = Math.floor(hl), m = Math.floor((hl % 1) * 60);
-    return `${this.info.icon} ${SEASONS[this.localSeason]}, día ${this.dayOfSeason} · ${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+    return `${tr('big.day', { n: this.dayOfSeason, season: tr('nature.season.' + this.localSeason) })} · ${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
   }
   weatherFor(day) {
     if (day === 0) return 'sol';
@@ -138,7 +142,7 @@ export class TimeSystem {
       this.weather = this.weatherFor(this.dayIndex);
       const first = this.dayOfSeason === 1 ? ' · ¡Empieza ' + SEASONS[this.season].toLowerCase() + '!' : '';
       if (n > 1 && !g.live.guest) hud.toast(`Han pasado ${n} días desde la última vez · ${SEASONS[this.season]}, día ${this.dayOfSeason}${first} · ${this.info.name}`);
-      else if (n === 1) hud.toast(`${SEASONS[this.season]}, día ${this.dayOfSeason}${first} · ${this.info.name}`);
+      else if (n === 1) hud.big({ title: tr('big.day', { n: this.dayOfSeason, season: tr('nature.season.' + this.season) }), sub: `${this.info.name}${first}`, kind: 'world', line: `${SEASONS[this.season]}, día ${this.dayOfSeason}${first} · ${this.info.name}` });
     }
     // El tiempo que ha puesto un op (/weather, o /gamerule doWeatherCycle false): manda mientras dure; al acabar,
     // vuelve el del día
@@ -151,8 +155,9 @@ export class TimeSystem {
       if (g.frozenHour == null) g.frozenHour = this.hour;
       else { const d = ((g.frozenHour - this.hour + 36) % 24) - 12; if (Math.abs(d) > 1 / 240) this.shift += d; }
     } else if (g.frozenHour != null && !g.live.guest) g.frozenHour = null;
-    const label = this.label();
-    if (label !== this.shown) { this.shown = label; document.getElementById('clock').textContent = label; }
+    // (the clock: the text is made only when the minute, the day, the sky or the language change)
+    const minute = Math.floor(this.localHour * 60) + (this.dayOfSeason + this.localSeason * 100) * 1440, sky = skyGlyph(this.weatherHere, this.isNight());
+    if (minute !== this.shown || sky !== this.shownSky || langV !== this.shownLang) { this.shown = minute; this.shownSky = sky; this.shownLang = langV; hud.clock(this.label(), sky); }
     // Lluvia, nieve y rayos
     const w = this.info, outside = !g.indoors;
     Audio.rain(w.rain && outside ? w.rain : 0);

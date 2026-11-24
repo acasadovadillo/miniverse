@@ -186,7 +186,7 @@ export class Achievements {
   earn(id, name) {
     const g = this.game;
     this.got.add(id);
-    hud.toast(`🏆 Logro: ${name}`, 'good');
+    hud.toast(`Logro: ${name}`, 'good');
     Audio.unlock();
     if (g.rules?.announceAdvancements !== false) g.live?.chat(name, { adv: true });
   }

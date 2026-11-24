@@ -112,6 +112,9 @@ export function initSettingsUI({ onClose, extra = null }) {
     hudNote.textContent = t('gui.settings.hud.note');
     box.append(hudNote);
     choice('skin', t('gui.settings.row.skin'), [['glass', t('gui.settings.row.skin.glass')], ['wood', t('gui.settings.row.skin.wood')]], () => skinNow(Settings.v.skin));   // (lit: the one in sight, ?ui=madera included)
+    // (what the keys do: at the thing aimed at, or at the cursor; and which notices show: ui/prompts.js, ui/feed.js)
+    choice('prompts', t('gui.settings.row.prompts'), [['object', t('gui.settings.row.prompts.object')], ['cursor', t('gui.settings.row.prompts.cursor')]], () => (Settings.v.prompts === 'cursor' ? 'cursor' : 'object'));
+    choice('feed', t('gui.settings.row.feed'), [['all', t('gui.settings.row.feed.all')], ['important', t('gui.settings.row.feed.important')]], () => (Settings.v.feed === 'important' ? 'important' : 'all'));
     check('bigText', 'Texto más grande');
     check('noFlash', 'Reducir destellos (rayos de las tormentas)');
     // Blood on the trails of wounded animals (Plan G), or scuffed ground instead. Not with ?tracks=0 (nothing is drawn)

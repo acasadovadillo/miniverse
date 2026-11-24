@@ -4,11 +4,11 @@
 // left (health, hunger, thirst, energy, air: ui/needsbar.js paints them, this file only says when each one shows)
 // come on when they change, in danger or when low (low stays); experience goes in one small block left of the hotbar,
 // with the load; the hotbar when you switch, pick up or use the last of something, then it folds away; the money (top right,
-// as in GTA) when you earn or spend; the time at dawn, dusk, a new day, a weather change, waking up and before a shop
-// closes; the place when you enter a new one; the minimap while you travel, or while a first step sends you somewhere,
+// as in GTA) when you earn or spend; the time, under it, at dawn, dusk, a new day, a weather change, waking up and before a
+// shop closes; the name of the area, bottom right, when you enter another (PLAN-R8-hud-mapa.md §3.2); the minimap while you travel, or while a first step sends you somewhere,
 // with a mark over where to go. Holding Tab shows everything, with the legend of the bars (no keys card: they are in
 // Pause › Controls), and opening a window shows the bars, money and the time, as GTA's weapon wheel does. With the icon
-// column gone, keys are taught once, at the moment they are useful (I the first time you pick something up, C with a
+// column gone, keys are taught once, in a help box at the top left, at the moment they are useful (I the first time you pick something up, C with a
 // new recipe, Shift the first time you swim…). What needs you shows by itself: hungry (or thirsty), the slot with food
 // (or a drink) beats; drawing the bow, a ring at the cursor with the arrows left.
 // The body chip under the bars (cold, hot, soaked, filthy: ui/bodychip.js paints it, for both HUDs) brings its tip
@@ -21,7 +21,8 @@
 // answer changes (the mark and the bow ring move with the view, so they are written while they show). The look (fades
 // of 0.15 s in and 0.5 s out) is the CSS below, injected so all of it stays in this file and goes away with it.
 import * as THREE from 'three';
-import { tHtml, t, onLangChange } from '../i18n.js';
+import { tHtml, t, fmt, onLangChange } from '../i18n.js';
+import { Audio } from '../audio.js';
 import { ITEMS, HARVEST } from '../items.js';
 import * as items from '../items.js';   // (items.thirstOf, read when it is there: Track A2)
 import { HP_MAX, HUNGER_MAX } from '../combat.js';
@@ -29,9 +30,9 @@ import { THIRST_MAX, STAMINA_MAX, REST_MAX } from '../needs.js';
 import { apagada } from '../opciones.js';
 import { LOW } from './needsbar.js';
 import { STAM_MAX, levelOf } from '../horse.js';
-import { inBounds, TAVERN, HOUSE, HOUSE_FAMILY } from '../world/village.js';
+import { inBounds, CENTER, TAVERN, HOUSE, HOUSE_FAMILY } from '../world/village.js';
 import { doorTile } from '../world/blueprints.js';
-import { nearX } from '../world/planet.js';
+import { nearX, dxOf } from '../world/planet.js';
 import { parsePlaced } from '../pieces.js';
 import { SHOPS } from '../economy.js';
 import { HOTBAR } from '../inventory.js';
@@ -48,7 +49,7 @@ const $ = id => document.getElementById(id);
 const thirstOf = def => (!def ? 0 : items.thirstOf ? items.thirstOf(def) : def.thirst ?? (def.drink ? 4 : 0));
 const isDrink = s => { const def = s && ITEMS[s.id]; return !!def && (thirstOf(def) > 0 || (!!def.canteen && s.sips > 0)); };
 // How long each thing stays after what brought it (seconds; the fade-out comes after)
-const SHOW = { sprint: 3, hurt: 5, heal: 3, hunger: 4, thirst: 4, rest: 4, linger: 1.5, held: 0.5, money: 4, xp: 3, level: 5, slots: 3, name: 1.6, place: 4, clock: 6, tag: 4, quest: 10, intro: 4, tip: 9, tipShort: 6, build: 7, all: 1.5, mini: 3, routeMini: 4, horse: 2 };   // (routeMini: the minimap after you stop, with a route; horse: its row after it is full again)
+const SHOW = { sprint: 3, hurt: 5, heal: 3, hunger: 4, thirst: 4, rest: 4, linger: 1.5, held: 0.5, money: 4, xp: 3, level: 5, slots: 3, name: 1.6, place: 4, clock: 6, tag: 4, quest: 10, intro: 4, tip: 9, tipShort: 7.5, build: 7, all: 1.5, mini: 3, routeMini: 4, horse: 2 };   // (routeMini: the minimap after you stop, with a route; horse: its row after it is full again)
 const LOW_HP = HP_MAX * 0.4, LOW_FOOD = 6, SHOW_FOOD = HUNGER_MAX * 0.6;   // (low health and hunger stay; hunger above 60 % is not news)
 const DANGER = 8;          // tiles: a creature this close keeps health in sight
 const HEAL_NEW = 10;       // seconds without healing: the next heal is news (regen starting), not each 4 s tick
@@ -61,6 +62,7 @@ const DIVE_TIP = 3;        // seconds swimming before the dive tip
 const POSTURE_TIP = 90;    // seconds playing before the posture tip, if no crouch came first
 const GAIT_TIP = 60;       // seconds walking on foot before the tip of the three speeds, if no jog came first
 const STALE_HINT = 6;      // seconds: a click hint that has not changed by then has been read
+const PLACE_AGAIN = 20, PLACE_SETTLE = 1.2;   // seconds: the same area is not named again before; and it counts as entered after
 const GOAL_NEAR = 4;       // tiles: the mark of where to go fades this close
 const HORSE_FULL = 0.98;   // share of the horse's stamina under which its row stays in sight (riding)
 const REAR_LEVEL = 3;      // the bond level that teaches the rear (horse.js levelOf; Plan F §1.2)
@@ -124,11 +126,19 @@ body.hud-min.hud-all #hud-tip, body.hud-min.hud-all:not(.building) #hud-build { 
 body.hud-min.hud-all.building #hud-build { opacity: 1; visibility: visible; transition: opacity .15s ease, visibility 0s; }
 body.hud-min.hm-solo #players.show { display: none; }
 body.hud-min #admin-tag { left: 50%; top: 16px; transform: translateX(-50%); }
-body.hud-min.admin #quest, body.hud-min.spectator #quest { top: calc(var(--hud-top) + 53px); }
-/* (the clock and the first steps slide with the bars over them, which come and go: index.html, --hud-top) */
-body.hud-min #clockp, body.hud-min #quest { transition: opacity .5s ease, visibility 0s linear .5s, top .2s ease; }
-body.hud-min #clockp.hm-on, body.hud-min.hud-all #clockp, body.hud-min #quest.hm-on, body.hud-min.hud-all #quest { transition: opacity .15s ease, visibility 0s, top .2s ease; }
-body.hud-min.spectator #hotbar-slots, body.hud-min:not(.hud-all) #coords, body.hud-min #vitals { display: none; }
+body.hud-min #debug { top: var(--hud-top); }
+#debug:not([hidden]) ~ #hud-left { display: none; }
+/* Top left, under the bars and the body chip, which come and go (index.html, --hud-top): the objective, one line with a bar of
+   the player's colour, and under it the help box (the key tips), as GTA's help text. --hl, its height, is written by smarthud.js
+   when it changes: the chat goes under it */
+body.hud-min { --chat-top: max(36vh, calc(var(--hud-top) + var(--hl, 0px) + 8px)); }
+#hud-left { position: fixed; left: 16px; top: var(--hud-top); z-index: 6; display: flex; flex-direction: column; align-items: flex-start; gap: 8px; pointer-events: none; transition: top .2s ease; }
+body:not(.playing) #hud-left, body:not(.playing) #hud-right, body:not(.playing) #hud-place { display: none; }
+body.hud-min #hud-left #quest { position: relative; left: auto; top: auto; }
+body.hud-min:not(.ui-wood) #quest { padding: 1px 26px 2px 10px; background: none; border-radius: 0; box-shadow: inset 3px 0 0 var(--accent); text-shadow: var(--shadow-bare); }
+body.hud-min:not(.ui-wood) #quest small { color: rgba(255, 255, 255, .86); }
+body.hud-min:not(.ui-wood) #quest-x { opacity: 0; top: 0; transition: opacity .15s; } body.hud-min #quest:hover #quest-x { opacity: 1; }
+body.hud-min.spectator #hotbar-slots, body.hud-min:not(.hud-all) #coords, body.hud-min #vitals, body.hud-min #place { display: none; }
 /* The hotbar: light slots that rise into sight and fold away */
 body.hud-min #hotbar { background: none; border: 0; box-shadow: none; padding: 0; }
 body.hud-min #hotbar .slots { padding: 4px; background: rgba(10, 12, 16, .42); border-radius: 8px; transform: translateY(14px); transition: opacity .5s ease, transform .5s ease, visibility 0s linear .5s; }
@@ -143,14 +153,33 @@ body.hud-min #hotbar .slot.hm-food { animation: hm-beat 1s ease-in-out infinite;
 body.hud-min:not(.survival) #hud-status { display: none; }
 #hud-status #xp { margin: 3px 24px 1px 0; height: 4px; }
 #hud-status #xp b { left: auto; right: -22px; top: -4px; transform: none; }
-#hud-coins { display: none; margin-top: 1px; font: 500 17px/1.2 var(--font-title); letter-spacing: .03em; font-variant-numeric: tabular-nums; color: var(--coins); }
-#hud-status.hm-wins #hud-coins { display: block; }   /* (with a window open, the money goes here: the windows open at the top right) */
-/* The money, top right as in GTA (the minimap is bottom left), and what came in or went out */
-body.hud-min #money { position: fixed; right: 16px; top: 60px; margin: 0; padding: 5px 12px; font-size: 18px; line-height: 1.2; transition: opacity .5s ease, visibility 0s linear .5s, top .25s ease; }
-body.hud-min #money.hm-on { transition: opacity .15s ease, visibility 0s, top .25s ease; }
-#hud-delta { position: fixed; right: 18px; top: 100px; font: 600 18px/1.2 var(--font-title); letter-spacing: .03em; font-variant-numeric: tabular-nums; white-space: nowrap; pointer-events: none; text-shadow: 1px 0 #2a1c22, -1px 0 #2a1c22, 0 1px #2a1c22, 0 -1px #2a1c22; transition: opacity .5s ease, visibility 0s linear .5s, top .25s ease; }
-#hud-delta.up { color: #a8f07a; } #hud-delta.down { color: #ff9a7a; }
-body:not(.playing) #money, body:not(.playing) #hud-delta, body:not(.playing) #hud-goal, body:not(.playing) #hud-bow { display: none; }
+#hud-coins { display: none; align-items: center; gap: 6px; margin-top: 1px; font: 500 17px/1.2 var(--font-title); letter-spacing: .03em; font-variant-numeric: tabular-nums; color: var(--coins); }
+#hud-status.hm-wins #hud-coins { display: flex; }   /* (with a window open, the money goes here: the windows open at the top right) */
+/* Top right, as in GTA, no plates: the money, what came in or went out, and the time with the weather (the minimap is bottom
+   left). What does not show takes no room, so what does sits in the corner */
+#hud-right { position: fixed; right: 18px; top: 14px; z-index: 5; display: flex; flex-direction: column; align-items: flex-end; pointer-events: none; text-shadow: var(--shadow-bare); }
+#hud-right > * { height: 0; overflow: visible; }
+body.hud-min #hud-right > * { transition: opacity .5s ease, visibility 0s linear .5s, height .2s ease .5s; }
+body.hud-min #hud-right > .hm-on, body.hud-min.hud-all #hud-right > .hm { transition: opacity .15s ease, visibility 0s, height .15s ease; }
+body.hud-min #money { margin: 0; padding: 0; font-size: 26px; line-height: 34px; color: var(--ink); }
+body.hud-min #money.hm-on, body.hud-min.hud-all #money { height: 34px; }
+#hud-delta { font: 600 18px/24px var(--font-title); letter-spacing: .03em; font-variant-numeric: tabular-nums; white-space: nowrap; }
+#hud-delta.hm-on { height: 24px; }
+#hud-delta.up { color: var(--good); } #hud-delta.down { color: var(--bad); }
+body.hud-min #clockp { position: static; padding: 0; background: none; border: 0; box-shadow: none; font: 600 15px/24px var(--font-ui); letter-spacing: .06em; color: rgba(255, 255, 255, .94); text-shadow: var(--shadow-bare); }
+body.hud-min #clockp.hm-on, body.hud-min.hud-all #clockp { height: 24px; }
+body:not(.playing) #hud-goal, body:not(.playing) #hud-bow { display: none; }
+/* Bottom right, the name of the area you enter, in two sizes (over the fault dot; not in build mode: the build bar) */
+#hud-place { position: fixed; right: max(22px, var(--safe)); bottom: 32px; z-index: 4; display: flex; flex-direction: column; align-items: flex-end; max-width: 40vw; text-align: right; color: var(--ink); text-shadow: var(--shadow-bare); pointer-events: none; }
+#hud-place b { font: 600 calc(32 * var(--ui-s))/1.15 var(--font-title); letter-spacing: .06em; text-transform: uppercase; }
+#hud-place > span { font: 600 calc(17 * var(--ui-s))/1.25 var(--font-ui); color: rgba(255, 255, 255, .94); }
+#hud-place > span:empty { display: none; }
+#hud-place #coords { font: 500 14px/1.3 var(--font-ui); color: rgba(255, 255, 255, .78); }
+body.hud-min #hud-place { transition: opacity .6s ease, visibility 0s linear .6s; }
+body.hud-min #hud-place.hm-on, body.hud-min.hud-all #hud-place { transition: opacity .18s ease-out, visibility 0s; }
+body.hud-min #hud-place.hm-on { animation: hud-place .18s ease-out; }
+@keyframes hud-place { from { transform: translateY(12px); } }
+body.hud-min.building #hud-place { display: none; }
 #hud-item { position: absolute; left: 50%; bottom: 62px; transform: translateX(-50%); padding: 2px 10px; font-size: 16px; white-space: nowrap; color: var(--cream); background: rgba(10, 12, 16, .72); border-radius: var(--r-s); pointer-events: none; }
 body.hud-min #hint { bottom: 106px; }
 body.hud-min.building #hint { bottom: 156px; }   /* (above the build bar, which is taller than the hotbar) */
@@ -173,8 +202,9 @@ body.hud-min #quest.hm-compact:not(:hover) b { font-size: 16px; }
 #hud-bow.full .fg { stroke: var(--mark); }
 #hud-bow b { position: absolute; left: 46px; top: 10px; padding: 1px 7px; font-size: 17px; font-weight: 600; color: var(--cream); background: rgba(10, 12, 16, .6); border-radius: var(--r-s); text-shadow: 1px 0 #2a1c22, -1px 0 #2a1c22, 0 1px #2a1c22, 0 -1px #2a1c22; }
 #hud-bow.empty .bg { stroke: #ff6a4a; } #hud-bow.empty b { color: #ff8a6a; }
-/* The key tips: next to the hotbar, where the eye already goes */
-#hud-tip { position: absolute; left: calc(100% + 10px); bottom: 0; display: flex; align-items: center; gap: 4px; width: max-content; max-width: min(400px, calc(50vw - 250px)); padding: 7px 12px; font-size: 16px; line-height: 1.3; pointer-events: none; }
+/* The help box: the key tips, one at a time */
+#hud-tip { box-sizing: border-box; display: flex; align-items: center; gap: 6px; width: max-content; max-width: min(360px, 34vw); padding: 8px 12px; font-size: 16px; line-height: 1.3; pointer-events: none; }
+#hud-tip.hm-gone { display: none; }
 #hud-build { position: fixed; right: 16px; bottom: 40px; z-index: 8; pointer-events: none; }
 #hud-build { bottom: 164px; }   /* (above the build bar) */
 #hud-tip kbd, .hud-keys kbd { flex: none; font-size: 14px; }
@@ -214,22 +244,32 @@ export class SmartHud {
     const make = (id, cls, parent = document.body, tag = 'div') => { const el = document.createElement(tag); el.id = id; el.className = cls; parent.append(el); return el; };
     this.el = {
       clock: $('clockp'), tag: $('admin-tag'), place: $('place'), mini: $('minimap'), money: $('money'), slots: $('hotbar-slots'), quest: $('quest'),
-      status: make('hud-status', '', bar),
+      status: make('hud-status', '', bar), card: make('hud-place', ''),
     };
+    delete this.el.place;   // (the full interface's: here, the card)
     // (experience into its block; the money out of the hotbar, to the top right)
     for (const id of ['xp']) move($(id), this.el.status);
     this.coins = make('hud-coins', '', this.el.status);
-    if (this.el.money) { this.moneyPanel = !this.el.money.classList.contains('panel'); this.el.money.classList.add('panel'); move(this.el.money, document.body); }
+    // (top right: the money, what came in or went out, and the time; top left, under the bars: the objective and the help box)
+    const right = make('hud-right', ''), left = make('hud-left', '');
+    move(this.el.money, right);
+    this.el.delta = make('hud-delta', 'hmt', right);
+    move(this.el.clock, right);
+    move(this.el.quest, left);
+    this.el.card.innerHTML = '<b></b><span></span>';
+    move($('coords'), this.el.card);
     for (const el of Object.values(this.el)) el?.classList.add('hm');
     this.el.item = make('hud-item', 'hmt', bar);
-    this.el.delta = make('hud-delta', 'hmt');
-    this.el.tip = make('hud-tip', 'panel hmt', bar);
+    this.el.tip = make('hud-tip', 'panel hmt hm-gone', left);
+    // (its height, for the chat: written when it changes)
+    this.leftSize = new ResizeObserver(() => { const h = left.offsetHeight; if (h !== this.leftH) { this.leftH = h; document.body.style.setProperty('--hl', `${h}px`); } });
+    this.leftSize.observe(left);
     this.el.build = make('hud-build', 'panel hud-keys hmt');
     this.el.goal = make('hud-goal', 'hmt');
     this.el.goal.innerHTML = '<i></i><s></s><b></b>';
     this.el.bow = make('hud-bow', 'hmt');
     this.el.bow.innerHTML = '<svg viewBox="0 0 44 44"><circle class="bg" cx="22" cy="22" r="17"/><circle class="fg" cx="22" cy="22" r="17" pathLength="100" stroke-dasharray="100" stroke-dashoffset="100"/></svg><b></b>';
-    this.made = [this.el.status, this.el.item, this.el.delta, this.el.tip, this.el.build, this.el.goal, this.el.bow];
+    this.made = [this.el.status, this.el.item, this.el.build, this.el.goal, this.el.bow, this.el.card, left, right];
     this.hintEl = $('hint');
     // (Controls: Tab now also shows the whole interface)
     document.querySelector('[data-i18n="controls.players"]')?.setAttribute('data-i18n', 'hud.controls.tab');
@@ -258,8 +298,8 @@ export class SmartHud {
     this.offLang?.();
     if (this.el) this.beat(-1);
     for (const [el, parent, next] of (this.moved || []).reverse()) parent.insertBefore(el, next?.parentNode === parent ? next : null);
-    if (this.moneyPanel) this.el.money?.classList.remove('panel');
-    for (const el of [...['clock', 'tag', 'place', 'mini', 'money', 'slots', 'quest'].map(k => this.el?.[k]), this.hintEl]) {
+    this.leftSize?.disconnect(); document.body.style.removeProperty('--hl');
+    for (const el of [...['clock', 'tag', 'mini', 'money', 'slots', 'quest'].map(k => this.el?.[k]), this.hintEl]) {
       el?.classList.remove('hm', 'hm-on', 'hm-compact', 'hm-quiet');
       if (el?.getAttribute('class') === '') el.removeAttribute('class');   // (the money had none)
     }
@@ -345,7 +385,7 @@ export class SmartHud {
     if (g.money !== this.money) {
       if (this.money !== undefined) { this.delta(g.money - this.money, T); show('money', SHOW.money); }
       this.money = g.money;
-      this.coins.textContent = `${g.money} 🪙`;
+      hud.coins(this.coins, g.money);
     }
     const xp = g.xp;
     if (xp.points !== this.xp) {
@@ -367,8 +407,14 @@ export class SmartHud {
       show('quest', SHOW.quest);
     }
     // The place, when it is a new one (after a jump or a door in the dark, once it can be seen)
-    if (g.placeName !== this.placeName) { this.placeName = g.placeName; this.placeDue = !!g.placeName; }
-    if (this.placeDue && !g.jumping && !talking) { this.placeDue = false; show('place', SHOW.place); }
+    // (the named area: a step over a border and back is not entering it, and the same name is not said again for a while)
+    if (g.placeName !== this.placeName) { this.placeName = g.placeName; this.placeAt = T; this.placeDue = !!g.placeName; }
+    if (this.placeDue && T - this.placeAt > PLACE_SETTLE && !g.jumping && !talking) {
+      this.placeDue = false;
+      if (this.placeName !== this.placeSaid && !(T - this.placeTimes.get(this.placeName) < PLACE_AGAIN)) { show('card', SHOW.place); this.paintPlace(g, p); }
+      this.placeSaid = this.placeName; this.placeTimes.set(this.placeName, T);
+    }
+    if (all && !this.on.all) this.paintPlace(g, p);   // (Tab: where you are now)
     if (g.gamemode !== this.gm) { if (this.gm !== undefined) show('tag', SHOW.tag); this.gm = g.gamemode; if (this.tip === 'all') this.paintTip('all'); }
     // After the first look at everything, once: Tab is there
     if (!this.toldTab && T - this.started > SHOW.intro) { this.toldTab = true; this.want('all'); }
@@ -432,8 +478,8 @@ export class SmartHud {
     this.set('item', free && up('item'));
     this.set('delta', free && up('delta'));
     this.set('clock', free && (up('clock') || wins || wheel));
-    this.set('tag', free && up('tag'));
-    this.set('place', free && up('place'));
+    this.set('tag', free && !wins && up('tag'));
+    this.set('card', free && !wins && up('card'));
     this.set('quest', free);
     this.set('compact', !(up('quest') || all), this.el.quest, 'hm-compact');
     // Where to go, while a first step sends you somewhere: the mark over it, and the minimap with it
@@ -452,10 +498,10 @@ export class SmartHud {
     const bow = this.bowRing(g, inv, heldDef, free && !wins && !g.build.on);
     // A click hint goes quiet when it has been read (6 s without changing; not in build mode, where it says what goes
     // where), when it only says what you cannot do with what you hold (clicking still says it), and when the bow ring
-    // says it already
+    // or the prompt at the thing says it already
     if (hint !== this.hint) { this.hint = hint; this.hintAt = T; this.neg = !!hint && !g.build.on && this.negative(g) && hint === g.gather.hint(); }
     const eating = (crit.hunger && heldDef?.food) || (crit.water && drinkHeld);   // (the "Eat bread" of the hungry, and the "Drink" of the thirsty: it stays)
-    this.set('quiet', !!hint && !g.build.on && ((T - this.hintAt > STALE_HINT && !eating) || this.neg || bow || wheel), this.hintEl, 'hm-quiet');
+    this.set('quiet', !!hint && !g.build.on && ((T - this.hintAt > STALE_HINT && !eating) || this.neg || bow || wheel || g.prompts?.click), this.hintEl, 'hm-quiet');
     // Build mode: its keys, a moment after entering it
     if (g.build.on !== this.building) { this.building = g.build.on; if (g.build.on) show('build', SHOW.build); }
     this.set('build', g.build.on && free && up('build'));
@@ -483,7 +529,10 @@ export class SmartHud {
       const i = this.queue.findIndex(id => (id !== 'lowhp' || !under) && (!NEED_TIPS.has(id) || T - this.needTipAt >= NEED_GAP) && (!FIELD_TIPS.has(id) || id === 'blood' || T - this.tipAt >= FIELD_GAP));
       if (i >= 0) this.showTip(this.queue.splice(i, 1)[0], T);
     }
-    this.set('tip', !!this.tip && tipNow);
+    const tip = !!this.tip && tipNow;
+    if (tip !== this.on.tip) { if (tip) this.el.tip.classList.remove('hm-gone'); else this.tipGone = T + 0.6; }
+    if (!tip && this.tipGone && T > this.tipGone) { this.tipGone = 0; this.el.tip.classList.add('hm-gone'); }   // (faded out: it takes no room)
+    this.set('tip', tip);
   }
 
   // Four times a second: what needs a look around or the clock
@@ -581,9 +630,9 @@ export class SmartHud {
   start(p, T) {
     this.player = p;
     this.until = {};
-    for (const k of ['clock', 'tag', 'place', 'slots']) this.until[k] = T + SHOW.intro;
+    for (const k of ['clock', 'tag', 'slots']) this.until[k] = T + SHOW.intro;
     this.until.quest = T + SHOW.quest;
-    for (const k of ['hp', 'food', 'foodStep', 'water', 'waterStep', 'restStep', 'money', 'xp', 'level', 'invV', 'sel', 'stepKey', 'stepI', 'placeName', 'gm', 'night', 'count', 'sig', 'bed', 'critNow', 'grown']) this[k] = undefined;
+    for (const k of ['hp', 'food', 'foodStep', 'water', 'waterStep', 'restStep', 'money', 'xp', 'level', 'invV', 'sel', 'stepKey', 'stepI', 'placeName', 'placeSaid', 'gm', 'night', 'count', 'sig', 'bed', 'critNow', 'grown']) this[k] = undefined;
     this.fresh = Infinity;   // (the first look only counts them)
     this.foodSlot = -1; this.foodBag = false; this.drinkSlot = -1; this.drinkBag = false;
     this.healAt = -Infinity; this.enLow = false; this.swimT = 0; this.needTipAt = -Infinity; this.tipAt = -Infinity; this.fieldAt = 0;
@@ -591,7 +640,7 @@ export class SmartHud {
     try { this.game.needsBar?.reset(); } catch (e) { reportFault(e, 'NeedsBar.reset'); }   // (the bars: no timer of the game before)
     this.px = p.x; this.py = p.y; this.moveT = 0; this.stillT = 0;
     this.routeFlash = this.game.route?.flash;   // (a route loaded with the game is no news)
-    this.started = T; this.toldTab = false;
+    this.started = T; this.toldTab = false; this.placeTimes = new Map(); this.placeDue = false;
     this.allUntil = 0; this.held = false;
     this.queue = []; this.endTip();
     this.seen = this.loadSeen();
@@ -645,9 +694,21 @@ export class SmartHud {
   delta(n, T) {
     if (!n) return;
     const el = this.el.delta;
-    el.textContent = `${n > 0 ? '+' : '−'}${Math.abs(n)} 🪙`;
+    el.textContent = `${n > 0 ? '+' : '−'}${Math.abs(n)}`;
     el.className = `hmt ${n > 0 ? 'up' : 'down'}${this.on.delta ? ' hm-on' : ''}`;
     this.until.delta = T + SHOW.money;
+  }
+
+  // The card of the area: its name and, under it, how far from home (in the wild) or whose village it is
+  paintPlace(g, p) {
+    const name = g.placeName || '', [b, small] = this.el.card.children;
+    let sub = '';
+    if (g.scene === g.world && !g.underRoof) {
+      const d = Math.hypot(dxOf(p.x, CENTER.x), p.y - CENTER.y);
+      if (!inBounds(p.x, p.y)) sub = t('place.wild', { dist: d < 1000 ? t('minimap.dist', { n: Math.round(d / 10) * 10 }) : t('minimap.dist_km', { n: fmt.num(d / 1000, { maximumFractionDigits: 1 }) }) });
+    }
+    if (b.textContent !== name) b.textContent = name;
+    if (small.textContent !== sub) small.textContent = sub;
   }
 
   // ---------- where to go ----------
@@ -739,6 +800,7 @@ export class SmartHud {
     this.saveSeen();
     this.tipSig = null;
     const text = this.paintTip(id);
+    Audio.ui('tick');
     this.tipUntil = T + (text.length > 48 ? SHOW.tip : SHOW.tipShort);
   }
   // Hungry: what to do depends on where the food is (in hand, in the hotbar, in the bag or nowhere)

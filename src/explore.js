@@ -14,10 +14,12 @@ import { Person } from './entities.js';
 import { SHOPS } from './economy.js';
 import { Audio } from './audio.js';
 import { hud } from './ui/hud.js';
+import { t as tr } from './i18n.js';
 
 const SIZE = { ruinas: 2.2, campamento: 1.8, torre: 3.7, barco: 2.2, templo: 2.2, cueva: 1.4, aldea: 16, faro: 3 };
 const AROUND = [[-1, -1], [0, -1], [1, -1], [-1, 0], [1, 0], [-1, 1], [0, 1], [1, 1]];
 const NAMES = { ruinas: 'Ruinas', campamento: 'Campamento abandonado', torre: 'Torre vieja', barco: 'Barco hundido', templo: 'Templo antiguo', cueva: 'Cueva', aldea: 'Aldea', faro: 'Faro' };
+const BIG_PLACES = new Set(['aldea', 'torre', 'cueva', 'templo', 'faro']);
 SHOPS.viajero = { title: 'Mercader de la aldea', hours: [7, 21], stock: [{ id: 'semilla_manzano', price: 90 }, { id: 'pocion', price: 120 }, { id: 'espada', price: 380 }, { plan: 'barca', price: 500 }, { id: 'caballo', price: 2600 }, { id: 'lingote_oro', price: 300 }, { id: 'semilla_calabaza', price: 60 }] };
 
 export class Explore {
@@ -205,7 +207,9 @@ export class Explore {
     const near = this.poiNear(p.x, p.y, 12);
     if (near && !this.found.has(near.key)) {
       this.found.add(near.key);
-      hud.toast(`Has encontrado: ${NAMES[near.kind]}`, 'good');
+      // (the big places, a message in the middle; the rest, a line of the feed)
+      const line = tr('feed.discovered', { place: NAMES[near.kind] });
+      if (BIG_PLACES.has(near.kind)) hud.big({ title: NAMES[near.kind], sub: tr('big.discovered'), kind: 'place', line }); else hud.toast(line, 'place');
       this.game.stats?.add('lugares', 1);
     }
   }

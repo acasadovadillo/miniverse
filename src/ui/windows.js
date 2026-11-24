@@ -5,6 +5,7 @@
 // estrecha, abajo; en las dos, no se mueven.
 const $ = id => document.getElementById(id);
 const KEY = 'pueblo-brotes:ventanas', COLLAPSE_AFTER = 400, BASE_Z = 11, MARGIN = 8, EDGE = 16, GAP = 8, TITLE_H = 44;   // (EDGE: the HUD's corner margin)
+const SLIDE = new Set(['clockp', 'quest', 'body-chip', 'hud-left']);   // (what slides with the bars over it)
 const fixedLayout = () => matchMedia('(pointer: coarse), (max-width: 700px)').matches;
 
 function loadSaved() { try { return JSON.parse(localStorage.getItem(KEY)) || {}; } catch { return {}; } }
@@ -13,12 +14,12 @@ export function initWindows(game) {
   const wins = new Map(), saved = loadSaved();
   let order = [];   // las abiertas, la última, la de encima
   const persist = () => { try { localStorage.setItem(KEY, JSON.stringify(saved)); } catch { /* (sin almacenamiento: se olvida al recargar) */ } };
-  const changed = () => { game.windowsOpen = order.length > 0; cover(); };
+  const changed = () => { game.windowsOpen = order.length > 0; document.body.classList.toggle('win-open', game.windowsOpen); cover(); };
   // The clock, the first steps and the body chip at the top left hide while an open window lies over them (the windows
   // are a little see-through: the clock's text would show through the title), and come back when it goes, folds or moves away
   function cover() {
     const rs = order.map(id => wins.get(id).el.getBoundingClientRect()).filter(r => r.width);
-    for (const el of [$('clockp'), $('quest'), $('body-chip')]) {
+    for (const el of [$('clockp'), $('quest'), $('body-chip'), $('hud-right')]) {
       if (!el) continue;
       const was = el.classList.contains('under-win');
       if (was) el.classList.remove('under-win');   // (measured where it would be)
@@ -27,7 +28,7 @@ export function initWindows(game) {
     }
   }
   // (and again when they have slid to a new place: the bars over them came or went, index.html --hud-top)
-  for (const id of ['clockp', 'quest', 'body-chip']) $(id)?.addEventListener('transitionend', e => { if (e.propertyName === 'top') cover(); });
+  addEventListener('transitionend', e => { if (e.propertyName === 'top' && SLIDE.has(e.target.id)) cover(); });
   function stack() { order.forEach((id, i) => { wins.get(id).el.style.zIndex = BASE_Z + i; }); }
   function front(id) { order = [...order.filter(x => x !== id), id]; stack(); }
   // What no window covers at the top left, in survival: the status bars, with every row an open window shows (where they
@@ -47,7 +48,7 @@ export function initWindows(game) {
   // the hotbar, right under the bars, covering the whole clock (never half of it; windows.js hides it then: cover()); on
   // a screen too short even for that, place() makes it end over them and scroll (you drag things to the hotbar from it)
   function leftSpot(w, h) {
-    const bars = barsEnd(), ch = $('clockp')?.offsetHeight || 0, floor = bars ? bars + GAP : EDGE;
+    const bars = barsEnd(), ch = game.smartHud ? 0 : $('clockp')?.offsetHeight || 0, floor = bars ? bars + GAP : EDGE;
     // (the body chip in sight, right under the bars (ui/bodychip.js): the clock is under it, and so is the window)
     const bc = $('body-chip'), chip = bc?.classList.contains('on') ? bc.offsetHeight + GAP : 0;
     const under = floor + chip + (ch ? ch + GAP : 0);
@@ -163,6 +164,6 @@ export function initWindows(game) {
     closeTop() { return order.length ? close(order.at(-1)) : false; },
     closeAll() { for (const id of [...order]) close(id); },
     // (the left one under the bars and the clock, at the top left: leftSpot)
-    defaults: { left: leftSpot, right: w => [innerWidth - w - 16, 56], center: (w, h) => [(innerWidth - w) / 2, Math.max(MARGIN, (innerHeight - h) / 2)] },
+    defaults: { left: leftSpot, right: w => [innerWidth - w - 16, 78], center: (w, h) => [(innerWidth - w) / 2, Math.max(MARGIN, (innerHeight - h) / 2)] },
   };
 }

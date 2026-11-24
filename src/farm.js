@@ -151,7 +151,7 @@ export class Farm {
   // Tonight's frost, in the evening: once, only if there are crops near that it may bite
   warnFrost() {
     const ids = this.frostTonight();
-    if (ids.length) hud.toast(t('farm.frost.tonight', { crops: this.names(ids) }));
+    if (ids.length) hud.toast(t('farm.frost.tonight', { crops: this.names(ids) }), 'warn');
   }
   frostTonight() {
     const p = this.game.player, out = new Set(), day = this.today, F = {};

@@ -307,7 +307,7 @@ export class Live {
   setOps(list) {
     const was = this.amOp;
     this.ops = Array.isArray(list) ? new Set(list.map(u => String(u).toLowerCase())) : null;
-    if (this.game.player && this.amOp !== was) hud.toast(this.amOp ? 'Ahora eres op: puedes usar los comandos (/help)' : 'Ya no eres op', this.amOp ? 'ok' : '');
+    if (this.game.player && this.amOp !== was) hud.toast(this.amOp ? 'Ahora eres op: puedes usar los comandos (/help)' : 'Ya no eres op', 'net');
     this.changed();
   }
   // ¿Es op esta cuenta? (null: el servidor no lo dice)
@@ -322,7 +322,7 @@ export class Live {
   }
   // Lo que manda el propio servidor desde su terminal
   fromServer(m) {
-    if (m.t === 'say') { this.say?.(`[Servidor] ${m.text}`, 'say'); hud.toast(`[Servidor] ${m.text}`); }
+    if (m.t === 'say') { this.say?.(`[Servidor] ${m.text}`, 'say'); hud.toast(`[Servidor] ${m.text}`, 'net'); }
     else if (m.t === 'save') { this.say?.(Profile.server ? 'Guardando el mundo…' : 'El servidor guarda: guardando la partida…', 'sys'); this.onServerSave?.(); }
     else if (m.t === 'need') { if (Profile.admin) this.giveKeys(); }
     else if (m.t === 'servers') { this.serverConns = new Set(m.ids || []); for (const [c, p] of this.peers) if (p.server && !this.serverConns.has(c)) p.server = false; }
@@ -350,9 +350,9 @@ export class Live {
   serverTp(m) {
     const g = this.game;
     if (!this.joined || !g.player || Profile.server) return;
-    if (m.home) { if (g.teleportHome(true)) hud.toast('El servidor te ha llevado a casa'); return; }
+    if (m.home) { if (g.teleportHome(true)) hud.toast('El servidor te ha llevado a casa', 'net'); return; }
     const to = String(m.to || '').toLowerCase(), peer = this.others.find(p => p.playing && p.id === to);
-    if (peer?.entity && peer.sc === 'world' && g.teleport(peer.entity.x, peer.entity.y, true)) hud.toast(`El servidor te ha llevado adonde está ${peer.name}`);
+    if (peer?.entity && peer.sc === 'world' && g.teleport(peer.entity.x, peer.entity.y, true)) hud.toast(`El servidor te ha llevado adonde está ${peer.name}`, 'net');
   }
   // Una copia del mundo (ya cifrada con la clave del mundo: el servidor no puede abrirla) para que la guarde
   // name: una copia fija con ese nombre (solo el mundo del servidor: /backup, antes de /update y de /restore), que el
@@ -380,7 +380,7 @@ export class Live {
       this.peers.set(conn, peer);
       if (peer.entity && m.look) peer.entity.look = m.look;
       if (m.ask) this.hi(conn);
-      if (this.joined && this.game.player && !peer.server && peer.playing !== !!was) hud.toast(peer.playing ? `${peer.name} ${Profile.server ? 'ha entrado en el mundo' : 'está jugando contigo'}` : `${peer.name} ha salido`, peer.playing ? 'ok' : '');
+      if (this.joined && this.game.player && !peer.server && peer.playing !== !!was) hud.toast(peer.playing ? `${peer.name} ${Profile.server ? 'ha entrado en el mundo' : 'está jugando contigo'}` : `${peer.name} ha salido`, 'net');
       if (peer.host) { this.hostName = peer.name; clearTimeout(this.waitTimer); }
       // Dos llevando el mundo (uno se cortó y volvió, o entraron a la vez): sigue el que llegó antes al servidor. El
       // mundo del servidor, siempre: si tu juego se lo acaba de dar, se lo pasa y sigue en él; si no, sale y vuelve
@@ -430,7 +430,7 @@ export class Live {
         else this.say?.(`<${peer.name}> ${m.text}`);
         break;
       case 'bye':
-        if (this.joined && peer.playing && g.player && !peer.server) hud.toast(`${peer.name} ha salido`);
+        if (this.joined && peer.playing && g.player && !peer.server) hud.toast(`${peer.name} ha salido`, 'net');
         this.gone(peer);
         peer.playing = false;
         this.hide(peer);
@@ -499,7 +499,7 @@ export class Live {
       // and that neighbour keeps quiet a while. Cosmetic, nothing arbitrated; remarks.js checks the indexes
       case 'rmk': if (!Profile.server && this.joined && g.player) g.remarks?.heard?.(m, peer, conn); break;
       case 'knock':
-        if (this.joined && g.player && g.scene === g.world && Math.hypot(g.player.x - m.x, g.player.y - m.y) < 25) { Audio.knock(); if (Math.hypot(g.player.x - m.x, g.player.y - m.y) < 12) hud.toast(`${peer.name} llama a la puerta`); }
+        if (this.joined && g.player && g.scene === g.world && Math.hypot(g.player.x - m.x, g.player.y - m.y) < 25) { Audio.knock(); if (Math.hypot(g.player.x - m.x, g.player.y - m.y) < 12) hud.toast(`${peer.name} llama a la puerta`, 'net'); }
         break;
       // Tener un bebé: quien está al otro lado de la cama ha pulsado su corazón
       case 'love':
@@ -588,7 +588,7 @@ export class Live {
     } else if (cmp < 0 && peer.server && !this.toldServerOld && (Profile.admin || this.amOp)) {
       this.toldServerOld = true;
       const text = `El mundo del servidor tiene una versión anterior del juego (${peer.v || 'sin número'}): escribe /update en el terminal del servidor para ponerlo al día (si no lo conoce, cierra multijugador.py y vuelve a abrirlo).`;
-      if (g.player) hud.toast(text); else this.serverOld = text;
+      if (g.player) hud.toast(text, 'net'); else this.serverOld = text;
       this.changed();
     }
   }
@@ -640,7 +640,7 @@ export class Live {
     const peer = this.peers.get(conn);
     if (!peer) return;
     if (gone) {
-      if (this.joined && peer.playing && this.game.player && !peer.server) hud.toast(`${peer.name} se ha desconectado`);
+      if (this.joined && peer.playing && this.game.player && !peer.server) hud.toast(`${peer.name} se ha desconectado`, 'net');
       this.gone(peer);
       this.peers.delete(conn);
       if (peer.host) this.hostGone();
@@ -669,7 +669,7 @@ export class Live {
     for (const a of g.ranch.animals) { delete a.netTo; a.grazing = false; }   // (los animales y los niños, ahora los mueve tu juego)
     for (const e of g.family.ents.values()) delete e.netTo;
     this.hi();
-    hud.toast(`Ahora el mundo compartido lo lleva tu juego (${was} ha salido)`, 'ok');
+    hud.toast(`Ahora el mundo compartido lo lleva tu juego (${was} ha salido)`, 'net');
     this.onHost?.();
   }
   // Ha llegado el mundo del servidor mientras tu juego llevaba el mundo: desde ya lo lleva él (tiene el mundo tal cual:
@@ -680,7 +680,7 @@ export class Live {
     if (!this.solo) this.solo = { save: { ...g.snapshot(), worldAt: Date.now() }, deltas: new Map([...g.world.deltas].map(([k, d]) => [k, copy(d)])) };
     Object.assign(this, { role: 'guest', gaveTo: null, clockBase: { c: g.world.clock, at: g.time, run: true }, hostName: this.peers.get(conn)?.name || 'Servidor' });
     this.hi();
-    hud.toast('Ahora el mundo compartido lo lleva el servidor', 'ok');
+    hud.toast('Ahora el mundo compartido lo lleva el servidor', 'net');
     this.onYield?.();
     if (this.pendingNewer) this.outdated(this.pendingNewer);   // (tiene una versión más nueva: ya tiene el mundo, sales)
   }

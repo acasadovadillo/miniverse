@@ -21,8 +21,10 @@ export function initChat(game) {
     while (log.children.length > 60) log.firstChild.remove();
     log.scrollTop = log.scrollHeight;
   }
-  setInterval(() => { const now = Date.now(); for (const l of log.children) l.classList.toggle('old', now - l.dataset.t > FADE); }, 500);
+  setInterval(() => { const now = Date.now(); for (const l of log.children) { const age = now - l.dataset.t; l.classList.toggle('old', age > FADE); l.classList.toggle('gone', age > FADE + 700); } }, 500);
 
+  // (the room it has changes with what is over it: the last messages stay in sight)
+  new ResizeObserver(() => { if (!open) log.scrollTop = log.scrollHeight; }).observe(log);
   function show(prefix = '') {
     if (open || game.mode !== 'play' || hud.dialogOpen) return false;
     open = true;

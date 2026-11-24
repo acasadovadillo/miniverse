@@ -4,6 +4,7 @@
 // Al morir se pierden (salvo con keepInventory). Es de cada uno, como la vida; la barra verde, en supervivencia.
 import { Audio } from './audio.js';
 import { hud } from './ui/hud.js';
+import { t } from './i18n.js';
 
 // Lo que cuesta pasar del nivel l al siguiente, y lo que hay que tener en total para llegar a l
 export const xpFor = l => (l >= 31 ? 9 * l - 158 : l >= 16 ? 5 * l - 38 : 2 * l + 7);
@@ -38,7 +39,7 @@ export class Experience {
     const was = this.level;
     this.set(this.points + whole);
     this.game.gather.float(`+${whole} XP`, '#e8d48a');
-    if (this.level > was) { Audio.unlock(); hud.toast(`¡Nivel ${this.level} de experiencia!`, 'ok'); }
+    if (this.level > was) { Audio.unlock(); hud.big({ title: t('big.level', { n: this.level }), line: `¡Nivel ${this.level} de experiencia!` }); }
   }
   // Gastar niveles (lo que se llevaba del nivel de ahora se conserva). En creativo no se gastan
   spend(levels) {

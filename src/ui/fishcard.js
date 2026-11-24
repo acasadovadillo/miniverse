@@ -2,7 +2,9 @@
 // it, X held lets it go. Bottom centre, over the hotbar, for both interfaces; its CSS is here (the tokens of ui-glass).
 // Per frame it compares two references; the text is written once per catch.
 import { t, onLangChange } from '../i18n.js';
+import { chip, ring } from './frontend.js';
 import { fishName, kgText } from '../fishing.js';
+import { HOLD_X } from '../input.js';
 
 const CSS = `
 #fishcard { position: fixed; left: 50%; bottom: 150px; z-index: 6; transform: translate(-50%, 10px); min-width: 220px; padding: 12px 20px 10px; text-align: center; pointer-events: none;
@@ -12,8 +14,7 @@ const CSS = `
 #fishcard i { display: block; font-style: normal; font-size: 17px; font-variant-numeric: tabular-nums; margin-top: 2px; }
 #fishcard em { display: inline-block; font-style: normal; font-size: 13px; text-transform: uppercase; letter-spacing: .07em; color: var(--accent-2, #e8c67a); margin: 4px 6px 0; }
 #fishcard p { margin: 9px 0 0; padding-top: 7px; border-top: 1px solid var(--hair, rgba(255, 255, 255, .12)); font-size: 14px; color: var(--dim, #b9b6ae); white-space: nowrap; }
-#fishcard u { display: block; height: 2px; margin-top: 7px; background: var(--accent-2, #e8c67a); transform: scaleX(0); transform-origin: left; text-decoration: none; }
-#fishcard u.go { transform: scaleX(1); transition: transform .3s linear; }
+#fishcard .chip { vertical-align: middle; margin: 0 6px 0 10px; }
 `;
 
 export class FishCard {
@@ -25,7 +26,10 @@ export class FishCard {
     document.head.append(style);
     const el = this.el = document.createElement('div');
     el.id = 'fishcard';
-    el.innerHTML = '<b></b><i></i><span></span><p><kbd>E</kbd> <s style="text-decoration:none"></s> &nbsp;·&nbsp; <kbd>X</kbd> <s style="text-decoration:none"></s></p><u></u>';
+    el.innerHTML = '<b></b><i></i><span></span><p></p>';
+    const words = () => Object.assign(document.createElement('s'), { style: 'text-decoration: none' });
+    this.x = chip('X', true);   // (held: its ring)
+    el.lastChild.append(chip('E'), words(), this.x, words());
     document.body.append(el);
     onLangChange(() => { if (this.card) this.write(this.card); });
   }
@@ -38,7 +42,7 @@ export class FishCard {
       el.classList.toggle('on', !!c);
     }
     const hold = !!c && c.x0 !== null;
-    if (hold !== this.holding) { this.holding = hold; el.lastChild.classList.toggle('go', hold); }
+    if (hold !== this.holding) { this.holding = hold; if (hold) this.run = ring(this.x, HOLD_X * 1000); else { if (c) this.run?.cancel(); this.run = null; } }
   }
   write(c) {
     const el = this.el, [keep, free] = el.querySelectorAll('s'), tags = el.querySelector('span');

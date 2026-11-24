@@ -19,12 +19,13 @@ import { hud } from './ui/hud.js';
 import { nearX } from './world/planet.js';
 import { t as tr, has, fmt } from './i18n.js';
 import * as FW from './fishwater.js';
+import { HOLD_X } from './input.js';
 
 export const MIN_CAST = 1.2, REACH = { 1: 6, 2: 9 };      // tiles: the least, and how far each rod throws
 const LINE_KG = { 1: 5, 2: 12 }, SEDAL_KG = 2;            // kg the line holds; Lía's good line (her gift at three hearts) adds
 const ROD_K = { 1: 1, 2: 1.15 };                          // how the rod changes the rate
 const NIB = 0.3, NIB_GAP = [4, 10], STEAL = 0.06, SPOOK = { r: 3, s: 30, k: 1.5 };
-const KEEP_S = 5, HOLD_X = 0.3, BIG = 2.5;                // s the card stays; s of X held; kg from which it can slip off at a steep bank
+const KEEP_S = 5, BIG = 2.5;                              // s the card stays; kg from which it can slip off at a steep bank
 const FIND = 0.03, RARE = 0.04, TAP = 0.4;
 // How each kind takes the float. pre: s of warning before it can be struck (pulling then is too soon), win: s to strike
 export const BITES = { dip: { pre: 0.6, win: 0.7 }, run: { pre: 0, win: 2 }, lift: { pre: 0.4, win: 1.5 }, slam: { pre: 0, win: 1 }, taps: { pre: 0, win: 1.2 } };
@@ -256,6 +257,7 @@ export class Fishing {
     if (this.card) this.keep();
     this.card = { id, cm, kg, g: grams, rec: rec && best > 0, trophy, water, x, y, t: 0, x0: null, xp: 3 * Math.round(3 + f.dif * 9 + Math.min(10, kg)) };   // (×3: a fish takes several times longer than before)
     Audio.unlock();
+    if (this.card.rec) hud.big({ title: fishName(id), sub: `${tr('fish.record')} · ${tr('fish.card', { cm, kg: kgText(kg) })}` });
     g.gather.cooldown = 0.3;
     g.stats?.add('peces', 1);
     g.xp?.add(1 + Math.floor(Math.random() * 6));
@@ -390,7 +392,7 @@ export class Fishing {
     if (!p || !FISH[m.id] || !Number.isFinite(m.cm) || !Number.isFinite(m.g) || m.cm <= 0 || m.cm > 500 || m.g <= 0 || m.g > 5e5) return false;
     const near = e && peer.sc === 'world' && g.scene === this.world && Math.hypot(nearX(e.x, p.x) - p.x, e.y - p.y) < 100;
     if (!near && !g.social?.isPartner?.(peer)) return false;
-    hud.toast(tr(m.rec ? 'fish.feed_rec' : 'fish.feed', { who: String(peer.name || '').slice(0, 24), fish: fishName(m.id), cm: Math.round(m.cm), kg: kgText(m.g / 1000) }));
+    hud.toast(tr(m.rec ? 'fish.feed_rec' : 'fish.feed', { who: String(peer.name || '').slice(0, 24), fish: fishName(m.id), cm: Math.round(m.cm), kg: kgText(m.g / 1000) }), 'net');
     return true;
   }
 

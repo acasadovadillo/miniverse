@@ -6,6 +6,7 @@ import { SHOPS, priceOf, buyPrice } from '../economy.js';
 import { itemIconUrl } from '../art/items.js';
 import { animalSprite, ANIMALS } from '../art/farm.js';
 import { Audio } from '../audio.js';
+import { hud } from './hud.js';
 import { t, fmt, has } from '../i18n.js';
 
 const $ = id => document.getElementById(id);
@@ -40,7 +41,7 @@ export function initShopUI(game, { onClose }) {
     if (!shop || !SHOPS[shop]) return;
     // (the title from the language files when the shop has one, shop.title.<id>: Marta's, Plan E §4.4; else its own)
     $('sh-title').textContent = has(`shop.title.${shop}`) ? t(`shop.title.${shop}`) : SHOPS[shop].title ?? '';
-    $('sh-money').textContent = `${game.money} 🪙`;
+    hud.coins($('sh-money'), game.money);
     document.querySelectorAll('[data-shtab]').forEach(b => b.classList.toggle('on', b.dataset.shtab === tab));
     $('sh-note').textContent = note || game.rep?.shopNote() || '';   // (why the prices are not the usual ones, until something else is said)
     $('sh-list').textContent = '';

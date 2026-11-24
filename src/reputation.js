@@ -88,7 +88,7 @@ export class Reputation {
     if (lv !== v.lvl) {
       const up = levelIndex(lv) > levelIndex(v.lvl);
       v.lvl = lv;
-      hud.toast(t(up ? 'rep.toast.up' : 'rep.toast.down', { level: t('rep.level.' + lv) }), up ? 'good' : '');
+      hud.toast(t(up ? 'rep.toast.up' : 'rep.toast.down', { level: t('rep.level.' + lv) }), up ? 'good' : 'social');
       if (up) Audio.unlock(); else Audio.error();
     }
     return n;   // (saved with the game, as the friendships: no save of its own for each change)

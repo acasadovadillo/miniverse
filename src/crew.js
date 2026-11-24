@@ -12,6 +12,7 @@ import { hud } from './ui/hud.js';
 import { Audio } from './audio.js';
 import { BUILDABLE } from './buildables.js';
 import { randomId } from './carry-items.js';
+import { HOLD_X } from './input.js';
 
 const REACH = 2.6, BEHIND = 0.7;   // desde dónde se sube y a qué distancia del que rema se va sentado
 const DEEP_BOARD = 0.3;   // (m of dive, entities.js: deeper than this, no boat is offered)
@@ -133,7 +134,7 @@ export class Crew {
     Audio.pickup();
     g.onSave?.();
   }
-  mooredAction(b) { const C = this.game.carry; return { text: C?.dropFirst('boat') || C?.boatGuardText(b) || 'Subir a la barca', run: () => this.embark(b), alt: { text: 'Desmontar la barca', run: () => this.dismantle(b) } }; }
+  mooredAction(b) { const C = this.game.carry; return { text: C?.dropFirst('boat') || C?.boatGuardText(b) || 'Subir a la barca', run: () => this.embark(b), alt: { text: 'Desmontar la barca', hold: HOLD_X, run: () => this.dismantle(b) } }; }
   // Dying while rowing (combat.js, before keepInventory is looked at): the boat stays moored where you are (it used to be
   // lost). Without keep, a big thing stays in it (not into the water); with keep, it stays in your arms
   onDeath(keep) {
@@ -156,7 +157,7 @@ export class Crew {
   // Cerca de la barca de otro: subirse, si no va ya alguien
   canBoard(p, scene) { const g = this.game; return scene === g.world && g.live.joined && !p.boat && !p.mount && !p.aboard && !p.inside && !((p.dive || 0) >= DEEP_BOARD); }
   actionOn(peer) {
-    if (this.game.live.others.some(q => q.entity?.aboard === peer.id)) return { text: `La barca de ${peer.name} ya va llena`, run: () => hud.toast('En la barca caben dos') };
+    if (this.game.live.others.some(q => q.entity?.aboard === peer.id)) return { text: `La barca de ${peer.name} ya va llena`, run: () => hud.toast('En la barca caben dos', 'warn') };
     return { text: this.game.carry?.dropFirst() || `Subir a la barca de ${peer.name}`, run: () => this.board(peer) };
   }
   interact(p, scene) {

@@ -139,7 +139,7 @@ export class Barrow {
   get pushing() { return this.rec?.key || null; }
   decides() { const L = this.game.live; return !L?.joined || L.role === 'host'; }
   guest() { const L = this.game.live; return !!L?.joined && L.role === 'guest'; }
-  say(text) { hud.toast(text); Audio.error(); }
+  say(text) { hud.toast(text, 'warn'); Audio.error(); }
   reset() {
     this.rec = null; this.grip = null; this.started = false;
     this.pending.clear(); this.recent.clear(); this.idle.clear(); this.failedAt.clear();

@@ -437,7 +437,7 @@ export class Needs {
     const g = this.game, p = g.player;
     if (!p || this.dozing || g.dying || g.busy) return false;
     if (g.carry?.refuse()) return false;
-    if (this.survival && g.mobs?.near(p.x, p.y, 8)) { hud.toast(t('needs.sleep.mobs')); Audio.error(); return false; }
+    if (this.survival && g.mobs?.near(p.x, p.y, 8)) { hud.toast(t('needs.sleep.mobs'), 'warn'); Audio.error(); return false; }
     const h = g.days.hour, day = h >= 6 && h < 18;
     if (day) {
       // (the first steps ask to try the bed: then a nap is always allowed)

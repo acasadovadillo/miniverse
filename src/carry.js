@@ -23,7 +23,7 @@ import { SWIM_IN } from './entities.js';
 import { Audio } from './audio.js';
 import { t, noun } from './i18n.js';
 import { hud } from './ui/hud.js';
-import { keys } from './input.js';
+import { keys, HOLD_X } from './input.js';
 import { EVENT } from './senses.js';
 
 // The trees that leave a log when felled (cactus and bushes, as before)
@@ -248,7 +248,7 @@ export class Carry {
     const inv = g.inv;
     if (this.oldWarn && g.mode === 'play' && !globalThis.document?.getElementById('fade')?.classList.contains('on') && (this.oldWarnIn -= dt) <= 0) {
       this.oldWarn = false;
-      if (inv.load > HEAVY) { hud.toast(t('hud.load.too_heavy_old')); this.shownUntil = performance.now() + SHOW_LOAD * 2000; }   // (and the meter, a while)
+      if (inv.load > HEAVY) { hud.toast(t('hud.load.too_heavy_old'), 'warn'); this.shownUntil = performance.now() + SHOW_LOAD * 2000; }   // (and the meter, a while)
     }
     if (this.survival && !p.mount && !p.boat && !p.aboard) {
       // Walking loaded tires you (hunger), more the more you carry; and with something in the arms, a bit always
@@ -358,7 +358,7 @@ export class Carry {
     if (!this.bigNow) return { text: t('carry.take', { item }), run: () => this.take(o) };
     const why = this.cantTake();
     if (why) return { text: why, run: () => { this.say(why); Audio.error(); } };
-    return { text: t('carry.shoulder', { item }), run: () => this.take(o), alt: BULKY[id].prey ? { text: t('carry.butcher'), run: () => this.butcher(o) } : null };
+    return { text: t('carry.shoulder', { item }), run: () => this.take(o), alt: BULKY[id].prey ? { text: t('carry.butcher'), hold: HOLD_X, run: () => this.butcher(o) } : null };
   }
   // E on a station with something in the arms: the bench saws the log, the kitchen butchers the carcass (null: nothing)
   stationAction(o) {
