@@ -53,7 +53,8 @@ import { levelOf, recent } from './reputation.js';
 import { EMOTE_KINDS, PLAYER_LINES, REPLY_GESTURE, areCouple } from './social.js';
 import { modelKind, ICON3D } from './three/icons.js';
 import { useSmartHud } from './ui/smarthud.js';
-import { Settings } from './settings.js';
+import { Settings, DEFAULTS } from './settings.js';
+import { settingsRows } from './ui/settings.js';
 import { FE, alertBox, tabStrip, list, optionRow, legend } from './ui/frontend.js';
 import { GLYPHS } from './ui/glyphs.js';
 import { ACCENTS, accentOf, useAccent, skinNow } from './ui/skin.js';
@@ -91,7 +92,7 @@ import { buildKit } from './three/kit3d.js';
 import { holdPose } from './three/carry3d.js';
 import * as C3 from './three/carry3d.js';   // (pushPose, if the drawing has it: the wheelbarrow's cost)
 import { stowedGeo } from './three/actors.js';
-import { t, tHtml, tList, fmt, formatMessage, defineNames, noun, setLang, getLang, onLangChange, accountLangOf, setAccountLang, savedLang, decideFirst, applyDom } from './i18n.js';
+import { t, tHtml, tList, fmt, formatMessage, defineNames, noun, setLang, getLang, getLangSetting, useLangSetting, onLangChange, accountLangOf, setAccountLang, savedLang, decideFirst, applyDom } from './i18n.js';
 import { findPath, KIND as RKIND, LIMITS as RLIMITS, releasePool, chunkMask, OVR as ROVR } from './world/routegrid.js';
 import { MAX_VERTS as RIBBON_MAX, OFF as RIBBON_OFF, STILL_S as RIBBON_STILL, routeGround } from './three/route3d.js';
 import { musicState, pickMood, bandOf, TAVERN_VENUE, BAND_R } from './musicstate.js';
@@ -1007,16 +1008,19 @@ async function soloTests(game) {
       }
       // The setting lights the one in sight (here the full one, which the tests choose without saving it), and its
       // buttons swap it
-      const row = [...el('st-body').querySelectorAll('.st-row')].find(r => r.firstElementChild?.textContent === t('gui.settings.hud'));
-      const [bMin, bFull] = row?.querySelectorAll('button') || [];
-      check(bMin && bFull, 'no Interface row in the settings');
-      const lit = () => (bMin.classList.contains('on') ? 'minimal' : '') + (bFull.classList.contains('on') ? 'full' : '');
-      bMin.click(); draw();
-      check(game.smartHud && lit() === 'minimal', `Minimal pressed: ${!!game.smartHud}, lit ${lit()}`);
-      bFull.click(); draw();
-      check(!game.smartHud && lit() === 'full', `Full pressed: ${!!game.smartHud}, lit ${lit()}`);
+      const H = game.pauseHub;
+      H.goTo('settings', 'interface');
+      const row = el('st-rows').querySelector('[data-row="hud"]'), next = row?.querySelectorAll('.fe-arrow')[1], lit = () => row.querySelector('b').textContent;
+      check(next, 'no Interface row in the settings');
+      const names = { minimal: t('gui.settings.row.hud.minimal'), full: t('gui.settings.row.hud.full') };
+      check(lit() === names.full, `the one in sight is not the one shown: ${lit()}`);
+      next.click(); draw();
+      check(game.smartHud && lit() === names.minimal, `Minimal: ${!!game.smartHud}, shown ${lit()}`);
+      next.click(); draw();
+      check(!game.smartHud && lit() === names.full, `Full: ${!!game.smartHud}, shown ${lit()}`);
+      H.close();
       check(Settings.hudNow?.() === 'full', 'Settings.hudNow does not say the one in sight');
-    } finally { W.closeAll(); Settings.set('hud', was); useSmartHud(game, false); }
+    } finally { if (game.pauseHub.isOpen) game.pauseHub.close(); W.closeAll(); Settings.set('hud', was); useSmartHud(game, false); }
   });
   // ---------- UI-0: the glass look and the menus' own pieces (PLAN-R8-hud-mapa.md §8, PLAN-R9-menus.md §8) ----------
   await test('ui skin (english): .panel has no border and a glass background; wood (?ui=madera, the setting) brings the old look back', async () => {
@@ -1461,35 +1465,128 @@ async function soloTests(game) {
       check(STEPS.every(q => q.text === t(`steps.${q.id}`) && !/steps\./.test(q.text + q.hint)), 'the steps'); check(ACH.every(([id, name, desc]) => !/ach\./.test(name + desc)), 'the achievements');
     } finally { if (H.isOpen) H.close(); game.story.pages = pages; await setLang(was); }
   });
-  await test('menu (english): the settings in the pause and in the main menu are the same rows; the keyboard changes them', async () => {
-    const H = game.pauseHub, $ = id => document.getElementById(id), was = Settings.v.music, snd = Settings.v.menuSfx;
-    try {
-      H.open('settings');
-      check($('st-body').closest('#ps-settings') && $('st-body').querySelectorAll('.st-row').length > 8, 'no rows in the pause');
-      Settings.set('music', 0.5); $('ps-settings').scrollTop = 0; H.close(); H.open('settings');
-      const at = () => document.activeElement.closest('.st-row');
-      for (let i = 0; i < 12 && !at()?.querySelector('input[type=range]'); i++) pauseKey('ArrowDown');
-      const slider = at()?.querySelector('input'), v0 = +slider.value; pauseKey('ArrowRight'); check(+slider.value === Math.min(100, v0 + 5), `→ on a volume: ${v0} → ${slider.value}`); pauseKey('ArrowLeft'); check(+slider.value === Math.min(100, v0 + 5) - 5, '←');
-      pauseKey('KeyE'); check(H.tab === 'game', 'E on a volume does not change tab'); pauseKey('KeyQ');
-      for (let i = 0; i < 12 && at()?.querySelector('input')?.type !== 'checkbox'; i++) pauseKey('ArrowDown');
-      const box = at().querySelector('input'), c0 = box.checked; pauseKey('Enter'); check(box.checked === !c0, 'Enter on a check box'); pauseKey('Space'); check(box.checked === c0, 'Space');
-      // A field for writing: letters are for it, and Esc only leaves it
-      const f = document.createElement('input'); f.type = 'text'; $('st-body').append(f); f.focus(); f.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyE', key: 'e', bubbles: true, cancelable: true })); check(H.tab === 'settings', 'writing an e changes tab');
-      f.dispatchEvent(new KeyboardEvent('keydown', { code: 'Escape', key: 'Escape', bubbles: true, cancelable: true })); check(H.isOpen && document.activeElement !== f, 'Esc in a field closes the pause'); f.remove();
+  // ---------- R9-3: the settings (src/ui/settings.js) ----------
+  const stRow = id => document.querySelector(`#st-rows [data-row="${id}"]`), stVal = id => stRow(id)?.querySelector('b').textContent;
+  // (every setting as it was: what is stored and what is in memory)
+  const keepSettings = async fn => {
+    const was = { ...Settings.v }, stored = localStorage.getItem('pueblo-brotes:ajustes'), ui = game.ui, lang = getLang(), setting = getLangSetting(), me = document.documentElement.style.getPropertyValue('--me');
+    try { await fn(); } finally {
+      if (game.pauseHub.isOpen) game.pauseHub.close();
+      for (const k of Object.keys(Settings.v)) if (!(k in was)) delete Settings.v[k];
+      Object.assign(Settings.v, was); Settings.apply(); useSmartHud(game, false);
+      if (stored === null) localStorage.removeItem('pueblo-brotes:ajustes'); else localStorage.setItem('pueblo-brotes:ajustes', stored);
+      game.ui = ui; if (me) document.documentElement.style.setProperty('--me', me); else document.documentElement.style.removeProperty('--me');
+      if (getLangSetting() !== setting) await useLangSetting(setting); if (getLang() !== lang) await setLang(lang);
+      for (const id of ['s-menu', 's-settings', 's-login']) document.getElementById(id).classList.remove('show');
+      document.body.classList.add('playing'); game.mode = 'play';
+    }
+  };
+  await test('menu (english): settings rows: ← → change Music volume by 5, Shift by 20; R resets it to 50; they stay in Settings.v and in the browser', () => keepSettings(async () => {
+    const H = game.pauseHub, $ = id => document.getElementById(id);
+    Settings.set('music', 0.5); Settings.set('sfx', 0.3);
+    H.goTo('settings', 'game'); H.close(); H.open('settings'); check($('st-body').closest('#ps-settings') && document.querySelectorAll('#st-tabs .fe-tab').length === 6, 'the sub-tabs');
+    check($('st-body').classList.contains('on-tabs') && !document.querySelector('#st-rows .sel'), 'it does not start on the sub-tabs');
+    for (let i = 0; i < 3; i++) pauseKey('ArrowRight'); check(H.tab === 'settings' && document.querySelector('#st-tabs .on').dataset.tab === 'audio' && stRow('music'), '→ on the sub-tabs');
+    pauseKey('ArrowDown'); check(stRow('master').classList.contains('sel') && $('st-desc').textContent === t('gui.settings.desc.master'), 'in: the first row and its description');
+    for (let i = 0; i < 6 && !stRow('music').classList.contains('sel'); i++) pauseKey('ArrowDown');
+    check($('st-desc').textContent === t('gui.settings.desc.music'), 'the description');
+    pauseKey('ArrowRight'); check(Settings.v.music === 0.55 && stVal('music') === '55' && JSON.parse(localStorage.getItem('pueblo-brotes:ajustes')).music === 0.55, `→: ${Settings.v.music}`);
+    pauseKey('KeyD', { shiftKey: true }); check(Settings.v.music === 0.75, `Shift D: ${Settings.v.music}`); pauseKey('ArrowLeft'); check(Settings.v.music === 0.7, '←');
+    // A tap of R: that row only, the page never
+    pauseKey('KeyR'); await sleep(1000); check(Settings.v.music === 0.5 && stVal('music') === '50' && Settings.v.sfx === 0.3, `R: ${Settings.v.music} ${Settings.v.sfx}`);
+    // Held 0.8 s: the page (half of it, nothing)
+    Settings.set('music', 0.1); pauseKey('KeyR', { held: true }); await sleep(400); dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyR' })); await sleep(600); check(Settings.v.sfx === 0.3, 'R held half the time resets the page');
+    Settings.set('musicMode', 'calm'); Settings.set('master', 0.2); pauseKey('KeyR', { held: true }); pauseKey('KeyR', { held: true, repeat: true }); await sleep(1000); check(Settings.v.sfx === 1 && Settings.v.master === 0.7 && Settings.v.musicMode === 'dynamic' && stVal('sfx') === '100' && $('st-desc').textContent === t('gui.settings.reset_done'), `held R: ${JSON.stringify(Settings.volumes())}`);
+    dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyR' }));
+    // ↑ past the first, the sub-tabs; Esc climbs one level, then out; E is the pause's
+    for (let i = 0; i < 6 && !$('st-body').classList.contains('on-tabs'); i++) pauseKey('ArrowUp'); check($('st-body').classList.contains('on-tabs') && !document.querySelector('#st-rows .sel'), '↑ at the top');
+    pauseKey('Enter'); check(document.querySelector('#st-rows .sel'), 'Enter goes in'); pauseKey('KeyC'); check(document.querySelector('#st-tabs .on').dataset.tab === 'controls', 'C'); pauseKey('KeyZ'); check(document.querySelector('#st-tabs .on').dataset.tab === 'audio' && document.querySelector('#st-rows .sel'), 'Z');
+    pauseKey('KeyE'); check(H.tab === 'game', 'E'); pauseKey('KeyQ'); check(H.tab === 'settings' && document.querySelector('#st-tabs .on').dataset.tab === 'audio', 'the sub-tab is kept');
+    pauseKey('ArrowDown'); pauseKey('Escape'); check(H.isOpen && $('st-body').classList.contains('on-tabs'), 'Esc does not climb'); pauseKey('Escape'); check(!H.isOpen && game.mode === 'play', 'Esc does not close');
+  }));
+  await test('menu (english): settings: every setting has its row, changes live and goes back to its default; none lost', () => keepSettings(async () => {
+    const H = game.pauseHub, where = {}, seen = [];
+    for (const [tab, defs] of Object.entries(settingsRows)) for (const d of defs) { check(!where[d.id], `${d.id} twice`); where[d.id] = tab; }
+    const keysOf = { lang: 'lang', master: 'master', music_on: 'musicOn', music_mode: 'musicMode', music: 'music', sfx: 'sfx', menu_sfx: 'menuSfx', scale: 'scale', hud: 'hud', skin: 'skin', prompts: 'prompts', feed: 'feed', big_text: 'bigText', no_flash: 'noFlash', blood: 'blood', ride: 'ride', motion: 'motion', hints: 'hints', remarks: 'remarks' };
+    const all = Object.keys(DEFAULTS).filter(k => !Object.values(keysOf).includes(k)); check(!all.length, `without a row: ${all}`);
+    for (const id of [...Object.keys(keysOf), 'fullscreen', 'accent']) check(where[id], `no row for ${id}`);
+    for (const [tab, defs] of Object.entries(settingsRows)) {
+      H.goTo('settings', tab);
+      for (const d of defs) {
+        const k = keysOf[d.id], row = stRow(d.id); check(row && row.querySelector('span').textContent && !/gui\./.test(row.textContent), `${tab}: ${d.id}`);
+        if (!k || k === 'lang') continue;
+        const dflt = DEFAULTS[k], [prev, next] = row.querySelectorAll('.fe-arrow'), show = stVal(d.id);
+        Settings.set(k, dflt); for (const x of [next]) x.click();
+        if (k === 'sfx') prev.click();   // (at its end already)
+        check(JSON.stringify(Settings.v[k]) !== JSON.stringify(dflt) && stVal(d.id) !== '' && JSON.stringify(JSON.parse(localStorage.getItem('pueblo-brotes:ajustes'))[k]) === JSON.stringify(Settings.v[k]), `${d.id} does not change: ${Settings.v[k]} (${show} → ${stVal(d.id)})`);
+        row.dispatchEvent(new PointerEvent('pointermove')); check(row.classList.contains('sel') && document.getElementById('st-desc').textContent.length > 8, `${d.id}: the mouse, its description`);
+        pauseKey('KeyR'); check(Settings.v[k] === dflt, `${d.id}: R gives ${Settings.v[k]}, not ${dflt}`); seen.push(d.id);
+      }
       H.close();
-      $('m-settings').click(); check($('st-body').closest('#s-settings') && $('s-settings').classList.contains('show'), 'the main menu\'s'); $('st-close').click(); check($('s-menu').classList.contains('show'), 'back to the main menu');
-      document.getElementById('s-menu').classList.remove('show'); document.body.classList.add('playing'); game.mode = 'play';
-    } finally { Settings.set('music', was); Settings.set('menuSfx', snd); if (H.isOpen) H.close(); for (const id of ['s-menu', 's-settings']) $(id).classList.remove('show'); document.body.classList.add('playing'); }
-  });
+    }
+    check(seen.length >= 15, seen.join());
+    // Live, as before: the larger text, the look, the music mode, the still menus, the hints and the passing remarks
+    H.goTo('settings', 'display'); stRow('big_text').querySelectorAll('.fe-arrow')[1].click(); check(document.body.classList.contains('big-text'), 'larger text'); stRow('motion').querySelectorAll('.fe-arrow')[1].click(); check(document.body.classList.contains('still-menus'), 'motion');
+    H.goTo('settings', 'interface'); stRow('skin').querySelector('b').click(); check(document.body.classList.contains('ui-wood') && stVal('skin') === t('gui.settings.row.skin.wood'), 'the look (a click on the value)'); stRow('skin').querySelector('b').click();
+    H.close();
+    const saved = { seen: 'lang' in Settings.v }; Settings.set('hud', 'full'); Settings.load(); check(Settings.v.hud === 'full', `it is not kept: ${Settings.v.hud} ${saved.seen}`);
+  }));
+  await test('menu (english): settings: the mouse: the bar is dragged, a row only selects, the key R of the legend resets; Esc then closes at once', () => keepSettings(async () => {
+    const H = game.pauseHub, $ = id => document.getElementById(id); Settings.set('master', 0.7); H.goTo('settings', 'audio'); H.close(); H.open('settings');
+    const bar = stRow('master').querySelector('.fe-bar'), r = bar.getBoundingClientRect(), at = f => ({ pointerId: 1, button: 0, clientX: r.left + r.width * f, clientY: r.top + 5, bubbles: true });
+    bar.setPointerCapture = () => {}; bar.dispatchEvent(new PointerEvent('pointerdown', at(0.25))); check(Settings.v.master === 0.25, `pressed: ${Settings.v.master}`); bar.dispatchEvent(new PointerEvent('pointermove', at(0.83))); bar.dispatchEvent(new PointerEvent('pointerup', at(0.83))); bar.dispatchEvent(new PointerEvent('pointermove', at(0.1))); check(Settings.v.master === 0.83 && stVal('master') === '83', `dragged: ${Settings.v.master}`);
+    stRow('master').dispatchEvent(new PointerEvent('pointermove', { bubbles: true })); stRow('music_on').querySelector('span').click(); check(Settings.v.musicOn === true && stRow('music_on').classList.contains('sel'), 'a click on the label changes it, or does not select');
+    stRow('master').dispatchEvent(new PointerEvent('pointermove', { bubbles: true })); [...$('ps-legend').querySelectorAll('button')].find(b => b.textContent.includes(t('gui.legend.reset')) && !b.querySelector('.hold')).click(); check(Settings.v.master === 0.7, 'the legend\'s R');
+    pauseKey('Escape'); check(!H.isOpen, 'Esc after the mouse');
+    const pat = { id: 'test_row', group: 'gui.settings.group.volume', label: 'gui.brief.chat', desc: 'gui.brief.none', values: [[1, 'common.yes'], [2, 'common.no']], def: 1, get: () => pat.v, set: v => { pat.v = v; }, v: 1 };
+    settingsRows.audio.push(pat); try { H.goTo('settings', 'audio'); stRow('test_row').querySelector('b').click(); check(pat.v === 2 && stVal('test_row') === t('common.no'), 'a row of another system'); } finally { settingsRows.audio.splice(settingsRows.audio.indexOf(pat), 1); }
+  }));
+  await test('menu (english): settings: the same ones from the main menu, with Q, E and 1-6; ✕ and Esc go back to it', () => keepSettings(async () => {
+    const H = game.pauseHub, $ = id => document.getElementById(id);
+    H.open('settings'); H.close(); check(!$('st-rows').children.length, 'closed, its rows are still there');
+    document.body.classList.remove('playing'); $('s-menu').classList.add('show'); $('m-settings').click();
+    check($('st-body').closest('#s-settings') && $('s-settings').classList.contains('show') && FE.active() === 's-settings' && !$('s-menu').classList.contains('show'), 'the main menu\'s');
+    const tab = () => document.querySelector('#st-tabs .on').dataset.tab; pauseKey('Digit4'); check(tab() === 'audio' && stRow('music'), '4'); pauseKey('KeyE'); check(tab() === 'controls' && !$('s-controls').hidden && $('s-controls').querySelectorAll('dt').length > 30, 'E'); pauseKey('KeyQ'); pauseKey('KeyC'); pauseKey('KeyZ'); check(tab() === 'audio', 'Q, C, Z');
+    check($('st-legend').textContent.includes(t('gui.legend.back')), 'the legend'); Settings.set('music', 0.5); pauseKey('ArrowDown'); while (!stRow('music').classList.contains('sel')) pauseKey('ArrowDown'); pauseKey('ArrowLeft'); check(Settings.v.music === 0.45, '←');
+    pauseKey('Escape'); check(FE.active() === 's-settings', 'one level'); pauseKey('Escape'); check(FE.active() === null && $('s-menu').classList.contains('show') && !$('s-settings').classList.contains('show'), 'Esc');
+    $('m-settings').click(); $('st-close').click(); check($('s-menu').classList.contains('show') && FE.active() === null, '✕'); $('s-menu').classList.remove('show'); document.body.classList.add('playing'); game.mode = 'play';
+    H.open('settings'); check($('st-body').closest('#ps-settings') && H.tab === 'settings', 'back in the pause');
+  }));
+  await test('menu (english): settings: your colour goes to the save and changes at once; R, the one of the name; Account and Controls inside', () => keepSettings(async () => {
+    const H = game.pauseHub, $ = id => document.getElementById(id), me = () => document.documentElement.style.getPropertyValue('--me'), own = accentOf(p().name), to = (own + 3) % 8;
+    game.ui = { other: 1 }; H.goTo('settings', 'interface'); const sw = stRow('accent').querySelectorAll('.fe-sw button'); check(sw.length === 8 && sw[own].classList.contains('on'), 'the swatches');
+    sw[to].click(); check(game.ui.accent === to && game.ui.other === 1 && game.snapshot().ui.accent === to && me() === ACCENTS[to] && sw[to].classList.contains('on') && stVal('accent') === sw[to].title, `a swatch: ${JSON.stringify(game.ui)} ${me()}`);
+    stRow('accent').dispatchEvent(new PointerEvent('pointermove', { bubbles: true })); pauseKey('ArrowRight'); check(game.ui.accent === (to + 1) % 8, '→'); pauseKey('KeyR'); check(!('accent' in game.ui) && game.ui.other === 1 && me() === ACCENTS[own] && sw[own].classList.contains('on'), `R: ${JSON.stringify(game.ui)}`);
+    H.goTo('settings', 'account'); check($('st-account').textContent.length > 10, 'Account is empty'); H.goTo('settings', 'controls'); const top = $('s-controls').scrollTop; pauseKey('ArrowDown'); await sleep(30); check($('s-controls').scrollTop > top, 'Controls does not scroll');
+  }));
+  await test('menu (english): settings: the language changes live, where you were; nothing in Spanish in English, no raw keys; with the key hints or the remarks off there are none', () => keepSettings(async () => {
+    const H = game.pauseHub, $ = id => document.getElementById(id), spanish = /[ñ¿¡áéíóúÁÉÍÓÚ]|\b(el|la|los|las|una?|del|para|con|por|que|más|volumen|pantalla|sonido|música|guardado|llave|cuenta)\b/i;
+    await useLangSetting('es'); H.goTo('settings', 'game'); const es = stRow('ride').textContent, lang = () => stRow('lang').classList.contains('sel');
+    check(lang(), 'not in the page'); pauseKey('ArrowLeft'); await sleep(250); check(getLang() === 'en' && lang() && stRow('ride').textContent !== es && stVal('lang') === 'English', `live: ${getLang()} ${stVal('lang')}`);
+    const st = { admin: Object.getOwnPropertyDescriptor(Profile, 'admin'), id: Object.getOwnPropertyDescriptor(Profile, 'id'), name: Object.getOwnPropertyDescriptor(Profile, 'name') };
+    try {
+      for (const [k, v] of Object.entries({ id: 'prueba', name: 'Prueba', admin: true })) Object.defineProperty(Profile, k, { get: () => v, configurable: true });
+      for (const tab of ['game', 'display', 'interface', 'audio', 'controls', 'account']) {
+        H.goTo('settings', tab); const said = [$('st-body').innerText, $('ps-legend').innerText];
+        for (const row of document.querySelectorAll('#st-rows .row')) { row.dispatchEvent(new PointerEvent('pointermove')); said.push($('st-desc').textContent); }
+        const bad = said.map(x => x.replace(/Idioma|Español/g, '')).map(x => spanish.exec(x) || /\b(gui|save|settings|controls)\.[a-z]/.exec(x)).find(Boolean); check(!bad, `${tab}: ${bad?.[0]} in ${bad?.input.slice(Math.max(0, bad.index - 60), bad.index + 60)}`);
+      }
+      check($('st-account').querySelector('#st-logout') && $('st-account').querySelector('input[type=password]') && $('st-account').textContent.includes(t('save.key.title')), 'the account page');
+      const f = $('st-account').querySelector('input'); f.focus(); f.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyE', key: 'e', bubbles: true, cancelable: true })); f.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyR', key: 'r', bubbles: true, cancelable: true })); check(H.tab === 'settings' && $('st-account').contains(f), 'writing an e changes tab');
+      f.dispatchEvent(new KeyboardEvent('keydown', { code: 'Escape', key: 'Escape', bubbles: true, cancelable: true })); check(H.isOpen && document.activeElement !== f, 'Esc in a field closes the pause');
+    } finally { for (const [k, d] of Object.entries(st)) if (d) Object.defineProperty(Profile, k, d); else delete Profile[k]; }
+    H.close();
+    useSmartHud(game, true); const sh = game.smartHud; sh.seen.delete('bag'); sh.queue.length = 0; Settings.set('hints', false); sh.want('bag'); check(!sh.queue.includes('bag') && !sh.seen.has('bag'), 'a hint with them off'); Settings.set('hints', true); sh.want('bag'); check(sh.queue.includes('bag'), 'no hint with them on'); sh.queue.length = 0;
+  }));
   await test('menu (english): Pause › Game: resume, save, controls, and quitting asks first', async () => {
     const H = game.pauseHub, $ = id => document.getElementById(id), saves = game.live.net;
     try {
       H.open('game');
       check($('p-resume').classList.contains('sel'), 'Resume is not the first'); pauseKey('Enter'); check(!H.isOpen && game.mode === 'play', 'Enter on Resume');
-      H.open('game'); pauseKey('ArrowDown'); pauseKey('ArrowDown'); pauseKey('Enter'); check(!$('s-controls').hidden && $('s-controls').querySelectorAll('dt').length > 30, 'Controls'); check($('ps-game').classList.contains('dim'), 'not in the page');
-      const top = $('s-controls').scrollTop; pauseKey('ArrowDown'); await sleep(30); check($('s-controls').scrollTop > top, 'the arrows do not scroll it'); pauseKey('Escape'); check($('s-controls').hidden && H.isOpen, 'Esc does not go back'); pauseKey('ArrowUp'); pauseKey('Enter'); await sleep(250); check($('p-msg').textContent.length > 5, 'Save says nothing');
+      H.open('game'); pauseKey('ArrowDown'); pauseKey('ArrowDown'); pauseKey('Enter'); check(H.tab === 'settings' && !$('s-controls').hidden && $('s-controls').querySelectorAll('dt').length > 30, 'Controls');
+      const top = $('s-controls').scrollTop; pauseKey('ArrowDown'); await sleep(30); check($('s-controls').scrollTop > top, 'the arrows do not scroll it'); pauseKey('KeyE'); check(H.tab === 'game', 'back to Game'); pauseKey('ArrowDown'); pauseKey('Enter'); await sleep(250); check($('p-msg').textContent.length > 5, 'Save says nothing');
       $('p-menu').click(); await sleep(20); check(FE.active() === 'fe-alert', 'quitting does not ask'); pauseKey('KeyE'); pauseKey('KeyM'); check(H.tab === 'game', 'a key went through the alert'); pauseKey('Escape'); await sleep(200); check(H.isOpen && FE.active() === 's-pause' && game.player, 'Esc on the alert'); 
-      $('p-controls').dispatchEvent(new PointerEvent('pointerenter')); check($('p-controls').classList.contains('sel') && $('s-controls').hidden, 'the mouse over a row');
+      $('p-controls').dispatchEvent(new PointerEvent('pointerenter')); check($('p-controls').classList.contains('sel') && H.tab === 'game', 'the mouse over a row');
       // The game ends with the pause and the alert open (the connection was lost): both go, quietly
       $('p-menu').click(); await sleep(20); H.shut(); check(!H.isOpen && !GameAudio.ducked, 'shut under the alert'); pauseKey('Escape'); await sleep(200); check(FE.active() === null, `left on top: ${FE.active()}`);
     } finally { if (H.isOpen) H.close(); game.mode = 'play'; $('s-pause').classList.remove('show'); document.body.classList.add('playing'); }
@@ -1551,7 +1648,7 @@ async function soloTests(game) {
   });
   await test('menu (english): i18n: the new keys are in both languages and the menu sounds have their switch', async () => {
     const [en, es] = await Promise.all(['en', 'es'].map(l => fetch(`./src/lang/${l}.json`).then(r => r.json())));
-    const need = k => /^(gui\.(pause\.tab|legend|brief|char|progress|game|alert|load|login|settings\.(tab|row|desc))\.|tip\.|stat\.|credits\.|load\.recap\.|minimap\.|quick\.|feed\.|big\.|prompt\.|map\.(zoom|view|keys|card|marker|places)\.)/.test(k);
+    const need = k => /^(gui\.(pause\.tab|legend|brief|char|progress|game|alert|load|login|settings\.(tab|tab_desc|row|desc|group))\.|save\.|tip\.|stat\.|credits\.|load\.recap\.|minimap\.|quick\.|feed\.|big\.|prompt\.|map\.(zoom|view|keys|card|marker|places)\.)/.test(k);
     const mine = Object.keys(en).filter(need);
     check(mine.length > 250, `only ${mine.length} keys`);
     for (const k of mine) check(typeof es[k] === 'string' && es[k], `${k} without Spanish`);

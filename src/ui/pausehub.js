@@ -5,7 +5,7 @@
 // it). The blurred game is one copy of one frame, taken when it opens (Game.onShot): nothing runs per frame, open or closed.
 // The world somebody else runs goes on meanwhile, as always: the note at the bottom says so.
 // The pages: Brief (src/ui/brief.js), Character (charpage.js), Journal (journal.js, its registry JOURNAL_PAGES) and Progress
-// (progresspage.js); the map is ui/map.js and the settings, ui/settings.js. Three of them are a list and a page (PAGED): each
+// (progresspage.js); the map is ui/map.js and the settings, ui/settings.js (with their own sub-tabs). Three of them are a list and a page (PAGED): each
 // gives { pages: [{ id, label }], current, open(id, sub), fill(el), hide() }. Anything with data-goto="tab:page" in a pane
 // opens that. paneKeys.map(e): keys of the map's own (true: it was one of them).
 import { t, fmt, onLangChange } from '../i18n.js';
@@ -14,7 +14,7 @@ import { Profile } from '../accounts.js';
 import { clearKeys } from '../input.js';
 import { reportFault } from '../faults.js';
 import { portrait3D } from '../three/portrait.js';
-import { FE, tabStrip, list, legend } from './frontend.js';
+import { FE, tabStrip, list, legend, paneNav } from './frontend.js';
 import { hud } from './hud.js';
 import { initBrief } from './brief.js';
 import { initCharPage } from './charpage.js';
@@ -28,61 +28,6 @@ const LAST_KEY = 'pueblo-brotes:pausa-pestana:';   // (+ the account: the tab us
 const SHOT = { scale: 6, blur: 0.9 };              // the copy of the frame: 1/6 of its size, blurred once
 const TICK = 5000, CLOCK_EVERY = 6;                // ms between two looks at what may have changed, and of them, how many for the header
 const MAP_KEYS = /^(Key[WASD]|Arrow(Up|Down|Left|Right)|Shift(Left|Right)|NumpadAdd|NumpadSubtract)$/;
-const FOCUS = 'button:not(:disabled), input:not(:disabled), select:not(:disabled), summary';
-
-// ---------- A pane without a list: the keyboard goes through its controls, or scrolls it ----------
-// (↑↓ from row to row, ← → change the one it is on, Enter or Space press it; without controls, ↑↓ scroll)
-export function paneNav(el) {
-  let at = -1;
-  const stops = () => {
-    const seen = new Set(), out = [];
-    for (const x of el.querySelectorAll(FOCUS)) {
-      if (!x.offsetParent) continue;
-      const seg = x.closest('.seg');
-      if (!seg) { out.push(x); continue; }
-      if (seen.has(seg)) continue;   // (the buttons of a choice are one stop: the one that is on)
-      seen.add(seg);
-      out.push([...seg.querySelectorAll('button')].find(b => b.classList.contains('on')) || x);
-    }
-    return out;
-  };
-  const here = all => { const a = document.activeElement, seg = a?.closest?.('.seg'); return all.findIndex(x => x === a || (seg && seg.contains(x))); };
-  const go = (all, i) => { at = Math.max(0, Math.min(all.length - 1, i)); all[at]?.focus({ preventScroll: true }); all[at]?.scrollIntoView({ block: 'nearest' }); };
-  function side(d) {
-    const a = document.activeElement;
-    if (!el.contains(a)) return;
-    const seg = a.closest('.seg');
-    if (seg) {
-      const bs = [...seg.querySelectorAll('button:not(:disabled)')], i = bs.indexOf(a), to = bs[i + d];
-      if (to) { const k = here(stops()); to.click(); if (to.isConnected) to.focus({ preventScroll: true }); else go(stops(), k); }
-    } else if (a.type === 'range') {
-      const was = a.value;
-      a.value = String(+a.value + d * 5);
-      if (a.value !== was) { a.dispatchEvent(new Event('input', { bubbles: true })); Audio.ui('tick'); }
-    }
-  }
-  return {
-    enter() { at = -1; },
-    key(e) {
-      const d = { ArrowUp: -1, KeyW: -1, ArrowDown: 1, KeyS: 1 }[e.code], s = { ArrowLeft: -1, KeyA: -1, ArrowRight: 1, KeyD: 1 }[e.code];
-      if (d) {
-        const all = stops(), i = here(all);
-        if (!all.length) el.scrollBy({ top: d * 72 });
-        else if (i >= 0 || at >= 0) { const from = i >= 0 ? i : at, to = from + d; if (all[to]) { go(all, to); Audio.ui('tick'); } else el.scrollBy({ top: d * 72 }); }
-        else { go(all, 0); Audio.ui('tick'); }
-        return true;
-      }
-      if (s) { if (!el.contains(document.activeElement) || !document.activeElement.closest('.seg, [type=range]')) return false; side(s); return true; }
-      if (e.code === 'PageDown' || e.code === 'PageUp') { el.scrollBy({ top: (e.code === 'PageDown' ? 1 : -1) * el.clientHeight * 0.9 }); return true; }
-      if (e.code === 'Enter' || e.code === 'NumpadEnter' || e.code === 'Space') {
-        const a = document.activeElement;
-        if (!e.repeat && el.contains(a) && a !== el && a.matches(FOCUS)) { const k = here(stops()); a.click(); if (!a.isConnected) go(stops(), k); }
-        return true;
-      }
-      return false;
-    },
-  };
-}
 
 // ---------- The hub ----------
 // show(id): the menus' own (menus.js); resume(): back to play; save({upload}) and savedMsg(r); quit(): saved, to the main
@@ -101,7 +46,7 @@ export function initPauseHub(game, { show, resume, save, savedMsg, quit, journal
     progress: { src: initProgressPage(game), el: $('ps-progress'), body: $('ps-progress-body') },
   };
   const lists = {
-    game: list($('ps-game'), [...$('ps-game').children].map(el => ({ id: el.id, el })), { start: 0, onFocus: () => { setControls(false); if (tab === 'game' && level === 'body') setLevel('list'); }, onPick: r => gamePick(r.id) }),
+    game: list($('ps-game'), [...$('ps-game').children].map(el => ({ id: el.id, el })), { start: 0, onPick: r => gamePick(r.id) }),
   };
   // The list of a paged tab: made again when its pages are others (another system added one, or one is there no more)
   function listOf(id) {
@@ -129,19 +74,18 @@ export function initPauseHub(game, { show, resume, save, savedMsg, quit, journal
     try { P.src.fill(P.body); } catch (e) { reportFault(e, `PauseHub.${id}`); }
     P.body.scrollTop = top ? 0 : at;
   }
-  const bodies = { journal: $('j-body'), progress: $('ps-progress-body'), game: $('s-controls'), brief: $('ps-brief'), char: $('ps-char'), settings: $('ps-settings') };
+  const bodies = { journal: $('j-body'), progress: $('ps-progress-body'), brief: $('ps-brief'), char: $('ps-char') };
   const navs = Object.fromEntries(Object.entries(bodies).map(([id, el]) => [id, paneNav(el)]));
-  function goIn() { if (level === 'list' && lists[tab] && (tab !== 'game' || !$('s-controls').hidden)) setLevel('body'); }
+  function goIn() { if (level === 'list' && lists[tab] && navs[tab]) setLevel('body'); }
   function setLevel(l) {
     level = l;
     if (l === 'body') navs[tab].enter(); else if (root.contains(document.activeElement)) document.activeElement.blur();
     lists[tab]?.el.classList.toggle('dim', l === 'body');
     paintLegend();
   }
-  function setControls(on) { $('s-controls').hidden = !on; if (on) $('s-controls').scrollTop = 0; }
   async function gamePick(id) {
     if (id === 'p-resume') close();
-    else if (id === 'p-controls') { setControls(true); goIn(); }
+    else if (id === 'p-controls') goTo('settings', 'controls');
     else if (id === 'p-save' && !saving) {
       saving = true;
       $('p-msg').textContent = '…';
@@ -164,10 +108,10 @@ export function initPauseHub(game, { show, resume, save, savedMsg, quit, journal
     char: () => char.enter(),
     journal: () => enterPaged('journal'),
     progress: () => enterPaged('progress'),
-    settings() { const box = $('st-body'); if (box.parentElement !== $('ps-settings')) $('ps-settings').append(box); settings.refresh(); },
-    game() { setControls(false); $('p-msg').textContent = ''; lists.game.focus(0); },
+    settings: () => settings.mount($('ps-settings'), { legendEl: $('ps-legend'), onLegend: () => { if (tab === 'settings') paintLegend(); } }),
+    game() { $('p-msg').textContent = ''; lists.game.focus(0); },
   };
-  // A page of a tab, or a tab ('journal:pesca', 'map'); sub: a part of it (a species of the nature book). With the pause
+  // A page of a tab, or a tab ('journal:pesca', 'settings:controls', 'map'); sub: a part of it (a species of the nature book). With the pause
   // closed, it opens
   function goTo(to, page, sub) {
     if (!PAUSE_TABS.includes(to)) return;
@@ -181,6 +125,7 @@ export function initPauseHub(game, { show, resume, save, savedMsg, quit, journal
       }
     }
     open(to);
+    if (to === 'settings' && page) settings.show(page, true);
   }
   root.addEventListener('click', e => {
     const a = e.target instanceof Element && e.target.closest('[data-goto]');
@@ -218,8 +163,8 @@ export function initPauseHub(game, { show, resume, save, savedMsg, quit, journal
   function paintLegend() {
     const out = [], L = (k, keys, o) => out.push({ keys, text: t(`gui.legend.${k}`), ...o });
     if (tab === 'map') { L('route', ['mouse:l']); L('remove', ['mouse:r']); L('zoom', ['+', '−']); }
-    else if (lists[tab] || tab === 'settings') L('move', ['↑', '↓']);
-    if (tab === 'settings') L('change', ['←', '→']);
+    else if (lists[tab]) L('move', ['↑', '↓']);
+    if (tab === 'settings') out.push(...settings.legendItems());
     else if (tab === 'char') out.push({ keys: ['←', '→'], text: t('gui.char.turn') });
     else if (lists[tab] && level === 'list') L('select', ['Enter']);
     L('tabs', ['Q', 'E']);
@@ -281,7 +226,7 @@ export function initPauseHub(game, { show, resume, save, savedMsg, quit, journal
     root.classList.toggle('on-map', id === 'map');
     if (id !== 'map' && !fresh) takeShot();
     try { fills[id](); } catch (e) { reportFault(e, `PauseHub.${id}`); }
-    if (bodies[id] && id !== 'game' && !PAGED[id]) bodies[id].scrollTop = 0;
+    if (bodies[id] && !PAGED[id]) bodies[id].scrollTop = 0;
     navs[id]?.enter();
     paintLegend();
     try { localStorage.setItem(lastKey(), id); } catch { /* (no storage: the map next time) */ }
@@ -289,6 +234,7 @@ export function initPauseHub(game, { show, resume, save, savedMsg, quit, journal
   function leave() {
     if (PAGED[tab]) { try { PAGED[tab].src.hide(); } catch (e) { reportFault(e, `PauseHub.${tab}`); } }
     if (tab === 'char') char.leave();
+    if (tab === 'settings') settings.leave();
     if (tab === 'map') clearKeys();   // (a key held moving the map)
     panes.get(tab)?.classList.remove('on');
     if (root.contains(document.activeElement)) document.activeElement.blur();
@@ -308,6 +254,7 @@ export function initPauseHub(game, { show, resume, save, savedMsg, quit, journal
   const pane = {
     key(e) {
       const L = lists[tab];
+      if (tab === 'settings') return settings.key(e);
       if (!L) {
         if (tab === 'char' && (e.code === 'ArrowLeft' || e.code === 'KeyA' || e.code === 'ArrowRight' || e.code === 'KeyD')) { char.turn(e.code === 'ArrowLeft' || e.code === 'KeyA' ? -1 : 1); return true; }
         return navs[tab]?.key(e) || false;
@@ -317,16 +264,17 @@ export function initPauseHub(game, { show, resume, save, savedMsg, quit, journal
         if (e.code === 'ArrowLeft' || e.code === 'KeyA') { if (!e.repeat) { setLevel('list'); Audio.ui('back'); } return true; }
         return false;
       }
-      if (e.code === 'ArrowRight' || e.code === 'KeyD') { if (!e.repeat && (tab !== 'game' || !$('s-controls').hidden)) { goIn(); Audio.ui('select'); } return true; }
-      if (e.code === 'PageDown' || e.code === 'PageUp') return navs[tab].key(e);
+      if (e.code === 'ArrowRight' || e.code === 'KeyD') { if (!e.repeat && navs[tab]) { goIn(); Audio.ui('select'); } return true; }
+      if (e.code === 'PageDown' || e.code === 'PageUp') return navs[tab]?.key(e) || false;
       return L.key(e);
     },
   };
   // One level back: out of a field, from the page to its list; from there it closes
   function back() {
+    if (tab === 'settings') return settings.back();
     const a = document.activeElement;
     if (root.contains(a) && a.matches('input:not([type=range]):not([type=checkbox])')) { a.blur(); return true; }
-    if (level === 'body') { if (tab === 'game') setControls(false); setLevel('list'); return true; }
+    if (level === 'body') { setLevel('list'); return true; }
     return false;
   }
   function open(id = last()) {
@@ -340,7 +288,7 @@ export function initPauseHub(game, { show, resume, save, savedMsg, quit, journal
     Audio.duck(true);
     show('s-pause');
     document.body.classList.add('in-pause');
-    screen = FE.open('s-pause', { parts: [own, tabs, pane], pass: e => tab === 'map' && (MAP_KEYS.test(e.code) || /^[-+=_]$/.test(e.key)), back, onClose: closed });
+    screen = FE.open('s-pause', { parts: [own, tabs, pane], pass: e => tab === 'map' && (MAP_KEYS.test(e.code) || /^[-+=_]$/.test(e.key)), back, keyup: e => { if (tab === 'settings') settings.keyup(e); }, onClose: closed });
     if (tabs.current === id) enter(id); else tabs.pick(id, { silent: true });
     paintHead(); paintNote();
     portrait($('ps-face'));
@@ -376,7 +324,7 @@ export function initPauseHub(game, { show, resume, save, savedMsg, quit, journal
   onLangChange(() => {
     if (!screen) return;
     paintHead(); paintNote(); paintLegend();
-if (PAGED[tab]) paintPage(tab); else if (tab !== 'settings') { try { fills[tab](); } catch (e) { reportFault(e, `PauseHub.${tab}`); } }   // (the settings rebuild themselves; the lists' names, applyDom)
+    if (PAGED[tab]) paintPage(tab); else if (tab !== 'settings') { try { fills[tab](); } catch (e) { reportFault(e, `PauseHub.${tab}`); } }   // (the settings rebuild themselves; the lists' names, applyDom)
   });
   return {
     open, close, shut,

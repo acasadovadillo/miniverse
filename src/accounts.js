@@ -23,6 +23,7 @@ import { gameData } from './share.js';
 import { GAME_REPO, DATA_REPO, readAccounts, getFile, putFile, deleteFile, canWrite, fileHistory, tokenExpiry } from './github.js';
 import { dataFile, keyFile, toB64, fromB64, newSalt, deriveKey, encryptText, decryptText, seal, unseal, inviteCode, normalizeCode } from './vault.js';
 import { WorldKey, keysFile, WORLD_FILE } from './worldkey.js';
+import { t } from './i18n.js';
 
 export const ADMIN_ID = 'alberto';
 const UPLOAD_EVERY = 3 * 60 * 1000;   // como mucho, una subida automática a GitHub cada 3 minutos
@@ -181,14 +182,14 @@ export const Profile = {
   // servidor tiene el de antes: con /link en su terminal se le da el nuevo
   async renewToken(token) {
     const acc = renewing || (me?.admin ? me : null), atLogin = !!renewing;
-    if (!acc) return 'Solo el admin puede cambiar su token aquí.';
+    if (!acc) return t('save.token.admin_only');
     token = String(token || '').trim();
-    if (!token) return 'Pega el token nuevo.';
+    if (!token) return t('save.token.paste');
     try {
-      if (!(await canWrite(token, GAME_REPO)) || !(await canWrite(token, DATA_REPO))) return `Ese token no puede escribir en ${GAME_REPO} y ${DATA_REPO}.`;
+      if (!(await canWrite(token, GAME_REPO)) || !(await canWrite(token, DATA_REPO))) return t('save.token.no_write', { a: GAME_REPO, b: DATA_REPO });
       await loadBook(token);
       const entry = book.accounts[ADMIN_ID];
-      if (!entry || entry.invite) return 'No encuentro tu cuenta en accounts.json.';
+      if (!entry || entry.invite) return t('save.token.no_account');
       const was = me;
       me = { ...acc, token };
       try { entry.token = await encryptText(acc.key, token); await writeBook('Token nuevo de Alberto'); } catch (e) { me = was; throw e; }
@@ -230,7 +231,7 @@ export const Profile = {
     if (password !== password2) return 'Las contraseñas no coinciden.';
     token = token.trim();
     try {
-      if (!(await canWrite(token, GAME_REPO)) || !(await canWrite(token, DATA_REPO))) return `Ese token no puede escribir en ${GAME_REPO} y ${DATA_REPO}.`;
+      if (!(await canWrite(token, GAME_REPO)) || !(await canWrite(token, DATA_REPO))) return t('save.token.no_write', { a: GAME_REPO, b: DATA_REPO });
       await loadBook(token);
       if (book.accounts[ADMIN_ID]) return 'La cuenta de Alberto ya existe: entra con tu contraseña.';
       const salt = newSalt(), key = await deriveKey(password, salt);
@@ -303,7 +304,7 @@ export const Profile = {
   worldKeyId() { return me?.admin ? WorldKey.wid() : null; },
   // Vuelve a poner la llave del mundo con el código (si no se podía abrir). Devuelve null o el error
   async recoverWorldKey(code) {
-    if (!me?.admin) return 'Solo el admin tiene la llave del mundo.';
+    if (!me?.admin) return t('save.key.admin_only');
     try { const key = await WorldKey.recover(me, code); worldKey = Promise.resolve(key); worldKeyError = ''; }
     catch (e) { return e.message; }
     return null;

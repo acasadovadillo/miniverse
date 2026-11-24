@@ -45,8 +45,10 @@ const WORLD_KEYS = ['seed', 'clock', 'house', 'projects', 'boardDone', 'animals'
 export function initMenus(game) {
   let wins = null;   // (las ventanas de la partida: se hacen más abajo)
   let hub = null;    // (the pause: src/ui/pausehub.js; made below)
+  let settingsUI = null;   // (the settings: src/ui/settings.js; made below)
   function show(id) {
     if (id !== 's-pause') hub?.shut();
+    if (id !== 's-settings') settingsUI?.shut();
     if (id === 's-login' || id === 's-menu') wins?.closeAll();
     SCREENS.forEach(s => $(s).classList.toggle('show', s === id));
     document.body.classList.toggle('playing', !id);
@@ -287,7 +289,30 @@ export function initMenus(game) {
     if (!w) throw new Error(`El mundo compartido todavía no está guardado: ${ADMIN_NAME} tiene que entrar una vez para dejarlo listo.`);
     return w;
   }
-  $('m-session').addEventListener('click', () => { live.close(); Profile.logout(); setAccountLang(null); for (const id of ['sync', 'token', 'server-token', 'key-code', 'key-lost']) setNotice(id, null); openLogin(); });
+  function logOut() { live.close(); Profile.logout(); setAccountLang(null); for (const id of ['sync', 'token', 'server-token', 'key-code', 'key-lost']) setNotice(id, null); openLogin(); }
+  $('m-session').addEventListener('click', logOut);
+  // Settings › Account › Log out: playing, it asks, saves first and, if it could not be saved anywhere, stays
+  let leaving = false;
+  async function logOutFromSettings() {
+    if (leaving) return;
+    const g = game.player, id = Profile.id;
+    let r = null;
+    leaving = true;
+    try {
+      if (g) {
+        if (!await alertBox({ title: t('gui.account.logout_title'), text: t('gui.account.logout_text'), yes: t('gui.menu.log_out') }) || !hub.isOpen || game.player !== g) return;
+        r = await save({ upload: true });
+        if (game.player !== g) return;   // (it ended meanwhile: the connection was lost)
+        if (!r?.local && r?.remote !== true) { hud.toast(savedMsg(r), 'mal'); return; }
+        game.end();
+      } else {
+        await Promise.race([flushSave(), sleep(3000)]);   // (on this computer it takes nothing; GitHub is not waited for longer)
+        if (game.player || Profile.id !== id || !$('s-settings').classList.contains('show')) return;   // (gone elsewhere meanwhile)
+      }
+      logOut();
+      if (r?.remote === false) $('lg-err').textContent = savedMsg(r);
+    } finally { leaving = false; }
+  }
 
   // ---------- Guardado seguro ----------
   // Si subir a GitHub falla dos veces seguidas, un aviso arriba con el motivo (y qué hacer), hasta que vuelve a ir
@@ -312,7 +337,7 @@ export function initMenus(game) {
   async function keyReminder() {
     if (!Profile.admin || !(await Profile.worldKey())) return;
     const wid = Profile.worldKeyId();
-    setNotice('key-code', wid && seenCode() !== wid ? 'Guarda el código de recuperación de la llave del mundo en tu gestor de contraseñas: Ajustes › Llave del mundo › Ver el código de recuperación.' : null);
+    setNotice('key-code', wid && seenCode() !== wid ? t('save.key.remind') : null);
   }
   function codeSeen() {
     try { localStorage.setItem(KEY_CODE_SEEN, Profile.worldKeyId() || ''); } catch { /* (sin almacenamiento: se le recordará otra vez) */ }
@@ -418,7 +443,7 @@ export function initMenus(game) {
     if (!currentSave) { openCreator(); return; }
     if (await alertBox({ title: t('gui.alert.new_title'), text: t('gui.menu.new_game_warning'), yes: t('gui.menu.new_game_confirm'), no: t('common.cancel') }) && $('s-menu').classList.contains('show')) openCreator(true);
   });
-  initMenuSounds(['s-login', 's-menu', 's-account', 's-creator', 's-settings', 'ps-settings']);
+  initMenuSounds(['s-login', 's-menu', 's-account', 's-creator', 'st-account']);
 
   // ---------- Creador de personaje ----------
   // (la vista previa es el mismo modelo en 3D que en el juego)
@@ -761,7 +786,7 @@ export function initMenus(game) {
   }
 
   setInterval(() => { if (game.mode === 'play' && game.player) save(); }, AUTOSAVE_MS);
-  const savedMsg = r => (r.remote ? 'Partida guardada aquí y en GitHub.' : r.local ? `Partida guardada en este ordenador${r.remote === false ? `, pero no en GitHub: ${Profile.lastError}` : ''}.` : 'No se ha podido guardar.');
+  const savedMsg = r => (r.remote ? t('save.done.both') : r.local ? (r.remote === false ? t('save.done.not_github', { why: Profile.lastError }) : t('save.done.here')) : t('save.done.failed'));
   addEventListener('pagehide', () => { if (game.player) save({ upload: live.role === 'host' }); });   // (quien lleva el mundo, lo sube ya: los demás lo necesitan)
 
   function resume() { game.mode = 'play'; show(null); wins?.placeAll(); }
@@ -858,23 +883,54 @@ export function initMenus(game) {
   const shopUI = initShopUI(game, { onClose: resume });
   const journalUI = initJournalUI(game);
   const toggleJournal = () => toggleTab('journal');   // (the pause's Journal tab)
-  // Ajustes: en la pausa, su pestaña (pausehub.js); en el menú principal, su pantalla. Los dos, con las mismas filas (#st-body)
-  const settingsUI = initSettingsUI({
-    onClose: () => show('s-menu'),
+  // Ajustes: en la pausa, su pestaña (pausehub.js); en el menú principal, su pantalla. Los dos, con lo mismo (#st-body)
+  // (your colour: the character's, in its save. Playing, the one who plays; in the main menu, the one of the shared world)
+  const accent = {
+    who: () => (game.player ? { player: game.player, ui: game.ui } : Profile.data?.save || null),
+    set(n) {
+      const w = accent.who();
+      if (!w?.player || (w.ui?.accent ?? null) === n) return;
+      const ui = { ...w.ui };
+      if (n === null) delete ui.accent; else ui.accent = n;
+      const next = Object.keys(ui).length ? ui : null;
+      if (game.player) game.ui = next; else if (next) w.ui = next; else delete w.ui;
+      useAccent(accent.who());
+      saveSoon();
+    },
+  };
+  settingsUI = initSettingsUI({
+    onClose: () => { flushSave(); show('s-menu'); $('m-settings').focus({ preventScroll: true }); },
+    accent,
     // (Guardado en GitHub: cómo va, el token del admin y la llave del mundo; al recuperarla, se vuelve a conectar con ella)
-    extra: (box, head) => saveSettings(box, head, { onKey: () => { setNotice('key-lost', null); live.close(); findLive(); keyReminder(); settingsUI.refresh(); }, onCodeSeen: codeSeen }),
+    extra: (box, head) => {
+      const line = text => { const p = document.createElement('p'); p.className = 'note'; p.textContent = text; box.append(p); };
+      head(t('gui.settings.account.session'));
+      if (!Profile.id) { line(t('gui.settings.account.none')); return; }
+      line(t(Profile.admin ? 'gui.settings.account.admin' : 'gui.settings.account.user', { name: Profile.name || Profile.id }));
+      const b = document.createElement('button');
+      b.type = 'button'; b.className = 'btn'; b.id = 'st-logout'; b.textContent = t('gui.menu.log_out');
+      b.onclick = logOutFromSettings;
+      box.append(b);
+      saveSettings(box, head, { onKey: () => { setNotice('key-lost', null); live.close(); findLive(); keyReminder(); settingsUI.refresh(); }, onCodeSeen: codeSeen });
+    },
   });
-  $('m-settings').onclick = () => { document.querySelector('#s-settings .st-panel').append($('st-body')); settingsUI.refresh(); show('s-settings'); };
+  $('m-settings').onclick = () => { if (document.activeElement instanceof HTMLElement) document.activeElement.blur(); show('s-settings'); settingsUI.openScreen(); };
   // Los volúmenes se guardan también en tu partida, poco después de dejar de moverlos: jugando, con lo demás;
   // en el menú, en tu partida tal como está (y se sube a GitHub)
   let volumeTimer = null;
-  Settings.onVolume = () => { clearTimeout(volumeTimer); volumeTimer = setTimeout(saveVolumes, 1200); };
+  const saveSoon = () => { clearTimeout(volumeTimer); volumeTimer = setTimeout(saveVolumes, 1200); };
+  Settings.onVolume = saveSoon;
   function saveVolumes() {
+    clearTimeout(volumeTimer); volumeTimer = null;
     if (!Profile.id) return;
-    if (game.player) { save(); return; }
+    if (game.player) return save();
     const s = Profile.data?.save;
-    if (s) Profile.store({ ...s, volumes: Settings.volumes() }, new Map(Profile.data.deltas), { upload: true });
+    if (!s) return;
+    const done = Profile.store({ ...s, volumes: Settings.volumes() }, new Map(Profile.data.deltas), { upload: true });
+    currentSave = Profile.data?.save || null;   // (what Continue opens: with the colour just chosen)
+    return done;
   }
+  const flushSave = () => (volumeTimer ? saveVolumes() : null);   // (what was about to be saved, now: logging out)
   hub = game.pauseHub = initPauseHub(game, { show, resume, save, savedMsg, quit: quitToMenu, journal: journalUI, settings: settingsUI });
   game.openJournal = (page, id) => hub.journal(page, id);
   game.onShop = id => { if (game.mode !== 'play') return; game.mode = 'shop'; show('s-shop'); shopUI.open(id); };

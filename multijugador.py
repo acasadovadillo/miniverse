@@ -699,7 +699,7 @@ def copy_key_code(path=None):
         print('No se ha podido copiar al portapapeles (hace falta pbcopy, el de macOS). No lo escribo aquí para que no quede a la vista.')
         return False
     print(f'Copiado al portapapeles el código de recuperación de la llave del mundo de {os.path.basename(path)}: pégalo en tu gestor '
-          'de contraseñas (o en el juego, Ajustes › Llave del mundo, si allí se ha perdido) y luego copia otra cosa encima.')
+          'de contraseñas (o en el juego, Ajustes › Cuenta, si allí se ha perdido) y luego copia otra cosa encima.')
     return True
 
 
@@ -712,7 +712,7 @@ def token_text(left):
     else:
         days = max(1, -(-int(left) // 86400))
         head = f'El token del mundo del servidor (tu token de admin) caduca el {time.strftime("%d/%m", time.localtime(time.time() + left))} ({"en menos de un día" if left < 86400 else f"en {days} días"})'
-    return head + ': crea uno nuevo en GitHub, cámbialo en tu juego (Ajustes › Guardado en GitHub) y escribe /link en este terminal.'
+    return head + ': crea uno nuevo en GitHub, cámbialo en tu juego (Ajustes › Cuenta) y escribe /link en este terminal.'
 
 
 async def watch_token():

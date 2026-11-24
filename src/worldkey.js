@@ -9,6 +9,7 @@
 //   se vuelve a poner con su código de recuperación, que el admin guarda en su gestor de contraseñas.
 import { DATA_REPO, getFile, putFile } from './github.js';
 import { toB64, fromB64, encryptText, decryptText } from './vault.js';
+import { t } from './i18n.js';
 
 export const keysFile = id => `${id}-claves.json`;
 export const WORLD_FILE = 'mundo.enc';   // (el mundo compartido, cifrado con la clave del mundo: ver accounts.js)
@@ -35,7 +36,7 @@ async function opensWorld(raw, bytes) {
 // La llave del mundo ya existía y no se puede abrir: no se hace otra (dejaría ilegibles el mundo guardado, la copia del
 // servidor y todas las de backups/). keyLost: el menú lo dice y Ajustes ofrece recuperarla con el código de recuperación
 // (si no guardó el código, el servidor tiene la llave: python3 multijugador.py --codigo-llave se lo copia al portapapeles)
-const lost = why => Object.assign(new Error(`${why} No se crea otra, que dejaría el mundo y sus copias sin poder abrirse: recupérala con tu código de recuperación (Ajustes › Llave del mundo). Si no lo guardaste, en el Mac del servidor «python3 multijugador.py --codigo-llave» te lo copia de la llave del servidor.`), { keyLost: true });
+const lost = why => Object.assign(new Error(`${t(why)} ${t('save.key.lost')}`), { keyLost: true });
 
 // ---------- El código de recuperación ----------
 // La clave del mundo (32 bytes) y 2 bytes de comprobación (del SHA-256 de la clave, para notar una errata), en base 32
@@ -79,14 +80,14 @@ export const WorldKey = {
     mine = null;
     const f = await getFile(me.token, DATA_REPO, keysFile(me.id));
     let info, sha = f?.sha ?? null, priv = null;
-    try { info = f ? read(f) : null; } catch { if (me.admin) throw lost('Tu archivo de claves está dañado.'); info = null; }   // (los demás: se hacen nuevas y el admin se la vuelve a dar)
+    try { info = f ? read(f) : null; } catch { if (me.admin) throw lost('save.key.lost.file'); info = null; }   // (los demás: se hacen nuevas y el admin se la vuelve a dar)
     if (info?.priv) { try { priv = await openPriv(me.key, info.priv); } catch { priv = null; } }   // (de otra contraseña o dañada: se hacen nuevas)
     let raw = null;
     if (me.admin) {
       if (info?.world?.self) {
         try { raw = fromB64(await decryptText(me.key, info.world.self)); } catch { raw = null; }
-        if (raw?.length !== 32) throw lost('No se puede abrir la llave del mundo de tu archivo de claves (¿está dañado?).');
-      } else if (info?.world || await getFile(me.token, DATA_REPO, WORLD_FILE)) throw lost('Tu archivo de claves no tiene la llave del mundo, pero el mundo ya está guardado con una (mundo.enc).');
+        if (raw?.length !== 32) throw lost('save.key.lost.key');
+      } else if (info?.world || await getFile(me.token, DATA_REPO, WORLD_FILE)) throw lost('save.key.lost.none');
     }
     let dirty = false, made = false;
     if (!priv) {
@@ -119,11 +120,11 @@ export const WorldKey = {
   // se comprueba que abre el mundo guardado. Si sus claves de cuenta tampoco se abren, se hacen nuevas (eso no toca el
   // mundo) y se les vuelve a dar la llave a todos. Devuelve la clave (AES-GCM)
   async recover(me, code) {
-    if (!me?.admin) throw new Error('Solo el admin tiene la llave del mundo.');
+    if (!me?.admin) throw new Error(t('save.key.admin_only'));
     const raw = await parseRecoveryCode(code);
-    if (!raw) throw new Error('Ese código no es válido: revisa que esté entero y sin erratas.');
+    if (!raw) throw new Error(t('save.key.bad_code'));
     const w = await getFile(me.token, DATA_REPO, WORLD_FILE);
-    if (w && !(await opensWorld(raw, w.bytes))) throw new Error('Ese código no abre el mundo guardado (mundo.enc): no es el de esta llave.');
+    if (w && !(await opensWorld(raw, w.bytes))) throw new Error(t('save.key.wrong_code'));
     const f = await getFile(me.token, DATA_REPO, keysFile(me.id));
     let info = null, priv = null;
     try { info = f ? read(f) : null; } catch { info = null; }

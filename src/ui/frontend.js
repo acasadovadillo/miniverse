@@ -2,8 +2,8 @@
 // the stack of open screens and where their keys go (FE), a tab strip, a list with one white selected row, option rows
 // with ‹ value ›, the key legend, the alert band and the ring of a held key. Plain DOM, driven by events: nothing runs per
 // frame. The look is in index.html (.fe-*, .row, .chip), on the tokens of PLAN-R8-hud-mapa.md §3.1.
-// Used by the pause (src/ui/pausehub.js), the alert band (a new game, starting without a save, quitting) and the menu sounds;
-// the settings and the main menu come with R9-3 and R9-4
+// Used by the pause (src/ui/pausehub.js), the settings (src/ui/settings.js, in the pause and in the main menu), the alert band
+// (a new game, starting without a save, quitting) and the menu sounds; the main menu comes with R9-4
 import { t } from '../i18n.js';
 import { Audio } from '../audio.js';
 import { Settings } from '../settings.js';
@@ -75,7 +75,7 @@ export const FE = {
       if (!e.repeat) { e.preventDefault(); FE.back(); }   // (held Esc leaves the full screen: the browser's)
       return true;
     }
-    if (writes(el) || (other && /^(Enter|NumpadEnter|Space)$/.test(e.code))) return true;   // (writing; or a button of a notice over the screen)
+    if ((writes(el) && !(el instanceof HTMLInputElement && /^Arrow(Up|Down)$/.test(e.code))) || (other && /^(Enter|NumpadEnter|Space)$/.test(e.code))) return true;   // (writing: in a line, ↑ and ↓ are still the page's; or a button of a notice over the screen)
     if (s.pass?.(e)) return false;
     for (const p of s.parts) if (p.key(e)) { e.preventDefault(); return true; }
     if (e.code === 'Tab' || /^F\d+$/.test(e.code)) return true;   // (the browser's own focus, its keys)
@@ -130,12 +130,18 @@ export function ring(el, ms) {
   };
 }
 
-// The key legend: [{ keys: ['Q', 'E'], text, hold, onClick }] (with onClick, it can be pressed with the mouse too)
+// The key legend: [{ keys: ['Q', 'E'], text, hold, onClick, onHold }] (with onClick, it can be pressed with the mouse too; with
+// onHold(down), held)
 export function legend(el, items) {
   el.classList.add('fe-legend');
   el.replaceChildren(...items.map(it => {
-    const box = make(it.onClick ? 'button' : 'span', 'fe-key');
+    const box = make(it.onClick || it.onHold ? 'button' : 'span', 'fe-key');
     if (it.onClick) { box.type = 'button'; box.onclick = it.onClick; }
+    if (it.onHold) {
+      box.type = 'button'; box.tabIndex = -1;
+      box.addEventListener('pointerdown', e => { if (e.button === 0) it.onHold(true); });
+      for (const ev of ['pointerup', 'pointerleave', 'pointercancel']) box.addEventListener(ev, () => it.onHold(false));
+    }
     for (const k of it.keys) box.append(chip(k, it.hold));
     box.append(make('span', '', it.text));
     return box;
@@ -143,9 +149,9 @@ export function legend(el, items) {
 }
 
 // ---------- Tabs ----------
-// tabs: [{ id, text, i18n (its key: the text follows the language) }]. Q and E go round, 1-9 jump, a click picks; the line
-// under the current one slides
-export function tabStrip(el, tabs, { onPick, current } = {}) {
+// tabs: [{ id, text, i18n (its key: the text follows the language) }]. Q and E (or other two letters: keys) go round, 1-9 jump
+// (digits: false, they do not), a click picks; the line under the current one slides
+export function tabStrip(el, tabs, { onPick, current, keys = ['Q', 'E'], digits = true } = {}) {
   let now = Math.max(0, tabs.findIndex(x => x.id === current));
   el.classList.add('fe-tabs');
   el.setAttribute('role', 'tablist');
@@ -157,7 +163,7 @@ export function tabStrip(el, tabs, { onPick, current } = {}) {
     b.onclick = () => { go(i); b.blur(); };
     return b;
   });
-  el.replaceChildren(chip('Q'), ...btns, chip('E'), line);
+  el.replaceChildren(chip(keys[0]), ...btns, chip(keys[1]), line);
   function paint() {
     btns.forEach((b, i) => { b.classList.toggle('on', i === now); b.setAttribute('aria-selected', String(i === now)); b.tabIndex = i === now ? 0 : -1; });
     const b = btns[now];
@@ -177,11 +183,12 @@ export function tabStrip(el, tabs, { onPick, current } = {}) {
     el,
     get current() { return tabs[now]?.id; },
     pick: (id, opts) => go(tabs.findIndex(x => x.id === id), opts),
+    step: d => go((now + d + tabs.length) % tabs.length),
     destroy: () => seen.disconnect(),
     key(e) {
-      const n = tabs.length;
-      if (e.code === 'KeyQ' || e.code === 'KeyE') { if (!e.repeat) go((now + (e.code === 'KeyE' ? 1 : n - 1)) % n); return true; }
-      if (/^Digit[1-9]$/.test(e.code) && +e.code.slice(5) <= n) { if (!e.repeat) go(+e.code.slice(5) - 1); return true; }
+      const n = tabs.length, k = keys.indexOf(/^Key[A-Z]$/.test(e.code) ? e.code.slice(3) : '');
+      if (k >= 0) { if (!e.repeat) go((now + (k ? 1 : n - 1)) % n); return true; }
+      if (digits && /^Digit[1-9]$/.test(e.code) && +e.code.slice(5) <= n) { if (!e.repeat) go(+e.code.slice(5) - 1); return true; }
       return false;
     },
   };
@@ -190,9 +197,10 @@ export function tabStrip(el, tabs, { onPick, current } = {}) {
 // ---------- A list ----------
 // rows: [{ id, text, value, desc, disabled, el (its own element, instead of a new one) }]. One is selected (.sel, the white
 // bar): ↑↓ or W S move it (held, they repeat), the mouse selects what it is over (without a tick; hover: false, only a click
-// does, and it does not pick: a list of pages), Enter, Space or a click pick it. desc: an element for its description. start: the one selected at
-// first (-1: none yet)
-export function list(el, rows, { onPick, onFocus, desc, hover = true, start = 0 } = {}) {
+// does, and it does not pick: a list of pages; 'move': only when it really moves over it, and a click does not pick: a list of
+// options), Enter, Space or a click pick it. desc: an element for its description. start: the one selected at first (-1: none
+// yet). wrap: false, it stops at its ends and says so (onEdge(-1 or 1))
+export function list(el, rows, { onPick, onFocus, desc, hover = true, start = 0, wrap = true, onEdge } = {}) {
   let at = -1, over = false;
   el.classList.add('fe-list');
   el.setAttribute('role', 'listbox');
@@ -203,8 +211,8 @@ export function list(el, rows, { onPick, onFocus, desc, hover = true, start = 0 
     if (!r.el) row.append(make('span', '', r.text));
     if (r.value !== undefined) row.append(make('b', '', r.value));
     if (r.disabled) { row.classList.add('off'); row.setAttribute('aria-disabled', 'true'); }
-    if (hover) row.addEventListener('pointerenter', () => { over = true; focus(i); over = false; });
-    row.onclick = () => { if (hover) { focus(i); pick(); } else if (i !== at) { focus(i); Audio.ui('tick'); } };
+    if (hover) row.addEventListener(hover === 'move' ? 'pointermove' : 'pointerenter', () => { if (at === i) return; over = true; focus(i); over = false; });
+    row.onclick = () => { if (hover === true) { focus(i); pick(); } else if (i !== at) { focus(i); Audio.ui('tick'); } };
     return row;
   });
   el.replaceChildren(...els);
@@ -223,11 +231,17 @@ export function list(el, rows, { onPick, onFocus, desc, hover = true, start = 0 
     Audio.ui('select');
     onPick?.(r, at);
   }
-  const move = d => { if (rows.length) { focus((at + d + rows.length) % rows.length); Audio.ui('tick'); } };
+  const move = d => {
+    if (!rows.length) return;
+    if (!wrap && !els[at + d]) { onEdge?.(d); return; }
+    focus((at + d + rows.length) % rows.length);
+    Audio.ui('tick');
+  };
   if (rows.length) focus(start);
   return {
     el, rows, focus, pick,
     get index() { return at; },
+    clear() { at = -1; for (const x of els) { x.classList.remove('sel'); x.setAttribute('aria-selected', 'false'); x.tabIndex = -1; } },
     key(e) {
       const d = { ArrowUp: -1, KeyW: -1, ArrowDown: 1, KeyS: 1 }[e.code];
       if (d) { if (!e.repeat) repeat(e, () => move(d)); return true; }
@@ -237,35 +251,118 @@ export function list(el, rows, { onPick, onFocus, desc, hover = true, start = 0 
   };
 }
 
+// ---------- A pane without a list: the keyboard goes through its controls, or scrolls it ----------
+const FOCUS = 'button:not(:disabled), input:not(:disabled), select:not(:disabled), summary';
+// (↑↓ from row to row, ← → change the one it is on, Enter or Space press it; without controls, ↑↓ scroll)
+export function paneNav(el) {
+  let at = -1;
+  const stops = () => {
+    const seen = new Set(), out = [];
+    for (const x of el.querySelectorAll(FOCUS)) {
+      if (!x.offsetParent) continue;
+      const seg = x.closest('.seg');
+      if (!seg) { out.push(x); continue; }
+      if (seen.has(seg)) continue;   // (the buttons of a choice are one stop: the one that is on)
+      seen.add(seg);
+      out.push([...seg.querySelectorAll('button')].find(b => b.classList.contains('on')) || x);
+    }
+    return out;
+  };
+  const here = all => { const a = document.activeElement, seg = a?.closest?.('.seg'); return all.findIndex(x => x === a || (seg && seg.contains(x))); };
+  const go = (all, i) => { at = Math.max(0, Math.min(all.length - 1, i)); all[at]?.focus({ preventScroll: true }); all[at]?.scrollIntoView({ block: 'nearest' }); };
+  function side(d) {
+    const a = document.activeElement;
+    if (!el.contains(a)) return;
+    const seg = a.closest('.seg');
+    if (seg) {
+      const bs = [...seg.querySelectorAll('button:not(:disabled)')], i = bs.indexOf(a), to = bs[i + d];
+      if (to) { const k = here(stops()); to.click(); if (to.isConnected) to.focus({ preventScroll: true }); else go(stops(), k); }
+    } else if (a.type === 'range') {
+      const was = a.value;
+      a.value = String(+a.value + d * 5);
+      if (a.value !== was) { a.dispatchEvent(new Event('input', { bubbles: true })); Audio.ui('tick'); }
+    }
+  }
+  return {
+    enter() { at = -1; },
+    key(e) {
+      const d = { ArrowUp: -1, KeyW: -1, ArrowDown: 1, KeyS: 1 }[e.code], s = { ArrowLeft: -1, KeyA: -1, ArrowRight: 1, KeyD: 1 }[e.code];
+      if (d) {
+        const all = stops(), i = here(all);
+        if (!all.length) el.scrollBy({ top: d * 72 });
+        else if (i >= 0 || at >= 0) { const from = i >= 0 ? i : at, to = from + d; if (all[to]) { go(all, to); Audio.ui('tick'); } else el.scrollBy({ top: d * 72 }); }
+        else { go(all, 0); Audio.ui('tick'); }
+        return true;
+      }
+      if (s) { if (!el.contains(document.activeElement) || !document.activeElement.closest('.seg, [type=range]')) return false; side(s); return true; }
+      if (e.code === 'PageDown' || e.code === 'PageUp') { el.scrollBy({ top: (e.code === 'PageDown' ? 1 : -1) * el.clientHeight * 0.9 }); return true; }
+      if (e.code === 'Enter' || e.code === 'NumpadEnter' || e.code === 'Space') {
+        const a = document.activeElement;
+        if (!e.repeat && el.contains(a) && a !== el && a.matches(FOCUS)) { const k = here(stops()); a.click(); if (!a.isConnected) go(stops(), k); }
+        return true;
+      }
+      return false;
+    },
+  };
+}
+
 // ---------- An option: Label ........ ‹ Value › ----------
-// values: [[value, text], …]; or min, max, step (a bar with its number); or neither: on and off. ← → or A D change it (with
-// Shift, four steps), Enter flips a choice of two, R puts def back
-export function optionRow({ label, desc = '', get, set, values, min, max, step = 1, def }) {
+// values: [[value, text], …]; or min, max, step (a bar with its number, which the mouse can drag); or neither: on and off.
+// ← → or A D change it (with Shift, four steps), Enter flips a choice of two, R puts def back (or calls onReset). colours: a
+// swatch for each value, which can be clicked. disabled: it is seen and cannot be changed
+export function optionRow({ label, desc = '', get, set, values, min, max, step = 1, def, onReset, colours, disabled = false }) {
   const range = min !== undefined, opts = range ? null : values || [[true, t('common.yes')], [false, t('common.no')]];
   const el = make('div', 'row fe-opt'), prev = make('button', 'fe-arrow', '‹'), val = make('b'), next = make('button', 'fe-arrow', '›');
   el.dataset.desc = desc;
-  for (const [b, d] of [[prev, -1], [next, 1]]) { b.type = 'button'; b.tabIndex = -1; b.onclick = () => change(d); }
+  for (const [b, d] of [[prev, -1], [next, 1]]) { b.type = 'button'; b.tabIndex = -1; b.disabled = disabled; b.onclick = () => change(d); }
   el.append(make('span', '', label), prev, val, next);
-  let bar = null;
-  if (range) { bar = make('i', 'fe-bar'); val.before(bar); }
+  let bar = null, sw = null;
+  if (range) {
+    bar = make('i', 'fe-bar');
+    el.classList.add('range');
+    val.before(bar);
+    if (!disabled) dragBar();
+  } else if (!disabled) val.onclick = () => change(1);
+  if (colours) {
+    sw = make('div', 'fe-sw');
+    sw.append(...colours.map((c, i) => { const b = make('button'); b.type = 'button'; b.tabIndex = -1; b.style.background = c; b.title = opts[i][1]; b.disabled = disabled; b.onclick = () => put(opts[i][0]); return b; }));
+    prev.before(sw);
+  }
+  // (the number under the mouse, one by one: the steps are the keyboard's)
+  function dragBar() {
+    let held = false, from;
+    const at = e => { const r = bar.getBoundingClientRect(); put(Math.round(min + Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)) * (max - min)), true); };
+    bar.addEventListener('pointerdown', e => { if (e.button) return; held = true; from = get(); bar.setPointerCapture(e.pointerId); at(e); e.preventDefault(); });
+    bar.addEventListener('pointermove', e => { if (held) at(e); });
+    for (const ev of ['pointerup', 'pointercancel']) bar.addEventListener(ev, () => { if (held && get() !== from) Audio.ui('tick'); held = false; });
+  }
   function refresh() {
     const v = get();
-    if (range) { val.textContent = String(v); bar.style.setProperty('--v', String((v - min) / (max - min))); } else val.textContent = opts.find(o => o[0] === v)?.[1] ?? String(v);
+    if (range) { val.textContent = String(v); bar.style.setProperty('--v', String((v - min) / (max - min))); return; }
+    const i = opts.findIndex(o => o[0] === v);
+    val.textContent = opts[i]?.[1] ?? String(v ?? '');
+    if (sw) [...sw.children].forEach((b, k) => b.classList.toggle('on', k === i));
   }
-  function change(d) {
-    const v = get();
-    let to;
-    if (range) to = Math.max(min, Math.min(max, Math.round((v + d * step) / step) * step));
-    else { const i = opts.findIndex(o => o[0] === v); to = opts[((i < 0 ? 0 : i + Math.sign(d)) + opts.length) % opts.length][0]; }
-    if (to === v) return;
+  function put(to, quiet = false) {
+    if (disabled || to === get()) return;
     set(to);
-    Audio.ui('tick');
+    if (!quiet) Audio.ui('tick');
     refresh();
   }
-  function reset() { if (def === undefined || get() === def) return; set(def); Audio.ui('tick'); refresh(); }
+  function change(d) {
+    if (disabled) { Audio.ui('deny'); return; }
+    const v = get();
+    if (range) { put(Math.max(min, Math.min(max, Math.round((v + d * step) / step) * step))); return; }
+    const i = opts.findIndex(o => o[0] === v);
+    put(opts[((i < 0 ? 0 : i + Math.sign(d)) + opts.length) % opts.length][0]);
+  }
+  function reset(quiet = false) {
+    if (disabled) return;
+    if (onReset) { onReset(); if (!quiet) Audio.ui('tick'); refresh(); } else if (def !== undefined) put(def, quiet);
+  }
   refresh();
   return {
-    el, refresh, reset, change,
+    el, refresh, reset, change, disabled,
     key(e) {
       const d = { ArrowLeft: -1, KeyA: -1, ArrowRight: 1, KeyD: 1 }[e.code];
       if (d) { if (!e.repeat) repeat(e, () => change(e.shiftKey && range ? d * 4 : d), range ? REPEAT.value : 160); return true; }

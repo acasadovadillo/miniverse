@@ -373,21 +373,10 @@
   body.building #hint { bottom: 156px; }   /* (above the build bar, which is taller than the hotbar: both HUDs) */
   body:not(.playing) #buildbar { display: none !important; }
   /* Ajustes */
-  .st-panel h2 { display: flex; align-items: center; justify-content: space-between; }
-  .st-panel h2 .sq { width: 34px; height: 30px; font-size: 17px; }
-  .st-row { display: grid; grid-template-columns: 1fr auto auto; gap: 10px; align-items: center; margin: 8px 0; font-size: 17px; color: var(--dim); }
-  .st-row input[type=range] { width: 150px; accent-color: #e8c47a; }
-  .st-row b { width: 44px; text-align: right; color: var(--cream); font-weight: 400; }
-  .st-row.check { display: flex; gap: 8px; cursor: pointer; }
-  .st-head { margin: 14px 0 2px; font-size: 16px; font-weight: 400; color: var(--gold); border-bottom: 1px solid #4a3220; padding-bottom: 3px; }
-  .st-head:first-child { margin-top: 0; }
-  .st-row .seg { display: flex; gap: 3px; grid-column: span 2; }
-  .st-row .seg button { padding: 4px 8px; color: var(--dim); background: rgba(0, 0, 0, .25); border: 2px solid #6a4a2a; border-radius: 4px; cursor: pointer; }
-  .st-row .seg button.on { color: var(--gold); background: #6a4424; border-color: var(--border); }
-  .st-row.wide { grid-template-columns: 1fr; gap: 4px; }
-  .st-row.wide .seg { grid-column: 1 / -1; }
-  .st-row.wide .seg button { flex: 1; }
-  /* Controles (en la pausa) */
+  .st-row { display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: center; margin: 8px 0; font-size: 17px; color: var(--dim); }
+  .st-row input { min-width: 0; padding: 6px 8px; font-size: 15px; color: var(--cream); background: rgba(0, 0, 0, .35); border: 2px solid #8a6034; border-radius: 4px; user-select: text; -webkit-user-select: text; }
+  .st-row .btn { width: auto; margin: 0; padding: 5px 12px; font-size: 15px; }
+  /* Controles (en Ajustes) */
   .ct-panel h3 { margin: 14px 0 6px; font-size: 17px; color: var(--gold); font-weight: 600; }
   .ct-list { display: grid; grid-template-columns: 190px 1fr; gap: 5px 14px; margin: 0; font-size: 16px; align-items: baseline; }
   @media (max-width: 520px) { .ct-list { grid-template-columns: 1fr; gap: 2px; } .ct-list dd { margin-bottom: 6px; } }
@@ -705,9 +694,6 @@
   .lang-pick button { padding: 2px 6px; color: var(--dim); background: none; border: 0; border-radius: 3px; cursor: pointer; }
   .lang-pick button:hover { color: var(--cream); }
   .lang-pick button.on { color: var(--gold); background: rgba(255, 220, 140, .14); }
-  .st-row.lang .seg { grid-column: 1 / -1; }
-  .st-row.lang .seg button { flex: 1; }
-  .st-note { margin: 2px 0 6px; font-size: 14px; line-height: 1.35; color: var(--dim); opacity: .85; }
   .cr-actions { display: flex; gap: 10px; margin-top: 4px; }
   .cr-actions .btn { margin: 0; }
 </style>
@@ -726,9 +712,15 @@
   .fe-opt { min-height: 38px; font: 500 17px/1.2 var(--font-ui); letter-spacing: 0; text-transform: none; }
   .fe-opt > b { min-width: 92px; text-align: center; font: 500 17px/1.2 var(--font-title); letter-spacing: .03em; }
   .fe-arrow { width: 22px; height: 26px; padding: 0; color: inherit; background: none; border: 0; border-radius: var(--r-s); font: 500 20px/1 var(--font-title); opacity: .75; cursor: pointer; }
+  .fe-opt.off .fe-arrow { visibility: hidden; }
+  .fe-opt.off .fe-bar { cursor: default; }
+  .fe-sw { display: flex; gap: 6px; }
+  .fe-sw button { width: 22px; height: 22px; padding: 0; border: 0; border-radius: var(--r-s); color: inherit; box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .25); cursor: pointer; }
+  .fe-sw button.on { outline: 2px solid currentColor; outline-offset: 2px; }
   .fe-arrow:hover { opacity: 1; background: rgba(128, 128, 128, .22); }
-  .fe-bar { position: relative; width: 120px; height: 4px; border-radius: 2px; background: rgba(128, 128, 128, .4); overflow: hidden; }
-  .fe-bar::after { content: ''; position: absolute; inset: 0; background: var(--accent); transform: scaleX(var(--v, 0)); transform-origin: 0 50%; }
+  .fe-bar { position: relative; width: 120px; height: 26px; cursor: pointer; touch-action: none; }
+  .fe-bar::before, .fe-bar::after { content: ''; position: absolute; left: 0; right: 0; top: 11px; height: 4px; border-radius: 2px; background: rgba(128, 128, 128, .45); }
+  .fe-bar::after { background: var(--accent); transform: scaleX(var(--v, 0)); transform-origin: 0 50%; }
   /* Tabs: capitals, and a line under the current one that slides */
   .fe-tabs { position: relative; display: flex; align-items: center; gap: 6px; border-bottom: 1px solid var(--fe-line); }
   .fe-tab { padding: 8px 12px 10px; color: var(--fe-dim); background: none; border: 0; cursor: pointer; font: 600 17px/1.2 var(--font-title); letter-spacing: .08em; text-transform: uppercase; transition: color var(--t-sel); }
@@ -764,8 +756,12 @@
   body.big-text .fe-legend, body.big-text .fe-opt { font-size: 17.9px; }
   body.big-text .fe-band p { font-size: 20px; }
   /* ---------- The pause (src/ui/pausehub.js) ---------- */
-  #s-pause { padding: 0; gap: 0; display: none; align-items: stretch; justify-content: flex-start; overflow: hidden; color: var(--ink); background: rgba(8, 9, 12, .5); }
+  #s-pause, #s-settings { padding: 0; gap: 0; display: none; align-items: stretch; justify-content: flex-start; overflow: hidden; color: var(--ink); background: rgba(8, 9, 12, .5); }
   #s-pause.show { display: flex; animation: fe-in var(--t-open); }
+  #s-settings { background: rgba(8, 9, 12, .62); }
+  #s-settings.show { display: flex; animation: fe-in var(--t-open); }
+  #s-settings h2 { margin: 0; font: 600 30px/1.1 var(--font-title); letter-spacing: .04em; text-transform: uppercase; color: var(--ink); }
+  #st-close { width: 36px; height: 32px; margin-left: auto; font-size: 17px; }
   #s-pause.on-map { background: #0c0e12; }
   #fe-shot { position: fixed; inset: 0; width: 100%; height: 100%; pointer-events: none; }
   #s-pause.on-map #fe-shot { display: none; }
@@ -792,15 +788,12 @@
   .fe-list.dim .row.sel { text-shadow: var(--shadow-text); }
   .ps-two .row.on:not(.sel) { background: rgba(255, 255, 255, .08); }
   .fe-list.dim .row.sel { background: rgba(255, 255, 255, .16); color: var(--ink); }
-  .ps-form { flex: none; width: min(680px, 100%); align-self: stretch; }
-  .ps-form .st-row { padding: 3px 8px; border-radius: var(--r-s); }
-  .ps-form .st-row:focus-within, .ps-form .st-row:hover { background: rgba(255, 255, 255, .08); }
-  .ps-form .st-row .seg button { white-space: nowrap; }
   #s-pause .ps-page .j-note:first-child { margin-top: 0; }
   #p-msg { min-height: 22px; padding: 12px 14px; font: 500 16px/1.35 var(--font-ui); color: var(--accent-2); }
   .ps-foot { position: relative; z-index: 2; flex: none; display: flex; align-items: center; justify-content: space-between; gap: 24px; min-height: 46px; padding: 6px 40px 10px; pointer-events: none; }
   .ps-foot > * { pointer-events: auto; }
   #s-pause.on-map .ps-foot { margin-top: auto; background: var(--fe-glass-2); padding-bottom: 6px; }
+  .ps-foot > :first-child { flex: 1 1 0; min-width: 150px; }
   #ps-note { font: 500 15px/1.3 var(--font-ui); color: var(--fe-dim); text-shadow: var(--shadow-text); }
   #ps-note:empty { visibility: hidden; }
   body.in-pause:not(.playing) #toasts { top: 190px; }
@@ -811,13 +804,35 @@
   #s-pause .ps-page h3 { margin: 14px 0 6px; font: 600 18px/1.2 var(--font-title); letter-spacing: .06em; color: var(--ink); }
   #s-pause .ps-page h3:first-child, #s-pause .ps-page > div > h3:first-child { margin-top: 0; }
   #s-pause .nb { min-height: 0; }
+  /* ---------- The settings (src/ui/settings.js): sub-tabs, rows and the line that explains the selected one ---------- */
+  #st-pane { display: flex; }
+  .st-host { display: flex; flex: 1; min-width: 0; min-height: 0; }
+  #st-body { display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; max-width: 980px; gap: 8px; color: var(--ink); }
+  #st-tabs { flex: none; justify-content: space-between; gap: 2px; padding: 0 12px; background: var(--fe-glass); border: 0; border-radius: var(--r-s); }
+  #st-tabs .fe-tab { padding: 9px 12px 10px; border-radius: var(--r-s); font-size: 16px; }
+  #st-body.on-tabs #st-tabs .fe-tab.on { background: var(--fe-sel-bg); color: var(--fe-sel-text); }
+  #st-tabs .fe-line { bottom: 0; }
+  #st-body .ps-page { max-width: none; padding: 10px 14px 12px; }
+  #st-body .ct-panel, #st-account { padding: 16px 22px; }
+  #st-body .ps-page h3 { margin: 14px 14px 4px; padding: 0; font: 600 15px/1.3 var(--font-title); letter-spacing: .08em; text-transform: uppercase; color: var(--fe-dim); background: none; }
+  #st-body .ps-page h3:first-child { margin-top: 2px; }
+  #st-body .ct-panel h3, #st-body #st-account h3 { margin-left: 0; }
+  #st-account .note { margin: 6px 0; font-size: 16px; line-height: 1.4; text-align: left; color: var(--ink); }
+  #st-account .note.err { color: var(--fe-bad); }
+  #st-account .btn { width: auto; margin: 8px 8px 4px 0; padding: 7px 16px; font-size: 16px; }
+  #st-account .st-row input { border: 1px solid var(--fe-line); border-radius: var(--r-s); color: var(--ink); }
+  #st-rows .fe-opt > b { width: 190px; }
+  #st-rows .fe-opt.range > b { width: 54px; min-width: 0; }
+  #st-rows .fe-bar { width: 126px; }
+  #st-desc { flex: none; min-height: 48px; margin: 0; padding: 12px 22px; background: var(--fe-glass); border-radius: var(--r-s); box-shadow: inset 3px 0 0 var(--fe-accent); font: 500 16px/1.4 var(--font-ui); color: var(--ink); }
+  body.big-text #st-desc, body.big-text #st-account .note { font-size: 17.9px; }
   /* (the map: under the header and the tabs) */
   #pause-map { padding: 0; }
   #s-pause #map-north { left: 40px; top: 132px; }
   #s-pause .map-bar { top: 132px; }
   #s-pause #map-legend { left: 40px; bottom: 62px; max-height: calc(100vh - 270px); }
-  body.still-menus #s-pause, body.still-menus .ps-top, body.still-menus .ps-pane { animation: none; }
-  @media (prefers-reduced-motion: reduce) { #s-pause.show, .ps-top, .ps-pane.on { animation: none; } }
+  body.still-menus #s-pause, body.still-menus #s-settings, body.still-menus .ps-top, body.still-menus .ps-pane { animation: none; }
+  @media (prefers-reduced-motion: reduce) { #s-pause.show, #s-settings.show, .ps-top, .ps-pane.on { animation: none; } }
 </style>
 <style id="ui-pages">
   /* The pages of the pause: Brief, Character and Progress (src/ui/brief.js, charpage.js, progresspage.js) */
@@ -925,8 +940,7 @@
   /* Titles: a short line of the player's colour under them */
   .box h2, .inv-panel h2, .cf-panel h2, .sh-panel h2, .ch-panel h2 { padding-bottom: 8px; background: linear-gradient(var(--accent), var(--accent)) left bottom / 28px 2px no-repeat; color: var(--ink); }
   .win.collapsed h2 { padding-bottom: 0; background: none; }
-  .st-head, .ct-panel h3, #j-body h3, #cf-repair h3 { font-weight: 600; letter-spacing: .06em; color: var(--ink); }
-  .st-head { border-bottom: 0; padding-bottom: 5px; margin-bottom: 4px; background: linear-gradient(var(--accent), var(--accent)) left bottom / 28px 2px no-repeat; }
+  .ct-panel h3, #j-body h3, #cf-repair h3 { font-weight: 600; letter-spacing: .06em; color: var(--ink); }
   .inv-sep { color: var(--ink-2); }
   /* Buttons: plain ones a light wash, the main one white */
   .btn { color: var(--ink); background: rgba(255, 255, 255, .1); border-color: transparent; border-radius: var(--r-s); transition: background-color var(--t-sel), color var(--t-sel); }
@@ -939,9 +953,9 @@
   .sq:hover:not(:disabled) { color: #0c0e12; background: #fff; }
   button:focus-visible, input:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   /* Tabs, choices and lists: the one chosen is a white bar with dark text */
-  .tabs button, .seg button, .st-row .seg button, .cf-tab, .cf-size, #bb-cats button, .sh-tabs button, #dlg-opts button, .cf-fix, .bb-piece, .map-bar .map-btn { color: rgba(255, 255, 255, .8); background: rgba(255, 255, 255, .07); border-color: transparent; border-radius: var(--r-s); transition: background-color var(--t-sel), color var(--t-sel); }
-  .tabs button:hover, .seg button:hover, .st-row .seg button:hover, .cf-tab:hover, .cf-size:hover, #bb-cats button:hover, .sh-tabs button:hover, #dlg-opts button:hover, .cf-fix:hover:not(:disabled), .bb-piece:hover:not(:disabled), .map-bar .map-btn:hover { color: var(--ink); background: rgba(255, 255, 255, .16); }
-  .tabs button.on, .seg button.on, .st-row .seg button.on, .cf-tab.on, .cf-size.on, #bb-cats button.on, .sh-tabs button.on, #dlg-opts button.on, .bb-piece.on { color: #0c0e12; background: #fff; border-color: transparent; box-shadow: none; }
+  .tabs button, .seg button, .cf-tab, .cf-size, #bb-cats button, .sh-tabs button, #dlg-opts button, .cf-fix, .bb-piece, .map-bar .map-btn { color: rgba(255, 255, 255, .8); background: rgba(255, 255, 255, .07); border-color: transparent; border-radius: var(--r-s); transition: background-color var(--t-sel), color var(--t-sel); }
+  .tabs button:hover, .seg button:hover, .cf-tab:hover, .cf-size:hover, #bb-cats button:hover, .sh-tabs button:hover, #dlg-opts button:hover, .cf-fix:hover:not(:disabled), .bb-piece:hover:not(:disabled), .map-bar .map-btn:hover { color: var(--ink); background: rgba(255, 255, 255, .16); }
+  .tabs button.on, .seg button.on, .cf-tab.on, .cf-size.on, #bb-cats button.on, .sh-tabs button.on, #dlg-opts button.on, .bb-piece.on { color: #0c0e12; background: #fff; border-color: transparent; box-shadow: none; }
   #dlg-opts { gap: 2px; }
   #dlg-opts button { padding: 6px 12px; }
   #dlg-opts button.on { font-weight: 600; }
@@ -958,7 +972,6 @@
   .field input, .dlg-input, #inv-all-q, #chat-input { background: rgba(255, 255, 255, .08); border: 1px solid rgba(255, 255, 255, .18); border-radius: var(--r-s); color: var(--ink); }
   .field input:focus, .dlg-input:focus, #inv-all-q:focus, #chat-input:focus { border-color: var(--accent); box-shadow: inset 0 -2px 0 var(--accent); outline: none; }
   #chat-input { background: rgba(10, 12, 16, .82); }
-  .st-row input[type=range], .st-row input[type=checkbox] { accent-color: var(--accent); }
   .st-row { color: var(--ink); }
   .chat-line { background: rgba(10, 12, 16, .62); border-radius: var(--r-s); }
   .chat-line.sys { color: #ffd9a0; }
@@ -1148,18 +1161,13 @@
       <div id="ps-progress"></div>
       <div class="ps-page" id="ps-progress-body"></div>
     </div>
-    <div class="ps-pane" data-pane="settings"><div class="ps-page ps-form" id="ps-settings"></div></div>
-    <div class="ps-pane ps-two" data-pane="game">
-      <div>
-        <div id="ps-game">
-          <div id="p-resume"><span data-i18n="gui.pause.resume">Back to game</span></div>
-          <div id="p-save"><span data-i18n="gui.game.save_now">Save now</span></div>
-          <div id="p-controls"><span data-i18n="gui.pause.controls">Controls</span></div>
-          <div id="p-menu"><span data-i18n="gui.pause.save_quit">Save and quit to menu</span></div>
-        </div>
-        <div id="p-msg" role="status"></div>
-      </div>
-      <div class="ps-page ct-panel" id="s-controls" hidden>
+    <div class="ps-pane" data-pane="settings">
+      <div id="ps-settings" class="st-host">
+      <!-- The settings (src/ui/settings.js): in the pause, here; in the main menu, in #st-host -->
+      <div id="st-body">
+        <nav id="st-tabs"></nav>
+        <div class="ps-page" id="st-rows"></div>
+        <div class="ps-page ct-panel" id="s-controls" hidden>
           <h3 data-i18n="gui.controls.keyboard">Keyboard and mouse</h3>
           <dl class="ct-list">
             <dt><kbd>WASD</kbd></dt><dd data-i18n="controls.walk">Walk (up is where the camera is looking)</dd>
@@ -1194,7 +1202,7 @@
             <dt data-i18n="controls.body.keys">The body chip</dt><dd data-i18n="controls.body">Under the bars, only when it matters: Cold, Freezing, Hot, Soaked or Filthy. Hold Tab to see how warm you feel</dd>
             <dt><kbd>J</kbd> <kbd>M</kbd></dt><dd data-i18n="controls.journal_map">Journal and map (two tabs of the pause; the same key again closes it)</dd>
             <dt data-i18n-html="controls.chat.keys"><kbd>T</kbd> or <kbd>/</kbd></dt><dd data-i18n-html="controls.chat">Chat and commands (<b>/help</b> to see them). Ops (given in the server terminal with <b>/op</b>) have <b>/gamemode</b>, <b>/tp</b>, <b>/give</b>, <b>/kill</b>, <b>/weather</b>, <b>/gamerule</b>…; the admin also has <b>/account</b>, to create accounts</dd>
-            <dt><kbd>Esc</kbd> <kbd>P</kbd></dt><dd data-i18n="controls.pause">Pause (and close windows): Q and E change tab, 1–7 jump to one; the arrows or WASD move, Enter picks, and Esc or right click goes back. The shared world goes on meanwhile</dd>
+            <dt><kbd>Esc</kbd> <kbd>P</kbd></dt><dd data-i18n="controls.pause">Pause (and close windows): Q and E change tab, 1–7 jump to one; the arrows or WASD move, Enter picks, and Esc or right click goes back. In Settings, Z and C change section and R puts a row back to its default (held, the whole section). The shared world goes on meanwhile</dd>
           </dl>
           <h3 data-i18n="gui.controls.building">Building</h3>
           <dl class="ct-list">
@@ -1208,6 +1216,21 @@
             <dt data-i18n="controls.map.route.keys">Click · right click</dt><dd data-i18n="controls.map.route">Mark a route to that point (near a house, the tavern or a place, it goes to its door) · remove it. A line on the ground and on the minimap leads you there, along roads where it can, and only through land you have explored. «Share the mark» sends it to the players with you; your partner sees your marks by themselves</dd>
             <dt>⌖</dt><dd data-i18n="gui.map.recenter">Back to your position</dd>
           </dl>
+      </div>
+        <div class="ps-page" id="st-account" hidden></div>
+        <p id="st-desc"></p>
+      </div>
+      </div>
+    </div>
+    <div class="ps-pane ps-two" data-pane="game">
+      <div>
+        <div id="ps-game">
+          <div id="p-resume"><span data-i18n="gui.pause.resume">Back to game</span></div>
+          <div id="p-save"><span data-i18n="gui.game.save_now">Save now</span></div>
+          <div id="p-controls"><span data-i18n="gui.pause.controls">Controls</span></div>
+          <div id="p-menu"><span data-i18n="gui.pause.save_quit">Save and quit to menu</span></div>
+        </div>
+        <div id="p-msg" role="status"></div>
       </div>
     </div>
     <footer class="ps-foot"><span id="ps-note"></span><div id="ps-legend"></div></footer>
@@ -1253,12 +1276,15 @@
       <div id="ch-bag"></div>
     </div>
   </section>
-  <!-- Ajustes -->
+  <!-- The settings from the main menu (src/ui/settings.js): #st-body moves here -->
   <section id="s-settings" class="screen">
-    <div class="box panel st-panel">
-      <h2><span data-i18n="gui.settings.title">Settings</span> <button class="sq" id="st-close" aria-label="Close" data-i18n-attr="aria-label:common.close">✕</button></h2>
-      <div id="st-body"></div>
-    </div>
+    <div class="ps-top"><header class="ps-head">
+      <span class="ps-mark" aria-hidden="true">MINIVERSE</span>
+      <h2 data-i18n="gui.settings.title">Settings</h2>
+      <button class="sq" id="st-close" aria-label="Close" data-i18n-attr="aria-label:common.close">✕</button>
+    </header></div>
+    <div class="ps-pane" id="st-pane"><div id="st-host" class="st-host"></div></div>
+    <footer class="ps-foot"><span></span><div id="st-legend"></div></footer>
   </section>
   <!-- Tienda -->
   <section id="s-shop" class="screen">

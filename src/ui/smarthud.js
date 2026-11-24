@@ -38,6 +38,7 @@ import { SHOPS } from '../economy.js';
 import { HOTBAR } from '../inventory.js';
 import { BULKY } from '../carry-items.js';
 import { Profile } from '../accounts.js';
+import { Settings } from '../settings.js';
 import { CAM } from '../camera.js';
 import { reportFault } from '../faults.js';
 import { hud } from './hud.js';
@@ -520,6 +521,7 @@ export class SmartHud {
     if (this.swimT > DIVE_TIP && surv && !apagada('buceo')) this.want('dive');
     this.critNow = crit;
     const tipNow = free && !wins && !g.build.on;
+    if (Settings.v.hints === false) { if (this.tip) this.endTip(); this.queue.length = 0; }   // (switched off while one shows or waits)
     if (this.tip && !tipNow) this.tipUntil += dt;   // (it waits, hidden, until the dialogue or the window is over)
     const bcd = bc?.cond;
     const over = { hungry: !crit.hunger, thirsty: !crit.water, tired: !crit.rest, air: !crit.air, lowhp: under,
@@ -783,7 +785,7 @@ export class SmartHud {
     } catch { /* (no storage: it may be shown again next time) */ }
   }
   want(id, first = false) {
-    if (this.seen.has(id) || this.tip === id || this.queue.includes(id) || Profile.server) return;
+    if (this.seen.has(id) || this.tip === id || this.queue.includes(id) || Profile.server || Settings.v.hints === false) return;   // (Settings › Game › Key hints)
     if (first) this.queue.unshift(id); else this.queue.push(id);
   }
   // Its key was pressed: known, shown or not

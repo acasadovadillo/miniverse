@@ -53,7 +53,7 @@ export async function runServer() {
   Profile.onSync = st => {
     if (!st) { if (syncWarned) log('Vuelve a guardarse en GitHub.'); syncWarned = false; return; }
     syncWarned = true;
-    if (st.fails === 2 || st.fails % SYNC_LOG_EVERY === 0) log(`✗ ${st.what === 'world' ? 'El mundo' : 'Lo guardado'} no se sube a GitHub desde las ${new Date(st.since).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })} (${st.fails} fallos seguidos): ${st.message}${st.kind === 'expired' ? ' Cambia el token en tu juego (Ajustes › Guardado en GitHub) y escribe /link.' : ''} Mientras, se guarda en este ordenador y en backups/.`);
+    if (st.fails === 2 || st.fails % SYNC_LOG_EVERY === 0) log(`✗ ${st.what === 'world' ? 'El mundo' : 'Lo guardado'} no se sube a GitHub desde las ${new Date(st.since).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })} (${st.fails} fallos seguidos): ${st.message}${st.kind === 'expired' ? ' Cambia el token en tu juego (Ajustes › Cuenta) y escribe /link.' : ''} Mientras, se guarda en este ordenador y en backups/.`);
   };
   // /restore: desde ya, aunque el mundo no llegue a abrirse (si el de GitHub no se abre, es justo lo que hace falta)
   let running = false, restoring = false;

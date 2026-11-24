@@ -31,13 +31,15 @@
 // `log` once a day by the whole village. Passing remarks change no points;
 // the talk effects are in neighbors.js (talk).
 // Saved (out.remarks): { v, logDay } (the per-neighbour days are in their friend objects: friends[id].rem).
-// Switch: ?comentarios=0 turns every remark off.
+// Switches: ?comentarios=0 turns every remark off; Settings › Game › Remarks (Settings.v.remarks) only the passing ones, yours
+// and the ones heard about the others: a talk says what it says (it counts).
 // Perf (§11): 1 Hz, at most ~10 neighbours, the arrays are reused.
 import { PEOPLE } from './neighbors.js';
 import { tList, formatMessage } from './i18n.js';
 import { Profile } from './accounts.js';
 import { nearX } from './world/planet.js';
 import { apagada } from './opciones.js';
+import { Settings } from './settings.js';
 import { hud } from './ui/hud.js';
 
 export const REMARKS = [
@@ -151,7 +153,7 @@ export class Remarks {
     if ((this.acc += dt) < TICK) return;
     this.acc = 0;
     const g = this.game, p = g.player, w = g.world;
-    if (this.off || Profile.server || !p || !w) return;
+    if (this.off || Settings.v.remarks === false || Profile.server || !p || !w) return;
     if (g.mode !== 'play' || g.busy || hud.dialogOpen || g.windowsOpen || g.scene !== w || g.gamemode === 'spectator') return;
     if (g.time - this.lastAt < GAP) return;
     const now = Date.now();
@@ -193,7 +195,7 @@ export class Remarks {
   // same neighbour, a window: it would turn away or go to the subtitle from across the map)
   heard(m, peer, conn) {   // (the order live.js calls it with)
     const g = this.game;
-    if (this.off || Profile.server || !g.player || !g.world || g.scene !== g.world || !m) return;
+    if (this.off || Settings.v.remarks === false || Profile.server || !g.player || !g.world || g.scene !== g.world || !m) return;
     const id = typeof m.npc === 'string' && Object.prototype.hasOwnProperty.call(PEOPLE, m.npc) ? m.npc : null;
     const cond = Number.isInteger(m.rc) && m.rc >= 0 ? REMARKS[m.rc] : undefined;
     if (!id || !cond || !Number.isInteger(m.li) || m.li < 0 || m.li >= 1000) return;
