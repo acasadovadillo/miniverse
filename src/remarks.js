@@ -45,7 +45,7 @@ export const REMARKS = [
   'underdressed', 'overdressed', 'fresh', 'haircut', 'new_clothes', 'couple', 'wrapped_up',
 ];
 export const GOOD_REMARKS = new Set(['fresh', 'haircut', 'new_clothes', 'couple', 'wrapped_up']);
-export const RECALLS = ['gift_loved', 'gift_hated', 'insult', 'take_seen', 'helped', 'knock_night', 'project'];
+export const RECALLS = ['gift_loved', 'gift_hated', 'insult', 'take_seen', 'helped', 'knock_night', 'project', 'wish_kept'];
 
 export const NEAR = 6;            // tiles: how close a neighbour must be to remark as you pass
 export const GAP = 40;            // s (game time) between two passing remarks anywhere
@@ -142,7 +142,7 @@ export class Remarks {
   }
   // A line of that remark for that neighbour: { key, li, text } (li into remarkLines)
   line(id, cond, name) {
-    const temper = temperOf(id), key = remarkKey(cond, temper), list = remarkLines(cond, temper), li = rnd(Math.max(1, list.length));
+    const temper = temperOf(id), key = remarkKey(cond, temper), list = remarkLines(cond, temper), li = this.game.neighbors.lineOf(id, list);   // (before you are introduced, without your name)
     return { key, li, text: list.length ? formatMessage(list[li], { name }) : '' };
   }
 

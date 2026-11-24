@@ -13,7 +13,8 @@ import { lonOf, latOf } from './world/planet.js';
 // (antes, un día duraba 20 minutos y empezaba a las 7: con eso se sabe en qué día iban las partidas de entonces)
 const OLD_DAY_LEN = 1200, OLD_START_HOUR = 7;
 const HELD_LIGHT = { antorcha: 64, lampara: 76 };   // lo que alumbra llevándolo en la mano, y cuánto
-const DAY_MS = 864e5, HOUR_MS = 36e5;
+export const DAY_MS = 864e5;
+const HOUR_MS = 36e5;
 const CATCH_UP = 7;               // días sin jugar que se viven al volver, como mucho
 // Cuándo empieza cada estación (mes, día): primavera el 20 de marzo, verano el 21 de junio, otoño el 22 de
 // septiembre e invierno el 21 de diciembre
@@ -50,7 +51,7 @@ export function madridMs(now = Date.now()) {
   return now + zone.off;
 }
 // La estación de un día (días desde el 1 de enero de 1970) y el día en que empezó
-function seasonOf(day) {
+export function seasonOf(day) {
   const y = new Date(day * DAY_MS).getUTCFullYear();
   let best = null;
   for (const yy of [y - 1, y]) SEASON_START.forEach(([m, d], season) => { const start = Date.UTC(yy, m, d) / DAY_MS; if (start <= day && (!best || start > best.start)) best = { season, start }; });

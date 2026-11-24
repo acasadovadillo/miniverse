@@ -83,7 +83,7 @@ export class GridScene {
 }
 
 // ---------- Cuevas ----------
-const ORES = [
+export const ORES = [   // (talktopics.js reads it: Bruno knows from which level each one is)
   ['piedra', 1, 0.3], ['cobre', 1, 0.3], ['hierro', 2, 0.24], ['amatista', 3, 0.1], ['oro', 4, 0.12], ['esmeralda', 5, 0.07], ['rubi', 7, 0.05], ['diamante', 9, 0.03], ['fosil', 2, 0.05],
 ];
 export function makeCave(game, caveId, depth, snow) {

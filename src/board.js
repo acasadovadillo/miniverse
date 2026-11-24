@@ -1,21 +1,24 @@
 // Tablón de encargos: cada día, tres vecinos piden algo a cambio de monedas y amistad.
 // En el mismo tablón están los proyectos del pueblo: se pagan entre todos (bueno, tú) y el pueblo crece.
-import { ITEMS, CROPS } from './items.js';
+import { CROPS } from './items.js';
 import { priceOf } from './economy.js';
 import { BOARD, setProjects } from './world/village.js';
 import { PEOPLE } from './neighbors.js';
 import { ihash } from './util.js';
 import { Audio } from './audio.js';
 import { hud } from './ui/hud.js';
+import { t, defineNames } from './i18n.js';
+import { countOf } from './talktopics.js';
 
 const POOL = [['madera', 20], ['piedra', 15], ['fibra', 12], ['tablas', 15], ['carbon', 5], ['cobre', 4], ['lingote_cobre', 2], ['manzana', 4],
   ['huevo', 3], ['leche', 2], ['pan', 1], ['miel', 1], ['carpa', 1], ['perca', 1], ['sardina', 2], ['lingote_hierro', 1], ['tela', 2], ['antorcha', 5]];
-export const PROJECTS = {
-  fuente: { name: 'Fuente en la plaza', desc: 'Una fuente para que la plaza luzca. Y para que los pájaros beban.', money: 1500, items: [['piedra', 40]] },
-  muelle: { name: 'Muelle en el estanque', desc: 'Lía lleva años pidiéndolo.', money: 1200, items: [['tablas', 40]] },
-  mercado: { name: 'Mercado', desc: 'Dos puestos más: Rosa venderá animales y muebles, y Bruno, hierro.', money: 3000, items: [['tablas', 60], ['lingote_cobre', 5]] },
-  casa: { name: 'Casa nueva', desc: 'Si hay casa, alguien vendrá a vivir al pueblo.', money: 5000, items: [['tablas', 80], ['piedra', 60]], needs: 'mercado' },
-};
+// (their names and descriptions: project.<id> and project.<id>.desc in the language files)
+export const PROJECTS = defineNames({
+  fuente: { money: 1500, items: [['piedra', 40]] },
+  muelle: { money: 1200, items: [['tablas', 40]] },
+  mercado: { money: 3000, items: [['tablas', 60], ['lingote_cobre', 5]] },
+  casa: { money: 5000, items: [['tablas', 80], ['piedra', 60]], needs: 'mercado' },
+}, 'project');
 
 export class Board {
   constructor(game) {
@@ -53,15 +56,34 @@ export class Board {
     });
   }
 
+  // The first request of today of that neighbour that is not done, or null
+  requestOf(who) { return this.requests().find(r => r.who === who && !r.done) || null; }
+  canDeliver(r) { return !!r && !r.done && this.game.inv.count(r.item) >= r.n; }
+  // Deliver a request of today: the items go, the reward comes. One path for the board and for handing it over in person
+  // (neighbors.js). null if it cannot be (done meanwhile, not enough), else the request
+  deliver(r) {
+    const g = this.game, now = r && this.requests()[r.i];
+    if (!now || now.done || now.item !== r.item || now.who !== r.who || g.inv.count(now.item) < now.n) return null;
+    g.inv.remove(now.item, now.n);
+    g.addMoney(now.reward);
+    g.neighbors.addPoints(now.who, 60);
+    g.neighbors.remember?.(now.who, 'helped', now.item);   // (they remember it: neighbors.js, Plan E §4.5)
+    this.done.ids.push(now.i);
+    g.stats?.add('encargos', 1);
+    g.rep?.change(10, 'errand');
+    Audio.unlock();
+    return now;
+  }
+
   interact(p, scene) {
     if (scene !== this.world || Math.hypot(p.x - BOARD.x, p.y - BOARD.y - 0.4) > 1.4) return null;
-    return { text: 'Mirar el tablón de encargos', run: () => this.open() };
+    return { text: t('board.action'), run: () => this.open() };
   }
 
   aimables(p, scene, box) {
     if (scene !== this.world) return null;
     // (its model: the outline and the aim follow the board itself, not a box around it; see game.js aimTargets)
-    return [{ kind: 'sys', box: box(BOARD.x, BOARD.y, 0.75, 0.3, 0, 1.8), model: { name: 'village:board', x: BOARD.x, y: BOARD.y }, exact: true, act: () => ({ text: 'Mirar el tablón de encargos', run: () => this.open() }) }];
+    return [{ kind: 'sys', box: box(BOARD.x, BOARD.y, 0.75, 0.3, 0, 1.8), model: { name: 'village:board', x: BOARD.x, y: BOARD.y }, exact: true, act: () => ({ text: t('board.action'), run: () => this.open() }) }];
   }
 
   async open() {
@@ -69,23 +91,16 @@ export class Board {
     g.busy = true;
     g.player.stop();
     for (;;) {
-      const reqs = this.requests(), opts = reqs.map(r => r.done ? `✓ ${PEOPLE[r.who].name}: hecho` : `${PEOPLE[r.who].name} pide ${r.n} × ${ITEMS[r.item].name.toLowerCase()} → ${r.reward} 🪙 (tienes ${g.inv.count(r.item)})`);
-      opts.push('Proyectos del pueblo', 'Cerrar');
-      const pick = await hud.ask('Tablón de encargos', 'Encargos de hoy. Elige uno para entregarlo.', opts);
+      const reqs = this.requests(), opts = reqs.map(r => r.done ? t('board.row.done', { name: PEOPLE[r.who].name }) : t('board.row', { name: PEOPLE[r.who].name, what: countOf(r.item, r.n), reward: r.reward, have: g.inv.count(r.item) }));
+      opts.push(t('board.projects'), t('common.close'));
+      const pick = await hud.ask(t('board.title'), t('board.ask'), opts);
       if (pick === opts.length - 1) break;
       if (pick === opts.length - 2) { await this.projectsMenu(); continue; }
       const r = reqs[pick];
       if (r.done) continue;
-      if (g.inv.count(r.item) < r.n) { Audio.error(); await hud.say('Tablón', [`Te faltan ${r.n - g.inv.count(r.item)} × ${ITEMS[r.item].name.toLowerCase()}.`]); continue; }
-      g.inv.remove(r.item, r.n);
-      g.addMoney(r.reward);
-      g.neighbors.addPoints(r.who, 60);
-      g.neighbors.remember?.(r.who, 'helped', r.item);   // (they remember it: neighbors.js, Plan E §4.5)
-      this.done.ids.push(r.i);
-      g.stats?.add('encargos', 1);
-      g.rep?.change(10, 'errand');
-      Audio.unlock();
-      await hud.say(PEOPLE[r.who].name, ['¡Muchísimas gracias! Te debo una. Bueno, te debo esto:', `+${r.reward} monedas.`]);
+      if (!this.canDeliver(r)) { Audio.error(); await hud.say(t('board.name'), [t('board.short', { what: countOf(r.item, Math.max(1, r.n - g.inv.count(r.item))) })]); continue; }
+      const got = this.deliver(r);
+      if (got) await hud.say(PEOPLE[r.who].name, [g.neighbors.say(r.who, 'thanks'), t('board.reward', { n: got.reward })]);
     }
     g.busy = false;
   }
@@ -93,13 +108,13 @@ export class Board {
   async projectsMenu() {
     const g = this.game;
     const list = Object.entries(PROJECTS).filter(([id, p]) => !this.projects[id] && (!p.needs || this.projects[p.needs]));
-    if (!list.length) { await hud.say('Tablón', ['¡El pueblo está completo! De momento…']); return; }
-    const opts = list.map(([, p]) => `${p.name}: ${p.money} 🪙 + ${p.items.map(([i, n]) => `${n} ${ITEMS[i].name.toLowerCase()}`).join(', ')}`).concat(['Volver']);
-    const pick = await hud.ask('Proyectos del pueblo', 'Elige un proyecto para pagarlo.', opts);
+    if (!list.length) { await hud.say(t('board.name'), [t('board.complete')]); return; }
+    const opts = list.map(([, p]) => t('board.project', { name: p.name, money: p.money, items: p.items.map(([i, n]) => countOf(i, n)).join(', ') })).concat([t('common.back')]);
+    const pick = await hud.ask(t('board.projects'), t('board.projects.ask'), opts);
     if (pick >= list.length) return;
     const [id, p] = list[pick];
     const missing = p.items.find(([i, n]) => g.inv.count(i) < n);
-    if (g.money < p.money || missing) { Audio.error(); await hud.say('Tablón', [p.desc, g.money < p.money ? `Te faltan ${p.money - g.money} monedas.` : `Te falta ${ITEMS[missing[0]].name.toLowerCase()}.`]); return; }
+    if (g.money < p.money || missing) { Audio.error(); await hud.say(t('board.name'), [p.desc, g.money < p.money ? t('board.poor', { n: p.money - g.money }) : t('board.short', { what: countOf(missing[0], missing[1] - g.inv.count(missing[0])) })]); return; }
     g.addMoney(-p.money);
     for (const [i, n] of p.items) g.inv.remove(i, n);
     this.projects[id] = true;
@@ -111,8 +126,8 @@ export class Board {
     // (the whole village remembers it: Nilo and everyone who lives here)
     for (const who of ['nilo', ...g.neighbors.people.map(n => n.id)]) g.neighbors.remember?.(who, 'project', id);
     Audio.unlock();
-    hud.toast(`¡Proyecto terminado: ${p.name}!`, 'good');
-    await hud.say('Nilo', [id === 'casa' ? '¡Ya tenemos vecino nuevo! Se llama Dani y dice que es artista. Ve a saludar.' : `¡Mira qué maravilla! El pueblo gana mucho con ${p.name.toLowerCase()}.`]);
+    hud.toast(t('board.project.done', { name: p.name }), 'good');
+    await hud.say(PEOPLE.nilo.name, [t(`board.nilo.${id}`)]);
     g.onSave?.();
   }
 }

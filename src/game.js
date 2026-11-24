@@ -59,7 +59,7 @@ import { Live } from './live.js';
 import { Family } from './family.js';
 import { Settings } from './settings.js';
 import { apagada } from './opciones.js';
-import { savedLang, t } from './i18n.js';
+import { savedLang, t, tList, formatMessage } from './i18n.js';
 import { keys, clearKeys, dropSprint } from './input.js';
 import { Audio } from './audio.js';
 import { hud } from './ui/hud.js';
@@ -112,18 +112,6 @@ const STEP = 1 / 60;   // la simulación avanza siempre a 60 pasos por segundo
 // The tool wheel's slow motion (src/ui/wheel.js): how fast the game goes while it is open, playing alone, and how fast it
 // gets there and back (per second of real time: about 0.12 s)
 const SLOW_MOTION = 0.3, SLOW_RATE = 25;
-const NILO_TIPS = [
-  'Dicen que el mundo no se acaba nunca más allá del bosque. Yo nunca he llegado tan lejos.',
-  'Los peñascos grandes dan de todo: piedra, carbón, cobre, hierro y a veces oro. Pero tu pico se gasta: cuídalo.',
-  'Dicen que en las montañas los peñascos esconden más hierro y más oro.',
-  'Con un horno conviertes el mineral en lingotes. Y con lingotes de cobre, un yunque para forjar. Si se te rompe una herramienta, ahí te haces otra, o se la compras a Bruno.',
-  'En la cocina, una manzana asada quita el doble de hambre que una cruda. Hazme caso.',
-  'Si te quedas sin carbón, quema madera en el horno. Así lo hacía mi abuelo.',
-  'En la taberna, al oeste del camino, Anselmo te da de comer y te cuenta la vida de todos. Sobre todo lo segundo.',
-  'Las palmeras de las playas cálidas dan cocos cada pocos días. No hace falta talarlas: basta con sacudirlas.',
-  'Una noria en un río muele el trigo en harina y riega sola el huerto de alrededor. Con harina, el pan sale más barato.',
-  'Cava cinco bloques hacia abajo con la pala y, con la mesa de cantero cerca, te haces un pozo: agua para la regadera sin ir al río.',
-];
 
 // Deltas con tu casa recién hecha: para el fondo del menú, que no tiene partida
 function defaultHouseDeltas() {
@@ -164,7 +152,6 @@ export class Game {
     this.inv = new Inventory();
     this.gather = new Gathering(this);
     this.craft = new Crafting(this);
-    this.niloTip = 0;
     this.explored = new Set();   // trozos descubiertos (claves "cx,cy")
     this.lastChunk = null;
     this.placeName = '';
@@ -217,7 +204,6 @@ export class Game {
     this.live = this.addSystem(new Live(this));   // jugar juntos en directo
     this.social = this.addSystem(new Social(this));   // greeting and provoking people (Y or right click on someone)
     this.remarks = this.addSystem(new Remarks(this));   // what the neighbours say about how you look (src/remarks.js; after social: it speaks through social.say)
-    this.niloTips = NILO_TIPS;
     this.money = 0;
     this.buffs = {};             // efectos de comida: { rapido: hasta cuándo, incansable: … }
     // Slow motion (see slowScale): timeScale, where it is now; timeScaleTarget, where it goes; simScale, what the last
@@ -847,38 +833,34 @@ export class Game {
     const nilo = this.world.nilo, p = this.player;
     nilo.flip = p.x - p.y < nilo.x - nilo.y;
     const first = !this.craft.taught.has('banco');
-    await hud.say('Nilo', first ? [
-      `¡Así que tú eres ${p.name}! Por fin llega alguien a la casa del final del camino. Llevaba años vacía.`,
-      'Esto es Pueblo Brotes. Pequeño, sí, pero aquí cada cual se construye la vida a su manera.',
-      'Te he dejado unas herramientas de hierro: hacha, pico, guadaña, azada y pala. Elígelas con los números y úsalas con el clic izquierdo. Para usar lo demás, acércate, pon el cursor encima y pulsa E.',
-      'No te agobies, que no hace falta saberlo todo hoy. Te dejo apuntado qué hacer, de uno en uno, arriba a la izquierda.',
-    ] : [NILO_TIPS[this.niloTip++ % NILO_TIPS.length]]);
+    const tips = tList('npc.chat.nilo.tip');
+    await hud.say('Nilo', first ? tList('npc.nilo.first').map(l => formatMessage(l, { name: p.name })) : [tips[Math.floor(Math.random() * tips.length)] || '…']);
     if (first) this.craft.teach('banco');
     this.busy = false;
   }
   // Nilo amplía la casa del pueblo a cambio de materiales
   async offerReform() {
     const cost = [['tablas', 40], ['piedra', 30]], ok = cost.every(([id, n]) => this.inv.count(id) >= n);
-    const pick = await hud.ask('Nilo', 'Por cierto, esa casa se te va a quedar pequeña. Con 40 tablas y 30 piedras te la amplío: más sitio para muebles.', ok ? ['¡Hecho! Amplíala', 'Ahora no'] : ['Vale, lo junto y vuelvo']);
+    const pick = await hud.ask('Nilo', t('npc.nilo.reform'), ok ? [t('npc.nilo.reform.yes'), t('npc.nilo.not_now')] : [t('npc.nilo.later')]);
     if (!ok || pick !== 0) return;
     for (const [id, n] of cost) this.inv.remove(id, n);
     this.house.big = true;
     this.layHouse(true, false);
-    await hud.say('Nilo', ['¡Listo! Tira de martillo… quiero decir, ya está. Tu casa es ahora mucho más amplia. Ve a verla.']);
+    await hud.say('Nilo', [t('npc.nilo.reform.done')]);
     this.onSave?.();
   }
   // Nilo convierte la casa ampliada en la casa familiar: más grande, con dormitorio, cuarto de los niños, baño,
   // cocina y salón (los muebles, de cada uno)
   async offerFamily() {
     const cost = [['tablas', 80], ['piedra', 60], ['lingote_hierro', 6]], ok = cost.every(([id, n]) => this.inv.count(id) >= n);
-    const pick = await hud.ask('Nilo', 'Si la familia va a crecer, hace falta sitio. Con 80 tablas, 60 piedras y 6 lingotes de hierro te levanto una casa familiar: dormitorio, cuarto para los niños, baño, cocina y salón. Los muebles ya los pones tú.', ok ? ['¡Adelante!', 'Ahora no'] : ['Vale, lo junto y vuelvo']);
+    const pick = await hud.ask('Nilo', t('npc.nilo.family'), ok ? [t('npc.nilo.family.yes'), t('npc.nilo.not_now')] : [t('npc.nilo.later')]);
     if (!ok || pick !== 0) return;
     for (const [id, n] of cost) this.inv.remove(id, n);
     this.house.family = true;
     setFamilyHouse(true);
     this.world.rebuildVillage();   // (los árboles y arbustos que había donde va la casa ya no están)
     this.layHouse('family', false);
-    await hud.say('Nilo', ['¡Hecho! Ya tienes casa familiar. Construye con B la cama doble, la cuna, las camas de los niños y lo de la cocina y el baño (yo vendo los planos de las camas y la cuna; Dani, los demás), y ponlo a tu gusto.']);
+    await hud.say('Nilo', [t('npc.nilo.family.done')]);
     this.onSave?.();
   }
   // Tu casa: su tamaño (false, true o 'family') y su solar

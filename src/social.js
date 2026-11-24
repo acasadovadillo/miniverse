@@ -327,7 +327,7 @@ export class Social {
       else key = `npc.reply.${act}.${temper}.${rel}`;
     }
     if (rm) return { kind, key, li: rm.li, gesture, text: rm.text, rc: rm.rc };
-    const list = this.lines(key), li = rnd(Math.max(1, list.length));
+    const list = this.lines(key), li = c.kind === 'npc' ? g.neighbors.lineOf(c.id, list) : rnd(Math.max(1, list.length));   // (before you are introduced, without your name)
     return { kind, key, li, gesture, text: say1(list, li, { name: g.player?.name || '' }), rc: -1 };
   }
   // The neighbor (or child) answers: stops, looks at whoever greeted, gestures and says it (life: the bubble's seconds)

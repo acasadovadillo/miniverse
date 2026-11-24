@@ -64,9 +64,10 @@ import * as HR from './horse.js';   // (Plan F: the horse's pure rules; as a nam
 import { HORSE_ACTS as LIVE_HORSE_ACTS } from './live.js';
 import { screenToWorld } from './camera.js';
 import { makeCave } from './world/underground.js';
-import { START_KIT, thirstOf, clothesText, WEAR_SLOTS, wearSlotLabel, itemNoun } from './items.js';
+import { CROPS, START_KIT, thirstOf, clothesText, WEAR_SLOTS, wearSlotLabel, itemNoun } from './items.js';
 import { REMARKS, remarkKey, remarkLines } from './remarks.js';
 import { PEOPLE } from './neighbors.js';
+import { talkContext, pickTopic, topicWeights, topicLines, moodOf, forecastBy, tomorrowsWeather, lineHash, thing, someOf, TOPICS } from './talktopics.js';
 import { stackKg, SIP_KG } from './carry-items.js';
 import { extraOf } from './inventory.js';
 import { WATER_Y } from './world/planet.js';
@@ -5401,6 +5402,7 @@ async function soloTests(game) {
       check(N.recall('rosa') === null && N.memories('rosa')[0].said, 'recalled twice');
       // The greeting of a talk recalls (when no remark holds)
       set([]); N.remember('bruno', 'insult'); N.friends.bruno.mem.at(-1)[0] = T - 2;
+      N.friend('bruno').talk = 0;   // (they know you: else the first talk is the introduction)
       check(tList('npc.recall.insult').some(l => formatMessage(l, { name: p().name, item: '' }) === N.greeting('bruno')), 'a talk does not recall');
     } finally { Math.random = rnd; }
     // A take_seen makes the relation cold for 3 days even at 5 hearts; day 4, a friend again; helped since lifts it
@@ -5429,6 +5431,210 @@ async function soloTests(game) {
     const out = JSON.parse(JSON.stringify(N.friends.rosa));
     check(Array.isArray(out.mem) && out.mem.length >= 2 && out.mem.every(m => Array.isArray(m) && m.length === 4), `the memory saved: ${JSON.stringify(out.mem)}`);
   }));
+  // ---------- talking to people (PLAN-R6-gente §8, phase R6.1: src/talktopics.js, neighbors.js, board.js) ----------
+  // The calendar k days on (both the real day and the world's; nothing of the new days runs: no frame in between)
+  const onDay = (k, fn) => { const T = game.days, was = [T.shift, T.weather]; T.shift += 24 * k; T.weather = T.weatherFor(T.dayIndex); try { return fn(T); } finally { [T.shift, T.weather] = was; } };
+  const atHour = h => runCommand(game, `/time set ${String(Math.floor(h)).padStart(2, '0')}:${String(Math.round((h % 1) * 60)).padStart(2, '0')}`, say0);
+  const ctxOf = (id, h = game.days.hour) => { const n = nb(id); if (n) { n.hold = 0; n.placeAt(h); } return talkContext(game, id, n); };
+  await test('talk (english): topic fits context', social(async () => {
+    const T = game.days, was = T.weather, fam = game.family.v, N = Nb();
+    try {
+      T.weather = 'sol'; const dry = topicWeights(ctxOf('rosa')).weather_now;
+      T.weather = 'lluvia'; const c = ctxOf('rosa'); check(topicWeights(c).weather_now === 3 * dry, 'rain does not weigh 3×');
+      check(topicLines(c, 'weather_now').every(l => l.key.includes('.lluvia')), 'a line of another weather');
+      T.weather = 'sol'; check(topicWeights({ ...c, hour: 7 }).hour > 0 && topicWeights({ ...c, hour: 23 }).hour > 0 && topicWeights({ ...c, hour: 11 }).hour === 0, 'the hour topic');
+      N.friend('rosa').pts = 500;
+      game.family.v = { kids: [], expecting: null }; check(topicWeights(ctxOf('rosa')).your_family === 0, 'talks of a family you do not have');
+      game.family.v = { kids: [{ id: 'k1', name: 'Vera', sex: 'chica', born: game.days.dayIndex - 20 }], expecting: null };
+      const k = ctxOf('nilo'); N.friend('nilo').pts = 500; const kl = topicLines(talkContext(game, 'nilo'), 'your_family');
+      check(k.kids.length === 1 && kl.length && kl.every(l => l.params.kid === 'Vera' && l.key.includes('.kid')), `the child: ${kl.map(l => l.key)}`);
+      game.family.v = { kids: [{ id: 'k2', name: 'Ajena', sex: 'chica', born: 0, parents: ['x', 'y'] }], expecting: null }; check(ctxOf('nilo').kids.length === 0, "someone else's child");
+      // Rosa: only crops of this season; Lía: only fish that bite now; Bruno: the real levels of the caves
+      const cropName = id => formatMessage('{x}', { x: someOf(id) }), inSeason = Object.keys(CROPS).filter(id => CROPS[id].seasons.includes(T.season)).map(cropName);
+      for (const l of topicLines(ctxOf('rosa'), 'season_work')) if (l.params?.crop) check(inSeason.includes(formatMessage('{x}', { x: l.params.crop })), `out of season: ${formatMessage('{x}', { x: l.params.crop })} (${inSeason})`);
+      const spring = onDay(0, () => topicLines({ ...ctxOf('rosa'), season: 3, seasonId: 'winter' }, 'season_work')); check(spring.length && spring.every(l => l.key.endsWith('no_crops.rosa')), `winter: ${spring.map(l => l.key)}`);
+      // Nobody who does not live here is mentioned
+      const gone = N.people.filter(n => n.id !== 'dani'), all = N.people; N.people = gone;
+      try { check(!topicLines(ctxOf('nilo'), 'village').some(l => l.key.endsWith('.dani')), 'talks of Dani before he comes'); } finally { N.people = all; }
+      check(topicWeights(ctxOf('bruno')).tip === 0 && topicWeights(ctxOf('nilo')).tip === 3, 'the tips are Nilo\'s');
+      check(topicWeights({ ...ctxOf('bruno'), hearts: 2 }).personal === 0 && topicWeights({ ...ctxOf('bruno'), hearts: 3 }).personal > 0, 'the personal lines');
+    } finally { T.weather = was; game.family.v = fam; }
+  }));
+  await test('talk (english): no repeats', social(async () => {
+    const N = Nb(), f = N.friend('bruno'); f.pts = 350; f.talk = 0;
+    const said = [], days = [0, 1, 2, 3];
+    for (const d of days) onDay(d, T => {
+      for (let i = 0; i < 10; i++) {
+        const c = ctxOf('bruno', 11), W = topicWeights(c), fresh = Object.keys(W).filter(k => W[k] > 0).some(k => topicLines(c, k).some(l => !f.said?.some(s => s[1] === lineHash(l.key, l.li))));
+        const x = pickTopic(c, f), h = lineHash(x.key, x.li);
+        check(!fresh || !said.includes(h), `repeated «${x.text}» (chat ${said.length})`);
+        check(f.tops.length <= 2 && f.said.length <= 64, 'the rings grow');
+        said.push(h);
+      }
+    });
+    check(new Set(said).size >= 24, `only ${new Set(said).size} different lines in 40 chats`);
+    const t0 = onDay(0, () => f.tops.slice()); check(t0.length === 2 && t0[0] !== undefined, 'the last topics');
+    // A line rests 10 days, then it may come back
+    const old = f.said[0]; check(Array.isArray(old) && old.length === 2, 'said entries');
+    check(JSON.parse(JSON.stringify(f.said)).every(s => Number.isFinite(s[0]) && Number.isFinite(s[1])), 'the saved ring');
+  }));
+  await test('talk (english): a month of daily talks', social(async () => {
+    const N = Nb(), T = game.days, ranch = game.ranch.animals, fam = game.family.v, house = game.house, me = Profile.id || 'yo', report = {}, done = JSON.stringify(game.board.done), people = N.people;
+    const when = { nilo: 11, rosa: 11, lia: 16, bruno: 12, dani: 11, anselmo: 20, eusebio: 20, ines: 21, marta: 19, paco: 22.5 }, sunny = /sol|clear_night/;
+    let total = 0, again = 0;
+    try {
+      game.ranch.animals = [...ranch, { type: 'perro', name: 'Toby', owner: me, def: { pet: true } }, { type: 'caballo', name: 'Trueno', owner: me, def: { ride: true } }, ...[1, 2, 3, 4].map(i => ({ type: 'gallina', name: `G${i}`, owner: me, def: {} }))];
+      game.family.v = { kids: [{ id: 'k1', name: 'Vera', sex: 'chica', born: T.dayIndex - 20 }], expecting: null };
+      N.people = people.slice(); N.moveIn('dani');   // (as if his house were built)
+      for (const [id, h] of Object.entries(when)) for (const from of [0, 90, 180, 270]) {   // (a month of each season)
+        N.friends[id] = { pts: 420, talk: 0, gift: -1, events: [3] };
+        const f = N.friend(id); atHour(h);
+        const days = [], texts = new Set();
+        for (let d = 0; d < 30; d++) onDay(from + d, T2 => {
+          const c = ctxOf(id, T2.hour), x = pickTopic(c, f), key = x.key, sub = key.split('.');
+          total++; texts.add(x.text);
+          check(x.text && !/[{}]/.test(x.text) && !x.text.includes('undefined'), `broken: «${x.text}» (${key})`);
+          const back = days.findIndex(([dd, hh]) => hh === lineHash(key, x.li) && d - dd < 10);
+          if (back >= 0) again++;
+          days.push([d, lineHash(key, x.li)]);
+          // No false claim: each one against the game's own data
+          if (x.topic === 'weather_now') check(sunny.test(sub[3]) ? T2.weather === 'sol' : sub[3] === T2.weather, `weather: ${key} on a day of ${T2.weather}`);
+          if (x.topic === 'forecast' && !['unsure', 'always_rain'].includes(sub[3])) check(sub[3] === T2.weatherFor(T2.dayIndex + 1), `forecast: ${key}, tomorrow ${T2.weatherFor(T2.dayIndex + 1)}`);
+          if (x.topic === 'season_work' && ['spring', 'summer', 'autumn', 'winter'].includes(sub[3])) check(sub[3] === ['spring', 'summer', 'autumn', 'winter'][T2.season], `season: ${key}`);
+          if (x.topic === 'village') check(sub[3] === 'nilo' || nb(sub[3]), `who: ${key}`);
+          if (x.topic === 'their_day') check(sub[3] === c.place, `place: ${key} at ${c.place}`);
+          if (x.topic === 'hour') check(T2.hour < 8 || T2.hour >= 22, `hour: ${key} at ${T2.hour}`);
+          if (x.topic === 'request') check(game.board.requests().some(r => r.who === id && !r.done), `request: ${key}`);
+        });
+        (report[id] ||= []).push(texts.size);
+        check(!days.some(([d, h], i) => days.some(([d2, h2], j) => j > i && h === h2 && d2 - d < 10)), `${id}: a line repeated within 10 days`);
+      }
+    } finally { game.ranch.animals = ranch; game.family.v = fam; game.house = house; N.people = people; game.board.done = JSON.parse(done); }
+    console.log(`month: ${total} talks, ${again} repeats within 10 days, different lines in 30 days: ${JSON.stringify(report)}`);
+  }));
+  await test('talk (english): forecast is honest', social(async () => {
+    let sure = 0, right = 0; const T = game.days, lock = game.weatherLock;
+    game.weatherLock = null;
+    try {
+      for (let d = 0; d < 200; d++) onDay(d, () => {
+        const a = forecastBy('lia', game), b = forecastBy('lia', game), real = T.weatherFor(T.dayIndex + 1);
+        check(a.w === b.w && a.sure === b.sure, 'asked twice, two answers');
+        if (a.sure) { sure++; if (a.w === real) right++; }
+        for (const id of ['nilo', 'rosa', 'paco', 'marta']) { const f = forecastBy(id, game); check(!f.sure || f.w === real, `${id} says ${f.w}, it will be ${real}`); }
+        const e = forecastBy('eusebio', game); check(e.rain && e.w === 'lluvia', 'Eusebio does not say rain');
+        check(topicLines(talkContext(game, 'eusebio', nb('eusebio')), 'forecast').every(l => l.key.endsWith('always_rain.eusebio')), 'Eusebio says another thing');
+      });
+      check(right === sure && sure >= 170, `Lía: sure ${sure} of 200 days, right ${right}`);
+      game.weatherLock = { w: 'nieve', until: null }; check(tomorrowsWeather(game) === 'nieve', 'a fixed weather');
+      game.weatherLock = { w: 'nieve', until: Date.now() + 3 * 864e5 }; check(tomorrowsWeather(game) === null && forecastBy('rosa', game) === null, 'a weather that ends tomorrow or later');
+    } finally { game.weatherLock = lock; }
+  }));
+  await test('talk (english): mood', social(async () => {
+    const T = game.days, was = T.weather, seen = { '-1': 0, 0: 0, 1: 0 };
+    try {
+      for (let d = 0; d < 300; d++) { const m = onDay(d, T2 => { T2.weather = 'nubes'; return moodOf('bruno', T2.realDay, game); }); seen[m]++; check([-1, 0, 1].includes(m), `mood ${m}`); }
+      check(seen['-1'] > 30 && seen[1] > 40 && seen[0] > 120, `moods: ${JSON.stringify(seen)}`);
+      T.weather = 'nubes'; const base = moodOf('rosa', T.realDay, game, {}); T.weather = 'lluvia'; check(moodOf('rosa', T.realDay, game, {}) === Math.max(-1, base - 1), 'rain does not lower Rosa');
+      T.weather = 'nubes'; check(moodOf('rosa', T.realDay, game, { giftMood: T.realDay }) === Math.min(1, base + 1), 'a loved gift does not cheer her up');
+      // Whatever the mood, they talk
+      const real = T.realDay; let opts; hud.ask = (w2, text, o) => { opts = o; return Promise.resolve(o.length - 1); };
+      const n = put('bruno', 21, 28.5); await goTo(game, 21, 27); Nb().friend('bruno').talk = 0;
+      await Nb().talk('bruno', n); check(opts.includes(t('npc.opt.chat')) && T.realDay === real, 'no chat');
+    } finally { T.weather = was; }
+  }));
+  await test('talk (english): intro once', social(async () => {
+    const N = Nb(); await goTo(game, 21, 27);
+    let text; hud.ask = (w2, s, o) => { text = s; return Promise.resolve(o.length - 1); };
+    const n = put('bruno', 21, 28.5), intro = tList('npc.intro.bruno').map(l => formatMessage(l, { name: p().name, sex: 'boy', npc: 'Bruno' }));
+    check(!N.introduced('bruno'), 'knows you already');
+    // (before it, no line with your name: a greeting by Y)
+    N.friends.bruno = { pts: 5, talk: -1, gift: -1, events: [] };
+    for (let i = 0; i < 30; i++) { const r = So().replyFor({ kind: 'npc', id: 'bruno', e: n }, 0, 'neutral'); check(!r.text.includes(p().name), `says your name: ${r.text}`); }
+    await N.talk('bruno', n); check(intro.includes(text), `the first talk: «${text}»`);
+    await N.talk('bruno', n); check(!intro.includes(text) && N.introduced('bruno'), 'introduced twice');
+    // An old save with friendship: no introduction; a new neighbour there: yes. Nilo, never
+    const keep = { friends: N.friends, flags: N.flags, people: N.people, res: w().reserved };
+    try {
+      N.reset({ friends: { rosa: { pts: 30, talk: -1, gift: -1, events: [] }, lia: { pts: 0, talk: 4, gift: -1, events: [] }, paco: { pts: 0, talk: -1, gift: -1, events: [] } }, flags: {} });
+      check(N.introduced('rosa') && N.introduced('lia') && !N.introduced('paco') && N.introduced('nilo'), `an old save: ${JSON.stringify(N.friends)}`);
+      check(N.friends.rosa.pts === 30 && N.friends.lia.talk === 4, 'the friendship points changed');
+    } finally { N.friends = keep.friends; N.flags = keep.flags; N.people = keep.people; w().reserved = keep.res; }
+  }));
+  await test('talk (english): walker stops', social(async () => {
+    const N = Nb(), n = nb('rosa'), T = game.days; await goTo(game, 21, 27);
+    n.hold = 0; n.placeAt(11); n.hidden = false;   // (at her stall)
+    let done; hud.ask = () => new Promise(r => { done = r; });
+    const talk = N.talk('rosa', n), x = n.x, y = n.y;
+    check(n.talkWith === p() && game.busy, 'not held');
+    for (let i = 0; i < 100; i++) n.update(0.1, 18.5);   // (time to go to the pond)
+    check(Math.hypot(n.x - x, n.y - y) < 0.05, `she moved ${Math.hypot(n.x - x, n.y - y)}`);
+    done(99); await talk;
+    check(n.talkWith === null && !game.busy, 'held after the talk');
+    for (let i = 0; i < 400; i++) n.update(0.1, 18.5);
+    check(n.node === 'pond_w' && !n.path.length, `she is at ${n.node}`);
+    // The tavern's stay while you talk, and leave after; a talk cut from outside lets go
+    const e = nb('eusebio'); e.placeAt(22.9); e.talkWith = p(); e.update(0.1, 23.2); check(!e.hidden, 'vanished in the talk');
+    game.busy = false; N.update(0); check(e.talkWith === null, 'a cut talk holds them'); e.update(0.1, 23.2); check(e.hidden, 'still there'); check(T.hour > 0, '');
+  }));
+  await test('gift (english): repeats halve', social(async () => {
+    const N = Nb(), I = inv(), f = N.friend('rosa'), pts = []; f.talk = 0;
+    const give = async item => { const before = f.pts; I.slots[I.selected] = { id: item, n: 1 }; I.changed(); let line; hud.say = (who, l) => { line = l[0]; return Promise.resolve(); }; await N.gift('rosa', I.held); return [f.pts - before, line]; };
+    for (let i = 0; i < 3; i++) pts.push((await give('fresa'))[0]);
+    check(pts.join() === '90,45,22', `the same strawberry: ${pts}`);
+    check(f.known.includes('fresa') && N.journal().includes(t('journal.loves', { list: t('journal.thing', { item: someOf('fresa') }) })), 'the taste is not in the journal');
+    const other = await give('miel'); check(other[0] === 90, `another thing: ${other}`);
+    for (const g2 of f.gifts) g2[0] -= 7; check((await give('fresa'))[0] === 90, 'not whole after a week');
+    // A wish, once
+    f.pts = 200; f.gifts = []; f.wish = ['miel', game.days.realDay - 5];
+    check(N.journal().includes(t('journal.wish', { item: thing('miel') })), 'the wish is not in the journal');
+    const kept = await give('miel'); check(kept[0] === 130 && !f.wish && N.memIndex('rosa', 'wish_kept', 0) >= 0, `the wish: ${kept}`);
+    f.gifts = []; check((await give('miel'))[0] === 90, 'the wish paid twice');
+    f.gifts = []; f.wish = ['miel', game.days.realDay - 31]; check((await give('miel'))[0] === 90, 'an old wish pays');
+    // A hated one always counts whole; a gift makes a good mood
+    f.pts = 500; check((await give('carbon'))[0] === -25 && (await give('carbon'))[0] === -25, 'a hated gift'); check(f.giftMood === game.days.realDay, 'no good mood');
+    // The topics: what they like and what they wish for become known
+    f.known = []; f.wish = undefined; const c = ctxOf('rosa'), lk = topicLines(c, 'likes')[0]; lk.done(f); check(f.known.length === 1 && PEOPLE.rosa.likes.includes(f.known[0]), `likes: ${f.known}`);
+    f.known = [...new Set([...PEOPLE.rosa.likes, ...PEOPLE.rosa.loves])].filter(i => ITEMS[i]); check(topicWeights(ctxOf('rosa')).likes === 0, 'likes with everything known');
+    topicLines(c, 'wish')[0].done(f); check(PEOPLE.rosa.loves.includes(f.wish[0]) && topicWeights(ctxOf('rosa')).wish === 0, 'the wish is asked again while open');
+  }));
+  await test('board (english): deliver in person', social(async () => {
+    const B = game.board, I = inv(), N = Nb(), was = JSON.stringify(B.done), keepMoney = game.money, rq0 = B.requests;
+    try {
+      B.done = { day: today(), ids: [] };
+      const r = B.requests()[0]; game.money = 100; N.friend(r.who).pts = 0; N.friend(r.who).talk = today();
+      const have = I.count(r.item); if (have) I.remove(r.item, have);
+      const n = r.who === 'nilo' ? undefined : put(r.who, 21, 28.5); await goTo(game, 21, 27);
+      let opts; hud.ask = (w2, s, o) => { opts = o; return Promise.resolve(o.length - 1); };
+      const label = o => o.find(x => x.startsWith(t('talk.opt.deliver', { what: '§' }).split('§')[0]));
+      await N.talk(r.who, n); check(!label(opts), `offered without the items: ${opts}`);
+      check(B.deliver(r) === null && !B.requests()[0].done, 'delivered with nothing');
+      I.add(r.item, r.n);
+      hud.ask = (w2, s, o) => { opts = o; return Promise.resolve(Math.max(0, o.indexOf(label(o)))); };
+      await N.talk(r.who, n);
+      check(label(opts), `not offered: ${opts}`);
+      check(game.money === 100 + r.reward && I.count(r.item) === 0 && B.requests()[0].done && N.friend(r.who).pts === 70, `money ${game.money} (+${r.reward}), left ${I.count(r.item)}, points ${N.friend(r.who).pts}`);
+      check(N.memIndex(r.who, 'helped', 0) >= 0 && B.deliver(r) === null, 'not remembered, or twice');
+      check(B.requestOf(r.who)?.i !== 0, 'asked again');
+    } finally { B.done = JSON.parse(was); game.money = keepMoney; game.addMoney(0); check(B.requests === rq0, ''); }
+  }));
+  await test('talk (english): every neighbour has their lines', async () => {
+    const lang = getLang();
+    for (const l of ['es', 'en']) {
+      await setLang(l);
+      for (const [id, d] of Object.entries(PEOPLE)) {
+        check(tList(`npc.chat.${id}.misc`).length >= 4 && tList(`npc.chat.${id}.personal`).length >= 4, `${l} ${id}: misc or personal`);
+        check(id === 'nilo' || tList(`npc.intro.${id}`).length, `${l} ${id}: intro`);
+        for (const lvl of Object.keys(d.events || {})) check(tList(`npc.events.${id}.${lvl}`).length, `${l} ${id}: event ${lvl}`);
+        for (const w2 of ['sol', 'nubes', 'lluvia', 'tormenta', 'niebla', 'nieve']) check(topicLines({ ...talkContext(game, id, nb(id)), weather: w2, hour: 12 }, 'weather_now').length, `${l} ${id}: ${w2}`);
+        for (const g2 of ['loved', 'liked', 'neutral', 'hated', 'again']) check(tList(`npc.gift.${g2}.${d.temper}`).length, `${l} ${id}: gift ${g2}`);
+        for (const b of ['morning', 'day', 'evening', 'night', 'rain', 'snow']) check(Nb().say(id, `greet.${b}`), `${l} ${id}: greet ${b}`);
+        for (const s2 of ['spring', 'summer', 'autumn', 'winter']) if (id !== 'rosa') check(topicLines({ ...talkContext(game, id, nb(id)), seasonId: s2 }, 'season_work').length, `${l} ${id}: ${s2}`);
+        for (const i of [...d.loves, ...d.likes].filter(x => ITEMS[x])) check(!/[{}]/.test(formatMessage('{item, the} {item, lower} {item, a}', { item: thing(i) })), `${l}: ${i}`);
+      }
+      check(Object.keys(TOPICS).length >= 12, 'the topics');
+    }
+    await setLang(lang);
+  });
   // ---------- Plan F phase 1: the horse's bond, the N whistle, the gallop's stamina, spooks, tricks and the saddlebags
   // (src/horse.js, src/saddlebags.js; docs/planes/gta/PLAN-F-caballo.md §11) ----------
   const HS = () => game.horse, SBg = () => game.saddlebags, RN = () => game.ranch, myId = () => Profile.id || 'yo';
