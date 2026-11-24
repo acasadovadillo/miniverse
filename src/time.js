@@ -19,7 +19,7 @@ const CATCH_UP = 7;               // días sin jugar que se viven al volver, com
 // Cuándo empieza cada estación (mes, día): primavera el 20 de marzo, verano el 21 de junio, otoño el 22 de
 // septiembre e invierno el 21 de diciembre
 const SEASON_START = [[2, 20], [5, 21], [8, 22], [11, 21]];
-const WEATHER = {
+export const WEATHER = {
   sol: { name: 'Despejado', icon: '☀' },
   nubes: { name: 'Nublado', icon: '⛅' },
   lluvia: { name: 'Lluvia', icon: '🌧', rain: 1 },

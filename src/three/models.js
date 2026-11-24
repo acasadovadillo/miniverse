@@ -841,64 +841,98 @@ function roofPrism(m, key, x0, x1, z0, z1, y0, h) {
 }
 
 // ---------- cultivos ----------
-function crop(m, id, stage) {
-  if (stage > 0) return crop2(m, id, stage);   // (con hojas de verdad: ver crop2)
-  m.geo('soil', ICO1, 0, 0.02, 0, [0, 0, 0], [0.22, 0.06, 0.22]);
+// st: how it is besides its age (farm.js look): '' well, w wilted, f frost-bitten, o past its best, b gone to seed; dead: k of
+// frost, d of drought, r rotten
+const BED = 0.06;   // (they stand on the bed, not on the ground under it)
+function crop(M, id, stage, st = '') {
+  const m = { geo: (k, g, x, y, ...r) => M.geo(k, g, x, y + BED, ...r), cyl: (k, x, y, ...r) => M.cyl(k, x, y + BED, ...r), ball: (k, x, y, ...r) => M.ball(k, x, y + BED, ...r) };
+  if (stage > 0) return crop2(m, id, stage, st);   // (con hojas de verdad: ver crop2)
+  m.geo('crumb', ICO1, 0, 0.005, 0, [0, 0, 0], [0.13, 0.045, 0.13]);
   if (stage < 0) { for (let i = 0; i < 4; i++) m.cyl('dry', Math.cos(i * 1.6) * 0.06, 0.02, Math.sin(i * 1.6) * 0.06, 0.01, 0.006, 0.18, 4, [Math.sin(i) * 0.6, 0, Math.cos(i) * 0.6]); return; }
-  if (stage === 0) { for (let i = 0; i < 3; i++) m.ball('soil', Math.cos(i * 2.1) * 0.08, 0.06, Math.sin(i * 2.1) * 0.08, 0.03, 0.02, 0.03, 6); }
+  if (stage === 0) { for (let i = 0; i < 3; i++) m.ball('crumb', Math.cos(i * 2.1) * 0.08, 0.06, Math.sin(i * 2.1) * 0.08, 0.03, 0.02, 0.03, 6); }
 }
 // Cultivos con hojas de verdad: alargadas, con su nervio, curvadas hacia abajo y con algo de azar en cada
 // planta (fijo por especie y fase); trigo de muchas cañas con espiga, maíz de hojas largas con mazorcas, tomatera con
 // tutor y racimos, calabaza acostillada y raíces que asoman. Sin tope de piezas: van al mismo material por color
-function crop2(m, id, stage) {
-  const c = CROPS[id], fruitKey = 'fruit:' + c.color, leafKey = 'leafc:' + c.leaf, R = rng2(id.length * 31 + stage * 7);
-  m.geo('soil', ICO1, 0, 0.015, 0, [0, 0, 0], [0.24, 0.05, 0.24]);
+// Its states (CROP_LOOK): the colour the leaves and the fruit tend to and how much, how far the leaves hang (rad) and how tall
+// it stands. The same shapes and the same shared materials (the colour goes per vertex)
+const CROP_LOOK = {
+  '': {},
+  w: { leaf: ['#8a8a52', 0.55], hang: 0.75, tall: 0.82 },
+  f: { leaf: ['#1f2a22', 0.72], tips: '#5a4a30', hang: 0.3, tall: 0.95 },
+  o: { leaf: ['#a89a4a', 0.5], fruit: ['#5e3a22', 0.38], hang: 0.3, tall: 0.95 },
+  b: { leaf: ['#9a9a4a', 0.4], hang: 0.35, tall: 0.9 },
+  k: { leaf: ['#1c1a16', 0.92], fruit: ['#241a14', 0.7], hang: 1.1, tall: 0.55 },
+  d: { leaf: ['#9a7a48', 0.95], fruit: ['#6a4c2c', 0.7], hang: 0.95, tall: 0.75 },
+  r: { leaf: ['#6a5834', 0.85], fruit: ['#3a2a1c', 0.82], hang: 0.8, tall: 0.75, fallen: true },
+};
+const mixHex = (a, [b, k]) => '#' + new THREE.Color(a).lerp(new THREE.Color(b), k).getHexString();
+function crop2(m, id, stage, st) {
+  const c = CROPS[id], L = CROP_LOOK[st] || CROP_LOOK[''], hang = L.hang || 0, TALL = L.tall || 1, ink = L.leaf ? mixHex(c.leaf, L.leaf) : c.leaf;
+  const fruitKey = 'fruit:' + (L.fruit ? mixHex(c.color, L.fruit) : c.color), leafKey = 'leafc:' + ink, tipKey = L.tips ? 'leafc:' + L.tips : leafKey, R = rng2(id.length * 31 + stage * 7);
+  // (a leaf: it comes out at its angle over the ground, rot[0], to its side, rot[1], and hangs if the plant is ill; low: how far
+  // it can hang, so the ones by the soil lie on it. The order is YXZ: with XYZ the whole rosette tipped, half under the soil)
+  const leaf = (key, x, y, z, rot, scale, low = 1.3) => m.geo(key, LEAF2, x, y, z, [Math.min(Math.max(low, rot[0]), rot[0] + hang), rot[1], rot[2], 'YXZ'], scale);
+  m.geo('crumb', ICO1, 0, 0, 0, [0, 0, 0], [0.13, 0.04, 0.13]);
   const big = stage === 3 ? 1 : stage === 2 ? 0.75 : 0.45;
   // Una mata de hojas en roseta: n hojas de largo len, saliendo con la inclinación rise (cuanto más negativa, más tumbadas)
-  const rosette = (n, len, rise, y = 0.03, wide = 0.28, key = leafKey) => {
+  const rosette = (n, len, rise, y = 0.03, wide = 0.28, key = leafKey, from = 0.015) => {   // (from: how far from the middle they come out)
     for (let i = 0; i < n; i++) {
       const a = (i / n) * Math.PI * 2 + R() * 0.6, l = len * (0.75 + R() * 0.45);
-      m.geo(key, LEAF2, Math.cos(a) * 0.015, y, Math.sin(a) * 0.015, [rise + (R() - 0.5) * 0.35, a, (R() - 0.5) * 0.3], [l * wide, l, l]);
+      leaf(i % 3 === 1 ? (key === leafKey ? tipKey : key) : key, Math.sin(a) * from, y, Math.cos(a) * from, [rise + (R() - 0.5) * 0.35, a, (R() - 0.5) * 0.3], [l * wide, l, l], -0.36 + R() * 0.14);
     }
   };
   if (id === 'trigo' || id === 'maiz') {
-    const tall = (id === 'maiz' ? 1.75 : 0.85) * big, n = id === 'maiz' ? 3 : 26;
+    const tall = (id === 'maiz' ? 1.75 : 0.85) * big * TALL, n = id === 'maiz' ? 3 : 26;
     for (let i = 0; i < n; i++) {
       const a = R() * Math.PI * 2, r = id === 'maiz' ? 0.09 * Math.sqrt(R()) : 0.17 * Math.sqrt(R()), x = Math.cos(a) * r, z = Math.sin(a) * r, h = tall * (0.85 + R() * 0.25);
-      const lean = [(R() - 0.5) * 0.15, 0, (R() - 0.5) * 0.15], ripe = stage === 3 && id === 'trigo';
+      const sway = hang ? 0.15 + hang * 0.45 : 0.15, lean = [(R() - 0.5) * sway, 0, (R() - 0.5) * sway], ripe = stage === 3 && id === 'trigo';
       m.cyl(ripe ? fruitKey : leafKey, x, 0.02, z, id === 'maiz' ? 0.022 : 0.006, id === 'maiz' ? 0.014 : 0.004, h, 5, lean);
       if (id === 'trigo') { if (stage >= 2) m.geo(ripe ? fruitKey : leafKey, SPIKE, x + lean[2] * h, h, z - lean[0] * h, lean, [0.016, 0.075, 0.016]); }
       else {
-        for (let k = 0; k < 6; k++) m.geo(leafKey, LEAF2, x, 0.25 + k * h * 0.13, z, [-0.35 - R() * 0.4, a + k * 2.4, 0], [0.09, 0.55 * big, 0.55 * big]);
+        for (let k = 0; k < 6; k++) leaf(k % 3 === 1 ? tipKey : leafKey, x, 0.25 + k * h * 0.13, z, [-0.35 - R() * 0.4, a + k * 2.4, 0], [0.09, 0.55 * big, 0.55 * big]);
         if (stage === 3) for (const s of [0.45, 0.6]) m.geo(fruitKey, SPIKE, x + 0.05, h * s, z, [0.35, a, 0], [0.04, 0.2, 0.04]);
-        m.geo('fruit:#c9a36a', SPIKE, x, h, z, [0, 0, 0], [0.02, 0.14, 0.02]);   // (el penacho)
+        m.geo(L.fruit ? fruitKey : 'fruit:#c9a36a', SPIKE, x, h, z, [0, 0, 0], [0.02, 0.14, 0.02]);   // (el penacho)
       }
     }
     return;
   }
   if (id === 'tomate') {
-    const h = 1.1 * big;
+    const h = 1.1 * big * TALL;
     m.cyl('wood', 0.1, 0, 0, 0.012, 0.012, h + 0.15, 5);   // (el tutor)
     m.cyl(leafKey, 0.02, 0.02, 0, 0.012, 0.008, h, 5, [0, 0, -0.05]);
     for (let k = 0; k < Math.round(9 * big); k++) {
       const y = 0.15 + (k / 9) * h, a = k * 2.4 + R();
-      for (let j = 0; j < 3; j++) m.geo(leafKey, LEAF2, 0.02, y, 0, [-0.5 - R() * 0.5, a + (j - 1) * 0.5, 0], [0.11, 0.24, 0.24]);
+      for (let j = 0; j < 3; j++) leaf(j === 1 ? tipKey : leafKey, 0.02, y, 0, [-0.5 - R() * 0.5, a + (j - 1) * 0.5, 0], [0.11, 0.24, 0.24]);
     }
-    if (stage === 3) for (let k = 0; k < 9; k++) { const a = k * 2.1, y = 0.25 + (k % 4) * 0.2; m.ball(fruitKey, Math.cos(a) * 0.12, y, Math.sin(a) * 0.12, 0.045, 0.04, 0.045, 10); }
+    if (stage === 3) for (let k = 0; k < 9; k++) { const a = k * 2.1, y = L.fallen ? 0.03 : (0.25 + (k % 4) * 0.2) * TALL, q = L.fallen ? 0.1 + (k % 3) * 0.06 : 0.12; m.ball(fruitKey, Math.cos(a) * q, y, Math.sin(a) * q, 0.045, L.fallen ? 0.025 : 0.04, 0.045, 10); }
     return;
   }
   if (id === 'calabaza') {
-    rosette(7, 0.34 * big, -1.25, 0.05, 0.85);
-    if (stage === 3) { m.geo(fruitKey, PUMPKIN, 0.06, 0.19, 0.06, [0, 0.4, 0], [0.26, 0.19, 0.26]); m.cyl('leafc:' + c.leaf, 0.06, 0.21, 0.06, 0.018, 0.012, 0.07, 5); }
+    if (stage === 3) rosette(8, 0.3, -0.5, 0.02, 0.9, leafKey, 0.2); else rosette(9, 0.36 * big, -0.7, 0.03, 0.85);
+    if (stage === 3) { m.geo(fruitKey, PUMPKIN, 0.06, L.fallen ? 0.12 : 0.19, 0.06, [L.fallen ? 0.25 : 0, 0.4, 0], [0.26, L.fallen ? 0.12 : 0.19, 0.26]); m.cyl(leafKey, 0.06, L.fallen ? 0.13 : 0.21, 0.06, 0.018, 0.012, 0.07, 5); }
     return;
   }
   if (id === 'fresa') {
-    rosette(12, 0.24 * big, -0.9, 0.03, 0.9);
-    if (stage === 3) for (let k = 0; k < 7; k++) m.geo(fruitKey, CONE, Math.cos(k * 0.9) * 0.15, 0.04, Math.sin(k * 0.9) * 0.15, [Math.PI, 0, 0], [0.028, 0.05, 0.028]);
+    rosette(13, 0.22 * big, -0.6, 0.02, 0.9);
+    if (stage === 3) for (let k = 0; k < 7; k++) m.geo(fruitKey, CONE, Math.cos(k * 0.9) * 0.19, 0.04, Math.sin(k * 0.9) * 0.19, [Math.PI, 0, 0], [0.028, 0.05, 0.028]);
     return;
   }
   // Raíces: la zanahoria con hojas finas y altas; el nabo, más anchas. Maduras, asoma la raíz
-  rosette(id === 'zanahoria' ? 18 : 10, (id === 'zanahoria' ? 0.44 : 0.36) * big, id === 'zanahoria' ? -0.3 : -0.55, 0.04, id === 'zanahoria' ? 0.26 : 0.6);
+  rosette(id === 'zanahoria' ? 18 : 10, (id === 'zanahoria' ? 0.44 : 0.36) * big, id === 'zanahoria' ? -1.05 : -0.85, 0.02, id === 'zanahoria' ? 0.2 : 0.42);
+  if (st === 'b') {   // (gone to seed: a tall stalk with its branches and their heads, yellow of the turnip, white umbels of the carrot)
+    const H = id === 'zanahoria' ? 0.95 : 0.85, head = id === 'zanahoria' ? 'fruit:#e4e0d0' : 'fruit:#d8c23c';
+    m.cyl(leafKey, 0, 0.03, 0, 0.016, 0.009, H, 6);
+    for (let i = 0; i < 7; i++) {
+      const a = i * 2.4 + R() * 0.5, y = H * (0.4 + i * 0.08), l = 0.22 - i * 0.012, x = Math.cos(a), z = Math.sin(a);
+      m.cyl(leafKey, 0, y, 0, 0.006, 0.004, l * 1.25, 4, [z * 0.75, 0, -x * 0.75]);
+      const tx = x * l * 0.85, tz = z * l * 0.85, ty = y + l * 0.92;
+      if (id === 'zanahoria') for (let k = 0; k < 6; k++) m.ball(head, tx + Math.cos(k * 1.05) * 0.035, ty, tz + Math.sin(k * 1.05) * 0.035, 0.016, 0.008, 0.016, 5);
+      else for (let k = 0; k < 5; k++) m.ball(head, tx + Math.cos(k * 2.4) * 0.02, ty - 0.035 + k * 0.018, tz + Math.sin(k * 2.4) * 0.02, 0.013, 0.013, 0.013, 5);
+    }
+    for (let k = 0; k < 8; k++) m.ball(head, Math.cos(k * 0.8) * 0.04, H + 0.03 + (k % 3) * 0.015, Math.sin(k * 0.8) * 0.04, 0.016, 0.01, 0.016, 5);
+    return;
+  }
   if (stage === 3) m.ball(fruitKey, 0, 0.04, 0, 0.07, id === 'nabo' ? 0.06 : 0.04, 0.07, 10);
 }
 const rng2 = s => () => { s = (s * 16807) % 2147483647; return s / 2147483647; };
@@ -1149,8 +1183,9 @@ function treasure(m, open) {
 // fences: towards them the bed and its furrows reach the tile edge, so a field is one piece of soil with long rows.
 // The rows run along x, or along z in a strip that only has neighbours along z. Three ridges per tile, a third of a
 // tile apart, so they keep the same spacing from one tile to the next
-function tilled(m, wet, mask = 0) {
-  const mat = wet ? 'dirtWet' : 'dirt', e = bit => (mask & bit ? 0.5 : 0.46);
+// look: 0 damp, 1 wet, 2 dry (farm.js soilLook: paler, with fine cracks). mulch: straw spread over it
+function tilled(m, look, mask = 0, mulch = false) {
+  const mat = look === 1 ? 'dirtWet' : look === 2 ? 'dirtDry' : 'dirt', e = bit => (mask & bit ? 0.5 : 0.46);
   m.box(mat, -e(2), 0, -e(8), e(1), 0.06, e(4), 1);
   const alongZ = !(mask & 3) && (mask & 12), r = bit => (mask & bit ? 0.5 : 0.42);
   for (let i = -1; i <= 1; i++) {
@@ -1158,7 +1193,20 @@ function tilled(m, wet, mask = 0) {
     if (alongZ) m.box(mat, c - 0.06, 0.06, -r(8), c + 0.06, 0.1, r(4), 1);
     else m.box(mat, -r(2), 0.06, c - 0.06, r(1), 0.1, c + 0.06, 1);
   }
+  const R = rng2(71 + mask);
+  if (look === 2) for (let i = 0; i < 11; i++) {   // (cracks: thin dark lines, some over the ridges)
+    const x = (R() - 0.5) * 0.8, z = (R() - 0.5) * 0.8, l = 0.08 + R() * 0.14, a = R() * Math.PI, over = Math.abs(((alongZ ? x : z) * 3) - Math.round((alongZ ? x : z) * 3)) < 0.18;
+    m.geo('crack', CRACK, x, (over ? 0.1 : 0.06) + 0.003, z, [0, a, 0], [l, 1, 0.007 + R() * 0.006]);
+    m.geo('crack', CRACK, x + Math.cos(a) * l * 0.5, (over ? 0.1 : 0.06) + 0.003, z - Math.sin(a) * l * 0.5, [0, a + 0.9, 0], [l * 0.7, 1, 0.006]);
+  }
+  if (mulch) for (let i = 0; i < 46; i++) {
+    const l = 0.12 + R() * 0.2, w = 0.45 - l / 2;
+    m.geo(i % 4 ? 'straw' : 'hay', CRACK, (R() - 0.5) * 2 * w, 0.075 + R() * 0.05, (R() - 0.5) * 2 * w, [(R() - 0.5) * 0.3, R() * Math.PI, (R() - 0.5) * 0.3], [l, 1, 0.014 + R() * 0.012]);
+  }
 }
+// (paler than the texture: its colour goes over 1; the same program as the other two)
+const dirtDry = () => { const M = mat({ map: furrows(), roughness: 1 }); M.color.setRGB(1.5, 1.4, 1.22); return M; };
+const CRACK = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2);   // (a flat strip lying on the soil)
 
 // Cuadros: marco con su fondo y el lienzo un poco hundido, a media altura, con la espalda contra el muro (z = -0.05)
 function painting(m, art, frame) {
@@ -1187,13 +1235,13 @@ const CACHE = new Map();
 // Modelo de algo, por su nombre: 'banco', 'crop:tomate:3', 'poi:templo', 'village:stall', 'treasure:1', 'tilled:0'…
 export function getModel(name) {
   if (CACHE.has(name)) return CACHE.get(name);
-  const m = new Model(), [kind, a, b] = name.split(':');
+  const m = new Model(), [kind, a, b, d] = name.split(':');
   if (BUILD[kind]) BUILD[kind](m, a, b);
-  else if (kind === 'crop') crop(m, a, +b);
+  else if (kind === 'crop') crop(m, a, +b, d);
   else if (kind === 'village') { if (a === 'stall2') VILLAGE.stall(m, ['#e0b850', '#f08a2a', '#e83a4a'], 'awningB'); else if (a === 'stall3') VILLAGE.stall(m, ['#9ad0ff', '#c8a870', '#f0e8f0'], 'awningG'); else VILLAGE[a](m); }
   else if (kind === 'poi') PLACES[a](m, b === 'snow');
   else if (kind === 'treasure') treasure(m, a === '1');
-  else if (kind === 'tilled') tilled(m, a === '1', +b || 0);
+  else if (kind === 'tilled') tilled(m, +a, +b || 0, d === 'm');
   else if (kind === 'rug') rugModel(m, a, b);
   else return null;
   CACHE.set(name, m);
@@ -1231,7 +1279,7 @@ export function modelMat(key) {
   if (OWN[key]) return DYN.get(key) || (DYN.set(key, OWN[key]()), DYN.get(key));
   if (!DYN.has(key)) {
     const [k, c] = key.split(':');
-    DYN.set(key, k === 'fruit' ? mat({ color: c, roughness: 0.45 }) : k === 'hide' ? mat({ color: apagado(c), roughness: 0.95 }) : k === 'leafc' ? mat({ color: c, flatShading: true, side: THREE.DoubleSide }) : key === 'dry' ? mat({ color: '#8a6a3a' }) : key === 'dirtWet' ? mat({ map: furrows(), color: '#7a6a60', roughness: 0.7 }) : mat({ color: '#ff00ff' }));
+    DYN.set(key, k === 'fruit' ? mat({ color: c, roughness: 0.45 }) : k === 'hide' ? mat({ color: apagado(c), roughness: 0.95 }) : k === 'leafc' ? mat({ color: c, flatShading: true, side: THREE.DoubleSide }) : key === 'dry' ? mat({ color: '#8a6a3a' }) : key === 'dirtWet' ? mat({ map: furrows(), color: '#7a6a60', roughness: 0.7 }) : key === 'dirtDry' ? dirtDry() : mat({ color: '#ff00ff' }));
   }
   return DYN.get(key);
 }

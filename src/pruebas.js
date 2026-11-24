@@ -85,6 +85,10 @@ import { Music, LegacyMusic, DynamicMusic, Conductor } from './music.js';
 import { Voices, MAX_VOICES, renderPart } from './musicvoices.js';
 import { SCORES, barS, unitS, stingerNotes, resolveScore } from './musicscore.js';
 import { apagada } from './opciones.js';
+import { Farm } from './farm.js';
+import { seasonOf } from './time.js';
+import { seasonC, fieldDay } from './fieldclimate.js';
+import { GROW, seedOf, rateAt } from './cropdata.js';
 import { NORTH, HALF as PHALF, nearX, W as PW } from './world/planet.js';
 import { DOOR, PLAZA, distToPath, doorOf, getProjects, familyHouse } from './world/village.js';
 
@@ -444,6 +448,202 @@ async function soloTests(game) {
     w().till(tx, ty); runCommand(game, '/gamemode spectator', () => {}); await jump();
     check(tilled(), 'el espectador la ha pisado');
     runCommand(game, '/gamemode survival', () => {}); w().setTile(tx, ty, 'air');
+  });
+  // ---------- R2-A and R2-B: the garden obeys the weather (docs/planes/realismo/PLAN-R2-huerto.md) ----------
+  // A farm of its own, with one world of chunks in memory, the day it is told and the weather it is told: nothing of the game
+  const FARM_DAY = (season, dos) => Math.round(Date.UTC(2026, [2, 5, 8, 11][season], [20, 21, 22, 21][season]) / 864e5) + dos - 1;
+  const farmLab = ({ season = 0, dos = 46, Tl = 0.52, ty = 30, weather = () => 'sol', seen = 1e9 } = {}) => {
+    const deltas = new Map(), base = FARM_DAY(season, dos) - 100;
+    const world = {
+      deltas, seed: 7, layers: [], touched: 0, gen: w().gen, dirty: new Set(),
+      delta(cx, cy, create) { const k = `${cx},${cy}`; if (!deltas.has(k) && create) deltas.set(k, { removed: {}, tilled: {}, placed: {}, floor: {}, roof: {}, chest: {}, v: 0 }); return deltas.get(k); },
+      touch() { this.touched++; }, touchAround() { this.touched++; }, chestTouched() {},
+    };
+    const drops = [], floats = [];
+    const g = { world, scene: world, time: 1, rules: {}, weatherLock: null, live: { guest: false }, ranch: { farm: { seen } }, stats: { add() {} }, skills: { gain() {}, bonus: () => 0 },
+      days: { dayIndex: 100, base, weatherFor: weather }, gather: { spawnDrops: (o, r) => drops.push(...r.drops), float: s => floats.push(s), chips() {}, spend: () => true }, player: { x: 0, y: ty, face: { x: 0, y: -1 } }, inv: { remove() {}, held: null, count: () => 0 } };
+    const F = new Farm(g);
+    F.land = () => ({ Tl, swamp: false }); F.reset({});
+    const at = (x = 0) => [x, ty], d = world.delta(0, Math.floor(ty / CHUNK), true);
+    const L = { F, g, d, drops, floats, day: 100, k: (x = 0) => `${x},${ty}`,
+      bed(x = 0, moist = 100) { d.tilled[L.k(x)] = 1; (d.moist ||= {})[L.k(x)] = moist; return L; },
+      crop(id, grow = 0, x = 0, more = {}) { L.bed(x, d.moist?.[L.k(x)] ?? 100); return ((d.crops ||= {})[L.k(x)] = { id, grow, day: L.day, hs: 0, hn: 0, ...more }); },
+      c: (x = 0) => d.crops?.[L.k(x)], wet(x = 0, m = 100) { d.moist[L.k(x)] = m; },
+      dawn(n = 1, water = false) { for (let i = 0; i < n; i++) { if (water) for (const k in d.tilled) d.moist[k] = 100; L.day++; g.days.dayIndex = L.day; F.onDay(L.day); } return L; }, at };
+    return L;
+  };
+  const farmMean = (season, dos = 46, Tl = 0.52, weather = 'sol', ty = 30) => fieldDay(season, dos, ty, Tl, weather, {});
+  await test('farm climate (english): the village\'s calendar, its nights, the pines and the south', async () => {
+    for (const [s, want] of [[0, 15], [1, 23], [2, 14], [3, 7]]) check(Math.abs(farmMean(s).mean - want) <= 0.5, `season ${s}: ${farmMean(s).mean}`);
+    check(farmMean(3).min >= 0.5 && farmMean(3, 46, 0.52, 'nieve').min <= -2.5, `mid-winter: clear ${farmMean(3).min}, snow ${farmMean(3, 46, 0.52, 'nieve').min}`);
+    check(farmMean(3, 46, 0.4).mean <= 1, `pines in winter: ${farmMean(3, 46, 0.4).mean}`);
+    const south = farmMean(1, 46, 0.52, 'sol', 30 + 16384); check(south.season === 3 && Math.abs(south.mean - 7) <= 0.5, `the south in the north's summer: ${JSON.stringify(south)}`);
+    check(farmMean(3, 46, 0.52, 'nieve', 30 + 16384).weather === 'lluvia', 'it snows in the south\'s summer');
+  });
+  await test('farm climate (english): smooth seasons', async () => {
+    let worst = 0, prev = null;
+    for (let day = FARM_DAY(0, 1), i = 0; i < 366; i++, day++) { const s = seasonOf(day), c = seasonC(s.season, day - s.start + 1); if (prev !== null) worst = Math.max(worst, Math.abs(c - prev)); prev = c; }
+    check(worst <= 0.5, `a jump of ${worst.toFixed(2)} °C`);
+  });
+  await test('farm grow (english): the rate table and the sowing calendar', async () => {
+    for (const id of Object.keys(CROPS)) {
+      const r = GROW[id]; check(r, `${id} has no row in GROW`);
+      check(rateAt(id, r.base) === 0 && rateAt(id, r.lo) === 1 && rateAt(id, r.hi) === 1 && rateAt(id, r.stop) === 0 && r.kill < r.bite, `${id}: ${JSON.stringify(r)}`);
+      for (const s of CROPS[id].seasons) { const F = farmMean(s); check(rateAt(id, F.mean) >= 0.5 && F.min > r.kill, `${id} in season ${s}: rate ${rateAt(id, F.mean).toFixed(2)}, night ${F.min}`); }
+    }
+    const rows = Object.keys(CROPS).map(id => `${id} ` + [0, 1, 2, 3].map(s => { const n = farmLab({ season: s, dos: 46 }).F.daysTo(id, 30, 0.52); return n === Infinity ? '—' : n; }).join('/'));
+    console.log('· días en el pueblo (primavera/verano/otoño/invierno): ' + rows.join(' · '));
+    const n = (id, s) => farmLab({ season: s, dos: 30 }).F.daysTo(id, 30, 0.52);
+    check(n('tomate', 1) === CROPS.tomate.days && n('nabo', 0) === CROPS.nabo.days && n('calabaza', 1) === CROPS.calabaza.days, `in their best season they take as long as before: ${n('tomate', 1)}, ${n('nabo', 0)}, ${n('calabaza', 1)}`);
+  });
+  await test('farm grow (english): no season massacre', async () => {
+    const L = farmLab({ season: 1, dos: 92 }); L.crop('tomate', 6);
+    L.dawn(4, true);
+    check(!L.c().dead && L.F.ready(L.c()), `the tomato, in the first days of autumn: ${JSON.stringify(L.c())}`);
+  });
+  await test('farm frost (english): tender and hardy, bitten, straw, and nights of days nobody played', async () => {
+    const ids = Object.keys(CROPS), plant = L => ids.forEach((id, i) => L.crop(id, 2, i));
+    let L = farmLab({ season: 3, weather: () => 'nieve' }); plant(L); L.dawn();
+    const dead = ids.filter((id, i) => L.c(i).dead === 'frost').sort().join();
+    check(dead === 'calabaza,maiz,tomate', `the snow night killed: ${dead}`);
+    check(L.c(ids.indexOf('fresa')).fb === L.day && L.c(ids.indexOf('fresa')).grow < 2 && L.c(ids.indexOf('trigo')).fb === undefined, 'the strawberry is not bitten, or the wheat is');
+    check(L.F.model(L.c(ids.indexOf('tomate'))) === 'crop:tomate:1:k' && L.F.model(L.c(ids.indexOf('fresa'))).endsWith(':f') === (L.F.age(L.c(ids.indexOf('fresa'))) > 0), `models: ${L.F.model(L.c(ids.indexOf('tomate')))}, ${L.F.model(L.c(ids.indexOf('fresa')))}`);
+    L.drops.length = 0; L.F.take(...L.at(ids.indexOf('tomate'))); check(L.drops.some(([id, n]) => id === 'semilla_tomate' && n === 1) && !L.c(ids.indexOf('tomate')), `clearing it: ${JSON.stringify(L.drops)}`);
+    // (a day nobody played: bitten, never killed)
+    L = farmLab({ season: 3, weather: () => 'nieve', seen: 5 }); plant(L); L.dawn();
+    check(!ids.some((id, i) => L.c(i).dead), 'the frost kills on a day nobody played'); check(L.c(ids.indexOf('tomate')).fb === L.day, 'and does not even bite');
+    // (a clear mid-winter night, 1 °C: bites the tomato; with straw, 2 °C, it still does; 3 °C would not)
+    L = farmLab({ season: 3 }); L.crop('tomate', 3); L.dawn(); check(!L.c().dead && L.c().fb === L.day, `clear night: ${JSON.stringify(L.c())}`);
+    L = farmLab({ season: 3, dos: 12 }); L.crop('tomate', 3, 0); L.crop('tomate', 3, 1); (L.d.mulch ||= {})[L.k(1)] = L.day; L.F.growCrop(L.c(0), 101, { mean: 8, min: 1.5 }, 100, 0, true); L.F.growCrop(L.c(1), 101, { mean: 8, min: 1.5 }, 100, 1, true);
+    check(L.c(0).fb === 101 && L.c(1).fb === undefined, 'straw does not take the frost off');
+  });
+  await test('farm water (english): drying by the season, seedlings, rain and sprinklers', async () => {
+    const mornings = (season, id, seedling) => { const L = farmLab({ season }), full = rateAt(id, farmMean(season).mean), half = seedling ? 0.2 : CROPS[id].days / 2; L.crop(id, half); let n = 0; for (; n < 20; n++) { L.c().grow = half; L.dawn(); if (Math.abs(L.c().grow - half - full) > 0.02) break; } return n; };
+    const got = { summer: mornings(1, 'maiz'), spring: mornings(0, 'trigo'), autumn: mornings(2, 'trigo'), winter: mornings(3, 'trigo'), seedling: mornings(1, 'maiz', true) };
+    console.log('· mañanas que crece del todo con un riego: ' + JSON.stringify(got));
+    check(got.summer === 2 && got.spring === 3 && got.autumn === 3 && got.winter >= 7 && got.seedling === 1, JSON.stringify(got));
+    let L = farmLab({ season: 1, weather: () => 'lluvia' }); L.crop('maiz', 1); L.wet(0, 10); L.dawn(); check(L.d.moist[L.k()] === 100 && L.d.wet[L.k()] === L.day, `the rain: ${L.d.moist[L.k()]}`);
+    // (a sprinkler: its 8 tiles full every morning, also on the next chunk's)
+    L = farmLab({ season: 1 }); L.crop('maiz', 5, 0); L.d.placed[`1,${30 + 1}`] = 'aspersor'; L.dawn(5); check(L.d.moist[L.k()] === 100 && L.F.ready(L.c()), `beside a sprinkler: ${L.d.moist[L.k()]}, ${L.c().grow}`);
+    // (straw: half as fast)
+    L = farmLab({ season: 1 }); L.bed(0); L.bed(1); (L.d.mulch = {})[L.k(1)] = L.day; L.dawn(); check(L.d.moist[L.k(0)] === 60 && L.d.moist[L.k(1)] === 80, `straw: ${L.d.moist[L.k(0)]} and ${L.d.moist[L.k(1)]}`);
+    L.dawn(30); check(L.d.mulch[L.k(1)] === undefined, 'the straw never goes');
+  });
+  await test('farm water (english): drought kills after four mornings, and only wilts on days nobody played', async () => {
+    const L = farmLab({ season: 1 }); L.crop('maiz', 4); L.wet(0, 0);
+    L.dawn(3); check(!L.c().dead && L.c().dry === 3 && L.F.look(L.c()) === 'w', `three mornings: ${JSON.stringify(L.c())}`);
+    L.dawn(); check(L.c().dead === 'drought', `four: ${JSON.stringify(L.c())}`);
+    const N = farmLab({ season: 1, seen: 3 }); N.crop('maiz', 4); N.wet(0, 0); N.dawn(12);
+    check(!N.c().dead && N.F.look(N.c()) === 'w' && N.c().grow === 4, `nobody played: ${JSON.stringify(N.c())}`);
+    N.wet(0); N.g.ranch.farm.seen = 1e9; N.dawn(); check(N.c().dry === undefined && N.c().grow > 4 && N.F.health(N.c()) < 0.3, `watered again: ${JSON.stringify(N.c())}`);
+    // (a seed waits in the dry, two weeks at most)
+    const S = farmLab({ season: 1 }); S.crop('maiz', 0); S.wet(0, 0); S.dawn(13); check(!S.c().dead, 'the seed dies at once'); S.dawn(); check(S.c().dead === 'rot', 'the seed waits for ever');
+  });
+  await test('farm ripe (english): its window, half after it, then seed, rot or falling fruit', async () => {
+    const pick = (id, days, x = 0) => { const L = farmLab({ season: id === 'nabo' || id === 'fresa' ? 0 : 1 }); L.crop(id, CROPS[id].days - 0.01); L.dawn(1, true); check(L.F.ready(L.c()) && L.c().ripe === L.day, `${id} not ripe: ${JSON.stringify(L.c())}`); L.dawn(days, true); return L; };
+    for (const [days, want] of [[0, 2], [5, 2], [6, 1], [8, 1]]) { const L = pick('nabo', days); check(L.F.harvest(...L.at()) === want, `a turnip ${days} days after: not ${want}`); }
+    let L = pick('nabo', 9); check(L.c().bolt === L.day && L.F.look(L.c()) === 'b', `not gone to seed: ${JSON.stringify(L.c())}`);
+    L.drops.length = 0; L.F.take(...L.at()); check(!L.c() && L.drops.length === 1 && L.drops[0][0] === 'semilla_nabo' && L.drops[0][1] === 3 && L.drops[0][2] === 5, `its seeds: ${JSON.stringify(L.drops)}`);
+    L = pick('tomate', 6); check(L.c().dead === 'rot', `the tomato: ${JSON.stringify(L.c())}`); L.drops.length = 0; L.F.take(...L.at()); check(L.drops[0]?.[0] === 'semilla_tomate' && L.drops[0][1] === 1 && L.drops[0][2] === 2 && !L.c(), `rotten: ${JSON.stringify(L.drops)}`);
+    L = pick('fresa', 5); check(!L.c().dead && !L.F.ready(L.c()) && L.c().ripe === undefined, `the strawberry: ${JSON.stringify(L.c())}`);
+    // (days nobody plays do not spoil anything)
+    L = pick('nabo', 0); L.g.ranch.farm.seen = 5; L.dawn(20, true); check(L.F.harvest(...L.at()) === 2, 'it spoiled while nobody played');
+    // (maize gives once; a tomato plant again)
+    L = pick('maiz', 0); L.F.harvest(...L.at()); check(!L.c(), 'the maize grows again'); L = pick('tomate', 0); check(L.F.harvest(...L.at()) === 4 && L.c().grow === CROPS.tomate.days - CROPS.tomate.regrow && L.c().ripe === undefined, 'the tomato plant');
+  });
+  await test('farm yield (english): a well-kept plant gives more, with its word', async () => {
+    const give = (hs, hn, id = 'tomate') => { const L = farmLab({ season: 1 }); L.crop(id, CROPS[id].days, 0, { hs, hn, ripe: L.day }); return [L.F.harvest(...L.at()), L.floats[0]]; };
+    check(give(10, 10).join() === `4,${t('farm.harvest.quality.excellent')}`, `h 1: ${give(10, 10)}`); check(give(8, 10).join() === `3,${t('farm.harvest.quality.good')}`, `h 0.8: ${give(8, 10)}`);
+    check(give(5, 10)[0] === 3 === false || give(5, 10)[1] === undefined, `h 0.5: ${give(5, 10)}`); check(give(1, 10).join() === `2,${t('farm.harvest.quality.poor')}`, `h 0.1: ${give(1, 10)}`);
+    const L = farmLab({ season: 1 }); L.crop('trigo', CROPS.trigo.days, 0, { ripe: 100 }); check(L.F.harvest(...L.at()) === 3 && !L.drops.some(([id]) => id.startsWith('semilla_')), `no random seed any more: ${JSON.stringify(L.drops)}`);
+  });
+  await test('farm seeds (english): each is made by hand from its crop, with its old id', async () => {
+    for (const [id, g] of Object.entries(GROW)) {
+      const r = RECIPES.find(r => r.out === seedOf(id));
+      check(ITEMS[seedOf(id)]?.seed === id, `${seedOf(id)} is not the seed of ${id}`);
+      if (g.seeds) check(r?.station === 'mano' && r.n === g.seeds[1] && r.ins[0][0] === id && r.ins[0][1] === g.seeds[0] && r.n * priceOf(r.out) <= g.seeds[0] * priceOf(id), `${id}: ${JSON.stringify(r)}`);
+      else check(!r && g.end === 'bolt', `${id} has no way to its seeds`);
+      check(SHOPS.rosa.stock.some(e => e.id === seedOf(id)), `Rosa does not sell ${seedOf(id)}`);
+    }
+    check(seedOf('tomate') === 'semilla_tomate' && seedOf('potato') === 'seed_potato', 'ids');
+    check(itemIcon('straw') && weightOf('straw') > 0 && priceOf('straw') > 0, 'straw has no icon, weight or price');
+  });
+  await test('farm legacy (english): what was planted before keeps growing and nothing dies at once', async () => {
+    // (a chunk as the published game wrote it: tilled and watered yesterday; a pumpkin and maize in autumn, fertilised, a ripe
+    // strawberry that waited for weeks, a seed never watered, a dead plant; the first load lives seven days nobody played)
+    const L = farmLab({ season: 2, dos: 40, seen: null }), d = L.d; delete d.moist;
+    const old = { calabaza: 4, maiz: 5, fresa: 6, trigo: 2, zanahoria: 0, nabo: 4 };
+    Object.entries(old).forEach(([id, grow], x) => { d.tilled[L.k(x)] = 1; (d.wet ||= {})[L.k(x)] = 100; (d.crops ||= {})[L.k(x)] = { id, grow, day: 60 }; });
+    d.crops[L.k(1)].fert = true; d.crops[L.k(6)] = { id: 'tomate', grow: 3, day: 50, dead: true }; d.tilled[L.k(6)] = 1;
+    L.dawn();
+    check(Math.abs(L.c(0).grow - 5) < 1e-9 && Math.abs(L.c(1).grow - 6.5) < 1e-9, `the pumpkin and the maize, watered: ${L.c(0).grow}, ${L.c(1).grow}`);
+    check(d.moist[L.k()] < 100 && d.moist[L.k()] > 60 && L.c(0).leg === L.day, `moist ${d.moist[L.k()]}`);
+    L.dawn(6);
+    check(!Object.keys(old).some((id, x) => L.c(x)?.dead), `dead: ${Object.keys(old).filter((id, x) => L.c(x)?.dead)}`); check(L.F.ready(L.c(2)) && L.c(6).dead === true && L.F.model(L.c(6)) === 'crop:tomate:-1', 'the strawberry or the old dead plant');
+    // (played days from here: still nothing dies in the first ones, and watered they ripen)
+    L.g.ranch.farm.seen = 1e9; L.dawn(2, true); check(!Object.keys(old).some((id, x) => L.c(x)?.dead), 'they die on the first played days'); L.dawn(3, true); check(L.F.ready(L.c(0)) && L.F.ready(L.c(1)), `ripe at last: ${JSON.stringify([L.c(0), L.c(1)])}`);
+    check(L.F.harvest(...L.at(0)) >= 1 && !d.crops[L.k(0)], 'the old pumpkin is not harvested');
+  });
+  await test('farm determinism (english): living seven days again gives the same', async () => {
+    const run = () => { const L = farmLab({ season: 3, dos: 80, weather: d => ['sol', 'nieve', 'lluvia', 'nubes', 'niebla'][d % 5], seen: 103 }); Object.keys(CROPS).forEach((id, x) => L.crop(id, 1 + x, x)); L.dawn(7); return JSON.stringify(L.d); };
+    check(run() === run(), 'two runs differ');
+    // (and a morning travels tile by tile, for whoever plays in this world: an older game's chunk ends up the same)
+    const L = farmLab({ season: 1, weather: () => 'sol' }); L.crop('maiz', 3, 0); L.crop('tomate', 5, 1); delete L.d.moist; delete L.d.crops[L.k(0)].hn;
+    const before = structuredClone(L.d), theirs = structuredClone(L.d); L.dawn(); applyOps(theirs, diffChunk(before, L.d));
+    check(JSON.stringify(theirs.moist) === JSON.stringify(L.d.moist) && JSON.stringify(theirs.crops) === JSON.stringify(L.d.crops), `what travels: ${JSON.stringify(theirs)}`);
+  });
+  await test('farm perf (english): a morning of 2000 beds', async () => {
+    const L = farmLab({ season: 1 }), ids = Object.keys(CROPS);
+    delete L.F.land;   // (the real climate of each chunk)
+    for (let i = 0; i < 20; i++) { const dd = L.g.world.delta(40 + i, 3, true); for (let j = 0; j < 100; j++) { const k = `${(40 + i) * 16 + j % 16},${48 + Math.floor(j / 16)}`; dd.tilled[k] = 1; (dd.crops ||= {})[k] = { id: ids[j % ids.length], grow: 1, day: 1, hs: 0, hn: 0 }; } }
+    const run = () => { const t0 = performance.now(); L.dawn(); return performance.now() - t0; }, first = run(), next = [run(), run(), run()].sort((a, b) => a - b)[1];
+    console.log(`· una mañana de 2000 casillas: la primera ${first.toFixed(1)} ms, las demás ${next.toFixed(1)} ms`);
+    check(next < 20, `${next.toFixed(1)} ms`);
+  });
+  await test('farm play (english): sow, water, the labels, straw, reap three wheats and seeds with the real hands', async () => {
+    await goTo(game, 60, 30);
+    let tile = null;
+    for (let r = 0; r < 14 && !tile; r++) for (let dx = -r; dx <= r && !tile; dx++) for (let dy = -r; dy <= r && !tile; dy++) if ([-1, 0, 1].every(e => w().canTill(60 + dx + e, 30 + dy)) && w().canTill(60 + dx, 31 + dy)) tile = [60 + dx, 30 + dy];
+    check(tile, 'nowhere to till');
+    const [tx, ty] = tile, F = game.farm, d = () => w().delta(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK)), k = `${tx},${ty}`, lock = game.weatherLock, seen = game.ranch.farm.seen;
+    const aim = held => { const i = inv().slots.findIndex(s => s?.id === held); if (held) { check(i >= 0, `no ${held}`); inv().selected = i; } game.mouse = null; CAM.first = false; p().x = tx + 0.5; p().y = ty + 1.4; p().face = { x: 0, y: -1 }; game.gather.cooldown = 0; F.forget(); return (game.gather.target = game.gather.pickTarget()); };
+    const tiles = [-1, 0, 1].map(e => [tx + e, ty]);
+    try {
+      for (const [x, y] of tiles) w().till(x, y);
+      await frames(2);
+      game.weatherLock = { w: 'sol', until: null };
+      inv().add('semilla_tomate', 1); inv().add('semilla_trigo', 3); const wheat0 = inv().count('semilla_trigo'); inv().add('regadera', 1); inv().add('straw', 2); F.can = 10;
+      check(game.farm.status(tx, ty) === t('farm.state.bare', { soil: t('farm.soil.dry') }) || game.farm.status(tx, ty).length > 8, `bare: ${game.farm.status(tx, ty)}`);
+      // (a tender seed on a night of snow is refused; on a mild one, sown or sown to wait)
+      game.weatherLock = { w: 'nieve', until: null }; let T = aim('semilla_tomate'); check(T && !T.ok && T.label === t('farm.sow.cold_tonight', { crop: itemNoun('tomate') }), `snow: ${T?.label}`);
+      T.use(); check(!F.cropAt(tx, ty), 'sown on a night that kills it');
+      game.weatherLock = { w: 'sol', until: null }; T = aim('semilla_trigo'); check(T?.ok && T.label.includes('trigo'), `wheat: ${T?.label}`); T.use(); check(F.cropAt(tx, ty)?.hn === 0 && inv().count('semilla_trigo') === wheat0 - 1, 'not sown');
+      T = aim('regadera'); check(T.label.includes('10/') && T.label.includes(t(d().moist?.[k] >= 35 ? 'farm.soil.wet' : 'farm.soil.dry')) || /·/.test(T.label), `can: ${T.label}`); T.use(); check(d().moist[k] === 100 && d().wet[k] === F.today && F.soilLook(d(), k) === 1, 'not watered');
+      game.gather.cooldown = 0; T = aim('straw'); check(T?.label === t('farm.mulch.spread', { item: itemNoun('straw') }), `straw: ${T?.label}`); T.use(); check(d().mulch[k] === F.today && inv().count('straw') >= 1, 'no straw on the soil');
+      F.forget(); check(F.status(tx, ty).includes(t('farm.soil.mulched', { soil: t('farm.soil.wet') })), `its label: ${F.status(tx, ty)}`);
+      const sel = inv().selected; inv().selected = inv().slots.findIndex(x => !x); game.gather.target = game.gather.pickTarget(); check(F.hint()?.text === F.status(tx, ty) && F.hint().key === '', `with bare hands: ${JSON.stringify(F.hint())}; target ${JSON.stringify(game.gather.target?.label || game.gather.target?.obj?.kind)}`); inv().selected = sel;
+      // (thirsty, then watered: it picks up at once)
+      const c = F.cropAt(tx, ty); c.grow = 2.5; c.dry = 3; d().moist[k] = 0; F.forget(); check(F.look(c) === 'w' && F.status(tx, ty).includes(t('farm.state.wilted')), `wilted: ${F.status(tx, ty)}`);
+      F.water(tx, ty); check(!c.dry && F.look(c) === '', 'watering does not pick it up');
+      // (three ripe wheats: one sweep of the scythe takes them, with straw)
+      for (const [x, y] of tiles) d2(x, y).crops = { ...d2(x, y).crops, [`${x},${y}`]: { id: 'trigo', grow: 4, day: F.today - 4, hs: 4, hn: 4, ripe: F.today } };
+      function d2(x, y) { return w().delta(Math.floor(x / CHUNK), Math.floor(y / CHUNK), true); }
+      for (const [x, y] of tiles) w().touchAround(x, y);
+      selectTool(game, 'guadana'); game.gather.cooldown = 0; F.forget(); game.mouse = null; p().x = tx + 0.5; p().y = ty + 1.4; p().face = { x: 0, y: -1 };
+      game.gather.target = game.gather.pickTarget(); check(game.gather.target?.label === t('farm.reap'), `the scythe: ${game.gather.target?.label}`);
+      const n0 = inv().count('trigo'), s0 = inv().count('straw'); game.gather.use(); p().y = ty + 0.5; await frames(30);   // (among them, to pick all of it up)
+      check(tiles.every(([x, y]) => !F.cropAt(x, y)), 'not the three of them'); await until(() => inv().count('trigo') >= n0 + 9 && inv().count('straw') >= s0 + 3, 5000, 'the wheat and the straw');
+      // (E on one gone to seed: its action says so; the frost warning names what is at risk; farm.seen is today's)
+      d().crops[k] = { id: 'nabo', grow: 4, day: 1, hs: 1, hn: 1, ripe: 1, bolt: F.today }; check(F.cropAction(tx, ty).text.startsWith(t('farm.take_seeds')), F.cropAction(tx, ty).text);
+      d().crops[k] = { id: 'tomate', grow: 4, day: 1, hs: 1, hn: 1 }; game.weatherLock = { w: 'nieve', until: null }; check(F.frostTonight().includes('tomate'), 'tonight\'s frost is not seen'); game.weatherLock = { w: 'sol', until: null };
+      game.ranch.farm.seen = 0; F.tickT = 0; F.update(1); check(game.ranch.farm.seen === F.today && F.playedOn(F.today) && !F.playedOn(F.today + 1), `seen ${game.ranch.farm.seen}`);
+      const html = F.journal(); check(html.includes(t('farm.almanac.title')) && (html.match(/j-row/g) || []).length === Object.keys(GROW).length && !/undefined|NaN|farm\./.test(html), 'the diary\'s garden');
+      // (in English too: every key is there)
+      const was = getLang(); await setLang('en'); try { F.forget(); check(!/farm\./.test(F.status(tx, ty) + F.journal()) && F.status(tx, ty).includes('soil'), F.status(tx, ty)); } finally { await setLang(was); }
+    } finally {
+      game.weatherLock = lock; game.ranch.farm.seen = seen ?? game.ranch.farm.seen;
+      for (const [x, y] of tiles) { const dd = w().delta(Math.floor(x / CHUNK), Math.floor(y / CHUNK)), kk = `${x},${y}`; if (dd) { delete dd.crops?.[kk]; delete dd.mulch?.[kk]; delete dd.moist?.[kk]; delete dd.wet?.[kk]; delete dd.tilled[kk]; } w().touchAround(x, y); }
+    }
   });
   await test('hambre: trabajar la gasta, comer la quita y dormir la recupera', async () => {
     const c = game.combat; check(game.gamemode === 'survival' && game.difficulty === 'normal', `modo ${game.gamemode}, dificultad ${game.difficulty}`);

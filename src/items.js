@@ -2,6 +2,7 @@
 import { defineNames, has, noun, t, fmt, getLang } from './i18n.js';
 import { GARMENTS, TEAR, tearMul } from './clothing.js';
 import { apagada } from './opciones.js';
+import { seedOf } from './cropdata.js';
 
 // Las herramientas son todas de hierro (hacha, pico, guadaña, azada y pala). tier: el nivel, que además usan la caña y la red
 export const TIERS = {
@@ -67,19 +68,20 @@ export const ITEMS = {
   cofre: { name: 'Cofre', desc: 'Guarda 18 montones de cosas. Ábrelo con E.', place: 'furniture' },
 };
 // ---------- Huerto, animales y pesca (fase 6) ----------
-// Cultivos: estaciones en las que crecen (0 primavera … 3 invierno), días hasta cosechar y si vuelven a dar fruto
+// Crops. seasons: when they do well in the village (0 spring … 3 winter): what Rosa sells and the seeds say; whether they
+// grow or die is the weather's (cropdata.js, fieldclimate.js). days: days of good weather to ripen; regrow: to give again
 export const CROPS = {
-  nabo: { name: 'Nabo', seasons: [0], days: 4, color: '#f0e8f0', leaf: '#5aa842', food: 12, price: 35 },
+  nabo: { name: 'Nabo', seasons: [0, 2], days: 4, color: '#f0e8f0', leaf: '#5aa842', food: 12, price: 35 },
   fresa: { name: 'Fresa', seasons: [0], days: 6, regrow: 3, color: '#e83a4a', leaf: '#4a9a3a', food: 10, price: 40 },
   zanahoria: { name: 'Zanahoria', seasons: [0, 2], days: 5, color: '#f08a2a', leaf: '#6ab84a', food: 14, price: 40 },
   tomate: { name: 'Tomate', seasons: [1], days: 7, regrow: 3, color: '#e04a2a', leaf: '#3f8a32', food: 14, price: 45 },
-  maiz: { name: 'Maíz', seasons: [1, 2], days: 8, regrow: 3, color: '#f0d040', leaf: '#5a9a3a', food: 12, price: 50 },
-  trigo: { name: 'Trigo', seasons: [1, 2], days: 4, color: '#e0b850', leaf: '#a8a040', price: 25 },
-  calabaza: { name: 'Calabaza', seasons: [2], days: 9, color: '#e8822a', leaf: '#4a8a3a', food: 20, price: 120 },
+  maiz: { name: 'Maíz', seasons: [1], days: 8, color: '#f0d040', leaf: '#5a9a3a', food: 12, price: 50 },
+  trigo: { name: 'Trigo', seasons: [0, 1, 2], days: 4, color: '#e0b850', leaf: '#a8a040', price: 25 },
+  calabaza: { name: 'Calabaza', seasons: [1], days: 9, color: '#e8822a', leaf: '#4a8a3a', food: 20, price: 120 },
 };
 const SEASON_NAMES = ['primavera', 'verano', 'otoño', 'invierno'];
 for (const [id, c] of Object.entries(CROPS)) {
-  ITEMS['semilla_' + id] = { name: `Semillas de ${c.name.toLowerCase()}`, desc: `Siémbralas en tierra labrada y riégalas. Crecen en ${c.seasons.map(s => SEASON_NAMES[s]).join(' y ')} (${c.days} días).`, seed: id };
+  ITEMS[seedOf(id)] = { name: `Semillas de ${c.name.toLowerCase()}`, desc: `Siémbralas en tierra labrada y riégalas. Crecen en ${c.seasons.map(s => SEASON_NAMES[s]).join(', ').replace(/, (?=[^,]*$)/, ' y ')} (${c.days} días).`, seed: id };
   ITEMS[id] = { name: c.name, desc: c.food ? 'Recién cogido del huerto.' : 'Para hacer harina y pan.', food: c.food };
 }
 Object.assign(ITEMS, {
@@ -341,6 +343,11 @@ for (const [id, g] of Object.entries(GARMENTS)) {
 const BODY_ITEMS = { soap: {} };
 Object.assign(ITEMS, BODY_ITEMS);
 defineNames(BODY_ITEMS, 'item');
+// ---------- The garden (docs/planes/realismo/PLAN-R2-huerto.md): straw, from wheat cut with the scythe; on tilled soil it keeps
+// the water in (farm.js, mulch) ----------
+const GARDEN_ITEMS = { straw: {} };
+Object.assign(ITEMS, GARDEN_ITEMS);
+defineNames(GARDEN_ITEMS, 'item');
 // Muebles de la casa familiar: dormitorios, cocina y baño
 Object.assign(ITEMS, {
   sofa: { name: 'Sofá', desc: 'De dos plazas, con cojines. Arrímalo a la pared y siéntate en él con E.', place: 'furniture' },

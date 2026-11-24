@@ -1,5 +1,6 @@
 // Economía: lo que vale cada cosa al venderla y lo que cuesta comprarla en las tiendas de los vecinos.
 import { ITEMS, CROPS, FISH } from './items.js';
+import { seedOf } from './cropdata.js';
 import { t } from './i18n.js';
 import { RECIPES } from './recipes.js';
 
@@ -10,7 +11,7 @@ const BASE = {
   calavera: 30, moneda_antigua: 100, lingote_cobre: 36, lingote_hierro: 57, lingote_oro: 114,
   pocion_rapidez: 60, pocion_fuerza: 80, pocion_resistencia: 90, pocion_regeneracion: 90,
   carne_ave: 14, carne_conejo: 16, carne_vaca: 30, carne_cordero: 26, carne_cabra: 24, carne_cerdo: 26, carne_venado: 30, carne_jabali: 30, piel: 20, hueso: 6, manteca: 14, asta: 60, colmillo: 45,
-  huevo_pato: 35, huevo_oro: 300, plumas: 12, leche_cabra: 40, nata: 60, lana_fina: 140, angora: 55, trufa: 250, heno: 3,
+  huevo_pato: 35, huevo_oro: 300, plumas: 12, leche_cabra: 40, nata: 60, lana_fina: 140, angora: 55, trufa: 250, heno: 3, straw: 2,
   // Thirst and diving: what the sea bed gives (Rosa buys it all), and what is made, below what the shops sell it for
   seashell: 5, pearl: 180, mussel: 4, seaweed: 2, canteen: 24, water_jug: 20, apple_juice: 30,
   // The body (Plan E §2.3): soap sells for less than Rosa asks
@@ -50,7 +51,7 @@ export const SHOPS = {
   rosa: {
     title: 'Puesto de Rosa', hours: [9, 18], buysAll: true,
     stock: [
-      ...Object.keys(CROPS).map(c => ({ id: 'semilla_' + c, seasons: CROPS[c].seasons, price: Math.round(CROPS[c].price * 0.5) })),
+      ...Object.keys(CROPS).map(c => ({ id: seedOf(c), seasons: CROPS[c].seasons, price: Math.round(CROPS[c].price * 0.5) })),
       { id: 'semilla_manzano', price: 120 }, { id: 'abono', price: 25 },
       { animal: 'gallina', name: 'Gallina', price: 400 }, { animal: 'pato', name: 'Pato', price: 500 }, { animal: 'conejo', name: 'Conejo', price: 700 },
       { animal: 'cabra', name: 'Cabra', price: 1000 }, { animal: 'cerdo', name: 'Cerdo', price: 1300 }, { animal: 'oveja', name: 'Oveja', price: 1200, project: 'mercado' }, { animal: 'vaca', name: 'Vaca', price: 1500, project: 'mercado' },

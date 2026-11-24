@@ -2,6 +2,7 @@
 // soltar lo que da y recogerlo. También los efectos: astillas, textos flotantes y el golpe de la herramienta.
 import { CAM } from './camera.js';
 import { ITEMS, HARVEST, GRASS_DROPS, TOOL_COST, CROPS, hitsFor, hungerOf, thirstOf, pctOf, itemNoun } from './items.js';
+import { seedOf } from './cropdata.js';
 import { HUNGER_MAX, HP_MAX } from './combat.js';
 import { THIRST_MAX } from './needs.js';
 import { PIECES, layerOf } from './pieces.js';
@@ -413,7 +414,7 @@ export class Gathering {
       if (id === 'semillas') {   // semillas de algo que crezca en esta estación
         const season = this.game.days.season, ok = Object.keys(CROPS).filter(c => CROPS[c].seasons.includes(season));
         if (!ok.length) continue;
-        id = 'semilla_' + ok[Math.floor(Math.random() * ok.length)];
+        id = seedOf(ok[Math.floor(Math.random() * ok.length)]);
       }
       const n = min + Math.floor(Math.random() * (max - min + 1));
       for (let i = 0; i < n; i++) {

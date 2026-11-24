@@ -639,7 +639,7 @@ export class Game {
     for (const w of this.wildlife.list) if (sees(w.x, w.y)) out.push({ kind: 'wild', e: w, box: bodyBox(w) });
     for (let ty = Math.floor(p.y) - 2; ty <= Math.floor(p.y) + 2; ty++) for (let tx = Math.floor(p.x) - 2; tx <= Math.floor(p.x) + 2; tx++) {
       const c = this.farm.cropAt(tx, ty);
-      if (this.farm.ready(c)) out.push({ kind: 'crop', tile: [tx, ty], model: { name: `crop:${c.id}:${this.farm.stage(c)}`, x: tx + 0.5, y: ty + 0.5, lift: sc.levelAt?.(tx + 0.5, ty + 0.5) || 0 }, box: box(tx + 0.5, ty + 0.5, 0.45, 0.45, 0, 0.7) });
+      if (this.farm.takes(c)) out.push({ kind: 'crop', tile: [tx, ty], model: { name: this.farm.model(c), x: tx + 0.5, y: ty + 0.5, lift: sc.levelAt?.(tx + 0.5, ty + 0.5) || 0 }, box: box(tx + 0.5, ty + 0.5, 0.45, 0.45, 0, 0.7) });
     }
     return out;
   }
@@ -660,7 +660,7 @@ export class Game {
       case 'animal': return this.ranch.talk(a.e);
       case 'wild': return { text: ANIMALS[a.e.type].name, run: () => Audio.blip() };
       case 'monster': return { text: MONSTERS[a.e.type].name, run: () => Audio.blip() };
-      case 'crop': return { text: 'Cosechar', run: () => this.farm.harvest(...a.tile) };
+      case 'crop': return this.farm.cropAction(...a.tile);
       // (lo de cada sistema, aislado como sus ganchos: si falla, no se puede usar eso, pero el resto se sigue viendo)
       case 'sys': try { return a.act(); } catch (e) { reportFault(e, a.sys ? faultName(a.sys, 'act') : 'apuntar'); return null; }
     }

@@ -209,12 +209,12 @@ export class World3D {
   faded(tx, ty, side) { const r = this.regionOf.get(`${tx},${ty}`); return !!r && (this.fade.get(`${r}|${side}`) ?? 1) < 0.5; }
   // Firma de un trozo: si no cambia, no hace falta rehacerlo (el juego rehace sus datos cada pocos segundos)
   signature(scene, cx, cy, data) {
-    const farm = this.farm(scene), d = scene.delta(cx, cy), today = farm?.today;
+    const farm = this.farm(scene), d = scene.delta(cx, cy);
     let s = '';
-    for (const o of data.objects) s += o.key + (o.crop ? ':' + farm.stage(o.crop) : '') + (o.open ? '!' : '') + (o.placed ? o.placed + (o.rot || 0) : '') + (o.model ? ':' + o.model : '') + (o.off ? '~' : '') + (o.tuck ? '^' : '') + (o.mask !== undefined ? `m${o.mask}` : '') + (o.door ? `d${o.door}` : '') + (o.free ? `@${o.x.toFixed(2)},${o.y.toFixed(2)},${o.yaw.toFixed(2)}` : '') + (o.window && scene.doorClosed(...o.tile) ? '#' : '') + ',';   // (~: apagado; #: ventana cerrada)
+    for (const o of data.objects) s += o.key + (o.crop && farm ? ':' + farm.model(o.crop) : '') + (o.open ? '!' : '') + (o.placed ? o.placed + (o.rot || 0) : '') + (o.model ? ':' + o.model : '') + (o.off ? '~' : '') + (o.tuck ? '^' : '') + (o.mask !== undefined ? `m${o.mask}` : '') + (o.door ? `d${o.door}` : '') + (o.free ? `@${o.x.toFixed(2)},${o.y.toFixed(2)},${o.yaw.toFixed(2)}` : '') + (o.window && scene.doorClosed(...o.tile) ? '#' : '') + ',';   // (~: apagado; #: ventana cerrada)
     for (const o of data.flats) s += o.key + (o.model || o.placed || '') + (o.rot || 0) + (o.free ? `@${o.x.toFixed(2)},${o.y.toFixed(2)},${o.yaw.toFixed(2)}` : '') + ',';
     for (const o of data.floors) s += o.key + ',';
-    for (const t of data.tilled) { const k = `${t[0]},${t[1]}`; s += k + (d?.wet?.[k] === today ? 'w' : '') + tilledMask(scene, t[0], t[1]) + ';'; }   // (with its neighbours: one tilled next door, in another chunk too, joins it)
+    for (const t of data.tilled) { const k = `${t[0]},${t[1]}`; s += k + (farm ? farm.soilLook(d, k) : 0) + (d?.mulch?.[k] !== undefined ? 'm' : '') + tilledMask(scene, t[0], t[1]) + ';'; }   // (with its neighbours: one tilled next door, in another chunk too, joins it)
     return s;
   }
 
@@ -243,9 +243,9 @@ export class World3D {
     const struct = new Map();   // (las casillas con piezas de construcción, para su cimiento: 'full' o 'post')
     for (const o of data.floors) { LIFT = lv(...o.tile); struct.set(`${o.tile[0]},${o.tile[1]}`, 'full'); floorTile(scene, o.tile[0], o.tile[1], o.placed, plain); }
     for (const t of data.tilled) {
-      const k = `${t[0]},${t[1]}`, wet = scene.delta(cx, cy)?.wet?.[k] === this.farm(scene)?.today;
+      const k = `${t[0]},${t[1]}`, dl = scene.delta(cx, cy), fm = this.farm(scene);
       LIFT = lv(t[0], t[1]);
-      this.placeModel(`tilled:${wet ? 1 : 0}:${tilledMask(scene, t[0], t[1], LIFT, lv)}`, t[0] + 0.5, t[1] + 0.5, 0, plain, c, group, false, LIFT);
+      this.placeModel(`tilled:${fm ? fm.soilLook(dl, k) : 0}:${tilledMask(scene, t[0], t[1], LIFT, lv)}${dl?.mulch?.[k] !== undefined ? ':m' : ''}`, t[0] + 0.5, t[1] + 0.5, 0, plain, c, group, false, LIFT);
     }
     for (const o of data.objects.concat(data.flats)) {
       LIFT = o.poi || o.treasure ? 0 : o.tile ? lv(...o.tile) : lv(Math.floor(o.x), Math.floor(o.y));
@@ -259,7 +259,7 @@ export class World3D {
         else if (piece?.kind === 'fence') fenceTile(scene, tx, ty, o.placed, plain);
         else this.placeModel(o.key === this.insideKey ? `${o.placed}:in` : o.model || o.placed, o.x, o.y, o.yaw ?? yawOf(o.rot), plain, c, group, o.off, LIFT);
       } else if (o.unknown) this.placeModel(o.model || 'unknown', o.x, o.y, o.yaw ?? yawOf(o.rot), plain, c, group, false, LIFT);   // (de una versión más nueva: la caja, o el tablón de los cuadros y las alfombras, con «?»)
-      else if (o.crop && this.farm(scene)) this.placeModel(`crop:${o.crop.id}:${this.farm(scene).stage(o.crop)}`, o.x, o.y, 0, plain, c, group, false, LIFT);
+      else if (o.crop && this.farm(scene)) this.placeModel(this.farm(scene).model(o.crop), o.x, o.y, 0, plain, c, group, false, LIFT);
       else if (o.boat) {   // (una barca amarrada; with a big thing in its bow, inside its clone: the outline takes it too)
         const b = (BOAT ||= boatModel()).clone(true); b.position.set(o.x, WATER_Y - 0.12, o.y); b.rotation.y = o.yaw;
         if (o.load && BULKY[o.load]) { const l = loadModel(o.load, 'bow'); placeLoad(l, o.load, 'bow'); b.add(l); }

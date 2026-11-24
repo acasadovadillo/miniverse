@@ -65,7 +65,7 @@ export function initJournalUI(game, { onClose }) {
     historia: ['Historia', () => game.story.journal()],
     vecinos: ['Vecinos', () => game.rep.journal() + game.neighbors.journal()],   // (the village's reputation on top: reputation.js)
     habilidades: ['Habilidades', () => game.skills.journal()],
-    granja: ['Granja', () => game.ranch.journal()],
+    granja: ['Granja', () => game.farm.journal() + game.ranch.journal()],
     pesca: ['Pesca', () => game.fishing.journal()],
     colecciones: ['Colecciones', () => game.collection.journal()],
     logros: ['Logros', () => game.achievements.journal()],

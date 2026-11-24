@@ -24,7 +24,7 @@ const TINT = {
   // piezas de construcción
   stone: STONE('#958f84'), wallStone: STONE('#9d968a'), fenceStone: STONE('#8a857b'),
   timber: WOOD('#5f4e3e'), frame: WOOD('#4f4438'), shutter: WOOD('#3f7f5a'), door: WOOD('#7d5e46'), box: WOOD('#76604a'), fence: WOOD('#857058'), roofEdge: WOOD('#4f4438'),
-  soil: PAINT('#4f4538'),
+  soil: PAINT('#4f4538'), crack: PAINT('#3a2e22'), crumb: PAINT('#4c3826'),
   // modelos
   wood: WOOD('#82694f'), dark: WOOD('#5f4e3e'), light: WOOD('#a58c6c'), hull: WOOD('#6a5642'),
   brick: STONE('#9c6e5c'), ruin: STONE('#a8a194'), temple: STONE('#bab09a'), templeD: STONE('#7c7468'), rock: STONE('#7f7b71'),

@@ -450,7 +450,7 @@ export class Overworld {
   // nueva (null: como era)
   digTile(tx, ty, dn, today) {
     const cx = Math.floor(tx / CHUNK), cy = Math.floor(ty / CHUNK), h = this.digNext(tx, ty, dn), d = this.delta(cx, cy, true), k = `${tx},${ty}`;
-    if (d.tilled?.[k] !== undefined) { delete d.tilled[k]; if (d.wet) delete d.wet[k]; this.dropLevel(tx, ty); }   // (lo labrado: se deshace)
+    if (d.tilled?.[k] !== undefined) { delete d.tilled[k]; for (const f of [d.wet, d.moist, d.mulch]) if (f) delete f[k]; this.dropLevel(tx, ty); }   // (lo labrado: se deshace)
     if (h !== null) (d.dig ||= {})[k] = h; else if (d.dig) { delete d.dig[k]; if (!Object.keys(d.dig).length) delete d.dig; }
     const m = (d.mown ||= {});
     for (const [q, v] of Object.entries(m)) if (today - v >= GRASS_REGROW) delete m[q];

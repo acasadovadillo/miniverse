@@ -1,6 +1,7 @@
 // Recetas: qué se fabrica, dónde (a mano o en una estación) y con qué.
 // Una receta se desbloquea cuando ya has tenido todos sus ingredientes, salvo las que te enseña alguien (`teach`).
 import { ITEMS, RUG_MADE, rugId, ARMOR_PIECES, ARMOR_METALS } from './items.js';
+import { GROW, seedOf } from './cropdata.js';
 
 export const STATIONS = {
   mano: { name: 'A mano' },
@@ -195,6 +196,8 @@ export const RECIPES = [
   R('horno', 'water_jug', 1, [['piedra', 3], ['carbon', 1]]),
   R('cocina', 'apple_juice', 1, [['manzana', 2]]),
   R('mano', 'abono', 2, [['seaweed', 3]], { id: 'abono_alga' }),
+  // Seeds you save (docs/planes/realismo/PLAN-R2-huerto.md §3.6), from the fruit or the grain (roots: left to go to seed, farm.js)
+  ...Object.entries(GROW).filter(([, g]) => g.seeds).map(([id, g]) => R('mano', seedOf(id), g.seeds[1], [[id, g.seeds[0]]])),
   // The body (docs/planes/gta/PLAN-E-cuerpo-aspecto.md §2.3): soap, from lard and ash (the charcoal), two a time
   R('cocina', 'soap', 2, [['manteca', 1], ['carbon', 1]]),
 ];

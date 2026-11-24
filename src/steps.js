@@ -3,6 +3,7 @@
 // jugador, no del mundo. Lo que se cuenta (matorrales, árboles…) se cuenta desde que empieza ese paso. A las partidas de
 // antes de que esto existiera no les sale, pero en el diario (J) se puede repasar, ya sin recompensas.
 import { CROPS } from './items.js';
+import { seedOf } from './cropdata.js';
 import { inTavern } from './world/village.js';
 import { Audio } from './audio.js';
 import { hud } from './ui/hud.js';
@@ -11,7 +12,7 @@ import { t } from './i18n.js';
 
 const $ = id => document.getElementById(id);
 // Unas semillas que crezcan ahora (en invierno no crece nada)
-const seedNow = g => { const c = Object.keys(CROPS).find(id => CROPS[id].seasons.includes(g.days.season)); return c ? `semilla_${c}` : null; };
+const seedNow = g => { const c = Object.keys(CROPS).find(id => CROPS[id].seasons.includes(g.days.season)); return c ? seedOf(c) : null; };
 
 // id, lo que hay que hacer y una pista. Se cumple con stat + need (cuántos más que al empezar el paso), o con done(g).
 // money e items: la recompensa (items puede depender del momento). skip(g): este paso ahora no se puede hacer
