@@ -20,6 +20,7 @@ export function initChat(game) {
     log.append(line);
     while (log.children.length > 60) log.firstChild.remove();
     log.scrollTop = log.scrollHeight;
+    api.onLine?.();
   }
   setInterval(() => { const now = Date.now(); for (const l of log.children) { const age = now - l.dataset.t; l.classList.toggle('old', age > FADE); l.classList.toggle('gone', age > FADE + 700); } }, 500);
 
@@ -53,5 +54,11 @@ export function initChat(game) {
   });
   input.addEventListener('blur', hide);
 
-  return { open: show, close: hide, say, get isOpen() { return open; } };
+  // history: the lines kept, oldest first (the pause's Brief tab); onLine: a new one came
+  const api = {
+    open: show, close: hide, say, onLine: null,
+    get isOpen() { return open; },
+    get history() { return [...log.children].map(l => ({ text: l.textContent, kind: l.className.replace('chat-line', '').replace(/\bold\b/, '').trim(), at: +l.dataset.t })); },
+  };
+  return api;
 }

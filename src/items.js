@@ -424,6 +424,8 @@ export function conditionText(s) {
 }
 // A thing's name as a noun for the messages ({item, the}, {item, a}…): from the language files when it has a key
 // (item.canteen, with its gender), else its Spanish name from ITEMS with a guessed gender (oldNoun)
+// The same, for a list that shows nature too (fish, insects, flowers and crops have their name in the nature book)
+export const thingNoun = id => (!has(`item.${id}`) && has(`nature.name.${id}`) ? noun('nature.name', id) : itemNoun(id));
 export const itemNoun = id => (has(`item.${id}`) ? noun('item', id) : oldNoun(ITEMS[id]?.name ?? String(id)));
 // An older id with no language key has only its Spanish name: its gender and number (for el/la/los/las, un/una) are
 // guessed from the first word, with the usual exceptions, so "la fresa", "las botas", "el hacha" read right ("item.x.g"

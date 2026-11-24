@@ -1,12 +1,14 @@
 // Progreso: estadísticas, habilidades que suben con el uso, las colecciones (del diario), logros
 // y las páginas del diario de un farero, sueltas en los cofres.
-import { ITEMS, FISH, BUGS, LEGACY_ITEMS } from './items.js';
+import { ITEMS, FISH, BUGS, LEGACY_ITEMS, thingNoun } from './items.js';
 import { Audio } from './audio.js';
 import { hud } from './ui/hud.js';
 import { t } from './i18n.js';
 import { apagada } from './opciones.js';
 import { SPECIES } from './nature.js';
 import { trackerDone } from './tracks.js';
+
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
 // ---------- Estadísticas ----------
 export class Stats {
@@ -19,20 +21,8 @@ export class Stats {
 }
 
 // ---------- Habilidades ----------
-// (diving, the newest, goes through i18n; the others are still Spanish literals here)
-const SKILLS = {
-  tala: 'Tala', mineria: 'Minería', agricultura: 'Agricultura', pesca: 'Pesca',
-  cocina: 'Cocina', construccion: 'Construcción', granja: 'Granja', combate: 'Combate',
-  get diving() { return t('skill.diving'); },
-  get tracking() { return t('skill.tracking'); },   // (Plan G: studying tracks and following trails, tracks.js)
-};
-const PERKS = {
-  tala: 'Nivel 5: talar cansa menos. Cada nivel: más madera.', mineria: 'Nivel 5: picar cansa menos. Cada nivel: más mineral.',
-  agricultura: 'Cada nivel: más cosecha.', get pesca() { return t('skill.pesca.perk'); }, cocina: 'Cada nivel: platos más sabrosos (quitan más hambre).',
-  construccion: 'Por construir, que es muy bonito.', granja: 'Cada nivel: animales más contentos.', combate: 'Nivel 5: golpeas más fuerte.',
-  get diving() { return t('skill.diving.perk'); },   // (2 s more air per level, needs.js airMax; and more pearls, dive.js)
-  get tracking() { return t('skill.tracking.perk'); },   // (the locked trail reaches 2 m further per level: tracks.js HL_R)
-};
+// Their names and perks: skill.<id> and skill.<id>.perk in the language files (read when shown: they follow the language)
+export const SKILL_IDS = ['tala', 'mineria', 'agricultura', 'pesca', 'cocina', 'construccion', 'granja', 'combate', 'diving', 'tracking'];
 const xpFor = lvl => 25 * lvl * (lvl + 1);   // experiencia total para llegar a un nivel
 export class Skills {
   constructor(game) { this.game = game; this.xp = {}; }
@@ -43,15 +33,16 @@ export class Skills {
     const before = this.level(k);
     this.xp[k] = (this.xp[k] || 0) + n;
     const after = this.level(k);
-    if (after > before) { hud.toast(`¡${SKILLS[k]} sube a nivel ${after}!`, 'good'); Audio.unlock(); }
+    if (after > before) { hud.toast(t('skill.up', { skill: t(`skill.${k}`), n: after }), 'good'); Audio.unlock(); }
   }
   bonus(k) { return this.level(k) * 0.03; }                        // probabilidad extra de algo bueno
   costCut(tool) { return (tool === 'hacha' && this.level('tala') >= 5) || (tool === 'pico' && this.level('mineria') >= 5) ? 1 : 0; }
-  journal() {
-    return Object.entries(SKILLS).map(([k, name]) => {
-      const l = this.level(k), x = this.xp[k] || 0, lo = xpFor(l), hi = xpFor(l + 1), pct = l >= 10 ? 100 : Math.round(((x - lo) / (hi - lo)) * 100);
-      return `<div class="j-row"><b>${name}</b><span class="lvl">Nivel ${l}</span><span class="bar"><i style="width:${pct}%"></i></span><small>${PERKS[k]}</small></div>`;
-    }).join('');
+  // Each skill as the Character page shows it: pct, how far it is to the next level (100 at level 10)
+  rows() {
+    return SKILL_IDS.map(id => {
+      const level = this.level(id), x = this.xp[id] || 0, lo = xpFor(level), hi = xpFor(level + 1);
+      return { id, level, pct: level >= 10 ? 100 : Math.max(0, Math.min(100, Math.round(((x - lo) / (hi - lo)) * 100))), name: t(`skill.${id}`), perk: t(`skill.${id}.perk`) };
+    });
   }
 }
 
@@ -63,7 +54,9 @@ const MINERALS = ['cobre', 'hierro', 'oro', 'carbon', 'amatista', 'esmeralda', '
 const FOSSILS = ['fosil_concha', 'fosil_hueso', 'fosil_ambar', 'moneda_antigua', 'calavera'];
 const FLOWERS = ['margarita', 'diente_leon'];
 const RARE = ['huevo_oro', 'trufa', 'lana_fina', 'asta', 'colmillo'];
-export const COLLECTIONS = { 'Minerales y gemas': MINERALS, 'Fósiles y reliquias': FOSSILS, Peces: Object.keys(FISH), Insectos: Object.keys(BUGS), Flores: FLOWERS, Rarezas: RARE };
+// (each collection's name: collections.<id> in the language files)
+export const COLLECTIONS = { minerals: MINERALS, fossils: FOSSILS, fish: Object.keys(FISH), insects: Object.keys(BUGS), flowers: FLOWERS, rarities: RARE };
+export const COLLECTED_ALL = Object.values(COLLECTIONS).flat().length;
 const ALL = Object.values(COLLECTIONS).flat(), IN = new Set(ALL);
 // (the fish, insect and flower cells open their nature book page: data-nature, read by the journal; not with ?naturebook=0)
 const BOOK = !apagada('naturebook');
@@ -82,7 +75,7 @@ export class Collection {
   found(id, quiet = false) {
     if (!IN.has(id) || this.got.has(id)) return;
     this.got.add(id);
-    if (!quiet) hud.toast(`Nuevo en tus colecciones: ${ITEMS[id].name.toLowerCase()} (${this.got.size}/${ALL.length}, diario J)`, 'good');
+    if (!quiet) hud.toast(t('collections.new', { item: thingNoun(id), n: this.got.size, total: ALL.length }), 'good');
   }
   update(dt) {
     if ((this.wait -= dt) > 0) return;
@@ -96,15 +89,15 @@ export class Collection {
       g.addMoney(money); const left = g.inv.add(item, k); if (left) g.gather.throwOut(item, left);
       if (LEGACY_ITEMS[item]) g.craft.learnPlan(item);   // (un mueble: llegan sus materiales, y con ellos su plano)
       Audio.unlock();
-      hud.toast(`¡Premio de las colecciones (${n} piezas)! ${money} monedas y ${k} × ${ITEMS[item].name.toLowerCase()}.`, 'good');
+      hud.toast(t('collections.reward', { n, money, k, item: thingNoun(item) }), 'good');
     }
   }
   journal() {
-    const next = REWARDS[this.paid];
-    const head = `<p class="j-note">Llevas ${this.got.size} de ${ALL.length}. Cada cosa cuenta en cuanto la tienes una vez, sin entregarla.${next ? ` Próximo premio, a las ${next[0]}: ${next[1]} monedas y ${next[3]} × ${ITEMS[next[2]].name.toLowerCase()}.` : ' Las tienes todas.'}</p>`;
-    return head + Object.entries(COLLECTIONS).map(([title, ids]) => `<h3>${title} <small>${ids.filter(i => this.got.has(i)).length}/${ids.length}</small></h3><div class="j-grid">${ids.map(id => {
+    const next = REWARDS[this.paid], name = id => esc(t('collections.item', { item: thingNoun(id) }));
+    const head = `<p class="j-note">${t('collections.head', { n: this.got.size, total: ALL.length })} ${next ? t('collections.next', { n: next[0], money: next[1], k: next[3], item: thingNoun(next[2]) }) : t('collections.all')}</p>`;
+    return head + Object.entries(COLLECTIONS).map(([group, ids]) => `<h3>${t('collections.' + group)} <small>${ids.filter(i => this.got.has(i)).length}/${ids.length}</small></h3><div class="j-grid">${ids.map(id => {
       const state = this.got.has(id) ? 'done' : 'none';
-      return `<div class="j-cell ${state}" title="${state === 'none' ? '???' : ITEMS[id].name}"${bookCell(id)}><img alt="" data-icon="${id}"></div>`;
+      return `<div class="j-cell ${state}" title="${state === 'none' ? '???' : name(id)}"${bookCell(id)}><img alt="" data-icon="${id}"></div>`;
     }).join('')}</div>`).join('');
   }
 
@@ -112,7 +105,7 @@ export class Collection {
   target(p, held, def) {
     const g = this.game;
     if (def?.tool !== 'red' || g.scene !== g.world) return null;
-    return { tile: null, ok: true, auto: true, label: 'Cazar insectos', use: () => this.net() };
+    return { tile: null, ok: true, auto: true, label: t('collections.net'), use: () => this.net() };
   }
   net() {
     const g = this.game, T = g.days, h = T.hour, p = g.player;
@@ -123,21 +116,21 @@ export class Collection {
     const water = near(1.5, 0) || near(-1.5, 0) || near(0, 1.5) || near(0, -1.5), forest = g.world.gen.biomeAt(p.x, p.y) === 4;
     const okHour = b => (b.hours[0] < b.hours[1] ? h >= b.hours[0] && h < b.hours[1] : h >= b.hours[0] || h < b.hours[1]);
     const list = Object.entries(BUGS).filter(([, b]) => b.seasons.includes(T.season) && okHour(b) && (!b.water || water) && (!b.forest || forest));
-    if (!list.length || Math.random() > 0.45) { g.gather.float('Nada…', '#d8e8ff'); return; }
+    if (!list.length || Math.random() > 0.45) { g.gather.float(t('collections.net_nothing'), '#d8e8ff'); return; }
     const [id] = list[Math.floor(Math.random() * list.length)];
     const left = g.inv.add(id, 1);
     if (left) g.gather.throwOut(id, left);
     const fresh = !this.got.has(id);   // (its "new" toast wins over the nature book's message)
     this.found(id);
     g.nature?.harvested(id, 1, fresh);   // (the nature book: Studied, three netted Known)
-    g.gather.float(`¡${ITEMS[id].name}!`, '#ffe08a');
+    g.gather.float(t('collections.caught', { item: thingNoun(id) }), '#ffe08a');
     Audio.pickup();
   }
 }
 
 // ---------- Logros ----------
 const S = (k, n) => g => g.stats.get(k) >= n;
-// An achievement whose name and description come from the language files (ach.<id>, ach.<id>.desc): the same
+// An achievement: its name and description come from the language files (ach.<id>, ach.<id>.desc): the same
 // [id, name, desc, check] row, with the texts read when shown, so they follow a language switch
 function tAch(id, check) {
   const row = [id, '', '', check];
@@ -146,28 +139,28 @@ function tAch(id, check) {
   return row;
 }
 export const ACH = [
-  ['primer_arbol', 'Leñador novato', 'Tala tu primer árbol', S('talados', 1)],
-  ['talador', 'Leñador de verdad', 'Tala 100 árboles', S('talados', 100)],
-  ['banco', 'Manitas', 'Pon un banco de carpintero', g => g.stats.get('estaciones') >= 1],
-  ['oro', 'Fiebre del oro', 'Consigue mineral de oro', g => g.inv.count('oro') > 0 || g.stats.get('oro') > 0],
-  ['profundo', 'Hasta el fondo', 'Baja al nivel 10 de una cueva', S('profundidad', 10)],
-  ['granjero', 'Manos verdes', 'Cosecha 50 veces', S('cosechas', 50)],
-  ['pescador', 'Paciencia de pescador', 'Pesca 25 peces', S('peces', 25)],
-  ['dorado', '¿Existe de verdad?', 'Pesca el pez dorado', g => g.collection.got.has('pez_dorado')],
-  ['tesoro_agua', 'Algo brilla ahí abajo', 'Saca un tesoro del agua', S('tesoros', 1)],
-  ['constructor', 'Arquitecto', 'Pon 100 piezas de construcción', S('piezas', 100)],
-  ['casa', 'Hogar, dulce hogar', 'Amplía la casa del pueblo', g => g.house.big],
-  ['amigo', 'Buen vecino', 'Llega a 5 corazones con alguien', g => ['nilo', 'rosa', 'lia', 'bruno', 'dani'].some(id => g.neighbors.hearts(id) >= 5)],
-  ['mejor_amigo', 'Uña y carne', 'Llega a 10 corazones con alguien', g => ['nilo', 'rosa', 'lia', 'bruno', 'dani'].some(id => g.neighbors.hearts(id) >= 10)],
-  ['rico', 'Ahorrador', 'Junta 10 000 monedas', g => g.money >= 10000],
-  ['alcalde', 'Alcalde sin cargo', 'Termina los 4 proyectos del pueblo', S('proyectos', 4)],
-  ['explorador', 'Explorador', 'Descubre 10 lugares', S('lugares', 10)],
-  ['templo', 'Ladrón de tumbas', 'Saquea el tesoro de un templo', S('templos', 1)],
-  ['coleccionista', 'Coleccionista', 'Reúne 25 piezas de las colecciones', g => g.collection.got.size >= 25],
-  ['chef', 'Chef', 'Cocina 20 platos', S('cocinados', 20)],
-  ['valiente', 'Valiente', 'Derrota 50 criaturas', S('criaturas', 50)],
-  ['faro', 'Desde lo alto', 'Sube a un faro', S('faros', 1)],
-  // Plan G: the nature book and tracking (names through t(); tracker: a trail followed 60 m or more to the prey, which
+  tAch('primer_arbol', S('talados', 1)),
+  tAch('talador', S('talados', 100)),
+  tAch('banco', g => g.stats.get('estaciones') >= 1),
+  tAch('oro', g => g.inv.count('oro') > 0 || g.stats.get('oro') > 0),
+  tAch('profundo', S('profundidad', 10)),
+  tAch('granjero', S('cosechas', 50)),
+  tAch('pescador', S('peces', 25)),
+  tAch('dorado', g => g.collection.got.has('pez_dorado')),
+  tAch('tesoro_agua', S('tesoros', 1)),
+  tAch('constructor', S('piezas', 100)),
+  tAch('casa', g => g.house.big),
+  tAch('amigo', g => ['nilo', 'rosa', 'lia', 'bruno', 'dani'].some(id => g.neighbors.hearts(id) >= 5)),
+  tAch('mejor_amigo', g => ['nilo', 'rosa', 'lia', 'bruno', 'dani'].some(id => g.neighbors.hearts(id) >= 10)),
+  tAch('rico', g => g.money >= 10000),
+  tAch('alcalde', S('proyectos', 4)),
+  tAch('explorador', S('lugares', 10)),
+  tAch('templo', S('templos', 1)),
+  tAch('coleccionista', g => g.collection.got.size >= 25),
+  tAch('chef', S('cocinados', 20)),
+  tAch('valiente', S('criaturas', 50)),
+  tAch('faro', S('faros', 1)),
+  // Plan G: the nature book and tracking (tracker: a trail followed 60 m or more to the prey, which
   // tracks.js counts in the stat 'trailsFollowed')
   tAch('naturalist', g => (g.nature?.count().n || 0) >= 15),
   tAch('naturalist_all', g => !!g.nature && g.nature.count().n >= g.nature.count().total),
@@ -186,45 +179,40 @@ export class Achievements {
   earn(id, name) {
     const g = this.game;
     this.got.add(id);
-    hud.toast(`Logro: ${name}`, 'good');
+    hud.toast(t('ach.toast', { name }), 'good');
     Audio.unlock();
     if (g.rules?.announceAdvancements !== false) g.live?.chat(name, { adv: true });
   }
   // /achievement grant|revoke: uno (por su id) o todos (*). Devuelven cuántos
   grant(id) { let n = 0; for (const [k, name] of ACH) if ((id === '*' || id === k) && !this.got.has(k)) { this.earn(k, name); n++; } return n; }
   revoke(id) { let n = 0; for (const [k] of ACH) if ((id === '*' || id === k) && this.got.delete(k)) n++; return n; }
+  // (the ones done first: Progress › Achievements)
   journal() {
-    return `<p class="j-note">${this.got.size} de ${ACH.length} logros</p>` + ACH.map(([id, name, desc]) => `<div class="j-row ach ${this.got.has(id) ? 'done' : ''}"><b>${this.got.has(id) ? '🏆' : '·'} ${name}</b><small>${desc}</small></div>`).join('');
+    const row = ([id, name, desc]) => `<div class="j-row ach ${this.got.has(id) ? 'done' : ''}"><b>${this.got.has(id) ? '🏆' : '·'} ${name}</b><small>${desc}</small></div>`;
+    return `<p class="j-note">${t('ach.count', { n: this.got.size, total: ACH.length })}</p>` + [...ACH.filter(a => this.got.has(a[0])), ...ACH.filter(a => !this.got.has(a[0]))].map(row).join('');
   }
 }
 
 // ---------- Historia: el diario del farero ----------
 // Páginas sueltas del diario de un farero en los cofres de los lugares: se leen y quedan en el diario, sin más
-const PAGES = [
-  'Día 1. Me han dado un faro en una costa por donde no pasa casi nadie. Mejor: así no me molestan.',
-  'Día 40. He plantado tomates en la roca. No crecen. Las gaviotas se ríen de mí, lo sé.',
-  'Día 112. Un marinero me ha dicho que si navegas siempre hacia el oeste, vuelves a casa por el este. Le he servido otra taza de té, por si acaso.',
-  'Día 200. Bajé a un pueblo llamado Brotes a por harina. Un niño, Nilo, me preguntó si el mundo se acababa. Le dije que no: que da la vuelta.',
-  'Día 365. Hay más faros en otras costas. Me gusta pensar que nos hacemos señales.',
-  'Última página. Una luz no se apaga mientras alguien se acuerde de ella. Si lees esto, gracias por acordarte.',
-];
+// (their texts: story.page.1 to story.page.6)
+export const PAGES = 6;
 export class Story {
   constructor(game) { this.game = game; this.pages = 0; }
-  reset(save) { this.pages = save.storyPages || 0; }
+  reset(save) { this.pages = Math.max(0, save.storyPages | 0); }
   save(out) { out.storyPages = this.pages; }
   // Al abrir un cofre de un lugar: una página más del diario
   async found(kind) {
     const g = this.game;
     if (kind === 'templo') g.stats.add('templos', 1);
-    if (this.pages >= PAGES.length) return;
-    const text = PAGES[this.pages++];
+    if (this.pages >= PAGES) return;
+    const n = ++this.pages;
     g.busy = true;
-    await hud.say(`Diario del farero · página ${this.pages}`, [text]);
+    await hud.say(t('story.page_title', { n }), [t(`story.page.${n}`)]);
     g.busy = false;
   }
   journal() {
-    const goal = 'El mundo es un planeta: si andas siempre hacia el oeste, vuelves por el este. Busca páginas del diario del farero en ruinas, torres, barcos y templos.';
-    return `<p class="j-goal">🧭 ${goal}</p>` + (this.pages ? PAGES.slice(0, this.pages).map((t, i) => `<div class="j-page"><b>Página ${i + 1}</b><p>${t}</p></div>`).join('') : '<p class="j-note">Aún no has encontrado páginas del diario del farero.</p>');
+    const page = (_, i) => `<div class="j-page"><b>${t('story.page_n', { n: i + 1 })}</b><p>${t(`story.page.${i + 1}`)}</p></div>`;
+    return `<p class="j-goal">🧭 ${t('story.goal')}</p>` + (this.pages ? Array.from({ length: Math.min(PAGES, this.pages) }, page).join('') : `<p class="j-note">${t('story.none')}</p>`);
   }
 }
-export { SKILLS };

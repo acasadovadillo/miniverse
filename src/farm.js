@@ -12,7 +12,7 @@
 //                           and how many days), dry (mornings in a row without water), wt (days a seed has waited), ripe
 //                           (the day it ripened), bolt (the day it went to seed), fb (the day frost bit it), leg (the first
 //                           morning of one planted before the weather decided) }
-import { CROPS, HARVEST, ITEMS, itemNoun } from './items.js';
+import { CROPS, HARVEST, ITEMS, itemNoun, thingNoun } from './items.js';
 import { THIRST_MAX } from './needs.js';
 import { t, fmt, getLang } from './i18n.js';
 import { CHUNK } from './world/gen.js';
@@ -544,7 +544,7 @@ export class Farm {
   }
   journal() {
     const g = this.game, p = g.scene === this.world && g.player ? g.player : { x: 0, y: 30 }, a = this.almanac(p.x, p.y), r = Math.round;
-    const rows = a.crops.slice().sort((x, y) => (x.now === 'now' ? 0 : 1) - (y.now === 'now' ? 0 : 1) || x.days - y.days).map(c => `<div class="j-row"><b>${t('farm.name', { crop: itemNoun(c.id) })}</b><span class="lvl">${t('farm.almanac.' + c.now, { n: c.days })}</span><small>${t('farm.almanac.frost', { c: c.kill })}</small></div>`).join('');
+    const rows = a.crops.slice().sort((x, y) => (x.now === 'now' ? 0 : 1) - (y.now === 'now' ? 0 : 1) || x.days - y.days).map(c => `<div class="j-row"><b>${t('farm.name', { crop: thingNoun(c.id) })}</b><span class="lvl">${t('farm.almanac.' + c.now, { n: c.days })}</span><small>${t('farm.almanac.frost', { c: c.kill })}</small></div>`).join('');
     const nights = a.nights.map(n => `${n.icon} ${r(n.min)}°`).join(' · ');
     return `<p class="j-note"><b>${t('farm.almanac.title')}</b><br>${t('farm.almanac.here', { mean: r(a.mean), min: r(a.min), max: r(a.max) })}${a.min <= 2 ? ' ' + t('farm.almanac.tonight_frost') : ''}<br>${t('farm.almanac.nights', { list: nights })}<br>${t('farm.almanac.help')}</p>${rows}`;
   }

@@ -29,6 +29,13 @@ import { retireItems } from './game.js';
 import { HOUSE, HOUSES, POND, YARD, BOUNDS, BOARD, CENTER, TAVERN, inBounds } from './world/village.js';
 import { collide as collideNow } from './physics.js';
 import { STEPS } from './steps.js';
+import { JOURNAL_PAGES, MOVED } from './ui/journal.js';
+import { briefSources } from './ui/brief.js';
+import { progressParts, recordSources, completion, STAT_GROUPS } from './ui/progresspage.js';
+import { ACH } from './progress.js';
+import { HudLog, KEEP } from './ui/hudlog.js';
+import { PlayTime } from './playtime.js';
+import { portraitMemory } from './three/portrait.js';
 import { machineAt, settle, MACHINES } from './machines.js';
 import { hud } from './ui/hud.js';
 import { freePlace } from './gather.js';
@@ -1311,7 +1318,7 @@ async function soloTests(game) {
     const H = game.pauseHub, $ = id => document.getElementById(id), rows = () => [...$('j-tabs').children], seen = [];
     H.open('journal');
     try {
-      check(rows().length === (apagada('naturebook') ? 9 : 10) && rows().every(r => r.dataset.jtab && r.textContent.trim() && !r.textContent.includes('journal.')), `pages: ${rows().map(r => r.textContent)}`);
+      check(rows().length === JOURNAL_PAGES.filter(q => !q.when || q.when(game)).length && rows().length === (apagada('naturebook') ? 6 : 7) && rows().every(r => r.dataset.jtab && r.textContent.trim() && !r.textContent.includes('journal.')), `pages: ${rows().map(r => r.textContent)}`);
       check(document.querySelectorAll('#j-tabs .sel').length === 1 && $('j-body').innerHTML.length > 40, 'no page at the start');
       for (let i = 0; i < rows().length; i++) { pauseKey('ArrowDown'); const on = document.querySelector('#j-tabs .sel'); seen.push(on.dataset.jtab); check(on.classList.contains('on') && $('j-body').innerHTML.length > 30, `page ${on.dataset.jtab}`); }
       check(new Set(seen).size === rows().length, `the list does not go through all: ${seen}`);
@@ -1324,11 +1331,131 @@ async function soloTests(game) {
       game.openJournal('pesca'); check(H.tab === 'journal' && document.querySelector('#j-tabs .sel').dataset.jtab === 'pesca', 'openJournal'); H.close();
       H.open('journal'); check(document.querySelector('#j-tabs .sel').dataset.jtab === 'pesca', 'the page is not kept');
       check(!$('s-journal') && !$('s-map') && $('bigmap').closest('#s-pause') && $('s-controls').closest('#s-pause'), 'the old screens are still there');
-      pauseKey('Digit5'); check($('ps-progress-body').textContent.length > 60, 'Progress is empty'); pauseKey('ArrowDown'); check($('ps-progress-body').querySelector('.lvl'), 'the statistics');
+      pauseKey('Digit5'); check($('ps-progress-body').textContent.length > 60 && $('ps-progress-body').querySelector('[data-part="achievements"]'), 'Progress is empty'); pauseKey('ArrowDown'); check($('ps-progress-body').querySelector('.lvl'), 'the statistics');
       pauseKey('Digit3'); check($('ps-char-body').querySelectorAll('.j-row').length >= 8 && $('ps-char-name').textContent === p().name, 'Character is empty');
-      pauseKey('Digit2'); check($('ps-brief').textContent.includes(t('gui.brief.objective')), 'Brief is empty');
+      H.goTo('brief', 'objective'); check($('ps-brief').textContent.includes(t('gui.brief.objective')) && $('ps-brief-list').children.length === 4, 'Brief is empty');
       game.route?.set({ x: p().x + 60, y: p().y, kind: 'point', name: 'Aquí <b>' }, { quiet: true }); H.close(); H.open('brief'); check($('ps-brief').textContent.includes('Aquí <b>') && /60 m/.test($('ps-brief').textContent), `the route: ${$('ps-brief').textContent.slice(0, 160)}`);
     } finally { game.route?.clear('user'); if (H.isOpen) H.close(); }
+  });
+  // ---------- R9-2: Brief, Character, Journal, Progress (src/ui/brief.js, charpage.js, journal.js, progresspage.js) ----------
+  await test('menu (english): journal pages registry: a page added appears, its bind and hide are called; the old pages lead to where they are now', async () => {
+    const H = game.pauseHub, $ = id => document.getElementById(id), calls = [];
+    const page = { id: 'test_page', label: 'gui.brief.chat', html: () => '<p id="test-page">x</p>', bind: (el, g) => calls.push(`bind ${el.id} ${g === game}`), hide: g => calls.push(`hide ${g === game}`), open: (g, sub) => calls.push(`open ${sub}`) };
+    JOURNAL_PAGES.push(page);
+    try {
+      game.openJournal('test_page', 'part');
+      check(H.tab === 'journal' && $('j-body').querySelector('#test-page') && document.querySelector('#j-tabs .sel').dataset.jtab === 'test_page' && document.querySelectorAll('[data-jtab="test_page"]').length === 1, `it is not there: ${$('j-tabs').textContent}`);
+      check(calls.join() === 'open part,bind j-body true', calls.join());
+      document.querySelector('[data-jtab="pesca"]').click(); check(calls.at(-1) === 'hide true' && !$('test-page'), `no hide: ${calls}`);
+      game.openJournal('test_page'); H.close(); check(calls.filter(c => c === 'hide true').length === 2, `closing does not hide it: ${calls}`);
+    } finally { JOURNAL_PAGES.splice(JOURNAL_PAGES.indexOf(page), 1); if (H.isOpen) H.close(); }
+    H.open('journal');
+    try {
+      check(!document.querySelector('[data-jtab="test_page"]') && document.querySelectorAll('#j-tabs .sel').length === 1 && $('j-body').textContent.length > 40, 'taken away, its row or its page stays');
+      for (const [old, [tab, pg]] of Object.entries(MOVED)) {
+        game.openJournal(old); check(H.tab === tab && (!pg || document.querySelector(`[data-pane="${tab}"] .sel`)?.dataset.page === pg), `${old}: ${H.tab}`);
+      }
+      game.openJournal('no_such_page'); check(H.tab === 'journal', 'an unknown page');
+      const src = { title: 'T', text: 'x < y', goto: 'journal:granja' }; briefSources.push(() => src);
+      try { H.goTo('brief', 'objective'); const c = $('ps-brief').querySelector('[data-goto="journal:granja"]'); check(c && c.textContent.includes('x < y'), 'a source is not in Brief'); c.click(); check(H.tab === 'journal' && document.querySelector('#j-tabs .sel').dataset.jtab === 'granja', 'its click does not open its page'); } finally { briefSources.pop(); }
+    } finally { if (H.isOpen) H.close(); }
+  });
+  await test('menu (english): brief rings: the last lines said and noticed, in order; the same notice again counts; the page follows', async () => {
+    const L = new HudLog();
+    for (let i = 0; i < 50; i++) L.say('Nilo  ♥♥', `line ${i}`);
+    check(L.said.length === KEEP && L.said[0].line === 'line 10' && L.said.at(-1).line === 'line 49' && L.said[0].name === 'Nilo', `${L.said.length} ${L.said[0].line}`);
+    for (let i = 0; i < 3; i++) L.note('far'); check(L.notes.length === 1 && L.notes[0].n === 3, `${JSON.stringify(L.notes)}`); L.note('other', 'good'); L.note('far'); check(L.notes.length === 3 && L.notes.at(-1).n === 1, 'it merges with one before the last');
+    for (let i = 0; i < 60; i++) L.note(`n${i}`); check(L.notes.length === KEEP, 'the notes grow'); L.clear(); check(!L.said.length && !L.notes.length, 'clear');
+    const H = game.pauseHub, $ = id => document.getElementById(id), keepS = [...hud.log.said], keepN = [...hud.log.notes];
+    hud.log.clear();
+    try {
+      const said = hud.say('Nilo', ['one <b>', 'two']); check(hud.log.said.length === 1, 'the second line before it is shown'); hud.next(); hud.next(); await said;
+      check(hud.log.said.map(e => e.line).join('|') === 'one <b>|two', hud.log.said.map(e => e.line).join('|'));   // (the tests answer hud.ask by themselves: what it asks is not here)
+      for (let i = 0; i < 3; i++) hud.toast('too far <i>');
+      H.goTo('brief', 'dialogue'); check($('ps-brief').textContent.includes('one <b>') && $('ps-brief').querySelectorAll('.pg-talk').length === 1, $('ps-brief').textContent.slice(0, 80));
+      hud.log.say('Rosa', 'new'); check($('ps-brief').querySelectorAll('.pg-talk').length === 2 && $('ps-brief').querySelector('.pg-talk b').textContent === 'Rosa', 'a line that comes meanwhile');
+      pauseKey('ArrowDown'); check($('ps-brief').querySelectorAll('.pg-note').length === 1 && $('ps-brief').textContent.includes('too far <i> ' + t('gui.brief.times', { n: 3 })), $('ps-brief').textContent);
+      pauseKey('ArrowDown'); if (game.chat) { game.chat.say('<Hafsa> hey'); check($('ps-brief').textContent.includes('<Hafsa> hey'), 'the chat'); }
+      pauseKey('ArrowDown'); check($('ps-brief').textContent.includes(t('gui.brief.objective')), 'the list does not go round');
+      H.close(); hud.toast('closed'); check(!/closed/.test($('ps-brief').textContent), 'it paints while closed');
+    } finally { if (H.isOpen) H.close(); hud.log.said.splice(0, 99, ...keepS); hud.log.notes.splice(0, 99, ...keepN); }
+  });
+  await test('menu (english): character: the needs, the clothes, the skills; creative; the figure is let go on leaving', async () => {
+    const H = game.pauseHub, $ = id => document.getElementById(id), was = game.gamemode, gm = g => game.setGamemode(g), torso = inv().equip.torso;
+    try {
+      gm('survival'); inv().equip.torso = { id: 'camisa', color: 1, tear: 35 }; inv().changed();
+      game.combat.hunger = 10; H.open('char');
+      const text = () => $('ps-char-body').textContent;
+      check($('ps-char-body').querySelectorAll('.pc-need').length >= 3 && text().includes(t('hud.need.pct', { pct: 50 })), 'the needs'); check(text().includes(t('hud.need.pct', { pct: 65 })), 'the wear of the shirt');
+      check($('ps-char-body').querySelectorAll('.pc-skill').length === game.skills.rows().length && game.skills.rows().length === 10 && game.skills.rows().every(q => !/skill\./.test(q.name + q.perk)), 'the skills');
+      check(game.rep && $('ps-char-rep').textContent.includes(t('rep.level.' + game.rep.level.id)) && $('ps-char-money').textContent.includes(t('gui.pause.money', { n: game.money })), 'money and reputation');
+      await sleep(900); const f = H.char.figure; check(f.person && $('ps-char-face').width > 100, 'no figure');
+      const px = $('ps-char-face').getContext('2d').getImageData(0, 0, $('ps-char-face').width, $('ps-char-face').height).data; let lit = 0; for (let i = 0; i < px.length; i += 16) if (px[i + 3] > 200 && px[i] + px[i + 1] + px[i + 2] > 60) lit++; check(lit > 200, `the figure is empty: ${lit}`);
+      const a = f.angle; pauseKey('ArrowRight'); check(f.angle > a, '→ does not turn it');
+      const full = portraitMemory(); H.close(); await sleep(60); const left = portraitMemory();
+      check(!f.person && $('ps-char-face').width === 1 && left.geometries < full.geometries && left.textures < full.textures, `left behind: ${JSON.stringify([full, left])}`);
+      // Open and close many times: nothing piles up
+      for (let i = 0; i < 4; i++) { H.open('char'); await sleep(120); H.close(); } await sleep(150); check(portraitMemory().geometries <= left.geometries && portraitMemory().textures <= left.textures, `it piles up: ${JSON.stringify([left, portraitMemory()])}`);
+      gm('creative'); H.open('char'); check(!$('ps-char-body').querySelector('.pc-need') && text().includes(t('gui.char.creative')), 'in creative'); H.close();
+      gm('spectator'); H.open('char'); check(text().includes(t('gui.char.spectator')), 'a spectator'); H.close();
+    } finally { if (H.isOpen) H.close(); gm(was); inv().equip.torso = torso; inv().changed(); game.combat.hunger = 20; }
+  });
+  await test('menu (english): character: the partner, here with the place and the colour, away, or none', async () => {
+    const H = game.pauseHub, L = game.live, $ = id => document.getElementById(id), F = game.family.v, kids = F.kids, players = Profile.players, box = () => $('ps-char-body').querySelector('.pc-partner');
+    const peer = { id: 'test-partner', name: 'Pareja <b>', playing: true, sc: 'world', accent: 2, entity: { x: p().x + 9, y: p().y, look: { sex: 'chica' }, update() {} } };
+    try {
+      H.open('char'); check(!box(), 'a partner without one'); H.close();
+      F.kids = [{ name: 'K', parents: [Profile.id, 'test-partner'] }]; L.peers.set('t1', peer);
+      H.open('char'); check(box()?.classList.contains('on') && box().textContent.includes('Pareja <b>') && box().textContent.includes(t('gui.char.online')) && /9 m/.test(box().textContent) && box().style.getPropertyValue('--you'), `here: ${box()?.textContent}`);
+      peer.entity.x += 20; H.char.live(); check(/29 m/.test(box().textContent), `it does not follow: ${box().textContent}`);
+      peer.sc = null; peer.entity = null; H.char.live(); check(box()?.textContent.includes(t('gui.char.online')), 'in a menu'); H.close();
+      L.peers.delete('t1'); Profile.players = () => [{ id: 'test-partner', name: 'Pareja' }];
+      H.open('char'); check(box() && !box().classList.contains('on') && box().textContent.includes(t('gui.char.offline')), `away: ${box()?.textContent}`);
+    } finally { if (H.isOpen) H.close(); L.peers.delete('t1'); F.kids = kids; Profile.players = players; }
+  });
+  await test('menu (english): progress: the parts, a part added, the completion, the statistics in both languages, the records', async () => {
+    const H = game.pauseHub, $ = id => document.getElementById(id), was = getLang(), keep = { ...game.fishing.records };
+    const C = completion(game), w = Object.fromEntries(progressParts.map(q => [q.id, q.w])), sum = C.parts.reduce((x, q) => x + w[q.id], 0);
+    check(C.parts.length >= 5 && C.parts.every(q => q.done >= 0 && q.done <= q.total && q.total > 0), JSON.stringify(C));
+    check(C.pct === Math.min(99, Math.round(C.parts.reduce((x, q) => x + w[q.id] * q.done / q.total, 0) / sum * 100)), `${C.pct}`);
+    progressParts.push({ id: 'test', label: 'gui.brief.chat', w: 1e6, get: () => [1, 2] }, { id: 'absent', label: 'gui.brief.chat', w: 9, get: () => null }, { id: 'over', label: 'gui.brief.chat', w: 0.0001, get: () => [9, 3] });
+    try {
+      const D = completion(game); check(D.pct === 50 && !D.parts.some(q => q.id === 'absent') && D.parts.find(q => q.id === 'over').done === 3, JSON.stringify(D.pct));
+      H.open('progress'); H.goTo('progress', 'overview'); check($('ps-progress-body').querySelector('[data-part="test"]') && $('ps-progress-body').querySelector('.pg-total strong').textContent === '50', 'it is not there');
+      $('ps-progress-body').querySelector('[data-part="collections"]').click(); check(H.tab === 'journal' && document.querySelector('#j-tabs .sel').dataset.jtab === 'colecciones', 'a part does not open its page');
+    } finally { progressParts.splice(-3); }
+    try {
+      for (const l of ['en', 'es']) { await setLang(l); H.goTo('progress', 'stats'); const text = $('ps-progress-body').textContent; check(STAT_GROUPS.every(([, ids]) => ids.every(k => text.includes(t(`stat.${k}`)))) && !/stat\.|gui\./.test(text) && text.includes(l === 'en' ? 'Trees felled' : 'Árboles talados') && text.includes(t('gui.progress.played')), `${l}: ${text.slice(0, 120)}`); }
+      game.fishing.records.carpa = 51; recordSources.push(() => [{ group: 'gui.progress.record.more', label: 'a record', value: '7' }]);
+      try { H.goTo('progress', 'records'); const text = $('ps-progress-body').textContent; check(text.includes('51 cm') && text.includes('a record'), text.slice(0, 120)); } finally { recordSources.pop(); }
+      H.goTo('progress', 'achievements'); check($('ps-progress-body').querySelectorAll('.j-row.ach').length === ACH.length, 'the achievements'); const done = [...$('ps-progress-body').querySelectorAll('.j-row.ach')].map(x => x.classList.contains('done')); check(done.indexOf(false) < 0 || !done.slice(done.indexOf(false)).includes(true), 'the ones done are not first');
+    } finally { if (H.isOpen) H.close(); await setLang(was); game.fishing.records = keep; }
+  });
+  await test('menu (english): played time: it grows in play, not in the pause; saved; an old save starts at 0', async () => {
+    const T = game.playTime, a0 = T.ms, t0 = performance.now(), slow = [];
+    T.last = 0; while (performance.now() - t0 < 3000) { T.update(); await sleep(50); }
+    check(Math.abs(T.ms - a0 - 3000) < 400, `${T.ms - a0}`);
+    game.pauseHub.open('brief'); const b = T.ms; await frames(6); check(T.ms === b && slow.length === 0, 'the pause counts'); game.pauseHub.close();
+    const q = new PlayTime(); q.last = performance.now() - 5000; q.update(); check(q.ms === 0, 'a long gap counts');
+    q.reset({ playMs: 1234.6 }); const out = {}; q.save(out); check(out.playMs === 1235, `${out.playMs}`); for (const bad of [{}, { playMs: 'x' }, { playMs: -4 }, { playMs: NaN }]) { q.reset(bad); check(q.ms === 0, JSON.stringify(bad)); }
+    check(Number.isFinite(game.snapshot().playMs), 'not in the save');
+  });
+  await test('menu (english): no text of the pages is left in Spanish in English, and the story has no ruins', async () => {
+    const H = game.pauseHub, $ = id => document.getElementById(id), was = getLang(), pages = game.story.pages;
+    try {
+      game.story.pages = 6;
+      check(!/ruinas/i.test(game.story.journal()), 'ruins in the story');
+      await setLang('en');
+      H.open('journal');
+      const read = [], spanish = /[ñ¿¡áéíóúÁÉÍÓÚ]|\b(de|con|los|las|nivel|llevas|aún|vecinos|monedas|farero|casillas)\b/;
+      for (const q of JOURNAL_PAGES.filter(x => x.id !== 'nature')) { H.goTo('journal', q.id); read.push([q.id, $('j-body').textContent]); }
+      H.goTo('char'); read.push(['skills', $('ps-char-body').querySelector('.pc-skills').textContent]);
+      for (const id of ['overview', 'stats', 'achievements', 'records']) { H.goTo('progress', id); read.push([id, $('ps-progress-body').textContent]); }
+      // (names of people and animals are the same in every language)
+      const bad = read.map(([id, text]) => [id, spanish.exec(text.replace(/Lía|Inés|Pueblo Brotes|Dom[íi]nguez/g, ''))?.[0]]).filter(([, w]) => w); check(!bad.length, bad.map(b => b.join(': ')).join(' | ') + ' ' + (read.find(q => q[0] === bad[0]?.[0])?.[1] || '').slice(0, 300));
+      check(!read.some(([, x]) => /\b(gui|stat|skill|ach|steps|story|ranch|collections)\.[a-z]/.test(x)), 'a raw key');
+      check(STEPS.every(q => q.text === t(`steps.${q.id}`) && !/steps\./.test(q.text + q.hint)), 'the steps'); check(ACH.every(([id, name, desc]) => !/ach\./.test(name + desc)), 'the achievements');
+    } finally { if (H.isOpen) H.close(); game.story.pages = pages; await setLang(was); }
   });
   await test('menu (english): the settings in the pause and in the main menu are the same rows; the keyboard changes them', async () => {
     const H = game.pauseHub, $ = id => document.getElementById(id), was = Settings.v.music, snd = Settings.v.menuSfx;

@@ -4,23 +4,29 @@
 // game.mode is 'pause' on every tab but the map, where it is 'map' (game.update then moves the map and game.render draws
 // it). The blurred game is one copy of one frame, taken when it opens (Game.onShot): nothing runs per frame, open or closed.
 // The world somebody else runs goes on meanwhile, as always: the note at the bottom says so.
-// R9-1 hosts today's contents: the map, the settings, the journal's pages and the controls. What R9-2 and R8-4 bring hangs
-// from here: paneKeys.map(e), keys of the map's own (true: it was one of them).
+// The pages: Brief (src/ui/brief.js), Character (charpage.js), Journal (journal.js, its registry JOURNAL_PAGES) and Progress
+// (progresspage.js); the map is ui/map.js and the settings, ui/settings.js. Three of them are a list and a page (PAGED): each
+// gives { pages: [{ id, label }], current, open(id, sub), fill(el), hide() }. Anything with data-goto="tab:page" in a pane
+// opens that. paneKeys.map(e): keys of the map's own (true: it was one of them).
 import { t, fmt, onLangChange } from '../i18n.js';
 import { Audio } from '../audio.js';
 import { Profile } from '../accounts.js';
 import { clearKeys } from '../input.js';
 import { reportFault } from '../faults.js';
 import { portrait3D } from '../three/portrait.js';
-import { nearX } from '../world/planet.js';
 import { FE, tabStrip, list, legend } from './frontend.js';
+import { hud } from './hud.js';
+import { initBrief } from './brief.js';
+import { initCharPage } from './charpage.js';
+import { initProgressPage } from './progresspage.js';
+import { MOVED } from './journal.js';
 
 const $ = id => document.getElementById(id);
 export const PAUSE_TABS = ['map', 'brief', 'char', 'journal', 'progress', 'settings', 'game'];
 export const paneKeys = { map: null };
 const LAST_KEY = 'pueblo-brotes:pausa-pestana:';   // (+ the account: the tab used last)
 const SHOT = { scale: 6, blur: 0.9 };              // the copy of the frame: 1/6 of its size, blurred once
-const CLOCK_EVERY = 30000;
+const TICK = 5000, CLOCK_EVERY = 6;                // ms between two looks at what may have changed, and of them, how many for the header
 const MAP_KEYS = /^(Key[WASD]|Arrow(Up|Down|Left|Right)|Shift(Left|Right)|NumpadAdd|NumpadSubtract)$/;
 const FOCUS = 'button:not(:disabled), input:not(:disabled), select:not(:disabled), summary';
 
@@ -86,12 +92,43 @@ export function initPauseHub(game, { show, resume, save, savedMsg, quit, journal
   let screen = null, tab = null, level = 'list', fresh = false, timer = 0, savedAt = 0, quitting = false, saving = false;
 
   // ---------- the tabs' lists and panes ----------
-  const pageList = (el, ids, onFocus) => list(el, ids.map(id => ({ id, el: el.querySelector(`[data-page="${id}"]`) })), { hover: false, start: -1, onFocus: r => { onFocus(r); if (level === 'body') setLevel('list'); }, onPick: () => goIn() });
+  // A head in a canvas, when there is a moment (the first of a look takes a while: three/portrait.js)
+  const soon = globalThis.requestIdleCallback ? fn => requestIdleCallback(fn, { timeout: 600 }) : fn => setTimeout(fn, 60);
+  const char = initCharPage(game, { soon });
+  const PAGED = {
+    brief: { src: initBrief(game, { soon }), el: $('ps-brief-list'), body: $('ps-brief') },
+    journal: { src: journal, el: $('j-tabs'), body: $('j-body') },
+    progress: { src: initProgressPage(game), el: $('ps-progress'), body: $('ps-progress-body') },
+  };
   const lists = {
-    journal: pageList($('j-tabs'), journal.pages, r => journal.open(r.id)),
-    progress: pageList($('ps-progress'), ['logros', 'datos'], r => journal.fill($('ps-progress-body'), r.id)),
     game: list($('ps-game'), [...$('ps-game').children].map(el => ({ id: el.id, el })), { start: 0, onFocus: () => { setControls(false); if (tab === 'game' && level === 'body') setLevel('list'); }, onPick: r => gamePick(r.id) }),
   };
+  // The list of a paged tab: made again when its pages are others (another system added one, or one is there no more)
+  function listOf(id) {
+    const P = PAGED[id], ids = P.src.pages.map(p => p.id).join();
+    if (P.ids !== ids) {
+      P.ids = ids;
+      P.el.textContent = '';
+      const rows = P.src.pages.map(p => {
+        const el = document.createElement('div'), name = document.createElement('span');
+        name.dataset.i18n = p.label; name.textContent = t(p.label);
+        el.dataset.page = p.id;
+        if (id === 'journal') el.dataset.jtab = p.id;
+        el.append(name);
+        return { id: p.id, el };
+      });
+      lists[id] = list(P.el, rows, { hover: false, start: -1, onFocus: r => { P.src.open(r.id); paintPage(id, true); if (level === 'body') setLevel('list'); }, onPick: () => goIn() });
+    }
+    return lists[id];
+  }
+  for (const id of Object.keys(PAGED)) listOf(id);
+  // The page of a paged tab, written (from its top, if it is another one)
+  function paintPage(id, top = false) {
+    const P = PAGED[id], at = P.body.scrollTop;
+    for (const row of P.el.children) row.classList.toggle('on', row.dataset.page === P.src.current);
+    try { P.src.fill(P.body); } catch (e) { reportFault(e, `PauseHub.${id}`); }
+    P.body.scrollTop = top ? 0 : at;
+  }
   const bodies = { journal: $('j-body'), progress: $('ps-progress-body'), game: $('s-controls'), brief: $('ps-brief'), char: $('ps-char'), settings: $('ps-settings') };
   const navs = Object.fromEntries(Object.entries(bodies).map(([id, el]) => [id, paneNav(el)]));
   function goIn() { if (level === 'list' && lists[tab] && (tab !== 'game' || !$('s-controls').hidden)) setLevel('body'); }
@@ -116,34 +153,45 @@ export function initPauseHub(game, { show, resume, save, savedMsg, quit, journal
   }
   const tabs = tabStrip($('ps-tabs'), PAUSE_TABS.map(id => ({ id, text: t(`gui.pause.tab.${id}`), i18n: `gui.pause.tab.${id}` })), { current: 'map', onPick: id => enter(id) });
 
-  // What each tab shows when it is entered (R9-1: today's contents, hosted)
+  // What each tab shows when it is entered
+  function enterPaged(id) {
+    const L = listOf(id), P = PAGED[id], i = P.src.pages.findIndex(p => p.id === P.src.current);
+    if (L.index === i) paintPage(id, true); else L.focus(i);
+  }
   const fills = {
     map() {},
-    brief() { $('ps-brief').innerHTML = briefHtml(); },
-    char() {
-      $('ps-char-name').textContent = game.player?.name || '';
-      journal.fill($('ps-char-body'), 'habilidades', journal.bodyBox());
-      portrait($('ps-char-face'));
-    },
-    journal() { const i = journal.pages.indexOf(journal.current); if (lists.journal.index === i) journal.open(journal.current); else lists.journal.focus(i); },
-    progress() { const L = lists.progress; if (L.index < 0) L.focus(0); else journal.fill($('ps-progress-body'), L.rows[L.index].id); },
+    brief: () => enterPaged('brief'),
+    char: () => char.enter(),
+    journal: () => enterPaged('journal'),
+    progress: () => enterPaged('progress'),
     settings() { const box = $('st-body'); if (box.parentElement !== $('ps-settings')) $('ps-settings').append(box); settings.refresh(); },
     game() { setControls(false); $('p-msg').textContent = ''; lists.game.focus(0); },
   };
-  // The objective: the first step they are on, the marked route and the lighthouse keeper's story
-  function briefHtml() {
-    const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-    const S = game.steps, st = S && !S.over ? S.step : null, R = game.route, p = game.player, out = [];
-    if (st) {
-      const pr = S.progress(st);
-      out.push(`<div class="j-row"><b>▸ ${esc(st.text)}${pr ? ` (${Math.max(0, pr[0])}/${pr[1]})` : ''}</b><small>${esc(S.hintOf(st))}</small></div>`);
+  // A page of a tab, or a tab ('journal:pesca', 'map'); sub: a part of it (a species of the nature book). With the pause
+  // closed, it opens
+  function goTo(to, page, sub) {
+    if (!PAUSE_TABS.includes(to)) return;
+    const P = PAGED[to];
+    if (P && page && P.src.pages.some(p => p.id === page)) {
+      P.src.open(page, sub);
+      // (on that tab already: its page now; else, entering the tab shows it)
+      if (screen && tab === to) {
+        const L = listOf(to), i = P.src.pages.findIndex(p => p.id === page);
+        if (L.index === i) { paintPage(to, true); if (level === 'body') setLevel('list'); } else L.focus(i);
+      }
     }
-    if (R?.active && p && game.scene === game.world) {
-      const m = Math.round(Math.hypot(nearX(R.target.x, p.x) - p.x, R.target.y - p.y));
-      out.push(`<div class="j-row"><b>▸ ${esc(t('gui.brief.route', { place: R.target.name || `${Math.round(R.target.x)}, ${Math.round(R.target.y)}`, m: fmt.num(m) }))}</b></div>`);
-    }
-    return `<h3>${t('gui.brief.objective')}</h3>${out.join('') || `<p class="j-note">${t('gui.brief.none')}</p>`}${game.story.journal()}`;
+    open(to);
   }
+  root.addEventListener('click', e => {
+    const a = e.target instanceof Element && e.target.closest('[data-goto]');
+    if (!a || !screen) return;
+    const [to, page, sub] = a.dataset.goto.split(':');
+    Audio.ui('select');
+    goTo(to, page, sub);
+  });
+  // What changes while it is in sight: a line said, a notice or the chat (Brief), and on the slow tick, what the others do
+  const onLine = what => { if (screen && tab === 'brief' && level === 'list' && PAGED.brief.src.shows(what)) paintPage('brief'); };
+  hud.log.onChange = onLine;
 
   // ---------- the frame: header, note and key legend ----------
   function paintHead() {
@@ -172,13 +220,12 @@ export function initPauseHub(game, { show, resume, save, savedMsg, quit, journal
     if (tab === 'map') { L('route', ['mouse:l']); L('remove', ['mouse:r']); L('zoom', ['+', '−']); }
     else if (lists[tab] || tab === 'settings') L('move', ['↑', '↓']);
     if (tab === 'settings') L('change', ['←', '→']);
+    else if (tab === 'char') out.push({ keys: ['←', '→'], text: t('gui.char.turn') });
     else if (lists[tab] && level === 'list') L('select', ['Enter']);
     L('tabs', ['Q', 'E']);
     L('back', ['Esc'], { onClick: () => FE.back() });
     legend($('ps-legend'), out);
   }
-  // A head in a canvas, when there is a moment (the first of a look takes a while: three/portrait.js)
-  const soon = globalThis.requestIdleCallback ? fn => requestIdleCallback(fn, { timeout: 600 }) : fn => setTimeout(fn, 60);
   const faceOf = new Map();   // canvas → the look drawn in it
   function portrait(cv) {
     const look = game.appearance?.();
@@ -218,7 +265,7 @@ export function initPauseHub(game, { show, resume, save, savedMsg, quit, journal
     };
     game.view3d.redraw = true;
   }
-  const onResize = () => { fresh = false; if (screen && tab !== 'map') takeShot(); };
+  const onResize = () => { fresh = false; if (screen && tab !== 'map') takeShot(); if (tab === 'char') char.resize(); };
 
   // ---------- open, change tab, close ----------
   const lastKey = () => LAST_KEY + (Profile.id || '');
@@ -234,13 +281,14 @@ export function initPauseHub(game, { show, resume, save, savedMsg, quit, journal
     root.classList.toggle('on-map', id === 'map');
     if (id !== 'map' && !fresh) takeShot();
     try { fills[id](); } catch (e) { reportFault(e, `PauseHub.${id}`); }
-    if (bodies[id] && id !== 'game') bodies[id].scrollTop = 0;
+    if (bodies[id] && id !== 'game' && !PAGED[id]) bodies[id].scrollTop = 0;
     navs[id]?.enter();
     paintLegend();
     try { localStorage.setItem(lastKey(), id); } catch { /* (no storage: the map next time) */ }
   }
   function leave() {
-    if (tab === 'journal') journal.hide();
+    if (PAGED[tab]) { try { PAGED[tab].src.hide(); } catch (e) { reportFault(e, `PauseHub.${tab}`); } }
+    if (tab === 'char') char.leave();
     if (tab === 'map') clearKeys();   // (a key held moving the map)
     panes.get(tab)?.classList.remove('on');
     if (root.contains(document.activeElement)) document.activeElement.blur();
@@ -260,7 +308,10 @@ export function initPauseHub(game, { show, resume, save, savedMsg, quit, journal
   const pane = {
     key(e) {
       const L = lists[tab];
-      if (!L) return navs[tab]?.key(e) || false;
+      if (!L) {
+        if (tab === 'char' && (e.code === 'ArrowLeft' || e.code === 'KeyA' || e.code === 'ArrowRight' || e.code === 'KeyD')) { char.turn(e.code === 'ArrowLeft' || e.code === 'KeyA' ? -1 : 1); return true; }
+        return navs[tab]?.key(e) || false;
+      }
       if (level === 'body') {
         if (navs[tab].key(e)) return true;
         if (e.code === 'ArrowLeft' || e.code === 'KeyA') { if (!e.repeat) { setLevel('list'); Audio.ui('back'); } return true; }
@@ -293,7 +344,11 @@ export function initPauseHub(game, { show, resume, save, savedMsg, quit, journal
     if (tabs.current === id) enter(id); else tabs.pick(id, { silent: true });
     paintHead(); paintNote();
     portrait($('ps-face'));
-    timer = setInterval(() => { paintHead(); paintNote(); }, CLOCK_EVERY);
+    let n = 0;
+    timer = setInterval(() => {
+      if (++n % CLOCK_EVERY === 0) { paintHead(); paintNote(); if (tab === 'brief' && level === 'list') paintPage('brief'); }
+      if (tab === 'char') char.live();
+    }, TICK);
     addEventListener('resize', onResize);
     return true;
   }
@@ -321,13 +376,16 @@ export function initPauseHub(game, { show, resume, save, savedMsg, quit, journal
   onLangChange(() => {
     if (!screen) return;
     paintHead(); paintNote(); paintLegend();
-    if (tab !== 'settings') { try { fills[tab](); } catch (e) { reportFault(e, `PauseHub.${tab}`); } }   // (the settings rebuild themselves)
+if (PAGED[tab]) paintPage(tab); else if (tab !== 'settings') { try { fills[tab](); } catch (e) { reportFault(e, `PauseHub.${tab}`); } }   // (the settings rebuild themselves; the lists' names, applyDom)
   });
   return {
     open, close, shut,
     get isOpen() { return !!screen; },
     get tab() { return tab; },
-    journal: (id, sub) => { open('journal'); if (id) { lists.journal.focus(journal.pages.indexOf(id)); if (sub) journal.open(id, sub); } },
+    goTo, onChat: () => onLine('chat'),
+    // A page of the journal (game.openJournal), or where it is now (MOVED); an unknown one, the journal as it was
+    journal: (id, sub) => (MOVED[id] ? goTo(...MOVED[id]) : goTo('journal', id, sub)),
+    char,   // (for the tests)
     saved() { savedAt = Date.now(); if (screen) paintNote(); },
     reset() { savedAt = 0; faceOf.clear(); },
   };

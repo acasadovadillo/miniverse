@@ -8,7 +8,7 @@ import { inTavern } from './world/village.js';
 import { Audio } from './audio.js';
 import { hud } from './ui/hud.js';
 import { Profile } from './accounts.js';
-import { t } from './i18n.js';
+import { t, getLang } from './i18n.js';
 
 const $ = id => document.getElementById(id);
 // Unas semillas que crezcan ahora (en invierno no crece nada)
@@ -16,19 +16,21 @@ const seedNow = g => { const c = Object.keys(CROPS).find(id => CROPS[id].seasons
 
 // id, lo que hay que hacer y una pista. Se cumple con stat + need (cuántos más que al empezar el paso), o con done(g).
 // money e items: la recompensa (items puede depender del momento). skip(g): este paso ahora no se puede hacer
+// (their texts: steps.<id> and steps.<id>.hint in the language files, read when shown)
 export const STEPS = [
-  { id: 'nilo', text: 'Habla con Nilo, en la plaza', hint: 'Acércate, pon el cursor encima de él y pulsa E.', done: g => g.craft.taught.has('banco'), money: 20 },
-  { id: 'segar', text: 'Siega 3 matorrales', hint: 'Elige la guadaña con el 3 y usa el clic izquierdo. Dan fibra.', stat: 'segados', need: 3, money: 30, items: [['fibra', 4]] },
-  { id: 'mochila', text: 'Hazte una mochila y póntela', hint: 'Son 8 de fibra y 2 cuerdas (3 de fibra cada una): siega más. Se hace con C y se pone con I.', done: g => g.inv.equip.espalda?.id === 'mochila', money: 50 },
-  { id: 'talar', text: 'Tala un árbol', hint: 'El hacha está en el 1. Da madera.', stat: 'talados', need: 1, money: 20 },
-  { id: 'tablas', text: 'Junta 6 tablas', hint: 'Con C: cada madera da 2 tablas.', done: g => g.inv.count('tablas') >= 6, money: 20 },
-  { id: 'picar', text: 'Pica una roca', hint: 'El pico está en el 2. Da piedra.', stat: 'picados', need: 1, money: 20 },
-  { id: 'taller', text: 'Ven a la taberna del pueblo', hint: 'Al oeste del camino. Anselmo sirve comida y bebida.', done: g => inTavern(g.player.x, g.player.y), money: 20 },
-  { id: 'banco', text: 'Hazte tu banco de carpintero y colócalo', hint: 'Pulsa B, pestaña Estaciones: cuesta 6 tablas y 2 piedras. Clic donde lo quieras (R: girar).', stat: 'estaciones', need: 1, money: 60 },
-  { id: 'dormir', text: 'Prueba tu cama', hint: 'Está en tu casa, al norte de la plaza. Acércate, pon el cursor encima y pulsa E. Elige dormir.', stat: 'dormido', need: 1, money: 30 },
-  { id: 'labrar', text: 'Labra 3 casillas de hierba', hint: 'La azada está en el 4. Si saltas encima de la tierra labrada, se deshace.', stat: 'labrados', need: 3, money: 40, items: g => { const s = seedNow(g); return s ? [[s, 3]] : []; } },
-  { id: 'sembrar', text: 'Siembra lo que te ha dado la tierra', hint: 'Con las semillas en la mano, clic sobre la tierra labrada. Luego hay que regarlas, o que llueva.', stat: 'sembrados', need: 1, money: 40, skip: g => !seedNow(g) },
+  { id: 'nilo', done: g => g.craft.taught.has('banco'), money: 20 },
+  { id: 'segar', stat: 'segados', need: 3, money: 30, items: [['fibra', 4]] },
+  { id: 'mochila', done: g => g.inv.equip.espalda?.id === 'mochila', money: 50 },
+  { id: 'talar', stat: 'talados', need: 1, money: 20 },
+  { id: 'tablas', done: g => g.inv.count('tablas') >= 6, money: 20 },
+  { id: 'picar', stat: 'picados', need: 1, money: 20 },
+  { id: 'taller', done: g => inTavern(g.player.x, g.player.y), money: 20 },
+  { id: 'banco', stat: 'estaciones', need: 1, money: 60 },
+  { id: 'dormir', stat: 'dormido', need: 1, money: 30 },
+  { id: 'labrar', stat: 'labrados', need: 3, money: 40, items: g => { const s = seedNow(g); return s ? [[s, 3]] : []; } },
+  { id: 'sembrar', stat: 'sembrados', need: 1, money: 40, skip: g => !seedNow(g) },
 ];
+for (const st of STEPS) Object.defineProperties(st, { text: { get: () => t(`steps.${st.id}`), enumerable: true }, hint: { get: () => t(`steps.${st.id}.hint`), enumerable: true } });
 
 export class Steps {
   constructor(game) {
@@ -83,9 +85,9 @@ export class Steps {
       for (const [id, n] of items) { const left = g.inv.add(id, n); if (left) g.gather.throwOut(id, left); }
       Audio.unlock();
     }
-    hud.toast(`Hecho: ${st.text.toLowerCase()}${this.pay && st.money ? ` · +${st.money} monedas` : ''}`, 'good');
+    hud.toast(t('steps.done', { what: st.text, money: this.pay && st.money ? st.money : 0 }), 'good');
     this.next();
-    if (this.over) { hud.toast('Ya tienes banco, cama y huerto. Lo demás, a tu aire: mira el tablón de la plaza.', 'good'); g.onSave?.(); }
+    if (this.over) { hud.toast(t('steps.over'), 'good'); g.onSave?.(); }
   }
   next() { this.i++; this.base = null; }
   // Volver a empezar desde el diario (ya sin recompensas)
@@ -95,7 +97,7 @@ export class Steps {
     const g = this.game;
     if (g.busy || hud.dialogOpen) return;
     g.busy = true;
-    const pick = await hud.ask('Primeros pasos', '¿Quitarlos? Puedes volver a repasarlos cuando quieras en el diario (J).', ['Quitarlos', 'Seguir con ellos']);
+    const pick = await hud.ask(t('journal.tab.steps'), t('steps.leave'), [t('steps.leave.yes'), t('steps.leave.no')]);
     g.busy = false;
     if (pick === 0) this.leave();
   }
@@ -104,12 +106,12 @@ export class Steps {
     const el = $('quest');
     if (!el) return;
     const st = this.step, p = st && this.progress(st), hide = this.over || Profile.server;
-    const key = hide ? '' : `${this.i}|${p || ''}`;
+    const key = hide ? '' : `${this.i}|${p || ''}|${getLang()}`;   // (and the language: it follows a switch)
     if (key === this.shown) return;
     this.shown = key;
     el.hidden = hide;
     if (hide) return;
-    $('quest-title').textContent = `Primeros pasos · ${this.i + 1} de ${STEPS.length}`;
+    $('quest-title').textContent = t('steps.title', { n: this.i + 1, total: STEPS.length });
     $('quest-text').textContent = st.text + (p ? ` (${Math.max(0, p[0])}/${p[1]})` : '');
     $('quest-hint').textContent = this.hintOf(st);
   }
@@ -117,6 +119,6 @@ export class Steps {
   hintOf(st) { return st.id === 'talar' && this.game.carry?.bigNow ? t('steps.fell_carry') : st.hint; }
   journal() {
     const rows = STEPS.map((st, i) => `<div class="j-row ach ${i < this.i ? 'done' : ''}"><b>${i < this.i ? '✓' : i === this.i ? '▸' : '·'} ${st.text}</b><small>${this.hintOf(st)}</small></div>`).join('');
-    return `<p class="j-note">${this.over ? 'Terminados.' : `Vas por el ${this.i + 1} de ${STEPS.length}.`} <button type="button" class="btn" data-steps-restart style="width:auto;display:inline-block;margin:0 0 0 8px;padding:2px 10px;font-size:14px">Repasarlos</button></p>${rows}`;
+    return `<p class="j-note">${this.over ? t('steps.finished') : t('steps.at', { n: this.i + 1, total: STEPS.length })} <button type="button" class="btn" data-steps-restart style="width:auto;display:inline-block;margin:0 0 0 8px;padding:2px 10px;font-size:14px">${t('steps.again')}</button></p>${rows}`;
   }
 }

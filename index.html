@@ -797,9 +797,6 @@
   .ps-form .st-row:focus-within, .ps-form .st-row:hover { background: rgba(255, 255, 255, .08); }
   .ps-form .st-row .seg button { white-space: nowrap; }
   #s-pause .ps-page .j-note:first-child { margin-top: 0; }
-  .ps-char .ps-card { flex: none; width: 270px; text-align: center; }
-  .ps-char .ps-card canvas { display: block; width: 270px; height: 270px; background: radial-gradient(circle at 50% 38%, rgba(84, 92, 104, .75), rgba(16, 19, 24, .75) 74%); border-radius: var(--r-s); }
-  .ps-char .ps-card h3 { margin: 12px 0 0; font: 600 24px/1.1 var(--font-title); color: var(--ink); }
   #p-msg { min-height: 22px; padding: 12px 14px; font: 500 16px/1.35 var(--font-ui); color: var(--accent-2); }
   .ps-foot { position: relative; z-index: 2; flex: none; display: flex; align-items: center; justify-content: space-between; gap: 24px; min-height: 46px; padding: 6px 40px 10px; pointer-events: none; }
   .ps-foot > * { pointer-events: auto; }
@@ -821,6 +818,86 @@
   #s-pause #map-legend { left: 40px; bottom: 62px; max-height: calc(100vh - 270px); }
   body.still-menus #s-pause, body.still-menus .ps-top, body.still-menus .ps-pane { animation: none; }
   @media (prefers-reduced-motion: reduce) { #s-pause.show, .ps-top, .ps-pane.on { animation: none; } }
+</style>
+<style id="ui-pages">
+  /* The pages of the pause: Brief, Character and Progress (src/ui/brief.js, charpage.js, progresspage.js) */
+  .pg-bar { display: block; height: 6px; background: rgba(255, 255, 255, .14); border-radius: 3px; overflow: hidden; }
+  .pg-bar > b { display: block; height: 100%; background: var(--c, var(--fe-accent)); }
+  .pg-bar.seg { height: 9px; border-radius: 0; -webkit-mask: repeating-linear-gradient(90deg, #000 0 calc(10% - 3px), transparent calc(10% - 3px) 10%); mask: repeating-linear-gradient(90deg, #000 0 calc(10% - 3px), transparent calc(10% - 3px) 10%); }
+  #s-pause .ps-page [data-goto] { width: 100%; color: inherit; text-align: left; font: inherit; border: 0; cursor: pointer; }
+  #s-pause .ps-page [data-goto]:hover, #s-pause .ps-page [data-goto]:focus-visible { background: rgba(255, 255, 255, .13); outline: none; box-shadow: inset 3px 0 0 var(--fe-accent); }
+  .pg-card { display: flex; flex-direction: column; gap: 5px; margin-bottom: 10px; padding: 13px 16px 14px; background: rgba(255, 255, 255, .06); border-radius: var(--r-s); }
+  .pg-kick { font: 500 14px/1.2 var(--font-title); letter-spacing: .08em; text-transform: uppercase; color: var(--fe-accent); }
+  .pg-card strong { font: 500 20px/1.25 var(--font-title); letter-spacing: .02em; }
+  .pg-card em { font-style: normal; color: var(--fe-dim); font-variant-numeric: tabular-nums; }
+  .pg-card > span:not(.pg-bar) { color: var(--fe-dim); line-height: 1.4; }
+  .pg-card .pg-bar { margin-top: 4px; }
+  .pg-talk { display: flex; gap: 14px; padding: 12px 4px; border-bottom: 1px solid var(--fe-line); }
+  .pg-talk > canvas, .pc-partner canvas { flex: none; width: 48px; height: 48px; background: radial-gradient(circle at 50% 38%, #414750, #15181d 72%); border-radius: var(--r-s); }
+  .pg-talk > canvas.none, .pc-partner canvas.none { background: rgba(255, 255, 255, .08); }
+  .pg-talk > div { flex: 1; min-width: 0; }
+  .pg-talk b { font: 600 17px/1.2 var(--font-title); letter-spacing: .03em; }
+  .pg-talk small, .pg-note small { float: right; margin-left: 12px; color: var(--fe-faint); font-size: 14px; white-space: nowrap; }
+  .pg-talk p { margin: 4px 0 0; line-height: 1.4; white-space: pre-line; }
+  .pg-note { padding: 9px 4px 9px 12px; border-bottom: 1px solid var(--fe-line); border-left: 3px solid rgba(255, 255, 255, .18); overflow-wrap: anywhere; }
+  .pg-note.k-good { border-left-color: var(--fe-good); } .pg-note.k-warn, .pg-note.err { border-left-color: var(--fe-warn); } .pg-note.k-bad { border-left-color: var(--fe-bad); }
+  .pg-note em { font-style: normal; font-weight: 600; color: var(--fe-accent); }
+  /* Character: the body on the left, two columns on the right */
+  .ps-char .ps-card { flex: none; display: flex; flex-direction: column; width: 270px; min-height: 0; padding: 14px 0 0; background: linear-gradient(rgba(84, 92, 104, .34), rgba(12, 14, 18, .72) 70%); border-radius: var(--r-s); }
+  .ps-char .ps-card h3 { margin: 0 16px; padding-bottom: 5px; font: 600 24px/1.1 var(--font-title); letter-spacing: .04em; color: var(--ink); border-bottom: 3px solid var(--fe-accent); align-self: flex-start; max-width: calc(100% - 32px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #ps-char-face { display: block; flex: 1; width: 270px; min-height: 0; cursor: grab; touch-action: none; }
+  #ps-char-face:active { cursor: grabbing; }
+  .pc-foot { flex: none; display: flex; justify-content: space-between; gap: 12px; padding: 11px 16px 13px; background: rgba(8, 9, 12, .5); border-radius: 0 0 var(--r-s) var(--r-s); }
+  .pc-foot > div:last-child { text-align: right; }
+  .pc-foot small, .pg-facts small { display: block; font-size: 13px; color: var(--fe-dim); }
+  .pc-foot b { font: 500 17px/1.25 var(--font-title); letter-spacing: .02em; color: var(--ink); }
+  @media (min-width: 1600px) { .ps-char .ps-card, #ps-char-face { width: 380px; } }
+  #ps-char.ps-page { max-width: 1180px; padding: 14px 22px; }
+  .pc-cols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr); gap: 4px 34px; }
+  .pc-cols section { margin-bottom: 12px; }
+  .pc-cols section:last-child { margin-bottom: 0; }
+  .pc-cols section > h3 { margin-top: 0 !important; }
+  .pc-need { display: grid; grid-template-columns: 82px 1fr 54px; gap: 0 12px; align-items: center; padding: 4px 0; }
+  .pc-need b, .pc-wear > b { text-align: right; font: 500 17px/1.2 var(--font-title); font-variant-numeric: tabular-nums; }
+  .pc-need small { grid-column: 2 / -1; margin-top: 2px; font-size: 13px; color: var(--fe-dim); }
+  .pc-tags { display: flex; flex-wrap: wrap; gap: 6px; }
+  .pc-tags span { padding: 3px 9px; background: rgba(255, 255, 255, .08); border-radius: var(--r-s); font-size: 15px; }
+  .pc-tags span.cold { color: #9ccaf0; } .pc-tags span.hot { color: #f0b070; } .pc-tags span.dirty { color: #d8b088; }
+  .pc-clothes { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 22px; }
+  .pc-wear { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; gap: 3px 9px; align-content: start; align-items: center; line-height: 1.2; }
+  .pc-wear .pg-bar.seg { grid-column: 2 / -1; height: 5px; }
+  .pc-wear img { width: 28px; height: 28px; }
+  .pc-wear small { display: block; font-size: 13px; color: var(--fe-dim); }
+  .pc-skill { grid-template-columns: 104px 1fr 66px; gap: 0 12px; padding: 2px 0 4px; border-bottom: 0; line-height: 1.25; }
+  .pc-skill .lvl { text-align: right; }
+  #s-pause .pc-skill small { grid-column: 1 / -1; font-size: 13px; line-height: 1.25; }
+  .pc-partner { display: flex; align-items: center; gap: 12px; padding: 10px 12px; background: rgba(255, 255, 255, .06); border-left: 3px solid var(--you, rgba(255, 255, 255, .25)); border-radius: var(--r-s); }
+  .pc-partner small { display: block; font-size: 13px; color: var(--fe-dim); }
+  .pc-partner b { display: block; font: 600 19px/1.2 var(--font-title); letter-spacing: .03em; color: var(--you, var(--ink)); }
+  .pc-partner span { font-size: 14px; color: var(--fe-dim); }
+  .pc-partner:not(.on) { opacity: .75; }
+  /* Progress */
+  .pg-total { display: block; margin-bottom: 16px; }
+  .pg-total p { display: flex; align-items: baseline; gap: 10px; margin: 0 0 10px; }
+  .pg-total strong { font: 500 48px/1 var(--font-title); font-variant-numeric: tabular-nums; color: var(--fe-accent); }
+  .pg-total p span { font: 500 20px/1 var(--font-title); letter-spacing: .06em; text-transform: uppercase; }
+  .pg-total .pg-bar.seg { height: 14px; }
+  .pg-part { display: grid; grid-template-columns: 1fr auto; gap: 5px 12px; align-items: baseline; padding: 9px 10px 11px; background: none; border-radius: var(--r-s); }
+  .pg-part > span:first-child { font-size: 17px; }
+  .pg-part > b { font: 500 18px/1.2 var(--font-title); font-variant-numeric: tabular-nums; }
+  .pg-part > b small { color: var(--fe-dim); font-size: 15px; }
+  .pg-part .pg-bar { grid-column: 1 / -1; }
+  .pg-part.full > b { color: var(--fe-good); } .pg-part.full .pg-bar { --c: var(--fe-good); }
+  .pg-facts { display: flex; flex-wrap: wrap; gap: 10px 40px; margin-top: 14px; padding: 14px 10px 2px; border-top: 1px solid var(--fe-line); }
+  .pg-facts b { font: 500 22px/1.25 var(--font-title); font-variant-numeric: tabular-nums; }
+  .pg-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 34px; align-content: start; }
+  .pg-cols.ach > .j-note { grid-column: 1 / -1; margin: 0 0 6px; }
+  .pg-cols section > h3 { margin-top: 4px !important; }
+  .pg-rec .j-cell { color: var(--fe-accent); font-size: 18px; }
+  #s-pause .j-grid { grid-template-columns: repeat(auto-fill, 52px); gap: 6px; }
+  #s-pause .j-grid .j-cell { width: 52px; height: 52px; }
+  #s-pause .j-grid .j-cell img { width: 40px; height: 40px; }
+  body.big-text #s-pause .pc-skill small, body.big-text .pc-need small, body.big-text .pc-wear small { font-size: 14.5px; }
 </style>
 <!-- The glass look (PLAN-R8-hud-mapa.md §3.1): its rules over the wooden ones above, which src/ui/skin.js brings back by turning
      this sheet off (?ui=madera, or Settings › Look; for one version). No backdrop-filter while playing: plain alpha -->
@@ -1061,14 +1138,14 @@
         <details id="map-legend" class="panel" open><summary data-i18n="gui.map.legend">Legend</summary><div id="map-legend-rows"></div></details>
         <div class="map-bar panel"><span id="map-info"></span><button class="sq" id="map-out" aria-label="Zoom out" data-i18n-attr="aria-label:gui.map.zoom_out">−</button><button class="sq" id="map-in" aria-label="Zoom in" data-i18n-attr="aria-label:gui.map.zoom_in">+</button><button class="sq" id="map-home" aria-label="Back to your position" title="Back to your position" data-i18n-attr="aria-label:gui.map.recenter;title:gui.map.recenter">⌖</button><button class="map-btn" id="map-share" hidden data-i18n="map.pin.share">Share the mark</button><button class="map-btn" id="map-route" hidden data-i18n="gui.map.route_clear">Remove route</button></div>
     </div>
-    <div class="ps-pane" data-pane="brief"><div class="ps-page" id="ps-brief"></div></div>
+    <div class="ps-pane ps-two" data-pane="brief"><div id="ps-brief-list"></div><div class="ps-page" id="ps-brief"></div></div>
     <div class="ps-pane ps-char" data-pane="char">
-      <div class="ps-card"><canvas id="ps-char-face" width="288" height="288" aria-hidden="true"></canvas><h3 id="ps-char-name"></h3></div>
+      <div class="ps-card"><h3 id="ps-char-name"></h3><canvas id="ps-char-face" width="1" height="1" aria-hidden="true"></canvas><div class="pc-foot"><div id="ps-char-money"></div><div id="ps-char-rep"></div></div></div>
       <div class="ps-page" id="ps-char"><div id="ps-char-body"></div></div>
     </div>
     <div class="ps-pane ps-two" data-pane="journal"><div id="j-tabs"></div><div class="ps-page" id="j-body"></div></div>
     <div class="ps-pane ps-two" data-pane="progress">
-      <div id="ps-progress"><div data-page="logros"><span data-i18n="gui.progress.achievements">Achievements</span></div><div data-page="datos"><span data-i18n="gui.progress.stats">Statistics</span></div></div>
+      <div id="ps-progress"></div>
       <div class="ps-page" id="ps-progress-body"></div>
     </div>
     <div class="ps-pane" data-pane="settings"><div class="ps-page ps-form" id="ps-settings"></div></div>

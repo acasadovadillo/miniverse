@@ -33,7 +33,8 @@ function play(login = true) {   // (login: abrir la pantalla de entrar)
   const game = new Game(document.getElementById('c'));
   const menus = initMenus(game);
   initBuildBar(game);
-  const chat = initChat(game);
+  const chat = game.chat = initChat(game);
+  chat.onLine = () => game.pauseHub?.onChat();   // (the pause's Brief tab, if it is in sight)
   const debug = initDebug(game);
   // The interface: the minimal one (src/ui/smarthud.js: each part shows when it matters, Tab shows everything) unless
   // the setting (Settings › Display › Interface) says full, or ?hud=completo. The tests and the bench keep the full one

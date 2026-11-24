@@ -20,7 +20,7 @@ import { Audio } from './audio.js';
 import { hud } from './ui/hud.js';
 import { Profile } from './accounts.js';
 import { SWIM_IN } from './entities.js';
-import { t as tr, noun } from './i18n.js';
+import { t as tr, has, noun } from './i18n.js';
 import { HALF, distOf, dxOf, nearX, wrapX } from './world/planet.js';
 import { dropSprint } from './input.js';
 import { levelOf, settle, BX_AFTER_LOSS, TREATS } from './horse.js';
@@ -1317,18 +1317,29 @@ export class Ranch {
   journal() {
     const list = this.animals.filter(a => !a.stray), icon = a => (a.def.w ? animalSprite(a.type, 0).toDataURL() : null);
     const rows = list.map(a => {
-      const age = this.young(a) ? ` · ${a.def.baby || 'cría'} de ${this.today - a.born} días` : '', who = a.owner ? ` · de ${a.owner === me() ? 'ti' : this.game.live.nameOf?.(a.owner) || 'otra persona'}` : '';
+      // ("Hen, white · a chick 2 days old · yours · has grazed 3/5 · expecting": its kind and breed, and what there is to say)
+      const breed = a.breed && a.breed !== 'gallo' && has(`ranch.breed.${a.breed}`) ? tr(`ranch.breed.${a.breed}`) : '', kind = kindName(a);
+      const said = [breed ? tr('ranch.kind_breed', { kind, breed }) : kind];
+      if (this.young(a)) said.push(tr('ranch.young', { baby: a.def.baby && has(`ranch.baby.${a.type}`) ? tr(`ranch.baby.${a.type}`) : tr('ranch.baby'), n: this.today - a.born }));
+      if (a.owner) said.push(a.owner === me() ? tr('ranch.yours') : tr('ranch.owner', { name: this.game.live.nameOf?.(a.owner) || tr('ranch.somebody') }));
+      if (GRAZERS.has(a.type)) said.push(tr('ranch.grazed', { n: Math.min(GRAZE_NEED, this.grazedOn(a)), need: GRAZE_NEED }));
+      if (a.expecting !== undefined && a.expecting !== null) said.push(tr('ranch.expecting'));
       const img = icon(a);
       // (a horse: its bond level and a thin line of the progress to the next heart, under the hearts; Plan F §4.3, the look
       // is index.html .j-hlv / .j-bx)
       const bond = a.def.ride && this.game.horse && !this.game.horse.off ? `<small class="j-hlv">${tr('journal.horse.level', { n: levelOf(a.love) })}</small><i class="j-bx" style="--p:${a.love >= 10 ? 100 : Math.max(0, Math.min(99, Math.floor(+a.bx || 0)))}%"></i>` : '';
-      return `<div class="j-fish"><span class="j-cell done">${img ? `<img alt="" src="${img}">` : `<img alt="" data-icon="${a.def.home}">`}</span><span><b>${a.name}</b><small>${a.breed === 'gallo' ? 'Gallo' : `${a.def.name}${a.breed ? ' ' + BREED_NAMES[a.breed] : ''}`}${age}${who}${GRAZERS.has(a.type) ? ` · ha pastado ${Math.min(GRAZE_NEED, this.grazedOn(a))}/${GRAZE_NEED}` : ''}${a.expecting !== undefined && a.expecting !== null ? ' · espera una cría' : ''}</small></span><span class="lvl">${hearts(a.love)}${bond}</span></div>`;
+      return `<div class="j-fish"><span class="j-cell done">${img ? `<img alt="" src="${img}">` : `<img alt="" data-icon="${a.def.home}">`}</span><span><b>${esc(a.name)}</b><small>${said.map(esc).join(' · ')}</small></span><span class="lvl">${hearts(a.love)}${bond}</span></div>`;
     }).join('');
     const mail = this.farm.mail.filter(m => m.to === me()).length;
-    return `<p class="j-note">Heno en el silo: ${this.farm.hay}${this.siloCap ? ` de ${this.siloCap}` : ' (aún no tienes silo)'}${mail ? ` · ${mail} envío${mail > 1 ? 's' : ''} esperando en el palomar` : ''}. Los animales contentos (caricias cada día) dan más y, a veces, algo especial; dos adultos muy contentos en la misma casa tienen crías. Las vacas, ovejas, cabras, conejos y caballos pastan: con ${GRAZE_NEED} casillas de hierba al día quedan alimentados (si no, comen del comedero o del heno del silo).</p>` + (rows || '<p class="j-note">Aún no tienes animales: Rosa los vende en su puesto.</p>');
+    const head = [this.siloCap ? tr('ranch.hay', { n: this.farm.hay, cap: this.siloCap }) : tr('ranch.hay_no_silo', { n: this.farm.hay })];
+    if (mail) head.push(tr('ranch.mail', { n: mail }));
+    return `<h3>${tr('ranch.title')}</h3><p class="j-note">${head.join(' · ')}. ${tr('ranch.help', { n: GRAZE_NEED })}</p>` + (rows || `<p class="j-note">${tr('ranch.none')}</p>`);
   }
 }
 
+// An animal's kind as its row says it (a rooster is a hen of that breed)
+const kindName = a => (a.breed === 'gallo' ? tr('ranch.rooster') : has(`nature.name.${a.type}`) ? tr(`nature.name.${a.type}`) : a.def.name);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 // El id de un envío del palomar para repartirlo: el suyo (mid) o, en los de antes de que lo llevaran, lo que es y cuántos
 // iguales van delante (así es el mismo en todos los juegos)
 function mailKey(m, seen) {

@@ -5,6 +5,7 @@ import { t, fmt } from '../i18n.js';
 import { chip } from './frontend.js';
 import { feed, KINDS } from './feed.js';
 import { glyph } from './glyphs.js';
+import { HudLog } from './hudlog.js';
 
 const $ = id => document.getElementById(id);
 let shownCoords = null, shownHint = null, shownHintKey, shownClock = null, dialog = null;
@@ -45,6 +46,7 @@ function big(title, sub) {
 export const hud = {
   get dialogOpen() { return !!dialog; },
   faces: {},   // nombre → aspecto, para poner su retrato en los diálogos
+  log: new HudLog(),   // (the last lines said and the last notices: the pause's Brief tab)
 
   feed,        // the lines above the minimap (ui/feed.js); toast() is its old door
 
@@ -142,11 +144,12 @@ export const hud = {
       showFace(name);
       $('dlg-name').textContent = name;
       $('dlg-text').textContent = lines[0];
+      hud.log.say(name, lines[0]);
       $('dialog').classList.add('show');
       dialog = {
         next() {
           Audio.blip();
-          if (++i < lines.length) { $('dlg-text').textContent = lines[i]; return; }
+          if (++i < lines.length) { $('dlg-text').textContent = lines[i]; hud.log.say(name, lines[i]); return; }
           hud.closeDialog();
           resolve();
         },
@@ -158,6 +161,7 @@ export const hud = {
     return new Promise(resolve => {
       let sel = 0;
       showFace(name);
+      if (hud.faces[name.split('  ')[0]]) hud.log.say(name, text);   // (somebody asks: what they say with it; not a menu's question)
       $('dlg-name').textContent = name;
       $('dlg-text').textContent = text;
       const box = $('dlg-opts');
@@ -217,12 +221,12 @@ export const hud = {
   // asks says it in the feed. line: that line of the feed, if given (it is pushed here)
   big({ title, sub = '', line = '', kind = 'good' }) {
     const T = performance.now() / 1000;
-    if (T - bigAt >= BIG_GAP && !feed.busy() && document.body.classList.contains('playing')) { big(title, sub); Audio.ui('stamp'); return true; }
-    if (line) feed.push({ kind, text: line });
+    if (T - bigAt >= BIG_GAP && !feed.busy() && document.body.classList.contains('playing')) { big(title, sub); Audio.ui('stamp'); hud.log.note(line || title, kind); return true; }
+    if (line) hud.toast(line, kind);
     return false;
   },
   // A notice: a line of the feed (ui/feed.js). kind: one of its KINDS ('good' for good news); the old '' and 'ok' still do
-  toast(text, kind = '') { feed.push({ kind: KINDS[kind] ? kind : kind === 'ok' ? 'good' : 'world', text: String(text) }); },
+  toast(text, kind = '') { hud.log.note(text, kind); feed.push({ kind: KINDS[kind] ? kind : kind === 'ok' ? 'good' : 'world', text: String(text) }); },
 
   fade(on) {
     $('fade').classList.toggle('on', on);

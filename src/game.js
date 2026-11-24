@@ -28,6 +28,7 @@ import { Ranch } from './ranch.js';
 import { Horse } from './horse.js';
 import { Saddlebags } from './saddlebags.js';
 import { Steps } from './steps.js';
+import { PlayTime } from './playtime.js';
 import { Fishing } from './fishing.js';
 import { Wildlife } from './wildlife.js';
 import { Wind } from './wind.js';
@@ -210,6 +211,7 @@ export class Game {
     this.achievements = this.addSystem(new Achievements(this));
     this.story = this.addSystem(new Story(this));
     this.steps = this.addSystem(new Steps(this));   // los primeros pasos
+    this.playTime = this.addSystem(new PlayTime());   // how long this character has been played (src/playtime.js)
     this.live = this.addSystem(new Live(this));   // jugar juntos en directo
     this.social = this.addSystem(new Social(this));   // greeting and provoking people (Y or right click on someone)
     this.remarks = this.addSystem(new Remarks(this));   // what the neighbours say about how you look (src/remarks.js; after social: it speaks through social.say)
@@ -516,6 +518,7 @@ export class Game {
   end() {
     try { this.barrow?.onEnd(); } catch (e) { reportFault(e, 'Barrow.onEnd'); }   // (pushing it: parked where you are, before leaving the shared world)
     this.live.left();
+    hud.log.clear();   // (what was said to this one)
     this.covers = (this.covers || 0) + 1;   // (un salto a oscuras a medias ya no destapa: ver coverJump)
     this.jumping = false; this.view3d.hold = false;
     this.player = null;
