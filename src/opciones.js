@@ -45,6 +45,8 @@ const RAW = (() => { try { return new URLSearchParams(globalThis.location?.searc
 // whoever comes within their fear radius, as before; no heel or point of the dog; nor the ring and the wind mark)
 // Plan R8-2 (the maps, docs/planes/realismo/PLAN-R8-hud-mapa.md): sat (?sat=0: the maps' ground as before, 1 px per tile made
 // in the game's own thread; no satellite pictures, nothing built on them)
+// Plan R7-1 (sites and names, docs/planes/realismo/PLAN-R7-mundo.md): sitios (?sitios=1 or =0: the places where they were
+// before, one roll per chunk, without the ruins; the world's list is neither made nor changed). To compare, playing alone
 export const PARTES = { hierba: 'sinlod', impostores: null, relieve: null, contacto: null, sombras: 'todas', personas: 'todas', suelo: 'v2', inventario: 'casillas',
   sed: null, cansancio: null, aguante: null, buceo: null, fondo: null, caustica: null,
   ruta: null, rutasuelo: null, musica: 'chip',
@@ -52,7 +54,7 @@ export const PARTES = { hierba: 'sinlod', impostores: null, relieve: null, conta
   vinculo: null, alforjas: null, montar: 'arcade',
   tracks: null, wounds: null, naturebook: null,
   sentidos: null,
-  soporte: null, refugio: null, sat: null };
+  soporte: null, refugio: null, sat: null, sitios: '1' };
 
 // El valor tal cual (o null)
 export const opcion = k => RAW.get(k);

@@ -80,7 +80,7 @@ export function depthOf(gen, x, z) {
 export function groundSmooth(gen, x, z, w = null) {
   const x0 = Math.floor(x), z0 = Math.floor(z), fu = x - x0, fv = z - z0;
   const k = w?.padK && (!w.padNear || w.padNear(x0, z0, x0 + 1, z0 + 1)) ? w : null;
-  const at = (i, j) => { const h = groundOf(gen, i, j); return k && h > 0.01 ? h * k.padK(i, j) : h; };
+  const at = (i, j) => { const h = groundOf(gen, i, j); return k && h > 0.01 ? k.padH(i, j, h) : h; };
   const b = at(x0 + 1, z0), c = at(x0, z0 + 1);
   // (cada casilla son dos triángulos: a-c-b y b-c-d)
   if (fu + fv <= 1) { const a = at(x0, z0); return a + (b - a) * fu + (c - a) * fv; }

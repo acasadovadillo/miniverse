@@ -30,8 +30,8 @@ import { wrapIndex, distOf } from '../world/planet.js';
 import { ACCENTS, accent } from './skin.js';
 import { reportFault } from '../faults.js';
 
-const PLACE_GLYPH = { cueva: 'cave', ruinas: 'ruins', campamento: 'camp', torre: 'tower', barco: 'wreck', templo: 'temple', aldea: 'village', faro: 'lighthouse' };
-const PLACE_COL = { cueva: '#cfcbd6', ruinas: '#d8d2c4', campamento: '#ffa860', torre: '#e6dfce', barco: '#d2a273', templo: '#f0cf86', aldea: '#9db8ee', faro: '#ff8a80' };
+const PLACE_GLYPH = { cueva: 'cave', campamento: 'camp', torre: 'tower', barco: 'wreck', templo: 'temple', aldea: 'village', faro: 'lighthouse' };
+const PLACE_COL = { cueva: '#cfcbd6', campamento: '#ffa860', torre: '#e6dfce', barco: '#d2a273', templo: '#f0cf86', aldea: '#9db8ee', faro: '#ff8a80' };
 export const KINDS = {
   home: { glyph: 'home', color: '#ff9a72', filter: 'places', legend: 'gui.map.home', pri: 90, mini: true },
   tavern: { glyph: 'tavern', color: '#ffc46a', filter: 'village', legend: 'gui.map.tavern', pri: 62, mini: true },
@@ -155,10 +155,10 @@ const found = { of: null, n: -1, lang: '', list: [] };
 blips.source('places', (out, { game }) => {
   const F = game.places?.found;
   if (!F) return;
-  if (F !== found.of || F.size !== found.n || getLang() !== found.lang) { found.of = F; found.n = F.size; found.lang = getLang(); found.list = game.places.markers(); for (const m of found.list) m.to = { x: m.x, y: m.y, kind: 'place', id: `poi:${Math.floor(m.x / CHUNK)},${Math.floor(m.y / CHUNK)}` }; }
+  if (F !== found.of || F.size !== found.n || getLang() !== found.lang) { found.of = F; found.n = F.size; found.lang = getLang(); found.list = game.places.markers(); for (const m of found.list) m.to = { x: m.x, y: m.y, kind: 'place', id: `poi:${m.key}` }; }
   for (const m of found.list) {
     const b = out.add('place', m.x, m.y);
-    b.glyph = PLACE_GLYPH[m.kind] || 'place'; b.color = PLACE_COL[m.kind] || '#ffffff'; b.name = m.name; b.legend = m.legend ||= 'poi:' + m.name; b.sub = say('map.card.explored');
+    b.glyph = PLACE_GLYPH[m.kind] || 'place'; b.color = PLACE_COL[m.kind] || '#ffffff'; b.name = m.name; b.legend = m.row ||= 'poi:' + m.legend; b.sub = say('map.card.explored');
     b.to = m.to;
   }
 });

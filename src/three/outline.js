@@ -379,9 +379,10 @@ export class Outline {
     renderer.autoClear = auto;
   }
 }
-// The height a chunk draws a thing at (buildChunk: the level of its tile; places and treasure, on the ground at 0)
+// The height a chunk draws a thing at (buildChunk: the level of its tile; places and treasure, that of the place)
 export function liftOf(scene, o) {
-  if (scene?.kind === 'grid' || o.poi || o.treasure) return 0;
+  if (scene?.kind === 'grid') return 0;
+  if (o.poi || o.treasure) return (o.poi || o.treasure).z || 0;
   const [tx, ty] = o.tile || [Math.floor(o.x), Math.floor(o.y)];
   return scene?.levelAt?.(tx + 0.5, ty + 0.5, true) || 0;
 }

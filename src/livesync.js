@@ -15,7 +15,7 @@ import { setFamilyHouse } from './world/village.js';
 // (dayBase, timeShift y seenDay: el calendario del mundo y el último día que amaneció en él)
 // (rules, worldSpawn, weatherLock y difficulty: las reglas del mundo, dónde aparecen los nuevos, el tiempo que ha
 // puesto un op y la dificultad)
-export const SHARED = ['clock', 'house', 'projects', 'boardDone', 'animals', 'farm', 'family', 'dayBase', 'timeShift', 'seenDay', 'rules', 'worldSpawn', 'weatherLock', 'difficulty', 'maps', 'defaultGamemode', 'frozenHour'];
+export const SHARED = ['clock', 'house', 'projects', 'boardDone', 'animals', 'farm', 'family', 'dayBase', 'timeShift', 'seenDay', 'rules', 'worldSpawn', 'weatherLock', 'difficulty', 'maps', 'defaultGamemode', 'frozenHour', 'places1'];
 
 // Lo del mundo guardado que este juego no conoce: de una versión más nueva (una clave que se añadió después). Quien lleva
 // el mundo lo vuelve a guardar tal cual (ver worldOf en live.js), para no perderlo. RETIRED: lo que se quitó del juego
@@ -76,6 +76,8 @@ export const BLOBS = {
   worldSpawn: { get: g => g.worldSpawn, set: (g, v) => { g.worldSpawn = v; } },
   weatherLock: { get: g => g.weatherLock, set: (g, v) => { g.weatherLock = v; } },
   difficulty: { get: g => g.difficulty, set: (g, v) => { g.difficulty = v; } },
+  // (the places an old world keeps, explore.js: only whoever runs the world writes it, a guest's is never taken)
+  places1: { get: g => g.places.places1, set: (g, v) => { if (g.live.role !== 'host') g.places.share(v); } },
   maps: { get: g => g.maps.data, set: (g, v) => { g.maps.data = v || {}; } },   // (lo dibujado en los mapas)
   defaultGamemode: { get: g => g.defaultGamemode, set: (g, v) => { g.defaultGamemode = v; } },
 };

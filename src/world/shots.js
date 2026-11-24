@@ -43,7 +43,7 @@ export function shapesOf(scene, data, gy) {
       } else if (!piece) for (const b of placeBoxes(partsOf(o.model || o.placed), o.x, o.y, o.yaw ?? 0)) box(b, L + b.y0, L + b.y1, out);   // los muebles, pieza a pieza
     } else if (o.kind && !o.flower) nature(o, gy(o.x, o.y), out);
     else if (o.poi) poi(o.poi, out);
-    else if (o.treasure) for (const b of placeBoxes(partsOf(`treasure:${o.open ? 1 : 0}`), o.x, o.y, 0)) box(b, b.y0, b.y1, out);
+    else if (o.treasure) for (const b of placeBoxes(partsOf(`treasure:${o.open ? 1 : 0}`), o.x, o.y, 0)) box(b, (o.treasure.z || 0) + b.y0, (o.treasure.z || 0) + b.y1, out);
   }
   // Los muros, las jambas, las puertas cerradas y el hogar: lo que ocupan al andar, de su suelo hasta lo alto del muro
   for (const c of data.colliders) {
@@ -104,14 +104,15 @@ function nature(o, y, out) {
 // de su modelo
 const DOOR_TOP = 2.2;   // (lo alto de la puerta de la torre: ver tower.js)
 function poi(p, out) {
+  const z = p.z || 0;   // (its ground)
   if (p.kind === 'torre') {
     const T = TOWER, rw = T.R - 0.22;
-    for (let a = 0; a < Math.PI * 2; a += 0.13) cyl(p.x + Math.sin(a) * rw, p.y + Math.cos(a) * rw, 0.26, a > T.door[0] && a < T.door[1] ? DOOR_TOP : 0, T.H + T.parapet, out);
-    cyl(p.x, p.y, T.r0, 0, T.H, out);
+    for (let a = 0; a < Math.PI * 2; a += 0.13) cyl(p.x + Math.sin(a) * rw, p.y + Math.cos(a) * rw, 0.26, a > T.door[0] && a < T.door[1] ? z + DOOR_TOP : z, z + T.H + T.parapet, out);
+    cyl(p.x, p.y, T.r0, z, z + T.H, out);
     return;
   }
   if (p.kind === 'aldea') return;
-  for (const b of placeBoxes(partsOf(`poi:${p.kind}${p.snow ? ':snow' : ''}`), p.x, p.y, 0)) box(b, b.y0, b.y1, out);
+  for (const b of placeBoxes(partsOf(`poi:${p.kind}${p.snow ? ':snow' : ''}`), p.x, p.y, 0)) box(b, z + b.y0, z + b.y1, out);
 }
 // Lo del pueblo que no va por trozos: los dos árboles del jardín y el puesto, el tablón, la fuente, el buzón, la farola…
 const VILLAGE = new WeakMap();

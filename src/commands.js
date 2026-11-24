@@ -8,14 +8,14 @@ import { ITEMS } from './items.js';
 import { GAMEMODES, RULES } from './game.js';
 import { DIFFICULTIES, EFFECT_NAMES } from './combat.js';
 import { DARK } from './mobs.js';
-import { WORLD_SEED, CHUNK } from './world/gen.js';
+import { WORLD_SEED } from './world/gen.js';
 import { B, BIOMES } from './world/biomes.js';
 import { CENTER } from './world/village.js';
 import { PIECES } from './pieces.js';
 import { RECIPES } from './recipes.js';
 import { ACH } from './progress.js';
-import { POI_NAMES } from './explore.js';
-import { wrapX, dxOf, distOf, inPlanet, wrapIndex } from './world/planet.js';
+import { placeKind } from './explore.js';
+import { wrapX, dxOf, distOf, inPlanet } from './world/planet.js';
 
 // Horas con nombre para /time set (además de HH:MM)
 const NAMED_HOURS = { sunrise: 6, day: 7, noon: 12, sunset: 19, night: 21, midnight: 0, amanecer: 6, dia: 7, mediodia: 12, tarde: 17, noche: 21, medianoche: 0 };
@@ -40,7 +40,8 @@ const WEATHER_NAMES = { blizzard: 'ventisca', ventisca: 'ventisca', storm: 'torm
 const WEATHER_SAID = { sol: 'sol', nubes: 'nubes', lluvia: 'lluvia', tormenta: 'tormenta', niebla: 'niebla', nieve: 'nieve', ventisca: 'ventisca' };
 const DIFF_NAMES = { pacifico: 'peaceful', peaceful: 'peaceful', p: 'peaceful', 0: 'peaceful', facil: 'easy', easy: 'easy', e: 'easy', 1: 'easy', normal: 'normal', n: 'normal', 2: 'normal', dificil: 'hard', hard: 'hard', h: 'hard', 3: 'hard' };
 const EFFECTS = { speed: 'rapido', rapidez: 'rapido', strength: 'fuerza', fuerza: 'fuerza', resistance: 'resistencia', resistencia: 'resistencia', regeneration: 'regeneracion', regeneracion: 'regeneracion', tireless: 'incansable', incansable: 'incansable', instant_health: 'curacion', curacion: 'curacion' };
-const PLACES = { village: 'aldea', aldea: 'aldea', temple: 'templo', templo: 'templo', lighthouse: 'faro', faro: 'faro', cave: 'cueva', cueva: 'cueva', ruins: 'ruinas', ruinas: 'ruinas', camp: 'campamento', campamento: 'campamento', tower: 'torre', torre: 'torre', shipwreck: 'barco', barco: 'barco' };
+const PLACES = { village: 'aldea', aldea: 'aldea', temple: 'templo', templo: 'templo', lighthouse: 'faro', faro: 'faro', cave: 'cueva', cueva: 'cueva', camp: 'campamento', campamento: 'campamento', tower: 'torre', torre: 'torre', shipwreck: 'barco', barco: 'barco' };
+const LOCATE_R = 6000;
 const BIOME_IDS = { desert: B.DESERT, desierto: B.DESERT, ice: B.ICE, hielo: B.ICE, snowy_tundra: B.SNOW, tundra: B.SNOW, forest: B.FOREST, bosque: B.FOREST, taiga: B.PINES, pinos: B.PINES, swamp: B.SWAMP, pantano: B.SWAMP, plains: B.MEADOW, pradera: B.MEADOW, ocean: B.OCEAN, mar: B.OCEAN, beach: B.BEACH, playa: B.BEACH, mountains: B.ROCKY, montana: B.ROCKY, lake: B.LAKE, lago: B.LAKE };
 // Lo que se puede hacer aparecer con /summon: criaturas (las lleva quien lleva el mundo), animales salvajes (los
 // de cada uno) y de granja (del mundo)
@@ -62,8 +63,8 @@ const coords = (game, vx, vy) => { const p = game.player; return [wrapX(coord(vx
 const shown = (x, y) => `${Math.round(dxOf(x, CENTER.x))}, ${Math.round(y - CENTER.y)}`;
 // Hacia dónde queda (en el mundo: el norte, hacia arriba del mapa)
 function heading(dx, dy) {
-  const dirs = ['este', 'noreste', 'norte', 'noroeste', 'oeste', 'suroeste', 'sur', 'sureste'];
-  return dirs[(Math.round(Math.atan2(-dy, dx) / (Math.PI / 4)) + 8) % 8];
+  const dirs = ['e', 'ne', 'n', 'nw', 'w', 'sw', 's', 'se'];
+  return t(`place.dir.${dirs[(Math.round(Math.atan2(-dy, dx) / (Math.PI / 4)) + 8) % 8]}`);
 }
 // Pedirle algo a unos jugadores (por su nombre, @a o @s): a ti te lo hace tu juego; a los demás, el suyo
 function order(game, say, who, m) {
@@ -306,7 +307,7 @@ export const COMMANDS = {
     },
   },
   locate: {
-    help: 'dónde está lo más cercano (solo los op): /locate <village|temple|lighthouse|cave|ruins|camp|tower|shipwreck> o /locate biome <desert|ice|snowy_tundra|forest|taiga|swamp|plains|ocean|beach|mountains|lake>',
+    help: 'dónde está lo más cercano (solo los op): /locate <village|temple|lighthouse|cave|camp|tower|shipwreck> o /locate biome <desert|ice|snowy_tundra|forest|taiga|swamp|plains|ocean|beach|mountains|lake>',
     run(game, say, [what = '', which = '']) {
       if (needOp(game, say, 'locate')) return;
       const p = game.player;
@@ -327,20 +328,10 @@ export const COMMANDS = {
         return;
       }
       const kind = PLACES[plain(what)];
-      if (!kind) { say('Uso: /locate <village|temple|lighthouse|cave|ruins|camp|tower|shipwreck> · /locate biome <bioma>', 'err'); return; }
-      const pcx = Math.floor(p.x / CHUNK), pcy = Math.floor(p.y / CHUNK), E = game.places;
-      for (let r = 0; r <= 150; r++) {
-        let best = null, bd = Infinity;
-        for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) {
-          if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
-          const q = E.poi(wrapIndex(pcx + dx, CHUNK), pcy + dy);
-          if (q?.kind !== kind) continue;
-          const d = distOf(q.x, q.y, p.x, p.y);
-          if (d < bd) { bd = d; best = q; }
-        }
-        if (best) { say(`${POI_NAMES[kind]}: a ${Math.round(bd)} casillas, al ${heading(dxOf(best.x, p.x), best.y - p.y)} (en ${shown(best.x, best.y)}).`, 'ok'); return; }
-      }
-      say(`No hay ningún lugar así a menos de ${150 * CHUNK} casillas.`, 'sys');
+      if (!kind) { say('Uso: /locate <village|temple|lighthouse|cave|camp|tower|shipwreck> · /locate biome <bioma>', 'err'); return; }
+      const q = game.places.nearest(p.x, p.y, [kind], LOCATE_R);
+      if (q) say(t('cmd.locate.place', { place: game.places.title(q), n: Math.round(distOf(q.x, q.y, p.x, p.y)), dir: heading(dxOf(q.x, p.x), q.y - p.y), at: shown(q.x, q.y) }), 'ok');
+      else say(t('cmd.locate.none', { kind: placeKind(kind), n: LOCATE_R }), 'sys');
     },
   },
   setblock: {

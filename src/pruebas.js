@@ -20,7 +20,14 @@ import { repairMat } from './crafting.js';
 import { RECIPES } from './recipes.js';
 import { runCommand } from './commands.js';
 import { faults, resetFaults } from './faults.js';
-import { CHUNK, WorldGen } from './world/gen.js';
+import { CHUNK, WorldGen, WORLD_SEED } from './world/gen.js';
+import { Sites, sitesFor, LegacyPlaces, SITE_TIERS, READY, TIERS } from './world/sites.js';
+import { nameOf, stateOf, storyOf, ROOT_COUNT, QUAL_COUNT } from './world/names.js';
+import { freeze, freezeMore, readPlaces, touched, boxOf, gap, NEAR_FROZEN } from './world/frozenplaces.js';
+import { placesHtml } from './ui/placespage.js';
+import * as LS from './livesync.js';
+import { shapesOf as chunkShapes } from './world/shots.js';
+import { getModel as modelNamed } from './three/models.js';
 import { B, BIOMES, climate } from './world/biomes.js';
 import { packBd, unpackBd } from './body.js';
 import { feelOf, roomFire, TEMP, clothesOf, warmthOf, tearStage, canTear } from './clothing.js';
@@ -1344,7 +1351,7 @@ async function soloTests(game) {
     const H = game.pauseHub, $ = id => document.getElementById(id), rows = () => [...$('j-tabs').children], seen = [];
     H.open('journal');
     try {
-      check(rows().length === JOURNAL_PAGES.filter(q => !q.when || q.when(game)).length && rows().length === (apagada('naturebook') ? 6 : 7) && rows().every(r => r.dataset.jtab && r.textContent.trim() && !r.textContent.includes('journal.')), `pages: ${rows().map(r => r.textContent)}`);
+      check(rows().length === JOURNAL_PAGES.filter(q => !q.when || q.when(game)).length && rows().length === (apagada('naturebook') ? 7 : 8) && rows().every(r => r.dataset.jtab && r.textContent.trim() && !r.textContent.includes('journal.')), `pages: ${rows().map(r => r.textContent)}`);
       check(document.querySelectorAll('#j-tabs .sel').length === 1 && $('j-body').innerHTML.length > 40, 'no page at the start');
       for (let i = 0; i < rows().length; i++) { pauseKey('ArrowDown'); const on = document.querySelector('#j-tabs .sel'); seen.push(on.dataset.jtab); check(on.classList.contains('on') && $('j-body').innerHTML.length > 30, `page ${on.dataset.jtab}`); }
       check(new Set(seen).size === rows().length, `the list does not go through all: ${seen}`);
@@ -2647,7 +2654,7 @@ async function soloTests(game) {
   await test('casas: en las aldeas se quita de todo, y dentro se apunta a lo que se ve', async () => {
     const B = game.build, W = w(), P = p(), E = game.places, I = inv(), kept = I.slots.slice(), mouse = game.mouse;
     let v = null;
-    for (let r = 2; r < 80 && !v; r++) for (let cy = -r; cy <= r && !v; cy++) for (let cx = -r; cx <= r && !v; cx++) { if (Math.max(Math.abs(cx), Math.abs(cy)) !== r) continue; const q = E.poi(cx, cy); if (q?.kind === 'aldea') v = q; }
+    v = E.nearest(CENTER.x, CENTER.y, ['aldea'], 4000);
     check(v, 'no hay aldeas cerca');
     const walls = Object.entries(E.aldea(v).all.placed).filter(([, id]) => id === 'muro_entramado').map(([t]) => t.split(',').map(Number));
     const [wx, wy] = walls[Math.floor(walls.length / 2)];
@@ -3049,7 +3056,7 @@ async function soloTests(game) {
       const n = W.deltas.size; O.begin(80); const H = O.footprints(0, 0, 40, 62); check(H.length >= 2, `village: ${H.length} buildings`); check(W.deltas.size === n, 'looking made deltas');
       // A hamlet: only once discovered
       const P = game.places, found = P.found; let a = null;
-      for (let r = 8; r < 60 && !a; r++) for (let i = -r; i <= r && !a; i++) for (const [x, y] of [[i, -r], [i, r], [-r, i], [r, i]]) { const q = P.poi(x, y); if (q?.kind === 'aldea') { a = q; break; } }
+      a = P.nearest(CENTER.x, CENTER.y, ['aldea'], 4000); check(a, 'no hamlet');
       if (a) try {
         P.found = new Set(); P.foundN = -1; const c = Object.keys(P.aldea(a).chunks)[0]; check(P.builtIn(c) === undefined && !P.clearings(...a.key.split(',').map(Number)).length, 'an undiscovered hamlet is on the map');
         P.found = new Set([a.key]); check(P.builtIn(c) && P.clearings(...a.key.split(',').map(Number)).length === 1, 'a discovered one is not');
@@ -3730,12 +3737,160 @@ async function soloTests(game) {
     const img = await photo('teja');
     check(img && img.width === 512, `la foto de la teja no llega (${img?.width})`);
   });
+  // ---------- sites and names (Plan R7-1) ----------
+  const V4 = [CENTER.x, CENTER.y], far = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+  await test('sites (english): density: few, none on water nor by the village; the first ring has a hamlet, a watchtower, a camp and a cave', async () => {
+    const S = new Sites(WORLD_SEED), t0 = performance.now(), list = S.near(...V4, 2000), ms = performance.now() - t0, n = t => list.filter(s => s.tier === t).length;
+    console.log(`sites: ${list.length} in 2 km (${TIERS.map(t => `${t} ${n(t)}`).join(', ')}), ${ms.toFixed(0)} ms, ${S.stats.cells} cells, worst ${S.stats.worst.toFixed(1)} ms`);
+    check(n('hamlet') >= 12 && n('hamlet') <= 35, `${n('hamlet')} hamlets`); check(n('major') >= 35 && n('major') <= 90, `${n('major')} majors`); check(n('minor') >= 250 && n('minor') <= 700, `${n('minor')} minors`);
+    const ready = list.filter(s => READY.has(s.kind)).length; check(ready > 150 && ready < 450, `${ready} places`);
+    for (const s of list) { S.probe(s.x, s.y); check(S.u <= 0, `${s.kind} ${s.key} on water`); check(Math.hypot(s.x - V4[0], s.y - V4[1]) >= 110, `${s.kind} by the village`); }
+    for (const k of ['aldea', 'torre', 'campamento', 'cueva']) check(list.some(s => s.kind === k && Math.hypot(s.x - V4[0], s.y - V4[1]) < 1200), `no ${k} in the first ring`);
+    // (a small one, never by a great one or a hamlet)
+    const big = list.filter(s => s.tier === 'hamlet' || s.tier === 'major');
+    for (const s of list) if (s.tier === 'minor' || s.tier === 'cave') check(!big.some(b => far(b, s) < 40), `${s.kind} ${s.key} on top of another`);
+    // (siting in the idle time: 1.5 ms a cell on average)
+    check(S.stats.ms / S.stats.cells < 3, `${(S.stats.ms / S.stats.cells).toFixed(2)} ms a cell`);
+  });
+  await test('sites (english): deterministic and pure: two instances, any order and a worker agree; at() and the keys; across the seam', async () => {
+    const A = new Sites(WORLD_SEED), B2 = new Sites(WORLD_SEED), id = s => `${s.kind}@${s.x},${s.y},${s.z},${s.key},${s.id}`, say = l => l.map(id).sort().join('|');
+    const a = A.near(400, -300, 900); B2.near(-3000, 800, 500); const b = [...B2.near(700, -100, 300), ...B2.near(400, -300, 900)].filter((s, i, l) => l.findIndex(q => q.key === s.key && q.tier === s.tier) === i && far(s, { x: 400, y: -300 }) <= 900);
+    check(a.length > 20 && say(a) === say(b), 'two instances do not agree');
+    for (const s of a) { const [cx, cy] = s.key.split(',').map(Number); check(Math.floor(s.x / CHUNK) === cx && Math.floor(s.y / CHUNK) === cy, `key ${s.key}`); const q = A.at(cx, cy); check(q && (q === s || TIERS.indexOf(q.tier) < TIERS.indexOf(s.tier)), `at(${s.key})`); check(A.inCell(s.tier, s.ix, s.iy) === s, 'inCell'); }
+    for (const s of a) { const r = 1.2 + { torre: 3.7, faro: 3, barco: 2.2, templo: 2.2, cueva: 1.4, campamento: 1.8 }[s.kind] || 0, m = v => ((v % CHUNK) + CHUNK) % CHUNK; if (r && s.kind !== 'aldea') check(m(s.x) - r >= -0.01 && m(s.x) + r <= CHUNK + 0.01 && m(s.y) - r >= -0.01 && m(s.y) + r <= CHUNK + 0.01, `${s.kind} ${s.key} leaves its chunk`); }
+    const url = URL.createObjectURL(new Blob([`import { Sites } from '${new URL('./world/sites.js', import.meta.url).href}'; onmessage = e => postMessage(new Sites(e.data).near(400, -300, 900).map(s => s.kind + '@' + s.x + ',' + s.y + ',' + s.z + ',' + s.key + ',' + s.id).sort().join('|'));`], { type: 'text/javascript' }));
+    const wk = new Worker(url, { type: 'module' });
+    try { const said = await new Promise((res, rej) => { wk.onmessage = e => res(e.data); wk.onerror = e => rej(new Error(e.message)); wk.postMessage(WORLD_SEED); setTimeout(() => rej(new Error('the worker does not answer')), 30000); }); check(said === say(a), 'the worker gives others'); } finally { wk.terminate(); URL.revokeObjectURL(url); }
+    // Across the seam (the antipodes): the same sites from both sides, and at() of a chunk by either number
+    const e = A.near(PHALF - 40, 900, 700), f = A.near(-PHALF + 5, 900, 745).filter(s => e.includes(s)); check(e.some(s => s.x < 0) || e.length < 5, 'nothing beyond the seam'); check(e.filter(s => Math.hypot(nearX(s.x, PHALF - 40) - PHALF + 40, s.y - 900) < 650).every(s => f.includes(s)), 'the seam splits them');
+    const q = e[0]; if (q) { const [cx, cy] = q.key.split(',').map(Number); check(A.at(cx + PW / CHUNK, cy)?.key === A.at(cx, cy)?.key, 'another number of the same chunk'); }
+  });
+  await test('sites (english): terrain fit: towers on high points, lighthouses to the sea, caves under a slope, hamlets low and dry, camps by water, wrecks on a beach', async () => {
+    const S = sitesFor(WORLD_SEED), list = [...S.near(...V4, 2500), ...S.near(6000, -2500, 2000)], of = k => list.filter(s => s.kind === k);
+    for (const s of of('torre')) check(S.prominence(s.x, s.y) >= 6, `tower ${s.key}: ${S.prominence(s.x, s.y).toFixed(1)} m over its land`);
+    for (const s of of('faro')) check(S.sea(s.x, s.y, 24) >= 3, `lighthouse ${s.key}: ${S.sea(s.x, s.y, 24)} directions of sea`);
+    for (const s of of('cueva')) check(S.height(s.x, s.y - 6) - S.height(s.x, s.y) >= 3, `cave ${s.key}: no slope behind`);
+    for (const s of of('aldea')) { check(S.height(s.x, s.y) <= 1.7 && s.z === 0, `hamlet ${s.key} too high`); check(game.places.aldeaSlots(...s.key.split(',').map(Number)).length >= 2, `hamlet ${s.key}: no room`); }
+    for (const s of of('campamento')) check(S.wetWithin(s.x, s.y, 30), `camp ${s.key}: no water`);
+    for (const s of of('barco')) check(S.probe(s.x, s.y) < 3 && S.b === 2 && S.sea(s.x, s.y, 12) > 0, `wreck ${s.key} not on a beach`);
+    for (const s of of('templo')) { S.probe(s.x, s.y); check(S.b === 7, `temple ${s.key} not in the desert`); }
+    for (const k of ['torre', 'faro', 'cueva', 'aldea', 'campamento', 'barco', 'templo']) check(of(k).length, `no ${k} to look at`);
+  });
+  await test('sites (english): a place stands on its own ground: level under it at its height, the land round it as it was', async () => {
+    const P = game.places, W = w(), tw = P.nearest(...V4, ['torre'], 3000); check(tw && tw.z > 3 && !tw.legacy, `tower ${tw?.key} at ${tw?.z}`);
+    for (const [i, j] of [[0, 0], [2, 0], [0, -3], [-3, 1]]) check(Math.abs(W.groundRaw(tw.x + i, tw.y + j) - tw.z) < 0.01, `the ground in it is at ${W.groundRaw(tw.x + i, tw.y + j).toFixed(2)}, not ${tw.z}`);
+    let n = 0; for (let a = 0; a < 6.28; a += 0.4) { const x = tw.x + Math.cos(a) * 13, y = tw.y + Math.sin(a) * 13, h = Math.max(0, W.gen.groundAt(x, y)); if (Math.abs(W.groundRaw(x, y) - h) < 0.01) n++; } check(n >= 14, `${n} of 16 points round it keep their height`);
+    const c = W.contentFor(Math.floor(tw.x / CHUNK), Math.floor(tw.y / CHUNK)), o = c.objects.find(q => q.poi), ch = c.objects.find(q => q.treasure); check(o?.poi === tw && ch?.treasure === tw, 'its chunk does not have it, or its chest');
+    // (what an arrow hits: the wall, from its ground up)
+    const shapes = chunkShapes(W, c, () => 0).filter(q => q.c && Math.hypot(q.c[0] - tw.x, q.c[1] - tw.y) < 3.5); check(shapes.length > 30 && shapes.some(q => Math.abs(q.y0 - tw.z) < 0.01) && shapes.every(q => q.y0 >= tw.z - 0.01), 'its wall is not at its height');
+    // (drawn, walked into and climbed, with the chest where it can be opened)
+    await goTo(game, tw.x + 1.2, tw.y + 4.4); await readyGround(game, 9000); const gy = game.view3d.groundY(W, tw.x + 1.2, tw.y + 4.4); check(Math.abs(gy - tw.z) < 0.6, `by its door the ground is at ${gy.toFixed(2)}, and it at ${tw.z}`);
+    p().x = tw.x + Math.sin(0.4) * 2; p().y = tw.y + Math.cos(0.4) * 2; await frames(40); check(p().floor > 0.1 && p().floor < 1, `the stairs start at ${p().floor}`);
+    await goTo(game, ch.x + 0.9, ch.y); await frames(5); const a = P.interact(p(), W); check(a?.text === t('place.chest.open'), `the chest says «${a?.text}»`);
+    check(P.known(tw) && P.foundAt[tw.key] === game.days.realDay, 'it is not discovered, or without its day');
+  });
+  await test('sites (english): frozen: what was built by, used or found stays where it was, ruins leave a clearing, and no new place covers anything', async () => {
+    const S = sitesFor(WORLD_SEED), L = new LegacyPlaces(WORLD_SEED), deltas = new Map(), found = [], all = (k, n, r0 = 8) => { const out = []; for (let r = r0; r < 150 && out.length < n; r++) for (let i = -r; i <= r && out.length < n; i++) for (const [x, y] of [[i, -r], [i, r], [-r, i], [r, i]]) { const q = L.at(x, y); if (q?.kind === k && !out.some(o => far(o, q) < 220)) { out.push(q); break; } } return out; };
+    const key = (x, y) => `${Math.floor(x / CHUNK)},${Math.floor(y / CHUNK)}`, put = (x, y, what) => deltas.set(key(x, y), { removed: {}, tilled: {}, v: 1, placed: {}, floor: {}, roof: {}, chest: {}, ...deltas.get(key(x, y)), ...what });
+    const [t1, t2, t3] = all('torre', 3), [r1, r2] = all('ruinas', 2, 14), [c1, c2] = all('campamento', 2, 20), [a1, a2] = all('aldea', 2, 24), f1 = all('faro', 1, 30)[0];
+    put(t1.x + 14, t1.y, { placed: { [`${Math.floor(t1.x) + 14},${Math.floor(t1.y)}`]: 'muro_madera' } });      // built by a tower
+    put(r1.x, r1.y, { floor: { [`${Math.floor(r1.x)},${Math.floor(r1.y)}`]: 'suelo_madera' } });                  // a house on the ruins
+    put(c1.x, c1.y, { opened: { [c1.key]: true } }); put(r2.x, r2.y, { opened: { [r2.key]: true } });              // plundered: a camp, and ruins
+    put(a1.x + 3, a1.y, { gone: { 'x:1,1': true } }); found.push(t2.key, a2.key, r2.key, 'nonsense', '99999,1');   // a hamlet somebody took apart; found ones
+    put(f1.x - 10, f1.y, { boats: { b1: [f1.x, f1.y, 0] } }); put(c2.x, c2.y, { removed: { '1,1': 1 }, mown: { '1,1': 1 }, picked: { a: 1 } });   // a boat by a lighthouse; a camp with only felled trees
+    // (and somebody's house where a new place would stand)
+    const ns = S.near(...V4, 1500).find(s => s.kind === 'torre' && ![t1, t2, t3, c1, r1, a1, a2, f1].some(q => far(q, s) < 260)); put(ns.x, ns.y, { placed: { [`${Math.floor(ns.x)},${Math.floor(ns.y)}`]: 'cofre' } });
+    const ns2 = S.near(...V4, 2000).find(s => s.kind === 'aldea' && ![t1, t2, t3, c1, r1, a1, a2, f1, ns].some(q => far(q, s) < 260)), before = JSON.stringify([...deltas]);
+    const t0 = performance.now(), v = freeze({ sites: S, legacy: L, deltas, found, points: [[ns2.x + 5, ns2.y + 3], [NaN, 1]] }), ms = performance.now() - t0, k = v.k;
+    console.log(`frozen: ${Object.keys(k).length} marks in ${ms.toFixed(0)} ms: ${JSON.stringify(k).slice(0, 300)}`);
+    check(JSON.stringify([...deltas]) === before, 'it changed the world');
+    check(k[t1.key] === 'torre' && k[r1.key] === 'ruinas' && k[c1.key] === 'campamento' && k[a1.key] === 'aldea' && k[f1.key] === 'faro', 'what was built by or used is not kept');
+    check(k[t2.key] === 'torre*' && k[a2.key] === 'aldea*', 'what was found is not kept'); check(!k[r2.key] && !k[t3.key] && !k[c2.key], 'it keeps what nobody used (or ruins only plundered)');
+    check((k[ns.key] === '-' || k[ns.key]) && k[ns2.key], 'a new place on top of something'); check(JSON.stringify(freeze({ sites: new Sites(WORLD_SEED), legacy: new LegacyPlaces(WORLD_SEED), deltas, found, points: [[ns2.x + 5, ns2.y + 3]] })) === JSON.stringify(v), 'another time, another list');
+    check(JSON.stringify(readPlaces(JSON.parse(JSON.stringify(v)))) === JSON.stringify(v) && readPlaces({ v: 1 }) === null && readPlaces(null) === null && !Object.keys(readPlaces({ v: 2, k: { x: 'torre', '1,1': 'casa', '2,2': 5 } }).k).length, 'reading it');
+    check(!touched({ v: 3, removed: { a: 1 }, opened: { b: true }, placed: {}, floor: {} }) && touched({ lvl: { a: 1 } }) && touched({ boats: { a: [] } }) && touched({ crops: { a: {} } }) && touched({ carcass: { a: 1 } }), 'touched');
+    // (more, later: what a guest had found; not where something stands now)
+    const more = freezeMore(v, { legacy: L, deltas, found: [t3.key, t1.key, r2.key, 7, 'a,b'], siteNear: () => false }); check(more && more.k[t3.key] === 'torre*' && more.k[t1.key] === 'torre' && !more.k[r2.key], 'what the guest found'); check(freezeMore(v, { legacy: L, deltas, found: [t3.key], siteNear: () => true }) === null, 'on top of a new place');
+    deltas.set(key(t3.x + 10, t3.y), { v: 1, placed: { '1,1': 'muro' } }); check(freezeMore(v, { legacy: L, deltas, found: [t3.key], siteNear: () => false }) === null, 'on top of what was built since');
+  });
+  await test('sites (english): an old save opens: old places, chests, builds, boats and pins as they were; new places elsewhere; saved and opened again, the same', async () => {
+    const snap0 = JSON.stringify(game.snapshot()), deltas0 = JSON.stringify([...w().deltas]), L = new LegacyPlaces(WORLD_SEED), near = (k, r0) => { for (let r = r0; r < 200; r++) for (let i = -r; i <= r; i++) for (const [x, y] of [[i, -r], [i, r], [-r, i], [r, i]]) { const q = L.at(x, y); if (q?.kind === k) return q; } };
+    const tower = near('torre', 20), ruin = near('ruinas', 26), camp = near('campamento', 30), hamlet = near('aldea', 34), lost = near('ruinas', 44), key = q => q.key;
+    const d = { [key(tower)]: { v: 2, removed: {}, tilled: {}, placed: { [`${Math.floor(tower.x) - 6},${Math.floor(tower.y)}`]: 'cofre' }, floor: {}, roof: {}, chest: { [`${Math.floor(tower.x) - 6},${Math.floor(tower.y)}`]: [{ id: 'madera', n: 7 }] }, opened: { [key(tower)]: true } },
+      [key(ruin)]: { v: 2, removed: {}, tilled: {}, placed: { [`${Math.floor(ruin.x) + 3},${Math.floor(ruin.y)}`]: 'mesa' }, floor: { [`${Math.floor(ruin.x)},${Math.floor(ruin.y)}`]: 'suelo_madera' }, roof: {}, chest: {} },
+      [key(camp)]: { v: 2, removed: {}, tilled: {}, placed: {}, floor: {}, roof: {}, chest: {}, opened: { [key(camp)]: true } } };
+    const old = { ...JSON.parse(snap0), found: [key(tower), key(camp), key(hamlet), key(lost)], pins: undefined }; for (const q of ['places1', 'placesV', 'oldFound', 'foundAt']) delete old[q];
+    old.route = { v: 1, x: tower.x, y: tower.y, kind: 'place', name: 'Torre vieja', id: `poi:${key(tower)}` };
+    const pieces = JSON.stringify(Object.values(d).map(q => [q.placed, q.floor, q.chest, q.opened]));
+    const look = () => { const P = game.places, W = w(); check(P.places1 && P.poiOf(key(tower))?.legacy && P.poiOf(key(tower)).x === tower.x && P.poiOf(key(tower)).z === 0, 'the tower moved'); check(P.poiOf(key(camp))?.kind === 'campamento' && P.poiOf(key(hamlet))?.kind === 'aldea', 'the camp or the hamlet went');
+      check(!P.poiOf(key(ruin)) && P.entry(...key(ruin).split(',').map(Number))?.pad, 'the ruins are not a clearing'); check(!P.poiOf(key(lost)) || !P.known(P.poiOf(key(lost))), 'the plain ruins still are');
+      check(Math.abs(W.groundRaw(ruin.x, ruin.y)) < 0.01 && Math.abs(W.groundRaw(tower.x, tower.y)) < 0.01, 'their ground is not flat'); check(W.contentFor(...key(tower).split(',').map(Number)).objects.some(o => o.treasure && o.open), 'the plundered chest filled up'); check(W.contentFor(...key(ruin).split(',').map(Number)).objects.some(o => o.placed === 'mesa') && !W.contentFor(...key(ruin).split(',').map(Number)).objects.some(o => o.poi), 'what was on the ruins');
+      check(W.chestAt(Math.floor(tower.x) - 6, Math.floor(tower.y))?.[0]?.n === 7, 'the chest by the tower'); check(!W.contentFor(...key(ruin).split(',').map(Number)).objects.some(o => o.kind && !o.placed && Math.hypot(o.x - ruin.x, o.y - ruin.y) < 3.5), 'trees came back inside what was built on the ruins'); check(JSON.stringify([...W.deltas].filter(([k]) => d[k]).map(([, q]) => [q.placed, q.floor, q.chest, q.opened])) === pieces, 'a build changed');
+      check(P.knownPlaces().length === 3 && P.found.has(key(lost)) && P.found.size === 4, `known: ${P.knownPlaces().map(q => q.kind)} of ${P.found.size}`); for (const a of P.sites.near(tower.x, tower.y, 400)) { const q = P.poiOf(a.key); if (q && !q.legacy) check(gap(boxOf(q), boxOf(tower)) >= NEAR_FROZEN, 'a new place on the old tower'); }
+      check(game.stats.get('lugares') === (old.stats?.lugares ?? game.stats.get('lugares')), 'the count of places'); };
+    try {
+      game.end(); game.start(JSON.parse(JSON.stringify(old)), new Map(Object.entries(JSON.parse(JSON.stringify(d))))); game.onSave = null; await frames(3); look();
+      const list = JSON.stringify(game.places.places1), s2 = JSON.parse(JSON.stringify(game.snapshot())), d2 = JSON.parse(JSON.stringify([...w().deltas]));
+      check(JSON.stringify(s2.places1) === list && s2.placesV === 2 && s2.oldFound.length === 4, 'it is not saved');
+      game.end(); game.start(s2, new Map(d2)); game.onSave = null; await frames(3); check(JSON.stringify(game.places.places1) === list, 'opened again, another list'); look();
+      // (what an old game makes of the save: it keeps the key, as everything it does not know, and gives it back)
+      check(!('places1' in LS.unknownShared({ places1: 1 })) && LS.BLOBS.places1, 'it is not of the world');
+      // (a new place found where an old one was: it counts, and is another)
+      const P = game.places, q = P.nearest(...V4, ['campamento'], 2500, new Set([key(camp)])); P.found.add(q.key); P.oldFound.add(q.key); check(!P.known(q), 'the old one counts as the new one');
+      const n = game.stats.get('lugares'); await goTo(game, q.x + 4, q.y); await frames(4); check(P.known(q) && game.stats.get('lugares') === n + 1, 'the new one is not discovered');
+    } finally { game.end(); game.start(JSON.parse(snap0), new Map(JSON.parse(deltas0))); game.onSave = null; await readyGround(game, 8000); }
+  });
+  await test('sites (english): together: the host\'s list is the guest\'s, a guest without it sees the places of before, and no guest can change it', async () => {
+    const P = game.places, L = game.live, was = P.places1, keep = { role: L.role, joined: L.joined, net: L.net }, set = v => { for (const k in v) Object.defineProperty(L, k, { value: v[k], configurable: true, writable: true }); };
+    const lg = P.legacy, some = (() => { for (let r = 30; r < 90; r++) for (let i = -r; i <= r; i++) { const q = lg.at(i, r); if (q?.kind === 'torre') return q; } })(), save = { player: {}, found: ['1,1'], places1: { v: 2, k: { '9,9': '-' } } };
+    try {
+      // (joining: the world's list, and none of the player's own world)
+      const extra = L.extraShared, e1 = L.enter({ save, deltas: new Map() }, { deltas: [], shared: { clock: 1 } }), e2 = L.enter({ save, deltas: new Map() }, { deltas: [], shared: { places1: { v: 2, k: { [some.key]: 'torre' } } } }); L.extraShared = extra;
+      check(e1.save.places1 === 0 && e2.save.places1.k[some.key] === 'torre', 'the list of another world'); const snap = game.snapshot(), wo = L.worldOf(snap, new Map()); check(JSON.stringify(wo.shared.places1) === JSON.stringify(was), 'the world goes without it');
+      // (guest of an old host: the places of before, and it makes no list)
+      set({ role: 'guest', joined: true, hostConn: 5, net: { send: m => sent.push(m) } }); const sent = []; P.setPlaces(null); P.update(); check(!P.places1 && P.poiOf(some.key)?.legacy, 'a guest makes its own list');
+      // (and then the host's)
+      const fv = P.found.size; LS.BLOBS.places1.set(game, { v: 2, k: { [some.key]: 'torre' } }); check(P.poiOf(some.key)?.legacy && P.found.size === fv, 'the list does not arrive'); const v0 = P.version; LS.BLOBS.places1.set(game, { v: 2, k: { [some.key]: 'torre' } }); check(P.version === v0, 'the same list, everything again'); LS.BLOBS.places1.set(game, { v: 9 }); check(P.places1?.k[some.key] === 'torre', 'a list it does not understand');
+      // (it tells the host what it had found, once)
+      const of = P.oldFound; P.oldFound = new Set([some.key, '3,3']); P.update(); P.update(); P.oldFound = of; check(sent.length === 1 && sent[0].t === 'places' && sent[0].k.join() === '3,3', `sent: ${JSON.stringify(sent)}`);
+      // (the host takes no list from a guest, but keeps what it found)
+      set({ role: 'host' }); P.setPlaces({ v: 2, k: {} }); LS.BLOBS.places1.set(game, { v: 2, k: { '1,1': 'torre' } }); check(!P.places1.k['1,1'], 'a guest changed the list'); const free = (() => { for (let r = 60; r < 160; r++) for (let i = -r; i <= r; i++) { const q = lg.at(i, r); if (q && q.kind !== 'ruinas' && !P.sites.near(q.x, q.y, 200).length) return q; } })();
+      P.keepFound([free.key, 'x', 4, '__proto__']); check(P.places1.k[free.key] === free.kind + '*' && Object.keys(P.places1.k).length === 1 && P.poiOf(free.key)?.legacy, `kept: ${JSON.stringify(P.places1.k)}`); P.keepFound('abc'); P.keepFound(null);
+    } finally { delete L.hostConn; for (const k in keep) { delete L[k]; L[k] = keep[k]; } P.setPlaces(was); }
+    check(P.places1 === was && L.role === keep.role, 'not as it was');
+  });
+  await test('names (english): unique nearby, the same always, in both languages, with state and history', async () => {
+    const S = sitesFor(WORLD_SEED), list = S.near(...V4, 3000).filter(s => READY.has(s.kind)), by = new Map(), was = getLang();
+    check(new Set(Object.values(ROOT_COUNT)).size > 1 && ROOT_COUNT.rock * QUAL_COUNT >= 33 * 33 && Math.min(...Object.values(ROOT_COUNT)) * QUAL_COUNT >= 25 * 25, 'too few names for a block of cells');
+    for (const s of list) { const k = `${s.kind}:${nameOf(s)}`; for (const q of by.get(k) || []) check(far(q, s) >= 3000, `${k} twice, ${far(q, s).toFixed(0)} m apart`); by.set(k, [...(by.get(k) || []), s]); check(nameOf(s) === nameOf({ ...s }), 'another name'); }
+    console.log(`names: ${list.length} places, ${by.size} names; e.g. ${list.slice(0, 12).map(s => nameOf(s)).join(', ')}`);
+    try { for (const l of ['es', 'en']) { await setLang(l); for (const s of list.slice(0, 120)) { const d = game.places.describe(s); check(!/place\.|\{|undefined|null/.test([d.title, d.kind, d.state, d.story].join('|')) && d.title.includes(nameOf(s)) && d.story.length > 20, `${l} ${s.kind}: ${JSON.stringify(d)}`); } } } finally { await setLang(was); }
+    check(stateOf({ kind: 'aldea', id: 1 }) === 'lived' && stateOf({ kind: 'torre', id: 1 }, 500) === 'kept' && stateOf({ kind: 'torre', id: 1 }) === 'empty' && stateOf({ kind: 'cueva', id: 1 }) === null && storyOf({ kind: 'torre', id: 9 }).builder !== 'people', 'states');
+  });
+  await test('explore (english): the discovery message and the feed say its name; the Places page, the map and the legend; ruins are gone; /locate by cells', async () => {
+    const P = game.places, big = hud.big, toast = hud.toast, said = [], was = getLang(), keep = [P.found, P.oldFound, P.foundAt];
+    try {
+      hud.big = m => { said.push(['big', m.title, m.sub, m.line]); return true; }; hud.toast = (m, k) => { said.push(['line', m, k]); };
+      P.found = new Set(); P.oldFound = new Set(); P.foundAt = {}; const cave = P.nearest(...V4, ['cueva'], 2000), camp = P.nearest(...V4, ['campamento'], 2000), ham = P.nearest(...V4, ['aldea'], 3000);
+      check(/place|lugar/i.test(placesHtml(game)) && !placesHtml(game).includes('data-place'), 'the empty page');
+      for (const q of [cave, camp, ham]) { p().x = q.x + 5; p().y = q.y + 5; P.update(); P.update(); }
+      check(said.length === 3 && said[0][0] === 'big' && said[0][1] === t('place.title.cueva', { name: nameOf(cave) }) && said[0][2] === t('big.discovered') && said[1][0] === 'line' && said[1][1] === t('feed.discovered', { place: P.title(camp) }) && said[1][2] === 'place' && said[2][1] === nameOf(ham), JSON.stringify(said));
+      for (const l of ['en', 'es']) { await setLang(l); const html = placesHtml(game); for (const q of [cave, camp, ham]) check(html.includes(P.title(q)) && html.includes(P.describe(q).story.replace(/'/g, "'").slice(0, 20)), `${l}: ${P.title(q)} is not on the page`); check((html.match(/data-place=/g) || []).length === 3 && html.includes(t('place.state.lived')) && html.includes(t('journal.places.count', { n: 3 })), `${l}: the page`); }
+      P.found.add('777,777'); check(placesHtml(game).includes(t('journal.places.gone', { n: 1 })), 'nothing about those that are gone');
+      game.openJournal('places'); check(document.querySelectorAll('#j-body .j-place').length === 3, 'the journal does not open its page'); document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true })); game.setMode?.('play');
+      const B2 = new Blips(); for (const [k, fn] of blips.sources) B2.source(k, fn); B2.refresh(game, 0, true); const mine = B2.list.filter(b => b.kind === 'place'); check(mine.length === 3 && mine.some(b => b.name === P.title(cave) && b.legend === 'poi:' + t('place.kind.cueva') && b.to.id === `poi:${cave.key}`), JSON.stringify(mine.map(b => [b.name, b.legend])));
+      check(!P.markers().some(m => m.kind === 'ruinas') && (() => { try { modelNamed('poi:ruinas'); return false; } catch { return true; } })(), 'ruins are still there'); let n = 0; for (let cy = -60; cy <= 60; cy++) for (let cx = -60; cx <= 60; cx++) { const q = P.poi(cx, cy); if (q) { n++; check(q.kind !== 'ruinas', 'ruins in the world'); } } check(n < 110, `${n} places in 3.7 km²: too many`);
+      const out = [], op = game.live.isOp; runCommand(game, '/locate tower', (m, k) => out.push([m, k])); check(out[0] && /\d/.test(out[0][0]), JSON.stringify(out)); const tw = P.nearest(p().x, p().y, ['torre'], 6000); if (out[0][1] === 'ok') check(out[0][0].includes(P.title(tw)), out[0][0]); const o2 = []; runCommand(game, '/locate ruins', (m, k) => o2.push(k)); check(o2[0] === 'err', 'it still finds ruins');
+      check(P.nearest(...V4, ['cueva'], 2000, new Set([cave.key])) !== cave && P.sites.nearest(...V4, ['aldea', 'torre'], 4000)?.key, 'nearest with skip');
+    } finally { hud.big = big; hud.toast = toast; [P.found, P.oldFound, P.foundAt] = keep; P.foundN = -1; await setLang(was); p().x = CENTER.x; p().y = CENTER.y + 3; }
+    const src = await (await fetch(new URL('./explore.js', import.meta.url))).text(); check(!/(text|title): '[A-ZÁÉ¡¿]|toast\('[A-Z¡]|say\('[A-Z]/.test(src), 'text in the code of explore.js');
+  });
   await test('cuevas: se entra, se baja, se sube y se sale; del templo también, y el faro es aparte', async () => {
     // (hasta 2026-11-11 el del faro se llamaba igual que el de las escaleras y lo tapaba: ni se bajaba ni se salía)
     const ex = game.places, v = game.view3d, wr = v.whenReady, say = hud.say;
     v.whenReady = () => sleep(50); hud.say = () => Promise.resolve();   // (sin esperar a la gráfica ni al diálogo del faro)
     try {
-      const near = kind => { for (let r = 0; r < 30; r++) for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) { if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue; const q = ex.poi(Math.floor(CENTER.x / CHUNK) + dx, Math.floor(CENTER.y / CHUNK) + dy); if (q?.kind === kind) return q; } return null; };
+      const near = kind => ex.nearest(CENTER.x, CENTER.y, [kind], 900);
       // (aim: como con el ratón, lo que dice la escalera apuntada, que es como se juega en el ordenador; si no, con E)
       const ladder = async (dir, want, aim = false) => {
         const o = game.scene.live().find(o => o.ladder === dir);
@@ -6555,7 +6710,7 @@ async function soloTests(game) {
     const sweep = roof => { for (const k of Object.keys(roof)) { const [x, y] = k.split(',').map(Number); if (!W.roofAt(x, y) || touched(x, y)) continue; n++; if (!ST.roofHeld(W, x, y)) bad.push(k); } };
     for (const c of Object.values(W.village.built || {})) sweep(c.roof || {});
     let v = null;
-    for (let r = 2; r < 80 && !v; r++) for (let cy = -r; cy <= r && !v; cy++) for (let cx = -r; cx <= r && !v; cx++) { if (Math.max(Math.abs(cx), Math.abs(cy)) !== r) continue; const q = game.places.poi(cx, cy); if (q?.kind === 'aldea') v = q; }
+    v = game.places.nearest(CENTER.x, CENTER.y, ['aldea'], 4000);
     if (v) sweep(game.places.aldea(v).all.roof);
     const H = game.houseRect(), own = {}; for (let y = H.y0; y < H.y1; y++) for (let x = H.x0; x < H.x1; x++) own[`${x},${y}`] = 1; sweep(own);
     check(n > 100 && !bad.length, `${bad.length} of ${n} are not held: ${bad.slice(0, 4)}`);

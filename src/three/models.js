@@ -2,7 +2,7 @@
 // telar, cocina), muebles (cama, mesa, sillas, estanterías, lámparas, cofres, alfombras, macetas, vitrinas),
 // cosas del rancho y del huerto (gallinero, establo, colmena, comedero, aspersor, cultivos en cada fase), el
 // hogar con chimenea, las cosas del pueblo (puestos, tablón, fuente, muelle, buzón, farola
-// y cartel), los lugares que se descubren (ruinas, campamento, torre, barco hundido, templo, altar, cueva,
+// y cartel), los lugares que se descubren (campamento, torre, barco hundido, templo, altar, cueva,
 // faro) y los cofres del tesoro.
 //
 // Cada modelo se hace una vez, en coordenadas locales (el suelo en y = 0, el centro de su casilla en el origen
@@ -1024,20 +1024,6 @@ function roofPrismZ(m, key, x0, x1, z0, z1, y0, h) {
   B.tri(A, Bp, E, [0, 0, 1], [[x0, 0], [x1, 0], [xm, h]]);
   B.tri(C, D, F, [0, 0, -1], [[x1, 0], [x0, 0], [xm, h]]);
 }
-// Un muro de sillares de x0,z0 hacia (dx, dz), con la altura que queda en pie en cada tramo (heights, en metros)
-function ashlarWall(m, R, x0, z0, dx, dz, heights, t = 0.36) {
-  const L = 0.44, H = 0.3;
-  heights.forEach((hm, i) => {
-    const rows = Math.round(hm / H);
-    for (let k = 0; k < rows; k++) {
-      if (k === rows - 1 && R() < 0.35) continue;   // (arriba, alguno caído)
-      const off = k % 2 ? L / 2 : 0, a = i * L + off, b = Math.min(heights.length * L, a + L) - 0.012, y = k * H, j = (R() - 0.5) * 0.03;
-      const p0 = [x0 + dx * a, z0 + dz * a], p1 = [x0 + dx * b, z0 + dz * b];
-      const xa = Math.min(p0[0], p1[0]) - (dz ? t / 2 : 0) + j, xb = Math.max(p0[0], p1[0]) + (dz ? t / 2 : 0) + j, za = Math.min(p0[1], p1[1]) - (dx ? t / 2 : 0) + j, zb = Math.max(p0[1], p1[1]) + (dx ? t / 2 : 0) + j;
-      m.box('ashlar', xa, y, za, xb, y + H - 0.015, zb, 0.6);
-    }
-  });
-}
 // Una columna de tambores (con su basa y, si está entera, su capitel), de h metros; si no, rota a esa altura
 function column(m, key, x, z, h, whole, R, r = 0.24) {
   m.box(key, x - r * 1.25, 0, z - r * 1.25, x + r * 1.25, 0.18, z + r * 1.25, 0.6);
@@ -1088,27 +1074,10 @@ function bigTower(m) {
   m.solids.push([-R, 0, -R, R, H + T.parapet, R]);
 }
 const BOXG = new THREE.BoxGeometry(1, 1, 1), CIRCLE = new THREE.CircleGeometry(1, 28);
-// Los lugares del mundo (poi:…): la torre grande, las ruinas, el templo y la cueva, y el campamento, el barco varado, el
+// Los lugares del mundo (poi:…): la torre grande, el templo y la cueva, y el campamento, el barco varado, el
 // altar y el faro
 const PLACES = {
   torre: bigTower,
-  ruinas(m) {
-    const R = rng(31);
-    // Las losas del suelo, algunas levantadas y otras que faltan
-    for (let i = 0; i < 16; i++) { if (R() < 0.3) continue; const x = -1.35 + (i % 4) * 0.72, z = -1.35 + Math.floor(i / 4) * 0.72, h = 0.05 + R() * 0.04; m.box('marbleD', x - 0.34, 0, z - 0.34, x + 0.34, h, z + 0.34, 0.6); }
-    // Un muro en esquina, roto en escalera, y tres columnas: una entera, dos partidas
-    ashlarWall(m, R, -1.55, -1.45, 1, 0, [2.4, 2.1, 1.8, 1.2, 0.9, 0.6]);
-    ashlarWall(m, R, -1.55, -1.45, 0, 1, [2.4, 1.8, 1.5, 0.9, 0.6, 0.3]);
-    column(m, 'ashlar', 1.05, -0.95, 3.0, true, R);
-    column(m, 'ashlar', 1.05, 0.55, 1.4, false, R);
-    column(m, 'ashlar', -0.15, 1.15, 0.75, false, R);
-    // Tambores caídos y cascotes
-    m.cyl('ashlar', 0.15, 0.24, -0.15, 0.24, 0.24, 0.54, 16, [0, 0.6, Math.PI / 2]);
-    m.cyl('ashlar', 1.5, 0.24, 1.25, 0.24, 0.24, 0.54, 16, [0, -0.9, Math.PI / 2]);
-    for (let i = 0; i < 9; i++) { const a = R() * 6.28, d = 0.5 + R() * 1.0, sc = 0.08 + R() * 0.12; m.geo('ashlar', rockG(i % 3), Math.cos(a) * d, sc * 0.2, Math.sin(a) * d, [0, R() * 6, 0], [sc * 1.3, sc, sc]); }
-    // Musgo por encima del muro y al pie
-    for (const [x, y, z, sx] of [[-1.3, 2.4, -1.45, 0.3], [-0.7, 1.8, -1.45, 0.25], [-1.55, 1.5, -0.7, 0.25], [-1.0, 0.04, -1.1, 0.5], [1.05, 1.4, 0.55, 0.22]]) m.geo('moss', ICO1, x, y, z, [0, x, 0], [sx, 0.06, sx * 0.8]);
-  },
   templo(m) {
     const R = rng(7);
     // Tres gradas, columnas alrededor de la cella (cuatro delante), arquitrabe y el frontón; la puerta, de 2,05 m, mira a +z

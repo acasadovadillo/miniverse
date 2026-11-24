@@ -25,6 +25,7 @@ const WADE_MAX = 0.5;   // (ver blocked)
 
 // Lo de un trozo visto desde el otro lado de la costura: lo mismo, corrido off casillas en x
 const X_KEYS = new Set(['x', 'x0', 'x1', 'cx']);
+const padCurve = d => (d >= PAD_R ? 1 : d <= 1.2 ? 0 : ((d - 1.2) / (PAD_R - 1.2)) ** 2 * (3 - 2 * (d - 1.2) / (PAD_R - 1.2)));
 const PAD_R = 7, NO_TILES = [];   // (el allanado alrededor de lo construido de antes: ver padK)
 // La altura de lo construido (ver levelFor): a escalones de LV_STEP; una casilla se junta a la altura de las de al lado si
 // no le sacan más de LV_JOIN (así una casa en cuesta queda a una sola altura, sobre su cimiento)
@@ -539,7 +540,7 @@ export class Overworld {
     if (p) return p.kind === 'post' || (p.layer === 'roof' && (!v || post));
     return v ? post : !!d.roof?.[k] && !d.hang?.[k] && !d.rug?.[k];
   }
-  groundRaw(x, y) { if (inBounds(x, y)) return 0; const h = Math.max(0, this.gen.groundAt(x, y)); return h > 0 ? h * this.padK(x, y) : 0; }   // (el suelo como se ve: allanado junto a lo de antes)
+  groundRaw(x, y) { if (inBounds(x, y)) return 0; const h = Math.max(0, this.gen.groundAt(x, y)); return h > 0 ? this.padH(x, y, h) : 0; }   // (el suelo como se ve: allanado junto a lo de antes)
   // La altura que tendría id puesto en la casilla (para colocarlo y para la vista previa)
   levelFor(tx, ty, id) {
     const W = wellSpec(id);
@@ -632,7 +633,10 @@ export class Overworld {
     for (const l of this.layers) if (l.pad) best = Math.min(best, l.pad(x, y));
     return best;
   }
-  padK(x, y) { if (inBounds(x, y)) return 0; const d = this.padDist(x, y); return d >= PAD_R ? 1 : d <= 1.2 ? 0 : ((d - 1.2) / (PAD_R - 1.2)) ** 2 * (3 - 2 * (d - 1.2) / (PAD_R - 1.2)); }
+  padK(x, y) { return inBounds(x, y) ? 0 : padCurve(this.padDist(x, y)); }
+  // The ground at (x, y) as it is seen, from its own height h (over 0): level round the places that stand at theirs (the
+  // layers' padTo), and down to 0 round what stands at 0 (padK)
+  padH(x, y, h) { for (const l of this.layers) if (l.padTo) h = l.padTo(x, y, h, padCurve); return h * this.padK(x, y); }
   // ¿Hay algo que allanar cerca de este rectángulo? (para no mirar casilla a casilla donde no hay nada)
   padNear(x0, y0, x1, y1) {
     for (let cy = Math.floor((y0 - PAD_R) / CHUNK); cy <= Math.floor((y1 + PAD_R) / CHUNK); cy++) for (let cx = Math.floor((x0 - PAD_R) / CHUNK); cx <= Math.floor((x1 + PAD_R) / CHUNK); cx++) if (this.builtTiles(cx, cy).length) return true;
@@ -642,6 +646,7 @@ export class Overworld {
   padSig(x0, y0, x1, y1) {
     let s = '';
     for (let cy = Math.floor((y0 - PAD_R) / CHUNK); cy <= Math.floor((y1 + PAD_R) / CHUNK); cy++) for (let cx = Math.floor((x0 - PAD_R) / CHUNK); cx <= Math.floor((x1 + PAD_R) / CHUNK); cx++) s += (this.builtTiles(cx, cy).length || '') + ',';
+    for (const l of this.layers) if (l.padSig) s += `${l.padSig()};`;   // (the places: their list may change, explore.js)
     return s;
   }
 

@@ -304,8 +304,8 @@ export class Terrain {
         if (ii && jj) continue;
         const H = ii || jj ? e : out, v = ii || jj ? edgeAt(n, i, j) : j * n + i;
         if (H[v] <= 0.01) continue;
-        const k = w.padK(x0 + i, z0 + j);
-        if (k !== 1) { H[v] *= k; any = true; }
+        const h = w.padH(x0 + i, z0 + j, H[v]);
+        if (h !== H[v]) { H[v] = h; any = true; }
       }
     }
     this.stats.padded++; this.stats.msPad += performance.now() - t0;

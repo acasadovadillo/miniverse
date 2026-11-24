@@ -211,7 +211,7 @@ export class World3D {
   signature(scene, cx, cy, data) {
     const farm = this.farm(scene), d = scene.delta(cx, cy);
     let s = '';
-    for (const o of data.objects) s += o.key + (o.crop && farm ? ':' + farm.model(o.crop) : '') + (o.open ? '!' : '') + (o.placed ? o.placed + (o.rot || 0) : '') + (o.model ? ':' + o.model : '') + (o.off ? '~' : '') + (o.tuck ? '^' : '') + (o.mask !== undefined ? `m${o.mask}` : '') + (o.door ? `d${o.door}` : '') + (o.free ? `@${o.x.toFixed(2)},${o.y.toFixed(2)},${o.yaw.toFixed(2)}` : '') + (o.window && scene.doorClosed(...o.tile) ? '#' : '') + ',';   // (~: apagado; #: ventana cerrada)
+    for (const o of data.objects) s += o.key + (o.poi ? `${o.poi.kind}${o.x},${o.y},${o.poi.z || 0}` : '') + (o.crop && farm ? ':' + farm.model(o.crop) : '') + (o.open ? '!' : '') + (o.placed ? o.placed + (o.rot || 0) : '') + (o.model ? ':' + o.model : '') + (o.off ? '~' : '') + (o.tuck ? '^' : '') + (o.mask !== undefined ? `m${o.mask}` : '') + (o.door ? `d${o.door}` : '') + (o.free ? `@${o.x.toFixed(2)},${o.y.toFixed(2)},${o.yaw.toFixed(2)}` : '') + (o.window && scene.doorClosed(...o.tile) ? '#' : '') + ',';   // (~: apagado; #: ventana cerrada)
     for (const o of data.flats) s += o.key + (o.model || o.placed || '') + (o.rot || 0) + (o.free ? `@${o.x.toFixed(2)},${o.y.toFixed(2)},${o.yaw.toFixed(2)}` : '') + ',';
     for (const o of data.floors) s += o.key + ',';
     for (const t of data.tilled) { const k = `${t[0]},${t[1]}`; s += k + (farm ? farm.soilLook(d, k) : 0) + (d?.mulch?.[k] !== undefined ? 'm' : '') + tilledMask(scene, t[0], t[1]) + ';'; }   // (with its neighbours: one tilled next door, in another chunk too, joins it)
@@ -248,7 +248,7 @@ export class World3D {
       this.placeModel(`tilled:${fm ? fm.soilLook(dl, k) : 0}:${tilledMask(scene, t[0], t[1], LIFT, lv)}${dl?.mulch?.[k] !== undefined ? ':m' : ''}`, t[0] + 0.5, t[1] + 0.5, 0, plain, c, group, false, LIFT);
     }
     for (const o of data.objects.concat(data.flats)) {
-      LIFT = o.poi || o.treasure ? 0 : o.tile ? lv(...o.tile) : lv(Math.floor(o.x), Math.floor(o.y));
+      LIFT = o.poi ? o.poi.z || 0 : o.treasure ? o.treasure.z || 0 : o.tile ? lv(...o.tile) : lv(Math.floor(o.x), Math.floor(o.y));
       if (o.placed && (o.layer === 'placed' || o.layer === 'hang' || o.layer === 'rug')) {
         const [tx, ty] = o.tile, piece = PIECES[o.placed], region = this.regionAt(scene, tx, ty);
         if (region) c.regions.add(region);
@@ -266,8 +266,8 @@ export class World3D {
         if (o.load && BULKY[o.load]) { const l = loadModel(o.load, 'bow'); placeLoad(l, o.load, 'bow'); b.add(l); }
         b.traverse(q => { if (q.isMesh) { q.castShadow = true; q.receiveShadow = true; } }); group.add(b); (c.boats ||= new Map()).set(o.key, b);
       }
-      else if (o.poi) this.placeModel(`poi:${o.poi.kind}${o.poi.snow ? ':snow' : ''}`, o.poi.x, o.poi.y, 0, plain, c, group);
-      else if (o.treasure) this.placeModel(`treasure:${o.open ? 1 : 0}`, o.x, o.y, 0, plain, c, group);
+      else if (o.poi) this.placeModel(`poi:${o.poi.kind}${o.poi.snow ? ':snow' : ''}`, o.poi.x, o.poi.y, 0, plain, c, group, false, LIFT);
+      else if (o.treasure) this.placeModel(`treasure:${o.open ? 1 : 0}`, o.x, o.y, 0, plain, c, group, false, LIFT);
       else if (o.roof && o.layer === 'roof') { const r = this.regionAt(scene, o.tile[0], o.tile[1]); if (r) c.regions.add(r); }
     }
     // (el suelo bajo cada charco de luz, con su pendiente, al montar el trozo: si cambia el suelo, se rehace con él. Ver glow.js)

@@ -1,101 +1,159 @@
-// Exploración: lugares que el mundo genera solo (entradas de cueva, ruinas, campamentos, torres, barcos
-// hundidos, templos, faros en algunas costas y aldeas lejanas), sus cofres, las cuevas y mazmorras a las que
-// llevan, y los vehículos (barca y caballo).
-import { ITEMS } from './items.js';
+// Exploring: the places the world has (cave mouths, camps, watchtowers, beached boats, temples, lighthouses on some coasts
+// and far hamlets), their chests, the caves and dungeons they lead to, and the vehicles (boat and horse). Where each one
+// goes and what it is called is decided elsewhere: world/sites.js (few, each on its spot), world/names.js (its name, its
+// state and its history) and world/frozenplaces.js (what an old world keeps as it was).
 import { ihash } from './util.js';
 import { CHUNK } from './world/gen.js';
 import { towerColliders, TOWER } from './world/tower.js';
-import { B } from './world/biomes.js';
-import { CENTER } from './world/village.js';
 import { wrapIndex } from './world/planet.js';
 import { houseBlueprint, houseSize, byChunk } from './world/blueprints.js';
 import { makeCave, makeDungeon } from './world/underground.js';
+import { sitesFor, LegacyPlaces, hamletSlots, READY, SITE_SIZE as SIZE } from './world/sites.js';
+import { nameOf, stateOf, storyOf } from './world/names.js';
+import { freeze, freezeMore, readPlaces, nearFrozen, kindOf, boxOf, gap, NEAR_FROZEN } from './world/frozenplaces.js';
 import { Person } from './entities.js';
 import { SHOPS } from './economy.js';
+import { countOf } from './talktopics.js';
 import { Audio } from './audio.js';
+import { apagada } from './opciones.js';
 import { hud } from './ui/hud.js';
-import { t as tr } from './i18n.js';
+import { t, fmt } from './i18n.js';
 
-const SIZE = { ruinas: 2.2, campamento: 1.8, torre: 3.7, barco: 2.2, templo: 2.2, cueva: 1.4, aldea: 16, faro: 3 };
 const AROUND = [[-1, -1], [0, -1], [1, -1], [-1, 0], [1, 0], [-1, 1], [0, 1], [1, 1]];
-const NAMES = { ruinas: 'Ruinas', campamento: 'Campamento abandonado', torre: 'Torre vieja', barco: 'Barco hundido', templo: 'Templo antiguo', cueva: 'Cueva', aldea: 'Aldea', faro: 'Faro' };
 const BIG_PLACES = new Set(['aldea', 'torre', 'cueva', 'templo', 'faro']);
-SHOPS.viajero = { title: 'Mercader de la aldea', hours: [7, 21], stock: [{ id: 'semilla_manzano', price: 90 }, { id: 'pocion', price: 120 }, { id: 'espada', price: 380 }, { plan: 'barca', price: 500 }, { id: 'caballo', price: 2600 }, { id: 'lingote_oro', price: 300 }, { id: 'semilla_calabaza', price: 60 }] };
+const WARM_R = 520, WARM_EVERY = 0.12;   // the sites are worked out this far ahead, a cell at a time (and how often)
+const FOUND_MAX = 1500;                  // (how many places found before a guest tells its host)
+const OLD = apagada('sitios');           // (?sitios=1: the places of before, to compare)
+SHOPS.viajero = { get title() { return t('shop.title.viajero'); }, hours: [7, 21], stock: [{ id: 'semilla_manzano', price: 90 }, { id: 'pocion', price: 120 }, { id: 'espada', price: 380 }, { plan: 'barca', price: 500 }, { id: 'caballo', price: 2600 }, { id: 'lingote_oro', price: 300 }, { id: 'semilla_calabaza', price: 60 }] };
+// What a kind of place is called, whichever it is («Cave»)
+export const placeKind = kind => t(`place.kind.${kind}`);
 
 export class Explore {
   constructor(game) {
     this.game = game;
-    this.cache = new Map();
-    this.layer = { add: (cx, cy, d, out) => this.addContent(cx, cy, d, out), hides: o => this.hides(o), pad: (x, y) => this.padDist(x, y), padNear: (x0, y0, x1, y1) => this.padNear(x0, y0, x1, y1), blocks: (tx, ty) => this.blocks(tx, ty), baseAt: (layer, tx, ty) => this.baseAt(layer, tx, ty) };
+    this.cache = new Map();      // "cx,cy" → the place there, a bare clearing ({ pad: true }) or null
+    this.layer = { add: (cx, cy, d, out) => this.addContent(cx, cy, d, out), hides: o => this.hides(o), pad: (x, y) => this.padDist(x, y), padTo: (x, y, h, curve) => this.padTo(x, y, h, curve), padSig: () => this.version, padNear: (x0, y0, x1, y1) => this.padNear(x0, y0, x1, y1), blocks: (tx, ty) => this.blocks(tx, ty), baseAt: (layer, tx, ty) => this.baseAt(layer, tx, ty) };
     this.traders = new Map();
     this.aldeas = new Map();     // planos de piezas de las casas de cada aldea
-    this.raw = new Map();        // lugar que tocaría en cada trozo, sin mirar a los de al lado
     this.found = new Set();      // lugares descubiertos (para el mapa y los logros)
+    this.oldFound = new Set();   // those of them found when the places were others (a place of now in that chunk is another)
+    this.foundAt = {};           // key → the real day it was found
+    this.places1 = null;         // what an old world keeps (frozenplaces.js), or null: not known yet (the places of before, meanwhile)
+    this.marks = {};
+    this.version = 0; this.warmAt = 0;
   }
   get world() { return this.game.world; }
   reset(save) {
-    this.cache.clear();
-    this.traders.clear();
-    this.aldeas.clear();
-    this.raw.clear();
+    this.sites = sitesFor(this.world.seed);
+    const gen = this.world.gen;
+    this.legacy = new LegacyPlaces(this.world.seed, (x, y) => gen.biomeAt(x, y));
     this.found = new Set(save.found || []);
-    this.foundN = -1;
+    this.oldFound = new Set(Array.isArray(save.oldFound) ? save.oldFound : save.placesV === 2 ? [] : save.found || []);
+    this.foundAt = save.foundAt && typeof save.foundAt === 'object' ? { ...save.foundAt } : {};
+    this.start = { x: save.player?.x, y: save.player?.y, spawn: save.worldSpawn, animals: save.animals };
+    this.toldHost = null; this.warmAt = 0;
+    this.setPlaces(readPlaces(save.places1));
+    // (your own world, or the server's: its list is made now, before any land is. A shared world that came without one, 0
+    // (live.js, enter): in update, if it is your game that runs it; if not, the places of before, as its host sees them)
+    if (!this.places1 && save.places1 !== 0) this.settle();
     if (!this.world.layers.includes(this.layer)) this.world.layers.push(this.layer);
   }
-  save(out) { out.found = [...this.found]; }
+  save(out) {
+    out.found = [...this.found]; out.placesV = 2; out.foundAt = this.foundAt;
+    if (this.oldFound.size) out.oldFound = [...this.oldFound];
+    if (this.places1) out.places1 = this.places1;
+  }
 
-  // ¿Hay un lugar en este trozo? (siempre lo mismo para la misma semilla). Una aldea se sale de su trozo
-  // hacia los de alrededor, así que en esos no hay otro lugar (y de dos aldeas juntas queda una).
-  poi(cx, cy) {
+  // ---------- what the world keeps of before ----------
+  setPlaces(v) {
+    this.places1 = v; this.marks = v?.k || {};
+    this.version++;
+    this.cache.clear(); this.aldeas.clear(); this.traders.clear(); this.described?.clear();
+    this.found = new Set(this.found);   // (so that the maps make their list again: ui/blips.js)
+    this.foundN = -1;
+    const w = this.world;
+    if (w?.merged) { w.merged.clear(); w.touches++; }   // (what is drawn of each chunk, and the ground round the places)
+  }
+  // Whoever runs the world (or plays alone) writes the list of an old world, once. A guest waits for the host's
+  settle() {
+    if (OLD || this.places1) return;
+    const { x, y, spawn, animals } = this.start || {}, at = Array.isArray(spawn) ? spawn : [spawn?.x, spawn?.y];
+    const points = [[x, y], at, ...(Array.isArray(animals) ? animals : []).map(a => [a?.x, a?.y])];
+    this.setPlaces(freeze({ sites: this.sites, legacy: this.legacy, deltas: this.world.deltas, found: this.oldFound, points }));
+  }
+  // (guest) The list of the world, from its host
+  share(v) { const r = readPlaces(v); if (r && JSON.stringify(r) !== JSON.stringify(this.places1)) this.setPlaces(r); }
+  // (guest, on joining) The places this player had found before, for the host to keep them (frozenplaces.js). Once per host
+  tellHost() {
+    const L = this.game.live;
+    if (!L?.joined || !L.guest || L.hostConn === null || L.hostConn === undefined || this.toldHost === L.hostConn || !this.places1) return;
+    this.toldHost = L.hostConn;
+    const keys = [...this.oldFound].filter(k => !this.marks[k] || this.marks[k] === '-').slice(0, FOUND_MAX);
+    if (keys.length) L.net?.send({ t: 'places', k: keys }, L.hostConn);
+  }
+  // (host) …and here they come
+  keepFound(keys) {
+    if (!this.places1 || OLD || !Array.isArray(keys)) return;
+    const siteNear = p => { const b = boxOf(p); return this.sites.near(p.x, p.y, NEAR_FROZEN + 64, READY).some(s => this.poiOf(s.key)?.kind === s.kind && gap(boxOf(s), b) < NEAR_FROZEN); };
+    const v = freezeMore(this.places1, { legacy: this.legacy, deltas: this.world.deltas, found: keys.slice(0, FOUND_MAX), siteNear });
+    if (v) this.setPlaces(v);
+  }
+
+  // ---------- the places ----------
+  // What there is in this chunk (the same for the same seed and the same list): the place that stays from before, or the
+  // site of now. A clearing ({ pad: true }) is the flat ground where ruins were
+  entry(cx, cy) {
     cx = wrapIndex(cx, CHUNK);   // (el trozo, dentro del planeta)
-    const k = `${cx},${cy}`;
-    if (this.cache.has(k)) return this.cache.get(k);
-    const w = this.world, s = w.seed, x = cx * CHUNK + 8.5, y = cy * CHUNK + 8.5;
-    let kind = this.rawKind(cx, cy);
-    if (kind === 'aldea' ? !this.isAldea(cx, cy) : kind && AROUND.some(([dx, dy]) => this.isAldea(cx + dx, cy + dy))) kind = null;
-    const p = kind && { kind, x, y, key: k, id: Math.floor(ihash(cx, cy, s + 701) * 1e6), snow: w.gen.biomeAt(x, y) === B.SNOW };
+    const k = `${cx},${cy}`, hit = this.cache.get(k);
+    if (hit !== undefined) return hit;
+    let p = null;
+    if (!this.places1) p = this.legacy.at(cx, cy);
+    else {
+      const kind = kindOf(this.marks[k]);
+      if (kind && kind !== '-') p = this.legacy.place(cx, cy, kind);
+      else if (kind !== '-') { const s = this.sites.at(cx, cy); if (s && READY.has(s.kind) && !nearFrozen(s, this.marks, this.legacy)) p = s; }
+    }
+    if (p?.kind === 'ruinas') p = { ...p, pad: true };
+    if (this.cache.size > 30000) this.cache.clear();
     this.cache.set(k, p);
     return p;
   }
-  // Una aldea de verdad: no tiene al lado un faro ni otra aldea que gane (la de número más bajo)
-  isAldea(cx, cy) {
-    cx = wrapIndex(cx, CHUNK);
-    if (this.rawKind(cx, cy) !== 'aldea') return false;
-    const r = ihash(cx, cy, this.world.seed + 700);
-    return !AROUND.some(([dx, dy]) => { const k = this.rawKind(cx + dx, cy + dy); return k === 'faro' || (k === 'aldea' && ihash(cx + dx, cy + dy, this.world.seed + 700) < r); });
-  }
-  // El lugar que tocaría en el trozo sin mirar a los de al lado
-  rawKind(cx, cy) {
-    cx = wrapIndex(cx, CHUNK);
-    const k = `${cx},${cy}`;
-    if (this.raw.has(k)) return this.raw.get(k);
-    const w = this.world, s = w.seed, x = cx * CHUNK + 8.5, y = cy * CHUNK + 8.5;
-    let kind = null;
-    if (Math.hypot(x - CENTER.x, y - CENTER.y) > 45) {
-      const b = w.gen.biomeAt(x, y), r = ihash(cx, cy, s + 700), far = Math.hypot(x - CENTER.x, y - CENTER.y) > 110;
-      if (b === B.ROCKY) kind = r < 0.25 ? 'cueva' : null;
-      else if (b === B.SNOW) kind = r < 0.1 ? 'cueva' : r < 0.18 ? 'torre' : null;
-      else if (b === B.DESERT) kind = r < 0.1 ? 'templo' : r < 0.14 ? 'ruinas' : null;
-      else if (b === B.BEACH) kind = r < 0.1 ? 'barco' : far && r < 0.13 ? 'faro' : null;   // (algunas costas tienen faro)
-      else if (b === B.MEADOW || b === B.FOREST || b === B.PINES) kind = r < 0.03 ? 'ruinas' : r < 0.055 ? 'campamento' : r < 0.075 ? 'torre' : far && r < 0.125 ? 'aldea' : null;
-      // Una aldea necesita la plaza y al menos dos casas en tierra firme (la del mundo: no cambia con lo cavado)
-      if (kind === 'aldea' && (w.natWater(x, y) || this.aldeaSlots(cx, cy).length < 2)) kind = null;
+  // The place in this chunk, or null
+  poi(cx, cy) { const p = this.entry(cx, cy); return p && !p.pad ? p : null; }
+  poiOf(key) { const [cx, cy] = key.split(',').map(Number); return Number.isFinite(cx) && Number.isFinite(cy) ? this.poi(cx, cy) : null; }
+  // Does this player know this place? (an old key may be of a place that is no more, with another one in its chunk now)
+  known(p) { return this.found.has(p.key) && (!!p.legacy || !this.oldFound.has(p.key)); }
+  // The places this player knows
+  knownPlaces() { const out = []; for (const k of this.found) { const p = this.poiOf(k); if (p && this.known(p)) out.push(p); } return out; }
+  // The nearest place of a kind within r that is not in skip (a Set of keys), or null: for /locate, rumours… Those that stay
+  // from before count too
+  nearest(x, y, kinds, r = 4000, skip = null) {
+    let best = null, bd = r;
+    const try1 = p => { const d = Math.hypot(p.x - x, p.y - y); if (d < bd && kinds.includes(p.kind) && !skip?.has(p.key)) { bd = d; best = p; } };
+    if (!this.places1) {
+      const cx = Math.floor(x / CHUNK), cy = Math.floor(y / CHUNK);
+      for (let q = 0; q <= 150 && (q - 1) * CHUNK <= bd; q++) for (let j = -q; j <= q; j++) for (let i = -q; i <= q; i += Math.abs(j) === q ? 1 : Math.max(1, 2 * q)) { const p = this.poi(cx + i, cy + j); if (p) try1(p); }
+      return best;
     }
-    this.raw.set(k, kind);
-    return kind;
+    for (const [k, mark] of Object.entries(this.marks)) if (mark !== '-') { const p = this.poiOf(k); if (p?.legacy) try1(p); }
+    const s = this.sites.nearest(x, y, kinds.filter(q => READY.has(q)), bd, skip, q => { const p = this.poiOf(q.key); return !!p && !p.legacy && p.kind === q.kind; });
+    return s || best;
   }
-  // Dónde van las casas de una aldea (origen de cada una, relativo a la plaza): de los cuatro sitios
-  // alrededor de la plaza, los tres primeros sin agua debajo
-  aldeaSlots(cx, cy) {
-    const w = this.world, px = cx * CHUNK + 8, py = cy * CHUNK + 8, { w: hw, h: hh } = houseSize(false), out = [];
-    for (const [dx, dy] of [[-14, -12], [2, -13], [-15, 2], [2, 2]]) {
-      let dry = true;
-      for (let y = 0; y < hh && dry; y++) for (let x = 0; x < hw; x++) if (w.natWater(px + dx + x + 0.5, py + dy + y + 0.5)) { dry = false; break; }   // (el agua del mundo: los lugares no cambian con lo cavado)
-      if (dry) out.push([dx, dy]);
-      if (out.length === 3) break;
+  // ---------- who they are ----------
+  nameOf(p) { return nameOf(p); }
+  title(p) { return t(`place.title.${p.kind}`, { name: nameOf(p) }); }
+  // { title, kind, state (its name, or null), story, at (the real day, or undefined) }: for the journal and the maps
+  describe(p) {
+    const C = (this.described ||= new Map());
+    let q = C.get(p.key);
+    if (!q) {
+      const h = p.kind === 'aldea' ? null : this.nearest(p.x, p.y, ['aldea'], 1500), d = h ? Math.hypot(h.x - p.x, h.y - p.y) : Infinity;
+      C.set(p.key, (q = { state: stateOf(p, d), ...storyOf(p, h && nameOf(h)) }));
     }
-    return out;
+    const story = t(`place.story.${p.kind}.${q.line}`, { year: String(q.year), name: nameOf(p), builder: t(`place.builder.${q.builder}`, { name: q.hamlet || '' }) });
+    return { title: this.title(p), kind: placeKind(p.kind), state: q.state && t(`place.state.${q.state}`), story, at: this.foundAt[p.key] };
   }
+  aldeaSlots(cx, cy) { return hamletSlots(cx, cy, (x, y) => !!this.world.natWater(x, y)); }   // (la del mundo: los lugares no cambian con lo cavado)
   // La aldea cuyas casas llegan a este trozo (la del propio trozo o la de uno de al lado)
   aldeasAround(cx, cy) {
     const out = [];
@@ -117,29 +175,41 @@ export class Explore {
   // mira padDist, los de los trozos de al lado
   padNear(x0, y0, x1, y1) {
     for (let cy = Math.floor(y0 / CHUNK) - 1; cy <= Math.floor(y1 / CHUNK) + 1; cy++) for (let cx = Math.floor(x0 / CHUNK) - 1; cx <= Math.floor(x1 / CHUNK) + 1; cx++) {
-      const p = this.poi(cx, cy);
+      const p = this.entry(cx, cy);
       if (!p) continue;
       if (p.kind === 'aldea') { const [a0, b0, a1, b1] = this.aldea(p).box; if (a0 <= x1 && a1 >= x0 && b0 <= y1 && b1 >= y0) return true; }
       else { const r = SIZE[p.kind] || 2; if (Math.max(0, x0 - p.x, p.x - x1) <= r && Math.max(0, y0 - p.y, p.y - y1) <= r) return true; }
     }
     return false;
   }
-  // Lo lejos que está (x, y) de un lugar o de las casas de una aldea (para allanar el suelo: ver scenes.js, padK)
+  // Lo lejos que está (x, y) de un lugar o de las casas de una aldea (para allanar el suelo a 0: ver scenes.js, padK). Only
+  // those whose ground is at 0: the hamlets and the places of before
   padDist(x, y) {
     const cx = Math.floor(x / CHUNK), cy = Math.floor(y / CHUNK);
     let best = 99;
     for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
-      const p = this.poi(cx + dx, cy + dy);
+      const p = this.entry(cx + dx, cy + dy);
       if (!p) continue;
       if (p.kind === 'aldea') { const [x0, y0, x1, y1] = this.aldea(p).box, ex = Math.max(0, x0 - x, x - x1), ey = Math.max(0, y0 - y, y - y1); best = Math.min(best, Math.hypot(ex, ey)); }
-      else best = Math.min(best, Math.max(0, Math.hypot(x - p.x, y - p.y) - (SIZE[p.kind] || 2)));
+      else if (!p.z) best = Math.min(best, Math.max(0, Math.hypot(x - p.x, y - p.y) - (SIZE[p.kind] || 2)));
     }
     return best;
+  }
+  // The ground (h, as it is) next to the places that stand at their own height (p.z): flat there, and back to its own
+  // height round them. curve(d): from 0 (flat) to 1 (as it is), at d from the place (scenes.js)
+  padTo(x, y, h, curve) {
+    const cx = Math.floor(x / CHUNK), cy = Math.floor(y / CHUNK);
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+      const p = this.entry(cx + dx, cy + dy);
+      if (p && p.z) { const k = curve(Math.max(0, Math.hypot(x - p.x, y - p.y) - (SIZE[p.kind] || 2))); if (k < 1) h = p.z + (h - p.z) * k; }
+    }
+    return h;
   }
   hides(o) {
     if (!o.kind) return false;
     if (this.inAldea(o.x, o.y, 1.5)) return true;
-    const p = this.poi(Math.floor(o.x / CHUNK), Math.floor(o.y / CHUNK));
+    const p = this.entry(Math.floor(o.x / CHUNK), Math.floor(o.y / CHUNK));
+    // (entry: the clearing where ruins were has no trees either: something is built there)
     return !!p && p.kind !== 'aldea' && Math.hypot(o.x - p.x, o.y - p.y) < SIZE[p.kind] + 1.5;
   }
   blocks(tx, ty) {
@@ -171,9 +241,7 @@ export class Explore {
     if (this.foundN !== this.found.size) {
       this.foundN = this.found.size;
       this.foundBuilt = new Map(); this.foundBoxes = [];
-      for (const key of this.found) {
-        const [cx, cy] = key.split(',').map(Number), p = this.poi(cx, cy);
-        if (!p) continue;
+      for (const p of this.knownPlaces()) {
         if (p.kind !== 'aldea') { const r = SIZE[p.kind] + 1.5; this.foundBoxes.push([p.x - r, p.y - r, p.x + r, p.y + r]); continue; }
         const a = this.aldea(p), [x0, y0, x1, y1] = a.box;
         this.foundBoxes.push([x0 - 1.5, y0 - 1.5, x1 + 1.5, y1 + 1.5]);
@@ -210,7 +278,7 @@ export class Explore {
       out.lights.push({ x: p.x, y: p.y, z: 160, r: 120 });
       return;
     }
-    // Ruinas, campamento, torre, barco y templo: el sitio y un cofre al lado (menos el templo, que guarda su tesoro dentro)
+    // Campamento, torre, barco y templo: el sitio y un cofre al lado (menos el templo, que guarda su tesoro dentro)
     const half = p.kind === 'torre' ? TOWER.R : 1.5;
     out.objects.push({ x: p.x, y: p.y, poi: p, fx: [p.x - half, p.x + half], fy: [p.y - half, p.y + half] });
     if (p.kind === 'torre') out.colliders.push(...towerColliders(p.x, p.y));   // (se entra y se sube por dentro: ver world/tower.js)
@@ -218,22 +286,30 @@ export class Explore {
     else out.colliders.push({ x0: p.x - 1.4, y0: p.y - 1.4, x1: p.x + 1.4, y1: p.y + 1.4 });
     if (p.kind === 'campamento') out.lights.push({ x: p.x + 1, y: p.y + 1, z: 6, r: 60 });
     if (p.kind !== 'templo') {
-      const t = [Math.floor(p.x) + (p.kind === 'torre' ? 5 : 2), Math.floor(p.y)];   // la casilla de al lado, a la derecha del lugar (de la torre, fuera)
-      out.objects.push({ x: t[0] + 0.5, y: t[1] + 0.5, treasure: p, tile: t, open: !!opened });
-      out.colliders.push({ x: t[0] + 0.5, y: t[1] + 0.5, r: 0.35 });
+      const at = [Math.floor(p.x) + (p.kind === 'torre' ? 5 : 2), Math.floor(p.y)];   // la casilla de al lado, a la derecha del lugar (de la torre, fuera)
+      out.objects.push({ x: at[0] + 0.5, y: at[1] + 0.5, treasure: p, tile: at, open: !!opened });
+      out.colliders.push({ x: at[0] + 0.5, y: at[1] + 0.5, r: 0.35 });
     }
   }
 
   update() {
-    const p = this.game.player;
-    if (this.game.scene !== this.world) return;
+    const g = this.game, p = g.player, L = g.live;
+    if (!this.places1 && !OLD && (!L?.joined || L.role === 'host')) this.settle();
+    if (L?.joined && L.guest) this.tellHost();
+    if (g.scene !== this.world) return;
+    // (the cells ahead, one at a time, so that none has to be worked out when the land is made)
+    if (this.places1 && !(g.time - this.warmAt < WARM_EVERY)) { this.warmAt = g.time; if (!this.sites.warm(p.x, p.y, WARM_R)) this.warmAt = g.time + 1; }
     const near = this.poiNear(p.x, p.y, 12);
-    if (near && !this.found.has(near.key)) {
+    if (near && !this.known(near)) {
+      const again = this.oldFound.delete(near.key);
       this.found.add(near.key);
+      if (again) this.found = new Set(this.found);   // (the maps count them: ui/blips.js)
+      this.foundAt[near.key] = g.days?.realDay ?? Math.floor(Date.now() / 86400000);
+      this.foundN = -1;
       // (the big places, a message in the middle; the rest, a line of the feed)
-      const line = tr('feed.discovered', { place: NAMES[near.kind] });
-      if (BIG_PLACES.has(near.kind)) hud.big({ title: NAMES[near.kind], sub: tr('big.discovered'), kind: 'place', line }); else hud.toast(line, 'place');
-      this.game.stats?.add('lugares', 1);
+      const title = this.title(near), line = t('feed.discovered', { place: title });
+      if (BIG_PLACES.has(near.kind)) hud.big({ title, sub: t('big.discovered'), kind: 'place', line }); else hud.toast(line, 'place');
+      g.stats?.add('lugares', 1);
     }
   }
   entities(scene) {
@@ -253,19 +329,19 @@ export class Explore {
     if (scene === this.world) {
       const poi = this.poiNear(p.x, p.y, 2.2);
       if (!poi) return null;
-      if (poi.kind === 'cueva' && Math.hypot(p.x - poi.x, p.y - poi.y) < 2.2) return { text: 'Entrar en la cueva', run: () => this.enterCave(poi, 1) };
-      if (poi.kind === 'templo' && p.y > poi.y + 1.2 && Math.abs(p.x - poi.x) < 1.6) return { text: 'Entrar en el templo', run: () => this.enterDungeon(poi) };
-      if (poi.kind === 'faro') return { text: 'Subir al faro', run: () => this.climbLighthouse(poi) };
+      if (poi.kind === 'cueva' && Math.hypot(p.x - poi.x, p.y - poi.y) < 2.2) return { text: t('place.cave.enter'), run: () => this.enterCave(poi, 1) };
+      if (poi.kind === 'templo' && p.y > poi.y + 1.2 && Math.abs(p.x - poi.x) < 1.6) return { text: t('place.temple.enter'), run: () => this.enterDungeon(poi) };
+      if (poi.kind === 'faro') return { text: t('place.lighthouse.up'), run: () => this.climbLighthouse(poi) };
       if (poi.kind === 'aldea') {
-        const t = this.traders.get(poi.key);
-        if (t && Math.hypot(p.x - t.x, p.y - t.y) < 1.6) return { text: 'Hablar con el mercader', run: () => g.onShop?.('viajero') };
+        const who = this.traders.get(poi.key);
+        if (who && Math.hypot(p.x - who.x, p.y - who.y) < 1.6) return { text: t('place.trader.talk'), run: () => g.onShop?.('viajero') };
         return null;
       }
       const c = this.world.contentFor(Math.floor(poi.x / CHUNK), Math.floor(poi.y / CHUNK)).objects.find(o => o.treasure);
       if (c && Math.hypot(p.x - c.x, p.y - c.y) < 1.4) {
         const d = this.world.delta(Math.floor(poi.x / CHUNK), Math.floor(poi.y / CHUNK), true);
-        if (d.opened?.[poi.key]) return { text: 'Cofre vacío', run: () => Audio.error() };
-        return { text: 'Abrir el cofre', run: () => this.openPoiChest(poi, d) };
+        if (d.opened?.[poi.key]) return { text: t('place.chest.empty'), run: () => Audio.error() };
+        return { text: t('place.chest.open'), run: () => this.openPoiChest(poi, d) };
       }
       return null;
     }
@@ -279,18 +355,18 @@ export class Explore {
   }
   // Lo que se hace con algo de una cueva o de un templo (o null)
   gridAction(scene, o, p) {
-    if (o.ladder === 'up') return { text: scene.depth > 1 ? `Subir al nivel ${scene.depth - 1}` : 'Salir', run: () => this.climb(scene, -1) };
-    if (o.ladder === 'down') return { text: `Bajar al nivel ${scene.depth + 1}`, run: () => this.climb(scene, 1) };
-    if (o.chest) return scene.state.opened[o.key] ? null : { text: 'Abrir el cofre', run: () => this.openGridChest(scene, o) };
-    if (o.lever !== undefined) return { text: 'Tirar de la palanca', run: () => { scene.state.flags['g' + o.lever] = true; scene.touched(); Audio.clink(); hud.toast('Se oye una reja que se abre…'); } };
+    if (o.ladder === 'up') return { text: scene.depth > 1 ? t('cave.up', { n: scene.depth - 1 }) : t('cave.out'), run: () => this.climb(scene, -1) };
+    if (o.ladder === 'down') return { text: t('cave.down', { n: scene.depth + 1 }), run: () => this.climb(scene, 1) };
+    if (o.chest) return scene.state.opened[o.key] ? null : { text: t('place.chest.open'), run: () => this.openGridChest(scene, o) };
+    if (o.lever !== undefined) return { text: t('temple.lever'), run: () => { scene.state.flags['g' + o.lever] = true; scene.touched(); Audio.clink(); hud.toast(t('temple.gate_heard')); } };
     if (o.gate !== undefined && !o.open && o.lock) {
-      if (scene.state.flags['k' + o.gate]) return { text: 'Abrir la reja con la llave', run: () => { scene.state.flags['g' + o.gate] = true; scene.touched(); Audio.unlock(); } };
-      return { text: 'Reja cerrada con llave', run: () => Audio.error() };
+      if (scene.state.flags['k' + o.gate]) return { text: t('temple.gate_key'), run: () => { scene.state.flags['g' + o.gate] = true; scene.touched(); Audio.unlock(); } };
+      return { text: t('temple.gate_locked'), run: () => Audio.error() };
     }
-    if (o.gate !== undefined && !o.open) return { text: 'Reja cerrada', run: () => Audio.error() };
+    if (o.gate !== undefined && !o.open) return { text: t('temple.gate_shut'), run: () => Audio.error() };
     if (o.block) {
       const dx = o.x - p.x, dy = o.y - p.y, [mx, my] = Math.abs(dx) > Math.abs(dy) ? [Math.sign(dx), 0] : [0, Math.sign(dy)];
-      return { text: 'Empujar el bloque', run: () => { if (scene.push(o, mx, my)) { Audio.place(); if (scene.state.flags['g' + o.block.room]) hud.toast('¡Click! La reja se ha abierto'); } else Audio.error(); } };
+      return { text: t('temple.block'), run: () => { if (scene.push(o, mx, my)) { Audio.place(); if (scene.state.flags['g' + o.block.room]) hud.toast(t('temple.gate_click')); } else Audio.error(); } };
     }
     return null;
   }
@@ -302,18 +378,18 @@ export class Explore {
       if (!poi) return null;
       // (shape: the model it draws, for the outline and, with exact, for the aim; see game.js aimTargets)
       const add = (x, y, hx, hy, h, act, e, shape) => out.push({ kind: 'sys', e, box: box(x, y, hx, hy, 0, h), act, ...shape });
-      const model = { name: `poi:${poi.kind}${poi.snow ? ':snow' : ''}`, x: poi.x, y: poi.y };
-      if (poi.kind === 'cueva') add(poi.x, poi.y, 1.1, 1.1, 1.5, () => ({ text: 'Entrar en la cueva', run: () => this.enterCave(poi, 1) }), null, { model, exact: true });
+      const model = { name: `poi:${poi.kind}${poi.snow ? ':snow' : ''}`, x: poi.x, y: poi.y, lift: poi.z || 0 };
+      if (poi.kind === 'cueva') add(poi.x, poi.y, 1.1, 1.1, 1.5, () => ({ text: t('place.cave.enter'), run: () => this.enterCave(poi, 1) }), null, { model, exact: true });
       // (the temple is entered by its door: that is what is aimed at, and the outline is the temple)
-      else if (poi.kind === 'templo') add(poi.x, poi.y + 1.2, 0.9, 0.25, 2, () => ({ text: 'Entrar en el templo', run: () => this.enterDungeon(poi) }), null, { model, keepBox: true });
-      else if (poi.kind === 'faro') add(poi.x, poi.y, 1, 1, 4, () => ({ text: 'Subir al faro', run: () => this.climbLighthouse(poi) }), null, { model, exact: true });
-      else if (poi.kind === 'aldea') { const t = this.traders.get(poi.key); if (t) add(t.x, t.y, 0.35, 0.35, g.view3d?.personHeight?.(t, 1.5) ?? 1.5, () => ({ text: 'Hablar con el mercader', run: () => g.onShop?.('viajero') }), t); }
+      else if (poi.kind === 'templo') add(poi.x, poi.y + 1.2, 0.9, 0.25, 2, () => ({ text: t('place.temple.enter'), run: () => this.enterDungeon(poi) }), null, { model, keepBox: true });
+      else if (poi.kind === 'faro') add(poi.x, poi.y, 1, 1, 4, () => ({ text: t('place.lighthouse.up'), run: () => this.climbLighthouse(poi) }), null, { model, exact: true });
+      else if (poi.kind === 'aldea') { const who = this.traders.get(poi.key); if (who) add(who.x, who.y, 0.35, 0.35, g.view3d?.personHeight?.(who, 1.5) ?? 1.5, () => ({ text: t('place.trader.talk'), run: () => g.onShop?.('viajero') }), who); }
       else {
         const c = this.world.contentFor(Math.floor(poi.x / CHUNK), Math.floor(poi.y / CHUNK)).objects.find(o => o.treasure);
         if (c) add(c.x, c.y, 0.45, 0.4, 0.7, () => {
           const d = this.world.delta(Math.floor(poi.x / CHUNK), Math.floor(poi.y / CHUNK), true);
-          return d.opened?.[poi.key] ? { text: 'Cofre vacío', run: () => Audio.error() } : { text: 'Abrir el cofre', run: () => this.openPoiChest(poi, d) };
-        }, null, { model: { name: `treasure:${c.open ? 1 : 0}`, x: c.x, y: c.y }, exact: true });
+          return d.opened?.[poi.key] ? { text: t('place.chest.empty'), run: () => Audio.error() } : { text: t('place.chest.open'), run: () => this.openPoiChest(poi, d) };
+        }, null, { model: { name: `treasure:${c.open ? 1 : 0}`, x: c.x, y: c.y, lift: poi.z || 0 }, exact: true });
       }
       return out;
     }
@@ -356,7 +432,7 @@ export class Explore {
     const at = dir > 0 ? sc.entry : sc.fromBelow;
     await g.goTo(sc, at.x, at.y);
     g.stats?.max('profundidad', sc.depth);
-    hud.toast(`Cueva · nivel ${sc.depth}`);
+    hud.toast(t('cave.level', { title: this.current?.kind === 'cueva' ? this.title(this.current) : placeKind('cueva'), n: sc.depth }));
   }
 
   // Botín de los cofres
@@ -392,7 +468,7 @@ export class Explore {
   async openGridChest(scene, o) {
     scene.state.opened[o.key] = true;
     scene.touched();
-    if (o.keyFor !== undefined) { scene.state.flags['k' + o.keyFor] = true; hud.toast('Has encontrado una llave'); Audio.unlock(); return; }
+    if (o.keyFor !== undefined) { scene.state.flags['k' + o.keyFor] = true; hud.toast(t('temple.key')); Audio.unlock(); return; }
     const got = this.loot(o.loot);
     await this.showLoot(got);
     if (o.loot === 'templo') await this.game.story?.found('templo');
@@ -400,7 +476,7 @@ export class Explore {
   async showLoot(got) {
     const g = this.game;
     g.busy = true;
-    await hud.say('Cofre', [`Dentro hay: ${got.map(([id, n]) => `${n} × ${ITEMS[id].name.toLowerCase()}`).join(', ')} y unas monedas.`]);
+    await hud.say(t('place.chest.title'), [t('place.chest.in', { list: fmt.list(got.map(([id, n]) => countOf(id, n))) })]);
     g.busy = false;
   }
 
@@ -414,7 +490,7 @@ export class Explore {
       const mp = g.mousePoint?.(), pt = mp || [p.x + p.face.x * 1.6, p.y + p.face.y * 1.6];
       // (en un canal cavado, solo si cabe: ver scenes.js, boatFits)
       const wet = !!this.world.water(pt[0], pt[1]), fits = !wet || this.world.boatFits(pt[0], pt[1]), far = Math.hypot(pt[0] - p.x, pt[1] - p.y) > 5, taken = this.world.boatsNear(pt[0], pt[1], 1.8).length > 0;
-      return { tile: [Math.floor(pt[0]), Math.floor(pt[1])], moor: [pt[0], pt[1], g.gather.angle || 0], place: 'barca', ok: wet && fits && !far && !taken && !p.boat && !p.aboard, far, why: !wet ? 'La barca va en el agua, junto a la orilla' : !fits ? 'Aquí no cabe la barca' : taken ? 'Ya hay una barca ahí' : '' };
+      return { tile: [Math.floor(pt[0]), Math.floor(pt[1])], moor: [pt[0], pt[1], g.gather.angle || 0], place: 'barca', ok: wet && fits && !far && !taken && !p.boat && !p.aboard, far, why: !wet ? t('place.boat.water') : !fits ? t('place.boat.fits') : taken ? t('place.boat.taken') : '' };
     }
     if (def?.vehicle === 'caballo' && !p.boat && !p.aboard) return g.ranch.whistle(p);   // (el caballo es un animal de verdad: ver la granja)
     return null;
@@ -429,14 +505,9 @@ export class Explore {
     g.stats?.add('faros', 1);
     await hud.fade(false);
     g.busy = false;
-    await hud.say('Faro', ['Subes los escalones hasta la lámpara. Desde aquí arriba se ve toda la costa (ahora está en tu mapa).']);
+    await hud.say(this.title(poi), [t('place.lighthouse.seen')]);
     g.busy = false;
   }
   // Marcas para el mapa: lugares descubiertos
-  markers() {
-    const out = [];
-    for (const k of this.found) { const [cx, cy] = k.split(',').map(Number), p = this.poi(cx, cy); if (p) out.push({ x: p.x, y: p.y, kind: p.kind, name: NAMES[p.kind] }); }
-    return out;
-  }
+  markers() { return this.knownPlaces().map(p => ({ x: p.x, y: p.y, kind: p.kind, key: p.key, name: this.title(p), legend: placeKind(p.kind) })); }
 }
-export { NAMES as POI_NAMES };

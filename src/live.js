@@ -537,6 +537,8 @@ export class Live {
       case 'arrowtake': g.archery.asked(m.id, conn); break;
       case 'hitm': if (this.takes(peer)) g.mobs.hitBy(conn, peer, m); break;
       case 'hita': if (this.takes(peer)) g.hunt.hitBy(conn, peer, m); break;
+      // (a guest's places found before R7, for this world to keep them: explore.js)
+      case 'places': if (this.role === 'host' && g.player && this.takes(peer) && !peer.old && !peer.toldPlaces) { peer.toldPlaces = true; g.places.keepFound(m.k); } break;   // (once per connection: looking them up costs)
       case 'preydead': if (fromHost) g.hunt.killed(m); break;
       case 'hurt': if (fromHost && this.joined && g.player && g.gamemode === 'survival' && g.combat.invuln <= 0 && Number.isFinite(m.dmg)) g.combat.hit(Math.min(20, m.dmg), { x: m.x, y: m.y }); break;
       case 'mobdead': if (fromHost) g.mobs.killed(m); break;
@@ -735,7 +737,7 @@ export class Live {
   enter(solo, world) {
     const her = solo.save;
     this.extraShared = unknownShared(world.shared);
-    const save = { ...her, ...world.shared, player: { ...her.player, inside: false, boat: false, mount: false, ...(her.livePos || {}) } };
+    const save = { ...her, places1: 0, ...world.shared, player: { ...her.player, inside: false, boat: false, mount: false, ...(her.livePos || {}) } };
     const deltas = new Map(world.deltas);
     for (const [k, v] of solo.deltas) if (k.startsWith('u:')) deltas.set(k, v);
     return { save, deltas };

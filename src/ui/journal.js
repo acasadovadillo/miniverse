@@ -1,5 +1,5 @@
 // The journal (J): its pages, in the pause's Journal tab (src/ui/pausehub.js): a list on the left (#j-tabs) and the page
-// on the right (#j-body): story, first steps, neighbours, farm and animals, fishing, nature and collections. The skills
+// on the right (#j-body): story, first steps, neighbours, farm and animals, fishing, nature, places and collections. The skills
 // are in the Character tab, and the achievements and the statistics in Progress: MOVED says where, for who still opens them
 // by their old page.
 // JOURNAL_PAGES is the registry: another system adds its page with JOURNAL_PAGES.push({ id, label, html, … }):
@@ -13,6 +13,7 @@ import { itemNoun } from '../items.js';
 import { PEOPLE } from '../neighbors.js';
 import { t, tHtml, has } from '../i18n.js';
 import { NatureBookUI } from './naturebook.js';
+import { placesHtml } from './placespage.js';
 import { apagada } from '../opciones.js';
 import { reportFault } from '../faults.js';
 
@@ -55,6 +56,7 @@ export const JOURNAL_PAGES = [
   { id: 'pesca', label: 'journal.tab.fishing', html: g => g.fishing.journal() },
   // (the nature book, Plan G: src/ui/naturebook.js)
   { id: 'nature', label: 'journal.tab.nature', when: () => !!book, open: (g, id) => book.page(id), html: () => book.html(), bind: el => book.bind(el), hide: () => book?.hide() },
+  { id: 'places', label: 'journal.tab.places', html: g => placesHtml(g) },   // (Plan R7-1: src/ui/placespage.js)
   { id: 'colecciones', label: 'gui.progress.part.collections', html: g => g.collection.journal() },
 ];
 // The pages that are somewhere else in the pause: [tab, page]
