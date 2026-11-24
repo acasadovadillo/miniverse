@@ -87,7 +87,7 @@ for (const [id, c] of Object.entries(CROPS)) {
 Object.assign(ITEMS, {
   semilla_manzano: { name: 'Semilla de manzano', desc: 'Plántala en la hierba: en unos días tendrás un manzano que da manzanas.', sapling: 'fruit' },
   regadera: { name: 'Regadera', desc: 'Riega la tierra labrada. Se llena en cualquier agua.', tool: 'regadera', tier: 1, stack: 1 },
-  cana: { name: 'Caña de pescar', desc: 'Mirando al agua, clic para lanzar. Cuando pique, clic otra vez, a tiempo.', tool: 'cana', tier: 1, stack: 1, dur: 80 },
+  cana: { name: 'Caña de pescar', desc: 'Apunta al agua y haz clic para lanzar. Mira el corcho: cuando el pez se lo lleve, clic otra vez.', tool: 'cana', tier: 1, stack: 1, dur: 80 },
   cana_fibra: { name: 'Caña de fibra', desc: 'Más ligera y sensible: los peces pican antes y da algo más de tiempo.', tool: 'cana', tier: 2, stack: 1, dur: 160 },
   abono: { name: 'Abono', desc: 'Úsalo en un cultivo: crecerá más deprisa.' },
   aspersor: { name: 'Aspersor', desc: 'Riega solo cada mañana las 8 casillas de alrededor.', place: 'furniture' },
@@ -189,6 +189,7 @@ Object.assign(ITEMS, {
   // (the barber's chair: tavern furniture, a seat like any other; Eusebio cuts hair in the tavern's, neighbors.js)
   barber_chair: { place: 'furniture' },
 });
+defineNames({ cana: ITEMS.cana, cana_fibra: ITEMS.cana_fibra }, 'item', ['desc']);
 defineNames({ big_well: ITEMS.big_well, wheelbarrow: ITEMS.wheelbarrow, barber_chair: ITEMS.barber_chair }, 'item');
 // (the saddlebags hold 12 stacks since Plan F, saddlebags.js: their description comes from the language files; with
 // ?alforjas=0 they keep 9, and the old text)
@@ -209,26 +210,30 @@ const THIRST_ITEMS = {
 };
 Object.assign(ITEMS, THIRST_ITEMS);
 defineNames(THIRST_ITEMS, 'item');
-// Peces: dónde viven, cuándo (estaciones, horas y tiempo) y lo difíciles que son (los difíciles salen menos y valen más):
-// dif: lo difícil que es (0 a 1); mov: cómo se mueve (calmo, mixto, nervioso, fondo: tira hacia abajo,
-// flota: tira hacia arriba); cm: la talla, de la más pequeña a la más grande
+// Fish. What the nature book (nature.js), the neighbours (talktopics.js) and older games read: water (where), seasons (its
+// best ones), hours (when it bites most), weather ('lluvia': it likes rain), dif (0..1, how hard: the price and the xp),
+// mov (the fight of before), cm (length, smallest to largest of the common ones; a trophy passes it). What the fishing
+// model reads (fishwater.js; nothing here is a yes or no but the water and the depth: a pike at noon is rare, not
+// impossible): depth [m, m] of the bed under the bobber, temp [°C, °C] of the water it prefers, night (feeds by night),
+// base (how common), run (× in its seasons, the salmon's run), bite (how the float tells it: fishing.js BITES), k (kg =
+// k × (cm/100)³) and pull (how hard it fights for its weight)
 export const FISH = {
-  carpa: { name: 'Carpa', water: ['lago', 'estanque', 'pantano'], color: '#b8904a', size: 5, dif: 0.15, mov: 'calmo', cm: [30, 80] },
-  perca: { name: 'Perca', water: ['lago', 'estanque', 'rio'], color: '#7a9a4a', size: 4, dif: 0.25, mov: 'mixto', cm: [15, 40] },
-  trucha: { name: 'Trucha', water: ['rio', 'lago'], seasons: [0, 2, 3], color: '#a88aa0', size: 5, dif: 0.4, mov: 'nervioso', cm: [25, 60] },
-  salmon: { name: 'Salmón', water: ['rio'], seasons: [2], color: '#e0806a', size: 6, dif: 0.5, mov: 'flota', cm: [50, 100] },
-  lucio: { name: 'Lucio', water: ['lago'], hours: [15, 22], color: '#5a7a4a', size: 7, dif: 0.6, mov: 'nervioso', cm: [50, 120] },
-  anguila: { name: 'Anguila', water: ['pantano', 'rio'], hours: [19, 5], color: '#4a5a4a', size: 7, thin: true, dif: 0.6, mov: 'mixto', cm: [40, 110] },
-  sardina: { name: 'Sardina', water: ['mar'], color: '#a8c0d8', size: 3, dif: 0.1, mov: 'flota', cm: [10, 22] },
-  lubina: { name: 'Lubina', water: ['mar'], color: '#8aa0b0', size: 6, dif: 0.4, mov: 'mixto', cm: [30, 75] },
-  pez_globo: { name: 'Pez globo', water: ['mar'], seasons: [1], color: '#e8d080', size: 4, round: true, dif: 0.5, mov: 'flota', cm: [12, 35] },
-  cangrejo: { name: 'Cangrejo', water: ['mar'], color: '#d8502a', size: 4, crab: true, dif: 0.3, mov: 'fondo', cm: [8, 25] },
-  pez_hielo: { name: 'Pez de hielo', water: ['hielo'], color: '#c8e8f8', size: 4, dif: 0.45, mov: 'nervioso', cm: [15, 35] },
-  siluro: { name: 'Siluro', water: ['rio', 'lago'], weather: 'lluvia', color: '#6a6250', size: 7, whiskers: true, dif: 0.6, mov: 'fondo', cm: [60, 180] },
-  pulpo: { name: 'Pulpo', water: ['mar'], hours: [20, 5], color: '#c86a78', size: 5, octo: true, dif: 0.7, mov: 'fondo', cm: [30, 90] },
-  atun: { name: 'Atún', water: ['mar'], seasons: [1], color: '#3a5a8a', size: 7, dif: 0.75, mov: 'nervioso', cm: [80, 200] },
-  esturion: { name: 'Esturión', water: ['lago'], seasons: [3], color: '#7a8088', size: 7, dif: 0.8, mov: 'mixto', cm: [80, 220] },
-  pez_dorado: { name: 'Pez dorado', water: ['lago', 'rio', 'mar', 'estanque'], rare: true, color: '#f8c030', size: 5, dif: 0.9, mov: 'nervioso', cm: [20, 45] },
+  carpa: { name: 'Carpa', water: ['lago', 'estanque', 'pantano'], color: '#b8904a', size: 5, dif: 0.15, mov: 'calmo', cm: [30, 85], depth: [0.4, 5], temp: [14, 26], bite: 'run', k: 14, pull: 1, base: 0.3 },
+  perca: { name: 'Perca', water: ['lago', 'estanque', 'rio'], color: '#7a9a4a', size: 4, dif: 0.25, mov: 'mixto', cm: [15, 45], depth: [0.4, 5], temp: [8, 24], bite: 'dip', k: 13, pull: 1, base: 0.3 },
+  trucha: { name: 'Trucha', water: ['rio', 'lago'], seasons: [0, 2, 3], color: '#a88aa0', size: 5, dif: 0.4, mov: 'nervioso', cm: [25, 65], depth: [0.3, 4], temp: [4, 18], bite: 'dip', k: 11, pull: 1.2, base: 0.3 },
+  salmon: { name: 'Salmón', water: ['rio'], seasons: [2], color: '#e0806a', size: 6, dif: 0.5, mov: 'flota', cm: [50, 100], depth: [0.8, 4], temp: [4, 15], bite: 'slam', k: 10, pull: 1.4, base: 0.08, run: 3 },
+  lucio: { name: 'Lucio', water: ['lago'], hours: [15, 22], color: '#5a7a4a', size: 7, dif: 0.6, mov: 'nervioso', cm: [50, 120], depth: [1, 5], temp: [6, 22], bite: 'slam', k: 6, pull: 1.2, base: 0.16 },
+  anguila: { name: 'Anguila', water: ['pantano', 'rio'], hours: [19, 5], color: '#4a5a4a', size: 7, thin: true, dif: 0.6, mov: 'mixto', cm: [40, 110], depth: [0.3, 4], temp: [10, 26], night: true, bite: 'taps', k: 1.8, pull: 1.1, base: 0.24 },
+  sardina: { name: 'Sardina', water: ['mar'], color: '#a8c0d8', size: 3, dif: 0.1, mov: 'flota', cm: [10, 22], depth: [1.5, 12], temp: [12, 22], bite: 'dip', k: 8, pull: 0.7, base: 0.34 },
+  lubina: { name: 'Lubina', water: ['mar'], color: '#8aa0b0', size: 6, dif: 0.4, mov: 'mixto', cm: [30, 80], depth: [1, 8], temp: [10, 22], bite: 'slam', k: 11, pull: 1.2, base: 0.2 },
+  pez_globo: { name: 'Pez globo', water: ['mar'], seasons: [1], color: '#e8d080', size: 4, round: true, dif: 0.5, mov: 'flota', cm: [12, 35], depth: [1.5, 12], temp: [18, 28], bite: 'dip', k: 25, pull: 0.8, base: 0.15 },
+  cangrejo: { name: 'Cangrejo', water: ['mar'], color: '#d8502a', size: 4, crab: true, dif: 0.3, mov: 'fondo', cm: [8, 25], depth: [0.5, 12], bite: 'taps', k: 150, pull: 0.8, base: 0.2 },
+  pez_hielo: { name: 'Pez de hielo', water: ['hielo'], color: '#c8e8f8', size: 4, dif: 0.45, mov: 'nervioso', cm: [15, 35], depth: [0.3, 10], temp: [0, 8], bite: 'dip', k: 9, pull: 0.9, base: 0.5 },
+  siluro: { name: 'Siluro', water: ['rio', 'lago'], weather: 'lluvia', color: '#6a6250', size: 7, whiskers: true, dif: 0.6, mov: 'fondo', cm: [60, 160], depth: [0.9, 5], temp: [14, 28], night: true, bite: 'run', k: 7, pull: 1.3, base: 0.22 },
+  pulpo: { name: 'Pulpo', water: ['mar'], hours: [20, 5], color: '#c86a78', size: 5, octo: true, dif: 0.7, mov: 'fondo', cm: [30, 90], depth: [1.5, 12], temp: [12, 24], night: true, bite: 'taps', k: 4, pull: 1, base: 0.18 },
+  atun: { name: 'Atún', water: ['mar'], seasons: [1], color: '#3a5a8a', size: 7, dif: 0.75, mov: 'nervioso', cm: [50, 130], depth: [6, 13], temp: [17, 26], bite: 'slam', k: 13, pull: 1.5, base: 0.22 },
+  esturion: { name: 'Esturión', water: ['lago'], seasons: [3], color: '#7a8088', size: 7, dif: 0.8, mov: 'mixto', cm: [80, 200], depth: [3, 8], temp: [2, 14], bite: 'run', k: 6, pull: 1.3, base: 0.16 },
+  pez_dorado: { name: 'Pez dorado', water: ['lago', 'rio', 'mar', 'estanque'], rare: true, color: '#f8c030', size: 5, dif: 0.9, mov: 'nervioso', cm: [20, 45], bite: 'dip', k: 12, pull: 1, base: 0 },
 };
 // ---------- Exploración (fase 8) ----------
 Object.assign(ITEMS, {

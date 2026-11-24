@@ -23,9 +23,9 @@ export const TRADES = {
     T(3, [['diamante', 1]], [['esmeralda', 2]], 12, 30), T(4, [['esmeralda', 13]], [['espada_oro', 1]], 3, 30),
   ],
   lia: [
-    T(0, [['cuerda', 6]], [['esmeralda', 1]]), T(0, [['esmeralda', 1]], [['sardina', 4]], 16, 1),
-    T(1, [['trucha', 6]], [['esmeralda', 1]], 12, 10), T(2, [['esmeralda', 3]], [['cana', 1]], 3, 10),
-    T(3, [['salmon', 4]], [['esmeralda', 1]], 12, 20), T(4, [['esmeralda', 8]], [['cana_fibra', 1]], 3, 30),
+    T(0, [['cuerda', 6]], [['esmeralda', 1]]), T(0, [['esmeralda', 2]], [['sardina', 1]], 16, 1),
+    T(1, [['trucha', 2]], [['esmeralda', 1]], 12, 10), T(2, [['esmeralda', 3]], [['cana', 1]], 3, 10),
+    T(3, [['salmon', 1]], [['esmeralda', 1]], 12, 20), T(4, [['esmeralda', 8]], [['cana_fibra', 1]], 3, 30),
   ],
   dani: [
     T(0, [['tablas', 20]], [['esmeralda', 1]]), T(0, [['esmeralda', 1]], [['maceta', 1]], 12, 1),

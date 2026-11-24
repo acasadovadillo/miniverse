@@ -12,6 +12,7 @@ import { yawOf, rugRect, tableRect } from '../art/stations.js';
 import { ITEMS } from '../items.js';
 import { PIECES } from '../pieces.js';
 import { getModel } from './models.js';
+import { FishingView } from './fishing3d.js';
 import { FOUNTAIN_U } from './fountain3d.js';
 import { WALL_H } from './build3d.js';
 import { WATER_Y } from './terrain.js';
@@ -144,14 +145,7 @@ export class Fx {
     }));
     this.beam.visible = false; this.group.add(this.beam);
     this.beams = [this.beam];   // (uno por faro cerca: si hay dos a la vista, los dos giran)
-    // Pesca: el sedal y el corcho
-    this.line = new THREE.Line(new THREE.BufferGeometry().setFromPoints(Array.from({ length: 21 }, () => new THREE.Vector3())), new THREE.LineBasicMaterial({ color: '#f0f0f0', transparent: true, opacity: 0.8 }));
-    this.line.frustumCulled = false;
-    this.bobber = new THREE.Group();
-    const top = new THREE.Mesh(new THREE.SphereGeometry(0.07, 10, 6, 0, Math.PI * 2, 0, Math.PI / 2), new THREE.MeshStandardMaterial({ color: '#ffffff' })), bot = new THREE.Mesh(new THREE.SphereGeometry(0.07, 10, 6, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2), new THREE.MeshStandardMaterial({ color: '#e83a3a' }));
-    this.bobber.add(top, bot);
-    this.ripple = new THREE.Mesh(new THREE.RingGeometry(0.15, 0.19, 24).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: '#e0f4ff', transparent: true, opacity: 0.7, depthWrite: false }));
-    this.group.add(this.line, this.bobber, this.ripple);
+    this.fishing = new FishingView(this);   // (the lines, the floats and the catch: fishing3d.js)
     // Textos flotantes (HTML encima del lienzo) y el destello rojo de los golpes
     this.layer = document.getElementById('floaters') || Object.assign(document.body.appendChild(document.createElement('div')), { id: 'floaters' });
     this.hurt = document.getElementById('hurt') || Object.assign(document.body.appendChild(document.createElement('div')), { id: 'hurt' });
@@ -228,7 +222,7 @@ export class Fx {
     this.updateSmoke(scene, t);
     this.updateFountains(t);
     this.updateWeather(t);
-    this.updateFishing(game, scene, playing, t);
+    this.fishing.update(game, scene, playing, t);
     this.updateBeacon(scene, t);
     this.updateFloaters(game, playing);
     this.updateBubbles(game, playing);
@@ -520,35 +514,6 @@ export class Fx {
       }
       this.snowGeo.attributes.position.needsUpdate = true;
     }
-  }
-
-  // ---------- pesca ----------
-  // El corcho vuela en arco hasta el agua, tiembla en las picadas de mentira, se hunde al picar y, peleando,
-  // se agita y se acerca a la orilla según va saliendo el pez; el sedal se tensa. Y los paneles de la pesca
-  // (fuerza y pelea), junto al jugador en la pantalla.
-  updateFishing(game, scene, playing, t) {
-    const s = playing ? game.fishing?.state : null, p = game.player;
-    const show = !!s && scene === game.world;
-    this.line.visible = this.bobber.visible = this.ripple.visible = show;
-    if (!show) return;
-    // (el sedal sale de la punta de la caña; si no se ve la caña, de un poco por encima de la mano)
-    const hand = this.view.actors.player?.hand, tip = hand?.getObjectByName('tip');
-    const from = tip ? tip.getWorldPosition(new THREE.Vector3()) : hand ? hand.getWorldPosition(v3.set(0, 0, 0)).clone() : new THREE.Vector3(p.x, 1.2, p.y);
-    if (!tip) from.y += 0.9;
-    const x = s.bx, z = s.by; let dip = Math.sin(t * 3) * 0.015, sag = 0.4;
-    if (s.phase === 'bite') dip = -0.05 + Math.sin(t * 30) * 0.03;
-    else if (s.nib > 0) dip = -0.035 * Math.sin((s.nib / 0.3) * Math.PI);
-    const to = new THREE.Vector3(x, WATER_Y + 0.03 + dip, z);
-    if (s.fly < 1) { to.lerpVectors(from, to, s.fly); to.y += Math.sin(s.fly * Math.PI) * 1.2; sag = 0.1; }
-    this.bobber.position.copy(to);
-    const pts = this.line.geometry.attributes.position;
-    for (let i = 0; i <= 20; i++) { const k = i / 20; pts.setXYZ(i, from.x + (to.x - from.x) * k, from.y + (to.y - from.y) * k - Math.sin(k * Math.PI) * sag, from.z + (to.z - from.z) * k); }
-    pts.needsUpdate = true;
-    this.ripple.visible = s.phase === 'bite' || s.nib > 0;
-    const w = (t * 2) % 1;
-    this.ripple.position.set(to.x, WATER_Y + 0.01, to.z);
-    this.ripple.scale.setScalar((s.nib > 0 ? 0.7 : 1) + w * 1.5);
-    this.ripple.material.opacity = (s.nib > 0 ? 0.4 : 0.7) * (1 - w);
   }
 
   // ---------- diving ----------

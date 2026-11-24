@@ -17,6 +17,9 @@ const BASE = {
   // The body (Plan E §2.3): soap sells for less than Rosa asks
   soap: 10,
 };
+// A bite takes 15-60 s (fishwater.js), not 2-7 s as before 2026-11-24: each fish is worth more, so that an hour of ordinary
+// fishing earns about 70 % of what it did and a good dusk more than that (measured: pruebas.js, «fish (english): income»)
+export const FISH_PRICE_K = 5;
 const cache = new Map();
 const plans = list => Object.entries(list).map(([plan, price]) => ({ plan, price }));
 
@@ -29,7 +32,7 @@ export function priceOf(id) {
   if (p === undefined) {
     if (CROPS[id]) p = CROPS[id].price;
     else if (def.seed) p = Math.round(CROPS[def.seed].price * 0.2);
-    else if (FISH[id]) p = FISH[id].rare ? 400 : Math.round(15 + FISH[id].size * 9 + FISH[id].dif * 80);   // los que pelean más valen más
+    else if (FISH[id]) p = Math.round((FISH[id].rare ? 400 : 15 + FISH[id].size * 9 + FISH[id].dif * 80) * FISH_PRICE_K);   // (the harder ones are worth more)
     else {
       const r = RECIPES.find(r => r.out === id);
       p = r ? Math.round((r.ins.reduce((t, [i, n]) => t + priceOf(i) * n, 0) / r.n) * (def.food ? 1.5 : def.tool ? 0.5 : 1.3) + (def.food ? 8 : 2)) : 5;
@@ -70,7 +73,7 @@ export const SHOPS = {
   // (Lía's canteen is sold empty: shop stacks carry no sips)
   lia: {
     title: 'Aparejos de Lía', hours: [6, 20],
-    stock: [{ id: 'cana', price: 150 }, { id: 'cana_fibra', price: 1500 }, { id: 'regadera', price: 200 }, { id: 'canteen', price: 60 }, { plan: 'barca', price: 600 }, { id: 'sardina', price: 65 }],
+    stock: [{ id: 'cana', price: 150 }, { id: 'cana_fibra', price: 1500 }, { id: 'regadera', price: 200 }, { id: 'canteen', price: 60 }, { plan: 'barca', price: 600 }, { id: 'sardina', price: 400 }],
   },
   // Nilo, en la plaza a todas horas: los planos de los muebles de siempre (los demás, Dani, cuando venga al pueblo)
   nilo: {

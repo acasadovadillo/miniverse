@@ -25,6 +25,7 @@ import { ORES } from './world/underground.js';
 import { DAY_MS } from './time.js';
 import { Profile } from './accounts.js';
 import { ihash } from './util.js';
+import { momentK, waterC } from './fishwater.js';
 import { recent } from './reputation.js';
 import { t, tList, has, noun, formatMessage } from './i18n.js';
 
@@ -152,12 +153,12 @@ export function cropNews(ctx) {
   if (!alive && a.mean <= Math.min(...Object.values(GROW).map(g => g.base))) out.push({ sub: 'no_crops' });
   return out;
 }
-// What bites now and where, as fishing.js picks it: the ones with their own season, hour or weather first
-function fishNow(ctx) {
-  const T = ctx.game.days, h = T.hour, season = T.season, rain = !!T.info?.rain;
-  const okHour = f => !f.hours || (f.hours[0] < f.hours[1] ? h >= f.hours[0] && h < f.hours[1] : h >= f.hours[0] || h < f.hours[1]);
-  const okWeather = f => !f.weather || (f.weather === 'lluvia' ? rain : T.weather === f.weather);
-  const list = Object.entries(FISH).filter(([, f]) => !f.rare && (!f.seasons || f.seasons.includes(season)) && okHour(f) && okWeather(f))
+// What bites well now and where, as fishing decides it (fishwater.js: the village's hour, season, weather and water): the
+// ones with their own season, hour or weather first
+const BITES_WELL = 0.8;
+export function fishNow(ctx) {
+  const T = ctx.game.days, c = { hour: T.hour, season: T.season, weather: T.weather, tempC: waterC(ctx.game.world, 0, 30, T.season, 'rio', 1) };
+  const list = Object.entries(FISH).filter(([, f]) => !f.rare && momentK(f, c) >= BITES_WELL && (!f.seasons || f.seasons.includes(T.season)))
     .map(([id, f]) => ({ id, own: !!(f.seasons || f.hours || f.weather), water: f.water.filter(w => w !== 'hielo' && has(`npc.water.${w}`)) })).filter(o => o.water.length);
   const own = list.filter(o => o.own);
   return own.length ? own : list;

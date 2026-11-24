@@ -48,6 +48,9 @@ const CLAIM_WAIT = 900;                   // al entrar sin anfitrión, lo que se
 const HOST_WAIT = 6000;                   // y lo que se espera a que el que lo lleva diga que ya está
 const REACH = 3;                          // trozos del mundo alrededor de donde está cada uno que puede tocar
 const OP_BLOBS = new Set(['rules', 'worldSpawn', 'weatherLock', 'difficulty']);   // lo de todos que solo cambian los op
+// Another's fishing line (st.fb, fishing.js net): [x, y, phase 0-4, bite 0-4, weight class 0-3], or null if it is not that
+const cleanFb = f => (Array.isArray(f) && f.length === 5 && f.every(Number.isFinite) && f.slice(2).every(Number.isInteger) && f[2] >= 0 && f[2] <= 4 && f[3] >= 0 && f[3] <= 4 && f[4] >= 0 && f[4] <= 3 ? f : null);
+const ROD_OUT = { arm: -0.35, lean: 0 }, FISH_POSE = [null, ROD_OUT, ROD_OUT, { arm: -0.95, lean: -0.12 }, { arm: 0, lean: -0.04, both: true }];
 const r2 = v => Math.round(v * 100) / 100, r1 = v => Math.round(v * 10) / 10;
 const RIDE_NET = 20, RIDE_LEAD = 0.2;     // m/s: the most of st.rv taken from another; s it goes on for with no new message (two sends)
 const DIVE_NET = 30;                      // (m: the most of st.dv taken from another; the deepest sea is about 12 m)
@@ -98,6 +101,8 @@ class RemotePlayer extends Person {
     // sends neither: a swimmer at the surface, and awake)
     this.diveTo = st.na && Number.isFinite(st.dv) ? Math.max(0, Math.min(DIVE_NET, st.dv)) : 0;
     this.sleeping = !!st.zz;
+    this.fb = cleanFb(st.fb);   // (their fishing line, fishing.js net: an older game sends none)
+    this.fishPose = this.fb && this.fb[2] > 0 ? FISH_POSE[this.fb[2]] : null;
     // (kt: the tools they carry, seen on their body: see kit.js. A game from before does not send it: none)
     this.kitKey = typeof st.kt === 'string' ? st.kt.slice(0, 160) : '';
     // (ac: their colour, 0-7, ui/skin.js ACCENTS. A game from before sends none, or a wrong one: the one of their name)
@@ -486,6 +491,7 @@ export class Live {
         break;
       // Alguien llama a una puerta: suena si estás cerca (y, si es la tuya, te avisa)
       case 'greet': if (!Profile.server && this.joined) g.social.heard(conn, peer, m); break;   // (someone greets: social.js)
+      case 'catch': if (!Profile.server && this.joined) g.fishing?.heard(peer, m); break;   // (a record or a trophy: fishing.js)
       case 'wp': g.route?.heard(conn, peer, m); break;   // (a map pin shared by someone: route.js)
       // A neighbour's passing remark about another player (Plan E §4.5, §6: { t: 'rmk', npc, rc, li }): the same bubble here,
       // and that neighbour keeps quiet a while. Cosmetic, nothing arbitrated; remarks.js checks the indexes
@@ -959,7 +965,7 @@ export class Live {
     }
     this.sent += dt;
     const sc = g.scene === g.world ? 'world' : null;
-    const st = { t: 'st', sc, x: r2(p.x), y: r2(p.y), z: r2(p.z || 0), fl: p.floor ? r2(p.floor) : undefined, yaw: r2(g.view3d.actors.player?.person.facing ?? 0), in: p.inside ? 1 : 0, po: p.pose ? [poseIndex(p.pose.kind), r2(p.pose.yaw), r2(p.pose.h)] : 0, ba: p.bathing && p.pose?.kind === 'bath' ? 1 : undefined, bd: g.body?.bd || undefined, m: p.mount ? 1 : 0, hc: p.mount ? p.horseCoat || null : null, hb: p.mount && p.horseBags ? 1 + (p.horseFill > 0 ? Math.min(2, p.horseFill | 0) : 0) : 0, hd: p.mount && p.horseDirt > 0 ? Math.min(3, Math.round(p.horseDirt * 3)) || undefined : undefined, hw: p.mount && p.horseWinded ? 1 : undefined, ht: p.mount ? horseAct(p.horseAct) : undefined, b: p.boat ? 1 : 0, pa: p.aboard || 0, cr: p.crouch ? 1 : 0, gm: g.gamemode === 'survival' ? 0 : g.gamemode === 'creative' ? 1 : 3, h: g.inv.held?.id || null, sw: this.swings, si: g.gather.swingItem || null, cd: r2(g.gather.cooldown || 0), dr: r2(g.archery.k), na: p.swim ? 1 : 0, hu: p.swim ? r2(p.sink) : undefined, dv: p.swim && p.dive > 0.02 ? r2(p.dive) : undefined, zz: p.sleeping && p.pose?.kind === 'lie' ? 1 : undefined, kt: kitKey(g.kitIds()) || undefined, gt: p.gait || 0, rv: p.mount && g.mode === 'play' && p.ride?.v > 0.5 ? r1(p.ride.v) : undefined, ca: g.carry?.state(), em: g.social.emSeq, ek: g.social.emKind, ac: accentOf(p.name, g.ui?.accent) };
+    const st = { t: 'st', sc, x: r2(p.x), y: r2(p.y), z: r2(p.z || 0), fl: p.floor ? r2(p.floor) : undefined, yaw: r2(g.view3d.actors.player?.person.facing ?? 0), in: p.inside ? 1 : 0, po: p.pose ? [poseIndex(p.pose.kind), r2(p.pose.yaw), r2(p.pose.h)] : 0, ba: p.bathing && p.pose?.kind === 'bath' ? 1 : undefined, bd: g.body?.bd || undefined, m: p.mount ? 1 : 0, hc: p.mount ? p.horseCoat || null : null, hb: p.mount && p.horseBags ? 1 + (p.horseFill > 0 ? Math.min(2, p.horseFill | 0) : 0) : 0, hd: p.mount && p.horseDirt > 0 ? Math.min(3, Math.round(p.horseDirt * 3)) || undefined : undefined, hw: p.mount && p.horseWinded ? 1 : undefined, ht: p.mount ? horseAct(p.horseAct) : undefined, b: p.boat ? 1 : 0, pa: p.aboard || 0, cr: p.crouch ? 1 : 0, gm: g.gamemode === 'survival' ? 0 : g.gamemode === 'creative' ? 1 : 3, h: g.inv.held?.id || null, sw: this.swings, si: g.gather.swingItem || null, cd: r2(g.gather.cooldown || 0), dr: r2(g.archery.k), na: p.swim ? 1 : 0, hu: p.swim ? r2(p.sink) : undefined, dv: p.swim && p.dive > 0.02 ? r2(p.dive) : undefined, zz: p.sleeping && p.pose?.kind === 'lie' ? 1 : undefined, fb: sc ? g.fishing?.net() : undefined, kt: kitKey(g.kitIds()) || undefined, gt: p.gait || 0, rv: p.mount && g.mode === 'play' && p.ride?.v > 0.5 ? r1(p.ride.v) : undefined, ca: g.carry?.state(), em: g.social.emSeq, ek: g.social.emKind, ac: accentOf(p.name, g.ui?.accent) };
     const key = JSON.stringify(st);
     if (this.sent < SEND_EVERY || (key === this.lastSent && this.sent < IDLE_EVERY)) return;
     this.sent = 0; this.lastSent = key;

@@ -14,6 +14,7 @@ import { NeedsBar } from './ui/needsbar.js';
 import { ToolWheel } from './ui/wheel.js';
 import { apagada } from './opciones.js';
 import { FieldHud } from './ui/fieldhud.js';
+import { FishCard } from './ui/fishcard.js';
 import { reportFault } from './faults.js';
 
 // Con ?modo=servidor, este juego es el mundo del servidor (lo abre multijugador.py): sin dibujo ni menús (server.js).
@@ -46,13 +47,14 @@ function play(login = true) {   // (login: abrir la pantalla de entrar)
   const wheel = game.wheel = new ToolWheel(game);   // (F held: the tool wheel, src/ui/wheel.js)
   // The study ring and the track tag (src/ui/fieldhud.js, Plan G), for both interfaces: drawn after menus.js's frame hook
   const fieldHud = game.fieldHud = new FieldHud(game), menusFrame = game.onFrame;
-  game.onFrame = () => { menusFrame?.(); try { fieldHud.frame(); } catch (e) { reportFault(e, 'FieldHud.frame'); } };
+  const fishCard = new FishCard(game);   // (the catch card, src/ui/fishcard.js)
+  game.onFrame = () => { menusFrame?.(); try { fieldHud.frame(); } catch (e) { reportFault(e, 'FieldHud.frame'); } try { fishCard.frame(); } catch (e) { reportFault(e, 'FishCard.frame'); } };
   const b = game.build;
   initInput({
     frontKey: e => menus.frontKey(e),   // (a menu screen of ui/frontend.js open: the keys are its own)
     chat: prefix => chat.open(prefix),
     use: () => (hud.dialogOpen ? game.action() : b.on ? b.place() : game.gather.use()),
-    jump: () => (hud.dialogOpen ? game.action() : game.player?.pose ? game.rest.stand() : game.fishing.space() ? null : game.player?.jump()),
+    jump: () => (hud.dialogOpen ? game.action() : game.fishing.space() ? null : game.player?.pose ? game.rest.stand() : game.player?.jump()),
     drop: all => game.toss(all),
     posture: hold => game.rest.posture(hold),   // (Shift alone: a tap or a hold; rest.js posture)
     crouch: on => { const p = game.player; if (p && !p.mount && !p.boat && !p.aboard && !p.pose && !(p.swim && DIVING)) p.crouch = on ?? !p.crouch; },   // (the second tap of W stands up)

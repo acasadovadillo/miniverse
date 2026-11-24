@@ -12,8 +12,10 @@ import { RealPerson } from './three/realperson.js';
 import { distTo, dirOf, obb, bounds } from './world/fit.js';
 import { CAM, lookBy } from './camera.js';
 import { keys, aimLock, clearKeys, pressW, releaseW, dropSprint, gaitOf, TAP_WINDOW, TAP_GAP, TAP_HOLD, pressShift, releaseShift, shiftTick, shiftWithOther, SHIFT_HOLD } from './input.js';
-import { ITEMS, HARVEST, hitsFor, CHESTS, BUGS } from './items.js';
-import { SHOPS } from './economy.js';
+import { ITEMS, HARVEST, hitsFor, CHESTS, BUGS, FISH } from './items.js';
+import { SHOPS, FISH_PRICE_K } from './economy.js';
+import * as FW from './fishwater.js';
+import { BITES, breakP, fightS } from './fishing.js';
 import { repairMat } from './crafting.js';
 import { RECIPES } from './recipes.js';
 import { runCommand } from './commands.js';
@@ -67,7 +69,7 @@ import { makeCave } from './world/underground.js';
 import { CROPS, START_KIT, thirstOf, clothesText, WEAR_SLOTS, wearSlotLabel, itemNoun } from './items.js';
 import { REMARKS, remarkKey, remarkLines } from './remarks.js';
 import { PEOPLE } from './neighbors.js';
-import { talkContext, pickTopic, topicWeights, topicLines, cropNews, moodOf, forecastBy, tomorrowsWeather, lineHash, thing, someOf, TOPICS } from './talktopics.js';
+import { talkContext, pickTopic, topicWeights, topicLines, cropNews, fishNow, moodOf, forecastBy, tomorrowsWeather, lineHash, thing, someOf, TOPICS } from './talktopics.js';
 import { stackKg, SIP_KG } from './carry-items.js';
 import { extraOf } from './inventory.js';
 import { WATER_Y } from './world/planet.js';
@@ -89,7 +91,7 @@ import { Farm } from './farm.js';
 import { seasonOf } from './time.js';
 import { seasonC, fieldDay } from './fieldclimate.js';
 import { GROW, seedOf, rateAt } from './cropdata.js';
-import { NORTH, HALF as PHALF, nearX, W as PW } from './world/planet.js';
+import { NORTH, HALF as PHALF, H as PH, nearX, W as PW } from './world/planet.js';
 import { Tracks, K, CAP, TTL, S, DEAD, F_LEFT, F_FLEE, F_SECOND, STRIDE, RAIN_K } from './tracks.js';
 import { Wildlife, WOUND, trailKey } from './wildlife.js';
 import { ZONE, zoneOf } from './hunt.js';
@@ -2509,18 +2511,256 @@ async function soloTests(game) {
     check(!w().canPlace(hole[0], hole[1], 'silla', null), 'en el camino del jardín cabe cualquier cosa');
     w().setTile(tx, ty, 'air'); delete w().delta(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK)).gone[`${tx},${ty}`]; w().touchAround(tx, ty); inv().remove('valla', 1);
   });
-  await test('pesca: un clic lanza y otro saca el pez cuando pica', async () => {
-    const F = game.fishing, peces = game.stats.get('peces');
-    inv().add('cana', 1); inv().selected = inv().slots.findIndex(s => s?.id === 'cana'); inv().changed();
-    await goTo(game, POND.x, POND.y - POND.ry - 0.6); p().x = POND.x; p().y = POND.y - POND.ry - 0.6; p().vx = p().vy = 0; p().face = { x: 0, y: 1 }; await frames(2);
-    const use = () => { game.gather.cooldown = 0; game.gather.target = game.gather.pickTarget(); check(game.gather.target?.use, `la caña no apunta al agua: ${game.gather.target?.label}`); game.gather.target.use(); };
-    use(); check(F.state?.phase === 'wait', 'un clic no lanza'); F.state.t = 99; await frames(2);
-    use(); check(!F.state, 'pulsar antes de que pique no recoge el sedal'); check(game.stats.get('peces') === peces, 'ha salido un pez sin picar');
-    use(); F.state.fly = 1; F.state.t = 0.01; await frames(3); check(F.state?.phase === 'bite', 'no pica');
-    use(); check(!F.state && game.stats.get('peces') === peces + 1, 'al clic no sale el pez'); await collectDrops(game, 'a recoger el pez');
-    await frames(2); game.gather.cooldown = 0; game.gather.target = game.gather.pickTarget(); p().x = POND.x; p().y = POND.y - POND.ry - 0.6; p().face = { x: 0, y: 1 }; await frames(2);
-    use(); F.state.fly = 1; F.state.t = 0.01; await frames(3); F.state.t = 0.01; await frames(3); check(!F.state && game.stats.get('peces') === peces + 1, 'tardando, también sale');
-    inv().remove('cana', 1); check(!ITEMS.mesa_encantar && !document.getElementById('fishbar'), 'quedan restos');
+  // ---------- fishing (Plan R1-0 and R1-1: src/fishing.js, src/fishwater.js) ----------
+  const seeded = (k = 11) => { let q = k; return () => { q = (q * 1664525 + 1013904223) >>> 0; return q / 4294967296; }; };
+  const withRandom = async (fn, rnd) => { const r = Math.random; Math.random = rnd; try { return await fn(); } finally { Math.random = r; } };
+  const ctxAt = o => { const c = { water: 'rio', depth: 1, tempC: 13, hour: 10, season: 0, weather: 'sol', spot: 1, rod: 1, stock: 1, ...o }; c.k = c.spot * c.rod * c.stock * FW.skyK(c, false); return c; };
+  // At the pond's north bank with a rod in the hand and no mouse; everything left as it was
+  const atPond = (fn, rod = 'cana') => async () => {
+    const F = game.fishing, I = inv(), was = { mouse: game.mouse, sel: I.selected, rec: { ...F.records }, log: structuredClone(F.log), far: p().pose };
+    const d = w().delta(Math.floor(POND.x / CHUNK), Math.floor(POND.y / CHUNK), true), fished = d.fished;
+    I.add(rod, 1); I.selected = I.slots.findIndex(q => q?.id === rod); I.changed();
+    game.mouse = null; F.state = null; F.card = null; F.spooks = []; d.fished = undefined;
+    const home = [POND.x, POND.y - POND.ry - 0.6];
+    await goTo(game, ...home); [p().x, p().y] = home; p().vx = p().vy = 0; p().face = { x: 0, y: 1 }; p().pose = null; await frames(2);
+    const use = () => { if (I.held) I.held.dur = 80; game.gather.cooldown = 0; game.gather.target = game.gather.pickTarget(); check(game.gather.target?.use, `the rod does not point at the water: ${game.gather.target?.label}`); game.gather.use(); };
+    try { await fn({ F, I, d, use, home }); } finally {
+      F.state = null; F.card = null; F.aim = null; delete game.rayNow; game.mouse = was.mouse; p().pose = null;
+      F.records = was.rec; F.log = was.log; if (fished) d.fished = fished; else delete d.fished;
+      I.remove(rod, 1); I.selected = was.sel; I.changed();
+      await frames(2); await collectDrops(game, 'the fish');
+    }
+  };
+  await test('fish (english): cast at the cursor', atPond(async ({ F, I, use, home }) => {
+    use(); check(F.state?.phase === 'wait' && F.state.water === 'estanque', 'a click does not cast (no mouse)');
+    F.state.fly = 1; F.state.t = 99; F.state.next = 99; await frames(2);
+    check(game.gather.pickTarget().label === t('fish.reel'), `line out: «${game.gather.pickTarget().label}»`);
+    const n = game.stats.get('peces'); use(); check(!F.state && game.stats.get('peces') === n, 'a click while waiting does not reel in');
+    // (the cursor: the camera's ray straight down on a point)
+    const at = (x, y) => { F.aim = null; game.mouse = { in: true, x: 5, y: 5 }; game.rayNow = () => ({ o: [x, 30, y], d: [0, -1, 0] }); };
+    at(POND.x + 1, POND.y - 0.8); let s = F.aimSpot(p()); check(s && !s.far && Math.hypot(s.x - POND.x - 1, s.y - POND.y + 0.8) < 1e-6, `aimed at the water 2.8 m away: ${JSON.stringify(s)}`);
+    F.press(); check(F.state && Math.abs(F.state.bx - POND.x - 1) < 1e-6 && Math.abs(F.state.by - POND.y + 0.8) < 1e-6, 'it does not go where the cursor is'); F.state = null;
+    at(POND.x, POND.y - 12); check(F.aimSpot(p()) === null && F.target(p(), I.held, ITEMS.cana) === null, 'aimed at land');
+    p().y = POND.y - 12; at(POND.x, POND.y); check(F.aimSpot(p())?.far && F.target(p(), I.held, ITEMS.cana).label === t('fish.too_far'), 'the water 12 m away is not «Too far»');
+    // (from 8 m away, past the trees: the fibre rod reaches, the cane one does not)
+    p().y = POND.y - 8; const reach = w().reaches; w().reaches = () => true;
+    try {
+      at(POND.x, POND.y); check(F.aimSpot(p())?.far, 'the cane rod reaches 8 m');
+      const slot = I.slots[I.selected]; slot.id = 'cana_fibra'; at(POND.x, POND.y); const far = F.aimSpot(p()); slot.id = 'cana';
+      check(far && !far.far && Math.abs(far.r - 8) < 0.01, `the fibre rod at 8 m: ${JSON.stringify(far)}`);
+    } finally { delete w().reaches; if (w().reaches !== reach) w().reaches = reach; }
+    [p().x, p().y] = home;
+    check(F.reach === 6 && !document.getElementById('fishbar'), `reach ${F.reach}`);
+  }));
+  await test('fish (english): local clock', async () => {
+    const T = game.days, here = Object.getOwnPropertyDescriptor(T, 'here');
+    Object.defineProperty(T, 'here', { configurable: true, get: () => ({ x: PW / 4, y: NORTH + PH * 0.75 }) });
+    try {
+      const c = FW.here(game, POND.x, POND.y);
+      check(c.season === (T.season + 2) % 4 && c.season === T.localSeason, `south of the equator: ${c.season}, the village's ${T.season}`);
+      check(Math.abs(c.hour - T.localHour) < 0.01 && Math.abs(c.hour - T.hour) > 1, `local hour ${c.hour}, Madrid's ${T.hour}`);
+      check(c.weather === T.weatherHere && c.water === 'estanque' && c.depth > 0.5 && c.tempC >= 1 && c.tempC <= 28 && c.spot >= 0.6 && c.spot <= 1.6, JSON.stringify(c));
+    } finally { if (here) Object.defineProperty(T, 'here', here); else delete T.here; }
+  });
+  await test('fish (english): pace by place, hour, weather and season', async () => {
+    const mean = o => { const r = seeded(5), c = ctxAt(o), R = FW.rates(c); let q = 0; for (let i = 0; i < 2000; i++) q += FW.waitFor(R, r); return q / 2000; };
+    const good = mean({ hour: 19.5, season: 2, weather: 'nubes', spot: 1.45, depth: 1.1, tempC: 15 }), usual = mean({}), bad = mean({ water: 'lago', depth: 2.5, hour: 14, season: 1, tempC: 20, spot: 0.8 }), out = mean({ water: 'estanque', depth: 0.75, stock: 0.25, spot: 1.15 });
+    check(good >= 12 && good <= 25, `a river bend at dusk, overcast: ${good.toFixed(1)} s`);
+    check(usual >= 30 && usual <= 50, `an ordinary spot and hour: ${usual.toFixed(1)} s`);
+    check(bad >= 60 && bad <= 150, `the open lake on a summer noon: ${bad.toFixed(1)} s`);
+    check(out >= 80, `a fished-out pond: ${out.toFixed(1)} s`);
+    console.log(`fish pace: dusk bend ${good.toFixed(1)} s, usual ${usual.toFixed(1)}, summer noon ${bad.toFixed(1)}, fished out ${out.toFixed(1)}`);
+    // Curves: dusk over day over night for day fish, the other way round for an eel; rain and weather; season; temperature
+    const R = (id, o) => FW.rateOf(FISH[id], ctxAt(o));
+    check(R('perca', { hour: 19.5 }) > R('perca', { hour: 10 }) && R('perca', { hour: 10 }) > R('perca', { hour: 1 }), 'the perch by the hour');
+    check(R('anguila', { hour: 23 }) > 2 * R('anguila', { hour: 12 }) && R('anguila', { hour: 12 }) > 0, 'the eel by the hour');
+    check(R('lucio', { water: 'lago', depth: 2, hour: 12 }) > 0 && R('lucio', { water: 'lago', depth: 2, hour: 16 }) > R('lucio', { water: 'lago', depth: 2, hour: 12 }), 'a pike at noon is rare, not impossible');
+    check(R('salmon', { season: 2 }) > 10 * R('salmon', { season: 1 }) && R('salmon', { season: 1 }) > 0, 'the salmon run');
+    check(R('siluro', { weather: 'lluvia', tempC: 18, hour: 22 }) > 2 * R('siluro', { tempC: 18, hour: 22 }), 'the catfish in the rain');
+    check(R('trucha', { tempC: 26 }) < 0.3 * R('trucha', { tempC: 12 }), 'a trout in warm water');
+    check(FW.rates(ctxAt({ weather: 'lluvia' })) > FW.rates(ctxAt({ weather: 'tormenta' })) && FW.skyK(ctxAt({}), true) > FW.skyK(ctxAt({}), false), 'the sky');
+    const wS = [0, 1, 2, 3].map(q => FW.waterC(w(), 300, 300, q, 'rio', 1)); check(wS[1] > wS[0] && wS[0] > wS[3] && wS.every(c => c >= 1 && c <= 28), `the water by season: ${wS}`);
+  });
+  await test('fish (english): depth gates', async () => {
+    const R = (id, o) => FW.rateOf(FISH[id], ctxAt({ tempC: 18, season: 1, hour: 10, ...o }));
+    check(R('atun', { water: 'mar', depth: 2 }) === 0 && R('atun', { water: 'mar', depth: 5.6 }) === 0 && R('atun', { water: 'mar', depth: 7 }) > 0, 'tuna off the beach');
+    check(R('esturion', { water: 'lago', depth: 2 }) === 0 && R('esturion', { water: 'lago', depth: 4, season: 3 }) > 0 && R('esturion', { water: 'rio', depth: 4 }) === 0, 'a sturgeon where it does not live');
+    check(R('carpa', { water: 'mar', depth: 3 }) === 0, 'a carp at sea');
+    const r = seeded(9); for (let i = 0; i < 300; i++) { const id = FW.pickFish(ctxAt({ water: 'mar', depth: 2, season: 1, tempC: 18 }), r); check(id && id !== 'atun' && FISH[id].water.includes('mar'), `at 2 m in the sea: ${id}`); }
+    check(FW.pickFish(ctxAt({ water: 'rio', depth: 0.05 })) === null && FW.waitFor(0) === Infinity, 'a puddle');
+  });
+  await test('fish (english): bite styles and windows', atPond(async ({ F, use }) => {
+    const bite = (kind, id) => {
+      F.state = null; use(); const s = F.state; s.fly = 1; s.next = 99;
+      const pick = F.pick; F.pick = () => id; try { F.bite(); } finally { F.pick = pick; }
+      s.bite = kind; s.taps = kind === 'taps' ? 4 : 0; s.pre = kind === 'taps' ? 1.6 : BITES[kind].pre; s.win = BITES[kind].win; s.find = false;
+      return s;
+    };
+    check(['dip', 'run', 'lift', 'slam', 'taps'].every(k => BITES[k]) && Object.values(FISH).every(f => BITES[f.bite]), 'a fish with no way of biting');
+    for (const [kind, id] of [['dip', 'perca'], ['run', 'carpa'], ['lift', 'carpa'], ['slam', 'perca'], ['taps', 'perca']]) {
+      await withRandom(async () => {
+        let s = bite(kind, id); check(s.phase === 'bite', `${kind}: no bite`);
+        s.bt = s.pre + 0.05; F.strike(); check(F.state?.phase === 'fight', `${kind}: struck in time it does not hook`); F.state = null;
+        s = bite(kind, id); s.bt = s.pre + s.win - 0.02; F.space(); check(F.state?.phase === 'fight', `${kind}: struck at the end (Space) it does not hook`); F.state = null;
+        s = bite(kind, id); s.bt = s.pre + s.win + 0.01; F.update(0.016); check(!F.state, `${kind}: after its window it is still there`);
+        if (s.pre > 0) { F.spooks = []; s = bite(kind, id); s.bt = s.pre - 0.05; F.strike(); check(!F.state && F.spooks.length === 1, `${kind}: pulled too soon`); }
+      }, () => 0.5);
+    }
+    // (72 % hook at the very end, 96 % at once)
+    let late = 0, early = 0; const r = seeded(3);
+    await withRandom(() => { for (let i = 0; i < 400; i++) { let s = bite('run', 'carpa'); s.bt = 1.99; F.strike(); late += F.state ? 1 : 0; s = bite('run', 'carpa'); s.bt = 0.02; F.strike(); early += F.state ? 1 : 0; } }, r);
+    F.state = null;
+    check(late / 400 >= 0.66 && late / 400 < 0.82 && early / 400 > 0.92, `hooked late ${late / 400}, early ${early / 400}`);
+    // A false nibble: pulling finds nothing and the next wait there is half as long again
+    F.spooks = []; use(); let s = F.state; s.fly = 1; s.next = 99; s.nib = 0.2; game.gather.floaters.length = 0; use();
+    check(!F.state && F.spooks.length === 1 && game.gather.floaters.some(f => f.text === t('fish.nothing')), `struck on a nibble: ${F.state?.phase}, ${F.spooks.length}, ${game.gather.floaters.map(f => f.text)}`);
+    await withRandom(() => { use(); const scared = F.state.t; F.state = null; F.spooks = []; use(); check(Math.abs(scared / F.state.t - 1.5) < 0.01, `scared off: ${scared} s, else ${F.state.t}`); }, () => 0.9);
+    // (nibbles come by themselves, and one steals the bait; a bare hook waits three times as long)
+    s = F.state; s.fly = 1; s.t = 20; s.next = 0.01; s.bare = false;
+    await withRandom(() => { F.update(0.02); check(s.nib > 0.25 && s.bare && s.t > 55, `a nibble that steals: nib ${s.nib}, bare ${s.bare}, ${s.t} s`); }, () => 0.01);
+    F.state = null;
+    // No labels while it bites, no key but the click and Space, no bars
+    s = bite('dip', 'perca'); check(game.gather.pickTarget().label === '' && !game.gather.floaters.some(f => /Pica|Ahora/.test(f.text)), 'a label says when to pull');
+    check(!document.getElementById('fishbar') && !document.querySelector('#fishcard progress, #fishcard meter'), 'a bar');
+  }));
+  await test('fish (english): the fight, line breaks and walking away', atPond(async ({ F, use }) => {
+    const run = (id, kg, n, rnd) => { let broke = 0; const f = FISH[id], cm = 100 * Math.cbrt(kg / f.k); for (let i = 0; i < n; i++) { F.state = { phase: 'bite', id, bx: POND.x, by: POND.y - 1, px: p().x, py: p().y, water: 'estanque', ctx: ctxAt({}) }; F.hook({ cm, trophy: false }); if (F.state.breakAt < Infinity) broke++; } F.state = null; return broke / n; };
+    const flags = game.neighbors.flags, sedal = flags.sedal, r = seeded(21), slot = inv().slots[inv().selected], lvl = game.skills.xp.pesca;
+    try {
+      flags.sedal = false; game.skills.xp.pesca = 0;
+      await withRandom(() => {
+        const cane = run('siluro', 26, 200); check(cane >= 0.85, `26 kg on the cane rod breaks ${cane}`);
+        check(run('perca', 0.2, 100) === 0, 'a perch breaks the line');
+        slot.id = 'cana_fibra'; flags.sedal = true; check(F.lineKg === 14, `fibre with Lía's line: ${F.lineKg} kg`);
+        const fibre = run('siluro', 26, 200); check(fibre <= 0.4, `26 kg on the fibre rod with Lía's line breaks ${fibre}`);
+        console.log(`fish: a 26 kg catfish breaks ${cane} (cane), ${fibre} (fibre and Lía's line)`);
+      }, r);
+    } finally { slot.id = 'cana'; if (sedal === undefined) delete flags.sedal; else flags.sedal = sedal; game.skills.xp.pesca = lvl; }
+    // It plays out by itself: clicks do nothing, and it ends on the bank with the card
+    await withRandom(async () => {
+      use(); const s = F.state; s.fly = 1; s.id = 'carpa'; s.find = false; F.hook({ cm: 50, trophy: false }); s.breakAt = Infinity; s.T = 0.5;
+      use(); check(F.state === s && s.phase === 'fight', 'a click does something in the fight');
+      const n = game.stats.get('peces'); for (let i = 0; i < 60 && F.state; i++) F.update(0.016);
+      check(!F.state && F.card?.id === 'carpa' && F.card.cm === 50 && game.stats.get('peces') === n + 1, 'the fight does not end in the hands'); F.card = null;
+      // (walking off breaks it; changing what is in the hand, too)
+      use(); Object.assign(F.state, { fly: 1, id: 'carpa', find: false }); F.hook({ cm: 50, trophy: false }); F.state.breakAt = Infinity; p().y -= 2; F.update(0.016); check(!F.state, 'two metres away and the line holds'); p().y += 2;
+    }, () => 0.5);
+  }));
+  await test('fish (english): weight from length, the card, records, keep and release', atPond(async ({ F, I, d }) => {
+    for (const [id, f] of Object.entries(FISH)) for (const cm of f.cm) { const kg = FW.kgOf(f, cm); check(Math.abs(kg / (f.k * (cm / 100) ** 3) - 1) < 0.01 && kg > 0.003 && kg < 60, `${id} of ${cm} cm: ${kg} kg`); check(priceOf(id) === Math.round((f.rare ? 400 : 15 + f.size * 9 + f.dif * 80) * FISH_PRICE_K), `the price of ${id}`); }
+    const r = seeded(2); let top = 0; for (let i = 0; i < 4000; i++) { const z = FW.sizeOf(FISH.carpa, 0, false, r); check(z.cm >= 30 && z.cm <= 85 * 1.15, `${z.cm} cm`); if (z.cm > 85) top++; } check(top > 4 && top < 50, `${top} trophies past the range in 4000`);
+    const land = (cm, o = {}) => F.landed({ id: 'carpa', cm, kg: FW.kgOf(FISH.carpa, cm), water: 'estanque', x: POND.x, y: POND.y, ...o });
+    const day = game.days.realDay, at = () => FW.caughtAt(w(), POND.x, POND.y, 'estanque', day), had = I.count('carpa'), xp = () => game.skills.xp.pesca || 0;
+    F.records = {}; F.log = { v: 1, rec: {}, n: {}, last: [] };
+    land(41); check(F.card && !F.card.rec && F.records.carpa === 41 && F.log.rec.carpa[0] === 41 && F.log.rec.carpa[1] === Math.round(FW.kgOf(FISH.carpa, 41) * 1000) && F.log.n.carpa === 1, 'the first one: ' + JSON.stringify(F.log));
+    check(F.pose()?.both && game.fishing.net()?.[2] === 4, 'not in the hands');
+    // (E keeps it: the item, all the practice, one from the cell)
+    let x0 = xp(); const full = F.card.xp; game.action(); check(!F.card && at() === 1 && xp() === x0 + full, `E: card ${F.card}, stock ${at()}, xp ${xp() - x0} of ${full}`);
+    for (let i = 0; i < 120 && I.count('carpa') <= had; i++) await frames(1);
+    check(I.count('carpa') === had + 1, 'E does not give the fish');
+    // (X held lets it go: no item, half the practice, the cell nearly whole; a tap does nothing)
+    land(45); check(F.card.rec && F.records.carpa === 45, 'no new record');
+    x0 = xp(); const half = Math.round(F.card.xp / 2); game.altAction(); dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyX' })); await new Promise(q => setTimeout(q, 350)); F.update(0.016); check(F.card, 'a tap of X releases it');
+    game.altAction(); await new Promise(q => setTimeout(q, 360)); F.update(0.016); check(!F.card && Math.abs(at() - 1.3) < 0.01 && xp() === x0 + half && I.count('carpa') === had + 1, `X held: card ${F.card}, stock ${at()}, xp ${xp() - x0} of ${half}`);
+    land(40); check(!F.card.rec && F.log.n.carpa === 3 && F.log.last.length === 3 && F.records.carpa === 45, 'a smaller one'); F.card.t = 5.1; F.update(0.016); check(!F.card && at() > 2.2, 'it is not kept by itself');
+    // (the save: the log, and an old save with lengths only)
+    const out = {}; F.save(out); check(out.fishRecords.carpa === 45 && out.fishLog.rec.carpa[0] === 45, 'the save'); const keep = [F.records, F.log, F.riseT];
+    const G = Object.create(Object.getPrototypeOf(F)); G.game = game; G.reset({ fishRecords: { trucha: 50, atun: 180 } }); check(G.records.trucha === 50 && G.log.rec.trucha[1] === Math.round(11000 * 0.125) && G.log.rec.atun[0] === 180, `an old save: ${JSON.stringify(G.log.rec)}`);
+    G.reset({ fishRecords: { trucha: 50 }, fishLog: { v: 2, rec: { trucha: 'x', coral: [5, 6] }, n: 7, last: {} } }); check(G.log.rec.trucha[0] === 50 && Array.isArray(G.log.last) && G.log.rec.coral, 'a broken log');
+    [F.records, F.log] = keep;
+    const html = F.journal(); check(html.includes(t('nature.name.carpa')) && html.includes('45 cm') && !/undefined|NaN|\{/.test(html), 'the log in the diary');
+    check(d.fished, 'the stock is not in the chunk');
+  }));
+  await test('fish (english): spots run out and recover', atPond(async ({ d }) => {
+    const day = game.days.realDay, c0 = ctxAt({ water: 'estanque', depth: 0.75 }), R = () => FW.rates(ctxAt({ water: 'estanque', depth: 0.75, stock: FW.stockK(FW.caughtAt(w(), POND.x, POND.y, 'estanque', day), 'estanque') }));
+    const full = FW.rates(c0);
+    for (let i = 0; i < 5; i++) FW.takeFrom(w(), POND.x + (i - 2), POND.y, 'estanque', day, 1);   // (the whole pond is one cell)
+    check(R() <= 0.3 * full, `five catches: ${R()} of ${full}`);
+    check(FW.stockK(FW.caughtAt(w(), POND.x, POND.y, 'estanque', day + 3), 'estanque') > 0.89 && FW.caughtAt(w(), POND.x, POND.y, 'estanque', day + 4) === 0, 'three real days later it is not back');
+    const cell = FW.cellOf(POND.x, POND.y, 'estanque'); check(d.fished[cell[2]]?.[1] === 5 && JSON.stringify(d.fished).length < 60, JSON.stringify(d.fished));
+    FW.takeFrom(w(), POND.x, POND.y, 'estanque', day + 9, 0.3); check(d.fished[cell[2]][1] === 0.3, 'it does not start again');
+    const a = FW.cellOf(3, 3, 'rio'), b = FW.cellOf(12, 3, 'rio'), n = FW.cellOf(-1, -1, 'rio'); check(a[2] === 0 && b[2] === 1 && n[0] === -1 && n[2] === 3, 'the cells');
+    // (no rises over a fished-out pond)
+    for (let i = 0; i < 4; i++) FW.takeFrom(w(), POND.x, POND.y, 'estanque', day, 5);
+    for (let i = 0; i < 300; i++) { const q = game.fishing.riseSpot(p()); if (q) check(Math.hypot(q.x - POND.x, q.y - POND.y) > 4, 'a rise over the fished-out pond'); }
+  }));
+  await test('fish (english): seated, and only the rod', atPond(async ({ F, I }) => {
+    p().pose = { kind: 'floorSit', yaw: 0, h: -0.28 };   // (facing the pond, south)
+    game.gather.cooldown = 0; game.gather.target = game.gather.pickTarget(); game.gather.use();
+    check(F.state?.phase === 'wait', 'seated, the rod does not cast'); await frames(3); check(F.state, 'seated, the line does not stay out'); F.state = null;
+    p().pose.yaw = Math.PI; game.gather.cooldown = 0; game.gather.target = game.gather.pickTarget(); game.gather.use(); check(!F.state, 'it casts behind its back');
+    p().pose = { kind: 'floorLie', yaw: 0, h: 0.14 }; check(!F.canUse(p()) && !game.gather.pickTarget()?.use, 'lying down, it casts');
+    p().pose = { kind: 'floorSit', yaw: 0, h: -0.28 }; const sel = I.selected; I.selected = I.slots.findIndex(q => !q); check(!F.canUse(p()), 'a bare hand works seated'); I.selected = sel;
+  }));
+  await test('fish (english): net fields', async () => {
+    const live = game.live, F = game.fishing;
+    try {
+      live.receive('fb1', { t: 'hi', id: 'id-fb1', name: 'Pescadora', playing: true, look: LOOK });
+      const st = o => live.receive('fb1', { t: 'st', sc: 'world', x: p().x + 3, y: p().y, yaw: 0, h: 'cana', ...o });
+      st({}); const e = live.peers.get('fb1').entity; check(e.fb === null && !e.fishPose, 'an older game: something of a line');
+      st({ fb: [p().x + 6, p().y, 1, 0, 0] }); check(e.fb && e.fishPose, 'their line'); await frames(4);
+      const rig = game.view3d.fx.fishing.rigs[1]; if (game.scene === w() && game.view3d.actors.models.get(e)?.root.visible) check(rig.line.visible && rig.bobber.visible, 'their float is not drawn');
+      st({ fb: [p().x + 5, p().y, 3, 0, 2] }); await frames(3); check(e.fishPose.lean < 0, 'their fight');
+      for (const bad of ['x', [1, 2], [1, 2, 9, 0, 0], [NaN, 0, 1, 0, 0], [1, 2, 1.5, 0, 0], { 0: 1 }]) { st({ fb: bad }); check(e.fb === null, `fb ${JSON.stringify(bad)} taken`); }
+      st({}); await frames(3); check(!rig.line.visible, 'their line stays');
+      check(F.heard({ name: 'Pescadora', sc: 'world', entity: e }, { id: 'carpa', cm: 70, g: 4800, rec: 1 }) === true, 'a record near is not told');
+      check(F.heard({ name: 'x', sc: 'world', entity: { x: p().x + 500, y: p().y } }, { id: 'carpa', cm: 70, g: 4800 }) === false, 'one far away is told');
+      for (const bad of [{ id: 'nope', cm: 1, g: 1 }, { id: 'carpa', cm: 'a', g: 1 }, { id: 'carpa', cm: 1e9, g: 1 }]) check(F.heard({ name: 'x', sc: 'world', entity: e }, bad) === false, JSON.stringify(bad));
+      check(F.net() === undefined, 'st.fb with no line out');
+      F.state = { phase: 'wait', fly: 1, bx: 10.123, by: 20, px: 0, py: 0 }; check(JSON.stringify(F.net()) === '[10.12,20,1,0,0]', JSON.stringify(F.net()));
+    } finally { F.state = null; live.drop('fb1', true); await frames(2); }
+  });
+  await test('fish (english): income per hour', async () => {
+    // An hour of what is done (casting, waiting, striking, the fights, the card, and a trip to sell every 30 fish), before
+    // (a bite every 2-7 s, 12 % treasures, today's prices ÷ K) and now; by waters, seasons, hours and weathers
+    const r = seeded(7), price = id => priceOf(id) / FISH_PRICE_K, TR = 64 + 71 * 1.4;
+    const was = c => {
+      const h = c.hour, inH = f => !f.hours || (f.hours[0] < f.hours[1] ? h >= f.hours[0] && h < f.hours[1] : h >= f.hours[0] || h < f.hours[1]), rain = c.weather === 'lluvia';
+      const l = Object.entries(FISH).filter(([, f]) => !f.rare && f.water.includes(c.water) && (!f.seasons || f.seasons.includes(c.season)) && inH(f) && (!f.weather || rain)), W = l.reduce((q, [, f]) => q + 1.2 - f.dif * 0.7, 0);
+      const avg = l.reduce((q, [id, f]) => q + (1.2 - f.dif * 0.7) * price(id), 0) / W, n = 30 / (30 * (4.5 * (rain ? 0.85 : 1) + 3.5) / 0.8 + 120);
+      return 3600 * n * (avg * 0.957 + 400 * 0.043 + 0.132 * TR);
+    };
+    const now = c => {
+      let T = 0, coins = 0, n = 0, left = 0; const S = FW.STOCK[c.water], sky = FW.skyK(c, false);
+      while (T < 3600) {
+        if (left > S / 2) { left = 0; T += 25; continue; }
+        c.k = c.spot * FW.stockK(left, c.water) * sky; const R = FW.rates(c), wait = FW.waitFor(R, r), nibs = wait / (7 / Math.max(0.5, Math.min(2, R)));
+        if (r() < 1 - 0.94 ** nibs) { T += wait * r() + 2.6; continue; }
+        if (r() < 0.04 * Math.min(3, nibs)) { T += wait * r() + 2; continue; }
+        T += 1.4 + wait; if (r() < 0.1 || r() > 0.88) { T += 1.5; continue; }
+        const id = r() < 0.043 ? 'pez_dorado' : FW.pickFish(c, r), f = FISH[id], kg = FW.kgOf(f, FW.sizeOf(f, 1, false, r).cm);
+        T += fightS(kg, f.pull); if (r() < breakP(kg * f.pull / 5.3) || r() < FIND_P || (kg > 2.5 && r() < 0.12)) { T += 1; continue; }
+        T += 3.2; n++; left++; coins += priceOf(id); if (n % 30 === 0) T += 120;
+      }
+      return [coins, n];
+    }, FIND_P = 0.03;
+    const DEPTH = { rio: 0.9, lago: 1.8, mar: 2 }, sum = list => { let a = 0, b = 0, n = 0, k = 0; for (const c of list) { a += was(c); const q = now(c); b += q[0]; n += q[1]; k++; } return { before: Math.round(a / k), after: Math.round(b / k), fish: Math.round(n / k), ratio: b / a }; };
+    const tempOf = (wt, q, dp) => { const b = [12, 21, 15, 6][q]; return (wt === 'mar' ? 13.5 + (b - 13.5) * 0.6 : b) - (q === 1 ? dp * 0.4 : 0) + (q === 3 ? dp * 0.3 : 0); };
+    const usual = [], dusk = [];
+    for (const water of Object.keys(DEPTH)) for (let season = 0; season < 4; season++) {
+      const o = { water, season, depth: DEPTH[water], tempC: tempOf(water, season, DEPTH[water]) };
+      for (const hour of [7, 9, 11, 13, 15, 17, 19, 21]) usual.push(ctxAt({ ...o, hour, weather: ['sol', 'nubes', 'lluvia'][hour % 3], spot: 0.85 + 0.4 * r() }));
+      for (const hour of [18.5, 19.5, 20.2]) dusk.push(ctxAt({ ...o, hour, weather: 'nubes', spot: 1.45 }));
+    }
+    const A = sum(usual), D = sum(dusk);
+    console.log(`fish income (coins/h): ordinary before ${A.before}, now ${A.after} (${A.fish} fish, ×${A.ratio.toFixed(2)}); a good dusk before ${D.before}, now ${D.after} (${D.fish} fish, ×${D.ratio.toFixed(2)})`);
+    check(A.ratio > 0.6 && A.ratio < 0.82, `ordinary fishing earns ×${A.ratio.toFixed(2)}`);
+    check(D.ratio > 0.95 && D.ratio < 1.4 && D.ratio > A.ratio * 1.2, `a good dusk earns ×${D.ratio.toFixed(2)}`);
+    // (and nobody can live off buying Lía's sardines)
+    const e = SHOPS.lia.stock.find(q => q.id === 'sardina'); check(e.price > priceOf('sardina') * 1.2 && e.price >= priceOf('pescado_asado') - 10, `sardines at ${e.price}, sold at ${priceOf('sardina')}, grilled ${priceOf('pescado_asado')}`);
+  });
+  await test('fish (english): what Lía says bites', async () => {
+    const T = game.days, was = [T.weather, T.shift];
+    try {
+      for (const h of [8, 13, 23]) {
+        T.shift += h - T.hour; T.weather = 'sol';
+        const list = fishNow({ game });
+        check(list.length >= 1 && list.every(o => FISH[o.id] && !FISH[o.id].rare && o.water.length && (!FISH[o.id].seasons || FISH[o.id].seasons.includes(T.season))), `at ${h}: ${JSON.stringify(list)}`);
+        if (h === 13) check(!list.some(o => ['anguila', 'pulpo'].includes(o.id)), 'night fish at noon');
+        if (h === 23) check(!list.some(o => ['perca', 'sardina'].includes(o.id)), 'day fish at night');
+        T.shift = was[1];
+      }
+    } finally { [T.weather, T.shift] = was; }
   });
   await test('mesa de encantar retirada: al cargar se quita y se devuelven sus materiales', async () => {
     const cx = 100, cy = 100, k = `${cx},${cy}`, deltas = new Map([[k, { removed: {}, tilled: {}, v: 0, placed: { '1600,1600': 'mesa_encantar@1', '1601,1600': 'silla' }, pos: { 'placed:1600,1600': [1, 2, 3] }, chest: { '1602,1600': [{ id: 'mesa_encantar', n: 1 }, { id: 'madera', n: 2 }] } }]]);
@@ -7233,13 +7473,10 @@ async function soloTests(game) {
       check(N.level('ciervo') === 3, `hunted: level ${N.level('ciervo')}`);
       // Fished: the first Studied, five Known
       const F = game.fishing;
-      F.pick = () => 'carpa';
-      try {
-        F.state = { water: 'lago', bx: p().x, by: p().y }; F.land();
-        check(N.level('carpa') === 2, `one carp: level ${N.level('carpa')}`);
-        for (let i = 0; i < 4; i++) { F.state = { water: 'lago', bx: p().x, by: p().y }; F.land(); }
-        check(N.level('carpa') === 3, `five carps: level ${N.level('carpa')}`);
-      } finally { delete F.pick; F.state = null; }
+      const carp = () => { F.landed({ id: 'carpa', cm: 40, kg: 0.9 }); F.keep(); };
+      carp(); check(N.level('carpa') === 2, `one carp: level ${N.level('carpa')}`);
+      for (let i = 0; i < 4; i++) carp();
+      check(N.level('carpa') === 3, `five carps: level ${N.level('carpa')}`);
       await frames(30); await collectDrops(game);
       // Harvested: Known
       const C = game.farm, cx = tx + 2, cy = ty + 2, d = C.d(cx, cy, true);

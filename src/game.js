@@ -245,7 +245,7 @@ export class Game {
     // el mapa explorado y los lugares descubiertos
     const moved = save.seed !== undefined && save.seed !== WORLD_SEED;
     if (moved) {
-      for (const [k, d] of deltas) if (!k.startsWith('u:')) Object.assign(d, { removed: {}, picked: {}, opened: {}, dived: {} });   // (dived: what was taken from the sea bed, dive.js)
+      for (const [k, d] of deltas) if (!k.startsWith('u:')) Object.assign(d, { removed: {}, picked: {}, opened: {}, dived: {}, fished: {} });   // (dived: what was taken from the sea bed, dive.js)
       save = { ...save, explored: [], found: [] };
     }
     setFamilyHouse(save.house?.family);   // (antes de hacer el pueblo: con la casa familiar, su jardín cambia)
@@ -752,7 +752,7 @@ export class Game {
     }, 900);
   }
   // X: lo segundo que se puede hacer aquí (recoger lo que se usa con E)
-  altAction() { const n = this.nearest(); n?.alt?.run(); }
+  altAction() { if (this.mode === 'play' && this.fishing.holdX()) return; const n = this.nearest(); n?.alt?.run(); }
   // Tirar al suelo lo que se lleva en la mano (uno, o el montón entero)
   toss(all = false) {
     if (this.barrow.pushing) { if (this.mode === 'play' && !this.busy) this.barrow.park(this.barrow.stuckFor() > 2 ? 'q' : false); return; }   // (Q parks the wheelbarrow; stuck in something for 2 s, further away: barrow.js park)
@@ -832,6 +832,7 @@ export class Game {
   }
   action() {
     if (hud.dialogOpen) return hud.next();
+    if (this.mode === 'play' && this.fishing.keep()) return;   // (a fish in the hands: it goes in the backpack)
     this.nearest()?.run();   // (what the arms carry is only put down with Q: carry.js)
   }
   async talkNilo() {
@@ -1313,6 +1314,7 @@ export class Game {
     const prey = this.gather.target?.prey, click = prey && this.highlight?.e === prey ? '  ·  Clic: atacar' : '';
     // (and greeting whoever is under the cursor, Y: social.js. Only added if E is about that same person; farther away, alone)
     const social = this.player ? this.social.promptFor(this.highlight?.e || null, !!near) : '';
+    if (this.fishing.card) near = null;   // (the catch card says what E and X do)
     if (near?.riding && !this.horse.promptShown()) near = null;   // (riding: «Get off» does not stay on the screen the whole ride)
     if (near || !social) hud.prompt(near && (near.alt ? `${near.text}  ·  X: ${near.alt.text.toLowerCase()}` : near.text) + click + social, this.highlight ? [m.x, m.y] : null);
     else hud.prompt(social, m?.in ? [m.x, m.y] : null, 'Y');   // («[Y] Greet Lía»: E does nothing with them from here)

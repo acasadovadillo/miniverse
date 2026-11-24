@@ -313,7 +313,7 @@ export class Gathering {
   // auto: el botón se mantiene pulsado; sigue golpeando, pero no come sin querer ni golpea al aire.
   use(auto = false) {
     const g = this.game, p = g.player;
-    if (!p || g.busy || hud.dialogOpen || g.mode !== 'play' || this.cooldown > 0 || p.pose || p.swim || g.gamemode === 'spectator') return;   // (nadando, las manos son para nadar)
+    if (!p || g.busy || hud.dialogOpen || g.mode !== 'play' || this.cooldown > 0 || (p.pose && !g.fishing.canUse(p)) || p.swim || g.gamemode === 'spectator') return;   // (nadando, las manos son para nadar)
     if (g.carry?.handsBusy()) return g.carry.handsFull(auto);   // (something in the arms, or the hands on the wheelbarrow: no punches, nothing picked by hand; carry.js. Riding or rowing with it, the tool works)
     const held = g.inv.held, def = held && ITEMS[held.id];
     if (def?.food || def?.heal || def?.buff) return auto ? undefined : this.eat(g.inv.selected);
@@ -325,7 +325,7 @@ export class Gathering {
     if (def?.canteen && !this.fills(this.target)) return auto ? undefined : this.sip(g.inv.selected);
     if (this.target?.use) {   // lo que propone otro sistema (sembrar, pescar…)
       if (auto && !this.target.auto) return;
-      if (def?.tool) { this.swing = 0.25; this.swingItem = held.id; }   // también se ve el gesto (regar, lanzar la caña…)
+      if (def?.tool && !this.target.still) { this.swing = 0.25; this.swingItem = held.id; }   // (también se ve el gesto: regar, lanzar la caña…; still: with the line out, fishing.js does its own)
       const r = this.target.use();
       if (def?.tool && this.tired()) this.cooldown *= TIRED_SLOW;
       return r;

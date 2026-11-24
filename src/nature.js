@@ -133,10 +133,15 @@ function animalFacts(id, g) {
 function fishFacts(id, g) {
   const f = FISH[id], rec = g?.fishing?.records?.[id];
   const out = [['nature.fact.waters', { list: f.water.map(w => t('nature.water.' + w)) }, 2]];
-  if (f.seasons) out.push(['nature.fact.seasons', { list: seasonNames(f.seasons) }, 2]);
-  out.push(...hoursFact(f.hours, 2));
+  // (curves, not gates: what it likes best; fishwater.js)
+  if (f.seasons) out.push(['nature.fact.fish_seasons', { list: seasonNames(f.seasons) }, 2]);
+  if (f.hours) out.push(['nature.fact.fish_hours', { a: f.hours[0], b: f.hours[1] }, 2]);
+  else if (f.night) out.push(['nature.fact.fish_night', null, 2]);
+  else if (!f.rare) out.push(['nature.fact.fish_dawn', null, 2]);
   if (f.weather === 'lluvia') out.push(['nature.fact.rain', null, 2]);
   out.push(rec ? ['nature.fact.size', { a: f.cm[0], b: f.cm[1], r: rec }, 3] : ['nature.fact.size_none', { a: f.cm[0], b: f.cm[1] }, 3]);
+  if (f.depth) out.push(['nature.fact.fish_depth', { a: f.depth[0], b: f.depth[1] }, 3]);
+  if (f.temp) out.push(['nature.fact.fish_temp', { a: f.temp[0], b: f.temp[1] }, 3]);
   return out;
 }
 function bugFacts(id) {

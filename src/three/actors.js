@@ -544,7 +544,7 @@ export class Actors {
         if (e.mount && !pz && e.depth > 0) y = WATER_Y - e.depth + (e.z || 0);
       }
       const bath = pz?.kind === 'bath';
-      if (m.hand) m.hand.visible = m.swimK < 0.5 && !lying && pz?.kind !== 'floorSit' && !bath;   // (nadando, lo de la mano se guarda; lying in bed or on the floor, too: no axe by the pillow; sitting on the floor, no shovel through the legs; nor in the tub)
+      if (m.hand) m.hand.visible = m.swimK < 0.5 && !lying && (pz?.kind !== 'floorSit' || ITEMS[m.holding]?.tool === 'cana') && !bath && !m.fishHeld;   // (nadando, lo de la mano se guarda; lying in bed or on the floor, too: no axe by the pillow; sitting on the floor, no shovel through the legs; nor in the tub)
       if (bath || m.foam) this.foam(m, P, bath ? pz : null);
       // (cómo se ve, con la altura ya puesta: alguien en lo alto de una torre, mirado allí arriba, tiene los pies a 12 m del suelo)
       const tier = this.grade(m, e, x, y + P.root.position.y, z, lying);
@@ -831,8 +831,9 @@ export class Actors {
     // (running with a tool in the hand, its arm swings less: how much, easing with the gait; see hold)
     m.runArm = (m.runArm || 0) + ((e.mount || e.boat || e.aboard || m.swimK > 0.5 ? 0 : e.gait === 2 ? 1 : e.gait === 1 ? 0.5 : 0) - (m.runArm || 0)) * Math.min(1, dt * 6);
     // (después de andar: el golpe manda sobre el balanceo del brazo)
-    if (game) this.hold(m, { held: game.inv.held?.id || null, swing: game.gather.swing, swingItem: game.gather.swingItem, cooldown: game.gather.cooldown, fishPose: game.fishing?.pose(game.time), bowPull: game.archery?.k || 0, brush: e.emote?.k === 'brush' }, dt);
+    if (game) this.hold(m, { held: game.inv.held?.id || null, swing: game.gather.swing, swingItem: game.gather.swingItem, cooldown: game.gather.cooldown, fishPose: game.fishing?.pose() || null, bowPull: game.archery?.k || 0, brush: e.emote?.k === 'brush' }, dt);
     else if (e.remote) this.hold(m, e, dt);
+    const casting = m.anim?.kind === 'lanzar' ? P.arms[P.toolArm].rotation.x : null;
     // (the arms busy: something big in them, or the wheelbarrow's grips; riding or rowing with a big thing, the hands are free. carry3d.js)
     const busy = e.pushing ? 'push' : e.mount || e.boat || e.aboard ? null : e.armsBusy || (e.carrying && BULKY[e.carrying] ? BULKY[e.carrying].hold : null);
     if (busy === 'push') pushPose(P); else if (busy) holdPose(P, busy);
@@ -861,6 +862,9 @@ export class Actors {
     }
     if (e.mount || e.boat || e.aboard) { P.legs[0].rotation.x = P.legs[1].rotation.x = e.mount ? -1.1 : -1.4; P.legs[0].rotation.z = 0.5; P.legs[1].rotation.z = -0.5; for (const k of P.shins || []) k.rotation.x = e.mount ? 1.0 : 1.3; }
     else P.legs[0].rotation.z = P.legs[1].rotation.z = 0;
+    // (seated or in a boat, the arm with the rod is the rod's: its cast, the line out, the fish held)
+    if (casting !== null && pz && !lying) P.arms[P.toolArm].rotation.x = casting;
+    else if (m.fishOn && (pz || e.boat || e.aboard) && !lying) fishArms(P, m.fishOn);
     if (m.swimK) this.swimBones(m, P);
     if (e.emote && !busy) this.emote(m, e, P, dt, !!(game || e.remote));   // (with the arms busy, no gesture)
     if (e.mount) this.riderBones(m, P);
@@ -1032,6 +1036,7 @@ export class Actors {
     // el giro del tronco, al revés)
     const T = P.toolArm, arm = P.arms[T], mir = T === 0 ? -1 : 1;
     arm.rotation.z = 0; m.hand.rotation.x = 0; P.torso.rotation.x = 0;
+    m.fishOn = !a && g.fishPose ? g.fishPose : null; m.fishHeld = !!m.fishOn?.both;   // (fishing.js pose; another's, live.js st.fb)
     m.toolIdle = !a && !g.fishPose && !(g.bowPull > 0);   // (held, not in use: poseBones may carry it otherwise, crouching)
     pullBow(m.hand, g.bowPull || 0);
     // (tensando el arco: el brazo estirado y el arco de pie)
@@ -1039,7 +1044,7 @@ export class Actors {
     if ((a || g.fishPose) && P.fore) P.fore[T].rotation.x = -0.1;   // (usando algo, el brazo casi estirado)
     // (una postura fija: pescando. fishPose, no pose: pose es sentarse o tumbarse, y los demás jugadores la traen)
     if (!a) {
-      if (g.fishPose) { arm.rotation.x = g.fishPose.arm; P.torso.rotation.x = g.fishPose.lean; }
+      if (g.fishPose) fishArms(P, g.fishPose);
       else if (m.holdTool && m.runArm > 0.01) {   // (jogging or sprinting with a tool: its arm swings less forward, a little lower, the elbow straighter)
         const k = m.runArm, x = arm.rotation.x;
         arm.rotation.x = (x < 0 ? x * (1 - 0.65 * k) : x * (1 - 0.3 * k)) + 0.1 * k;
@@ -1056,6 +1061,13 @@ export class Actors {
     if (ge.tilt) m.hand.rotation.x = keys(ge.tilt, k);
     if (k >= 1) m.anim = null;
   }
+}
+
+// The arms fishing (fishing.js pose): the rod's arm out, or both forearms up with the catch across them
+function fishArms(P, fp) {
+  P.torso.rotation.x = fp.lean;
+  if (!fp.both) { P.arms[P.toolArm].rotation.x = fp.arm; if (P.fore) P.fore[P.toolArm].rotation.x = -0.1; return; }
+  for (let i = 0; i < 2; i++) { const A = P.arms[i]; A.rotation.x = -0.62; A.rotation.z = (i ? 1 : -1) * 0.12; if (P.fore) P.fore[i].rotation.x = -0.75; }
 }
 
 // Gestos al usar lo que se lleva en la mano: claves [momento (0 a 1), valor] del giro del brazo hacia delante
@@ -1457,9 +1469,11 @@ export function toolModel(id) {
     at(new THREE.CylinderGeometry(0.02, 0.022, 0.16, 8), M('#c8a070'), [0, 0, 0]);
     at(new THREE.CylinderGeometry(0.035, 0.035, 0.02, 12), M('#3a3a40', { metalness: 0.5, roughness: 0.4 }), [0.035, 0.1, 0], [0, 0, Math.PI / 2]);
     const fiber = (def.tier || 1) > 1;   // la de fibra: vara azul oscura con anillas doradas
-    at(new THREE.CylinderGeometry(0.004, 0.014, 1.3, 6), M(fiber ? '#22344e' : '#5a3a24', fiber ? { roughness: 0.35 } : undefined), [0, 0.73, 0]);
-    for (const y of [0.4, 0.75, 1.1]) at(new THREE.TorusGeometry(0.012, 0.003, 4, 8), M(fiber ? '#e8c050' : '#d8d8d8', { metalness: 0.6 }), [0, y, 0.012], [0, Math.PI / 2, 0]);
-    const tip = new THREE.Object3D(); tip.name = 'tip'; tip.position.set(0, 1.38, 0); g.add(tip);
+    // (the shaft in ten rings of its own, so that it bends: fishing3d.js moves them, the guides and the tip)
+    const shaft = at(new THREE.CylinderGeometry(0.004, 0.014, 1.3, 6, 10), M(fiber ? '#22344e' : '#5a3a24', fiber ? { roughness: 0.35 } : undefined), [0, 0.73, 0]), tip = new THREE.Object3D();
+    const guides = [0.4, 0.75, 1.1].map(y => at(new THREE.TorusGeometry(0.012, 0.003, 4, 8), M(fiber ? '#e8c050' : '#d8d8d8', { metalness: 0.6 }), [0, y, 0.012], [0, Math.PI / 2, 0]));
+    shaft.name = 'rodShaft'; tip.name = 'tip'; tip.position.set(0, 1.38, 0); g.add(tip);
+    guides.forEach((o, i) => { o.name = 'guide' + i; });
     g.rotation.x = 0.5;
     g.traverse(o => { if (o.isMesh) o.castShadow = true; });
     return g;

@@ -28,7 +28,7 @@ const SKILLS = {
 };
 const PERKS = {
   tala: 'Nivel 5: talar cansa menos. Cada nivel: más madera.', mineria: 'Nivel 5: picar cansa menos. Cada nivel: más mineral.',
-  agricultura: 'Cada nivel: más cosecha.', pesca: 'Cada nivel: salen más peces raros y tesoros.', cocina: 'Cada nivel: platos más sabrosos (quitan más hambre).',
+  agricultura: 'Cada nivel: más cosecha.', get pesca() { return t('skill.pesca.perk'); }, cocina: 'Cada nivel: platos más sabrosos (quitan más hambre).',
   construccion: 'Por construir, que es muy bonito.', granja: 'Cada nivel: animales más contentos.', combate: 'Nivel 5: golpeas más fuerte.',
   get diving() { return t('skill.diving.perk'); },   // (2 s more air per level, needs.js airMax; and more pearls, dive.js)
   get tracking() { return t('skill.tracking.perk'); },   // (the locked trail reaches 2 m further per level: tracks.js HL_R)

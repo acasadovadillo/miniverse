@@ -168,6 +168,19 @@ export const Audio = {
   // Pesca: el corcho cae al agua, una picada de mentira, el chapuzón al clavar y el carrete al recoger
   plop() { Audio.noiseHit(900, 0.12, 0.22, 'lowpass'); tone([[420, 0.05, 'sine', 0.05], [260, 0.08, 'sine', 0.04]]); },
   nibble: () => tone([[1200, 0.02, 'sine', 0.025], [1500, 0.02, 'sine', 0.02]]),
+  // Fishing: the float going under (a real bite; low: a deeper one), the reel's ratchet, the line crying before it breaks
+  // (for s seconds, rising) and its snap
+  bob(low) { Audio.noiseHit(low ? 420 : 620, 0.16, 0.2, 'lowpass'); tone(low ? [[300, 0.06, 'sine', 0.05], [170, 0.1, 'sine', 0.05]] : [[480, 0.05, 'sine', 0.04], [320, 0.07, 'sine', 0.035]]); },
+  reel(k = 0.6) { Audio.noiseHit(2300 + 900 * k, 0.018, 0.07 + 0.08 * k); },
+  lineCry(s = 1) {
+    if (!ac || !on) return;
+    const src = ac.createBufferSource(), f = ac.createBiquadFilter(), g = ac.createGain(), now = ac.currentTime, d = Math.max(0.15, Math.min(1.5, s));
+    src.buffer = noise; src.loop = true; f.type = 'bandpass'; f.Q.value = 9;
+    f.frequency.setValueAtTime(1300, now); f.frequency.exponentialRampToValueAtTime(3400, now + d);
+    g.gain.setValueAtTime(0.0005, now); g.gain.exponentialRampToValueAtTime(0.16, now + d);
+    src.connect(f).connect(g).connect(sfx); src.start(now); src.stop(now + d);
+  },
+  lineSnap() { Audio.noiseHit(3600, 0.05, 0.4, 'highpass'); tone([[900, 0.03, 'square', 0.04], [300, 0.05, 'triangle', 0.05]]); },
   wade() { Audio.noiseHit(500 + Math.random() * 300, 0.18, 0.06, 'lowpass'); },   // (un paso con el agua por las rodillas)
   swim() { Audio.noiseHit(700 + Math.random() * 300, 0.32, 0.1, 'lowpass'); setTimeout(() => Audio.noiseHit(2600, 0.12, 0.03, 'highpass'), 60); },   // (una brazada: el agua que se aparta)
   splash() { Audio.noiseHit(1400, 0.3, 0.35, 'lowpass'); Audio.noiseHit(4000, 0.15, 0.1, 'highpass'); },
