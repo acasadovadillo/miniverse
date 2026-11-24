@@ -37,12 +37,15 @@ const RAW = (() => { try { return new URLSearchParams(globalThis.location?.searc
 // heal after 30 s, gone beyond 42 m, no bleed sent, no vital multiplier; a guest's switch does nothing) and naturebook
 // (no study ray or ring, no Nature tab, no book hooks: Collections as before, a save's `nature` kept untouched). None of
 // them changes gen, so peers stay in step
+// Plan R3-1 (the wild animals' senses, docs/planes/realismo/PLAN-R3-caza.md): sentidos (?sentidos=0 on the host: they run from
+// whoever comes within their fear radius, as before; no heel or point of the dog; nor the ring and the wind mark)
 export const PARTES = { hierba: 'sinlod', impostores: null, relieve: null, contacto: null, sombras: 'todas', personas: 'todas', suelo: 'v2', inventario: 'casillas',
   sed: null, cansancio: null, aguante: null, buceo: null, fondo: null, caustica: null,
   ruta: null, rutasuelo: null, musica: 'chip',
   cuerpo: null, frio: null, crecer: null, desgaste: null, comentarios: null,
   vinculo: null, alforjas: null, montar: 'arcade',
-  tracks: null, wounds: null, naturebook: null };
+  tracks: null, wounds: null, naturebook: null,
+  sentidos: null };
 
 // El valor tal cual (o null)
 export const opcion = k => RAW.get(k);

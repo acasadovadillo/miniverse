@@ -106,7 +106,7 @@ export function musicState(game, prev = null, opts = {}) {
   if (OUTDOOR.has(out.mood)) out.intensity = level;
   else if (out.mood === 'cave' || out.mood === 'temple') out.intensity = level === INTENSITY.danger ? INTENSITY.danger : INTENSITY.moving;
   else out.intensity = INTENSITY.moving;
-  out.stalk = OUTDOOR.has(out.mood) && out.intensity <= INTENSITY.moving && !!game.tracks?.stalking;
+  out.stalk = OUTDOOR.has(out.mood) && out.intensity <= INTENSITY.moving && !!(game.tracks?.stalking || game.wildlife?.tension);   // (or a wild animal on its guard near you while you hunt: Plan R3)
   out.lowAir = out.mood === 'deep' && lowAirOf(game);
   return out;
 }

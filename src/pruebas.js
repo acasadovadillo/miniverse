@@ -93,7 +93,10 @@ import { seasonC, fieldDay } from './fieldclimate.js';
 import { GROW, seedOf, rateAt } from './cropdata.js';
 import { NORTH, HALF as PHALF, H as PH, nearX, W as PW } from './world/planet.js';
 import { Tracks, K, CAP, TTL, S, DEAD, F_LEFT, F_FLEE, F_SECOND, STRIDE, RAIN_K } from './tracks.js';
-import { Wildlife, WOUND, trailKey } from './wildlife.js';
+import { Wildlife, WOUND, trailKey, KINDS } from './wildlife.js';
+import * as SENSES_MOD from './senses.js';
+import { Presence } from './presence.js';
+import { windAt } from './wind.js';
 import { ZONE, zoneOf } from './hunt.js';
 import { SPECIES, SPECIES_IDS, GROUPS, REWARDS } from './nature.js';
 import { DOOR, PLAZA, distToPath, doorOf, getProjects, familyHouse } from './world/village.js';
@@ -797,7 +800,7 @@ async function soloTests(game) {
       const W = game.wildlife, d = W.summon('ciervo', X + 3, Y); W.t = -999;
       p.crouch = true; const at = [d.x, d.y]; await frames(20);
       check(W.list.includes(d) && Math.hypot(d.x - at[0], d.y - at[1]) < 2 && !(d.scared > game.time), 'huye de quien va agachado');
-      p.crouch = false; d.tx = d.x; d.ty = d.y; d.wait = 0; const at2 = [d.x, d.y]; await frames(20);
+      p.crouch = false; d.tx = d.x; d.ty = d.y; d.wait = 0; const at2 = [d.x, d.y]; for (let i = 0; i < 180 && !d.flight; i++) await frames(1); await frames(20);   // (it looks up, and it runs: senses.js)
       check(!W.list.includes(d) || Math.hypot(d.x - at2[0], d.y - at2[1]) > 1, 'no huye de quien va de pie');
       if (!W.list.includes(d)) W.list.push(d);
       d.x = X + 1.3; d.y = Y; const v = count('carne_venado');
@@ -7338,7 +7341,7 @@ async function soloTests(game) {
       check(TR().locked !== trailKey(d), 'a guest\'s hit locks the host\'s trail');
       W.list = [d]; W.sendT = 1; W.update(1 / 60);
       const wild = sent.map(q => q[0]).find(m => m.t === 'wild')?.w?.find(e => e[0] === d.id);
-      check(wild?.length === 11 && wild[6] === 2 && wild[8] === d.sx && wild[9] === d.sy && wild[10] === d.limp, `the wild message: ${JSON.stringify(wild)}`);
+      check(wild?.length === 12 && wild[6] === 2 && wild[8] === d.sx && wild[9] === d.sy && wild[10] === d.limp, `the wild message: ${JSON.stringify(wild)}`);
       // (a message that says nowhere does not break it)
       H.hitBy('g1', { id: 'guest-1' }, { id: d.id, dmg: 0, far: 1 });
       check(Number.isFinite(d.tx) && Number.isFinite(d.ty), `it flees to ${d.tx}, ${d.ty}`);
@@ -7424,6 +7427,300 @@ async function soloTests(game) {
       check(H.arrowDmg(6, ZONE.vital) === 6 && H.arrowDmg(9, ZONE.body) === 9, 'wounds off: the arrow damage changes');
       d.hitAt -= 30001; H.damage(d, 1, from, null); check(d.hp === 7, `wounds off: not healed after 30 s (hp ${d.hp})`);
     } finally { Wildlife.wounds = was; W.list = W.list.filter(a => a !== d); }
+  });
+  // ---------- Plan R3-1 (the wild animals' senses, the wind and the dog: docs/planes/realismo/PLAN-R3-caza.md §8) ----------
+  // A lab: a sunny noon on normal, the wind as asked (s its strength), nothing in between, no other animal; the animals'
+  // senses run as the host runs them, on players made up with what their posture and gait give (senses.js EXPO, NOISE)
+  const SN = SENSES_MOD, MEADOW = 0.9;
+  const senseLab = fn => {
+    const W = WL(), P = W.presence, keep = { list: W.list, pl: P.list, held: game.wind.held, diff: game.difficulty }, evs = P.events.map(v => v.t);
+    W.list = []; P.list = []; for (const v of P.events) v.t = -99;
+    const lab = {
+      W, P, hour: 12,
+      wind: (dir, s = 0.4) => { game.wind.held = { dir, s }; game.wind.now(); },
+      deer: (type = 'ciervo', x = 400, y = 400, face = [1, 0]) => { const a = W.summon(type, x, y); a.dir = face; a.wait = 1e9; a.senseT = 0; return a; },
+      // (who: walk, jog, sprint, crouch, still or crouchStill; scent: 1 clean)
+      who: (who, x, y, more = {}) => ({ key: 'lab', me: false, e: {}, x, y, vx: 0, vy: 0, speed: 1, crouch: /crouch/.test(who), expo: SN.EXPO[who], noise: (SN.NOISE[who] || 0) * (more.ground ?? MEADOW), scent: 1, hidden: 1, sky: 1, ws: game.wind.held?.s ?? 0.4, ...more }),
+    };
+    game.difficulty = 'normal'; game.days.hourAt = () => lab.hour; W.inSight = () => true;
+    lab.wind(Math.PI / 2);
+    try { return fn(lab); } finally {
+      delete game.days.hourAt; delete W.inSight; W.list = keep.list; P.list = keep.pl; P.byKey.delete('lab'); game.wind.held = keep.held; game.wind.now(); game.difficulty = keep.diff; P.events.forEach((v, i) => { v.t = evs[i]; });
+    }
+  };
+  // How far off somebody coming straight at it (from the side it faces) is when its awareness reaches `at`: null, never
+  const noticedAt = (L, who, speed, { down = false, at = SN.ALERT, from = 90, more = {}, type = 'ciervo', wind = Math.PI / 2, s = 0.4 } = {}) => {
+    L.wind(wind, s);
+    const a = L.deer(type); L.W.alarm = () => { a.aw = 1; };
+    try {
+      for (let d = from; d > 0.5; d -= speed * 0.25) {
+        L.P.list = [L.who(who, a.x + d, a.y, more)]; a.grazing = down;
+        L.W.sense(a, 0.25);
+        if (a.aw >= at) return d;
+      }
+      return null;
+    } finally { delete L.W.alarm; L.W.list = []; }
+  };
+  await test('senses (english): calibration table', async () => senseLab(L => {
+    const rows = [], row = (name, v, lo, hi) => { rows.push(`${name} ${v === null ? 'never' : v.toFixed(1)}`); check(v !== null && v >= lo && v <= hi, `${name}: ${v === null ? 'never' : v.toFixed(1)} m, wanted ${lo}-${hi}`); };
+    row('walking, head up', noticedAt(L, 'walk', 3.2), 24, 36);
+    row('walking, head up, alarm', noticedAt(L, 'walk', 3.2, { at: SN.ALARM }), 19, 30);
+    row('walking, head down', noticedAt(L, 'walk', 3.2, { down: true }), 8, 12);
+    row('crouched, head up', noticedAt(L, 'crouch', 1.4), 12, 18);
+    row('crouched, head down', noticedAt(L, 'crouch', 1.4, { down: true }), 4, 6);
+    // (frozen: how close you can be for 20 s without it looking up)
+    const frozen = down => { for (let d = 8; d > 0.5; d -= 0.1) { const a = L.deer(); L.W.alarm = () => { a.aw = 1; }; L.P.list = [L.who('crouchStill', a.x + d, a.y)]; let got = false; for (let i = 0; i < 80 && !got; i++) { a.grazing = down; L.W.sense(a, 0.25); got = a.aw >= SN.ALERT; } L.W.list = []; delete L.W.alarm; if (got) return d; } return null; };
+    row('crouched and frozen, head up', frozen(false), 3.2, 4.8);
+    check(frozen(true) === null || frozen(true) < 1.5, `frozen, head down: ${frozen(true)}`);
+    rows.push(`frozen, head down ${frozen(true)?.toFixed(1) ?? 'never'}`);
+    // (the range where the awareness starts to grow)
+    row('jogging in an autumn wood, heard', noticedAt(L, 'jog', 4.8, { at: 0.02, more: { ground: SN.groundNoise(B.FOREST, 2, false, false), hidden: 0.7 } }), 36, 54);
+    row('clean, walking, downwind, smelled', noticedAt(L, 'walk', 3.2, { at: 0.02, wind: Math.PI }), 32, 48);
+    // (by night, with the light gone, half as far; and what light and weather make of it)
+    L.hour = 1; row('walking, head up, by night', noticedAt(L, 'walk', 3.2), 11, 18); L.hour = 12;
+    row('walking, head up, in fog', noticedAt(L, 'walk', 3.2, { more: { sky: SN.weatherSight('niebla') } }), 11, 18);
+    row('boar, walking', noticedAt(L, 'walk', 3.2, { type: 'jabali' }), 9, 15);
+    check(Math.abs(SN.lightAt(12, 0.5) - 1) < 1e-9 && Math.abs(SN.lightAt(6, 0.5) - 0.75) < 1e-9 && SN.lightAt(23, 0.5) === 0.5 && SN.lightAt(2, 0.6) === 0.6, 'the light by the hour');
+    // Difficulty: easy and peaceful 0.75, hard 1.15
+    game.difficulty = 'easy'; const easy = noticedAt(L, 'walk', 3.2); game.difficulty = 'hard'; const hard = noticedAt(L, 'walk', 3.2); game.difficulty = 'normal';
+    const normal = noticedAt(L, 'walk', 3.2); check(easy < normal * 0.85 && hard > normal * 1.05, `difficulty: ${easy} ${normal} ${hard}`);
+    console.log('senses table: ' + rows.join(' | '));
+  }));
+  await test('senses (english): sight by posture, cover and where it looks', async () => senseLab(L => {
+    const D = (who, more, f = {}) => { const o = {}; SN.perceive(SN.SENSES.ciervo, { fx: 1, fy: 0, down: false, staring: false, bedded: false, ...f }, L.who(who, 0, 0, more), { light: 1, sky: 1, diff: 1, wx: 0, wy: 1, ws: 0.4 }, 1, 0, 3, o); return o; };
+    check(D('walk').D === 30 && Math.abs(D('crouch').D - 15) < 1e-6 && D('sprint').D === 50 && Math.abs(D('crouchStill').D - 4) < 1e-6, 'the sight by posture');
+    check(Math.abs(D('crouch', { hidden: 0.5 }).D - 7.5) < 1e-6, 'tall grass'); check(Math.abs(D('walk', {}, { down: true }).D - 10.5) < 1e-6 && Math.abs(D('walk', {}, { staring: true }).D - 39) < 1e-6 && Math.abs(D('walk', {}, { bedded: true }).D - 18) < 1e-6, 'head down, staring, bedded');
+    // (behind it, out of the 300° it sees, nothing)
+    const o = {}, P = L.who('walk', 0, 0), E = { light: 1, sky: 1, diff: 1, wx: 0, wy: 1, ws: 0.4 };
+    SN.perceive(SN.SENSES.ciervo, { fx: 1, fy: 0 }, P, E, -10, 0, 10, o); check(o.see === 0, 'it sees behind');
+    SN.perceive(SN.SENSES.ciervo, { fx: 1, fy: 0 }, P, E, -5, 10, 11.18, o); check(o.see > 0, 'it does not see to the side');
+    // What a player really gives away: the posture, the gait, the grass and the wood (presence.js)
+    const Pr = new Presence(game), meadow = trackLine(4, s => s !== 'none');
+    const m = (e, dx = 0) => { const t0 = game.time; Pr.byKey.clear(); const q = { conn: 'z', x: meadow.x, y: meadow.y, e: { swing: 0, ...e } }; Pr.update([q]); game.time += 0.25; q.x += dx; Pr.update([q]); game.time = t0; return Pr.list[0]; };
+    const exp = (e, dx, v, n) => { const r = m(e, dx); check(Math.abs(r.expo - v) < 1e-6 && (n ? r.noise > 0 : r.noise === 0), `${JSON.stringify(e)} at ${dx / 0.25} m/s: expo ${r.expo}, noise ${r.noise}`); return r; };
+    exp({}, 0, 0.25, 0); exp({ gait: 0 }, 0.8, 0.6, 1); exp({ gait: 1 }, 1.2, 0.85, 1); exp({ gait: 2 }, 1.45, 1, 1); exp({ crouch: true }, 0, 0.08, 0); exp({ crouch: true, gait: 0 }, 0.35, 0.3, 1);
+    exp({ pose: { kind: 'sit' } }, 0, 0.05, 0); exp({ mount: true, gait: 0 }, 0.85, 0.45, 1); exp({ mount: true, gait: 2 }, 2.4, 1, 1); exp({ held: 'arco', bowPull: 0.5 }, 0, 0.3, 0);
+    check(m({ gait: undefined }, 1.45).expo === 1 && m({ gait: undefined }, 0.8).expo === 0.6, 'an old game without gait: by the speed');
+    check(m({ gait: 2 }, 5).speed === 0, 'a jump taken for a run');
+    const swing = (() => { const q = { conn: 's', x: meadow.x, y: meadow.y, e: { swing: 3, swingItem: 'hacha_hierro' } }; Pr.byKey.clear(); Pr.update([q]); q.e.swing = 4; Pr.update([q]); return Pr.list[0].noise; })();
+    check(swing > 0.4, `a peer's axe is not heard: ${swing}`);
+  }));
+  await test('senses (english): head down is safe', async () => senseLab(L => {
+    // A crouched walker, upwind never: moves while its head is down, freezes when it looks up or is on its guard
+    const random = Math.random; let seed = 1; Math.random = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+    try {
+      const run = (who, speed, n, careful) => {
+        let ok = 0; const at = [], times = [];
+        for (let i = 0; i < n; i++) {
+          seed = 1000 + i * 7919;
+          const a = L.deer('ciervo', 400, 400, [Math.cos(i), Math.sin(i)]); a.eating = 1e9; a.grazing = true;
+          let d = 45, t = 0, fled = null; L.W.alarm = () => { fled = d; };
+          for (; t < 240 && fled === null && d > 6; t += 0.1) {
+            const go = !careful || (!a.headUp && !a.alert);
+            if (go) d -= speed * 0.1;
+            L.P.list = [L.who(go ? who : 'crouchStill', a.x + Math.cos(i * 2) * d, a.y + Math.sin(i * 2) * d)];
+            game.wind.held = { dir: i * 2, s: 0.4 }; game.wind.now();   // (the wind from it to you)
+            L.W.moveAware(a, 0.1, [], KINDS.ciervo);
+          }
+          if (fled === null && d <= 6) { ok++; times.push(t); } else if (fled !== null) at.push(fled);
+          L.W.list = []; delete L.W.alarm;
+        }
+        return { ok, at, times };
+      };
+      const c = run('crouch', 1.4, 30, true), s = run('walk', 3.2, 30, false);
+      console.log(`stalks: crouched ${c.ok}/30 reach 6 m (mean ${(c.times.reduce((x, y) => x + y, 0) / (c.times.length || 1)).toFixed(0)} s); standing and walking: ${s.ok}/30, they flee at ${Math.min(...s.at).toFixed(1)}-${Math.max(...s.at).toFixed(1)} m`);
+      check(c.ok >= 24, `${c.ok} of 30 careful stalks reach 6 m`);
+      check(s.ok === 0 && Math.min(...s.at) > 7, `walking upright: ${s.ok} get to 6 m, they flee at ${s.at.map(v => v.toFixed(1))}`);
+    } finally { Math.random = random; }
+  }));
+  await test('senses (english): wind', async () => senseLab(L => {
+    const smelled = (scent, wind, type) => { const d = noticedAt(L, 'still', 1, { at: 0.02, from: 130, wind, more: { scent, expo: 0, noise: 0 }, type }); return d > 2 ? d : null; };
+    // (the player is to its east: the wind that blows west, PI, carries their scent to it)
+    const clean = smelled(1, Math.PI), bloody = smelled(SN.scentOf({ blood: 1 }), Math.PI), soap = smelled(SN.scentOf(null, true), Math.PI);
+    check(clean >= 35 && clean <= 45, `clean: ${clean}`); check(bloody >= 70 && bloody <= 90, `bloody: ${bloody}`); check(soap < clean * 0.75, `after a bath: ${soap}`);
+    check(smelled(1, 0) === null && smelled(2.5, 0) === null && smelled(1, Math.PI / 2) === null, 'smelled against or across the wind');
+    check(smelled(1, Math.PI, 'cisne') === null && smelled(1, Math.PI, 'jabali') > clean, 'the swan or the boar');
+    check(SN.scentOf({ dirt: 1, mud: 1, blood: 1, sweat: 1 }) === 2.5 && SN.scentOf({ mud: 1 }, true) === 0.4 && Math.abs(SN.scentOf(null, false, true) - 1.5) < 1e-9, 'the scent of a body');
+    // In the open it alarms by itself: smell needs no sight
+    L.wind(Math.PI); const a = L.deer(); let fled = false; L.W.alarm = () => { fled = true; };
+    L.P.list = [L.who('still', a.x + 20, a.y, { expo: 0 })]; for (let i = 0; i < 6; i++) L.W.sense(a, 0.25);
+    delete L.W.alarm; check(fled, `smelled for 1.5 s at 20 m: ${a.aw}`);
+  }));
+  await test('senses (english): hearing caps at alert', async () => senseLab(L => {
+    const a = L.deer(); let fled = false; L.W.alarm = () => { fled = true; };
+    const stay = (who, d, n = 60, more = {}) => { a.aw = 0; a.alert = 0; a.staring = false; a.quiet = 9; fled = false; L.P.list = [L.who(who, a.x - d, a.y, { expo: 0, ...more })]; for (let i = 0; i < n && !fled; i++) { a.dir = [1, 0]; a.staring = false; L.W.sense(a, 0.25); } return a.aw; };
+    const far = stay('jog', 25); check(far > 0.5 && far < 0.7 && !fled && a.alert === SN.A_TENSE, `a far jog: ${far}, fled ${fled}`);
+    stay('sprint', 12); check(fled, 'a sprint within half its range does not alarm');
+    check(stay('crouch', 8) === 0, 'a crouched step heard at 8 m');
+    // (loud things: an axe, and an arrow that lands; a path is quieter than leaves, the rain covers)
+    L.P.list = []; a.aw = 0; a.quiet = 9; L.P.noise(a.x + 10, a.y, SN.EVENT.tool, Infinity, false); L.W.sense(a, 0.25); check(a.aw > 0.1, `an axe at 10 m: ${a.aw}`);
+    a.aw = 0; for (const v of L.P.events) v.t = -99; L.P.noise(a.x + 10, a.y, SN.EVENT.arrow, SN.ARROW_R, false); L.W.sense(a, 0.25); check(a.aw === 0, 'an arrow 10 m away is heard');
+    L.P.noise(a.x + 3, a.y, SN.EVENT.arrow, SN.ARROW_R, false); L.W.sense(a, 0.25); check(a.aw > 0, 'an arrow 3 m away is not heard');
+    check(SN.groundNoise(B.FOREST, 2, false, false) === 1.4 && SN.groundNoise(B.FOREST, 2, true, false) === 0.7 && SN.groundNoise(B.MEADOW, 1, false, false) === 0.9 && SN.weatherNoise('tormenta') === 0.4, 'the ground and the rain');
+    // Left alone, it calms down: after 1.5 s, 0.12 a second, and it grazes again
+    L.P.list = []; for (const v of L.P.events) v.t = -99; a.aw = 0.6; a.quiet = 0; L.W.sense(a, 0.25); check(a.alert !== SN.A_CALM, 'not on its guard at 0.6');
+    for (let i = 0; i < 24; i++) L.W.sense(a, 0.25); check(a.alert === SN.A_CALM && a.aw < 0.25, `6 s later: ${a.aw}`);
+    delete L.W.alarm;
+  }));
+  await test('senses (english): alert, stamp, and it grazes again', async () => {
+    const s = trackLine(8) ; await goTo(game, s.x + 4, s.y + 30);
+    senseLab(L => {
+      const a = L.deer('ciervo', s.x, s.y); a.eating = 60; a.grazing = true; a.headUp = true; a.headT = 3;
+      const go = (n, who, d) => { for (let i = 0; i < n; i++) { L.P.list = who ? [L.who(who, a.x + d, a.y)] : []; L.W.moveAware(a, 0.1, [], KINDS.ciervo); L.W.cues(0.1); } };
+      go(9, 'crouch', 9); check(a.alert && a.staring && !a.grazing && Math.abs(a.stareYaw - Math.PI / 2) < 0.01, `crouched at 9 m: alert ${a.alert}, aw ${a.aw}, grazing ${a.grazing}, yaw ${a.stareYaw}`);
+      for (let i = 0; i < 60 && a.alert !== SN.A_TENSE && !a.flight; i++) go(1, 'crouch', 13);
+      check(a.alert === SN.A_TENSE && !a.flight, `not tense: ${a.alert}, flight ${a.flight}, ${a.aw}`);
+      for (let i = 0; i < 8 && a.stampAt === undefined; i++) { a.aw = 0.6; a.quiet = 0; go(1); }
+      check(a.stampAt !== undefined, 'it does not stamp');
+      go(80, 'crouchStill', 9); check(!a.alert && a.grazing && a.eating > 0, `frozen for 8 s: alert ${a.alert}, grazing ${a.grazing}, aw ${a.aw}`);
+      // (the head-ups)
+      let ups = 0, was = false, time = 0; for (let i = 0; i < 400; i++) { a.eating = 60; L.P.list = []; L.W.moveAware(a, 0.1, [], KINDS.ciervo); if (a.headUp && !was) ups++; was = a.headUp; if (a.grazing) time++; }
+      check(ups >= 3 && ups <= 9 && time > 240 && time < 370, `40 s: ${ups} head-ups, head down ${(time / 10).toFixed(0)} s`);
+      // What hits it, or a dog, makes it run at once; a badly wounded one does as G says
+      a.scared = game.time + 5; a.scareAt = [a.x - 3, a.y]; L.W.moveAware(a, 0.05, [], KINDS.ciervo); check(a.flight === 1 && a.flag && a.tx > a.x + 20, `scared: flight ${a.flight}, to ${(a.tx - a.x).toFixed(0)}`);
+      a.bleed = 2; a.run = true; L.W.move(a, 0.05, []); check(a.flight === 0 && a.alert === 0, 'badly wounded, it still flees the unwounded way');
+    });
+  });
+  await test('flight (english): look back', async () => {
+    const s = trackLine(8); await goTo(game, s.x, s.y + 60);
+    const random = Math.random; let seed = 7; Math.random = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+    try {
+      senseLab(L => {
+        const W = L.W; W.offLimits = () => false;
+        const fly = (type, n) => {
+          let looked = 0, ended = 0; const far = [];
+          for (let i = 0; i < n; i++) {
+            const a = L.deer(type, s.x, s.y), at = [a.x, a.y];
+            W.fleeFrom(a, a.x - 20, a.y); let l = false;
+            for (let t = 0; t < 90 && a.flight; t += 0.1) { W.moveFlight(a, 0.1, [{ me: true, x: at[0] - 20, y: at[1] }], KINDS[type]); if (a.flight === 2 && !l) { l = true; far.push(Math.hypot(a.x - at[0], a.y - at[1])); check(a.staring && !a.flag && Math.abs(Math.atan2(Math.sin(Math.atan2(a.dir[0], a.dir[1]) - a.stareYaw), Math.cos(Math.atan2(a.dir[0], a.dir[1]) - a.stareYaw))) > 0.9, 'looking back it is not side on'); } if (a.flight === 1 && !l && a.flT < 0.2) check(a.flag === (type === 'ciervo') && a.alert === SN.A_ALARM, 'the tail or the alarm'); }
+            if (!a.flight) ended++; if (l) looked++; W.list = [];
+          }
+          return { looked, ended, far };
+        };
+        try {
+          const d = fly('ciervo', 120), b = fly('jabali', 100);
+          console.log(`flights: deer look back ${d.looked}/120 (at ${Math.min(...d.far).toFixed(0)}-${Math.max(...d.far).toFixed(0)} m), boar ${b.looked}/100`);
+          check(d.looked >= 60 && d.looked <= 84, `${d.looked} of 120 deer look back`); check(b.looked <= 22, `${b.looked} of 100 boar look back`);
+          check(d.ended === 120 && b.ended === 100, `still fleeing after 90 s: ${120 - d.ended} deer, ${100 - b.ended} boar`);
+          check(Math.min(...d.far) > 15 && Math.max(...d.far) < 110, `they stop at ${d.far.map(v => v.toFixed(0))}`);
+          // (whoever runs after it is not looked at: on it goes)
+          const a = L.deer('ciervo', s.x, s.y); W.fleeFrom(a, a.x - 5, a.y); L.P.byKey.set('lab', { speed: 6, vx: 6, vy: 0, x: 0, y: 0 });
+          a.tx = a.x + 0.1; a.ty = a.y; L.P.byKey.get('lab').x = a.x - 45; L.P.byKey.get('lab').y = a.y;
+          W.moveFlight(a, 0.1, [{ conn: 'lab', x: a.x - 45, y: a.y }], KINDS.ciervo); check(a.flight === 1 && a.legs === 1, `chased at 45 m: flight ${a.flight}, legs ${a.legs}`);
+          // The alarm of one is its neighbours' (a pair), not another kind's
+          W.list = []; const p1 = L.deer('jabali', s.x, s.y), p2 = L.deer('jabali', s.x + 1, s.y), other = L.deer('ciervo', s.x + 2, s.y); W.alarm(p1, s.x - 5, s.y); check(p1.flight === 1 && p2.flight === 1 && !other.flight, 'the pair does not flee together');
+        } finally { delete W.offLimits; }
+      });
+    } finally { Math.random = random; }
+  });
+  await test('senses (english): nothing is seen through a trunk or a hill', async () => {
+    const W = WL(), list = [];
+    for (let r = 0; r < 60 && !list.length; r++) { const x = 72 + Math.cos(r) * r * 4, y = 52 + Math.sin(r) * r * 4; for (const o of w().harvestablesNear(x, y)) if ((o.kind === 'oak' || o.kind === 'pine') && !inBounds(o.x, o.y) && w().groundRaw(o.x - 3, o.y) - w().groundRaw(o.x + 3, o.y) < 0.3 && !w().harvestablesNear(o.x, o.y).some(q => q !== o && Math.hypot(q.x - o.x, q.y - o.y) < 4)) list.push(o); }
+    const o = list[0]; check(o, 'no lone tree'); await goTo(game, o.x, o.y + 12);
+    const a = W.summon('ciervo', o.x - 3, o.y), K = SN.SENSES.ciervo;
+    try {
+      const look = (x, y, crouch = false) => { W.rays = 0; W.raysT = game.time; return W.inSight(a, K, { x, y, crouch }, Math.hypot(x - a.x, y - a.y)); };
+      check(!look(o.x + 3, o.y), 'it sees through the trunk'); check(look(o.x - 3, o.y + 3), 'it does not see in the open');
+      W.rays = SN.SENSES ? 8 : 8; W.raysT = game.time; check(W.inSight(a, K, { x: o.x + 3, y: o.y }, 6), 'past the budget it is taken as seen');
+      const gr = w().groundRaw; w().groundRaw = (x, y) => (Math.abs(x - o.x) < 1.2 ? 4 : 0); try { check(!look(o.x + 3, o.y + 0.9), 'it sees through a hill'); } finally { delete w().groundRaw; if (w().groundRaw !== gr) w().groundRaw = gr; }
+    } finally { W.list = W.list.filter(q => q !== a); }
+  });
+  await test('wind (english): pure and shared', async () => {
+    const a = windAt(1234, 1.76e12, {}), b = windAt(1234, 1.76e12, {}); check(a.dir === b.dir && a.gust === b.gust, 'two calls differ');
+    let max = 0; for (let h = 0; h < 72; h++) { const t = 1.76e12 + h * 36e5, u = windAt(1234, t, {}).dir, v = windAt(1234, t + 60000, {}).dir; max = Math.max(max, Math.abs(Math.atan2(Math.sin(u - v), Math.cos(u - v)))); }
+    const mid = Math.floor(1.76e12 / 864e5) * 864e5, e = windAt(1234, mid - 1, {}).dir - windAt(1234, mid + 1, {}).dir;
+    check(max < 0.3, `it drifts ${max} rad in a minute`); check(Math.abs(Math.atan2(Math.sin(e), Math.cos(e))) < 0.01, 'it jumps at midnight'); check(windAt(99, 1.76e12, {}).dir !== a.dir, 'the same in every world');
+    const V = game.wind, was = game.days.weather; try { game.days.weather = 'tormenta'; const st = V.sAt(30); game.days.weather = 'niebla'; check(st > 0.65 && V.sAt(30) < 0.2, `strength: storm ${st}, fog ${V.sAt(30)}`); } finally { game.days.weather = was; V.now(); }
+  });
+  await test('senses (english): net', async () => {
+    const W = WL(), keep = W.list, L = game.live, sent = [], net = L.net, was = { joined: L.joined, role: L.role };
+    try {
+      // The packed field: the alert, the stare and the tail; garbage and nothing are calm
+      for (const al of [0, 1, 2, 3]) for (const flag of [false, true]) for (const yaw of [-3, -1, 0, 1.3, 3]) {
+        const o = SN.unpackF(SN.packF({ alert: al, flag, staring: true, stareYaw: yaw }), {}), e = Math.atan2(Math.sin(o.stareYaw - yaw), Math.cos(o.stareYaw - yaw));
+        check(o.alert === al && o.flag === flag && o.staring && Math.abs(e) < 0.11, `f ${al} ${flag} ${yaw}: ${JSON.stringify(o)}`);
+      }
+      for (const bad of [undefined, null, 'x', -4, 1.5]) { const o = SN.unpackF(bad, {}); check(o.alert === 0 && !o.flag && !o.staring, `f ${bad}`); }
+      // A new guest of an old host: calm adults; of a new one, what it says; an old guest takes the array as ever
+      W.netList([['w901', 'ciervo', 60, 60, 0, 1, 0, 0, 60, 60, 0]]); const a = W.list[0]; check(a.alert === 0 && a.grazing && !a.staring, 'eleven fields');
+      W.netList([['w901', 'ciervo', 60, 60, 0, 0, 0, 0, 60, 60, 0, SN.packF({ alert: 2, flag: true })]]); check(W.list[0] === a && a.alert === 2 && a.flag, 'twelve fields');
+      W.netList([['w901', 'ciervo', 60, 60, 0, 0, 0, 0, 60, 60, 0]]); check(a.alert === 0 && !a.flag, 'it stays alarmed');
+      W.list = keep;
+      // What a guest makes heard, and the host's check of it
+      L.net = { send: m => sent.push(m) }; L.joined = true; L.role = 'guest';
+      check(L.guest, 'not a guest'); W.presence.sent = -9; W.noise(p().x, p().y, SN.EVENT.door); check(sent.at(-1)?.t === 'noise' && sent.at(-1).n === 0.8, `a guest's door: ${JSON.stringify(sent.at(-1))}`);
+      L.role = 'host'; const P = W.presence, peer = { entity: { x: 100, y: 60 }, sc: 'world' }, n0 = P.next;
+      P.heard(peer, { x: 105, y: 60, n: 99 }); check(P.next !== n0 && P.events[n0].n === SN.EVENT.bark, 'the host does not hear it, or too loud');
+      P.heard(peer, { x: 400, y: 60, n: 1 }); P.heard(peer, { x: NaN, y: 60, n: 1 }); check(P.next === (n0 + 1) % P.events.length, 'from far, or garbage');
+      for (const v of P.events) v.t = -99;
+    } finally { W.list = keep; L.net = net; Object.assign(L, was); }
+    // A soap bath goes in the state (fr, optional), and the packed body is as it was
+    const s = { dirt: 1, mud: 0.2, wet: 0.4, snow: 0, blood: 0.6, sweat: 1 }; check(packBd(s) < 1 << 22 && Math.abs(unpackBd(packBd(s)).blood - 0.6) < 0.04, 'bd changed');
+    const R = L.constructor && L.peers; check(R, 'no peers');
+    const conn = 'fr1', mk = more => { L.receive(conn, { t: 'st', sc: 'world', x: p().x + 2, y: p().y, yaw: 0, ...more }); return L.peers.get(conn)?.entity; };
+    L.peers.set(conn, { conn, id: 'fr-1', name: 'Fr', playing: true, entity: null, sc: 'world', look: p().look });
+    try { let e = mk({ fr: 1 }); if (e) { check(e.freshBath === true, 'fr does not arrive'); e = mk({}); check(e.freshBath === false, 'an old game reads as fresh'); } else console.log('senses net: no entity for the fake peer, fr not checked'); } finally { L.peers.delete(conn); }
+  });
+  await test('dog (english): heel and point', async () => {
+    const s = trackLine(10); await goTo(game, s.x, s.y);
+    const R = game.ranch, W = WL(), V = game.wind, keep = R.animals.slice(), list = W.list, I = game.inv, slots = I.slots.slice(), sel = I.selected, fetchWas = V.held, bark = GameAudio.bark; let barks = 0;
+    const me = Profile.id || 'yo', hen = R.summon('gallina', p().x, p().y), dog = new hen.constructor({ type: 'perro', name: 'Toby', x: p().x - 1, y: p().y }); Object.assign(dog, { owner: me, named: true, name: 'Toby', stray: false, home: null, sit: false, digDay: R.today });
+    R.animals = [dog]; W.list = []; W.t = -999; GameAudio.bark = () => barks++;
+    try {
+      const a = W.summon('ciervo', p().x + 4, p().y); a.wait = 1e9; W.move = () => {};
+      const tick = n => { for (let i = 0; i < n; i++) { game.time += 0.05; R.updatePet(dog, 0.05, false); } }, t0 = game.time;
+      V.held = { dir: 0, s: 0.4 }; V.now();   // (from the dog to the deer: nothing to smell)
+      p().crouch = true; tick(60); check(dog.dogK === -1 && !barks && !(a.scared > game.time), `crouched: dogK ${dog.dogK}, barks ${barks}`);
+      // Behind its owner, the way they go
+      for (let i = 0; i < 80; i++) { p().x += 0.07; tick(1); } check(dog.x < p().x - 0.6 && dog.x > p().x - 3.2 && Math.abs(dog.y - p().y) < 1, `heeling at ${(p().x - dog.x).toFixed(2)}, ${(p().y - dog.y).toFixed(2)}`);
+      // Upwind of it, it points: still, its nose towards the deer, and the herd's message says so
+      a.x = dog.x + 25; a.y = dog.y + 2; V.held = { dir: Math.PI, s: 0.4 }; V.now(); tick(100);
+      const yaw = Math.atan2(dog.dir[0], dog.dir[1]); check(dog.pointing && dog.dogK > 0 && Math.abs(yaw - Math.atan2(a.x - dog.x, a.y - dog.y)) < 0.05 && !dog.vx, `pointing ${dog.pointing}, yaw ${yaw.toFixed(2)}`);
+      const o = { dir: undefined, netTo: null }; Object.setPrototypeOf(o, Object.getPrototypeOf(dog)); o.dogNet(dog.dogK); check(o.pointing && Math.abs(Math.atan2(o.dir[0], o.dir[1]) - yaw) < 0.06, 'a guest sees it point elsewhere'); o.dogNet(0); check(!o.pointing && !o.dir, 'a guest sees it point forever');
+      tick(120); check(!dog.pointing, 'it never stops pointing');
+      a.x = dog.x + 45; dog.pointNext = 0; tick(60); check(!dog.pointing, 'it points at 45 m');
+      // With the bow in hand, the same; standing with nothing, as before: it barks at what is close
+      p().crouch = false; a.x = dog.x + 3; a.y = dog.y; I.slots.fill(null); I.add('arco', 1); I.select(I.slots.findIndex(q => q?.id === 'arco')); tick(60); check(!barks && dog.dogK !== 0, `with the bow: barks ${barks}, dogK ${dog.dogK}`);
+      I.slots.fill(null); I.changed?.(); a.x = dog.x + 3; a.y = dog.y; R.barked = 0; tick(40); check(barks > 0 && a.scared > game.time && dog.dogK === 0, `not hunting: barks ${barks}, dogK ${dog.dogK}`);
+      game.time = t0;
+      // (switched off, as before)
+      Wildlife.senses = false; p().crouch = true; R.barked = 0; barks = 0; a.x = dog.x + 3; a.y = dog.y; R.updatePet(dog, 0.05, false); check(barks === 1, 'with the senses off it heels'); Wildlife.senses = null;
+    } finally { Wildlife.senses = null; delete W.move; GameAudio.bark = bark; R.animals = keep; W.list = list; p().crouch = false; I.slots.splice(0, I.slots.length, ...slots); I.select(sel); V.held = fetchWas; V.now(); }
+  });
+  await test('senses (english): the switch, the wounded and the minimap', async () => {
+    const s = trackLine(10); await goTo(game, s.x, s.y);
+    const W = WL(), list = W.list, M = game.map, I = game.inv, slots = I.slots.slice(), sel = I.selected; W.list = []; W.t = -999;
+    try {
+      // ?sentidos=0: they run from whoever comes within their fear radius, as before
+      Wildlife.senses = false; const a = W.summon('ciervo', p().x + 5, p().y); a.wait = 9; await frames(6); check(Math.hypot(a.x - p().x, a.y - p().y) > 5.1 && !a.flight, `off: at ${Math.hypot(a.x - p().x, a.y - p().y).toFixed(2)}, flight ${a.flight}`);
+      Wildlife.senses = null; W.list = [];
+      // The ring and the wind, only while hunting
+      const HO = game.huntOverlay; check(HO && M.overlay, 'no overlay');
+      const calls = []; const ctx = { canvas: { width: 150, height: 100 }, save() {}, restore() {}, beginPath() {}, ellipse: (...q) => calls.push(q), fill() {}, stroke() { calls.push('s'); }, moveTo() {}, lineTo() {} };
+      const draw = () => { calls.length = 0; M.overlay(ctx, (x, y) => [75 + (x - p().x), 50 + (y - p().y)], [p().x, p().y], 1.5); return calls.length; };
+      I.slots.fill(null); p().crouch = false; await frames(40); check(!W.hunting && draw() === 0, 'drawn when not hunting');
+      p().crouch = true; await frames(40); check(W.hunting && HO.on, 'crouched is not hunting'); draw(); check(!calls.some(q => Array.isArray(q)) && calls.includes('s'), `still and crouched: a ring, or no wind (${JSON.stringify(calls)})`);
+      W.toolHit(); await frames(16); for (let i = 0; i < 8; i++) draw(); check(calls.some(q => Array.isArray(q) && q[2] > 10 && Math.abs(q[2] / q[3] - 2) < 0.6), `a loud thing does not swell the ring: ${JSON.stringify(calls)}`);
+      const inVillage = [CENTER.x, CENTER.y + 6], at = [p().x, p().y]; [p().x, p().y] = inVillage; await frames(40); check(!W.hunting, 'hunting in the village'); [p().x, p().y] = at;
+    } finally { Wildlife.senses = null; W.list = list; p().crouch = false; I.slots.splice(0, I.slots.length, ...slots); I.select(sel); }
+  });
+  await test('senses (english): cost', async () => {
+    const s = trackLine(10); await goTo(game, s.x, s.y + 4);
+    const W = WL(), list = W.list, P = W.presence; W.list = []; W.t = -999;
+    try {
+      for (let i = 0; i < 12; i++) { const a = W.summon('ciervo', p().x + Math.cos(i) * (12 + i * 2), p().y + Math.sin(i) * (12 + i * 2)); a.wait = 1e9; }
+      const qs = [{ me: true, e: p(), x: p().x, y: p().y }, { conn: 'c', e: { gait: 2, swing: 0, grime: { blood: 0.4 } }, x: p().x + 6, y: p().y }];
+      W.alarm = () => {};
+      const turn = () => { W.rays = 0; W.raysT = game.time; P.update(qs); P.list[1].expo = 1; for (const a of W.list) { a.aw = 0; a.dir = [p().x - a.x, p().y - a.y]; W.sense(a, 0.25); } };
+      for (let i = 0; i < 60; i++) turn();
+      const t0 = performance.now(); for (let i = 0; i < 200; i++) turn(); const ms = (performance.now() - t0) / 200;
+      // (a flight looks for cover at its end, up to 120 m away: what that costs where nothing has been looked at yet)
+      const cold = []; for (let i = 0; i < 6; i++) { const b = W.summon('jabali', p().x + 300 * Math.cos(i), p().y + 300 * Math.sin(i)); const f0 = performance.now(); W.fleeFrom(b, b.x - 5, b.y); cold.push(performance.now() - f0); W.list.pop(); }
+      console.log(`flights to a place not looked at yet: ${cold.map(v => v.toFixed(1))} ms`);
+      const c0 = performance.now(); for (let i = 0; i < 2000; i++) W.cues(1 / 60); const cues = (performance.now() - c0) / 2000;
+      console.log(`senses cost: a turn of 12 animals and 2 players (8 rays) ${ms.toFixed(3)} ms, ${(ms / 15).toFixed(4)} ms a frame; cues ${cues.toFixed(4)} ms a frame`);
+      check(ms / 15 + cues < 0.15, `${(ms / 15).toFixed(3)} + ${cues.toFixed(3)} ms a frame`);
+    } finally { delete W.alarm; W.list = list; P.byKey.delete('c'); }
   });
   await test('nature (english): looking fills a new page', async () => {
     const s = trackLine(8); check(s, 'no open ground');

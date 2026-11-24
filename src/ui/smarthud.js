@@ -89,11 +89,13 @@ const TIPS = {
   // (tracking and the nature book, Plan G §5.1: a fresh trail close by, the first study ring, the first wounded animal's
   // trail locked. No key drawn: the text says it)
   tracks: { key: null }, study: { key: null }, blood: { key: null },
+  // (stalking, Plan R3: the ring, the wind mark, an animal that stares at you, your dog's point)
+  ring: { key: null }, wind: { key: null }, freeze: { key: null }, point: { key: null },
 };
 // (those three wait at least a minute after any other tip, and are only asked for when they could show at once: a tip
 // about prints that already went by would be noise. Not the blood one: it answers your own shot, and it is asked for as
 // long as the animal you hit still bleeds)
-const FIELD_TIPS = new Set(['tracks', 'study', 'blood']);
+const FIELD_TIPS = new Set(['tracks', 'study', 'blood', 'ring', 'wind', 'freeze', 'point']);
 const FIELD_GAP = 60, FIELD_WAIT = 8;   // seconds: after any tip; the longest one waits (a window open) before it is dropped
 const KNOWN = ['bag', 'craft', 'build', 'journal', 'map'];   // (what a player past the first steps already knows)
 // Closing hours of the shops (hours past 24 are after midnight); the ones open all day never close
@@ -386,6 +388,7 @@ export class SmartHud {
     // (a horse coming to your whistle, or just out of earshot: its marker is on the minimap, so the minimap shows; slow()
     // looks four times a second)
     if (this.horseMini && outside) show('mini', SHOW.mini);
+    if (g.huntOverlay?.on && outside) show('mini', SHOW.mini);   // (hunting: your noise ring and the wind are on it)
 
     // What shows now
     const crit = {
@@ -701,7 +704,7 @@ export class SmartHud {
     if (!this.seen.has('tracks') && g.nature?.tr?.size) this.learnt('tracks');   // (E on a print already: it knows how)
     if (this.queue.length && T - this.fieldAt > FIELD_WAIT && this.queue.some(id => FIELD_TIPS.has(id))) this.queue = this.queue.filter(id => !FIELD_TIPS.has(id));
     if (g.gamemode === 'spectator' || this.tip || (!blood && T - this.tipAt < FIELD_GAP) || T - this.started < 8) return;
-    const id = blood ? 'blood' : st && !st.done && st.k > 0.15 ? 'study' : tr?.freshNear && g.scene === g.world && !p.swim ? 'tracks' : null;
+    const id = blood ? 'blood' : g.huntOverlay?.tip(this.seen) || (st && !st.done && st.k > 0.15 ? 'study' : tr?.freshNear && g.scene === g.world && !p.swim ? 'tracks' : null);
     if (!id || this.seen.has(id) || this.queue.includes(id)) return;
     this.fieldAt = T;
     this.want(id, true);

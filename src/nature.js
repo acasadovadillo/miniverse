@@ -37,6 +37,7 @@ import { seedOf } from './cropdata.js';
 import { ANIMALS } from './art/farm.js';
 import { PREY, bodyBox } from './hunt.js';
 import * as WILD from './wildlife.js';
+import { SENSES, EXPO, smellRange } from './senses.js';
 import * as TRACKS from './tracks.js';
 import { B } from './world/biomes.js';
 import { inBounds } from './world/village.js';
@@ -115,7 +116,12 @@ function animalFacts(id, g) {
     const k = wildKind(id);
     if (k) {
       out.push(['nature.fact.habitat', { list: biomeNames(k.biomes) }, 1], ...hoursFact(k.hours, 2));
-      out.push(['nature.fact.shy', { m: k.fear, c: Math.round(k.fear * creep() * 10) / 10 }, 2]);
+      const K = WILD.sensesOn?.() && SENSES[id];   // (the senses of Plan R3: what it sees and smells of you, on a fine day)
+      if (K) {
+        out.push(['nature.fact.notices', { m: Math.round(K.sight * EXPO.walk), c: Math.round(K.sight * EXPO.crouch) }, 2]);
+        if (grazes(id)) out.push(['nature.fact.headdown', null, 2]);
+        if (K.smell) out.push(['nature.fact.nose', { m: Math.round(smellRange(K, 1, 0.4, 1) / 5) * 5 }, 3]);
+      } else out.push(['nature.fact.shy', { m: k.fear, c: Math.round(k.fear * creep() * 10) / 10 }, 2]);
     }
     if (grazes(id)) out.push(['nature.fact.grazes', null, 2]);
     const kind = SPECIES[id].tracks;
@@ -431,7 +437,7 @@ export class NatureBook {
       const tt = rayHits(o0, d, box);
       if (tt !== null && tt < h.t) take(id, tt, e.x, e.y, busy);
     };
-    for (const w of g.wildlife?.list || []) if (SPECIES[w.type]) body(w, w.type, !!(w.grazing || w.lying || w.scared > g.time || w.type === 'cisne'));
+    for (const w of g.wildlife?.list || []) if (SPECIES[w.type]) body(w, w.type, !!(w.grazing || w.lying || w.scared > g.time || w.alert || w.flight || w.type === 'cisne'));
     for (const a of g.ranch?.animals || []) if (SPECIES[a.type] && (!a.inside || g.ranch.stall(a)) && !a.rider) body(a, a.type, false);
     const l2 = d[0] * d[0] + d[2] * d[2] || 1e-9;
     for (const o of sc.harvestablesNear?.(p.x, p.y) || []) {

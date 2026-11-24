@@ -119,6 +119,33 @@ export const Audio = {
   // Animales: el gallo al amanecer, el perro, el gato, el caballo y el silbato
   crow() { tone([[520, 0.12, 'sawtooth', 0.025], [700, 0.1, 'sawtooth', 0.03], [880, 0.35, 'sawtooth', 0.025], [620, 0.2, 'sawtooth', 0.02]]); },
   bark() { tone([[320, 0.06, 'sawtooth', 0.05], [240, 0.08, 'square', 0.03]]); Audio.noiseHit(600, 0.08, 0.2); },
+  // Wild animals (Plan R3): a deer's forefoot on the ground (a dull thud, twice), its bark of alarm (a short hoarse shout that
+  // falls) and a boar's huff (air blown through the snout; squeal: a grunt under it, running off). k: how loud (further, less)
+  stamp(k = 1) {
+    if (!ac || !on || !(k > 0.01)) return;
+    const t = ac.currentTime;
+    for (const [at, v] of [[0, 1], [0.16, 0.6]]) {
+      const o = ac.createOscillator(), g = ac.createGain(), s = t + at;
+      o.type = 'sine'; o.frequency.setValueAtTime(110, s); o.frequency.exponentialRampToValueAtTime(48, s + 0.1);
+      g.gain.setValueAtTime(0.16 * k * v, s); g.gain.exponentialRampToValueAtTime(0.0001, s + 0.14);
+      o.connect(g).connect(sfx); o.start(s); o.stop(s + 0.16);
+    }
+    Audio.noiseHit(300, 0.06, 0.14 * k);
+  },
+  alarmBark(k = 1) {
+    if (!ac || !on || !(k > 0.01)) return;
+    const t = ac.currentTime, o = ac.createOscillator(), f = ac.createBiquadFilter(), g = ac.createGain();
+    o.type = 'sawtooth'; f.type = 'bandpass'; f.frequency.value = 900; f.Q.value = 1.2;
+    o.frequency.setValueAtTime(330, t); o.frequency.exponentialRampToValueAtTime(420, t + 0.04); o.frequency.exponentialRampToValueAtTime(170, t + 0.24);
+    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.2 * k, t + 0.025); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.27);
+    o.connect(f).connect(g).connect(sfx); o.start(t); o.stop(t + 0.3);
+    Audio.noiseHit(1000, 0.16, 0.12 * k, 'bandpass');
+  },
+  huff(k = 1, squeal = false) {
+    if (!ac || !on || !(k > 0.01)) return;
+    Audio.noiseHit(520, 0.22, 0.3 * k, 'bandpass');
+    if (squeal) tone([[150, 0.09, 'sawtooth', 0.05 * k], [110, 0.14, 'sawtooth', 0.045 * k]]);
+  },
   meow() { if (!ac || !on) return; const o = ac.createOscillator(), g = ac.createGain(), t = ac.currentTime; o.type = 'triangle'; o.frequency.setValueAtTime(600, t); o.frequency.linearRampToValueAtTime(900, t + 0.15); o.frequency.linearRampToValueAtTime(500, t + 0.4); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.05, t + 0.05); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.42); o.connect(g).connect(sfx); o.start(t); o.stop(t + 0.45); },
   neigh(k = 1) { tone([[700, 0.08, 'sawtooth', 0.025 * k], [900, 0.1, 'sawtooth', 0.025 * k], [760, 0.12, 'sawtooth', 0.02 * k], [600, 0.18, 'sawtooth', 0.015 * k]]); },
   whistle() { tone([[1800, 0.12, 'sine', 0.05], [2400, 0.25, 'sine', 0.05]]); },

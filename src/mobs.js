@@ -75,12 +75,13 @@ export class Mobs {
   }
 
   // ---------- quién juega ----------
-  // Los que están en el mundo de fuera: tú (salvo el mundo del servidor) y los demás, con su modo de juego
+  // Los que están en el mundo de fuera: tú (salvo el mundo del servidor) y los demás, con su modo de juego (e: their body,
+  // the player or a RemotePlayer: gait, posture, mount… the wild animals' senses read it, presence.js)
   players() {
     const g = this.game, p = g.player, out = [];
-    if (p && !Profile.server && g.scene === g.world) out.push({ me: true, x: p.x, y: p.y, gm: g.gamemode, crouch: p.crouch });
+    if (p && !Profile.server && g.scene === g.world) out.push({ me: true, x: p.x, y: p.y, gm: g.gamemode, crouch: p.crouch, e: p });
     if (g.live.joined) for (const [conn, peer] of g.live.peers) {
-      if (peer.playing && !peer.server && peer.sc === 'world' && peer.entity) out.push({ conn, x: peer.entity.x, y: peer.entity.y, gm: GM[peer.entity.gm || 0], crouch: peer.entity.crouch });
+      if (peer.playing && !peer.server && peer.sc === 'world' && peer.entity) out.push({ conn, x: peer.entity.x, y: peer.entity.y, gm: GM[peer.entity.gm || 0], crouch: peer.entity.crouch, e: peer.entity });
     }
     return out;
   }

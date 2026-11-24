@@ -62,7 +62,7 @@ const horseAct = h => {
   if (i >= 0 && Number.isInteger(h.seq)) { htLast = h.seq; return [i, h.seq]; }
   return [-1, htLast];
 };
-const herdTo = (a, p) => { a.netTo = p; a.inside = !!p[2]; a.grazing = !!p[3]; };   // (por dónde va un animal, de quien lleva el mundo)
+const herdTo = (a, p) => { a.netTo = p; a.inside = !!p[2]; a.grazing = !!p[3]; if (p[5] || a.dogK) a.dogNet(p[5] | 0); };   // (por dónde va un animal, de quien lleva el mundo)
 const session = Math.random().toString(36).slice(2, 6);   // (para que los objetos tirados tengan nombres únicos)
 
 // Otro jugador, tal como lo ven los demás: va hacia donde dicen sus mensajes, suavizado
@@ -99,6 +99,8 @@ class RemotePlayer extends Person {
     this.swim = !!st.na; this.sinkTo = st.na ? st.hu || 0 : 0;   // (nadando, y lo que se hunde o se asoma)
     // (dv: diving, the depth below sink, smoothed like it in update; zz: asleep in a bed, entities.js. A game from before
     // sends neither: a swimmer at the surface, and awake)
+    // (fr: a soap bath lately, body.js fresh: a fainter scent for the wild animals, presence.js. A game from before sends none)
+    this.freshBath = !!st.fr;
     this.diveTo = st.na && Number.isFinite(st.dv) ? Math.max(0, Math.min(DIVE_NET, st.dv)) : 0;
     this.sleeping = !!st.zz;
     this.fb = cleanFb(st.fb);   // (their fishing line, fishing.js net: an older game sends none)
@@ -523,6 +525,7 @@ export class Live {
         break;
       // Las criaturas de fuera (mobs.js): dónde están (de quien lleva el mundo), a cuál le pega quién (a quien lo
       // lleva), a quién muerden y quién ha matado a una (de quien lo lleva)
+      case 'noise': if (peer && this.joined && !this.guest) g.wildlife?.presence.heard(peer, m); break;   // (a loud thing where another player is, for the wild animals: presence.js)
       case 'mobs': if (fromHost && Array.isArray(m.m)) g.mobs.netList(m.m); break;
       case 'wild': if (fromHost && Array.isArray(m.w)) g.wildlife.netList(m.w); break;
       // Las flechas: las ve volar todo el mundo y la que ya no está, deja de verse (si se le da a alguien, to: a quién). La
@@ -947,7 +950,7 @@ export class Live {
     }
     if (this.role === 'host') {
       if (T.time >= TIME_EVERY) { T.time = 0; this.net.send({ t: 'time', c: r2(g.world.clock), run: g.mode === 'play', sh: g.days.shift, db: g.days.dayBase }); }
-      if (T.herd >= HERD_EVERY && this.others.some(o => o.playing)) { T.herd = 0; this.net.send({ t: 'herd', p: g.ranch.animals.map(a => [r2(a.x), r2(a.y), a.inside ? 1 : 0, a.grazing ? 1 : 0, a.id]), k: g.family.positions() }); }
+      if (T.herd >= HERD_EVERY && this.others.some(o => o.playing)) { T.herd = 0; this.net.send({ t: 'herd', p: g.ranch.animals.map(a => [r2(a.x), r2(a.y), a.inside ? 1 : 0, a.grazing ? 1 : 0, a.id, ...(a.dogK ? [a.dogK] : [])]), k: g.family.positions() }); }
     }
     if (Profile.server) return;   // (el mundo del servidor no tiene personaje que los demás vean)
     // (/setidletimeout: si llevas los minutos que diga sin moverte, se lo dices al servidor, que te echa)
@@ -965,7 +968,7 @@ export class Live {
     }
     this.sent += dt;
     const sc = g.scene === g.world ? 'world' : null;
-    const st = { t: 'st', sc, x: r2(p.x), y: r2(p.y), z: r2(p.z || 0), fl: p.floor ? r2(p.floor) : undefined, yaw: r2(g.view3d.actors.player?.person.facing ?? 0), in: p.inside ? 1 : 0, po: p.pose ? [poseIndex(p.pose.kind), r2(p.pose.yaw), r2(p.pose.h)] : 0, ba: p.bathing && p.pose?.kind === 'bath' ? 1 : undefined, bd: g.body?.bd || undefined, m: p.mount ? 1 : 0, hc: p.mount ? p.horseCoat || null : null, hb: p.mount && p.horseBags ? 1 + (p.horseFill > 0 ? Math.min(2, p.horseFill | 0) : 0) : 0, hd: p.mount && p.horseDirt > 0 ? Math.min(3, Math.round(p.horseDirt * 3)) || undefined : undefined, hw: p.mount && p.horseWinded ? 1 : undefined, ht: p.mount ? horseAct(p.horseAct) : undefined, b: p.boat ? 1 : 0, pa: p.aboard || 0, cr: p.crouch ? 1 : 0, gm: g.gamemode === 'survival' ? 0 : g.gamemode === 'creative' ? 1 : 3, h: g.inv.held?.id || null, sw: this.swings, si: g.gather.swingItem || null, cd: r2(g.gather.cooldown || 0), dr: r2(g.archery.k), na: p.swim ? 1 : 0, hu: p.swim ? r2(p.sink) : undefined, dv: p.swim && p.dive > 0.02 ? r2(p.dive) : undefined, zz: p.sleeping && p.pose?.kind === 'lie' ? 1 : undefined, fb: sc ? g.fishing?.net() : undefined, kt: kitKey(g.kitIds()) || undefined, gt: p.gait || 0, rv: p.mount && g.mode === 'play' && p.ride?.v > 0.5 ? r1(p.ride.v) : undefined, ca: g.carry?.state(), em: g.social.emSeq, ek: g.social.emKind, ac: accentOf(p.name, g.ui?.accent) };
+    const st = { t: 'st', sc, x: r2(p.x), y: r2(p.y), z: r2(p.z || 0), fl: p.floor ? r2(p.floor) : undefined, yaw: r2(g.view3d.actors.player?.person.facing ?? 0), in: p.inside ? 1 : 0, po: p.pose ? [poseIndex(p.pose.kind), r2(p.pose.yaw), r2(p.pose.h)] : 0, ba: p.bathing && p.pose?.kind === 'bath' ? 1 : undefined, bd: g.body?.bd || undefined, fr: g.body?.fresh ? 1 : undefined, m: p.mount ? 1 : 0, hc: p.mount ? p.horseCoat || null : null, hb: p.mount && p.horseBags ? 1 + (p.horseFill > 0 ? Math.min(2, p.horseFill | 0) : 0) : 0, hd: p.mount && p.horseDirt > 0 ? Math.min(3, Math.round(p.horseDirt * 3)) || undefined : undefined, hw: p.mount && p.horseWinded ? 1 : undefined, ht: p.mount ? horseAct(p.horseAct) : undefined, b: p.boat ? 1 : 0, pa: p.aboard || 0, cr: p.crouch ? 1 : 0, gm: g.gamemode === 'survival' ? 0 : g.gamemode === 'creative' ? 1 : 3, h: g.inv.held?.id || null, sw: this.swings, si: g.gather.swingItem || null, cd: r2(g.gather.cooldown || 0), dr: r2(g.archery.k), na: p.swim ? 1 : 0, hu: p.swim ? r2(p.sink) : undefined, dv: p.swim && p.dive > 0.02 ? r2(p.dive) : undefined, zz: p.sleeping && p.pose?.kind === 'lie' ? 1 : undefined, fb: sc ? g.fishing?.net() : undefined, kt: kitKey(g.kitIds()) || undefined, gt: p.gait || 0, rv: p.mount && g.mode === 'play' && p.ride?.v > 0.5 ? r1(p.ride.v) : undefined, ca: g.carry?.state(), em: g.social.emSeq, ek: g.social.emKind, ac: accentOf(p.name, g.ui?.accent) };
     const key = JSON.stringify(st);
     if (this.sent < SEND_EVERY || (key === this.lastSent && this.sent < IDLE_EVERY)) return;
     this.sent = 0; this.lastSent = key;

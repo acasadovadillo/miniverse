@@ -23,6 +23,7 @@ import { wrapX, nearX, WATER_Y } from './world/planet.js';
 import { shotHit } from './world/shots.js';
 import { WALL_H, ROOF } from './three/build3d.js';
 import { bodyBox, PREY, zoneOf } from './hunt.js';
+import { EVENT, ARROW_R } from './senses.js';
 
 export const V = 24, G = 16;                    // lo que corre la flecha a toda fuerza (casillas por segundo) y lo que la baja
 const FULL_DRAW = 1, MIN_POWER = 0.1, MAX_DMG = 6, DRAW_WALK = 0.45;
@@ -291,6 +292,7 @@ export class Archery {
     a.bed = sink === SINK.ground && g.scene === g.world ? this.bedOf(a) : null;
     const me = g.player, dist = me ? Math.hypot(nearX(a.x, me.x) - me.x, a.y - me.y) : 0;
     if (dist < 25) Audio.noiseHit(1200, 0.05, 0.15);
+    if (a.mine && g.scene === g.world && Number.isFinite(a.x)) g.wildlife?.noise(a.x, a.y, EVENT.arrow, ARROW_R);   // (landing close to a wild animal, it hears it)
   }
   // El suelo donde está clavada una flecha en la tierra: bajo la punta y bajo su centro (ver settle)
   bedOf(a) { return [this.ground(a.x + a.vx * TIP, a.y + a.vy * TIP), this.ground(a.x, a.y)]; }

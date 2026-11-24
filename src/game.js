@@ -30,6 +30,8 @@ import { Saddlebags } from './saddlebags.js';
 import { Steps } from './steps.js';
 import { Fishing } from './fishing.js';
 import { Wildlife } from './wildlife.js';
+import { Wind } from './wind.js';
+import { EVENT } from './senses.js';
 import { Rest } from './rest.js';
 import { Crew } from './crew.js';
 import { footTile, front, extraTiles, yawOf } from './art/stations.js';
@@ -182,6 +184,7 @@ export class Game {
     this.saddlebags = this.addSystem(new Saddlebags(this));   // the horse's saddlebags: shared with the couple, one writer at a time (Plan F, src/saddlebags.js)
     this.family = this.addSystem(new Family(this));
     this.fishing = this.addSystem(new Fishing(this));
+    this.wind = this.addSystem(new Wind(this));   // the wind, the same for everyone (src/wind.js, Plan R3: it carries the scent; before wildlife, which reads it)
     this.wildlife = this.addSystem(new Wildlife(this));
     this.rest = this.addSystem(new Rest(this));
     this.crew = this.addSystem(new Crew(this));   // ir de pasajero en la barca de otro
@@ -680,7 +683,7 @@ export class Game {
     const gate = sc.pieceAt?.(...door)?.kind === 'gate';
     if (!gate && closed && !(this.knocked?.k === k && this.time < this.knocked.until) && this.knockable(door)) return { text: 'Llamar a la puerta', run: () => this.knock(door) };
     // (la puerta de valla, como las vallas, solo se quita con Quitar en el modo construir, B)
-    if (closed || !inGap) return { text: `${closed ? 'Abrir' : 'Cerrar'} la puerta${gate ? ' de valla' : ''}`, run: () => { sc.toggleDoor(...door); Audio.place(); this.onSave?.(); } };
+    if (closed || !inGap) return { text: `${closed ? 'Abrir' : 'Cerrar'} la puerta${gate ? ' de valla' : ''}`, run: () => { sc.toggleDoor(...door); Audio.place(); if (sc === this.world) this.wildlife.noise(door[0] + 0.5, door[1] + 0.5, EVENT.door); this.onSave?.(); } };
     return null;
   }
   // Lo colocado: las estaciones se usan, en la cama te tumbas o duermes, en la silla te sientas, las luces se

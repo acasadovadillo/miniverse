@@ -25,6 +25,9 @@ import { HALF, distOf, dxOf, nearX, wrapX } from './world/planet.js';
 import { dropSprint } from './input.js';
 import { levelOf, settle, BX_AFTER_LOSS, TREATS } from './horse.js';
 import { padBags } from './saddlebags.js';
+import { sensesOn } from './wildlife.js';
+import { stalkingAs } from './presence.js';
+import { downwind, EVENT } from './senses.js';
 
 const PER_HOME = { gallinero: 4, establo: 4, conejera: 4, cuadra: 2, caseta: 1, cojin: 1 };
 const FRONT = { gallinero: 2.15, establo: 2.25 };   // las casas grandes: del centro a donde se entra (delante de la puerta)
@@ -48,6 +51,8 @@ const within = ([a, b]) => a + Math.random() * (b - a);
 const LOVE_FOOD = { gallina: ['trigo'], pato: ['trigo'], vaca: ['trigo'], oveja: ['trigo'], cabra: ['trigo'], cerdo: ['zanahoria'], conejo: ['zanahoria'] };
 const HEAT_MS = 30000, REST_MS = 5 * 60000, MATE_NEAR = 8;
 const SPEED = { gallina: 1.1, pato: 0.9, conejo: 1.3, cerdo: 0.8, cabra: 1, caballo: 1.3, perro: 1.6, gato: 1.2 };
+// The dog out hunting (stalk): where it heels, and its point (m and seconds)
+const HEEL = { BACK: 1.5, NEAR: 0.6, SLOW: 0.6 }, POINT = { R: 40, EVERY: 2, FOR: 4, REST: 6, LEASH: 12 };
 const RUN = { perro: 4.2, gato: 2.6, caballo: 5 };   // corriendo (siguiendo a su dueño o al llamarlo)
 // A called horse (Plan F §1.3): its speed by level (always faster than a player who walks, 3.2, so it catches up), slower for
 // the last COME_SLOW m. Cut off by something (a rock, a wall) for STUCK s, it goes around it (goAround): up to COME_TRIES
@@ -98,6 +103,14 @@ class Animal {
     const o = { ...this.more, x: +this.x.toFixed(2), y: +this.y.toFixed(2) };
     for (const k of KEEP) if (this[k] !== undefined && this[k] !== null) o[k] = this[k];
     return o;
+  }
+  // (the dog, from whoever runs the world: dogK in the herd's message, optional: -1 it heels, 1.. it points, at 64 steps of
+  // the circle. A game from before sends none)
+  dogNet(k) {
+    const on = k > 0;
+    if (on) { const a = (k - 1) * Math.PI / 32; (this.dir ||= [0, 1])[0] = Math.sin(a); this.dir[1] = Math.cos(a); }
+    else if (this.pointing) delete this.dir;   // (again the way it walks)
+    this.pointing = on; this.dogK = k;
   }
   // Andar hacia (tx, ty) a una velocidad; al llegar, se para un rato. Devuelve si ha llegado
   walk(dt, world, sp) {
@@ -593,6 +606,7 @@ export class Ranch {
   updatePet(a, dt, night) {
     const g = this.game, owner = a.owner && this.player(a.owner), home = a.home2 || (a.stray ? [SPAWN.x + (a.type === 'gato' ? 3 : -3), SPAWN.y + 1.5] : null);
     a.inside = false;
+    if (a.dogK) { a.dogK = 0; a.pointing = false; }   // (heeling or pointing: said again each frame, stalk)
     // Sentado (con clic derecho o con X): se queda ahí, también de noche, hasta que se le levanta
     if (a.sit) { a.vx = a.vy = 0; a.tx = a.x; a.ty = a.y; a.fetch = null; a.sleep = false; return; }
     if (a.type === 'perro' && a.fetch) return this.fetch(a, dt, owner);
@@ -600,6 +614,7 @@ export class Ranch {
     if (follow) {
       a.sleep = false;
       const d = Math.hypot(owner.x - a.x, owner.y - a.y);
+      if (this.stalk(a, owner, d, dt)) return;
       // (se había quedado atrás: aparece corriendo; si su dueño nada, no: los perros no nadan, lo espera en la orilla)
       if (d > 16) { if (!owner.swim && !this.world.blocked(owner.x - 1, owner.y - 1)) { a.x = a.tx = owner.x - 1; a.y = a.ty = owner.y - 1; } else a.vx = a.vy = 0; return; }
       if (d > 2.2) { a.go(owner.x - 0.8, owner.y - 0.8); a.walk(dt, this.world, d > 5 ? RUN.perro * (owner.mount ? 1.4 : 1) : SPEED.perro * 1.8); }
@@ -619,6 +634,51 @@ export class Ranch {
     a.sleep = false;
     a.roam(dt, this.world, home[0], home[1], a.type === 'gato' ? 2 : 3);
   }
+  // Out hunting with its owner (Plan R3 §3.10: the bow in their hand, or crouched, out of the village), the dog heels: behind
+  // them, as fast as they go, without barking or digging; and when it winds a wild animal (upwind of it, within POINT.R), it
+  // stops and points at it for a few seconds. true: that is what it does now (d: how far it is from them)
+  stalk(a, owner, d, dt) {
+    const g = this.game, W = g.wildlife;
+    if (!W || !sensesOn() || d > 16 || owner.gm === 3 || (owner === g.player && g.gamemode === 'spectator') || !stalkingAs(owner, owner === g.player ? g.inv?.held?.id : owner.held)) { a.pointAt = null; return false; }
+    const now = g.time, P = a.pointAt;
+    a.dogK = -1;
+    if (P) {   // (stiff, nose towards it, until it is over, it is gone or its owner walks away)
+      if (now < a.pointTill && d < POINT.LEASH && W.list.includes(P)) { this.face(a, P); return true; }
+      a.pointAt = null; a.pointNext = now + POINT.REST;
+    }
+    // (behind its owner, by the way they last went: turning on the spot to look around, it does not circle them)
+    const o = a.heelAt ||= [owner.x, owner.y, 0, 1], mx = owner.x - o[0], my = owner.y - o[1], m = Math.hypot(mx, my);
+    if (m > 3) { o[0] = owner.x; o[1] = owner.y; }
+    else if (m > 0.4) { o[0] = owner.x; o[1] = owner.y; o[2] = mx / m; o[3] = my / m; }
+    const hx = owner.x - o[2] * HEEL.BACK, hy = owner.y - o[3] * HEEL.BACK, h = Math.hypot(hx - a.x, hy - a.y);
+    if (h > HEEL.NEAR || (a.heeling && h > 0.2)) { a.heeling = true; a.go(hx, hy); a.walk(dt, this.world, d > 6 ? RUN.perro : Math.min(RUN.perro, Math.max(HEEL.SLOW, h * 1.5))); }
+    else { a.heeling = false; a.vx = a.vy = 0; }
+    if ((a.pointT = (a.pointT || 0) - dt) <= 0) {
+      a.pointT = POINT.EVERY;
+      if (now >= (a.pointNext || 0) && d < 6) {
+        const w = this.winded(a);
+        if (w) { a.pointAt = w; a.pointTill = now + POINT.FOR; a.heeling = false; this.face(a, w); }
+      }
+    }
+    return true;
+  }
+  face(a, w) {
+    const dx = dxOf(w.x, a.x), dy = w.y - a.y;
+    a.vx = a.vy = 0; a.tx = a.x; a.ty = a.y; a.pointing = true;
+    a.faceTo(dx, dy);
+    a.dogK = 1 + (Math.round(Math.atan2(dx, dy) * 32 / Math.PI) & 63);
+  }
+  // The closest wild land animal the dog can smell: the wind brings it (the same test as theirs: senses.js downwind)
+  winded(a) {
+    const g = this.game, V = g.wind;
+    let best = null, bd = POINT.R;
+    if (V) for (const w of g.wildlife.list) {
+      if (w.type === 'cisne') continue;
+      const dx = dxOf(a.x, w.x), dy = a.y - w.y, d = Math.hypot(dx, dy);
+      if (d < bd && d > 2 && downwind(V.x, V.y, dx, dy, d)) { bd = d; best = w; }
+    }
+    return best;
+  }
   // Lo que hace el perro de paseo: escarbar una vez al día (sale algo), y ladrar a los animales salvajes
   dogChores(a, owner, dt) {
     const g = this.game;
@@ -633,7 +693,7 @@ export class Ranch {
       if (owner === g.player) g.gather.float(`¡${a.name} ha encontrado algo!`, '#fff3c0');
     }
     const wild = g.wildlife?.near(a.x, a.y, 6);
-    if (wild && (this.barked || 0) < g.time) { this.barked = g.time + 6; wild.scared = g.time + 5; if (Math.hypot(g.player.x - a.x, g.player.y - a.y) < 20) Audio.bark(); }
+    if (wild && (this.barked || 0) < g.time) { this.barked = g.time + 6; wild.scared = g.time + 5; wild.scareAt = [a.x, a.y]; g.wildlife.noise(a.x, a.y, EVENT.bark); if (Math.hypot(g.player.x - a.x, g.player.y - a.y) < 20) Audio.bark(); }
   }
   // Ir a por la pelota y traérsela a su dueño (la deja a sus pies)
   fetch(a, dt, owner) {

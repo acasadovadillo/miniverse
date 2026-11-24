@@ -433,6 +433,48 @@ const SIT_LEAN = { perro: -0.62, gato: -0.7 };
 const BED = { ciervo: [0.69, [-1.34, 2.87], [-1.6, 3.42]], jabali: [0.15, [-0.83, 2.37], [-1.05, 2.91]] };
 const LIMP_SWING = 0.6, LIMP_DIP = 0.05, LIMP_ROLL = 0.07;
 // (st: a horse's trick or shake and how winded it is, from actors.js: see animateHorse)
+// On its guard (Plan R3 §5; wildlife.js: e.alert 1 alert, 3 tense, 2 alarm, e.staring, e.stareYaw, e.flag, e.stamp): the head
+// high and turned to whoever it is, the neck up, the tail up and white as it runs (flag), in bounds; tense, a deer stamps a
+// forefoot (e.stamp 0..1). And a dog's point (e.pointing: stiff, the head level, the tail straight out, a paw lifted) and its
+// heel (e.dogK -1: the head low, the tail still). Only the existing rig: no new meshes
+const NECK_UP = -0.22, HEAD_TURN = 1.25, FLAG_UP = 2.4, POINT_TAIL = -0.95;
+function onGuard(m, u, e, k, t, dt) {
+  const { head, tail, legs, body, type } = u, want = e.staring || e.alert ? 1 : 0;
+  if (want || u.al > 0) {
+    const al = u.al = (u.al || 0) + (want - (u.al || 0)) * Math.min(1, dt * 7);
+    if (al < 1e-3) { u.al = 0; if (tail) tail.scale.setScalar(1); return; }
+    if (head) {
+      let turn = 0;
+      if (e.staring) { turn = (e.stareYaw || 0) - m.root.rotation.y; turn = Math.max(-HEAD_TURN, Math.min(HEAD_TURN, Math.atan2(Math.sin(turn), Math.cos(turn)))); }
+      u.ty = (u.ty ?? head.rotation.y) + (turn - (u.ty ?? head.rotation.y)) * Math.min(1, dt * 6);
+      head.rotation.y = head.rotation.y * (1 - al) + u.ty * al;
+      head.rotation.x += (-0.1 - head.rotation.x) * al;
+      if (u.rig) neckPose(u, u.g || 0, NECK_UP * al);
+    }
+    if (tail) {
+      const f = u.fl = (u.fl || 0) + ((e.flag ? 1 : 0) - (u.fl || 0)) * Math.min(1, dt * 8);
+      if (type === 'ciervo') { tail.rotation.x += (FLAG_UP - tail.rotation.x) * f; tail.rotation.z *= 1 - al * (1 - f); tail.scale.setScalar(1 + 0.8 * f); }
+      else tail.rotation.z *= 1 - al;
+    }
+    // (bounding: higher and rocking, one long leap after another)
+    if (u.fl > 0.2 && k > 0.9 && type === 'ciervo') { const b = Math.sin(m.phase * 0.5); body.position.y += Math.abs(b) * 0.22 * u.fl; body.rotation.x = Math.cos(m.phase * 0.5) * Math.sign(b) * -0.12 * u.fl; }
+    if (e.stamp > 0 && e.stamp < 1 && k < 0.2 && legs.length === 4) {
+      const s = e.stamp, up = s < 0.65 ? Math.sin(s / 0.65 * Math.PI / 2) : Math.max(0, 1 - (s - 0.65) / 0.12);
+      legs[1].hip.rotation.x -= 0.75 * up; legs[1].knee.rotation.x += 1.25 * up;
+    }
+  } else u.ty = undefined;
+}
+function dogOut(u, e, dt) {
+  const { head, tail, legs, body } = u, want = e.pointing ? 1 : 0, heel = e.dogK === -1 ? 1 : 0;
+  if (!(want || heel || u.po > 0 || u.he > 0)) return;
+  const p = u.po = (u.po || 0) + (want - (u.po || 0)) * Math.min(1, dt * 6), h = u.he = (u.he || 0) + (heel - (u.he || 0)) * Math.min(1, dt * 5);
+  if (p < 1e-3) u.po = 0;
+  if (h < 1e-3) u.he = 0;
+  const s = Math.max(p, h);
+  if (tail) { tail.rotation.z *= 1 - s; tail.rotation.x = tail.rotation.x * (1 - s) + POINT_TAIL * p - 1.6 * h * (1 - p); }
+  if (head) { head.rotation.y *= 1 - p; head.rotation.x += (0.06 * p + 0.3 * h * (1 - p) - head.rotation.x) * s; }
+  if (p && legs.length === 4) { legs[1].hip.rotation.x += (-0.95 - legs[1].hip.rotation.x) * p; legs[1].knee.rotation.x += (1.7 - legs[1].knee.rotation.x) * p; body.rotation.x += 0.05 * p; }
+}
 export function animateAnimal(m, dt, t, e, st = null) {
   const u = m.root.userData;
   if (u.horse) { animateHorse(m.root, m.speed, t, e, dt, undefined, st); return; }
@@ -467,12 +509,14 @@ export function animateAnimal(m, dt, t, e, st = null) {
     const g = graze(u, e, k, dt), bite = g * (Math.sin(t * 7 + u.seed) * 0.05 + Math.max(0, Math.sin(t * 0.8 + u.seed)) * 0.04);
     if (u.rig) neckPose(u, g);
     head.rotation.x += ((u.rig ? u.rig.hr * g : g * 0.6) + bite - head.rotation.x) * Math.min(1, dt * 3);
-    head.rotation.y = Math.sin(t * 0.6 + u.seed * 2) * 0.25 * (1 - k) * (1 - g * 0.7);
+    if (!u.al) head.rotation.y = Math.sin(t * 0.6 + u.seed * 2) * 0.25 * (1 - k) * (1 - g * 0.7);
   }
   if (type === 'gallina' || type === 'pato') body.rotation.x = k ? Math.sin(m.phase * 2) * 0.08 : Math.max(0, Math.sin(t * 1.3 + m.phase) - 0.7) * 1.2;   // picotea
   else if (type === 'cerdo' && e?.digging) body.rotation.x = 0.25 + Math.sin(t * 9) * 0.06;   // hoza
   else body.rotation.x = Math.sin(t * 0.8 + m.phase) * 0.01;
   body.scale.x = body.scale.z = 1 + Math.sin(t * 2 + u.seed) * 0.01 * (1 - k);   // respira
+  if (e?.alert || e?.staring || u.al > 0) onGuard(m, u, e, k, t, dt);
+  if (type === 'perro' && e) dogOut(u, e, dt);
   // (bedded: eased in and out over about a second, so getting up and lying down are seen)
   const bed = BED[type], want = e?.lying && bed ? 1 : 0;
   if (want || u.lie > 0) {

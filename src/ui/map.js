@@ -100,6 +100,7 @@ export class MapView {
     this.lastMini = 0;
     this.queue = [];
     this.route = null;           // the marked route (route.js puts itself here)
+    this.overlay = null;         // drawn over the minimap, under your arrow: (ctx, toMap, me, a) (ui/huntoverlay.js)
     this.center = null;          // where the big map was centred in its last drawing ([x, y], for toWorld)
     this.hits = [];              // the named spots and pins of the last big map, with their place on the screen (sx, sy)
   }
@@ -209,6 +210,7 @@ export class MapView {
       g.fillStyle = '#ffd77a'; g.fill(); g.lineWidth = 1.5; g.strokeStyle = '#2a1c22'; g.stroke();
     }
     // (the player: an arrow where they face, turned like everything else on the minimap)
+    this.overlay?.(g, toMap, me, a);
     const [mx, my] = toMap(...me), blink = Math.sin(time * 6) > 0, fc = this.face, [fx, fy] = fc ? toMap(me[0] + fc.x * 4, me[1] + fc.y * 4) : [mx, my - 1];
     arrow(g, mx, my, fx - mx, fy - my, 6, blink ? '#ffd77a' : '#ff6a4a');
   }

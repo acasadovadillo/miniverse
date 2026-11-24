@@ -157,7 +157,7 @@ export class Hunt {
   // Salir corriendo, lejos de quien pega
   scare(e, [fx, fy]) {
     const g = this.game;
-    if (ANIMALS[e.type].wild) { e.scared = g.time + SCARED; return; }
+    if (ANIMALS[e.type].wild) { e.scared = g.time + SCARED; e.scareAt = [fx, fy]; return; }   // (wildlife.js: it flees from there)
     const dx = e.x - fx, dy = e.y - fy, d = Math.hypot(dx, dy) || 1;
     e.tx = e.x + dx / d * 6; e.ty = e.y + dy / d * 6; e.wait = 0; e.panic = g.time + PANIC;
   }

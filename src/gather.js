@@ -296,6 +296,7 @@ export class Gathering {
     const g = this.game;
     if (!(g.buffs?.incansable > g.time)) g.combat?.exert(TOOL_COST[kind] * (g.skills?.costCut(kind) ? 0.5 : 1));   // (la sopa de verduras quita el cansancio un rato)
     g.needs?.work(kind);
+    g.wildlife?.toolHit();   // (heard by the wild animals: presence.js)
     g.body?.work(kind);   // (and it dirties you and wears the clothes on a little: Plan E §2.3, §3.2, on the time worked)
     this.wearOut();
     return true;

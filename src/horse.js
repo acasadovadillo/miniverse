@@ -39,6 +39,7 @@ import { fillOf } from './saddlebags.js';
 import { GROUND, CLIMB, CLIMB_DRAIN, VERY, STEEP_WALK, STAGGER, STUMBLE_STAM } from './horseride.js';
 import { G_FLOOR, G_PATH, G_SOFT } from './body.js';
 import { B } from './world/biomes.js';
+import { EVENT } from './senses.js';
 
 // ---------- the rules (§2.3) ----------
 export const LEVEL_AT = [0, 3, 6, 9];                     // hearts where levels 1..4 start
@@ -616,6 +617,7 @@ export class Horse {
   gesture(long = false) {
     const g = this.game;
     g.social?.emote(g.player, 'whistle');
+    if (g.player && g.scene === g.world) g.wildlife?.noise(g.player.x, g.player.y, EVENT.shout);   // (the wild animals hear it too)
     (long && Audio.whistleLong ? Audio.whistleLong : Audio.whistle).call(Audio);
   }
   // The call itself: who called (the host brings it to them), and the jump-in spot when it is far (§3.3)

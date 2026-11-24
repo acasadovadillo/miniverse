@@ -15,6 +15,7 @@ import { ToolWheel } from './ui/wheel.js';
 import { apagada } from './opciones.js';
 import { FieldHud } from './ui/fieldhud.js';
 import { FishCard } from './ui/fishcard.js';
+import { HuntOverlay } from './ui/huntoverlay.js';
 import { reportFault } from './faults.js';
 
 // Con ?modo=servidor, este juego es el mundo del servidor (lo abre multijugador.py): sin dibujo ni menús (server.js).
@@ -46,6 +47,7 @@ function play(login = true) {   // (login: abrir la pantalla de entrar)
   game.live.say = (text, kind) => chat.say(text, kind);
   const wheel = game.wheel = new ToolWheel(game);   // (F held: the tool wheel, src/ui/wheel.js)
   // The study ring and the track tag (src/ui/fieldhud.js, Plan G), for both interfaces: drawn after menus.js's frame hook
+  game.huntOverlay = new HuntOverlay(game);   // (while hunting: your noise ring and the wind, on the minimap)
   const fieldHud = game.fieldHud = new FieldHud(game), menusFrame = game.onFrame;
   const fishCard = new FishCard(game);   // (the catch card, src/ui/fishcard.js)
   game.onFrame = () => { menusFrame?.(); try { fieldHud.frame(); } catch (e) { reportFault(e, 'FieldHud.frame'); } try { fishCard.frame(); } catch (e) { reportFault(e, 'FishCard.frame'); } };

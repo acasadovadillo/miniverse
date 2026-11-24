@@ -24,6 +24,7 @@ import { Audio } from './audio.js';
 import { t, noun } from './i18n.js';
 import { hud } from './ui/hud.js';
 import { keys } from './input.js';
+import { EVENT } from './senses.js';
 
 // The trees that leave a log when felled (cactus and bushes, as before)
 const LOG_TREES = new Set(['oak', 'pine', 'snowPine', 'fruit', 'swampTree', 'palm']);
@@ -424,6 +425,7 @@ export class Carry {
     if (!tile) { this.say(t('carry.cant_here')); Audio.error(); return false; }
     this.putAt(tile);
     Audio.place();
+    if (g.scene === g.world) g.wildlife?.noise(p.x, p.y, EVENT.drop);   // (a thud the wild animals hear)
     g.onSave?.();
     return true;
   }
