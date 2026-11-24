@@ -144,3 +144,5 @@ export function biomeAt(x, y, seed) {
   const c = climate(x, y, seed, tmp);
   return classify(c.T, c.M, c.C, c.R, c.L, c.K, c.P, c.f, 0, c.Q, c.Tl, c.Ml);
 }
+// The stone of each land's towers (tower.js, three/models.js): granite, slate or limestone
+export const stoneOf = b => (b === B.ROCKY || b === B.SNOW || b === B.ICE ? 'granite' : b === B.FOREST || b === B.PINES || b === B.SWAMP ? 'slate' : 'limestone');

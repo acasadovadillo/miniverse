@@ -487,6 +487,7 @@ export class Fx {
   updateBeacon(scene, t) {
     const list = [];
     if (!this.view.cave) for (const c of this.view.world.chunks.values()) if (c.beacon) list.push(c.beacon);
+    if (!this.view.cave) for (const b of this.view.landmarks?.beacons || []) { if (list.length >= 4) break; list.push(b); }   // (and those of the lighthouses too far for their chunk)
     // (entra poco a poco al anochecer, en vez de encenderse de golpe)
     const k = list.length ? Math.max(0, Math.min(1, (this.view.night - 0.3) / 0.3)) : 0, fog = this.view.scene.fog;
     this.beamU.k.value = k; this.beamU.fogNear.value = fog.near; this.beamU.fogFar.value = fog.far;
@@ -495,7 +496,7 @@ export class Fx {
       const b = list[i];
       m.visible = !!b && k > 0;
       // (cada faro, con su fase: no giran a la vez)
-      if (b) { m.position.set(...b); m.rotation.y = t * 0.8 + b[0] * 0.37 + b[2] * 0.11; }
+      if (b) { m.position.set(b[0], b[1], b[2]); m.rotation.y = t * 0.8 + b[0] * 0.37 + b[2] * 0.11; }
     });
   }
 

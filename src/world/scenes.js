@@ -6,7 +6,7 @@ import { clamp, ihash } from '../util.js';
 import { groundSmooth, grassKeep, groundOf } from './ground.js';
 import { WorldGen, CHUNK, GRASS_REGROW, flowerShows } from './gen.js';
 import { inYard, buildVillage, NILO, inBounds, isGrass, inOwnHouse, inVillageHouse, townDigWhy, pondDist } from './village.js';
-import { B, BIOMES, WATER_Y } from './biomes.js';
+import { B, BIOMES, WATER_Y, stoneOf } from './biomes.js';
 import { ITEMS, CHESTS, modernSlots } from '../items.js';
 import '../buildables.js';   // (LEGACY_ITEMS con los muebles: también en el servidor)
 import { extraTiles, LONG, BED_BACK, HEARTH_BACK, GLOW, LIGHT, front, SIDE, rugRect, RUG_SIZES, TABLE_SIZES, TABLES, TUCK } from '../art/stations.js';
@@ -19,6 +19,7 @@ import { Person } from '../entities.js';
 import { Profile } from '../accounts.js';
 import { wrapIndex, inPlanet, dxOf, wrapX, HALF, H as PLANET_H, NORTH } from './planet.js';
 import { roofShape } from './roof.js';
+import { watchtower, towerColliders, SIDE as TOWER_SIDE, HALF_SIDE, TOWER } from './tower.js';
 import { t as tr } from '../i18n.js';   // (as tr: t is a common local name here)
 
 const WADE_MAX = 0.5;   // (ver blocked)
@@ -44,6 +45,12 @@ export const WELLS = { pozo: { n: 1, low: 1, mouth: 0.34, water: 1.1 }, big_well
 export const wellSpec = id => (id && Object.hasOwn(WELLS, id) ? WELLS[id] : null);
 // (the other tiles of an n × n well, from its anchor)
 const wellTiles = n => { const out = []; for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) if (i || j) out.push([i, j]); return out; };
+// The other tiles of what takes a square: a big well's (its anchor has the lowest x and y) or a watchtower's (its anchor is the
+// middle one). They have its height and nothing else; the rest, none
+const TOWER_TILES = []; for (let j = -HALF_SIDE; j <= HALF_SIDE; j++) for (let i = -HALF_SIDE; i <= HALF_SIDE; i++) if (i || j) TOWER_TILES.push([i, j]);
+const wideTiles = id => (watchtower(id) ? TOWER_TILES : wellTiles(wellSpec(id)?.n || 1));
+// A watchtower stands on ground that rises TOWER_SLOPE at most from side to side; its base goes down this far under the lowest
+const TOWER_SLOPE = 1.25, TOWER_ROOT = 3;
 const wellModel = (lvl, dig, id = 'pozo') => (typeof lvl === 'number' && typeof dig === 'number' && lvl > dig ? `${id}:${Math.min(80, Math.round((lvl - dig) / LV_STEP))}` : id);
 // Dónde se cava: en la tierra y la hierba (no en la arena, la roca, la nieve ni el agua), y no en las cuestas de roca
 // (lo que sube la casilla de una esquina a otra: el suelo pinta roca desde una pendiente de 0,62)
@@ -430,6 +437,7 @@ export class Overworld {
     if (cur === null && Math.max(...c) - Math.min(...c) > DIG_STEEP) return 'Ahí es roca';
     const d = this.deltas.get(`${wrapIndex(Math.floor(tx / CHUNK), CHUNK)},${Math.floor(ty / CHUNK)}`);
     if (this.wellAt(x, y)) return 'Ahí está el pozo';
+    if (this.towerOf(tx, ty)) return tr('why.watchtower.here');
     // (la tierra labrada sin nada plantado, sí: la pala la deshace, como al saltar encima; ver digTile)
     const bare = d?.tilled?.[k] !== undefined && !d.crops?.[k] && !d.floor?.[k] && !d.placed?.[k] && !d.roof?.[k];
     if ((!bare && (this.builtAt(d, k) || d?.lvl?.[k] !== undefined)) || d?.crops?.[k] || d?.trees?.[k]) return 'Hay algo encima';
@@ -546,6 +554,7 @@ export class Overworld {
   // La altura que tendría id puesto en la casilla (para colocarlo y para la vista previa)
   levelFor(tx, ty, id) {
     const W = wellSpec(id);
+    if (watchtower(id)) return this.towerGround(tx, ty)[0];
     // (a big well across the village's edge: its slab above the ground outside too, from its corners below)
     if (inBounds(tx + 0.5, ty + 0.5) && !(W?.n > 1)) return W ? 0 : this.digH(tx, ty) ?? 0;
     const d = this.delta(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK)), k = `${tx},${ty}`, have = d?.lvl?.[k];
@@ -583,7 +592,7 @@ export class Overworld {
     const L = this.levelFor(tx, ty, id);
     (d.lvl ||= {})[k] = L;
     // (the big well: its other tiles at the same height, all of them its slab, like the small one's tile)
-    for (const [i, j] of wellTiles(wellSpec(id)?.n || 1)) { const x = tx + i, y = ty + j; (this.delta(Math.floor(x / CHUNK), Math.floor(y / CHUNK), true).lvl ||= {})[`${x},${y}`] = L; this.touchAround(x, y); }
+    for (const [i, j] of wideTiles(id)) { const x = tx + i, y = ty + j; (this.delta(Math.floor(x / CHUNK), Math.floor(y / CHUNK), true).lvl ||= {})[`${x},${y}`] = L; this.touchAround(x, y); }
     const layer = layerOf(id);
     if (!(layer === 'floor' || layer === 'roof' || PIECES[id]) || this.digH(tx, ty) !== null || this.openTile(d, k, id)) return;
     const todo = [[tx, ty]], seen = new Set([k]);
@@ -605,8 +614,8 @@ export class Overworld {
     const d = this.delta(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK)), k = `${tx},${ty}`;
     if (d?.lvl?.[k] !== undefined && !this.builtAt(d, k)) delete d.lvl[k];
   }
-  // When a big well goes (id: what was in its anchor tile), its other tiles lose its height
-  dropWell(tx, ty, id) { for (const [i, j] of wellTiles(wellSpec(id)?.n || 1)) { this.dropLevel(tx + i, ty + j); this.touchAround(tx + i, ty + j); } }
+  // When a big well or a watchtower goes (id: what was in its anchor tile), its other tiles lose its height
+  dropWell(tx, ty, id) { for (const [i, j] of wideTiles(id)) { this.dropLevel(tx + i, ty + j); this.touchAround(tx + i, ty + j); } }
 
   // ---------- el suelo, llano junto a lo construido de antes ----------
   // El relieve (biomes.js: reliefOf) se allana donde hay algo hecho: lo colocado, los suelos y lo labrado por los
@@ -881,6 +890,12 @@ export class Overworld {
         if (LIGHT[id] && !o.off) { const [lx, ly, lz, lr] = LIGHT[id], [x, y] = at(lx, ly); lights.push({ x, y, z: lz, r: lr }); }
         const [[ax, ay], [bx, by]] = [at(-0.46, -0.44), at(0.46, 0.32)];
         colliders.push({ x0: Math.min(ax, bx), y0: Math.min(ay, by), x1: Math.max(ax, bx), y1: Math.max(ay, by), piece: true });
+      } else if (watchtower(id)) {
+        // A watchtower one builds: one climbs it as the others (tower.js); for what is put by it, its box
+        const [x, y] = src.pos?.[o.key] || [tx + 0.5, ty + 0.5], a = (rot % 4) * Math.PI / 2, h = watchtower(id).h, L = src.lvl?.[t] || 0;
+        Object.assign(o, { x, y, yaw: a, rot, free: true, tower: { x, y, h, yaw: a }, model: this.towerModel(id, x, y, L, this.towerGround(tx, ty)[1]), obb: aabb(x - TOWER_SIDE / 2, y - TOWER_SIDE / 2, x + TOWER_SIDE / 2, y + TOWER_SIDE / 2) });
+        for (const c of towerColliders(x, y, { h, yaw: a, key: `w:${t}` })) colliders.push(Object.assign(c, { free: true }));
+        out.solids.push({ ...o.obb, y0: 0, y1: h + TOWER.parapet });
       } else if (src.pos?.[o.key] || BIG_HOUSE.has(id) || wellSpec(id) || id === BARROW.ID) {   // (las casas grandes, aunque se pusieran por casillas antes de crecer, ocupan lo suyo; el pozo puesto con /setblock, sin sitio, va en el centro; the wheelbarrow is always free)
         o.off = this.lightOff(tx, ty);
         // (the wheelbarrow draws what it carries: its big things and, with stacks in it, a heap. Its boxes stay the empty one's)
@@ -977,7 +992,7 @@ export class Overworld {
     if (!flowerShows(o, this.gen.season)) return false;
     const tx = Math.floor(o.x), ty = Math.floor(o.y), k = `${tx},${ty}`;
     if (d && (d.tilled[k] !== undefined || d.crops?.[k] || d.dig?.[k] !== undefined)) return false;
-    return !this.at('floor', tx, ty) && !this.at('placed', tx, ty);
+    return !this.at('floor', tx, ty) && !this.at('placed', tx, ty) && !this.towerOf(tx, ty);
   }
 
   // ---------- La hierba de las casillas (gen.grassAt) ----------
@@ -990,7 +1005,7 @@ export class Overworld {
     if (this.at('floor', tx, ty) || this.at('placed', tx, ty)) return false;
     const d = this.delta(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK)), k = `${tx},${ty}`;
     if (d && (d.tilled[k] !== undefined || d.crops?.[k])) return false;
-    if (this.mownAt(tx, ty, today) || this.digH(tx, ty) !== null || this.layers.some(l => l.blocks?.(tx, ty))) return false;
+    if (this.mownAt(tx, ty, today) || this.digH(tx, ty) !== null || this.towerOf(tx, ty) || this.layers.some(l => l.blocks?.(tx, ty))) return false;
     // (ni en las cuestas donde el suelo es roca, ni en las que no se pintan: la misma cuenta que las matas, nature3d.js)
     const g = this.gen, sx = groundSmooth(g, x + 0.5, y, this) - groundSmooth(g, x - 0.5, y, this), sz = groundSmooth(g, x, y + 0.5, this) - groundSmooth(g, x, y - 0.5, this);
     return ihash(tx, ty, g.seed + 24) <= grassKeep(Math.hypot(sx, sz));
@@ -1016,7 +1031,7 @@ export class Overworld {
     if (inBounds(x, y) && !isGrass(x, y)) return false;
     const d = this.delta(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK));
     if (d && d.tilled[`${tx},${ty}`] !== undefined) return false;
-    if (this.at('placed', tx, ty) || this.at('floor', tx, ty)) return false;
+    if (this.at('placed', tx, ty) || this.at('floor', tx, ty) || this.towerOf(tx, ty)) return false;
     return !this.collidersNear(x, y).some(c => clashes(c, x, y, 0.45));
   }
   till(tx, ty) {
@@ -1035,6 +1050,7 @@ export class Overworld {
     if (!inPlanet(x, y)) return false;   // (en la costura del planeta, desde el otro lado, o más allá de un polo)
     if (layer === 'rug') return this.rugFits(rugRect(tx, ty, rot));
     if (this.wellAt(x, y)) return false;   // (nothing on a well: not even a floor, which would cover its mouth and float when it goes)
+    if (this.towerOf(tx, ty)) return false;   // (nor on a watchtower's base)
     if (this.water(x, y)) return false;
     // (en el pueblo, en la hierba y en las casas; las vallas y sus puertas, además, en todo tu jardín, también en el hueco del camino; en modo admin, donde sea)
     if (inBounds(x, y) && !isGrass(x, y) && !inOwnHouse(x, y) && !inVillageHouse(x, y) && !this.buildAnywhere && !(['fence', 'gate'].includes(PIECES[id]?.kind) && inYard(x, y, 0.6))) return false;
@@ -1115,7 +1131,7 @@ export class Overworld {
   setTile(tx, ty, id) {
     const d = this.delta(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK), true), k = `${tx},${ty}`, was = d.placed?.[k];
     if (id === 'air') {
-      const w = this.wellOf(tx, ty);   // (a tile of a big well that is not its anchor: the well goes, from its anchor)
+      const w = this.wellOf(tx, ty) || this.towerOf(tx, ty);   // (a tile of a big well or a watchtower that is not its anchor: it goes whole, from its anchor)
       if (w && (w.tx !== tx || w.ty !== ty) && this.ownAt('placed', w.tx, w.ty)) this.setTile(w.tx, w.ty, 'air');
       for (const layer of ['floor', 'placed', 'roof', 'hang', 'rug']) { if (d[layer]) delete d[layer][k]; if (d.pos) delete d.pos[`${layer}:${k}`]; }
       for (const l of ['chest', 'closed', 'off', 'machine', 'tilled', 'barrow']) if (d[l]) delete d[l][k];
@@ -1236,7 +1252,7 @@ export class Overworld {
     const dist = o => this.placedDist(o, x, y);
     for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
       const c = this.contentFor(cx + dx, cy + dy);
-      for (const o of c.objects) if ((o.placed && !PIECES[o.placed]) || o.unknown) if (dist(o) < r) out.push(o);   // (unknown: lo de una versión más nueva, para decir qué es)
+      for (const o of c.objects) if (((o.placed && !PIECES[o.placed]) || o.unknown) && !o.tower) if (dist(o) < r) out.push(o);   // (unknown: lo de una versión más nueva, para decir qué es; a watchtower is climbed, not used: B takes it down)
       for (const o of c.flats) if (dist(o) < r) out.push(o);
     }
     return out.sort((a, b) => dist(a) - dist(b));
@@ -1252,8 +1268,8 @@ export class Overworld {
   // ---------- colocar libre ----------
   // Con qué puede chocar lo que se coloca cerca de (x, y): cajas con su altura. wall: un muro o una puerta (también
   // abierta: no se tapa). Las alfombras, solo con muros, vallas, el hogar y otras alfombras
-  obstaclesNear(x, y, rug) {
-    const out = [], cx = Math.floor(x / CHUNK), cy = Math.floor(y / CHUNK), near = b => Math.abs(b.x - x) < 5 && Math.abs(b.y - y) < 5;
+  obstaclesNear(x, y, rug, r = 5) {
+    const out = [], cx = Math.floor(x / CHUNK), cy = Math.floor(y / CHUNK), near = b => Math.abs(b.x - x) < r && Math.abs(b.y - y) < r;
     for (const c of this.collidersNear(x, y)) {
       // (lo cavado no es un obstáculo: es suelo a su altura, y lo que se pone ahí va a ella: levelFor)
       if (c.free || c.dig || (rug && !c.wall && !c.low && !c.piece)) continue;
@@ -1274,6 +1290,7 @@ export class Overworld {
   // el origen del modelo), si cabe (ok) y, si no, por qué (why); anchor: la casilla donde se apunta
   fitFree(id, px, py, a, k = 0, player = null) {
     if (wellSpec(id)) return this.fitWell(px, py, a, player, id);
+    if (watchtower(id)) return this.fitTower(px, py, a, player, id);
     const def = ITEMS[id], rug = def.place === 'rug', flat = def.place === 'flat';
     let local, model = id, anchor = null;
     if (rug) { const [w, h] = RUG_SIZES[k % RUG_SIZES.length]; local = [[-w / 2 + 0.06, 0, -h / 2 + 0.06, w / 2 - 0.06, 0.05, h / 2 - 0.06]]; model = `rug:${id}:${w}x${h}`; }
@@ -1314,6 +1331,7 @@ export class Overworld {
     }
     // (nor inside a well's mouth, where its boxes leave room: it would float over the water, and over the hole once it goes)
     if ([[w.x, w.y], [b.x0, b.y0], [b.x1, b.y0], [b.x0, b.y1], [b.x1, b.y1]].some(([x, y]) => this.wellAt(x, y))) return res(false, 'Ahí está el pozo');
+    if ([[w.x, w.y], [b.x0, b.y0], [b.x1, b.y0], [b.x0, b.y1], [b.x1, b.y1]].some(([x, y]) => this.towerOf(Math.floor(x), Math.floor(y)))) return res(false, tr('why.watchtower.here'));
     if (id === 'candelabro' && !this.roofAt(Math.floor(w.x), Math.floor(w.y))) return res(false, 'Se cuelga del techo: solo dentro de casa');
     const t0 = [Math.floor(w.x), Math.floor(w.y)], tilled = (x, y) => this.delta(Math.floor(x / CHUNK), Math.floor(y / CHUNK))?.tilled[`${x},${y}`] !== undefined;
     if (tilled(...t0)) return res(false, 'Ahí no: es tierra labrada');
@@ -1366,6 +1384,73 @@ export class Overworld {
     for (const s of placeBoxes(local, x, y, a)) for (const o of obstacles) { const hit = cuts(s, o); if (hit && hit.depth > 0.012) return res(false, o.wall ? 'Choca con la pared' : 'Choca con otra cosa'); }
     if (player && hitsCircle(box, player.x, player.y, 0.2)) return res(false, 'Estás tú en medio');
     return res(true, null);
+  }
+  // ---------- the watchtowers one builds ----------
+  // (id watchtower, or watchtower_tall: tower.js). One takes a square of 7 × 7 tiles round its anchor, on a stone base that is
+  // level: as high as the ground's highest corner there, and down into the ground (the model's skirt). Those of a chunk:
+  // [{ id, tx, ty, x, y, yaw, h, key }], worked out once for each version of the chunk
+  towersIn(cx, cy) {
+    const d = this.deltas.get(`${wrapIndex(cx, CHUNK)},${cy}`);
+    if (!d?.placed) return NO_TILES;
+    const C = (this.towerCache ||= new WeakMap()), hit = C.get(d);
+    if (hit && hit.v === d.v && hit.placed === d.placed) return hit.list;
+    let list = NO_TILES;
+    for (const [t, raw] of Object.entries(d.placed)) {
+      if (typeof raw !== 'string' || raw[0] !== 'w') continue;
+      const [id, rot] = parsePlaced(raw), W = watchtower(id);
+      if (!W) continue;
+      const [tx, ty] = t.split(',').map(Number), [x, y] = d.pos?.[`placed:${t}`] || [tx + 0.5, ty + 0.5], yaw = ((rot || 0) % 4) * Math.PI / 2;
+      if (list === NO_TILES) list = [];
+      list.push({ id, tx, ty, x, y, yaw, h: W.h, key: `w:${t}` });
+    }
+    C.set(d, { v: d.v, placed: d.placed, list });
+    return list;
+  }
+  // The one that takes tile (tx, ty), or null
+  towerOf(tx, ty) {
+    for (let cy = Math.floor((ty - HALF_SIDE) / CHUNK); cy <= Math.floor((ty + HALF_SIDE) / CHUNK); cy++) for (let cx = Math.floor((tx - HALF_SIDE) / CHUNK); cx <= Math.floor((tx + HALF_SIDE) / CHUNK); cx++) {
+      const list = this.towersIn(cx, cy);
+      for (let i = 0; i < list.length; i++) if (Math.abs(list[i].tx - tx) <= HALF_SIDE && Math.abs(list[i].ty - ty) <= HALF_SIDE) return list[i];
+    }
+    return null;
+  }
+  // [the height of its base, the lowest of the ground under it, how far it rises], with its anchor in (tx, ty)
+  towerGround(tx, ty) {
+    let top = -Infinity, low = Infinity;
+    for (let j = -HALF_SIDE; j <= HALF_SIDE + 1; j++) for (let i = -HALF_SIDE; i <= HALF_SIDE + 1; i++) { const h = this.cornerH(tx + i, ty + j); if (h > top) top = h; if (h < low) low = h; }
+    return [Math.ceil(top / LV_STEP - 0.05) * LV_STEP, low, top - low];
+  }
+  towerModel(id, x, y, L, low) { return `${id}:${stoneOf(this.gen.biomeAt(x, y))}:${Math.ceil((Math.max(0, L - low) + TOWER_ROOT) * 2) / 2}`; }
+  // Where it would go: the same as fitFree, as the well's (its tile in the middle, its door to one of the four sides)
+  fitTower(px, py, a, player, id) {
+    const Q = Math.PI / 2, tx = Math.floor(px), ty = Math.floor(py), x = tx + 0.5, y = ty + 0.5, H = HALF_SIDE;
+    a = ((Math.round(a / Q) % 4) + 4) % 4 * Q;
+    const k = `${id},${tx},${ty},${this.touches}`;
+    if (this.towerTry?.k !== k) this.towerTry = { k, ...this.towerFits(id, tx, ty) };   // (only when the tile, or the world, changes: it looks at 49)
+    const { lvl, low, why } = this.towerTry, box = { ...aabb(x - TOWER_SIDE / 2, y - TOWER_SIDE / 2, x + TOWER_SIDE / 2, y + TOWER_SIDE / 2), y0: 0, y1: watchtower(id).h };
+    const res = w => ({ ok: !w, why: w, ox: x, oy: y, a, k: 0, model: this.towerModel(id, x, y, lvl, low), cx: x, cy: y, box, anchor: w ? null : [tx, ty], lvl, square: [tx - H, ty - H, TOWER_SIDE], reach: TOWER_SIDE + 2 });
+    if (why) return res(why);
+    if (player && Math.abs(player.x - x) < TOWER_SIDE / 2 + 0.25 && Math.abs(player.y - y) < TOWER_SIDE / 2 + 0.25) return res(tr('why.watchtower.you'));
+    return res(null);
+  }
+  towerFits(id, tx, ty) {
+    const H = HALF_SIDE, x = tx + 0.5, y = ty + 0.5, [lvl, low, rise] = this.towerGround(tx, ty), no = why => ({ lvl, low, why });
+    if (!inPlanet(x - H - 1, y - H - 1) || !inPlanet(x + H + 1, y + H + 1)) return no('Aquí no: es la costura del planeta');
+    const town = inBounds(x, y);
+    for (let j = -H; j <= H; j++) for (let i = -H; i <= H; i++) {
+      const qx = tx + i, qy = ty + j, cx = qx + 0.5, cy = qy + 0.5, d = this.delta(Math.floor(qx / CHUNK), Math.floor(qy / CHUNK)), t = `${qx},${qy}`;
+      if (this.water(cx, cy)) return no(tr('why.watchtower.water'));
+      if (inBounds(cx, cy) !== town) return no(tr('why.watchtower.room'));
+      if (town && !isGrass(cx, cy) && !this.buildAnywhere) return no('En el camino y en la plaza no se puede');
+      if (this.digH(qx, qy) !== null) return no(tr('why.watchtower.dug'));
+      if (this.at('placed', qx, qy) || this.at('floor', qx, qy) || this.at('roof', qx, qy) || d?.tilled?.[t] !== undefined || d?.crops?.[t] || d?.trees?.[t]) return no(tr('why.watchtower.room'));
+      if (d?.lvl?.[t] !== undefined && (this.towerOf(qx, qy) || this.wellOf(qx, qy))) return no(tr('why.watchtower.room'));
+      if (this.layers.some(l => l.blocks?.(qx, qy)) || this.reserved?.has(t)) return no(tr('why.watchtower.room'));
+    }
+    if (rise > TOWER_SLOPE) return no(tr('why.watchtower.slope'));
+    const box = { ...aabb(x - TOWER_SIDE / 2, y - TOWER_SIDE / 2, x + TOWER_SIDE / 2, y + TOWER_SIDE / 2), y0: 0, y1: 3 };
+    for (const o of this.obstaclesNear(x, y, false, 9)) { const hit = sat(box, o); if (hit && hit.depth > 0.012) return no(tr('why.watchtower.room')); }
+    return { lvl, low, why: null };
   }
   // The well that takes tile (tx, ty), or null: { id, tx, ty, n } with its anchor tile (the small one, in its own; the big
   // one, in the one with the lowest x and y of its 2 × 2)

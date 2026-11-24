@@ -77,6 +77,9 @@ export const RECIPES = [
   R('cantero', 'pozo', 1, [['piedra', 16], ['tablas', 6], ['cuerda', 3]]),
   // (the big well, on 2 × 2 tiles: three times the small one; digging its hole is four times the work)
   R('cantero', 'big_well', 1, [['piedra', 48], ['tablas', 18], ['cuerda', 9]]),
+  // (the watchtowers: the same as the world's, so anyone may have theirs)
+  R('cantero', 'watchtower', 1, [['piedra', 140], ['tablas', 24], ['lingote_hierro', 4]]),
+  R('cantero', 'watchtower_tall', 1, [['piedra', 190], ['tablas', 30], ['lingote_hierro', 6]]),
 
   R('telar', 'tela', 1, [['fibra', 4]]),
   R('telar', 'tela', 2, [['lana', 1]], { id: 'tela_lana' }),

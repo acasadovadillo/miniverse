@@ -10,10 +10,11 @@
 // found (explore.js, places1).
 import { ihash } from '../util.js';
 import { CHUNK } from './gen.js';
-import { B, BIOMES, climate, classify, wetness, reliefOf, depthOfWet, biomeAt as biomeOf } from './biomes.js';
+import { B, BIOMES, climate, classify, wetness, reliefOf, depthOfWet, biomeAt as biomeOf, stoneOf } from './biomes.js';
 import { CENTER } from './village.js';
 import { wrapIndex, wrapX, dxOf, distOf, inPlanet, W as PLANET_W } from './planet.js';
 import { houseSize } from './blueprints.js';
+import { TOWER_HEIGHTS } from './tower.js';
 
 // The tiers, from the rarest: the side of a cell (chunks), the chunks left free along its border (two sites of a tier are
 // never nearer than twice that), and how likely a cell is to have one (major: by kind). Tunable: all in one table
@@ -241,7 +242,17 @@ export class Sites {
   great(T, ix, iy, kind, x, y) {
     let owner = null, od = OWN;
     for (const q of this.near(x, y, OWN, null, 'hamlet')) { const d = distOf(q.x, q.y, x, y); if (d < KEEP_OFF + 24) return null; if (d < od) { od = d; owner = q.key; } }
-    return this.site('major', ix, iy, kind, x, y, owner ? { owner } : null);
+    const s = this.site('major', ix, iy, kind, x, y, owner ? { owner } : null);
+    if (s && kind === 'torre') this.dress(s);
+    return s;
+  }
+  // A watchtower's height (9 or 12 m), its stone, and its door, to the lowest of its four sides: where the path comes up
+  dress(s) {
+    s.h = TOWER_HEIGHTS[this.roll(s.ix, s.iy, 9130) < 0.5 ? 0 : 1];
+    s.stone = stoneOf(s.biome);
+    s.yaw = 0;
+    let low = Infinity;
+    for (let k = 0; k < 4; k++) { const a = k * Math.PI / 2, h = this.height(s.x + Math.sin(a) * 9, s.y + Math.cos(a) * 9); if (h < low - 0.05) { low = h; s.yaw = a; } }
   }
   inCellChunks(T, ix, iy, x, y) { const cx = Math.floor(x / CHUNK) - ix * T.cell, cy = Math.floor(y / CHUNK) - iy * T.cell; return cx >= 1 && cy >= 1 && cx < T.cell - 1 && cy < T.cell - 1; }
   // The headland: the coast's point that faces most open sea (of the eight directions, three at least, at 24 m)
@@ -402,9 +413,15 @@ export class Sites {
     }
     return best;
   }
+  // The sites of these tiers within r that are known already (nothing is worked out: warm does it ahead), into out
+  known(x, y, r, tiers, out) {
+    out.length = 0;
+    for (const t of tiers) this.eachCell(t, x, y, r, (ix, iy) => { const s = this.cells.get(`${t}:${ix},${iy}`); if (s && distOf(s.x, s.y, x, y) <= r && !out.includes(s)) out.push(s); });
+    return out;
+  }
   // One cell not known yet of those within r of (x, y), in the idle time (see explore.js): false if they all are
-  warm(x, y, r) {
-    for (const t of TIERS) {
+  warm(x, y, r, tiers = TIERS) {
+    for (const t of tiers) {
       let todo = null;
       this.eachCell(t, x, y, r, (ix, iy) => { if (!todo && !this.cells.has(`${t}:${ix},${iy}`)) todo = [ix, iy]; });
       if (todo) { this.inCell(t, ...todo); return true; }

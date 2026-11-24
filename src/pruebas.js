@@ -21,6 +21,8 @@ import { RECIPES, aStation } from './recipes.js';
 import { runCommand } from './commands.js';
 import { faults, resetFaults } from './faults.js';
 import { CHUNK, WorldGen, WORLD_SEED } from './world/gen.js';
+import { TOWER, TOWER_HEIGHTS, GALLERY, towerFloor, towerColliders, holeOf, chestSpot, poiModel } from './world/tower.js';
+import { SEE_R, LOOK_CHUNKS } from './lookout.js';
 import { Sites, sitesFor, LegacyPlaces, SITE_TIERS, READY, TIERS } from './world/sites.js';
 import { nameOf, stateOf, storyOf, ROOT_COUNT, QUAL_COUNT } from './world/names.js';
 import { freeze, freezeMore, readPlaces, touched, boxOf, gap, NEAR_FROZEN, KEEP_FOUND } from './world/frozenplaces.js';
@@ -1421,7 +1423,7 @@ async function soloTests(game) {
       game.combat.hunger = 10; H.open('char');
       const text = () => $('ps-char-body').textContent;
       check($('ps-char-body').querySelectorAll('.pc-need').length >= 3 && text().includes(t('hud.need.pct', { pct: 50 })), 'the needs'); check(text().includes(t('hud.need.pct', { pct: 65 })), 'the wear of the shirt');
-      check($('ps-char-body').querySelectorAll('.pc-skill').length === game.skills.rows().length && game.skills.rows().length === 10 && game.skills.rows().every(q => !/skill\./.test(q.name + q.perk)), 'the skills');
+      check($('ps-char-body').querySelectorAll('.pc-skill').length === game.skills.rows().length && game.skills.rows().length === 11 && game.skills.rows().every(q => !/skill\./.test(q.name + q.perk)), 'the skills');
       check(game.rep && $('ps-char-rep').textContent.includes(t('rep.level.' + game.rep.level.id)) && $('ps-char-money').textContent.includes(t('gui.pause.money', { n: game.money })), 'money and reputation');
       await sleep(900); const f = H.char.figure; check(f.person && $('ps-char-face').width > 100, 'no figure');
       const px = $('ps-char-face').getContext('2d').getImageData(0, 0, $('ps-char-face').width, $('ps-char-face').height).data; let lit = 0; for (let i = 0; i < px.length; i += 16) if (px[i + 3] > 200 && px[i] + px[i + 1] + px[i + 2] > 60) lit++; check(lit > 200, `the figure is empty: ${lit}`);
@@ -3965,8 +3967,8 @@ async function soloTests(game) {
     const shapes = chunkShapes(W, c, () => 0).filter(q => q.c && Math.hypot(q.c[0] - tw.x, q.c[1] - tw.y) < 3.5); check(shapes.length > 30 && shapes.some(q => Math.abs(q.y0 - tw.z) < 0.01) && shapes.every(q => q.y0 >= tw.z - 0.01), 'its wall is not at its height');
     // (drawn, walked into and climbed, with the chest where it can be opened)
     await goTo(game, tw.x + 1.2, tw.y + 4.4); await readyGround(game, 9000); const gy = game.view3d.groundY(W, tw.x + 1.2, tw.y + 4.4); check(Math.abs(gy - tw.z) < 0.6, `by its door the ground is at ${gy.toFixed(2)}, and it at ${tw.z}`);
-    p().x = tw.x + Math.sin(0.4) * 2; p().y = tw.y + Math.cos(0.4) * 2; await frames(40); check(p().floor > 0.1 && p().floor < 1, `the stairs start at ${p().floor}`);
-    await goTo(game, ch.x + 0.9, ch.y); await frames(5); const a = P.interact(p(), W); check(a?.text === t('place.chest.open'), `the chest says «${a?.text}»`);
+    p().x = tw.x + Math.sin(0.4 + tw.yaw) * 2; p().y = tw.y + Math.cos(0.4 + tw.yaw) * 2; await frames(40); check(p().floor > 0.1 && p().floor < 1, `the stairs start at ${p().floor}`);
+    Object.assign(p(), { x: tw.x + (ch.x - tw.x) * 0.6, y: tw.y + (ch.y - tw.y) * 0.6, z: ch.up, floor: ch.up }); await frames(5); const a = P.interact(p(), W); check(a?.text === t('place.chest.open'), `the chest says «${a?.text}»`);
     check(P.known(tw) && P.foundAt[tw.key] === game.days.realDay, 'it is not discovered, or without its day');
   });
   await test('sites (english): frozen: what was built by, used or found stays where it was, ruins leave a clearing, and no new place covers anything', async () => {
@@ -4057,7 +4059,7 @@ async function soloTests(game) {
   await test('explore (english): the discovery message and the feed say its name; the Places page, the map and the legend; ruins are gone; /locate by cells', async () => {
     const P = game.places, big = hud.big, toast = hud.toast, said = [], was = getLang(), keep = [P.found, P.oldFound, P.foundAt];
     try {
-      hud.big = m => { said.push(['big', m.title, m.sub, m.line]); return true; }; hud.toast = (m, k) => { said.push(['line', m, k]); };
+      hud.big = m => { said.push(['big', m.title, m.sub, m.line]); return true; }; hud.toast = (m, k) => { if (k === 'place') said.push(['line', m, k]); }; P.look.glance = () => {};   // (nothing spotted on the way, nor its skill)
       P.found = new Set(); P.oldFound = new Set(); P.foundAt = {}; const cave = P.nearest(...V4, ['cueva'], 2000), camp = P.nearest(...V4, ['campamento'], 2000), ham = P.nearest(...V4, ['aldea'], 3000);
       check(/place|lugar/i.test(placesHtml(game)) && !placesHtml(game).includes('data-place'), 'the empty page');
       for (const q of [cave, camp, ham]) { p().x = q.x + 5; p().y = q.y + 5; P.update(); P.update(); }
@@ -4065,12 +4067,152 @@ async function soloTests(game) {
       for (const l of ['en', 'es']) { await setLang(l); const html = placesHtml(game); for (const q of [cave, camp, ham]) check(html.includes(P.title(q)) && html.includes(P.describe(q).story.replace(/'/g, "'").slice(0, 20)), `${l}: ${P.title(q)} is not on the page`); check((html.match(/data-place=/g) || []).length === 3 && html.includes(t('place.state.lived')) && html.includes(t('journal.places.count', { n: 3 })), `${l}: the page`); }
       P.found.add('777,777'); check(placesHtml(game).includes(t('journal.places.gone', { n: 1 })), 'nothing about those that are gone');
       game.openJournal('places'); check(document.querySelectorAll('#j-body .j-place').length === 3, 'the journal does not open its page'); document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true })); game.setMode?.('play');
-      const B2 = new Blips(); for (const [k, fn] of blips.sources) B2.source(k, fn); B2.refresh(game, 0, true); const mine = B2.list.filter(b => b.kind === 'place'); check(mine.length === 3 && mine.some(b => b.name === P.title(cave) && b.legend === 'poi:' + t('place.kind.cueva') && b.to.id === `poi:${cave.key}`), JSON.stringify(mine.map(b => [b.name, b.legend])));
+      const B2 = new Blips(); for (const [k, fn] of blips.sources) B2.source(k, fn); B2.refresh(game, 0, true); const mine = B2.list.filter(b => b.kind === 'place' && b.glyph !== 'question'); check(mine.length === 3 && mine.some(b => b.name === P.title(cave) && b.legend === 'poi:' + t('place.kind.cueva') && b.to.id === `poi:${cave.key}`), JSON.stringify(mine.map(b => [b.name, b.legend])));
       check(!P.markers().some(m => m.kind === 'ruinas') && (() => { try { modelNamed('poi:ruinas'); return false; } catch { return true; } })(), 'ruins are still there'); let n = 0; for (let cy = -60; cy <= 60; cy++) for (let cx = -60; cx <= 60; cx++) { const q = P.poi(cx, cy); if (q) { n++; check(q.kind !== 'ruinas', 'ruins in the world'); } } check(n < 110, `${n} places in 3.7 km²: too many`);
       const out = [], op = game.live.isOp; runCommand(game, '/locate tower', (m, k) => out.push([m, k])); check(out[0] && /\d/.test(out[0][0]), JSON.stringify(out)); const tw = P.nearest(p().x, p().y, ['torre'], 6000); if (out[0][1] === 'ok') check(out[0][0].includes(P.title(tw)), out[0][0]); const o2 = []; runCommand(game, '/locate ruins', (m, k) => o2.push(k)); check(o2[0] === 'err', 'it still finds ruins');
       check(P.nearest(...V4, ['cueva'], 2000, new Set([cave.key])) !== cave && P.sites.nearest(...V4, ['aldea', 'torre'], 4000)?.key, 'nearest with skip');
-    } finally { hud.big = big; hud.toast = toast; [P.found, P.oldFound, P.foundAt] = keep; P.foundN = -1; await setLang(was); p().x = CENTER.x; p().y = CENTER.y + 3; }
+    } finally { hud.big = big; hud.toast = toast; delete P.look.glance; [P.found, P.oldFound, P.foundAt] = keep; P.foundN = -1; await setLang(was); p().x = CENTER.x; p().y = CENTER.y + 3; }
     const src = await (await fetch(new URL('./explore.js', import.meta.url))).text(); check(!/(text|title): '[A-ZÁÉ¡¿]|toast\('[A-Z¡]|say\('[A-Z]/.test(src), 'text in the code of explore.js');
+  });
+  // ---------- looking from above (Plan R7-2) ----------
+  // (walked step by step along the stairs, from the door to the terrace: the height it ends at, over the ground)
+  const climb = async (c, up = true) => {
+    const T = TOWER, rm = (T.r0 + T.inner) / 2, end = c.h / T.pitch * Math.PI * 2, at = a => { p().x = c.x + Math.sin(a + (c.yaw || 0)) * rm; p().y = c.y + Math.cos(a + (c.yaw || 0)) * rm; p().vx = p().vy = 0; for (let i = 0; i < 8; i++) p().update(1 / 60, {}, w()); };
+    let worst = 0, last = p().z;
+    for (let k = 0, n = Math.ceil(end / 0.06); k <= n; k++) { const a = 0.34 + (up ? k : n - k) * 0.06; if (a > end + 0.25) continue; at(a); worst = Math.max(worst, Math.abs(p().z - last)); last = p().z; }
+    return { z: p().z, worst };
+  };
+  await test('tower (english): yaw and height: stairs, hole and door turn with it; the defaults are as before; nine and twelve metres', async () => {
+    const T = TOWER, old = (x, y, z) => { const r = Math.hypot(x, y); if (r > T.inner + 0.05) return null; let a = Math.atan2(x, y); if (a < 0) a += Math.PI * 2; let best = null, bd = 1e9; const take = h => { if (Math.abs(h - z) < bd) { bd = Math.abs(h - z); best = h; } }; if (r > T.r0 - 0.05) for (let k = 0; ; k++) { const h = (a / (Math.PI * 2) + k) * 4.8; if (h > 12.01) break; take(h); } if (!(a >= 0.3 && a <= Math.PI) || r < T.r0) take(12); return best ?? 0; };
+    check(holeOf(12)[0] === 0.3 && holeOf(12)[1] === Math.PI && JSON.stringify(towerColliders(3, 4)) === JSON.stringify(towerColliders(3, 4, { h: 12, yaw: 0 })), 'the defaults');
+    for (let a = 0.02; a < 6.28; a += 0.21) for (const r of [0.2, 0.9, 2, 2.8, 3.2]) for (const z of [0, 3, 7, 11, 12]) {
+      const x = Math.sin(a) * r, y = Math.cos(a) * r, o = old(x, y, z), n = towerFloor({ x: 0, y: 0 }, x, y, z);
+      check(o === n || Math.abs(o - n) < 1e-9, `as before at ${a.toFixed(2)},${r},${z}: ${o} ${n}`);
+      for (const h of TOWER_HEIGHTS) for (let k = 0; k < 4; k++) { const yaw = k * Math.PI / 2, u = towerFloor({ x: 5, y: -2, h, yaw }, 5 + Math.sin(a + yaw) * r, -2 + Math.cos(a + yaw) * r, z), v = towerFloor({ x: 0, y: 0, h }, x, y, z); check(u === v || Math.abs(u - v) < 1e-6, `turned ${k}, ${h} m: ${u} ${v}`); }
+    }
+    for (const h of TOWER_HEIGHTS) { const e = ((h / T.pitch) % 1) * Math.PI * 2, f = a => towerFloor({ x: 0, y: 0, h }, Math.sin(a) * 2, Math.cos(a) * 2, h); check(Math.abs(f(e - 0.02) - h) < 0.05 && f(e + 0.1) === h && f(e - 0.6) < h - 0.3, `the stairs do not reach the terrace at ${h} m`); const c = chestSpot({ x: 0, y: 0, h }), [a, b] = holeOf(h), ca = ((Math.atan2(c.x, c.y) % 6.2832) + 6.2832) % 6.2832; check(towerFloor({ x: 0, y: 0, h }, c.x, c.y, h) === h && (ca < a - 0.4 || ca > b + 0.4) && c.z === h, 'the chest is over the hole'); }
+    const side = towerColliders(0, 0, { yaw: Math.PI / 2 }).filter(c => c.r === 0.26), gap = side.every(c => Math.hypot(c.x - Math.sin(0.34 + Math.PI / 2) * 3.18, c.y - Math.cos(0.34 + Math.PI / 2) * 3.18) > 0.5); check(gap, 'the door does not turn');
+    // the world's towers: each with its height, its stone and its door to the low side, and really climbed
+    const list = sitesFor(game.world.seed).near(...V4, 2500, ['torre']), P = game.places;
+    check(list.length > 3 && list.every(s => TOWER_HEIGHTS.includes(s.h) && ['granite', 'limestone', 'slate'].includes(s.stone) && Number.isFinite(s.yaw)) && new Set(list.map(s => s.h)).size === 2, 'the towers of the world are all alike');
+    for (const h of TOWER_HEIGHTS) {
+      const s = list.filter(q => q.h === h && P.poiOf(q.key)?.kind === 'torre').sort((a, b) => far(a, { x: V4[0], y: V4[1] }) - far(b, { x: V4[0], y: V4[1] }))[0];
+      if (!s) { console.log(`tower: none of ${h} m near`); continue; }
+      await goTo(game, s.x + Math.sin(s.yaw + 0.34) * 5, s.y + Math.cos(s.yaw + 0.34) * 5);
+      const up = await climb(s); check(Math.abs(up.z - h) < 0.05 && up.worst < 0.6 && p().tower?.key === s.key && p().tower.h === h, `up ${h} m: ${up.z.toFixed(2)} ${up.worst.toFixed(2)} ${p().tower?.key}`);
+      const down = await climb(s, false); check(down.z < 0.6 && down.worst < 0.6, `down from ${h} m: ${down.z.toFixed(2)}`);
+      const c = w().contentFor(...s.key.split(',').map(Number)).objects.find(o => o.treasure); check(c && c.up === h && Math.hypot(c.x - s.x, c.y - s.y) < 2.6, 'the chest is not on the terrace');
+      p().x = c.x + 0.7; p().y = c.y; p().z = 0; check(P.interact(p(), w())?.text !== t('place.chest.open'), 'the chest is opened from below'); p().z = p().floor = h; check(P.interact(p(), w())?.text === t('place.chest.open') && P.aimables(p(), w(), (x, y, hx, hy, y0, y1) => ({ x, y, y0, y1 })).some(q => q.box.y0 === h && q.act()?.text === t('place.chest.open')), 'the chest up there'); p().z = p().floor = 0;
+    }
+    game.teleport(CENTER.x, CENTER.y + 3);
+  });
+  await test('lookout (english): standing still up there draws the land and spots the great places, once a day for its skill; nothing in fog; walking by too', async () => {
+    const P = game.places, L = P.look, toast = hud.toast, said = [], keep = [P.found, game.explored, L.spotted, L.lookouts, game.skills.xp.explore], wx = Object.getOwnPropertyDescriptor(game.days, 'weatherHere'), faros = game.stats.get('faros');
+    const sky = v => Object.defineProperty(game.days, 'weatherHere', { value: v, configurable: true, writable: true }), clearSky = () => { delete game.days.weatherHere; if (wx) Object.defineProperty(game.days, 'weatherHere', wx); };
+    const night = game.days.isNight; game.days.isNight = () => false;
+    try {
+      hud.toast = (m, k) => { if (k === 'place') said.push(m); };
+      sky('sol'); P.found = new Set(); game.explored = new Set(); L.spotted = new Set(); L.lookouts = {}; L.v++; game.skills.xp.explore = 0;
+      const tw = P.nearest(...V4, ['torre'], 2500), c = towerColliders(tw.x, tw.y, { h: tw.h, yaw: tw.yaw, key: tw.key }).find(q => q.spiral), S = P.sites; while (S.warm(tw.x, tw.y, SEE_R, ['hamlet', 'major']));
+      const stand = (secs, still = true) => { const spot = chestSpot(tw); for (let k = 0; k < secs * 20; k++) { Object.assign(p(), { x: tw.x - (spot.x - tw.x) * 0.1 + (tw.x - spot.x) * 0.2, y: tw.y + (tw.y - spot.y) * 0.2, z: tw.h, floor: tw.h, tower: c, vx: still ? 0 : 3, vy: 0 }); game.time += 0.05; L.update(); } };
+      const glance = L.glance; L.glance = () => {};
+      stand(3, false); check(!game.explored.size && !L.done && !said.length, 'walking about up there counts');
+      stand(1.5); check(!L.done && said[0] === t('place.lookout.wait'), `before its time: ${said}`);
+      stand(1); check(L.done, 'nothing after two seconds');
+      const R = LOOK_CHUNKS, cx = Math.floor(tw.x / CHUNK), cy = Math.floor(tw.y / CHUNK); let disc = 0; for (let j = -R; j <= R; j++) for (let i = -R; i <= R; i++) if (Math.hypot(i, j) <= R) { disc++; check(game.explored.has(`${cx + i},${cy + j}`), `${i},${j} is not drawn`); } check(game.explored.size < disc * 1.15, `${game.explored.size} chunks for ${disc}`);
+      const tall = S.near(tw.x, tw.y, SEE_R, ['aldea', 'torre', 'faro', 'templo']).filter(s => s.key !== tw.key && P.poiOf(s.key)?.kind === s.kind); check(tall.length && tall.every(s => L.spotted.has(s.key)) && L.spotted.size === tall.length, `spotted ${L.spotted.size} of ${tall.length}`); check(said.length === 2 && said[1].split('.').length - 1 === Math.min(3, tall.length) && /^[A-ZÁÉÍÓÚ]/.test(said[1]), said[1]);
+      check(game.skills.xp.explore === 30 && game.stats.get('faros') === faros + 1 && L.lookouts[tw.key] === game.days.realDay, `skill ${game.skills.xp.explore}`);
+      L.leave(); stand(4); check(game.skills.xp.explore === 30 && said.length === 2 && game.stats.get('faros') === faros + 1, 'twice the same day');
+      L.lookouts[tw.key]--; L.leave(); stand(4); check(game.skills.xp.explore === 35 && said.length === 4, `the next day: ${game.skills.xp.explore} ${said.length}`);
+      // the map: grey question marks, without their names, until one has been there; the route to one; saved
+      const B2 = new Blips(); for (const [k, fn] of blips.sources) B2.source(k, fn); B2.refresh(game, 0, true); const q = B2.list.filter(b => b.glyph === 'question'); check(!game.quick || !game.quick.list?.some?.(b => b.glyph === 'question'), 'in the quick places'); check(q.length === tall.length && q.every(b => b.kind === 'place' && b.legend === 'map.legend.spotted' && /^poi:/.test(b.to.id) && !tall.some(s => b.name.includes(nameOf(s)))), 'the question marks');
+      const s0 = tall[0], n0 = L.spotted.size; p().x = s0.x + 3; p().y = s0.y + 3; p().tower = null; P.update(); check(!L.spotted.has(s0.key) && P.known(s0) && L.marks().length === n0 - 1, 'a visited one is still spotted');
+      const out = {}; P.save(out); const L2 = new P.look.constructor(P); L2.reset(JSON.parse(JSON.stringify(out))); check(out.spotted.length === n0 - 1 && L2.spotted.size === n0 - 1 && L2.lookouts[tw.key] === game.days.realDay, 'not saved'); L2.reset({}); check(!L2.spotted.size && !Object.keys(L2.lookouts).length, 'an old save'); L2.reset({ spotted: 'x', lookouts: [1] }); check(!L2.spotted.size, 'a broken save');
+      // fog, and a dark night: a little land and nothing spotted; it may be tried again
+      for (const [weather, dark] of [['niebla', false], ['ventisca', false], ['lluvia', true], ['nieve', true]]) { sky(weather); game.days.isNight = () => dark; game.explored = new Set(); L.spotted = new Set(); L.lookouts = {}; L.leave(); said.length = 0; stand(3); check(game.explored.size < 160 && game.explored.size > 80 && !L.spotted.size && !Object.keys(L.lookouts).length && said.at(-1) === t('place.lookout.fog'), `${weather}: ${game.explored.size} ${L.spotted.size} ${said}`); }
+      sky('sol'); game.days.isNight = () => true; L.leave(); stand(3); check(L.spotted.size, 'a clear night');
+      // walking by: in front and near, not behind
+      L.glance = glance; game.days.isNight = () => false; game.skills.xp.explore = 0; P.found = new Set(); L.spotted = new Set(); L.v++; said.length = 0; const yaw = CAM.yaw; try { p().tower = null; p().x = tw.x; p().y = tw.y + 100; CAM.yaw = 0; const [fx, fy] = screenToWorld(0, -1), l = Math.hypot(fx, fy); p().x = tw.x + fx / l * 100; p().y = tw.y + fy / l * 100; L.spotAt = -9; L.glance(p()); check(!L.spotted.has(tw.key), 'spotted behind'); p().x = tw.x - fx / l * 100; p().y = tw.y - fy / l * 100; L.glance(p()); check(L.spotted.has(tw.key) && said.includes(t('place.spotted', { kind: t('place.kind.torre') })), 'not spotted in front'); L.spotted = new Set(); p().x = tw.x - fx / l * 170; p().y = tw.y - fy / l * 170; L.glance(p()); check(!L.spotted.has(tw.key), 'from 170 m'); game.skills.xp.explore = 25 * 5 * 6; L.glance(p()); check(L.spotted.has(tw.key), 'from 170 m with the skill'); } finally { CAM.yaw = yaw; }
+      const t0 = performance.now(); for (let i = 0; i < 200; i++) L.glance(p()); const ms = (performance.now() - t0) / 200; console.log(`lookout: spotting check ${ms.toFixed(4)} ms`); check(ms < 0.4, `the check costs ${ms} ms`);
+    } finally { hud.toast = toast; delete L.glance; game.days.isNight = night; delete game.days.isNight; clearSky(); [P.found, game.explored, L.spotted, L.lookouts] = keep; game.skills.xp.explore = keep[4] || 0; P.foundN = -1; L.v++; L.leave(); game.teleport(CENTER.x, CENTER.y + 3); }
+  });
+  await test('explore (english): height radius: two chunks in a meadow, up to five on high ground, one more with the skill', async () => {
+    const L = game.places.look, gen = game.world.gen, real = gen.groundAt, xp = game.skills.xp.explore;
+    try {
+      game.skills.xp.explore = 0;
+      for (const [h, n] of [[0, 2], [3.9, 2], [4, 3], [8.9, 3], [9, 4], [16, 5]]) { gen.groundAt = (x, y) => (Math.hypot(x - 500, y - 500) < 5 ? 2 + h : 2); check(L.radius(500, 500) === n, `${h} m: ${L.radius(500, 500)}`); }
+      game.skills.xp.explore = 25 * 3 * 4; check(L.radius(500, 500) === 6, 'the skill');
+    } finally { delete gen.groundAt; if (gen.groundAt !== real) gen.groundAt = real; game.skills.xp.explore = xp || 0; }
+    const ex = game.explored; try { game.explored = new Set(); game.lastChunk = null; game.skills.xp.explore = 0; game.explore(); check(game.explored.size === (2 * L.radius(p().x, p().y) + 1) ** 2, `${game.explored.size}`); } finally { game.explored = ex; game.skills.xp.explore = xp || 0; }
+  });
+  await test('lighthouse (english): up to the gallery, round it between the rail and the lantern, and down; not riding; one left behind is not lit', async () => {
+    const P = game.places, f = P.nearest(...V4, ['faro'], 6000);
+    check(f, 'no lighthouse within 6 km');
+    await goTo(game, f.x, f.y + 2.4);
+    const keep = [P.look.spotted, P.look.lookouts, game.explored], L = P.look; L.leave();
+    try {
+      const a = P.interact(p(), w()); check(a?.text === t('place.lighthouse.up'), `says ${a?.text}`);
+      p().mount = true; await a.run(); check(p().floor < 1, 'on horseback'); p().mount = false; check(!game.busy, 'busy');
+      await a.run(); for (let i = 0; i < 20; i++) p().update(1 / 60, {}, w());
+      check(Math.abs(p().z - GALLERY.H) < 0.01 && p().floor === GALLERY.H && p().tower?.gallery && p().tower.key === f.key, `up: ${p().z} ${p().floor}`);
+      // pushed all ways: it stays on the gallery
+      for (let k = 0; k < 16; k++) { for (let i = 0; i < 40; i++) { p().x += Math.sin(k * 0.39) * 0.06; p().y += Math.cos(k * 0.39) * 0.06; p().update(1 / 60, {}, w()); } const r = Math.hypot(p().x - f.x, p().y - f.y); check(r > GALLERY.lantern && r < GALLERY.rail && Math.abs(p().z - GALLERY.H) < 0.3, `pushed ${k}: ${r.toFixed(2)} ${p().z.toFixed(2)}`); }
+      p().x = f.x; p().y = f.y + 1.16; p().update(1 / 60, {}, w()); check(L.top(p())?.gallery, 'the gallery is not a lookout');
+      const down = P.aimables(p(), w(), (x, y, hx, hy, y0, y1) => ({ x, y, y0, y1 })).find(q => q.act()?.text === t('place.lighthouse.down')); check(down && down.box.y0 > 8 && P.interact(p(), w())?.text === t('place.lighthouse.down'), 'no way down');
+      await down.act().run(); for (let i = 0; i < 20; i++) p().update(1 / 60, {}, w()); check(p().z < 0.1 && Math.hypot(p().x - f.x, p().y - f.y) > 1.6 && !L.top(p()), `down: ${p().z}`);
+      // at its foot, the base stops you
+      for (let i = 0; i < 90; i++) { p().y -= 0.05; p().update(1 / 60, {}, w()); } check(Math.hypot(p().x - f.x, p().y - f.y) > 1.35 && p().z < 0.1, 'through the base');
+    } finally { p().mount = false; [P.look.spotted, P.look.lookouts, game.explored] = keep; L.v++; L.leave(); game.teleport(CENTER.x, CENTER.y + 3); }
+    check(modelNamed('poi:faro').beacon && !modelNamed('poi:faro:dark').beacon && !modelNamed('poi:faro:dark').lights.length, 'the dark one is lit'); const all = P.sites.near(...V4, 6000, ['faro']).map(s => P.poiOf(s.key)).filter(q => q?.kind === 'faro'); check(all.length && all.every(q => q.legacy || q.lit === (stateOf(q) !== 'empty')), 'lit or not'); check(poiModel({ kind: 'faro' }) === 'poi:faro' && poiModel({ kind: 'faro', lit: false }) === 'poi:faro:dark' && poiModel({ kind: 'cueva', snow: true }) === 'poi:cueva:snow', 'the models');
+  });
+  await test('tower (english): one that stays from before: twelve metres, its door to the south and its chest outside; an opened chest stays opened', async () => {
+    const P = game.places, lg = P.legacy, was = P.places1, keep = [P.found, P.oldFound], q = (() => { for (let r = 30; r < 90; r++) for (let i = -r; i <= r; i++) { const k = lg.at(i, r); if (k?.kind === 'torre') return k; } })();
+    check(q, 'no tower of before'); const [cx, cy] = q.key.split(',').map(Number), d = w().delta(cx, cy, true), v0 = d.opened;
+    try {
+      P.setPlaces({ v: 2, k: { ...(was?.k || {}), [q.key]: 'torre' } }); const tw = P.poiOf(q.key); check(tw?.legacy && tw.h === undefined && poiModel(tw) === 'poi:torre' && modelNamed('poi:torre').solids.length, 'the old model');
+      d.opened = { [q.key]: true }; w().touch(cx, cy); const c = w().contentFor(cx, cy), o = c.objects.find(k => k.treasure), s = c.colliders.find(k => k.spiral); check(o.x === Math.floor(q.x) + 5.5 && !o.up && o.open && s.h === 12 && s.yaw === 0 && s.key === q.key, 'its chest');
+      await goTo(game, q.x + 1.4, q.y + 4.6); const up = await climb({ x: q.x, y: q.y, h: 12, yaw: 0 }); check(Math.abs(up.z - 12) < 0.05, `climbed ${up.z}`); check(P.look.top(p())?.key === q.key, 'no lookout from it');
+      p().x = o.x + 0.8; p().y = o.y; p().z = p().floor = 0; check(P.interact(p(), w())?.text === t('place.chest.empty'), P.interact(p(), w())?.text);
+    } finally { d.opened = v0; w().touch(cx, cy); P.setPlaces(was); [P.found, P.oldFound] = keep; game.teleport(CENTER.x, CENTER.y + 3); }
+  });
+  await test('build (english): watchtower: its cost and its station, level free ground, climbed and looked from, nothing on its base, and what comes back of it', async () => {
+    const W = w(), B = game.build, inv = game.inv, DEFS = ['watchtower', 'watchtower_tall'], P = game.places, keep = [game.admin, game.explored, P.look.spotted, P.look.lookouts, game.skills.xp.explore];
+    for (const [id, c] of [['watchtower', { piedra: 140, tablas: 24, lingote_hierro: 4 }], ['watchtower_tall', { piedra: 190, tablas: 30, lingote_hierro: 6 }]]) { const D = BUILDABLE[id]; check(D && D.cat === 'Exterior' && D.needs === 'cantero' && JSON.stringify(Object.fromEntries(D.cost)) === JSON.stringify(c) && !PLANS.has(id) && ITEMS[id].name === t(`item.${id}`), `${id}: ${JSON.stringify(D?.cost)}`); }
+    // a spot of level, free, dry ground (and not in the village)
+    let at = null; for (let r = 60; r < 400 && !at; r += 6) for (let k = 0; k < 24 && !at; k++) { const x = Math.floor(CENTER.x + Math.cos(k * 0.26) * r), y = Math.floor(CENTER.y + Math.sin(k * 0.26) * r); if (!inBounds(x, y) && !W.towerFits('watchtower', x, y).why) at = [x, y]; }
+    check(at, 'no room for a tower'); const [tx, ty] = at; await goTo(game, tx + 0.5, ty + 6); game.admin = false;
+    const snap = new Map([...W.deltas].map(([k, d]) => [k, JSON.stringify(d)]));
+    try {
+      let f = W.fitFree('watchtower', tx + 0.4, ty + 0.3, 1.7, 0, p()); check(f.ok && f.anchor.join() === `${tx},${ty}` && f.ox === tx + 0.5 && Math.abs(f.a - Math.PI / 2) < 1e-9 && f.square.join() === `${tx - 3},${ty - 3},7` && f.reach > 6, `${f.ok} ${f.why}`);
+      const you = [p().x, p().y]; p().x = tx + 2; p().y = ty + 2; check(W.fitFree('watchtower', tx, ty, 0, 0, p()).why === t('why.watchtower.you'), 'with you in it'); [p().x, p().y] = you;
+      W.place(tx + 3, ty + 2, 'silla'); check(W.fitFree('watchtower', tx, ty, 0, 0, p()).why === t('why.watchtower.room'), 'over a chair'); W.unplace({ tile: [tx + 3, ty + 2], layer: 'placed', placed: 'silla' }); check(W.fitFree('watchtower', tx, ty, 0, 0, p()).ok, 'after the chair');
+      { const corner = W.cornerH; try { W.cornerH = (x, y) => (x > tx + 2 ? 4 : 2); W.towerTry = null; check(W.fitFree('watchtower', tx, ty, 0, 0, p()).why === t('why.watchtower.slope'), 'on a slope'); } finally { delete W.cornerH; if (W.cornerH !== corner) W.cornerH = corner; W.towerTry = null; } }
+      f = W.fitFree('watchtower', tx, ty, Math.PI / 2, 0, p()); const L0 = f.lvl; W.placeFree('watchtower', f); check(W.towerOf(tx - 3, ty + 3)?.key === `w:${tx},${ty}` && !W.towerOf(tx - 4, ty), 'the tiles it takes'); let lv = 0; for (let j = -3; j <= 3; j++) for (let i = -3; i <= 3; i++) if (W.levelAt(tx + i + 0.5, ty + j + 0.5) === L0) lv++; check(lv === 49, `${lv} tiles at its height`);
+      const o = W.placedObjectAt(tx, ty); check(o?.tower?.h === 9 && /^watchtower:(granite|limestone|slate):\d/.test(o.model) && modelNamed(o.model).solids.length === 1 && Math.abs(o.yaw - Math.PI / 2) < 1e-6, `its model: ${o?.model}`);
+      for (const [i, j] of [[3, 3], [-3, 0], [0, 2]]) { for (const id of ['muro_madera', 'suelo_madera', 'tejado_rojo', 'silla', 'valla']) check(!W.canPlace(tx + i, ty + j, id, p()), `${id} on its base`); check(W.digWhy?.(tx + i, ty + j) !== '' && !W.canTill(tx + i, ty + j) && !W.grassAt(tx + i, ty + j, 0), 'dug, tilled or grown over'); }
+      check(!W.fitFree('silla', tx + 3.2, ty + 3.2, 0, 0, null).ok && !W.placedNear(tx + 0.5, ty + 0.5, 4).some(q => q.tower), 'furniture on it, or E on it');
+      // up its stairs, and the look-around from the top, with its own key
+      const c = { x: tx + 0.5, y: ty + 0.5, h: 9, yaw: Math.PI / 2 }, up = await climb(c); check(Math.abs(up.z - 9) < 0.05 && up.worst < 0.6 && P.look.top(p())?.key === `w:${tx},${ty}`, `climbed ${up.z.toFixed(2)}`);
+      game.explored = new Set(); P.look.lookouts = {}; const res = P.look.look(P.look.top(p())); check(res.blind || (game.explored.size > 300 && P.look.lookouts[`w:${tx},${ty}`] !== undefined), `${game.explored.size} chunks`);
+      // not while one is in it; not moved; whole if it is new, part of it later; its ground as it was
+      const it = { tile: [tx, ty], layer: 'placed', placed: 'watchtower' }; check(game.pickUp(it) === false && W.towerOf(tx, ty), 'taken down with you on it'); p().x = tx + 0.5; p().y = ty + 6; p().z = p().floor = 0; p().update(1 / 60, {}, W); check(!p().tower, 'still in it');
+      const hit = { tile: [tx, ty], layer: 'placed' }; check(B.needsHold(hit, 'watchtower') && B.backOf(hit, 'watchtower').some(([m, n]) => m === 'piedra' && n === 105) && B.backOf({ layer: 'placed', tile: [0, 0] }, 'watchtower_tall').length === 3, 'an old one at a tap'); B.justPut('watchtower', [tx, ty]); check(!B.needsHold(hit, 'watchtower'), 'a new one, holding');
+      const got = () => ({ ...Object.fromEntries(['piedra', 'tablas', 'lingote_hierro'].map(m => [m, inv.count(m) + game.gather.drops.filter(q => q.id === m).reduce((s, q) => s + (q.n || 1), 0)])) }), g0 = got(); check(game.pickUp(it) !== false && !W.towerOf(tx, ty) && W.ownAt('placed', tx, ty) === undefined, 'not taken down'); const g1 = got(); check(g1.piedra - g0.piedra === 140 && g1.lingote_hierro - g0.lingote_hierro === 4, `new: ${JSON.stringify([g0, g1])}`); let left = 0; for (let j = -3; j <= 3; j++) for (let i = -3; i <= 3; i++) if (W.levelAt(tx + i + 0.5, ty + j + 0.5) !== null) left++; check(!left, `${left} tiles keep its height`);
+      B.recent.clear(); W.placeFree('watchtower_tall', W.fitFree('watchtower_tall', tx, ty, 0, 0, p())); check(W.placedObjectAt(tx, ty)?.tower?.h === 12, 'the tall one'); const g2 = got(); game.pickUp({ ...it, placed: 'watchtower_tall' }); const g3 = got(); check(g3.piedra - g2.piedra === Math.floor(190 * 0.75) && g3.lingote_hierro - g2.lingote_hierro === 3, `later: ${JSON.stringify([g2, g3])}`);
+      // through the chunks' data: another player's game gets the same tower, and it goes whole with /setblock air on any tile
+      W.placeFree('watchtower', W.fitFree('watchtower', tx, ty, Math.PI, 0, p())); const W2 = { deltas: new Map([...W.deltas].map(([k, d]) => [k, JSON.parse(JSON.stringify(d))])) }; let same = 0; for (const [k, d] of W2.deltas) if (d.placed?.[`${tx},${ty}`]) { same++; const [x, y] = d.pos[`placed:${tx},${ty}`]; check(x === tx + 0.5 && y === ty + 0.5, 'its place'); } check(same === 1, 'not in the data'); W.setTile(tx + 3, ty - 2, 'air'); check(!W.towerOf(tx, ty) && W.levelAt(tx + 0.5, ty + 0.5) === null, '/setblock air on a corner');
+    } finally {
+      for (const [k, d] of W.deltas) { const s = snap.get(k); if (s !== JSON.stringify(d)) { const [x, y] = k.split(',').map(Number); if (s) { for (const q of Object.keys(d)) delete d[q]; Object.assign(d, JSON.parse(s)); } else Object.assign(d, { placed: {}, floor: {}, roof: {}, chest: {}, lvl: {}, pos: {} }); if (!k.startsWith('u:')) W.touch(x, y); } }
+      [game.admin, game.explored, P.look.spotted, P.look.lookouts] = keep; game.skills.xp.explore = keep[4] || 0; P.look.v++; P.look.leave(); game.gather.drops = []; game.teleport(CENTER.x, CENTER.y + 3);
+    }
+  });
+  await test('landmarks (english): far shapes: within budget, in place of what is not drawn near, with the far lights; off with none around', async () => {
+    const LM = game.view3d.landmarks, P = game.places, tw = P.nearest(...V4, ['torre'], 2500);
+    if (!LM?.mesh) { console.log('landmarks: off'); return; }
+    await goTo(game, tw.x + 100, tw.y); LM.at = -9; LM.update(game, w(), game.time); while (P.sites.warm(p().x, p().y, 420, ['hamlet', 'major'])); LM.at = -9; LM.update(game, w(), game.time);
+    check(LM.list.some(q => q.key === tw.key) && LM.mesh.visible && LM.stats.tris > 40 && LM.stats.tris < 2000, `${LM.stats.places} places, ${LM.stats.tris} triangles`); const g = LM.mesh.geometry, made = LM.stats.made; g.computeBoundingBox(); check(g.attributes.position.count === g.attributes.aTall.count && !g.attributes.position.array.some(v => !Number.isFinite(v)), 'its points');
+    LM.at = -9; LM.update(game, w(), game.time); check(LM.stats.made === made && LM.group.children.length === 3, 'made again for nothing'); console.log(`landmarks: ${LM.stats.tris} triangles, look ${LM.stats.ms.toFixed(2)} ms`);
+    await goTo(game, tw.x + 8, tw.y); for (let i = 0; i < 100 && !game.view3d.world.chunks.has(tw.key); i++) await frames(1); LM.at = -9; LM.update(game, w(), game.time); check(!LM.list.some(q => q.key === tw.key), 'the tower that is drawn has a far shape too'); game.teleport(CENTER.x, CENTER.y + 3);
   });
   await test('cuevas: se entra, se baja, se sube y se sale; del templo también, y el faro es aparte', async () => {
     // (hasta 2026-11-11 el del faro se llamaba igual que el de las escaleras y lo tapaba: ni se bajaba ni se salía)
@@ -4110,10 +4252,10 @@ async function soloTests(game) {
       if (!faro) console.log('cuevas: no hay faro cerca del pueblo (no se prueba)');
       else {
         await goTo(game, faro.x + 1.2, faro.y + 1.2);
-        const a = ex.interact(p(), w()), n = game.explored.size;
-        check(a?.text === 'Subir al faro', `en el faro dice «${a?.text}»`);
-        await a.run();
-        check(game.stats.get('faros') === faros + 1 && game.explored.size > n, 'el faro no descubre la costa');
+        const a = ex.interact(p(), w());
+        check(a?.text === t('place.lighthouse.up'), `en el faro dice «${a?.text}»`);
+        await a.run(); await frames(3);   // (what is seen from up there: lookout, lighthouse)
+        check(p().floor > 8, 'no se sube al faro');
       }
     } finally { v.whenReady = wr; hud.say = say; if (game.scene !== w()) game.teleport(CENTER.x, CENTER.y + 3); }
   });

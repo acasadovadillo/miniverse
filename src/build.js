@@ -22,6 +22,7 @@ export const REACH = 7;   // casillas de distancia a las que se puede construir
 import { BUILDABLE, BUILD_CATS } from './buildables.js';
 import { t as tr, has } from './i18n.js';   // (as tr: t is the target tile here)
 import { planKey, PLAN_REACH } from './plans.js';
+import { watchtower } from './world/tower.js';
 import { supportOn, roofWhy, holdsRoof, isSupport, frameKind, frameOk, swaps, swappable, SPAN } from './structure.js';
 export const BUILD_STATION_REACH = 16;   // a cuántas casillas puede estar la estación que pide una pieza (el banco, para lo de madera; la mesa de cantero, para lo de piedra)
 export const UNDO_MS = 10 * 60 * 1000;   // what you have just put comes back whole, this long
@@ -173,6 +174,7 @@ export class BuildMode {
     if (this.move) {
       const hit = this.eraseTarget(t), raw = hit && sc.at(hit.layer, hit.tile[0], hit.tile[1]), id = raw && parsePlaced(raw)[0];
       if (!hit || !BUILDABLE[id]) return no('move_what');
+      if (watchtower(id)) return { ok: false, why: tr('why.watchtower.move') };
       if (sc.ownAt && !sc.ownAt(hit.layer, hit.tile[0], hit.tile[1])) return no('move_fixed');
       if (!this.inReach(hit.tile)) return no('far');
       return this.holds(hit) ? no('holds_roof') : { ok: true };
@@ -280,10 +282,12 @@ export class BuildMode {
     return !!r && r.id === id;
   }
   // What comes back of the piece in that layer and tile
-  backOf(hit, id) { return hit.plan || !supportOn() || this.game.admin || this.isRecent(`${hit.layer}:${hit.tile}`, id) ? PIECES[id].cost : salvage(PIECES[id].cost); }
+  backOf(hit, id) { return hit.plan || !supportOn() || this.game.admin || this.isRecent(`${hit.layer}:${hit.tile}`, id) ? DEF(id).cost : salvage(DEF(id).cost); }
+  // Something just put, for UNDO_MS (a watchtower: gather.js, place)
+  justPut(id, t) { this.recent.set(`${layerOf(id)}:${t}`, { id, t: Date.now() }); }
   // Is it taken down only by holding? (a piece of the palette you have not just put. Furniture and stations come apart cleanly)
   // (nor a plan, but one already begun: what was hammered is lost)
-  needsHold(hit, id) { return hit.plan ? !this.game.admin && (hit.plan.rec.w > 0 || !!hit.plan.rec.p) : supportOn() && !this.game.admin && !!PIECES[id] && !ITEMS[id] && !this.isRecent(`${hit.layer}:${hit.tile}`, id); }
+  needsHold(hit, id) { return hit.plan ? !this.game.admin && (hit.plan.rec.w > 0 || !!hit.plan.rec.p) : watchtower(id) ? !this.game.admin && !this.isRecent(`${hit.layer}:${hit.tile}`, id) : supportOn() && !this.game.admin && !!PIECES[id] && !ITEMS[id] && !this.isRecent(`${hit.layer}:${hit.tile}`, id); }
 
   place(t = this.target(), drag = false, at = null) {
     if (!this.on) return;
@@ -495,6 +499,7 @@ export class BuildMode {
       if (!back.length) g.gather.float(tr(PIECES[id].cost.every(([m]) => m === 'fibra') ? 'build.salvage.none' : 'build.salvage.nothing'), '#d8c3a0');
       if (sc === g.world) g.rep?.taken(layer, tile[0], tile[1], own);   // (from a neighbor's house: the village notices, reputation.js; pickUp does it for the rest)
     } else if (!g.pickUp(o)) return;
+    if (watchtower(id)) this.recent.delete(`${layer}:${tile}`);
     this.pickV++;
     g.gather.chips(tile[0] + 0.5, tile[1] + 0.5, 'wood', 6);
     Audio.chop();

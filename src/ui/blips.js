@@ -174,6 +174,14 @@ blips.source('places', (out, { game }) => {
     b.to = m.to;
   }
 });
+// The tall places seen from afar and not visited yet (lookout.js): a grey question mark, with what they are and no name
+blips.source('spotted', (out, { game }) => {
+  for (const m of game.places?.look?.marks() || []) {
+    const b = out.add('place', m.x, m.y);
+    b.glyph = 'question'; b.color = '#b9bcc4'; b.pri = 58; b.legend = 'map.legend.spotted'; b.sub = say('map.card.spotted');
+    b.name = say(`map.spotted.${m.kind}`); b.to = (m.to ||= { x: m.x, y: m.y, kind: 'place', id: `poi:${m.key}` });
+  }
+});
 // The other players in the world (not who watches as a spectator, nor who is in a cave), and the neighbours in sight
 blips.source('players', (out, { game, partner }) => {
   const L = game.live;

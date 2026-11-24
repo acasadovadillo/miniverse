@@ -47,7 +47,7 @@ body.quick-open #crosshair, body.quick-open #aim-free, body.quick-open #hud-bow,
 export function known(game, max = MAX) {
   const p = game.player, all = [];
   for (const b of blips.refresh(game, performance.now() / 1000, true)) {
-    if (!(KINDS.has(b.kind) || b.quick) || b.pin || b.r || !b.name || !blips.shown(b)) continue;
+    if (!(KINDS.has(b.kind) || b.quick) || b.glyph === 'question' || b.pin || b.r || !b.name || !blips.shown(b)) continue;
     const to = b.to || b, d = Math.hypot(nearX(to.x, p.x) - p.x, to.y - p.y);
     if (d > REACH || d < HERE || (b.kind === 'home' && p.x > HOUSE.x0 && p.x < HOUSE.x1 && p.y > HOUSE.y0 && p.y < HOUSE.y1)) continue;
     all.push({ kind: b.kind, name: b.name, glyph: b.glyph, color: b.color, dim: b.dim, d, to: { x: to.x, y: to.y, kind: to.kind || 'point', ...(to.id ? { id: to.id } : {}) } });

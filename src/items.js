@@ -188,9 +188,12 @@ Object.assign(ITEMS, {
   wheelbarrow: { place: 'furniture' },
   // (the barber's chair: tavern furniture, a seat like any other; Eusebio cuts hair in the tavern's, neighbors.js)
   barber_chair: { place: 'furniture' },
+  // (the watchtowers one builds, 9 and 12 m: world/tower.js)
+  watchtower: { place: 'furniture' },
+  watchtower_tall: { place: 'furniture' },
 });
 defineNames({ cana: ITEMS.cana, cana_fibra: ITEMS.cana_fibra }, 'item', ['desc']);
-defineNames({ big_well: ITEMS.big_well, wheelbarrow: ITEMS.wheelbarrow, barber_chair: ITEMS.barber_chair }, 'item');
+defineNames({ big_well: ITEMS.big_well, wheelbarrow: ITEMS.wheelbarrow, barber_chair: ITEMS.barber_chair, watchtower: ITEMS.watchtower, watchtower_tall: ITEMS.watchtower_tall }, 'item');
 // (the saddlebags hold 12 stacks since Plan F, saddlebags.js: their description comes from the language files; with
 // ?alforjas=0 they keep 9, and the old text)
 if (!apagada('alforjas')) defineNames({ alforjas: ITEMS.alforjas }, 'item', ['desc']);

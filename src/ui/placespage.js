@@ -11,8 +11,8 @@ const away = m => (m >= 1000 ? `${fmt.num(m / 1000, { maximumFractionDigits: 1 }
 
 export function placesHtml(game) {
   const P = game.places, list = P.knownPlaces().map(p => ({ p, d: distOf(p.x, p.y, CENTER.x, CENTER.y), ...P.describe(p) }));
-  const gone = P.found.size - list.length;
-  const note = gone > 0 ? `<p class="j-note">${tHtml('journal.places.gone', { n: gone })}</p>` : '';
+  const gone = P.found.size - list.length, seen = P.look?.marks().length || 0;
+  const note = (seen ? `<p class="j-note">${tHtml('journal.places.spotted', { n: seen })}</p>` : '') + (gone > 0 ? `<p class="j-note">${tHtml('journal.places.gone', { n: gone })}</p>` : '');
   if (!list.length) return `<p class="j-note">${tHtml('journal.places.none')}</p>${note}`;
   const card = q => {
     const line = [q.state, t('journal.places.away', { dist: away(q.d) }), q.at > 0 ? t('journal.places.found', { date: fmt.date(q.at * 86400000, { day: 'numeric', month: 'short', timeZone: 'UTC' }) }) : ''].filter(Boolean).join(' · ');

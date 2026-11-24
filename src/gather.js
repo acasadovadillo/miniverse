@@ -7,6 +7,7 @@ import { itemIconUrl } from './art/items.js';
 import { HUNGER_MAX, HP_MAX } from './combat.js';
 import { THIRST_MAX } from './needs.js';
 import { PIECES, layerOf } from './pieces.js';
+import { watchtower } from './world/tower.js';
 import { RECIPES } from './recipes.js';
 import { Audio } from './audio.js';
 import { hud } from './ui/hud.js';
@@ -84,7 +85,7 @@ export class Gathering {
       if (mp) { this.cursorPt = mp; this.cursorAt = performance.now(); }
       const pt = this.cursorPt && performance.now() - this.cursorAt < 4000 ? this.cursorPt : [p.x + p.face.x * 1.3, p.y + p.face.y * 1.3];
       const S = sizesOf(held.id), k = def.place === 'rug' ? rugK(held.id) : S ? S[this.size % S.length] : 0, f = g.scene.fitFree(held.id, pt[0], pt[1], this.angle, k, p);
-      const far = Math.hypot(f.cx - p.x, f.cy - p.y) > PLACE_REACH + 0.5;
+      const far = Math.hypot(f.cx - p.x, f.cy - p.y) > (f.reach || PLACE_REACH + 0.5);   // (reach: a watchtower, as wide as it is)
       return { free: true, ok: f.ok && !far, far, why: f.why, fit: f, place: held.id, model: f.model, x: f.ox, y: f.oy, a: f.a, rot: k };
     }
     if (def?.place) {
@@ -446,6 +447,7 @@ export class Gathering {
     if (ITEMS[id].place === 'station') g.stats?.add('estaciones', 1);
     if (ITEMS[id].place === 'station') this.float(`${ITEMS[id].name}: acércate y pulsa E`, '#fff3c0');
     if (id === 'pozo') this.float('Pozo: con la regadera, E o clic en él la llena', '#9ad0ff');
+    if (watchtower(id)) { g.build.justPut(id, t.fit.anchor); this.float(tr('toast.watchtower.placed'), '#fff3c0'); }
     if (id === 'big_well') this.float(tr('toast.big_well.placed'), '#9ad0ff');
     if (id === 'wheelbarrow') this.float(tr('toast.wheelbarrow.placed'), '#fff3c0');
   }

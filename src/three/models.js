@@ -30,7 +30,7 @@ import { BULKY } from '../carry-items.js';
 import * as CARRY from '../carry-items.js';   // (BARROW: read as a namespace, so this file loads before the logic has it)
 import { WALL_H, FLOOR_H } from './build3d.js';
 import { SOLIDS, hull } from '../world/fit.js';
-import { TOWER, inHole } from '../world/tower.js';
+import { TOWER, inHole, GALLERY, WATCHTOWERS, SIDE } from '../world/tower.js';
 
 // ---------- materiales ----------
 let MATS;
@@ -1032,8 +1032,11 @@ function column(m, key, x, z, h, whole, R, r = 0.24) {
 }
 // La torre vieja, por dentro y por fuera (las medidas, de world/tower.js): el muro redondo con la puerta, las saeteras, el
 // pilar, la escalera de caracol, la terraza con su hueco y las almenas
-function bigTower(m) {
-  const T = TOWER, B = m.B('towerWall'), S = m.B('towerStone'), N = 56, TAU = Math.PI * 2, R = T.R, Ri = T.inner, H = T.H, DOOR = 2.2, TOPW = H + 0.5;
+// (h: how tall; rock: of what stone: biomes.js, stoneOf. foot: how far down the base goes of one that is built, on ground that is
+// not level)
+function bigTower(m, h = TOWER.H, rock = 'limestone', foot = 0) {
+  const tone = rock === 'granite' || rock === 'slate' ? '_' + rock : '', WALL = 'towerWall' + tone, STONE = 'towerStone' + tone;
+  const T = TOWER, B = m.B(WALL), S = m.B(STONE), N = 56, TAU = Math.PI * 2, R = T.R, Ri = T.inner, H = h, DOOR = 2.2, TOPW = H + 0.5;
   const P = (a, r, y) => [Math.sin(a) * r, y, Math.cos(a) * r];
   // El muro: por fuera y por dentro (junto a la puerta, desde lo alto de ella), y su remate con las almenas
   for (let i = 0; i < N; i++) {
@@ -1053,31 +1056,41 @@ function bigTower(m) {
   // Las jambas de la puerta (lo grueso del muro, a los lados)
   for (const [a, sg] of [[T.door[0], 1], [T.door[1], -1]]) B.quadN(P(a, Ri, 0), P(a, R, 0), P(a, R, DOOR), P(a, Ri, DOOR), [sg * Math.cos(a), 0, -sg * Math.sin(a)], [[0, 0], [0.25, 0], [0.25, 1.1], [0, 1.1]]);
   // Saeteras: unas rendijas oscuras por fuera, a distintas alturas
-  for (let k = 0; k < 7; k++) { const a = 1.2 + k * 0.85, y = 3 + k * 1.3; m.geo('towerDark', BOXG, Math.sin(a) * (R + 0.01), y, Math.cos(a) * (R + 0.01), [0, a, 0], [0.16, 0.9, 0.04]); }
+  for (let k = 0, y; (y = 3 + k * 1.3) < H - 1; k++) { const a = 1.2 + k * 0.85; m.geo('towerDark', BOXG, Math.sin(a) * (R + 0.01), y, Math.cos(a) * (R + 0.01), [0, a, 0], [0.16, 0.9, 0.04]); }
   // El pilar y el suelo de dentro
-  m.cyl('towerStone', 0, 0, 0, T.r0, T.r0, H, 14);
-  m.geo('towerStone', CIRCLE, 0, 0.02, 0, [-Math.PI / 2, 0, 0], [Ri, Ri, 1]);
+  m.cyl(STONE, 0, 0, 0, T.r0, T.r0, H, 14);
+  m.geo(STONE, CIRCLE, 0, foot ? 0.045 : 0.02, 0, [-Math.PI / 2, 0, 0], [Ri, Ri, 1]);
   // La escalera: peldaños del pilar al muro, cada uno a la altura de la rampa que se anda
-  const n = Math.round(T.turns * T.stepsPerTurn), da = TAU / T.stepsPerTurn, rm = (T.r0 + Ri) / 2, len = Ri - T.r0 + 0.06;
+  const n = Math.round(H / T.pitch * T.stepsPerTurn), da = TAU / T.stepsPerTurn, rm = (T.r0 + Ri) / 2, len = Ri - T.r0 + 0.06;
   for (let k = 0; k < n; k++) {
     const a = (k + 0.5) * da, top = ((k + 0.75) / T.stepsPerTurn) * T.pitch;
-    m.geo('towerStone', BOXG, Math.sin(a) * rm, top - 0.14, Math.cos(a) * rm, [0, a, 0], [rm * da * 1.15, 0.28, len]);
+    m.geo(STONE, BOXG, Math.sin(a) * rm, top - 0.14, Math.cos(a) * rm, [0, a, 0], [rm * da * 1.15, 0.28, len]);
   }
   // La terraza: el suelo de arriba (y por debajo), menos el hueco por donde llega la escalera
   const W = 40;
   for (let i = 0; i < W; i++) {
     const a0 = (i / W) * TAU, a1 = ((i + 1) / W) * TAU;
-    if (inHole((a0 + a1) / 2)) continue;
+    if (inHole((a0 + a1) / 2, H)) continue;
     S.quadN(P(a0, T.r0 - 0.1, H), P(a1, T.r0 - 0.1, H), P(a1, Ri + 0.02, H), P(a0, Ri + 0.02, H), [0, 1, 0], [[0, 0], [0.5, 0], [0.5, 1.4], [0, 1.4]]);
     S.quadN(P(a1, T.r0 - 0.1, H - 0.3), P(a0, T.r0 - 0.1, H - 0.3), P(a0, Ri + 0.02, H - 0.3), P(a1, Ri + 0.02, H - 0.3), [0, -1, 0], [[0, 0], [0.5, 0], [0.5, 1.4], [0, 1.4]]);
   }
   m.solids.push([-R, 0, -R, R, H + T.parapet, R]);
+  if (!foot) return;
+  // The base of one that is built: its square of masonry down into the ground, with a course of slabs round the edge
+  const E = SIDE / 2, C = 0.5;
+  m.box(WALL, -E, -foot, -E, E, 0.03, E, 0.5);
+  for (const s of [-1, 1]) {
+    m.box(STONE, -E - 0.05, -0.16, s * E - (s > 0 ? C : 0.05), E + 0.05, 0.04, s * E + (s > 0 ? 0.05 : C), 0.6);
+    m.box(STONE, s * E - (s > 0 ? C : 0.05), -0.16, -E + C, s * E + (s > 0 ? 0.05 : C), 0.04, E - C, 0.6);
+  }
+  m.solids = [[-E, -foot, -E, E, H + T.parapet, E]];
 }
-const BOXG = new THREE.BoxGeometry(1, 1, 1), CIRCLE = new THREE.CircleGeometry(1, 28);
+const BOXG = new THREE.BoxGeometry(1, 1, 1), CIRCLE = new THREE.CircleGeometry(1, 28), RAIL_RING = {};
+let HATCH_RING, CAP;   // (of the lighthouse: made with the first one)
 // Los lugares del mundo (poi:…): la torre grande, el templo y la cueva, y el campamento, el barco varado, el
 // altar y el faro
 const PLACES = {
-  torre: bigTower,
+  torre(m, snow, h, rock) { bigTower(m, +h || TOWER.H, rock); },
   templo(m) {
     const R = rng(7);
     // Tres gradas, columnas alrededor de la cella (cuatro delante), arquitrabe y el frontón; la puerta, de 2,05 m, mira a +z
@@ -1132,12 +1145,38 @@ const PLACES = {
     m.geo('crystal', ICO, 0, 1.3, 0, [0.3, 0.6, 0], 0.18).light(0, 1.4, 0, { color: '#9ae0ff', intensity: 2.5, range: 7, always: true });
     for (const x of [-1.2, 1.2]) { m.cyl('stone', x, 0, 0, 0.12, 0.1, 1.2, 8); m.fire(x, 1.22, 0, 0.5); }
   },
-  faro(m) {
-    m.cyl('stone', 0, 0, 0, 1.4, 1.3, 0.6, 16);
-    for (let i = 0; i < 6; i++) m.cyl(i % 2 ? 'stripeR' : 'white', 0, 0.6 + i * 1.3, 0, 0.95 - i * 0.07, 0.95 - (i + 1) * 0.07, 1.3, 16);
-    m.cyl('iron', 0, 8.4, 0, 0.75, 0.75, 0.12, 16).cyl('glass', 0, 8.52, 0, 0.5, 0.5, 0.9, 12).geo('lens', ICO1, 0, 8.97, 0, [0, 0, 0], 0.3).geo('red', CONE, 0, 9.65, 0, [0, 0, 0], [0.62, 0.55, 0.62]);
-    m.light(0, 9, 0, { color: '#fff0b0', intensity: 12, range: 30, halo: 3 });   // (se enciende de noche, con su haz y su lente: de día, un sol en lo alto)
-    m.beacon = [0, 8.97, 0];
+  // The lighthouse, with the gallery one stands on (its measures: world/tower.js, GALLERY). dark: left behind, not lit
+  faro(m, snow, dark) {
+    const G = GALLERY, H = G.H, N = 28, TAU = Math.PI * 2, B0 = 0.7, B1 = 7.75, at = y => 1.36 - (y - B0) / (B1 - B0) * 0.36;
+    const around = (n, fn, from = 0) => { for (let i = 0; i < n; i++) { const a = from + (i / n) * TAU; fn(Math.sin(a), Math.cos(a), a); } };
+    // The base, of stone, and the shaft in bands
+    m.cyl('stone', 0, 0, 0, G.base, G.base - 0.04, 0.35, N).cyl('stone', 0, 0.35, 0, 1.44, 1.4, 0.35, N);
+    for (let i = 0; i < 6; i++) { const y = B0 + i * (B1 - B0) / 6, y1 = B0 + (i + 1) * (B1 - B0) / 6; m.cyl(i % 2 ? 'stripeR' : 'white', 0, y, 0, at(y), at(y1), y1 - y, N); }
+    // The door (to +z, in its stone frame) and the small windows up the stairs
+    m.box('stone', -0.6, 0, 1.14, 0.6, 2.2, 1.46, 0.6).box('wood', -0.4, 0.06, 1.4, 0.4, 1.98, 1.475, 0.8).box('iron', -0.36, 0.5, 1.47, 0.36, 0.56, 1.49).box('iron', -0.36, 1.5, 1.47, 0.36, 1.56, 1.49).ball('brass', 0.28, 1.0, 1.5, 0.045);
+    m.box('stone', -0.75, 0, 1.4, 0.75, 0.06, 1.95, 0.6);
+    for (const [a, y] of [[2.4, 3.1], [4.6, 4.7], [0.5, 6.2]]) { const r = at(y) - 0.02, s = Math.sin(a), c = Math.cos(a); m.geo('stone', BOXG, s * r, y, c * r, [0, a, 0], [0.5, 0.78, 0.1]).geo('dark0', BOXG, s * (r + 0.04), y, c * (r + 0.04), [0, a, 0], [0.3, 0.56, 0.06]); }
+    // The cornice, the corbels and the gallery's deck
+    m.cyl('stone', 0, B1, 0, 1.0, 1.1, 0.14, N);
+    around(14, (s, c, a) => m.geo('stone', BOXG, s * 1.28, H - 0.36, c * 1.28, [0, a, 0], [0.16, 0.36, 0.68]));
+    m.cyl('white', 0, B1 + 0.14, 0, 1.0, 1.04, H - B1 - 0.3, N).cyl('stone', 0, H - 0.16, 0, G.deck - 0.03, G.deck, 0.16, 40);
+    // The rail: posts, bars and a handrail
+    around(16, (s, c, a) => m.cyl('iron', s * G.rail, H, c * G.rail, 0.028, 0.024, 1.04, 6).ball('iron', s * G.rail, H + 1.06, c * G.rail, 0.042, 0.042, 0.042, 6));
+    for (const [y, t] of [[0.35, 0.014], [0.68, 0.014], [1.02, 0.024]]) m.geo('iron', RAIL_RING[t] ||= new THREE.TorusGeometry(G.rail, t, 5, 48), 0, H + y, 0, [Math.PI / 2, 0, 0]);
+    // The hatch down, in the deck
+    m.box('wood', -0.36, H - 0.02, 0.82, 0.36, H + 0.035, 1.46, 0.8).box('iron', -0.36, H + 0.03, 0.9, 0.36, H + 0.045, 0.95).box('iron', -0.36, H + 0.03, 1.33, 0.36, H + 0.045, 1.38);
+    m.geo('iron', HATCH_RING ||= new THREE.TorusGeometry(0.07, 0.014, 5, 14), 0.2, H + 0.05, 1.14, [Math.PI / 2, 0, 0]);
+    // The lantern: its low wall, the panes between the mullions, the lens, and the dome with its vent and its rod
+    const L = G.lantern - 0.04, w = 0.5, g = 1.15, top = H + w + g;
+    m.cyl('white', 0, H, 0, L, L, w, 24).cyl('iron', 0, H + w, 0, L + 0.04, L + 0.04, 0.06, 24).box('iron', -0.2, H + 0.03, L - 0.05, 0.2, H + w, L + 0.015);
+    m.cyl('glass', 0, H + w + 0.06, 0, L - 0.05, L - 0.05, g - 0.06, 16);
+    around(8, (s, c) => m.cyl('iron', s * (L - 0.03), H + w, c * (L - 0.03), 0.022, 0.022, g, 5), TAU / 16);
+    m.cyl('brass', 0, H + w, 0, 0.1, 0.07, 0.25, 10).ball(dark ? 'glass' : 'lens', 0, H + w + 0.55, 0, 0.26, 0.32, 0.26, 16).cyl('brass', 0, H + w + 0.28, 0, 0.17, 0.2, 0.03, 16).cyl('brass', 0, H + w + 0.8, 0, 0.2, 0.17, 0.03, 16);
+    m.cyl('iron', 0, top, 0, L + 0.12, L + 0.12, 0.07, 24).geo('stripeR', CAP ||= new THREE.SphereGeometry(1, 24, 8, 0, TAU, 0, Math.PI / 2), 0, top + 0.07, 0, [0, 0, 0], [L + 0.07, 0.48, L + 0.07]);
+    m.cyl('iron', 0, top + 0.5, 0, 0.1, 0.09, 0.16, 12).ball('iron', 0, top + 0.72, 0, 0.1, 0.1, 0.1, 10).cyl('iron', 0, top + 0.75, 0, 0.014, 0.008, 0.6, 5);
+    if (dark) return;
+    m.light(0, H + w + 0.58, 0, { color: '#fff0b0', intensity: 12, range: 30, halo: 3 });   // (se enciende de noche, con su haz y su lente: de día, un sol en lo alto)
+    m.beacon = [0, H + w + 0.55, 0];
   },
 };
 
@@ -1208,7 +1247,8 @@ export function getModel(name) {
   if (BUILD[kind]) BUILD[kind](m, a, b);
   else if (kind === 'crop') crop(m, a, +b, d);
   else if (kind === 'village') { if (a === 'stall2') VILLAGE.stall(m, ['#e0b850', '#f08a2a', '#e83a4a'], 'awningB'); else if (a === 'stall3') VILLAGE.stall(m, ['#9ad0ff', '#c8a870', '#f0e8f0'], 'awningG'); else VILLAGE[a](m); }
-  else if (kind === 'poi') PLACES[a](m, b === 'snow');
+  else if (kind === 'poi') PLACES[a](m, b === 'snow', a === 'faro' ? b === 'dark' : b, d);
+  else if (WATCHTOWERS[kind]) bigTower(m, WATCHTOWERS[kind].h, a, +b || 0.4);   // (the ones one builds: id:stone:how far down its base goes)
   else if (kind === 'treasure') treasure(m, a === '1');
   else if (kind === 'tilled') tilled(m, +a, +b || 0, d === 'm');
   else if (kind === 'rug') rugModel(m, a, b);
@@ -1238,6 +1278,9 @@ const OWN = {
   carcass: () => mat({ vertexColors: true, roughness: 0.85 }),
   // (the wheelbarrow's heap of sacks: the burlap of the tarp over them and of the sacks)
   tarp: () => mat({ color: apagado('#8c7b5a'), roughness: 1, side: THREE.DoubleSide }),
+  // (the towers' other stones: the same textures, another tone)
+  towerWall_granite: () => towerCut(mat({ map: modelMats().towerWall.map, color: '#ccd2d8', roughness: 0.92 })), towerStone_granite: () => towerCut(mat({ map: modelMats().towerStone.map, color: '#cfd5da', roughness: 0.9 })),
+  towerWall_slate: () => towerCut(mat({ map: modelMats().towerWall.map, color: '#c2cad0', roughness: 0.88 })), towerStone_slate: () => towerCut(mat({ map: modelMats().towerStone.map, color: '#c0c8ce', roughness: 0.86 })),
   // (the village mailbox's paints and wood: mailbox3d.js; the fountain's stone: fountain3d.js)
   ...MAIL_MATS, ...FOUNT_MATS,
 };

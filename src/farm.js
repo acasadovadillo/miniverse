@@ -566,6 +566,7 @@ export class Farm {
     if (![B.MEADOW, B.FOREST, B.PINES, B.SWAMP, B.SNOW].includes(b) || !isGrass(x, y)) return false;
     const d = this.d(tx, ty), k = key(tx, ty);
     if (d && (d.tilled[k] !== undefined || d.placed?.[k] || d.floor?.[k] || d.trees?.[k] || d.dig?.[k] !== undefined)) return false;
+    if (w.towerOf(tx, ty)) return false;   // (a watchtower's base: scenes.js)
     return !w.collidersNear(x, y).some(c => !c.dig && (c.r !== undefined ? Math.hypot(c.x - x, c.y - y) < c.r + 0.8 : !c.rx && x > c.x0 - 0.6 && x < c.x1 + 0.6 && y > c.y0 - 0.6 && y < c.y1 + 0.6));
   }
   plantTree(tx, ty, kind) {

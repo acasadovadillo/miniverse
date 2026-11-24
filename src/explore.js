@@ -4,8 +4,9 @@
 // state and its history) and world/frozenplaces.js (what an old world keeps as it was).
 import { ihash } from './util.js';
 import { CHUNK } from './world/gen.js';
-import { towerColliders, TOWER } from './world/tower.js';
+import { towerColliders, lighthouseColliders, chestSpot, poiModel, TOWER, GALLERY } from './world/tower.js';
 import { wrapIndex } from './world/planet.js';
+import { Lookout } from './lookout.js';
 import { houseBlueprint, houseSize, byChunk } from './world/blueprints.js';
 import { makeCave, makeDungeon } from './world/underground.js';
 import { sitesFor, LegacyPlaces, hamletSlots, READY, SITE_SIZE as SIZE } from './world/sites.js';
@@ -41,6 +42,7 @@ export class Explore {
     this.places1 = null;         // what an old world keeps (frozenplaces.js), or null: not known yet (the places of before, meanwhile)
     this.marks = {};
     this.version = 0; this.warmAt = 0;
+    this.look = new Lookout(this);   // (looking from above, and what is spotted: lookout.js)
   }
   get world() { return this.game.world; }
   reset(save) {
@@ -52,6 +54,7 @@ export class Explore {
     this.foundAt = save.foundAt && typeof save.foundAt === 'object' ? { ...save.foundAt } : {};
     this.start = { x: save.player?.x, y: save.player?.y, spawn: save.worldSpawn, animals: save.animals };
     this.toldHost = null; this.warmAt = 0;
+    this.look.reset(save);
     this.setPlaces(readPlaces(save.places1));
     // (your own world, or the server's: its list is made now, before any land is. A shared world that came without one, 0
     // (live.js, enter): in update, if it is your game that runs it; if not, the places of before, as its host sees them)
@@ -62,6 +65,7 @@ export class Explore {
     out.found = [...this.found]; out.placesV = 2; out.foundAt = this.foundAt;
     if (this.oldFound.size) out.oldFound = [...this.oldFound];
     if (this.places1) out.places1 = this.places1;
+    this.look.save(out);
   }
 
   // ---------- what the world keeps of before ----------
@@ -114,6 +118,8 @@ export class Explore {
       else if (kind !== '-') { const s = this.sites.at(cx, cy); if (s && READY.has(s.kind) && !nearFrozen(s, this.marks, this.legacy)) p = s; }
     }
     if (p?.kind === 'ruinas') p = { ...p, pad: true };
+    // (a lighthouse left behind is not lit; those of before, always, as they were)
+    if (p?.kind === 'faro' && !p.legacy) p = { ...p, lit: stateOf(p) !== 'empty' };
     if (this.cache.size > 30000) this.cache.clear();
     this.cache.set(k, p);
     return p;
@@ -274,18 +280,23 @@ export class Explore {
     }
     if (p.kind === 'faro') {
       out.objects.push({ x: p.x, y: p.y, poi: p, fx: [p.x - 1.5, p.x + 1.5], fy: [p.y - 1.5, p.y + 1.5] });
-      out.colliders.push({ x0: p.x - 0.5, y0: p.y - 0.5, x1: p.x + 0.5, y1: p.y + 0.5 });
-      out.lights.push({ x: p.x, y: p.y, z: 160, r: 120 });
+      out.colliders.push(...lighthouseColliders(p.x, p.y, p.key));
+      if (p.lit !== false) out.lights.push({ x: p.x, y: p.y, z: 160, r: 120 });
       return;
     }
     // Campamento, torre, barco y templo: el sitio y un cofre al lado (menos el templo, que guarda su tesoro dentro)
     const half = p.kind === 'torre' ? TOWER.R : 1.5;
     out.objects.push({ x: p.x, y: p.y, poi: p, fx: [p.x - half, p.x + half], fy: [p.y - half, p.y + half] });
-    if (p.kind === 'torre') out.colliders.push(...towerColliders(p.x, p.y));   // (se entra y se sube por dentro: ver world/tower.js)
+    if (p.kind === 'torre') out.colliders.push(...towerColliders(p.x, p.y, { h: p.h, yaw: p.yaw, key: p.key }));   // (se entra y se sube por dentro: ver world/tower.js)
     else if (p.kind === 'campamento') { out.colliders.push({ x0: p.x - 1.5, y0: p.y - 1.5, x1: p.x + 0.5, y1: p.y + 0.5 }); out.colliders.push({ x: p.x + 1, y: p.y + 1, r: 0.4 }); }
     else out.colliders.push({ x0: p.x - 1.4, y0: p.y - 1.4, x1: p.x + 1.4, y1: p.y + 1.4 });
     if (p.kind === 'campamento') out.lights.push({ x: p.x + 1, y: p.y + 1, z: 6, r: 60 });
-    if (p.kind !== 'templo') {
+    // (the watchman's chest, up on the terrace; that of a tower of before, where it was)
+    if (p.kind === 'torre' && p.h) {
+      const c = chestSpot(p);
+      out.objects.push({ x: c.x, y: c.y, yaw: c.yaw, up: c.z, treasure: p, tile: [Math.floor(c.x), Math.floor(c.y)], open: !!opened });
+      out.colliders.push({ x: c.x, y: c.y, r: 0.35, zmin: c.z - 1 });
+    } else if (p.kind !== 'templo') {
       const at = [Math.floor(p.x) + (p.kind === 'torre' ? 5 : 2), Math.floor(p.y)];   // la casilla de al lado, a la derecha del lugar (de la torre, fuera)
       out.objects.push({ x: at[0] + 0.5, y: at[1] + 0.5, treasure: p, tile: at, open: !!opened });
       out.colliders.push({ x: at[0] + 0.5, y: at[1] + 0.5, r: 0.35 });
@@ -299,6 +310,7 @@ export class Explore {
     if (g.scene !== this.world) return;
     // (the cells ahead, one at a time, so that none has to be worked out when the land is made)
     if (this.places1 && !(g.time - this.warmAt < WARM_EVERY)) { this.warmAt = g.time; if (!this.sites.warm(p.x, p.y, WARM_R)) this.warmAt = g.time + 1; }
+    this.look.update();
     const near = this.poiNear(p.x, p.y, 12);
     if (near && !this.known(near)) {
       const again = this.oldFound.delete(near.key);
@@ -310,6 +322,8 @@ export class Explore {
       const title = this.title(near), line = t('feed.discovered', { place: title });
       if (BIG_PLACES.has(near.kind)) hud.big({ title, sub: t('big.discovered'), kind: 'place', line }); else hud.toast(line, 'place');
       g.stats?.add('lugares', 1);
+      this.look.visited(near);
+      g.skills?.gain('explore', near.kind === 'aldea' ? 60 : 25);
     }
   }
   entities(scene) {
@@ -331,14 +345,14 @@ export class Explore {
       if (!poi) return null;
       if (poi.kind === 'cueva' && Math.hypot(p.x - poi.x, p.y - poi.y) < 2.2) return { text: t('place.cave.enter'), run: () => this.enterCave(poi, 1) };
       if (poi.kind === 'templo' && p.y > poi.y + 1.2 && Math.abs(p.x - poi.x) < 1.6) return { text: t('place.temple.enter'), run: () => this.enterDungeon(poi) };
-      if (poi.kind === 'faro') return { text: t('place.lighthouse.up'), run: () => this.climbLighthouse(poi) };
+      if (poi.kind === 'faro') return this.lighthouseAction(poi);
       if (poi.kind === 'aldea') {
         const who = this.traders.get(poi.key);
         if (who && Math.hypot(p.x - who.x, p.y - who.y) < 1.6) return { text: t('place.trader.talk'), run: () => g.onShop?.('viajero') };
         return null;
       }
       const c = this.world.contentFor(Math.floor(poi.x / CHUNK), Math.floor(poi.y / CHUNK)).objects.find(o => o.treasure);
-      if (c && Math.hypot(p.x - c.x, p.y - c.y) < 1.4) {
+      if (c && this.level(c, p) && Math.hypot(p.x - c.x, p.y - c.y) < 1.4) {
         const d = this.world.delta(Math.floor(poi.x / CHUNK), Math.floor(poi.y / CHUNK), true);
         if (d.opened?.[poi.key]) return { text: t('place.chest.empty'), run: () => Audio.error() };
         return { text: t('place.chest.open'), run: () => this.openPoiChest(poi, d) };
@@ -378,18 +392,22 @@ export class Explore {
       if (!poi) return null;
       // (shape: the model it draws, for the outline and, with exact, for the aim; see game.js aimTargets)
       const add = (x, y, hx, hy, h, act, e, shape) => out.push({ kind: 'sys', e, box: box(x, y, hx, hy, 0, h), act, ...shape });
-      const model = { name: `poi:${poi.kind}${poi.snow ? ':snow' : ''}`, x: poi.x, y: poi.y, lift: poi.z || 0 };
+      const model = { name: poiModel(poi), x: poi.x, y: poi.y, yaw: poi.yaw || 0, lift: poi.z || 0 };
       if (poi.kind === 'cueva') add(poi.x, poi.y, 1.1, 1.1, 1.5, () => ({ text: t('place.cave.enter'), run: () => this.enterCave(poi, 1) }), null, { model, exact: true });
       // (the temple is entered by its door: that is what is aimed at, and the outline is the temple)
       else if (poi.kind === 'templo') add(poi.x, poi.y + 1.2, 0.9, 0.25, 2, () => ({ text: t('place.temple.enter'), run: () => this.enterDungeon(poi) }), null, { model, keepBox: true });
-      else if (poi.kind === 'faro') add(poi.x, poi.y, 1, 1, 4, () => ({ text: t('place.lighthouse.up'), run: () => this.climbLighthouse(poi) }), null, { model, exact: true });
+      else if (poi.kind === 'faro') {
+        // (from below, its door and its walls; on the gallery, the hatch)
+        if (p.tower?.gallery && p.floor > 4) out.push({ kind: 'sys', e: null, box: box(poi.x, poi.y + 1.14, 0.42, 0.4, GALLERY.H - 0.06, GALLERY.H + 0.16), act: () => this.lighthouseAction(poi) });
+        else add(poi.x, poi.y, 1, 1, 4, () => this.lighthouseAction(poi), null, { model, exact: true });
+      }
       else if (poi.kind === 'aldea') { const who = this.traders.get(poi.key); if (who) add(who.x, who.y, 0.35, 0.35, g.view3d?.personHeight?.(who, 1.5) ?? 1.5, () => ({ text: t('place.trader.talk'), run: () => g.onShop?.('viajero') }), who); }
       else {
         const c = this.world.contentFor(Math.floor(poi.x / CHUNK), Math.floor(poi.y / CHUNK)).objects.find(o => o.treasure);
-        if (c) add(c.x, c.y, 0.45, 0.4, 0.7, () => {
+        if (c && this.level(c, p)) out.push({ kind: 'sys', e: null, box: box(c.x, c.y, 0.45, 0.45, c.up || 0, (c.up || 0) + 0.7), model: { name: `treasure:${c.open ? 1 : 0}`, x: c.x, y: c.y, yaw: c.yaw || 0, lift: (poi.z || 0) + (c.up || 0) }, exact: true, act: () => {
           const d = this.world.delta(Math.floor(poi.x / CHUNK), Math.floor(poi.y / CHUNK), true);
           return d.opened?.[poi.key] ? { text: t('place.chest.empty'), run: () => Audio.error() } : { text: t('place.chest.open'), run: () => this.openPoiChest(poi, d) };
-        }, null, { model: { name: `treasure:${c.open ? 1 : 0}`, x: c.x, y: c.y, lift: poi.z || 0 }, exact: true });
+        } });
       }
       return out;
     }
@@ -409,6 +427,12 @@ export class Explore {
     g.combat.spawn(sc);
     this.current = poi;
     await g.goTo(sc, sc.entry.x, sc.entry.y);
+    this.deeper(depth);
+  }
+  // (a level never reached before is exploring)
+  deeper(depth) {
+    const g = this.game;
+    if (depth > (g.stats?.get('profundidad') || 0)) g.skills?.gain('explore', 15);
     g.stats?.max('profundidad', depth);
   }
   async enterDungeon(poi) {
@@ -431,7 +455,7 @@ export class Explore {
     g.combat.spawn(sc);
     const at = dir > 0 ? sc.entry : sc.fromBelow;
     await g.goTo(sc, at.x, at.y);
-    g.stats?.max('profundidad', sc.depth);
+    this.deeper(sc.depth);
     hud.toast(t('cave.level', { title: this.current?.kind === 'cueva' ? this.title(this.current) : placeKind('cueva'), n: sc.depth }));
   }
 
@@ -442,6 +466,10 @@ export class Explore {
       out.push(['lingote_oro', 3], ['rubi', 1], ['esmeralda', 1], ['moneda_antigua', 3]);
       if (r() < 0.35) out.push(['espada_oro', 1]);
       g.addMoney(500);
+    } else if (table === 'torre') {
+      // (what a watchman keeps: light, coal and what he was paid)
+      out.push(['antorcha', 4 + Math.floor(r() * 4)], ['carbon', 3 + Math.floor(r() * 4)], ['moneda_antigua', 1 + Math.floor(r() * 2)]);
+      g.addMoney(60 + Math.floor(r() * 140));
     } else if (typeof table === 'number') {
       const pool = [['carbon', 4], ['lingote_cobre', 2], ['pocion', 1], ['moneda_antigua', 1], ['antorcha', 5], ...(table >= 3 ? [['lingote_hierro', 2], ['amatista', 1]] : []), ...(table >= 6 ? [['lingote_oro', 1], ['rubi', 1]] : [])];
       for (let i = 0; i < 3; i++) out.push(pool[Math.floor(r() * pool.length)]);
@@ -495,17 +523,25 @@ export class Explore {
     if (def?.vehicle === 'caballo' && !p.boat && !p.aboard) return g.ranch.whistle(p);   // (el caballo es un animal de verdad: ver la granja)
     return null;
   }
-  // Subir a un faro: desde arriba se ve la costa (se descubre lo de alrededor en el mapa)
-  async climbLighthouse(poi) {
-    if (this.game.carry?.refuse('cave')) return;
-    const g = this.game, cx = Math.floor(poi.x / CHUNK), cy = Math.floor(poi.y / CHUNK);
+  // Is the chest c at the height of p? (that of a tower is up on its terrace)
+  level(c, p) { return Math.abs((p.z || 0) - (c.up || 0)) < 1.5; }
+  // A lighthouse: up to the gallery, or down from it (the stairs inside are too narrow to walk: a fade). What one sees from up
+  // there, lookout.js
+  lighthouseAction(poi) {
+    const p = this.game.player, up = !!p.tower?.gallery && p.floor > 4;
+    return up ? { text: t('place.lighthouse.down'), run: () => this.climbLighthouse(poi, false) } : { text: t('place.lighthouse.up'), run: () => this.climbLighthouse(poi) };
+  }
+  async climbLighthouse(poi, up = true) {
+    const g = this.game, p = g.player;
+    if (g.carry?.refuse('cave')) return;
+    if (p.mount) { hud.toast(t('place.lighthouse.afoot')); Audio.error(); return; }
     g.busy = true;
+    p.stop?.();
+    Audio.door();
     await hud.fade(true);
-    for (let dy = -4; dy <= 4; dy++) for (let dx = -4; dx <= 4; dx++) g.explored.add(`${wrapIndex(cx + dx, CHUNK)},${cy + dy}`);
-    g.stats?.add('faros', 1);
+    Object.assign(p, { x: poi.x, y: poi.y + (up ? 1.16 : 2.3), z: up ? GALLERY.H : 0, floor: up ? GALLERY.H : 0, vz: 0, vx: 0, vy: 0 });
+    g.view3d?.snap?.();
     await hud.fade(false);
-    g.busy = false;
-    await hud.say(this.title(poi), [t('place.lighthouse.seen')]);
     g.busy = false;
   }
   // Marcas para el mapa: lugares descubiertos

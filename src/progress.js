@@ -22,7 +22,7 @@ export class Stats {
 
 // ---------- Habilidades ----------
 // Their names and perks: skill.<id> and skill.<id>.perk in the language files (read when shown: they follow the language)
-export const SKILL_IDS = ['tala', 'mineria', 'agricultura', 'pesca', 'cocina', 'construccion', 'granja', 'combate', 'diving', 'tracking'];
+export const SKILL_IDS = ['tala', 'mineria', 'agricultura', 'pesca', 'cocina', 'construccion', 'granja', 'combate', 'diving', 'tracking', 'explore'];
 const xpFor = lvl => 25 * lvl * (lvl + 1);   // experiencia total para llegar a un nivel
 export class Skills {
   constructor(game) { this.game = game; this.xp = {}; }

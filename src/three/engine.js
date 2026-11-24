@@ -8,7 +8,6 @@ import { TOWER_CUT, modelMats } from './models.js';
 import { baseMaterials } from './build3d.js';
 import { tintMats } from './tints.js';
 import { photoBases } from './textures.js';
-import { TOWER } from '../world/tower.js';
 import * as THREE from 'three';
 import { Outline } from './outline.js';
 import { CAM, PITCH, DIST, LOOK } from '../camera.js';
@@ -27,6 +26,7 @@ import { ITEMS } from '../items.js';
 import { Fx } from './fx.js';
 import { ArrowsView } from './arrows.js';
 import { Tracks3D } from './tracks3d.js';
+import { Landmarks } from './landmarks3d.js';
 import { routeGround } from './route3d.js';
 import { Glow } from './glow.js';
 import { prewarmKit } from './kit3d.js';
@@ -96,6 +96,7 @@ export class View3D {
     this.viewmodel = new THREE.Group(); this.viewmodel.visible = false; this.scene.add(this.viewmodel);
     this.fx = new Fx(this);
     this.arrows = new ArrowsView(this);
+    this.landmarks = new Landmarks(this);   // (what stands out far off: landmarks3d.js)
     this.tracks3d = new Tracks3D(this);   // (prints, blood and bent grass on the ground: src/tracks.js, Plan G)
     this.glow = new Glow(this);   // (los halos, las ventanas y los charcos de luz de noche)
     this.shadows = new SunShadow(this);   // (después de todo lo que se mueve: son sus grupos)
@@ -287,7 +288,7 @@ export class View3D {
     if (menu) { const t = game.time; tx = CENTER.x + Math.sin(t * 0.07) * 6; tz = CENTER.y + Math.cos(t * 0.05) * 5; ty = 0; CAM.yaw += dt * 0.05; }
     else { tx = p.x; tz = p.y; ty = this.feetY(scene, p); }
     // Dentro de una torre (y no en primera persona): lo que tape se recorta (ver models.js, TOWER_CUT)
-    { const tw = !menu && !cave && game.places?.poiNear?.(p.x, p.y, 0), inT = !!tw && tw.kind === 'torre' && Math.hypot(p.x - tw.x, p.y - tw.y) < TOWER.inner + 0.4 && !CAM.first;
+    { const inT = !menu && !cave && !!p.tower?.spiral && p.floor < p.tower.h - 0.3 && !CAM.first;   // (whichever tower: entities.js; up on the terrace nothing is in the way)
       TOWER_CUT.inside.value = inT ? 1 : 0;
       if (inT) { TOWER_CUT.player.value.set(p.x, ty + (p.z || 0) - (p.floor || 0), p.y); TOWER_CUT.toCam.value.set(Math.sin(CAM.yaw), Math.cos(CAM.yaw)); } }
     this.camScene = cave ? null : scene;   // (para camGround: lo cavado de ahí)
@@ -307,7 +308,7 @@ export class View3D {
     c.pitchNow ??= goal;
     c.pitchNow += (goal - c.pitchNow) * (Math.abs(c.pvel) > 0.01 && goal === wantPitch ? 1 : ease(4));
     c.low = 1 - Math.max(0, Math.min(1, (c.pitchNow - PITCH.min) / 0.75));
-    const fov0 = 30 + c.low * c.low * 12, fov = fov0 + (50 - fov0) * c.diveK;   // (diving, 50°: close, the diver and round them)
+    const fov0 = 30 + c.low * c.low * 12, fov = fov0 + (50 - fov0) * c.diveK + (menu ? 0 : game.places?.look?.breath || 0);   // (diving, 50°: close, the diver and round them)
     if (Math.abs(this.camera.fov - fov) > 0.01) { this.camera.fov = fov; this.camera.updateProjectionMatrix(); }
     dirOf(CAM.yaw, c.pitchNow, this.ray);
     const reach = cave ? wantDist : this.clearance(c.target, this.ray, wantDist, inside, false).reach;
@@ -343,7 +344,7 @@ export class View3D {
     const look = this.from.copy(this.ray).multiplyScalar(Math.cos(CAM.look));
     look.y = Math.sin(CAM.look);
     this.camera.lookAt(look.add(this.camera.position));
-    const fov = 70 - 12 * (game.archery?.k || 0);   // (al tensar el arco, se acerca un poco)
+    const fov = 70 - 12 * (game.archery?.k || 0) + (game.places?.look?.breath || 0);   // (al tensar el arco, se acerca un poco)
     if (this.camera.fov !== fov || this.camera.near !== 0.05) { this.camera.fov = fov; this.camera.near = 0.05; this.camera.updateProjectionMatrix(); }
     setViewAngle(CAM.yaw - Math.PI / 4);
   }
@@ -515,6 +516,7 @@ export class View3D {
     this.first = CAM.first && !!game.player && !!game.scene;
     { const p = game.player; this.wet = !!p && !!game.scene && !p.boat && !p.aboard && (p.swim || p.depth > 0.35); }   // (ver draw; vadeando con el agua por debajo de la rodilla, casi todo el cuerpo queda fuera y vale la silueta de siempre, que lo deja ver tras los árboles)
     this.updateViewmodel(game, this.first);
+    this.landmarks.update(game, scene, t);   // (before fx: it gives the far beams)
     this.fx.update(game, scene, sdt, t);
     routeGround(this, game, scene, t);   // (the marked route on the ground: nothing at all without one, route3d.js)
     this.arrows.update(game, scene);

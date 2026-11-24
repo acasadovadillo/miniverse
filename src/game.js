@@ -24,6 +24,7 @@ import { clothesFor, dressed, wearStage } from './looks.js';
 import { WorldStore } from './worldstore.js';
 import { BuildMode } from './build.js';
 import { Plans } from './plans.js';
+import { watchtower } from './world/tower.js';
 import { TimeSystem } from './time.js';
 import { Farm } from './farm.js';
 import { Ranch } from './ranch.js';
@@ -260,7 +261,7 @@ export class Game {
     const moved = save.seed !== undefined && save.seed !== WORLD_SEED;
     if (moved) {
       for (const [k, d] of deltas) if (!k.startsWith('u:')) Object.assign(d, { removed: {}, picked: {}, opened: {}, dived: {}, fished: {} });   // (dived: what was taken from the sea bed, dive.js)
-      save = { ...save, explored: [], found: [] };
+      save = { ...save, explored: [], found: [], spotted: [], lookouts: {} };
     }
     setFamilyHouse(save.house?.family);   // (antes de hacer el pueblo: con la casa familiar, su jardín cambia)
     this.world = new Overworld(WORLD_SEED, deltas);
@@ -490,7 +491,8 @@ export class Game {
     const p = this.player, cx = Math.floor(p.x / CHUNK), cy = Math.floor(p.y / CHUNK), key = `${cx},${cy}`;
     if (key === this.lastChunk) return;
     this.lastChunk = key;
-    for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) this.explored.add(`${wrapIndex(cx + dx, CHUNK)},${cy + dy}`);
+    const R = this.places?.look?.radius(p.x, p.y) ?? 2;   // (further from the high ground: lookout.js)
+    for (let dy = -R; dy <= R; dy++) for (let dx = -R; dx <= R; dx++) this.explored.add(`${wrapIndex(cx + dx, CHUNK)},${cy + dy}`);
   }
   // Dar la vuelta al planeta (planet.js): al pasar la costura, las coordenadas siguen por el otro lado y la vista se
   // rehace; al cruzar un polo se sale por el otro lado del planeta (180° más allá), andando hacia el sur (la cámara
@@ -852,9 +854,12 @@ export class Game {
     // (the hearth, whose chimney holds the roof: not while it does; structure.js)
     if (PIECES[o.placed] && o.tile && this.build.holds({ tile: o.tile, layer: o.layer || 'placed' })) { this.gather.float(t('build.why.holds_roof'), '#ffb0a0'); Audio.error(); return false; }
     const W = this.scene === this.world && o.tile && o.layer ? this.world : null, own = W && (!W.ownAt || !!W.ownAt(o.layer, o.tile[0], o.tile[1]));
+    // (a watchtower: not while you are in it; of one that is not new, only a part comes back, as of the pieces: build.js)
+    const tall = watchtower(o.placed), back = tall ? this.build.backOf({ layer: 'placed', tile: o.tile }, o.placed) : B?.cost;
+    if (tall && this.player?.tower?.key === `w:${o.tile}`) { this.gather.float(t('why.watchtower.inside'), '#ffb0a0'); Audio.error(); return false; }
     if (this.scene.unplace(o) === false && B) return false;
     if (!B) this.inv.add(id, 1);
-    else if (!carry) for (const [m, n] of B.cost) { const left = this.inv.add(m, n); if (left) this.gather.throwOut(m, left); }
+    else if (!carry) for (const [m, n] of back) { const left = this.inv.add(m, n); if (left) this.gather.throwOut(m, left); }
     // (from a neighbor's house the village notices; taking again what you had given back costs again: reputation.js.
     // Here and not only in B › Remove, so picking it up with X or moving it with B › Move counts the same)
     if (W) this.rep?.taken(o.layer, o.tile[0], o.tile[1], own);

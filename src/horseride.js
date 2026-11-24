@@ -180,7 +180,7 @@ function scan(x, y, z, fx, fy, near, reach, noLow) {
   HIT = null;
   for (let i = 0; i < near.length; i++) {
     const c = near[i];
-    if (!solidFor(c) || (noLow && c.low) || (c.zmax !== undefined && z > c.zmax)) continue;
+    if (!solidFor(c) || (noLow && c.low) || (c.zmax !== undefined && z > c.zmax) || (c.zmin !== undefined && z < c.zmin)) continue;
     let cx, cy, r;
     if (c.obb) { cx = c.obb.x; cy = c.obb.y; r = Math.hypot(c.obb.hx, c.obb.hy); }
     else if (c.rx) { cx = c.x; cy = c.y; r = Math.max(c.rx, c.ry); }

@@ -4,7 +4,7 @@ import { fromView, toView } from './iso.js';
 import { CAM, screenToWorld, viewFor, screenDirOf } from './camera.js';
 import { collide } from './physics.js';
 import { Audio } from './audio.js';
-import { towerFloor } from './world/tower.js';
+import { towerFloor, galleryFloor } from './world/tower.js';
 import { WATER_Y } from './world/planet.js';
 import { BARROW, WHEEL_AHEAD, pushedAhead } from './carry-items.js';
 import { apagada } from './opciones.js';
@@ -72,10 +72,17 @@ export function floorAt(x, y, list, z = 0) {
   for (const c of list) {
     if (c.top === undefined) continue;
     if (c.spiral) { const f = towerFloor(c, x, y, z); if (f !== null) return f; continue; }   // (la escalera de la torre manda)
+    if (c.gallery) { const f = galleryFloor(c, x, y, z); if (f !== null) return f; continue; }
     const R = c.r + 0.18, d = Math.hypot(x - c.x, y - c.y);
     if (d < R) h = Math.max(h, c.top * Math.sqrt(1 - (d / R) ** 2));
   }
   return h;
+}
+
+// The tower (its stairs) or the lighthouse (its gallery) one is in or on, or null: its collider (world/tower.js)
+function towerIn(near, x, y) {
+  if (near) for (const c of near) if ((c.spiral || c.gallery) && Math.abs(c.x - x) < c.r + 0.4 && Math.hypot(c.x - x, c.y - y) < c.r + 0.4) return c;
+  return null;
 }
 
 // ---------- pushing the wheelbarrow (barrow.js) ----------
@@ -215,7 +222,7 @@ export class Player extends Person {
       // (with something in the arms no fence is hopped: through the gate; riding, the big thing goes behind the saddle and the
       // horse jumps as always. Pushing the wheelbarrow the rocks and the tower stairs are walls: you would climb them and it not)
       // (riding, a tall rock is a wall too: the horse does not climb it. A small one it goes through, as before)
-      collide(p, near.filter(c => (c.top === undefined || this.pushing || (R && !c.spiral && c.top >= ROCK_TOP)) && !c.dig && !c.pond && !(high && c.low && !(this.carrying && !this.mount)) && !(c.zmax !== undefined && this.z > c.zmax)), RADIUS);   // (zmax: lo que solo frena abajo)
+      collide(p, near.filter(c => (c.top === undefined || this.pushing || (R && !c.spiral && c.top >= ROCK_TOP)) && !c.dig && !c.pond && !(high && c.low && !(this.carrying && !this.mount)) && !(c.zmax !== undefined && this.z > c.zmax) && !(c.zmin !== undefined && this.z < c.zmin)), RADIUS);   // (zmax: lo que solo frena abajo; zmin: up there only)
       if (dug) collide(p, scene.digWalls(p.x, p.y, feet, this.airborne ? 0.05 : STEP_UP), RADIUS);   // (en el aire, sin el escalón: se sube lo que da el salto)
     }
     // (the horse hit something: head on at speed, a stumble)
@@ -286,6 +293,7 @@ export class Player extends Person {
     // Lo que se pisa: subiendo a una roca, se sube con ella (deprisa, sin saltar); bajando poco, se baja con ella; si
     // no, se cae
     this.floor = near && !this.mount && !this.swim ? floorAt(this.x, this.y, near, this.z) : 0;
+    this.tower = towerIn(near, this.x, this.y);
     if (this.swim) {   // (nadando no se salta ni se cae: flota; lo que se hunde va aparte, en sink)
       this.z = 0; this.vz = 0;
       return;   // (las brazadas, con sus gotas y su sonido, las lleva el dibujo: three/actors.js, swimY)

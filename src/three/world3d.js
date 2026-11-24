@@ -5,6 +5,7 @@
 // máscara por trozo dice dónde está ya el árbol de cerca, y los dos se funden con tramados complementarios. Cada trozo
 // se rehace solo cuando cambia lo que tiene. Los tejados van por regiones (toda la superficie unida, aunque cruce trozos) y, con el jugador dentro
 // de una casa, se ocultan el tejado y las paredes que dan a la cámara (siguen dando sombra).
+import { poiModel } from '../world/tower.js';
 import { WATER_Y } from './terrain.js';
 import { boatModel } from './actors.js';
 import { loadModel, placeLoad } from './carry3d.js';
@@ -251,7 +252,7 @@ export class World3D {
       this.placeModel(`tilled:${fm ? fm.soilLook(dl, k) : 0}:${tilledMask(scene, t[0], t[1], LIFT, lv)}${dl?.mulch?.[k] !== undefined ? ':m' : ''}`, t[0] + 0.5, t[1] + 0.5, 0, plain, c, group, false, LIFT);
     }
     for (const o of data.objects.concat(data.flats)) {
-      LIFT = o.poi ? o.poi.z || 0 : o.treasure ? o.treasure.z || 0 : o.tile ? lv(...o.tile) : lv(Math.floor(o.x), Math.floor(o.y));
+      LIFT = o.poi ? o.poi.z || 0 : o.treasure ? (o.treasure.z || 0) + (o.up || 0) : o.tile ? lv(...o.tile) : lv(Math.floor(o.x), Math.floor(o.y));
       if (o.placed && (o.layer === 'placed' || o.layer === 'hang' || o.layer === 'rug')) {
         const [tx, ty] = o.tile, piece = PIECES[o.placed], region = this.regionAt(scene, tx, ty);
         if (region) c.regions.add(region);
@@ -269,8 +270,8 @@ export class World3D {
         if (o.load && BULKY[o.load]) { const l = loadModel(o.load, 'bow'); placeLoad(l, o.load, 'bow'); b.add(l); }
         b.traverse(q => { if (q.isMesh) { q.castShadow = true; q.receiveShadow = true; } }); group.add(b); (c.boats ||= new Map()).set(o.key, b);
       }
-      else if (o.poi) this.placeModel(`poi:${o.poi.kind}${o.poi.snow ? ':snow' : ''}`, o.poi.x, o.poi.y, 0, plain, c, group, false, LIFT);
-      else if (o.treasure) this.placeModel(`treasure:${o.open ? 1 : 0}`, o.x, o.y, 0, plain, c, group, false, LIFT);
+      else if (o.poi) this.placeModel(poiModel(o.poi), o.poi.x, o.poi.y, o.poi.yaw || 0, plain, c, group, false, LIFT);
+      else if (o.treasure) this.placeModel(`treasure:${o.open ? 1 : 0}`, o.x, o.y, o.yaw || 0, plain, c, group, false, LIFT);
       else if (o.roof && o.layer === 'roof') { const r = this.regionAt(scene, o.tile[0], o.tile[1]); if (r) c.regions.add(r); }
     }
     // (el suelo bajo cada charco de luz, con su pendiente, al montar el trozo: si cambia el suelo, se rehace con él. Ver glow.js)
