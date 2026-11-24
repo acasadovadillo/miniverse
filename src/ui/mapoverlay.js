@@ -4,7 +4,7 @@
 //   overlay.picture(cx, cy)      a 64 × 64 canvas (4 px per tile, see-through) with the chunk's fields, floors, paths, walls,
 //                                fences and roofs, or null: nothing there. Made again only when what is seen of its chunk changes
 //   overlay.footprints(x0, y0, x1, y1)   the buildings of that rectangle of tiles: [{ x0, y0, x1, y1, h, color }], one per
-//                                roofed region, x0 unwrapped (h: how tall, in metres). Plan R8-3's rising houses and the 3D map
+//                                roofed region (several, if it is no rectangle), x0 unwrapped (h: how tall, in metres). Plan R8-3's rising houses and the 3D map
 //   overlay.begin(ms)            before drawing: how long it may spend making pictures in this drawing (the rest, the next)
 //   overlay.pending              whether something was left for the next drawing;  overlay.v: goes up with each one made
 //
@@ -27,6 +27,21 @@ const ROOFS = { tejado_rojo: '#a0664c', tejado_azul: '#54677a', tejado_gris: '#6
 const FLOORS = { suelo_madera: '#8d6f4e', suelo_piedra: '#8f8c84', camino: '#a39a88' };
 const THINGS = { stall: rgbOf('#b05a45'), stall2: rgbOf('#5f7aa0'), stall3: rgbOf('#b59a4c'), fountain: rgbOf('#98a3a6'), dock: rgbOf('#8d6f4e') };
 const SOIL = rgbOf('#6b4e36'), FURROW = rgbOf('#573e2a'), LEAF = rgbOf('#6f9440'), RIPE = rgbOf('#c9a53e'), DEAD = rgbOf('#8f8058'), DIRT = rgbOf('#7d5f45'), HEAP = rgbOf('#947353'), WALL = rgbOf('#4f4438'), FENCE = rgbOf('#6f5a44'), STONE = rgbOf('#77736a'), THING = rgbOf('#5f5346');
+
+// A roofed region as rectangles (nearly always just one): from its first tile left, each as wide and then as long as it can
+function rects(reg, set) {
+  const out = [], left = new Set(set);
+  for (const [x, y] of reg.slice().sort((a, b) => a[1] - b[1] || a[0] - b[0])) {
+    if (!left.has(`${x},${y}`)) continue;
+    let w = 1, h = 1;
+    while (left.has(`${x + w},${y}`)) w++;
+    const row = v => { for (let i = 0; i < w; i++) if (!left.has(`${x + i},${v}`)) return false; return true; };
+    while (row(y + h)) h++;
+    for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) left.delete(`${x + i},${y + j}`);
+    out.push({ x0: x, y0: y, x1: x + w, y1: y + h });
+  }
+  return out;
+}
 
 export class MapOverlay {
   // world(), places(): those of the game now (or null)
@@ -170,7 +185,7 @@ export class MapOverlay {
       const set = new Set(reg.map(q => q.join())), shape = roofShape(reg, (a, b) => set.has(`${a},${b}`));
       for (const [x, y] of reg) done.add(`${x},${y}`);
       const body = rgbOf(ROOFS[parsePlaced(ids[0])[0]] || ROOFS.tejado_rojo);
-      feet.push({ x0: shape.x0, y0: shape.y0, x1: shape.x1, y1: shape.y1, h: FLOOR_H, color: `rgb(${body})` });
+      for (const q of rects(reg, set)) feet.push({ ...q, h: FLOOR_H, color: `rgb(${body})` });
       for (let n = 0; n < reg.length; n++) {
         const [x, y] = reg[n], col = rgbOf(ROOFS[parsePlaced(ids[n])[0]] || ROOFS.tejado_rojo);
         tile(x, y, (i, j, u, w) => {

@@ -13,6 +13,7 @@ import { Audio } from '../audio.js';
 import { apagada, opcion } from '../opciones.js';
 import { FE, tabStrip, list, optionRow, legend, ring, paneNav } from './frontend.js';
 import { skinNow, accentOf, ACCENTS } from './skin.js';
+import { MODES, miniMode } from './minimap.js';
 
 const $ = id => document.getElementById(id);
 export const SETTINGS_TABS = ['game', 'display', 'interface', 'audio', 'controls', 'account'];
@@ -57,6 +58,9 @@ export const settingsRows = {
     // once, while playing (shown: the one in sight, which the address, the tests or the bench can choose without saving it: main.js)
     { id: 'hud', group: G + 'hud', key: 'hud', values: vals('hud', 'minimal', 'full'), get: () => Settings.hudNow?.() ?? Settings.v.hud,
       desc: () => t('gui.settings.desc.hud') + (opcion('hud') ? ' ' + t('gui.settings.forced_start', { what: `?hud=${opcion('hud')}` }) : '') },
+    // (the minimap: by the interface's rules, always, the compass strip instead, or none; and how big: ui/minimap.js)
+    { id: 'mini', group: G + 'hud', key: 'mini', values: vals('mini', ...MODES), get: miniMode, def: 'fade' },
+    { id: 'mini_size', group: G + 'hud', key: 'miniSize', values: vals('mini_size', 's', 'm', 'l'), get: () => (['s', 'l'].includes(Settings.v.miniSize) ? Settings.v.miniSize : 'm'), def: 'm' },
     // (what the keys do: at the thing aimed at, or at the cursor; and which notices show: ui/prompts.js, ui/feed.js)
     { id: 'prompts', group: G + 'hud', key: 'prompts', values: vals('prompts', 'object', 'cursor'), get: () => (Settings.v.prompts === 'cursor' ? 'cursor' : 'object') },
     { id: 'feed', group: G + 'hud', key: 'feed', values: vals('feed', 'all', 'important'), get: () => (Settings.v.feed === 'important' ? 'important' : 'all') },

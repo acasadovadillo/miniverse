@@ -10,7 +10,7 @@
 //                            something in it changed (where things are, which, their names)
 //   blips.hide               kinds not shown (the big map's filters will fill it)
 //
-// blip = { kind, x, y (tiles, x inside the planet or not), z?, r? (an area: metres), glyph, color, name?, sub?, track?, pri,
+// blip = { kind, x, y (tiles, x inside the planet or not), z? (metres over the ground there), r? (an area: metres), glyph, color, name?, sub?, track?, pri,
 //   filter, legend, who? (the owner's id), mini (on the minimap too), to? (where a route to it goes: { x, y, kind, id }),
 //   dim? (drawn faded: a closed shop), pin? ('route' | 'shared': drawn as a pin), conn? }
 // KINDS gives what each kind has unless the source says otherwise: its glyph, colour, legend group (filter), legend row (a
@@ -27,7 +27,7 @@ import { HOUSE, HOUSES, TAVERN, DOOR, WALK_NODES, NILO, doorOf, hasProject } fro
 import { PEOPLE } from '../neighbors.js';
 import { CHUNK } from '../world/gen.js';
 import { wrapIndex, distOf } from '../world/planet.js';
-import { ACCENTS } from './skin.js';
+import { ACCENTS, accent } from './skin.js';
 import { reportFault } from '../faults.js';
 
 const PLACE_GLYPH = { cueva: 'cave', ruinas: 'ruins', campamento: 'camp', torre: 'tower', barco: 'wreck', templo: 'temple', aldea: 'village', faro: 'lighthouse' };
@@ -46,7 +46,7 @@ export const KINDS = {
   cat: { glyph: 'cat', color: '#e6cfa4', filter: 'animals', legend: 'map.legend.pets', pri: 39, mini: true },
   boat: { glyph: 'boat', color: '#7fd6d0', filter: 'boats', legend: 'map.legend.group.boats', pri: 45, mini: true },
   goal: { glyph: 'goal', color: '#ffd77a', filter: 'jobs', legend: null, pri: 95, mini: true, track: true },
-  route: { glyph: 'pin', color: '#f2e2b0', filter: 'markers', legend: 'map.legend.route', pri: 100, mini: true, track: true, pin: 'route' },
+  route: { glyph: 'pin', color: ACCENTS[0], filter: 'markers', legend: 'map.legend.route', pri: 100, mini: true, track: true, pin: 'route' },
   pin: { glyph: 'pin', color: '#5a8cff', filter: 'markers', legend: 'map.legend.pins', pri: 80, mini: true, pin: 'shared' },
 };
 const OTHER = { glyph: 'place', color: '#ffffff', filter: 'markers', legend: null, pri: 50, mini: true };
@@ -168,7 +168,7 @@ blips.source('players', (out, { game, partner }) => {
   if (L?.joined) for (const q of L.peers?.values() || []) {
     if (!q.playing || q.server || !q.entity || q.sc !== 'world' || q.entity.gm === 3) continue;
     const mine = partner(q.id), b = out.add(mine ? 'partner' : 'player', q.entity.x, q.entity.y);
-    b.name = q.name || ''; b.who = q.id || ''; b.track = mine;
+    b.name = q.name || ''; b.who = q.id || ''; b.track = mine; b.z = q.entity.z || 0;
     if (Number.isInteger(q.entity.accent)) b.color = ACCENTS[q.entity.accent] || b.color;
     b.to = { x: q.entity.x, y: q.entity.y, kind: 'point' };
   }
@@ -204,6 +204,6 @@ blips.source('boats', (out, { game, time, ours, partner }) => {
 blips.source('marks', (out, { game }) => {
   const R = game.route, G = game.map?.goal;
   if (G) out.add('goal', G.x, G.y);
-  if (R?.active) { const b = out.add('route', R.target.x, R.target.y); b.name = R.target.name || ''; }
+  if (R?.active) { const b = out.add('route', R.target.x, R.target.y); b.name = R.target.name || ''; b.color = accent.color; }   // (in your colour, like its line)
   if (R?.pins) for (const [conn, q] of R.pins) { const b = out.add('pin', q.x, q.y); b.name = q.own ? q.name : q.name ? `${q.by}: ${q.name}` : q.by; b.conn = conn; }
 });

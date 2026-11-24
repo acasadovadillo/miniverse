@@ -43,6 +43,7 @@ import { CAM } from '../camera.js';
 import { reportFault } from '../faults.js';
 import { hud } from './hud.js';
 import { markAt } from './routemark.js';
+import { miniMode } from './minimap.js';
 
 const $ = id => document.getElementById(id);
 // What quenches thirst (items.thirstOf, Track A2; the same rule until it is there), and whether a stack is a drink now
@@ -50,7 +51,7 @@ const $ = id => document.getElementById(id);
 const thirstOf = def => (!def ? 0 : items.thirstOf ? items.thirstOf(def) : def.thirst ?? (def.drink ? 4 : 0));
 const isDrink = s => { const def = s && ITEMS[s.id]; return !!def && (thirstOf(def) > 0 || (!!def.canteen && s.sips > 0)); };
 // How long each thing stays after what brought it (seconds; the fade-out comes after)
-const SHOW = { sprint: 3, hurt: 5, heal: 3, hunger: 4, thirst: 4, rest: 4, linger: 1.5, held: 0.5, money: 4, xp: 3, level: 5, slots: 3, name: 1.6, place: 4, clock: 6, tag: 4, quest: 10, intro: 4, tip: 9, tipShort: 7.5, build: 7, all: 1.5, mini: 3, routeMini: 4, horse: 2 };   // (routeMini: the minimap after you stop, with a route; horse: its row after it is full again)
+const SHOW = { sprint: 3, hurt: 5, heal: 3, hunger: 4, thirst: 4, rest: 4, linger: 1.5, held: 0.5, money: 4, xp: 3, level: 5, slots: 3, name: 1.6, place: 4, clock: 6, tag: 4, quest: 10, intro: 4, tip: 9, tipShort: 7.5, build: 7, all: 1.5, mini: 3, horse: 2 };   // (horse: its row after it is full again)
 const LOW_HP = HP_MAX * 0.4, LOW_FOOD = 6, SHOW_FOOD = HUNGER_MAX * 0.6;   // (low health and hunger stay; hunger above 60 % is not news)
 const DANGER = 8;          // tiles: a creature this close keeps health in sight
 const HEAL_NEW = 10;       // seconds without healing: the next heal is news (regen starting), not each 4 s tick
@@ -132,7 +133,7 @@ body.hud-min #debug { top: var(--hud-top); }
 /* Top left, under the bars and the body chip, which come and go (index.html, --hud-top): the objective, one line with a bar of
    the player's colour, and under it the help box (the key tips), as GTA's help text. --hl, its height, is written by smarthud.js
    when it changes: the chat goes under it */
-body.hud-min { --chat-top: max(36vh, calc(var(--hud-top) + var(--hl, 0px) + 8px)); }
+body.hud-min { --chat-top: max(28vh, calc(var(--hud-top) + var(--hl, 0px) + 8px)); }
 #hud-left { position: fixed; left: 16px; top: var(--hud-top); z-index: 6; display: flex; flex-direction: column; align-items: flex-start; gap: 8px; pointer-events: none; transition: top .2s ease; }
 body:not(.playing) #hud-left, body:not(.playing) #hud-right, body:not(.playing) #hud-place { display: none; }
 body.hud-min #hud-left #quest { position: relative; left: auto; top: auto; }
@@ -244,7 +245,7 @@ export class SmartHud {
     const bar = $('hotbar');
     const make = (id, cls, parent = document.body, tag = 'div') => { const el = document.createElement(tag); el.id = id; el.className = cls; parent.append(el); return el; };
     this.el = {
-      clock: $('clockp'), tag: $('admin-tag'), place: $('place'), mini: $('minimap'), money: $('money'), slots: $('hotbar-slots'), quest: $('quest'),
+      clock: $('clockp'), tag: $('admin-tag'), place: $('place'), mini: $('minimap'), strip: $('hud-compass'), money: $('money'), slots: $('hotbar-slots'), quest: $('quest'),
       status: make('hud-status', '', bar), card: make('hud-place', ''),
     };
     delete this.el.place;   // (the full interface's: here, the card)
@@ -300,7 +301,7 @@ export class SmartHud {
     if (this.el) this.beat(-1);
     for (const [el, parent, next] of (this.moved || []).reverse()) parent.insertBefore(el, next?.parentNode === parent ? next : null);
     this.leftSize?.disconnect(); document.body.style.removeProperty('--hl');
-    for (const el of [...['clock', 'tag', 'mini', 'money', 'slots', 'quest'].map(k => this.el?.[k]), this.hintEl]) {
+    for (const el of [...['clock', 'tag', 'mini', 'strip', 'money', 'slots', 'quest'].map(k => this.el?.[k]), this.hintEl]) {
       el?.classList.remove('hm', 'hm-on', 'hm-compact', 'hm-quiet');
       if (el?.getAttribute('class') === '') el.removeAttribute('class');   // (the money had none)
     }
@@ -310,7 +311,7 @@ export class SmartHud {
     const tab = document.querySelector('[data-i18n="hud.controls.tab"]');
     if (tab) { tab.setAttribute('data-i18n', 'controls.players'); tab.textContent = t('controls.players'); }
     const map = this.game.map;
-    if (map) { map.goal = null; map.lastMini = -Infinity; }   // (the full interface draws the minimap always: now)
+    if (map) { map.goal = null; this.game.minimap?.kick(); }   // (the full interface draws the minimap always: now)
     // (the bars: without the timers of this interface, and painted again for the full one)
     try { this.game.needsBar?.reset(); this.game.needsBar?.kick(); } catch (e) { reportFault(e, 'NeedsBar.reset'); }
   }
@@ -421,19 +422,18 @@ export class SmartHud {
     if (g.gamemode !== this.gm) { if (this.gm !== undefined) show('tag', SHOW.tag); this.gm = g.gamemode; if (this.tip === 'all') this.paintTip('all'); }
     // After the first look at everything, once: Tab is there
     if (!this.toldTab && T - this.started > SHOW.intro) { this.toldTab = true; this.want('all'); }
-    // The minimap: while you travel (outside the village, or riding or sailing anywhere)
+    // The minimap (or the compass strip, its mode 'compass'): while you travel (outside the village, or riding or sailing anywhere;
+    // the strip, also walking indoors and in caves)
     const moved = Math.hypot(p.x - this.px, p.y - this.py);
     this.px = p.x; this.py = p.y;
     if (moved > 0.004 && moved < 2) { this.moveT += dt; this.stillT = 0; } else if ((this.stillT += dt) > 0.6) this.moveT = 0;
     const riding = p.mount || p.boat || p.aboard, world = g.scene === g.world, outside = world && !g.indoors;
     if (outside && (riding ? this.moveT > 0.3 : this.moveT > 1 && !inBounds(p.x, p.y))) show('mini', SHOW.mini);
-    // (with a marked route, Plan J §4.1: 3 s when it is set or found again, and while you move with it, 4 s more after
-    // stopping; route.flash counts the sets and re-plans that should show it)
+    const mode = miniMode();
+    if (mode === 'compass' && !outside && this.moveT > 1) show('mini', SHOW.mini);
+    // (with a marked route it stays, as in GTA: where to turn is on it)
     const R = g.route;
-    if (R?.active && outside) {
-      if (R.flash !== this.routeFlash) { this.routeFlash = R.flash; show('mini', SHOW.mini); }
-      if (this.moveT > 0.3) show('mini', SHOW.routeMini);
-    }
+    if (R?.active && outside) show('mini', SHOW.held);
     // (a horse coming to your whistle, or just out of earshot: its marker is on the minimap, so the minimap shows; slow()
     // looks four times a second)
     if (this.horseMini && outside) show('mini', SHOW.mini);
@@ -487,15 +487,14 @@ export class SmartHud {
     this.set('compact', !(up('quest') || all), this.el.quest, 'hm-compact');
     // Where to go, while a first step sends you somewhere: the mark over it, and the minimap with it
     const goal = this.goal(g, p, world && free && !wins && !g.build.on);
-    if (!goal !== !this.mapGoal) g.map.lastMini = -Infinity;   // (it comes or goes: drawn now; while it moves, the minimap's own pace)
     this.mapGoal = g.map.goal = goal;
     // The route's pin over its target (routemark.js; in the full HUD route.js moves it), like the goal's mark
     try { R?.mark?.frame(g, outside && free && !wins && !g.build.on, GOAL_NEAR); } catch (e) { reportFault(e, 'RouteMark.frame'); }
-    const mini = free && (up('mini') || !!goal);
+    const mini = free && mode !== 'off' && (up('mini') || !!goal || (mode === 'always' && outside));
     this.set('mini', mini);
+    this.set('strip', mini);
     this.set('miniBody', (mini || all) && outside, document.body, 'hm-mini');
-    if ((mini || all) && !this.mini) g.map.lastMini = -Infinity;   // (it was not drawn while hidden: draw it now)
-    this.mini = mini || all;   // (game.js draws the minimap only then)
+    this.mini = mini || all || !!g.quick?.open;   // (minimap.js draws only then)
     this.set('all', all, document.body, 'hud-all');
     // The bow: the ring, and its long text only the first times
     const bow = this.bowRing(g, inv, heldDef, free && !wins && !g.build.on);
@@ -643,7 +642,6 @@ export class SmartHud {
     this.horseMini = false; this.spooks = undefined; this.names = { whistle: '', pat: '' };   // (the horse: its marker, its scares and the names its tips say)
     try { this.game.needsBar?.reset(); } catch (e) { reportFault(e, 'NeedsBar.reset'); }   // (the bars: no timer of the game before)
     this.px = p.x; this.py = p.y; this.moveT = 0; this.stillT = 0;
-    this.routeFlash = this.game.route?.flash;   // (a route loaded with the game is no news)
     this.started = T; this.toldTab = false; this.placeTimes = new Map(); this.placeDue = false;
     this.allUntil = 0; this.held = false;
     this.queue = []; this.endTip();

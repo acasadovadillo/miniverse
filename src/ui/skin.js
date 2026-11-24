@@ -24,9 +24,11 @@ export function accentOf(name, saved) {
   for (const c of String(name || '').trim().toLowerCase()) h = Math.imul(h ^ c.codePointAt(0), 16777619);
   return ((h >>> 16) ^ (h & 0xffff)) % ACCENTS.length;
 }
-// The colour of the character of this save (null: none yet, the default pink)
+// The colour of the character of this save (null: none yet, the default pink). accent.color: the one in use, for what is drawn on a
+// canvas or in the world (the marked route, the minimap); accent.v goes up when it changes
+export const accent = { color: ACCENTS[0], v: 0 };
 export function useAccent(save) {
-  const root = document.documentElement.style;
-  if (!save?.player) { root.removeProperty('--me'); return; }
-  root.setProperty('--me', ACCENTS[accentOf(save.player.name, save.ui?.accent)]);
+  const root = document.documentElement.style, mine = save?.player ? ACCENTS[accentOf(save.player.name, save.ui?.accent)] : null;
+  if (mine) root.setProperty('--me', mine); else root.removeProperty('--me');
+  if ((mine || ACCENTS[0]) !== accent.color) { accent.color = mine || ACCENTS[0]; accent.v++; }
 }

@@ -87,6 +87,8 @@ import { WATER_Y } from './world/planet.js';
 import { SatTiles, TILES } from './ui/sattiles.js';
 import { MapOverlay } from './ui/mapoverlay.js';
 import { Blips, blips, KINDS as BLIP_KINDS } from './ui/blips.js';
+import { miniMode } from './ui/minimap.js';
+import { known, HOLD_MS as QUICK_MS } from './ui/quickplaces.js';
 import { satPixels, thumbPixels, hillshade, SAT_N } from './world/satpixels.js';
 import { RELIEF_V } from './world/ground.js';
 import { kitOf, kitKey, placeKit, shownOf, splitKit, kindOf, SCABBARD } from './kit.js';
@@ -2850,7 +2852,8 @@ async function soloTests(game) {
     const asked = [], real = M.tiles.get; M.tiles.get = (k, g, cx, cy) => { asked.push(`${cx},${cy}`); return null; };
     try {
       const some = new Set([...game.explored].slice(0, 6));
-      M.lastMini = -9; M.drawMini(gen, some, p().x, p().y, 1); M.bigKey = ''; M.drawBig(gen, some, p().x, p().y, 0);
+      const all = game.explored; game.explored = some; try { game.minimap.drawGround(); game.minimap.drawUpright(blips.list); } finally { game.explored = all; game.minimap.kick(); }
+      M.bigKey = ''; M.drawBig(gen, some, p().x, p().y, 0);
       check(asked.length && asked.every(k => some.has(k)), `asked for ${[...new Set(asked)].join(' ')}`);
       // (the widest zooms: put together once, then one image however much it moves within its margin)
       const g = document.createElement('canvas').getContext('2d'); asked.length = 0; M.wide = null; M.now = performance.now() / 1000; M.built.begin(5); M.drawWide(g, gen, some, p().x, p().y, 2000, 1400, 2); const n1 = asked.length;
@@ -2942,16 +2945,185 @@ async function soloTests(game) {
       M.recenter(); M.zoom = 3; M.bigKey = ''; M.drawBig(gen, game.explored, p().x, p().y, 0); const h = M.hits.find(q => q.name === 'Cosa'); check(h && M.spotAt(h.sx, h.sy, 10) === h && M.labels.includes('Cosa'), 'it is not on the big map');
       blips.hide.add('test'); M.bigKey = ''; M.drawBig(gen, game.explored, p().x, p().y, 0); check(!M.hits.some(q => q.name === 'Cosa'), 'hidden, it shows');
     } finally { blips.hide.delete('test'); blips.source('test', null); }
-    // On the minimap: explored land is not the dark of the unexplored, and the unexplored stays dark
-    await mapArrives(() => { M.lastMini = -9; M.drawMini(gen, game.explored, p().x, p().y, game.time); return M.tiles.have('sat', Math.floor(p().x / CHUNK), Math.floor(p().y / CHUNK)); });
-    const at = (x, y) => [...M.mini.getContext('2d').getImageData(x, y, 1, 1).data], O = M.overlay; M.lastMini = -9; M.drawMini(gen, game.explored, p().x, p().y, game.time);
-    check(M.mini.width === 300 && at(150, 70)[1] > 40, `the minimap is dark: ${at(150, 70)}`);
-    M.lastMini = -9; M.drawMini(gen, new Set(), p().x, p().y, game.time); check(at(8, 8).join() === '13,16,22,255', `nothing explored, and it shows ${at(8, 8)}`); M.lastMini = -9;
+    // On the minimap: explored land is not the dark of the unexplored, and the unexplored stays dark, with no house on it
+    const MM = game.minimap; draw();
+    await mapArrives(() => { MM.kick(); draw(); return M.tiles.have('sat', Math.floor(p().x / CHUNK), Math.floor(p().y / CHUNK)); });
+    const at = (L, x, y) => [...L.g.getImageData(Math.round(x * L.canvas.width), Math.round(y * L.canvas.height), 1, 1).data];
+    MM.drawGround(); check(at(MM.base, 0.5, 0.55)[1] > 40, `the minimap is dark: ${at(MM.base, 0.5, 0.55)}`);
+    const all = game.explored;
+    try {
+      game.explored = new Set(); MM.feetAt = null; MM.drawGround(); MM.drawUpright([]);
+      check(at(MM.base, 0.5, 0.45).join() === '13,16,22,255' && !MM.feet.length, `nothing explored, and it shows ${at(MM.base, 0.5, 0.45)}, ${MM.feet.length} houses`);
+    } finally { game.explored = all; MM.feetAt = null; MM.kick(); }
     // (the cost of asking every source, and of a repaint of the minimap)
     blips.refresh(game, 0, true); const t0 = performance.now(); for (let i = 0; i < 100; i++) blips.refresh(game, 0, true); const each = (performance.now() - t0) / 100;
-    const t1 = performance.now(); for (let i = 0; i < 20; i++) { M.lastMini = -9; M.drawMini(gen, game.explored, p().x, p().y, game.time); } const mini = (performance.now() - t1) / 20;
+    const t1 = performance.now(); for (let i = 0; i < 20; i++) MM.drawGround(); const mini = (performance.now() - t1) / 20;
     console.log(`blips: ${each.toFixed(3)} ms a refresh (${blips.list.length} blips); minimap ${mini.toFixed(2)} ms a repaint; ${M.tiles.kept.sat.size} pictures, ${(M.tiles.bytes / 1e6).toFixed(1)} MB`);
     check(each < 0.4 && mini < 4, `${each.toFixed(2)} ms, ${mini.toFixed(2)} ms`);
+  });
+  // ---------- R8-3: the minimap (src/ui/minimap.js), the compass strip (compass.js) and the places near (quickplaces.js) ----------
+  const MMap = () => game.minimap;
+  const miniOn = async () => { for (let i = 0; i < 40 && !MMap().shown; i++) { draw(); await sleep(25); } return MMap().shown; };
+  const miniKey = (type, code) => document.dispatchEvent(new KeyboardEvent(type, { code, key: code, bubbles: true, cancelable: true }));
+  await test('minimap (english): heading-up is exact: what is ahead of the camera is up, whatever the turn, the person and the moment between two drawings', async () => {
+    await goTo(game, CENTER.x, CENTER.y);
+    const m = MMap(), yaw = CAM.yaw, first = CAM.first;
+    try {
+      check(await miniOn(), 'it does not show');
+      for (const y of [0, 0.4, Math.PI / 2, 2.7, -1.1, 5, 40.3]) for (const f of [false, true]) {
+        CAM.yaw = y; CAM.first = f; draw();
+        // (a point ahead of the camera, 10 tiles: where the two canvases put it, with their CSS)
+        const [fx, fy] = screenToWorld(0, -1), a = y - 2 * Math.PI * Math.floor(y / (2 * Math.PI));
+        for (const L of [m.base, m.over]) {
+          const turn = parseFloat(L.turn.style.rotate) * Math.PI / 180, dx = fx * 10 * L.a, dy = fy * 10 * L.a, c = Math.cos(L.yi * Math.PI / 720), s = Math.sin(L.yi * Math.PI / 720), ux = dx * c - dy * s, uy = dx * s + dy * c;
+          const X = ux * Math.cos(turn) - uy * Math.sin(turn), Y = ux * Math.sin(turn) + uy * Math.cos(turn);
+          check(Math.abs(X) < 0.12 && Y < -10, `yaw ${y}, first ${f}: ahead falls at ${X.toFixed(2)}, ${Y.toFixed(2)}`);
+        }
+        const want = ['n', 'ne', 'e', 'se', 's', 'sw', 'w', 'nw'][((Math.round(-a / (Math.PI / 4)) % 8) + 8) % 8];
+        check(m.head.textContent === t(`minimap.heading.${want}`), `yaw ${y}: it says ${m.head.textContent}`);
+        // (the 3D camera agrees: that point is in the middle of the screen, above it)
+        if (!f && Math.abs(game.view3d.camera.position.x) < 1e6) {
+          const C = game.view3d.camera; C.updateMatrixWorld(); const v = new THREE.Vector3(p().x, 1, p().y).project(C), q = new THREE.Vector3(p().x + fx * 6, 1, p().y + fy * 6).project(C);
+          check(Math.abs(q.x - v.x) < 0.02, `yaw ${y}: the camera sees it at ${q.x.toFixed(3)}`);
+        }
+      }
+      // Turning moves the canvas by CSS, not its pixels
+      CAM.first = false; CAM.yaw = 1; draw(); await sleep(150); draw(); m.base.at = 1e9;   // (no drawing of it is due meanwhile: a picture arriving, its age)
+      const n = m.stats.base, r = m.base.turn.style.rotate; CAM.yaw = 1 + Math.PI / 2; draw();
+      check(m.stats.base === n && m.base.turn.style.rotate !== r && Math.abs(parseFloat(m.base.turn.style.rotate) - (1 + Math.PI / 2) * 180 / Math.PI) < 0.2, `drawn again (${m.stats.base - n}) or not turned: ${r} → ${m.base.turn.style.rotate}`);
+      // Walking a little slides them, turned as they are: the player's old place stays where it was on the land
+      m.base.at = -1e9; draw(); m.base.at = 1e9; const x0 = p().x, ox = m.over.x, n2 = m.stats.base; p().x += 0.2; draw();
+      check(m.stats.base === n2 && m.base.canvas.style.translate !== '0px 0px', `not slid: ${m.base.canvas.style.translate}, ${m.stats.base - n2} drawings`); p().x = x0; m.base.at = -1e9;
+      check(Number.isFinite(ox), 'nothing drawn');
+      // Nothing moves: nothing is written
+      for (let i = 0; i < 8; i++) { draw(); await sleep(60); }
+      let w1 = 0; const mo = new MutationObserver(l => { w1 += l.filter(q => q.attributeName !== 'style' || q.target.closest('#minimap')).length; }); mo.observe(m.el, { subtree: true, attributes: true, childList: true, characterData: true });
+      for (let i = 0; i < 10; i++) draw(); await sleep(0); mo.disconnect(); check(w1 <= 2, `${w1} writes standing still`);
+    } finally { CAM.yaw = yaw; CAM.first = first; draw(); }
+  });
+  await test('minimap (english): the faster, the more land; a gallop eases to about 1.6 px per tile within 3 s', async () => {
+    await goTo(game, CENTER.x, CENTER.y);
+    const m = MMap(), P = p(), k = m.S / 208, H = game.horse, was = { mount: P.mount, vx: P.vx, gait: P.gait, boat: P.boat };
+    const ease = async (secs, fn) => { m.last = performance.now() / 1000; for (let i = 0; i < secs * 10; i++) { fn?.(); m.last = performance.now() / 1000 - 0.1; m.frame(); } };
+    try {
+      check(await miniOn(), 'it does not show'); await ease(4); check(Math.abs(m.a / k - 2.6) < 0.05, `still: ${m.a / k}`);
+      await ease(3, () => { P.vx = 3; P.gait = 1; }); check(Math.abs(m.a / k - 2.3) < 0.05, `jogging: ${m.a / k}`);
+      await ease(3, () => { P.vx = 6; P.gait = 2; }); check(Math.abs(m.a / k - 2) < 0.05, `sprinting: ${m.a / k}`);
+      const own = Object.getOwnPropertyDescriptor(H, 'galloping'); P.mount = {}; H.galloping = true;
+      await ease(1); check(m.a / k > 1.62, `it jumps: ${m.a / k}`); await ease(2); check(Math.abs(m.a / k - 1.6) < 0.05, `galloping: ${m.a / k}`);
+      H.galloping = false; await ease(3); check(Math.abs(m.a / k - 1.9) < 0.05, `riding: ${m.a / k}`);
+      if (own) Object.defineProperty(H, 'galloping', own);
+      P.mount = was.mount; P.boat = {}; await ease(3); check(Math.abs(m.a / k - 1.7) < 0.05, `in a boat: ${m.a / k}`);
+      // (between two drawings, 8 a second, the compositor scales it; then it is drawn at its own scale)
+      await sleep(150); m.frame();
+      check(Math.abs(parseFloat(m.base.turn.style.scale) - 1) < 0.06, `scaled ${m.base.turn.style.scale}`);
+    } finally { Object.assign(P, was); await ease(4); }
+  });
+  await test('minimap (english): the rim holds what is tracked, with the route\'s notch; the houses rise; an area, an overlay and a height', async () => {
+    await goTo(game, CENTER.x, CENTER.y);
+    const m = MMap(), D0 = m.D, yaw = CAM.yaw; CAM.yaw = 0;
+    // (the rim: a rounded square, whatever the direction)
+    for (let i = 0; i < 64; i++) { const a = i * Math.PI / 32, [x, y] = m.rim(Math.cos(a), Math.sin(a), 12); check(m.inside(x * 0.999, y * 0.999, 12) && !m.inside(x * 1.01, y * 1.01, 12) && Math.abs(Math.atan2(y, x) - Math.atan2(Math.sin(a), Math.cos(a))) < 1e-6, `the rim at ${a}: ${x}, ${y}`); }
+    const drew = [], G = m.over.g, img = G.drawImage, fill = G.fill; G.drawImage = (c, x, y, n) => drew.push([x + n / 2, y + n / 2]);
+    let polys = 0; G.fill = () => { polys++; };
+    try {
+      check(await miniOn(), 'it does not show');
+      const far = { kind: 'tavern', x: p().x + 300, y: p().y - 300, pri: 99, glyph: 'place', color: '#fff', name: 'T', mini: true, track: true }, plain = { ...far, track: false };
+      m.over.drawn(0, p().x, p().y, 0, m.a);
+      m.feet = []; drew.length = 0; m.drawUpright([far]); check(drew.length === 1 && drew[0][0] > m.S / 4 && drew[0][1] < -m.S / 4 && m.inside(...drew[0], D0 / 2), `held: ${JSON.stringify(drew)}`);
+      drew.length = 0; m.drawUpright([plain]); check(!drew.length, 'what is not tracked is held');
+      drew.length = 0; m.drawUpright([{ ...far, x: p().x + 10, y: p().y, track: false }, { ...plain, x: p().x + 11, y: p().y, pri: 1 }]); check(drew.length === 1 && Math.abs(drew[0][0] - 10 * m.a) < 0.6, `two on the same spot: ${JSON.stringify(drew)}`);
+      drew.length = 0; m.drawUpright([{ ...far, x: p().x + 10, y: p().y, mini: false }]); check(!drew.length, 'a blip of the big map only is on it');
+      // The houses of the village rise out of it (two walls at most and four slopes each)
+      m.feetAt = null; polys = 0; m.drawUpright([]); check(m.feet.length >= 2 && m.feet.length <= 60 && polys >= m.feet.length * 2, `${m.feet.length} houses, ${polys} faces`);
+      // The route: its notch on the rim, toward the next turn of its way
+      const R = game.route, keep = { pts: R.pts, seg: R.seg, target: R.target };
+      try {
+        R.target = { x: p().x + 60, y: p().y - 60 }; R.seg = 0; R.pts = Float32Array.from([p().x, p().y, p().x + 10, p().y, p().x + 20, p().y, p().x + 30, p().y, p().x + 30, p().y - 20, p().x + 60, p().y - 60]);
+        const q = m.nextTurn(); check(Math.abs(q[0] - p().x - 30) < 0.1 && Math.abs(q[1] - p().y) < 0.1, `the next turn: ${q[0] - p().x}, ${q[1] - p().y}`);
+      } finally { Object.assign(R, keep); }
+      // Something drawn by others, with the map's own turn; heights
+      const seen = [], fn = (g, toMap, me, a, map) => { seen.push(toMap(p().x, p().y - 10), a, map === m); }; m.overlays.push(fn);
+      m.over.drawn(0, p().x, p().y, 360, m.a); m.drawUpright([]); m.overlays.splice(m.overlays.indexOf(fn), 1);
+      check(seen[2] && Math.abs(seen[0][0] - 10 * m.a) < 0.01 && Math.abs(seen[0][1]) < 0.01, `an overlay, looking west (a quarter turn): north falls at ${seen[0]}`);
+      m.zAt = -1e9; const up = { ...far, x: p().x + 5, y: p().y, z: 9 }, flat = { ...up, z: 0 }; m.heights([up, flat]); check(m.dz.get(up) > 4 && !m.dz.get(flat), `heights: ${m.dz.get(up)}, ${m.dz.get(flat)}`);
+    } finally { G.drawImage = img; G.fill = fill; CAM.yaw = yaw; m.feetAt = null; m.kick(); draw(); }
+  });
+  await test('minimap (english): modes: always, compass with the route on it, off; sizes; the distance', async () => {
+    await goTo(game, CENTER.x, CENTER.y);
+    const m = MMap(), was = Settings.v.mini, size = Settings.v.miniSize, vis = id => { const e = document.getElementById(id); return !!e && e.getBoundingClientRect().width > 0 && getComputedStyle(e).visibility !== 'hidden'; };
+    const R = game.route;
+    try {
+      delete Settings.v.mini; check(miniMode() === 'fade', miniMode()); Settings.v.mini = 'nonsense'; check(miniMode() === 'fade', 'an unknown mode');
+      check(await miniOn() && vis('minimap') && !vis('hud-compass'), 'fade, the full interface: the map is not there');
+      R.set({ x: p().x + 60, y: p().y, kind: 'point' }, { quiet: true }); for (let i = 0; i < 30 && !m.dist.textContent; i++) { draw(); await sleep(30); }
+      check(/^\d+ m$/.test(m.dist.textContent), `the distance: ${m.dist.textContent}`);
+      Settings.v.mini = 'compass'; m.compass.at = -1e9; draw();
+      check(!vis('minimap') && vis('hud-compass') && !m.shown, 'compass: the map is there, or the strip is not');
+      const mark = document.querySelector('#hud-compass .hc-mark.on'); check(mark && /\d+ m/.test(mark.textContent), `the route's mark: ${mark?.textContent}`);
+      CAM.yaw = -Math.PI / 2; draw(); check(Math.abs(parseFloat(m.compass.marks[0].el.style.translate)) < 12, `looking east, at it: ${m.compass.marks[0].el.style.translate}`);
+      CAM.yaw = Math.PI / 2; draw(); check(Math.abs(parseFloat(m.compass.marks[0].el.style.translate)) > 150, `looking west, not at the end of the band: ${m.compass.marks[0].el.style.translate}`);
+      check(m.heading === 270 && Math.abs(parseFloat(m.compass.tape.style.translate) + 270 * 2.5) < 1, `the band: ${m.heading}, ${m.compass.tape.style.translate}`);
+      const n = m.stats.base + m.stats.over; for (let i = 0; i < 5; i++) draw(); check(m.stats.base + m.stats.over === n, 'the map is drawn behind the strip');
+      Settings.v.mini = 'off'; draw(); check(!vis('minimap') && !vis('hud-compass'), 'off: something is there');
+      Settings.v.mini = 'always'; draw(); check(vis('minimap') && m.shown, 'always: not there');
+      // With the minimal interface: always stays, fade goes
+      useSmartHud(game, true); draw(); check(game.smartHud.mini, 'always, the minimal interface');
+      R.clear('user'); Settings.v.mini = 'fade'; game.smartHud.allUntil = 0; game.map.goal = null; const SH = game.smartHud, goal = SH.goal; SH.goal = () => null; SH.until.mini = 0; draw(); check(!SH.mini, 'fade, still in the village: it stays');
+      R.set({ x: p().x + 60, y: p().y, kind: 'point' }, { quiet: true }); draw(); check(SH.mini, 'a marked route does not keep it');
+      R.clear('user'); SH.until.mini = 0; Settings.v.mini = 'compass'; draw(); check(!SH.mini && getComputedStyle(document.getElementById('hud-compass')).opacity < 1, 'the strip does not fade');
+      Settings.v.mini = 'off'; SH.until.mini = 1e12; draw(); check(!SH.mini, 'off shows'); SH.goal = goal;
+      useSmartHud(game, false);
+      // Sizes
+      Settings.v.mini = 'fade'; draw(); const S = m.S; Settings.v.miniSize = 'l'; draw(); check(m.S > S * 1.15 && document.documentElement.style.getPropertyValue('--mm') === `${m.S}px`, `large: ${S} → ${m.S}`);
+    } finally { R.clear('user'); useSmartHud(game, false); Settings.v.mini = was; Settings.v.miniSize = size; if (was === undefined) delete Settings.v.mini; if (size === undefined) delete Settings.v.miniSize; CAM.yaw = Math.PI / 4; draw(); draw(); }
+  });
+  await test('minimap (english): what it costs', async () => {
+    await goTo(game, CENTER.x, CENTER.y);
+    const m = MMap(); check(await miniOn(), 'it does not show');
+    await mapArrives(() => { m.kick(); draw(); return game.map.tiles.wanted.size + game.map.tiles.flying.size === 0; });
+    const med = async (fn, n = 60) => { const r = []; for (let i = 0; i < n; i++) { if (i % 6 === 0) await sleep(20); const t0 = performance.now(); for (let j = 0; j < 4; j++) fn(); r.push((performance.now() - t0) / 4); } r.sort((a, b) => a - b); return r[n >> 1]; };
+    blips.refresh(game, 0, true);
+    const ground = await med(() => m.drawGround()), over = await med(() => m.drawUpright(blips.list)); m.drawGround(); draw();
+    const yaw = CAM.yaw, idle = await med(() => m.frame()), turning = await med(() => { CAM.yaw += 0.003; m.frame(); }); CAM.yaw = yaw;
+    console.log(`minimap: ground ${ground.toFixed(3)} ms, upright ${over.toFixed(3)} ms (${m.feet.length} houses), a frame still ${idle.toFixed(4)} ms, turning ${turning.toFixed(4)} ms`);
+    check(ground < 2 && over < 1 && idle < 0.1, `ground ${ground.toFixed(2)}, upright ${over.toFixed(2)}, still ${idle.toFixed(3)} ms`);
+  });
+  await test('quick places (english): M held shows up to 8 known places, the nearest first; letting go goes to the one picked; a tap is the map', async () => {
+    await goTo(game, CENTER.x, CENTER.y); clearKeys();
+    const Q = game.quick, R = game.route, el = document.getElementById('quick'); R.clear('user');
+    const stick = (x, y) => document.getElementById('c').dispatchEvent(new PointerEvent('pointermove', { movementX: x, movementY: y, clientX: 300, clientY: 300, bubbles: true, pointerType: 'mouse' }));
+    const hold = async () => { miniKey('keydown', 'KeyM'); Q.pressAt -= QUICK_MS + 50; draw(); await frames(1); };
+    const places = []; for (let i = 0; i < 14; i++) places.push({ kind: 'mark', x: p().x + 20 + i * 30, y: p().y, pri: 1, glyph: 'place', color: '#fff', name: `P${i}`, mini: true, filter: 'markers', legend: null });
+    places.push({ ...places[0], x: p().x + 1700, name: 'too far' }, { ...places[0], x: p().x + 1, name: 'here' }, { ...places[0], x: p().x + 30, name: '' });
+    blips.static('quick-test', places);
+    try {
+      // A tap: the big map, when it is let go
+      miniKey('keydown', 'KeyM'); check(game.mode === 'play', 'the map opens before letting go'); miniKey('keyup', 'KeyM'); check(game.mode === 'map', 'a tap does not open the map');
+      miniKey('keydown', 'KeyM'); check(game.mode === 'play', 'M does not close it at once'); miniKey('keyup', 'KeyM'); check(game.mode === 'play' && !Q.open, 'and its letting go opened it again');
+      // Held
+      const k = known(game); check(k.length === 8 && k.every((q, i) => !i || q.d >= k[i - 1].d) && !k.some(q => ['too far', 'here', ''].includes(q.name)), `known: ${k.map(q => `${q.name} ${q.d | 0}`)}`);
+      check(known(game, 99).filter(q => q.kind === 'shop').length <= 4, 'the shops fill it');
+      await hold(); check(Q.open && el.classList.contains('on') && game.mode === 'play' && Q.rows.length === 8 && Q.sel === -1, `held: open ${Q.open}, ${Q.rows.length} rows, ${Q.sel}`);
+      check([...el.querySelectorAll('.qp em')].every(e => /\d/.test(e.textContent)) && MMap().el.classList.contains('quick'), 'no distance, or the map does not grow');
+      { const b = [...el.querySelectorAll('.qp')].map(e => e.getBoundingClientRect()); check(b.every((q, i) => q.left >= 0 && q.top >= 0 && q.bottom <= innerHeight && (!i || q.top >= b[i - 1].bottom - 1)), `rows: ${b.map(q => `${q.left | 0},${q.top | 0}`)}`); }
+      // (a key opens nothing meanwhile; walking goes on)
+      for (const c of ['KeyI', 'KeyC', 'KeyE', 'KeyB', 'KeyF']) { miniKey('keydown', c); miniKey('keyup', c); } check(Q.open && !game.windows.isOpen('s-inv') && !game.build.on && game.mode === 'play' && !game.wheel.open, 'a key went through'); miniKey('keydown', 'KeyW'); check(keys.up, 'no walking'); miniKey('keyup', 'KeyW');
+      // The stick to the first row (over the map), then the mouse wheel
+      for (const q of [Q.rows[0], Q.rows[5]]) { Q.sx = Q.sy = 0; stick(Math.cos(q.ang) * 80, Math.sin(q.ang) * 80); check(Q.rows[Q.sel] === q && q.el.classList.contains('on') && el.querySelectorAll('.qp.on').length === 1, `the stick to ${q.name}: ${Q.rows[Q.sel]?.name}`); }
+      Q.step(1); check(Q.sel === 6, 'the mouse wheel'); const to = Q.rows[6]; miniKey('keyup', 'KeyM');
+      check(!Q.open && R.active && R.target.name === to.name && Math.abs(R.target.x - to.to.x) < 0.01, `let go: ${JSON.stringify(R.target)} / ${to.name}`);
+      check(!el.classList.contains('on') && !document.body.classList.contains('quick-open') && !MMap().el.classList.contains('quick') && game.mode === 'play', 'it stays, or the map opened');
+      // With a route, the first row takes it off; Esc and letting go with nothing picked leave it
+      await hold(); check(Q.rows[0].clear && Q.rows.length === 9, 'no row to take the route off'); miniKey('keyup', 'KeyM'); check(R.active, 'letting go with nothing picked took it off');
+      await hold(); Q.step(1); miniKey('keydown', 'Escape'); check(!Q.open && R.active && !game.pauseHub.isOpen && game.mode === 'play', 'Esc'); miniKey('keyup', 'KeyM'); check(game.mode === 'play', 'letting go after Esc opens the map');
+      await hold(); document.getElementById('c').dispatchEvent(new PointerEvent('pointerdown', { button: 2, bubbles: true, cancelable: true, pointerType: 'mouse' })); check(!Q.open && R.active, 'a right click'); miniKey('keyup', 'KeyM'); Q.swallowBtn = null;
+      await hold(); miniKey('keydown', 'Digit1'); check(!Q.open && !R.active, 'the first row does not take it off'); miniKey('keyup', 'KeyM');
+      // Not in a dialogue, a window, build mode or a cave: M is the map at once, or nothing
+      game.busy = true; check(!Q.can(), 'in a dialogue'); game.busy = false; const sc = game.scene; game.scene = {}; check(!Q.can(), 'in a cave'); game.scene = sc; game.windowsOpen = true; check(!Q.can(), 'over a window'); game.windowsOpen = false;
+      // Alone, slow motion; a blur lets it go
+      await hold(); check(Q.open, 'not open again'); dispatchEvent(new Event('blur')); check(!Q.open && Q.pressAt === null, 'a blur leaves it open'); miniKey('keyup', 'KeyM'); check(game.mode === 'play', 'and its letting go opens the map');
+    } finally { blips.static('quick-test', null); Q.cancel(); Q.swallowBtn = null; R.clear('user'); if (game.mode === 'map') game.pauseHub.close(); clearKeys(); game.timeScale = 1; }
   });
   await test('primeros pasos: se cumplen de uno en uno, con recompensa, y se guardan', async () => {
     const S = game.steps, st = game.stats, was = { i: S.i, base: S.base, pay: S.pay }, equip = inv().equip.espalda;
@@ -5290,7 +5462,7 @@ async function soloTests(game) {
       else if (u) check(c.top >= u.bottom + 4 && c.top <= u.bottom + 18, `${what}: the clock at ${r4(c)}, under ${k ? 'the body chip' : 'its last bar'} at ${r4(u)}`);
       else check(c.top <= 24, `${what}: no bar in sight and the clock at ${r4(c)}`);
       if (m.width) check(m.left <= 20 && innerHeight - m.bottom >= 12 && innerHeight - m.bottom <= 20 && !cross(n, m), `${what}: the minimap at ${r4(m)}`);
-      { const f = $('toasts').getBoundingClientRect(); if (m.width && ch.width) check(ch.bottom <= m.top - 150 && f.bottom <= m.top && f.left <= 20, `${what}: the chat at ${r4(ch)}, the feed at ${r4(f)} over the minimap at ${r4(m)}`); }
+      { const f = $('toasts').getBoundingClientRect(); if (m.width && ch.width) check(ch.bottom <= m.top - (innerHeight < 700 ? 60 : 150) && f.bottom <= m.top && f.left <= 20, `${what}: the chat at ${r4(ch)}, the feed at ${r4(f)} over the minimap at ${r4(m)}`); }
     };
     try {
       needsBase(); useSmartHud(game, false); await goTo(game, 21, 26);
@@ -5358,7 +5530,7 @@ async function soloTests(game) {
   const routed = async (ms = 20000) => { await until(() => R().state === 'ready' || R().state === 'straight', ms, 'the route search'); return R().state; };
   // Real time passing while the game steps (route.js and the ribbon run on real seconds)
   const realWait = async ms => { const t0 = performance.now(); while (performance.now() - t0 < ms) { await frames(2); await sleep(25); } };
-  const keyM = () => document.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyM', key: 'm', bubbles: true, cancelable: true }));
+  const keyM = () => { for (const type of ['keydown', 'keyup']) document.dispatchEvent(new KeyboardEvent(type, { code: 'KeyM', key: 'm', bubbles: true, cancelable: true })); };
 
   await test('route (english): costs and modes', async () => {
     try {
@@ -8468,18 +8640,18 @@ async function soloTests(game) {
   });
   await test('senses (english): the switch, the wounded and the minimap', async () => {
     const s = trackLine(10); await goTo(game, s.x, s.y);
-    const W = WL(), list = W.list, M = game.map, I = game.inv, slots = I.slots.slice(), sel = I.selected; W.list = []; W.t = -999;
+    const W = WL(), list = W.list, I = game.inv, slots = I.slots.slice(), sel = I.selected; W.list = []; W.t = -999;
     try {
       // ?sentidos=0: they run from whoever comes within their fear radius, as before
       Wildlife.senses = false; const a = W.summon('ciervo', p().x + 5, p().y); a.wait = 9; await frames(6); check(Math.hypot(a.x - p().x, a.y - p().y) > 5.1 && !a.flight, `off: at ${Math.hypot(a.x - p().x, a.y - p().y).toFixed(2)}, flight ${a.flight}`);
       Wildlife.senses = null; W.list = [];
       // The ring and the wind, only while hunting
-      const HO = game.huntOverlay; check(HO && M.overlay, 'no overlay');
-      const calls = []; const ctx = { canvas: { width: 150, height: 100 }, save() {}, restore() {}, beginPath() {}, ellipse: (...q) => calls.push(q), fill() {}, stroke() { calls.push('s'); }, moveTo() {}, lineTo() {} };
-      const draw = () => { calls.length = 0; M.overlay(ctx, (x, y) => [75 + (x - p().x), 50 + (y - p().y)], [p().x, p().y], 1.5); return calls.length; };
+      const HO = game.huntOverlay, MM = game.minimap; check(HO && MM.overlays.includes(HO.fn), 'no overlay');
+      const calls = []; const ctx = { canvas: { width: 150, height: 100 }, save() {}, restore() {}, beginPath() {}, arc: (...q) => calls.push(q), fill() {}, stroke() { calls.push('s'); }, moveTo() {}, lineTo() {} };
+      const draw = () => { calls.length = 0; HO.fn(ctx, (x, y) => [(x - p().x) * 2, (y - p().y) * 2], [p().x, p().y], 2, MM); return calls.length; };
       I.slots.fill(null); p().crouch = false; await frames(40); check(!W.hunting && draw() === 0, 'drawn when not hunting');
       p().crouch = true; await frames(40); check(W.hunting && HO.on, 'crouched is not hunting'); draw(); check(!calls.some(q => Array.isArray(q)) && calls.includes('s'), `still and crouched: a ring, or no wind (${JSON.stringify(calls)})`);
-      W.toolHit(); await frames(16); for (let i = 0; i < 8; i++) draw(); check(calls.some(q => Array.isArray(q) && q[2] > 10 && Math.abs(q[2] / q[3] - 2) < 0.6), `a loud thing does not swell the ring: ${JSON.stringify(calls)}`);
+      W.toolHit(); await frames(16); for (let i = 0; i < 8; i++) draw(); check(calls.some(q => Array.isArray(q) && q[2] > 10 && !q[0] && !q[1]), `a loud thing does not swell the ring: ${JSON.stringify(calls)}`);
       const inVillage = [CENTER.x, CENTER.y + 6], at = [p().x, p().y]; [p().x, p().y] = inVillage; await frames(40); check(!W.hunting, 'hunting in the village'); [p().x, p().y] = at;
     } finally { Wildlife.senses = null; W.list = list; p().crouch = false; I.slots.splice(0, I.slots.length, ...slots); I.select(sel); }
   });

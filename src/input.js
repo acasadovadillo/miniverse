@@ -130,13 +130,21 @@ export function initInput(h) {
       if (e.code === 'Tab' || e.code === 'KeyF') { e.preventDefault(); return; }
       if (!(KEYMAP[e.code] || e.code === 'ShiftLeft' || e.code === 'ShiftRight' || e.code === 'Space')) return;
     }
+    // The places near open (src/ui/quickplaces.js): the same
+    if (handlers.quickOpen?.()) {
+      if (e.code === 'Escape') { e.preventDefault(); handlers.quickCancel?.(); return; }
+      if (/^Digit[1-9]$/.test(e.code)) { e.preventDefault(); handlers.quickPick?.(+e.code.slice(5) - 1); return; }
+      if (e.code === 'Tab') { e.preventDefault(); return; }
+      if (!(KEYMAP[e.code] || e.code === 'ShiftLeft' || e.code === 'ShiftRight' || e.code === 'Space')) return;
+    }
     if (e.code === 'Escape') {
       if (aimLock.locked || performance.now() - aimLock.exitAt < 400) return;   // (Esc suelta el puntero y eso ya abre la pausa)
       if (handlers.pause()) e.preventDefault();
       return;
     }
     if (e.code === 'KeyP' && !e.repeat && !e.metaKey && !e.ctrlKey) { if (handlers.pause()) e.preventDefault(); return; }   // (P: the pause too)
-    if (e.code === 'KeyM' && !e.repeat) { if (handlers.map()) e.preventDefault(); return; }
+    // M: a tap, the big map (when it is let go: input of quickplaces.js); held, the places near. Where those cannot open, the map at once
+    if (e.code === 'KeyM' && !e.repeat && !e.metaKey && !e.ctrlKey) { if (handlers.mapPress?.() || handlers.map()) e.preventDefault(); return; }
     if (e.code === 'Tab') { e.preventDefault(); if (!e.repeat) handlers.players?.(true); return; }   // (mantenido: quién está jugando)
     if (e.code === 'KeyI' && !e.repeat) { if (handlers.bag()) e.preventDefault(); return; }
     if (e.code === 'KeyC' && !e.repeat) { if (handlers.craft()) e.preventDefault(); return; }
@@ -195,9 +203,10 @@ export function initInput(h) {
     if (e.code === 'KeyX' || e.code === 'Delete' || e.code === 'Backspace') handlers.eraseEnd?.();
     if (e.code === 'Tab') handlers.players?.(false);
     if (e.code === 'KeyF') handlers.wheelRelease?.();
+    if (e.code === 'KeyM') handlers.mapRelease?.();
     if (e.code === SOCIAL_KEY) handlers.social?.(false, 'key');
   });
-  addEventListener('blur', () => { handlers.wheelCancel?.(true); handlers.socialCancel?.(); handlers.eraseEnd?.(); socialBtn = false; clearKeys(); });
+  addEventListener('blur', () => { handlers.wheelCancel?.(true); handlers.quickCancel?.(); handlers.socialCancel?.(); handlers.eraseEnd?.(); socialBtn = false; clearKeys(); });
 
   // Ratón sobre el juego: clic para usar (mantener para seguir), rueda para cambiar de objeto.
   // En modo construcción, el ratón (o el dedo) apunta a la casilla: clic pone, clic derecho quita, arrastrar pinta.
@@ -207,14 +216,14 @@ export function initInput(h) {
     const was = aimLock.locked;
     aimLock.locked = document.pointerLockElement === canvas;
     if (was && !aimLock.locked) {
-      if (!aimLock.freed && aimLock.want) { handlers.wheelCancel?.(); aimLock.exitAt = performance.now(); handlers.pause(); clearKeys(); }   // (lo ha soltado Esc; the tool wheel, if open, closes first)
+      if (!aimLock.freed && aimLock.want) { handlers.wheelCancel?.(); handlers.quickCancel?.(); aimLock.exitAt = performance.now(); handlers.pause(); clearKeys(); }   // (lo ha soltado Esc; the tool wheel, if open, closes first)
       aimLock.freed = false;
     }
   });
   canvas.addEventListener('pointerleave', e => { if (e.pointerType === 'mouse' && !aimLock.locked) handlers.mouse?.(e.clientX, e.clientY, false); });
   // (with the tool wheel open the mouse is its own: wheel.js stops these on window before they get here; just in case)
   canvas.addEventListener('pointermove', e => {
-    if (handlers.wheelOpen?.()) return;
+    if (handlers.wheelOpen?.() || handlers.quickOpen?.()) return;
     if (aimLock.locked) { if (Math.abs(e.movementX) < 300 && Math.abs(e.movementY) < 300) lookBy(e.movementX, e.movementY); return; }   // (a veces da saltos enormes: se ignoran)
     if (e.pointerType === 'mouse') { handlers.mouse?.(e.clientX, e.clientY, true); handlers.hover?.(e.clientX, e.clientY); }   // la casilla bajo el ratón (para colocar)
     if (!handlers.building?.()) return;
@@ -223,7 +232,7 @@ export function initInput(h) {
     else if (e.buttons === 2) handlers.unpaint(e.clientX, e.clientY, true);
   });
   canvas.addEventListener('pointerdown', e => {
-    if (handlers.wheelOpen?.()) return;
+    if (handlers.wheelOpen?.() || handlers.quickOpen?.()) return;
     shiftWithOther();   // (Shift+clic no agacha ni se sienta)
     if (!handlers.enabled()) return;
     Audio.start();
@@ -250,7 +259,7 @@ export function initInput(h) {
   canvas.addEventListener('wheel', e => {
     e.preventDefault();
     // Ctrl + rueda (o pellizcar el panel táctil): acercar o alejar la cámara; la rueda sola cambia de objeto
-    if (handlers.wheelOpen?.()) return;
+    if (handlers.wheelOpen?.() || handlers.quickOpen?.()) return;
     if (e.ctrlKey) { CAM.dist = Math.max(DIST.min, Math.min(DIST.max, CAM.dist * Math.exp(e.deltaY * 0.01))); return; }
     if (!handlers.enabled() || performance.now() - wheelAt < 60) return;
     wheelAt = performance.now();

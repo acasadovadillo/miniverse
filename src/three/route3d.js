@@ -24,17 +24,18 @@
 // Unknown stretches (routegrid.js KIND.unknown at either end of a segment) have no strip: a gap, each side fading over one
 // step. Dots instead of dashes where the strip is over water (the same ground test that lifts it to WATER_Y): wading,
 // swimming and rowing, exact even on a long string-pulled segment whose two ends have different kinds; on a bridge, dashes.
-// Material: MeshBasicMaterial (unlit, fog), transparent, a cream core with a thin dark rim (RIM_DARK, RIM_A), no depth write, polygon offset −2, drawn after the water
+// Material: MeshBasicMaterial (unlit, fog), transparent, a core of the player's colour (ui/skin.js accent) with a thin dark rim (RIM_DARK, RIM_A), no depth write, polygon offset −2, drawn after the water
 // (renderOrder 3, like fx.js's marks); front side up only, so from under the water it is not seen. In the shader: dashes
 // flowing at FLOW m/s toward the pin (aS is metres along the path), fade in from the feet over 1.5 m (uFrom, the player's
 // arc position, moved every frame between rebuilds) and out over the last FADE_FAR m when the strip is cut by AHEAD (over
-// the last step at the pin), opacity 0.55 by day and 0.7 at night, the HUD cream times the scene's light (it never glows).
+// the last step at the pin), opacity 0.55 by day and 0.7 at night, that colour times the scene's light (it never glows).
 import * as THREE from 'three';
 import { apagada } from '../opciones.js';
 import { WATER_Y } from './terrain.js';
 import { nearX } from '../world/planet.js';
 import { KIND } from '../world/routegrid.js';
 import { hud } from '../ui/hud.js';
+import { accent } from '../ui/skin.js';
 import { lightAt } from './look.js';
 
 export const MAX_VERTS = 320, WIDTH = 0.32, LIFT = 0.08, STEP = 0.5, BEHIND = 2, AHEAD = 70, REBUILD = 1.5, FLOW = 1.4;
@@ -47,12 +48,12 @@ const PAD = SMOOTH + 1;                       // (samples smoothed beyond each d
 const HCAP = 512;                             // (the ground heights kept, by section index on the path's grid; > SECTS + 2 * PAD)
 const REFRESH_PART = 16, REFRESH_STILL = 4;   // (a rebuild reads again 1/16 of the kept heights; a timed rebuild 1/4)
 const DASH = 1.6, DOT = 0.7, WRAP = 11.2;     // (dash and dot periods in m; the flow offset wraps at a common multiple)
-// (a thin dark rim on each side of the cream core, as the map line has its outline: it keeps the ribbon readable on snow
-// and sand, where cream alone vanishes; RIM_DARK of the cream, at RIM_A of the core's opacity. Dots over water have none)
+// (a thin dark rim on each side of the core, as the map line has its outline: it keeps the ribbon readable on snow
+// and sand, where the colour alone may vanish; RIM_DARK of it, at RIM_A of the core's opacity. Dots over water have none)
 const RIM_DARK = 0.25, RIM_A = 0.8;
 const WINDOW_BACK = 24, WINDOW_AHEAD = 64;    // (segments searched round the last nearest one between rebuilds)
 const JUMP = 20;                              // (a move longer than this between frames: search the whole path again)
-const CREAM = new THREE.Color('#efe2bf'), OPACITY = 0.55, OPACITY_NIGHT = 0.7;
+const WHITE = new THREE.Color('#ffffff'), tint = new THREE.Color(accent.color), OPACITY = 0.55, OPACITY_NIGHT = 0.7;
 // The ribbon is unlit (one cheap program), so it takes the scene's light by hand: its colour times how bright the sky
 // and the sun are now against a clear noon (look.js), eased by LIGHT_EXP so it stays readable at night, never below
 // LIGHT_MIN. Like the ground it lies on, it darkens at dusk, at night and in rain: it never glows
@@ -101,7 +102,7 @@ export class RouteView {
     g.setIndex((this.aIdx = dyn(new THREE.BufferAttribute(this.idx, 1))));
     g.setDrawRange(0, 0);
     const U = (this.U = { uFrom: { value: 0 }, uFar: { value: 0 }, uFarFade: { value: FADE_FAR }, uShift: { value: 0 }, uVis: { value: 0 } });
-    const m = (this.mat = new THREE.MeshBasicMaterial({ color: CREAM.clone(), transparent: true, opacity: OPACITY, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
+    const m = (this.mat = new THREE.MeshBasicMaterial({ color: tint.clone(), transparent: true, opacity: OPACITY, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
     m.onBeforeCompile = sh => {
       Object.assign(sh.uniforms, U);
       sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\n' + VERT_HEAD)
@@ -181,7 +182,8 @@ export class RouteView {
     this.mat.opacity = OPACITY + (OPACITY_NIGHT - OPACITY) * night;
     const v = this.view, lit = (v.hemi ? lum(v.hemi.color) * v.hemi.intensity : 0) + (v.sun ? lum(v.sun.color) * v.sun.intensity : 0);
     const k = v.hemi ? Math.max(LIGHT_MIN, Math.min(1, Math.pow(lit / NOON, LIGHT_EXP))) : 1;
-    this.mat.color.copy(CREAM).multiplyScalar(k);
+    if (this.tintV !== accent.v) { this.tintV = accent.v; tint.set(accent.color).lerp(WHITE, 0.12); }
+    this.mat.color.copy(tint).multiplyScalar(k);
   }
 
   // The strip, made again round where the player is now

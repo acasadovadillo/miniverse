@@ -154,8 +154,9 @@
   #players-list .op { color: #ffb15a; }
   /* The feed (ui/feed.js): while playing, the lines stack over the minimap (or where it goes), the newest at the bottom; in the
      menus and the pause, at the top in the middle. --feed-b: how far from the bottom (the minimap, and room over it) */
-  :root { --feed-b: calc(136px + 30 * var(--ui-s)); }
-  body { --chat-top: max(36vh, calc(var(--hud-top) + 160px)); }
+  :root { --feed-b: calc(var(--mm) + 40px + 26 * var(--ui-s)); }
+  body.mini-none { --feed-b: calc(16px + 30 * var(--ui-s)); }
+  body { --chat-top: max(28vh, calc(var(--hud-top) + 160px)); }
   #toasts { position: fixed; left: 50%; top: 56px; transform: translateX(-50%); display: flex; flex-direction: column; gap: 4px; align-items: center; z-index: 25; pointer-events: none; }
   body.playing #toasts { left: 16px; top: auto; bottom: var(--feed-b); transform: none; align-items: flex-start; }
   /* (with a window open, which lies there: two lines at the top, between the bars and the money) */
@@ -182,7 +183,7 @@
   /* Primeros pasos: lo que toca hacer, debajo del reloj (con el panel F3 abierto, no) */
   #quest { position: fixed; left: 16px; top: calc(var(--hud-top) + 53px); z-index: 6; transition: top .2s ease; width: min(300px, calc(100vw - 24px)); padding: 7px 26px 8px 12px; display: flex; flex-direction: column; gap: 2px; pointer-events: auto; }
   #quest[hidden], body:not(.playing) #quest, #debug:not([hidden]) ~ #quest { display: none; }
-  #clockp.under-win, #quest.under-win, #hud-right.under-win { opacity: 0 !important; visibility: hidden !important; transition: top .2s ease !important; }   /* (an open window over them: src/ui/windows.js) */
+  #clockp.under-win, #quest.under-win, #hud-right.under-win, #minimap.under-win { opacity: 0 !important; visibility: hidden !important; transition: top .2s ease !important; }   /* (an open window over them: src/ui/windows.js) */
   body.admin #quest, body.spectator #quest { top: calc(var(--hud-top) + 91px); }   /* (under the full HUD's game mode tag) */
   #quest small { color: var(--dim); font-size: 13px; }
   #quest b { color: var(--gold); font-size: 17px; font-weight: 600; line-height: 1.2; }
@@ -191,8 +192,8 @@
   #quest-x:hover { color: var(--cream); }
   #place small { color: var(--dim); margin-left: 6px; }
   /* (bottom left, as in GTA, in the very corner: the status bars (#needs) are at the top left; the chat sits above it) */
-  #minimap { position: fixed; left: 16px; bottom: 16px; z-index: 4; width: 180px; height: 120px; padding: 0; image-rendering: pixelated; cursor: pointer; }
-  body.indoors #minimap { display: none; }
+  /* The minimap: its look is in src/ui/minimap.js, which says how big it is too (--mm) */
+  :root { --mm: 208px; }
   #bigmap { position: fixed; inset: 0; cursor: grab; touch-action: none; }
   #map-north { position: fixed; left: 16px; top: 12px; padding: 4px 12px; color: var(--gold); text-align: center; line-height: 1.05; font-size: 16px; pointer-events: none; }
   #map-legend { position: fixed; left: 16px; bottom: 16px; max-height: calc(100vh - 90px); overflow-y: auto; padding: 6px 12px 8px; color: var(--cream); font-size: 15px; }
@@ -212,9 +213,9 @@
   #map-info .mi-help { opacity: .7; }
   #hud-wp { position: fixed; left: 0; top: 0; z-index: 4; display: flex; flex-direction: column; align-items: center; gap: 4px; pointer-events: none; will-change: transform; opacity: 0; visibility: hidden; transition: opacity .5s ease, visibility 0s linear .5s; }
   #hud-wp.on { opacity: 1; visibility: visible; transition: opacity .15s ease, visibility 0s; }
-  #hud-wp i { width: 13px; height: 13px; background: #f2e2b0; border: 2px solid #2a1c22; border-radius: 50% 50% 50% 0; transform: rotate(-45deg); box-shadow: 0 0 8px rgba(242, 226, 176, .5); }
+  #hud-wp i { width: 13px; height: 13px; background: var(--accent); border: 2px solid #2a1c22; border-radius: 50% 50% 50% 0; transform: rotate(-45deg); box-shadow: 0 0 8px rgba(0, 0, 0, .5); }
   #hud-wp b { font-size: 15px; font-weight: 600; color: var(--cream); text-shadow: 1px 0 #2a1c22, -1px 0 #2a1c22, 0 1px #2a1c22, 0 -1px #2a1c22; }
-  #hud-wp s { display: none; position: absolute; left: 50%; top: 8px; width: 0; height: 0; margin-top: -6px; border: 6px solid transparent; border-right: 0; border-left: 9px solid #f2e2b0; transform-origin: 0 6px; }
+  #hud-wp s { display: none; position: absolute; left: 50%; top: 8px; width: 0; height: 0; margin-top: -6px; border: 6px solid transparent; border-right: 0; border-left: 9px solid var(--accent); transform-origin: 0 6px; }
   #hud-wp.edge s { display: block; }
   body:not(.playing) #hud-wp { display: none; }
   @media (max-width: 640px) { #map-info { display: none; } #map-north { top: 66px; left: 12px; } .map-bar { gap: 8px; padding: 6px 10px; } }   /* (en un móvil, que quepan los botones) */
@@ -583,7 +584,6 @@
     #hotbar { bottom: auto; top: 8px; }
     #quest, body.admin #quest, body.spectator #quest { top: 112px; }
     #place { top: auto; bottom: 214px; right: 12px; }
-    #minimap { top: 96px; width: 120px; height: 80px; }
     #hint, body.underground #hint, body.survival #hint { bottom: auto; top: 184px; }
     body.indoors #hint { top: 96px; }
     #clockp { top: auto; bottom: 256px; right: 12px; left: auto; font-size: 14px; }
@@ -927,7 +927,6 @@
   #prompt { padding: 0; background: none; box-shadow: none; color: var(--ink); text-shadow: var(--shadow-bare); }
   #clockp, #place, #hint, #quest, #admin-tag, #aim-free, #hotbar, #hud-tip, #love-text { background: var(--glass); box-shadow: inset 0 0 0 1px var(--hair), 0 2px 8px rgba(0, 0, 0, .25); text-shadow: var(--shadow-text); }
   #hint kbd, #prompt kbd, #hud-tip kbd { text-shadow: none; }
-  #minimap { background: rgba(10, 12, 16, .82); box-shadow: 0 0 0 1px var(--hair), 0 4px 14px rgba(0, 0, 0, .35); }
   .toast { box-shadow: inset 0 0 0 1px var(--hair), 0 2px 8px rgba(0, 0, 0, .25); color: var(--ink); text-shadow: var(--shadow-text); }
   #quest { box-shadow: inset 3px 0 0 var(--accent), inset 0 0 0 1px var(--hair), 0 2px 8px rgba(0, 0, 0, .25); }
   #players h3 { text-align: left; }
@@ -1032,7 +1031,7 @@
   <div id="clockp" class="panel"><span id="clock"></span></div>
   <div id="quest" class="panel" hidden><button type="button" id="quest-x" aria-label="Hide the first steps" title="Hide the first steps" data-i18n-attr="aria-label:gui.quest.dismiss;title:gui.quest.dismiss">✕</button><small id="quest-title"></small><b id="quest-text"></b><span id="quest-hint"></span></div>
   <div id="place" class="panel"><span id="place-name">Pueblo Brotes</span> <small id="coords"></small></div>
-  <canvas id="minimap" class="panel" width="150" height="100"></canvas>
+  <div id="minimap"></div>
   <div id="needs" aria-hidden="true">
     <div class="nd-row nd-top"><div class="nd nd-hp" id="nd-hp"><s></s><i></i></div></div>
     <div class="nd-row nd-gone"><div class="nd nd-air" id="nd-air"><i></i></div></div>
@@ -1201,6 +1200,7 @@
             <dt data-i18n="controls.bars.keys">The bars</dt><dd data-i18n="controls.bars">Top left: health, hunger, thirst and energy (and air under water). Food fills hunger, drink fills thirst and sleeping in a bed fills energy; health comes back by itself when you're fed and watered. Hover them (or hold Tab) to see their %</dd>
             <dt data-i18n="controls.body.keys">The body chip</dt><dd data-i18n="controls.body">Under the bars, only when it matters: Cold, Freezing, Hot, Soaked or Filthy. Hold Tab to see how warm you feel</dd>
             <dt><kbd>J</kbd> <kbd>M</kbd></dt><dd data-i18n="controls.journal_map">Journal and map (two tabs of the pause; the same key again closes it)</dd>
+            <dt data-i18n-html="controls.quick.keys"><kbd>M</kbd> held</dt><dd data-i18n="controls.quick">The known places nearby: the mouse (or its wheel, or a digit) picks one and letting go marks the route to it; with a route marked, the first row removes it. Esc or right click, nothing</dd>
             <dt data-i18n-html="controls.chat.keys"><kbd>T</kbd> or <kbd>/</kbd></dt><dd data-i18n-html="controls.chat">Chat and commands (<b>/help</b> to see them). Ops (given in the server terminal with <b>/op</b>) have <b>/gamemode</b>, <b>/tp</b>, <b>/give</b>, <b>/kill</b>, <b>/weather</b>, <b>/gamerule</b>…; the admin also has <b>/account</b>, to create accounts</dd>
             <dt><kbd>Esc</kbd> <kbd>P</kbd></dt><dd data-i18n="controls.pause">Pause (and close windows): Q and E change tab, 1–7 jump to one; the arrows or WASD move, Enter picks, and Esc or right click goes back. In Settings, Z and C change section and R puts a row back to its default (held, the whole section). The shared world goes on meanwhile</dd>
           </dl>

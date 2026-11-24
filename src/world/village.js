@@ -54,6 +54,8 @@ const SPURS = [
   [[16.1, 55], [8.5, 55.2]],
   [[16.1, 57], [27.5, 57], 'casa'],
 ];
+// The village's paths as lines of points, for the minimap (those of the projects, once done)
+export const villagePaths = () => [PATH, ...SPURS.filter(s => !s[2] || projects[s[2]]).map(s => s.slice(0, 2))];
 // Zona que ocupa el pueblo (para no calcular sus detalles en el resto del mundo)
 export const BOUNDS = { x0: 0, y0: 1, x1: 40, y1: 62 };
 // Por dónde andan los vecinos (neighbors.js): puntos del pueblo y cómo se unen. Van en línea recta de uno a otro, casi

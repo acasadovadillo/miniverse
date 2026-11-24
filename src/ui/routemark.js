@@ -24,6 +24,9 @@ export function markAt(el, at, p, view, scene, cache, v3) {
     const cx = W / 2, cy = (TOP + H - BOTTOM) / 2, ex = x - cx, ey = y - cy;
     const k = Math.min(Math.abs(ex) > 1e-3 ? (cx - M) / Math.abs(ex) : Infinity, Math.abs(ey) > 1e-3 ? (cy - TOP) / Math.abs(ey) : Infinity);
     x = cx + ex * k; y = cy + ey * k; angle = Math.atan2(ey, ex);
+    // (not over the minimap, at the bottom left: above it)
+    const map = view.game?.minimap;
+    if (map?.shown && x < map.S + 60) y = Math.min(y, H - map.S - 90);
   }
   const n = Math.round(dist);
   if (n !== cache.n) { cache.n = n; el.lastChild.textContent = t('hud.goal.dist', { n }); }

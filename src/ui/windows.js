@@ -15,11 +15,11 @@ export function initWindows(game) {
   let order = [];   // las abiertas, la última, la de encima
   const persist = () => { try { localStorage.setItem(KEY, JSON.stringify(saved)); } catch { /* (sin almacenamiento: se olvida al recargar) */ } };
   const changed = () => { game.windowsOpen = order.length > 0; document.body.classList.toggle('win-open', game.windowsOpen); cover(); };
-  // The clock, the first steps and the body chip at the top left hide while an open window lies over them (the windows
+  // The clock, the first steps and the body chip at the top left (and the minimap) hide while an open window lies over them (the windows
   // are a little see-through: the clock's text would show through the title), and come back when it goes, folds or moves away
   function cover() {
     const rs = order.map(id => wins.get(id).el.getBoundingClientRect()).filter(r => r.width);
-    for (const el of [$('clockp'), $('quest'), $('body-chip'), $('hud-right')]) {
+    for (const el of [$('clockp'), $('quest'), $('body-chip'), $('hud-right'), $('minimap')]) {
       if (!el) continue;
       const was = el.classList.contains('under-win');
       if (was) el.classList.remove('under-win');   // (measured where it would be)
@@ -34,17 +34,16 @@ export function initWindows(game) {
   // What no window covers at the top left, in survival: the status bars, with every row an open window shows (where they
   // end, page y: ui/needsbar.js; 0, none: creative, spectator)
   const barsEnd = () => game.needsBar?.bottomAll?.() || 0;
-  // How low a window from x, w wide, can end: 6 px over the minimap and the hotbar, where they are under it (so the
-  // inventory still fits under the clock at 1280 × 800)
+  // How low a window from x, w wide, can end: 6 px over the hotbar, where it is under it (the minimap hides under a window: cover())
   function bottomLimit(x, w) {
     let lim = innerHeight - MARGIN;
-    for (const id of ['minimap', 'hotbar']) {
+    for (const id of ['hotbar']) {
       const r = $(id)?.getBoundingClientRect();
       if (r?.width && r.left < x + w && x < r.right) lim = Math.min(lim, r.top - 6);
     }
     return lim;
   }
-  // The left window: in the corner column, under the bars and the clock; if it does not fit there over the minimap and
+  // The left window: in the corner column, under the bars and the clock; if it does not fit there over
   // the hotbar, right under the bars, covering the whole clock (never half of it; windows.js hides it then: cover()); on
   // a screen too short even for that, place() makes it end over them and scroll (you drag things to the hotbar from it)
   function leftSpot(w, h) {
@@ -73,7 +72,7 @@ export function initWindows(game) {
     cover();
   }
   // Lo que puede medir, según dónde queda: así siempre se llega a su final con la barra
-  // (bottom: how low it may end; the left window in its own place, over the minimap and the hotbar)
+  // (bottom: how low it may end; the left window in its own place, over the hotbar)
   const fit = (el, top, bottom = innerHeight - MARGIN) => { el.style.maxHeight = `${Math.max(TITLE_H * 3, bottom - top)}px`; };
   function setPin(w, on) {
     w.pinned = on;

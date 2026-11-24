@@ -15,6 +15,8 @@ import { ToolWheel } from './ui/wheel.js';
 import { apagada } from './opciones.js';
 import { FieldHud } from './ui/fieldhud.js';
 import { FishCard } from './ui/fishcard.js';
+import { Minimap } from './ui/minimap.js';
+import { QuickPlaces } from './ui/quickplaces.js';
 import { HuntOverlay } from './ui/huntoverlay.js';
 import { reportFault } from './faults.js';
 
@@ -41,13 +43,15 @@ function play(login = true) {   // (login: abrir la pantalla de entrar)
   // (what they check and measure) unless &hud=minimo. Changing the setting swaps it at once, without reloading
   const q = new URLSearchParams(location.search), plain = MODE === 'pruebas' || q.has('banco');
   const pick = { minimo: true, completo: false }[q.get('hud')] ?? (plain ? false : null);
+  game.minimap = new Minimap(game);   // (before the HUD and the hunting overlay, which use it)
   game.needsBar = new NeedsBar(game);   // (the status bars at the top left, for both interfaces; before the HUD, which resets it)
   useSmartHud(game, pick ?? Settings.v.hud !== 'full');
   Settings.onHud = v => useSmartHud(game, v !== 'full');
   Settings.hudNow = () => (game.smartHud ? 'minimal' : 'full');   // (what the setting lights: the one in sight)
   game.live.say = (text, kind) => chat.say(text, kind);
-  hud.feed.busy = () => hud.dialogOpen || !!game.wheel?.open;   // (meanwhile its lines wait: ui/feed.js)
+  hud.feed.busy = () => hud.dialogOpen || !!game.wheel?.open || !!game.quick?.open;   // (meanwhile its lines wait: ui/feed.js)
   const wheel = game.wheel = new ToolWheel(game);   // (F held: the tool wheel, src/ui/wheel.js)
+  const quick = game.quick = new QuickPlaces(game);   // (M held: the places near, src/ui/quickplaces.js)
   // The study ring and the track tag (src/ui/fieldhud.js, Plan G), for both interfaces: drawn after menus.js's frame hook
   game.huntOverlay = new HuntOverlay(game);   // (while hunting: your noise ring and the wind, on the minimap)
   const fieldHud = game.fieldHud = new FieldHud(game), menusFrame = game.onFrame;
@@ -86,6 +90,11 @@ function play(login = true) {   // (login: abrir la pantalla de entrar)
     interact: () => game.action(),
     pause: () => menus.togglePause(),
     map: () => menus.toggleMap(),
+    mapPress: () => quick.press(() => menus.toggleMap()),   // (M: a tap, the map; held, the places near. false: not now, the map at once)
+    mapRelease: () => quick.release(),
+    quickOpen: () => quick.open,
+    quickCancel: () => quick.cancel(),
+    quickPick: i => quick.pick(i),
     mapOpen: () => game.mode === 'map',
     mapZoom: d => menus.zoomMap(d),
     bag: () => menus.toggleInventory(),

@@ -223,6 +223,8 @@ export class Game {
     this.timeScale = 1; this.timeScaleTarget = 1; this.simScale = 1;
     this.wheel = null;           // the tool wheel (main.js makes it: not on the server)
     this.needsBar = null;        // the status bars (main.js makes it: not on the server; src/ui/needsbar.js)
+    this.minimap = null;         // the minimap and the compass strip (main.js makes it; src/ui/minimap.js)
+    this.quick = null;           // the places near, M held (main.js makes it; src/ui/quickplaces.js)
   }
 
   resize() { this.view3d.resize(); }
@@ -1266,9 +1268,10 @@ export class Game {
   // of everybody cannot be stopped) and with the tab in sight (the Worker's clock, with it hidden, always goes at 1). It
   // eases in and out in real time; with someone in or the tab hidden it is 1 at once, so it never stays slowed down
   slowScale(real) {
-    if (!this.wheel?.open && this.timeScale === 1) { this.timeScaleTarget = 1; return (this.simScale = 1); }   // (nearly always: nothing to ask)
+    const slow = this.wheel?.open || this.quick?.open;
+    if (!slow && this.timeScale === 1) { this.timeScaleTarget = 1; return (this.simScale = 1); }   // (nearly always: nothing to ask)
     const alone = !document.hidden && this.live.aloneInWorld;
-    this.timeScaleTarget = alone && this.wheel?.open ? SLOW_MOTION : 1;
+    this.timeScaleTarget = alone && slow ? SLOW_MOTION : 1;
     if (!alone) this.timeScale = 1;
     else this.timeScale += (this.timeScaleTarget - this.timeScale) * (1 - Math.exp(-real * SLOW_RATE));
     if (Math.abs(this.timeScale - this.timeScaleTarget) < 0.003) this.timeScale = this.timeScaleTarget;
@@ -1364,6 +1367,7 @@ export class Game {
     if (hk) hint = hk.text;
     hud.hint(hint, hk ? hk.key : undefined);
     try { this.wheel?.frame(); } catch (e) { reportFault(e, 'ToolWheel.frame'); }   // (the tool wheel: src/ui/wheel.js)
+    try { this.quick?.frame(); } catch (e) { reportFault(e, 'QuickPlaces.frame'); }   // (the places near: src/ui/quickplaces.js)
     try { this.smartHud?.frame(hint); } catch (e) { reportFault(e, 'SmartHud.frame'); }   // (the minimal interface, unless the full one was chosen: src/ui/smarthud.js)
     try { this.needsBar?.frame(); } catch (e) { reportFault(e, 'NeedsBar.frame'); }   // (the status bars, both HUDs: src/ui/needsbar.js; after smartHud, which sets their timers)
     if (this.player && this.world) {
@@ -1374,10 +1378,9 @@ export class Game {
       this.map.world = this.world;   // (lo cavado que tiene agua se pinta de agua)
       this.map.game = this;
       if (this.mode === 'map' && due) this.map.people = this.neighbors.people.filter(n => !n.hidden).map(n => ({ x: n.x, y: n.y, name: n.def.name }));
-      this.map.face = this.player.face;   // (their arrow on both maps points where they face)
+      this.map.face = this.player.face;   // (their arrow on the big map points where they face)
       if (this.mode === 'map') this.map.drawBig(this.world.gen, this.explored, this.player.x, this.player.y, this.time);
-      else if (!this.indoors && this.smartHud?.mini !== false) this.map.drawMini(this.world.gen, this.explored, this.player.x, this.player.y, this.time);   // (hidden, not drawn)
-      else this.map.warmMini?.(this.world.gen, this.explored, this.player.x, this.player.y, this.time);   // (hidden: its thumbnails made in idle time, so it shows whole when it comes back)
+      try { this.minimap?.frame(); } catch (e) { reportFault(e, 'Minimap.frame'); }   // (the minimap and the compass strip: src/ui/minimap.js; hidden, it draws nothing)
     }
   }
 }
