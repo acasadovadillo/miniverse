@@ -10,7 +10,7 @@
 import * as THREE from 'three';
 import { Builder, mat, sameClamp } from './geo.js';
 import { plaster, planks, roofTiles, stone, wood, siding, flagstone, gravel, thatch, artwork } from './textures.js';
-import { PIECES, parsePlaced, fenceReach } from '../pieces.js';
+import { PIECES, parsePlaced, fenceReach, fenceJoins, POST_HALF } from '../pieces.js';
 import { front } from '../art/stations.js';
 import { PAL } from '../arte.js';
 import { roofShape, ROOF_CAP } from '../world/roof.js';
@@ -70,12 +70,26 @@ const FLOWER = new THREE.IcosahedronGeometry(1, 0), BLOOMS = ['#ff6a8a', '#ffe04
 
 // ---------- muros ----------
 const isWall = p => p?.kind === 'wall' || p?.kind === 'door';
+// Going out from a wall this way, does the roof end in the open within a few tiles, with no wall on the way?
+const PORCH = 4;
+function porch(scene, tx, ty, dx, dy) {
+  for (let i = 1; i <= PORCH; i++) {
+    const x = tx + dx * i, y = ty + dy * i;
+    if (isWall(scene.pieceAt(x, y))) return false;
+    if (!scene.roofAt(x, y)) return i > 1;
+  }
+  return false;
+}
 // Lado de fuera de un tramo de muro en la casilla (tx, ty) que va a lo largo de x (X) o de y: n, s, e, w; 'in'
 // si hay casa a los dos lados (tabique) y 'free' si a ninguno (un muro suelto)
 export function outward(scene, tx, ty, X) {
   const inside = (x, y) => !!scene.at('floor', x, y) || (scene.roofAt(x, y) && !isWall(scene.pieceAt(x, y)));
   const a = X ? inside(tx, ty - 1) : inside(tx - 1, ty), b = X ? inside(tx, ty + 1) : inside(tx + 1, ty);
-  if (a && b) return 'in';
+  if (a && b) {
+    // (a porch against the house: both sides have a roof, but one of them is open. The wall is the house's, seen from the porch)
+    const pa = X ? porch(scene, tx, ty, 0, -1) : porch(scene, tx, ty, -1, 0), pb = X ? porch(scene, tx, ty, 0, 1) : porch(scene, tx, ty, 1, 0);
+    return pa === pb ? 'in' : X ? (pa ? 'n' : 's') : (pa ? 'w' : 'e');
+  }
   if (!a && !b) return 'free';
   return X ? (a ? 's' : 'n') : (a ? 'e' : 'w');
 }
@@ -372,7 +386,7 @@ export function doorLeaf(d, mats) {
 // ---------- vallas ----------
 // La puerta de una valla: dos postes en la línea de las vecinas y lo que necesita la hoja para animarla (la dibuja gateLeaf)
 export function gateTile(scene, tx, ty, emit) {
-  const f = (x, y) => ['fence', 'gate', 'wall'].includes(scene.pieceAt(x, y)?.kind);
+  const f = (x, y) => fenceJoins(scene, x, y);
   const X = f(tx - 1, ty) || f(tx + 1, ty) || !(f(tx, ty - 1) || f(tx, ty + 1)), cx = tx + 0.5, cz = ty + 0.5, B = emit('fence', 'free');
   for (const s of [-0.5, 0.5]) {
     const px = X ? cx + s : cx, pz = X ? cz : cz + s;
@@ -393,7 +407,7 @@ export function gateLeaf(d, mats) {
   return g;
 }
 export function fenceTile(scene, tx, ty, id, emit) {
-  const f = (x, y) => ['fence', 'gate', 'wall'].includes(scene.pieceAt(x, y)?.kind);
+  const f = (x, y) => fenceJoins(scene, x, y);
   const cx = tx + 0.5, cz = ty + 0.5, arms = [[f(tx + 1, ty), 1, 0], [f(tx - 1, ty), -1, 0], [f(tx, ty + 1), 0, 1], [f(tx, ty - 1), 0, -1]].filter(a => a[0]);
   // (towards a wall the rails go on to its face: walls run through the middle of their tile, not along its edge)
   const seg = (dx, dz, fn) => { const r = fenceReach(scene, tx + dx, ty + dz), x0 = Math.min(cx, cx + dx * r), x1 = Math.max(cx, cx + dx * r), z0 = Math.min(cz, cz + dz * r), z1 = Math.max(cz, cz + dz * r); fn(x0, x1, z0, z1); };
@@ -413,6 +427,44 @@ export function fenceTile(scene, tx, ty, id, emit) {
   });
 }
 const ihash2 = (x, y) => { let h = (Math.imul(x | 0, 374761393) + Math.imul(y | 0, 668265263)) | 0; h = Math.imul(h ^ (h >>> 13), 1274126177); return ((h ^ (h >>> 16)) >>> 0) / 4294967296; };
+
+// ---------- posts ----------
+// What holds a roof where there is no wall. Wood: a square timber on a stone foot, with a bolster under the roof and a knee
+// brace towards each side the roof goes on to. Stone: a pillar of dressed blocks, base and capital. more: what its roof is
+// above its own level (a house on a slope is level, the porch's post starts lower). Under a slope it goes up to the tiles
+// (the row of the eave); further in, to the height of the walls, as they do
+const POST_RISE = 0.5;
+export function postTile(scene, tx, ty, id, emit, more = 0) {
+  const cx = tx + 0.5, cz = ty + 0.5, roof = !!scene.roofAt(tx, ty), up = roof ? scene.roofGeometry?.(tx, ty, new Map())?.h.c ?? 0 : 0;
+  const H = WALL_H + more + (up <= POST_RISE ? Math.max(0, up * ROOF.level - 0.04) : 0), foot = -0.32;   // (foot: down into the ground, which may slope)
+  const arms = roof ? [[1, 0], [-1, 0], [0, 1], [0, -1]].filter(([x, y]) => scene.roofAt(tx + x, ty + y)) : [];
+  if (id === 'stone_pillar') {
+    const B = emit('wallStone', 'free'), K = emit('stone', 'free'), r = POST_HALF.stone_pillar, n = Math.round((H - 0.62) / 0.36), h = (H - 0.62) / n;
+    K.roundBox(cx - 0.29, foot, cz - 0.29, cx + 0.29, 0.2, cz + 0.29, 0.03, { s: 0.9 });
+    K.roundBox(cx - 0.245, 0.2, cz - 0.245, cx + 0.245, 0.34, cz + 0.245, 0.035, { s: 0.9 });
+    // (courses: each block a little different, by its place, with its worn edges)
+    for (let i = 0; i < n; i++) { const w = r - 0.008 + (ihash2(tx * 31 + i, ty * 17 - i) - 0.5) * 0.012, y = 0.34 + i * h; B.roundBox(cx - w, y, cz - w, cx + w, y + h - 0.006, cz + w, 0.016, { s: 0.8 + ihash2(tx - i, ty + i) * 0.3 }); }
+    K.roundBox(cx - 0.235, H - 0.28, cz - 0.235, cx + 0.235, H - 0.14, cz + 0.235, 0.03, { s: 0.9 });
+    K.roundBox(cx - 0.29, H - 0.14, cz - 0.29, cx + 0.29, H, cz + 0.29, 0.022, { s: 0.9 });
+    return;
+  }
+  const B = emit('timber', 'free'), S = emit('stone', 'free'), F = emit('frame', 'free'), r = POST_HALF.post, top = arms.length ? H - 0.16 : H;
+  S.roundBox(cx - 0.19, foot, cz - 0.19, cx + 0.19, 0.14, cz + 0.19, 0.03, { s: 0.8 });
+  B.roundBox(cx - r, 0.14, cz - r, cx + r, top, cz + r, 0.014, { s: 0.7 });
+  // (the bolster: along x and along z they cross, half over half, so one is a little lower)
+  const ax = arms.filter(a => a[0]), az = arms.filter(a => a[1]), L = 0.5;
+  if (ax.length) B.roundBox(ax.some(a => a[0] < 0) ? cx - L : cx - r - 0.06, H - 0.16, cz - 0.085, ax.some(a => a[0] > 0) ? cx + L : cx + r + 0.06, H, cz + 0.085, 0.012, { s: 0.7 });
+  if (az.length) B.roundBox(cx - 0.083, H - 0.164, az.some(a => a[1] < 0) ? cz - L : cz - r - 0.06, cx + 0.083, H - 0.004, az.some(a => a[1] > 0) ? cz + L : cz + r + 0.06, 0.012, { s: 0.7 });
+  // (the knee braces, pegged, at 45 degrees)
+  for (const [dx, dz] of arms) {
+    const b = [dz ? 1 : 0, 0, dx ? 1 : 0], n = [dx * Math.SQRT1_2, -Math.SQRT1_2, dz * Math.SQRT1_2], P = (u, y) => [cx + dx * u, y, cz + dz * u];
+    const half = 0.045, at = (p, k) => [p[0] + n[0] * k, p[1] + n[1] * k, p[2] + n[2] * k];
+    beamGeo(B, at(P(r - 0.02, H - 0.16 - 0.36), -half), at(P(0.44, H - 0.16 + 0.02), -half), b, n, 0.085, half * 2);
+    const q = P(r + 0.001, H - 0.16 - 0.3), w = 0.016;
+    F.box(q[0] - (dx ? 0.006 : w), q[1] - w, q[2] - (dz ? 0.006 : w), q[0] + (dx ? 0.006 : w), q[1] + w, q[2] + (dz ? 0.006 : w));
+  }
+  if (!arms.length) B.roundBox(cx - r - 0.025, H - 0.1, cz - r - 0.025, cx + r + 0.025, H, cz + r + 0.025, 0.02, { s: 0.7 });
+}
 
 // ---------- suelos ----------
 // Bajo un muro o una puerta, el suelo solo cubre el lado de dentro (clip: [x0, x1, y0, y1] desde el centro)

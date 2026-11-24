@@ -51,10 +51,13 @@ export class Prompts {
       this.click = !!prey;
       if (prey) this.add('mouse:l', t('prompt.attack'), 0, true);
     }
-    if (social) this.add('Y', social, 0, rows.length > 0);
-    const target = !rows.length ? null : near ? hl : social ? g.social.picked : null;
+    const down = g.build.on ? g.build.holdRow() : null;   // (building: what is taken down holding, build.js)
+    if (down) { rows.length = 0; this.add('mouse:l', `${down.text} ${t('prompt.hold')}`, 1); }
+    if (social && !down) this.add('Y', social, 0, rows.length > 0);
+    const target = !rows.length ? null : down ? down.target : near ? hl : social ? g.social.picked : null;
     if (!target) this.id = undefined;
-    hud.prompt(rows, target ? this.place(target, near ? hl : null) : null);
+    hud.prompt(rows, target ? this.place(target, down ? down.target : near ? hl : null) : null);
+    if (down || this.downK) { const k = down ? down.k : -1; if (k !== this.downK) { this.downK = k; hud.promptHold('mouse:l', k); } if (!down) this.downK = 0; }
     this.shown = !!target;
     this.tick(near);
   }

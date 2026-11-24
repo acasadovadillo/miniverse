@@ -29,6 +29,10 @@ export const TEMP = {
   warmHour: 15,
   snowCap: 1,          // while it snows (nieve) airC is at most this
   indoorC: 17, indoorPull: 0.7,   // indoors: airC = lerp(airC, indoorC, indoorPull)
+  // The pull by the room you are in (structure.js roomAt): closed, with a door open, only a roof, huge. And a lit hearth inside
+  // a closed room warms all of it: as at hearthD tiles from it up to hearthSize tiles of room ([tiles, as at])
+  pull: { room: 0.85, draughty: 0.55, porch: 0.25, hall: 0.7 },
+  hearthRoom: [[60, 1.5], [150, 2.5]],
   caveC: 12,           // in a cave or underground
   fireC: 12, fireR: 5, // + fireC × (1 − d / fireR) for the nearest lit hearth, furnace or forge within fireR tiles
   swimSea: -4, swimFresh: -2,     // while swimming
@@ -41,6 +45,11 @@ export const TEMP = {
   poll: 2,             // s between two temperature polls
   lag: 20,             // s of smoothing (it never flickers)
 };
+// How far the fire counts as being (tiles) in that room, with the nearest one at fireD
+export function roomFire(room, fireD) {
+  if (room?.kind === 'room' && room.hearth) for (const [size, d] of TEMP.hearthRoom) if (room.size <= size) return Math.min(fireD, d);
+  return fireD;
+}
 // By localSeason (art/seasons.js order: spring, summer, autumn, winter)
 export const SEASON_C = [0, 8, -1, -8];
 // By weather id (time.js WEATHER). nieve also caps airC at TEMP.snowCap
@@ -51,10 +60,11 @@ const clamp01 = v => (v > 0 ? (v < 1 ? v : 1) : 0);
 // The felt temperature (§2.2), pure. env (all optional but Tl, season, hour, weather):
 //   Tl       climate().Tl at the player (the village is exactly TEMP.tlRef)
 //   season   time.js localSeason (0 spring … 3 winter);  hour: localHour (0..24);  weather: weatherHere (time.js ids)
-//   indoors  under a roof or inside (game.indoors);  cave: in a cave or underground (airC = caveC, no weather)
+//   indoors  under a roof or inside (game.indoors);  pull: what the room pulls to indoorC (TEMP.pull; else indoorPull);  cave: in a cave or underground (airC = caveC, no weather)
 //   fireD    tiles to the nearest lit fire (Infinity: none);  swim: 'sea' | 'fresh' | null
 //   W, rain, shade   from clothesOf (warmth, rainproof share, sun shade)
 //   wet      0..100 (Body passes wet plus a third of wetLegs);  raining: rain is falling on you (outdoors)
+// (a lit hearth in a closed room: roomFire)
 // out (reused): { airC, feelC, cold, heat }, cold and heat 0..1; feelC is the shown feel (see the end)
 export function feelOf(env, out = {}) {
   const T = TEMP;
@@ -63,7 +73,7 @@ export function feelOf(env, out = {}) {
   else {
     air = T.base + (env.Tl - T.tlRef) * T.tlScale + (SEASON_C[env.season] || 0) + T.dayAmp * Math.cos((2 * Math.PI * (env.hour - T.warmHour)) / 24) + (WEATHER_C[env.weather] || 0);
     if (SNOWING.has(env.weather)) air = Math.min(air, T.snowCap);
-    if (env.indoors) air += (T.indoorC - air) * T.indoorPull;
+    if (env.indoors) air += (T.indoorC - air) * (env.pull ?? T.indoorPull);
   }
   if (env.fireD < T.fireR) air += T.fireC * (1 - Math.max(0, env.fireD) / T.fireR);
   if (env.swim) air += env.swim === 'sea' ? T.swimSea : T.swimFresh;

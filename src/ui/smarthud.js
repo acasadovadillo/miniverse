@@ -409,7 +409,9 @@ export class SmartHud {
     }
     // The place, when it is a new one (after a jump or a door in the dark, once it can be seen)
     // (the named area: a step over a border and back is not entering it, and the same name is not said again for a while)
-    if (g.placeName !== this.placeName) { this.placeName = g.placeName; this.placeAt = T; this.placeDue = !!g.placeName; }
+    // (with what goes under it: closing the door of a room is told too, structure.js roomAt)
+    const place = g.placeSub ? `${g.placeName} · ${g.placeSub}` : g.placeName;
+    if (place !== this.placeName) { this.placeName = place; this.placeAt = T; this.placeDue = !!place; }
     if (this.placeDue && T - this.placeAt > PLACE_SETTLE && !g.jumping && !talking) {
       this.placeDue = false;
       if (this.placeName !== this.placeSaid && !(T - this.placeTimes.get(this.placeName) < PLACE_AGAIN)) { show('card', SHOW.place); this.paintPlace(g, p); }
@@ -704,7 +706,7 @@ export class SmartHud {
   // The card of the area: its name and, under it, how far from home (in the wild) or whose village it is
   paintPlace(g, p) {
     const name = g.placeName || '', [b, small] = this.el.card.children;
-    let sub = '';
+    let sub = g.placeSub || '';
     if (g.scene === g.world && !g.underRoof) {
       const d = Math.hypot(dxOf(p.x, CENTER.x), p.y - CENTER.y);
       if (!inBounds(p.x, p.y)) sub = t('place.wild', { dist: d < 1000 ? t('minimap.dist', { n: Math.round(d / 10) * 10 }) : t('minimap.dist_km', { n: fmt.num(d / 1000, { maximumFractionDigits: 1 }) }) });

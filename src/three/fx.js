@@ -69,6 +69,11 @@ const HEAD_UNDER = 0.42, SWIM_EYE = 0.7;   // (as entities.js and engine.js: onl
 const PUFFS = 12, PUFF_EVERY = 2.6, PUFF_LIFE = 1.9, PUFF_R = 15, PUFF_AIR = 3, AIR_EVERY = 1;
 const DRIPS = 20, DRIP_RATE = 2.5, DRIP_R = 12, DRIP_WET = 0.6;
 
+// Which way a wall, a door or a fence in this tile runs (0: along x), from what it joins
+function wallYaw(scene, tx, ty) {
+  const j = (x, y) => !!scene.pieceAt?.(x, y)?.kind;
+  return !(j(tx - 1, ty) || j(tx + 1, ty)) && (j(tx, ty - 1) || j(tx, ty + 1)) ? Math.PI / 2 : 0;
+}
 export class Fx {
   constructor(view) {
     this.view = view;
@@ -235,7 +240,7 @@ export class Fx {
   updateTarget(game, scene, playing, t, gy) {
     const ay = (x, y) => this.view.aimY(scene, x, y);   // (el marco de la casilla: ver showTile)
     this.tile.visible = this.tileFill.visible = this.ring.visible = false;
-    let ghost = null, ghostOk = true, at = null, yaw = 0, ghostLvl = null;
+    let ghost = null, ghostOk = true, at = null, yaw = 0, ghostLvl = null, swap = false;
     if (playing) {
       const b = game.build;
       const pulse = Math.sin(t * 6) > 0 ? '#fff3c0' : '#ffd77a';
@@ -244,7 +249,7 @@ export class Fx {
         if (tt) {
           const c = b.check(tt);
           this.showTile(tt, ay, c.ok ? pulse : '#ff7a6a');
-          if (!b.erase && !b.move) { ghost = 'piece:' + b.piece; ghostOk = c.ok; at = [tt[0] + 0.5, tt[1] + 0.5]; }
+          if (!b.erase && !b.move) { ghost = 'piece:' + b.piece; ghostOk = c.ok; at = [tt[0] + 0.5, tt[1] + 0.5]; swap = !!c.swap && c.ok; if (swap) yaw = wallYaw(game.scene, tt[0], tt[1]); }
         }
       } else {
         const tg = game.gather.target;
@@ -279,8 +284,9 @@ export class Fx {
       const gid = ghost.startsWith('piece:') ? ghost.slice(6) : ghost.split(':')[0], lvl = ghostLvl ?? (scene.levelFor && scene.kind === 'world' ? scene.levelFor(Math.floor(at[0]), Math.floor(at[1]), gid) : null);
       this.ghost.position.set(at[0], (lvl ?? gy(...at)) + 0.01, at[1]);
       this.ghost.rotation.y = yaw;
+      this.ghost.scale.set(swap ? 1.02 : 1, 1, swap ? 1.3 : 1);   // (over the wall it takes the place of, not inside it)
       this.ghostMat.opacity = ghostOk ? 0.55 : 0.5;   // (en rojo, bien visible: así se ve qué corta)
-      this.ghostMat.color.set(ghostOk ? '#c8ffd0' : '#ffb0a0');
+      this.ghostMat.color.set(swap ? '#8dffa0' : ghostOk ? '#c8ffd0' : '#ffb0a0');
     }
   }
   // (gy: la altura de lo que se apunta, aimY en engine.js: en lo cavado con agua, el marco va sobre el agua)
@@ -304,6 +310,7 @@ export class Fx {
       else if (kind === 'door') { box(-0.5, 2.05, -0.12, 0.5, WALL_H, 0.12); box(-0.5, 0, -0.12, -0.42, 2.05, 0.12); box(0.42, 0, -0.12, 0.5, 2.05, 0.12); box(-0.4, 0, -0.03, 0.4, 2.0, 0.03); }
       else if (kind === 'gate') return this.modelGhost('puerta_valla');
       else if (kind === 'fence') { box(-0.06, 0, -0.06, 0.06, 0.95, 0.06); box(-0.5, 0.36, -0.04, 0.5, 0.46, 0.04); box(-0.5, 0.72, -0.04, 0.5, 0.82, 0.04); }
+      else if (kind === 'post') { const r = p.r; box(-r - 0.08, 0, -r - 0.08, r + 0.08, 0.16, r + 0.08); box(-r, 0.16, -r, r, WALL_H - 0.16, r); box(-r - 0.1, WALL_H - 0.16, -r - 0.1, r + 0.1, WALL_H, r + 0.1); }
       else if (kind === 'hearth') return this.modelGhost('chimenea');
       return g;
     }

@@ -23,7 +23,7 @@ import { faults, resetFaults } from './faults.js';
 import { CHUNK, WorldGen } from './world/gen.js';
 import { B, BIOMES, climate } from './world/biomes.js';
 import { packBd, unpackBd } from './body.js';
-import { feelOf, TEMP, clothesOf, warmthOf, tearStage, canTear } from './clothing.js';
+import { feelOf, roomFire, TEMP, clothesOf, warmthOf, tearStage, canTear } from './clothing.js';
 import { paintPixels, blockHeights, groundSmooth, groundTag } from './world/ground.js';
 import { retireItems } from './game.js';
 import { HOUSE, HOUSES, POND, YARD, BOUNDS, BOARD, CENTER, TAVERN, inBounds } from './world/village.js';
@@ -39,7 +39,9 @@ import { portraitMemory } from './three/portrait.js';
 import { machineAt, settle, MACHINES } from './machines.js';
 import { hud } from './ui/hud.js';
 import { freePlace } from './gather.js';
-import { PIECE_IDS } from './build.js';
+import { PIECE_IDS, salvage, UNDO_MS, HOLD_S } from './build.js';
+import * as ST from './structure.js';   // (R5-1: building that holds)
+import { houseBlueprint, familyBlueprint, tavernBlueprint } from './world/blueprints.js';
 import { BUILDABLE, PLANS, PLANS_V, PLAN_BORN } from './buildables.js';
 import { PIECES, parsePlaced } from './pieces.js';
 import { diffChunk, applyOps, ItemSync, COLLECTIONS } from './livesync.js';
@@ -227,6 +229,12 @@ function openBig(game, x, y, r = 3) {
   if (BULKY[o.placed].prey) C.butcher(o);
   else { selectTool(game, 'hacha'); for (let i = 0; i < 3; i++) { game.gather.cooldown = 0; C.split(o); } }
   return true;
+}
+// B › Remove on that tile, holding it as a player does what is not his latest work (build.js needsHold): the hold is over at once
+function dismantle(game, t) {
+  const B = game.build;
+  B.remove(t);
+  if (B.held) { B.held.ms = 1000; B.tick(); }
 }
 function freeTile(game, from) {
   const w = game.world, p = game.player;
@@ -685,9 +693,10 @@ async function soloTests(game) {
     const tablas = RECIPES.find(r => r.id === 'tablas'), banco = RECIPES.find(r => r.id === 'banco');
     check(!game.craft.problem(tablas), `tablas: ${game.craft.problem(tablas)}`);
     game.craft.craft(tablas, 3); check(inv().count('tablas') >= 6, 'no hay 6 tablas');
+    // (the workbench is built with B, not crafted: known, it comes up in the bar and can be paid)
     inv().add('piedra', 2); game.craft.teach('banco');
-    check(!game.craft.problem(banco), `banco: ${game.craft.problem(banco)}`);
-    game.craft.craft(banco, 1); check(inv().count('banco') === 1, 'no hay banco');
+    check(banco.build && game.build.available('banco'), 'el banco no sale en la barra de construir');
+    check(game.build.canPay('banco'), 'no llega para el banco');
   });
   await test('casas grandes: caben, la puerta los mete dentro y los saca', async () => {
     await goTo(game, 60, 36);
@@ -730,14 +739,18 @@ async function soloTests(game) {
   await test('colocar: el banco se pone libre, se usa y se recoge', async () => {
     await goTo(game, 60, 36);
     const f = w().fitFree('banco', p().x + 1.5, p().y, 0, 0, p()); check(f.ok, `no cabe: ${f.why}`);
-    w().placeFree('banco', f); inv().remove('banco', 1); await frames(2);
+    const B = game.build, had = BUILDABLE.banco.cost.map(([m]) => inv().count(m));
+    B.toggle(true); B.select('banco');
+    try { w().placeFree('banco', f); B.paid('banco'); } finally { B.select(PIECE_IDS[0]); B.toggle(false); }
+    await frames(2);
+    check(BUILDABLE.banco.cost.every(([m, n], k) => inv().count(m) === had[k] - n), 'no se paga');
     check(game.craft.stationsNear().banco, 'el banco no está cerca');
     const o = w().placedNear(p().x, p().y, 3).find(o => o.placed === 'banco'); check(o, 'no se encuentra el banco colocado');
-    check(game.pickUp(o), 'no se recoge'); check(inv().count('banco') === 1, 'el banco no ha vuelto a la mochila');
-    // Tirado al suelo se ve como el modelo en miniatura (no como icono hecho pieza) y vuelve solo a la mochila
-    await collectDrops(game); inv().remove('banco', 1); game.gather.throwOut('banco', 1); check(inv().count('banco') === 0 && game.gather.drops.length === 1, 'no se ha tirado');
+    check(game.pickUp(o), 'no se recoge'); check(BUILDABLE.banco.cost.every(([m], k) => inv().count(m) === had[k]), 'sus materiales no han vuelto a la mochila');
+    // Tirado al suelo, lo que se coloca se ve como el modelo en miniatura (no como icono hecho pieza) y vuelve solo a la mochila
+    await collectDrops(game); const n0 = inv().count('lampara'); game.gather.throwOut('lampara', 1); check(inv().count('lampara') === n0 && game.gather.drops.length === 1, 'no se ha tirado');
     draw(); const fx = game.view3d.fx, shown = fx.drops.get(game.gather.drops[0]); check(shown?.s?.isGroup, 'en el suelo no está el modelo en miniatura');
-    await collectDrops(game, 'a recoger el banco'); check(inv().count('banco') === 1, 'el banco tirado no ha vuelto');
+    await collectDrops(game, 'a recoger la lámpara'); check(inv().count('lampara') === n0 + 1, 'la lámpara tirada no ha vuelto'); inv().remove('lampara', 1);
   });
   await test('cofre: guarda cosas y lleno no se recoge', async () => {
     const [tx, ty] = freeTile(game, [[62, 38], [63, 38], [62, 39], [61, 38]]);
@@ -2161,10 +2174,10 @@ async function soloTests(game) {
     Nb().friend('rosa').pts = 200;
     B.toggle(true); B.select('quitar');
     try {
-      B.remove(t1); check(!w().at('roof', ...t1), 'the roof stays');
+      dismantle(game, t1); check(!w().at('roof', ...t1), 'the roof stays');
       check(Rp().pts === -12 && Rp().v.log.at(-1)[2] === 'take' && Rp().v.taken[`roof:${t1}`]?.[0] === 12, `nobody saw it: ${Rp().pts} ${JSON.stringify(Rp().v.taken)}`);
       nb('rosa').hidden = true;   // (at home)
-      B.remove(t1); check(!w().at('placed', ...t1), 'the wall stays');
+      dismantle(game, t1); check(!w().at('placed', ...t1), 'the wall stays');
       check(Rp().pts === -37 && Rp().v.log.at(-1)[2] === 'take_seen' && Nb().friend('rosa').pts === 190, `Rosa at home: ${Rp().pts}, friendship ${Nb().friend('rosa').pts}`);
       const said = So().bubbles.find(b => b.name === t('npc.witness.inside', { name: 'Rosa' }));
       check(said && tList('npc.witness.take.own').includes(said.text), `what she says: ${JSON.stringify(So().bubbles.map(b => [b.name, b.text]))}`);
@@ -2176,12 +2189,12 @@ async function soloTests(game) {
     nb('rosa').hidden = true; nb('lia').hidden = false;
     B.toggle(true); B.select('quitar'); B.stationFor = () => true;   // (the stone wall wants the mason's table near: not what is tested)
     try {
-      B.remove(t1); B.remove(t1);   // (the roof, then the wall: Rosa hears both)
+      dismantle(game, t1); dismantle(game, t1);   // (the roof, then the wall: Rosa hears both)
       check(Rp().pts === -50, `taken: ${Rp().pts}`);
       I.add('piedra', 30); B.select('muro_piedra'); B.place(t1);
       check(w().ownAt('placed', ...t1) === 'muro_piedra' && Rp().pts === -37 && Rp().v.log.at(-1)[2] === 'return', `put back: ${Rp().pts}`);
-      B.select('quitar'); B.remove(t1); check(Rp().pts === -50 && Rp().v.log.at(-1)[2] === 'retake', `taken again: ${Rp().pts}`);
-      B.select('muro_piedra'); B.place(t1); B.select('quitar'); B.remove(t1); B.select('muro_piedra'); B.place(t1);
+      B.select('quitar'); dismantle(game, t1); check(Rp().pts === -50 && Rp().v.log.at(-1)[2] === 'retake', `taken again: ${Rp().pts}`);
+      B.select('muro_piedra'); B.place(t1); B.select('quitar'); dismantle(game, t1); B.select('muro_piedra'); B.place(t1);
       check(Rp().pts === -37, `put and take, put and take: ${Rp().pts}`);
       // Picked up by hand (X) or moved with B › Move: the same as removing it
       const wall = { tile: t1, layer: 'placed', placed: 'muro_piedra' }; I.add('piedra', 30);
@@ -2189,11 +2202,11 @@ async function soloTests(game) {
       B.place(t1); check(Rp().pts === -37, `put back again: ${Rp().pts}`);
       check(game.pickUp(wall, true) && Rp().pts === -50, `moved with B › Move: ${Rp().pts}`);
       B.place(t1); check(Rp().pts === -37, `and back: ${Rp().pts}`);
-      B.select('quitar'); B.remove(t1);
+      B.select('quitar'); dismantle(game, t1);
       // In creative nothing changes
       runCommand(game, '/gamemode creative', () => {}); B.toggle(true); B.select('quitar');
       const before = Rp().pts, t2 = rosaWall([t1]); p().x = t2[0] + 0.5; p().y = t2[1] + 2.5;
-      B.remove(t2); check(!w().at('roof', ...t2) && Rp().pts === before, `creative: ${Rp().pts}`);
+      dismantle(game, t2); check(!w().at('roof', ...t2) && Rp().pts === before, `creative: ${Rp().pts}`);
     } finally { B.toggle(false); B.stationFor = station; }
   }));
   await test('reputacion: llamar de noche baja una vez por puerta y noche', social(async () => {
@@ -2431,9 +2444,9 @@ async function soloTests(game) {
       check(PIECES[wallId], `en ${wallT} hay ${wallId}`); check(!W.ownAt('placed', ...wallT), 'ya era tuyo');
       check(B.check(wallT).ok, `no deja: ${B.check(wallT).why}`);
       const roofFirst = B.removable(wallT); check(roofFirst === 'roof', `primero: ${roofFirst}`);
-      B.remove(wallT); check(!W.at('roof', ...wallT), 'no quita el tejado'); check(d(wallT).gone?.[`roof:${k(wallT)}`], 'no apunta el tejado');
-      B.remove(wallT); check(!W.at('placed', ...wallT), 'no quita el muro'); check(d(wallT).gone?.[k(wallT)], 'no apunta el muro');
-      check(PIECES[wallId].cost.every(([m]) => I.count(m) > 0), 'no devuelve los materiales');
+      dismantle(game, wallT); check(!W.at('roof', ...wallT), 'no quita el tejado'); check(d(wallT).gone?.[`roof:${k(wallT)}`], 'no apunta el tejado');
+      dismantle(game, wallT); check(!W.at('placed', ...wallT), 'no quita el muro'); check(d(wallT).gone?.[k(wallT)], 'no apunta el muro');
+      check(salvage(PIECES[wallId].cost).every(([m]) => I.count(m) > 0), 'no devuelve lo que se aprovecha');
       const after = W.collidersNear(wallT[0] + 0.5, wallT[1] + 0.5).filter(c => c.wall).length; check(after < before, `sigue chocando: ${before} → ${after}`);
       draw();
       // Sigue quitado después de guardar y al volver a pedir el trozo
@@ -2441,26 +2454,27 @@ async function soloTests(game) {
       W.merged.delete(`${Math.floor(wallT[0] / CHUNK)},${Math.floor(wallT[1] / CHUNK)}`);
       check(!W.contentFor(Math.floor(wallT[0] / CHUNK), Math.floor(wallT[1] / CHUNK)).objects.some(o => o.tile?.[0] === wallT[0] && o.tile?.[1] === wallT[1] && (o.layer === 'placed' || o.layer === 'roof')), 'vuelve a salir');
       // Y se puede poner otra cosa ahí: es de quien lo pone, y al quitarlo no vuelve lo de antes
+      B.stationFor = () => true;   // (the stone wall wants the mason's table near: not what is tested)
       B.select('muro_piedra'); I.add('piedra', 9); P.x = wallT[0] + 2.5; P.y = wallT[1] + 2.5; check(W.canPlace(...wallT, 'muro_piedra', P), 'no se puede poner otro muro');
       B.place(wallT); check(W.ownAt('placed', ...wallT) === 'muro_piedra', 'no se pone');
-      B.select('quitar'); B.remove(wallT); check(!W.at('placed', ...wallT), 'vuelve el muro de antes');
+      B.select('quitar'); dismantle(game, wallT); check(!W.at('placed', ...wallT), 'vuelve el muro de antes');
       // Tejado y suelo de dentro, y un mueble
-      P.x = roofT[0] + 0.5; P.y = roofT[1] + 3.5; B.remove(roofT); check(!W.at('roof', ...roofT), 'tejado de dentro');
-      B.remove(floorT); B.remove(floorT); check(!W.at('floor', ...floorT), `suelo: ${W.at('roof', ...floorT)}, ${W.at('floor', ...floorT)}`);
+      P.x = roofT[0] + 0.5; P.y = roofT[1] + 3.5; dismantle(game, roofT); check(!W.at('roof', ...roofT), 'tejado de dentro');
+      dismantle(game, floorT); dismantle(game, floorT); check(!W.at('floor', ...floorT), `suelo: ${W.at('roof', ...floorT)}, ${W.at('floor', ...floorT)}`);
       const thing = W.placedNear(h.x0 + 4, h.y0 + 2, 6).find(o => o.fixed && ITEMS[o.placed] && o.layer === 'placed' && !PIECES[o.placed]); check(thing, 'sin mueble');
-      P.x = thing.x; P.y = thing.y + 2; while (B.removable(thing.tile) === 'roof') B.remove(thing.tile);
-      const has = I.count(thing.placed); B.remove(thing.tile); check(I.count(thing.placed) === has + 1, `${thing.placed} no vuelve a la mochila`);
+      P.x = thing.x; P.y = thing.y + 2; while (B.removable(thing.tile) === 'roof') dismantle(game, thing.tile);
+      const back = BUILDABLE[thing.placed]?.cost || [[thing.placed, 1]], has = back.map(([m]) => I.count(m)); dismantle(game, thing.tile); check(back.every(([m, n], k) => I.count(m) === has[k] + n), `${thing.placed} no vuelve a la mochila (o sus materiales)`);
       // Lo mismo con /fill air: toda una esquina, de una vez, y sigue la casa de al lado
       const c = [h.x1 - 2, h.y0 + 1]; W.setTile(...c, 'air'); check(!W.at('roof', ...c) && !W.at('floor', ...c), '/fill air no quita lo que venía puesto');
       // En la taberna y en una aldea, igual
-      const bar = [3, 34]; P.x = 3.5; P.y = 36.5; while (B.removable(bar) === 'roof') B.remove(bar); check(W.at('placed', ...bar) === 'barra', 'no está la barra'); B.remove(bar); check(!W.at('placed', ...bar), 'la barra no se quita');
+      const bar = [3, 34]; P.x = 3.5; P.y = 36.5; while (B.removable(bar) === 'roof') dismantle(game, bar); check(W.at('placed', ...bar) === 'barra', 'no está la barra'); dismantle(game, bar); check(!W.at('placed', ...bar), 'la barra no se quita');
       // Con el ratón, lo que se ve bajo el cursor
       draw(); draw();
       const pick = (x, H, y) => { const v = new THREE.Vector3(x, game.view3d.groundY(W, x, y) + H, y).project(game.view3d.camera); game.mouse = { x: (v.x + 1) / 2 * innerWidth, y: (1 - v.y) / 2 * innerHeight, in: true }; return B.pick(); };
       await goTo(game, h.x0 + 8.5, h.y1 + 2.5); draw(); draw();
-      const wt = [h.x0 + 8, h.y1 - 1], got = pick(wt[0] + 0.5, 1.2, wt[1] + 0.5); check(got?.layer === 'placed' && got.tile[0] === wt[0] && got.tile[1] === wt[1], `al muro: ${JSON.stringify(got)}`);
+      const wt = [8, 9, 7, 10, 1].map(i => [h.x0 + i, h.y1 - 1]).find(q => PIECES[parsePlaced(W.at('placed', ...q) || '')[0]]?.kind === 'wall' && q[0] !== wallT[0]), got = pick(wt[0] + 0.5, 1.2, wt[1] + 0.5); check(got?.layer === 'placed' && got.tile[0] === wt[0] && got.tile[1] === wt[1], `al muro: ${JSON.stringify(got)}`);
       const top = pick(h.x0 + 7.5, 3.1, h.y0 + 5.5); check(top?.layer === 'roof', `al tejado: ${JSON.stringify(top)}`);
-    } finally { game.mouse = mouse; B.select(PIECE_IDS[0]); B.toggle(false); I.slots.splice(0, I.slots.length, ...kept); I.changed(); }
+    } finally { delete B.stationFor; game.mouse = mouse; B.select(PIECE_IDS[0]); B.toggle(false); I.slots.splice(0, I.slots.length, ...kept); I.changed(); }
   });
   await test('casas: en las aldeas se quita de todo, y dentro se apunta a lo que se ve', async () => {
     const B = game.build, W = w(), P = p(), E = game.places, I = inv(), kept = I.slots.slice(), mouse = game.mouse;
@@ -2474,7 +2488,7 @@ async function soloTests(game) {
       await goTo(game, wx + 0.5, wy + 3.5); B.toggle(true); B.select('quitar'); draw(); draw();
       check(W.at('hang', wx, wy) === undefined && W.at('rug', wx, wy) === undefined, 'preguntar por otras capas falla');
       check(W.at('placed', wx, wy) === 'muro_entramado', 'no está el muro');
-      B.remove([wx, wy]); check(!W.at('roof', wx, wy), 'el tejado de la aldea no se quita'); B.remove([wx, wy]); check(!W.at('placed', wx, wy), 'el muro de la aldea no se quita');
+      dismantle(game, [wx, wy]); check(!W.at('roof', wx, wy), 'el tejado de la aldea no se quita'); dismantle(game, [wx, wy]); check(!W.at('placed', wx, wy), 'el muro de la aldea no se quita');
       check(W.canPlace(wx, wy, 'muro_piedra', null), 'en su hueco no se puede construir');
       W.setTile(wx + 1, wy, 'air'); check(!W.at('placed', wx + 1, wy) && !W.at('roof', wx + 1, wy), '/fill air no vacía la aldea');
       // Una pieza sobre lo que venía puesto: al quitarla no vuelve lo de antes
@@ -2710,33 +2724,29 @@ async function soloTests(game) {
       R.assign(pato, A); check(R.homeOf(pato)?.tile[0] === ax, 'no se le ha podido dar otra casa');
     } finally { hud.ask = was; R.animals = keep; w().setTile(ax, ay, 'air'); w().setTile(bx, by, 'air'); inv().remove('gallinero', 1); }
   });
-  await test('vallas: se fabrican, se colocan, se unen y se recogen', async () => {
+  await test('vallas: se construyen con B, se unen y se quitan', async () => {
     await goTo(game, 60, 36);
-    inv().add('tablas', 2); game.craft.check();
-    const f = w().fitFree('banco', p().x + 1.5, p().y, 0, 0, p()); check(f.ok, `el banco no cabe: ${f.why}`); w().placeFree('banco', f); await frames(2);
-    const r = RECIPES.find(r => r.id === 'valla'); check(r && !game.craft.problem(r), `receta: ${r && game.craft.problem(r)}`);
-    const n0 = inv().count('valla'); game.craft.craft(r, 2); check(inv().count('valla') === n0 + 2, 'no hay vallas');
-    const banco = w().placedNear(p().x, p().y, 3).find(o => o.placed === 'banco'); check(banco && game.pickUp(banco), 'no se recoge el banco'); inv().remove('banco', 1);
-    check(!freePlace('valla') && PIECE_IDS.includes('valla'), 'la valla no va por casillas, o ya no está en la paleta');
-    inv().selected = inv().slots.findIndex(s => s?.id === 'valla'); inv().changed(); check(inv().held?.id === 'valla', 'no la llevo en la mano');
+    const B = game.build, I = inv(), mouse = game.mouse, n0 = I.count('tablas');
+    I.add('tablas', 10);
+    check(!freePlace('valla') && PIECE_IDS.includes('valla') && !RECIPES.some(r => r.out === 'valla') && !ITEMS.valla, 'la valla no va por casillas, no está en la paleta o es aún un objeto');
     let [tx, ty] = freeTile(game, [[64, 42], [66, 42], [68, 42]]);
     const clear = (x, y) => w().canPlace(x, y, 'valla', p()) && w().canPlace(x + 1, y, 'valla', p());
     for (let i = 0; i < 30 && !clear(tx, ty); i++) tx += 2;
     check(clear(tx, ty), 'no hay dos casillas libres seguidas');
-    const put = async x => { p().x = x + 0.5; p().y = ty + 1.4; p().face = { x: 0, y: -1 }; await frames(2); game.gather.cooldown = 0; game.gather.target = game.gather.pickTarget(); check(game.gather.target?.ok && game.gather.target.tile[0] === x, `no apunta a ${x},${ty}`); game.gather.use(); await frames(1); };
-    await put(tx); await put(tx + 1);
-    check(w().ownAt('placed', tx, ty) === 'valla' && w().ownAt('placed', tx + 1, ty) === 'valla', 'no se han colocado (o llevan giro)');
-    check(inv().count('valla') === n0, 'no se han gastado');
-    check(w().pieceAt(tx, ty)?.kind === 'fence', 'no es una pieza de valla');
-    check(w().collidersNear(tx + 1, ty + 0.5).some(c => c.low && c.x0 === tx + 0.5), 'no se une a la de al lado');
-    const obj = c => c.objects.find(o => o.tile?.[0] === tx && o.tile?.[1] === ty);
-    const o = obj(w().contentFor(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK))); check(o?.fence && !o.fixed, 'no se reconoce como valla');
-    check(!game.aimTargets(p(), w()).some(a => a.kind === 'fence'), 'la valla se puede quitar sin el modo construir');
-    check(game.pickUp(o), 'no se recoge'); check(!w().ownAt('placed', tx, ty) && inv().count('valla') === n0 + 1, 'no ha vuelto a la mochila');
-    check(!game.pickUp({ tile: [tx + 1, ty], layer: 'placed', placed: 'valla', fixed: true }), 'lo fijo se ha recogido');
-    game.build.piece = 'valla'; game.build.erase = true; game.build.on = true; game.build.remove([tx + 1, ty]); game.build.on = false; game.build.erase = false;
-    check(!w().ownAt('placed', tx + 1, ty) && inv().count('valla') === n0 + 2, 'quitarla en el modo construir no la devuelve');
-    inv().remove('valla', n0 + 2);
+    p().x = tx + 1; p().y = ty + 2.5; game.mouse = null; B.stationFor = () => true;
+    try {
+      B.toggle(true); B.select('valla'); B.place([tx, ty]); B.place([tx + 1, ty]);
+      check(w().ownAt('placed', tx, ty) === 'valla' && w().ownAt('placed', tx + 1, ty) === 'valla', 'no se han colocado (o llevan giro)');
+      check(I.count('tablas') === n0 + 8, 'no se han pagado');
+      check(w().pieceAt(tx, ty)?.kind === 'fence', 'no es una pieza de valla');
+      check(w().collidersNear(tx + 1, ty + 0.5).some(c => c.low && c.x0 === tx + 0.5), 'no se une a la de al lado');
+      const obj = c => c.objects.find(o => o.tile?.[0] === tx && o.tile?.[1] === ty);
+      const o = obj(w().contentFor(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK))); check(o?.fence && !o.fixed, 'no se reconoce como valla');
+      check(!game.aimTargets(p(), w()).some(a => a.kind === 'fence'), 'la valla se puede quitar sin el modo construir');
+      check(!game.pickUp({ tile: [tx + 1, ty], layer: 'placed', placed: 'valla', fixed: true }), 'lo fijo se ha recogido');
+      B.select('quitar'); B.remove([tx, ty]); B.remove([tx + 1, ty]);
+      check(!w().ownAt('placed', tx, ty) && !w().ownAt('placed', tx + 1, ty) && I.count('tablas') === n0 + 10, 'recién puestas, quitarlas no las devuelve enteras');
+    } finally { delete B.stationFor; B.select(PIECE_IDS[0]); B.toggle(false); game.mouse = mouse; I.remove('tablas', I.count('tablas') - n0); }
   });
   await test('bordes de biomas: el color cambia poco a poco, también entre trozos', async () => {
     const gen = w().gen, N = 64, kinds = f => [...new Set(f.biome)], dry = f => Math.max(...f.wet) < -0.5 && !kinds(f).some(b => BIOMES[b].water);
@@ -2979,11 +2989,13 @@ async function soloTests(game) {
     for (let ty = 30; ty < 50 && y === null; ty++) for (let tx = 56; tx < 80 && y === null; tx++) if ([0, 1, 2].every(i => w().canPlace(tx + i, ty, 'valla', null)) && [0, 1, 2].every(i => w().canPlace(tx + i, ty + 1, 'valla', null)) && [0, 1, 2].every(i => w().canPlace(tx + i, ty - 1, 'valla', null))) { x0 = tx; y = ty; }
     check(y !== null, 'no hay sitio para el cercado');
     const gx = x0 + 1, blocks = (px, py) => { const q = { x: px, y: py }; collideNow(q, w().collidersNear(px, py), 0.25); return Math.hypot(q.x - px, q.y - py) > 0.01; };
-    inv().add('puerta_valla', 1); inv().selected = inv().slots.findIndex(s => s?.id === 'puerta_valla'); inv().changed();
+    const B = game.build, mouse = game.mouse, n0 = inv().count('tablas'); inv().add('tablas', 3);
     w().place(x0, y, 'valla'); w().place(x0 + 2, y, 'valla');
-    p().x = gx + 0.5; p().y = y + 1.4; p().face = { x: 0, y: -1 }; await frames(2);
-    game.gather.cooldown = 0; game.gather.target = game.gather.pickTarget(); check(game.gather.target?.ok && game.gather.target.tile[0] === gx && game.gather.target.tile[1] === y, 'no apunta al hueco de la valla'); game.gather.use(); await frames(1);
-    check(w().ownAt('placed', gx, y) === 'puerta_valla', 'no se ha colocado (o lleva giro)'); check(inv().count('puerta_valla') === 0, 'no se ha gastado');
+    p().x = gx + 0.5; p().y = y + 1.4; p().face = { x: 0, y: -1 }; game.mouse = null; await frames(2);
+    B.stationFor = () => true; B.toggle(true); B.select('puerta_valla');
+    check(String(B.target()) === `${gx},${y}` && B.check(B.target()).ok, `no apunta al hueco de la valla: ${B.target()} ${B.check(B.target()).why}`); B.place(); await frames(1);
+    B.toggle(false);
+    check(w().ownAt('placed', gx, y) === 'puerta_valla', 'no se ha colocado (o lleva giro)'); check(inv().count('tablas') === n0, 'no se ha pagado');
     const gate = w().contentFor(Math.floor(gx / CHUNK), Math.floor(y / CHUNK)).objects.find(o => o.tile?.[0] === gx && o.tile?.[1] === y);
     check(gate?.door === 'x' && gate.gate, `no va en la línea de las vallas: ${gate?.door}`);
     check(w().doorClosed(gx, y) && blocks(gx + 0.5, y + 0.5), 'no empieza cerrada');
@@ -2992,18 +3004,18 @@ async function soloTests(game) {
     check(!w().doorClosed(gx, y) && !blocks(gx + 0.5, y + 0.5), 'abierta no se puede pasar');
     check(w().collidersNear(x0 + 1, y + 0.5).some(c => c.low && c.x0 === x0 + 0.5), 'la valla no se une a la puerta');
     check(!game.doorAction([gx, y])?.alt, 'la puerta de valla se puede recoger sin el modo construir');
-    game.build.piece = 'puerta_valla'; game.build.erase = true; game.build.on = true; game.build.remove([gx, y]); game.build.on = false; game.build.erase = false;
-    check(!w().ownAt('placed', gx, y) && inv().count('puerta_valla') === 1, 'no ha vuelto a la mochila'); check(!w().doorClosed(gx, y), 'se queda apuntada como cerrada');
-    inv().remove('puerta_valla', 1); w().setTile(x0, y, 'air'); w().setTile(x0 + 2, y, 'air');
-    const r = RECIPES.find(r => r.id === 'puerta_valla'); check(r && r.station === 'banco', 'no se fabrica en el banco'); check(PIECE_IDS.includes('puerta_valla'), 'no está en la paleta');
+    B.toggle(true); B.select('quitar'); B.remove([gx, y]); B.select(PIECE_IDS[0]); B.toggle(false); delete B.stationFor; game.mouse = mouse;
+    check(!w().ownAt('placed', gx, y) && inv().count('tablas') === n0 + 3, 'sus materiales no han vuelto'); check(!w().doorClosed(gx, y), 'se queda apuntada como cerrada');
+    inv().remove('tablas', 3); w().setTile(x0, y, 'air'); w().setTile(x0 + 2, y, 'air');
+    check(PIECES.puerta_valla.needs === 'banco' && PIECE_IDS.includes('puerta_valla'), 'no está en la paleta, o no pide el banco');
   });
   await test('vallas del jardín: se recogen, vuelven a ponerse y no las de otros', async () => {
     let t = null; for (const [x, yy] of [[YARD.x0, YARD.y0 + 5], [YARD.x0, YARD.y0 + 6], [YARD.x0 + 1, YARD.y0]]) if (w().yardFenceAt(x, yy)) { t = [x, yy]; break; }
     check(t, 'no hay valla en el jardín');
     await goTo(game, t[0] + 3.5, t[1] + 0.5);
-    const [tx, ty] = t, keep = inv().count('valla'), find = () => w().contentFor(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK)).objects.find(o => o.tile?.[0] === tx && o.tile?.[1] === ty);
+    const [tx, ty] = t, keep = inv().count('tablas'), find = () => w().contentFor(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK)).objects.find(o => o.tile?.[0] === tx && o.tile?.[1] === ty);
     const o = find(); check(o?.yard && o.fixed && o.fence, `no se reconoce como valla del jardín: ${JSON.stringify(o)}`);
-    check(game.pickUp(o), 'no se recoge'); check(inv().count('valla') === keep + 1, 'no ha vuelto a la mochila');
+    check(game.pickUp(o), 'no se recoge'); check(inv().count('tablas') === keep + 1, 'no ha vuelto su tabla');
     check(!w().pieceAt(tx, ty) && !find(), 'sigue ahí');
     check(w().delta(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK)).gone?.[`${tx},${ty}`], 'no queda apuntado');
     check(!w().collidersNear(tx + 0.5, ty + 0.5).some(c => c.low && c.x === tx + 0.5 && c.y === ty + 0.5), 'sigue chocando');
@@ -3011,7 +3023,7 @@ async function soloTests(game) {
     check(w().canPlace(tx, ty, 'valla', p()), 'no se puede volver a poner'); w().place(tx, ty, 'valla'); check(w().ownAt('placed', tx, ty) === 'valla' && w().pieceAt(tx, ty)?.kind === 'fence', 'no se ha vuelto a poner');
     const hole = [GATE_X, YARD.y1 - 1]; check(w().canPlace(hole[0], hole[1], 'puerta_valla', null), 'en el hueco del jardín no cabe la puerta');
     check(!w().canPlace(hole[0], hole[1], 'silla', null), 'en el camino del jardín cabe cualquier cosa');
-    w().setTile(tx, ty, 'air'); delete w().delta(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK)).gone[`${tx},${ty}`]; w().touchAround(tx, ty); inv().remove('valla', 1);
+    w().setTile(tx, ty, 'air'); delete w().delta(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK)).gone[`${tx},${ty}`]; w().touchAround(tx, ty); inv().remove('tablas', 1);
   });
   // ---------- fishing (Plan R1-0 and R1-1: src/fishing.js, src/fishwater.js) ----------
   const seeded = (k = 11) => { let q = k; return () => { q = (q * 1664525 + 1013904223) >>> 0; return q / 4294967296; }; };
@@ -6143,6 +6155,272 @@ async function soloTests(game) {
       check(R.info.programs.length === n0, `programs after cleaning ${n0} → ${R.info.programs.length}`);
     } finally { live.entities = ents; live.peers.delete('gr1'); bodyBase(); draw(); }
   });
+  // ---------- building that holds (docs/planes/realismo/PLAN-R5-construccion.md P1: src/structure.js, src/build.js) ----------
+  // A scene of tiles by layer: 'x,y' → id; closed: shut doors
+  const fakeScene = (o = {}) => ({
+    placed: {}, floor: {}, roof: {}, closed: {}, off: {}, ...o,
+    at(l, x, y) { return this[l]?.[`${x},${y}`]; }, pieceAt(x, y) { const v = this.placed[`${x},${y}`]; return v && PIECES[parsePlaced(v)[0]]; },
+    roofAt(x, y) { return !!this.roof[`${x},${y}`]; }, doorClosed(x, y) { return !!this.closed[`${x},${y}`]; }, lightOff(x, y) { return !!this.off[`${x},${y}`]; },
+    delta() { return { v: this.ver || 0 }; },
+  });
+  const fillTiles = (into, x0, y0, x1, y1, id) => { for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) into[`${x},${y}`] = id; };
+  const ringOf = (S, x0, y0, x1, y1, id = 'muro_madera') => { for (let x = x0; x <= x1; x++) { S.placed[`${x},${y0}`] = id; S.placed[`${x},${y1}`] = id; } for (let y = y0; y <= y1; y++) { S.placed[`${x0},${y}`] = id; S.placed[`${x1},${y}`] = id; } };
+  const loose = S => Object.keys(S.roof).map(k => k.split(',').map(Number)).filter(([x, y]) => !ST.roofHeld(S, x, y));
+  await test('span (english): a roof between two walls 12 tiles apart holds, 13 apart does not', async () => {
+    for (const [n, ok] of [[12, true], [13, false]]) {
+      const S = fakeScene();
+      S.placed['0,0'] = 'muro_madera'; S.placed[`${n + 1},0`] = 'muro_piedra';   // (n tiles between the two)
+      fillTiles(S.roof, 0, 0, n + 1, 0, 'tejado_paja');
+      check(ST.roofHeld(S, 7, 0) === ok, `${n} tiles between: ${!ok}`);
+      check(ST.roofHeld(S, 1, 0) && ST.roofHeld(S, n + 2, 0), `${n}: next to a wall it does not hold`);
+      // To put it, the tiles in between may not be there yet
+      const B = fakeScene({ placed: S.placed, floor: { '7,0': 'suelo_madera' } });
+      check(ST.roofHeld(B, 7, 0, true) === ok && !ST.roofHeld(B, 7, 0), `${n}: putting the first one, ${ST.roofHeld(B, 7, 0, true)}`);
+      check(ST.roofWhy(B, 7, 0) === (ok ? null : 'span'), `${n}: why ${ST.roofWhy(B, 7, 0)}`);
+      // A post in the middle holds the wide one; by columns it is the same
+      S.placed['6,0'] = 'post'; check(ST.roofHeld(S, 8, 0), `${n}: with a post in the middle it does not hold`);
+      const C = fakeScene(); C.placed['0,0'] = 'stone_pillar'; C.placed[`0,${n + 1}`] = 'puerta'; fillTiles(C.roof, 0, 0, 0, n + 1, 'tejado_paja');
+      check(ST.roofHeld(C, 0, 7) === ok, `${n} by columns: ${!ok}`);
+    }
+    // A fence, a gate and a floor hold nothing; a hearth, a window and a door do
+    for (const [id, ok] of [['valla', false], ['puerta_valla', false], ['chimenea@1', true], ['ventana', true], ['puerta', true], ['post', true]]) check(ST.roofHeld(fakeScene({ placed: { '1,0': id } }), 0, 0) === ok, `${id} holds: ${!ok}`);
+    check(!ST.roofHeld(fakeScene({ floor: { '0,0': 'suelo_madera' } }), 0, 0, true), 'a floor holds a roof');
+    // In mid-air between two houses near each other: from a wall on
+    const M = fakeScene({ placed: { '0,0': 'muro_madera', '8,0': 'muro_madera' } });
+    check(ST.roofWhy(M, 4, 0) === 'start' && ST.roofWhy(M, 1, 0) === null && ST.roofWhy(M, 4, 5) === 'unheld', `in mid-air: ${ST.roofWhy(M, 4, 0)}, ${ST.roofWhy(M, 1, 0)}, ${ST.roofWhy(M, 4, 5)}`);
+  });
+  await test('span (english): a porch roof one tile past the wall holds, two tiles needs a post', async () => {
+    const S = fakeScene(); ringOf(S, 0, 0, 5, 5); fillTiles(S.roof, 0, 0, 5, 5, 'tejado_rojo');
+    check(!loose(S).length, `the house itself: ${JSON.stringify(loose(S))}`);
+    check(ST.roofWhy(S, 2, 6) === null && ST.roofWhy(S, 2, 7) === 'unheld', `one out ${ST.roofWhy(S, 2, 6)}, two out ${ST.roofWhy(S, 2, 7)}`);
+    fillTiles(S.roof, 0, 6, 5, 6, 'tejado_rojo');
+    check(ST.roofWhy(S, 2, 7) === 'unheld', 'two out with the first one put');
+    S.placed['0,7'] = 'post'; S.placed['5,7'] = 'post';
+    for (let x = 0; x <= 5; x++) { check(ST.roofWhy(S, x, 7) === null, `with posts, (${x}, 7): ${ST.roofWhy(S, x, 7)}`); S.roof[`${x},7`] = 'tejado_rojo'; }
+    check(!loose(S).length, `the porch: ${JSON.stringify(loose(S))}`);
+    check(ST.holdsRoof(S, 5, 7), 'the corner post may be taken away'); check(!ST.holdsRoof(S, 2, 2), 'what is no support holds a roof');
+  });
+  await test('span (english): the village small, big and family houses, the tavern and an aldea are all held', async () => {
+    const roofs = { small: houseBlueprint({ x0: 0, y0: 0 }), big: houseBlueprint({ x0: 0, y0: 0, big: true }), family: familyBlueprint({ x0: 0, y0: 0 }), tavern: tavernBlueprint({ x0: 0, y0: 0 }) };
+    for (const [name, bp] of Object.entries(roofs)) {
+      const S = fakeScene(bp), out = loose(S);
+      check(!out.length, `${name}: ${out.length} roof tiles not held, ${JSON.stringify(out.slice(0, 3))}`);
+      for (const [k, id] of Object.entries(bp.placed)) { const [x, y] = k.split(',').map(Number); if (ST.frameKind(parsePlaced(id)[0])) check(ST.frameOk(S, x, y, parsePlaced(id)[0]), `${name}: ${id} at ${k} without its frame`); }
+      // Its rooms: shut, a room; with the front door open, draughty
+      for (const [k, id] of Object.entries(bp.placed)) if (id === 'puerta') S.closed[k] = true;
+      const sy = name === 'tavern' ? 5.5 : 8.5, r = ST.roomAt(S, 2.5, sy); check(r.kind === 'room' && r.size > 20, `${name} shut: ${r.kind} ${r.size}`);
+      S.closed = {}; check(ST.roomAt(S, 2.5, sy).kind === 'draughty', `${name} open: ${ST.roomAt(S, 2.5, sy).kind}`);
+    }
+    // The real ones, where they are: every roof tile of the neighbours' houses and of an aldea
+    const W = w(); let n = 0, bad = [];
+    const touched = (x, y) => Object.keys(W.delta(Math.floor(x / CHUNK), Math.floor(y / CHUNK))?.gone || {}).length > 0;   // (other tests take some of these houses to pieces)
+    const sweep = roof => { for (const k of Object.keys(roof)) { const [x, y] = k.split(',').map(Number); if (!W.roofAt(x, y) || touched(x, y)) continue; n++; if (!ST.roofHeld(W, x, y)) bad.push(k); } };
+    for (const c of Object.values(W.village.built || {})) sweep(c.roof || {});
+    let v = null;
+    for (let r = 2; r < 80 && !v; r++) for (let cy = -r; cy <= r && !v; cy++) for (let cx = -r; cx <= r && !v; cx++) { if (Math.max(Math.abs(cx), Math.abs(cy)) !== r) continue; const q = game.places.poi(cx, cy); if (q?.kind === 'aldea') v = q; }
+    if (v) sweep(game.places.aldea(v).all.roof);
+    const H = game.houseRect(), own = {}; for (let y = H.y0; y < H.y1; y++) for (let x = H.x0; x < H.x1; x++) own[`${x},${y}`] = 1; sweep(own);
+    check(n > 100 && !bad.length, `${bad.length} of ${n} are not held: ${bad.slice(0, 4)}`);
+  });
+  await test('span (english): removing a wall under a roof is refused; swapping it for a window works and keeps the roof', async () => {
+    const W = w(), B = game.build, I = inv(), mouse = game.mouse, [x, y] = openGround(), kept = I.slots.slice();
+    const roofs = [];
+    await goTo(game, x + 2.5, y + 3.4); game.mouse = null; B.stationFor = () => true;
+    try {
+      I.slots.fill(null); I.add('tablas', 40); I.add('fibra', 90);
+      B.toggle(true); B.select('muro_madera'); B.place([x, y]); B.place([x + 4, y]);
+      check(W.ownAt('placed', x, y) === 'muro_madera' && W.ownAt('placed', x + 4, y) === 'muro_madera', 'the walls');
+      B.select('tejado_paja');
+      check(!B.check([x + 2, y + 2]).ok && B.check([x + 2, y + 2]).code === 'unheld', `a roof over nothing: ${JSON.stringify(B.check([x + 2, y + 2]))}`);
+      for (const i of [0, 1, 2, 3, 4]) { B.place([x + i, y]); check(W.ownAt('roof', x + i, y), `roof ${i}: ${B.check([x + i, y]).why}`); roofs.push([x + i, y]); }
+      B.select('quitar');
+      check(B.holds({ layer: 'placed', tile: [x, y] }), 'it does not say it holds the roof');
+      W.setTile(x + 1, y + 1, 'post');   // (a post that holds the same tiles: then it may go)
+      check(!B.holds({ layer: 'placed', tile: [x, y] }), 'with a post beside, still refused'); W.setTile(x + 1, y + 1, 'air');
+      const at = B.removableAt; B.removableAt = t => ({ tile: t, layer: 'placed' });
+      try {
+        check(B.check([x, y]).code === 'holds_roof', `its check: ${JSON.stringify(B.check([x, y]))}`);
+        dismantle(game, [x, y]); check(W.ownAt('placed', x, y) === 'muro_madera', 'removed under the roof');
+      } finally { delete B.removableAt; void at; }
+      // Swapped: a window needs a wall beside it, a door too; stone for wood needs nothing
+      const planks = I.count('tablas'); I.add('piedra', 3);
+      B.select('muro_piedra'); const c = B.check([x, y]);
+      check(c.ok && c.swap && JSON.stringify(c.swap.pay) === '[["piedra",3]]' && JSON.stringify(c.swap.back) === '[["tablas",2]]', `stone for wood: ${JSON.stringify(c)}`);
+      check(B.swapHint(c.swap) === t('build.hint.swap', { item: PIECES.muro_piedra, cost: `+${t('build.mat.piedra', { n: 3 })} · ${t('build.swap_back', { back: t('build.mat.tablas', { n: 2 }) })}` }), `hint: ${B.swapHint(c.swap)}`);
+      B.place([x, y]);
+      check(W.ownAt('placed', x, y) === 'muro_piedra' && I.count('tablas') === planks + 2 && !I.count('piedra') && roofs.every(([a, b]) => W.roofAt(a, b)), 'the swap, its materials or the roof');
+      B.select('ventana'); check(B.check([x, y]).code === 'window_frame', `a window alone: ${JSON.stringify(B.check([x, y]))}`);
+      W.setTile(x, y + 1, 'muro_madera'); const n0 = I.count('tablas'), lvl = W.levelAt(x + 0.5, y + 0.5);
+      B.place([x, y]); check(W.ownAt('placed', x, y) === 'ventana' && I.count('tablas') === n0 - 3 && I.count('piedra') === 3 && W.roofAt(x, y) && W.levelAt(x + 0.5, y + 0.5) === lvl, 'a window in the wall');
+      B.select('puerta'); B.place([x, y]); check(W.ownAt('placed', x, y) === 'puerta' && I.count('tablas') === n0 - 3, 'a door in the window');
+      // Dragging on swaps only the same as the first one; a stroke that paints new ones swaps nothing
+      B.select('muro_entramado'); I.add('piedra', 10);
+      B.place([x, y]); W.setTile(x, y + 1, 'muro_madera'); B.place([x, y + 1], true); check(W.ownAt('placed', x, y + 1) === 'muro_madera', 'a door first, then a wall: swapped too'); B.release();
+      B.place([x + 2, y]); B.place([x, y + 1], true); check(W.ownAt('placed', x + 2, y) === 'muro_entramado' && W.ownAt('placed', x, y + 1) === 'muro_madera', 'painting new walls swaps an old one'); B.release();
+    } finally {
+      delete B.stationFor; B.select(PIECE_IDS[0]); B.toggle(false); game.mouse = mouse; I.slots.splice(0, I.slots.length, ...kept); I.changed();
+      for (let j = 0; j <= 1; j++) for (let i = 0; i <= 4; i++) W.setTile(x + i, y + j, 'air');
+    }
+  });
+  await test('span (english): nothing of an old save breaks: a big house nothing holds stays, opens up and is mended', async () => {
+    // As it was built before: a floor of 20 × 20 with a roof over it, walls around it, nothing in the middle
+    const S = fakeScene(); ringOf(S, 0, 0, 19, 19); fillTiles(S.floor, 0, 0, 19, 19, 'suelo_madera'); fillTiles(S.roof, 0, 0, 19, 19, 'tejado_azul');
+    check(loose(S).length > 100, 'it was not an unheld roof');
+    check(Object.keys(S.placed).every(k => !ST.holdsRoof(S, ...k.split(',').map(Number))), 'a wall of an old house may not be opened');
+    S.placed['3,0'] = undefined; check(!ST.holdsRoof(S, 4, 0), 'nor the next one');
+    // A wall in the middle of it holds the tiles around; even so it goes (the same in a house of today is refused), and the
+    // hearth always does
+    S.placed['10,10'] = 'muro_madera'; check(ST.roofHeld(S, 11, 11) && !ST.holdsRoof(S, 10, 10), 'a partition of an old house may not be taken away'); delete S.placed['10,10'];
+    const N = fakeScene(); for (let x = 0; x < 5; x++) N.roof[`${x},0`] = 'tejado_paja'; N.placed['0,0'] = 'post'; N.placed['4,0'] = 'post'; check(ST.holdsRoof(N, 4, 0), 'a post of today goes'); N.placed = { '0,0': 'post', '4,0': 'chimenea' }; check(!ST.holdsRoof(N, 4, 0), 'the hearth');
+    // A strip of its roof taken away is closed again, from its corners
+    for (let x = 8; x <= 12; x++) for (let y = 9; y <= 11; y++) delete S.roof[`${x},${y}`];
+    check(ST.roofWhy(S, 8, 9) === null && ST.roofWhy(S, 10, 10) !== null, `mending a strip: ${ST.roofWhy(S, 8, 9)}, in its middle ${ST.roofWhy(S, 10, 10)}`);
+    for (const y of [9, 10, 11]) for (let x = 8; x <= 12; x++) { check(ST.roofWhy(S, x, y) === null, `the strip at ${x},${y}`); S.roof[`${x},${y}`] = 'tejado_azul'; }
+    check(ST.roofWhy(fakeScene({ ...S, roof: { ...S.roof } }), 20, 25) === 'unheld', 'an old roof grows out');
+    // A hole in its roof is closed again; its rooms are rooms (a hall, so big)
+    delete S.roof['10,10']; check(ST.roofWhy(S, 10, 10) === null, `mending its roof: ${ST.roofWhy(S, 10, 10)}`); S.roof['10,10'] = 'tejado_azul';
+    S.placed['3,0'] = 'muro_madera'; check(ST.roomAt(S, 10.5, 10.5).kind === 'room' && ST.roomAt(S, 10.5, 10.5).size === 324, `its room: ${ST.roomAt(S, 10.5, 10.5).kind}`);
+    // In the world: an old house without levels, its walls, doors and roof as they were, removable and usable
+    const W = w(), [x, y] = openGround(), d = W.delta(Math.floor(x / CHUNK), Math.floor(y / CHUNK), true);
+    try {
+      const put = (l, a, b, id) => { const dd = W.delta(Math.floor(a / CHUNK), Math.floor(b / CHUNK), true); (dd[l] ||= {})[`${a},${b}`] = id; };
+      for (let j = 0; j < 4; j++) for (let i = 0; i < 4; i++) { put('floor', x + i, y + j, 'suelo_madera'); put('roof', x + i, y + j, 'tejado_rojo'); }
+      put('placed', x, y, 'puerta'); put('roof', x + 5, y, 'tejado_rojo');   // (a door with nothing beside it, and a roof in the air)
+      W.touchAround(x, y); draw();
+      const o = W.contentFor(Math.floor(x / CHUNK), Math.floor(y / CHUNK)).objects;
+      check(W.pieceAt(x, y)?.kind === 'door' && W.roofAt(x + 5, y) && o.some(q => q.layer === 'roof'), 'it falls');
+      W.toggleDoor(x, y); check(W.doorClosed(x, y), 'its door'); W.toggleDoor(x, y);
+      check(W.levelAt(x + 0.5, y + 0.5) === 0 && W.levelAt(x + 5.5, y + 0.5) === null, `levels: ${W.levelAt(x + 0.5, y + 0.5)}, under the roof alone ${W.levelAt(x + 5.5, y + 0.5)}`);
+      check(!game.build.holds({ layer: 'placed', tile: [x, y] }) || ST.roofHeld(W, x, y), 'its door cannot be taken away');
+      check(W.unplace({ tile: [x + 5, y], layer: 'roof', placed: 'tejado_rojo' }) !== false && W.unplace({ tile: [x, y], layer: 'placed', placed: 'puerta' }) !== false, 'it does not come off');
+    } finally { for (let j = 0; j < 4; j++) for (let i = 0; i < 6; i++) W.setTile(x + i, y + j, 'air'); void d; }
+  });
+  await test('frame (english): a door, a window and a gate alone are refused; next to a wall or a fence they go', async () => {
+    const W = w(), [x, y] = openGround();
+    try {
+      for (const id of ['puerta', 'ventana', 'ventana_contraventanas', 'muro_cuadro', 'puerta_valla']) check(!W.canPlace(x, y, id, null), `${id} alone`);
+      for (const id of ['muro_madera', 'muro_piedra', 'valla', 'post', 'stone_pillar']) check(W.canPlace(x, y, id, null), `${id} needs something`);
+      W.setTile(x + 1, y, 'muro_madera');
+      for (const id of ['puerta', 'ventana', 'muro_cuadro', 'puerta_valla']) check(W.canPlace(x, y, id, null), `${id} next to a wall`);
+      W.setTile(x + 1, y, 'valla'); check(W.canPlace(x, y, 'puerta_valla', null) && !W.canPlace(x, y, 'puerta', null), 'next to a fence: the gate, not the door');
+      W.setTile(x + 1, y, 'post'); check(W.canPlace(x, y, 'puerta_valla', null) && W.canPlace(x, y, 'puerta', null), 'next to a post');
+      W.setTile(x + 1, y, 'air');
+      W.buildAnywhere = true; check(W.canPlace(x, y, 'puerta', null) && W.canPlace(x, y, 'tejado_rojo', null), 'creative asks for a frame or a support');
+      W.buildAnywhere = false;
+      game.build.piece = 'puerta'; check(game.build.whyNot([x, y], 'puerta') === 'frame' && game.build.whyNot([x, y], 'puerta_valla') === 'gate_frame' && game.build.whyNot([x, y], 'ventana') === 'window_frame', 'the reasons');
+    } finally { W.buildAnywhere = false; W.setTile(x, y, 'air'); W.setTile(x + 1, y, 'air'); game.build.piece = PIECE_IDS[0]; }
+  });
+  await test('post (english): it stands on the ground, collides as a circle, fences join it, and one walks under a porch', async () => {
+    const W = w(), [x, y] = openGround(), B = game.build;
+    try {
+      W.setTile(x, y, 'post'); W.setTile(x + 1, y, 'valla'); W.setTile(x + 2, y, 'stone_pillar');
+      const c = W.collidersNear(x + 0.5, y + 0.5).filter(q => q.r !== undefined && Math.hypot(q.x - x - 0.5, q.y - y - 0.5) < 0.01);
+      check(c.length === 1 && c[0].r === 0.14, `its collider: ${JSON.stringify(c)}`);
+      check(W.collidersNear(x + 2.5, y + 0.5).some(q => q.r === 0.22 && q.x === x + 2.5), 'the pillar\'s');
+      const f = W.contentFor(Math.floor((x + 1) / CHUNK), Math.floor(y / CHUNK)).objects.find(o => o.fence && o.tile[0] === x + 1);
+      check(f && (f.mask & 3) === 3 && f.reach[0] > 0.8 && f.reach[1] > 0.9, `the fence joins them: ${f?.mask} ${f?.reach}`);
+      check(W.levelAt(x + 0.5, y + 0.5) === null && W.levelAt(x + 0.5, y + 0.5, true) !== null, 'a post alone is a platform to stand on');
+      W.setTile(x, y + 1, 'tejado_paja'); check(W.levelAt(x + 0.5, y + 1.5) === null, 'a roof alone is a platform');
+      W.setTile(x, y, 'suelo_madera'); check(W.levelAt(x + 0.5, y + 0.5) !== null, 'a floor with a post is not');
+      draw(); draw();
+      B.on = true; const pick = B.pickables().find(q => q.o.post && q.tile[0] === x && q.tile[1] === y); B.on = false;
+      check(!pick || pick.box.y1 > 2, 'its box to aim at');
+      check(B.available('post') && PIECE_IDS.includes('stone_pillar') && PIECES.post.name === t('piece.post') && PIECES.post.cost[0][1] === 2 && PIECES.stone_pillar.needs === 'cantero', 'the bar');
+    } finally { for (let j = 0; j < 2; j++) for (let i = 0; i < 3; i++) W.setTile(x + i, y + j, 'air'); }
+    // On a slope: the porch neither lifts the house nor is lifted by it, and what is put under it goes on the ground
+    const raw = W.groundRaw, [hx, hy] = [400, 240];
+    try {
+      W.groundRaw = (a, b) => Math.max(0, (a - hx) * 0.2) + 1;
+      for (const j of [0, 1]) { W.setTile(hx, hy + j, 'suelo_madera'); W.setTile(hx, hy + j, 'tejado_rojo'); }
+      const L = W.levelAt(hx + 0.5, hy + 0.5);
+      W.setTile(hx + 1, hy, 'tejado_rojo'); W.setTile(hx + 2, hy, 'post'); W.setTile(hx + 2, hy, 'tejado_rojo');
+      check(W.levelAt(hx + 0.5, hy + 0.5) === L, `the porch lifts the house: ${L} → ${W.levelAt(hx + 0.5, hy + 0.5)}`);
+      check(W.levelAt(hx + 1.5, hy + 0.5, true) === L && W.levelAt(hx + 2.5, hy + 0.5, true) > L, `its roof ${W.levelAt(hx + 1.5, hy + 0.5, true)}, its post ${W.levelAt(hx + 2.5, hy + 0.5, true)}`);
+      check(game.view3d.world.regionLevel(W, [[hx, hy], [hx, hy + 1], [hx + 1, hy], [hx + 2, hy]]) === L, 'the roof goes up with the post');
+      check(Math.abs(W.levelFor(hx + 1, hy, 'silla') - W.groundRaw(hx + 1.5, hy + 0.5)) < 1e-6, 'a chair under it floats');
+      W.setTile(hx + 1, hy, 'suelo_madera'); check(W.levelAt(hx + 1.5, hy + 0.5) >= L, 'a floor under it');
+    } finally { W.groundRaw = raw; delete W.groundRaw; for (let j = 0; j < 2; j++) for (let i = 0; i < 3; i++) W.setTile(hx + i, hy + j, 'air'); }
+  });
+  await test('room (english): closed door → room, open door → draughty, roof only → porch, more than 400 tiles → hall', async () => {
+    const S = fakeScene(); ringOf(S, 0, 0, 7, 6); fillTiles(S.roof, 0, 0, 7, 6, 'tejado_rojo'); fillTiles(S.floor, 0, 0, 7, 6, 'suelo_madera');
+    S.placed['3,6'] = 'puerta'; S.placed['1,1'] = 'cama'; S.placed['5,1'] = 'chimenea'; S.closed['3,6'] = true;
+    let r = ST.roomAt(S, 3.5, 3.5);
+    check(r.kind === 'room' && r.size === 30 && r.bed && r.hearth && !r.kitchen, `closed: ${r.kind} ${r.size} ${r.bed} ${r.hearth}`);
+    S.off['5,1'] = 1; check(!ST.roomAt(S, 3.5, 3.5).hearth, 'a hearth that is out warms'); S.off = {};
+    check(ST.roomAt(S, 0.8, 3.5).kind === 'room' && ST.roomAt(S, 3.5, 6.2).kind === 'room', 'at its wall or its door, from inside');
+    S.closed = {}; check(ST.roomAt(S, 3.5, 3.5).kind === 'draughty', `open: ${ST.roomAt(S, 3.5, 3.5).kind}`);
+    // A door between two rooms is not the open air: the warmth goes round, each keeps its name
+    S.closed['3,6'] = true; for (let y = 1; y < 6; y++) S.placed[`4,${y}`] = 'muro_madera'; S.placed['4,3'] = 'puerta'; S.placed['6,4'] = 'cocina';
+    r = ST.roomAt(S, 2.5, 3.5); check(r.kind === 'room' && r.bed && !r.kitchen && r.hearth && r.size > 15, `through an inner door: ${r.kind} ${r.size} kitchen ${r.kitchen} hearth ${r.hearth}`);
+    r = ST.roomAt(S, 6.5, 3.5); check(r.kind === 'room' && r.kitchen && !r.bed, 'the kitchen');
+    S.closed['4,3'] = true; r = ST.roomAt(S, 2.5, 3.5); check(r.size === 15 && !r.hearth, `the inner door shut: ${r.size} ${r.hearth}`);
+    // A wall out: a porch; a missing roof tile too. A roof on posts
+    const hole = { ...S.placed }; delete hole['0,3']; check(ST.roomAt(fakeScene({ ...S, placed: hole }), 2.5, 3.5).kind === 'porch', 'with a wall out');
+    const P = fakeScene(); for (const k of ['0,0', '4,0', '0,4', '4,4']) P.placed[k] = 'post'; fillTiles(P.roof, 0, 0, 4, 4, 'tejado_paja');
+    check(ST.roomAt(P, 2.5, 2.5).kind === 'porch' && ST.roomAt(P, 9, 9).kind === null, 'a roof on posts');
+    const H = fakeScene(); ringOf(H, 0, 0, 22, 22); fillTiles(H.roof, 0, 0, 22, 22, 'tejado_rojo'); check(ST.roomAt(H, 11.5, 11.5).kind === 'hall', `441 tiles: ${ST.roomAt(H, 11.5, 11.5).kind}`);
+    // Kept while one walks inside; worked out again when something around changes
+    const K = new ST.RoomWatch(); let n = 0; const at = S.at; S.at = function (l, a, b) { n++; return at.call(this, l, a, b); };
+    K.get(S, 2.5, 3.5, 1000); const once = n; K.get(S, 2.5, 3.6, 1010); check(n === once, 'worked out every frame');
+    K.get(S, 1.5, 3.5, 1500); check(n - once < 10, `another tile of the same room: ${n - once} looks`);
+    S.ver = 5; S.closed = {}; n = 0; check(K.get(S, 1.5, 3.5, 1600).kind === 'room' && K.get(S, 1.5, 3.5, 1900).kind === 'draughty', 'a door opened is not noticed');
+    // The time it takes, in the biggest
+    const T0 = performance.now(); for (let i = 0; i < 20; i++) ST.roomAt(H, 11.5, 11.5); const ms = (performance.now() - T0) / 20; check(ms < 8, `${ms.toFixed(2)} ms in the biggest room`);
+  });
+  await test('room (english): at 0 °C outside, a closed room with a lit hearth feels ≥ 20 °C; a porch ≤ 6 °C', async () => {
+    const air = (kind, o = {}) => { const room = kind && { kind, size: 40, hearth: false, ...o }; return feelOf({ Tl: 0.52 - 15 / 60, season: 0, hour: 9, weather: 'sol', indoors: true, pull: room ? TEMP.pull[kind] : undefined, fireD: roomFire(room, Infinity), W: 0, wet: 0 }, {}).airC; };
+    const out = feelOf({ Tl: 0.52 - 15 / 60, season: 0, hour: 9, weather: 'sol', indoors: false, fireD: Infinity, W: 0, wet: 0 }, {}).airC;
+    check(Math.abs(out) < 0.1, `outside it is ${out}`);
+    check(air('room', { hearth: true }) >= 20 && Math.abs(air('room') - 14.45) < 0.1, `closed: ${air('room')}, with the hearth ${air('room', { hearth: true })}`);
+    check(air('porch', { hearth: true }) <= 6 && Math.abs(air('draughty') - 9.35) < 0.1 && Math.abs(air('hall') - 11.9) < 0.1 && Math.abs(air(null) - 11.9) < 0.1, `porch ${air('porch')}, draughty ${air('draughty')}, hall ${air('hall')}, with no rooms ${air(null)}`);
+    check(air('room', { hearth: true, size: 120 }) > air('room', { hearth: true, size: 200 }) && air('room', { hearth: true, size: 40 }) > air('room', { hearth: true, size: 120 }), 'the size of the room');
+    check(roomFire({ kind: 'room', hearth: true, size: 40 }, 0.5) === 0.5, 'closer to the fire it is the fire');
+    // The real one: your house, its door shut and open
+    const H = game.houseRect(), W = w(), door = [21, 16], was = W.doorClosed(...door), wx = game.days, B = Bo();
+    try {
+      await goTo(game, H.x0 + 4.5, H.y0 + 5.5);
+      if (!W.doorClosed(...door)) W.toggleDoor(...door);
+      await sleep(350); await frames(3); check(game.room?.kind === 'room' && game.room.bed, `shut: ${game.room?.kind}`);
+      game.updatePlace(); check(game.placeName === t('room.bedroom') && game.placeSub === t('place.your_house'), `its name: ${game.placeName} / ${game.placeSub}`);
+      B.snap = true; B.poll(p()); const shut = B._env.pull; check(shut === TEMP.pull.room, `the body: ${shut}`);
+      W.toggleDoor(...door); await sleep(350); await frames(3); check(game.room?.kind === 'draughty', `open: ${game.room?.kind}`);
+      game.updatePlace(); check(game.placeSub === `${t('place.your_house')} · ${t('room.draughty')}`, `draughty: ${game.placeSub}`);
+      B.poll(p()); check(B._env.pull === TEMP.pull.draughty, 'the body with the door open');
+      // A neighbour's keeps its name
+      const R = HOUSES.bruno; await goTo(game, R.x0 + 5.5, R.y0 + 5.5); await frames(3); game.updatePlace(); check(/Bruno/.test(game.placeName) && !game.placeSub, `at Bruno's: ${game.placeName} / ${game.placeSub}`);
+      await goTo(game, 60, 36); await frames(3); check(!game.room && B._env !== null, 'outside there is a room'); B.poll(p()); check(B._env.pull === undefined, 'outside, the pull stays');
+    } finally { if (W.doorClosed(...door) !== was) W.toggleDoor(...door); void wx; }
+  });
+  await test('salvage (english): full refund within 10 minutes; after it planks 50 %, stone 75 %, thatch 0; old pieces need a hold', async () => {
+    check(JSON.stringify([[['tablas', 2]], [['tablas', 3]], [['tablas', 1]], [['piedra', 3]], [['piedra', 2]], [['tablas', 2], ['piedra', 1]], [['fibra', 3]], [['tablas', 2], ['tela', 1]]].map(salvage)) === JSON.stringify([[['tablas', 1]], [['tablas', 1]], [], [['piedra', 2]], [['piedra', 1]], [['tablas', 1]], [], [['tablas', 1]]]), 'what comes back');
+    const W = w(), B = game.build, I = inv(), mouse = game.mouse, [x, y] = openGround(), kept = I.slots.slice();
+    await goTo(game, x + 2.5, y + 3.4); game.mouse = null; B.stationFor = () => true;
+    try {
+      I.slots.fill(null); I.add('tablas', 20); I.add('piedra', 20); I.add('fibra', 20);
+      B.toggle(true);
+      const put = (id, tx) => { B.select(id); B.place([tx, y]); check(W.at(PIECES[id].layer, tx, y) === id, `${id} is not put: ${B.check([tx, y]).why}`); }, age = k => { B.recent.get(k).t -= UNDO_MS; };
+      put('muro_madera', x); B.select('quitar'); B.remove([x, y]);
+      check(!W.at('placed', x, y) && I.count('tablas') === 20 && !B.held, 'just put: not whole, or it needs a hold');
+      put('muro_madera', x); put('muro_piedra', x + 1); put('tejado_paja', x); age(`placed:${x},${y}`); age(`placed:${x + 1},${y}`); age(`roof:${x},${y}`);
+      B.select('quitar');
+      // A tap does nothing (and says so); holding does it. Letting go before stops it
+      B.remove([x, y]); check(W.at('roof', x, y) && B.held && B.holdK() < 1, 'an old piece goes at a tap');
+      B.tick(); check(W.at('roof', x, y), 'before its time'); B.held.last -= 5000; B.tick(); check(W.at('roof', x, y), 'a long frame ends a tap'); B.release(); check(!B.held && W.at('roof', x, y), 'letting go does not stop it');
+      B.remove([x, y]); B.held.ms = HOLD_S * 1000; B.tick(); check(!W.at('roof', x, y) && I.count('fibra') === 17, `thatch comes back: ${I.count('fibra')}`);
+      dismantle(game, [x, y]); check(!W.at('placed', x, y) && I.count('tablas') === 19, `planks: ${I.count('tablas')} of 19`);
+      dismantle(game, [x + 1, y]); check(!W.at('placed', x + 1, y) && I.count('piedra') === 19, `stone: ${I.count('piedra')} of 19`);
+      // An old wall changed for another one is still old (it does not come whole by changing it)
+      put('muro_madera', x); age(`placed:${x},${y}`); B.select('muro_piedra'); B.place([x, y]); check(W.at('placed', x, y) === 'muro_piedra', 'the swap');
+      B.select('quitar'); B.remove([x, y]); check(B.held, 'an old piece, swapped, goes at a tap'); B.held = null;
+      // Looking away stops it; X (no mouse) holds as well; what was put by someone else (or before) needs it
+      dismantle(game, [x, y]); W.setTile(x, y, 'muro_madera'); B.remove([x, y]); check(B.held, 'one of before'); const far = p().x; p().x += 12; B.tick(); check(!B.held && W.at('placed', x, y), 'out of reach it goes on'); p().x = far;
+      // Creative: at once. With ?soporte=0 too (structure.js supportOn)
+      runCommand(game, '/gamemode creative', () => {}); B.toggle(true); B.select('quitar'); B.remove([x, y]); check(!W.at('placed', x, y), 'creative'); runCommand(game, '/gamemode survival', () => {});
+    } finally {
+      runCommand(game, '/gamemode survival', () => {}); delete B.stationFor; B.select(PIECE_IDS[0]); B.toggle(false); game.mouse = mouse; I.slots.splice(0, I.slots.length, ...kept); I.changed();
+      for (let i = 0; i < 3; i++) W.setTile(x + i, y, 'air');
+    }
+  });
   await test('hud (english): body chip', async () => {
     const $ = id => document.getElementById(id), C = () => game.bodyChip, el = () => $('body-chip');
     // (Body's own update would poll the real weather between frames: everything here is set and read in one go)
@@ -8665,7 +8943,7 @@ async function guestTests(game) {
     const B = game.build, W = game.world, mouse = game.mouse, msg = await until(() => heard('QUITA '), 70000, 'el aviso'), t = msg.slice(msg.indexOf('QUITA ') + 6).trim().split(' ').map(Number);
     await goTo(game, t[0] + 0.5, t[1] + 2.5); game.mouse = null;
     try {
-      B.toggle(true); B.select('quitar'); B.remove(t); B.remove(t);
+      B.toggle(true); B.select('quitar'); dismantle(game, t); dismantle(game, t);
       check(!W.at('placed', ...t) && !W.at('roof', ...t), 'no se quita aquí');
     } finally { game.mouse = mouse; B.select(PIECE_IDS[0]); B.toggle(false); }
     await frames(30);

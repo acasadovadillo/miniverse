@@ -4,6 +4,7 @@
 // ver build.js, stationFor). Cada casilla tiene tres capas: suelo, objeto y tejado (y los cuadros,
 // colgados, la suya).
 import { ITEMS } from './items.js';
+import { defineNames } from './i18n.js';
 
 export const PIECES = {
   suelo_madera: { name: 'Suelo de madera', cat: 'Suelos', layer: 'floor', cost: [['tablas', 1]], needs: 'banco' },
@@ -16,6 +17,9 @@ export const PIECES = {
   ventana_contraventanas: { name: 'Ventana con contraventanas', cat: 'Muros', layer: 'placed', kind: 'wall', cost: [['tablas', 3], ['piedra', 1]], needs: 'banco' },
   muro_cuadro: { name: 'Muro con cuadro', cat: 'Muros', layer: 'placed', kind: 'wall', cost: [['tablas', 2], ['tela', 1]], needs: 'banco' },
   puerta: { name: 'Puerta', cat: 'Muros', layer: 'placed', kind: 'door', cost: [['tablas', 3]], needs: 'banco' },
+  // (what holds a roof where there is no wall: structure.js. r: what one bumps into; no name here: 'piece.<id>')
+  post: { cat: 'Muros', layer: 'placed', kind: 'post', r: 0.14, cost: [['tablas', 2]], needs: 'banco' },
+  stone_pillar: { cat: 'Muros', layer: 'placed', kind: 'post', r: 0.22, cost: [['piedra', 3]], needs: 'cantero' },
   tejado_rojo: { name: 'Tejado rojo', cat: 'Tejados', layer: 'roof', cost: [['tablas', 1], ['piedra', 1]], needs: 'horno' },
   tejado_azul: { name: 'Tejado azul', cat: 'Tejados', layer: 'roof', cost: [['tablas', 1], ['piedra', 1]], needs: 'horno' },
   tejado_paja: { name: 'Tejado de paja', cat: 'Tejados', layer: 'roof', cost: [['fibra', 3]] },
@@ -29,6 +33,7 @@ export const PIECES = {
   // en el banco, se coloca girándolo y se recoge con X), así que no sale en la paleta de construir
   chimenea: { name: 'Hogar con chimenea', cat: 'Casa', layer: 'placed', kind: 'hearth', cost: [['piedra', 8]] },
 };
+defineNames({ post: PIECES.post, stone_pillar: PIECES.stone_pillar }, 'piece');
 export const CATS = ['Suelos', 'Muros', 'Tejados', 'Vallas'];   // (el hogar, de la casa, se fabrica en el banco)
 
 // Capa de una cosa colocable: las piezas dicen la suya; los objetos de la mochila van en la de objetos
@@ -43,4 +48,9 @@ export const parsePlaced = raw => { const i = raw.indexOf('@'); return i < 0 ? [
 // T in three/build3d.js). The same for the drawing (build3d.js, fenceTile), bumping into it (world/scenes.js) and arrows
 // (world/shots.js)
 export const FENCE_WALL_REACH = 1 - 0.12 + 0.03;
-export const fenceReach = (scene, x, y) => (scene.pieceAt?.(x, y)?.kind === 'wall' ? FENCE_WALL_REACH : 0.5);
+// (towards a post, up to it: a square timber of 0.1 to each side, or a pillar of 0.2; see postTile in three/build3d.js)
+export const POST_HALF = { post: 0.1, stone_pillar: 0.2 };
+export const fenceReach = (scene, x, y) => { const p = scene.pieceAt?.(x, y); return p?.kind === 'wall' ? FENCE_WALL_REACH : p?.kind === 'post' ? 1.03 - (p === PIECES.stone_pillar ? POST_HALF.stone_pillar : POST_HALF.post) : 0.5; };
+// What a fence (or the line of a gate) joins to
+const JOINS_FENCE = new Set(['fence', 'gate', 'wall', 'post']);
+export const fenceJoins = (scene, x, y) => JOINS_FENCE.has(scene.pieceAt(x, y)?.kind);

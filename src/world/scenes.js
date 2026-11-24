@@ -13,7 +13,8 @@ import { extraTiles, LONG, BED_BACK, HEARTH_BACK, GLOW, LIGHT, front, SIDE, rugR
 import { solidsOf, hull, placeBoxes, bounds, aabb, sat, hitsCircle, distTo, obb, dirOf, sideOf, SOLIDS } from './fit.js';
 import { BARROW, BULKY, barrowKey, randomId } from '../carry-items.js';
 import { wallRuns, WINDOW_Z, T } from '../art/build.js';
-import { PIECES, layerOf, parsePlaced, fenceReach } from '../pieces.js';
+import { PIECES, layerOf, parsePlaced, fenceReach, fenceJoins } from '../pieces.js';
+import { supportOn, roofWhy, frameOk } from '../structure.js';
 import { Person } from '../entities.js';
 import { Profile } from '../accounts.js';
 import { wrapIndex, inPlanet, dxOf, wrapX, HALF, H as PLANET_H, NORTH } from './planet.js';
@@ -521,11 +522,22 @@ export class Overworld {
   structAt(d, k) { const v = d?.placed?.[k]; return !!(d && (d.floor?.[k] || d.roof?.[k] || (v && PIECES[parsePlaced(v)[0]]))); }
   builtAt(d, k) { return !!(d && (d.floor?.[k] || d.placed?.[k] || d.roof?.[k] || d.hang?.[k] || d.rug?.[k] || d.tilled?.[k] !== undefined)); }
   // La altura de lo construido en (x, y), o null si ahí no hay nada construido
-  levelAt(x, y) {
+  // (drawn: also that of a porch's tile, for what draws it; else null there, one walks on the ground: openTile)
+  levelAt(x, y, drawn = false) {
     const tx = Math.floor(x), ty = Math.floor(y), d = this.deltas.get(`${wrapIndex(Math.floor(tx / CHUNK), CHUNK)},${Math.floor(ty / CHUNK)}`);
     if (!d) return null;
     const k = `${tx},${ty}`, L = d.lvl?.[k];
-    return L !== undefined ? L : this.builtAt(d, k) ? 0 : null;
+    if (L === undefined && !this.builtAt(d, k)) return null;
+    return !drawn && this.openTile(d, k) ? null : L !== undefined ? L : 0;
+  }
+  // A tile with only a roof over it, or a post (a porch, a shelter): nothing to stand on. It neither lifts a house nor is lifted
+  // by it: its post goes from its own ground up to the roof, which is at the height of the house (world3d.js regionLevel).
+  // id: as it would be with that put there too
+  openTile(d, k, id) {
+    if (!d || d.floor?.[k] || d.tilled?.[k] !== undefined) return false;
+    const p = id && PIECES[id], v = d.placed?.[k], post = v && PIECES[v]?.kind === 'post';
+    if (p) return p.kind === 'post' || (p.layer === 'roof' && (!v || post));
+    return v ? post : !!d.roof?.[k] && !d.hang?.[k] && !d.rug?.[k];
   }
   groundRaw(x, y) { if (inBounds(x, y)) return 0; const h = Math.max(0, this.gen.groundAt(x, y)); return h > 0 ? h * this.padK(x, y) : 0; }   // (el suelo como se ve: allanado junto a lo de antes)
   // La altura que tendría id puesto en la casilla (para colocarlo y para la vista previa)
@@ -540,16 +552,22 @@ export class Overworld {
     if (W) { let top = -Infinity; for (let j = 0; j <= W.n; j++) for (let i = 0; i <= W.n; i++) top = Math.max(top, this.cornerH(tx + i, ty + j)); return Math.ceil(top / LV_STEP - 0.05) * LV_STEP; }
     const layer = layerOf(id), struct = layer === 'floor' || layer === 'roof' || !!PIECES[id];
     const D = this.digH(tx, ty);   // (en lo cavado o en la tierra apilada, a su altura: es llano)
-    if (!struct) return have ?? D ?? this.groundRaw(tx + 0.5, ty + 0.5);
+    if (!struct) return (this.openTile(d, k) ? undefined : have) ?? D ?? this.groundRaw(tx + 0.5, ty + 0.5);
     let L = D ?? Math.ceil(Math.max(this.groundRaw(tx, ty), this.groundRaw(tx + 1, ty), this.groundRaw(tx, ty + 1), this.groundRaw(tx + 1, ty + 1)) / LV_STEP - 0.05) * LV_STEP;
-    if (have !== undefined) L = Math.max(L, have);
+    if (this.openTile(d, k, id)) {   // (a post, on its own ground; a roof alone, like the roof beside it)
+      if (layer !== 'roof') return have ?? L;
+      let top = null;
+      for (const [nx, ny] of [[tx + 1, ty], [tx - 1, ty], [tx, ty + 1], [tx, ty - 1]]) { const nd = this.delta(Math.floor(nx / CHUNK), Math.floor(ny / CHUNK)), nk = `${nx},${ny}`, Ln = nd?.roof?.[nk] ? nd.lvl?.[nk] : undefined; if (Ln !== undefined) top = Math.max(top ?? Ln, Ln); }
+      return have ?? top ?? L;
+    }
+    if (have !== undefined) L = Math.max(L, this.openTile(d, k) ? L : have);
     // (en lo cavado no se junta con lo de al lado, ni lo de al lado con lo cavado: el suelo de un hoyo se queda en su fondo)
     if (D !== null) return L;
     let join = L;
     for (const [nx, ny] of [[tx + 1, ty], [tx - 1, ty], [tx, ty + 1], [tx, ty - 1]]) {
       if (this.digH(nx, ny) !== null) continue;
       const nd = this.delta(Math.floor(nx / CHUNK), Math.floor(ny / CHUNK)), nk = `${nx},${ny}`, Ln = nd?.lvl?.[nk];
-      if (Ln !== undefined && this.structAt(nd, nk) && Ln >= L && Ln - L <= LV_JOIN) join = Math.max(join, Ln);
+      if (Ln !== undefined && this.structAt(nd, nk) && !this.openTile(nd, nk) && Ln >= L && Ln - L <= LV_JOIN) join = Math.max(join, Ln);
     }
     return join;
   }
@@ -564,7 +582,7 @@ export class Overworld {
     // (the big well: its other tiles at the same height, all of them its slab, like the small one's tile)
     for (const [i, j] of wellTiles(wellSpec(id)?.n || 1)) { const x = tx + i, y = ty + j; (this.delta(Math.floor(x / CHUNK), Math.floor(y / CHUNK), true).lvl ||= {})[`${x},${y}`] = L; this.touchAround(x, y); }
     const layer = layerOf(id);
-    if (!(layer === 'floor' || layer === 'roof' || PIECES[id]) || this.digH(tx, ty) !== null) return;
+    if (!(layer === 'floor' || layer === 'roof' || PIECES[id]) || this.digH(tx, ty) !== null || this.openTile(d, k, id)) return;
     const todo = [[tx, ty]], seen = new Set([k]);
     while (todo.length) {
       const [x, y] = todo.pop();
@@ -574,7 +592,7 @@ export class Overworld {
         seen.add(nk);
         if (this.digH(nx, ny) !== null) continue;   // (lo de dentro de un hoyo o encima de un montón se queda a su altura)
         const nd = this.delta(Math.floor(nx / CHUNK), Math.floor(ny / CHUNK)), Ln = nd?.lvl?.[nk];
-        if (Ln === undefined || !this.structAt(nd, nk) || Ln >= L || L - Ln > LV_JOIN) continue;
+        if (Ln === undefined || !this.structAt(nd, nk) || this.openTile(nd, nk) || Ln >= L || L - Ln > LV_JOIN) continue;
         nd.lvl[nk] = L; this.touchAround(nx, ny); todo.push([nx, ny]);
       }
     }
@@ -823,14 +841,14 @@ export class Overworld {
       } else if (piece?.kind === 'gate') {
         // Puerta de valla: va en la línea de las vallas de los lados. Cerrada choca como una valla (a caballo se salta);
         // abierta solo chocan sus postes
-        const f = (x, y) => ['fence', 'gate', 'wall'].includes(this.pieceAt(x, y)?.kind);
+        const f = (x, y) => fenceJoins(this, x, y);
         const alongX = f(tx - 1, ty) || f(tx + 1, ty) || !(f(tx, ty - 1) || f(tx, ty + 1));
         o.door = alongX ? 'x' : 'y'; o.gate = true;
         for (const s of [-0.5, 0.5]) colliders.push(alongX ? { x: o.x + s, y: o.y, r: 0.12, low: true } : { x: o.x, y: o.y + s, r: 0.12, low: true });
         if (this.doorClosed(tx, ty)) colliders.push(alongX ? { x0: tx, y0: o.y - 0.08, x1: tx + 1, y1: o.y + 0.08, low: true, shut: true } : { x0: o.x - 0.08, y0: ty, x1: o.x + 0.08, y1: ty + 1, low: true, shut: true });
       } else if (piece?.kind === 'fence') {
         o.fence = true;
-        const f = (x, y) => ['fence', 'gate', 'wall'].includes(this.pieceAt(x, y)?.kind);
+        const f = (x, y) => fenceJoins(this, x, y);
         const mask = (f(tx + 1, ty) ? 1 : 0) | (f(tx - 1, ty) ? 2 : 0) | (f(tx, ty + 1) ? 4 : 0) | (f(tx, ty - 1) ? 8 : 0);
         o.mask = mask;
         // (low: es baja; a caballo, saltando, se pasa por encima)
@@ -842,6 +860,9 @@ export class Overworld {
         if (mask & 2) colliders.push({ x0: o.x - o.reach[1], y0: o.y - 0.08, x1: o.x, y1: o.y + 0.08, low: true });
         if (mask & 4) colliders.push({ x0: o.x - 0.08, y0: o.y, x1: o.x + 0.08, y1: o.y + o.reach[2], low: true });
         if (mask & 8) colliders.push({ x0: o.x - 0.08, y0: o.y - o.reach[3], x1: o.x + 0.08, y1: o.y, low: true });
+      } else if (piece?.kind === 'post') {
+        o.post = true;
+        colliders.push({ x: o.x, y: o.y, r: piece.r });
       } else if (piece?.kind === 'hearth') {
         // Hogar con chimenea, de espaldas al muro que tenga detrás: da luz y calor; el fuego lo dibuja el juego en la
         // boca del hogar
@@ -1017,7 +1038,9 @@ export class Overworld {
     if (this.at(layer, tx, ty) || d?.tilled[k] !== undefined) return false;
     if (layer === 'placed' && this.reserved?.has(k) && id !== 'silla' && id !== 'taburete') return false;   // (el sitio de alguien de la taberna, aunque ahora no esté)
     if (layer === 'floor') return true;
-    if (layer === 'roof') return !!(this.at('floor', tx, ty) || ['wall', 'door'].includes(this.pieceAt(tx, ty)?.kind));
+    // (a roof goes where something holds it, floors do not: structure.js. Creative, anywhere)
+    if (layer === 'roof') return supportOn() ? this.buildAnywhere || !roofWhy(this, tx, ty) : !!(this.at('floor', tx, ty) || ['wall', 'door'].includes(this.pieceAt(tx, ty)?.kind));
+    if (supportOn() && !this.buildAnywhere && !frameOk(this, tx, ty, id)) return false;   // (a door, a window or a gate, in its frame)
     if (this.layers.some(l => l.blocks?.(tx, ty))) return false;
     if ((id === 'candelabro' || id === 'chimenea' || layer === 'hang') && !this.roofAt(tx, ty)) return false;   // (dentro de casa: el candelabro se cuelga del techo)
     if ((id === 'chimenea' || layer === 'hang') && !this.wallBehind(tx, ty, rot)) return false;
@@ -1036,6 +1059,21 @@ export class Overworld {
     // (a wheelbarrow gets its id once, here: it keeps it while pushed and parked again, and the host arbitrates by it; barrow.js)
     if (id === BARROW.ID) (d.barrow ||= {})[`${tx},${ty}`] = { id: randomId(), l: [] };
     this.touchAround(tx, ty);
+  }
+  // One piece of the placed layer for another in its place (a window in a wall: build.js, swapFor), in one go: its tile keeps
+  // its level and what was shut is open again. What came with the village or an aldea is noted as gone
+  swapPiece(tx, ty, id) {
+    const cx = Math.floor(tx / CHUNK), cy = Math.floor(ty / CHUNK), d = this.delta(cx, cy, true), k = `${tx},${ty}`;
+    if (!this.ownAt('placed', tx, ty)) {
+      if (!this.baseAt('placed', tx, ty)) return false;
+      this.setLevel(tx, ty, id);
+      (d.gone ||= {})[k] = true;
+    }
+    (d.placed ||= {})[k] = id;
+    if (d.closed) delete d.closed[k];
+    if (PIECES[id]?.kind === 'gate') (d.closed ||= {})[k] = true;
+    this.touchAround(tx, ty);
+    return true;
   }
   // Quita algo de una casilla: lo que puso alguien o, con o.fixed, lo que venía puesto (se apunta que ya no está)
   unplace(o) {

@@ -70,7 +70,7 @@ function play(login = true) {   // (login: abrir la pantalla de entrar)
     mouse: (x, y, inside) => { game.mouse = { x, y, in: inside }; },
     paint: (x, y, drag) => b.place(game.tileAtScreen(x, y), drag, [x, y]),
     unpaint: (x, y, drag) => b.removeAt(game.tileAtScreen(x, y), drag, [x, y]),
-    release: () => { b.painted = null; b.dragLayer = null; },
+    release: () => b.release(),
     social: (down, src, x, y) => (down ? game.social.press(src, x, y) : game.social.release(src)),   // (Y or right click on someone: social.js)
     socialCancel: () => game.social.cancel(),
     whistle: () => game.horse.whistle(),   // (N: Plan F, src/horse.js)
@@ -82,7 +82,7 @@ function play(login = true) {   // (login: abrir la pantalla de entrar)
     rotateEnd: () => game.gather.turnEnd(),
     size: () => game.gather.nextSize(),
     erase: () => { if (b.on) b.remove(); else game.altAction(); },
-    eraseEnd: () => game.altRelease(),   // (X let go of: what it was holding is off)
+    eraseEnd: () => { game.altRelease(); if (b.held) b.release(); },   // (X let go of: what it was holding is off)
     interact: () => game.action(),
     pause: () => menus.togglePause(),
     map: () => menus.toggleMap(),

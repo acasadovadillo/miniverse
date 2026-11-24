@@ -19,7 +19,7 @@ import { buildNatureChunk, buildGround, buildFarNature, shake, WIND, GRASS, TUFT
 import { ImpostorAtlas, buildFarImpostors, IMPOSTORS_ON, MASK, MASK_GLSL } from './impostor.js';
 import { wrapIndex } from '../world/planet.js';
 import { roofShape } from '../world/roof.js';
-import { baseMaterials, wallTile, doorTile, doorLeaf, gateTile, gateLeaf, fenceTile, floorTile, roofRegion, paintKey, WALL_H, ROOF, FLOWER } from './build3d.js';
+import { baseMaterials, wallTile, doorTile, doorLeaf, gateTile, gateLeaf, fenceTile, postTile, floorTile, roofRegion, paintKey, WALL_H, ROOF, FLOWER } from './build3d.js';
 import { getModel, modelMat } from './models.js';
 import { poolGround } from './glow.js';
 import { yawOf } from '../art/stations.js';
@@ -230,7 +230,7 @@ export class World3D {
     // La altura de cada casilla (lo construido va a la suya: ver scenes.js, levelAt): lo que se pinta mientras LIFT vale
     // algo sube eso (cada constructor apunta desde qué vértice va cada altura, y se aplica al final)
     let LIFT = 0;
-    const lv = (tx, ty) => scene.levelAt?.(tx + 0.5, ty + 0.5) || 0;
+    const lv = (tx, ty) => scene.levelAt?.(tx + 0.5, ty + 0.5, true) || 0;
     // (lo que se puede pintar por vértice va a un material compartido, con su color)
     const emitFor = region => (key, side) => {
       const tint = tintOf(key), bucket = tint ? tint[0] : key, k = `${region && side && side !== 'free' && side !== 'floor' ? region + '|' + side : ''}#${bucket}`;
@@ -252,10 +252,11 @@ export class World3D {
       if (o.placed && (o.layer === 'placed' || o.layer === 'hang' || o.layer === 'rug')) {
         const [tx, ty] = o.tile, piece = PIECES[o.placed], region = this.regionAt(scene, tx, ty);
         if (region) c.regions.add(region);
-        if (piece) { const tk = `${tx},${ty}`; if (struct.get(tk) !== 'full') struct.set(tk, piece.kind === 'fence' || piece.kind === 'gate' ? 'post' : 'full'); }
+        if (piece) { const tk = `${tx},${ty}`; if (struct.get(tk) !== 'full') struct.set(tk, piece.kind === 'fence' || piece.kind === 'gate' || piece.kind === 'post' ? 'post' : 'full'); }
         if (piece?.kind === 'wall') { const ex = { blooms: [], leaves: [], paint: paintKey(region), lift: LIFT, windows: c.windows }; wallTile(scene, tx, ty, o.placed, emitFor(region), ex); this.flowers(ex, region, group); }
         else if (piece?.kind === 'door') { const ex = { blooms: [], leaves: [] }; const d = doorTile(scene, tx, ty, emitFor(region), ex); d.region = region; d.lift = LIFT; c.doors.push(d); }
         else if (piece?.kind === 'gate') { const d = gateTile(scene, tx, ty, plain); d.lift = LIFT; c.doors.push(d); }
+        else if (piece?.kind === 'post') postTile(scene, tx, ty, o.placed, plain, region ? Math.max(-1.6, this.regionLift(scene, region) - LIFT) : 0);
         else if (piece?.kind === 'fence') fenceTile(scene, tx, ty, o.placed, plain);
         else this.placeModel(o.key === this.insideKey ? `${o.placed}:in` : o.model || o.placed, o.x, o.y, o.yaw ?? yawOf(o.rot), plain, c, group, o.off, LIFT);
       } else if (o.unknown) this.placeModel(o.model || 'unknown', o.x, o.y, o.yaw ?? yawOf(o.rot), plain, c, group, false, LIFT);   // (de una versión más nueva: la caja, o el tablón de los cuadros y las alfombras, con «?»)
@@ -789,8 +790,19 @@ export class World3D {
     if (!this.regions.has(key)) this.regions.set(key, { key, tiles, box: { x0, x1, y0, y1 }, roof: null, dirty: true });
     return key;
   }
-  // La altura de una casa: la más alta de sus casillas
-  regionLevel(scene, tiles) { let L = 0; if (scene.levelAt) for (const [x, y] of tiles) L = Math.max(L, scene.levelAt(x + 0.5, y + 0.5) || 0); return L; }
+  // La altura de una casa: la más alta de sus casillas (without the ones of its porch, each on its ground; a shelter, only of
+  // posts, the highest of them: scenes.js openTile)
+  regionLevel(scene, tiles) {
+    if (!scene.levelAt) return 0;
+    let L = null, porch = 0;
+    for (const [x, y] of tiles) {
+      const h = scene.levelAt(x + 0.5, y + 0.5);
+      if (h !== null) L = Math.max(L ?? h, h); else porch = Math.max(porch, scene.levelAt(x + 0.5, y + 0.5, true) || 0);
+    }
+    return Math.max(0, L ?? porch);
+  }
+  // (of the region with that key: a post reaches up to its roof, wherever the house is)
+  regionLift(scene, key) { const r = this.regions.get(key); return r ? this.regionLevel(scene, r.tiles) : 0; }
   invalidateRegion(r) {
     this.dropRegion(r);
     this.regions.delete(r.key);

@@ -383,5 +383,5 @@ export class Outline {
 export function liftOf(scene, o) {
   if (scene?.kind === 'grid' || o.poi || o.treasure) return 0;
   const [tx, ty] = o.tile || [Math.floor(o.x), Math.floor(o.y)];
-  return scene?.levelAt?.(tx + 0.5, ty + 0.5) || 0;
+  return scene?.levelAt?.(tx + 0.5, ty + 0.5, true) || 0;
 }

@@ -29,12 +29,13 @@ export function shapesOf(scene, data, gy) {
   let out = CACHE.get(data);
   if (out) return out;
   out = [];
-  const lv = (tx, ty) => scene.levelAt?.(tx + 0.5, ty + 0.5) || 0;   // (lo construido, a la altura de su casilla: ver world3d.js, LIFT)
+  const lv = (tx, ty) => scene.levelAt?.(tx + 0.5, ty + 0.5, true) || 0;   // (lo construido, a la altura de su casilla: ver world3d.js, LIFT)
   for (const o of data.objects) {
     if (o.placed && o.layer === 'placed') {
       const [tx, ty] = o.tile, L = lv(tx, ty), piece = PIECES[o.placed];
       if (o.fence || o.gate) post(scene, tx, ty, L, out);
       if (o.fence) fence(o, tx, ty, L, out);
+      else if (o.post) cyl(o.x, o.y, piece.r, L - 0.3, L + WALL_H, out);
       else if (o.gate) gate(scene, o, tx, ty, L, out);
       else if (o.door && !scene.doorClosed?.(tx, ty)) {   // (abierta: el dintel; las jambas y la cerrada van con los muros)
         const X = o.door === 'x';

@@ -16,6 +16,7 @@ import { CHUNK, WORLD_SEED } from './world/gen.js';
 import { MapView } from './ui/map.js';
 import { Inventory } from './inventory.js';
 import { Gathering } from './gather.js';
+import { RoomWatch, shelterOn } from './structure.js';
 import { Crafting } from './crafting.js';
 import { STATIONS } from './recipes.js';
 import { START_KIT, ITEMS, RUG_MADE, rugId, CHESTS, UNKNOWN_NAME, knownItem } from './items.js';
@@ -324,7 +325,8 @@ export class Game {
     // (los iconos de lo que se lleva y de la comida, en ratos libres: ver icons.js)
     if (this.view3d !== NO_VIEW) prewarmIcons(() => this.inv.slots.filter(Boolean).map(s => s.id), itemIcon);
     this.lastChunk = null;
-    this.placeName = '';
+    this.placeName = this.placeSub = '';
+    this.room = null;
     Audio.indoors = this.indoors;
     clearKeys();
     this.mode = 'play';
@@ -509,8 +511,9 @@ export class Game {
   updatePlace() {
     const p = this.player;
     const sc = this.scene;
-    const name = sc?.kind === 'grid' ? sc.name : this.underRoof ? this.houseName() : inBounds(p.x, p.y) ? 'Pueblo Brotes' : BIOMES[this.world.gen.biomeAt(p.x, p.y)].name;
-    if (name !== this.placeName) { hud.place(name, !!this.placeName); this.placeName = name; }
+    const rooms = this.underRoof && sc === this.world, name = sc?.kind === 'grid' ? sc.name : this.underRoof ? this.houseName() : inBounds(p.x, p.y) ? 'Pueblo Brotes' : BIOMES[this.world.gen.biomeAt(p.x, p.y)].name;
+    const sub = rooms ? this.roomNote(name) : '';   // (under the name: your house, if it names the room, and whether it is draughty)
+    if (name !== this.placeName || sub !== this.placeSub) { hud.place(sub ? `${name} · ${sub}` : name, !!this.placeName); this.placeName = name; this.placeSub = sub; }
     hud.coords(p.inside ? null : [Math.round(p.x - CENTER.x), Math.round(p.y - CENTER.y)]);
     document.body.classList.toggle('indoors', this.indoors);
     document.body.classList.toggle('underground', sc?.kind === 'grid');
@@ -835,6 +838,8 @@ export class Game {
     if (this.scene === this.world && !machineEmpty(machineAt(this.world, o.tile))) { this.gather.float(`Vacía ${MACHINES[o.placed]?.the || 'la máquina'} antes`, '#ffb0a0'); Audio.error(); return false; }
     if (CHESTS[o.placed] && o.placed !== 'mochila' && this.scene.chestAt(...o.tile)?.some(Boolean)) { this.gather.float(`Vacía ${CHESTS[o.placed][1]} antes`, '#ffb0a0'); Audio.error(); return false; }
     // (whose it was, before it goes: what came with a neighbor's house, or what you had put back there yourself)
+    // (the hearth, whose chimney holds the roof: not while it does; structure.js)
+    if (PIECES[o.placed] && o.tile && this.build.holds({ tile: o.tile, layer: o.layer || 'placed' })) { this.gather.float(t('build.why.holds_roof'), '#ffb0a0'); Audio.error(); return false; }
     const W = this.scene === this.world && o.tile && o.layer ? this.world : null, own = W && (!W.ownAt || !!W.ownAt(o.layer, o.tile[0], o.tile[1]));
     if (this.scene.unplace(o) === false && B) return false;
     if (!B) this.inv.add(id, 1);
@@ -892,11 +897,25 @@ export class Game {
   get indoors() { return !!(this.player?.inside || this.underRoof); }
   // Nombre de la casa en la que está el jugador
   houseName() {
-    const p = this.player;
-    if (inOwnHouse(p.x, p.y)) return 'Tu casa';
+    const p = this.player, own = inOwnHouse(p.x, p.y), room = this.roomName(own);
+    if (room) return room;
+    if (own) return t('place.your_house');
     for (const h of Object.values(HOUSES)) if ((!h.project || hasProject(h.project)) && p.x > h.x0 && p.x < h.x1 && p.y > h.y0 && p.y < h.y1) return `Casa de ${h.name}`;
     if (inTavern(p.x, p.y)) return 'La taberna';
-    return 'Bajo techo';
+    return t('place.under_roof');
+  }
+  // The room by what is in it (structure.js roomAt): only in your house or in one that was built (its roof came with neither
+  // the village nor an aldea). With nothing that says what it is (a shed, a barn), null
+  roomName(own) {
+    const r = this.room, p = this.player;
+    if (!r?.kind || !(own || this.world.ownAt('roof', Math.floor(p.x), Math.floor(p.y)))) return null;
+    if (r.kind === 'porch') return t('room.porch');
+    return r.bed ? t('room.bedroom') : r.kitchen ? t('room.kitchen') : r.bath ? t('room.bathroom') : r.living || own ? t('room.living') : null;
+  }
+  roomNote(name) {
+    const p = this.player, mine = inOwnHouse(p.x, p.y), own = mine ? t('place.your_house') : '';
+    const air = this.room?.kind === 'draughty' && (mine || this.world.ownAt('roof', Math.floor(p.x), Math.floor(p.y))) ? t('room.draughty') : '';
+    return own && air ? `${own} · ${air}` : (own !== name && own) || air;
   }
   // La casilla de dentro de tu casa, junto a la puerta (donde despiertas si te rescatan)
   homeSpot() {
@@ -1288,6 +1307,8 @@ export class Game {
     const house = this.scene === this.world && !p.aboard ? this.ranch.houseAround(p) : null;
     this.view3d.world?.showInside?.(house && !CAM.first ? house : null);   // (dentro del establo, sin tejado: se ve lo de dentro)
     const under = this.scene === this.world && (underRoof(this.world, p.x, p.y) || !!house);
+    // (the room, while under a roof of the world: what warms it and what it is called. In a big animal house, none)
+    this.room = under && !house && shelterOn() ? (this.roomWatch ||= new RoomWatch()).get(this.world, p.x, p.y, performance.now()) : null;
     if (under !== this.underRoof) { this.underRoof = under; p.underRoof = under; Audio.indoors = this.indoors; this.updatePlace(); this.onSave?.(); }
     // (por pasos, no por dibujos: sin el foco o con la pestaña oculta se dibuja menos o nada, y frameNo se queda quieto)
     if ((this.stepNo = (this.stepNo || 0) + 1) % 10 === 0) this.updatePlace();
@@ -1331,6 +1352,7 @@ export class Game {
     const social = this.player ? this.social.promptFor(this.highlight?.e || null, !!near) : '';
     if (this.fishing.card) near = null;   // (the catch card says what E and X do)
     if (near?.riding && !this.horse.promptShown()) near = null;   // (riding: «Get off» does not stay on the screen the whole ride)
+    this.build.tick();   // (what is being taken down, holding)
     this.prompts.frame(near, this.highlight, !!prey && this.highlight?.e === prey, social);   // (at what is aimed at: ui/prompts.js)
     let hint = '';
     if (this.player) {

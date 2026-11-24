@@ -2,10 +2,10 @@
 // herramientas de mover y de quitar.
 import { STATIONS } from '../recipes.js';
 import { PIECES } from '../pieces.js';
-import { ITEMS } from '../items.js';
-import { pieceSprite, BUILD_IDS, ALL_CATS, DEF } from '../build.js';
+import { pieceSprite, BUILD_IDS, ALL_CATS, DEF, matText } from '../build.js';
 import { BUILDABLE, PLANS } from '../buildables.js';
 import { SHOPS } from '../economy.js';
+import { t } from '../i18n.js';
 import { pieceIcon } from '../art/build.js';
 import { itemIcon } from '../art/items.js';
 
@@ -41,7 +41,7 @@ export function initBuildBar(game) {
     const box = $('bb-pieces');
     box.textContent = '';
     if (tool) {
-      box.innerHTML = `<div class="bb-note">${tool === 'Quitar' ? 'Clic sobre lo que quieras quitar: te devuelve sus materiales.' : b.carry ? `Llevas: ${DEF(b.carry.id).name.toLowerCase()}. Clic donde quieras dejarlo (R: girar).` : 'Clic sobre un mueble o una estación para cogerlo, y otro clic donde quieras dejarlo. No cuesta nada.'}</div>`;
+      box.innerHTML = `<div class="bb-note">${tool === 'Quitar' ? t('build.bar.remove') : b.carry ? t('build.bar.carrying', { item: DEF(b.carry.id) }) : t('build.bar.move')}</div>`;
       return;
     }
     for (const id of shown(cat)) {
@@ -50,7 +50,7 @@ export function initBuildBar(game) {
       btn.type = 'button';
       btn.className = 'bb-piece' + (id === b.piece ? ' on' : '') + (ok ? '' : ' poor');
       btn.title = p.name;
-      btn.innerHTML = `<img alt="" src="${iconOf(id)}"><span>${p.name}</span><small>${game.admin ? 'Gratis (admin)' : p.cost.map(([m, n]) => `${n} ${ITEMS[m].name.toLowerCase()}`).join(' · ') + (near ? '' : ` · falta ${STATIONS[p.needs].name.toLowerCase()} cerca`)}</small>`;
+      btn.innerHTML = `<img alt="" src="${iconOf(id)}"><span>${p.name}</span><small>${game.admin ? t('build.bar.free') : matText(p.cost) + (near ? '' : ` · ${t('build.bar.lacks', { station: STATIONS[p.needs] })}`)}</small>`;
       btn.onclick = () => b.select(id);
       box.append(btn);
     }
@@ -58,7 +58,7 @@ export function initBuildBar(game) {
     for (const id of locked(cat)) {
       const btn = document.createElement('button');
       btn.type = 'button'; btn.className = 'bb-piece poor'; btn.disabled = true; btn.title = DEF(id).name;
-      btn.innerHTML = `<img alt="" src="${iconOf(id)}"><span>${DEF(id).name}</span><small>Falta su plano: lo vende ${planAt(id) || 'una tienda'}</small>`;
+      btn.innerHTML = `<img alt="" src="${iconOf(id)}"><span>${DEF(id).name}</span><small>${t('build.bar.plan', { shop: planAt(id) || t('build.bar.a_shop') })}</small>`;
       box.append(btn);
     }
   }

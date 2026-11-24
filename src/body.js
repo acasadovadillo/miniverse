@@ -79,7 +79,7 @@ import { inBounds, distToPath } from './world/village.js';
 import { CHUNK } from './world/gen.js';
 import { BULKY } from './carry-items.js';
 import { dressed } from './looks.js';
-import { clothesOf, feelOf, TEMP, TEAR, TEAR_RATE, TEAR_TOUGH, tearStage, canTear } from './clothing.js';
+import { clothesOf, feelOf, roomFire, TEMP, TEAR, TEAR_RATE, TEAR_TOUGH, tearStage, canTear } from './clothing.js';
 
 export const BODY_V = 1;
 const MAX = 100;
@@ -182,7 +182,7 @@ export class Body {
     this._chip = { id: '', text: '' };
     this._chipKey = { id: '', item: null };
     this._feel = { airC: 15, feelC: 15, cold: 0, heat: 0 };
-    this._env = { Tl: TEMP.tlRef, season: 0, hour: 12, weather: 'sol', indoors: false, cave: false, fireD: Infinity, swim: null, W: 0, rain: 0, shade: 0, wet: 0, raining: false };
+    this._env = { Tl: TEMP.tlRef, season: 0, hour: 12, weather: 'sol', indoors: false, pull: undefined, cave: false, fireD: Infinity, swim: null, W: 0, rain: 0, shade: 0, wet: 0, raining: false };
     this._clim = {};
     this.cl = clothesOf(null, {});   // what the worn clothes do (warm, rain, shade, work, outer), at every poll
     this.bd = 0;
@@ -373,7 +373,9 @@ export class Body {
     e.weather = days?.weatherHere || 'sol';
     this.sunny = e.weather === 'sol' && !days?.isNight?.();   // (read every frame by the drying: kept from the poll)
     this.blizzard = e.weather === 'ventisca';
-    this.fireD = this.fireNear(p, sc);
+    const room = sc === w ? g.room : null;   // (structure.js roomAt: a shut room keeps the warmth, a porch hardly)
+    e.pull = room?.kind ? TEMP.pull[room.kind] : undefined;
+    this.fireD = roomFire(room, this.fireNear(p, sc));
     e.fireD = this.fireD;
     e.swim = p.swim && sc === w ? (g.needs?.waterKind?.(p.x, p.y) === 'salt' ? 'sea' : 'fresh') : null;
     e.W = this.cl.warm; e.rain = this.cl.rain; e.shade = this.cl.shade;

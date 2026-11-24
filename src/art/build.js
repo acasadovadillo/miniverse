@@ -417,6 +417,18 @@ export function fenceSprite(id, mask, q = 0) {
   });
 }
 
+// A post (its icon): a timber on its stone, or a pillar with its base and its capital
+export function postSprite(id, q = 0) {
+  return cached(`po:${id}:${q}`, () => {
+    const [c, , I] = canvas(q), stone = id === 'stone_pillar', col = boxCol(WALLS[stone ? 'muro_piedra' : 'muro_madera'].col), foot = boxCol(WALLS.muro_piedra.col), r = stone ? 0.2 : 0.11;
+    I.box(-r - 0.1, -r - 0.1, r + 0.1, r + 0.1, 0, stone ? 5 : 3, foot);
+    I.box(-r, -r, r, r, stone ? 5 : 3, WALL_H - 4, col);
+    I.box(-r - (stone ? 0.1 : 0.22), -r - (stone ? 0.1 : 0.02), r + (stone ? 0.1 : 0.22), r + (stone ? 0.1 : 0.02), WALL_H - 4, WALL_H, col);
+    I.flush();
+    return outlined(c);
+  });
+}
+
 // Icono de una pieza de construcción para la paleta: lo dibujado en el sprite (sin el lienzo vacío),
 // reducido para que quepa entero y centrado en 36×36
 export function pieceIcon(img) {
