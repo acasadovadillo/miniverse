@@ -20,6 +20,7 @@ import { digGeometry, digMaterial, digShadowMaterial, poolGeometry, SD_OPEN, POO
 // caché al publicar otra versión: lo que carga un hilo no sale en la lista de lo cargado por la página. No hace nada al
 // cargarse)
 import '../world/groundcache.js';
+import '../world/satpixels.js';   // (the same: the maps' pictures)
 import { opcion, apagada, paraHilo } from '../opciones.js';
 import { WATER_Y } from '../world/biomes.js';
 
@@ -90,7 +91,7 @@ export class Terrain {
         const extra = paraHilo(['relieve', 'suelo', 'fondo']) + (CACHE_MAX !== 1024 ? `&relieve-max=${CACHE_MAX}` : '');   // (y el suelo de antes: ver arte.js)
         const w = new Worker(new URL('../world/genworker.js?v=' + encodeURIComponent(VERSION) + extra, import.meta.url), { type: 'module' });
         w.onmessage = e => this.onResult(e.data, i);
-        w.onerror = e => { console.warn('Suelo: el hilo aparte ha fallado; se calcula aquí', e.message); this.workers = []; this.pending.clear(); this.jobs.clear(); this.arrived.length = 0; };
+        w.onerror = e => { console.warn('Suelo: el hilo aparte ha fallado; se calcula aquí', e.message); this.workers = []; this.dropAll(); };
         list.push(w);
       }
       return list;
@@ -119,7 +120,9 @@ export class Terrain {
     const byWorker = new Map();
     for (const [id, j] of this.jobs) { if (!byWorker.has(j.worker)) byWorker.set(j.worker, []); byWorker.get(j.worker).push(id); }
     for (const [w, ids] of byWorker) w.postMessage({ t: 'drop', ids });
+    const maps = [...this.jobs.values()].filter(j => j.done);
     this.jobs.clear(); this.pending.clear(); this.arrived.length = 0;
+    for (const j of maps) j.done(null);
   }
   workerFor(bx, bz) { return this.workers[(((bx + bz) % WORKERS) + WORKERS) % WORKERS]; }
   // (transfer: lo que se le pasa al hilo sin copiarlo)
@@ -130,6 +133,15 @@ export class Terrain {
     return id;
   }
 
+  // A picture for the maps (ui/sattiles.js): kind 'sat' or 'thumb', of the chunk (cx, cy). done(m): its answer ({ bmp } or
+  // { pixels }), or null if it will not come (it failed, or the world changed). Behind everything else this thread has to
+  // do, in the thread that makes the ground of that chunk (its biome field is at hand). Its id, or 0 without a worker
+  askMap(kind, gen, cx, cy, pri, data, done) {
+    if (!this.workers.length || gen !== this.gen) return 0;
+    const id = this.ask(kind, null, 1e6 + pri, { ...data, bx: Math.floor(cx / 4), bz: Math.floor(cy / 4), cx, cy });
+    this.jobs.get(id).done = done;
+    return id;
+  }
   // Pone los bloques que tocan alrededor de (x, z) y quita los lejanos. budget: milisegundos para hacer bloques nuevos
   // (solo cuenta sin hilo aparte)
   // (fill: tapado, al entrar o en un salto, lo que llega se hace con ese tope por fotograma en vez de BUILD_MS; ver engine.js)
@@ -175,7 +187,7 @@ export class Terrain {
     if (this.workers.length) {
       // Lo que ya no hace falta, fuera de la cola; lo que falta, pedido (lo cercano primero: pri)
       const drop = [];
-      for (const [id, j] of this.jobs) if (!keep.has(j.key)) { drop.push(id); this.jobs.delete(id); this.pending.delete(j.key); }
+      for (const [id, j] of this.jobs) if (!j.done && !keep.has(j.key)) { drop.push(id); this.jobs.delete(id); this.pending.delete(j.key); }
       if (drop.length) for (const w of this.workers) w.postMessage({ t: 'drop', ids: drop });
       for (const [a, b, d] of want) {
         const k = `${a},${b}`, cur = this.blocks.get(k);
@@ -234,6 +246,7 @@ export class Terrain {
     const j = this.jobs.get(m.id);
     if (!j) return;
     this.jobs.delete(m.id);
+    if (j.done) { j.done(m.t === 'fallo' ? null : m); return; }   // (a map's picture: askMap)
     const k = `${m.bx},${m.bz}`;
     if (m.t === 'fallo') { this.failed(m, k); return; }
     if (m.t === 'ao') { this.contact.result(m); return; }

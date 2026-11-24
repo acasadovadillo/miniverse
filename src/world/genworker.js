@@ -9,6 +9,7 @@ import { setProjects, setFamilyHouse } from './village.js';
 import { blockHeights, blockNormals, blockShore, shoreBiome, blockColors, paintPixels, groundTag, BLOCK } from './ground.js';
 import { openGroundCache } from './groundcache.js';
 import { rasterTile, TILE } from './contact.js';
+import { satPixels, thumbPixels, SAT_N } from './satpixels.js';
 import { opcion, apagada } from '../opciones.js';
 
 // (?relieve=0 en la dirección del hilo: sin guardar nada; ?relieve-max=N: cuántos bloques como mucho. Ver terrain.js y
@@ -19,10 +20,15 @@ let cache = null, cacheDb = null, cacheTag = '', cleaned = false;   // (cache: l
 const queue = [];   // trabajos pendientes: { t: 'block' | 'paint' | …, id, pri, … }
 // (a igual prioridad, primero la forma, luego la pintura y luego lo demás: terrain.js da a los bloques que hacen falta
 // para empezar a jugar una prioridad menor que la de cualquier pintura)
-const RANK = { block: 0, paint: 1, ao: 2 };
+// (the maps' pictures, sat and thumb, last of all: terrain.js askMap also gives them a pri behind any other)
+const RANK = { block: 0, paint: 1, ao: 2, sat: 3, thumb: 3 };
 const waiting = new Map(), reading = new Set(), gone = new Set();   // bloques esperando a la caché, los que se están leyendo y los quitados mientras
 const stats = { calc: 0, msCalc: 0, hits: 0, msHit: 0 };
 let pumping = false, batching = false;
+// The last paints of the ground made here (16 KB each), for the maps' pictures of the same chunks: painting is most of what
+// one costs, and the minimap only shows what has just been painted
+const PAINTS = 160, paints = new Map(), paintKey = m => `${m.cx},${m.cy},${m.season}`;
+function keepPaint(m, pixels) { const k = paintKey(m); paints.delete(k); paints.set(k, pixels.slice()); if (paints.size > PAINTS) paints.delete(paints.keys().next().value); }
 
 // El mundo es siempre el mismo (WORLD_SEED): se prepara al arrancar el hilo y la base se abre ya, mientras el juego aún
 // está empezando la partida; así, cuando llegan los primeros bloques, lo guardado se lee sin esperar a nada
@@ -35,11 +41,11 @@ onmessage = e => {
     useSeed(m.seed);
     // (el primer hilo limpia lo guardado de otras versiones del relieve, una vez y pasados unos segundos: ver cleanLater)
     if (m.owner && !cleaned && cache) { cleaned = true; cache.then(c => c?.cleanLater()).catch(() => {}); }
-  } else if (m.t === 'village') { setProjects(m.projects); setFamilyHouse(m.family); gen?.fields.clear(); }
+  } else if (m.t === 'village') { setProjects(m.projects); setFamilyHouse(m.family); gen?.fields.clear(); gen?.satTrees?.clear(); paints.clear(); }
   else if (m.t === 'block') {
     if (cache) { waiting.set(m.id, m); if (!batching) { batching = true; setTimeout(readBatch, 0); } }
     else { queue.push(m); pump(); }
-  } else if (m.t === 'paint' || m.t === 'ao') { queue.push(m); pump(); }
+  } else if (m.t === 'paint' || m.t === 'ao' || m.t === 'sat' || m.t === 'thumb') { queue.push(m); pump(); }
   else if (m.t === 'drop') {
     const ids = new Set(m.ids);
     for (let i = queue.length - 1; i >= 0; i--) if (ids.has(queue[i].id)) queue.splice(i, 1);
@@ -51,7 +57,7 @@ onmessage = e => {
 // el mismo mundo y la comparten)
 function useSeed(seed) {
   if (gen?.seed === (seed | 0)) return;
-  gen = new WorldGen(seed); tag = groundTag(gen);
+  gen = new WorldGen(seed); tag = groundTag(gen); paints.clear();
   if (!CACHE || cacheTag === tag) return;
   cache?.then(c => c?.close());
   cacheTag = tag; cacheDb = null;
@@ -115,8 +121,17 @@ function step() {
         else if (cache) { const copy = { heights: d.heights.slice(), edge: d.edge.slice(), corners: d.corners.slice(), centers: d.centers.slice(), wet: d.wet && d.wet.slice() }; cache.then(c => c?.put(m.bx, m.bz, copy)).catch(() => {}); }
       } catch { /* (sin guardar) */ }
       post(m, d, false);
+    } else if (m.t === 'sat' || m.t === 'thumb') {
+      // A picture for the maps (satpixels.js): made into an ImageBitmap here, so the game only receives it
+      const t0 = performance.now(), big = m.t === 'sat', n = big ? SAT_N : CHUNK, paint = big && paints.get(paintKey(m))?.slice();
+      const pixels = big ? satPixels(gen, m.cx, m.cy, m.season, { gone: m.gone && new Set(m.gone), clear: m.clear, paint }) : thumbPixels(gen, m.cx, m.cy, m.season);
+      const ms = performance.now() - t0, out = { t: m.t, id: m.id, ms };
+      const bare = () => postMessage({ ...out, pixels }, [pixels.buffer]);   // (no bitmaps in this thread: the numbers, and the game makes it)
+      if (typeof createImageBitmap !== 'function') bare();
+      else createImageBitmap(new ImageData(pixels, n, n)).then(bmp => postMessage({ ...out, bmp }, [bmp]), bare);
     } else {
       const pixels = paintPixels(gen, m.cx, m.cy, m.season);
+      keepPaint(m, pixels);
       postMessage({ t: 'paint', id: m.id, bx: m.bx, bz: m.bz, ci: m.ci, cj: m.cj, season: m.season, pixels }, [pixels.buffer]);
     }
   } catch (e) {

@@ -39,6 +39,7 @@ export class Explore {
     this.aldeas.clear();
     this.raw.clear();
     this.found = new Set(save.found || []);
+    this.foundN = -1;
     if (!this.world.layers.includes(this.layer)) this.world.layers.push(this.layer);
   }
   save(out) { out.found = [...this.found]; }
@@ -164,6 +165,28 @@ export class Explore {
     return a;
   }
   // Pieza fija de una aldea en una casilla (para puertas, vallas, tejados y colocar cosas)
+  // For the maps (ui/mapoverlay.js, ui/sattiles.js), of the discovered places only: the pieces of the hamlets in the chunk of
+  // key k ("cx,cy"), or undefined; and the boxes [x0, y0, x1, y1] round a chunk where places keep the trees away (hides)
+  builtIn(k) {
+    if (this.foundN !== this.found.size) {
+      this.foundN = this.found.size;
+      this.foundBuilt = new Map(); this.foundBoxes = [];
+      for (const key of this.found) {
+        const [cx, cy] = key.split(',').map(Number), p = this.poi(cx, cy);
+        if (!p) continue;
+        if (p.kind !== 'aldea') { const r = SIZE[p.kind] + 1.5; this.foundBoxes.push([p.x - r, p.y - r, p.x + r, p.y + r]); continue; }
+        const a = this.aldea(p), [x0, y0, x1, y1] = a.box;
+        this.foundBoxes.push([x0 - 1.5, y0 - 1.5, x1 + 1.5, y1 + 1.5]);
+        for (const [c, v] of Object.entries(a.chunks)) this.foundBuilt.set(c, v);
+      }
+    }
+    return this.foundBuilt.get(k);
+  }
+  clearings(cx, cy) {
+    this.builtIn('');
+    const x0 = (cx - 1) * CHUNK, y0 = (cy - 1) * CHUNK, d = CHUNK * 3;
+    return this.foundBoxes.filter(b => b[2] > x0 && b[0] < x0 + d && b[3] > y0 && b[1] < y0 + d);
+  }
   baseAt(layer, tx, ty) {
     for (const p of this.aldeasAround(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK))) { const v = this.aldea(p).all[layer]?.[`${tx},${ty}`]; if (v) return v; }
     return undefined;

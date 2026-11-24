@@ -17,7 +17,7 @@ export class HuntOverlay {
   constructor(game) {
     this.game = game;
     this.r = 0; this.since = -1;
-    if (game.map) game.map.overlay = (ctx, toMap, me, a) => this.draw(ctx, toMap, me, a);
+    if (game.map) game.map.overlay = (ctx, toMap, me, a, w, h) => this.draw(ctx, toMap, me, a, w, h);
   }
   get on() { const g = this.game; return !!g.wildlife?.hunting && sensesOn() && !g.indoors; }
   destroy() { if (this.game.map) this.game.map.overlay = null; }
@@ -31,12 +31,12 @@ export class HuntOverlay {
     const s = getComputedStyle(document.documentElement), v = (k, d) => s.getPropertyValue(k).trim() || d;
     return (this.c = { ink: v('--ink', '#ffffff'), cool: v('--cool', '#37c9c3'), dark: 'rgba(10, 12, 16, .85)' });
   }
-  // On the minimap's canvas (a: pixels per tile of its view; a circle on the ground is an ellipse half as tall)
-  draw(ctx, toMap, me, a) {
+  // On the minimap's canvas (w, h: its size in the px it draws in; a: pixels per tile of its view; a circle on the ground is an ellipse half as tall)
+  draw(ctx, toMap, me, a, w = ctx.canvas.width, h = ctx.canvas.height) {
     const g = this.game;
     if (!this.on) { this.since = -1; this.r = 0; return; }
     if (this.since < 0) this.since = g.time;
-    const W = ctx.canvas.width, H = ctx.canvas.height, [mx, my] = toMap(me[0], me[1]), C = this.colors(), P = g.wildlife.presence;
+    const W = w, H = h, [mx, my] = toMap(me[0], me[1]), C = this.colors(), P = g.wildlife.presence;
     const left = 1 - (g.time - P.pulse) / PULSE_S, loud = left > 0 && left <= 1 ? hearRange(SENSES.ciervo, P.pulseN, DIFF_K[g.difficulty] ?? 1) * left : 0;
     this.r += (Math.max(this.heardAt(), loud) - this.r) * EASE;
     // (past the edge of the map it stays just inside it, thicker: far enough)

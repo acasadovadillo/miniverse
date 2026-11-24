@@ -1345,10 +1345,13 @@ export class Game {
     try { this.smartHud?.frame(hint); } catch (e) { reportFault(e, 'SmartHud.frame'); }   // (the minimal interface, unless the full one was chosen: src/ui/smarthud.js)
     try { this.needsBar?.frame(); } catch (e) { reportFault(e, 'NeedsBar.frame'); }   // (the status bars, both HUDs: src/ui/needsbar.js; after smartHud, which sets their timers)
     if (this.player && this.world) {
-      // (los lugares, como mucho cada 0,15 s: el minimapa no se repinta más a menudo, y el grande, solo si algo cambia)
-      if (!(Math.abs(this.time - (this.markersAt ?? -1)) < 0.15)) { this.markersAt = this.time; this.map.markers = [...this.places.markers(), ...this.horse.marks()]; }
+      // (los lugares y los caballos, para smarthud.js, y los vecinos que se ven, cuatro veces por segundo. What is on the maps
+      // comes from ui/blips.js, which asks for the rest by itself)
+      const due = !(Math.abs(this.time - (this.markersAt ?? -1)) < 0.25);
+      if (due) { this.markersAt = this.time; this.map.markers = [...this.places.markers(), ...this.horse.marks()]; }
       this.map.world = this.world;   // (lo cavado que tiene agua se pinta de agua)
-      if (this.mode === 'map') this.map.people = this.neighbors.people.filter(n => !n.hidden).map(n => ({ x: n.x, y: n.y, name: n.def.name }));
+      this.map.game = this;
+      if (this.mode === 'map' && due) this.map.people = this.neighbors.people.filter(n => !n.hidden).map(n => ({ x: n.x, y: n.y, name: n.def.name }));
       this.map.face = this.player.face;   // (their arrow on both maps points where they face)
       if (this.mode === 'map') this.map.drawBig(this.world.gen, this.explored, this.player.x, this.player.y, this.time);
       else if (!this.indoors && this.smartHud?.mini !== false) this.map.drawMini(this.world.gen, this.explored, this.player.x, this.player.y, this.time);   // (hidden, not drawn)

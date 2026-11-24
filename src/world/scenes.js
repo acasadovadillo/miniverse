@@ -15,6 +15,7 @@ import { BARROW, BULKY, barrowKey, randomId } from '../carry-items.js';
 import { wallRuns, WINDOW_Z, T } from '../art/build.js';
 import { PIECES, layerOf, parsePlaced, fenceReach } from '../pieces.js';
 import { Person } from '../entities.js';
+import { Profile } from '../accounts.js';
 import { wrapIndex, inPlanet, dxOf, wrapX, HALF, H as PLANET_H, NORTH } from './planet.js';
 import { roofShape } from './roof.js';
 import { t as tr } from '../i18n.js';   // (as tr: t is a common local name here)
@@ -89,7 +90,7 @@ function clashes(c, x, y, margin) {
   return c.r !== undefined ? Math.hypot(c.x - x, c.y - y) < c.r + m : !c.rx && x > c.x0 - m && x < c.x1 + m && y > c.y0 - m && y < c.y1 + m;
 }
 // Cómo se apunta en el trozo que algo de lo que venía puesto ya no está
-const goneKey = (layer, k) => (layer === 'placed' ? k : `${layer}:${k}`);
+export const goneKey = (layer, k) => (layer === 'placed' ? k : `${layer}:${k}`);
 const ROOF_MAX_TILES = 900;   // tope de casillas de una región de tejado (para calcular su forma)
 const ROOF_MAX_LEVEL = 4;     // altura máxima de un tejado, en niveles
 
@@ -487,11 +488,13 @@ export class Overworld {
 
   // ---------- barcas amarradas ----------
   // La barca se construye (B) en el agua, junto a la orilla, y se queda amarrada donde se deja al bajar a tierra: van
-  // en el trozo (d.boats: id → [x, y, giro]), así las ve todo el mundo. Al subir, se quita de aquí y va con quien rema
+  // en el trozo (d.boats: id → [x, y, giro, marca, dueño]), así las ve todo el mundo. Al subir, se quita de aquí y va con quien rema
   // n: the mark of a big thing left in it (d.boatLoad, barrow.js and carry.js): only that one is this boat's. Its id, back
-  moorBoat(x, y, yaw = 0, n) {
+  // owner: whose it is (who moored it last; none in old saves): the maps show a boat to them and their partner (ui/blips.js).
+  // It goes fifth, after the mark (0: no mark), so a game from before reads the rest as always
+  moorBoat(x, y, yaw = 0, n, owner = Profile.id) {
     const cx = Math.floor(x / CHUNK), cy = Math.floor(y / CHUNK), d = this.delta(cx, cy, true), id = `${Math.round(x * 10)}_${Math.round(y * 10)}`;
-    (d.boats ||= {})[id] = [+x.toFixed(2), +y.toFixed(2), +(+yaw || 0).toFixed(2), ...(n ? [n] : [])];
+    (d.boats ||= {})[id] = [+x.toFixed(2), +y.toFixed(2), +(+yaw || 0).toFixed(2), ...(owner ? [n || 0, owner] : n ? [n] : [])];
     this.touch(cx, cy);
     return id;
   }

@@ -5,28 +5,34 @@
 // con lo que ya se ha visto.
 // The marked route (Plan J §2.7, §4.2; route.js sets map.route): its line and pin on both maps, the pins other players
 // shared, toWorld for map clicks (menus.js) and spotAt to snap a click to a named spot.
-// Horses (Plan F §4.1): this.markers also carries the horses of horse.marks() (yours and your partner's), as
-// { x, y, kind: 'horse', name, mini }. The big map shows them always; the minimap only those with mini (coming to a
-// whistle, or for 6 s after "too far"), held on its edge while they are farther, so you know which way to walk. A horse is
-// a round tan dot with a light centre (it moves: not a square like the places), its legend row is map.legend.horse, and a
-// click on it marks a route to where it is now.
+// The ground of both maps is the satellite pictures (sattiles.js, made in the ground worker) with what players and villages
+// built or dug on top (mapoverlay.js); with no worker, or ?sat=0, the thumbnails of 1 px per tile made here in idle time, as
+// before. What there is on them comes from the blip registry (blips.js): the minimap shows the blips marked mini, those with
+// track held on its edge while farther; where two would overlap, only the one with the higher pri. game.js sets map.game.
 import { CHUNK } from '../world/gen.js';
 import { BIOMES, B } from '../world/biomes.js';
 import { toView } from '../iso.js';
-import { CENTER, HOUSE, HOUSES, TAVERN, DOOR, doorOf, hasProject } from '../world/village.js';
+import { CENTER } from '../world/village.js';
 import { nearX, wrapIndex, wrapX } from '../world/planet.js';
 import { KIND } from '../world/routegrid.js';
 import { t, getLang } from '../i18n.js';
+import { SatTiles } from './sattiles.js';
+import { MapOverlay } from './mapoverlay.js';
+import { blips } from './blips.js';
+import { sprite, svg } from './mapglyphs.js';
 
 const $ = id => document.getElementById(id);
-const COL = { cueva: '#4a4a54', ruinas: '#a8a298', campamento: '#e88a3a', torre: '#d8d0c0', barco: '#7a5030', templo: '#e8c070', aldea: '#4a6aa8', faro: '#ff4a4a' };
-const HOME = '#c95a3c', HOUSE_COL = '#c8a878', PERSON = '#7ad0ff', ME = '#ffd77a';
-const HORSE = '#a8662c', HORSE_IN = '#fff0d8';   // (a deeper tan than the horse's stamina bar, index.html --nd-horse: sand and houses are that one's colour)
+const ME = '#ffd77a';
 const ZOOM = [1, 8], BIOME_SAMPLES_PER_FRAME = 200;
 const rgbCss = c => `rgb(${c[0]},${c[1]},${c[2]})`;
 // The route: the HUD cream with a dark outline; the pins shared by others, blue (not the neighbours' light blue)
 const ROUTE = '#f2e2b0', OUTLINE = '#2a1c22', SHARED = '#5a8cff';
-const TAVERN_DOOR = { x: TAVERN.x0 + 5.5, y: TAVERN.y1 + 1 };   // (as the first steps' mark: the middle of its front)
+// The minimap's canvas, in its own px (as its drawing has always counted them) and its device px per one of those; a blip's
+// disc there, and on the big map (a neighbour's, smaller); how near two may be; the land not explored
+const MINI_W = 150, MINI_H = 100, MINI_K = 2, MINI_A = 1.5, MINI_D = 14, BIG_D = 22, PERSON_D = 14, FOG = '#0d1016';
+const WIDE = 6;   // (chunks to spare on each side of the widest zooms' picture)
+const SAT_VIEW = 800;   // (the big map shows the satellite pictures up to this many chunks in sight; over it, those of 1 px per tile)
+const OVERLAY_MS = 1.5, OVERLAY_BIG_MS = 5, ARRIVE_S = 0.12;   // (ms a drawing may spend on what is built; s between the big map's repaints as pictures arrive)
 // How a stretch of the route is drawn, by the kind of its points (routegrid.js KIND): solid on land and roads, dotted
 // through water, dashed where the land is unexplored (a straight line that reveals nothing)
 const DOTS = [2, 3], DASH = [7, 5];
@@ -68,21 +74,8 @@ function arrow(g, x, y, dx, dy, L, col) {
   g.lineJoin = 'round'; g.lineWidth = 3; g.strokeStyle = '#2a1c22'; g.stroke();
   g.fillStyle = col; g.fill();
 }
-// A horse on a map: a round dot with the dark outline and a light centre, so it reads on sand and beach too (r: its radius)
-function dot(g, x, y, r, col) {
-  g.beginPath(); g.arc(x, y, r + 2, 0, Math.PI * 2); g.fillStyle = OUTLINE; g.fill();
-  g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.fillStyle = col; g.fill();
-  g.beginPath(); g.arc(x, y, r * 0.45, 0, Math.PI * 2); g.fillStyle = HORSE_IN; g.fill();
-}
-// The key of what moves among the markers (the horses), for the big map's redraw test: their tiles, without building
-// an array (it runs each frame while the map is open)
-function movingKey(markers) {
-  let k = '';
-  if (markers) for (let i = 0; i < markers.length; i++) { const m = markers[i]; if (m.kind === 'horse') k += `${m.x | 0},${m.y | 0};`; }
-  return k;
-}
 // (lo cavado que se ha llenado de agua, del color de las aguas poco profundas: ver floodOver)
-const POOL = () => rgbCss(BIOMES[B.SHALLOW].rgb[1]);
+const POOL = sat => (sat ? '#5b909c' : rgbCss(BIOMES[B.SHALLOW].rgb[1]));
 
 export class MapView {
   constructor() {
@@ -102,11 +95,17 @@ export class MapView {
     this.route = null;           // the marked route (route.js puts itself here)
     this.overlay = null;         // drawn over the minimap, under your arrow: (ctx, toMap, me, a) (ui/huntoverlay.js)
     this.center = null;          // where the big map was centred in its last drawing ([x, y], for toWorld)
+    this.game = null;            // (game.js; until then there are no satellite pictures and no blips)
+    this.tiles = new SatTiles({ terrain: () => this.game?.view3d?.terrain || null, world: () => this.world || null, places: () => this.game?.places || null });
+    this.built = new MapOverlay({ world: () => this.world || null, places: () => this.game?.places || null });
+    this.now = 0;                // (performance.now() of the last drawing, in s)
     this.hits = [];              // the named spots and pins of the last big map, with their place on the screen (sx, sy)
   }
 
   // Las miniaturas que faltan se preparan en los ratos libres del navegador
-  thumb(gen, key) {
+  // (or, with a worker, they come from it: sattiles.js)
+  thumb(gen, key, pri = 0) {
+    if (this.tiles.ready) { const i = key.indexOf(','); return this.tiles.thumb(gen, +key.slice(0, i), +key.slice(i + 1), gen.season, pri); }
     const id = `${gen.seed}:${key}`, t = this.thumbs.get(id);
     if (!t && !this.queue.some(q => q.id === id)) { this.queue.push({ id, gen, key }); this.schedule(); }
     return t;
@@ -151,68 +150,98 @@ export class MapView {
   }
   recenter() { this.pan.x = this.pan.y = 0; }
 
-  // Dibuja lo explorado centrado en (px, py) con un zoom a; el jugador está en me
-  draw(canvas, gen, explored, px, py, a, time, me = [px, py]) {
-    const g = canvas.getContext('2d'), w = canvas.width, h = canvas.height;
-    g.imageSmoothingEnabled = false;
-    g.fillStyle = '#1a1410';
+  // Dibuja lo explorado centrado en (px, py) con un zoom a; el jugador está en me. (k: device px per px of the canvas)
+  draw(canvas, gen, explored, px, py, a, time, me = [px, py], k = 1) {
+    const g = canvas.getContext('2d'), w = canvas.width / k, h = canvas.height / k, sat = this.tiles.ready;
+    g.setTransform(k, 0, 0, k, 0, 0);
+    g.imageSmoothingEnabled = sat;
+    g.imageSmoothingQuality = 'medium';
+    g.fillStyle = FOG;
     g.fillRect(0, 0, w, h);
-    // Primero se juntan las miniaturas en una imagen plana (sin huecos entre trozos) y luego se gira
-    // entera a la perspectiva isométrica de la cámara: rejilla (x, y) → vista (u, v) ↦ (a·(u − v) + e, a/2·(u + v) + f)
+    // La rejilla del mundo se gira entera a la perspectiva isométrica de la cámara: rejilla (x, y) → vista (u, v) ↦
+    // (a·(u − v) + e, a/2·(u + v) + f)
     const [pu, pv] = toView(px, py), e = w / 2 - a * (pu - pv), f = h / 2 - (a / 2) * (pu + pv);
-    const toMap = (x, y) => { const [u, v] = toView(nearX(x, px), y); return [Math.round(a * (u - v) + e), Math.round((a / 2) * (u + v) + f)]; };   // (por el camino corto alrededor del planeta)
-    const reach = Math.ceil((w + h * 2) / a / CHUNK / 2) + 1;   // trozos que pueden caber en pantalla
-    const pcx = Math.floor(px / CHUNK), pcy = Math.floor(py / CHUNK), side = (reach * 2 + 1) * CHUNK;
-    if (!this.flat || this.flat.width !== side) { this.flat = document.createElement('canvas'); this.flat.width = this.flat.height = side; }
-    const fg = this.flat.getContext('2d');
-    fg.clearRect(0, 0, side, side);
-    for (const key of explored) {
-      const [cx, cy] = String(key).split(',').map(Number), dcx = wrapIndex(cx - pcx, CHUNK);
-      if (!Number.isFinite(dcx) || !Number.isFinite(cy)) continue;
-      if (Math.abs(dcx) > reach || Math.abs(cy - pcy) > reach) continue;
-      const t = this.thumb(gen, key);
-      if (t) fg.drawImage(t, (dcx + reach) * CHUNK, (cy - pcy + reach) * CHUNK);
+    const toMap = (x, y) => { const [u, v] = toView(nearX(x, px), y); return [Math.round((a * (u - v) + e) * k) / k, Math.round(((a / 2) * (u + v) + f) * k) / k]; };   // (por el camino corto alrededor del planeta)
+    const pcx = Math.floor(px / CHUNK), pcy = Math.floor(py / CHUNK), [xu, xv] = toView(1, 0), [yu, yv] = toView(0, 1);
+    // Cada eje del mundo (x e y) va adonde lo lleve la cámara; el origen, en el trozo del jugador (ox, oy)
+    const grid = (ox, oy) => { const [u0, v0] = toView(ox, oy); g.setTransform(k * a * (xu - xv), (k * a / 2) * (xu + xv), k * a * (yu - yv), (k * a / 2) * (yu + yv), k * (a * (u0 - v0) + e), k * ((a / 2) * (u0 + v0) + f)); };
+    const ox = pcx * CHUNK, oy = pcy * CHUNK;
+    if (sat) {
+      // The satellite pictures, each in its place (a little over their edge: the joints of turned pictures would show), and
+      // what is built on them
+      this.built.begin(OVERLAY_MS);
+      grid(ox, oy);
+      const over = [];
+      this.inSight(explored, px, py, w, h, a, (dx, dy, cx, cy, far, key) => {
+        const pic = this.tiles.tile(gen, cx, cy, gen.season, far, key) || this.tiles.have('thumb', cx, cy);
+        if (pic) g.drawImage(pic, dx * CHUNK - 0.2, dy * CHUNK - 0.2, CHUNK + 0.4, CHUNK + 0.4);
+        const b = this.built.picture(cx, cy, key);
+        if (b) over.push(b, dx * CHUNK, dy * CHUNK);
+      });
+      for (let i = 0; i < over.length; i += 3) g.drawImage(over[i], over[i + 1] - 0.05, over[i + 2] - 0.05, CHUNK + 0.1, CHUNK + 0.1);
+      const R = 64;
+      g.translate(-R, -R);
+      this.floodOver(g, explored, ox - R, oy - R, R * 2, R * 2, 1);
+    } else {
+      // Primero se juntan las miniaturas en una imagen plana (sin huecos entre trozos) y luego se gira entera
+      const reach = Math.ceil((w + h * 2) / a / CHUNK / 2) + 1, side = (reach * 2 + 1) * CHUNK;   // trozos que pueden caber en pantalla
+      if (!this.flat || this.flat.width !== side) { this.flat = document.createElement('canvas'); this.flat.width = this.flat.height = side; }
+      const fg = this.flat.getContext('2d');
+      fg.clearRect(0, 0, side, side);
+      for (let dy = -reach; dy <= reach; dy++) for (let dx = -reach; dx <= reach; dx++) {
+        const key = `${wrapIndex(pcx + dx, CHUNK)},${pcy + dy}`, t = explored.has(key) && this.thumb(gen, key);
+        if (t) fg.drawImage(t, (dx + reach) * CHUNK, (dy + reach) * CHUNK);
+      }
+      this.floodOver(fg, explored, (pcx - reach) * CHUNK, (pcy - reach) * CHUNK, side, side, 1);
+      grid((pcx - reach) * CHUNK, (pcy - reach) * CHUNK);
+      g.drawImage(this.flat, 0, 0);
     }
-    this.floodOver(fg, explored, (pcx - reach) * CHUNK, (pcy - reach) * CHUNK, side, side, 1);
-    // Cada eje de la imagen plana (x e y del mundo) va adonde lo lleve la cámara
-    const ox = (pcx - reach) * CHUNK, oy = (pcy - reach) * CHUNK, [xu, xv] = toView(1, 0), [yu, yv] = toView(0, 1), [u0, v0] = toView(ox, oy);
-    g.setTransform(a * (xu - xv), (a / 2) * (xu + xv), a * (yu - yv), (a / 2) * (yu + yv), a * (u0 - v0) + e, (a / 2) * (u0 + v0) + f);
-    g.drawImage(this.flat, 0, 0);
-    g.setTransform(1, 0, 0, 1, 0, 0);
-    // Casa del pueblo y jugador
-    const [hx, hy] = toMap((HOUSE.x0 + HOUSE.x1) / 2, (HOUSE.y0 + HOUSE.y1) / 2);
-    g.fillStyle = '#2a1c22'; g.fillRect(hx - 3, hy - 3, 7, 6);
-    g.fillStyle = '#c95a3c'; g.fillRect(hx - 2, hy - 3, 5, 2);
-    g.fillStyle = '#f2e2c0'; g.fillRect(hx - 2, hy - 1, 5, 3);
-    // Lugares descubiertos (and the horses that matter now: coming to a whistle, or just out of earshot, held on the edge)
-    for (const m of this.markers || []) {
-      const [x, y] = toMap(m.x, m.y);
-      if (m.kind === 'horse') { if (m.mini) dot(g, Math.max(5, Math.min(w - 5, x)), Math.max(5, Math.min(h - 5, y)), 4.5, HORSE); continue; }
-      g.fillStyle = '#2a1c22'; g.fillRect(x - 3, y - 3, 7, 7);
-      g.fillStyle = COL[m.kind] || '#ffffff'; g.fillRect(x - 2, y - 2, 5, 5);
-    }
-    // (the marked route and its pin, held on the edge like the goal; the pins others shared, only while on the map)
+    g.setTransform(k, 0, 0, k, 0, 0);
+    // (the marked route, under what there is on the map)
     const R = this.route;
-    if (R?.shown) {
-      const proj = (x, y, o) => { const [u, v] = toView(nearX(x, px), y); o[0] = a * (u - v) + e; o[1] = (a / 2) * (u + v) + f; };
-      routeLine(g, R.pts, R.kinds, R.seg, proj, 2);
-      const [x, y] = toMap(R.target.x, R.target.y);
-      pin(g, Math.max(6, Math.min(w - 6, x)), Math.max(12, Math.min(h - 2, y)), 4, ROUTE);
+    if (R?.shown) routeLine(g, R.pts, R.kinds, R.seg, (x, y, o) => { const [u, v] = toView(nearX(x, px), y); o[0] = a * (u - v) + e; o[1] = (a / 2) * (u + v) + f; }, 2);
+    // What there is (blips.js), the important on top; a tracked one is held on the edge while it is farther
+    const shown = [];
+    for (const b of this.game ? blips.refresh(this.game, this.now) : []) {
+      if (!b.mini || !blips.shown(b) || (b.pin === 'route' && !R?.shown) || (b.pin === 'shared' && !R?.outside)) continue;
+      let [x, y] = toMap(b.x, b.y);
+      if (b.r) {   // (an area: a dashed ring on the ground)
+        if (x < -b.r * a * 1.5 || x > w + b.r * a * 1.5) continue;
+        g.beginPath(); g.ellipse(x, y, b.r * a * Math.SQRT2, b.r * a * Math.SQRT1_2, 0, 0, Math.PI * 2);
+        g.globalAlpha = 0.12; g.fillStyle = b.color; g.fill(); g.globalAlpha = 0.85; g.setLineDash([4, 3]); g.lineWidth = 1.5; g.strokeStyle = b.color; g.stroke(); g.setLineDash([]); g.globalAlpha = 1;
+        continue;
+      }
+      const m = b.pin ? 6 : b.kind === 'goal' ? 6 : MINI_D / 2 + 1, top = b.pin ? 12 : m, low = b.pin ? 2 : m;
+      const held = b.track && (x < m || x > w - m || y < top || y > h - low);
+      if (held) { x = Math.max(m, Math.min(w - m, x)); y = Math.max(top, Math.min(h - low, y)); }
+      else if (x < -4 || x > w + 4 || y < -4 || y > h + 4) continue;
+      if (!b.track && !b.pin && shown.some(q => Math.hypot(q[0] - x, q[1] - y) < MINI_D * 0.7)) continue;
+      shown.push([x, y, b]);
     }
-    if (R?.pins.size && R.outside) for (const q of R.pins.values()) {
-      const [x, y] = toMap(q.x, q.y);
-      if (x > 0 && x < w && y > 0 && y < h) pin(g, x, y, 3.5, SHARED);
-    }
-    // (where a first step sends you, set by the smart HUD prototype: a gold diamond, held on the edge while it is farther)
-    if (this.goal) {
-      const [x, y] = toMap(this.goal.x, this.goal.y), gx = Math.max(6, Math.min(w - 6, x)), gy = Math.max(6, Math.min(h - 6, y));
-      g.beginPath(); g.moveTo(gx, gy - 6); g.lineTo(gx + 5, gy); g.lineTo(gx, gy + 6); g.lineTo(gx - 5, gy); g.closePath();
-      g.fillStyle = '#ffd77a'; g.fill(); g.lineWidth = 1.5; g.strokeStyle = '#2a1c22'; g.stroke();
+    for (let i = shown.length - 1; i >= 0; i--) {
+      const [x, y, b] = shown[i];
+      if (b.pin) pin(g, x, y, b.pin === 'route' ? 4 : 3.5, b.pin === 'route' ? ROUTE : SHARED);
+      else if (b.kind === 'goal') {   // (where a first step sends you: a gold diamond)
+        g.beginPath(); g.moveTo(x, y - 6); g.lineTo(x + 5, y); g.lineTo(x, y + 6); g.lineTo(x - 5, y); g.closePath();
+        g.fillStyle = b.color; g.fill(); g.lineWidth = 1.5; g.strokeStyle = OUTLINE; g.stroke();
+      } else { const c = sprite(b.glyph, b.color, MINI_D, k, b.dim), n = MINI_D + 2; g.drawImage(c, x - n / 2, y - n / 2, n, n); }
     }
     // (the player: an arrow where they face, turned like everything else on the minimap)
-    this.overlay?.(g, toMap, me, a);
+    this.overlay?.(g, toMap, me, a, w, h);
     const [mx, my] = toMap(...me), blink = Math.sin(time * 6) > 0, fc = this.face, [fx, fy] = fc ? toMap(me[0] + fc.x * 4, me[1] + fc.y * 4) : [mx, my - 1];
     arrow(g, mx, my, fx - mx, fy - my, 6, blink ? '#ffd77a' : '#ff6a4a');
+    g.setTransform(1, 0, 0, 1, 0, 0);
+  }
+  // The explored chunks that fall on the minimap (w × h px, a px per unit), from the nearest row on: fn(dx, dy (from the
+  // player's chunk), cx (wrapped), cy, how far, in chunks, its key)
+  inSight(explored, px, py, w, h, a, fn) {
+    const pcx = Math.floor(px / CHUNK), pcy = Math.floor(py / CHUNK), reach = Math.ceil((w + h * 2) / a / CHUNK / 2) + 1, [pu, pv] = toView(px, py), H = CHUNK / 2;
+    for (let dy = -reach; dy <= reach; dy++) for (let dx = -reach; dx <= reach; dx++) {
+      const [u, v] = toView((pcx + dx) * CHUNK + H, (pcy + dy) * CHUNK + H), sx = a * (u - v - pu + pv), sy = (a / 2) * (u + v - pu - pv);
+      if (Math.abs(sx) > w / 2 + a * CHUNK || Math.abs(sy) > h / 2 + a * CHUNK / 2) continue;
+      const cx = wrapIndex(pcx + dx, CHUNK), cy = pcy + dy, key = `${cx},${cy}`;
+      if (explored.has(key)) fn(dx, dy, cx, cy, Math.hypot(dx, dy), key);
+    }
   }
 
   // Lo cavado que se ha llenado de agua (las miniaturas son del mundo y no lo tienen): una casilla de agua encima, de las de
@@ -222,7 +251,7 @@ export class MapView {
   floodOver(g, explored, x0, y0, w, h, s, ox = 0, oy = 0) {
     const list = this.world?.floodList?.(x0, y0, x0 + w, y0 + h);
     if (!list?.length) return;
-    g.fillStyle = POOL();
+    g.fillStyle = POOL(this.tiles.ready);
     for (const [x, y] of list) if (explored.has(`${wrapIndex(Math.floor(x / CHUNK), CHUNK)},${Math.floor(y / CHUNK)}`)) g.fillRect(Math.round(ox + (x - x0) * s), Math.round(oy + (y - y0) * s), Math.ceil(s), Math.ceil(s));
   }
 
@@ -231,16 +260,16 @@ export class MapView {
   warmMini(gen, explored, px, py, time) {
     if (Math.abs(time - (this.warmAt ?? -9)) < 1) return;
     this.warmAt = time;
-    const c = this.mini, pcx = Math.floor(px / CHUNK), pcy = Math.floor(py / CHUNK), reach = c ? Math.ceil((c.width + c.height * 2) / 1.5 / CHUNK / 2) + 1 : 3;   // (as draw, at drawMini's scale)
-    for (const key of explored) {
-      const [cx, cy] = String(key).split(',').map(Number), dcx = wrapIndex(cx - pcx, CHUNK);
-      if (Number.isFinite(dcx) && Number.isFinite(cy) && Math.abs(dcx) <= reach && Math.abs(cy - pcy) <= reach) this.thumb(gen, key);
-    }
+    if (this.tiles.ready) this.inSight(explored, px, py, MINI_W, MINI_H, MINI_A, (dx, dy, cx, cy, far) => this.tiles.tile(gen, cx, cy, gen.season, far));
+    else this.inSight(explored, px, py, MINI_W, MINI_H, MINI_A, (dx, dy, cx, cy, far, key) => this.thumb(gen, key));
   }
   drawMini(gen, explored, px, py, time) {
     if (time - this.lastMini < 0.15) return;   // no hace falta redibujarlo en cada fotograma
     this.lastMini = time;
-    this.draw(this.mini, gen, explored, px, py, 1.5, time);
+    this.now = performance.now() / 1000;
+    const c = this.mini;
+    if (c.width !== MINI_W * MINI_K) { c.width = MINI_W * MINI_K; c.height = MINI_H * MINI_K; c.style.imageRendering = 'auto'; }   // (sharper than it is on the page, at the same size)
+    this.draw(c, gen, explored, px, py, MINI_A, time, [px, py], MINI_K);
   }
 
   // Dónde cae en la pantalla un punto del mundo, con el mapa grande centrado en (cx, cy) y el norte arriba
@@ -278,8 +307,15 @@ export class MapView {
     // lo explorado, los lugares, los vecinos (por casilla) o la leyenda a medio mirar; y, por si acaso (lo cavado que se
     // llena de agua), dos veces por segundo. Repintarlo a pantalla entera en cada fotograma, con el mapa quieto, era trabajo
     // tirado (y, mientras, el mundo de detrás ya no se dibuja: ver Game.render)
-    const key = `${w}x${h}x${r}|${this.zoom}|${cx.toFixed(2)},${cy.toFixed(2)}|${px.toFixed(1)},${py.toFixed(1)}|${this.face ? Math.round(Math.atan2(this.face.y, this.face.x) * 36 / Math.PI) : ''}|${Math.sin(time * 6) > 0}|${this.thumbs.size}|${explored.size}|${this.markers?.length}|${movingKey(this.markers)}|${this.people.map(q => `${q.x | 0},${q.y | 0}`).join()}|${this.biomesFrom.size}|${R ? `${R.version}:${R.pinsVersion}:${R.state}` : ''}|${getLang()}`;
-    if (key === this.bigKey && time - this.bigAt < 0.5 && this.legendGen === gen) return;
+    this.now = performance.now() / 1000;
+    const stamp = R ? `${R.version}:${R.pinsVersion}:${R.state}` : '';
+    if (this.game) blips.refresh(this.game, this.now, stamp !== this.stamp || this.people !== this.seenPeople);
+    this.stamp = stamp; this.seenPeople = this.people;
+    // (pictures that arrive one after another: repainted together, every ARRIVE_S)
+    const key = `${w}x${h}x${r}|${this.zoom}|${cx.toFixed(2)},${cy.toFixed(2)}|${px.toFixed(1)},${py.toFixed(1)}|${this.face ? Math.round(Math.atan2(this.face.y, this.face.x) * 36 / Math.PI) : ''}|${Math.sin(time * 6) > 0}|${explored.size}|${blips.v}|${this.biomesFrom.size}|${stamp}|${getLang()}`;
+    const came = this.tiles.v + this.thumbs.size, due = (came !== this.cameV || this.built.pending) && Math.abs(this.now - (this.cameAt || 0)) > ARRIVE_S;
+    if (key === this.bigKey && !due && time - this.bigAt < 0.5 && this.legendGen === gen) return;
+    this.cameV = came; this.cameAt = this.now;
     this.bigKey = key; this.bigAt = time;
     this.drawFlat(c.getContext('2d'), gen, explored, cx, cy, r, w, h, time, [px, py]);
     this.updateLegend(gen, explored);
@@ -314,19 +350,32 @@ export class MapView {
   }
   // Lo explorado en plano, con cada trozo en su sitio, y encima lo que tiene nombre
   drawFlat(g, gen, explored, cx, cy, r, w, h, time, me) {
-    const a = this.tile, S = CHUNK * a, pcx = Math.floor(cx / CHUNK), rx = Math.ceil(w / S / 2) + 1, ry = Math.ceil(h / S / 2) + 1;
+    const a = this.tile, S = CHUNK * a, rx = Math.ceil(w / S / 2) + 1, ry = Math.ceil(h / S / 2) + 1, pcx = Math.floor(cx / CHUNK), pcy = Math.floor(cy / CHUNK), sat = this.tiles.ready;
     g.setTransform(r, 0, 0, r, 0, 0);
-    g.imageSmoothingEnabled = false;
-    g.fillStyle = '#1a1410';
+    g.imageSmoothingEnabled = sat;
+    g.imageSmoothingQuality = 'medium';
+    g.fillStyle = FOG;
     g.fillRect(0, 0, w, h);
-    for (const key of explored) {
-      const [kx, ky] = String(key).split(',').map(Number), dcx = wrapIndex(kx - pcx, CHUNK);
-      if (!Number.isFinite(dcx) || !Number.isFinite(ky)) continue;
-      if (Math.abs(dcx) > rx + 1 || Math.abs(ky - Math.floor(cy / CHUNK)) > ry + 1) continue;
-      const t = this.thumb(gen, key);
-      if (!t) continue;
-      const [sx, sy] = this.toScreen(kx * CHUNK, ky * CHUNK, cx, cy, w, h);
-      g.drawImage(t, Math.round(sx), Math.round(sy), S, S);
+    const seen = [];
+    for (let dy = -ry; dy <= ry; dy++) for (let dx = -rx; dx <= rx; dx++) {
+      const kx = wrapIndex(pcx + dx, CHUNK), ky = pcy + dy, key = `${kx},${ky}`;
+      if (explored.has(key)) seen.push(kx, ky, Math.hypot(dx, dy), key);
+    }
+    // (the satellite pictures if they all fit in what is kept of them; meanwhile, those of 1 px per tile)
+    const fine = sat && seen.length / 4 <= SAT_VIEW;
+    if (sat) this.built.begin(OVERLAY_BIG_MS);
+    if (sat && !fine) this.drawWide(g, gen, explored, cx, cy, w, h, a);
+    else {
+      const over = [];
+      for (let i = 0; i < seen.length; i += 4) {
+        const kx = seen[i], ky = seen[i + 1], far = seen[i + 2], key = seen[i + 3];
+        const t = sat ? this.tiles.tile(gen, kx, ky, gen.season, 1000 + far, key) || this.tiles.thumb(gen, kx, ky, gen.season, far, key) : this.thumb(gen, key);
+        const [sx, sy] = this.toScreen(kx * CHUNK, ky * CHUNK, cx, cy, w, h);
+        if (t) g.drawImage(t, Math.round(sx), Math.round(sy), S, S);
+        const b = sat && this.built.picture(kx, ky, key);
+        if (b) over.push(b, Math.round(sx), Math.round(sy));
+      }
+      for (let i = 0; i < over.length; i += 3) g.drawImage(over[i], over[i + 1], over[i + 2], S, S);
     }
     { const [sx, sy] = this.toScreen(Math.floor(cx - w / 2 / a), Math.floor(cy - h / 2 / a), cx, cy, w, h); this.floodOver(g, explored, Math.floor(cx - w / 2 / a), Math.floor(cy - h / 2 / a), Math.ceil(w / a) + 2, Math.ceil(h / a) + 2, a, sx, sy); }
     // The marked route: from where you are on it to the pin (the pin goes with the spots, for its label)
@@ -337,37 +386,40 @@ export class MapView {
       for (let i = 0; i < c.length; i += 2) { const [sx, sy] = this.toScreen(c[i], c[i + 1], cx, cy, w, h); g.fillRect(sx, sy, Math.max(1, a), Math.max(1, a)); }
     }
     if (R?.active) routeLine(g, R.pts, R.kinds, R.seg, (x, y, o) => { o[0] = w / 2 + a * (nearX(x, cx) - cx); o[1] = h / 2 + a * (y - cy); }, 3);
-    // Lo que tiene nombre, por orden de importancia: tú, tu casa, los lugares, las casas y los vecinos. El nombre va al
+    // Lo que tiene nombre, por orden de importancia: tú y lo que haya en el mapa (blips.js, el de más pri, antes). El nombre va al
     // lado del punto, donde quepa; si no cabe sin pisar otro, ese no sale (al acercarse, sí)
     // (to: where a route to it goes, Plan J: a house's door, a place's centre, where a neighbour is now)
-    const spots = [{ x: me[0], y: me[1], name: t('gui.map.you'), col: Math.sin(time * 6) > 0 ? ME : '#ff6a4a', size: 11, dir: this.face ? [this.face.x, this.face.y] : [0, -1] }, { x: (HOUSE.x0 + HOUSE.x1) / 2, y: (HOUSE.y0 + HOUSE.y1) / 2, name: t('gui.map.home'), col: HOME, size: 8, to: { ...DOOR, kind: 'place', id: 'home' } }];
-    if (R?.active) spots.push({ x: R.target.x, y: R.target.y, name: R.target.name, col: ROUTE, size: 9, pin: 'route' });
-    for (const m of this.markers || []) {
-      if (m.kind === 'horse') { spots.push({ x: m.x, y: m.y, name: m.name, col: HORSE, size: 7, round: true, to: { x: m.x, y: m.y, kind: 'point' } }); continue; }   // (a horse: where it is now)
-      spots.push({ x: m.x, y: m.y, name: m.name, col: COL[m.kind] || '#ffffff', size: 7, to: { x: m.x, y: m.y, kind: 'place', id: `poi:${Math.floor(m.x / CHUNK)},${Math.floor(m.y / CHUNK)}` } });
+    const spots = [{ x: me[0], y: me[1], name: t('gui.map.you'), col: Math.sin(time * 6) > 0 ? ME : '#ff6a4a', size: 11, dir: this.face ? [this.face.x, this.face.y] : [0, -1] }];
+    for (const b of this.game ? blips.list : []) {
+      if (!blips.shown(b) || (b.kind === 'goal' && !b.name)) continue;
+      if (b.r) {   // (an area: a dashed ring)
+        const [sx, sy] = this.toScreen(b.x, b.y, cx, cy, w, h);
+        g.beginPath(); g.arc(sx, sy, b.r * a, 0, Math.PI * 2);
+        g.globalAlpha = 0.12; g.fillStyle = b.color; g.fill(); g.globalAlpha = 0.85; g.setLineDash([7, 5]); g.lineWidth = 2; g.strokeStyle = b.color; g.stroke(); g.setLineDash([]); g.globalAlpha = 1;
+      }
+      if (b.r && !b.name) continue;
+      const pinCol = b.pin === 'route' ? ROUTE : SHARED;
+      spots.push({ x: b.x, y: b.y, name: b.name, col: b.pin ? pinCol : b.color, size: b.pin ? (b.pin === 'route' ? 9 : 8) : b.kind === 'neighbor' ? PERSON_D : BIG_D, pin: b.pin || undefined, conn: b.conn, to: b.to, kind: b.kind, glyph: b.glyph, dim: b.dim });
     }
-    for (const [k, q] of Object.entries(HOUSES)) if (!q.project || hasProject(q.project)) spots.push({ x: (q.x0 + q.x1) / 2, y: (q.y0 + q.y1) / 2, name: t('gui.map.house_of', { name: q.name }), col: HOUSE_COL, size: 7, to: { ...doorOf(q), kind: 'place', id: 'house:' + k } });
-    spots.push({ x: (TAVERN.x0 + TAVERN.x1) / 2, y: (TAVERN.y0 + TAVERN.y1) / 2, name: t('gui.map.tavern'), col: HOUSE_COL, size: 7, to: { ...TAVERN_DOOR, kind: 'place', id: 'tavern' } });
-    for (const q of this.people) spots.push({ x: q.x, y: q.y, name: q.name, col: PERSON, size: 5, to: { x: q.x, y: q.y, kind: 'point' } });
-    if (R) for (const [conn, q] of R.pins) spots.push({ x: q.x, y: q.y, name: q.own ? q.name : q.name ? `${q.by}: ${q.name}` : q.by, col: SHARED, size: 8, pin: 'shared', conn });
     const taken = [], labels = [], clear = b => !taken.some(o => b[0] < o[2] && b[2] > o[0] && b[1] < o[3] && b[3] > o[1]);
     g.font = '600 14px Barlow, system-ui, sans-serif';   // (the map is repainted at least twice a second, so once the font is in, it is used)
     g.textBaseline = 'middle';
     g.lineJoin = 'round';
     // (primero los puntos, de abajo arriba, para que los importantes queden encima)
-    const shown = spots.map(q => { const [sx, sy] = this.toScreen(q.x, q.y, cx, cy, w, h); return { ...q, sx: Math.round(sx), sy: Math.round(sy) }; }).filter(q => q.sx > -60 && q.sx < w + 60 && q.sy > -20 && q.sy < h + 20);
+    const near = spots.map(q => { const [sx, sy] = this.toScreen(q.x, q.y, cx, cy, w, h); return { ...q, sx: Math.round(sx), sy: Math.round(sy) }; }).filter(q => q.sx > -60 && q.sx < w + 60 && q.sy > -20 && q.sy < h + 20);
+    // (of two that would cover each other, only the more important: closer, both)
+    const shown = [];
+    for (const q of near) if (q.dir || q.pin || !shown.some(o => !o.dir && !o.pin && Math.hypot(o.sx - q.sx, o.sy - q.sy) < (o.size + q.size) * 0.32)) shown.push(q);
     for (const q of [...shown].reverse()) {
-      const n = q.size, m = n >> 1;
+      const n = q.size, m = n / 2;
       if (q.dir) { arrow(g, q.sx, q.sy, q.dir[0], q.dir[1], 8, q.col); continue; }   // (you: an arrow where you face; the map has north up, like the world)
       if (q.pin) { pin(g, q.sx, q.sy, q.size * 0.55, q.col); continue; }   // (the route's pin and the shared ones: a teardrop on the spot)
-      if (q.round) { dot(g, q.sx, q.sy, m + 2, q.col); continue; }   // (a horse: round, it moves)
-      g.fillStyle = '#2a1c22'; g.fillRect(q.sx - m - 1, q.sy - m - 1, n + 2, n + 2);
-      g.fillStyle = q.col; g.fillRect(q.sx - m, q.sy - m, n, n);
+      g.drawImage(sprite(q.glyph, q.col, n, r, q.dim), q.sx - m - 1, q.sy - m - 1, n + 2, n + 2);
     }
-    for (const q of shown) taken.push(q.pin ? [q.sx - 5, q.sy - 14, q.sx + 5, q.sy] : [q.sx - 5, q.sy - 5, q.sx + 5, q.sy + 5]);
+    for (const q of shown) { const m = q.dir ? 5 : q.size / 2 - 1; taken.push(q.pin ? [q.sx - 5, q.sy - 14, q.sx + 5, q.sy] : [q.sx - m, q.sy - m, q.sx + m, q.sy + m]); }
     this.hits = shown;
     for (const q of shown) {
-      if (!q.name || (q.col === PERSON && this.zoom < 3)) continue;
+      if (!q.name || (q.kind === 'neighbor' && this.zoom < 3)) continue;
       const tw = g.measureText(q.name).width, off = (q.size >> 1) + 4, ly = q.pin ? q.sy - 9 : q.sy;   // (a pin's label beside its head)
       const at = [[q.sx + off, ly], [q.sx - off - tw, ly], [q.sx - tw / 2, ly - off - 7], [q.sx - tw / 2, q.sy + off + 7]].find(([tx, ty]) => clear([tx - 1, ty - 8, tx + tw + 1, ty + 8]) && tx > 0 && tx + tw < w && ty > 8 && ty < h - 8);
       if (!at) continue;
@@ -378,6 +430,30 @@ export class MapView {
     }
     this.labels = labels;
     g.setTransform(1, 0, 0, 1, 0, 0);
+  }
+  // The widest zooms: the pictures of 1 px per tile put together once, with WIDE chunks to spare on each side (moving the map
+  // draws one image), and again when one has come, something was explored or the view gets out of it
+  drawWide(g, gen, explored, cx, cy, w, h, a) {
+    const S = CHUNK * a, nx = Math.ceil(w / S) + 1 + WIDE * 2, ny = Math.ceil(h / S) + 1 + WIDE * 2, pcx = Math.floor(cx / CHUNK), pcy = Math.floor(cy / CHUNK), v = this.tiles.v + this.built.v * 1e6;
+    let W = this.wide;
+    const out = !W || W.gen !== gen || W.nx !== nx || W.ny !== ny || Math.abs(pcx - W.cx) >= WIDE || Math.abs(pcy - W.cy) >= WIDE, age = out ? 0 : this.now - W.at;
+    if (out || explored.size !== W.n || age > 2 || (age > 0.25 && (v !== W.v || W.missing || this.built.pending))) {
+      W ||= this.wide = { pic: document.createElement('canvas') };
+      W.gen = gen; W.n = explored.size; W.v = v; W.missing = 0; W.at = this.now; W.cx = pcx; W.cy = pcy;
+      if (W.nx !== nx || W.ny !== ny) { W.nx = nx; W.ny = ny; W.pic.width = nx * CHUNK; W.pic.height = ny * CHUNK; }
+      const p = W.pic.getContext('2d'), x0 = pcx - (nx >> 1), y0 = pcy - (ny >> 1);
+      p.imageSmoothingQuality = 'medium';
+      p.clearRect(0, 0, W.pic.width, W.pic.height);
+      for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) {
+        const kx = wrapIndex(x0 + i, CHUNK), ky = y0 + j, key = `${kx},${ky}`;
+        if (!explored.has(key)) continue;
+        const t = this.tiles.thumb(gen, kx, ky, gen.season, Math.hypot(x0 + i - pcx, ky - pcy), key), b = this.built.picture(kx, ky, key);
+        if (t) p.drawImage(t, i * CHUNK, j * CHUNK, CHUNK, CHUNK); else W.missing++;
+        if (b) p.drawImage(b, i * CHUNK, j * CHUNK, CHUNK, CHUNK);
+      }
+      W.v = this.tiles.v + this.built.v * 1e6;
+    }
+    g.drawImage(W.pic, Math.round(w / 2 + a * ((W.cx - (nx >> 1)) * CHUNK - cx)), Math.round(h / 2 + a * ((W.cy - (ny >> 1)) * CHUNK - cy)), nx * S, ny * S);
   }
   // La leyenda: lo que ya se ha visto (los biomas de lo explorado, unos pocos trozos cada vez) y lo que se ha descubierto
   updateLegend(gen, explored) {
@@ -393,19 +469,21 @@ export class MapView {
       }
     }
     const R = this.route, route = !!R?.active, pins = !!R?.pins.size, unknown = route && !!R.unknownPart;
-    // (the places by kind, with their name; the horses are one row, map.legend.horse, not one per horse's name)
-    const marks = this.markers || [], horses = marks.some(m => m.kind === 'horse');
-    const kinds = [...new Map(marks.filter(m => m.kind !== 'horse').map(m => [m.kind, m.name])).entries()], key = `${[...this.seenBiomes].sort().join()}|${kinds.map(k => k[0]).sort().join()}|${route}${pins}${unknown}${horses}|${getLang()}`;
+    // (what there is on the map now, a row per kind: blips.js; the places, by their name)
+    const rowsOf = new Map();
+    for (const b of this.game ? blips.list : []) if (b.legend && blips.shown(b) && !b.pin && !rowsOf.has(b.legend)) rowsOf.set(b.legend, b);
+    const key = `${[...this.seenBiomes].sort().join()}|${[...rowsOf.keys()].sort().join()}|${route}${pins}${unknown}|${getLang()}`;
     if (key === this.legendKey) return;
     this.legendKey = key;
-    const extra = [...(route ? [[ROUTE, t('map.legend.route')]] : []), ...(pins ? [[SHARED, t('map.legend.pins')]] : []), ...(unknown ? [['#1a1410', t('map.route.unknown')]] : [])];
-    const rows = [[ME, t('gui.map.you')], [HOME, t('gui.map.home')], ...extra, [HOUSE_COL, t('gui.map.houses')], [PERSON, t('gui.map.neighbors')], ...(horses ? [[HORSE, t('map.legend.horse'), true]] : []), ...kinds.map(([k, name]) => [COL[k] || '#ffffff', name]).sort((a, b) => a[1].localeCompare(b[1])), ...[...this.seenBiomes].sort((a, b) => a - b).map(b => [rgbCss(BIOMES[b].rgb[1]), BIOMES[b].name])];
+    const named = l => (l.startsWith('poi:') ? l.slice(4) : t(l)), extra = [...(route ? [[ROUTE, t('map.legend.route'), 'pin']] : []), ...(pins ? [[SHARED, t('map.legend.pins'), 'pin']] : []), ...(unknown ? [[FOG, t('map.route.unknown')]] : [])];
+    const things = [...rowsOf.entries()].map(([l, b]) => [b.color, named(l), b.glyph, l.startsWith('poi:')]), places = things.filter(q => q[3]).sort((p, q) => p[1].localeCompare(q[1]));
+    const rows = [[ME, t('gui.map.you')], ...extra, ...things.filter(q => !q[3]), ...places, ...[...this.seenBiomes].sort((a, b) => a - b).map(b => [rgbCss(BIOMES[b].rgb[1]), BIOMES[b].name])];
     const box = $('map-legend-rows');
     box.textContent = '';
-    for (const [col, name, round] of rows) {
+    for (const [col, name, glyph] of rows) {
       const row = document.createElement('div'), chip = document.createElement('i');
       chip.style.background = col;
-      if (round) { chip.style.borderRadius = '50%'; chip.style.background = `radial-gradient(circle, ${HORSE_IN} 0 30%, ${col} 34%)`; }   // (as on the map: a horse is round)
+      if (glyph) { chip.style.cssText = 'width:17px;height:17px;margin:0 -3px;border:0;background:none;line-height:0'; chip.innerHTML = svg(glyph, col); }
       row.append(chip, name);
       box.append(row);
     }

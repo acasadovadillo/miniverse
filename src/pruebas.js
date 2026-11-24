@@ -81,6 +81,10 @@ import { talkContext, pickTopic, topicWeights, topicLines, cropNews, fishNow, mo
 import { stackKg, SIP_KG } from './carry-items.js';
 import { extraOf } from './inventory.js';
 import { WATER_Y } from './world/planet.js';
+import { SatTiles, TILES } from './ui/sattiles.js';
+import { MapOverlay } from './ui/mapoverlay.js';
+import { Blips, blips, KINDS as BLIP_KINDS } from './ui/blips.js';
+import { satPixels, thumbPixels, hillshade, SAT_N } from './world/satpixels.js';
 import { RELIEF_V } from './world/ground.js';
 import { kitOf, kitKey, placeKit, shownOf, splitKit, kindOf, SCABBARD } from './kit.js';
 import { buildKit } from './three/kit3d.js';
@@ -2699,6 +2703,148 @@ async function soloTests(game) {
     M.recenter(); M.zoom = 4; M.scroll(40, 0); check(Math.abs(M.pan.x - 40 / M.tile) < 0.01 && M.pan.y === 0, 'el arrastre no sigue al ratón');
     const legend = document.getElementById('map-legend-rows').textContent; check(legend.includes('Tu casa') && legend.includes('Pradera'), `leyenda: ${legend}`);
     M.recenter(); M.zoom = was; M.people = [];
+  });
+  // ---------- the maps' pipeline (Plan R8-2: world/satpixels.js, ui/sattiles.js, ui/mapoverlay.js, ui/blips.js) ----------
+  const mapArrives = async (ok, secs = 20) => { for (let i = 0; i < secs * 20 && !ok(); i++) await sleep(50); return ok(); };
+  await test("sat tile (english): the worker answers a sat job with a 64x64 ImageBitmap; the main thread spends < 1 ms receiving it", async () => {
+    await goTo(game, CENTER.x, CENTER.y);
+    const M = game.map, gen = w().gen, T = new SatTiles({ terrain: () => game.view3d.terrain, world: () => w(), places: () => game.places });
+    check(M.game === game && M.tiles.ready && T.ready, 'no worker for the pictures');
+    const at = [2, 2];
+    const ask = () => { T.tile(gen, ...at, gen.season); T.thumb(gen, ...at, gen.season); return T.have('sat', ...at) && T.have('thumb', ...at); };
+    check(await mapArrives(ask), 'no picture came');
+    const big = T.have('sat', ...at), small = T.have('thumb', ...at);
+    check(big instanceof ImageBitmap && big.width === SAT_N && big.height === 64 && small.width === CHUNK, `sizes: ${big.width}, ${small.width}`);
+    check(T.stats.mainMax < 1, `receiving it took ${T.stats.mainMax.toFixed(2)} ms`);
+    console.log(`sat tile: ${(T.stats.ms / T.stats.made).toFixed(1)} ms each in the worker (max ${T.stats.msMax.toFixed(1)}), ${(T.stats.main / T.stats.made).toFixed(3)} ms each here (max ${T.stats.mainMax.toFixed(3)})`);
+    // The same numbers without a worker, and what was felled is not in it; every pixel is opaque
+    const tree = gen.content(...at).objects.find(o => ['oak', 'pine', 'fruit'].includes(o.kind)) || null, a = satPixels(gen, ...at, 1);
+    // (what lies on the sea bed is never looked at: no hint of a sunken chest)
+    gen.seabed = () => { throw new Error('the sea bed is read'); }; try { for (let i = 0; i < 400; i++) { const cx = 2 + (i % 20) * 3, cy = 2 + ((i / 20) | 0) * 3; if (gen.biomeAt(cx * CHUNK + 8, cy * CHUNK + 8) !== B.OCEAN) continue; satPixels(gen, cx, cy, 1); thumbPixels(gen, cx, cy, 1); break; } } finally { delete gen.seabed; }
+    check(a.length === 64 * 64 * 4 && a.every((v, i) => i % 4 !== 3 || v === 255), 'holes in it');
+    if (tree) { const b = satPixels(gen, ...at, 1, { gone: new Set([tree.key]) }); check(a.some((v, i) => v !== b[i]), 'a felled tree is still there'); }
+    check(hillshade(0, 0) === 1 && hillshade(0.4, 0.4) > 1 && hillshade(-0.4, -0.4) < 0.9, 'the light is not from the north-west');
+    T.clear();
+  });
+  await test('sat cache (english): bounded, only what is asked for again is made, nothing for an unexplored chunk, and a felled tree asks for its new picture', async () => {
+    await goTo(game, CENTER.x, CENTER.y);
+    const M = game.map, gen = w().gen, T = new SatTiles({ terrain: () => game.view3d.terrain, world: () => w(), places: () => game.places });
+    T.use(gen);
+    // The oldest goes, and is closed; what nobody asks for again leaves the queue unmade
+    let closed = 0;
+    for (let i = 0; i < TILES + 5; i++) T.keep({ kind: 'sat', cx: i, cy: 500, season: 0 }, 0, { close() { closed++; } });
+    check(T.kept.sat.size === TILES && closed === 5 && !T.have('sat', 4, 500) && T.have('sat', 5, 500), `kept ${T.kept.sat.size}, closed ${closed}`);
+    T.get('sat', gen, 5, 500, 0, 0); T.keep({ kind: 'sat', cx: 9999, cy: 500, season: 0 }, 0, {}); check(T.have('sat', 5, 500) && !T.have('sat', 6, 500), 'it is not the least used that goes');
+    check(T.bytes < 20e6, `${T.bytes} bytes`);
+    T.clear(); check(closed > TILES - 2 && !T.kept.sat.size, 'the world before stays');
+    for (let i = 0; i < 400; i++) T.wanted.set(`sat:${i},600`, { kind: 'sat', cx: i, cy: 600, season: 0, pri: i, at: performance.now() - 1e5 });
+    T.pump(); check(!T.wanted.size && !T.flying.size && T.stats.dropped === 400, 'what left the view is made');
+    // The maps ask only for explored chunks
+    const asked = [], real = M.tiles.get; M.tiles.get = (k, g, cx, cy) => { asked.push(`${cx},${cy}`); return null; };
+    try {
+      const some = new Set([...game.explored].slice(0, 6));
+      M.lastMini = -9; M.drawMini(gen, some, p().x, p().y, 1); M.bigKey = ''; M.drawBig(gen, some, p().x, p().y, 0);
+      check(asked.length && asked.every(k => some.has(k)), `asked for ${[...new Set(asked)].join(' ')}`);
+      // (the widest zooms: put together once, then one image however much it moves within its margin)
+      const g = document.createElement('canvas').getContext('2d'); asked.length = 0; M.wide = null; M.now = performance.now() / 1000; M.built.begin(5); M.drawWide(g, gen, some, p().x, p().y, 2000, 1400, 2); const n1 = asked.length;
+      M.drawWide(g, gen, some, p().x + 40, p().y, 2000, 1400, 2); check(n1 > 0 && n1 <= some.size && asked.length === n1, `wide: ${n1}, then ${asked.length}`);
+      M.drawWide(g, gen, some, p().x + 200, p().y, 2000, 1400, 2); check(asked.length > n1 || !some.size, 'out of its margin it is not made again'); M.wide = null;
+    } finally { M.tiles.get = real; M.bigKey = ''; }
+    // Something felled there: its signature changes
+    const s0 = T.sigOf('sat', 5, 5), d = w().delta(5, 5, true); d.removed['0.50,0.50'] = 0; d.v++;
+    check(T.sigOf('sat', 5, 5) !== s0 && T.sigOf('sat', 6, 6) !== T.sigOf('sat', 9, 9) && T.sigOf('thumb', 40, 40) === T.sigOf('thumb', 41, 40), 'the signature does not see it'); delete d.removed['0.50,0.50']; d.v++;
+  });
+  await test('map overlay (english): fields, floors and roofs are drawn and remade on change; footprints; an undiscovered hamlet is not there', async () => {
+    await goTo(game, CENTER.x, CENTER.y);
+    const W = w(), O = new MapOverlay({ world: () => W, places: () => game.places }), cx = 9, cy = 9, x0 = cx * CHUNK, y0 = cy * CHUNK, k = `${cx},${cy}`, had = W.deltas.get(k), was = had && JSON.parse(JSON.stringify(had));
+    try {
+      W.deltas.delete(k); O.begin(50); check(O.picture(cx, cy) === null, 'something on an untouched chunk');
+      const d = W.delta(cx, cy, true);
+      for (let y = 2; y < 8; y++) for (let x = 3; x < 13; x++) { d.floor[`${x0 + x},${y0 + y}`] = 'suelo_madera'; d.roof[`${x0 + x},${y0 + y}`] = 'tejado_azul'; }
+      d.tilled[`${x0 + 2},${y0 + 12}`] = 1; d.v++;
+      O.begin(50); const pic = O.picture(cx, cy), px = (tx, ty) => [...pic.getContext('2d').getImageData(tx * 4 + 1, ty * 4 + 1, 1, 1).data];
+      check(pic && pic.width === 64, 'no picture'); const roof = px(6, 4), soil = px(2, 12), none = px(14, 14);
+      check(roof[2] > roof[0] && roof[3] === 255 && soil[0] > soil[2] + 20 && none[3] === 0, `roof ${roof}, soil ${soil}, nothing ${none}`);
+      const f = O.footprints(x0, y0, x0 + 16, y0 + 16); check(f.length === 1 && f[0].x0 === x0 + 3 && f[0].y1 === y0 + 8 && f[0].h === 3, `footprints: ${JSON.stringify(f)}`);
+      O.begin(50); d.v++; check(O.picture(cx, cy) === pic, 'made again for nothing');
+      delete d.tilled[`${x0 + 2},${y0 + 12}`]; d.v++; O.begin(0); check(O.picture(cx, cy) === pic && O.pending, 'out of time, it does not keep the one before');
+      O.begin(50); check(O.picture(cx, cy) !== pic && !O.pending, 'not remade');
+      // The village's houses, without anyone having touched them, and not as a delta of theirs
+      const n = W.deltas.size; O.begin(80); const H = O.footprints(0, 0, 40, 62); check(H.length >= 2, `village: ${H.length} buildings`); check(W.deltas.size === n, 'looking made deltas');
+      // A hamlet: only once discovered
+      const P = game.places, found = P.found; let a = null;
+      for (let r = 8; r < 60 && !a; r++) for (let i = -r; i <= r && !a; i++) for (const [x, y] of [[i, -r], [i, r], [-r, i], [r, i]]) { const q = P.poi(x, y); if (q?.kind === 'aldea') { a = q; break; } }
+      if (a) try {
+        P.found = new Set(); P.foundN = -1; const c = Object.keys(P.aldea(a).chunks)[0]; check(P.builtIn(c) === undefined && !P.clearings(...a.key.split(',').map(Number)).length, 'an undiscovered hamlet is on the map');
+        P.found = new Set([a.key]); check(P.builtIn(c) && P.clearings(...a.key.split(',').map(Number)).length === 1, 'a discovered one is not');
+      } finally { P.found = found; P.foundN = -1; }
+    } finally { if (was) W.deltas.set(k, was); else W.deltas.delete(k); }
+  });
+  await test("blips couple (english): the partner's horse is a blip for the partner and not for a third player", async () => {
+    const S = game.social, was = S.areCouple, id = Profile.id || 'yo', R = game.ranch, animals = R.animals, W = w(), L = game.live, peers = L.peers, B2 = new Blips();
+    for (const [k, fn] of blips.sources) B2.source(k, fn);
+    const ent = (x, y) => ({ x, y, gm: 0, look: {} }), see = () => { B2.refresh(game, 0, true); return B2.list; }, names = kind => see().filter(b => b.kind === kind).map(b => b.name).sort().join();
+    const moored = [], moor = (dx, owner) => { const b = W.moorBoat(p().x + dx, p().y, 0, undefined, owner); moored.push([p().x + dx, p().y, b]); };
+    try {
+      R.animals = [{ type: 'caballo', def: { ride: true }, id: 'h1', name: 'Suya', owner: 'bea', x: p().x + 5, y: p().y }, { type: 'perro', def: {}, id: 'd1', name: 'Lupo', owner: 'bea', x: p().x + 30, y: p().y },
+        { type: 'caballo', def: { ride: true }, id: 'h2', name: 'Ajena', owner: 'ciro', x: p().x + 6, y: p().y }, { type: 'gato', def: {}, id: 'c1', name: 'Mía', owner: id, x: p().x + 30, y: p().y }];
+      L.peers = new Map([[901, { id: 'bea', name: 'Bea', playing: true, sc: 'world', entity: ent(p().x + 40, p().y) }], [902, { id: 'ciro', name: 'Ciro', playing: true, sc: 'world', entity: ent(p().x - 40, p().y) }],
+        [903, { id: 'eva', name: 'Eva', playing: true, sc: 'g:1', entity: ent(0, 0) }], [904, { id: 'fin', name: 'Fin', playing: true, sc: 'world', entity: { ...ent(1, 1), gm: 3 } }]]);
+      const joined = Object.getOwnPropertyDescriptor(L, 'joined'), setJ = v => { try { Object.defineProperty(L, 'joined', { value: v, configurable: true, writable: true }); } catch { /* */ } };
+      setJ(true);
+      moor(2, id); moor(4, 'bea'); moor(6, 'ciro'); moor(8, '');
+      S.areCouple = (x, y) => areCouple({ kids: [{ parents: ['bea', id] }] }, x, y);
+      check(names('horse') === 'Suya' && names('dog') === 'Lupo' && names('cat') === 'Mía', `couple: ${names('horse')} / ${names('dog')} / ${names('cat')}`);
+      check(names('partner') === 'Bea' && names('player') === 'Ciro', `players: ${names('partner')} / ${names('player')}`);
+      game.explored.add(`${Math.floor((p().x + 8) / CHUNK)},${Math.floor(p().y / CHUNK)}`);
+      const mine = names('boat').split(','); check(mine.includes(t('map.boat.mine')) && mine.includes(t('map.boat.partner')) && mine.includes(t('map.boat.any')) && see().filter(b => b.kind === 'boat' && b.who === 'ciro').length === 0, `boats: ${mine}`);
+      // A third player: where they are, and nothing of theirs
+      S.areCouple = () => false; const PI = S.isPartnerId; S.isPartnerId = () => false;
+      try {
+        check(names('horse') === '' && names('dog') === '' && names('cat') === 'Mía', `third: ${names('horse')} / ${names('dog')}`);
+        check(names('partner') === '' && names('player') === 'Bea,Ciro', `third, players: ${names('player')}`);
+        check(see().filter(b => b.kind === 'boat' && b.who === 'bea').length === 0, "the third sees the boat");
+      } finally { S.isPartnerId = PI; }
+      // A boat as before (no owner) reads the same, one with an owner keeps its mark in its place
+      const d = W.delta(Math.floor((p().x + 2) / CHUNK), Math.floor(p().y / CHUNK)), q = d.boats[moored[0][2]]; check(q.length === 5 && !q[3] && q[4] === id, `boat: ${JSON.stringify(q)}`);
+      if (joined) Object.defineProperty(L, 'joined', joined); else delete L.joined;
+    } finally {
+      S.areCouple = was; R.animals = animals; L.peers = peers;
+      for (const [x, y, b] of moored) { const d = W.deltas.get(`${Math.floor(x / CHUNK)},${Math.floor(y / CHUNK)}`); if (d?.boats) delete d.boats[b]; }
+      blips.refresh(game, 0, true);
+    }
+  });
+  await test('blips registry (english): sources and statics, closed shops fade, the minimap and the big map read it, a broken source hurts nobody, and its cost', async () => {
+    await goTo(game, CENTER.x, CENTER.y);
+    const M = game.map, gen = w().gen, B2 = new Blips();
+    B2.source('bad', () => { throw new Error('a broken source (on purpose)'); });
+    const list = [{ kind: 'x', x: 1, y: 2, pri: 10, glyph: 'place', color: '#fff', name: 'S' }];
+    B2.source('one', out => { const b = out.add('tavern', 5, 6); b.name = 'A'; out.add('shop', NaN, 0); }); B2.static('two', list);
+    const warn = console.warn, err = console.error; console.warn = console.error = () => {}; try { B2.refresh(game, 0, true); } finally { console.warn = warn; console.error = err; }
+    check(B2.list.length === 2 && B2.list[0].name === 'A' && B2.list[0].pri === BLIP_KINDS.tavern.pri && B2.list[1].name === 'S', `list: ${JSON.stringify(B2.list)}`);
+    B2.source('bad', null); const v = B2.v; B2.refresh(game, 0, true); check(B2.v === v, 'the version goes up for nothing'); list[0].x = 9; B2.refresh(game, 0.1); check(B2.v === v, 'asked again within a quarter of a second'); B2.refresh(game, 1); check(B2.v === v + 1, 'a move is no change');
+    // Shops by their hours
+    const D = game.days, hour = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(D), 'hour');
+    try {
+      const at = h => { Object.defineProperty(D, 'hour', { value: h, configurable: true }); blips.refresh(game, 0, true); return blips.list.filter(b => b.kind === 'shop').map(b => ({ ...b })); };
+      const day = at(12), night = at(3); check(day.length >= 3 && !day.find(b => b.name.includes('Rosa')).dim && night.find(b => b.name.includes('Rosa')).dim && night.find(b => b.name.includes('Rosa')).sub, 'the shops do not close');
+    } finally { delete D.hour; blips.refresh(game, 0, true); }
+    // Hidden kinds, and something registered by anyone shows on the big map and can be clicked
+    blips.source('test', out => { const b = out.add('tavern', p().x + 12, p().y - 14); b.kind = 'test'; b.name = 'Cosa'; b.pri = 99; b.to = { x: 1, y: 1, kind: 'point' }; b.mini = true; });
+    try {
+      M.recenter(); M.zoom = 3; M.bigKey = ''; M.drawBig(gen, game.explored, p().x, p().y, 0); const h = M.hits.find(q => q.name === 'Cosa'); check(h && M.spotAt(h.sx, h.sy, 10) === h && M.labels.includes('Cosa'), 'it is not on the big map');
+      blips.hide.add('test'); M.bigKey = ''; M.drawBig(gen, game.explored, p().x, p().y, 0); check(!M.hits.some(q => q.name === 'Cosa'), 'hidden, it shows');
+    } finally { blips.hide.delete('test'); blips.source('test', null); }
+    // On the minimap: explored land is not the dark of the unexplored, and the unexplored stays dark
+    await mapArrives(() => { M.lastMini = -9; M.drawMini(gen, game.explored, p().x, p().y, game.time); return M.tiles.have('sat', Math.floor(p().x / CHUNK), Math.floor(p().y / CHUNK)); });
+    const at = (x, y) => [...M.mini.getContext('2d').getImageData(x, y, 1, 1).data], O = M.overlay; M.lastMini = -9; M.drawMini(gen, game.explored, p().x, p().y, game.time);
+    check(M.mini.width === 300 && at(150, 70)[1] > 40, `the minimap is dark: ${at(150, 70)}`);
+    M.lastMini = -9; M.drawMini(gen, new Set(), p().x, p().y, game.time); check(at(8, 8).join() === '13,16,22,255', `nothing explored, and it shows ${at(8, 8)}`); M.lastMini = -9;
+    // (the cost of asking every source, and of a repaint of the minimap)
+    blips.refresh(game, 0, true); const t0 = performance.now(); for (let i = 0; i < 100; i++) blips.refresh(game, 0, true); const each = (performance.now() - t0) / 100;
+    const t1 = performance.now(); for (let i = 0; i < 20; i++) { M.lastMini = -9; M.drawMini(gen, game.explored, p().x, p().y, game.time); } const mini = (performance.now() - t1) / 20;
+    console.log(`blips: ${each.toFixed(3)} ms a refresh (${blips.list.length} blips); minimap ${mini.toFixed(2)} ms a repaint; ${M.tiles.kept.sat.size} pictures, ${(M.tiles.bytes / 1e6).toFixed(1)} MB`);
+    check(each < 0.4 && mini < 4, `${each.toFixed(2)} ms, ${mini.toFixed(2)} ms`);
   });
   await test('primeros pasos: se cumplen de uno en uno, con recompensa, y se guardan', async () => {
     const S = game.steps, st = game.stats, was = { i: S.i, base: S.base, pay: S.pay }, equip = inv().equip.espalda;
