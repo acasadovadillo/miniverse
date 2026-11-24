@@ -164,7 +164,6 @@
   /* (bottom left, as in GTA, in the very corner: the status bars (#needs) are at the top left; the chat sits above it) */
   #minimap { position: fixed; left: 16px; bottom: 16px; z-index: 4; width: 180px; height: 120px; padding: 0; image-rendering: pixelated; cursor: pointer; }
   body.indoors #minimap { display: none; }
-  #s-map { padding: 0; background: #1a1410; }
   #bigmap { position: fixed; inset: 0; cursor: grab; touch-action: none; }
   #map-north { position: fixed; left: 16px; top: 12px; padding: 4px 12px; color: var(--gold); text-align: center; line-height: 1.05; font-size: 16px; pointer-events: none; }
   #map-legend { position: fixed; left: 16px; bottom: 16px; max-height: calc(100vh - 90px); overflow-y: auto; padding: 6px 12px 8px; color: var(--cream); font-size: 15px; }
@@ -360,8 +359,6 @@
   .st-row.wide .seg { grid-column: 1 / -1; }
   .st-row.wide .seg button { flex: 1; }
   /* Controles (en la pausa) */
-  #s-controls { justify-content: flex-start; }                 /* si no cabe, que se pueda bajar sin cortar el principio */
-  #s-controls .box.ct-panel { width: min(600px, 100%); margin: auto 0; }
   .ct-panel h3 { margin: 14px 0 6px; font-size: 17px; color: var(--gold); font-weight: 600; }
   .ct-list { display: grid; grid-template-columns: 190px 1fr; gap: 5px 14px; margin: 0; font-size: 16px; align-items: baseline; }
   @media (max-width: 520px) { .ct-list { grid-template-columns: 1fr; gap: 2px; } .ct-list dd { margin-bottom: 6px; } }
@@ -371,13 +368,6 @@
   body.big-text #prompt, body.big-text #hint, body.big-text #dialog { font-size: 22px; }
   body.big-text .panel { font-size: 1.12em; }
   /* Diario */
-  .j-panel { padding: 14px 16px 16px; width: min(640px, calc(100vw - 24px)); }
-  .j-panel h2 { margin: 0 0 8px; font-size: 22px; color: var(--gold); display: flex; align-items: center; justify-content: space-between; }
-  .j-panel h2 .sq { width: 34px; height: 30px; font-size: 17px; }
-  #j-tabs { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 10px; }
-  #j-tabs button { padding: 4px 10px; font-size: 15px; color: var(--dim); background: rgba(0, 0, 0, .25); border: 2px solid #6a4a2a; border-radius: 4px; cursor: pointer; }
-  #j-tabs button.on { color: var(--gold); background: #6a4424; border-color: var(--border); }
-  #j-body { max-height: min(62vh, 480px); overflow-y: auto; font-size: 16px; }
   #j-body h3 { margin: 10px 0 6px; font-size: 17px; color: var(--gold); }
   #j-body h3 small { color: var(--dim); font-weight: 400; }
   .j-row { display: grid; grid-template-columns: 1fr auto; column-gap: 10px; align-items: center; padding: 5px 6px; border-bottom: 1px solid #4a3220; }
@@ -731,6 +721,64 @@
   @media (prefers-reduced-motion: reduce) { .fe-alert, .fe-band { animation: none; } .fe-alert.out, .fe-line { transition: none; } }
   body.big-text .fe-legend, body.big-text .fe-opt { font-size: 17.9px; }
   body.big-text .fe-band p { font-size: 20px; }
+  /* ---------- The pause (src/ui/pausehub.js) ---------- */
+  #s-pause { padding: 0; gap: 0; display: none; align-items: stretch; justify-content: flex-start; overflow: hidden; color: var(--ink); background: rgba(8, 9, 12, .5); }
+  #s-pause.show { display: flex; animation: fe-in var(--t-open); }
+  #s-pause.on-map { background: #0c0e12; }
+  #fe-shot { position: fixed; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+  #s-pause.on-map #fe-shot { display: none; }
+  .ps-top { position: relative; z-index: 2; flex: none; padding: 0 40px; background: var(--fe-glass-2); animation: ps-drop var(--t-open); }
+  @keyframes ps-drop { from { transform: translateY(-12px); } }
+  .ps-head { display: flex; align-items: center; gap: 18px; height: 72px; }
+  .ps-mark { font: 700 22px/1 var(--font-title); letter-spacing: .12em; color: var(--fe-dim); padding-right: 18px; border-right: 1px solid var(--fe-line); }
+  #ps-name { margin: 0; padding-bottom: 3px; font: 600 30px/1.1 var(--font-title); letter-spacing: .04em; color: var(--ink); border-bottom: 3px solid var(--fe-accent); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 34vw; }
+  #ps-online { font: 500 15px/1 var(--font-ui); color: var(--fe-dim); }
+  #ps-online::before { content: ''; display: inline-block; width: 8px; height: 8px; margin-right: 7px; border-radius: 50%; background: var(--fe-good); }
+  .ps-info { margin-left: auto; text-align: right; font: 500 16px/1.3 var(--font-title); letter-spacing: .05em; text-transform: uppercase; font-variant-numeric: tabular-nums; color: var(--ink); white-space: nowrap; }
+  #ps-money { color: var(--accent-2); }
+  #ps-face { width: 56px; height: 56px; border-radius: var(--r-s); background: radial-gradient(circle at 50% 38%, #414750, #15181d 72%); box-shadow: inset 0 0 0 1px var(--fe-line); }
+  #ps-tabs { justify-content: space-between; border-bottom: 0; }
+  #ps-tabs .fe-tab { font-size: 18px; padding: 10px 14px 12px; }
+  .ps-pane { position: relative; z-index: 1; display: none; flex: 1; min-height: 0; padding: 22px 40px 8px; gap: 22px; }
+  .ps-pane.on { display: flex; animation: fe-in .12s; }
+  .ps-page { flex: 1; min-width: 0; max-width: 900px; overflow-y: auto; padding: 16px 22px; background: var(--fe-glass); border-radius: var(--r-s); font: 500 16px/1.4 var(--font-ui); scrollbar-width: thin; scrollbar-color: rgba(255, 255, 255, .32) transparent; }
+  .ps-page[hidden] { display: none; }
+  .ps-page:focus { outline: none; }
+  .ps-two > :first-child { flex: none; width: 270px; }
+  .ps-two .row { font-size: 19px; text-shadow: var(--shadow-text); }
+  .ps-two .row.sel { text-shadow: none; }
+  .fe-list.dim .row.sel { text-shadow: var(--shadow-text); }
+  .ps-two .row.on:not(.sel) { background: rgba(255, 255, 255, .08); }
+  .fe-list.dim .row.sel { background: rgba(255, 255, 255, .16); color: var(--ink); }
+  .ps-form { flex: none; width: min(680px, 100%); align-self: stretch; }
+  .ps-form .st-row { padding: 3px 8px; border-radius: var(--r-s); }
+  .ps-form .st-row:focus-within, .ps-form .st-row:hover { background: rgba(255, 255, 255, .08); }
+  .ps-form .st-row .seg button { white-space: nowrap; }
+  #s-pause .ps-page .j-note:first-child { margin-top: 0; }
+  .ps-char .ps-card { flex: none; width: 270px; text-align: center; }
+  .ps-char .ps-card canvas { display: block; width: 270px; height: 270px; background: radial-gradient(circle at 50% 38%, rgba(84, 92, 104, .75), rgba(16, 19, 24, .75) 74%); border-radius: var(--r-s); }
+  .ps-char .ps-card h3 { margin: 12px 0 0; font: 600 24px/1.1 var(--font-title); color: var(--ink); }
+  #p-msg { min-height: 22px; padding: 12px 14px; font: 500 16px/1.35 var(--font-ui); color: var(--accent-2); }
+  .ps-foot { position: relative; z-index: 2; flex: none; display: flex; align-items: center; justify-content: space-between; gap: 24px; min-height: 46px; padding: 6px 40px 10px; pointer-events: none; }
+  .ps-foot > * { pointer-events: auto; }
+  #s-pause.on-map .ps-foot { margin-top: auto; background: var(--fe-glass-2); padding-bottom: 6px; }
+  #ps-note { font: 500 15px/1.3 var(--font-ui); color: var(--fe-dim); text-shadow: var(--shadow-text); }
+  #ps-note:empty { visibility: hidden; }
+  body.in-pause #toasts { top: 190px; }
+  body.big-text .ps-page { font-size: 17.9px; }
+  /* (the journal's pages, without their old window) */
+  #s-pause #j-body { height: auto; max-height: none; font-size: 16px; }
+  body.big-text #s-pause #j-body { font-size: 17.9px; }
+  #s-pause .ps-page h3 { margin: 14px 0 6px; font: 600 18px/1.2 var(--font-title); letter-spacing: .06em; color: var(--ink); }
+  #s-pause .ps-page h3:first-child, #s-pause .ps-page > div > h3:first-child { margin-top: 0; }
+  #s-pause .nb { min-height: 0; }
+  /* (the map: under the header and the tabs) */
+  #pause-map { padding: 0; }
+  #s-pause #map-north { left: 40px; top: 132px; }
+  #s-pause .map-bar { top: 132px; }
+  #s-pause #map-legend { left: 40px; bottom: 62px; max-height: calc(100vh - 270px); }
+  body.still-menus #s-pause, body.still-menus .ps-top, body.still-menus .ps-pane { animation: none; }
+  @media (prefers-reduced-motion: reduce) { #s-pause.show, .ps-top, .ps-pane.on { animation: none; } }
 </style>
 <!-- The glass look (PLAN-R8-hud-mapa.md §3.1): its rules over the wooden ones above, which src/ui/skin.js brings back by turning
      this sheet off (?ui=madera, or Settings › Look; for one version). No backdrop-filter while playing: plain alpha -->
@@ -755,7 +803,7 @@
   kbd { min-width: 22px; padding: 0 6px; border-radius: var(--r-s); background: #fff; color: #14171c; box-shadow: 0 1px 2px rgba(0, 0, 0, .45); font: 600 14px/22px var(--font-ui); }
   .ct-list kbd, #hud-tip kbd, .hud-keys kbd, #hint kbd { font-size: 13px; }
   /* Titles: a short line of the player's colour under them */
-  .box h2, .inv-panel h2, .cf-panel h2, .j-panel h2, .sh-panel h2, .ch-panel h2 { padding-bottom: 8px; background: linear-gradient(var(--accent), var(--accent)) left bottom / 28px 2px no-repeat; color: var(--ink); }
+  .box h2, .inv-panel h2, .cf-panel h2, .sh-panel h2, .ch-panel h2 { padding-bottom: 8px; background: linear-gradient(var(--accent), var(--accent)) left bottom / 28px 2px no-repeat; color: var(--ink); }
   .win.collapsed h2 { padding-bottom: 0; background: none; }
   .st-head, .ct-panel h3, #j-body h3, #cf-repair h3 { font-weight: 600; letter-spacing: .06em; color: var(--ink); }
   .st-head { border-bottom: 0; padding-bottom: 5px; margin-bottom: 4px; background: linear-gradient(var(--accent), var(--accent)) left bottom / 28px 2px no-repeat; }
@@ -771,9 +819,9 @@
   .sq:hover:not(:disabled) { color: #0c0e12; background: #fff; }
   button:focus-visible, input:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   /* Tabs, choices and lists: the one chosen is a white bar with dark text */
-  .tabs button, .seg button, .st-row .seg button, .cf-tab, .cf-size, #bb-cats button, #j-tabs button, .sh-tabs button, #dlg-opts button, .cf-fix, .bb-piece, .map-bar .map-btn { color: rgba(255, 255, 255, .8); background: rgba(255, 255, 255, .07); border-color: transparent; border-radius: var(--r-s); transition: background-color var(--t-sel), color var(--t-sel); }
-  .tabs button:hover, .seg button:hover, .st-row .seg button:hover, .cf-tab:hover, .cf-size:hover, #bb-cats button:hover, #j-tabs button:hover, .sh-tabs button:hover, #dlg-opts button:hover, .cf-fix:hover:not(:disabled), .bb-piece:hover:not(:disabled), .map-bar .map-btn:hover { color: var(--ink); background: rgba(255, 255, 255, .16); }
-  .tabs button.on, .seg button.on, .st-row .seg button.on, .cf-tab.on, .cf-size.on, #bb-cats button.on, #j-tabs button.on, .sh-tabs button.on, #dlg-opts button.on, .bb-piece.on { color: #0c0e12; background: #fff; border-color: transparent; box-shadow: none; }
+  .tabs button, .seg button, .st-row .seg button, .cf-tab, .cf-size, #bb-cats button, .sh-tabs button, #dlg-opts button, .cf-fix, .bb-piece, .map-bar .map-btn { color: rgba(255, 255, 255, .8); background: rgba(255, 255, 255, .07); border-color: transparent; border-radius: var(--r-s); transition: background-color var(--t-sel), color var(--t-sel); }
+  .tabs button:hover, .seg button:hover, .st-row .seg button:hover, .cf-tab:hover, .cf-size:hover, #bb-cats button:hover, .sh-tabs button:hover, #dlg-opts button:hover, .cf-fix:hover:not(:disabled), .bb-piece:hover:not(:disabled), .map-bar .map-btn:hover { color: var(--ink); background: rgba(255, 255, 255, .16); }
+  .tabs button.on, .seg button.on, .st-row .seg button.on, .cf-tab.on, .cf-size.on, #bb-cats button.on, .sh-tabs button.on, #dlg-opts button.on, .bb-piece.on { color: #0c0e12; background: #fff; border-color: transparent; box-shadow: none; }
   #dlg-opts { gap: 2px; }
   #dlg-opts button { padding: 6px 12px; }
   #dlg-opts button.on { font-weight: 600; }
@@ -826,7 +874,6 @@
   /* Screens */
   .screen { background: radial-gradient(ellipse at center, rgba(8, 9, 12, .4), rgba(8, 9, 12, .76)); }
   #s-shop { background: rgba(8, 9, 12, .5); }
-  #s-map { background: #0c0e12; }
   #map-legend-rows i, #hud-wp i { border-color: rgba(8, 9, 12, .85); }
   .logo { font-weight: 700; letter-spacing: .12em; text-shadow: 0 2px 18px rgba(0, 0, 0, .55); }
   .logo small { text-shadow: 0 1px 4px rgba(0, 0, 0, .6); }
@@ -952,24 +999,98 @@
     </div>
   </section>
 
-  <!-- Pausa -->
+  <!-- The pause (src/ui/pausehub.js): a header, seven tabs over the frozen game, and the keys at the bottom -->
   <section id="s-pause" class="screen">
-    <div class="box panel">
-      <h2 data-i18n="gui.pause.title">Paused</h2>
-      <button class="btn primary" id="p-resume" data-i18n="gui.pause.resume">Back to game</button>
-      <button class="btn" id="p-controls" data-i18n="gui.pause.controls">Controls</button>
-      <button class="btn" id="p-settings" data-i18n="gui.settings.title">Settings</button>
-      <button class="btn" id="p-menu" data-i18n="gui.pause.save_quit">Save and quit to menu</button>
-      <div class="err" id="p-msg" style="color:var(--gold);margin:10px 0 0"></div>
+    <canvas id="fe-shot" aria-hidden="true" width="1" height="1"></canvas>
+    <div class="ps-top">
+      <header class="ps-head">
+        <span class="ps-mark" aria-hidden="true">MINIVERSE</span>
+        <h2 id="ps-name"></h2>
+        <span id="ps-online" hidden></span>
+        <div class="ps-info"><div id="ps-when"></div><div id="ps-money"></div></div>
+        <canvas id="ps-face" width="112" height="112" aria-hidden="true"></canvas>
+      </header>
+      <nav id="ps-tabs"></nav>
     </div>
-  </section>
-
-  <!-- Mapa grande -->
-  <section id="s-map" class="screen">
-    <canvas id="bigmap"></canvas>
-    <div id="map-north" class="panel" title="North is up" data-i18n-attr="title:gui.map.north_up">▲<br>N</div>
-    <details id="map-legend" class="panel" open><summary data-i18n="gui.map.legend">Legend</summary><div id="map-legend-rows"></div></details>
-    <div class="map-bar panel"><b data-i18n="gui.map.title">Map</b><span id="map-info"></span><button class="sq" id="map-out" aria-label="Zoom out" data-i18n-attr="aria-label:gui.map.zoom_out">−</button><button class="sq" id="map-in" aria-label="Zoom in" data-i18n-attr="aria-label:gui.map.zoom_in">+</button><button class="sq" id="map-home" aria-label="Back to your position" title="Back to your position" data-i18n-attr="aria-label:gui.map.recenter;title:gui.map.recenter">⌖</button><button class="map-btn" id="map-share" hidden data-i18n="map.pin.share">Share the mark</button><button class="map-btn" id="map-route" hidden data-i18n="gui.map.route_clear">Remove route</button><button class="sq" id="map-close" aria-label="Close" data-i18n-attr="aria-label:common.close">✕</button></div>
+    <div class="ps-pane" id="pause-map" data-pane="map">
+      <canvas id="bigmap"></canvas>
+        <div id="map-north" class="panel" title="North is up" data-i18n-attr="title:gui.map.north_up">▲<br>N</div>
+        <details id="map-legend" class="panel" open><summary data-i18n="gui.map.legend">Legend</summary><div id="map-legend-rows"></div></details>
+        <div class="map-bar panel"><span id="map-info"></span><button class="sq" id="map-out" aria-label="Zoom out" data-i18n-attr="aria-label:gui.map.zoom_out">−</button><button class="sq" id="map-in" aria-label="Zoom in" data-i18n-attr="aria-label:gui.map.zoom_in">+</button><button class="sq" id="map-home" aria-label="Back to your position" title="Back to your position" data-i18n-attr="aria-label:gui.map.recenter;title:gui.map.recenter">⌖</button><button class="map-btn" id="map-share" hidden data-i18n="map.pin.share">Share the mark</button><button class="map-btn" id="map-route" hidden data-i18n="gui.map.route_clear">Remove route</button></div>
+    </div>
+    <div class="ps-pane" data-pane="brief"><div class="ps-page" id="ps-brief"></div></div>
+    <div class="ps-pane ps-char" data-pane="char">
+      <div class="ps-card"><canvas id="ps-char-face" width="288" height="288" aria-hidden="true"></canvas><h3 id="ps-char-name"></h3></div>
+      <div class="ps-page" id="ps-char"><div id="ps-char-body"></div></div>
+    </div>
+    <div class="ps-pane ps-two" data-pane="journal"><div id="j-tabs"></div><div class="ps-page" id="j-body"></div></div>
+    <div class="ps-pane ps-two" data-pane="progress">
+      <div id="ps-progress"><div data-page="logros"><span data-i18n="gui.progress.achievements">Achievements</span></div><div data-page="datos"><span data-i18n="gui.progress.stats">Statistics</span></div></div>
+      <div class="ps-page" id="ps-progress-body"></div>
+    </div>
+    <div class="ps-pane" data-pane="settings"><div class="ps-page ps-form" id="ps-settings"></div></div>
+    <div class="ps-pane ps-two" data-pane="game">
+      <div>
+        <div id="ps-game">
+          <div id="p-resume"><span data-i18n="gui.pause.resume">Back to game</span></div>
+          <div id="p-save"><span data-i18n="gui.game.save_now">Save now</span></div>
+          <div id="p-controls"><span data-i18n="gui.pause.controls">Controls</span></div>
+          <div id="p-menu"><span data-i18n="gui.pause.save_quit">Save and quit to menu</span></div>
+        </div>
+        <div id="p-msg" role="status"></div>
+      </div>
+      <div class="ps-page ct-panel" id="s-controls" hidden>
+          <h3 data-i18n="gui.controls.keyboard">Keyboard and mouse</h3>
+          <dl class="ct-list">
+            <dt><kbd>WASD</kbd></dt><dd data-i18n="controls.walk">Walk (up is where the camera is looking)</dd>
+            <dt><kbd>W</kbd> <kbd>W</kbd> · <kbd>W</kbd> <kbd>W</kbd> <kbd>W</kbd></dt><dd data-i18n="controls.run">Jog: tap W, then press it again and hold it (it uses no energy). Sprint: tap W twice and hold it on the third press (it drains the energy bar; out of breath, you drop to a jog). Let go of W and you stop; the next press walks again. Riding, one press walks, the second canters (it trots on the way up) and the third gallops; swimming, a steady crawl and a fast swim</dd>
+            <dt><kbd>Shift</kbd></dt><dd data-i18n="controls.crouch">Posture. A tap: crouch, or stand up if you're crouching. Hold it: sit on the ground; sitting, hold it again to lie face up (a tap brings you up one step: lying, you sit up; sitting, you crouch). Walking gets you up. While crouching you move slowly and what you place doesn't connect to its neighbors. While swimming, Shift dives: hold it to go down, and Space to come up</dd>
+            <dt data-i18n-html="controls.social.keys"><kbd>Y</kbd> or right click</dt><dd data-i18n="controls.social">Greet the person under the cursor or in front of you (a neighbor, your child, another player); hold it to provoke them instead. The village notices: your reputation is in the journal</dd>
+            <dt data-i18n="controls.use.keys">Left click</dt><dd data-i18n="controls.use">Use what you're holding: chop, mine, water, sow, fish, attack, eat, place… Hold to keep going.</dd>
+            <dt data-i18n-html="controls.jump.keys"><kbd>Space</kbd></dt><dd data-i18n="controls.jump">Jump (in a dialogue: continue). While swimming, hold it to come up; at the surface next to the shore, climb out</dd>
+            <dt data-i18n-html="controls.interact.keys"><kbd>E</kbd> or <kbd>Enter</kbd></dt><dd data-i18n="controls.interact">Interact with what you point at with the mouse (2 tiles away at most; pointing at nothing, with the nearest thing): talk, doors, chests, stations, sleep, harvest, animals</dd>
+            <dt data-i18n-html="controls.drink.keys"><kbd>E</kbd> on water</dt><dd data-i18n="controls.drink">Thirsty, aim at a river, a lake or a well to drink (one press drinks until you're full; moving stops it). Sea water is too salty. With a canteen or a jug in hand: click for a sip, E or click on fresh water to fill it</dd>
+            <dt><kbd>Q</kbd></dt><dd data-i18n-html="controls.drop">Drop what you hold (with <kbd>Ctrl</kbd> or <kbd>Shift</kbd>, the whole stack); with something in your arms, put it down</dd>
+            <dt><kbd>E</kbd> <kbd>Q</kbd> <kbd>X</kbd></dt><dd data-i18n="controls.carry">A felled tree leaves a log and a hunted animal its carcass. E puts it on your shoulder (one at a time) and Q puts it down; X butchers a carcass where it lies, and the axe splits a log. At the bench (E) a log gives 10 planks; at the kitchen (E) a carcass gives the most. Everything weighs: past what you carry comfortably (25 kg, 70 with the backpack) you walk slower</dd>
+            <dt><kbd>E</kbd> <kbd>Q</kbd> <kbd>X</kbd></dt><dd data-i18n="controls.barrow">The wheelbarrow (B › Exterior, its plan at Dani's): E pushes it with both hands (slower, no running, jumping or swimming) and Q parks it; X opens it (12 stacks, which B and C also pay from). Pushing it, E on a log or a carcass loads it (3 at most): what it carries doesn't weigh on you</dd>
+            <dt><kbd>E</kbd> <kbd>Q</kbd></dt><dd data-i18n="controls.carry_ride">With a log or a carcass in your arms you can mount your horse (it rides behind the saddle, and the horse is not slowed: Q puts it down beside it) or row a boat (it rides in the bow; if you jump into the water it stays in the boat). Getting off, it's back in your arms</dd>
+            <dt><kbd>N</kbd></dt><dd data-i18n="controls.whistle">Whistle for your horse (or your partner's) from a distance: the closer the bond, the farther it hears you</dd>
+            <dt data-i18n-html="controls.horse.keys">Riding</dt><dd data-i18n="controls.horse">The gallop tires the horse: its bar sits with yours while you ride, and when it is winded it only trots until it gets its breath back. It has weight: it speeds up and stops little by little, the faster it goes the wider it turns, and it slows down for slopes, mud, water and walls. Space jumps a fence with a run-up; without it, it stops. Settings › Game › Riding: Arcade makes it turn and stop more sharply. E with nothing aimed gets off. Brush it, feed it and pat it every day (E on it): a closer bond means a longer gallop, fewer scares and new tricks</dd>
+            <dt data-i18n-html="controls.ride_keys.keys"><kbd>G</kbd> <kbd>H</kbd> riding</dt><dd data-i18n="controls.ride_keys">Riding: G pats the horse (and calms it after a scare), H rears (level 3)</dd>
+            <dt data-i18n-html="controls.bags.keys"><kbd>X</kbd> on your horse</dt><dd data-i18n="controls.bags">Saddlebags: X on your horse, or riding (12 stacks; B and C also pay from them)</dd>
+            <dt data-i18n-html="controls.select.keys"><kbd>1</kbd>–<kbd>9</kbd> or wheel</dt><dd data-i18n="controls.select">Choose an item</dd>
+            <dt><kbd>R</kbd></dt><dd data-i18n="controls.rotate">Rotate what you're about to place (aim with the mouse: up to 4 tiles). Held, it keeps turning; tapped, in 15° steps, snapping to the tiles</dd>
+            <dt><kbd>←</kbd> / <kbd>→</kbd></dt><dd data-i18n="controls.camera_turn">Turn the camera around you (hold: smooth turn)</dd>
+            <dt><kbd>↑</kbd> / <kbd>↓</kbd></dt><dd data-i18n="controls.camera_tilt">Raise the camera until you almost see from above, or lower it to ground level</dd>
+            <dt data-i18n-html="controls.zoom.keys"><kbd>+</kbd> / <kbd>−</kbd> or <kbd>Ctrl</kbd>+wheel</dt><dd data-i18n="controls.zoom">Zoom the camera in and out</dd>
+            <dt><kbd>Z</kbd></dt><dd data-i18n-html="controls.view">First or third person (in first person, <kbd>↑</kbd> <kbd>↓</kbd> look up and down)</dd>
+            <dt><kbd>F</kbd></dt><dd data-i18n="controls.wheel">Tool wheel: hold it, move the mouse and let go to equip (playing alone, the game goes in slow motion meanwhile). A tap goes back to what you held before</dd>
+            <dt><kbd>F3</kbd></dt><dd data-i18n="controls.fps">Show performance (frames per second)</dd>
+            <dt><kbd>I</kbd> <kbd>C</kbd> <kbd>B</kbd></dt><dd data-i18n="controls.windows">Inventory (what you carry and your clothes), crafting and building</dd>
+            <dt><kbd>Tab</kbd></dt><dd data-i18n="controls.players">While you hold it, who is playing</dd>
+            <dt data-i18n-html="controls.wash.keys"><kbd>X</kbd> on water</dt><dd data-i18n="controls.wash">Muddy, dirty or bloody: aim at a river, a lake or the sea while wading or from the bank to scrub yourself (about 8 s; moving stops it). E on a bathtub takes a bath, and E on a basin washes your face and hands. Soap in your bag washes you fully clean</dd>
+            <dt data-i18n="controls.clothes.keys">The clothes</dt><dd data-i18n="controls.clothes">Clothes wear out with tool work, sprinting through the woods, lying on the ground, swimming dressed and hits; the bar in their slot shows what is left, and torn clothes keep you less warm. Mend them at the loom (C: one cloth, wool or leather) or for coins with Marta, at the tavern in the evening, who also sells warm clothes by season. The neighbours notice how you look and remember what you do</dd>
+            <dt data-i18n="controls.bars.keys">The bars</dt><dd data-i18n="controls.bars">Top left: health, hunger, thirst and energy (and air under water). Food fills hunger, drink fills thirst and sleeping in a bed fills energy; health comes back by itself when you're fed and watered. Hover them (or hold Tab) to see their %</dd>
+            <dt data-i18n="controls.body.keys">The body chip</dt><dd data-i18n="controls.body">Under the bars, only when it matters: Cold, Freezing, Hot, Soaked or Filthy. Hold Tab to see how warm you feel</dd>
+            <dt><kbd>J</kbd> <kbd>M</kbd></dt><dd data-i18n="controls.journal_map">Journal and map (two tabs of the pause; the same key again closes it)</dd>
+            <dt data-i18n-html="controls.chat.keys"><kbd>T</kbd> or <kbd>/</kbd></dt><dd data-i18n-html="controls.chat">Chat and commands (<b>/help</b> to see them). Ops (given in the server terminal with <b>/op</b>) have <b>/gamemode</b>, <b>/tp</b>, <b>/give</b>, <b>/kill</b>, <b>/weather</b>, <b>/gamerule</b>…; the admin also has <b>/account</b>, to create accounts</dd>
+            <dt><kbd>Esc</kbd> <kbd>P</kbd></dt><dd data-i18n="controls.pause">Pause (and close windows): Q and E change tab, 1–7 jump to one; the arrows or WASD move, Enter picks, and Esc or right click goes back. The shared world goes on meanwhile</dd>
+          </dl>
+          <h3 data-i18n="gui.controls.building">Building</h3>
+          <dl class="ct-list">
+            <dt data-i18n="key.click">Click</dt><dd data-i18n="controls.build.place">Place (drag to paint several tiles)</dd>
+            <dt data-i18n-html="controls.build.remove.keys">Right click or <kbd>X</kbd></dt><dd data-i18n="controls.build.remove">Remove</dd>
+          </dl>
+          <h3 data-i18n="gui.controls.map">On the map</h3>
+          <dl class="ct-list">
+            <dt data-i18n-html="controls.map.move.keys"><kbd>WASD</kbd> or drag</dt><dd data-i18n-html="controls.map.move">Move it (<kbd>Shift</kbd>, faster)</dd>
+            <dt data-i18n-html="controls.map.zoom.keys"><kbd>+</kbd> <kbd>−</kbd> or wheel</dt><dd data-i18n="controls.map.zoom">Zoom in and out</dd>
+            <dt data-i18n="controls.map.route.keys">Click · right click</dt><dd data-i18n="controls.map.route">Mark a route to that point (near a house, the tavern or a place, it goes to its door) · remove it. A line on the ground and on the minimap leads you there, along roads where it can, and only through land you have explored. «Share the mark» sends it to the players with you; your partner sees your marks by themselves</dd>
+            <dt>⌖</dt><dd data-i18n="gui.map.recenter">Back to your position</dd>
+          </dl>
+      </div>
+    </div>
+    <footer class="ps-foot"><span id="ps-note"></span><div id="ps-legend"></div></footer>
   </section>
 
   <!-- Inventario -->
@@ -1017,68 +1138,6 @@
     <div class="box panel st-panel">
       <h2><span data-i18n="gui.settings.title">Settings</span> <button class="sq" id="st-close" aria-label="Close" data-i18n-attr="aria-label:common.close">✕</button></h2>
       <div id="st-body"></div>
-    </div>
-  </section>
-  <!-- Controles (desde la pausa) -->
-  <section id="s-controls" class="screen">
-    <div class="box panel st-panel ct-panel">
-      <h2><span data-i18n="gui.controls.title">Controls</span> <button class="sq" id="ct-close" aria-label="Back to the pause menu" data-i18n-attr="aria-label:gui.controls.back">✕</button></h2>
-      <h3 data-i18n="gui.controls.keyboard">Keyboard and mouse</h3>
-      <dl class="ct-list">
-        <dt><kbd>WASD</kbd></dt><dd data-i18n="controls.walk">Walk (up is where the camera is looking)</dd>
-        <dt><kbd>W</kbd> <kbd>W</kbd> · <kbd>W</kbd> <kbd>W</kbd> <kbd>W</kbd></dt><dd data-i18n="controls.run">Jog: tap W, then press it again and hold it (it uses no energy). Sprint: tap W twice and hold it on the third press (it drains the energy bar; out of breath, you drop to a jog). Let go of W and you stop; the next press walks again. Riding, one press walks, the second canters (it trots on the way up) and the third gallops; swimming, a steady crawl and a fast swim</dd>
-        <dt><kbd>Shift</kbd></dt><dd data-i18n="controls.crouch">Posture. A tap: crouch, or stand up if you're crouching. Hold it: sit on the ground; sitting, hold it again to lie face up (a tap brings you up one step: lying, you sit up; sitting, you crouch). Walking gets you up. While crouching you move slowly and what you place doesn't connect to its neighbors. While swimming, Shift dives: hold it to go down, and Space to come up</dd>
-        <dt data-i18n-html="controls.social.keys"><kbd>Y</kbd> or right click</dt><dd data-i18n="controls.social">Greet the person under the cursor or in front of you (a neighbor, your child, another player); hold it to provoke them instead. The village notices: your reputation is in the journal</dd>
-        <dt data-i18n="controls.use.keys">Left click</dt><dd data-i18n="controls.use">Use what you're holding: chop, mine, water, sow, fish, attack, eat, place… Hold to keep going.</dd>
-        <dt data-i18n-html="controls.jump.keys"><kbd>Space</kbd></dt><dd data-i18n="controls.jump">Jump (in a dialogue: continue). While swimming, hold it to come up; at the surface next to the shore, climb out</dd>
-        <dt data-i18n-html="controls.interact.keys"><kbd>E</kbd> or <kbd>Enter</kbd></dt><dd data-i18n="controls.interact">Interact with what you point at with the mouse (2 tiles away at most; pointing at nothing, with the nearest thing): talk, doors, chests, stations, sleep, harvest, animals</dd>
-        <dt data-i18n-html="controls.drink.keys"><kbd>E</kbd> on water</dt><dd data-i18n="controls.drink">Thirsty, aim at a river, a lake or a well to drink (one press drinks until you're full; moving stops it). Sea water is too salty. With a canteen or a jug in hand: click for a sip, E or click on fresh water to fill it</dd>
-        <dt><kbd>Q</kbd></dt><dd data-i18n-html="controls.drop">Drop what you hold (with <kbd>Ctrl</kbd> or <kbd>Shift</kbd>, the whole stack); with something in your arms, put it down</dd>
-        <dt><kbd>E</kbd> <kbd>Q</kbd> <kbd>X</kbd></dt><dd data-i18n="controls.carry">A felled tree leaves a log and a hunted animal its carcass. E puts it on your shoulder (one at a time) and Q puts it down; X butchers a carcass where it lies, and the axe splits a log. At the bench (E) a log gives 10 planks; at the kitchen (E) a carcass gives the most. Everything weighs: past what you carry comfortably (25 kg, 70 with the backpack) you walk slower</dd>
-        <dt><kbd>E</kbd> <kbd>Q</kbd> <kbd>X</kbd></dt><dd data-i18n="controls.barrow">The wheelbarrow (B › Exterior, its plan at Dani's): E pushes it with both hands (slower, no running, jumping or swimming) and Q parks it; X opens it (12 stacks, which B and C also pay from). Pushing it, E on a log or a carcass loads it (3 at most): what it carries doesn't weigh on you</dd>
-        <dt><kbd>E</kbd> <kbd>Q</kbd></dt><dd data-i18n="controls.carry_ride">With a log or a carcass in your arms you can mount your horse (it rides behind the saddle, and the horse is not slowed: Q puts it down beside it) or row a boat (it rides in the bow; if you jump into the water it stays in the boat). Getting off, it's back in your arms</dd>
-        <dt><kbd>N</kbd></dt><dd data-i18n="controls.whistle">Whistle for your horse (or your partner's) from a distance: the closer the bond, the farther it hears you</dd>
-        <dt data-i18n-html="controls.horse.keys">Riding</dt><dd data-i18n="controls.horse">The gallop tires the horse: its bar sits with yours while you ride, and when it is winded it only trots until it gets its breath back. It has weight: it speeds up and stops little by little, the faster it goes the wider it turns, and it slows down for slopes, mud, water and walls. Space jumps a fence with a run-up; without it, it stops. Settings › Game › Riding: Arcade makes it turn and stop more sharply. E with nothing aimed gets off. Brush it, feed it and pat it every day (E on it): a closer bond means a longer gallop, fewer scares and new tricks</dd>
-        <dt data-i18n-html="controls.ride_keys.keys"><kbd>G</kbd> <kbd>H</kbd> riding</dt><dd data-i18n="controls.ride_keys">Riding: G pats the horse (and calms it after a scare), H rears (level 3)</dd>
-        <dt data-i18n-html="controls.bags.keys"><kbd>X</kbd> on your horse</dt><dd data-i18n="controls.bags">Saddlebags: X on your horse, or riding (12 stacks; B and C also pay from them)</dd>
-        <dt data-i18n-html="controls.select.keys"><kbd>1</kbd>–<kbd>9</kbd> or wheel</dt><dd data-i18n="controls.select">Choose an item</dd>
-        <dt><kbd>R</kbd></dt><dd data-i18n="controls.rotate">Rotate what you're about to place (aim with the mouse: up to 4 tiles). Held, it keeps turning; tapped, in 15° steps, snapping to the tiles</dd>
-        <dt><kbd>←</kbd> / <kbd>→</kbd></dt><dd data-i18n="controls.camera_turn">Turn the camera around you (hold: smooth turn)</dd>
-        <dt><kbd>↑</kbd> / <kbd>↓</kbd></dt><dd data-i18n="controls.camera_tilt">Raise the camera until you almost see from above, or lower it to ground level</dd>
-        <dt data-i18n-html="controls.zoom.keys"><kbd>+</kbd> / <kbd>−</kbd> or <kbd>Ctrl</kbd>+wheel</dt><dd data-i18n="controls.zoom">Zoom the camera in and out</dd>
-        <dt><kbd>Z</kbd></dt><dd data-i18n-html="controls.view">First or third person (in first person, <kbd>↑</kbd> <kbd>↓</kbd> look up and down)</dd>
-        <dt><kbd>F</kbd></dt><dd data-i18n="controls.wheel">Tool wheel: hold it, move the mouse and let go to equip (playing alone, the game goes in slow motion meanwhile). A tap goes back to what you held before</dd>
-        <dt><kbd>F3</kbd></dt><dd data-i18n="controls.fps">Show performance (frames per second)</dd>
-        <dt><kbd>I</kbd> <kbd>C</kbd> <kbd>B</kbd></dt><dd data-i18n="controls.windows">Inventory (what you carry and your clothes), crafting and building</dd>
-        <dt><kbd>Tab</kbd></dt><dd data-i18n="controls.players">While you hold it, who is playing</dd>
-        <dt data-i18n-html="controls.wash.keys"><kbd>X</kbd> on water</dt><dd data-i18n="controls.wash">Muddy, dirty or bloody: aim at a river, a lake or the sea while wading or from the bank to scrub yourself (about 8 s; moving stops it). E on a bathtub takes a bath, and E on a basin washes your face and hands. Soap in your bag washes you fully clean</dd>
-        <dt data-i18n="controls.clothes.keys">The clothes</dt><dd data-i18n="controls.clothes">Clothes wear out with tool work, sprinting through the woods, lying on the ground, swimming dressed and hits; the bar in their slot shows what is left, and torn clothes keep you less warm. Mend them at the loom (C: one cloth, wool or leather) or for coins with Marta, at the tavern in the evening, who also sells warm clothes by season. The neighbours notice how you look and remember what you do</dd>
-        <dt data-i18n="controls.bars.keys">The bars</dt><dd data-i18n="controls.bars">Top left: health, hunger, thirst and energy (and air under water). Food fills hunger, drink fills thirst and sleeping in a bed fills energy; health comes back by itself when you're fed and watered. Hover them (or hold Tab) to see their %</dd>
-        <dt data-i18n="controls.body.keys">The body chip</dt><dd data-i18n="controls.body">Under the bars, only when it matters: Cold, Freezing, Hot, Soaked or Filthy. Hold Tab to see how warm you feel</dd>
-        <dt><kbd>J</kbd> <kbd>M</kbd></dt><dd data-i18n="controls.journal_map">Journal and map</dd>
-        <dt data-i18n-html="controls.chat.keys"><kbd>T</kbd> or <kbd>/</kbd></dt><dd data-i18n-html="controls.chat">Chat and commands (<b>/help</b> to see them). Ops (given in the server terminal with <b>/op</b>) have <b>/gamemode</b>, <b>/tp</b>, <b>/give</b>, <b>/kill</b>, <b>/weather</b>, <b>/gamerule</b>…; the admin also has <b>/account</b>, to create accounts</dd>
-        <dt><kbd>Esc</kbd> <kbd>P</kbd></dt><dd data-i18n="controls.pause">Pause (and close windows)</dd>
-      </dl>
-      <h3 data-i18n="gui.controls.building">Building</h3>
-      <dl class="ct-list">
-        <dt data-i18n="key.click">Click</dt><dd data-i18n="controls.build.place">Place (drag to paint several tiles)</dd>
-        <dt data-i18n-html="controls.build.remove.keys">Right click or <kbd>X</kbd></dt><dd data-i18n="controls.build.remove">Remove</dd>
-      </dl>
-      <h3 data-i18n="gui.controls.map">On the map</h3>
-      <dl class="ct-list">
-        <dt data-i18n-html="controls.map.move.keys"><kbd>WASD</kbd> or drag</dt><dd data-i18n-html="controls.map.move">Move it (<kbd>Shift</kbd>, faster)</dd>
-        <dt data-i18n-html="controls.map.zoom.keys"><kbd>+</kbd> <kbd>−</kbd> or wheel</dt><dd data-i18n="controls.map.zoom">Zoom in and out</dd>
-        <dt data-i18n="controls.map.route.keys">Click · right click</dt><dd data-i18n="controls.map.route">Mark a route to that point (near a house, the tavern or a place, it goes to its door) · remove it. A line on the ground and on the minimap leads you there, along roads where it can, and only through land you have explored. «Share the mark» sends it to the players with you; your partner sees your marks by themselves</dd>
-        <dt>⌖</dt><dd data-i18n="gui.map.recenter">Back to your position</dd>
-      </dl>
-    </div>
-  </section>
-  <!-- Diario -->
-  <section id="s-journal" class="win">
-    <div class="j-panel panel">
-      <h2><span data-i18n="gui.journal.title">Journal</span> <button class="sq" id="j-close" aria-label="Close" data-i18n-attr="aria-label:common.close">✕</button></h2>
-      <div id="j-tabs"></div>
-      <div id="j-body"></div>
     </div>
   </section>
   <!-- Tienda -->

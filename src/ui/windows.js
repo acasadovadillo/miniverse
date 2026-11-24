@@ -1,4 +1,4 @@
-// Las ventanas de la partida (mochila, fabricar, diario, cofre): se abren encima del mundo sin parar el juego, así que se
+// Las ventanas de la partida (mochila, fabricar, cofre): se abren encima del mundo sin parar el juego, así que se
 // puede seguir andando con ellas abiertas. Se arrastran por el título y recuerdan su sitio en cada navegador. La chincheta
 // decide qué pasa al sacar el cursor: fijada, se queda como está; sin fijar, se recoge y solo se ve el título hasta que
 // vuelve el cursor. Esc cierra la de encima. En una pantalla táctil van entre los controles, que siguen a mano; en una

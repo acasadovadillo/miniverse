@@ -2,8 +2,8 @@
 // the stack of open screens and where their keys go (FE), a tab strip, a list with one white selected row, option rows
 // with ‹ value ›, the key legend, the alert band and the ring of a held key. Plain DOM, driven by events: nothing runs per
 // frame. The look is in index.html (.fe-*, .row, .chip), on the tokens of PLAN-R8-hud-mapa.md §3.1.
-// Used today by the alert band (a new game, starting without a save) and the menu sounds; the pause, the settings and the
-// main menu come with R9-1, R9-3 and R9-4
+// Used by the pause (src/ui/pausehub.js), the alert band (a new game, starting without a save, quitting) and the menu sounds;
+// the settings and the main menu come with R9-3 and R9-4
 import { t } from '../i18n.js';
 import { Audio } from '../audio.js';
 import { Settings } from '../settings.js';
@@ -28,14 +28,15 @@ addEventListener('keyup', e => { if (e.code === rep.code) stopRepeat(); for (con
 addEventListener('blur', () => { stopRepeat(); for (const s of stack) s.keyup?.(null); });   // (a key let go elsewhere sends no keyup here)
 
 // ---------- The screens open, the last one on top ----------
-// A screen: { id, el, parts: [{ key(e) }], keyup(e|null), back(): true if it climbed one level itself, onClose }
+// A screen: { id, el, parts: [{ key(e) }], keyup(e|null), pass(e): true if that key is for what is under it (the map's own),
+// back(): true if it climbed one level itself, onClose }
 const stack = [];
 const top = () => stack[stack.length - 1] || null;
 export const FE = {
-  // Shows a screen (the id of its section) and puts it on top. opts: parts (who gets the keys, in order), back, onClose, sound
+  // Shows a screen (the id of its section) and puts it on top. opts: parts (who gets the keys, in order), pass, back, onClose, sound
   open(screen, opts = {}) {
     const el = opts.el || $(screen);
-    const s = { id: screen, el, parts: opts.parts || [], keyup: opts.keyup, back: opts.back, onClose: opts.onClose, closed: false, shown: !!el && !el.classList.contains('show') };
+    const s = { id: screen, el, parts: opts.parts || [], keyup: opts.keyup, pass: opts.pass, back: opts.back, onClose: opts.onClose, closed: false, shown: !!el && !el.classList.contains('show') };
     stack.push(s);
     el?.classList.add('show', 'fe-open');
     el?.addEventListener('contextmenu', onContext);
@@ -68,13 +69,14 @@ export const FE = {
     const s = top();
     if (!s) return false;
     if (s.closing) return true;
-    const typing = e.target instanceof HTMLInputElement && s.el?.contains(e.target);
+    const el = e.target instanceof Element ? e.target : null, other = el && el !== document.body && el !== document.documentElement && !s.el?.contains(el);
     if (e.metaKey || e.ctrlKey || e.altKey) return true;   // (the browser's: left alone, but not the game's either)
     if (e.code === 'Escape') {
       if (!e.repeat) { e.preventDefault(); FE.back(); }   // (held Esc leaves the full screen: the browser's)
       return true;
     }
-    if (typing) return true;
+    if (writes(el) || (other && /^(Enter|NumpadEnter|Space)$/.test(e.code))) return true;   // (writing; or a button of a notice over the screen)
+    if (s.pass?.(e)) return false;
     for (const p of s.parts) if (p.key(e)) { e.preventDefault(); return true; }
     if (e.code === 'Tab' || /^F\d+$/.test(e.code)) return true;   // (the browser's own focus, its keys)
     if (e.code === 'Backspace' && !e.repeat) FE.back();
@@ -82,9 +84,11 @@ export const FE = {
     return true;
   },
 };
-// Right click: back, except over a map (there it removes the route)
+// A field one writes in (a slider or a check box is not: the arrows and the letters are still the screen's)
+const writes = el => el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement || (el instanceof HTMLInputElement && !/^(range|checkbox|radio|button|submit|color)$/.test(el.type));
+// Right click: back, except over a map (there it removes the route) and in a field (pasting)
 function onContext(e) {
-  if (e.target instanceof HTMLCanvasElement) return;
+  if (e.target instanceof HTMLCanvasElement || writes(e.target)) return;
   e.preventDefault();
   FE.back();
 }
@@ -139,7 +143,8 @@ export function legend(el, items) {
 }
 
 // ---------- Tabs ----------
-// tabs: [{ id, text }]. Q and E go round, 1-9 jump, a click picks; the line under the current one slides
+// tabs: [{ id, text, i18n (its key: the text follows the language) }]. Q and E go round, 1-9 jump, a click picks; the line
+// under the current one slides
 export function tabStrip(el, tabs, { onPick, current } = {}) {
   let now = Math.max(0, tabs.findIndex(x => x.id === current));
   el.classList.add('fe-tabs');
@@ -147,8 +152,9 @@ export function tabStrip(el, tabs, { onPick, current } = {}) {
   const line = make('i', 'fe-line');
   const btns = tabs.map((x, i) => {
     const b = make('button', 'fe-tab', x.text);
-    b.type = 'button'; b.setAttribute('role', 'tab');
-    b.onclick = () => go(i);
+    b.type = 'button'; b.setAttribute('role', 'tab'); b.dataset.tab = x.id;
+    if (x.i18n) b.dataset.i18n = x.i18n;
+    b.onclick = () => { go(i); b.blur(); };
     return b;
   });
   el.replaceChildren(chip('Q'), ...btns, chip('E'), line);
@@ -166,7 +172,7 @@ export function tabStrip(el, tabs, { onPick, current } = {}) {
   }
   paint();
   const seen = new ResizeObserver(paint);   // (shown later, or wider with another language: the line goes with its tab)
-  seen.observe(el);
+  for (const b of [el, ...btns]) seen.observe(b);
   return {
     el,
     get current() { return tabs[now]?.id; },
@@ -182,20 +188,23 @@ export function tabStrip(el, tabs, { onPick, current } = {}) {
 }
 
 // ---------- A list ----------
-// rows: [{ id, text, value, desc, disabled }]. One is selected (.sel, the white bar): ↑↓ or W S move it (held, they repeat),
-// the mouse selects what it is over (without a tick), Enter, Space or a click pick it. desc: an element for its description
-export function list(el, rows, { onPick, onFocus, desc } = {}) {
+// rows: [{ id, text, value, desc, disabled, el (its own element, instead of a new one) }]. One is selected (.sel, the white
+// bar): ↑↓ or W S move it (held, they repeat), the mouse selects what it is over (without a tick; hover: false, only a click
+// does, and it does not pick: a list of pages), Enter, Space or a click pick it. desc: an element for its description. start: the one selected at
+// first (-1: none yet)
+export function list(el, rows, { onPick, onFocus, desc, hover = true, start = 0 } = {}) {
   let at = -1, over = false;
   el.classList.add('fe-list');
   el.setAttribute('role', 'listbox');
   const els = rows.map((r, i) => {
-    const row = make('div', 'row');
+    const row = r.el || make('div');
+    row.classList.add('row');
     row.setAttribute('role', 'option');
-    row.append(make('span', '', r.text));
+    if (!r.el) row.append(make('span', '', r.text));
     if (r.value !== undefined) row.append(make('b', '', r.value));
     if (r.disabled) { row.classList.add('off'); row.setAttribute('aria-disabled', 'true'); }
-    row.addEventListener('pointerenter', () => { over = true; focus(i); over = false; });
-    row.onclick = () => { focus(i); pick(); };
+    if (hover) row.addEventListener('pointerenter', () => { over = true; focus(i); over = false; });
+    row.onclick = () => { if (hover) { focus(i); pick(); } else if (i !== at) { focus(i); Audio.ui('tick'); } };
     return row;
   });
   el.replaceChildren(...els);
@@ -215,9 +224,9 @@ export function list(el, rows, { onPick, onFocus, desc } = {}) {
     onPick?.(r, at);
   }
   const move = d => { if (rows.length) { focus((at + d + rows.length) % rows.length); Audio.ui('tick'); } };
-  if (rows.length) focus(0);
+  if (rows.length) focus(start);
   return {
-    el, focus, pick,
+    el, rows, focus, pick,
     get index() { return at; },
     key(e) {
       const d = { ArrowUp: -1, KeyW: -1, ArrowDown: 1, KeyS: 1 }[e.code];

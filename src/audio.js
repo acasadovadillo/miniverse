@@ -12,8 +12,18 @@ function tone(seq) {
     o.connect(g).connect(sfx); o.start(t); o.stop(t + d + 0.02); t += d;
   }
 }
-let rainSrc = null, rainGain = null, lowpass = null, musicLow = null;
+let rainSrc = null, rainGain = null, lowpass = null, musicLow = null, duckLow = null, duckGain = null, ducked = false;
 const MUFFLE_HZ = { sfx: 600, music: 1600 };   // (the lowpass of each bus under the water: see muffle)
+const DUCK = { hz: 700, gain: 0.55 };          // (the music behind the pause: see duck)
+const lowPass = () => { const f = ac.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 20000; f.Q.value = 0.7; return f; };
+// musicBus → [duckLow → duckGain] → [musicLow] → master: each one only once it has been needed
+function wireMusic() {
+  musicBus.disconnect();
+  let at = musicBus;
+  if (duckLow) { duckGain.disconnect(); at = at.connect(duckLow).connect(duckGain); }
+  if (musicLow) at = at.connect(musicLow);
+  at.connect(master);
+}
 function chirp() {
   if (!ac || !on || Audio.indoors || Audio.quietBirds) return;
   const base = 2600 + Math.random() * 1400;
@@ -51,6 +61,7 @@ export const Audio = {
     noise = ac.createBuffer(1, ac.sampleRate, ac.sampleRate);
     const d = noise.getChannelData(0);
     for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+    if (ducked) Audio.duck(true);
     (function bird() { setTimeout(() => { chirp(); bird(); }, 2500 + Math.random() * 6000); })();
   },
   step(wood) {
@@ -187,14 +198,27 @@ export const Audio = {
     if (!ac || !master) return;
     if (!lowpass) {
       if (!down) return;
-      const lp = () => { const f = ac.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 20000; f.Q.value = 0.7; return f; };
-      lowpass = lp(); musicLow = lp();
+      lowpass = lowPass(); musicLow = lowPass();
       sfx.disconnect(); sfx.connect(lowpass).connect(master);
-      musicBus.disconnect(); musicBus.connect(musicLow).connect(master);
+      wireMusic();
     }
     lowpass.frequency.setTargetAtTime(down ? MUFFLE_HZ.sfx : 20000, ac.currentTime, 0.06);
     musicLow.frequency.setTargetAtTime(down ? MUFFLE_HZ.music : 20000, ac.currentTime, 0.06);
   },
+  // The pause (src/ui/pausehub.js): the music goes on quieter and muffled, as through a wall. The effects stay (the menu's own
+  // sounds are there)
+  duck(down) {
+    ducked = down;
+    if (!ac || !master) return;
+    if (!duckLow) {
+      if (!down) return;
+      duckLow = lowPass(); duckGain = ac.createGain();
+      wireMusic();
+    }
+    duckLow.frequency.setTargetAtTime(down ? DUCK.hz : 20000, ac.currentTime, 0.05);
+    duckGain.gain.setTargetAtTime(down ? DUCK.gain : 1, ac.currentTime, 0.05);
+  },
+  get ducked() { return ducked; },
   get on() { return on; },
   toggle() { on = !on; if (master) master.gain.value = on ? vol.master : 0; return on; },
   get ctx() { return ac; },

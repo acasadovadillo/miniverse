@@ -198,7 +198,7 @@ const TOAST_GAP = 20, FLOAT_GAP = 10, TICK = 0.1, SLOW = 5, LOST = 0.3, FLASH = 
 const R_ANIMAL = 30, R_PLANT = 12, R_CROP = 6;
 // (village species reach Seen quietly: a new game has them all in sight from the first second)
 const SILENT = new Set([...FARM_IDS, ...Object.keys(CROPS), ...FLOWER_IDS]);
-const WINDOWS = ['s-inv', 's-craft', 's-chest', 's-journal'];
+const WINDOWS = ['s-inv', 's-craft', 's-chest'];
 const TRUNK_R = 0.4, LOW_TOP = 1.4, FLOWER_TOP = 0.5;
 const today = () => Math.floor(Date.now() / 86400000);
 const int = (v, lo, hi) => (Number.isFinite(+v) ? Math.max(lo, Math.min(hi, Math.round(+v))) : lo);

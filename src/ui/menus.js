@@ -7,7 +7,7 @@ import { CharacterPreview } from '../three/preview.js';
 import { SPAWN } from '../world/village.js';
 import { hud } from './hud.js';
 import { Audio } from '../audio.js';
-import { clearKeys } from '../input.js';
+import { aimLock } from '../input.js';
 import { initInventoryUI } from './inventory.js';
 import { initCraftingUI } from './crafting.js';
 import { initChestUI } from './chest.js';
@@ -23,12 +23,13 @@ import { GAME_VERSION, checkPublished } from '../version.js';
 import { showUpdateNotice, updateNoticeOpen } from './update.js';
 import { setNotice, syncNoticeText, expiryNoticeText, showKeyCode, saveSettings } from './savesafety.js';
 import { FE, alertBox, initMenuSounds } from './frontend.js';
+import { initPauseHub } from './pausehub.js';
 import { useAccent } from './skin.js';
 import { t, LANGS, getLang, onLangChange, applyDom, setAccountLang, accountLangOf, savedLang } from '../i18n.js';
 
 const $ = id => document.getElementById(id);
 const sleep = ms => new Promise(r => setTimeout(r, ms));
-const SCREENS = ['s-login', 's-menu', 's-account', 's-creator', 's-pause', 's-map', 's-shop', 's-settings', 's-controls'];
+const SCREENS = ['s-login', 's-menu', 's-account', 's-creator', 's-pause', 's-shop', 's-settings'];
 const AUTOSAVE_MS = 15000;
 const CHEST_REACH = 4;   // (lo que se puede alejar uno de un cofre abierto)
 const ADMIN_NAME = 'Alberto';   // (el dueño del mundo, que abre el servidor)
@@ -43,7 +44,9 @@ const WORLD_KEYS = ['seed', 'clock', 'house', 'projects', 'boardDone', 'animals'
 
 export function initMenus(game) {
   let wins = null;   // (las ventanas de la partida: se hacen más abajo)
+  let hub = null;    // (the pause: src/ui/pausehub.js; made below)
   function show(id) {
+    if (id !== 's-pause') hub?.shut();
     if (id === 's-login' || id === 's-menu') wins?.closeAll();
     SCREENS.forEach(s => $(s).classList.toggle('show', s === id));
     document.body.classList.toggle('playing', !id);
@@ -415,7 +418,7 @@ export function initMenus(game) {
     if (!currentSave) { openCreator(); return; }
     if (await alertBox({ title: t('gui.alert.new_title'), text: t('gui.menu.new_game_warning'), yes: t('gui.menu.new_game_confirm'), no: t('common.cancel') }) && $('s-menu').classList.contains('show')) openCreator(true);
   });
-  initMenuSounds(['s-login', 's-menu', 's-account', 's-creator', 's-pause', 's-settings', 's-controls']);
+  initMenuSounds(['s-login', 's-menu', 's-account', 's-creator', 's-settings', 'ps-settings']);
 
   // ---------- Creador de personaje ----------
   // (la vista previa es el mismo modelo en 3D que en el juego)
@@ -723,7 +726,12 @@ export function initMenus(game) {
   // rato de la última vez, también en GitHub. Devuelve { local, remote } (remote: null si no tocaba subirla).
   // world: si tu juego lleva el mundo compartido, guardarlo también para todos (y, el admin, marcar en su partida
   // cuándo, para saber luego cuál es más reciente)
-  const save = async ({ upload = false, world = true } = {}) => {
+  const save = async (o = {}) => {
+    const r = await saveNow(o);
+    if (r?.local || r?.remote) hub?.saved();
+    return r;
+  };
+  const saveNow = async ({ upload = false, world = true } = {}) => {
     if (!game.player || !Profile.id) return { local: false, remote: null };
     if (localMode) return Profile.storeLocal(game.snapshot(), game.world.deltas, { upload });   // (el mundo local: aparte, solo con tu cuenta)
     const snap = game.snapshot(), deltas = game.world.deltas, hosting = world && !live.guest && (live.role === 'host' || Profile.admin);
@@ -738,6 +746,7 @@ export function initMenus(game) {
     show(null);
     // (si la partida no se puede abrir, se vuelve al menú diciendo por qué, en vez de quedarse parado)
     $('fade').classList.add('on');   // (a oscuras hasta que el suelo de alrededor esté hecho: se calcula en otro hilo)
+    hub?.reset();
     live.entering = role;   // (ranch.reset: in a world somebody else runs, the horses' locks are true and stay)
     useAccent(data);
     try { game.start(data, deltas); }
@@ -757,32 +766,28 @@ export function initMenus(game) {
 
   function resume() { game.mode = 'play'; show(null); wins?.placeAll(); }
   function togglePause() {
-    if (['map', 'shop'].includes(game.mode)) { resume(); return true; }
+    if (hub.isOpen) { hub.close(); return true; }
+    if (game.mode === 'shop') { resume(); return true; }
     if (game.busy || hud.dialogOpen) return false;   // (hablando, las ventanas no se ven: Esc no las toca)
     if (game.mode === 'play' && $('fade').classList.contains('on')) return false;   // (a oscuras, al entrar o en un salto: la pausa no se vería)
     if (game.mode === 'play' && wins.closeTop()) return true;   // (Esc: primero, la ventana de encima)
     if (game.mode === 'play' && game.build.on) { game.build.toggle(false); return true; }
-    if (game.mode === 'play') { game.mode = 'pause'; $('p-msg').textContent = ''; show('s-pause'); Audio.ui('open'); return true; }   // (sin explicaciones: la partida se guarda sola)
-    if (game.mode === 'pause') { Audio.ui('back'); resume(); return true; }
-    return false;
+    return game.mode === 'play' ? hub.open() : false;
   }
-  $('p-resume').onclick = resume;
+  // On one of its tabs at once (M, J, a click on the minimap); with it open there, it closes
+  function toggleTab(id) {
+    if (hub.isOpen) { if (hub.tab === id) hub.close(); else hub.open(id); return true; }
+    if (game.mode !== 'play' || game.busy || hud.dialogOpen) return false;
+    if ($('fade').classList.contains('on')) return false;   // (a oscuras, al entrar o en un salto: no se vería)
+    return hub.open(id);
+  }
 
   // ---------- Mapa ----------
-  function toggleMap() {
-    if (game.mode === 'map') { resume(); return true; }
-    if (game.mode !== 'play' || game.busy || hud.dialogOpen || game.player?.inside) return false;
-    if ($('fade').classList.contains('on')) return false;   // (a oscuras, al entrar o en un salto: el mapa no se vería)
-    game.mode = 'map';
-    game.map.recenter();
-    clearKeys();
-    show('s-map');
-    return true;
-  }
+  // (the pause's Map tab: src/ui/pausehub.js)
+  const toggleMap = () => toggleTab('map');
   const zoom = (d, x, y) => game.map.zoomAt(d, x, y);
   $('map-in').onclick = () => zoom(1);
   $('map-out').onclick = () => zoom(-1);
-  $('map-close').onclick = resume;
   $('map-home').onclick = () => game.map.recenter();
   $('minimap').onclick = toggleMap;
   // The marked route (Plan J §4.2, route.js): remove it, or share its pin with everyone playing with you
@@ -826,12 +831,15 @@ export function initMenus(game) {
     wheel = 0;
   }, { passive: false });
   $('map-legend').open = innerWidth > 700;   // (en una pantalla estrecha, plegada)
-  if ($('p-save')) $('p-save').onclick = async () => { $('p-msg').textContent = 'Guardando…'; $('p-msg').textContent = savedMsg(await save({ upload: true })); };
-  $('p-menu').onclick = async () => {
+  // Pause › Game › Save and quit to menu: after asking
+  async function quitToMenu() {
+    const g = game.player;
+    if (!await alertBox({ title: t('gui.game.quit_title'), text: t('gui.game.quit_text'), yes: t('gui.pause.save_quit') }) || !hub.isOpen || game.player !== g) return;
     const r = await save({ upload: true });
+    if (game.player !== g) return;   // (it ended meanwhile: the connection was lost)
     game.end(); openMenu();
     if (r.remote === false) $('menu-msg').textContent = savedMsg(r);
-  };
+  }
 
   // ---------- Mochila ----------
   wins = game.windows = initWindows(game);
@@ -846,28 +854,17 @@ export function initMenus(game) {
   wins.add('s-inv', { close: 'inv-close', spot: wins.defaults.left, onOpen: () => invUI.open() });
   wins.add('s-craft', { close: 'cf-close', spot: wins.defaults.right });
   wins.add('s-chest', { close: 'ch-close', spot: wins.defaults.right, onClose: () => { chestAt = null; chestUI.close(); chestDone(); } });
-  wins.add('s-journal', { close: 'j-close', spot: wins.defaults.center, onOpen: () => journalUI.open() });
   game.onInventory = () => { invUI.refresh(); craftUI.refresh(); if (wins.isOpen('s-chest')) chestUI.refresh(); };
   const shopUI = initShopUI(game, { onClose: resume });
-  const journalUI = initJournalUI(game, { onClose: () => wins.close('s-journal') });
-  function toggleJournal() {
-    if (game.mode === 'pause') resume();
-    if (game.mode !== 'play' || game.busy || hud.dialogOpen) return false;
-    if (wins.isOpen('s-journal')) { wins.close('s-journal'); return true; }
-    wins.open('s-journal');
-    return true;
-  }
-  // Controles: una sección de la pausa
-  $('p-controls').onclick = () => show('s-controls');
-  $('ct-close').onclick = () => show('s-pause');
-  // Ajustes: desde la pausa o desde el menú principal (vuelve a donde estaba)
-  let settingsBack = null;
+  const journalUI = initJournalUI(game);
+  const toggleJournal = () => toggleTab('journal');   // (the pause's Journal tab)
+  // Ajustes: en la pausa, su pestaña (pausehub.js); en el menú principal, su pantalla. Los dos, con las mismas filas (#st-body)
   const settingsUI = initSettingsUI({
-    onClose: () => { const back = settingsBack; settingsBack = null; show(back); },
+    onClose: () => show('s-menu'),
     // (Guardado en GitHub: cómo va, el token del admin y la llave del mundo; al recuperarla, se vuelve a conectar con ella)
     extra: (box, head) => saveSettings(box, head, { onKey: () => { setNotice('key-lost', null); live.close(); findLive(); keyReminder(); settingsUI.refresh(); }, onCodeSeen: codeSeen }),
   });
-  const openSettings = from => { settingsBack = from; settingsUI.refresh(); show('s-settings'); };
+  $('m-settings').onclick = () => { document.querySelector('#s-settings .st-panel').append($('st-body')); settingsUI.refresh(); show('s-settings'); };
   // Los volúmenes se guardan también en tu partida, poco después de dejar de moverlos: jugando, con lo demás;
   // en el menú, en tu partida tal como está (y se sube a GitHub)
   let volumeTimer = null;
@@ -878,8 +875,8 @@ export function initMenus(game) {
     const s = Profile.data?.save;
     if (s) Profile.store({ ...s, volumes: Settings.volumes() }, new Map(Profile.data.deltas), { upload: true });
   }
-  $('p-settings').onclick = () => openSettings('s-pause');
-  $('m-settings').onclick = () => openSettings('s-menu');
+  hub = game.pauseHub = initPauseHub(game, { show, resume, save, savedMsg, quit: quitToMenu, journal: journalUI, settings: settingsUI });
+  game.openJournal = (page, id) => hub.journal(page, id);
   game.onShop = id => { if (game.mode !== 'play') return; game.mode = 'shop'; show('s-shop'); shopUI.open(id); };
   // opts (optional): { title() its title, may() may the stacks move now, keep() may it stay open (instead of the distance to
   // where it was opened), onClose() } — the saddlebags (saddlebags.js)
@@ -956,5 +953,7 @@ export function initMenus(game) {
   async function boot() {
     openLogin();
   }
-  return { boot, frontKey: e => FE.key(e), togglePause, toggleMap, zoomMap: zoom, toggleInventory, toggleCraft, toggleJournal };
+  // (the Esc that let go of the captured pointer has already opened the pause: not the one that closes it)
+  const frontKey = e => (e.code === 'Escape' && FE.active() && performance.now() - aimLock.exitAt < 400 ? true : FE.key(e));
+  return { boot, frontKey, togglePause, toggleMap, zoomMap: zoom, toggleInventory, toggleCraft, toggleJournal };
 }

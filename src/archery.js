@@ -57,6 +57,8 @@ export class Archery {
     this.drawT = 0;
     Audio.swish();
   }
+  // Let down without shooting (the pause opens: src/ui/pausehub.js)
+  letDown() { this.drawT = null; if (this.game.player) this.game.player.drawing = false; }
   update(dt) {
     const g = this.game, p = g.player;
     if (!p) return;

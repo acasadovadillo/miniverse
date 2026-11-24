@@ -11,7 +11,7 @@ import { Profile } from './accounts.js';
 import { RealPerson } from './three/realperson.js';
 import { distTo, dirOf, obb, bounds } from './world/fit.js';
 import { CAM, lookBy } from './camera.js';
-import { keys, clearKeys, pressW, releaseW, dropSprint, gaitOf, TAP_WINDOW, TAP_GAP, TAP_HOLD, pressShift, releaseShift, shiftTick, shiftWithOther, SHIFT_HOLD } from './input.js';
+import { keys, aimLock, clearKeys, pressW, releaseW, dropSprint, gaitOf, TAP_WINDOW, TAP_GAP, TAP_HOLD, pressShift, releaseShift, shiftTick, shiftWithOther, SHIFT_HOLD } from './input.js';
 import { ITEMS, HARVEST, hitsFor, CHESTS, BUGS } from './items.js';
 import { SHOPS } from './economy.js';
 import { repairMat } from './crafting.js';
@@ -1064,7 +1064,7 @@ async function soloTests(game) {
     const held = JSON.stringify(I.slots);
     for (const c of ['KeyE', 'KeyQ', 'KeyX', 'KeyB', 'KeyI', 'KeyC', 'KeyJ', 'KeyM', 'KeyP', 'KeyT', 'KeyZ', 'KeyF', 'Digit4', 'Space', 'KeyW', 'Tab']) press(c);
     await sleep(60);
-    check(game.mode === 'play' && !game.build.on && I.selected === 0 && JSON.stringify(I.slots) === held && !game.windows.isOpen('s-inv') && !game.windows.isOpen('s-craft') && !game.windows.isOpen('s-journal') && !game.wheel.open && !keys.up && !document.getElementById('chat').classList.contains('open') && !document.getElementById('players').classList.contains('show'), 'a key got through');
+    check(game.mode === 'play' && !game.build.on && I.selected === 0 && JSON.stringify(I.slots) === held && !game.windows.isOpen('s-inv') && !game.windows.isOpen('s-craft') && !game.pauseHub.isOpen && !game.wheel.open && !keys.up && !document.getElementById('chat').classList.contains('open') && !document.getElementById('players').classList.contains('show'), 'a key got through');
     check(!press('KeyR', { metaKey: true }).defaultPrevented, 'the browser\'s own shortcuts are blocked');
     check(!press('Escape', { repeat: true }).defaultPrevented && FE.active() === 'fe-alert', 'a held Esc (leaving full screen) closes the band or is blocked');
     press('Escape'); check(await p === false, 'the band');
@@ -1072,11 +1072,186 @@ async function soloTests(game) {
   });
   await test('menu (english): pause: P opens and closes it as Esc does, and the texts and ids are kept', async () => {
     const press = code => document.body.dispatchEvent(new KeyboardEvent('keydown', { code, key: code, bubbles: true, cancelable: true })), shown = () => document.getElementById('s-pause').classList.contains('show');
-    for (const id of ['p-resume', 'p-menu', 'p-controls', 'p-settings', 'm-continue', 'm-new', 'm-local', 'm-session', 'm-settings', 'st-close']) check(document.getElementById(id), `#${id} is gone`);
-    press('KeyP'); check(game.mode === 'pause' && shown(), 'P does not pause');
+    for (const id of ['p-resume', 'p-save', 'p-menu', 'p-controls', 'm-continue', 'm-new', 'm-local', 'm-session', 'm-settings', 'st-close']) check(document.getElementById(id), `#${id} is gone`);
+    press('KeyP'); check((game.mode === 'pause' || game.mode === 'map') && shown(), 'P does not pause');
     press('KeyP'); check(game.mode === 'play' && !shown(), 'P does not go back');
     game.windows.open('s-inv'); press('KeyP'); check(game.mode === 'play' && !game.windows.isOpen('s-inv'), 'P does not close the window first'); await sleep(40);
     const i = document.createElement('input'); document.body.append(i); i.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyP', key: 'p', bubbles: true })); i.remove(); check(game.mode === 'play', 'writing a p pauses');
+  });
+  // ---------- R9-1: the pause with tabs (src/ui/pausehub.js, PLAN-R9-menus.md §8) ----------
+  const pauseKey = (code, o = {}) => { const e = new KeyboardEvent('keydown', { code, key: o.key ?? code, bubbles: true, cancelable: true, ...o }); document.body.dispatchEvent(e); if (!o.held) dispatchEvent(new KeyboardEvent('keyup', { code, bubbles: true })); return e; };
+  const pausePanes = () => [...document.querySelectorAll('.ps-pane.on')].map(el => el.dataset.pane).join();
+  const forgetPauseTab = () => { for (const k of Object.keys(localStorage)) if (k.startsWith('pueblo-brotes:pausa-pestana:')) localStorage.removeItem(k); };
+  await test('menu (english): pause opens and closes: Esc, P and the last tab; a window first; nothing is left behind', async () => {
+    const H = game.pauseHub, W = game.windows, $ = id => document.getElementById(id), clean = why => {
+      const b = document.body.classList, s = $('s-pause').classList;
+      check(game.mode === 'play' && !H.isOpen && FE.active() === null && b.contains('playing') && !b.contains('in-pause') && !s.contains('show') && !s.contains('fe-open') && !s.contains('on-map') && !pausePanes() && !GameAudio.ducked && !game.onShot && !Object.values(keys).some(Boolean), `${why}: ${game.mode} ${FE.active()} ${document.body.className} | ${$('s-pause').className} | ${pausePanes()} ducked ${GameAudio.ducked} ${JSON.stringify(keys)}`);
+    };
+    W.closeAll(); forgetPauseTab(); clean('at the start');
+    pauseKey('Escape'); check(H.isOpen && H.tab === 'map' && game.mode === 'map' && pausePanes() === 'map' && $('s-pause').classList.contains('show'), `the first time it is not the map: ${H.tab} ${game.mode}`);
+    check(GameAudio.ducked && !document.body.classList.contains('playing') && getComputedStyle($('s-pause')).display === 'flex', 'the music is not muffled, or the HUD is in sight');
+    pauseKey('Escape'); clean('Esc');
+    pauseKey('KeyP'); pauseKey('Digit6'); check(H.tab === 'settings' && game.mode === 'pause', `6: ${H.tab}`); pauseKey('KeyP'); clean('P');
+    pauseKey('Escape'); check(H.tab === 'settings', `the last tab is not kept: ${H.tab}`);
+    $('s-pause').dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true })); clean('right click');
+    W.open('s-inv'); W.open('s-craft'); pauseKey('Escape'); pauseKey('KeyP'); check(!game.windowsOpen && game.mode === 'play', 'the windows do not close first');
+    pauseKey('Escape'); check(H.isOpen, 'it does not open after the windows'); H.close(); clean('close()');
+    // With a window open, M opens the map over it, and it is there again afterwards
+    W.open('s-inv'); pauseKey('KeyM'); check(H.tab === 'map' && getComputedStyle($('s-inv')).display === 'none', 'the window is over the pause'); pauseKey('KeyM'); check(W.isOpen('s-inv') && getComputedStyle($('s-inv')).display === 'block', 'the window does not come back'); W.closeAll(); clean('a window under it');
+    // Keys held when it opens do not walk on when it closes; a drawn bow is let down
+    keys.up = keys.run = keys.use = keys.dive = true; pauseKey('KeyP'); check(!Object.values(keys).some(Boolean), `keys held: ${JSON.stringify(keys)}`); pauseKey('KeyP'); clean('keys held');
+    const A = game.archery, n = A.list.length; A.drawT = 1; p().drawing = true; pauseKey('KeyP'); check(A.drawT === null && !p().drawing, 'the bow stays drawn'); pauseKey('KeyP'); await frames(2); check(A.list.length === n, 'the bow shoots on coming back'); clean('the bow');
+    // Not while busy, in a dialogue or in the dark; a held Esc does nothing
+    game.busy = true; pauseKey('KeyP'); pauseKey('KeyM'); pauseKey('KeyJ'); check(!H.isOpen, 'it opens while busy'); game.busy = false;
+    const said = hud.say('Nilo', ['…']); pauseKey('KeyJ'); pauseKey('Escape'); check(!H.isOpen && hud.dialogOpen, 'it opens in a dialogue'); hud.next(); await said;
+    $('fade').classList.add('on'); pauseKey('KeyP'); pauseKey('KeyM'); pauseKey('KeyJ'); check(!H.isOpen, 'it opens in the dark'); $('fade').classList.remove('on');
+    pauseKey('KeyP'); check(!pauseKey('Escape', { repeat: true }).defaultPrevented && H.isOpen, 'a held Esc'); pauseKey('KeyP');
+    // First person: the Esc that let go of the captured pointer opens it, and its own keydown, if it comes, does not close it
+    const c = $('c'), was = CAM.first; let on = null;
+    Object.defineProperty(document, 'pointerLockElement', { get: () => on, configurable: true });
+    try {
+      CAM.first = true; draw(); on = c; document.dispatchEvent(new Event('pointerlockchange')); check(aimLock.locked && aimLock.want, 'the pointer is not captured');
+      on = null; document.dispatchEvent(new Event('pointerlockchange')); check(H.isOpen && FE.active() === 's-pause', 'losing the pointer does not pause'); pauseKey('Escape'); check(H.isOpen, 'the same Esc closes it');
+      await sleep(450); pauseKey('Escape'); check(!H.isOpen && game.mode === 'play', 'the next Esc does not close it');
+    } finally { delete document.pointerLockElement; CAM.first = was; draw(); }
+    clean('first person');
+    // Another screen taking over shuts it without going back to play; the game's own end too
+    pauseKey('KeyP'); pauseKey('KeyE'); H.shut(); check(!H.isOpen && !GameAudio.ducked && !document.body.classList.contains('in-pause') && game.mode !== 'play', 'shut'); game.mode = 'play'; $('s-pause').classList.remove('show'); document.body.classList.add('playing'); clean('shut');
+  });
+  await test('menu (english): pause tabs: Q and E go round the seven, 1-7 jump, M and J; only the map is in map mode', async () => {
+    const H = game.pauseHub, ids = ['map', 'brief', 'char', 'journal', 'progress', 'settings', 'game'], $ = id => document.getElementById(id);
+    try {
+      H.open('map');
+      for (let i = 1; i <= 7; i++) { pauseKey('KeyE'); const id = ids[i % 7]; check(H.tab === id && pausePanes() === id && game.mode === (id === 'map' ? 'map' : 'pause') && document.querySelector('#ps-tabs .on').dataset.tab === id, `E ${i}: ${H.tab} ${pausePanes()} ${game.mode}`); }
+      pauseKey('KeyQ'); check(H.tab === 'game' && game.mode === 'pause', `Q: ${H.tab}`);
+      for (let i = 1; i <= 7; i++) { pauseKey(`Digit${i}`); check(H.tab === ids[i - 1], `${i}: ${H.tab}`); }
+      pauseKey('Digit8'); check(H.tab === 'game', '8');
+      document.querySelector('#ps-tabs [data-tab="char"]').click(); check(H.tab === 'char', 'a click on a tab');
+      pauseKey('KeyM'); check(H.tab === 'map' && H.isOpen, 'M elsewhere'); pauseKey('KeyJ'); check(H.tab === 'journal', 'J elsewhere'); pauseKey('KeyJ'); check(!H.isOpen && game.mode === 'play', 'J on the journal');
+      pauseKey('KeyJ'); check(H.isOpen && H.tab === 'journal', 'J in play'); pauseKey('KeyM'); pauseKey('KeyM'); check(!H.isOpen && game.mode === 'play', 'M on the map');
+      $('minimap').click(); check(H.tab === 'map', 'a click on the minimap'); H.close();
+      // The map's keys reach it and nothing stays held when leaving it; the rest do not
+      H.open('map'); const z = game.map.zoom;
+      pauseKey('KeyD', { held: true }); check(keys.right, 'D does not move the map'); pauseKey('ShiftLeft', { held: true }); check(keys.mapFast, 'Shift'); pauseKey('KeyE'); check(!keys.right && !keys.mapFast, 'a key of the map stays held'); pauseKey('KeyQ'); check(H.tab === 'map', 'back');
+      const px = game.map.pan.x; pauseKey('ArrowRight', { held: true }); await frames(6); dispatchEvent(new KeyboardEvent('keyup', { code: 'ArrowRight', bubbles: true })); check(game.map.pan.x !== px, 'the arrows do not move the map');
+      pauseKey('Minus', { key: '-' }); pauseKey('Equal', { key: '+' }); check(game.map.zoom !== undefined && Math.abs(game.map.zoom - z) <= 1, 'zoom');
+      check($('bigmap').dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true })) === false && H.isOpen, 'a right click on the map closes the pause');
+      // The header and the legend
+      check($('ps-name').textContent === p().name && $('ps-when').textContent.includes(t(`nature.season.${game.days.localSeason}`)) && $('ps-money').textContent === t('gui.pause.money', { n: game.money }), `header: ${$('ps-when').textContent} ${$('ps-money').textContent}`);
+      check([...$('ps-legend').querySelectorAll('.fe-key')].some(k => k.textContent.includes(t('gui.legend.route'))), 'the legend of the map');
+      const closeKey = [...$('ps-legend').querySelectorAll('button')].pop(); check(closeKey, 'no Esc in the legend'); closeKey.click(); check(!H.isOpen, 'the legend\'s Esc cannot be clicked');
+    } finally { if (H.isOpen) H.close(); clearKeys(); }
+  });
+  await test('menu (english): pause keys do not leak, and come back as they were', async () => {
+    const H = game.pauseHub, I = inv(), sel = I.selected;
+    I.select(0);
+    const held = JSON.stringify(I.slots), first = CAM.first;
+    for (const id of ['brief', 'journal', 'game', 'map']) {
+      H.open(id);
+      for (const c of ['KeyX', 'KeyB', 'KeyI', 'KeyC', 'KeyT', 'KeyZ', 'KeyF', 'KeyV', 'KeyN', 'KeyG', 'KeyH', 'KeyY', 'KeyR', 'Digit9', 'Tab']) pauseKey(c);
+      await frames(2);
+      check(H.isOpen && H.tab === id && !game.build.on && I.selected === 0 && JSON.stringify(I.slots) === held && CAM.first === first && !game.windowsOpen && !game.wheel.open && !document.getElementById('chat').classList.contains('open') && !document.getElementById('players').classList.contains('show'), `something acted on ${id}`);
+      H.close();
+    }
+    const x = p().x, y = p().y; H.open('brief'); pauseKey('KeyW', { held: true }); await frames(10); H.close(); check(p().x === x && p().y === y && !keys.up, 'W walked in the pause');
+    I.select(sel); clearKeys();
+  });
+  await test('menu (english): pause background: one copy of one frame, and nothing drawn while it is open', async () => {
+    const H = game.pauseHub, v = game.view3d, shot = document.getElementById('fe-shot');
+    draw(); await sleep(30);
+    H.open('brief');
+    const n = v.drawn; for (let i = 0; i < 5; i++) { draw(); await sleep(10); }
+    check(v.drawn - n === 1, `frames drawn: ${v.drawn - n}`);
+    check(Math.abs(shot.width - v.renderer.domElement.width / 6) <= 1, `its size: ${shot.width}`);
+    const px = shot.getContext('2d').getImageData(0, 0, shot.width, shot.height).data; let some = 0; for (let i = 0; i < px.length; i += 4) if (px[i] + px[i + 1] + px[i + 2] > 12) some++;
+    check(some > px.length / 8, `the copy is empty: ${some} of ${px.length / 4}`);
+    check(getComputedStyle(shot).backdropFilter === 'none' && getComputedStyle(shot).filter === 'none', 'a live filter');
+    pauseKey('KeyE'); for (let i = 0; i < 3; i++) draw(); check(v.drawn - n === 1, 'another tab draws again');
+    pauseKey('Digit1'); for (let i = 0; i < 3; i++) draw(); check(v.drawn - n === 1 && getComputedStyle(shot).display === 'none', 'the map draws the world');
+    dispatchEvent(new Event('resize')); pauseKey('Digit2'); for (let i = 0; i < 3; i++) { draw(); await sleep(10); } check(v.drawn - n === 2, `after a resize: ${v.drawn - n}`);
+    H.close(); check(shot.width === 1 && !game.onShot, 'the copy stays');
+    // Opened and closed at once, its copy is never taken
+    H.open('brief'); H.close(); draw(); check(shot.width === 1, 'a copy after closing');
+  });
+  await test('menu (english): journal in the pause: every page in the list, with the keyboard and the mouse; the nature book', async () => {
+    const H = game.pauseHub, $ = id => document.getElementById(id), rows = () => [...$('j-tabs').children], seen = [];
+    H.open('journal');
+    try {
+      check(rows().length === (apagada('naturebook') ? 9 : 10) && rows().every(r => r.dataset.jtab && r.textContent.trim() && !r.textContent.includes('journal.')), `pages: ${rows().map(r => r.textContent)}`);
+      check(document.querySelectorAll('#j-tabs .sel').length === 1 && $('j-body').innerHTML.length > 40, 'no page at the start');
+      for (let i = 0; i < rows().length; i++) { pauseKey('ArrowDown'); const on = document.querySelector('#j-tabs .sel'); seen.push(on.dataset.jtab); check(on.classList.contains('on') && $('j-body').innerHTML.length > 30, `page ${on.dataset.jtab}`); }
+      check(new Set(seen).size === rows().length, `the list does not go through all: ${seen}`);
+      rows().find(r => r.dataset.jtab === 'granja').click(); check($('j-body').innerHTML.includes(t('farm.almanac.title')) && !$('j-tabs').classList.contains('dim'), 'the farm page has no almanac, or a click goes into it');
+      rows()[0].dispatchEvent(new PointerEvent('pointerenter')); check(document.querySelector('#j-tabs .sel').dataset.jtab === 'granja', 'the mouse passing over a row turns the page');
+      // Into the page and back: one Esc to the list, another out
+      rows().find(r => r.dataset.jtab === 'nature')?.click(); pauseKey('ArrowLeft'); pauseKey('ArrowRight'); check($('j-tabs').classList.contains('dim'), '→ does not go in');
+      pauseKey('ArrowDown'); pauseKey('ArrowDown'); const b = document.activeElement; check(b?.matches('.nb-it'), 'the keyboard does not reach the species'); pauseKey('Enter'); check(document.querySelector('.nb-it.on')?.dataset.nbId === b.dataset.nbId, 'Enter does not open the species');
+      pauseKey('Escape'); check(H.isOpen && !$('j-tabs').classList.contains('dim'), 'Esc does not go back to the list'); pauseKey('Escape'); check(!H.isOpen, 'Esc does not close');
+      game.openJournal('pesca'); check(H.tab === 'journal' && document.querySelector('#j-tabs .sel').dataset.jtab === 'pesca', 'openJournal'); H.close();
+      H.open('journal'); check(document.querySelector('#j-tabs .sel').dataset.jtab === 'pesca', 'the page is not kept');
+      check(!$('s-journal') && !$('s-map') && $('bigmap').closest('#s-pause') && $('s-controls').closest('#s-pause'), 'the old screens are still there');
+      pauseKey('Digit5'); check($('ps-progress-body').textContent.length > 60, 'Progress is empty'); pauseKey('ArrowDown'); check($('ps-progress-body').querySelector('.lvl'), 'the statistics');
+      pauseKey('Digit3'); check($('ps-char-body').querySelectorAll('.j-row').length >= 8 && $('ps-char-name').textContent === p().name, 'Character is empty');
+      pauseKey('Digit2'); check($('ps-brief').textContent.includes(t('gui.brief.objective')), 'Brief is empty');
+      game.route?.set({ x: p().x + 60, y: p().y, kind: 'point', name: 'Aquí <b>' }, { quiet: true }); H.close(); H.open('brief'); check($('ps-brief').textContent.includes('Aquí <b>') && /60 m/.test($('ps-brief').textContent), `the route: ${$('ps-brief').textContent.slice(0, 160)}`);
+    } finally { game.route?.clear('user'); if (H.isOpen) H.close(); }
+  });
+  await test('menu (english): the settings in the pause and in the main menu are the same rows; the keyboard changes them', async () => {
+    const H = game.pauseHub, $ = id => document.getElementById(id), was = Settings.v.music, snd = Settings.v.menuSfx;
+    try {
+      H.open('settings');
+      check($('st-body').closest('#ps-settings') && $('st-body').querySelectorAll('.st-row').length > 8, 'no rows in the pause');
+      Settings.set('music', 0.5); $('ps-settings').scrollTop = 0; H.close(); H.open('settings');
+      const at = () => document.activeElement.closest('.st-row');
+      for (let i = 0; i < 12 && !at()?.querySelector('input[type=range]'); i++) pauseKey('ArrowDown');
+      const slider = at()?.querySelector('input'), v0 = +slider.value; pauseKey('ArrowRight'); check(+slider.value === Math.min(100, v0 + 5), `→ on a volume: ${v0} → ${slider.value}`); pauseKey('ArrowLeft'); check(+slider.value === Math.min(100, v0 + 5) - 5, '←');
+      pauseKey('KeyE'); check(H.tab === 'game', 'E on a volume does not change tab'); pauseKey('KeyQ');
+      for (let i = 0; i < 12 && at()?.querySelector('input')?.type !== 'checkbox'; i++) pauseKey('ArrowDown');
+      const box = at().querySelector('input'), c0 = box.checked; pauseKey('Enter'); check(box.checked === !c0, 'Enter on a check box'); pauseKey('Space'); check(box.checked === c0, 'Space');
+      // A field for writing: letters are for it, and Esc only leaves it
+      const f = document.createElement('input'); f.type = 'text'; $('st-body').append(f); f.focus(); f.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyE', key: 'e', bubbles: true, cancelable: true })); check(H.tab === 'settings', 'writing an e changes tab');
+      f.dispatchEvent(new KeyboardEvent('keydown', { code: 'Escape', key: 'Escape', bubbles: true, cancelable: true })); check(H.isOpen && document.activeElement !== f, 'Esc in a field closes the pause'); f.remove();
+      H.close();
+      $('m-settings').click(); check($('st-body').closest('#s-settings') && $('s-settings').classList.contains('show'), 'the main menu\'s'); $('st-close').click(); check($('s-menu').classList.contains('show'), 'back to the main menu');
+      document.getElementById('s-menu').classList.remove('show'); document.body.classList.add('playing'); game.mode = 'play';
+    } finally { Settings.set('music', was); Settings.set('menuSfx', snd); if (H.isOpen) H.close(); for (const id of ['s-menu', 's-settings']) $(id).classList.remove('show'); document.body.classList.add('playing'); }
+  });
+  await test('menu (english): Pause › Game: resume, save, controls, and quitting asks first', async () => {
+    const H = game.pauseHub, $ = id => document.getElementById(id), saves = game.live.net;
+    try {
+      H.open('game');
+      check($('p-resume').classList.contains('sel'), 'Resume is not the first'); pauseKey('Enter'); check(!H.isOpen && game.mode === 'play', 'Enter on Resume');
+      H.open('game'); pauseKey('ArrowDown'); pauseKey('ArrowDown'); pauseKey('Enter'); check(!$('s-controls').hidden && $('s-controls').querySelectorAll('dt').length > 30, 'Controls'); check($('ps-game').classList.contains('dim'), 'not in the page');
+      const top = $('s-controls').scrollTop; pauseKey('ArrowDown'); await sleep(30); check($('s-controls').scrollTop > top, 'the arrows do not scroll it'); pauseKey('Escape'); check($('s-controls').hidden && H.isOpen, 'Esc does not go back'); pauseKey('ArrowUp'); pauseKey('Enter'); await sleep(250); check($('p-msg').textContent.length > 5, 'Save says nothing');
+      $('p-menu').click(); await sleep(20); check(FE.active() === 'fe-alert', 'quitting does not ask'); pauseKey('KeyE'); pauseKey('KeyM'); check(H.tab === 'game', 'a key went through the alert'); pauseKey('Escape'); await sleep(200); check(H.isOpen && FE.active() === 's-pause' && game.player, 'Esc on the alert'); 
+      $('p-controls').dispatchEvent(new PointerEvent('pointerenter')); check($('p-controls').classList.contains('sel') && $('s-controls').hidden, 'the mouse over a row');
+      // The game ends with the pause and the alert open (the connection was lost): both go, quietly
+      $('p-menu').click(); await sleep(20); H.shut(); check(!H.isOpen && !GameAudio.ducked, 'shut under the alert'); pauseKey('Escape'); await sleep(200); check(FE.active() === null, `left on top: ${FE.active()}`);
+    } finally { if (H.isOpen) H.close(); game.mode = 'play'; $('s-pause').classList.remove('show'); document.body.classList.add('playing'); }
+    check(saves === game.live.net, 'the network');
+  });
+  await test('menu (english): the pause in both languages, and with ?lang=keys every text is a key', async () => {
+    const H = game.pauseHub, $ = id => document.getElementById(id), was = getLang();
+    try {
+      H.open('game');
+      for (const l of ['en', 'es']) {
+        await setLang(l);
+        const en = l === 'en';
+        check($('p-resume').textContent === t('gui.pause.resume') && document.querySelector('#ps-tabs [data-tab="journal"]').textContent === (en ? 'JOURNAL' : 'DIARIO') && document.querySelector('[data-jtab="granja"]').textContent === (en ? 'Farm' : 'Granja') && $('ps-legend').textContent.includes(en ? 'Back' : 'Volver') && $('ps-money').textContent === t('gui.pause.money', { n: game.money }), `${l}: ${$('ps-tabs').textContent} ${$('ps-legend').textContent}`);
+        const bar = $('ps-tabs').scrollWidth - $('ps-tabs').clientWidth; check(bar <= 0, `${l}: the tabs do not fit by ${bar} px`);
+      }
+      check(!/\{|gui\./.test($('s-pause').querySelector('.ps-top').textContent + $('ps-legend').textContent + $('ps-note').textContent), 'a raw text');
+    } finally { H.close(); await setLang(was); }
+  });
+  await test('live (english): st.ac is the colour each player sends; without it, or wrong, the one of their name; the save keeps ui', async () => {
+    const snap = game.snapshot(); check(!('ui' in snap), 'ui in a save without it');
+    game.ui = { accent: 4 }; try { check(game.snapshot().ui.accent === 4, 'the save does not keep the colour'); } finally { game.ui = null; }
+    const src = await (await fetch('./src/live.js')).text(); check(src.includes('ac: accentOf(p.name, g.ui?.accent)') && src.includes('this.accent = accentOf(this.name, st.ac)'), 'st.ac');
+    check(accentOf('Hafsa', 7) === 7 && accentOf('Hafsa', -1) === accentOf('Hafsa') && accentOf('Hafsa', 99) === accentOf('Hafsa') && accentOf('Hafsa', undefined) === accentOf('Hafsa'), 'a wrong colour');
+  });
+  await test('audio (english): the music behind the pause is quieter and muffled, and comes back; under the water too', async () => {
+    GameAudio.duck(true); check(GameAudio.ducked, 'ducked'); GameAudio.muffle(true); GameAudio.muffle(false); GameAudio.duck(false); check(!GameAudio.ducked, 'not back');
+    if (GameAudio.ctx) { GameAudio.duck(true); GameAudio.duck(false); GameAudio.setVolumes(GameAudio.volumes); }
   });
   await test('menu (english): the pieces: a list, tabs, option rows and the legend', async () => {
     const ev = (code, o = {}) => new KeyboardEvent('keydown', { code, key: code, ...o }), up = code => dispatchEvent(new KeyboardEvent('keyup', { code }));
@@ -1265,7 +1440,7 @@ async function soloTests(game) {
       check(Wh.sel === 1 && wh.defaultPrevented, `the mouse wheel over the window: slot ${Wh.sel}, scroll stopped ${wh.defaultPrevented}`);
       // Keys: nothing opens; Esc closes it without the pause
       for (const k of ['KeyI', 'KeyC', 'KeyJ', 'KeyM']) press(k);
-      check(!W.isOpen('s-craft') && !W.isOpen('s-journal') && W.isOpen('s-inv') && game.mode === 'play', `a key opened something: mode ${game.mode}`);
+      check(!W.isOpen('s-craft') && !game.pauseHub.isOpen && W.isOpen('s-inv') && game.mode === 'play', `a key opened something: mode ${game.mode}`);
       el('s-inv').dispatchEvent(new PointerEvent('pointerdown', { button: 0, bubbles: true, cancelable: true }));
       el('s-inv').dispatchEvent(new PointerEvent('pointerup', { button: 0, bubbles: true, cancelable: true }));
       el('s-inv').dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
@@ -1821,12 +1996,12 @@ async function soloTests(game) {
       await goTo(game, 62, 50); const x0 = P.x, y0 = P.y; keys.up = true; await frames(30); keys.up = false;
       check(Math.hypot(P.x - x0, P.y - y0) > 0.5, 'no se anda con la ventana abierta');
       // Varias a la vez: la última, encima; Esc cierra de una en una antes que la pausa
-      press('KeyC'); press('KeyJ'); check(W.isOpen('s-craft') && W.isOpen('s-journal') && W.isOpen('s-inv'), 'no se abren varias');
-      check(+el('s-journal').style.zIndex > +el('s-inv').style.zIndex, 'la última no queda encima');
-      el('s-inv').dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })); check(+el('s-inv').style.zIndex > +el('s-journal').style.zIndex, 'tocarla no la sube');
-      press('Escape'); check(!W.isOpen('s-inv') && W.isOpen('s-journal') && game.mode === 'play', 'Esc no cierra la de encima');
-      press('Escape'); press('Escape'); check(!game.windowsOpen && game.mode === 'play', 'quedan abiertas'); 
-      press('Escape'); check(game.mode === 'pause', 'sin ventanas, Esc no pausa'); press('Escape'); check(game.mode === 'play', 'no vuelve de la pausa');
+      press('KeyC'); check(W.isOpen('s-craft') && W.isOpen('s-inv'), 'no se abren varias');
+      check(+el('s-craft').style.zIndex > +el('s-inv').style.zIndex, 'la última no queda encima');
+      el('s-inv').dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })); check(+el('s-inv').style.zIndex > +el('s-craft').style.zIndex, 'tocarla no la sube');
+      press('Escape'); check(!W.isOpen('s-inv') && W.isOpen('s-craft') && game.mode === 'play', 'Esc no cierra la de encima');
+      press('Escape'); check(!game.windowsOpen && game.mode === 'play', 'quedan abiertas'); 
+      press('Escape'); check(game.pauseHub.isOpen && game.mode !== 'play', 'sin ventanas, Esc no pausa'); press('Escape'); check(game.mode === 'play', 'no vuelve de la pausa');
       // Se arrastra por el título, se queda dentro de la pantalla y lo recuerda
       const realMM = window.matchMedia; window.matchMedia = () => ({ matches: false });   // (aquí la pantalla es pequeña: como en un ordenador)
       W.open('s-craft'); const head = el('s-craft').querySelector('h2'), r0 = el('s-craft').getBoundingClientRect(), ev = (t, x, y) => head.dispatchEvent(new PointerEvent(t, { bubbles: true, button: 0, clientX: x, clientY: y, pointerId: 1 }));
@@ -1836,10 +2011,10 @@ async function soloTests(game) {
       ev('pointerdown', r1.left + 40, r1.top + 10); ev('pointermove', r1.left + 40, 99999); ev('pointerup', r1.left + 40, 99999); check(el('s-craft').getBoundingClientRect().top < innerHeight - 20, 'se sale de la pantalla');
       W.close('s-craft'); window.matchMedia = realMM;
       // La chincheta: sin fijar se recoge al salir el cursor y vuelve al entrar
-      W.open('s-journal'); const pin = el('s-journal').querySelector('.win-pin'); check(pin.classList.contains('on'), 'no empieza fijada'); pin.click();
-      el('s-journal').dispatchEvent(new PointerEvent('pointerleave', { pointerType: 'mouse' })); await sleep(500); check(el('s-journal').classList.contains('collapsed'), 'no se recoge'); check(getComputedStyle(el('j-tabs')).display === 'none' && getComputedStyle(el('j-body')).display === 'none', 'se recoge, pero se sigue viendo');
-      el('s-journal').dispatchEvent(new PointerEvent('pointerenter', { pointerType: 'mouse' })); check(!el('s-journal').classList.contains('collapsed'), 'no vuelve');
-      pin.click(); el('s-journal').dispatchEvent(new PointerEvent('pointerleave', { pointerType: 'mouse' })); await sleep(500); check(!el('s-journal').classList.contains('collapsed'), 'fijada se recoge'); W.close('s-journal');
+      W.open('s-craft'); const pin = el('s-craft').querySelector('.win-pin'); check(pin.classList.contains('on'), 'no empieza fijada'); pin.click();
+      el('s-craft').dispatchEvent(new PointerEvent('pointerleave', { pointerType: 'mouse' })); await sleep(500); check(el('s-craft').classList.contains('collapsed'), 'no se recoge'); check(getComputedStyle(el('cf-tabs')).display === 'none' && getComputedStyle(el('s-craft').querySelector('.cf-body')).display === 'none', 'se recoge, pero se sigue viendo');
+      el('s-craft').dispatchEvent(new PointerEvent('pointerenter', { pointerType: 'mouse' })); check(!el('s-craft').classList.contains('collapsed'), 'no vuelve');
+      pin.click(); el('s-craft').dispatchEvent(new PointerEvent('pointerleave', { pointerType: 'mouse' })); await sleep(500); check(!el('s-craft').classList.contains('collapsed'), 'fijada se recoge'); W.close('s-craft');
       // Hablando se apartan; un cofre se cierra al alejarse
       W.open('s-inv'); game.busy = true; draw(); check(getComputedStyle(el('s-inv')).visibility === 'hidden', 'se ven hablando'); game.busy = false; draw(); check(getComputedStyle(el('s-inv')).visibility === 'visible', 'no vuelven');
       game.onChest(Array(18).fill(null), null); check(W.isOpen('s-chest'), 'no se abre el cofre'); draw(); check(W.isOpen('s-chest'), 'se cierra sola'); P.x += 6; draw(); check(!W.isOpen('s-chest'), 'sigue abierto de lejos');
@@ -4350,7 +4525,7 @@ async function soloTests(game) {
     // the last bar in sight (or under the body chip, when it shows: it goes right under the bars, ui/bodychip.js), the
     // minimap in the bottom-left corner and the chat over it, none over another
     const places = async (what, last) => {
-      for (let i = 0; i < 4; i++) { draw(); await sleep(120); }
+      for (let i = 0, y = NaN, was; i < 16; i++) { draw(); await sleep(120); was = y; y = box('clockp').top + ($('body-chip') ? box('body-chip').top : 0) + box('needs').bottom; if (i > 3 && y === was) break; }   // (a loaded machine starts the slide late)
       const n = box('needs'), c = box('clockp'), m = box('minimap'), ch = box('chat'), b = last && box('nd-' + last);
       const k = $('body-chip')?.classList.contains('on') && box('body-chip'), u = k || b;   // (u: what the clock goes under)
       check(n.left <= 20 && n.top <= 20 && n.width >= 240, `${what}: the bars at ${r4(n)}`);
@@ -5237,7 +5412,8 @@ async function soloTests(game) {
       set({ cold: 0.5 }); C().frame(T += 1);
       check(C().id === 'cold' && el().classList.contains('on') && el().textContent === t('body.chip.cold'), `cold 0.5: ${C().id} «${el().textContent}»`);
       // (right under the bars in sight, in the corner column, and the clock under it: index.html)
-      await sleep(300);
+      // (once they have stopped sliding: on a loaded machine the .2 s slide starts late)
+      for (let i = 0, y = NaN, was; i < 12; i++) { await sleep(150); was = y; y = el().getBoundingClientRect().top + $('clockp').getBoundingClientRect().top; if (i > 0 && y === was) break; }
       { const nb = $('needs').getBoundingClientRect(), kb = el().getBoundingClientRect(), cb = $('clockp').getBoundingClientRect();
         check(kb.left <= 20 && kb.top >= nb.bottom - 1 && kb.top <= nb.bottom + 12 && cb.top >= kb.bottom + 4, `the chip at ${Math.round(kb.left)},${Math.round(kb.top)}, the bars end at ${Math.round(nb.bottom)}, the clock at ${Math.round(cb.top)}`); }
       set({ cold: 0.1 }); C().frame(T += 1); check(C().id === 'cold', 'the chip goes at once');
@@ -7131,8 +7307,8 @@ async function soloTests(game) {
   await test('nature (english): collections cells open the page', async () => {
     const html = game.collection.journal();
     for (const id of ['carpa', 'mariposa', 'margarita']) check(html.includes(`data-nature="${id}"`), `no data-nature on ${id}`);
-    const W = game.windows, el = id => document.getElementById(id);
-    W.open('s-journal');
+    const H = game.pauseHub, el = id => document.getElementById(id);
+    H.open('journal');
     try {
       document.querySelector('[data-jtab="colecciones"]').click();
       const cell = el('j-body').querySelector('[data-nature="carpa"]');
@@ -7140,7 +7316,7 @@ async function soloTests(game) {
       cell.click();
       check(document.querySelector('[data-jtab="nature"]')?.classList.contains('on'), 'the Nature tab is not on');
       check(el('j-body').querySelector('[data-nb-id="carpa"].on') && el('j-body').querySelector('.nb-page .nb-name'), 'the carp page is not open');
-    } finally { W.close('s-journal'); }
+    } finally { H.close(); }
   });
   await test('hud (english): study ring and track tag only when relevant', async () => {
     const FH = game.fieldHud; check(FH, 'no FieldHud');

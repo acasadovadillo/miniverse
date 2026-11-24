@@ -7,7 +7,7 @@
 //   journal.js makes it once: const natureBook = new NatureBookUI(game); the tab renders natureBook.html() and, after
 //   the journal writes it with innerHTML, calls natureBook.bind(body) (clicks, plates arriving, the pump while visible).
 //   page(id) chooses the page shown next (journal.open('nature', id) uses it; Collections cells carry data-nature="<id>").
-//   hide() stops its plate pump (the journal calls it when another tab opens; closing the window stops it by itself).
+//   hide() stops its plate pump (the journal calls it when another tab opens; closing the pause stops it by itself).
 //   Reads game.nature (level, count, knowsTracks), SPECIES (group, facts, tracks) and three/plates.js (plateUrl,
 //   pumpPlates, onPlate). It writes nothing outside its own elements.
 //
@@ -61,7 +61,7 @@ const CSS = `
 .nb-it:hover { background: rgba(255, 255, 255, .1); }
 .nb-it.on { background: var(--tab-on-bg); color: var(--tab-on-ink); box-shadow: inset 0 0 0 1px var(--tab-on-line); }
 .nb-it.lv0 { color: var(--dim); opacity: .6; }
-.nb-it.lv0.on { opacity: 1; }
+.nb-it.lv0.on { opacity: 1; color: var(--tab-on-ink); }
 .nb-dots { display: inline-flex; flex: none; gap: 3px; }
 .nb-dots b { width: 7px; height: 7px; border-radius: 50%; box-shadow: inset 0 0 0 1.5px currentColor; opacity: .55; }
 .nb-dots b.on { background: currentColor; opacity: 1; }
@@ -114,7 +114,6 @@ export class NatureBookUI {
     this.game = game;
     this.id = null;     // the page shown (a species id) or null: the first one seen
     this.root = null;   // the tab's element while it is in the journal
-    this.win = null;    // the journal window (the pump runs only while it shows)
     this.raf = 0;
     this.frameN = 0;
     this.broken = false;   // (the pump failed once: plates stay placeholders, the book still works)
@@ -203,7 +202,6 @@ export class NatureBookUI {
     const root = body?.querySelector?.('[data-nb]');
     if (!root) { this.hide(); return; }
     this.root = root;
-    this.win = root.closest('.win');
     root.addEventListener('click', e => {
       const b = e.target.closest?.('[data-nb-id]');
       if (b && root.contains(b)) this.show(b.dataset.nbId);
@@ -239,7 +237,6 @@ export class NatureBookUI {
     if (this.raf) cancelAnimationFrame(this.raf);
     this.raf = 0;
     this.root = null;
-    this.win = null;
   }
 
   // ---------- the plates ----------
@@ -256,10 +253,10 @@ export class NatureBookUI {
     } catch (e) { this.broken = true; reportFault(e, 'plateUrl'); }
   }
   visible() {
-    return !!this.root?.isConnected && !!this.win?.classList.contains('show') && document.body.classList.contains('playing') && !document.hidden;
+    return !!this.root?.isConnected && this.root.offsetParent !== null && !document.hidden;   // (offsetParent: none in a pane that is not the one shown)
   }
-  // One step of a plate every PUMP_EVERY frames while the tab is in sight; it stops by itself when it is not (the window closed,
-  // another tab, the pause) and starts again with the next bind
+  // One step of a plate every PUMP_EVERY frames while the tab is in sight; it stops by itself when it is not (the pause
+  // closed, another tab) and starts again with the next bind
   start() {
     if (this.raf || this.broken || typeof requestAnimationFrame !== 'function') return;
     const tick = () => {

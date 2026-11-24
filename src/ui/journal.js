@@ -1,9 +1,10 @@
-// Diario (tecla J): la historia, los vecinos, las habilidades, las colecciones, los logros y las estadísticas.
+// The journal (J): its pages live in the pause's Journal tab (src/ui/pausehub.js), a list on the left (#j-tabs) and the page
+// on the right (#j-body): first steps, story, neighbours, skills, farm, fishing, collections, nature, achievements, statistics.
 import { itemIconUrl } from '../art/items.js';
 import { itemNoun } from '../items.js';
 import { PEOPLE } from '../neighbors.js';
 import { warmthOf } from '../clothing.js';
-import { t, tHtml, has, fmt, onLangChange } from '../i18n.js';
+import { t, tHtml, has, fmt } from '../i18n.js';
 import { NatureBookUI } from './naturebook.js';
 import { apagada } from '../opciones.js';
 
@@ -61,51 +62,52 @@ function addMemories(game, box) {
 
 const STAT_NAMES = { talados: 'Árboles talados', picados: 'Rocas picadas', cosechas: 'Cosechas', peces: 'Peces', tesoros: 'Tesoros del agua', criaturas: 'Criaturas derrotadas', cofres: 'Cofres abiertos', lugares: 'Lugares descubiertos', profundidad: 'Nivel más hondo de cueva', encargos: 'Encargos cumplidos', regalos: 'Regalos hechos', piezas: 'Piezas construidas', cocinados: 'Platos cocinados', productos: 'Productos de la granja', mascotas: 'Mascotas adoptadas', ganado: 'Monedas ganadas', donados: 'Piezas donadas' };
 
-export function initJournalUI(game, { onClose }) {
+export function initJournalUI(game) {
   const natureBook = apagada('naturebook') ? null : new NatureBookUI(game);   // (the Nature tab, Plan G: src/ui/naturebook.js)
   const TABS = {
-    pasos: ['Primeros pasos', () => game.steps.journal()],
-    historia: ['Historia', () => game.story.journal()],
-    vecinos: ['Vecinos', () => game.rep.journal() + game.neighbors.journal()],   // (the village's reputation on top: reputation.js)
-    habilidades: ['Habilidades', () => game.skills.journal()],
-    granja: ['Granja', () => game.farm.journal() + game.ranch.journal()],
-    pesca: ['Pesca', () => game.fishing.journal()],
-    colecciones: ['Colecciones', () => game.collection.journal()],
-    ...(natureBook ? { nature: [t('journal.tab.nature'), () => natureBook.html()] } : {}),
-    logros: ['Logros', () => game.achievements.journal()],
-    datos: ['Estadísticas', () => bodyBox(game) + `<p class="j-note">Día ${game.days.dayIndex + 1} · ${game.money} monedas</p>` + Object.entries(STAT_NAMES).map(([k, n]) => `<div class="j-row"><b>${n}</b><span class="lvl">${Math.round(game.stats.get(k))}</span></div>`).join('')],
+    pasos: ['journal.tab.steps', () => game.steps.journal()],
+    historia: ['journal.tab.story', () => game.story.journal()],
+    vecinos: ['journal.tab.neighbors', () => game.rep.journal() + game.neighbors.journal()],   // (the village's reputation on top: reputation.js)
+    habilidades: ['gui.char.skills', () => game.skills.journal()],
+    granja: ['journal.tab.farm', () => game.farm.journal() + game.ranch.journal()],
+    pesca: ['journal.tab.fishing', () => game.fishing.journal()],
+    colecciones: ['gui.progress.part.collections', () => game.collection.journal()],
+    ...(natureBook ? { nature: ['journal.tab.nature', () => natureBook.html()] } : {}),
+    logros: ['gui.progress.achievements', () => game.achievements.journal()],
+    datos: ['gui.progress.stats', () => bodyBox(game) + `<p class="j-note">Día ${game.days.dayIndex + 1} · ${game.money} monedas</p>` + Object.entries(STAT_NAMES).map(([k, n]) => `<div class="j-row"><b>${n}</b><span class="lvl">${Math.round(game.stats.get(k))}</span></div>`).join('')],
   };
   let tab = 'historia';
   $('j-body').addEventListener('click', e => {
     if (e.target.closest?.('[data-steps-restart]')) { game.steps.restart(); render(); return; }
     // (a fish, insect or flower cell of Collections opens its page of the nature book: progress.js data-nature)
     const cell = natureBook && tab !== 'nature' && e.target.closest?.('[data-nature]');
-    if (cell) open('nature', cell.dataset.nature);
+    if (cell) game.openJournal?.('nature', cell.dataset.nature);
   });
-  for (const [k, [name]] of Object.entries(TABS)) {
-    const b = document.createElement('button');
-    b.type = 'button'; b.textContent = name; b.dataset.jtab = k;
-    b.onclick = () => { tab = k; render(); };
-    $('j-tabs').append(b);
+  // (the rows of the list: pausehub.js makes the list of them, which moves and picks)
+  for (const [k, [key]] of Object.entries(TABS)) {
+    const row = document.createElement('div'), name = document.createElement('span');
+    name.dataset.i18n = key; name.textContent = t(key);
+    row.dataset.jtab = row.dataset.page = k;
+    row.append(name);
+    $('j-tabs').append(row);
   }
-  if (natureBook) onLangChange(() => { const b = document.querySelector('[data-jtab="nature"]'); if (b) b.textContent = t('journal.tab.nature'); });
+  // A page in any element (the pause's Character and Progress tabs show some too, with something before it)
+  function fill(el, id, before = '') {
+    el.innerHTML = before + TABS[id][1]();
+    if (id === 'vecinos') addMemories(game, el);
+    el.querySelectorAll('[data-icon]').forEach(img => { img.src = itemIconUrl(img.dataset.icon); });
+  }
   function render() {
     document.querySelectorAll('[data-jtab]').forEach(b => b.classList.toggle('on', b.dataset.jtab === tab));
-    $('j-body').innerHTML = TABS[tab][1]();
-    if (tab === 'vecinos') addMemories(game, $('j-body'));
+    fill($('j-body'), tab);
     if (natureBook) { if (tab === 'nature') natureBook.bind($('j-body')); else natureBook.hide(); }
-    $('j-body').querySelectorAll('[data-icon]').forEach(img => { img.src = itemIconUrl(img.dataset.icon); });
-    // (a taller tab than the one the window was placed with: placed again, whole on the screen if it fits)
-    const win = $('s-journal');
-    if (win.classList.contains('show') && win.scrollHeight > win.clientHeight + 1) game.windows?.placeAll?.();
   }
-  // open(): the tab shown last; open(tab, id): that tab (and, for 'nature', that species' page). It renders the body:
-  // the caller opens the window (menus.js does it with J, and calls open() itself when the window opens)
+  // open(): the page shown last; open(page, id): that one (and, for 'nature', that species' page). It only renders the
+  // body: the caller shows the tab (game.openJournal, menus.js)
   function open(to, id) {
-    if (to && TABS[to]) tab = to;
+    if (to && TABS[to] && to !== tab) { tab = to; $('j-body').scrollTop = 0; }
     if (to === 'nature' && id) natureBook?.page(id);
     render();
   }
-  $('j-close').onclick = () => { natureBook?.hide(); onClose(); };
-  return { open };
+  return { open, fill, pages: Object.keys(TABS), bodyBox: () => bodyBox(game), hide: () => natureBook?.hide(), get current() { return tab; } };
 }

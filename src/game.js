@@ -279,6 +279,7 @@ export class Game {
     this.addMoney(0);
     this.gather.reset();
     const p = { ...save.player };
+    this.ui = save.ui && typeof save.ui === 'object' ? save.ui : null;   // (the character's own of the interface: accent, its colour: ui/skin.js)
     this.house = { big: !!save.house?.big, family: !!save.house?.family, built: !!save.house?.built, v: save.house?.v ?? 1 };
     // Tu casa es parte del mundo. Si la partida aún no la tiene (es nueva, o de cuando la casa era una
     // habitación aparte), se levanta ahora; los muebles de aquella habitación pasan dentro.
@@ -337,6 +338,7 @@ export class Game {
       ...this.craft.toSave(), house: { big: this.house.big, family: this.house.family, built: true, v: this.house.v }, money: this.money,
       pala: 1, gamemode: this.gamemode, rules: this.rules, worldSpawn: this.worldSpawn, weatherLock: this.weatherLock, difficulty: this.difficulty, defaultGamemode: this.defaultGamemode, cam3d: camToSave(), volumes: Settings.volumes(), lang: savedLang(),
     };
+    if (this.ui) out.ui = this.ui;
     this.hook('save', out);
     return out;
   }
@@ -1301,7 +1303,12 @@ export class Game {
     // oscuras (whenReady: al entrar, en un salto), sí, aunque haya una pantalla delante: sin dibujar no avanza, y se quedaría
     // a oscuras hasta el tope (unos 13 s). Ahí casi no pinta (ver prepare), y los fotogramas de después ya son la imagen fija
     const v = this.view3d, hidden = !v.prep && (this.mode === 'map' || (this.mode === 'pause' && !v.redraw));
-    if (!still && !hidden) { v.redraw = false; v.render(this); }
+    if (!still && !hidden) {
+      const n = v.drawn;
+      v.redraw = false; v.render(this);
+      // (a copy of this very frame, for who asked: the pause, ui/pausehub.js. Right now: later the buffer may be gone)
+      if (this.onShot) { if (v.drawn !== n) { const fn = this.onShot; this.onShot = null; fn(v.renderer.domElement); } else v.redraw = true; }
+    }
     else if (still) v.idle?.(this);   // (sin dibujar, se adelanta lo que se puede: los impostores de los árboles lejanos)
     const prey = this.gather.target?.prey, click = prey && this.highlight?.e === prey ? '  ·  Clic: atacar' : '';
     // (and greeting whoever is under the cursor, Y: social.js. Only added if E is about that same person; farther away, alone)
