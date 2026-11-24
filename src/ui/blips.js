@@ -8,11 +8,13 @@
 //   blips.static(id, list)   for what hardly changes: the list, put in as it is until it is replaced. null removes either
 //   blips.refresh(game, now, force)   asks the sources; blips.list: the blips, higher pri first. blips.v: goes up when
 //                            something in it changed (where things are, which, their names)
-//   blips.hide               kinds not shown (the big map's filters will fill it)
+//   blips.hide               what the big map's filters hide, on both maps (setHide): layers (layerOf: a kind, 'place:cave'…) and whole
+//                            groups ('g:animals'). The route and where a first step sends you are always shown
 //
 // blip = { kind, x, y (tiles, x inside the planet or not), z? (metres over the ground there), r? (an area: metres), glyph, color, name?, sub?, track?, pri,
 //   filter, legend, who? (the owner's id), mini (on the minimap too), to? (where a route to it goes: { x, y, kind, id }),
-//   dim? (drawn faded: a closed shop), pin? ('route' | 'shared': drawn as a pin), conn? }
+//   dim? (drawn faded: a closed shop), pin? ('route' | 'shared': drawn as a pin), conn?, quick? (among the places near too), small?, mark?
+//   (one of your own: src/mapmarks.js) }
 // KINDS gives what each kind has unless the source says otherwise: its glyph, colour, legend group (filter), legend row (a
 // text key), pri (what wins when two overlap: the maps drop the lower one closer than a blip) and mini. track holds it on
 // the minimap's edge while it is farther.
@@ -28,6 +30,7 @@ import { PEOPLE } from '../neighbors.js';
 import { CHUNK } from '../world/gen.js';
 import { wrapIndex, distOf } from '../world/planet.js';
 import { ACCENTS, accent } from './skin.js';
+import { Settings } from '../settings.js';
 import { reportFault } from '../faults.js';
 
 const PLACE_GLYPH = { cueva: 'cave', campamento: 'camp', torre: 'tower', barco: 'wreck', templo: 'temple', aldea: 'village', faro: 'lighthouse' };
@@ -47,10 +50,17 @@ export const KINDS = {
   boat: { glyph: 'boat', color: '#7fd6d0', filter: 'boats', legend: 'map.legend.group.boats', pri: 45, mini: true },
   goal: { glyph: 'goal', color: '#ffd77a', filter: 'jobs', legend: null, pri: 95, mini: true, track: true },
   route: { glyph: 'pin', color: ACCENTS[0], filter: 'markers', legend: 'map.legend.route', pri: 100, mini: true, track: true, pin: 'route' },
+  mark: { glyph: 'star', color: ACCENTS[0], filter: 'markers', legend: 'map.legend.marks', pri: 88, mini: true },
   pin: { glyph: 'pin', color: '#5a8cff', filter: 'markers', legend: 'map.legend.pins', pri: 80, mini: true, pin: 'shared' },
 };
 const OTHER = { glyph: 'place', color: '#ffffff', filter: 'markers', legend: null, pri: 50, mini: true };
 const EVERY = 0.25, BOATS_S = 2;
+// What a filter of the big map hides together: a kind, or a kind of place
+export const FIXED = new Set(['route', 'goal']);
+export const layerOf = b => (b.kind === 'place' ? `place:${b.glyph}` : b.kind);
+// How big they are drawn (Settings › Interface › Icon size), on both maps
+const SIZES = { s: 0.82, l: 1.24 };
+export const blipScale = () => SIZES[Settings.v.blipSize] || 1;
 // The texts, made once per language (they are asked for four times a second)
 let texts = new Map(), textsLang = '';
 function say(key, what = '', params) {
@@ -78,6 +88,7 @@ class Out extends Array {
     this.n++;
     b.kind = kind; b.x = x; b.y = y; b.z = undefined; b.r = 0; b.glyph = K.glyph; b.color = K.color; b.name = ''; b.sub = ''; b.track = !!K.track; b.pri = K.pri;
     b.filter = K.filter; b.legend = K.legend; b.who = ''; b.mini = K.mini; b.to = null; b.dim = false; b.pin = K.pin || ''; b.conn = undefined;
+    b.quick = b.small = false; b.mark = 0;
     this.push(b);
     return b;
   }
@@ -120,7 +131,8 @@ export class Blips {
     this.stats.n++; this.stats.ms += ms; this.stats.max = Math.max(this.stats.max, ms);
     return L;
   }
-  shown(b) { return !this.hide.has(b.kind); }
+  shown(b) { const H = this.hide; return !H.size || FIXED.has(b.kind) || !(H.has(layerOf(b)) || H.has('g:' + b.filter)); }
+  setHide(list) { this.hide = new Set(list); this.v++; this.at = -Infinity; }
 }
 export const blips = new Blips();
 
@@ -204,6 +216,6 @@ blips.source('boats', (out, { game, time, ours, partner }) => {
 blips.source('marks', (out, { game }) => {
   const R = game.route, G = game.map?.goal;
   if (G) out.add('goal', G.x, G.y);
-  if (R?.active) { const b = out.add('route', R.target.x, R.target.y); b.name = R.target.name || ''; b.color = accent.color; }   // (in your colour, like its line)
+  if (R?.active) { const b = out.add('route', R.target.x, R.target.y); b.name = R.target.name || ''; b.color = accent.route; }   // (in its colour, like its line)
   if (R?.pins) for (const [conn, q] of R.pins) { const b = out.add('pin', q.x, q.y); b.name = q.own ? q.name : q.name ? `${q.by}: ${q.name}` : q.by; b.conn = conn; }
 });

@@ -11,7 +11,7 @@ import { CHUNK } from './gen.js';
 import { wrapIndex, dxOf } from './planet.js';
 import { LEGACY_KINDS, READY, SITE_SIZE, HAMLET_BOX } from './sites.js';
 
-export const KEEP_FOUND = true;   // (the places somebody had found stay too; false: only those built by or used)
+export const KEEP_FOUND = false;   // (true: the places somebody had found stay too; false: only those built by or used)
 export const NEAR_FROZEN = 48;    // no new place this near one that stays
 const COVER = 9;                  // nor with its flattened ground (7 m) this near something made by the players
 // What in a chunk's changes is not somebody's work to keep: what was felled, picked, mown, opened or fished there
@@ -71,7 +71,7 @@ export function freeze({ sites, legacy, deltas, found = [], points = [] }) {
     const [cx, cy] = key.split(',').map(Number), box = [cx * CHUNK, cy * CHUNK, (cx + 1) * CHUNK, (cy + 1) * CHUNK];
     for (let j = -3; j <= 3; j++) for (let i = -3; i <= 3; i++) {
       const s = sites.at(cx + i, cy + j);
-      if (s && READY.has(s.kind) && !k[s.key] && gap(box, boxOf(s)) < COVER) k[s.key] = '-';
+      if (s && READY.has(s.kind) && !kindOf(k[s.key]) && gap(box, boxOf(s)) < COVER) k[s.key] = '-';   // (also over a 'torre*' that does not stay)
     }
   }
   return { v: 2, k };
@@ -82,7 +82,7 @@ export function freezeMore(list, { legacy, deltas, found, siteNear }) {
   const k = { ...list.k };
   let n = 0;
   for (const key of found) {
-    if (typeof key !== 'string' || !/^-?\d{1,5},-?\d{1,5}$/.test(key) || (k[key] && k[key] !== '-')) continue;
+    if (typeof key !== 'string' || !/^-?\d{1,5},-?\d{1,5}$/.test(key) || (k[key] && (k[key] !== '-' || !KEEP_FOUND))) continue;
     const [cx, cy] = key.split(',').map(Number), p = legacy.at(cx, cy);
     if (!p || p.kind === 'ruinas') continue;
     let busy = false;

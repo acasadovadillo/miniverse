@@ -495,6 +495,7 @@ export class Live {
       case 'greet': if (!Profile.server && this.joined) g.social.heard(conn, peer, m); break;   // (someone greets: social.js)
       case 'catch': if (!Profile.server && this.joined) g.fishing?.heard(peer, m); break;   // (a record or a trophy: fishing.js)
       case 'wp': g.route?.heard(conn, peer, m); break;   // (a map pin shared by someone: route.js)
+      case 'mk': g.marks?.heard(conn, peer, m); break;   // (the marks your couple put on their map: mapmarks.js)
       // A neighbour's passing remark about another player (Plan E §4.5, §6: { t: 'rmk', npc, rc, li }): the same bubble here,
       // and that neighbour keeps quiet a while. Cosmetic, nothing arbitrated; remarks.js checks the indexes
       case 'rmk': if (!Profile.server && this.joined && g.player) g.remarks?.heard?.(m, peer, conn); break;

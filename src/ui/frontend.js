@@ -135,12 +135,13 @@ export function ring(el, ms) {
   };
 }
 
-// The key legend: [{ keys: ['Q', 'E'], text, hold, onClick, onHold }] (with onClick, it can be pressed with the mouse too; with
+// The key legend: [{ keys: ['Q', 'E'], text, hold, dim (not now), onClick, onHold }] (with onClick, it can be pressed with the mouse too; with
 // onHold(down), held)
 export function legend(el, items) {
   el.classList.add('fe-legend');
   el.replaceChildren(...items.map(it => {
     const box = make(it.onClick || it.onHold ? 'button' : 'span', 'fe-key');
+    if (it.dim) box.classList.add('off');
     if (it.onClick) { box.type = 'button'; box.onclick = it.onClick; }
     if (it.onHold) {
       box.type = 'button'; box.tabIndex = -1;

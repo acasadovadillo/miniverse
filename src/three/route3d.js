@@ -53,7 +53,7 @@ const DASH = 1.6, DOT = 0.7, WRAP = 11.2;     // (dash and dot periods in m; the
 const RIM_DARK = 0.25, RIM_A = 0.8;
 const WINDOW_BACK = 24, WINDOW_AHEAD = 64;    // (segments searched round the last nearest one between rebuilds)
 const JUMP = 20;                              // (a move longer than this between frames: search the whole path again)
-const WHITE = new THREE.Color('#ffffff'), tint = new THREE.Color(accent.color), OPACITY = 0.55, OPACITY_NIGHT = 0.7;
+const WHITE = new THREE.Color('#ffffff'), tint = new THREE.Color(accent.route), OPACITY = 0.55, OPACITY_NIGHT = 0.7;
 // The ribbon is unlit (one cheap program), so it takes the scene's light by hand: its colour times how bright the sky
 // and the sun are now against a clear noon (look.js), eased by LIGHT_EXP so it stays readable at night, never below
 // LIGHT_MIN. Like the ground it lies on, it darkens at dusk, at night and in rain: it never glows
@@ -182,7 +182,7 @@ export class RouteView {
     this.mat.opacity = OPACITY + (OPACITY_NIGHT - OPACITY) * night;
     const v = this.view, lit = (v.hemi ? lum(v.hemi.color) * v.hemi.intensity : 0) + (v.sun ? lum(v.sun.color) * v.sun.intensity : 0);
     const k = v.hemi ? Math.max(LIGHT_MIN, Math.min(1, Math.pow(lit / NOON, LIGHT_EXP))) : 1;
-    if (this.tintV !== accent.v) { this.tintV = accent.v; tint.set(accent.color).lerp(WHITE, 0.12); }
+    if (this.tintV !== accent.v) { this.tintV = accent.v; tint.set(accent.route).lerp(WHITE, 0.12); }
     this.mat.color.copy(tint).multiplyScalar(k);
   }
 

@@ -7,7 +7,8 @@
 // The pages: Brief (src/ui/brief.js), Character (charpage.js), Journal (journal.js, its registry JOURNAL_PAGES) and Progress
 // (progresspage.js); the map is ui/map.js and the settings, ui/settings.js (with their own sub-tabs). Three of them are a list and a page (PAGED): each
 // gives { pages: [{ id, label }], current, open(id, sub), fill(el), hide() }. Anything with data-goto="tab:page" in a pane
-// opens that. paneKeys.map(e): keys of the map's own (true: it was one of them).
+// opens that. paneKeys.map(e): keys of the map's own (true: it was one of them); mapPane: the rest of what the map's screen answers for
+// (src/ui/mapscreen.js).
 import { t, fmt, onLangChange } from '../i18n.js';
 import { Audio } from '../audio.js';
 import { Profile } from '../accounts.js';
@@ -24,6 +25,9 @@ import { MOVED } from './journal.js';
 const $ = id => document.getElementById(id);
 export const PAUSE_TABS = ['map', 'brief', 'char', 'journal', 'progress', 'settings', 'game'];
 export const paneKeys = { map: null };
+// enter(), leave(); wants(e): a key that would move the map is for something else; up(e|null): a key let go; back(): it climbed a level;
+// legend(): its keys, for the bottom line
+export const mapPane = { enter: null, leave: null, wants: null, up: null, back: null, legend: null };
 const LAST_KEY = 'pueblo-brotes:pausa-pestana:';   // (+ the account: the tab used last)
 const SHOT = { scale: 6, blur: 0.9 };              // the copy of the frame: 1/6 of its size, blurred once
 const TICK = 5000, CLOCK_EVERY = 6;                // ms between two looks at what may have changed, and of them, how many for the header
@@ -103,7 +107,7 @@ export function initPauseHub(game, { show, resume, save, savedMsg, quit, journal
     if (L.index === i) paintPage(id, true); else L.focus(i);
   }
   const fills = {
-    map() {},
+    map: () => mapPane.enter?.(),
     brief: () => enterPaged('brief'),
     char: () => char.enter(),
     journal: () => enterPaged('journal'),
@@ -162,7 +166,7 @@ export function initPauseHub(game, { show, resume, save, savedMsg, quit, journal
   }
   function paintLegend() {
     const out = [], L = (k, keys, o) => out.push({ keys, text: t(`gui.legend.${k}`), ...o });
-    if (tab === 'map') { L('route', ['mouse:l']); L('remove', ['mouse:r']); L('zoom', ['+', '−']); }
+    if (tab === 'map') out.push(...mapPane.legend?.() || []);
     else if (lists[tab]) L('move', ['↑', '↓']);
     if (tab === 'settings') out.push(...settings.legendItems());
     else if (tab === 'char') out.push({ keys: ['←', '→'], text: t('gui.char.turn') });
@@ -235,7 +239,7 @@ export function initPauseHub(game, { show, resume, save, savedMsg, quit, journal
     if (PAGED[tab]) { try { PAGED[tab].src.hide(); } catch (e) { reportFault(e, `PauseHub.${tab}`); } }
     if (tab === 'char') char.leave();
     if (tab === 'settings') settings.leave();
-    if (tab === 'map') clearKeys();   // (a key held moving the map)
+    if (tab === 'map') { clearKeys(); try { mapPane.leave?.(); } catch (e) { reportFault(e, 'PauseHub.map'); } }   // (a key held moving the map)
     panes.get(tab)?.classList.remove('on');
     if (root.contains(document.activeElement)) document.activeElement.blur();
     tab = null;
@@ -272,6 +276,7 @@ export function initPauseHub(game, { show, resume, save, savedMsg, quit, journal
   // One level back: out of a field, from the page to its list; from there it closes
   function back() {
     if (tab === 'settings') return settings.back();
+    if (tab === 'map' && mapPane.back?.()) return true;
     const a = document.activeElement;
     if (root.contains(a) && a.matches('input:not([type=range]):not([type=checkbox])')) { a.blur(); return true; }
     if (level === 'body') { setLevel('list'); return true; }
@@ -288,7 +293,7 @@ export function initPauseHub(game, { show, resume, save, savedMsg, quit, journal
     Audio.duck(true);
     show('s-pause');
     document.body.classList.add('in-pause');
-    screen = FE.open('s-pause', { parts: [own, tabs, pane], pass: e => tab === 'map' && (MAP_KEYS.test(e.code) || /^[-+=_]$/.test(e.key)), back, keyup: e => { if (tab === 'settings') settings.keyup(e); }, onClose: closed });
+    screen = FE.open('s-pause', { parts: [own, tabs, pane], pass: e => tab === 'map' && !mapPane.wants?.(e) && (MAP_KEYS.test(e.code) || /^[-+=_]$/.test(e.key)), back, keyup: e => { if (tab === 'settings') settings.keyup(e); else if (tab === 'map') mapPane.up?.(e); }, onClose: closed });
     if (tabs.current === id) enter(id); else tabs.pick(id, { silent: true });
     paintHead(); paintNote();
     portrait($('ps-face'));
@@ -334,6 +339,7 @@ export function initPauseHub(game, { show, resume, save, savedMsg, quit, journal
     // A page of the journal (game.openJournal), or where it is now (MOVED); an unknown one, the journal as it was
     journal: (id, sub) => (MOVED[id] ? goTo(...MOVED[id]) : goTo('journal', id, sub)),
     char,   // (for the tests)
+    keys: () => { if (screen && tab === 'map') paintLegend(); },   // (the map's keys are others now: mapscreen.js)
     saved() { savedAt = Date.now(); if (screen) paintNote(); },
     reset() { savedAt = 0; faceOf.clear(); },
   };

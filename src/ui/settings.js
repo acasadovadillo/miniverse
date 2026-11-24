@@ -12,7 +12,7 @@ import { t, LANGS, autoLang, getLang, getLangSetting, onLangChange } from '../i1
 import { Audio } from '../audio.js';
 import { apagada, opcion } from '../opciones.js';
 import { FE, tabStrip, list, optionRow, legend, ring, paneNav } from './frontend.js';
-import { skinNow, accentOf, ACCENTS, ACCENT_IDS } from './skin.js';
+import { skinNow, accentOf, ACCENTS, ACCENT_IDS, ROUTE_COLOURS } from './skin.js';
 import { MODES, miniMode } from './minimap.js';
 
 const $ = id => document.getElementById(id);
@@ -60,6 +60,9 @@ export const settingsRows = {
     // (the minimap: by the interface's rules, always, the compass strip instead, or none; and how big: ui/minimap.js)
     { id: 'mini', group: G + 'hud', key: 'mini', values: vals('mini', ...MODES), get: miniMode, def: 'fade' },
     { id: 'mini_size', group: G + 'hud', key: 'miniSize', values: vals('mini_size', 's', 'm', 'l'), get: () => (['s', 'l'].includes(Settings.v.miniSize) ? Settings.v.miniSize : 'm'), def: 'm' },
+    // (what is on both maps: how big, and the colour of the marked route: ui/blips.js, ui/skin.js)
+    { id: 'blip_size', group: G + 'hud', key: 'blipSize', values: vals('blip_size', 's', 'm', 'l'), get: () => (['s', 'l'].includes(Settings.v.blipSize) ? Settings.v.blipSize : 'm') },
+    { id: 'route_col', group: G + 'hud', key: 'routeCol', values: vals('route_col', 'mine', 'pink', 'cream', 'teal'), get: () => (ROUTE_COLOURS[Settings.v.routeCol] ? Settings.v.routeCol : 'mine') },
     // (what the keys do: at the thing aimed at, or at the cursor; and which notices show: ui/prompts.js, ui/feed.js)
     { id: 'prompts', group: G + 'hud', key: 'prompts', values: vals('prompts', 'object', 'cursor'), get: () => (Settings.v.prompts === 'cursor' ? 'cursor' : 'object') },
     { id: 'feed', group: G + 'hud', key: 'feed', values: vals('feed', 'all', 'important'), get: () => (Settings.v.feed === 'important' ? 'important' : 'all') },

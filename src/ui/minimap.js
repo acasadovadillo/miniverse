@@ -24,7 +24,7 @@ import { TOWER } from '../world/tower.js';
 import { BIOMES } from '../world/biomes.js';
 import { BOUNDS, villagePaths, onVillageChange } from '../world/village.js';
 import { t, onLangChange } from '../i18n.js';
-import { blips } from './blips.js';
+import { blips, blipScale } from './blips.js';
 import { sprite } from './mapglyphs.js';
 import { routeLine, pin, OUTLINE, SHARED, FOG } from './map.js';
 import { accent } from './skin.js';
@@ -132,12 +132,12 @@ export class Minimap {
   // How big it is, for this window (and the size setting, once there is one)
   measure() {
     const S = Math.round(Math.max(S_LOW, Math.min(S_MAX, Math.max(S_MIN, innerWidth * S_VW), innerHeight * S_VH)) * (SIZES[Settings.v.miniSize] || 1) / 2) * 2, k = Math.max(1, Math.min(K_MAX, devicePixelRatio || 1));
-    this.S = S; this.k = k; this.sizeKey = Settings.v.miniSize;
+    this.S = S; this.k = k; this.sizeKey = Settings.v.miniSize; this.blipKey = Settings.v.blipSize;
     document.documentElement.style.setProperty('--mm', `${S}px`);
     this.base.size(Math.round(S * BASE_K / 2) * 2, S, k);
     this.over.size(S + PAD * 2, S, k);
     this.nPos = []; this.nAt = -1;
-    this.D = Math.max(15, Math.min(20, Math.round(S * 0.0865)));
+    this.D = Math.round(Math.max(15, Math.min(20, Math.round(S * 0.0865))) * blipScale());
     this.force = true;
   }
   // Where the direction (ux, uy) from the middle meets the rim (a rounded square), inset px inside it: [x, y] from the middle
@@ -170,7 +170,7 @@ export class Minimap {
     const dt = Math.min(0.25, Math.max(0, now - (this.last ?? now)));
     this.last = now; this.now = now; g.map.now = now;
     if (mode !== this.mode) { this.mode = mode; document.body.classList.toggle('mini-none', mode === 'compass' || mode === 'off'); document.body.classList.toggle('mini-compass', mode === 'compass'); this.force = true; }
-    if (!this.S || this.sizeKey !== Settings.v.miniSize) this.measure();
+    if (!this.S || this.sizeKey !== Settings.v.miniSize || this.blipKey !== Settings.v.blipSize) this.measure();
     const outside = !g.indoors && g.scene === g.world, play = g.mode === 'play';
     // (it goes on while it fades away)
     if (!g.smartHud || g.smartHud.mini !== false) this.wantAt = now;
@@ -348,8 +348,8 @@ export class Minimap {
         g.lineJoin = 'round'; g.lineWidth = 2.5; g.strokeStyle = OUTLINE; g.stroke(); g.fillStyle = b.color; g.fill();
         continue;
       }
-      const n = D + 2;
-      g.drawImage(sprite(b.glyph, b.color, D, k, b.dim), x - n / 2, y - n / 2, n, n);
+      const d = b.small ? Math.round(D * 0.8) : D, n = d + 2;
+      g.drawImage(sprite(b.glyph, b.color, d, k, b.dim), x - n / 2, y - n / 2, n, n);
       const dz = this.dz.get(b);
       if (dz) this.height(g, x + (x > S / 2 - D * 1.4 ? -1 : 1) * (D / 2 + 4), y, dz > 0);
     }
@@ -453,7 +453,7 @@ export class Minimap {
     if (l < 6) return;
     const ux = this.qx / l, uy = this.qy / l, [x, y] = this.rim(ux, uy, 1);
     g.beginPath(); g.moveTo(x - ux * 8, y - uy * 8); g.lineTo(x - uy * 7, y + ux * 7); g.lineTo(x + uy * 7, y - ux * 7); g.closePath();
-    g.lineJoin = 'round'; g.lineWidth = 2.5; g.strokeStyle = OUTLINE; g.stroke(); g.fillStyle = accent.color; g.fill();
+    g.lineJoin = 'round'; g.lineWidth = 2.5; g.strokeStyle = OUTLINE; g.stroke(); g.fillStyle = accent.route; g.fill();
   }
 }
 // The colours of a house's faces (north, east, south, west) from its roof's: lit from the north-west, as the land

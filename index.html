@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- La versión publicada: se cambia en cada publicación (así el juego sabe que tiene que pedir el código nuevo) -->
-<meta name="miniverse-version" content="2026-11-24.6">
+<meta name="miniverse-version" content="2026-11-24.7">
 <title>Miniverse</title>
 <script>
   // The language of the page until the game's code arrives (src/i18n.js chooses the same way, then takes over): for
@@ -93,7 +93,7 @@
   button, input { font: inherit; }
   b, strong { font-weight: 600; }
   /* Titles (screens, windows, sections), the money, the clock and the big notices: Oswald, tall and narrow, in capitals */
-  h1, h2, h3, h4, .map-bar b, .bb-top b { font-family: var(--font-title); font-weight: 600; text-transform: uppercase; letter-spacing: .03em; }
+  h1, h2, h3, h4, .bb-top b { font-family: var(--font-title); font-weight: 600; text-transform: uppercase; letter-spacing: .03em; }
   /* (what sits inside a title but is not one, like the crafting notice in its h2, stays in Barlow) */
   h3 small, h2 small, #cf-note { font-family: var(--font-ui); text-transform: none; letter-spacing: 0; }
   #money, #sh-money, #clockp { font-family: var(--font-title); font-weight: 500; letter-spacing: .03em; font-variant-numeric: tabular-nums; }
@@ -203,31 +203,15 @@
   /* (bottom left, as in GTA, in the very corner: the status bars (#needs) are at the top left; the chat sits above it) */
   /* The minimap: its look is in src/ui/minimap.js, which says how big it is too (--mm) */
   :root { --mm: 208px; }
-  #bigmap { position: fixed; inset: 0; cursor: grab; touch-action: none; }
-  #map-north { position: fixed; left: 16px; top: 12px; padding: 4px 12px; color: var(--gold); text-align: center; line-height: 1.05; font-size: 16px; pointer-events: none; }
-  #map-legend { position: fixed; left: 16px; bottom: 16px; max-height: calc(100vh - 90px); overflow-y: auto; padding: 6px 12px 8px; color: var(--cream); font-size: 15px; }
-  #map-legend summary { color: var(--gold); cursor: pointer; }
-  #map-legend-rows { margin-top: 4px; }
-  #map-legend-rows div { display: flex; align-items: center; gap: 7px; line-height: 1.5; white-space: nowrap; }
-  #map-legend-rows i { flex: none; width: 11px; height: 11px; border: 1px solid #2a1c22; }
-  #bigmap.dragging { cursor: grabbing; }
-  .map-bar .sq:disabled { opacity: .4; cursor: default; }
-  .map-bar { position: fixed; left: 50%; top: 12px; transform: translateX(-50%); display: flex; align-items: center; gap: 12px; padding: 8px 14px; white-space: nowrap; }
-  .map-bar b { color: var(--gold); font-size: 20px; }
-  #map-info { color: var(--dim); }
-  .map-bar .sq { width: 34px; height: 30px; }
-  /* The marked route (Plan J §4): its buttons in the map bar, the faint help in the info line, and its pin in the world
-     (#hud-wp, src/ui/routemark.js; both HUDs) */
-  .map-bar .map-btn { position: static; width: auto; height: 30px; padding: 0 10px; color: var(--cream); background: #4a2c18; border: 2px solid #9a6a34; border-radius: 4px; cursor: pointer; font-size: 15px; }
-  #map-info .mi-help { opacity: .7; }
+  /* (the big map: its look is in src/ui/mapscreen.js) */
+  /* The marked route's pin in the world (Plan J §4; src/ui/routemark.js; both HUDs) */
   #hud-wp { position: fixed; left: 0; top: 0; z-index: 4; display: flex; flex-direction: column; align-items: center; gap: 4px; pointer-events: none; will-change: transform; opacity: 0; visibility: hidden; transition: opacity .5s ease, visibility 0s linear .5s; }
   #hud-wp.on { opacity: 1; visibility: visible; transition: opacity .15s ease, visibility 0s; }
-  #hud-wp i { width: 13px; height: 13px; background: var(--accent); border: 2px solid #2a1c22; border-radius: 50% 50% 50% 0; transform: rotate(-45deg); box-shadow: 0 0 8px rgba(0, 0, 0, .5); }
+  #hud-wp i { width: 13px; height: 13px; background: var(--route, var(--accent)); border: 2px solid #2a1c22; border-radius: 50% 50% 50% 0; transform: rotate(-45deg); box-shadow: 0 0 8px rgba(0, 0, 0, .5); }
   #hud-wp b { font-size: 15px; font-weight: 600; color: var(--cream); text-shadow: 1px 0 #2a1c22, -1px 0 #2a1c22, 0 1px #2a1c22, 0 -1px #2a1c22; }
-  #hud-wp s { display: none; position: absolute; left: 50%; top: 8px; width: 0; height: 0; margin-top: -6px; border: 6px solid transparent; border-right: 0; border-left: 9px solid var(--accent); transform-origin: 0 6px; }
+  #hud-wp s { display: none; position: absolute; left: 50%; top: 8px; width: 0; height: 0; margin-top: -6px; border: 6px solid transparent; border-right: 0; border-left: 9px solid var(--route, var(--accent)); transform-origin: 0 6px; }
   #hud-wp.edge s { display: block; }
   body:not(.playing) #hud-wp { display: none; }
-  @media (max-width: 640px) { #map-info { display: none; } #map-north { top: 66px; left: 12px; } .map-bar { gap: 8px; padding: 6px 10px; } }   /* (en un móvil, que quepan los botones) */
   #fade { position: fixed; inset: 0; background: #000; opacity: 0; pointer-events: none; transition: opacity .25s; z-index: 20; }
   #fade.on { opacity: 1; }
   body:not(.playing) #clockp, body:not(.playing) #place, body:not(.playing) #touch, body:not(.playing) #prompt, body:not(.playing) #minimap, body:not(.playing) #hotbar, body:not(.playing) #hint { display: none !important; }
@@ -708,6 +692,7 @@
   .fe-key { display: inline-flex; align-items: center; gap: 5px; padding: 0; color: inherit; background: none; border: 0; text-shadow: var(--shadow-text); }
   .fe-key > span { margin-left: 3px; }
   .fe-key > kbd { text-shadow: none; }
+  .fe-key.off { opacity: .4; }
   button.fe-key { padding: 8px 12px; border-radius: var(--r-s); cursor: pointer; }
   button.fe-key:hover { background: rgba(255, 255, 255, .12); }
   /* The alert: a dark band across the screen */
@@ -795,11 +780,6 @@
   #st-rows .fe-bar { width: 126px; }
   #st-desc { flex: none; min-height: 48px; margin: 0; padding: 12px 22px; background: var(--fe-glass); border-radius: var(--r-s); box-shadow: inset 3px 0 0 var(--fe-accent); font: 500 16px/1.4 var(--font-ui); color: var(--ink); }
   body.big-text #st-desc, body.big-text #st-account .note { font-size: 17.9px; }
-  /* (the map: under the header and the tabs) */
-  #pause-map { padding: 0; }
-  #s-pause #map-north { left: 40px; top: 132px; }
-  #s-pause .map-bar { top: 132px; }
-  #s-pause #map-legend { left: 40px; bottom: 62px; max-height: calc(100vh - 270px); }
   body.still-menus #s-pause, body.still-menus #s-settings, body.still-menus .ps-top, body.still-menus .ps-pane { animation: none; }
   @media (prefers-reduced-motion: reduce) { #s-pause.show, #s-settings.show, .ps-top, .ps-pane.on { animation: none; } }
   /* ---------- The front screens: login, main menu, credits and creator (src/ui/menus.js, mainmenu.js), over the key art
@@ -1019,7 +999,7 @@
   :root { --gold: #ffffff; --cream: #ffffff; --border: rgba(255, 255, 255, .16); --wood: var(--glass-hi); --dim: var(--ink-2); --err: #ff8577;
     --tab-bg: rgba(255, 255, 255, .07); --tab-line: transparent; --tab-ink: rgba(255, 255, 255, .8); --tab-on-bg: #fff; --tab-on-ink: #0c0e12; --tab-on-line: #fff; --plate: var(--glass); --mark: var(--accent); --coins: var(--accent-2); }
   html, body { background: #0c0e12; }
-  h1, h2, h3, h4, .map-bar b, .bb-top b { letter-spacing: .06em; }
+  h1, h2, h3, h4, .bb-top b { letter-spacing: .06em; }
   h3 small, h2 small, #cf-note { letter-spacing: 0; }
   /* Plates: windows and boxes; those of the HUD are lighter, with their text's shadow */
   .panel { background: var(--glass-hi); border: 0; border-radius: var(--r-m); box-shadow: inset 0 0 0 1px var(--hair), 0 8px 24px rgba(0, 0, 0, .35); }
@@ -1051,8 +1031,8 @@
   .sq:hover:not(:disabled) { color: #0c0e12; background: #fff; }
   button:focus-visible, input:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   /* Tabs, choices and lists: the one chosen is a white bar with dark text */
-  .tabs button, .seg button, .cf-tab, .cf-size, #bb-cats button, .sh-tabs button, #dlg-opts button, .cf-fix, .bb-piece, .map-bar .map-btn { color: rgba(255, 255, 255, .8); background: rgba(255, 255, 255, .07); border-color: transparent; border-radius: var(--r-s); transition: background-color var(--t-sel), color var(--t-sel); }
-  .tabs button:hover, .seg button:hover, .cf-tab:hover, .cf-size:hover, #bb-cats button:hover, .sh-tabs button:hover, #dlg-opts button:hover, .cf-fix:hover:not(:disabled), .bb-piece:hover:not(:disabled), .map-bar .map-btn:hover { color: var(--ink); background: rgba(255, 255, 255, .16); }
+  .tabs button, .seg button, .cf-tab, .cf-size, #bb-cats button, .sh-tabs button, #dlg-opts button, .cf-fix, .bb-piece { color: rgba(255, 255, 255, .8); background: rgba(255, 255, 255, .07); border-color: transparent; border-radius: var(--r-s); transition: background-color var(--t-sel), color var(--t-sel); }
+  .tabs button:hover, .seg button:hover, .cf-tab:hover, .cf-size:hover, #bb-cats button:hover, .sh-tabs button:hover, #dlg-opts button:hover, .cf-fix:hover:not(:disabled), .bb-piece:hover:not(:disabled) { color: var(--ink); background: rgba(255, 255, 255, .16); }
   .tabs button.on, .seg button.on, .cf-tab.on, .cf-size.on, #bb-cats button.on, .sh-tabs button.on, #dlg-opts button.on, .bb-piece.on { color: #0c0e12; background: #fff; border-color: transparent; box-shadow: none; }
   #dlg-opts { gap: 2px; }
   #dlg-opts button { padding: 6px 12px; }
@@ -1103,10 +1083,10 @@
   /* Screens */
   .screen { background: radial-gradient(ellipse at center, rgba(8, 9, 12, .4), rgba(8, 9, 12, .76)); }
   #s-shop { background: rgba(8, 9, 12, .5); }
-  #map-legend-rows i, #hud-wp i { border-color: rgba(8, 9, 12, .85); }
+  #hud-wp i { border-color: rgba(8, 9, 12, .85); }
   .ac-code { background: rgba(255, 255, 255, .08); }
   #title-msg { color: #fff; text-shadow: 0 2px 14px rgba(0, 0, 0, .7), 0 1px 2px rgba(0, 0, 0, .6); }
-  .win, .panel, .box, #j-body, #sh-list, #cf-repair, #bb-pieces, #inv-all-grid, #map-legend, .screen { scrollbar-width: thin; scrollbar-color: rgba(255, 255, 255, .32) transparent; }
+  .win, .panel, .box, #j-body, #sh-list, #cf-repair, #bb-pieces, #inv-all-grid, .screen { scrollbar-width: thin; scrollbar-color: rgba(255, 255, 255, .32) transparent; }
   .floater { text-shadow: 1px 0 #0c0e12, -1px 0 #0c0e12, 0 1px #0c0e12, 0 -1px #0c0e12, 0 2px 3px rgba(0, 0, 0, .4); }
   .tb { background: rgba(10, 12, 16, .62); border-color: rgba(255, 255, 255, .3); color: #fff; }
 </style>
@@ -1285,9 +1265,14 @@
     </div>
     <div class="ps-pane" id="pause-map" data-pane="map">
       <canvas id="bigmap"></canvas>
-        <div id="map-north" class="panel" title="North is up" data-i18n-attr="title:gui.map.north_up">▲<br>N</div>
-        <details id="map-legend" class="panel" open><summary data-i18n="gui.map.legend">Legend</summary><div id="map-legend-rows"></div></details>
-        <div class="map-bar panel"><span id="map-info"></span><button class="sq" id="map-out" aria-label="Zoom out" data-i18n-attr="aria-label:gui.map.zoom_out">−</button><button class="sq" id="map-in" aria-label="Zoom in" data-i18n-attr="aria-label:gui.map.zoom_in">+</button><button class="sq" id="map-home" aria-label="Back to your position" title="Back to your position" data-i18n-attr="aria-label:gui.map.recenter;title:gui.map.recenter">⌖</button><button class="map-btn" id="map-share" hidden data-i18n="map.pin.share">Share the mark</button><button class="map-btn" id="map-route" hidden data-i18n="gui.map.route_clear">Remove route</button></div>
+      <div id="map-cursor" aria-hidden="true"></div>
+      <div id="map-card" hidden></div>
+      <div id="map-where"><div id="map-area"></div><div id="map-info"></div><div class="mw-btns"><button id="map-route" hidden></button><button id="map-share" hidden></button></div></div>
+      <aside id="map-index" hidden data-i18n-attr="aria-label:map.keys.places"><div id="mx-tabs"></div><div id="mx-rows"></div></aside>
+      <aside id="map-side">
+        <div id="map-legend" data-i18n-attr="aria-label:gui.map.legend"></div>
+        <div id="map-tools"><i id="map-north" title="North is up" data-i18n-attr="title:gui.map.north_up"></i><button id="map-out" aria-label="Zoom out" data-i18n-attr="aria-label:gui.map.zoom_out">−</button><span id="map-scale"></span><button id="map-in" aria-label="Zoom in" data-i18n-attr="aria-label:gui.map.zoom_in">+</button><button id="map-home" aria-label="Back to your position" title="Back to your position" data-i18n-attr="aria-label:gui.map.recenter;title:gui.map.recenter">⌖</button></div>
+      </aside>
     </div>
     <div class="ps-pane ps-two" data-pane="brief"><div id="ps-brief-list"></div><div class="ps-page" id="ps-brief"></div></div>
     <div class="ps-pane ps-char" data-pane="char">
@@ -1353,7 +1338,11 @@
           <dl class="ct-list">
             <dt data-i18n-html="controls.map.move.keys"><kbd>WASD</kbd> or drag</dt><dd data-i18n-html="controls.map.move">Move it (<kbd>Shift</kbd>, faster)</dd>
             <dt data-i18n-html="controls.map.zoom.keys"><kbd>+</kbd> <kbd>−</kbd> or wheel</dt><dd data-i18n="controls.map.zoom">Zoom in and out</dd>
-            <dt data-i18n="controls.map.route.keys">Click · right click</dt><dd data-i18n="controls.map.route">Mark a route to that point (near a house, the tavern or a place, it goes to its door) · remove it. A line on the ground and on the minimap leads you there, along roads where it can, and only through land you have explored. «Share the mark» sends it to the players with you; your partner sees your marks by themselves</dd>
+            <dt data-i18n="controls.map.route.keys">Click · right click</dt><dd data-i18n="controls.map.route">Mark a route to that point (near a house, the tavern or a place, it goes to its door) · remove it. A line on the ground and on the minimap leads you there, along roads where it can, and only through land you have explored. «Share the mark» sends it to the players with you; your partner sees your route by themselves</dd>
+            <dt data-i18n-html="controls.map.marks.keys"><kbd>R</kbd> <kbd>N</kbd></dt><dd data-i18n="controls.map.marks">A mark of your own (up to 10) where the ring is. Over one of yours, R changes its drawing, R held removes it and N names it. Your partner sees them too</dd>
+            <dt><kbd>L</kbd></dt><dd data-i18n="controls.map.places">Index of places, the nearest first: going over one takes the map there; Enter or a click marks the route</dd>
+            <dt><kbd>F</kbd></dt><dd data-i18n="controls.map.filters">The filters: what is shown or hidden on both maps (also with a click on the list)</dd>
+            <dt data-i18n-html="controls.map.keyboard.keys"><kbd>Enter</kbd> <kbd>X</kbd> <kbd>G</kbd> <kbd>Space</kbd></dt><dd data-i18n="controls.map.keyboard">With the keyboard: mark the route to what is in the ring, remove it, share it with those playing with you, go back to where you are</dd>
             <dt>⌖</dt><dd data-i18n="gui.map.recenter">Back to your position</dd>
           </dl>
       </div>

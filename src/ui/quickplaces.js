@@ -128,7 +128,7 @@ export class QuickPlaces {
     keys.use = false;
     g.archery?.cancel?.();
     this.rows = known(g);
-    if (R?.active) { this.rows.length = Math.min(this.rows.length, MAX); this.rows.unshift({ clear: true, name: t('map.keys.clear'), glyph: 'pin', color: 'var(--accent)', d: R.left() }); }
+    if (R?.active) { this.rows.length = Math.min(this.rows.length, MAX); this.rows.unshift({ clear: true, name: t('map.keys.clear'), glyph: 'pin', color: 'var(--route, var(--accent))', d: R.left() }); }
     this.paint();
     for (const [type, fn] of this.listeners) addEventListener(type, fn, { capture: true, passive: false });
     document.body.classList.add('quick-open');

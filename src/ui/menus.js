@@ -26,6 +26,7 @@ import { FE, alertBox, initMenuSounds, tabStrip, list, optionRow, legend, paneNa
 import { initMainMenu, initCredits, dateText, versionText } from './mainmenu.js';
 import { KeyArt } from './keyart.js';
 import { initPauseHub } from './pausehub.js';
+import { initMapScreen } from './mapscreen.js';
 import { useAccent, accentOf, ACCENTS, ACCENT_IDS } from './skin.js';
 import { t, fmt, LANGS, getLang, onLangChange, applyDom, setAccountLang, accountLangOf, savedLang } from '../i18n.js';
 
@@ -853,52 +854,9 @@ export function initMenus(game) {
   // ---------- Mapa ----------
   // (the pause's Map tab: src/ui/pausehub.js)
   const toggleMap = () => toggleTab('map');
-  const zoom = (d, x, y) => game.map.zoomAt(d, x, y);
-  $('map-in').onclick = () => zoom(1);
-  $('map-out').onclick = () => zoom(-1);
-  $('map-home').onclick = () => game.map.recenter();
+  // (what is round the map, its mouse and its keys: src/ui/mapscreen.js)
+  const mapScreen = initMapScreen(game);
   $('minimap').onclick = toggleMap;
-  // The marked route (Plan J §4.2, route.js): remove it, or share its pin with everyone playing with you
-  if ($('map-route')) $('map-route').onclick = () => game.route?.clear('user');
-  if ($('map-share')) $('map-share').onclick = () => game.route?.share();
-  // Arrastrar con el ratón (o el dedo) mueve el mapa
-  // (a click that hardly moved, < 5 px and < 350 ms, marks a route there or snaps to a spot: route.pickAt; dragging still
-  // pans. Right click on the map removes the route; in play right click is the greeting, untouched)
-  const big = $('bigmap');
-  let drag = null;
-  const CLICK_PX = 5, CLICK_MS = 350;
-  big.addEventListener('pointerdown', e => {
-    if (e.button !== 0 && e.pointerType === 'mouse') return;   // (only the left button drags or clicks)
-    drag = { x: e.clientX, y: e.clientY, x0: e.clientX, y0: e.clientY, at: performance.now(), far: false };
-    try { big.setPointerCapture(e.pointerId); } catch { /* a pointer no longer down */ }
-    big.classList.add('dragging');
-  });
-  big.addEventListener('pointermove', e => {
-    if (!drag) return;
-    game.map.scroll(-(e.clientX - drag.x), -(e.clientY - drag.y));
-    drag.x = e.clientX; drag.y = e.clientY;
-    if (Math.hypot(e.clientX - drag.x0, e.clientY - drag.y0) >= CLICK_PX) drag.far = true;
-  });
-  const endDrag = () => { drag = null; big.classList.remove('dragging'); };
-  big.addEventListener('pointerup', e => {
-    const d = drag;
-    endDrag();
-    if (!d || d.far || performance.now() - d.at > CLICK_MS || game.mode !== 'map') return;
-    const at = game.map.toWorld(e.clientX, e.clientY);
-    if (at) game.route?.pickAt(at[0], at[1], e.clientX, e.clientY);
-  });
-  big.addEventListener('pointercancel', endDrag);
-  big.addEventListener('contextmenu', e => { e.preventDefault(); if (game.mode === 'map') game.route?.clear('user'); });
-  // La rueda acerca hacia donde está el ratón (lo que se mueve poco a poco, como un trackpad, se va sumando)
-  let wheel = 0;
-  big.addEventListener('wheel', e => {
-    e.preventDefault();
-    wheel += e.deltaMode ? e.deltaY * 40 : e.deltaY;
-    if (Math.abs(wheel) < 40) return;
-    zoom(wheel < 0 ? 1 : -1, e.clientX, e.clientY);
-    wheel = 0;
-  }, { passive: false });
-  $('map-legend').open = innerWidth > 700;   // (en una pantalla estrecha, plegada)
   // Pause › Game › Save and quit to menu: after asking
   async function quitToMenu() {
     const g = game.player;
@@ -1053,5 +1011,5 @@ export function initMenus(game) {
   }
   // (the Esc that let go of the captured pointer has already opened the pause: not the one that closes it)
   const frontKey = e => (e.code === 'Escape' && FE.active() && performance.now() - aimLock.exitAt < 400 ? true : FE.key(e));
-  return { boot, frontKey, togglePause, toggleMap, zoomMap: zoom, toggleInventory, toggleCraft, toggleJournal };
+  return { boot, frontKey, togglePause, toggleMap, zoomMap: mapScreen.zoom, toggleInventory, toggleCraft, toggleJournal };
 }

@@ -23,7 +23,7 @@ import { faults, resetFaults } from './faults.js';
 import { CHUNK, WorldGen, WORLD_SEED } from './world/gen.js';
 import { Sites, sitesFor, LegacyPlaces, SITE_TIERS, READY, TIERS } from './world/sites.js';
 import { nameOf, stateOf, storyOf, ROOT_COUNT, QUAL_COUNT } from './world/names.js';
-import { freeze, freezeMore, readPlaces, touched, boxOf, gap, NEAR_FROZEN } from './world/frozenplaces.js';
+import { freeze, freezeMore, readPlaces, touched, boxOf, gap, NEAR_FROZEN, KEEP_FOUND } from './world/frozenplaces.js';
 import { placesHtml } from './ui/placespage.js';
 import * as LS from './livesync.js';
 import { shapesOf as chunkShapes } from './world/shots.js';
@@ -66,7 +66,7 @@ import { Settings, DEFAULTS } from './settings.js';
 import { settingsRows } from './ui/settings.js';
 import { FE, alertBox, tabStrip, list, optionRow, legend } from './ui/frontend.js';
 import { GLYPHS } from './ui/glyphs.js';
-import { ACCENTS, accentOf, useAccent, skinNow, applySkin } from './ui/skin.js';
+import { ACCENTS, accent, accentOf, useAccent, skinNow, applySkin } from './ui/skin.js';
 import { LOOK_OPTIONS } from './looks.js';
 import { MENU_ITEMS, whenText, dayAndSeason, lookOf } from './ui/mainmenu.js';
 import { KeyArt, KEY_ART, artNow, artOf } from './ui/keyart.js';
@@ -1312,7 +1312,7 @@ async function soloTests(game) {
       check($('bigmap').dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true })) === false && H.isOpen, 'a right click on the map closes the pause');
       // The header and the legend
       check($('ps-name').textContent === p().name && $('ps-when').textContent.includes(t(`nature.season.${game.days.localSeason}`)) && $('ps-money').textContent === t('gui.pause.money', { n: game.money }), `header: ${$('ps-when').textContent} ${$('ps-money').textContent}`);
-      check([...$('ps-legend').querySelectorAll('.fe-key')].some(k => k.textContent.includes(t('gui.legend.route'))), 'the legend of the map');
+      check([...$('ps-legend').querySelectorAll('.fe-key')].some(k => k.textContent.includes(t('map.keys.dest'))), 'the legend of the map');
       const closeKey = [...$('ps-legend').querySelectorAll('button')].pop(); check(closeKey, 'no Esc in the legend'); closeKey.click(); check(!H.isOpen, 'the legend\'s Esc cannot be clicked');
     } finally { if (H.isOpen) H.close(); clearKeys(); }
   });
@@ -1532,7 +1532,7 @@ async function soloTests(game) {
   await test('menu (english): settings: every setting has its row, changes live and goes back to its default; none lost', () => keepSettings(async () => {
     const H = game.pauseHub, where = {}, seen = [];
     for (const [tab, defs] of Object.entries(settingsRows)) for (const d of defs) { check(!where[d.id], `${d.id} twice`); where[d.id] = tab; }
-    const keysOf = { lang: 'lang', master: 'master', music_on: 'musicOn', music_mode: 'musicMode', music: 'music', sfx: 'sfx', menu_sfx: 'menuSfx', scale: 'scale', hud: 'hud', skin: 'skin', prompts: 'prompts', feed: 'feed', big_text: 'bigText', no_flash: 'noFlash', blood: 'blood', ride: 'ride', motion: 'motion', hints: 'hints', remarks: 'remarks' };
+    const keysOf = { lang: 'lang', master: 'master', music_on: 'musicOn', music_mode: 'musicMode', music: 'music', sfx: 'sfx', menu_sfx: 'menuSfx', scale: 'scale', hud: 'hud', skin: 'skin', prompts: 'prompts', feed: 'feed', blip_size: 'blipSize', route_col: 'routeCol', big_text: 'bigText', no_flash: 'noFlash', blood: 'blood', ride: 'ride', motion: 'motion', hints: 'hints', remarks: 'remarks' };
     const all = Object.keys(DEFAULTS).filter(k => !Object.values(keysOf).includes(k)); check(!all.length, `without a row: ${all}`);
     for (const id of [...Object.keys(keysOf), 'fullscreen', 'accent']) check(where[id], `no row for ${id}`);
     for (const [tab, defs] of Object.entries(settingsRows)) {
@@ -2973,17 +2973,17 @@ async function soloTests(game) {
     const [, up] = M.toScreen(p().x, p().y - 10, p().x, p().y), [, down] = M.toScreen(p().x, p().y + 10, p().x, p().y), [left] = M.toScreen(p().x - 10, p().y, p().x, p().y), [right] = M.toScreen(p().x + 10, p().y, p().x, p().y);
     check(up < down && left < right, 'el norte no está arriba');
     check(M.labels.includes('Tú') && M.labels.includes('Casa de Rosa'), `nombres: ${M.labels.join(', ')}`);
-    M.zoom = 8; M.recenter(); M.scroll(0, -M.tile * 2); M.drawBig(gen, game.explored, HOUSE.x0 + 6, HOUSE.y0 + 5, 0); check(M.labels.includes('Tu casa'), `sin tu casa: ${M.labels.join(', ')}`);
+    M.zoom = 5; M.recenter(); M.scroll(0, -M.tile * 2); M.drawBig(gen, game.explored, HOUSE.x0 + 6, HOUSE.y0 + 5, 0); check(M.labels.includes('Tu casa'), `sin tu casa: ${M.labels.join(', ')}`);
     M.recenter(); M.zoom = 3;
     // (lo que hay bajo el ratón se queda bajo el ratón al acercar)
     const sx = innerWidth / 2 + 90, sy = innerHeight / 2 - 40, cx = p().x + M.pan.x, cy = p().y + M.pan.y, wx = cx + (sx - innerWidth / 2) / M.tile, wy = cy + (sy - innerHeight / 2) / M.tile;
-    M.zoomAt(2, sx, sy);
+    M.zoomAt(1, sx, sy); M.endZoom();
     const nx = p().x + M.pan.x + (sx - innerWidth / 2) / M.tile, ny = p().y + M.pan.y + (sy - innerHeight / 2) / M.tile;
-    check(M.zoom === 5 && Math.abs(nx - wx) < 0.01 && Math.abs(ny - wy) < 0.01, `se ha movido: ${wx},${wy} → ${nx},${ny}`);
-    M.zoomAt(99); check(M.zoom === 8, 'el zoom se pasa'); M.zoomAt(-99); check(M.zoom === 1, 'el zoom se pasa por abajo');
+    check(M.zoom === 4 && Math.abs(nx - wx) < 0.01 && Math.abs(ny - wy) < 0.01, `se ha movido: ${wx},${wy} → ${nx},${ny}`);
+    M.zoom = 99; check(M.zoom === 5 && M.tile === 16, 'el zoom se pasa'); check(!M.zoomAt(1), 'y sigue'); M.zoom = -3; check(M.zoom === 0 && M.tile === 0.5, 'el zoom se pasa por abajo');
     // (arrastrar 40 píxeles a la derecha mueve la vista lo mismo, con el zoom que sea)
-    M.recenter(); M.zoom = 4; M.scroll(40, 0); check(Math.abs(M.pan.x - 40 / M.tile) < 0.01 && M.pan.y === 0, 'el arrastre no sigue al ratón');
-    const legend = document.getElementById('map-legend-rows').textContent; check(legend.includes('Tu casa') && legend.includes('Pradera'), `leyenda: ${legend}`);
+    M.recenter(); M.zoom = 3; M.scroll(40, 0); check(Math.abs(M.pan.x - 40 / M.tile) < 0.01 && M.pan.y === 0, 'el arrastre no sigue al ratón');
+    const legend = document.getElementById('map-legend').textContent; check(legend.includes('Tu casa') && legend.includes('Pradera'), `leyenda: ${legend}`);
     M.recenter(); M.zoom = was; M.people = [];
   });
   // ---------- the maps' pipeline (Plan R8-2: world/satpixels.js, ui/sattiles.js, ui/mapoverlay.js, ui/blips.js) ----------
@@ -3028,10 +3028,10 @@ async function soloTests(game) {
       const all = game.explored; game.explored = some; try { game.minimap.drawGround(); game.minimap.drawUpright(blips.list); } finally { game.explored = all; game.minimap.kick(); }
       M.bigKey = ''; M.drawBig(gen, some, p().x, p().y, 0);
       check(asked.length && asked.every(k => some.has(k)), `asked for ${[...new Set(asked)].join(' ')}`);
-      // (the widest zooms: put together once, then one image however much it moves within its margin)
-      const g = document.createElement('canvas').getContext('2d'); asked.length = 0; M.wide = null; M.now = performance.now() / 1000; M.built.begin(5); M.drawWide(g, gen, some, p().x, p().y, 2000, 1400, 2); const n1 = asked.length;
-      M.drawWide(g, gen, some, p().x + 40, p().y, 2000, 1400, 2); check(n1 > 0 && n1 <= some.size && asked.length === n1, `wide: ${n1}, then ${asked.length}`);
-      M.drawWide(g, gen, some, p().x + 200, p().y, 2000, 1400, 2); check(asked.length > n1 || !some.size, 'out of its margin it is not made again'); M.wide = null;
+      // (the land of the big map: asked for once, then one image however much it moves within its margin)
+      const g = document.createElement('canvas').getContext('2d'), see = dx => M.ground.draw(g, { gen, explored: some, cx: p().x + dx, cy: p().y, a: 1, w: 1000, h: 700, r: 1 });
+      M.now = performance.now() / 1000; M.ground.free(); asked.length = 0; see(0); const n1 = asked.length; M.ground.scanFrom = -1; M.ground.scanAt = M.now; see(20); check(n1 > 0 && new Set(asked).size <= some.size && M.ground.stats.moved === (see.n ||= M.ground.stats.moved), `land: ${n1}, then ${asked.length}`);
+      see(200); check(M.ground.stats.moved === see.n + 1, 'out of its margin it is not moved'); M.ground.free();
     } finally { M.tiles.get = real; M.bigKey = ''; }
     // Something felled there: its signature changes
     const s0 = T.sigOf('sat', 5, 5), d = w().delta(5, 5, true); d.removed['0.50,0.50'] = 0; d.v++;
@@ -3231,7 +3231,7 @@ async function soloTests(game) {
       check(await miniOn() && vis('minimap') && !vis('hud-compass'), 'fade, the full interface: the map is not there');
       R.set({ x: p().x + 60, y: p().y, kind: 'point' }, { quiet: true }); for (let i = 0; i < 30 && !m.dist.textContent; i++) { draw(); await sleep(30); }
       check(/^\d+ m$/.test(m.dist.textContent), `the distance: ${m.dist.textContent}`);
-      Settings.v.mini = 'compass'; m.compass.at = -1e9; draw();
+      Settings.v.mini = 'compass'; m.compass.at = -1e9; blips.refresh(game, performance.now() / 1000, true); draw();
       check(!vis('minimap') && vis('hud-compass') && !m.shown, 'compass: the map is there, or the strip is not');
       const mark = document.querySelector('#hud-compass .hc-mark.on'); check(mark && /\d+ m/.test(mark.textContent), `the route's mark: ${mark?.textContent}`);
       CAM.yaw = -Math.PI / 2; draw(); check(Math.abs(parseFloat(m.compass.marks[0].el.style.translate)) < 12, `looking east, at it: ${m.compass.marks[0].el.style.translate}`);
@@ -3297,6 +3297,185 @@ async function soloTests(game) {
       // Alone, slow motion; a blur lets it go
       await hold(); check(Q.open, 'not open again'); dispatchEvent(new Event('blur')); check(!Q.open && Q.pressAt === null, 'a blur leaves it open'); miniKey('keyup', 'KeyM'); check(game.mode === 'play', 'and its letting go opens the map');
     } finally { blips.static('quick-test', null); Q.cancel(); Q.swallowBtn = null; R.clear('user'); if (game.mode === 'map') game.pauseHub.close(); clearKeys(); game.timeScale = 1; }
+  });
+  // ---------- R8-4: the big map's screen (src/ui/map.js, mapground.js, mapscreen.js) and your own marks (src/mapmarks.js) ----------
+  const MS = () => game.map.screen, mapEl = id => document.getElementById(id);
+  const mapMove = (x, y) => mapEl('bigmap').dispatchEvent(new PointerEvent('pointermove', { clientX: x, clientY: y, pointerId: 1, pointerType: 'mouse', bubbles: true }));
+  const mapOpen = async () => { if (!game.pauseHub.isOpen) game.pauseHub.open('map'); await frames(2); draw(); check(game.mode === 'map', `the map does not open: ${game.mode}`); };
+  const freeSpot = () => { let x = innerWidth / 2 - 60, y = innerHeight / 2 + 70; for (let k = 0; k < 40 && game.map.spotAt(x, y, 30); k++) { x -= 11; y += 5; } return [x, y]; };
+  await test('map ladder (english): six steps, 0.5 to 16 px per tile, eased round the cursor; the wheel, + and −, the buttons', async () => {
+    await goTo(game, CENTER.x, CENTER.y);
+    const M = game.map, was = M.zoom, names = [];
+    try {
+      await mapOpen(); M.zoom = 5; M.recenter(); draw();
+      const wheel = d => mapEl('bigmap').dispatchEvent(new WheelEvent('wheel', { deltaY: d, clientX: 420, clientY: 300, bubbles: true, cancelable: true }));
+      const px = [M.tile]; names.push(mapEl('map-scale').textContent); check(mapEl('map-in').disabled, '+ is on at the closest');
+      for (let i = 0; i < 6; i++) { const at = M.toWorld(420, 300); wheel(120); await sleep(100); M.endZoom(); draw(); px.push(M.tile); names.push(mapEl('map-scale').textContent); const q = M.toWorld(420, 300); if (i < 5 && px[i + 1] >= 4) check(Math.hypot(q[0] - at[0], q[1] - at[1]) < 0.6, `what was under the cursor moved ${Math.hypot(q[0] - at[0], q[1] - at[1]).toFixed(2)} tiles at ${M.tile}`); }
+      check(px.join() === '16,8,4,2,1,0.5,0.5' && mapEl('map-out').disabled, `steps: ${px}`);
+      check(new Set(names.slice(0, 6)).size === 6 && names[0] === t('map.zoom.street') && names[5] === t('map.zoom.world'), `names: ${names}`);
+      mapEl('map-in').click(); check(M.zoom === 1 && M.zooming && M.tile < 1, 'the button does not ease in'); M.endZoom(); check(M.tile === 1, `${M.tile}`);
+      pauseKey('Equal', { key: '+' }); pauseKey('Minus', { key: '-' }); M.endZoom(); check(M.zoom === 1, 'the keys');
+      // Reduced motion: at once
+      const mo = Settings.v.motion; Settings.v.motion = 'reduced'; try { M.zoomAt(1); check(!M.zooming && M.tile === 2, 'it eases'); } finally { Settings.v.motion = mo; }
+      // Space comes back to you
+      M.zoom = 3; M.recenter(); M.scroll(400, 0); draw(); check(M.moved && !mapEl('map-home').disabled, 'not moved'); pauseKey('Space', { key: ' ' }); check(M.flying, 'Space'); M.flying.t0 = -1e9; draw(); check(!M.moved && !M.flying && mapEl('map-home').disabled, 'not back');
+    } finally { M.zoom = was; M.recenter(); game.pauseHub.close(); }
+  });
+  await test('map ground (english): panning draws one image; only what comes into sight, changes or is explored is painted; its memory is bounded and given back', async () => {
+    await goTo(game, CENTER.x, CENTER.y);
+    const M = game.map, G = M.ground, was = M.zoom, all = game.explored, seen = new Set(all), cx = Math.floor(p().x / CHUNK), cy = Math.floor(p().y / CHUNK);
+    for (let j = -9; j <= 9; j++) for (let i = -14; i <= 14; i++) seen.add(`${cx + i},${cy + j}`);
+    seen.delete(`${cx + 2},${cy + 1}`);
+    try {
+      game.explored = seen; await mapOpen(); M.zoom = 3; M.recenter(); draw();
+      await mapArrives(() => { draw(); return G.cells.length && G.cells.every(q => q.best) && !G.busy; });
+      check(G.cells.length > 100 && G.cells.every(q => q.src && q.best), `painted: ${G.cells.filter(q => q.best).length} of ${G.cells.length}`);
+      const n = { ...G.stats }; for (let i = 0; i < 10; i++) { M.scroll(4, 2); draw(); }
+      check(G.stats.made === n.made && G.stats.painted === n.painted, `panning made ${G.stats.made - n.made}, painted ${G.stats.painted - n.painted}`);
+      const moved = G.stats.moved, cells = G.cells.length; M.scroll(innerWidth * 0.2 + 260, 0); draw(); check(G.stats.moved === moved + 1 && G.stats.made === n.made && G.stats.painted - n.painted < cells, `to the edge: moved ${G.stats.moved - moved}, painted ${G.stats.painted - n.painted} of ${cells}`);
+      // A chunk explored meanwhile; until then it is dark, with its grid
+      M.recenter(); draw(); const [sx, sy] = M.toScreen((cx + 2.5) * CHUNK, (cy + 1.5) * CHUNK, ...M.center), r = M.big.width / innerWidth, dot = () => [...M.big.getContext('2d').getImageData(Math.round(sx * r) + 3, Math.round(sy * r) + 3, 1, 1).data].slice(0, 3).join();
+      check(dot() === '13,16,22', `the unexplored shows ${dot()}`);
+      const before = G.stats.painted; seen.add(`${cx + 2},${cy + 1}`); await mapArrives(() => { draw(); return G.cells.some(q => q.kx === cx + 2 && q.ky === cy + 1 && q.best); }); draw();
+      check(dot() !== '13,16,22' && G.stats.painted - before < 40, `explored: ${dot()}, painted ${G.stats.painted - before}`);
+      // Idle: next to nothing is drawn
+      await mapArrives(() => { draw(); return !G.busy; }); const d = M.drawn, t0 = performance.now(); let frame = 0; while (performance.now() - t0 < 1500) { draw(); frame++; await frames(1); }
+      check(M.drawn - d < 12, `idle, it was drawn ${M.drawn - d} times in ${frame} frames`);
+      // Every step fits in its memory, and closing gives it back
+      for (let z = 0; z < 6; z++) { M.zoom = z; draw(); check(G.bytes <= 24e6, `${M.tile} px: ${(G.bytes / 1e6).toFixed(1)} MB`); }
+      check(M.tiles.bytes < 20e6, `pictures: ${(M.tiles.bytes / 1e6).toFixed(1)} MB`);
+      game.pauseHub.close(); check(G.bytes <= 4 && !G.cells.length, `closed: ${G.bytes}`);
+    } finally { game.explored = all; M.zoom = was; M.recenter(); if (game.pauseHub.isOpen) game.pauseHub.close(); }
+  });
+  await test('map filters (english): hiding Animals removes the horse from both maps and keeps it in the legend, dimmed; a row alone; Show all; kept', async () => {
+    await goTo(game, CENTER.x, CENTER.y);
+    const M = game.map, was = Settings.v.mapHide, horse = 'Trueno de prueba';
+    blips.static('filters-test', [{ kind: 'horse', x: p().x + 14, y: p().y + 18, pri: 70, glyph: 'horse', color: '#e0b27c', name: horse, filter: 'animals', legend: 'map.legend.horse', mini: true, to: { x: p().x + 14, y: p().y + 18, kind: 'point' } }, { kind: 'dog', x: p().x + 24, y: p().y + 14, pri: 71, glyph: 'dog', color: '#e6cfa4', name: 'Can', filter: 'animals', legend: 'map.legend.pets', mini: true }]);
+    const row = label => MS().rows.find(q => q.el.textContent.startsWith(label)), hits = () => { blips.refresh(game, 0, true); M.bigKey = ''; draw(); return M.hits.map(q => q.name); };
+    try {
+      blips.setHide([]); await mapOpen(); M.zoom = 3; M.recenter(); check(hits().includes(horse), 'the horse is not there');
+      row(t('map.legend.group.animals')).el.click();
+      check(!hits().includes(horse) && !hits().includes('Can') && hits().includes(t('gui.map.home')), `hidden: ${M.hits.map(q => q.name)}`);
+      check(!blips.list.filter(b => blips.shown(b) && b.mini).some(b => b.name === horse), 'the minimap shows it');
+      check(row(t('map.legend.horse')).el.classList.contains('off') && row(t('map.legend.group.animals')).el.classList.contains('off'), 'not dimmed in the legend');
+      check(JSON.parse(localStorage.getItem('pueblo-brotes:ajustes')).mapHide.join() === 'g:animals', 'not kept');
+      row(t('map.legend.horse')).el.click(); check(hits().includes(horse) && !hits().includes('Can'), 'one of a hidden group alone'); row(t('map.legend.horse')).el.click(); check(!hits().includes(horse), 'hidden again');
+      // The route is never hidden; Show all brings everything back, with the keyboard
+      game.route.set({ x: p().x + 40, y: p().y, kind: 'point' }); row(t('map.legend.group.places')).el.click(); blips.setHide([...blips.hide, 'g:markers']); hits(); check(M.hits.some(q => q.pin === 'route') && !M.hits.some(q => q.name === t('gui.map.home')), 'the route, or the house');
+      pauseKey('KeyF'); check(document.querySelectorAll('#map-legend .ml.sel').length === 1, 'F');
+      while (!document.querySelector('#map-legend .ml.sel').classList.contains('all')) pauseKey('ArrowUp'); pauseKey('Enter', { key: 'Enter' }); check(!blips.hide.size && hits().includes(horse), 'Show all'); const pan = M.pan.x; pauseKey('Escape'); check(game.pauseHub.isOpen && !document.querySelector('#map-legend .ml.sel') && M.pan.x === pan, 'Esc leaves the filters only');
+      // An old or a wrong setting is all shown
+      for (const bad of [undefined, 'x', [3, null]]) { blips.setHide(Array.isArray(bad) ? bad.filter(k => typeof k === 'string') : []); check(!blips.hide.size, 'a wrong setting'); }
+    } finally { blips.static('filters-test', null); blips.setHide([]); Settings.set('mapHide', was || []); game.route.clear('user'); if (game.pauseHub.isOpen) game.pauseHub.close(); }
+  });
+  await test('map cursor (english): the ring catches what it is over, with its card; the keyboard alone: the middle and Enter; what is under it', async () => {
+    await goTo(game, CENTER.x, CENTER.y);
+    const M = game.map, R = game.route, was = M.zoom;
+    try {
+      R.clear('user'); await mapOpen(); M.zoom = 4; M.recenter(); draw();
+      const home = M.hits.find(q => q.name === t('gui.map.home')) || M.hits.find(q => q.to), card = mapEl('map-card');
+      mapMove(home.sx + 8, home.sy - 7); draw(); check(MS().hover === M.hits.find(q => q.name === home.name) && MS().at.join() === `${home.sx},${home.sy}`, `no snap: ${MS().at}`);
+      check(!card.hidden && card.textContent.includes(home.name) && /\d/.test(card.querySelector('em').textContent) && card.textContent.includes(t('map.keys.dest')), `card: ${card.textContent}`);
+      const box = card.getBoundingClientRect(); check(box.left >= 0 && box.top >= 0 && box.right <= innerWidth && box.bottom <= innerHeight, 'the card is off the screen');
+      // A closed shop says so
+      const D = game.days; try { Object.defineProperty(D, 'hour', { value: 3, configurable: true }); blips.refresh(game, 0, true); draw(); const shop = M.hits.find(q => q.kind === 'shop'); if (shop) { mapMove(shop.sx, shop.sy); draw(); check(card.textContent.includes(shop.sub) && shop.dim, `shop: ${card.textContent}`); } } finally { delete D.hour; blips.refresh(game, 0, true); }
+      const [x, y] = freeSpot(); mapMove(x, y); draw(); check(!MS().hover && card.hidden && mapEl('map-area').textContent.length > 2, 'a card over nothing');
+      // Land never explored has no name
+      const all = game.explored; try { game.explored = new Set(); draw(); check(mapEl('map-area').textContent.startsWith(t('map.unexplored')), `it says ${mapEl('map-area').textContent}`); } finally { game.explored = all; }
+      // The keyboard: moving the map puts the ring in the middle, and Enter goes there
+      pauseKey('KeyD', { held: true }); await frames(6); dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyD', bubbles: true })); draw(); check(MS().at && (MS().hover || MS().at[0] === innerWidth / 2), `the ring: ${MS().at}`);
+      M.recenter(); M.scroll(0, 300); draw(); const at = M.toWorld(...MS().at); pauseKey('Enter', { key: 'Enter' }); check(R.active, 'Enter sets nothing'); draw();
+      if (!R.target.id) check(Math.hypot(R.target.x - at[0], R.target.y - at[1]) < 0.6, `Enter: ${JSON.stringify(R.target)} / ${at}`);
+      check(!mapEl('map-route').hidden, 'no Remove route'); pauseKey('KeyX'); check(!R.active, 'X'); draw(); check(mapEl('map-route').hidden, 'it stays');
+    } finally { M.zoom = was; M.recenter(); R.clear('user'); if (game.pauseHub.isOpen) game.pauseHub.close(); }
+  });
+  await test('map markers (english): R adds a marker, R over it changes it, R held removes it, N names it; the 11th replaces the oldest; saved; an old save loads with []', async () => {
+    await goTo(game, CENTER.x, CENTER.y);
+    const M = game.map, K = game.marks, was = K.list, z = M.zoom, up = c => dispatchEvent(new KeyboardEvent('keyup', { code: c, bubbles: true }));
+    try {
+      K.list = []; await mapOpen(); M.zoom = 3; M.recenter(); draw();
+      const [x, y] = freeSpot(), at = M.toWorld(x, y); mapMove(x, y); draw();
+      pauseKey('KeyR'); draw(); check(K.list.length === 1 && Math.hypot(K.list[0].x - at[0], K.list[0].y - at[1]) < 0.01 && K.list[0].g === 'star', `R: ${JSON.stringify(K.list)}`);
+      const hit = M.hits.find(q => q.mark === K.list[0].id); check(hit && MS().hover === hit && mapEl('map-card').textContent.includes(t('map.card.mark_mine')), 'it is not on the map, or its card is not');
+      check(known(game, 99).some(q => q.name === t('map.marker.star')) || Math.hypot(at[0] - p().x, at[1] - p().y) < 6, 'it is not among the places near');
+      pauseKey('KeyR'); draw(); check(K.list.length === 1 && K.list[0].g === 'flag', `R again: ${JSON.stringify(K.list)}`);
+      for (let i = 0; i < 7; i++) { pauseKey('KeyR'); draw(); } check(K.list[0].g === 'star', `round: ${K.list[0].g}`);
+      // Its name: typing is not keys; Enter keeps it, Esc does not
+      pauseKey('KeyN', { held: true }); let input = document.querySelector('#map-card input'); check(input && document.activeElement === input && MS().editing, 'N');
+      input.value = 'Mina buena ' + 'x'.repeat(40); input.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyQ', key: 'q', bubbles: true, cancelable: true })); check(game.pauseHub.tab === 'map', 'typing changed tab');
+      input.dispatchEvent(new KeyboardEvent('keydown', { code: 'Enter', key: 'Enter', bubbles: true, cancelable: true })); draw(); check(K.list[0].n === ('Mina buena ' + 'x'.repeat(40)).slice(0, 24) && !MS().editing && game.pauseHub.isOpen && !game.route.active, `name: ${K.list[0].n}`);
+      pauseKey('KeyN', { held: true }); input = document.querySelector('#map-card input'); input.value = 'no'; input.dispatchEvent(new KeyboardEvent('keydown', { code: 'Escape', key: 'Escape', bubbles: true, cancelable: true })); draw(); check(K.list[0].n.startsWith('Mina') && game.pauseHub.isOpen && !MS().editing, 'Esc keeps it, or closes the map');
+      // Enter on it goes there, with its name
+      pauseKey('Enter', { key: 'Enter' }); check(game.route.target?.name === K.list[0].n, `route: ${JSON.stringify(game.route.target)}`); game.route.clear('user');
+      // Held: gone
+      pauseKey('KeyR', { held: true }); await sleep(620); up('KeyR'); draw(); check(!K.list.length, 'held, it stays');
+      // Ten; the eleventh asks first, and then the oldest goes
+      for (let i = 0; i < 10; i++) K.add(p().x + 3 * i, p().y + 40, 'fish'); const first = K.list[0]; blips.refresh(game, 0, true); M.recenter(); draw();
+      const [fx, fy] = freeSpot(); mapMove(fx, fy); draw(); pauseKey('KeyR'); draw(); check(K.list.length === 10 && K.list[0] === first && mapEl('map-card').textContent.includes(t('map.marker.full')), 'the eleventh does not ask');
+      pauseKey('KeyR'); draw(); check(K.list.length === 10 && !K.list.includes(first), 'the eleventh');
+      // Saved, two decimals, and back; an old save, or nonsense, loads with none
+      K.list[0].n = 'Aquí'; const out = {}; K.save(out); check(out.mapMarks.length === 10 && out.mapMarks[0].n === 'Aquí' && Object.keys(out.mapMarks[1]).join() === 'x,y,g', JSON.stringify(out.mapMarks[0])); check(game.snapshot().mapMarks.length === 10, 'not in the snapshot');
+      K.reset(JSON.parse(JSON.stringify(out))); check(K.list.length === 10 && K.list[0].n === 'Aquí' && K.list[1].g === 'fish', 'not loaded');
+      for (const bad of [{}, null, { mapMarks: 5 }, { mapMarks: [null, 3, { x: NaN, y: 1 }, { x: 1, y: NORTH - 9 }] }]) { K.reset(bad); check(!K.list.length, JSON.stringify(bad)); const o = {}; K.save(o); check(!('mapMarks' in o), 'none, and it is saved'); }
+      K.reset({ mapMarks: Array.from({ length: 30 }, (_, i) => ({ x: i, y: 1, g: 'what', n: 'n\u0007'.repeat(40) })) }); check(K.list.length === 10 && K.list[0].g === 'star' && K.list[0].n.length === 24 && !K.list[0].n.includes('\u0007'), JSON.stringify(K.list[0]));
+    } finally { K.list = was; K.changed(); M.zoom = z; M.recenter(); game.route.clear('user'); if (game.pauseHub.isOpen) game.pauseHub.close(); }
+  });
+  await test('map markers (english): your couple has them, nobody else; what comes is checked, shown small in their colour, and goes with them', async () => {
+    const K = game.marks, L = game.live, S = game.social, was = K.list, peers = L.peers, joined = Object.getOwnPropertyDescriptor(L, 'joined'), net = L.net, IP = S.isPartner, AC = S.areCouple, sent = [];
+    const bea = { id: 'bea', name: 'Bea', playing: true, sc: 'world', entity: { x: p().x + 9, y: p().y, accent: 2, gm: 0 } }, ciro = { id: 'ciro', name: 'Ciro', playing: true, sc: 'world', entity: { x: p().x - 9, y: p().y, accent: 5, gm: 0 } };
+    const theirs = () => { blips.refresh(game, 0, true); return blips.list.filter(b => b.kind === 'mark' && b.who); }, tick = () => { K.at = -Infinity; K.update(); };
+    try {
+      L.peers = new Map([[901, bea], [902, ciro]]); Object.defineProperty(L, 'joined', { value: true, configurable: true, writable: true }); L.net = { send: (m, c) => sent.push([m, c]) };
+      S.isPartner = q => q === bea; S.areCouple = (a, b) => [a, b].includes('bea');
+      K.list = []; K.told.clear(); tick(); check(!sent.length, 'nothing to say, and it says it');
+      K.add(p().x + 30, p().y, 'deer'); K.rename(K.list[0], 'Ciervos'); tick();
+      check(sent.length === 1 && sent[0][1] === 901 && sent[0][0].t === 'mk' && sent[0][0].m.length === 1 && sent[0][0].m[0][2] === 'deer' && sent[0][0].m[0][3] === 'Ciervos', `sent: ${JSON.stringify(sent)}`);
+      tick(); check(sent.length === 1, 'said again for nothing'); K.remove(K.list[0]); tick(); check(sent.length === 2 && !sent[1][0].m.length, 'the last one taken away is not said');
+      // They come back: told again; someone becomes your couple: told then
+      K.add(p().x + 30, p().y); tick(); bea.playing = false; tick(); bea.playing = true; tick(); check(sent.length === 4, `back: ${sent.length}`); S.isPartner = () => true; tick(); check(sent.length === 5 && sent[4][1] === 902, 'a new couple');
+      S.isPartner = q => q === bea;
+      // What they send
+      const msg = [[p().x + 50, p().y + 5, 'ore', 'Hierro'], [NaN, 2, 'ore'], 'x', [1, 2, 'no such']];
+      K.heard(901, bea, { t: 'mk', m: msg }); let T = theirs(); check(T.length === 2 && T.some(b => b.name === 'Bea: Hierro' && b.glyph === 'ore' && b.small && b.color === ACCENTS[2] && !b.mark && b.to), `theirs: ${JSON.stringify(T)}`);
+      K.heard(902, ciro, { t: 'mk', m: msg }); check(theirs().every(b => b.who === 'bea'), "someone else's marks show"); S.areCouple = () => false; S.isPartner = () => false; check(!theirs().length, 'no couple any more, and they show'); S.areCouple = (a, b) => [a, b].includes('bea'); S.isPartner = q => q === bea;
+      K.heard(901, bea, { t: 'mk', m: [] }); await sleep(300); check(!theirs().length, 'a burst: the last one does not count');
+      for (const bad of [null, {}, { m: 4 }, { m: { length: 1e9 } }]) K.heard(901, bea, bad); K.heard(903, null, { m: msg });
+      await sleep(260); K.heard(901, bea, { t: 'mk', m: Array.from({ length: 500 }, () => [p().x + 60, p().y, 'star']) }); check(K.theirs.get(901).list.length === 10, 'more than ten'); L.peers.delete(901); tick(); check(!K.theirs.has(901) && !theirs().length, 'gone, and they stay');
+      const src = await (await fetch('./src/live.js')).text(); check(src.includes("case 'mk': g.marks?.heard(conn, peer, m)"), 'live.js');
+    } finally { S.isPartner = IP; S.areCouple = AC; L.peers = peers; L.net = net; if (joined) Object.defineProperty(L, 'joined', joined); else delete L.joined; K.list = was; K.theirs.clear(); K.told.clear(); K.changed(); blips.refresh(game, 0, true); }
+  });
+  await test('map index (english): L lists what you know, the nearest first; its tabs; going over a row flies there, Enter or a click marks the route; Esc closes it only', async () => {
+    await goTo(game, CENTER.x, CENTER.y);
+    const M = game.map, R = game.route, K = game.marks, was = K.list, z = M.zoom, list = () => [...document.querySelectorAll('#mx-rows .ml')];
+    blips.static('index-test', [{ kind: 'place', x: p().x + 300, y: p().y - 80, pri: 60, glyph: 'tower', color: '#e6dfce', name: 'Torre de prueba', sub: '', filter: 'places', legend: 'poi:Torre', mini: true, to: { x: p().x + 301, y: p().y - 80, kind: 'place', id: 'poi:t' } }]);
+    try {
+      R.clear('user'); K.list = []; K.add(p().x + 70, p().y, 'tent'); await mapOpen(); M.zoom = 3; M.recenter(); blips.refresh(game, 0, true); draw();
+      pauseKey('KeyL'); check(!mapEl('map-index').hidden && MS().index && mapEl('map-where').hidden, 'L'); draw();
+      const d = MS().index.rows.map(q => q.d); check(d.length > 5 && d.every((v, i) => !i || v >= d[i - 1]) && list().length === d.length, `rows: ${d}`);
+      const names = () => MS().index.rows.map(q => q.name); check(names().includes('Torre de prueba') && names().includes(t('map.marker.tent')), `${names()}`);
+      pauseKey('ArrowRight'); check(MS().index.tab === 'village' && names().includes(t('gui.map.tavern')) && !names().includes('Torre de prueba'), `village: ${names()}`);
+      pauseKey('ArrowRight'); check(names().includes('Torre de prueba') && !names().includes(t('gui.map.tavern')), `places: ${names()}`); pauseKey('ArrowRight'); check(names().includes(t('map.marker.tent')) && !names().includes(t('gui.map.home')), `mine: ${names()}`);
+      [...mapEl('mx-tabs').children][2].click(); const i = names().indexOf('Torre de prueba'); for (let k = 0; k <= i; k++) pauseKey('ArrowDown');
+      check(list()[i].classList.contains('sel'), 'the arrows do not pick'); await sleep(60); check(M.flying, 'it does not fly there'); M.flying.t0 = -1e9; draw(); check(Math.abs(M.center[0] - (p().x + 300)) < 1, `it flew to ${M.center}`);
+      pauseKey('Enter', { key: 'Enter' }); draw(); check(R.active && R.target.name === 'Torre de prueba' && R.target.id === 'poi:t' && MS().index, `Enter: ${JSON.stringify(R.target)}`); check(list()[i].classList.contains('here'), 'it does not say where the route goes');
+      // WASD go on moving the map; the mouse; what moves does not change the order
+      pauseKey('KeyD', { held: true }); check(keys.right, 'WASD'); dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyD', bubbles: true })); pauseKey('ArrowLeft'); pauseKey('ArrowLeft'); check(MS().index.tab === 'all' && !keys.left, `${MS().index.tab}`);
+      const order = names().join(); K.list[0].x = p().x + 900; K.changed(); blips.refresh(game, 0, true); MS().index.at = 0; draw(); check(names().join() === order, 'the order changed while it is open');
+      const row = list()[names().indexOf(t('gui.map.tavern'))]; row.dispatchEvent(new PointerEvent('pointermove', { bubbles: true })); check(row.classList.contains('sel'), 'the mouse'); row.click(); check(R.target.id === 'tavern', `a click: ${JSON.stringify(R.target)}`);
+      pauseKey('Escape'); check(mapEl('map-index').hidden && game.pauseHub.isOpen && !mapEl('map-where').hidden, 'Esc'); pauseKey('KeyL'); pauseKey('KeyL'); check(mapEl('map-index').hidden, 'L again');
+      pauseKey('KeyL'); pauseKey('KeyE'); check(game.pauseHub.tab === 'brief' && mapEl('map-index').hidden, 'E with it open'); pauseKey('KeyQ'); check(game.mode === 'map' && mapEl('map-index').hidden, 'back');
+    } finally { blips.static('index-test', null); K.list = was; K.changed(); M.zoom = z; M.recenter(); R.clear('user'); if (game.pauseHub.isOpen) game.pauseHub.close(); clearKeys(); }
+  });
+  await test('map look (english): the route has the colour chosen in the settings, on the maps, the ground and the pin; the icons, their size', async () => {
+    const was = [Settings.v.routeCol, Settings.v.blipSize], root = document.documentElement.style, M = game.map;
+    try {
+      Settings.set('routeCol', 'teal'); check(accent.route === ACCENTS[2] && root.getPropertyValue('--route') === ACCENTS[2], `${accent.route}`); const v = accent.v;
+      game.route.set({ x: p().x + 30, y: p().y, kind: 'point' }, { quiet: true }); check(blips.refresh(game, 0, true).find(b => b.kind === 'route').color === ACCENTS[2], 'the pin');
+      Settings.set('routeCol', 'what'); check(accent.route === accent.color && !root.getPropertyValue('--route') && accent.v > v, 'an unknown one is yours');
+      useAccent({ player: { name: 'x' }, ui: { accent: 6 } }); check(accent.route === ACCENTS[6], 'it does not follow your colour'); Settings.set('routeCol', 'cream'); useAccent({ player: { name: 'x' }, ui: { accent: 1 } }); check(accent.route !== accent.color, 'a fixed one changed'); Settings.set('routeCol', 'mine');
+      const sizes = ['s', 'm', 'l'].map(k => { Settings.set('blipSize', k); M.zoom = 3; M.recenter(); M.drawBig(w().gen, game.explored, p().x, p().y, 0); game.minimap.measure(); return [M.hits.find(q => q.kind === 'home')?.size || M.hits.find(q => q.kind === 'tavern').size, game.minimap.D]; });
+      check(sizes[0][0] < sizes[1][0] && sizes[1][0] < sizes[2][0] && sizes[0][1] < sizes[1][1] && sizes[1][1] < sizes[2][1], JSON.stringify(sizes));
+    } finally { Settings.set('routeCol', was[0] || 'mine'); Settings.set('blipSize', was[1] || 'm'); useAccent(game.snapshot()); game.minimap.measure(); game.route.clear('user'); M.close(); }
   });
   await test('primeros pasos: se cumplen de uno en uno, con recompensa, y se guardan', async () => {
     const S = game.steps, st = game.stats, was = { i: S.i, base: S.base, pay: S.pay }, equip = inv().equip.espalda;
@@ -3807,6 +3986,13 @@ async function soloTests(game) {
     check(k[t1.key] === 'torre' && k[r1.key] === 'ruinas' && k[c1.key] === 'campamento' && k[a1.key] === 'aldea' && k[f1.key] === 'faro', 'what was built by or used is not kept');
     check(k[t2.key] === 'torre*' && k[a2.key] === 'aldea*', 'what was found is not kept'); check(!k[r2.key] && !k[t3.key] && !k[c2.key], 'it keeps what nobody used (or ruins only plundered)');
     check((k[ns.key] === '-' || k[ns.key]) && k[ns2.key], 'a new place on top of something'); check(JSON.stringify(freeze({ sites: new Sites(WORLD_SEED), legacy: new LegacyPlaces(WORLD_SEED), deltas, found, points: [[ns2.x + 5, ns2.y + 3]] })) === JSON.stringify(v), 'another time, another list');
+    // (a new place whose chunk had a found place of before, with a house where it would stand: if that one does not stay, nothing new either)
+    const ns3 = S.near(...V4, 6000).find(s => { const q = L.at(...s.key.split(',').map(Number)); return q && q.kind !== 'ruinas' && READY.has(s.kind) && s.kind !== 'aldea'; });
+    if (ns3) {
+      const d3 = new Map([[`${Math.floor(ns3.x / CHUNK)},${Math.floor(ns3.y / CHUNK)}`, { v: 1, boats: {}, placed: { [`${Math.floor(ns3.x)},${Math.floor(ns3.y)}`]: 'cofre' } }]]), one = freeze({ sites: S, legacy: L, deltas: d3, found: [ns3.key] }).k[ns3.key];
+      check(one && !one.endsWith('*'), `over a house, by a found place: ${one}`);
+      const left = freezeMore({ v: 2, k: { [ns3.key]: '-' } }, { legacy: L, deltas: new Map(), found: [ns3.key], siteNear: () => false }); check(KEEP_FOUND ? left : left === null, 'what is told later uncovers a new place');
+    } else console.log('frozen: no site over a found place');
     check(JSON.stringify(readPlaces(JSON.parse(JSON.stringify(v)))) === JSON.stringify(v) && readPlaces({ v: 1 }) === null && readPlaces(null) === null && !Object.keys(readPlaces({ v: 2, k: { x: 'torre', '1,1': 'casa', '2,2': 5 } }).k).length, 'reading it');
     check(!touched({ v: 3, removed: { a: 1 }, opened: { b: true }, placed: {}, floor: {} }) && touched({ lvl: { a: 1 } }) && touched({ boats: { a: [] } }) && touched({ crops: { a: {} } }) && touched({ carcass: { a: 1 } }), 'touched');
     // (more, later: what a guest had found; not where something stands now)
@@ -3822,11 +4008,11 @@ async function soloTests(game) {
     const old = { ...JSON.parse(snap0), found: [key(tower), key(camp), key(hamlet), key(lost)], pins: undefined }; for (const q of ['places1', 'placesV', 'oldFound', 'foundAt']) delete old[q];
     old.route = { v: 1, x: tower.x, y: tower.y, kind: 'place', name: 'Torre vieja', id: `poi:${key(tower)}` };
     const pieces = JSON.stringify(Object.values(d).map(q => [q.placed, q.floor, q.chest, q.opened]));
-    const look = () => { const P = game.places, W = w(); check(P.places1 && P.poiOf(key(tower))?.legacy && P.poiOf(key(tower)).x === tower.x && P.poiOf(key(tower)).z === 0, 'the tower moved'); check(P.poiOf(key(camp))?.kind === 'campamento' && P.poiOf(key(hamlet))?.kind === 'aldea', 'the camp or the hamlet went');
+    const look = () => { const P = game.places, W = w(); check(P.places1 && P.poiOf(key(tower))?.legacy && P.poiOf(key(tower)).x === tower.x && P.poiOf(key(tower)).z === 0, 'the tower moved'); check(P.poiOf(key(camp))?.kind === 'campamento', 'the camp went'); check(!!P.poiOf(key(hamlet))?.legacy === KEEP_FOUND, 'the hamlet only found');
       check(!P.poiOf(key(ruin)) && P.entry(...key(ruin).split(',').map(Number))?.pad, 'the ruins are not a clearing'); check(!P.poiOf(key(lost)) || !P.known(P.poiOf(key(lost))), 'the plain ruins still are');
       check(Math.abs(W.groundRaw(ruin.x, ruin.y)) < 0.01 && Math.abs(W.groundRaw(tower.x, tower.y)) < 0.01, 'their ground is not flat'); check(W.contentFor(...key(tower).split(',').map(Number)).objects.some(o => o.treasure && o.open), 'the plundered chest filled up'); check(W.contentFor(...key(ruin).split(',').map(Number)).objects.some(o => o.placed === 'mesa') && !W.contentFor(...key(ruin).split(',').map(Number)).objects.some(o => o.poi), 'what was on the ruins');
       check(W.chestAt(Math.floor(tower.x) - 6, Math.floor(tower.y))?.[0]?.n === 7, 'the chest by the tower'); check(!W.contentFor(...key(ruin).split(',').map(Number)).objects.some(o => o.kind && !o.placed && Math.hypot(o.x - ruin.x, o.y - ruin.y) < 3.5), 'trees came back inside what was built on the ruins'); check(JSON.stringify([...W.deltas].filter(([k]) => d[k]).map(([, q]) => [q.placed, q.floor, q.chest, q.opened])) === pieces, 'a build changed');
-      check(P.knownPlaces().length === 3 && P.found.has(key(lost)) && P.found.size === 4, `known: ${P.knownPlaces().map(q => q.kind)} of ${P.found.size}`); for (const a of P.sites.near(tower.x, tower.y, 400)) { const q = P.poiOf(a.key); if (q && !q.legacy) check(gap(boxOf(q), boxOf(tower)) >= NEAR_FROZEN, 'a new place on the old tower'); }
+      check(P.knownPlaces().length === (KEEP_FOUND ? 3 : 2) && P.found.has(key(lost)) && P.found.size === 4, `known: ${P.knownPlaces().map(q => q.kind)} of ${P.found.size}`); for (const a of P.sites.near(tower.x, tower.y, 400)) { const q = P.poiOf(a.key); if (q && !q.legacy) check(gap(boxOf(q), boxOf(tower)) >= NEAR_FROZEN, 'a new place on the old tower'); }
       check(game.stats.get('lugares') === (old.stats?.lugares ?? game.stats.get('lugares')), 'the count of places'); };
     try {
       game.end(); game.start(JSON.parse(JSON.stringify(old)), new Map(Object.entries(JSON.parse(JSON.stringify(d))))); game.onSave = null; await frames(3); look();
@@ -3855,7 +4041,7 @@ async function soloTests(game) {
       const of = P.oldFound; P.oldFound = new Set([some.key, '3,3']); P.update(); P.update(); P.oldFound = of; check(sent.length === 1 && sent[0].t === 'places' && sent[0].k.join() === '3,3', `sent: ${JSON.stringify(sent)}`);
       // (the host takes no list from a guest, but keeps what it found)
       set({ role: 'host' }); P.setPlaces({ v: 2, k: {} }); LS.BLOBS.places1.set(game, { v: 2, k: { '1,1': 'torre' } }); check(!P.places1.k['1,1'], 'a guest changed the list'); const free = (() => { for (let r = 60; r < 160; r++) for (let i = -r; i <= r; i++) { const q = lg.at(i, r); if (q && q.kind !== 'ruinas' && !P.sites.near(q.x, q.y, 200).length) return q; } })();
-      P.keepFound([free.key, 'x', 4, '__proto__']); check(P.places1.k[free.key] === free.kind + '*' && Object.keys(P.places1.k).length === 1 && P.poiOf(free.key)?.legacy, `kept: ${JSON.stringify(P.places1.k)}`); P.keepFound('abc'); P.keepFound(null);
+      P.keepFound([free.key, 'x', 4, '__proto__']); check(P.places1.k[free.key] === free.kind + '*' && Object.keys(P.places1.k).length === 1 && !!P.poiOf(free.key)?.legacy === KEEP_FOUND, `kept: ${JSON.stringify(P.places1.k)}`); P.keepFound('abc'); P.keepFound(null);
     } finally { delete L.hostConn; for (const k in keep) { delete L[k]; L[k] = keep[k]; } P.setPlaces(was); }
     check(P.places1 === was && L.role === keep.role, 'not as it was');
   });

@@ -9,20 +9,22 @@
 // change, never ride, tense or stingers). It travels with the volumes in the save (a save without it keeps
 // this device's, 'dynamic' by default); an unknown value reads 'dynamic'.
 // Music reads it as Music.calm, set in apply() (music.js cannot import this file: it would be a cycle)
-// prompts ('object' or 'cursor': where what the keys do shows) and feed ('all' or 'important': which notices show), PLAN-R8
+// prompts ('object' or 'cursor': where what the keys do shows) and feed ('all' or 'important': which notices show), PLAN-R8;
+// blipSize (how big what is on the maps is: 's', 'm', 'l'), routeCol (the marked route's colour) and mapHide (a list, with no row here: what the
+// big map's filters hide, ui/blips.js), too
 // blood (Plan G §5.3, §8): wounded animals' trails are drawn with a muted red; off, scuffed soil instead (no red). Only
 // on this device (not in the save); three/tracks3d.js reads Settings.v.blood and fieldhud.js says "scuffed" with it off
 import { Audio } from './audio.js';
 import { Music } from './music.js';
 import { useLangSetting } from './i18n.js';
-import { applySkin } from './ui/skin.js';
+import { applySkin, applyRouteColour } from './ui/skin.js';
 
 const KEY = 'pueblo-brotes:ajustes';
 const VOLUMES = ['master', 'music', 'sfx', 'musicOn', 'musicMode'];
 export const MUSIC_MODES = ['dynamic', 'calm'];
 // What each one is worth until it is chosen (Ajustes › R puts it back)
 export const DEFAULTS = Object.freeze({ master: 0.7, music: 0.5, sfx: 1, scale: 'auto', bigText: false, noFlash: false, musicOn: true, musicMode: 'dynamic', hud: 'minimal', skin: 'glass', menuSfx: true, motion: 'full', ride: 'realistic', blood: true,
-  prompts: 'object', feed: 'all', hints: true, remarks: true });
+  prompts: 'object', feed: 'all', blipSize: 'm', routeCol: 'mine', hints: true, remarks: true });
 export const Settings = {
   v: { ...DEFAULTS },
   load() {
@@ -58,6 +60,7 @@ export const Settings = {
     document.body.classList.toggle('big-text', v.bigText);
     document.body.classList.toggle('still-menus', v.motion === 'reduced');
     applySkin(v.skin);   // (dark glass, or the wood of before: ui/skin.js)
+    applyRouteColour(v.routeCol);
     this.onApply?.();
   },
 };
