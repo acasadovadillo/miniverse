@@ -30,6 +30,7 @@ const RAW = (() => { try { return new URLSearchParams(globalThis.location?.searc
 // from them, no kg in the title). Neither changes gen or the save shape (the fields just stay unused)
 // And ui (not a part: ui/skin.js reads it): ?ui=madera, the wooden interface of before, for one version; ?ui=cristal, the
 // glass, whatever Settings › Look says
+// And menuart (not a part either: ui/keyart.js): ?menuart=winter, night, summer-night… the picture behind the menus
 // Plan R4-1 (riding with weight, docs/planes/realismo/PLAN-R4-caballo.md): montar (?montar=arcade or =0: the horse turns
 // and brakes more sharply and never collects itself, whatever Ajustes › Juego › Montar says). Local only
 // Plan G (tracking and the nature book, docs/planes/gta/PLAN-G-caza.md §10), each with ?x=0: tracks (no prints, blood or

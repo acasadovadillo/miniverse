@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- La versión publicada: se cambia en cada publicación (así el juego sabe que tiene que pedir el código nuevo) -->
-<meta name="miniverse-version" content="2026-11-24.5">
+<meta name="miniverse-version" content="2026-11-24.6">
 <title>Miniverse</title>
 <script>
   // The language of the page until the game's code arrives (src/i18n.js chooses the same way, then takes over): for
@@ -56,8 +56,17 @@
   * { box-sizing: border-box; }
   html, body { margin: 0; height: 100%; overflow: hidden; background: #1d2a1a; font-family: var(--font-ui); font-weight: 500; color: var(--cream); touch-action: none; -webkit-user-select: none; user-select: none; }
   #c { position: fixed; left: 0; top: 0; display: block; }
-  /* Sin partida (al entrar y en el menú), una foto fija del pueblo en vez del mundo dibujándose: no gasta nada */
-  body.still { background: #2a2418 url(assets/fondo-menu.jpg) center / cover no-repeat; }
+  /* Sin partida (al entrar y en el menú), una foto fija del pueblo en vez del mundo dibujándose: no gasta nada. It drifts slowly
+     (one composited transform), by the season and the hour: src/ui/keyart.js */
+  body.still { background: #14161a; }
+  #fe-art { position: fixed; inset: 0; overflow: hidden; display: none; }
+  body.still #fe-art { display: block; }
+  #fe-art i { position: absolute; inset: 0; background: #14161a url(assets/fondo-menu.jpg) center / cover no-repeat; background-size: cover; transform: scale(1.08); }
+  #fe-art.pan i { will-change: transform; animation: fe-pan 60s ease-in-out infinite alternate; }
+  #fe-art.idle i, #fe-art.away i { animation-play-state: paused; }
+  @keyframes fe-pan { to { transform: scale(1.08) translateX(-3%); } }
+  body.still-menus #fe-art i { animation: none; }
+  @media (prefers-reduced-motion: reduce) { #fe-art i { animation: none !important; } }
   body.still #c { visibility: hidden; }
   /* Textos que suben sobre el jugador (los coloca el dibujo 3D) y el destello rojo al recibir un golpe */
   #floaters { position: fixed; inset: 0; pointer-events: none; z-index: 5; overflow: hidden; }
@@ -84,7 +93,7 @@
   button, input { font: inherit; }
   b, strong { font-weight: 600; }
   /* Titles (screens, windows, sections), the money, the clock and the big notices: Oswald, tall and narrow, in capitals */
-  h1, h2, h3, h4, .logo, .map-bar b, .bb-top b { font-family: var(--font-title); font-weight: 600; text-transform: uppercase; letter-spacing: .03em; }
+  h1, h2, h3, h4, .map-bar b, .bb-top b { font-family: var(--font-title); font-weight: 600; text-transform: uppercase; letter-spacing: .03em; }
   /* (what sits inside a title but is not one, like the crafting notice in its h2, stays in Barlow) */
   h3 small, h2 small, #cf-note { font-family: var(--font-ui); text-transform: none; letter-spacing: 0; }
   #money, #sh-money, #clockp { font-family: var(--font-title); font-weight: 500; letter-spacing: .03em; font-variant-numeric: tabular-nums; }
@@ -617,8 +626,6 @@
   /* (safe center: a panel taller than the window starts at the top and scrolls, instead of being cut above) */
   .screen { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; justify-content: safe center; flex-direction: column; gap: 18px; padding: 16px; background: radial-gradient(ellipse at center, rgba(10, 20, 8, .25), rgba(10, 16, 8, .7)); z-index: 10; overflow-y: auto; touch-action: auto; }
   .screen.show { display: flex; }
-  .logo { font-size: clamp(40px, 8vw, 72px); font-weight: 600; color: var(--gold); text-shadow: 4px 4px 0 #6b3a14, 0 0 24px rgba(255, 200, 100, .35); line-height: 1; text-align: center; }
-  .logo small { display: block; font-size: .3em; color: var(--cream); text-shadow: 2px 2px 0 #3a2414; margin-top: 8px; font-weight: 400; }
   .box { padding: 20px 22px; width: min(380px, 100%); }
   .box h2 { margin: 0 0 14px; font-size: 24px; color: var(--gold); }
   .tabs { display: flex; gap: 6px; margin-bottom: 16px; }
@@ -640,62 +647,22 @@
   .btn:hover:not(:disabled) { border-color: var(--gold); }
   .btn.primary { color: #2a180c; background: #f0c25a; border: 0; box-shadow: inset 0 -3px 0 #b88a2a, 0 3px 0 #2a180c; }
   .btn:disabled { opacity: .45; cursor: default; }
-  .who { color: var(--dim); margin: -6px 0 14px; }
-  /* Jugar juntos en directo (en el menú) */
-  #m-live { margin: -4px 0 12px; padding: 8px 10px; border: 2px solid #4a8a4a; border-radius: 6px; background: rgba(40, 70, 36, .35); }
-  #m-live p { margin: 0; color: var(--cream); font-size: 16px; line-height: 1.35; }
-  #m-live p::before { content: '● '; color: #7ad87a; }
-  #m-live.wait { border-color: #a8883a; background: rgba(80, 64, 24, .35); }
-  #m-live.wait p::before { color: #e8c050; }
-  #m-live.err { border-color: #b8483a; background: rgba(96, 30, 24, .45); }
-  #m-live.err p::before { content: '✕ '; color: #ff7a66; font-weight: 700; }
   #inv-dyes { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin: 4px 0 2px; }
   #inv-dyes span { font-size: 14px; color: var(--dim); margin-right: 4px; }
   #inv-dyes button { width: 22px; height: 22px; padding: 0; border: 2px solid #2a1c12; border-radius: 4px; cursor: pointer; }
   #inv-dyes button.on { border-color: var(--gold); box-shadow: 0 0 0 1px var(--gold); }
 
-  #s-creator .box { width: min(820px, 100%); }
-  .cr { display: grid; grid-template-columns: 250px 1fr; gap: 22px; align-items: start; }
-  @media (max-width: 680px) { .cr { grid-template-columns: 1fr; } }
-  .cr-stage { display: flex; flex-direction: column; align-items: center; gap: 8px; }
-  .cr-room { width: 100%; display: flex; justify-content: center; padding: 14px 0 0; border-radius: 4px; background: repeating-linear-gradient(90deg, rgba(0, 0, 0, .16) 0 2px, transparent 2px 22px), linear-gradient(#8a5634, #7c4b2d 72%, #66391f 72%); }
-  #cr-canvas { display: block; }
-  .cr-rot { display: flex; align-items: center; gap: 8px; width: 100%; }
-  .cr-rot span { flex: 1; text-align: center; color: var(--dim); }
   .sq { width: 40px; height: 36px; color: var(--cream); background: #4a2c18; border: 2px solid #9a6a34; border-radius: 4px; cursor: pointer; font-size: 18px; }
-  .cr-opts { display: grid; gap: 12px; }
   .ac-code { margin: 10px 0; padding: 12px; text-align: center; font-size: 28px; letter-spacing: 3px; color: var(--gold); background: rgba(0, 0, 0, .35); border-radius: 4px; user-select: all; -webkit-user-select: all; }
-  .cr-tabs { margin: 0; }
-  .cr-page { display: grid; gap: 12px; }
-  /* the barber's and the mirror's: a button that stays pressed with its price, and the bill */
-  .cr-mark { display: flex; align-items: center; gap: 10px; }
-  .cr-mark[hidden] { display: none; }
-  .cr-mark button { flex: 1; padding: 7px; color: var(--dim); background: rgba(0, 0, 0, .25); border: 2px solid #6a4a2a; border-radius: 4px; cursor: pointer; }
-  .cr-mark button.on { color: var(--gold); background: #6a4424; border-color: var(--border); }
-  .cr-mark b { min-width: 84px; text-align: right; font-weight: 500; color: var(--dim); }
-  .cr-mark b:empty { display: none; }
-  .cr-bill { padding-top: 10px; border-top: 1px solid #6a4a2a; text-align: right; color: var(--gold); }
-  .cr-bill.poor { color: #e08070; }
-  .cr-bill[hidden], .cr-tabs[hidden], .cr-opts .field[hidden] { display: none; }
-  .cr-page[hidden] { display: none; }
   #cr-canvas { touch-action: none; cursor: grab; }
-  .cr-rot .sq { touch-action: none; user-select: none; -webkit-user-select: none; }
-  .opt-t { font-size: 17px; color: var(--gold); margin-bottom: 5px; }
   .seg { display: flex; gap: 6px; }
   .seg button { flex: 1; padding: 7px; color: var(--dim); background: rgba(0, 0, 0, .25); border: 2px solid #6a4a2a; border-radius: 4px; cursor: pointer; }
   .seg button.on { color: var(--gold); background: #6a4424; border-color: var(--border); }
-  .cyc { display: flex; align-items: center; gap: 8px; }
-  .cyc span { flex: 1; text-align: center; padding: 6px; background: rgba(0, 0, 0, .25); border-radius: 4px; }
-  .sw { display: flex; flex-wrap: wrap; gap: 6px; }
-  .sw button { width: 28px; height: 28px; padding: 0; border-radius: 5px; border: 2px solid rgba(0, 0, 0, .4); cursor: pointer; }
-  .sw button.on { outline: 3px solid var(--gold); outline-offset: 2px; }
-  /* The EN | ES picker on the login screen and the main menu (ui/menus.js) */
+  /* The EN | ES picker on the login screen (ui/menus.js) */
   .lang-pick { position: absolute; right: 14px; top: 12px; display: flex; align-items: center; gap: 2px; padding: 3px 8px; font-size: 16px; color: var(--dim); }
   .lang-pick button { padding: 2px 6px; color: var(--dim); background: none; border: 0; border-radius: 3px; cursor: pointer; }
   .lang-pick button:hover { color: var(--cream); }
   .lang-pick button.on { color: var(--gold); background: rgba(255, 220, 140, .14); }
-  .cr-actions { display: flex; gap: 10px; margin-top: 4px; }
-  .cr-actions .btn { margin: 0; }
 </style>
 <style>
   /* ---------- The menus' own pieces (src/ui/frontend.js; PLAN-R9-menus.md §3.2): always dark glass, with either look ---------- */
@@ -703,6 +670,7 @@
     --fe-sel-bg: #fff; --fe-sel-text: #0c0e12; --fe-accent: var(--accent); --fe-good: var(--good); --fe-warn: var(--accent-2); --fe-bad: var(--bad); }
   /* A row of any list: the selected one is a solid white bar with dark text */
   .row { display: flex; align-items: center; gap: 10px; min-height: 40px; padding: 4px 14px; border-radius: var(--r-s); font: 500 20px/1.2 var(--font-title); letter-spacing: .04em; text-transform: uppercase; color: var(--ink); cursor: pointer; transition: background-color var(--t-sel), color var(--t-sel); }
+  .row[hidden] { display: none; }
   .row > span { flex: 1; min-width: 0; }
   .row > b { font-weight: 500; font-variant-numeric: tabular-nums; }
   .row:hover { background: rgba(255, 255, 255, .08); }
@@ -739,6 +707,7 @@
   .fe-legend { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px 18px; font: 500 16px/1.2 var(--font-ui); color: var(--fe-text); }
   .fe-key { display: inline-flex; align-items: center; gap: 5px; padding: 0; color: inherit; background: none; border: 0; text-shadow: var(--shadow-text); }
   .fe-key > span { margin-left: 3px; }
+  .fe-key > kbd { text-shadow: none; }
   button.fe-key { padding: 8px 12px; border-radius: var(--r-s); cursor: pointer; }
   button.fe-key:hover { background: rgba(255, 255, 255, .12); }
   /* The alert: a dark band across the screen */
@@ -833,6 +802,136 @@
   #s-pause #map-legend { left: 40px; bottom: 62px; max-height: calc(100vh - 270px); }
   body.still-menus #s-pause, body.still-menus #s-settings, body.still-menus .ps-top, body.still-menus .ps-pane { animation: none; }
   @media (prefers-reduced-motion: reduce) { #s-pause.show, #s-settings.show, .ps-top, .ps-pane.on { animation: none; } }
+  /* ---------- The front screens: login, main menu, credits and creator (src/ui/menus.js, mainmenu.js), over the key art
+     (keyart.js) or, at the mirror and the barber's, over the game ---------- */
+  .screen.front { --edge: 8vw; align-items: stretch; justify-content: flex-start; gap: 0; padding: 0; overflow: hidden; color: var(--ink);
+    background: linear-gradient(0deg, rgba(8, 9, 12, .72) 0, rgba(8, 9, 12, 0) 190px), linear-gradient(90deg, rgba(8, 9, 12, .88) 0, rgba(8, 9, 12, .62) 36%, rgba(8, 9, 12, .12) 70%); }
+  .emblem { width: 1.2em; height: 1em; margin-right: .42em; vertical-align: -.12em; color: var(--ink); }
+  .ps-mark .emblem { color: var(--fe-accent); }
+  .fe-mark { display: flex; align-items: center; font: 700 44px/1 var(--font-title); letter-spacing: .12em; text-transform: uppercase; color: var(--ink); text-shadow: 0 2px 14px rgba(0, 0, 0, .5); }
+  #s-login > .fe-mark, #s-menu > .fe-mark { position: absolute; left: var(--edge); top: max(44px, 9vh); }
+  .front p { margin: 0; }
+  .fe-foot { position: absolute; left: 0; right: 0; bottom: 0; display: flex; align-items: flex-end; justify-content: space-between; gap: 32px; padding: 0 40px 18px; pointer-events: none; }
+  .fe-foot > * { pointer-events: auto; }
+  .fe-foot-r { margin-left: auto; display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+  .fe-ver { font: 500 13px/1.2 var(--font-ui); color: var(--ink-3); font-variant-numeric: tabular-nums; text-shadow: var(--shadow-text); }
+  .fe-ver:empty { display: none; }
+  /* Login: a dark card on the left third, with underlined fields */
+  .fe-card { position: absolute; left: var(--edge); top: 50%; width: 360px; max-height: calc(100vh - 240px); overflow-y: auto; padding: 26px 28px 24px; background: var(--fe-glass); border-radius: var(--r-s); transform: translateY(-46%); scrollbar-width: thin; scrollbar-color: rgba(255, 255, 255, .32) transparent; transition: opacity .2s; }
+  #s-login.out .fe-card { opacity: 0; }
+  .fe-card h2 { margin: 0 0 18px; font: 600 26px/1.1 var(--font-title); letter-spacing: .06em; text-transform: uppercase; color: var(--ink); }
+  .fe-card .field { margin-bottom: 18px; font: 600 13px/1.2 var(--font-title); letter-spacing: .1em; text-transform: uppercase; color: var(--ink-2); }
+  .fe-card .field input, .cr-name input { font: 500 19px/1.2 var(--font-ui); letter-spacing: 0; color: var(--ink); background: none; border: 0; border-radius: 0; box-shadow: inset 0 -1px 0 rgba(255, 255, 255, .4); outline: none; user-select: text; -webkit-user-select: text; }
+  .fe-card .field input { margin: 0; padding: 8px 2px; }
+  .fe-card .pw input { padding-right: 44px; }
+  .fe-card .pw-eye { color: var(--ink-2); }
+  .fe-card .field input:focus { box-shadow: inset 0 -2px 0 var(--fe-accent); }
+  .fe-card .field input::placeholder { color: var(--ink-3); }
+  .fe-card .field input:-webkit-autofill { -webkit-text-fill-color: #fff; box-shadow: inset 0 -1px 0 rgba(255, 255, 255, .4), inset 0 0 0 60px #17191e; caret-color: #fff; }
+  .fe-card .field input:-webkit-autofill:focus { box-shadow: inset 0 -2px 0 var(--fe-accent), inset 0 0 0 60px #17191e; }
+  .fe-card .err, #cr-err { min-height: 20px; margin: 0 0 12px; font: 500 16px/1.35 var(--font-ui); color: var(--accent-2); }
+  .front .btn { margin: 0; padding: 11px 16px; border: 2px solid transparent; border-radius: var(--r-s); box-shadow: none; font: 600 18px/1.2 var(--font-title); letter-spacing: .06em; text-transform: uppercase; color: var(--ink); background: rgba(255, 255, 255, .1); transition: background-color var(--t-sel), color var(--t-sel); }
+  .front .btn:hover:not(:disabled) { border-color: transparent; background: rgba(255, 255, 255, .22); }
+  .front .btn.primary { color: #0c0e12; background: #fff; }
+  .front .btn.primary:hover:not(:disabled) { background: #fff; border-color: var(--fe-accent); }
+  .front .btn:focus-visible, .front .sq:focus-visible, .lang-pick button:focus-visible { outline: 3px solid var(--fe-accent); outline-offset: 2px; }
+  #lg-damaged { display: flex; flex-direction: column; gap: 6px; margin: 0 0 12px; }
+  #lg-damaged .btn { font: 500 16px/1.25 var(--font-ui); letter-spacing: 0; text-transform: none; text-align: left; }
+  #s-login .lang-pick { right: 40px; top: 32px; padding: 4px 10px; border: 0; border-radius: var(--r-s); box-shadow: none; background: var(--fe-glass); color: var(--ink-2); }
+  #s-login .lang-pick button { color: var(--ink-2); }
+  #s-login .lang-pick button:hover { color: var(--ink); }
+  #s-login .lang-pick button.on { color: #0c0e12; background: #fff; }
+  /* Main menu: the list on the left, the character's card on the right */
+  .mm-left { position: absolute; left: calc(var(--edge) - 18px); top: max(140px, 27vh); width: min(440px, 46vw); }
+  #s-menu.show .mm-left { animation: mm-in .25s cubic-bezier(.2, .8, .2, 1); }
+  #s-menu.show #mm-card { animation: fe-in .35s; }
+  @keyframes mm-in { from { opacity: 0; transform: translateX(-40px); } }
+  .mm-hello { display: flex; align-items: center; gap: 10px; margin: 0 18px 10px !important; font: 500 17px/1.2 var(--font-ui); color: var(--ink-2); text-shadow: var(--shadow-text); }
+  #menu-role { padding: 2px 7px; border-radius: var(--r-s); font: 600 12px/1.3 var(--font-title); letter-spacing: .08em; text-transform: uppercase; color: #0c0e12; background: var(--accent-2); }
+  #menu-role[hidden] { display: none; }
+  #mm-list .row { min-height: clamp(44px, 6.2vh, 56px); padding: 4px 18px; font-size: clamp(24px, 3.4vh, 30px); text-shadow: var(--shadow-text); }
+  #mm-list .row.sel { text-shadow: none; }
+  #mm-list .row.off:not(.sel) { color: var(--ink-3); }
+  #mm-list .row.sel.off { background: rgba(255, 255, 255, .72); }
+  #mm-desc { min-height: 46px; max-width: 46ch; margin: 14px 18px 0; font: 500 17px/1.35 var(--font-ui); color: var(--ink-2); text-shadow: var(--shadow-text); }
+  #menu-msg { max-width: 46ch; margin: 8px 18px 0; font: 500 17px/1.35 var(--font-ui); color: var(--accent-2); text-shadow: var(--shadow-text); }
+  #mm-card { position: absolute; right: var(--edge); top: 50%; width: 276px; padding: 0 0 18px; overflow: hidden; background: var(--fe-glass); border-radius: var(--r-s); transform: translateY(-54%); box-shadow: inset 0 3px 0 var(--fe-accent); text-align: center; font: 500 16px/1.35 var(--font-ui); color: var(--ink-2); }
+  .mm-face { display: grid; place-items: end center; height: 236px; margin-bottom: 12px; background: radial-gradient(circle at 50% 42%, #515963, #1a1d22 70%, #0d0f12); box-shadow: inset 0 3px 0 var(--fe-accent), inset 0 -40px 50px -30px rgba(0, 0, 0, .6); }
+  #mm-face { width: 220px; height: 220px; }
+  #mm-name { margin: 0 16px 6px; font: 600 28px/1.1 var(--font-title); letter-spacing: .05em; text-transform: uppercase; color: var(--fe-accent); overflow-wrap: anywhere; }
+  #mm-when { font: 500 18px/1.3 var(--font-title); letter-spacing: .03em; text-transform: capitalize; color: var(--ink); }
+  #mm-money { font: 500 18px/1.3 var(--font-title); letter-spacing: .03em; color: var(--accent-2); font-variant-numeric: tabular-nums; }
+  #mm-card p { padding: 0 16px; }
+  #menu-save { margin-top: 8px !important; }
+  #mm-playing { margin-top: 6px !important; color: var(--fe-good); }
+  #mm-card p:empty, #mm-name:empty { display: none; }
+  #mm-card.none #mm-face { display: none; }
+  .mm-face svg { display: none; width: 180px; height: 180px; fill: rgba(255, 255, 255, .13); }
+  #mm-card.none .mm-face svg { display: block; }
+  #m-live { max-width: 52ch; padding-left: calc(var(--edge) - 40px); font: 500 16px/1.35 var(--font-ui); color: var(--ink); text-shadow: var(--shadow-text); }
+  #m-live p { position: relative; padding-left: 20px; }
+  #m-live p::before { content: ''; position: absolute; left: 0; top: 6px; width: 10px; height: 10px; border-radius: 50%; background: var(--fe-good); }
+  #m-live.wait p::before { background: var(--fe-warn); }
+  #m-live.err p::before { background: var(--fe-bad); }
+  #m-live[hidden] { display: none; }
+  /* Credits */
+  #s-credits { background: rgba(8, 9, 12, .8); }
+  #s-credits.show, #s-creator.show { animation: fe-in var(--t-open); }
+  #s-credits h2, #s-creator h2 { margin: 0; font: 600 30px/1.1 var(--font-title); letter-spacing: .04em; text-transform: uppercase; color: var(--ink); }
+  #cd-close { width: 36px; height: 32px; margin-left: auto; font-size: 17px; }
+  #cd-body { flex: 1; min-height: 0; overflow-y: auto; padding: 22vh 24px 60vh; text-align: center; outline: none; scrollbar-width: none; font: 500 19px/1.5 var(--font-ui); -webkit-mask: linear-gradient(transparent, #000 90px calc(100% - 130px), transparent calc(100% - 50px)); mask: linear-gradient(transparent, #000 90px calc(100% - 130px), transparent calc(100% - 50px)); }
+  #cd-body .fe-mark { justify-content: center; margin-bottom: 18px; }
+  #cd-body .cd-by { font-size: 21px; }
+  #cd-body h3 { margin: 64px 0 8px; font: 600 16px/1.3 var(--font-title); letter-spacing: .12em; text-transform: uppercase; color: var(--fe-accent); }
+  #cd-body small { display: block; max-width: 620px; margin: 10px auto 0; font-size: 16px; line-height: 1.5; color: var(--ink-2); }
+  /* The creator: pages of rows on the left, the character on the right, over a dark studio */
+  #s-creator { background: rgba(8, 9, 12, .84); }
+  #s-creator .ps-head { flex: none; margin: 0 40px; }
+  .cr { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(520px, 600px) minmax(0, 1fr); gap: 24px; padding: 4px 40px 62px; }
+  .cr-opts { display: flex; flex-direction: column; min-height: 0; }
+  #cr-tabs { flex: none; justify-content: space-between; padding: 0 12px; background: var(--fe-glass); border: 0; border-radius: var(--r-s); }
+  #cr-tabs .fe-line { bottom: 0; }
+  #cr-tabs[hidden], #cr-tabs .fe-tab[hidden] { display: none; }
+  #cr-rows { min-height: 0; margin-top: 8px; padding: 8px; overflow-y: auto; background: var(--fe-glass); border-radius: var(--r-s); scrollbar-width: thin; scrollbar-color: rgba(255, 255, 255, .32) transparent; }
+  #cr-rows .fe-opt { min-height: 46px; }
+  #cr-rows .fe-opt > span { min-width: 130px; }
+  #cr-rows .fe-opt > b { min-width: 170px; }
+  #cr-rows .fe-opt.sw > b { min-width: 62px; font-variant-numeric: tabular-nums; }
+  #cr-rows .fe-opt.mark > b { min-width: 60px; }
+  #cr-rows .fe-opt.mark > .price { flex: none; color: inherit; opacity: .75; font-variant-numeric: tabular-nums; }
+  #cr-rows .fe-sw { flex-wrap: wrap; justify-content: flex-end; gap: 4px; max-width: 290px; }
+  #cr-rows .fe-sw button { width: 19px; height: 19px; }
+  .cr-name input { width: 250px; padding: 5px 2px; text-align: right; color: inherit; box-shadow: inset 0 -1px 0 currentColor; }
+  .cr-name input:focus { box-shadow: inset 0 -2px 0 var(--fe-accent); }
+  .cr-name input:disabled { box-shadow: none; opacity: .8; }
+  .cr-bill { flex: none; margin-top: 8px; padding: 10px 16px; border-radius: var(--r-s); background: var(--fe-glass); text-align: right; font: 500 17px/1.3 var(--font-ui); font-variant-numeric: tabular-nums; color: var(--ink); }
+  .cr-bill.poor { color: var(--fe-bad); }
+  .cr-bill[hidden] { display: none; }
+  #cr-desc { flex: none; margin: 8px 0 0; padding: 10px 16px; background: var(--fe-glass); border-radius: var(--r-s); box-shadow: inset 3px 0 0 var(--fe-accent); font: 500 16px/1.4 var(--font-ui); }
+  #cr-desc:empty { display: none; }
+  #cr-err { flex: none; margin: 8px 4px; }
+  #cr-err:empty { min-height: 4px; }
+  .cr-actions { flex: none; display: flex; gap: 10px; }
+  .cr-actions .btn { width: auto; }
+  .cr-actions .primary { flex: 1; }
+  .cr-stage { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 10px; min-width: 0; min-height: 0; border-radius: var(--r-s); overflow: hidden; padding-bottom: 12px; background: radial-gradient(ellipse 60% 22% at 50% 84%, rgba(150, 162, 178, .3), transparent), radial-gradient(ellipse at 50% 40%, #39414b, #171a1f 62%, #0c0e12); }
+  #cr-canvas { display: block; }
+  .cr-stage.near #cr-canvas { -webkit-mask: linear-gradient(#000 calc(100% - 110px), transparent); mask: linear-gradient(#000 calc(100% - 110px), transparent); }
+  .cr-rot { display: flex; align-items: center; gap: 12px; }
+  .cr-rot span { width: 170px; text-align: center; font: 500 16px/1 var(--font-ui); color: var(--ink-2); }
+  .cr-rot .sq { touch-action: none; user-select: none; -webkit-user-select: none; }
+  .front .sq { color: var(--ink); background: rgba(255, 255, 255, .1); border: 0; border-radius: var(--r-s); }
+  .front .sq:hover { background: rgba(255, 255, 255, .22); }
+  body.big-text #mm-desc, body.big-text #menu-msg, body.big-text #mm-card, body.big-text #m-live, body.big-text .fe-card .err { font-size: 18.5px; }
+  /* (on a big window, everything a fifth larger) */
+  @media (min-height: 1000px) and (min-width: 1500px) {
+    .screen.front { --edge: calc(8vw / 1.2); }
+    .front > .fe-mark, .fe-card, .mm-left, #mm-card, .front .fe-foot { zoom: 1.2; }
+    #s-creator .cr-opts { zoom: 1.15; }
+    .cr { grid-template-columns: minmax(520px, 690px) minmax(0, 1fr); }
+  }
+  body.still-menus .front, body.still-menus .front .mm-left, body.still-menus #s-menu.show #mm-card { animation: none !important; }
+  @media (prefers-reduced-motion: reduce) { .front, .front .mm-left, #mm-card { animation: none !important; } }
 </style>
 <style id="ui-pages">
   /* The pages of the pause: Brief, Character and Progress (src/ui/brief.js, charpage.js, progresspage.js) */
@@ -920,7 +1019,7 @@
   :root { --gold: #ffffff; --cream: #ffffff; --border: rgba(255, 255, 255, .16); --wood: var(--glass-hi); --dim: var(--ink-2); --err: #ff8577;
     --tab-bg: rgba(255, 255, 255, .07); --tab-line: transparent; --tab-ink: rgba(255, 255, 255, .8); --tab-on-bg: #fff; --tab-on-ink: #0c0e12; --tab-on-line: #fff; --plate: var(--glass); --mark: var(--accent); --coins: var(--accent-2); }
   html, body { background: #0c0e12; }
-  h1, h2, h3, h4, .logo, .map-bar b, .bb-top b { letter-spacing: .06em; }
+  h1, h2, h3, h4, .map-bar b, .bb-top b { letter-spacing: .06em; }
   h3 small, h2 small, #cf-note { letter-spacing: 0; }
   /* Plates: windows and boxes; those of the HUD are lighter, with their text's shadow */
   .panel { background: var(--glass-hi); border: 0; border-radius: var(--r-m); box-shadow: inset 0 0 0 1px var(--hair), 0 8px 24px rgba(0, 0, 0, .35); }
@@ -962,8 +1061,6 @@
   .bb-piece.on, .bb-piece.on:hover:not(:disabled) { color: #0c0e12; background: #fff; }
   .bb-piece.on small { color: rgba(12, 14, 18, .72); } .bb-piece.on.poor small { color: #b3261e; }
   .bb-piece.on img { filter: drop-shadow(0 0 1px rgba(0, 0, 0, .5)); }
-  .cyc span { background: rgba(255, 255, 255, .07); }
-  .sw button { border-color: rgba(255, 255, 255, .18); } .sw button.on { outline-color: #fff; }
   .cf-tab.new::after, .cf-r.new::after { background: var(--accent); box-shadow: 0 0 0 2px #14171c; }
   .lang-pick button.on { color: #0c0e12; background: #fff; }
   .lang-pick { border-radius: var(--r-s); }
@@ -1007,13 +1104,7 @@
   .screen { background: radial-gradient(ellipse at center, rgba(8, 9, 12, .4), rgba(8, 9, 12, .76)); }
   #s-shop { background: rgba(8, 9, 12, .5); }
   #map-legend-rows i, #hud-wp i { border-color: rgba(8, 9, 12, .85); }
-  .logo { font-weight: 700; letter-spacing: .12em; text-shadow: 0 2px 18px rgba(0, 0, 0, .55); }
-  .logo small { text-shadow: 0 1px 4px rgba(0, 0, 0, .6); }
-  .cr-room { background: linear-gradient(#383e46, #23272d 72%, #181b20 72%); }
   .ac-code { background: rgba(255, 255, 255, .08); }
-  #m-live { border: 0; border-radius: var(--r-s); background: rgba(127, 224, 138, .14); box-shadow: inset 3px 0 0 var(--good); }
-  #m-live.wait { background: rgba(255, 178, 74, .14); box-shadow: inset 3px 0 0 var(--accent-2); }
-  #m-live.err { background: rgba(255, 106, 90, .16); box-shadow: inset 3px 0 0 var(--bad); }
   #title-msg { color: #fff; text-shadow: 0 2px 14px rgba(0, 0, 0, .7), 0 1px 2px rgba(0, 0, 0, .6); }
   .win, .panel, .box, #j-body, #sh-list, #cf-repair, #bb-pieces, #inv-all-grid, #map-legend, .screen { scrollbar-width: thin; scrollbar-color: rgba(255, 255, 255, .32) transparent; }
   .floater { text-shadow: 1px 0 #0c0e12, -1px 0 #0c0e12, 0 1px #0c0e12, 0 -1px #0c0e12, 0 2px 3px rgba(0, 0, 0, .4); }
@@ -1021,7 +1112,10 @@
 </style>
 </head>
 <body class="still">
+  <!-- The emblem: a roof line under a sun's arc -->
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true"><symbol id="emblem" viewBox="0 0 48 40"><path d="M9 22a15 15 0 0 1 30 0" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round"/><path d="M3 35 24 17l21 18" fill="none" stroke="currentColor" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/></symbol></svg>
   <canvas id="c"></canvas>
+  <div id="fe-art" aria-hidden="true"><i></i></div>
   <div id="floaters"></div>
   <div id="hurt"></div>
   <div id="love-glow"></div>
@@ -1063,18 +1157,19 @@
   <div id="toasts"></div>
 
   <!-- Inicio de sesión -->
-  <section id="s-login" class="screen">
-    <div class="logo">Miniverse</div>
-    <form class="box panel" id="login-form">
+  <section id="s-login" class="screen front">
+    <div class="fe-mark"><svg class="emblem" aria-hidden="true"><use href="#emblem"/></svg><span>Miniverse</span></div>
+    <form id="login-form" class="fe-card">
       <h2 data-i18n="gui.login.title">Log in</h2>
       <label class="field"><span data-i18n="gui.login.user">Username</span><input id="lg-user" maxlength="16" autocomplete="username" autocapitalize="off" spellcheck="false"></label>
       <label class="field" id="lg-code-row" hidden><span data-i18n="gui.login.invite_code">Invite code</span><input id="lg-code" maxlength="20" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="XXXX-XXXX-XXXX"></label>
       <label class="field"><span data-i18n="gui.login.password">Password</span><input id="lg-pass" type="password" maxlength="128" autocomplete="current-password"></label>
       <label class="field" id="lg-pass2-row" hidden><span data-i18n="gui.login.repeat_password">Repeat the password</span><input id="lg-pass2" type="password" maxlength="128" autocomplete="new-password"></label>
       <label class="field" id="lg-token-row" hidden><span data-i18n="gui.login.admin_token">GitHub admin token</span><input id="lg-token" type="password" maxlength="300" autocomplete="off" spellcheck="false"></label>
-      <div class="err" id="lg-err"></div>
-      <button class="btn primary" id="lg-submit" type="submit">Log in</button>
+      <div class="err" id="lg-err" role="status"></div>
+      <button class="btn primary" id="lg-submit" type="submit" data-i18n="gui.login.submit">Log in</button>
     </form>
+    <footer class="fe-foot"><span></span><div class="fe-foot-r"><div id="lg-legend"></div><small class="fe-ver"></small></div></footer>
   </section>
 
   <!-- Cuenta nueva (admin): el token de guardado y el código de invitación -->
@@ -1098,37 +1193,81 @@
   </section>
 
   <!-- Menú principal -->
-  <section id="s-menu" class="screen">
-    <div class="logo">Miniverse</div>
-    <div class="box panel">
-      <h2 id="menu-hello">Hello!</h2>
-      <p class="who" id="menu-save"></p>
-      <div id="m-live" hidden><p id="m-live-msg"></p></div>
-      <button class="btn primary" id="m-continue" data-i18n="gui.menu.continue">Continue</button>
-      <button class="btn primary" id="m-new">Create your character</button>
-      <button class="btn" id="m-local">Play locally</button>
-      <button class="btn" id="m-settings" data-i18n="gui.settings.title">Settings</button>
-      <p class="note" id="menu-msg"></p>
-      <button class="btn" id="m-session" data-i18n="gui.menu.log_out">Log out</button>
+  <section id="s-menu" class="screen front">
+    <div class="fe-mark"><svg class="emblem" aria-hidden="true"><use href="#emblem"/></svg><span>Miniverse</span></div>
+    <div class="mm-left">
+      <p class="mm-hello"><span id="menu-hello">Hello!</span><b id="menu-role" hidden data-i18n="gui.menu.admin">Admin</b></p>
+      <div id="mm-list">
+        <div id="m-continue"><span data-i18n="gui.menu.continue">Continue</span></div>
+        <div id="m-local"><span data-i18n="gui.menu.play_local">Play locally</span></div>
+        <div id="m-new"><span data-i18n="gui.menu.create">Create your character</span></div>
+        <div id="m-settings"><span data-i18n="gui.settings.title">Settings</span></div>
+        <div id="m-credits"><span data-i18n="gui.menu.credits">Credits</span></div>
+        <div id="m-session"><span data-i18n="gui.menu.log_out">Log out</span></div>
+      </div>
+      <p id="mm-desc"></p>
+      <p id="menu-msg" role="status"></p>
     </div>
+    <aside id="mm-card">
+      <div class="mm-face"><canvas id="mm-face" width="192" height="192" aria-hidden="true"></canvas><svg viewBox="0 0 100 100" aria-hidden="true"><circle cx="50" cy="36" r="20"/><path d="M12 100c0-26 16-38 38-38s38 12 38 38z"/></svg></div>
+      <h3 id="mm-name"></h3>
+      <p id="mm-when"></p>
+      <p id="mm-money"></p>
+      <p id="menu-save"></p>
+      <p id="mm-playing"></p>
+    </aside>
+    <footer class="fe-foot"><div id="m-live" hidden><p id="m-live-msg"></p></div><div class="fe-foot-r"><div id="mm-legend"></div><small class="fe-ver"></small></div></footer>
   </section>
 
-  <!-- Creador de personaje -->
-  <section id="s-creator" class="screen">
-    <div class="box panel">
-      <h2 data-i18n="gui.creator.title">Create your character</h2>
-      <div class="cr">
-        <div class="cr-stage">
-          <div class="cr-room"><canvas id="cr-canvas"></canvas></div>
-          <div class="cr-rot"><button class="sq" id="rot-l" aria-label="Turn left (hold)" data-i18n-attr="aria-label:gui.creator.turn_left">⟲</button><span id="rot-label">Front</span><button class="sq" id="rot-r" aria-label="Turn right (hold)" data-i18n-attr="aria-label:gui.creator.turn_right">⟳</button></div>
-        </div>
-        <div class="cr-opts" id="cr-opts">
-          <label class="field" style="margin:0"><span data-i18n="gui.creator.name">Name</span><input id="cr-name" maxlength="14"></label>
-        </div>
-      </div>
-      <div class="err" id="cr-err"></div>
-      <div class="cr-actions"><button class="btn" id="cr-back" style="flex:0 0 auto;width:auto" data-i18n="common.back">Back</button><button class="btn" id="cr-random" style="flex:0 0 auto;width:auto" data-i18n="gui.creator.random">Random</button><button class="btn primary" id="cr-start" data-i18n="gui.creator.start">Start</button></div>
+  <!-- Credits (src/ui/mainmenu.js): what is in assets/LICENCIAS.md -->
+  <section id="s-credits" class="screen front">
+    <div class="ps-top"><header class="ps-head">
+      <span class="ps-mark" aria-hidden="true"><svg class="emblem" aria-hidden="true"><use href="#emblem"/></svg>MINIVERSE</span>
+      <h2 data-i18n="credits.title">Credits</h2>
+      <button class="sq" id="cd-close" aria-label="Close" data-i18n-attr="aria-label:common.close">✕</button>
+    </header></div>
+    <div id="cd-body" tabindex="-1">
+      <div class="fe-mark"><svg class="emblem" aria-hidden="true"><use href="#emblem"/></svg><span>Miniverse</span></div>
+      <p class="cd-by" data-i18n="credits.made_by">Made by Alberto to play together</p>
+      <h3 data-i18n="credits.h.pictures">Pictures</h3>
+      <p data-i18n="credits.pictures">The pictures of the menus were taken in the game itself</p>
+      <h3 data-i18n="credits.h.engine">3D engine</h3>
+      <p data-i18n="credits.engine">three.js (MIT)</p>
+      <small>© 2010–2023 three.js authors</small>
+      <h3 data-i18n="credits.h.fonts">Fonts</h3>
+      <p data-i18n="credits.fonts">Oswald and Barlow (SIL Open Font License)</p>
+      <small>Copyright 2016 The Oswald Project Authors<br>github.com/googlefonts/OswaldFont</small>
+      <small>Copyright 2017 The Barlow Project Authors<br>github.com/jpt/barlow</small>
+      <h3 data-i18n="credits.h.textures">Textures</h3>
+      <p data-i18n="credits.textures">ambientCG textures (CC0)</p>
+      <small>RoofingTiles014B · RoofingTiles001 · Bricks089 · Wood080 · Planks037A · Wood094 · ThatchedRoof001A · Gravel043 · Tiles130 · Bark012 · Rock030 · Grass004 · Ground103 · Ground080<br>ambientcg.com</small>
+      <h3 data-i18n="credits.h.thanks">Thank you</h3>
+      <p data-i18n="credits.thanks">To everyone who plays in the village</p>
     </div>
+    <footer class="fe-foot"><span></span><div class="fe-foot-r"><div id="cd-legend"></div><small class="fe-ver"></small></div></footer>
+  </section>
+
+  <!-- The character creator (also the mirror and the barber's) -->
+  <section id="s-creator" class="screen front">
+    <header class="ps-head">
+      <span class="ps-mark" aria-hidden="true"><svg class="emblem" aria-hidden="true"><use href="#emblem"/></svg>MINIVERSE</span>
+      <h2 data-i18n="gui.creator.title">Create your character</h2>
+    </header>
+    <div class="cr">
+      <div class="cr-opts" id="cr-opts">
+        <nav id="cr-tabs"></nav>
+        <div id="cr-rows"><div class="row fe-opt cr-name"><span data-i18n="gui.creator.name">Name</span><input id="cr-name" maxlength="14" autocomplete="off" spellcheck="false"></div></div>
+        <div class="cr-bill" id="cr-bill" hidden></div>
+        <p id="cr-desc"></p>
+        <div class="err" id="cr-err" role="status"></div>
+        <div class="cr-actions"><button class="btn primary" id="cr-start" data-i18n="gui.creator.start">Start</button><button class="btn" id="cr-random" data-i18n="gui.creator.random">Random</button><button class="btn" id="cr-back" data-i18n="common.back">Back</button></div>
+      </div>
+      <div class="cr-stage" id="cr-stage">
+        <canvas id="cr-canvas"></canvas>
+        <div class="cr-rot"><button class="sq" id="rot-l" aria-label="Turn left (hold)" data-i18n-attr="aria-label:gui.creator.turn_left">⟲</button><span id="rot-label">Front</span><button class="sq" id="rot-r" aria-label="Turn right (hold)" data-i18n-attr="aria-label:gui.creator.turn_right">⟳</button></div>
+      </div>
+    </div>
+    <footer class="fe-foot"><span></span><div class="fe-foot-r"><div id="cr-legend"></div></div></footer>
   </section>
 
   <!-- The pause (src/ui/pausehub.js): a header, seven tabs over the frozen game, and the keys at the bottom -->
@@ -1136,7 +1275,7 @@
     <canvas id="fe-shot" aria-hidden="true" width="1" height="1"></canvas>
     <div class="ps-top">
       <header class="ps-head">
-        <span class="ps-mark" aria-hidden="true">MINIVERSE</span>
+        <span class="ps-mark" aria-hidden="true"><svg class="emblem" aria-hidden="true"><use href="#emblem"/></svg>MINIVERSE</span>
         <h2 id="ps-name"></h2>
         <span id="ps-online" hidden></span>
         <div class="ps-info"><div id="ps-when"></div><div id="ps-money"></div></div>
@@ -1203,6 +1342,7 @@
             <dt data-i18n-html="controls.quick.keys"><kbd>M</kbd> held</dt><dd data-i18n="controls.quick">The known places nearby: the mouse (or its wheel, or a digit) picks one and letting go marks the route to it; with a route marked, the first row removes it. Esc or right click, nothing</dd>
             <dt data-i18n-html="controls.chat.keys"><kbd>T</kbd> or <kbd>/</kbd></dt><dd data-i18n-html="controls.chat">Chat and commands (<b>/help</b> to see them). Ops (given in the server terminal with <b>/op</b>) have <b>/gamemode</b>, <b>/tp</b>, <b>/give</b>, <b>/kill</b>, <b>/weather</b>, <b>/gamerule</b>…; the admin also has <b>/account</b>, to create accounts</dd>
             <dt><kbd>Esc</kbd> <kbd>P</kbd></dt><dd data-i18n="controls.pause">Pause (and close windows): Q and E change tab, 1–7 jump to one; the arrows or WASD move, Enter picks, and Esc or right click goes back. In Settings, Z and C change section and R puts a row back to its default (held, the whole section). The shared world goes on meanwhile</dd>
+            <dt data-i18n="controls.creator.keys">The character creator, the mirror and the barber's</dt><dd data-i18n-html="controls.creator">The arrows move and change each row, <kbd>Q</kbd> and <kbd>E</kbd> change page, <kbd>Z</kbd> and <kbd>C</kbd> held turn your character around (so does dragging it), <kbd>R</kbd> picks at random, <kbd>Enter</kbd> finishes and <kbd>Esc</kbd> goes back</dd>
           </dl>
           <h3 data-i18n="gui.controls.building">Building</h3>
           <dl class="ct-list">
@@ -1279,7 +1419,7 @@
   <!-- The settings from the main menu (src/ui/settings.js): #st-body moves here -->
   <section id="s-settings" class="screen">
     <div class="ps-top"><header class="ps-head">
-      <span class="ps-mark" aria-hidden="true">MINIVERSE</span>
+      <span class="ps-mark" aria-hidden="true"><svg class="emblem" aria-hidden="true"><use href="#emblem"/></svg>MINIVERSE</span>
       <h2 data-i18n="gui.settings.title">Settings</h2>
       <button class="sq" id="st-close" aria-label="Close" data-i18n-attr="aria-label:common.close">✕</button>
     </header></div>

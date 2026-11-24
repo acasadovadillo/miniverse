@@ -22,14 +22,16 @@ import { SHARED } from '../livesync.js';
 import { GAME_VERSION, checkPublished } from '../version.js';
 import { showUpdateNotice, updateNoticeOpen } from './update.js';
 import { setNotice, syncNoticeText, expiryNoticeText, showKeyCode, saveSettings } from './savesafety.js';
-import { FE, alertBox, initMenuSounds } from './frontend.js';
+import { FE, alertBox, initMenuSounds, tabStrip, list, optionRow, legend, paneNav } from './frontend.js';
+import { initMainMenu, initCredits, dateText, versionText } from './mainmenu.js';
+import { KeyArt } from './keyart.js';
 import { initPauseHub } from './pausehub.js';
-import { useAccent } from './skin.js';
-import { t, LANGS, getLang, onLangChange, applyDom, setAccountLang, accountLangOf, savedLang } from '../i18n.js';
+import { useAccent, accentOf, ACCENTS, ACCENT_IDS } from './skin.js';
+import { t, fmt, LANGS, getLang, onLangChange, applyDom, setAccountLang, accountLangOf, savedLang } from '../i18n.js';
 
 const $ = id => document.getElementById(id);
 const sleep = ms => new Promise(r => setTimeout(r, ms));
-const SCREENS = ['s-login', 's-menu', 's-account', 's-creator', 's-pause', 's-shop', 's-settings'];
+const SCREENS = ['s-login', 's-menu', 's-account', 's-creator', 's-credits', 's-pause', 's-shop', 's-settings'];
 const AUTOSAVE_MS = 15000;
 const CHEST_REACH = 4;   // (lo que se puede alejar uno de un cofre abierto)
 const ADMIN_NAME = 'Alberto';   // (el dueño del mundo, que abre el servidor)
@@ -46,13 +48,21 @@ export function initMenus(game) {
   let wins = null;   // (las ventanas de la partida: se hacen más abajo)
   let hub = null;    // (the pause: src/ui/pausehub.js; made below)
   let settingsUI = null;   // (the settings: src/ui/settings.js; made below)
+  let menu = null, credits = null;   // (the main menu and its credits: src/ui/mainmenu.js; made below)
+  const opened = {};   // what each front screen does when it is put in sight: it takes the keys (frontend.js)
   function show(id) {
     if (id !== 's-pause') hub?.shut();
     if (id !== 's-settings') settingsUI?.shut();
+    if (id !== 's-credits') credits?.shut();
     if (id === 's-login' || id === 's-menu') wins?.closeAll();
     SCREENS.forEach(s => $(s).classList.toggle('show', s === id));
     document.body.classList.toggle('playing', !id);
+    if (id && !game.player) KeyArt.start(); else KeyArt.stop();
+    opened[id]?.();
   }
+  const paintVersion = () => { for (const el of document.querySelectorAll('.fe-ver')) el.textContent = versionText(); };
+  paintVersion();
+  onLangChange(paintVersion);
 
   // ---------- Contraseñas: un ojo para verlas u ocultarlas ----------
   const EYE = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1.5 12S5.5 5 12 5s10.5 7 10.5 7-4 7-10.5 7S1.5 12 1.5 12z"/><circle cx="12" cy="12" r="3"/></svg>';
@@ -61,12 +71,13 @@ export function initMenus(game) {
     const wrap = document.createElement('span'), eye = document.createElement('button');
     wrap.className = 'pw';
     eye.type = 'button'; eye.className = 'pw-eye';
-    const paint = () => { const shown = input.type === 'text'; eye.innerHTML = shown ? EYE_OFF : EYE; eye.setAttribute('aria-label', shown ? 'Ocultar' : 'Mostrar'); eye.title = shown ? 'Ocultar' : 'Mostrar'; eye.setAttribute('aria-pressed', String(shown)); };
+    const paint = () => { const shown = input.type === 'text'; eye.innerHTML = shown ? EYE_OFF : EYE; const what = t(shown ? 'gui.login.hide' : 'gui.login.show'); eye.setAttribute('aria-label', what); eye.title = what; eye.setAttribute('aria-pressed', String(shown)); };
     eye.addEventListener('mousedown', e => e.preventDefault());   // (sin quitarle el foco al campo)
     eye.addEventListener('click', () => { input.type = input.type === 'password' ? 'text' : 'password'; paint(); });
     input.replaceWith(wrap);
     wrap.append(input, eye);
     paint();
+    onLangChange(paint);
   }
 
   // ---------- Language: EN | ES in a corner of the login screen ----------
@@ -106,7 +117,8 @@ export function initMenus(game) {
   function setStep(s) {
     step = s;
     for (const id of ['lg-code-row', 'lg-pass2-row', 'lg-token-row']) $(id).hidden = !ROWS[s || 'login'].includes(id);
-    $('lg-submit').textContent = s === 'setup' ? 'Crear la cuenta de admin' : s === 'renew' ? 'Cambiar el token y entrar' : 'Entrar';
+    $('lg-submit').dataset.i18n = s === 'setup' ? 'gui.login.submit_setup' : s === 'renew' ? 'gui.login.submit_renew' : 'gui.login.submit';
+    applyDom($('lg-submit'));
     $('lg-pass').autocomplete = s === 'login' || !s || s === 'renew' ? 'current-password' : 'new-password';
     damagedBox(false);
   }
@@ -115,26 +127,41 @@ export function initMenus(game) {
     useAccent(null);
     for (const id of ['lg-pass', 'lg-pass2', 'lg-code', 'lg-token']) $(id).value = '';
     $('lg-err').textContent = '';
+    $('s-login').classList.remove('out');
     show('s-login');
   }
+  // The keys: ↑ ↓ go through the fields and the buttons, Enter logs in (from a field, the form's own; with nothing focused, as
+  // when the browser has filled them in by itself, here too)
+  const loginNav = paneNav($('login-form'), { skip: '.pw-eye' });
+  opened['s-login'] = () => {
+    if (FE.active() !== 's-login') FE.open('s-login', { root: true, sound: null, parts: [{ key(e) {
+      const a = document.activeElement;
+      if (/^(Enter|NumpadEnter|Space)$/.test(e.code) && a instanceof HTMLButtonElement) { if (!e.repeat) a.click(); return true; }   // (the language's, the eye's)
+      if (/^(Enter|NumpadEnter)$/.test(e.code)) { if (!e.repeat && !$('lg-submit').disabled) $('login-form').requestSubmit(); return true; }
+      return loginNav.key(e);
+    } }] });
+    paintLoginKeys();
+  };
+  function paintLoginKeys() { legend($('lg-legend'), [{ keys: ['↑', '↓'], text: t('gui.legend.move') }, { keys: ['Enter'], text: t('gui.login.submit') }]); }
+  onLangChange(() => { if ($('s-login').classList.contains('show')) paintLoginKeys(); });
   $('lg-user').addEventListener('input', () => { if (step) { setStep(null); $('lg-err').textContent = ''; } });
   $('login-form').addEventListener('submit', async e => {
     e.preventDefault();
     const user = $('lg-user').value.trim(), pass = $('lg-pass').value, say = m => { $('lg-err').textContent = m; };
-    if (!user) return say('Escribe tu usuario.');
-    if (!pass) return say('Escribe tu contraseña.');
+    if (!user) return say(t('gui.login.need_user'));
+    if (!pass) return say(t('gui.login.need_password'));
     $('lg-submit').disabled = true;
     try {
       if (!step || stepUser !== user) {
-        say('Buscando tu cuenta…');
+        say(t('gui.login.searching'));
         const s = await Profile.check(user);
         stepUser = user;
-        if (s === 'unknown') { setStep(null); return say('Ese usuario no existe.'); }
+        if (s === 'unknown') { setStep(null); return say(t('gui.login.unknown')); }
         setStep(s);
-        if (s === 'invite') return say('Es tu primera vez: escribe el código de invitación y repite tu contraseña nueva.');
-        if (s === 'setup') return say('Todavía no existe la cuenta de admin: repite tu contraseña y pega tu token de admin de GitHub.');
+        if (s === 'invite') return say(t('gui.login.first_time'));
+        if (s === 'setup') return say(t('gui.login.first_admin'));
       }
-      say('Abriendo tus datos…');
+      say(t('gui.login.opening'));
       damagedBox(false);
       const err = step === 'invite' ? await Profile.activate(user, $('lg-code').value, pass, $('lg-pass2').value)
         : step === 'setup' ? await Profile.setup(pass, $('lg-pass2').value, $('lg-token').value)
@@ -153,6 +180,12 @@ export function initMenus(game) {
     Settings.useVolumes(Profile.data?.save?.volumes);   // (los volúmenes de tu partida)
     // (on automatic, the language of the account: one from before this version stays in Spanish; see i18n.js)
     await setAccountLang(accountLangOf(Profile.data?.save));
+    // (the card fades; a game left or started meanwhile, or the session closed, is not this one's any more)
+    const who = Profile.id;
+    $('s-login').classList.add('out');
+    if (Settings.v.motion !== 'reduced') await sleep(200);
+    $('s-login').classList.remove('out');
+    if (Profile.id !== who || !$('s-login').classList.contains('show')) return;
     openMenu();
     expiryCheck();
     keyReminder();
@@ -165,12 +198,12 @@ export function initMenus(game) {
     if (!open) { box?.remove(); return; }
     const d = Profile.damaged;
     if (!d) return;
-    if (!box) { box = document.createElement('div'); box.id = 'lg-damaged'; box.style.cssText = 'display:flex;flex-direction:column;gap:6px;margin:0 0 10px'; $('lg-err').after(box); }
+    if (!box) { box = document.createElement('div'); box.id = 'lg-damaged'; $('lg-err').after(box); }
     box.replaceChildren();
     const say = m => { $('lg-err').textContent = m; };
     const button = (text, run, primary = false) => {
       const b = document.createElement('button');
-      b.type = 'button'; b.className = primary ? 'btn primary' : 'btn'; b.textContent = text; b.style.margin = '0';
+      b.type = 'button'; b.className = primary ? 'btn primary' : 'btn'; b.textContent = text;
       b.onclick = async () => {
         for (const x of box.querySelectorAll('button')) x.disabled = true;
         try { await run(b); } catch (e) { say(e.message); } finally { for (const x of box.querySelectorAll('button')) x.disabled = false; }
@@ -179,21 +212,21 @@ export function initMenus(game) {
       return b;
     };
     const use = async choice => {
-      say('Abriendo tus datos…');
+      say(t('gui.login.opening'));
       const err = await Profile.resolveDamaged(choice);
       if (err) return say(err);
       damagedBox(false);
       await loggedIn();
     };
-    if (d.localAt !== null) button(`Seguir con la copia de este ordenador${d.localAt > 0 ? ` (guardada el ${when(d.localAt)})` : ''}`, () => use('local'), true);
-    if (d.found) button(`Usar la de GitHub del ${when(d.found.at)}`, () => use('older'), d.localAt === null);
-    else if (d.found === undefined) button('Buscar una versión anterior en GitHub', async b => {
-      b.textContent = 'Buscando en el historial de GitHub…';
+    if (d.localAt !== null) button(d.localAt > 0 ? t('gui.login.damaged.local_at', { when: dateText(d.localAt) }) : t('gui.login.damaged.local'), () => use('local'), true);
+    if (d.found) button(t('gui.login.damaged.github', { when: dateText(d.found.at) }), () => use('older'), d.localAt === null);
+    else if (d.found === undefined) button(t('gui.login.damaged.search'), async b => {
+      b.textContent = t('gui.login.damaged.searching');
       // (si falla, sin conexión o con un error de GitHub, se dice arriba y los botones vuelven a estar como antes)
-      try { if (!(await Profile.findOlder())) say('En el historial de GitHub no hay ninguna versión anterior que se pueda abrir.'); }
+      try { if (!(await Profile.findOlder())) say(t('gui.login.damaged.none')); }
       finally { damagedBox(true); }
     });
-    if (d.localAt === null && d.found === null) button('Empezar sin partida', async () => { if (await alertBox({ title: t('gui.alert.empty_title'), text: t('gui.alert.empty_text') })) await use('empty'); });
+    if (d.localAt === null && d.found === null) button(t('gui.login.damaged.empty'), async () => { if (await alertBox({ title: t('gui.alert.empty_title'), text: t('gui.alert.empty_text') })) await use('empty'); });
   }
 
   // ---------- Menú principal ----------
@@ -201,55 +234,58 @@ export function initMenus(game) {
   // el servidor abierto, aunque el admin no esté) o se empieza otra con un personaje nuevo (avisando de que el de
   // ahora se borra). Sin personaje, se crea.
   let currentSave = null;
-  const when = ts => new Date(ts).toLocaleString('es-ES', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
   function openMenu() {
     localMode = false; live.local = false;
     // (si se sale a medias de algo a oscuras, un /tp lejos o al reaparecer, que el menú no se quede tapado: al volver a
     // jugar, play lo vuelve a tapar, y el salto viejo ya no destapa nada: ver Game.coverJump)
     $('fade').classList.remove('on');
     currentSave = Profile.data?.save || null;
-    $('menu-hello').textContent = `¡Hola, ${Profile.name}!`;
-    $('menu-save').textContent = currentSave ? `Tu personaje: ${currentSave.player.name} · guardado el ${when(currentSave.savedAt)}` : 'Todavía no tienes personaje.';
-    $('m-continue').hidden = !currentSave;
-    $('m-continue').disabled = false;   // (al volver de jugar; sin servidor, los demás no pueden: lo dice paintLive)
-    $('m-new').hidden = false;
-    $('m-new').textContent = currentSave ? 'Nueva partida' : 'Crear tu personaje';
-    const loc = Profile.data?.local?.save;
-    $('m-local').hidden = !currentSave && !loc;   // (hace falta un personaje: el mundo local empieza con el mismo aspecto)
-    $('m-local').textContent = loc ? `Jugar en local · guardado el ${when(loc.savedAt)}` : 'Jugar en local';
     useAccent(currentSave);
     $('menu-msg').textContent = '';
+    menu.busy(false);   // (al volver de jugar; sin servidor, los demás no pueden: lo dice paintLive)
+    menu.use(currentSave, Profile.data?.local?.save || null);
     show('s-menu');
     paintLive();
     findLive();
     publishedNewer(PUBLISHED_FRESH).catch(() => {});   // (para no esperar luego al pulsar Continuar: ver enter)
   }
-  $('m-continue').addEventListener('click', () => { if (currentSave) enter(); });
+  menu = game.mainMenu = initMainMenu({ pick: id => MENU[id]?.() });
+  credits = initCredits({ onClose: () => backToMenu('m-credits') });
+  opened['s-menu'] = () => menu.open();
+  function backToMenu(id) { show('s-menu'); menu.focus(id); paintLive(); }
+  const MENU = {
+    'm-continue': () => { if (currentSave) enter(); },
+    'm-local': playLocal,
+    'm-new': newCharacter,
+    'm-settings': () => { if (document.activeElement instanceof HTMLElement) document.activeElement.blur(); show('s-settings'); settingsUI.openScreen(); },
+    'm-credits': () => { show('s-credits'); credits.open(); },
+    'm-session': () => logOut(),
+  };
   // Jugar en local: un mundo solo tuyo, sin servidor ni nadie más, guardado con tu cuenta (Profile.storeLocal). Es una
   // partida aparte: su personaje empieza de cero con el nombre y el aspecto del tuyo, y lo que hagas allí no pasa al
   // mundo de todos (ni al revés). En él eres op: puedes usar los comandos
   let localMode = false;
-  $('m-local').addEventListener('click', () => {
+  function playLocal() {
     const loc = Profile.data?.local;
-    if (!loc?.save && !currentSave) { $('menu-msg').textContent = 'Crea primero tu personaje.'; return; }
+    if (!loc?.save && !currentSave) { $('menu-msg').textContent = t('gui.menu.local.need_character'); return; }
     live.close();   // (fuera del servidor mientras se juega en local; al volver al menú se busca otra vez)
     const data = loc?.save || { player: { name: currentSave.player.name, look: { ...currentSave.player.look }, x: SPAWN.x, y: SPAWN.y, inside: false, view: 'back' } };
-    $('menu-msg').textContent = 'Abriendo tu mundo local…';
+    $('menu-msg').textContent = t('gui.menu.local.opening');
     localMode = true; live.local = true;
     play(data, new Map(loc?.deltas || []), null, null);
-  });
+  }
   // Entrar en el mundo: si alguien lo lleva, en el suyo; si no, lo lleva tu juego (con el servidor abierto, los
   // demás entran contigo). Sin servidor solo puede jugar el admin. En tu partida se guarda lo tuyo; el mundo, quien
   // lo lleva lo guarda para todos.
   async function enter() {
-    const b = $('m-continue'), solo = { save: currentSave, deltas: new Map(Profile.data.deltas) };
+    const solo = { save: currentSave, deltas: new Map(Profile.data.deltas) };
     // (con una versión vieja no se entra a tocar el mundo de todos: ver version.js. Se mira también tras cada espera: el
     // saludo de un juego más nuevo puede llegar mientras)
     const stale = () => { if (live.newer === null) return false; live.unclaim(); $('menu-msg').textContent = ''; outdatedNotice(live.newer); return true; };
-    b.disabled = true;
+    menu.busy(true);
     try {
       if (stale()) return;
-      $('menu-msg').textContent = 'Mirando si hay una versión nueva…';
+      $('menu-msg').textContent = t('gui.menu.enter.checking');
       const pub = await publishedNewer(PUBLISHED_FRESH);
       if (pub) { $('menu-msg').textContent = ''; outdatedNotice(pub, true); return; }
       if (live.status === 'kicked') {
@@ -259,38 +295,37 @@ export function initMenus(game) {
       }
       // El servidor está abierto pero no te deja entrar (p. ej. mientras vuelve a una copia del mundo con /restore): no se
       // juega sin él, tampoco el admin, que llevaría el mundo de antes y lo guardaría encima del bueno
-      if (live.status === 'kicked') throw new Error(live.error || 'El servidor no te deja entrar ahora.');
+      if (live.status === 'kicked') throw new Error(live.error || t('gui.menu.enter.refused'));
       const on = live.status === 'on';
-      if (!on && !Profile.admin) throw new Error(`El servidor está cerrado: se puede jugar cuando ${ADMIN_NAME} lo abre.`);
+      if (!on && !Profile.admin) throw new Error(t('gui.menu.live.closed', { admin: ADMIN_NAME }));
       if (on && !live.host?.playing && !(await live.claim())) await live.waitHost();
-      if (on && live.status !== 'on') throw new Error(live.error || 'Se ha cortado la conexión con el servidor.');   // (te han echado o vetado mientras)
+      if (on && live.status !== 'on') throw new Error(live.error || t('gui.menu.enter.lost'));   // (te han echado o vetado mientras)
       if (on && live.host?.playing) {
-        $('menu-msg').textContent = live.host.server ? 'Entrando en el mundo…' : `Entrando en el mundo con ${live.host.name}…`;
+        $('menu-msg').textContent = live.host.server ? t('gui.menu.enter.entering') : t('gui.menu.enter.entering_with', { name: live.host.name });
         const world = await live.requestWorld();
         if (stale()) return;
         const { save, deltas } = live.enter(solo, world);
         play(save, deltas, solo, 'guest');
         return;
       }
-      $('menu-msg').textContent = 'Abriendo el mundo…';
+      $('menu-msg').textContent = t('gui.menu.enter.opening');
       const world = await sharedWorld(solo);
-      if (on && live.status !== 'on') throw new Error(live.error || 'Se ha cortado la conexión con el servidor.');
+      if (on && live.status !== 'on') throw new Error(live.error || t('gui.menu.enter.lost'));
       if (stale()) return;
       if (world) { const { save, deltas } = live.enter(solo, world); play(save, deltas, Profile.admin ? null : solo, on ? 'host' : null); }
       else { live.extraShared = {}; play(currentSave, solo.deltas, null, on ? 'host' : null); }   // (el admin, con el mundo de su partida)
-    } catch (e) { live.unclaim(); $('menu-msg').textContent = e.message; } finally { if (!game.player) { b.disabled = false; paintLive(); } }
+    } catch (e) { live.unclaim(); $('menu-msg').textContent = e.message; } finally { if (!game.player) { menu.busy(false); paintLive(); } }
   }
   // El mundo compartido como lo guardó la última vez quien lo llevaba. El admin, si el de su partida es más
   // reciente (o aún no se ha guardado aparte), juega con ese: null
   async function sharedWorld(solo) {
     let w;
-    try { w = await Profile.loadWorld(); } catch (e) { throw new Error(`No se ha podido traer el mundo compartido: ${e.message}`); }
+    try { w = await Profile.loadWorld(); } catch (e) { throw new Error(t('gui.menu.enter.world_failed', { why: e.message })); }
     if (Profile.admin && (!w || (w.savedAt || 0) <= (solo.save.worldAt || 0))) return null;
-    if (!w) throw new Error(`El mundo compartido todavía no está guardado: ${ADMIN_NAME} tiene que entrar una vez para dejarlo listo.`);
+    if (!w) throw new Error(t('gui.menu.enter.world_missing', { admin: ADMIN_NAME }));
     return w;
   }
   function logOut() { live.close(); Profile.logout(); setAccountLang(null); for (const id of ['sync', 'token', 'server-token', 'key-code', 'key-lost']) setNotice(id, null); openLogin(); }
-  $('m-session').addEventListener('click', logOut);
   // Settings › Account › Log out: playing, it asks, saves first and, if it could not be saved anywhere, stays
   let leaving = false;
   async function logOutFromSettings() {
@@ -371,25 +406,23 @@ export function initMenus(game) {
   setInterval(() => { if (Profile.id && !LIVE_URL && $('s-menu').classList.contains('show') && !['on', 'nokey', 'kicked'].includes(live.status)) findLive(); }, 30000);
   function paintLive() {
     const host = live.host, s = live.status, playing = live.others.filter(p => p.playing && !p.server).map(p => p.name);
+    const who = { names: fmt.list(playing), n: playing.length }, say = (k, p) => t(`gui.menu.live.${k}`, p);
     let msg = '';
     if (s === 'kicked') msg = live.error;
-    else if (s === 'on' && host?.server) msg = playing.length ? `Servidor abierto: el mundo está en marcha. Ahora juega${playing.length > 1 ? 'n' : ''}: ${playing.join(', ')}. Al entrar, jugaréis juntos.`
-      : 'Servidor abierto: el mundo está en marcha (lo lleva el servidor). Puedes entrar cuando quieras.';
-    else if (s === 'on') msg = host?.playing ? `Servidor abierto. Ahora juega${playing.length > 1 ? 'n' : ''}: ${playing.join(', ')}. Al entrar, jugaréis juntos.`
-      : Profile.admin ? 'Servidor abierto: los demás pueden entrar en el mundo cuando quieran, aunque tú no estés jugando.'
-      : 'Servidor abierto: puedes entrar en el mundo aunque no haya nadie más jugando.';
+    else if (s === 'on' && host?.server) msg = playing.length ? say('world_playing', who) : say('world');
+    else if (s === 'on') msg = host?.playing ? say('playing', who) : say(Profile.admin ? 'open_admin' : 'open');
     else if (Profile.admin) {
-      if (s === 'connecting') msg = 'Conectando con tu servidor para jugar juntos…';
-      else if (s === 'error' && LIVE_URL) msg = `No se puede conectar con tu servidor para jugar juntos: ${live.error} Sigo intentándolo… (¿está abierto multijugador.py?)`;
+      if (s === 'connecting') msg = say('connecting_admin');
+      else if (s === 'error' && LIVE_URL) msg = say('error_admin', { why: live.error });
     } else {
       // Los demás solo pueden jugar con el servidor abierto: el mundo, el de todos, solo está ahí
-      if (s === 'connecting') msg = 'Buscando el servidor del mundo…';
-      else if (s === 'nokey') msg = `Pidiendo la llave del mundo… (te la da el juego de ${ADMIN_NAME} la próxima vez que entre)`;
-      else msg = `El servidor está cerrado: se puede jugar cuando ${ADMIN_NAME} lo abre.`;
+      if (s === 'connecting') msg = say('connecting');
+      else if (s === 'nokey') msg = say('nokey', { admin: ADMIN_NAME });
+      else msg = say('closed', { admin: ADMIN_NAME });
     }
     if (live.serverOld && s === 'on') msg += ` ${live.serverOld}`;   // (al admin y a los op: ver live.checkVersion)
     if (Profile.admin && Profile.worldKeyError) msg = `${Profile.worldKeyError} ${msg}`.trim();   // (sin ella no se juega con los demás)
-    if (!Profile.admin) $('m-continue').disabled = s !== 'on' && s !== 'kicked';   // (echado: al pulsar, se vuelve a intentar)
+    menu.live(s === 'on' ? playing : [], !Profile.admin && s !== 'on' && s !== 'kicked' ? msg : '');   // (echado: al pulsar, se vuelve a intentar)
     const open = s === 'on';
     $('m-live').hidden = !msg;
     $('m-live').className = s === 'kicked' || (s === 'error' && Profile.admin) || (Profile.admin && Profile.worldKeyError) ? 'err' : open ? '' : 'wait';
@@ -402,10 +435,8 @@ export function initMenus(game) {
     const r = await save({ upload: true, world: why !== 'conflict' });
     game.end();
     openMenu();
-    const kept = `Tu personaje y lo que llevas están guardados${r.remote === false ? ' en este ordenador (no en GitHub)' : ''}.`;
-    $('menu-msg').textContent = why === 'outdated' ? `Hay una versión nueva del juego: recarga la página. ${kept}`
-      : why === 'conflict' ? `Otro juego ya llevaba el mundo compartido: vuelve a entrar para jugar juntos. ${kept}`
-      : why === 'kicked' || why === 'stop' ? `${text} ${kept}` : `Se ha cortado la conexión con el mundo compartido. ${kept}`;
+    const kept = t(r.remote === false ? 'gui.menu.left.kept_here' : 'gui.menu.left.kept');
+    $('menu-msg').textContent = why === 'kicked' || why === 'stop' ? `${text} ${kept}` : `${t(why === 'outdated' || why === 'conflict' ? `gui.menu.left.${why}` : 'gui.menu.left.lost')} ${kept}`;
     if (why === 'outdated') outdatedNotice(live.newer);
   };
   // El servidor pide guardar ya (/save-all en su terminal); y cada vez que se sube el mundo, una copia para él
@@ -439,113 +470,96 @@ export function initMenus(game) {
     if (v && v !== told) { told = v; outdatedNotice(v, true); }   // (una vez por versión: luego, al ir a entrar)
   }, PUBLISHED_EVERY);
   // Nueva partida: antes, un aviso (se borra el personaje de ahora; el mundo, no). Sin personaje, al creador
-  $('m-new').addEventListener('click', async () => {
+  async function newCharacter() {
     if (!currentSave) { openCreator(); return; }
     if (await alertBox({ title: t('gui.alert.new_title'), text: t('gui.menu.new_game_warning'), yes: t('gui.menu.new_game_confirm'), no: t('common.cancel') }) && $('s-menu').classList.contains('show')) openCreator(true);
-  });
-  initMenuSounds(['s-login', 's-menu', 's-account', 's-creator', 'st-account']);
+  }
+  initMenuSounds(['s-login', 's-account', 's-creator', 'st-account']);
+  // (a button clicked with the mouse does not keep the focus: Enter is still the screen's)
+  for (const id of ['s-login', 's-creator']) $(id).addEventListener('click', e => { const b = e.target instanceof Element && e.target.closest('button'); if (e.detail && b) b.blur(); });
 
   // ---------- Creador de personaje ----------
   // (la vista previa es el mismo modelo en 3D que en el juego)
   const look = { ...DEFAULT_LOOK };
   const preview = new CharacterPreview($('cr-canvas'));
-  const rows = [];
-
-  // Pestañas: cuerpo y ropa, cara y pelo (en la de la cara, la cámara se acerca a la cabeza)
-  const PAGES = [['cuerpo', 'Cuerpo'], ['cara', 'Cara'], ['pelo', 'Pelo']];
-  const pages = {};
-  const tabs = document.createElement('div');
-  tabs.className = 'tabs cr-tabs';
-  for (const [id, label] of PAGES) {
-    const b = document.createElement('button');
-    b.type = 'button'; b.textContent = label; b.dataset.page = id;
-    b.onclick = () => showPage(id);
-    tabs.append(b);
-    pages[id] = document.createElement('div');
-    pages[id].className = 'cr-page';
+  // Pages (Q and E, or their tabs): body and clothes, face and hair (on the face, the camera comes closer to the head). Each has
+  // its rows, «Label ‹ Value ›» (frontend.js optionRow). They are made again each time it opens (buildRows): the mirror and the
+  // barber leave some out, and the language may be another
+  const PAGES = ['cuerpo', 'cara', 'pelo'];   // (gui.creator.page.*)
+  let rows = [], L = null, page = 'cuerpo', colour = null;   // colour: the player's own (0-7), or null, the one of the name (skin.js)
+  const nameIn = $('cr-name');
+  const tabs = tabStrip($('cr-tabs'), PAGES.map(id => ({ id, text: t(`gui.creator.page.${id}`), i18n: `gui.creator.page.${id}` })), { current: page, onPick: showPage });
+  const rowOf = id => rows.find(x => x.id === id);
+  function buildRows() {
+    rows = [];
+    const add = (pg, id, opt, o = {}) => { opt.el.dataset.row = id; rows.push({ id, page: pg, opt, el: opt.el, ...o }); };
+    const look0 = (key, o) => ({ label: t(`gui.creator.row.${key}`), get: () => look[key], set: v => { look[key] = v; rebuild(); }, ...o });
+    // (a choice with a name, or a colour: its swatches, and which one it is of how many)
+    const named = (pg, key) => { const all = (key === 'hairStyle' && mirror?.styles) || LOOK_OPTIONS[key], text = v => t(`look.${key}.${v}`); add(pg, key, optionRow(look0(key, { values: all.map(([v]) => [v, text(v)]), other: text(all[0][0]) })), { key }); };
+    const colours = (pg, key) => { const all = LOOK_OPTIONS[key]; add(pg, key, optionRow(look0(key, { colours: all, values: all.map((c, i) => [c, `${i + 1} / ${all.length}`]), other: '—' })), { key }); rowOf(key).el.classList.add('sw'); };
+    // The name, written in its row; and the player's own colour, with the character to see it at once
+    const nameEl = document.createElement('div'), nameText = document.createElement('span');
+    nameEl.className = 'fe-opt cr-name'; nameText.textContent = t('gui.creator.name');
+    nameEl.append(nameText, nameIn);
+    nameEl.addEventListener('click', () => nameIn.focus());
+    add('cuerpo', 'name', { el: nameEl, refresh() {}, key: () => false }, { hide: () => !!mirror?.barber });
+    named('cuerpo', 'sex');
+    colours('cuerpo', 'skin');
+    named('cuerpo', 'outfit');
+    colours('cuerpo', 'cloth');
+    add('cuerpo', 'accent', optionRow({ label: t('gui.creator.colour'), colours: ACCENTS, values: ACCENTS.map((_, i) => [i, t(`gui.settings.row.accent.${ACCENT_IDS[i]}`)]),
+      get: () => accentOf(nameIn.value || Profile.name, colour), set: n => { colour = n; paintColour(); } }), { hide: () => !!mirror, desc: 'gui.settings.desc.accent' });
+    rowOf('accent').el.classList.add('sw');
+    named('cara', 'eyeStyle');
+    colours('cara', 'eyes');
+    named('cara', 'brows');
+    named('cara', 'nose');
+    // (orejas, mofletes, boca y accesorio del pelo eran de los muñecos de antes: la persona de ahora no los dibuja. Siguen en
+    // el look, guardado y por red, pero ya no se ofrecen)
+    named('pelo', 'hairStyle');
+    colours('pelo', 'hair');
+    named('pelo', 'beard');
+    // The barber's services and the mirror's beard options: yes or no, with the price when there is one (paintMirror says
+    // which, what is on and how much)
+    for (const [win, id, run] of MARKS) {
+      const m = { on: false, gone: true, text: '', price: document.createElement('b') };
+      const opt = optionRow({ label: '', get: () => m.on, set: () => { run(); rebuild(); } });
+      m.price.className = 'price'; opt.el.firstChild.after(m.price);
+      opt.el.classList.add('mark');
+      add('pelo', id, opt, { win, mark: m, hide: () => m.gone });
+    }
+    L = list($('cr-rows'), rows.map(x => ({ id: x.id, el: x.el })), { hover: 'move', start: -1, onFocus: row => { if (row.id !== 'name' && document.activeElement === nameIn) nameIn.blur(); $('cr-desc').textContent = rowOf(row.id).desc ? t(rowOf(row.id).desc) : ''; } });
   }
-  $('cr-opts').append(tabs, ...Object.values(pages));
+  // Which rows are in sight: those of the page (at the barber's, the hair and the face together, without tabs: what is left of
+  // the two fits one page) that this window has
+  function paintRows() {
+    for (const x of rows) {
+      const here = mirror?.barber ? x.page !== 'cuerpo' : x.page === page;
+      x.el.hidden = !here || (x.win && x.win !== (mirror ? (mirror.barber ? 'barber' : 'mirror') : null)) || !!(x.key && mirror?.hides.includes(x.key)) || !!x.hide?.();
+    }
+    L.settle();
+  }
   function showPage(id) {
-    for (const b of tabs.children) b.classList.toggle('on', b.dataset.page === id);
-    // (at the barber's, the hair and the face together, without tabs: what is left of the two fits one page)
-    for (const [k, el] of Object.entries(pages)) el.hidden = mirror?.barber ? k === 'cuerpo' : k !== id;
-    preview.focus(id === 'cara' || mirror?.barber || (mirror && id === 'pelo') ? 'face' : 'body');
+    page = id;
+    if (document.activeElement === nameIn) nameIn.blur();
+    paintRows();
+    L.focus(rows.findIndex(x => !x.el.hidden));
+    const near = id === 'cara' || !!mirror?.barber || (!!mirror && id === 'pelo');
+    preview.focus(near ? 'face' : 'body');
+    $('cr-stage').classList.toggle('near', near);
   }
+  // Back to the first of its pages
+  function firstPage(id) { tabs.pick(id, { silent: true }); showPage(id); }
+  function paintColour() { useAccent({ player: { name: nameIn.value || Profile.name }, ui: colour === null ? null : { accent: colour } }); rowOf('accent')?.opt.refresh(); }
+  nameIn.addEventListener('input', () => { if (!mirror && colour === null) paintColour(); });
+  nameIn.addEventListener('focus', () => L?.focusId('name'));
+  nameIn.addEventListener('keydown', e => { if (e.key === 'Enter') nameIn.blur(); });
 
   function rebuild() {
     preview.setLook(mirror ? mirrorLook() : look);
-    rows.forEach(r => r());
     if (mirror) paintMirror();
+    for (const x of rows) x.opt.refresh();
   }
-  function addRow(page, title, el, key) {
-    const wrap = document.createElement('div');
-    if (key) wrap.dataset.key = key;
-    wrap.innerHTML = `<div class="opt-t">${title}</div>`;
-    wrap.append(el);
-    pages[page].append(wrap);
-  }
-  function segRow(page, title, key) {
-    const box = document.createElement('div');
-    box.className = 'seg';
-    for (const [value, label] of LOOK_OPTIONS[key]) {
-      const b = document.createElement('button');
-      b.type = 'button';
-      b.textContent = label;
-      b.onclick = () => { look[key] = value; rebuild(); };
-      box.append(b);
-    }
-    rows.push(() => [...box.children].forEach((b, i) => b.classList.toggle('on', LOOK_OPTIONS[key][i][0] === look[key])));
-    addRow(page, title, box, key);
-  }
-  function cycRow(page, title, key) {
-    const box = document.createElement('div');
-    box.className = 'cyc';
-    box.innerHTML = '<button type="button" class="sq" aria-label="Anterior">◀</button><span></span><button type="button" class="sq" aria-label="Siguiente">▶</button>';
-    const [prev, next] = box.querySelectorAll('button'), label = box.querySelector('span'), list = () => (key === 'hairStyle' && mirror?.styles) || LOOK_OPTIONS[key];
-    const step = d => { const l = list(), i = l.findIndex(([v]) => v === look[key]); look[key] = l[(i + d + l.length) % l.length][0]; rebuild(); };
-    prev.onclick = () => step(-1);
-    next.onclick = () => step(1);
-    rows.push(() => { const l = list(); label.textContent = (l.find(([v]) => v === look[key]) || l[0])[1]; });
-    addRow(page, title, box, key);
-  }
-  function swRow(page, title, key) {
-    const box = document.createElement('div');
-    box.className = 'sw';
-    for (const col of LOOK_OPTIONS[key]) {
-      const b = document.createElement('button');
-      b.type = 'button';
-      b.style.background = col;
-      b.setAttribute('aria-label', title);
-      b.onclick = () => { look[key] = col; rebuild(); };
-      box.append(b);
-    }
-    rows.push(() => [...box.children].forEach((b, i) => b.classList.toggle('on', LOOK_OPTIONS[key][i] === look[key])));
-    addRow(page, title, box, key);
-  }
-  // A button that stays pressed, with its price beside it when it has one: the barber's services and the mirror's beard
-  // options (paintMirror shows and presses them). It goes on page, hidden outside its window (data-win)
-  const marks = {};
-  function markRow(page, win, id, run) {
-    const box = document.createElement('div');
-    box.className = 'cr-mark'; box.dataset.win = win; box.hidden = true;
-    box.innerHTML = '<button type="button"></button><b></b>';
-    box.firstChild.onclick = () => { run(); rebuild(); };
-    pages[page].append(box);
-    marks[id] = box;
-  }
-  segRow('cuerpo', 'Sexo', 'sex');
-  swRow('cuerpo', 'Tono de piel', 'skin');
-  cycRow('cuerpo', 'Ropa', 'outfit');
-  swRow('cuerpo', 'Color de la ropa', 'cloth');
-  cycRow('cara', 'Ojos', 'eyeStyle');
-  swRow('cara', 'Color de ojos', 'eyes');
-  cycRow('cara', 'Cejas', 'brows');
-  cycRow('cara', 'Nariz', 'nose');
-  // (orejas, mofletes, boca y accesorio del pelo eran de los muñecos de antes: la persona de ahora no los dibuja. Siguen en
-  // el look, guardado y por red, pero ya no se ofrecen)
-  cycRow('pelo', 'Peinado', 'hairStyle');
-  swRow('pelo', 'Color de pelo', 'hair');
-  cycRow('pelo', 'Barba', 'beard');
 
   const pickOf = arr => arr[Math.floor(Math.random() * arr.length)];
   $('cr-random').onclick = () => {
@@ -556,15 +570,14 @@ export function initMenus(game) {
     rebuild();
   };
 
-  // Girar al personaje: poco a poco mientras se mantiene pulsado un botón de giro o una flecha (← →) del
-  // teclado, o arrastrando sobre él. El texto dice hacia dónde mira (la más cercana de ocho direcciones).
-  const FACING = ['De frente', 'Frente derecha', 'Perfil derecho', 'Espalda derecha', 'De espaldas', 'Espalda izquierda', 'Perfil izquierdo', 'Frente izquierda'];
+  // Girar al personaje: poco a poco mientras se mantiene pulsado un botón de giro o la Z o la C del teclado, o arrastrando
+  // sobre él. El texto dice hacia dónde mira (la más cercana de ocho direcciones).
   const SPIN = 2.4;                     // radianes por segundo
   let angle = 0, spin = 0;              // giro y hacia dónde gira ahora (-1, 0 o 1)
   const turnTo = a => {
     angle = a;
     preview.setAngle(angle);
-    $('rot-label').textContent = FACING[((Math.round(angle / (Math.PI / 4)) % 8) + 8) % 8];
+    $('rot-label').textContent = t(`gui.creator.facing.${((Math.round(angle / (Math.PI / 4)) % 8) + 8) % 8}`);
   };
   const creatorOpen = () => $('s-creator').classList.contains('show');
   for (const [id, d] of [['rot-l', -1], ['rot-r', 1]]) {
@@ -573,13 +586,47 @@ export function initMenus(game) {
     for (const ev of ['pointerup', 'pointercancel', 'lostpointercapture']) b.addEventListener(ev, () => { if (spin === d) spin = 0; });
     b.addEventListener('contextmenu', e => e.preventDefault());   // mantener pulsado en el móvil
   }
-  const ARROWS = { ArrowLeft: -1, ArrowRight: 1 };
-  addEventListener('keydown', e => {
-    if (!creatorOpen() || !ARROWS[e.code] || e.target instanceof HTMLInputElement) return;
-    spin = ARROWS[e.code];
-    e.preventDefault();
-  });
-  addEventListener('keyup', e => { if (spin && spin === ARROWS[e.code]) spin = 0; });
+  const TURN = { KeyZ: -1, KeyC: 1 };
+  // The keys of the creator: ↑ ↓ and ← → its rows, Q and E its pages, R at random, Enter finishes (a new character, asking
+  // first), Esc and right click go back
+  const creatorKeys = { key(e) {
+    const a = document.activeElement, row = rows[L.index], enter = /^(Enter|NumpadEnter)$/.test(e.code);
+    if ((enter || e.code === 'Space') && a instanceof HTMLButtonElement && $('s-creator').contains(a)) { if (!e.repeat) a.click(); return true; }   // (one that Tab got to)
+    if (TURN[e.code]) { spin = TURN[e.code]; return true; }
+    if (e.code === 'KeyR') { if (!e.repeat && !$('cr-random').hidden) $('cr-random').click(); return true; }
+    if (enter) { if (!e.repeat) { if (row?.id === 'name' && !nameIn.disabled && !nameIn.value.trim()) nameIn.focus(); else finish(); } return true; }
+    if (!tabs.el.hidden && tabs.key(e)) return true;
+    if (row?.id === 'name' && e.code === 'Space') { if (!nameIn.disabled) { nameIn.focus(); nameIn.select(); } return true; }
+    return /^(Arrow(Up|Down)|Key[WS])$/.test(e.code) ? L.key(e) : row?.opt.key(e) || false;
+  } };
+  async function finish() {
+    if (!mirror && nameIn.value.trim() && !(await alertBox({ title: t('gui.creator.start_title'), text: t('gui.creator.start_text', { name: nameIn.value.trim() }), yes: t('gui.creator.start') }))) return;
+    if (creatorOpen()) $('cr-start').click();
+  }
+  function paintCreatorKeys() {
+    const I = (k, keys, o) => ({ keys, text: t(`gui.legend.${k}`), ...o }), out = [I('move', ['↑', '↓']), I('change', ['←', '→'])];
+    if (!tabs.el.hidden) out.push(I('category', ['Q', 'E']));
+    out.push(I('turn', ['Z', 'C']));
+    if (!$('cr-random').hidden) out.push(I('random', ['R'], { onClick: () => $('cr-random').click() }));
+    out.push({ keys: ['Enter'], text: $('cr-start').textContent, onClick: () => $('cr-start').click() }, I('back', ['Esc'], { onClick: () => FE.back() }));
+    legend($('cr-legend'), out);
+  }
+  let crScreen = null;
+  opened['s-creator'] = () => {
+    if (!crScreen || crScreen.closed) {
+      crScreen = FE.open('s-creator', { root: true, parts: [creatorKeys], keyup: e => { if (!e || spin === TURN[e.code]) spin = 0; }, onClose: () => { spin = 0; },
+        back() { if (document.activeElement === nameIn) nameIn.blur(); else leaveCreator(); return true; } });
+    }
+    paintCreatorKeys();
+    fit();
+  };
+  // The size of the preview: what its side of the screen leaves
+  function fit() {
+    if (!creatorOpen()) return;
+    const box = $('cr-stage').getBoundingClientRect(), h = Math.max(200, Math.min(760, box.height - 66, box.width * 1.25));
+    preview.resize(Math.round(h * 0.8), Math.round(h));
+  }
+  addEventListener('resize', fit);
   addEventListener('blur', () => { spin = 0; });
   const cv = $('cr-canvas');
   let dragX = null;
@@ -593,14 +640,11 @@ export function initMenus(game) {
   // applied as the window opens (a hidden moment: body.js §2.5)
   let mirror = null;
   const toggle = k => () => { mirror[k] = !mirror[k]; };
-  markRow('pelo', 'barber', 'cut', toggle('cut'));
-  markRow('pelo', 'barber', 'trim', toggle('trim'));
-  markRow('pelo', 'mirror', 'shave', () => { mirror.act = mirror.act === 'shave' ? null : 'shave'; });
-  markRow('pelo', 'mirror', 'tidy', () => { mirror.act = mirror.act === 'tidy' ? null : 'tidy'; });
-  markRow('pelo', 'mirror', 'grow', toggle('grow'));
-  const billEl = document.createElement('div');
-  billEl.className = 'cr-bill'; billEl.dataset.win = 'barber'; billEl.hidden = true;
-  $('cr-opts').append(billEl);
+  const MARKS = [
+    ['barber', 'cut', toggle('cut')], ['barber', 'trim', toggle('trim')],
+    ['mirror', 'shave', () => { mirror.act = mirror.act === 'shave' ? null : 'shave'; }], ['mirror', 'tidy', () => { mirror.act = mirror.act === 'tidy' ? null : 'tidy'; }], ['mirror', 'grow', toggle('grow')],
+  ];
+  const billEl = $('cr-bill');
   const bill = () => barberBill(game.player.look, look, mirror, game.rep?.buyFactor() ?? 1);
   // What the window would leave: the look chosen, with the growth that stays
   function mirrorLook() {
@@ -613,13 +657,13 @@ export function initMenus(game) {
   }
   // The marks (pressed, with their prices), the bill and the button
   function paintMirror() {
-    const mark = (id, on, text, price = '') => { const el = marks[id]; el.firstChild.classList.toggle('on', !!on); el.firstChild.setAttribute('aria-pressed', String(!!on)); el.firstChild.textContent = text; el.lastChild.textContent = price; };
+    const mark = (id, on, text, price = '') => { const x = rowOf(id); x.mark.on = !!on; x.mark.price.textContent = price; x.el.firstChild.textContent = text; }, gone = (id, v) => { rowOf(id).mark.gone = v; };
     const grown = game.body?.applied, male = look.sex === 'chico', bearded = (look.beard || 'no') !== 'no';
     if (mirror.barber) {
       const b = bill(), f = game.rep?.buyFactor() ?? 1, price = ask => t('barber.price', { n: barberBill(game.player.look, game.player.look, ask, f).total }), has = id => b.lines.some(l => l.id === id);
       mark('cut', mirror.cut || has('style'), t('barber.cut'), has('style') ? '' : price({ cut: true }));
       const stubble = !bearded && male && (grown?.beard || 0) > 0;
-      marks.trim.hidden = !bearded && !stubble;
+      gone('cut', false); gone('trim', !bearded && !stubble);
       mark('trim', mirror.trim || has('beard'), t(bearded ? 'barber.trim' : 'mirror.shave'), has('beard') ? '' : price({ trim: true }));
       billEl.textContent = [...b.lines.map(l => `${t('barber.line.' + l.id)}: ${t('barber.price', { n: l.n })}`), t('barber.total', { n: b.total })].join('  ·  ');
       billEl.classList.toggle('poor', b.total > game.money);
@@ -627,13 +671,14 @@ export function initMenus(game) {
       setStartLabel(b.total ? 'barber.pay' : 'gui.creator.done');
     } else {
       const some = bearded || (male && (grown?.beard || 0) > 0);
-      marks.shave.hidden = !some; marks.tidy.hidden = !bearded || !male || !(grown?.beard > 0);
-      marks.grow.hidden = !male;
+      gone('shave', !some); gone('tidy', !bearded || !male || !(grown?.beard > 0)); gone('grow', !male);
       mark('shave', mirror.act === 'shave', t('mirror.shave'));
       mark('tidy', mirror.act === 'tidy', t('mirror.tidy'));
       mark('grow', mirror.grow, t('mirror.grow'));
-      tabs.children[2].hidden = !some && !male;   // (no beard to see to: no tab)
+      tabs.btns[2].hidden = !some && !male;   // (no beard to see to: no tab)
+      if (tabs.btns[2].hidden && page === 'pelo') firstPage('cara');
     }
+    paintRows();
   }
   game.onMirror = (mode = 'mirror') => {
     if (game.mode !== 'play' || !game.player) return false;
@@ -645,32 +690,28 @@ export function initMenus(game) {
     mirror = { wear, hides, barber, cut: false, trim: false, act: null, grow: game.body?.beardGrows !== false, styles: barber ? barberStyles(game.player.look.hairStyle) : null };
     Object.assign(look, DEFAULT_LOOK, game.player.look);
     if (typeof look.beard !== 'string') look.beard = look.beard ? 'completa' : 'no';   // (an old look's true)
-    $('cr-name').value = game.player.name; $('cr-name').disabled = true; $('cr-name').parentElement.hidden = barber;
+    nameIn.value = game.player.name; nameIn.disabled = true;
     $('cr-random').hidden = barber;
-    const title = document.querySelector('#s-creator h2');
-    title.dataset.i18n = barber ? 'barber.title' : 'mirror.title'; applyDom(title);
+    setTitle(barber ? 'barber.title' : 'mirror.title');
     setStartLabel('gui.creator.done');
-    for (const el of document.querySelectorAll('#s-creator [data-key]')) el.hidden = hides.includes(el.dataset.key);
-    for (const el of document.querySelectorAll('#s-creator [data-win]')) el.hidden = el.dataset.win !== (barber ? 'barber' : 'mirror');
-    tabs.hidden = barber; tabs.children[2].textContent = t('mirror.beard');
+    billEl.hidden = !barber;
+    tabs.el.hidden = barber; tabLabel('mirror.beard');
     $('cr-err').textContent = '';
-    spin = 0; turnTo(0); rebuild();
-    const w = Math.max(160, Math.min(240, innerWidth - 80));
-    preview.resize(w, Math.round(w * 1.25));
-    showPage('cara');
+    spin = 0; turnTo(0); buildRows(); rebuild();
+    firstPage('cara');
     show('s-creator');
     return true;
   };
+  function setTitle(key) { const h = document.querySelector('#s-creator h2'); h.dataset.i18n = key; applyDom(h); }
+  function tabLabel(key) { tabs.btns[2].dataset.i18n = key; applyDom(tabs.btns[2]); }
   // Back to the creator as it is for a new character (also when the game ended with one of these windows open)
   function leaveMirror() {
     mirror = null;
-    $('cr-name').disabled = false; $('cr-name').parentElement.hidden = false; $('cr-random').hidden = false;
-    const title = document.querySelector('#s-creator h2');
-    title.dataset.i18n = 'gui.creator.title'; applyDom(title);
+    nameIn.disabled = false; $('cr-random').hidden = false;
+    setTitle('gui.creator.title');
     setStartLabel('gui.creator.start');
-    for (const el of document.querySelectorAll('#s-creator [data-key]')) el.hidden = false;
-    for (const el of document.querySelectorAll('#s-creator [data-win]')) el.hidden = true;
-    tabs.hidden = false; tabs.children[2].hidden = false; tabs.children[2].textContent = PAGES[2][1];
+    billEl.hidden = true;
+    tabs.el.hidden = false; tabs.btns[2].hidden = false; tabLabel('gui.creator.page.pelo');
   }
   // The basin (E on a lavabo, game.placedAction): wash your face and hands (body.washFace, src/body.js) or look in the
   // mirror, asked like the bed's menu. Without Body, or with ?cuerpo=0 (no dirt to wash), straight to the mirror as
@@ -688,7 +729,7 @@ export function initMenus(game) {
     else if (pick === 1) game.onMirror?.();
   };
   // (the start button says "Done" at the mirror: through its data-i18n key, so a language switch keeps it right)
-  function setStartLabel(key) { const b = $('cr-start'); b.dataset.i18n = key; applyDom(b); }
+  function setStartLabel(key) { const b = $('cr-start'); b.dataset.i18n = key; applyDom(b); if (creatorOpen()) paintCreatorKeys(); }
   const closeMirror = apply => {
     const p = game.player, barber = mirror.barber;
     if (apply && barber) {
@@ -702,35 +743,37 @@ export function initMenus(game) {
     if (barber && p?.pose?.kind === 'sit') game.rest.stand();   // (up from the chair)
     resume();
   };
-  $('cr-back').onclick = () => (mirror ? closeMirror(false) : openMenu());
+  const leaveCreator = () => { if (mirror) closeMirror(false); else { openMenu(); menu.focus('m-new'); } };
+  $('cr-back').onclick = leaveCreator;
   $('cr-start').onclick = async () => {
     if (mirror) { closeMirror(true); return; }
-    const name = $('cr-name').value.trim();
-    if (!name) { $('cr-err').textContent = 'Ponle un nombre a tu personaje.'; return; }
+    const name = nameIn.value.trim();
+    if (!name) { $('cr-err').textContent = t('gui.creator.need_name'); return; }
     // Un personaje nuevo empieza de cero; si ya había partida, el mundo (y los ajustes) se quedan como estaban
     const keep = currentSave && fresh ? Object.fromEntries(WORLD_KEYS.filter(k => k in currentSave).map(k => [k, currentSave[k]])) : {};
     const deltas = currentSave && fresh ? new Map(Profile.data.deltas) : new Map();
-    const save = { ...keep, player: { name, look: { ...look }, x: SPAWN.x, y: SPAWN.y, inside: false, view: 'back' }, lang: savedLang() };
+    const save = { ...keep, player: { name, look: { ...look }, x: SPAWN.x, y: SPAWN.y, inside: false, view: 'back' }, lang: savedLang(), ...(colour !== null && { ui: { accent: colour } }) };
     await Profile.store(save, deltas, { upload: true });
     fresh = false;
     // Se entra en el mundo; sin servidor, los demás dejan el personaje listo para cuando esté abierto
     openMenu();
     if (Profile.admin || live.status === 'on') enter();
-    else $('menu-msg').textContent = `Tu personaje está listo. Podrás entrar cuando ${ADMIN_NAME} abra el servidor.`;
+    else $('menu-msg').textContent = t('gui.menu.ready', { admin: ADMIN_NAME });
   };
 
   let fresh = false;   // (empezando de nuevo con un personaje nuevo, aunque ya hubiera uno)
   function openCreator(again = false) {
     if (mirror) leaveMirror();
     fresh = again;
-    $('cr-name').value = again ? Profile.name || '' : currentSave?.player.name || Profile.name || '';
+    nameIn.value = again ? Profile.name || '' : currentSave?.player.name || Profile.name || '';
+    colour = Number.isInteger(currentSave?.ui?.accent) ? currentSave.ui.accent : null;   // (yours: a new character keeps it, unless another is chosen)
     $('cr-err').textContent = '';
     spin = 0;
     turnTo(0);
+    buildRows();
     rebuild();
-    const w = Math.max(160, Math.min(240, innerWidth - 80));
-    preview.resize(w, Math.round(w * 1.25));
-    showPage('cuerpo');
+    paintColour();
+    firstPage('cuerpo');
     show('s-creator');
   }
 
@@ -775,7 +818,7 @@ export function initMenus(game) {
     live.entering = role;   // (ranch.reset: in a world somebody else runs, the horses' locks are true and stay)
     useAccent(data);
     try { game.start(data, deltas); }
-    catch (e) { console.error(e); $('fade').classList.remove('on'); live.unclaim(); game.end(); openMenu(); $('menu-msg').textContent = `No se ha podido abrir la partida: ${e.message}`; return; }
+    catch (e) { console.error(e); $('fade').classList.remove('on'); live.unclaim(); game.end(); openMenu(); $('menu-msg').textContent = t('gui.menu.enter.open_failed', { why: e.message }); return; }
     finally { live.entering = null; }
     // (destapa esta entrada, salvo si mientras tanto otro ha tapado por su cuenta, un /tp lejos o morir, o se ha salido:
     // entonces destapa él; ver Game.coverJump)
@@ -899,7 +942,7 @@ export function initMenus(game) {
     },
   };
   settingsUI = initSettingsUI({
-    onClose: () => { flushSave(); show('s-menu'); $('m-settings').focus({ preventScroll: true }); },
+    onClose: () => { flushSave(); if (!game.player) menu.use(currentSave, Profile.data?.local?.save || null, 'm-settings'); backToMenu('m-settings'); },
     accent,
     // (Guardado en GitHub: cómo va, el token del admin y la llave del mundo; al recuperarla, se vuelve a conectar con ella)
     extra: (box, head) => {
@@ -914,7 +957,6 @@ export function initMenus(game) {
       saveSettings(box, head, { onKey: () => { setNotice('key-lost', null); live.close(); findLive(); keyReminder(); settingsUI.refresh(); }, onCodeSeen: codeSeen });
     },
   });
-  $('m-settings').onclick = () => { if (document.activeElement instanceof HTMLElement) document.activeElement.blur(); show('s-settings'); settingsUI.openScreen(); };
   // Los volúmenes se guardan también en tu partida, poco después de dejar de moverlos: jugando, con lo demás;
   // en el menú, en tu partida tal como está (y se sube a GitHub)
   let volumeTimer = null;

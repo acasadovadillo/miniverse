@@ -2,8 +2,9 @@
 // the stack of open screens and where their keys go (FE), a tab strip, a list with one white selected row, option rows
 // with ‹ value ›, the key legend, the alert band and the ring of a held key. Plain DOM, driven by events: nothing runs per
 // frame. The look is in index.html (.fe-*, .row, .chip), on the tokens of PLAN-R8-hud-mapa.md §3.1.
-// Used by the pause (src/ui/pausehub.js), the settings (src/ui/settings.js, in the pause and in the main menu), the alert band
-// (a new game, starting without a save, quitting) and the menu sounds; the main menu comes with R9-4
+// Used by the login, the main menu, its credits and the character creator (src/ui/menus.js, mainmenu.js), the pause
+// (src/ui/pausehub.js), the settings (src/ui/settings.js, in the pause and in the main menu), the alert band (a new game,
+// starting without a save, quitting) and the menu sounds
 import { t } from '../i18n.js';
 import { Audio } from '../audio.js';
 import { Settings } from '../settings.js';
@@ -29,24 +30,28 @@ addEventListener('blur', () => { stopRepeat(); for (const s of stack) s.keyup?.(
 
 // ---------- The screens open, the last one on top ----------
 // A screen: { id, el, parts: [{ key(e) }], keyup(e|null), pass(e): true if that key is for what is under it (the map's own),
-// back(): true if it climbed one level itself, onClose }
+// back(): true if it climbed one level itself, onClose, root: the first screen (the login, the main menu…): there is nothing to
+// go back to, only what its own back() does, and it goes when its section is put out of sight (menus.js show, the tests) }
 const stack = [];
-const top = () => stack[stack.length - 1] || null;
+const gone = s => s.root && !s.el?.classList.contains('show');
+const top = () => { for (let s; (s = stack[stack.length - 1]) && gone(s);) FE.close(s); return stack[stack.length - 1] || null; };
 export const FE = {
   // Shows a screen (the id of its section) and puts it on top. opts: parts (who gets the keys, in order), pass, back, onClose, sound
   open(screen, opts = {}) {
+    top();
     const el = opts.el || $(screen);
-    const s = { id: screen, el, parts: opts.parts || [], keyup: opts.keyup, pass: opts.pass, back: opts.back, onClose: opts.onClose, closed: false, shown: !!el && !el.classList.contains('show') };
+    const s = { id: screen, el, parts: opts.parts || [], keyup: opts.keyup, pass: opts.pass, back: opts.back, root: !!opts.root, onClose: opts.onClose, closed: false, shown: !!el && !el.classList.contains('show') };
     stack.push(s);
     el?.classList.add('show', 'fe-open');
-    el?.addEventListener('contextmenu', onContext);
-    Audio.ui(opts.sound || 'open');
+    if (!s.root || s.back) el?.addEventListener('contextmenu', onContext);
+    if (opts.sound !== null) Audio.ui(opts.sound || 'open');
     return s;
   },
   // One level back: the screen on top climbs a level, or closes
   back(sound = 'back') {
     const s = top();
     if (!s) return false;
+    if (s.root) { const done = s.back?.() === true; if (done) Audio.ui(sound); return done; }
     if (!s.closing) Audio.ui(sound);
     if (s.back?.() === true) return true;
     FE.close(s);
@@ -150,7 +155,7 @@ export function legend(el, items) {
 
 // ---------- Tabs ----------
 // tabs: [{ id, text, i18n (its key: the text follows the language) }]. Q and E (or other two letters: keys) go round, 1-9 jump
-// (digits: false, they do not), a click picks; the line under the current one slides
+// (digits: false, they do not), a click picks; the line under the current one slides. One put out of sight (hidden) is skipped
 export function tabStrip(el, tabs, { onPick, current, keys = ['Q', 'E'], digits = true } = {}) {
   let now = Math.max(0, tabs.findIndex(x => x.id === current));
   el.classList.add('fe-tabs');
@@ -176,6 +181,7 @@ export function tabStrip(el, tabs, { onPick, current, keys = ['Q', 'E'], digits 
     if (!silent) Audio.ui('tab');
     onPick?.(tabs[now].id);
   }
+  const step = d => { const n = tabs.length; for (let k = 1, i; k < n; k++) { i = (now + d * k + n * k) % n; if (!btns[i].hidden) return go(i); } };
   paint();
   const seen = new ResizeObserver(paint);   // (shown later, or wider with another language: the line goes with its tab)
   for (const b of [el, ...btns]) seen.observe(b);
@@ -183,23 +189,25 @@ export function tabStrip(el, tabs, { onPick, current, keys = ['Q', 'E'], digits 
     el,
     get current() { return tabs[now]?.id; },
     pick: (id, opts) => go(tabs.findIndex(x => x.id === id), opts),
-    step: d => go((now + d + tabs.length) % tabs.length),
+    step, btns,
     destroy: () => seen.disconnect(),
     key(e) {
       const n = tabs.length, k = keys.indexOf(/^Key[A-Z]$/.test(e.code) ? e.code.slice(3) : '');
-      if (k >= 0) { if (!e.repeat) go((now + (k ? 1 : n - 1)) % n); return true; }
-      if (digits && /^Digit[1-9]$/.test(e.code) && +e.code.slice(5) <= n) { if (!e.repeat) go(+e.code.slice(5) - 1); return true; }
+      if (k >= 0) { if (!e.repeat) step(k ? 1 : -1); return true; }
+      if (digits && /^Digit[1-9]$/.test(e.code) && +e.code.slice(5) <= n) { const b = btns[+e.code.slice(5) - 1]; if (!e.repeat && !b.hidden) go(btns.indexOf(b)); return true; }
       return false;
     },
   };
 }
 
 // ---------- A list ----------
+const dim = (row, off) => { row.classList.toggle('off', !!off); if (off) row.setAttribute('aria-disabled', 'true'); else row.removeAttribute('aria-disabled'); };
 // rows: [{ id, text, value, desc, disabled, el (its own element, instead of a new one) }]. One is selected (.sel, the white
 // bar): ↑↓ or W S move it (held, they repeat), the mouse selects what it is over (without a tick; hover: false, only a click
 // does, and it does not pick: a list of pages; 'move': only when it really moves over it, and a click does not pick: a list of
-// options), Enter, Space or a click pick it. desc: an element for its description. start: the one selected at first (-1: none
-// yet). wrap: false, it stops at its ends and says so (onEdge(-1 or 1))
+// options; 'over': the same, and a click picks: a list that shows up under a mouse at rest), Enter, Space or a click pick it. desc: an element for its description. start: the one selected at first (-1: none
+// yet). wrap: false, it stops at its ends and says so (onEdge(-1 or 1)). set(id, { disabled, hidden, desc }) changes one; a hidden
+// one is skipped
 export function list(el, rows, { onPick, onFocus, desc, hover = true, start = 0, wrap = true, onEdge } = {}) {
   let at = -1, over = false;
   el.classList.add('fe-list');
@@ -210,14 +218,15 @@ export function list(el, rows, { onPick, onFocus, desc, hover = true, start = 0,
     row.setAttribute('role', 'option');
     if (!r.el) row.append(make('span', '', r.text));
     if (r.value !== undefined) row.append(make('b', '', r.value));
-    if (r.disabled) { row.classList.add('off'); row.setAttribute('aria-disabled', 'true'); }
-    if (hover) row.addEventListener(hover === 'move' ? 'pointermove' : 'pointerenter', () => { if (at === i) return; over = true; focus(i); over = false; });
-    row.onclick = () => { if (hover === true) { focus(i); pick(); } else if (i !== at) { focus(i); Audio.ui('tick'); } };
+    dim(row, r.disabled);
+    if (r.hidden) row.hidden = true;
+    if (hover) row.addEventListener(hover === true ? 'pointerenter' : 'pointermove', () => { if (at === i) return; over = true; focus(i); over = false; });
+    row.onclick = () => { if (hover === true || hover === 'over') { focus(i); pick(); } else if (i !== at) { focus(i); Audio.ui('tick'); } };
     return row;
   });
   el.replaceChildren(...els);
   function focus(i) {
-    if (!els[i] || i === at) return;
+    if (!els[i] || els[i].hidden || i === at) return;
     at = i;
     els.forEach((x, k) => { x.classList.toggle('sel', k === i); x.setAttribute('aria-selected', String(k === i)); x.tabIndex = k === i ? 0 : -1; });
     if (!over) els[i].scrollIntoView({ block: 'nearest' });
@@ -233,13 +242,27 @@ export function list(el, rows, { onPick, onFocus, desc, hover = true, start = 0,
   }
   const move = d => {
     if (!rows.length) return;
-    if (!wrap && !els[at + d]) { onEdge?.(d); return; }
-    focus((at + d + rows.length) % rows.length);
+    const n = rows.length;
+    let to = -1;
+    for (let k = 1; k <= n && to < 0; k++) { const i = at + d * k, j = (i + n * k + n) % n; if (!wrap && !els[i]) break; if (!els[j].hidden) to = j; }
+    if (to < 0 || to === at) { if (!wrap) onEdge?.(d); return; }
+    focus(to);
     Audio.ui('tick');
   };
+  // (which are in sight changed: if the selected one went, the first)
+  function settle() { if (els[at] && !els[at].hidden) return; at = -1; for (const x of els) x.classList.remove('sel'); focus(els.findIndex(x => !x.hidden)); }
   if (rows.length) focus(start);
   return {
-    el, rows, focus, pick,
+    el, rows, focus, pick, settle,
+    focusId: id => focus(rows.findIndex(r => r.id === id)),
+    set(id, o) {
+      const i = rows.findIndex(r => r.id === id), r = rows[i];
+      if (!r) return;
+      Object.assign(r, o);
+      if ('disabled' in o) dim(els[i], o.disabled);
+      if ('hidden' in o) els[i].hidden = !!o.hidden;
+      if ('desc' in o && desc && i === at) desc.textContent = r.desc || '';
+    },
     get index() { return at; },
     clear() { at = -1; for (const x of els) { x.classList.remove('sel'); x.setAttribute('aria-selected', 'false'); x.tabIndex = -1; } },
     key(e) {
@@ -253,13 +276,14 @@ export function list(el, rows, { onPick, onFocus, desc, hover = true, start = 0,
 
 // ---------- A pane without a list: the keyboard goes through its controls, or scrolls it ----------
 const FOCUS = 'button:not(:disabled), input:not(:disabled), select:not(:disabled), summary';
-// (↑↓ from row to row, ← → change the one it is on, Enter or Space press it; without controls, ↑↓ scroll)
-export function paneNav(el) {
+// (↑↓ from row to row, ← → change the one it is on, Enter or Space press it; without controls, ↑↓ scroll. skip: a selector of the
+// controls only the mouse and Tab get to)
+export function paneNav(el, { skip = null } = {}) {
   let at = -1;
   const stops = () => {
     const seen = new Set(), out = [];
     for (const x of el.querySelectorAll(FOCUS)) {
-      if (!x.offsetParent) continue;
+      if (!x.offsetParent || (skip && x.matches(skip))) continue;
       const seg = x.closest('.seg');
       if (!seg) { out.push(x); continue; }
       if (seen.has(seg)) continue;   // (the buttons of a choice are one stop: the one that is on)
@@ -309,8 +333,9 @@ export function paneNav(el) {
 // ---------- An option: Label ........ ‹ Value › ----------
 // values: [[value, text], …]; or min, max, step (a bar with its number, which the mouse can drag); or neither: on and off.
 // ← → or A D change it (with Shift, four steps), Enter flips a choice of two, R puts def back (or calls onReset). colours: a
-// swatch for each value, which can be clicked. disabled: it is seen and cannot be changed
-export function optionRow({ label, desc = '', get, set, values, min, max, step = 1, def, onReset, colours, disabled = false }) {
+// swatch for each value, which can be clicked. disabled: it is seen and cannot be changed. other: what it says with a value that is
+// none of them
+export function optionRow({ label, desc = '', get, set, values, min, max, step = 1, def, onReset, colours, disabled = false, other }) {
   const range = min !== undefined, opts = range ? null : values || [[true, t('common.yes')], [false, t('common.no')]];
   const el = make('div', 'row fe-opt'), prev = make('button', 'fe-arrow', '‹'), val = make('b'), next = make('button', 'fe-arrow', '›');
   el.dataset.desc = desc;
@@ -340,7 +365,7 @@ export function optionRow({ label, desc = '', get, set, values, min, max, step =
     const v = get();
     if (range) { val.textContent = String(v); bar.style.setProperty('--v', String((v - min) / (max - min))); return; }
     const i = opts.findIndex(o => o[0] === v);
-    val.textContent = opts[i]?.[1] ?? String(v ?? '');
+    val.textContent = opts[i]?.[1] ?? other ?? String(v ?? '');
     if (sw) [...sw.children].forEach((b, k) => b.classList.toggle('on', k === i));
   }
   function put(to, quiet = false) {
@@ -435,7 +460,7 @@ export function alertBox({ title, text = '', yes = t('gui.alert.yes'), no = t('g
 export function initMenuSounds(ids) {
   for (const id of ids) $(id)?.addEventListener('click', e => {
     const b = e.target instanceof Element && e.target.closest('button');
-    if (!b || b.disabled) return;
+    if (!b || b.disabled || b.closest('.row, .fe-tabs, .fe-legend')) return;   // (they have their own)
     Audio.ui(b.matches('[id$="-close"], [id$="-back"], [id$="-cancel"], #p-resume') ? 'back' : b.closest('.seg, .tabs, .sw, .cyc, .lang-pick') ? 'tick' : 'select');
   });
 }

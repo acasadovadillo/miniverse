@@ -24,9 +24,9 @@ export const BUILD_STATION_REACH = 16;   // a cuántas casillas puede estar la e
 export const UNDO_MS = 10 * 60 * 1000;   // what you have just put comes back whole, this long
 export const HOLD_S = 0.3;               // s: the rest is taken down holding (like X: input.js HOLD_X)
 const FRAME_MS = 80;                     // ms a frame counts for it, at most
-// What comes back of each material when a piece is taken down later (rounded down; at least 1 if it took 2 or more)
+// What comes back of each material when a piece is taken down later (rounded down, but at least 1 of what can be used again)
 export const SALVAGE = { tablas: 0.5, piedra: 0.75, fibra: 0, tela: 0 };
-export const salvage = cost => cost.map(([m, n]) => { const k = SALVAGE[m] ?? 0.5; return [m, k && n >= 2 ? Math.max(1, Math.floor(n * k)) : Math.floor(n * k)]; }).filter(([, n]) => n > 0);
+export const salvage = cost => cost.map(([m, n]) => { const k = SALVAGE[m] ?? 0.5; return [m, k ? Math.max(1, Math.floor(n * k)) : 0]; }).filter(([, n]) => n > 0);
 // "2 planks · 1 stone" (build.mat.<material>; another material, its name)
 export const matText = (list, sign = '') => list.map(([m, n]) => sign + (has('build.mat.' + m) ? tr('build.mat.' + m, { n }) : tr('build.mat.other', { n, item: ITEMS[m] }))).join(' · ');
 export const PIECE_IDS = Object.keys(PIECES).filter(id => !ITEMS[id] || PIECES[id].palette);   // (el hogar se fabrica, como un mueble; la valla, además de fabricarse, se pone aquí)

@@ -12,14 +12,13 @@ import { t, LANGS, autoLang, getLang, getLangSetting, onLangChange } from '../i1
 import { Audio } from '../audio.js';
 import { apagada, opcion } from '../opciones.js';
 import { FE, tabStrip, list, optionRow, legend, ring, paneNav } from './frontend.js';
-import { skinNow, accentOf, ACCENTS } from './skin.js';
+import { skinNow, accentOf, ACCENTS, ACCENT_IDS } from './skin.js';
 import { MODES, miniMode } from './minimap.js';
 
 const $ = id => document.getElementById(id);
 export const SETTINGS_TABS = ['game', 'display', 'interface', 'audio', 'controls', 'account'];
 export const HOLD_MS = 800;
 const SAID_MS = 1600;   // how long «Reset» stays in the description line
-const ACCENT_NAMES = ['pink', 'amber', 'teal', 'coral', 'violet', 'lime', 'sky', 'sand'];   // (ui/skin.js ACCENTS, in order)
 
 // ---------- The rows ----------
 // { id, group (the key of its heading), label, desc (keys, or functions; by default gui.settings.row.<id> and .desc.<id>),
@@ -65,7 +64,7 @@ export const settingsRows = {
     { id: 'prompts', group: G + 'hud', key: 'prompts', values: vals('prompts', 'object', 'cursor'), get: () => (Settings.v.prompts === 'cursor' ? 'cursor' : 'object') },
     { id: 'feed', group: G + 'hud', key: 'feed', values: vals('feed', 'all', 'important'), get: () => (Settings.v.feed === 'important' ? 'important' : 'all') },
     { id: 'skin', group: G + 'hud', key: 'skin', values: vals('skin', 'glass', 'wood'), get: () => skinNow(Settings.v.skin), off: forced('ui', () => ['madera', 'cristal'].includes(opcion('ui'))) },
-    { id: 'accent', group: G + 'menus', colours: ACCENTS, values: ACCENTS.map((_, i) => [i, `${R}accent.${ACCENT_NAMES[i]}`]) },   // (get, set and off: the character's, from menus.js)
+    { id: 'accent', group: G + 'menus', colours: ACCENTS, values: ACCENTS.map((_, i) => [i, `${R}accent.${ACCENT_IDS[i]}`]) },   // (get, set and off: the character's, from menus.js)
     { id: 'menu_sfx', group: G + 'menus', key: 'menuSfx' },
   ],
   audio: [

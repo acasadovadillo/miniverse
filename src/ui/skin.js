@@ -5,7 +5,8 @@
 // steady pick by the name, so two players look different from the first day. It sets --me, which --accent reads
 import { opcion } from '../opciones.js';
 
-export const ACCENTS = ['#ff4f9a', '#ffb24a', '#37c9c3', '#ff6f61', '#9b7bff', '#a6d84a', '#4aa8ff', '#e0c08a'];   // pink, amber, teal, coral, violet, lime, sky, sand
+export const ACCENTS = ['#ff4f9a', '#ffb24a', '#37c9c3', '#ff6f61', '#9b7bff', '#a6d84a', '#4aa8ff', '#e0c08a'];
+export const ACCENT_IDS = ['pink', 'amber', 'teal', 'coral', 'violet', 'lime', 'sky', 'sand'];   // (their names: gui.settings.row.accent.*)
 
 // The look in use: 'glass' or 'wood' (the address decides over the setting)
 export function skinNow(setting) {

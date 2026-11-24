@@ -59,7 +59,10 @@ import { Settings, DEFAULTS } from './settings.js';
 import { settingsRows } from './ui/settings.js';
 import { FE, alertBox, tabStrip, list, optionRow, legend } from './ui/frontend.js';
 import { GLYPHS } from './ui/glyphs.js';
-import { ACCENTS, accentOf, useAccent, skinNow } from './ui/skin.js';
+import { ACCENTS, accentOf, useAccent, skinNow, applySkin } from './ui/skin.js';
+import { LOOK_OPTIONS } from './looks.js';
+import { MENU_ITEMS, whenText, dayAndSeason, lookOf } from './ui/mainmenu.js';
+import { KeyArt, KEY_ART, artNow, artOf } from './ui/keyart.js';
 import { Audio as GameAudio } from './audio.js';
 import { View3D } from './three/engine.js';
 import { sobrio, tonosSuelo } from './arte.js';
@@ -1563,8 +1566,8 @@ async function soloTests(game) {
     check($('st-body').closest('#s-settings') && $('s-settings').classList.contains('show') && FE.active() === 's-settings' && !$('s-menu').classList.contains('show'), 'the main menu\'s');
     const tab = () => document.querySelector('#st-tabs .on').dataset.tab; pauseKey('Digit4'); check(tab() === 'audio' && stRow('music'), '4'); pauseKey('KeyE'); check(tab() === 'controls' && !$('s-controls').hidden && $('s-controls').querySelectorAll('dt').length > 30, 'E'); pauseKey('KeyQ'); pauseKey('KeyC'); pauseKey('KeyZ'); check(tab() === 'audio', 'Q, C, Z');
     check($('st-legend').textContent.includes(t('gui.legend.back')), 'the legend'); Settings.set('music', 0.5); pauseKey('ArrowDown'); while (!stRow('music').classList.contains('sel')) pauseKey('ArrowDown'); pauseKey('ArrowLeft'); check(Settings.v.music === 0.45, '←');
-    pauseKey('Escape'); check(FE.active() === 's-settings', 'one level'); pauseKey('Escape'); check(FE.active() === null && $('s-menu').classList.contains('show') && !$('s-settings').classList.contains('show'), 'Esc');
-    $('m-settings').click(); $('st-close').click(); check($('s-menu').classList.contains('show') && FE.active() === null, '✕'); $('s-menu').classList.remove('show'); document.body.classList.add('playing'); game.mode = 'play';
+    pauseKey('Escape'); check(FE.active() === 's-settings', 'one level'); pauseKey('Escape'); check(FE.active() === 's-menu' && $('s-menu').classList.contains('show') && !$('s-settings').classList.contains('show'), 'Esc');
+    $('m-settings').click(); $('st-close').click(); check($('s-menu').classList.contains('show') && FE.active() === 's-menu', '✕'); $('s-menu').classList.remove('show'); document.body.classList.add('playing'); game.mode = 'play';
     H.open('settings'); check($('st-body').closest('#ps-settings') && H.tab === 'settings', 'back in the pause');
   }));
   await test('menu (english): settings: your colour goes to the save and changes at once; R, the one of the name; Account and Controls inside', () => keepSettings(async () => {
@@ -1593,6 +1596,169 @@ async function soloTests(game) {
     H.close();
     useSmartHud(game, true); const sh = game.smartHud; sh.seen.delete('bag'); sh.queue.length = 0; Settings.set('hints', false); sh.want('bag'); check(!sh.queue.includes('bag') && !sh.seen.has('bag'), 'a hint with them off'); Settings.set('hints', true); sh.want('bag'); check(sh.queue.includes('bag'), 'no hint with them on'); sh.queue.length = 0;
   }));
+  // ---------- R9-4: the main menu, its credits, the login and the creator (src/ui/mainmenu.js, keyart.js, menus.js) ----------
+  // (the screens, the save and what the menu asks the network for, as they were; the game goes on being played under them)
+  const keepMenus = async fn => {
+    const $ = id => document.getElementById(id), L = game.live, own = { liveServer: Profile.liveServer, connect: L.connect, close: L.close, status: L.status, store: Profile.store }, me = document.documentElement.style.getPropertyValue('--me'), peers = new Map(L.peers), motion = Settings.v.motion, d = Object.getOwnPropertyDescriptor(Profile, 'data');
+    Profile.liveServer = () => new Promise(() => {}); L.connect = async () => {}; L.close = () => {};
+    try { await fn($); } finally {
+      if (document.getElementById('fe-alert')) { pauseKey('Escape'); await sleep(160); }
+      for (const id of ['s-login', 's-menu', 's-credits', 's-creator', 's-settings']) $(id).classList.remove('show');
+      FE.active();   // (they let the keys go)
+      Profile.liveServer = own.liveServer; Profile.store = own.store; L.connect = own.connect; L.close = own.close; L.status = own.status; L.peers.clear(); for (const [k, v] of peers) L.peers.set(k, v);
+      if (d) Object.defineProperty(Profile, 'data', d); else delete Profile.data;
+      Settings.v.motion = motion; Settings.apply(); $('cr-name').disabled = false; $('menu-msg').textContent = '';
+      if (me) document.documentElement.style.setProperty('--me', me); else document.documentElement.style.removeProperty('--me');
+      document.body.classList.add('playing'); game.mode = 'play';
+    }
+  };
+  const menuSave = (o = {}) => ({ player: { name: 'Vera', look: { ...LOOK } }, inventory: { equip: { torso: { id: 'camisa', color: '#c83a3a' }, espalda: { id: 'nope_9' } } }, money: 312, dayBase: Math.floor(Date.now() / 86400000) - 40, savedAt: Date.now() - 1000, ...o });
+  const menuSel = () => document.querySelector('#mm-list .sel')?.id;
+  await test('menu (english): main menu: its six items and their ids, moved with the keys, what is not there skipped, Continue closed says why', () => keepMenus(async $ => {
+    const M = game.mainMenu; check(MENU_ITEMS.every(id => $(id)?.classList.contains('row') && $('mm-list').contains($(id))), 'an item is missing');
+    check($('login-form').contains($('lg-user')) && $('lg-user').autocomplete === 'username' && $('lg-pass').autocomplete === 'current-password' && ['lg-code', 'lg-pass2', 'lg-token', 'lg-submit', 'lg-err', 'menu-hello', 'menu-save', 'm-live', 'm-live-msg', 'menu-msg', 'cr-start', 'cr-random', 'cr-back', 'cr-err', 'rot-l', 'rot-r'].every($), 'an id is gone');
+    check(document.querySelectorAll('.lang-pick').length === 1 && $('s-login').querySelector('.lang-pick button[data-lang=en]'), 'the language picker, only on the login');
+    $('s-menu').classList.add('show'); M.open(); M.use(menuSave(), null); M.live([], '');
+    check(FE.active() === 's-menu' && menuSel() === 'm-continue' && $('mm-desc').textContent === t('gui.menu.desc.continue'), `it does not start on Continue: ${menuSel()}`);
+    const seen = []; for (let i = 0; i < 6; i++) { seen.push(menuSel()); pauseKey('ArrowDown'); } check(seen.join() === MENU_ITEMS.join() && menuSel() === 'm-continue', `↓: ${seen}`); pauseKey('KeyW'); check(menuSel() === 'm-session', 'W does not go round');
+    for (const c of ['Escape', 'Backspace', 'KeyP', 'KeyM', 'KeyI', 'KeyB', 'KeyE']) pauseKey(c); check(FE.active() === 's-menu' && $('s-menu').classList.contains('show') && !game.windows.isOpen('s-inv') && !game.build.on, 'a key leaves the menu, or acts in the game');
+    $('m-settings').dispatchEvent(new PointerEvent('pointerenter')); check(menuSel() === 'm-session', 'a menu that shows up under the mouse changes the selection'); $('m-settings').dispatchEvent(new PointerEvent('pointermove')); check(menuSel() === 'm-settings' && $('mm-desc').textContent === t('gui.menu.desc.settings'), 'the mouse does not select');
+    M.use(null, null); check($('m-continue').hidden && $('m-local').hidden && menuSel() === 'm-new' && $('m-new').textContent === t('gui.menu.create') && $('mm-desc').textContent === t('gui.menu.desc.create'), 'without a game'); pauseKey('ArrowUp'); pauseKey('ArrowDown'); pauseKey('ArrowDown'); check(menuSel() === 'm-settings', `the hidden ones are not skipped: ${menuSel()}`);
+    M.use(null, menuSave()); check(!$('m-local').hidden && $('m-continue').hidden, 'only a local game');
+    M.use(menuSave(), menuSave({ savedAt: Date.now() })); check($('m-new').textContent === t('gui.menu.new'), 'New game'); pauseKey('ArrowDown'); check($('mm-desc').textContent === t('gui.menu.desc.local_saved', { when: whenText(Date.now()) }), $('mm-desc').textContent);
+    let entered = 0; const store = game.start; game.start = () => { entered++; };
+    try { M.live([], 'closed because'); M.focus('m-continue'); check($('m-continue').classList.contains('off') && $('mm-desc').textContent === 'closed because', 'why'); pauseKey('Enter'); $('m-continue').click(); await sleep(60); check(!entered && $('s-menu').classList.contains('show'), 'it enters'); } finally { game.start = store; }
+    M.live(['Hafsa', 'Ana'], ''); check(!$('m-continue').classList.contains('off') && $('mm-desc').textContent.includes('Hafsa') && $('mm-playing').textContent.includes('Ana'), 'who is playing'); M.busy(true); check($('m-continue').classList.contains('off'), 'busy'); M.busy(false); check(!$('m-continue').classList.contains('off'), 'not busy');
+    // Always dark glass, with the wooden look too, and the white bar
+    for (const w of ['wood', 'glass']) { applySkin(w); await sleep(60); await Promise.all(document.querySelector('#mm-list .sel').getAnimations().map(x => x.finished.catch(() => {}))); const s = getComputedStyle(document.querySelector('#mm-list .sel')), b = getComputedStyle($('s-menu')); check(s.backgroundColor === 'rgb(255, 255, 255)' && s.color === 'rgb(12, 14, 18)' && /linear-gradient/.test(b.backgroundImage), `${w}: ${s.backgroundColor} ${s.color}`); } applySkin(Settings.v.skin);
+    $('s-menu').classList.remove('show'); check(FE.active() === null, 'out of sight, it keeps the keys');
+  }));
+  await test('menu (english): main menu: the server line says what it said, in both languages; admin and player', () => keepMenus(async $ => {
+    const L = game.live, was = getLang(), admin = Object.getOwnPropertyDescriptor(Profile, 'admin'), line = () => `${$('m-live').hidden ? '-' : $('m-live').className || 'on'} ${$('m-live-msg').textContent}`;
+    const put = (s, peers = [], err = '') => { L.peers.clear(); peers.forEach((q, i) => L.peers.set('t' + i, { id: 't' + i, playing: true, ...q })); L.status = s; L.error = err; L.changed(); return line(); };
+    $('s-menu').classList.add('show'); game.mainMenu.open(); game.mainMenu.use(menuSave(), null);
+    try {
+      for (const lang of ['en', 'es']) {
+        await setLang(lang); const T = (k, o) => t('gui.menu.live.' + k, o);
+        for (const a of [true, false]) {
+          Object.defineProperty(Profile, 'admin', { get: () => a, configurable: true });
+          const srv = { name: 'S', host: true, server: true }, h = { name: 'Hafsa' };
+          check(put('on', [srv, h]) === 'on ' + T('world_playing', { names: 'Hafsa', n: 1 }) && put('on', [srv]) === 'on ' + T('world'), line());
+          check(put('on', [{ ...h, host: true }]) === 'on ' + T('playing', { names: 'Hafsa', n: 1 }) && put('on') === 'on ' + T(a ? 'open_admin' : 'open'), line());
+          check(put('connecting') === 'wait ' + T(a ? 'connecting_admin' : 'connecting'), line()); check(put('kicked', [], 'fuera') === 'err fuera', line());
+          put('off'); check(a ? $('m-live').hidden : line() === 'wait ' + T('closed', { admin: 'Alberto' }), line()); check($('m-continue').classList.contains('off') === !a, 'Continue with the server closed'); if (!a) check(put('nokey') === 'wait ' + T('nokey', { admin: 'Alberto' }), line());
+          put('kicked', [], 'fuera'); check(!$('m-continue').classList.contains('off'), 'kicked: it can be tried again');
+        }
+      }
+    } finally { if (admin) Object.defineProperty(Profile, 'admin', admin); else delete Profile.admin; await setLang(was); }
+  }));
+  await test('menu (english): main menu: the character card: name, day, season, coins, when it was saved and the face; without a character, it says so', () => keepMenus(async $ => {
+    const M = game.mainMenu, s = menuSave(); $('s-menu').classList.add('show'); M.open(); M.use(s, null);
+    check($('mm-name').textContent === 'Vera' && $('mm-money').textContent === t('gui.pause.money', { n: 312 }) && $('menu-save').textContent === t('gui.menu.card.saved', { when: whenText(s.savedAt) }), `${$('mm-name').textContent} ${$('mm-money').textContent} ${$('menu-save').textContent}`);
+    const { day, season } = dayAndSeason(s, true); check((day === 40 || day === 41 || day === 42) && season >= 0 && season < 4 && $('mm-when').textContent.includes(t(`nature.season.${season}`)), `${day} ${season} ${$('mm-when').textContent}`);
+    check(dayAndSeason({ ...s, livePos: { x: 1, y: 1 } }, false).day === null && dayAndSeason({ ...s, livePos: { x: 1, y: 1 } }, true).day === day && dayAndSeason({ ...s, dayBase: undefined }, true).day === null, 'the day of a world that is not the one played');
+    const look = lookOf(s); check(look.wear.torso.color === '#c83a3a' && !look.wear.espalda && lookOf({ player: { look: LOOK }, inventory: { equip: { torso: 5 } } }), 'its clothes');
+    const g = $('mm-face').getContext('2d'); let n = 0; for (let i = 0; i < 80 && !n; i++) { await sleep(100); n = g.getImageData(60, 60, 70, 70).data.filter((v, k) => k % 4 === 3 && v > 200).length; } check(n > 300, 'no face');
+    M.use(null, null); check($('mm-card').classList.contains('none') && $('menu-save').textContent === t('gui.menu.card.none') && !$('mm-name').textContent && !$('mm-money').textContent, 'without a character'); check(!g.getImageData(60, 60, 70, 70).data.some(Boolean), 'the face of the one before stays');
+    const noon = new Date(2026, 5, 10, 12, 0).getTime(), H = 3600000; check(whenText(noon - H, noon) === t('gui.menu.when.today', { time: fmt.date(noon - H, { hour: '2-digit', minute: '2-digit' }) }) && whenText(noon - 20 * H, noon).startsWith(t('gui.menu.when.yesterday', { time: '' }).slice(0, 4)) && whenText(noon - 80 * H, noon) === t('gui.menu.when.date', { date: fmt.date(noon - 80 * H, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) }), 'when');
+  }));
+  await test('menu (english): the key art: by the season of the calendar and the hour of Madrid; one transform; still when hidden, idle, reduced or playing', async () => {
+    const at = (y, m, d, h) => Date.UTC(y, m, d, h), of = ms => artOf(artNow(ms, null)), A = document.getElementById('fe-art'), img = A.firstElementChild;
+    check(of(at(2026, 3, 20, 10)) === 'spring' && of(at(2026, 7, 1, 10)) === 'summer' && of(at(2026, 10, 24, 10)) === 'autumn' && of(at(2026, 0, 10, 10)) === 'winter', 'the seasons');
+    check(of(at(2026, 0, 10, 20)) === 'night' && of(at(2026, 0, 10, 19)) === 'winter' && of(at(2026, 0, 10, 4)) === 'night' && of(at(2026, 0, 10, 5)) === 'winter', 'the night, 21 to 6 in Madrid');
+    for (let m = 0; m < 12; m++) { const ms = at(2026, m, 12, 11); check(artNow(ms, null).season === seasonOf(Math.floor(ms / 86400000)).season, `month ${m}`); }
+    for (const [q, want] of [['winter', 'winter'], ['winter-night', 'night'], ['night', 'night'], ['summer', 'summer']]) check(artOf(artNow(at(2026, 10, 24, 10), q)) === want, q);
+    check(!KeyArt.on || !game.player, 'it goes on while playing');
+    KeyArt.stop(); KeyArt.start();
+    try {
+      for (const id of Object.keys(KEY_ART)) check(/\.(jpg|webp)$/.test(KEY_ART[id].src) && KEY_ART[id].grade.length % 2 === 0, id);
+      check(A.classList.contains('pan') && /url\(/.test(getComputedStyle(img).backgroundImage), 'it does not start');
+      document.body.classList.add('still'); check(getComputedStyle(A).display === 'block' && getComputedStyle(img).animationName === 'fe-pan', 'it does not pan'); A.classList.add('idle'); check(getComputedStyle(img).animationPlayState === 'paused', 'idle'); KeyArt.wake(); check(!A.classList.contains('idle') && getComputedStyle(img).animationPlayState === 'running', 'a touch does not wake it');
+      document.body.classList.add('still-menus'); check(getComputedStyle(img).animationName === 'none', 'reduced motion'); document.body.classList.remove('still-menus');
+      document.body.classList.remove('still'); check(getComputedStyle(A).display === 'none', 'seen while playing');
+    } finally { KeyArt.stop(); document.body.classList.remove('still'); Settings.apply(); }
+    check(!A.classList.contains('pan') && !A.classList.contains('idle'), 'it does not stop');
+  });
+  await test('menu (english): credits: from the menu and back; they scroll by themselves and by hand; every licence is named', () => keepMenus(async $ => {
+    Settings.v.motion = 'full'; $('s-menu').classList.add('show'); game.mainMenu.open(); game.mainMenu.use(menuSave(), null); $('m-credits').click();
+    check(FE.active() === 's-credits' && $('s-credits').classList.contains('show') && !$('s-menu').classList.contains('show'), 'they do not open');
+    for (const w of ['three.js', 'MIT', 'Oswald', 'Barlow', 'SIL Open Font License', 'ambientCG', 'CC0']) check($('cd-body').textContent.includes(w), w);
+    const res = await fetch('./assets/LICENCIAS.md'); if (res.ok) for (const m of (await res.text()).matchAll(/\| ([A-Z]\w+?) \(1K/g)) check($('cd-body').textContent.includes(m[1]), `${m[1]} is not named`);
+    await sleep(3400); const a = $('cd-body').scrollTop; check(a > 5, `they do not scroll: ${a}`); pauseKey('ArrowDown'); const b = $('cd-body').scrollTop; check(b > a + 40, '↓'); await sleep(500); check(Math.abs($('cd-body').scrollTop - b) < 2, 'they do not wait');
+    pauseKey('Escape'); check($('s-menu').classList.contains('show') && FE.active() === 's-menu' && menuSel() === 'm-credits', 'Esc'); const c = $('cd-body').scrollTop; $('m-credits').click(); check($('cd-body').scrollTop === 0, `they do not start again: ${c}`); $('cd-close').click(); check($('s-menu').classList.contains('show') && FE.active() === 's-menu', '✕');
+    Settings.v.motion = 'reduced'; $('m-credits').click(); await sleep(3200); check($('cd-body').scrollTop === 0, 'with reduced motion they scroll');
+  }));
+  const crRow = id => document.querySelector(`#cr-rows [data-row="${id}"]`), crRows = () => [...document.querySelectorAll('#cr-rows .row')].filter(r => !r.hidden).map(r => r.dataset.row).join(), crTab = () => document.querySelector('#cr-tabs .on').dataset.tab;
+  await test('menu (english): creator: every option of before as a row, changed with the keys and the mouse; pages, random, your colour; a new character saves it', () => keepMenus(async $ => {
+    const pages = { cuerpo: ['name', 'sex', 'skin', 'outfit', 'cloth', 'accent'], cara: ['eyeStyle', 'eyes', 'brows', 'nose'], pelo: ['hairStyle', 'hair', 'beard'] }, me = () => document.documentElement.style.getPropertyValue('--me');
+    game.mode = 'menu';   // (no autosave meanwhile)
+    let saved = null; Object.defineProperty(Profile, 'data', { get: () => (saved ? { save: saved, deltas: [] } : null), configurable: true }); Profile.store = async s => { saved = { ...s, savedAt: Date.now() }; return { local: true, remote: null }; };
+    $('s-menu').classList.add('show'); game.mainMenu.open(); game.mainMenu.use(null, null); $('m-new').click();
+    check(FE.active() === 's-creator' && $('s-creator').classList.contains('show') && crTab() === 'cuerpo' && crRow('name').classList.contains('sel'), 'it does not open on the name');
+    for (const [pg, ids] of Object.entries(pages)) {
+      check(crTab() === pg && crRows() === ids.join(), `${pg}: ${crTab()} ${crRows()}`);
+      for (const id of ids.slice(id0(ids))) {
+        const row = crRow(id), n = id === 'accent' ? 8 : LOOK_OPTIONS[id].length, val = () => (row.querySelector('.fe-sw') ? [...row.querySelectorAll('.fe-sw button')].findIndex(b => b.classList.contains('on')) : row.querySelector('b').textContent), vals = new Set();
+        while (!row.classList.contains('sel')) pauseKey('ArrowDown');
+        const first = val(); for (let i = 0; i < n; i++) { vals.add(val()); pauseKey('ArrowRight'); } check(vals.size === n && val() === first, `${id}: ${vals.size} of ${n}`); pauseKey('KeyA'); check(val() !== first || n === 1, `${id}: A`); pauseKey('KeyD');
+        check(!/look\.|gui\./.test(row.textContent), `${id}: ${row.textContent}`);
+      }
+      pauseKey('KeyE');
+    }
+    check(crTab() === 'cuerpo', 'E does not go round'); pauseKey('KeyQ'); check(crTab() === 'pelo', 'Q'); pauseKey('Digit2'); check(crTab() === 'cara', '2'); document.querySelector('#cr-tabs [data-tab=cuerpo]').click(); check(crTab() === 'cuerpo', 'a tab');
+    $('cr-name').value = 'Vera'; $('cr-name').dispatchEvent(new Event('input', { bubbles: true }));
+    crRow('accent').querySelectorAll('.fe-sw button')[6].click(); check(me() === ACCENTS[6] && crRow('accent').querySelector('b').textContent === t('gui.settings.row.accent.sky'), `your colour: ${me()}`);
+    crRow('skin').querySelectorAll('.fe-sw button')[4].click(); check(crRow('skin').querySelector('b').textContent.startsWith('5'), 'a swatch'); pauseKey('KeyR'); check(FE.active() === 's-creator' && me() === ACCENTS[6], 'R');
+    const face = $('rot-label').textContent; pauseKey('KeyC', { held: true }); await sleep(700); dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyC', bubbles: true })); const turned = $('rot-label').textContent; check(turned !== face, 'C does not turn'); await sleep(200); check($('rot-label').textContent === turned, 'it goes on turning');
+    $('cr-name').focus(); $('cr-name').dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyE', key: 'e', bubbles: true, cancelable: true })); check(crTab() === 'cuerpo', 'writing an e changes page'); $('cr-name').dispatchEvent(new KeyboardEvent('keydown', { code: 'Escape', key: 'Escape', bubbles: true, cancelable: true })); check(document.activeElement !== $('cr-name') && FE.active() === 's-creator', 'Esc in the name leaves the creator');
+    $('cr-name').value = ' '; $('cr-start').click(); check($('cr-err').textContent === t('gui.creator.need_name') && !saved, 'without a name'); $('cr-name').value = 'Vera';
+    pauseKey('Enter'); await sleep(20); check(FE.active() === 'fe-alert', 'Enter does not ask'); pauseKey('Escape'); await sleep(200); check(FE.active() === 's-creator' && !saved, 'Esc starts it');
+    pauseKey('Escape'); check($('s-menu').classList.contains('show') && FE.active() === 's-menu' && !saved, 'Esc'); $('m-new').click();
+    $('cr-name').value = 'Vera'; crRow('accent').querySelectorAll('.fe-sw button')[6].click(); Object.defineProperty(Profile, 'admin', { get: () => false, configurable: true }); game.live.status = 'off'; $('cr-start').click(); await sleep(60);
+    check(saved?.player.name === 'Vera' && saved.ui?.accent === 6 && saved.player.look.sex && $('menu-msg').textContent === t('gui.menu.ready', { admin: 'Alberto' }), `saved: ${JSON.stringify(saved?.ui)} ${$('menu-msg').textContent}`);
+    saved = null; $('m-new').click(); await sleep(20); check(FE.active() === 'fe-alert', 'a new game does not ask'); pauseKey('Enter'); await sleep(200); check(FE.active() === 's-creator', 'and then the creator'); pauseKey('Escape'); check($('m-continue').hidden, 'the menu, without a game again');
+    function id0(ids) { return ids[0] === 'name' ? 1 : 0; }
+  }).finally(() => Object.defineProperty(Profile, 'admin', { get: () => WHO === 'a', configurable: true })));
+  await test('menu (english): the mirror and the barber: their rows in the creator\'s screen; Esc changes nothing, Enter applies, and he charges the bill', () => keepMenus(async $ => {
+    const look = { ...p().look }, money = game.money, body = game.body && { ...game.body.applied };
+    try {
+      p().look = { ...LOOK, sex: 'chico', beard: 'completa', hairStyle: 'corto', hair: '#4a2c1c' }; const was = JSON.stringify(p().look);
+      check(game.onMirror('mirror') && game.mode === 'mirror' && FE.active() === 's-creator' && crTab() === 'cara' && crRows() === 'eyeStyle,eyes,brows,nose' && $('cr-name').disabled && $('cr-start').textContent === t('gui.creator.done') && document.querySelector('#s-creator h2').textContent === t('mirror.title'), `the mirror: ${crRows()}`);
+      pauseKey('KeyE'); check(crRows().startsWith('shave') && crRows().endsWith('grow') && document.querySelector('#cr-tabs .on').textContent === t('mirror.beard'), `its beard page: ${crRows()}`); pauseKey('ArrowRight'); check(crRow('shave').querySelectorAll('b')[1].textContent === t('common.yes'), 'shave'); pauseKey('Escape'); check(game.mode === 'play' && FE.active() === null && JSON.stringify(p().look) === was && !$('cr-name').disabled, 'Esc changes something');
+      game.onMirror('mirror'); pauseKey('ArrowRight'); pauseKey('Enter'); check(game.mode === 'play' && p().look.eyeStyle !== JSON.parse(was).eyeStyle, 'Enter does not apply it'); p().look = JSON.parse(was);
+      game.money = 60; game.onMirror('barber'); check($('cr-tabs').hidden && $('cr-random').hidden && crRows() === 'brows,hairStyle,hair,beard,cut,trim' && !$('cr-bill').hidden, `the barber: ${crRows()}`);
+      while (!crRow('trim').classList.contains('sel')) pauseKey('ArrowDown'); pauseKey('Space'); const bill = barberBill(p().look, { ...p().look }, { trim: true }, game.rep?.buyFactor() ?? 1).total; check($('cr-bill').textContent.includes(t('barber.price', { n: bill })) && $('cr-start').textContent === t('barber.pay') && $('cr-legend').textContent.includes(t('barber.pay')), $('cr-bill').textContent);
+      pauseKey('Escape'); check(game.money === 60 && game.mode === 'play', 'Esc charges'); game.onMirror('barber'); while (!crRow('hairStyle').classList.contains('sel')) pauseKey('ArrowDown'); pauseKey('ArrowRight'); check($('cr-bill').classList.contains('poor') && $('cr-err').textContent === t('barber.poor'), 'too dear'); pauseKey('Enter'); check(game.mode === 'mirror' && game.money === 60, 'paid without money');
+      game.money = 500; pauseKey('Enter'); check(game.mode === 'play' && game.money < 500 && p().look.hairStyle !== 'corto', `not paid: ${game.money}`);
+      game.mode = 'play'; $('s-menu').classList.add('show'); game.mainMenu.open(); game.mainMenu.use(null, null); $('m-new').click(); check(!$('cr-tabs').hidden && !$('cr-random').hidden && $('cr-bill').hidden && crRows().startsWith('name,sex') && $('cr-start').textContent === t('gui.creator.start') && document.querySelector('#cr-tabs [data-tab=pelo]').textContent === t('gui.creator.page.pelo'), 'the creator after the barber');
+    } finally { p().look = look; game.money = money; if (body) Object.assign(game.body.applied, body); game.inv.v++; }
+  }));
+  await test('menu (english): the front screens in English: no Spanish left, no raw keys; with ?lang=keys every text is a key', () => keepMenus(async $ => {
+    const was = getLang(), spanish = /[ñ¿¡áéíóúÁÉÍÓÚ]|\b(el|la|los|las|una?|del|para|con|por|que|más|tu|jugar|entrar|servidor)\b/i, txt = id => [...$(id).querySelectorAll('*')].filter(e => !e.children.length && e.checkVisibility?.()).map(e => e.textContent).join(' | ');
+    try {
+      for (const l of ['en', 'keys']) {
+        await setLang(l); const said = {}, bad = s => (l === 'en' ? spanish.exec(s.replace(/Vera|Ana|Bea|ES\b/g, '')) || /\b(gui|look|credits|barber)\.[a-z]/.exec(s) : null);
+        $('s-login').classList.add('show'); said.login = txt('login-form'); $('s-login').classList.remove('show');
+        $('s-menu').classList.add('show'); game.mainMenu.open(); game.mainMenu.use(menuSave(), null); game.live.changed(); said.menu = txt('s-menu'); game.mainMenu.live([], '');
+        for (const id of MENU_ITEMS) { game.mainMenu.focus(id); said[id] = $('mm-desc').textContent; }
+        game.mainMenu.use(null, null); said.none = txt('s-menu');
+        $('m-credits').click(); said.credits = txt('s-credits'); pauseKey('Escape'); $('m-new').click(); for (const k of ['a', 'b', 'c']) { said['creator ' + k] = txt('s-creator') + $('cr-legend').textContent; pauseKey('KeyE'); } pauseKey('Escape');
+        for (const [k, s] of Object.entries(said)) { const b = bad(s); check(!b, `${l} ${k}: ${b?.[0]} in ${s.slice(Math.max(0, (b?.index || 0) - 40), (b?.index || 0) + 40)}`); check(s.length > 3, `${k} is empty`); if (l === 'keys' && /^m-/.test(k)) check(/gui\./.test(s), `${k}: ${s}`); }
+      }
+      await setLang('es'); for (const k of Object.keys(LOOK_OPTIONS)) if (['sex', 'outfit', 'eyeStyle', 'brows', 'nose', 'hairStyle', 'beard'].includes(k)) for (const [v, text] of LOOK_OPTIONS[k]) check(t(`look.${k}.${v}`) === text, `look.${k}.${v}`);
+    } finally { await setLang(was); }
+  }));
+  await test('menu (english): frontend: a first screen is not left with Esc and lets the keys go when out of sight; hidden rows and tabs are skipped', async () => {
+    const box = document.createElement('div'), T2 = document.createElement('div'), L2 = document.createElement('div'); box.id = 'fe-test-root'; box.className = 'show'; box.append(T2, L2); document.body.append(box);
+    try {
+      let backs = 0; const S = FE.open('fe-test-root', { root: true, back: () => { backs++; return backs > 1; } }); pauseKey('Escape'); pauseKey('Backspace'); check(FE.active() === 'fe-test-root' && backs === 2, `Esc: ${FE.active()} ${backs}`);
+      const li = list(L2, [{ id: 'a', text: 'a' }, { id: 'b', text: 'b', hidden: true }, { id: 'c', text: 'c', desc: 'x' }]), ev = code => ({ code, preventDefault() {} }), up = code => dispatchEvent(new KeyboardEvent('keyup', { code }));
+      li.key(ev('ArrowDown')); up('ArrowDown'); check(li.index === 2, `down: ${li.index}`); li.key(ev('ArrowDown')); up('ArrowDown'); check(li.index === 0, 'round'); li.focusId('b'); check(li.index === 0, 'a hidden one is selected'); li.set('a', { hidden: true }); li.settle(); check(li.index === 2 && L2.querySelectorAll('.sel').length === 1, 'the selected one went'); li.set('c', { hidden: true }); li.settle(); check(li.index === -1, 'none left'); li.key(ev('ArrowDown')); up('ArrowDown'); check(li.index === -1, 'none to go to');
+      let got = ''; const tb = tabStrip(T2, ['a', 'b', 'c'].map(id => ({ id, text: id })), { onPick: id => { got += id; } }); tb.btns[1].hidden = true; tb.key(ev('KeyE')); tb.key(ev('KeyE')); tb.key(ev('Digit2')); tb.step(-1); check(got === 'cac', `tabs: ${got}`); tb.destroy();
+      const r = optionRow({ label: 'x', get: () => 9, set() {}, values: [[1, 'one']], other: 'none' }); check(r.el.querySelector('b').textContent === 'none', 'another value');
+      box.classList.remove('show'); check(FE.active() === null && S.closed, 'out of sight');
+    } finally { box.classList.remove('show'); FE.active(); box.remove(); }
+  });
   await test('menu (english): Pause › Game: resume, save, controls, and quitting asks first', async () => {
     const H = game.pauseHub, $ = id => document.getElementById(id), saves = game.live.net;
     try {
@@ -6564,7 +6730,7 @@ async function soloTests(game) {
     } finally { if (W.doorClosed(...door) !== was) W.toggleDoor(...door); void wx; }
   });
   await test('salvage (english): full refund within 10 minutes; after it planks 50 %, stone 75 %, thatch 0; old pieces need a hold', async () => {
-    check(JSON.stringify([[['tablas', 2]], [['tablas', 3]], [['tablas', 1]], [['piedra', 3]], [['piedra', 2]], [['tablas', 2], ['piedra', 1]], [['fibra', 3]], [['tablas', 2], ['tela', 1]]].map(salvage)) === JSON.stringify([[['tablas', 1]], [['tablas', 1]], [], [['piedra', 2]], [['piedra', 1]], [['tablas', 1]], [], [['tablas', 1]]]), 'what comes back');
+    check(JSON.stringify([[['tablas', 2]], [['tablas', 3]], [['tablas', 1]], [['piedra', 3]], [['piedra', 2]], [['tablas', 2], ['piedra', 1]], [['fibra', 3]], [['tablas', 2], ['tela', 1]]].map(salvage)) === JSON.stringify([[['tablas', 1]], [['tablas', 1]], [['tablas', 1]], [['piedra', 2]], [['piedra', 1]], [['tablas', 1], ['piedra', 1]], [], [['tablas', 1]]]), 'what comes back');
     const W = w(), B = game.build, I = inv(), mouse = game.mouse, [x, y] = openGround(), kept = I.slots.slice();
     await goTo(game, x + 2.5, y + 3.4); game.mouse = null; B.stationFor = () => true;
     try {
