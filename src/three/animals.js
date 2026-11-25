@@ -11,6 +11,10 @@
 // rebuild); the ridden gaits with the gallop's lean, the head and neck pumping and the tail streaming; the rear, the
 // shake and the toss (st.act) and the heaving flanks of a winded horse (st.winded); and the hoof strikes it counts for
 // the sound (u.hits, read by actors.js).
+//
+// The wild ones' breeds (Plan R3-2, herds.js breedOf): a deer with none is the stag (its antlers); 'hind' (no antlers, slimmer)
+// and 'calf' (white spots on the back); a boar with none is the male (tusks and mane); 'sow', 'piglet' (striped) and 'reddish'
+// (the older young). Their size is the root's scale (herds.js scaleOf).
 import * as THREE from 'three';
 import { mesh, mergeInto, G, M } from './shapes.js';
 import { Builder } from './geo.js';
@@ -95,6 +99,15 @@ const coat = (base, { back = 0.12, belly = null, spot = null, spots = null } = {
 // Manchas grandes (vaca, caballo pío, perro manchado): umbral de un ruido
 const patches = (freq, seed, thr = 0.58) => n => { const v = noise(n.x * freq + seed, n.y * freq + seed * 2, n.z * freq * 0.8 + seed * 3); return Math.max(0, Math.min(1, (v - thr) * 7)); };
 // Rayas (gato atigrado): bandas de ruido a lo largo del cuerpo
+// The white spots of a calf, in rows along its back and flanks
+const dapples = n => {
+  if (n.y < -0.25) return 0;
+  const row = Math.atan2(n.x, n.y) * 2.5, col = n.z * 4.6 + Math.floor(row + 0.5) * 0.5, i = Math.floor(row + 0.5), j = Math.round(col);
+  const dx = row - i + (hash(i, j, 3) - 0.5) * 0.35, dz = col - j + (hash(j, i, 7) - 0.5) * 0.35;
+  return Math.max(0, Math.min(1, (0.34 - Math.hypot(dx, dz)) * 6));
+};
+// The stripes of a piglet, along the body
+const bands = n => (n.y < -0.35 ? 0 : Math.max(0, Math.min(1, (Math.cos(Math.atan2(n.x, n.y) * 5.2 + noise(n.z * 3, 2, 5) * 0.8) - 0.15) * 2.2)) * (1 - sm(0.7, 0.98, Math.abs(n.z))));
 const stripes = n => { const v = Math.sin(n.z * 9 + noise(n.x * 3, n.y * 3, n.z * 3) * 3); return n.y > -0.2 && v > 0.55 ? 0.7 : 0; };
 // Un tubo que se estrecha entre dos puntos (cuello, cola, cuernos)
 const UP = new THREE.Vector3(0, 1, 0);
@@ -274,29 +287,37 @@ const BUILD = {
     mesh(new THREE.TorusGeometry(0.03, 0.01, 6, 12, Math.PI * 1.6), M(cb), { p: [0, 0, -0.03], r: [0, Math.PI / 2, 0] }, tail);   // el rabo en tirabuzón
     [[-0.16, 0.22], [0.16, 0.22], [-0.16, -0.22], [0.16, -0.22]].forEach(([x, z], i) => leg(body, legs, { x, y: 0.26, z, up: 0.12, low: 0.1, r0: 0.07, r1: 0.05, r2: 0.045, color: cb, foot: 0.04, footColor: '#6a4a48', phase: TROT[i] }));
   },
-  jabali({ body, legs, u, k }) {
-    const fur = '#4a3a2e', dark = '#2e241c';
-    mesh(blob(k + ':b', 36, (v, n) => { trunk({ L: 0.48, W: 0.27, H: 0.3, belly: 0.03, flat: 0 })(v, n); if (n.z > 0) v.y += 0.06 * n.z * Math.max(0, n.y); }, n => C.set(fur).multiplyScalar(0.85 + noise(n.x * 9, n.y * 9, n.z * 9) * 0.3)), WHITE, { p: [0, 0.48, 0] }, body);
-    for (let i = 0; i < 7; i++) mesh(G.cone, M(dark), { p: [0, 0.8 - i * 0.015, 0.25 - i * 0.09], s: [0.035, 0.1, 0.05], r: [-0.3, 0, 0] }, body);   // crin del lomo
-    const head = new THREE.Group(); head.position.set(0, 0.5, 0.46); body.add(head); u.head = head;
+  jabali({ body, legs, u, k, breed }) {
+    const baby = breed === 'piglet' || breed === 'reddish', sow = breed === 'sow', fur = breed === 'piglet' ? '#7a5a3c' : breed === 'reddish' ? '#7d5436' : sow ? '#52443a' : '#4a3a2e', dark = breed === 'piglet' ? '#4e3826' : breed === 'reddish' ? '#553a26' : '#2e241c';
+    const W = baby ? 0.23 : sow ? 0.26 : 0.27, hump = baby ? 0.01 : sow ? 0.03 : 0.06;
+    mesh(blob(k + ':b', 36, (v, n) => { trunk({ L: baby ? 0.44 : 0.48, W, H: baby ? 0.26 : sow ? 0.285 : 0.3, belly: sow ? 0.05 : 0.03, flat: 0 })(v, n); if (n.z > 0) v.y += hump * n.z * Math.max(0, n.y); }, n => {
+      C.set(fur).multiplyScalar(0.85 + noise(n.x * 9, n.y * 9, n.z * 9) * 0.3);
+      if (breed === 'piglet') C.lerp(C2.set('#d9c096'), bands(n) * 0.85);
+      return C;
+    }), WHITE, { p: [0, 0.48, 0] }, body);
+    if (baby) mesh(G.ball, M(dark), { p: [0, 0.71, 0], s: [0.035, 0.03, 0.26] }, body);   // (the dark line of the back)
+    if (!baby) for (let i = 0; i < (sow ? 5 : 7); i++) mesh(G.cone, M(dark), { p: [0, 0.8 - i * 0.015, 0.25 - i * 0.09], s: sow ? [0.03, 0.065, 0.05] : [0.035, 0.1, 0.05], r: [-0.3, 0, 0] }, body);   // crin del lomo
+    const head = new THREE.Group(); head.position.set(0, 0.5, baby ? 0.4 : 0.46); if (baby) head.scale.setScalar(1.12); body.add(head); u.head = head;
     mesh(blob(k + ':h', 24, (v, n) => v.set(n.x * 0.16 * (1 - 0.45 * Math.max(0, n.z)), n.y * 0.16 * (1 - 0.35 * Math.max(0, n.z)), n.z * 0.28), n => C.set(fur).multiplyScalar(0.9 + noise(n.x * 8, n.y * 8, n.z * 8) * 0.2)), WHITE, { p: [0, -0.02, 0.1] }, head);
     mesh(G.cyl, M(dark), { p: [0, -0.04, 0.37], s: [0.055, 0.04, 0.05], r: [Math.PI / 2, 0, 0] }, head);
-    for (const s of [-1, 1]) { tube(M('#f0ead8'), [s * 0.06, -0.06, 0.3], [s * 0.1, 0.02, 0.36], 0.014, 0.004, head, 6); mesh(G.cone, M(dark), { p: [s * 0.1, 0.15, -0.02], s: [0.045, 0.09, 0.03], r: [0, 0, s * -0.2] }, head); }
+    for (const s of [-1, 1]) { if (!baby) tube(M('#f0ead8'), [s * 0.06, -0.06, 0.3], sow ? [s * 0.075, -0.03, 0.325] : [s * 0.1, 0.02, 0.36], sow ? 0.009 : 0.014, 0.004, head, 6); mesh(G.cone, M(dark), { p: [s * 0.1, 0.15, -0.02], s: [0.045, 0.09, 0.03], r: [0, 0, s * -0.2] }, head); }
     eyes(head, 0.085, 0.06, 0.13, 0.016);
     const tail = new THREE.Group(); tail.position.set(0, 0.56, -0.48); body.add(tail); u.tail = tail;
     tube(M(dark), [0, 0, 0], [0, -0.16, -0.03], 0.015, 0.008, tail, 6);
     [[-0.15, 0.27], [0.15, 0.27], [-0.15, -0.27], [0.15, -0.27]].forEach(([x, z], i) => leg(body, legs, { x, y: 0.3, z, up: 0.15, low: 0.12, r0: 0.065, r1: 0.045, r2: 0.035, color: dark, foot: 0.04, phase: TROT[i] }));
   },
-  ciervo({ body, legs, u, k }) {
-    const fur = '#9a6a3a';
-    mesh(blob(k + ':b', 36, trunk({ L: 0.48, W: 0.24, H: 0.26, belly: 0.03 }), coat(fur, { back: 0.18, belly: '#e8dcc0' })), WHITE, { p: [0, 0.98, 0] }, body);
+  ciervo({ body, legs, u, k, breed }) {
+    const calf = breed === 'calf', hind = breed === 'hind', fur = calf ? '#a5713e' : hind ? '#94683e' : '#9a6a3a';
+    mesh(blob(k + ':b', calf ? 64 : 36, trunk({ L: calf ? 0.44 : 0.48, W: calf ? 0.205 : hind ? 0.22 : 0.24, H: calf ? 0.22 : hind ? 0.24 : 0.26, belly: hind ? 0.045 : 0.03 }), coat(fur, { back: 0.18, belly: '#e8dcc0', ...(calf ? { spot: '#efe4cc', spots: dapples } : {}) })), WHITE, { p: [0, 0.98, 0] }, body);
     mesh(G.ball, M('#f4ecdc'), { p: [0, 1.0, -0.47], s: [0.12, 0.14, 0.06] }, body);   // el culo blanco
     const head = new THREE.Group(); head.position.set(0, 1.45, 0.62); body.add(head); u.head = head;
-    neckRig(body, u, M(fur), [0, 1.05, 0.38], [0, 1.45, 0.62], 0.14, 0.08, 12, { beta: 1.1, S: [-0.05, 0.29] });
+    neckRig(body, u, M(fur), [0, 1.05, 0.38], [0, 1.45, 0.62], calf ? 0.1 : hind ? 0.115 : 0.14, calf ? 0.07 : hind ? 0.072 : 0.08, 12, { beta: 1.1, S: [-0.05, 0.29] });
+    if (calf) head.scale.setScalar(1.15);
     mesh(blob(k + ':h', 24, (v, n) => v.set(n.x * 0.1 * (1 - 0.35 * Math.max(0, n.z)), n.y * 0.11 * (1 - 0.2 * Math.max(0, n.z)), n.z * 0.2), n => coat(fur, { back: 0.1 })(n)), WHITE, { p: [0, 0, 0.08] }, head);
     mesh(G.ball, M('#1a1414'), { p: [0, -0.03, 0.28], s: [0.03, 0.025, 0.02] }, head);
     for (const s of [-1, 1]) {
-      mesh(G.ball, M(fur), { p: [s * 0.13, 0.08, -0.02], s: [0.08, 0.03, 0.045], r: [0, 0, s * 0.4] }, head);
+      mesh(G.ball, M(fur), { p: [s * 0.13, 0.08, -0.02], s: calf || hind ? [0.095, 0.034, 0.05] : [0.08, 0.03, 0.045], r: [0, 0, s * 0.4] }, head);
+      if (calf || hind) continue;
       tube(M('#d8c8a0'), [s * 0.04, 0.1, -0.02], [s * 0.14, 0.42, -0.1], 0.02, 0.012, head, 6);       // cuernas, con sus puntas
       tube(M('#d8c8a0'), [s * 0.09, 0.26, -0.06], [s * 0.2, 0.36, 0.04], 0.012, 0.005, head, 5);
       tube(M('#d8c8a0'), [s * 0.12, 0.36, -0.08], [s * 0.06, 0.48, -0.02], 0.01, 0.004, head, 5);
@@ -518,7 +539,7 @@ export function animateAnimal(m, dt, t, e, st = null) {
   if (e?.alert || e?.staring || u.al > 0) onGuard(m, u, e, k, t, dt);
   if (type === 'perro' && e) dogOut(u, e, dt);
   // (bedded: eased in and out over about a second, so getting up and lying down are seen)
-  const bed = BED[type], want = e?.lying && bed ? 1 : 0;
+  const bed = BED[type], want = (e?.lying || e?.bedded) && bed ? 1 : 0;
   if (want || u.lie > 0) {
     const lie = u.lie = (u.lie || 0) + (want - (u.lie || 0)) * Math.min(1, dt * 1.6);
     if (lie < 1e-3) { u.lie = 0; return; }
@@ -526,7 +547,7 @@ export function animateAnimal(m, dt, t, e, st = null) {
     body.position.y = body.position.y * (1 - lie) - bed[0] * lie;
     body.rotation.x *= 1 - lie; body.rotation.z *= 1 - lie;
     body.scale.x = body.scale.z = 1 + Math.sin(t * 1.3 + u.seed) * 0.025 * lie;   // (slow, deep breaths)
-    if (head) {
+    if (head && !(u.al > 0.05)) {   // (on its guard, it looks at whoever it is: onGuard)
       const up = -0.12 + Math.min(1, e?.limp || 0) * 0.8, look = Math.sin(t * 0.45 + u.seed * 3) > 0.85 ? Math.sin(t * 0.9 + u.seed) * 0.6 : 0;
       head.rotation.x += (up - head.rotation.x) * lie;
       head.rotation.y += (look - head.rotation.y) * lie;

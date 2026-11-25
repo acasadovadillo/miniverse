@@ -21,8 +21,10 @@ import { obb } from './world/fit.js';
 import { distOf, dxOf } from './world/planet.js';
 import { roll } from './xp.js';
 import { woundsOn, trailKey } from './wildlife.js';
+import { scaleOf, nameKey } from './herds.js';
+import { t, noun } from './i18n.js';
 
-const HEAL_AFTER = 30000, HURT = 0.4, PANIC = 2.5, SCARED = 5, YOUNG = 0.55;
+const HEAL_AFTER = 30000, HURT = 0.4, PANIC = 2.5, SCARED = 5;
 const r2 = v => Math.round(v * 100) / 100;
 const me = () => Profile.id || 'yo';
 // Where an arrow hit (Plan G §3.2): the rest of the body, the chest band (vital) or a graze
@@ -56,8 +58,8 @@ export const PREY = {
 
 // La caja de un animal en el mundo, girada hacia donde mira (el cisne flota: la suya llega hasta el agua)
 export function bodyBox(e) {
-  const k = e.young ? YOUNG : 1, [hw, back, front, h] = BODY[e.type], d = e.worldDir?.() || e.dir || [0, 1], a = Math.atan2(d[0], d[1]), mid = (front - back) / 2 * k;
-  return { ...obb(e.x + Math.sin(a) * mid, e.y + Math.cos(a) * mid, hw * k, (front + back) / 2 * k, a), y0: 0, y1: h * k * (e.lying ? LIE_H : 1) + (ANIMALS[e.type].swims ? 0.3 : 0) };
+  const k = scaleOf(e), [hw, back, front, h] = BODY[e.type], d = e.worldDir?.() || e.dir || [0, 1], a = Math.atan2(d[0], d[1]), mid = (front - back) / 2 * k;
+  return { ...obb(e.x + Math.sin(a) * mid, e.y + Math.cos(a) * mid, hw * k, (front + back) / 2 * k, a), y0: 0, y1: h * k * (e.lying || e.bedded ? LIE_H : 1) + (ANIMALS[e.type].swims ? 0.3 : 0) };
 }
 // Which zone of a wild land animal a hit point [x, height, y] is in (gy: the ground under the animal; dmg: the arrow's).
 // The chest band (15-45 % of the length from the front, 35-75 % of the box's height) is vital; a weak arrow (dmg ≤
@@ -70,9 +72,16 @@ export function zoneOf(e, hit, gy, dmg) {
   const along = (b.hy - v) / (2 * b.hy || 1), up = (hit[1] - gy - b.y0) / ((b.y1 - b.y0) || 1);   // (0 at the front / the ground)
   if (up > 0.85 || along > 0.85) return ZONE.graze;
   // (lying, its box is low and the chest sits in its lower part)
-  if (along >= 0.15 && along <= 0.45 && up <= 0.75 && (e.lying || up >= 0.35)) return ZONE.vital;
+  if (along >= 0.15 && along <= 0.45 && up <= 0.75 && (e.lying || e.bedded || up >= 0.35)) return ZONE.vital;
   return ZONE.body;
 }
+
+// The noun of an animal: of a herd, what it is (a hind, a calf, a sow); else its species
+export function kindNoun(e) {
+  const k = nameKey(e), name = ANIMALS[e.type]?.name || e.type;
+  return k ? noun('wild', k) : { name, g: /a$/.test(name) ? 'f' : 'm' };
+}
+export const kindName = e => { const k = nameKey(e); return k ? t('wild.' + k) : ANIMALS[e.type]?.name || e.type; };
 
 export class Hunt {
   constructor(game) { this.game = game; }
@@ -96,7 +105,7 @@ export class Hunt {
     if (def?.food || def?.heal || def?.buff) return null;   // (con comida en la mano, el clic es para comer)
     const e = this.prey(p, def);
     if (!e) return null;
-    return { tile: null, ok: true, auto: true, prey: e, label: `Atacar a ${e.name || `${/a$/.test(ANIMALS[e.type].name) ? 'la' : 'el'} ${ANIMALS[e.type].name.toLowerCase()}`}`, use: () => this.hit(e, def) };
+    return { tile: null, ok: true, auto: true, prey: e, label: t('hunt.attack', { target: e.name || kindNoun(e) }), use: () => this.hit(e, def) };
   }
   // Un golpe (lo da tu juego): si el mundo lo lleva otro, se lo pide
   hit(e, def) {
@@ -138,10 +147,10 @@ export class Hunt {
     e.hp -= dmg; e.hitAt = now; e.hurt = HURT;
     this.scare(e, from);
     if (e.hp > 0) { if (bleeds) this.wound(e, zone, from, by, peer); return false; }
-    if (ANIMALS[e.type].wild) g.wildlife.list.splice(g.wildlife.list.indexOf(e), 1);
+    if (ANIMALS[e.type].wild) { g.wildlife.list.splice(g.wildlife.list.indexOf(e), 1); g.wildlife.lost(e); }
     else g.ranch.remove(e);
     if (by === null) this.reward(e);
-    else g.live.net?.send({ t: 'preydead', id: e.id, type: e.type, young: !!e.young, x: r2(e.x), y: r2(e.y), ...(e.sx !== undefined ? { sx: e.sx, sy: e.sy } : {}) }, by);   // (sx, sy: whose trail it was, optional)
+    else g.live.net?.send({ t: 'preydead', id: e.id, type: e.type, young: !!e.young, ...(e.female ? { female: 1 } : {}), x: r2(e.x), y: r2(e.y), ...(e.sx !== undefined ? { sx: e.sx, sy: e.sy } : {}) }, by);   // (sx, sy: whose trail it was, optional)
     return true;
   }
   // (quien lleva el mundo) It survived the hit: it bleeds (wildlife.js runs the wound). Heavy at HEAVY_AT of its hp or after
@@ -157,7 +166,7 @@ export class Hunt {
   // Salir corriendo, lejos de quien pega
   scare(e, [fx, fy]) {
     const g = this.game;
-    if (ANIMALS[e.type].wild) { e.scared = g.time + SCARED; e.scareAt = [fx, fy]; return; }   // (wildlife.js: it flees from there)
+    if (ANIMALS[e.type].wild) { e.scared = g.time + SCARED; e.scareAt = [fx, fy]; g.wildlife.startle(e, fx, fy); return; }   // (wildlife.js: it flees from there)
     const dx = e.x - fx, dy = e.y - fy, d = Math.hypot(dx, dy) || 1;
     e.tx = e.x + dx / d * 6; e.ty = e.y + dy / d * 6; e.wait = 0; e.panic = g.time + PANIC;
   }
@@ -185,13 +194,13 @@ export class Hunt {
   // Lo que suelta (la cría, solo un trozo de carne), y lo que se aprende. bled: it bled out (far from you, maybe): its
   // carcass was placed by the host (placed), or else what it leaves falls only if you are in the world and near it
   // (id, sx, sy: a wild one's trail, so following it counts: tracks.js taken)
-  reward({ type, young, x, y, bled = 0, placed = 0, id, sx, sy }) {
+  reward({ type, young, female, x, y, bled = 0, placed = 0, id, sx, sy }) {
     const g = this.game, def = PREY[type], p = g.player;
     if (ANIMALS[type].wild && id !== undefined && Number.isFinite(sx) && Number.isFinite(sy)) g.tracks?.taken(trailKey({ id, sx, sy }), !!bled);
     const here = !bled || (g.scene === g.world && p && Number.isFinite(x) && Number.isFinite(y) && distOf(p.x, p.y, x, y) < BLED_NEAR);
     if (!placed && here) {
       // (with the weight inventory, an adult deer, boar, cow, sheep, goat or pig leaves its carcass, to carry in the arms: carry.js)
-      if (young || !g.carry?.hunted(type, x, y)) g.gather.spawnDrops({ x, y }, { drops: young ? [[def.drops[0][0], 1, 1]] : def.drops });
+      if (young || !g.carry?.hunted(type, x, y, !!female)) g.gather.spawnDrops({ x, y }, { drops: young ? [[def.drops[0][0], 1, 1]] : female && type === 'ciervo' ? def.drops.filter(d => d[0] !== 'asta') : def.drops });   // (a hind has no antlers)
       g.gather.chips(x, y, def.chips || 'dirt', 16);
     }
     if (!bled) Audio.noiseHit(180, 0.2, 0.35);
@@ -210,9 +219,10 @@ export class Hunt {
     const g = this.game, W = g.wildlife, i = W.list.indexOf(w);
     if (i < 0 || !PREY[w.type]) return false;
     W.list.splice(i, 1);
+    W.lost(w);
     const by = w.by || null, forId = !g.live?.joined ? null : by?.me ? (Profile.id || null) : (by?.id ?? null);
-    const placed = !w.young && (g.carry?.bigNow || Profile.server) && !!g.carry?.placeCarcass(w.type, w.x, w.y, forId);
-    const msg = { id: w.id, type: w.type, young: !!w.young, x: r2(w.x), y: r2(w.y), bled: 1, placed: placed ? 1 : 0, sx: w.sx, sy: w.sy }, conn = by && !by.me ? this.connOf(by) : null;
+    const placed = !w.young && (g.carry?.bigNow || Profile.server) && !!g.carry?.placeCarcass(w.type, w.x, w.y, forId, !!w.female);
+    const msg = { id: w.id, type: w.type, young: !!w.young, ...(w.female ? { female: 1 } : {}), x: r2(w.x), y: r2(w.y), bled: 1, placed: placed ? 1 : 0, sx: w.sx, sy: w.sy }, conn = by && !by.me ? this.connOf(by) : null;
     if (by?.me && !Profile.server) this.reward(msg);
     else if (conn !== null) g.live.net.send({ t: 'preydead', ...msg }, conn);
     return true;

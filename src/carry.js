@@ -536,18 +536,18 @@ export class Carry {
   }
   // A hunted adult deer, boar, cow, sheep, goat or pig leaves its carcass where it fell (or next to it). Playing together,
   // it is placed by the game of whoever hunted it (hunt.js reward: the host tells the hunter). false: as before
-  hunted(type, x, y) {
+  hunted(type, x, y, female = false) {
     const g = this.game;
     if (!this.bigNow || g.scene !== g.world) return false;
-    return this.placeCarcass(type, x, y, g.live?.joined ? Profile.id || null : null);
+    return this.placeCarcass(type, x, y, g.live?.joined ? Profile.id || null : null, female);
   }
   // A carcass in the world chunk at (x, y) or on a free tile next to it, whatever scene this game is in (the host may be in
   // a cave; the world server has no player), with its day (it rots from today) and, with forId, reserved for that player
   // for MINE_FIRST seconds, as every kill. hunted() uses it for a normal kill; hunt.js bledOut for an animal that bled out
   // (Plan G §3.2). The caller decides whether big things exist (bigNow). false: nothing placed (no carcass for that
   // animal, or no room)
-  placeCarcass(type, x, y, forId = null) {
-    const g = this.game, w = g.world, id = CARCASS_OF[type];
+  placeCarcass(type, x, y, forId = null, female = false) {
+    const g = this.game, w = g.world, id = (female && CARCASS_OF[type + ':f']) || CARCASS_OF[type];
     if (!id || !w || !Number.isFinite(x) || !Number.isFinite(y)) return false;
     const tx = Math.floor(x), ty = Math.floor(y), who = g.scene === w ? g.player || null : null;
     const tile = [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, -1], [1, -1], [-1, 1]].map(([i, j]) => [tx + i, ty + j]).find(([a, b]) => w.canPlace(a, b, id, who));

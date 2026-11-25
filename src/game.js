@@ -49,7 +49,7 @@ import { Social } from './social.js';
 import { Talk } from './talk.js';
 import { Board } from './board.js';
 import { Combat, DIFFICULTIES, MONSTERS, EFFECT_NAMES } from './combat.js';
-import { Hunt, bodyBox } from './hunt.js';
+import { Hunt, bodyBox, kindName } from './hunt.js';
 import { Archery } from './archery.js';
 import { reportFault } from './faults.js';
 import { ANIMALS } from './art/farm.js';
@@ -696,7 +696,7 @@ export class Game {
       case 'npc': return this.neighbors.actionFor(a.n);
       case 'kid': return this.family.actionFor(a.id, a.e);
       case 'animal': return this.ranch.talk(a.e);
-      case 'wild': return { text: ANIMALS[a.e.type].name, run: () => Audio.blip() };
+      case 'wild': return { text: kindName(a.e), run: () => Audio.blip() };
       case 'monster': return { text: MONSTERS[a.e.type].name, run: () => Audio.blip() };
       case 'crop': return this.farm.cropAction(...a.tile);
       // (lo de cada sistema, aislado como sus ganchos: si falla, no se puede usar eso, pero el resto se sigue viendo)

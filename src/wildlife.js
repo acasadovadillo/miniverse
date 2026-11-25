@@ -26,6 +26,15 @@
 // when it looks up. A badly wounded animal does what its wound says (above), not this. Index 11 of 'wild' (senses.js
 // packF, optional) carries the alert, the stare and the tail, so every game draws them and plays their sounds (cues).
 // ?sentidos=0 (the host's) keeps the old way: they run from whoever comes within their fear radius.
+//
+// Herds (Plan R3-2, docs/planes/realismo/PLAN-R3-caza.md §3.3; the cells, the members and the hours in herds.js): the deer,
+// the boar and the swans live in groups, each in its own places. Whoever runs the world makes a group real when a player
+// comes within HERD.NEAR of its middle (never nearer anybody than HERD.MIN) and lets it go when nobody is within HERD.GONE of
+// any of it (herdTick). A real group (this.groups) follows its middle through its hours: its leader goes there, the others
+// keep about it, the young about their mothers (nextPlace); they graze, root, drink and lie in their bed (bedded: not a
+// wounded one's lying). An alarm goes through the group, and one that fled stays about where it fled to. Their ids say whose
+// they are (herds.js memberId), so a game that takes the world over adopts them. Traits (female, age, young, size) travel in f.
+// ?manadas=0 (the host's; or ?sentidos=0): single animals at random round each player, as before. /summon's are on their own.
 import { B } from './world/biomes.js';
 import { inBounds } from './world/village.js';
 import { CHUNK } from './world/gen.js';
@@ -36,6 +45,7 @@ import { Audio } from './audio.js';
 import { Profile } from './accounts.js';
 import { shotHit } from './world/shots.js';
 import { Presence, stalkingAs } from './presence.js';
+import { Herds, HERD, AGE, memberId, parseId, breedOf, dayOfYear } from './herds.js';
 import { SENSES, ALERT, CALM, TENSE, ALARM, FAR, DIFF_K, EVENT_S, A_CALM, A_ALERT, A_ALARM, A_TENSE, perceive, hearEvent, advance, lightAt, packF, unpackF } from './senses.js';
 
 const MAX = 6, SPAWN_EVERY = 4, NEAR = [14, 26], GONE = 42, CREEP = 0.3, SEND_EVERY = 0.15, RESEND = 2;
@@ -94,6 +104,10 @@ const SHUN = 20;   // (a run that turns never heads back towards someone within 
 const REAIM = [0, 1, -1, 2, -2, 3, -3].map(n => n * Math.PI / 4);
 // On unless ?sentidos=0. Wildlife.senses: the tests turn them on and off without the URL
 export const sensesOn = () => Wildlife.senses ?? !apagada('sentidos');
+// The herds: on unless ?manadas=0 (or without the senses). Wildlife.herding: the tests turn them on and off
+export const herdsOn = () => sensesOn() && (Wildlife.herding ?? !apagada('manadas'));
+const WHERE = { x: 0, y: 0, act: '', night: 0 }, TAU = Math.PI * 2;
+const DIR8 = Array.from({ length: 8 }, (_, i) => [Math.cos(i * TAU / 8), Math.sin(i * TAU / 8)]);
 const SEEN = {}, ENV = { light: 1, sky: 1, diff: 1, wx: 1, wy: 0, ws: 0.4 }, ANIMAL = { fx: 0, fy: 1, down: false, staring: false, bedded: false };   // (reused: no allocation in the senses)
 // On unless ?wounds=0. Wildlife.wounds: the tests turn it on and off without the URL
 export const woundsOn = () => Wildlife.wounds ?? !apagada('wounds');
@@ -110,20 +124,24 @@ class Wild {
 export class Wildlife {
   static wounds = null;
   static senses = null;
-  constructor(game) { this.game = game; this.presence = new Presence(game); this.presT = 0; this.rays = 0; this.raysT = -9; this.tension = false; this.hunting = false; this.walkers = []; this.list = []; this.t = 0; this.n = 0; this.sendT = 0; this.resend = 0; this.lastSent = ''; this.bCache = new Map(); this.bWorld = null; this.bTouch = -1; this.bSlot = -1; }
-  reset() { this.list = []; this.lastSent = ''; this.tension = this.hunting = false; this.presence.reset(); }
+  static herding = null;
+  constructor(game) { this.game = game; this.herds = null; this.groups = new Map(); this.gT = 0; this.presence = new Presence(game); this.presT = 0; this.rays = 0; this.raysT = -9; this.tension = false; this.hunting = false; this.walkers = []; this.list = []; this.t = 0; this.n = 0; this.sendT = 0; this.resend = 0; this.lastSent = ''; this.bCache = new Map(); this.bWorld = null; this.bTouch = -1; this.bSlot = -1; }
+  reset() { this.list = []; this.herds = null; this.groups.clear(); this.lastSent = ''; this.tension = this.hunting = false; this.presence.reset(); }
   get world() { return this.game.world; }
 
   update(dt) {
     const g = this.game;
     if (!g.world) return;
-    if (g.live.guest) { this.attend(dt, null); this.follow(dt); this.cues(dt); return; }   // (en el mundo de otro, donde dice su juego)
+    if (g.live.guest) { if (this.groups.size) this.disband(); this.attend(dt, null); this.follow(dt); this.cues(dt); return; }   // (en el mundo de otro, donde dice su juego)
     const players = g.mobs.players(), walkers = players.filter(q => q.gm !== 'spectator'), senses = sensesOn(), gone = senses ? GONE_S : GONE;
     this.attend(dt, walkers);
     // (el que se queda lejos de todos, o dentro de algo construido, se va; a wounded one only beyond LEASH, so its trail
     // leads somewhere, and a badly wounded one not while whoever wounded it is in a cave: they come back to its trail)
-    this.list = this.list.filter(w => (players.some(q => distOf(q.x, q.y, w.x, w.y) < (w.bleed > 0 || w.lying || w.flight ? WOUND.LEASH : gone)) || (w.bleed === 2 && this.wounderAway(w))) && (KINDS[w.type].water || !this.built(w.x, w.y, 0)));
-    if ((this.t += dt) > SPAWN_EVERY) {
+    // (one of a herd, only with all of it: herdTick)
+    const herds = this.herdsNow();
+    this.list = this.list.filter(w => (w.herd || this.stays(w, players, gone)) && (KINDS[w.type].water || !this.built(w.x, w.y, 0)));
+    if (herds) this.herdTick(dt, herds, walkers, players);
+    else if ((this.t += dt) > SPAWN_EVERY) {
       this.t = 0;
       // (a wounded animal beyond GONE still counts for whoever wounded it, or every wound would let one more spawn)
       const room = senses ? ROOM : GONE;
@@ -142,6 +160,245 @@ export class Wildlife {
       this.resend += this.sendT; this.sendT = 0;
       if (s !== this.lastSent || this.resend >= RESEND) { this.lastSent = s; this.resend = 0; g.live.net?.send({ t: 'wild', w: m }); }   // (de vez en cuando, aunque no cambie: por quien acaba de entrar)
     }
+  }
+  stays(w, players, gone) {
+    for (const q of players) if (distOf(q.x, q.y, w.x, w.y) < (w.bleed > 0 || w.lying || w.flight ? WOUND.LEASH : gone)) return true;
+    return w.bleed === 2 && this.wounderAway(w);
+  }
+
+  // ---------- herds (host side; Plan R3 §3.3, herds.js) ----------
+  // The herds of this world, or null (off: ?manadas=0, ?sentidos=0)
+  herdsNow() {
+    if (!herdsOn()) { if (this.groups.size) this.disband(); return null; }
+    const gen = this.world.gen;
+    if (!this.herds || this.herds.gen !== gen || this.herds.seed !== gen.seed) { this.disband(); this.herds = new Herds(gen); }
+    return this.herds;
+  }
+  // The groups no more (another game runs the world, or they are off): the animals stay, each on its own
+  disband() { for (const w of this.list) w.herd = null; this.groups.clear(); }
+  now() { return this.game.days.now; }
+  // Once a second: what each real group is at, the ones that go, and the ones somebody comes near (this.t, as the old
+  // spawn's timer: the tests hold it back)
+  herdTick(dt, herds, walkers, players) {
+    if ((this.gT += dt) >= HERD.EVERY) {
+      this.gT = 0;
+      for (const w of this.list) if (!w.herd && typeof w.id === 'string' && w.id[0] === 'g') this.adopt(w, herds);
+      for (const G of this.groups.values()) this.groupTick(G, herds, players);
+    }
+    if ((this.t += dt) <= HERD.EVERY) return;
+    this.t = 0;
+    let best = null, bd = HERD.NEAR + HERD.WARM;
+    const ms = this.now(), now = this.game.time;
+    for (const q of walkers) herds.around(q.x, q.y, 2, g => {
+      if (this.groups.has(g.id)) return;
+      herds.where(g, this.game.days.hourAt(g.bed[0]), ms, now, WHERE);
+      const d = distOf(q.x, q.y, WHERE.x, WHERE.y);
+      if (d < bd && !(g.retry > now && g.retry < now + HERD.RETRY * 2) && !inBounds(q.x, q.y)) { bd = d; best = g; }
+    });
+    if (!best) return;
+    // (the ground where it will be, made ready a little before: a chunk a look)
+    herds.where(best, this.game.days.hourAt(best.bed[0]), ms, now, WHERE);
+    if (!this.ready(WHERE.x, WHERE.y)) { this.warm(WHERE.x, WHERE.y); return; }
+    if (bd < HERD.NEAR && !this.appear(best, herds, walkers)) best.retry = now + HERD.RETRY;
+  }
+  // A group comes into being where its hours say (or the nearest place to it that will do). false: no room, or nowhere now
+  appear(g, herds, walkers) {
+    const ms = this.now(), time = this.game.time, members = herds.members(g, dayOfYear(ms, g.bed[1]), ms);
+    if (!members.length) return false;
+    herds.where(g, this.game.days.hourAt(g.bed[0]), ms, time, WHERE);
+    const { x, y, act, night } = WHERE;
+    if (!this.room(g, x, y, members.length, walkers)) return false;
+    for (let n = 0; n < 9 && !this.ready(x, y); n++) this.warm(x, y);
+    const k = KINDS[g.type], at = this.spotFor(g, x, y, k, walkers);
+    if (!at) return false;
+    const G = { g, id: g.id, list: [], x: at[0], y: at[1], act, night, lead: null, run: null, runT: -9, spook: 0 };
+    const md = dayOfYear(ms, g.bed[1]), uneasy = herds.spooked.has(g.id);
+    // (moved over, because of what is built there: it keeps off it a while)
+    if (at[2]) herds.spook(g.id, dxOf(at[0], x), at[1] - y, time + HERD.SPOOKED);
+    for (const m of members) {
+      const mom = m.mother >= 0 ? G.list.find(o => o.mi === m.mother) : null, R = m.young ? HERD.YOUNG : act === 'bed' ? HERD.BED : HERD.AROUND, slot = (m.i / members.length) * TAU + Math.random() * 0.8;
+      const p = this.placeNear(mom ? mom.x : at[0], mom ? mom.y : at[1], R, slot, k, walkers);
+      if (!p) continue;
+      const w = new Wild(g.type, p[0], p[1], memberId(g, m.i));
+      Object.assign(w, { sx: qs(w.x), sy: qs(w.y), traits: true, female: m.female, young: m.young, age: m.age, size: m.size, breed: breedOf(g.type, m.female, m.young, md), herd: G, mi: m.i, mother: m.mother, slot, aw: uneasy ? HERD.WARY : 0, wait: Math.random() * 3 });
+      w.dir = [Math.cos(slot * 3), Math.sin(slot * 3)];
+      if (act === 'bed' && g.kind !== 'swan') w.bedded = true;
+      G.list.push(w); this.list.push(w);
+    }
+    if (!G.list.length) return false;
+    this.groups.set(g.id, G);
+    this.lead(G);
+    return true;
+  }
+  // Is there room for n more at (x, y)? So many round each player, the wounded and the summoned ones among them; a calm group
+  // that is further off than it, and far from everybody (HERD.SWAP), makes room
+  room(g, x, y, n, walkers) {
+    for (let tries = 0; tries < HERD.GROUPS + 1; tries++) {
+      let full = null;
+      for (const q of walkers) {
+        if (distOf(q.x, q.y, x, y) > WOUND.LEASH) continue;
+        let a = 0, m = 0;
+        for (const w of this.list) if (!w.herd && (distOf(q.x, q.y, w.x, w.y) < WOUND.LEASH || (w.bleed > 0 && this.woundedBy(w, q)))) a++;
+        for (const G of this.groups.values()) if (G.list.some(w => distOf(q.x, q.y, w.x, w.y) < WOUND.LEASH || (w.bleed > 0 && this.woundedBy(w, q)))) { m++; a += G.list.length; }
+        if (a + n > HERD.MAX || m >= HERD.GROUPS) { full = q; break; }
+      }
+      if (!full) return true;
+      let far = null, fd = HERD.SWAP;
+      for (const G of this.groups.values()) {
+        let d = Infinity;
+        for (const w of G.list) { if (w.bleed > 0 || w.lying || w.flight || w.alert) { d = 0; break; } for (const q of walkers) d = Math.min(d, distOf(q.x, q.y, w.x, w.y)); }
+        if (d > fd) { fd = d; far = G; }
+      }
+      if (!far || distOf(full.x, full.y, x, y) > fd) return false;
+      this.vanish(far);
+    }
+    return false;
+  }
+  // Where a group may come into being: at (x, y), or round there; the third, true: not its own place, for what is built
+  spotFor(g, x, y, k, walkers) {
+    const far = (px, py) => walkers.every(q => distOf(q.x, q.y, px, py) >= HERD.MIN + HERD.AROUND[1] * 0.75);
+    const ok = (px, py) => far(px, py) && !this.offLimits({ x: px, y: py }, k) && (k.water || (!this.world.blocked?.(px, py) && this.quiet(px, py)));
+    if (ok(x, y)) return [x, y, false];
+    const built = !k.water && !this.quiet(x, y);
+    for (const r of k.water ? [4, 8, 14] : [10, 18, 26]) for (const [c, s] of DIR8) { const px = wrapX(x + c * r), py = y + s * r; if (ok(px, py)) return [px, py, built]; }
+    // (somebody stands where it is: it comes into being off from them, where it would have seen them come)
+    for (const q of walkers) {
+      if (distOf(q.x, q.y, x, y) > HERD.MIN + HERD.AROUND[1]) continue;
+      const a0 = Math.atan2(y - q.y, dxOf(x, q.x));
+      for (let i = 0; i < 8; i++) {
+        const a = a0 + (i % 2 ? 1 : -1) * Math.ceil(i / 2) * TAU / 8, px = wrapX(q.x + Math.cos(a) * (HERD.MIN + HERD.AROUND[1] + 2)), py = q.y + Math.sin(a) * (HERD.MIN + HERD.AROUND[1] + 2);
+        if (ok(px, py) && this.ready(px, py)) return [px, py, false];
+      }
+    }
+    return null;
+  }
+  // A free place for one of them r (a [min, max] range) from (x, y), about the angle a
+  placeNear(x, y, R, a, k, walkers) {
+    for (let i = 0; i < 9; i++) {
+      const an = a + (i ? (Math.random() - 0.5) * TAU : 0), r = i < 8 ? within(R) : 0, px = wrapX(x + Math.cos(an) * r), py = y + Math.sin(an) * r, p = { x: px, y: py };
+      if (this.offLimits(p, k) || (!k.water && this.world.blocked?.(px, py)) || this.built(px, py, k.r + 0.5) || walkers.some(q => distOf(q.x, q.y, px, py) < HERD.MIN)) continue;
+      if (!k.water) { collide(p, this.world.collidersNear(px, py), k.r); if (Math.hypot(dxOf(p.x, px), p.y - py) > 0.05) continue; }
+      return [px, py];
+    }
+    return null;
+  }
+  // Nothing built at a place nor round it (a house, a hamlet): they keep away from those
+  quiet(x, y) {
+    if (this.builtAt(Math.floor(x), Math.floor(y))) return false;
+    for (const r of HERD.QUIET) for (const [c, s] of DIR8) if (this.builtAt(Math.floor(wrapX(x + c * r)), Math.floor(y + s * r))) return false;
+    return true;
+  }
+  // One of the chunks round (x, y) that nothing has asked for yet (ready: all of them are there)
+  warm(x, y) {
+    const M = this.world.merged, cx = Math.floor(x / CHUNK), cy = Math.floor(y / CHUNK);
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (!M?.has(`${wrapIndex(cx + dx, CHUNK)},${cy + dy}`)) { this.world.contentFor(cx + dx, cy + dy); return; }
+  }
+  // Its leader, the oldest of the grown that is left (the first of them: herds.js); and each young one's mother
+  lead(G) {
+    const L = G.list;
+    G.lead = L.find(w => !w.young && w.bleed !== 2) || L.find(w => !w.young) || L[0] || null;
+    for (const w of L) w.mom = w.mother >= 0 ? L.find(o => o.mi === w.mother) || null : null;
+  }
+  // A real group, once a second: who is left, where its middle is and what it is at; it goes when nobody is near any of it
+  groupTick(G, herds, players) {
+    G.list = G.list.filter(w => this.list.includes(w));
+    if (!G.list.length) { this.groups.delete(G.id); return; }
+    this.lead(G);
+    const g = this.game, now = g.time, h = g.days.hourAt(G.g.bed[0]), ms = this.now();
+    // (it fled: where its leader is, is where it keeps about for a while)
+    if (G.spook > now && G.lead.flight) {
+      herds.spooked.delete(G.id);
+      herds.where(G.g, h, ms, now, WHERE);
+      herds.spook(G.id, dxOf(G.lead.x, WHERE.x), G.lead.y - WHERE.y, G.spook);
+    }
+    herds.where(G.g, h, ms, now, WHERE);
+    G.x = WHERE.x; G.y = WHERE.y; G.act = WHERE.act; G.night = WHERE.night;
+    // (off its places, it does not go to the water: it grazes, or lies, where it is. And its place built over while it was here,
+    // it keeps about where its leader is)
+    const off = herds.spooked.has(G.id), k = KINDS[G.g.type];
+    if (off && (G.act === 'walk' || G.act === 'drink')) G.act = 'feed';
+    if (!off && !k.water && this.ready(G.x, G.y) && !this.quiet(G.x, G.y) && this.quiet(G.lead.x, G.lead.y)) herds.spook(G.id, dxOf(G.lead.x, WHERE.x), G.lead.y - WHERE.y, now + HERD.SPOOKED);
+    let wide = 0;
+    for (const w of G.list) if (!w.young && !w.lying && w.bleed !== 2) wide = Math.max(wide, distOf(w.x, w.y, G.lead.x, G.lead.y));
+    G.wide = wide;
+    if (!G.list.some(w => this.stays(w, players, HERD.GONE))) this.vanish(G);
+  }
+  vanish(G) {
+    this.groups.delete(G.id);
+    this.list = this.list.filter(w => w.herd !== G);
+  }
+  // One with a herd's id that no group here has (another game ran the world until now)
+  adopt(w, herds) {
+    const p = parseId(w.id), g = p && herds.cell(p.cx, p.cy).find(o => o.id === p.id);
+    if (!g) { w.id = `w${++this.n}`; return; }
+    let G = this.groups.get(g.id);
+    if (!G) { this.groups.set(g.id, G = { g, id: g.id, list: [], x: w.x, y: w.y, act: 'feed', night: 0, lead: null, run: null, runT: -9, spook: 0 }); }
+    if (G.list.some(o => o.mi === p.i)) { w.id = `w${++this.n}`; return; }
+    const ms = this.now(), m = herds.members(g, dayOfYear(ms, g.bed[1]), ms).find(o => o.i === p.i);
+    Object.assign(w, { herd: G, mi: p.i, mother: m ? m.mother : -1, slot: Math.random() * TAU });
+    G.list.push(w); G.list.sort((a, b) => a.mi - b.mi);
+    this.lead(G);
+  }
+  // (hunt.js) One died: its group is one less for some days
+  lost(w) { if (w.herd && this.herds) { this.herds.take(w.herd.id, w.mi, this.now()); w.herd.list = w.herd.list.filter(o => o !== w); if (w.herd.list.length) this.lead(w.herd); } }
+  // (hunt.js) One was hit, from (x, y): the rest of its group takes fright
+  startle(w, x, y) { if (w.herd && sensesOn() && Number.isFinite(x) && Number.isFinite(y)) this.warn(w, x, y); }
+  warn(w, x, y) {
+    for (const o of w.herd.list) {
+      if (o === w || o.flight || o.bleed === 2 || distOf(o.x, o.y, w.x, w.y) > HERD.SPREAD) continue;
+      if (o.aw < HERD.WARN) { o.aw = HERD.WARN; o.awKey = w.awKey; o.awX = x; o.awY = y; o.quiet = 0; o.senseT = Math.max(o.senseT, SENSE.EVERY - Math.random() * 0.4); }
+    }
+  }
+  // One has just noticed something: the ones by it look where it looks
+  rouse(w) {
+    for (const o of w.herd.list) {
+      if (o === w || o.flight || o.alert || o.bleed === 2 || o.aw >= ALERT || distOf(o.x, o.y, w.x, w.y) > HERD.ROUSE) continue;
+      o.aw = ALERT; o.awKey = w.awKey; o.awX = w.awX; o.awY = w.awY; o.quiet = 0;
+    }
+  }
+  // Where one of a herd goes next: its leader, with the group's middle; the others, about the leader; the young, about their
+  // mothers. There it grazes, roots, drinks or lies down, by its group's hour
+  nextPlace(w, k) {
+    const G = w.herd, lead = w === G.lead || !G.lead, time = this.game.time;
+    const go = (x, y, wait, graze) => { w.tx = w.x + dxOf(x, w.x); w.ty = y; w.wait = wait; w.vx = w.vy = 0; if (graze) this.tryGraze(w); };
+    w.hurry = false;
+    if (G.act === 'bed' && G.g.kind !== 'swan') {
+      const n = w.slot * 7.3, r = lead ? 0 : HERD.BED[0] + (n - Math.floor(n)) * (HERD.BED[1] - HERD.BED[0]), bx = G.x + Math.cos(w.slot) * r, by = G.y + Math.sin(w.slot) * r, d = distOf(bx, by, w.x, w.y);
+      w.bedTry = (w.bedTry || 0) + 1;
+      if (d < 1.2 || (d < 12 && w.bedTry > 3) || w.bedTry > 14) { this.lieDown(w); return; }
+      const s = Math.min(1, 9 / d);
+      w.hurry = d > HERD.STRAY * 2;
+      go(wrapX(w.x + dxOf(bx, w.x) * s), w.y + (by - w.y) * s, d > 12 ? Math.random() : within([1, 4]), false);
+      return;
+    }
+    w.bedTry = 0;
+    if (G.act === 'drink' && !(w.drankAt > time)) {
+      // (the shore, side by side: each up to the water, and there it drinks: wander)
+      const W = G.g.water, l = Math.hypot(W[2] - W[0], W[3] - W[1]) || 1, side = ((w.mi % 7) - 3) * 1.5;
+      go(wrapX(W[2] - (W[3] - W[1]) / l * side), W[3] + (W[2] - W[0]) / l * side, Math.random() * 2, false);
+      return;
+    }
+    const anchor = w.mom && !w.mom.flight ? w.mom : lead ? null : G.lead;
+    if (!anchor) {
+      const d = distOf(G.x, G.y, w.x, w.y);
+      if (d > 8) {   // (the group's middle has moved on: that way, in short stretches, and not without the others)
+        const a = Math.atan2(G.y - w.y, dxOf(G.x, w.x)) + (Math.random() - 0.5), s = Math.min(d, within([4, 7])), slow = G.wide > HERD.STRAY;
+        w.hurry = d > HERD.STRAY * 3 && !slow;
+        go(wrapX(w.x + Math.cos(a) * s), w.y + Math.sin(a) * s, slow ? within([4, 9]) : G.act === 'walk' ? within([0.3, 2]) : within([1, 5]), slow || G.act !== 'walk' || Math.random() < 0.4);
+      } else { const a = Math.random() * TAU; go(wrapX(w.x + Math.cos(a) * 3), w.y + Math.sin(a) * 3, within([2, 8]), true); }
+      return;
+    }
+    const night = w.young ? 0 : G.night, r0 = w.young ? HERD.YOUNG[0] : HERD.AROUND[0] + (HERD.NIGHT[0] - HERD.AROUND[0]) * night, r1 = w.young ? HERD.YOUNG[1] : HERD.AROUND[1] + (HERD.NIGHT[1] - HERD.AROUND[1]) * night;
+    const d = distOf(anchor.x, anchor.y, w.x, w.y), behind = d > r1 + (w.young ? 1 : 2), a = w.slot + (Math.random() - 0.5) * 1.6, r = r0 + Math.random() * (r1 - r0);
+    const x = anchor.x + Math.cos(a) * r, y = anchor.y + Math.sin(a) * r, dd = distOf(x, y, w.x, w.y), s = behind ? Math.min(1, 12 / (dd || 1)) : Math.min(1, 4 / (dd || 1));
+    w.hurry = d > HERD.STRAY;
+    go(wrapX(w.x + dxOf(x, w.x) * s), w.y + (y - w.y) * s, behind ? Math.random() * 1.2 : within([2, 8]), !behind);
+  }
+  lieDown(w) { Object.assign(w, { bedded: true, bedTry: 0, vx: 0, vy: 0, tx: w.x, ty: w.y, eating: 0, grazing: false, headUp: false }); }
+  // At the water's edge, its head down to it
+  drink(w) {
+    w.drankAt = this.game.time + 40 + Math.random() * 60;
+    Object.assign(w, { grazeAt: null, eating: within(HERD.DRINK), headUp: false, headT: within(BOUT.down), grazing: true, tx: w.x, ty: w.y, vx: 0, vy: 0 });
   }
   // Uno nuevo en un sitio que le vaya, a cierta distancia de quien juega (y de los demás) y fuera del pueblo
   spawn(q, walkers) {
@@ -179,7 +436,10 @@ export class Wildlife {
   // way: no senses)
   wander(w, dt, k, sp, flee = false, q = null, d = Infinity) {
     const g = this.game, dx = w.tx - w.x, dy = w.ty - w.y, dist = Math.hypot(dx, dy);
-    if (dist < 0.2) { const a = Math.random() * Math.PI * 2; w.tx = w.x + Math.cos(a) * 3; w.ty = w.y + Math.sin(a) * 3; w.wait = 2 + Math.random() * 6; w.vx = w.vy = 0; this.tryGraze(w); return; }
+    if (dist < 0.2) {
+      if (w.herd) { this.nextPlace(w, k); return; }
+      const a = Math.random() * Math.PI * 2; w.tx = w.x + Math.cos(a) * 3; w.ty = w.y + Math.sin(a) * 3; w.wait = 2 + Math.random() * 6; w.vx = w.vy = 0; this.tryGraze(w); return;
+    }
     const s = Math.min(dist, sp * dt), p = { x: w.x + (dx / dist) * s, y: w.y + (dy / dist) * s };
     if (!k.water) collide(p, this.world.collidersNear(p.x, p.y), k.r);
     // (los del agua, en la de verdad: en lo cavado con agua tampoco entran, como los de tierra; ver scenes.js, reflood)
@@ -190,7 +450,12 @@ export class Wildlife {
         w.escNo = g.time + ESCAPE_FOR;   // (cornered: looked for again in a moment, not every frame)
       }
       w.tx = w.x; w.ty = w.y; w.wait = 1; w.escT = 0;
+      if (w.herd?.act === 'drink' && !k.water && !(w.drankAt > g.time) && this.world.natWater(wrapX(p.x + dx / dist * 0.6), p.y + dy / dist * 0.6)) { w.faceTo(dx, dy); this.drink(w); }
       return;
+    }
+    // (held by a trunk or a fence on its way: somewhere else)
+    if (w.herd) {
+      if (Math.hypot(p.x - w.x, p.y - w.y) < s * 0.4) { if ((w.stuckT = (w.stuckT || 0) + dt) > 0.8) { w.stuckT = 0; w.tx = w.x; w.ty = w.y; w.wait = 0.3 + Math.random(); return; } } else w.stuckT = 0;
     }
     w.faceTo(dx, dy);
     w.vx = (p.x - w.x) / dt; w.vy = (p.y - w.y) / dt;
@@ -231,7 +496,7 @@ export class Wildlife {
     ENV.light = lightAt(g.days.hourAt(w.x), K.night);
     ENV.diff = DIFF_K[g.difficulty] ?? 1;
     ENV.wx = g.wind?.x ?? 1; ENV.wy = g.wind?.y ?? 0;
-    ANIMAL.fx = fx; ANIMAL.fy = fy; ANIMAL.down = !!w.grazing; ANIMAL.bedded = !!w.lying;
+    ANIMAL.fx = fx; ANIMAL.fy = fy; ANIMAL.down = !!w.grazing; ANIMAL.bedded = !!(w.lying || w.bedded);
     for (const r of P.list) {
       const dx = dxOf(r.x, w.x), dy = r.y - w.y, d = Math.hypot(dx, dy);
       if (d > FAR) continue;
@@ -260,9 +525,11 @@ export class Wildlife {
     if (w.aw >= ALARM) { this.alarm(w, w.awX ?? w.x, w.awY ?? w.y); return; }
     if (w.flight === 3) return;
     w.flag = false;
+    const was = w.alert;
     w.alert = w.aw >= TENSE ? A_TENSE : w.aw >= ALERT || (w.alert && w.aw > CALM) ? A_ALERT : A_CALM;
     w.staring = w.alert !== A_CALM || w.flight === 2;
     if (w.staring && w.awX !== undefined) w.stareYaw = Math.atan2(dxOf(w.awX, w.x), w.awY - w.y);
+    if (w.herd && was === A_CALM && w.alert !== A_CALM && best > 0) this.rouse(w);
   }
   // Nothing between w's eyes and r's chest: trunks, walls, rocks, fences (world/shots.js), nor a rise of the ground. At
   // most RAYS a turn; past that it is taken as seen (what a wood hides is already in r.hidden)
@@ -279,16 +546,35 @@ export class Wildlife {
     const t = shotHit(W, o, v, len - 0.4, gy);
     return t === null || t > len - 0.5;
   }
-  // It flees from (x, y), and so do the ones of its kind close by (a deer barks: every game, cues)
+  // It flees from (x, y), and so do the ones of its kind close by (a deer barks: every game, cues): its herd, as it goes
+  // through it (warn), all about the same way
   alarm(w, x, y) {
-    this.fleeFrom(w, x, y);
-    for (const o of this.list) if (o !== w && o.type === w.type && !o.flight && o.bleed !== 2 && distOf(o.x, o.y, w.x, w.y) < SENSE.SPREAD) { o.awKey = w.awKey; o.awX = x; o.awY = y; this.fleeFrom(o, x, y); }
+    const G = w.herd, now = this.game.time;
+    if (G) {
+      if (!(now - G.runT < 5)) {
+        let mx = 0, my = 0;
+        for (const o of G.list) { mx += dxOf(o.x, x); my += o.y - y; }
+        G.runT = now; G.run = { a: Math.atan2(my, mx), len: within(SENSES[w.type].run) };
+      }
+      G.spook = now + HERD.SPOOKED;
+      this.fleeFrom(w, x, y);
+      this.warn(w, x, y);
+    } else this.fleeFrom(w, x, y);
+    for (const o of this.list) if (o !== w && !(G && o.herd === G) && o.type === w.type && !o.flight && o.bleed !== 2 && distOf(o.x, o.y, w.x, w.y) < SENSE.SPREAD) { o.awKey = w.awKey; o.awX = x; o.awY = y; this.fleeFrom(o, x, y); }
   }
   // Off it goes, away from (x, y): a run of its species' length to one point, nudged towards cover, and the ones after it
   // (moveFlight). flight: 1 running, 2 stopped looking back, 3 trotting off
   fleeFrom(w, x, y, range = SENSES[w.type].run, legs = 0) {
-    this.bolt(w, [x, y], range, SENSES[w.type].cover && 'ready');
-    Object.assign(w, { flight: 1, flT: 0, legs, turnT: 0, aw: 1, quiet: 0, alert: A_ALARM, flag: w.type === 'ciervo', staring: false, headUp: false, run: false, flX: x, flY: y });
+    let from = [x, y];
+    const G = w.herd, run = G && legs === 0 && range === SENSES[w.type].run && this.game.time - G.runT < 5 ? G.run : null;
+    if (run) {   // (with the others, unless whoever it is stands on that side of it)
+      const own = Math.atan2(w.y - y, dxOf(w.x, x)), turn = Math.atan2(Math.sin(run.a - own), Math.cos(run.a - own));
+      const a = Math.abs(turn) < 1.6 ? own + turn * 0.7 : own;
+      from = [w.x - Math.cos(a) * 10, w.y - Math.sin(a) * 10];
+      range = [run.len * 0.9, run.len * 1.1];
+    }
+    this.bolt(w, from, range, SENSES[w.type].cover && 'ready');
+    Object.assign(w, { bedded: false, flight: 1, flT: 0, legs, turnT: 0, aw: 1, quiet: 0, alert: A_ALARM, flag: w.type === 'ciervo', staring: false, headUp: false, run: false, flX: x, flY: y });
   }
   // With the senses on: running away, stopped on its guard, grazing, or wandering about
   moveAware(w, dt, walkers, k) {
@@ -304,6 +590,7 @@ export class Wildlife {
     if (w.flight) { this.moveFlight(w, dt, walkers, k); return; }
     if (w.alert) {   // (it stops and stares: the body turns a little when whoever it is stands behind it)
       w.vx = w.vy = 0; w.grazing = false;
+      if (w.bedded) { if (w.alert === A_TENSE) w.bedded = false; return; }   // (it looks from where it lies, and gets up when it is sure)
       const f = w.dir || [0, 1], off = Math.atan2(Math.sin(w.stareYaw - Math.atan2(f[0], f[1])), Math.cos(w.stareYaw - Math.atan2(f[0], f[1])));
       if (Math.abs(off) > 1.3) { const a = w.stareYaw - Math.sign(off) * 0.9; w.faceTo(Math.sin(a), Math.cos(a)); }
       return;
@@ -317,8 +604,14 @@ export class Wildlife {
       w.grazing = !w.headUp;
       return;
     }
+    if (w.bedded) {
+      w.vx = w.vy = 0;
+      const G = w.herd;
+      if (!G || G.act !== 'bed' || distOf(G.x, G.y, w.x, w.y) > HERD.STRAY * 2) Object.assign(w, { bedded: false, tx: w.x, ty: w.y, wait: within([1, 6]) });
+      return;
+    }
     if ((w.wait -= dt) > 0) { w.vx = w.vy = 0; return; }
-    this.wander(w, dt, k, k.speed);
+    this.wander(w, dt, k, w.hurry ? k.speed * HERD.HURRY : k.speed);
   }
   nearestTo(w, walkers) {
     let q = null, d = Infinity;
@@ -409,10 +702,20 @@ export class Wildlife {
         }
       } else if (w.alert === A_ALARM && was !== A_ALARM && was !== undefined) {
         const v = 1 - distOf(p.x, p.y, w.x, w.y) / HEARD.BARK;
-        if (v > 0 && !(this.barkAt > g.time)) { this.barkAt = g.time + 0.8; if (w.type === 'ciervo') Audio.alarmBark?.(0.2 + 0.8 * v); else if (w.type === 'jabali') Audio.huff?.(0.4 + 0.6 * v, true); }
+        if (v > 0 && !(this.barkAt > g.time) && !this.barked(w)) { this.barkAt = g.time + 0.8; if (w.type === 'ciervo') Audio.alarmBark?.(0.2 + 0.8 * v); else if (w.type === 'jabali') Audio.huff?.(0.4 + 0.6 * v, true); }
       }
       if (w.stampAt !== undefined) { w.stamp = (g.time - w.stampAt) / HEARD.STAMP_FOR; if (!(w.stamp >= 0 && w.stamp < 1)) { w.stamp = 0; w.stampAt = undefined; } }
     }
+  }
+  // Has its herd barked in this flight already? (one bark each: every game, by the id)
+  barked(w) {
+    const p = typeof w.id === 'string' && w.id[0] === 'g' ? w.id.slice(0, w.id.lastIndexOf('.')) : null;
+    if (!p) return false;
+    const M = this.barks ||= new Map(), t = M.get(p), now = this.game.time;
+    if (t !== undefined && now - t >= 0 && now - t < 8) return true;
+    if (M.size > 40) M.clear();
+    M.set(p, now);
+    return false;
   }
   // Your tool strikes, a loud thing somewhere, another player's (presence.js)
   toolHit() { this.presence.toolHit(); }
@@ -463,7 +766,7 @@ export class Wildlife {
       if (d2 < bd && (dist + dx * ca + dy * sa) >= keep) { bd = d2; best = [tx + dx, ty + dy]; }
     }
     if (best && !inBounds(wrapX(best[0]), best[1])) { tx = best[0] + Math.cos(a) * 1.2; ty = best[1] + Math.sin(a) * 1.2; }
-    Object.assign(w, { tx, ty, lying: false, run: true, runT: 0, blocks: 0, wait: 0, eating: 0, grazing: false, grazeAt: null, fa: Math.atan2(ty - w.y, tx - w.x), side: Math.random() < 0.5 ? -1 : 1 });
+    Object.assign(w, { tx, ty, lying: false, bedded: false, run: true, runT: 0, blocks: 0, wait: 0, eating: 0, grazing: false, grazeAt: null, fa: Math.atan2(ty - w.y, tx - w.x), side: Math.random() < 0.5 ? -1 : 1 });
   }
   // Are the chunks round (x, y) at hand already? (a flight may end 120 m away, in chunks nothing has asked for yet: making them
   // just to look for cover would be a hitch of up to 20 ms; what is drawn round a player is at hand)
@@ -474,7 +777,7 @@ export class Wildlife {
   }
   // Lie down where it is (and stop): at the end of a run, after RUN_FOR, or blocked BLOCKS times in a row
   // (cornered: with no way out it stays down a moment, or it would get up and lie down every frame with someone on it)
-  bed(w, cornered = false) { Object.assign(w, { lying: true, run: false, vx: 0, vy: 0, tx: w.x, ty: w.y, scared: 0, downTill: cornered ? this.game.time + WOUND.CORNERED : 0 }); }
+  bed(w, cornered = false) { Object.assign(w, { lying: true, bedded: false, run: false, vx: 0, vy: 0, tx: w.x, ty: w.y, scared: 0, downTill: cornered ? this.game.time + WOUND.CORNERED : 0 }); }
   // A heavily wounded animal: running to its point, or lying until someone standing comes too close
   moveWounded(w, dt, walkers, k) {
     w.eating = 0; w.grazing = false;
@@ -550,9 +853,17 @@ export class Wildlife {
   // próxima parada)
   tryGraze(w) {
     const k = GRAZE[w.type], g = this.game;
+    if (w.herd && w.type === 'jabali') {   // (a boar of a herd roots about, its head down)
+      if (w.herd.act === 'feed' && !(g.time < (w.grazeNext || 0))) { this.headDown(w, within(HERD.ROOT)); w.grazeNext = g.time + w.eating + within(BOUT.rest); }
+      return;
+    }
     if (!k || (!sensesOn() && (w.ate || 0) >= k.max) || g.time < (w.grazeNext || 0)) return;
     const [dx, dy] = w.dir || [1, 0], l = Math.hypot(dx, dy) || 1, tx = Math.floor(wrapX(w.x + (dx / l) * k.mouth)), ty = Math.floor(w.y + (dy / l) * k.mouth);
-    if (!this.world.pasture(tx, ty, g.days.dayIndex)) return;
+    if (!this.world.pasture(tx, ty, g.days.dayIndex)) {
+      // (one of a herd browses where there is no grass: leaves, moss, what the snow hides)
+      if (w.herd && !KINDS[w.type].water && Math.random() < 0.5) { this.headDown(w, within(BOUT.bout) * 0.6); w.grazeNext = g.time + w.eating + within(BOUT.rest); }
+      return;
+    }
     // (with the senses they graze most of the time, but eat of the field as seldom as ever)
     if (sensesOn()) {
       const eats = (w.ate || 0) < k.max && g.time >= (w.mowNext || 0);
@@ -564,6 +875,7 @@ export class Wildlife {
     w.grazeAt = [tx, ty]; w.eating = within(k.eat); w.grazing = true;
     w.grazeNext = g.time + within(k.every);
   }
+  headDown(w, s) { Object.assign(w, { grazeAt: null, eating: s, headUp: false, headT: within(BOUT.down), grazing: true }); }
   // Se la ha comido: queda como segada (si nadie la ha segado mientras)
   ate(w) {
     if (w.grazeAt) {   // (null: only head down, see tryGraze)
@@ -579,7 +891,7 @@ export class Wildlife {
   // last six optional: an old host sends six or eleven, and then the spawn point is where the animal was first seen, and
   // it is calm: f, senses.js)
   netList(arr) {
-    const g = this.game, old = new Map(this.list.map(w => [w.id, w]));
+    const g = this.game, old = new Map(this.list.map(w => [w.id, w])), md = dayOfYear(g.days.now, g.days.here.y);
     this.list = arr.filter(e => Array.isArray(e) && KINDS[e[1]] && Number.isFinite(e[2]) && Number.isFinite(e[3])).map(([id, type, x, y, hurt, grazing, bleed, lying, sx, sy, limp, f]) => {
       const spawn = Number.isFinite(sx) && Number.isFinite(sy);
       let w = old.get(id);
@@ -592,7 +904,8 @@ export class Wildlife {
       w.bleed = bleed === 1 || bleed === 2 ? bleed : 0;
       w.lying = !!lying;
       w.limp = Number.isFinite(limp) ? Math.max(0, Math.min(1, limp)) : 0;
-      unpackF(f, w); w.flight = 0;   // (it is the host's to run it; if this game takes over, it starts calm)
+      unpackF(f, w); w.flight = 0; w.herd = null;
+      w.breed = w.traits ? breedOf(type, w.female, w.young, md) : undefined;   // (it is the host's to run it; if this game takes over, it starts calm)
       // (you hit it a moment ago and the host says it bleeds: its trail is locked for you, hunt.js)
       if (w.bleed > 0 && w.lockAsk !== undefined) { if (g.time - w.lockAsk < LOCK_WAIT) g.tracks?.lock(trailKey(w), 'blood'); w.lockAsk = undefined; }
       return w;

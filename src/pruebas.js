@@ -134,13 +134,15 @@ import { Farm } from './farm.js';
 import { seasonOf, madridMs } from './time.js';
 import { seasonC, fieldDay } from './fieldclimate.js';
 import { GROW, seedOf, rateAt } from './cropdata.js';
-import { NORTH, HALF as PHALF, H as PH, nearX, W as PW } from './world/planet.js';
+import { NORTH, HALF as PHALF, H as PH, nearX, W as PW, distOf, dxOf } from './world/planet.js';
 import { Tracks, K, CAP, TTL, S, DEAD, F_LEFT, F_FLEE, F_SECOND, STRIDE, RAIN_K } from './tracks.js';
 import { Wildlife, WOUND, trailKey, KINDS } from './wildlife.js';
 import * as SENSES_MOD from './senses.js';
+import * as HERDS from './herds.js';
+import { ANIMALS } from './art/farm.js';
 import { Presence } from './presence.js';
 import { windAt } from './wind.js';
-import { ZONE, zoneOf } from './hunt.js';
+import { ZONE, zoneOf, kindName } from './hunt.js';
 import { SPECIES, SPECIES_IDS, GROUPS, REWARDS } from './nature.js';
 import { DOOR, PLAZA, distToPath, doorOf, getProjects, familyHouse } from './world/village.js';
 
@@ -5319,7 +5321,7 @@ async function soloTests(game) {
   });
   await test('en brazos, caza (carcass): a deer leaves its carcass; in the field the least, at the kitchen the most; a hen as before; the parts match PREY; after 2 days it turns to bones', async () => {
     await weightOn();
-    for (const [id, B] of Object.entries(BULKY)) if (B.prey) check(JSON.stringify(B.drops) === JSON.stringify(PREY[B.prey].drops) && CARCASS_OF[B.prey] === id, `${id} does not match PREY.${B.prey}`);
+    for (const [id, B] of Object.entries(BULKY)) if (B.prey && !B.female) check(JSON.stringify(B.drops) === JSON.stringify(PREY[B.prey].drops) && CARCASS_OF[B.prey] === id, `${id} does not match PREY.${B.prey}`);
     const C = game.carry, X = 62, Y = 44;
     await goTo(game, X, Y);
     game.hunt.reward({ type: 'ciervo', young: false, x: X + 2.5, y: Y + 0.5 });
@@ -10806,6 +10808,227 @@ async function soloTests(game) {
       console.log(`senses cost: a turn of 12 animals and 2 players (8 rays) ${ms.toFixed(3)} ms, ${(ms / 15).toFixed(4)} ms a frame; cues ${cues.toFixed(4)} ms a frame`);
       check(ms / 15 + cues < 0.15, `${(ms / 15).toFixed(3)} + ${cues.toFixed(3)} ms a frame`);
     } finally { delete W.alarm; W.list = list; P.byKey.delete('c'); }
+  });
+  // ---------- herds (Plan R3-2) ----------
+  // A lab with a world of herds and one made-up player (L.q), where the hour, the clock (L.ms) and game.time are the lab's
+  const herdLab = fn => {
+    const W = WL(), keep = { list: W.list, groups: W.groups, herds: W.herds, t: W.t, gT: W.gT, time: game.time, pl: game.mobs.players, held: game.wind.held, diff: game.difficulty };
+    const L = { W, hour: 18, ms: game.days.now, qs: [], q: null };
+    L.q = { me: true, x: 0, y: 0, gm: 'survival', crouch: false, e: { crouch: false, gait: 0 } }; L.qs = [L.q];
+    W.list = []; W.groups = new Map(); W.herds = null; W.t = -1e9; W.presence.reset();
+    game.mobs.players = () => L.qs; game.days.hourAt = () => L.hour; W.now = () => L.ms; game.difficulty = 'normal';
+    L.H = W.herdsNow();
+    // Every group of a kind round (x, y); where one is now
+    L.all = (kind, reach = 12, ok = () => true) => { const out = []; L.H.around(p().x, p().y, 1e9, g => { if (g.kind === kind && ok(g)) out.push(g); }, reach); return out; };
+    L.at = g => L.H.where(g, L.hour, L.ms, game.time, {});
+    // A group made real with nobody by it (the player put `far` away; it stays)
+    L.real = (g, far = 400) => { const o = L.at(g); L.q.x = o.x + far; L.q.y = o.y; for (let k = 0; k < 12 && !W.groups.has(g.id); k++) W.appear(g, L.H, L.qs); W.stays = () => true; return W.groups.get(g.id); };
+    L.run = (s, dt = 0.1, each) => { for (let t = 0; t < s; t += dt) { game.time += dt; W.update(dt); each?.(t); } };
+    try { return fn(L); } finally {
+      delete W.stays; delete W.now; delete W.sense; delete game.days.hourAt; game.mobs.players = keep.pl; game.time = keep.time; game.difficulty = keep.diff; game.wind.held = keep.held; game.wind.now();
+      W.list = keep.list; W.groups = keep.groups; W.herds = keep.herds; W.t = keep.t; W.gT = keep.gT; W.presence.reset(); Wildlife.herding = null;
+    }
+  };
+  await test('herds (english): same herd tomorrow', async () => {
+    const A = new HERDS.Herds(w().gen), B2 = new HERDS.Herds(w().gen), H0 = game.days.now, o1 = {}, o2 = {};
+    let deer = 0, boar = 0, swan = 0, cells = 0, drank = 0;
+    for (let cy = -9; cy < 9; cy++) for (let cx = -9; cx < 9; cx++) {
+      cells++;
+      const a = A.cell(cx, cy), b = B2.cell(cx, cy);
+      check(JSON.stringify(a) === JSON.stringify(b), `cell ${cx},${cy} is not the same twice`);
+      for (const g of a) {
+        const md = HERDS.dayOfYear(H0, g.bed[1]);
+        check(JSON.stringify(A.members(g, md)) === JSON.stringify(B2.members(g, md)) && A.members(g, md).length, `${g.id}: other members`);
+        for (const pt of [g.bed, g.feed]) {
+          const d = Math.hypot(Math.max(0, BOUNDS.x0 - pt[0], pt[0] - BOUNDS.x1), Math.max(0, BOUNDS.y0 - pt[1], pt[1] - BOUNDS.y1));
+          check(d >= HERDS.HERD.VILLAGE || g.kind === 'swan', `${g.id}: ${d.toFixed(0)} m from the village`);
+          check(g.kind === 'swan' ? w().natWater(...pt) : !w().natWater(...pt), `${g.id}: a place ${g.kind === 'swan' ? 'on land' : 'in the water'}`);
+        }
+        check(Math.hypot(g.bed[0] - g.feed[0], g.bed[1] - g.feed[1]) < 90, `${g.id}: its places are far apart`);
+        if (g.kind !== 'swan') check(A.dryWay(g.bed, ...g.feed), `${g.id}: water between its places`);
+        if (g.water) { check(!w().natWater(g.water[0], g.water[1]) && w().natWater(g.water[2], g.water[3]), `${g.id}: its water is not a shore`); drank++; }
+        if (g.kind === 'deer') {
+          deer++;
+          for (const [h, act] of [[12, 'bed'], [7, 'feed'], [17.5, 'feed'], [23, 'feed'], [18.5, g.water ? 'drink' : 'feed']]) {
+            A.where(g, h, H0, 0, o1); B2.where(g, h, H0 + 864e5, 0, o2);
+            check(o1.act === act && o2.act === act, `${g.id} at ${h}: ${o1.act}`);
+            const pl = act === 'feed' ? g.feed : act === 'bed' ? g.bed : g.water;
+            for (const o of [o1, o2]) check(Math.hypot(o.x - pl[0], o.y - pl[1]) < HERDS.HERD.DRIFT[1] * 1.4 && (act !== 'bed' || Math.hypot(o.x - pl[0], o.y - pl[1]) < 0.5), `${g.id} at ${h}: ${Math.hypot(o.x - pl[0], o.y - pl[1]).toFixed(1)} m from its place`);
+          }
+        } else if (g.kind === 'boar') { boar++; A.where(g, 13, H0, 0, o1); check(o1.act === 'bed' && Math.hypot(o1.x - g.bed[0], o1.y - g.bed[1]) < 0.5, `${g.id}: not in bed at 13`); A.where(g, 23, H0, 0, o1); check(o1.act === 'feed', `${g.id}: ${o1.act} at 23`); } else swan++;
+        // (its middle never jumps: every quarter of an hour, all day)
+        let px = null, py = 0, worst = 0; for (let h = 0; h < 24; h += 0.02) { A.where(g, h, H0, 0, o1); if (px !== null) worst = Math.max(worst, Math.hypot(o1.x - px, o1.y - py)); px = o1.x; py = o1.y; } check(worst < 16, `${g.id}: a jump of ${worst.toFixed(1)} m`);
+      }
+    }
+    console.log(`herds: in ${cells} cells, ${deer} of deer (${drank} with water), ${boar} of boar, ${swan} pairs of swans; a cell ${(A.stats.ms / A.stats.cells).toFixed(2)} ms, the worst ${A.stats.worst.toFixed(1)}`);
+    check(deer > 10 && boar > 4 && deer < cells, `${deer} deer, ${boar} boar`);
+    // The seasons: calves with their hinds from May to February, striped piglets from March to August, a stag with the hinds in the rut
+    const hinds = [], sows = []; for (let cy = -9; cy < 9; cy++) for (let cx = -9; cx < 9; cx++) for (const g of A.cell(cx, cy)) { if (g.kind === 'deer' && !g.stags) hinds.push(g); if (g.kind === 'boar' && !g.lone) sows.push(g); }
+    check(hinds.every(g => A.members(g, 601).some(m => m.young && m.mother >= 0) && !A.members(g, 410).some(m => m.young)) && hinds.every(g => A.members(g, 1001).some(m => !m.female && !m.young) && !A.members(g, 1101).some(m => !m.female && !m.young)), 'calves or the rut');
+    check(sows.every(g => A.members(g, 401).length <= HERDS.HERD.SOUNDER_MAX) && HERDS.breedOf('jabali', true, true, 501) === 'piglet' && HERDS.breedOf('jabali', true, true, 1125) === 'reddish' && HERDS.breedOf('ciervo', false, false, 501) === undefined, 'piglets');
+    const south = HERDS.dayOfYear(Date.UTC(2026, 0, 15), 30 + 20000); check(south > 630 && south < 800 && HERDS.dayOfYear(Date.UTC(2026, 0, 15), 30) === 115, `the south: ${south}`);
+    // The ones somebody took are missing some days, and the group never ends
+    const g = hinds[0], n0 = A.members(g, 1125, H0).length; A.take(g.id, 0, H0); A.take(g.id, 1, H0);
+    check(A.members(g, 1125, H0).length === n0 - 2 && A.members(g, 1125, H0 + 3.9 * 864e5).length === n0 - 2 && A.members(g, 1125, H0 + 4.1 * 864e5).length === n0 - 1 && A.members(g, 1125, H0 + 8.1 * 864e5).length === n0, 'two taken');
+    for (const m of A.members(g, 1125, H0)) A.take(g.id, m.i, H0); check(A.members(g, 1125, H0 + 60e3).length === 0 && A.members(g, 1125, H0 + 2 * 36e5).length === 1, 'the last one');
+  });
+  await test('herds (english): caps and no pop-in', async () => {
+    herdLab(L => {
+      const { W } = L; let max = 0, near0 = 1e9, groups = 0, met = 0, worst = 0; const born = new WeakSet();
+      for (const hour of [7, 12, 18.5, 23]) for (let k = 0; k < 3; k++) {
+        L.hour = hour; W.list = []; W.groups.clear(); W.t = 0;
+        const a = k * 2.1 + hour; L.q.x = CENTER.x + Math.cos(a) * 260; L.q.y = CENTER.y + Math.sin(a) * 260;
+        L.run(120, 0.1, t => {
+          L.q.x += Math.cos(a + t * 0.01) * 0.34; L.q.y += Math.sin(a + t * 0.01) * 0.34;
+          max = Math.max(max, W.list.length); worst = Math.max(worst, W.groups.size);
+          for (const e of W.list) if (!born.has(e)) { born.add(e); met++; near0 = Math.min(near0, distOf(e.x, e.y, L.q.x, L.q.y)); check(e.herd && e.traits && Number.isFinite(e.sx) && HERDS.parseId(e.id)?.id === e.herd.id, `${e.id}: not one of a herd`); }
+        });
+      }
+      console.log(`herds: ${met} met, never more than ${max} at once (${worst} groups), none appeared nearer than ${near0.toFixed(1)} m`);
+      check(met > 12 && max <= HERDS.HERD.MAX && worst <= HERDS.HERD.GROUPS && near0 >= HERDS.HERD.MIN - 0.5, `${met} met, ${max} at once, ${worst} groups, ${near0.toFixed(1)} m`);
+      // Somebody standing in the middle of their place: they come into being off from them, never on them
+      L.hour = 7.5; const g = L.all('deer')[0], o = L.at(g); L.q.x = o.x; L.q.y = o.y; W.list = []; W.groups.clear(); g.retry = 0;
+      for (let k = 0; k < 12 && !W.groups.has(g.id); k++) { W.appear(g, L.H, L.qs); g.retry = 0; }
+      for (const e of W.list) check(distOf(e.x, e.y, L.q.x, L.q.y) >= HERDS.HERD.MIN, `on them: ${distOf(e.x, e.y, L.q.x, L.q.y).toFixed(1)} m`);
+      // A spectator meets none; with nobody near they go, all together, and come back the same
+      W.list = []; W.groups.clear(); L.q.x = o.x + 55; g.retry = 0; W.t = 0; L.q.gm = 'spectator'; L.run(6); check(!W.list.length, 'a spectator meets them');
+      L.q.gm = 'survival'; const G = L.real(g, 60); delete W.stays; check(G, 'it does not appear'); const ids = G.list.map(e => e.id + e.breed + e.size).join();
+      L.q.x += 300; L.run(3); check(!W.groups.has(g.id) && !W.list.some(e => e.herd === G), 'they stay');
+      const G2 = L.real(g, 60); delete W.stays; check(G2 && G2.list.map(e => e.id + e.breed + e.size).join() === ids, 'others come back');
+      // A house on their place: they keep off it
+      W.list = []; W.groups.clear(); g.retry = 0; const [tx, ty] = [Math.floor(L.at(g).x), Math.floor(L.at(g).y)], b0 = W.builtAt; L.q.x = o.x + 400;
+      W.builtAt = (x, y) => Math.abs(x - tx) < 4 && Math.abs(y - ty) < 4;
+      try { const G3 = L.real(g); check(!G3 || G3.list.every(e => Math.max(Math.abs(e.x - tx), Math.abs(e.y - ty)) > 6), 'next to a house'); L.run(60); check(W.list.every(e => !W.built(e.x, e.y, 0)), 'in a house'); } finally { W.builtAt = b0; delete W.builtAt; }
+    });
+  });
+  await test('herds (english): group alarm', async () => {
+    herdLab(L => {
+      const { W } = L; L.hour = 17.5;
+      const list = L.all('deer', 12, g => !g.stags && L.H.members(g, 1125).length >= 5); check(list.length, 'no herd');
+      let tried = 0;
+      for (const g of list) {
+        if (tried >= 3) break;
+        W.list = []; W.groups.clear(); g.retry = 0;
+        const G = L.real(g); if (!G || G.list.length < 4) continue; tried++;
+        W.sense = () => {}; L.run(20); delete W.sense;
+        const src = { key: 'lab', me: false, e: {}, x: 0, y: 0, vx: 0, vy: 0, speed: 1, crouch: false, expo: 0, noise: 0, scent: 1, hidden: 1, sky: 1, ws: 0.4 };
+        W.presence.update = () => { W.presence.list = [src]; };
+        try {
+          // One on its guard: the ones by it look where it looks
+          const a = G.lead, by = G.list.filter(e => e !== a && distOf(e.x, e.y, a.x, a.y) < HERDS.HERD.ROUSE - 2);
+          for (const e of G.list) { e.aw = 0; e.alert = 0; e.flight = 0; e.lying = false; }
+          a.awKey = 'lab'; a.awX = a.x + 30; a.awY = a.y; a.alert = 0; W.rouse(a); for (const e of by) check(e.aw >= SN.ALERT && e.awX === a.awX, `not roused at ${distOf(e.x, e.y, a.x, a.y).toFixed(0)} m`);
+          L.run(0.6); for (const e of by) check(e.alert && e.staring, 'it does not look');
+          // One alarmed: all of them within SPREAD flee, about the same way, and one bark
+          for (const e of G.list) { e.aw = 0; e.alert = 0; e.staring = false; }
+          const inR = G.list.filter(e => e !== a && distOf(e.x, e.y, a.x, a.y) < HERDS.HERD.SPREAD - 1), from = [a.x - 25, a.y], start = G.list.map(e => [e, e.x, e.y]);
+          W.alarm(a, ...from); L.run(0.8);
+          for (const e of inR) check(e.flight === 1, `one ${distOf(e.x, e.y, a.x, a.y).toFixed(0)} m off does not flee`);
+          L.run(40); const dirs = start.filter(([e]) => inR.includes(e) || e === a).map(([e, x, y]) => [dxOf(e.x, x), e.y - y]).filter(d => Math.hypot(...d) > 8);
+          let mx = 0, my = 0; for (const d of dirs) { const l = Math.hypot(...d); mx += d[0] / l; my += d[1] / l; }
+          check(dirs.length >= inR.length * 0.6 && Math.hypot(mx, my) / dirs.length > 0.6, `they scatter: ${dirs.length} of ${inR.length + 1}, ${(Math.hypot(mx, my) / (dirs.length || 1)).toFixed(2)}`);
+          // (and where the herd is now is where it fled: also once nobody is near)
+          L.run(25); const base = {}; const sp = L.H.spooked.get(g.id); check(sp && Math.hypot(sp.dx, sp.dy) > 12, `the herd's middle did not move with it: ${JSON.stringify(sp)}`);
+          check(distOf(G.x, G.y, G.lead.x, G.lead.y) < 25, `its middle ${distOf(G.x, G.y, G.lead.x, G.lead.y).toFixed(0)} m from its leader`);
+          delete W.stays; L.q.x += 600; L.run(2.5); check(!W.groups.has(g.id), 'it stays'); L.H.where(g, L.hour, L.ms, game.time, base); check(distOf(base.x, base.y, G.lead.x, G.lead.y) < 45, 'it went back at once');
+          const G2 = L.real(g, 300); if (G2) check(G2.list.every(e => e.aw >= 0.25), 'it is not uneasy');
+          game.time += HERDS.HERD.SPOOKED; L.H.where(g, L.hour, L.ms, game.time, base); check(!L.H.spooked.has(g.id), 'spooked for ever');
+        } finally { delete W.presence.update; W.presence.list = []; delete W.stays; }
+      }
+      check(tried, 'no herd appeared');
+      // A member shot: the others flee, and it is missing afterwards (hunt.js damage)
+      const g = list.find(q => { W.list = []; W.groups.clear(); L.H.spooked.clear(); q.retry = 0; return (L.real(q)?.list.length || 0) >= 4; }), G = W.groups.get(g.id), e = G.list[1], n = G.list.length, kc = game.carry.hunted, sd = game.gather.spawnDrops, got = [];
+      game.carry.hunted = () => false; game.gather.spawnDrops = (at, o) => got.push(o.drops.map(d => d[0]).join());
+      try { W.sense = () => {}; L.run(1); delete W.sense; check(game.hunt.damage(e, 99, [e.x - 12, e.y], null), 'it lives'); } finally { game.carry.hunted = kc; delete game.carry.hunted; game.gather.spawnDrops = sd; delete game.gather.spawnDrops; }
+      check(e.female && got[0] && !got[0].includes('asta'), `a hind's antlers: ${got[0]}`);
+      L.run(1); check(G.list.filter(q => q.flight).length >= Math.min(2, n - 1), 'the rest graze on');
+      check(L.H.members(g, HERDS.dayOfYear(L.ms, g.bed[1]), L.ms).length === n - 1 || L.H.gone.get(g.id)?.has(e.mi), 'it is there again');
+    });
+  });
+  await test('herds (english): their day, live', async () => {
+    herdLab(L => {
+      const { W } = L, list = L.all('deer', 12, g => !g.stags && g.water); check(list.length, 'no herd with water');
+      const g = list[0]; W.sense = () => {}; W.presence.update = () => { W.presence.list = []; };
+      const step = (h, s) => { L.hour = h; let graze = 0, bed = 0, n = 0, drink = 0, wide = 0, calf = 0, k = 0; L.run(s, 0.1, () => { const G = W.groups.get(g.id); for (const e of G.list) { n++; if (e.grazing) graze++; if (e.bedded) bed++; if (e.grazing && e.drankAt > game.time && w().natWater(e.x + e.dir[0] / Math.hypot(...e.dir) * 1.5, e.y + e.dir[1] / Math.hypot(...e.dir) * 1.5)) drink++; if (e.young && e.mom) { calf += distOf(e.x, e.y, e.mom.x, e.mom.y); k++; } else if (!e.young) wide = Math.max(wide, distOf(e.x, e.y, G.lead.x, G.lead.y)); } }); return { graze: graze / n, bed: bed / n, drink, wide, calf: calf / (k || 1) }; };
+      try {
+        L.hour = 7; const G = L.real(g); check(G && G.list.length > 2, 'it does not appear');
+        const feed = step(7, 120); check(feed.graze > 0.3 && feed.bed === 0 && feed.calf < 6, `feeding: ${JSON.stringify(feed)}`);
+        step(8.9, 40); step(9.2, 90); const bed = step(10, 60); check(bed.bed > 0.7 && bed.graze < 0.2, `at 10: ${JSON.stringify(bed)}`);
+        check(G.list.filter(e => e.bedded).every(e => bodyBox(e).y1 < 1.4), 'a lying one is as tall');
+        const up = step(17, 60); check(up.bed < 0.1, `at 17: ${JSON.stringify(up)}`);
+        step(18.2, 120); let dr = 0; for (let k = 0; k < 6 && !dr; k++) dr = step(18.5, 40).drink; check(dr > 0, 'none drinks');
+        // A lying one stares from its bed, and gets up when it is sure
+        L.hour = 12; step(12, 150); delete W.sense; const a = G.list.find(e => e.bedded); check(a, 'none lies down at noon');
+        a.aw = 0.45; a.awX = a.x + 20; a.awY = a.y; a.awKey = 'x'; a.quiet = 0; a.senseT = 1; L.run(0.3); check(a.alert === 1 && a.bedded && a.staring, `it gets up at once, or does not look: ${a.alert} ${a.bedded}`);
+        a.aw = 0.65; a.quiet = 0; a.senseT = 1; L.run(0.3); check(!a.bedded, 'it stays lying');
+        console.log(`herds: feeding, head down ${Math.round(feed.graze * 100)} %; lying at 10, ${Math.round(bed.bed * 100)} %; the calves ${feed.calf.toFixed(1)} m from their mothers`);
+      } finally { delete W.presence.update; }
+      // A boar sounder roots by night
+      const b = L.all('boar', 14, q => !q.lone)[0]; if (b) { W.list = []; W.groups.clear(); L.hour = 23; W.sense = () => {}; const B3 = L.real(b); if (B3) { let g0 = 0, n0 = 0; L.run(120, 0.1, () => { for (const e of B3.list) { n0++; if (e.grazing) g0++; } }); check(g0 / n0 > 0.25, `a sounder roots ${(100 * g0 / n0).toFixed(0)} % of the time`); } }
+    });
+  });
+  await test('herds (english): net, two clients and taking the world over', async () => {
+    // The traits in f: back and forth; none (an old host, /summon): a grown one of its species, as before
+    for (const [female, age, size] of [[true, 0, 0.9], [true, 3, 1.2], [false, 2, 0.85], [false, 1, 1.05]]) {
+      const o = SN.unpackF(SN.packF({ alert: 1, traits: true, female, age, size, bedded: true, staring: true, stareYaw: 1 }), {});
+      check(o.traits && o.female === female && o.age === age && o.young === (age === 0) && Math.abs(o.size - size) < 1e-6 && o.bedded && o.alert === 1 && Math.abs(o.stareYaw - 1) < 0.11, JSON.stringify(o));
+    }
+    const old = SN.unpackF(SN.packF({ alert: 2 }), {}); check(!old.traits && !old.young && !old.female && old.size === 1 && HERDS.scaleOf(old) === 1, 'without traits');
+    check(HERDS.scaleOf({ young: true }) === 0.55 && HERDS.scaleOf({}) === 1 && JSON.stringify(HERDS.parseId('g-3.12.1.10')) === JSON.stringify({ id: 'g-3.12.1', cx: -3, cy: 12, k: 1, i: 10 }) && HERDS.parseId('w12') === null, 'scale, ids');
+    herdLab(L => {
+      const { W } = L, live = game.live, sent = [], was = { net: live.net, joined: live.joined, role: live.role };
+      L.hour = 18; const g = L.all('deer', 12, q => !q.stags)[0];
+      // The host tells its guests; a guest's own Wildlife follows it
+      const guestLive = Object.create(live, { guest: { value: true }, joined: { value: true } }), other = new Wildlife(Object.create(game, { live: { value: guestLive } }));
+      try {
+        live.net = { send: m => sent.push(m) }; live.joined = true; live.role = 'host';
+        const G = L.real(g); check(G && G.list.length > 2, 'it does not appear'); W.sense = () => {};
+        for (let k = 0; k < 30; k++) { L.run(1, 0.1); const m = sent.filter(q => q.t === 'wild').at(-1); if (m) { other.netList(JSON.parse(JSON.stringify(m.w))); for (let i = 0; i < 12; i++) other.follow(0.1); } }
+        // (still for a moment: what was last sent is what they are)
+        W.move = () => {}; L.run(0.5); delete W.move; other.netList(JSON.parse(JSON.stringify(sent.filter(q => q.t === 'wild').at(-1).w))); for (let i = 0; i < 12; i++) other.follow(0.1);
+        check(other.list.length === W.list.length, 'other animals');
+        for (const e of W.list) { const o = other.list.find(q => q.id === e.id); check(o && distOf(o.x, o.y, e.x, e.y) < 1 && o.female === e.female && o.young === e.young && Math.abs(o.size - e.size) < 1e-6 && o.breed === e.breed && !!o.grazing === !!e.grazing && !!o.bedded === !!e.bedded && o.sx === e.sx && kindName(o) === kindName(e) && JSON.stringify(bodyBox({ ...o, x: 0, y: 0, dir: [0, 1] })) === JSON.stringify(bodyBox({ ...e, x: 0, y: 0, dir: [0, 1] })), `${e.id} differs: ${JSON.stringify([e, o].map(q => q && [q.x, q.y, q.female, q.young, q.size, q.breed, !!q.grazing, !!q.bedded, q.sx, q.age]))}`); }
+        check(W.list.some(e => kindName(e) === t('wild.hind')), 'no hind by name');
+        console.log(`herds: a 'wild' message of ${W.list.length} animals, ${JSON.stringify(sent.at(-1)).length} bytes`);
+        // The alarm of one reaches the guest with its tail
+        delete W.sense; W.alarm(G.lead, G.lead.x + 10, G.lead.y); L.run(0.8); other.netList(JSON.parse(JSON.stringify(sent.filter(q => q.t === 'wild').at(-1).w))); check(other.list.filter(o => o.alert === 2 && o.flag).length >= 2, 'the alarm does not travel');
+        // That guest takes the world over: the same group goes on, with its leader and its mothers, and is not made twice
+        for (const e of other.list) e.netTo = null;
+        W.list = other.list; W.groups.clear(); for (const e of W.list) check(!e.herd, 'a guest has groups'); L.run(1.5);
+        const G2 = W.groups.get(g.id); check(G2 && G2.list.length === other.list.length && G2.lead && !G2.lead.young && G2.list.filter(e => e.young).every(e => e.mom), 'not adopted');
+        L.q.x = G2.lead.x + 60; L.q.y = G2.lead.y; W.t = 0; L.run(4); check(W.list.filter(e => e.herd?.id === g.id).length === G2.list.length && new Set(W.list.map(e => e.id)).size === W.list.length, 'twice');
+        // A name nobody knows is on its own
+        W.netList([['g99999.2.0.1', 'ciervo', L.q.x, L.q.y, 0, 0, 0, 0, 60, 60, 0, 0]]); L.run(1.2); check(W.list.length >= 1 && W.list[0].id[0] === 'w' && !W.list[0].herd, 'an unknown group');
+      } finally { Object.assign(live, { net: was.net, role: was.role }); live.joined = was.joined; }
+      // ?manadas=0, and back; a world without the senses
+      W.list = []; W.groups.clear(); const spawn = W.spawn; let calls = 0; W.spawn = () => { calls++; }; W.t = 0;
+      try { Wildlife.herding = false; L.run(6); check(calls > 0 && !W.groups.size, 'off: not the old way'); Wildlife.herding = null; Wildlife.senses = false; calls = 0; L.run(6); check(calls > 0, 'without the senses'); } finally { Wildlife.senses = null; Wildlife.herding = null; delete W.spawn; }
+    });
+  });
+  await test('herds (english): a hind\'s carcass, names and the nature book', async () => {
+    check(CARCASS_OF.ciervo === 'carcass_deer' && CARCASS_OF['ciervo:f'] === 'carcass_hind' && ITEMS.carcass_hind?.bulky && ITEMS.carcass_hind.name === t('item.carcass_hind') && !BULKY.carcass_hind.drops.some(d => d[0] === 'asta'), 'the carcass');
+    const s = trackLine(8); check(s, 'no open ground'); await goTo(game, s.x, s.y + 3);
+    check(game.carry.placeCarcass('ciervo', s.x + 2, s.y, null, true), 'not placed'); const c = near('carcass_hind', s.x + 2, s.y, 3); check(c, 'a stag\'s carcass'); w().setTile(...c.tile, 'air');
+    await stillWild(async (W, summon) => {
+      const a = summon('ciervo', s.x + 3, s.y); Object.assign(a, { traits: true, female: true, young: false, age: 2, size: 1, breed: 'hind' }); a.dir = [1, 0];
+      check(kindName(a) === t('wild.hind') && kindName({ type: 'ciervo' }) === ANIMALS.ciervo.name && kindName({ type: 'jabali', traits: true, young: true, age: 0 }) === t('wild.piglet'), kindName(a));
+      const lab = game.hunt.target(p(), null, null); const was = game.hunt.prey; game.hunt.prey = () => a; try { check(game.hunt.target(p(), null, {}).label === t('hunt.attack', { target: noun('wild', 'hind') }), game.hunt.target(p(), null, {}).label); } finally { delete game.hunt.prey; }
+      await frames(6); const b1 = bodyBox(a).y1; a.breed = undefined; a.female = false; check(bodyBox(a).y1 > b1, 'a hind as big as a stag');
+    });
+    const facts = game.nature.facts?.('ciervo') || []; if (facts.length) check(JSON.stringify(facts).includes('nature.fact.herd') || JSON.stringify(facts).includes(t('nature.fact.herd.ciervo').slice(0, 12)), 'the book does not say it');
+  });
+  await test('herds (english): cost', async () => {
+    herdLab(L => {
+      const { W } = L; L.hour = 18; const list = L.all('deer', 14).concat(L.all('boar', 14)); let n = 0;
+      for (const g of list) { if (n >= 12) break; const o = L.at(g), far = L.q.x; L.q.x = o.x + 5000; const m = W.appear(g, L.H, []) && W.groups.get(g.id); if (!m) { W.appear(g, L.H, []); } n = W.list.length; L.q.x = far; }
+      while (W.list.length > 12) W.list.pop();
+      W.stays = () => true; const at = W.list[0]; L.q.x = at.x + 45; L.q.y = at.y; L.qs = [L.q, { conn: 'c', x: at.x + 50, y: at.y + 5, gm: 'survival', crouch: true, e: { gait: 0, crouch: true } }];
+      L.run(5, 1 / 60); let t0 = performance.now(); const N = 1800; for (let i = 0; i < N; i++) { game.time += 1 / 60; W.update(1 / 60); } const ms = (performance.now() - t0) / N;
+      const herd = performance.now(); for (let i = 0; i < 300; i++) { W.gT = 9; W.t = 9; W.herdTick(0.001, L.H, L.qs, L.qs); } const tick = (performance.now() - herd) / 300;
+      console.log(`herds cost: ${W.list.length} animals and 2 players, ${ms.toFixed(4)} ms a frame; the look at the cells, once a second, ${tick.toFixed(3)} ms`);
+      check(ms < 0.6 && tick / 60 < 0.05, `${ms.toFixed(3)} ms a frame, ${tick.toFixed(2)} a look`);
+      W.presence.byKey.delete('c');
+    });
   });
   await test('nature (english): looking fills a new page', async () => {
     const s = trackLine(8); check(s, 'no open ground');

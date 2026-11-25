@@ -1377,7 +1377,7 @@ function ringsTex() {
 // carry a deer: the middle of it on the nape and both halves bending down over the shoulders (DRAPE), the spine up and
 // back, so that from behind it is an arch with the neck and the head hanging at their right and the rump and the tail at
 // their left; the legs come forward over both shoulders and hang in front of the chest, where the hands hold them
-const CARCASS_SIZE = { carcass_deer: 0.66, carcass_cow: 0.6, carcass_boar: 0.68, carcass_goat: 0.72, carcass_sheep: 0.64, carcass_pig: 0.66 };
+const CARCASS_SIZE = { carcass_deer: 0.66, carcass_hind: 0.6, carcass_cow: 0.6, carcass_boar: 0.68, carcass_goat: 0.72, carcass_sheep: 0.64, carcass_pig: 0.66 };
 const CARCASS_BREED = { vaca: 'pinta', oveja: 'blanca', cabra: 'parda', cerdo: 'rosa' };
 const V3 = (x, y, z) => new THREE.Vector3(x, y, z).normalize();
 // Where the parts point, in the final frame: per leg (f: front, u: the side up when lying / the leg further up when
@@ -1445,7 +1445,7 @@ function poseCarcass(root, id, held, drop = 0, phi = 0) {
 // the parts' boxes, one try more if it is still off
 const _b = new THREE.Box3();
 function posedCarcass(id, held) {
-  const type = BULKY[id].prey, root = poseCarcass(animalModel(type, CARCASS_BREED[type]), id, held), u = root.userData;
+  const type = BULKY[id].prey, root = poseCarcass(animalModel(type, BULKY[id].female ? 'hind' : CARCASS_BREED[type]), id, held), u = root.userData;
   if (held) {
     let len = 0;
     for (const o of u.body.children) if (o.isMesh) { _b.setFromObject(o, true); len = Math.max(len, _b.max.x - _b.min.x); }

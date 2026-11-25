@@ -48,6 +48,7 @@ const RUG_KG = { '1x1': 1.5, '1x2': 2.5, '2x2': 4, '2x3': 6, '3x4': 12 };
 export const BULKY = {
   log: { kg: 25, hold: 'shoulder', slow: 0.8, parts: [['madera', 4]], field: [['madera', 2]], saw: [['tablas', 10]] },
   carcass_deer: { kg: 35, hold: 'across', slow: 0.8, prey: 'ciervo', extra: 'hueso', color: '#8a6a48', drops: [['carne_venado', 2, 3], ['piel', 1, 2], ['asta', 1, 1, 0.6]] },
+  carcass_hind: { kg: 28, hold: 'across', slow: 0.8, prey: 'ciervo', female: true, extra: 'hueso', color: '#86643f', drops: [['carne_venado', 2, 3], ['piel', 1, 2]] },
   carcass_boar: { kg: 30, hold: 'across', slow: 0.8, prey: 'jabali', extra: 'hueso', color: '#4a3a30', drops: [['carne_jabali', 2, 3], ['piel', 1, 1], ['colmillo', 1, 2]] },
   carcass_cow: { kg: 60, hold: 'across', slow: 0.65, prey: 'vaca', extra: 'hueso', color: '#d8d0c4', drops: [['carne_vaca', 2, 4], ['piel', 1, 2], ['hueso', 1, 2]] },
   carcass_sheep: { kg: 25, hold: 'across', slow: 0.8, prey: 'oveja', extra: 'hueso', color: '#e4dccb', drops: [['carne_cordero', 1, 3], ['piel', 1, 1], ['lana', 1, 3]] },
@@ -55,7 +56,7 @@ export const BULKY = {
   carcass_pig: { kg: 35, hold: 'across', slow: 0.8, prey: 'cerdo', extra: 'manteca', color: '#e0a898', drops: [['carne_cerdo', 2, 3], ['piel', 1, 1], ['manteca', 1, 2]] },
 };
 // The carcass each prey leaves (only the adults of these; birds, rabbits and the young drop their meat as before)
-export const CARCASS_OF = Object.fromEntries(Object.entries(BULKY).filter(([, b]) => b.prey).map(([id, b]) => [b.prey, id]));
+export const CARCASS_OF = Object.fromEntries(Object.entries(BULKY).filter(([, b]) => b.prey).map(([id, b]) => [b.female ? b.prey + ':f' : b.prey, id]));   // ('ciervo:f': a hind's, with no antlers)
 // What a big thing is worth as things of the backpack: the log, 4 wood; a carcass, the most of each of its drops
 export const BULKY_PARTS = Object.fromEntries(Object.entries(BULKY).map(([id, b]) => [id, b.parts || b.drops.map(([m, , max]) => [m, max])]));
 export const isBulky = id => !!BULKY[id];

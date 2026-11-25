@@ -6,6 +6,7 @@
 // An animal's awareness goes from 0 to 1. ALERT: head up, it stares at you. TENSE: a deer stamps, a boar huffs. ALARM: it
 // flees. What it only hears never passes HEARD_CAP (it knows something is there, not what), unless it is loud and close.
 import { B } from './world/biomes.js';
+import { sizeStep, sizeOf } from './herds.js';
 
 export const ALERT = 0.35, CALM = 0.25, TENSE = 0.55, ALARM = 0.75, HEARD_CAP = 0.69;
 const DECAY = 0.12, DECAY_AFTER = 1.5;   // per second, with nothing noticed for that long
@@ -96,14 +97,17 @@ export const FAR = SOURCE;
 
 // ---------- on the wire ----------
 // Index 11 of a 'wild' entry (wildlife.js): f = bits 0-1 the alert (0 calm, 1 alert, 2 alarm, 3 tense), bit 8 the tail
-// flag, bit 10 staring, bits 11-15 the way it stares (32 steps). The bits in between are for later phases. An old guest
-// ignores it; an old host does not send it: calm
+// flag, bit 10 staring, bits 11-15 the way it stares (32 steps). And of a herd's (herds.js), with bit 20: bit 2 female, bits 3-4 the age (0
+// young), bits 5-7 the size; bit 19 lying in its bed. The bits in between are for later phases. An old guest ignores it; an
+// old host does not send it: calm, and grown
 export const A_CALM = 0, A_ALERT = 1, A_ALARM = 2, A_TENSE = 3;
-const FLAG = 1 << 8, STARE = 1 << 10, STEP = Math.PI * 2 / 32;
+const FEMALE = 1 << 2, FLAG = 1 << 8, STARE = 1 << 10, BEDDED_F = 1 << 19, TRAITS = 1 << 20, STEP = Math.PI * 2 / 32;
 export function packF(w) {
   let f = w.alert || 0;
   if (w.flag) f |= FLAG;
   if (w.staring) f |= STARE | ((Math.round((w.stareYaw || 0) / STEP) & 31) << 11);
+  if (w.bedded) f |= BEDDED_F;
+  if (w.traits) f |= TRAITS | (w.female ? FEMALE : 0) | ((w.age & 3) << 3) | (sizeStep(w.size) << 5);
   return f;
 }
 export function unpackF(f, w) {
@@ -112,5 +116,11 @@ export function unpackF(f, w) {
   w.flag = !!(n & FLAG);
   w.staring = !!(n & STARE);
   if (w.staring) w.stareYaw = ((n >> 11) & 31) * STEP;
+  w.bedded = !!(n & BEDDED_F);
+  w.traits = !!(n & TRAITS);
+  w.female = w.traits && !!(n & FEMALE);
+  w.age = w.traits ? (n >> 3) & 3 : 1;
+  w.young = w.traits && w.age === 0;
+  w.size = w.traits ? sizeOf((n >> 5) & 7) : 1;
   return w;
 }

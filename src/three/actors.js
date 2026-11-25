@@ -15,6 +15,7 @@ import { ITEMS, TIERS } from '../items.js';
 import { WATER_Y } from './terrain.js';
 import { animalModel, animalKey, animateAnimal, horseModel, animateHorse, setHorseDirt, disposeAnimal, prewarmHorse, HORSE_ACTS } from './animals.js';
 import { nearX } from '../world/planet.js';
+import { scaleOf } from '../herds.js';
 import { RealPerson, realBaby, prebuildReal, realReady, realStats } from './realperson.js';
 import { apagada } from '../opciones.js';
 import { smoothstep } from '../util.js';
@@ -35,6 +36,7 @@ import('../saddlebags.js').then(m => { fillOfKg = m.fillOf || null; }, () => {})
 // Agachado: cuánto se adelantan los muslos y se doblan las rodillas (rad), cuánto baja el cuerpo (m: lo que suben
 // los pies al doblar las piernas, para que sigan en el suelo) y se echa hacia delante (rad; la cabeza lo compensa
 // para seguir mirando al frente)
+const HERD_SHADOW = 26;   // m: a wild animal of a herd further than this casts only its trunk's shadow
 const CROUCH = { hip: 1.5, knee: 2.5, drop: 0.11, lean: 0.4 };
 // (asientos, camas y barca se calibraron con los muñecos de antes: la persona realista se ajusta a esas medidas. La
 // cadera de aquel muñeco sentado, lo que medía tumbado y la escala de sus niños; no cambiarlas sin recolocar muebles)
@@ -573,7 +575,12 @@ export class Actors {
       }
     } else if (m.kind === 'animal') {
       if (yaw !== null) turnTo(m.root, yaw, dt);
-      m.root.scale.setScalar(e.young ? 0.55 : 1);
+      m.root.scale.setScalar(scaleOf(e));
+      // (one of a herd, far off: only its trunk's shadow; a herd is many meshes)
+      if (e.traits && this.me) {
+        const far = Math.hypot(x - this.me.x, z - this.me.y) > HERD_SHADOW + (m.farShade ? -2 : 2);
+        if (far !== !!m.farShade) { m.farShade = far; const u = m.root.userData; m.root.traverse(o => { if (o.isMesh) o.castShadow = !far || o.parent === u.body; }); }
+      }
       if (ANIMALS[e.type].swims) y = WATER_Y - 0.06 + Math.sin(t * 1.5 + x) * 0.015;
       // (el caballo vadea más hondo que lo que da groundY: pisa el fondo, como montado)
       else if (e.type === 'caballo' && scene.waterDepth) { const dd = scene.waterDepth(e.x, e.y); if (dd > 0.3) y = WATER_Y - dd; }
