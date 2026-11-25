@@ -9,7 +9,8 @@
 // Days: a guest plays with the host's calendar (livesync.js dayBase), so the day caps and the days kept are only ever
 // compared with === and !== (as neighbors.js does with f.talk), and "recent" is 0 <= today - day <= n.
 import { t, tHtml } from './i18n.js';
-import { HOUSES, inTavern, hasProject } from './world/village.js';
+import { HOUSES, inTavern, inChapel, hasProject } from './world/village.js';
+import { ROUTINES } from './routines.js';
 import { PEOPLE } from './neighbors.js';
 import { Audio } from './audio.js';
 import { hud } from './ui/hud.js';
@@ -126,15 +127,15 @@ export class Reputation {
   // Whose house is this tile in: 'rosa', 'bruno', 'dani', 'taberna' or null (your own house and the hamlets do not count)
   houseAt(tx, ty) {
     for (const [id, h] of Object.entries(HOUSES)) if ((!h.project || hasProject(h.project)) && tx >= h.x0 && tx < h.x1 && ty >= h.y0 && ty < h.y1) return id;
-    return inTavern(tx + 0.5, ty + 0.5) ? 'taberna' : null;
+    return inTavern(tx + 0.5, ty + 0.5) ? 'taberna' : inChapel(tx + 0.5, ty + 0.5) ? 'chapel' : null;
   }
   // Who sees you take something from that house: its owner if they are in (even hidden indoors, as when you knock: they
   // speak from inside), in the tavern Anselmo at his place; if not, any neighbor in sight within SEEN_R. { n, inside } or null
   witness(x, y, house) {
     const N = this.game.neighbors, w = this.game.world;
-    if (house === 'taberna') { const a = N.people.find(n => n.id === 'anselmo' && !n.hidden); if (a) return { n: a, inside: false }; }
-    else { const owner = N.people.find(n => n.def.home === house && n.hidden); if (owner) return { n: owner, inside: true }; }
-    const near = [w.nilo, ...N.people.filter(n => !n.hidden)].filter(n => n && Math.hypot(n.x - x, n.y - y) <= SEEN_R && (!w.reaches || w.reaches(n.x, n.y, x, y)));
+    if (house === 'taberna') { const a = N.people.find(n => n.id === 'anselmo' && !n.hidden && (n.spot?.room === 'taberna' || !ROUTINES)); if (a) return { n: a, inside: false }; }
+    else { const owner = N.people.find(n => n.def.home === house && n.atHome); if (owner) return { n: owner, inside: owner.hidden }; }
+    const near = [w.nilo, ...N.people.filter(n => !n.hidden && !n.asleep)].filter(n => n && Math.hypot(n.x - x, n.y - y) <= SEEN_R && (!w.reaches || w.reaches(n.x, n.y, x, y)));
     near.sort((a, b) => Math.hypot(a.x - x, a.y - y) - Math.hypot(b.x - x, b.y - y));
     return near[0] ? { n: near[0], inside: false } : null;
   }
@@ -185,7 +186,7 @@ export class Reputation {
     this.v.knocks[k] = night;
     this.change(-3, 'knock_night');
     const N = this.game.neighbors, house = Array.isArray(door) ? this.houseAt(Math.floor(door[0]), Math.floor(door[1])) : null;
-    if (house && this.counts) for (const n of N.people) if (n.def.home === house && n.hidden) N.remember?.(n.id, 'knock_night');
+    if (house && this.counts) for (const n of N.people) if (n.def.home === house && n.atHome) N.remember?.(n.id, 'knock_night');
   }
 
   // ---------- the journal (the Neighbors tab, above the friendships) ----------

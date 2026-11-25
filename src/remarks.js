@@ -164,7 +164,7 @@ export class Remarks {
     // (the nearest neighbour in sight with something to say)
     let best = null, bestId = null, bestCond = null, bd = NEAR;
     const N = g.neighbors, consider = (id, e) => {
-      if (!e || e.hidden || (e.hold > 0)) return;
+      if (!e || e.hidden || e.asleep || (e.hold > 0)) return;
       const d = Math.hypot(nearX(e.x, p.x) - p.x, e.y - p.y);
       if (d > bd) return;
       if (g.time - (this.npcSaidAt[id] ?? -Infinity) < NPC_GAP || g.time - (this.ownAt[id] ?? -Infinity) < OWN_GAP) return;

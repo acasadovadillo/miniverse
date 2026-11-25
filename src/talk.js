@@ -24,13 +24,14 @@ import { SHOPS } from './economy.js';
 import { TRADES } from './trades.js';
 import { FISH, ITEMS, itemNoun } from './items.js';
 import { openBarber } from './barber.js';
+import { ROUTINES, slotAt, hhmm } from './routines.js';
 import { talkContext, pickTopic, topicLines, forecastBy, moodOf, someOf, countOf, tierOf } from './talktopics.js';
 import { nearX } from './world/planet.js';
 import { Audio } from './audio.js';
 import { hud } from './ui/hud.js';
 import { TalkUI } from './ui/talkui.js';
 import { accent } from './ui/skin.js';
-import { t, tList, formatMessage } from './i18n.js';
+import { t, tList, has, formatMessage } from './i18n.js';
 
 export const WALK_R = 3.5, AWAY_S = 1.5;      // tiles away, or seconds going away: the talk is over
 export const SO_S = 15, IDLE_S = 25;          // s with the list and nothing picked: «So?», and the end
@@ -62,7 +63,8 @@ opt('gift', 30, c => c.giftable, c => t('npc.opt.gift', { item: itemNoun(c.held.
 opt('deliver', 40, c => !!c.request && c.game.board.canDeliver(c.request), c => t('talk.opt.deliver', { what: countOf(c.request.item, c.request.n) }), c => c.N.deliver(c.id, c.npc, c.request));
 opt('shop', 50, c => c.open, c => t(c.def.shopOpt || 'npc.opt.shop'), c => ({ line: 'handoff', open: () => c.game.onShop?.(c.def.shop) }));
 opt('mend', 52, c => c.def.mends && (c.open || !c.shop), () => t('npc.opt.mend'), c => ({ modal: true, open: () => c.N.mend(c.id) }));
-opt('haircut', 54, c => c.def.service === 'barber', () => t('npc.opt.haircut'), c => ({ line: 'handoff', open: () => openBarber(c.game) }));
+opt('when', 51, c => !!c.npc && !!c.shop && !c.open && !c.cold, () => t('talk.opt.when'), c => c.talk.say(c.id, [c.N.whenText(c.id)]));
+opt('haircut', 54, c => c.def.service === 'barber' && c.N.inSeat(c.id), () => t('npc.opt.haircut'), c => ({ line: 'handoff', open: () => openBarber(c.game) }));
 opt('trade', 56, c => c.open && !!TRADES[c.id], () => t('npc.opt.trade'), c => ({ modal: true, open: () => c.N.trade(c.id) }));
 opt('plans', 58, c => c.id === 'nilo', () => t('npc.opt.plans'), c => ({ line: 'handoff', open: () => c.game.onShop?.('nilo') }));   // (the furniture's of always: economy.js, SHOPS.nilo)
 opt('house', 60, c => c.id === 'nilo' && !c.game.house.family && Profile.admin && !c.game.live.guest, () => t('npc.opt.house'),   // (the house is the world owner's)
@@ -74,12 +76,16 @@ ask('where', 20, c => c.talk.lost(c).length > 0, c => c.talk.askWhere(c));
 ask('place', 30, c => c.talk.placesNear().length > 0, c => c.talk.askPlace(c));
 ask('weather', 40, () => true, c => c.talk.askWeather(c));
 
+// An hour, in words (the round ones have their own) or as a time
+export const untilWords = h => { const k = `npc.until.${String(Math.round(h * 100) / 100).replace('.', '_')}`; return has(k) ? t(k) : t('npc.until.at', { time: hhmm(h) }); };
 const DIRS = ['e', 'ne', 'n', 'nw', 'w', 'sw', 's', 'se'];
 const dirKey = (dx, dy) => DIRS[(Math.round(Math.atan2(-dy, dx) / (Math.PI / 4)) + 8) % 8];
 const any = list => list[Math.floor(Math.random() * list.length)] || '';
 const gap = (a, b) => [nearX(a.x, b.x) - b.x, a.y - b.y];   // from b to a
 const far = (a, b) => Math.hypot(...gap(a, b));
 const roofed = (w, e) => !!w.roofAt?.(Math.floor(e.x), Math.floor(e.y));
+// Seated in the tavern or behind the bar: only the head turns
+const inPlace = n => !!n && (ROUTINES ? n.spot?.room === 'taberna' : !!n.def.seat);
 export const goalKey = node => (String(node).startsWith('door') ? 'home' : String(node).startsWith('pond') ? 'pond' : String(node));
 // A neighbour's colour for their name: their clothes', light enough to read over anything
 export function nameColor(hex) {
@@ -146,6 +152,7 @@ export class Talk {
   async start(id, npc) {
     const g = this.game, e = npc || (id === 'nilo' ? g.world?.nilo : null), def = PEOPLE[id];
     if (!def || !e || this.cur || !this.can()) return;
+    if (npc?.asleep) { this.sleepy(id, npc); return; }
     const p = g.player, N = g.neighbors, other = this.peerWith(id, e), drawn = g.archery && g.archery.drawT !== null;
     if (drawn) g.archery.cancel();
     if (drawn && this.aimed(e)) { this.gesture(e, 'flinch'); this.last(id, e, N.say(id, 'cut.bow')); return; }   // (they do not talk to who points at them)
@@ -155,7 +162,7 @@ export class Talk {
     if (!CAM.first && !p.mount) { const [dx, dy] = gap(e, p), d = Math.hypot(dx, dy); if (d > 0.05) { p.face = { x: dx / d, y: dy / d }; p.dir = [dx, dy]; } }
     const T = this.cur = { id, npc, e, def, f: N.friend(id), live: true, line: null, menu: null, mainSel: null, last: '', chats: 0, rounds: 0,
       t: 0, idle: 0, away: 0, d: null, slow: 0, turn: 0, tk: TK_AGAIN, wins: !!g.windowsOpen, partner: false, pointing: 0,
-      mood: moodOf(id, g.days.realDay, g), slot: npc && !def.seat ? npc.goal(g.days.hour) : null, open: this.openNow(id) };
+      mood: moodOf(id, g.days.realDay, g), slot: npc ? this.slotOf(npc) : null, open: this.openNow(id) };
     e.lookTarget = p;
     if (npc) npc.talkWith = p;
     this.turnTo(T);
@@ -200,10 +207,7 @@ export class Talk {
       giftable: !!held && !!ITEMS[held.id] && !ITEMS[held.id].tool && T.f.gift !== N.today, request: g.board?.requestOf(T.id) };
   }
   openNow(id) {
-    const g = this.game, shop = PEOPLE[id].shop && SHOPS[PEOPLE[id].shop];
-    if (!shop) return false;
-    const now = shop.hours[1] > 24 && g.days.hour < 6 ? g.days.hour + 24 : g.days.hour;
-    return !!(g.neighbors.isWorking(id) && now >= shop.hours[0] && now < shop.hours[1]);
+    return this.game.neighbors.isOpen(id);
   }
   // What else there is: a window or a question of always. The talk is over, but they stay there (after) while a question lasts
   async handoff(T, r) {
@@ -330,7 +334,7 @@ export class Talk {
     this.game.social?.subtitle('');
     this.hush(T.e); if (this.game.player) this.hush(this.game.player);
     if (T.e.lookTarget === this.game.player || !this.game.player) delete T.e.lookTarget;
-    if (T.npc) { T.npc.talkWith = this.holder(T.npc); if (!T.def.seat && T.npc.hold < STAY) T.npc.hold = STAY; }   // (a moment more, to say goodbye)
+    if (T.npc) { T.npc.talkWith = this.holder(T.npc); if (!inPlace(T.npc) && T.npc.hold < STAY) T.npc.hold = STAY; }   // (a moment more, to say goodbye)
     if (this.game.player) this.send(T.id, 0);
     this.ui?.close();
     const L = T.line, M = T.menu;
@@ -396,19 +400,33 @@ export class Talk {
       const n = this.game.neighbors.people.find(x => x.id === q.npc), e = this.entity(q.npc, n);
       if (!e || this.cur?.e === e || this.peerWith(q.npc, e) !== q || e.hidden) continue;
       e.lookTarget = q.e;
-      if (!e.pose && !n?.def.seat) e.faceTo?.(...gap(q.e, e));
+      if (!e.pose && !inPlace(n)) e.faceTo?.(...gap(q.e, e));
       if (!e.emote && Math.random() < 0.5) this.talking(e, PEOPLE[q.npc].temper);
     }
   }
   // Does their schedule call them? Their next thing has come, or is about to (walking); their shop opens or closes now
   late(T) {
     const n = T.npc, h = this.game.days.hour;
+    if (ROUTINES) {
+      const s = slotAt(T.id, this.game.days.now);
+      if (this.slotOf(n) !== T.slot) return s.spot !== s.prev;
+      if (this.openNow(T.id) !== T.open) return true;
+      return n.path.length > 0 && (s.until - this.game.days.now) / 6e4 < LATE_MIN;
+    }
     if (T.def.seat) return !n.isIn(h);
     if (n.goal(h) !== T.slot || this.openNow(T.id) !== T.open) return true;
     if (!n.path.length) return false;
     const next = T.def.schedule.map(s => s[0]).filter(x => x > h);
     return next.length > 0 && (Math.min(...next) - h) * 60 < LATE_MIN;
   }
+  // What they have to do now: a change of it calls them
+  slotOf(n) {
+    if (!ROUTINES) return n.def.seat ? null : n.goal(this.game.days.hour);
+    const s = slotAt(n.id, this.game.days.now);
+    return `${s.day}:${s.i}`;
+  }
+  // In bed: a word half asleep, and that is all
+  sleepy(id, e) { this.last(id, e, this.game.neighbors.say(id, 'asleep'), true); }
   // Outdoors, with water or snow falling on them
   wet(T) { const g = this.game; return WET.includes(g.days.weather) && !roofed(g.world, T.e); }
   // Is your bow pointed at them? You face them, or the cursor is on them (it aims at what is under it)
@@ -418,12 +436,12 @@ export class Talk {
     return d > 0.05 && (dx * p.face.x + dy * p.face.y) / (d * fl) >= BOW_COS;
   }
   // Standing, they turn to you; seated (or at their place in the tavern), only the head (three/actors.js lookTarget)
-  turnTo(T) { if (!T.e.pose && !T.def.seat && this.game.time >= T.pointing) T.e.faceTo?.(...gap(this.game.player, T.e)); }
+  turnTo(T) { if (!T.e.pose && !inPlace(T.npc) && this.game.time >= T.pointing) T.e.faceTo?.(...gap(this.game.player, T.e)); }
   // They point at what they talk about. Seated, only if it is in front of them
   point(T, x, y) {
     const e = T.e, [dx, dy] = gap({ x, y }, e), d = Math.hypot(dx, dy);
     if (this.auto || d < 0.5) return;
-    if (e.pose || T.def.seat) { const yaw = T.def.seat?.[2] ?? e.yaw ?? 0; if ((Math.sin(yaw) * dx + Math.cos(yaw) * dy) / d < 0.5) return; }
+    if (e.pose || inPlace(T.npc)) { const yaw = e.pose?.yaw ?? T.npc?.spot?.yaw ?? T.def.seat?.[2] ?? e.yaw ?? 0; if ((Math.sin(yaw) * dx + Math.cos(yaw) * dy) / d < 0.5) return; }
     else { T.pointing = this.game.time + POINT_S; T.turn = 1 - POINT_S; e.faceTo?.(dx, dy); }
     this.gesture(e, 'point');
   }
@@ -487,8 +505,8 @@ export class Talk {
     if (T.live && a.at) this.point(T, ...a.at);
   }
   whereNeighbour(id) {
-    const N = this.game.neighbors, w = N.whereIs(id), until = w.until === null ? '' : t(`npc.until.${String(w.until).replace('.', '_')}`);
-    return { text: N.line(`npc.where.${w.kind}`, { who: PEOPLE[id].name, until, goal: w.goal ? t(`npc.goal.${goalKey(w.goal)}`) : '' }), at: w.at };
+    const N = this.game.neighbors, w = N.whereIs(id), until = w.until === null ? '' : untilWords(w.until);
+    return { text: N.line(`npc.where.${w.kind}`, { who: PEOPLE[id].name, until, goal: w.goal ? t(`npc.goal.${goalKey(w.goal)}`) : '', host: w.who ? PEOPLE[w.who].name : '' }), at: w.at };
   }
   wherePlayer(e, q) {
     const [dx, dy] = gap(q.entity, e), d = Math.hypot(dx, dy), seen = q.sc === 'world' && d <= SEEN;
@@ -547,7 +565,11 @@ export class Talk {
     const q = this.peers.size ? this.peerWith(id) : null;
     if (q) return t('talk.doing.talk', { name: q.name });
     if (!n) return t('talk.doing.rest');
-    if (n.def.seat) return t(n.def.shop && !n.def.sits ? 'talk.doing.work' : 'talk.doing.tavern');
+    if (ROUTINES && !n.path.length) {
+      const s = n.spot;
+      if (s) return t(n.asleep ? 'talk.doing.sleep' : s.work && !n.pose ? 'talk.doing.work' : n.meal ? 'talk.doing.eat' : s.room === 'taberna' ? 'talk.doing.tavern' : s.kind === 'chapel' ? 'talk.doing.chapel' : s.kind === 'visit' ? 'talk.doing.visit' : s.kind === 'shopping' ? 'talk.doing.shop' : 'talk.doing.rest');
+    }
+    if (!ROUTINES && n.def.seat) return t(n.def.shop && !n.def.sits ? 'talk.doing.work' : 'talk.doing.tavern');
     if (n.path.length) return t('talk.doing.walk', { goal: t(`npc.goal.${goalKey(n.path[n.path.length - 1])}`) });
     return t(n.node === n.def.work ? 'talk.doing.work' : 'talk.doing.rest');
   }

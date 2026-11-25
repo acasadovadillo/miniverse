@@ -1105,6 +1105,8 @@ export const EMOTES = {
   // (scrubbing at a river or a lake, crouched in the shallows or at the bank: body.js sets the crouch and plays it again
   // while the scrub lasts, as needs.js does with drink. Both forearms rub low over the water, out of step, the head down)
   scrub: { dur: 2.4, both: true, pose: (k, s) => { const r = Math.sin(k * Math.PI * 12 + (s > 0 ? 0 : Math.PI)); return { ax: -0.95 + 0.08 * r, az: -s * 0.18, fx: -0.75 + 0.3 * r, hx: 0.25, tx: 0.22 }; } },
+  // At table, a neighbour (routine3d.js): the spoon to the mouth and back, twice
+  eat: { dur: 2.2, pose: (k, s) => { const p = Math.max(0, Math.sin(k * Math.PI * 4)); return { ax: -0.5 - 0.62 * p, az: -s * (0.05 + 0.2 * p), fx: -0.9 - 0.95 * p, hx: 0.16 - 0.1 * p, tx: 0.05 }; } },
   // (shivering on purpose, as a gesture: the same as the idle layer of the cold, see shiverBones)
   shiver: { dur: 2.0, both: true, pose: (k, s) => ({ ax: SHIVER.ax, az: -s * SHIVER.az + 0.02 * Math.sin(k * Math.PI * 2 * 16), fx: SHIVER.fx, hx: 0.08, tx: 0.07 }) },
   // The horse (Plan F §5.3; the third argument: riding). brush: with the tool hand (tool: the brush is in it, see hold),
@@ -1366,7 +1368,7 @@ function foodInHand(id) {
   const g = new THREE.Group(); f.scale.setScalar(1.25); f.position.set(0, -0.03, 0.03); g.add(f);
   return g;
 }
-const SEATS = new Set(['silla', 'taburete', 'sofa', 'sillon', 'barber_chair']);
+const SEATS = new Set(['silla', 'taburete', 'sofa', 'sillon', 'barber_chair', 'pew']);
 // Is the screen dark (a door, a jump, sleeping)?
 let FADE = null;
 const covered = () => typeof document !== 'undefined' && !!(FADE ||= document.getElementById('fade'))?.classList.contains('on');

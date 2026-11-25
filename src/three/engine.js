@@ -27,6 +27,7 @@ import { Fx } from './fx.js';
 import { ArrowsView } from './arrows.js';
 import { Tracks3D } from './tracks3d.js';
 import { Landmarks } from './landmarks3d.js';
+import { RoutineView } from './routine3d.js';
 import { routeGround } from './route3d.js';
 import { Glow } from './glow.js';
 import { prewarmKit } from './kit3d.js';
@@ -96,6 +97,7 @@ export class View3D {
     this.viewmodel = new THREE.Group(); this.viewmodel.visible = false; this.scene.add(this.viewmodel);
     this.fx = new Fx(this);
     this.arrows = new ArrowsView(this);
+    this.routine3d = new RoutineView(this);   // (the neighbours' routines: meals, the card, the windows, the bell)
     this.landmarks = new Landmarks(this);   // (what stands out far off: landmarks3d.js)
     this.tracks3d = new Tracks3D(this);   // (prints, blood and bent grass on the ground: src/tracks.js, Plan G)
     this.glow = new Glow(this);   // (los halos, las ventanas y los charcos de luz de noche)
@@ -516,6 +518,7 @@ export class View3D {
     this.first = CAM.first && !!game.player && !!game.scene;
     { const p = game.player; this.wet = !!p && !!game.scene && !p.boat && !p.aboard && (p.swim || p.depth > 0.35); }   // (ver draw; vadeando con el agua por debajo de la rodilla, casi todo el cuerpo queda fuera y vale la silueta de siempre, que lo deja ver tras los árboles)
     this.updateViewmodel(game, this.first);
+    this.routine3d.update(game, scene, sdt);
     this.landmarks.update(game, scene, t);   // (before fx: it gives the far beams)
     this.fx.update(game, scene, sdt, t);
     routeGround(this, game, scene, t);   // (the marked route on the ground: nothing at all without one, route3d.js)

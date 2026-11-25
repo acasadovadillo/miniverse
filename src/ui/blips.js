@@ -25,7 +25,8 @@
 import { Profile } from '../accounts.js';
 import { t, getLang } from '../i18n.js';
 import { SHOPS } from '../economy.js';
-import { HOUSE, HOUSES, TAVERN, DOOR, WALK_NODES, NILO, doorOf, hasProject } from '../world/village.js';
+import { ROUTINES, shopState, hhmm } from '../routines.js';
+import { HOUSE, HOUSES, TAVERN, CHAPEL, DOOR, WALK_NODES, NILO, doorOf, hasProject } from '../world/village.js';
 import { PEOPLE } from '../neighbors.js';
 import { CHUNK } from '../world/gen.js';
 import { wrapIndex, distOf } from '../world/planet.js';
@@ -141,6 +142,7 @@ blips.source('home', out => {
   const b = out.add('home', (HOUSE.x0 + HOUSE.x1) / 2, (HOUSE.y0 + HOUSE.y1) / 2);
   b.name = say('gui.map.home'); b.to = HOME_TO;
 });
+const CHAPEL_TO = { x: CHAPEL.x0 + 3.5, y: CHAPEL.y1 + 0.8, kind: 'place', id: 'chapel' };
 const HOME_TO = { ...DOOR, kind: 'place', id: 'home' }, TAVERN_TO = { x: TAVERN.x0 + 5.5, y: TAVERN.y1 + 1, kind: 'place', id: 'tavern' };
 blips.source('village', (out, { game }) => {
   const T = out.add('tavern', (TAVERN.x0 + TAVERN.x1) / 2, (TAVERN.y0 + TAVERN.y1) / 2);
@@ -151,15 +153,23 @@ blips.source('village', (out, { game }) => {
     const b = out.add('house', (q.x0 + q.x1) / 2, (q.y0 + q.y1) / 2);
     b.name = say('gui.map.house_of', q.name, q); b.to = (q.mapTo ||= { ...doorOf(q), kind: 'place', id: 'house:' + k });
   }
+  if (hasProject('chapel')) {
+    const b = out.add('place', (CHAPEL.x0 + CHAPEL.x1) / 2, (CHAPEL.y0 + CHAPEL.y1) / 2);
+    b.glyph = 'temple'; b.color = '#e8e2d2'; b.name = say('place.chapel'); b.to = CHAPEL_TO;
+  } else if (game.board?.lotShown && game.board.lotBusy('chapel')) {   // (its lot, while something a player built is on it)
+    const b = out.add('place', (CHAPEL.x0 + CHAPEL.x1) / 2, (CHAPEL.y0 + CHAPEL.y1) / 2);
+    b.glyph = 'question'; b.color = '#ffb060'; b.name = say('project.lot', undefined, undefined, 'chapel'); b.to = CHAPEL_TO;
+  }
   // The shops, where their keeper works (not those inside the tavern: it has its own), faded while they are closed
   const hour = game.days?.hour ?? 12;
   for (const id in PEOPLE) {
-    const def = PEOPLE[id], S = def.shop && SHOPS[def.shop], at = id === 'nilo' ? [NILO.x, NILO.y] : WALK_NODES[def.work];
+    const def = PEOPLE[id], S = def.shop && SHOPS[def.shop], R = ROUTINES && id !== 'nilo' && S && WALK_NODES[def.work] ? shopState(id, def.shop, game.days?.now ?? 0) : null, at = id === 'nilo' ? [NILO.x, NILO.y] : R?.at || WALK_NODES[def.work];
     if (!S || !at || (def.project && !hasProject(def.project))) continue;
-    const b = out.add('shop', at[0], at[1]), h = S.hours[1] > 24 && hour < 6 ? hour + 24 : hour, open = h >= S.hours[0] && h < S.hours[1];
+    const b = out.add('shop', at[0], at[1]), h = S.hours[1] > 24 && hour < 6 ? hour + 24 : hour, open = R ? R.open : h >= S.hours[0] && h < S.hours[1], when = R ? hhmm(R.change % 864e5 / 36e5) : '';
     b.name = say('map.shop_of', def.name, def); b.dim = !open;
-    if (S.hours[1] - S.hours[0] < 24) b.sub = open ? say('map.card.open_until', `${S.hours[1] % 24}:00`, { h: `${S.hours[1] % 24}:00` }) : say('map.card.closed', `${S.hours[0]}:00`, { h: `${S.hours[0]}:00` });
-    b.to = (def.mapTo ||= { x: at[0], y: at[1], kind: 'point' });
+    if (R) b.sub = say(open ? 'map.card.open_until' : 'map.card.closed', when, { h: when });
+    else if (S.hours[1] - S.hours[0] < 24) b.sub = open ? say('map.card.open_until', `${S.hours[1] % 24}:00`, { h: `${S.hours[1] % 24}:00` }) : say('map.card.closed', `${S.hours[0]}:00`, { h: `${S.hours[0]}:00` });
+    b.to = def.mapTo && def.mapTo.x === at[0] && def.mapTo.y === at[1] ? def.mapTo : (def.mapTo = { x: at[0], y: at[1], kind: 'point' });
   }
 });
 // The discovered places (their list is made again only when there is another one)

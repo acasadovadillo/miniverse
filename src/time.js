@@ -30,6 +30,7 @@ export const WEATHER = {
   nieve: { name: 'Nieve', icon: '❄', snow: true },
   ventisca: { name: 'Ventisca', icon: '🌨', snow: true, fog: true },   // (cerca de los polos, siempre)
 };
+const weekdayOf = realDay => (((realDay + 4) % 7) + 7) % 7;   // (as routines.js: 0 Sunday)
 const POLAR = 86;   // a partir de esta latitud, ventisca
 // Probabilidades de cada tiempo por estación (lo que sobra es sol)
 const CHANCES = [
@@ -101,7 +102,7 @@ export class TimeSystem {
   isNight() { const h = this.localHour; return h >= 20 || h < 6; }
   label() {
     const hl = this.localHour, h = Math.floor(hl), m = Math.floor((hl % 1) * 60);
-    return `${tr('big.day', { n: this.dayOfSeason, season: tr('nature.season.' + this.localSeason) })} · ${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+    return `${tr(`time.weekday.${weekdayOf(this.realDay)}`)} · ${tr('big.day', { n: this.dayOfSeason, season: tr('nature.season.' + this.localSeason) })} · ${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
   }
   weatherFor(day) {
     if (day === 0) return 'sol';

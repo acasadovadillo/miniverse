@@ -95,7 +95,7 @@ export function outward(scene, tx, ty, X) {
 }
 // Juntas con los vecinos: 1 +x, 2 -x, 4 +y, 8 -y
 export const wallMask = (scene, tx, ty) => (isWall(scene.pieceAt(tx + 1, ty)) ? 1 : 0) | (isWall(scene.pieceAt(tx - 1, ty)) ? 2 : 0) | (isWall(scene.pieceAt(tx, ty + 1)) ? 4 : 0) | (isWall(scene.pieceAt(tx, ty - 1)) ? 8 : 0);
-const EXTERIOR = { muro_madera: 'siding', muro_piedra: 'wallStone' };   // los demás son de yeso con entramado
+const EXTERIOR = { muro_madera: 'siding', muro_piedra: 'wallStone', bell_gable: 'wallStone' };   // los demás son de yeso con entramado
 const framed = id => !EXTERIOR[id];
 
 // emit(materialKey, side) → Builder en el que añadir esa parte

@@ -12,6 +12,7 @@ import { loadModel, placeLoad } from './carry3d.js';
 import { BULKY } from '../carry-items.js';
 import * as THREE from 'three';
 import { CHUNK, GRASS_REGROW } from '../world/gen.js';
+import { bellGable, bellMesh } from './chapel3d.js';
 import * as village from '../world/village.js';
 import { PIECES } from '../pieces.js';
 import { CAM } from '../camera.js';
@@ -169,6 +170,8 @@ export class World3D {
     // se ponen dentro (los faroles de la calle se verían encendidos alrededor de la casa)
     const night = this.view.night, glow = night * 1.2, k = night, ks = Math.max(night, this.game?.indoors ? 0.6 : 0);
     for (const m of this.glassMats()) m.emissiveIntensity = glow;
+    // (where everybody sleeps or nobody is, the windows are dark: routine3d.js)
+    if (this.darkRegions?.size) for (const [fk, mats] of this.fadeMats) if (mats.has('glass') && this.darkRegions.has(fk.slice(0, fk.indexOf('|')))) mats.get('glass').emissiveIntensity = glow * 0.04;
     if (k !== this.lampK) { this.lampK = k; modelMat('lamp').emissiveIntensity = 0.25 + 1.5 * k; modelMat('lens').emissiveIntensity = 0.5 + 1.5 * k; }
     if (ks !== this.shadeK) { this.shadeK = ks; modelMat('shade').emissiveIntensity = 0.15 + 0.6 * ks; }
     this.seabed.frame(game, game.time);
@@ -258,7 +261,7 @@ export class World3D {
         if (region) c.regions.add(region);
         if (piece) { const tk = `${tx},${ty}`; if (struct.get(tk) !== 'full') struct.set(tk, piece.kind === 'fence' || piece.kind === 'gate' || piece.kind === 'post' ? 'post' : 'full'); }
         if (piece?.kind === 'wall') { const ex = { blooms: [], leaves: [], paint: paintKey(region), lift: LIFT, windows: c.windows }; wallTile(scene, tx, ty, o.placed, emitFor(region), ex); this.flowers(ex, region, group); }
-        else if (piece?.kind === 'door') { const ex = { blooms: [], leaves: [] }; const d = doorTile(scene, tx, ty, emitFor(region), ex); d.region = region; d.lift = LIFT; c.doors.push(d); }
+        else if (piece?.kind === 'door') { const ex = { blooms: [], leaves: [] }; const d = doorTile(scene, tx, ty, emitFor(region), ex); d.region = region; d.lift = LIFT; c.doors.push(d); if (piece.bell) (c.bells ||= []).push({ ...bellGable(scene, tx, ty, d, emitFor(region)), lift: LIFT, key: `${tx},${ty}` }); }
         else if (piece?.kind === 'gate') { const d = gateTile(scene, tx, ty, plain); d.lift = LIFT; c.doors.push(d); }
         else if (piece?.kind === 'post') postTile(scene, tx, ty, o.placed, plain, region ? Math.max(-1.6, this.regionLift(scene, region) - LIFT) : 0);
         else if (piece?.kind === 'fence') fenceTile(scene, tx, ty, o.placed, plain);
@@ -301,6 +304,8 @@ export class World3D {
       mesh.userData.own = true;
       group.add(mesh);
     }
+    // (the bells, apart: they swing, see routine3d.js)
+    for (const b of c.bells || []) { b.mesh = bellMesh(b.X); b.mesh.position.set(b.x, b.y + b.lift, b.z); group.add(b.mesh); }
     // Puertas: la hoja se anima aparte (y se desvanece con su pared)
     for (const d of c.doors) {
       const k = `${d.tile[0]},${d.tile[1]}`, fk = d.region && d.side !== 'free' ? `${d.region}|${d.side}` : '';
@@ -891,7 +896,7 @@ export class World3D {
   }
   updateDoors(scene, dt) {
     for (const d of this.doors.values()) {
-      const want = scene.doorClosed(...d.tile) ? 0 : 1;
+      const want = scene.doorClosed(...d.tile) && !this.passing?.has(`${d.tile[0]},${d.tile[1]}`) ? 0 : 1;   // (passing: a neighbour goes through it, routine3d.js)
       // (la hoja da sombra: mientras gira, va con lo que se mueve (world.spin) y su sombra se pinta en cada fotograma sin
       // rehacer lo fijo; al empezar y al acabar, lo fijo se repinta una vez, sin ella y con ella. El grupo del trozo está
       // en el origen y sin giro, así que la hoja no cambia de sitio al pasar de uno a otro)
@@ -934,13 +939,14 @@ export class World3D {
   // ---------- luces, fuegos y humo cercanos ----------
   lights() {
     const out = [];
-    for (const c of this.chunks.values()) for (const l of c.lights) out.push(l);
+    const dark = this.darkRegions?.size ? this.darkRegions : null;
+    for (const c of this.chunks.values()) for (const l of c.lights) { if (dark && !l.flicker && dark.has(this.regionOf.get(l.tk ||= `${Math.floor(l.x)},${Math.floor(l.z)}`))) continue; out.push(l); }
     if (this.villageLights) for (const l of this.villageLights.lights) out.push(l);
     return out;
   }
   flames() {
-    const out = [];
-    for (const c of this.chunks.values()) for (const f of c.flames) out.push(f);
+    const out = [], dark = this.darkRegions?.size ? this.darkRegions : null;   // (the candles out with the rest of the house; the hearth's embers stay)
+    for (const c of this.chunks.values()) for (const f of c.flames) { if (dark && f[3] < 0.3 && dark.has(this.regionOf.get(f[4] ||= `${Math.floor(f[0])},${Math.floor(f[2])}`))) continue; out.push(f); }
     if (this.villageLights) for (const f of this.villageLights.flames) out.push(f);
     return out;
   }

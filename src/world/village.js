@@ -4,7 +4,7 @@
 // cartel, tablón, vitrina y puestos ocupan casillas enteras.
 import { clamp } from '../util.js';
 import { CHUNK } from './gen.js';
-import { houseBlueprint, tavernBlueprint, byChunk } from './blueprints.js';
+import { houseBlueprint, tavernBlueprint, chapelBlueprint, byChunk } from './blueprints.js';
 
 export const HOUSE = { x0: 15, y0: 7, x1: 27, y1: 17 };      // huella de tu casa (12×10 casillas)
 export const HOUSE_BIG = { x0: 13, y0: 5, x1: 29, y1: 17 };   // la casa ampliada (16×12), con la puerta en el mismo sitio
@@ -19,7 +19,7 @@ export const CENTER = { x: 21, y: 24 };
 export const NILO = { x: 22.4, y: 24.2 };
 // Casas de los vecinos (12×10 casillas, como la tuya). La de Dani aparece al terminar el proyecto "Casa nueva".
 export const HOUSES = {
-  rosa: { x0: 22, y0: 32, x1: 34, y1: 42, roof: 'tejado_azul', name: 'Rosa' },
+  rosa: { x0: 22, y0: 32, x1: 34, y1: 42, roof: 'tejado_azul', name: 'Rosa', beds: 2 },   // (and Lía's)
   bruno: { x0: 2, y0: 44, x1: 14, y1: 54, roof: 'tejado_gris', name: 'Bruno' },
   dani: { x0: 21, y0: 46, x1: 33, y1: 56, roof: 'tejado_verde', name: 'Dani', project: 'casa' },
 };
@@ -28,6 +28,13 @@ export const doorOf = h => ({ x: h.x0 + 6.5, y: h.y1 + 0.5 });
 // La taberna del pueblo (10×8), al oeste del camino: de Anselmo, con su barra, sus mesas y sus clientes
 export const TAVERN = { x0: 1, y0: 32, x1: 11, y1: 40 };
 export const inTavern = (x, y, m = 0) => x > TAVERN.x0 - m && x < TAVERN.x1 + m && y > TAVERN.y0 - m && y < TAVERN.y1 + m;
+// The chapel (project 'chapel'), on the west strip, between the garden and the tavern: 7×11, its door in the middle of the
+// south row. LOTS: the ground kept for what a project brings. No tree or rock grows there in any world, even before it is
+// built; building there is allowed until then, and the project waits until it is clear (board.js)
+export const CHAPEL = { x0: 2, y0: 15, x1: 9, y1: 26 };
+export const LOTS = { chapel: { ...CHAPEL, name: 'chapel' } };
+export const inChapel = (x, y, m = 0) => !!projects.chapel && x > CHAPEL.x0 - m && x < CHAPEL.x1 + m && y > CHAPEL.y0 - m && y < CHAPEL.y1 + m;
+const CHAPEL_WAY = [[[18.9, 29], [9.5, 28.5]], [[9.5, 28.5], [5.5, 26.6]]];
 export const STALL = { x0: 25, y0: 23, x1: 27, y1: 24 };     // puesto de Rosa (2×1 casillas)
 export const BOARD = { x: 16.5, y: 22.5 };                     // tablón de encargos
 export const FOUNTAIN = { x: 21.5, y: 28.5 };                  // fuente (3×3 casillas)
@@ -53,6 +60,7 @@ const SPURS = [
   [[17.0, 41], [6.5, 41]],   // (a la taberna)
   [[16.1, 55], [8.5, 55.2]],
   [[16.1, 57], [27.5, 57], 'casa'],
+  ...CHAPEL_WAY.map(w => [...w, 'chapel']),
 ];
 // The village's paths as lines of points, for the minimap (those of the projects, once done)
 export const villagePaths = () => [PATH, ...SPURS.filter(s => !s[2] || projects[s[2]]).map(s => s.slice(0, 2))];
@@ -66,10 +74,16 @@ export const WALK_NODES = {
   p29: [19, 29], p34: [17.5, 34], p37: [17.3, 37], p46: [16.6, 46], p52: [16.2, 52.2],
   p43: [16.8, 43], p55: [16.1, 55], p57: [16.1, 57],
   door_rosa: [28.5, 42.9], door_bruno: [8.5, 55.1], forge: [12.5, 55.3], door_dani: [27.5, 56.9], easel: [23.2, 29.6],
+  // (routines.js: the tavern's door, the road south, the chapel and the Saturday market. market_x: behind the stall;
+  // browse_x, shop_front: before it)
+  p41: [17, 41], tavern_door: [6.5, 40.9], road_s: [16, 60.6], chapel_turn: [9.5, 28.4], chapel_door: [5.5, 26.9],
+  shop_front: [26.1, 25.3], market_a: [25, 26.3], browse_a: [25, 28.9], market_b: [13, 30.3], browse_b: [13.2, 32.9],
 };
 export const WALK_EDGES = [['plaza', 'board'], ['plaza', 'stall'], ['stall', 'pond_w'], ['plaza', 'p29'], ['p29', 'easel'], ['easel', 'pond_s'], ['pond_w', 'pond_s'],
-  ['p29', 'p34'], ['p34', 'p37'], ['p37', 'p43'], ['p43', 'door_rosa'], ['p43', 'p46'], ['p46', 'p52'], ['p52', 'p55'], ['p55', 'door_bruno'], ['door_bruno', 'forge'],
-  ['p55', 'p57'], ['p57', 'door_dani']];
+  ['p29', 'p34'], ['p34', 'p37'], ['p37', 'p41'], ['p41', 'p43'], ['p41', 'tavern_door'], ['p43', 'door_rosa'], ['p43', 'p46'], ['p46', 'p52'], ['p52', 'p55'], ['p55', 'door_bruno'], ['door_bruno', 'forge'],
+  ['p55', 'p57'], ['p57', 'door_dani'], ['p57', 'road_s'], ['pond_w', 'shop_front'],
+  ['pond_w', 'market_a', 'mercado'], ['easel', 'browse_a', 'mercado'], ['p29', 'market_b', 'mercado'], ['p34', 'browse_b', 'mercado'],
+  ['p29', 'chapel_turn', 'chapel'], ['chapel_turn', 'chapel_door', 'chapel']];
 // La plaza: lo de alrededor de Nilo, del puesto de Rosa, del tablón y de la fuente (aunque no esté hecha)
 export const PLAZA = { x: 21.5, y: 25.5, rx: 5.5, ry: 4.5 };
 // Lo que traen los proyectos del pueblo (aunque no estén hechos: su sitio se guarda): los dos puestos del mercado
@@ -102,7 +116,7 @@ const pathToTile = (tx, ty, soon = false) => {
   for (const [a, b, need] of SPURS) if (soon ? need && !projects[need] : !need || projects[need]) d = Math.min(d, segTile(a[0], a[1], b[0], b[1], tx, ty));
   return d;
 };
-const walkToTile = (tx, ty) => Math.min(...WALK_EDGES.map(([a, b]) => segTile(...WALK_NODES[a], ...WALK_NODES[b], tx, ty)));
+const walkToTile = (tx, ty) => Math.min(...WALK_EDGES.filter(e => !e[2] || projects[e[2]]).map(([a, b]) => segTile(...WALK_NODES[a], ...WALK_NODES[b], tx, ty)));
 // ¿Toca la casilla una elipse (la del estanque o la de la plaza) agrandada k veces? Por su centro, esquinas y lados
 const tileInEllipse = (tx, ty, E, k) => { for (let j = 0; j <= 2; j++) for (let i = 0; i <= 2; i++) if (Math.hypot((tx + i / 2 - E.x) / E.rx, (ty + j / 2 - E.y) / E.ry) < k) return true; return false; };
 const inRect = (tx, ty, r, m = 0, front = m) => tx >= r.x0 - m && tx < r.x1 + m && ty >= r.y0 - m && ty < r.y1 + front;
@@ -117,6 +131,7 @@ export function townDigWhy(tx, ty) {
     if (inRect(tx, ty, h)) return built ? `Es la casa de ${h.name}` : 'Ese solar es para una casa nueva';
   }
   if (inRect(tx, ty, TAVERN)) return 'Es la taberna';
+  for (const id in LOTS) if (inRect(tx, ty, LOTS[id], 0, 1)) return projects[id] ? `why.dig.${id}` : `why.dig.${id}.soon`;   // (a key: this file goes in the workers too)
   if (tileInEllipse(tx, ty, POND, 1.3)) return 'Demasiado cerca del estanque';
   if (inRect(tx, ty, DOCK, 1)) return projects.muelle ? 'Es el muelle' : 'Ahí va el muelle';
   if (pathToTile(tx, ty) < 1.05) return 'Ahí hay camino';
@@ -128,7 +143,7 @@ export function townDigWhy(tx, ty) {
   if (inRect(tx, ty, TAVERN, 2, 3)) return 'Es el patio de la taberna';
   return '';
 }
-const inHouse = (x, y, m = 0) => inTavern(x, y, m) || Object.values(HOUSES).some(h => (!h.project || projects[h.project]) && x > h.x0 - m && x < h.x1 + m && y > h.y0 - m && y < h.y1 + m);
+const inHouse = (x, y, m = 0) => inTavern(x, y, m) || inChapel(x, y, m) || Object.values(HOUSES).some(h => (!h.project || projects[h.project]) && x > h.x0 - m && x < h.x1 + m && y > h.y0 - m && y < h.y1 + m);
 // ¿Está dentro del solar de tu casa (el de la casa ampliada)? Ahí se puede construir aunque sea terreno del pueblo
 export const inOwnHouse = (x, y) => { const H = ownLot(); return x > H.x0 && x < H.x1 && y > H.y0 && y < H.y1; };
 export const pondDist = (x, y) => Math.hypot((x - POND.x) / POND.rx, (y - POND.y) / POND.ry);
@@ -143,6 +158,7 @@ export function keepClear(x, y) {
   if (!inBounds(x, y)) return false;
   return distToPath(x, y) < 2.4 || inYard(x, y, 1.5) || pondDist(x, y) < 1.6 || Math.hypot(x - SPAWN.x, y - SPAWN.y) < 3 ||
     [...Object.values(HOUSES), TAVERN].some(h => x > h.x0 - 2 && x < h.x1 + 2 && y > h.y0 - 2 && y < h.y1 + 3) ||
+    Object.values(LOTS).some(h => x > h.x0 - 1.5 && x < h.x1 + 1.5 && y > h.y0 - 1.5 && y < h.y1 + 2.5) || CHAPEL_WAY.some(([a, b]) => distSeg(x, y, ...a, ...b) < 1.6) ||
     Math.hypot(x - FOUNTAIN.x, y - FOUNTAIN.y) < 2.5 || (x > 23 && x < 28 && y > 21 && y < 25);
 }
 // Claro alrededor del pueblo: 0 en el centro, 1 lejos
@@ -178,13 +194,15 @@ export function buildVillage() {
   // Casas de los vecinos: planos de piezas (muros de entramado, ventanas, puerta, tejado y muebles)
   for (const h of Object.values(HOUSES)) {
     if (h.project && !projects[h.project]) continue;
-    const bp = houseBlueprint({ x0: h.x0, y0: h.y0, roof: h.roof, furnish: 'npc' });
+    const bp = houseBlueprint({ x0: h.x0, y0: h.y0, roof: h.roof, furnish: 'npc', beds: h.beds });
     for (const layer of ['placed', 'floor', 'roof']) Object.assign(fixed[layer], bp[layer]);
   }
 
   // La taberna
   const ws = tavernBlueprint({ x0: TAVERN.x0, y0: TAVERN.y0 });
   for (const layer of ['placed', 'floor', 'roof']) Object.assign(fixed[layer], ws[layer]);
+
+  if (projects.chapel) { const ch = chapelBlueprint(CHAPEL); for (const layer of ['placed', 'floor', 'roof']) Object.assign(fixed[layer], ch[layer]); }
 
   // Puesto de Rosa, tablón de encargos y lo que se construye con los proyectos (todo en casillas enteras;
   // fx, fy: la huella de lo que ocupa más de una)

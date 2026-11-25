@@ -7,7 +7,7 @@ import { camToSave, camFromSave, CAM } from './camera.js';
 import { wrapX, dxOf, wrapIndex, HALF, NORTH, SOUTH } from './world/planet.js';
 import { Overworld, NILO_LOOK, wellSpec, barrowSolids } from './world/scenes.js';
 import { houseBlueprint, familyBlueprint, byChunk, doorTile, houseSize } from './world/blueprints.js';
-import { HOUSE, HOUSE_BIG, HOUSE_FAMILY, HOUSES, CENTER, SPAWN, inBounds, inOwnHouse, inTavern, hasProject, setFamilyHouse } from './world/village.js';
+import { HOUSE, HOUSE_BIG, HOUSE_FAMILY, HOUSES, CENTER, SPAWN, inBounds, inOwnHouse, inTavern, inChapel, hasProject, setFamilyHouse } from './world/village.js';
 import { PIECES, parsePlaced } from './pieces.js';
 import { BUILDABLE } from './buildables.js';
 import { Profile } from './accounts.js';
@@ -667,7 +667,7 @@ export class Game {
     // (a person's box is as tall as the person drawn: the head is aimed at too)
     const who = (kind, e, r, y1, more) => out.push({ kind, e, ...more, box: box(e.x, e.y, r, r, 0, y1) }), tall = (e, y1) => this.view3d?.personHeight?.(e, y1) ?? y1;
     if (sees(this.world.nilo.x, this.world.nilo.y)) who('npc', this.world.nilo, 0.35, tall(this.world.nilo, 1.5), { n: null });
-    for (const n of this.neighbors.people) if (!n.hidden && sees(n.x, n.y)) who('npc', n, 0.35, tall(n, 1.5), { n });
+    for (const n of this.neighbors.people) if (!n.hidden && sees(n.x, n.y)) { if (n.asleep) who('npc', n, 0.55, 1, { n }); else who('npc', n, 0.35, tall(n, 1.5), { n }); }
     for (const [id, e] of this.family.ents) if (sees(e.x, e.y)) who('kid', e, e.lying ? 0.45 : 0.3, e.lying ? (e.h || 0) + 0.5 : tall(e, 1.1), { id });
     for (const a of this.ranch.animals) if ((!a.inside || this.ranch.stall(a)) && !a.rider && sees(a.x, a.y)) out.push({ kind: 'animal', e: a, box: bodyBox(a) });
     for (const w of this.wildlife.list) if (sees(w.x, w.y)) out.push({ kind: 'wild', e: w, box: bodyBox(w) });
@@ -726,7 +726,7 @@ export class Game {
     const name = ITEMS[o.placed].name.toLowerCase(), pick = { text: `${BUILDABLE[top.placed] ? 'Desmontar' : 'Recoger'} ${ITEMS[top.placed].name.toLowerCase()}`, run: () => this.pickUp(top) };   // (lo construido, al desmontarlo, devuelve sus materiales)
     if (STATIONS[o.placed]) return { text: `Usar ${name}`, run: () => this.onCraft?.(o.placed), alt: o.fixed ? null : pick };
     if (o.placed === 'cama' || o.placed === 'cama_nino' || o.placed === 'cama_doble') return { text: this.carry.dropFirst() || t('bed.use'), run: () => this.bed(o), alt: pick };   // (with something in the arms: put it down first, carry.js)
-    if (o.placed === 'silla' || o.placed === 'taburete' || o.placed === 'sofa' || o.placed === 'sillon' || o.placed === 'barber_chair') return { text: this.carry.dropFirst() || 'Sentarse', run: () => this.rest.sit(o), alt: o.fixed ? null : pick };
+    if (o.placed === 'silla' || o.placed === 'taburete' || o.placed === 'sofa' || o.placed === 'sillon' || o.placed === 'barber_chair' || o.placed === 'pew') return { text: this.carry.dropFirst() || 'Sentarse', run: () => this.rest.sit(o), alt: o.fixed ? null : pick };
     // (the bathroom, Plan E §4.1: E on the tub takes a bath, body.js; E on the basin asks: wash, or the mirror as before,
     // ui/menus.js onBasin)
     if (o.placed === 'banera') return { text: this.carry.dropFirst() || t(this.body.hasSoap() && this.gamemode === 'survival' ? 'body.bath.soap' : 'body.bath'), run: () => this.body.bathe(o), alt: pick };
@@ -770,7 +770,7 @@ export class Game {
     Audio.knock();
     this.live.knock?.(door);
     if (!house) return;
-    const home = this.neighbors.people.filter(n => n.def.home === house && n.hidden);
+    const home = this.neighbors.people.filter(n => n.def.home === house && n.atHome);
     setTimeout(() => {
       if (!home.length) { g.gather.float('No contesta nadie…', '#d8c3a0'); return; }
       const who = home[0].def.name;
@@ -920,6 +920,7 @@ export class Game {
     if (own) return t('place.your_house');
     for (const h of Object.values(HOUSES)) if ((!h.project || hasProject(h.project)) && p.x > h.x0 && p.x < h.x1 && p.y > h.y0 && p.y < h.y1) return `Casa de ${h.name}`;
     if (inTavern(p.x, p.y)) return 'La taberna';
+    if (inChapel(p.x, p.y)) return t('place.chapel');
     return t('place.under_roof');
   }
   // The room by what is in it (structure.js roomAt): only in your house or in one that was built (its roof came with neither
@@ -1394,7 +1395,7 @@ export class Game {
       if (due) { this.markersAt = this.time; this.map.markers = [...this.places.markers(), ...this.horse.marks()]; }
       this.map.world = this.world;   // (lo cavado que tiene agua se pinta de agua)
       this.map.game = this;
-      if (this.mode === 'map' && due) this.map.people = this.neighbors.people.filter(n => !n.hidden).map(n => ({ x: n.x, y: n.y, name: n.def.name }));
+      if (this.mode === 'map' && due) this.map.people = this.neighbors.people.filter(n => !n.hidden && !n.atHome).map(n => ({ x: n.x, y: n.y, name: n.def.name }));
       this.map.face = this.player.face;   // (their arrow on the big map points where they face)
       if (this.mode === 'map') { const at = this.scene?.kind === 'grid' && this.scene.exitTo || this.player; this.map.drawBig(this.world.gen, this.explored, at.x, at.y, this.time); }   // (in a cave: where its mouth is)
       else if (this.map.relief?.on) this.map.relief.close();   // (left without closing it)

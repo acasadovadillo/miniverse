@@ -172,9 +172,9 @@ function tavernNow(game) {
   if (people?.length) for (let i = 0; i < people.length; i++) {
     const n = people[i];
     if (n.id === 'anselmo') keeper = n;
-    else if (!n.hidden && n.def?.sits && inTavern(n.x, n.y)) patrons++;
+    else if (!n.hidden && (n.def?.sits || n.pose) && inTavern(n.x, n.y)) patrons++;
   }
-  const open = keeper ? !keeper.hidden : venueOpen(TAVERN_VENUE, hourOf(game));
+  const open = keeper ? !keeper.hidden && (!(keeper.x < Infinity) || inTavern(keeper.x, keeper.y)) : venueOpen(TAVERN_VENUE, hourOf(game));
   return { open, patrons: open ? Math.min(MAX_PATRONS, patrons) : 0 };
 }
 

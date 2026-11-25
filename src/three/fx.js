@@ -308,7 +308,7 @@ export class Fx {
       if (layer === 'floor') box(-0.5, 0, -0.5, 0.5, 0.05, 0.5);
       else if (layer === 'roof') { box(-0.5, WALL_H, -0.5, 0.5, WALL_H + 0.16, 0.5); }
       else if (kind === 'wall') { box(-0.5, 0, -0.12, 0.5, WALL_H, 0.12); if (id.startsWith('ventana')) box(-0.3, 1.0, -0.14, 0.3, 1.95, 0.14); }
-      else if (kind === 'door') { box(-0.5, 2.05, -0.12, 0.5, WALL_H, 0.12); box(-0.5, 0, -0.12, -0.42, 2.05, 0.12); box(0.42, 0, -0.12, 0.5, 2.05, 0.12); box(-0.4, 0, -0.03, 0.4, 2.0, 0.03); }
+      else if (kind === 'door') { box(-0.5, 2.05, -0.12, 0.5, WALL_H, 0.12); box(-0.5, 0, -0.12, -0.42, 2.05, 0.12); box(0.42, 0, -0.12, 0.5, 2.05, 0.12); box(-0.4, 0, -0.03, 0.4, 2.0, 0.03); if (p.bell) { box(-0.66, WALL_H, -0.2, 0.66, WALL_H + 0.6, 0.2); box(-0.66, WALL_H + 0.6, -0.2, -0.31, WALL_H + 1.4, 0.2); box(0.31, WALL_H + 0.6, -0.2, 0.66, WALL_H + 1.4, 0.2); box(-0.66, WALL_H + 1.4, -0.2, 0.66, WALL_H + 2.1, 0.2); } }
       else if (kind === 'gate') return this.modelGhost('puerta_valla');
       else if (kind === 'fence') { box(-0.06, 0, -0.06, 0.06, 0.95, 0.06); box(-0.5, 0.36, -0.04, 0.5, 0.46, 0.04); box(-0.5, 0.72, -0.04, 0.5, 0.82, 0.04); }
       else if (kind === 'post') { const r = p.r; box(-r - 0.08, 0, -r - 0.08, r + 0.08, 0.16, r + 0.08); box(-r, 0.16, -r, r, WALL_H - 0.16, r); box(-r - 0.1, WALL_H - 0.16, -r - 0.1, r + 0.1, WALL_H, r + 0.1); }

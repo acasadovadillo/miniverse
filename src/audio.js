@@ -127,6 +127,19 @@ export const Audio = {
   blip: () => tone([[880, 0.03, 'square', 0.03]]),
   // Toc, toc, toc: llamar a una puerta
   knock() { for (let i = 0; i < 3; i++) setTimeout(() => { Audio.noiseHit(380, 0.07, 0.5); tone([[150, 0.05, 'triangle', 0.06]]); }, i * 170); },
+  // The chapel's bell: the partials of a small bell (hum, prime, the minor third that makes it one, fifth, octave…), each
+  // dying on its own, and the knock of the clapper. v: how loud; lo: the stroke back, a little duller
+  bell(v = 1, lo = 0) {
+    if (!ac || !on) return;
+    const t0 = ac.currentTime, f = 523;
+    for (const [k, a, d] of [[0.5, 0.05, 3.6], [1, 0.07, 2.6], [1.183, 0.05, 2.0], [1.506, 0.03, 1.4], [2, 0.05, 1.5], [2.51, 0.02, 0.8], [3.01, 0.014, 0.5], [4.17, 0.008, 0.3]]) {
+      const o = ac.createOscillator(), g = ac.createGain();
+      o.type = 'sine'; o.frequency.value = f * k * (lo ? 0.998 : 1);
+      g.gain.setValueAtTime(0.0001, t0); g.gain.exponentialRampToValueAtTime(a * v * (lo && k > 2 ? 0.6 : 1), t0 + 0.006); g.gain.exponentialRampToValueAtTime(0.0001, t0 + d);
+      o.connect(g).connect(sfx); o.start(t0); o.stop(t0 + d + 0.02);
+    }
+    Audio.noiseHit(2600, 0.03, 0.06 * v);
+  },
   // Animales: el gallo al amanecer, el perro, el gato, el caballo y el silbato
   crow() { tone([[520, 0.12, 'sawtooth', 0.025], [700, 0.1, 'sawtooth', 0.03], [880, 0.35, 'sawtooth', 0.025], [620, 0.2, 'sawtooth', 0.02]]); },
   bark() { tone([[320, 0.06, 'sawtooth', 0.05], [240, 0.08, 'square', 0.03]]); Audio.noiseHit(600, 0.08, 0.2); },

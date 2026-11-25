@@ -632,7 +632,7 @@ export const DynamicMusic = {
       const h = Number.isFinite(s.hour) ? s.hour : game.days?.hour ?? 12;
       claps = h >= 20 || h < 2;
       if (Number.isFinite(s.patrons)) patrons = s.patrons;
-      else if (!s.venue || s.venue.tavern) for (const nb of game.neighbors?.people || []) if (!nb.hidden && nb.def?.sits && inTavern(nb.x, nb.y)) patrons++;
+      else if (!s.venue || s.venue.tavern) for (const nb of game.neighbors?.people || []) if (!nb.hidden && (nb.def?.sits || nb.pose) && inTavern(nb.x, nb.y)) patrons++;
     }
     return { ...s, lowAir, patrons: Math.max(0, Math.min(4, patrons | 0)), claps, day: game.days?.realDay ?? 0, calm: this.isCalm };
   },

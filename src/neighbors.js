@@ -3,14 +3,16 @@
 // pequeños eventos y regalos. Nilo es el vecino de siempre: no se mueve de la plaza.
 import { Person } from './entities.js';
 import { ITEMS, CROPS, itemNoun } from './items.js';
-import { NILO, hasProject, WALK_NODES, WALK_EDGES } from './world/village.js';
-import { mendPrice } from './economy.js';
+import { NILO, STALL, hasProject, WALK_NODES, WALK_EDGES } from './world/village.js';
+import { mendPrice, SHOPS } from './economy.js';
 import { Audio } from './audio.js';
 import { hud } from './ui/hud.js';
-import { t, tHtml, tList, fmt, formatMessage } from './i18n.js';
+import { t, tHtml, tList, has, fmt, formatMessage } from './i18n.js';
 import { talkContext, pickTopic, moodOf, learn, thing, someOf, countOf, WISH_DAYS } from './talktopics.js';
 import { levelIndex, recent } from './reputation.js';
 import { tearStage, TEAR } from './clothing.js';
+import { ROUTINES, SPEED, placeAt, slotAt, opensNext, leavesHome, shopHours, weekdayOf, setEnv, forget, tavernSpot, SEATS, BAR_FROM, hhmm } from './routines.js';   // (a cycle too, the same way)
+import { wayRound } from './world/walkways.js';
 import { RECALLS } from './remarks.js';   // (a cycle, read only inside functions: remarks.js reads PEOPLE the same way)
 
 // Puntos del pueblo por los que se camina (sobre el camino, para no chocar con nada) y cómo se unen: village.js
@@ -25,6 +27,9 @@ function route(from, to) {
   return out;
 }
 
+// routine: their day by the kind of day (routines.js), where CALL is when the bell calls; eatOut: the share of their meals
+// in the tavern; evening: where they stroll; bed: the hour they go to bed. schedule: the day of before (?routines=0)
+const CALL = 11 + 5 / 6 + 1 / 60;
 // temper: their character, for how they answer a greeting or a provocation (social.js: kind, cheerful, shy, gruff, wry)
 // weather: the weathers that cheer them up or put them in a bad mood (talktopics.js moodOf). Their lines are in the
 // language files: npc.chat.<id>.misc and .personal, npc.events.<id>.<hearts>, npc.topic.… (talktopics.js)
@@ -38,7 +43,12 @@ const PEOPLE = {
   },
   rosa: {
     name: 'Rosa', temper: 'cheerful', weather: { likes: ['sol'], hates: ['lluvia', 'tormenta', 'nieve'] }, home: 'rosa', look: { sex: 'chica', skin: '#f6c9a0', hair: '#4a2c1c', eyes: '#6a3a1e', cloth: '#c83a3a', pants: '#4a3a2a', hairStyle: 'mono', outfit: 'delantal' },
-    schedule: [[0, 'door_rosa'], [8.5, 'stall'], [18, 'pond_w'], [20.5, 'door_rosa']], work: 'stall', shop: 'rosa',
+    schedule: [[0, 'door_rosa'], [8.5, 'stall'], [18, 'pond_w'], [20.5, 'door_rosa']], work: 'stall', shop: 'rosa', eatOut: 0.25, evening: 'pond_w',
+    routine: {
+      work: [[0, '@home'], [8.25, 'stall'], [14, '@lunch'], [14.75, 'stall'], [18, 'pond_w'], [20, '@evening'], [21, '@dinner'], [22.5, '@home']],
+      sat: [[0, '@home'], [8.25, 'stall'], [14, '@lunch'], [14.75, 'stall'], [18, 'plaza'], [21, '@dinner'], [23, '@home']],
+      sun: [[0, '@home'], [9.75, 'stall'], [CALL, '@chapel'], [12.75, 'stall'], [14, '@lunch_long'], [16, 'pond_w'], [20.5, '@home']],
+    },
     loves: ['fresa', 'mermelada_fresa', 'miel'], likes: ['tomate', 'zanahoria', 'huevo', 'flores'], hates: ['anguila', 'carbon'],
     events: {
       3: { flag: 'descuento' },
@@ -47,7 +57,12 @@ const PEOPLE = {
   },
   lia: {
     name: 'Lía', temper: 'shy', weather: { likes: ['lluvia'], hates: ['tormenta'] }, home: 'rosa', look: { sex: 'chica', skin: '#e8b07a', hair: '#e8c060', eyes: '#3a6ab8', cloth: '#2e8a8a', pants: '#3a4a6a', hairStyle: 'largo', outfit: 'chaleco' },
-    schedule: [[0, 'door_rosa'], [6, 'pond_s'], [12, 'plaza'], [15, 'pond_s'], [20, 'door_rosa']], work: 'pond_s', shop: 'lia',
+    schedule: [[0, 'door_rosa'], [6, 'pond_s'], [12, 'plaza'], [15, 'pond_s'], [20, 'door_rosa']], work: 'pond_s', shop: 'lia', eatOut: 0.15, evening: 'plaza', bed: 22,
+    routine: {
+      work: [[0, '@home'], [6, 'pond_s'], [12, 'plaza'], [14, '@lunch'], [15, 'pond_s'], [20, '@evening'], [21, '@dinner'], [22, '@home']],
+      sat: [[0, '@home'], [6, 'pond_s'], [9, '@market'], [14, '@lunch'], [15, 'pond_s'], [20, 'plaza'], [21, '@dinner'], [22.5, '@home']],
+      sun: [[0, '@home'], [7.75, 'pond_s'], [CALL, '@chapel'], [12.75, 'pond_s'], [13, 'plaza'], [14, '@lunch_long'], [16, 'pond_w'], [20, '@home']],
+    },
     loves: ['pez_dorado', 'salmon', 'pescado_asado'], likes: ['trucha', 'carpa', 'lubina', 'coco'], hates: ['lana', 'calabaza'],
     events: {
       3: { flag: 'sedal' },
@@ -56,7 +71,12 @@ const PEOPLE = {
   },
   bruno: {
     name: 'Bruno', temper: 'gruff', home: 'bruno', look: { sex: 'chico', skin: '#8a5234', hair: '#2a1e1e', eyes: '#3a2a1e', cloth: '#4a4a5a', pants: '#3a3a3a', hairStyle: 'rapado', outfit: 'delantal', beard: true },
-    schedule: [[0, 'door_bruno'], [7.5, 'forge'], [17, 'board'], [20, 'door_bruno']], work: 'forge', shop: 'bruno',
+    schedule: [[0, 'door_bruno'], [7.5, 'forge'], [17, 'board'], [20, 'door_bruno']], work: 'forge', shop: 'bruno', eatOut: 0.4, evening: 'board',
+    routine: {
+      work: [[0, '@home'], [7.5, 'forge'], [14, '@lunch'], [14.75, 'forge'], [17, 'board'], [18.5, '@errand'], [20, '@evening'], [21, '@dinner'], [22.5, '@home']],
+      sat: [[0, '@home'], [7.5, 'forge'], [9, '@market'], [14, '@lunch'], [14.75, 'forge'], [17, 'board'], [19, 'plaza'], [21, '@dinner'], [23.5, '@home']],
+      sun: [[0, '@home'], [9.75, 'forge'], [CALL, '@chapel'], [12.75, 'forge'], [14, '@lunch_long'], [16, 'board'], [18, '@errand'], [20.5, '@home']],
+    },
     loves: ['diamante', 'rubi', 'lingote_oro'], likes: ['lingote_hierro', 'carbon', 'cobre', 'hierro', 'queso'], hates: ['fresa', 'maceta'],
     events: {
       3: { gift: [['lingote_hierro', 3]] },
@@ -65,7 +85,12 @@ const PEOPLE = {
   },
   dani: {
     name: 'Dani', temper: 'cheerful', weather: { likes: ['sol'], hates: ['lluvia'] }, home: 'dani', project: 'casa', look: { sex: 'chico', skin: '#c98a5a', hair: '#e86aa0', eyes: '#3a8a4a', cloth: '#6a4ab8', pants: '#2a2a3a', hairStyle: 'rizado', outfit: 'larga' },
-    schedule: [[0, 'door_dani'], [10, 'easel'], [15, 'plaza'], [19, 'door_dani']], work: 'easel', shop: 'dani',
+    schedule: [[0, 'door_dani'], [10, 'easel'], [15, 'plaza'], [19, 'door_dani']], work: 'easel', shop: 'dani', eatOut: 0.4, evening: 'plaza', bed: 23.5,
+    routine: {
+      work: [[0, '@home'], [9.75, 'easel'], [14, '@lunch'], [14.75, 'easel'], [17, 'plaza'], [18.5, '@errand'], [20, '@evening'], [21, '@dinner'], [23, '@home']],
+      sat: [[0, '@home'], [9.75, 'easel'], [12, '@browse'], [13, 'easel'], [14, '@lunch'], [14.75, 'easel'], [17, 'plaza'], [21, '@dinner'], [23.5, '@home']],
+      sun: [[0, '@home'], [9.75, 'easel'], [CALL, '@chapel'], [12.75, 'easel'], [14, '@lunch_long'], [16, 'pond_w'], [20.5, '@home']],
+    },
     loves: ['amatista', 'esmeralda', 'tela'], likes: ['miel', 'lana', 'palomitas', 'maceta'], hates: ['carpa', 'piedra'],
     events: {
       3: { gift: [['maceta', 2]] },
@@ -89,25 +114,29 @@ Object.assign(PEOPLE, {
   eusebio: {
     // (the barber, Plan E §4.3: while he is in, 'Get a haircut'; a service, not a shop: he sells nothing)
     name: 'Eusebio', temper: 'gruff', weather: { likes: ['lluvia'] }, seat: [3.5, 35.5, TO_N], sits: STOOL_H, hours: [11, 23], service: 'barber',
+    routine: { sun: [[0, '@away'], [11.5, '@chapel'], [12.75, 'seat'], [23, '@away']] },
     look: { sex: 'chico', skin: '#f6c9a0', hair: '#a8a4ac', eyes: '#7a7a8a', cloth: '#5a6a4a', pants: '#3a3a3e', hairStyle: 'corto', outfit: 'chaleco', beard: 'bigote' },
     loves: ['pan_bellota', 'pinones'], likes: ['pan', 'queso'], hates: ['anguila'],
     events: { 3: { gift: [['manzana', 4]] } },
   },
   ines: {
     name: 'Inés', temper: 'shy', weather: { likes: ['sol'], hates: ['niebla'] }, seat: [7.5, 35.5, TO_N], sits: STOOL_H, hours: [12, 22],
+    routine: { sat: [[0, '@away'], [10.25, '@browse'], [12, 'seat'], [22, '@away']], sun: [[0, '@away'], [11.5, '@chapel'], [12.75, 'seat'], [22, '@away']] },
     look: { sex: 'chica', skin: '#a86a42', hair: '#2a1e1e', eyes: '#3a2a1e', cloth: '#3a6ab8', pants: '#3a2c22', hairStyle: 'trenza', outfit: 'tunica' },
     loves: ['amatista', 'mapa_vacio'], likes: ['sidra', 'manzana'], hates: ['baba'],
     events: { 3: { gift: [['mapa_vacio', 1]] } },
   },
   marta: {
     // (the tailor, Plan E §4.4: her clothes in SHOPS.marta, seasonal, and mending for coins; shopOpt: her option's label)
-    name: 'Marta', temper: 'kind', weather: { likes: ['nieve'] }, seat: [2.62, 37.5, TO_E], sits: CHAIR_H, hours: [17, 26], work: 'taberna', shop: 'marta', shopOpt: 'npc.opt.clothes', mends: true,
+    name: 'Marta', temper: 'kind', weather: { likes: ['nieve'] }, seat: [2.62, 37.5, TO_E], sits: CHAIR_H, hours: [17, 26], work: 'taberna', shop: 'marta',
+    routine: { sat: [[0, 'seat'], [2, '@away'], [10.5, '@browse'], [13, '@away'], [17, 'seat']], sun: [[0, 'seat'], [2, '@away'], [11.5, '@chapel'], [12.75, 'plaza'], [13.5, '@away'], [17, 'seat']] }, shopOpt: 'npc.opt.clothes', mends: true,
     look: { sex: 'chica', skin: '#ffe0c4', hair: '#a8442a', eyes: '#3a8a4a', cloth: '#7a4a8a', pants: '#2a2a3a', hairStyle: 'melena', outfit: 'tunica' },
     loves: ['fresa', 'mermelada_fresa'], likes: ['pan', 'hidromiel'], hates: ['carbon'],
     events: { 3: { gift: [['gorro', 1]] } },
   },
   paco: {
     name: 'Paco', temper: 'gruff', weather: { likes: ['nieve'], hates: ['tormenta'] }, seat: [7.62, 37.5, TO_E], sits: CHAIR_H, hours: [19, 26],
+    routine: { sun: [[0, 'seat'], [2, '@away'], [13, 'seat'], [15.5, '@away'], [19, 'seat']] },
     look: { sex: 'chico', skin: '#c98a5a', hair: '#2a1e1e', eyes: '#7a4a24', cloth: '#a8442a', pants: '#4a3a2a', hairStyle: 'rizado', outfit: 'tunica', beard: 'perilla' },
     loves: ['filete', 'jabali_asado'], likes: ['cerveza', 'carpa'], hates: ['nabo'],
     events: { 3: { gift: [['venado_asado', 2]] } },
@@ -130,32 +159,141 @@ const MOOD_CHANCE = 0.4, WARM_CHANCE = 0.5, EXTRA_CHANCE = 0.5;   // a talk: how
 // How they take a gift, as a gesture of the body (social.js): loved, liked, neutral, hated
 const GIFT_GESTURE = { loved: 'wave', liked: 'nod', neutral: 'nod', hated: { kind: 'shrug', cheerful: 'shrug', shy: 'shrug', gruff: 'dismiss', wry: 'dismiss' } };
 
+// How they follow the clock (routines.js placeAt): held up (a talk, a greeting) they fall behind (lag, s) and make up for it
+// walking faster, so a few seconds later every game has them in the same place again
+const CATCH = 1.5, SNAP = 12, JUMP_MS = 8000;   // × their pace; tiles away, they are just put there; a clock that jumps
+// (those of the tavern eat at meal times, at their place)
+const mealHour = ms => { const h = (ms % DAY) / HOUR_MS; return (h >= 13.5 && h < 15.5) || (h >= 20.5 && h < 22.5); };
+const NEAR_IN = 30;             // tiles: at home they are drawn only when the player is this near
+const DAY = 864e5, HOUR_MS = 36e5;
 class Neighbor extends Person {
   constructor(id, def) {
     const [x, y] = def.seat || NODES[def.schedule[0][1]];
     super({ x, y, look: def.look });
-    Object.assign(this, { id, def, node: def.seat ? def.work : def.schedule[0][1], path: [], hidden: true, hold: 0, talkWith: null });   // (hold: s stopped to answer a greeting; talkWith: the player talking with them)
+    Object.assign(this, { id, def, node: def.seat ? def.work : def.schedule[0][1], path: [], hidden: true, atHome: false, asleep: false, meal: false, hold: 0, lag: 0, spot: null, talkWith: null, game: null });   // (hold: s stopped to answer a greeting; talkWith: the player talking with them; node: where they are; path: [where they go], walking)
     if (def.seat) { this.yaw = def.seat[2]; this.dir = [Math.sin(def.seat[2]), Math.cos(def.seat[2])]; if (def.sits) this.pose = { kind: 'sit', yaw: def.seat[2], h: def.sits }; }
   }
+  // An hour of today, or a moment, as the village's ms
+  ms(v) { return v > 1000 ? v : Math.floor((this.game?.days.now ?? 0) / DAY) * DAY + v * HOUR_MS; }
+  // ---------- by the clock of before (?routines=0) ----------
   // (los de la taberna) ¿Está a esta hora?
   isIn(hour) { const [a, b] = this.def.hours, h = hour < 6 ? hour + 24 : hour; return h >= a && h < b; }
   // A dónde le toca ir según la hora
   goal(hour) { let g = this.def.schedule[0][1]; for (const [h, n] of this.def.schedule) if (hour >= h) g = n; return g; }
-  placeAt(hour) { if (this.def.seat) { this.hidden = !this.isIn(hour); return; } const g = this.goal(hour); this.node = g; [this.x, this.y] = NODES[g]; this.path = []; this.hidden = g.startsWith('door'); }
-  update(dt, hour) {
-    if (this.talkWith) { this.vx = this.vy = 0; return; }   // (in a talk they stay: they neither walk off nor leave the tavern)
+  oldPlaceAt(hour) { if (this.def.seat) { this.hidden = !this.isIn(hour); return; } const g = this.goal(hour); this.node = g; [this.x, this.y] = NODES[g]; this.path = []; this.hidden = this.atHome = g.startsWith('door'); }
+  oldUpdate(dt, hour) {
     if (this.def.seat) { this.hidden = !this.isIn(hour); this.vx = this.vy = 0; return; }
     if (this.hold > 0) { this.hold -= dt; this.vx = this.vy = 0; return; }
     const g = this.goal(hour);
-    if (g !== this.node && !this.path.length) { this.path = route(this.node, g); this.hidden = false; }
-    if (!this.path.length) { this.vx = this.vy = 0; this.hidden = this.node.startsWith('door'); return; }
+    if (g !== this.node && !this.path.length) { this.path = route(this.node, g); this.hidden = this.atHome = false; }
+    if (!this.path.length) { this.vx = this.vy = 0; this.hidden = this.atHome = this.node.startsWith('door'); return; }
     const [tx, ty] = NODES[this.path[0]], dx = tx - this.x, dy = ty - this.y, d = Math.hypot(dx, dy), sp = 2.2;
     if (d < 0.1) { this.node = this.path.shift(); return; }
     this.vx = (dx / d) * sp; this.vy = (dy / d) * sp;
     this.x += this.vx * dt; this.y += this.vy * dt;
     this.step += sp * dt * 3.2;
-    // Dirección en pantalla (una casilla mide el doble de ancho que de alto) → una de las 8 vistas
     this.faceTo(dx, dy);
+  }
+  // ---------- by their routine ----------
+  // Where they are at that moment, already there: not on the way
+  placeAt(v) {
+    if (!ROUTINES) { this.oldPlaceAt(v); return; }
+    this.lag = 0; this.now = null;
+    const s = slotAt(this.id, this.ms(v)).spot;
+    this.settle(s); this.drawAt(s);
+    this.path = [];
+  }
+  // The way of a slot round what players have built on it (only drawn: world/walkways.js). Looked at once per walk
+  way(R, s) {
+    const k = `${s.day}:${s.i}`;
+    if (this.wayOf !== k) { this.wayOf = k; this.wayNow = this.game?.world ? wayRound(this.game.world, R) : R; }
+    return this.wayNow;
+  }
+  update(dt, v) {
+    if (!ROUTINES) { if (this.talkWith) { this.vx = this.vy = 0; return; } this.oldUpdate(dt, v > 1000 ? this.game.days.hour : v); return; }
+    const now = this.ms(v), jumped = !(Math.abs(now - (this.now ?? -1e15)) < JUMP_MS);
+    this.now = now;
+    if (jumped) this.lag = 0;
+    // (in a talk they stay: they neither walk off nor leave the tavern)
+    if (this.talkWith || this.hold > 0) { if (!jumped || this.talkWith || this.hold > 100) {
+      this.hold = Math.max(0, this.hold - dt); this.lag += dt; this.vx = this.vy = 0;
+      if (this.asleep && slotAt(this.id, now).spot.kind !== 'asleep') this.asleep = false;
+      return;
+    } }
+    if (this.lag > 0) {
+      const at = placeAt(this.id, now - this.lag * 1000, (R, s) => this.way(R, s));
+      if (at.moving) this.lag = Math.max(0, this.lag - dt * (CATCH - 1));
+      else { const s = slotAt(this.id, now); this.lag = s.start <= now - this.lag * 1000 ? 0 : Math.max(0, Math.min(this.lag, (now - s.start) / 1000 - 0.001)); }
+    }
+    const at = placeAt(this.id, now - this.lag * 1000, (R, s) => this.way(R, s)), s = at.spot;
+    if (!at.moving) {
+      this.settle(s);
+      if (this.hidden) { this.x = s.x; this.y = s.y; this.vx = this.vy = 0; this.still = true; return; }
+      const d = Math.hypot(this.x - s.x, this.y - s.y);
+      if (jumped || d < 0.06 || d > SNAP || this.still) { this.drawAt(s); return; }
+      this.head(s.x, s.y, dt);   // (put somewhere else: they walk to their place)
+      return;
+    }
+    this.still = false; this.path = [s.goal]; this.node = s.kind; this.spot = null; this.pose = null; this.meal = false; this.asleep = false; this.atHome = false; this.hidden = false; delete this.yaw;
+    if (jumped || Math.hypot(this.x - at.x, this.y - at.y) > SNAP) { this.x = at.x; this.y = at.y; this.faceTo(at.dx, at.dy); return; }
+    this.head(at.x, at.y, dt);
+  }
+  // A step towards a point, at their pace (a little more if they are behind)
+  head(x, y, dt) {
+    const dx = x - this.x, dy = y - this.y, d = Math.hypot(dx, dy), go = Math.min(d, SPEED * CATCH * dt);
+    if (d < 1e-4 || !(dt > 0)) { this.vx = this.vy = 0; return; }
+    this.pose = null; delete this.yaw; this.still = false;
+    this.vx = (dx / d) * go / dt; this.vy = (dy / d) * go / dt;
+    this.x += (dx / d) * go; this.y += (dy / d) * go;
+    this.step += go * 3.2;
+    this.faceTo(dx, dy);
+  }
+  // They are at their place: what that is
+  settle(s) {
+    this.path = []; this.spot = s; this.node = s.work ? this.def.work : s.seat ? 'taberna' : s.room ? s.kind : s.node;
+    this.atHome = !!s.home; this.meal = s.meal && (!s.seat || mealHour(this.now ?? 0));
+    this.hidden = s.hidden || (this.atHome && !this.seenIn());
+    this.asleep = s.kind === 'asleep';
+  }
+  // At home, is the player near enough to see them through a window (with the bed or the chair where it was)?
+  seenIn() {
+    const g = this.game, p = g?.player, s = this.spot;
+    if (!p || g.scene !== g.world || !s || Math.hypot(p.x - s.x, p.y - s.y) > NEAR_IN) return false;
+    return !s.tile || !!this.furniture(s);
+  }
+  // The piece of furniture of a spot, as it is placed now (looked for every half second), or null
+  furniture(s) {
+    const g = this.game, t = g.time || 0;
+    if (this.fur?.s === s && Math.abs(t - this.fur.t) < 0.5) return this.fur.o;
+    const raw = g.world.at('placed', ...s.tile), o = raw ? g.world.placedNear?.(s.tile[0] + 0.5, s.tile[1] + 0.5, 1.6).find(q => q.tile && q.tile[0] === s.tile[0] && q.tile[1] === s.tile[1] && q.layer !== 'hang' && q.layer !== 'rug') || { none: true } : null;
+    this.fur = { s, t, o };
+    return o;
+  }
+  // Drawn at their place: seated or lying if the furniture is there (standing if it was taken away)
+  drawAt(s) {
+    this.vx = this.vy = 0; this.still = true;
+    let { x, y, pose, yaw } = s;
+    const g = this.game, w = g?.world;
+    if (s.tile && w) {
+      const o = this.furniture(s);
+      if (!o) { pose = null; yaw = s.pose ? s.pose.yaw : yaw; }
+      else if (pose?.kind === 'lie') { if (o.none) pose = null; else { x = o.x + Math.sin(o.yaw || 0) * 1.05; y = o.y + Math.cos(o.yaw || 0) * 1.05; } }
+    }
+    // (a player in their seat of the tavern: they stand at the bar)
+    if (pose?.kind === 'sit' && s.room === 'taberna' && this.taken(x, y)) {
+      for (let i = BAR_FROM; i < SEATS; i++) { const q = tavernSpot(i); if (!this.taken(q.x, q.y, 0.6)) { ({ x, y, yaw } = q); pose = null; break; } }
+    }
+    this.x = x; this.y = y;
+    if (this.pose?.kind !== pose?.kind || this.pose?.yaw !== pose?.yaw) this.pose = pose ? { ...pose } : null;
+    if (pose) this.yaw = pose.yaw;
+    else if (yaw !== null && yaw !== undefined) { delete this.yaw; if (!this.lookedAt) { const dx = Math.sin(yaw), dy = Math.cos(yaw); if (!this.dir || Math.abs(this.dir[0] - dx) + Math.abs(this.dir[1] - dy) > 0.02) this.faceTo(dx, dy); } }
+    else delete this.yaw;
+  }
+  taken(x, y, r = 0.45) {
+    const g = this.game, at = e => e && Math.hypot(e.x - x, e.y - y) < r;
+    if (g.player && g.scene === g.world && at(g.player)) return true;
+    if (g.live?.joined) for (const q of g.live.peers.values()) if (q.entity && q.sc === 'world' && at(q.entity)) return true;
+    return r > 0.5 && g.neighbors.people.some(n => n !== this && !n.hidden && at(n));
   }
 }
 
@@ -175,37 +313,86 @@ export class Neighbors {
     this.flags = save.flags || {};
     // (a game from before the introductions: whoever you already get along with knows you)
     if (!this.flags.met) { for (const f of Object.values(this.friends)) if (f && f.intro === undefined && (f.pts > 0 || (f.talk ?? -1) !== -1 || (f.gift ?? -1) !== -1 || f.events?.length)) f.intro = -1; this.flags.met = 1; }
-    this.people = Object.entries(PEOPLE).filter(([, d]) => !d.fixed && (!d.project || hasProject(d.project))).map(([id, d]) => new Neighbor(id, d));
+    forget(); this.sync();
+    this.people = Object.entries(PEOPLE).filter(([, d]) => !d.fixed && (!d.project || hasProject(d.project))).map(([id, d]) => this.make(id));
     for (const n of this.people) n.placeAt(this.game.days.hour);
     this.world.reserved = new Set(this.people.filter(n => n.def.seat).map(n => `${Math.floor(n.def.seat[0])},${Math.floor(n.def.seat[1])}`));
   }
   save(out) { out.friends = this.friends; out.flags = this.flags; }
+  make(id) { const n = new Neighbor(id, PEOPLE[id]); n.game = this.game; return n; }
+  // What their days depend on besides the clock and the projects: this world's weather (the host's day 0, its seed)
+  sync() { const T = this.game.days; setEnv(`${T.base}:${this.world.seed}`, day => T.weatherFor(day - T.base)); }
   friend(id) { return (this.friends[id] ||= { pts: 0, talk: -1, gift: -1, events: [] }); }
   hearts(id) { return Math.min(10, Math.floor(this.friend(id).pts / 100)); }
   addPoints(id, n) { const f = this.friend(id); f.pts = Math.max(0, Math.min(1000, f.pts + n)); }
   // Alguien nuevo se muda al pueblo (proyecto "Casa nueva")
-  moveIn(id) { if (!this.people.some(p => p.id === id)) { const n = new Neighbor(id, PEOPLE[id]); n.placeAt(this.game.days.hour); this.people.push(n); } }
+  moveIn(id) { if (!this.people.some(p => p.id === id)) { const n = this.make(id); n.placeAt(this.game.days.hour); this.people.push(n); } }
 
+  // The clock they follow. With the clock stopped (/gamerule doDaylightCycle false), the hour it stopped at and the few minutes
+  // after it: whoever was on the way gets there, and nothing else happens
+  clock(dt = 0) {
+    const now = this.game.days.now, C = this.stopped;
+    if (this.game.rules?.doDaylightCycle !== false) { this.stopped = null; return now; }
+    if (!C || Math.abs(now - C.at) > 6e4) { this.stopped = { at: now, t: 0 }; return now; }
+    C.t = Math.min(240, C.t + dt);
+    return C.at + C.t * 1000;
+  }
   update(dt) {
-    const h = this.game.days.hour;
+    const now = this.clock(dt);
+    this.sync();
     for (const n of this.people) {
       const who = this.game.talk?.holder(n) || null;   // (you, or another player, talking with them: talk.js)
       if (n.talkWith !== who) n.talkWith = who;
-      n.update(dt, h);
+      n.lookedAt = !!who || n.hold > 0;
+      n.update(dt, now);
       // (si le han quitado la silla o el taburete, de pie; si vuelve a haberlo, sentado)
-      if (n.def.sits) { const has = !!this.world.at('placed', Math.floor(n.x), Math.floor(n.y)); if (has !== !!n.pose) n.pose = has ? { kind: 'sit', yaw: n.def.seat[2], h: n.def.sits } : null; }
+      if (!ROUTINES && n.def.sits) { const has = !!this.world.at('placed', Math.floor(n.x), Math.floor(n.y)); if (has !== !!n.pose) n.pose = has ? { kind: 'sit', yaw: n.def.seat[2], h: n.def.sits } : null; }
     }
-    this.world.extraColliders = this.people.filter(n => !n.hidden).map(n => ({ x: n.x, y: n.y, r: 0.3 }));
+    this.world.extraColliders = this.people.filter(n => !n.hidden && !n.asleep).map(n => ({ x: n.x, y: n.y, r: 0.3 }));
   }
   entities(scene) { return scene === this.world ? this.people.filter(n => !n.hidden) : null; }
-  // Dónde está cada vecino (para el mapa y las pistas)
-  isWorking(id) { const n = this.people.find(p => p.id === id); return n && !n.path.length && n.node === n.def.work; }
+  // At their counter (not on the way to it)
+  isWorking(id) {
+    const n = this.people.find(p => p.id === id);
+    return !!n && (ROUTINES ? !!n.spot?.work : !n.path.length && n.node === n.def.work);
+  }
+  // Is their shop open now (routines.js: the day's hours and them at the counter)
+  isOpen(id) {
+    const S = PEOPLE[id]?.shop && SHOPS[PEOPLE[id].shop], T = this.game.days;
+    if (!S) return false;
+    const now = S.hours[1] > 24 && T.hour < 6 ? T.hour + 24 : T.hour, [a, b] = shopHours(PEOPLE[id].shop, T.realDay);
+    return this.isWorking(id) && now >= a && now < b;
+  }
+  // Seated (or standing) in their own place of the tavern: the barber works there
+  inSeat(id) { const n = this.people.find(p => p.id === id); return !!n && (ROUTINES ? !!n.spot?.seat : !n.hidden); }
+  // The same, as they say it (talk.js)
+  whenText(id) {
+    const def = PEOPLE[id], T = this.game.days, next = def?.shop && opensNext(id, def.shop, T.now);
+    if (!next) return this.awayText(id);
+    const P = { time: hhmm(next.hour), day: t(`time.weekday.long.${weekdayOf(T.realDay + next.day)}`) };
+    return next.day > 0 ? this.line(next.day === 1 ? 'npc.when.tomorrow' : 'npc.when.later', P) : this.say(id, 'when', P);
+  }
+  // Why their shop is shut and when it opens, in words ('' if it is open)
+  awayText(id) {
+    const def = PEOPLE[id], S = def?.shop && SHOPS[def.shop], T = this.game.days;
+    if (!S || this.isOpen(id)) return '';
+    const next = opensNext(id, def.shop, T.now), n = this.people.find(p => p.id === id), hm = h => hhmm(h);
+    if (!next) return t('routine.closed', { name: def.name });
+    if (next.day > 0) return t(next.day === 1 ? 'routine.closed_until_tomorrow' : 'routine.closed_until', { name: def.name, time: hm(next.hour), day: t(`time.weekday.long.${weekdayOf(T.realDay + next.day)}`) });
+    const kind = n ? (n.path.length ? 'road' : n.spot?.meal ? (n.spot.room === 'taberna' ? 'lunch_tavern' : 'lunch') : n.spot?.kind) : 'away';
+    return t(has(`routine.away.${kind}`) ? `routine.away.${kind}` : 'routine.away', { name: def.name, time: hm(next.hour) });
+  }
 
   interact(p, scene) {
     if (scene !== this.world) return null;
     if (Math.hypot(p.x - NILO.x, p.y - NILO.y) < 1.6 && scene.reaches(p.x, p.y, NILO.x, NILO.y)) return this.actionFor(null);
     for (const n of this.people) if (!n.hidden && Math.hypot(p.x - n.x, p.y - n.y) < 1.5 && scene.reaches(p.x, p.y, n.x, n.y)) return this.actionFor(n);
     return null;
+  }
+  // Rosa's stall while she is away: E reads her card
+  aimables(p, scene, box) {
+    if (scene !== this.world || !ROUTINES || !this.people.some(n => n.id === 'rosa') || this.isOpen('rosa')) return null;
+    return [{ kind: 'sys', box: box(STALL.x0 + 1, STALL.y0 + 0.5, 1, 0.5, 0, 1.3), act: () => ({ text: t('routine.card.read'), run: () => { Audio.blip(); hud.toast(this.awayText('rosa')); } }) }];
   }
   // Lo que se hace con un vecino (null: Nilo)
   // (npc, n: whose tag goes over the prompt's rows, and row: what its E says under it; ui/prompts.js)
@@ -298,12 +485,19 @@ export class Neighbors {
   }
   // What they say, in their talk (as subtitles), or in the box if there is none
   tell(id, lines) { const T = this.game.talk; return T?.has(id) ? T.say(id, lines) : hud.say(PEOPLE[id].name, lines); }
-  // Where neighbour id is now, by their schedule and where they stand: { kind (npc.where.<kind>), until (the hour it ends, or
-  // when they come, or null), goal (where they go: a node), at: [x, y] to point at, or null }
+  // Where neighbour id is now, by their routine: { kind (npc.where.<kind>), until (the hour it ends, or when they come, or
+  // null), goal (where they go: npc.goal.<goal>), at: [x, y] to point at, or null, who (whom they visit) }
   whereIs(id) {
-    const n = this.people.find(p => p.id === id), h = this.game.days.hour;
+    const n = this.people.find(p => p.id === id), T = this.game.days, h = T.hour;
     if (id === 'nilo') return { kind: 'nilo', until: null, at: [NILO.x, NILO.y] };
     if (!n) return { kind: 'away', until: null, at: null };
+    if (ROUTINES) {
+      const a = placeAt(id, this.clock()), s = a.slot, until = s.untilHour, at = [a.x, a.y], k = a.spot.kind;
+      if (a.moving) return { kind: 'road', until, goal: a.spot.goal, at };
+      if (k === 'away') return { kind: 'away', until, at: null };
+      if (a.spot.home) return { kind: k === 'asleep' ? k : a.spot.meal ? 'meal_home' : 'home', until: leavesHome(id, T.now) ?? until, at: k === 'asleep' ? null : at };
+      return { kind: k, until, at, who: a.spot.who };
+    }
     const S = n.def.schedule, at = [n.x, n.y];
     if (n.def.seat) { const [from, to] = n.def.hours; return n.hidden ? { kind: 'away', until: from, at: null } : { kind: 'taberna', until: to, at }; }
     const next = S.find(s => s[0] > h), until = next ? next[0] : S[1][0];   // (after the last one of the day, the first of tomorrow's)

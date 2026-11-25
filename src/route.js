@@ -66,6 +66,7 @@ const r2 = v => Math.round(v * 100) / 100;
 function placeName(id, by) {
   if (id === 'home') return by ? t('gui.map.house_of', { name: by }) : null;
   if (id === 'tavern') return t('gui.map.tavern');
+  if (id === 'chapel') return t('place.chapel');
   const q = id.startsWith('house:') ? HOUSES[id.slice(6)] : null;
   return q?.name ? t('gui.map.house_of', { name: q.name }) : null;
 }

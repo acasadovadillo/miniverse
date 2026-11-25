@@ -16,6 +16,7 @@ import { animalModel } from './animals.js';
 import { apagado } from '../arte.js';
 import { fountain, FOUNT_MATS } from './fountain3d.js';
 import { mailbox, MAIL_MATS } from './mailbox3d.js';
+import { pew } from './chapel3d.js';
 
 // Las cajas de los modelos con los cantos biselados, según su material: redondeadas en lo blando (mantas, sábanas,
 // cojines, cuero), con el canto gastado en la madera y un poco en la piedra
@@ -638,6 +639,7 @@ const BUILD = {
     }
     m.box('dark', -0.2, 0.13, 0.36, 0.2, 0.155, 0.48).box('iron', -0.18, 0.155, 0.38, 0.18, 0.16, 0.395).box('iron', -0.18, 0.155, 0.43, 0.18, 0.16, 0.445);
   },
+  pew(m) { pew(m); },   // (chapel3d.js)
   colmena(m) {
     for (const [x, z] of [[-0.25, -0.2], [0.21, -0.2], [-0.25, 0.16], [0.21, 0.16]]) m.box('dark', x, 0, z, x + 0.04, 0.3, z + 0.04);
     m.box('wood', -0.3, 0.3, -0.25, 0.3, 0.34, 0.25);

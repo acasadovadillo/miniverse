@@ -17,6 +17,7 @@
 // The lines: npc.topic.<topic>[.<sub>].<id> (that neighbour's own), .<temper> and the plain key, all pooled. A line is
 // skipped for REST days after it was said to you (f.said), and a topic for the next KEEP_TOPICS picks (f.tops).
 // Every line must be true: a topic without its data is not offered.
+import { ROUTINES } from './routines.js';   // (a cycle too, read only inside functions)
 import { PEOPLE } from './neighbors.js';   // (a cycle, read only inside functions)
 import { ITEMS, CROPS, FISH, itemNoun } from './items.js';
 import { GROW, MULCH_FROST, rateAt, seedOf } from './cropdata.js';
@@ -81,12 +82,20 @@ export function forecastBy(id, game, day = game.days.realDay) {
 }
 
 // ---------- the context ----------
-// Where they are, as a word: 'work', 'tavern', 'road' (walking), 'plaza', 'pond', 'board' or null (somewhere else)
+// Where they are, as a word: 'work', 'market' (selling), 'tavern', 'chapel', 'home', 'visit', 'road' (walking), 'plaza', 'pond', 'board' or null (somewhere else)
 function placeOf(id, n) {
   if (id === 'nilo') return 'plaza';
   if (!n) return null;
-  if (n.def.seat) return n.def.shop && n.def.work === 'taberna' && !n.def.sits ? 'work' : 'tavern';
+  if (!ROUTINES && n.def.seat) return n.def.shop && n.def.work === 'taberna' && !n.def.sits ? 'work' : 'tavern';
   if (n.path.length) return 'road';
+  if (ROUTINES && n.spot) {
+    const s = n.spot;
+    if (s.room === 'taberna') return s.keeper ? 'work' : 'tavern';
+    if (s.work) return s.kind === 'market' ? 'market' : 'work';
+    if (s.kind === 'chapel' || s.kind === 'visit') return s.kind;
+    if (s.home) return 'home';
+    return s.kind === 'plaza' || s.kind === 'board' || s.kind === 'pond' ? s.kind : null;
+  }
   if (n.node === n.def.work) return 'work';
   return n.node.startsWith('pond') ? 'pond' : n.node === 'plaza' || n.node === 'board' ? n.node : null;
 }

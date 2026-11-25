@@ -429,6 +429,22 @@ export function postSprite(id, q = 0) {
   });
 }
 
+// The doorway with its bell (its icon)
+export function bellSprite(q = 0) {
+  return cached(`bell:${q}`, () => {
+    const [c, , I] = canvas(q), col = boxCol(WALLS.muro_piedra.col), dark = boxCol('#6f5a34');
+    I.box(-0.5, -0.12, -0.28, 0.12, 0, WALL_H, col);
+    I.box(-0.28, -0.12, 0.28, 0.12, 22, WALL_H, col);
+    I.box(-0.4, -0.14, -0.2, 0.14, WALL_H, WALL_H + 12, col);
+    I.box(-0.16, -0.1, 0.16, 0.1, WALL_H + 3, WALL_H + 9, dark);
+    I.box(0.28, -0.12, 0.5, 0.12, 0, WALL_H, col);
+    I.box(0.2, -0.14, 0.4, 0.14, WALL_H, WALL_H + 12, col);
+    I.box(-0.42, -0.16, 0.42, 0.16, WALL_H + 12, WALL_H + 15, col);
+    I.flush();
+    return outlined(c);
+  });
+}
+
 // Icono de una pieza de construcción para la paleta: lo dibujado en el sprite (sin el lienzo vacío),
 // reducido para que quepa entero y centrado en 36×36
 export function pieceIcon(img) {

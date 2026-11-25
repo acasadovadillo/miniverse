@@ -47,11 +47,11 @@ export const HITS = {
   suelo_madera: 1, camino: 1, valla: 1,
   suelo_piedra: 2, puerta_valla: 2, valla_piedra: 2, post: 2,
   muro_madera: 3,
-  muro_entramado: 4, ventana: 4, ventana_contraventanas: 4, muro_cuadro: 4, puerta: 4, stone_pillar: 4,
+  muro_entramado: 4, ventana: 4, ventana_contraventanas: 4, muro_cuadro: 4, puerta: 4, stone_pillar: 4, bell_gable: 6,
   muro_piedra: 5,
 };
 export const hitsOf = id => HITS[id] || (PIECES[id]?.layer === 'roof' ? 2 : 3);
-const STONE = new Set(['suelo_piedra', 'camino', 'valla_piedra', 'muro_piedra', 'stone_pillar']);
+const STONE = new Set(['suelo_piedra', 'camino', 'valla_piedra', 'muro_piedra', 'stone_pillar', 'bell_gable']);
 const TILES = new Set(['tejado_rojo', 'tejado_azul', 'tejado_gris', 'tejado_verde']);
 
 const LAYERS = new Set(['floor', 'placed', 'roof']);

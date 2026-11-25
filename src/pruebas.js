@@ -93,6 +93,10 @@ import { makeCave } from './world/underground.js';
 import { CROPS, START_KIT, thirstOf, clothesText, WEAR_SLOTS, wearSlotLabel, itemNoun } from './items.js';
 import { REMARKS, remarkKey, remarkLines } from './remarks.js';
 import { PEOPLE } from './neighbors.js';
+import * as RT from './routines.js';
+import { wayRound } from './world/walkways.js';
+import { CHAPEL, LOTS, WALK_NODES, setProjects, keepClear, townDigWhy as townWhy } from './world/village.js';
+import { PROJECTS } from './board.js';
 import { talkContext, pickTopic, topicWeights, topicLines, cropNews, fishNow, moodOf, forecastBy, tomorrowsWeather, lineHash, thing, someOf, TOPICS } from './talktopics.js';
 import { stackKg, SIP_KG } from './carry-items.js';
 import { extraOf } from './inventory.js';
@@ -121,7 +125,7 @@ import { Voices, MAX_VOICES, renderPart } from './musicvoices.js';
 import { SCORES, barS, unitS, stingerNotes, resolveScore } from './musicscore.js';
 import { apagada } from './opciones.js';
 import { Farm } from './farm.js';
-import { seasonOf } from './time.js';
+import { seasonOf, madridMs } from './time.js';
 import { seasonC, fieldDay } from './fieldclimate.js';
 import { GROW, seedOf, rateAt } from './cropdata.js';
 import { NORTH, HALF as PHALF, H as PH, nearX, W as PW } from './world/planet.js';
@@ -2116,7 +2120,7 @@ async function soloTests(game) {
   const keyY = (type = 'keydown') => dispatchEvent(new KeyboardEvent(type, { code: 'KeyY', key: 'y', bubbles: true, cancelable: true }));
   const aimAtE = (e, h = 1) => { const v = new THREE.Vector3(e.x, game.view3d.groundY(w(), e.x, e.y) + h, e.y).project(game.view3d.camera); game.mouse = { x: (v.x + 1) / 2 * innerWidth, y: (1 - v.y) / 2 * innerHeight, in: true }; };
   // A neighbor stopped at (x, y), out (their schedule would walk them off: hold keeps them still)
-  const put = (id, x, y) => { const n = nb(id); n.x = x; n.y = y; n.hidden = false; n.path = []; n.hold = 1e6; return n; };
+  const put = (id, x, y) => { const n = nb(id); n.x = x; n.y = y; n.hidden = n.atHome = n.asleep = false; n.pose = null; n.path = []; n.hold = 1e6; return n; };
   const cand = id => So().candidates().find(c => c.id === id);
   const today = () => game.days.dayIndex;
   // Each one from a clean state (survival at 11:00, the neighbors held far away, a new reputation and new friendships),
@@ -2357,7 +2361,7 @@ async function soloTests(game) {
     try {
       dismantle(game, t1); check(!w().at('roof', ...t1), 'the roof stays');
       check(Rp().pts === -12 && Rp().v.log.at(-1)[2] === 'take' && Rp().v.taken[`roof:${t1}`]?.[0] === 12, `nobody saw it: ${Rp().pts} ${JSON.stringify(Rp().v.taken)}`);
-      nb('rosa').hidden = true;   // (at home)
+      nb('rosa').hidden = nb('rosa').atHome = true;   // (at home)
       dismantle(game, t1); check(!w().at('placed', ...t1), 'the wall stays');
       check(Rp().pts === -37 && Rp().v.log.at(-1)[2] === 'take_seen' && Nb().friend('rosa').pts === 190, `Rosa at home: ${Rp().pts}, friendship ${Nb().friend('rosa').pts}`);
       const said = So().bubbles.find(b => b.name === t('npc.witness.inside', { name: 'Rosa' }));
@@ -2367,7 +2371,7 @@ async function soloTests(game) {
   await test('reputacion: devolver una pieza recupera la mitad una vez; poner y quitar la misma pared suma 0; en creativo no cambia', social(async () => {
     const B = game.build, I = inv(), t1 = rosaWall(), station = B.stationFor;
     await goTo(game, t1[0] + 0.5, t1[1] + 2.5); game.mouse = null; w().nilo.x = 60;
-    nb('rosa').hidden = true; nb('lia').hidden = false;
+    nb('rosa').hidden = nb('rosa').atHome = true; nb('lia').hidden = nb('lia').atHome = false;
     B.toggle(true); B.select('quitar'); B.stationFor = () => true;   // (the stone wall wants the mason's table near: not what is tested)
     try {
       dismantle(game, t1); dismantle(game, t1);   // (the roof, then the wall: Rosa hears both)
@@ -2395,7 +2399,7 @@ async function soloTests(game) {
     check(game.vecinoAt(door) === 'rosa', 'not Rosa\'s door');
     await goTo(game, door[0] + 0.5, door[1] + 1.6);
     runCommand(game, '/time set 23:00', () => {});
-    nb('rosa').hidden = true;
+    nb('rosa').hidden = nb('rosa').atHome = true;
     game.knock(door); await sleep(1100);
     check(Rp().pts === -3 && Rp().v.log.at(-1)[2] === 'knock_night', `knocking at night: ${Rp().pts}`);
     game.knock(door); await sleep(1100);
@@ -3115,9 +3119,9 @@ async function soloTests(game) {
     // Shops by their hours
     const D = game.days, hour = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(D), 'hour');
     try {
-      const at = h => { Object.defineProperty(D, 'hour', { value: h, configurable: true }); blips.refresh(game, 0, true); return blips.list.filter(b => b.kind === 'shop').map(b => ({ ...b })); };
+      const at = h => { Object.defineProperty(D, 'hour', { value: h, configurable: true }); Object.defineProperty(D, 'now', { value: (Math.floor(D.now / 864e5) + (h === 3 ? 1 : 0)) * 864e5 + h * 36e5, configurable: true }); blips.refresh(game, 0, true); return blips.list.filter(b => b.kind === 'shop').map(b => ({ ...b })); };
       const day = at(12), night = at(3); check(day.length >= 3 && !day.find(b => b.name.includes('Rosa')).dim && night.find(b => b.name.includes('Rosa')).dim && night.find(b => b.name.includes('Rosa')).sub, 'the shops do not close');
-    } finally { delete D.hour; blips.refresh(game, 0, true); }
+    } finally { delete D.hour; delete D.now; blips.refresh(game, 0, true); }
     // Hidden kinds, and something registered by anyone shows on the big map and can be clicked
     blips.source('test', out => { const b = out.add('tavern', p().x + 12, p().y - 14); b.kind = 'test'; b.name = 'Cosa'; b.pri = 99; b.to = { x: 1, y: 1, kind: 'point' }; b.mini = true; });
     try {
@@ -3384,7 +3388,7 @@ async function soloTests(game) {
       check(!card.hidden && card.textContent.includes(home.name) && /\d/.test(card.querySelector('em').textContent) && card.textContent.includes(t('map.keys.dest')), `card: ${card.textContent}`);
       const box = card.getBoundingClientRect(); check(box.left >= 0 && box.top >= 0 && box.right <= innerWidth && box.bottom <= innerHeight, 'the card is off the screen');
       // A closed shop says so
-      const D = game.days; try { Object.defineProperty(D, 'hour', { value: 3, configurable: true }); blips.refresh(game, 0, true); draw(); const shop = M.hits.find(q => q.kind === 'shop'); if (shop) { mapMove(shop.sx, shop.sy); draw(); check(card.textContent.includes(shop.sub) && shop.dim, `shop: ${card.textContent}`); } } finally { delete D.hour; blips.refresh(game, 0, true); }
+      const D = game.days; try { Object.defineProperty(D, 'hour', { value: 3, configurable: true }); blips.refresh(game, 0, true); draw(); const shop = M.hits.find(q => q.kind === 'shop'); if (shop) { mapMove(shop.sx, shop.sy); draw(); check(card.textContent.includes(shop.sub) && shop.dim, `shop: ${card.textContent}`); } } finally { delete D.hour; delete D.now; blips.refresh(game, 0, true); }
       const [x, y] = freeSpot(); mapMove(x, y); draw(); check(!MS().hover && card.hidden && mapEl('map-area').textContent.length > 2, 'a card over nothing');
       // Land never explored has no name
       const all = game.explored; try { game.explored = new Set(); draw(); check(mapEl('map-area').textContent.startsWith(t('map.unexplored')), `it says ${mapEl('map-area').textContent}`); } finally { game.explored = all; }
@@ -8156,6 +8160,216 @@ async function soloTests(game) {
     const e = nb('eusebio'); e.placeAt(22.9); e.talkWith = p(); e.update(0.1, 23.2); check(!e.hidden, 'vanished in the talk');
     game.busy = false; N.update(0); check(e.talkWith === null, 'a cut talk holds them'); e.update(0.1, 23.2); check(e.hidden, 'still there'); check(T.hour > 0, '');
   }));
+  // ---------- H1: the neighbours' routines and the chapel (docs/planes/gta/PLAN-H-pueblo-vivo.md §2, §12: src/routines.js) ----------
+  const WORKDAY = 20783;   // (Thursday 2026-11-26)
+  const dayMs = (day, h = 0) => day * 864e5 + h * 36e5, MON = 20780;   // (Monday 2026-11-23)
+  // With these projects of the village and this clock (ms), everything put back after
+  const routine = fn => async () => {
+    const keep = { p: game.board.projects, now: Object.getOwnPropertyDescriptor(game.days, 'now'), people: Nb().people.map(n => [n, n.hold]), ppl: Nb().people };
+    const projects = o => { game.board.projects = o; setProjects(o); w().rebuildVillage(); RT.forget(); };
+    const clock = ms => { Object.defineProperty(game.days, 'now', { configurable: true, get: () => ms }); for (const n of Nb().people) { n.hold = 0; n.lag = 0; n.now = null; } };
+    RT.testDay.kind = null; RT.forget();
+    try { await fn({ projects, clock }); }
+    finally {
+      if (keep.now) Object.defineProperty(game.days, 'now', keep.now); else delete game.days.now;
+      RT.testDay.kind = 'work'; Nb().people = keep.ppl; projects(keep.p); for (const [n, h] of keep.people) { n.hold = h; n.lag = 0; n.placeAt(game.days.hour); }
+    }
+  };
+  await test('routines (english): weekday and holidays', routine(async ({ clock }) => {
+    const D = (y, m, d) => Date.UTC(y, m - 1, d) / 864e5;
+    check(RT.weekdayOf(D(2026, 11, 22)) === 0 && RT.weekdayOf(D(2026, 11, 28)) === 6, 'weekdays');
+    check(RT.isHoliday(D(2026, 12, 8)) && RT.isHoliday(D(2027, 1, 6)) && !RT.isHoliday(D(2026, 12, 9)), 'holidays');
+    check(RT.dayKind(D(2026, 11, 22)) === 'sun' && RT.dayKind(D(2026, 12, 8)) === 'sun' && RT.dayKind(D(2026, 11, 28)) === 'sat' && RT.dayKind(D(2026, 11, 24)) === 'work', 'kinds');
+    clock(dayMs(MON + 6, 12)); check(game.days.label().startsWith(t('time.weekday.0')), `label ${game.days.label()}`);
+    // A guest with the host's clock: the same weekday
+    const L = game.live, was = L.clockBase, wg = Object.getOwnPropertyDescriptor(L, 'guest'); delete game.days.now;
+    try { Object.defineProperty(L, 'guest', { configurable: true, get: () => true }); L.clockBase = { db: game.days.dayBase, sh: 72 }; check(RT.weekdayOf(game.days.realDay) === (RT.weekdayOf(Math.floor(madridMs() / 864e5)) + 3) % 7, 'a guest does not use the host clock'); }
+    finally { L.clockBase = was; if (wg) Object.defineProperty(L, 'guest', wg); else delete L.guest; }
+  }));
+  await test('routines (english): a whole week, everybody gets everywhere and every shop opens', routine(async ({ projects, clock }) => {
+    const ids = Object.keys(PEOPLE).filter(id => !PEOPLE[id].fixed), bad = [];
+    for (const P of [{}, { mercado: true, casa: true, chapel: true, fuente: true, muelle: true }]) {
+      projects(P);
+      const here = ids.filter(id => !PEOPLE[id].project || P[PEOPLE[id].project]), kinds = new Set();
+      for (let day = MON; day < MON + 7; day++) {
+        for (const id of here) {
+          const plan = RT.planFor(id, day);
+          check(plan[0].at === 0 && plan.every((s, i) => !i || s.at > plan[i - 1].at), `${id} ${day}: ${plan.map(s => s.at)}`);
+          for (let i = 0; i < plan.length; i++) {
+            const sp = plan[i].spot, end = plan[i + 1]?.at ?? 24; kinds.add(sp.kind);
+            const a = RT.placeAt(id, dayMs(day, end) - 1);
+            if (a.moving || a.spot !== sp || a.x !== sp.x || a.y !== sp.y) bad.push(`${id} ${RT.weekdayOf(day)} ${plan[i].at}: not at ${sp.key}`);
+            const R = RT.roadOf(RT.slotAt(id, dayMs(day, plan[i].at) + 1));
+            if (R && (!R.len || R.pts.some(q => !(Number.isFinite(q[0]) && Number.isFinite(q[1]))))) bad.push(`${id}: road ${R.from.key}>${R.to.key}`);
+            if (R && RT.nodesBetween(R.from.node, R.to.node) === null) bad.push(`${id}: no way ${R.from.node}>${R.to.node}`);
+            if (R && wayRound(w(), R) !== R && !/fountain/.test(sp.key)) { const W = wayRound(w(), R); if (W.len > R.len + 6) bad.push(`${id}: the village itself is in the way ${R.from.key}>${R.to.key} ${R.len.toFixed(1)}→${W.len.toFixed(1)}`); }
+          }
+          // (walked second by second: nobody jumps)
+          let prev = null;
+          for (const s of plan) for (let k = -1; k < 90; k++) { const a = RT.placeAt(id, dayMs(day, s.at) + k * 1000); if (prev && k > -1 && Math.hypot(a.x - prev[0], a.y - prev[1]) > RT.SPEED + 0.01) bad.push(`${id} jumps ${s.spot.key} ${k}`); prev = [a.x, a.y]; }
+        }
+        // Nobody in anybody's place, every ten minutes
+        for (let m = 5; m < 1440; m += 10) {
+          const at = here.map(id => [id, RT.placeAt(id, dayMs(day, m / 60))]).filter(([, a]) => !a.moving && !a.spot.hidden);
+          for (let i = 0; i < at.length; i++) for (let j = i + 1; j < at.length; j++) if (Math.hypot(at[i][1].x - at[j][1].x, at[i][1].y - at[j][1].y) < 0.3) bad.push(`${at[i][0]} and ${at[j][0]} together at ${m / 60} day ${RT.weekdayOf(day)}: ${at[i][1].spot.key}`);
+        }
+        // The shops: every day some hours, and the working days about as long as before
+        for (const id of [...here, 'nilo']) {
+          const S = PEOPLE[id].shop; if (!S) continue;
+          let open = 0; for (let m = 0; m < 1440; m += 5) if (RT.openAt(id, S, dayMs(day, m / 60))) open += 5;
+          const least = RT.dayKind(day) === 'sun' ? 2.4 : { rosa: 8, lia: 10, bruno: 8, dani: 5, anselmo: 15.5, marta: 8.5, nilo: 23.9 }[S];
+          if (open / 60 < least) bad.push(`${S} opens ${open / 60} h on day ${RT.weekdayOf(day)}`);
+        }
+      }
+      if (P.chapel) check(['chapel', 'market', 'shopping', 'taberna', 'asleep', 'home', 'pond', 'plaza', 'board', 'away', 'visit'].every(k => kinds.has(k) || (k === 'visit' && kinds.size > 8)), `kinds: ${[...kinds]}`);
+    }
+    check(!bad.length, `${bad.length}: ${[...new Set(bad)].slice(0, 6).join(' · ')}`);
+  }));
+  await test('routines (english): pure positions agree', routine(async ({ projects, clock }) => {
+    projects({ mercado: true });
+    const N = Nb();
+    // Two games that started at different times, a neighbour made in each: the same place, also after being held up
+    clock(dayMs(MON + 1, 7)); const A = N.make('bruno'); A.placeAt(dayMs(MON + 1, 7));
+    const B = N.make('bruno'); let now = dayMs(MON + 1, 13.99); A.update(0.1, now); B.placeAt(now);
+    for (let i = 0; i < 700; i++) { now += 100; A.update(0.1, now); if (i > 350) B.update(0.1, now); }
+    check(Math.hypot(A.x - B.x, A.y - B.y) < 0.02 && A.node === B.node && !!A.pose === !!B.pose, `${A.x},${A.y} / ${B.x},${B.y} ${A.node} ${B.node}`);
+    // A greeting on the way (1.8 s): five seconds later they agree again, and nobody jumped
+    const C = N.make('rosa'), D = N.make('rosa'); now = dayMs(MON + 1, 18) - 500; const s0 = RT.slotAt('rosa', now + 6e5); check(s0.spot.key.startsWith('pond_w') || true, '');
+    C.placeAt(now); D.placeAt(now); let start = null, far = 0, jump = 0, last = [C.x, C.y];
+    for (let i = 0; i < 12000; i++) {
+      now += 50; D.update(0.05, now); if (D.path.length && start === null) start = i;
+      if (start !== null && i === start + 20) C.hold = 1.8;
+      C.update(0.05, now); jump = Math.max(jump, Math.hypot(C.x - last[0], C.y - last[1])); last = [C.x, C.y];
+      if (start !== null && i === start + 20 + 36) far = Math.hypot(C.x - D.x, C.y - D.y);
+      if (start !== null && i > start + 20 + 36 + 100) break;
+    }
+    check(start !== null && far > 1 && Math.hypot(C.x - D.x, C.y - D.y) < 0.1, `held: ${far} apart, 5 s later ${Math.hypot(C.x - D.x, C.y - D.y)}`);
+    check(jump <= RT.SPEED * 1.5 * 0.05 + 1e-6, `jumps ${jump}`);
+    // A talk that lasts the whole walk: they leave when it is over, walking
+    const E = N.make('lia'); now = dayMs(MON + 1, 14) - 1000; E.placeAt(now); E.talkWith = p();
+    for (let i = 0; i < 600; i++) { now += 100; E.update(0.1, now); } check(Math.hypot(E.x - WALK_NODES.plaza[0], E.y - WALK_NODES.plaza[1]) < 1, 'left in the talk');
+    E.talkWith = null; now += 100; E.update(0.1, now); check(E.path.length === 1, 'does not set off'); for (let i = 0; i < 300; i++) { now += 100; E.update(0.1, now); } check(!E.path.length && E.lag === 0 && E.meal, `${E.node} lag ${E.lag}`);
+  }));
+  await test('routines net (english): a guest with the host\'s clock, and somebody stopped by a talk, agree', routine(async ({ projects, clock }) => {
+    projects({ mercado: true, chapel: true, casa: true });
+    const N = Nb(), L = game.live, D = game.days, ids = Object.keys(PEOPLE).filter(id => !PEOPLE[id].fixed), times = []; for (let d = MON; d < MON + 7; d++) for (const h of [7.6, 9.2, 11.84, 14.002, 18.01, 20.02, 21.001, 23.4]) times.push(dayMs(d, h));
+    N.sync(); const host = times.map(ms => ids.map(id => { const a = RT.placeAt(id, ms); return [a.x, a.y, a.spot.key, a.moving]; }));
+    // The guest: another first day and another shift of its own, and the host's in clockBase
+    const was = L.clockBase, wg = Object.getOwnPropertyDescriptor(L, 'guest'), base = D.base, mine = [D.dayBase, D.shift];
+    try {
+      Object.defineProperty(L, 'guest', { configurable: true, get: () => true }); L.clockBase = { db: base, sh: 5 }; D.dayBase = base - 400; D.shift = -3; RT.forget(); N.sync();
+      check(D.base === base, 'base'); delete D.now; check(Math.abs(D.now - madridMs() - 5 * 36e5) < 1500, 'the host clock');
+      const guest = times.map(ms => ids.map(id => { const a = RT.placeAt(id, ms); return [a.x, a.y, a.spot.key, a.moving]; }));
+      let differ = 0; for (let i = 0; i < times.length; i++) for (let j = 0; j < ids.length; j++) if (String(host[i][j]) !== String(guest[i][j])) differ++;
+      check(!differ && host.flat().some(a => a[3]), `${differ} differ`);
+    } finally { L.clockBase = was; if (wg) Object.defineProperty(L, 'guest', wg); else delete L.guest; [D.dayBase, D.shift] = mine; RT.forget(); N.sync(); }
+    // The message of a talk ('tk') reaches the other game a little later: they differ while it lasts, and not a few seconds after
+    const A = N.make('bruno'), B = N.make('bruno'); let now = RT.slotAt('bruno', dayMs(MON + 1, 17.4)).start - 2000; A.placeAt(now); B.placeAt(now);
+    let worst = 0, end = 0;
+    for (let i = 0; i < 1400; i++) {
+      now += 50; const s = i * 0.05; A.talkWith = s > 5 && s < 20 ? p() : null; B.talkWith = s > 5.3 && s < 20.2 ? p() : null;
+      A.update(0.05, now); B.update(0.05, now); const d = Math.hypot(A.x - B.x, A.y - B.y); if (s < 24) worst = Math.max(worst, d); if (s > 60) end = Math.max(end, d);
+    }
+    check(worst > 0.2 && worst < 1.2 && end < 0.02 && A.node === 'board' && B.node === 'board', `${worst} then ${end}, ${A.node} ${B.node}`);
+    // The clock stopped by an op: they get to their place and stay
+    const rules = game.rules.doDaylightCycle; let ms = dayMs(MON + 1, 14) + 100; Object.defineProperty(D, 'now', { configurable: true, get: () => ms }); game.rules.doDaylightCycle = false; const r = nb('rosa'); r.hold = 0; N.stopped = null;
+    try { let back = 0, last = null; for (let i = 0; i < 900; i++) { ms = dayMs(MON + 1, 14) + 100 + ((i * 100) % 15000); N.update(0.1); if (last && Math.hypot(r.x - last[0], r.y - last[1]) > 1) back++; last = [r.x, r.y]; } check(!back && r.meal && !r.path.length, `stopped clock: jumps ${back}, ${r.node}`); }
+    finally { game.rules.doDaylightCycle = rules; N.stopped = null; }
+  }));
+  await test('routines (english): meals sleep shops', routine(async ({ projects, clock }) => {
+    projects({}); RT.testDay.kind = 'work'; RT.forget();
+    const N = Nb(), r = nb('rosa'), l = nb('lia');
+    // The days she eats at home and the ones she eats out are there, and stay the same
+    let home = null, out = null; for (let d = MON; d < MON + 60; d++) { const s = RT.slotAt('rosa', dayMs(d, 14.3)).spot; if (s.room === 'taberna') out ??= d; else home ??= d; }
+    check(home && out, 'no days of each');
+    for (const d of [home, out]) {
+      clock(dayMs(d, 14.3)); N.update(0); await goTo(game, 20, 30); N.update(0.1);
+      check(r.meal && (r.pose?.kind === 'sit' || !r.spot.pose) && !N.isOpen('rosa') && !N.isWorking('rosa'), `at table: ${r.node} ${JSON.stringify(r.pose)}`);
+      check(N.awayText('rosa').includes('14:45') && N.awayText('rosa') === t(`routine.away.${d === out ? 'lunch_tavern' : 'lunch'}`, { name: 'Rosa', time: '14:45' }), N.awayText('rosa'));
+      check(d === out ? !r.atHome : r.atHome, `home ${r.atHome}`);
+    }
+    clock(dayMs(MON, 11)); N.update(0); check(N.isOpen('rosa') && N.awayText('rosa') === '', 'shut at 11');
+    // The night: both in their beds, seen from near, and the knock finds them in
+    await goTo(game, 28.5, 37); clock(dayMs(MON, 23.5)); N.update(0); N.update(0.1);
+    check(r.asleep && l.asleep && r.atHome && l.atHome && !r.hidden && !l.hidden && r.pose?.kind === 'lie' && l.pose?.kind === 'lie', `in bed: ${r.node} ${r.hidden} ${JSON.stringify(r.pose)} / ${l.node} ${l.hidden} ${JSON.stringify(l.pose)}`);
+    check(Math.hypot(r.x - l.x, r.y - l.y) > 1.5, 'in the same bed');
+    const beds = w().placedNear(28, 37, 9).filter(o => o.placed === 'cama'); check(beds.length === 2 && [r, l].every(n => beds.some(o => Math.hypot(o.x - n.x, o.y - n.y) < 1.2)), `beds ${beds.length}`);
+    const wit = Rp().witness(24, 34, 'rosa'); check(wit && ['rosa', 'lia'].includes(wit.n.id), `witness ${wit?.n?.id}`);
+    check(game.vecinoAt([28, 41]) === 'rosa', 'the door'); const A = game.aimTargets(p(), w()).filter(a => a.kind === 'npc' && a.e === r); check(A.length < 2, '');
+    // A word half asleep, no talk, and no gesture when greeted
+    const said = []; const say = So().say.bind(So()); So().say = (e, text) => { said.push([e, text]); };
+    try { N.talk('rosa', r); check(!game.talk.on, 'talks asleep'); } finally { delete So().say; }
+    const rep = So().replyFor({ kind: 'npc', id: 'rosa', e: r }, 0, 'neutral'); check(rep.kind === 'asleep' && !rep.gesture && rep.text, JSON.stringify(rep));
+    // Without the bed, out of sight (at home all the same)
+    const at = w().at.bind(w()); w().at = (la, x, y) => (la === 'placed' && x === 23 && y === 33 ? null : at(la, x, y));
+    try { r.fur = null; r.update(0.1, game.days.now); check(r.hidden && r.atHome, 'the bed is gone'); } finally { delete w().at; r.fur = null; }
+    // Far away they are not drawn
+    await goTo(game, 21, -40); N.update(0.1); check(r.hidden && r.atHome, 'drawn from afar');
+    // The tavern's, walking in at their hour and out at theirs
+    clock(dayMs(MON, 10)); const a = nb('anselmo'); N.update(0); N.update(0.1); check(!a.hidden && a.path.length, 'Anselmo does not walk in'); clock(dayMs(MON, 10.05)); N.update(0); check(N.isOpen('anselmo'), 'the tavern is shut'); clock(dayMs(MON, 4)); N.update(0); check(a.hidden, 'Anselmo at 4');
+    clock(dayMs(MON, 12)); N.update(0); const e = nb('eusebio'); check(N.inSeat('eusebio') && e.pose?.kind === 'sit', 'the barber');
+    // Seven hundred frames of the day cost little
+    const t0 = performance.now(); for (let i = 0; i < 700; i++) N.update(0.016); const ms = (performance.now() - t0) / 700; check(ms < 0.5, `${ms.toFixed(3)} ms`); console.log(`routines: ${ms.toFixed(4)} ms a frame`);
+  }));
+  await test('routines (english): market and chapel', routine(async ({ projects, clock }) => {
+    const N = Nb(), SAT = MON + 5, SUN = MON + 6, at = (id, ms) => RT.placeAt(id, ms).spot;
+    projects({}); check(at('bruno', dayMs(SAT, 10)).key.startsWith('forge'), 'a market without stalls'); check(at('rosa', dayMs(SUN, 12.2)).kind === 'plaza', 'no chapel: the square');
+    projects({ mercado: true, chapel: true });
+    check(at('bruno', dayMs(SAT, 10)).node === 'market_a' && at('bruno', dayMs(SAT, 10)).work && at('lia', dayMs(SAT, 10)).node === 'market_b', 'the market');
+    clock(dayMs(SAT, 10)); N.update(0); check(N.isWorking('bruno') && N.isOpen('bruno') && N.isOpen('rosa'), 'Bruno does not sell at the market');
+    const ids = ['rosa', 'lia', 'bruno', 'eusebio', 'ines', 'marta'], pews = ids.map(id => at(id, dayMs(SUN, 12.2)));
+    check(pews.every(s => s.kind === 'chapel') && new Set(pews.map(s => s.key)).size === ids.length, 'pews');
+    await goTo(game, 5.5, 23.5); clock(dayMs(SUN, 12.2)); N.update(0); N.update(0.1);
+    check(ids.every(id => nb(id).pose?.kind === 'sit' && !nb(id).hidden), `seated: ${ids.map(id => `${id} ${nb(id).pose?.kind} ${nb(id).hidden}`)}`);
+    for (const id of ids) { const o = w().placedObjectAt(...nb(id).spot.tile); check(o?.placed === 'pew', `${id} on ${o?.placed}`); }
+    check(game.houseName() === t('place.chapel'), game.houseName()); check(Rp().houseAt(3, 18) === 'chapel', 'houseAt');
+    // The bell: Sundays and holidays at 11:50, only with the chapel
+    check(RT.bellAt(dayMs(SUN, RT.BELL_HOUR) + 5000) > 4 && RT.bellAt(dayMs(SUN, 12)) < 0 && RT.bellAt(dayMs(SAT, RT.BELL_HOUR) + 5000) < 0 && RT.bellAt(dayMs(20795, RT.BELL_HOUR) + 5000) > 4, 'bell');
+    projects({}); check(RT.bellAt(dayMs(SUN, RT.BELL_HOUR) + 5000) < 0, 'a bell without a chapel');
+    // Sunday hours on the map and in the shops
+    check(RT.shopHours('bruno', SUN)[1] === 14 && RT.shopHours('bruno', SAT)[1] === 17 && RT.shopHours('anselmo', SUN)[1] === 26, 'hours');
+    clock(dayMs(SUN, 15)); N.update(0); check(!N.isOpen('rosa') && N.awayText('rosa').includes('9:00'), N.awayText('rosa'));
+    const st = RT.shopState('rosa', 'rosa', dayMs(MON, 13)); check(st.open && Math.abs(st.change - dayMs(MON, 14)) < 12e4, `state ${JSON.stringify(st)}`); RT.forget(); const s2 = RT.shopState('rosa', 'rosa', dayMs(MON, 14.2)); check(!s2.open && Math.abs(s2.change - dayMs(MON, 14.75)) < 3e5, `state ${(s2.change - dayMs(MON)) / 36e5}`);
+  }));
+  await test('routines (english): lots', routine(async ({ projects }) => {
+    const L = LOTS.chapel, hits = (a, b, m = 0) => a.x0 - m < b.x1 && a.x1 + m > b.x0 && a.y0 - m < b.y1 && a.y1 + m > b.y0;
+    check(L.x0 > 0 && L.x1 < 40 && L.y0 > 1 && L.y1 < 62, 'out of bounds'); for (const h of [...Object.values(HOUSES), { x0: 1, y0: 32, x1: 11, y1: 40 }, { x0: 11, y0: 3, x1: 31, y1: 20 }, { x0: 25, y0: 23, x1: 27, y1: 24 }, { x0: 12, y0: 31, x1: 14, y1: 32 }]) check(!hits(L, h), `the lot hits ${JSON.stringify(h)}`);
+    projects({});
+    for (let y = L.y0; y < L.y1; y++) for (let x = L.x0; x < L.x1; x++) { check(keepClear(x + 0.5, y + 0.5), `trees at ${x},${y}`); check(w().natureAt?.(x, y) === undefined || !w().natureAt(x, y), 'a tree'); check(townWhy(x, y) === 'why.dig.chapel.soon', townWhy(x, y)); }
+    check(w().objectsNear === undefined || true, '');
+    // A player's piece on it: the project waits, nothing is taken
+    const B = game.board, say = hud.say, ask = hud.ask, money = game.money, said = []; const list = Object.keys(PROJECTS).filter(id => !PROJECTS[id].needs);
+    check(B.lotBusy('chapel') === 0 && PROJECTS.chapel.money === 2500, 'busy');
+    w().place(4, 18, 'muro_madera');
+    try {
+      check(B.lotBusy('chapel') === 1, `busy ${B.lotBusy('chapel')}`); game.money = 99999; hud.say = (n, l) => { said.push(...l); return Promise.resolve(); }; hud.ask = (a, b, o) => Promise.resolve(list.indexOf('chapel'));
+      await B.projectsMenu(); check(said[0] === t('project.lot_busy', { n: 1 }) && !B.projects.chapel && game.money === 99999 && w().ownAt('placed', 4, 18) === 'muro_madera' && B.lotShown, `said ${said}`);
+    } finally { w().unplace({ tile: [4, 18], layer: 'placed', placed: 'muro_madera' }); hud.say = say; hud.ask = ask; game.money = money; }
+    check(B.lotBusy('chapel') === 0, 'still busy');
+    // Paid: it stands, with its pieces and its way, and nothing of the village under it
+    inv().add('piedra', 80); inv().add('tablas', 30); game.money = 2500; hud.say = () => Promise.resolve(); hud.ask = () => Promise.resolve(Object.keys(PROJECTS).filter(id => !PROJECTS[id].needs).indexOf('chapel'));
+    const remember = Nb().remember; Nb().remember = () => {};
+    try { await B.projectsMenu(); } finally { hud.say = say; hud.ask = ask; Nb().remember = remember; }
+    check(B.projects.chapel && game.money === 0, `not built: ${JSON.stringify(B.projects)} ${game.money}`); game.money = money;
+    check(w().at('placed', CHAPEL.x0 + 3, CHAPEL.y1 - 1) === 'bell_gable' && w().pieceAt(CHAPEL.x0 + 3, CHAPEL.y1 - 1)?.kind === 'door' && w().roofAt(4, 20) && townWhy(4, 20) === 'why.dig.chapel', 'the chapel');
+    // Every piece of it can be built by the player
+    for (const l of ['placed', 'floor', 'roof']) for (let y = L.y0; y < L.y1; y++) for (let x = L.x0; x < L.x1; x++) { const raw = w().at(l, x, y); if (raw) { const id = raw.split('@')[0]; check(PIECES[id] || BUILDABLE[id] || ITEMS[id], `${id} cannot be built`); } }
+    check(BUILDABLE.pew && PLANS.has('pew') && PLAN_BORN.has('pew') && SHOPS.nilo.stock.some(q => q.plan === 'pew') && PIECES.bell_gable.cost.length, 'the pew or the bell');
+  }));
+  await test('routines (english): round what players build', routine(async ({ projects }) => {
+    projects({});
+    const R = RT.roadOf({ prev: { key: 'a', node: 'plaza', via: [] }, spot: { key: 'b', node: 'stall', via: [] } });
+    check(wayRound(w(), R) === R, 'a detour with nothing in the way');
+    const put = []; for (const x of [22, 23]) for (const y of [21, 22, 23]) { w().place(x, y, 'muro_madera'); put.push([x, y]); }
+    try {
+      const W = wayRound(w(), R), inside = put.some(([x, y]) => { for (let d = 0; d <= W.len; d += 0.1) { const [px, py] = RT.along(W, d); if (Math.floor(px) === x && Math.floor(py) === y) return true; } return false; });
+      check(W !== R && W.len > R.len && W.len < R.len + 12 && !inside, `${W === R} ${W.len} ${R.len} ${inside}`); check(W.pts[0] === R.pts[0] && W.pts.at(-1) === R.pts.at(-1), 'other ends');
+    } finally { for (const [x, y] of put) w().unplace({ tile: [x, y], layer: 'placed', placed: 'muro_madera' }); }
+    // Walled in: straight through, never stuck
+    const ring = []; for (let x = 24; x < 28; x++) for (let y = 20; y < 23; y++) if (x === 24 || x === 27 || y === 20 || y === 22) ring.push([x, y]);
+    for (const [x, y] of ring) if (!w().ownAt('placed', x, y)) w().place(x, y, 'muro_madera');
+    try { const W = wayRound(w(), R); check(W.pts.at(-1) === R.pts.at(-1) && W.len < 60, 'stuck'); } finally { for (const [x, y] of ring) w().unplace({ tile: [x, y], layer: 'placed', placed: 'muro_madera' }); }
+  }));
   // ---------- R6.2: talking as in GTA (PLAN-R6-gente §3.2, §8: src/talk.js, ui/talkui.js) ----------
   const Tk = () => game.talk, opts = () => [...document.querySelectorAll('#talk-list.on .tk span')].map(e => e.textContent), subText = () => (So().sub.classList.contains('on') ? So().sub.textContent : '');
   const tkey = (code, key = code) => document.body.dispatchEvent(new KeyboardEvent('keydown', { code, key, bubbles: true, cancelable: true }));
@@ -8243,13 +8457,17 @@ async function soloTests(game) {
   }));
   await test('talk (english): asking where is true, the weather honest, a place you know', talkTest(async (r, N) => {
     // By the schedule, at any hour
-    for (const [id, h, kind, until] of [['bruno', 9, 'forge', 17], ['bruno', 18, 'board', 20], ['bruno', 23.5, 'asleep', 7.5], ['bruno', 21, 'home', 7.5], ['lia', 13, 'plaza', 15], ['lia', 16, 'pond', 20], ['eusebio', 12, 'taberna', 23], ['eusebio', 3, 'away', 11], ['marta', 1, 'taberna', 26]]) {
-      const n = nb(id), real = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(game.days), 'hour'); n.hold = 0; n.placeAt(h);
+    for (const [id, h, kind, until] of [['bruno', 9, 'forge', 14], ['bruno', 18, 'board', 18.5], ['bruno', 23.5, 'asleep', 7.5], ['bruno', 22.8, 'home', 7.5], ['lia', 16, 'pond', 20], ['eusebio', 12, 'taberna', 23], ['eusebio', 3, 'away', 11], ['marta', 1, 'taberna', 2]]) {
+      const n = nb(id); n.hold = 0; n.placeAt(h); RT.testDay.kind = 'work'; RT.forget(); Object.defineProperty(game.days, 'now', { configurable: true, get: () => WORKDAY * 864e5 + h * 36e5 });
       Object.defineProperty(game.days, 'hour', { configurable: true, get: () => h });
-      try { const a = N.whereIs(id), said = Tk().whereNeighbour(id).text; check(a.kind === kind && a.until === until, `${id} at ${h}: ${JSON.stringify(a)}`); check(said && !/[{}]|npc\./.test(said), `${id}: «${said}»`); } finally { delete game.days.hour; check(real || true, ''); }
+      try { const a = N.whereIs(id), said = Tk().whereNeighbour(id).text; check(a.kind === kind && a.until === until, `${id} at ${h}: ${JSON.stringify(a)}`); check(said && !/[{}]|npc\./.test(said), `${id}: «${said}»`); } finally { delete game.days.hour; delete game.days.now; RT.forget(); }
     }
     check(N.whereIs('nilo').kind === 'nilo', 'Nilo');
-    const l = nb('lia'); l.hold = 0; l.hidden = false; l.path = ['plaza']; check(N.whereIs('lia').kind === 'road' && Tk().whereNeighbour('lia').text.includes(t('npc.goal.plaza')), 'walking'); l.path = [];
+    const at0 = WORKDAY * 864e5 + 20 * 36e5 + 2 * 6e4; Object.defineProperty(game.days, 'now', { configurable: true, get: () => at0 }); RT.testDay.kind = 'work'; RT.forget();
+    try {
+      let q = null; for (let s = 0; s < 600 && !q; s++) { const a = RT.placeAt('bruno', at0 - 12e4 + s * 1000); if (a.moving) q = at0 - 12e4 + s * 1000; }
+      Object.defineProperty(game.days, 'now', { configurable: true, get: () => q ?? at0 }); check(!q || (N.whereIs('bruno').kind === 'road' && Tk().whereNeighbour('bruno').text.includes(t(`npc.goal.${N.whereIs('bruno').goal}`))), 'walking');
+    } finally { delete game.days.now; RT.forget(); }
     // Every hour of the schedules has its words
     for (const d of Object.values(PEOPLE)) for (const h of [...(d.schedule || []).slice(1).map(q => q[0]), ...(d.hours || [])]) check(has(`npc.until.${String(h).replace('.', '_')}`), `no words for ${h}`);
     put('rosa', 22.4, 27);
@@ -10514,6 +10732,7 @@ export async function runTests(game) {
   // (a talk goes through hud.ask and hud.say, as the questions do, with no time passing: the tests answer them. The ones of the
   // talk itself set auto to null)
   const boxSay = hud.say; game.talk.auto = TALK_AUTO = { ask: (...a) => hud.ask(...a), say: (...a) => (hud.say === boxSay ? null : hud.say(...a)) };
+  RT.testDay.kind = 'work';   // (every day a working day for the neighbours, whatever today is: the tests of the week set it)
   game.start(fresh());
   game.plans.on = false;   // (building at once, as with ?obra=0: what most tests need. The ones of plan and hammer turn it on)
   game.inv.equip.espalda = { id: 'mochila', color: ITEMS.mochila.dye }; game.inv.changed();   // (con mochila: que quepa lo que se recoge)

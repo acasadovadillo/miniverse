@@ -9,7 +9,7 @@
 import { STATIONS, aStation } from './recipes.js';
 import { PIECES, parsePlaced, layerOf } from './pieces.js';
 import { ITEMS, CHESTS } from './items.js';
-import { floorSprite, wallSprite, doorSprite, hearthSprite, roofSprite, fenceSprite, postSprite } from './art/build.js';
+import { floorSprite, wallSprite, doorSprite, hearthSprite, roofSprite, fenceSprite, postSprite, bellSprite } from './art/build.js';
 import { Audio } from './audio.js';
 import { WALL_H, ROOF, outward } from './three/build3d.js';
 import { CHUNK } from './world/gen.js';
@@ -41,6 +41,7 @@ export function pieceSprite(id) {
   const p = PIECES[id];
   if (p.layer === 'floor') return floorSprite(id);
   if (p.layer === 'roof') return roofSprite(id, { nw: 0, ne: 0, se: 0, sw: 0, c: 0.5 }, { n: true, e: true, s: true, w: true }, false);
+  if (p.bell) return bellSprite();
   if (p.kind === 'door') return doorSprite(true);
   if (p.kind === 'fence') return fenceSprite(id, 3);
   if (p.kind === 'gate') return fenceSprite('valla', 3);

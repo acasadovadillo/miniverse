@@ -194,6 +194,7 @@ export class Glow {
       for (const c of w.chunks.values()) if (c.windows) for (const win of c.windows) {
         const d = near(win.p[0], win.p[2]);
         if (d <= 0) continue;
+        if (w.darkRegions?.size && w.darkRegions.has(w.regionOf.get(win.tk ||= `${win.tile[0]},${win.tile[1]}`))) continue;   // (nobody awake in there: routine3d.js)
         if (w.faded(win.tile[0], win.tile[1], win.side)) continue;   // (la pared que se oculta con el jugador dentro)
         if (nc < MAX.card) { C.iPos.setXYZ(nc, win.p[0], win.p[1], win.p[2]); C.iNrm.setXY(nc, win.n[0], win.n[1]); C.iCol.setXYZ(nc, cr * d, cg * d, cb * d); nc++; }
         if (P && np < MAX.pool) {

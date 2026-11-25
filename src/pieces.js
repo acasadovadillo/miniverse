@@ -33,7 +33,9 @@ export const PIECES = {
   // en el banco, se coloca girándolo y se recoge con X), así que no sale en la paleta de construir
   chimenea: { name: 'Hogar con chimenea', cat: 'Casa', layer: 'placed', kind: 'hearth', cost: [['piedra', 8]] },
 };
-defineNames({ post: PIECES.post, stone_pillar: PIECES.stone_pillar }, 'piece');
+// (a stone doorway with a bell gable on top: a door like the others; three/chapel3d.js)
+Object.assign(PIECES, { bell_gable: { cat: 'Muros', layer: 'placed', kind: 'door', bell: true, cost: [['piedra', 14], ['tablas', 3], ['lingote_cobre', 2]], needs: 'cantero' } });
+defineNames({ post: PIECES.post, stone_pillar: PIECES.stone_pillar, bell_gable: PIECES.bell_gable }, 'piece');
 export const CATS = ['Suelos', 'Muros', 'Tejados', 'Vallas'];   // (el hogar, de la casa, se fabrica en el banco)
 
 // Capa de una cosa colocable: las piezas dicen la suya; los objetos de la mochila van en la de objetos

@@ -78,7 +78,7 @@ export const SHOPS = {
   // Nilo, en la plaza a todas horas: los planos de los muebles de siempre (los demás, Dani, cuando venga al pueblo)
   nilo: {
     title: 'Planos de Nilo', hours: [0, 24],
-    stock: plans({ silla: 30, mesa: 40, cofre: 60, estanteria: 50, mesita: 60, cama: 120, cama_nino: 100, cuna: 100, cama_doble: 250, chimenea: 150 }),
+    stock: plans({ silla: 30, mesa: 40, cofre: 60, estanteria: 50, mesita: 60, cama: 120, cama_nino: 100, cuna: 100, cama_doble: 250, chimenea: 150, pew: 80 }),
   },
   // Marta, the tavern regular who spends the day knitting (Plan E §4.4): clothes by the village season (0 spring, 1 summer,
   // 2 autumn, 3 winter: game.days.season, which the shop window filters by), plus wool and cloth; at her tavern seat's

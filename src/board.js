@@ -2,8 +2,9 @@
 // En el mismo tablón están los proyectos del pueblo: se pagan entre todos (bueno, tú) y el pueblo crece.
 import { CROPS } from './items.js';
 import { priceOf } from './economy.js';
-import { BOARD, setProjects } from './world/village.js';
+import { BOARD, LOTS, setProjects } from './world/village.js';
 import { PEOPLE } from './neighbors.js';
+import { CHUNK } from './world/gen.js';
 import { ihash } from './util.js';
 import { Audio } from './audio.js';
 import { hud } from './ui/hud.js';
@@ -17,6 +18,7 @@ export const PROJECTS = defineNames({
   fuente: { money: 1500, items: [['piedra', 40]] },
   muelle: { money: 1200, items: [['tablas', 40]] },
   mercado: { money: 3000, items: [['tablas', 60], ['lingote_cobre', 5]] },
+  chapel: { money: 2500, items: [['piedra', 80], ['tablas', 30]], lot: 'chapel' },
   casa: { money: 5000, items: [['tablas', 80], ['piedra', 60]], needs: 'mercado' },
 }, 'project');
 
@@ -105,14 +107,28 @@ export class Board {
     g.busy = false;
   }
 
+  // How many things a player has on a project's ground: pieces, furniture, fields, holes, plans (board: it waits until it is clear)
+  lotBusy(id) {
+    const L = LOTS[PROJECTS[id]?.lot], w = this.world;
+    if (!L) return 0;
+    let n = 0;
+    for (let y = L.y0; y < L.y1; y++) for (let x = L.x0; x < L.x1; x++) {
+      const d = w.delta(Math.floor(x / CHUNK), Math.floor(y / CHUNK)), k = `${x},${y}`;
+      if (d && (['placed', 'floor', 'roof', 'hang', 'rug'].some(l => d[l]?.[k]) || d.tilled?.[k] !== undefined || d.crops?.[k] || d.dig?.[k] !== undefined)) n++;
+    }
+    return n;
+  }
   async projectsMenu() {
     const g = this.game;
     const list = Object.entries(PROJECTS).filter(([id, p]) => !this.projects[id] && (!p.needs || this.projects[p.needs]));
     if (!list.length) { await hud.say(t('board.name'), [t('board.complete')]); return; }
-    const opts = list.map(([, p]) => t('board.project', { name: p.name, money: p.money, items: p.items.map(([i, n]) => countOf(i, n)).join(', ') })).concat([t('common.back')]);
+    // (the lot of one that has to wait stays marked on the map while it does)
+    this.lotShown = list.some(([id]) => this.lotBusy(id) > 0);
+    const opts = list.map(([id, p]) => (this.lotBusy(id) ? t('project.row_busy', { name: p.name }) : t('board.project', { name: p.name, money: p.money, items: p.items.map(([i, n]) => countOf(i, n)).join(', ') }))).concat([t('common.back')]);
     const pick = await hud.ask(t('board.projects'), t('board.projects.ask'), opts);
     if (pick >= list.length) return;
-    const [id, p] = list[pick];
+    const [id, p] = list[pick], busy = this.lotBusy(id);
+    if (busy) { Audio.error(); await hud.say(t('board.name'), [t('project.lot_busy', { n: busy })]); return; }
     const missing = p.items.find(([i, n]) => g.inv.count(i) < n);
     if (g.money < p.money || missing) { Audio.error(); await hud.say(t('board.name'), [p.desc, g.money < p.money ? t('board.poor', { n: p.money - g.money }) : t('board.short', { what: countOf(missing[0], missing[1] - g.inv.count(missing[0])) })]); return; }
     g.addMoney(-p.money);

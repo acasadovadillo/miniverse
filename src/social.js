@@ -45,7 +45,7 @@ const RELS = ['friend', 'neutral', 'cold'];
 const MEM_DAYS = 2;   // (a memory of today or the 2 days before: «the last 3 days» of relation())
 // ('' : by character and relation; 'remark': about how you look, remarks.js, with the message's rc = the REMARKS index.
 // An old client finds REPLY_KINDS[4] undefined and skips the answer)
-const REPLY_KINDS = ['', 'rain', 'ignore', 'kid', 'remark'];
+const REPLY_KINDS = ['', 'rain', 'ignore', 'kid', 'remark', 'asleep'];   // (asleep: in bed, half a word and no gesture)
 export const TEMPERS = ['kind', 'cheerful', 'shy', 'gruff', 'wry'];
 // How a neighbor answers with the body: [greet | insult][temper][relation]
 export const REPLY_GESTURE = {
@@ -277,7 +277,7 @@ export class Social {
       }
     } else if (c) {
       const rel = c.kind === 'kid' ? 'friend' : this.relation(c.id);
-      if (c.kind === 'npc') this.count(a, c);
+      if (c.kind === 'npc' && !c.e?.asleep) this.count(a, c);
       const r = this.replyFor(c, a, rel);
       if (c.kind === 'kid') msg.kid = c.id; else msg.npc = c.id;
       Object.assign(msg, { r: RELS.indexOf(rel), rl: r.li, rg: EMOTE_KINDS.indexOf(r.gesture), rk: REPLY_KINDS.indexOf(r.kind) });
@@ -322,6 +322,7 @@ export class Social {
     const g = this.game;
     let kind = '', key, gesture, rm = null;
     if (c.kind === 'kid') { kind = 'kid'; key = 'npc.reply.kid'; gesture = 'wave'; }
+    else if (c.e?.asleep) { kind = 'asleep'; key = 'npc.reply.asleep'; gesture = ''; }
     else {
       const temper = PEOPLE[c.id]?.temper || 'kind', act = a ? 'insult' : 'greet';
       gesture = REPLY_GESTURE[act][temper][rel];
@@ -338,7 +339,7 @@ export class Social {
   reply(e, text, gesture, name, toMe, from = null, life = NPC_LIFE) {
     const g = this.game, who = toMe ? g.player : from;
     if (!e || e.hidden) return;
-    if (!e.def?.seat && 'hold' in e) e.hold = STAY;   // (walking: stops for a moment)
+    if (!e.pose && 'hold' in e) e.hold = STAY;   // (walking: stops for a moment)
     if (who && typeof e.faceTo === 'function' && !e.pose) e.faceTo(nearX(who.x, e.x) - e.x, who.y - e.y);
     if (gesture) this.emote(e, gesture);
     this.say(e, text, { name, life });

@@ -30,6 +30,7 @@ import { THIRST_MAX, STAMINA_MAX, REST_MAX } from '../needs.js';
 import { apagada } from '../opciones.js';
 import { LOW } from './needsbar.js';
 import { STAM_MAX, levelOf } from '../horse.js';
+import { shopHours } from '../routines.js';
 import { inBounds, CENTER, TAVERN, HOUSE, HOUSE_FAMILY } from '../world/village.js';
 import { doorTile } from '../world/blueprints.js';
 import { nearX, dxOf } from '../world/planet.js';
@@ -103,7 +104,12 @@ const FIELD_TIPS = new Set(['tracks', 'study', 'blood', 'ring', 'wind', 'freeze'
 const FIELD_GAP = 60, FIELD_WAIT = 8;   // seconds: after any tip; the longest one waits (a window open) before it is dropped
 const KNOWN = ['bag', 'craft', 'build', 'journal', 'map'];   // (what a player past the first steps already knows)
 // Closing hours of the shops (hours past 24 are after midnight); the ones open all day never close
-const CLOSING = [...new Set(Object.values(SHOPS).filter(s => s.hours[1] - s.hours[0] < 24).map(s => s.hours[1] % 24))];
+// (those of a day of the calendar: on Sundays they close earlier, routines.js)
+const closing = { day: null, list: [] };
+function closingOf(realDay) {
+  if (closing.day !== realDay) { closing.day = realDay; closing.list = [...new Set(Object.keys(SHOPS).map(s => shopHours(s, realDay)).filter(h => h[1] - h[0] < 24).map(h => h[1] % 24))]; }
+  return closing.list;
+}
 // Where the first steps send you (h: how high over the ground the mark goes)
 const HOME_DOOR = doorTile(HOUSE.x0, HOUSE.y0);
 const GOALS = {
@@ -558,7 +564,7 @@ export class SmartHud {
     Object.assign(this, { night, sky, day, slept });
     if (g.scene === g.world && inBounds(p.x, p.y)) {
       const h = d.localHour;
-      for (const close of CLOSING) {
+      for (const close of closingOf(d.realDay)) {
         const left = (close - h + 24) % 24, key = `${day}:${close}`;
         if (left > 0 && left <= 0.5 && this.closing !== key) { this.closing = key; show('clock', SHOW.clock); }
       }

@@ -9,8 +9,9 @@ import { dirOf, sideOf } from './world/fit.js';
 import { nearX } from './world/planet.js';
 import { Audio } from './audio.js';
 import { hud } from './ui/hud.js';
+import { t } from './i18n.js';
 
-const SEAT = 0.14, STOOL = 0.27, SOFA = 0.1, BARBER = 0.2, BED = 0.6, FLOOR_LIE = 0.14, FLOOR_SIT = -0.28;
+const SEAT = 0.14, STOOL = 0.27, SOFA = 0.1, BARBER = 0.2, PEW = 0.1, BED = 0.6, FLOOR_LIE = 0.14, FLOOR_SIT = -0.28;
 const BATH = 0.12, BATH_HIP = 0.85;   // the bather's h, and from the tub's anchor along its length to the hips (the taps' end at the feet)
 
 export class Rest {
@@ -26,10 +27,10 @@ export class Rest {
     if (this.game.carry?.refuse()) return;   // (with something in the arms: carry.js)
     const yaw = o.yaw, p = this.p;
     let [x, y] = [o.x, o.y];
-    if (o.placed === 'sofa') { const [sx, sy] = sideOf(yaw); if (Math.hypot(x + sx - p.x, y + sy - p.y) < Math.hypot(x - p.x, y - p.y)) { x += sx; y += sy; } }
+    if (o.placed === 'sofa' || o.placed === 'pew') { const [sx, sy] = sideOf(yaw); if (Math.hypot(x + sx - p.x, y + sy - p.y) < Math.hypot(x - p.x, y - p.y)) { x += sx; y += sy; } }
     const soft = o.placed === 'sofa' || o.placed === 'sillon';   // (en el sofá y en el sillón, más hundido y algo más adelante)
-    const barber = o.placed === 'barber_chair', fwd = soft ? 0.05 : barber ? -0.1 : -0.04;
-    this.take({ kind: 'sit', yaw, h: soft ? SOFA : o.placed === 'taburete' ? STOOL : barber ? BARBER : SEAT }, x + Math.sin(yaw) * fwd, y + Math.cos(yaw) * fwd);
+    const barber = o.placed === 'barber_chair', pew = o.placed === 'pew', fwd = soft ? 0.05 : pew ? 0 : barber ? -0.1 : -0.04;
+    this.take({ kind: 'sit', yaw, h: soft ? SOFA : o.placed === 'taburete' ? STOOL : barber ? BARBER : pew ? PEW : SEAT }, x + Math.sin(yaw) * fwd, y + Math.cos(yaw) * fwd);
   }
   // En una cama: boca arriba, con la cabeza en la almohada (la casilla de la cabecera). En la doble, del lado
   // que quede más cerca y esté libre (twin: dónde está el otro lado, para saber quién se tumba ahí: ver la familia)
@@ -40,6 +41,8 @@ export class Rest {
     if (this.game.gamemode === 'survival' && this.game.mobs?.near(p.x, p.y, 8)) { hud.toast('No puedes descansar: hay criaturas cerca', 'warn'); return; }
     const foot = o.placed === 'cama_nino' ? 0.85 : 1.05;   // (de los pies a la cabecera)
     const spot = (x, y) => [x + along[0] * foot, y + along[1] * foot];
+    // (a neighbour asleep in it: their house)
+    if (this.game.neighbors?.people.some(n => n.asleep && !n.hidden && Math.hypot(n.x - spot(o.x, o.y)[0], n.y - spot(o.x, o.y)[1]) < 0.6)) { hud.toast(t('bed.taken'), 'warn'); return; }
     let at = spot(o.x, o.y), twin = null;
     if (o.placed === 'cama_doble') {   // (la otra mitad, a su derecha)
       const [ux, uy] = sideOf(o.yaw), sides = [[o.x, o.y], [o.x + ux, o.y + uy]].sort((a, b) => Math.hypot(a[0] - p.x, a[1] - p.y) - Math.hypot(b[0] - p.x, b[1] - p.y)).map(s => spot(...s));

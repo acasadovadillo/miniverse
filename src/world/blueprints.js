@@ -36,7 +36,8 @@ export function familyBlueprint({ x0, y0, roof = 'tejado_rojo', wall = 'muro_ent
 }
 
 // furnish: 'full' (casa del jugador), 'npc' (vecinos y aldeas: sin cofre) o 'none'
-export function houseBlueprint({ x0, y0, big = false, roof = 'tejado_rojo', wall = 'muro_entramado', window = 'ventana_contraventanas', furnish = 'full' }) {
+// beds: 2, a second bed along the west wall (Rosa and Lía's house)
+export function houseBlueprint({ x0, y0, big = false, roof = 'tejado_rojo', wall = 'muro_entramado', window = 'ventana_contraventanas', furnish = 'full', beds = 1 }) {
   const { w, h } = houseSize(big), placed = {}, floor = {}, roofs = {};
   const k = (x, y) => `${x},${y}`;
   for (let y = y0; y < y0 + h; y++) for (let x = x0; x < x0 + w; x++) { floor[k(x, y)] = 'suelo_madera'; roofs[k(x, y)] = roof; }
@@ -63,6 +64,7 @@ export function houseBlueprint({ x0, y0, big = false, roof = 'tejado_rojo', wall
     placed[k(dx + 3, r + 3)] = 'silla@3';   // (las dos sillas, mirando a la mesa: se meten debajo)
     placed[k(x0 + 3, r + 4)] = 'alfombra@2';   // (de 2×1)
     placed[k(x0 + 1, y1 - 1)] = 'maceta';
+    if (beds > 1) placed[k(x0 + 1, y0 + 5)] = 'cama@1';
     if (furnish === 'full') placed[k(x0 + 1, r + 3)] = 'cofre';
     placed[k(x0 + Math.floor(w / 2) - 1, y0 + Math.floor(h / 2) - 1)] = 'candelabro';   // (colgado del techo, en medio)
   }
@@ -89,6 +91,29 @@ export function tavernBlueprint({ x0, y0 }) {
   placed[k(x1 - 1, y0 + 2)] = 'barber_chair@3';   // (Eusebio's barber chair, by the window at the end of the bar, facing the room)
   placed[k(dx, y0 + 4)] = 'candelabro';   // (en medio, sobre el paso)
   return { placed, floor, roof: roofs };
+}
+
+// The village chapel (7×11, project 'chapel'): stone and slate, a doorway with its bell in the middle of the front, plain
+// inside: pews on both sides of the aisle, all facing a table at the back with its candles and a plant on each side
+export function chapelBlueprint({ x0, y0 }) {
+  const w = 7, h = 11, placed = {}, floor = {}, roofs = {}, k = (x, y) => `${x},${y}`, x1 = x0 + w - 1, y1 = y0 + h - 1, mid = x0 + 3;
+  for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) { floor[k(x, y)] = 'suelo_piedra'; roofs[k(x, y)] = 'tejado_gris'; }
+  for (let x = x0; x <= x1; x++) { placed[k(x, y0)] = 'muro_piedra'; placed[k(x, y1)] = 'muro_piedra'; }
+  for (let y = y0; y <= y1; y++) { placed[k(x0, y)] = 'muro_piedra'; placed[k(x1, y)] = 'muro_piedra'; }
+  for (const y of [y0 + 3, y0 + 5, y0 + 7]) { placed[k(x0, y)] = 'ventana'; placed[k(x1, y)] = 'ventana'; }
+  for (const x of [mid - 2, mid + 2]) placed[k(x, y0)] = 'ventana';
+  placed[k(mid, y1)] = 'bell_gable';
+  placed[k(mid, y0 + 1)] = 'mesa'; placed[k(mid - 1, y0 + 1)] = 'maceta'; placed[k(mid + 1, y0 + 1)] = 'maceta';
+  placed[k(mid - 2, y0 + 1)] = 'lampara'; placed[k(mid + 2, y0 + 1)] = 'lampara';
+  placed[k(mid, y0 + 5)] = 'candelabro';
+  for (const q of chapelPews(x0, y0)) placed[k(...q.tile)] = 'pew@2';
+  return { placed, floor, roof: roofs };
+}
+// Its seats, from the front row back: { seat: [x, y], tile: that of its pew }
+export function chapelPews(x0, y0) {
+  const out = [];
+  for (const y of [y0 + 4, y0 + 6, y0 + 8]) for (const dx of [2, 4, 1, 5]) out.push({ seat: [x0 + dx, y], tile: [x0 + (dx < 3 ? 2 : 5), y] });
+  return out;
 }
 
 // Reparte un plano por trozos: { "cx,cy": { placed, floor, roof } }, para mezclarlo con lo de cada trozo
