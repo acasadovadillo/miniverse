@@ -72,6 +72,8 @@ const WALLS = {
   ventana: { col: '#a8764a', kind: 'wood', window: true },
   ventana_contraventanas: { col: '#efe0c0', kind: 'timber', window: 'shutters' },
   muro_cuadro: { col: '#a8764a', kind: 'wood', painting: true },
+  ashlar_wall: { col: '#c8bca4', kind: 'stone' },
+  limewash_wall: { col: '#ece8de', kind: 'plaster' },
 };
 // Los muros son tabiques finos (T es medio grueso: el muro mide 0.24 casillas) que se unen con los muros,
 // puertas y ventanas de al lado, como las vallas. mask: 1 sigue hacia +x, 2 hacia -x, 4 hacia +y, 8 hacia -y.
@@ -263,7 +265,7 @@ export function hearthSprite(q = 0) {
 export const ROOF_W = 40, ROOF_H = 210, ROOF_AX = 20, ROOF_AY = 198;   // lienzo más alto: el tejado va sobre los muros y sube
 export const ROOF_RISE = 16;          // píxeles por nivel de altura
 export const ROOF_Z0 = WALL_H + 2;    // z del alero (borde del tejado)
-const ROOFS = { tejado_rojo: '#c95a3c', tejado_azul: '#4a6aa8', tejado_paja: '#d8b060', tejado_gris: '#6a6e78', tejado_verde: '#4a8a5a' };
+const ROOFS = { tejado_rojo: '#c95a3c', tejado_azul: '#4a6aa8', tejado_paja: '#d8b060', tejado_gris: '#6a6e78', tejado_verde: '#4a8a5a', slab_roof: '#a8a294' };
 const EAVE = 4;     // canto del alero, en píxeles
 const ROW = 4;      // separación entre filas de tejas, en z
 const RING = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'];                      // el borde, en orden
@@ -420,7 +422,7 @@ export function fenceSprite(id, mask, q = 0) {
 // A post (its icon): a timber on its stone, or a pillar with its base and its capital
 export function postSprite(id, q = 0) {
   return cached(`po:${id}:${q}`, () => {
-    const [c, , I] = canvas(q), stone = id === 'stone_pillar', col = boxCol(WALLS[stone ? 'muro_piedra' : 'muro_madera'].col), foot = boxCol(WALLS.muro_piedra.col), r = stone ? 0.2 : 0.11;
+    const [c, , I] = canvas(q), stone = id !== 'post', col = boxCol(WALLS[id === 'stone_column' ? 'ashlar_wall' : stone ? 'muro_piedra' : 'muro_madera'].col), foot = boxCol(WALLS.muro_piedra.col), r = stone ? 0.2 : 0.11;
     I.box(-r - 0.1, -r - 0.1, r + 0.1, r + 0.1, 0, stone ? 5 : 3, foot);
     I.box(-r, -r, r, r, stone ? 5 : 3, WALL_H - 4, col);
     I.box(-r - (stone ? 0.1 : 0.22), -r - (stone ? 0.1 : 0.02), r + (stone ? 0.1 : 0.22), r + (stone ? 0.1 : 0.02), WALL_H - 4, WALL_H, col);

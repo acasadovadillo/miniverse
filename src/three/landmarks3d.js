@@ -52,19 +52,37 @@ class Shapes {
     this.quad([x0, y, z1], [x1, y, z1], [x1, y + h, m], [x0, y + h, m], [0, 0.8, 0.6]); this.quad([x1, y, z0], [x0, y, z0], [x0, y + h, m], [x1, y + h, m], [0, 0.8, -0.6]);
     this.tri([x0, y, z0], [x0, y, z1], [x0, y + h, m], [-1, 0, 0]); this.tri([x1, y, z1], [x1, y, z0], [x1, y + h, m], [1, 0, 0]);
   }
+  // …along z
+  gableZ(x0, z0, x1, z1, y, h) {
+    const m = (x0 + x1) / 2;
+    this.quad([x1, y, z1], [x1, y, z0], [m, y + h, z0], [m, y + h, z1], [0.6, 0.8, 0]); this.quad([x0, y, z0], [x0, y, z1], [m, y + h, z1], [m, y + h, z0], [-0.6, 0.8, 0]);
+    this.tri([x0, y, z1], [x1, y, z1], [m, y + h, z1], [0, 0, 1]); this.tri([x1, y, z0], [x0, y, z0], [m, y + h, z0], [0, 0, -1]);
+  }
 }
 function tower(S, h) {
   const R = TOWER.R, n = 14, top = h + 0.5;
   S.ring(R, -1, R, top, n); S.disc(R - 0.5, h, n); S.ring(R - 0.45, h, R - 0.45, top, n);
   S.ring(R, top, R, h + TOWER.parapet, n, 0, 2); S.ring(R - 0.45, top, R - 0.45, h + TOWER.parapet, n, 0, 2);
 }
-function lighthouse(S) {
+const LIVERY = { red: ['#8e3a34', '#cfcbc0', '#8e3a34', [1, 3, 5]], black: ['#3a3d40', '#cfcbc0', '#3a3d40', [1, 4, 5]], stone: ['#b3aa98', '#b3aa98', '#5d6165', []] };
+function lighthouse(S, livery = 'red') {
+  const [BAND, WHITE, CAP, ON] = LIVERY[livery] || LIVERY.red;
   const n = 10, B0 = 0.7, B1 = 7.75, r = y => 1.36 - (y - B0) / (B1 - B0) * 0.36;
   S.color('#77736b'); S.ring(GALLERY.base, -1, 1.4, B0, n);
-  for (let i = 0; i < 6; i++) { const y = B0 + i * (B1 - B0) / 6, y1 = B0 + (i + 1) * (B1 - B0) / 6; S.color(i % 2 ? '#8e3a34' : '#cfcbc0'); S.ring(r(y), y, r(y1), y1, n); }
+  for (let i = 0; i < 6; i++) { const y = B0 + i * (B1 - B0) / 6, y1 = B0 + (i + 1) * (B1 - B0) / 6; S.color(ON.includes(i) ? BAND : WHITE); S.ring(r(y), y, r(y1), y1, n); }
   S.color('#77736b'); S.ring(1.0, B1, GALLERY.deck, GALLERY.H - 0.16, n); S.ring(GALLERY.deck, GALLERY.H - 0.16, GALLERY.deck, GALLERY.H, n); S.disc(GALLERY.deck, GALLERY.H, n);
   S.color('#4a4c4e'); S.ring(GALLERY.lantern, GALLERY.H, GALLERY.lantern, GALLERY.H + 1.7, 8);
-  S.color('#8e3a34'); S.cone(GALLERY.lantern + 0.1, GALLERY.H + 1.7, GALLERY.H + 2.3, 8);
+  S.color(CAP); S.cone(GALLERY.lantern + 0.1, GALLERY.H + 1.7, GALLERY.H + 2.3, 8);
+}
+// (one of now: its homes, as they are; hamlets.js)
+const WALL_C = { muro_entramado: '#b0a48e', limewash_wall: '#d6d2c6', muro_piedra: '#86827a', muro_madera: '#8a745a' };
+function hamletNow(S, p, L) {
+  for (const h of L.homes) {
+    const x = h.x - p.x, z = h.y - p.y, along = h.w >= h.h;
+    S.color(WALL_C[h.wall] || '#8b7d68'); S.box(x, -0.5, z, x + h.w, 2.5, z + h.h, false);
+    S.color(ROOF_COLORS[h.roof] || '#9c8f76');
+    if (along) S.gable(x - 0.4, z - 0.4, x + h.w + 0.4, z + h.h + 0.4, 2.4, h.h * 0.31); else S.gableZ(x - 0.4, z - 0.4, x + h.w + 0.4, z + h.h + 0.4, 2.4, h.w * 0.31);
+  }
 }
 function hamlet(S, slots) {
   const { w, h } = houseSize(false);
@@ -72,6 +90,14 @@ function hamlet(S, slots) {
     S.color('#8b7d68'); S.box(dx - 0.5, -0.5, dy - 0.5, dx - 0.5 + w, 2.5, dy - 0.5 + h, false);
     S.color(ROOF_COLORS[ROOFS[i]]); S.gable(dx - 0.9, dy - 0.9, dx - 0.1 + w, dy - 0.1 + h, 2.4, 3);
   }
+}
+// (one of now: its podium, its cella, its columns and its low roof, the gable to the front)
+function templeNow(S, L, columns) {
+  const [w, h, porch] = { 4: [7, 9, 2], 6: [7, 11, 4], 8: [11, 13, 4] }[columns] || [7, 9, 2], x0 = -(w >> 1) - 0.5, z0 = -(h >> 1) - 0.5, y = 0.3;
+  S.color('#a39d90'); S.box(x0 - 1, -0.5, z0 - 1, x0 + w + 1, y, z0 + h + 2); S.color('#b8b0a0');
+  S.box(x0 + 0.4, y, z0 + 0.4, x0 + w - 0.4, y + 2.8, z0 + h - porch - 0.4, false);
+  for (let i = 0; i < w; i += 2) S.box(x0 + i + 0.28, y, z0 + h - 0.72, x0 + i + 0.72, y + 2.8, z0 + h - 0.28, false);
+  S.color('#a8a294'); S.gableZ(x0 - 0.4, z0 - 0.4, x0 + w + 0.4, z0 + h + 0.4, y + 2.85, w * 0.145);
 }
 function temple(S) {
   S.color('#a8a294'); S.box(-1.65, -0.5, -1.65, 1.65, 0.45, 1.65); S.color('#b4ae9f');
@@ -134,7 +160,7 @@ export class Landmarks {
       if (!d?.placed) continue;
       const i = k.indexOf(','), cx = Number(k.slice(0, i)), cy = Number(k.slice(i + 1));
       if (!Number.isFinite(cx) || !Number.isFinite(cy)) continue;
-      for (const q of scene.towersIn(cx, cy)) this.built.push({ kind: 'torre', key: q.key, x: q.x, y: q.y, z: scene.levelAt(q.x, q.y) || 0, h: q.h, yaw: q.yaw, stone: stoneOf(scene.gen.biomeAt(q.x, q.y)) });
+      for (const q of scene.towersIn(cx, cy)) this.built.push(q.light ? { kind: 'faro', key: q.key, x: q.x, y: q.y, z: scene.levelAt(q.x, q.y) || 0, livery: q.light, lit: scene.fireAt(q.tx, q.ty) } : { kind: 'torre', key: q.key, x: q.x, y: q.y, z: scene.levelAt(q.x, q.y) || 0, h: q.h, yaw: q.yaw, stone: stoneOf(scene.gen.biomeAt(q.x, q.y)) });
     }
     return this.built;
   }
@@ -184,8 +210,10 @@ export class Landmarks {
       const x = nearX(q.x, px);
       S.at(x, q.kind === 'aldea' ? 0 : q.z || 0, q.y, apagado(STONE[q.stone] || STONE.limestone));
       if (q.kind === 'torre') tower(S, q.h || TOWER.H);
-      else if (q.kind === 'faro') lighthouse(S);
+      else if (q.kind === 'faro') lighthouse(S, q.livery);
+      else if (q.kind === 'templo' && q.form) templeNow(S, null, places.planOf(q).columns);
       else if (q.kind === 'templo') temple(S);
+      else if (q.form) { const L = places.planOf(q); hamletNow(S, q, L); if (L.homes.length && this.homes.length < SMOKES) this.homes.push([x + L.homes[0].x + L.homes[0].w / 2 - q.x, 5.2, L.homes[0].y + L.homes[0].h / 2]); }
       else { const slots = this.slotsOf(places, q), { w, h } = houseSize(false); hamlet(S, slots); if (slots.length && this.homes.length < SMOKES) this.homes.push([x + slots[0][0] + w / 2, 5.2, q.y + slots[0][1] + h / 2]); }
     }
     const g = new THREE.BufferGeometry();

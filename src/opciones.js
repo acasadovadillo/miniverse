@@ -62,6 +62,8 @@ const RAW = (() => { try { return new URLSearchParams(globalThis.location?.searc
 // world is the same
 // Plan R7-1 (sites and names, docs/planes/realismo/PLAN-R7-mundo.md): sitios (?sitios=1 or =0: the places where they were
 // before, one roll per chunk, without the ruins; the world's list is neither made nor changed). To compare, playing alone
+// Plan R7-3 (variety and hamlets): lugares (?lugares=1 or =0: the sites with the shapes they had before, to compare; the list of a
+// world is not looked at with it, so nothing of it is saved)
 // Plan R7-2 (looking from above): siluetas (?siluetas=0: no landmarks far off, three/landmarks3d.js). Drawing only
 // Plan R2-F (weeds and pests in the garden, src/pests.js): pests (?pests=0: in the game that runs the world, no weeds come up and
 // no animals eat; here, none are seen coming to the garden. What there was stays)
@@ -75,7 +77,7 @@ export const PARTES = { hierba: 'sinlod', impostores: null, relieve: null, conta
   vinculo: null, alforjas: null, montar: 'arcade', cuidado: null, razas: null,
   tracks: null, wounds: null, naturebook: null,
   sentidos: null, manadas: null, calidad: null, routines: null,
-  soporte: null, refugio: null, obra: null, deterioro: null, sat: null, mapa3d: null, sitios: '1', siluetas: null, gossip: null, chatter: null, rumores: null, pests: null };
+  soporte: null, refugio: null, obra: null, deterioro: null, sat: null, mapa3d: null, sitios: '1', siluetas: null, lugares: '1', gossip: null, chatter: null, rumores: null, pests: null };
 
 // El valor tal cual (o null)
 export const opcion = k => RAW.get(k);

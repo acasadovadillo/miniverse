@@ -20,7 +20,7 @@ import { Builder } from './geo.js';
 import { buildNatureChunk, buildGround, buildFarNature, shake, WIND, GRASS, TUFT_LOD, tuftLods, DITHER, nearFadeSet, releaseFadeSet, fadeMeshes } from './nature3d.js';
 import { ImpostorAtlas, buildFarImpostors, IMPOSTORS_ON, MASK, MASK_GLSL } from './impostor.js';
 import { wrapIndex } from '../world/planet.js';
-import { roofShape } from '../world/roof.js';
+import { roofShape, roofPitch } from '../world/roof.js';
 import { baseMaterials, wallTile, doorTile, doorLeaf, gateTile, gateLeaf, fenceTile, postTile, floorTile, roofRegion, paintKey, WALL_H, ROOF, FLOWER } from './build3d.js';
 import { getModel, modelMat } from './models.js';
 import { poolGround } from './glow.js';
@@ -50,7 +50,8 @@ const FAR_BLOCK = 4;     // trozos por lado de un bloque lejano
 const FAR_R = 2;         // bloques lejanos alrededor
 const FAR_KINDS = new Set(['oak', 'fruit', 'pear', 'cherry', 'pine', 'snowPine', 'swampTree', 'cactus', 'palm', 'boulder', 'snowBoulder']);   // lo que se ve de lejos
 const FADE_MS = 600;     // lo que tarda un bloque de naturaleza en fundirse con lo lejano, al llegar y al irse
-const NATURE = new Set(['oak', 'fruit', 'pear', 'cherry', 'pine', 'snowPine', 'swampTree', 'cactus', 'palm', 'boulder', 'rock', 'bush', 'deadBush', 'snowBoulder', 'margarita', 'diente_leon']);
+const NATURE = new Set(['oak', 'fruit', 'pear', 'cherry', 'pine', 'snowPine', 'swampTree', 'cactus', 'palm', 'boulder', 'rock', 'bush', 'deadBush', 'snowBoulder', 'margarita', 'diente_leon',
+  'greatOak', 'greatChestnut', 'greatPine', 'tor', 'snowTor']);   // (the great trees and the tors: nature3d.js)
 
 // Which neighbours of a tilled tile are tilled too (1 +x, 2 -x, 4 +z, 8 -z), to join them into one field
 // (models.js, tilled). With lv (the height of each tile), only those at the same height: a step between them stays
@@ -235,7 +236,7 @@ export class World3D {
   signature(scene, cx, cy, data) {
     const farm = this.farm(scene), d = scene.delta(cx, cy);
     let s = '';
-    for (const o of data.objects) s += o.key + (o.poi ? `${o.poi.kind}${o.x},${o.y},${o.poi.z || 0}` : '') + (o.crop && farm ? ':' + farm.model(o.crop) : '') + (o.open ? '!' : '') + (o.placed ? o.placed + (o.rot || 0) : '') + (o.model ? ':' + o.model : '') + (o.off ? '~' : '') + (o.tuck ? '^' : '') + (o.mask !== undefined ? `m${o.mask}` : '') + (o.door ? `d${o.door}` : '') + (o.free ? `@${o.x.toFixed(2)},${o.y.toFixed(2)},${o.yaw.toFixed(2)}` : '') + (o.window && scene.doorClosed(...o.tile) ? '#' : '') + ',';   // (~: apagado; #: ventana cerrada)
+    for (const o of data.objects) s += o.key + (o.decor || '') + (o.poi ? `${o.poi.kind}${o.x},${o.y},${o.poi.z || 0}` : '') + (o.crop && farm ? ':' + farm.model(o.crop) : '') + (o.open ? '!' : '') + (o.placed ? o.placed + (o.rot || 0) : '') + (o.model ? ':' + o.model : '') + (o.off ? '~' : '') + (o.tuck ? '^' : '') + (o.mask !== undefined ? `m${o.mask}` : '') + (o.door ? `d${o.door}` : '') + (o.free ? `@${o.x.toFixed(2)},${o.y.toFixed(2)},${o.yaw.toFixed(2)}` : '') + (o.window && scene.doorClosed(...o.tile) ? '#' : '') + ',';   // (~: apagado; #: ventana cerrada)
     for (const o of data.flats) s += o.key + (o.model || o.placed || '') + (o.rot || 0) + (o.free ? `@${o.x.toFixed(2)},${o.y.toFixed(2)},${o.yaw.toFixed(2)}` : '') + ',';
     for (const o of data.floors) s += o.key + ',';
     for (const t of data.tilled) { const k = `${t[0]},${t[1]}`; s += k + (farm ? farm.soilLook(d, k) : 0) + (d?.mulch?.[k] !== undefined ? 'm' : '') + (farm ? farm.soilTone(d, k) : 0) + (farm?.weedy(d, k) ? farm.weedModel(d, k) : '') + tilledMask(scene, t[0], t[1]) + ';'; }   // (with its neighbours: one tilled next door, in another chunk too, joins it)
@@ -276,7 +277,7 @@ export class World3D {
       this.placeModel(`tilled:${fm ? fm.soilLook(dl, k) : 0}:${tilledMask(scene, t[0], t[1], LIFT, lv)}${tilledMore(dl, k, fm)}`, t[0] + 0.5, t[1] + 0.5, 0, plain, c, group, false, LIFT);
     }
     for (const o of data.objects.concat(data.flats)) {
-      LIFT = o.poi ? o.poi.z || 0 : o.treasure ? (o.treasure.z || 0) + (o.up || 0) : o.tile ? lv(...o.tile) : lv(Math.floor(o.x), Math.floor(o.y));
+      LIFT = o.decor ? o.z || 0 : o.flatY ? 0 : o.poi ? o.poi.z || 0 : o.treasure ? (o.treasure.z || 0) + (o.up || 0) : o.tile ? lv(...o.tile) : lv(Math.floor(o.x), Math.floor(o.y));
       if (o.placed && (o.layer === 'placed' || o.layer === 'hang' || o.layer === 'rug')) {
         const [tx, ty] = o.tile, piece = PIECES[o.placed], region = this.regionAt(scene, tx, ty);
         if (region) c.regions.add(region);
@@ -297,6 +298,7 @@ export class World3D {
         if (o.load && BULKY[o.load]) { const l = loadModel(o.load, 'bow'); placeLoad(l, o.load, 'bow'); b.add(l); }
         b.traverse(q => { if (q.isMesh) { q.castShadow = true; q.receiveShadow = true; } }); group.add(b); (c.boats ||= new Map()).set(o.key, b);
       }
+      else if (o.decor) this.placeModel(o.decor, o.x, o.y, o.yaw || 0, plain, c, group, false, LIFT);   // (what a place has: explore.js)
       else if (o.poi) this.placeModel(poiModel(o.poi), o.poi.x, o.poi.y, o.poi.yaw || 0, plain, c, group, false, LIFT);
       else if (o.treasure) this.placeModel(`treasure:${o.open ? 1 : 0}`, o.x, o.y, o.yaw || 0, plain, c, group, false, LIFT);
       else if (o.roof && o.layer === 'roof') { const r = this.regionAt(scene, o.tile[0], o.tile[1]); if (r) c.regions.add(r); }
@@ -383,6 +385,7 @@ export class World3D {
         const nat = [], shakers = new Map();
         for (const [, , d] of datas) for (const o of d.objects) {
           if (NATURE.has(o.kind) && !o.poi) { nat.push(o); shakers.set(o.key, o); }
+          else if (o.wild) nat.push(o.nat ||= { kind: o.wild, x: o.x, y: o.y, k: o.k, key: o.key, snow: o.snow });   // (a great tree, a tor: explore.js; nobody cuts them)
           else if (o.sapling) nat.push({ kind: 'sapling', tree: o.sapling, x: o.x, y: o.y, key: o.key });
         }
         // (el allanado, el que tiene ahora el suelo: si se quita algo de antes, el suelo vuelve a subir cuando se rehace su
@@ -673,6 +676,7 @@ export class World3D {
       // (and the trees planted there)
       const planted = fm && scene.deltas?.get(`${own},${cy}`);
       if (planted?.trees) for (const o of fm.farTrees(planted, [], off)) if (FAR_KINDS.has(o.kind)) out.push(o);
+      for (const l of scene.layers || []) { const o = l.far?.(own, cy); if (o) out.push(off ? { ...o, x: o.x + off } : o); }   // (a great tree: explore.js)
     }
     return out;
   }
@@ -682,6 +686,7 @@ export class World3D {
   farSig(scene, fbx, fby) {
     const fm = this.farm(scene);
     let h = fm ? fm.bloomStamp((fby + 0.5) * FAR_BLOCK * CHUNK) : 0;
+    for (const l of scene.layers || []) if (l.farV) h = (Math.imul(h, 31) + l.farV()) | 0;   // (its places are other ones)
     if (scene.deltas) for (let j = 0; j < FAR_BLOCK; j++) for (let i = 0; i < FAR_BLOCK; i++) {
       const cx = fbx * FAR_BLOCK + i, cy = fby * FAR_BLOCK + j, d = scene.deltas.get(`${wrapIndex(cx, CHUNK)},${cy}`);
       h = (Math.imul(h, 31) + (d ? this.removedCount(d) : 0) + (fm && d?.trees ? fm.farStamp(d) : 0)) | 0;
@@ -881,12 +886,12 @@ export class World3D {
       this.stale(false, regionBox(r));
       // El techo por dentro: tablas y vigas (se ve solo con la cámara por debajo, ver updateFade)
       const floor = r.tiles.filter(([x, y]) => scene.at('floor', x, y));
-      if (floor.length) { r.ceil = this.ceiling(floor, r.box, scene); r.ceil.position.y = L; this.group.add(r.ceil); }
+      if (floor.length && roofPitch(scene, r.tiles) === 1) { r.ceil = this.ceiling(floor, r.box, scene); r.ceil.position.y = L; this.group.add(r.ceil); }
       // (sin candelabro por su cuenta: se cuelga como un objeto más; el de las casas del pueblo, las aldeas y la taberna va
       // en sus planos, world/blueprints.js)
       // Altura del tejado en (x, z), para que la cámara pase por encima
       // (la misma forma que el dibujo: roof.js, a dos aguas si es rectangular, si no a cuatro)
-      const shape = roofShape(r.tiles, (x, y) => this.regionOf.get(`${x},${y}`) === r.key);
+      const shape = roofShape(r.tiles, (x, y) => this.regionOf.get(`${x},${y}`) === r.key, roofPitch(scene, r.tiles));
       r.top = (px, py) => L + WALL_H + ROOF.thick + shape.H(px, py) * ROOF.level;
     }
   }
@@ -1008,6 +1013,7 @@ const farBox = (fbx, fby) => [fbx * FAR_BLOCK * CHUNK, fby * FAR_BLOCK * CHUNK, 
 // Clave de un material base (para clonarlo para una región)
 function matKeyOf(m) {
   const B = baseMaterials();
+  if (m.userData.placeKey) return m.userData.placeKey;   // (the gable of a wall of places3d.js)
   for (const [k, v] of Object.entries(B)) { if (v === m) return k; if (k === 'roofs') for (const [rk, rv] of Object.entries(v)) if (rv === m) return 'roof:' + rk; }
   return 'stone';
 }

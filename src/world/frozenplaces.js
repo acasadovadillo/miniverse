@@ -6,11 +6,16 @@
 //     'torre*'   the same, only because somebody had found it (KEEP_FOUND: without it, these are no more)
 //     'ruinas'   the ruins are gone, but what was built by them keeps its flat ground: a clearing
 //     '-'        no new place here: something the players made is there
+// With R7-3 the sites of now got their art (hamlets of five trades, camps, temples of columns…) and the ones that had no art yet
+// appeared (springs, great trees…). A list of before that is looked at once more, by whoever runs the world (extend), and gets
+//   s = { "cx,cy": 'o' | '-' }: the site that keeps the shape it had ('o': something is built in or by what the new one takes up), and
+//   the one that does not appear ('-': something is there); and r = 3, that it has been looked at. Without r, every site is as before.
 // Pure: the same data give the same list.
 import { CHUNK } from './gen.js';
 import { wrapIndex, dxOf } from './planet.js';
-import { LEGACY_KINDS, READY, SITE_SIZE, HAMLET_BOX } from './sites.js';
+import { LEGACY_KINDS, READY, LATER, SITE_SIZE, HAMLET_BOX, HAMLET_MAX } from './sites.js';
 
+export const FORM = 3;            // (what the sites look like: R7-3)
 export const KEEP_FOUND = false;   // (true: the places somebody had found stay too; false: only those built by or used)
 export const NEAR_FROZEN = 48;    // no new place this near one that stays
 const COVER = 9;                  // nor with its flattened ground (7 m) this near something made by the players
@@ -25,7 +30,13 @@ export function readPlaces(v) {
   if (!v || typeof v !== 'object' || v.v !== 2 || !v.k || typeof v.k !== 'object') return null;
   const k = {};
   for (const [key, mark] of Object.entries(v.k)) if (/^-?\d{1,5},-?\d{1,5}$/.test(key) && typeof mark === 'string' && (mark === '-' || LEGACY_KINDS.has(mark.replace(/\*$/, '')))) k[key] = mark;
-  return { v: 2, k };
+  const out = { v: 2, k };
+  if (v.r === FORM) {
+    out.r = FORM; out.s = {};
+    if (v.s && typeof v.s === 'object') for (const [key, mark] of Object.entries(v.s)) if (/^-?\d{1,5},-?\d{1,5}$/.test(key) && (mark === 'o' || mark === '-')) out.s[key] = mark;
+    if (v.b === 0 || v.b === 1) out.b = v.b;   // (is there the stone bridge of the first river? not decided, if absent: bridgeRoom)
+  }
+  return out;
 }
 // What a place takes up: [x0, y0, x1, y1]
 export function boxOf(p) {
@@ -90,5 +101,38 @@ export function freezeMore(list, { legacy, deltas, found, siteNear }) {
     if (busy || siteNear(p)) continue;
     k[p.key] = p.kind + '*'; n++;
   }
-  return n ? { v: 2, k } : null;
+  return n ? { ...list, k } : null;
+}
+// What a site of now may take up, its ground with it: [x0, y0, x1, y1]
+const NEW_R = { campamento: 6, barco: 5, templo: 10, torre: 5, faro: 14, manantial: 3, arbol: 13, risco: 4, salegar: 13, mina: 7 };   // (a spring, a tree or a salt lick may be a landmark's spot)
+export function newBox(s) {
+  if (s.kind === 'aldea') { const x = Math.floor(s.x), y = Math.floor(s.y); return [x + HAMLET_MAX[0], y + HAMLET_MAX[1], x + HAMLET_MAX[2], y + HAMLET_MAX[3]]; }
+  const r = s.kind === 'manantial' ? 13 : NEW_R[s.kind] || 4;
+  return [s.x - r, s.y - r, s.x + r, s.y + r];
+}
+// The list, looked at once more (see above). Nothing of what it said changes
+// Is there room for the bridge? (nothing made by anybody where it would go)
+export function bridgeRoom(bridge, deltas) {
+  for (let j = -1; j <= 1; j++) for (let i = -1; i <= 1; i++) { const cx = wrapIndex(Math.floor(bridge.x / CHUNK) + i, CHUNK), cy = Math.floor(bridge.y / CHUNK) + j; if (touched(deltas.get(`${cx},${cy}`)) && gap([cx * CHUNK, cy * CHUNK, (cx + 1) * CHUNK, (cy + 1) * CHUNK], [bridge.x - 6, bridge.y - 6, bridge.x + 6, bridge.y + 6]) < COVER) return false; }
+  return true;
+}
+export function extend(list, { sites, deltas, points = [] }) {
+  const s = {}, busy = new Set();
+  for (const [key, d] of deltas) {
+    if (key.startsWith('u:')) continue;
+    const [cx, cy] = key.split(',').map(Number);
+    if (!Number.isFinite(cx) || !Number.isFinite(cy)) continue;
+    if (touched(d)) busy.add(`${cx},${cy}`);
+    if (full(d?.opened)) { const q = sites.at(cx, cy); if (q && READY.has(q.kind) && d.opened[q.key] && !list.k[q.key]) s[q.key] = 'o'; }   // (used: its chest was opened)
+  }
+  for (const [x, y] of points) if (Number.isFinite(x) && Number.isFinite(y)) busy.add(`${wrapIndex(Math.floor(x / CHUNK), CHUNK)},${Math.floor(y / CHUNK)}`);
+  for (const key of busy) {
+    const [cx, cy] = key.split(',').map(Number), box = [cx * CHUNK, cy * CHUNK, (cx + 1) * CHUNK, (cy + 1) * CHUNK];
+    for (let j = -3; j <= 3; j++) for (let i = -3; i <= 3; i++) {
+      const q = sites.at(cx + i, cy + j);
+      if (!q || (!READY.has(q.kind) && !LATER.has(q.kind)) || list.k[q.key] || gap(box, newBox(q)) >= COVER) continue;
+      s[q.key] = READY.has(q.kind) ? 'o' : '-';
+    }
+  }
+  return { ...list, r: FORM, s };
 }

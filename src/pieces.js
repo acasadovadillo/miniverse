@@ -35,7 +35,16 @@ export const PIECES = {
 };
 // (a stone doorway with a bell gable on top: a door like the others; three/chapel3d.js)
 Object.assign(PIECES, { bell_gable: { cat: 'Muros', layer: 'placed', kind: 'door', bell: true, cost: [['piedra', 14], ['tablas', 3], ['lingote_cobre', 2]], needs: 'cantero' } });
-defineNames({ post: PIECES.post, stone_pillar: PIECES.stone_pillar, bell_gable: PIECES.bell_gable }, 'piece');
+// (of the temples and of the hamlets of the south: dressed stone, a round column and limewash; and the temples' roof of slabs, laid
+// low: world/roof.js. Their names, 'piece.<id>')
+const PLACE_PIECES = {
+  ashlar_wall: { cat: 'Muros', layer: 'placed', kind: 'wall', cost: [['piedra', 4]], needs: 'cantero' },
+  limewash_wall: { cat: 'Muros', layer: 'placed', kind: 'wall', cost: [['piedra', 2], ['tablas', 1]], needs: 'cantero' },
+  stone_column: { cat: 'Muros', layer: 'placed', kind: 'post', r: 0.25, cost: [['piedra', 5]], needs: 'cantero' },
+  slab_roof: { cat: 'Tejados', layer: 'roof', cost: [['piedra', 2]], needs: 'cantero' },
+};
+Object.assign(PIECES, PLACE_PIECES);
+defineNames({ post: PIECES.post, stone_pillar: PIECES.stone_pillar, bell_gable: PIECES.bell_gable, ...PLACE_PIECES }, 'piece');
 export const CATS = ['Suelos', 'Muros', 'Tejados', 'Vallas'];   // (el hogar, de la casa, se fabrica en el banco)
 
 // Capa de una cosa colocable: las piezas dicen la suya; los objetos de la mochila van en la de objetos
@@ -51,8 +60,9 @@ export const parsePlaced = raw => { const i = raw.indexOf('@'); return i < 0 ? [
 // (world/shots.js)
 export const FENCE_WALL_REACH = 1 - 0.12 + 0.03;
 // (towards a post, up to it: a square timber of 0.1 to each side, or a pillar of 0.2; see postTile in three/build3d.js)
-export const POST_HALF = { post: 0.1, stone_pillar: 0.2 };
-export const fenceReach = (scene, x, y) => { const p = scene.pieceAt?.(x, y); return p?.kind === 'wall' ? FENCE_WALL_REACH : p?.kind === 'post' ? 1.03 - (p === PIECES.stone_pillar ? POST_HALF.stone_pillar : POST_HALF.post) : 0.5; };
+export const POST_HALF = { post: 0.1, stone_pillar: 0.2, stone_column: 0.235 };
+const postHalf = p => (p === PIECES.stone_pillar ? POST_HALF.stone_pillar : p === PIECES.stone_column ? POST_HALF.stone_column : POST_HALF.post);
+export const fenceReach = (scene, x, y) => { const p = scene.pieceAt?.(x, y); return p?.kind === 'wall' ? FENCE_WALL_REACH : p?.kind === 'post' ? 1.03 - postHalf(p) : 0.5; };
 // What a fence (or the line of a gate) joins to
 const JOINS_FENCE = new Set(['fence', 'gate', 'wall', 'post']);
 export const fenceJoins = (scene, x, y) => JOINS_FENCE.has(scene.pieceAt(x, y)?.kind);

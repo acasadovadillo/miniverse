@@ -265,6 +265,7 @@ export class BuildMode {
   }
   doSwap(sw) {
     const g = this.game, sc = g.scene, [x, y] = sw.tile, id = this.piece, own = !!sc.ownAt('placed', x, y), key = `placed:${x},${y}`;
+    if (!own && this.lived(sw.tile)) return false;
     if (!g.admin && sw.pay.length && !this.spend(sw.pay)) { g.gather.float(tr('build.why.materials'), '#ffb0a0'); Audio.error(); return false; }
     if (!sc.swapPiece(x, y, id)) return false;
     if (!g.admin) this.giveBack(sw.back);
@@ -490,6 +491,7 @@ export class BuildMode {
     if (!raw) return;
     const [id, k] = parsePlaced(raw), own = !sc.ownAt || sc.ownAt(layer, tile[0], tile[1]), o = { tile, layer, placed: id, ...(layer === 'rug' ? { rug: rugRect(tile[0], tile[1], k) } : {}), ...(own ? {} : { fixed: true, build: true }) };
     if (this.unknown(id, own)) return;
+    if (!own && this.lived(tile)) return;
     if (id === 'wheelbarrow' && g.barrow?.loaded(tile)) { g.gather.float(tr('barrow.empty_first'), '#ffb0a0'); Audio.error(); return; }   // (its stacks or its big things: barrow.js)
     if (CHESTS[id] && sc.chestAt(...tile)?.some(Boolean)) { g.gather.float(tr('build.empty_first', { what: CHESTS[id][1] }), '#ffb0a0'); Audio.error(); return; }
     if (PIECES[id] && !ITEMS[id]) {
@@ -504,6 +506,14 @@ export class BuildMode {
     this.pickV++;
     g.gather.chips(tile[0] + 0.5, tile[1] + 0.5, 'wood', 6);
     Audio.chop();
+  }
+  // A piece of a place where somebody lives is not taken apart, moved nor changed (explore.js): true, and it says so
+  lived(tile) {
+    const g = this.game;
+    const who = !g.admin && g.scene === g.world && g.places?.livedAt?.(...tile);
+    if (!who) return false;
+    g.gather.float(tr(`place.${who}_no`), '#ffb0a0'); Audio.error();
+    return true;
   }
   // Lo de una versión más nueva del juego (un id que este no conoce) no se quita ni se mueve: se perdería (ver knownItem).
   // own: si es del jugador (lo fijo del pueblo lo pone el juego: siempre lo conoce)

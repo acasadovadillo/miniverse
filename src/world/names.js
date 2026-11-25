@@ -57,18 +57,19 @@ export function stateOf(s, hamlet = Infinity) {
   if (s.kind === 'aldea') return 'lived';
   if (s.kind === 'faro') { const r = ihash(s.id, 11, 7177); return r < 0.6 ? 'lived' : r < 0.8 ? 'kept' : 'empty'; }
   if (s.kind === 'torre') return hamlet < 1000 ? 'kept' : 'empty';
-  if (s.kind === 'campamento') return hamlet < 1500 || ihash(s.id, 11, 7177) < 0.5 ? 'kept' : 'empty';
-  return s.kind === 'templo' || s.kind === 'barco' ? 'empty' : null;
+  if (s.kind === 'campamento') return hamlet < 500 || ihash(s.id, 11, 7177) < 0.5 ? 'kept' : 'empty';   // (far from any hamlet, half of them are deserted)
+  return s.kind === 'templo' || s.kind === 'barco' || s.kind === 'mina' ? 'empty' : null;
 }
-const YEARS = { aldea: [1580, 1790], torre: [1180, 1640], faro: [1780, 1930], templo: [880, 1290], barco: [1870, 1931], campamento: [1850, 1930], cueva: [1600, 1900] };
-const BUILDERS = { aldea: ['shepherds', 'fishers', 'woodcutters', 'settlers'], torre: ['people', 'guard', 'lord'], faro: ['coast', 'fishers', 'port'], templo: ['pilgrims', 'caravans', 'unknown'], barco: ['fishers', 'family'], campamento: ['shepherds', 'woodcutters', 'charcoal'], cueva: ['shepherds', 'miners', 'smugglers'] };
-export const STORIES = 4;   // (lines of history per kind: place.story.<kind>.1 to .4)
+const YEARS = { aldea: [1580, 1790], torre: [1180, 1640], faro: [1780, 1930], templo: [880, 1290], barco: [1870, 1931], campamento: [1850, 1930], cueva: [1600, 1900], mina: [1780, 1910], manantial: [1700, 1900], arbol: [1500, 1750], salegar: [1800, 1920] };
+const BUILDERS = { aldea: ['shepherds', 'fishers', 'woodcutters', 'settlers'], torre: ['people', 'guard', 'lord'], faro: ['coast', 'fishers', 'port'], templo: ['pilgrims', 'caravans', 'unknown'], barco: ['fishers', 'family'], campamento: ['shepherds', 'woodcutters', 'charcoal'], cueva: ['shepherds', 'miners', 'smugglers'], mina: ['miners'], manantial: ['shepherds'], arbol: ['people', 'shepherds'], salegar: ['shepherds'] };
+export const STORIES = 4;   // (lines of history per kind: place.story.<kind>.1 to .4; of these, fewer)
+export const STORIES_OF = { manantial: 2, arbol: 2, risco: 2, salegar: 2, mina: 2 };
 // { year, builder, line }: what the line of its history says. hamletName: the hamlet it belongs to, if there is one near
 // (without one, nobody built it for a hamlet)
 export function storyOf(s, hamletName = null) {
   const [a, b] = YEARS[s.kind] || [1700, 1900];
   const list = (BUILDERS[s.kind] || ['unknown']).filter(q => q !== 'people' || hamletName);
-  return { year: a + Math.floor(ihash(s.id, 12, 7177) * (b - a)), builder: pick(s, 13, list), hamlet: hamletName, line: 1 + Math.floor(ihash(s.id, 14, 7177) * STORIES) };
+  return { year: a + Math.floor(ihash(s.id, 12, 7177) * (b - a)), builder: pick(s, 13, list), hamlet: hamletName, line: 1 + Math.floor(ihash(s.id, 14, 7177) * (STORIES_OF[s.kind] || STORIES)) };
 }
 export const ROOT_COUNT = Object.fromEntries(Object.entries(ROOTS).map(([k, v]) => [k, v.length]));
 export const QUAL_COUNT = QUALS.length;

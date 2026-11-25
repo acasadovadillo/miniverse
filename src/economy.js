@@ -111,6 +111,12 @@ export const SHOPS = {
       { id: 'leather_apron', price: 220 }, { id: 'lana', price: 60 }, { id: 'tela' },
     ],
   },
+  // The traders of the hamlets, by what each lives on (explore.js, shopOf; the farmers' is the trader of always, 'viajero'). Each hamlet
+  // has its own prices
+  hamlet_fishing: { hours: [7, 21], stock: [{ id: 'cana', price: 150 }, { id: 'worm', price: 2 }, { id: 'spoon', price: 25 }, { id: 'jig', price: 30 }, { id: 'landing_net', price: 120 }, { id: 'sardina', price: 60 }, { id: 'trucha', price: 110 }, { id: 'salt', price: 8 }, { id: 'cuerda', price: 14 }, { plan: 'barca', price: 480 }] },
+  hamlet_shepherds: { hours: [7, 21], stock: [{ id: 'lana', price: 60 }, { id: 'lana_fina', price: 110 }, { id: 'queso', price: 120 }, { id: 'queso_cabra', price: 140 }, { id: 'leche_cabra', price: 45 }, { id: 'fieltro', price: 90 }, { id: 'cuero', price: 70 }, { id: 'heno', price: 12 }, { id: 'caballo', price: 2600 }] },
+  hamlet_woodcutters: { hours: [7, 21], stock: [{ id: 'madera', price: 9 }, { id: 'tablas', price: 6 }, { id: 'carbon', price: 14 }, { id: 'hacha_hierro', price: 380 }, { id: 'bellota', price: 8 }, { id: 'semilla_manzano', price: 85 }, { id: 'cuerda', price: 14 }, { id: 'antorcha', price: 12 }, { plan: 'wheelbarrow', price: 220 }] },
+  hamlet_miners: { hours: [7, 21], stock: [{ id: 'antorcha', price: 10 }, { id: 'cuerda', price: 14 }, { id: 'pico_hierro', price: 380 }, { id: 'pala_hierro', price: 380 }, { id: 'carbon', price: 14 }, { id: 'piedra', price: 5 }, { id: 'lingote_cobre', price: 80 }, { id: 'lingote_hierro', price: 150 }, { id: 'pocion', price: 120 }] },
   dani: {
     title: 'Taller de Dani', hours: [10, 19],
     stock: [{ id: 'maceta', price: 80 }, { id: 'alfombra', price: 140 }, { id: 'lampara', price: 200 }, { id: 'caballo', price: 3000 },

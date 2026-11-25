@@ -115,6 +115,89 @@ export function chapelPews(x0, y0) {
   for (const y of [y0 + 4, y0 + 6, y0 + 8]) for (const dx of [2, 4, 1, 5]) out.push({ seat: [x0 + dx, y], tile: [x0 + (dx < 3 ? 2 : 5), y] });
   return out;
 }
+// ---------- the houses of the hamlets (hamlets.js; PLAN-R7 §3.6.3) ----------
+// Three sizes (and one with a porch, 10 × 10 with it); of what they are built, by the land: thatch and timber frame in the meadows, limewash and red tile in the warm
+// south and by the sea, stone and slate in the north and the mountains, boards and thatch in the woods.
+export const HOMES = { cottage: { w: 8, h: 8 }, porched: { w: 10, h: 8 }, small: { w: 12, h: 10 }, long: { w: 14, h: 8 } };
+export const STYLES = {
+  meadow: { wall: 'muro_entramado', window: 'ventana_contraventanas', roof: 'tejado_paja' },
+  south: { wall: 'limewash_wall', window: 'ventana_contraventanas', roof: 'tejado_rojo' },
+  north: { wall: 'muro_piedra', window: 'ventana', roof: 'tejado_gris' },
+  woods: { wall: 'muro_madera', window: 'ventana', roof: 'tejado_paja' },
+};
+const K = (x, y) => `${x},${y}`;
+// A home with its corner at (0, 0) and its door in its south wall (the porched one: under two rows more of roof, on posts)
+export function homeBlueprint(kind, style, { furnish = true } = {}) {
+  const porch = kind === 'porched', { w, h } = HOMES[kind], S = STYLES[style] || STYLES.meadow, placed = {}, floor = {}, roof = {}, x1 = w - 1, y1 = h - 1, dx = w >> 1, P = porch ? 2 : 0;
+  for (let y = 0; y < h + P; y++) for (let x = 0; x < w; x++) { floor[K(x, y)] = y <= y1 ? 'suelo_madera' : 'suelo_piedra'; roof[K(x, y)] = S.roof; }
+  for (let x = 0; x <= x1; x++) { placed[K(x, 0)] = S.wall; placed[K(x, y1)] = S.wall; }
+  for (let y = 0; y <= y1; y++) { placed[K(0, y)] = S.wall; placed[K(x1, y)] = S.wall; }
+  for (let d = 3; dx - d > 0; d += 3) { placed[K(dx - d, y1)] = S.window; if (dx + d < x1) placed[K(dx + d, y1)] = S.window; }
+  if (w === 8) { placed[K(dx - 2, y1)] = S.window; delete placed[K(dx - 3, y1)]; placed[K(dx - 3, y1)] = S.wall; placed[K(dx + 2, y1)] = S.window; placed[K(dx + 3, y1)] = S.wall; }
+  // (the shutters and the flower boxes, only in front: they are what a house costs most to draw; and no window in the middle of
+  // an end wall: the gable is of what is under it)
+  for (const y of [2, h - 3]) { placed[K(0, y)] = 'ventana'; placed[K(x1, y)] = 'ventana'; }
+  placed[K(2, 0)] = 'ventana'; if (w > 8) placed[K(x1 - 2, 0)] = 'ventana';
+  placed[K(dx, y1)] = 'puerta';
+  if (porch) { for (let x = 0; x <= x1; x += x + 3 > x1 && x < x1 ? x1 - x : 3) placed[K(x, y1 + P)] = 'post'; placed[K(x1, y1 + P)] = 'post'; }
+  if (furnish) {
+    placed[K(1, 1)] = 'cama'; placed[K(dx + 1, 1)] = 'chimenea'; placed[K(x1 - 1, 1)] = 'estanteria';
+    placed[K(dx + 1, 4)] = 'mesa'; placed[K(dx, 4)] = 'silla@1'; placed[K(dx + 2, 4)] = 'silla@3'; placed[K(1, y1 - 1)] = 'maceta'; placed[K(3, 1)] = 'lampara';
+    if (w > 8) { placed[K(3, 4)] = 'alfombra@2'; placed[K(x1 - 1, y1 - 1)] = 'barril'; placed[K(x1 - 2, 1)] = 'estanteria'; }
+    if (kind === 'long') placed[K(5, 1)] = 'comoda';
+    placed[K(dx - 1, h >> 1)] = 'candelabro';
+  }
+  return { placed, floor, roof };
+}
+// An open shed (8 × 5): three walls of boards, its front on posts, under thatch
+export function shedBlueprint(style = 'woods', w = 8, h = 5) {
+  const S = STYLES[style] || STYLES.woods, wall = style === 'north' ? 'muro_piedra' : 'muro_madera', placed = {}, floor = {}, roof = {};
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) roof[K(x, y)] = S.roof;
+  for (let x = 0; x < w; x++) placed[K(x, 0)] = wall;
+  for (let y = 0; y < h - 1; y++) { placed[K(0, y)] = wall; placed[K(w - 1, y)] = wall; }
+  for (const x of [0, Math.round((w - 1) / 3), Math.round((w - 1) * 2 / 3), w - 1]) placed[K(x, h - 1)] = 'post';
+  return { placed, floor, roof };
+}
+// A shepherds' stone hut (6 × 6)
+export function hutBlueprint(roofId = 'tejado_gris') {
+  const placed = {}, floor = {}, roof = {}, n = 6;
+  for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) { floor[K(x, y)] = 'suelo_piedra'; roof[K(x, y)] = roofId; if (!x || !y || x === n - 1 || y === n - 1) placed[K(x, y)] = 'muro_piedra'; }
+  Object.assign(placed, { [K(3, n - 1)]: 'puerta', [K(0, 3)]: 'ventana', [K(n - 1, 2)]: 'ventana', [K(1, 1)]: 'cama', [K(3, 1)]: 'chimenea', [K(4, 4)]: 'barril' });
+  return { placed, floor, roof };
+}
+// A temple, of 4, 6 or 8 columns: the cella of dressed stone (its hatch to the vaults in the middle: hamlets.js) behind a portico,
+// under slate, the gable to the front (south), on a pavement one tile wider
+export const TEMPLES = { 4: { w: 7, h: 9, porch: 2 }, 6: { w: 7, h: 11, porch: 4 }, 8: { w: 11, h: 13, porch: 4 } };
+export function templeBlueprint(columns = 4) {
+  const { w, h, porch } = TEMPLES[columns], placed = {}, floor = {}, roof = {}, cy = h - 1 - porch, dx = w >> 1;
+  for (let y = -1; y < h + 2; y++) for (let x = -1; x <= w; x++) floor[K(x, y)] = 'suelo_piedra';
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) { roof[K(x, y)] = 'slab_roof'; if (y <= cy && (!x || !y || x === w - 1 || y === cy)) placed[K(x, y)] = 'ashlar_wall'; }
+  for (let x = 0; x < w; x += 2) placed[K(x, h - 1)] = 'stone_column';
+  if (porch > 2) for (const x of [0, w - 1]) placed[K(x, h - 3)] = 'stone_column';
+  delete placed[K(dx, cy)];   // (its doorway, open)
+  return { placed, floor, roof };
+}
+// A small sanctuary (7 × 8): one nave of dressed stone, its gable to the front
+export function sanctuaryBlueprint() {
+  const w = 7, h = 8, placed = {}, floor = {}, roof = {};
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) { floor[K(x, y)] = 'suelo_piedra'; roof[K(x, y)] = 'slab_roof'; if (!x || !y || x === w - 1 || y === h - 1) placed[K(x, y)] = 'ashlar_wall'; }
+  Object.assign(placed, { [K(3, h - 1)]: 'puerta', [K(0, 3)]: 'ventana', [K(w - 1, 3)]: 'ventana', [K(0, 5)]: 'ventana', [K(w - 1, 5)]: 'ventana', [K(3, 1)]: 'mesa', [K(3, 0)]: 'ventana', [K(1, 1)]: 'lampara', [K(w - 2, 1)]: 'lampara' });
+  for (const y of [4, 5]) for (const x of [1, 5]) placed[K(x, y)] = 'silla@2';
+  return { placed, floor, roof };
+}
+// A plan turned q quarters (its south front to the east, the north, the west) about its corner, and moved to (dx, dy), as a new
+// plan; `size` ([w, h]) so that the corner of what comes out is (dx, dy)
+export function turnBlueprint(bp, q, dx = 0, dy = 0, [w, h] = [0, 0]) {
+  const out = { placed: {}, floor: {}, roof: {} };
+  q = ((q % 4) + 4) % 4;
+  const T = [(x, y) => [x, y], (x, y) => [y, w - 1 - x], (x, y) => [w - 1 - x, h - 1 - y], (x, y) => [h - 1 - y, x]][q];
+  for (const layer of ['placed', 'floor', 'roof']) for (const [t, id] of Object.entries(bp[layer])) {
+    const [x, y] = t.split(',').map(Number), [a, b] = T(x, y), i = id.indexOf('@'), base = i < 0 ? id : id.slice(0, i), rot = i < 0 ? 0 : +id.slice(i + 1), turns = layer === 'placed' && (i >= 0 || TURNS.has(base));
+    out[layer][K(a + dx, b + dy)] = turns && (rot + q) % 4 ? `${base}@${(rot + q) % 4}` : base;
+  }
+  return out;
+}
+const TURNS = new Set(['cama', 'chimenea', 'estanteria', 'mesa', 'comoda', 'maceta', 'lampara', 'barril', 'alfombra', 'silla']);
 
 // Reparte un plano por trozos: { "cx,cy": { placed, floor, roof } }, para mezclarlo con lo de cada trozo
 export function byChunk(bp, chunk, into = {}) {

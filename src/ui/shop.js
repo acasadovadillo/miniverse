@@ -19,7 +19,7 @@ const $ = id => document.getElementById(id);
 export function initShopUI(game, { onClose }) {
   let shop = null, tab = 'buy', note = '';
   // (Rosa's discount, and the village's reputation: reputation.js; selling, the reputation only)
-  const discount = () => (shop === 'rosa' && game.neighbors.flags.descuento ? 0.9 : 1) * (game.rep?.buyFactor() ?? 1);
+  const discount = () => (shop === 'rosa' && game.neighbors.flags.descuento ? 0.9 : 1) * (game.rep?.buyFactor() ?? 1) * (game.places?.shopFactor?.(shop) ?? 1);   // (a hamlet's own prices: explore.js)
   const sellPrice = (id, s) => { const p = s ? stackPrice(s) : priceOf(id); return p ? Math.max(1, Math.round(p * (game.rep?.sellFactor() ?? 1))) : 0; };
 
   function stock() {

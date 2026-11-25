@@ -40,7 +40,7 @@ const WEATHER_NAMES = { blizzard: 'ventisca', ventisca: 'ventisca', storm: 'torm
 const WEATHER_SAID = { sol: 'sol', nubes: 'nubes', lluvia: 'lluvia', tormenta: 'tormenta', niebla: 'niebla', nieve: 'nieve', ventisca: 'ventisca' };
 const DIFF_NAMES = { pacifico: 'peaceful', peaceful: 'peaceful', p: 'peaceful', 0: 'peaceful', facil: 'easy', easy: 'easy', e: 'easy', 1: 'easy', normal: 'normal', n: 'normal', 2: 'normal', dificil: 'hard', hard: 'hard', h: 'hard', 3: 'hard' };
 const EFFECTS = { speed: 'rapido', rapidez: 'rapido', strength: 'fuerza', fuerza: 'fuerza', resistance: 'resistencia', resistencia: 'resistencia', regeneration: 'regeneracion', regeneracion: 'regeneracion', tireless: 'incansable', incansable: 'incansable', instant_health: 'curacion', curacion: 'curacion' };
-const PLACES = { village: 'aldea', aldea: 'aldea', temple: 'templo', templo: 'templo', lighthouse: 'faro', faro: 'faro', cave: 'cueva', cueva: 'cueva', camp: 'campamento', campamento: 'campamento', tower: 'torre', torre: 'torre', shipwreck: 'barco', barco: 'barco' };
+const PLACES = { village: 'aldea', aldea: 'aldea', temple: 'templo', templo: 'templo', lighthouse: 'faro', faro: 'faro', cave: 'cueva', cueva: 'cueva', camp: 'campamento', campamento: 'campamento', tower: 'torre', torre: 'torre', shipwreck: 'barco', barco: 'barco', mine: 'mina', mina: 'mina', spring: 'manantial', manantial: 'manantial', tree: 'arbol', arbol: 'arbol', tor: 'risco', risco: 'risco', salt_lick: 'salegar', salegar: 'salegar' };
 const LOCATE_R = 6000;
 const BIOME_IDS = { desert: B.DESERT, desierto: B.DESERT, ice: B.ICE, hielo: B.ICE, snowy_tundra: B.SNOW, tundra: B.SNOW, forest: B.FOREST, bosque: B.FOREST, taiga: B.PINES, pinos: B.PINES, swamp: B.SWAMP, pantano: B.SWAMP, plains: B.MEADOW, pradera: B.MEADOW, ocean: B.OCEAN, mar: B.OCEAN, beach: B.BEACH, playa: B.BEACH, mountains: B.ROCKY, montana: B.ROCKY, lake: B.LAKE, lago: B.LAKE };
 // Lo que se puede hacer aparecer con /summon: criaturas (las lleva quien lleva el mundo), animales salvajes (los
@@ -307,7 +307,7 @@ export const COMMANDS = {
     },
   },
   locate: {
-    help: 'dónde está lo más cercano (solo los op): /locate <village|temple|lighthouse|cave|camp|tower|shipwreck> o /locate biome <desert|ice|snowy_tundra|forest|taiga|swamp|plains|ocean|beach|mountains|lake>',
+    help: 'dónde está lo más cercano (solo los op): /locate <village|temple|lighthouse|cave|camp|tower|shipwreck|mine|spring|tree|tor|salt_lick> o /locate biome <desert|ice|snowy_tundra|forest|taiga|swamp|plains|ocean|beach|mountains|lake>',
     run(game, say, [what = '', which = '']) {
       if (needOp(game, say, 'locate')) return;
       const p = game.player;
@@ -328,7 +328,7 @@ export const COMMANDS = {
         return;
       }
       const kind = PLACES[plain(what)];
-      if (!kind) { say('Uso: /locate <village|temple|lighthouse|cave|camp|tower|shipwreck> · /locate biome <bioma>', 'err'); return; }
+      if (!kind) { say('Uso: /locate <village|temple|lighthouse|cave|camp|tower|shipwreck|mine|spring|tree|tor|salt_lick> · /locate biome <bioma>', 'err'); return; }
       const q = game.places.nearest(p.x, p.y, [kind], LOCATE_R);
       if (q) say(t('cmd.locate.place', { place: game.places.title(q), n: Math.round(distOf(q.x, q.y, p.x, p.y)), dir: heading(dxOf(q.x, p.x), q.y - p.y), at: shown(q.x, q.y) }), 'ok');
       else say(t('cmd.locate.none', { kind: placeKind(kind), n: LOCATE_R }), 'sys');

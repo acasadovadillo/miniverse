@@ -183,7 +183,7 @@ export class Site3D {
       // (the rest, the face of the cut)
       const top = cut;
       if (cut < Infinity && kind !== 'wall' && kind !== 'door') {
-        const key = e.id === 'stone_pillar' ? 'wallStone' : e.id === 'valla_piedra' ? 'fenceStone' : e.id === 'post' ? 'timber' : 'fence';
+        const key = e.id === 'stone_pillar' ? 'wallStone' : e.id === 'stone_column' ? 'ashlarW' : e.id === 'valla_piedra' ? 'fenceStone' : e.id === 'post' ? 'timber' : 'fence';
         for (const b of e.boxes) if (b[1] - e.y < top && b[4] - e.y > top) emit(key).box(b[0] - shift + 0.005, top - 0.02, b[2] + 0.005, b[3] - shift - 0.005, top, b[5] - 0.005, { s: 0.6, skip: 'ny px nx pz nz' });
       }
       close();
@@ -201,7 +201,7 @@ export class Site3D {
   // Over the cut of a wall half built: the top plank, and the uprights of its frame that stand out of it (in stone, the last
   // course, uneven)
   studs(e, cut, emit) {
-    const B = emit(e.id === 'muro_piedra' ? 'stone' : 'timber'), h = cut, stone = e.id === 'muro_piedra';
+    const stone = e.id === 'muro_piedra' || e.id === 'ashlar_wall' || e.id === 'limewash_wall', B = emit(e.id === 'ashlar_wall' ? 'ashlarW' : stone ? 'stone' : 'timber'), h = cut;
     for (const q of e.pick) {
       const x0 = q[0] - e.x + e.tx, x1 = q[3] - e.x + e.tx, z0 = q[2], z1 = q[5], X = x1 - x0 > z1 - z0;
       if (stone) B.box(x0, h - 0.02, z0, x1, h, z1, { s: 0.6, skip: 'ny px nx pz nz' });

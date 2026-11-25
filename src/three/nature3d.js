@@ -12,7 +12,7 @@ import { tonos, SUELO_V2, HOJAS, SAUCE } from '../arte.js';
 import { macroOf, MAC_K, grassKeep } from '../world/ground.js';
 import { climate, wetness } from '../world/biomes.js';
 import { FLOWER_GEO, FLOWER_COLORS } from './flowers3d.js';
-import { ageOf, broadDims, pineDims, palmDims, cactusK } from '../world/treedims.js';
+import { ageOf, broadDims, pineDims, palmDims, cactusK, torParts } from '../world/treedims.js';
 import { injectContact, contactKey } from './contact3d.js';
 import { opcion, apagada } from '../opciones.js';
 
@@ -271,6 +271,8 @@ function pieces(o, season, out, owner, y = 0) {
   else if (kind === 'cactus') cactus2(o, season, push, x, z, y, r, rot);
   else if (kind === 'margarita' || kind === 'diente_leon') flower2(o, season, push, x, z, y, r);
   else if (kind === 'bush') bush2(o, season, push, x, z, y, r, rot, h);
+  else if (kind === 'greatOak' || kind === 'greatChestnut' || kind === 'greatPine') greatTree(o, season, push, x, z, y, r, rot);
+  else if (kind === 'tor' || kind === 'snowTor') tor(o, season, push, x, z, y, r);
   else if (kind === 'rock' || kind === 'boulder' || kind === 'snowBoulder') rock2(o, season, push, x, z, y, r, rot, h);
   else if (kind === 'deadBush') {
     for (let i = 0; i < 6; i++) { const a = rot + i * 1.05, t = 0.5 + r(i) * 0.4; push('twig', { p: [x + Math.cos(a) * 0.12, y + 0.22, z + Math.sin(a) * 0.12], s: [1, 0.5 + r(10 + i) * 0.2, 1], r: [Math.sin(a) * t, 0, -Math.cos(a) * t] }); }
@@ -388,6 +390,60 @@ function pine2(o, season, push, x, z, y, r, rot) {
     const t = i / (n - 1), cy = y + th + (H - th - 0.5 * k) * t + 0.3 * k, w = (1.05 * (1 - t) ** 1.1 + 0.2) * k, h = (0.75 - t * 0.3) * k;
     push('tier', { p: [x, cy, z], s: [w, h, w], r: [(r(95 + i) - 0.5) * 0.15, rot + i * 0.9, (r(97 + i) - 0.5) * 0.15], c: darker(PINE[Math.floor(r(80 + i) * PINE.length)], 0.85 + r(90 + i) * 0.25) });
     if (snowy) push('snowTier', { p: [x, cy + h * 0.16, z], s: [w * 0.82, h * 0.72, w * 0.82], r: [0, rot + i * 0.9, 0] });
+  }
+}
+
+// A great tree (PLAN-R7 §3.6.2): an old oak, chestnut or pine, two or three times as big as any other and of its own shape: a
+// thick trunk on its roots, low limbs that go far out and bend, and a crown of many clumps of the usual leaves (the leaves are
+// not bigger: there are more of them). o.k: how big (1: the great trees; 1.3: the council's oak)
+function greatTree(o, season, push, x, z, y, r, rot) {
+  const K = o.k || 1, pine = o.kind === 'greatPine', chest = o.kind === 'greatChestnut', bare = season === 3 && !pine, snowy = season === 3 || o.snow, P = HOJAS[season];
+  const tint = leafTint(o, season).clone(); if (chest) tint.multiply(TINT2.setRGB(1.06, 1.02, 0.86));
+  const limb = (a, b, w0, w1 = w0 * 0.8) => { dir.set(b[0] - a[0], b[1] - a[1], b[2] - a[2]); const len = dir.length(); euler.setFromQuaternion(turn.setFromUnitVectors(UP, dir.normalize())); push('trunk', { p: [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2, (a[2] + b[2]) / 2], s: [w0, len * 1.04, w0], r: [euler.x, euler.y, euler.z] }); void w1; };
+  // (the trunk of the models is 0.2 m across its foot: w is how many times that)
+  const W = (pine ? 3.0 : 4.1) * K, th = (pine ? 5.2 : 2.5) * K;
+  push('trunk', { p: [x, y - 0.28 * K, z], s: [W * 1.55, 1.5 * K, W * 1.5], r: [0, rot, 0] });   // (down into the ground, which may slope)
+  push('trunk', { p: [x, y + 0.75 * K, z], s: [W * 1.18, 1.1 * K, W * 1.12], r: [0.02, rot + 0.6, 0.03] });
+  push('trunk', { p: [x, y + th * 0.5, z], s: [W, th, W * 0.94], r: [0.02, rot, -0.03] });
+  for (let i = 0; i < 8; i++) { const a = rot + i * 0.785 + r(30 + i) * 0.4, L = (1.0 + r(40 + i) * 0.7) * K; limb([x + Math.cos(a) * L, y - 0.3, z + Math.sin(a) * L], [x + Math.cos(a) * W * 0.13, y + (0.55 + r(50 + i) * 0.4) * K, z + Math.sin(a) * W * 0.13], 1.15 * K * (0.8 + r(60 + i) * 0.5)); }
+  // The crown: a dome of clumps (the stone pine's, wide and flat, on a clean trunk), and the limbs that go to the outer ones,
+  // each in two bends
+  const clumps = [], R = (pine ? 3.9 : 4.3) * K, Ry = (pine ? 1.0 : 3.0) * K, base = y + th + (pine ? 1.6 : 1.5) * K, nC = pine ? 19 : 27, G = 2.39996;
+  for (let i = 0; i < nC; i++) {
+    const t = (i + 0.5) / nC, up = pine ? Math.sqrt(1 - t) : 0.95 - 1.32 * t, rr = pine ? Math.sqrt(t) : Math.sqrt(Math.max(0.05, 1 - up * up)), a = rot + i * G + r(70 + i) * 0.5, d = R * rr * (0.82 + r(80 + i) * 0.16), cr = (pine ? 0.95 + r(90 + i) * 0.3 : 1.15 + r(90 + i) * 0.4) * K;
+    clumps.push([x + Math.cos(a) * d, base + Ry * up * (0.85 + r(100 + i) * 0.2), z + Math.sin(a) * d, cr, pine ? 0.55 : 0.9, rr, a]);
+  }
+  if (!pine) for (let i = 0; i < 4; i++) { const a = rot + i * 1.57 + 0.4; clumps.push([x + Math.cos(a) * R * 0.4, base + Ry * 0.25, z + Math.sin(a) * R * 0.4, 1.5 * K, 1, 0.4, a]); }
+  for (const [i, [cx, cY, cz, , , rr, a]] of clumps.entries()) {
+    if (rr < (pine ? 0.45 : 0.6) && i % 2) continue;
+    const h0 = y + th * (pine ? 0.86 + r(110 + i) * 0.14 : 0.66 + r(110 + i) * 0.3), low = cY < base, f = 0.45 + r(120 + i) * 0.12, b = a + (r(130 + i) - 0.5) * 0.5, D = Math.hypot(cx - x, cz - z), m1 = [x + Math.cos(b) * D * f, lerp3(h0, cY, low ? 0.72 : 0.6), z + Math.sin(b) * D * f], end = [cx, cY - 0.25 * K, cz];
+    limb([x + Math.cos(b) * 0.12 * K, h0, z + Math.sin(b) * 0.12 * K], m1, (1.15 + r(140 + i) * 0.6) * K * (pine ? 0.8 : 1)); limb(m1, end, (0.6 + r(150 + i) * 0.25) * K);
+    if (bare) for (let j = 0; j < 4; j++) { const c = a + (j - 1.5) * 0.65 + r(160 + i + j) * 0.3, e = [end[0] + Math.cos(c) * 1.0 * K, end[1] + (0.35 + r(170 + i * 4 + j) * 0.7) * K, end[2] + Math.sin(c) * 1.0 * K]; limb(end, e, 0.3 * K); for (let g = 0; g < 3; g++) limb(e, [e[0] + Math.cos(c + g - 1) * 0.6 * K, e[1] + (0.2 + r(180 + g + j) * 0.4) * K, e[2] + Math.sin(c + g - 1) * 0.6 * K], 0.14 * K); }
+  }
+  limb([x, y + th * 0.9, z], [x + 0.25 * K, base + Ry * 0.35, z - 0.15 * K], W * 0.55); limb([x + 0.22 * K, base + Ry * 0.3, z - 0.13 * K], [x - 0.1 * K, base + Ry * 0.8, z + 0.2 * K], W * 0.26);
+  if (bare) return;
+  const wts = season === 2 && !pine ? P.otono?.[variantOf(o)] || P.w : P.w, nc = clumps.length, col1 = i => (pine ? PINE[Math.floor(r(700 + i) * PINE.length)] : pickW(P, (((i * 7 + 3) % nc) + 0.5) / nc, wts));
+  clumps.forEach(([cx, cY, cz, cr, fl], i) => push('lump', { p: [cx, cY - cr * 0.05, cz], s: [cr * 0.5, cr * 0.4 * fl, cr * 0.5], r: [r(3) * 0.4, r(4) + i, r(5) * 0.4], c: coreC(col1(i), 0.3, pine ? TINT.setRGB(1, 1, 1) : tint) }));
+  const per = pine ? 20 : 16, top = Math.max(...clumps.map(c => c[1])), bot = Math.min(...clumps.map(c => c[1]));
+  clumps.forEach(([cx, cY, cz, cr, fl], ci) => {
+    for (let i = 0; i < per; i++) {
+      const s0 = ci * 41 + i, u = r(200 + s0) * 1.55 - 0.55, f = r(1300 + s0) * 6.283, sq = Math.sqrt(Math.max(0, 1 - u * u));
+      dv.set(sq * Math.cos(f), u, sq * Math.sin(f));
+      const depth = r(2400 + s0), dist = cr * (0.5 + depth * 0.45), hi = Math.max(0, Math.min(1, (cY - bot) / Math.max(0.5, top - bot)));
+      qa.setFromUnitVectors(ZV, dv); qb.setFromAxisAngle(ZV, r(3500 + s0) * 6.28); qa.multiply(qb); euler.setFromQuaternion(qa);
+      const sz = cr * (1.0 + r(4600 + s0) * 0.5) * (pine ? 0.85 : 1), light = (0.8 + 0.28 * depth) * (0.84 + 0.2 * (u + 0.55) / 1.55) * (0.88 + 0.16 * hi) * (0.93 + 0.14 * r(5700 + s0)), c = r(6800 + s0) < 0.75 ? col1(ci) : pine ? PINE[0] : pickW(P, r(7900 + s0), wts);
+      push(pine ? 'cardS' : 'card', { p: [cx + dv.x * dist, cY + dv.y * dist * 0.8 * fl, cz + dv.z * dist], s: [sz, sz, sz], r: [euler.x, euler.y, euler.z], c: pine ? darker(c, light * 1.9) : leafC(c, light, tint) });
+    }
+    if (pine && snowy) push('snow', { p: [cx, cY + cr * 0.42, cz], s: [cr * 0.62, cr * 0.14, cr * 0.62], r: [0, ci, 0] });
+  });
+}
+const lerp3 = (a, b, t) => a + (b - a) * t;
+// A tor: big boulders one on another, that one can climb (o.k: how big)
+function tor(o, season, push, x, z, y, r) {
+  for (const p of torParts(o)) {
+    const it = { p: [x + p.x, y + p.h + p.sy * 0.16, z + p.y], s: [p.sx, p.sy, p.sz], r: [(r(40 + p.i) - 0.5) * 0.16, p.rot + p.i * 1.9, (r(60 + p.i) - 0.5) * 0.16] };
+    push('rock' + p.v, { ...it, c: ROCK_C[(p.i + Math.floor(r(2) * 3)) % 3] });
+    if (o.kind === 'snowTor' || season === 3) push('snowrock' + p.v, { ...it, p: [it.p[0], it.p[1] + 0.02, it.p[2]], s: it.s.map(w => w * 1.035) });
   }
 }
 

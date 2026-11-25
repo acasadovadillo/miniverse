@@ -21,6 +21,7 @@ import { tintOf } from './tints.js';
 import { trough, hitchingPost } from './stable3d.js';
 import { compostBin, manureHeap, troughFill, soilBits } from './soil3d.js';
 import { weeds, eaten, slugs, holed, scarecrow } from './pests3d.js';
+import { KIT, PLACE_MATS, placeMat } from './places3d.js';
 
 // Las cajas de los modelos con los cantos biselados, según su material: redondeadas en lo blando (mantas, sábanas,
 // cojines, cuero), con el canto gastado en la madera y un poco en la piedra
@@ -28,7 +29,7 @@ const BEVEL = Object.assign(
   Object.fromEntries(['quilt', 'quiltB', 'quiltK', 'quiltK2', 'pillowK', 'sheet', 'cloth', 'sofa', 'sofaB', 'leather', 'leatherD', 'baby'].map(k => [k, 0.04])),
   Object.fromEntries(['wood', 'dark', 'light', 'plank', 'hull'].map(k => [k, 0.012])),
   Object.fromEntries(['stone', 'brick', 'temple', 'templeD', 'rock', 'marble', 'marbleD'].map(k => [k, 0.018])),
-  { ashlar: 0.035 },
+  { ashlar: 0.035, ashlarW: 0.02, ashlarV: 0.02, oldWood: 0.012, plankGrey: 0.01, splitWood: 0.006 },
 );
 import { CROPS, ITEMS } from '../items.js';
 import { winterCrop } from './wintercrops.js';
@@ -36,7 +37,7 @@ import { BULKY } from '../carry-items.js';
 import * as CARRY from '../carry-items.js';   // (BARROW: read as a namespace, so this file loads before the logic has it)
 import { WALL_H, FLOOR_H } from './build3d.js';
 import { SOLIDS, hull } from '../world/fit.js';
-import { TOWER, inHole, GALLERY, WATCHTOWERS, SIDE } from '../world/tower.js';
+import { TOWER, inHole, GALLERY, WATCHTOWERS, LIGHTHOUSES, SIDE } from '../world/tower.js';
 
 // ---------- materiales ----------
 let MATS;
@@ -1171,12 +1172,25 @@ const PLACES = {
     for (const x of [-1.2, 1.2]) { m.cyl('stone', x, 0, 0, 0.12, 0.1, 1.2, 8); m.fire(x, 1.22, 0, 0.5); }
   },
   // The lighthouse, with the gallery one stands on (its measures: world/tower.js, GALLERY). dark: left behind, not lit
-  faro(m, snow, dark) {
+  faro(m, snow, dark) { lighthouse(m, 'red', dark); },
+};
+// livery: red (white with red bands), black (the cold coasts'), stone (the rocky ones', unpainted). foot: how far down the base
+// goes of one that is built
+function lighthouse(m, livery = 'red', dark = false, foot = 0) {
+  {
+    const stone = livery === 'stone', worn = dark && livery !== 'red', WHITE = stone ? 'ashlarV' : worn ? 'whiteOld' : 'white', BAND = livery === 'black' ? (worn ? 'stripeG' : 'stripeK') : 'stripeR', CAP_C = stone ? 'slateCap' : BAND;
     const G = GALLERY, H = G.H, N = 28, TAU = Math.PI * 2, B0 = 0.7, B1 = 7.75, at = y => 1.36 - (y - B0) / (B1 - B0) * 0.36;
     const around = (n, fn, from = 0) => { for (let i = 0; i < n; i++) { const a = from + (i / n) * TAU; fn(Math.sin(a), Math.cos(a), a); } };
     // The base, of stone, and the shaft in bands
-    m.cyl('stone', 0, 0, 0, G.base, G.base - 0.04, 0.35, N).cyl('stone', 0, 0.35, 0, 1.44, 1.4, 0.35, N);
-    for (let i = 0; i < 6; i++) { const y = B0 + i * (B1 - B0) / 6, y1 = B0 + (i + 1) * (B1 - B0) / 6; m.cyl(i % 2 ? 'stripeR' : 'white', 0, y, 0, at(y), at(y1), y1 - y, N); }
+    if (!foot) m.cyl('stone', 0, 0, 0, G.base, G.base - 0.04, 0.35, N).cyl('stone', 0, 0.35, 0, 1.44, 1.4, 0.35, N);
+    else {
+      // (in courses of dressed stone, the base down into the ground)
+      const B = m.B('ashlarD'), n = 36, ring = (r0, y0, r1, y1, up) => { for (let i = 0; i < n; i++) { const a0 = (i / n) * TAU, a1 = ((i + 1) / n) * TAU, P = (a, r, y) => [Math.sin(a) * r, y, Math.cos(a) * r], q = a => (up ? [0, 1, 0] : [Math.sin(a), 0.05, Math.cos(a)]); quad4(B, [P(a0, r0, y0), P(a1, r0, y0), P(a1, r1, y1), P(a0, r1, y1)], [q(a0), q(a1), q(a1), q(a0)], up ? [[a0, r0], [a1, r0], [a1, r1], [a0, r1]] : [[a0 * 1.5, y0], [a1 * 1.5, y0], [a1 * 1.5, y1], [a0 * 1.5, y1]]); } };
+      ring(G.base + 0.06, -foot, G.base, 0); ring(G.base, 0, G.base - 0.02, 0.36); ring(G.base - 0.02, 0.36, 1.43, 0.36, true); ring(1.43, 0.36, 1.4, B0); ring(1.4, B0, 1.3, B0, true);
+      m.solids.push([-G.base, -foot, -G.base, G.base, B0, G.base]);
+    }
+    if (stone) { const B = m.B('ashlarW'), n = 40; for (let i = 0; i < n; i++) for (let j = 0; j < 3; j++) { const y = B0 + j * (B1 - B0) / 3, y1 = B0 + (j + 1) * (B1 - B0) / 3, a0 = (i / n) * TAU, a1 = ((i + 1) / n) * TAU, P = (a, yy) => [Math.sin(a) * at(yy), yy, Math.cos(a) * at(yy)], q = a => [Math.sin(a), 0.04, Math.cos(a)]; quad4(B, [P(a0, y), P(a1, y), P(a1, y1), P(a0, y1)], [q(a0), q(a1), q(a1), q(a0)], [[a0 * 1.2, y], [a1 * 1.2, y], [a1 * 1.2, y1], [a0 * 1.2, y1]]); } m.solids.push([-1.36, B0, -1.36, 1.36, B1, 1.36]); }
+    else for (let i = 0; i < 6; i++) { const y = B0 + i * (B1 - B0) / 6, y1 = B0 + (i + 1) * (B1 - B0) / 6; m.cyl((livery === 'black' ? i === 1 || i === 4 || i === 5 : i % 2) ? BAND : WHITE, 0, y, 0, at(y), at(y1), y1 - y, N); }
     // The door (to +z, in its stone frame) and the small windows up the stairs
     m.box('stone', -0.6, 0, 1.14, 0.6, 2.2, 1.46, 0.6).box('wood', -0.4, 0.06, 1.4, 0.4, 1.98, 1.475, 0.8).box('iron', -0.36, 0.5, 1.47, 0.36, 0.56, 1.49).box('iron', -0.36, 1.5, 1.47, 0.36, 1.56, 1.49).ball('brass', 0.28, 1.0, 1.5, 0.045);
     m.box('stone', -0.75, 0, 1.4, 0.75, 0.06, 1.95, 0.6);
@@ -1184,7 +1198,7 @@ const PLACES = {
     // The cornice, the corbels and the gallery's deck
     m.cyl('stone', 0, B1, 0, 1.0, 1.1, 0.14, N);
     around(14, (s, c, a) => m.geo('stone', BOXG, s * 1.28, H - 0.36, c * 1.28, [0, a, 0], [0.16, 0.36, 0.68]));
-    m.cyl('white', 0, B1 + 0.14, 0, 1.0, 1.04, H - B1 - 0.3, N).cyl('stone', 0, H - 0.16, 0, G.deck - 0.03, G.deck, 0.16, 40);
+    m.cyl(WHITE, 0, B1 + 0.14, 0, 1.0, 1.04, H - B1 - 0.3, N).cyl('stone', 0, H - 0.16, 0, G.deck - 0.03, G.deck, 0.16, 40);
     // The rail: posts, bars and a handrail
     around(16, (s, c, a) => m.cyl('iron', s * G.rail, H, c * G.rail, 0.028, 0.024, 1.04, 6).ball('iron', s * G.rail, H + 1.06, c * G.rail, 0.042, 0.042, 0.042, 6));
     for (const [y, t] of [[0.35, 0.014], [0.68, 0.014], [1.02, 0.024]]) m.geo('iron', RAIL_RING[t] ||= new THREE.TorusGeometry(G.rail, t, 5, 48), 0, H + y, 0, [Math.PI / 2, 0, 0]);
@@ -1193,17 +1207,17 @@ const PLACES = {
     m.geo('iron', HATCH_RING ||= new THREE.TorusGeometry(0.07, 0.014, 5, 14), 0.2, H + 0.05, 1.14, [Math.PI / 2, 0, 0]);
     // The lantern: its low wall, the panes between the mullions, the lens, and the dome with its vent and its rod
     const L = G.lantern - 0.04, w = 0.5, g = 1.15, top = H + w + g;
-    m.cyl('white', 0, H, 0, L, L, w, 24).cyl('iron', 0, H + w, 0, L + 0.04, L + 0.04, 0.06, 24).box('iron', -0.2, H + 0.03, L - 0.05, 0.2, H + w, L + 0.015);
+    m.cyl(WHITE, 0, H, 0, L, L, w, 24).cyl('iron', 0, H + w, 0, L + 0.04, L + 0.04, 0.06, 24).box('iron', -0.2, H + 0.03, L - 0.05, 0.2, H + w, L + 0.015);
     m.cyl('glass', 0, H + w + 0.06, 0, L - 0.05, L - 0.05, g - 0.06, 16);
     around(8, (s, c) => m.cyl('iron', s * (L - 0.03), H + w, c * (L - 0.03), 0.022, 0.022, g, 5), TAU / 16);
     m.cyl('brass', 0, H + w, 0, 0.1, 0.07, 0.25, 10).ball(dark ? 'glass' : 'lens', 0, H + w + 0.55, 0, 0.26, 0.32, 0.26, 16).cyl('brass', 0, H + w + 0.28, 0, 0.17, 0.2, 0.03, 16).cyl('brass', 0, H + w + 0.8, 0, 0.2, 0.17, 0.03, 16);
-    m.cyl('iron', 0, top, 0, L + 0.12, L + 0.12, 0.07, 24).geo('stripeR', CAP ||= new THREE.SphereGeometry(1, 24, 8, 0, TAU, 0, Math.PI / 2), 0, top + 0.07, 0, [0, 0, 0], [L + 0.07, 0.48, L + 0.07]);
+    m.cyl('iron', 0, top, 0, L + 0.12, L + 0.12, 0.07, 24).geo(CAP_C, CAP ||= new THREE.SphereGeometry(1, 24, 8, 0, TAU, 0, Math.PI / 2), 0, top + 0.07, 0, [0, 0, 0], [L + 0.07, 0.48, L + 0.07]);
     m.cyl('iron', 0, top + 0.5, 0, 0.1, 0.09, 0.16, 12).ball('iron', 0, top + 0.72, 0, 0.1, 0.1, 0.1, 10).cyl('iron', 0, top + 0.75, 0, 0.014, 0.008, 0.6, 5);
     if (dark) return;
     m.light(0, H + w + 0.58, 0, { color: '#fff0b0', intensity: 12, range: 30, halo: 3 });   // (se enciende de noche, con su haz y su lente: de día, un sol en lo alto)
     m.beacon = [0, H + w + 0.55, 0];
-  },
-};
+  }
+}
 
 // Cofre del tesoro: cerrado o, ya saqueado, abierto y vacío (por dentro, a oscuras)
 function treasure(m, open) {
@@ -1278,6 +1292,8 @@ export function getModel(name) {
   else if (kind === 'village') { if (a === 'stall2') VILLAGE.stall(m, ['#e0b850', '#f08a2a', '#e83a4a'], 'awningB'); else if (a === 'stall3') VILLAGE.stall(m, ['#9ad0ff', '#c8a870', '#f0e8f0'], 'awningG'); else VILLAGE[a](m); }
   else if (kind === 'poi') PLACES[a](m, b === 'snow', a === 'faro' ? b === 'dark' : b, d);
   else if (WATCHTOWERS[kind]) bigTower(m, WATCHTOWERS[kind].h, a, +b || 0.4);   // (the ones one builds: id:stone:how far down its base goes)
+  else if (LIGHTHOUSES[kind]) lighthouse(m, kind === 'lighthouse' ? a || 'red' : LIGHTHOUSES[kind].light, b === 'dark', +d || 0.4);   // (id:how it is painted:dark or lit:how far down its base goes)
+  else if (KIT[kind]) KIT[kind](m, a, b, d);   // (places3d.js)
   else if (kind === 'treasure') treasure(m, a === '1');
   else if (kind === 'tilled') tilled(m, +a, +b || 0, d);
   else if (kind === 'weeds') weeds(m, +a || 1, +b || 0);
@@ -1313,6 +1329,7 @@ const OWN = {
   towerWall_slate: () => towerCut(mat({ map: modelMats().towerWall.map, color: '#c2cad0', roughness: 0.88 })), towerStone_slate: () => towerCut(mat({ map: modelMats().towerStone.map, color: '#c0c8ce', roughness: 0.86 })),
   // (the village mailbox's paints and wood: mailbox3d.js; the fountain's stone: fountain3d.js)
   ...MAIL_MATS, ...FOUNT_MATS,
+  ...Object.fromEntries(Object.keys(PLACE_MATS).map(k => [k, () => placeMat(k)])),
 };
 export function modelMat(key) {
   const M = modelMats();

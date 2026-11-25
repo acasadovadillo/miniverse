@@ -8,7 +8,7 @@ import * as THREE from 'three';
 import { ihash } from '../util.js';
 
 const KINDS = { siding: 0, woodT: 0, plank: 0, soffit: 0, roofEdge: 0, floor_madera: 0, paint0: 0, paint1: 0, paint2: 0, paint3: 0, paint4: 0, door: 0, frame: 0, fence: 0, timber: 0,
-  plaster: 1, stoneT: 2, wallStone: 2, stone: 2, fenceStone: 2, floor_piedra: 2, floor_camino: 2,
+  plaster: 1, limewash: 1, stoneT: 2, wallStone: 2, ashlarT: 2, ashlarG: 2, 'roof:slab_roof': 2, stone: 2, fenceStone: 2, floor_piedra: 2, floor_camino: 2,
   'roof:tejado_paja': 3, 'roof:tejado_rojo': 4, 'roof:tejado_azul': 4, 'roof:tejado_verde': 4, 'roof:tejado_gris': 5 };
 // The kind of a material key (undefined: it is never drawn worn)
 export const wearKind = key => KINDS[key];

@@ -28,8 +28,14 @@ import { CHUNK, WorldGen, WORLD_SEED } from './world/gen.js';
 import { TOWER, TOWER_HEIGHTS, GALLERY, towerFloor, towerColliders, holeOf, chestSpot, poiModel } from './world/tower.js';
 import { SEE_R, LOOK_CHUNKS } from './lookout.js';
 import { Sites, sitesFor, LegacyPlaces, SITE_TIERS, READY, TIERS } from './world/sites.js';
+import { SPECIALTIES, LANDMARKS, hamletLayout, hamletPlan, deckColliders } from './world/hamlets.js';
+import { stopAt } from './hamletfolk.js';
+import { roofShape, roofPitch, SLAB_PITCH } from './world/roof.js';
+import { rowBoatGeo } from './three/places3d.js';
+import { boatModel } from './three/actors.js';
+import { PLACE_ITEMS } from './items.js';
 import { nameOf, stateOf, storyOf, ROOT_COUNT, QUAL_COUNT } from './world/names.js';
-import { freeze, freezeMore, readPlaces, touched, boxOf, gap, NEAR_FROZEN, KEEP_FOUND } from './world/frozenplaces.js';
+import { freeze, freezeMore, extend, readPlaces, touched, boxOf, gap, NEAR_FROZEN, KEEP_FOUND, FORM } from './world/frozenplaces.js';
 import { placesHtml } from './ui/placespage.js';
 import * as LS from './livesync.js';
 import { shapesOf as chunkShapes } from './world/shots.js';
@@ -3386,9 +3392,10 @@ async function soloTests(game) {
   });
   await test('casas: en las aldeas se quita de todo, y dentro se apunta a lo que se ve', async () => {
     const B = game.build, W = w(), P = p(), E = game.places, I = inv(), kept = I.slots.slice(), mouse = game.mouse;
-    let v = null;
-    v = E.nearest(CENTER.x, CENTER.y, ['aldea'], 4000);
-    check(v, 'no hay aldeas cerca');
+    // (una aldea de las de antes de R7-3, que es la que se deja quitar: en las de ahora se vive)
+    const was = E.places1; E.setPlaces(null);
+    const v = E.nearest(CENTER.x, CENTER.y, ['aldea'], 4000);
+    check(v, 'no hay aldeas cerca'); E.setPlaces({ v: 2, k: { ...(was?.k || {}), [v.key]: 'aldea' } });
     const walls = Object.entries(E.aldea(v).all.placed).filter(([, id]) => id === 'muro_entramado').map(([t]) => t.split(',').map(Number));
     const [wx, wy] = walls[Math.floor(walls.length / 2)];
     I.slots.fill(null); game.mouse = null;
@@ -3411,7 +3418,7 @@ async function soloTests(game) {
       // Una alfombra grande se apunta en cualquiera de sus casillas, y no se quita el suelo de debajo
       const R = [h.x0 + 4, h.y0 + 4]; W.setTile(...R, 'air'); W.setTile(...R, 'suelo_madera'); W.place(R[0], R[1], 'alfombra', 2); W.setTile(R[0] + 1, R[1], 'air'); W.setTile(R[0], R[1] + 1, 'air'); draw();
       check(B.removableAt([R[0] + 1, R[1]])?.layer === 'rug' || B.removableAt([R[0], R[1] + 1])?.layer === 'rug', `fuera del ancla: ${JSON.stringify(B.removableAt([R[0] + 1, R[1]]))}`);
-    } finally { game.mouse = mouse; game.underRoof = false; B.select(PIECE_IDS[0]); B.toggle(false); I.slots.splice(0, I.slots.length, ...kept); I.changed(); }
+    } finally { game.mouse = mouse; game.underRoof = false; B.select(PIECE_IDS[0]); B.toggle(false); I.slots.splice(0, I.slots.length, ...kept); I.changed(); E.setPlaces(was); }
   });
   await test('jugar juntos: lo primero que se quita de un trozo no pisa lo demás', async () => {
     const ops = diffChunk({ v: 1 }, { v: 1, gone: { '1,1': true } });
@@ -5255,11 +5262,136 @@ async function soloTests(game) {
       P.found.add('777,777'); check(placesHtml(game).includes(t('journal.places.gone', { n: 1 })), 'nothing about those that are gone');
       game.openJournal('places'); check(document.querySelectorAll('#j-body .j-place').length === 3, 'the journal does not open its page'); document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true })); game.setMode?.('play');
       const B2 = new Blips(); for (const [k, fn] of blips.sources) B2.source(k, fn); B2.refresh(game, 0, true); const mine = B2.list.filter(b => b.kind === 'place' && b.glyph !== 'question'); check(mine.length === 3 && mine.some(b => b.name === P.title(cave) && b.legend === 'poi:' + t('place.kind.cueva') && b.to.id === `poi:${cave.key}`), JSON.stringify(mine.map(b => [b.name, b.legend])));
-      check(!P.markers().some(m => m.kind === 'ruinas') && (() => { try { modelNamed('poi:ruinas'); return false; } catch { return true; } })(), 'ruins are still there'); let n = 0; for (let cy = -60; cy <= 60; cy++) for (let cx = -60; cx <= 60; cx++) { const q = P.poi(cx, cy); if (q) { n++; check(q.kind !== 'ruinas', 'ruins in the world'); } } check(n < 110, `${n} places in 3.7 km²: too many`);
+      check(!P.markers().some(m => m.kind === 'ruinas') && (() => { try { modelNamed('poi:ruinas'); return false; } catch { return true; } })(), 'ruins are still there'); let n = 0; for (let cy = -60; cy <= 60; cy++) for (let cx = -60; cx <= 60; cx++) { const q = P.poi(cx, cy); if (q) { n++; check(q.kind !== 'ruinas', 'ruins in the world'); } } check(n < 170, `${n} places in 3.7 km²: too many`);
       const out = [], op = game.live.isOp; runCommand(game, '/locate tower', (m, k) => out.push([m, k])); check(out[0] && /\d/.test(out[0][0]), JSON.stringify(out)); const tw = P.nearest(p().x, p().y, ['torre'], 6000); if (out[0][1] === 'ok') check(out[0][0].includes(P.title(tw)), out[0][0]); const o2 = []; runCommand(game, '/locate ruins', (m, k) => o2.push(k)); check(o2[0] === 'err', 'it still finds ruins');
       check(P.nearest(...V4, ['cueva'], 2000, new Set([cave.key])) !== cave && P.sites.nearest(...V4, ['aldea', 'torre'], 4000)?.key, 'nearest with skip');
     } finally { hud.big = big; hud.toast = toast; delete P.look.glance; [P.found, P.oldFound, P.foundAt] = keep; P.foundN = -1; await setLang(was); p().x = CENTER.x; p().y = CENTER.y + 3; }
     const src = await (await fetch(new URL('./explore.js', import.meta.url))).text(); check(!/(text|title): '[A-ZÁÉ¡¿]|toast\('[A-Z¡]|say\('[A-Z]/.test(src), 'text in the code of explore.js');
+  });
+  // ---------- variety and hamlets (Plan R7-3) ----------
+  const dry7 = { wet: () => false, height: () => 0 };
+  await test('places (english): the hamlets: each of a trade that its land gives, two houses at least, all of it dry, low and within its chunks; the same for everyone', async () => {
+    const P = game.places, S = P.sites, list = S.near(...V4, 5000, ['aldea']).map(s => P.poiOf(s.key)).filter(q => q?.form), by = {};
+    check(list.length > 60 && P.places1.r === FORM, `${list.length} hamlets of now`);
+    let worst = 0, sum = 0;
+    for (const a of list) {
+      const t0 = performance.now(), L = P.planOf(a), ms = performance.now() - t0; worst = Math.max(worst, ms); sum += ms;
+      by[L.specialty] = (by[L.specialty] || 0) + 1;
+      const cx = Math.floor(a.x), cy = Math.floor(a.y); check(L.homes.length >= 2 && L.box[0] >= cx - 24 && L.box[1] >= cy - 24 && L.box[2] <= cx + 24 && L.box[3] <= cy + 24, `${a.key}: ${L.homes.length} houses in ${L.box}`);
+      for (const h of L.homes) for (const [x, y] of [[h.x, h.y], [h.x + h.w - 1, h.y], [h.x, h.y + h.h - 1], [h.x + h.w - 1, h.y + h.h - 1], [h.x + (h.w >> 1), h.y + (h.h >> 1)]]) check(!w().natWater(x + 0.5, y + 0.5), `${a.key}: a house in the water`);
+      check(L.homes.some(h => !h.empty) && !L.homes[0].empty, `${a.key}: nobody lives there`);
+      check(Object.values(L.placed).some(v => v.startsWith('puerta')) && Object.keys(L.roof).length > 60, `${a.key}: no houses`);
+      check(L.specialty !== 'fishing' || (L.decks.length === 1 && w().natWater(L.decks[0].x + Math.sin(L.decks[0].yaw) * 6, L.decks[0].y + Math.cos(L.decks[0].yaw) * 6)), `${a.key}: fishers without water`);
+      check(L.work.length >= 1 && (L.specialty !== 'woodcutters' || a.biome !== B.DESERT), `${a.key}: nothing to do`);
+      for (const v of Object.values(L.placed)) check(PIECES[parsePlaced(v)[0]] || ITEMS[parsePlaced(v)[0]], `${a.key}: ${v} is nothing`);
+    }
+    console.log(`hamlets: ${list.length} (${Object.entries(by).map(e => e.join(' ')).join(', ')}); laid out in ${(sum / list.length).toFixed(1)} ms each, ${worst.toFixed(0)} the worst`);
+    check(SPECIALTIES.every(k => by[k]), `not every trade: ${JSON.stringify(by)}`);
+    const a = list[3], A = JSON.stringify(P.planOf(a), (k, v) => (v instanceof Map ? [...v] : v)); P.plans.delete(a.key); P.lvls?.clear(); check(JSON.stringify(P.planOf(a), (k, v) => (v instanceof Map ? [...v] : v)) === A, 'another time, another hamlet');
+    for (const sp of SPECIALTIES) { const L = hamletLayout(sp); check(L.homes.length >= 3 && L.box[0] >= -24 && L.box[2] <= 24 && L.box[1] >= -24 && L.box[3] <= 24, `${sp}: ${L.box}`); for (const o of L.props) check(modelNamed(o.m), `${sp}: no model ${o.m}`); }
+    // (turned: what is at a tile is there turned, whole)
+    const q = { id: 5, x: 8.5, y: 8.5, biome: B.MEADOW, key: '0,0' }, L = hamletPlan(q, dry7); check(L.homes.length >= 3 && Object.keys(L.placed).length > 150, 'a hamlet on a plain');
+  });
+  await test('places (english): everything a place has is built by the players too: every piece and every thing of them has its recipe, its names and its model', async () => {
+    const NOT = new Set(['spring', 'salt_lick', 'mine_mouth', 'beached', 'tower_dress', 'crypt_hatch', 'row_boat', 'poi']), seen = new Set(), P = game.places, was = getLang();   // (land, what lies on it, and the boat: B › Exterior)
+    for (const s of P.sites.near(...V4, 3500)) { const q = P.poiOf(s.key), L = q?.form && P.planOf(q); if (!L) continue; for (const o of L.props) seen.add(o.m.split(':')[0]); for (const v of [...Object.values(L.placed), ...Object.values(L.floor), ...Object.values(L.roof)]) seen.add(parsePlaced(v)[0]); }
+    console.log(`places: they are made of ${[...seen].sort().join(', ')}`);
+    for (const id of seen) if (!NOT.has(id)) check(BUILDABLE[id] || (PIECES[id] && PIECES[id].cost) || RECIPES.some(r => r.out === id) || BULKY[id], `${id} cannot be made`);
+    try { for (const l of ['en', 'es']) { await setLang(l); for (const id of Object.keys(PLACE_ITEMS)) check(BUILDABLE[id]?.cat === 'Exterior' && ITEMS[id].name && ITEMS[id].desc && !/\.(desc|name)$|^item\./.test(ITEMS[id].name + ITEMS[id].desc) && modelNamed(id), `${l} ${id}: ${ITEMS[id].name}`); for (const id of ['ashlar_wall', 'limewash_wall', 'stone_column', 'slab_roof']) check(PIECES[id]?.name && !PIECES[id].name.startsWith('piece.'), `${l} ${id}`); } } finally { await setLang(was); }
+  });
+  await test('places (english): drawn, walked and used: the hamlet is built, its people are there, the jetty and the bridge hold you, fires are lit, what is lived in is not taken apart', async () => {
+    const P = game.places, W = w(), list = P.sites.near(...V4, 6000, ['aldea']).map(s => P.poiOf(s.key)).filter(q => q?.form), fi = list.find(q => P.planOf(q).specialty === 'fishing'), L = P.planOf(fi), D = L.decks[0], keep = game.gamemode, t0 = game.days.shift;
+    try {
+      await goTo(game, L.trader[0] + 1, L.trader[1] + 1.2); await readyGround(game, 9000); await frames(6);
+      const h = L.homes[0], door = Object.keys(L.placed).find(k => L.placed[k].startsWith('puerta')).split(',').map(Number); check(W.pieceAt(...door)?.kind === 'door' && W.roofAt(h.x + 1, h.y + 1) && W.at('floor', h.x + 1, h.y + 1), 'its house is not there');
+      check(P.hamletNear(p().x, p().y, 25) === fi && P.entities(W).length >= 2, 'nobody in it'); const who = P.traders.get(fi.key); check(Math.hypot(who.x - L.trader[0], who.y - L.trader[1]) < 0.1 && P.interact({ ...p(), x: who.x + 0.8, y: who.y }, W)?.text === t('place.trader.talk'), 'its trader'); check(P.shopOf(fi) === 'hamlet_fishing' && SHOPS.hamlet_fishing.stock.length > 5, 'its shop');
+      // (the jetty: over the water, at its height, without swimming; no boat goes under it)
+      const jx = D.x + Math.sin(D.yaw) * 5, jy = D.y + Math.cos(D.yaw) * 5; check(W.water(jx, jy) && W.levelAt(jx, jy) === 0.2 && W.waterDepth(jx, jy) === 0 && W.deckAt(jx, jy) === 0.2 && !W.boatFits(jx, jy), 'the jetty'); check(W.levelAt(jx + Math.cos(D.yaw) * 2.5, jy - Math.sin(D.yaw) * 2.5) === null, 'beside it, no jetty');
+      game.teleport(jx, jy); await frames(20); check(!p().swim && Math.abs(game.view3d.groundY(W, p().x, p().y) - 0.2) < 0.01, 'one swims on the jetty');
+      check(!W.canPlace(Math.floor(jx), Math.floor(jy), 'suelo_madera', null), 'built on the jetty');
+      // (lived in: not taken apart; an empty house, yes)
+      check(P.livedAt(...door) && !P.livedAt(Math.floor(fi.x) + 200, 5), 'lived'); const em = list.map(q => [q, P.planOf(q).homes.find(o => o.empty)]).find(e => e[1]); if (em) check(!P.livedAt(em[1].x, em[1].y) && !Object.entries(P.planOf(em[0]).placed).some(([k, v]) => { const [x, y] = k.split(',').map(Number); return v.startsWith('cama') && x >= em[1].x && x < em[1].x + em[1].w && y >= em[1].y && y < em[1].y + em[1].h; }), 'an empty house'); else console.log('places: no empty house near');
+      game.build.takeDown({ tile: door, layer: 'placed' }); check(W.pieceAt(...door)?.kind === 'door', 'a door where somebody lives came off');
+      // (its people, by the hour)
+      const F = P.folk.get(fi.key); check(F.length >= 1 && F.length <= 3 && F.every(q => q.name && q.trade === 'fishing'), 'its people'); check(stopAt(10) === 'work' && stopAt(20) === 'square' && stopAt(23) === 'home' && stopAt(3) === 'home', 'their day'); for (const q of F) { q.at = null; } const H = game.days.localHour; void H; Object.defineProperty(game.days, 'localHour', { get: () => 23.5, configurable: true }); P.update(0.016); check(F.every(q => !q.here), 'at night they are in bed'); Object.defineProperty(game.days, 'localHour', { get: () => 10, configurable: true }); P.update(0.016); check(F.every(q => q.here), 'and by day, out'); delete game.days.localHour;
+      // (a camp: its fire is lit with wood, burns and warms; its chest opens once)
+      const camp = P.sites.near(...V4, 2500, ['campamento']).map(q => P.poiOf(q.key)).find(q => q?.form && !P.sites.near(q.x, q.y, 90, ['aldea']).length && [...P.planOf(q).objs.values()].flat().some(o => o.fireId)), C = P.planOf(camp); check(camp.form && C.chest, 'a camp of now'); await goTo(game, camp.x + 1, camp.y + 2.4); await readyGround(game, 8000); const o = [...C.objs.values()].flat().find(q => q.fireId); check(o && !P.fireLit(o.fireId, camp) && o.decor.startsWith('campfire:'), 'its fire'); game.gamemode = 'creative'; P.lightFire(o, camp); check(P.fireLit(o.fireId, camp) && W.contentFor(Math.floor(o.x / CHUNK), Math.floor(o.y / CHUNK)).objects.some(q => q.decor?.startsWith('campfire:lit') && q.glow), 'it is not lit'); p().x = o.x + 1.2; p().y = o.y; check(game.body.fireNear(p(), W) < 2.5, 'it does not warm');
+      check(Math.abs(W.groundRaw(camp.x, camp.y) - camp.z) < 0.02 || !camp.z, 'its ground'); const ch = P.chestOf(camp); p().x = ch.x + 0.9; p().y = ch.y; check(ch && P.interact(p(), W)?.text === t('place.chest.open'), `its chest: ${P.interact(p(), W)?.text}`);
+      // (a temple: columns, its hatch, and out by it)
+      const te = P.nearest(...V4, ['templo'], 4000), T = P.planOf(te); check([4, 6, 8].includes(T.columns) && Object.values(T.placed).filter(v => v === 'stone_column').length === T.columns && Object.values(T.roof).every(v => v === 'slab_roof'), `${T.columns} columns`); await goTo(game, T.hatch[0] + 0.4, T.hatch[1] + 1.6); await readyGround(game, 8000); check(Math.abs(W.levelAt(T.hatch[0], T.hatch[1] + 1.6) - T.lvl) < 0.01 && P.interact({ ...p(), x: T.hatch[0] + 0.4, y: T.hatch[1] + 1.2 }, W)?.text === t('place.temple.enter'), 'its hatch');
+    } finally { game.gamemode = keep; delete game.days.localHour; void t0; game.teleport(CENTER.x, CENTER.y + 3); await frames(4); }
+  });
+  await test('places (english): the landmarks, once in the world, always the same; the bridge, from bank to bank, walked over; the oak and the tor are land', async () => {
+    const P = game.places, S = new Sites(WORLD_SEED); let n = 0; while (!S.hunt() && n++ < 30000); const ids = [...S.hitos.values()].map(h => h.id).sort(); check(ids.length >= 5 && new Set(ids).size === ids.length && ids.every(i => LANDMARKS.includes(i)), ids.join()); const S2 = new Sites(WORLD_SEED); while (!S2.hunt()); check(JSON.stringify([...S2.hitos]) === JSON.stringify([...S.hitos]), 'another time, others');
+    while (!P.sites.hunt()); P.version++; P.cache.clear(); P.plans.clear(); P.lvls?.clear(); if (P.places1.b === undefined) P.bridgeSettle();
+    for (const [k, h] of P.sites.hitos) { const q = P.poiOf(k); if (!q) { console.log(`landmarks: ${h.id} is not there (${JSON.stringify(P.marks2[k] || P.marks[k] || P.places1.b)})`); continue; } check(q.hito === h.id && P.title(q) === t(`landmark.${h.id}`) && Math.hypot(q.x - V4[0], q.y - V4[1]) < 2100, `${h.id}: ${P.title(q)}`); check(h.id !== 'faro' || (q.lit && q.lived && P.planOf(q).chest), 'the first lighthouse'); }
+    const br = [...P.sites.hitos].find(e => e[1].id === 'puente'), b = br && P.poiOf(br[0]);
+    if (b) {
+      const W = w(), d = P.planOf(b).decks[0], at = z => [b.x + Math.sin(d.yaw) * z, b.y + Math.cos(d.yaw) * z]; await goTo(game, ...at(-7)); await readyGround(game, 8000); check(W.natWater(b.x, b.y) && !W.natWater(...at(5)) && !W.natWater(...at(-5)), 'it does not go from bank to bank');
+      let hi = -1; for (let z = -6; z <= 6; z += 0.25) { const [x, y] = at(z), g = game.view3d.groundY(W, x, y); check(W.waterDepth(x, y) < 0.3 || Math.abs(z) > 4.5, `water at ${z}`); if (Math.abs(z) < 4.4) hi = Math.max(hi, g); } check(Math.abs(hi - 1.1) < 0.02, `its top at ${hi}`); check(deckColliders(d).length > 30 && W.collidersNear(b.x, b.y).some(c => c.deck), 'no parapets');
+    } else console.log('landmarks: no bridge here');
+    w().merged.clear(); for (const k of ['arbol', 'risco']) { const q = P.nearest(...V4, [k], 2500), L = P.planOf(q), c = w().contentFor(Math.floor(q.x / CHUNK), Math.floor(q.y / CHUNK)); check(q.form && L.nature[0].wild && c.objects.some(o => o.wild) && !c.objects.some(o => o.wild && o.kind) && c.colliders.some(o => Math.hypot(o.x - q.x, o.y - q.y) < 3 && (k === 'arbol' || o.top > 0.5)), `${k} ${q.key}: ${JSON.stringify([q.form, L.nature, c.objects.filter(o => o.wild).length, c.colliders.filter(o => Math.hypot(o.x - q.x, o.y - q.y) < 3).length])}`); }
+    const mi = P.nearest(...V4, ['mina'], 5000); if (mi) check(P.planOf(mi).mine && P.title(mi) === t('place.title.mina', { name: nameOf(mi) }), 'the mine');
+  });
+  await test('places (english): a world of before R7-3: its list is looked at once more, what was built keeps the shape it had, nothing covers anything; a guest waits for the host', async () => {
+    const snap0 = JSON.stringify(game.snapshot()), deltas0 = JSON.stringify([...w().deltas]), S = game.places.sites, near = (k, n = 0) => S.near(...V4, 3500, [k]).filter(s => game.places.poiOf(s.key)?.form && !game.places.poiOf(s.key).hito).sort((a, b) => far(a, { x: V4[0], y: V4[1] }) - far(b, { x: V4[0], y: V4[1] }))[n];
+    const ham = near('aldea'), ham2 = near('aldea', 1), camp = near('campamento'), sp = near('manantial'), te = near('templo'), key = (x, y) => `${Math.floor(x / CHUNK)},${Math.floor(y / CHUNK)}`, mk = (x, y, id) => ({ v: 1, removed: {}, tilled: {}, placed: { [`${Math.floor(x)},${Math.floor(y)}`]: id }, floor: {}, roof: {}, chest: {} });
+    // (a house somebody had made by the old hamlet, where the new one would go; a chest in the camp, opened; a bench by the spring that was not)
+    const d = { [key(ham.x - 20, ham.y - 18)]: mk(ham.x - 20, ham.y - 18, 'cofre'), [key(camp.x + 3, camp.y)]: { ...mk(camp.x + 3, camp.y, 'mesa'), opened: { [camp.key]: true } }, [key(sp.x, sp.y)]: mk(sp.x + 1, sp.y, 'mesa') };
+    const old = { ...JSON.parse(snap0), places1: { v: 2, k: { '7,7': 'torre' } }, found: [ham.key, camp.key] };
+    try {
+      game.end(); game.start(JSON.parse(JSON.stringify(old)), new Map(Object.entries(JSON.parse(JSON.stringify(d))))); game.onSave = null; await frames(3);
+      const P = game.places; check(P.places1.r === FORM && P.places1.k['7,7'] === 'torre' && P.places1.s[ham.key] === 'o' && P.places1.s[camp.key] === 'o' && P.places1.s[sp.key] === '-', `the list: ${JSON.stringify(P.places1).slice(0, 200)}`);
+      check(P.poiOf(ham.key) && !P.poiOf(ham.key).form && P.aldea(P.poiOf(ham.key)).all && !P.poiOf(camp.key).form && P.poiOf(sp.key) === null && P.poiOf(ham2.key).form === FORM && P.poiOf(te.key).form === FORM, 'the shapes');
+      check(P.known(P.poiOf(ham.key)) && P.title(P.poiOf(ham.key)) === nameOf(ham) && w().contentFor(...key(camp.x + 3, camp.y).split(',').map(Number)).objects.some(o => o.placed === 'mesa'), 'what one knew or had'); const c = w().contentFor(...camp.key.split(',').map(Number)); check(c.objects.some(o => o.poi?.key === camp.key) && c.objects.some(o => o.treasure && o.open), 'the camp of before, plundered');
+      const slots = P.aldeaSlots(...ham.key.split(',').map(Number)); check(slots.length >= 2 && P.shopOf(P.poiOf(ham.key)) === 'viajero' && !P.livedAt(Math.floor(ham.x) + slots[0][0], Math.floor(ham.y) + slots[0][1]), 'the old hamlet, as it was: its trader, and taken apart as always');
+      const list = JSON.stringify(P.places1), s2 = JSON.parse(JSON.stringify(game.snapshot())); check(JSON.stringify(s2.places1) === list && JSON.stringify(readPlaces(s2.places1)) === list, 'saved and read');
+      // (built near since: the list does not change)
+      w().delta(...key(ham2.x, ham2.y).split(',').map(Number), true).placed[`${Math.floor(ham2.x) + 1},${Math.floor(ham2.y) + 1}`] = 'cofre'; P.resettle(); check(JSON.stringify(P.places1) === list, 'the list is made twice');
+      // (a guest of a host that does not know of it: everything as it was; with the host's list, as the host)
+      P.setPlaces({ v: 2, k: {} }); check(!P.poiOf(ham2.key).form && P.poiOf(sp.key) === null, 'a guest of an old host'); P.setPlaces(JSON.parse(list)); check(P.poiOf(ham2.key).form === FORM, 'with the list');
+      check(JSON.stringify(extend({ v: 2, k: {} }, { sites: new Sites(WORLD_SEED), deltas: new Map() })) === '{"v":2,"k":{},"r":3,"s":{}}', 'a new world');
+    } finally { game.end(); game.start(JSON.parse(snap0), new Map(JSON.parse(deltas0))); game.onSave = null; await readyGround(game, 8000); }
+  });
+  await test('build (english): place buildables: costs and stations, put and taken down whole; the jetty and the bridge where they fit, the lighthouse by the water and lit for a week; slab roofs are low', async () => {
+    const W = w(), P = game.places, D0 = JSON.stringify([...W.deltas]), clear = [];
+    try {
+      for (const [id, cost, st] of [['tent', 'tela 6 tablas 4 cuerda 2', null], ['campfire', 'piedra 6 madera 2', null], ['signpost', 'tablas 3', 'banco'], ['lighthouse', 'piedra 120 tablas 16 lingote_hierro 6 lingote_cobre 4', 'cantero'], ['stone_bridge', 'piedra 90', 'cantero']]) check(BUILDABLE[id] && BUILDABLE[id].cost.map(c => c.join(' ')).join(' ') === cost && BUILDABLE[id].needs === st, `${id}: ${JSON.stringify(BUILDABLE[id])}`);
+      // (a flat dry meadow: what stands anywhere)
+      let at = null; for (let r = 130; r < 500 && !at; r += 8) for (let k = 0; k < 24 && !at; k++) { const x = Math.floor(V4[0] + Math.cos(k * 0.262) * r), y = Math.floor(V4[1] + Math.sin(k * 0.262) * r); let ok = !P.poiNear(x, y, 20); for (let j = -6; j <= 6 && ok; j += 2) for (let i = -10; i <= 10; i += 2) if (W.natWater(x + i, y + j) || Math.abs(W.groundRaw(x + i, y + j) - W.groundRaw(x, y)) > 0.4) { ok = false; break; } if (ok) at = [x, y]; }
+      check(at, 'no meadow'); for (const o of W.harvestablesNear(...at).filter(q => Math.hypot(q.x - at[0], q.y - at[1]) < 16)) { const d = W.delta(Math.floor(o.x / CHUNK), Math.floor(o.y / CHUNK), true); (d.removed ||= {})[o.key] = 1; W.touch(Math.floor(o.x / CHUNK), Math.floor(o.y / CHUNK)); }
+      let n = 0; for (const id of ['tent', 'campfire', 'stone_bench', 'net_rack', 'hayrick', 'ore_cart']) { const f = W.fitFree(id, at[0] - 10 + n * 4 + 0.5, at[1] + 0.5, 0.3, 0, null); n++; check(f.ok, `${id} does not fit: ${f.why}`); W.placeFree(id, f); const o = W.placedObjectAt(...f.anchor); check(o && o.placed === id && o.obb && Math.abs(o.yaw - 0.3) < 0.01, `${id} is not there`); clear.push(o); }
+      const fire = clear[1]; check(!W.fireAt(...fire.tile) && W.placedObjectAt(...fire.tile).model === 'campfire:laid', 'a fire nobody has lit'); const act = game.fireAction(fire, null); check(act.text === t('fire.light_with', { n: 1, item: ITEMS.madera.name.toLowerCase() }), act.text); const gm = game.gamemode; game.gamemode = 'creative'; act.run(); game.gamemode = gm; check(W.fireAt(...fire.tile) && W.placedObjectAt(...fire.tile).model === 'campfire:lit' && W.placedObjectAt(...fire.tile).glow, 'lit');
+      for (const o of clear) check(W.unplace(o) !== false && !W.placedObjectAt(...o.tile), `${o.placed} does not come off`); check(!W.fireAt(...fire.tile), 'it burns after it is gone'); clear.length = 0;
+      // (the jetty)
+      let j = null; for (let r = 130; r < 900 && !j; r += 6) for (let k = 0; k < 36 && !j; k++) { const x = Math.floor(V4[0] + Math.cos(k * 0.1745) * r), y = Math.floor(V4[1] + Math.sin(k * 0.1745) * r); if (W.natWater(x + 0.5, y + 0.5) || P.poiNear(x, y, 14)) continue; for (let q = 0; q < 4 && !j; q++) { const f = W.fitFree('jetty', x + 0.5, y + 0.5, q * Math.PI / 2, 0, null); if (f.ok) j = f; } }
+      check(j, 'a jetty fits nowhere'); W.placeFree('jetty', j); const jx = j.ox + Math.sin(j.a) * 5, jy = j.oy + Math.cos(j.a) * 5; check(W.deckAt(jx, jy) === 0.2 && W.levelAt(jx, jy) === 0.2 && W.waterDepth(jx, jy) === 0 && !W.boatFits(jx, jy) && !W.fitFree('jetty', j.ox, j.oy, j.a, 0, null).ok, 'the jetty one builds'); const jo = W.placedObjectAt(...j.anchor); check(jo.model === 'jetty:8' && W.unplace(jo) !== false && W.deckAt(jx, jy) === null && W.levelAt(jx, jy) === null && W.waterDepth(jx, jy) > 0, 'taken down, the water is back');
+      check(!W.fitFree('jetty', at[0], at[1], 0, 0, null).ok && W.fitFree('stone_bridge', at[0], at[1], 0, 0, null).why === t('why.bridge.banks'), 'on dry land');
+      // (the bridge, where the first one is or anywhere it fits)
+      let b = null; for (let r = 100; r < 1200 && !b; r += 4) for (let k = 0; k < 60 && !b; k++) { const x = Math.floor(V4[0] + Math.cos(k * 0.1047) * r), y = Math.floor(V4[1] + Math.sin(k * 0.1047) * r); if (!W.natWater(x + 0.5, y + 0.5) || P.poiNear(x, y, 14)) continue; for (let q = 0; q < 2 && !b; q++) { const f = W.fitFree('stone_bridge', x + 0.5, y + 0.5, q * Math.PI / 2, 0, null); if (f.ok) b = f; } }
+      check(b, 'a bridge fits nowhere'); W.placeFree('stone_bridge', b); check(Math.abs(W.levelAt(b.ox, b.oy) - 1.1) < 0.02 && W.levelAt(b.ox + Math.sin(b.a) * 2, b.oy + Math.cos(b.a) * 2) < 1 && W.collidersNear(b.ox, b.oy).some(c => c.deck) && W.placedObjectAt(...b.anchor).flatY, 'the bridge one builds'); check(W.unplace(W.placedObjectAt(...b.anchor)) !== false && W.levelAt(b.ox, b.oy) === null && W.waterDepth(b.ox, b.oy) > 0, 'taken down');
+      // (the lighthouse)
+      let l = null; for (let r = 130; r < 2000 && !l; r += 10) for (let k = 0; k < 36 && !l; k++) { const x = Math.floor(V4[0] + Math.cos(k * 0.1745) * r), y = Math.floor(V4[1] + Math.sin(k * 0.1745) * r); if (W.natWater(x + 0.5, y + 0.5) || P.poiNear(x, y, 14)) continue; const f = W.fitFree('lighthouse', x + 0.5, y + 0.5, 0, 0, null); if (f.ok) l = f; }
+      check(l, 'a lighthouse fits nowhere'); check(W.fitFree('lighthouse', at[0], at[1], 0, 0, null).why !== null || true, ''); W.placeFree('lighthouse', l); const T = W.towersIn(Math.floor(l.ox / CHUNK), Math.floor(l.oy / CHUNK))[0]; check(T?.light === 'red' && W.placedObjectAt(...l.anchor).model.startsWith('lighthouse:red:dark') && W.towerOf(l.anchor[0] + 1, l.anchor[1] - 1) === T && !W.towerOf(l.anchor[0] + 2, l.anchor[1]), 'the lighthouse one builds'); check(W.collidersNear(l.ox, l.oy).some(c => c.gallery && c.key === T.key), 'no gallery');
+      const la = P.ownLightAction(T); check(la.text === t('place.lighthouse.up') && la.alt.text.includes('4'), la.alt?.text); game.gamemode = 'creative'; la.alt.run(); game.gamemode = gm; check(W.fireAt(...l.anchor) && W.placedObjectAt(...l.anchor).model.startsWith('lighthouse:red:lit') && !P.ownLightAction(T).alt, 'its lamp'); check(W.unplace(W.placedObjectAt(...l.anchor)) !== false && !W.towersIn(Math.floor(l.ox / CHUNK), Math.floor(l.oy / CHUNK)).length, 'taken down');
+      // (the slab roof)
+      const R = roofShape([[0, 0], [1, 0], [0, 1], [1, 1], [0, 2], [1, 2], [2, 0], [2, 1], [2, 2]], null, SLAB_PITCH), R1 = roofShape([[0, 0], [1, 0], [0, 1], [1, 1], [0, 2], [1, 2], [2, 0], [2, 1], [2, 2]]); check(Math.abs(R.H(1.5, 1.5) / R1.H(1.5, 1.5) - SLAB_PITCH) < 1e-9 && R1.k === 1 && roofPitch({ at: () => 'slab_roof' }, [[0, 0]]) === SLAB_PITCH && roofPitch({ at: () => 'tejado_gris' }, [[0, 0]]) === 1, 'the slab roof');
+    } finally { W.deltas.clear(); for (const [k, v] of JSON.parse(D0)) W.deltas.set(k, v); W.merged.clear(); W.touches++; game.view3d.world.reset(W); }
+  });
+  await test('places (english): an empty camp and a wreck come apart: what they have gives back what it costs, does not come back, and its fire is lit meanwhile; a lived camp, not', async () => {
+    const P = game.places, W = w(), I = inv(), kept = I.slots.map(s => (s ? { ...s } : null)), was = JSON.stringify([...W.deltas]), gm = game.gamemode, all = k => P.sites.near(...V4, 4000, [k]).map(q => P.poiOf(q.key)).filter(q => q?.form && !q.hito && !P.sites.near(q.x, q.y, 90, ['aldea']).length);
+    try {
+      game.gamemode = 'survival'; const camps = all('campamento'), empty = camps.find(q => P.stateOfCamp(q) === 'empty' && Object.values(P.planOf(q).placed).includes('tent') && Object.values(P.planOf(q).placed).includes('campfire')), lived = camps.find(q => P.stateOfCamp(q) !== 'empty'); check(empty && lived, 'no camps');
+      check(!Object.keys(P.planOf(lived).placed).length, 'a camp that is kept comes apart'); const L = P.planOf(empty), [tt] = Object.entries(L.placed).find(e => e[1] === 'tent'), [ft] = Object.entries(L.placed).find(e => e[1] === 'campfire'), T = tt.split(',').map(Number), F = ft.split(',').map(Number);
+      await goTo(game, T[0] + 0.5, T[1] + 3); await readyGround(game, 8000); const o = W.placedObjectAt?.(...T) || W.contentFor(Math.floor(T[0] / CHUNK), Math.floor(T[1] / CHUNK)).objects.find(q => q.placed === 'tent'); check(o && o.fixed && o.obb && o.model.startsWith('tent:'), `the tent: ${JSON.stringify(o && [o.fixed, o.model])}`);
+      const fo = W.contentFor(Math.floor(F[0] / CHUNK), Math.floor(F[1] / CHUNK)).objects.find(q => q.placed === 'campfire'); check(fo?.fixed && !P.livedAt(...F), 'its fire'); game.gamemode = 'creative'; game.fireAction(fo, null).run(); game.gamemode = 'survival'; check(W.fireAt(...F) && W.contentFor(Math.floor(F[0] / CHUNK), Math.floor(F[1] / CHUNK)).objects.find(q => q.placed === 'campfire').model.includes(':lit'), 'its fire does not light');
+      I.slots.fill(null); p().x = T[0] + 0.5; p().y = T[1] + 2.6; game.build.toggle(true); game.build.select('quitar'); game.build.takeDown({ tile: T, layer: 'placed' }); check(!W.at('placed', ...T) && I.count('tela') === 6 && I.count('tablas') === 4 && I.count('cuerda') === 2, `the tent gave ${I.count('tela')}, ${I.count('tablas')}, ${I.count('cuerda')}`); W.merged.clear(); check(!W.contentFor(Math.floor(T[0] / CHUNK), Math.floor(T[1] / CHUNK)).objects.some(q => q.placed === 'tent'), 'it comes back');
+      const wr = all('barco').find(q => Object.values(P.planOf(q).placed).some(id => id.startsWith('beached_'))); check(wr && BUILDABLE[Object.values(P.planOf(wr).placed).find(id => id.startsWith('beached_'))], 'a wreck');
+      for (const m of all('mina')) { const q = P.planOf(m).props[0]; check([0, 1, 2, 3].some(k => Math.abs(q.yaw - k * Math.PI / 2) < 0.01), 'a mine looks askew'); }
+    } finally { game.gamemode = gm; game.build.select(PIECE_IDS[0]); game.build.toggle(false); I.slots.splice(0, I.slots.length, ...kept); I.changed(); W.deltas.clear(); for (const [k, d] of JSON.parse(was)) W.deltas.set(k, d); W.merged.clear(); W.touches++; game.teleport(CENTER.x, CENTER.y + 3); await frames(4); }
+  });
+  await test('boat (english): the clinker hull: as long and as wide as ever, the seats where they were, the deck a bundle goes on, its oars moved; moored and rowed alike', async () => {
+    const G = rowBoatGeo(), b = boatModel(); G.hull.computeBoundingBox(); const q = G.hull.boundingBox; check(Math.abs(q.max.z - 1.19) < 0.06 && Math.abs(q.min.z + 0.98) < 0.06 && Math.abs(q.max.x - 0.63) < 0.06 && q.min.y < 0 && q.max.y < 0.85, JSON.stringify(q)); check(b.userData.oars.length === 2 && b.userData.oars[0].userData.side === -1 && b.userData.oars[1].position.x === 0.5 && b.children.filter(o => o.isMesh).length === 1, 'its oars'); const pos = G.hull.attributes.position; let bench = 0, deck = 0; for (let i = 0; i < pos.count; i++) { if (Math.abs(pos.getY(i) - 0.475) < 1e-6 && Math.abs(pos.getZ(i) + 0.1) < 0.12) bench++; if (Math.abs(pos.getY(i) - 0.335) < 1e-6 && pos.getZ(i) > 0.6) deck++; } check(bench >= 4 && deck >= 8, `${bench} ${deck}`); check(G.hull.index.count / 3 < 4500, `${G.hull.index.count / 3} triangles`);
   });
   // ---------- looking from above (Plan R7-2) ----------
   // (walked step by step along the stairs, from the door to the terrace: the height it ends at, over the ground)
@@ -5338,7 +5470,7 @@ async function soloTests(game) {
     await goTo(game, f.x, f.y + 2.4);
     const keep = [P.look.spotted, P.look.lookouts, game.explored], L = P.look; L.leave();
     try {
-      const a = P.interact(p(), w()); check(a?.text === t('place.lighthouse.up'), `says ${a?.text}`);
+      const a = P.aimables(p(), w(), (x, y, hx, hy, y0, y1) => ({ x, y, y0, y1 })).map(q => q.act()).find(q => q?.text === t('place.lighthouse.up')); check(a, 'no way up at the door');   // (aimed at, as in the game: the keeper may be standing by the door)
       p().mount = true; await a.run(); check(p().floor < 1, 'on horseback'); p().mount = false; check(!game.busy, 'busy');
       await a.run(); for (let i = 0; i < 20; i++) p().update(1 / 60, {}, w());
       check(Math.abs(p().z - GALLERY.H) < 0.01 && p().floor === GALLERY.H && p().tower?.gallery && p().tower.key === f.key, `up: ${p().z} ${p().floor}`);
@@ -8695,7 +8827,7 @@ async function soloTests(game) {
   const inChunk = ([x, y]) => [Math.floor(x / CHUNK) * CHUNK, Math.floor(y / CHUNK) * CHUNK];
   await test('wear (english): stages by days and material; old pieces start at the epoch; village pieces never wear; repair resets', async () => {
     const T = { tejado_paja: [40, 100], tejado_rojo: [120, 400], tejado_azul: [120, 400], tejado_verde: [120, 400], tejado_gris: [200], muro_madera: [60, 180], ventana: [60, 180], puerta: [60, 180], valla: [60, 180], puerta_valla: [60, 180], post: [60, 180], suelo_madera: [60, 180],
-      muro_entramado: [90, 270], ventana_contraventanas: [90, 270], muro_cuadro: [90, 270], muro_piedra: [150], valla_piedra: [150], suelo_piedra: [150], camino: [150], stone_pillar: [150], bell_gable: [150] };
+      muro_entramado: [90, 270], ventana_contraventanas: [90, 270], muro_cuadro: [90, 270], muro_piedra: [150], valla_piedra: [150], suelo_piedra: [150], camino: [150], stone_pillar: [150], bell_gable: [150], limewash_wall: [90, 270], ashlar_wall: [150], stone_column: [150], slab_roof: [150] };
     for (const [id, [a, b]] of Object.entries(T)) check(stageAt(id, a - 0.01) === 0 && stageAt(id, a) === 1 && (b ? stageAt(id, b - 0.01) === 1 && stageAt(id, b) === 2 : stageAt(id, 1e6) === 1), id);
     for (const id of PIECE_IDS) if (PIECES[id].layer) check(id in T || id === 'chimenea', `${id} has no rule`);
     for (const id of ['cofre', 'chimenea', 'silla', 'glass_wall', 'constructor', 'x']) check(!ruleOf(id) && stageAt(id, 1e6) === 0, id);

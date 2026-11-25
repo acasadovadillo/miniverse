@@ -19,7 +19,7 @@ import { Gathering } from './gather.js';
 import { RoomWatch, shelterOn } from './structure.js';
 import { Crafting } from './crafting.js';
 import { STATIONS } from './recipes.js';
-import { START_KIT, ITEMS, RUG_MADE, rugId, CHESTS, UNKNOWN_NAME, knownItem } from './items.js';
+import { START_KIT, ITEMS, RUG_MADE, rugId, CHESTS, UNKNOWN_NAME, knownItem, FIRE_MS, FIRE_FUEL } from './items.js';
 import { clothesFor, dressed, wearStage } from './looks.js';
 import { WorldStore } from './worldstore.js';
 import { BuildMode } from './build.js';
@@ -146,7 +146,7 @@ const TAVERN_SEATS = new Set(['silla', 'taburete', 'barber_chair']);   // (en la
 // (no key held: what a rearing horse's rider moves with, horse.js held; frozen, never written)
 const NO_KEYS = Object.freeze({ up: false, down: false, left: false, right: false, run: false, sprint: false, use: false, space: false, dive: false, mapFast: false });
 const AIM_REACH = 2;   // lo que se apunta con el ratón se usa si está a esto como mucho (casillas)
-const LIGHTS = new Set(['lampara', 'antorcha', 'vela', 'candelabro']);
+const LIGHTS = new Set(['lampara', 'antorcha', 'vela', 'candelabro', 'post_lantern']);
 const BEDS = new Set(['cama', 'cama_nino', 'cama_doble']);   // lo colocado que se apaga y se enciende con E
 const JUMP_COVER = 24;   // casillas: un salto más largo (/tp) se hace a oscuras (ver coverJump); uno corto, de golpe
 const BLUR_MS = 50;      // sin el foco, un dibujo cada tanto (unos 20 fps; ver run)
@@ -593,7 +593,7 @@ export class Game {
     // Lo colocado, lo más cercano primero (la alfombra, al final: lo de encima, las puertas y las ventanas antes).
     // (lo fijo de las casas de los vecinos no se toca)
     const dist = o => (sc.placedDist ? sc.placedDist(o, p.x, p.y) : Math.hypot(o.x - p.x, o.y - p.y));
-    const near = (sc.placedNear?.(p.x, p.y, 1.3) || []).filter(o => (!o.fixed || STATIONS[o.placed]) && (!sc.reaches || sc.reaches(p.x, p.y, o.x, o.y))).sort((a, b) => dist(a) - dist(b));
+    const near = (sc.placedNear?.(p.x, p.y, 1.3) || []).filter(o => (!o.fixed || STATIONS[o.placed] || FIRE_MS[o.placed]) && (!sc.reaches || sc.reaches(p.x, p.y, o.x, o.y))).sort((a, b) => dist(a) - dist(b));
     const o = near.find(o => o.layer !== 'rug');
     if (o) return this.placedAction(o, true);
     const hearth = sc.hearthNear?.(p.x, p.y);
@@ -638,7 +638,7 @@ export class Game {
     const sees = (x, y) => !sc.reaches || sc.reaches(p.x, p.y, x, y);
     // Lo colocado, a su tamaño y altura (las alfombras, a ras de suelo; los cuadros cuelgan del muro: no se miran a la vista)
     for (const o of sc.placedNear?.(p.x, p.y, R) || []) {
-      if ((o.fixed && !STATIONS[o.placed] && !(TAVERN_SEATS.has(o.placed) && inTavern(o.x, o.y))) || (o.layer !== 'hang' && !sees(o.x, o.y))) continue;
+      if ((o.fixed && !STATIONS[o.placed] && !FIRE_MS[o.placed] && !(TAVERN_SEATS.has(o.placed) && inTavern(o.x, o.y))) || (o.layer !== 'hang' && !sees(o.x, o.y))) continue;
       // (en el establo abierto se entra: sus paredes, por separado, y el tejado desde fuera)
       if (o.placed === 'establo' && o.model !== 'establo:shut') {
         const yaw = o.yaw ?? yawOf(o.rot), walls = solidsOf('establo').filter(s => s[1] < 1), roof = this.ranch.houseAround(p) === o ? [] : [[-2, 1.95, -1.5, 2, 3, 1.5]];
@@ -748,11 +748,27 @@ export class Game {
     if (o.placed === 'banera') return { text: this.carry.dropFirst() || t(this.body.hasSoap() && this.gamemode === 'survival' ? 'body.bath.soap' : 'body.bath'), run: () => this.body.bathe(o), alt: pick };
     // (no dropFirst here: the mirror still works with full arms; the wash itself refuses them, menus.js)
     if (o.placed === 'lavabo') return { text: this.onBasin && this.body && !this.body.off?.surface ? t('body.basin.use') : t('body.mirror'), run: () => (this.onBasin ? this.onBasin(o) : this.onMirror?.()), alt: pick };   // (onBasin: ui/menus.js asks wash or mirror)
+    if (FIRE_MS[o.placed]) return this.fireAction(o, o.fixed ? null : pick);
+    if (o.placed === 'bell_frame') return { text: t('bell.ring'), run: () => Audio.bell?.() ?? Audio.clink(), alt: pick };
     if (wellSpec(o.placed)) return this.farm.wellAction(o, o.fixed ? null : pick);   // (E: llenar la regadera; X: desmontarlo. The big well too)
     if (CHESTS[o.placed] && o.placed !== 'mochila') return { text: `Abrir ${CHESTS[o.placed][1]}`, run: () => this.onChest?.(sc.chestAt(...o.tile), o.tile), alt: pick };   // (lleno no se recoge: hay que vaciarlo antes)
     if (o.placed === 'mochila') return { text: 'Abrir la mochila', run: () => this.onChest?.(sc.chestAt(...o.tile) || [], o.tile), alt: { text: this.inv.equip.espalda ? 'Recoger la mochila' : 'Ponerse la mochila', run: () => this.takeBackpack(o) } };
-    if (LIGHTS.has(o.placed)) return { text: `${o.off ? 'Encender' : 'Apagar'} ${name.replace(/^lámpara/, 'la lámpara').replace(/^antorcha/, 'la antorcha').replace(/^vela/, 'la vela').replace(/^candelabro de techo/, 'el candelabro')}`, run: () => { sc.toggleLight(...o.tile); Audio.blip(); save(); }, alt: pick };
+    if (LIGHTS.has(o.placed)) return { text: `${o.off ? 'Encender' : 'Apagar'} ${name.replace(/^lámpara/, 'la lámpara').replace(/^antorcha/, 'la antorcha').replace(/^vela/, 'la vela').replace(/^candelabro de techo/, 'el candelabro').replace(/^farol/, 'el farol')}`, run: () => { sc.toggleLight(...o.tile); Audio.blip(); save(); }, alt: pick };
     return pick;
+  }
+  // A fire one has built (a campfire, a brazier, a charcoal clamp): E lights it, with its fuel; X takes it down
+  fireAction(o, pick) {
+    const lit = this.world.fireAt(...o.tile), [m, n] = FIRE_FUEL[o.placed];
+    if (lit) return { text: t('fire.burning'), run: () => {}, alt: pick };
+    return { text: t('fire.light_with', { n, item: ITEMS[m].name.toLowerCase() }), run: () => this.lightFire(() => { const [tx, ty] = o.tile, d = this.world.delta(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK), true); (d.fire ||= {})[`${tx},${ty}`] = Date.now() + FIRE_MS[o.placed]; this.world.touchAround(tx, ty); }, m, n), alt: pick };
+  }
+  // …whatever it is: what it takes, from the bag, and it burns (done: what notes it)
+  lightFire(done, m = 'madera', n = 1) {
+    if (this.gamemode !== 'creative' && this.inv.count(m) < n) { this.gather.float(t('fire.needs', { n, item: ITEMS[m].name.toLowerCase() }), '#ffb0a0'); Audio.error(); return; }
+    if (this.gamemode !== 'creative') this.inv.remove(m, n);
+    done();
+    Audio.noiseHit(900, 0.25, 0.25);
+    this.onSave?.();
   }
   // El fuego del hogar (el de los vecinos no se recoge)
   hearthAction(hearth) {
@@ -857,6 +873,7 @@ export class Game {
   // carry: lo coge el modo construir para moverlo (no devuelve nada: se deja en otro sitio)
   pickUp(o, carry = false) {
     if (o.fixed && !o.yard && !o.build) return false;
+    if (this.scene === this.world && o.tile && !this.world.ownAt(o.layer || 'placed', o.tile[0], o.tile[1]) && this.build.lived(o.tile)) return false;   // (of a place where somebody lives)
     // (a log or a carcass, taken with B › Remove or X: its parts, as with the slot inventory; it is never moved. carry.js)
     if (BULKY[o.placed]) { const wait = this.carry.notYours(o); if (wait) { this.carry.say(wait); Audio.error(); return false; } if (carry || this.scene.unplace(o) === false) return false; this.carry.forget(o.tile); this.carry.giveParts(o.placed); Audio.pickup(); return true; }   // (lo que venía puesto no se recoge sin querer: solo la valla de tu jardín y, en modo construir, todo)
     // Lo que se construye (las piezas, como la valla, y los muebles y las estaciones) no vuelve a la mochila: devuelve

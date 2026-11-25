@@ -7,7 +7,7 @@ import { groundSmooth, grassKeep, groundOf } from './ground.js';
 import { WorldGen, CHUNK, GRASS_REGROW, flowerShows } from './gen.js';
 import { inYard, buildVillage, NILO, inBounds, isGrass, inOwnHouse, inVillageHouse, townDigWhy, pondDist } from './village.js';
 import { B, BIOMES, WATER_Y, stoneOf } from './biomes.js';
-import { ITEMS, CHESTS, modernSlots } from '../items.js';
+import { ITEMS, CHESTS, FIRE_MS, modernSlots } from '../items.js';
 import '../buildables.js';   // (LEGACY_ITEMS con los muebles: también en el servidor)
 import { extraTiles, LONG, BED_BACK, HEARTH_BACK, GLOW, LIGHT, front, SIDE, rugRect, RUG_SIZES, TABLE_SIZES, TABLES, TUCK } from '../art/stations.js';
 import { feedModel, compostModel } from '../soil.js';
@@ -22,8 +22,9 @@ import { supportOn, roofWhy, frameOk } from '../structure.js';
 import { Person } from '../entities.js';
 import { Profile } from '../accounts.js';
 import { wrapIndex, inPlanet, dxOf, wrapX, HALF, H as PLANET_H, NORTH } from './planet.js';
-import { roofShape } from './roof.js';
-import { watchtower, towerColliders, SIDE as TOWER_SIDE, HALF_SIDE, TOWER } from './tower.js';
+import { roofShape, roofPitch } from './roof.js';
+import { watchtower, halfOf, towerColliders, lighthouseColliders, HALF_SIDE, TOWER } from './tower.js';
+import { deckHeight, deckBox, deckColliders, JETTY_Y } from './hamlets.js';
 import { t as tr } from '../i18n.js';   // (as tr: t is a common local name here)
 
 const WADE_MAX = 0.5;   // (ver blocked)
@@ -51,8 +52,21 @@ export const wellSpec = id => (id && Object.hasOwn(WELLS, id) ? WELLS[id] : null
 const wellTiles = n => { const out = []; for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) if (i || j) out.push([i, j]); return out; };
 // The other tiles of what takes a square: a big well's (its anchor has the lowest x and y) or a watchtower's (its anchor is the
 // middle one). They have its height and nothing else; the rest, none
-const TOWER_TILES = []; for (let j = -HALF_SIDE; j <= HALF_SIDE; j++) for (let i = -HALF_SIDE; i <= HALF_SIDE; i++) if (i || j) TOWER_TILES.push([i, j]);
-const wideTiles = id => (watchtower(id) ? TOWER_TILES : wellTiles(wellSpec(id)?.n || 1));
+const squareTiles = h => { const out = []; for (let j = -h; j <= h; j++) for (let i = -h; i <= h; i++) if (i || j) out.push([i, j]); return out; };
+const TOWER_TILES = { [HALF_SIDE]: squareTiles(HALF_SIDE), 1: squareTiles(1) };
+const wideTiles = id => (watchtower(id) ? TOWER_TILES[halfOf(watchtower(id))] : wellTiles(wellSpec(id)?.n || 1));
+// ---------- the jetty and the stone bridge one builds ----------
+// What one walks on over the water (hamlets.js, deckHeight): how many tiles long; its anchor is the jetty's near end or the bridge's middle.
+// Its tiles have its height (d.lvl), like a big well's
+const DECKS = { jetty: { L: 8 }, stone_bridge: { L: 9 } };
+export const deckSpec = id => (id && Object.hasOwn(DECKS, id) ? DECKS[id] : null);
+const deckOfId = (id, tx, ty, rot) => ({ kind: id, x: tx + 0.5, y: ty + 0.5, yaw: ((rot || 0) % 4) * Math.PI / 2, L: DECKS[id].L });
+// (its tiles: those whose middle is on it, and the jetty's own)
+function deckTiles(d) {
+  const [x0, y0, x1, y1] = deckBox(d), out = [];
+  for (let y = Math.floor(y0); y <= y1; y++) for (let x = Math.floor(x0); x <= x1; x++) { const h = deckHeight(d, x + 0.5, y + 0.5); if (h !== null) out.push([x, y, h]); }
+  return out;
+}
 // A watchtower stands on ground that rises TOWER_SLOPE at most from side to side; its base goes down this far under the lowest
 const TOWER_SLOPE = 1.25, TOWER_ROOT = 3;
 const wellModel = (lvl, dig, id = 'pozo') => (typeof lvl === 'number' && typeof dig === 'number' && lvl > dig ? `${id}:${Math.min(80, Math.round((lvl - dig) / LV_STEP))}` : id);
@@ -208,6 +222,8 @@ function crosses(x0, y0, x1, y1, b) {
 const SNAP = 0.35, MAX_PUSH = 0.45, NUDGE = 0.12;   // (a menos de SNAP de un muro, se pega; si lo corta menos de MAX_PUSH, se saca; de un mueble, solo si lo roza: NUDGE)
 // What shows what it has inside: the trough and the compost bin (soil.js)
 const STORES = { comedero: (d, t) => feedModel(d.feed?.[t], d.fodder?.[t]), compost_bin: (d, t) => compostModel(d.compost?.[t]), trough: (d, t) => troughModel(d.trough?.[t]), scarecrow: (d, t) => scarecrowModel(d.garb?.[t]) };
+// (what a fire one builds looks like, lit or not)
+const FIRE_MODEL = { campfire: lit => `campfire:${lit ? 'lit' : 'laid'}`, brazier: lit => `brazier:${lit ? 'lit' : 'cold'}`, charcoal_clamp: lit => `charcoal_clamp:${lit ? 'lit' : 'cold'}` };
 const HORSE_THINGS = new Set(['trough', 'hitching_post']);   // (longer than a tile: where their boxes are, with /setblock too)
 // (a hunted carcass, gutted: quality.js, the record's second; with Settings › blood off, as the others)
 for (const id of ['carcass_deer', 'carcass_hind', 'carcass_boar']) STORES[id] = (d, t) => (d.cq?.[t]?.[1] > 0 && Gore.on ? id + ':gutted' : undefined);
@@ -221,7 +237,7 @@ function freeObject(o, id, rot, [x, y, a], { colliders, lights, solids }) {
   const local = id === BARROW.ID ? barrowSolids() : solidsOf(o.model || id), box = placeBoxes([hull(local)], x, y, a)[0];
   o.obb = box;
   // (en el establo con la puerta abierta se entra: chocan sus paredes, no todo él; lo alto no molesta)
-  if (id === 'establo' && o.model !== 'establo:shut') for (const s of placeBoxes(local.filter(l => l[1] < 1), x, y, a)) colliders.push({ ...bounds(s), obb: s, free: true });
+  if ((id === 'establo' && o.model !== 'establo:shut') || id === 'mine_front') for (const s of placeBoxes(local.filter(l => l[1] < 1), x, y, a)) colliders.push({ ...bounds(s), obb: s, free: true });
   // (el pozo: lo bajo, la losa y el brocal; el tejadillo vuela por encima de la cabeza y no quita sitio a la casilla de al
   // lado, que se puede cercar o labrar pegada)
   else if (wellSpec(id)) { const s = placeBoxes([hull(local.filter(l => l[1] < wellSpec(id).low))], x, y, a)[0]; colliders.push({ ...bounds(s), obb: s, free: true }); }
@@ -547,9 +563,11 @@ export class Overworld {
   // (drawn: also that of a porch's tile, for what draws it; else null there, one walks on the ground: openTile)
   levelAt(x, y, drawn = false) {
     const tx = Math.floor(x), ty = Math.floor(y), d = this.deltas.get(`${wrapIndex(Math.floor(tx / CHUNK), CHUNK)},${Math.floor(ty / CHUNK)}`);
-    if (!d) return null;
-    const k = `${tx},${ty}`, L = d.lvl?.[k];
-    if (L === undefined && !this.builtAt(d, k)) return null;
+    const k = d && `${tx},${ty}`, L = d?.lvl?.[k], built = !!d && this.builtAt(d, k);
+    // (nothing of the players here: what the places have, a deck or a podium; explore.js)
+    if (L === undefined && !built) { for (const l of this.layers) { const v = l.lvlAt?.(x, y, tx, ty); if (v !== null && v !== undefined) return v; } return null; }
+    // (the tiles of a deck of theirs: the bridge's height goes on from one to the next)
+    if (L !== undefined && (!built || deckSpec(parsePlaced(d.placed?.[k] || '')[0]))) { const q = this.deckOf(tx, ty); if (q) return deckHeight(q, x, y) ?? L; }
     return !drawn && this.openTile(d, k) ? null : L !== undefined ? L : 0;
   }
   // A tile with only a roof over it, or a post (a porch, a shelter): nothing to stand on. It neither lifts a house nor is lifted
@@ -626,6 +644,16 @@ export class Overworld {
     if (d?.lvl?.[k] !== undefined && !this.builtAt(d, k)) delete d.lvl[k];
   }
   // When a big well or a watchtower goes (id: what was in its anchor tile), its other tiles lose its height
+  // (the tiles of a deck: its own anchor's too, whatever its ground is)
+  setDeck(id, tx, ty, rot) {
+    for (const [x, y, h] of deckTiles(deckOfId(id, tx, ty, rot))) { (this.delta(Math.floor(x / CHUNK), Math.floor(y / CHUNK), true).lvl ||= {})[`${x},${y}`] = Math.round(h * 100) / 100; this.touchAround(x, y); }
+    (this.delta(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK), true).lvl ||= {})[`${tx},${ty}`] = id === 'jetty' ? JETTY_Y : Math.round(deckHeight(deckOfId(id, tx, ty, rot), tx + 0.5, ty + 0.5) * 100) / 100;
+  }
+  dropDeck(tx, ty, raw) {
+    const [id, rot] = parsePlaced(raw);
+    if (!deckSpec(id)) return;
+    for (const [x, y] of deckTiles(deckOfId(id, tx, ty, rot))) { this.dropLevel(x, y); this.touchAround(x, y); }
+  }
   dropWell(tx, ty, id) { for (const [i, j] of wideTiles(id)) { this.dropLevel(tx + i, ty + j); this.touchAround(tx + i, ty + j); } }
 
   // ---------- el suelo, llano junto a lo construido de antes ----------
@@ -905,11 +933,17 @@ export class Overworld {
         colliders.push({ x0: Math.min(ax, bx), y0: Math.min(ay, by), x1: Math.max(ax, bx), y1: Math.max(ay, by), piece: true });
       } else if (watchtower(id)) {
         // A watchtower one builds: one climbs it as the others (tower.js); for what is put by it, its box
-        const [x, y] = src.pos?.[o.key] || [tx + 0.5, ty + 0.5], a = (rot % 4) * Math.PI / 2, h = watchtower(id).h, L = src.lvl?.[t] || 0;
-        Object.assign(o, { x, y, yaw: a, rot, free: true, tower: { x, y, h, yaw: a }, model: this.towerModel(id, x, y, L, this.towerGround(tx, ty)[1]), obb: aabb(x - TOWER_SIDE / 2, y - TOWER_SIDE / 2, x + TOWER_SIDE / 2, y + TOWER_SIDE / 2) });
-        for (const c of towerColliders(x, y, { h, yaw: a, key: `w:${t}` })) colliders.push(Object.assign(c, { free: true }));
+        const W = watchtower(id), S = halfOf(W) + 0.5, [x, y] = src.pos?.[o.key] || [tx + 0.5, ty + 0.5], a = (rot % 4) * Math.PI / 2, h = W.h, L = src.lvl?.[t] || 0;
+        const lit = !!W.light && this.fireAt(tx, ty);
+        Object.assign(o, { x, y, yaw: a, rot, free: true, tower: { x, y, h, yaw: a, light: W.light, lit }, model: this.towerModel(id, x, y, L, this.towerGround(tx, ty, halfOf(W))[1], lit), obb: aabb(x - S, y - S, x + S, y + S) });
+        if (W.light) { for (const c of lighthouseColliders(x, y, `w:${t}`, a)) colliders.push(Object.assign(c, { free: true })); if (lit) lights.push({ x, y, z: 160, r: 120 }); }
+        else for (const c of towerColliders(x, y, { h, yaw: a, key: `w:${t}` })) colliders.push(Object.assign(c, { free: true }));
         out.solids.push({ ...o.obb, y0: 0, y1: h + TOWER.parapet });
-      } else if (src.pos?.[o.key] || BIG_HOUSE.has(id) || wellSpec(id) || id === BARROW.ID || HORSE_THINGS.has(id)) {   // (las casas grandes, aunque se pusieran por casillas antes de crecer, ocupan lo suyo; el pozo puesto con /setblock, sin sitio, va en el centro; the wheelbarrow is always free)
+      } else if (deckSpec(id)) {
+        const D = deckOfId(id, tx, ty, rot), R = deckBox(D);
+        Object.assign(o, { x: D.x, y: D.y, yaw: D.yaw, rot, free: true, deck: D, model: `${id}:${D.L}`, flatY: true, fx: [R[0], R[2]], fy: [R[1], R[3]] });
+        for (const c of deckColliders(D)) colliders.push(Object.assign(c, { free: true }));
+      } else if (src.pos?.[o.key] || BIG_HOUSE.has(id) || wellSpec(id) || id === BARROW.ID || HORSE_THINGS.has(id) || FIRE_MODEL[id]) {   // (las casas grandes, aunque se pusieran por casillas antes de crecer, ocupan lo suyo; el pozo puesto con /setblock, sin sitio, va en el centro; the wheelbarrow is always free)
         o.off = this.lightOff(tx, ty);
         // (the wheelbarrow draws what it carries: its big things and, with stacks in it, a heap. Its boxes stay the empty one's)
         if (id === BARROW.ID) { const ids = (src.barrow?.[t]?.l || []).map(e => e?.[0]).filter(i => BULKY[i]), full = !!src.chest?.[t]?.some(Boolean); if (ids.length || full) o.model = barrowKey(ids, full); }
@@ -919,7 +953,10 @@ export class Overworld {
         const W = wellSpec(id), half = (W?.n || 1) / 2;
         if (id === 'pozo') o.model = wellModel(src.lvl?.[t], src.dig?.[t]);   // (hasta el fondo del hoyo)
         else if (W) o.model = wellModel(src.lvl?.[t], this.wellBottom(tx, ty, W.n), id);   // (the big one: down to its deepest tile)
+        const fire = FIRE_MODEL[id], lit = !!fire && this.fireAt(tx, ty), own = src.models?.[o.key];   // (own: how the one of a place is; explore.js)
+        if (fire) o.model = own ? (lit ? own.replace(/:(laid|cold)/, ':lit') : own) : fire(lit); else if (own) o.model = own;
         if (freeObject(o, id, rot, src.pos?.[o.key] || [tx + half, ty + half, (rot % 4) * Math.PI / 2], out)) { flats.push(o); continue; }
+        if (fire) { o.lit = lit; o.glow = lit ? GLOW.horno : null; }
       } else {
         o.off = this.lightOff(tx, ty);
         const tuck = this.tuckShift(id, tx, ty, rot);
@@ -984,9 +1021,9 @@ export class Overworld {
       if (!has(x - 1, y)) edges.push([x, y, x, y + 1]);
       if (!has(x + 1, y)) edges.push([x + 1, y, x + 1, y + 1]);
     }
-    const gable = roofShape(tiles, has);   // (las rectangulares van a dos aguas: ver roof.js)
+    const pitch = roofPitch(this, tiles), gable = roofShape(tiles, has, pitch);   // (las rectangulares van a dos aguas: ver roof.js)
     for (const [x, y] of tiles) {
-      const D = gable.gable ? gable.H : (px, py) => roofDistance(px, py, edges);
+      const D = gable.gable ? gable.H : (px, py) => roofDistance(px, py, edges) * pitch;
       const h = { nw: D(x, y), ne: D(x + 1, y), se: D(x + 1, y + 1), sw: D(x, y + 1), c: D(x + 0.5, y + 0.5) };
       const eaves = { n: !has(x, y - 1), e: !has(x + 1, y), s: !has(x, y + 1), w: !has(x - 1, y) };
       memo.set(`${x},${y}`, { h, eaves });
@@ -1067,7 +1104,7 @@ export class Overworld {
     if (!inPlanet(x, y)) return false;   // (en la costura del planeta, desde el otro lado, o más allá de un polo)
     if (layer === 'rug') return this.rugFits(rugRect(tx, ty, rot));
     if (this.wellAt(x, y)) return false;   // (nothing on a well: not even a floor, which would cover its mouth and float when it goes)
-    if (this.towerOf(tx, ty)) return false;   // (nor on a watchtower's base)
+    if (this.towerOf(tx, ty) || this.deckAt(x, y) !== null) return false;   // (nor on a watchtower's base, nor on a jetty or a bridge)
     if (this.water(x, y)) return false;
     // (en el pueblo, en la hierba y en las casas; las vallas y sus puertas, además, en todo tu jardín, también en el hueco del camino; en modo admin, donde sea)
     if (inBounds(x, y) && !isGrass(x, y) && !inOwnHouse(x, y) && !inVillageHouse(x, y) && !this.buildAnywhere && !(['fence', 'gate'].includes(PIECES[id]?.kind) && inYard(x, y, 0.6))) return false;
@@ -1096,6 +1133,7 @@ export class Overworld {
     (d[layer] ||= {})[`${tx},${ty}`] = rot ? `${id}@${rot}` : id;
     this.wear?.put(d, layer, `${tx},${ty}`, id);   // (as new: wear.js)
     this.planGone(d, layer, tx, ty);
+    if (deckSpec(id)) this.setDeck(id, tx, ty, rot);
     if (PIECES[id]?.kind === 'gate') (d.closed ||= {})[`${tx},${ty}`] = true;   // (la puerta de valla empieza cerrada: el cercado ya guarda)
     if (CHESTS[id]) d.chest[`${tx},${ty}`] = Array(CHESTS[id][0]).fill(null);   // (la mochila en el suelo es como un cofre; el armario, para la ropa)
     // (a wheelbarrow gets its id once, here: it keeps it while pushed and parked again, and the host arbitrates by it; barrow.js)
@@ -1141,9 +1179,9 @@ export class Overworld {
     if (layer === 'placed' && d.barrow) delete d.barrow[k];   // (a wheelbarrow's id and big things: who takes it has read them first, barrow.js)
     if (layer === 'placed' && d.closed) delete d.closed[k];
     if (layer === 'placed' && d.off) delete d.off[k];
-    if (layer === 'placed') for (const f of [d.manure, d.compost, d.trough, d.garb]) if (f) delete f[k];   // (what was in it: who takes it has read it first, game.js pickUp)
+    if (layer === 'placed') for (const f of [d.manure, d.compost, d.trough, d.garb, d.fire]) if (f) delete f[k];   // (what was in it: who takes it has read it first, game.js pickUp)
     this.dropLevel(tx, ty);
-    if (layer === 'placed') this.dropWell(tx, ty, parsePlaced(was)[0]);
+    if (layer === 'placed') { this.dropWell(tx, ty, parsePlaced(was)[0]); this.dropDeck(tx, ty, was); }
     this.touchAround(tx, ty);
     return true;
   }
@@ -1155,18 +1193,19 @@ export class Overworld {
       const w = this.wellOf(tx, ty) || this.towerOf(tx, ty);   // (a tile of a big well or a watchtower that is not its anchor: it goes whole, from its anchor)
       if (w && (w.tx !== tx || w.ty !== ty) && this.ownAt('placed', w.tx, w.ty)) this.setTile(w.tx, w.ty, 'air');
       for (const layer of ['floor', 'placed', 'roof', 'hang', 'rug']) { if (d[layer]) delete d[layer][k]; if (d.pos) delete d.pos[`${layer}:${k}`]; this.wear?.gone(d, layer, k); }
-      for (const l of ['chest', 'closed', 'off', 'machine', 'tilled', 'barrow', 'manure', 'compost', 'trough', 'garb', 'weeds']) if (d[l]) delete d[l][k];
+      for (const l of ['chest', 'closed', 'off', 'machine', 'tilled', 'barrow', 'manure', 'compost', 'trough', 'garb', 'fire', 'weeds']) if (d[l]) delete d[l][k];
       for (const layer of ['floor', 'placed', 'roof']) this.planGone(d, layer, tx, ty);
       for (const layer of ['floor', 'placed', 'roof', 'hang', 'rug']) if (this.baseAt(layer, tx, ty)) (d.gone ||= {})[goneKey(layer, k)] = true;
       this.dropLevel(tx, ty);
-      if (was) this.dropWell(tx, ty, parsePlaced(was)[0]);
+      if (was) { this.dropWell(tx, ty, parsePlaced(was)[0]); this.dropDeck(tx, ty, was); }
     } else {
       const layer = layerOf(id);
-      if (was && layer === 'placed') this.dropWell(tx, ty, parsePlaced(was)[0]);   // (a big well replaced: before the new one sets its own heights)
+      if (was && layer === 'placed') { this.dropWell(tx, ty, parsePlaced(was)[0]); this.dropDeck(tx, ty, was); }   // (a big well replaced: before the new one sets its own heights)
       this.setLevel(tx, ty, id);
       if (this.baseAt(layer, tx, ty)) (d.gone ||= {})[goneKey(layer, k)] = true;   // (lo que venía puesto ya no está: al quitar esto no vuelve)
       (d[layer] ||= {})[k] = id;
       this.wear?.put(d, layer, k, id);
+      if (layer === 'placed' && deckSpec(id)) this.setDeck(id, tx, ty, 0);
       this.planGone(d, layer, tx, ty);
     }
     this.touchAround(tx, ty);
@@ -1313,6 +1352,7 @@ export class Overworld {
   fitFree(id, px, py, a, k = 0, player = null) {
     if (wellSpec(id)) return this.fitWell(px, py, a, player, id);
     if (watchtower(id)) return this.fitTower(px, py, a, player, id);
+    if (deckSpec(id)) return this.fitDeck(px, py, a, player, id);
     const def = ITEMS[id], rug = def.place === 'rug', flat = def.place === 'flat';
     let local, model = id, anchor = null;
     if (rug) { const [w, h] = RUG_SIZES[k % RUG_SIZES.length]; local = [[-w / 2 + 0.06, 0, -h / 2 + 0.06, w / 2 - 0.06, 0.05, h / 2 - 0.06]]; model = `rug:${id}:${w}x${h}`; }
@@ -1418,12 +1458,12 @@ export class Overworld {
     if (hit && hit.v === d.v && hit.placed === d.placed) return hit.list;
     let list = NO_TILES;
     for (const [t, raw] of Object.entries(d.placed)) {
-      if (typeof raw !== 'string' || raw[0] !== 'w') continue;
+      if (typeof raw !== 'string' || (raw[0] !== 'w' && raw[0] !== 'l')) continue;
       const [id, rot] = parsePlaced(raw), W = watchtower(id);
       if (!W) continue;
       const [tx, ty] = t.split(',').map(Number), [x, y] = d.pos?.[`placed:${t}`] || [tx + 0.5, ty + 0.5], yaw = ((rot || 0) % 4) * Math.PI / 2;
       if (list === NO_TILES) list = [];
-      list.push({ id, tx, ty, x, y, yaw, h: W.h, key: `w:${t}` });
+      list.push({ id, tx, ty, x, y, yaw, h: W.h, half: halfOf(W), light: W.light || null, key: `w:${t}` });
     }
     C.set(d, { v: d.v, placed: d.placed, list });
     return list;
@@ -1432,48 +1472,113 @@ export class Overworld {
   towerOf(tx, ty) {
     for (let cy = Math.floor((ty - HALF_SIDE) / CHUNK); cy <= Math.floor((ty + HALF_SIDE) / CHUNK); cy++) for (let cx = Math.floor((tx - HALF_SIDE) / CHUNK); cx <= Math.floor((tx + HALF_SIDE) / CHUNK); cx++) {
       const list = this.towersIn(cx, cy);
-      for (let i = 0; i < list.length; i++) if (Math.abs(list[i].tx - tx) <= HALF_SIDE && Math.abs(list[i].ty - ty) <= HALF_SIDE) return list[i];
+      for (let i = 0; i < list.length; i++) if (Math.abs(list[i].tx - tx) <= list[i].half && Math.abs(list[i].ty - ty) <= list[i].half) return list[i];
     }
     return null;
   }
   // [the height of its base, the lowest of the ground under it, how far it rises], with its anchor in (tx, ty)
-  towerGround(tx, ty) {
+  towerGround(tx, ty, H = HALF_SIDE) {
     let top = -Infinity, low = Infinity;
-    for (let j = -HALF_SIDE; j <= HALF_SIDE + 1; j++) for (let i = -HALF_SIDE; i <= HALF_SIDE + 1; i++) { const h = this.cornerH(tx + i, ty + j); if (h > top) top = h; if (h < low) low = h; }
+    for (let j = -H; j <= H + 1; j++) for (let i = -H; i <= H + 1; i++) { const h = this.cornerH(tx + i, ty + j); if (h > top) top = h; if (h < low) low = h; }
     return [Math.ceil(top / LV_STEP - 0.05) * LV_STEP, low, top - low];
   }
-  towerModel(id, x, y, L, low) { return `${id}:${stoneOf(this.gen.biomeAt(x, y))}:${Math.ceil((Math.max(0, L - low) + TOWER_ROOT) * 2) / 2}`; }
+  towerModel(id, x, y, L, low, lit = false) { const W = watchtower(id), foot = Math.ceil((Math.max(0, L - low) + TOWER_ROOT) * 2) / 2; return W.light ? `${id}:${W.light}:${lit ? 'lit' : 'dark'}:${foot}` : `${id}:${stoneOf(this.gen.biomeAt(x, y))}:${foot}`; }
   // Where it would go: the same as fitFree, as the well's (its tile in the middle, its door to one of the four sides)
   fitTower(px, py, a, player, id) {
-    const Q = Math.PI / 2, tx = Math.floor(px), ty = Math.floor(py), x = tx + 0.5, y = ty + 0.5, H = HALF_SIDE;
+    const Q = Math.PI / 2, tx = Math.floor(px), ty = Math.floor(py), x = tx + 0.5, y = ty + 0.5, H = halfOf(watchtower(id)), TS = H * 2 + 1, why1 = watchtower(id).light ? 'lighthouse' : 'watchtower';
     a = ((Math.round(a / Q) % 4) + 4) % 4 * Q;
     const k = `${id},${tx},${ty},${this.touches}`;
     if (this.towerTry?.k !== k) this.towerTry = { k, ...this.towerFits(id, tx, ty) };   // (only when the tile, or the world, changes: it looks at 49)
-    const { lvl, low, why } = this.towerTry, box = { ...aabb(x - TOWER_SIDE / 2, y - TOWER_SIDE / 2, x + TOWER_SIDE / 2, y + TOWER_SIDE / 2), y0: 0, y1: watchtower(id).h };
-    const res = w => ({ ok: !w, why: w, ox: x, oy: y, a, k: 0, model: this.towerModel(id, x, y, lvl, low), cx: x, cy: y, box, anchor: w ? null : [tx, ty], lvl, square: [tx - H, ty - H, TOWER_SIDE], reach: TOWER_SIDE + 2 });
+    const { lvl, low, why } = this.towerTry, box = { ...aabb(x - TS / 2, y - TS / 2, x + TS / 2, y + TS / 2), y0: 0, y1: watchtower(id).h };
+    const res = w => ({ ok: !w, why: w, ox: x, oy: y, a, k: 0, model: this.towerModel(id, x, y, lvl, low), cx: x, cy: y, box, anchor: w ? null : [tx, ty], lvl, square: [tx - H, ty - H, TS], reach: TS + (H > 1 ? 2 : 4) });
     if (why) return res(why);
-    if (player && Math.abs(player.x - x) < TOWER_SIDE / 2 + 0.25 && Math.abs(player.y - y) < TOWER_SIDE / 2 + 0.25) return res(tr('why.watchtower.you'));
+    if (player && Math.abs(player.x - x) < TS / 2 + 0.25 && Math.abs(player.y - y) < TS / 2 + 0.25) return res(tr(`why.${why1}.you`));
     return res(null);
   }
   towerFits(id, tx, ty) {
-    const H = HALF_SIDE, x = tx + 0.5, y = ty + 0.5, [lvl, low, rise] = this.towerGround(tx, ty), no = why => ({ lvl, low, why });
+    const W = watchtower(id), H = halfOf(W), TS = H * 2 + 1, kind = W.light ? 'lighthouse' : 'watchtower', x = tx + 0.5, y = ty + 0.5, [lvl, low, rise] = this.towerGround(tx, ty, H), no = why => ({ lvl, low, why }), WHY = { water: () => tr(`why.${kind}.water`), room: () => tr(`why.${kind}.room`), dug: () => tr(`why.${kind}.dug`), slope: () => tr(`why.${kind}.slope`) };
     if (!inPlanet(x - H - 1, y - H - 1) || !inPlanet(x + H + 1, y + H + 1)) return no('Aquí no: es la costura del planeta');
     const town = inBounds(x, y);
     for (let j = -H; j <= H; j++) for (let i = -H; i <= H; i++) {
       const qx = tx + i, qy = ty + j, cx = qx + 0.5, cy = qy + 0.5, d = this.delta(Math.floor(qx / CHUNK), Math.floor(qy / CHUNK)), t = `${qx},${qy}`;
-      if (this.water(cx, cy)) return no(tr('why.watchtower.water'));
-      if (inBounds(cx, cy) !== town) return no(tr('why.watchtower.room'));
+      if (this.water(cx, cy)) return no(WHY.water());
+      if (inBounds(cx, cy) !== town) return no(WHY.room());
       if (town && !isGrass(cx, cy) && !this.buildAnywhere) return no('En el camino y en la plaza no se puede');
-      if (this.digH(qx, qy) !== null) return no(tr('why.watchtower.dug'));
+      if (this.digH(qx, qy) !== null) return no(WHY.dug());
       if (this.at('placed', qx, qy) || this.at('floor', qx, qy) || this.at('roof', qx, qy) || d?.tilled?.[t] !== undefined || d?.crops?.[t] || d?.trees?.[t]) return no(tr('why.watchtower.room'));
-      if (d?.lvl?.[t] !== undefined && (this.towerOf(qx, qy) || this.wellOf(qx, qy))) return no(tr('why.watchtower.room'));
-      if (this.layers.some(l => l.blocks?.(qx, qy)) || this.reserved?.has(t)) return no(tr('why.watchtower.room'));
+      if (d?.lvl?.[t] !== undefined && (this.towerOf(qx, qy) || this.wellOf(qx, qy) || this.deckOf(qx, qy))) return no(WHY.room());
+      if (this.layers.some(l => l.blocks?.(qx, qy)) || this.reserved?.has(t)) return no(WHY.room());
     }
-    if (rise > TOWER_SLOPE) return no(tr('why.watchtower.slope'));
-    const box = { ...aabb(x - TOWER_SIDE / 2, y - TOWER_SIDE / 2, x + TOWER_SIDE / 2, y + TOWER_SIDE / 2), y0: 0, y1: 3 };
-    for (const o of this.obstaclesNear(x, y, false, 9)) { const hit = sat(box, o); if (hit && hit.depth > 0.012) return no(tr('why.watchtower.room')); }
+    if (rise > TOWER_SLOPE) return no(WHY.slope());
+    // (a lighthouse, by the sea or a lake)
+    if (W.light) { let sea = false; for (let k = 0; k < 24 && !sea; k++) for (const r of [8, 14, 19, 24]) if (this.natWater(x + Math.cos(k * 0.2618) * r, y + Math.sin(k * 0.2618) * r) === 'deep') { sea = true; break; } if (!sea) return no(tr('why.lighthouse.sea')); }
+    const box = { ...aabb(x - TS / 2, y - TS / 2, x + TS / 2, y + TS / 2), y0: 0, y1: 3 };
+    for (const o of this.obstaclesNear(x, y, false, 9)) { const hit = sat(box, o); if (hit && hit.depth > 0.012) return no(WHY.room()); }
     return { lvl, low, why: null };
   }
+  // ---------- the decks ----------
+  // Those one has built in a chunk (by their anchors), worked out once for each version of it
+  decksIn(cx, cy) {
+    const d = this.deltas.get(`${wrapIndex(cx, CHUNK)},${cy}`);
+    if (!d?.placed) return NO_TILES;
+    const C = (this.deckCache ||= new WeakMap()), hit = C.get(d);
+    if (hit && hit.v === d.v && hit.placed === d.placed) return hit.list;
+    let list = NO_TILES;
+    for (const [t, raw] of Object.entries(d.placed)) {
+      if (typeof raw !== 'string' || (raw[0] !== 'j' && raw[0] !== 's')) continue;
+      const [id, rot] = parsePlaced(raw);
+      if (!deckSpec(id)) continue;
+      const [tx, ty] = t.split(',').map(Number);
+      if (list === NO_TILES) list = [];
+      list.push({ ...deckOfId(id, tx, ty, rot), tx, ty });
+    }
+    C.set(d, { v: d.v, placed: d.placed, list });
+    return list;
+  }
+  // The one (of the players) on tile (tx, ty), or null
+  deckOf(tx, ty) {
+    for (let cy = Math.floor(ty / CHUNK) - 1; cy <= Math.floor(ty / CHUNK) + 1; cy++) for (let cx = Math.floor(tx / CHUNK) - 1; cx <= Math.floor(tx / CHUNK) + 1; cx++) {
+      const list = this.decksIn(cx, cy);
+      for (let i = 0; i < list.length; i++) if (deckHeight(list[i], tx + 0.5, ty + 0.5) !== null || (list[i].tx === tx && list[i].ty === ty)) return list[i];
+    }
+    return null;
+  }
+  // The height of the deck at (x, y), of the players' or of a place, or null
+  deckAt(x, y) {
+    const tx = Math.floor(x), ty = Math.floor(y), q = this.deltas.get(`${wrapIndex(Math.floor(tx / CHUNK), CHUNK)},${Math.floor(ty / CHUNK)}`)?.lvl?.[`${tx},${ty}`] !== undefined ? this.deckOf(tx, ty) : null;
+    if (q) return deckHeight(q, x, y);
+    for (const l of this.layers) { const v = l.deckAt?.(x, y); if (v !== null && v !== undefined) return v; }
+    return null;
+  }
+  // Where a jetty or a bridge would go: the jetty from the shore straight out (its last half over the water); the bridge, from one
+  // bank to the other, its middle on the water
+  fitDeck(px, py, a, player, id) {
+    const Q = Math.PI / 2, tx = Math.floor(px), ty = Math.floor(py), r = ((Math.round(a / Q) % 4) + 4) % 4, k = `${id},${tx},${ty},${r},${this.touches}`, D = deckOfId(id, tx, ty, r);
+    if (this.deckTry?.k !== k) this.deckTry = { k, why: this.deckFits(id, D) };
+    const s = Math.sin(D.yaw), c = Math.cos(D.yaw), mid = id === 'jetty' ? (D.L - 1) / 2 : 0, cx = D.x + s * mid, cy = D.y + c * mid, hx = id === 'jetty' ? 0.97 : 1.7, hz = D.L / 2, box = { ...obb(cx, cy, hx, hz, D.yaw), y0: 0, y1: 1.2 };
+    const why = this.deckTry.why || (player && hitsCircle(box, player.x, player.y, 0.2) && id !== 'jetty' ? 'Estás tú en medio' : null);
+    return { ok: !why, why, ox: D.x, oy: D.y, a: r * Q, k: 0, model: `${id}:${D.L}`, cx, cy, box, anchor: why ? null : [tx, ty], reach: D.L + 2, lvl: 0 };
+  }
+  deckFits(id, D) {
+    const s = Math.sin(D.yaw), c = Math.cos(D.yaw), at = (z, u = 0) => [D.x + s * z + c * u, D.y + c * z - s * u], wet = (z, u) => !!this.natWater(...at(z, u)), jetty = id === 'jetty';
+    for (const [x, y] of deckTiles(D)) {
+      if (!inPlanet(x - 1, y) || !inPlanet(x + 2, y)) return 'Aquí no: es la costura del planeta';
+      const d = this.delta(Math.floor(x / CHUNK), Math.floor(y / CHUNK)), t = `${x},${y}`;
+      if (inBounds(x + 0.5, y + 0.5) || this.digH(x, y) !== null || d?.lvl?.[t] !== undefined || this.at('placed', x, y) || this.at('floor', x, y) || this.at('roof', x, y) || d?.tilled?.[t] !== undefined || this.deckAt(x + 0.5, y + 0.5) !== null || this.layers.some(l => l.blocks?.(x, y))) return tr('why.deck.room');
+    }
+    if (jetty) {
+      if (wet(-0.6, 0)) return tr('why.jetty.shore');
+      for (let z = D.L / 2; z < D.L; z++) if (!wet(z, -0.7) || !wet(z, 0.7)) return tr('why.jetty.shore');
+      if (this.groundRaw(...at(-0.4)) > 0.7) return tr('why.jetty.shore');
+      return null;
+    }
+    const e = D.L / 2 + 0.3;
+    if (!wet(0, 0) || wet(e, 0) || wet(-e, 0)) return tr('why.bridge.banks');
+    for (const z of [e, -e]) { const g = this.groundRaw(...at(z)); if (g > 0.9) return tr('why.bridge.banks'); }
+    return null;
+  }
+  // Is the fire at this tile burning? (a campfire, a brazier, a lighthouse's lamp: lit for a while, d.fire; game.js fireAction)
+  fireAt(tx, ty) { const v = this.deltas.get(`${wrapIndex(Math.floor(tx / CHUNK), CHUNK)},${Math.floor(ty / CHUNK)}`)?.fire?.[`${tx},${ty}`]; return typeof v === 'number' && v > Date.now(); }
   // The well that takes tile (tx, ty), or null: { id, tx, ty, n } with its anchor tile (the small one, in its own; the big
   // one, in the one with the lowest x and y of its 2 × 2)
   wellOf(tx, ty) {
@@ -1648,7 +1753,7 @@ export class Overworld {
   // el agua: un canal de 3 casillas de ancho o más (en uno estrecho se metía en las paredes de tierra). En el agua de verdad,
   // basta con el agua (su orilla baja poco a poco), salvo lo cavado seco de al lado (un montón junto al río)
   boatFits(x, y) {
-    if (!this.water(x, y)) return false;
+    if (!this.water(x, y) || this.deckAt(x, y) !== null) return false;   // (nor under a jetty or a bridge)
     if (!this.digChunks.size || !this.digNear(x, y, 2)) return true;
     const inDug = this.digH(Math.floor(x), Math.floor(y)) !== null;
     for (let i = 0; i < 8; i++) {

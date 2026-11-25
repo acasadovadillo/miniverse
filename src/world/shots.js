@@ -10,7 +10,7 @@
 // y cada una lleva su recuadro en el plano (x0, y0p, x1, y1p) para descartar deprisa lo que no está en el camino.
 import { PIECES } from '../pieces.js';
 import { aabb, rayHits, placeBoxes, partsOf } from './fit.js';
-import { broadDims, pineDims, palmDims, treeK, cactusK } from './treedims.js';
+import { broadDims, pineDims, palmDims, treeK, cactusK, torParts, greatR } from './treedims.js';
 import { TOWER, poiModel } from './tower.js';
 import { CHUNK } from './gen.js';
 import { ihash } from '../util.js';
@@ -43,6 +43,8 @@ export function shapesOf(scene, data, gy) {
       } else if (o.tower) { tower(o.tower, L, out); rect(o.x - 3.5, o.y - 3.5, o.x + 3.5, o.y + 3.5, L - 3, L + 0.03, out); }
       else if (!piece) for (const b of placeBoxes(partsOf(o.model || o.placed), o.x, o.y, o.yaw ?? 0)) box(b, L + b.y0, L + b.y1, out);   // los muebles, pieza a pieza
     } else if (o.kind && !o.flower) nature(o, gy(o.x, o.y), out);
+    else if (o.decor) { if (!/^(crop|tilled):/.test(o.decor)) for (const b of placeBoxes(partsOf(o.decor), o.x, o.y, o.yaw || 0)) box(b, (o.z || 0) + b.y0, (o.z || 0) + b.y1, out); }   // (what a place of now has: explore.js)
+    else if (o.wild) wild(o, gy(o.x, o.y), out);
     else if (o.poi) poi(o.poi, out);
     else if (o.treasure) for (const b of placeBoxes(partsOf(`treasure:${o.open ? 1 : 0}`), o.x, o.y, o.yaw || 0)) box(b, (o.treasure.z || 0) + (o.up || 0) + b.y0, (o.treasure.z || 0) + (o.up || 0) + b.y1, out);
   }
@@ -100,6 +102,12 @@ function nature(o, y, out) {
     const h = ihash(Math.floor(x * 7), Math.floor(z * 7), 11), s = kind === 'rock' ? 0.3 + h * 0.14 : 0.8 + h * 0.2;
     ell(x, z, y + s * 0.12, s * 1.15, s * (kind === 'rock' ? 0.8 : 0.95), out);
   } else if (kind === 'bush') { const k = 1.1 + ihash(Math.floor(x * 7), Math.floor(z * 7), 11) * 0.35; ell(x, z, y + 0.4 * k, 0.5 * k, 0.42 * k, out); }
+}
+// The great trees (the trunk) and the tors (each of their stones)
+function wild(o, y, out) {
+  const k = o.k || 1;
+  if (o.wild === 'tor' || o.wild === 'snowTor') for (const q of torParts(o)) ell(o.x + q.x, o.y + q.y, y + q.h, (q.sx + q.sz) / 2 * 0.9, q.sy * 0.85, out);
+  else cyl(o.x, o.y, greatR({ kind: o.wild, k }), y - 0.5, y + (o.wild === 'greatPine' ? 9 : 4.5) * k, out);
 }
 // Los lugares: la torre, su pared en anillo (por dentro se sube; en la puerta, de su dintel arriba); los demás, las piezas
 // de su modelo

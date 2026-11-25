@@ -35,7 +35,11 @@ const TINT = {
   dung: PAINT('#453627'), dungD: PAINT('#36291d'), dungL: PAINT('#574532'), humus: PAINT('#241c15'), humusL: PAINT('#33281d'), strawD: PAINT('#8a7448'), dust: PAINT('#a08a68'), pebble: PAINT('#8c857a'), pebbleD: PAINT('#6c665d'),
   burlap: PAINT('#a08a62'), slime: PAINT('#a9a68e'),   // (the scarecrow's sack; what a slug leaves behind it: pests3d.js)
   grain: PAINT('#b8934a'), grainL: PAINT('#cba862'), grainD: PAINT('#94733a'), turnip: PAINT('#ddd6cc'), turnipTop: PAINT('#8a5a78'),
-  stripeR: PAINT('#a8483e'), bee: PAINT('#e8c040'), awningB: null, dry: PAINT('#857050'),
+  stripeR: PAINT('#a8483e'), stripeK: PAINT('#34373a'), whiteOld: PAINT('#b9b4a8'), stripeO: PAINT('#8b5c53'), stripeG: PAINT('#54585a'),
+  // the places and the hamlets (places3d.js): dressed stone, silvered wood, fresh sawn wood, what a fire leaves…
+  ashlarW: ['ashlarT', '#c8bfac'], ashlarV: ['ashlarT', '#d6cdba'], ashlarD: ['ashlarT', '#9b9384'],
+  oldWood: WOOD('#8a8073'), plankGrey: WOOD('#9a9184'), splitWood: WOOD('#c0a57e'), rockDark: STONE('#4d4943'), oreVein: STONE('#8a6a4e'), slateCap: STONE('#5d6165'),
+  char: PAINT('#23201e'), dune: PAINT('#ab9768'), ash: PAINT('#8d8982'), sawdust: PAINT('#a58c66'), bareSoil: PAINT('#8d8068'), springBed: PAINT('#4a4a40'), bronze: METAL('#7f6a42'), bee: PAINT('#e8c040'), awningB: null, dry: PAINT('#857050'),
   iron: METAL('#4f5254'), brass: METAL('#a08850'), gold: METAL('#f0c840'), copper: METAL('#a8704a'), steel: METAL('#8a929a'),
 };
 const BOOKS = ['#a83a32', '#3a5aa0', '#3f8a44', '#d8a83a', '#7a4aa0', '#e0e0d0'];

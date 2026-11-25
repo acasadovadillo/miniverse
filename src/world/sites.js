@@ -29,6 +29,9 @@ export const TIER_OF = Object.fromEntries(TIERS.flatMap(t => SITE_TIERS[t].kinds
 // The kinds with a place in the game today. The others (a mine, a spring, a great tree, a tor, a salt lick) have their spot
 // taken already, so that nothing moves when they come (R7-3, R7-5): the game (explore.js) leaves them out
 export const READY = new Set(['aldea', 'faro', 'templo', 'torre', 'cueva', 'campamento', 'barco']);
+// …and the ones that came with R7-3: they have had their spot since the first day (a world of before asks once more what not to
+// cover: frozenplaces.js, extend)
+export const LATER = new Set(['manantial', 'arbol', 'risco', 'salegar', 'mina']);
 // What each place takes up, as a circle (a hamlet, about its houses: see HAMLET_BOX)
 export const SITE_SIZE = { campamento: 1.8, torre: 3.7, barco: 2.2, templo: 2.2, cueva: 1.4, aldea: 16, faro: 3, ruinas: 2.2, mina: 2, manantial: 1.5, arbol: 2, risco: 2, salegar: 1.2 };
 // Where in its chunk a place may stand (the chunk keeps all of it, with its clearing and its chest)
@@ -61,6 +64,8 @@ const GREEN = b => b === B.MEADOW || b === B.FOREST || b === B.PINES;
 // The four spots of a hamlet's houses round its square (explore.js, aldea): their origin from the square's tile
 export const HAMLET_SPOTS = [[-14, -12], [2, -13], [-15, 2], [2, 2]];
 export const HAMLET_BOX = [-15, -13, 14, 12];
+// (and all that a hamlet of now may take: hamlets.js, HALF)
+export const HAMLET_MAX = [-24, -24, 24, 24];
 // The first three of them with no water under the house. wet(x, y): is there water (the world's own, never what was dug)
 export function hamletSlots(cx, cy, wet) {
   const px = cx * CHUNK + 8, py = cy * CHUNK + 8, { w: hw, h: hh } = houseSize(false), out = [];
@@ -80,6 +85,7 @@ export class Sites {
     this.forced = {};          // tier → the cell of the first ring that must have one, or null (made on first use)
     this.stats = { cells: 0, ms: 0, worst: 0 };
     this.c = {};               // (the climate of the last probe)
+    this.hitos = null;         // the singular landmarks: key → { id, … } (see hunt), or null while they are looked for
   }
   // ---------- reading the land ----------
   // The climate (this.c), the wetness (u), the biome (b) and the ground's height (h) of a point. No objects are made
@@ -429,6 +435,62 @@ export class Sites {
     return false;
   }
 }
+// ---------- the singular landmarks (PLAN-R7 §3.6.4) ----------
+// Each once in the world, on the nearest spot that suits it: an oak in a meadow, a watchtower, a lighthouse, a flat high pasture, a
+// flat clearing of the woods (all of them sites that were there already) and the first river to the south narrow enough to bridge.
+// Looked for little by little, in the idle time (hunt: false while it goes on), always with the same result
+Sites.prototype.hunt = function () {
+  if (this.hitos) return true;
+  this.hunting ||= this.search();
+  const r = this.hunting.next();
+  if (r.done) { this.hitos = r.value; this.hunting = null; }
+  return !!this.hitos;
+};
+Sites.prototype.search = function* () {
+  const out = new Map(), C = CENTER;
+  // (the sites of these kinds round home, cell by cell, the nearest first)
+  const list = (tier, R) => { const n = SITE_TIERS[tier].cell * CHUNK, cells = []; this.eachCell(tier, C.x, C.y, R, (ix, iy) => cells.push([Math.hypot((ix + 0.5) * n - C.x, (iy + 0.5) * n - C.y), ix, iy])); return cells.sort((a, b) => a[0] - b[0] || a[2] - b[2] || a[1] - b[1]); };
+  const flat = (s, r, d) => { for (let i = 0; i < 16; i++) for (const k of [0.5, 1]) { const x = s.x + DIR16[i][0] * r * k, y = s.y + DIR16[i][1] * r * k; if (this.wet(x, y) || Math.abs(Math.max(0, this.height(x, y)) - s.z) > d) return false; } return true; };
+  const want = { roble: s => s.kind === 'arbol' && s.biome === B.MEADOW && this.dryRound(s.x, s.y, 5), majada: s => (s.kind === 'manantial' || s.kind === 'salegar') && (s.biome === B.PINES || s.biome === B.MEADOW) && flat(s, 11, 1.6), santuario: s => (s.kind === 'salegar' || s.kind === 'manantial' || s.kind === 'arbol') && (s.biome === B.PINES || s.biome === B.FOREST) && flat(s, 8, 1.3) };
+  for (const [tier, R] of [['minor', 1300], ['major', 1500]]) {
+    const ids = tier === 'minor' ? ['roble', 'majada', 'santuario'] : ['atalaya', 'faro'];
+    const left = new Set(ids);
+    for (const [, ix, iy] of list(tier, R)) {
+      if (!left.size) break;
+      const s = this.inCell(tier, ix, iy);
+      if (s) for (const id of left) {
+        const ok = id === 'atalaya' ? s.kind === 'torre' : id === 'faro' ? s.kind === 'faro' : want[id](s);
+        if (ok && !out.has(s.key)) { out.set(s.key, { id }); left.delete(id); break; }
+      }
+      yield;
+    }
+  }
+  // The bridge: the first narrow river to the south
+  const run = (x, y, i, j) => { let n = 0; while (n < 7 && this.wet(x + i * (n + 0.5), y + j * (n + 0.5))) n++; return n; };
+  for (let r = 96; r < 900; r += 4) {
+    const n = Math.max(6, Math.floor(r / 7));
+    for (let k = 0; k <= n; k++) {
+      const a = -1.2 + 2.4 * (k / n), x = Math.floor(C.x + Math.sin(a) * r) + 0.5, y = Math.floor(C.y + Math.cos(a) * r) + 0.5;
+      if (!this.wet(x, y) || !inPlanet(x, y)) continue;
+      for (const [i, j, yaw] of [[0, 1, 0], [1, 0, Math.PI / 2]]) {
+        const p = run(x, y, i, j), q = run(x, y, -i, -j), w = p + q;
+        if (w < 3 || w > 7 || Math.abs(p - q) > 1) continue;
+        // (a river: it goes on to both sides; and its banks dry, low and not a spit)
+        if (![4, 8, 12].every(u => this.wet(x + j * u, y + i * u) || this.wet(x + j * u + i, y + i * u + j) || this.wet(x + j * u - i, y + i * u - j)) || ![4, 8, 12].every(u => this.wet(x - j * u, y - i * u) || this.wet(x - j * u + i, y - i * u + j) || this.wet(x - j * u - i, y - i * u - j))) continue;
+        const bank = e => { const bx = x + i * e, by = y + j * e; return !this.wet(bx, by) && this.height(bx, by) < 0.8; };
+        if (![4.8, 6.5, 8.5, -4.8, -6.5, -8.5].every(bank)) continue;
+        const cx = Math.floor(x / CHUNK), cy = Math.floor(y / CHUNK), key = `${wrapIndex(cx, CHUNK)},${cy}`;
+        if (this.at(cx, cy) || out.has(key)) continue;
+        const s = { kind: 'hito', x, y, key, id: Math.floor(ihash(cx, cy, this.seed + 701) * 1e6), z: 0, snow: false, yaw, len: 9 };
+        this.probe(x, y); s.biome = this.b;
+        out.set(key, { id: 'puente', site: s });
+        return out;
+      }
+    }
+    yield;
+  }
+  return out;
+};
 const made = new Map();
 // The sites of a seed (one for all who ask)
 export function sitesFor(seed) { let s = made.get(seed | 0); if (!s) { s = new Sites(seed); made.set(seed | 0, s); } return s; }

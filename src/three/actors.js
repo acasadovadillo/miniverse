@@ -26,6 +26,7 @@ import { kindOf, placeKit, shownOf, splitKit, poseClass } from '../kit.js';
 import { bakeStowed, buildKit, brushModel } from './kit3d.js';
 import { carriedModel, placeCarried, holdPose, pushedModel, placePushed, pushPose, pushedReach, loadModel, placeLoad } from './carry3d.js';
 import { barrowName, barrowSize, TUB, bathFoam } from './models.js';
+import { rowBoatGeo } from './places3d.js';
 import { unpackBd } from '../body.js';
 import { BULKY } from '../carry-items.js';
 import { inBounds, distToPath } from '../world/village.js';
@@ -1307,20 +1308,13 @@ function animateMonster(m, e, dt, t) {
 // ---------- caballo y barca ----------
 const OAR_DIP = 0.4;   // lo que bajan los remos hacia el agua desde el horizontal (rad): la pala queda dentro
 export function boatModel() {
-  // Barca de remos: casco con la proa en punta (mirando a +z), borda, fondo, dos bancos y dos remos
-  const root = new THREE.Group(), wood = mat({ color: '#8a5a34', roughness: 0.8 }), dark = mat({ color: '#5e3b22', roughness: 0.8 }), inside = mat({ color: '#6a4428', roughness: 0.9 });
-  const outline = (k) => { const s = new THREE.Shape(); s.moveTo(-0.55 * k, -0.95 * k); s.lineTo(0.55 * k, -0.95 * k); s.quadraticCurveTo(0.62 * k, 0.4 * k, 0, 1.15 * k); s.quadraticCurveTo(-0.62 * k, 0.4 * k, -0.55 * k, -0.95 * k); return s; };
-  const hullGeo = new THREE.ExtrudeGeometry(outline(1), { depth: 0.42, bevelEnabled: true, bevelThickness: 0.04, bevelSize: 0.04, bevelSegments: 2, curveSegments: 10 });
-  hullGeo.rotateX(-Math.PI / 2);   // la silueta en planta, y la altura hacia arriba
-  const hull = new THREE.Mesh(hullGeo, wood); hull.position.y = -0.1; root.add(hull);
-  const floorGeo = new THREE.ShapeGeometry(outline(0.86), 10); floorGeo.rotateX(-Math.PI / 2);
-  const floor = new THREE.Mesh(floorGeo, inside); floor.position.y = 0.335; root.add(floor);
-  const rim = new THREE.Mesh(new THREE.TorusGeometry(0.6, 0.035, 4, 24), dark); rim.scale.set(0.95, 1.75, 1); rim.rotation.x = Math.PI / 2; rim.position.set(0, 0.36, 0.08); root.add(rim);
-  const bench = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.05, 0.22), dark); bench.position.set(0, 0.45, -0.1); root.add(bench);
-  const stern = bench.clone(); stern.position.z = -0.75; root.add(stern);   // (el del pasajero)
+  // The rowing boat: the clinker hull of places3d.js (rowBoatGeo), its bow to +z, and its two oars, that the rower moves. Its
+  // geometry and material are its own (they go with it)
+  const root = new THREE.Group(), G = rowBoatGeo(), M = mat({ vertexColors: true, roughness: 0.85 });
+  root.add(new THREE.Mesh(G.hull, M));
   for (const s of [-1, 1]) {
-    const oar = new THREE.Group(), stick = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.022, 1.5, 6), wood), blade = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.4, 0.14), wood);
-    stick.position.y = -0.75; blade.position.y = -1.45; oar.add(stick, blade);
+    const oar = new THREE.Group();
+    oar.add(new THREE.Mesh(s < 0 ? G.oar : G.oar.clone(), M));
     oar.position.set(s * 0.5, 0.5, 0); oar.rotation.z = s * (Math.PI / 2 - OAR_DIP); oar.userData.side = s;
     root.add(oar); (root.userData.oars ||= []).push(oar);
   }

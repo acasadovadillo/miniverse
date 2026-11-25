@@ -5,7 +5,7 @@ import { distOf } from '../world/planet.js';
 import { placeKind } from '../explore.js';
 import { t, tHtml, fmt } from '../i18n.js';
 
-const ORDER = ['aldea', 'torre', 'faro', 'templo', 'cueva', 'campamento', 'barco'];
+const ORDER = ['hito', 'aldea', 'torre', 'faro', 'templo', 'cueva', 'mina', 'campamento', 'barco', 'manantial', 'arbol', 'risco', 'salegar'];
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
 const away = m => (m >= 1000 ? `${fmt.num(m / 1000, { maximumFractionDigits: 1 })} km` : `${fmt.num(Math.round(m / 10) * 10)} m`);
 

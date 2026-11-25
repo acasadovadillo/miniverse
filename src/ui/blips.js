@@ -34,8 +34,8 @@ import { ACCENTS, accent } from './skin.js';
 import { Settings } from '../settings.js';
 import { reportFault } from '../faults.js';
 
-const PLACE_GLYPH = { cueva: 'cave', campamento: 'camp', torre: 'tower', barco: 'wreck', templo: 'temple', aldea: 'village', faro: 'lighthouse' };
-const PLACE_COL = { cueva: '#cfcbd6', campamento: '#ffa860', torre: '#e6dfce', barco: '#d2a273', templo: '#f0cf86', aldea: '#9db8ee', faro: '#ff8a80' };
+const PLACE_GLYPH = { cueva: 'cave', campamento: 'camp', torre: 'tower', barco: 'wreck', templo: 'temple', aldea: 'village', faro: 'lighthouse', mina: 'cave', manantial: 'spring', arbol: 'tree', risco: 'rock', salegar: 'rock', hito: 'star' };
+const PLACE_COL = { cueva: '#cfcbd6', campamento: '#ffa860', torre: '#e6dfce', barco: '#d2a273', templo: '#f0cf86', aldea: '#9db8ee', faro: '#ff8a80', mina: '#cfcbd6', manantial: '#8fc8e8', arbol: '#9ccf8a', risco: '#cfc8bc', salegar: '#e8e6e0', hito: '#f0cf86' };
 export const KINDS = {
   home: { glyph: 'home', color: '#ff9a72', filter: 'places', legend: 'gui.map.home', pri: 90, mini: true },
   tavern: { glyph: 'tavern', color: '#ffc46a', filter: 'village', legend: 'gui.map.tavern', pri: 62, mini: true },

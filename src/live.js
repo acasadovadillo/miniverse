@@ -744,7 +744,7 @@ export class Live {
   enter(solo, world) {
     const her = solo.save;
     this.extraShared = unknownShared(world.shared);
-    const save = { ...her, places1: 0, wear: null, ...world.shared, player: { ...her.player, inside: false, boat: false, mount: false, ...(her.livePos || {}) } };
+    const save = { ...her, places1: 0, wear: null, ...world.shared, sharedWorld: true, player: { ...her.player, inside: false, boat: false, mount: false, ...(her.livePos || {}) } };
     const deltas = new Map(world.deltas);
     for (const [k, v] of solo.deltas) if (k.startsWith('u:')) deltas.set(k, v);
     return { save, deltas };

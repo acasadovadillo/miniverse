@@ -27,9 +27,13 @@ export function holeOf(h = TOWER.H) {
 }
 export const inHole = (a, h = TOWER.H) => { const [p, q] = holeOf(h); return a >= p && a <= q; };
 // The watchtowers one builds (B › Exterior): their height, and the tiles they take, SIDE to a side
+// (and the lighthouses: light, how they are painted; half, the tiles they take to each side of their own, 3 × 3 in all)
 export const WATCHTOWERS = { watchtower: { h: 9 }, watchtower_tall: { h: 12 } };
-export const watchtower = id => (id && Object.hasOwn(WATCHTOWERS, id) ? WATCHTOWERS[id] : null);
+export const LIGHTHOUSES = { lighthouse: { h: 11, half: 1, light: 'red' }, lighthouse_stone: { h: 11, half: 1, light: 'stone' }, lighthouse_black: { h: 11, half: 1, light: 'black' } };
+const BIG = { ...WATCHTOWERS, ...LIGHTHOUSES };
+export const watchtower = id => (id && Object.hasOwn(BIG, id) ? BIG[id] : null);
 export const SIDE = 7, HALF_SIDE = 3;
+export const halfOf = W => W?.half ?? HALF_SIDE;
 // Where the watchman's chest is, on the terrace: against the wall, opposite the stairs' hole
 const CHEST_R = 2.3;
 export function chestSpot(t) {
@@ -85,6 +89,6 @@ export const galleryFloor = (c, x, y, z) => (z > c.h - 2 && Math.hypot(x - c.x, 
 // The name of a place's model ('poi:torre:9:slate', 'poi:faro:dark', 'poi:cueva:snow'…)
 export function poiModel(p) {
   if (p.kind === 'torre' && p.h) return `poi:torre:${p.h}:${p.stone}`;
-  if (p.kind === 'faro') return p.lit === false ? 'poi:faro:dark' : 'poi:faro';
+  if (p.kind === 'faro') return p.form ? `lighthouse:${p.livery}:${p.lit === false ? 'dark' : 'lit'}:0.6` : p.lit === false ? 'poi:faro:dark' : 'poi:faro';
   return `poi:${p.kind}${p.snow ? ':snow' : ''}`;
 }

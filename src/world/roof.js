@@ -23,17 +23,21 @@ export function regionEdges(tiles, has) {
   }
   return edges;
 }
+// How steep it is: a roof all of stone slabs (slab_roof, the temples') is laid low; any other, as always
+export const SLAB = 'slab_roof', SLAB_PITCH = 0.46;
+export const roofPitch = (scene, tiles) => (tiles.length && tiles.every(([x, y]) => scene.at('roof', x, y) === SLAB) ? SLAB_PITCH : 1);
 // La forma de una región: { gable, alongX (la cumbrera va a lo largo de x), x0, y0, x1, y1, has, H(x, y) }
-export function roofShape(tiles, has = null) {
+// pitch: roofPitch; k in what it gives
+export function roofShape(tiles, has = null, pitch = 1) {
   if (!has) { const set = new Set(tiles.map(([x, y]) => `${x},${y}`)); has = (x, y) => set.has(`${x},${y}`); }
   let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
   for (const [x, y] of tiles) { x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x + 1); y1 = Math.max(y1, y + 1); }
   const w = x1 - x0, h = y1 - y0;
   if (w >= 2 && h >= 2 && tiles.length === w * h) {
     const alongX = w >= h;
-    const H = alongX ? (px, py) => Math.max(0, Math.min(py - y0, y1 - py, ROOF_CAP)) : (px, py) => Math.max(0, Math.min(px - x0, x1 - px, ROOF_CAP));
-    return { gable: true, alongX, x0, y0, x1, y1, has, H };
+    const H = alongX ? (px, py) => Math.max(0, Math.min(py - y0, y1 - py, ROOF_CAP)) * pitch : (px, py) => Math.max(0, Math.min(px - x0, x1 - px, ROOF_CAP)) * pitch;
+    return { gable: true, k: pitch, alongX, x0, y0, x1, y1, has, H };
   }
   const edges = regionEdges(tiles, has);
-  return { gable: false, x0, y0, x1, y1, has, edges, H: (px, py) => Math.min(edgeDistance(px, py, edges), ROOF_CAP) };
+  return { gable: false, k: pitch, x0, y0, x1, y1, has, edges, H: (px, py) => Math.min(edgeDistance(px, py, edges), ROOF_CAP) * pitch };
 }

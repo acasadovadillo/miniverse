@@ -205,6 +205,7 @@ export class Story {
   async found(kind) {
     const g = this.game;
     if (kind === 'templo') g.stats.add('templos', 1);
+    if (kind !== 'faro' && kind !== 'barco') return;   // (a lighthouse keeper's pages: in the lighthouses' lockers and in the beached boats)
     if (this.pages >= PAGES) return;
     const n = ++this.pages;
     g.busy = true;

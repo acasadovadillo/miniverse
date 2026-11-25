@@ -301,8 +301,8 @@ export function buildFarImpostors(objs, groundY, atlas) {
   geo.setAttribute('aImp', new THREE.InstancedBufferAttribute(aImp, 2));
   const im = new THREE.InstancedMesh(geo, atlas.material, n);
   list.forEach(([o, s], i) => {
-    // (its size beside the sample's: of another kind, how wide and how tall by their measures)
-    const sg = treeK(o) / s.k, A = o.kind !== s.kind && BROAD[o.kind], B = A && BROAD[s.kind], gx = B ? sg * A[1] / B[1] : sg, gy = B ? sg * A[0] / B[0] : sg, y = groundY(o.x, o.y);
+    // (its size beside the sample's: of another kind, how wide and how tall by their measures. farK, farW: a great tree; explore.js)
+    const sg = (o.farK || treeK(o)) / s.k, A = o.kind !== s.kind && BROAD[o.kind], B = A && BROAD[s.kind], gx = (B ? sg * A[1] / B[1] : sg) * (o.farW || 1), gy = B ? sg * A[0] / B[0] : sg, y = groundY(o.x, o.y);
     m4.makeScale(2 * s.hw * gx, 2 * s.hh * gy, 1).setPosition(o.x, y + s.yc * gy, o.y);
     im.setMatrixAt(i, m4);
     // (girado como su árbol de cerca: rot, en la muestra, va a parar a rot del árbol, en el sentido de su especie)

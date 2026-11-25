@@ -11,8 +11,9 @@ const WOOD = rule('wood', 60, 180), WOOD_WALL = rule('wood', 60, 180, { air: tru
 const RULES = {
   tejado_paja: THATCH, tejado_rojo: CLAY, tejado_azul: CLAY, tejado_verde: CLAY, tejado_gris: SLATE,
   muro_madera: WOOD_WALL, ventana: WOOD_WALL, puerta: WOOD_WALL, valla: WOOD, puerta_valla: WOOD, post: WOOD, suelo_madera: WOOD,
-  muro_entramado: FRAMED, ventana_contraventanas: FRAMED, muro_cuadro: FRAMED,
+  muro_entramado: FRAMED, ventana_contraventanas: FRAMED, muro_cuadro: FRAMED, limewash_wall: FRAMED,
   muro_piedra: STONE, valla_piedra: STONE, suelo_piedra: STONE, camino: STONE, stone_pillar: STONE, bell_gable: STONE,
+  ashlar_wall: STONE, stone_column: STONE, slab_roof: STONE,
 };
 export const ruleOf = id => (Object.prototype.hasOwnProperty.call(RULES, id) ? RULES[id] : null);
 export const stageAt = (id, age) => { const r = ruleOf(id); return !r ? 0 : age >= r.at[1] ? 2 : age >= r.at[0] ? 1 : 0; };
