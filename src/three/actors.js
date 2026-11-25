@@ -13,7 +13,7 @@ import { MONSTERS } from '../combat.js';
 import { CAM, screenToWorld, screenDirOf } from '../camera.js';
 import { ITEMS, TIERS } from '../items.js';
 import { WATER_Y } from './terrain.js';
-import { animalModel, animalKey, animateAnimal, horseModel, animateHorse, setHorseDirt, disposeAnimal, prewarmHorse, HORSE_ACTS } from './animals.js';
+import { animalModel, animalKey, animateAnimal, horseModel, animateHorse, setHorseDirt, setHorseCare, disposeAnimal, prewarmHorse, HORSE_ACTS } from './animals.js';
 import { nearX } from '../world/planet.js';
 import { scaleOf } from '../herds.js';
 import { RealPerson, realBaby, prebuildReal, realReady, realStats } from './realperson.js';
@@ -443,7 +443,7 @@ export class Actors {
   makeThing(e) {
     if (ANIMALS[e.type]) {
       const fill = this.bagFill(null, e);
-      return { kind: 'animal', root: animalModel(e.type, e.breed, e.bags, fill), key: animalKey(e, fill), aType: e.type, aBreed: e.breed || '', aBags: e.bags ? 1 + fill : 0, prev: null, speed: 0, phase: Math.random() * 6 };
+      return { kind: 'animal', root: animalModel(e.type, e.breed, e.bags, fill, e.type === 'caballo' && !!e.shod), key: animalKey(e, fill), aShod: e.type === 'caballo' && !!e.shod, aType: e.type, aBreed: e.breed || '', aBags: e.bags ? 1 + fill : 0, prev: null, speed: 0, phase: Math.random() * 6 };
     }
     if (MONSTERS[e.type]) return { kind: 'monster', root: monsterModel(e.type), prev: null, speed: 0, phase: Math.random() * 6 };
     return null;
@@ -507,7 +507,8 @@ export class Actors {
       else if (yaw !== null) P.facing = yaw;
       if (m.horse) {   // (el caballo del jinete, con el pelaje del suyo; and its saddlebags, as full as they look: horseFill 0..2)
         const coat = e.horseCoat || 'castano', f = e.horseFill, bagK = e.horseBags ? 1 + (f === 0 || f === 1 || f === 2 ? f : 1) : 0;
-        if (m.horseCoat !== coat || m.horseBagK !== bagK) this.newHorse(m, coat, bagK);
+        const shod = e.mount ? !!this.riddenBy(m, e)?.shod : m.horseShod;
+        if (m.horseCoat !== coat || m.horseBagK !== bagK || !!m.horseShod !== !!shod) this.newHorse(m, coat, bagK, shod);
       }
       if (m.boat) {
         // Barca y caballo
@@ -592,6 +593,7 @@ export class Actors {
         const dirt = e.dirt || 0;
         m.dirtK = m.dirtK > dirt ? Math.max(dirt, m.dirtK - dt * 0.55) : dirt;
         setHorseDirt(m.root, m.dirtK);
+        this.careLook(m, m.root, e, dirt);
         animateAnimal(m, dt, t, e, this.horseState(m, e, e.act, false, dt, vol));
         if (m.root.userData.hits && m.speed > 1.5 && this.game?.horse?.ours?.(e)) this.hooves(m, e, m.speed > 4.5 ? 2 : 1, scene, vol);
       } else animateAnimal(m, dt, t, e);
@@ -684,7 +686,23 @@ export class Actors {
   // Does an animal's model still fit it (type, breed, and a horse's saddlebags with how full they look)? Compared field by
   // field: no key string made for every animal in every frame
   sameAnimal(m, e) {
-    return m.aType === e.type && m.aBreed === (e.breed || '') && m.aBags === (e.bags ? 1 + this.bagFill(m, e) : 0);
+    return m.aType === e.type && m.aBreed === (e.breed || '') && m.aBags === (e.bags ? 1 + this.bagFill(m, e) : 0) && (e.type !== 'caballo' || m.aShod === !!e.shod);
+  }
+  // The Animal a player rides, looked for at most twice a second (its shoes and how it is looked after: those travel with it)
+  riddenBy(m, e) {
+    const g = this.game;
+    if (m === this.player && g?.horse?.ridden) return g.horse.ridden;
+    if (this.time - (m.rideT ?? -1) < 0.5) return m.rideA || null;
+    m.rideT = this.time; m.rideA = null;
+    for (const a of g?.ranch?.animals || []) if (a.rider && a.rider === e.id) { m.rideA = a; break; }
+    return m.rideA;
+  }
+  // Thin or shiny (horsecare.js looks): asked twice a second, eased in the uniforms
+  careLook(m, root, a, dirt) {
+    const C = this.game?.horsecare, L = (m.look2 ||= { thin: 0, shine: 0, t: -1 });
+    if (!C) return;
+    if (this.time - L.t > 0.5) { L.t = this.time; C.looks(a, dirt, L); }
+    setHorseCare(root, L.thin, L.shine);
   }
   // How full a horse's saddlebags look, 0..2 (saddlebags.js: by what they weigh), asked at most twice a second per horse.
   // Until that module is read, or with no saddlebags system, half full: the look closest to the bags of before
@@ -698,12 +716,12 @@ export class Actors {
   // The rider's horse made again (another coat, or bags that look fuller or emptier: bagK 0 none, else 1 + fill). The old
   // one takes its own materials with it: the player's copies (for the outline), a spectator's see-through ones and its mud
   // material; the big thing on its back is moved by carried(), which sees another host
-  newHorse(m, coat, bagK) {
-    const old = m.horse, h = horseModel(coat, bagK > 0, false, Math.max(0, bagK - 1));
+  newHorse(m, coat, bagK, shod = false) {
+    const old = m.horse, h = horseModel(coat, bagK > 0, false, Math.max(0, bagK - 1), !!shod);
     if (m === this.player) h.traverse(q => { if (q.isMesh) ownMesh(q, m); });
     h.visible = old.visible;
     m.root.remove(old); m.root.add(h);
-    m.horse = h; m.horseCoat = coat; m.horseBagK = bagK;
+    m.horse = h; m.horseCoat = coat; m.horseBagK = bagK; m.horseShod = !!shod;
     old.traverse(o => {
       if (!o.isMesh || o.userData.shared) return;
       if (o.userData.solid) o.material.dispose();
@@ -720,6 +738,7 @@ export class Actors {
     const yaw = (m.horse.rotation.y = P.root.rotation.y);
     this.bank(m, yaw, dt);
     setHorseDirt(m.horse, e.horseDirt || 0);
+    this.careLook(m, m.horse, this.riddenBy(m, e), e.horseDirt || 0);
     animateHorse(m.horse, m.speed, t, null, dt, e.gait, this.horseState(m, e, e.horseAct, !!e.horseWinded, dt, vol));
     m.gallopK = (m.gallopK || 0) + ((m.speed > 3 ? (e.gait === 2 ? 1 : e.gait === 3 ? 0.35 : 0) : 0) - (m.gallopK || 0)) * Math.min(1, dt * 4);
     if (m.gallopK < 1e-3) m.gallopK = 0;
@@ -786,7 +805,7 @@ export class Actors {
   horseState(m, e, act, winded, dt, vol) {
     const S = (m.hs ||= { act: null, at: 0, winded: 0, on: false, nextSnort: 0 }), now = this.game?.time ?? 0, mine = m === this.player;
     const was = S.act, wasAt = S.at;
-    S.act = null; S.fp = mine && CAM.first;   // (from its rider's own eyes: the rear's head and neck stay out of the view)
+    S.act = null; S.deep = e.depth || 0; S.fp = mine && CAM.first;   // (from its rider's own eyes: the rear's head and neck stay out of the view)
     if (act?.kind) {
       const A = ACT_ALIAS[act.kind] || act.kind, D = HORSE_ACTS[A];
       // (no start time from a game that sends none: from when it was first seen)

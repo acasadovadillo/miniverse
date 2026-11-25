@@ -11,6 +11,7 @@
 //   horse.prepRide(p, sc)   before each mounted step: what the riding physics must know (hearts, shoes, breath, ground, setting)
 //   horse.onRide(ev)        what happened riding: a sliding stop, a fence or a slope refused, a crash (entities.js onRide)
 //   horse.jumpSpend()       a mounted jump: true = jumped (and paid JUMP_COST), false = refused (winded)
+//   (what it eats and drinks, its shoes and being sore: horsecare.js, Plan R4-2)
 //   horse.held()            the horse is rearing or staggering: the rider has no control (game.js feeds the player no keys)
 //   horse.whistle(want?, item?)   N (§1.3); the held whistle item calls it too, with its horse and item = true (any distance)
 //   horse.halt(a, s)        it stands still for s seconds (its menu, care): a.halt, read by whoever runs the world
@@ -49,7 +50,7 @@ export const WHISTLE_M = [60, 150, 300, Infinity];         // whistle range in m
 export const SPOOK = [0.6, 0.35, 0.15, 0.05], THROW_L1 = 0.25, SPOOK_EVERY = 20;
 export const STAM_MAX = 100, STAM_DELAY = 1.5, STAM_WALK = 15, STAM_STILL = 25, WINDED_CLEAR = 0.4, JUMP_COST = 8;
 export const BX_NEXT = 100, BX_AFTER_LOSS = 50, BX_MAX = 299;
-export const GAIN = { brush: 20, brushDirt: 30, brushAgain: 10, carrot: 25, apple: 25, hay: 10, wheat: 10, pat1: 10, pat: 3, ride20s: 1, calm: 8 };
+export const GAIN = { brush: 20, brushDirt: 30, brushAgain: 10, carrot: 25, apple: 25, hay: 10, wheat: 10, pat1: 10, pat: 3, ride20s: 1, calm: 8, drink: 8, graze: 4, trim: 10 };
 export const CAPS = { treats: 3, pats: 5, rideBx: 40 };
 export const SHOD_STAM = 1.15;
 // The stamina a second of gallop spends: STAM_MAX / GALLOP_S[L-1] / (shod ? SHOD_STAM : 1) × (1 + max(0, kg - 30) / 40)
@@ -73,13 +74,15 @@ const me = () => Profile.id || 'yo';   // (the same fallback as ranch.js: a.owne
 const clamp01 = v => (v > 0 ? (v < 1 ? v : 1) : 0);
 const round2 = v => Math.round(v * 100) / 100;
 
-// Today's care of a horse (never mutated here): { d: day, b: brushes, f: treats, p: pats, r: seconds ridden }
+// Today's care of a horse (never mutated here): { d: day, b: brushes, f: treats, p: pats, r: seconds ridden, w: drinks, g: grass
+// on the way, h: hooves trimmed (horsecare.js) }
 export function careOf(a, today) {
   const c = a?.care;
-  return c && c.d === today ? { d: today, b: c.b | 0, f: c.f | 0, p: c.p | 0, r: +c.r || 0 } : { d: today, b: 0, f: 0, p: 0, r: 0 };
+  return c && c.d === today ? { d: today, b: c.b | 0, f: c.f | 0, p: c.p | 0, r: +c.r || 0, w: c.w | 0, g: c.g | 0, h: c.h | 0 } : { d: today, b: 0, f: 0, p: 0, r: 0, w: 0, g: 0, h: 0 };
 }
 // Pure: the bx a care action gives now (0 once its daily cap is reached). kind: 'brush' | 'feed' (item: a TREATS id) |
-// 'pat' | 'ride' (one RIDE_CHUNK more in the saddle) | 'calm'
+// 'pat' | 'ride' (one RIDE_CHUNK more in the saddle) | 'calm' | 'drink' | 'graze' |
+// 'trim'
 export function gainFor(a, kind, today, item) {
   const c = careOf(a, today);
   switch (kind) {
@@ -88,6 +91,9 @@ export function gainFor(a, kind, today, item) {
     case 'pat': return c.p >= CAPS.pats ? 0 : c.p ? GAIN.pat : GAIN.pat1;
     case 'ride': return Math.floor(c.r / RIDE_CHUNK) < CAPS.rideBx ? GAIN.ride20s : 0;
     case 'calm': return GAIN.calm;
+    case 'drink': return c.w ? 0 : GAIN.drink;   // (once a day each: horsecare.js)
+    case 'graze': return c.g ? 0 : GAIN.graze;
+    case 'trim': return c.h ? 0 : GAIN.trim;
   }
   return 0;
 }
@@ -207,12 +213,15 @@ export class Horse {
     if (a && a.rider === me()) this.claims = 1;   // (a guest: asked just now, until the host's answer)
     if (!a) { p.horseAct = null; p.horseWinded = false; return; }
     if (a.id !== this.lastId) { this.stam = STAM_MAX; this.winded = false; }
+    this.stam = Math.min(this.stam, this.stamMax(a));
     this.lastId = a.id;
     this.dirt = clamp01(+a.dirt || 0);
     p.horseDirt = this.dirt;
     this.lx = p.x; this.ly = p.y;
     this.bagsLook(a, p);
   }
+  // The most breath it can have now: less when it is hungry or thirsty (horsecare.js), never under 60 %
+  stamMax(a) { return STAM_MAX * (this.game.horsecare?.cap(a) ?? 1); }
   // The gallop's stamina (§1.4): it falls only galloping, refills after STAM_DELAY without it (faster standing still);
   // at 0 the horse is winded until WINDED_CLEAR. Off (?vinculo=0) or outside survival, it never tires
   stamina(dt, a, moving) {
@@ -232,7 +241,9 @@ export class Horse {
       return;
     }
     if ((this.restT += dt) < STAM_DELAY) return;
-    if (this.stam < STAM_MAX) this.stam = Math.min(STAM_MAX, this.stam + (moving ? STAM_WALK : STAM_STILL) * dt);
+    const C = this.game.horsecare, max = this.stamMax(a);
+    if (this.stam < max) this.stam = Math.min(max, this.stam + (moving ? STAM_WALK : STAM_STILL) * (C?.regen(a) ?? 1) * dt);
+    else this.stam = max;   // (hungry or thirsty by now: a shorter breath)
     if (this.winded && this.stam >= WINDED_CLEAR * STAM_MAX) this.winded = false;
   }
   // Out of breath: no gallop until 40 % (game.js drops the sprint tier: three new taps to gallop again)
@@ -260,7 +271,9 @@ export class Horse {
   prepRide(p, sc, arcade) {
     const R = p.ride, a = this.ridden;
     R.love = a ? a.love : 5; R.shod = !!a?.shod;
-    R.winded = this.noGallop(); R.noGallop = R.winded;
+    const C = this.game.horsecare;
+    R.bare = !!C?.bare(a);
+    R.winded = this.noGallop(); R.noGallop = R.winded || !!C?.sore(a);   // (sore: the canter at most)
     R.hold = this.held(); R.arcade = !!arcade;
     const tx = Math.floor(p.x), ty = Math.floor(p.y);
     if (tx === this.tileX && ty === this.tileY && sc === this.tileScene && R.on) return;
@@ -322,6 +335,7 @@ export class Horse {
     if (this.off) return;
     this.stam = Math.max(0, this.stam - STUMBLE_STAM); this.restT = 0;
     if (this.stam <= 0 && a) this.blow(a);
+    this.game.horsecare?.bad(a);   // (two within five minutes leave it sore)
     if (a && p.mount && levelOf(a.love) === 1 && g.time - this.lastSpook >= SPOOK_EVERY && Math.random() < THROW_L1) { this.lastSpook = this.spookAt = g.time; this.throwAt = g.time + STAGGER; }
   }
 
@@ -361,9 +375,11 @@ export class Horse {
       g.social?.emote(g.player, 'brush');
       g.skills?.gain('granja', 1);
     } else if (kind === 'feed') {
-      if (!gain) { g.gather.float(t('horse.full_treats'), '#fff3c0'); return false; }
+      const C = g.horsecare, hungry = !!C && !C.off && C.fed(a) < 0.9;   // (hungry, it eats past the day's treats, with no more bond)
+      if (!gain && !hungry) { g.gather.float(t('horse.full_treats'), '#fff3c0'); return false; }
       if (!item || !g.inv.count(item)) return false;
       g.inv.remove(item, 1);
+      C?.treat(a, item);
       c.f++; a.carrotDay = today;   // (any treat: onDay's neglect rule reads carrotDay)
       g.gather.float(t('horse.fed'), '#ff9ac8');
       g.skills?.gain('granja', 1);
@@ -471,6 +487,14 @@ export class Horse {
     if (p) p.horseAct = { kind, t: g.time, seq: ++this.actSeq };
   }
 
+  // What it was doing is over before its time (the rider moved on while it drank: horsecare.js)
+  endAct(kind) {
+    const p = this.game.player;
+    if (this.actKind !== kind) return;
+    this.actKind = null; this.actUntil = -Infinity;
+    if (p?.horseAct?.kind === kind) p.horseAct = null;
+  }
+
   // ---------- spooks (§1.5) ----------
   // Every SPOOK_TICK, only the ridden horse: a monster within 5 m, a boar within 4 m or a thunderbolt, each one roll when it
   // starts (its rising edge), at most one spook per SPOOK_EVERY. Survival only, never peaceful
@@ -509,6 +533,7 @@ export class Horse {
     const fx = p.face?.x || 0, fy = p.face?.y || 0;
     g.ranch.dismount();
     if (p.mount) return;   // (refused: deep water with a big thing behind the saddle)
+    g.horsecare?.bad(a);
     g.combat?.hurt?.(2, 'thrown');
     g.gather.float(t('horse.thrown', { name: a.name }), '#ffb0a0');
     // (sitting on the ground for a moment, as you fell; walking gets you up after the first half)
@@ -555,13 +580,14 @@ export class Horse {
     p.mount = false; p.horseAct = null; p.horseWinded = false;
     this.dirt = undefined; this.galloping = false;   // (switchTo writes no dirt to a horse that is not ours to ride now)
     g.carry?.syncArms();
+    g.horsecare?.forget();   // (nor anything else of its: somebody else has it)
     g.saddlebags?.release?.(a);
     const by = a.rider || g.saddlebags?.holder?.(a), who = (by && g.live?.nameOf?.(by)) || t('horse.someone');
     g.gather.float(a.rider ? t('horse.whistle.ridden', { who, name: a.name }) : by && by !== me() ? t('horse.bags.busy', { who }) : t('horse.refused', { name: a.name }), '#fff3c0');
     Audio.error?.();
   }
   // Got off (ranch.dismount): the dirt goes to the horse now
-  onDismount(a) { if (a && a === this.ridden) this.writeDirt(a, true); }
+  onDismount(a) { this.game.horsecare?.onDismount(a); if (a && a === this.ridden) this.writeDirt(a, true); }
 
   // ---------- the whistle (N, §1.3) ----------
   ours(a, pid = me()) { return !!a && !!pid && (a.owner === pid || !!this.game.social?.areCouple?.(a.owner, pid)); }

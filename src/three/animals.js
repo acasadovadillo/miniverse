@@ -40,7 +40,7 @@ const COATS = {
 };
 // (fill: how full a horse's saddlebags look, 0 flat, 1 half, 2 bulging: saddlebags.js fillOf. With bags the key says
 // 1 + fill, so the model is made again only when the fill level changes)
-export const animalKey = (e, fill = 1) => `${e.type}:${e.breed || ''}:${e.bags ? 1 + fill : 0}`;
+export const animalKey = (e, fill = 1) => `${e.type}:${e.breed || ''}:${e.bags ? 1 + fill : 0}${e.type === 'caballo' && e.shod ? ':s' : ''}`;
 function coatOf(type, breed) { const c = COATS[type]; return c ? c[breed] || Object.values(c)[0] : []; }
 
 // ---------- herramientas ----------
@@ -161,9 +161,15 @@ function eyes(parent, x, y, z, r, tilt = 0) {
     if (tilt) mesh(G.ball, M('#000000'), { p: [s * x, y + r * 0.75, z + r * 0.15], s: [r * 1.15, r * 0.35, r * 0.9], r: [0, 0, s * tilt] }, parent);   // párpado
   }
 }
+// A horseshoe under the hoof (of a leg whose pastern is r2): a flat iron arc, open at the heel, a little wider than the wall
+const SHOES = new Map();
+function shoeGeo(r2) {
+  if (!SHOES.has(r2)) SHOES.set(r2, new THREE.TorusGeometry(r2 * 1.16, r2 * 0.24, 6, 18, Math.PI * 1.56).rotateZ(Math.PI / 2 - Math.PI * 0.78).rotateX(Math.PI / 2).scale(1, 0.62, 1.1));
+  return SHOES.get(r2);
+}
 // Una pata con rodilla: su músculo arriba (paletilla o muslo), fina abajo y, en las de atrás (z < 0), con el corvejón hacia
 // atrás: el muslo baja hacia atrás y la caña vuelve hacia delante, con el pie debajo de la cadera
-function leg(body, legs, { x, y, z, up, low, r0, r1, r2, color, foot, footColor, paw = false, phase = 0 }) {
+function leg(body, legs, { x, y, z, up, low, r0, r1, r2, color, foot, footColor, paw = false, phase = 0, shoe = false }) {
   const hind = z < 0, kz = hind ? -up * 0.24 : up * 0.05, fz = hind ? up * 0.24 : -up * 0.03, c = M(color);
   r1 *= paw ? 0.95 : 0.8; r2 *= paw ? 0.9 : 0.7;
   const hip = new THREE.Group(); hip.position.set(x, y, z); body.add(hip);
@@ -176,6 +182,7 @@ function leg(body, legs, { x, y, z, up, low, r0, r1, r2, color, foot, footColor,
   else if (foot) {
     mesh(G.ball, M(footColor || color), { p: [0, -low + foot * 0.2, fz], s: [r2 * 1.2, r2 * 1.1, r2 * 1.2] }, knee);   // (la cuartilla)
     mesh(new THREE.CylinderGeometry(r2 * 1.05, r2 * 1.35, foot, 10).translate(0, -low - foot / 2, fz + r2 * 0.25), M(footColor || '#2a2420', { roughness: 0.5 }), {}, knee);
+    if (shoe) mesh(shoeGeo(r2), M('#767c83'), { p: [0, -low - foot + 0.0045, fz + r2 * 0.25] }, knee);
   }
   legs.push({ hip, knee, phase });
   return knee;
@@ -206,8 +213,8 @@ export function disposeAnimal(root) {
 const TROT = [0, Math.PI, Math.PI, 0];   // patas: delante izquierda y detrás derecha a la vez, y al revés
 
 // ---------- los animales ----------
-export function animalModel(type, breed, bags, fill = 1) {
-  if (type === 'caballo') return horseModel(breed, bags, true, fill);
+export function animalModel(type, breed, bags, fill = 1, shod = false) {
+  if (type === 'caballo') return horseModel(breed, bags, true, fill, shod);
   const root = new THREE.Group(), body = new THREE.Group(), legs = [], u = { body, legs, type, seed: Math.random() * 10 };
   root.add(body);
   const [cb, cd, cl] = coatOf(type, breed), k = `${type}:${breed}`;
@@ -557,8 +564,8 @@ export function animateAnimal(m, dt, t, e, st = null) {
 
 // ---------- el caballo ----------
 // También el del jinete: con su pelaje, la silla con su manta y los estribos y, si las tiene, las alforjas
-// (fill: how full the saddlebags look, 0 flat, 1 half, 2 bulging; see saddlebags)
-export function horseModel(breed = 'castano', bags = false, alone = false, fill = 1) {
+// (fill: how full the saddlebags look, 0 flat, 1 half, 2 bulging; see saddlebags. shod: with its shoes on, iron under the hooves)
+export function horseModel(breed = 'castano', bags = false, alone = false, fill = 1, shod = false) {
   const root = new THREE.Group(), body = new THREE.Group(), legs = [], u = { body, legs, type: 'caballo', horse: alone, seed: Math.random() * 10 };
   root.add(body);
   const [cb, cd, cl] = coatOf('caballo', breed), k = `caballo:${breed}`, mane = M(cl || cd), pio = breed === 'pio';
@@ -589,7 +596,7 @@ export function horseModel(breed = 'castano', bags = false, alone = false, fill 
   const tc = new THREE.CatmullRomCurve3([new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, -0.1, -0.12), new THREE.Vector3(0, -0.4, -0.18), new THREE.Vector3(0, -0.62, -0.14)]);
   tail.add(new THREE.Mesh(new THREE.TubeGeometry(tc, 12, 0.05, 8), mane));
   mesh(G.ball, mane, { p: [0, -0.6, -0.14], s: [0.06, 0.08, 0.06] }, tail);
-  [[-0.16, 0.38], [0.16, 0.38], [-0.16, -0.38], [0.16, -0.38]].forEach(([x, z], i) => leg(body, legs, { x, y: 0.72, z, up: 0.36, low: 0.29, r0: 0.085, r1: 0.05, r2: 0.04, color: cb, foot: 0.07, footColor: breed === 'blanco' ? '#5a5048' : '#2a2420', phase: TROT[i] }));
+  [[-0.16, 0.38], [0.16, 0.38], [-0.16, -0.38], [0.16, -0.38]].forEach(([x, z], i) => leg(body, legs, { x, y: 0.72, z, up: 0.36, low: 0.29, r0: 0.085, r1: 0.05, r2: 0.04, color: cb, shoe: shod, foot: 0.07, footColor: breed === 'blanco' ? '#5a5048' : '#2a2420', phase: TROT[i] }));
   settleNeck(u);
   u.hipRest = legs.map(l => l.hip.position.y);
   finish(root, u);
@@ -686,9 +693,15 @@ function saddlebags(body, fill) {
 // uniform, uDirt, on the horse's own copy of the merged vertex-colour material. One program for every horse (a fixed
 // customProgramCacheKey; Three runs onBeforeCompile once per material, each with its own uniform). With uDirt at 0 the
 // branch is skipped: a clean horse costs a uniform test per fragment
-const DIRT_VERT_DECL = 'attribute float aDirt;\nvarying float vDirt;\nvarying vec3 vDirtP;';
-const DIRT_VERT = 'float dSeed = floor(aDirt * 0.5); vDirt = aDirt - 2.0 * dSeed; vDirtP = position + dSeed * vec3(3.7, 1.9, 5.3);';
+// How it is looked after shows the same way (Plan R4-2, horsecare.js looks): uThin, hungry (the flanks hollow, the belly drawn
+// up and the ribs marked, by aThin: how far each vertex of the trunk moves in and up, and how much of a rib it is; a duller
+// coat), and uShine, clean, fed and brushed (a glossy coat)
+const DIRT_VERT_DECL = 'attribute float aDirt;\nattribute vec3 aThin;\nuniform float uThin;\nvarying float vDirt;\nvarying vec3 vDirtP;\nvarying vec2 vThin;';
+const DIRT_VERT = 'float dSeed = floor(aDirt * 0.5); vDirt = aDirt - 2.0 * dSeed; vDirtP = position + dSeed * vec3(3.7, 1.9, 5.3); vThin = vec2(abs(aThin.x) * 22.0, aThin.z); transformed.xy += aThin.xy * uThin;';
 const DIRT_FRAG_DECL = `uniform float uDirt;
+uniform float uThin;
+uniform float uShine;
+varying vec2 vThin;
 varying float vDirt;
 varying vec3 vDirtP;
 float hdHash(vec3 p) { p = fract(p * 0.3183099 + 0.1); p *= 17.0; return fract(p.x * p.y * p.z * (p.x + p.y + p.z)); }
@@ -700,6 +713,15 @@ float hdNoise(vec3 x) {
 // (a film that climbs with the mud, its edge broken into splashes, and spots above it; the colours are LINEAR, as
 // diffuseColor is: dark wet earth where it is thickest, dry grey-brown dust around it, so it reads on a bay or black coat
 // too, not only on a white one. Every smoothstep has edge0 < edge1)
+const CARE_FRAG = `if (uShine > 0.0) diffuseColor.rgb = max(vec3(0.0), mix(vec3(dot(diffuseColor.rgb, vec3(0.3, 0.59, 0.11))), diffuseColor.rgb, 1.0 + 0.16 * uShine)) * (1.0 - 0.06 * uShine);
+if (uThin > 0.0) {
+  float rib = vThin.y * (0.5 + 0.5 * sin(vDirtP.z * 74.0 + vDirtP.y * 9.0));
+  diffuseColor.rgb = mix(diffuseColor.rgb, vec3(dot(diffuseColor.rgb, vec3(0.3, 0.59, 0.11))), 0.22 * uThin) * (1.0 - uThin * (0.26 * vThin.x + 0.34 * rib));
+}
+`;
+// (the gloss is broken up by the lie of the hair)
+const CARE_ROUGH = `if (uShine > 0.0) roughnessFactor *= 1.0 - uShine * (0.16 + 0.26 * hdNoise(vDirtP * vec3(22.0, 60.0, 22.0)));
+roughnessFactor = min(1.0, roughnessFactor + 0.2 * uThin);`;
 const DIRT_FRAG = `if (uDirt > 0.0 && vDirt > 0.002) {
   float n = hdNoise(vDirtP * 34.0), m = vDirt * uDirt;
   float film = smoothstep(0.16, 0.5, m * (0.55 + 0.9 * n));
@@ -710,15 +732,15 @@ const DIRT_FRAG = `if (uDirt > 0.0 && vDirt > 0.002) {
 }`;
 const DIRT_KEY = () => 'horse-dirt';
 let dirtWarned = false;
-// The horse's copy of base (its merged material), reading U.value as uDirt
-function dirtMaterial(base, U) {
+// The horse's copy of base (its merged material), reading U.value as uDirt and care (thin, shine) as how it is looked after
+function dirtMaterial(base, U, care = { thin: { value: 0 }, shine: { value: 0 } }) {
   const m = base.clone();
   m.onBeforeCompile = sh => {
-    sh.uniforms.uDirt = U;
+    sh.uniforms.uDirt = U; sh.uniforms.uThin = care.thin; sh.uniforms.uShine = care.shine;
     const v = sh.vertexShader.replace('#include <common>', `#include <common>\n${DIRT_VERT_DECL}`).replace('#include <begin_vertex>', `#include <begin_vertex>\n${DIRT_VERT}`);
-    const f = sh.fragmentShader.replace('#include <common>', `#include <common>\n${DIRT_FRAG_DECL}`).replace('#include <color_fragment>', `#include <color_fragment>\n${DIRT_FRAG}`);
+    const f = sh.fragmentShader.replace('#include <common>', `#include <common>\n${DIRT_FRAG_DECL}`).replace('#include <color_fragment>', `#include <color_fragment>\n${CARE_FRAG}${DIRT_FRAG}`).replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>\n${CARE_ROUGH}`);
     // (all or nothing: a half-patched shader would not compile)
-    if (v === sh.vertexShader || !f.includes('uDirt > 0.0') || !f.includes('varying float vDirt')) { if (!dirtWarned) { dirtWarned = true; console.warn('Miniverse: the horse mud could not hook the shader (drawn clean)'); } return; }
+    if (v === sh.vertexShader || !f.includes('uDirt > 0.0') || !f.includes('varying float vDirt') || !f.includes(CARE_ROUGH)) { if (!dirtWarned) { dirtWarned = true; console.warn('Miniverse: the horse mud could not hook the shader (drawn clean)'); } return; }
     sh.vertexShader = v; sh.fragmentShader = f;
   };
   m.customProgramCacheKey = DIRT_KEY;
@@ -731,6 +753,12 @@ function dirtMask(x, y, z, ny) {
   if (z < -0.2 && y < 0.75) k = Math.min(1, k * 1.15 + 0.06 * (1 - sm(0.5, 0.75, y)));         // (the hind legs: what the front ones throw)
   return k;
 }
+// How far a vertex of the trunk goes in and up when it is thin, and how much of a rib it is (where it is at rest)
+function thinOf(x, y, z, out, i) {
+  const side = sm(0.06, 0.15, Math.abs(x)), hollow = side * Gs(z + 0.24, 0.11) * sm(0.7, 0.8, y) * (1 - sm(0.94, 1.08, y)), tuck = (1 - sm(0.66, 0.84, y)) * Gs(z + 0.2, 0.2);
+  out[i] = -Math.sign(x) * 0.045 * hollow; out[i + 1] = 0.075 * tuck;
+  out[i + 2] = side * Gs(z - 0.02, 0.17) * sm(0.7, 0.8, y) * (1 - sm(0.94, 1.04, y));
+}
 const DV = new THREE.Vector3(), DN = new THREE.Vector3(), DM3 = new THREE.Matrix3();
 function dirtify(root, u) {
   root.updateMatrixWorld(true);
@@ -738,17 +766,20 @@ function dirtify(root, u) {
   root.traverse(o => {
     if (!o.isMesh || !o.material.vertexColors || o.material.map || !u.geos.includes(o.geometry)) return;
     base ||= o.material;
-    const g = o.geometry, P = g.attributes.position, N = g.attributes.normal, a = new Float32Array(P.count), s = 2 * (seed++ % 16);
+    const g = o.geometry, P = g.attributes.position, N = g.attributes.normal, a = new Float32Array(P.count), s = 2 * (seed++ % 16), thin = new Float32Array(P.count * 3), trunk = o.parent === u.body;
     DM3.getNormalMatrix(o.matrixWorld);
     for (let i = 0; i < P.count; i++) {
       DV.fromBufferAttribute(P, i).applyMatrix4(o.matrixWorld); DN.fromBufferAttribute(N, i).applyMatrix3(DM3).normalize();
       a[i] = s + Math.min(1, dirtMask(DV.x, DV.y, DV.z, DN.y));
+      if (trunk) thinOf(DV.x, DV.y, DV.z, thin, i * 3);
     }
     g.setAttribute('aDirt', new THREE.BufferAttribute(a, 1));
+    g.setAttribute('aThin', new THREE.BufferAttribute(thin, 3));
   });
   if (!base) return;
   u.dirtU = { value: 0 };
-  u.dirtMat = dirtMaterial(base, u.dirtU);
+  u.careU = { thin: { value: 0 }, shine: { value: 0 } };
+  u.dirtMat = dirtMaterial(base, u.dirtU, u.careU);
   root.traverse(o => { if (o.isMesh && o.material === base) o.material = u.dirtMat; });
 }
 // How muddy the horse looks now (0..1): a uniform, never a rebuild
@@ -757,6 +788,13 @@ export function setHorseDirt(root, v) {
   if (!U) return;
   v = v > 0 ? (v < 1 ? v : 1) : 0;
   if (Math.abs(U.value - v) > 0.004 || (v === 0 && U.value !== 0)) U.value = v;
+}
+// How it is looked after, as it shows (horsecare.js looks: 0..1 each): two uniforms, eased
+export function setHorseCare(root, thin, shine) {
+  const U = root?.userData?.careU;
+  if (!U) return;
+  if (Math.abs(U.thin.value - thin) > 0.004) U.thin.value += (thin - U.thin.value) * 0.06; else U.thin.value = thin;
+  if (Math.abs(U.shine.value - shine) > 0.004) U.shine.value += (shine - U.shine.value) * 0.06; else U.shine.value = shine;
 }
 // Its program (and the shadow pass's, the common one), compiled without stopping the game when the world first shows
 // (actors.js): otherwise the first horse in view, or the first time you mount, would compile it mid-game. A one-triangle
@@ -769,6 +807,7 @@ export function prewarmHorse(renderer, camera, scene) {
   g.setAttribute('normal', new THREE.Float32BufferAttribute([0, 0, 1, 0, 0, 1, 0, 0, 1], 3));
   g.setAttribute('color', new THREE.Float32BufferAttribute([1, 1, 1, 1, 1, 1, 1, 1, 1], 3));
   g.setAttribute('aDirt', new THREE.Float32BufferAttribute([0, 1, 0], 1));
+  g.setAttribute('aThin', new THREE.Float32BufferAttribute([0, 0, 0, 0, 0, 0, 0, 0, 0], 3));
   DIRT_PROTO ||= dirtMaterial(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.7, metalness: 0 }), { value: 0 });
   const o = new THREE.Mesh(g, DIRT_PROTO);
   o.frustumCulled = false; o.castShadow = true;
@@ -805,7 +844,9 @@ const CANTER_K = 0.35;   // (how much of it the canter has)
 // The tricks and starts (st.act, how long each lasts in seconds): the rear (1.2 s: the body up about 38° on the hind hips,
 // the hind legs bent under it, the forelegs pawing, the head up and the tail hanging), the shake after a brushing (0.8 s:
 // the body rolls fast from side to side, the head with it) and the toss of the head (0.6 s: a trick it does not know yet)
-export const HORSE_ACTS = { rear: 1.2, shake: 0.8, toss: 0.6, slide: 0.85, stumble: 0.8 };
+// (drink and graze: ridden, or let to drink from its menu: horsecare.js; the head goes down while it lasts and stands still)
+export const HORSE_ACTS = { rear: 1.2, shake: 0.8, toss: 0.6, slide: 0.85, stumble: 0.8, drink: 4, graze: 6 };
+const EATING = { drink: 0.9, graze: 1 }, EAT_EASE = 2.4;   // (how far down the head goes)
 const REAR = { pitch: 0.66, py: 0.72, pz: -0.38, crouch: 0.035, hindHip: 0.35, hindKnee: 0.55, foreHip: 1.1, foreKnee: 1.7, paw: 0.3, pawHz: 1.5, neck: -0.45, head: -0.35 };
 const REAR_FP = { pitch: 0.6, neck: 0.5, head: 0.25 };   // (from the rider's own eyes: less of the pitch, the neck stretched forward and down)
 // The sliding stop (Plan R4 §5): the trunk sits back about the shoulders (pz), the hind legs under it and the forelegs braced
@@ -877,10 +918,13 @@ export function animateHorse(h, speed, t, e, dt = 1 / 60, gait, st = null) {
   if (u.tail) u.tail.rotation.set(0.25 * k + gk * (GALLOP.tail + 0.07 * Math.sin(2 * u.phase + 1)), 0, Math.sin(t * 1.8 + u.seed) * 0.25 * (1 - k * 0.6) + gk * 0.06 * Math.sin(u.phase));
   // (pastando, baja el cuello hasta la hierba; si no, de vez en cuando, parado, agacha un poco la cabeza. Winded, low; at
   // the gallop it pumps; rearing or tossing it, up)
-  const g = graze(u, e, k, dt), low = Math.max(g, WINDED.low * w);
-  if (u.rig) neckPose(u, low, gk * GALLOP.neck * Math.sin(u.phase + 0.9) + (st?.fp ? REAR_FP.neck : REAR.neck) * rear - 0.3 * toss + SLIDE.neck * slide + STUMBLE.neck * stumble + 0.08 * shake * Math.sin(ak * TAU * SHAKE.hz * HORSE_ACTS.shake));
+  const eats = EATING[act] && speed < 0.6 && (st.at || 0) < HORSE_ACTS[act] - 0.4 ? EATING[act] * (act === 'drink' ? 1 - 0.2 * Math.min(1, (st.deep || 0) / 0.6) : 1) : 0;   // (standing in the water, it is that much nearer)
+  u.eat = (u.eat || 0) + (eats - (u.eat || 0)) * Math.min(1, dt * EAT_EASE);
+  if (u.eat < 1e-3) u.eat = 0;
+  const g = Math.max(graze(u, e, k, dt), u.eat), low = Math.max(g, WINDED.low * w);
+  if (u.rig) neckPose(u, low, gk * GALLOP.neck * Math.sin(u.phase + 0.9) - (act === 'drink' ? 0.03 * u.eat * Math.max(0, Math.sin(t * 3.4)) : 0) + (st?.fp ? REAR_FP.neck : REAR.neck) * rear - 0.3 * toss + SLIDE.neck * slide + STUMBLE.neck * stumble + 0.08 * shake * Math.sin(ak * TAU * SHAKE.hz * HORSE_ACTS.shake));
   if (u.head) {
-    u.head.rotation.x = Math.sin(u.phase) * 0.05 * k + (u.horse && !g && speed < 0.2 && Math.sin(t * 0.3 + u.seed) > 0.4 ? 0.5 : 0) * 0.6 + g * (u.rig.hr + Math.sin(t * 7 + u.seed) * 0.05)
+    u.head.rotation.x = Math.sin(u.phase) * 0.05 * k + (u.horse && !g && speed < 0.2 && Math.sin(t * 0.3 + u.seed) > 0.4 ? 0.5 : 0) * 0.6 + g * (u.rig.hr + Math.sin(t * (act === 'drink' ? 11 : 7) + u.seed) * (act === 'drink' ? 0.025 : 0.05))
       + gk * GALLOP.head * Math.sin(u.phase + 0.4) + w * (WINDED.head + 0.05 * breath) + (st?.fp ? REAR_FP.head : REAR.head) * rear - 0.4 * toss + SLIDE.head * slide + STUMBLE.head * stumble;
     u.head.rotation.z = shake * SHAKE.head * Math.sin(ak * TAU * SHAKE.hz * HORSE_ACTS.shake + 0.9) + 0.2 * toss * Math.sin(ak * TAU * 2);
   }

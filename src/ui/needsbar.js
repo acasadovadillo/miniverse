@@ -36,6 +36,7 @@ import { t, onLangChange } from '../i18n.js';
 import { HP_MAX, HUNGER_MAX } from '../combat.js';
 import { THIRST_MAX, STAMINA_MAX, REST_MAX, AIR_MAX } from '../needs.js';
 import { STAM_MAX, WINDED_CLEAR } from '../horse.js';
+import { MARK } from '../horsecare.js';
 import { apagada } from '../opciones.js';
 import { Settings } from '../settings.js';
 import { Audio } from '../audio.js';
@@ -53,6 +54,8 @@ export const LOW = { hp: 0.4, food: 0.3, water: 0.3, rest: 0.25, air: 0.3, horse
 const TAG_SECS = 2, TAG_TIMES = 3;   // the name over a bar that comes on: for 2 s, the first 3 times
 const BEAT_EVERY = 1;                // seconds between heartbeats with little air left
 const LEGEND_EVERY = 0.25;           // seconds between legend repaints while it shows
+// (the horse's: what its bar says beside it, Plan R4-2: a drop, grass, a loose shoe, a bandage)
+const HORSE_MARKS = [['thirst', 'droplet'], ['hunger', 'drumgrass'], ['shoe', 'horseshoe'], ['sore', 'bandage']], MARK_LINGER = 5;
 const FOLD_AFTER = 0.5;              // seconds a bar that goes keeps its row (its fade out, in index.html), before the row folds away
 const q = v => Math.round(Math.max(0, Math.min(1, v)) * 200) / 200;   // (rounded to 1/200: a write only on a real change)
 const now = () => performance.now() / 1000;
@@ -111,6 +114,7 @@ export class NeedsBar {
     this.tagUntil = 0; this.tagOn = false; this.uwLow = false; this.beatAt = 0;
     this.legendOn = false; this.legendSig = ''; this.legendAt = 0; this.lockW = undefined;
     this.dirty = false; this.gm = undefined; this.min = undefined;
+    this.capW = undefined; this.hMarks = undefined; this.hMarkAt = {};
     this.laid = {}; this.goneAt = {}; this.at = {}; this.laySig = ''; this.m = null; this.tagId = null; this.tagMoved = false;
     this.shown = {};         // (reused each frame: the rows in sight)
   }
@@ -157,6 +161,14 @@ export class NeedsBar {
     const lock = q(1 - cap / STAMINA_MAX);
     if (lock !== this.lockW) { this.lockW = lock; this.el.lock.style.width = `${(lock * 100).toFixed(1)}%`; }
 
+    // The horse's: what hunger or thirst takes from its breath (the dim end of its track) and what its marks say
+    let hSays = false;
+    if (ids === IDS) {
+      const C = g.horsecare, r = riding && C ? H?.ridden : null, hcap = q(r ? C.cap(r) : 1), bits = r ? C.marks(r) : 0;
+      if (hcap !== this.capW) { this.capW = hcap; this.el.bar.horse.style.setProperty('--cap', hcap); }
+      hSays = this.horseMarks(bits, riding, T);
+    }
+
     // Low (pulses) and zero (empty and hurting: the track flashes)
     this.klass('hp', 'low', val.hp <= LOW.hp);
     this.klass('food', 'low', val.food <= LOW.food); this.klass('food', 'zero', c.hunger <= 0);
@@ -175,7 +187,7 @@ export class NeedsBar {
       else if (!min) on = id === 'air' ? airLive : true;
       else {
         critical = !!this.critOn[id];
-        own = critical || (this.until[id] || 0) > T;
+        own = critical || (this.until[id] || 0) > T || (id === 'horse' && hSays);
         // (a window, the tool wheel or Tab: every row but air; the horse's, only here, since the CSS of Tab leaves it out)
         on = critical || (!this.quiet && (own || (this.all && id !== 'air') || (tab && id === 'horse')));
         // (its name by its bar: when it turns critical, and the first times it comes on by itself)
@@ -204,6 +216,24 @@ export class NeedsBar {
     if (legend && T >= this.legendAt) { this.legendAt = T + LEGEND_EVERY; this.paintLegend(val, rest, off); }
   }
 
+  // The marks on the horse's row: each while what it says holds and MARK_LINGER s after it ends (drawn fainter). Whether any
+  // is in sight
+  horseMarks(bits, riding, T) {
+    const el = this.el.marks, at = this.hMarkAt;
+    let on = 0, gone = 0;
+    if (!bits && this.hMarks === 0) return false;
+    for (let i = 0; i < HORSE_MARKS.length; i++) {
+      const k = HORSE_MARKS[i][0], b = MARK[k];
+      if (bits & b) { on |= b; at[k] = T; } else if (riding && at[k] !== undefined && T - at[k] < MARK_LINGER) gone |= b; else at[k] = undefined;
+    }
+    const sig = on * 256 + gone;
+    if (sig !== this.hMarks && el) {
+      this.hMarks = sig;
+      el.innerHTML = HORSE_MARKS.map(([k, g]) => ((on | gone) & MARK[k] ? glyph(g, `nd-mk mk-${k}${on & MARK[k] ? '' : ' going'}`) : '')).join('');
+    }
+    return (on | gone) !== 0;
+  }
+
   // ---------- inside ----------
   find() {
     const $ = id => document.getElementById(id), root = $('needs');
@@ -216,9 +246,11 @@ export class NeedsBar {
     }
     this.ids = ids.length === IDS.length ? IDS : ids;
     for (const id of ids) if (!row[id].querySelector('.gl')) bar[id].insertAdjacentHTML('afterend', glyph(GLYPH[id]));
+    let marks = row.horse?.querySelector('.nd-marks') || null;
+    if (row.horse && !marks) { marks = document.createElement('span'); marks.className = 'nd-marks'; row.horse.append(marks); }
     // (a winded horse gallops again at WINDED_CLEAR: its tick goes there, index.html .nd-horse.winded)
     bar.horse?.style.setProperty('--nd-wind', `${WINDED_CLEAR * 100}%`);
-    this.el = { root, bar, fill, row, ghost: bar.hp.querySelector('s'), lock: bar.en.querySelector('u'), tag: $('nd-tag'), legend: $('nd-legend') };
+    this.el = { root, bar, fill, row, marks, ghost: bar.hp.querySelector('s'), lock: bar.en.querySelector('u'), tag: $('nd-tag'), legend: $('nd-legend') };
     if (!this.el.ghost || !this.el.lock || !this.el.tag || !this.el.legend) { this.el = null; return false; }
     root.addEventListener('mouseenter', () => { this.hover = true; });
     root.addEventListener('mouseleave', () => { this.hover = false; });

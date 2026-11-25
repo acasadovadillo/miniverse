@@ -7,7 +7,7 @@
 //     it every LOCK_REFRESH s; whoever decides clears it when it is stale (LOCK_STALE s, or its player is gone). Closing the
 //     window, getting off, going indoors or leaving the world gives it back.
 //   - The guard. The host checks every field a guest sends for a horse (horseGuard, through COLLECTIONS.animals.guard in
-//     livesync.js): the rider, the lock, the bags, the bond fields and the whistle fields, with horse.ours (owner or couple).
+//     livesync.js): the rider, the lock, the bags, the bond fields, its care (horsecare.js) and the whistle fields, with horse.ours (owner or couple).
 //   - ?alforjas=0 (opciones.js): no lock and no guard on the bags (last write wins, as before), new bags get 9 stacks, B and C
 //     never pay from them and the window has its old title.
 //
@@ -37,6 +37,7 @@ export const BAGS = { STACKS: 12, KG_FREE: 30, LOCK_STALE: 120, LOCK_REFRESH: 30
 export const OLD_STACKS = 9;   // (bags from before Plan F, and new ones with ?alforjas=0)
 export const FILL_HALF = 0, FILL_FULL = 20;   // kg from which the bags look half full (anything in them) and bulging
 const CONFIRM_WAIT = 8;   // (a guest) seconds to wait for the host's word on the lock, as the wheelbarrow does
+const SORE_MOST = 700;    // (the guard) s: the most a horse may be sore from now (horsecare.js SORE_S, and the clocks' drift)
 const FUTURE = 60;        // (the guard) a lock's time may be ahead of the host's clock by this much (the clocks drift a little)
 const QUIET_EVERY = 0.5, SWEEP_EVERY = 1, FILL_EVERY = 0.25;   // s between two looks: B/C's quiet lock, stale locks, the rider's fill
 const REACH = 16;         // m: B and C pay from the bags of a horse this close (BUILD_STATION_REACH, as the chests)
@@ -54,7 +55,8 @@ export const bagsEmpty = b => !Array.isArray(b) || !b.some(Boolean);
 const lockOk = (v, pid) => Array.isArray(v) && v.length === 2 && v[0] === pid && Number.isFinite(v[1]);
 
 // The fields of a horse the host checks when a guest changes them (§3.2)
-export const GUARDED = new Set(['rider', 'bagsBy', 'bags', 'bx', 'love', 'care', 'dirt', 'brushDay', 'carrotDay', 'callBy', 'callAt', 'stay', 'act', 'halt']);
+export const GUARDED = new Set(['rider', 'bagsBy', 'bags', 'bx', 'love', 'care', 'dirt', 'brushDay', 'carrotDay', 'callBy', 'callAt', 'stay', 'act', 'halt', 'fed', 'water', 'shoe', 'shod', 'sore', 'ownDay']);
+const CARE01 = new Set(['fed', 'water', 'shoe']);
 const BOND = new Set(['bx', 'love', 'care', 'dirt', 'brushDay', 'carrotDay']);
 // Pure: may guest pid set field f of animal el (as this batch of ops leaves it so far) to v (undefined: delete it)?
 // ctx: { ours(el, pid), present(id), clock, bagsOff, bondOff }. Every other field and animal passes
@@ -78,7 +80,11 @@ export function horseGuard(el, f, v, pid, ctx) {
       // (putting them on or taking them off with no lock: none before and empty ones now, or the other way round; ours)
       if (lock || !ctx.ours(el, pid)) return false;
       return Array.isArray(el.bags) ? bagsEmpty(el.bags) && (v === undefined || v === null) : Array.isArray(v) && bagsEmpty(v);
+    case 'ownDay': return v === el.ownDay;   // (who runs the world keeps it: horsecare.js books)
+    case 'sore':   // (a stumble: minutes of the world's clock, never more)
+      return ctx.ours(el, pid) && (v === undefined || (Number.isFinite(v) && v <= ctx.clock + SORE_MOST));
     default:
+      if (CARE01.has(f) && v !== undefined && !(v >= 0 && v <= 1)) return false;
       if (BOND.has(f) && ctx.bondOff) return true;   // (?vinculo=0: the bond as before, a pat by anyone counts)
       return ctx.ours(el, pid);   // (the bond, and callBy, callAt, stay, act, halt: owner or couple)
   }

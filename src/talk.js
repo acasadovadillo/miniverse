@@ -63,6 +63,8 @@ opt('gift', 30, c => c.giftable, c => t('npc.opt.gift', { item: itemNoun(c.held.
 opt('deliver', 40, c => !!c.request && c.game.board.canDeliver(c.request), c => t('talk.opt.deliver', { what: countOf(c.request.item, c.request.n) }), c => c.N.deliver(c.id, c.npc, c.request));
 opt('shop', 50, c => c.open, c => t(c.def.shopOpt || 'npc.opt.shop'), c => ({ line: 'handoff', open: () => c.game.onShop?.(c.def.shop) }));
 opt('mend', 52, c => c.def.mends && (c.open || !c.shop), () => t('npc.opt.mend'), c => ({ modal: true, open: () => c.N.mend(c.id) }));
+// (Bruno shoes your horse at his forge: horsecare.js)
+opt('shoe', 53, c => c.id === 'bruno' && c.open && !!c.game.horsecare?.toShoe(c.npc), c => t('shop.bruno.shoe', { name: c.game.horsecare.toShoe(c.npc)?.name || '', price: c.game.horsecare.shoePrice() }), c => { const said = c.game.horsecare.farrier(c.npc); return said ? c.talk.say(c.id, [t('shop.bruno.shoe_done')]) : null; });
 opt('when', 51, c => !!c.npc && !!c.shop && !c.open && !c.cold, () => t('talk.opt.when'), c => c.talk.say(c.id, [c.N.whenText(c.id)]));
 opt('haircut', 54, c => c.def.service === 'barber' && c.N.inSeat(c.id), () => t('npc.opt.haircut'), c => ({ line: 'handoff', open: () => openBarber(c.game) }));
 opt('trade', 56, c => c.open && !!TRADES[c.id], () => t('npc.opt.trade'), c => ({ modal: true, open: () => c.N.trade(c.id) }));

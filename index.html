@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- La versión publicada: se cambia en cada publicación (así el juego sabe que tiene que pedir el código nuevo) -->
-<meta name="miniverse-version" content="2026-11-24.9">
+<meta name="miniverse-version" content="2026-11-25.1">
 <title>Miniverse</title>
 <script>
   // The language of the page until the game's code arrives (src/i18n.js chooses the same way, then takes over): for
@@ -523,6 +523,29 @@
   .nd-horse.winded > i { filter: saturate(.35) brightness(.82); }
   .nd-horse::after { content: ''; position: absolute; top: 0; bottom: 0; left: var(--nd-wind, 40%); width: 2px; margin-left: -1px; background: var(--cream); box-shadow: 0 0 0 1px rgba(0, 0, 0, .45); opacity: 0; transition: opacity .3s ease; }
   .nd-horse.winded::after { opacity: .85; }
+  /* (hungry or thirsty, the end of its track it cannot fill: hatched, and dim; --cap is written by needsbar.js. Its marks lie over that end) */
+  .nd-horse::before { content: ''; position: absolute; top: 0; bottom: 0; right: 0; width: calc((1 - var(--cap, 1)) * 100%); background: repeating-linear-gradient(115deg, rgba(196, 154, 100, .34) 0 3px, rgba(196, 154, 100, .12) 3px 6px); transition: width .4s ease; }
+  .nd-horserow { position: relative; }
+  .nd-marks { position: absolute; right: 2px; top: 0; bottom: 0; display: flex; align-items: center; gap: 3px; transition: opacity .3s ease; }
+  .nd-horse:not(.nd-on) ~ .nd-marks { opacity: 0; }
+  .nd-marks .gl { width: var(--nd-r); height: var(--nd-r); padding: 1px; color: #fff; filter: drop-shadow(0 0 2px #000) drop-shadow(0 1px 1px rgba(0, 0, 0, .9)); }
+  .nd-marks .mk-thirst { color: #8ecbf0; } .nd-marks .mk-hunger { color: #b9d27c; } .nd-marks .mk-sore { color: #f0d9b8; } .nd-marks .mk-shoe { color: #ffd890; }
+  .nd-marks .going { opacity: .45; }
+  /* The horse's card, over its menu (ui/horsecard.js) */
+  #horse-card { position: fixed; right: max(20px, calc(50% - 620px)); bottom: 18px; width: 268px; padding: 12px 14px 13px; display: none; z-index: 6; pointer-events: none; }
+  #horse-card.show { display: block; }
+  #horse-card h4 { margin: 0; font: 500 20px/1.15 var(--font-title); letter-spacing: .02em; color: var(--cream); }
+  #horse-card small { display: block; margin: 2px 0 6px; font-size: 13px; color: var(--dim); }
+  .hc-love { width: max-content; margin: 0 0 8px; font-size: 15px; line-height: 1; letter-spacing: 2px; background: linear-gradient(90deg, #d9606a var(--p, 0%), rgba(255, 255, 255, .2) var(--p, 0%)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .hc-row { display: grid; grid-template-columns: 18px 84px 1fr; grid-template-rows: auto auto; column-gap: 8px; align-items: center; margin-top: 6px; font-size: 14px; line-height: 1.15; color: var(--cream); }
+  .hc-row .gl { grid-row: 1 / 3; width: 18px; height: 18px; opacity: .9; }
+  .hc-row b { font-weight: 600; }
+  .hc-row span { justify-self: end; color: var(--dim); }
+  .hc-row i { grid-column: 2 / 4; grid-row: 2; height: 4px; margin-top: 4px; background: linear-gradient(90deg, var(--nd-horse) var(--v), rgba(255, 255, 255, .13) var(--v)); }
+  .hc-row span { grid-column: 3; grid-row: 1; }
+  .hc-row.bad span, .hc-row.bad .gl { color: #ffb46a; }
+  .hc-row.bad i { background: linear-gradient(90deg, #d8793a var(--v), rgba(255, 255, 255, .13) var(--v)); }
+  .hc-sore { display: flex; align-items: center; gap: 8px; margin-top: 9px; font-size: 13px; color: #f0d9b8; } .hc-sore .gl { width: 18px; height: 18px; flex: none; }
   .nd.nd-off { visibility: hidden; }     /* (a need turned off with ?sed=0 or ?aguante=0&cansancio=0: its row is folded away too) */
   body.hud-min .nd { opacity: 0; transition: opacity .5s ease; }
   body.hud-min .nd.nd-on, body.hud-min.hud-all .nd:not(.nd-air):not(.nd-horse) { opacity: 1; transition: opacity .15s ease; }
@@ -1347,6 +1370,7 @@
             <dt><kbd>N</kbd></dt><dd data-i18n="controls.whistle">Whistle for your horse (or your partner's) from a distance: the closer the bond, the farther it hears you</dd>
             <dt data-i18n-html="controls.horse.keys">Riding</dt><dd data-i18n="controls.horse">The gallop tires the horse: its bar sits with yours while you ride, and when it is winded it only trots until it gets its breath back. It has weight: it speeds up and stops little by little, the faster it goes the wider it turns, and it slows down for slopes, mud, water and walls. Space jumps a fence with a run-up; without it, it stops. Settings › Game › Riding: Arcade makes it turn and stop more sharply. E with nothing aimed gets off. Brush it, feed it and pat it every day (E on it): a closer bond means a longer gallop, fewer scares and new tricks</dd>
             <dt data-i18n-html="controls.ride_keys.keys"><kbd>G</kbd> <kbd>H</kbd> riding</dt><dd data-i18n="controls.ride_keys">Riding: G pats the horse (and calms it after a scare), H rears (level 3)</dd>
+            <dt data-i18n-html="controls.horse_care.keys">Looking after it</dt><dd data-i18n="controls.horse_care">After a long ride it gets hungry or thirsty and gallops less: stop by fresh water and it drinks, stop on grass and it grazes, or feed it (E on it; its card says how it is). Its shoes wear out: Bruno puts new ones at his forge. Two stumbles in a row leave it sore for a while. In its stable, or by a trough with water, it wakes up well</dd>
             <dt data-i18n-html="controls.bags.keys"><kbd>X</kbd> on your horse</dt><dd data-i18n="controls.bags">Saddlebags: X on your horse, or riding (12 stacks; B and C also pay from them)</dd>
             <dt data-i18n-html="controls.select.keys"><kbd>1</kbd>–<kbd>9</kbd> or wheel</dt><dd data-i18n="controls.select">Choose an item</dd>
             <dt data-i18n-html="controls.bait.keys"><kbd>R</kbd> with the rod</dt><dd data-i18n="controls.bait">Change the bait (Shift+R, the other way). The bait makes the rig: the float, the bottom or a lure</dd>

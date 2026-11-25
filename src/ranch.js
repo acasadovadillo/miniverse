@@ -25,6 +25,7 @@ import { HALF, distOf, dxOf, nearX, wrapX } from './world/planet.js';
 import { dropSprint } from './input.js';
 import { levelOf, settle, BX_AFTER_LOSS, TREATS } from './horse.js';
 import { padBags } from './saddlebags.js';
+import { horseCard } from './ui/horsecard.js';
 import { sensesOn } from './wildlife.js';
 import { stalkingAs } from './presence.js';
 import { downwind, EVENT } from './senses.js';
@@ -72,7 +73,8 @@ const KEEP = ['id', 'type', 'name', 'home', 'love', 'ready', 'days', 'petDay', '
   // (the horse, Plan F §2.1: bond progress, today's care, dirt, the Stay trick, who called it and from where, who has its
   // saddlebags open. callBy, callAt and bagsBy never survive a reload: see reset)
   // halt: until when (world clock) it stands still because its menu is open or it is being looked after
-  'bx', 'care', 'dirt', 'stay', 'callBy', 'callAt', 'bagsBy', 'halt'];
+  // (Plan R4-2, horsecare.js: what it has eaten and drunk, its shoes, sore, the last day somebody of its family played)
+  'bx', 'care', 'dirt', 'stay', 'callBy', 'callAt', 'bagsBy', 'halt', 'fed', 'water', 'shoe', 'sore', 'ownDay'];
 // Lo de una versión más nueva del juego: un animal de una clase que esta no conoce no se mueve ni se dibuja, pero se
 // guarda y se reparte tal cual (unknown); y de los demás, lo guardado que esta no conoce (unknownFields) se conserva
 const KNOWN_FIELDS = new Set([...KEEP, 'x', 'y']);
@@ -476,6 +478,7 @@ export class Ranch {
     this.world.mow(tx, ty, today);
     if (a.grazeDay !== today) { a.grazeDay = today; a.grazeN = 0; }
     a.grazeN++;
+    this.game.horsecare?.grazedTile(a);
     if (a.grazeN === GRAZE_NEED && this.game.player && !Profile.server && Math.hypot(a.x - this.game.player.x, a.y - this.game.player.y) < 10) this.game.gather.float(`${a.name} ya ha pastado lo suyo`, '#c8f0a0');
   }
   stopGrazing(a) { a.eating = 0; a.grazing = false; a.grazeAt = null; }
@@ -594,6 +597,7 @@ export class Ranch {
   // (whoever runs the world, once a second) The horses' books (Plan F §3.1): progress (bx, a counter every partner adds to)
   // turned into hearts here only, so none is counted twice. (The saddlebags' stale locks: Saddlebags.sweep)
   horseBooks() {
+    this.game.horsecare?.books();
     for (const a of this.animals) {
       if (!a.def.ride) continue;
       if (a.bx !== undefined) {
@@ -751,16 +755,18 @@ export class Ranch {
   // ratones roen el heno si no hay gato, y alguna vez aparece un perro o un gato callejero en la plaza.
   onDay(day) {
     if (this.game.live.guest) return;   // (en el mundo de otro, de los animales se ocupa su juego)
-    const winter = this.days.season === 3, news = [];
+    const winter = this.days.season === 3, news = [], care = this.game.horsecare;
+    care?.dawn(day);
     for (const a of this.animals) {
       const def = a.def;
       a.young = this.young(a);
       if (def.pet || def.ride) {
-        if (a.petDay < day - 3 && a.brushDay !== day - 1 && a.carrotDay !== day - 1 && a.love > 0) {
+        // (a horse's heart is never lost for days its family did not play)
+        if (a.petDay < day - 3 && a.brushDay !== day - 1 && a.carrotDay !== day - 1 && a.love > 0 && (!care || care.kept(a, day))) {
           a.love--;
           if (def.ride && !this.game.horse?.off) a.bx = BX_AFTER_LOSS;   // (one bad week does not wipe out a level: Plan F §1.2)
         }
-        if (def.ride && this.grazedOn(a, day - 1) >= GRAZE_NEED) a.fedDay = day;   // (el caballo pasta, pero no le hace falta)
+        if (def.ride) { if (care) care.overnight(a, day); else if (this.grazedOn(a, day - 1) >= GRAZE_NEED) a.fedDay = day; }   // (its night: what it eats and drinks, horsecare.js)
         continue;
       }
       // (los que pastan, con sus casillas de ayer; los demás, con haber salido. Los de una partida de antes de pastar, la
@@ -799,7 +805,7 @@ export class Ranch {
       const was = d.manure?.[k] || 0, now = Math.min(PILE_MAX, Math.round((was + n) * 8) / 8), [tx, ty] = k.split(',').map(Number);
       (d.manure ||= {})[k] = now;
       if (now >= PILE_MAX && was < PILE_MAX) news.push(tr('farm.stable_full', { home: itemNoun(parsePlaced(d.placed[k])[0]) }));
-      else if (was >= PILE_MAX && played && day % DIRTY_EVERY === 0) for (const a of who) if (a.love > 0) { a.love--; if (a.def.ride && !this.game.horse?.off) a.bx = BX_AFTER_LOSS; }
+      else if (was >= PILE_MAX && played && day % DIRTY_EVERY === 0) for (const a of who) if (a.love > 0 && (!this.game.horsecare || this.game.horsecare.kept(a, day))) { a.love--; if (a.def.ride && !this.game.horse?.off) a.bx = BX_AFTER_LOSS; }
       if (heapSize(now) !== heapSize(was)) this.world.touch(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK)); else this.world.chestTouched(tx, ty);
     }
   }
@@ -1026,6 +1032,7 @@ export class Ranch {
         return { text: `Poner ${ITEMS[egg].name.toLowerCase()} a incubar`, run: () => { inv.remove(egg, 1); d.incub[k] = { id: egg, day: this.today }; touched(); Audio.place(); } };
       }
       case 'compost_bin': return this.compostAction(o, d, k);
+      case 'trough': return this.game.horsecare.troughAction(o);
       case 'palomar': return this.dovecote();
     }
     return null;
@@ -1365,14 +1372,18 @@ export class Ranch {
     if (inv.count('alforjas') && !a.bags) opts.push([tr('horse.bags.on'), () => { if (g.saddlebags?.putOn) g.saddlebags.putOn(a); else { inv.remove('alforjas', 1); a.bags = padBags([]); Audio.place(); } g.onSave?.(); }]);
     if (a.bags) opts.push([tr('horse.bags.open'), () => g.saddlebags?.open(a)]);
     if (a.bags) opts.push([tr('horse.bags.off'), () => { if (g.saddlebags?.takeOff) g.saddlebags.takeOff(a); else this.bagsOff(a); g.onSave?.(); }]);
-    if (inv.count('herraduras') && !a.shod) opts.push([tr('horse.shoes'), () => { inv.remove('herraduras', 1); a.shod = true; Audio.clink(); g.gather.float(tr('horse.shoes_on'), '#a8f07a'); }]);
+    const C = g.horsecare;
+    if (C?.canDrink(a)) opts.push([tr('horse.menu.drink'), () => C.letDrink(a)]);
+    if (inv.count('herraduras') && (C ? C.wantsShoes(a) : !a.shod)) opts.push([tr('horse.shoes'), () => { inv.remove('herraduras', 1); if (C) C.shoe(a); else a.shod = true; Audio.clink(); g.gather.float(tr('horse.shoes_on'), '#a8f07a'); }]);
     opts.push([tr('horse.nothing'), () => { if (off) this.petAsBefore(a); }]);
     g.busy = true;
     H?.halt(a, 25);   // (it stands still while you choose)
     const pct = a.love >= 10 ? 100 : Math.max(0, Math.min(99, Math.floor(+a.bx || 0)));
     const head = tr('horse.menu.head', { name: a.name, coat: tr('horse.coat.' + (ANIMALS.caballo.breeds.includes(a.breed) ? a.breed : 'castano')), n: L, level: tr('horse.level.' + L), hearts: horseHearts(a.love), pct, g: Math.min(GRAZE_NEED, this.grazedOn(a)), max: GRAZE_NEED });
     const tail = [tr(a.shod ? 'horse.menu.shod' : 'horse.menu.unshod'), tr(a.bags ? 'horse.menu.bags' : 'horse.menu.no_bags')].join(' · ');
-    const i = await hud.ask(a.name, `${head} · ${tail}. ${tr('horse.menu.q')}`, opts.map(o => o[0]));
+    horseCard.show(g, a);   // (what it needs, beside the menu: ui/horsecard.js)
+    let i;
+    try { i = await hud.ask(a.name, `${head} · ${tail}. ${tr('horse.menu.q')}`, opts.map(o => o[0])); } finally { horseCard.hide(); }
     g.busy = false;
     delete a.halt;
     opts[i]?.[1]();

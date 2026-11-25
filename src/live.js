@@ -40,7 +40,7 @@ const FULL_EVERY = 30;                     // (quien lleva el mundo) cada cuánt
 const HERD_SNAP = 8;                      // m: an animal the host has put farther than this is put there too (a called horse's jump-in)
 const SNAP = 4;                           // si alguien aparece a más de tantas casillas de donde estaba, salta allí
 // (st.ht: what a rider's horse does, by its number. Append only: the index travels. Plan F §3.3, drawn by three/animals.js)
-export const HORSE_ACTS = ['rear', 'toss', 'shake', 'shy', 'slide', 'stumble'];
+export const HORSE_ACTS = ['rear', 'toss', 'shake', 'shy', 'slide', 'stumble', 'drink', 'graze'];
 const MINE_FIRST = 3;                     // segundos que lo que suelta algo al romperse es solo de quien lo rompió
 const GIVE_FIRST = 5;                     // y que lo que uno tira es solo para los demás (así se dan cosas)
 const WORLD_WAIT = 20000;                 // lo que se espera, como mucho, a que llegue el mundo del anfitrión

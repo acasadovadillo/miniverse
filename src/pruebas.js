@@ -91,6 +91,9 @@ import { Barrow } from './barrow.js';
 import { GAME_VERSION } from './version.js';
 import { Player, barrowPen, GAIT } from './entities.js';
 import { horseModel, animateHorse, horseCadence, animalKey, setHorseDirt, disposeAnimal, HORSE_ACTS as HACTS } from './three/animals.js';
+import * as CARE from './horsecare.js';   // (R4-2: looking after the horse)
+import { cardHtml } from './ui/horsecard.js';
+import { horseGuard } from './saddlebags.js';
 import * as RIDE from './horseride.js';   // (R4-1: riding with weight)
 import * as HR from './horse.js';   // (Plan F: the horse's pure rules; as a namespace, levelOf and settle are taken)
 import { HORSE_ACTS as LIVE_HORSE_ACTS } from './live.js';
@@ -1340,7 +1343,7 @@ async function soloTests(game) {
     const $ = id => document.getElementById(id), was = Settings.v.skin, style = el => getComputedStyle(el), panel = $('clockp');
     try {
       Settings.set('skin', 'glass');
-      const p = document.querySelector('#s-pause .panel');
+      const p = document.body.appendChild(Object.assign(document.createElement('div'), { className: 'panel' }));
       check(style(p).borderTopWidth === '0px' && style(p).backgroundColor === 'rgba(10, 12, 16, 0.82)', `glass: ${style(p).borderTopWidth} ${style(p).backgroundColor}`);
       check(style(panel).backgroundColor === 'rgba(10, 12, 16, 0.62)' && style(panel).borderTopLeftRadius === '10px', `HUD plate: ${style(panel).backgroundColor}`);
       for (const el of document.querySelectorAll('.panel')) { const b = style(el).backdropFilter; check(!b || b === 'none', `backdrop-filter on #${el.id}`); }
@@ -1355,6 +1358,7 @@ async function soloTests(game) {
       check(skinNow('nonsense') === 'glass', 'an unknown look is not glass');
       Settings.set('skin', 'glass');
       check(!document.body.classList.contains('ui-wood') && style(p).borderTopWidth === '0px', 'the glass does not come back');
+      p.remove();
     } finally { Settings.set('skin', was || 'glass'); }
   });
   await test('ui accent (english): eight colours; the save\'s or a steady one by the name; Alberto and Hafsa differ', async () => {
@@ -9384,6 +9388,211 @@ async function soloTests(game) {
   // A partner: Bea (prueba_b) and this player are a couple while fn runs (the family as social.areCouple reads it)
   const asCouple = async fn => { const S = game.social, was = S.areCouple; S.areCouple = (x, y) => areCouple({ kids: [{ parents: [myId(), 'prueba_b'] }] }, x, y); try { await fn(); } finally { S.areCouple = was; } };
 
+  // ---------- looking after the horse (Plan R4-2, horsecare.js) ----------
+  const CR = () => game.horsecare;
+  // dt by dt, the horse's and its care's clocks, riding: gait (0..3 of horseride.js, or null standing), metres moved a second
+  const careRide = (secs, gait, mps = 0, dt = 1 / 20) => {
+    const R = p().ride; R.on = true; R.going = gait !== null; R.v = gait === null ? 0 : [3.4, 5.6, 7.6, 10.2][gait]; R.gait = gait ?? 0;
+    for (let k = 0; k < Math.round(secs / dt); k++) { p().x += mps * dt; game.time += dt; CR().update(dt); }
+  };
+  const inMeadow = async fn => {   // (a place with no water near, the weather of always)
+    const [gx, gy] = openGround(); await goTo(game, gx + 0.5, gy + 0.5);
+    const C = CR(), heat = C.heatAt, src = C.sourceNear, grass = C.grassAhead;
+    C.heatAt = () => 1; C.sourceNear = () => null; C.grassAhead = () => null;
+    const back = () => { C.heatAt = heat; C.sourceNear = src; C.grassAhead = grass; delete C.heatAt; delete C.sourceNear; delete C.grassAhead; };
+    try { await fn(C); } finally { back(); C.forget(); p().ride.on = false; p().ride.going = false; p().ride.v = 0; }
+  };
+  await test('caballo comida (feed and water): the drain by gait; no cap above 30 %, 60 % of the breath at zero; a well-kept horse gets its breath back faster; it drinks and grazes by itself when it stops; an old save is full', async () => {
+    const { capOf, WATER_S, FED_S } = CARE;
+    check(capOf(1) === 1 && capOf(0.3) === 1 && Math.abs(capOf(0) - 0.6) < 1e-9 && Math.abs(capOf(0.2) - 0.867) < 0.01, `cap: ${[1, 0.3, 0.2, 0].map(capOf)}`);
+    check(Math.abs(1 / WATER_S[0] / 3600 - 2.3) < 0.1 && Math.abs(1 / WATER_S[1] / 60 - 66.7) < 1 && Math.abs(1 / WATER_S[3] / 60 - 27.8) < 1 && WATER_S.every((v, k) => FED_S[k] === v / 2), 'the rates');
+    check(CARE.fedOf({}) === 1 && CARE.waterOf({}) === 1 && CARE.capFor({}) === 1 && CARE.marksOf({}, 0) === 0, 'an old save is not full');
+    await inMeadow(async C => {
+      await withHorses([aHorse({ love: 0 })], async a => {
+        game.gamemode = 'survival'; game.difficulty = 'normal';
+        RN().mount(a); HS().update(0.01); C.update(0.01);
+        careRide(60, 3); check(Math.abs(C.water(a) - (1 - 60 * WATER_S[3])) < 0.002 && Math.abs(C.fed(a) - (1 - 60 * FED_S[3])) < 0.002, `a minute at the gallop: ${C.water(a)} ${C.fed(a)}`);
+        check(Math.abs(CARE.waterOf(a) - C.water(a)) <= 0.05 + 1e-6, 'its field is far from what it is');
+        C.v.water = 0.301; const n = C.thirsts; careRide(3, 3); check(C.water(a) < 0.3 && C.thirsts === n + 1 && (C.marks(a) & CARE.MARK.thirst), 'thirsty, and nothing said');
+        C.v.water = 0; check(Math.abs(HS().stamMax(a) - 60) < 1e-6, `the cap at zero: ${HS().stamMax(a)}`);
+        HS().stam = 100; HS().restT = 10; p().vx = 0; HS().update(1 / 20); check(HS().stam <= 60 + 1e-6, `the breath stays at ${HS().stam}`);
+        // the regen, both well and not
+        const refill = () => { HS().stam = 20; HS().restT = 10; HS().update(1 / 20); return HS().stam - 20; };
+        C.v.water = 1; C.v.fed = 0.9; const fast = refill(); C.v.water = 0.5; const plain = refill(); check(Math.abs(fast / plain - 1.25) < 1e-6, `regen ${fast} / ${plain}`);
+        // peaceful, creative and ?cuidado=0: nothing is taken
+        const w0 = C.water(a); game.difficulty = 'peaceful'; careRide(30, 3); check(C.water(a) === w0, 'peaceful drains'); game.difficulty = 'normal';
+        game.gamemode = 'creative'; careRide(30, 3); check(C.water(a) === w0 && C.cap(a) === 1, 'creative drains'); game.gamemode = 'survival';
+        C.off = true; try { careRide(30, 3); check(C.water(a) === w0 && C.cap(a) === 1 && !C.marks(a), '?cuidado=0 drains'); } finally { C.off = false; }
+        // it stops by the water: after 1.5 s it drinks, 4 s, back to full, and the day's first drink is progress
+        C.sourceNear = () => ({ x: p().x + 1, y: p().y }); const bx = +a.bx || 0;
+        C.v.water = 0.2; C.stillT = 0; careRide(1.4, null); check(!C.doing, 'drinks too soon'); careRide(0.4, null); check(C.doing?.kind === 'drink' && p().horseAct?.kind === 'drink', `not drinking: ${JSON.stringify(C.doing)}`);
+        careRide(4.2, null); check(C.water(a) > 0.999 && a.water === 1 && a.bx === bx + HR.GAIN.drink && a.care.w === 1, `after the drink: ${C.water(a)} ${a.water} bx ${a.bx}`);
+        C.v.water = 0.2; C.stillT = 2; careRide(6, null); check(a.bx === bx + HR.GAIN.drink, 'a second drink gives again');
+        // riding on, it lifts its head at once, with what it had drunk
+        C.v.water = 0.2; C.stillT = 2; C.lookT = 0; careRide(2, null); check(C.doing, 'no third drink'); careRide(0.1, 0); check(!C.doing && p().horseAct === null && C.water(a) > 0.5 && C.water(a) < 0.7, `cut off: ${C.water(a)}`);
+        // full, it does not stop to drink at every fountain
+        C.v.water = 0.95; careRide(4, null); check(!C.doing, 'it drinks with no thirst');
+        // grass: after 3 s, the tile is eaten for everybody and it is a little fuller
+        C.sourceNear = () => null; const tx = Math.floor(p().x), ty = Math.floor(p().y), ate = []; C.grassAhead = () => [tx, ty]; C.pasture = () => true;
+        const ateWas = RN().ate; RN().ate = (b, x, y) => ate.push([b.id, x, y]);
+        try { C.v.fed = 0.4; careRide(0.1, 0); careRide(2.8, null); check(!C.doing, 'grazes too soon'); careRide(1.4, null); check(C.doing?.kind === 'graze', 'not grazing'); careRide(6.2, null); check(ate.length === 1 && Math.abs(C.fed(a) - 0.6) < 0.01, `grazed ${ate.length}, ${C.fed(a)}`); } finally { RN().ate = ateWas; delete C.pasture; }
+        // a treat feeds it, past the day's three too while it is hungry
+        C.v.fed = 0.3; a.care = { d: RN().today, f: 3 }; game.inv.add('heno', 2); check(HS().care(a, 'feed', 'heno') && Math.abs(C.fed(a) - 0.7) < 0.01, `hay: ${C.fed(a)}`);
+        C.v.fed = 1; check(!HS().care(a, 'feed', 'heno'), 'full, it takes a fourth treat'); game.inv.remove('heno', game.inv.count('heno'));
+        // off: what it is, written
+        C.v.water = 0.444; RN().dismount(); HS().update(0.01); C.update(0.01); check(a.water === 0.44 && C.a === null, `on getting off: ${a.water}`);
+        check(JSON.parse(JSON.stringify(a.toSave())).water === 0.44, 'it does not save');
+      });
+    });
+  });
+  await test('caballo noche (overnight): its stable, a trough or a river waters it; what it grazed, the feeder or the silo feed it; none of it on a day nobody played; a horse never loses a heart for days its family was away', async () => {
+    check(CARE.nightFed(0.9, true, 0) === 1 && Math.abs(CARE.nightFed(0.9, false, 0) - 0.2) < 1e-9 && Math.abs(CARE.nightFed(0.9, false, 3) - 0.68) < 1e-9 && CARE.nightFed(0.1, false, 4) === 0.1, 'nightFed');
+    const C = CR(), F = game.farm, played = F.playedOn, wa = C.waterAround, tn = C.troughNight;
+    C.waterAround = () => false; C.troughNight = () => false; F.playedOn = () => true;
+    try {
+      await withHorses([aHorse({ fed: 0.5, water: 0.1, sore: (game.world.clock || 0) + 400 })], async a => {
+        const D = RN().today, hay = RN().farm.hay, eat = RN().eatFromFeeder; let fed = 0; RN().eatFromFeeder = () => { fed++; return false; };
+        try {
+          a.home = null; C.overnight(a, D); check(a.water === 0.1 && a.fed === 0.2 && a.sore && !fed, `loose: ${a.water} ${a.fed} ${a.sore} ${fed}`);
+          C.waterAround = () => true; C.overnight(a, D); check(a.water === 1, 'a river near does not water it'); C.waterAround = () => false;
+          a.water = 0.1; a.fed = 0.5; a.grazeDay = D - 1; a.grazeN = 5; C.overnight(a, D); check(a.fed === 1 && a.water === 0.1 && a.fedDay === D, 'grazed, and hungry'); a.grazeN = 0;
+          a.home = [Math.floor(a.x), Math.floor(a.y) - 1]; RN().farm.hay = 3; a.fed = 0.5; C.overnight(a, D); check(a.fed === 1 && a.water === 1 && RN().farm.hay === 2 && fed === 1 && a.sore === undefined, `in its stable: ${a.fed} ${a.water} hay ${RN().farm.hay} sore ${a.sore}`);
+          a.water = 0.2; a.fed = 0.4; F.playedOn = () => false; C.overnight(a, D); check(a.fed === 1 && a.water === 1 && RN().farm.hay === 2, 'a day nobody played'); F.playedOn = () => true;
+          a.rider = myId(); a.fed = 0.4; C.overnight(a, D); check(a.fed === 0.4, 'ridden across the dawn'); a.rider = null;
+          // hearts: only if its family played yesterday
+          a.love = 5; a.petDay = D - 9; a.brushDay = a.carrotDay = undefined; a.ownDay = D - 5; RN().onDay(D); check(a.love === 5, 'a heart lost while nobody of its family played');
+          a.ownDay = D - 1; a.petDay = D - 9; RN().onDay(D); check(a.love === 4, `played and not cared for: ${a.love}`);
+          // back after days away: those days are forgotten
+          a.ownDay = D - 6; a.petDay = D - 9; { const T = game.days, d0 = T.day; T.day = T.realDay; try { C.books(); } finally { T.day = d0; } } check(a.ownDay === D && a.petDay === D - 1, `back: ${a.ownDay} ${a.petDay}`);
+        } finally { RN().eatFromFeeder = eat; RN().farm.hay = hay; }
+      });
+    } finally { delete C.waterAround; delete C.troughNight; delete F.playedOn; if (F.playedOn !== played) F.playedOn = played; if (C.waterAround !== wa) C.waterAround = wa; if (C.troughNight !== tn) C.troughNight = tn; }
+  });
+  await test('caballo herraduras (shoes): 120 km on paths wear out a new set, 400 elsewhere; an old shod save reads as new; loose, then lost; the item and Bruno (coins, forge, hours) put new ones; unshod is slower only on hard ground', async () => {
+    check(CARE.shoeOf({ shod: true }) === 1 && CARE.shoeOf({}) === 0 && CARE.shoeOf({ shod: true, shoe: 0.4 }) === 0.4, 'shoeOf');
+    check(Math.abs(120 * CARE.WEAR_HARD - 1) < 1e-9 && Math.abs(400 * CARE.WEAR_SOFT - 1) < 1e-9, 'the wear a km');
+    check(CARE.hardGround(RIDE.GROUND.hard) && CARE.hardGround(RIDE.GROUND.rocky) && !CARE.hardGround(RIDE.GROUND.open) && !CARE.hardGround(RIDE.GROUND.sand), 'hardGround');
+    // the speed: unshod on hard and rocky ground, and nowhere else; with ?cuidado=0 (bare false), as before
+    const top = (G, o) => { const R = RIDE.makeRide(); RIDE.startRide(R, { x: 0, y: 1 }); Object.assign(R, { going: true, wx: 0, wy: 1, tier: 1, ground: G, ...o }); for (let k = 0; k < 400; k++) RIDE.rideStep(R, 1 / 60); return R.v; };
+    const C0 = RIDE.speedOf(2);
+    check(Math.abs(top(RIDE.GROUND.hard, { bare: true }) / C0 - 0.92) < 0.005 && Math.abs(top(RIDE.GROUND.hard, { shod: true }) / C0 - 1.04) < 0.005 && Math.abs(top(RIDE.GROUND.hard, {}) / C0 - 1) < 0.005, 'hard ground');
+    check(Math.abs(top(RIDE.GROUND.rocky, { bare: true }) / C0 - 0.8) < 0.005 && Math.abs(top(RIDE.GROUND.rocky, { shod: true }) / C0 - 0.85) < 0.005, 'rocky ground');
+    check(Math.abs(top(RIDE.GROUND.open, { bare: true }) - top(RIDE.GROUND.open, { shod: true })) < 0.005, 'grass');
+    await inMeadow(async C => {
+      await withHorses([aHorse({ love: 2, shod: true })], async a => {
+        const N = game.neighbors, coins = game.money, floats = [], F0 = game.gather.float;
+        game.gather.float = (x, c) => { floats.push(x); return F0.call(game.gather, x, c); };
+        try {
+          game.gamemode = 'survival'; RN().mount(a); HS().update(0.01); C.update(0.01); p().ride.ground = RIDE.GROUND.hard;
+          C.wear(a, 110 * CARE.WEAR_HARD); check(C.shoes(a) < CARE.LOOSE && floats.includes(t('horse.shoe.loose', { name: a.name })) && (C.marks(a) & CARE.MARK.shoe) && a.shod, `loose: ${C.shoes(a)}`);
+          const n = floats.length; C.wear(a, 1 * CARE.WEAR_HARD); check(floats.length === n, 'said again');
+          C.wear(a, 10 * CARE.WEAR_HARD); check(!a.shod && a.shoe === undefined && C.shoes(a) === 0 && floats.includes(t('horse.shoe.lost', { name: a.name })), 'not lost');
+          HS().prepRide(p(), game.scene, false); check(p().ride.bare === true, 'bare'); C.off = true; HS().prepRide(p(), game.scene, false); check(p().ride.bare === false, '?cuidado=0 is bare'); C.off = false;
+          // by distance: 1 km at the canter takes 1/400
+          C.shoe(a); check(a.shod && a.shoe === 1 && C.shoes(a) === 1, 'the item'); p().ride.ground = RIDE.GROUND.open; const x0 = p().x; careRide(100, 2, 4); p().x = x0; check(Math.abs(C.shoes(a) - (1 - 0.4 * CARE.WEAR_SOFT)) < 1e-4, `400 m: ${C.shoes(a)}`); C.lx = null;
+          RN().dismount(); HS().update(0.01); C.update(0.01); check(a.shoe < 1 && a.shoe > 0.99, `written: ${a.shoe}`);
+          // Bruno
+          const { WALK_NODES } = await import('./world/village.js'), B0 = { x: WALK_NODES.forge[0], y: WALK_NODES.forge[1] };
+          check(C.toShoe(B0) === null, 'far from the forge'); a.x = B0.x + 6; a.y = B0.y; check(C.toShoe(B0) === null, 'as new, and he shoes it');
+          a.shoe = 0.5; check(C.toShoe(B0) === a && C.toShoe({ x: B0.x + 20, y: B0.y }) === null, 'not at his forge');
+          a.owner = 'prueba_z'; check(C.toShoe(B0) === null, 'a stranger\'s'); a.owner = myId();
+          const price = C.shoePrice(), bx = +a.bx || 0; game.money = price - 1; check(!C.farrier(B0) && a.shoe === 0.5 && game.money === price - 1, 'with no coins');
+          game.money = price + 5; check(C.farrier(B0) && a.shod && a.shoe === 1 && game.money === 5 && a.bx === bx + HR.GAIN.trim, `he shod it: ${a.shoe} ${game.money} bx ${a.bx}`);
+          a.shoe = 0.2; game.money = price; C.farrier(B0); check(a.bx === bx + HR.GAIN.trim && a.shoe === 1, 'the trim counts twice a day');
+          const { talkOptions } = await import('./talk.js'), o = talkOptions.list.find(q => q.id === 'shoe'), ctx = { id: 'bruno', open: true, npc: B0, game, T: {} };
+          a.shoe = 0.3; check(o && talkOptions.for(ctx).some(q => q.id === 'shoe') && !talkOptions.for({ ...ctx, open: false }).some(q => q.id === 'shoe') && o.label(ctx).includes(a.name) && o.label(ctx).includes(String(price)), `his option: ${o?.label(ctx)}`);
+          // the menu's item, only when they are worn
+          game.inv.add('herraduras', 1); const ask = hud.ask; let opts = []; hud.ask = async (_n, _t, l) => { opts = l; return l.length - 1; };
+          try { a.shoe = 1; await RN().horseMenu(a); check(!opts.includes(t('horse.shoes')), 'offered with new ones'); a.shoe = 0.5; await RN().horseMenu(a); check(opts.includes(t('horse.shoes')), 'not offered with worn ones'); } finally { hud.ask = ask; game.inv.remove('herraduras', game.inv.count('herraduras')); }
+        } finally { game.gather.float = F0; game.money = coins; void N; }
+      });
+    });
+  });
+  await test('caballo dolorido (sore): two stumbles or throws within five minutes leave it with no gallop for ten; the canter and the jump stay; it passes with the clock and a night in its stable', async () => {
+    check(CARE.soreAfter([0, 200], 200) && !CARE.soreAfter([0, 301], 301) && !CARE.soreAfter([5], 5), 'soreAfter');
+    check(CARE.soreLeft({ sore: 600 }, 0) === 600 && CARE.soreLeft({ sore: 600 }, 700) === 0 && CARE.soreLeft({ sore: 9e9 }, 0) === 0 && CARE.soreLeft({}, 0) === 0, 'soreLeft');
+    await inMeadow(async C => {
+      await withHorses([aHorse({ love: 4 })], async a => {
+        game.gamemode = 'survival'; game.difficulty = 'normal'; RN().mount(a); HS().update(0.01); C.update(0.01);
+        HS().crash(); HS().actKind = null; check(!C.sore(a), 'sore at the first'); game.time += 100; HS().crash(); HS().actKind = null; check(C.sore(a) && a.sore > game.world.clock + 500 && (C.marks(a) & CARE.MARK.sore), `not sore: ${a.sore}`);
+        HS().stam = 100; HS().winded = false; HS().prepRide(p(), game.scene, false); check(p().ride.noGallop && !p().ride.winded && !HS().noGallop() && HS().canJump(), 'the canter or the jump');
+        a.sore = game.world.clock - 1; check(!C.sore(a) && C.marks(a) === 0, 'it never passes');
+        // peaceful, no crash at all; a stumble long ago does not count
+        C.bads = [game.time - 400]; game.time += 1; HS().crash(); HS().actKind = null; check(!C.sore(a), 'an old stumble counts');
+        RN().dismount(); HS().update(0.01); C.update(0.01);
+      });
+    });
+  });
+  await test('caballo pareja cuidado (care and the others): the partner may write its food, shoes and soreness; a stranger may not; no value out of range; the last day played is the host\'s; an old game\'s fields are kept', async () => {
+    const S = game.live.items.animals, apply = (ops, id) => S.apply(game, ops, false, null, { peer: { id } });
+    const ctx = { ours: (e, q) => q === 'b', present: () => true, clock: 100, bagsOff: false, bondOff: false }, el = { type: 'caballo' };
+    for (const f of ['fed', 'water', 'shoe']) check(horseGuard(el, f, 0.5, 'b', ctx) && horseGuard(el, f, undefined, 'b', ctx) && !horseGuard(el, f, 0.5, 'z', ctx) && !horseGuard(el, f, 1.5, 'b', ctx) && !horseGuard(el, f, 'x', 'b', ctx) && !horseGuard(el, f, NaN, 'b', ctx), f);
+    check(horseGuard(el, 'sore', 600, 'b', ctx) && !horseGuard(el, 'sore', 9e9, 'b', ctx) && !horseGuard(el, 'sore', 200, 'z', ctx) && !horseGuard(el, 'ownDay', 9, 'b', ctx) && !horseGuard(el, 'shod', true, 'z', ctx) && horseGuard(el, 'shod', true, 'b', ctx), 'sore, ownDay, shod');
+    await asCouple(async () => {
+      await withHorses([aHorse({ id: 'hc-a', fed: 1 })], async a => {
+        let back = apply([['set', a.id, 'fed', 0.3], ['set', a.id, 'water', 0.2], ['set', a.id, 'shod', true], ['set', a.id, 'shoe', 0.9]], 'prueba_b'); check(!back.length && a.fed === 0.3 && a.water === 0.2 && a.shod && a.shoe === 0.9, `the partner's ride: ${JSON.stringify(back)}`);
+        back = apply([['set', a.id, 'fed', 1], ['del', a.id, 'shoe']], 'prueba_c'); check(a.fed === 0.3 && a.shoe === 0.9 && back.length === 2, 'a stranger\'s');
+        // the horse your partner has just shod while you ride it: theirs is taken, not overwritten
+        game.gamemode = 'survival'; RN().mount(a); HS().update(0.01); CR().update(0.01); CR().v.water = 0.15; a.shoe = 1; a.water = 0.9; CR().update(0.01); check(CR().shoes(a) === 1 && Math.abs(CR().water(a) - 0.9) < 0.01, 'what came in is lost');
+        // the host gave it to somebody else: nothing of it is written
+        CR().v.fed = 0.01; a.rider = 'prueba_b'; HS().refused(a, p()); HS().update(0.01); CR().update(0.01); check(a.fed === 0.3, `refused, and written: ${a.fed}`); a.rider = null;
+      });
+    });
+  });
+  await test('abrevadero (trough): built with B at the bench, drawn by its water; the can and a jug fill it, a drink takes one, the rain fills it; taken down nothing is left; the post is jumped like a fence', async () => {
+    const C = CR(), { BUILDABLE } = await import('./buildables.js'), { troughModel } = await import('./troughs.js');
+    for (const id of ['trough', 'hitching_post']) check(BUILDABLE[id]?.cat === 'Rancho' && BUILDABLE[id].needs === 'banco' && ITEMS[id].name && ITEMS[id].desc, id);
+    check([0, 1, 3, 4, 7, 8, 10, undefined].map(troughModel).join() === 'trough:0,trough:1,trough:1,trough:2,trough:2,trough:3,trough:3,trough:0', 'troughModel');
+    const [gx, gy] = openGround(); await goTo(game, gx + 0.5, gy + 0.5);
+    const w = game.world, tx = gx + 2, ty = gy, can = game.farm.can, at = [tx, ty];
+    w.place(tx, ty, 'trough', 0); w.touch(Math.floor(tx / 16), Math.floor(ty / 16));
+    try {
+      const obj = () => w.placedNear(tx + 0.5, ty + 0.5, 1.5).find(o => o.placed === 'trough');
+      check(obj()?.model === 'trough:0', `its model: ${obj()?.model}`);
+      const had = game.inv.count('regadera'); if (!had) game.inv.add('regadera', 1);
+      game.farm.can = 0; check(C.troughAction(obj()).text === t('trough.can_empty', { n: 0, max: 10 }), 'an empty can');
+      game.farm.can = 20; const act = RN().objectAction(obj()); check(act?.text.includes('0/10'), `E: ${act?.text}`); act.run(); check(C.troughAt(at) === 10 && game.farm.can === 0 && obj().model === 'trough:3', `filled: ${C.troughAt(at)} can ${game.farm.can} ${obj().model}`);
+      check(C.troughAction(obj()).text === t('trough.full', { n: 10, max: 10 }), 'full');
+      await withHorses([aHorse({ x: tx + 0.5, y: ty + 1.4, water: 0.3 })], async a => {
+        check(C.canDrink(a)?.trough && C.letDrink(a) && a.water === 1 && C.troughAt(at) === 9 && a.act?.kind === 'drink' && a.bx === HR.GAIN.drink && a.care.w === 1, `let drink: ${a.water} ${C.troughAt(at)} ${a.bx}`);
+        check(!C.canDrink(a), 'it drinks with no thirst');
+        C.setTrough(at, 0); a.water = 0.3; const s = C.sourceNear(a.x, a.y); check(!s?.trough, 'a dry trough');
+        // its night by the trough
+        C.setTrough(at, 2); const wa = C.waterAround; C.waterAround = () => false; a.home = null; a.water = 0.1; try { C.overnight(a, RN().today); } finally { delete C.waterAround; void wa; } check(a.water === 1 && C.troughAt(at) === 1, `its night: ${a.water} ${C.troughAt(at)}`);
+      });
+      // the rain
+      const T = game.days, wf = T.weatherFor; T.weatherFor = () => 'lluvia'; try { C.dawn(RN().today); } finally { delete T.weatherFor; if (T.weatherFor !== wf) T.weatherFor = wf; } check(C.troughAt(at) === 10, 'the rain');
+      w.setTile(tx, ty, 'air'); check(!C.troughAt(at), 'its water stays'); if (!had) game.inv.remove('regadera', 1);
+      w.place(tx, ty, 'hitching_post', 0); const cols = w.collidersNear(tx + 0.5, ty + 0.5).filter(c => c.low && c.obb); check(cols.length === 1, `the post: ${cols.length} low`);
+    } finally { w.setTile(tx, ty, 'air'); game.farm.can = can; }
+  });
+  await test('caballo tarjeta (horse card, bar and looks): the card says how it is in both languages; the bar\'s capped end and its marks; thin and shiny are uniforms, shoes are in the model key; the drink lowers its head and lifts it', async () => {
+    const was = getLang();
+    await withHorses([aHorse({ fed: 0.1, water: 0.5, shod: true, shoe: 0.05, dirt: 0.9, love: 4, sore: (game.world.clock || 0) + 300, name: 'Rayo <b>' })], async a => {
+      game.gamemode = 'survival';
+      try { for (const l of ['en', 'es']) { setLang(l); const h = cardHtml(game, a); check(!/horse\.(cond|card)/.test(h) && h.includes('&lt;b&gt;') && h.includes('mk-') === false && (h.match(/hc-row bad/g) || []).length === 3 && h.includes('hc-sore'), `${l}: ${h.slice(0, 300)}`); } } finally { setLang(was); }
+      check(CR().marks(a) === (CARE.MARK.hunger | CARE.MARK.shoe | CARE.MARK.sore), `marks ${CR().marks(a)}`);
+      const L = CARE.looksOf({ fed: 0 }, 0, 9), S = CARE.looksOf({ brushDay: 8 }, 0, 9), D = CARE.looksOf({ brushDay: 8 }, 0.5, 9); check(L.thin === 1 && L.shine === 0 && S.thin === 0 && S.shine === 1 && D.shine === 0 && CARE.looksOf({ brushDay: 6 }, 0, 9).shine === 0, 'looksOf');
+    });
+    const { horseModel: hm, animalKey: ak, setHorseCare, disposeAnimal: dis } = await import('./three/animals.js');
+    check(ak({ type: 'caballo', breed: 'negro', shod: true }) !== ak({ type: 'caballo', breed: 'negro' }) && ak({ type: 'vaca', shod: true }) === ak({ type: 'vaca' }), 'animalKey');
+    const tris = r => { let n = 0; r.traverse(o => { if (o.isMesh) n += (o.geometry.index ? o.geometry.index.count : o.geometry.attributes.position.count) / 3; }); return n; }, calls = r => { let n = 0; r.traverse(o => { if (o.isMesh) n++; }); return n; };
+    const h0 = hm('castano', false, true, 1, false), h1 = hm('castano', false, true, 1, true); check(tris(h1) - tris(h0) > 400 && tris(h1) - tris(h0) < 1200 && calls(h1) === calls(h0), `shoes: ${tris(h1) - tris(h0)} tris, ${calls(h1) - calls(h0)} calls`);
+    for (let k = 0; k < 200; k++) setHorseCare(h1, 1, 0.5); check(Math.abs(h1.userData.careU.thin.value - 1) < 0.01 && Math.abs(h1.userData.careU.shine.value - 0.5) < 0.01, 'the uniforms'); for (let k = 0; k < 200; k++) setHorseCare(h1, 0, 0); check(h1.userData.careU.thin.value === 0 && h1.userData.careU.shine.value === 0, 'back');
+    const { animateHorse: ah } = await import('./three/animals.js'), y0 = (ah(h1, 0, 1, null, 1 / 60, 0, null), h1.userData.head.position.y);
+    for (let k = 0; k < 120; k++) ah(h1, 0, 1 + k / 60, null, 1 / 60, 0, { act: 'drink', at: k / 60, winded: 0 }); const y1 = h1.userData.head.position.y; check(y1 < y0 - 0.5, `its head: ${y0} → ${y1}`);
+    for (let k = 0; k < 180; k++) ah(h1, 0, 4 + k / 60, null, 1 / 60, 0, null); check(Math.abs(h1.userData.head.position.y - y0) < 0.02, 'it stays down');
+    for (let k = 0; k < 90; k++) ah(h1, 4, 8 + k / 60, null, 1 / 60, 1, { act: 'drink', at: 1, winded: 0 }); check(h1.userData.eat === 0, 'moving, it eats');
+    dis(h0); dis(h1);
+    // the bar
+    const nb = game.needsBar;
+    if (nb?.find?.()) {
+      const bar = document.getElementById('nd-horse');
+      nb.horseMarks(CARE.MARK.thirst | CARE.MARK.sore, true, 10); check(bar.parentElement.querySelectorAll('.nd-mk').length === 2 && bar.parentElement.querySelector('.mk-thirst path').getAttribute('d'), 'marks');
+      nb.horseMarks(CARE.MARK.sore, true, 12); check(bar.parentElement.querySelector('.mk-thirst.going'), 'it lingers'); nb.horseMarks(0, true, 30); check(!bar.parentElement.querySelector('.nd-mk'), 'it goes');
+    }
+  });
+
   await test('vinculo (horse bond): brush, feed and pat give progress with their daily caps; 100 progress is one more heart; levels from hearts 0-2/3-5/6-8/9-10', async () => {
     const { gainFor, settle: settleBx, levelOf: lv, GAIN } = HR, T = 50;
     check(gainFor({ dirt: 0 }, 'brush', T) === GAIN.brush && gainFor({ dirt: 1 }, 'brush', T) === GAIN.brush + GAIN.brushDirt, `a brush: ${gainFor({ dirt: 1 }, 'brush', T)}`);
@@ -9422,7 +9631,7 @@ async function soloTests(game) {
     });
   });
   await test('galope (gallop): stamina falls only while galloping, by level and shod; winded blocks running until 40 %; the rider\'s needs stamina is untouched; a mounted jump costs the horse', async () => {
-    await withHorses([aHorse({ love: 0 })], async a => {
+    await withHorses([aHorse({ love: 0, water: 0.6 })], async a => {   // (not at its best: the plain refill, horsecare.js)
       game.difficulty = 'peaceful'; game.gamemode = 'survival';   // (peaceful: no spook in the middle of the counting)
       RN().mount(a); check(p().mount && HS().ridden === a && HS().stam === HR.STAM_MAX, 'not riding it');
       const N = game.needs, st0 = N.stamina;
@@ -10001,7 +10210,7 @@ async function soloTests(game) {
       // Two messages late: it does not run off
       st({ x: 60, y: 60, rv: 10 }); e().x = 60; e().y = 60; for (let i = 0; i < 120; i++) e().update(1 / 60, null); check(e().y < 62.1, `a lost peer rides on: ${e().y}`);
       st({ rv: 'x' }); check(e().rideV === 0, 'garbage'); st({ rv: 1e9 }); check(e().rideV <= 20, 'too fast'); st({ m: 0, rv: 10 }); check(e().rideV === 0, 'on foot');
-      check(LIVE_HORSE_ACTS.join() === 'rear,toss,shake,shy,slide,stumble' && ['slide', 'stumble'].every(k => HACTS[k]), `acts: ${LIVE_HORSE_ACTS}`);
+      check(LIVE_HORSE_ACTS.join() === 'rear,toss,shake,shy,slide,stumble,drink,graze' && ['slide', 'stumble'].every(k => HACTS[k]), `acts: ${LIVE_HORSE_ACTS}`);
       st({ ht: [4, 1] }); check(e().horseAct?.kind === 'slide', `the slide: ${JSON.stringify(e().horseAct)}`);
       st({ ht: [99, 2] }); check(e().horseAct?.kind === 'slide', 'an act of a newer game');
     } finally { L.peers.delete('g1'); }

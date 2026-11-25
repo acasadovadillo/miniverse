@@ -44,15 +44,15 @@ const PIVOT = 60, PIVOT_V = 0.6, SLIDE_V = 6.2, SLID = 0.4, AIR_TURN = 0.3;
 const GAIT_V = [4.4, 6.6, 9.2], GAIT_H = 0.2;
 
 // ---------- the ground, the slope and the water ----------
-// k: the speed; kg: only the gallop's; drain: the gallop's stamina; cap: the highest gait; turn: how well it turns.
-// (hard: kShod with shoes on. R4-2 gives the unshod horse its price on hard ground, with the farrier who mends it)
+// k: the speed; kg: only the gallop's; drain: the gallop's stamina; cap: the highest gait; turn: how well it turns; kShod,
+// with shoes on; kBare, with none where shoes count (R.bare, horsecare.js: they are worn out and mended)
 export const GROUND = {
-  hard: { k: 1, kShod: 1.04, kg: 1, drain: 0.9, cap: 3, turn: 1 },
+  hard: { k: 1, kShod: 1.04, kBare: 0.92, kg: 1, drain: 0.9, cap: 3, turn: 1 },
   open: { k: 1, kg: 1, drain: 1, cap: 3, turn: 1 },
   sand: { k: 0.9, kg: 1, drain: 1.25, cap: 3, turn: 1 },
   forest: { k: 1, kg: 0.85, drain: 1.1, cap: 3, turn: 1 },
   snow: { k: 0.85, kg: 1, drain: 1.3, cap: 3, turn: 1 },
-  rocky: { k: 0.85, kg: 1, drain: 1.2, cap: 3, turn: 1 },
+  rocky: { k: 0.85, kBare: 0.8, kg: 1, drain: 1.2, cap: 3, turn: 1 },
   mud: { k: 0.75, kg: 1, drain: 1.4, cap: 1, turn: 1 },
   ice: { k: 0.8, kg: 1, drain: 1, cap: 1, turn: 1 / 1.2 },
 };
@@ -83,7 +83,7 @@ export const makeRide = () => ({
   // what the rider asks (Player.update): the wanted direction (a unit vector), the W tier, the speed factor (a potion, the bow)
   going: false, wx: 0, wy: 1, tier: 0, mul: 1, air: false, look: null,
   // what horse.js prepRide says
-  love: 5, shod: false, winded: false, noGallop: false, hold: false, arcade: false, ground: GROUND.open,
+  love: 5, shod: false, bare: false, winded: false, noGallop: false, hold: false, arcade: false, ground: GROUND.open,
   // the caps and the brakes now
   k: 1, capWater: 3, grade: 0, capSlope: 3, hard: false, cliff: false, slopeT: 0, probeT: 0, obs: Infinity, obsLow: false, obsAt: null, max: Infinity, dodge: 0, dodgeAt: null,
   slide: 0, fence: false, blocked: false, target: 0, clears: false, dirt: 0,
@@ -99,7 +99,7 @@ function point(R) { R.face.x = R.dir[0] = Math.sin(R.a); R.face.y = R.dir[1] = M
 const wrap = d => { while (d > Math.PI) d -= Math.PI * 2; while (d < -Math.PI) d += Math.PI * 2; return d; };
 // How far the heading is from the wanted one (rad, signed)
 export const headingErr = R => (R.going ? wrap(Math.atan2(R.wx, R.wy) - R.a) : 0);
-const groundK = R => (R.shod && R.ground.kShod) || R.ground.k;
+const groundK = R => (R.shod ? R.ground.kShod : R.bare ? R.ground.kBare : 0) || R.ground.k;
 
 export function rideStep(R, dt) {
   let ev = '';

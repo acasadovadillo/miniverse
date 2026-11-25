@@ -234,6 +234,9 @@ export const Audio = {
     src.connect(f).connect(g).connect(sfx); src.start(now); src.stop(now + d);
   },
   lineSnap() { Audio.noiseHit(3600, 0.05, 0.4, 'highpass'); tone([[900, 0.03, 'square', 0.04], [300, 0.05, 'triangle', 0.05]]); },
+  // A horse drinking (a deep, round gulp) and grazing (a tear and a chew)
+  gulp() { Audio.noiseHit(320, 0.09, 0.12, 'lowpass'); tone([[150, 0.05, 'sine', 0.045], [105, 0.08, 'sine', 0.035]]); },
+  munch() { Audio.noiseHit(2600, 0.05, 0.05, 'bandpass'); setTimeout(() => Audio.noiseHit(900, 0.07, 0.04, 'bandpass'), 130); },
   wade() { Audio.noiseHit(500 + Math.random() * 300, 0.18, 0.06, 'lowpass'); },   // (un paso con el agua por las rodillas)
   swim() { Audio.noiseHit(700 + Math.random() * 300, 0.32, 0.1, 'lowpass'); setTimeout(() => Audio.noiseHit(2600, 0.12, 0.03, 'highpass'), 60); },   // (una brazada: el agua que se aparta)
   splash() { Audio.noiseHit(1400, 0.3, 0.35, 'lowpass'); Audio.noiseHit(4000, 0.15, 0.1, 'highpass'); },

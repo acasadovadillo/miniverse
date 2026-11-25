@@ -90,7 +90,7 @@ const TIPS = {
   cold: { key: null }, hot: { key: null }, wet: { key: null }, dirty: { key: null }, torn: { key: null }, hair: { key: null },
   // (the horse, Plan F: their texts say their key, "N: whistle for Rayo". N is only the whistle, so pressing it makes it
   // known; G and H count only in the saddle, where they are pat and rear (ride); X does many things, so only being shown)
-  whistle: { code: 'KeyN', key: null }, bags: { key: null }, jump_fence: { key: null }, pat: { code: 'KeyG', key: null, ride: true }, rear: { code: 'KeyH', key: null, ride: true },
+  whistle: { code: 'KeyN', key: null }, bags: { key: null }, jump_fence: { key: null }, drink: { key: null }, pat: { code: 'KeyG', key: null, ride: true }, rear: { code: 'KeyH', key: null, ride: true },
   // (tracking and the nature book, Plan G §5.1: a fresh trail close by, the first study ring, the first wounded animal's
   // trail locked. No key drawn: the text says it)
   tracks: { key: null }, study: { key: null }, blood: { key: null },
@@ -624,6 +624,8 @@ export class SmartHud {
     }
     // (Space over a fence, the first time the horse refuses one: horse.fences counts them, R4-1)
     if (H.fences > 0 && p.mount && !this.seen.has('jump_fence')) this.want('jump_fence', true);
+    // (it is thirsty for the first time: it drinks by itself, horsecare.js counts them)
+    if (g.horsecare?.thirsts > 0 && p.mount && !this.seen.has('drink')) this.want('drink', true);
     if (!p.mount || (this.seen.has('bags') && this.seen.has('pat') && this.seen.has('rear'))) { this.spooks = H.spooks; return; }
     // (the horse under you: horse.js keeps it in ridden; until then, the one ranch.mount wrote in horseId)
     const rid = H.ridden || g.ranch?.animals?.find(a => a.id === p.horseId) || null;

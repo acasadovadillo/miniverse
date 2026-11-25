@@ -18,6 +18,7 @@ import { fountain, FOUNT_MATS } from './fountain3d.js';
 import { mailbox, MAIL_MATS } from './mailbox3d.js';
 import { pew } from './chapel3d.js';
 import { tintOf } from './tints.js';
+import { trough, hitchingPost } from './stable3d.js';
 import { compostBin, manureHeap, troughFill, soilBits } from './soil3d.js';
 
 // Las cajas de los modelos con los cantos biselados, según su material: redondeadas en lo blando (mantas, sábanas,
@@ -656,6 +657,8 @@ const BUILD = {
     troughFill(m, level, kind);   // (soil3d.js)
   },
   compost_bin(m, level) { compostBin(m, level); },
+  trough(m, level) { trough(m, level); },
+  hitching_post(m) { hitchingPost(m); },
   manure_heap(m, size) { manureHeap(m, +size || 2); },
   // Granja, segunda parte
   silo(m) {

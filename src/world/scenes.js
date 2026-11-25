@@ -11,6 +11,7 @@ import { ITEMS, CHESTS, modernSlots } from '../items.js';
 import '../buildables.js';   // (LEGACY_ITEMS con los muebles: también en el servidor)
 import { extraTiles, LONG, BED_BACK, HEARTH_BACK, GLOW, LIGHT, front, SIDE, rugRect, RUG_SIZES, TABLE_SIZES, TABLES, TUCK } from '../art/stations.js';
 import { feedModel, compostModel } from '../soil.js';
+import { troughModel } from '../troughs.js';
 import { solidsOf, hull, placeBoxes, bounds, aabb, sat, hitsCircle, distTo, obb, dirOf, sideOf, SOLIDS } from './fit.js';
 import { BARROW, BULKY, barrowKey, randomId } from '../carry-items.js';
 import { wallRuns, WINDOW_Z, T } from '../art/build.js';
@@ -204,7 +205,8 @@ function crosses(x0, y0, x1, y1, b) {
 // colocar otra cosa al lado, con cada una de sus cajas, a su altura (solids). Devuelve true si es plano
 const SNAP = 0.35, MAX_PUSH = 0.45, NUDGE = 0.12;   // (a menos de SNAP de un muro, se pega; si lo corta menos de MAX_PUSH, se saca; de un mueble, solo si lo roza: NUDGE)
 // What shows what it has inside: the trough and the compost bin (soil.js)
-const STORES = { comedero: (d, t) => feedModel(d.feed?.[t], d.fodder?.[t]), compost_bin: (d, t) => compostModel(d.compost?.[t]) };
+const STORES = { comedero: (d, t) => feedModel(d.feed?.[t], d.fodder?.[t]), compost_bin: (d, t) => compostModel(d.compost?.[t]), trough: (d, t) => troughModel(d.trough?.[t]) };
+const HORSE_THINGS = new Set(['trough', 'hitching_post']);   // (longer than a tile: where their boxes are, with /setblock too)
 const BIG_HOUSE = new Set(['gallinero', 'establo']);   // (con la puerta abierta o cerrada)
 function freeObject(o, id, rot, [x, y, a], { colliders, lights, solids }) {
   Object.assign(o, { x, y, yaw: a, rot, free: true, glow: GLOW[id] });
@@ -219,7 +221,8 @@ function freeObject(o, id, rot, [x, y, a], { colliders, lights, solids }) {
   // (el pozo: lo bajo, la losa y el brocal; el tejadillo vuela por encima de la cabeza y no quita sitio a la casilla de al
   // lado, que se puede cercar o labrar pegada)
   else if (wellSpec(id)) { const s = placeBoxes([hull(local.filter(l => l[1] < wellSpec(id).low))], x, y, a)[0]; colliders.push({ ...bounds(s), obb: s, free: true }); }
-  else colliders.push({ ...bounds(box), obb: box, free: true });
+  // (a hitching post is low: on horseback it is jumped, as a fence)
+  else colliders.push({ ...bounds(box), obb: box, free: true, ...(id === 'hitching_post' && { low: true }) });
   for (const s of placeBoxes(local, x, y, a)) solids.push(s);
   return false;
 }
@@ -899,7 +902,7 @@ export class Overworld {
         Object.assign(o, { x, y, yaw: a, rot, free: true, tower: { x, y, h, yaw: a }, model: this.towerModel(id, x, y, L, this.towerGround(tx, ty)[1]), obb: aabb(x - TOWER_SIDE / 2, y - TOWER_SIDE / 2, x + TOWER_SIDE / 2, y + TOWER_SIDE / 2) });
         for (const c of towerColliders(x, y, { h, yaw: a, key: `w:${t}` })) colliders.push(Object.assign(c, { free: true }));
         out.solids.push({ ...o.obb, y0: 0, y1: h + TOWER.parapet });
-      } else if (src.pos?.[o.key] || BIG_HOUSE.has(id) || wellSpec(id) || id === BARROW.ID) {   // (las casas grandes, aunque se pusieran por casillas antes de crecer, ocupan lo suyo; el pozo puesto con /setblock, sin sitio, va en el centro; the wheelbarrow is always free)
+      } else if (src.pos?.[o.key] || BIG_HOUSE.has(id) || wellSpec(id) || id === BARROW.ID || HORSE_THINGS.has(id)) {   // (las casas grandes, aunque se pusieran por casillas antes de crecer, ocupan lo suyo; el pozo puesto con /setblock, sin sitio, va en el centro; the wheelbarrow is always free)
         o.off = this.lightOff(tx, ty);
         // (the wheelbarrow draws what it carries: its big things and, with stacks in it, a heap. Its boxes stay the empty one's)
         if (id === BARROW.ID) { const ids = (src.barrow?.[t]?.l || []).map(e => e?.[0]).filter(i => BULKY[i]), full = !!src.chest?.[t]?.some(Boolean); if (ids.length || full) o.model = barrowKey(ids, full); }
@@ -1126,7 +1129,7 @@ export class Overworld {
     if (layer === 'placed' && d.barrow) delete d.barrow[k];   // (a wheelbarrow's id and big things: who takes it has read them first, barrow.js)
     if (layer === 'placed' && d.closed) delete d.closed[k];
     if (layer === 'placed' && d.off) delete d.off[k];
-    if (layer === 'placed') for (const f of [d.manure, d.compost]) if (f) delete f[k];   // (what was in it: who takes it has read it first, game.js pickUp)
+    if (layer === 'placed') for (const f of [d.manure, d.compost, d.trough]) if (f) delete f[k];   // (what was in it: who takes it has read it first, game.js pickUp)
     this.dropLevel(tx, ty);
     if (layer === 'placed') this.dropWell(tx, ty, parsePlaced(was)[0]);
     this.touchAround(tx, ty);
@@ -1140,7 +1143,7 @@ export class Overworld {
       const w = this.wellOf(tx, ty) || this.towerOf(tx, ty);   // (a tile of a big well or a watchtower that is not its anchor: it goes whole, from its anchor)
       if (w && (w.tx !== tx || w.ty !== ty) && this.ownAt('placed', w.tx, w.ty)) this.setTile(w.tx, w.ty, 'air');
       for (const layer of ['floor', 'placed', 'roof', 'hang', 'rug']) { if (d[layer]) delete d[layer][k]; if (d.pos) delete d.pos[`${layer}:${k}`]; }
-      for (const l of ['chest', 'closed', 'off', 'machine', 'tilled', 'barrow', 'manure', 'compost']) if (d[l]) delete d[l][k];
+      for (const l of ['chest', 'closed', 'off', 'machine', 'tilled', 'barrow', 'manure', 'compost', 'trough']) if (d[l]) delete d[l][k];
       for (const layer of ['floor', 'placed', 'roof']) this.planGone(d, layer, tx, ty);
       for (const layer of ['floor', 'placed', 'roof', 'hang', 'rug']) if (this.baseAt(layer, tx, ty)) (d.gone ||= {})[goneKey(layer, k)] = true;
       this.dropLevel(tx, ty);

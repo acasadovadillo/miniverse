@@ -29,6 +29,7 @@ import { TimeSystem } from './time.js';
 import { Farm } from './farm.js';
 import { Ranch } from './ranch.js';
 import { Horse } from './horse.js';
+import { HorseCare } from './horsecare.js';
 import { Saddlebags } from './saddlebags.js';
 import { Freshness } from './freshness.js';
 import { Steps } from './steps.js';
@@ -194,6 +195,7 @@ export class Game {
     this.horse = this.addSystem(new Horse(this));   // the horse from the saddle: bond, whistle (N), gallop stamina, spooks (Plan F, src/horse.js)
     this.saddlebags = this.addSystem(new Saddlebags(this));   // the horse's saddlebags: shared with the couple, one writer at a time (Plan F, src/saddlebags.js)
     this.freshness = this.addSystem(new Freshness(this));   // the catch going off, and cleaning and salting it (src/freshness.js)
+    this.horsecare = this.addSystem(new HorseCare(this));   // what the horse eats and drinks, its shoes, being sore (Plan R4-2, src/horsecare.js)
     this.family = this.addSystem(new Family(this));
     this.fishing = this.addSystem(new Fishing(this));
     this.wind = this.addSystem(new Wind(this));   // the wind, the same for everyone (src/wind.js, Plan R3: it carries the scent; before wildlife, which reads it)

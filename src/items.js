@@ -391,10 +391,10 @@ defineNames(BODY_ITEMS, 'item');
 // ---------- The garden (docs/planes/realismo/PLAN-R2-huerto.md): straw, from wheat cut with the scythe; on tilled soil it keeps
 // the water in (farm.js, mulch) ----------
 // Compost (abono: its old id) feeds the soil, and so does the manure of the stables (soil.js); the bin makes it
-const GARDEN_ITEMS = { straw: {}, manure: {}, compost_bin: { place: 'furniture' }, abono: ITEMS.abono };
+const GARDEN_ITEMS = { straw: {}, manure: {}, compost_bin: { place: 'furniture' }, trough: { place: 'furniture' }, hitching_post: { place: 'furniture' }, abono: ITEMS.abono };
 Object.assign(ITEMS, GARDEN_ITEMS);
 defineNames(GARDEN_ITEMS, 'item');
-defineNames({ comedero: ITEMS.comedero }, 'item', ['desc']);
+defineNames({ comedero: ITEMS.comedero, herraduras: ITEMS.herraduras }, 'item', ['desc']);
 // Muebles de la casa familiar: dormitorios, cocina y baño
 Object.assign(ITEMS, {
   sofa: { name: 'Sofá', desc: 'De dos plazas, con cojines. Arrímalo a la pared y siéntate en él con E.', place: 'furniture' },

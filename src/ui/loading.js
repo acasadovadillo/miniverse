@@ -18,7 +18,7 @@ import { KeyArt } from './keyart.js';
 import { dayAndSeason, whenText } from './mainmenu.js';
 
 const $ = id => document.getElementById(id);
-const MIN_MS = 1200, OUT_MS = 600, TIP_MS = 8000, TIP_FADE = 250;
+const MIN_MS = 800, OUT_MS = 600, TIP_MS = 8000, TIP_FADE = 250;
 const LEAVE_MS = 3000;     // waiting for the network this long, it says that Esc goes back
 const SINCE_MS = 60000;    // the world saved this long after yours is a later session
 const NEAR_PLACE = 48;     // tiles from a known place to say its name
