@@ -94,6 +94,7 @@ export const RECIPES = [
   R('banco', 'colmena', 1, [['tablas', 6], ['fibra', 4]]),
   R('banco', 'comedero', 1, [['tablas', 4]]),
   R('mano', 'compost_bin', 1, [['tablas', 6]]),
+  R('mano', 'scarecrow', 1, [['tablas', 2], ['fibra', 2]]),
   R('banco', 'trough', 1, [['tablas', 4]]),
   R('banco', 'hitching_post', 1, [['tablas', 2], ['cuerda', 1]]),
   R('banco', 'silo', 1, [['tablas', 30], ['piedra', 30], ['lingote_cobre', 2]]),

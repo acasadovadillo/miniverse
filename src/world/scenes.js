@@ -11,6 +11,7 @@ import { ITEMS, CHESTS, modernSlots } from '../items.js';
 import '../buildables.js';   // (LEGACY_ITEMS con los muebles: también en el servidor)
 import { extraTiles, LONG, BED_BACK, HEARTH_BACK, GLOW, LIGHT, front, SIDE, rugRect, RUG_SIZES, TABLE_SIZES, TABLES, TUCK } from '../art/stations.js';
 import { feedModel, compostModel } from '../soil.js';
+import { scarecrowModel } from '../pests.js';
 import { troughModel } from '../troughs.js';
 import { solidsOf, hull, placeBoxes, bounds, aabb, sat, hitsCircle, distTo, obb, dirOf, sideOf, SOLIDS } from './fit.js';
 import { BARROW, BULKY, barrowKey, randomId } from '../carry-items.js';
@@ -206,7 +207,7 @@ function crosses(x0, y0, x1, y1, b) {
 // colocar otra cosa al lado, con cada una de sus cajas, a su altura (solids). Devuelve true si es plano
 const SNAP = 0.35, MAX_PUSH = 0.45, NUDGE = 0.12;   // (a menos de SNAP de un muro, se pega; si lo corta menos de MAX_PUSH, se saca; de un mueble, solo si lo roza: NUDGE)
 // What shows what it has inside: the trough and the compost bin (soil.js)
-const STORES = { comedero: (d, t) => feedModel(d.feed?.[t], d.fodder?.[t]), compost_bin: (d, t) => compostModel(d.compost?.[t]), trough: (d, t) => troughModel(d.trough?.[t]) };
+const STORES = { comedero: (d, t) => feedModel(d.feed?.[t], d.fodder?.[t]), compost_bin: (d, t) => compostModel(d.compost?.[t]), trough: (d, t) => troughModel(d.trough?.[t]), scarecrow: (d, t) => scarecrowModel(d.garb?.[t]) };
 const HORSE_THINGS = new Set(['trough', 'hitching_post']);   // (longer than a tile: where their boxes are, with /setblock too)
 // (a hunted carcass, gutted: quality.js, the record's second; with Settings › blood off, as the others)
 for (const id of ['carcass_deer', 'carcass_hind', 'carcass_boar']) STORES[id] = (d, t) => (d.cq?.[t]?.[1] > 0 && Gore.on ? id + ':gutted' : undefined);
@@ -473,7 +474,7 @@ export class Overworld {
   // nueva (null: como era)
   digTile(tx, ty, dn, today) {
     const cx = Math.floor(tx / CHUNK), cy = Math.floor(ty / CHUNK), h = this.digNext(tx, ty, dn), d = this.delta(cx, cy, true), k = `${tx},${ty}`;
-    if (d.tilled?.[k] !== undefined) { delete d.tilled[k]; for (const f of [d.wet, d.moist, d.mulch, d.soil]) if (f) delete f[k]; this.dropLevel(tx, ty); }   // (lo labrado: se deshace)
+    if (d.tilled?.[k] !== undefined) { delete d.tilled[k]; for (const f of [d.wet, d.moist, d.mulch, d.weeds, d.soil]) if (f) delete f[k]; this.dropLevel(tx, ty); }   // (lo labrado: se deshace)
     if (h !== null) (d.dig ||= {})[k] = h; else if (d.dig) { delete d.dig[k]; if (!Object.keys(d.dig).length) delete d.dig; }
     const m = (d.mown ||= {});
     for (const [q, v] of Object.entries(m)) if (today - v >= GRASS_REGROW) delete m[q];
@@ -1051,7 +1052,9 @@ export class Overworld {
   till(tx, ty) {
     const cx = Math.floor(tx / CHUNK), cy = Math.floor(ty / CHUNK);
     this.setLevel(tx, ty, 'tierra');   // (lo labrado, a la altura del suelo)
-    this.delta(cx, cy, true).tilled[`${tx},${ty}`] = this.clock;
+    const d = this.delta(cx, cy, true);
+    d.tilled[`${tx},${ty}`] = this.clock;
+    if (d.weeds) delete d.weeds[`${tx},${ty}`];   // (turned over: no weeds left from before)
     this.touchAround(tx, ty);   // (a tilled neighbour in the next chunk joins it: three/world3d.js, tilledMask)
   }
 
@@ -1138,7 +1141,7 @@ export class Overworld {
     if (layer === 'placed' && d.barrow) delete d.barrow[k];   // (a wheelbarrow's id and big things: who takes it has read them first, barrow.js)
     if (layer === 'placed' && d.closed) delete d.closed[k];
     if (layer === 'placed' && d.off) delete d.off[k];
-    if (layer === 'placed') for (const f of [d.manure, d.compost, d.trough]) if (f) delete f[k];   // (what was in it: who takes it has read it first, game.js pickUp)
+    if (layer === 'placed') for (const f of [d.manure, d.compost, d.trough, d.garb]) if (f) delete f[k];   // (what was in it: who takes it has read it first, game.js pickUp)
     this.dropLevel(tx, ty);
     if (layer === 'placed') this.dropWell(tx, ty, parsePlaced(was)[0]);
     this.touchAround(tx, ty);
@@ -1152,7 +1155,7 @@ export class Overworld {
       const w = this.wellOf(tx, ty) || this.towerOf(tx, ty);   // (a tile of a big well or a watchtower that is not its anchor: it goes whole, from its anchor)
       if (w && (w.tx !== tx || w.ty !== ty) && this.ownAt('placed', w.tx, w.ty)) this.setTile(w.tx, w.ty, 'air');
       for (const layer of ['floor', 'placed', 'roof', 'hang', 'rug']) { if (d[layer]) delete d[layer][k]; if (d.pos) delete d.pos[`${layer}:${k}`]; this.wear?.gone(d, layer, k); }
-      for (const l of ['chest', 'closed', 'off', 'machine', 'tilled', 'barrow', 'manure', 'compost', 'trough']) if (d[l]) delete d[l][k];
+      for (const l of ['chest', 'closed', 'off', 'machine', 'tilled', 'barrow', 'manure', 'compost', 'trough', 'garb', 'weeds']) if (d[l]) delete d[l][k];
       for (const layer of ['floor', 'placed', 'roof']) this.planGone(d, layer, tx, ty);
       for (const layer of ['floor', 'placed', 'roof', 'hang', 'rug']) if (this.baseAt(layer, tx, ty)) (d.gone ||= {})[goneKey(layer, k)] = true;
       this.dropLevel(tx, ty);

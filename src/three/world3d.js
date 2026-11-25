@@ -34,6 +34,7 @@ import { wearKind, wearTwin, LOOK, WORN } from './wear3d.js';
 import { Seabed } from './seabed3d.js';
 import { Site3D } from './site3d.js';
 import { FRUIT } from '../orchard.js';
+import { weedYaw } from '../pests.js';
 
 const NEAR = 3;          // trozos alrededor del de la cámara con todo
 const NB = 2;            // la naturaleza y la cubierta del suelo van en bloques de NB × NB trozos (menos mallas)
@@ -237,7 +238,7 @@ export class World3D {
     for (const o of data.objects) s += o.key + (o.poi ? `${o.poi.kind}${o.x},${o.y},${o.poi.z || 0}` : '') + (o.crop && farm ? ':' + farm.model(o.crop) : '') + (o.open ? '!' : '') + (o.placed ? o.placed + (o.rot || 0) : '') + (o.model ? ':' + o.model : '') + (o.off ? '~' : '') + (o.tuck ? '^' : '') + (o.mask !== undefined ? `m${o.mask}` : '') + (o.door ? `d${o.door}` : '') + (o.free ? `@${o.x.toFixed(2)},${o.y.toFixed(2)},${o.yaw.toFixed(2)}` : '') + (o.window && scene.doorClosed(...o.tile) ? '#' : '') + ',';   // (~: apagado; #: ventana cerrada)
     for (const o of data.flats) s += o.key + (o.model || o.placed || '') + (o.rot || 0) + (o.free ? `@${o.x.toFixed(2)},${o.y.toFixed(2)},${o.yaw.toFixed(2)}` : '') + ',';
     for (const o of data.floors) s += o.key + ',';
-    for (const t of data.tilled) { const k = `${t[0]},${t[1]}`; s += k + (farm ? farm.soilLook(d, k) : 0) + (d?.mulch?.[k] !== undefined ? 'm' : '') + (farm ? farm.soilTone(d, k) : 0) + tilledMask(scene, t[0], t[1]) + ';'; }   // (with its neighbours: one tilled next door, in another chunk too, joins it)
+    for (const t of data.tilled) { const k = `${t[0]},${t[1]}`; s += k + (farm ? farm.soilLook(d, k) : 0) + (d?.mulch?.[k] !== undefined ? 'm' : '') + (farm ? farm.soilTone(d, k) : 0) + (farm?.weedy(d, k) ? farm.weedModel(d, k) : '') + tilledMask(scene, t[0], t[1]) + ';'; }   // (with its neighbours: one tilled next door, in another chunk too, joins it)
     const W = scene.wear?.sig(cx, cy);   // (how worn what is built in it is: wear.js)
     return W?.all ? `${s}w${W.all}` : s;
   }
@@ -271,6 +272,7 @@ export class World3D {
     for (const t of data.tilled) {
       const k = `${t[0]},${t[1]}`, dl = scene.delta(cx, cy), fm = this.farm(scene);
       LIFT = lv(t[0], t[1]);
+      if (fm?.weedy(dl, k)) this.placeModel(fm.weedModel(dl, k), t[0] + 0.5, t[1] + 0.5, weedYaw(t[0], t[1]), plain, c, group, false, LIFT);
       this.placeModel(`tilled:${fm ? fm.soilLook(dl, k) : 0}:${tilledMask(scene, t[0], t[1], LIFT, lv)}${tilledMore(dl, k, fm)}`, t[0] + 0.5, t[1] + 0.5, 0, plain, c, group, false, LIFT);
     }
     for (const o of data.objects.concat(data.flats)) {

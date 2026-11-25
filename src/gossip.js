@@ -105,7 +105,7 @@ export class Gossip {
     return v && typeof v === 'object' && Array.isArray(v.list) ? v : (F.news = { v: 1, seq: 0, list: [] });
   }
   reset() { this.prune(); }
-  onDay() { this.prune(); }
+  onDay(day) { this.prune(); }   // (day: the hook's parameter)
   // Out with what is no longer talked about (kinds of a newer game stay: they are theirs) and with what came too many
   prune() {
     const F = this.game.neighbors.flags;

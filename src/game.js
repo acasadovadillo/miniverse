@@ -45,6 +45,7 @@ import { Crew } from './crew.js';
 import { footTile, front, extraTiles, yawOf } from './art/stations.js';
 import { solidsOf, hull, placeBoxes, aabb, distTo, rayHits } from './world/fit.js';
 import { HOTBAR, extraOf } from './inventory.js';
+import { Visitors } from './visitors.js';
 import { Neighbors } from './neighbors.js';
 import { Reputation } from './reputation.js';
 import { Social } from './social.js';
@@ -140,7 +141,7 @@ function defaultHouseDeltas() {
 
 // Los modos de juego (/gamemode) y las reglas del mundo (/gamerule) con lo que valen al empezar
 export const GAMEMODES = { survival: 'supervivencia', creative: 'creativo', spectator: 'espectador' };
-export const RULES = { keepInventory: false, doMobSpawning: true, doWeatherCycle: true, doDaylightCycle: true, naturalRegeneration: true, announceAdvancements: true, doThirst: true, doFatigue: true, doBodyWeather: true };   // (doThirst, doFatigue: needs.js; doBodyWeather: body.js, cold and heat on the needs; old saves get true, and they are read as !== false)
+export const RULES = { keepInventory: false, doMobSpawning: true, doWeatherCycle: true, doDaylightCycle: true, naturalRegeneration: true, announceAdvancements: true, doThirst: true, doFatigue: true, doBodyWeather: true, doGardenPests: true };   // (doGardenPests: pests.js; doThirst, doFatigue: needs.js; doBodyWeather: body.js, cold and heat on the needs; old saves get true, and they are read as !== false)
 const TAVERN_SEATS = new Set(['silla', 'taburete', 'barber_chair']);   // (en la taberna, quien quiere se sienta)
 // (no key held: what a rearing horse's rider moves with, horse.js held; frozen, never written)
 const NO_KEYS = Object.freeze({ up: false, down: false, left: false, right: false, run: false, sprint: false, use: false, space: false, dive: false, mapFast: false });
@@ -205,6 +206,7 @@ export class Game {
     this.fishing = this.addSystem(new Fishing(this));
     this.wind = this.addSystem(new Wind(this));   // the wind, the same for everyone (src/wind.js, Plan R3: it carries the scent; before wildlife, which reads it)
     this.wildlife = this.addSystem(new Wildlife(this));
+    this.visitors = this.addSystem(new Visitors(this));   // the birds and the rabbits seen coming to the garden (src/visitors.js; after wildlife: they count together)
     this.rest = this.addSystem(new Rest(this));
     this.crew = this.addSystem(new Crew(this));   // ir de pasajero en la barca de otro
     this.neighbors = this.addSystem(new Neighbors(this));
@@ -870,7 +872,7 @@ export class Game {
     // (a compost bin with something in it is not moved; taken down, what is in it falls out: the compost, or what had not
     // rotted yet. The manure of an animal house is left on the ground)
     const spill = this.scene === this.world && (o.layer || 'placed') === 'placed' && o.tile ? this.ranch.spillOf(o) : null;
-    if (spill && carry && o.placed === 'compost_bin') { this.gather.float(t('farm.compost.empty_first'), '#ffb0a0'); Audio.error(); return false; }
+    if (spill && carry && (o.placed === 'compost_bin' || o.placed === 'scarecrow')) { this.gather.float(t(o.placed === 'scarecrow' ? 'farm.scarecrow.undress_first' : 'farm.compost.empty_first'), '#ffb0a0'); Audio.error(); return false; }
     // (whose it was, before it goes: what came with a neighbor's house, or what you had put back there yourself)
     // (the hearth, whose chimney holds the roof: not while it does; structure.js)
     if (PIECES[o.placed] && o.tile && this.build.holds({ tile: o.tile, layer: o.layer || 'placed' })) { this.gather.float(t('build.why.holds_roof'), '#ffb0a0'); Audio.error(); return false; }

@@ -391,7 +391,7 @@ defineNames(BODY_ITEMS, 'item');
 // ---------- The garden (docs/planes/realismo/PLAN-R2-huerto.md): straw, from wheat cut with the scythe; on tilled soil it keeps
 // the water in (farm.js, mulch) ----------
 // Compost (abono: its old id) feeds the soil, and so does the manure of the stables (soil.js); the bin makes it
-const GARDEN_ITEMS = { pear: { food: 14 }, cherry: { food: 5 }, pear_sapling: { sapling: 'pear' }, cherry_sapling: { sapling: 'cherry' }, straw: {}, manure: {}, compost_bin: { place: 'furniture' }, trough: { place: 'furniture' }, hitching_post: { place: 'furniture' }, abono: ITEMS.abono };
+const GARDEN_ITEMS = { pear: { food: 14 }, cherry: { food: 5 }, pear_sapling: { sapling: 'pear' }, cherry_sapling: { sapling: 'cherry' }, straw: {}, manure: {}, compost_bin: { place: 'furniture' }, scarecrow: { place: 'furniture' }, trough: { place: 'furniture' }, hitching_post: { place: 'furniture' }, abono: ITEMS.abono };
 Object.assign(ITEMS, GARDEN_ITEMS);
 defineNames(GARDEN_ITEMS, 'item');
 defineNames({ comedero: ITEMS.comedero, herraduras: ITEMS.herraduras }, 'item', ['desc']);

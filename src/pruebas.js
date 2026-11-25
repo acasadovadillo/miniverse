@@ -141,6 +141,7 @@ import { apagada } from './opciones.js';
 import { Farm } from './farm.js';
 import { FRUIT, ORCHARD, FIRST_FRUIT, phaseAt } from './orchard.js';
 import { ihash } from './util.js';
+import * as PESTS from './pests.js';
 import { seasonOf, madridMs } from './time.js';
 import { seasonC, fieldDay } from './fieldclimate.js';
 import { GROW, seedOf, rateAt } from './cropdata.js';
@@ -788,6 +789,195 @@ async function soloTests(game) {
       check(Math.abs(bare.first - was.first) < was.first * 0.21, `${id}, the first 20 days: ${bare.first} and ${was.first}`);
     }
     console.log('· monedas por casilla y día (60 días, dos plantas de saldo): ' + rows.join(' | '));
+  });
+  // ---------- R2-F: weeds and pests (src/pests.js, src/visitors.js) ----------
+  // A field of n × h beds from (x0, 30) down in a farm of its own, with the world's fences; on: pests count from long ago
+  const pestLab = (opt = {}, { on = true } = {}) => {
+    const L = farmLab(opt), W = L.g.world, at = (layer, x, y) => W.delta(Math.floor(x / CHUNK), Math.floor(y / CHUNK))?.[layer]?.[`${x},${y}`];
+    Object.assign(W, { roofAt: (x, y) => !!at('roof', x, y), water: () => false });
+    L.g.ranch.animals = []; L.g.difficulty = 'normal'; if (on) L.g.ranch.farm.pests = -99;
+    L.D = (x, y) => W.delta(Math.floor(x / CHUNK), Math.floor(y / CHUNK), true);
+    L.put = (id, x, y, layer = 'placed') => { (L.D(x, y)[layer] ||= {})[`${x},${y}`] = id; };
+    L.plant = (id, grow, x, y, more = {}) => { const d = L.D(x, y), k = `${x},${y}`; d.tilled[k] = 1; (d.moist ||= {})[k] = 100; return ((d.crops ||= {})[k] = { id, grow, day: L.day, hs: 0, hn: 0, ...more }); };
+    L.field = (id, grow, n, h, x0 = 2, y0 = 20) => { const out = []; for (let j = 0; j < h; j++) for (let i = 0; i < n; i++) out.push(L.plant(id, grow, x0 + i, y0 + j)); return out; };
+    L.ring = (x0, y0, x1, y1, skip = []) => { for (let x = x0; x <= x1; x++) for (let y = y0; y <= y1; y++) if ((x === x0 || x === x1 || y === y0 || y === y1) && !skip.includes(`${x},${y}`)) L.put('valla', x, y); };
+    L.night = () => { L.day++; L.g.days.dayIndex = L.day; L.F.pests.dawn(L.day); };
+    return L;
+  };
+  await test('farm pests (english): weeds', async () => {
+    const N = 600, up = (season, how = {}) => { const L = pestLab({ season, seen: how.seen ?? 1e9 }, how); for (let x = 0; x < N; x++) { L.bed(x); if (how.crop) L.crop('trigo', 2, x); if (how.mulch) (L.d.mulch ||= {})[L.k(x)] = L.day; } if (how.set) how.set(L); L.dawn(1); return [...Array(N).keys()].filter(x => L.F.weedy(L.d, L.k(x))).length / N; };
+    const pct = [0, 1, 2, 3].map(s => up(s)), crop = [0, 1, 2, 3].map(s => up(s, { crop: true }));
+    console.log('· weeds a day, bare: ' + pct.map(v => (v * 100).toFixed(1) + ' %').join(' / ') + '; with a crop: ' + crop.map(v => (v * 100).toFixed(1) + ' %').join(' / '));
+    check(Math.abs(pct[0] - 0.15) < 0.06 && Math.abs(pct[1] - 0.15) < 0.06 && pct[2] > 0.01 && pct[2] < 0.1 && pct[3] === 0, `bare: ${pct}`);
+    check(crop[0] > 0.02 && crop[0] < 0.1 && crop[2] < 0.05 && crop[3] === 0, `with a crop: ${crop}`);
+    check(up(0, { mulch: true }) === 0, 'through the straw'); check(up(0, { seen: 0 }) === 0, 'on a day nobody played'); check(up(0, { on: false }) === 0, 'before they count');
+    check(up(0, { set: L => { L.g.difficulty = 'peaceful'; } }) === 0, 'in peaceful'); check(up(0, { set: L => { L.g.rules.doGardenPests = false; } }) === 0, 'with /gamerule doGardenPests false'); check(up(0, { set: L => { L.g.gamemode = 'creative'; } }) === 0, 'alone in creative');
+    check(up(0, { set: L => { L.g.ranch.farm.pests = L.day - 1; } }) === 0 && up(0, { set: L => { L.g.ranch.farm.pests = L.day - 2; } }) > 0, 'the first mornings of peace');
+    // (they slow the crop, drink its water and lower its health; they never kill it)
+    const a = pestLab({ season: 1 }), b = pestLab({ season: 1 }); for (const L of [a, b]) { L.crop('tomate', 2); L.d.soil = { [L.k()]: [60, 'nightshade', 1] }; L.d.weeds = { [L.k()]: L.day }; } delete a.d.weeds[a.k()];
+    a.F.pests.on = b.F.pests.on = () => false; a.dawn(1); b.dawn(1);
+    check(Math.abs((b.c().grow - 2) / (a.c().grow - 2) - 0.7) < 0.01 && b.c().hs < a.c().hs && b.d.moist[b.k()] < a.d.moist[a.k()] && Math.abs((100 - b.d.moist[b.k()]) / (100 - a.d.moist[a.k()]) - 1.2) < 0.05, `${a.c().grow} / ${b.c().grow}; ${a.d.moist[a.k()]} / ${b.d.moist[b.k()]}`);
+    for (let i = 0; i < 12; i++) b.dawn(1, true); check(!b.c().dead && b.F.weedy(b.d, b.k()), 'they kill');
+    // (a bare bed goes back to grass after ten days somebody played, and waits while nobody does)
+    const L = pestLab({ season: 1 }); L.bed(); L.d.soil = { [L.k()]: [20, 'root', 2] }; L.d.weeds = { [L.k()]: L.day }; L.F.pests.weedUp = () => false;
+    L.dawn(9); check(L.d.tilled[L.k()] !== undefined && L.F.weedModel(L.d, L.k()).startsWith('weeds:3:'), `nine days: ${L.F.weedModel(L.d, L.k())}`); L.g.ranch.farm.seen = 0; L.dawn(20); check(L.d.tilled[L.k()] !== undefined, 'while nobody played'); L.g.ranch.farm.seen = 1e9; L.dawn(1);
+    check(L.d.tilled[L.k()] === undefined && L.d.weeds[L.k()] === undefined && L.d.moist[L.k()] === undefined && L.d.soil[L.k()][1] === 'root', 'ten days: not grass again');
+    // (a bed with a crop, even a dead one, does not)
+    const M = pestLab({ season: 1 }); M.crop('nabo', 1, 0, { dead: 'frost' }); M.d.weeds = { [M.k()]: M.day - 30 }; M.dawn(3); check(M.d.tilled[M.k()] !== undefined, 'under a dead plant');
+    // (pulled by hand and with the hoe)
+    const P = pestLab({ season: 0 }); P.crop('nabo', 2); P.d.weeds = { [P.k()]: P.day - 3 }; const said = P.F.status(...P.at()); check(said.includes(t('farm.state.weedy', { text: '' }).trim().replace(/^·\s*/, '')), said);
+    P.g.aimTile = () => P.at(); const tg = P.F.target(P.g.player, null, null); check(tg?.label === t('farm.weed.pull') && tg.auto, JSON.stringify(tg));
+    check(P.F.target(P.g.player, { id: 'azada' }, { tool: 'azada' })?.label === t('farm.weed.pull') && P.F.target(P.g.player, { id: 'hacha' }, { tool: 'hacha' }) === null, 'the hoe, or any tool');
+    P.g.gather.cooldown = 0; P.F.pull(...P.at()); check(P.d.weeds[P.k()] === undefined && P.c().id === 'nabo' && P.drops.some(r => r[0] === 'fibra') && P.g.gather.cooldown > 0.5, JSON.stringify([P.drops, P.g.gather.cooldown]));
+    P.bed(1); P.d.weeds[P.k(1)] = P.day; P.F.pull(...P.at(1)); check(P.d.weeds[P.k(1)] !== undefined, 'two in one go');
+    // (an old field: nothing on it; and weeds travel tile by tile)
+    const O = farmLab({ season: 0 }); O.crop('nabo', 1); O.dawn(5, true); check(!O.d.weeds && !O.c().pd, 'an old field, dirty');
+  });
+  await test('farm pests (english): caps and guards', async () => {
+    const hits = L => { let n = 0; for (const d of L.g.world.deltas.values()) for (const c of Object.values(d.crops || {})) if (c.pd === L.day) n++; return n; };
+    // (at most a quarter of a chunk's crops, even if they all would be; a garden of three, none)
+    let L = pestLab({ season: 1 }); L.field('trigo', 7, 12, 8); L.F.pests.roll = () => 0; L.night(); check(hits(L) === 24, `of 96: ${hits(L)}`);
+    L = pestLab({ season: 1 }); L.field('trigo', 7, 3, 1); L.F.pests.roll = () => 0; L.night(); check(hits(L) === 0, `of three: ${hits(L)}`);
+    L = pestLab({ season: 1 }); L.field('nabo', 1, 12, 4); L.F.pests.roll = () => 0; for (let i = 0; i < 3; i++) L.night(); const dead = Object.values(L.D(2, 20).crops).filter(c => c.dead === 'eaten').length; check(dead === 12 + 9 + 6, `seedlings in three nights: ${dead}`);
+    // (a day nobody played, the first mornings, peaceful, the rule: nothing at all)
+    for (const [why, set] of [['unplayed', l => { l.g.ranch.farm.seen = 0; }], ['the first mornings', l => { l.g.ranch.farm.pests = l.day; }], ['peaceful', l => { l.g.difficulty = 'peaceful'; }], ['the rule', l => { l.g.rules.doGardenPests = false; }], ['an old world', l => { delete l.g.ranch.farm.pests; }]]) { L = pestLab({ season: 1 }); L.field('trigo', 7, 12, 8); L.F.pests.roll = () => 0; set(L); L.night(); check(hits(L) === 0, why); }
+    // (rates: each crop by its own kind; the soil tired of a family, twice as much)
+    const rate = (id, grow, set = null, nights = 40, opt = { season: 1 }) => { let n = 0, all = 0; for (let i = 0; i < nights; i++) { const l = pestLab(opt); l.day += i; l.field(id, grow, 10, 10); if (set) set(l); l.g.ranch.farm.seen = 1e9; l.night(); n += hits(l); all += 100; } return n / all; };
+    const free = { b: rate('trigo', 7), r: rate('zanahoria', 2), s: rate('cabbage', 2, l => { l.F.pests.lives = t => t === 'perro'; }, 20, { season: 0, weather: () => 'lluvia' }) };
+    check(Math.abs(free.b - 0.08) < 0.02 && Math.abs(free.r - 0.05) < 0.02, JSON.stringify(free)); for (const [id, at] of [['trigo', 0.6], ['garlic', 0.3], ['tomate', 0.6], ['nabo', 0.1]]) check(rate(id, CROPS[id].days * at) === 0, `${id}: what they do not like`);
+    const tired = rate('trigo', 7, l => { for (const d of l.g.world.deltas.values()) for (const k in d.crops) (d.soil ||= {})[k] = [60, 'grass', 3]; }); check(Math.abs(tired - 2 * free.b) < 0.035, `tired soil: ${tired}`);
+    const easy = rate('trigo', 7, l => { l.g.difficulty = 'easy'; }), hard = rate('trigo', 7, l => { l.g.difficulty = 'hard'; }); check(easy < free.b && hard > free.b, `easy ${easy}, hard ${hard}`);
+    // the scarecrow: dressed and not, its reach; a roof; scared off the day before
+    const dressed = rate('trigo', 7, l => { l.put('scarecrow', 6, 25); l.D(6, 25).garb = { '6,25': { id: 'camisa', color: '#3a5ab8' } }; }), bare = rate('trigo', 7, l => l.put('scarecrow', 6, 25)), far = rate('trigo', 7, l => { l.put('scarecrow', 6, 50); l.D(6, 50).garb = { '6,50': { id: 'camisa' } }; });
+    check(dressed < free.b * 0.45 && bare < free.b * 0.8 && bare > dressed && Math.abs(far - free.b) < 0.005, `scarecrow: ${dressed}, bare ${bare}, far ${far}`);
+    check(rate('trigo', 7, l => { for (let x = 2; x < 12; x++) for (let y = 20; y < 30; y++) l.put('tejado_paja', x, y, 'roof'); }) === 0, 'under a roof');
+    const shoo = rate('trigo', 7, l => { l.D(2, 20).shoo = { b: l.day }; }); check(shoo < free.b * 0.5, `scared off: ${shoo}`); const old = rate('trigo', 7, l => { l.D(2, 20).shoo = { b: l.day - 1 }; }); check(Math.abs(old - free.b) < 0.005, 'two days before');
+    // the fence: closed, with a gap, an open gate, a closed one, corners that only touch; the dog
+    const fence = skip => l => l.ring(1, 19, 12, 30, skip);
+    check(rate('zanahoria', 2, fence([])) === 0, 'through a closed fence'); check(Math.abs(rate('zanahoria', 2, fence(['5,19'])) - free.r) < 0.005, 'a gap is closed'); check(Math.abs(rate('zanahoria', 2, fence(['1,19'])) - free.r) < 0.005, 'fences touching at their corners stop them');
+    const gate = shut => l => { l.ring(1, 19, 12, 30, ['5,19']); l.put('puerta_valla', 5, 19); if (shut) (l.D(5, 19).closed ||= {})['5,19'] = true; };
+    check(rate('zanahoria', 2, gate(true)) === 0 && rate('zanahoria', 2, gate(false)) > 0, 'the gate'); check(rate('zanahoria', 2, l => { l.ring(1, 19, 12, 30, ['5,19']); l.put('post', 5, 19); }) === 0, 'a post'); check(rate('zanahoria', 2, l => { l.ring(1, 19, 12, 30, ['5,19']); (l.D(5, 19).dig ||= {})['5,19'] = -0.5; }) === 0, 'a hole');
+    const dog = rate('zanahoria', 2, l => l.g.ranch.animals.push({ type: 'perro', home: [20, 25] })), stray = rate('zanahoria', 2, l => l.g.ranch.animals.push({ type: 'perro', stray: true, home: null })); check(dog < free.r * 0.6 && Math.abs(stray - free.r) < 0.005, `dog ${dog}, stray ${stray}`);
+    // slugs: after the rain, not in winter; the ducks
+    const slug = (opt, set) => rate('cabbage', 2, l => { l.F.pests.dog = () => true; l.ring(1, 19, 12, 30); set?.(l); }, 40, opt), rainy = { season: 0, weather: () => 'lluvia' };
+    const wet = slug(rainy); check(Math.abs(wet - 0.06) < 0.025 && slug({ season: 0 }) === 0 && slug({ season: 3, weather: () => 'lluvia' }) === 0, `slugs: ${wet}, dry ${slug({ season: 0 })}`);
+    check(slug(rainy, l => l.g.ranch.animals.push({ type: 'pato', home: [7, 25] })) === 0 && slug(rainy, l => l.g.ranch.animals.push({ type: 'pato', home: [40, 25] })) > 0, 'the ducks');
+    // what each does: a seedling eaten, a day back, half a day, a peck and never the last one
+    L = pestLab({ season: 1 }); const P = L.F.pests, hit = (id, grow, by) => { const c = { id, grow, hs: 1, hn: 1 }; P.hit(c, by, L.day); return c; };
+    check(hit('nabo', 1, 'r').dead === 'eaten' && hit('nabo', 3, 'r').grow === 2 && !hit('nabo', 4, 'r').dead && hit('cabbage', 1.2, 's').grow === 1 && hit('cabbage', 2, 's').grow === 1.5, 'what they do');
+    const ripe = { id: 'zanahoria', grow: CROPS.zanahoria.days, ripe: 3 }; P.hit(ripe, 'r', L.day); check(ripe.ripe === undefined && ripe.grow === CROPS.zanahoria.days - 1, 'ripe still');
+    // the cherry trees
+    const T = pestLab({ season: 1, dos: 5 }); T.D(3, 20).trees = { '3,20': { kind: 'cherry', day: -50 } }; T.F.fruitOn = () => true; T.F.pests.roll = () => 0; T.night(); T.night(); T.night(); check(T.D(3, 20).pkt['tree:3,20'] === 2, JSON.stringify(T.D(3, 20).pkt)); T.F.forgetTree(T.D(3, 20), 'tree:3,20'); check(!T.D(3, 20).pkt['tree:3,20'], 'the next tree keeps it');
+    console.log(`· a day, for each plant: birds ${(free.b * 100).toFixed(1)} % (dressed scarecrow ${(dressed * 100).toFixed(1)}, bare ${(bare * 100).toFixed(1)}, scared off ${(shoo * 100).toFixed(1)}), rabbits ${(free.r * 100).toFixed(1)} % (dog ${(dog * 100).toFixed(1)}, fence 0), slugs after rain ${(wet * 100).toFixed(1)} % (ducks 0)`);
+  });
+  await test('farm pests (english): marks, harvest, words and the news', async () => {
+    const L = pestLab({ season: 1 }), F = L.F; L.crop('trigo', CROPS.trigo.days, 0, { ripe: L.day, hs: 1, hn: 1, pk: 2, pd: L.day, pb: 'b' });
+    check(F.look(L.c()) === 'p' && F.model(L.c()) === 'crop:trigo:3:p' && F.status(...L.at()).includes(t('farm.state.pecked')), F.status(...L.at())); const random = Math.random; Math.random = () => 0.99; try { check(F.harvest(...L.at()) === 1, 'three less two'); } finally { Math.random = random; }
+    L.crop('trigo', CROPS.trigo.days, 1, { ripe: L.day, hs: 0, hn: 1, pk: 2 }); Math.random = () => 0.99; try { check(F.harvest(...L.at(1)) === 1, 'nothing at all'); } finally { Math.random = random; }
+    L.crop('fresa', CROPS.fresa.days, 2, { ripe: L.day, hs: 1, hn: 1, pk: 1 }); F.harvest(...L.at(2)); check(L.c(2).pk === undefined, 'the next strawberries are pecked');
+    L.crop('zanahoria', 3, 3, { pd: L.day, pb: 'r' }); check(F.look(L.c(3)) === 'n' && F.status(...L.at(3)).includes(t('farm.state.nibbled')), F.status(...L.at(3))); L.c(3).pd -= 5; F.forget(); check(F.look(L.c(3)) === '' && !F.status(...L.at(3)).includes(t('farm.state.nibbled')), 'for ever');
+    L.crop('cabbage', 2, 4, { pd: L.day, pb: 's' }); check(F.look(L.c(4)) === 's' && F.model(L.c(4)) === 'crop:cabbage:1:s', F.model(L.c(4)));
+    L.crop('nabo', 1, 5, { dead: 'eaten', pd: L.day, pb: 'r' }); check(F.look(L.c(5)) === 'e' && F.model(L.c(5)) === 'crop:nabo:1:e' && F.takes(L.c(5)) && F.status(...L.at(5)).includes(t('farm.state.dead_eaten')), F.model(L.c(5))); L.drops.length = 0; F.clear(...L.at(5)); check(!L.c(5) && L.drops[0].join() === 'semilla_nabo,0,1', JSON.stringify(L.drops));
+    for (const m of ['crop:trigo:3:p', 'crop:maiz:3:p', 'crop:fresa:3:p', 'crop:zanahoria:2:n', 'crop:cabbage:3:n', 'crop:cabbage:1:s', 'crop:nabo:1:s', 'crop:nabo:1:e', 'crop:broad_bean:1:e', 'weeds:1:0', 'weeds:2:1', 'weeds:3:2', 'scarecrow:0', 'scarecrow:s:#3a5ab8:1', 'scarecrow:l:#5e5648:0', 'scarecrow:v:#2a3a6a:0']) { const q = modelNamed(m); check(q && [...q.parts.values()].some(B => !B.empty) && [...q.parts.values()].every(B => B.pos.every(Number.isFinite)), m); }
+    const tris = n => [...modelNamed(n).parts.values()].reduce((a, B) => a + B.idx.length / 3, 0); check(tris('weeds:3:2') < 1400 && tris('weeds:1:0') < 300 && tris('scarecrow:s:#3a5ab8:1') < 5000, `${tris('weeds:3:2')}`);
+    // the news, in both languages, with what would help
+    L.c(3).pd = L.day; L.c(4).pd = L.day; L.crop('trigo', 7, 6, { pk: 1, pd: L.day, pb: 'b' }); L.crop('trigo', 7, 7, { pk: 1, pd: L.day, pb: 'b' });
+    const N = F.pests.news([[3, 30]], 64, L.day), was = getLang(); check(N.n === 4 && N.b.get('trigo') === 2 && F.pests.news([[3, 400]], 64, L.day).n === 0, JSON.stringify([N.n, [...N.b]]));
+    try { for (const lang of ['es', 'en']) { await setLang(lang); const text = F.newsText(N); console.log('· ' + text); check(!/farm\.|undefined|\{/.test(text) && text.includes('2') && text.includes(t('farm.news.hint.scarecrow')) && text.includes(t('farm.news.hint.fence')) && text.includes(t('farm.news.hint.ducks')), text); } } finally { await setLang(was); }
+    check(F.pests.count(3, 30, 64, L.day).hits === 4, 'the diary');
+    const html = F.journal.call(Object.assign(Object.create(F), { almanac: F.almanac.bind(F) })); check(html.includes(t('farm.almanac.pests_help')) && html.includes(t('farm.almanac.pests', { weeds: 0, hits: 4 })), html.slice(0, 200));
+  });
+  await test('farm pests (english): living seven days again gives the same, and what travels', async () => {
+    const make = () => { const L = pestLab({ season: 0, dos: 30, weather: d => (d % 3 ? 'sol' : 'lluvia') }); L.field('cabbage', 1, 8, 4, 2, 20); L.field('trigo', 6, 8, 4, 2, 26); for (let x = 2; x < 10; x++) { const d = L.D(x, 25); d.tilled[`${x},25`] = 1; } return L; }, all = L => JSON.stringify([...L.g.world.deltas].map(([k, d]) => [k, d.crops, d.weeds, d.moist]));
+    const a = make(), b = make(); for (const L of [a, b]) for (let i = 0; i < 7; i++) L.dawn(1, true); check(all(a) === all(b), 'two lives differ');
+    const before = structuredClone(a.D(2, 20)), far = structuredClone(before); for (let i = 0; i < 5; i++) a.dawn(1, true); a.D(2, 20).shoo = { b: a.day }; a.D(2, 20).garb = { '3,21': { id: 'camisa', color: '#fff000', tear: 80 } }; const ops = diffChunk(before, a.D(2, 20)); applyOps(far, ops);
+    for (const f of ['crops', 'weeds', 'shoo', 'garb']) check(JSON.stringify(far[f]) === JSON.stringify(a.D(2, 20)[f]) || Object.keys(a.D(2, 20)[f] || {}).every(k => JSON.stringify(far[f][k]) === JSON.stringify(a.D(2, 20)[f][k])), f);
+    check(ops.filter(o => o[0] === 'weeds' || o[0] === 'garb').every(o => o.length === 3 || o.length === 2), 'not tile by tile');
+    // (a guest lives no morning)
+    const G = make(); G.g.live.guest = true; const was = all(G); G.dawn(3); check(all(G) === was, 'a guest decides');
+  });
+  await test('farm pests (english): a season with care and without', async () => {
+    // 60 beds (12 × 5) of one crop, watered daily, its soil kept fertile, gathered two days after it ripens and sown again: what it gives in 80
+    // days against the same field without pests or weeds
+    const run = (id, season, how) => {
+      const random = Math.random; let s = 11; Math.random = () => ((s = (s * 16807) % 2147483647) / 2147483647);
+      try {
+        const L = pestLab({ season, dos: 5, weather: d => (ihash(d, 3, 5) < 0.22 ? 'lluvia' : 'sol') }, { on: !!how }), X = 12, Y = 5; let out = 0, lost = 0, most = 0;
+        for (let j = 0; j < Y; j++) for (let i = 0; i < X; i++) L.D(2 + i, 20 + j).tilled[`${2 + i},${20 + j}`] = 1;
+        if (how?.fence) L.ring(1, 19, 14, 25); if (how?.dog) L.g.ranch.animals.push({ type: 'perro', home: [18, 22] }); if (how?.ducks) L.g.ranch.animals.push({ type: 'pato', home: [16, 24] });
+        if (how?.scarecrow) for (const x of [4, 11]) { L.put('scarecrow', x, 18); (L.D(x, 18).garb ||= {})[`${x},18`] = { id: 'camisa', color: '#8a8a8a' }; }
+        for (let day = 0; day < 80; day++) {
+          let here = 0;
+          for (let j = 0; j < Y; j++) for (let i = 0; i < X; i++) {
+            const x = 2 + i, y = 20 + j, d = L.D(x, y), k = `${x},${y}`; d.tilled[k] ??= 1; (d.moist ||= {})[k] = 100; (d.soil ||= {})[k] = [60, 'x', 1];
+            const c = d.crops?.[k]; if (c?.dead === 'eaten') { lost++; here++; } if (c?.dead) L.F.clear(x, y); else if (c && L.F.ready(c) && L.day - c.ripe >= 2) out += L.F.harvest(x, y);
+            if (how?.weed && d.weeds?.[k] !== undefined) delete d.weeds[k];
+            if (!d.crops?.[k]) { (d.crops ||= {})[k] = { id, grow: 0, day: L.day, hs: 0, hn: 0 }; }
+          }
+          most = Math.max(most, here); L.dawn(1);
+        }
+        return { out, lost, most };
+      } finally { Math.random = random; }
+    };
+    const rows = [['trigo', 1], ['nabo', 0], ['cabbage', 0], ['fresa', 0], ['tomate', 1]], hows = [['sin cuidar', {}], ['arrancando hierbas', { weed: 1 }], ['+ valla', { weed: 1, fence: 1 }], ['+ perro', { weed: 1, dog: 1 }], ['+ patos', { weed: 1, ducks: 1 }], ['+ espantapájaros', { weed: 1, scarecrow: 1 }], ['todo', { weed: 1, fence: 1, dog: 1, ducks: 1, scarecrow: 1 }]];
+    for (const [id, season] of rows) {
+      const base = run(id, season, null).out, res = hows.map(([name, how]) => [name, run(id, season, how)]), pct = r => 100 * (1 - r.out / base);
+      console.log(`· ${id} (${base} sin plagas): ` + res.map(([name, r]) => `${name} −${pct(r).toFixed(0)} %${r.lost ? ` (${r.lost} brotes)` : ''}`).join(' · '));
+      const [none, , , , , , full] = res.map(r => r[1]); check(pct(none) < 60 && pct(full) < 12 && none.most <= 15, `${id}: ${pct(none).toFixed(0)} % / ${pct(full).toFixed(0)} %, most in a morning ${none.most}`);
+    }
+  });
+  await test('farm pests (english): a morning of 2000 beds', async () => {
+    const L = pestLab({ season: 0, weather: () => 'lluvia' }); const ids = ['nabo', 'cabbage', 'trigo', 'zanahoria', 'fresa', 'tomate']; for (let j = 0; j < 40; j++) for (let i = 0; i < 50; i++) L.plant(ids[(i + j) % 6], [1, 3, 6][i % 3], i, j);
+    L.ring(-2, -2, 51, 41); const cost = []; for (let i = 0; i < 9; i++) { L.day++; L.g.days.dayIndex = L.day; const t0 = performance.now(); L.F.pests.dawn(L.day); cost.push(performance.now() - t0); } cost.sort((a, b) => a - b);
+    console.log(`· pests, a morning of 2000 crops: ${cost[4].toFixed(2)} ms (worst ${cost[8].toFixed(2)})`); check(cost[2] < 20, `${cost.map(v => v.toFixed(1))} ms`);   // (10 ms is the budget; twice, for a busy machine)
+    // (the walk of an open field stops soon, and one walk serves the whole garden)
+    const E = new PESTS.Enclosure(L.g.world); E.enclosed(5, 5); const once = E.steps; E.enclosed(6, 6); E.enclosed(30, 20); check(E.steps - once <= 60, `${once}, then ${E.steps - once}`);
+  });
+  await test('farm scarecrow (english): built, dressed, taken down', async () => {
+    await goTo(game, 60, 30);
+    const R = game.ranch, I = inv(); let spot = null;
+    for (let r = 0; r < 16 && !spot; r++) for (let dx = -r; dx <= r && !spot; dx++) for (let dy = -r; dy <= r && !spot; dy++) if ([0, 1, 2].every(i => [0, 1, 2].every(j => w().canTill(60 + dx + i, 30 + dy + j)))) spot = [61 + dx, 31 + dy];
+    check(spot, 'no room'); const [x, y] = spot, k = `${x},${y}`, d = () => w().delta(Math.floor(x / CHUNK), Math.floor(y / CHUNK), true), box = () => w().placedObjectAt(x, y), act = () => R.objectAction(box());
+    check(BUILDABLE.scarecrow.cat === 'Rancho' && !BUILDABLE.scarecrow.needs && BUILDABLE.scarecrow.cost.join() === 'tablas,2,fibra,2', JSON.stringify(BUILDABLE.scarecrow.cost));
+    try {
+      w().setTile(x, y, 'scarecrow'); await frames(3); check(box().model === 'scarecrow:0' && act().text === t('farm.scarecrow.bare'), `${box().model} ${act().text}`);
+      const at = I.slots.findIndex(s => !s); I.slots[at] = { id: 'camisa', n: 1, color: '#3a5ab8', tear: 82 }; I.selected = at; check(act().text === t('farm.scarecrow.dress', { item: itemNoun('camisa') }), act().text);
+      act().run(); await frames(3); check(d().garb[k].id === 'camisa' && d().garb[k].tear === 82 && !I.slots[at] && box().model === 'scarecrow:s:#3a5ab8:1', JSON.stringify([d().garb, I.slots[at], box().model])); check(game.farm.pests.scare(x + 3, y) === 0.25 && game.farm.pests.scare(x + 9, y) === 1, 'its reach');
+      I.slots[at] = { id: 'wool_coat', n: 1, color: '#5e5648' }; act().run(); await frames(3); check(d().garb[k].id === 'wool_coat' && I.count('camisa') === 1 && I.slots.find(s => s?.id === 'camisa').tear === 82, 'changing its clothes'); check(box().model === 'scarecrow:l:#5e5648:0', box().model);
+      I.slots.forEach((s, i) => { if (s?.id === 'camisa') I.slots[i] = null; }); I.selected = at; check(!I.held && act().text === t('farm.scarecrow.undress', { item: itemNoun('wool_coat') }), act().text);
+      check(R.spillOf(box())[0] === 'wool_coat' && !game.pickUp({ tile: [x, y], layer: 'placed', placed: 'scarecrow' }, true) && box(), 'moved dressed'); act().run(); await frames(2); check(!d().garb[k] && I.count('wool_coat') === 1 && box().model === 'scarecrow:0', 'undressed');
+      const J = I.slots.findIndex(s => s?.id === 'wool_coat'); I.selected = J; act().run(); const n = game.gather.drops.length; check(game.pickUp({ tile: [x, y], layer: 'placed', placed: 'scarecrow' }) && !box() && !d().garb?.[k] && game.gather.drops.slice(n).some(q => q.id === 'wool_coat' && q.extra?.color === '#5e5648'), 'its clothes are lost');
+      w().setTile(x, y, 'scarecrow'); (d().garb ||= {})[k] = { id: 'camisa' }; w().setTile(x, y, 'air'); check(!d().garb[k], '/setblock air leaves its clothes');
+    } finally { w().setTile(x, y, 'air'); for (const id of ['camisa', 'wool_coat']) I.slots.forEach((s, i) => { if (s?.id === id) I.slots[i] = null; }); game.gather.drops.length = 0; }
+  });
+  await test('garden visitors (english): birds, rabbits, the gap, the scarecrow and the dog', async () => {
+    await goTo(game, 60, 30);
+    const V = game.visitors, F = game.farm, R = game.ranch, p = game.player, keep = { pests: R.farm.pests, animals: R.animals, diff: game.difficulty, list: game.wildlife.list, gm: game.gamemode };
+    let spot = null; for (let r = 0; r < 40 && !spot; r++) for (let a = 0; a < 24 && !spot; a++) { const cx = Math.floor(60 + Math.cos(a / 24 * 6.283) * r * 2), cy = Math.floor(40 + Math.sin(a / 24 * 6.283) * r * 2); let ok = true; for (let j = -4; j <= 4 && ok; j++) for (let i = -4; i <= 4 && ok; i++) ok = w().canTill(cx + i, cy + j) && w().levelAt(cx + i + 0.5, cy + j + 0.5) !== undefined; if (ok) spot = [cx, cy]; }
+    check(spot, 'no field'); const [X, Y] = spot, used = [], D = (x, y) => w().delta(Math.floor(x / CHUNK), Math.floor(y / CHUNK), true);
+    const plant = (id, grow, x, y) => { used.push([x, y]); w().till(x, y); (D(x, y).crops ||= {})[`${x},${y}`] = { id, grow, day: F.today, hs: 1, hn: 1 }; w().touchAround(x, y); };
+    const tick = (n, dt = 0.1) => { for (let i = 0; i < n; i++) { game.time += dt; V.update(dt); } };
+    try {
+      R.farm.pests = -99; R.animals = []; game.difficulty = 'normal'; game.wildlife.list = []; V.reset(); for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) plant('trigo', CROPS.trigo.days, X + i, Y + j);
+      game.teleport(X + 0.5, Y + 12.5, true); await frames(5); V.birdT = V.rabbitT = 1e9; V.scan(p); check(V.wheat.length === 9 && V.on(), `${V.wheat.length}`);
+      let n = 0; for (let i = 0; i < 9 && !n; i++) n = V.flock(3); check(n === 3 && V.birds.every(b => b.kind === 'sparrow' && b.st === 'in'), `${n}`); tick(60); check(V.birds.length === 3 && V.birds.every(b => b.st === 'down' || b.st === 'hop') && V.birds.every(b => Math.hypot(b.x - X - 0.5, b.y - Y - 0.5) < 4), JSON.stringify(V.birds.map(b => b.st))); game.view3d.visitors3d.update(game, w());
+      check(game.view3d.visitors3d.models.size === 3, `not drawn: ${V.birds.length} birds, ${game.view3d.visitors3d.models.size}`);
+      // (crouched one gets nearer; walking up to them, off they go, and fewer tomorrow in this chunk)
+      p.crouch = true; p.x = X + 0.5; p.y = Y + 4.6; for (const b of V.birds) b.till = 1e9; tick(3); check(V.birds.every(b => b.st !== 'out'), 'crouched, they see one too far off'); p.crouch = false; tick(2); check(V.birds.every(b => b.st === 'out') && D(X, Y).shoo?.b === F.today, JSON.stringify(D(X, Y).shoo)); tick(80); check(!V.birds.length, 'they stay'); game.view3d.visitors3d.update(game, w()); check(!game.view3d.visitors3d.models.size, 'still drawn');
+      V.scan(p); check(V.wheat.every(([x, y]) => D(x, y) !== D(X, Y)), 'they come back the same day'); for (const [x, y] of used) delete D(x, y).shoo;
+      // (the scarecrow: almost never; under a roof, at night or in the rain, none; a spectator scares nobody)
+      p.y = Y + 12.5; w().setTile(X, Y + 2, 'scarecrow'); (D(X, Y + 2).garb ||= {})[`${X},${Y + 2}`] = { id: 'camisa' }; V.scan(p); let came = 0; for (let i = 0; i < 80; i++) { V.birds.length = 0; if (V.flock(1)) came++; } check(came > 5 && came < 40, `with a scarecrow, ${came} of 80`); w().setTile(X, Y + 2, 'air'); V.birds.length = 0;
+      game.difficulty = 'peaceful'; check(!V.on(), 'in peaceful'); game.difficulty = 'normal'; game.gamemode = 'spectator'; p.y = Y + 3; V.birds.length = 0; check(!V.walkers().some(q => q.me), 'a spectator scares'); game.gamemode = keep.gm;
+      // the cap, with wild animals about
+      p.y = Y + 12.5; V.scan(p); for (let i = 0; i < 12; i++) V.flock(5); check(V.birds.length <= 6, `${V.birds.length} birds`); V.birds.length = 0; game.wildlife.list = Array.from({ length: 13 }, () => ({ x: X, y: Y })); for (let i = 0; i < 9; i++) V.flock(5); check(V.birds.length <= 2, `with a herd, ${V.birds.length}`); game.wildlife.list = []; V.birds.length = 0;
+      // the rabbit: in through the gap, it eats, and runs off; closed in, none
+      for (const [x, y] of used) { const c = D(x, y).crops[`${x},${y}`]; c.id = 'zanahoria'; c.grow = 3; } for (let i = -3; i <= 3; i++) for (let j = -3; j <= 3; j++) if (Math.max(Math.abs(i), Math.abs(j)) === 3) w().setTile(X + i, Y + j, 'valla');
+      V.scan(p); check(V.greens.length === 9 && V.rabbit() === null, 'into a closed fence'); w().setTile(X, Y - 3, 'air'); p.x = X + 0.5; p.y = Y + 15; V.scan(p); let r = null; for (let i = 0; i < 12 && !r; i++) r = V.rabbit();
+      check(r && r.path.some(([x, y]) => x === X && y === Y - 3), `${r && r.path.map(String).join(' ')}`); check(V.entities(w()).includes(r), 'not drawn');
+      for (let i = 0; i < 900 && r.st === 'in'; i++) tick(1); check(r.st === 'eat' && r.grazing && Math.hypot(r.x - r.crop[0] - 0.5, r.y - r.crop[1] - 0.5) < 1, r.st); r.till = 1e9; p.x = X + 0.5; p.y = Y + 4.5; tick(1); check(r.st === 'run' && D(...r.crop).shoo?.r === F.today, `${r.st}`); for (let i = 0; i < 400 && V.rabbits.length; i++) tick(1); check(!V.rabbits.length, 'it stays');
+      // the dog: awake and near, it runs from it; one that lives near, few come
+      for (const [x, y] of used) delete D(x, y).shoo; p.y = Y + 15; V.scan(p); r = null; for (let i = 0; i < 12 && !r; i++) r = V.rabbit(); check(r, 'no second one'); for (let i = 0; i < 900 && r.st === 'in'; i++) tick(1); r.till = 1e9; R.animals = [{ type: 'perro', x: r.x + 2, y: r.y, home: [X, Y] }]; tick(1); check(r.st === 'run', 'the dog'); check(!D(X, Y).shoo, 'the dog counts as one'); V.rabbits.length = 0; R.animals[0].x += 500; came = 0; for (let i = 0; i < 40; i++) { V.rabbits.length = 0; if (V.rabbit()) came++; } check(came < 26, `with a dog, ${came} of 40`);
+    } finally { for (let i = -3; i <= 3; i++) for (let j = -3; j <= 3; j++) w().setTile(X + i, Y + j, 'air'); for (const [x, y] of used) { const d = D(x, y); delete d.crops?.[`${x},${y}`]; delete d.tilled[`${x},${y}`]; delete d.shoo; w().touchAround(x, y); } R.farm.pests = keep.pests; R.animals = keep.animals; game.difficulty = keep.diff; game.wildlife.list = keep.list; game.gamemode = keep.gm; p.crouch = false; V.reset(); }
   });
   await test('farm ranch (english): manure, fodder and compost', async () => {
     await goTo(game, 60, 30);

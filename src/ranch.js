@@ -32,6 +32,8 @@ import { stalkingAs } from './presence.js';
 import { downwind, EVENT } from './senses.js';
 import { DUNG, PILE_MAX, DIRTY_EVERY, HEAP_AT, heapSize, COMPOST, organic, compostAt, compostModel, FEED, FEED_BAG, FEED_MOST, feedModel } from './soil.js';
 import { parsePlaced } from './pieces.js';
+import { SHIRTS, PEST } from './pests.js';
+import { extraOf } from './inventory.js';
 
 const PER_HOME = { gallinero: 4, establo: 4, conejera: 4, cuadra: 2, caseta: 1, cojin: 1 };
 const FRONT = { gallinero: 2.15, establo: 2.25 };   // las casas grandes: del centro a donde se entra (delante de la puerta)
@@ -1037,6 +1039,7 @@ export class Ranch {
         return { text: `Poner ${ITEMS[egg].name.toLowerCase()} a incubar`, run: () => { inv.remove(egg, 1); d.incub[k] = { id: egg, day: this.today }; touched(); Audio.place(); } };
       }
       case 'compost_bin': return this.compostAction(o, d, k);
+      case 'scarecrow': return this.scarecrowAction(o, d, k);
       case 'trough': return this.game.horsecare.troughAction(o);
       case 'palomar': return this.dovecote();
     }
@@ -1072,10 +1075,11 @@ export class Ranch {
     }
     return out;
   }
-  // What falls out of a house or a bin that is taken down: [item, how many], or null
+  // What falls out of a house, a bin or a scarecrow that is taken down: [item, how many, what it says of itself], or null
   spillOf(o) {
     const d = this.world.delta(Math.floor(o.tile[0] / CHUNK), Math.floor(o.tile[1] / CHUNK)), k = `${o.tile[0]},${o.tile[1]}`, pile = Math.floor(d?.manure?.[k] || 0);
     if (o.placed === 'compost_bin' && d?.compost?.[k]) { const c = compostAt(d.compost[k], this.today); return c.ready ? ['abono', COMPOST.gives] : c.units ? ['fibra', c.units] : null; }
+    if (o.placed === 'scarecrow' && ITEMS[d?.garb?.[k]?.id]) { const { id, ...extra } = d.garb[k]; return [id, 1, extra]; }
     return HEAP_AT[o.placed] && pile >= 1 ? ['manure', pile] : null;
   }
   // All the manure waiting in the stables
@@ -1107,6 +1111,31 @@ export class Ranch {
     Audio.dig();
     g.skills?.gain('granja', 1);
     g.onSave?.();
+  }
+  // The scarecrow (pests.js): a garment in the hand goes on it (what it had on comes back); with none, what it wears is taken
+  // off. Dressed, it scares far more
+  scarecrowAction(o, d, k) {
+    const g = this.game, inv = g.inv, on = ITEMS[d.garb?.[k]?.id] ? d.garb[k] : null, pick = { text: tr('farm.scarecrow.dismantle'), run: () => g.pickUp(o) };
+    const held = inv.held, dress = held && SHIRTS.has(ITEMS[held.id]?.wear) ? held : null;
+    const changed = () => { this.world.touch(Math.floor(o.tile[0] / CHUNK), Math.floor(o.tile[1] / CHUNK)); Audio.swish(); g.onSave?.(); };
+    const takeOff = () => {
+      const was = d.garb?.[k];
+      if (!ITEMS[was?.id]) return;
+      delete d.garb[k];
+      const { id, ...extra } = was;
+      if (inv.add(id, 1, extra)) g.gather.throwOut(id, 1, extra);
+    };
+    if (dress) return { text: tr(on ? 'farm.scarecrow.swap' : 'farm.scarecrow.dress', { item: itemNoun(dress.id) }), alt: pick, run: () => {
+      if (inv.held !== dress) return;
+      const it = inv.take(inv.selected, 1);
+      if (!it) return;
+      takeOff();
+      (d.garb ||= {})[k] = { id: it.id, ...extraOf(it) };
+      g.gather.float(tr('farm.scarecrow.dressed', { r: PEST.b.R }), '#a8f0a0');
+      changed();
+    } };
+    if (on) return { text: tr('farm.scarecrow.undress', { item: itemNoun(on.id) }), alt: pick, run: () => { takeOff(); changed(); } };
+    return { text: tr('farm.scarecrow.bare'), alt: pick, run: () => { g.gather.float(tr('farm.scarecrow.bare'), '#ffe9a8'); Audio.blip(); } };
   }
   // The compost bin: what is in the hand goes in, if it rots; full, it takes its days; ready, the compost comes out
   compostAction(o, d, k) {

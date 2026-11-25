@@ -14,14 +14,14 @@ function sheet(rows) {
   }
   return soup(p);
 }
-function soup(p) {
+export function soup(p) {
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute(p, 3));
   g.computeVertexNormals();
   g.setAttribute('uv', new THREE.Float32BufferAttribute(new Array((p.length / 3) * 2).fill(0), 2));
   return g;
 }
-const points = g => Array.from((g.index ? g.toNonIndexed() : g).attributes.position.array);
+export const points = g => Array.from((g.index ? g.toNonIndexed() : g).attributes.position.array);
 // Several pieces in one: [geometry, position, euler (YXZ), scale]
 function join(list) {
   const p = [], v = new THREE.Vector3(), m4 = new THREE.Matrix4(), e = new THREE.Euler();
@@ -33,7 +33,7 @@ function join(list) {
   return soup(p);
 }
 // One leaf towards +z, folded along its midrib: widths along it (the first and the last 0: a point), how it bends (y of z)
-const blade = (widths, bend, fold = 0.12) => sheet(widths.map((w, i) => {
+export const blade = (widths, bend, fold = 0.12) => sheet(widths.map((w, i) => {
   const z = i / (widths.length - 1), y = bend(z);
   return [[-w, y + w * fold, z], [0, y, z], [w, y + w * fold, z]];
 }));
@@ -84,12 +84,13 @@ const POINT = new THREE.ConeGeometry(1, 1, 3, 1, true).translate(0, 0.5, 0).toNo
 const WINGED = blade([0, 0.5, 0.42, 0], z => 0.5 * z * z, 0.6);
 
 // m: the model's geo (over the bed); L: its state's look (models.js CROP_LOOK); mix(hex, [to, how much]); R: its own dice
-export function winterCrop(m, id, stage, st, L, c, mix, R) {
+// (cut(g): the same leaf with holes, for a plant slugs have been at: pests3d.js)
+export function winterCrop(m, id, stage, st, L, c, mix, R, cut = null) {
   const hang = L.hang || 0, tall = L.tall || 1, big = stage === 3 ? 1 : stage === 2 ? 0.72 : 0.42, ripe = stage === 3, dead = st === 'k' || st === 'd' || st === 'r';
   const leaf = (hex, k = 1) => 'leafc:' + (L.leaf ? mix(hex, [L.leaf[0], L.leaf[1] * k]) : hex), fruit = hex => 'fruit:' + (L.fruit ? mix(hex, L.fruit) : hex);
   // (a piece that comes out at its rise over the ground, negative up, and hangs when the plant is ill, down to low at most and
   // never with its tip under the bed)
-  const put = (key, g, x, y, z, rise, yaw, roll, s, low = 1.2, k = 1) => { const len = s.length ? s[2] : s; low = Math.min(low, Math.asin(Math.min(1, (y + 0.06) / len)) - 0.14); m.geo(key, g, x, y, z, [Math.min(Math.max(low, rise), rise + hang * k), yaw, roll, 'YXZ'], s); };
+  const put = (key, g, x, y, z, rise, yaw, roll, s, low = 1.2, k = 1) => { if (cut && key.startsWith('leafc:')) g = cut(g); const len = s.length ? s[2] : s; low = Math.min(low, Math.asin(Math.min(1, (y + 0.06) / len)) - 0.14); m.geo(key, g, x, y, z, [Math.min(Math.max(low, rise), rise + hang * k), yaw, roll, 'YXZ'], s); };
   const main = leaf(c.leaf), pale = leaf(mix(c.leaf, ['#b9c48a', 0.3])), deep = leaf(mix(c.leaf, ['#2c4a2c', 0.3])), tips = L.tips ? 'leafc:' + L.tips : pale;
   const tone = i => (i % 5 === 1 ? tips : i % 3 === 2 ? deep : main);
   // (a stem from the ground: where a point of it is, and itself)
