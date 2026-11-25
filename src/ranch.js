@@ -49,6 +49,8 @@ const GRAZE_R = 8, STAY_R = 2.5, GRAZE_TRY = 14, EAT = [6, 10], GRAZE_REST = [40
 const MOUTH = { vaca: 0.8, caballo: 0.85, oveja: 0.55, cabra: 0.6, conejo: 0.2 };
 const within = ([a, b]) => a + Math.random() * (b - a);
 // Lo que se les da a mano para que busquen pareja (las aves, cualquier semilla), cuánto dura y cuánto descansan luego
+// (the seeds birds eat too: not a tuber or a clove)
+const PECKS = /^(semilla_|seed_(cabbage|broad_bean)$)/;
 const LOVE_FOOD = { gallina: ['trigo'], pato: ['trigo'], vaca: ['trigo'], oveja: ['trigo'], cabra: ['trigo'], cerdo: ['zanahoria'], conejo: ['zanahoria'] };
 const HEAT_MS = 30000, REST_MS = 5 * 60000, MATE_NEAR = 8;
 const SPEED = { gallina: 1.1, pato: 0.9, conejo: 1.3, cerdo: 0.8, cabra: 1, caballo: 1.3, perro: 1.6, gato: 1.2 };
@@ -1140,7 +1142,7 @@ export class Ranch {
   loveFood(a) {
     const held = this.game.inv.held?.id, foods = LOVE_FOOD[a.type];
     if (!held || !foods || this.young(a)) return null;
-    return foods.includes(held) || (a.def.bird && held.startsWith('semilla_')) ? held : null;
+    return foods.includes(held) || (a.def.bird && PECKS.test(held)) ? held : null;
   }
   // Dárselo: se pone en celo un rato (salvo si ya lo está o acaba de tener una cría)
   court(a, food) {

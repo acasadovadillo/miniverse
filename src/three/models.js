@@ -29,6 +29,7 @@ const BEVEL = Object.assign(
   { ashlar: 0.035 },
 );
 import { CROPS, ITEMS } from '../items.js';
+import { winterCrop } from './wintercrops.js';
 import { BULKY } from '../carry-items.js';
 import * as CARRY from '../carry-items.js';   // (BARROW: read as a namespace, so this file loads before the logic has it)
 import { WALL_H, FLOOR_H } from './build3d.js';
@@ -873,12 +874,14 @@ const CROP_LOOK = {
   r: { leaf: ['#6a5834', 0.85], fruit: ['#3a2a1c', 0.82], hang: 0.8, tall: 0.75, fallen: true },
 };
 const mixHex = (a, [b, k]) => '#' + new THREE.Color(a).lerp(new THREE.Color(b), k).getHexString();
+const WINTER = new Set(['potato', 'broad_bean', 'cabbage', 'garlic']);   // (wintercrops.js)
 function crop2(m, id, stage, st) {
   const c = CROPS[id], L = CROP_LOOK[st] || CROP_LOOK[''], hang = L.hang || 0, TALL = L.tall || 1, ink = L.leaf ? mixHex(c.leaf, L.leaf) : c.leaf;
   const fruitKey = 'fruit:' + (L.fruit ? mixHex(c.color, L.fruit) : c.color), leafKey = 'leafc:' + ink, tipKey = L.tips ? 'leafc:' + L.tips : leafKey, R = rng2(id.length * 31 + stage * 7);
   // (a leaf: it comes out at its angle over the ground, rot[0], to its side, rot[1], and hangs if the plant is ill; low: how far
   // it can hang, so the ones by the soil lie on it. The order is YXZ: with XYZ the whole rosette tipped, half under the soil)
   const leaf = (key, x, y, z, rot, scale, low = 1.3) => m.geo(key, LEAF2, x, y, z, [Math.min(Math.max(low, rot[0]), rot[0] + hang), rot[1], rot[2], 'YXZ'], scale);
+  if (WINTER.has(id)) return winterCrop(m, id, stage, st, L, c, mixHex, R);
   m.geo('crumb', ICO1, 0, 0, 0, [0, 0, 0], [0.13, 0.04, 0.13]);
   const big = stage === 3 ? 1 : stage === 2 ? 0.75 : 0.45;
   // Una mata de hojas en roseta: n hojas de largo len, saliendo con la inclinación rise (cuanto más negativa, más tumbadas)

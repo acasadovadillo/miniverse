@@ -135,18 +135,19 @@ function cropsIn(ctx) {
 // diary's almanac has it. [{ sub, params }]: 'sow' (a good day: about n days), 'slow' (it grows, but little by little),
 // 'cold' / 'hot' (nothing today: a seed would wait), 'frost' (a fine day, but tonight would kill what is sown), 'wont' (it
 // would not make it), 'none_sown' (a good one that nobody has in the ground, and Rosa sells), 'grow' (in the ground),
-// 'frost_sown' (near you, and tonight may bite it) and 'no_crops' (too cold for all of them)
+// 'frost_sown' (near you, and tonight may bite it) and 'no_crops' (the cold: nothing does well today, only the hardy ones, slowly)
 const FIELDS = { x: 0, y: 30 };    // (a tile of the village: its fields' weather)
-const GOOD = 0.5, SLOWER = 1.5;    // sow: a day at least this good, and no more than this many times the days of its best
+const GOOD = 0.5, SLOWER = 1.5, COLD = 8;    // sow: a day at least this good, and no more than this many times the days of its best
 const SOLD = (id, season) => (SHOPS.rosa?.stock || []).some(e => e.id === seedOf(id) && (!e.seasons || e.seasons.includes(season)));
 export function cropNews(ctx) {
   const farm = ctx.game.farm, out = [];
   if (!farm) return out;
   const a = farm.almanac(FIELDS.x, FIELDS.y), grown = cropsIn(ctx), danger = ctx.hour >= 5 ? farm.frostTonight() : [];   // (after midnight «tonight» could be either night)
-  let alive = false;
+  let well = false;
   for (const { id, days: n } of a.crops) {
     const g = GROW[id], r = rateAt(id, a.mean), P = { id, crop: someOf(id), n, c: Math.round(a.min) };
-    if (r > 0) alive = true;
+    const good = r >= GOOD && n <= CROPS[id].days * SLOWER;
+    if (good) well = true;
     if (danger.includes(id)) out.push({ sub: 'frost_sown', params: P });
     if (grown?.has(id)) { out.push({ sub: 'grow', params: P }); continue; }
     if (a.min <= g.kill) { if (r > 0 && ctx.hour >= 5 && a.min + MULCH_FROST <= g.kill) out.push({ sub: 'frost', params: P }); }
@@ -154,12 +155,11 @@ export function cropNews(ctx) {
     else if (a.mean <= g.base) out.push({ sub: 'cold', params: P });
     else if (a.mean >= g.stop) out.push({ sub: 'hot', params: P });
     else {
-      const good = r >= GOOD && n <= CROPS[id].days * SLOWER;
       out.push({ sub: good ? 'sow' : 'slow', params: P });
       if (good && grown && SOLD(id, ctx.season)) out.push({ sub: 'none_sown', params: P });
     }
   }
-  if (!alive && a.mean <= Math.min(...Object.values(GROW).map(g => g.base))) out.push({ sub: 'no_crops' });
+  if (!well && a.mean < COLD) out.push({ sub: 'no_crops' });
   return out;
 }
 // What bites well now and where, as fishing decides it (fishwater.js: the village's hour, season, weather and water): the

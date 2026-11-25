@@ -11,7 +11,7 @@ import { Profile } from './accounts.js';
 import { t, getLang } from './i18n.js';
 
 const $ = id => document.getElementById(id);
-// Unas semillas que crezcan ahora (en invierno no crece nada)
+// Seeds of something that grows now (in winter, the first of the winter crops: the broad beans)
 const seedNow = g => { const c = Object.keys(CROPS).find(id => CROPS[id].seasons.includes(g.days.season)); return c ? seedOf(c) : null; };
 
 // id, lo que hay que hacer y una pista. Se cumple con stat + need (cuántos más que al empezar el paso), o con done(g).

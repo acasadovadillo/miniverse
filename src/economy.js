@@ -56,7 +56,7 @@ export const SHOPS = {
   rosa: {
     title: 'Puesto de Rosa', hours: [9, 18], buysAll: true,
     stock: [
-      ...Object.keys(CROPS).map(c => ({ id: seedOf(c), seasons: CROPS[c].seasons, price: Math.round(CROPS[c].price * 0.5) })),
+      ...Object.keys(CROPS).map(c => ({ id: seedOf(c), seasons: CROPS[c].seasons, price: CROPS[c].seed ?? Math.round(CROPS[c].price * 0.5) })),
       { id: 'semilla_manzano', price: 120 }, { id: 'abono', price: 25 },
       { animal: 'gallina', name: 'Gallina', price: 400 }, { animal: 'pato', name: 'Pato', price: 500 }, { animal: 'conejo', name: 'Conejo', price: 700 },
       { animal: 'cabra', name: 'Cabra', price: 1000 }, { animal: 'cerdo', name: 'Cerdo', price: 1300 }, { animal: 'oveja', name: 'Oveja', price: 1200, project: 'mercado' }, { animal: 'vaca', name: 'Vaca', price: 1500, project: 'mercado' },

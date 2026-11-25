@@ -78,9 +78,21 @@ export const CROPS = {
   maiz: { name: 'Maíz', seasons: [1], days: 8, color: '#f0d040', leaf: '#5a9a3a', food: 12, price: 50 },
   trigo: { name: 'Trigo', seasons: [0, 1, 2], days: 4, color: '#e0b850', leaf: '#a8a040', price: 25 },
   calabaza: { name: 'Calabaza', seasons: [1], days: 9, color: '#e8822a', leaf: '#4a8a3a', food: 20, price: 120 },
+  // (their names and texts, in the language files; the ids are English from here on: cropdata.js seedOf. seed: what Rosa asks
+  // for one, if not half the price of what it gives: a cabbage is one head from a seed as small as a pinhead)
+  potato: { seasons: [0, 1], days: 6, color: '#c4a060', leaf: '#4c7a38', food: 5, price: 25 },
+  broad_bean: { seasons: [2, 3, 0], days: 6, color: '#86ac48', leaf: '#6a8f62', food: 8, price: 30 },
+  cabbage: { seasons: [0, 2, 3], days: 7, color: '#a8c47c', leaf: '#5e8a66', food: 14, price: 45, seed: 15 },
+  garlic: { seasons: [2, 3], days: 8, color: '#ebe4d8', leaf: '#86a45a', food: 3, price: 35 },
 };
 const SEASON_NAMES = ['primavera', 'verano', 'otoño', 'invierno'];
 for (const [id, c] of Object.entries(CROPS)) {
+  if (!c.name) {
+    const seed = { seed: id }, crop = { food: c.food };
+    Object.assign(ITEMS, defineNames({ [seedOf(id)]: seed }, 'item', ['name']), defineNames({ [id]: crop }, 'item'));
+    Object.defineProperty(seed, 'desc', { get: () => t('item.seed.desc', { seasons: fmt.list(c.seasons.map(s => t('nature.season.' + s))), days: c.days }), enumerable: true });
+    continue;
+  }
   ITEMS[seedOf(id)] = { name: `Semillas de ${c.name.toLowerCase()}`, desc: `Siémbralas en tierra labrada y riégalas. Crecen en ${c.seasons.map(s => SEASON_NAMES[s]).join(', ').replace(/, (?=[^,]*$)/, ' y ')} (${c.days} días).`, seed: id };
   ITEMS[id] = { name: c.name, desc: c.food ? 'Recién cogido del huerto.' : 'Para hacer harina y pan.', food: c.food };
 }
@@ -109,6 +121,10 @@ Object.assign(ITEMS, {
   palomitas: { name: 'Palomitas', desc: 'Pop.', food: 20 },
   tostada_miel: { name: 'Tostada con miel', desc: 'Desayuno de campeones: quita el hambre y da velocidad.', food: 45, buff: ['rapido', 90] },
 });
+// (the dishes of the winter crops: their names and texts, in the language files)
+const WINTER_DISHES = { baked_potato: { food: 25 }, potato_omelette: { food: 60 }, garlic_soup: { food: 45, thirst: 6 }, bean_stew: { food: 75, thirst: 4, buff: ['incansable', 180] } };
+Object.assign(ITEMS, WINTER_DISHES);
+defineNames(WINTER_DISHES, 'item');
 // ---------- El arco (archery.js) ----------
 Object.assign(ITEMS, {
   arco: { name: 'Arco', desc: 'Mantén pulsado para tensar y suelta para disparar: cuanto más tenso, más lejos llega y más daña.', bow: true, stack: 1, dur: 200 },

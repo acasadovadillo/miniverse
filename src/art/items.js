@@ -115,6 +115,10 @@ Object.assign(DRAW, {
   tortilla(R, g) { ellipse(g, 8, 10, 7, 4, '#f0d070'); ellipse(g, 8, 9, 6, 3, '#f8e090'); R(5, 8, 2, 1, '#c8a040'); R(10, 10, 2, 1, '#c8a040'); },
   queso(R, g) { poly(g, [[2, 12], [14, 12], [14, 6], [2, 9]], '#f0c840'); poly(g, [[2, 9], [14, 6], [11, 4], [2, 8]], '#f8e070'); R(6, 10, 2, 1, '#c8a020'); R(11, 8, 2, 2, '#c8a020'); },
   pan(R, g) { ellipse(g, 8, 10, 7, 4, '#b07a3a'); ellipse(g, 8, 9, 6, 3, '#d0a060'); for (const x of [4, 7, 10]) R(x, 8, 2, 1, '#f0d090'); },
+  baked_potato(R, g) { ellipse(g, 8, 10, 6, 4, '#8a5c30'); R(4, 8, 8, 2, '#f0e2b4'); R(7, 7, 2, 2, '#f4d860'); },
+  potato_omelette(R, g) { ellipse(g, 8, 10, 7, 4, '#b8822e'); ellipse(g, 8, 9, 6, 3, '#e2b84c'); poly(g, [[8, 9], [15, 8], [14, 12]], '#f2dc8c'); },
+  garlic_soup(R, g) { ellipse(g, 8, 10, 7, 4, '#e8e0d0'); ellipse(g, 8, 9, 6, 3, '#a2522c'); R(5, 8, 3, 2, '#d8b070'); R(9, 8, 2, 2, '#eeb030'); },
+  bean_stew(R, g) { ellipse(g, 8, 10, 7, 4, '#a87a50'); ellipse(g, 8, 9, 6, 3, '#8e7238'); R(5, 8, 2, 1, '#9aa85a'); R(9, 9, 2, 1, '#b4c468'); R(7, 10, 2, 1, '#d8b870'); },
   tarta_calabaza(R, g) { ellipse(g, 8, 10, 7, 4, '#c8925a'); ellipse(g, 8, 9, 6, 3, '#e8822a'); R(7, 7, 2, 2, '#ffffff'); },
   sopa_verduras(R, g) { ellipse(g, 8, 10, 7, 4, '#e8e0d0'); ellipse(g, 8, 9, 6, 3, '#c87a3a'); R(5, 8, 2, 1, '#f08a2a'); R(9, 9, 2, 1, '#5aa842'); R(7, 2, 1, 3, 'rgba(255,255,255,.6)'); },
   pescado_asado(R, g) { ellipse(g, 8, 11, 7, 3, '#e8e0d0'); ellipse(g, 8, 9, 5, 2, '#c87a3a'); poly(g, [[12, 9], [15, 7], [15, 11]], '#a85a2a'); R(5, 8, 1, 1, '#2a1c22'); },
@@ -184,6 +188,10 @@ function cropIcon(R, g, c, id) {
   if (id === 'maiz') { R(5, 3, 6, 11, c.color); for (let y = 4; y < 13; y += 2) R(6, y, 4, 1, '#d8b030'); R(3, 6, 2, 8, c.leaf); R(11, 6, 2, 8, c.leaf); return; }
   if (id === 'zanahoria') { poly(g, [[5, 5], [11, 5], [8, 15]], c.color); R(6, 7, 3, 1, '#c86a1a'); R(5, 1, 2, 4, c.leaf); R(9, 1, 2, 4, c.leaf); return; }
   if (id === 'calabaza') { ellipse(g, 8, 10, 7, 5, c.color); ellipse(g, 6, 9, 2, 4, '#f0a04a'); R(7, 3, 2, 3, '#5a7a3a'); return; }
+  if (id === 'potato') { ellipse(g, 8, 9, 6, 4, c.color); ellipse(g, 7, 8, 4, 2, '#d4b478'); for (const [x, y] of [[5, 8], [9, 7], [11, 10], [7, 11]]) R(x, y, 1, 1, '#7a5a34'); return; }
+  if (id === 'cabbage') { ellipse(g, 8, 9, 7, 6, c.leaf); ellipse(g, 8, 9, 5, 5, c.color); R(8, 4, 1, 9, '#d4dcb0'); R(5, 7, 1, 4, '#d4dcb0'); R(11, 7, 1, 4, '#d4dcb0'); return; }
+  if (id === 'garlic') { ellipse(g, 8, 10, 5, 4, c.color); R(7, 2, 2, 5, '#d8ccb0'); for (const x of [5, 8, 11]) R(x, 8, 1, 5, '#b79ab0'); return; }
+  if (id === 'broad_bean') { line(g, 2, 12, 13, 3, c.leaf); line(g, 3, 13, 14, 4, c.color); line(g, 2, 13, 13, 4, c.color); for (const [x, y] of [[5, 10], [8, 8], [11, 6]]) R(x, y, 2, 2, '#b6cc82'); return; }
   blob(g, 8, 10, id === 'fresa' ? 4 : 5, c.color);
   if (id === 'nabo') { R(6, 10, 4, 3, '#b86ab8'); R(8, 15, 1, 1, '#e8e0d0'); }
   if (id === 'fresa') for (const [x, y] of [[6, 9], [9, 10], [7, 12]]) R(x, y, 1, 1, '#f8e070');

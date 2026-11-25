@@ -3,7 +3,7 @@
 // own tables. A system (game.nature), made after collection (its backfill reads Collections). Private to each player,
 // like Collections: nothing travels.
 //
-// Phase G-1: 55 species (animals, fish, insects, plants). The 4 sea-life pages (seaweed, seashell, mussel, oyster) come
+// Phase G-1: 59 species (animals, fish, insects, plants). The 4 sea-life pages (seaweed, seashell, mussel, oyster) come
 // in G-2, with the 'sea' group. With ?naturebook=0 nothing here runs and the save's `nature` is carried through untouched.
 //
 // How a page fills (§4.2): looking at a species for 1.5 s (a ring at the cursor while it fills, only for wild things
@@ -64,7 +64,7 @@ const LIST = [
     'siluro', 'pulpo', 'atun', 'esturion', 'tench', 'barbel', 'crayfish', 'mackerel', 'sea_bream', 'squid', 'pez_dorado'].map(id => [id, 'fish', null]),
   ...['mariposa', 'mariquita', 'saltamontes', 'libelula', 'luciernaga', 'escarabajo', 'grillo', 'polilla'].map(id => [id, 'bug', null]),
   ...['oak', 'fruit', 'pine', 'snowPine', 'swampTree', 'palm', 'cactus', 'bush', 'deadBush', 'margarita', 'diente_leon',
-    'nabo', 'fresa', 'zanahoria', 'tomate', 'maiz', 'trigo', 'calabaza'].map(id => [id, 'plant', null]),
+    'nabo', 'fresa', 'zanahoria', 'tomate', 'maiz', 'trigo', 'calabaza', 'potato', 'broad_bean', 'cabbage', 'garlic'].map(id => [id, 'plant', null]),
 ];
 export const SPECIES_IDS = LIST.map(([id]) => id);
 // Decision 3a: 15 species → 500 coins and 2 apple seeds; 35 → 1500 and 2 potions; all → 5000 and a display cabinet

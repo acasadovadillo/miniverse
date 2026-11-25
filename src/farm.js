@@ -485,6 +485,7 @@ export class Farm {
       if (this.over(c)) n = Math.max(1, Math.floor(n / 2));
       if (Math.random() < (g.skills?.bonus('agricultura') || 0)) n++;
       if (s[0] > SOIL.rich && Math.random() < RICH_MORE) n++;
+      if (word && word !== 'poor' && Math.random() < (GROW[c.id].more || 0)) n++;
       if (GROW[c.id].bees && Math.random() < BEES.more && this.beesAt(tx, ty)) n++;
       g.gather.spawnDrops(at, { drops: straw ? [[c.id, n, n], ['straw', straw, straw]] : [[c.id, n, n]] });
       if (word && !quiet) g.gather.float(t('farm.harvest.quality.' + word), HARVEST_COLOR[word]);

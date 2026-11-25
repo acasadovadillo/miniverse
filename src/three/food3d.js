@@ -203,6 +203,74 @@ for (const [id, f] of Object.entries(FISH_MODELS)) BUILD[id] = viewOf(f, id === 
 for (const [id, f] of Object.entries(TACKLE_MODELS)) BUILD[id] = viewOf(f, { worm: 'flat', cut_bait: 'food' }[id] || 'fish');
 for (const [id, f] of Object.entries(FISH)) BUILD[id] ||= f.crab ? viewOf(g => { add(g, blob(v => { v.y *= 0.45; v.x *= 1.3; }), M(f.color, { roughness: 0.5 }), [0, 0, 0], 0.05); for (const s of [-1, 1]) add(g, BALL, M(f.color), [s * 0.075, 0, 0.03], [0.022, 0.016, 0.03]); }, 'flat')
   : f.octo ? octopus(f.color) : f.round ? g => add(g, LUMP, M(f.color, { roughness: 0.5 }), [0, 0, 0], 0.05) : fishModel(f.color, false, f);
+// ---------- the winter crops (phase R2-D): what they give, their dishes and what is sown of them ----------
+const TUBER = blob(v => { const k = 1 + 0.07 * Math.sin(v.x * 4 + 1) * Math.sin(v.y * 3) + 0.05 * Math.sin(v.z * 5); v.multiplyScalar(k); v.x *= 1.35; v.y *= 0.92; });
+const EYES = [[0.9, 0.5, 0.45], [-0.2, 0.75, 0.62], [-1.0, 0.35, 0.5], [0.35, 0.2, 0.95], [-0.5, -0.2, 0.92], [0.5, 0.7, -0.5]];
+function tuber(g, at, s, c, eyes = true, rot = [0, 0, 0]) {
+  const o = new THREE.Group(); o.position.set(...at); o.rotation.set(...rot); g.add(o);
+  add(o, TUBER, M(c, { roughness: 0.9 }), [0, 0, 0], s);
+  if (eyes) for (const [x, y, z] of EYES) { const d = new THREE.Vector3(x / 1.35, y / 0.92, z).normalize(); add(o, BALL, M('#7a5a34', { roughness: 1 }), [d.x * s * 1.37, d.y * s * 0.94, d.z * s * 1.01], [s * 0.14, s * 0.045, s * 0.08]); }
+  return o;
+}
+// (a clove: a drop with one flat side; the bulb: eight of them under its paper, drawn up into a dry neck)
+const CLOVE = blob(v => { const t = (v.y + 1) / 2; v.x *= 0.62 * (1 - 0.55 * t * t); v.z *= 0.75 * (1 - 0.5 * t * t) * (v.z < 0 ? 0.5 : 1); v.z += 0.28 * t * t; v.y *= 1.15; });
+const GARLIC = blob(v => { const a = Math.atan2(v.z, v.x), up = Math.max(0, v.y), k = (1 + 0.055 * Math.cos(a * 8) * (1 - v.y * v.y)) * (1 - 0.72 * up ** 2.2); v.x *= k; v.z *= k; v.y = v.y > 0 ? v.y * 1.05 : v.y * 0.6; }, 32);
+// (a pod, its beans showing through, a little curved; towards +x)
+const PODG = blob(v => { const x = v.x, k = 1 + 0.16 * Math.cos(x * 13); v.y *= 0.2 * k; v.z *= 0.15 * k; v.x *= 1; v.y += 0.12 * x * x; }, 30);
+const HALF = new THREE.SphereGeometry(1, 20, 8, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2), WEDGED = new THREE.CylinderGeometry(1, 1, 1, 28, 1, false, 0.25, Math.PI * 2 - 0.85), FACE = new THREE.PlaneGeometry(1, 1).translate(0.5, 0, 0);
+// (a leaf of the cabbage round its head, towards +z: u across, t from its foot up over the top, its edge standing off; its veins, over it)
+const onHead = (u, t, k = 0) => { const el = -1.05 + t * 2.45, half = 0.35 + 0.75 * Math.sin(Math.PI * (0.15 + 0.75 * t)), az = u * half, r = 1 + 0.075 * Math.abs(u) ** 3 + 0.09 * t ** 5 + 0.012 * Math.sin(t * 9 + u * 7) * Math.abs(u) + k; return [Math.sin(az) * Math.cos(el) * r, Math.sin(el) * r, Math.cos(az) * Math.cos(el) * r]; };
+function grid(nu, nt, f) {
+  const p = [], idx = [];
+  for (let j = 0; j <= nt; j++) for (let i = 0; i <= nu; i++) p.push(...f(i / nu, j / nt));
+  for (let j = 0; j < nt; j++) for (let i = 0; i < nu; i++) { const a = j * (nu + 1) + i, b = a + 1, c = a + nu + 1; idx.push(a, b, c + 1, a, c + 1, c); }
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(p, 3)); g.setIndex(idx); g.computeVertexNormals(); return g;
+}
+const SHELL = grid(10, 10, (a, b) => onHead(a * 2 - 1, b));
+const vein = (u0, t0, u1, t1, w) => grid(1, 5, (a, b) => onHead(u0 + (u1 - u0) * b + (a - 0.5) * w * (1 - 0.75 * b), t0 + (t1 - t0) * b - (a - 0.5) * (u1 ? Math.sign(u1) * w * 0.6 : 0), 0.022));
+const VEINS = [vein(0, 0, 0, 0.95, 0.09), ...[[0.14, 0.46], [0.36, 0.7]].flatMap(([a, b]) => [-1, 1].map(s => vein(0, a, s * 0.7, b, 0.034)))];
+const bean = (g, at, s, c, r = [0, 0, 0]) => add(g, BALL, M(c, { roughness: 0.6 }), at, [s, s * 0.45, s * 0.72], r);
+Object.assign(BUILD, {
+  potato: g => { tuber(g, [0, 0, 0], 0.042, '#c4a060'); },
+  cabbage: g => {
+    add(g, BALL, M('#a6c07c', { roughness: 0.6 }), [0, 0, 0], [0.088, 0.082, 0.088]);
+    for (let i = 0; i < 5; i++) {
+      const o = new THREE.Group(), s = 0.089 + i * 0.0022; o.rotation.set(-0.1, i * 2.513, 0, 'YXZ'); g.add(o);
+      add(o, SHELL, M(['#86a866', '#98b674', '#7d9f62'][i % 3], { roughness: 0.65, side: THREE.DoubleSide }), [0, 0, 0], s);
+      for (const v of VEINS) add(o, v, M('#cdd8a8', { roughness: 0.6, side: THREE.DoubleSide }), [0, 0, 0], s);
+    }
+    add(g, CYL, M('#c8cfa0'), [0, -0.085, 0], [0.018, 0.02, 0.018]);
+  },
+  garlic: g => {
+    add(g, GARLIC, M('#ebe4d8', { roughness: 0.6 }), [0, 0, 0], 0.036);
+    for (let i = 0; i < 8; i++) { const a = (i + 0.5) * Math.PI / 4; add(g, BALL, M('#b79ab0', { roughness: 0.6 }), [Math.cos(a) * 0.0332, 0.002, Math.sin(a) * 0.0332], [0.0013, 0.011, 0.0013]); }
+    add(g, CONE, M('#ddd2b8', { roughness: 0.9 }), [0.003, 0.05, 0], [0.011, 0.05, 0.011], [0, 0, -0.15]);
+    for (let i = 0; i < 6; i++) add(g, CYL, M('#b8a888'), [Math.cos(i) * 0.006, -0.026, Math.sin(i) * 0.006], [0.0012, 0.014, 0.0012], [Math.sin(i) * 0.7, 0, -Math.cos(i) * 0.7]);
+  },
+  broad_bean: g => {
+    add(g, PODG, M('#7c9c44', { roughness: 0.65 }), [0, 0.012, -0.022], 0.1, [0, 0.15, 0.1]);
+    add(g, CONE, M('#8aa45a'), [0.107, 0.032, -0.038], [0.006, 0.03, 0.006], [0, 0, -1.2]);
+    add(g, HALF, M('#93b05a', { roughness: 0.6, side: THREE.DoubleSide }), [0, 0.002, 0.03], [0.095, 0.016, 0.02], [0, -0.1, 0]);
+    for (let i = -1.5; i <= 1.5; i++) bean(g, [i * 0.038, 0.004, 0.03 + i * 0.004], 0.017, '#b6cc82', [0, 0.2, 0]);
+  },
+  baked_potato: viewOf(g => {
+    tuber(g, [0, 0, 0], 0.046, '#8a5c30', false);
+    for (const r of [0.2, 1.77]) add(g, BALL, M('#f0e2b4', { roughness: 0.8 }), [0, 0.032, 0], [r < 1 ? 0.045 : 0.03, 0.013, 0.009], [0, r, 0]);
+    add(g, new THREE.BoxGeometry(1, 1, 1), M('#f4d860', { roughness: 0.3 }), [0.002, 0.047, 0], [0.018, 0.01, 0.016], [0, 0.5, 0.08]);
+    for (let i = 0; i < 5; i++) add(g, BALL, M('#4f8a3a'), [Math.cos(i * 2.4) * 0.016, 0.043, Math.sin(i * 2.4) * 0.014], 0.0028);
+  }, 'flat'),
+  potato_omelette: viewOf(g => {
+    add(g, WEDGED, M('#e2b84c', { roughness: 0.7 }), [0, 0, 0], [0.092, 0.05, 0.092]);
+    for (const y of [-0.0255, 0.0255]) add(g, WEDGED, M('#b8822e', { roughness: 0.8 }), [0, y, 0], [0.09, 0.004, 0.09]);
+    for (const a of [0.25, Math.PI * 2 - 0.6]) { const q = a - Math.PI / 2; add(g, FACE, M('#f2dc8c', { roughness: 0.7, side: THREE.DoubleSide }), [0, 0, 0], [0.0915, 0.047, 1], [0, q, 0]); for (let k = 0; k < 4; k++) add(g, BALL, M('#f6ecc0', { roughness: 0.8, side: THREE.DoubleSide }), [Math.cos(q) * (0.02 + k * 0.018), (k % 2 ? 0.009 : -0.009), -Math.sin(q) * (0.02 + k * 0.018)], [0.009, 0.006, 0.002], [0, q, 0]); }
+    for (let i = 1; i < 9; i++) { const a = 0.55 + i * 0.6, d = 0.03 + 0.035 * ((i * 0.618) % 1); add(g, CYL, M('#946022', { roughness: 0.9 }), [Math.sin(a) * d, 0.0278, Math.cos(a) * d], [0.011, 0.001, 0.008], [0, i, 0]); }
+  }, 'flat'),
+  garlic_soup: viewOf(g => { bowl('#a2522c', ['#d8b070', '#ece2cc'])(g); for (let i = 0; i < 3; i++) add(g, SLAB, M('#c89858', { roughness: 0.95 }), [Math.cos(i * 2.1 + 0.4) * 0.03, 0.018, Math.sin(i * 2.1 + 0.4) * 0.028], 0.016, [0.1, i, 0]); add(g, BALL, M('#f6f2e6', { roughness: 0.4 }), [0.004, 0.015, 0.004], [0.022, 0.005, 0.02]); add(g, BALL, M('#eeb030', { roughness: 0.3 }), [0.004, 0.02, 0.004], [0.01, 0.006, 0.01]); }, 'flat'),
+  bean_stew: viewOf(g => { bowl('#8e7238', ['#d8b870', '#c06a3a'])(g); for (let i = 0; i < 6; i++) bean(g, [Math.cos(i * 2.4) * 0.042 * Math.sqrt((i + 1) / 6), 0.018, Math.sin(i * 2.4) * 0.042 * Math.sqrt((i + 1) / 6)], 0.011, i % 2 ? '#9aa85a' : '#b4a866', [0, i, 0]); for (let i = 0; i < 3; i++) add(g, SLAB, M('#8fae62', { roughness: 0.6 }), [Math.cos(i * 2.1) * 0.026, 0.018, Math.sin(i * 2.1) * 0.026], 0.012, [0.15, i * 2, 0.1]); }, 'flat'),
+  seed_potato: g => { tuber(g, [-0.018, 0, 0.008], 0.026, '#b8945a', true, [0, 0.3, 0]); tuber(g, [0.032, -0.004, -0.014], 0.022, '#c4a060', true, [0.4, -0.5, 0]); for (const [x, y, z, r] of [[-0.03, 0.026, 0.01, 0.3], [-0.01, 0.028, 0.016, -0.25], [0.03, 0.02, -0.012, -0.1], [0.045, 0.016, -0.016, -0.6]]) add(g, CONE, M('#e0c8d0', { roughness: 0.6 }), [x, y + 0.006, z], [0.005, 0.022, 0.005], [0, 0, r]); },
+  seed_garlic: g => { for (let i = 0; i < 4; i++) { const o = add(g, CLOVE, M(i % 2 ? '#e2d0d2' : '#eee6da', { roughness: 0.5 }), [Math.cos(i * 1.7) * 0.026, (i === 3 ? 0.016 : 0), Math.sin(i * 1.7) * 0.022], 0.019); o.rotation.set(0.9 + i * 0.2, i * 1.9, 0.5); } },
+  seed_broad_bean: g => { for (let i = 0; i < 6; i++) { const a = i * 2.4, d = 0.034 * Math.sqrt(i / 6); bean(g, [Math.cos(a) * d, (i % 3) * 0.008, Math.sin(a) * d], 0.017, i % 2 ? '#a0784a' : '#b08a58', [0.2 * i, a, 0.15]); add(g, BALL, M('#2a1c14'), [Math.cos(a) * d + Math.cos(a) * 0.0155, (i % 3) * 0.008, Math.sin(a) * d - Math.sin(a) * 0.0155 * 0.7], [0.002, 0.003, 0.004]); } },
+});
 // Las pociones (su color, de la ficha)
 for (const [id, def] of Object.entries(ITEMS)) if (def.potion) BUILD[id] ||= potion(def.potion);
 // Lo plano se ve mejor más desde arriba: los quesos, la mantequilla, la tortilla, la tostada y el filete

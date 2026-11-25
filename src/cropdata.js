@@ -9,6 +9,7 @@
 //   poor, best          what a neglected plant and a well-kept one give
 //   seeds               [how many are used, how many seeds come out] by hand (recipes.js), or null: only from going to seed
 //   feeds, fam          what a harvest takes from the soil (below 0: gives) and its family, for rotation (soil.js)
+//   more                chance of one more from a well-kept plant (cabbage: a big head)
 //   bees                insects pollinate it: a hive near gives more (soil.js BEES)
 //   was                 the seasons it used to grow in, before the weather decided: crops from then keep growing in them
 export const GROW = {
@@ -19,6 +20,11 @@ export const GROW = {
   maiz:      { base: 10, lo: 20, hi: 30, stop: 38, bite: 2,   kill: 0,   window: 6,  end: 'rot',  poor: 2, best: 3, seeds: [1, 4], was: [1, 2], feeds: 15, fam: 'grass' },
   trigo:     { base: 3,  lo: 12, hi: 24, stop: 32, bite: -10, kill: -15, window: 6,  end: 'rot',  poor: 2, best: 3, seeds: [1, 3], was: [1, 2], feeds: 10, fam: 'grass' },
   calabaza:  { base: 12, lo: 20, hi: 30, stop: 36, bite: 2,   kill: 0,   window: 12, end: 'rot',  poor: 1, best: 2, seeds: [1, 5], was: [2], feeds: 15, fam: 'cucurbit', bees: true },
+  // (the winter ones and the legume, phase R2-D; garlic comes up through the winter, the beans feed the soil: feeds below 0)
+  potato:     { base: 7, lo: 15, hi: 22, stop: 30, bite: 0,   kill: -2,  window: 10, end: 'rot',  poor: 3, best: 5, seeds: [1, 2], was: [], feeds: 10, fam: 'nightshade' },
+  broad_bean: { base: 2, lo: 8,  hi: 18, stop: 26, bite: -6,  kill: -9,  window: 5,  end: 'rot',  poor: 2, best: 3, seeds: [1, 2], was: [], feeds: -10, fam: 'legume', bees: true },
+  cabbage:    { base: 4, lo: 10, hi: 20, stop: 27, bite: -5,  kill: -9,  window: 8,  end: 'bolt', poor: 1, best: 1, seeds: null,   was: [], feeds: 12, fam: 'brassica', more: 0.5 },
+  garlic:     { base: 0, lo: 8,  hi: 20, stop: 30, bite: -12, kill: -18, window: 10, end: 'rot',  poor: 1, best: 2, seeds: [1, 4], was: [], feeds: 5, fam: 'allium' },
 };
 // The soil's moisture (0..100): enough (full growth) and too little (none), for a plant and for a seedling (its roots are
 // short: it wants water daily in summer). dryDays: mornings in a row without any water until it dies; thirsty: until it

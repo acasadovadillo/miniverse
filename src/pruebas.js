@@ -561,7 +561,7 @@ async function soloTests(game) {
     const ids = Object.keys(CROPS), plant = L => ids.forEach((id, i) => L.crop(id, 2, i));
     let L = farmLab({ season: 3, weather: () => 'nieve' }); plant(L); L.dawn();
     const dead = ids.filter((id, i) => L.c(i).dead === 'frost').sort().join();
-    check(dead === 'calabaza,maiz,tomate', `the snow night killed: ${dead}`);
+    check(dead === 'calabaza,maiz,potato,tomate', `the snow night killed: ${dead}`);
     check(L.c(ids.indexOf('fresa')).fb === L.day && L.c(ids.indexOf('fresa')).grow < 2 && L.c(ids.indexOf('trigo')).fb === undefined, 'the strawberry is not bitten, or the wheat is');
     check(L.F.model(L.c(ids.indexOf('tomate'))) === 'crop:tomate:1:k' && L.F.model(L.c(ids.indexOf('fresa'))).endsWith(':f') === (L.F.age(L.c(ids.indexOf('fresa'))) > 0), `models: ${L.F.model(L.c(ids.indexOf('tomate')))}, ${L.F.model(L.c(ids.indexOf('fresa')))}`);
     L.drops.length = 0; L.F.take(...L.at(ids.indexOf('tomate'))); check(L.drops.some(([id, n]) => id === 'semilla_tomate' && n === 1) && !L.c(ids.indexOf('tomate')), `clearing it: ${JSON.stringify(L.drops)}`);
@@ -706,7 +706,7 @@ async function soloTests(game) {
     const S = await import('./soil.js'), { fertAt, soilWord, takesFrom, soilTone } = S;
     check(fertAt(19) === 0.7 && Math.abs(fertAt(20) - 0.85) < 1e-9 && Math.abs(fertAt(35) - 0.925) < 1e-9 && fertAt(50) === 1 && fertAt(70) === 1 && fertAt(71) === 1.15, 'the factor');
     check(['poor', 'tired', 'thin', 'fertile', 'rich'].join() === [[10, 60], [40, 60], [45, 45], [60, 60], [80, 60]].map(a => soilWord(...a)).join() && soilTone(80) === 1 && soilTone(60) === 0 && soilTone(10) === 2, 'the words or the looks');
-    for (const id of Object.keys(CROPS)) check(GROW[id].feeds > 0 && GROW[id].fam, `${id} takes nothing from the soil`);
+    for (const id of Object.keys(CROPS)) check((id === 'broad_bean' ? GROW[id].feeds === -10 : GROW[id].feeds > 0) && GROW[id].fam, `${id} takes nothing from the soil`);
     const random = Math.random; Math.random = () => 0.99;
     try {
       // (five tomato plants on the same tile: from the meadow's 60 to nothing, and the next one grows at 0.7)
@@ -822,6 +822,134 @@ async function soloTests(game) {
       R.animals = keep; R.farm.seen = seen; R.farm.hay = hay;
       for (const tile of [home, bin, tr]) { const d = D(tile), k = String(tile); for (const f of ['manure', 'compost', 'feed', 'fodder']) if (d[f]) delete d[f][k]; w().setTile(...tile, 'air'); }
     }
+  });
+  // ---------- R2-D: the winter crops (docs/planes/realismo/PLAN-R2-huerto.md §3.2) ----------
+  const WINTER = ['potato', 'broad_bean', 'cabbage', 'garlic'], DISHES = ['baked_potato', 'potato_omelette', 'garlic_soup', 'bean_stew'];
+  await test('winter crops (english): items, names in both languages, seeds, recipes and Rosa\'s calendar', async () => {
+    const was = getLang(), { knownItem } = await import('./items.js'), { FEED, organic } = await import('./soil.js'), { foodModel } = await import('./three/food3d.js');
+    try {
+      for (const lang of ['en', 'es']) {
+        await setLang(lang);
+        for (const id of [...WINTER, ...WINTER.map(seedOf), ...DISHES]) { const d = ITEMS[id]; check(d?.name && !/item\./.test(d.name) && d.desc && !/item\.|nature\.|[{}]|undefined/.test(d.desc), `${lang} ${id}: ${d?.name} · ${d?.desc}`); check(formatMessage('{x, the}', { x: itemNoun(id) }).length > 4, id); }
+        check(ITEMS.seed_garlic.desc.includes(t('nature.season.3')) && ITEMS.seed_garlic.desc.includes('8') && !ITEMS.seed_potato.desc.includes(t('nature.season.3')), ITEMS.seed_garlic.desc);
+      }
+      check(formatMessage('{x, the}', { x: itemNoun('broad_bean') }) === 'el haba', formatMessage('{x, the}', { x: itemNoun('broad_bean') }));
+    } finally { await setLang(was); }
+    for (const id of [...WINTER, ...WINTER.map(seedOf), ...DISHES]) check(itemIcon(id) && weightOf(id) > 0 && priceOf(id) > 0 && ITEMS[id].stack === 99 && knownItem(id) && !ITEMS[id].hide, `${id}: icon, weight, price`);
+    for (const id of [...WINTER, ...DISHES, 'seed_potato', 'seed_garlic', 'seed_broad_bean']) { const m = foodModel(id); let n = 0; m.traverse(o => { if (o.isMesh) n += (o.geometry.index ? o.geometry.index.count : o.geometry.attributes.position.count) / 3; }); check(n > 50 && n < 9000, `${id} in the hand: ${n} triangles`); }
+    for (const id of WINTER) check(ITEMS[id].food > 0 && CROPS[id].price && organic(id) === 1 && weightOf(id) > weightOf('seed_cabbage'), `${id}: food, price, compost`);
+    check(FEED.cabbage === 2, 'the trough does not take cabbages');
+    for (const id of DISHES) { const r = RECIPES.filter(r => r.out === id); check(r.length === 1 && r[0].station === 'cocina' && r[0].ins.every(([i]) => ITEMS[i]) && priceOf(id) > r[0].ins.reduce((n, [i, k]) => n + priceOf(i) * k, 0) && ITEMS[id].food > 0, `${id}: ${JSON.stringify(r)}`); }
+    check(RECIPES.some(r => r.out === 'sopa_verduras' && r.ins.some(([i]) => i === 'cabbage')) && new Set(RECIPES.map(r => r.id)).size === RECIPES.length, 'the winter soup, or two recipes with the same id');
+    // (what a seed costs at Rosa's: less than what its poorest harvest sells for; and what is made by hand sells for no more than what it is made of)
+    const at = s => SHOPS.rosa.stock.filter(e => e.seasons?.includes(s) && ITEMS[e.id]?.seed).map(e => ITEMS[e.id].seed).sort().join();
+    check(at(3) === 'broad_bean,cabbage,garlic', `she sells in winter: ${at(3)}`);
+    check([0, 1, 2].every((s, i) => WINTER.filter(id => at(s).split(',').includes(id)).sort().join() === ['broad_bean,cabbage,potato', 'potato', 'broad_bean,cabbage,garlic'][i]), `${at(0)} / ${at(1)} / ${at(2)}`);
+    for (const id of WINTER) check(SHOPS.rosa.stock.find(e => e.id === seedOf(id)).price < CROPS[id].price * GROW[id].poor, `${id}: the seed costs more than its poorest harvest`);
+    // (the first steps: in winter there is something to sow)
+    const st = STEPS.find(q => q.id === 'labrar'), sow = STEPS.find(q => q.id === 'sembrar'), G = season => ({ days: { season } });
+    check([0, 1, 2, 3].map(q => st.items(G(q))[0][0]).join() === 'semilla_nabo,semilla_tomate,semilla_nabo,seed_broad_bean' && [0, 1, 2, 3].every(q => !sow.skip(G(q))), `the steps: ${[0, 1, 2, 3].map(q => JSON.stringify(st.items(G(q))))}`);
+    // (the birds peck the beans and the cabbage seeds, not tubers or cloves)
+    const inv = game.inv, sel = inv.selected, first = inv.slots[0];
+    try { inv.selected = 0; const eats = id => { inv.slots[0] = { id, n: 1 }; return game.ranch.loveFood({ type: 'gallina', def: { bird: true } }); }; check(['seed_cabbage', 'seed_broad_bean', 'semilla_nabo'].every(id => eats(id) === id) && !eats('seed_potato') && !eats('seed_garlic'), 'what the birds eat'); } finally { inv.slots[0] = first; inv.selected = sel; }
+  });
+  await test('winter crops (english): the village\'s winter, its frosts and a late potato', async () => {
+    const random = Math.random; Math.random = () => 0.99;
+    try {
+      // (sown in mid-winter, clear days: beans about 10 days, garlic and cabbage about 12; nothing dies)
+      const ripe = {};
+      for (const id of ['broad_bean', 'garlic', 'cabbage', 'nabo', 'trigo']) { const L = farmLab({ season: 3 }); L.crop(id, 0); let n = 0; while (n < 40 && !L.F.ready(L.c()) && !L.c().dead) { L.dawn(1, true); n++; } ripe[id] = L.c().dead ? L.c().dead : n; }
+      console.log('· días hasta cosechar en pleno invierno: ' + JSON.stringify(ripe));
+      check(Math.abs(ripe.broad_bean - 9) <= 2 && Math.abs(ripe.garlic - 11) <= 3 && Math.abs(ripe.cabbage - 14) <= 3, JSON.stringify(ripe));
+      // (a snow night: −3 °C; the potato dies, the others do not even notice; the pines' winter nights)
+      let L = farmLab({ season: 3, weather: () => 'nieve' }); WINTER.forEach((id, i) => L.crop(id, 3, i)); L.dawn(1, true);
+      check(WINTER.map((id, i) => L.c(i).dead || (L.c(i).fb !== undefined ? 'bitten' : 'well')).join() === 'frost,well,well,well', WINTER.map((id, i) => JSON.stringify(L.c(i))).join(' '));
+      L.drops.length = 0; L.F.take(...L.at(0)); check(L.drops[0]?.[0] === 'seed_potato' && !L.c(0), `clearing it: ${JSON.stringify(L.drops)}`);
+      L = farmLab({ season: 3 }); WINTER.forEach((id, i) => { L.crop(id, 4.6, i); L.F.growCrop(L.c(i), 101, { mean: 1, min: -7, season: 3 }, 100, 0, true); });
+      check(WINTER.map((id, i) => L.c(i).dead || (L.c(i).fb !== undefined ? 'bitten' : 'well')).join() === 'frost,bitten,bitten,well', 'at −7 °C');
+      check(L.F.model(L.c(1)) === 'crop:broad_bean:2:f' && L.F.model(L.c(0)) === 'crop:potato:2:k', `${L.F.model(L.c(1))} ${L.F.model(L.c(0))}`);
+      // (a potato sown in winter waits for the warmth, or is refused on a night that would kill it)
+      L = farmLab({ season: 3 }); L.bed(); check(L.F.sowText('potato', ...L.at()) && L.F.said.sow.ok, 'a clear winter night refuses it'); check(L.F.said.sow.text.includes('°C'), L.F.said.sow.text);
+      L = farmLab({ season: 3, weather: () => 'nieve' }); L.bed(); L.F.sowText('potato', ...L.at()); check(!L.F.said.sow.ok, 'a snow night takes it'); L.F.forget(); L.F.sowText('garlic', ...L.at()); check(L.F.said.sow.ok, 'a snow night refuses the garlic');
+      // (their ends: the cabbage goes to seed, the others rot and leave one or two)
+      for (const id of WINTER) {
+        L = farmLab({ season: 0 }); L.crop(id, CROPS[id].days - 0.01); L.dawn(1, true); check(L.F.ready(L.c()), `${id} does not ripen`);
+        const W = GROW[id].window + Math.ceil(GROW[id].window / 2); for (let i = 0; i < W; i++) { L.d.moist[L.k()] = 100; L.day++; L.g.days.dayIndex = L.day; L.F.growCrop(L.c(), L.day, { mean: 12, min: 6, season: 0 }, 100, 0, true); }
+        L.drops.length = 0; const model = L.F.model(L.c()); L.F.take(...L.at()); check(id === 'cabbage' ? model === 'crop:cabbage:3:b' && L.drops[0][0] === 'seed_cabbage' && L.drops[0][1] === 3 : model === `crop:${id}:3:r` && L.drops[0][0] === seedOf(id) && L.drops[0][1] === 1, `${id}: ${model} ${JSON.stringify(L.drops)}`);
+      }
+      // (what each gives: poor and well kept; the cabbage, sometimes two)
+      const give = (id, hs) => { const Q = farmLab({ season: 0 }); Q.crop(id, CROPS[id].days, 0, { hs, hn: 10, ripe: Q.day }); return Q.F.harvest(...Q.at()); };
+      check(WINTER.map(id => [give(id, 0), give(id, 10)].join('-')).join() === '3-5,2-3,1-1,1-2', WINTER.map(id => [give(id, 0), give(id, 10)].join('-')).join());
+      Math.random = () => 0.4; check(give('cabbage', 10) === 2 && give('cabbage', 2) === 1, `a big cabbage: ${give('cabbage', 10)}, ${give('cabbage', 2)}`);
+    } finally { Math.random = random; }
+  });
+  await test('winter crops (english): the beans feed the soil, and turns of families rest it', async () => {
+    const random = Math.random; Math.random = () => 0.99;
+    try {
+      const L = farmLab({ season: 2 }); L.bed(); L.d.soil = { [L.k()]: [30, 'nightshade', 3] };
+      L.g.inv = { held: null, count: () => 9, remove() {} };
+      const cut = id => { L.F.sow?.(...L.at(), id); Object.assign(L.c() || L.crop(id), { grow: CROPS[id].days, ripe: L.day, hs: 5, hn: 5 }); L.F.harvest(...L.at()); return L.d.soil[L.k()].join(); };
+      check(cut('broad_bean') === '40,legume,1', `beans: ${L.d.soil[L.k()]}`); check(cut('broad_bean') === '50,legume,2', `beans again: ${L.d.soil[L.k()]}`);
+      check(cut('garlic') === '45,allium,1', `garlic: ${L.d.soil[L.k()]}`); check(cut('cabbage') === '33,brassica,1', `cabbage: ${L.d.soil[L.k()]}`); check(cut('potato') === '23,nightshade,1', `potato: ${L.d.soil[L.k()]}`);
+      L.d.soil[L.k()] = [97, 'legume', 1]; check(cut('broad_bean').startsWith('100,'), `at most 100: ${L.d.soil[L.k()]}`);
+      // (a tomato bed: three plants, then three again with a winter of beans in between)
+      const year = beans => { const Q = farmLab({ season: 1 }); Q.bed(); Q.d.soil = { [Q.k()]: [60, '', 0] }; const pick = id => { Q.crop(id, CROPS[id].days, 0, { ripe: Q.day, hs: 5, hn: 5 }); Q.F.harvest(...Q.at()); delete Q.d.crops[Q.k()]; }; for (let y = 0; y < 2; y++) { for (let i = 0; i < 3; i++) pick('tomate'); if (beans) for (let i = 0; i < 3; i++) pick('broad_bean'); } return Q.d.soil[Q.k()][0]; };
+      check(year(false) === 0 && year(true) > 30, `two years of tomatoes: ${year(false)} without beans, ${year(true)} with them`);
+      for (const f of ['nightshade', 'brassica', 'allium', 'legume']) { const Q = farmLab({ season: 0 }); check(Q.F.tiredText([50, f, 3]).length > 6 && !/farm\./.test(Q.F.tiredText([50, f, 3])), f); }
+    } finally { Math.random = random; }
+  });
+  await test('winter crops (english): the plants, every stage and state, light and over the soil', async () => {
+    const tri = {}, seen = new Set();
+    for (const id of WINTER) for (const st of ['1', '2', '3', '1:w', '2:w', '1:f', '2:f', '3:o', '3:b', '3:k', '2:k', '1:k', '2:d', '3:d', '3:r']) {
+      if (st === '3:b' && id !== 'cabbage') continue;
+      const m = modelNamed(`crop:${id}:${st}`); let n = 0, lo = 9, hi = -9, far = 0, bad = 0; const keys = [];
+      for (const [key, b] of m.parts) { keys.push(key.split(':')[0]); n += b.idx.length / 3; for (let i = 0; i < b.pos.length; i += 3) { if (![b.pos[i], b.pos[i + 1], b.pos[i + 2]].every(Number.isFinite)) bad++; lo = Math.min(lo, b.pos[i + 1]); hi = Math.max(hi, b.pos[i + 1]); far = Math.max(far, Math.hypot(b.pos[i], b.pos[i + 2])); } for (let i = 0; i < b.nor.length; i += 3) if (!(Math.hypot(b.nor[i], b.nor[i + 1], b.nor[i + 2]) > 0.5)) bad++; }
+      if (st.length === 1) (tri[id] ||= []).push(n);
+      check(!bad && n < 800 && lo > -0.06 && hi > 0.05 && hi < 1.4 && far < 0.75, `${id} ${st}: ${n} triangles, ${lo.toFixed(2)}…${hi.toFixed(2)}, ${far.toFixed(2)} away, ${bad} bad`);
+      check(keys.every(k => ['leafc', 'fruit', 'crumb'].includes(k)), `${id} ${st}: a material of its own: ${keys}`);
+      seen.add(`${id}${n}${hi.toFixed(3)}${far.toFixed(3)}${st}`);
+    }
+    console.log('· triángulos por planta (brote/media/lista): ' + JSON.stringify(tri));
+  });
+  await test('winter crops (english): a game that does not know them keeps them as they are', async () => {
+    // (an older game: the same code without those crops. Its morning, its labels, its content and its map do not break, and they are kept)
+    const keep = WINTER.map(id => [id, CROPS[id], GROW[id], ITEMS[id], ITEMS[seedOf(id)]]), L = farmLab({ season: 3 }), { knownItem } = await import('./items.js');
+    WINTER.forEach((id, i) => { L.crop(id, 3, i, { hs: 2, hn: 2 }); }); L.crop('nabo', 2, 5); const was = JSON.stringify(L.d.crops), out = { objects: [], colliders: [] };
+    try {
+      for (const id of WINTER) { delete CROPS[id]; delete GROW[id]; delete ITEMS[id]; delete ITEMS[seedOf(id)]; }
+      L.dawn(3, true);
+      check(L.c(5).grow > 2 && JSON.stringify(WINTER.map((id, i) => L.c(i))) === JSON.stringify(Object.values(JSON.parse(was)).slice(0, 4)), `touched: ${JSON.stringify(L.d.crops)}`);
+      L.F.addContent(0, 1, L.d, out); check(out.objects.length === 1 && out.objects[0].crop.id === 'nabo', `drawn: ${out.objects.map(o => o.crop?.id)}`);
+      for (let i = 0; i < 4; i++) { check(!L.F.takes(L.c(i)) && !L.F.ready(L.c(i)) && L.F.status(...L.at(i)) === '' && L.F.harvest(...L.at(i)) === 0, 'it can be taken'); }
+      check(L.F.frostTonight().length >= 0 && L.F.almanac(0, 30).crops.length === Object.keys(GROW).length && !/undefined|NaN/.test(L.F.status(...L.at(5))), 'the almanac');
+      check(!knownItem('potato') && !knownItem('seed_garlic'), 'the items are known');
+    } finally { for (const [id, c, g, i, q] of keep) { CROPS[id] = c; GROW[id] = g; ITEMS[id] = i; ITEMS[seedOf(id)] = q; } }
+    L.dawn(1, true); check(L.c(1).grow > 3 && L.c(3).grow > 3, `back in this game they do not go on: ${JSON.stringify(L.d.crops)}`);
+  });
+  await test('winter crops (english): what a season gives, by crop', async () => {
+    // (a tile, well watered and kept at its land's fertility, sown again the day it is harvested with seeds bought from Rosa; the weather of the seed)
+    let turn = 0; const random = Math.random; Math.random = () => (turn++ % 2 ? 0.25 : 0.75);
+    const table = {};
+    try {
+      for (const season of [0, 1, 2, 3]) for (const id of Object.keys(CROPS)) {
+        const L = farmLab({ season, dos: 1, weather: d => game.days.weatherFor(FARM_DAY(season, 1) + (d - 100) - game.days.base) }), seed = SHOPS.rosa.stock.find(e => e.id === seedOf(id)).price;
+        let money = 0, n = 0, dead = 0; const sow = () => { L.F.sowText(id, ...L.at()); L.F.forget(); if (!L.F.said.sow.ok || L.F.daysHere(id, ...L.at()) === Infinity) return; money -= seed; L.crop(id, 0); };
+        L.bed();
+        for (let d = 0; d < 91; d++) {
+          if (!L.c()) sow();
+          L.d.soil = { [L.k()]: [60, '', 0] };
+          L.dawn(1, true);
+          const c = L.c(); if (!c) continue;
+          if (c.dead) { dead++; delete L.d.crops[L.k()]; } else if (L.F.ready(c)) { const g = L.F.harvest(...L.at()); money += g * priceOf(id); n += g; }
+        }
+        (table[id] ||= []).push([Math.round(money / 91 * 10) / 10, n, dead]);
+      }
+    } finally { Math.random = random; }
+    console.log('· monedas por casilla y día (primavera/verano/otoño/invierno): ' + Object.entries(table).map(([id, r]) => `${id} ${r.map(q => q[0] + (q[2] ? `†${q[2]}` : '')).join('/')}`).join(' · '));
+    const best = s => Math.max(...Object.keys(CROPS).map(id => table[id][s][0])), winter = ['broad_bean', 'cabbage', 'garlic'].map(id => table[id][3][0]);
+    check(winter.every(v => v > 2) && Math.max(...winter) < best(1) && Math.max(...winter) < best(0), `winter: ${winter}, spring ${best(0)}, summer ${best(1)}`);
+    check(['broad_bean', 'cabbage', 'garlic'].every(id => table[id][3][2] === 0) && table.potato[3][0] <= 0, `deaths in winter: ${JSON.stringify(table.potato[3])}`);
+    for (const id of WINTER) check(Math.max(...table[id].map(q => q[0])) < best(1) * 1.2, `${id} beats everything: ${JSON.stringify(table[id])}`);
   });
   await test('farm soil play (english): reading the soil and feeding it with the real hands', async () => {
     await goTo(game, 60, 30);
@@ -8441,7 +8569,7 @@ async function soloTests(game) {
           const c2 = ctxOf('rosa', 12), al = game.farm.almanac(0, 30), news = cropNews(c2);
           for (const { sub, params: P } of news) {
             subs.add(sub);
-            if (sub === 'no_crops') { check(al.mean <= 3 && Object.keys(GROW).every(id => rateAt(id, al.mean) === 0), `no crops at ${al.mean}`); continue; }
+            if (sub === 'no_crops') { check(al.mean < 8 && al.crops.every(c => rateAt(c.id, al.mean) < 0.5 || c.days > CROPS[c.id].days * 1.5), `no crops at ${al.mean}`); continue; }
             const g = GROW[P.id], r = rateAt(P.id, al.mean), n = game.farm.daysHere(P.id, 0, 30), kills = al.min <= g.kill;
             const fits = { sow: n === P.n && r >= 0.5 && n <= CROPS[P.id].days * 1.5 && !kills, slow: n === P.n && r > 0 && n < Infinity && !kills, cold: r === 0 && al.mean <= g.base && n < Infinity, hot: r === 0 && al.mean >= g.stop && n < Infinity, frost: kills && r > 0, wont: n === Infinity, none_sown: !c2.crops.has(P.id) && r > 0, grow: c2.crops.has(P.id), frost_sown: game.farm.frostTonight().includes(P.id) }[sub];
             check(fits, `day ${d}, ${al.mean.toFixed(1)}° (night ${al.min.toFixed(1)}°): ${sub} ${JSON.stringify(P)}, ${n} days, rate ${r.toFixed(2)}`);
@@ -10591,7 +10719,7 @@ async function soloTests(game) {
     });
   });
   await test('nature (english): every species has names, facts and a model', async () => {
-    check(SPECIES_IDS.length === 61 && GROUPS.every(gr => SPECIES_IDS.some(id => SPECIES[id].group === gr)), `${SPECIES_IDS.length} species`);
+    check(SPECIES_IDS.length === 65 && GROUPS.every(gr => SPECIES_IDS.some(id => SPECIES[id].group === gr)), `${SPECIES_IDS.length} species`);
     const [en, es] = await Promise.all(['en', 'es'].map(l => fetch(`src/lang/${l}.json`).then(r => r.json())));
     const miss = SPECIES_IDS.flatMap(id => ['name', 'note'].flatMap(k => [en, es].filter(L => !L[`nature.${k}.${id}`]).map(L => `${L === en ? 'en' : 'es'} nature.${k}.${id}`)));
     check(!miss.length, `missing: ${miss.slice(0, 8)}`);
