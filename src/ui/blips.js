@@ -26,7 +26,7 @@ import { Profile } from '../accounts.js';
 import { t, getLang } from '../i18n.js';
 import { SHOPS } from '../economy.js';
 import { ROUTINES, shopState, hhmm } from '../routines.js';
-import { HOUSE, HOUSES, TAVERN, CHAPEL, DOOR, WALK_NODES, NILO, doorOf, hasProject } from '../world/village.js';
+import { HOUSE, HOUSES, TAVERN, CHAPEL, LAW_OFFICE, DOOR, WALK_NODES, NILO, doorOf, hasProject } from '../world/village.js';
 import { PEOPLE } from '../neighbors.js';
 import { CHUNK } from '../world/gen.js';
 import { wrapIndex, distOf } from '../world/planet.js';
@@ -45,6 +45,7 @@ export const KINDS = {
   rumour: { glyph: 'question', color: '#ffcf87', filter: 'places', legend: 'map.legend.rumours', pri: 57, mini: true },
   neighbor: { glyph: 'person', color: '#bfe3ff', filter: 'people', legend: 'gui.map.neighbors', pri: 20, mini: false },
   player: { glyph: 'player', color: '#8fb2ff', filter: 'people', legend: 'gui.players.title', pri: 75, mini: true },
+  constable: { glyph: 'dot', color: '#ff4f42', filter: 'people', legend: 'map.legend.constable', pri: 92, mini: true, track: true },
   partner: { glyph: 'partner', color: '#ff8fbd', filter: 'people', legend: 'map.legend.partner', pri: 85, mini: true },
   horse: { glyph: 'horse', color: '#e0b27c', filter: 'animals', legend: 'map.legend.horse', pri: 70, mini: true },
   dog: { glyph: 'dog', color: '#e6cfa4', filter: 'animals', legend: 'map.legend.pets', pri: 40, mini: true },
@@ -145,6 +146,7 @@ blips.source('home', out => {
   b.name = say('gui.map.home'); b.to = HOME_TO;
 });
 const CHAPEL_TO = { x: CHAPEL.x0 + 3.5, y: CHAPEL.y1 + 0.8, kind: 'place', id: 'chapel' };
+const LAW_TO = { x: LAW_OFFICE.x0 + 4.5, y: LAW_OFFICE.y1 + 0.9, kind: 'place', id: 'law_office' };
 const HOME_TO = { ...DOOR, kind: 'place', id: 'home' }, TAVERN_TO = { x: TAVERN.x0 + 5.5, y: TAVERN.y1 + 1, kind: 'place', id: 'tavern' };
 blips.source('village', (out, { game }) => {
   const T = out.add('tavern', (TAVERN.x0 + TAVERN.x1) / 2, (TAVERN.y0 + TAVERN.y1) / 2);
@@ -161,6 +163,13 @@ blips.source('village', (out, { game }) => {
   } else if (game.board?.lotShown && game.board.lotBusy('chapel')) {   // (its lot, while something a player built is on it)
     const b = out.add('place', (CHAPEL.x0 + CHAPEL.x1) / 2, (CHAPEL.y0 + CHAPEL.y1) / 2);
     b.glyph = 'question'; b.color = '#ffb060'; b.name = say('project.lot', undefined, undefined, 'chapel'); b.to = CHAPEL_TO;
+  }
+  if (hasProject('law_office')) {
+    const b = out.add('place', (LAW_OFFICE.x0 + LAW_OFFICE.x1) / 2, (LAW_OFFICE.y0 + LAW_OFFICE.y1) / 2);
+    b.glyph = 'law'; b.color = '#c9d4e8'; b.name = say('place.law_office'); b.to = LAW_TO;
+  } else if (game.board?.lotShown && game.board.lotBusy('law_office')) {
+    const b = out.add('place', (LAW_OFFICE.x0 + LAW_OFFICE.x1) / 2, (LAW_OFFICE.y0 + LAW_OFFICE.y1) / 2);
+    b.glyph = 'question'; b.color = '#ffb060'; b.name = say('project.lot.law_office'); b.to = LAW_TO;
   }
   // The shops, where their keeper works (not those inside the tavern: it has its own), faded while they are closed
   const hour = game.days?.hour ?? 12;
@@ -193,6 +202,13 @@ blips.source('spotted', (out, { game }) => {
     b.glyph = 'question'; b.color = '#b9bcc4'; b.pri = 58; b.legend = 'map.legend.spotted'; b.sub = say('map.card.spotted');
     b.name = say(`map.spotted.${m.kind}`); b.to = (m.to ||= { x: m.x, y: m.y, kind: 'place', id: `poi:${m.key}` });
   }
+});
+// Ramiro, while he is after you (or your couple): law.js
+blips.source('law', (out, { game, partner }) => {
+  const L = game.law, who = L?.active && L.after, n = who && (who === (Profile.id || 'me') || partner(who)) ? L.man : null;
+  if (!n) return;
+  const b = out.add('constable', n.x, n.y);
+  b.name = PEOPLE.ramiro.name; b.track = true; b.to = { x: n.x, y: n.y, kind: 'point' };
 });
 // The other players in the world (not who watches as a spectator, nor who is in a cave), and the neighbours in sight
 blips.source('players', (out, { game, partner }) => {

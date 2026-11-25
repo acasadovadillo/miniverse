@@ -63,7 +63,7 @@ const HAND = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3
 // Whether it can open now (and stay open): playing, not in build mode (its bar is another one), nor talking, nor in a long
 // jump in the dark, nor as a spectator (who uses nothing), nor typing
 export function canWheel(g) {
-  return g.mode === 'play' && !!g.player && !g.busy && !hud.dialogOpen && !g.build?.on && !g.jumping && g.gamemode !== 'spectator' &&
+  return g.mode === 'play' && !!g.player && !g.busy && !hud.dialogOpen && !g.build?.on && !g.law?.cell && !g.jumping && g.gamemode !== 'spectator' &&
     !(document.activeElement instanceof HTMLInputElement) && !document.hidden;
 }
 

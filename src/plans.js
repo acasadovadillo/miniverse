@@ -48,6 +48,7 @@ export const HITS = {
   suelo_piedra: 2, puerta_valla: 2, valla_piedra: 2, post: 2,
   muro_madera: 3,
   muro_entramado: 4, ventana: 4, ventana_contraventanas: 4, muro_cuadro: 4, puerta: 4, stone_pillar: 4, limewash_wall: 4,
+  iron_bars: 4, cell_door: 4,
   muro_piedra: 5, bell_gable: 5, ashlar_wall: 5, stone_column: 5, slab_roof: 3,
 };
 export const hitsOf = id => HITS[id] || (PIECES[id]?.layer === 'roof' ? 2 : 3);

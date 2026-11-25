@@ -4,7 +4,7 @@
 // cartel, tablón, vitrina y puestos ocupan casillas enteras.
 import { clamp } from '../util.js';
 import { CHUNK } from './gen.js';
-import { houseBlueprint, tavernBlueprint, chapelBlueprint, byChunk } from './blueprints.js';
+import { houseBlueprint, tavernBlueprint, chapelBlueprint, lawOfficeBlueprint, byChunk } from './blueprints.js';
 
 export const HOUSE = { x0: 15, y0: 7, x1: 27, y1: 17 };      // huella de tu casa (12×10 casillas)
 export const HOUSE_BIG = { x0: 13, y0: 5, x1: 29, y1: 17 };   // la casa ampliada (16×12), con la puerta en el mismo sitio
@@ -32,9 +32,13 @@ export const inTavern = (x, y, m = 0) => x > TAVERN.x0 - m && x < TAVERN.x1 + m 
 // south row. LOTS: the ground kept for what a project brings. No tree or rock grows there in any world, even before it is
 // built; building there is allowed until then, and the project waits until it is clear (board.js)
 export const CHAPEL = { x0: 2, y0: 15, x1: 9, y1: 26 };
-export const LOTS = { chapel: { ...CHAPEL, name: 'chapel' } };
+// The law office (project 'law_office'), north of it: 8×9, its door in the south row. LAW_WAY: the way to it, between the chapel and the garden
+export const LAW_OFFICE = { x0: 1, y0: 3, x1: 9, y1: 12 };
+export const LOTS = { chapel: { ...CHAPEL, name: 'chapel' }, law_office: { ...LAW_OFFICE, name: 'law_office' } };
 export const inChapel = (x, y, m = 0) => !!projects.chapel && x > CHAPEL.x0 - m && x < CHAPEL.x1 + m && y > CHAPEL.y0 - m && y < CHAPEL.y1 + m;
+export const inLawOffice = (x, y, m = 0) => !!projects.law_office && x > LAW_OFFICE.x0 - m && x < LAW_OFFICE.x1 + m && y > LAW_OFFICE.y0 - m && y < LAW_OFFICE.y1 + m;
 const CHAPEL_WAY = [[[18.9, 29], [9.5, 28.5]], [[9.5, 28.5], [5.5, 26.6]]];
+const LAW_WAY = [[[18.9, 29], [9.5, 28.5]], [[9.5, 28.5], [10.1, 25.4]], [[10.1, 25.4], [10, 14.6]], [[10, 14.6], [5.5, 13.5]], [[5.5, 13.5], [5.5, 12.3]]];
 export const STALL = { x0: 25, y0: 23, x1: 27, y1: 24 };     // puesto de Rosa (2×1 casillas)
 export const BOARD = { x: 16.5, y: 22.5 };                     // tablón de encargos
 export const FOUNTAIN = { x: 21.5, y: 28.5 };                  // fuente (3×3 casillas)
@@ -60,7 +64,7 @@ const SPURS = [
   [[17.0, 41], [6.5, 41]],   // (a la taberna)
   [[16.1, 55], [8.5, 55.2]],
   [[16.1, 57], [27.5, 57], 'casa'],
-  ...CHAPEL_WAY.map(w => [...w, 'chapel']),
+  ...CHAPEL_WAY.map(w => [...w, 'chapel']), ...LAW_WAY.map(w => [...w, 'law_office']),
 ];
 // The village's paths as lines of points, for the minimap (those of the projects, once done)
 export const villagePaths = () => [PATH, ...SPURS.filter(s => !s[2] || projects[s[2]]).map(s => s.slice(0, 2))];
@@ -77,13 +81,15 @@ export const WALK_NODES = {
   // (routines.js: the tavern's door, the road south, the chapel and the Saturday market. market_x: behind the stall;
   // browse_x, shop_front: before it)
   p41: [17, 41], tavern_door: [6.5, 40.9], road_s: [16, 60.6], chapel_turn: [9.5, 28.4], chapel_door: [5.5, 26.9],
+  law_turn: [10, 25.6], law_corner: [9.9, 14.4], door_law: [5.5, 12.9],   // (the law office's)
   shop_front: [26.1, 25.3], market_a: [25, 26.3], browse_a: [25, 28.9], market_b: [13, 30.3], browse_b: [13.2, 32.9],
 };
 export const WALK_EDGES = [['plaza', 'board'], ['plaza', 'stall'], ['stall', 'pond_w'], ['plaza', 'p29'], ['p29', 'easel'], ['easel', 'pond_s'], ['pond_w', 'pond_s'],
   ['p29', 'p34'], ['p34', 'p37'], ['p37', 'p41'], ['p41', 'p43'], ['p41', 'tavern_door'], ['p43', 'door_rosa'], ['p43', 'p46'], ['p46', 'p52'], ['p52', 'p55'], ['p55', 'door_bruno'], ['door_bruno', 'forge'],
   ['p55', 'p57'], ['p57', 'door_dani'], ['p57', 'road_s'], ['pond_w', 'shop_front'],
   ['pond_w', 'market_a', 'mercado'], ['easel', 'browse_a', 'mercado'], ['p29', 'market_b', 'mercado'], ['p34', 'browse_b', 'mercado'],
-  ['p29', 'chapel_turn', 'chapel'], ['chapel_turn', 'chapel_door', 'chapel']];
+  ['p29', 'chapel_turn', 'chapel'], ['chapel_turn', 'chapel_door', 'chapel'],
+  ['p29', 'chapel_turn', 'law_office'], ['chapel_turn', 'law_turn', 'law_office'], ['law_turn', 'law_corner', 'law_office'], ['law_corner', 'door_law', 'law_office']];
 // La plaza: lo de alrededor de Nilo, del puesto de Rosa, del tablón y de la fuente (aunque no esté hecha)
 export const PLAZA = { x: 21.5, y: 25.5, rx: 5.5, ry: 4.5 };
 // Lo que traen los proyectos del pueblo (aunque no estén hechos: su sitio se guarda): los dos puestos del mercado
@@ -143,7 +149,7 @@ export function townDigWhy(tx, ty) {
   if (inRect(tx, ty, TAVERN, 2, 3)) return 'Es el patio de la taberna';
   return '';
 }
-const inHouse = (x, y, m = 0) => inTavern(x, y, m) || inChapel(x, y, m) || Object.values(HOUSES).some(h => (!h.project || projects[h.project]) && x > h.x0 - m && x < h.x1 + m && y > h.y0 - m && y < h.y1 + m);
+const inHouse = (x, y, m = 0) => inTavern(x, y, m) || inChapel(x, y, m) || inLawOffice(x, y, m) || Object.values(HOUSES).some(h => (!h.project || projects[h.project]) && x > h.x0 - m && x < h.x1 + m && y > h.y0 - m && y < h.y1 + m);
 // ¿Está dentro del solar de tu casa (el de la casa ampliada)? Ahí se puede construir aunque sea terreno del pueblo
 // The tile is of the lot of the player's house in the village, or of its eaves (the village keeps it: wear.js)
 export const onOwnLot = (tx, ty) => { const H = ownLot(); return tx >= H.x0 - 1 && tx <= H.x1 && ty >= H.y0 - 1 && ty <= H.y1; };
@@ -160,7 +166,7 @@ export function keepClear(x, y) {
   if (!inBounds(x, y)) return false;
   return distToPath(x, y) < 2.4 || inYard(x, y, 1.5) || pondDist(x, y) < 1.6 || Math.hypot(x - SPAWN.x, y - SPAWN.y) < 3 ||
     [...Object.values(HOUSES), TAVERN].some(h => x > h.x0 - 2 && x < h.x1 + 2 && y > h.y0 - 2 && y < h.y1 + 3) ||
-    Object.values(LOTS).some(h => x > h.x0 - 1.5 && x < h.x1 + 1.5 && y > h.y0 - 1.5 && y < h.y1 + 2.5) || CHAPEL_WAY.some(([a, b]) => distSeg(x, y, ...a, ...b) < 1.6) ||
+    Object.values(LOTS).some(h => x > h.x0 - 1.5 && x < h.x1 + 1.5 && y > h.y0 - 1.5 && y < h.y1 + 2.5) || [...CHAPEL_WAY, ...LAW_WAY].some(([a, b]) => distSeg(x, y, ...a, ...b) < 1.6) ||
     Math.hypot(x - FOUNTAIN.x, y - FOUNTAIN.y) < 2.5 || (x > 23 && x < 28 && y > 21 && y < 25);
 }
 // Claro alrededor del pueblo: 0 en el centro, 1 lejos
@@ -204,6 +210,7 @@ export function buildVillage() {
   const ws = tavernBlueprint({ x0: TAVERN.x0, y0: TAVERN.y0 });
   for (const layer of ['placed', 'floor', 'roof']) Object.assign(fixed[layer], ws[layer]);
 
+  if (projects.law_office) { const lo = lawOfficeBlueprint(LAW_OFFICE); for (const layer of ['placed', 'floor', 'roof']) Object.assign(fixed[layer], lo[layer]); }
   if (projects.chapel) { const ch = chapelBlueprint(CHAPEL); for (const layer of ['placed', 'floor', 'roof']) Object.assign(fixed[layer], ch[layer]); }
 
   // Puesto de Rosa, tablón de encargos y lo que se construye con los proyectos (todo en casillas enteras;
@@ -228,6 +235,7 @@ export function buildVillage() {
   add(19.5, 20.5, { model: 'lamp' }); colliders.push({ x: 19.5, y: 20.5, r: 0.2 });
   add(17.5, 26.5, { model: 'sign' }); colliders.push({ x: 17.5, y: 26.5, r: 0.25 });
   add(4.5, 40.6, { model: 'sign' }); colliders.push({ x: 4.5, y: 40.6, r: 0.25 });   // (el cartel de la taberna)
+  if (projects.law_office) { add(7.6, 12.7, { model: 'sign' }); colliders.push({ x: 7.6, y: 12.7, r: 0.25 }); }   // (and the law office's)
 
   // Estanque (la orilla y los nenúfares los pone la vista). pond: only animals, mobs and children go round it; the player
   // wades or swims through it (entities.js), as in any other water

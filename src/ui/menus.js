@@ -52,6 +52,7 @@ export function initMenus(game) {
   let hub = null;    // (the pause: src/ui/pausehub.js; made below)
   let settingsUI = null;   // (the settings: src/ui/settings.js; made below)
   let menu = null, credits = null;   // (the main menu and its credits: src/ui/mainmenu.js; made below)
+  game.closeWindows = () => wins?.closeAll();   // (an arrest: law.js)
   const loading = game.loading = initLoading(game);   // (the loading screen: src/ui/loading.js)
   const opened = {};   // what each front screen does when it is put in sight: it takes the keys (frontend.js)
   function show(id) {

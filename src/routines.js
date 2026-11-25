@@ -16,10 +16,11 @@
 //   @market   the stall they sell at on Saturdays (the project 'mercado'); @browse, from stall to stall, looking
 //   @chapel   a pew (the project 'chapel'); the square until there is one
 //   @evening  a stroll, a visit to another neighbour or receiving one; @errand, something to see to
+//   @patrol   the constable's round, from point to point; @desk, at his desk in the law office (the project 'law_office')
 //   @away     out of the village (those of the tavern: they come and go down the road); seat, their place in the tavern
 // A neighbour with only `schedule` (or only `seat` and `hours`) gets a day out of it: nothing else has to be written
-import { HOUSES, TAVERN, FOUNTAIN, CHAPEL, WALK_NODES, WALK_EDGES, hasProject, onVillageChange } from './world/village.js';
-import { chapelPews } from './world/blueprints.js';
+import { HOUSES, TAVERN, FOUNTAIN, CHAPEL, LAW_OFFICE, WALK_NODES, WALK_EDGES, hasProject, onVillageChange } from './world/village.js';
+import { chapelPews, lawOfficePlan } from './world/blueprints.js';
 import { SHOPS } from './economy.js';
 import { PEOPLE } from './neighbors.js';   // (a cycle, read only inside functions)
 import { ihash } from './util.js';
@@ -134,13 +135,22 @@ const spot = (key, fn) => { let s = spots.get(key); if (!s) spots.set(key, s = m
 const residents = house => Object.keys(PEOPLE).filter(id => PEOPLE[id].home === house);
 // Inside a house: from its door to the room (the same for the whole house: road() takes the first two off indoors)
 const enter = H => [[H.x0 + 6.5, H.y1 - 0.5], [H.x0 + 6.5, H.y1 - 1.9]];
+// The law office: at the desk, and the bed of the back room (world/blueprints.js lawOfficePlan)
+const LAW = lawOfficePlan(LAW_OFFICE), LX = LAW_OFFICE.x0, LY = LAW_OFFICE.y0, LAW_IN = [[LX + 4.5, LY + 8.5], [LX + 4.5, LY + 7.3], [LX + 4.6, LY + 5.6]];
+const deskSpot = (kind = 'home') => spot(`law:${kind}`, () => ({ kind, goal: kind, node: 'door_law', via: [...LAW_IN, [LX + 5.7, LY + 5.4], [LAW.chair[0] + 0.5, LAW.chair[1] + 0.44]], yaw: S, pose: sit(S, STOOL), tile: LAW.chair, room: 'law_office', home: 'law_office', work: kind === 'law_desk' }));
+const lawBed = () => spot('bed:law', () => ({ kind: 'asleep', goal: 'home', node: 'door_law', via: [...LAW_IN, [LX + 5.5, LY + 4.5], [LX + 5.5, LY + 3.2], [LX + 5.9, LY + 2.6]], pose: { kind: 'lie', yaw: S, h: BED }, tile: LAW.bed, room: 'law_office', home: 'law_office' }));
+const ROUNDS = ['plaza', 'board', 'p29', 'p34', 'p37', 'p41', 'p43', 'p46', 'p52', 'p55', 'p57', 'p46', 'p37', 'p29', 'easel'];
+// A stop of the round: a step aside of the point, where nobody else stands
+const roundSpot = node => spot(`round:${node}`, () => { const [x, y] = WALK_NODES[node]; return { kind: 'patrol', node, via: [[x + 0.62, y + 0.72]] }; });
 function chairOf(house, i, who, kind = 'home') {
+  if (house === 'law_office') return deskSpot();
   const H = HOUSES[house], left = i % 2 === 0, x = H.x0 + (left ? 7.62 : 9.38), y = H.y0 + 4.5;
   return spot(`${kind}:${house}:${i % 2}:${kind === 'visit' ? who : ''}`, () => ({ kind, goal: kind, node: `door_${house}`, via: [...enter(H), [H.x0 + (left ? 6.9 : 9.4), H.y0 + 5.9], [x, y]],
     yaw: left ? E : W, pose: sit(left ? E : W), tile: [H.x0 + (left ? 7 : 9), H.y0 + 4], room: house, home: kind === 'home' ? house : null, who }));
 }
 // The bed (the second one of a house with two, along the west wall; world/blueprints.js)
 function bedOf(house, i) {
+  if (house === 'law_office') return lawBed();
   const H = HOUSES[house], second = i > 0;
   return spot(`bed:${house}:${i}`, () => ({ kind: 'asleep', goal: 'home', node: `door_${house}`, via: [...enter(H), [H.x0 + 3.2, H.y0 + (second ? 6.6 : 3.9)], second ? [H.x0 + 2.4, H.y0 + 6.5] : [H.x0 + 2.3, H.y0 + 2.6]],
     pose: { kind: 'lie', yaw: second ? E : S, h: BED }, tile: [H.x0 + 1, H.y0 + (second ? 5 : 1)], room: house, home: house }));
@@ -194,7 +204,7 @@ const eatsOut = (id, realDay, meal) => {
 };
 // Some evenings, somebody visits somebody: { who, host } or null
 export function visitOf(realDay) {
-  const L = housed();
+  const L = housed().filter(q => !PEOPLE[q].law);
   if (L.length < 2 || ihash(realDay, 31, 2671) > 0.4 || WET.has(env.weather?.(realDay))) return null;
   const who = L[Math.floor(ihash(realDay, 32, 2671) * L.length)], to = L.filter(q => PEOPLE[q].home !== PEOPLE[who].home);
   return to.length ? { who, host: to[Math.floor(ihash(realDay, 33, 2671) * to.length)] } : null;
@@ -215,6 +225,8 @@ function resolve(id, token, realDay, i) {
     case '@market': return hasProject('mercado') && MARKET_OF[id] ? nodeSpot(id, MARKET_OF[id], { work: true }) : d.work && WALK_NODES[d.work] ? nodeSpot(id, d.work, { work: true }) : nodeSpot(id, 'plaza');
     case '@browse': return nodeSpot(id, hasProject('mercado') ? ['browse_a', 'shop_front', 'browse_b'][(i + idNum(id)) % 3] : ['plaza', 'shop_front'][i % 2]);
     case '@chapel': return chapelSpot(id);
+    case '@desk': return deskSpot('law_desk');
+    case '@patrol': return roundSpot(ROUNDS[(i + Math.floor(roll(id, realDay, 9) * ROUNDS.length)) % ROUNDS.length]);
     case '@evening': {
       const v = visitOf(realDay);
       if (v?.who === id) { const H = PEOPLE[v.host].home; return chairOf(H, 1, v.host, 'visit'); }
@@ -263,6 +275,8 @@ export function planFor(id, realDay) {
       return;
     }
     out.push({ h, at, spot: sp });
+    // (the round: a stop every twelve minutes)
+    if (token === '@patrol') for (let q = 1; h + q * 0.2 < end - 0.1; q++) out.push({ h, at: at + q * 0.2, spot: resolve(id, token, realDay, i + q) });
     // (round the market: from stall to stall)
     if (token === '@browse') for (let q = 1; h + q * 0.35 < end - 0.1; q++) out.push({ h, at: h + q * 0.35, spot: resolve(id, token, realDay, i + q) });
   });

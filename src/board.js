@@ -19,6 +19,7 @@ export const PROJECTS = defineNames({
   muelle: { money: 1200, items: [['tablas', 40]] },
   mercado: { money: 3000, items: [['tablas', 60], ['lingote_cobre', 5]] },
   chapel: { money: 2500, items: [['piedra', 80], ['tablas', 30]], lot: 'chapel' },
+  law_office: { money: 3000, items: [['piedra', 60], ['tablas', 20], ['lingote_hierro', 8]], needs: 'mercado', lot: 'law_office' },
   casa: { money: 5000, items: [['tablas', 80], ['piedra', 60]], needs: 'mercado' },
 }, 'project');
 
@@ -39,14 +40,14 @@ export class Board {
   save(out) { out.projects = this.projects; out.boardDone = this.done; }
   // Jugando juntos en directo, como los tiene el anfitrión (y si se ha terminado un proyecto, el pueblo crece)
   share(v) {
-    const had = JSON.stringify(this.projects), casa = this.projects.casa, old = this.projects, first = !this.shared && this.game.live?.guest;
+    const had = JSON.stringify(this.projects), old = this.projects, first = !this.shared && this.game.live?.guest;
     this.shared = true;
     this.projects = v.projects || {};
     this.done = v.done || { day: -1, ids: [] };
     if (JSON.stringify(this.projects) === had) return;
     setProjects(this.projects);
     this.world.rebuildVillage();
-    if (this.projects.casa && !casa) this.game.neighbors.moveIn('dani');
+    this.moveIn(old);
     // (what another player has finished is news too, not yours. A guest's first copy is how the village already was)
     if (!first) for (const id of Object.keys(this.projects)) if (this.projects[id] && !old[id]) this.game.gossip?.news('project', '*', id, 0);
   }
@@ -99,9 +100,11 @@ export class Board {
     g.player.stop();
     for (;;) {
       const reqs = this.requests(), opts = reqs.map(r => r.done ? t('board.row.done', { name: PEOPLE[r.who].name }) : t('board.row', { name: PEOPLE[r.who].name, what: countOf(r.item, r.n), reward: r.reward, have: g.inv.count(r.item) }));
+      const wanted = g.law?.posters() || [], up = wanted.length ? opts.push(t('law.poster.read')) - 1 : -1;
       opts.push(t('board.projects'), t('common.close'));
       const pick = await hud.ask(t('board.title'), t('board.ask'), opts);
       if (pick === opts.length - 1) break;
+      if (pick === up) { await hud.say(t('board.name'), wanted.slice(0, 4).map(q => t('law.poster', { name: q.name, n: q.bounty }))); continue; }
       if (pick === opts.length - 2) { await this.projectsMenu(); continue; }
       const r = reqs[pick];
       if (r.done) continue;
@@ -112,6 +115,8 @@ export class Board {
     g.busy = false;
   }
 
+  // Who comes to live here with what has just been finished (old: the projects before)
+  moveIn(old) { for (const [id, d] of Object.entries(PEOPLE)) if (d.project && this.projects[d.project] && !old[d.project]) this.game.neighbors.moveIn(id); }
   // How many things a player has on a project's ground: pieces, furniture, fields, holes, plans (board: it waits until it is clear)
   lotBusy(id) {
     const L = LOTS[PROJECTS[id]?.lot], w = this.world;
@@ -141,7 +146,7 @@ export class Board {
     this.projects[id] = true;
     setProjects(this.projects);
     this.world.rebuildVillage();
-    if (id === 'casa') g.neighbors.moveIn('dani');
+    this.moveIn({ ...this.projects, [id]: false });
     g.stats?.add('proyectos', 1);
     g.rep?.change(60, 'project');
     // (the whole village remembers it: Nilo and everyone who lives here)

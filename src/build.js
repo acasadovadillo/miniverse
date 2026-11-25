@@ -9,8 +9,9 @@
 import { STATIONS, aStation } from './recipes.js';
 import { PIECES, parsePlaced, layerOf } from './pieces.js';
 import { ITEMS, CHESTS } from './items.js';
-import { floorSprite, wallSprite, doorSprite, hearthSprite, roofSprite, fenceSprite, postSprite, bellSprite } from './art/build.js';
+import { floorSprite, wallSprite, doorSprite, hearthSprite, roofSprite, fenceSprite, postSprite, bellSprite, barsSprite } from './art/build.js';
 import { Audio } from './audio.js';
+import { hud } from './ui/hud.js';
 import { WALL_H, ROOF, outward } from './three/build3d.js';
 import { CHUNK } from './world/gen.js';
 import { aabb, hull, solidsOf, placeBoxes, rayHits } from './world/fit.js';
@@ -42,6 +43,7 @@ export function pieceSprite(id) {
   if (p.layer === 'floor') return floorSprite(id);
   if (p.layer === 'roof') return roofSprite(id, { nw: 0, ne: 0, se: 0, sw: 0, c: 0.5 }, { n: true, e: true, s: true, w: true }, false);
   if (p.bell) return bellSprite();
+  if (p.bars) return barsSprite(p.kind === 'door');
   if (p.kind === 'door') return doorSprite(true);
   if (p.kind === 'fence') return fenceSprite(id, 3);
   if (p.kind === 'gate') return fenceSprite('valla', 3);
@@ -77,6 +79,7 @@ export class BuildMode {
   toggle(v = !this.on) {
     const g = this.game;
     if (v && (g.mode !== 'play' || !g.player)) return false;
+    if (v && g.law?.cell) { hud.toast(tr('law.why.cell'), 'warn'); Audio.error(); return false; }
     if (!v) { this.dropCarry(); this.release(); }
     this.on = v;
     this.cursor = null;
@@ -501,7 +504,7 @@ export class BuildMode {
       this.recent.delete(`${layer}:${tile}`);
       this.giveBack(back);
       if (!back.length) g.gather.float(tr(PIECES[id].cost.every(([m]) => m === 'fibra') ? 'build.salvage.none' : 'build.salvage.nothing'), '#d8c3a0');
-      if (sc === g.world) g.rep?.taken(layer, tile[0], tile[1], own);   // (from a neighbor's house: the village notices, reputation.js; pickUp does it for the rest)
+      if (sc === g.world) g.rep?.taken(layer, tile[0], tile[1], own, id);   // (from a neighbor's house: the village notices, reputation.js; pickUp does it for the rest)
     } else if (!g.pickUp(o)) return;
     if (watchtower(id)) this.recent.delete(`${layer}:${tile}`);
     this.pickV++;
@@ -511,6 +514,7 @@ export class BuildMode {
   // A piece of a place where somebody lives is not taken apart, moved nor changed (explore.js): true, and it says so
   lived(tile) {
     const g = this.game;
+    if (!g.admin && g.scene === g.world && g.law?.protects(tile)) { g.gather.float(tr('law.why.occupied'), '#ffb0a0'); Audio.error(); return true; }   // (the office, while somebody is in the cell)
     const who = !g.admin && g.scene === g.world && g.places?.livedAt?.(...tile);
     if (!who) return false;
     g.gather.float(tr(`place.${who}_no`), '#ffb0a0'); Audio.error();

@@ -14,6 +14,7 @@ const RULES = {
   muro_entramado: FRAMED, ventana_contraventanas: FRAMED, muro_cuadro: FRAMED, limewash_wall: FRAMED,
   muro_piedra: STONE, valla_piedra: STONE, suelo_piedra: STONE, camino: STONE, stone_pillar: STONE, bell_gable: STONE,
   ashlar_wall: STONE, stone_column: STONE, slab_roof: STONE,
+  iron_bars: STONE, cell_door: STONE,
 };
 export const ruleOf = id => (Object.prototype.hasOwnProperty.call(RULES, id) ? RULES[id] : null);
 export const stageAt = (id, age) => { const r = ruleOf(id); return !r ? 0 : age >= r.at[1] ? 2 : age >= r.at[0] ? 1 : 0; };

@@ -49,6 +49,7 @@ const WET = ['lluvia', 'tormenta', 'nieve'];
 export const lineTime = text => Math.max(2.2, Math.min(6, 1.8 + text.length / 18));   // s a line stays
 // Their gesture is as big as their character
 const AMP = { cheerful: 1, kind: 0.8, wry: 0.6, gruff: 0.4, shy: 0.3 };
+const TRADING = new Set(['shop', 'carcass', 'mend', 'shoe', 'haircut', 'trade']);   // (what a hunted player is refused; never Nilo's plans)
 const AGAIN = '\u0000again', BACK = '\u0000back', NEXT = '\u0000next';   // (rows of its own)
 
 const registry = () => ({
@@ -202,7 +203,9 @@ export class Talk {
       const k = await this.menu(T, opts.map(o => ({ id: o.id, text: o.label(c) })), true);
       if (!T.live) return;
       if (k === AGAIN) continue;
-      const o = opts.find(o => o.id === k), r = o ? await o.run(c) : 'end';
+      const o = opts.find(o => o.id === k);
+      if (o && TRADING.has(o.id) && g.law?.refuses()) { await this.say(id, [N.line('law.refused')]); continue; }   // (hunted: law.js)
+      const r = o ? await o.run(c) : 'end';
       if (!T.live) return;
       if (r === 'end' || (this.auto && ++T.rounds > 12)) { this.bye(T); return; }
       if (r?.open) { await this.handoff(T, r); return; }

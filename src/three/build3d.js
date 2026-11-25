@@ -17,6 +17,7 @@ import { roofShape, roofPitch, SLAB, ROOF_CAP } from '../world/roof.js';
 import { injectContact, contactKey } from './contact3d.js';
 import { LOOK, INSIDE } from './wear3d.js';
 import { placeMat, weathered } from './places3d.js';
+import { barsTile, cellDoorTile, cellDoorLeaf } from './law3d.js';   // (a cycle, read only inside functions)
 
 // Puertas y contraventanas de tablas pintadas con uno de cinco colores minerales por casa, dintel y alféizar en las
 // ventanas, cornisa, esquinas de sillería o de tablas y tapajuntas en los muros, y tejados a dos aguas (ver roof.js)
@@ -108,6 +109,7 @@ const framed = id => !EXTERIOR[id];
 const inside = (B, yes) => { if (yes && B.wearNow) B.wearNow *= INSIDE; return B; };
 // emit(materialKey, side) → Builder en el que añadir esa parte
 export function wallTile(scene, tx, ty, id, emit, extras) {
+  if (PIECES[id]?.bars) return barsTile(scene, tx, ty, emit);   // (law3d.js)
   const mask = wallMask(scene, tx, ty), cx = tx + 0.5, cz = ty + 0.5;
   const xArms = [mask & 1 ? 1 : 0, mask & 2 ? -1 : 0].filter(Boolean), zArms = [mask & 4 ? 1 : 0, mask & 8 ? -1 : 0].filter(Boolean);
   // Sin vecinos: un tramo entero a lo largo de x. Recto: un tramo entero, con su hueco si es ventana
@@ -339,10 +341,11 @@ function beamGeo(B, p0, p1, b, n, w, d) {
 // El hueco con su marco y el trozo de muro de encima (del muro de al lado), y la hoja, que se devuelve aparte
 // para animarla: { tile, hinge (posición), X, outSign (hacia fuera), swing (hacia dónde se abre), side }
 export function doorTile(scene, tx, ty, emit, extras) {
+  if (scene.pieceAt(tx, ty)?.bars) return cellDoorTile(scene, tx, ty, emit);   // (law3d.js)
   const solid = (x, y) => { const p = scene.pieceAt(x, y); return p && p.kind !== 'fence' && p.kind !== 'gate'; };
   const X = solid(tx - 1, ty) || solid(tx + 1, ty) || !(solid(tx, ty - 1) || solid(tx, ty + 1));
   const sideIds = X ? [scene.at('placed', tx - 1, ty), scene.at('placed', tx + 1, ty)] : [scene.at('placed', tx, ty - 1), scene.at('placed', tx, ty + 1)];
-  const next = sideIds.map(v => v && parsePlaced(v)[0]).find(n => PIECES[n]?.kind === 'wall') || 'muro_madera';
+  const next = sideIds.map(v => v && parsePlaced(v)[0]).find(n => PIECES[n]?.kind === 'wall' && !PIECES[n].bars) || 'muro_madera';
   const id = next.startsWith('ventana') || next === 'muro_cuadro' ? 'muro_entramado' : next;
   const side = outward(scene, tx, ty, X), cx = tx + 0.5, cz = ty + 0.5, u0 = X ? tx : ty, c = X ? cz : cx;
   const mask = wallMask(scene, tx, ty), ends = X ? [!(mask & 2), !(mask & 1)] : [!(mask & 8), !(mask & 4)];
@@ -367,6 +370,7 @@ export function doorTile(scene, tx, ty, emit, extras) {
 }
 // La hoja de una puerta: tablas con sus refuerzos y el tirador. Gira sobre la bisagra: a = 0 cerrada, 1 abierta
 export function doorLeaf(d, mats) {
+  if (d.bars) return cellDoorLeaf(d, mats);
   const lw = d.width, leaf = new Builder().wear(d.wear || 0), bars = new Builder().wear(d.wear || 0);
   if (mats.paint) {
     // Cinco tablas con su junta, tres travesaños y dos riostras en Z, del color de la casa; pernios de hierro que

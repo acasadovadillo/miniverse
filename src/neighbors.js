@@ -142,6 +142,22 @@ Object.assign(PEOPLE, {
     events: { 3: { gift: [['venado_asado', 2]] } },
   },
 });
+// Ramiro, the constable (the project 'law_office'; law.js): his rounds, his desk and a night's sleep in the office's back room
+Object.assign(PEOPLE, {
+  ramiro: {
+    name: 'Ramiro', temper: 'gruff', law: true, weather: { hates: ['niebla'] }, home: 'law_office', project: 'law_office', work: 'law_desk',
+    look: { sex: 'chico', skin: '#d9a074', hair: '#4a4038', eyes: '#3a2a1e', cloth: '#26324a', pants: '#2e2a2a', hairStyle: 'corto', outfit: 'larga', beard: 'bigote', armband: true,
+      wear: { interiorAbajo: { id: 'calzoncillos', color: '#f2efe8' }, torso: { id: 'camisa', color: '#d8d2c4' }, outer: { id: 'wool_coat', color: '#26324a' }, piernas: { id: 'pantalon', color: '#2e2c30' }, calcetines: { id: 'calcetines', color: '#ece6da' }, pies: { id: 'botas', color: '#2c2420' } } },
+    schedule: [[0, 'door_law'], [7.5, 'plaza'], [11, 'p37'], [14, 'plaza'], [17, 'p46'], [20, 'plaza'], [23, 'door_law']], eatOut: 0.5, bed: 23,
+    routine: {
+      work: [[0, '@home'], [7.5, '@patrol'], [9, '@desk'], [12.5, '@patrol'], [14, '@lunch'], [14.75, '@desk'], [16, '@patrol'], [21, '@dinner'], [22, '@patrol'], [23, '@home']],
+      sat: [[0, '@home'], [7.5, '@patrol'], [14, '@lunch'], [14.75, '@desk'], [16, '@patrol'], [21, '@dinner'], [22, '@patrol'], [23.5, '@home']],
+      sun: [[0, '@home'], [9, '@desk'], [CALL, '@chapel'], [12.75, '@patrol'], [14, '@lunch_long'], [16, '@patrol'], [20.5, '@desk'], [22, '@home']],
+    },
+    loves: ['estofado', 'cerveza'], likes: ['pan', 'queso', 'carbon'], hates: ['baba', 'calavera'],
+    events: { 3: { gift: [['estofado', 2]] } },
+  },
+});
 for (const p of Object.values(PEOPLE)) hud.faces[p.name] = p.look;
 
 // The neighbours' memory (Plan E §4.5): friends[id].mem, up to MEM entries [day, kind, item | null, said 0 | 1], newest
@@ -346,11 +362,12 @@ export class Neighbors {
       const who = this.game.talk?.holder(n) || null;   // (you, or another player, talking with them: talk.js)
       if (n.talkWith !== who) n.talkWith = who;
       n.lookedAt = !!who || n.hold > 0;
+      if (n.def.law && this.game.law?.drive(n, dt)) continue;   // (after somebody: law.js moves him)
       n.update(dt, now);
       // (si le han quitado la silla o el taburete, de pie; si vuelve a haberlo, sentado)
       if (!ROUTINES && n.def.sits) { const has = !!this.world.at('placed', Math.floor(n.x), Math.floor(n.y)); if (has !== !!n.pose) n.pose = has ? { kind: 'sit', yaw: n.def.seat[2], h: n.def.sits } : null; }
     }
-    this.world.extraColliders = this.people.filter(n => !n.hidden && !n.asleep).map(n => ({ x: n.x, y: n.y, r: 0.3 }));
+    this.world.extraColliders = this.people.filter(n => !n.hidden && !n.asleep).map(n => ({ x: n.x, y: n.y, r: 0.3, npc: n.id }));
   }
   entities(scene) { return scene === this.world ? this.people.filter(n => !n.hidden) : null; }
   // At their counter (not on the way to it)
@@ -394,11 +411,11 @@ export class Neighbors {
   // Rosa's stall while she is away: E reads her card
   aimables(p, scene, box) {
     if (scene !== this.world || !ROUTINES || !this.people.some(n => n.id === 'rosa') || this.isOpen('rosa')) return null;
-    return [{ kind: 'sys', box: box(STALL.x0 + 1, STALL.y0 + 0.5, 1, 0.5, 0, 1.3), act: () => ({ text: t('routine.card.read'), run: () => { Audio.blip(); hud.toast(this.awayText('rosa')); } }) }];
+    return [{ kind: 'sys', box: box(STALL.x0 + 1, STALL.y0 + 0.5, 1, 0.5, 0, 1.3), act: () => ({ text: t('routine.card.read'), run: () => { Audio.blip(); hud.toast(this.awayText('rosa')); }, alt: this.game.law?.stallAlt('rosa') || undefined }) }];
   }
   // Lo que se hace con un vecino (null: Nilo)
   // (npc, n: whose tag goes over the prompt's rows, and row: what its E says under it; ui/prompts.js)
-  actionFor(n) { const id = n ? n.id : 'nilo'; return { text: t('npc.action.talk', { name: PEOPLE[id].name }), row: t('talk.row.talk'), npc: id, n, run: () => this.talk(id, n || undefined) }; }
+  actionFor(n) { const law = n?.def.law && this.game.law?.ramiroAction(); if (law) return law; const id = n ? n.id : 'nilo'; return { text: t('npc.action.talk', { name: PEOPLE[id].name }), row: t('talk.row.talk'), npc: id, n, run: () => this.talk(id, n || undefined) }; }
   // Have they met you? (the first talk is an introduction; until then they do not call you by your name). Nilo met you
   // when you arrived: talkNilo
   introduced(id) {
@@ -503,12 +520,13 @@ export class Neighbors {
     if (id === 'nilo') return { kind: 'nilo', until: null, at: [NILO.x, NILO.y] };
     if (!n) return { kind: 'away', until: null, at: null };
     if (ROUTINES) {
+      if (n.def.law && this.game.law?.driven) return { kind: 'patrol', until: null, at: [n.x, n.y] };
       const er = this.game.business?.errandAt(id, this.clock());   // (at a player's business)
       if (er) return { kind: er.moving ? 'road' : 'shopping', until: ((er.trip.to / HOUR_MS) % 24), goal: 'shopping', at: [er.x, er.y] };
       const a = placeAt(id, this.clock()), s = a.slot, until = s.untilHour, at = [a.x, a.y], k = a.spot.kind;
       if (a.moving) return { kind: 'road', until, goal: a.spot.goal, at };
       if (k === 'away') return { kind: 'away', until, at: null };
-      if (a.spot.home) return { kind: k === 'asleep' ? k : a.spot.meal ? 'meal_home' : 'home', until: leavesHome(id, T.now) ?? until, at: k === 'asleep' ? null : at };
+      if (a.spot.home && !a.spot.work) return { kind: k === 'asleep' ? k : a.spot.meal ? 'meal_home' : 'home', until: leavesHome(id, T.now) ?? until, at: k === 'asleep' ? null : at };
       return { kind: k, until, at, who: a.spot.who };
     }
     const S = n.def.schedule, at = [n.x, n.y];

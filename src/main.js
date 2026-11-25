@@ -10,6 +10,7 @@ import { initDebug } from './ui/debug.js';
 import { Settings } from './settings.js';
 import { freePlace } from './gather.js';
 import { useSmartHud } from './ui/smarthud.js';
+import { LawHud } from './ui/lawhud.js';
 import { NeedsBar } from './ui/needsbar.js';
 import { ToolWheel } from './ui/wheel.js';
 import { apagada } from './opciones.js';
@@ -45,6 +46,7 @@ function play(login = true) {   // (login: abrir la pantalla de entrar)
   const pick = { minimo: true, completo: false }[q.get('hud')] ?? (plain ? false : null);
   game.minimap = new Minimap(game);   // (before the HUD and the hunting overlay, which use it)
   game.needsBar = new NeedsBar(game);   // (the status bars at the top left, for both interfaces; before the HUD, which resets it)
+  game.lawHud = new LawHud(game);   // (the chip of what you owe and the time in the cell, for both interfaces)
   useSmartHud(game, pick ?? Settings.v.hud !== 'full');
   Settings.onHud = v => useSmartHud(game, v !== 'full');
   Settings.hudNow = () => (game.smartHud ? 'minimal' : 'full');   // (what the setting lights: the one in sight)

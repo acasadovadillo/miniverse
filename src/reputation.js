@@ -9,7 +9,7 @@
 // Days: a guest plays with the host's calendar (livesync.js dayBase), so the day caps and the days kept are only ever
 // compared with === and !== (as neighbors.js does with f.talk), and "recent" is 0 <= today - day <= n.
 import { t, tHtml } from './i18n.js';
-import { HOUSES, inTavern, inChapel, hasProject } from './world/village.js';
+import { HOUSES, inTavern, inChapel, inLawOffice, hasProject } from './world/village.js';
 import { ROUTINES } from './routines.js';
 import { PEOPLE } from './neighbors.js';
 import { Audio } from './audio.js';
@@ -27,7 +27,7 @@ export const REP_LEVELS = [
 const MIN = -1000, MAX = 1000;
 const LOG = 8;            // the last changes kept (the journal shows four)
 const SEED_MAX = 400;     // an old game starts from what it did, «Liked» at most
-const SEEN_R = 8;         // tiles: a neighbor this close (and in sight) sees what you take from a house
+const SEEN_R = 8, NILO_NIGHT = 4;   // tiles: a neighbor this close (and in sight) sees what you take from a house; Nilo, always in the square, by night
 // Day caps of what can be repeated: the most a day can add up to (greet, insult, take) or how many times it counts (trade)
 const CAP = { greet: 6, insult: -40, take: -150 };
 const TRADES_A_DAY = 5;
@@ -127,7 +127,7 @@ export class Reputation {
   // Whose house is this tile in: 'rosa', 'bruno', 'dani', 'taberna' or null (your own house and the hamlets do not count)
   houseAt(tx, ty) {
     for (const [id, h] of Object.entries(HOUSES)) if ((!h.project || hasProject(h.project)) && tx >= h.x0 && tx < h.x1 && ty >= h.y0 && ty < h.y1) return id;
-    return inTavern(tx + 0.5, ty + 0.5) ? 'taberna' : inChapel(tx + 0.5, ty + 0.5) ? 'chapel' : null;
+    return inTavern(tx + 0.5, ty + 0.5) ? 'taberna' : inChapel(tx + 0.5, ty + 0.5) ? 'chapel' : inLawOffice(tx + 0.5, ty + 0.5) ? 'law_office' : null;
   }
   // Who sees you take something from that house: its owner if they are in (even hidden indoors, as when you knock: they
   // speak from inside), in the tavern Anselmo at his place; if not, any neighbor in sight within SEEN_R. { n, inside } or null
@@ -135,7 +135,7 @@ export class Reputation {
     const N = this.game.neighbors, w = this.game.world;
     if (house === 'taberna') { const a = N.people.find(n => n.id === 'anselmo' && !n.hidden && (n.spot?.room === 'taberna' || !ROUTINES)); if (a) return { n: a, inside: false }; }
     else { const owner = N.people.find(n => n.def.home === house && n.atHome); if (owner) return { n: owner, inside: owner.hidden }; }
-    const near = [w.nilo, ...N.people.filter(n => !n.hidden && !n.asleep)].filter(n => n && Math.hypot(n.x - x, n.y - y) <= SEEN_R && (!w.reaches || w.reaches(n.x, n.y, x, y)));
+    const dark = !!this.game.days?.isNight?.(), near = [w.nilo, ...N.people.filter(n => !n.hidden && !n.asleep)].filter(n => n && Math.hypot(n.x - x, n.y - y) <= (dark && n === w.nilo ? NILO_NIGHT : SEEN_R) && (!w.reaches || w.reaches(n.x, n.y, x, y)));
     near.sort((a, b) => Math.hypot(a.x - x, a.y - y) - Math.hypot(b.x - x, b.y - y));
     return near[0] ? { n: near[0], inside: false } : null;
   }
@@ -149,7 +149,9 @@ export class Reputation {
     const k = `${layer}:${tx},${ty}`, T = this.v.taken;
     if (own) {
       const e = T[k];
+      const again = !!what && this.game.law?.wasReturned(layer, tx, ty, what);   // (the very thing taken before and put back)
       if (e?.[1] === 1) { this.change(-Math.round(e[0] / 2), 'retake'); e[1] = 0; }
+      if (again && this.witness(tx + 0.5, ty + 0.5, house)) this.game.law.tookFromHouse(layer, tx, ty, what);
       return;
     }
     const x = tx + 0.5, y = ty + 0.5, seen = this.witness(x, y, house);
@@ -162,8 +164,9 @@ export class Reputation {
     N.remember?.(id, 'take_seen');
     for (const o of this.ownersOf(house)) if (o !== id) N.remember?.(o, 'take_seen');
     this.game.gossip?.news('take_seen', id, `${house}/${what}`);   // (and from them it goes round: gossip.js)
+    const crime = what && this.game.law?.tookFromHouse(layer, tx, ty, what);   // (with a constable in the village: law.js)
     const lines = this.game.social?.lines(theirs ? 'npc.witness.take.own' : 'npc.witness.take') || [];
-    const line = lines.length ? lines[Math.floor(Math.random() * lines.length)] : '';
+    const line = crime ? this.game.law.witnessLine(id) : lines.length ? lines[Math.floor(Math.random() * lines.length)] : '';
     this.game.neighbors.addPoints(id, -10);
     // (from inside, as when you knock: the bubble over what was taken, «Rosa (from inside)»; if not, over who saw it)
     this.game.social?.say(seen.inside ? { x, y } : seen.n, line, { name: seen.inside ? t('npc.witness.inside', { name }) : name });
@@ -172,7 +175,7 @@ export class Reputation {
   placed(layer, tx, ty) {
     if (!this.counts) return;
     const e = this.v.taken[`${layer}:${tx},${ty}`];
-    if (e?.[1] === 0 && this.game.world.ownAt?.(layer, tx, ty)) { this.change(Math.round(e[0] / 2), 'return'); e[1] = 1; }
+    if (e?.[1] === 0 && this.game.world.ownAt?.(layer, tx, ty)) { this.change(Math.round(e[0] / 2), 'return'); e[1] = 1; this.game.law?.putBack(layer, tx, ty); }
   }
   // The ids of who lives in that house ('taberna': Anselmo)
   ownersOf(house) {
@@ -205,6 +208,7 @@ export class Reputation {
       `<small class="rep-desc">${tHtml('rep.level.' + L.id + '.desc')}</small>` +
       (next ? `<small>${tHtml('rep.next', { n: next.from - v.pts, level: t('rep.level.' + next.id) })}</small>` : '') +
       `<small>${prices}</small>` +
+      (this.game.law?.bounty() && this.game.law.active ? `<small class="rep-law">${tHtml('law.journal', { n: this.game.law.bounty(), level: t('law.level.' + this.game.law.level()) })}</small>` : '') +
       (lines ? `<h4>${tHtml('rep.recent')}</h4><ul class="rep-log">${lines}</ul>` : '') +
       (this.game.gamemode !== 'survival' ? `<small class="rep-creative">${tHtml('rep.creative')}</small>` : '') + '</div>';
   }

@@ -74,6 +74,7 @@ const WALLS = {
   muro_cuadro: { col: '#a8764a', kind: 'wood', painting: true },
   ashlar_wall: { col: '#c8bca4', kind: 'stone' },
   limewash_wall: { col: '#ece8de', kind: 'plaster' },
+  iron_bars: { col: '#4a4644', kind: 'plaster' },
 };
 // Los muros son tabiques finos (T es medio grueso: el muro mide 0.24 casillas) que se unen con los muros,
 // puertas y ventanas de al lado, como las vallas. mask: 1 sigue hacia +x, 2 hacia -x, 4 hacia +y, 8 hacia -y.
@@ -442,6 +443,20 @@ export function bellSprite(q = 0) {
     I.box(0.28, -0.12, 0.5, 0.12, 0, WALL_H, col);
     I.box(0.2, -0.14, 0.4, 0.14, WALL_H, WALL_H + 12, col);
     I.box(-0.42, -0.16, 0.42, 0.16, WALL_H + 12, WALL_H + 15, col);
+    I.flush();
+    return outlined(c);
+  });
+}
+
+// The iron bars and the cell's door (their icons): a sill, a beam and what is between, a leaf with its lock for the door
+export function barsSprite(door = false, q = 0) {
+  return cached(`bars:${+door}:${q}`, () => {
+    const [c, , I] = canvas(q), iron = boxCol('#4a4644'), st = boxCol(WALLS.muro_piedra.col), wd = boxCol('#7a5030');
+    I.box(-0.5, -0.12, 0.5, 0.12, 0, 3, st);
+    I.box(-0.5, -0.1, 0.5, 0.1, WALL_H - 4, WALL_H, wd);
+    for (const z of [12, 24]) I.box(-0.5, -0.03, 0.5, 0.03, z, z + 1.5, iron);
+    for (let i = 0; i < 8; i++) { const x = -0.44 + i * 0.125; I.box(x - 0.02, -0.02, x + 0.02, 0.02, 3, WALL_H - 4, iron); }
+    if (door) { for (const x of [-0.42, 0.36]) I.box(x, -0.05, x + 0.06, 0.05, 0, WALL_H - 4, iron); I.box(0.14, -0.08, 0.34, 0.08, 15, 21, iron); }
     I.flush();
     return outlined(c);
   });

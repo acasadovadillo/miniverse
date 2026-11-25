@@ -87,7 +87,7 @@ export const worthOf = (rec, npc, s) => stackPrice(s) * (1 + 0.15 * heartsOf(rec
 export const unitPrice = s => Math.max(1, Math.round(stackPrice(s) * (s.m || PCT.start) / 100));
 // The price most of them find fair: at it, half of those who want one take it at least
 export function fairOf(rec, s) {
-  const L = Object.keys(PEOPLE).filter(id => !PEOPLE[id].fixed), w = L.reduce((t, id) => t + worthOf(rec, id, s), 0) / L.length;
+  const L = Object.keys(PEOPLE).filter(id => !PEOPLE[id].fixed && !PEOPLE[id].law), w = L.reduce((t, id) => t + worthOf(rec, id, s), 0) / L.length;
   return Math.max(1, Math.round(Math.min(w * 1.1, stallPrice(s.id) - 1)));
 }
 const MEAL_K = 1.3;   // (hungry and served at a table, a dish is worth more)

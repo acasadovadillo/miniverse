@@ -42,6 +42,7 @@ export const NEWS = {
   wish_kept: { val: 1, days: 5 }, rumour_found: { val: 1, days: 4 }, take_seen: { val: -1, days: 7 }, insult: { val: -1, days: 3 },
   knock_night: { val: -1, days: 2 }, looked_for: { val: 0, days: 1 }, big_catch: { val: 1, days: 4 }, big_game: { val: 1, days: 4 },
   new_horse: { val: 1, days: 7 }, wedding: { val: 1, days: 30 },
+  stall_seen: { val: -1, days: 5 }, jailed: { val: -1, days: 7 },   // (the law, law.js)
 };
 export const NEWS_KINDS = Object.keys(NEWS);
 // …and the kinds a couple tells each other (Plan R6.4)
@@ -174,7 +175,7 @@ export class Gossip {
   params(e) {
     const [, , kind, src, item] = e, P = { who: src === '*' ? '' : PEOPLE[src]?.name || '', other: this.theirs(e) ? e[7] : '' };
     switch (kind) {
-      case 'gift_loved': case 'helped': case 'wish_kept': case 'big_catch':
+      case 'gift_loved': case 'helped': case 'wish_kept': case 'big_catch': case 'stall_seen':
         if (!ITEMS[item]) return null;
         return { ...P, item: thing(item), some: someOf(item) };
       case 'big_game': return has(`nature.name.${item}`) ? { ...P, item: noun('nature.name', item) } : null;

@@ -32,11 +32,11 @@ function blockedLine(w, a, b, memo) {
 }
 function isSolid(w, x, y, memo) { const k = key(x, y); let v = memo.get(k); if (v === undefined) memo.set(k, v = solid(w, x, y)); return v; }
 // The tiles between two points, round what is solid (A*, eight ways without cutting corners), or null
-function search(w, a, b, memo) {
+function search(w, a, b, memo, max = MAX_OPEN) {
   const sx = Math.floor(a[0]), sy = Math.floor(a[1]), ex = Math.floor(b[0]), ey = Math.floor(b[1]);
   const x0 = Math.min(sx, ex) - MARGIN, x1 = Math.max(sx, ex) + MARGIN, y0 = Math.min(sy, ey) - MARGIN, y1 = Math.max(sy, ey) + MARGIN;
   const open = [[0, 0, sx, sy]], g = new Map([[key(sx, sy), 0]]), prev = new Map(), closed = new Set();
-  for (let n = 0; open.length && n < MAX_OPEN; n++) {
+  for (let n = 0; open.length && n < max; n++) {
     let bi = 0;
     for (let i = 1; i < open.length; i++) if (open[i][0] < open[bi][0]) bi = i;
     const [, c, x, y] = open.splice(bi, 1)[0], k = key(x, y);
@@ -63,6 +63,16 @@ function search(w, a, b, memo) {
 }
 // Is there a way on foot from one point to another, straight or round what is in between? (business.js: to a player's counter)
 export function canWalk(w, a, b) { const memo = new Map(); return !blockedLine(w, a, b, memo) || !!search(w, a, b, memo); }
+// The way on foot between two points, round what is solid, as points (the last one b); null if there is none (law.js: Ramiro)
+export function wayTo(w, a, b) {
+  const memo = new Map();
+  if (!blockedLine(w, a, b, memo)) return [b];
+  const tiles = search(w, a, b, memo, 900);
+  if (!tiles) return null;
+  const line = [a, ...tiles.slice(1, -1).map(([x, y]) => [x + 0.5, y + 0.5]), b], out = [];
+  for (let i = 0; i < line.length - 1;) { let j = line.length - 1; while (j > i + 1 && blockedLine(w, line[i], line[j], memo)) j--; out.push(line[j]); i = j; }
+  return out;
+}
 // R: a road of routines.js { pts, at, len, out: [first, last] of its points outdoors, or null }. The same road, or one like it
 // that goes round what is in the way
 export function wayRound(w, R) {

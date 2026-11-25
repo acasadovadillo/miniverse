@@ -18,6 +18,7 @@ import { nearX } from '../world/planet.js';
 import { scaleOf } from '../herds.js';
 import { raceKey } from '../horsebreeds.js';
 import { RealPerson, realBaby, prebuildReal, realReady, realStats } from './realperson.js';
+import { armband } from './law3d.js';
 import { apagada } from '../opciones.js';
 import { smoothstep } from '../util.js';
 import { Audio } from '../audio.js';
@@ -426,6 +427,7 @@ export class Actors {
       const person = new RealPerson(look, { kid: !!e.kid }), root = new THREE.Group();
       root.add(person.root);
       const m = { kind: 'person', root, person, prev: null, speed: 0 };
+      if (look?.armband) armband(person);   // (the constable's: law3d.js)
       if (e.kid) root.rotation.order = 'YXZ';   // (la persona ya es de niño: ver realperson.js)
       if (isPlayer || e.remote) {
         // Con algo en la mano, caballo y barca (el jugador, además, con sus propios materiales para dibujar
@@ -1191,6 +1193,8 @@ export const EMOTES = {
   // A customer at a player's counter (business.js), drawn by each game: inspect, leaning over the goods, the hand going from one
   // to another; pay, the hand out with the coins and back
   inspect: { dur: 3.4, pose: (k, s) => { const e = Math.min(1, k * 6, (1 - k) * 6), p = Math.sin(k * Math.PI * 4); return { ax: e * (-0.72 + 0.1 * p), az: e * s * (0.05 + 0.22 * p), fx: e * -0.62, hx: e * 0.36, hz: e * 0.06 * p, tx: e * 0.24 }; } },
+  arrest: { dur: 2.2, pose: (k, s) => { const e = Math.min(1, k * 5, (1 - k) * 4), q = e * e * (3 - 2 * e); return { ax: -1.28 * q, az: s * 0.1 * q, ay: -s * 0.25 * q, fx: -0.18 * q, tx: 0.16 * q, hx: 0.04 * q }; } },
+  stagger: { dur: 1.1, both: true, pose: (k, s) => { const e = Math.min(1, k * 8) * (1 - k); return { ax: -0.7 * e * 1.6, az: s * 0.9 * e, fx: -0.9 * e, tx: -0.5 * e, hx: -0.35 * e }; } },
   pay: { dur: 1.7, pose: (k, s) => { const e = Math.min(1, k * 4, (1 - k) * 4), q = e * e * (3 - 2 * e); return { ax: -1.02 * q, az: -s * 0.06 * q, ay: s * 0.7 * q, fx: -0.5 * q, hx: 0.12 * q, tx: 0.08 * q }; } },
   // whistle: the fingers to the mouth, the head up a touch, held for about half a second
   whistle: { dur: 0.9, pose: (k, s) => ({ ax: -1.2, az: -s * 0.1, ay: -s * 0.85, fx: -2.25, hx: -0.06 }) },

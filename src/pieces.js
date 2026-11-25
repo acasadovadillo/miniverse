@@ -35,6 +35,12 @@ export const PIECES = {
 };
 // (a stone doorway with a bell gable on top: a door like the others; three/chapel3d.js)
 Object.assign(PIECES, { bell_gable: { cat: 'Muros', layer: 'placed', kind: 'door', bell: true, cost: [['piedra', 14], ['tablas', 3], ['lingote_cobre', 2]], needs: 'cantero' } });
+// (a cell's: a wall of iron bars, and its door; three/law3d.js. Their names, 'piece.<id>')
+const LAW_PIECES = {
+  iron_bars: { cat: 'Muros', layer: 'placed', kind: 'wall', bars: true, cost: [['lingote_hierro', 1], ['tablas', 1]], needs: 'yunque' },
+  cell_door: { cat: 'Muros', layer: 'placed', kind: 'door', bars: true, cost: [['lingote_hierro', 2], ['tablas', 1]], needs: 'yunque' },
+};
+Object.assign(PIECES, LAW_PIECES);
 // (of the temples and of the hamlets of the south: dressed stone, a round column and limewash; and the temples' roof of slabs, laid
 // low: world/roof.js. Their names, 'piece.<id>')
 const PLACE_PIECES = {
@@ -44,7 +50,7 @@ const PLACE_PIECES = {
   slab_roof: { cat: 'Tejados', layer: 'roof', cost: [['piedra', 2]], needs: 'cantero' },
 };
 Object.assign(PIECES, PLACE_PIECES);
-defineNames({ post: PIECES.post, stone_pillar: PIECES.stone_pillar, bell_gable: PIECES.bell_gable, ...PLACE_PIECES }, 'piece');
+defineNames({ post: PIECES.post, stone_pillar: PIECES.stone_pillar, bell_gable: PIECES.bell_gable, ...LAW_PIECES, ...PLACE_PIECES }, 'piece');
 export const CATS = ['Suelos', 'Muros', 'Tejados', 'Vallas'];   // (el hogar, de la casa, se fabrica en el banco)
 
 // Capa de una cosa colocable: las piezas dicen la suya; los objetos de la mochila van en la de objetos

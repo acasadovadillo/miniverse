@@ -115,6 +115,26 @@ export function chapelPews(x0, y0) {
   for (const y of [y0 + 4, y0 + 6, y0 + 8]) for (const dx of [2, 4, 1, 5]) out.push({ seat: [x0 + dx, y], tile: [x0 + (dx < 3 ? 2 : 5), y] });
   return out;
 }
+// The law office (8×9, project 'law_office'): limewash and slate. In front, the office: the constable's desk, a bench and the
+// hearth; at the back, behind the bars, the cell with its bunk, and the constable's room
+export function lawOfficeBlueprint({ x0, y0 }) {
+  const w = 8, h = 9, placed = {}, floor = {}, roofs = {}, k = (x, y) => `${x},${y}`, x1 = x0 + w - 1, y1 = y0 + h - 1, mid = y0 + 4, P = (dx, dy, id) => { placed[k(x0 + dx, y0 + dy)] = id; };
+  for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) { floor[k(x, y)] = x <= x0 + 4 && y < mid ? 'suelo_piedra' : 'suelo_madera'; roofs[k(x, y)] = 'tejado_gris'; }
+  for (let x = x0; x <= x1; x++) { placed[k(x, y0)] = 'limewash_wall'; placed[k(x, y1)] = 'limewash_wall'; placed[k(x, mid)] = 'limewash_wall'; }
+  for (let y = y0; y <= y1; y++) { placed[k(x0, y)] = 'limewash_wall'; placed[k(x1, y)] = 'limewash_wall'; if (y < mid) placed[k(x0 + 4, y)] = 'limewash_wall'; }
+  P(4, 8, 'puerta');
+  for (const dx of [2, 6]) P(dx, 8, 'ventana');
+  P(7, 6, 'ventana'); P(6, 0, 'ventana'); P(2, 0, 'ventana');
+  P(1, 4, 'iron_bars'); P(2, 4, 'cell_door'); P(3, 4, 'iron_bars'); P(5, 4, 'puerta');
+  P(1, 1, 'cama'); P(3, 3, 'taburete');                        // the cell
+  P(6, 1, 'cama'); P(5, 1, 'comoda');                          // the constable's room
+  P(1, 6, 'chimenea@1'); P(2, 7, 'pew@2'); P(5, 6, 'desk'); P(6, 5, 'taburete'); P(6, 7, 'maceta'); P(3, 6, 'candelabro');
+  return { placed, floor, roof: roofs };
+}
+// Its places, from its corner: the cell inside (x0…y1) and where one stands in it, in front of the door, the desk, the bunk
+export function lawOfficePlan({ x0, y0 }) {
+  return { cell: { x0: x0 + 0.62, y0: y0 + 0.62, x1: x0 + 4.38, y1: y0 + 4.38 }, inCell: [x0 + 2.9, y0 + 2.6], cellDoor: [x0 + 2, y0 + 4], out: [x0 + 4.5, y0 + 10.4], desk: [x0 + 6, y0 + 6.5], deskTile: [x0 + 5, y0 + 6], chair: [x0 + 6, y0 + 5], bunk: [x0 + 1, y0 + 1], bed: [x0 + 6, y0 + 1] };
+}
 // ---------- the houses of the hamlets (hamlets.js; PLAN-R7 §3.6.3) ----------
 // Three sizes (and one with a porch, 10 × 10 with it); of what they are built, by the land: thatch and timber frame in the meadows, limewash and red tile in the warm
 // south and by the sea, stone and slate in the north and the mountains, boards and thatch in the woods.

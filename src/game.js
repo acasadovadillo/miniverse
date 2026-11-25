@@ -7,7 +7,7 @@ import { camToSave, camFromSave, CAM } from './camera.js';
 import { wrapX, dxOf, wrapIndex, HALF, NORTH, SOUTH } from './world/planet.js';
 import { Overworld, NILO_LOOK, wellSpec, barrowSolids } from './world/scenes.js';
 import { houseBlueprint, familyBlueprint, byChunk, doorTile, houseSize } from './world/blueprints.js';
-import { HOUSE, HOUSE_BIG, HOUSE_FAMILY, HOUSES, CENTER, SPAWN, inBounds, inOwnHouse, inTavern, inChapel, hasProject, setFamilyHouse } from './world/village.js';
+import { HOUSE, HOUSE_BIG, HOUSE_FAMILY, HOUSES, CENTER, SPAWN, inBounds, inOwnHouse, inTavern, inChapel, inLawOffice, hasProject, setFamilyHouse } from './world/village.js';
 import { PIECES, parsePlaced } from './pieces.js';
 import { BUILDABLE } from './buildables.js';
 import { Profile } from './accounts.js';
@@ -90,6 +90,7 @@ import { Remarks } from './remarks.js';
 import { Gossip } from './gossip.js';
 import { Chatter } from './chatter.js';
 import { Business, BIZ_THINGS } from './business.js';
+import { Law } from './law.js';
 import { Rumours } from './rumours.js';
 import { Dive } from './dive.js';
 import { Tracks } from './tracks.js';
@@ -145,7 +146,7 @@ function defaultHouseDeltas() {
 
 // Los modos de juego (/gamemode) y las reglas del mundo (/gamerule) con lo que valen al empezar
 export const GAMEMODES = { survival: 'supervivencia', creative: 'creativo', spectator: 'espectador' };
-export const RULES = { keepInventory: false, doMobSpawning: true, doWeatherCycle: true, doDaylightCycle: true, naturalRegeneration: true, announceAdvancements: true, doThirst: true, doFatigue: true, doBodyWeather: true, doGardenPests: true };   // (doGardenPests: pests.js; doThirst, doFatigue: needs.js; doBodyWeather: body.js, cold and heat on the needs; old saves get true, and they are read as !== false)
+export const RULES = { keepInventory: false, doMobSpawning: true, doWeatherCycle: true, doDaylightCycle: true, naturalRegeneration: true, announceAdvancements: true, doThirst: true, doFatigue: true, doBodyWeather: true, doGardenPests: true, doLaw: true };   // (doGardenPests: pests.js; doLaw: law.js; doThirst, doFatigue: needs.js; doBodyWeather: body.js, cold and heat on the needs; old saves get true, and they are read as !== false)
 const TAVERN_SEATS = new Set(['silla', 'taburete', 'barber_chair']);   // (en la taberna, quien quiere se sienta)
 // (no key held: what a rearing horse's rider moves with, horse.js held; frozen, never written)
 const NO_KEYS = Object.freeze({ up: false, down: false, left: false, right: false, run: false, sprint: false, use: false, space: false, dive: false, mapFast: false });
@@ -244,6 +245,7 @@ export class Game {
     this.social = this.addSystem(new Social(this));   // greeting and provoking people (Y or right click on someone)
     this.talk = this.addSystem(new Talk(this));   // talking to a neighbour: subtitles and a list of options (talk.js)
     this.remarks = this.addSystem(new Remarks(this));   // what the neighbours say about how you look (src/remarks.js; after social: it speaks through social.say)
+    this.law = this.addSystem(new Law(this));   // the law: crimes, bounties, the constable and the cell (src/law.js; after neighbors and barrow)
     this.business = this.addSystem(new Business(this));   // the players' own shops and taverns (src/business.js; after neighbors, barrow and social)
     this.rumours = this.addSystem(new Rumours(this));   // the places the neighbours tell you of (src/rumours.js; after places and talk)
     this.chatter = this.addSystem(new Chatter(this));   // the neighbours talking among themselves (src/chatter.js)
@@ -731,6 +733,7 @@ export class Game {
     // (nor on a wheelbarrow in the doorway: yours or another player's, barrow.js)
     const sc = this.scene, p = this.player, closed = sc.doorClosed(...door), inGap = Math.hypot(door[0] + 0.5 - p.x, door[1] + 0.5 - p.y) < 0.55 || (sc === this.world && !closed && !!this.barrow?.onDoor(door)), k = String(door);
     const gate = sc.pieceAt?.(...door)?.kind === 'gate';
+    if (sc === this.world && this.law.locked(door)) return { text: t('law.locked'), run: () => Audio.error() };   // (the cell's, with somebody in it)
     if (!gate && closed && !(this.knocked?.k === k && this.time < this.knocked.until) && this.knockable(door)) return { text: 'Llamar a la puerta', run: () => this.knock(door) };
     // (la puerta de valla, como las vallas, solo se quita con Quitar en el modo construir, B)
     if (closed || !inGap) return { text: `${closed ? 'Abrir' : 'Cerrar'} la puerta${gate ? ' de valla' : ''}`, run: () => { sc.toggleDoor(...door); Audio.place(); if (sc === this.world) this.wildlife.noise(door[0] + 0.5, door[1] + 0.5, EVENT.door); this.onSave?.(); } };
@@ -973,6 +976,7 @@ export class Game {
     for (const h of Object.values(HOUSES)) if ((!h.project || hasProject(h.project)) && p.x > h.x0 && p.x < h.x1 && p.y > h.y0 && p.y < h.y1) return `Casa de ${h.name}`;
     if (inTavern(p.x, p.y)) return 'La taberna';
     if (inChapel(p.x, p.y)) return t('place.chapel');
+    if (inLawOffice(p.x, p.y)) return t('place.law_office');
     return t('place.under_roof');
   }
   // The room by what is in it (structure.js roomAt): only in your house or in one that was built (its roof came with neither
@@ -1003,6 +1007,7 @@ export class Game {
     if (!p || !this.world || !Number.isFinite(x) || !Number.isFinite(y)) return false;
     x = wrapX(x); y = Math.max(NORTH + 1, Math.min(SOUTH - 1, y));   // (dentro del planeta)
     if (this.barrow?.pushing) this.barrow.park(true);   // (the wheelbarrow stays where you were)
+    if (cover) this.law?.freed();   // (an op takes you out of the cell)
     const far = this.scene !== this.world || Math.hypot(dxOf(x, p.x), y - p.y) > JUMP_COVER;
     if (p.pose) this.rest.stand();
     if (this.scene !== this.world) { this.scene = this.world; p.inside = false; }
@@ -1369,7 +1374,7 @@ export class Game {
     // until it is back at 40 %, horse.js; its speeds, its weight and the ground: horseride.js)
     const tired = p.mount ? this.horse.noGallop() : this.needs.noRun();
     if (tired && keys.sprint) dropSprint();
-    p.noSprint = this.carry.noRun() || tired; p.noJog = this.carry.noJog(); p.jumpMul = this.carry.jumpMul();   // (with the slot inventory, false and 1)
+    p.noSprint = this.carry.noRun() || tired || this.law.cell; p.noJog = this.carry.noJog(); p.jumpMul = this.carry.jumpMul();   // (with the slot inventory, false and 1)
     if (Object.values(keys).some(Boolean)) this.lastInput = this.time;   // (para /setidletimeout)
     if (p.mount) this.horse.prepRide(p, this.scene, Settings.v.ride === 'arcade' || apagada('montar'));
     if (p.aboard) p.stop();   // (de pasajero en una barca, le lleva ella)
@@ -1443,6 +1448,7 @@ export class Game {
     try { this.wheel?.frame(); } catch (e) { reportFault(e, 'ToolWheel.frame'); }   // (the tool wheel: src/ui/wheel.js)
     try { this.quick?.frame(); } catch (e) { reportFault(e, 'QuickPlaces.frame'); }   // (the places near: src/ui/quickplaces.js)
     try { this.smartHud?.frame(hint); } catch (e) { reportFault(e, 'SmartHud.frame'); }   // (the minimal interface, unless the full one was chosen: src/ui/smarthud.js)
+    try { this.lawHud?.frame(); } catch (e) { reportFault(e, 'LawHud.frame'); }
     try { this.needsBar?.frame(); } catch (e) { reportFault(e, 'NeedsBar.frame'); }   // (the status bars, both HUDs: src/ui/needsbar.js; after smartHud, which sets their timers)
     if (this.player && this.world) {
       // (los lugares y los caballos, para smarthud.js, y los vecinos que se ven, cuatro veces por segundo. What is on the maps

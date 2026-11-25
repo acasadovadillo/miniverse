@@ -172,9 +172,12 @@ export const hud = {
     });
   },
   // Pregunta con opciones; devuelve el índice elegido. Se elige con clic, flechas o números, y se confirma con E, Espacio o clic.
-  ask(name, text, options) {
+  // timeout (s): with nothing picked by then, option pick (law.js: an arrest does not wait for ever)
+  ask(name, text, options, { timeout = 0, pick = 0 } = {}) {
     return new Promise(resolve => {
       let sel = 0;
+      const mine = {};
+      if (timeout > 0) setTimeout(() => { if (dialog?.mine === mine) { sel = pick; dialog.next(); } }, timeout * 1000);
       showFace(name);
       if (hud.faces[name.split('  ')[0]]) hud.log.say(name, text);   // (somebody asks: what they say with it; not a menu's question)
       $('dlg-name').textContent = name;
@@ -193,6 +196,7 @@ export const hud = {
       paint();
       $('dialog').classList.add('show', 'asking');
       dialog = {
+        mine,
         move(d) { sel = (sel + d + options.length) % options.length; paint(); Audio.blip(); },
         pick(i) { if (i < options.length) { sel = i; this.next(); } },
         next() {

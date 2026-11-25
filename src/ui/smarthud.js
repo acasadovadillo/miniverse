@@ -87,6 +87,8 @@ const TIPS = {
   bulky: { key: 'E' }, arms: { key: 'Q' },
   // (your first shop counter, with no business yet: business.js)
   biz: { key: 'E' },
+  // (the first time you owe the law something: law.js)
+  wanted: { key: null },
   // (the wheelbarrow, barrow.js: parked within reach, then pushing it; a big thing on the horse or in the bow, carry.js)
   barrow: { key: 'E' }, pushing: { key: 'Q' }, ride: { key: 'Q' }, bow: { key: null },
   // (the body, Plan E: what to do about the chip under the bars; dirty says its key, X, in the text)
@@ -588,6 +590,7 @@ export class SmartHud {
       if (g.barrow.pushing) this.want('pushing');
       else if (!this.seen.has('barrow') && !C?.held && (g.scene?.placedNear?.(p.x, p.y, 2.2) || []).some(o => o.placed === 'wheelbarrow')) this.want('barrow');
     }
+    if (!this.seen.has('wanted') && g.law?.level() && !g.law.cell && !apagada('law')) this.want('wanted');
     // The posture key, once: the first crouch or sitting on the floor, or after a while on foot
     if (!this.seen.has('biz') && g.scene === g.world && !apagada('shops') && (g.scene.placedNear?.(p.x, p.y, 2.2) || []).some(o => o.placed === 'shop_counter' && !g.business?.at(String(o.tile)))) this.want('biz');
     if (T - this.started > 8 && !p.swim && !p.mount && !p.boat && !p.aboard && (p.crouch || p.pose?.kind === 'floorSit' || p.pose?.kind === 'floorLie' || T - this.started > POSTURE_TIP)) this.want('posture');

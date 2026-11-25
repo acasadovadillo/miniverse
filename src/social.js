@@ -20,9 +20,11 @@ import { Audio } from './audio.js';
 import { hud } from './ui/hud.js';
 import { levelIndex, recent } from './reputation.js';
 import { REMARKS, remarkLines, remarkLife } from './remarks.js';
+import { opcion } from './opciones.js';
 
 export const HOLD = 0.7;          // s held: provoke instead of greeting
 export const RING_FROM = 0.25;    // s held before the ring shows
+const SHOVE = opcion('shove') === '1', SHOVE_S = 1.6, SHOVE_R = 1.9;   // (the shove of Plan H §4.1, off by default: held on after provoking, s; tiles)
 export const GREET_R = 8;         // tiles: the farthest you can greet someone under the cursor
 export const COUNT_R = 4;         // tiles: the farthest a greeting counts for the friendship and the reputation
 const FRONT_R = 6, FRONT_COS = Math.cos(35 * Math.PI / 180);   // Y without anyone under the cursor: who is in front of you
@@ -39,7 +41,7 @@ const MY_LIFE = 2.6, NPC_LIFE = 2.8, STAY = 1.8;   // s: how long the bubbles la
 // the cupped hand (needs.drinkAt plays it again while drinking; its animation is three/actors.js EMOTES.drink: an old
 // client without it shows 'wave', live.js). 'scrub': washing at a river or a lake, or at a basin (body.js, Plan E §4.2);
 // 'shiver': the cold as a gesture (actors.js EMOTES; the idle shiver itself is drawn from st.bd)
-export const EMOTE_KINDS = ['wave', 'nod', 'shrug', 'hips', 'fist', 'flinch', 'point', 'dismiss', 'drink', 'scrub', 'shiver', 'brush', 'pat', 'whistle', 'talk', 'think', 'inspect', 'pay'];   // (append only: the index travels as st.ek; brush, pat and whistle: the horse, Plan F §5.3; talk and think: a talk's, never sent, talk.js)
+export const EMOTE_KINDS = ['wave', 'nod', 'shrug', 'hips', 'fist', 'flinch', 'point', 'dismiss', 'drink', 'scrub', 'shiver', 'brush', 'pat', 'whistle', 'talk', 'think', 'inspect', 'pay', 'stagger', 'arrest'];   // (append only: the index travels as st.ek; brush, pat and whistle: the horse, Plan F §5.3; talk and think: a talk's, never sent, talk.js)
 export const PLAYER_LINES = ['social.say.greet.morning', 'social.say.greet.day', 'social.say.greet.evening', 'social.say.greet.night', 'social.say.greet_player', 'social.say.greet_partner', 'social.say.insult', 'social.say.insult_player', 'social.say.air'];
 const RELS = ['friend', 'neutral', 'cold'];
 const MEM_DAYS = 2;   // (a memory of today or the 2 days before: «the last 3 days» of relation())
@@ -96,6 +98,7 @@ body:not(.playing) #social-sub { display: none; }
 .rep-log li { display: flex; justify-content: space-between; gap: 10px; padding: 1px 0; }
 .rep-log b.up { color: #a8f07a; } .rep-log b.down { color: #ff9a7a; }
 .rep-box .rep-creative { color: var(--gold); }
+.rep-box .rep-law { color: #ff9a7a; }
 `;
 
 const rnd = n => Math.floor(Math.random() * n);
@@ -116,6 +119,7 @@ export class Social {
   constructor(game) {
     this.game = game;
     this.hold = null;        // the press going on: { src, t, target, x, y }
+    this.push = null;        // (?shove=1) held on after provoking: the same
     this.queue = [];         // what happens a moment later (the neighbor's answer): { t, fn }
     this.bubbles = [];       // the lines in sight: { e, text, name, t, life, mine } (fx.js draws them)
     this.emoting = new Set();
@@ -135,7 +139,7 @@ export class Social {
     document.body.append(this.sub, this.ring);
   }
   get today() { return this.game.days.dayIndex; }
-  reset() { this.hold = null; this.queue = []; this.bubbles = []; this.picked = null; this.back = null; this.showRing(-1); this.subtitle(''); }
+  reset() { this.hold = this.push = null; this.queue = []; this.bubbles = []; this.picked = null; this.back = null; this.showRing(-1); this.subtitle(''); }
 
   // ---------- who ----------
   // Can you greet now? Playing, not talking, not building, not with the tool wheel open, not as a spectator, not typing
@@ -201,7 +205,7 @@ export class Social {
   press(src, x, y) {
     const g = this.game;
     if (!this.can()) return src !== 'mouse' ? true : false;
-    if (this.hold) return true;
+    if (this.hold || this.push) return true;
     const m = g.mouse, cursor = src === 'mouse' ? [x, y] : m?.in && !g.windowsOpen ? [m.x, m.y] : [null, null];
     const target = this.pick(cursor[0], cursor[1], src !== 'mouse');
     if (src === 'mouse' && !target) return false;
@@ -212,12 +216,13 @@ export class Social {
   // Let go before HOLD: a greeting (always)
   release(src) {
     const h = this.hold;
+    if (this.push && (!src || this.push.src === src)) { this.push = null; this.showRing(-1); }
     if (!h || (src && h.src !== src)) return;
     this.hold = null;
     this.showRing(-1);
     this.act(0, h.target);
   }
-  cancel() { this.hold = null; this.showRing(-1); }
+  cancel() { this.hold = this.push = null; this.showRing(-1); }
 
   update(dt) {
     const g = this.game;
@@ -227,10 +232,11 @@ export class Social {
       if (!this.can()) this.cancel();
       else {
         h.t += dt;
-        if (h.t >= HOLD) { this.hold = null; if (this.rowed) hud.promptHold('Y', 1, true); this.showRing(-1); this.act(h.target?.kind === 'kid' ? 0 : 1, h.target); }   // (a child is never provoked)
+        if (h.t >= HOLD) { this.hold = null; if (this.rowed) hud.promptHold('Y', 1, true); this.showRing(-1); this.act(h.target?.kind === 'kid' ? 0 : 1, h.target); if (SHOVE && this.canShove(h.target)) this.push = { ...h, t: HOLD }; }   // (a child is never provoked)
         else this.showRing(h.t < RING_FROM ? -1 : (h.t - RING_FROM) / (HOLD - RING_FROM), h);
       }
     }
+    if (this.push) this.pushing(dt);
     if (this.queue.length) {
       for (const q of this.queue) q.t -= dt;
       const due = this.queue.filter(q => q.t <= 0);
@@ -287,6 +293,25 @@ export class Social {
     }
     if (a) Audio.error(); else Audio.blip();
     this.send(msg);
+  }
+  // (?shove=1) Held on after provoking a neighbour within reach, with a law in the village: a second ring, and a shove. Never a child,
+  // a player nor somebody asleep
+  canShove(c) { const g = this.game, p = g.player; return !!c && c.kind === 'npc' && !c.e.asleep && !!g.law?.counts && Math.hypot(nearX(c.e.x, p.x) - p.x, c.e.y - p.y) <= SHOVE_R; }
+  pushing(dt) {
+    const g = this.game, q = this.push, e = q.target.e;
+    if (!this.can() || !this.canShove(q.target)) { this.push = null; this.showRing(-1); return; }
+    q.t += dt;
+    if (q.t < SHOVE_S) { this.showRing((q.t - HOLD) / (SHOVE_S - HOLD), q); if (this.ringOn && this.ring && this.ownRing) this.ring.lastChild.textContent = t('social.shove'); return; }
+    this.push = null; this.showRing(-1);
+    const p = g.player, dx = nearX(e.x, p.x) - p.x, dy = e.y - p.y, d = Math.hypot(dx, dy) || 1;
+    this.emote(p, 'dismiss');
+    this.emote(e, 'stagger');
+    if (!e.pose && 'hold' in e) { e.hold = STAY; e.x += dx / d * 0.3; e.y += dy / d * 0.3; }
+    g.neighbors.addPoints(q.target.id, -40);
+    g.rep?.change(-30, 'crime');
+    g.law.shoved(q.target.id, e);
+    this.later(() => this.say(e, g.law.witnessLine(q.target.id), { name: q.target.name }), 0.4);
+    Audio.error();
   }
   // What a greeting or a provocation does to the friendship and the reputation (not in creative)
   count(a, c) {

@@ -294,7 +294,7 @@ export class Live {
   hi(to = null, ask = false) {
     const g = this.game;
     const look = g.player ? g.appearance() : null;
-    this.net?.send({ t: 'hi', id: Profile.id, name: g.player?.name || Profile.name, host: this.joined && this.role === 'host' && !!g.player, admin: Profile.admin, server: !!Profile.server, playing: this.joined && !!g.player, look, ask, v: GAME_VERSION, perItem: 1, wb: 1 }, to);   // (perItem: entiende lo de todos por elementos; wb: knows the wheelbarrow, barrow.js)
+    this.net?.send({ t: 'hi', id: Profile.id, name: g.player?.name || Profile.name, host: this.joined && this.role === 'host' && !!g.player, admin: Profile.admin, server: !!Profile.server, playing: this.joined && !!g.player, look, ask, v: GAME_VERSION, perItem: 1, wb: 1, law: 1 }, to);   // (perItem: entiende lo de todos por elementos; wb: knows the wheelbarrow, barrow.js)
     this.lastLook = look; this.lastLookJson = JSON.stringify(look);
   }
   plain(conn, p) {
@@ -378,7 +378,7 @@ export class Live {
     let peer = this.peers.get(conn);
     if (m.t === 'hi') {
       const was = peer?.playing, wasHost = peer?.host;
-      peer = { ...peer, id: m.id, name: m.name, host: !!m.host, admin: !!m.admin, server: !!m.server && this.serverConns.has(conn), playing: !!m.playing, look: m.look, v: typeof m.v === 'string' ? m.v : '', perItem: !!m.perItem, barrows: !!m.wb };
+      peer = { ...peer, id: m.id, name: m.name, host: !!m.host, admin: !!m.admin, server: !!m.server && this.serverConns.has(conn), playing: !!m.playing, look: m.look, v: typeof m.v === 'string' ? m.v : '', perItem: !!m.perItem, barrows: !!m.wb, law: !!m.law };
       if (was && !peer.playing) this.gone(peer);   // (out to the menu: what they pushed is parked where they were, barrow.js)
       if (!peer.playing) this.hide(peer);
       this.peers.set(conn, peer);
@@ -451,12 +451,14 @@ export class Live {
           const edit = !peer.old && this.mayEdit(peer, m.c), B = !peer.old ? g.barrow : null, A = B ? B.arbitrate(peer, m.c, m.ops, edit) : null;
           const TR = g.traps?.arbitrate(m.c, A ? A.rest : m.ops), free = TR ? TR.ok : A ? A.rest : m.ops;   // (the fish traps are only whoever decides': traps.js)
           const BZ = g.business?.arbitrate(peer, m.c, free), open = BZ ? BZ.ok : free;   // (the businesses, and what stands in them: business.js)
-          const PA = g.plans?.arbitrate(peer, m.c, open), rest = PA ? PA.ok : open, mine = A ? A.ok : [];
+          const LW = g.law?.arbitrate(m.c, open), lawful = LW ? LW.ok : open;   // (what was taken from the stalls, and the office while somebody is in the cell: law.js)
+          const PA = g.plans?.arbitrate(peer, m.c, lawful), rest = PA ? PA.ok : lawful, mine = A ? A.ok : [];
           const W = edit ? g.wear?.arbitrate(m.c, rest) : null, ok = W ? W.ok : rest;   // (what they build is stamped here: wear.js)
           if (edit) { if (ok.length || mine.length) this.applyChunk(m.c, [...ok, ...mine]); if (W?.back.length) this.net.send({ t: 'w', c: m.c, ops: W.back }, conn); }
           else { if (mine.length) this.applyChunk(m.c, mine); if (rest.length) this.refuse(conn, peer, m.c, rest); }
           if (TR) this.net.send({ t: 'w', c: m.c, ops: TR.back }, conn);
           if (BZ?.back.length) this.net.send({ t: 'w', c: m.c, ops: BZ.back }, conn);
+          if (LW) this.net.send({ t: 'w', c: m.c, ops: LW.back }, conn);
           if (PA?.back.length) this.net.send({ t: 'w', c: m.c, ops: PA.back }, conn);   // (plans of a building: plans.js)
           if (A) { if (A.back.length) this.net.send({ t: 'w', c: m.c, ops: A.back }, conn); B.afterArbitrate(m.c, A, peer); }
         }
@@ -505,6 +507,12 @@ export class Live {
       case 'greet': if (!Profile.server && this.joined) g.social.heard(conn, peer, m); break;   // (someone greets: social.js)
       case 'tk': if (!Profile.server && this.joined) g.talk?.heard(conn, peer, m); break;   // (someone talks with a neighbour: talk.js)
       case 'nw': if (!Profile.server && this.joined) g.gossip?.heard(conn, peer, m); break;   // (your partner did something good: gossip.js)
+      // The law (law.js): where Ramiro is and who is arrested (from whoever runs the world), what a guest says they did or asks for
+      case 'law': if (fromHost) g.law?.netAt(m); break;
+      case 'arrest': if (fromHost && !Profile.server && this.joined) g.law?.onArrest(m); break;
+      case 'lawok': if (fromHost) g.law?.netOk(m); break;
+      case 'crime': if (this.takes(peer) && !peer.old) g.law?.heardCrime(peer, m); break;
+      case 'lawdo': if (this.takes(peer) && !peer.old) g.law?.heardDo(conn, peer, m); break;
       case 'catch': if (!Profile.server && this.joined) g.fishing?.heard(peer, m); break;   // (a record or a trophy: fishing.js)
       case 'wp': g.route?.heard(conn, peer, m); break;   // (a map pin shared by someone: route.js)
       case 'mk': g.marks?.heard(conn, peer, m); break;   // (the marks your couple put on their map: mapmarks.js)
@@ -751,7 +759,7 @@ export class Live {
   enter(solo, world) {
     const her = solo.save;
     this.extraShared = unknownShared(world.shared);
-    const save = { ...her, places1: 0, wear: null, ...world.shared, sharedWorld: true, player: { ...her.player, inside: false, boat: false, mount: false, ...(her.livePos || {}) } };
+    const save = { ...her, places1: 0, wear: null, law: null, ...world.shared, sharedWorld: true, player: { ...her.player, inside: false, boat: false, mount: false, ...(her.livePos || {}) } };
     const deltas = new Map(world.deltas);
     for (const [k, v] of solo.deltas) if (k.startsWith('u:')) deltas.set(k, v);
     return { save, deltas };
@@ -839,7 +847,7 @@ export class Live {
     applyOps(w.delta(cx, cy, true), ops);
     if (this.guest) { const s = this.synced.get(k) || {}; applyOps(s, ops); this.synced.set(k, s); }
     // (only a pushed wheelbarrow's record, a plan of a building, a fish trap, a business, the stock of a spot or a request: nothing new to draw, the chunks are not made again; barrow.js)
-    if (ops.length && ops.every(([f]) => f === 'pushed' || f === 'claim' || f === 'plan' || f === 'traps' || f === 'fished' || f === 'shop')) w.note(cx, cy);
+    if (ops.length && ops.every(([f]) => f === 'pushed' || f === 'claim' || f === 'plan' || f === 'traps' || f === 'fished' || f === 'shop' || f === 'pilfer')) w.note(cx, cy);
     else {
       w.touch(cx, cy);
       for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (dx || dy) w.merged.delete(`${cx + dx},${cy + dy}`);   // (tejados y vallas miran a sus vecinas)

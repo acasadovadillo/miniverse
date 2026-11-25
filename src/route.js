@@ -68,6 +68,7 @@ function placeName(id, by) {
   if (id === 'home') return by ? t('gui.map.house_of', { name: by }) : null;
   if (id === 'tavern') return t('gui.map.tavern');
   if (id === 'chapel') return t('place.chapel');
+  if (id === 'law_office') return t('place.law_office');
   const q = id.startsWith('house:') ? HOUSES[id.slice(6)] : null;
   return q?.name ? t('gui.map.house_of', { name: q.name }) : null;
 }

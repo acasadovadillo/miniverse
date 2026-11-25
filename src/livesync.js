@@ -15,7 +15,7 @@ import { setFamilyHouse } from './world/village.js';
 // (dayBase, timeShift y seenDay: el calendario del mundo y el último día que amaneció en él)
 // (rules, worldSpawn, weatherLock y difficulty: las reglas del mundo, dónde aparecen los nuevos, el tiempo que ha
 // puesto un op y la dificultad)
-export const SHARED = ['clock', 'house', 'projects', 'boardDone', 'animals', 'farm', 'family', 'dayBase', 'timeShift', 'seenDay', 'wear', 'rules', 'worldSpawn', 'weatherLock', 'difficulty', 'maps', 'defaultGamemode', 'frozenHour', 'places1'];
+export const SHARED = ['clock', 'house', 'projects', 'boardDone', 'animals', 'farm', 'family', 'dayBase', 'timeShift', 'seenDay', 'wear', 'rules', 'worldSpawn', 'weatherLock', 'difficulty', 'maps', 'defaultGamemode', 'frozenHour', 'places1', 'law'];
 
 // Lo del mundo guardado que este juego no conoce: de una versión más nueva (una clave que se añadió después). Quien lleva
 // el mundo lo vuelve a guardar tal cual (ver worldOf en live.js), para no perderlo. RETIRED: lo que se quitó del juego
@@ -80,6 +80,8 @@ export const BLOBS = {
   places1: { get: g => g.places.places1, set: (g, v) => { if (g.live.role !== 'host') g.places.share(v); } },
   // (the clock of the wear of what is built, wear.js: only whoever runs the world writes it)
   wear: { get: g => ({ d: g.wear.v.d }), set: (g, v) => { if (g.live.role !== 'host') g.wear.share(v); } },
+  // (who owes what to the law, law.js: only whoever runs the world writes it; as a list of elements, below)
+  law: { get: g => g.law.v, set: (g, v) => { if (g.live.role !== 'host') g.law.share(v); } },
   maps: { get: g => g.maps.data, set: (g, v) => { g.maps.data = v || {}; } },   // (lo dibujado en los mapas)
   defaultGamemode: { get: g => g.defaultGamemode, set: (g, v) => { g.defaultGamemode = v; } },
 };
@@ -115,6 +117,8 @@ export const COLLECTIONS = {
     // horseGuard); every other field and animal passes
     guard: (g, id, f, v, pid, el) => (g.saddlebags?.guard ? g.saddlebags.guard(id, f, v, pid, el) : true) },
   family: { items: g => g.family.netItems(), whole: (g, v) => g.family.netItems(v || {}), apply: (g, ops) => g.family.netApply(ops), guestDrops: false },
+  // (hostOnly: a guest's change of it is never taken, whatever it is; it goes back as it is here)
+  law: { items: g => g.law.netItems(), whole: (g, v) => new Map(Object.entries(isMap(v) ? v : {})), apply: (g, ops) => g.law.netApply(ops), guestDrops: false, hostOnly: true },
   farm: { items: g => g.ranch.farmItems(), whole: (g, v) => g.ranch.farmItems(v || {}), apply: (g, ops) => g.ranch.farmApply(ops), counters: { hay: [0, Infinity] }, guestDrops: true },
 };
 const OPS = new Set(['put', 'set', 'del', 'add', 'drop']);
@@ -229,6 +233,7 @@ export class ItemSync {
     for (const op of ops) {
       if (!valid(op)) continue;
       const [kind, id, f, v] = op, have = cur.get(id);
+      if (!fromHost && !trusted && this.def.hostOnly) { back.push(have ? ['put', id, JSON.parse(JSON.stringify(have))] : ['drop', id]); continue; }
       if (kind === 'drop') {
         if (!fromHost && !trusted && !this.def.guestDrops) { if (have) back.push(['put', id, JSON.parse(JSON.stringify(have))]); continue; }   // (que lo vuelva a tener)
         this.gone.add(id);

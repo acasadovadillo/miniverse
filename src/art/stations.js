@@ -40,7 +40,7 @@ export const LIGHT = { post_lantern: [0, 0.4, 28, 60], horno: [0, 0.42, 6, 42], 
 // Lo que ocupa más de una casilla: 'long', la suya y la de delante (+y; girado, la de +x); 'wide' (la cama
 // doble), además las dos de al lado (+x; girado, -y); 'pair' (el sofá), la suya y la de al lado; 'table' (la mesa
 // grande), las de su tamaño alrededor de la suya
-export const LONG = { cama: 'long', cama_nino: 'long', banera: 'long', cama_doble: 'wide', sofa: 'pair', pew: 'pair', mesa_grande: 'table', shop_counter: 'pair' };
+export const LONG = { cama: 'long', cama_nino: 'long', banera: 'long', cama_doble: 'wide', sofa: 'pair', pew: 'pair', mesa_grande: 'table', shop_counter: 'pair', desk: 'pair' };
 export const BED_BACK = 0.46;   // de la casilla de la cabecera a la parte de atrás de la cama
 // Los cuatro giros (R): hacia dónde mira el frente del mueble (z+ del modelo) en la rejilla, hacia dónde queda su
 // lado derecho (x+) y su ángulo. 0: +y; 1: +x; 2: -y; 3: -x

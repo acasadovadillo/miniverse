@@ -121,6 +121,9 @@ import { Business } from './business.js';
 import { wayRound } from './world/walkways.js';
 import { CHAPEL, LOTS, WALK_NODES, setProjects, keepClear, townDigWhy as townWhy } from './world/village.js';
 import { PROJECTS } from './board.js';
+import { Law, STALLS, OFFICE } from './law.js';
+import { canWheel } from './ui/wheel.js';
+import * as LR from './lawrules.js';
 import { Gossip, NEWS, NEWS_KINDS, knowsAt as gossipKnowsAt, ties as gossipTies, involved, SHARED_NEWS } from './gossip.js';
 import { Chatter, SLOT } from './chatter.js';
 import { BANDS, FAR as RUM_FAR, kindsOf, kindName as rumKind, aKind } from './rumours.js';
@@ -5935,12 +5938,12 @@ async function soloTests(game) {
   await test('red: animales y granja elemento a elemento (cría y caricia a la vez, heno a la vez, otro anfitrión, foto entera, embarazos)', async () => {
     // Dos juegos de mentira (cada colección, un mapa id → objeto) repartiendo como en live.js, sin relay: H lleva el mundo, I es invitado
     const fake = () => {
-      const st = { animals: new Map(), family: new Map([['@', {}]]), farm: new Map([['@', { hay: 50 }]]) };
+      const st = { animals: new Map(), family: new Map([['@', {}]]), farm: new Map([['@', { hay: 50 }]]), law: new Map() };
       const io = name => [() => new Map([...st[name]].map(([k, v]) => [k, structuredClone(v)])), ops => {
         for (const [k, id, f, v] of ops) { const o = st[name].get(id); if (k === 'put') st[name].set(id, structuredClone(f)); else if (k === 'drop') st[name].delete(id); else if (o) { if (k === 'set') o[f] = v; else delete o[f]; } }
       }];
-      const [ai, aa] = io('animals'), [fi, fa] = io('farm'), [mi, ma] = io('family');
-      return { st, ranch: { netItems: ai, netApply: aa, farmItems: fi, farmApply: fa }, family: { netItems: mi, netApply: ma } };
+      const [ai, aa] = io('animals'), [fi, fa] = io('farm'), [mi, ma] = io('family'), [li, la] = io('law');
+      return { st, law: { netItems: li, netApply: la }, ranch: { netItems: ai, netApply: aa, farmItems: fi, farmApply: fa }, family: { netItems: mi, netApply: ma } };
     };
     const H = fake(), I = fake(), sync = () => Object.fromEntries(Object.keys(COLLECTIONS).map(k => [k, new ItemSync(k)]));
     for (const g of [H, I]) g.st.animals.set('vaca', { type: 'vaca', love: 5 });
@@ -9175,7 +9178,7 @@ async function soloTests(game) {
   const inChunk = ([x, y]) => [Math.floor(x / CHUNK) * CHUNK, Math.floor(y / CHUNK) * CHUNK];
   await test('wear (english): stages by days and material; old pieces start at the epoch; village pieces never wear; repair resets', async () => {
     const T = { tejado_paja: [40, 100], tejado_rojo: [120, 400], tejado_azul: [120, 400], tejado_verde: [120, 400], tejado_gris: [200], muro_madera: [60, 180], ventana: [60, 180], puerta: [60, 180], valla: [60, 180], puerta_valla: [60, 180], post: [60, 180], suelo_madera: [60, 180],
-      muro_entramado: [90, 270], ventana_contraventanas: [90, 270], muro_cuadro: [90, 270], muro_piedra: [150], valla_piedra: [150], suelo_piedra: [150], camino: [150], stone_pillar: [150], bell_gable: [150], limewash_wall: [90, 270], ashlar_wall: [150], stone_column: [150], slab_roof: [150] };
+      muro_entramado: [90, 270], ventana_contraventanas: [90, 270], muro_cuadro: [90, 270], muro_piedra: [150], valla_piedra: [150], suelo_piedra: [150], camino: [150], stone_pillar: [150], bell_gable: [150], limewash_wall: [90, 270], ashlar_wall: [150], stone_column: [150], slab_roof: [150], iron_bars: [150], cell_door: [150] };
     for (const [id, [a, b]] of Object.entries(T)) check(stageAt(id, a - 0.01) === 0 && stageAt(id, a) === 1 && (b ? stageAt(id, b - 0.01) === 1 && stageAt(id, b) === 2 : stageAt(id, 1e6) === 1), id);
     for (const id of PIECE_IDS) if (PIECES[id].layer) check(id in T || id === 'chimenea', `${id} has no rule`);
     for (const id of ['cofre', 'chimenea', 'silla', 'glass_wall', 'constructor', 'x']) check(!ruleOf(id) && stageAt(id, 1e6) === 0, id);
@@ -9923,7 +9926,7 @@ async function soloTests(game) {
   }));
   await test('routines (english): a whole week, everybody gets everywhere and every shop opens', routine(async ({ projects, clock }) => {
     const ids = Object.keys(PEOPLE).filter(id => !PEOPLE[id].fixed), bad = [];
-    for (const P of [{}, { mercado: true, casa: true, chapel: true, fuente: true, muelle: true }]) {
+    for (const P of [{}, { mercado: true, casa: true, chapel: true, fuente: true, muelle: true, law_office: true }]) {
       projects(P);
       const here = ids.filter(id => !PEOPLE[id].project || P[PEOPLE[id].project]), kinds = new Set();
       for (let day = MON; day < MON + 7; day++) {
@@ -10030,6 +10033,10 @@ async function soloTests(game) {
     check(Math.hypot(r.x - l.x, r.y - l.y) > 1.5, 'in the same bed');
     const beds = w().placedNear(28, 37, 9).filter(o => o.placed === 'cama'); check(beds.length === 2 && [r, l].every(n => beds.some(o => Math.hypot(o.x - n.x, o.y - n.y) < 1.2)), `beds ${beds.length}`);
     const wit = Rp().witness(24, 34, 'rosa'); check(wit && ['rosa', 'lia'].includes(wit.n.id), `witness ${wit?.n?.id}`);
+    // Nilo in the square: eight tiles by day, four by night
+    { const q = w().nilo, real = w().reaches; w().reaches = () => true; N.people.forEach(n => { n.hid0 = n.hidden; n.hidden = true; });
+      try { const sees = d => Rp().witness(q.x + d, q.y, null)?.n === q; check(game.days.isNight() && sees(3.5) && !sees(6), 'Nilo at night'); clock(dayMs(MON, 11)); check(!game.days.isNight() && sees(6) && !sees(9), 'Nilo by day'); clock(dayMs(MON, 23.5)); }
+      finally { w().reaches = real; N.people.forEach(n => { n.hidden = n.hid0; delete n.hid0; }); N.update(0); N.update(0.1); } }
     check(game.vecinoAt([28, 41]) === 'rosa', 'the door'); const A = game.aimTargets(p(), w()).filter(a => a.kind === 'npc' && a.e === r); check(A.length < 2, '');
     // A word half asleep, no talk, and no gesture when greeted
     const said = []; const say = So().say.bind(So()); So().say = (e, text) => { said.push([e, text]); };
@@ -10792,6 +10799,258 @@ async function soloTests(game) {
       e.lying = true; game.time += 1; F.talk('q1', e); check(subText() === formatMessage(tList('family.kid.asleep')[0], { name: 'Alba', sex: 'girl' }) && F.actionFor('q1', e).text === t('family.action.asleep', { name: 'Alba' }), subText()); e.lying = false; e.baby = true; game.time += 1; F.talk('q1', e); check(tList('family.baby.lines').some(l => formatMessage(l, { name: 'Alba' }) === subText()), subText());
     } finally { F.ents.clear(); for (const [k, v] of keep) F.ents.set(k, v); So().subtitle(''); }
   }));
+  // ---------- the law (law.js, Plan H3) ----------
+  const Lw = () => game.law, MID = () => Profile.id || 'me';
+  // The law office built, Ramiro in, an empty book, 11:00 of a working day, survival; everything put back after
+  const lawful = fn => social(() => routine(async o => {
+    const L = Lw(), keep = { v: L.v, now: L.now, today: L.today, money: game.money, rules: game.rules, dif: game.difficulty, fam: game.family.v, flags: JSON.stringify(Nb().flags), busy: game.busy, at: [p().x, p().y], face: { ...p().face }, taken: w().taken };
+    const P = { fuente: true, mercado: true, casa: true, chapel: true, law_office: true };
+    o.projects(P); Nb().moveIn('dani'); Nb().moveIn('ramiro');
+    const clock = ms => { o.clock(ms); L.now = () => ms; L.today = () => Math.floor(ms / 864e5); };
+    L.v = {}; L.clear(); clock(dayMs(WORKDAY, 11)); game.difficulty = 'normal'; game.rules = { ...game.rules, doLaw: true }; game.family.v = { kids: [], expecting: null };
+    Nb().flags = { met: 1 };
+    const ram = nb('ramiro');
+    const stand = (x, y) => { ram.hold = 0; ram.hidden = ram.atHome = ram.asleep = false; ram.pose = null; ram.spot = null; ram.x = x; ram.y = y; ram.now = null; };
+    // Some seconds of the law and of him (nothing else of the game)
+    const run = (s, each) => { for (let i = 0; i < Math.round(s * 20); i++) { game.time += 0.05; each?.(i); L.update(0.05); if (!L.drive(ram, 0.05) && L.con.st === 'routine') { /* at his day */ } } };
+    const crimes = () => L.record()?.crimes.map(c => c[1]).join() || '', owe = n => { L.v[MID()] = { name: 'Ana', look: null, bounty: n, crimes: [], since: 0, clean: L.today(), jail: null, chases: 0 }; };
+    try { await fn({ ...o, L, P, ram, stand, run, clock, crimes, owe, at: (x, y) => { p().x = x; p().y = y; p().vx = p().vy = 0; } }); }
+    finally {
+      document.getElementById('fade')?.classList.remove('on');
+      L.v = {}; L.clear(); L.fresh = false; L.v = keep.v; L.now = keep.now; L.today = keep.today; game.rules = keep.rules; game.difficulty = keep.dif; game.family.v = keep.fam; Nb().flags = JSON.parse(keep.flags); game.busy = keep.busy; game.money = keep.money; game.addMoney(0); hud.closeDialog();
+      delete ram.gait; L.driven = false; p().x = keep.at[0]; p().y = keep.at[1]; p().face = keep.face;
+    }
+  })());
+  await test('law (english): the numbers and what a record may hold', async () => {
+    check([0, 1, 99, 100, 399, 400, 2000].map(LR.levelOf).join() === ',fined,fined,wanted,wanted,hunted,hunted', 'levels');
+    check(LR.fineOf('theft_house', 1e9) === 140 && LR.fineOf('theft_house', -5) === 40 && LR.fineOf('theft_stall', 500) === 30 && LR.fineOf('murder', 50) === 0 && LR.fineOf('shove', NaN) === 60, 'fines');
+    check([1, 60, 61, 130, 300, 2000].map(LR.minsOf).join() === '1,1,2,3,5,5' && LR.surrendered(130) === 104 && LR.evadeOf(130) === 33, 'minutes, surrender');
+    // It goes down by itself: from the second clean day, 10 % and at least 10; days nobody played count; a clock that goes back does not
+    const d = (b, clean, day, cut) => LR.decayed({ bounty: b, clean, ...(cut !== undefined && { cut }) }, day);
+    check(!d(130, 10, 11).changed && d(130, 10, 12).bounty === 117 && !d(117, 10, 12, 12).changed && d(130, 10, 13).bounty === 105 && d(30, 10, 14).bounty === 0 && d(2000, 10, 400).bounty === 0 && d(130, 10, 8).bounty === 130 && d(130, 50, 12).clean === 12, 'by itself');
+    let b = { bounty: 130, clean: 10 }; for (let day = 11; day <= 13; day++) { const q = d(b.bounty, 10, day, b.cut); b = { bounty: q.bounty, clean: 10, ...(q.changed && { cut: q.cut }), ...(b.cut !== undefined && !q.changed && { cut: b.cut }) }; } check(b.bounty === 105, `day by day ${b.bounty}`);
+    for (const bad of [null, 5, 'x', [], {}, { bounty: -3 }, { bounty: NaN }, { bounty: '130' }]) check(LR.cleanRecord(bad) === null, `taken: ${JSON.stringify(bad)}`);
+    const q = LR.cleanRecord({ bounty: 1e9, name: '<b>\u0007Ana</b>' + 'x'.repeat(90), crimes: [[1, 'murder', 5], [2, 'evade', 9, 'k'], 'x', ...Array(40).fill([1, 'shove', 2])], jail: { until: 1e15, mins: 99 }, look: 'x', clean: 'x' }, 1000);
+    check(q.bounty === 2000 && q.name.length <= 24 && !/[<>\u0007]/.test(q.name) && q.crimes.length <= 12 && q.look === null && q.jail.until === 1000 + 5 * 6e4 && q.jail.mins === 5, JSON.stringify(q).slice(0, 200));
+  });
+  await test('law (english): what is a crime, and what never is', lawful(async ({ L, projects, P, crimes, at, stand }) => {
+    const R = Rp(), wit = R.witness, seen = id => { R.witness = () => ({ n: nb(id), inside: false }); }, unseen = () => { R.witness = () => null; }, take = (what = 'lampara', own = false, x = 25) => R.taken('placed', x, 35, own, what), lamp = 40 + priceOf('lampara');
+    const keepOwn = w().ownAt; let ownIs = null; w().ownAt = (l, x, y) => (ownIs && l === 'placed' && y === 35 ? ownIs : keepOwn.call(w(), l, x, y));
+    stand(1000, 1000);
+    try {
+      // Nothing without the office, without a witness, in creative, in peaceful, or with the rule off
+      projects({ ...P, law_office: false }); seen('lia'); take(); check(!L.bounty() && R.pts < 0, 'before the office'); projects(P);
+      unseen(); take('lampara', false, 24); check(!L.bounty(), 'unseen');
+      for (const [why, set, back] of [['doLaw false', () => { game.rules = { ...game.rules, doLaw: false }; }, () => { game.rules = { ...game.rules, doLaw: true }; }], ['peaceful', () => { game.difficulty = 'peaceful'; }, () => { game.difficulty = 'normal'; }], ['creative', () => game.setGamemode('creative'), () => game.setGamemode('survival')]]) { set(); seen('lia'); take('cama', false, 26); check(!L.bounty(), why); back(); }
+      // Seen: the fine and the price of the thing
+      seen('lia'); take(); check(L.bounty() === Math.min(140, lamp) && crimes() === 'theft_house' && L.record().name === p().name, `${L.bounty()} for a lamp of ${priceOf('lampara')}`);
+      // Put back, forgotten; the same thing taken again, again; anything else there is yours
+      ownIs = 'lampara'; R.placed('placed', 25, 35); check(!L.bounty() && !L.record(), 'put back');
+      ownIs = null; take('lampara', true); check(L.bounty() === Math.min(140, lamp), 'the very same thing, again');
+      ownIs = 'lampara'; R.placed('placed', 25, 35); ownIs = 'cofre'; R.placed('placed', 25, 35); const n0 = L.bounty(); take('cofre', true); check(L.bounty() === n0, 'a chest of yours');
+      // What a player put there (you or anybody: your couple too) is not a theft
+      take('silla', true, 28); check(L.bounty() === n0, 'one\'s own');
+      // Outside the neighbours' houses, nothing is anybody's: your house, a hamlet, the garden
+      for (const [x, y] of [[20, 12], [18, 18], [300, 300]]) { R.taken('placed', x, y, false, 'cama'); } check(L.bounty() === n0, 'somewhere else');
+      // The iron bars of the office are theft too (a piece, by what it is made of)
+      L.v = {}; R.taken('placed', OFFICE.cellDoor[0], OFFICE.cellDoor[1], false, 'cell_door'); check(L.bounty() > 40 && L.bounty() <= 140, `the cell's door ${L.bounty()}`);
+      // Never against a child or a player, and with no ?shove=1 nobody is shoved: the provoke is what it was
+      L.v = {}; at(21, 27); put('rosa', 21.8, 27); So().hold = { src: 'key', t: 0, target: { kind: 'npc', id: 'rosa', e: nb('rosa'), name: 'Rosa' }, x: null, y: null }; for (let i = 0; i < 60; i++) So().update(0.05); check(!So().push && !L.bounty(), 'held on after provoking');
+      check(So().canShove({ kind: 'npc', id: 'rosa', e: nb('rosa') }) && !So().canShove({ kind: 'kid', id: 'k', e: nb('rosa') }) && !So().canShove({ kind: 'player', id: 'x', e: nb('rosa') }), 'who can be shoved'); nb('rosa').asleep = true; check(!So().canShove({ kind: 'npc', id: 'rosa', e: nb('rosa') }), 'asleep'); nb('rosa').asleep = false;
+      So().push = { src: 'key', t: 0.7, target: { kind: 'npc', id: 'rosa', e: nb('rosa'), name: 'Rosa' }, x: null, y: null }; const pts = R.pts; for (let i = 0; i < 30; i++) So().update(0.05); check(L.bounty() === 60 && crimes() === 'shove' && R.pts === pts - 30, `shoved: ${L.bounty()} ${R.pts - pts}`);
+    } finally { R.witness = wit; w().ownAt = keepOwn; }
+  }));
+  await test('law (english): taking from a stall nobody minds', lawful(async ({ L, crimes, at, clock, stand }) => {
+    const R = Rp(), S = STALLS.rosa, d = w().delta(Math.floor(S.x / CHUNK), Math.floor(S.y / CHUNK), true), was = d.pilfer, n = () => inv().slots.reduce((a, s) => a + (s?.n || 0), 0);
+    stand(1000, 1000); delete d.pilfer;
+    try {
+      at(26, 25.2); clock(dayMs(WORKDAY, 11)); put('rosa', 25.6, 22.1); check(L.attended('rosa') && L.stallAlt('rosa') === null, 'with her there'); let k0 = n(); L.takeFrom('rosa'); check(n() === k0 && !L.bounty(), 'taken with her there');
+      put('rosa', 300, 300).spot = null; check(!L.attended('rosa'), 'nobody there'); const alt = L.stallAlt('rosa'); check(alt?.hold === 1 && alt.text === t('law.stall.take'), 'the option');
+      // Unseen: reputation only. Once a day
+      const wit = R.witness; R.witness = () => null; let pts = R.pts; alt.run(); check(n() === k0 + 1 && R.pts === pts - 5 && !L.bounty() && d.pilfer.rosa === L.today(), `unseen: ${n() - k0}, ${R.pts - pts}`); check(L.stallAlt('rosa') === null, 'twice in a day'); L.takeFrom('rosa'); check(n() === k0 + 1, 'twice');
+      // The next day, seen by Nilo, who is always there
+      clock(dayMs(WORKDAY + 1, 11)); R.witness = wit; game.gossip && (Nb().flags = { met: 1 }); pts = R.pts; L.stallAlt('rosa').run(); check(L.bounty() === 30 && crimes() === 'theft_stall' && R.pts === pts - 10, `seen: ${L.bounty()} ${R.pts - pts}`);
+      check(L.level() === 'fined' && Nb().flags.news?.list.some(e => e[2] === 'stall_seen'), 'talked about');
+      // The market's: Bruno's, with nobody behind it; not one that is not there
+      check(STALLS.market_a.goods.every(i => ITEMS[i]) && STALLS.market_b.goods.every(i => ITEMS[i]) && STALLS.rosa.goods.every(i => ITEMS[i]), 'the goods');
+      check(CLAIMS.stall_take(game, { by: MID(), key: 'market_a' }, {}, `${Math.floor(25 / CHUNK)},${Math.floor(27.5 / CHUNK)}`, {}) === true, 'the market');
+      for (const key of ['nothing', '__proto__', null, 5]) check(CLAIMS.stall_take(game, { by: MID(), key }, {}, '1,1', {}) === false, `claim ${key}`);
+      check(CLAIMS.stall_take(game, { by: MID(), key: 'rosa' }, {}, '9,9', {}) === false, 'another chunk');
+      // The stall, aimed at: E is what it was, X held is the other
+      const a = Nb().aimables(p(), w(), (x, y) => ({ x, y }))?.[0]?.act(); clock(dayMs(WORKDAY + 2, 22)); const b = Nb().aimables(p(), w(), (x, y) => ({ x, y }))?.[0]?.act(); check(!a?.alt && b?.alt?.hold === 1 && b.text === t('routine.card.read'), 'aimed at');
+    } finally { if (was === undefined) delete d.pilfer; else d.pilfer = was; }
+  }));
+  await test('law (english): a fine is only asked for, once', lawful(async ({ L, ram, stand, run, owe, at }) => {
+    const asked = []; let answer = 'later'; hud.ask = (n, text, o, x) => { asked.push([text, o, x]); return Promise.resolve(answer === 'later' ? o.length - 1 : 0); };
+    stand(19, 33); at(19, 29.5); owe(30); game.money = 200; run(6); await sleep(0); check(asked.length === 1 && asked[0][1].join() === [t('law.pay', { n: 30 }), t('law.later')].join() && L.state !== 'chase', `asked ${asked.length}`);
+    run(30); await sleep(0); check(asked.length === 1 && L.bounty() === 30 && game.money === 200, 'asked again'); check(L.con.st === 'routine' || L.con.st === 'return', L.con.st);
+    // Later on, paid
+    L.asked.clear(); answer = 'pay'; stand(19, 33); L.con = { st: 'routine' }; run(6); await sleep(0); check(asked.length === 2 && !L.record() && game.money === 170, `paid: ${game.money}`);
+    // Not while one is doing something: nothing opens
+    owe(30); L.asked.clear(); stand(19, 33); L.con = { st: 'routine' }; game.busy = true; run(6); game.busy = false; check(asked.length === 2, 'asked in the middle of something');
+  }));
+  await test('law (english): chase, arrest, pay', lawful(async ({ L, ram, stand, run, owe, at }) => {
+    const asked = [], hit = game.combat.hit; let hits = 0; game.combat.hit = () => { hits++; return false; }; hud.ask = (n, text, o, x) => { asked.push([text, o, x]); return Promise.resolve(0); };
+    try {
+      // Within sight, at 130: he runs, catches and asks
+      stand(18.2, 40); at(18.6, 29); owe(130); game.money = 500; const pts = Rp().pts, far = []; run(1, () => far.push(ram.y)); check(L.con.st === 'chase' && L.chased && L.after === MID() && ram.gait === 2, `${L.con.st} ${ram.gait}`);
+      const sp = Math.hypot(ram.vx, ram.vy); check(sp > 4 && sp < 4.5, `runs at ${sp}`);
+      blips.refresh(game, 1e9 + Math.random(), true); check(blips.list.some(b => b.kind === 'constable' && b.track), 'the dot');
+      run(5); await sleep(0); check(asked.length === 1 && asked[0][0] === t('law.arrest.q', { n: 130, mins: 3 }) && asked[0][2].timeout === 30 && asked[0][2].pick === 1 && asked[0][1].length === 2, JSON.stringify(asked));
+      check(!L.record() && game.money === 370 && Rp().pts === pts + 5 && !L.chased && hits === 0, `paid: ${game.money}, ${Rp().pts - pts}, ${hits}`);
+      // Goes back to his day
+      run(90); check(L.con.st === 'routine' && !L.driven && ram.gait === undefined, `${L.con.st}`);
+      // With no money there is only the cell
+      stand(18.2, 33); at(18.6, 29); owe(130); game.money = 10; L.rest.clear(); hud.ask = (n, text, o) => { asked.push([text, o]); return Promise.resolve(-1); }; run(6); await sleep(0); check(asked[1][1].length === 1 && L.record().jail?.mins === 3 && game.money === 10, 'the cell'); L.v = {}; L.cell = false;
+      { const { wayTo } = await import('./world/walkways.js'); w().reaches(30, 43, 30, 31); const t0 = performance.now(); for (let i = 0; i < 10; i++) wayTo(w(), [30, 43.2], [30 + i * 0.1, 30.8]); const a = (performance.now() - t0) / 10, t1 = performance.now(); for (let i = 0; i < 10; i++) wayTo(w(), [30, 43.2], [28.5, 37 + i * 0.01]); console.log(`law way: ${a.toFixed(2)} ms round the house, ${((performance.now() - t1) / 10).toFixed(2)} ms into it`); const t2 = performance.now(); for (let i = 0; i < 200; i++) w().reaches(30, 43 + i * 0.001, 30, 31); console.log(`law sight: ${((performance.now() - t2) / 200).toFixed(3)} ms`); }
+      // What it costs: a chase round Rosa's house, with the way looked for
+      stand(36, 40); at(19.5, 37); owe(130); L.v[MID()].bounty = 450; L.con = { st: 'routine' }; L.start(ram, 'chase', MID()); { let max = 0, sum = 0, n = 0; run(6, () => { const t0 = performance.now(); L.update(0.0001); L.drive(ram, 0.0001); const ms = performance.now() - t0; max = Math.max(max, ms); sum += ms; n++; }); L.con = { st: 'routine' }; L.cell = false; L.v = {}; owe(450); stand(18, 30); L.start(ram, 'chase', MID()); const up = L.update, dr = L.drive; let tu = 0, td = 0; run(1, () => at(17.5, Math.min(50, ram.y + 4))); L.update = x => { const q = performance.now(); up.call(L, x); tu += performance.now() - q; }; L.drive = (a, x) => { const q = performance.now(), r = dr.call(L, a, x); td += performance.now() - q; return r; }; run(2, () => at(17.5, Math.min(50, ram.y + 4))); delete L.update; delete L.drive; const per = (tu + td) / 40; console.log(`law chase parts: looking ${(tu / 40).toFixed(3)}, moving ${(td / 40).toFixed(3)}`); at(19.5, 37); console.log(`law chase: ${per.toFixed(3)} ms a step, worst look ${max.toFixed(1)} ms, at ${ram.x.toFixed(1)}, ${ram.y.toFixed(1)}`); check(per < 3 && L.con.st === 'chase' && ram.y > 34, `${per} ms, ${L.con.st} ${ram.x.toFixed(1)}, ${ram.y.toFixed(1)}`); } await sleep(0); L.con = { st: 'routine' }; L.cell = false; L.v = {}; L.rest.clear();
+      // Out of sight, not seen: 14 tiles; hunted, 24
+      stand(18.2, 46); at(18.6, 30); owe(130); L.con = { st: 'routine' }; run(1); check(L.con.st === 'routine', 'from 16 tiles'); owe(450); run(1); check(L.con.st === 'chase', 'hunted, from 16 tiles'); L.con = { st: 'routine' };
+    } finally { game.combat.hit = hit; }
+  }));
+  await test('law (english): getting away, and where he does not go', lawful(async ({ L, ram, stand, run, owe, at }) => {
+    hud.ask = () => new Promise(() => {});
+    // Far from the village: he gives up, a quarter more, once; and a minute's rest
+    stand(18.2, 38); at(18.6, 29); owe(130); run(1); check(L.con.st === 'chase', L.con.st); run(6, () => at(300, 300)); check(L.bounty() === 130 && L.con.st !== 'chase', 'gone at once: no more than it was');
+    L.con = { st: 'routine' }; L.rest.clear(); stand(18.2, 40); at(18.6, 29); run(1); check(L.con.st === 'chase', 'the second one'); L.con.t = 8; at(300, 300); run(0.3); check(L.bounty() === 163 && L.record().crimes.at(-1)[1] === 'evade' && L.record().chases === 1, `${L.bounty()} ${JSON.stringify(L.record().crimes)}`);
+    stand(18.2, 33); at(18.6, 29); L.con = { st: 'routine' }; run(2); check(L.con.st !== 'chase', 'again at once'); L.rest.clear(); run(1); check(L.con.st === 'chase', 'after the minute');
+    // Under a player's roof, on a horse, in a boat, asleep, in a talk, in creative: he does not start, and it counts as lost
+    const tries = [['roof', () => { w().ownAt = (l, x, y) => (l === 'roof' ? 'tejado_paja' : ownAt.call(w(), l, x, y)); }, () => { w().ownAt = ownAt; }], ['riding', () => { p().mount = {}; }, () => { p().mount = false; }], ['boat', () => { p().boat = true; }, () => { p().boat = false; }], ['asleep', () => { p().sleeping = true; }, () => { p().sleeping = false; }], ['busy', () => { game.busy = true; }, () => { game.busy = false; }], ['creative', () => game.setGamemode('creative'), () => game.setGamemode('survival')], ['doLaw', () => { game.rules = { ...game.rules, doLaw: false }; }, () => { game.rules = { ...game.rules, doLaw: true }; }]], ownAt = w().ownAt;
+    for (const [why, on, off] of tries) { L.con = { st: 'routine' }; L.rest.clear(); stand(18.2, 33); at(18.6, 29.5); on(); try { run(1.2); check(L.con.st !== 'chase' && L.con.st !== 'hold', `${why}: ${L.con.st}`); } finally { off(); } }
+    // A chase into one's house: 20 s outside, and no arrest
+    L.con = { st: 'routine' }; L.rest.clear(); stand(18.2, 34); at(18.6, 29.5); owe(130); run(1); check(L.con.st === 'chase', 'the chase'); const inside = (x, y) => Math.abs(x - 18) < 2.5 && y < 31; w().ownAt = (l, x, y) => (l === 'roof' && inside(x, y) ? 'tejado_paja' : ownAt.call(w(), l, x, y));
+    try { run(15); check(L.con.st === 'chase' && !inside(Math.floor(ram.x), Math.floor(ram.y)), `went in: ${ram.x.toFixed(1)}, ${ram.y.toFixed(1)}`); run(8); check(L.con.st !== 'chase' && !L.record().jail, `${L.con.st}`); } finally { w().ownAt = ownAt; }
+    // At night, asleep, he chases nobody
+    L.con = { st: 'routine' }; L.rest.clear(); stand(18.2, 33); at(18.6, 29.5); ram.asleep = true; run(1.2); check(L.con.st === 'routine', 'asleep'); ram.asleep = false;
+    // Disconnected in the middle (nobody there): nothing more on the bill
+    L.con = { st: 'chase', tg: 'somebody', t: 30, x: ram.x, y: ram.y, wayT: 0, stuck: 0 }; L.v.somebody = { name: 'Bea', look: null, bounty: 200, crimes: [], since: 0, clean: L.today(), jail: null, chases: 0 }; run(0.3); check(L.con.st !== 'chase' && L.v.somebody.bounty === 200, 'left the game');
+  }));
+  await test('law (english): the cell, in and out, and never a dead end', lawful(async ({ L, run, owe, at, clock }) => {
+    const ms = dayMs(WORKDAY, 11), toasts = [], toast = hud.toast; hud.toast = (s, k) => { toasts.push(s); }; inv().slots[0] = { id: 'pan', n: 3 }; const had = JSON.stringify(inv().slots); game.money = 50; at(19, 29); document.getElementById('fade')?.classList.remove('on');
+    const fade = L.fade; L.fade = go => { go(); return true; };
+    try {
+      owe(130); const r = L.act(MID(), 'serve'); check(r.ok && r.n === 3 && L.record().jail.until === ms + 18e4, JSON.stringify(r)); run(0.2);
+      const C = OFFICE.cell, inC = () => p().x > C.x0 && p().x < C.x1 && p().y > C.y0 && p().y < C.y1; check(L.cell && inC() && L.jailed && w().doorClosed(...OFFICE.cellDoor), `${p().x}, ${p().y}`);
+      check(JSON.stringify(inv().slots) === had && game.money === 50 && L.bounty() === 130, 'something was taken');
+      // Kept inside: building, the wheel, sprinting, the door; nobody takes it apart
+      check(game.build.toggle(true) === false && !canWheel(game) && game.doorAction(OFFICE.cellDoor).text === t('law.locked') && L.protects([2, 7]) && !L.protects([20, 20]) && game.build.lived([2, 7]), 'what cannot be done');
+      at(30, 40); run(0.6); check(inC(), 'the leash'); check(L.deskAction().text === t('law.desk') && !L.counts && L.crime('theft_house', { n: 90 }) === false, 'a crime in there'); check(!L.refuses() && !L.posters().length, 'no poster of who is inside');
+      check(L.bunk()?.placed === 'cama', 'the bunk'); check(L.left() === 18e4, `left ${L.left()}`);
+      // Leaving the game and coming back before: in the cell; a save keeps it
+      const out = {}; L.save(out); const saved = JSON.parse(JSON.stringify(out)); L.v = {}; L.clear(); at(40, 40); clock(ms + 6e4); L.reset(saved); run(0.2); check(L.cell && inC() && L.left() === 12e4, 'back in the cell');
+      // Dead in there (or an accident): back in, and it goes on counting
+      game.dying = true; at(100, 100); run(0.5); check(p().x === 100, 'while dying'); game.dying = false; run(0.5); check(inC(), 'after dying');
+      // Its time: out, at the door, owing nothing, with everything
+      clock(ms + 18e4 + 5); run(1.2); check(!L.cell && !L.record() && Math.hypot(p().x - OFFICE.out[0], p().y - OFFICE.out[1]) < 0.1 && !w().doorClosed(...OFFICE.cellDoor), `${L.cell} ${p().x}`); check(JSON.stringify(inv().slots) === had && game.build.toggle(true) !== false, 'free'); game.build.toggle(false);
+      // Come back after it was over (the save was made inside): out too
+      clock(ms + 9e6); L.v = {}; L.clear(); at(...OFFICE.inCell); L.reset(saved); run(1.2); check(!L.cell && !L.record() && !inC(), `${p().x}, ${p().y}`);
+      // A clock ahead of everybody's does not make it longer
+      L.reset({ law: { [MID()]: { bounty: 130, jail: { until: 1e15, mins: 3 }, clean: 1 } } }); check(L.left() <= 18e4, `left ${L.left()}`); L.v = {};
+      // The rule turned off, creative: out
+      owe(130); L.act(MID(), 'serve'); run(0.2); game.rules = { ...game.rules, doLaw: false }; run(1.2); check(!L.cell && !L.record(), 'doLaw false'); game.rules = { ...game.rules, doLaw: true };
+      owe(130); L.act(MID(), 'serve'); run(0.2); game.setGamemode('creative'); run(0.2); check(!L.cell, 'creative'); game.setGamemode('survival'); L.v = {}; run(0.2);
+      // An op's /tp takes one out
+      owe(130); L.act(MID(), 'serve'); run(0.2); game.coverJump = () => {}; game.teleport(25, 40, true); delete game.coverJump; check(!L.record() && !L.cell, 'an op'); run(0.5); check(Math.hypot(p().x - 25, p().y - 40) < 0.1, 'taken back in'); check(L.freeToAnswer, `${game.mode} ${game.busy} ${hud.dialogOpen} ${game.talk.on} ${game.jumping}`);
+      // Giving oneself up: a fifth less, then the cell or the money; at the desk, at any hour
+      owe(130); game.money = 500; clock(dayMs(WORKDAY, 3)); hud.ask = (n, text, o) => { toasts.push(o.join()); return Promise.resolve(0); }; check(L.deskAction().text === t('law.surrender.at', { n: 104 }), 'the desk at 3:00'); await L.surrender(); check(!L.record() && game.money === 396, `${game.money}`);
+      owe(130); hud.ask = (n, text, o) => Promise.resolve(1); await L.surrender(); check(L.record().jail?.mins === 2, 'a minute less');
+    } finally { L.fade = fade; hud.toast = toast; game.dying = false; w().doorClosed(...OFFICE.cellDoor) && w().toggleDoor(...OFFICE.cellDoor); }
+  }));
+  await test('law (english): hunted, nobody sells nor buys; wanted, a poster', lawful(async ({ L, owe, ram }) => {
+    owe(399); check(!L.refuses() && L.posters().length === 1 && L.level() === 'wanted', 'wanted'); owe(99); check(!L.posters().length, 'a fine has no poster'); owe(450); check(L.refuses(), 'hunted');
+    // The shops, in the talk; never Nilo's plans
+    const said = []; game.talk.auto = { say: (n, l) => said.push(...l), ask: (n, x, o) => (said.length < 3 ? o.indexOf(t('npc.opt.shop')) : o.length - 1) }; let opened2 = 0; const shop = game.onShop; game.onShop = () => { opened2++; };
+    try { p().x = 25.6; p().y = 23.4; const r = put('rosa', 25.6, 22.1); r.spot = { work: true, kind: 'stall' }; Nb().isOpen = () => true; game.busy = false; await game.talk.start('rosa', r); check(opened2 === 0 && said.some(s => tList('law.refused').includes(s)), `${opened2} ${said.join(' / ')}`); } finally { delete Nb().isOpen; game.talk.auto = TALK_AUTO; game.onShop = shop; }
+    // The businesses: theirs sells nothing, they buy nothing; paid, as before
+    const B = Bz(), rec = bizRec('shop', [['huevo', 5, 100]], 2); rec.by = MID(); check(L.refuses(rec.by) && !L.refuses('another'), 'whose');
+    check(CLAIMS.shop_buy(game, { by: MID(), key: '1,1', lot: '1', n: 1, p: 1 }, { shop: { '1,1': rec } }, '0,0', {}) === false, 'a hunted one buys');
+    // The board reads them
+    const asked = []; hud.ask = (n, x, o) => { asked.push(o); return Promise.resolve(asked.length === 1 ? o.indexOf(t('law.poster.read')) : o.length - 1); }; const lines = []; hud.say = (n, l) => { lines.push(...l); return Promise.resolve(); }; await game.board.open(); check(lines[0] === t('law.poster', { name: 'Ana', n: 450 }), lines.join());
+    L.v = {}; asked.length = 1; await game.board.open(); check(!asked.at(-1).includes(t('law.poster.read')), 'with nobody wanted');
+    // Drawn, in both languages
+    const c = document.createElement('canvas'); c.width = 256; c.height = 384; const { drawPoster } = await import('./three/poster3d.js'); drawPoster(c.getContext('2d'), { name: 'Ana', bounty: 130 }, null); check(c.getContext('2d').getImageData(20, 200, 1, 1).data[3] === 255, 'drawn');
+  }));
+  await test('law (english): the couple pays, the others do not', lawful(async ({ L, owe }) => {
+    L.v.bea = { name: 'Bea', look: null, bounty: 200, crimes: [], since: 0, clean: L.today(), jail: null, chases: 0 }; game.money = 500;
+    check(!L.bailable().length && !L.act(MID(), 'bail', { of: 'bea', max: 500 }).ok, 'a stranger');
+    game.family.v = { kids: [{ id: 'k', name: 'Sara', parents: [MID(), 'bea'] }], expecting: null }; check(L.bailable()[0]?.n === 200, 'your couple'); check(L.act(MID(), 'bail', { of: 'bea', max: 100 }).n === 200 && L.v.bea, 'without the money'); L.ask('bail', { of: 'bea' }); check(!L.v.bea && game.money === 300, `${game.money}`);
+    // And one's own record does not touch the other's
+    owe(130); check(L.level('bea') === null && !L.refuses('bea') && !L.jailedId('bea'), 'both');
+  }));
+  await test('red (net): the law is the host\'s; a guest says only its own', lawful(async ({ L, owe, clock }) => {
+    owe(130); const S = new ItemSync('law'); S.reset(game); const before = JSON.stringify(L.v);
+    // Whatever a guest sends about it goes back as it is
+    const back = S.apply(game, [['set', MID(), 'bounty', 1], ['drop', MID()], ['put', 'x', { bounty: 900 }], ['del', MID(), 'crimes'], ['add', MID(), 'bounty', -100], ['put', MID(), { bounty: 1 }], 'x', ['set', '__proto__', 'a', 1]], false, null, { peer: { id: 'guest' } });
+    check(JSON.stringify(L.v) === before && back.length === 6 && back.every(o => (o[1] === 'x' ? o[0] === 'drop' : o[0] === 'put' && o[2].bounty === 130)), JSON.stringify(back).slice(0, 200));
+    check(LS.SHARED.includes('law') && LS.COLLECTIONS.law.hostOnly && LS.BLOBS.law.get(game) === L.v, 'shared'); const role = game.live.role; try { game.live.role = 'host'; LS.BLOBS.law.set(game, {}); check(JSON.stringify(L.v) === before, 'a whole one from a guest'); } finally { game.live.role = role; }
+    // What it says it did: of itself, one a second, capped, near where it is, with the game this one knows
+    const G = game.live, peer = { id: 'bea', name: 'Bea', look: { sex: 'chica' }, law: true, playing: true, sc: 'world', at: [25, 35], entity: { gm: 0, to: [25, 35, 0] } }, say = m => L.heardCrime(peer, { x: 25, y: 35, ...m });
+    check(say({ kind: 'theft_house', n: 1e9, id: MID(), k: 'placed:25,35|cama' }) && L.v.bea.bounty === 140 && L.bounty() === 130, 'of itself'); check(!say({ kind: 'theft_house', n: 50 }) && L.v.bea.bounty === 140, 'twice in a second'); game.time += 1.5;
+    for (const m of [{ kind: 'evade' }, { kind: 'murder' }, { kind: 'theft_house', x: 400 }, { kind: 'theft_house', x: NaN }, { kind: null }, {}]) check(!say(m), JSON.stringify(m)); peer.entity.gm = 1; check(!say({ kind: 'theft_stall', n: 30 }), 'in creative'); peer.entity.gm = 0;
+    check(say({ kind: 'theft_stall', n: 1 }) && L.v.bea.bounty === 170, 'the least'); L.heardCrime(peer, { kind: 'return', k: 'placed:25,35|cama' }); check(L.v.bea.bounty === 30, 'put back'); L.heardCrime(peer, { kind: 'return', k: 'placed:25,35|cama' }); check(L.v.bea.bounty === 30, 'put back twice');
+    // What it asks for: answered, with the money it says it has; garbage, nothing
+    const sent = [], net = G.net; G.net = { send: (m, c) => sent.push([m, c]) };
+    try {
+      L.heardDo(7, peer, { a: 'pay', max: 10 }); check(sent.at(-1)[0].ok === 0 && sent.at(-1)[0].n === 30 && L.v.bea, 'poor'); for (const m of [{ a: 'nothing' }, {}, { a: 'bail', of: MID(), max: 1e9 }, { a: 'free' }]) L.heardDo(7, peer, m); check(L.v.bea.bounty === 30 && L.bounty() === 130, 'garbage');
+      L.heardDo(7, peer, { a: 'pay', max: 50 }); check(sent.at(-1)[0].ok === 1 && sent.at(-1)[1] === 7 && !L.v.bea, 'paid');
+      // Where he is goes only to whom knows the law; an arrest, only to the one
+      L.con = { st: 'chase', tg: 'bea', x: 1, y: 1 }; G.joined = true; G.peers.set(7, peer); G.peers.set(8, { id: 'old', name: 'Old', playing: true }); sent.length = 0; L.send(); check(sent.length === 1 && sent[0][1] === 7 && sent[0][0].tg === 'bea', JSON.stringify(sent)); check(L.targets().find(q => q.id === 'bea')?.ok && !L.targets().some(q => q.id === 'old'), 'targets');
+    } finally { G.net = net; G.joined = false; G.peers.delete(7); G.peers.delete(8); L.con = { st: 'routine' }; }
+    // The chunk's: the stalls and, with somebody in the cell, the office
+    const k = '0,0'; check(L.arbitrate(k, [['pilfer', 'rosa', 1], ['placed', '2,7', 'air']]).ok.length === 1, 'the stalls'); check(L.arbitrate(k, [['placed', '2,7']]) === null, 'nobody inside'); L.act(MID(), 'serve'); const A = L.arbitrate(k, [['gone', '2,7', true], ['closed', '3,7'], ['gone', 'floor:2,5', true], ['placed', '20,20', 'x']]); check(A.ok.length === 1 && A.back.length === 3, JSON.stringify(A));
+  }));
+  await test('law (english): two games compared (simulated messages)', lawful(async ({ L, ram, stand, owe, clock }) => {
+    // The host: another law with the same world, its own Ramiro; this game is the guest
+    const G = game.live, B = game.barrow, hostR = { ...ram, faceTo: ram.faceTo, whereAt: ram.whereAt, ms: ram.ms, way: ram.way, dir: [0, 1] }, hg = { world: w(), rules: game.rules, difficulty: 'normal', player: null, family: game.family, days: game.days, neighbors: { people: [hostR], clock: () => game.days.now, isOpen: () => false }, live: { joined: true, peers: new Map(), net: null, isOp: () => null }, barrow: { decides: () => true }, time: game.time, talk: { peers: new Map() } }, H = new Law(hg), peer = { id: MID(), name: p().name, look: game.appearance(), law: true, playing: true, sc: 'world', at: [p().x, p().y], entity: { gm: 0, to: [0, 0, 0] } }, toGuest = [], toHost = [];
+    Object.setPrototypeOf(hostR, Object.getPrototypeOf(ram)); H.now = () => L.now(); H.today = () => L.today(); hg.live.peers.set(1, peer); hg.live.net = { send: m => toGuest.push(m) };
+    const sh = new ItemSync('law'), sg = new ItemSync('law'); hg.law = H; sh.reset(hg); sg.reset(game);
+    const net = G.net, dec = B.decides, desc = Object.getOwnPropertyDescriptor(G, 'hostConn'); B.decides = () => false; G.net = { send: m => toHost.push(m) }; Object.defineProperty(G, 'hostConn', { configurable: true, get: () => 3 });
+    const flow = () => { hg.time = game.time; for (const m of toHost.splice(0)) { if (m.t === 'crime') H.heardCrime(peer, m); else if (m.t === 'lawdo') H.heardDo(1, peer, m); } const ops = sh.diff(hg); if (ops.length) sg.apply(game, JSON.parse(JSON.stringify(ops)), true, null); for (const m of toGuest.splice(0)) { const q = JSON.parse(JSON.stringify(m)); if (q.t === 'law') L.netAt(q); else if (q.t === 'arrest') L.onArrest(q); else if (q.t === 'lawok') L.netOk(q); } };
+    const same = () => JSON.stringify(Object.fromEntries(Object.entries(H.v).map(([k, v]) => [k, LR.cleanRecord(v, L.now())]))) === JSON.stringify(Object.fromEntries(Object.entries(L.v).map(([k, v]) => [k, LR.cleanRecord(v, L.now())])));
+    const steps = (s, each) => { for (let i = 0; i < s * 20; i++) { game.time += 0.05; hg.time = game.time; each?.(); peer.at = [p().x, p().y]; peer.entity.to = [p().x, p().y, 0]; H.update(0.05); H.drive(hostR, 0.05); flow(); L.update(0.05); L.drive(ram, 0.05); } };
+    const fade = L.fade; L.fade = go => { go(); return true; };
+    try {
+      let asked2 = 0; hud.ask = (n, x, o) => { asked2++; return Promise.resolve(0); }; game.money = 500; p().x = 18.6; p().y = 29; hostR.x = 300; hostR.y = 300; stand(300, 300);
+      // Said by the guest, written by the host, the same in both
+      L.crime('theft_house', { x: 25, y: 35, n: 90, key: 'a|b' }); check(!L.v[MID()], 'a guest writes it'); flow(); check(L.bounty() === 90 && same(), `${JSON.stringify(H.v)} / ${JSON.stringify(L.v)}`); game.time += 2; L.crime('theft_house', { x: 25, y: 35, n: 60 }); flow(); check(L.bounty() === 150 && same(), 'twice');
+      // Chased: he is in the same place in both games, and it is the guest who is asked
+      hostR.x = 18.2; hostR.y = 39; ram.x = 18.2; ram.y = 39; let worst = 0, chased = 0; steps(2.5, () => { if (H.con.st === 'chase') { chased++; } if (L.chased) worst = Math.max(worst, Math.hypot(ram.x - hostR.x, ram.y - hostR.y)); }); check(chased > 20 && worst < 2.2, `chased ${chased}, ${worst.toFixed(2)} apart`);
+      steps(4); check(asked2 === 1 || hud.dialogOpen === false, `asked ${asked2} ${L.freeToAnswer} ${H.con.st} ${JSON.stringify(H.con).slice(0, 120)}`); await sleep(0); steps(0.5); check(!L.bounty() && !H.v[MID()] && game.money === 350 && same(), `paid: ${game.money} ${JSON.stringify(H.v)}`);
+      // The cell: the host counts; out when it says
+      L.crime('theft_house', { x: 25, y: 35, n: 100 }); game.time += 2; flow(); hud.ask = (n, x, o) => Promise.resolve(o.length - 2); await L.surrender(); steps(0.5); check(L.cell && H.v[MID()].jail && same(), 'in'); clock(L.now() + 3e5); H.now = () => L.now(); steps(1.5); check(!L.cell && !H.v[MID()] && same(), 'out');
+      // An answer nobody asked for costs nothing; garbage does not throw
+      const m0 = game.money; for (const m of [{ a: 'pay', ok: 1, n: 100 }, { a: 'bail', ok: 1, n: 1e9, of: {} }, {}]) L.netOk(m); for (const m of [{}, { x: 1 }, { x: 1, y: 2, yaw: 'x', st: 'chase' }, { x: 1, y: 2, yaw: 0, st: 'fly' }]) L.netAt(m); L.onArrest({}); L.onArrest({ n: 'x' }); check(game.money === m0 && !L.settling, 'garbage');
+      // He stops being told: back to his day by himself
+      L.remote = { x: 18, y: 30, yaw: 0, run: 1, st: 'chase', tg: MID(), until: game.time + 1 }; check(L.drive(ram, 0.05) && L.chased, 'told'); game.time += 3; check(!L.drive(ram, 0.05) && !L.chased && ram.gait === undefined, 'no longer told');
+    } finally { L.fade = fade; G.net = net; B.decides = dec; if (desc) Object.defineProperty(G, 'hostConn', desc); else delete G.hostConn; }
+  }));
+  await test('law (english): Ramiro, his day, his office and what can be built', lawful(async ({ L, P, ram, clock, projects }) => {
+    const { LAW_OFFICE, LOTS, townDigWhy: why2 } = await import('./world/village.js'), O = LAW_OFFICE;
+    check(O.x0 >= BOUNDS.x0 + 1 && O.x1 <= BOUNDS.x1 && O.y0 >= BOUNDS.y0 && O.y1 <= BOUNDS.y1 && O.x1 < YARD.x0 && O.y1 < CHAPEL.y0 && LOTS.law_office, 'the lot');
+    for (let y = O.y0; y < O.y1; y++) for (let x = O.x0; x < O.x1; x++) { check(!w().gen.objectAt?.(x, y), `a tree at ${x},${y}`); check(why2(x, y) === 'why.dig.law_office', 'dug'); }
+    for (const l of ['placed', 'floor', 'roof']) for (let y = O.y0; y < O.y1; y++) for (let x = O.x0; x < O.x1; x++) { const raw = w().at(l, x, y); if (raw) { const id = raw.split('@')[0]; check(PIECES[id] || BUILDABLE[id] || ITEMS[id], `${id} cannot be built`); } }
+    check(w().pieceAt(...OFFICE.cellDoor)?.bars && w().pieceAt(2, 7)?.bars && PIECES.iron_bars.needs === 'yunque' && BUILDABLE.desk && PLANS.has('desk') && PLAN_BORN.has('desk') && SHOPS.dani.stock.some(q => q.plan === 'desk') && PROJECTS.law_office.needs === 'mercado', 'the pieces');
+    check(Rp().houseAt(3, 5) === 'law_office' && game.houseName && inBounds(3, 5), 'whose it is'); projects({ ...P, law_office: false }); check(Rp().houseAt(3, 5) === null && !L.active && !w().at('placed', 2, 7), 'before it'); projects(P);
+    // His day: at his desk in the morning, on his round, in bed at night; in the rain too. The same for everybody
+    const where = h => { const a = RT.placeAt('ramiro', dayMs(WORKDAY, h)); return a.spot.kind; }; check(where(10) === 'law_desk' && where(17.1) === 'patrol' && where(3) === 'asleep' && where(23.9) === 'asleep', `${where(10)} ${where(17.1)} ${where(3)}`);
+    const stops = new Set(); for (let h = 16; h < 21; h += 0.1) stops.add(RT.placeAt('ramiro', dayMs(WORKDAY, h)).spot.node); check(stops.size >= 8, `${stops.size} stops`);
+    check(RT.visitOf(WORKDAY) === null || RT.visitOf(WORKDAY).who !== 'ramiro' && RT.visitOf(WORKDAY).host !== 'ramiro', 'visits'); check(!Bz().people().includes('ramiro'), 'goes shopping');
+    for (const l of ['es', 'en']) { const was = getLang(); await setLang(l); for (const k of ['npc.chat.ramiro.misc', 'npc.chat.ramiro.personal', 'npc.intro.ramiro', 'law.say.chase', 'law.say.lost', 'law.say.ask', 'law.say.busy', 'law.witness', ...['kind', 'cheerful', 'shy', 'gruff', 'wry'].map(q => `law.witness.${q}`)]) check(tList(k).length, `${l} ${k}`); for (const k of ['law.level.fined', 'law.level.wanted', 'law.level.hunted', 'place.law_office', 'project.law_office', 'board.nilo.law_office', 'rep.why.stall', 'rep.why.fine_paid', 'rep.why.jail', 'rep.why.crime', 'piece.iron_bars', 'piece.cell_door', 'item.desk', 'map.legend.constable', 'hud.tip.wanted']) check(has(k), `${l} ${k}`); await setLang(was); }
+    // An old save has no law in it; what it keeps is kept
+    L.reset({}); check(!Object.keys(L.v).length, 'an old save'); L.reset({ law: 'x' }); L.reset({ law: { a: 5, b: { bounty: 20, clean: 3, name: 'B' } } }); check(Object.keys(L.v).join() === 'b' && L.record('b').bounty === 20, JSON.stringify(L.v)); const o = {}; L.save(o); check(o.law === L.v && 'law' in game.snapshot(), 'saved');
+  }));
+  await test('law (english): its place on the screen', lawful(async ({ L, owe, run }) => {
+    const { LawHud } = await import('./ui/lawhud.js'), H = new LawHud(game), tick = () => { H.at = -1; H.frame(); }, on = () => H.chip.classList.contains('on');
+    try {
+      tick(); check(!on(), 'with nothing owed'); owe(30); tick(); check(on() && H.chip.textContent === t('law.level.fined') + '30' && H.chip.classList.contains('fined'), H.chip.textContent); H.until = -1; tick(); check(!on(), 'it stays'); game.windowsOpen = true; tick(); check(on(), 'with a window'); game.windowsOpen = false;
+      owe(130); L.con = { st: 'chase', tg: MID(), x: 0, y: 0 }; tick(); check(on() && H.chip.classList.contains('chased') && H.chip.classList.contains('wanted'), H.chip.className); L.con = { st: 'routine' };
+      owe(450); tick(); check(H.chip.classList.contains('hunted'), 'hunted'); L.record().jail = { until: L.now() + 125000, mins: 3 }; L.cell = true; tick(); check(!on() && H.cell.classList.contains('on') && H.cell.textContent === t('law.cell', { time: '2:05' }), H.cell.textContent); L.cell = false; L.v = {}; tick(); check(!H.cell.classList.contains('on') && !on(), 'after');
+      const t0 = performance.now(); for (let i = 0; i < 2000; i++) H.frame(); const ms = (performance.now() - t0) / 2000; check(ms < 0.02, `${ms} ms a frame`);
+      // And the law itself: nothing with nobody owing, little in a chase
+      const t1 = performance.now(); for (let i = 0; i < 2000; i++) L.update(0.016); const idle = (performance.now() - t1) / 2000; check(idle < 0.02, `idle ${idle} ms`);
+    } finally { H.chip.remove(); H.cell.remove(); game.windowsOpen = false; }
+  }));
   await test('gossip (english): every line, in both languages', async () => {
     const lang = getLang(), bad = [];
     for (const l of ['es', 'en']) {
@@ -10835,6 +11094,7 @@ async function soloTests(game) {
   await test('rumour (english): each tells of what they know, unfound, stable, one a day', rumouring(async ({ N, P, at }) => {
     await goTo(game, 21, 27); const seen = []; N.people = [...N.people]; N.moveIn('dani'); await frames(2);
     for (const id of IDS) {
+      if (PEOPLE[id].law && !nb(id)) continue;   // (Ramiro, with no law office)
       const kinds = kindsOf(id), said = (await tellAll(id)).filter(q => q[0] === PEOPLE[id].name).map(q => q[1]), e = Ru().entries().find(q => q[2] === id);
       check(said.every(s => s && !/[{}]|npc\.|rumour\.|undefined/.test(s)), `${id}: ${said}`);
       if (!kinds.length) { check(!e && said.some(s => s.includes('Anselmo')), `${id}: ${said}`); continue; }

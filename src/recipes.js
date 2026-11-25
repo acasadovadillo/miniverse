@@ -229,6 +229,7 @@ export const RECIPES = [
   R('banco', 'barril', 1, [['tablas', 5], ['lingote_hierro', 1]]),
   R('banco', 'taburete', 1, [['tablas', 2]]),
   R('banco', 'pew', 1, [['tablas', 5]]),
+  R('banco', 'desk', 1, [['tablas', 8], ['lingote_cobre', 1]]),
   R('banco', 'shop_counter', 1, [['tablas', 10], ['lingote_cobre', 1]]),
   R('banco', 'display_shelf', 1, [['tablas', 8]]),
   R('banco', 'goods_crate', 1, [['tablas', 4]]),

@@ -8,7 +8,7 @@ import { ITEMS, LEGACY_ITEMS } from './items.js';
 import { RECIPES } from './recipes.js';
 
 export const BUILD_CATS = {
-  Muebles: ['silla', 'mesa', 'mesa_grande', 'mesa_baja', 'mesita', 'sofa', 'sillon', 'cama', 'cama_doble', 'cama_nino', 'cuna', 'cofre', 'armario', 'comoda', 'estanteria', 'vitrina', 'chimenea', 'taburete', 'barra', 'barril', 'barber_chair', 'pew'],
+  Muebles: ['silla', 'mesa', 'mesa_grande', 'mesa_baja', 'mesita', 'sofa', 'sillon', 'cama', 'cama_doble', 'cama_nino', 'cuna', 'cofre', 'armario', 'comoda', 'estanteria', 'vitrina', 'chimenea', 'taburete', 'barra', 'barril', 'barber_chair', 'pew', 'desk'],
   Business: ['shop_counter', 'display_shelf', 'goods_crate'],   // (a player's own business, business.js; its name, build.cat.Business)
   'Cocina y ba√±o': ['encimera', 'alacena', 'fregadero', 'banera', 'lavabo', 'inodoro', 'mueble_bano'],
   Estaciones: ['banco', 'cantero', 'horno', 'telar', 'cocina', 'yunque', 'quesera', 'alambique', 'noria'],
@@ -35,5 +35,5 @@ export const PLANS = new Set([...BUILD_CATS.Muebles, ...BUILD_CATS['Cocina y ba√
 export const PLANS_V = 2;
 // What was born with its plan: nobody could build it before, so an old save never gets it for free (crafting.js, reset),
 // whatever its planos number
-export const PLAN_BORN = new Set(['wheelbarrow', 'barber_chair', 'pew', ...BUILD_CATS.Business]);
+export const PLAN_BORN = new Set(['wheelbarrow', 'barber_chair', 'pew', 'desk', ...BUILD_CATS.Business]);
 for (const r of RECIPES) if (PLANS.has(r.out)) r.plan = true;

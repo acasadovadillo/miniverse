@@ -154,6 +154,7 @@ CLAIMS.shop_collect = asked((g, c, rec) => { if (!(rec.till > 0)) return false; 
 CLAIMS.shop_snap = asked((g, c, rec) => { if (c.by !== rec.by) return false; snap(rec, c); return 1; });
 CLAIMS.shop_buy = asked((g, c, rec) => {
   const n = int(c.n, 0, 99, 0), B = g.business;
+  if (g.law?.refuses(c.by)) return false;   // (hunted: nobody sells them anything, law.js)
   if (B.mayManage(rec, c.by) || !onSale(rec, B.premises(c.key, rec.kind).cap).includes(String(c.lot)) || !own(rec.goods, c.lot) || unitPrice(rec.goods[c.lot]) !== c.p) return false;
   const s = out(rec, c, n);
   if (!s) return false;
@@ -320,7 +321,7 @@ export class Business {
     return b;
   }
   // ---------- the visits ----------
-  people() { return Object.keys(PEOPLE).filter(id => !PEOPLE[id].fixed && (!PEOPLE[id].project || hasProject(PEOPLE[id].project))); }
+  people() { return Object.keys(PEOPLE).filter(id => !PEOPLE[id].fixed && !PEOPLE[id].law && (!PEOPLE[id].project || hasProject(PEOPLE[id].project))); }
   visitsOf(day) {
     const L = this.list().map(e => ({ ...e, d: this.far(e.key) })), T = this.game.days;
     const sig = L.map(e => `${e.key}${e.rec.kind}${e.rec.hours}${e.rec.sun}${Math.round(e.d)}`).sort().join('|') + `|${T?.base}|${this.people().length}`;
@@ -342,7 +343,7 @@ export class Business {
     const day = Math.floor(from / DAY), end = Math.min(to, (day + 1) * DAY);
     const P = this.premises(key, rec.kind), due = (this.visitsOf(day).get(key) || []).filter(v => v.ms > from && v.ms <= end);
     let sold = false;
-    if (P.ok) for (const v of due) {
+    if (P.ok && !this.game.law?.refuses(rec.by)) for (const v of due) {
       const got = serve(rec, v, { cap: P.cap, seats: P.seats.length, roll: n => ihash(v.day * 5 + (v.meal || 0), n + 1, this.hash(v.npc + key)) });
       for (const s of got) { this.record(rec, [v.ms, v.npc, s.id, s.n, s.coins]); sold = true; }
       if (got.length && PEOPLE[v.npc]) { const F = (rec.fr ||= {}); if (F['@' + v.npc] !== v.day) { F['@' + v.npc] = v.day; F[v.npc] = (F[v.npc] || 0) + 1; } }
@@ -458,6 +459,7 @@ export class Business {
   buy(key, lot, n, done, eat = false) {
     const g = this.game, s = this.at(key)?.goods?.[lot];
     if (!s || n < 1) return done?.(false);
+    if (g.law?.refuses()) { hud.toast(t('law.refused_shop'), 'warn'); return done?.(false); }
     const p = unitPrice(s), coins = p * n;
     if (g.money < coins) return done?.(false, { poor: true });
     if (!eat && g.inv.room(s.id) < n) return done?.(false, { full: true });
