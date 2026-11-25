@@ -1363,6 +1363,7 @@ export class Game {
     if (!still && !hidden) {
       const n = v.drawn;
       v.redraw = false; v.render(this);
+      if (this.mode === 'map') this.map.relief?.touch();   // (a jump with the map open: its picture again)
       // (a copy of this very frame, for who asked: the pause, ui/pausehub.js. Right now: later the buffer may be gone)
       if (this.onShot) { if (v.drawn !== n) { const fn = this.onShot; this.onShot = null; fn(v.renderer.domElement); } else v.redraw = true; }
     }
@@ -1397,6 +1398,7 @@ export class Game {
       if (this.mode === 'map' && due) this.map.people = this.neighbors.people.filter(n => !n.hidden).map(n => ({ x: n.x, y: n.y, name: n.def.name }));
       this.map.face = this.player.face;   // (their arrow on the big map points where they face)
       if (this.mode === 'map') { const at = this.scene?.kind === 'grid' && this.scene.exitTo || this.player; this.map.drawBig(this.world.gen, this.explored, at.x, at.y, this.time); }   // (in a cave: where its mouth is)
+      else if (this.map.relief?.on) this.map.relief.close();   // (left without closing it)
       try { this.minimap?.frame(); } catch (e) { reportFault(e, 'Minimap.frame'); }   // (the minimap and the compass strip: src/ui/minimap.js; hidden, it draws nothing)
     }
   }

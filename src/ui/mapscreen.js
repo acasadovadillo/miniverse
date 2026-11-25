@@ -15,7 +15,7 @@ import { Settings } from '../settings.js';
 import { t, getLang, onLangChange } from '../i18n.js';
 import { chip, ring } from './frontend.js';
 import { mapPane, paneKeys } from './pausehub.js';
-import { ZOOM_NAMES, LADDER, SHARED, FOG } from './map.js';
+import { ZOOM_NAMES, LADDER, SHARED, FOG, SOLID } from './map.js';
 import { blips, layerOf, FIXED } from './blips.js';
 import { svg } from './mapglyphs.js';
 import { accent } from './skin.js';
@@ -34,6 +34,20 @@ const MINE = new Set(['mark', 'horse', 'dog', 'cat', 'boat']), VILLAGE = new Set
 const CSS = `
 #bigmap { position: fixed; inset: 0; cursor: none; touch-action: none; }
 #pause-map { padding: 0; --mp: rgba(10, 12, 16, .9); }
+#s-pause.on-map .fe-legend { gap: 6px 14px; } #s-pause.on-map .ps-foot { gap: 14px; } #s-pause.on-map .ps-foot > :first-child { min-width: 110px; }
+@media (max-width: 1360px) { #s-pause.on-map .fe-legend { gap: 6px 11px; font-size: 15px; } }
+#bigmap { transition: opacity .16s linear; }
+#s-pause.map3d #bigmap { opacity: 0; } body.still-menus #bigmap { transition: none; } @media (prefers-reduced-motion: reduce) { #bigmap { transition: none; } }
+#s-pause.on-map.map3d, #s-pause.on-map.map3d-out { background: transparent; }
+.under-map { visibility: hidden !important; clip-path: inset(100%) !important; }
+#map-3d { position: fixed; inset: 0; overflow: hidden; pointer-events: none; contain: strict; }
+#map-3d > div { position: absolute; left: 0; top: 0; width: 0; height: 0; will-change: transform; }
+#map-3d i { position: absolute; left: calc(var(--d) / -2); top: calc(var(--d) / -2); width: var(--d); height: var(--d); box-sizing: border-box; padding: calc(var(--d) * .17); border-radius: 50%; background: rgba(12, 15, 20, .9); box-shadow: inset 0 0 0 1.500px var(--k); line-height: 0; }
+#map-3d i svg { display: block; width: 100%; height: 100%; overflow: visible; }
+#map-3d .dim i { box-shadow: none; } #map-3d .dim i svg { opacity: .5; }
+#map-3d .you i, #map-3d .pin i { padding: 0; background: none; box-shadow: none; border-radius: 0; }
+#map-3d .pin i { top: calc(var(--d) * -22 / 24); }
+#map-3d b { position: absolute; left: 0; top: 0; font: 600 14px/18px Barlow, system-ui, sans-serif; color: #fff; white-space: nowrap; text-shadow: 1px 1px 0 rgba(10, 12, 16, .85), -1px 1px 0 rgba(10, 12, 16, .85), 1px -1px 0 rgba(10, 12, 16, .85), -1px -1px 0 rgba(10, 12, 16, .85), 0 0 3px rgba(10, 12, 16, .85); }
 #map-cursor { position: fixed; left: 0; top: 0; z-index: 2; width: 26px; height: 26px; margin: -13px 0 0 -13px; pointer-events: none; visibility: hidden; }
 #map-cursor.on { visibility: visible; }
 #map-cursor svg { display: block; width: 26px; height: 26px; transition: scale .12s ease; }
@@ -82,7 +96,7 @@ const CSS = `
 #map-tools button { width: 32px; height: 30px; padding: 0; color: var(--ink); background: rgba(255, 255, 255, .08); border: 0; border-radius: var(--r-s); font: 500 18px/1 var(--font-ui); cursor: pointer; }
 #map-tools button:hover:not(:disabled) { background: rgba(255, 255, 255, .2); } #map-tools button:disabled { opacity: .35; cursor: default; }
 #map-scale { flex: 1; text-align: center; font: 600 15px/1.2 var(--font-title); letter-spacing: .06em; text-transform: uppercase; }
-#map-north { flex: none; width: 30px; height: 30px; } #map-north svg { display: block; width: 30px; height: 30px; }
+#map-north { flex: none; width: 30px; height: 30px; } #map-north.turned { cursor: pointer; } #map-north svg { display: block; width: 30px; height: 30px; }
 #map-index { position: fixed; left: 40px; top: 132px; bottom: 62px; z-index: 3; width: 320px; display: flex; flex-direction: column; background: var(--mp); border-radius: var(--r-s); color: var(--ink); }
 #map-index[hidden] { display: none; }
 #mx-tabs { flex: none; display: flex; gap: 2px; padding: 6px 8px 0; border-bottom: 1px solid var(--fe-line); }
@@ -205,7 +219,9 @@ export function initMapScreen(game) {
     $('map-scale').textContent !== t(`map.zoom.${ZOOM_NAMES[map.zoom]}`) && ($('map-scale').textContent = t(`map.zoom.${ZOOM_NAMES[map.zoom]}`));
     paintLegend();
     if (list && (performance.now() - list.at > INDEX_MS && blips.v !== list.v)) fillIndex(true);
-    const s = `${!!R?.active}${moved}${!!list}${filters}${!!R?.off}${getLang()}`;
+    const rose = `rotate(${(-map.yaw * 180 / Math.PI).toFixed(1)}deg)`, svg0 = $('map-north').firstChild;
+    if (rose !== frame.rose) { frame.rose = rose; svg0.style.transform = rose; $('map-north').classList.toggle('turned', Math.abs(map.yaw) > 1e-3); }
+    const s = `${!!R?.active}${moved}${!!list}${filters}${!!R?.off}${getLang()}${map.step >= SOLID}${map.canSolid}${map.solid}${!!Settings.v.mapFlat}`;
     if (s !== frame.keys) { frame.keys = s; game.pauseHub?.keys?.(); }
     game.marks?.update();
   }
@@ -431,7 +447,7 @@ export function initMapScreen(game) {
   big.addEventListener('pointermove', e => {
     look(e);
     if (!drag) return;
-    map.scroll(-(e.clientX - drag.x), -(e.clientY - drag.y));
+    map.scroll(-(e.clientX - drag.x), -(e.clientY - drag.y), [drag.x, drag.y], [e.clientX, e.clientY]);
     drag.x = e.clientX; drag.y = e.clientY;
     if (Math.hypot(e.clientX - drag.x0, e.clientY - drag.y0) >= CLICK_PX) drag.far = true;
   });
@@ -464,6 +480,10 @@ export function initMapScreen(game) {
   $('map-in').onclick = () => zoom(1);
   $('map-out').onclick = () => zoom(-1);
   $('map-home').onclick = () => map.recenter(true);
+  // The 3D map (three/map3d.js): V, with relief or flat; Z and C turn it; a click on the rose, north up again
+  const solid = () => { if (map.setFlat(!Settings.v.mapFlat)) Audio.ui('select'); else Audio.ui('deny'); };
+  const turn = d => { if (map.turn(d)) Audio.ui('tick'); else if (d) Audio.ui('deny'); };
+  $('map-north').onclick = () => turn(0);
   // The marked route (Plan J §4.2, route.js): remove it, or share its pin with everyone playing with you
   for (const [id, k, key] of [['map-route', 'X', 'gui.map.route_clear'], ['map-share', 'G', 'map.pin.share']]) { const s = make('span'); s.dataset.i18n = key; s.textContent = t(key); $(id).replaceChildren(chip(k), s); }
   $('map-route').onclick = () => game.route?.clear('user');
@@ -471,7 +491,7 @@ export function initMapScreen(game) {
   for (const el of [$('map-in'), $('map-out'), $('map-home'), $('map-route'), $('map-share')]) el.addEventListener('click', () => el.blur());
 
   // ---------- the keys (the pause gives them: pausehub.js) ----------
-  // (not Q and E, 1-7, M, J, P nor Esc, the pause's own; nor Z, C and V, the 3D map's)
+  // (not Q and E, 1-7, M, J, P nor Esc, the pause's own)
   paneKeys.map = e => {
     const c = e.code, d = { ArrowUp: -1, ArrowDown: 1 }[c], s = { ArrowLeft: -1, ArrowRight: 1 }[c], yes = c === 'Enter' || c === 'NumpadEnter';
     if (list) {
@@ -486,7 +506,7 @@ export function initMapScreen(game) {
       if (yes || c === 'Space') { if (!e.repeat && rows[fsel]) toggle(rows[fsel]); return true; }
     }
     if (yes) { if (!e.repeat) pick(); return true; }
-    const on = { KeyL: () => (list ? closeIndex() : openIndex()), KeyF: () => setFilters(!filters), Space: () => map.recenter(true), KeyX: () => game.route?.active && game.route.clear('user'), KeyG: () => { if (!$('map-share').hidden) game.route.share(); }, KeyN: () => rename(), KeyR: () => pressR(e) }[c];
+    const on = { KeyL: () => (list ? closeIndex() : openIndex()), KeyF: () => setFilters(!filters), Space: () => map.recenter(true), KeyX: () => game.route?.active && game.route.clear('user'), KeyG: () => { if (!$('map-share').hidden) game.route.share(); }, KeyN: () => rename(), KeyR: () => pressR(e), KeyV: solid, KeyZ: () => turn(-1), KeyC: () => turn(1) }[c];
     if (!on) return false;
     if (!e.repeat) on();
     return true;
@@ -495,18 +515,23 @@ export function initMapScreen(game) {
     wants: e => (list || filters) && /^Arrow/.test(e.code),
     up: e => { if (!e || e.code === 'KeyR') letGo(!!e); },
     back() { if (editing) { endEdit(false); return true; } if (filters) { setFilters(false); return true; } if (list) { closeIndex(); return true; } return false; },
-    enter() { open = true; byKey = !mouse; cursor.said = card.said = null; paintLegend.key = ''; sureAt = -Infinity; },
+    enter() { open = true; frame.keys = null; byKey = !mouse; cursor.said = card.said = null; paintLegend.key = ''; sureAt = -Infinity; },
     leave() { open = false; letGo(false); endEdit(true); clearTimeout(flyTimer); if (list) { openIndex.tab = list.tab; list = null; index.hidden = true; $('map-where').hidden = false; } filters = false; drag = null; hover = at = null; cursor.classList.remove('on'); card.hidden = true; map.close(); },
     legend() {
       const out = [], L = (text, ks, o) => out.push({ keys: ks, text: t(text), ...o }), R = map.route;
       if (list) { L('gui.legend.move', ['↑', '↓']); L('gui.legend.change', ['←', '→']); L('map.keys.dest', ['Enter']); L('map.keys.places', ['L'], { onClick: closeIndex }); }
       else if (filters) { L('gui.legend.move', ['↑', '↓']); L('map.keys.toggle', ['Enter']); L('map.keys.filters', ['F'], { onClick: () => setFilters(false) }); }
       else {
-        if (!R?.off) { L('map.keys.dest', ['mouse:l']); L('map.keys.clear', ['mouse:r'], { dim: !R?.active }); }
+        if (!R?.off) { L('map.keys.dest', ['mouse:l']); if (R?.active && innerWidth > 1360) L('map.keys.clear', ['mouse:r']); }   // (in a narrow window, its button says it)
         L('map.keys.marker', ['R']);
         L('map.keys.places', ['L'], { onClick: openIndex });
         L('map.keys.filters', ['F'], { onClick: () => setFilters(true) });
-        L('map.keys.recentre', [t('key.space')], { dim: !map.moved, onClick: () => map.recenter(true) });
+        if (map.relief || map.canSolid) {
+          const near = map.step >= SOLID && map.canSolid;
+          L(Settings.v.mapFlat || !near ? 'map.view.3d' : 'map.view.2d', ['V'], { dim: !near, onClick: solid });
+          L('map.keys.turn', ['Z', 'C'], { dim: !(near && map.solid && !Settings.v.mapFlat) });
+        }
+        if (map.moved) L('map.keys.recentre', [t('key.space')], { onClick: () => map.recenter(true) });
       }
       return out;
     },

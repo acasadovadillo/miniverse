@@ -9,7 +9,7 @@ import { setProjects, setFamilyHouse } from './village.js';
 import { blockHeights, blockNormals, blockShore, shoreBiome, blockColors, paintPixels, groundTag, BLOCK } from './ground.js';
 import { openGroundCache } from './groundcache.js';
 import { rasterTile, TILE } from './contact.js';
-import { satPixels, thumbPixels, SAT_N } from './satpixels.js';
+import { satPixels, thumbPixels, satHeights, satTrees, SAT_N } from './satpixels.js';
 import { opcion, apagada } from '../opciones.js';
 
 // (?relieve=0 en la dirección del hilo: sin guardar nada; ?relieve-max=N: cuántos bloques como mucho. Ver terrain.js y
@@ -21,7 +21,8 @@ const queue = [];   // trabajos pendientes: { t: 'block' | 'paint' | …, id, pr
 // (a igual prioridad, primero la forma, luego la pintura y luego lo demás: terrain.js da a los bloques que hacen falta
 // para empezar a jugar una prioridad menor que la de cualquier pintura)
 // (the maps' pictures, sat and thumb, last of all: terrain.js askMap also gives them a pri behind any other)
-const RANK = { block: 0, paint: 1, ao: 2, sat: 3, thumb: 3 };
+// (and what the 3D map stands on, satmesh and sattrees: satpixels.js)
+const RANK = { block: 0, paint: 1, ao: 2, satmesh: 3, sat: 4, thumb: 4, sattrees: 5 };
 const waiting = new Map(), reading = new Set(), gone = new Set();   // bloques esperando a la caché, los que se están leyendo y los quitados mientras
 const stats = { calc: 0, msCalc: 0, hits: 0, msHit: 0 };
 let pumping = false, batching = false;
@@ -45,7 +46,7 @@ onmessage = e => {
   else if (m.t === 'block') {
     if (cache) { waiting.set(m.id, m); if (!batching) { batching = true; setTimeout(readBatch, 0); } }
     else { queue.push(m); pump(); }
-  } else if (m.t === 'paint' || m.t === 'ao' || m.t === 'sat' || m.t === 'thumb') { queue.push(m); pump(); }
+  } else if (m.t in RANK) { queue.push(m); pump(); }
   else if (m.t === 'drop') {
     const ids = new Set(m.ids);
     for (let i = queue.length - 1; i >= 0; i--) if (ids.has(queue[i].id)) queue.splice(i, 1);
@@ -121,6 +122,9 @@ function step() {
         else if (cache) { const copy = { heights: d.heights.slice(), edge: d.edge.slice(), corners: d.corners.slice(), centers: d.centers.slice(), wet: d.wet && d.wet.slice() }; cache.then(c => c?.put(m.bx, m.bz, copy)).catch(() => {}); }
       } catch { /* (sin guardar) */ }
       post(m, d, false);
+    } else if (m.t === 'satmesh' || m.t === 'sattrees') {
+      const t0 = performance.now(), data = m.t === 'satmesh' ? satHeights(gen, m) : satTrees(gen, m.cx, m.cy, m.season, { gone: m.gone && new Set(m.gone), clear: m.clear });
+      postMessage({ t: m.t, id: m.id, ms: performance.now() - t0, data }, [data.buffer]);
     } else if (m.t === 'sat' || m.t === 'thumb') {
       // A picture for the maps (satpixels.js): made into an ImageBitmap here, so the game only receives it
       const t0 = performance.now(), big = m.t === 'sat', n = big ? SAT_N : CHUNK, paint = big && paints.get(paintKey(m))?.slice();

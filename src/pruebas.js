@@ -96,13 +96,15 @@ import { PEOPLE } from './neighbors.js';
 import { talkContext, pickTopic, topicWeights, topicLines, cropNews, fishNow, moodOf, forecastBy, tomorrowsWeather, lineHash, thing, someOf, TOPICS } from './talktopics.js';
 import { stackKg, SIP_KG } from './carry-items.js';
 import { extraOf } from './inventory.js';
-import { WATER_Y } from './world/planet.js';
+import { WATER_Y, wrapIndex } from './world/planet.js';
 import { SatTiles, TILES } from './ui/sattiles.js';
 import { MapOverlay } from './ui/mapoverlay.js';
 import { Blips, blips, KINDS as BLIP_KINDS } from './ui/blips.js';
 import { miniMode } from './ui/minimap.js';
 import { known, HOLD_MS as QUICK_MS } from './ui/quickplaces.js';
-import { satPixels, thumbPixels, hillshade, SAT_N } from './world/satpixels.js';
+import { satPixels, thumbPixels, satHeights, hillshade, SAT_N, NONE } from './world/satpixels.js';
+import { N as N3D } from './three/map3d.js';
+import { vramOf } from './three/vram.js';
 import { RELIEF_V } from './world/ground.js';
 import { kitOf, kitKey, placeKit, shownOf, splitKit, kindOf, SCABBARD } from './kit.js';
 import { buildKit } from './three/kit3d.js';
@@ -3304,7 +3306,7 @@ async function soloTests(game) {
   // ---------- R8-4: the big map's screen (src/ui/map.js, mapground.js, mapscreen.js) and your own marks (src/mapmarks.js) ----------
   const MS = () => game.map.screen, mapEl = id => document.getElementById(id);
   const mapMove = (x, y) => mapEl('bigmap').dispatchEvent(new PointerEvent('pointermove', { clientX: x, clientY: y, pointerId: 1, pointerType: 'mouse', bubbles: true }));
-  const mapOpen = async () => { if (!game.pauseHub.isOpen) game.pauseHub.open('map'); await frames(2); draw(); check(game.mode === 'map', `the map does not open: ${game.mode}`); };
+  const mapOpen = async () => { Settings.v.mapFlat = true; if (!game.pauseHub.isOpen) game.pauseHub.open('map'); await frames(2); draw(); check(game.mode === 'map', `the map does not open: ${game.mode}`); };
   const freeSpot = () => { let x = innerWidth / 2 - 60, y = innerHeight / 2 + 70; for (let k = 0; k < 40 && game.map.spotAt(x, y, 30); k++) { x -= 11; y += 5; } return [x, y]; };
   await test('map ladder (english): six steps, 0.5 to 16 px per tile, eased round the cursor; the wheel, + and −, the buttons', async () => {
     await goTo(game, CENTER.x, CENTER.y);
@@ -3479,6 +3481,95 @@ async function soloTests(game) {
       const sizes = ['s', 'm', 'l'].map(k => { Settings.set('blipSize', k); M.zoom = 3; M.recenter(); M.drawBig(w().gen, game.explored, p().x, p().y, 0); game.minimap.measure(); return [M.hits.find(q => q.kind === 'home')?.size || M.hits.find(q => q.kind === 'tavern').size, game.minimap.D]; });
       check(sizes[0][0] < sizes[1][0] && sizes[1][0] < sizes[2][0] && sizes[0][1] < sizes[1][1] && sizes[1][1] < sizes[2][1], JSON.stringify(sizes));
     } finally { Settings.set('routeCol', was[0] || 'mine'); Settings.set('blipSize', was[1] || 'm'); useAccent(game.snapshot()); game.minimap.measure(); game.route.clear('user'); M.close(); }
+  });
+  // ---------- R8-5: the big map in 3D (src/three/map3d.js) ----------
+  const map3dOpen = async (z = 4) => {
+    Settings.v.mapFlat = false;
+    if (!game.pauseHub.isOpen) game.pauseHub.open('map');
+    game.map.zoom = z; game.map.recenter();
+    const R = () => game.map.relief, ok = await mapArrives(() => { draw(); return game.map.solid && game.map.tilt === 1 && R().grid && !R().grid.flat && R().rise === 1 && R().cur && !R().cur.fresh.length; }, 40);
+    check(ok, `the relief does not come: ${game.map.solid}, tilt ${game.map.tilt}, ${R()?.grid?.flat}, broken ${R()?.broken}, can ${game.map.canSolid}`);
+    return R();
+  };
+  const map3dClose = () => { Settings.v.mapFlat = true; game.map.yaw = 0; game.map.recenter(); if (game.pauseHub.isOpen) game.pauseHub.close(); };
+  const quiet3d = R => mapArrives(() => { draw(); const T = game.map.tiles; return !T.wanted.size && !T.flying.size && !R.pending && !R.cur.busy && !game.map.built.pending && !(R.woods && (R.woods.flying.size || R.woods.dirty)) && !game.map.tilting && !game.map.zooming; }, 60);
+  await test('map 3d idle (english): with the map open and nothing moving, map3d renders no frame in 1 s', async () => {
+    await goTo(game, CENTER.x, CENTER.y);
+    const was = game.map.zoom;
+    try {
+      const R = await map3dOpen(4); await quiet3d(R);
+      for (let i = 0; i < 30; i++) { draw(); await frames(1); }
+      const n = R.frames, w0 = game.view3d.drawn, t0 = performance.now(); let k = 0;
+      while (performance.now() - t0 < 1000) { draw(); k++; await frames(1); }
+      check(R.frames === n && k > 3, `${R.frames - n} frames painted in ${k}`); check(game.view3d.drawn === w0, 'the world is painted behind');
+      // A turn paints again, and then nothing again
+      pauseKey('KeyC', { key: 'c' }); draw(); check(game.map.turning, 'C does not turn'); await mapArrives(() => { draw(); return !game.map.turning; }); draw(); check(R.frames > n, 'the turn is not painted');
+      await quiet3d(R); for (let i = 0; i < 12; i++) { draw(); await frames(1); } const m = R.frames; for (let i = 0; i < 12; i++) { draw(); await frames(1); } check(R.frames === m, `after it, ${R.frames - m} more`);
+      check(R.info.calls <= 5 && R.info.triangles < 130000, `calls ${R.info.calls}, triangles ${R.info.triangles}`);
+    } finally { game.map.zoom = was; map3dClose(); }
+  });
+  await test('map 3d keys (english): V goes flat and back, kept; Z and C turn 45°, the rose puts north up; from 2 px on it is flat and V is off; the key strip', async () => {
+    await goTo(game, CENTER.x, CENTER.y);
+    const M = game.map, was = M.zoom, s = document.getElementById('s-pause').classList, till = ok => mapArrives(() => { draw(); return ok(); }, 20), strip = () => document.getElementById('ps-legend').textContent;
+    try {
+      const R = await map3dOpen(4);
+      check(s.contains('map3d') && M.toWorld(innerWidth / 2, innerHeight / 2), 'not on the screen'); check(document.getElementById('floaters').classList.contains('under-map') && !document.getElementById('toasts').classList.contains('under-map') && !document.getElementById('c').classList.contains('under-map'), 'what floats over the world shows over the map'); check(strip().includes(t('map.view.2d')) && strip().includes(t('map.keys.turn')), `strip: ${strip()}`);
+      pauseKey('KeyC', { key: 'c' }); await till(() => !M.turning); check(Math.abs(M.yaw - Math.PI / 4) < 1e-6, `C: ${M.yaw}`);
+      pauseKey('KeyZ', { key: 'z' }); pauseKey('KeyZ', { key: 'z' }); await till(() => !M.turning); check(Math.abs(M.yaw + Math.PI / 4) < 1e-6, `Z twice: ${M.yaw}`);
+      // (turned a quarter to the left, the top of the screen is north-west; the keys move over the land as it is seen)
+      const c = M.toWorld(innerWidth / 2, innerHeight / 2), up = M.toWorld(innerWidth / 2, innerHeight / 2 - 80); check(up[0] < c[0] && up[1] < c[1], `up is ${up} from ${c}`);
+      draw(); const rose = document.getElementById('map-north'); check(rose.classList.contains('turned') && /45/.test(rose.firstChild.style.transform), `rose: ${rose.firstChild.style.transform}`); rose.click(); await till(() => !M.turning); check(M.yaw === 0, `the rose: ${M.yaw}`);
+      for (let i = 0; i < 9; i++) pauseKey('KeyC', { key: 'c' }); await till(() => !M.turning); check(Math.abs(M.yaw - Math.PI / 4) < 1e-6, `nine turns: ${M.yaw}`);
+      pauseKey('KeyV', { key: 'v' }); check(Settings.v.mapFlat === true && JSON.parse(localStorage.getItem('pueblo-brotes:ajustes')).mapFlat === true, 'V is not kept');
+      await till(() => !M.solid); check(M.yaw === 0 && M.tilt === 0 && !s.contains('map3d') && M.big.width > 1, `flat: yaw ${M.yaw}, tilt ${M.tilt}, ${M.big.width}`); check(strip().includes(t('map.view.3d')), 'the strip says 2D');
+      check(!M.turn(1), 'it turns when flat'); pauseKey('KeyV', { key: 'v' }); await till(() => M.solid && M.tilt === 1); check(M.solid, 'V does not come back');
+      M.zoomAt(-1); M.endZoom(); draw(); M.zoomAt(-1); M.endZoom(); check(M.tile === 2, `${M.tile}`); await till(() => !M.solid); check(!M.solid && M.tilt === 0, 'at 2 px it is not flat'); check(!M.setFlat(true) && Settings.v.mapFlat === false, 'V at 2 px');
+      draw(); check([...document.querySelectorAll('#ps-legend .off')].some(k => k.textContent.includes(t('map.view.3d'))), 'V is not dim'); M.zoomAt(1); M.endZoom(); await till(() => M.solid); check(M.solid, 'at 4 px it does not come back');
+      const mo = Settings.v.motion; Settings.v.motion = 'reduced'; try { pauseKey('KeyC', { key: 'c' }); check(!M.turning && M.yaw > 0.7, 'reduced motion: it eases'); } finally { Settings.v.motion = mo; }
+      // In a cave, or without the pictures: flat
+      const sc = game.scene; try { game.scene = { kind: 'grid', exitTo: { x: p().x, y: p().y } }; check(!M.canSolid, 'in a cave'); } finally { game.scene = sc; }
+    } finally { M.zoom = was; map3dClose(); }
+  });
+  await test('map 3d land (english): what is under the cursor is where it is drawn, turned and on a hill; nothing of the unexplored; the blips are elements of the page', async () => {
+    await goTo(game, CENTER.x, CENTER.y);
+    const M = game.map, was = M.zoom, all = game.explored, gen = w().gen;
+    try {
+      // (a hill, explored: the nearest one over 4 m)
+      let hill = null; for (let r = 60; r < 900 && !hill; r += 20) for (let a = 0; a < 6.28; a += 0.2) { const x = Math.round(p().x + Math.cos(a) * r), y = Math.round(p().y + Math.sin(a) * r); if (gen.groundAt(x, y) > 4) { hill = [x, y]; break; } }
+      check(hill, 'no hill'); game.explored = new Set(all); const hx = Math.floor(hill[0] / CHUNK), hy = Math.floor(hill[1] / CHUNK); for (let j = -4; j <= 4; j++) for (let i = -4; i <= 4; i++) game.explored.add(`${hx + i},${hy + j}`);
+      const R = await map3dOpen(5);
+      M.pan.x = hill[0] - M.me[0]; M.pan.y = hill[1] - M.me[1]; draw(); await mapArrives(() => { draw(); return !R.pending && !R.grid.flat && Math.hypot(R.grid.cx - hill[0], R.grid.cy - hill[1]) < 60 && R.rise === 1 && Math.abs(R.hc - R.heightAt(...hill)) < 0.05; }, 40);
+      check(Math.abs(R.heightAt(...hill) - gen.groundAt(...hill)) < 1.2 && R.hc > 2, `height ${R.heightAt(...hill)} / ${gen.groundAt(...hill)}, ${R.hc}`);
+      for (const yaw of [0, Math.PI / 4, 2.3]) {
+        M.yaw = yaw; draw();
+        for (const [x, y] of [hill, [hill[0] + 14, hill[1] + 9], [hill[0] - 20, hill[1] + 3]]) { const at = R.project(x, y); check(at, 'off the screen'); const q = M.toWorld(...at); check(Math.hypot(q[0] - x, q[1] - y) < 1.2, `turned ${yaw.toFixed(2)}: ${q} for ${x},${y}`); }
+        const mid = M.toWorld(innerWidth / 2, innerHeight / 2); check(Math.hypot(mid[0] - hill[0], mid[1] - hill[1]) < 0.6, `the middle is ${mid}`);
+      }
+      // Dragged, what is held stays under the pointer; the wheel keeps what is under it
+      M.yaw = Math.PI / 4; draw(); const from = [560, 360], to = [640, 400], a = M.toWorld(...from); M.scroll(-80, -40, from, to); draw(); const b = M.toWorld(...to); check(Math.hypot(a[0] - b[0], a[1] - b[1]) < 1.5, `dragged: ${a} / ${b}`);
+      // The unexplored: flat and below everything, whatever there is there
+      const G2 = R.grid; let dark = 0, bad = 0; for (let j = 0; j < N3D; j += 3) for (let i = 0; i < N3D; i += 3) { const x = G2.x0 + i * G2.s, y = G2.y0 + j * G2.s; if (!game.explored.has(`${wrapIndex(Math.floor(x / CHUNK), CHUNK)},${Math.floor(y / CHUNK)}`)) { dark++; if (G2.h[j * N3D + i] !== NONE) bad++; } } check(dark > 100 && !bad, `${bad} of ${dark} heights of the unexplored`);
+      const asked = []; const H = satHeights({ groundAt: (x, y) => { asked.push([x, y]); return 5; } }, { x0: 2000, y0: 2000, s: 4, n: 9, mx: 125, my: 125, mw: 3, mh: 3, seen: new Uint8Array([1, 0, 0, 0, 0, 0, 0, 0, 0]) }); check(asked.length === 16 && asked.every(([x, y]) => x < 2016 && y < 2016) && H[0] === 5 && H[8] === NONE, `heights asked for: ${asked.length}`);
+      const D = R.cur.mask.image.data, nc = R.cur.nc, k = 256 / nc; for (const q of R.cur.cells) { const i = ((q.kx % nc) + nc) % nc, j = ((q.ky % nc) + nc) % nc; q.lit = D[(j * k + k / 2) * 256 + i * k + k / 2]; } check(R.cur.cells.every(q => q.lit === 255), 'an explored chunk is dark'); check(D.reduce((n, v) => n + (v ? 1 : 0), 0) <= R.cur.cells.length * k * k, 'the mask shows more than is explored');
+      // The blips: elements on the page where they are drawn, and spotAt finds them
+      M.recenter(); M.yaw = 0; draw(); await mapArrives(() => { draw(); return !R.pending; }); const home = M.hits.find(q => q.kind === 'home'); check(home && M.spotAt(home.sx, home.sy, 8)?.kind === 'home', 'home is not there');
+      const el = [...document.querySelectorAll('#map-3d > div')].find(e => e.style.transform.includes(`(${home.sx}px, ${home.sy}px`)); check(el && el.textContent.includes(home.name) && el.querySelector('svg'), 'its element'); check(M.layout && document.querySelectorAll('#map-3d .you svg').length === 1, 'your arrow');
+      // R, the click and the filters, as in two dimensions
+      const K = game.marks, marks = K.list; try { const at = [innerWidth / 2 - 150, innerHeight / 2 + 90]; mapMove(...at); draw(); const wh = M.toWorld(...MS().at); pauseKey('KeyR', { key: 'r' }); dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyR', bubbles: true })); const m = K.list.at(-1); check(m && Math.hypot(m.x - wh[0], m.y - wh[1]) < 0.6, `the mark: ${JSON.stringify(m)} / ${wh}`); K.remove(m); } finally { K.list = marks; }
+      const [x, y] = [innerWidth / 2 + 120, innerHeight / 2 + 60], wh = M.toWorld(x, y); game.route.pickAt(wh[0], wh[1], x, y); await mapArrives(() => { draw(); return game.route.pts?.length > 2 && R.lines.visible; }, 10); check(R.lines.visible && M.hits.some(q => q.pin === 'route'), 'the route is not drawn'); game.route.clear('user'); draw(); check(!R.lines.visible, 'the route stays');
+    } finally { game.route.clear('user'); game.explored = all; M.zoom = was; map3dClose(); }
+  });
+  await test('map 3d memory (english): opened and closed over and over, the geometries, textures and video memory go back to what they were; the canvas is the world\'s again', async () => {
+    await goTo(game, CENTER.x, CENTER.y);
+    const M = game.map, was = M.zoom, r = game.view3d.renderer, gl = r.getContext(), now = () => { const v = vramOf(gl); return [r.info.memory.geometries, r.info.memory.textures, v.texMB + v.rbMB]; }, ratio = r.getPixelRatio();
+    try {
+      await map3dOpen(5); map3dClose(); draw(); draw(); const a = now(); let top = 0;
+      for (let i = 0; i < 4; i++) { const R = await map3dOpen(3 + i % 3); await quiet3d(R); const m = now(); top = Math.max(top, m[2] - a[2]); check(R.memory.tex > 0 && m[0] > a[0], 'nothing is held when open'); const z = game.view3d.drawn; map3dClose(); check(!R.scene && !document.querySelector('#map-3d > div') && game.view3d.redraw && R.memory.tex === 0, 'something is kept'); draw(); check(game.view3d.drawn > z, 'the world is not painted again'); }
+      const b = now(); check(b[0] <= a[0] + 6 && b[1] <= a[1] + 1 && b[2] <= a[2] + 0.5, `${a} → ${b}`); check(r.getPixelRatio() === ratio, `pixel ratio ${r.getPixelRatio()}`);
+      check(!document.getElementById('s-pause').classList.contains('map3d') && !document.querySelector('.under-map'), 'the class stays'); console.log(`map 3d memory: ${a.map(v => +v.toFixed(1))} closed, +${top.toFixed(1)} MB open; a frame ${M.relief.stats.ms.toFixed(1)} ms`);
+      // (a graphics card that loses everything: flat, and it can come back)
+      const R = await map3dOpen(4); R.drop(); draw(); await mapArrives(() => { draw(); return M.solid; }); check(M.solid && !R.broken, 'it does not come back');
+    } finally { M.zoom = was; map3dClose(); draw(); }
   });
   await test('primeros pasos: se cumplen de uno en uno, con recompensa, y se guardan', async () => {
     const S = game.steps, st = game.stats, was = { i: S.i, base: S.base, pay: S.pay }, equip = inv().equip.espalda;
@@ -6346,7 +6437,7 @@ async function soloTests(game) {
     try {
       R().clear('user');
       await goTo(game, CENTER.x, CENTER.y);
-      keyM(); await frames(2); check(game.mode === 'map', `the map does not open: ${game.mode}`);
+      Settings.v.mapFlat = true; keyM(); await frames(2); check(game.mode === 'map', `the map does not open: ${game.mode}`);
       M.zoom = 4; M.recenter(); draw();
       check(document.getElementById('map-info').textContent.includes(t('map.route.help')), `no help line: ${document.getElementById('map-info').textContent}`);
       // A free spot on the screen (no named spot within 20 px)
@@ -10218,6 +10309,7 @@ export async function runTests(game) {
   if (PART !== 'mirar') hud.ask = (who, text, options) => Promise.resolve(0);   // (las preguntas, siempre la primera opción: que nada se quede esperando)
   game.visiting = true;
   if (PART === 'mirar') { game.start(fresh()); game.onSave = null; return; }
+  Settings.v.mapFlat = true;   // (the big map, flat but in the tests of the 3D one: what is under a point of the screen does not depend on the relief coming)
   // (en el Chrome invisible el dibujo va por software: lo más barato posible, sin sombras ni resolución)
   const r = game.view3d.renderer; if (r) { r.shadowMap.enabled = false; r.setPixelRatio(0.5); game.view3d.auto = false; game.view3d.resize(); }
   // (el bucle del navegador no avanza ni dibuja nada: lo hacen las pruebas con frames())

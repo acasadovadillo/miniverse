@@ -4,6 +4,7 @@
 //                (ground.js paintPixels: biomes, blends, shores, the village paths), the water as water, the relief
 //                shaded with the light from the north-west, and the trees as soft round crowns with a small shadow
 //   thumbPixels  the same chunk at 1 px per tile (16 × 16, RGBA), from the biome field alone: for the widest zooms
+//   satHeights   the land's heights on a grid (jobs 'satmesh'), and satTrees, a chunk's trees (job 'sattrees'): the 3D map's
 // Both show the land as it was generated (what players changed goes on top: ui/mapoverlay.js), only what stands in sight:
 // never what lies on the sea bed (gen.seabed is not read), nor caves, nor undiscovered places.
 // opts: gone (the keys of what was felled or cut there: not drawn), clear ([[x0, y0, x1, y1]…]: no trees inside), paint (the
@@ -16,7 +17,7 @@ import { canopyOf } from './treedims.js';
 import { seasonalPalette } from '../art/seasons.js';
 import { ihash, rgbOf } from '../util.js';
 import { PAL, HOJAS, SAUCE } from '../arte.js';
-import { wrapIndex } from './planet.js';
+import { wrapIndex, wrapX, WATER_Y, NORTH, SOUTH } from './planet.js';
 
 export const SAT_PX = PX;                 // px per tile of a tile picture
 export const SAT_N = CHUNK * SAT_PX;      // its side
@@ -147,4 +148,36 @@ export function thumbPixels(gen, cx, cy, season) {
     d[o] = c0; d[o + 1] = c1; d[o + 2] = c2; d[o + 3] = 255;
   }
   return d;
+}
+
+// The land of the 3D map (three/map3d.js): n × n heights, s tiles apart from (x0, y0), row by row; the water level where there is
+// water, and NONE (no height is looked at there) outside the chunks of seen (mw × mh of them from chunk (mx, my), not wrapped, 1: explored)
+export const NONE = -1;
+export function satHeights(gen, { x0, y0, s, n, mx, my, mw, mh, seen }) {
+  const out = new Float32Array(n * n).fill(NONE);
+  for (let j = 0; j < n; j++) {
+    const y = y0 + j * s, kj = Math.floor(y / CHUNK) - my;
+    if (kj < 0 || kj >= mh || y < NORTH || y >= SOUTH) continue;
+    for (let i = 0; i < n; i++) {
+      const x = x0 + i * s, ki = Math.floor(x / CHUNK) - mx;
+      if (ki < 0 || ki >= mw || !seen[kj * mw + ki]) continue;
+      const wx = wrapX(x), h = village.inBounds(wx, y) ? 0 : gen.groundAt(wx, y);
+      out[j * n + i] = h < 0 ? WATER_Y : h;
+    }
+  }
+  return out;
+}
+// The trees of a chunk for the 3D map, TREE numbers each: x, y (in the chunk), the radius of the crown, how tall, its colour (0xrrggbb)
+// and its shape (0: round, 1: a cone, 2: low). gone and clear: as in satPixels
+export const TREE = 6;
+const CONE = new Set(['pine', 'snowPine']), LOW = new Set(['bush', 'boulder', 'snowBoulder']);
+export function satTrees(gen, cx, cy, season, { gone = null, clear = null } = {}) {
+  const out = [], x0 = cx * CHUNK, y0 = cy * CHUNK;
+  for (const [x, y, r, kind, key, h] of treesOf(gen, cx, cy)) {
+    if (gone?.has(key) || clear?.some(b => x + x0 > b[0] && x + x0 < b[2] && y + y0 > b[1] && y + y0 < b[3])) continue;
+    const set = CROWN[kind][season], col = set ? set[Math.floor(h * 997) % set.length] : TWIG, v = 0.94 + h * 0.16;
+    const [a, b, c] = col.map(k => Math.max(0, Math.min(255, Math.round(k * v)))), shape = CONE.has(kind) ? 1 : LOW.has(kind) ? 2 : 0;
+    out.push(x, y, set ? r : r * 0.7, shape === 1 ? r * 3.4 : shape === 2 ? r * 1.1 : kind === 'palm' || kind === 'cactus' ? r * 2.2 + 1.2 : r * 2.1, a * 65536 + b * 256 + c, shape);
+  }
+  return new Float32Array(out);
 }

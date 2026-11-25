@@ -11,7 +11,7 @@
 // Music reads it as Music.calm, set in apply() (music.js cannot import this file: it would be a cycle)
 // prompts ('object' or 'cursor': where what the keys do shows) and feed ('all' or 'important': which notices show), PLAN-R8;
 // blipSize (how big what is on the maps is: 's', 'm', 'l'), routeCol (the marked route's colour) and mapHide (a list, with no row here: what the
-// big map's filters hide, ui/blips.js), too
+// big map's filters hide, ui/blips.js) and mapFlat (the big map without relief, its key V), too
 // blood (Plan G §5.3, §8): wounded animals' trails are drawn with a muted red; off, scuffed soil instead (no red). Only
 // on this device (not in the save); three/tracks3d.js reads Settings.v.blood and fieldhud.js says "scuffed" with it off
 import { Audio } from './audio.js';

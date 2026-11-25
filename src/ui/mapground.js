@@ -7,6 +7,8 @@
 //   ground.draw(g, view)     view: { gen, explored, cx, cy (the middle), a (px per tile), w, h, r (device px per px), to, tx, ty }:
 //                            the scale and the middle it is going to while the zoom eases (zooming in, nothing is made again
 //                            until it is there; zooming out, the wider one is made first)
+// The texture of the 3D map (three/map3d.js) is another of these: it says where the chunks go (put) and which are on it.
+//
 //   ground.busy              there is more to paint, or to look at, in the next frames;  ground.free(): the map was closed
 import { CHUNK } from '../world/gen.js';
 import { BIOMES } from '../world/biomes.js';
@@ -178,8 +180,16 @@ export class MapGround {
     if (pic === q.src && ov === q.ov && (pic || q.under || q.plain)) { q.sig = sig; q.vb = vb; q.best = best; return; }
     // (only what was built changed, and the picture under it is gone: once it is back)
     if (B.sat && pic && pic === q.src && pic !== T.have(kind, q.kx, q.ky) && pic !== T.have('thumb', q.kx, q.ky)) { best = false; ask(); if (pic === q.src) { q.best = false; return; } }
-    const s = CHUNK * B.b, x = q.i * s, y = q.j * s, g = this.g;
-    g.imageSmoothingEnabled = B.sat; g.imageSmoothingQuality = 'medium';
+    this.put(q, gen, pic, ov);
+    q.src = pic; q.best = best; q.ov = ov; q.sig = sig; q.vb = vb;
+    this.stats.painted++;
+  }
+  put(q, gen, pic, ov) {
+    const s = CHUNK * this.B.b;
+    this.fill(this.g, q, gen, pic, ov, q.i * s, q.j * s, s);
+  }
+  fill(g, q, gen, pic, ov, x, y, s) {
+    g.imageSmoothingEnabled = this.B.sat; g.imageSmoothingQuality = 'medium';
     if (pic) g.drawImage(pic, x, y, s, s);
     else if (!q.under && !q.plain) {   // (known land is never black while its picture comes)
       g.fillStyle = `rgb(${BIOMES[gen.biomeAt((q.kx + 0.5) * CHUNK, (q.ky + 0.5) * CHUNK)].rgb[1]})`;
@@ -187,7 +197,5 @@ export class MapGround {
       q.plain = true;
     }
     if (ov) g.drawImage(ov, x, y, s, s);
-    q.src = pic; q.best = best; q.ov = ov; q.sig = sig; q.vb = vb;
-    this.stats.painted++;
   }
 }
