@@ -131,8 +131,10 @@ export function initCredits({ onClose }) {
   onLangChange(() => { if (screen) paintKeys(); });
   const ui = {
     get isOpen() { return !!screen; },
-    open() {
+    // over: on top of the pause (Pause › Game)
+    open(over = false) {
       if (screen) return;
+      $('s-credits').classList.toggle('over', over);
       screen = FE.open('s-credits', { parts: [{ key(e) { if (!/^(Arrow(Up|Down)|Key[WS]|Page(Up|Down))$/.test(e.code)) return false; rest(CREDITS.rest); return nav.key(e); } }],
         onClose: () => { screen = null; cancelAnimationFrame(raf); if (!shutting) onClose(); } });
       body.scrollTop = pos = 0;

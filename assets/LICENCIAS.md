@@ -44,3 +44,16 @@ Las letras del juego son **Oswald** (títulos y cifras grandes) y **Barlow** (to
 
 - Oswald: Copyright 2016 The Oswald Project Authors (https://github.com/googlefonts/OswaldFont)
 - Barlow: Copyright 2017 The Barlow Project Authors (https://github.com/jpt/barlow)
+
+## Imágenes de los menús (`menu/`)
+
+Son **nuestras**: fotos del propio juego (con su cámara libre y retocadas de color, como una película), sin nada de fuera. Las seis se eligen por la estación y la hora (`src/ui/keyart.js`); llevan un trozo del SHA-256 del archivo en el nombre. `fondo-menu.jpg` (también nuestra) es la de antes: se queda una versión más, para las páginas que la tuvieran guardada.
+
+| Archivo | Qué se ve | Fecha |
+|---|---|---|
+| `menu/spring.aa6fd6c9.jpg` | Primavera: manzanos en flor junto al río, con ovejas, por la mañana | 2026-11-24 |
+| `menu/summer.c2c8b68c.jpg` | Verano: el campo de trigo y maíz al atardecer | 2026-11-24 |
+| `menu/autumn.75345360.jpg` | Otoño: la plaza del pueblo al anochecer | 2026-11-24 |
+| `menu/winter.c89d488e.jpg` | Invierno: las casas nevadas con las ventanas encendidas | 2026-11-24 |
+| `menu/night.22e17836.jpg` | De noche: una aldea junto al río, con antorchas y una barca | 2026-11-24 |
+| `menu/rider.892740e8.jpg` | Sin estación (al cargar): a caballo por la playa, junto al faro | 2026-11-24 |

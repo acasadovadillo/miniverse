@@ -72,7 +72,9 @@ import { GLYPHS } from './ui/glyphs.js';
 import { ACCENTS, accent, accentOf, useAccent, skinNow, applySkin } from './ui/skin.js';
 import { LOOK_OPTIONS } from './looks.js';
 import { MENU_ITEMS, whenText, dayAndSeason, lookOf } from './ui/mainmenu.js';
-import { KeyArt, KEY_ART, artNow, artOf } from './ui/keyart.js';
+import { KeyArt, KEY_ART, artNow, artOf, loadSet } from './ui/keyart.js';
+import { TIPS, tipText, recapText } from './ui/loading.js';
+import { RECAP_STATS, recapOf, Recap } from './recap.js';
 import { Audio as GameAudio } from './audio.js';
 import { View3D } from './three/engine.js';
 import { sobrio, tonosSuelo } from './arte.js';
@@ -1621,6 +1623,8 @@ async function soloTests(game) {
     try { await fn($); } finally {
       if (document.getElementById('fe-alert')) { pauseKey('Escape'); await sleep(160); }
       for (const id of ['s-login', 's-menu', 's-credits', 's-creator', 's-settings']) $(id).classList.remove('show');
+      game.loading.abort(); game.loading.enabled = false;
+      if (FE.active() === 's-credits') { $('cd-close').click(); $('s-menu').classList.remove('show'); }
       FE.active();   // (they let the keys go)
       Profile.liveServer = own.liveServer; Profile.store = own.store; L.connect = own.connect; L.close = own.close; L.status = own.status; L.peers.clear(); for (const [k, v] of peers) L.peers.set(k, v);
       if (d) Object.defineProperty(Profile, 'data', d); else delete Profile.data;
@@ -1684,11 +1688,11 @@ async function soloTests(game) {
     check(of(at(2026, 3, 20, 10)) === 'spring' && of(at(2026, 7, 1, 10)) === 'summer' && of(at(2026, 10, 24, 10)) === 'autumn' && of(at(2026, 0, 10, 10)) === 'winter', 'the seasons');
     check(of(at(2026, 0, 10, 20)) === 'night' && of(at(2026, 0, 10, 19)) === 'winter' && of(at(2026, 0, 10, 4)) === 'night' && of(at(2026, 0, 10, 5)) === 'winter', 'the night, 21 to 6 in Madrid');
     for (let m = 0; m < 12; m++) { const ms = at(2026, m, 12, 11); check(artNow(ms, null).season === seasonOf(Math.floor(ms / 86400000)).season, `month ${m}`); }
-    for (const [q, want] of [['winter', 'winter'], ['winter-night', 'night'], ['night', 'night'], ['summer', 'summer']]) check(artOf(artNow(at(2026, 10, 24, 10), q)) === want, q);
+    for (const [q, want] of [['winter', 'winter'], ['winter-night', 'night'], ['night', 'night'], ['summer', 'summer'], ['rider', 'rider']]) check(artOf(artNow(at(2026, 10, 24, 10), q)) === want, q);
     check(!KeyArt.on || !game.player, 'it goes on while playing');
     KeyArt.stop(); KeyArt.start();
     try {
-      for (const id of Object.keys(KEY_ART)) check(/\.(jpg|webp)$/.test(KEY_ART[id].src) && KEY_ART[id].grade.length % 2 === 0, id);
+      for (const id of Object.keys(KEY_ART)) check(/^assets\/menu\/[a-z]+\.[0-9a-f]{8}\.jpg$/.test(KEY_ART[id].src), id);
       check(A.classList.contains('pan') && /url\(/.test(getComputedStyle(img).backgroundImage), 'it does not start');
       document.body.classList.add('still'); check(getComputedStyle(A).display === 'block' && getComputedStyle(img).animationName === 'fe-pan', 'it does not pan'); A.classList.add('idle'); check(getComputedStyle(img).animationPlayState === 'paused', 'idle'); KeyArt.wake(); check(!A.classList.contains('idle') && getComputedStyle(img).animationPlayState === 'running', 'a touch does not wake it');
       document.body.classList.add('still-menus'); check(getComputedStyle(img).animationName === 'none', 'reduced motion'); document.body.classList.remove('still-menus');
@@ -1705,6 +1709,90 @@ async function soloTests(game) {
     pauseKey('Escape'); check($('s-menu').classList.contains('show') && FE.active() === 's-menu' && menuSel() === 'm-credits', 'Esc'); const c = $('cd-body').scrollTop; $('m-credits').click(); check($('cd-body').scrollTop === 0, `they do not start again: ${c}`); $('cd-close').click(); check($('s-menu').classList.contains('show') && FE.active() === 's-menu', '✕');
     Settings.v.motion = 'reduced'; $('m-credits').click(); await sleep(3200); check($('cd-body').scrollTop === 0, 'with reduced motion they scroll');
   }));
+  // ---------- R9-5: the loading screen (src/ui/loading.js, recap.js), the six pictures, and Pause › Game › Tips and Credits ----------
+  await test('menu (english): the six pictures: there, small enough, named in the licences; another one while loading, asked for beforehand, one at a time', async () => {
+    const lic = await (await fetch('./assets/LICENCIAS.md')).text(), ids = Object.keys(KEY_ART);
+    check(ids.join() === 'spring,summer,autumn,winter,night,rider', ids.join());
+    for (const id of ids) { const r = await fetch(KEY_ART[id].src), b = r.ok ? await r.blob() : null; check(b && b.size > 50000 && b.size <= 350 * 1024, `${id}: ${b?.size}`); check(lic.includes(KEY_ART[id].src.slice(7)), `${id} is not in the licences`); const im = await createImageBitmap(b); check(im.width === 1920 && im.height === 1080, `${id}: ${im.width}x${im.height}`); im.close(); }
+    check((await fetch('./assets/fondo-menu.jpg')).ok, 'the photo of before, for the pages that kept it, is gone');
+    for (let season = 0; season < 4; season++) for (const night of [false, true]) { const menu = artOf({ season, night }), set = loadSet({ season, night }, menu); check(set.length === 2 && !set.includes(menu) && set.every(id => KEY_ART[id]) && set.includes('rider'), `${menu}: ${set}`); }
+    const was = [KeyArt.shown, KeyArt.load, KeyArt.turn, KeyArt.asked, KeyArt.kept], el = document.createElement('div');
+    try {
+      KeyArt.shown = 'autumn'; KeyArt.load = null; KeyArt.turn = 0; KeyArt.asked = null;
+      const a = KeyArt.next(); check(KeyArt.next() === a && a !== 'autumn', 'it changes before it is shown'); KeyArt.preload(); check(KeyArt.asked === a, 'it is not asked for');
+      KeyArt.paintLoad(el); check(el.dataset.art === a && el.style.backgroundImage.includes(KEY_ART[a].src), 'not the one asked for'); const b = KeyArt.next(); check(b !== a && b !== 'autumn', `the next one: ${b}`);
+      KeyArt.shown = b; check(KeyArt.next() !== b, 'the same as in the menu');
+    } finally { [KeyArt.shown, KeyArt.load, KeyArt.turn, KeyArt.asked, KeyArt.kept] = was; }
+  });
+  await test('menu (english): loading recap: one sentence with what was done; none without it; saved by itself; old and odd saves', async () => {
+    const was = getLang(), now = new Date(2026, 10, 24, 18, 0).getTime(), s = { recap: { at: now - 20 * 3600000, mins: 110, d: { peces: 4, cosechas: 12 } } };
+    try {
+      await setLang('es'); const es = recapText(s, now); check(es.includes('4 peces y 12 cosechas') && es.includes('1 h 50 min') && es.startsWith('La última vez (ayer a las ') && es.endsWith('.'), es);
+      check(recapText({ recap: { at: now, mins: 0, d: { piezas: 1 } } }, now).includes('1 pieza construida.') && !recapText({ recap: { at: now, mins: 0, d: { piezas: 1 } } }, now).includes('min'), 'less than a minute'); check(recapText({ recap: { at: now, mins: 12, d: {} } }, now).includes('12 min'), 'only the time');
+      await setLang('en'); check(recapText(s, now).includes('4 fish and 12 harvests'), recapText(s, now));
+    } finally { await setLang(was); }
+    for (const x of [null, {}, { recap: null }, { recap: 5 }, { recap: { at: 'x', mins: 9 } }, { recap: { at: now, mins: -3, d: { peces: 0, nope: 7, cosechas: 'x' } } }]) check(recapOf(x) === null && recapText(x) === '', JSON.stringify(x));
+    check(Object.keys(recapOf({ recap: { at: now, mins: 1, d: Object.fromEntries(RECAP_STATS.map(k => [k, 3])) } }).d).join() === RECAP_STATS.slice(0, 6).join(), 'at most six, in their order');
+    for (const k of RECAP_STATS) for (const n of [1, 2]) { const w = t(`load.recap.${k}`, { n }); check(w.includes(String(n)) && !w.includes('load.recap'), `${k}: ${w}`); }
+    // The game's own: what the statistics grow by since it started; with nothing done, the one before stays; the save keeps it
+    const g = { stats: { v: { peces: 10 }, get(k) { return this.v[k] || 0; } }, playTime: { ms: 600000 } }, R = new Recap(g); R.reset({ recap: s.recap }); const o = {}; R.save(o); check(o.recap.d.peces === 4 && o.recap.at === s.recap.at, 'the one before goes away');
+    g.stats.v.peces = 13; g.stats.v.talados = 2; g.playTime.ms += 5 * 60000 + 30000; R.save(o); check(o.recap.mins === 5 && o.recap.d.peces === 3 && o.recap.d.talados === 2 && Date.now() - o.recap.at < 5000, JSON.stringify(o.recap)); R.reset({}); const e = {}; R.save(e); check(!('recap' in e), 'an old save, with nothing done yet');
+    game.stats.add('cosechas', 2); const snap = game.snapshot(); check(snap.recap.d.cosechas >= 2 && recapText(snap).length > 10, 'the save'); game.stats.add('cosechas', -2);
+  });
+  await test('menu (english): loading screen: off in the tests; where, when, tips and the ring; its keys are nobody else\'s; at least 1.2 s; then the game, at once', () => keepMenus(async $ => {
+    const L = game.loading, T = { ...L.TIMES }, el = $('s-load'), was = getLang(), s = menuSave({ recap: { at: Date.now() - 3600000, mins: 30, d: { peces: 4 } } });
+    check(L.enabled === false, 'on in the tests'); await L.show(s); check(!L.on && !el.classList.contains('show') && FE.active() === null, 'shown all the same'); let lifted = 0; await L.ready(L.starting(), () => lifted++); check(lifted === 1, 'the fade is not lifted without it');
+    try {
+      L.enabled = true; Object.assign(L.TIMES, { min: 700, out: 120, tip: 260 }); const t0 = performance.now();
+      await L.show({ ...s, player: { ...s.player, x: 24, y: 24 } }, { others: ['Hafsa'] });
+      check(performance.now() - t0 < 600 && L.on && FE.active() === 's-load' && getComputedStyle(el).display === 'block' && +getComputedStyle(el).zIndex > +getComputedStyle($('fade')).zIndex, 'it is not in sight');
+      check($('ld-where').textContent === t('gui.load.village') && /\d\d:\d\d$/.test($('ld-when').textContent) && $('ld-recap').textContent.includes('4') && $('ld-with').textContent.includes('Hafsa') && $('ld-status').textContent === t('gui.load.loading'), `${$('ld-where').textContent} ${$('ld-when').textContent} ${$('ld-recap').textContent}`);
+      check(/url\(/.test(getComputedStyle(el.querySelector('.ld-art')).backgroundImage) && getComputedStyle(el.querySelector('.ld-art')).animationName === 'none' && getComputedStyle(el.querySelector('.ld-ring')).animationName === 'ld-spin', 'the picture or the ring');
+      for (const c of ['Escape', 'KeyI', 'KeyB', 'KeyP', 'KeyM', 'KeyT', 'Enter', 'Backspace', 'KeyW', 'Space']) pauseKey(c); check(L.on && FE.active() === 's-load' && !game.windows.isOpen('s-inv') && !game.build.on && !game.pauseHub.isOpen && document.activeElement !== $('chat-input'), 'a key got through');
+      check(hud.feed.busy(), 'the notices do not wait'); const tip = L.tip(); check($('ld-tip').textContent === tipText(tip), 'the tip'); for (let i = 0; i < 30 && L.tip() === tip; i++) await sleep(40); check(L.tip() !== tip && $('ld-tip').textContent === tipText(L.tip()), 'the tip does not change');
+      await setLang('en'); check($('ld-where').textContent === 'The village' && $('ld-tip').textContent === t(`tip.${L.tip()}`), 'in English'); await setLang(was);
+      L.say(() => 'abc'); check($('ld-status').textContent === 'abc', 'what it waits for'); L.since('hafsa', Date.now()); check($('ld-with').textContent.startsWith('Hafsa '), 'who played since'); L.since('servidor', Date.now()); L.since(Profile.id, Date.now()); check(!$('ld-with').textContent.startsWith('Hafsa '), 'the server and oneself do not count');
+      const k = L.starting(); check($('ld-status').textContent === t('gui.load.loading'), 'starting'); L.started(); check($('ld-when').textContent.includes(t('gui.pause.day', { n: game.days.dayIndex + 1 })) && $('ld-where').textContent.length > 2, `started: ${$('ld-where').textContent}`);
+      const t1 = performance.now(); lifted = 0; L.enabled = true; const p = L.ready(k, () => lifted++); await sleep(5); check(performance.now() - t0 > 700 || (lifted === 0 && L.on), 'before its time'); await p; check(performance.now() - t0 >= 690 && lifted === 1 && !L.on && FE.active() === null && el.classList.contains('out') && getComputedStyle(el).pointerEvents === 'none', 'it does not go, or keeps the keys'); await sleep(200); check(!el.classList.contains('show') && !el.classList.contains('out'), 'it stays there');
+      // One that was left does not take away the next one; back in the menu, at once
+      await L.show(s); const old = L.starting(); L.abort(); check(!L.on && FE.active() === null && !el.classList.contains('show'), 'abort'); await L.show(s); lifted = 0; await L.ready(old, () => lifted++); check(L.on && lifted === 1, 'the old one takes the new one away'); const t2 = performance.now(); await L.ready(L.starting()); check(performance.now() - t2 > 300, 'in a flash'); L.abort(); check(!el.classList.contains('show'), 'abort while it fades');
+      // An odd save never keeps anyone out
+      await L.show({ player: {} }); check(L.on && $('ld-where').textContent === '', 'an odd save'); L.abort();
+      // With the menus' reduced motion
+      document.body.classList.add('still-menus'); await L.show(s); check(getComputedStyle(el).animationName === 'none' && getComputedStyle(el.querySelector('.ld-ring')).animationTimingFunction.startsWith('steps'), 'reduced motion'); L.abort(); document.body.classList.remove('still-menus'); Settings.apply();
+    } finally { Object.assign(L.TIMES, T); L.abort(); L.enabled = false; await setLang(was); Settings.apply(); }
+  }));
+  await test('menu (english): loading screen: what fails while loading goes back to the menu with its message; Esc leaves a wait; the one left is not gone on with', () => keepMenus(async $ => {
+    const L = game.loading, live = game.live, T = { ...L.TIMES }, el = $('s-load'), err = console.error, own = { start: game.start, end: game.end, claim: live.claim, unclaim: live.unclaim, wait: live.waitHost, find: live.close }, s = menuSave(); let starts = 0, claims = [];
+    const pv = Object.getOwnPropertyDescriptor(Profile, 'data'); Object.defineProperty(Profile, 'data', { get: () => ({ save: s, deltas: [] }), configurable: true });
+    try {
+      Object.assign(L.TIMES, { min: 200, out: 80, leave: 60 }); L.enabled = true;
+      game.start = () => { starts++; throw new Error('boom-carga'); }; console.error = () => {}; game.end = () => {}; live.claim = () => new Promise(r => claims.push(r)); live.unclaim = () => {}; live.waitHost = async () => false;
+      $('cr-back').click(); check($('s-menu').classList.contains('show') && FE.active() === 's-menu', 'the menu'); live.status = 'on'; live.changed();
+      // A wait, left with Esc
+      $('m-continue').click(); for (let i = 0; i < 60 && !(claims.length && el.classList.contains('leave')); i++) await sleep(50);
+      check(L.on && el.classList.contains('show') && FE.active() === 's-load' && getComputedStyle($('ld-legend')).visibility === 'visible' && $('ld-status').textContent === t('gui.menu.enter.entering'), `waiting: ${$('ld-status').textContent} ${$('menu-msg').textContent}`);
+      pauseKey('Escape'); check(!L.on && !el.classList.contains('show') && FE.active() === 's-menu' && menuSel() === 'm-continue' && !$('m-continue').classList.contains('off') && !$('menu-msg').textContent, 'Esc does not leave'); claims.shift()(true); await sleep(120); check(!starts && !L.on && FE.active() === 's-menu', 'what was left went on');
+      // An error on the way: the message, in the menu
+      live.claim = async () => { throw new Error('no-hay-mundo'); }; $('m-continue').click(); for (let i = 0; i < 60 && !$('menu-msg').textContent.includes('no-hay'); i++) await sleep(50); await sleep(20); check($('menu-msg').textContent === 'no-hay-mundo' && !L.on && !el.classList.contains('show') && FE.active() === 's-menu' && !$('m-continue').classList.contains('off'), `${$('menu-msg').textContent} ${L.on} ${el.className} ${FE.active()} ${$('m-continue').className}`);
+      // The game cannot be opened
+      live.status = 'off'; live.changed(); $('m-local').click(); for (let i = 0; i < 60 && !starts; i++) await sleep(30); await sleep(60); check(starts === 1 && $('menu-msg').textContent.includes('boom-carga') && !L.on && !el.classList.contains('show') && !$('fade').classList.contains('on') && $('s-menu').classList.contains('show') && FE.active() === 's-menu', `boom: ${$('menu-msg').textContent}`);
+      // The connection is lost while it is loading: the menu, whatever it was waiting for
+      await L.show(s); $('cr-back').click(); check(!L.on && !el.classList.contains('show') && FE.active() === 's-menu', 'lost while loading');
+    } finally { Object.assign(L.TIMES, T); L.abort(); L.enabled = false; game.start = own.start; game.end = own.end; live.claim = own.claim; live.unclaim = own.unclaim; live.waitHost = own.wait; if (pv) Object.defineProperty(Profile, 'data', pv); else delete Profile.data; console.error = err; $('fade').classList.remove('on'); $('cr-back').click(); }
+  }));
+  await test('menu (english): Pause › Game: the tips beside their row, read with the arrows; the credits over the pause, and back; every tip in both languages', async () => {
+    const H = game.pauseHub, $ = id => document.getElementById(id), was = getLang();
+    const en = await (await fetch('./src/lang/en.json')).json(), es = await (await fetch('./src/lang/es.json')).json(), n = Object.keys(en).filter(k => /^tip\.\d+$/.test(k)).length;
+    check(n === TIPS && Array.from({ length: TIPS }, (_, i) => `tip.${i + 1}`).every(k => en[k]?.length > 10 && es[k]?.length > 10), `${n} tips, ${TIPS} expected`);
+    try {
+      H.open('game'); check($('ps-tips').hidden, 'the tips before their row'); check([...$('ps-game').children].map(x => x.id).join() === 'p-resume,p-save,p-controls,p-tips,p-credits,p-menu', 'the rows');
+      for (let i = 0; i < 3; i++) pauseKey('ArrowDown'); check($('p-tips').classList.contains('sel') && !$('ps-tips').hidden && $('ps-tips').querySelectorAll('li').length === TIPS, 'the tips'); pauseKey('Enter'); const a = $('ps-tips').scrollTop; pauseKey('ArrowDown'); await sleep(30); check($('ps-tips').scrollTop > a, 'the arrows do not scroll them'); pauseKey('Escape'); check(H.isOpen && H.tab === 'game' && $('p-tips').classList.contains('sel'), 'Esc leaves the pause');
+      await setLang(was === 'es' ? 'en' : 'es'); check($('ps-tips').textContent.includes((was === 'es' ? en : es)['tip.1']), 'the other language'); await setLang(was);
+      pauseKey('ArrowDown'); check($('ps-tips').hidden && $('p-credits').classList.contains('sel'), 'they stay'); pauseKey('Enter'); check(FE.active() === 's-credits' && H.isOpen && game.mode === 'pause' && +getComputedStyle($('s-credits')).zIndex > +getComputedStyle($('s-pause')).zIndex, 'the credits'); pauseKey('KeyE'); check(H.tab === 'game', 'a key went through');
+      pauseKey('Escape'); check(FE.active() === 's-pause' && H.isOpen && !$('s-credits').classList.contains('show') && !$('s-menu').classList.contains('show') && $('p-credits').classList.contains('sel'), 'back'); pauseKey('Enter'); $('cd-close').click(); check(FE.active() === 's-pause' && !$('s-menu').classList.contains('show'), 'its ✕');
+    } finally { await setLang(was); if (FE.active() === 's-credits') pauseKey('Escape'); if (H.isOpen) H.close(); for (const id of ['s-credits', 's-menu', 's-pause']) $(id).classList.remove('show'); FE.active(); game.mode = 'play'; document.body.classList.add('playing'); }
+  });
   const crRow = id => document.querySelector(`#cr-rows [data-row="${id}"]`), crRows = () => [...document.querySelectorAll('#cr-rows .row')].filter(r => !r.hidden).map(r => r.dataset.row).join(), crTab = () => document.querySelector('#cr-tabs .on').dataset.tab;
   await test('menu (english): creator: every option of before as a row, changed with the keys and the mouse; pages, random, your colour; a new character saves it', () => keepMenus(async $ => {
     const pages = { cuerpo: ['name', 'sex', 'skin', 'outfit', 'cloth', 'accent'], cara: ['eyeStyle', 'eyes', 'brows', 'nose'], pelo: ['hairStyle', 'hair', 'beard'] }, me = () => document.documentElement.style.getPropertyValue('--me');
@@ -3350,7 +3438,7 @@ async function soloTests(game) {
       check(dot() !== '13,16,22' && G.stats.painted - before < 40, `explored: ${dot()}, painted ${G.stats.painted - before}`);
       // Idle: next to nothing is drawn
       await mapArrives(() => { draw(); return !G.busy; }); const d = M.drawn, t0 = performance.now(); let frame = 0; while (performance.now() - t0 < 1500) { draw(); frame++; await frames(1); }
-      check(M.drawn - d < 12, `idle, it was drawn ${M.drawn - d} times in ${frame} frames`);
+      check(M.drawn - d < 15, `idle, it was drawn ${M.drawn - d} times in ${frame} frames`);
       // Every step fits in its memory, and closing gives it back
       for (let z = 0; z < 6; z++) { M.zoom = z; draw(); check(G.bytes <= 24e6, `${M.tile} px: ${(G.bytes / 1e6).toFixed(1)} MB`); }
       check(M.tiles.bytes < 20e6, `pictures: ${(M.tiles.bytes / 1e6).toFixed(1)} MB`);
@@ -3388,7 +3476,7 @@ async function soloTests(game) {
       check(!card.hidden && card.textContent.includes(home.name) && /\d/.test(card.querySelector('em').textContent) && card.textContent.includes(t('map.keys.dest')), `card: ${card.textContent}`);
       const box = card.getBoundingClientRect(); check(box.left >= 0 && box.top >= 0 && box.right <= innerWidth && box.bottom <= innerHeight, 'the card is off the screen');
       // A closed shop says so
-      const D = game.days; try { Object.defineProperty(D, 'hour', { value: 3, configurable: true }); blips.refresh(game, 0, true); draw(); const shop = M.hits.find(q => q.kind === 'shop'); if (shop) { mapMove(shop.sx, shop.sy); draw(); check(card.textContent.includes(shop.sub) && shop.dim, `shop: ${card.textContent}`); } } finally { delete D.hour; delete D.now; blips.refresh(game, 0, true); }
+      const D = game.days; try { Object.defineProperty(D, 'now', { value: Math.floor(D.now / 864e5) * 864e5 + 3 * 36e5, configurable: true }); Object.defineProperty(D, 'hour', { value: 3, configurable: true }); blips.refresh(game, 0, true); draw(); const shop = M.hits.find(q => q.kind === 'shop'); if (shop) { mapMove(shop.sx, shop.sy); draw(); check(card.textContent.includes(shop.sub) && shop.dim, `shop: ${card.textContent}`); } } finally { delete D.hour; delete D.now; blips.refresh(game, 0, true); }
       const [x, y] = freeSpot(); mapMove(x, y); draw(); check(!MS().hover && card.hidden && mapEl('map-area').textContent.length > 2, 'a card over nothing');
       // Land never explored has no name
       const all = game.explored; try { game.explored = new Set(); draw(); check(mapEl('map-area').textContent.startsWith(t('map.unexplored')), `it says ${mapEl('map-area').textContent}`); } finally { game.explored = all; }

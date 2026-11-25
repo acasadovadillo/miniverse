@@ -49,7 +49,7 @@ function play(login = true) {   // (login: abrir la pantalla de entrar)
   Settings.onHud = v => useSmartHud(game, v !== 'full');
   Settings.hudNow = () => (game.smartHud ? 'minimal' : 'full');   // (what the setting lights: the one in sight)
   game.live.say = (text, kind) => chat.say(text, kind);
-  hud.feed.busy = () => hud.dialogOpen || !!game.wheel?.open || !!game.quick?.open;   // (meanwhile its lines wait: ui/feed.js)
+  hud.feed.busy = () => hud.dialogOpen || !!game.loading?.on || !!game.wheel?.open || !!game.quick?.open;   // (meanwhile its lines wait: ui/feed.js)
   const wheel = game.wheel = new ToolWheel(game);   // (F held: the tool wheel, src/ui/wheel.js)
   const quick = game.quick = new QuickPlaces(game);   // (M held: the places near, src/ui/quickplaces.js)
   // The study ring and the track tag (src/ui/fieldhud.js, Plan G), for both interfaces: drawn after menus.js's frame hook

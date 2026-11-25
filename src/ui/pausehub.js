@@ -20,6 +20,7 @@ import { hud } from './hud.js';
 import { initBrief } from './brief.js';
 import { initCharPage } from './charpage.js';
 import { initProgressPage } from './progresspage.js';
+import { tipsHtml } from './loading.js';
 import { MOVED } from './journal.js';
 
 const $ = id => document.getElementById(id);
@@ -35,8 +36,8 @@ const MAP_KEYS = /^(Key[WASD]|Arrow(Up|Down|Left|Right)|Shift(Left|Right)|Numpad
 
 // ---------- The hub ----------
 // show(id): the menus' own (menus.js); resume(): back to play; save({upload}) and savedMsg(r); quit(): saved, to the main
-// menu; journal: initJournalUI's; settings: initSettingsUI's
-export function initPauseHub(game, { show, resume, save, savedMsg, quit, journal, settings }) {
+// menu; journal: initJournalUI's; settings: initSettingsUI's; credits(): the credits, over the pause
+export function initPauseHub(game, { show, resume, save, savedMsg, quit, journal, settings, credits }) {
   const root = $('s-pause'), shot = $('fe-shot'), panes = new Map([...root.querySelectorAll('.ps-pane')].map(el => [el.dataset.pane, el]));
   let screen = null, tab = null, level = 'list', fresh = false, timer = 0, savedAt = 0, quitting = false, saving = false;
 
@@ -50,7 +51,8 @@ export function initPauseHub(game, { show, resume, save, savedMsg, quit, journal
     progress: { src: initProgressPage(game), el: $('ps-progress'), body: $('ps-progress-body') },
   };
   const lists = {
-    game: list($('ps-game'), [...$('ps-game').children].map(el => ({ id: el.id, el })), { start: 0, onPick: r => gamePick(r.id) }),
+    // (on Tips, all of them beside it)
+    game: list($('ps-game'), [...$('ps-game').children].map(el => ({ id: el.id, el })), { start: 0, onPick: r => gamePick(r.id), onFocus: r => { const on = r.id === 'p-tips', el = $('ps-tips'); if (!el) return; if (on && el.hidden) { el.innerHTML = tipsHtml(); el.hidden = false; el.scrollTop = 0; } else if (!on) el.hidden = true; } }),
   };
   // The list of a paged tab: made again when its pages are others (another system added one, or one is there no more)
   function listOf(id) {
@@ -78,9 +80,10 @@ export function initPauseHub(game, { show, resume, save, savedMsg, quit, journal
     try { P.src.fill(P.body); } catch (e) { reportFault(e, `PauseHub.${id}`); }
     P.body.scrollTop = top ? 0 : at;
   }
-  const bodies = { journal: $('j-body'), progress: $('ps-progress-body'), brief: $('ps-brief'), char: $('ps-char') };
-  const navs = Object.fromEntries(Object.entries(bodies).map(([id, el]) => [id, paneNav(el)]));
-  function goIn() { if (level === 'list' && lists[tab] && navs[tab]) setLevel('body'); }
+  const bodies = { game: $('ps-tips'), journal: $('j-body'), progress: $('ps-progress-body'), brief: $('ps-brief'), char: $('ps-char') };
+  const navs = Object.fromEntries(Object.entries(bodies).filter(([, el]) => el).map(([id, el]) => [id, paneNav(el)]));
+  const canGoIn = () => !!navs[tab] && !bodies[tab].hidden;
+  function goIn() { if (level === 'list' && lists[tab] && canGoIn()) setLevel('body'); }
   function setLevel(l) {
     level = l;
     if (l === 'body') navs[tab].enter(); else if (root.contains(document.activeElement)) document.activeElement.blur();
@@ -90,6 +93,8 @@ export function initPauseHub(game, { show, resume, save, savedMsg, quit, journal
   async function gamePick(id) {
     if (id === 'p-resume') close();
     else if (id === 'p-controls') goTo('settings', 'controls');
+    else if (id === 'p-tips') goIn();
+    else if (id === 'p-credits') credits();
     else if (id === 'p-save' && !saving) {
       saving = true;
       $('p-msg').textContent = '…';
@@ -268,7 +273,7 @@ export function initPauseHub(game, { show, resume, save, savedMsg, quit, journal
         if (e.code === 'ArrowLeft' || e.code === 'KeyA') { if (!e.repeat) { setLevel('list'); Audio.ui('back'); } return true; }
         return false;
       }
-      if (e.code === 'ArrowRight' || e.code === 'KeyD') { if (!e.repeat && navs[tab]) { goIn(); Audio.ui('select'); } return true; }
+      if (e.code === 'ArrowRight' || e.code === 'KeyD') { if (!e.repeat && canGoIn()) { goIn(); Audio.ui('select'); } return true; }
       if (e.code === 'PageDown' || e.code === 'PageUp') return navs[tab]?.key(e) || false;
       return L.key(e);
     },
@@ -329,7 +334,7 @@ export function initPauseHub(game, { show, resume, save, savedMsg, quit, journal
   onLangChange(() => {
     if (!screen) return;
     paintHead(); paintNote(); paintLegend();
-    if (PAGED[tab]) paintPage(tab); else if (tab !== 'settings') { try { fills[tab](); } catch (e) { reportFault(e, `PauseHub.${tab}`); } }   // (the settings rebuild themselves; the lists' names, applyDom)
+    if (PAGED[tab]) paintPage(tab); else if (tab === 'game') { $('p-msg').textContent = ''; if ($('ps-tips')) $('ps-tips').innerHTML = tipsHtml(); } else if (tab !== 'settings') { try { fills[tab](); } catch (e) { reportFault(e, `PauseHub.${tab}`); } }   // (the settings rebuild themselves; the lists' names, applyDom)
   });
   return {
     open, close, shut,

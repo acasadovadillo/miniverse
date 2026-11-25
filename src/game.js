@@ -32,6 +32,7 @@ import { Horse } from './horse.js';
 import { Saddlebags } from './saddlebags.js';
 import { Steps } from './steps.js';
 import { PlayTime } from './playtime.js';
+import { Recap } from './recap.js';
 import { Fishing } from './fishing.js';
 import { Wildlife } from './wildlife.js';
 import { Wind } from './wind.js';
@@ -219,6 +220,7 @@ export class Game {
     this.story = this.addSystem(new Story(this));
     this.steps = this.addSystem(new Steps(this));   // los primeros pasos
     this.playTime = this.addSystem(new PlayTime());   // how long this character has been played (src/playtime.js)
+    this.recap = this.addSystem(new Recap(this));   // what was done this session, for the loading screen (after the statistics and the time played)
     this.live = this.addSystem(new Live(this));   // jugar juntos en directo
     this.social = this.addSystem(new Social(this));   // greeting and provoking people (Y or right click on someone)
     this.talk = this.addSystem(new Talk(this));   // talking to a neighbour: subtitles and a list of options (talk.js)

@@ -61,11 +61,12 @@
   body.still { background: #14161a; }
   #fe-art { position: fixed; inset: 0; overflow: hidden; display: none; }
   body.still #fe-art { display: block; }
-  #fe-art i { position: absolute; inset: 0; background: #14161a url(assets/fondo-menu.jpg) center / cover no-repeat; background-size: cover; transform: scale(1.08); }
+  #fe-art i { position: absolute; inset: 0; opacity: 0; transition: opacity .6s; background: #14161a center / cover no-repeat; transform: scale(1.08); }
+  #fe-art.in i { opacity: 1; }
   #fe-art.pan i { will-change: transform; animation: fe-pan 60s ease-in-out infinite alternate; }
   #fe-art.idle i, #fe-art.away i { animation-play-state: paused; }
   @keyframes fe-pan { to { transform: scale(1.08) translateX(-3%); } }
-  body.still-menus #fe-art i { animation: none; }
+  body.still-menus #fe-art i { animation: none; transition: none; }
   @media (prefers-reduced-motion: reduce) { #fe-art i { animation: none !important; } }
   body.still #c { visibility: hidden; }
   /* Textos que suben sobre el jugador (los coloca el dibujo 3D) y el destello rojo al recibir un golpe */
@@ -215,6 +216,37 @@
   body:not(.playing) #hud-wp { display: none; }
   #fade { position: fixed; inset: 0; background: #000; opacity: 0; pointer-events: none; transition: opacity .25s; z-index: 20; }
   #fade.on { opacity: 1; }
+  /* The loading screen (src/ui/loading.js), over everything but the alerts and the notices; always dark glass */
+  #s-load { position: fixed; inset: 0; z-index: 35; display: none; overflow: hidden; background: #0c0e12; color: #fff; cursor: default; font: 500 18px/1.4 var(--font-ui); text-shadow: 0 1px 2px rgba(0, 0, 0, .85), 0 0 10px rgba(0, 0, 0, .5); }
+  #s-load.show { display: block; animation: ld-in .2s; }
+  #s-load.out { opacity: 0; transition: opacity .6s ease-in; pointer-events: none; }
+  @keyframes ld-in { from { opacity: 0; } }
+  .ld-art { position: absolute; inset: 0; background: #0c0e12 center / cover no-repeat; }   /* (still: redrawing the whole screen all the time is the graphics card's time, which the loading needs) */
+  .ld-shade { position: absolute; inset: 0; background: linear-gradient(62deg, rgba(8, 9, 12, .72) 0, rgba(8, 9, 12, 0) 44%), linear-gradient(0deg, rgba(8, 9, 12, .92) 0, rgba(8, 9, 12, .66) 20%, rgba(8, 9, 12, 0) 52%), linear-gradient(180deg, rgba(8, 9, 12, .5) 0, rgba(8, 9, 12, 0) 18%); }
+  #s-load > .fe-mark { position: absolute; left: 5vw; top: max(30px, 5vh); font-size: 26px; }
+  .ld-left { position: absolute; left: 5vw; right: 34vw; bottom: max(34px, 6vh); }
+  .ld-left > * { margin: 0; }
+  #ld-where { font: 700 clamp(38px, 6.2vh, 60px)/1.05 var(--font-title); letter-spacing: .03em; text-transform: uppercase; text-wrap: balance; }
+  #ld-when { margin: 6px 0 0; font: 500 clamp(20px, 2.9vh, 27px)/1.2 var(--font-title); letter-spacing: .06em; text-transform: uppercase; color: var(--fe-accent); font-variant-numeric: tabular-nums; }
+  #ld-recap { max-width: 68ch; margin-top: 14px; color: rgba(255, 255, 255, .9); }
+  #ld-with { margin-top: 2px; color: #7fe08a; }
+  #s-load p:empty { display: none; }
+  .ld-tip { display: flex; align-items: baseline; gap: 14px; margin-top: 18px; padding-top: 14px; border-top: 1px solid rgba(255, 255, 255, .22); min-height: 72px; }
+  .ld-tip b { flex: none; font: 600 15px/1.4 var(--font-title); letter-spacing: .12em; text-transform: uppercase; color: rgba(255, 255, 255, .62); }
+  #ld-tip { max-width: 66ch; transition: opacity .25s; }
+  #s-load.tip-out #ld-tip { opacity: 0; }
+  .ld-right { position: absolute; right: 5vw; bottom: max(34px, 6vh); max-width: 28vw; display: flex; flex-direction: column; align-items: flex-end; gap: 12px; text-align: right; }
+  .ld-wait { display: flex; align-items: center; gap: 14px; font: 500 20px/1.2 var(--font-title); letter-spacing: .05em; }
+  /* (eight marks, a step every 1/4 s: turning smoothly made the loading 0.4 s longer, the graphics card being busy with it) */
+  .ld-ring { flex: none; width: 24px; height: 24px; border-radius: 50%; background: conic-gradient(rgba(255, 255, 255, .1), #fff); --ring: radial-gradient(closest-side, transparent 52%, #000 56%), repeating-conic-gradient(#000 0 27deg, transparent 30deg 45deg); -webkit-mask: var(--ring); mask: var(--ring); -webkit-mask-composite: source-in; mask-composite: intersect; will-change: transform; animation: ld-spin 2s steps(8) infinite; }
+  @keyframes ld-spin { to { transform: rotate(1turn); } }
+  #ld-legend { visibility: hidden; }
+  #s-load.leave #ld-legend { visibility: visible; }
+  body.big-text #s-load { font-size: 20px; }
+  body.still-menus #s-load { animation: none !important; }
+  body.still-menus #s-load.out { transition-duration: .15s; }
+  @media (prefers-reduced-motion: reduce) { #s-load { animation: none !important; } #s-load.out { transition-duration: .15s; } }
+  @media (min-height: 1000px) and (min-width: 1500px) { #s-load { font-size: 21px; } .ld-wait { font-size: 23px; } .ld-tip b { font-size: 17px; } }
   body:not(.playing) #clockp, body:not(.playing) #place, body:not(.playing) #touch, body:not(.playing) #prompt, body:not(.playing) #minimap, body:not(.playing) #hotbar, body:not(.playing) #hint { display: none !important; }
 
   /* ---------- Barra rápida, vida, hambre y mochila ---------- */
@@ -744,6 +776,9 @@
   .ps-two .row.on:not(.sel) { background: rgba(255, 255, 255, .08); }
   .fe-list.dim .row.sel { background: rgba(255, 255, 255, .16); color: var(--ink); }
   #s-pause .ps-page .j-note:first-child { margin-top: 0; }
+  .ps-tips { margin: 0; padding: 0; list-style: none; }
+  .ps-tips li { padding: 9px 2px; border-bottom: 1px solid var(--fe-line); }
+  .ps-tips li:last-child { border-bottom: 0; }
   #p-msg { min-height: 22px; padding: 12px 14px; font: 500 16px/1.35 var(--font-ui); color: var(--accent-2); }
   .ps-foot { position: relative; z-index: 2; flex: none; display: flex; align-items: center; justify-content: space-between; gap: 24px; min-height: 46px; padding: 6px 40px 10px; pointer-events: none; }
   .ps-foot > * { pointer-events: auto; }
@@ -857,6 +892,7 @@
   #m-live[hidden] { display: none; }
   /* Credits */
   #s-credits { background: rgba(8, 9, 12, .8); }
+  #s-credits.over { z-index: 11; background: #0b0c0f; }   /* (over the pause) */
   #s-credits.show, #s-creator.show { animation: fe-in var(--t-open); }
   #s-credits h2, #s-creator h2 { margin: 0; font: 600 30px/1.1 var(--font-title); letter-spacing: .04em; text-transform: uppercase; color: var(--ink); }
   #cd-close { width: 36px; height: 32px; margin-left: auto; font-size: 17px; }
@@ -1360,10 +1396,13 @@
           <div id="p-resume"><span data-i18n="gui.pause.resume">Back to game</span></div>
           <div id="p-save"><span data-i18n="gui.game.save_now">Save now</span></div>
           <div id="p-controls"><span data-i18n="gui.pause.controls">Controls</span></div>
+          <div id="p-tips"><span data-i18n="gui.game.tips">Tips</span></div>
+          <div id="p-credits"><span data-i18n="gui.game.credits">Credits</span></div>
           <div id="p-menu"><span data-i18n="gui.pause.save_quit">Save and quit to menu</span></div>
         </div>
         <div id="p-msg" role="status"></div>
       </div>
+      <div class="ps-page" id="ps-tips" hidden></div>
     </div>
     <footer class="ps-foot"><span id="ps-note"></span><div id="ps-legend"></div></footer>
   </section>
@@ -1445,6 +1484,19 @@
     </div>
   </section>
   <div id="fade"></div>
+  <!-- Loading the world (src/ui/loading.js) -->
+  <section id="s-load" aria-live="polite">
+    <div class="ld-art" aria-hidden="true"></div><div class="ld-shade" aria-hidden="true"></div>
+    <div class="fe-mark" aria-hidden="true"><svg class="emblem" aria-hidden="true"><use href="#emblem"/></svg><span>Miniverse</span></div>
+    <div class="ld-left">
+      <h2 id="ld-where"></h2>
+      <p id="ld-when"></p>
+      <p id="ld-recap"></p>
+      <p id="ld-with"></p>
+      <div class="ld-tip"><b data-i18n="gui.load.tip">Tip</b><span id="ld-tip"></span></div>
+    </div>
+    <div class="ld-right"><div id="ld-legend"></div><div class="ld-wait"><span id="ld-status"></span><i class="ld-ring" aria-hidden="true"></i></div></div>
+  </section>
   <div id="touch">
     <button class="tb" data-k="up">▲</button><button class="tb" data-k="left">◀</button>
     <button class="tb" data-k="right">▶</button><button class="tb" data-k="down">▼</button>

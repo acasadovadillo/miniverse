@@ -25,6 +25,7 @@ import { setNotice, syncNoticeText, expiryNoticeText, showKeyCode, saveSettings 
 import { FE, alertBox, initMenuSounds, tabStrip, list, optionRow, legend, paneNav } from './frontend.js';
 import { initMainMenu, initCredits, dateText, versionText } from './mainmenu.js';
 import { KeyArt } from './keyart.js';
+import { initLoading } from './loading.js';
 import { initPauseHub } from './pausehub.js';
 import { initMapScreen } from './mapscreen.js';
 import { useAccent, accentOf, ACCENTS, ACCENT_IDS } from './skin.js';
@@ -50,12 +51,13 @@ export function initMenus(game) {
   let hub = null;    // (the pause: src/ui/pausehub.js; made below)
   let settingsUI = null;   // (the settings: src/ui/settings.js; made below)
   let menu = null, credits = null;   // (the main menu and its credits: src/ui/mainmenu.js; made below)
+  const loading = game.loading = initLoading(game);   // (the loading screen: src/ui/loading.js)
   const opened = {};   // what each front screen does when it is put in sight: it takes the keys (frontend.js)
   function show(id) {
     if (id !== 's-pause') hub?.shut();
     if (id !== 's-settings') settingsUI?.shut();
     if (id !== 's-credits') credits?.shut();
-    if (id === 's-login' || id === 's-menu') wins?.closeAll();
+    if (id === 's-login' || id === 's-menu') { wins?.closeAll(); loading.abort(); }
     SCREENS.forEach(s => $(s).classList.toggle('show', s === id));
     document.body.classList.toggle('playing', !id);
     if (id && !game.player) KeyArt.start(); else KeyArt.stop();
@@ -235,23 +237,26 @@ export function initMenus(game) {
   // el servidor abierto, aunque el admin no esté) o se empieza otra con un personaje nuevo (avisando de que el de
   // ahora se borra). Sin personaje, se crea.
   let currentSave = null;
+  let entering = 0;   // (which entering this is: one left half done, or that failed, does nothing more)
   function openMenu() {
     localMode = false; live.local = false;
     // (si se sale a medias de algo a oscuras, un /tp lejos o al reaparecer, que el menú no se quede tapado: al volver a
     // jugar, play lo vuelve a tapar, y el salto viejo ya no destapa nada: ver Game.coverJump)
     $('fade').classList.remove('on');
+    entering++;   // (an entering half done is this menu's no more)
     currentSave = Profile.data?.save || null;
     useAccent(currentSave);
     $('menu-msg').textContent = '';
     menu.busy(false);   // (al volver de jugar; sin servidor, los demás no pueden: lo dice paintLive)
     menu.use(currentSave, Profile.data?.local?.save || null);
     show('s-menu');
+    if (loading.enabled) KeyArt.preload();
     paintLive();
     findLive();
     publishedNewer(PUBLISHED_FRESH).catch(() => {});   // (para no esperar luego al pulsar Continuar: ver enter)
   }
   menu = game.mainMenu = initMainMenu({ pick: id => MENU[id]?.() });
-  credits = initCredits({ onClose: () => backToMenu('m-credits') });
+  credits = initCredits({ onClose: () => { if (!hub?.isOpen) backToMenu('m-credits'); } });   // (from the pause, over it: pausehub.js)
   opened['s-menu'] = () => menu.open();
   function backToMenu(id) { show('s-menu'); menu.focus(id); paintLive(); }
   const MENU = {
@@ -273,7 +278,8 @@ export function initMenus(game) {
     const data = loc?.save || { player: { name: currentSave.player.name, look: { ...currentSave.player.look }, x: SPAWN.x, y: SPAWN.y, inside: false, view: 'back' } };
     $('menu-msg').textContent = t('gui.menu.local.opening');
     localMode = true; live.local = true;
-    play(data, new Map(loc?.deltas || []), null, null);
+    const mine = ++entering;
+    loading.show(data).then(() => { if (mine === entering) play(data, new Map(loc?.deltas || []), null, null); });
   }
   // Entrar en el mundo: si alguien lo lleva, en el suyo; si no, lo lleva tu juego (con el servidor abierto, los
   // demás entran contigo). Sin servidor solo puede jugar el admin. En tu partida se guarda lo tuyo; el mundo, quien
@@ -282,40 +288,59 @@ export function initMenus(game) {
     const solo = { save: currentSave, deltas: new Map(Profile.data.deltas) };
     // (con una versión vieja no se entra a tocar el mundo de todos: ver version.js. Se mira también tras cada espera: el
     // saludo de un juego más nuevo puede llegar mientras)
-    const stale = () => { if (live.newer === null) return false; live.unclaim(); $('menu-msg').textContent = ''; outdatedNotice(live.newer); return true; };
+    // (and one that was left, with Esc from the loading screen, is not gone on with)
+    const mine = ++entering, left = () => mine !== entering;
+    const stale = () => { if (left()) return true; if (live.newer === null) return false; live.unclaim(); loading.abort(); $('menu-msg').textContent = ''; outdatedNotice(live.newer); return true; };
+    // What it is doing now: in the loading screen and in the menu under it
+    const doing = (k, o) => { $('menu-msg').textContent = t(`gui.menu.enter.${k}`, o); loading.say(() => t(`gui.menu.enter.${k}`, o)); };
     menu.busy(true);
     try {
       if (stale()) return;
       $('menu-msg').textContent = t('gui.menu.enter.checking');
       const pub = await publishedNewer(PUBLISHED_FRESH);
+      if (left()) return;
       if (pub) { $('menu-msg').textContent = ''; outdatedNotice(pub, true); return; }
       if (live.status === 'kicked') {
         // (te echaron: se vuelve a intentar entrar, y se espera a saber si ahora te deja)
         live.close(); await findLive();
         for (let i = 0; i < 40 && live.status === 'connecting'; i++) await sleep(150);
+        if (left()) return;
       }
       // El servidor está abierto pero no te deja entrar (p. ej. mientras vuelve a una copia del mundo con /restore): no se
       // juega sin él, tampoco el admin, que llevaría el mundo de antes y lo guardaría encima del bueno
       if (live.status === 'kicked') throw new Error(live.error || t('gui.menu.enter.refused'));
       const on = live.status === 'on';
       if (!on && !Profile.admin) throw new Error(t('gui.menu.live.closed', { admin: ADMIN_NAME }));
-      if (on && !live.host?.playing && !(await live.claim())) await live.waitHost();
+      doing(on ? 'entering' : 'opening');
+      await loading.show(currentSave, { what: () => t(`gui.menu.enter.${on ? 'entering' : 'opening'}`), others: on ? live.others.filter(p => p.playing && !p.server).map(p => p.name) : [], onLeave: leaveEntering });
+      if (left()) return;
+      if (on && !live.host?.playing && !(await live.claim()) && !left()) await live.waitHost();
+      if (stale()) return;
       if (on && live.status !== 'on') throw new Error(live.error || t('gui.menu.enter.lost'));   // (te han echado o vetado mientras)
       if (on && live.host?.playing) {
-        $('menu-msg').textContent = live.host.server ? t('gui.menu.enter.entering') : t('gui.menu.enter.entering_with', { name: live.host.name });
+        if (live.host.server) doing('entering'); else doing('entering_with', { name: live.host.name });
         const world = await live.requestWorld();
         if (stale()) return;
         const { save, deltas } = live.enter(solo, world);
         play(save, deltas, solo, 'guest');
         return;
       }
-      $('menu-msg').textContent = t('gui.menu.enter.opening');
+      doing('opening');
       const world = await sharedWorld(solo);
+      if (left()) return;
       if (on && live.status !== 'on') throw new Error(live.error || t('gui.menu.enter.lost'));
       if (stale()) return;
-      if (world) { const { save, deltas } = live.enter(solo, world); play(save, deltas, Profile.admin ? null : solo, on ? 'host' : null); }
+      if (world) { loading.since(world.by, world.savedAt); const { save, deltas } = live.enter(solo, world); play(save, deltas, Profile.admin ? null : solo, on ? 'host' : null); }
       else { live.extraShared = {}; play(currentSave, solo.deltas, null, on ? 'host' : null); }   // (el admin, con el mundo de su partida)
-    } catch (e) { live.unclaim(); $('menu-msg').textContent = e.message; } finally { if (!game.player) { menu.busy(false); paintLive(); } }
+    } catch (e) { if (!left()) { live.unclaim(); loading.abort(); menu.busy(false); $('menu-msg').textContent = e.message; } } finally { if (!game.player && !left()) { loading.abort(); menu.busy(false); paintLive(); } }
+  }
+  // Esc in the loading screen, when the network takes long: back in the menu, and what was being waited for is forgotten
+  function leaveEntering() {
+    entering++;
+    live.unclaim();
+    loading.abort();
+    $('menu-msg').textContent = '';
+    menu.busy(false); menu.focus('m-continue'); paintLive();
   }
   // El mundo compartido como lo guardó la última vez quien lo llevaba. El admin, si el de su partida es más
   // reciente (o aún no se ha guardado aparte), juega con ese: null
@@ -818,13 +843,15 @@ export function initMenus(game) {
     hub?.reset();
     live.entering = role;   // (ranch.reset: in a world somebody else runs, the horses' locks are true and stay)
     useAccent(data);
-    try { game.start(data, deltas); }
+    const ticket = loading.starting();
+    try { game.start(data, deltas); loading.started(); }
     catch (e) { console.error(e); $('fade').classList.remove('on'); live.unclaim(); game.end(); openMenu(); $('menu-msg').textContent = t('gui.menu.enter.open_failed', { why: e.message }); return; }
     finally { live.entering = null; }
     // (destapa esta entrada, salvo si mientras tanto otro ha tapado por su cuenta, un /tp lejos o morir, o se ha salido:
     // entonces destapa él; ver Game.coverJump)
     const mine = game.covers;
-    (game.view3d.whenReady?.(2000) || Promise.resolve()).then(() => { if (game.covers === mine) hud.fade(false); });
+    // (what it waits for always ends; and if it went wrong, uncovered all the same)
+    (async () => game.view3d.whenReady?.(2000))().catch(e => reportFault(e, 'menus.whenReady')).then(() => loading.ready(ticket, () => { if (game.covers === mine) hud.fade(false); }));
     if (role && live.net) live.join(solo, role);
     if (role === 'host' || (!role && Profile.admin) || localMode) save({ upload: true });   // (que el mundo quede guardado para los demás cuanto antes)
   }
@@ -931,7 +958,7 @@ export function initMenus(game) {
     return done;
   }
   const flushSave = () => (volumeTimer ? saveVolumes() : null);   // (what was about to be saved, now: logging out)
-  hub = game.pauseHub = initPauseHub(game, { show, resume, save, savedMsg, quit: quitToMenu, journal: journalUI, settings: settingsUI });
+  hub = game.pauseHub = initPauseHub(game, { show, resume, save, savedMsg, quit: quitToMenu, journal: journalUI, settings: settingsUI, credits: () => credits.open(true) });
   game.openJournal = (page, id) => hub.journal(page, id);
   game.onShop = id => { if (game.mode !== 'play') return; game.mode = 'shop'; show('s-shop'); shopUI.open(id); };
   // opts (optional): { title() its title, may() may the stacks move now, keep() may it stay open (instead of the distance to

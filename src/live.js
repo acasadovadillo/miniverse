@@ -720,6 +720,7 @@ export class Live {
   requestWorld() {
     const conn = this.hostConn;
     if (conn === null || !this.host?.playing) return Promise.reject(new Error('El anfitrión no está jugando ahora.'));
+    if (this.wanted) { clearTimeout(this.wanted.timer); this.wanted.reject(new Error('superseded')); this.wanted = null; }   // (one left waiting, from the loading screen: menus.js enter)
     return new Promise((resolve, reject) => {
       this.wanted = { resolve, reject, timer: setTimeout(() => { this.wanted = null; reject(new Error('El mundo compartido no llega. Prueba otra vez.')); }, WORLD_WAIT) };
       this.net.send({ t: 'want' }, conn);
