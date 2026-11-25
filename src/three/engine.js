@@ -30,6 +30,7 @@ import { Tracks3D } from './tracks3d.js';
 import { Landmarks } from './landmarks3d.js';
 import { RoutineView } from './routine3d.js';
 import { VisitorsView } from './visitors3d.js';
+import { BusinessView } from './business3d.js';
 import { routeGround } from './route3d.js';
 import { Glow } from './glow.js';
 import { prewarmKit } from './kit3d.js';
@@ -100,6 +101,7 @@ export class View3D {
     this.fx = new Fx(this);
     this.arrows = new ArrowsView(this);
     this.guts = new GutView(this);
+    this.business3d = new BusinessView(this);   // (the goods on sale in the players' shops, and their slates)
     this.routine3d = new RoutineView(this);   // (the neighbours' routines: meals, the card, the windows, the bell)
     this.visitors3d = new VisitorsView(this);   // (the birds that come down to the garden: src/visitors.js)
     this.landmarks = new Landmarks(this);   // (what stands out far off: landmarks3d.js)
@@ -524,6 +526,7 @@ export class View3D {
     this.updateViewmodel(game, this.first);
     this.routine3d.update(game, scene, sdt);
     this.visitors3d.update(game, scene);
+    this.business3d.update(game, scene, sdt);
     this.landmarks.update(game, scene, t);   // (before fx: it gives the far beams)
     this.fx.update(game, scene, sdt, t);
     routeGround(this, game, scene, t);   // (the marked route on the ground: nothing at all without one, route3d.js)

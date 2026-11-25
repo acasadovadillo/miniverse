@@ -1161,6 +1161,10 @@ export const EMOTES = {
   // speaks, the head going along; amp, how big (by their character; the shy, with the head down). think: the hand to the chin
   talk: { dur: 2.0, both: true, pose: (k, s, ride, amp = 1) => { const p = Math.sin(k * Math.PI * 2 - 0.6 * (s > 0 ? 1 : 0)), o = Math.sin(k * Math.PI * 4); return { ax: -0.28 - 0.3 * amp - 0.14 * amp * p, az: s * (0.02 + (0.12 + 0.14 * p) * amp), fx: -0.75 - 0.35 * amp + 0.2 * amp * o, hx: amp < 0.35 ? 0.2 : 0.05 * amp * o, hz: 0.04 * amp * p }; } },
   think: { dur: 0.95, pose: (k, s) => ({ ax: -0.84, az: -s * 0.15, ay: -s * 0.6, fx: -2.02, hx: 0.12, hz: 0.07 }) },
+  // A customer at a player's counter (business.js), drawn by each game: inspect, leaning over the goods, the hand going from one
+  // to another; pay, the hand out with the coins and back
+  inspect: { dur: 3.4, pose: (k, s) => { const e = Math.min(1, k * 6, (1 - k) * 6), p = Math.sin(k * Math.PI * 4); return { ax: e * (-0.72 + 0.1 * p), az: e * s * (0.05 + 0.22 * p), fx: e * -0.62, hx: e * 0.36, hz: e * 0.06 * p, tx: e * 0.24 }; } },
+  pay: { dur: 1.7, pose: (k, s) => { const e = Math.min(1, k * 4, (1 - k) * 4), q = e * e * (3 - 2 * e); return { ax: -1.02 * q, az: -s * 0.06 * q, ay: s * 0.7 * q, fx: -0.5 * q, hx: 0.12 * q, tx: 0.08 * q }; } },
   // whistle: the fingers to the mouth, the head up a touch, held for about half a second
   whistle: { dur: 0.9, pose: (k, s) => ({ ax: -1.2, az: -s * 0.1, ay: -s * 0.85, fx: -2.25, hx: -0.06 }) },
 };

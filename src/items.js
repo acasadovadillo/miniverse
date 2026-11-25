@@ -206,12 +206,14 @@ Object.assign(ITEMS, {
   barber_chair: { place: 'furniture' },
   // (the chapel's pew, for two: three/chapel3d.js)
   pew: { place: 'furniture' },
+  // (a player's business, business.js: the counter, two tiles; the shelf, against a wall; the crate)
+  shop_counter: { place: 'furniture' }, display_shelf: { place: 'furniture' }, goods_crate: { place: 'furniture' },
   // (the watchtowers one builds, 9 and 12 m: world/tower.js)
   watchtower: { place: 'furniture' },
   watchtower_tall: { place: 'furniture' },
 });
 defineNames({ cana: ITEMS.cana, cana_fibra: ITEMS.cana_fibra }, 'item', ['desc']);
-defineNames({ big_well: ITEMS.big_well, wheelbarrow: ITEMS.wheelbarrow, barber_chair: ITEMS.barber_chair, pew: ITEMS.pew, watchtower: ITEMS.watchtower, watchtower_tall: ITEMS.watchtower_tall }, 'item');
+defineNames({ big_well: ITEMS.big_well, wheelbarrow: ITEMS.wheelbarrow, barber_chair: ITEMS.barber_chair, pew: ITEMS.pew, watchtower: ITEMS.watchtower, watchtower_tall: ITEMS.watchtower_tall, shop_counter: ITEMS.shop_counter, display_shelf: ITEMS.display_shelf, goods_crate: ITEMS.goods_crate }, 'item');
 // (the saddlebags hold 12 stacks since Plan F, saddlebags.js: their description comes from the language files; with
 // ?alforjas=0 they keep 9, and the old text)
 if (!apagada('alforjas')) defineNames({ alforjas: ITEMS.alforjas }, 'item', ['desc']);

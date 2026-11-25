@@ -449,11 +449,13 @@ export class Live {
           // (the wheelbarrow's fields are arbitrated apart, also far from where the guest is: barrow.js arbitrate)
           const edit = !peer.old && this.mayEdit(peer, m.c), B = !peer.old ? g.barrow : null, A = B ? B.arbitrate(peer, m.c, m.ops, edit) : null;
           const TR = g.traps?.arbitrate(m.c, A ? A.rest : m.ops), free = TR ? TR.ok : A ? A.rest : m.ops;   // (the fish traps are only whoever decides': traps.js)
-          const PA = g.plans?.arbitrate(peer, m.c, free), rest = PA ? PA.ok : free, mine = A ? A.ok : [];
+          const BZ = g.business?.arbitrate(peer, m.c, free), open = BZ ? BZ.ok : free;   // (the businesses, and what stands in them: business.js)
+          const PA = g.plans?.arbitrate(peer, m.c, open), rest = PA ? PA.ok : open, mine = A ? A.ok : [];
           const W = edit ? g.wear?.arbitrate(m.c, rest) : null, ok = W ? W.ok : rest;   // (what they build is stamped here: wear.js)
           if (edit) { if (ok.length || mine.length) this.applyChunk(m.c, [...ok, ...mine]); if (W?.back.length) this.net.send({ t: 'w', c: m.c, ops: W.back }, conn); }
           else { if (mine.length) this.applyChunk(m.c, mine); if (rest.length) this.refuse(conn, peer, m.c, rest); }
           if (TR) this.net.send({ t: 'w', c: m.c, ops: TR.back }, conn);
+          if (BZ?.back.length) this.net.send({ t: 'w', c: m.c, ops: BZ.back }, conn);
           if (PA?.back.length) this.net.send({ t: 'w', c: m.c, ops: PA.back }, conn);   // (plans of a building: plans.js)
           if (A) { if (A.back.length) this.net.send({ t: 'w', c: m.c, ops: A.back }, conn); B.afterArbitrate(m.c, A, peer); }
         }
@@ -835,12 +837,13 @@ export class Live {
     const w = this.game.world, [cx, cy] = k.split(',').map(Number);
     applyOps(w.delta(cx, cy, true), ops);
     if (this.guest) { const s = this.synced.get(k) || {}; applyOps(s, ops); this.synced.set(k, s); }
-    // (only a pushed wheelbarrow's record, a plan of a building, a fish trap, the stock of a spot or a request: nothing new to draw, the chunks are not made again; barrow.js)
-    if (ops.length && ops.every(([f]) => f === 'pushed' || f === 'claim' || f === 'plan' || f === 'traps' || f === 'fished')) w.note(cx, cy);
+    // (only a pushed wheelbarrow's record, a plan of a building, a fish trap, a business, the stock of a spot or a request: nothing new to draw, the chunks are not made again; barrow.js)
+    if (ops.length && ops.every(([f]) => f === 'pushed' || f === 'claim' || f === 'plan' || f === 'traps' || f === 'fished' || f === 'shop')) w.note(cx, cy);
     else {
       w.touch(cx, cy);
       for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (dx || dy) w.merged.delete(`${cx + dx},${cy + dy}`);   // (tejados y vallas miran a sus vecinas)
     }
+    try { this.game.business?.onOps(k, ops); } catch (e) { reportFault(e, 'Business.onOps'); }   // (a sale, a new business)
     try { this.game.plans?.onOps(k, ops); } catch (e) { reportFault(e, 'Plans.onOps'); }   // (plans drawn or gone, or built over)
     if (this.guest) try { this.game.barrow?.onHostOps(k, ops); } catch (e) { console.warn(e); }   // (is the wheelbarrow still yours? a request answered)
   }

@@ -88,6 +88,7 @@ import { Body } from './body.js';
 import { Remarks } from './remarks.js';
 import { Gossip } from './gossip.js';
 import { Chatter } from './chatter.js';
+import { Business, BIZ_THINGS } from './business.js';
 import { Rumours } from './rumours.js';
 import { Dive } from './dive.js';
 import { Tracks } from './tracks.js';
@@ -241,6 +242,7 @@ export class Game {
     this.social = this.addSystem(new Social(this));   // greeting and provoking people (Y or right click on someone)
     this.talk = this.addSystem(new Talk(this));   // talking to a neighbour: subtitles and a list of options (talk.js)
     this.remarks = this.addSystem(new Remarks(this));   // what the neighbours say about how you look (src/remarks.js; after social: it speaks through social.say)
+    this.business = this.addSystem(new Business(this));   // the players' own shops and taverns (src/business.js; after neighbors, barrow and social)
     this.rumours = this.addSystem(new Rumours(this));   // the places the neighbours tell you of (src/rumours.js; after places and talk)
     this.chatter = this.addSystem(new Chatter(this));   // the neighbours talking among themselves (src/chatter.js)
     this.money = 0;
@@ -756,6 +758,7 @@ export class Game {
     if (o.placed === 'lavabo') return { text: this.onBasin && this.body && !this.body.off?.surface ? t('body.basin.use') : t('body.mirror'), run: () => (this.onBasin ? this.onBasin(o) : this.onMirror?.()), alt: pick };   // (onBasin: ui/menus.js asks wash or mirror)
     if (FIRE_MS[o.placed]) return this.fireAction(o, o.fixed ? null : pick);
     if (o.placed === 'bell_frame') return { text: t('bell.ring'), run: () => Audio.bell?.() ?? Audio.clink(), alt: pick };
+    if (BIZ_THINGS.has(o.placed)) return this.business.action(o, o.fixed ? null : pick);   // (a counter, a shelf or a crate: business.js)
     if (wellSpec(o.placed)) return this.farm.wellAction(o, o.fixed ? null : pick);   // (E: llenar la regadera; X: desmontarlo. The big well too)
     if (CHESTS[o.placed] && o.placed !== 'mochila') return { text: `Abrir ${CHESTS[o.placed][1]}`, run: () => this.onChest?.(sc.chestAt(...o.tile), o.tile), alt: pick };   // (lleno no se recoge: hay que vaciarlo antes)
     if (o.placed === 'mochila') return { text: 'Abrir la mochila', run: () => this.onChest?.(sc.chestAt(...o.tile) || [], o.tile), alt: { text: this.inv.equip.espalda ? 'Recoger la mochila' : 'Ponerse la mochila', run: () => this.takeBackpack(o) } };
@@ -880,6 +883,8 @@ export class Game {
   pickUp(o, carry = false) {
     if (o.fixed && !o.yard && !o.build) return false;
     if (this.scene === this.world && o.tile && !this.world.ownAt(o.layer || 'placed', o.tile[0], o.tile[1]) && this.build.lived(o.tile)) return false;   // (of a place where somebody lives)
+    const held = this.business?.protects(o);   // (what a business uses: business.js)
+    if (held) { this.gather.float(held, '#ffb0a0'); Audio.error(); return false; }
     // (a log or a carcass, taken with B › Remove or X: its parts, as with the slot inventory; it is never moved. carry.js)
     if (BULKY[o.placed]) { const wait = this.carry.notYours(o); if (wait) { this.carry.say(wait); Audio.error(); return false; } if (carry || this.scene.unplace(o) === false) return false; this.carry.forget(o.tile); this.carry.giveParts(o.placed); Audio.pickup(); return true; }   // (lo que venía puesto no se recoge sin querer: solo la valla de tu jardín y, en modo construir, todo)
     // Lo que se construye (las piezas, como la valla, y los muebles y las estaciones) no vuelve a la mochila: devuelve

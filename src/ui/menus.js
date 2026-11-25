@@ -15,6 +15,7 @@ import { initLoadMeter } from './loadmeter.js';
 import { BodyChip } from './bodychip.js';
 import { reportFault } from '../faults.js';
 import { initShopUI } from './shop.js';
+import { initBizUI } from './shopadmin.js';
 import { initJournalUI } from './journal.js';
 import { initSettingsUI } from './settings.js';
 import { Settings } from '../settings.js';
@@ -908,6 +909,8 @@ export function initMenus(game) {
   wins.add('s-craft', { close: 'cf-close', spot: wins.defaults.right });
   wins.add('s-chest', { close: 'ch-close', spot: wins.defaults.right, onClose: () => { chestAt = null; chestUI.close(); chestDone(); } });
   game.onInventory = () => { invUI.refresh(); craftUI.refresh(); if (wins.isOpen('s-chest')) chestUI.refresh(); };
+  const bizUI = game.bizUI = initBizUI(game, wins);   // (a player's own business: business.js)
+  game.onBiz = key => { if (key && game.mode === 'play' && !game.busy && !hud.dialogOpen) bizUI.open(key); };
   const shopUI = initShopUI(game, { onClose: resume });
   const journalUI = initJournalUI(game);
   const toggleJournal = () => toggleTab('journal');   // (the pause's Journal tab)
@@ -997,6 +1000,7 @@ export function initMenus(game) {
     const p = game.player;
     if (game.inv?.weight) loadMeter ||= initLoadMeter(game);
     loadMeter?.frame();
+    bizUI.frame();
     try { bodyChip.frame(); } catch (e) { reportFault(e, 'BodyChip.frame'); }   // (isolated: render calls onFrame bare)
     if (chestAt && p && Math.hypot(p.x - chestAt[0], p.y - chestAt[1]) > CHEST_REACH) wins.close('s-chest');
     else if (chestOpts?.keep && wins.isOpen('s-chest') && !chestOpts.keep()) wins.close('s-chest');

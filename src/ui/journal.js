@@ -14,6 +14,7 @@ import { PEOPLE } from '../neighbors.js';
 import { t, tHtml, has } from '../i18n.js';
 import { NatureBookUI } from './naturebook.js';
 import { placesHtml } from './placespage.js';
+import { bizJournal } from './shopadmin.js';
 import { apagada } from '../opciones.js';
 import { reportFault } from '../faults.js';
 
@@ -57,6 +58,7 @@ export const JOURNAL_PAGES = [
   // (the nature book, Plan G: src/ui/naturebook.js)
   { id: 'nature', label: 'journal.tab.nature', when: () => !!book, open: (g, id) => book.page(id), html: () => book.html(), bind: el => book.bind(el), hide: () => book?.hide() },
   { id: 'places', label: 'journal.tab.places', html: g => placesHtml(g) },   // (Plan R7-1: src/ui/placespage.js)
+  { id: 'business', label: 'biz.tab.journal', when: g => !!g.business?.list().some(e => g.business.mine(e.rec)), html: g => bizJournal(g) },   // (Plan H2: your shop and your tavern)
   { id: 'colecciones', label: 'gui.progress.part.collections', html: g => g.collection.journal() },
 ];
 // The pages that are somewhere else in the pause: [tab, page]

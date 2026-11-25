@@ -111,6 +111,10 @@ import { CROPS, START_KIT, thirstOf, clothesText, WEAR_SLOTS, wearSlotLabel, ite
 import { REMARKS, GOOD_REMARKS, remarkKey, remarkLines } from './remarks.js';
 import { PEOPLE } from './neighbors.js';
 import * as RT from './routines.js';
+import * as BR from './bizrules.js';
+import { CLAIMS } from './claims.js';
+import { bizJournal } from './ui/shopadmin.js';
+import { Business } from './business.js';
 import { wayRound } from './world/walkways.js';
 import { CHAPEL, LOTS, WALK_NODES, setProjects, keepClear, townDigWhy as townWhy } from './world/village.js';
 import { PROJECTS } from './board.js';
@@ -1900,6 +1904,7 @@ async function soloTests(game) {
     I.select(sel);
   });
   await test('menu (english): pause: P opens and closes it as Esc does, and the texts and ids are kept', async () => {
+    for (let i = 0; i < 300 && document.getElementById('fade').classList.contains('on'); i++) await sleep(50);   // (the dark of a jump of the test before: there is no pausing in it)
     const press = code => document.body.dispatchEvent(new KeyboardEvent('keydown', { code, key: code, bubbles: true, cancelable: true })), shown = () => document.getElementById('s-pause').classList.contains('show');
     for (const id of ['p-resume', 'p-save', 'p-menu', 'p-controls', 'm-continue', 'm-new', 'm-local', 'm-session', 'm-settings', 'st-close']) check(document.getElementById(id), `#${id} is gone`);
     press('KeyP'); check((game.mode === 'pause' || game.mode === 'map') && shown(), 'P does not pause');
@@ -10144,6 +10149,297 @@ async function soloTests(game) {
   const realRandom = Math.random, Go = () => game.gossip, Ch = () => game.chatter, newsList = () => Go().v.list;
   const IDS = Object.keys(PEOPLE), E_ = (at, kind, src, item = null, val = NEWS[kind].val) => [99, at, kind, src, item, val, 0];
   // A clean log, the village's clock to be set (clock(ms)), everybody known to you; everything back after (social, routine)
+  // ---------- H2: the players' own businesses (docs/planes/gta/PLAN-H-pueblo-vivo.md §3, §12: src/business.js, src/bizrules.js) ----------
+  const Bz = () => game.business, BIZ_PEOPLE = ['rosa', 'lia', 'bruno', 'dani', 'anselmo', 'eusebio', 'ines', 'marta', 'paco'];
+  const bizRec = (kind, stock, { m = 120, hours = 'day', sun = 0, hh = {}, rl = 2 } = {}) => ({ v: 1, by: 'x', nm: 'X', kind, goods: Object.fromEntries(stock.map(([id, n], i) => [String(i + 1), { id, n, m }])), q: stock.length + 1, pr: {}, till: 0, settled: 0, hours, sun, rl, hh, log: [], tot: [0, 0], hist: {}, best: {}, fr: {}, ack: [] });
+  // Days of business with the shelves filled every `every` days: what is sold, and for how much, a day
+  const bizDays = (kind, stock, opts, days, { every = 1, cap = 24, seats = 4, from = MON } = {}) => {
+    const rec = bizRec(kind, stock, opts), R = { n: 0, coins: 0, worth: 0, visits: 0, buyers: 0, max: 0, min: 1e9 };
+    for (let i = 0; i < days; i++) {
+      if (i % every === 0) stock.forEach(([id, n], k) => { rec.goods[k + 1] = { id, n, m: opts?.m ?? 120 }; });
+      let today = 0;
+      for (const v of BR.daysVisits([{ key: '30,30', rec, d: opts?.d ?? 5 }], from + i, BIZ_PEOPLE).get('30,30')) {
+        R.visits++;
+        const got = BR.serve(rec, v, { cap, seats, roll: k => ihash(v.day * 5 + v.meal, k + 1, RT.idNum(v.npc) * 7 + 3) });
+        if (got.length) R.buyers++;
+        for (const g of got) { R.n += g.n; R.coins += g.coins; R.worth += priceOf(g.id) * g.n; today += g.coins; }
+      }
+      R.max = Math.max(R.max, today); R.min = Math.min(R.min, today);
+    }
+    for (const k of ['n', 'coins', 'worth', 'visits', 'buyers']) R[k] = Math.round(R[k] / days * 10) / 10;
+    return R;
+  };
+  await test('biz (english): income of a small, a medium and a well-run business', routine(async ({ projects }) => {
+    projects({ fuente: true, mercado: true, casa: true, chapel: true });
+    const small = [['huevo', 10], ['manzana', 10], ['zanahoria', 10]], medium = [...small, ['pan', 8], ['queso', 6], ['miel', 6], ['trigo', 20], ['trucha', 6], ['lana', 8]];
+    const well = [...medium, ['mermelada', 6], ['lingote_hierro', 6], ['carbon', 20], ['amatista', 4], ['tela', 8], ['filete', 6], ['salmon', 4], ['sidra', 8], ['hidromiel', 6], ['fresa', 10], ['tomate', 10], ['mantequilla', 6], ['estofado', 6], ['leche', 10], ['tostada_miel', 6]].slice(0, 24);
+    const tav = [['estofado', 12], ['filete', 12], ['pan', 12], ['sidra', 12], ['cerveza', 12], ['hidromiel', 12], ['pescado_asado', 12], ['tortilla', 12], ['pollo_asado', 12]].filter(([id]) => ITEMS[id]);
+    const fifty = { hh: Object.fromEntries(BIZ_PEOPLE.map(id => [id, 5])), rl: 4 }, best = { hh: Object.fromEntries(BIZ_PEOPLE.map(id => [id, 10])), rl: 5 };
+    const out = {}, run = (name, ...a) => { out[name] = bizDays(...a); const r = out[name]; console.log(`biz income · ${name}: ${r.coins} coins/day (${r.min}-${r.max}), ${r.n} things, worth ${r.worth} at Rosa's (${r.coins >= r.worth ? '+' : ''}${Math.round((r.coins / Math.max(1, r.worth) - 1) * 100)} %), ${r.visits} visits, ${r.buyers} buy`); };
+    run('small, 3 kinds, 120 %', 'shop', small, { m: 120 }, 84, { cap: 3 });
+    run('medium, 9 kinds, 120 %', 'shop', medium, { m: 120 }, 84, { cap: 9 });
+    run('well run, 24 kinds, 120 %', 'shop', well, { m: 120, sun: 1 }, 84);
+    run('well run, 5 hearts, liked, 140 %', 'shop', well, { m: 140, sun: 1, ...fifty }, 84);
+    run('well run, 10 hearts, beloved, 170 %', 'shop', well, { m: 170, sun: 1, ...best }, 84);
+    run('well run, 100 %', 'shop', well, { m: 100, sun: 1 }, 84); run('well run, 250 %', 'shop', well, { m: 250, sun: 1 }, 84);
+    run('not played: filled once a week', 'shop', well, { m: 120, sun: 1 }, 84, { every: 7 }); run('not played: filled once, 12 weeks', 'shop', well, { m: 120, sun: 1 }, 84, { every: 1000 });
+    run('far from the village, 24 kinds', 'shop', well, { m: 120, sun: 1, d: 90 }, 84);
+    run('tavern, 9 dishes, 120 %', 'tavern', tav, { m: 120, sun: 1, hours: 'evening' }, 84, { cap: 12, seats: 4 }); run('tavern, beloved, 170 %', 'tavern', tav, { m: 170, sun: 1, hours: 'evening', ...best }, 84, { cap: 12, seats: 8 });
+    check(out['small, 3 kinds, 120 %'].coins > 60 && out['small, 3 kinds, 120 %'].coins < 400, `small: ${out['small, 3 kinds, 120 %'].coins}`);
+    check(out['well run, 24 kinds, 120 %'].coins > 300 && out['well run, 10 hearts, beloved, 170 %'].coins < 1500 && out['well run, 5 hearts, liked, 140 %'].coins < 1200, 'well run');
+    check(out['well run, 250 %'].coins < out['well run, 24 kinds, 120 %'].coins * 0.15, `250 %: ${out['well run, 250 %'].coins}`);
+    check(out['far from the village, 24 kinds'].coins < out['well run, 24 kinds, 120 %'].coins * 0.4, 'far off');
+    // Nothing bought at a stall is worth selling again, at any price: dearer than it costs with every discount there is, nobody
+    // takes it (but at what Rosa herself would give)
+    for (const S of Object.values(SHOPS)) for (const e of S.stock) {
+      if (!e.id || !ITEMS[e.id]) continue;
+      const cost = (e.price ?? buyPrice(e.id)) * 0.81;
+      for (let m = 50; m <= 250; m += 10) { const s = { id: e.id, n: 5, m }, p = BR.unitPrice(s); if (p > cost && p > priceOf(e.id)) for (const npc of BIZ_PEOPLE) check(BR.chanceAt(BR.worthOf(bizRec('shop', [], best), npc, s) * 1.3, p, e.id) === 0, `${e.id}, bought at ${Math.round(cost)}, sells at ${p}`); }
+    }
+  }));
+  // A counter with its shelves on free ground near the village's paths, at a fixed moment (a Thursday). Everything goes back after
+  const biz = fn => routine(async o => {
+    const W = w(), B = Bz(), p0 = { x: p().x, y: p().y }, money = game.money, slots = inv().slots.map(s => (s ? { ...s } : null)), real = { now: B.now }, fam = game.family.v, placed = [], keepF = JSON.parse(JSON.stringify(Nb().friends));
+    o.projects({ fuente: true, mercado: true, casa: true, chapel: true });
+    if (!Nb().people.some(n => n.id === 'dani')) Nb().moveIn('dani');
+    inv().slots.fill(null); game.money = 5000; game.family.v = { kids: [], expecting: null };
+    const at = ms => { B.now = () => ms; o.clock(ms); B.day.clear(); B.trips.clear(); B.today = null; };
+    at(dayMs(WORKDAY, 11));
+    // (a 12 × 6 patch of grass within a straight walk of the path)
+    let spot = null;
+    const nodes = Object.values(WALK_NODES); for (let y = 24; y < 58 && !spot; y++) for (let x = 2; x < 36 && !spot; x++) { let ok = nodes.some(([a, b]) => Math.hypot(a - x - 3, b - y - 3.4) < 9 && W.reaches(a, b, x + 3, y + 3.4, true)); for (let j = 0; j < 5 && ok; j++) for (let i = 0; i < 7 && ok; i++) ok = W.canPlace(x + i, y + j, 'silla', null) && !W.ownAt('placed', x + i, y + j); if (ok) spot = [x, y]; }
+    check(spot, 'no free ground for the shop'); if (!spot) return;
+    game.teleport(spot[0] + 3, spot[1] + 5.5); await readyGround(game, 5000); await frames(2);
+    const [X, Y] = spot, put = (id, dx, dy, rot = 0) => { W.place(X + dx, Y + dy, id, rot); placed.push([X + dx, Y + dy]); B.memo.clear(); return `${X + dx},${Y + dy}`; };
+    const roof = [], roofOn = (dx, dy) => { const d = W.delta(Math.floor((X + dx) / CHUNK), Math.floor((Y + dy) / CHUNK), true); d.roof[`${X + dx},${Y + dy}`] = 'tejado_paja'; roof.push([d, `${X + dx},${Y + dy}`]); W.touch(Math.floor((X + dx) / CHUNK), Math.floor((Y + dy) / CHUNK)); B.memo.clear(); };
+    const give = (id, n, extra) => { inv().add(id, n, extra); return inv().slots.findIndex(s => s?.id === id); };
+    const dOf = key => W.delta(...key.split(',').map(v => Math.floor(v / CHUNK)), true), ck = key => `${Math.floor(key.split(',')[0] / CHUNK)},${Math.floor(key.split(',')[1] / CHUNK)}`;
+    try { await fn({ ...o, W, B, X, Y, put, at, give, dOf, ck, roofOn, key: put('shop_counter', 2, 2) }); }
+    finally {
+      for (const { key } of B.list()) delete dOf(key).shop[key];
+      for (const [d, k] of roof) delete d.roof[k];
+      for (const [x, y] of placed) if (W.ownAt('placed', x, y)) W.unplace({ tile: [x, y], layer: 'placed', placed: parsePlaced(W.ownAt('placed', x, y))[0] });
+      B.now = real.now; B.clear(); B.scan(); game.family.v = fam; inv().slots.length = 0; inv().slots.push(...slots); inv().changed(); game.money = money; game.addMoney(0); Nb().friends = keepF; game.bizUI && document.getElementById('s-biz').classList.contains('show') && document.getElementById('biz-close').click();
+      game.teleport(p0.x, p0.y);
+    }
+  });
+  const opened = (B, key, kind = 'shop') => { let ok = null; B.open(key, kind, v => { ok = v; }); return ok; };
+  await test('biz (english): premises', biz(async ({ B, put, roofOn, key, W, X, Y }) => {
+    check(B.premises(key, 'shop').ok && B.premises(key, 'shop').cap === 3, `a bare counter: ${JSON.stringify(B.premises(key, 'shop'))}`);
+    put('display_shelf', 4, 0); check(B.premises(key, 'shop').cap === 9, 'a shelf is six more'); put('goods_crate', 0, 2); check(B.premises(key, 'shop').cap === 12, 'a crate, three');
+    put('display_shelf', 2, 0); put('display_shelf', 3, 0); put('display_shelf', 1, 0); check(B.premises(key, 'shop').cap === 24, 'twenty-four at most');
+    const why = () => B.premises(key, 'tavern').why;
+    check(why() === 'roof', `no roof: ${why()}`); roofOn(2, 2); roofOn(3, 2); check(why() === 'barrel', `no barrel: ${why()}`);
+    put('barril', 0, 0); check(why() === 'seats', `no seats: ${why()}`); put('silla', 4, 4, 2); check(why() === 'seats', 'one seat'); put('taburete', 5, 4, 2); check(why() === 'table', 'no table'); put('mesa', 4, 3); check(why() === '', `a tavern: ${why()}`);
+    check(opened(B, key) === true && B.at(key)?.by === (Profile.id || 'me') && B.at(key).hours === 'day', 'opened');
+    // One shop and one tavern each; a counter has one business
+    const k2 = put('shop_counter', 2, 4); check(opened(B, k2) === false && !B.at(k2), 'a second shop'); check(opened(B, key, 'tavern') === false && B.at(key).kind === 'shop', 'another on the same counter');
+    check(B.visitsOf(WORKDAY).get(key).length >= 0 && B.far(key) < BR.NEAR_NODE, `far: ${B.far(key)}`);
+    // The counter in use is nobody's to take away; the shelves are, to who runs it
+    const o = { tile: key.split(',').map(Number), layer: 'placed', placed: 'shop_counter' };
+    check(B.protects(o) === t('biz.why.close_first', { place: B.theOf(B.at(key)) }) && game.pickUp(o) === false && W.ownAt('placed', ...o.tile), 'the counter was taken away');
+    check(B.protects({ tile: [X + 4, Y], layer: 'placed', placed: 'display_shelf' }) === '', 'your own shelf');
+    B.at(key).by = 'id-other'; check(B.protects({ tile: [X + 4, Y], layer: 'placed', placed: 'display_shelf' }) !== '' && game.pickUp({ tile: [X + 4, Y], layer: 'placed', placed: 'display_shelf' }) === false, 'another\'s shelf was taken');
+    check(B.protects({ tile: [X + 4, Y + 4], layer: 'placed', placed: 'silla' }) === '', 'a chair is not of it');
+    B.at(key).by = Profile.id || 'me';
+    // Closing: only empty
+    B.at(key).till = 5; let ok = null; B.close(key, v => { ok = v; }); check(ok === false && B.at(key), 'closed with coins in'); B.at(key).till = 0; B.close(key, v => { ok = v; }); check(ok === true && !B.at(key) && B.protects(o) === '', 'closed');
+  }));
+  await test('biz (english): claims alone', biz(async ({ B, key, give, put }) => {
+    opened(B, key); const rec = () => B.at(key);
+    let i = give('huevo', 10), got = null; B.put(key, i, 4, v => { got = v; });
+    check(got === true && inv().count('huevo') === 6 && Object.values(rec().goods)[0].n === 4 && Object.values(rec().goods)[0].m === 120, `put: ${JSON.stringify(rec().goods)}`);
+    B.put(key, i, 6); check(Object.keys(rec().goods).length === 1 && rec().goods[1].n === 10 && !inv().count('huevo'), 'the same thing is the same lot');
+    for (const id of ['miel', 'pan']) B.put(key, give(id, 2), 2); i = give('queso', 3); got = null; B.put(key, i, 3, v => { got = v; });
+    check(got === false && inv().count('queso') === 3 && Object.keys(rec().goods).length === 3, 'a fourth kind on a counter of three: it must come back');
+    B.price(key, 'huevo', 200); check(rec().goods[1].m === 200 && BR.unitPrice(rec().goods[1]) === 40, `price: ${rec().goods[1].m}`); B.price(key, 'huevo', 9999); check(rec().goods[1].m === 250, 'capped at 250'); B.price(key, 'huevo', -5); check(rec().goods[1].m === 50, 'and at 50');
+    B.take(key, 1, 3); check(inv().count('huevo') === 3 && rec().goods[1].n === 7, 'take'); B.take(key, 1, 99); check(inv().count('huevo') === 10 && !rec().goods[1], 'take all'); B.put(key, give('huevo', 1), 5); check(Object.values(rec().goods).find(s => s.id === 'huevo').m === 50, 'the price is remembered');
+    B.hours(key, 'evening', true); check(rec().hours === 'evening' && rec().sun === 1, 'hours'); B.hours(key, 'never', false); check(rec().hours === 'evening', 'made-up hours');
+    const m0 = game.money; rec().till = 77; B.collect(key); check(game.money === m0 + 77 && rec().till === 0, 'collect'); let ok = null; B.collect(key, v => { ok = v; }); check(ok === false && game.money === m0 + 77, 'an empty till');
+    // (the owner does not buy from themselves; what cannot be sold is not put)
+    B.buy(key, Object.keys(rec().goods)[0], 1, v => { ok = v; }); check(ok === false && game.money === m0 + 77, 'the owner bought'); i = give('rotten_fish', 2); B.put(key, i, 1, v => { ok = v; }); check(ok === false && inv().count('rotten_fish') === 2, 'rotten fish was put on sale');
+    // Creative: what is put does leave the backpack
+    game.inv.infinite = true; i = give('lana', 5); put('display_shelf', 4, 0); B.put(key, i, 2); game.inv.infinite = false; check(inv().count('lana') === 3 && Object.values(rec().goods).some(s => s.id === 'lana' && s.n === 2), 'in creative it was made out of nothing');
+    // A garment of a colour, a worn tool and a fish keep what they are
+    inv().slots[8] = { id: 'camisa', n: 1, color: '#123456' }; B.put(key, 8, 1); const lot = Object.entries(rec().goods).find(([, s]) => s.id === 'camisa'); check(lot?.[1].color === '#123456', 'the colour'); B.take(key, lot[0], 1); check(inv().slots.some(s => s?.id === 'camisa' && s.color === '#123456' && s.m === undefined), 'and back');
+    // Saved and loaded: the same
+    const snap = game.snapshot(); check(!snap.biz?.esc, 'something still in escrow');
+  }));
+  await test('biz (english): settle', biz(async ({ B, W, key, give, put, at, dOf }) => {
+    for (const x of [0, 1, 3, 4]) put('display_shelf', x, 0);
+    opened(B, key); const rec = () => B.at(key), fill = () => { rec().goods = {}; rec().q = 1; ['huevo', 'pan', 'miel', 'queso', 'manzana', 'trigo', 'lana', 'carbon', 'trucha', 'fresa', 'tomate', 'leche', 'sidra', 'amatista', 'tela', 'zanahoria'].forEach((id, i) => { rec().goods[i + 1] = { id, n: 40, m: 100 }; rec().q = i + 2; }); };
+    fill();
+    const t0 = dayMs(WORKDAY, 0.1), run = (from, to, step) => { dOf(key).shop[key] = JSON.parse(base); rec().settled = from; for (let ms = from + step; ms <= to; ms += step) { at(ms); for (let n = 0; n < 12 && !B.settle(key, ms); n++); } return JSON.stringify([rec().log, rec().till, rec().tot, rec().goods]); };
+    rec().sun = 1; const base = JSON.stringify(rec());
+    // The same whenever it is settled: minute by minute, by the hour, or all at once three days later
+    const a = run(t0, t0 + 864e5 * 3, 6e4 * 10), b = run(t0, t0 + 864e5 * 3, 36e5 * 7.3), c = run(t0, t0 + 864e5 * 3, 864e5 * 3);
+    check(a === c && rec().tot[0] > 5, `by the minute and at once differ: ${a.slice(0, 120)} / ${c.slice(0, 120)}`); check(JSON.parse(b)[1] <= JSON.parse(a)[1] + 1e-9 && JSON.parse(b)[2][0] > 0, 'by hours');
+    console.log(`biz settle: three days, ${rec().tot[0]} things, ${rec().till} coins`);
+    // Nine days away: seven
+    const nine = t0 + 864e5 * 9; dOf(key).shop[key] = JSON.parse(base); rec().settled = t0; at(nine); let n = 0; while (!B.settle(key, nine) && n++ < 20); check(n >= 6 && rec().log.every(l => l[0] > nine - 7 * 864e5) && rec().settled === nine, `nine days: ${n} rounds`);
+    const till = rec().till, v = rec().settled; B.settle(key, nine); check(rec().till === till && rec().settled === v, 'settled twice');
+    // Until its minute comes, nothing; then, at once
+    const V = B.visitsOf(WORKDAY).get(key).filter(q => q.ms > t0); check(V.length >= 2, `visits that day: ${V.length}`);
+    dOf(key).shop[key] = JSON.parse(base); rec().settled = t0; at(V[0].ms - 1000); B.settle(key, V[0].ms - 1000); check(rec().tot[0] === 0 && !rec().last?.[V[0].npc], 'before its minute'); at(V[0].ms); B.settle(key, V[0].ms); check(rec().last[V[0].npc], 'at its minute');
+    // A guest never settles; the clock an op moves neither sells nor stops
+    const dec = game.barrow.decides; game.barrow.decides = () => false; const was = JSON.stringify(rec()); at(nine); B.settle(key, nine); check(JSON.stringify(rec()) === was, 'a guest settled'); game.barrow.decides = dec;
+    Object.defineProperty(game.days, 'now', { configurable: true, get: () => V[0].ms + 5 * 36e5 }); B.now = () => V[0].ms; B.settle(key); check(JSON.stringify(rec()) === was, '/time set sold something');
+    check(B.errandAt(V[0].npc, game.days.now) === null, 'drawn with the clock shifted');
+    // A wrong clock (the record in the future) does not stop it for ever
+    rec().settled = nine + 30 * 864e5; at(nine); B.settle(key, nine); check(rec().settled === nine, 'a record in the future');
+    // Caps, prices, hours, Sundays
+    const day = (m, o = {}) => { dOf(key).shop[key] = JSON.parse(base); Object.assign(rec(), o); for (const s of Object.values(rec().goods)) s.m = m; rec().settled = t0; const end = t0 + 864e5 * 6; at(end); for (let k = 0; k < 9 && !B.settle(key, end); k++); return rec(); };
+    check(day(250).tot[0] === 0, `250 %: ${rec().tot[0]}`); check(day(50).tot[0] > 20, `50 %: ${rec().tot[0]}`);
+    day(50, { hours: 'morning', sun: 0 }); check(rec().log.every(l => { const h = (l[0] % 864e5) / 36e5; return h >= 8 && h < 14 && RT.dayKind(Math.floor(l[0] / 864e5)) !== 'sun'; }), 'out of its hours');
+    for (const [id, [n]] of Object.entries(day(50).best)) check(n <= 6 * BR.dayCap(priceOf(id)), `${id}: ${n} in six days`);
+    // With nothing to sell, or without its counter, nothing; the rest of the world goes on
+    rec().goods = {}; rec().settled = t0; check(B.settle(key, t0 + 36e5 * 3) === true, 'empty');
+    // What is on sale never goes off entirely
+    rec().goods = { 1: { id: 'trucha', n: 3, g: 500, day: CATCH.hooks.today() - 30, m: 100 } }; rec().settled = t0; B.settle(key, t0 + 1000); check(CATCH.stateOf(rec().goods[1]) === 'old', `fish on sale: ${CATCH.stateOf(rec().goods[1])}`);
+    // The friendship of who buys: +2 a neighbour a day, once
+    rec().fr = { rosa: 3 }; B.fr[key] = { rosa: 1 }; const pts = Nb().friend('rosa').pts; B.ownerTick(); check(Nb().friend('rosa').pts === pts + 4, 'friendship'); B.ownerTick(); check(Nb().friend('rosa').pts === pts + 4, 'twice');
+    // On loading, what was sold meanwhile is told, once
+    const toasts = [], real = hud.toast; hud.toast = s => toasts.push(s); try { rec().tot = [9, 540]; rec().till = 540; B.seen[key] = [2, 100]; B.told = false; B.ownerTick(); B.ownerTick(); } finally { hud.toast = real; }
+    check(toasts.filter(s => s.includes('540') && s.includes('7')).length === 1, `told: ${toasts.join(' | ')}`);
+  }));
+  await test('biz (english): two players (claims, fake peers)', biz(async ({ B, W, key, give, put, dOf, ck }) => {
+    put('display_shelf', 4, 0); opened(B, key); const rec = () => B.at(key), k = ck(key), d = () => dOf(key), G = game.barrow;
+    const ask = (n, kind, by, data = {}) => { (d().claim ||= {})[n] = { by, k: kind, key, q: 'q' + n, at: W.clock || 0, ...data }; G.resolve(k, n); return d().claim[n]; };
+    B.put(key, give('huevo', 1), 1); const lot = Object.keys(rec().goods)[0], price = BR.unitPrice(rec().goods[lot]), buy = { lot, id: 'huevo', n: 1, p: price, nm: 'Bea' };
+    // Two after the last one: one gets it, the till goes up once
+    const c1 = ask('a', 'shop_buy', 'id-bea', buy), c2 = ask('b', 'shop_buy', 'id-cris', buy);
+    check(c1.ok && c1.got?.id === 'huevo' && c1.got.n === 1 && c1.got.m === undefined && c2.ok === false && rec().till === price && !rec().goods[lot], `the last egg: ${JSON.stringify([c1, c2])}`);
+    check(rec().log.at(-1)[1] === '@Bea' && B.whoName(rec().log.at(-1)[1]) === 'Bea', 'the log');
+    // The same request again (its answer was lost): the same answer, nothing twice
+    delete d().claim.a; const again = ask('a', 'shop_buy', 'id-bea', buy); check(again.ok && again.got?.id === 'huevo' && rec().till === price && rec().tot[0] === 1, `answered twice: ${JSON.stringify(again)}`);
+    // A third player does not run it: not put, take, price, hours, collect nor close; the couple does
+    for (const [n, kind, data] of [['c', 'shop_put', { s: { id: 'pan', n: 1 } }], ['e', 'shop_price', { id: 'pan', m: 50 }], ['f', 'shop_hours', { hours: 'evening' }], ['g', 'shop_collect', {}], ['h', 'shop_close', {}], ['h2', 'shop_snap', { sn: { rl: 5, hh: { rosa: 10 } } }]]) check(ask(n, kind, 'id-bea', data).ok === false, `${kind} by anybody`);
+    game.family.v = { kids: [{ id: 'k1', parents: [Profile.id || 'me', 'id-bea'] }], expecting: null };
+    check(ask('i', 'shop_put', 'id-bea', { s: { id: 'pan', n: 3 } }).ok && Object.values(rec().goods).some(s => s.id === 'pan' && s.n === 3), 'the partner puts'); const col = ask('j', 'shop_collect', 'id-bea'); check(col.ok && col.pay === price && rec().till === 0, 'the partner collects'); check(ask('k', 'shop_buy', 'id-bea', { ...buy, id: 'pan', lot: Object.keys(rec().goods)[0], p: BR.unitPrice(Object.values(rec().goods)[0]) }).ok === false, 'who runs it does not buy');
+    check(ask('l', 'shop_snap', 'id-bea', { sn: { rl: 5, hh: { rosa: 10 } } }).ok === false && rec().rl !== 5, 'the partner is not the owner'); game.family.v = { kids: [], expecting: null };
+    // The price it was asked at, how many there are, garbage
+    const L2 = Object.keys(rec().goods)[0], P2 = BR.unitPrice(rec().goods[L2]), stock = rec().goods[L2].n;
+    for (const bad of [{ p: P2 - 1 }, { n: 99 }, { n: 0 }, { n: -2 }, { n: 1.5e9 }, { lot: '__proto__' }, { lot: 'x' }, { id: 'huevo' }, { key: '1,1' }, { key: 'constructor' }, { key: null }]) check(ask('m' + Math.random(), 'shop_buy', 'id-cris', { lot: L2, id: 'pan', n: 1, p: P2, ...bad }).ok === false && rec().goods[L2].n === stock, `garbage: ${JSON.stringify(bad)}`);
+    for (const s of [null, 'x', { id: 'nope', n: 1 }, { id: '__proto__', n: 1 }, { id: 'pan', n: -1 }, { id: 'pan', n: 1e9, color: {} }]) { const c = ask('n' + Math.random(), 'shop_put', Profile.id || 'me', { s }); if (c.ok) check(Object.values(rec().goods).every(q => q.n <= 999), 'too many'); else check(c.ok === false, 'garbage put'); }
+    check(ask('o', 'shop_open', 'id-cris', { kind: 'shop', key: '5,5' }).ok === false && ask('o2', 'shop_open', 'id-cris', { kind: 'bank' }).ok === false, 'opened on nothing');
+    // What a guest may write in a chunk: not the records; not take away another's shelf, counter or crate, nor move it
+    const peer = { id: 'id-cris' }, shelf = `${+key.split(',')[0] + 2},${+key.split(',')[1] - 2}`;
+    let A = B.arbitrate(peer, k, [['shop', key, { by: 'id-cris', till: 999 }], ['shop', null, {}], ['shop'], ['shop', '9,9', { by: 'id-cris' }], ['floor', '1,1', 'suelo_madera']]);
+    check(A.ok.length === 1 && A.back.length === 4 && A.back[0][2].by === rec().by && A.back[3].length === 2, `the records: ${JSON.stringify(A).slice(0, 300)}`);
+    if (ck(shelf) === k) { A = B.arbitrate(peer, k, [['placed', shelf], ['pos', 'placed:' + shelf, [1, 1, 0]], ['placed', shelf, 'cofre'], ['placed', null, {}]]); check(!A.ok.length && A.back.length === 4 && A.back[0][2] === 'display_shelf', `the shelf: ${JSON.stringify(A)}`); check(B.arbitrate({ id: Profile.id || 'me' }, k, [['placed', shelf]]).ok.length === 1, 'your own shelf'); }
+    check(!B.arbitrate({ id: Profile.id || 'me' }, k, [['placed', key]]).ok.length, 'the counter in use');
+    check(B.arbitrate(peer, k, [['placed', '3,3', 'cofre'], ['placed', '3,4']]).ok.length === 2, 'the rest passes');
+  }));
+  await test('biz (english): a guest pays when it asks; what is not answered is neither lost nor doubled', biz(async ({ B, W, key, give, dOf, ck }) => {
+    const G = game.barrow, asked = [], d = () => dOf(key), k = ck(key); opened(B, key); B.put(key, give('huevo', 5), 5); const rec = () => B.at(key), lot = Object.keys(rec().goods)[0], mine = Profile.id || 'me';
+    // (the host's side, by hand: the same claim, answered there)
+    const host = a => { const extra = {}; G.decides = () => true; const ok = !!CLAIMS[a.kind](game, { by: a.by || mine, k: a.kind, ...a.data }, d(), k, extra); G.decides = () => false; return { by: mine, k: a.kind, ...a.data, ok, ...extra }; };
+    try {
+      G.decides = () => false; G.claim = (kind, kk, data, done) => { asked.push({ kind, data, done }); return 'n' + asked.length; };
+      // Putting: it leaves the backpack at once; refused, it comes back; answered, it does not
+      let i = give('pan', 4); B.put(key, i, 4); check(asked.length === 1 && !inv().count('pan') && B.esc.length === 1 && !Object.values(rec().goods).some(s => s.id === 'pan'), 'asked'); asked[0].done({ ok: false }); check(inv().count('pan') === 4 && !B.esc.length, 'refused: back'); B.put(key, inv().slots.findIndex(s => s?.id === 'pan'), 4); asked[1].done(host(asked[1])); check(!inv().count('pan') && Object.values(rec().goods).some(s => s.id === 'pan' && s.n === 4), 'put');
+      // Buying (from another's): the coins first
+      rec().by = 'id-other'; const m0 = game.money, p1 = BR.unitPrice(rec().goods[lot]); B.buy(key, lot, 2); check(game.money === m0 - 2 * p1 && B.waiting('shop_buy'), 'the coins are held'); asked[2].done(host(asked[2])); check(game.money === m0 - 2 * p1 && inv().count('huevo') === 2 && rec().goods[lot].n === 3 && rec().till === 2 * p1, 'bought');
+      B.buy(key, lot, 1); asked[3].done({ ok: false }); check(game.money === m0 - 2 * p1 && inv().count('huevo') === 2, 'refused: the coins back');
+      // The answer lost, but done there: found in the record, given once
+      B.buy(key, lot, 1); host(asked[4]); asked[4].done(null); check(game.money === m0 - 3 * p1 && inv().count('huevo') === 2 && B.esc.length === 1, 'in the air'); game.time += 20; B.limbo(); check(inv().count('huevo') === 3 && !B.esc.length && game.money === m0 - 3 * p1 && rec().goods[lot].n === 2, 'found'); B.limbo(); check(inv().count('huevo') === 3, 'twice');
+      // Lost and not done: back, but not while it may still be answered
+      B.buy(key, lot, 1); (d().claim ||= {}).n6 = { by: mine, k: 'shop_buy', ...asked[5].data, at: W.clock }; asked[5].done(null); game.time += 20; B.limbo(); check(B.esc.length === 1 && game.money === m0 - 4 * p1, 'given back while it can still be answered'); delete d().claim.n6; B.limbo(); check(!B.esc.length && game.money === m0 - 3 * p1, 'lost: the coins back');
+      // The game closes with one in the air: the save keeps it, the next load settles it
+      B.buy(key, lot, 1); host(asked[6]); const out = {}; B.save(out); check(out.biz.esc.length === 1 && out.biz.esc[0].coins === p1, `saved: ${JSON.stringify(out)}`); const had = inv().count('huevo'), m1 = game.money; B.reset(JSON.parse(JSON.stringify(out))); check(B.esc.length === 1, 'loaded'); game.time += 20; B.limbo(); check(inv().count('huevo') === had + 1 && game.money === m1 && !B.esc.length, 'settled after loading');
+      rec().by = mine; B.take(key, lot, 1); const o2 = {}; B.save(o2); B.reset(JSON.parse(JSON.stringify(o2))); const h2 = inv().count('huevo'); game.time += 20; B.limbo(); check(inv().count('huevo') === h2 && rec().goods[lot].n === 1 && !B.esc.length, 'a take that never got there');
+      // Too dear, too full: not asked
+      const n = asked.length; game.money = 0; rec().by = 'id-other'; let ok = null; B.buy(key, lot, 1, v => { ok = v; }); check(ok === false && asked.length === n, 'without coins');
+    } finally { delete G.decides; delete G.claim; }
+  }));
+  await test('biz (english): four players at once, answers late or lost: everything adds up; the world server sells alone', biz(async ({ B, W, key, put, dOf, ck, at }) => {
+    put('display_shelf', 4, 0); opened(B, key); const rec = () => B.at(key), k = ck(key), d = () => dOf(key), r = seeded(11), IDS3 = ['huevo', 'pan', 'miel', 'trucha'];
+    rec().by = 'id-owner';   // (a guest; the host only decides)
+    game.family.v = { kids: [{ id: 'k', parents: [rec().by, 'id-wife'] }], expecting: null };
+    // Each guest, its own game: backpack, coins and escrow; what it asks gets to the host late, its answer later, or never
+    const queue = [], clock = { t: 0 }, guests = ['id-owner', 'id-wife', 'id-bea', 'id-cris'].map(id => {
+      const g = { world: W, scene: W, time: 0, money: 4000, player: { name: id }, days: game.days, neighbors: game.neighbors, rep: null, family: game.family, live: { joined: true, hostConn: 1 }, inv: new Inventory(null), gather: { throwOut(i, n) { g.floor[i] = (g.floor[i] || 0) + n; } }, floor: {}, addMoney(n) { g.money += n; } };
+      g.inv.equip.espalda = { id: 'mochila' }; g.barrow = { decides: () => false, claim: (kind, kk, data, done) => { const n = `${id}${g.sent = (g.sent || 0) + 1}`; queue.push({ n, kind, data: { ...structuredClone(data), by: id, k: kind }, done, when: clock.t + 1 + r() * 4, fate: r() }); return n; } };
+      const b = new Business(g); b.now = B.now; b.shops = B.shops; b.scan = () => {}; g.business = b; return { id, g, b };
+    });
+    for (const q of guests.slice(0, 2)) for (const id of IDS3) q.g.inv.add(id, 30);
+    const count = () => { const out = Object.fromEntries(IDS3.map(id => [id, 0])); let coins = rec().till; for (const { g } of guests) { coins += g.money; for (const s of g.inv.slots) if (s && s.id in out) out[s.id] += s.n; for (const [id, n] of Object.entries(g.floor)) out[id] += n; } for (const s of Object.values(rec().goods)) if (s.id in out) out[s.id] += s.n; return JSON.stringify([out, coins]); };
+    const start = count(); let done = 0, lost = 0;
+    for (let step = 0; step < 900; step++) {
+      clock.t += 0.5; for (const q of guests) q.g.time = clock.t;
+      const q = guests[Math.floor(r() * 4)], { g, b } = q, lots = Object.keys(rec().goods), lot = lots[Math.floor(r() * lots.length)], own = q.id === 'id-owner' || q.id === 'id-wife', x = r();
+      if (step < 800) {
+        if (own && x < 0.35) { const i = g.inv.slots.findIndex(s => s && r() < 0.5); if (i >= 0) b.put(key, i, 1 + Math.floor(r() * 4)); }
+        else if (own && x < 0.5 && lot) b.take(key, lot, 1 + Math.floor(r() * 3)); else if (own && x < 0.6) b.collect(key); else if (own && x < 0.7 && lot) b.price(key, rec().goods[lot].id, 60 + Math.floor(r() * 19) * 10); else if (lot) b.buy(key, lot, 1 + Math.floor(r() * 2));
+      }
+      // The host, in the order they come; a tenth never get there (the host had gone), a tenth of the answers are lost
+      for (const m of queue.filter(m => !m.over && m.when <= clock.t)) { m.over = true; if (m.fate < 0.1) { lost++; m.done(null); continue; } (d().claim ||= {})[m.n] = { ...m.data, at: W.clock || 0 }; game.barrow.resolve(k, m.n); const a = { ...d().claim[m.n] }; done++; if (m.fate < 0.2) { lost++; m.done(null); } else m.done(a); delete d().claim[m.n]; }
+      if (step % 4 === 0) for (const z of guests) z.b.limbo();
+      // (the wife's game closes and opens again)
+      if (step % 150 === 149) { const p = guests[1].b, o = {}; if (!p.esc.some(e => e.live)) { p.save(o); p.esc = (o.biz?.esc || []).map(e => ({ ...JSON.parse(JSON.stringify(e)), at: clock.t, live: false })); } }
+    }
+    for (let i = 0; i < 30; i++) { clock.t += 5; for (const q of guests) q.g.time = clock.t; for (const m of queue.filter(m => !m.over)) { m.over = true; m.done(null); } for (const q of guests) q.b.limbo(); }
+    check(guests.every(q => !q.b.esc.length), 'something left in the air'); check(count() === start, `it does not add up: ${start} → ${count()}`); check(done > 300 && lost > 40 && rec().tot[0] > 20, `${done} answered, ${lost} lost, ${rec().tot[0]} sold`);
+    console.log(`biz fuzz: ${done} requests answered, ${lost} lost on the way, ${rec().tot[0]} things sold; ${start} = ${count()}`);
+    // The record goes to the guests change by change; they see the same customers
+    const far = {}; let seen = {}; for (let i = 0; i < 6; i++) { for (const s of Object.values(rec().goods)) s.n++; rec().till += i; const cur = { shop: { [key]: structuredClone(rec()) } }, ops = diffChunk(seen, cur); applyOps(far, ops); seen = structuredClone(cur); } check(JSON.stringify(far.shop[key]) === JSON.stringify(rec()), 'the guest\'s copy differs');
+    check(JSON.stringify([...guests[2].b.visitsOf(WORKDAY)]) === JSON.stringify([...B.visitsOf(WORKDAY)]), 'a guest sees other customers');
+    // The world server: nobody plays; the sales go on, with no window and no toast
+    const sv = Object.getOwnPropertyDescriptor(Profile, 'server'), toasts = [], real = hud.toast; hud.toast = s => toasts.push(s);
+    try { Object.defineProperty(Profile, 'server', { configurable: true, get: () => true }); rec().sun = 1; for (const s of Object.values(rec().goods)) { s.m = 50; s.n = 50; } rec().settled = dayMs(WORKDAY - 4); rec().last = {}; const tot = rec().tot[0]; at(dayMs(WORKDAY, 11)); for (let i = 0; i < 400; i++) B.update(0.05); check(rec().tot[0] > tot + 5 && rec().settled === dayMs(WORKDAY, 11) && !toasts.length, `the server: ${rec().tot[0] - tot} sold, ${toasts}`); }
+    finally { hud.toast = real; if (sv) Object.defineProperty(Profile, 'server', sv); else delete Profile.server; }
+  }));
+  await test('biz (english): customers come, pay at their minute and go; at a tavern they sit', biz(async ({ B, W, key, put, at, roofOn, X, Y }) => {
+    for (const x of [0, 1]) put('display_shelf', x, 0); opened(B, key);
+    const rec = B.at(key); ['huevo', 'pan', 'miel', 'queso', 'manzana', 'trigo', 'lana', 'carbon', 'fresa', 'tomate'].forEach((id, i) => { rec.goods[i + 1] = { id, n: 90, m: 60 }; }); rec.q = 20; rec.sun = 1;
+    const C = B.counter(key), seen = [], none = [];
+    for (let day = WORKDAY; day < WORKDAY + 8; day++) for (const v of B.visitsOf(day).get(key)) {
+      if (!PEOPLE[v.npc]) continue;
+      at(v.ms - 4000); const a = B.errandAt(v.npc, v.ms - 3000);
+      if (!a) { none.push(v.npc); continue; }
+      seen.push(v.npc); const e = a.trip;
+      check(!a.moving && Math.hypot(a.x - C.fx, a.y - C.fy) < 0.01, `${v.npc} is not at the counter when paying`);
+      // Walked, not jumped, and back where their routine says
+      let q = RT.placeAt(v.npc, e.from - 1), last = [q.x, q.y], far = 0; for (let ms = e.from; ms < e.to; ms += 200) { const z = B.errandAt(v.npc, ms); if (!z) { far = 99; break; } far = Math.max(far, Math.hypot(z.x - last[0], z.y - last[1])); last = [z.x, z.y]; }
+      q = RT.placeAt(v.npc, e.to + 10); check(far < 0.9 && Math.hypot(q.x - last[0], q.y - last[1]) < 1, `${v.npc}: steps of ${far.toFixed(2)}, ends ${Math.hypot(q.x - last[0], q.y - last[1]).toFixed(2)} away`);
+      check(B.errandAt(v.npc, e.to + 10) === null && B.errandAt(v.npc, e.from - 10) === null, 'out of it');
+    }
+    console.log(`biz customers: ${seen.length} drawn (${[...new Set(seen)].join(' ')}), ${none.length} not (${[...new Set(none)].join(' ')})`); check(seen.length >= 8 && seen.length > none.length, `drawn ${seen.length}, not ${none.length}`);
+    // The neighbour really goes: stepped by the game
+    let v = null; for (let day = WORKDAY; day < WORKDAY + 6 && !v; day++) v = B.visitsOf(day).get(key).find(q => PEOPLE[q.npc] && (at(q.ms - 9e4), B.errandAt(q.npc, q.ms))); check(v, 'nobody'); const n = Nb().people.find(q => q.id === v.npc), trip = B.errandAt(v.npc, v.ms).trip;
+    at(trip.from - 2000); n.placeAt(trip.from - 2000); for (let ms = trip.from - 2000; ms < v.ms; ms += 100) n.update(0.1, ms); check(Math.hypot(n.x - C.fx, n.y - C.fy) < 0.3 && n.spot?.biz === key && !n.hidden, `${v.npc} stepped: ${n.x.toFixed(1)}, ${n.y.toFixed(1)}`); for (let ms = v.ms; ms < trip.to + 4000; ms += 100) n.update(0.1, ms); const home = RT.placeAt(v.npc, trip.to + 4000); check(Math.hypot(n.x - home.x, n.y - home.y) < 0.5, 'and back');
+    // Walled in: the sale is made, nobody is drawn
+    at(v.ms); B.settle(key, v.ms); const tot = rec.tot[0]; rec.goods = {}; B.trips.clear(); check(B.errandAt(v.npc, v.ms) === null, 'with nothing on sale nobody is drawn'); check(tot >= 0, 'settled');
+    // Nobody is in two businesses at once: the second, later or not at all
+    const R1 = { key: '30,44', rec: bizRec('shop', [['pan', 5]], { sun: 1 }), d: 4 }, R2 = { key: '31,48', rec: bizRec('shop', [['pan', 5]], { sun: 1 }), d: 4 }, R3 = { key: '32,50', rec: bizRec('tavern', [['pan', 5]], { sun: 1, hours: 'evening' }), d: 4 };
+    for (let day = MON; day < MON + 60; day++) { const by = BR.daysVisits([R1, R2, R3], day, BIZ_PEOPLE), all = [...by.values()].flat(); for (const a of all) for (const b of all) if (a !== b && a.npc === b.npc) check(Math.abs(a.ms - b.ms) >= 24 * 6e4, `${a.npc} in two places`); check(JSON.stringify([...BR.daysVisits([R3, R2, R1], day, BIZ_PEOPLE).get('31,48')]) === JSON.stringify(by.get('31,48')), 'the order they are given in matters'); for (const a of by.get('30,44')) { const h = (a.ms % 864e5) / 36e5; check(h >= 9 && h < 20, `at ${h}`); if (PEOPLE[a.npc]) check(RT.freeSlots(a.npc, day).some(([x, y]) => h >= x && h <= y), `${a.npc} was not free`); } }
+    // The tavern: at meal times they sit
+    B.ask('shop_close', key, {}, {}); rec.till = 0; B.close(key); roofOn(2, 2); roofOn(3, 2); put('barril', 0, 4); put('mesa', 5, 3); put('silla', 5, 4, 2); put('silla', 4, 3, 1); check(opened(B, key, 'tavern') === true, `the tavern: ${B.premises(key, 'tavern').why}`);
+    const T = B.at(key); T.sun = 1; ['estofado', 'sidra', 'pan', 'filete'].forEach((id, i) => { T.goods[i + 1] = { id, n: 90, m: 80 }; }); T.q = 9; let sat = 0, meals = 0;
+    for (const hours of ['day', 'evening']) { T.hours = hours; for (let day = WORKDAY; day < WORKDAY + 10; day++) { for (const q of B.visitsOf(day).get(key)) { if (!q.meal || !PEOPLE[q.npc]) continue; meals++; at(q.ms); const a = B.errandAt(q.npc, q.ms); if (a?.trip.seat) { const s = B.errandAt(q.npc, a.trip.seat.until - 5000); check(s && !s.moving && s.spot.pose?.kind === 'sit', `${q.npc} does not sit`); sat++; } } } }
+    console.log(`biz tavern: ${meals} meals, ${sat} drawn sitting`); check(sat >= 3, `${sat} of ${meals} sit`);
+  }));
+  await test('biz (english): the window, the tip and the till\'s chip', biz(async ({ B, key, put, give }) => {
+    const tick = async () => { await frames(2); game.onFrame?.(); }, el = id => document.getElementById(id), btn = s => [...document.querySelectorAll('#s-biz button')].find(b => b.textContent === s && !b.disabled), press = s => { const b = btn(s); if (!b) throw new Error(`no button ${s}: ${el('biz-body').textContent.slice(0, 200)}`); b.click(); }, o = () => w().placedNear(p().x, p().y, 6).find(q => q.placed === 'shop_counter');
+    const C = B.counter(key); p().x = C.fx; p().y = C.fy + 0.3; await tick();
+    const act = game.placedAction(o()); check(act.text === t('biz.action.open') && act.alt, `E: ${act.text}`); act.run(); await tick();
+    check(el('s-biz').classList.contains('show') && el('biz-title').textContent === t('biz.new.title') && game.mode === 'play', 'the window'); press(t('biz.open.shop')); await tick();
+    check(B.at(key) && el('biz-title').textContent === B.nameOf(B.at(key)), `opened: ${el('biz-title').textContent}`); give('huevo', 6); await tick(); await sleep(50); press(t('biz.put.all')); await tick(); const s = () => Object.values(B.at(key).goods)[0]; check(s()?.n === 6, 'put from the window');
+    const m = s().m; [...document.querySelectorAll('#s-biz .biz-price button')].at(-1).click(); await tick(); check(s().m === m + BR.PCT.step, 'dearer');
+    press(t('biz.take.one')); await tick(); check(inv().count('huevo') === 1 && s().n === 5, 'take one'); B.at(key).till = 33; B.v++; press(t('biz.tab.till')); await tick(); const m0 = game.money; press(t('biz.collect')); await tick(); check(game.money === m0 + 33, 'collect'); press(t('biz.tab.sales')); await tick(); press(t('biz.tab.hours')); await tick(); document.querySelectorAll('#s-biz input[type=radio]')[2].click(); await tick(); check(B.at(key).hours === 'evening', 'hours'); check(!btn(t('biz.close.btn')), 'closing with goods in');
+    p().x += 9; await tick(); check(!el('s-biz').classList.contains('show'), 'it stays open far away'); p().x -= 9; await tick();
+    check(document.querySelector('.biz-chip')?.textContent.includes(t('biz.chip', { n: 0 })), 'the chip'); check(JOURNAL_PAGES.find(q => q.id === 'business')?.when(game) && bizJournal(game).includes(B.nameOf(B.at(key))), 'the journal');
+    // Another player's: buying
+    B.at(key).by = 'id-other'; B.at(key).nm = 'Bea'; check(game.placedAction(o()).text === t('biz.action.buy', { place: B.theOf(B.at(key)) }) && !game.placedAction(o()).alt, 'E on another\'s'); game.onBiz(key); await tick(); const m1 = game.money, n = inv().count('huevo'); press(t('shop.buy')); await tick(); check(inv().count('huevo') === n + 1 && game.money < m1 && !btn(t('biz.take.one')), 'bought from the window');
+    // Eating at a tavern's counter never goes through the backpack
+    B.at(key).kind = 'tavern'; const c = game.combat, was = c.hunger, had = inv().count('pan'); c.hunger = 5; B.at(key).goods = { 1: { id: 'pan', n: 2, m: 100 } }; B.buy(key, 1, 1, null, true); check(c.hunger > 5 && inv().count('pan') === had && B.at(key).goods[1].n === 1, `eaten: hunger ${c.hunger}`); c.hunger = was;
+  }));
+  await test('biz (english): the counter gone, its goods come back to the owner', biz(async ({ B, W, key, give, put }) => {
+    opened(B, key); B.put(key, give('huevo', 5), 5); B.put(key, give('miel', 3), 3); B.at(key).till = 40; const m0 = game.money;
+    W.unplace({ tile: key.split(',').map(Number), layer: 'placed', placed: 'shop_counter' }); B.memo.clear();
+    B.settle(key, B.now() + 1); check(B.at(key), 'lost'); for (let i = 0; i < 6; i++) { B.rescueT = 0; B.ownerTick(); }
+    check(!B.at(key) && inv().count('huevo') === 5 && inv().count('miel') === 3 && game.money === m0 + 40, `back: ${inv().count('huevo')}, ${inv().count('miel')}, ${game.money - m0}`);
+  }));
   const gossiping = fn => social(() => routine(async o => {
     const N = Nb(); N.flags = {}; newsList();
     for (const id of IDS) N.friends[id] = { pts: 150, talk: 0, gift: -1, events: [3, 6], intro: 0 };

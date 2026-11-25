@@ -6,7 +6,7 @@ import { pieceSprite, BUILD_IDS, ALL_CATS, DEF, matText } from '../build.js';
 import { BUILDABLE, PLANS } from '../buildables.js';
 import { hitsOf, planned } from '../plans.js';
 import { SHOPS } from '../economy.js';
-import { t } from '../i18n.js';
+import { t, has } from '../i18n.js';
 import { pieceIcon } from '../art/build.js';
 import { itemIcon } from '../art/items.js';
 
@@ -34,7 +34,7 @@ export function initBuildBar(game) {
       if (!TOOLS[c] && !shown(c).length && !locked(c).length) continue;   // (una categoría de la que aún no se conoce nada no sale, salvo que lo suyo pida plano)
       const btn = document.createElement('button');
       btn.type = 'button';
-      btn.textContent = c;
+      btn.textContent = has('build.cat.' + c) ? t('build.cat.' + c) : c;
       btn.className = (TOOLS[c] ? tool === c : !tool && c === cat) ? 'on' : '';
       btn.onclick = () => { if (TOOLS[c]) b.select(TOOLS[c]); else if (shown(c).length) { pinned = null; cat = c; b.select(shown(c)[0]); } else { if (tool) b.select(b.piece); pinned = { cat: c, piece: b.piece }; render(); } };
       $('bb-cats').append(btn);

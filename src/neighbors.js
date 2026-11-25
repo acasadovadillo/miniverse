@@ -203,6 +203,8 @@ class Neighbor extends Person {
     this.settle(s); this.drawAt(s);
     this.path = [];
   }
+  // Where they are at a moment: gone to a player's shop or tavern (business.js), or what their routine says
+  whereAt(ms) { return this.game?.business?.errandAt(this.id, ms) || placeAt(this.id, ms, (R, s) => this.way(R, s)); }
   // The way of a slot round what players have built on it (only drawn: world/walkways.js). Looked at once per walk
   way(R, s) {
     const k = `${s.day}:${s.i}`;
@@ -221,11 +223,11 @@ class Neighbor extends Person {
       return;
     } }
     if (this.lag > 0) {
-      const at = placeAt(this.id, now - this.lag * 1000, (R, s) => this.way(R, s));
+      const at = this.whereAt(now - this.lag * 1000);
       if (at.moving) this.lag = Math.max(0, this.lag - dt * (CATCH - 1));
       else { const s = slotAt(this.id, now); this.lag = s.start <= now - this.lag * 1000 ? 0 : Math.max(0, Math.min(this.lag, (now - s.start) / 1000 - 0.001)); }
     }
-    const at = placeAt(this.id, now - this.lag * 1000, (R, s) => this.way(R, s)), s = at.spot;
+    const at = this.whereAt(now - this.lag * 1000), s = at.spot;
     if (!at.moving) {
       this.settle(s);
       if (this.hidden) { this.x = s.x; this.y = s.y; this.vx = this.vy = 0; this.still = true; return; }
@@ -501,6 +503,8 @@ export class Neighbors {
     if (id === 'nilo') return { kind: 'nilo', until: null, at: [NILO.x, NILO.y] };
     if (!n) return { kind: 'away', until: null, at: null };
     if (ROUTINES) {
+      const er = this.game.business?.errandAt(id, this.clock());   // (at a player's business)
+      if (er) return { kind: er.moving ? 'road' : 'shopping', until: ((er.trip.to / HOUR_MS) % 24), goal: 'shopping', at: [er.x, er.y] };
       const a = placeAt(id, this.clock()), s = a.slot, until = s.untilHour, at = [a.x, a.y], k = a.spot.kind;
       if (a.moving) return { kind: 'road', until, goal: a.spot.goal, at };
       if (k === 'away') return { kind: 'away', until, at: null };

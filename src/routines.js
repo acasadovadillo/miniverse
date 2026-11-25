@@ -105,6 +105,7 @@ function road(a, b) {
   roads.set(k, r = { pts, at, len: at[at.length - 1] || 0, from: a, to: b, out: same ? null : [a.via.length, raw.length - 1 - b.via.length] });
   return r;
 }
+export const roadBetween = (a, b) => road(a, b);
 // The point of a road at a distance, and which way it goes: [x, y, dx, dy]
 export function along(R, d) {
   const { pts, at } = R;
@@ -128,6 +129,7 @@ function make(o) {
   s.goal ||= s.kind;
   return s;
 }
+export const makeSpot = make;   // (business.js: before a counter, at a table of a player's tavern)
 const spot = (key, fn) => { let s = spots.get(key); if (!s) spots.set(key, s = make({ key, ...fn() })); return s; };
 const residents = house => Object.keys(PEOPLE).filter(id => PEOPLE[id].home === house);
 // Inside a house: from its door to the room (the same for the whole house: road() takes the first two off indoors)
@@ -288,6 +290,35 @@ export function leavesHome(id, nowMs) {
   const s = slotAt(id, nowMs);
   for (const [day, from] of [[s.day, s.i + 1], [s.day + 1, 0], [s.day + 2, 0]]) { const P = planFor(id, day); for (let j = from; j < P.length; j++) if (!P[j].spot.home) return P[j].h; }
   return null;
+}
+// Their free time that day: [[from, to]…], hours (business.js: when they may go shopping). Not at work, at a meal, at the chapel or
+// asleep; of their time out of the village, the last two hours before they come
+export function freeSlots(id, realDay) {
+  const P = planFor(id, realDay), out = [];
+  P.forEach((e, i) => {
+    const s = e.spot, end = P[i + 1]?.at ?? 24, seated = s.seat && !s.keeper;
+    if (s.work || s.gather || s.door || s.kind === 'asleep' || (s.meal && !seated)) return;
+    const from = s.kind === 'away' ? Math.max(e.at, end - 2) : e.at;
+    if (s.kind === 'away' && !P[i + 1]) return;
+    // (those who spend the day at the tavern, not while they eat there)
+    for (const [a, b] of seated ? [[from, Math.min(end, 13.5)], [Math.max(from, 15.5), Math.min(end, 20.5)], [Math.max(from, 22.5), end]] : [[from, end]]) {
+      if (b <= a) continue;
+      const q = out[out.length - 1];
+      if (q && a - q[1] < 0.01) q[1] = b; else out.push([a, b]);
+    }
+  });
+  return out;
+}
+// And the time of their meals
+export function mealSlots(id, realDay) {
+  const P = planFor(id, realDay), out = [];
+  P.forEach((e, i) => {
+    const s = e.spot, end = P[i + 1]?.at ?? 24;
+    if (!s.meal) return;
+    if (!s.seat) out.push([e.at, end]);
+    else for (const [a, b] of [[13.5, 15], [20.5, 22]]) if (Math.min(end, b) - Math.max(e.at, a) > 0.5) out.push([Math.max(e.at, a), Math.min(end, b)]);
+  });
+  return out;
 }
 // The way they have to walk in a slot (what neighbors.js draws may go round a wall: detour(R, slot))
 export const roadOf = s => (s.prev === s.spot || (s.prev.room === s.spot.room && Math.hypot(s.prev.x - s.spot.x, s.prev.y - s.spot.y) < 0.02) ? null : road(s.prev, s.spot));

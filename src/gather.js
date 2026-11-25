@@ -467,6 +467,7 @@ export class Gathering {
     if (id === 'pozo') this.float('Pozo: con la regadera, E o clic en él la llena', '#9ad0ff');
     if (watchtower(id)) { g.build.justPut(id, t.fit.anchor); this.float(tr('toast.watchtower.placed'), '#fff3c0'); }
     if (id === 'big_well') this.float(tr('toast.big_well.placed'), '#9ad0ff');
+    if (id === 'shop_counter') this.float(tr('toast.shop_counter.placed'), '#fff3c0');
     if (id === 'wheelbarrow') this.float(tr('toast.wheelbarrow.placed'), '#fff3c0');
   }
 

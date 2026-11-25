@@ -124,7 +124,7 @@ const ROOF_MAX_LEVEL = 4;     // altura máxima de un tejado, en niveles
 // De su centro a su parte de atrás, en lo que tiene espalda: si detrás hay un muro, se arrima a él
 // (de la casilla a la parte de atrás de cada mueble, medido en su modelo: con un muro detrás, se pega a él)
 const BACK = {
-  cama: BED_BACK, cama_doble: BED_BACK, sofa: 0.42, pew: 0.36, cama_nino: 0.42, banera: 0.43, estanteria: 0.2, alacena: 0.28, encimera: 0.28, fregadero: 0.32, lavabo: 0.42, inodoro: 0.34, chimenea: HEARTH_BACK, lampara: 0.18,
+  cama: BED_BACK, cama_doble: BED_BACK, sofa: 0.42, pew: 0.36, display_shelf: 0.24, shop_counter: 0.34, cama_nino: 0.42, banera: 0.43, estanteria: 0.2, alacena: 0.28, encimera: 0.28, fregadero: 0.32, lavabo: 0.42, inodoro: 0.34, chimenea: HEARTH_BACK, lampara: 0.18,
   cocina: 0.38, horno: 0.44, banco: 0.32, cantero: 0.36, yunque: 0.3, telar: 0.3, quesera: 0.24, cofre: 0.28, armario: 0.33, mueble_bano: 0.24, mesita: 0.22, comoda: 0.26, sillon: 0.42, cuadro_valle: 0.05, cuadro_mar: 0.05, cuadro_flores: 0.05, cuadro_noche: 0.05, vitrina: 0.32, cuna: 0.3, mesa: 0.42, incubadora: 0.26, maceta: 0.28, silla: 0.22,
 };
 

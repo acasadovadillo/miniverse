@@ -61,6 +61,8 @@ function search(w, a, b, memo) {
   }
   return null;
 }
+// Is there a way on foot from one point to another, straight or round what is in between? (business.js: to a player's counter)
+export function canWalk(w, a, b) { const memo = new Map(); return !blockedLine(w, a, b, memo) || !!search(w, a, b, memo); }
 // R: a road of routines.js { pts, at, len, out: [first, last] of its points outdoors, or null }. The same road, or one like it
 // that goes round what is in the way
 export function wayRound(w, R) {

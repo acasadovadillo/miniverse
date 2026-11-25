@@ -17,6 +17,7 @@ import { apagado } from '../arte.js';
 import { fountain, FOUNT_MATS } from './fountain3d.js';
 import { mailbox, MAIL_MATS } from './mailbox3d.js';
 import { pew } from './chapel3d.js';
+import { shopCounter, displayShelf, goodsCrate } from './shop3d.js';
 import { tintOf } from './tints.js';
 import { trough, hitchingPost } from './stable3d.js';
 import { rodRest } from './rest3d.js';
@@ -647,6 +648,9 @@ const BUILD = {
     m.box('dark', -0.2, 0.13, 0.36, 0.2, 0.155, 0.48).box('iron', -0.18, 0.155, 0.38, 0.18, 0.16, 0.395).box('iron', -0.18, 0.155, 0.43, 0.18, 0.16, 0.445);
   },
   pew(m) { pew(m); },   // (chapel3d.js)
+  shop_counter(m) { shopCounter(m); },   // (a player's business: shop3d.js)
+  display_shelf(m) { displayShelf(m); },
+  goods_crate(m) { goodsCrate(m); },
   colmena(m) {
     for (const [x, z] of [[-0.25, -0.2], [0.21, -0.2], [-0.25, 0.16], [0.21, 0.16]]) m.box('dark', x, 0, z, x + 0.04, 0.3, z + 0.04);
     m.box('wood', -0.3, 0.3, -0.25, 0.3, 0.34, 0.25);

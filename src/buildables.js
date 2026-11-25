@@ -9,6 +9,7 @@ import { RECIPES } from './recipes.js';
 
 export const BUILD_CATS = {
   Muebles: ['silla', 'mesa', 'mesa_grande', 'mesa_baja', 'mesita', 'sofa', 'sillon', 'cama', 'cama_doble', 'cama_nino', 'cuna', 'cofre', 'armario', 'comoda', 'estanteria', 'vitrina', 'chimenea', 'taburete', 'barra', 'barril', 'barber_chair', 'pew'],
+  Business: ['shop_counter', 'display_shelf', 'goods_crate'],   // (a player's own business, business.js; its name, build.cat.Business)
   'Cocina y baño': ['encimera', 'alacena', 'fregadero', 'banera', 'lavabo', 'inodoro', 'mueble_bano'],
   Estaciones: ['banco', 'cantero', 'horno', 'telar', 'cocina', 'yunque', 'quesera', 'alambique', 'noria'],
   Exterior: ['barca', 'pozo', 'big_well', 'wheelbarrow', 'tent', 'campfire', 'brazier', 'signpost', 'stone_bench', 'stone_trough', 'jetty', 'stone_bridge', 'watchtower', 'watchtower_tall', 'lighthouse', 'lighthouse_stone', 'lighthouse_black', 'bell_frame', 'net_rack', 'fish_rack', 'hide_rack', 'log_pile', 'firewood', 'plank_stack', 'sawpit', 'chop_block', 'charcoal_clamp', 'charcoal_heap', 'hayrick', 'hay_pile', 'ore_cart', 'rail', 'spoil_heap', 'mine_front', 'crypt_hatch', 'beached_up', 'beached_trestle', 'beached_side', 'beached_keel', 'beached_buried', 'pennant', 'post_lantern', 'ivy', 'sand_drift', 'salt_lick'],   // (la barca: se amarra en el agua, ver crew.js; el pozo, en un hoyo cavado con la pala, ver scenes.js)
@@ -30,9 +31,9 @@ for (const [cat, ids] of Object.entries(BUILD_CATS)) for (const id of ids) {
 // al haber tenido sus materiales, como las estaciones y lo del rancho; su plano se compra en una tienda (economy.js,
 // { plan }) y enseña a construirlos para siempre (crafting.js, learnPlan). Quien ya sabía hacerlos cuando llegaron los
 // planos, los conserva (crafting.js, reset; PLANS_V: la tanda de planos, para que valga también al añadir más)
-export const PLANS = new Set([...BUILD_CATS.Muebles, ...BUILD_CATS['Cocina y baño'], 'barca', 'wheelbarrow'].filter(id => BUILDABLE[id]));
+export const PLANS = new Set([...BUILD_CATS.Muebles, ...BUILD_CATS['Cocina y baño'], 'barca', 'wheelbarrow', ...BUILD_CATS.Business].filter(id => BUILDABLE[id]));
 export const PLANS_V = 2;
 // What was born with its plan: nobody could build it before, so an old save never gets it for free (crafting.js, reset),
 // whatever its planos number
-export const PLAN_BORN = new Set(['wheelbarrow', 'barber_chair', 'pew']);
+export const PLAN_BORN = new Set(['wheelbarrow', 'barber_chair', 'pew', ...BUILD_CATS.Business]);
 for (const r of RECIPES) if (PLANS.has(r.out)) r.plan = true;
