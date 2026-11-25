@@ -285,6 +285,7 @@ export class Overworld {
     this.onTouch = null;          // avisa de cada trozo que cambia (para jugar juntos en directo)
     this.touches = 0;             // sube con cada cambio de cualquier trozo (lo lejano solo se vuelve a mirar entonces)
     this.planV = 0;               // goes up with each plan drawn, begun or gone (plans.js)
+    this.wear = null;             // how what is built has worn (wear.js), in the world being played
     this.onPlanTaken = null;      // told of a plan (its key) whose tile and layer something real takes
     // (las casas tenían un candelabro por su cuenta, que se apagaba aparte: "c:x,y" en d.off. Ya no lo hay; lo que quede
     // de entonces se olvida y se guarda así)
@@ -695,6 +696,8 @@ export class Overworld {
   at(layer, tx, ty) { return this.ownAt(layer, tx, ty) ?? this.baseAt(layer, tx, ty); }
   pieceAt(tx, ty) { const v = this.at('placed', tx, ty); return v && PIECES[parsePlaced(v)[0]]; }
 
+  // How worn what a player built in a tile is: 0 as new, 1 weathered, 2 worn (wear.js; what came with the world, always 0)
+  wearAt(layer, tx, ty) { return this.wear ? this.wear.at(layer, tx, ty) : 0; }
   // Contenido de un trozo con los cambios del jugador aplicados
   contentFor(cx, cy) {
     const own = wrapIndex(cx, CHUNK);
@@ -1085,6 +1088,7 @@ export class Overworld {
     const cx = Math.floor(tx / CHUNK), cy = Math.floor(ty / CHUNK), layer = layerOf(id), d = this.delta(cx, cy, true);
     this.setLevel(tx, ty, id);   // (antes de ponerlo: lo de antes en la casilla, sin altura, se distingue así)
     (d[layer] ||= {})[`${tx},${ty}`] = rot ? `${id}@${rot}` : id;
+    this.wear?.put(d, layer, `${tx},${ty}`, id);   // (as new: wear.js)
     this.planGone(d, layer, tx, ty);
     if (PIECES[id]?.kind === 'gate') (d.closed ||= {})[`${tx},${ty}`] = true;   // (la puerta de valla empieza cerrada: el cercado ya guarda)
     if (CHESTS[id]) d.chest[`${tx},${ty}`] = Array(CHESTS[id][0]).fill(null);   // (la mochila en el suelo es como un cofre; el armario, para la ropa)
@@ -1105,6 +1109,7 @@ export class Overworld {
       (d.gone ||= {})[k] = true;
     }
     (d.placed ||= {})[k] = id;
+    this.wear?.put(d, 'placed', k, id);
     if (d.closed) delete d.closed[k];
     if (PIECES[id]?.kind === 'gate') (d.closed ||= {})[k] = true;
     this.touchAround(tx, ty);
@@ -1124,6 +1129,7 @@ export class Overworld {
     if (!this.ownAt(layer, tx, ty)) return false;
     const d = this.delta(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK)), was = d[layer][k];
     delete d[layer][k];
+    this.wear?.gone(d, layer, k);
     if (d.pos) delete d.pos[`${layer}:${k}`];
     if (layer === 'placed' && CHESTS[o.placed]) delete d.chest[k];
     if (layer === 'placed' && d.barrow) delete d.barrow[k];   // (a wheelbarrow's id and big things: who takes it has read them first, barrow.js)
@@ -1142,7 +1148,7 @@ export class Overworld {
     if (id === 'air') {
       const w = this.wellOf(tx, ty) || this.towerOf(tx, ty);   // (a tile of a big well or a watchtower that is not its anchor: it goes whole, from its anchor)
       if (w && (w.tx !== tx || w.ty !== ty) && this.ownAt('placed', w.tx, w.ty)) this.setTile(w.tx, w.ty, 'air');
-      for (const layer of ['floor', 'placed', 'roof', 'hang', 'rug']) { if (d[layer]) delete d[layer][k]; if (d.pos) delete d.pos[`${layer}:${k}`]; }
+      for (const layer of ['floor', 'placed', 'roof', 'hang', 'rug']) { if (d[layer]) delete d[layer][k]; if (d.pos) delete d.pos[`${layer}:${k}`]; this.wear?.gone(d, layer, k); }
       for (const l of ['chest', 'closed', 'off', 'machine', 'tilled', 'barrow', 'manure', 'compost', 'trough']) if (d[l]) delete d[l][k];
       for (const layer of ['floor', 'placed', 'roof']) this.planGone(d, layer, tx, ty);
       for (const layer of ['floor', 'placed', 'roof', 'hang', 'rug']) if (this.baseAt(layer, tx, ty)) (d.gone ||= {})[goneKey(layer, k)] = true;
@@ -1154,6 +1160,7 @@ export class Overworld {
       this.setLevel(tx, ty, id);
       if (this.baseAt(layer, tx, ty)) (d.gone ||= {})[goneKey(layer, k)] = true;   // (lo que venía puesto ya no está: al quitar esto no vuelve)
       (d[layer] ||= {})[k] = id;
+      this.wear?.put(d, layer, k, id);
       this.planGone(d, layer, tx, ty);
     }
     this.touchAround(tx, ty);

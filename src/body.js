@@ -100,7 +100,7 @@ const LAND_DROP = 2;                                     // m of fall that make 
 const DIRT_RAIN = 0.02, DIRT_SWIM = 8, DIRT_SWIM_MIN = 15;
 const MUD_SOFT = 0.08, MUD_RAIN = 0.03, BAREFOOT = 1.5;  // per metre walked: tilled, dug or swamp; any soil on a rain day
 const MUD_WADE = 10, MUD_DRY = 0.06;                     // (dry mud flakes off in about 17 min from 60, not a whole session)
-const WET_RAIN = 1.1, WET_STORM = 1.8, WET_MELT = 0.8;   // melting snow: wet per point of snow (a full coat of snow melted
+const WET_RAIN = 1.1, WET_STORM = 1.8, WET_LEAK = 0.25, WET_MELT = 0.8;   // melting snow: wet per point of snow (a full coat of snow melted
                                                          // by the hearth soaks you, §1.1; nothing dries while it melts)
 const DRY_RATE = 0.4, DRY_FIRE = 4, DRY_COLD = 0.5, DRY_SUN = 0.5;
 const SNOW_GAIN = 0.8, SNOW_MELT = 2;
@@ -287,7 +287,8 @@ export class Body {
       this.blood = Math.max(0, this.blood - BLOOD_WASH * dt);
     } else {
       if (wade) { this.wetLegs = Math.max(this.wetLegs, Math.min(MAX, (p.depth || 0) * 100)); this.mud = Math.max(0, this.mud - MUD_WADE * dt); }
-      if (raining) this.wet = Math.min(MAX, this.wet + (info.rain >= 2 ? WET_STORM : WET_RAIN) * (1 - this.cl.rain) * dt);
+      const leak = !out && rainDay && !!g.wear?.under;   // (under a worn roof, a quarter: wear.js)
+      if (raining || leak) this.wet = Math.min(MAX, this.wet + (info.rain >= 2 ? WET_STORM : WET_RAIN) * (leak ? WET_LEAK : 1) * (1 - this.cl.rain) * dt);
       else if (!this.bath && !melting) {
         // Drying: faster in the sun, by a fire and the warmer it is; at half speed in the cold
         let k = 1 + Math.max(0, this.airC) / 20 + (out && this.sunny ? DRY_SUN : 0);

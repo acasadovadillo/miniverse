@@ -4,11 +4,14 @@ import * as THREE from 'three';
 import { photoScaleOf } from './textures.js';
 
 export class Builder {
-  constructor() { this.pos = []; this.nor = []; this.uv = []; this.idx = []; this.col = null; this.color = null; }
+  constructor() { this.pos = []; this.nor = []; this.uv = []; this.idx = []; this.col = null; this.color = null; this.wr = null; this.wearNow = 0; }
   get empty() { return !this.idx.length; }
   // Color de lo que se añada a partir de ahora (para materiales con color por vértice); null: sin color
   tint(c) { this.color = c ? new THREE.Color(c) : null; if (c && !this.col) this.col = new Array((this.pos.length / 3) * 3).fill(1); return this; }
   pushCol(n) { if (!this.col) return; const c = this.color || WHITE; for (let i = 0; i < n; i++) this.col.push(c.r, c.g, c.b); }
+  // How worn what is added from now on is (0 to 1: wear3d.js); per vertex, with its height in its own piece (before any lift)
+  wear(w) { if (w && !this.wr) { this.wr = []; for (let i = 1; i < this.pos.length; i += 3) this.wr.push(0, this.pos[i]); } this.wearNow = w; return this; }
+  pushWear() { const n = this.pos.length / 3; for (let i = this.wr.length / 2; i < n; i++) this.wr.push(this.wearNow, this.pos[i * 3 + 1]); }
   // Cara de cuatro puntos (en orden antihorario visto desde fuera), con su normal y sus uv
   quad(a, b, c, d, n, uvs) {
     const i = this.pos.length / 3;
@@ -17,6 +20,7 @@ export class Builder {
     for (let k = 0; k < 4; k++) this.nor.push(...n);
     for (const t of uvs) this.uv.push(...t);
     this.idx.push(i, i + 1, i + 2, i, i + 2, i + 3);
+    if (this.wr) this.pushWear();
   }
   // Igual, pero da la vuelta a los puntos si su orden no mira hacia n (para caras calculadas al vuelo)
   quadN(a, b, c, d, n, uvs) {
@@ -31,6 +35,7 @@ export class Builder {
     for (let k = 0; k < 3; k++) this.nor.push(...n);
     for (const t of uvs) this.uv.push(...t);
     this.idx.push(i, i + 1, i + 2);
+    if (this.wr) this.pushWear();
   }
   // Caja alineada con los ejes. s: metros por repetición de la textura. skip: caras que no van ('px nx py ny pz nz')
   box(x0, y0, z0, x1, y1, z1, { s = 1, skip = '' } = {}) {
@@ -68,6 +73,7 @@ export class Builder {
       this.pushCol(ps.length);
       ps.forEach((p, j) => { const n = ns[j], l = Math.hypot(...n) || 1; this.pos.push(...p); this.nor.push(n[0] / l, n[1] / l, n[2] / l); this.uv.push(...uvOf(p, m)); });
       for (let j = 1; j < ps.length - 1; j++) this.idx.push(i, i + j, i + j + 1);
+      if (this.wr) this.pushWear();
       void c;
     };
     const S = [-1, 1];
@@ -115,6 +121,7 @@ export class Builder {
     }
     if (g.index) for (let i = 0; i < g.index.count; i++) this.idx.push(g.index.getX(i) + off);
     else for (let i = 0; i < pos.count; i++) this.idx.push(i + off);
+    if (this.wr) this.pushWear();
     return this;
   }
   add(b) {
@@ -123,6 +130,7 @@ export class Builder {
     if (this.col) { if (b.col && !this.color) this.col.push(...b.col); else this.pushCol(b.pos.length / 3); }
     this.pos.push(...b.pos); this.nor.push(...b.nor); this.uv.push(...b.uv);
     for (const i of b.idx) this.idx.push(i + off);
+    if (this.wr) this.pushWear();
   }
   geometry() {
     const g = new THREE.BufferGeometry();
@@ -130,6 +138,7 @@ export class Builder {
     g.setAttribute('normal', new THREE.Float32BufferAttribute(this.nor, 3));
     g.setAttribute('uv', new THREE.Float32BufferAttribute(this.uv, 2));
     if (this.col) g.setAttribute('color', new THREE.Float32BufferAttribute(this.col, 3));
+    if (this.wr) g.setAttribute('aWear', new THREE.Float32BufferAttribute(this.wr, 2));
     g.setIndex(this.idx);
     g.computeBoundingSphere();
     return g;

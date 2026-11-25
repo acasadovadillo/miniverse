@@ -54,7 +54,7 @@ export class Prompts {
       if (prey) this.add('mouse:l', t('prompt.attack'), 0, true);
     }
     // (building: what is taken down holding, build.js; and the plan the hammer is on, with its swings in the ring, plans.js)
-    const plan = g.plans?.row() || null, down = plan || (g.build.on ? g.build.holdRow() : null);
+    const plan = g.plans?.row() || g.wear?.row() || null, down = plan || (g.build.on ? g.build.holdRow() : null);
     if (plan) { rows.length = 0; this.click = true; this.add('mouse:l', plan.dim ? plan.text : `${plan.text} ${t('prompt.hold')}`, plan.dim ? 0 : 1, plan.dim); }
     else if (down) { rows.length = 0; this.add('mouse:l', `${down.text} ${t('prompt.hold')}`, 1); }
     if (social && !down) {

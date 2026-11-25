@@ -15,6 +15,7 @@ import { front } from '../art/stations.js';
 import { PAL } from '../arte.js';
 import { roofShape, ROOF_CAP } from '../world/roof.js';
 import { injectContact, contactKey } from './contact3d.js';
+import { LOOK, INSIDE } from './wear3d.js';
 
 // Puertas y contraventanas de tablas pintadas con uno de cinco colores minerales por casa, dintel y alféizar en las
 // ventanas, cornisa, esquinas de sillería o de tablas y tapajuntas en los muros, y tejados a dos aguas (ver roof.js)
@@ -98,6 +99,8 @@ export const wallMask = (scene, tx, ty) => (isWall(scene.pieceAt(tx + 1, ty)) ? 
 const EXTERIOR = { muro_madera: 'siding', muro_piedra: 'wallStone', bell_gable: 'wallStone' };   // los demás son de yeso con entramado
 const framed = id => !EXTERIOR[id];
 
+// (the side of a wall that gives on to the house, worn, shows it less: wear3d.js)
+const inside = (B, yes) => { if (yes && B.wearNow) B.wearNow *= INSIDE; return B; };
 // emit(materialKey, side) → Builder en el que añadir esa parte
 export function wallTile(scene, tx, ty, id, emit, extras) {
   const mask = wallMask(scene, tx, ty), cx = tx + 0.5, cz = ty + 0.5;
@@ -134,7 +137,7 @@ export function wallTile(scene, tx, ty, id, emit, extras) {
     if (dir === 'pz' || dir === 'nz') return (dir === 'pz' ? 1 : -1) === outX || (sideX === 'free') ? ext : 'plaster';
     return (dir === 'px' ? 1 : -1) === outZ || sideZ === 'free' ? ext : 'plaster';
   };
-  for (const f of ['px', 'nx', 'pz', 'nz']) emit(faceMat(f), side).box(cx - T, 0, cz - T, cx + T, WALL_H, cz + T, { skip: ['px', 'nx', 'py', 'ny', 'pz', 'nz'].filter(k => k !== f).join(' ') });
+  for (const f of ['px', 'nx', 'pz', 'nz']) inside(emit(faceMat(f), side), faceMat(f) === 'plaster').box(cx - T, 0, cz - T, cx + T, WALL_H, cz + T, { skip: ['px', 'nx', 'py', 'ny', 'pz', 'nz'].filter(k => k !== f).join(' ') });
   emit('frame', side).box(cx - T, WALL_H - 0.02, cz - T, cx + T, WALL_H, cz + T, { skip: 'ny px nx pz nz' });
   // Rodapié en las caras del poste que dan a la casa sin brazo delante: el lado liso de un muro en T (si no,
   // queda cortado) y, en un rincón saliente, las dos (la de lo largo de x tapa la esquina)
@@ -178,15 +181,18 @@ function familyOf(scene, tx, ty, X) {
 function run(emit, extras, { id, X, c, side, a, b, holes, ends, painting, half, tile }) {
   // Punto y caja en coordenadas del tramo: u a lo largo, k hacia el lado "más" (+z si X, +x si no)
   const P = (u, y, k = 0) => (X ? [u, y, c + k] : [c + k, y, u]);
-  const box = (key, u0, u1, y0, y1, k0, k1, skip = '') => { const B = emit(key, side), a0 = Math.min(u0, u1), a1 = Math.max(u0, u1), c0 = c + Math.min(k0, k1), c1 = c + Math.max(k0, k1); if (X) B.box(a0, y0, c0, a1, y1, c1, { skip }); else B.box(c0, y0, a0, c1, y1, a1, { skip: swapSkip(skip) }); };
+  let house = false;   // (what is being added is on the side of the house: worn, less; wear3d.js)
+  const box = (key, u0, u1, y0, y1, k0, k1, skip = '') => { const B = inside(emit(key, side), house), a0 = Math.min(u0, u1), a1 = Math.max(u0, u1), c0 = c + Math.min(k0, k1), c1 = c + Math.max(k0, k1); if (X) B.box(a0, y0, c0, a1, y1, c1, { skip }); else B.box(c0, y0, a0, c1, y1, a1, { skip: swapSkip(skip) }); };
   const outSign = side === 's' || side === 'e' ? 1 : side === 'n' || side === 'w' ? -1 : 0;
   const ext = EXTERIOR[id] || 'plaster';
   const matPlus = side === 'in' ? 'plaster' : side === 'free' ? ext : outSign > 0 ? ext : 'plaster';
   const matMinus = side === 'in' ? 'plaster' : side === 'free' ? ext : outSign < 0 ? ext : 'plaster';
   // El muro: tramos enteros entre huecos y encima y debajo de cada hueco. Cada cara de su material
+  const isIn = s => side === 'in' || (side !== 'free' && s !== outSign);
   const slab = (u0, u1, y0, y1, endA, endB) => {
-    box(matPlus, u0, u1, y0, y1, -T, T, 'px nx py ny nz');
-    box(matMinus, u0, u1, y0, y1, -T, T, 'px nx py ny pz');
+    house = isIn(1); box(matPlus, u0, u1, y0, y1, -T, T, 'px nx py ny nz');
+    house = isIn(-1); box(matMinus, u0, u1, y0, y1, -T, T, 'px nx py ny pz');
+    house = false;
     box('frame', u0, u1, y0, y1, -T, T, 'px nx ny pz nz');                      // canto de arriba
     if (endA) box(ext, u0, u1, y0, y1, -T, T, 'px py ny pz nz');
     if (endB) box(ext, u0, u1, y0, y1, -T, T, 'nx py ny pz nz');
@@ -207,9 +213,9 @@ function run(emit, extras, { id, X, c, side, a, b, holes, ends, painting, half, 
   if (u < b) slab(u, b, 0, WALL_H, u === a && ends[0], ends[1]);
   // Por dentro: rodapié. Por fuera: zócalo de piedra y, en los de entramado, postes, vigas y riostras
   for (const s of [1, -1]) {
-    const inner = side === 'in' || (side !== 'free' && s !== outSign);
+    const inner = isIn(s);
     const k0 = s * T, dir = s;
-    if (inner) { cutRun(a, b, holes.filter(h => h.door), (u0, u1) => box('frame', u0, u1, 0, 0.12, k0, k0 + dir * 0.02)); continue; }
+    if (inner) { house = true; cutRun(a, b, holes.filter(h => h.door), (u0, u1) => box('frame', u0, u1, 0, 0.12, k0, k0 + dir * 0.02)); house = false; continue; }
     if (side === 'in') continue;
     cutRun(a, b, holes.filter(h => h.door), (u0, u1) => box('stone', u0, u1, 0, PLINTH, k0, k0 + dir * 0.05));
     if (!framed(id)) {
@@ -241,10 +247,12 @@ function run(emit, extras, { id, X, c, side, a, b, holes, ends, painting, half, 
     const h0 = h.u - h.half, h1 = h.u + h.half;
     for (const k of [T, -T]) {
       const o = Math.sign(k);
+      house = isIn(o);
       box('frame', h0 - 0.07, h0, h.y0, h.y1 + 0.07, k, k + o * 0.05);
       box('frame', h1, h1 + 0.07, h.y0, h.y1 + 0.07, k, k + o * 0.05);
       box('frame', h0, h1, h.y1, h.y1 + 0.07, k, k + o * 0.05);
     }
+    house = false;
     box('glass', h0, h1, h.y0, h.y1, -0.008, 0.008);
     // (abierta y en una pared que da fuera: su luz de noche, pegada a la fachada; ver glow.js. Las cerradas rehacen su trozo.
     // Un centímetro por delante del alféizar y las contraventanas abiertas, lo que más sale: en el plano del marco o detrás
@@ -353,7 +361,7 @@ export function doorTile(scene, tx, ty, emit, extras) {
 }
 // La hoja de una puerta: tablas con sus refuerzos y el tirador. Gira sobre la bisagra: a = 0 cerrada, 1 abierta
 export function doorLeaf(d, mats) {
-  const lw = d.width, leaf = new Builder(), bars = new Builder();
+  const lw = d.width, leaf = new Builder().wear(d.wear || 0), bars = new Builder().wear(d.wear || 0);
   if (mats.paint) {
     // Cinco tablas con su junta, tres travesaños y dos riostras en Z, del color de la casa; pernios de hierro que
     // cruzan la hoja desde la bisagra, y tirador de anilla
@@ -397,7 +405,7 @@ export function gateTile(scene, tx, ty, emit) {
 }
 // La hoja: tres barras entre dos largueros, de lado a lado. Gira sobre la bisagra: a = 0 cerrada, 1 abierta
 export function gateLeaf(d, mats) {
-  const w = d.width, B = new Builder(), g = new THREE.Group();
+  const w = d.width, B = new Builder().wear(d.wear || 0), g = new THREE.Group();
   for (const y of [0.26, 0.5, 0.74]) B.box(0, y, -0.035, w, y + 0.09, 0.035, { s: 0.5 });
   for (const x of [0.02, w - 0.09]) B.box(x, 0.18, -0.045, x + 0.07, 0.92, 0.045, { s: 0.5 });
   g.position.set(...d.hinge);
@@ -510,6 +518,7 @@ export function roofRegion(scene, tiles, regionKey) {
   const chimneys = [];
   for (const [x, y] of tiles) {
     const raw = scene.at('roof', x, y), id = M.roofs[raw] ? raw : 'tejado_rojo', B = byMat.get(id) || byMat.set(id, new Builder()).get(id);
+    wornTile(scene, x, y, B, soffit, fascia);
     const nw = V(x, y, H(x, y)), ne = V(x + 1, y, H(x + 1, y)), se = V(x + 1, y + 1, H(x + 1, y + 1)), sw = V(x, y + 1, H(x, y + 1)), c = [x + 0.5, top(0, 0, H(x + 0.5, y + 0.5)), y + 0.5];
     for (const tri of [[nw, ne, c], [ne, se, c], [se, sw, c], [sw, nw, c]]) {
       addRoofTri(B, tri);
@@ -528,6 +537,12 @@ export function roofRegion(scene, tiles, regionKey) {
   for (const [id, B] of byMat) g.add(B.mesh(M.roofs[id]));
   g.add(soffit.mesh(M.soffit), fascia.mesh(M.roofEdge));
   return addChimneys(g, chimneys, regionKey);
+}
+// How worn a tile of a roof is, in what is added of it from now on: its cover, its boards below and those of its edge
+function wornTile(scene, x, y, B, soffit, fascia) {
+  const w = LOOK[scene.wearAt ? scene.wearAt('roof', x, y) : 0];
+  B.wear(w); soffit.wear(w); fascia.wear(w);
+  return w;
 }
 // Chimeneas de piedra con su remate, hacia la espalda del hogar (el muro que tiene detrás)
 function addChimneys(g, chimneys, regionKey) {
@@ -555,8 +570,11 @@ export function gableRoof(scene, tiles, regionKey, S) {
   const V = (u, v) => { const eu = u === u0 ? -o : u === u1 ? o : 0, ev = v === v0 ? -o : v === v1 ? o : 0; return P(u + eu, top(v) - (ev ? o * ROOF.level : 0), v + ev); };
   const down = p => [p[0], p[1] - ROOF.thick, p[2]];
   const chimneys = [], count = new Map();
+  const gables = [];   // (the wall each stands on, and how worn it is drawn)
+  let all = 0;   // (how worn its tiles are, all together: the ridge, like most of them)
   for (const [x, y] of tiles) {
     const raw = scene.at('roof', x, y), id = M.roofs[raw] ? raw : 'tejado_rojo', B = byMat.get(id) || byMat.set(id, new Builder()).get(id);
+    all += wornTile(scene, x, y, B, soffit, fascia);
     count.set(id, (count.get(id) || 0) + 1);
     const tu = X ? x : y, tv = X ? y : x;
     for (const va of [tv, tv + 0.5]) {
@@ -572,19 +590,20 @@ export function gableRoof(scene, tiles, regionKey, S) {
   }
   // Caballete: una hilera de tejas a lo largo de la cumbrera (si no la corta lo plano de las casas muy anchas)
   const mid = (v0 + v1) / 2, main = [...count].sort((p, q) => q[1] - p[1])[0][0];
-  if (lvl(mid) < ROOF_CAP) { const ridge = byMat.get(main), y = top(mid), [a, b] = [P(u0 - o, y - 0.03, mid - 0.13), P(u1 + o, y + 0.09, mid + 0.13)]; ridge.box(Math.min(a[0], b[0]), a[1], Math.min(a[2], b[2]), Math.max(a[0], b[0]), b[1], Math.max(a[2], b[2]), { skip: 'ny' }); }
+  if (lvl(mid) < ROOF_CAP) { const ridge = byMat.get(main).wear(all / tiles.length), y = top(mid), [a, b] = [P(u0 - o, y - 0.03, mid - 0.13), P(u1 + o, y + 0.09, mid + 0.13)]; ridge.box(Math.min(a[0], b[0]), a[1], Math.min(a[2], b[2]), Math.max(a[0], b[0]), b[1], Math.max(a[2], b[2]), { skip: 'ny' }); }
   // Hastiales, encima de los muros cortos (a media casilla del borde, por su centro), de alero a alero
   const wall = key => walls.get(key) || walls.set(key, new Builder()).get(key);
   for (const [uc, s] of [[u0 + 0.5, -1], [u1 - 0.5, 1]]) {
     const at = X ? scene.at('placed', Math.floor(uc), Math.floor(mid)) : scene.at('placed', Math.floor(mid), Math.floor(uc)), id = at && parsePlaced(at)[0];
-    const ext = EXTERIOR[id] || 'plaster', inner = 'plaster', a = v0 + 0.5, b = v1 - 0.5;
+    const ext = EXTERIOR[id] || 'plaster', inner = 'plaster', a = v0 + 0.5, b = v1 - 0.5, wx = Math.floor(X ? uc : mid), wy = Math.floor(X ? mid : uc), stage = scene.wearAt ? scene.wearAt('placed', wx, wy) : 0, W = LOOK[stage];
+    gables.push([wx, wy, stage]);
     const under = v => top(v) - ROOF.thick, face = (key, uf, n) => { const B = wall(key); for (let v = a; v < b - 1e-6; v += 0.5) { const w = Math.min(b, v + 0.5); B.quadN(P(uf, WALL_H, v), P(uf, WALL_H, w), P(uf, under(w), w), P(uf, under(v), v), N(n, 0), [[v, WALL_H], [w, WALL_H], [w, under(w)], [v, under(v)]]); } };
-    face(ext, uc + s * T, s); face(inner, uc - s * T, -s);
+    wall(ext).wear(W); face(ext, uc + s * T, s); wall(inner).wear(W * INSIDE); face(inner, uc - s * T, -s); wall(ext).wear(W);
     // (los cantos de los extremos, junto al alero)
     for (const [v, n] of [[a, -1], [b, 1]]) wall(ext).quadN(P(uc - T, WALL_H, v), P(uc + T, WALL_H, v), P(uc + T, under(v), v), P(uc - T, under(v), v), N(0, n), [[0, 0], [0.24, 0], [0.24, under(v) - WALL_H], [0, under(v) - WALL_H]]);
     if (framed(id || 'muro_entramado') && ext === 'plaster') {
       // Viga de atado abajo y pendolón hasta la cumbrera, por fuera
-      const k = uc + s * (T + 0.04), B = wall('timber'), lo = Math.min(uc + s * T, k), hi = Math.max(uc + s * T, k);
+      const k = uc + s * (T + 0.04), B = wall('timber').wear(W), lo = Math.min(uc + s * T, k), hi = Math.max(uc + s * T, k);
       const box3 = (pa, pb) => B.box(Math.min(pa[0], pb[0]), Math.min(pa[1], pb[1]), Math.min(pa[2], pb[2]), Math.max(pa[0], pb[0]), Math.max(pa[1], pb[1]), Math.max(pa[2], pb[2]));
       box3(P(lo, WALL_H, a), P(hi, WALL_H + 0.14, b));
       box3(P(lo, WALL_H + 0.14, mid - 0.07), P(hi, under(mid) - 0.02, mid + 0.07));
@@ -594,7 +613,8 @@ export function gableRoof(scene, tiles, regionKey, S) {
   for (const [id, B] of byMat) g.add(B.mesh(M.roofs[id]));
   g.add(soffit.mesh(M.soffit), fascia.mesh(M.roofEdge));
   for (const [key, B] of walls) if (!B.empty) g.add(B.mesh(M[key]));
-  return addChimneys(g, chimneys, regionKey);
+  addChimneys(g, chimneys, regionKey).userData.gables = gables;
+  return g;
 }
 
 // Un triángulo del tejado, con las tejas en filas paralelas al alero (u a lo largo, v cuesta arriba). Por

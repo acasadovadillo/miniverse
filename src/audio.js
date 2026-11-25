@@ -219,6 +219,7 @@ export const Audio = {
     clop(t, false, k); clop(t + 0.07, false, k * 0.8);
   },
   // Pesca: el corcho cae al agua, una picada de mentira, el chapuzón al clavar y el carrete al recoger
+  drip(k = 1) { const f = 900 + Math.random() * 500; tone([[f, 0.025, 'sine', 0.035 * k], [f * 1.6, 0.04, 'sine', 0.02 * k]]); Audio.noiseHit(2600, 0.02, 0.05 * k); },   // (a drop from a leaking roof)
   plop() { Audio.noiseHit(900, 0.12, 0.22, 'lowpass'); tone([[420, 0.05, 'sine', 0.05], [260, 0.08, 'sine', 0.04]]); },
   nibble: () => tone([[1200, 0.02, 'sine', 0.025], [1500, 0.02, 'sine', 0.02]]),
   // Fishing: the float going under (a real bite; low: a deeper one), the reel's ratchet, the line crying before it breaks

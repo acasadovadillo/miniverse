@@ -20,6 +20,9 @@ import { nearX } from '../world/planet.js';
 import { climate } from '../world/biomes.js';
 import { TEMP, SEASON_C, WEATHER_C } from '../clothing.js';
 import { apagada } from '../opciones.js';
+import { LEAKS } from '../wearrules.js';
+import { ihash } from '../util.js';
+import { Audio } from '../audio.js';
 // (the URL switches of Plan E §11: ?frio=0, no breath in the cold; ?cuerpo=0, no drops from the soaked)
 const PUFFS_ON = !apagada('frio'), DRIPS_ON = !apagada('cuerpo');
 // Texturas pintadas para el fuego, el humo y los copos: una llama en gota (blanca, el color va por instancia) y
@@ -67,7 +70,8 @@ const HEAD_UNDER = 0.42, SWIM_EYE = 0.7;   // (as entities.js and engine.js: onl
 // DRIP_WET (at most DRIPS falling). The air is worked out here, from the climate at the player, once every AIR_EVERY s
 // (people within 15 m share it); under a roof, in a cave or in the water, no breath shows
 const PUFFS = 12, PUFF_EVERY = 2.6, PUFF_LIFE = 1.9, PUFF_R = 15, PUFF_AIR = 3, AIR_EVERY = 1;
-const DRIPS = 20, DRIP_RATE = 2.5, DRIP_R = 12, DRIP_WET = 0.6;
+const LEAK_H = 2.74, NO_LEAKS = [];   // (from the boards of the ceiling to the floor)
+const DRIPS = 28, DRIP_RATE = 2.5, DRIP_R = 12, DRIP_WET = 0.6;
 
 // Which way a wall, a door or a fence in this tile runs (0: along x), from what it joins
 function wallYaw(scene, tx, ty) {
@@ -167,6 +171,13 @@ export class Fx {
     this.breath.count = 0; this.breath.frustumCulled = false; this.breath.renderOrder = 5; this.breath.visible = false; this.group.add(this.breath);
     this.drips = new THREE.InstancedMesh(new THREE.SphereGeometry(0.011, 5, 3), new THREE.MeshBasicMaterial({ color: '#dcecf4', transparent: true, opacity: 0.7, depthWrite: false }), DRIPS);
     this.drips.count = 0; this.drips.frustumCulled = false; this.drips.visible = false; this.group.add(this.drips);
+    // (the wet floor under a leak of the roof: wear.js, LEAKS at most)
+    const pool = new THREE.CircleGeometry(1, 36), pp = pool.attributes.position;
+    for (let i = 1; i < pp.count - 1; i++) { const a = (i - 1) / 36 * Math.PI * 2, k = 0.84 + 0.09 * Math.sin(a * 2 + 0.6) + 0.07 * Math.sin(a * 5 + 2); pp.setXY(i, pp.getX(i) * k, pp.getY(i) * k); }
+    pp.setXY(pp.count - 1, pp.getX(1), pp.getY(1));
+    this.pools = new THREE.InstancedMesh(pool.rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial({ color: '#1b1f22', roughness: 0.12, transparent: true, opacity: 0.4, depthWrite: false }), LEAKS);
+    this.pools.count = 0; this.pools.frustumCulled = false; this.pools.renderOrder = 1; this.pools.visible = false; this.pools.receiveShadow = true; this.group.add(this.pools);
+    this.leakAt = new Map();   // "x,y" of a leaking tile → { t: when its next drop falls, wet: how big its pool is, 0 to 1 }
     this.puffs = []; this.falling = []; this.breathAt = new WeakMap(); this.dripAcc = new WeakMap(); this.air = null; this.airAt = -1;
   }
   // Diving: the bubbles (instanced little spheres, pale and see-through) and the marine snow (points that wrap round the
@@ -381,9 +392,10 @@ export class Fx {
     return geo;
   }
   // Una onda en el agua en (x, z): size, lo que llega a abrirse (m de radio), y a, lo que se ve al empezar
-  rippleAt(x, z, size = 1, a = 0.5) {
+  // (y: not on the water but on a floor, at that height)
+  rippleAt(x, z, size = 1, a = 0.5, y = WATER_Y + 0.012) {
     if (this.ripples.length >= RIPPLES) this.ripples.shift();
-    this.ripples.push({ x, z, t0: this.view.clock.elapsedTime, size, a });
+    this.ripples.push({ x, z, y, t0: this.view.clock.elapsedTime, size, a });
   }
   updateRipples() {
     const R = this.ripples, now = this.view.clock.elapsedTime, fade = this.rings.geometry.attributes.fade;
@@ -391,7 +403,7 @@ export class Fx {
     let n = 0;
     for (const q of R) {
       const k = (now - q.t0) / RIPPLE_LIFE, r = q.size * (0.25 + 0.75 * Math.sqrt(k));   // (rápida al principio, luego despacio)
-      tmp.position.set(q.x, WATER_Y + 0.012, q.z); tmp.rotation.set(0, 0, 0); tmp.scale.set(r * 2, 1, r * 2); tmp.updateMatrix();
+      tmp.position.set(q.x, q.y, q.z); tmp.rotation.set(0, 0, 0); tmp.scale.set(r * 2, 1, r * 2); tmp.updateMatrix();
       this.rings.setMatrixAt(n, tmp.matrix); fade.array[n] = q.a * (1 - k) * (1 - k) * Math.min(1, k * 12); n++;
     }
     this.rings.count = n;
@@ -629,17 +641,53 @@ export class Fx {
     }
     this.breath.count = n; this.breath.visible = n > 0;
     if (n) { this.breath.instanceMatrix.needsUpdate = true; fade.needsUpdate = true; }
+    this.updateLeaks(game, scene, live, dt, t);
     // the drops: falling until the ground they were above
     let k = 0;
     for (let i = 0; i < D.length; i++) {
       const q = D[i];
       q.vy -= 9.8 * dt; q.y += q.vy * dt;
-      if (q.y <= q.gy) { D.splice(i--, 1); continue; }
-      tmp.position.set(q.x, q.y, q.z); tmp.rotation.set(0, 0, 0); tmp.scale.set(1, 1.8, 1); tmp.updateMatrix();
+      if (q.y <= q.gy) { D.splice(i--, 1); if (q.leak) this.splash(q); continue; }
+      tmp.position.set(q.x, q.y, q.z); tmp.rotation.set(0, 0, 0); tmp.scale.set(q.leak ? 0.42 : 1, q.leak ? Math.max(0.8, Math.min(3, -q.vy)) : 1.8, q.leak ? 0.42 : 1); tmp.updateMatrix();
       this.drips.setMatrixAt(k++, tmp.matrix);
     }
     this.drips.count = k; this.drips.visible = k > 0;
     if (k) this.drips.instanceMatrix.needsUpdate = true;
+  }
+  // The leaks of a worn roof while it rains (wear.js says which, near the player): drops from the boards to the floor, each
+  // from its place in the tile, and the floor wet under them. It grows while it drips and dries when it stops
+  updateLeaks(game, scene, live, dt, t) {
+    const W = game.wear, on = live && W?.raining, L = on ? W.leaks : NO_LEAKS, S = this.leakAt;
+    for (const q of L) {
+      const k = q.x + ',' + q.y;
+      let e = S.get(k);
+      if (!e) { const a = ihash(q.x, q.y, 71), b = ihash(q.x, q.y, 72); S.set(k, (e = { x: q.x, y: q.y, dx: 0.25 + 0.5 * a, dz: 0.25 + 0.5 * b, t: t + a, wet: 0, on: 0 })); }
+      e.on = t;
+      if (t < e.t) continue;
+      e.t = t + 0.4 + 0.9 * Math.random();
+      const x = nearX(q.x + e.dx, game.player.x) + (Math.random() - 0.5) * 0.05, z = q.y + e.dz + (Math.random() - 0.5) * 0.05, gy = this.view.groundY(scene, x, z);
+      if (this.falling.length >= DRIPS) this.falling.shift();
+      this.falling.push({ x, z, y: gy + LEAK_H, vy: 0, gy, leak: true, d: q.d });
+    }
+    if (!S.size) { if (this.pools.visible) { this.pools.visible = false; this.pools.count = 0; } return; }
+    let n = 0;
+    for (const [k, e] of S) {
+      const wet = t - e.on < 1;
+      e.wet = Math.max(0, Math.min(1, e.wet + (wet ? dt / 25 : -dt / 60)));
+      if (!live || (!wet && e.wet <= 0)) { S.delete(k); continue; }
+      if (n >= LEAKS) continue;
+      const x = nearX(e.x + e.dx, game.player.x), z = e.y + e.dz, r = 0.05 + 0.2 * Math.sqrt(e.wet);
+      tmp.position.set(x, this.view.groundY(scene, x, z) + 0.012, z); tmp.rotation.set(0, (e.dx * 37) % 6.28, 0); tmp.scale.set(r, 1, r * 0.86); tmp.updateMatrix();
+      this.pools.setMatrixAt(n++, tmp.matrix);
+    }
+    this.pools.count = n; this.pools.visible = n > 0;
+    if (n) this.pools.instanceMatrix.needsUpdate = true;
+  }
+  // A drop of a leak on the floor: a small ring and two droplets
+  splash(q) {
+    this.rippleAt(q.x, q.z, 0.07, 0.5, q.gy + 0.016);
+    for (let i = 0; i < 2 && this.falling.length < DRIPS; i++) this.falling.push({ x: q.x + (Math.random() - 0.5) * 0.06, z: q.z + (Math.random() - 0.5) * 0.06, y: q.gy + 0.01, vy: 0.7 + Math.random() * 0.5, gy: q.gy });
+    if (q.d < 7) Audio.drip(1 - q.d / 7);
   }
   // One puff from this person's mouth (their head bone, forward of it, where they face)
   puff(m, t) {

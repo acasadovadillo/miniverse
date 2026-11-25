@@ -145,6 +145,8 @@ export function townDigWhy(tx, ty) {
 }
 const inHouse = (x, y, m = 0) => inTavern(x, y, m) || inChapel(x, y, m) || Object.values(HOUSES).some(h => (!h.project || projects[h.project]) && x > h.x0 - m && x < h.x1 + m && y > h.y0 - m && y < h.y1 + m);
 // ¿Está dentro del solar de tu casa (el de la casa ampliada)? Ahí se puede construir aunque sea terreno del pueblo
+// The tile is of the lot of the player's house in the village, or of its eaves (the village keeps it: wear.js)
+export const onOwnLot = (tx, ty) => { const H = ownLot(); return tx >= H.x0 - 1 && tx <= H.x1 && ty >= H.y0 - 1 && ty <= H.y1; };
 export const inOwnHouse = (x, y) => { const H = ownLot(); return x > H.x0 && x < H.x1 && y > H.y0 && y < H.y1; };
 export const pondDist = (x, y) => Math.hypot((x - POND.x) / POND.rx, (y - POND.y) / POND.ry);
 export const inYard = (x, y, m = 0) => x > YARD.x0 - m && x < YARD.x1 + m && y > YARD.y0 - m && y < YARD.y1 + m;

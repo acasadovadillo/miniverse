@@ -55,6 +55,7 @@ import { freePlace } from './gather.js';
 import { PIECE_IDS, salvage, UNDO_MS, HOLD_S, matText } from './build.js';
 import { planned, hitsOf } from './plans.js';
 import * as ST from './structure.js';   // (R5-1: building that holds)
+import { Wear, ruleOf, stageAt, placeK, DAY_K, LEAKS } from './wear.js';   // (R5-3: wear and repair)
 import { houseBlueprint, familyBlueprint, tavernBlueprint } from './world/blueprints.js';
 import { BUILDABLE, PLANS, PLANS_V, PLAN_BORN } from './buildables.js';
 import { PIECES, parsePlaced } from './pieces.js';
@@ -100,7 +101,7 @@ import { HORSE_ACTS as LIVE_HORSE_ACTS } from './live.js';
 import { screenToWorld } from './camera.js';
 import { makeCave } from './world/underground.js';
 import { CROPS, START_KIT, thirstOf, clothesText, WEAR_SLOTS, wearSlotLabel, itemNoun } from './items.js';
-import { REMARKS, remarkKey, remarkLines } from './remarks.js';
+import { REMARKS, GOOD_REMARKS, remarkKey, remarkLines } from './remarks.js';
 import { PEOPLE } from './neighbors.js';
 import * as RT from './routines.js';
 import { wayRound } from './world/walkways.js';
@@ -8323,6 +8324,169 @@ async function soloTests(game) {
       I.select(P.slot()); const S3 = game.view3d.world.site; draw(); check(S3.mesh?.visible && S3.mesh.count === P.list.reduce((n, e) => n + e.boxes.length, 0), `the blueprint: ${S3.mesh?.count}`);
       p().x = x + 1.5; p().y = y + 0.6; await swingAt(key('placed', 1, -1)); draw(); check(S3.part.children.length > 0, 'nothing half built'); const tall = Math.max(...S3.part.children.map(o => { o.geometry.computeBoundingBox(); return o.geometry.boundingBox.max.y; })); check(tall < 2.0, `a third of a wall: ${tall}`);
       for (const e of [...P.list]) P.drop(e.key); P.refresh(); draw(); draw(); check(!S3.mesh.visible && !S3.part.children.length && !S3.scaff, 'something stays drawn');
+    });
+  });
+  // ---------- wear and repair (docs/planes/realismo/PLAN-R5-construccion.md P3: src/wear.js) ----------
+  const WR = () => game.wear;
+  // A site (atSite) with the clock of the wear in its hands, and as it was after. K: the factor of the place
+  const atWorn = async fn => atSite(async S => {
+    const R = WR(), was = R.v.d, told = R.told, lock = game.weatherLock, K = placeK(S.W.gen.biomeAt((Math.floor(S.x / CHUNK) + 0.5) * CHUNK, (Math.floor(S.y / CHUNK) + 0.5) * CHUNK));
+    R.told = true; R.set(0);
+    try { await fn({ ...S, R, K, rain: on => { game.weatherLock = { w: on ? 'lluvia' : 'sol', until: null }; game.days.update(0); R.acc = 1; R.update(0); } }); } finally {
+      R.set(was); R.told = told; R.strike = null; R.pend.clear(); R.prog.key = ''; R.aimed.e = null; game.weatherLock = lock; game.days.update(0); R.acc = 1; R.update(0);
+      for (const D of S.W.deltas.values()) delete D.aged;
+    }
+  });
+  // (all in one chunk: the factor of the place is the same)
+  const inChunk = ([x, y]) => [Math.floor(x / CHUNK) * CHUNK, Math.floor(y / CHUNK) * CHUNK];
+  await test('wear (english): stages by days and material; old pieces start at the epoch; village pieces never wear; repair resets', async () => {
+    const T = { tejado_paja: [40, 100], tejado_rojo: [120, 400], tejado_azul: [120, 400], tejado_verde: [120, 400], tejado_gris: [200], muro_madera: [60, 180], ventana: [60, 180], puerta: [60, 180], valla: [60, 180], puerta_valla: [60, 180], post: [60, 180], suelo_madera: [60, 180],
+      muro_entramado: [90, 270], ventana_contraventanas: [90, 270], muro_cuadro: [90, 270], muro_piedra: [150], valla_piedra: [150], suelo_piedra: [150], camino: [150], stone_pillar: [150], bell_gable: [150] };
+    for (const [id, [a, b]] of Object.entries(T)) check(stageAt(id, a - 0.01) === 0 && stageAt(id, a) === 1 && (b ? stageAt(id, b - 0.01) === 1 && stageAt(id, b) === 2 : stageAt(id, 1e6) === 1), id);
+    for (const id of PIECE_IDS) if (PIECES[id].layer) check(id in T || id === 'chimenea', `${id} has no rule`);
+    for (const id of ['cofre', 'chimenea', 'silla', 'glass_wall', 'constructor', 'x']) check(!ruleOf(id) && stageAt(id, 1e6) === 0, id);
+    await atWorn(async ({ W, R, K, x, y, d, key }) => {
+      const [cx, cy] = inChunk([x, y]), at = (l, i = 0, j = 0) => R.at(l, cx + i, cy + j), kk = (l, i = 0, j = 0) => `${l}:${cx + i},${cy + j}`, D = () => W.delta(cx / CHUNK, cy / CHUNK, true), had = JSON.stringify([D().floor, D().placed, D().roof]);
+      check(had.length < 400, 'the chunk is not empty');
+      try {
+        // Built before the update (the clock at 0): no record, and new that day
+        W.setTile(cx, cy, 'tejado_paja'); W.setTile(cx + 1, cy, 'muro_madera'); W.setTile(cx + 2, cy, 'muro_madera'); W.setTile(cx + 2, cy, 'tejado_gris'); W.setTile(cx + 3, cy, 'muro_piedra');
+        check(!D().aged && R.now === 0 && !at('roof') && !at('placed', 1), 'worn on day one');
+        R.set(40 / K - 0.2); check(!at('roof'), 'too soon'); R.set(40 / K + 0.2); check(at('roof') === 1 && !at('placed', 1) && W.wearAt('roof', cx, cy) === 1, 'weathered');
+        R.set(60 / K + 0.2); check(at('placed', 1) === 1 && !at('placed', 2), 'a wall, and one under a roof'); R.set(90 / K + 0.2); check(at('placed', 2) === 1, 'under a roof, half as long again');
+        R.set(100 / K + 0.2); check(at('roof') === 2 && R.leaksAt(cx, cy) && !R.leaksAt(cx + 2, cy), 'worn'); R.set(5000); check(at('placed', 3) === 1 && at('roof', 2) === 1, 'stone and slate only gather moss');
+        // Never down, never in the way: it is still there, whatever the years
+        check(W.at('roof', cx, cy) === 'tejado_paja' && W.at('placed', cx + 1, cy) === 'muro_madera' && !W.canPlace(cx + 1, cy, 'muro_madera', null), 'something is gone');
+        // What is put, swapped or repaired is new from today
+        W.setTile(cx + 4, cy, 'muro_madera'); W.place(cx + 5, cy, 'valla'); check(!at('placed', 4) && !at('placed', 5) && D().aged[kk('placed', 4)] === 5000, 'a new one');
+        R.set(5000 + 61 / K); check(at('placed', 4) === 1 && at('placed', 5) === 1, 'it ages from then on');
+        check(R.fix(kk('roof')) && !at('roof') && !R.fix(kk('roof')) && D().aged[kk('roof')] === R.now, 'repaired');
+        check(W.swapPiece(cx + 1, cy, 'ventana') && !at('placed', 1), 'swapped');
+        const o = W.contentFor(cx / CHUNK, cy / CHUNK).objects.find(q => q.key === kk('placed', 4)); W.unplace(o); check(D().aged[kk('placed', 4)] === undefined, 'its record stays');
+        W.setTile(cx, cy, 'air'); check(D().aged[kk('roof')] === undefined, 'its record stays (air)');
+        // Furniture has no record; garbage neither repairs nor throws
+        W.place(cx + 6, cy, 'silla'); check(D().aged[kk('placed', 6)] === undefined, 'furniture'); for (const bad of ['', 'x', 'roof:1', 'rug:1,1', kk('placed', 9), null]) check(!R.fix(bad), `garbage ${bad}`);
+        // The drawing: the signature of the chunk changes with a stage, and only then
+        const s1 = R.sig(cx / CHUNK, cy / CHUNK); R.set(R.v.d + 0.5); check(R.sig(cx / CHUNK, cy / CHUNK) === s1, 'worked out again for nothing'); R.set(R.v.d + 130 / K); check(R.sig(cx / CHUNK, cy / CHUNK).all !== s1.all, 'a stage more, not drawn');
+        // Off: nothing
+        R.on = false; try { check(!at('placed', 1) && R.sig(cx / CHUNK, cy / CHUNK).all === '', '?deterioro=0'); } finally { R.on = true; }
+      } finally { for (let i = 0; i < 8; i++) W.setTile(cx + i, cy, 'air'); }
+      // The village, the neighbours' houses and an aldea: never. (Your house in the village is yours: it does)
+      R.set(50000);
+      let n = 0;
+      for (const h of [...Object.values(HOUSES), TAVERN]) for (let j = Math.floor(h.y0); j < h.y1; j++) for (let i = Math.floor(h.x0); i < h.x1; i++) for (const l of ['floor', 'placed', 'roof']) if (W.baseAt(l, i, j) && !W.ownAt(l, i, j)) { n++; check(!W.wearAt(l, i, j), `${h.name || 'tavern'} ${l} ${i},${j}`); }
+      check(n > 200, `the neighbours' houses: ${n}`);
+      const H = game.houseRect(); check(W.wearAt('roof', H.x0 + 2, H.y0 + 2) === 0, 'your house wears');
+      const v = game.places.nearest(CENTER.x, CENTER.y, ['aldea'], 4000), all = v && game.places.aldea(v).all;
+      for (const l of ['placed', 'roof']) for (const q of Object.keys(all?.[l] || {})) check(!W.wearAt(l, ...q.split(',').map(Number)), `the aldea ${l} ${q}`);
+    });
+  });
+  await test('wear (english): the player\'s house in the village never wears; the same beside it, yes', async () => {
+    const R = WR(), was = R.v.d, W = w(), lot = [HOUSE.x0 + 2, HOUSE.y0 + 2], out = [BOUNDS.x1 - 2, BOUNDS.y1 - 2], mk = ([x, y]) => ({ v: 991, placed: {}, floor: {}, roof: { [`${x},${y}`]: 'tejado_paja' } }), of = ([x, y]) => R.work(mk([x, y]), Math.floor(x / CHUNK), Math.floor(y / CHUNK)).map.size;
+    try { R.v.d = 900; check(of(lot) === 0, 'its roof wears'); check(of(out) === 1, 'the one beside does not'); check(W, 'no world'); } finally { R.v.d = was; }
+  });
+  await test('wear (english): the clock counts the days played, by their weather; weeks with nobody count nothing; a guest takes the host\'s; saves', async () => {
+    let played = () => true; const g = { farm: { playedOn: d => played(d) }, days: { weatherFor: d => ['sol', 'lluvia', 'tormenta'][d % 3] }, live: {}, barrow: null }, R = new Wear(g);
+    R.reset({}); check(R.v.d === 0, 'a save of before: 0'); for (let i = 1; i <= 3; i++) R.onDay(i); check(Math.abs(R.v.d - (DAY_K.sol + DAY_K.lluvia + DAY_K.tormenta)) < 1e-9, `three days: ${R.v.d}`);
+    const was = R.v.d; played = () => false; for (let i = 4; i <= 60; i++) R.onDay(i); check(R.v.d === was, 'it wears with nobody'); played = () => true;
+    g.live.guest = true; R.onDay(61); check(R.v.d === was, 'a guest counts days'); g.live.guest = false; R.on = false; R.onDay(61); check(R.v.d === was, '?deterioro=0 counts'); R.on = true;
+    // A year of this world's weather: about 1 a day
+    const T = game.days; let sum = 0; for (let i = 1; i <= 365; i++) sum += DAY_K[T.weatherFor(i)]; check(sum > 365 * 0.88 && sum < 365 * 1.12, `a year counts ${sum.toFixed(0)}`);
+    // Saved, shared with the world (only whoever runs it), garbage never
+    const out = {}; R.save(out); check(out.wear.d === R.v.d && LS.SHARED.includes('wear') && LS.BLOBS.wear.get(game).d === WR().v.d && game.snapshot().wear.d === WR().v.d, 'the save');
+    R.reset({ wear: { d: 12.5 } }); check(R.v.d === 12.5, 'loaded'); for (const bad of [{ wear: null }, { wear: { d: -4 } }, { wear: { d: 'x' } }, { wear: 7 }]) { R.reset(bad); check(R.v.d === 0, JSON.stringify(bad)); }
+    const mine = WR().v.d; try { LS.BLOBS.wear.set({ live: { role: 'guest' }, wear: WR() }, { d: mine + 3 }); check(WR().v.d === mine + 3, 'a guest'); LS.BLOBS.wear.set({ live: { role: 'host' }, wear: WR() }, { d: 999 }); check(WR().v.d === mine + 3, 'a guest writes the host\'s'); LS.BLOBS.wear.set({ live: {}, wear: WR() }, { d: NaN }); check(WR().v.d === mine + 3, 'garbage'); } finally { WR().set(mine); }
+    // The real farm's: today somebody played
+    check(game.farm.playedOn(game.days.dayIndex) === (game.ranch.farm.seen >= game.days.dayIndex), 'the days played');
+  });
+  // A hut of 5 × 5 with its corner at (x - 2, y - 2): walls, a shut door to the south, floor and roof
+  const hutAt = (W, x, y, wall, roof) => {
+    for (let j = -2; j <= 2; j++) for (let i = -2; i <= 2; i++) { W.setTile(x + i, y + j, 'suelo_madera'); if (Math.abs(i) === 2 || Math.abs(j) === 2) W.setTile(x + i, y + j, wall); W.setTile(x + i, y + j, roof); }
+    W.setTile(x, y + 2, 'puerta'); if (!W.doorClosed(x, y + 2)) W.toggleDoor(x, y + 2);
+  };
+  await test('wear (english): a worn roof tile leaks only while raining and makes the room draughty; worn walls let the air in', async () => {
+    await atWorn(async ({ W, R, K, x, y, rain }) => {
+      hutAt(W, x, y, 'muro_madera', 'tejado_paja'); p().x = x + 0.5; p().y = y + 0.5; const watch = (wet = false) => new ST.RoomWatch().get(W, x + 0.5, y + 0.5, 1e6, wet);
+      // (the hut may cross chunks of different factors: far enough past the threshold for all of them)
+      rain(true); check(R.raining && !R.leaks.length && !R.under && watch(true).kind === 'room' && !watch(true).leaky, 'a new roof leaks');
+      R.set(110 / 0.75); rain(true);
+      let r = watch(true); check(R.leaks.length === LEAKS && R.leaks.every(q => W.pieceAt(q.x, q.y)?.kind !== 'wall') && R.under, `leaks ${R.leaks.length} under ${R.under}`);
+      check(r.base === 'room' && r.leaky && r.kind === 'draughty' && r.worn === 0, `in the rain: ${r.kind} ${r.worn}`);
+      game.room = r; check(game.draught() === t('room.leaks'), `why: ${game.draught()}`);
+      // Under it, wet at a quarter of the open air's; and drops and a wet floor are drawn
+      const B = Bo(), out = game.underRoof, wet = B.wet, off = B.off.surface; game.underRoof = true; B.off.surface = false;
+      try { B.wet = 0; B.surfaceStep(2, p()); check(Math.abs(B.wet - 1.1 * 0.25 * 2 * (1 - B.cl.rain)) < 0.02, `wet ${B.wet}`); R.under = false; B.wet = 10; B.surfaceStep(2, p()); check(B.wet < 10, 'out of the leak one does not dry'); } finally { game.underRoof = out; B.wet = wet; B.off.surface = off; }
+      R.acc = -100; game.view3d.fx.leakAt.clear(); { const F = game.view3d.fx; let n = 0; F.splash = function (q) { n++; delete this.splash; this.splash(q); }; try { await until(() => { draw(); return n && F.pools.count > 0 && F.pools.count <= LEAKS; }, 8000, 'no drops are drawn'); } finally { delete F.splash; } } R.acc = 0;
+      rain(false); r = watch(false); check(!R.raining && !R.leaks.length && !R.under && r.kind === 'room' && r.leaky, `dry: ${r.kind}`);
+      // Mended, it does not
+      for (let j = -2; j <= 2; j++) for (let i = -2; i <= 2; i++) R.fix(`roof:${x + i},${y + j}`); rain(true); check(!R.leaks.length && !watch(true).leaky && watch(true).kind === 'room', 'mended, it leaks');
+      // Three worn walls, rain or shine; stone never
+      R.set(290 / 0.75 + 1); rain(false); for (let j = -2; j <= 2; j++) for (let i = -2; i <= 2; i++) R.fix(`roof:${x + i},${y + j}`);
+      r = watch(); check(r.worn >= 3 && r.kind === 'draughty', `worn walls ${r.worn}`); game.room = r; check(game.draught() === t('room.worn'), 'why (walls)');
+      let left = r.worn; for (const [i, j] of [[-2, -1], [-2, 0], [-2, 1], [2, -1], [2, 0], [2, 1], [-1, -2], [0, -2], [1, -2], [-1, 2], [0, 2], [1, 2]]) if (left > 2 && R.fix(`placed:${x + i},${y + j}`)) left--;
+      check(watch().worn === 2 && watch().kind === 'room', `two: ${watch().worn}`);
+      hutAt(W, x, y, 'muro_piedra', 'tejado_gris'); R.set(9000); r = watch(true); check(!r.leaky && r.kind === 'room', `stone and slate: ${r.worn} ${r.leaky}`);
+    });
+  });
+  // One swing of the hammer on what has worn: until it lands
+  const mend = e => { const R = WR(), g = game.gather; g.cooldown = 0; R.strike = null; game.plans.rest = null; R.tg.e = e; R.use(); if (!R.strike) return false; const S = R.strike; R.strike = null; R.land(S); g.cooldown = 0; return true; };
+  await test('wear (english): the hammer: aimed, two swings, one unit of its first material, as new; what is missing is said; creative free', async () => {
+    await atWorn(async ({ W, R, K, I, x, y, B, key }) => {
+      W.setTile(x, y, 'muro_entramado'); R.set(300 / 0.75); p().x = x + 0.5; p().y = y + 1.4; p().face = { x: 0, y: -1 }; R.aimed.t = -1e9; R.aimed.frame = -1;
+      game.gather.target = game.gather.pickTarget(); const e = R.tg.e; check(game.gather.target === R.tg && e?.key === key('placed') && e.stage === 2, `the target: ${game.gather.target?.label}`);
+      check(R.tg.label === t('wear.hint.repair', { item: PIECES.muro_entramado, state: t('wear.worn'), cost: matText([['tablas', 1]]) }), `the hint: ${R.tg.label}`);
+      check(game.prompts && R.row()?.k === 0 && R.row().text.includes('1'), `the row: ${JSON.stringify(R.row()?.text)}`);
+      const had = I.count('tablas'), st = I.count('piedra');
+      check(mend(e) && R.at('placed', x, y) === 2 && I.count('tablas') === had && R.row()?.k === 0.5, 'one swing'); check(mend(e) && !R.at('placed', x, y) && I.count('tablas') === had - 1 && I.count('piedra') === st, 'two swings');
+      check(!mend(e) || I.count('tablas') === had - 1, 'paid again for what is as new');
+      // Without the material it is said, and nothing happens; nor from far, nor without a hammer
+      W.setTile(x, y, 'tejado_paja'); R.set(R.v.d + 300); const f = R.entry('roof', x, y); I.remove('fibra', I.count('fibra')); game.carry.near = null;
+      check(R.why(f).includes(matText([['fibra', 1]])) && !mend(f) && R.at('roof', x, y) === 2, `no fibre: ${R.why(f)}`); I.add('fibra', 2); game.carry.near = null; check(!R.why(f), R.why(f));
+      p().y = y + 9; check(R.why(f) === t('build.why.far'), 'from far'); p().y = y + 1.4;
+      mend(f); mend(f); check(!R.at('roof', x, y) && I.count('fibra') === 1, 'the roof');
+      // Creative: free
+      runCommand(game, '/gamemode creative', () => {}); R.set(R.v.d + 300); const c = R.entry('placed', x, y); check(!R.why(c) && mend(c) && mend(c) && !R.at('placed', x, y), 'creative'); runCommand(game, '/gamemode survival', () => {});
+      // A drawing goes first; with another thing in the hand, or in build mode, nothing is offered; and off, neither
+      R.set(R.v.d + 300); R.aimed.t = -1e9; check(!R.target(p(), null, ITEMS.hacha) && R.target(p(), { id: 'hammer' }, ITEMS.hammer), 'only the hammer'); R.on = false; try { check(!R.target(p(), { id: 'hammer' }, ITEMS.hammer), '?deterioro=0'); } finally { R.on = true; }
+    });
+  });
+  await test('wear (english): together: the host stamps and repairs, two repairs are paid once, a guest never writes its own stamp', async () => {
+    await atWorn(async ({ W, R, I, x, y, k, d, key }) => {
+      W.setTile(x, y, 'muro_madera'); R.set(400); const K1 = key('placed');
+      const ask = (n, by = 'id-guest', kk = K1) => { (d().claim ||= {})[n] = { by, k: 'wear_fix', key: kk, at: W.clock || 0 }; game.barrow.resolve(k, n); return d().claim[n].ok; };
+      check(ask('w1') === true && !R.at('placed', x, y) && ask('w2', 'id-other') === false, 'two repairs'); for (const bad of ['', null, 'placed:1', `placed:${x + 400},${y}`, 'rug:1,1']) check(ask('z', 'id-guest', bad) === false, `garbage ${bad}`);
+      // A guest: it pays when it asks, and gets it back if it was not to be paid
+      R.set(800); const e = R.entry('placed', x, y), dec = R.decides, cl = game.barrow.claim; let done = null;
+      R.decides = () => false; game.barrow.claim = (kind, ck, data, f) => { check(kind === 'wear_fix' && ck === k && data.key === K1, 'the request'); done = f; };
+      try {
+        const had = I.count('tablas'); mend(e); mend(e); check(done && I.count('tablas') === had - 1 && R.at('placed', x, y) === 2 && !mend(e), 'it waits for the answer'); done({ ok: false }); check(I.count('tablas') === had, 'refused');
+        done = null; mend(e); mend(e); done(null); check(I.count('tablas') === had, 'never answered'); mend(e); mend(e); R.decides = dec; R.fix(K1); R.decides = () => false; done({ ok: true }); check(I.count('tablas') === had - 1, 'done');
+      } finally { R.decides = dec; game.barrow.claim = cl; }
+      // What a guest may write
+      let A = R.arbitrate(k, [['placed', `${x + 1},${y}`, 'valla'], ['aged', `placed:${x + 1},${y}`, 5], ['floor', `${x + 1},${y}`, 'cofre'], ['closed', '1,1', true]]);
+      check(JSON.stringify(A.ok) === JSON.stringify([['placed', `${x + 1},${y}`, 'valla'], ['floor', `${x + 1},${y}`, 'cofre'], ['closed', '1,1', true], ['aged', `placed:${x + 1},${y}`, 800]]) && A.back.length === 1 && A.back[0][2] === 800, `building: ${JSON.stringify(A)}`);
+      A = R.arbitrate(k, [['aged', K1, 1e9], ['aged', 'roof:1,1', 3], ['aged', null, {}]]); check(!A.ok.length && A.back.length === 3 && A.back[0][2] === d().aged[K1] && A.back[1].length === 2, `stamps: ${JSON.stringify(A)}`);
+      A = R.arbitrate(k, [['placed', `${x},${y}`]]); check(A.ok.length === 2 && A.ok[1][0] === 'aged' && A.ok[1].length === 2, 'taken away'); const same = [['closed', '1,1', true]]; check(R.arbitrate(k, same).ok === same, 'nothing of it, nothing copied');
+      // It arrives as any change of the chunk: drawn again
+      const v = d().v; game.live.applyChunk(k, [['aged', K1, 1]]); check(d().v === v + 1 && R.at('placed', x, y) === 2, 'a change that arrives');
+    });
+  });
+  await test('wear (english): what the neighbours say near a house: kept or with a worn roof; only there, and not at first', async () => {
+    check(REMARKS.slice(-2).join() === 'house_kept,roof_worn' && GOOD_REMARKS.has('house_kept') && !GOOD_REMARKS.has('roof_worn'), 'appended');
+    for (const c of ['house_kept', 'roof_worn']) check(remarkLines(c, 'kind').length >= 3, c);
+    await atWorn(async ({ W, R, x, y }) => {
+      hutAt(W, x, y, 'muro_madera', 'tejado_paja'); p().x = x + 0.5; p().y = y + 5; const say = () => R.conditions([]).join();
+      check(say() === '', 'on the first day'); R.set(60 / 0.75); check(say() === '', `weathered: ${say()}`); for (let j = -2; j <= 2; j++) for (let i = -2; i <= 2; i++) R.fix(`roof:${x + i},${y + j}`); check(say() === 'house_kept', `kept: ${say()}`);
+      R.set(R.v.d + 110 / 0.75); check(say() === 'roof_worn', `worn: ${say()}`); p().x += 60; check(say() === '', 'far from it');
+    });
+  });
+  await test('wear (english): a very big house: the stages of its chunks and its roofs in their time, and nothing per frame', async () => {
+    await atWorn(async ({ W, R }) => {
+      // (off the world's ground: only the numbers)
+      const d = { v: 1, placed: {}, floor: {}, roof: {} }, [bx, by] = [9000, 320];
+      for (let j = 0; j < 16; j++) for (let i = 0; i < 16; i++) { const q = `${bx + i},${by + j}`; d.floor[q] = 'suelo_madera'; d.placed[q] = 'muro_madera'; d.roof[q] = 'tejado_paja'; }
+      R.set(300); let t0 = performance.now(); for (let i = 0; i < 10; i++) R.work(d, bx / 16, by / 16); const ms = (performance.now() - t0) / 10; check(ms < 6, `a full chunk (768 pieces): ${ms.toFixed(2)} ms`);
+      W.deltas.set(`${bx / 16},${by / 16}`, d); try { R.at('roof', bx, by); t0 = performance.now(); for (let i = 0; i < 20000; i++) R.at('placed', bx + (i & 15), by + (i >> 4 & 15)); const us = (performance.now() - t0) / 20; check(us < 6, `one question ${us.toFixed(2)} µs`); console.log(`wear: a full chunk ${ms.toFixed(2)} ms, one question ${us.toFixed(2)} µs`); } finally { W.deltas.delete(`${bx / 16},${by / 16}`); }
     });
   });
   await test('hud (english): body chip', async () => {

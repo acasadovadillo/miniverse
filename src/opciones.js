@@ -45,6 +45,8 @@ const RAW = (() => { try { return new URLSearchParams(globalThis.location?.searc
 // as before; swapping stays) and refugio (no rooms: under any roof the same warmth, and the old names). Local only
 // And R5-2 (plan and hammer): obra (?obra=0: in survival too, a piece is placed at once and paid then, with no hammer; the plans
 // already drawn stay, and can be erased). Local only
+// And R5-3 (wear and repair, src/wear.js): deterioro (?deterioro=0: nothing built ages, leaks or lets the air in here, nor is it
+// drawn worn; in the game that runs the world, the clock of the wear stops too)
 // Plan R3-1 (the wild animals' senses, docs/planes/realismo/PLAN-R3-caza.md): sentidos (?sentidos=0 on the host: they run from
 // whoever comes within their fear radius, as before; no heel or point of the dog; nor the ring and the wind mark)
 // Plan R3-2 (herds, src/herds.js): manadas (?manadas=0 on the host: single animals at random round each player, as before)
@@ -64,7 +66,7 @@ export const PARTES = { hierba: 'sinlod', impostores: null, relieve: null, conta
   vinculo: null, alforjas: null, montar: 'arcade', cuidado: null,
   tracks: null, wounds: null, naturebook: null,
   sentidos: null, manadas: null, routines: null,
-  soporte: null, refugio: null, obra: null, sat: null, mapa3d: null, sitios: '1', siluetas: null };
+  soporte: null, refugio: null, obra: null, deterioro: null, sat: null, mapa3d: null, sitios: '1', siluetas: null };
 
 // El valor tal cual (o null)
 export const opcion = k => RAW.get(k);

@@ -26,9 +26,11 @@ import { getModel, modelMat } from './models.js';
 import { poolGround } from './glow.js';
 import { yawOf } from '../art/stations.js';
 // Lo que brilla en los modelos y, apagado, con qué se dibuja
+const TWINS = new Map();   // (key → the material that draws it worn: wear3d.js)
 let BOAT = null;   // (el modelo de la barca, para las amarradas)
 const UNLIT = { shade: 'cloth', lamp: 'white', ember: 'soot', glow: 'soot', crystal: 'crystal' };
 import { tintMats, tintOf } from './tints.js';
+import { wearKind, wearTwin, LOOK, WORN } from './wear3d.js';
 import { Seabed } from './seabed3d.js';
 import { Site3D } from './site3d.js';
 
@@ -120,7 +122,7 @@ export class World3D {
     this.behind = false;
     for (const [cx, cy, ring] of want) {
       const k = `${cx},${cy}`, cur = this.chunks.get(k), data = scene.contentFor(cx, cy);
-      if (cur && !cur.force && cur.data !== data) { if (this.signature(scene, cx, cy, data) === cur.sig) cur.data = data; }
+      if (cur && !cur.force && cur.data !== data) { if (this.signature(scene, cx, cy, data) === cur.sig) { cur.data = data; this.roofsWorn(scene, cur, cx, cy); } }
       if (cur && !cur.force && cur.data === data) { this.setRing(scene, cur, ring); continue; }
       if (performance.now() - t0 > budget && cur) { this.behind = true; continue; }
       if (performance.now() - t0 > budget * 2) { this.behind = true; break; }
@@ -131,6 +133,7 @@ export class World3D {
       const c = this.buildChunk(scene, cx, cy, data, ring);
       c.struct = struct;
       this.chunks.set(k, c);
+      if (cur) { const now = c.wearRoof; c.wearRoof = cur.wearRoof; this.roofsWorn(scene, c, cx, cy, now, true); }
       // (uno nuevo, en el borde de lo que se ve, espera a sus programas de sombreado si trae alguno que la gráfica aún no
       // tiene; uno que se rehace, no: dejaría un hueco donde estaba)
       if (!cur) this.view.gate?.(c.group, null, chunkBox(cx, cy));
@@ -188,6 +191,16 @@ export class World3D {
   // cuando le toque, sin pasar de uno de cada dos)
   // (box: [x0, z0, x1, z1] de lo que ha cambiado, si se sabe)
   stale(now = false, box = null) { this.view.shadows?.stale(now, box); }
+  // The roofs of a chunk have worn, or been repaired (wear.js), or (walls) the walls their gables stand on: only they are made again
+  roofsWorn(scene, c, cx, cy, now = scene.wear?.sig(cx, cy).roof || '', walls = false) {
+    const all = c.wearRoof !== now;
+    if (!scene.wear || (!all && !walls)) return;
+    c.wearRoof = now;
+    for (const key of c.regions) {
+      const r = this.regions.get(key);
+      if (r && !r.dirty && (all || r.roof?.userData.gables?.some(([x, y, stage]) => scene.wearAt('placed', x, y) !== stage))) { this.dropRegion(r); r.dirty = true; }
+    }
+  }
   reset(scene) {
     this.stale(true);
     for (const [k, c] of this.chunks) this.dropChunk(k, c);
@@ -224,7 +237,8 @@ export class World3D {
     for (const o of data.flats) s += o.key + (o.model || o.placed || '') + (o.rot || 0) + (o.free ? `@${o.x.toFixed(2)},${o.y.toFixed(2)},${o.yaw.toFixed(2)}` : '') + ',';
     for (const o of data.floors) s += o.key + ',';
     for (const t of data.tilled) { const k = `${t[0]},${t[1]}`; s += k + (farm ? farm.soilLook(d, k) : 0) + (d?.mulch?.[k] !== undefined ? 'm' : '') + (farm ? farm.soilTone(d, k) : 0) + tilledMask(scene, t[0], t[1]) + ';'; }   // (with its neighbours: one tilled next door, in another chunk too, joins it)
-    return s;
+    const W = scene.wear?.sig(cx, cy);   // (how worn what is built in it is: wear.js)
+    return W?.all ? `${s}w${W.all}` : s;
   }
 
   // El huerto (solo en la partida: el mundo del menú no tiene)
@@ -233,12 +247,12 @@ export class World3D {
   // ---------- un trozo ----------
   buildChunk(scene, cx, cy, data, ring) {
     const group = new THREE.Group(), view = this.view, gy = (x, y) => view.groundY(scene, x, y);
-    const c = { group, data, ring, sig: this.signature(scene, cx, cy, data), lights: [], flames: [], smoke: [], doors: [], regions: new Set(), windows: [], cx, cy };
+    const c = { group, data, ring, sig: this.signature(scene, cx, cy, data), lights: [], flames: [], smoke: [], doors: [], wearRoof: scene.wear?.sig(cx, cy).roof || '', regions: new Set(), windows: [], cx, cy };
     // Lo construido y lo colocado, juntado por material (y lo de cada pared de cada casa, aparte)
     const sinks = new Map(), extras = { blooms: [], leaves: [] };
     // La altura de cada casilla (lo construido va a la suya: ver scenes.js, levelAt): lo que se pinta mientras LIFT vale
     // algo sube eso (cada constructor apunta desde qué vértice va cada altura, y se aplica al final)
-    let LIFT = 0;
+    let LIFT = 0, WEAR = 0;   // (WEAR: how worn what is being added is, wear3d.js)
     const lv = (tx, ty) => scene.levelAt?.(tx + 0.5, ty + 0.5, true) || 0;
     // (lo que se puede pintar por vértice va a un material compartido, con su color)
     const emitFor = region => (key, side) => {
@@ -246,11 +260,13 @@ export class World3D {
       let b = sinks.get(k);
       if (!b) sinks.set(k, (b = new Builder()));
       if (b.liftNow !== LIFT) { (b.marks ||= []).push([b.pos.length, LIFT]); b.liftNow = LIFT; }
-      return b.tint(tint ? tint[1] : null);
+      return b.tint(tint ? tint[1] : null).wear(WEAR && wearKind(bucket) !== undefined ? WEAR : 0);
     };
+    const worn = (layer, tx, ty) => (scene.wearAt ? LOOK[scene.wearAt(layer, tx, ty)] : 0);
     const plain = emitFor('');
     const struct = new Map();   // (las casillas con piezas de construcción, para su cimiento: 'full' o 'post')
-    for (const o of data.floors) { LIFT = lv(...o.tile); struct.set(`${o.tile[0]},${o.tile[1]}`, 'full'); floorTile(scene, o.tile[0], o.tile[1], o.placed, plain); }
+    for (const o of data.floors) { LIFT = lv(...o.tile); WEAR = worn('floor', ...o.tile) * (scene.roofAt?.(...o.tile) ? 0.5 : 1); struct.set(`${o.tile[0]},${o.tile[1]}`, 'full'); floorTile(scene, o.tile[0], o.tile[1], o.placed, plain); }
+    WEAR = 0;
     for (const t of data.tilled) {
       const k = `${t[0]},${t[1]}`, dl = scene.delta(cx, cy), fm = this.farm(scene);
       LIFT = lv(t[0], t[1]);
@@ -261,13 +277,15 @@ export class World3D {
       if (o.placed && (o.layer === 'placed' || o.layer === 'hang' || o.layer === 'rug')) {
         const [tx, ty] = o.tile, piece = PIECES[o.placed], region = this.regionAt(scene, tx, ty);
         if (region) c.regions.add(region);
+        WEAR = piece ? worn('placed', tx, ty) : 0;
         if (piece) { const tk = `${tx},${ty}`; if (struct.get(tk) !== 'full') struct.set(tk, piece.kind === 'fence' || piece.kind === 'gate' || piece.kind === 'post' ? 'post' : 'full'); }
         if (piece?.kind === 'wall') { const ex = { blooms: [], leaves: [], paint: paintKey(region), lift: LIFT, windows: c.windows }; wallTile(scene, tx, ty, o.placed, emitFor(region), ex); this.flowers(ex, region, group); }
-        else if (piece?.kind === 'door') { const ex = { blooms: [], leaves: [] }; const d = doorTile(scene, tx, ty, emitFor(region), ex); d.region = region; d.lift = LIFT; c.doors.push(d); if (piece.bell) (c.bells ||= []).push({ ...bellGable(scene, tx, ty, d, emitFor(region)), lift: LIFT, key: `${tx},${ty}` }); }
-        else if (piece?.kind === 'gate') { const d = gateTile(scene, tx, ty, plain); d.lift = LIFT; c.doors.push(d); }
+        else if (piece?.kind === 'door') { const ex = { blooms: [], leaves: [] }; const d = doorTile(scene, tx, ty, emitFor(region), ex); d.region = region; d.lift = LIFT; d.wear = WEAR; c.doors.push(d); if (piece.bell) (c.bells ||= []).push({ ...bellGable(scene, tx, ty, d, emitFor(region)), lift: LIFT, key: `${tx},${ty}` }); }
+        else if (piece?.kind === 'gate') { const d = gateTile(scene, tx, ty, plain); d.lift = LIFT; d.wear = WEAR; c.doors.push(d); }
         else if (piece?.kind === 'post') postTile(scene, tx, ty, o.placed, plain, region ? Math.max(-1.6, this.regionLift(scene, region) - LIFT) : 0);
         else if (piece?.kind === 'fence') fenceTile(scene, tx, ty, o.placed, plain);
-        else this.placeModel(o.key === this.insideKey ? `${o.placed}:in` : o.model || o.placed, o.x, o.y, o.yaw ?? yawOf(o.rot), plain, c, group, o.off, LIFT);
+        else { WEAR = 0; this.placeModel(o.key === this.insideKey ? `${o.placed}:in` : o.model || o.placed, o.x, o.y, o.yaw ?? yawOf(o.rot), plain, c, group, o.off, LIFT); }
+        WEAR = 0;
       } else if (o.unknown) this.placeModel(o.model || 'unknown', o.x, o.y, o.yaw ?? yawOf(o.rot), plain, c, group, false, LIFT);   // (de una versión más nueva: la caja, o el tablón de los cuadros y las alfombras, con «?»)
       else if (o.heap) this.placeModel(o.model, o.x, o.y, o.yaw || 0, plain, c, group, false, LIFT);
       else if (o.crop && this.farm(scene)) this.placeModel(this.farm(scene).model(o.crop), o.x, o.y, 0, plain, c, group, false, LIFT);
@@ -301,7 +319,7 @@ export class World3D {
         const [from, lift] = B.marks[m], to = m + 1 < B.marks.length ? B.marks[m + 1][0] : B.pos.length;
         if (lift) for (let i = from + 1; i < to; i += 3) B.pos[i] += lift;
       }
-      const [fadeKey, key] = k.split('#'), m = fadeKey ? this.fadeMat(fadeKey, key) : this.mat(key), mesh = B.mesh(m);
+      const [fadeKey, key] = k.split('#'), mk = B.wr ? key + WORN : key, m = fadeKey ? this.fadeMat(fadeKey, mk) : this.mat(mk), mesh = B.mesh(m);
       mesh.castShadow = key !== 'glass'; mesh.receiveShadow = true;
       if (fadeKey) mesh.userData.fade = fadeKey;
       mesh.userData.own = true;
@@ -312,8 +330,8 @@ export class World3D {
     // Puertas: la hoja se anima aparte (y se desvanece con su pared)
     for (const d of c.doors) {
       const k = `${d.tile[0]},${d.tile[1]}`, fk = d.region && d.side !== 'free' ? `${d.region}|${d.side}` : '';
-      const M = key => (fk ? this.fadeMat(fk, key) : this.mat(key)), paint = paintKey(d.region);
-      const leaf = d.gate ? gateLeaf(d, { fence: this.mat('fence') }) : doorLeaf(d, { door: M('door'), frame: M('frame'), paint: M(paint), iron: M('iron') });
+      const M = k0 => { const key = d.wear && wearKind(k0) !== undefined ? k0 + WORN : k0; return fk ? this.fadeMat(fk, key) : this.mat(key); }, paint = paintKey(d.region);
+      const leaf = d.gate ? gateLeaf(d, { fence: this.mat(d.wear ? 'fence' + WORN : 'fence') }) : doorLeaf(d, { door: M('door'), frame: M('frame'), paint: M(paint), iron: M('iron') });
       if (d.lift) leaf.position.y += d.lift;   // (a la altura de su casilla)
       leaf.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
       const prev = this.doors.get(k);
@@ -582,12 +600,19 @@ export class World3D {
 
   // Materiales: los de los modelos y los de las piezas (los tejados, 'roof:<id>'); los de las paredes de cada
   // casa, propios (para desvanecerlos)
-  mat(key) { const B = baseMaterials(), T = tintMats(); if (key.startsWith('roof:')) return B.roofs[key.slice(5)]; return T[key] || B[key] || modelMat(key); }
+  mat(key) { if (key.endsWith(WORN)) return this.twin(key); const B = baseMaterials(), T = tintMats(); if (key.startsWith('roof:')) return B.roofs[key.slice(5)]; return T[key] || B[key] || modelMat(key); }
   fadeMat(fadeKey, key) {
     let m = this.fadeMats.get(fadeKey);
     if (!m) this.fadeMats.set(fadeKey, (m = new Map()));
-    if (!m.has(key)) { const base = this.mat(key), c = base.clone(); if (!c.transparent) c.alphaHash = true; c.userData.base = c.opacity; m.set(key, c); }
+    if (!m.has(key)) { const own = key.endsWith(WORN) ? key.slice(0, -1) : key, base = this.mat(own), c = own === key ? base.clone() : wearTwin(base, own); if (!c.transparent) c.alphaHash = true; c.userData.base = c.opacity; m.set(key, c); this.faint(c, this.fade.get(fadeKey) ?? 1); }   // (made with the house already faded: a roof that wears or is mended from inside)
     return m.get(key);
+  }
+  // The twin of a material that draws the wear (key: the material's and '~')
+  twin(key) {
+    const own = key.slice(0, -1);
+    let m = TWINS.get(own);
+    if (!m) TWINS.set(own, (m = wearTwin(this.mat(own), own)));
+    return m;
   }
   *glassMats() { yield baseMaterials().glass; for (const m of this.fadeMats.values()) if (m.has('glass')) yield m.get('glass'); }
 
@@ -836,7 +861,7 @@ export class World3D {
       r.roof.position.y = L;
       r.roof.userData.chimneys = r.roof.userData.chimneys.map(([x, y, z]) => [x, y + L, z]);
       const mats = [];
-      r.roof.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; o.material = this.fadeMat(r.key + '|roof', matKeyOf(o.material)); mats.push(o.material); } });
+      r.roof.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; o.material = this.fadeMat(r.key + '|roof', matKeyOf(o.material) + (o.geometry.attributes.aWear ? WORN : '')); mats.push(o.material); } });
       this.group.add(r.roof);
       // (casi siempre en el acto: cada casa tiene sus materiales, pero comparten programa; y si se rehace al editar, cerca
       // de la cámara: también en el acto, sin dejar la casa sin tejado)
@@ -844,7 +869,7 @@ export class World3D {
       this.stale(false, regionBox(r));
       // El techo por dentro: tablas y vigas (se ve solo con la cámara por debajo, ver updateFade)
       const floor = r.tiles.filter(([x, y]) => scene.at('floor', x, y));
-      if (floor.length) { r.ceil = this.ceiling(floor, r.box); r.ceil.position.y = L; this.group.add(r.ceil); }
+      if (floor.length) { r.ceil = this.ceiling(floor, r.box, scene); r.ceil.position.y = L; this.group.add(r.ceil); }
       // (sin candelabro por su cuenta: se cuelga como un objeto más; el de las casas del pueblo, las aldeas y la taberna va
       // en sus planos, world/blueprints.js)
       // Altura del tejado en (x, z), para que la cámara pase por encima
@@ -855,16 +880,17 @@ export class World3D {
   }
   // El techo de una casa por dentro: tablas de madera (que solo se ven desde abajo) y una viga oscura cada
   // dos filas, de pared a pared
-  ceiling(floor, box) {
+  ceiling(floor, box, scene) {
     const g = new THREE.Group(), boards = new Builder(), beams = new Builder(), y = WALL_H - 0.01, has = new Set(floor.map(t => String(t)));
     for (const [x, z] of floor) {
+      boards.wear(scene.wear?.leaksAt(x, z) ? 0.9 : 0);   // (a stain where it leaks)
       boards.box(x, y - 0.02, z, x + 1, y, z + 1, { skip: 'px nx py pz nz' });
       if ((z - box.y0) % 2 === 1) {
         const x0 = has.has(String([x - 1, z])) ? x : x + 0.02, x1 = has.has(String([x + 1, z])) ? x + 1 : x + 0.98;
         beams.box(x0, y - 0.18, z + 0.43, x1, y - 0.02, z + 0.57, { skip: 'py' });
       }
     }
-    for (const [B, key] of [[boards, 'plank'], [beams, 'dark']]) if (!B.empty) { const m = B.mesh(this.mat(key)); m.castShadow = false; m.receiveShadow = false; g.add(m); }
+    for (const [B, key] of [[boards, 'plank'], [beams, 'dark']]) if (!B.empty) { const m = B.mesh(this.mat(B.wr ? key + WORN : key)); m.castShadow = false; m.receiveShadow = false; g.add(m); }
     g.visible = false;
     return g;
   }
@@ -934,10 +960,10 @@ export class World3D {
       // Del todo oculta: no se pinta, pero sigue opaca para el mapa de sombras (el tejado da sombra dentro). El material de
       // profundidad de Three (r160, getDepthMaterial) no copia colorWrite, opacidad ni alphaHash: desvanecer no cambia la
       // sombra y no hace falta repintar lo fijo (stale) mientras dura
-      const on = o > 0.01;
-      for (const m of mats.values()) { m.opacity = m.userData.base * (on ? o : 1); if (m.colorWrite !== on) { m.colorWrite = on; m.depthWrite = on && !m.transparent; } }
+      for (const m of mats.values()) this.faint(m, o);
     }
   }
+  faint(m, o) { const on = o > 0.01; m.opacity = m.userData.base * (on ? o : 1); if (m.colorWrite !== on) { m.colorWrite = on; m.depthWrite = on && !m.transparent; } }
 
   // ---------- luces, fuegos y humo cercanos ----------
   lights() {

@@ -13,6 +13,7 @@ import { PIECES, parsePlaced } from './pieces.js';
 import { wrapIndex } from './world/planet.js';
 import { CHUNK } from './world/gen.js';
 import { apagada } from './opciones.js';
+import { ruleOf, AIR_WALLS } from './wearrules.js';
 
 export const SPAN = 12;
 const OFF = { support: apagada('soporte'), shelter: apagada('refugio') };
@@ -182,19 +183,23 @@ function roomTile(L, x, y, out) {
   return out;
 }
 const START = [0, 0];
+const airy = (scene, x, y) => { const v = scene.ownAt('placed', x, y); return !!(v && ruleOf(parsePlaced(v)[0])?.air); };
 // out (reused): { kind: 'room' | 'draughty' | 'porch' | 'hall' | null, size, hearth, bed, kitchen, bath, living, tiles: the
-// keys of the tiles of the room itself (up to its doors) }
+// keys of the tiles of the room itself (up to its doors), worn: the worn walls, windows and doors round it, leaky: it has a
+// worn roof tile (wear.js) }
 export function roomAt(scene, x, y, out = {}) {
   const tiles = (out.tiles ||= new Set());
   tiles.clear();
-  out.kind = null; out.size = 0; out.hearth = out.bed = out.kitchen = out.bath = out.living = false;
+  out.kind = out.base = null; out.worn = 0; out.leaky = false; out.size = 0; out.hearth = out.bed = out.kitchen = out.bath = out.living = false;
   const L = LOOK.of(scene), [sx, sy] = roomTile(L, x, y, START);
   if (!L.roof(Math.floor(x), Math.floor(y))) return out;
   if (!L.roof(sx, sy)) { out.kind = 'porch'; return out; }
   const todo = [sx, sy], doors = [];
   let open = false;   // (the air gets in: no wall there)
   tiles.add(keyOf(sx, sy));
+  const barrier = new Set(), wears = !!scene.wear;   // (its walls, each once)
   const look = (tx, ty, own) => {
+    if (own && wears && !out.leaky && scene.wear.leaksAt(tx, ty)) out.leaky = true;
     const id = L.id(tx, ty);
     if (!id) return;
     if (id === 'chimenea' && !scene.lightOff?.(tx, ty)) out.hearth = true;
@@ -214,6 +219,7 @@ export function roomAt(scene, x, y, out = {}) {
         const nx = tx + a, ny = ty + b, k = keyOf(nx, ny);
         if (seen.has(k)) continue;
         const kind = L.kind(nx, ny);
+        if (own && wears && (kind === 'wall' || kind === 'door') && !barrier.has(k)) { barrier.add(k); if (scene.wearAt('placed', nx, ny) === 2 && airy(scene, nx, ny)) out.worn++; }
         if (kind === 'wall') continue;
         if (kind === 'door') { if (!scene.doorClosed(nx, ny)) doors.push(nx, ny); continue; }
         if (!L.roof(nx, ny)) { open = true; continue; }
@@ -242,7 +248,7 @@ export function roomAt(scene, x, y, out = {}) {
     }
     out.size = seen.size;
   }
-  out.kind = draughty ? 'draughty' : 'room';
+  out.kind = out.base = draughty ? 'draughty' : 'room';
   return out;
 }
 
@@ -255,9 +261,15 @@ export class RoomWatch {
     const cx = Math.floor(tx / CHUNK), cy = Math.floor(ty / CHUNK);
     let v = 0;
     for (let j = -1; j <= 1; j++) for (let i = -1; i <= 1; i++) v += (scene.delta(cx + i, cy + j)?.v || 0) + 1;
-    return v * 10000 + ((cx % 100) + 100) % 100 * 100 + ((cy % 100) + 100) % 100;
+    return (v + (scene.wear?.dayV || 0)) * 10000 + ((cx % 100) + 100) % 100 * 100 + ((cy % 100) + 100) % 100;
   }
-  get(scene, x, y, now) {
+  // raining: it rains outside (a worn roof leaks, and lets the air in)
+  get(scene, x, y, now, raining = false) {
+    const r = this.look(scene, x, y, now);
+    if (r.base === 'room') r.kind = r.worn >= AIR_WALLS || (r.leaky && raining) ? 'draughty' : 'room';
+    return r;
+  }
+  look(scene, x, y, now) {
     const tx = Math.floor(x), ty = Math.floor(y), moved = tx !== this.tx || ty !== this.ty || scene !== this.scene;
     if (!moved && now - this.at < EVERY) return this.room;
     if (moved && scene === this.scene && now - this.at < EVERY) { const [a, b] = roomTile(LOOK.of(scene), x, y, START); if (this.room.kind && this.room.tiles.has(keyOf(a, b))) { this.tx = tx; this.ty = ty; return this.room; } }

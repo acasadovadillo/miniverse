@@ -447,7 +447,8 @@ export class Live {
           // (the wheelbarrow's fields are arbitrated apart, also far from where the guest is: barrow.js arbitrate)
           const edit = !peer.old && this.mayEdit(peer, m.c), B = !peer.old ? g.barrow : null, A = B ? B.arbitrate(peer, m.c, m.ops, edit) : null;
           const PA = g.plans?.arbitrate(peer, m.c, A ? A.rest : m.ops), rest = PA ? PA.ok : A ? A.rest : m.ops, mine = A ? A.ok : [];
-          if (edit) { if (rest.length || mine.length) this.applyChunk(m.c, [...rest, ...mine]); }
+          const W = edit ? g.wear?.arbitrate(m.c, rest) : null, ok = W ? W.ok : rest;   // (what they build is stamped here: wear.js)
+          if (edit) { if (ok.length || mine.length) this.applyChunk(m.c, [...ok, ...mine]); if (W?.back.length) this.net.send({ t: 'w', c: m.c, ops: W.back }, conn); }
           else { if (mine.length) this.applyChunk(m.c, mine); if (rest.length) this.refuse(conn, peer, m.c, rest); }
           if (PA?.back.length) this.net.send({ t: 'w', c: m.c, ops: PA.back }, conn);   // (plans of a building: plans.js)
           if (A) { if (A.back.length) this.net.send({ t: 'w', c: m.c, ops: A.back }, conn); B.afterArbitrate(m.c, A, peer); }
@@ -742,7 +743,7 @@ export class Live {
   enter(solo, world) {
     const her = solo.save;
     this.extraShared = unknownShared(world.shared);
-    const save = { ...her, places1: 0, ...world.shared, player: { ...her.player, inside: false, boat: false, mount: false, ...(her.livePos || {}) } };
+    const save = { ...her, places1: 0, wear: null, ...world.shared, player: { ...her.player, inside: false, boat: false, mount: false, ...(her.livePos || {}) } };
     const deltas = new Map(world.deltas);
     for (const [k, v] of solo.deltas) if (k.startsWith('u:')) deltas.set(k, v);
     return { save, deltas };

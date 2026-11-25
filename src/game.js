@@ -24,6 +24,7 @@ import { clothesFor, dressed, wearStage } from './looks.js';
 import { WorldStore } from './worldstore.js';
 import { BuildMode } from './build.js';
 import { Plans } from './plans.js';
+import { Wear } from './wear.js';
 import { watchtower } from './world/tower.js';
 import { TimeSystem } from './time.js';
 import { Farm } from './farm.js';
@@ -187,6 +188,7 @@ export class Game {
     this.days = this.addSystem(new TimeSystem(this));
     this.barrow = this.addSystem(new Barrow(this));   // the wheelbarrow, pushed with both hands (before carry: its hint wins)
     this.plans = this.addSystem(new Plans(this));   // what is drawn with B, and the hammer that builds it (src/plans.js; before whatever else offers a target)
+    this.wear = this.addSystem(new Wear(this));   // what is built ages, and the hammer repairs it (src/wear.js)
     this.carry = this.addSystem(new Carry(this));   // weight and things in the arms (the default; ?inventario=casillas: the slots. Before the bow, so its hint wins)
     this.archery = this.addSystem(new Archery(this));   // el arco (antes que lo que se haga con E o con la herramienta)
     this.board = this.addSystem(new Board(this));
@@ -942,9 +944,11 @@ export class Game {
     if (r.kind === 'porch') return t('room.porch');
     return r.bed ? t('room.bedroom') : r.kitchen ? t('room.kitchen') : r.bath ? t('room.bathroom') : r.living || own ? t('room.living') : null;
   }
+  // (why there is a draught in a room that is shut: the roof leaks, or its walls have worn. wear.js)
+  draught() { const r = this.room; return t(r.base === 'room' ? (r.leaky && this.wear.raining ? 'room.leaks' : 'room.worn') : 'room.draughty'); }
   roomNote(name) {
     const p = this.player, mine = inOwnHouse(p.x, p.y), own = mine ? t('place.your_house') : '';
-    const air = this.room?.kind === 'draughty' && (mine || this.world.ownAt('roof', Math.floor(p.x), Math.floor(p.y))) ? t('room.draughty') : '';
+    const air = this.room?.kind === 'draughty' && (mine || this.world.ownAt('roof', Math.floor(p.x), Math.floor(p.y))) ? this.draught() : '';
     return own && air ? `${own} · ${air}` : (own !== name && own) || air;
   }
   // La casilla de dentro de tu casa, junto a la puerta (donde despiertas si te rescatan)
@@ -1339,7 +1343,7 @@ export class Game {
     this.view3d.world?.showInside?.(house && !CAM.first ? house : null);   // (dentro del establo, sin tejado: se ve lo de dentro)
     const under = this.scene === this.world && (underRoof(this.world, p.x, p.y) || !!house);
     // (the room, while under a roof of the world: what warms it and what it is called. In a big animal house, none)
-    this.room = under && !house && shelterOn() ? (this.roomWatch ||= new RoomWatch()).get(this.world, p.x, p.y, performance.now()) : null;
+    this.room = under && !house && shelterOn() ? (this.roomWatch ||= new RoomWatch()).get(this.world, p.x, p.y, performance.now(), this.wear.raining) : null;
     if (under !== this.underRoof) { this.underRoof = under; p.underRoof = under; Audio.indoors = this.indoors; this.updatePlace(); this.onSave?.(); }
     // (por pasos, no por dibujos: sin el foco o con la pestaña oculta se dibuja menos o nada, y frameNo se queda quieto)
     if ((this.stepNo = (this.stepNo || 0) + 1) % 10 === 0) this.updatePlace();
@@ -1358,7 +1362,7 @@ export class Game {
     let near = null;
     try {
       near = this.nearest();
-      this.highlight = this.build.on ? this.build.pickHighlight() : near && m?.in && !p.pose && !p.aboard ? this.aimed() : null;   // (swimming too: finds on the bed, water)
+      this.highlight = this.build.on ? this.build.pickHighlight() : (near && m?.in && !p.pose && !p.aboard ? this.aimed() : null) || this.wear.outline();   // (swimming too: finds on the bed, water)
       if (p?.swim && this.highlight && this.highlight.kind !== 'sys' && !this.build.on) this.highlight = null;   // (a swimmer uses only those: nearest)
     } catch (e) { reportFault(e, 'apuntar'); near = null; this.highlight = null; }
     this.view3d.game = this;

@@ -21,7 +21,7 @@
 //   remarkLife(text)   how long a remark's bubble stays: longer lines stay longer (it was not asked for: it must be read)
 //
 // Where the conditions come from: Body alone (body.conditions: surface, carried things, clothes, temperature, the bath,
-// the haircut, new clothes and your partner near), good news first. In creative, as a spectator and on the world server
+// the haircut, new clothes and your partner near), good news first, and what is built near here (wear.js). In creative, as a spectator and on the world server
 // nothing is remarked (Body's conditions are survival only).
 // Caps (plan §4.5, §14.4): one remark per neighbour per condition per day (friends[id].rem[cond] = day), GAP s between
 // two passing remarks anywhere, PER_HOUR an hour, never in a dialogue or with a window open, never while that
@@ -44,9 +44,9 @@ import { hud } from './ui/hud.js';
 
 export const REMARKS = [
   'carcass', 'log', 'blood', 'soaked', 'snowy', 'muddy', 'filthy', 'torn', 'underwear', 'barefoot',
-  'underdressed', 'overdressed', 'fresh', 'haircut', 'new_clothes', 'couple', 'wrapped_up',
+  'underdressed', 'overdressed', 'fresh', 'haircut', 'new_clothes', 'couple', 'wrapped_up', 'house_kept', 'roof_worn',
 ];
-export const GOOD_REMARKS = new Set(['fresh', 'haircut', 'new_clothes', 'couple', 'wrapped_up']);
+export const GOOD_REMARKS = new Set(['fresh', 'haircut', 'new_clothes', 'couple', 'wrapped_up', 'house_kept']);
 export const RECALLS = ['gift_loved', 'gift_hated', 'insult', 'take_seen', 'helped', 'knock_night', 'project', 'wish_kept', 'walked_off'];
 
 export const NEAR = 6;            // tiles: how close a neighbour must be to remark as you pass
@@ -119,6 +119,7 @@ export class Remarks {
     out.length = 0;
     if (this.off || Profile.server || !g.player || !B?.counts || typeof B.conditions !== 'function') return out;
     const body = B.conditions(this._body);
+    g.wear?.conditions(body);   // (the house somebody built near here: wear.js)
     for (const c of body) if (GOOD_REMARKS.has(c)) out.push(c);   // (Body already puts them first: kept in case it stops)
     for (const c of body) if (!GOOD_REMARKS.has(c)) out.push(c);
     return out;
