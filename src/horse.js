@@ -401,7 +401,7 @@ export class Horse {
   }
   // It stands still for s seconds (its menu open, or being looked after): whoever runs the world reads it (ranch.js)
   halt(a, s) {
-    if (!a || a === this.ridden || a.rider || a.calling || !this.ours(a)) return;
+    if (!a || a === this.ridden || a.rider || a.lead || a.calling || !this.ours(a)) return;
     a.halt = Math.round(((this.game.world?.clock || 0) + s) * 10) / 10;
     if (!this.game.live?.guest) { this.game.ranch.stopGrazing(a); a.vx = a.vy = 0; }
   }
@@ -629,7 +629,16 @@ export class Horse {
       g.gather.float(t('horse.whistle.ridden', { who: g.live?.nameOf?.(a.rider) || t('horse.someone'), name: a.name }), '#fff3c0');
       return false;
     }
+    const LD = g.horselead, by = LD?.heldBy(a);
+    if (by && by !== me()) { this.gesture(); g.gather.float(t('horse.lead.other', { who: g.live?.nameOf?.(by) || t('horse.someone'), name: a.name }), '#fff3c0'); return false; }
+    if (by) { this.gesture(); return true; }   // (its reins in your hand)
     const d = distOf(a.x, a.y, p.x, p.y);
+    if (a.tie && !LD?.off) {   // (tied: it does not come, and the map says where it is for a moment)
+      this.gesture();
+      g.gather.float(t('horse.tied', { name: a.name }), '#ffd890');
+      this.farMark = { id: a.id, until: g.time + FAR_MARK };
+      return false;
+    }
     if (d < ARRIVED && !item) { this.gesture(); return true; }   // (here already: the gesture, and nothing is sent)
     if (!this.off && !item && d > WHISTLE_M[levelOf(a.love) - 1]) {
       this.gesture(true);

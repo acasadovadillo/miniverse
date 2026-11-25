@@ -94,6 +94,10 @@ const TIER_PX = [[90, 81], [40, 36]];      // [para subir, para seguir]: a todo;
 // Turning at speed the horse and its rider lean into the turn (bank: by how hard they turn, at most so many rad). On the
 // sliding stop the rider sits back (back), and is thrown forward onto the neck when it stumbles (fall)
 const RIDE = { astride: 1.15, bank: 0.012, bankMax: 0.2, back: 0.42, fall: 0.6, lean: 0.25, bounce: 0.025, bouncePh: 2.2, rearTilt: 0.55, rearLean: 0.5, gripArm: -0.75, gripIn: -0.12, gripFore: -0.85 };
+// (leading one: the arm with the rope, and how much of the walk's swing it keeps, a quarter)
+const LEAD_ARM = { x: 0.3, out: 0.2, fore: -0.5 };
+// Holding the reins in the saddle: the arms down by the ribs, the forearms forward, the hands together over the withers
+const REIN_ARM = { x: -0.3, in: 0.16, fore: -1.15 };
 // Horses heard (m): the hooves, the snort and the neigh of another player's horse, or of your own nobody rides, fade out
 // to nothing at this distance; yours under you, always at full
 const HEAR_M = 20;
@@ -163,6 +167,7 @@ export class Actors {
       else if (!on && o.userData.solid) { o.material.dispose(); o.material = o.userData.solid; delete o.userData.solid; }
     });
   }
+  own(o, m) { ownMesh(o, m); }   // (something drawn with the player that is not theirs to make: reins3d.js)
   playerMaterials(body = false) { return (body ? this.player?.body : this.player?.mats) || []; }
 
   update(game, scene, dt, t) {
@@ -807,6 +812,26 @@ export class Actors {
       if (F) F.rotation.x += (RIDE.gripFore - F.rotation.x) * rk;
     }
   }
+  // Riding, before the gestures: the hands on the reins, the free one; the other too with nothing in it
+  reinArms(m, P) {
+    if (!m.horse?.userData.bits || m.fishOn) return;
+    for (let i = 0; i < 2; i++) {
+      if (i === P.toolArm && (m.holding || m.anim)) continue;
+      const s = i === 0 ? -1 : 1, A = P.arms[i], F = P.fore?.[i];
+      A.rotation.x = REIN_ARM.x; A.rotation.z = -s * REIN_ARM.in;
+      if (F) F.rotation.x = REIN_ARM.fore;
+    }
+  }
+  // Leading a horse (horselead.js): the free arm a little back and bent, with the rope in its hand, whatever the walk does with it
+  leadBones(m, e, P, dt, pz) {
+    const on = e.leads && !pz && !e.mount && !(m.swimK > 0.3) && !(e.bowPull > 0) && !m.fishOn;
+    m.leadK = (m.leadK || 0) + ((on ? 1 : 0) - (m.leadK || 0)) * Math.min(1, dt * 6);
+    if (m.leadK < 0.01) { m.leadK = 0; return; }
+    const i = 1 - P.toolArm, s = i === 0 ? -1 : 1, A = P.arms[i], F = P.fore?.[i], k = m.leadK;
+    A.rotation.x += (LEAD_ARM.x - A.rotation.x * 0.75) * k;
+    A.rotation.z += (s * LEAD_ARM.out - A.rotation.z) * k;
+    if (F) F.rotation.x += (LEAD_ARM.fore - F.rotation.x) * k;
+  }
   // What a horse plays, for animateHorse ({ act, at, winded }, kept on its model m). act: { kind, t } from horse.js (yours:
   // p.horseAct; a brushed horse's shake: a.act) or from another player's messages (live.js RemotePlayer.horseAct), t the
   // game's clock when it starts (the shake after a brushing starts when the strokes end: in the future). So it plays from
@@ -903,6 +928,8 @@ export class Actors {
     if (casting !== null && pz && !lying) P.arms[P.toolArm].rotation.x = casting;
     else if (m.fishOn && (pz || e.boat || e.aboard) && !lying) fishArms(P, m.fishOn);
     if (m.swimK) this.swimBones(m, P);
+    if (e.mount) this.reinArms(m, P);
+    if (!busy && (m.leadK > 0 || e.leads)) this.leadBones(m, e, P, dt, pz);   // (the reins of the horse it leads)
     if (e.emote && !busy) this.emote(m, e, P, dt, !!(game || e.remote));   // (with the arms busy, no gesture)
     if (e.mount) {
       // (astride a broader back)

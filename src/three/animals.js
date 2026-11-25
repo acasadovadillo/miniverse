@@ -21,6 +21,8 @@ import * as THREE from 'three';
 import { mesh, mergeInto, G, M } from './shapes.js';
 import { Builder } from './geo.js';
 import { sobrio } from '../arte.js';
+import { apagada } from '../opciones.js';
+import { bridle } from './tack3d.js';
 import { raceKey, buildOfKey, sizeOfBuild } from '../horsebreeds.js';
 
 // (menos de dibujos animados: pelaje apagado y con variación de tono, ojos pequeños sin punto de brillo, patas más finas
@@ -522,7 +524,7 @@ function dogOut(u, e, dt) {
 }
 export function animateAnimal(m, dt, t, e, st = null) {
   const u = m.root.userData;
-  if (u.horse) { animateHorse(m.root, m.speed, t, e, dt, undefined, st); return; }
+  if (u.horse) { animateHorse(m.root, m.speed, t, e, dt, e?.lead ? e.leadGait : undefined, st); return; }   // (led by the reins, its gait: horselead.js)
   const { body, legs, type, head, tail } = u, k = Math.min(1, m.speed / 0.8);
   // Sentado (el perro y el gato): la grupa en el suelo, el cuerpo inclinado hacia arriba, las patas de atrás
   // dobladas y las de delante rectas; la cabeza derecha, mirando alrededor, y la cola barriendo el suelo
@@ -650,6 +652,15 @@ function tailGeo(P, race) {
   TAILS.set(race, g);
   return g;
 }
+// The bridle (tack3d.js), on the head; u.bits (its rings, the horse's left first) and u.chin (where the lead rope goes), in the head,
+// and u.neckR, how thick the neck is half way: what the reins and the rope need (reins3d.js)
+const NO_REINS = apagada('riendas'), HEAD_AT = new THREE.Matrix4().makeRotationX(0.6).setPosition(0, -0.06, 0.12);
+function bridleOn(head, u, shape, race, P) {
+  const B = bridle(shape, race);
+  for (const [g, c] of B.parts) mesh(g, M(c, { roughness: 0.7 }), { p: [0, -0.06, 0.12], r: [0.6, 0, 0] }, head);
+  u.bits = B.bits.map(q => q.clone().applyMatrix4(HEAD_AT)); u.chin = B.chin.clone().applyMatrix4(HEAD_AT);
+  u.neckR = (P.r0 + P.r1) / 2;
+}
 // También el del jinete: con su pelaje, la silla con su manta y los estribos y, si las tiene, las alforjas
 // (fill: how full the saddlebags look, 0 flat, 1 half, 2 bulging; see saddlebags. shod: with its shoes on, iron under the hooves.
 // race: its breed's key, horsebreeds.js raceKey). u.size: how big the whole is by an Español's (whoever shows it scales it); u.dy and
@@ -666,7 +677,9 @@ export function horseModel(breed = 'castano', bags = false, alone = false, fill 
   const morro = M(cl && breed === 'palomino' ? cb : breed === 'blanco' ? '#d8cfc4' : mixc(cb, '#000000', 0.25).getStyle()), mz = P.muzzle;
   // La cabeza larga, en cuña: ancha en la frente y las quijadas y estrecha hacia el morro, con los ojos a los lados
   // (its profile, hollow under the eyes or rounded: dish)
-  mesh(blob(k + ':h', 28, (v, n) => { const f = (n.z + 1) / 2, jaw = Gs(n.z + 0.45, 0.3) * Math.max(0, -n.y); v.set(n.x * (0.085 - (0.03 + 0.008 * Math.max(0, P.dish) - 0.055 * Math.max(0, mz - 1)) * f + 0.02 * jaw), n.y * (0.105 - (0.04 - 0.06 * Math.max(0, mz - 1)) * f) - 0.03 * jaw + P.dish * Math.max(0, n.y) * (0.012 * Gs(n.z + 0.45, 0.25) - 0.022 * Gs(n.z - 0.2, 0.28)), n.z * 0.3); }, n => coat(cb, { back: 0.06 })(n)), WHITE, { p: [0, -0.06, 0.12], r: [0.6, 0, 0] }, head);
+  const headShape = (v, n) => { const f = (n.z + 1) / 2, jaw = Gs(n.z + 0.45, 0.3) * Math.max(0, -n.y); v.set(n.x * (0.085 - (0.03 + 0.008 * Math.max(0, P.dish) - 0.055 * Math.max(0, mz - 1)) * f + 0.02 * jaw), n.y * (0.105 - (0.04 - 0.06 * Math.max(0, mz - 1)) * f) - 0.03 * jaw + P.dish * Math.max(0, n.y) * (0.012 * Gs(n.z + 0.45, 0.25) - 0.022 * Gs(n.z - 0.2, 0.28)), n.z * 0.3); };
+  mesh(blob(k + ':h', 28, headShape, n => coat(cb, { back: 0.06 })(n)), WHITE, { p: [0, -0.06, 0.12], r: [0.6, 0, 0] }, head);
+  if (!NO_REINS) bridleOn(head, u, headShape, race, P);
   mesh(G.ball, morro, { p: [0, -0.2, 0.31], s: [0.052 * Math.min(mz, 1.1), 0.05 * Math.min(mz, 1.1), 0.07 * (0.6 + 0.4 * mz)], r: [0.6, 0, 0] }, head);   // el morro
   if (breed === 'blanco' || breed === 'tordo' || breed === 'palomino' || pio) mesh(G.ball, M('#f8f4ee'), { p: [0, -0.057 - 0.02 * P.dish, 0.243 - 0.014 * P.dish], s: [0.028, 0.012, 0.085], r: [0.76, 0, 0] }, head);   // the blaze, lying on the face
   for (const s of [-1, 1]) {

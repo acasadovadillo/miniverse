@@ -93,7 +93,7 @@ const TIPS = {
   cold: { key: null }, hot: { key: null }, wet: { key: null }, dirty: { key: null }, torn: { key: null }, hair: { key: null },
   // (the horse, Plan F: their texts say their key, "N: whistle for Rayo". N is only the whistle, so pressing it makes it
   // known; G and H count only in the saddle, where they are pat and rear (ride); X does many things, so only being shown)
-  whistle: { code: 'KeyN', key: null }, bags: { key: null }, jump_fence: { key: null }, drink: { key: null }, pat: { code: 'KeyG', key: null, ride: true }, rear: { code: 'KeyH', key: null, ride: true },
+  whistle: { code: 'KeyN', key: null }, bags: { key: null }, jump_fence: { key: null }, drink: { key: null }, tie: { key: null }, pat: { code: 'KeyG', key: null, ride: true }, rear: { code: 'KeyH', key: null, ride: true },
   // (tracking and the nature book, Plan G §5.1: a fresh trail close by, the first study ring, the first wounded animal's
   // trail locked. No key drawn: the text says it)
   tracks: { key: null }, study: { key: null }, blood: { key: null },
@@ -633,6 +633,9 @@ export class SmartHud {
     if (H.fences > 0 && p.mount && !this.seen.has('jump_fence')) this.want('jump_fence', true);
     // (it is thirsty for the first time: it drinks by itself, horsecare.js counts them)
     if (g.horsecare?.thirsts > 0 && p.mount && !this.seen.has('drink')) this.want('drink', true);
+    // (the reins taken for the first time: where it can be tied, horselead.js)
+    const LD = g.horselead;
+    if (LD?.leads > 0 && LD.mine && !this.seen.has('tie')) { this.names.tie = LD.mine.name || ''; this.want('tie', true); }
     if (!p.mount || (this.seen.has('bags') && this.seen.has('pat') && this.seen.has('rear'))) { this.spooks = H.spooks; return; }
     // (the horse under you: horse.js keeps it in ridden; until then, the one ranch.mount wrote in horseId)
     const rid = H.ridden || g.ranch?.animals?.find(a => a.id === p.horseId) || null;
@@ -654,7 +657,7 @@ export class SmartHud {
     this.fresh = Infinity;   // (the first look only counts them)
     this.foodSlot = -1; this.foodBag = false; this.drinkSlot = -1; this.drinkBag = false;
     this.healAt = -Infinity; this.enLow = false; this.swimT = 0; this.needTipAt = -Infinity; this.tipAt = -Infinity; this.fieldAt = 0;
-    this.horseMini = false; this.spooks = undefined; this.names = { whistle: '', pat: '' };   // (the horse: its marker, its scares and the names its tips say)
+    this.horseMini = false; this.spooks = undefined; this.names = { whistle: '', pat: '', tie: '' };   // (the horse: its marker, its scares and the names its tips say)
     try { this.game.needsBar?.reset(); } catch (e) { reportFault(e, 'NeedsBar.reset'); }   // (the bars: no timer of the game before)
     this.px = p.x; this.py = p.y; this.moveT = 0; this.stillT = 0;
     this.started = T; this.toldTab = false; this.placeTimes = new Map(); this.placeDue = false;
@@ -838,7 +841,7 @@ export class SmartHud {
     // (Tab's: in creative and as a spectator there is no health to see)
     // (the horse's: its name, whichever horse it was about; escaped, it may come from another player)
     const [k, sub, params] = id === 'hungry' ? this.hungryTip() : id === 'thirsty' ? this.thirstyTip() : id === 'all' && this.game.gamemode !== 'survival' ? [TIPS.all.key, 'nohealth']
-      : id === 'whistle' || id === 'pat' ? [TIPS[id].key, null, { name: this.names?.[id] || '' }] : [TIPS[id].key];
+      : id === 'whistle' || id === 'pat' || id === 'tie' ? [TIPS[id].key, null, { name: this.names?.[id] || '' }] : [TIPS[id].key];
     const text = tHtml(`hud.tip.${id}${sub ? '.' + sub : ''}`, params), sig = `${k}|${text}`;
     if (sig !== this.tipSig) { this.tipSig = sig; this.el.tip.innerHTML = `${k ? kbd(k) : ''}<span>${text}</span>`; }
     return text;

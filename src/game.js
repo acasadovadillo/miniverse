@@ -31,6 +31,7 @@ import { Farm } from './farm.js';
 import { Ranch } from './ranch.js';
 import { Horse } from './horse.js';
 import { HorseCare } from './horsecare.js';
+import { HorseLead } from './horselead.js';
 import { Saddlebags } from './saddlebags.js';
 import { Freshness } from './freshness.js';
 import { Steps } from './steps.js';
@@ -205,6 +206,7 @@ export class Game {
     this.saddlebags = this.addSystem(new Saddlebags(this));   // the horse's saddlebags: shared with the couple, one writer at a time (Plan F, src/saddlebags.js)
     this.freshness = this.addSystem(new Freshness(this));   // the catch going off, and cleaning and salting it (src/freshness.js)
     this.horsecare = this.addSystem(new HorseCare(this));   // what the horse eats and drinks, its shoes, being sore (Plan R4-2, src/horsecare.js)
+    this.horselead = this.addSystem(new HorseLead(this));   // led by the reins, and tied (Plan R4-4, src/horselead.js)
     this.family = this.addSystem(new Family(this));
     this.fishing = this.addSystem(new Fishing(this));
     this.traps = this.addSystem(new Traps(this));   // the fish traps and their buoys (src/traps.js)
@@ -591,7 +593,7 @@ export class Game {
     }
     // Con ratón, solo lo que se apunta con el cursor (a AIM_REACH casillas como mucho). Riding with nothing aimed: get off,
     // and X the saddlebags (horse.js action; anything aimed wins, as for every prompt)
-    if (this.mouse) { const aim = this.aimed(); return aim ? this.actionFor(aim) : p.mount ? this.horse.action() : null; }
+    if (this.mouse) { const aim = this.aimed(); return aim ? this.actionFor(aim) : p.mount ? this.horse.action() : this.horselead.action(); }
     // Sin ratón (en pantalla táctil, sin cursor): lo que haya más cerca
     for (const s of this.systems) { let r; try { r = s.interact?.(p, sc); } catch (e) { reportFault(e, faultName(s, 'interact')); } if (r) return r; }
     const door = sc.doorNear?.(p.x, p.y), da = door && this.doorAction(door);
@@ -607,7 +609,7 @@ export class Game {
     const win = sc.windowNear?.(p.x, p.y);
     if (win) return this.windowAction(win);
     const rug = near.find(o => o.layer === 'rug');
-    return rug ? this.placedAction(rug) : p.mount ? this.horse.action() : null;   // (placedAction: la alfombra, o lo de una versión más nueva)
+    return rug ? this.placedAction(rug) : p.mount ? this.horse.action() : this.horselead.action();   // (placedAction: la alfombra, o lo de una versión más nueva)
   }
   // Lo que se apunta con el ratón (a AIM_REACH casillas como mucho y, si está suelto, a la vista): lo primero que
   // corta el rayo, { kind, …, t }; o null (sin ratón sobre el juego, o sin apuntar a nada que se use)
@@ -1424,6 +1426,7 @@ export class Game {
     // (and greeting whoever is under the cursor, Y: social.js. Only added if E is about that same person; farther away, alone)
     const social = this.player ? this.social.promptFor(this.highlight?.e || null, !!near) : '';
     if (this.fishing.card) near = null;   // (the catch card says what E and X do)
+    if (near?.leading && !this.horselead.promptShown()) near = null;
     if (near?.riding && !this.horse.promptShown()) near = null;   // (riding: «Get off» does not stay on the screen the whole ride)
     this.build.tick();   // (what is being taken down, holding)
     this.prompts.frame(near, this.highlight, !!prey && this.highlight?.e === prey, social);   // (at what is aimed at: ui/prompts.js)

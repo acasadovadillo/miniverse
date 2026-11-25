@@ -55,7 +55,7 @@ export const bagsEmpty = b => !Array.isArray(b) || !b.some(Boolean);
 const lockOk = (v, pid) => Array.isArray(v) && v.length === 2 && v[0] === pid && Number.isFinite(v[1]);
 
 // The fields of a horse the host checks when a guest changes them (§3.2)
-export const GUARDED = new Set(['rider', 'bagsBy', 'bags', 'bx', 'love', 'care', 'dirt', 'brushDay', 'carrotDay', 'callBy', 'callAt', 'stay', 'act', 'halt', 'fed', 'water', 'shoe', 'shod', 'sore', 'ownDay', 'race', 'gene', 'mix']);
+export const GUARDED = new Set(['rider', 'bagsBy', 'bags', 'bx', 'love', 'care', 'dirt', 'brushDay', 'carrotDay', 'callBy', 'callAt', 'stay', 'act', 'halt', 'fed', 'water', 'shoe', 'shod', 'sore', 'ownDay', 'race', 'gene', 'mix', 'lead', 'tie']);
 const CARE01 = new Set(['fed', 'water', 'shoe']);
 const BOND = new Set(['bx', 'love', 'care', 'dirt', 'brushDay', 'carrotDay']);
 // Pure: may guest pid set field f of animal el (as this batch of ops leaves it so far) to v (undefined: delete it)?
@@ -65,11 +65,12 @@ export function horseGuard(el, f, v, pid, ctx) {
   const lock = Array.isArray(el.bagsBy) ? el.bagsBy : null;
   const stale = L => !L || !Number.isFinite(L[1]) || !(ctx.clock - L[1] <= BAGS.LOCK_STALE) || !ctx.present(L[0]);
   const lockFree = () => ctx.bagsOff || !lock || lock[0] === pid || stale(lock);
+  const leadGone = () => !el.lead || el.lead === pid || !ctx.present(el.lead);
   const riderGone = () => !el.rider || el.rider === pid || !ctx.present(el.rider);
   switch (f) {
     case 'rider':   // (fixes the double mount: one rider, ours, and never while another has the bags open)
       if (v === undefined || v === null) return riderGone();
-      return v === pid && ctx.ours(el, pid) && riderGone() && lockFree();
+      return v === pid && ctx.ours(el, pid) && riderGone() && leadGone() && lockFree();
     case 'bagsBy':
       if (ctx.bagsOff) return true;
       if (v === undefined || v === null) return !lock || lock[0] === pid;   // (only your own lock: stale ones are the host's to clear)
@@ -80,6 +81,12 @@ export function horseGuard(el, f, v, pid, ctx) {
       // (putting them on or taking them off with no lock: none before and empty ones now, or the other way round; ours)
       if (lock || !ctx.ours(el, pid)) return false;
       return Array.isArray(el.bags) ? bagsEmpty(el.bags) && (v === undefined || v === null) : Array.isArray(v) && bagsEmpty(v);
+    case 'lead':   // (Plan R4-4: one leader, ours, and nobody riding it; horselead.js)
+      if (v === undefined || v === null) return leadGone();
+      return v === pid && ctx.ours(el, pid) && riderGone() && leadGone();
+    case 'tie':   // (tied or untied by its family; not while another leads or rides it)
+      if (!ctx.ours(el, pid) || !riderGone() || !leadGone()) return false;
+      return v === undefined || v === null || (Array.isArray(v) && v.length === 2 && Number.isFinite(v[0]) && Number.isFinite(v[1]));
     case 'race': case 'gene': case 'mix': return JSON.stringify(v) === JSON.stringify(el[f]);   // (what it is, it was born or bought with: horsebreeds.js)
     case 'ownDay': return v === el.ownDay;   // (who runs the world keeps it: horsecare.js books)
     case 'sore':   // (a stumble: minutes of the world's clock, never more)
@@ -148,7 +155,7 @@ export class Saddlebags {
   // The guard of COLLECTIONS.animals (livesync.js): may guest pid set field f of animal el to v?
   guard(id, f, v, pid, el) {
     const H = this.game.horse, bondOff = !!H?.off;
-    if (this.off && bondOff && f !== 'rider') return true;
+    if (this.off && bondOff && f !== 'rider' && f !== 'lead' && f !== 'tie') return true;
     return horseGuard(el, f, v, pid, { ours: (e, p) => this.ours(e, p), present: x => this.present(x), clock: this.clock, bagsOff: this.off, bondOff });
   }
   // Ours horses with bags this game may touch, within r m of (x, y): [{ a, d }], the nearest first (carry.js chests)

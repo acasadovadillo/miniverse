@@ -13,6 +13,7 @@ import { ITEMS } from '../items.js';
 import { PIECES } from '../pieces.js';
 import { getModel } from './models.js';
 import { FishingView } from './fishing3d.js';
+import { ReinsView } from './reins3d.js';
 import { RodRestView } from './rodrest3d.js';
 import { FOUNTAIN_U } from './fountain3d.js';
 import { WALL_H } from './build3d.js';
@@ -156,6 +157,7 @@ export class Fx {
     this.beam.visible = false; this.group.add(this.beam);
     this.beams = [this.beam];   // (uno por faro cerca: si hay dos a la vista, los dos giran)
     this.rests = new RodRestView(this);   // (the rods laid on their rests: rodrest3d.js)
+    this.reins = new ReinsView(this);   // (the reins, the lead rope and the knots: reins3d.js)
     this.fishing = new FishingView(this);   // (the lines, the floats and the catch: fishing3d.js)
     // Textos flotantes (HTML encima del lienzo) y el destello rojo de los golpes
     this.layer = document.getElementById('floaters') || Object.assign(document.body.appendChild(document.createElement('div')), { id: 'floaters' });
@@ -241,6 +243,7 @@ export class Fx {
     this.updateFountains(t);
     this.updateWeather(t);
     this.fishing.update(game, scene, playing, t);
+    this.reins.update(game, scene, playing);
     this.rests.update(game, scene, playing, t);
     this.updateBeacon(scene, t);
     this.updateFloaters(game, playing);

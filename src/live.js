@@ -119,6 +119,7 @@ class RemotePlayer extends Person {
     // (rv: how fast their horse goes, m/s, only sent riding and moving: between two messages it goes on along its heading,
     // so it does not pulse ten times a second. A game from before sends none: as it was)
     this.rideV = st.m && Number.isFinite(st.rv) ? Math.max(0, Math.min(RIDE_NET, st.rv)) : 0;
+    this.leads = typeof st.lh === 'string' ? st.lh.slice(0, 80) : null;   // (the horse they lead by the reins, horselead.js: a game from before sends none)
     this.toAge = 0;
     // (ca: what their arms carry, a log or a carcass: carry.js; or the wheelbarrow they push, its model key: barrow.js. Only
     // sent while carrying; an older game sends nothing. Riding or rowing, the big thing goes on the horse or in the bow: the
@@ -934,7 +935,7 @@ export class Live {
       if (b) g.world.clock = b.c + (b.run ? g.time - b.at : 0);
       const k = 1 - Math.exp(-dt * 8);
       for (const a of g.ranch.animals) {
-        if (!a.netTo || a.inside) continue;   // (dentro, en su sitio del establo)
+        if (!a.netTo || a.inside || (a.lead && g.horselead?.follows(a))) continue;   // (dentro, en su sitio del establo; led by the reins, behind its leader: horselead.js)
         // (moved at once, a called horse's jump-in, or across the planet's seam: never a sweep over the screen)
         const ddx = dxOf(a.netTo[0], a.x), ddy = a.netTo[1] - a.y;
         if (Math.abs(ddx) > HERD_SNAP || Math.abs(ddy) > HERD_SNAP || Math.abs(a.netTo[0] - a.x) > HERD_SNAP) { a.x = a.netTo[0]; a.y = a.netTo[1]; a.vx = a.vy = 0; continue; }
@@ -985,7 +986,7 @@ export class Live {
     }
     this.sent += dt;
     const sc = g.scene === g.world ? 'world' : null;
-    const st = { t: 'st', sc, x: r2(p.x), y: r2(p.y), z: r2(p.z || 0), fl: p.floor ? r2(p.floor) : undefined, yaw: r2(g.view3d.actors.player?.person.facing ?? 0), in: p.inside ? 1 : 0, po: p.pose ? [poseIndex(p.pose.kind), r2(p.pose.yaw), r2(p.pose.h)] : 0, ba: p.bathing && p.pose?.kind === 'bath' ? 1 : undefined, bd: g.body?.bd || undefined, fr: g.body?.fresh ? 1 : undefined, m: p.mount ? 1 : 0, hc: p.mount ? p.horseCoat || null : null, hb: p.mount && p.horseBags ? 1 + (p.horseFill > 0 ? Math.min(2, p.horseFill | 0) : 0) : 0, hd: p.mount && p.horseDirt > 0 ? Math.min(3, Math.round(p.horseDirt * 3)) || undefined : undefined, hw: p.mount && p.horseWinded ? 1 : undefined, ht: p.mount ? horseAct(p.horseAct) : undefined, b: p.boat ? 1 : 0, pa: p.aboard || 0, fg: g.fishing?.netRig(), cr: p.crouch ? 1 : 0, gm: g.gamemode === 'survival' ? 0 : g.gamemode === 'creative' ? 1 : 3, h: (g.plans?.handId() ?? g.inv.held?.id) || null, sw: this.swings, si: g.gather.swingItem || null, cd: r2(g.gather.cooldown || 0), dr: r2(g.archery.k), na: p.swim ? 1 : 0, hu: p.swim ? r2(p.sink) : undefined, dv: p.swim && p.dive > 0.02 ? r2(p.dive) : undefined, zz: p.sleeping && p.pose?.kind === 'lie' ? 1 : undefined, fb: sc ? g.fishing?.net() : undefined, rr: sc ? g.rodrest?.net() : undefined, kt: kitKey(g.kitIds()) || undefined, gt: p.gait || 0, rv: p.mount && g.mode === 'play' && p.ride?.v > 0.5 ? r1(p.ride.v) : undefined, ca: g.carry?.state(), em: g.social.emSeq, ek: g.social.emKind, ac: accentOf(p.name, g.ui?.accent) };
+    const st = { t: 'st', sc, x: r2(p.x), y: r2(p.y), z: r2(p.z || 0), fl: p.floor ? r2(p.floor) : undefined, yaw: r2(g.view3d.actors.player?.person.facing ?? 0), in: p.inside ? 1 : 0, po: p.pose ? [poseIndex(p.pose.kind), r2(p.pose.yaw), r2(p.pose.h)] : 0, ba: p.bathing && p.pose?.kind === 'bath' ? 1 : undefined, bd: g.body?.bd || undefined, fr: g.body?.fresh ? 1 : undefined, m: p.mount ? 1 : 0, hc: p.mount ? p.horseCoat || null : null, hb: p.mount && p.horseBags ? 1 + (p.horseFill > 0 ? Math.min(2, p.horseFill | 0) : 0) : 0, hd: p.mount && p.horseDirt > 0 ? Math.min(3, Math.round(p.horseDirt * 3)) || undefined : undefined, hw: p.mount && p.horseWinded ? 1 : undefined, ht: p.mount ? horseAct(p.horseAct) : undefined, lh: p.leads || undefined, b: p.boat ? 1 : 0, pa: p.aboard || 0, fg: g.fishing?.netRig(), cr: p.crouch ? 1 : 0, gm: g.gamemode === 'survival' ? 0 : g.gamemode === 'creative' ? 1 : 3, h: (g.plans?.handId() ?? g.inv.held?.id) || null, sw: this.swings, si: g.gather.swingItem || null, cd: r2(g.gather.cooldown || 0), dr: r2(g.archery.k), na: p.swim ? 1 : 0, hu: p.swim ? r2(p.sink) : undefined, dv: p.swim && p.dive > 0.02 ? r2(p.dive) : undefined, zz: p.sleeping && p.pose?.kind === 'lie' ? 1 : undefined, fb: sc ? g.fishing?.net() : undefined, rr: sc ? g.rodrest?.net() : undefined, kt: kitKey(g.kitIds()) || undefined, gt: p.gait || 0, rv: p.mount && g.mode === 'play' && p.ride?.v > 0.5 ? r1(p.ride.v) : undefined, ca: g.carry?.state(), em: g.social.emSeq, ek: g.social.emKind, ac: accentOf(p.name, g.ui?.accent) };
     const key = JSON.stringify(st);
     if (this.sent < SEND_EVERY || (key === this.lastSent && this.sent < IDLE_EVERY)) return;
     this.sent = 0; this.lastSent = key;

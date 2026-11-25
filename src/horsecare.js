@@ -57,7 +57,8 @@ export const DRINK_R = 2.5, DRINK_AFTER = 1.5, DRINK_S = 4, DRINK_UNDER = 0.9, G
 const DRY = 0.15, STILL = 0.3, GULP_EVERY = 0.55, MUNCH_EVERY = 0.8;
 // Overnight: fed if it grazed what it needs (or ate from a feeder or the silo), else as much as it grazed; watered in its
 // stable, by a trough with water or by natural water
-export const NIGHT = { home: 12, trough: 16, water: 20, hungry: 0.2, tile: 0.16 };
+// (tied, only what it reaches: horselead.js)
+export const NIGHT = { home: 12, trough: 16, water: 20, tied: 3, hungry: 0.2, tile: 0.16 };
 export const nightFed = (fed, ate, tiles) => (ate ? 1 : Math.min(fed, NIGHT.hungry + NIGHT.tile * Math.max(0, tiles)));
 // The trough: the drinks it holds. A full watering can fills it; a sip of a canteen or a jug, half a drink
 export const TROUGH = { MAX: TROUGH_MAX, CAN: CAN_MAX / TROUGH_MAX, SIP: 2 };
@@ -461,7 +462,7 @@ export class HorseCare {
     const g = this.game, r = g.ranch, tiles = r.grazedOn(a, day - 1), need = r.needOf(a), grazed = tiles >= need;
     if (grazed) a.fedDay = day;
     if (this.off || a.rider) return;
-    const home = a.home2, inStable = !!home && !a.stay && distOf(a.x, a.y, home[0], home[1]) < NIGHT.home;
+    const home = a.home2, tied = !!a.tie && !g.horselead?.off, inStable = !!home && !a.stay && distOf(a.x, a.y, home[0], home[1]) < (tied ? NIGHT.tied : NIGHT.home);
     // (a day nobody played: it fends for itself, and nothing of the farm is eaten)
     const played = g.farm?.playedOn(day - 1) !== false, fed = fedOf(a);
     const ate = grazed || !played || (inStable && (r.eatFromFeeder(a) || r.eatHay()));
@@ -474,12 +475,12 @@ export class HorseCare {
   troughNight(a) {
     for (const h of this.game.ranch.placed('trough')) {
       const x = nearX(h.tile[0] + 0.5, a.x), y = h.tile[1] + 0.5;
-      if (Math.hypot(x - a.x, y - a.y) <= NIGHT.trough && this.useTrough({ trough: h.tile }, true)) return true;
+      if (Math.hypot(x - a.x, y - a.y) <= (a.tie && !this.game.horselead?.off ? NIGHT.tied : NIGHT.trough) && this.useTrough({ trough: h.tile }, true)) return true;
     }
     return false;
   }
   waterAround(a) {
-    for (const r of [0, 4, 8, 12, 16, 20]) for (let i = 0, n = r ? 12 : 1; i < n; i++) if (this.freshAt(a.x + Math.cos(i * Math.PI / 6) * r, a.y + Math.sin(i * Math.PI / 6) * r)) return true;
+    for (const r of a.tie && !this.game.horselead?.off ? [0, 1.5, NIGHT.tied - 0.5] : [0, 4, 8, 12, 16, 20]) for (let i = 0, n = r ? 12 : 1; i < n; i++) if (this.freshAt(a.x + Math.cos(i * Math.PI / 6) * r, a.y + Math.sin(i * Math.PI / 6) * r)) return true;
     return false;
   }
   // A tile grazed by itself, whoever runs the world (ranch.ate): a little fuller

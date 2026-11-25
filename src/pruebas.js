@@ -100,6 +100,7 @@ import { Barrow } from './barrow.js';
 import { GAME_VERSION } from './version.js';
 import { Player, barrowPen, GAIT } from './entities.js';
 import { horseModel, animateHorse, horseCadence, animalKey, setHorseDirt, disposeAnimal, HORSE_ACTS as HACTS } from './three/animals.js';
+import * as LEADS from './horselead.js';   // (R4-4: led by the reins, and tied)
 import * as CARE from './horsecare.js';   // (R4-2: looking after the horse)
 import { cardHtml } from './ui/horsecard.js';
 import { horseGuard } from './saddlebags.js';
@@ -5496,7 +5497,7 @@ async function soloTests(game) {
     try {
       await goTo(game, L.trader[0] + 1, L.trader[1] + 1.2); await readyGround(game, 9000); await frames(6);
       const h = L.homes[0], door = Object.keys(L.placed).find(k => L.placed[k].startsWith('puerta')).split(',').map(Number); check(W.pieceAt(...door)?.kind === 'door' && W.roofAt(h.x + 1, h.y + 1) && W.at('floor', h.x + 1, h.y + 1), 'its house is not there');
-      check(P.hamletNear(p().x, p().y, 25) === fi && P.entities(W).length >= 2, 'nobody in it'); const who = P.traders.get(fi.key); check(Math.hypot(who.x - L.trader[0], who.y - L.trader[1]) < 0.1 && P.interact({ ...p(), x: who.x + 0.8, y: who.y }, W)?.text === t('place.trader.talk'), 'its trader'); check(P.shopOf(fi) === 'hamlet_fishing' && SHOPS.hamlet_fishing.stock.length > 5, 'its shop');
+      check(P.hamletNear(p().x, p().y, 25) === fi && P.entities(W).length >= (stopAt(game.days.localHour) === 'home' ? 1 : 2), 'nobody in it'); const who = P.traders.get(fi.key); check(Math.hypot(who.x - L.trader[0], who.y - L.trader[1]) < 0.1 && P.interact({ ...p(), x: who.x + 0.8, y: who.y }, W)?.text === t('place.trader.talk'), 'its trader'); check(P.shopOf(fi) === 'hamlet_fishing' && SHOPS.hamlet_fishing.stock.length > 5, 'its shop');
       // (the jetty: over the water, at its height, without swimming; no boat goes under it)
       const jx = D.x + Math.sin(D.yaw) * 5, jy = D.y + Math.cos(D.yaw) * 5; check(W.water(jx, jy) && W.levelAt(jx, jy) === 0.2 && W.waterDepth(jx, jy) === 0 && W.deckAt(jx, jy) === 0.2 && !W.boatFits(jx, jy), 'the jetty'); check(W.levelAt(jx + Math.cos(D.yaw) * 2.5, jy - Math.sin(D.yaw) * 2.5) === null, 'beside it, no jetty');
       game.teleport(jx, jy); await frames(20); check(!p().swim && Math.abs(game.view3d.groundY(W, p().x, p().y) - 0.2) < 0.01, 'one swims on the jetty');
@@ -11184,6 +11185,153 @@ async function soloTests(game) {
         // the host gave it to somebody else: nothing of it is written
         CR().v.fed = 0.01; a.rider = 'prueba_b'; HS().refused(a, p()); HS().update(0.01); CR().update(0.01); check(a.fed === 0.3, `refused, and written: ${a.fed}`); a.rider = null;
       });
+    });
+  });
+  // ---------- led by the reins and tied (Plan R4-4, horselead.js) ----------
+  const LDR = () => game.horselead;
+  const untilD = async (f, ms) => { for (let t0 = performance.now(); performance.now() - t0 < ms && !f();) await new Promise(r => setTimeout(r, 40)); return f(); };
+  const flatW = (o = {}) => ({ collidersNear: () => [], surfaceAt: () => 0, waterDepth: () => 0, pieceAt: () => null, ...o });
+  // A led horse behind a leader that walks: way(t) → [x, y]; every dt
+  const leadWalk = (world, way, secs, at = [-1.9, 0], dt = 1 / 60, L = LEADS.led({ worldDir: () => [1, 0] }, ...at), see = null) => {
+    const lead = { x: 0, y: 0 };
+    for (let i = 0; i * dt < secs; i++) { const [x, y] = way(i * dt); lead.x = x; lead.y = y; if (Number.isNaN(L.px)) { L.px = x; L.py = y; } LDR().leaderStep(L, lead, dt, false); LEADS.followStep(L, world, lead, dt); see?.(L, lead, i * dt); }
+    return [L, lead];
+  };
+  await test('caballo riendas (lead): the led horse trails 1.9 m back along its leader\'s way at their pace; it stops with them; a house door, a gap between walls, a cliff and deep water stop it; a fence\'s gate does not', async () => {
+    for (const v of [1.6, 3.2, 5]) {
+      let far = 0, near = 9; const [L] = leadWalk(flatW(), t => [v * t, 0], 8, [-1.9, 0], 1 / 60, undefined, (L, l, t) => { if (t > 4) { const d = Math.hypot(l.x - L.x, l.y - L.y); far = Math.max(far, d); near = Math.min(near, d); } });
+      check(near > 1.6 && far < 2.3 && Math.abs(L.v - v) < 0.4, `at ${v}: ${near.toFixed(2)}-${far.toFixed(2)} m, ${L.v.toFixed(2)} m/s`);
+    }
+    // it stops behind them, never on top; and it waits when they come back to it
+    { const [L, l] = leadWalk(flatW(), t => [Math.min(6, 3 * t), 0], 8); const d = l.x - L.x; check(d > 1.5 && d < 2.2 && L.v === 0, `stopped ${d.toFixed(2)} ${L.v}`); }
+    { let x0 = null, most = 0; leadWalk(flatW(), t => [t < 2 ? 3 * t : Math.max(4.6, 6 - 1.5 * (t - 2)), 0], 4, undefined, undefined, undefined, (L, l, t) => { if (t > 2.3) { x0 ??= L.x; most = Math.max(most, Math.abs(L.x - x0)); } }); check(most < 0.35, `they come to it: it goes ${most.toFixed(2)}`); }
+    // round a corner it keeps to their way (a wall on the inside), in the open it cuts it
+    const wallBox = { x0: -3, x1: 5.6, y0: 0.4, y1: 3 }, way = t => (t < 2 ? [3 * t, 0] : [6, 3 * (t - 2)]);
+    { const [L] = leadWalk(flatW({ collidersNear: () => [wallBox] }), way, 4.5); check(L.x > 5.5 && L.y > 3 && !L.held, `round the corner: ${L.x.toFixed(2)},${L.y.toFixed(2)} ${L.held}`); }
+    // what stops it
+    const stopAt = (o, way = t => [3 * t, 0.5], secs = 3) => { const [L] = leadWalk(flatW(o), way, secs, [-1.9, 0.5]); return L; };
+    const door = { pieceAt: (x, y) => (x === 4 && y === 0 ? { kind: 'door' } : x === 4 ? { kind: 'wall' } : null) };
+    { const L = stopAt(door); check(L.held === 'door' && L.x < 3.6, `a door: ${L.held} ${L.x.toFixed(2)}`); }
+    { const L = stopAt({ pieceAt: (x, y) => (x === 4 && (y === 1 || y === -1) ? { kind: 'wall' } : null) }); check(L.held === 'door' && L.x < 3.6, `a gap: ${L.held} ${L.x.toFixed(2)}`); }
+    { const L = stopAt({ pieceAt: (x, y) => (x === 4 ? { kind: y === 0 ? 'gate' : 'fence' } : null) }); check(!L.held && L.x > 6, `a gate: ${L.held} ${L.x.toFixed(2)}`); }
+    { const L = stopAt({ surfaceAt: x => Math.max(0, x - 4) * 1.2 }); check(L.held === 'up' && L.x < 4.6, `a cliff: ${L.held} ${L.x.toFixed(2)}`); }
+    { const L = stopAt({ surfaceAt: x => -Math.max(0, x - 4) * 1.2 }); check(L.held === 'down', `down: ${L.held}`); }
+    { const L = stopAt({ surfaceAt: x => Math.max(0, x) * 0.7 }, t => [2 * t, 0.5], 4); check(!L.held && L.x > 5 && L.cap === 3, `a steep slope: ${L.held} ${L.x.toFixed(2)} cap ${L.cap}`); }
+    { const L = stopAt({ waterDepth: x => (x > 4 ? 1.3 : 0) }); check(L.held === 'deep' && L.x < 4.1, `deep: ${L.held} ${L.x.toFixed(2)}`); }
+    { const L = stopAt({ waterDepth: x => (x > 2 ? 0.9 : 0) }, t => [2 * t, 0.5], 5); check(!L.held && L.x > 6, `a ford: ${L.held} ${L.x.toFixed(2)}`); }
+    { const L = stopAt({ collidersNear: () => [{ x0: 4, x1: 4.2, y0: -9, y1: 9 }] }, t => [3 * t, 0.5], 4); check(L.held === 'way' && L.x < 3.8, `a fence: ${L.held} ${L.x.toFixed(2)}`); }
+    // the ring of points never grows
+    const T = new LEADS.Trail(); for (let i = 0; i < 200; i++) T.push(i, 0); check(T.n === LEADS.TRAIL_MAX && T.x(0) === 200 - LEADS.TRAIL_MAX && T.x(T.n - 1) === 199 && T.b.length === 128, `the ring: ${T.n}`);
+  });
+  await test('caballo soltar (reins): taken from its menu; E with nothing aimed lets go and writes at; riding, rowing, swimming, a log, a wheelbarrow, a drawn bow or sitting let go; a leap leaves it; never saved', async () => {
+    const [gx, gy] = openGround(); await goTo(game, gx + 0.5, gy + 0.5); game.gamemode = 'survival';
+    await withHorses([aHorse({ x: gx + 2, y: gy + 0.5 }), aHorse({ id: 'hl-2', name: 'Luna', x: gx - 2, y: gy + 0.5, owner: 'prueba_z' })], async (a, z) => {
+      const L = LDR(), stepL = (n = 30) => { for (let i = 0; i < n; i++) { game.time += 1 / 30; L.update(1 / 30); RN().moveHorse(a, 1 / 30, false); } };
+      check(!L.canLead(z) && !L.take(z) && !z.lead, 'a stranger\'s');
+      const ask = hud.ask; let opts = null; hud.ask = async (n, x, o) => { opts = o; return o.indexOf(t('horse.menu.lead')); };
+      try { await RN().horseMenu(a); } finally { hud.ask = ask; }
+      check(opts.includes(t('horse.menu.lead')) && a.lead === myId() && L.mine === a && p().leads === a.id, `the menu: ${opts}`);
+      const x0 = a.x; p().x += 0; stepL(); p().x -= 3; stepL(60); p().x += 0; check(a.x < x0 && Math.hypot(a.x - p().x, a.y - p().y) < 2.4, `it follows: ${a.x.toFixed(2)} from ${x0}`);
+      check(!L.take(z), 'two');
+      const act = game.mouse ? (() => { const m = game.mouse, was = { ...m }; m.in = false; m.aimFrame = -1; try { return game.nearest(); } finally { Object.assign(m, was); } })() : L.action();
+      check(act?.text === t('horse.menu.letgo', { name: a.name }) && act.leading && L.action() === L.action(), `E: ${act?.text}`);
+      const sv = {}; RN().save(sv); check(sv.animals.find(q => q.id === a.id).lead === myId(), 'in what is shared'); RN().reset(JSON.parse(JSON.stringify(sv)));
+      { const b = RN().animals.find(q => q.id === a.id); check(b.lead === undefined && Array.isArray(b.at) && Math.abs(b.at[0] - b.x) < 0.02, `after a reload: ${b.lead} ${b.at}`); L.update(0.02); check(!L.mine && !p().leads, 'still leading'); }
+      const b = () => RN().animals.find(q => q.id === a.id);
+      L.take(b()); L.action().run(); check(!b().lead && !L.mine && Math.abs(b().at[0] - b().x) < 0.02 && !L.trails.has(a.id), 'let go');
+      // what needs the hands lets go; nothing is taken with them full
+      const tries = { mount: true, boat: true, swim: true, pose: { kind: 'sit' }, armsBusy: 'push', carrying: 'log', ghost: true };
+      for (const k in tries) { const was = p()[k]; b().x = p().x + 1.5; b().y = p().y; check(L.take(b()), `taken before ${k}`); p()[k] = tries[k]; try { L.update(0.02); check(!b().lead && !L.mine, `${k} keeps the reins`); check(!L.take(b()) && !b().lead, `taken with ${k}`); } finally { p()[k] = was; } }
+      { L.take(b()); const was = game.archery.drawT; game.archery.drawT = 1; try { L.update(0.02); check(!b().lead, 'a drawn bow keeps them'); } finally { game.archery.drawT = was; } }
+      // a leap of the leader: the horse stays
+      b().x = p().x + 1.5; b().y = p().y; L.take(b()); stepL(3); const hx = b().x; const px = p().x; p().x += 40; L.update(0.02); check(!b().lead && Math.abs(b().x - hx) < 0.3, `a leap: ${b().x} ${hx}`); p().x = px;
+      // mounting another lets go of it; mounting it ends it with no let go
+      b().x = p().x + 1.5; b().y = p().y; L.take(b()); RN().mount(b()); check(!b().lead && !L.mine && b().rider === myId() && p().mount, 'mounted'); RN().dismount(); HS().update(0.01);
+      // the whistle, with its reins in the hand: nothing is sent
+      b().x = p().x + 1.5; b().y = p().y; L.take(b()); const calls = b().call || 0; HS().whistle(b()); check((b().call || 0) === calls && b().lead === myId(), 'called while led'); RN().called(b()); check(!b().calling, 'a call of a game from before'); L.letGo();
+    });
+  });
+  await test('caballo atar (tie): to a post, a fence and a tree; its bridle stays within 0.9 m of the knot a whole night and it never walks home; the whistle says so; a fence taken away, or riding it, frees it; old saves keep it', async () => {
+    const [gx, gy] = openGround(); await goTo(game, gx + 0.5, gy + 0.5); game.gamemode = 'survival';
+    const W0 = game.world, fx = gx + 2, fy = gy;
+    W0.place(fx, fy, 'valla', 0); W0.place(fx, fy - 1, 'valla', 0); W0.place(gx - 2, gy, 'hitching_post', 0);
+    try {
+      await withHorses([aHorse({ x: gx + 0.6, y: gy + 0.5, home: [gx - 30, gy - 20] }), aHorse({ id: 'hl-3', name: 'Luna', x: gx + 0.6, y: gy + 2 })], async (a, b) => {
+        const L = LDR(), H = HS(), bit = q => [q.x + q.dir[0] * LEADS.TIE.BIT, q.y + q.dir[1] * LEADS.TIE.BIT];
+        const k = L.knotNear(p().x, p().y, LEADS.TIE.AIM); check(k?.kind === 'post' || k?.kind === 'fence', `a knot: ${k?.kind}`);
+        const f = L.knotAt(fx + 0.5, fy + 0.5); check(f?.kind === 'fence', `the fence: ${f?.kind}`);
+        // leading, what is aimed at: the fences (and the post, as a piece); nobody led, nothing
+        check(!L.aimables(p(), W0, (x, y) => ({ x, y })), 'aimed at with no horse'); L.take(a); L.update(0.02);
+        const aims = L.aimables(p(), W0, (x, y, hx, hy, y0, y1) => ({ x, y, hx, hy, y0, y1 })); check(aims.filter(q => q.tie.kind === 'fence').length === 2 && aims[0].act().text === t('horse.menu.tie', { name: a.name }), `aimed: ${aims.length}`);
+        const po = W0.placedNear(gx - 1.5, gy + 0.5, 1.5).find(o => o.placed === 'hitching_post'); check(RN().objectAction(po)?.text === t('horse.menu.tie', { name: a.name }), `the post: ${RN().objectAction(po)?.text}`);
+        check(L.tie(a, f) && !a.lead && !L.mine && String(a.tie) === `${fx + 0.5},${fy + 0.5}` && !p().leads, `tied: ${a.tie}`);
+        // a whole night of steps, then a day: the bridle near the knot (the rope's 0.9 m), the knot in front of it
+        let far = 0, moved = 0, n = 0; const D = RN().today;
+        for (let i = 0; i < 20 * 600; i++) { game.time += 1 / 20; const x = a.x, y = a.y; RN().moveHorse(a, 1 / 20, i > 6000); L.faceKnot(a, 1 / 20); moved += Math.hypot(a.x - x, a.y - y); const off = Math.atan2(fx + 0.5 - a.x, fy + 0.5 - a.y) - Math.atan2(a.dir[0], a.dir[1]); if (i > 400 && !a.grazeAt && Math.abs(Math.atan2(Math.sin(off), Math.cos(off))) < 0.4) { const q = bit(a); n++; far = Math.max(far, Math.hypot(q[0] - fx - 0.5, q[1] - fy - 0.5)); } }
+        check(n > 9000 && far <= LEADS.TIE.ROPE + 0.1 && moved > 0.5 && moved < 150, `ten minutes tied: ${far.toFixed(2)} m, seen ${n}, moved ${moved.toFixed(1)}`);
+        check(Math.hypot(a.x - fx - 0.5, a.y - fy - 0.5) < 2.2, `off: ${a.x},${a.y}`);
+        // the whistle: it stays, and the map says where
+        game.time += 10; H.farMark = null; const calls = a.call || 0; check(H.whistle(a) === false && (a.call || 0) === calls && H.farMark?.id === a.id, 'the whistle'); check(game.gather.floaters.some(q => q.text === t('horse.tied', { name: a.name })), 'it does not say it');
+        RN().called(a); check(!a.calling, 'called by a game from before');
+        // its night: not its stable, nor a trough it does not reach
+        const C = CR(), wa = C.waterAround, tn = C.troughNight; a.water = 0.2; C.waterAround = () => false; C.troughNight = () => false; try { C.overnight(a, D); check(a.water === 0.2, 'watered at its stable'); } finally { C.waterAround = wa; C.troughNight = tn; delete C.waterAround; delete C.troughNight; }
+        // grazing, only what it reaches
+        const grass = RN().findGrass; let R = 0; RN().findGrass = (q, x, y, cx, cy, r) => { R = r; return null; }; try { a.grazeDay = -1; a.grazeN = 0; RN().looked = false; a.farT = 1e9; RN().grazeFar(a, 0); check(R > 0 && R < 2, `far away it grazes ${R} m round`); } finally { RN().findGrass = grass; delete RN().findGrass; }
+        // saved and loaded: tied; its menu: untie, and not Stay
+        const sv = {}; RN().save(sv); const old = JSON.parse(JSON.stringify(sv)); check(String(old.animals.find(q => q.id === a.id).tie) === String(a.tie), 'in the save');
+        const ask = hud.ask; let opts = null; hud.ask = async (n, x, o) => { opts = o; return o.length - 1; }; a.love = 9; try { await RN().horseMenu(a); } finally { hud.ask = ask; } check(opts.includes(t('horse.menu.untie')) && !opts.includes(t('horse.stay')) && opts.includes(t('horse.menu.lead')) && RN().horseTalk(a).text.includes(t('horse.tied_short')), `its menu: ${opts}`);
+        // the fence taken away: loose, where it stands
+        W0.setTile(fx, fy, 'air'); a.tiedS.check = 0; RN().moveHorse(a, 1 / 20, false); check(!a.tie && Math.abs(a.at[0] - a.x) < 0.3, `a removed fence: ${a.tie}`);
+        // the post: two horses, two knots; E on the post unties yours; riding unties
+        const K1 = L.knotOn(po, b.x, b.y); L.tie(b, K1); const K2 = L.knotOn(po, b.x, b.y); check(Math.hypot(K1.x - K2.x, K1.y - K2.y) > 0.3, 'two knots in one'); L.tie(a, K2); check(a.tie && b.tie, 'both'); const un = RN().objectAction(po); check(un?.text.startsWith(t('horse.menu.untie')) && un.alt, `E on the post: ${un?.text}`);
+        un.run(); check(!a.tie !== !b.tie, 'untied'); { const free = a.tie ? b : a, bound = a.tie ? a : b, k0 = bound.tie; free.x = po.x; free.y = po.y - 1.6; delete bound.tie; const by = RN().objectAction(po); check(by?.text.startsWith(t('horse.menu.tie', { name: '' }).trim().split(' ')[0]) && by.alt, `E on the post with one by it: ${by?.text}`); bound.tie = k0; } const c = a.tie ? a : b; RN().mount(c); check(!c.tie && c.rider === myId(), 'ridden and tied'); RN().dismount(); HS().update(0.01);
+        // a tree
+        const tree = { kind: 'oak', x: p().x + 1.5, y: p().y, col: { x: 0, y: 0, r: 0.4 } }; const kt = L.knotOn(tree, p().x, p().y); check(kt?.kind === 'tree' && kt.r > 0.1 && kt.r < 0.3 && !L.knotOn({ ...tree, sapling: true }, 0, 0) && !L.knotOn({ ...tree, kind: 'bush' }, 0, 0), 'a tree');
+      });
+    } finally { for (const [x, y] of [[fx, fy], [fx, fy - 1], [gx - 2, gy]]) W0.setTile(x, y, 'air'); }
+  });
+  await test('caballo riendas pareja (reins and the others): the guard lets the couple lead, tie and untie, one at a time; never a stranger, nor ride or tie one another leads; refused changes come back; a leader who leaves frees it; two games see it at the same place', async () => {
+    const here = new Set(['b', 'c']), ctx = { ours: (e, q) => q === 'b' || q === 'c', present: q => here.has(q), clock: 100, bagsOff: false, bondOff: false }, G = (el, f, v, q) => horseGuard({ type: 'caballo', ...el }, f, v, q, ctx);
+    check(G({}, 'lead', 'b', 'b') && !G({}, 'lead', 'c', 'b') && !G({}, 'lead', 'z', 'z') && !G({ lead: 'c' }, 'lead', 'b', 'b') && G({ lead: 'gone' }, 'lead', 'b', 'b') && !G({ rider: 'c' }, 'lead', 'b', 'b') && G({ lead: 'b' }, 'lead', undefined, 'b') && !G({ lead: 'c' }, 'lead', undefined, 'b'), 'lead');
+    check(G({}, 'tie', [1, 2], 'b') && G({ tie: [1, 2] }, 'tie', undefined, 'c') && !G({}, 'tie', [1, 2], 'z') && !G({ lead: 'c' }, 'tie', [1, 2], 'b') && !G({ rider: 'c' }, 'tie', [1, 2], 'b') && !G({}, 'tie', [1, NaN], 'b') && !G({}, 'tie', 'x', 'b') && G({ lead: 'b' }, 'tie', [1, 2], 'b'), 'tie');
+    check(!G({ lead: 'c' }, 'rider', 'b', 'b') && G({ lead: 'b' }, 'rider', 'b', 'b') && G({ lead: 'gone' }, 'rider', 'b', 'b'), 'rider while led');
+    const S = game.live.items.animals, apply = (ops, id) => S.apply(game, ops, false, null, { peer: { id } });
+    await asCouple(async () => { await withHorses([aHorse({ id: 'hl-a' })], async a => {
+      let back = apply([['set', a.id, 'lead', 'prueba_b']], 'prueba_b'); check(!back.length && a.lead === 'prueba_b', `the partner leads: ${JSON.stringify(back)}`);
+      back = apply([['del', a.id, 'lead'], ['set', a.id, 'tie', [3.5, 4.5]]], 'prueba_c'); check(a.lead === 'prueba_b' || !LDR().heldBy(a), 'a stranger\'s'); check(!a.tie, 'tied by a stranger');
+      // their player is not in this world: whoever runs it frees it, where it stands
+      a.lead = 'prueba_b'; RN().moveHorse(a, 0.05, false); check(!a.lead && Array.isArray(a.at), 'a leader who left');
+      // in the world, but leading none for a while (a game cut off): free too; and their reins are respected meanwhile
+      const pl = RN().player, e = { x: a.x + 2, y: a.y, leads: a.id }; RN().player = id => (id === 'prueba_b' ? e : pl.call(RN(), id));
+      try {
+        a.lead = 'prueba_b'; for (let i = 0; i < 40; i++) RN().moveHorse(a, 0.25, false); check(a.lead === 'prueba_b' && LDR().heldBy(a) === 'prueba_b', 'their reins');
+        check(!LDR().take(a) && a.lead === 'prueba_b' && !LDR().tie(a, { x: a.x, y: a.y, kind: 'fence' }), 'taken from them'); RN().mount(a); check(!a.rider && !p().mount, 'ridden while led'); check(HS().whistle(a) === false, 'whistled to while led');
+        e.leads = null; for (let i = 0; i < 24; i++) RN().moveHorse(a, 0.25, false); check(!a.lead, 'a leader with nothing in the hand');
+      } finally { RN().player = pl; delete RN().player; }
+      // a guest refused: what the host says wins, and this player lets go with nothing written
+      LDR().take(a); a.lead = 'prueba_b'; const at = String(a.at); LDR().update(0.02); check(!LDR().mine && String(a.at) === at && a.lead === 'prueba_b', 'refused, and written'); delete a.lead;
+    }); });
+    // two games: the leader's, and another that sees them by their messages (10 a second, smoothed): the horse, at the same place
+    const way = t => (t < 4 ? [3.2 * t, 0] : t < 8 ? [12.8, 3.2 * (t - 4)] : [12.8 + Math.sin((t - 8) * 1.1) * 3, 12.8 + 1.5 * (t - 8)]), A = LEADS.led({ worldDir: () => [1, 0] }, -1.9, 0), B = LEADS.led({ worldDir: () => [1, 0] }, -1.9, 0), la = { x: 0, y: 0 }, lb = { x: 0, y: 0 }, to = { x: 0, y: 0 };
+    let most = 0, sum = 0, n = 0, next = 0; const dt = 1 / 60, W1 = flatW({ collidersNear: () => [{ x0: 2, x1: 12.3, y0: 0.5, y1: 12 }] });
+    for (let i = 0; i * dt < 16; i++) { const [x, y] = way(i * dt); la.x = x; la.y = y; if (i * dt >= next) { next += 0.1; to.x = x; to.y = y; } const k = 1 - Math.exp(-dt * 12); lb.x += (to.x - lb.x) * k; lb.y += (to.y - lb.y) * k; LDR().leaderStep(A, la, dt, false); LEADS.followStep(A, W1, la, dt); LDR().leaderStep(B, lb, dt, false); LEADS.followStep(B, W1, lb, dt); if (i * dt > 1) { const d = Math.hypot(A.x - B.x, A.y - B.y); most = Math.max(most, d); sum += d; n++; } }
+    check(most < 1 && sum / n < 0.6, `two games: ${most.toFixed(2)} m at most, ${(sum / n).toFixed(2)} on average`);
+    // the message: st.lh, from a game that sends it, one that sends something else and one that does not
+    { const L = game.live; L.peers.set('hl-p', { conn: 'hl-p', id: 'prueba_b', name: 'Bea', playing: true, entity: null, sc: 'world', look: p().look }); const st = more => { L.receive('hl-p', { t: 'st', sc: 'world', x: p().x + 1.5, y: p().y, yaw: 0, ...more }); return L.peers.get('hl-p').entity?.leads; };
+      try { check(st({ lh: 'hl-a' }) === 'hl-a' && st({ lh: 7 }) === null && st({}) === null, `st.lh: ${st({ lh: 'hl-a' })}`); } finally { L.peers.delete('hl-p'); } }
+  });
+  await test('caballo brida (bridle and reins, drawn): on every breed, merged with its head; a rope led or tied, the reins ridden, and none when none is', async () => {
+    const { horseModel } = await import('./three/animals.js'), { bridle } = await import('./three/tack3d.js');
+    for (const r of ['', 'espanol', 'arabe', 'breton', 'asturcon']) { const m = horseModel('castano', false, true, 1, false, r), u = m.userData; check(u.bits?.length === 2 && u.chin && u.bits[0].x > 0.03 && u.bits[1].x < -0.03 && Math.abs(u.bits[0].x + u.bits[1].x) < 0.01 && u.neckR > 0.05, `${r}: ${JSON.stringify(u.bits)}`); check(u.head.children.filter(o => o.isMesh).length === 1, `${r}: ${u.head.children.length} pieces in the head`); }
+    const B = bridle(null, 'breton'), tris = B.parts.reduce((s, [g]) => s + g.index.count / 3, 0); check(tris < 520, `${tris} triangles`);
+    const RV = game.view3d?.fx?.reins; if (!RV) return;
+    const [gx, gy] = openGround(); await goTo(game, gx + 0.5, gy + 0.5); game.gamemode = 'survival';
+    await withHorses([aHorse({ x: gx + 2, y: gy + 0.5 })], async a => {
+      const shown = () => { game.view3d.actors.update(game, game.world, 1 / 60, game.time); RV.update(game, game.world, true); return [RV.ropes.filter(c => c.mesh.visible).length + (RV.own.rope?.mesh.visible ? 1 : 0), RV.reins.filter(c => c.mesh.visible).length + (RV.own.reins?.mesh.visible ? 1 : 0), RV.knots.filter(c => c.visible).length].join(); };
+      check(shown() === '0,0,0', `loose: ${shown()}`);
+      LDR().take(a); await untilD(() => shown() === '1,0,0', 4000); check(shown() === '1,0,0', `led: ${shown()} ${a.lead} ${LDR().mine === a} ${game.mode} ${!!game.view3d.cave} ${game.view3d.actors.models.get(a)?.root.visible} ${!!game.view3d.actors.player?.person} ${Math.abs(a.x - p().x).toFixed(1)}`); LDR().letGo();
+      game.world.place(gx + 3, gy, 'valla', 0); try { LDR().tie(a, LDR().knotAt(gx + 3.5, gy + 0.5)); a.knot = null; await untilD(() => shown() === '1,0,1', 4000); check(shown() === '1,0,1', `tied: ${shown()}`); } finally { game.world.setTile(gx + 3, gy, 'air'); LDR().untie(a, true); }
+      RN().mount(a); await untilD(() => shown() === '0,1,0', 4000); check(shown() === '0,1,0', `ridden: ${shown()}`); RN().dismount(); HS().update(0.01);
     });
   });
   await test('abrevadero (trough): built with B at the bench, drawn by its water; the can and a jug fill it, a drink takes one, the rain fills it; taken down nothing is left; the post is jumped like a fence', async () => {
