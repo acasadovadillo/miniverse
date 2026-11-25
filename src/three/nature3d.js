@@ -55,6 +55,9 @@ const GEO = {
   ribTop: (() => { const g = new THREE.SphereGeometry(1, 24, 8, 0, Math.PI * 2, 0, Math.PI / 2), p = g.attributes.position; for (let i = 0; i < p.count; i++) { const a = Math.atan2(p.getZ(i), p.getX(i)), f = 1 + 0.1 * Math.cos(a * 10); p.setX(i, p.getX(i) * f); p.setZ(i, p.getZ(i) * f); } g.computeVertexNormals(); return g; })(),
   rock0: rockGeo(1), rock1: rockGeo(2), rock2: rockGeo(3),
   strand: strandGeo(),
+  // (a pear: its neck up, its blossom end down, the point it hangs from at the origin; a cherry, small)
+  pear: new THREE.LatheGeometry([[0, -1.9], [0.5, -1.82], [0.86, -1.4], [0.86, -1], [0.56, -0.5], [0.3, -0.12], [0, 0]].map(([x, y]) => new THREE.Vector2(x, y)), 8),
+  cherry: new THREE.SphereGeometry(1, 6, 4),
 };
 // Una hoja de palmera: el nervio, que se arquea hacia abajo, con sus foliolos largos a los dos lados (a lo largo de +z)
 function frondGeo() {
@@ -158,6 +161,7 @@ function leafAtlas(kind = 'roble') {
 let MATS;
 const mats = () => (MATS ||= {
   bark: (() => { const t = bark(); t.repeat.set(2, 1); return mat({ map: t }); })(),
+  barkC: (() => { const t = bark(); t.repeat.set(1, 3); return mat({ map: t, color: '#b98878', roughness: 0.7 }); })(),   // (the cherry's: reddish, with its bands across)
   leaf: sway(mat({ flatShading: true, roughness: 0.95 }), 0.035, 0.7),
   solid: mat({ roughness: 0.6 }), rock: mat({ flatShading: true, roughness: 0.9 }), cactus: mat({ color: '#56704c', roughness: 0.7, flatShading: true }),
   palmTrunk: mat({ color: '#8f7a5c', roughness: 0.9 }), dry: mat({ color: '#7f6a4c', roughness: 1 }),
@@ -199,6 +203,9 @@ export function leafTint(o, season, out = TINT) {
     else if (a < 0.35) { const t = a / 0.35; R = 0.78 + 0.22 * t; G = 1.03 - 0.03 * t; B = 0.72 + 0.28 * t; }   // aún verdea
     else if (a > 0.68) { const t = (a - 0.68) / 0.32; R = 1 + 0.08 * t; G = 1 - 0.26 * t; B = 1 - 0.22 * t; }   // rojizo
   }
+  // (the pear's leaves, a deeper green; in autumn it goes wine red and the cherry, orange)
+  if (o.kind === 'pear') { if (season < 2) { R *= 0.9; B *= 0.92; } else { R *= 0.96; G *= 0.72; B *= 0.92; } }
+  else if (o.kind === 'cherry') { if (season < 2) { R *= 1.03; G *= 1.02; B *= 0.86; } else { R *= 1.1; G *= 0.82; B *= 0.6; } }
   return out.setRGB(R * v, G * v, B * v);
 }
 // Cuál de los dos robles adultos del atlas de lejos es (impostor.js, pick: la misma cuenta): en otoño, cada uno con su mezcla
@@ -209,9 +216,19 @@ const leafC = (c, f, tint) => col.set(c).multiplyScalar(f).multiply(tint).getHex
 // copa (le da el sol de lleno, y las hojas, con el atlas, salen a poco más de la mitad de su color: con 0,42 asomaban bolas
 // naranjas o rojizas, y más apagado, grises, como piedras)
 const coreC = (c, f, tint) => { col.set(c).multiplyScalar(f).multiply(tint); const l = (col.r + col.g + col.b) / 3; return col.lerp(TINT2.setRGB(l, l, l), 0.25).getHex(); };
-const TINT2 = new THREE.Color();
+const TINT2 = new THREE.Color(), WHITE = new THREE.Color(1, 1, 1);
 const PINE = tonos('#3f5240');
-const BLOSSOM = ['#ffb8d0', '#ffd0e0', '#ffffff'];
+// The blossom: how much of the crown's leaves it covers and its colours (the apple's, white with its pink buds; the pear's,
+// white; the cherry's, before the leaves and pale pink). BURNT: after a frost
+const BLOSSOM = {
+  fruit: { k: 0.66, c: ['#f6e6e6', '#f2d2d6', '#faf3f0', '#ecc2ca'] }, pear: { k: 0.8, c: ['#f8f5ea', '#f3f0e2', '#fbfaf4'] }, cherry: { k: 0.92, c: ['#f6dde2', '#f2cdd6', '#f9e8ea'] },
+};
+const BURNT = ['#8f7c62', '#a08c70', '#7c6a54', '#94907a'];
+const FRUIT_LOOK = {
+  fruit: { n: 11, s: 0.085, c: ['#a8322a', '#b8402c', '#9c2c28', '#b86a30'], green: '#8a9a44' }, pear: { n: 11, s: 0.07, c: ['#b0a648', '#a39a3e', '#bca850', '#b28c40'], green: '#75863c' },
+  cherry: { n: 10, s: 0.052, c: ['#8c1420', '#a01a26', '#78101c'], green: '#a8ac4a' },
+};
+const isFruit = kind => kind === 'fruit' || kind === 'pear' || kind === 'cherry';
 
 // Instancias de una pieza: list = [{ p, s, r, c }]
 function instanced(geo, material, list, { cast = true, receive = true } = {}) {
@@ -236,11 +253,11 @@ function instanced(geo, material, list, { cast = true, receive = true } = {}) {
 // tipo en `out` ({ trunk: [], lump: [], … }), apuntando de quién es cada una (owner) para poder sacudirlo.
 // Una rama: un tronco fino que va del punto a al b
 const XV = new THREE.Vector3(1, 0, 0), UP = new THREE.Vector3(0, 1, 0), dir = new THREE.Vector3(), turn = new THREE.Quaternion(), euler = new THREE.Euler();
-function branch(push, a, b, w) {
+function branch(push, a, b, w, type = 'trunk') {
   dir.set(b[0] - a[0], b[1] - a[1], b[2] - a[2]);
   const len = dir.length();
   euler.setFromQuaternion(turn.setFromUnitVectors(UP, dir.normalize()));
-  push('trunk', { p: [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2, (a[2] + b[2]) / 2], s: [w, len, w], r: [euler.x, euler.y, euler.z] });
+  push(type, { p: [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2, (a[2] + b[2]) / 2], s: [w, len, w], r: [euler.x, euler.y, euler.z] });
 }
 
 function pieces(o, season, out, owner, y = 0) {
@@ -248,7 +265,7 @@ function pieces(o, season, out, owner, y = 0) {
   const rot = r(1) * Math.PI * 2, push = (type, it) => { it.owner = owner; (out[type] ||= []).push(it); };
   const kind = o.kind;
   if (kind === 'swampTree') willow2(o, season, push, x, z, y, r, rot);
-  else if (kind === 'oak' || kind === 'fruit') broadleaf2(o, season, push, x, z, y, r, rot);
+  else if (kind === 'oak' || isFruit(kind)) broadleaf2(o, season, push, x, z, y, r, rot);
   else if (kind === 'pine' || kind === 'snowPine') pine2(o, season, push, x, z, y, r, rot);
   else if (kind === 'palm') palm2(o, season, push, x, z, y, r, rot);
   else if (kind === 'cactus') cactus2(o, season, push, x, z, y, r, rot);
@@ -259,6 +276,7 @@ function pieces(o, season, out, owner, y = 0) {
     for (let i = 0; i < 6; i++) { const a = rot + i * 1.05, t = 0.5 + r(i) * 0.4; push('twig', { p: [x + Math.cos(a) * 0.12, y + 0.22, z + Math.sin(a) * 0.12], s: [1, 0.5 + r(10 + i) * 0.2, 1], r: [Math.sin(a) * t, 0, -Math.cos(a) * t] }); }
   } else if (kind === 'sapling') {
     const tree = o.tree || 'oak';
+    if (isFruit(tree)) return whip(tree, season, push, x, z, y, r, rot);
     push('twig', { p: [x, y + 0.25, z], s: [1.2, 0.5, 1.2] });
     if (tree === 'pine') push('cone', { p: [x, y + 0.55, z], s: [0.22, 0.32, 0.22], c: PINE[0] });
     else for (let i = 0; i < 3; i++) push('lump', { p: [x + (i - 1) * 0.08, y + 0.5 + (i % 2) * 0.08, z], s: 0.12, c: HOJAS[season === 3 ? 1 : season].c[i] });
@@ -271,26 +289,29 @@ const qa = new THREE.Quaternion(), qb = new THREE.Quaternion(), ZV = new THREE.V
 // Roble y frutal: tronco con su pie, ramas que se abren y una copa de varias matas, con un núcleo oscuro y tarjetas de hojas
 // por fuera (en invierno se quedan en ramas). (El sauce del pantano va aparte: willow2)
 function broadleaf2(o, season, push, x, z, y, r, rot) {
-  const kind = o.kind, fruit = kind === 'fruit', { k, R, Ry, cy, th } = broadDims(o, y);
-  const bare = season === 3, P = HOJAS[season], tint = leafTint(o, season).clone();
+  const kind = o.kind, fruit = isFruit(kind), trunk = kind === 'cherry' ? 'trunkC' : 'trunk', { k, R, Ry, cy, th } = broadDims(o, y);
+  // (how a fruit tree stands: farm.js, dress. Without one, as in its season, with no fruit: the far atlas's sample)
+  const look = !fruit || season === 3 ? '' : o.look ?? (season === 0 ? 'b' : ''), bloom = look === 'b' || look === 'f' ? BLOSSOM[kind] : null;
+  const pear = kind === 'pear', wk = pear ? 0.82 : 1, bare = season === 3, P = HOJAS[season], tint = leafTint(o, season).clone();
   // (en otoño, los robles adultos con la mezcla de su roble del atlas de lejos; los jóvenes y los demás, con la de siempre)
   const wts = season === 2 && kind === 'oak' && ageOf(o) > 0.75 ? P.otono[variantOf(o)] : P.w;
-  push('trunk', { p: [x, y + 0.15, z], s: [2.3 * k, 0.3, 2.3 * k], r: [0, rot, 0] });   // el pie, más ancho
+  push(trunk, { p: [x, y + 0.15, z], s: [2.3 * k * wk, 0.3, 2.3 * k * wk], r: [0, rot, 0] });   // el pie, más ancho
   // El tronco hasta donde se abren las ramas y, de ahí, la guía, más fina, hasta lo alto de la copa
   const fork = y + th + (cy - y - th) * 0.5;
-  push('trunk', { p: [x, (y + fork) / 2, z], s: [1.55 * k, fork - y, 1.55 * k], r: [0, rot, 0] });
-  branch(push, [x, fork - 0.05, z], [x + Math.cos(rot) * R * 0.1, cy + Ry * 0.55, z + Math.sin(rot) * R * 0.1], 1.05 * k);
+  push(trunk, { p: [x, (y + fork) / 2, z], s: [1.55 * k * wk, fork - y, 1.55 * k * wk], r: [0, rot, 0] });
+  branch(push, [x, fork - 0.05, z], [x + Math.cos(rot) * R * 0.1, cy + Ry * 0.55, z + Math.sin(rot) * R * 0.1], 1.05 * k * wk, trunk);
   // Las ramas: 4 o 5 que salen del tronco y suben hacia la copa, con sus ramitas (más, sin hojas)
-  const n = 4 + Math.floor(r(2) * 2), clumps = [[x, cy + Ry * 0.25, z, R * 0.62]];
+  const n = pear ? 5 : 4 + Math.floor(r(2) * 2), clumps = [[x, cy + Ry * (pear ? 0.62 : 0.25), z, R * 0.62]];
   for (let i = 0; i < n; i++) {
-    const a = rot + (i / n) * Math.PI * 2 + r(110 + i) * 0.5, d = R * (0.5 + r(120 + i) * 0.15), by = th + (cy - y - th) * r(130 + i) * 0.6;
-    const end = [x + Math.cos(a) * d, cy + Ry * (r(140 + i) * 0.5 - 0.1), z + Math.sin(a) * d];
-    branch(push, [x, y + by, z], end, 0.75 * k);
-    clumps.push([...end, R * (0.45 + r(150 + i) * 0.12)]);
+    const a = rot + (pear ? i * 2.4 : (i / n) * Math.PI * 2) + r(110 + i) * 0.5, d = R * (pear ? 0.42 - 0.06 * i / n : 0.5 + r(120 + i) * 0.15), by = th + (cy - y - th) * r(130 + i) * 0.6;
+    // (the pear's boughs climb: one above another, up the whole of its crown)
+    const end = [x + Math.cos(a) * d, pear ? cy + Ry * (-0.62 + 1.05 * (i + r(140 + i) * 0.4) / n) : cy + Ry * (r(140 + i) * 0.5 - 0.1), z + Math.sin(a) * d];
+    branch(push, [x, y + by, z], end, 0.75 * k, trunk);
+    clumps.push([...end, R * ((pear ? 0.58 : 0.45) + r(150 + i) * 0.12)]);
     for (let j = 0; j < (bare ? 3 : 2); j++) {
       const b = a + (j - 1) * 0.7 + r(160 + i * 3 + j) * 0.3, f = bare ? 0.38 : 0.22, e = [end[0] + Math.cos(b) * R * f, end[1] + R * (0.15 + r(170 + i * 3 + j) * 0.3) * f / 0.38, end[2] + Math.sin(b) * R * f];
-      branch(push, end, e, 0.36 * k);
-      if (bare) for (let m = 0; m < 2; m++) { const c = b + (m - 0.5) * 0.9; branch(push, e, [e[0] + Math.cos(c) * R * 0.22, e[1] + R * 0.2, e[2] + Math.sin(c) * R * 0.22], 0.16 * k); }
+      branch(push, end, e, 0.36 * k, trunk);
+      if (bare) for (let m = 0; m < 2; m++) { const c = b + (m - 0.5) * 0.9; branch(push, e, [e[0] + Math.cos(c) * R * 0.22, e[1] + R * 0.2, e[2] + Math.sin(c) * R * 0.22], 0.16 * k, trunk); }
     }
   }
   if (bare) return;
@@ -307,7 +328,7 @@ function broadleaf2(o, season, push, x, z, y, r, rot) {
   // como una bola oscura; por arriba no pasa de donde llegaba. Y pequeño, bien dentro de las hojas; el de los frutales, más,
   // que tienen menos)
   const kl = fruit ? 0.75 : 0.88;
-  clumps.forEach(([cx, cY, cz, cr], i) => push('lump', { p: [cx, cY + cr * 0.06, cz], s: [cr * 0.48 * kl, cr * 0.36 * kl, cr * 0.48 * kl], r: [r(3) * 0.4, r(4), r(5) * 0.4], c: coreC(cc[i], 0.28, tint) }));
+  clumps.forEach(([cx, cY, cz, cr], i) => push('lump', { p: [cx, cY + cr * 0.06, cz], s: [cr * 0.48 * kl, cr * 0.36 * kl, cr * 0.48 * kl], r: [r(3) * 0.4, r(4), r(5) * 0.4], c: bloom ? coreC(look === 'f' ? '#6a5844' : '#b0a29c', 0.5, WHITE) : coreC(cc[i], 0.28, tint) }));
   const cards = Math.round((fruit ? 70 : 50) * ageOf(o) + (fruit ? 10 : 8));
   for (let i = 0; i < cards; i++) {
     const ci = i % clumps.length, [cx, cY, cz, cr] = clumps[ci], u = r(200 + i) * 1.5 - 0.5, f = r(300 + i) * Math.PI * 2, sq = Math.sqrt(1 - u * u);
@@ -317,11 +338,46 @@ function broadleaf2(o, season, push, x, z, y, r, rot) {
     const sz = cr * (1.1 + r(600 + i) * 0.6), hi = Math.max(0, Math.min(1, (cY - cy) / Ry + 0.5));
     // (la hondura, de 0,82 a 1,08: con más, las tarjetas vistas de canto salían como tajos casi negros; el resto lo da el atlas)
     const light = (0.82 + 0.26 * depth) * (0.86 + 0.18 * (u + 0.5) / 1.5) * (0.9 + 0.14 * hi) * (0.93 + 0.14 * r(800 + i));
-    push('card', { p: [cx + dv.x * dist, cY + dv.y * dist * 0.85, cz + dv.z * dist], s: [sz, sz, sz], r: [euler.x, euler.y, euler.z], c: leafC(r(700 + i) < 0.75 ? cc[ci] : pickW(P, r(750 + i), wts), light, tint) });
+    const at = { p: [cx + dv.x * dist, cY + dv.y * dist * 0.85, cz + dv.z * dist], s: [sz, sz, sz], r: [euler.x, euler.y, euler.z] };
+    // (in blossom, most of the leaves are flowers: the same cards, of the small-leaved atlas, so it costs the same)
+    if (bloom && r(900 + i) < bloom.k) { const B = look === 'f' ? BURNT : bloom.c; push('cardS', { ...at, c: new THREE.Color(B[Math.floor(r(850 + i) * B.length)]).multiplyScalar((look === 'f' ? 1.05 : 1.45) * light) }); continue; }   // (brighter than white: the leaves' picture is grey)
+    push('card', { ...at, c: leafC(r(700 + i) < 0.75 ? cc[ci] : pickW(P, r(750 + i), wts), light, tint) });
   }
-  if (fruit && season < 3 && !(o.bare && season > 0)) for (let i = 0; i < (season === 0 ? 16 : 10); i++) {
-    const a = r(60 + i) * Math.PI * 2, e = r(70 + i) * 0.9 - 0.25, d = R * 0.95;
-    push(season === 0 ? 'bloom' : 'apple', { p: [x + Math.cos(a) * Math.cos(e) * d, cy + Ry * 0.25 + Math.sin(e) * Ry, z + Math.sin(a) * Math.cos(e) * d], s: season === 0 ? 0.08 : 0.09, c: season === 0 ? BLOSSOM[i % 3] : '#b8382a' });
+  if (look === 'r' || look === 'g') hangFruit(o, look === 'g', push, x, z, y, r, R, Ry, cy);
+}
+// What hangs from a fruit tree, all round its crown: ripe or (green) small; the cherries, in pairs on their stalks
+function hangFruit(o, green, push, x, z, y, r, R, Ry, cy) {
+  const L = FRUIT_LOOK[o.kind], n = Math.round(L.n * Math.min(1, ageOf(o)) * (green ? 0.8 : 1));
+  for (let i = 0; i < n; i++) {
+    const a = r(60 + i) * Math.PI * 2, e = r(70 + i) * 1.25 - 0.62, d = R * (o.kind === 'pear' ? 0.86 : o.kind === 'cherry' ? 1 : 0.95), s = L.s * (green ? 0.6 : 0.88 + r(1100 + i) * 0.24), c = green ? L.green : L.c[i % L.c.length];
+    const p = [x + Math.cos(a) * Math.cos(e) * d, cy + Ry * 0.1 + Math.sin(e) * Ry * 0.95, z + Math.sin(a) * Math.cos(e) * d];
+    if (o.kind === 'fruit') { push('apple', { p, s, c }); continue; }
+    if (o.kind === 'pear') { push('pear', { p, s, r: [(r(1120 + i) - 0.5) * 0.5, a, (r(1140 + i) - 0.5) * 0.5], c }); continue; }
+    for (const q of [-1, 1]) {
+      const b = a + 1.57, w = 0.045 + r(1120 + i) * 0.02, h = 0.11 + r(1140 + i * 2 + (q > 0 ? 1 : 0)) * 0.05;
+      push('cherry', { p: [p[0] + Math.cos(b) * w * q, p[1] - h, p[2] + Math.sin(b) * w * q], s, c: green ? c : L.c[(i + (q > 0 ? 1 : 0)) % 3] });
+      branch(push, [p[0] + Math.cos(b) * w * q, p[1] - h, p[2] + Math.sin(b) * w * q], p, 0.25, 'twig');
+    }
+  }
+}
+// A young fruit tree as it comes from Rosa's: a straight whip with its first leaves, tied to its stake
+function whip(tree, season, push, x, z, y, r, rot) {
+  const P = HOJAS[season === 3 ? 0 : season], H = tree === 'pear' ? 1.2 : 1.05, sx = Math.cos(rot) * 0.08, sz = Math.sin(rot) * 0.08;
+  push('twig', { p: [x + sx, y + 0.36, z + sz], s: [0.95, 0.72, 0.95], r: [0.03, rot, -0.02] });
+  push('twig', { p: [x, y + H / 2, z], s: [0.6, H, 0.6], r: [0.02, 0, 0.03] });
+  push('twig', { p: [x + sx / 2, y + 0.6, z + sz / 2], s: [0.45, 0.1, 0.45], r: [Math.sin(rot) * 1.5, 0, -Math.cos(rot) * 1.5] });   // (its tie)
+  const tips = [];
+  for (let i = 0; i < 5; i++) {
+    const a = rot + 0.8 + i * 2.4, t = tree === 'pear' ? 0.3 : 0.6, h = H * (0.5 + i * 0.1), l = 0.26 - i * 0.02, e = [x + Math.cos(a) * Math.sin(t) * l, y + h + Math.cos(t) * l, z + Math.sin(a) * Math.sin(t) * l];
+    branch(push, [x, y + h, z], e, 0.3, 'twig'); tips.push(e);
+  }
+  if (season === 3) return;
+  const tint = leafTint({ kind: tree, x, y: z }, season).clone();
+  tips.push([x, y + H, z]);
+  for (let i = 0; i < 18; i++) {
+    const t = tips[i % tips.length], a = r(20 + i) * 6.28, u = r(40 + i) * 1.4 - 0.5, w = 0.2 + r(30 + i) * 0.1, q = Math.sqrt(1 - u * u * 0.8);
+    dv.set(q * Math.cos(a), u, q * Math.sin(a)).normalize(); qa.setFromUnitVectors(ZV, dv); qb.setFromAxisAngle(ZV, r(60 + i) * 6.28); qa.multiply(qb); euler.setFromQuaternion(qa);
+    push('cardS', { p: [t[0] + dv.x * 0.06, t[1] - 0.02 + dv.y * 0.06, t[2] + dv.z * 0.06], s: [w, w, w], r: [euler.x, euler.y, euler.z], c: leafC(pickW(P, r(50 + i)), 1.15 + 0.3 * r(80 + i), tint) });
   }
 }
 // Pino: tronco recto hasta arriba y siete pisos de ramas que se estrechan, con las puntas caídas (y nieve encima)
@@ -499,7 +555,7 @@ export function buildNatureChunk(objs, season, groundY, shadows = true) {
   const M = mats(), out = {}, owners = new Map(), group = new THREE.Group();
   for (const o of objs) { const owner = o.key; pieces(o, season, out, owner, groundY(o.x, o.y)); }
   const spec = {
-    trunk: [GEO.trunk, M.bark], lump: [GEO.lump, M.leaf], cone: [GEO.cone, M.leaf], snow: [GEO.lump, M.snow],
+    trunk: [GEO.trunk, M.bark], trunkC: [GEO.trunk, M.barkC], pear: [GEO.pear, M.solid], cherry: [GEO.cherry, M.solid], lump: [GEO.lump, M.leaf], cone: [GEO.cone, M.leaf], snow: [GEO.lump, M.snow],
     apple: [GEO.ball, M.solid], bloom: [GEO.gem, M.solid], coconut: [GEO.ball, M.solid], gem: [GEO.gem, M.solid],
     cactusTop: [GEO.ball, M.cactus], twig: [GEO.twig, M.dry],
     card: [GEO.card, M.card], cardS: [GEO.card, M.cardS], cardStrand: [GEO.strand, M.strand], cardStrandB: [GEO.strand, M.strandB], tier: [GEO.tier, M.tier], snowTier: [GEO.tier, M.snow],
@@ -510,7 +566,7 @@ export function buildNatureChunk(objs, season, groundY, shadows = true) {
   };
   for (const [type, list] of Object.entries(out)) {
     const [geo, m] = spec[type];
-    const small = type === 'bloom' || type === 'apple' || type === 'gem' || type === 'coconut' || type.startsWith('card') || FLOWER_PART.has(type);   // (las tarjetas de hojas, sin sombra: la da el núcleo)
+    const small = type === 'bloom' || type === 'apple' || type === 'pear' || type === 'cherry' || type === 'gem' || type === 'coconut' || type.startsWith('card') || FLOWER_PART.has(type);   // (las tarjetas de hojas, sin sombra: la da el núcleo)
     const card = type.startsWith('card'), im = instanced(geo, m, list, { cast: shadows && (!small || card), receive: !card });   // (sin recibir: si no, la copa se oscurece entera con su propia sombra)
     // (las tarjetas de hojas dan sombra moteada: su silueta, con el corte de la textura)
     if (card) im.customDepthMaterial = (CARD_DEPTH[type] ||= new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking, map: m.map, alphaTest: 0.5 }));
@@ -872,8 +928,8 @@ export function buildFarNature(objs, season, groundY) {
   const M = (FAR_MATS ||= { bark: mats().bark.clone(), leaf: mat({ flatShading: true, roughness: 0.95 }), rock: mats().rock.clone(), snow: mats().snow.clone() }), trunks = [], lumps = [], cones = [], rocks = [], snow = [];
   for (const o of objs) {
     const x = o.x, z = o.y, y = groundY(x, z), h = ihash(Math.floor(x * 7), Math.floor(z * 7), 11), s = 0.85 + h * 0.35, rot = h * 6.28;
-    if (o.kind === 'oak' || o.kind === 'fruit' || o.kind === 'swampTree') {
-      const { k, R, Ry, cy } = broadDims(o, y), P = o.kind === 'swampTree' ? SAUCE[season] : HOJAS[season], tint = leafTint(o, season), pal = P.c.map(c => leafC(c, 0.85, tint));
+    if (o.kind === 'oak' || isFruit(o.kind) || o.kind === 'swampTree') {
+      const { k, R, Ry, cy } = broadDims(o, y), P = o.kind === 'swampTree' ? SAUCE[season] : HOJAS[season], tint = leafTint(o, season), pal = season === 0 && isFruit(o.kind) && o.look === 'b' ? BLOSSOM[o.kind].c : P.c.map(c => leafC(c, 0.85, tint));
       trunks.push({ p: [x, (y + cy) / 2, z], s: [1.5 * k, cy - y, 1.5 * k] });
       if (season < 3) {   // (en invierno, en ramas: también el sauce, que de cerca y en el impostor son ramillas peladas)
         lumps.push({ p: [x, cy + Ry * 0.2, z], s: [R * 0.95, Ry * 0.9, R * 0.95], r: [h, h * 2, 0], c: pal[Math.floor(h * pal.length)] });

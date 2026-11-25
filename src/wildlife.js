@@ -102,7 +102,7 @@ export const WOUND = {
   SHED: 0.3, SHED_IN: [2, 7],   // the chance that a fleeing one sheds the arrow stuck in it, so many seconds later
 };
 // What a fleeing wounded animal looks for at the end of its run (the cover of trees and bushes)
-const COVER = new Set(['oak', 'pine', 'snowPine', 'fruit', 'swampTree', 'bush']);
+const COVER = new Set(['oak', 'pine', 'snowPine', 'fruit', 'pear', 'cherry', 'swampTree', 'bush']);
 // The spawn point travels quantised to a tenth, so every game builds the same trail key and backtrail from it
 const qs = v => Math.round(v * 10) / 10;
 const STEP = { x: 0, y: 0 };   // (the next step of a wounded animal: reused, no allocation per frame)

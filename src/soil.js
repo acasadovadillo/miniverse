@@ -45,7 +45,7 @@ export const HEAP_AT = { establo: [-1.42, 1.98], gallinero: [-0.86, 1.5], cuadra
 // ---------- compost ----------
 export const COMPOST = { need: 10, days: 7, gives: 4 };
 // What goes in the bin, and how much each counts (any crop, fruit and herb besides)
-const ORGANIC = { fibra: 1, straw: 1, heno: 1, manure: 2, seaweed: 1, manzana: 1, bayas: 1, coco: 1, pulpa: 1, bellota: 1, pina: 1 };
+const ORGANIC = { fibra: 1, straw: 1, heno: 1, manure: 2, seaweed: 1, manzana: 1, pear: 1, cherry: 1, bayas: 1, coco: 1, pulpa: 1, bellota: 1, pina: 1 };
 export const organic = id => (id && (GROW[id] ? 1 : ORGANIC[id])) || 0;
 // The state of a bin: { units, left (days to go), ready }
 export function compostAt(v, today) {

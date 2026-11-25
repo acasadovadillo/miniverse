@@ -25,6 +25,9 @@ function blob(f, seg = 20) {
   g.computeVertexNormals(); return g;
 }
 const APPLE = blob(v => { const k = 1 - 0.25 * Math.exp(-((1 - Math.abs(v.y)) ** 2) * 30) * (v.y > 0 ? 1 : 0.6); v.x *= k; v.z *= k; v.y *= 0.9; });
+// (a pear: wide below, its neck up; a cherry: a ball dimpled where its stalk goes in)
+const PEAR = blob(v => { const u = Math.min(1, Math.max(0, v.y / 0.65)), k = 1 - 0.42 * u * u * (3 - 2 * u); v.x *= k; v.z *= k; v.y = v.y > 0 ? v.y * 1.5 : v.y * 0.85; }, 24);
+const CHERRY = blob(v => { if (v.y > 0.7) v.y -= (v.y - 0.7) * 0.9; v.x *= 1.04; }, 14);
 const RIBBED = blob(v => { const a = Math.atan2(v.z, v.x), k = 1 + 0.06 * Math.cos(a * 10); v.x *= k; v.z *= k; v.y *= 0.72 - 0.1 * Math.max(0, v.y); }, 28);
 const EGG = blob(v => { v.y *= 1.28; if (v.y > 0) { v.x *= 1 - 0.18 * v.y / 1.28; v.z *= 1 - 0.18 * v.y / 1.28; } });
 const LUMP = blob(v => { const k = 1 + 0.12 * Math.sin(v.x * 7) * Math.sin(v.y * 6 + 1) * Math.sin(v.z * 5 + 2); v.multiplyScalar(k); });
@@ -163,6 +166,18 @@ const BUILD = {
   canteen, water_jug: waterJug,
   apple_juice: glass('#b8702a'),   // (the cider's glass, amber and cloudy)
   manzana: fruit(APPLE, '#b8382a', 0.045, { leaf: '#4a7a32' }),
+  pear: g => {
+    add(g, PEAR, M('#b0a648', { roughness: 0.5 }), [0, 0, 0], 0.042);
+    add(g, CYL, M('#5a3a20'), [0, 0.073, 0], [0.005, 0.024, 0.005], [0.15, 0, 0.12]);
+    add(g, BALL, M('#4a7a32', { side: THREE.DoubleSide }), [0.02, 0.074, 0], [0.018, 0.003, 0.009], [0, 0.5, 0.4]);
+  },
+  cherry: g => {
+    for (const [x, c] of [[-0.024, '#8c1420'], [0.026, '#a01a26']]) {
+      add(g, CHERRY, M(c, { roughness: 0.25 }), [x, -0.02, x * 0.3], 0.024);
+      add(g, CYL, M('#5a7a34'), [x * 0.55, 0.03, x * 0.15], [0.0025, 0.066, 0.0025], [0, 0, x * 11]);
+    }
+    add(g, BALL, M('#4a7a32', { side: THREE.DoubleSide }), [0.016, 0.062, 0], [0.026, 0.003, 0.012], [0, 0.5, 0.4]);
+  },
   manzana_asada: fruit(APPLE, '#7a3a22', 0.045, { stem: '#3a2414' }),
   tomate: fruit(APPLE, '#c83a24', 0.045, { stem: null, calyx: '#3f7a2e' }),
   coco: g => add(g, LUMP, M('#5a4228', { roughness: 1 }), [0, 0, 0], 0.075),

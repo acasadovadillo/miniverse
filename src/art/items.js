@@ -86,6 +86,11 @@ Object.assign(DRAW, {
 });
 Object.assign(DRAW, {
   semilla_manzano(R) { seedPacket(R, '#d8382a', '#4a9a3a'); },
+  // (the orchard: a pear, a pair of cherries on their stalks, and the saplings, their roots in sacking)
+  pear(R, g) { ellipse(g, 8, 11, 5, 4, '#b4a640'); ellipse(g, 8, 7, 3, 3, '#b4a640'); ellipse(g, 7, 10, 3, 3, '#cabd58'); R(7, 5, 2, 3, '#cabd58'); R(8, 1, 1, 4, '#5a3a20'); R(9, 2, 3, 1, '#4a8a3a'); R(11, 10, 2, 3, '#b0843c'); },
+  cherry(R, g) { line(g, 5, 10, 9, 2, '#5a7a34'); line(g, 11, 9, 9, 2, '#5a7a34'); R(9, 1, 4, 2, '#4a8a3a'); R(10, 1, 2, 1, '#6aa850'); blob(g, 5, 12, 3, '#a01a26'); blob(g, 11, 11, 3, '#b0222e'); R(4, 10, 1, 1, '#e87878'); R(10, 9, 1, 1, '#f09090'); },
+  pear_sapling(R, g) { sapling(R, g, '#4e7a34', '#648f42', '#b4a640'); },
+  cherry_sapling(R, g) { sapling(R, g, '#5a8238', '#74984a', '#a01a26'); },
   cana(R, g) { line(g, 2, 15, 13, 1, '#8a5a30'); line(g, 3, 15, 14, 1, '#6a4422'); line(g, 14, 1, 15, 10, '#e8e0d0'); R(14, 10, 2, 2, '#e83a3a'); R(4, 12, 3, 2, '#4a4a54'); },
   huevo_pato(R, g) { ellipse(g, 8, 9, 5, 6, '#e8eadc'); ellipse(g, 6, 7, 2, 2, '#ffffff'); R(10, 12, 2, 1, '#c8cab8'); },
   huevo_oro(R, g) { ellipse(g, 8, 9, 5, 6, '#e8b830'); ellipse(g, 6, 7, 2, 2, '#fff0a0'); R(10, 12, 2, 1, '#a87810'); R(12, 3, 1, 1, '#ffffff'); R(3, 12, 1, 1, '#ffffff'); },
@@ -182,6 +187,12 @@ function bugIcon(R, g, b, id) {
 }
 function gem(R, g, col) { const r = ramp(col); poly(g, [[8, 2], [14, 7], [8, 14], [2, 7]], r.b); poly(g, [[8, 2], [14, 7], [8, 7]], r.l); poly(g, [[2, 7], [8, 7], [8, 14]], r.d); R(6, 4, 2, 1, '#ffffff'); }
 function line2(R, x0, y0, x1, y1) { for (let i = 0; i <= 6; i++) R(Math.round(x0 + (x1 - x0) * i / 6), Math.round(y0 + (y1 - y0) * i / 6), 1, 1, '#e8e0d0'); }
+// A sapling to plant: its whip with a few leaves, the roots in sacking, and a tag of the colour of its fruit
+function sapling(R, g, leaf, light, tag) {
+  line(g, 8, 11, 8, 2, '#6a4a2a'); line(g, 8, 7, 5, 4, '#6a4a2a'); line(g, 8, 8, 11, 5, '#6a4a2a');
+  for (const [x, y] of [[8, 1], [4, 3], [11, 4], [6, 6], [10, 7], [7, 3]]) { ellipse(g, x, y, 2, 1, leaf); R(x - 1, y - 1, 1, 1, light); }
+  ellipse(g, 8, 13, 4, 2, '#a88a5a'); ellipse(g, 8, 12, 3, 2, '#b89a68'); R(5, 11, 6, 1, '#7a5f38'); R(10, 9, 3, 2, tag); R(9, 10, 1, 1, '#e8e0d0');
+}
 function seedPacket(R, col, leaf) { R(3, 2, 10, 13, '#e8dcc0'); R(3, 2, 10, 2, '#c8b890'); R(5, 6, 6, 6, col); R(7, 4, 2, 3, leaf); R(5, 13, 6, 1, '#a89870'); }
 function cropIcon(R, g, c, id) {
   if (id === 'trigo') { for (let i = 0; i < 4; i++) { R(4 + i * 2, 4, 1, 11, '#c8a040'); R(3 + i * 2, 2 + (i % 2), 3, 4, c.color); } return; }

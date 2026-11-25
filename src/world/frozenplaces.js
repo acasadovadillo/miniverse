@@ -15,7 +15,7 @@ export const KEEP_FOUND = false;   // (true: the places somebody had found stay 
 export const NEAR_FROZEN = 48;    // no new place this near one that stays
 const COVER = 9;                  // nor with its flattened ground (7 m) this near something made by the players
 // What in a chunk's changes is not somebody's work to keep: what was felled, picked, mown, opened or fished there
-const NATURE = new Set(['v', 'removed', 'picked', 'mown', 'opened', 'dived', 'fished', 'firstPick', 'wet', 'moist']);
+const NATURE = new Set(['v', 'removed', 'picked', 'frostYear', 'mown', 'opened', 'dived', 'fished', 'firstPick', 'wet', 'moist']);
 const full = v => v !== null && v !== undefined && (typeof v !== 'object' || Object.keys(v).length > 0);
 // Has somebody made something in this chunk (built, dug, sown, moored, left…)?
 export const touched = d => !!d && Object.keys(d).some(k => !NATURE.has(k) && full(d[k]));

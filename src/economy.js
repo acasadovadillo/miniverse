@@ -8,7 +8,7 @@ import { hooks, isFish, unitG, typicalG, freshK, stateOf } from './catch.js';
 
 const BASE = {
   madera: 2, piedra: 2, fibra: 2, carbon: 6, cobre: 10, hierro: 18, oro: 40, bellota: 5, pina: 5,
-  coco: 15, harina: 30, manzana: 12, bayas: 6, pulpa: 10, huevo: 20, leche: 30, lana: 45, miel: 40, tablas: 2, abono: 6,
+  coco: 15, harina: 30, manzana: 12, pear: 16, cherry: 9, bayas: 6, pulpa: 10, huevo: 20, leche: 30, lana: 45, miel: 40, tablas: 2, abono: 6,
   amatista: 80, esmeralda: 140, rubi: 200, diamante: 400, fosil_concha: 60, fosil_hueso: 120, fosil_ambar: 150,
   calavera: 30, moneda_antigua: 100, lingote_cobre: 36, lingote_hierro: 57, lingote_oro: 114,
   pocion_rapidez: 60, pocion_fuerza: 80, pocion_resistencia: 90, pocion_regeneracion: 90,
@@ -70,7 +70,7 @@ export const SHOPS = {
     title: 'Puesto de Rosa', hours: [9, 18], buysAll: true,
     stock: [
       ...Object.keys(CROPS).map(c => ({ id: seedOf(c), seasons: CROPS[c].seasons, price: CROPS[c].seed ?? Math.round(CROPS[c].price * 0.5) })),
-      { id: 'semilla_manzano', price: 120 }, { id: 'abono', price: 25 },
+      { id: 'semilla_manzano', price: 120 }, { id: 'pear_sapling', price: 140 }, { id: 'cherry_sapling', price: 160 }, { id: 'abono', price: 25 },
       { animal: 'gallina', name: 'Gallina', price: 400 }, { animal: 'pato', name: 'Pato', price: 500 }, { animal: 'conejo', name: 'Conejo', price: 700 },
       { animal: 'cabra', name: 'Cabra', price: 1000 }, { animal: 'cerdo', name: 'Cerdo', price: 1300 }, { animal: 'oveja', name: 'Oveja', price: 1200, project: 'mercado' }, { animal: 'vaca', name: 'Vaca', price: 1500, project: 'mercado' },
       ...RACE_IDS.map(horse => ({ horse, price: RACES[horse].price })),

@@ -33,6 +33,7 @@ import { tintMats, tintOf } from './tints.js';
 import { wearKind, wearTwin, LOOK, WORN } from './wear3d.js';
 import { Seabed } from './seabed3d.js';
 import { Site3D } from './site3d.js';
+import { FRUIT } from '../orchard.js';
 
 const NEAR = 3;          // trozos alrededor del de la cámara con todo
 const NB = 2;            // la naturaleza y la cubierta del suelo van en bloques de NB × NB trozos (menos mallas)
@@ -46,9 +47,9 @@ const VIEW = new THREE.Frustum(), VIEW_M = new THREE.Matrix4();   // (lo que ve 
 const SHADOW_R = 2;      // … cuya naturaleza da sombra
 const FAR_BLOCK = 4;     // trozos por lado de un bloque lejano
 const FAR_R = 2;         // bloques lejanos alrededor
-const FAR_KINDS = new Set(['oak', 'fruit', 'pine', 'snowPine', 'swampTree', 'cactus', 'palm', 'boulder', 'snowBoulder']);   // lo que se ve de lejos
+const FAR_KINDS = new Set(['oak', 'fruit', 'pear', 'cherry', 'pine', 'snowPine', 'swampTree', 'cactus', 'palm', 'boulder', 'snowBoulder']);   // lo que se ve de lejos
 const FADE_MS = 600;     // lo que tarda un bloque de naturaleza en fundirse con lo lejano, al llegar y al irse
-const NATURE = new Set(['oak', 'fruit', 'pine', 'snowPine', 'swampTree', 'cactus', 'palm', 'boulder', 'rock', 'bush', 'deadBush', 'snowBoulder', 'margarita', 'diente_leon']);
+const NATURE = new Set(['oak', 'fruit', 'pear', 'cherry', 'pine', 'snowPine', 'swampTree', 'cactus', 'palm', 'boulder', 'rock', 'bush', 'deadBush', 'snowBoulder', 'margarita', 'diente_leon']);
 
 // Which neighbours of a tilled tile are tilled too (1 +x, 2 -x, 4 +z, 8 -z), to join them into one field
 // (models.js, tilled). With lv (the height of each tile), only those at the same height: a step between them stays
@@ -385,7 +386,7 @@ export class World3D {
         // (el allanado, el que tiene ahora el suelo: si se quita algo de antes, el suelo vuelve a subir cuando se rehace su
         // malla, que puede ser medio segundo después, y lo de encima se rehace entonces; ver padStamp)
         const pad = (x0, y0, n) => (T?.padStamp && scene.padSig ? T.padStamp(x0 * CHUNK, y0 * CHUNK, (x0 + n) * CHUNK, (y0 + n) * CHUNK) : '');
-        const natSig = nat.map(o => o.key + (o.bare ? '-' : '')).join(',') + '|' + pad(bx * NB, by * NB, NB);
+        const natSig = nat.map(o => o.key + (o.bare ? '-' : '') + (o.look || '') + (o.age !== undefined ? o.age.toFixed(2) : '')).join(',') + '|' + pad(bx * NB, by * NB, NB);
         // (las firmas de la hierba, por trozo: lo que hay en él, el allanado de su suelo y sus casillas ocupadas, segadas
         // incluidas, aunque lo que las ocupa sea de otro trozo; la de la cubierta, sin lo segado)
         const occ = occupied(scene, datas, this.today()), sigs = datas.map(([cx, cy, d]) => this.signature(scene, cx, cy, d) + '|p' + pad(cx, cy, 1)), coverSig = sigs.join('|');
@@ -626,8 +627,8 @@ export class World3D {
     const A = this.useImpostors && this.impostors?.ready && this.impostors.season === scene.gen.season ? this.impostors : null, mode = A ? 'imp' + A.gen : 'old';
     const gy = (x, y) => this.view.groundY(scene, x, y);
     // (las firmas, solo cuando ha cambiado algún trozo del mundo desde la última vez: si no, las de antes)
-    if (scene !== this.farSigScene || scene.touches === undefined || scene.touches !== this.farTouches || this.farSigs.size > 64) {
-      this.farSigs.clear(); this.farSigScene = scene; this.farTouches = scene.touches;
+    if (scene !== this.farSigScene || scene.touches === undefined || scene.touches !== this.farTouches || this.farDay !== this.today() || this.farSigs.size > 64) {
+      this.farSigs.clear(); this.farSigScene = scene; this.farTouches = scene.touches; this.farDay = this.today();
     }
     for (let dy = -FAR_R; dy <= FAR_R; dy++) for (let dx = -FAR_R; dx <= FAR_R; dx++) {
       const k = `${bx + dx},${by + dy}`, old = this.far.get(k);
@@ -657,7 +658,7 @@ export class World3D {
   // costura del planeta, en su sitio de esta vuelta. No pasa por contentFor: con 400 trozos echaría de su caché a los
   // cercanos
   farObjects(scene, fbx, fby) {
-    const out = [];
+    const out = [], fm = this.farm(scene);
     for (let j = 0; j < FAR_BLOCK; j++) for (let i = 0; i < FAR_BLOCK; i++) {
       const cx = fbx * FAR_BLOCK + i, cy = fby * FAR_BLOCK + j, own = wrapIndex(cx, CHUNK), off = (cx - own) * CHUNK;
       const removed = scene.deltas?.get(`${own},${cy}`)?.removed;
@@ -665,19 +666,23 @@ export class World3D {
         if (!FAR_KINDS.has(o.kind) || o.poi) continue;
         if (removed && removed[o.key] !== undefined) continue;
         if (scene.layers?.some(l => l.hides?.(o))) continue;
-        out.push(off ? { ...o, x: o.x + off } : o);
+        out.push(fm && FRUIT[o.kind]?.bloom ? fm.farLook({ ...o, x: o.x + off }) : off ? { ...o, x: o.x + off } : o);
       }
+      // (and the trees planted there)
+      const planted = fm && scene.deltas?.get(`${own},${cy}`);
+      if (planted?.trees) for (const o of fm.farTrees(planted, [], off)) if (FAR_KINDS.has(o.kind)) out.push(o);
     }
     return out;
   }
   // La firma de un bloque lejano: cuánto se ha quitado de cada uno de sus trozos (lo talado, aquí o en la partida de
-  // otro). Solo eso cambia lo lejano: segar, labrar, poner piezas, abrir puertas o que crezcan los cultivos también suben
+  // otro), los árboles plantados y si los frutales están en flor. Solo eso cambia lo lejano: segar, labrar, poner piezas, abrir puertas o que crezcan los cultivos también suben
   // la versión del trozo, pero no hace falta rehacer el bloque entero por ello
   farSig(scene, fbx, fby) {
-    let h = 0;
+    const fm = this.farm(scene);
+    let h = fm ? fm.bloomStamp((fby + 0.5) * FAR_BLOCK * CHUNK) : 0;
     if (scene.deltas) for (let j = 0; j < FAR_BLOCK; j++) for (let i = 0; i < FAR_BLOCK; i++) {
       const cx = fbx * FAR_BLOCK + i, cy = fby * FAR_BLOCK + j, d = scene.deltas.get(`${wrapIndex(cx, CHUNK)},${cy}`);
-      h = (Math.imul(h, 31) + (d ? this.removedCount(d) : 0)) | 0;
+      h = (Math.imul(h, 31) + (d ? this.removedCount(d) : 0) + (fm && d?.trees ? fm.farStamp(d) : 0)) | 0;
     }
     return h;
   }
@@ -776,14 +781,19 @@ export class World3D {
 
   // ---------- el pueblo ----------
   updateVillage(scene) {
-    if (scene.village === this.villageRef) return;
+    // (and again when the village's apple tree comes into blossom, into fruit or out of them: looked at once a day)
+    const fm = this.farm(scene), day = fm ? fm.today : null;
+    let fruit = this.villageFruit;
+    if (day !== this.villageDay) { this.villageDay = day; fruit = fm ? fm.lookNow('fruit', 0) : ''; }
+    if (scene.village === this.villageRef && fruit === this.villageFruit) return;
+    this.villageFruit = fruit;
     if (this.villageGroup) this.group.remove(this.villageGroup);
     for (const o of this.villageLights?.spin || []) this.spin.remove(o);
     this.villageRef = scene.village;
     const g = new THREE.Group(), sinks = new Map(), emit = key => { const tint = tintOf(key), bucket = tint ? tint[0] : key; let b = sinks.get(bucket); if (!b) sinks.set(bucket, (b = new Builder())); return b.tint(tint ? tint[1] : null); };
     const c = { lights: [], flames: [], smoke: [] }, nat = [];
     for (const o of scene.village.objects) {
-      if (o.nature) { nat.push({ kind: o.nature, x: o.x, y: o.y, key: 'v:' + o.x + ',' + o.y }); continue; }
+      if (o.nature) { nat.push({ kind: o.nature, x: o.x, y: o.y, key: 'v:' + o.x + ',' + o.y, ...(FRUIT[o.nature] && fm ? { look: fm.lookNow(o.nature, 0) } : null) }); continue; }
       if (!o.model) continue;
       // Lo que se apoya en una esquina de su huella (puestos, muelle) va centrado en ella
       const x = o.fx ? (o.fx[0] + o.fx[1]) / 2 : o.x, z = o.fy ? (o.fy[0] + o.fy[1]) / 2 : o.y;

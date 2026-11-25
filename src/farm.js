@@ -1,5 +1,6 @@
-// Huerto: sembrar en tierra labrada, regar (o que llueva), abonar y cosechar. También se plantan árboles con bellotas, piñas
-// o semillas de manzano; los manzanos dan manzanas y las palmeras, cocos, cada pocos días (se cogen con E).
+// Huerto: sembrar en tierra labrada, regar (o que llueva), abonar y cosechar. También se plantan árboles con bellotas, piñas,
+// semillas de manzano o los plantones de Rosa; los frutales dan fruta en su época y las palmeras, cocos, cada pocos días (se
+// cogen con E).
 //
 // What makes a crop grow is the weather of its field (fieldclimate.js) and the water in its soil, not the calendar: every
 // morning (onDay, only in the game that runs the world) each crop grows by how good the day before was for it (cropdata.js),
@@ -14,6 +15,11 @@
 //                           (the day it ripened), bolt (the day it went to seed), fb (the day frost bit it), leg (the first
 //                           morning of one planted before the weather decided), picks (how many times a plant that gives
 //                           again has given), fert (from before the soil counted: it grows faster until its harvest) }
+// The orchard (orchard.js, phase R2-E) follows the calendar of the place: blossom in spring, a window for the fruit, and a
+// frost on the blossom costs that year's. d.trees[k] { kind, day, from? (the days until its first fruit; missing: planted
+// before, it bears at once) }, d.picked[key] the day it was last shaken, d.frostYear[key] the year (its last spring's) the
+// blossom of a planted tree burnt. A wild tree keeps no mark: its place and the weather of those days say it (blossomFrost).
+// ranch.farm.orchard: the day the calendar began to count in this world (-99: always did), FRUIT_GRACE
 import { CROPS, HARVEST, ITEMS, itemNoun, thingNoun } from './items.js';
 import { THIRST_MAX } from './needs.js';
 import { t, fmt, getLang } from './i18n.js';
@@ -22,21 +28,18 @@ import { B } from './world/biomes.js';
 import { inBounds, isGrass, pondDist } from './world/village.js';
 import { Audio } from './audio.js';
 import { parsePlaced } from './pieces.js';
-import { canopyOf, broadDims, palmDims } from './world/treedims.js';
+import { canopyOf, broadDims, palmDims, ageOf } from './world/treedims.js';
 import { climate } from './world/biomes.js';
 import { seasonOf, WEATHER } from './time.js';
-import { fieldDay } from './fieldclimate.js';
+import { fieldDay, seasonAt } from './fieldclimate.js';
+import { FRUIT, ORCHARD, TREE_DAYS, FIRST_FRUIT, FRUIT_EVERY, BLOSSOM_FROST, FRUIT_GRACE, phaseAt, nextFruit, youngK } from './orchard.js';
 import { GROW, WATER, DRY, SNOW_WATER, MULCH_DAYS, MULCH_FROST, SEED_WAIT, GRACE, OLD_RIPE, OLD_RATE, FROST_LOOK, BOLT_SEEDS, seedOf, rateAt, waterAt, dryingAt, yieldAt, qualityOf } from './cropdata.js';
 import { SOIL, FOOD, OLD_FERT, OLD_FERT_RATE, FAMILY_TIRED, TIRED_HEALTH, RICH_MORE, BEES, SOIL_MAX, soilStart, fertAt, takesFrom, clampSoil, soilWord, soilTone } from './soil.js';
-import { dxOf } from './world/planet.js';
+import { dxOf, latOf } from './world/planet.js';
 import { Profile } from './accounts.js';
 import { hud } from './ui/hud.js';
 
 export const CAN_MAX = 20;
-const TREE_DAYS = 3;              // días que tarda un arbolito en hacerse árbol
-const FRUIT_EVERY = 3;            // un manzano da manzanas (y una palmera, cocos) cada tantos días
-// Lo que da cada árbol con fruta al cogerla, cómo se dice y si en invierno no tiene
-const FRUIT = { fruit: { drops: [['manzana', 2, 3]], text: 'Coger manzanas', winter: false }, palm: { drops: [['coco', 1, 3]], text: 'Coger cocos', winter: true } };
 const key = (tx, ty) => `${tx},${ty}`;
 const TICK = 5;                   // s between two looks at the clock (who plays today, the frost warning)
 const WARN_FROM = 17, WARN_TO = 23, WARN_R = 64;   // the frost warning: between these hours, for the tender crops this near
@@ -52,6 +55,7 @@ export class Farm {
     this.can = 0;   // agua que queda en la regadera
     this.lands = new Map();   // chunk → { Tl, swamp } (they never change)
     this.day_ = {}; this.next_ = {};   // (reused by fieldAt)
+    this.cals = []; this.frosts = new Map();   // (the calendar of each hemisphere; the frosts on the wild blossom, by chunk)
     this.tickT = 0; this.warned = -1; this.said = {}; this.days = {}; this.line = { text: '', key: '' };
     this.layer = { add: (cx, cy, d, out) => this.addContent(cx, cy, d, out), blocks: (tx, ty) => !!this.cropAt(tx, ty) };
   }
@@ -59,7 +63,7 @@ export class Farm {
   get today() { return this.game.days.dayIndex; }
   reset(save) {
     this.can = save.can ?? 0;
-    this.warned = -1; this.forget(); this.lands.clear(); this.days = {};
+    this.warned = -1; this.forget(); this.lands.clear(); this.days = {}; this.cals = []; this.frosts.clear();
     if (!this.world.layers.includes(this.layer)) this.world.layers.push(this.layer);
   }
   save(out) { out.can = this.can; }
@@ -170,6 +174,8 @@ export class Farm {
     if ((this.tickT -= dt) > 0) return;
     this.tickT = TICK;
     const g = this.game, today = this.today;
+    // (the first day of the orchard's calendar in this world: the fruit that hung that day is not lost, see grace)
+    if (!g.live.guest && g.ranch.farm.orchard === undefined) g.ranch.farm.orchard = today > 0 ? today : -99;
     // (once the days missed have been lived: they were not played)
     if (!g.live.guest && g.days.day === g.days.realDay && (!Profile.server || g.live.othersPlaying) && g.ranch.farm.seen !== today) g.ranch.farm.seen = today;
     const h = g.days.localHour;
@@ -194,10 +200,11 @@ export class Farm {
   // «tomato and pumpkin»
   names(ids) { return fmt.list(ids.map(id => t('farm.name_low', { crop: itemNoun(id) }))); }
 
-  // Cultivos y árboles plantados de un trozo (y, en los árboles con fruta recién cogida, que no se vea: bare)
+  // Cultivos y árboles plantados de un trozo; y, de los árboles con fruta, cómo están hoy (dress)
   addContent(cx, cy, d, out) {
+    // (the wild ones are the generator's own objects, kept, with the blows they have taken: they are written on, not copied)
+    for (const o of out.objects) if (FRUIT[o.kind]) this.dress(d, o);
     if (!d) return;
-    if (d.picked) out.objects.forEach((o, i) => { if (FRUIT[o.kind] && !this.hasFruit(d, o)) out.objects[i] = { ...o, bare: true }; });
     // (un cultivo o un árbol de una versión más nueva que este juego no conoce no se ve ni se toca, pero sigue en el trozo:
     // la casilla queda ocupada)
     for (const [k, c] of Object.entries(d.crops || {})) {
@@ -213,9 +220,11 @@ export class Farm {
         out.objects.push({ x, y, key: 'sap:' + k, tile: [tx, ty], sapling: t.kind });
         out.colliders.push({ x, y, r: 0.15 });
       } else {
-        const o = { kind: t.kind, x, y, key: 'tree:' + k, tile: [tx, ty], planted: this };
+        const o = { kind: t.kind, x, y, key: 'tree:' + k, tile: [tx, ty], planted: this }, young = this.youngFor(t);
+        if (young) o.age = ageOf(o) * youngK(this.today - t.day);   // (a young fruit tree: smaller, and growing)
+        if (FRUIT[t.kind]) this.dress(d, o);
         out.objects.push(o);
-        out.colliders.push({ x, y, r: 0.35 });
+        out.colliders.push({ x, y, r: young ? 0.22 : 0.35 });
       }
     }
   }
@@ -223,8 +232,31 @@ export class Farm {
   remove(o) {
     const [tx, ty] = o.tile, d = this.d(tx, ty);
     delete d.trees[key(tx, ty)];
+    this.forgetTree(d, o.key);
     this.world.touchAround(tx, ty);
   }
+  // (nothing of a tree that is no longer there is left for the next one planted on its tile)
+  forgetTree(d, k) { if (d.picked) delete d.picked[k]; if (d.frostYear) delete d.frostYear[k]; }
+  // The trees planted in a chunk, for the far view (world3d.js): the ones that are trees already, off: how far round the planet
+  farTrees(d, out, off = 0) {
+    for (const k in d.trees) {
+      const t = d.trees[k];
+      if (!HARVEST[t?.kind] || this.today - t.day < TREE_DAYS) continue;
+      const c = k.indexOf(','), o = { kind: t.kind, x: +k.slice(0, c) + 0.5 + off, y: +k.slice(c + 1) + 0.5, key: 'tree:' + k };
+      if (this.youngFor(t)) o.age = ageOf(o) * youngK(this.today - t.day);
+      out.push(this.farLook(o));
+    }
+    return out;
+  }
+  // (from afar, only whether it is in blossom by the calendar)
+  farLook(o) { if (FRUIT[o.kind]?.bloom) o.look = this.lookNow(o.kind, o.y) === 'b' ? 'b' : ''; return o; }
+  // What the far view depends on, besides what has been felled: a chunk's planted trees, and the blossom at a row of tiles
+  farStamp(d) {
+    let n = 0;
+    for (const k in d.trees) { const t = d.trees[k], a = this.today - t?.day; if (a >= TREE_DAYS) n = (Math.imul(n, 31) + k.length * 7 + k.charCodeAt(0) + k.charCodeAt(k.length - 1) + (this.youngFor(t) ? a : 50)) | 0; }
+    return n;
+  }
+  bloomStamp(ty) { let n = 0; for (const k of ORCHARD) n = n * 2 + (this.lookNow(k, ty) === 'b' ? 1 : 0); return n; }
 
   // Every morning (day): what happened to each bed on the day and the night before, and the water today brings. In this
   // order: the crop grows with the water it had, the frost of the night, the soil dries, the rain, the sprinklers and the
@@ -266,6 +298,7 @@ export class Farm {
         const pos = d.pos?.[`placed:${k}`], [tx, ty] = pos ? [Math.floor(pos[0]), Math.floor(pos[1])] : k.split(',').map(Number);
         waters.push(tx, ty, r);
       }
+      if (d.trees && played && day > this.orchardFrom(Infinity)) this.burnBlossom(d, cx, cy, day);
       if (changed) w.touch(cx, cy);
     }
     // (the sprinklers and the wheels, once every bed has dried: theirs may be in another chunk)
@@ -353,7 +386,7 @@ export class Farm {
     if (MULCH.has(held?.id) && tilled && d.mulch?.[k] === undefined) return { tile, ok: true, auto: true, label: t('farm.mulch.spread', { item: itemNoun(held.id) }), use: () => this.spread(tx, ty, held.id) };
     if (def?.sapling) {
       const ok = this.canPlant(tx, ty);
-      return { tile, ok, label: ok ? 'Plantar un árbol' : '', use: () => (ok ? this.plantTree(tx, ty, def.sapling) : Audio.error()) };
+      return { tile, ok, label: ok ? this.plantText(def.sapling) : '', use: () => (ok ? this.plantTree(tx, ty, def.sapling) : Audio.error()) };
     }
     return null;
   }
@@ -365,19 +398,19 @@ export class Farm {
       if (this.ready(c) && Math.hypot(tx + 0.5 - p.x, ty + 0.5 - p.y) < 1.2) return this.cropAction(tx, ty);
     }
     const tree = this.fruitTreeNear(p);
-    if (tree) return { text: FRUIT[tree.kind].text, run: () => this.pickFruit(tree) };
+    if (tree) return { text: this.pickText(tree), run: () => this.pickFruit(tree) };
     return null;
   }
 
   aimables(p, scene, box) {
     if (scene !== this.world) return null;
-    const out = [], winter = this.game.days.season === 3;
+    const out = [];
     for (const o of this.world.harvestablesNear(p.x, p.y)) {
       const f = FRUIT[o.kind];
-      if (!f || (winter && !f.winter) || Math.hypot(o.x - p.x, o.y - p.y) > 4 || !this.hasFruit(this.d(Math.floor(o.x), Math.floor(o.y)), o)) continue;
+      if (!f || Math.hypot(o.x - p.x, o.y - p.y) > 4 || !this.hasFruit(this.d(Math.floor(o.x), Math.floor(o.y)), o)) continue;
       // (tree: its outline and aim are the tree's own instances; the box, the whole tree, crown and coconuts too)
       const r = canopyOf(o) + 0.3, h = (o.kind === 'palm' ? palmDims(o).H : broadDims(o, 0).H) + 0.5;
-      out.push({ kind: 'sys', tree: o, exact: true, box: box(o.x, o.y, r, r, 0, h), act: () => ({ text: f.text, run: () => this.pickFruit(o) }) });
+      out.push({ kind: 'sys', tree: o, exact: true, box: box(o.x, o.y, r, r, 0, h), act: () => ({ text: this.pickText(o), run: () => this.pickFruit(o) }) });
     }
     return out;
   }
@@ -598,7 +631,8 @@ export class Farm {
     if (tg && (tg.label !== undefined || tg.ok || tg.free || tg.prey)) return '';
     const rule = tg?.obj && HARVEST[tg.obj.kind];
     if (rule && (def?.tool ? def.tool === rule.tool : rule.hand)) return '';   // (something that can be taken)
-    const [tx, ty] = g.aimTile(), text = this.status(tx, ty);
+    // (a fruit tree: how it stands; an ordinary sapling too)
+    const [tx, ty] = g.aimTile(), text = (tg?.obj && FRUIT[tg.obj.kind] ? this.treeText(tg.obj) : this.saplingText(tx, ty)) || this.status(tx, ty);
     if (!text) return '';
     this.line.text = text;
     return this.line;
@@ -633,7 +667,7 @@ export class Farm {
     const g = this.game, p = g.scene === this.world && g.player ? g.player : { x: 0, y: 30 }, a = this.almanac(p.x, p.y), r = Math.round;
     const rows = a.crops.slice().sort((x, y) => (x.now === 'now' ? 0 : 1) - (y.now === 'now' ? 0 : 1) || x.days - y.days).map(c => `<div class="j-row"><b>${t('farm.name', { crop: thingNoun(c.id) })}</b><span class="lvl">${t('farm.almanac.' + c.now, { n: c.days })}</span><small>${t('farm.almanac.frost', { c: c.kill })}</small></div>`).join('');
     const nights = a.nights.map(n => `${n.icon} ${r(n.min)}°`).join(' · '), beds = a.soil.rich + a.soil.fertile + a.soil.tired + a.soil.poor;
-    return `<p class="j-note"><b>${t('farm.almanac.title')}</b><br>${t('farm.almanac.here', { mean: r(a.mean), min: r(a.min), max: r(a.max) })}${a.min <= 2 ? ' ' + t('farm.almanac.tonight_frost') : ''}<br>${t('farm.almanac.nights', { list: nights })}${beds ? '<br>' + t('farm.almanac.soil', a.soil) : ''}<br>${t('farm.almanac.help')}<br>${t('farm.almanac.soil_help')}</p>${rows}`;
+    return `<p class="j-note"><b>${t('farm.almanac.title')}</b><br>${t('farm.almanac.here', { mean: r(a.mean), min: r(a.min), max: r(a.max) })}${a.min <= 2 ? ' ' + t('farm.almanac.tonight_frost') : ''}<br>${t('farm.almanac.nights', { list: nights })}${beds ? '<br>' + t('farm.almanac.soil', a.soil) : ''}<br>${t('farm.almanac.help')}<br>${t('farm.almanac.soil_help')}<br>${t('farm.almanac.trees_help')}</p>${rows}`;
   }
 
   // Cut down a crop that is still growing: the tile stays tilled and its seed drops, to sow it again
@@ -659,35 +693,139 @@ export class Farm {
   plantTree(tx, ty, kind) {
     const g = this.game, d = this.d(tx, ty, true);
     d.trees ||= {};
-    d.trees[key(tx, ty)] = { kind, day: this.today };
+    d.trees[key(tx, ty)] = { kind, day: this.today, ...(FRUIT[kind]?.bloom ? { from: FIRST_FRUIT } : null) };
+    this.forgetTree(d, 'tree:' + key(tx, ty));
     g.inv.take(g.inv.selected, 1);
     g.gather.cooldown = 0.3;
     this.world.touchAround(tx, ty);
     Audio.till();
-    g.gather.float(`Crecerá en ${TREE_DAYS} días`, '#a8f0a0');
+    g.gather.float(FRUIT[kind]?.bloom ? t('farm.tree.grows_fruit', { d: TREE_DAYS, f: FIRST_FRUIT }) : t('farm.tree.grows', { d: TREE_DAYS }), '#a8f0a0');
     g.stats?.add('arboles', 1);
   }
 
-  // Árboles con fruta (manzanos y palmeras, del mundo o plantados) con la fruta madura cerca
-  hasFruit(d, o) { return (d?.picked?.[o.key] ?? -99) <= this.today - FRUIT_EVERY; }
+  // ---------- the orchard ----------
+  orchardFrom(none) { const o = this.game.ranch?.farm?.orchard; return Number.isFinite(o) ? o : none; }
+  // The calendar of a row of tiles on a day: { season, dos (there), spring (the calendar day its last spring began), year }
+  calAt(day, ty) {
+    const base = this.game.days.base, i = latOf(ty) < 0 ? 1 : 0, m = this.cals[i];
+    if (m && m.day === day && m.base === base) return m;
+    const cal = seasonOf(day + base);
+    let s = cal;
+    while (seasonAt(s.season, ty) !== 0) s = seasonOf(s.start - 1);
+    return (this.cals[i] = { day, base, season: seasonAt(cal.season, ty), dos: day + base - cal.start + 1, spring: s.start, year: new Date(s.start * 864e5).getUTCFullYear() });
+  }
+  // Planted under the calendar and not old enough to bear yet
+  youngFor(t) { return !!t?.from && this.today - t.day < t.from; }
+  plantedOf(d, o) { return o.key.startsWith('tree:') ? d?.trees?.[o.key.slice(5)] : null; }
+  // How a fruit tree stands today: as phaseAt, or 'young' (no fruit yet) or 'frost' (its blossom burnt: no fruit this year)
+  phaseOf(d, o) {
+    const cal = this.calAt(this.today, o.y), p = phaseAt(o.kind, cal.season, cal.dos);
+    if (p === 'bare' || FRUIT[o.kind].always) return p;
+    if (this.youngFor(this.plantedOf(d, o))) return 'young';
+    return p !== 'leaf' && this.frosted(d, o, cal) ? 'frost' : p;
+  }
+  // Did a frost burn this year's blossom? A planted tree: the mark of the morning after; a wild one: the nights of its place
+  frosted(d, o, cal) {
+    if (this.plantedOf(d, o)) return d.frostYear?.[o.key] === cal.year;
+    return this.blossomFrost(o.kind, Math.floor(o.x), Math.floor(o.y), cal);
+  }
+  // Nights before the calendar counted in this world (and tonight's) do not count
+  blossomFrost(kind, tx, ty, cal) {
+    const ck = `${kind}:${Math.floor(tx / CHUNK)},${Math.floor(ty / CHUNK)}`, m = this.frosts.get(ck), [a, b] = FRUIT[kind].bloom, from = this.orchardFrom(this.today);
+    const last = Math.min(b, cal.day + cal.base - cal.spring);   // (the last night of blossom that is over)
+    if (m && m.spring === cal.spring && m.last === last && m.from === from) return m.v;
+    const l = this.land(tx, ty), N = this.next_, north = seasonOf(cal.spring).season;
+    let v = false;
+    for (let dos = a; dos <= last && !v; dos++) {
+      const day = cal.spring + dos - 1 - cal.base;
+      if (day >= from) v = fieldDay(north, dos, ty, l.Tl, this.game.days.weatherFor(day), N).min <= BLOSSOM_FROST;
+    }
+    if (this.frosts.size > 4000) this.frosts.clear();
+    this.frosts.set(ck, { spring: cal.spring, last, from, v });
+    return v;
+  }
+  // The frost of the night that has ended on the blossom of the planted trees of a chunk
+  burnBlossom(d, cx, cy, day) {
+    const ty = (cy + 0.5) * CHUNK, cal = this.calAt(day - 1, ty);
+    if (cal.season !== 0 || this.fieldAt(day - 1, cx * CHUNK, cy * CHUNK).min > BLOSSOM_FROST) return;
+    for (const [k, t] of Object.entries(d.trees)) {
+      const b = FRUIT[t?.kind]?.bloom;
+      if (b && cal.dos >= b[0] && cal.dos <= b[1] && !(t.from && day - 1 - t.day < t.from)) (d.frostYear ||= {})['tree:' + k] = cal.year;
+    }
+  }
+  // Is there fruit on it to pick now?
+  hasFruit(d, o) {
+    const picked = d?.picked?.[o.key] ?? -99;
+    if (picked > this.today - FRUIT_EVERY) return false;
+    const p = this.phaseOf(d, o);
+    return p === 'ripe' || (p !== 'young' && p !== 'bare' && this.grace(picked));
+  }
+  // The fruit that hung on a tree on the day the calendar began to count, in an older world: it can still be picked, a few
+  // days more and once
+  grace(picked) {
+    const from = this.orchardFrom(this.today);
+    return from >= 0 && this.today - from < FRUIT_GRACE && picked <= from - FRUIT_EVERY;
+  }
+  // How it is drawn: look 'b' in blossom, 'f' its blossom burnt, 'g' its small green fruit, 'r' its fruit, '' nothing; bare:
+  // without fruit (felled, it gives none)
+  dress(d, o) {
+    const fruit = this.hasFruit(d, o);
+    o.bare = !fruit;
+    if (!FRUIT[o.kind].bloom) return;
+    const p = fruit ? 'ripe' : this.phaseOf(d, o), cal = this.calAt(this.today, o.y);
+    o.look = p === 'ripe' ? (fruit ? 'r' : '') : p === 'bloom' ? 'b' : p === 'green' ? 'g' : p === 'frost' && phaseAt(o.kind, cal.season, cal.dos) === 'bloom' ? 'f' : '';
+  }
+  // (a tree that nobody picks, in the village: only by the calendar)
+  lookNow(kind, ty) { const cal = this.calAt(this.today, ty), p = phaseAt(kind, cal.season, cal.dos); return p === 'ripe' ? 'r' : p === 'bloom' ? 'b' : p === 'green' ? 'g' : ''; }
   fruitTreeNear(p) {
-    const winter = this.game.days.season === 3;
     for (const o of this.world.harvestablesNear(p.x, p.y)) {
-      const f = FRUIT[o.kind];
-      if (!f || (winter && !f.winter) || Math.hypot(o.x - p.x, o.y - p.y) > 1.4) continue;
+      if (!FRUIT[o.kind] || Math.hypot(o.x - p.x, o.y - p.y) > 1.4) continue;
       if (this.hasFruit(this.d(Math.floor(o.x), Math.floor(o.y)), o)) return o;
     }
     return null;
   }
-  // Sacudirlo: cae la fruta y, hasta que vuelva a salir, no se ve en el árbol
+  // Sacudirlo: cae la fruta y, hasta que vuelva a salir, no se ve en el árbol. With a hive near, now and then one more
   pickFruit(o) {
-    const tx = Math.floor(o.x), ty = Math.floor(o.y), d = this.d(tx, ty, true);
+    const tx = Math.floor(o.x), ty = Math.floor(o.y), d = this.d(tx, ty, true), f = FRUIT[o.kind], g = this.game;
+    if (!this.hasFruit(d, o)) return;   // (somebody else has just picked it)
+    const more = f.bloom && this.beesAt(tx, ty) && Math.random() < BEES.more ? 1 : 0;
     (d.picked ||= {})[o.key] = this.today;
     this.world.touch(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK));
-    o.shakeUntil = this.game.time + 0.3;
-    this.game.gather.spawnDrops(o, { drops: FRUIT[o.kind].drops });
-    this.game.nature?.harvested(o.kind);   // (its fruit picked: Known in the nature book)
+    o.shakeUntil = g.time + 0.3;
+    this.forget();
+    g.gather.spawnDrops(o, { drops: [[f.item, f.n[0] + more, f.n[1] + more]] });
+    g.nature?.harvested(o.kind);   // (its fruit picked: Known in the nature book)
     Audio.swish();
   }
-
+  // What it says: what E does, how it stands (aimed at; '' if E says it), and planting it
+  treeName(kind) { return t(kind === 'fruit' ? 'farm.tree.apple' : kind === 'pear' ? 'farm.tree.pear' : kind === 'cherry' ? 'farm.tree.cherry' : kind === 'palm' ? 'farm.tree.palm' : 'farm.tree.tree'); }
+  pickText(o) {
+    const tx = Math.floor(o.x), ty = Math.floor(o.y);
+    if (this.fresh('pick', o.key, tx, ty)) return this.said.pick.text;
+    const text = t(o.kind === 'fruit' ? 'farm.tree.pick.apples' : o.kind === 'pear' ? 'farm.tree.pick.pears' : o.kind === 'cherry' ? 'farm.tree.pick.cherries' : 'farm.tree.pick.coconuts');
+    return this.say('pick', o.key, tx, ty, FRUIT[o.kind].bloom && this.beesAt(tx, ty) ? t('farm.state.bees', { text }) : text);
+  }
+  plantText(kind) {
+    if (this.fresh('plant', kind, 0, 0)) return this.said.plant.text;
+    return this.say('plant', kind, 0, 0, FRUIT[kind]?.bloom ? t('farm.tree.plant_fruit', { tree: this.treeName(kind) }) : t('farm.tree.plant'));
+  }
+  treeText(o) {
+    if (o.kind === 'palm') return '';
+    const tx = Math.floor(o.x), ty = Math.floor(o.y);
+    if (this.fresh('tree', o.key, tx, ty)) return this.said.tree.text;
+    const d = this.d(tx, ty), p = this.phaseOf(d, o), cal = this.calAt(this.today, o.y), tr = this.plantedOf(d, o), picked = d?.picked?.[o.key] ?? -99;
+    if (this.hasFruit(d, o)) return this.say('tree', o.key, tx, ty, '');   // (E says it)
+    const state = p === 'young' ? t('farm.tree.young', { d: tr.day + tr.from - this.today })
+      : p === 'frost' ? t('farm.tree.frost_blossom')
+      : p === 'bloom' ? t('farm.tree.blossom')
+      : p === 'ripe' ? t('farm.tree.again', { d: picked + FRUIT_EVERY - this.today })
+      : t(['farm.tree.until.spring', 'farm.tree.until.summer', 'farm.tree.until.autumn'][nextFruit(o.kind, cal.season, cal.dos)]);
+    return this.say('tree', o.key, tx, ty, t('farm.state.alone', { crop: this.treeName(o.kind), state }));
+  }
+  saplingText(tx, ty) {
+    const d = this.d(tx, ty), s = d?.trees && d.trees[key(tx, ty)];
+    if (!s || !HARVEST[s.kind] || this.today - s.day >= TREE_DAYS) return '';
+    if (this.fresh('sap', s.kind, tx, ty)) return this.said.sap.text;
+    return this.say('sap', s.kind, tx, ty, t('farm.state.alone', { crop: this.treeName(s.kind), state: t('farm.tree.sapling', { d: s.day + TREE_DAYS - this.today }) }));
+  }
 }

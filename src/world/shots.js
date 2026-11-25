@@ -91,7 +91,7 @@ function gate(scene, o, tx, ty, L, out) {
 // Árboles (el tronco), rocas y arbustos, con las medidas con que se dibujan de cerca (three/nature3d.js)
 function nature(o, y, out) {
   const kind = o.kind, x = o.x, z = o.y;
-  if (kind === 'oak' || kind === 'fruit') { const { k, th, cy } = broadDims(o, y); cyl(x, z, 0.26 * k, y, y + th + (cy - y - th) * 0.5, out); }
+  if (kind === 'oak' || kind === 'fruit' || kind === 'pear' || kind === 'cherry') { const { k, th, cy } = broadDims(o, y); cyl(x, z, 0.26 * k, y, y + th + (cy - y - th) * 0.5, out); }
   else if (kind === 'swampTree') { const k = treeK(o); cyl(x, z, 0.34 * k, y, y + 1.25 * k, out); }
   else if (kind === 'pine' || kind === 'snowPine') { const { k, H } = pineDims(o); cyl(x, z, 0.19 * k, y, y + H * 0.74, out); }
   else if (kind === 'palm') { const { k, H } = palmDims(o); cyl(x, z, 0.2 * Math.sqrt(k), y, y + H * 0.45, out); }   // (lo de abajo, casi derecho)

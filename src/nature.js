@@ -63,7 +63,7 @@ const LIST = [
   ...['carpa', 'perca', 'trucha', 'salmon', 'lucio', 'anguila', 'sardina', 'lubina', 'pez_globo', 'cangrejo', 'pez_hielo',
     'siluro', 'pulpo', 'atun', 'esturion', 'tench', 'barbel', 'crayfish', 'mackerel', 'sea_bream', 'squid', 'pez_dorado'].map(id => [id, 'fish', null]),
   ...['mariposa', 'mariquita', 'saltamontes', 'libelula', 'luciernaga', 'escarabajo', 'grillo', 'polilla'].map(id => [id, 'bug', null]),
-  ...['oak', 'fruit', 'pine', 'snowPine', 'swampTree', 'palm', 'cactus', 'bush', 'deadBush', 'margarita', 'diente_leon',
+  ...['oak', 'fruit', 'pear', 'cherry', 'pine', 'snowPine', 'swampTree', 'palm', 'cactus', 'bush', 'deadBush', 'margarita', 'diente_leon',
     'nabo', 'fresa', 'zanahoria', 'tomate', 'maiz', 'trigo', 'calabaza', 'potato', 'broad_bean', 'cabbage', 'garlic'].map(id => [id, 'plant', null]),
 ];
 export const SPECIES_IDS = LIST.map(([id]) => id);
@@ -74,7 +74,7 @@ export const REWARDS = [[15, 500, 'semilla_manzano', 2], [35, 1500, 'pocion', 2]
 // ---------- the facts ----------
 const WILD_IDS = new Set(['ciervo', 'jabali', 'cisne']);
 const FARM_IDS = new Set(['gallina', 'pato', 'vaca', 'oveja', 'cabra', 'cerdo', 'conejo', 'caballo', 'perro', 'gato']);
-const TREE_IDS = new Set(['oak', 'fruit', 'pine', 'snowPine', 'swampTree', 'palm', 'cactus']);
+const TREE_IDS = new Set(['oak', 'fruit', 'pear', 'cherry', 'pine', 'snowPine', 'swampTree', 'palm', 'cactus']);
 const FLOWER_IDS = new Set(['margarita', 'diente_leon']);
 // (the wild kinds live in wildlife.js, which exports KINDS, GRAZE and CREEP; this copy is only a fallback)
 const WILD_COPY = {
@@ -167,7 +167,7 @@ function plantFacts(id) {
     if (c.regrow) out.push(['nature.fact.regrows', { days: c.regrow }, 2]);
     return [...out, ...givesOf([id, seedOf(id)])];
   }
-  const out = [['nature.fact.habitat', { list: biomeNames(PLANT_BIOMES[id] || []) }, 1]];
+  const out = [PLANT_BIOMES[id] ? ['nature.fact.habitat', { list: biomeNames(PLANT_BIOMES[id]) }, 1] : ['nature.fact.from_sapling', null, 1]];   // (pear and cherry: none grow wild)
   if (FLOWER_IDS.has(id)) out.push(['nature.fact.seasons', { list: seasonNames(FLOWER_SEASONS) }, 2]);
   return [...out, ...givesOf((HARVEST[id]?.drops || []).map(d => d[0]))];
 }
@@ -229,7 +229,7 @@ function treeShape(o) {
   return T;
 }
 // Old saves: what they already had fills the book quietly (§6): [what, species, level]
-const SEEN_ITEMS = [['carne_venado', 'ciervo', 3], ['carne_jabali', 'jabali', 3], ['bellota', 'oak', 1], ['pina', 'pine', 1], ['manzana', 'fruit', 1], ['coco', 'palm', 1]];
+const SEEN_ITEMS = [['carne_venado', 'ciervo', 3], ['carne_jabali', 'jabali', 3], ['bellota', 'oak', 1], ['pina', 'pine', 1], ['manzana', 'fruit', 1], ['pear', 'pear', 1], ['cherry', 'cherry', 1], ['coco', 'palm', 1]];
 
 export class NatureBook {
   constructor(game) {

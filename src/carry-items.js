@@ -23,6 +23,7 @@ export const WEIGHT = {
   huevo: 0.06, huevo_pato: 0.08, huevo_oro: 0.1, manzana: 0.2, coco: 1, pan: 0.5, leche: 1, leche_cabra: 1, nata: 0.5, queso: 0.5, queso_cabra: 0.5,
   mantequilla: 0.25, miel: 0.5, carne_ave: 0.3, carne_conejo: 0.4, estofado: 1, calabaza: 4, sidra: 0.5, cerveza: 0.6, hidromiel: 0.5,
   vela: 0.2, antorcha: 0.5, lampara: 3, candelabro: 4, maceta: 3, mochila: 1.5, alforjas: 2, caballo: 0.05, barca: 0.5,
+  pear: 0.2, cherry: 0.02, pear_sapling: 0.8, cherry_sapling: 0.8,
   potato: 0.2, cabbage: 1.2, garlic: 0.06, broad_bean: 0.05, seed_potato: 0.06,
   pelota: 0.2, cepillo: 0.3, herraduras: 1, trufa: 0.1,
   // (thirst and diving: the canteen and the jug empty; their water is SIP_KG a sip, see stackKg. The pearl is lighter than

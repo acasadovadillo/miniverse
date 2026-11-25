@@ -29,7 +29,7 @@ import { keys, HOLD_X } from './input.js';
 import { EVENT } from './senses.js';
 
 // The trees that leave a log when felled (cactus and bushes, as before)
-const LOG_TREES = new Set(['oak', 'pine', 'snowPine', 'fruit', 'swampTree', 'palm']);
+const LOG_TREES = new Set(['oak', 'pine', 'snowPine', 'fruit', 'pear', 'cherry', 'swampTree', 'palm']);
 const SPLIT_HITS = 3;          // axe blows to split a log where it lies
 const NO_RUN = 1.25;           // a load above this: no running
 const SLOWEST = 0.45;          // the speed from HEAVY up, by the load alone

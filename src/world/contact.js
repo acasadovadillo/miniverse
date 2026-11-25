@@ -16,7 +16,7 @@ const CIRCLE = 0, BOX = 1, EDGE = 2;
 // Lo más que oscurece cada canal (el contacto puede llegar a un tercio; la copa, por muchas que se junten, no deja el
 // bosque negro)
 export const AO_MIN = 0.32, CANOPY_MIN = 0.62;
-const TREES = new Set(['oak', 'fruit', 'pine', 'snowPine', 'swampTree', 'palm']);
+const TREES = new Set(['oak', 'fruit', 'pear', 'cherry', 'pine', 'snowPine', 'swampTree', 'palm']);
 const ROUND_KIND = { bush: [0.4, 0.5], cactus: [0.35, 0.4], deadBush: [0.2, 0.25] };   // [fuerza, alcance] de lo que no es árbol
 
 // Las formas de un trozo, en un Float32Array de STRIDE números cada una. data: lo de contentFor (objetos, colisiones y
@@ -98,7 +98,7 @@ export function shapesOf(data, season, at, extra = null) {
 // Lo que tapa cada copa según la estación: los pinos, siempre; los de hoja caduca, en invierno, casi nada (la nieve bajo
 // un roble pelado no sale gris); el sauce, algo más (sus ramillas); las palmeras, poco. Se cambia en el sitio: al cambiar
 // de estación no hace falta volver a juntar las formas, solo esto
-const CANOPY_CLASS = { pine: 0, snowPine: 0, oak: 1, fruit: 1, swampTree: 2, palm: 3 };
+const CANOPY_CLASS = { pine: 0, snowPine: 0, oak: 1, fruit: 1, pear: 1, cherry: 1, swampTree: 2, palm: 3 };
 const canopyS = (cls, season) => (cls === 0 ? 0.25 : cls === 3 ? 0.08 : season === 3 ? (cls === 2 ? 0.14 : 0.08) : 0.22);
 export function seasonShapes(S, season) {
   for (let i = 0; i < S.length; i += STRIDE) if (S[i + 9] === 1) S[i + 7] = canopyS(S[i + 3], season);

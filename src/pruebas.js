@@ -138,6 +138,8 @@ import { Voices, MAX_VOICES, renderPart } from './musicvoices.js';
 import { SCORES, barS, unitS, stingerNotes, resolveScore } from './musicscore.js';
 import { apagada } from './opciones.js';
 import { Farm } from './farm.js';
+import { FRUIT, ORCHARD, FIRST_FRUIT, phaseAt } from './orchard.js';
+import { ihash } from './util.js';
 import { seasonOf, madridMs } from './time.js';
 import { seasonC, fieldDay } from './fieldclimate.js';
 import { GROW, seedOf, rateAt } from './cropdata.js';
@@ -984,6 +986,159 @@ async function soloTests(game) {
       // (digging takes the earth away, with what it had)
       w().digTile(tx, ty, -1, F.today); check(d().soil[k] === undefined, 'the dug earth keeps its soil');
     } finally { delete d().tilled[k]; delete d().soil?.[k]; w().setTile(tx, ty, 'air'); if (d().dig) delete d().dig[k]; w().touchAround(tx, ty); }
+  });
+  // ---------- R2-E: the orchard (docs/planes/realismo/PLAN-R2-huerto.md §3.10) ----------
+  // A farm with fruit trees: planted long ago (day -50, as of the first days of the calendar) unless told; wild(kind): one of the land
+  const orchardLab = (o = {}) => {
+    const L = farmLab(o), ty = o.ty ?? 30;
+    L.g.ranch.farm.orchard = o.orchard ?? -99;
+    L.at = (season, dos) => { L.day = 100 + FARM_DAY(season, dos) - (L.g.days.base + 100); L.g.days.dayIndex = L.day; return L; };
+    L.tree = (kind, x = 0, more = {}) => { (L.d.trees ||= {})[L.k(x)] = { kind, day: -400, ...more }; return L.obj(kind, x); };
+    L.obj = (kind, x = 0) => ({ kind, x: x + 0.5, y: ty + 0.5, key: 'tree:' + L.k(x), tile: [x, ty] });
+    L.wild = (kind = 'fruit', x = 0) => ({ kind, x: x + 0.5, y: ty + 0.5, key: `${kind}:${x}` });
+    L.has = q => L.F.hasFruit(L.d, q);
+    L.drawn = (...wild) => { const out = { objects: [...wild], colliders: [] }; L.F.addContent(0, Math.floor(ty / CHUNK), L.d, out); return out; };
+    return L;
+  };
+  await test('farm orchard (english): the windows of each tree, their labels, and the south the other way round', async () => {
+    const days = [[0, 5], [0, 30], [0, 65], [1, 10], [1, 35], [1, 50], [1, 65], [2, 10], [2, 70], [2, 80], [3, 40]];
+    const want = { fruit: 'leaf bloom bloom green green ripe ripe ripe ripe leaf bare', pear: 'leaf bloom leaf green green green ripe ripe leaf leaf bare', cherry: 'leaf bloom ripe ripe leaf leaf leaf leaf leaf leaf bare' };
+    for (const [kind, w2] of Object.entries(want)) {
+      const got = days.map(([s, d]) => phaseAt(kind, s, d)).join(' ');
+      check(got === w2, `${kind}: ${got}`);
+      const L = orchardLab(), q = L.tree(kind), wild = L.wild(kind, 5);
+      for (const [s, d] of days) { L.at(s, d); const yes = phaseAt(kind, s, d) === 'ripe'; check(L.has(q) === yes && L.has(wild) === yes, `${kind}, season ${s} day ${d}: ${L.has(q)} ${L.has(wild)}`); }
+    }
+    const L = orchardLab(), q = L.tree('fruit'), says = () => { L.F.forget(); return L.F.treeText(q); };
+    L.at(0, 30); check(says().includes(t('farm.tree.apple')) && says().includes(t('farm.tree.blossom')), says());
+    L.at(1, 10); check(says().includes(t('farm.tree.until.summer')), says()); L.at(2, 80); check(says().includes(t('farm.tree.until.summer')), says());
+    L.at(1, 60); check(says() === '' && L.F.pickText(q) === t('farm.tree.pick.apples'), `${says()} ${L.F.pickText(q)}`);
+    const C = orchardLab(), c = C.tree('cherry'); C.at(1, 60); check(C.F.treeText(c).includes(t('farm.tree.until.spring')), C.F.treeText(c));
+    // (the south: its spring is the north's autumn; a palm, always)
+    const S = orchardLab({ ty: 30 + 16384 }), a = S.tree('fruit'); S.at(3, 60); check(S.has(a), 'no apples in the south\'s summer'); S.at(1, 60); check(!S.has(a), 'apples in the south\'s winter'); S.at(2, 30); check(S.F.phaseOf(S.d, a) === 'bloom', S.F.phaseOf(S.d, a));
+    check(S.F.calAt(S.day, 30 + 16384).year === 2026 && S.F.calAt(S.day, 30).year === 2026, 'the year of the south');
+    const P = orchardLab(), palm = P.wild('palm'); for (const [s, d] of days) { P.at(s, d); check(P.has(palm), `no coconuts in season ${s}`); }
+    // (every language)
+    const was = getLang(); await setLang('en'); try { L.at(0, 30); check(says() === 'Apple tree · in blossom', says()); } finally { await setLang(was); }
+  });
+  await test('farm orchard (english): a picking every three days, bees, the look, and felling it', async () => {
+    const L = orchardLab(), q = L.tree('pear'); L.at(1, 70);
+    let o = L.drawn().objects[0]; check(o.kind === 'pear' && o.look === 'r' && !o.bare, JSON.stringify({ l: o.look, b: o.bare }));
+    L.F.pickFruit(o); check(L.drops.length === 1 && L.drops[0].join() === 'pear,2,3' && !L.has(q), JSON.stringify(L.drops));
+    L.F.pickFruit(o); check(L.drops.length === 1, 'picked twice'); o = L.drawn().objects[0]; check(o.look === '' && o.bare, `picked: ${o.look}`);
+    L.F.forget(); check(L.F.treeText(o).includes(t('farm.tree.again', { d: 3 })), L.F.treeText(o));
+    L.dawn(2); check(!L.has(q), 'two days after'); L.dawn(1); check(L.has(q), 'three days after');
+    // (a hive within 12 tiles: one more, half the times; not for the palm, and not in winter)
+    L.d.placed[`8,30`] = 'colmena'; const rnd = Math.random; try { Math.random = () => 0.4; L.drops.length = 0; L.F.pickFruit(q); check(L.drops[0].join() === 'pear,3,4', `bees: ${L.drops[0]}`); L.drops.length = 0; L.F.pickFruit(L.wild('palm', 3)); check(L.drops[0].join() === 'coco,1,3', `palm: ${L.drops[0]}`); } finally { Math.random = rnd; }
+    L.dawn(3); L.F.forget(); check(L.F.pickText(q) === t('farm.state.bees', { text: t('farm.tree.pick.pears') }), L.F.pickText(q)); L.d.placed[`8,30`] = 'colmena2'; L.F.forget(); check(L.F.pickText(q) === t('farm.tree.pick.pears'), 'a hive that is none');
+    // (a wild one: the generator's own object is written on, its blows kept)
+    const wl = { ...L.wild('fruit', 4), hits: 2 }; L.at(0, 30); let w1 = L.drawn(wl).objects[0]; check(w1 === wl && wl.look === 'b' && wl.bare && wl.hits === 2, `wild in blossom: ${wl.look} ${wl.bare}`);
+    L.at(1, 60); L.drawn(wl); check(wl.look === 'r' && !wl.bare, `wild in summer: ${wl.look}`); L.at(1, 20); L.drawn(wl); check(wl.look === 'g' && wl.bare, `green: ${wl.look}`); L.at(3, 20); L.drawn(wl); check(wl.look === '' && wl.bare, `winter: ${wl.look}`);
+    // (felled: its wood always, the fruit only if it has some; a log with the weight inventory)
+    for (const [k, item] of [['fruit', 'manzana'], ['pear', 'pear'], ['cherry', 'cherry']]) check(HARVEST[k].fruit === item && HARVEST[k].drops.some(([id]) => id === item) && HARVEST[k].drops.some(([id]) => id === 'madera') && HARVEST[k].tool === 'hacha', `felling ${k}`);
+    (L.d.picked ||= {})['tree:0,30'] = L.day; (L.d.frostYear ||= {})['tree:0,30'] = 2026; L.F.remove(L.drawn().objects[0]); check(!L.d.trees['0,30'] && L.d.picked['tree:0,30'] === undefined && L.d.frostYear['tree:0,30'] === undefined, 'something of a felled tree stays');
+  });
+  await test('farm orchard (english): a frost on the blossom, planted and wild, only while it is in blossom', async () => {
+    // Planted: a snow night in its blossom marks it, whatever the rest of the year; the next year it bears again
+    const snow = d => (d === bad ? 'nieve' : 'sol'); let bad = 1e9;
+    let L = orchardLab({ weather: d => snow(d) }), q = L.tree('fruit'), c = L.tree('cherry', 3), y = L.tree('fruit', 5, { day: 0, from: 10 });
+    L.at(0, 40); bad = L.day; y = L.d.trees['5,30']; y.day = L.day - 5; L.dawn();
+    check(L.d.frostYear?.['tree:0,30'] === 2026 && L.d.frostYear['tree:3,30'] === 2026 && L.d.frostYear['tree:5,30'] === undefined, `marks: ${JSON.stringify(L.d.frostYear)}`);
+    check(L.F.phaseOf(L.d, q) === 'frost' && L.drawn().objects[0].look === 'f', `${L.F.phaseOf(L.d, q)}`); L.F.forget(); check(L.F.treeText(q).includes(t('farm.tree.frost_blossom')), L.F.treeText(q));
+    L.at(1, 60); check(!L.has(q) && L.drawn().objects[0].look === '', 'fruit after the frost'); L.F.forget(); check(L.F.treeText(q).includes(t('farm.tree.frost_blossom')), L.F.treeText(q));
+    L.g.days.dayIndex = L.day += 365; check(L.has(q), 'none the next year either');
+    // Out of its blossom, or on a day nobody played, nothing
+    L = orchardLab({ weather: d => snow(d) }); L.tree('fruit'); L.tree('cherry', 3); L.at(0, 10); bad = L.day; L.dawn(); check(L.d.frostYear?.['tree:0,30'] === undefined && L.d.frostYear?.['tree:3,30'] === 2026, `day 10: ${JSON.stringify(L.d.frostYear)}`);
+    L = orchardLab({ weather: d => snow(d), seen: 5 }); L.tree('fruit'); L.at(0, 40); bad = L.day; L.dawn(); check(!L.d.frostYear, 'a day nobody played');
+    L = orchardLab({ weather: d => snow(d) }); delete L.g.ranch.farm.orchard; L.tree('fruit'); L.at(0, 40); bad = L.day; L.dawn(); check(!L.d.frostYear, 'before the calendar counted');
+    // Wild: its place's nights say it, with no mark; the same tree in the village's climate bears; before this world's calendar, they do not count
+    const cold = orchardLab({ Tl: 0.35 }), a = cold.wild(); cold.at(1, 60); check(!cold.has(a) && !cold.d.frostYear && cold.F.phaseOf(cold.d, a) === 'frost', `cold country: ${cold.F.phaseOf(cold.d, a)}`);
+    const mild = orchardLab({ Tl: 0.45 }); mild.at(1, 60); check(mild.has(mild.wild()), 'mild country');
+    const old = orchardLab({ Tl: 0.35 }); old.at(1, 60); old.g.ranch.farm.orchard = old.day; check(old.has(old.wild()), 'the frosts of before count');
+    cold.at(0, 22); check(cold.F.phaseOf(cold.d, a) === 'bloom', 'the night to come counts'); cold.at(0, 60); check(cold.F.phaseOf(cold.d, a) === 'frost', 'in blossom, burnt');
+    // (playing together, the mark travels with the chunk)
+    L = orchardLab({ weather: d => snow(d) }); L.tree('fruit'); L.at(0, 40); bad = L.day; const before = structuredClone(L.d), theirs = structuredClone(L.d); L.dawn(); applyOps(theirs, diffChunk(before, L.d)); check(theirs.frostYear['tree:0,30'] === 2026, 'it does not travel');
+    // (and how likely it is, by the climate)
+    const odds = Object.fromEntries(['fruit', 'pear', 'cherry'].map(kind => [kind, [0.52, 0.44, 0.4, 0.38, 0.36, 0.34].map(Tl => { let n = 0; for (let y2 = 0; y2 < 40; y2++) { const Z = orchardLab({ Tl, weather: d => { const u = ihash(d, 77, y2); return u < 0.28 ? 'lluvia' : u < 0.33 ? 'tormenta' : u < 0.41 ? 'niebla' : u < 0.56 ? 'nubes' : 'sol'; } }); Z.at(1, 20); if (Z.F.frosted(Z.d, Z.wild(kind), Z.F.calAt(Z.day, 30))) n++; } return Math.round(n / 0.4); })]));
+    console.log('· años con la flor helada, % (Tl 0,52 0,44 0,40 0,38 0,36 0,34): ' + JSON.stringify(odds));
+    for (const k in odds) check(odds[k][0] === 0 && odds[k][1] === 0 && odds[k].at(-1) >= 90, `${k}: ${odds[k]}`);
+  });
+  await test('farm orchard (english): young trees, the ones of before, and the first days of an older world', async () => {
+    const L = orchardLab(), q = L.tree('cherry'); L.at(1, 5); L.d.trees['0,30'] = { kind: 'cherry', day: L.day, from: 10 };
+    check(L.drawn().objects[0].sapling === 'cherry', 'no sapling'); check(L.F.saplingText(0, 30).includes(t('farm.tree.sapling', { d: 3 })), L.F.saplingText(0, 30));
+    L.dawn(3); let o = L.drawn().objects[0]; check(o.kind === 'cherry' && o.age < 0.7 && o.look === '' && o.bare, `a young one: ${JSON.stringify([o.kind, o.age, o.look])}`); L.F.forget(); check(L.F.treeText(o).includes(t('farm.tree.young', { d: 7 })), L.F.treeText(o));
+    const a3 = o.age; L.dawn(3); check(L.drawn().objects[0].age > a3, 'it does not grow'); L.dawn(3); check(!L.has(q), 'fruit at nine days'); L.dawn(1); o = L.drawn().objects[0]; check(L.has(q) && o.age === undefined && o.look === 'r', `at ten: ${o.age} ${o.look}`);
+    // Planted with the farm's own hands: the mark of the calendar; an oak, as always
+    L.g.inv = { take() {}, selected: 0 }; L.F.plantTree(7, 30, 'pear'); L.F.plantTree(9, 30, 'oak'); check(L.d.trees['7,30'].from === FIRST_FRUIT && L.d.trees['9,30'].from === undefined && L.floats[0] === t('farm.tree.grows_fruit', { d: 3, f: 10 }), JSON.stringify(L.d.trees));
+    // Planted before: it bears as it did, from its third day
+    const O = orchardLab(); O.at(1, 60); const b = O.tree('fruit', 0, { day: O.day - 4 }); check(O.has(b) && O.drawn().objects[0].age === undefined, 'an older apple tree of four days has lost its fruit');
+    // An older world the day the calendar begins: what hung then can still be picked, once, a few days
+    const G = orchardLab(); G.at(0, 30); G.g.ranch.farm.orchard = G.day; const w0 = G.wild('fruit', 2), w1 = G.wild('fruit', 4); (G.d.picked = {})[w1.key] = G.day - 1; check(G.has(w0) && !G.has(w1), 'the fruit of an older world, gone'); G.F.pickFruit(w0); G.dawn(4); check(!G.has(w0), 'and again');
+    const N = orchardLab(); N.at(0, 30); N.g.ranch.farm.orchard = N.day; const w2 = N.wild('fruit', 2); N.dawn(9); check(N.has(w2), 'nine days'); N.dawn(1); check(!N.has(w2), 'for ever'); N.at(3, 5); N.g.ranch.farm.orchard = N.day; check(!N.has(w2), 'apples in winter');
+    // The day is written down by the game that runs the world: an older one, today; a new one, none
+    const U = orchardLab(); U.g.days.realDay = U.day + 1; U.g.days.day = 0; U.g.days.localHour = 3; delete U.g.ranch.farm.orchard; U.F.tickT = 0; U.F.update(1); check(U.g.ranch.farm.orchard === U.day, `${U.g.ranch.farm.orchard}`);
+    delete U.g.ranch.farm.orchard; U.g.days.dayIndex = 0; U.F.tickT = 0; U.F.update(1); check(U.g.ranch.farm.orchard === -99, `${U.g.ranch.farm.orchard}`); delete U.g.ranch.farm.orchard; U.g.live.guest = true; U.F.tickT = 0; U.F.update(1); check(U.g.ranch.farm.orchard === undefined, 'a guest writes it'); check(U.F.orchardFrom(7) === 7, 'unknown');
+    // A tree a game does not know (an older game and the pear): not seen, its tile taken, kept
+    const X = orchardLab(); X.tree('quince'); const out = X.drawn(); check(!out.objects.length && out.colliders.length === 1 && X.d.trees['0,30'].kind === 'quince', 'an unknown tree'); X.dawn(1); check(X.F.farTrees(X.d, []).length === 0, 'from afar');
+    // Seven days again: the same
+    const run = () => { const Z = orchardLab({ weather: d => ['nieve', 'sol', 'lluvia'][d % 3] }); Z.tree('fruit'); Z.tree('pear', 2, { day: 40, from: 10 }); Z.at(0, 30); Z.dawn(7); return JSON.stringify(Z.d); }; check(run() === run(), 'two runs differ');
+  });
+  await test('farm orchard (english): its items, Rosa, the compost, the weights, the book, and what a year gives', async () => {
+    const { organic } = await import('./soil.js'), { foodModel } = await import('./three/food3d.js'), { knownItem } = await import('./items.js');
+    const [en, es] = await Promise.all(['en', 'es'].map(l => fetch(`src/lang/${l}.json`).then(r => r.json())));
+    for (const id of ['pear', 'cherry', 'pear_sapling', 'cherry_sapling']) { check(ITEMS[id]?.name && ITEMS[id].desc && en['item.' + id] && es['item.' + id] && en[`item.${id}.desc`] && es[`item.${id}.desc`] && es[`item.${id}.g`] && knownItem(id), id); check(itemIcon(id) && weightOf(id) > 0, `icon or weight: ${id}`); }
+    for (const id of ['pear', 'cherry']) check(foodModel(id)?.isObject3D && organic(id) === 1 && ITEMS[id].food > 0 && ITEMS[id + '_sapling'].sapling === id, id);
+    check(['pear_sapling', 'cherry_sapling', 'semilla_manzano'].map(id => SHOPS.rosa.stock.find(e => e.id === id)?.price).join() === '140,160,120', 'Rosa');
+    // A year of one tree, picked every three days, sold: today's apple tree (all but winter) and the orchard's
+    const year = (kind, when) => { const L = orchardLab(), q = L.tree(kind); L.at(0, 1); let n = 0, last = -9; for (let i = 0; i < 365; i++) { L.g.days.dayIndex = L.day + i; if (when ? when(i) && i - last >= 3 : L.has(q)) { n++; last = i; (L.d.picked ||= {})[q.key] = L.day + i; } } return n; };
+    const before = year('fruit', i => i < 276), rows = Object.fromEntries(ORCHARD.map(k => { const n = year(k), avg = (FRUIT[k].n[0] + FRUIT[k].n[1]) / 2; return [k, [n, Math.round(n * avg), Math.round(n * avg * priceOf(FRUIT[k].item)), Math.round(n * (avg + 0.5) * priceOf(FRUIT[k].item))]]; }));
+    const old = [before, before * 2.5, before * 2.5 * priceOf('manzana')];
+    console.log('· un año de un árbol [cogidas, piezas, monedas, con colmena]: antes ' + JSON.stringify(old) + ' · ahora ' + JSON.stringify(rows));
+    check(rows.fruit[0] >= 38 && rows.fruit[0] <= 44 && rows.pear[0] >= 28 && rows.cherry[0] >= 18, JSON.stringify(rows));
+    const coins = ORCHARD.map(k => rows[k][2]); check(Math.max(...coins) / Math.min(...coins) < 1.6 && Math.max(...coins) < old[2], `coins: ${coins}`);
+    // (a bed of good crops earns far more a day: the trees are for little work, not for getting rich)
+    check(Math.max(...coins) / 365 < 8, 'a tree earns too much');
+  });
+  await test('farm orchard (english): the art: what a tree costs, every look, far and near, and the sapling', async () => {
+    const { buildNatureChunk, buildFarNature } = await import('./three/nature3d.js'), { buildFarImpostors } = await import('./three/impostor.js'), { canopyOf, broadDims } = await import('./world/treedims.js');
+    const tris = (kind, season, look, more = {}) => { const { group, owners } = buildNatureChunk([{ kind, x: 3.5, y: 4.5, key: 'k', look, bare: look !== 'r', age: 1, ...more }], season, () => 0, true); let n = 0; for (const m of group.children) { n += (m.geometry.index ? m.geometry.index.count : m.geometry.attributes.position.count) / 3 * m.count; for (let i = 0; i < m.count; i++) { const e = m.instanceMatrix.array.slice(i * 16, i * 16 + 16); check(e.every(Number.isFinite), `${kind} ${look}: NaN`); } } check(owners.get('k')?.length, 'no owner'); return [group.children.length, n]; };
+    const was = 1144 + 800;   // (today's apple tree with its ten apples; in blossom, 1464)
+    for (const kind of ORCHARD) for (const [s, l] of [[0, 'b'], [0, 'f'], [0, ''], [1, 'g'], [1, 'r'], [2, 'r'], [2, ''], [3, '']]) { const [calls, n] = tris(kind, s, l); check(calls <= 5 && n <= was * 1.15, `${kind} ${s}${l}: ${calls} calls, ${n} triangles`); }
+    const [c2, n2] = tris('sapling', 1, undefined, { tree: 'pear' }); check(c2 <= 2 && n2 < 260, `sapling: ${c2}, ${n2}`);
+    for (const kind of ORCHARD) { const o = { kind, x: 3.5, y: 4.5 }; check(canopyOf(o) > 0.9 && broadDims(o, 0).H > 2.5, kind); check(buildFarNature([{ ...o, key: 'f' }], 0, () => 0).children.length >= 2, `far: ${kind}`); }
+    // The far cards: the apple tree's row, at each one's size; in spring, the ones out of blossom with the young oak's
+    const row = id => ({ id, row: id === 'frutal' ? 3 : 0, kind: id === 'frutal' ? 'fruit' : 'oak', k: 1, rot: 0, yaw: 1, yc: 2, hw: 2, hh: 2 }), A = { gen: 1, season: 0, sets: [row('frutal'), row('roble joven')], material: new (await import('three')).MeshBasicMaterial(), pick: (await import('./three/impostor.js')).ImpostorAtlas.prototype.pick };
+    check(A.pick({ kind: 'cherry', x: 1, y: 1, look: 'b' }).id === 'frutal' && A.pick({ kind: 'cherry', x: 1, y: 1, look: '' }).id === 'roble joven' && A.pick({ kind: 'fruit', x: 1, y: 1 }).id === 'frutal', 'the rows'); A.season = 1; check(A.pick({ kind: 'pear', x: 1, y: 1, look: '' }).id === 'frutal', 'summer');
+    const im = buildFarImpostors([{ kind: 'pear', x: 1, y: 1, look: '', age: 1 }], () => 0, A), e = im.instanceMatrix.array; check(e[5] / e[0] > 1.25, `a pear from afar is as wide as an apple tree: ${e[0]} ${e[5]}`); im.dispose(); im.geometry.dispose();
+    // The far view has the trees planted, and knows when they change
+    const L = orchardLab(); L.tree('pear'); L.tree('oak', 4, { day: L.day }); L.at(0, 30); const far = L.F.farTrees(L.d, [], 100); check(far.some(o => o.kind === 'pear' && o.x === 100.5 && o.look === 'b'), JSON.stringify(far)); const s0 = L.F.farStamp(L.d), b0 = L.F.bloomStamp(30); L.at(0, 80); check(L.F.bloomStamp(30) !== b0, 'the blossom ends unseen'); L.tree('cherry', 8); check(L.F.farStamp(L.d) !== s0, 'a new tree unseen');
+    // (what it costs: a chunk with twenty trees, every one in its look)
+    const Z = orchardLab(); for (let i = 0; i < 20; i++) Z.tree(ORCHARD[i % 3], i % 16); delete Z.F.land; Z.at(1, 60); Z.drawn(); const t0 = performance.now(); for (let i = 0; i < 200; i++) Z.drawn(); const ms = (performance.now() - t0) / 200; console.log(`· un trozo con 16 frutales: ${ms.toFixed(3)} ms`); check(ms < 1, `${ms} ms`);
+  });
+  await test('farm orchard play (english): Rosa’s saplings with the real hands: plant, look, blossom, frost, fruit, fell', async () => {
+    await goTo(game, 60, 30);
+    const F = game.farm, R = game.ranch.farm, keep = R.orchard, lock = game.weatherLock, seen = R.seen; let tile = null;
+    for (let r = 0; r < 16 && !tile; r++) for (let dx = -r; dx <= r && !tile; dx++) for (let dy = -r; dy <= r && !tile; dy++) if (F.canPlant(60 + dx, 30 + dy) && F.canPlant(60 + dx, 31 + dy) && !w().harvestablesNear(60 + dx, 30 + dy).some(o => Math.hypot(o.x - 60.5 - dx, o.y - 30.5 - dy) < 2.5)) tile = [60 + dx, 30 + dy];
+    check(tile, 'nowhere to plant');
+    const [tx, ty] = tile, k = `${tx},${ty}`, d = () => w().delta(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK), true);
+    const aim = id => { inv().selected = id ? inv().slots.findIndex(s => s?.id === id) : inv().slots.findIndex(s => !s); game.mouse = null; CAM.first = false; p().x = tx + 0.5; p().y = ty + 1.4; p().face = { x: 0, y: -1 }; game.gather.cooldown = 0; F.forget(); return (game.gather.target = game.gather.pickTarget()); };
+    const live = () => w().harvestablesNear(tx, ty).find(o => o.key === 'tree:' + k), real = F.calAt;
+    const on = (season, dos) => { F.calAt = (day, y) => ({ ...real.call(F, day, y), season, dos: dos + day - F.today, year: 2026 }); w().touchAround(tx, ty); F.forget(); };
+    try {
+      inv().add('cherry_sapling', 1); const n0 = inv().count('cherry_sapling'); let T = aim('cherry_sapling');
+      check(T?.ok && T.label === t('farm.tree.plant_fruit', { tree: t('farm.tree.cherry') }), T?.label); game.gather.use();
+      check(d().trees?.[k]?.kind === 'cherry' && d().trees[k].from === 10 && inv().count('cherry_sapling') === n0 - 1, JSON.stringify(d().trees?.[k]));
+      await frames(3); aim(null); check(F.hint()?.text?.includes(t('farm.tree.sapling', { d: 3 })), `sapling: ${JSON.stringify(F.hint())}`);
+      d().trees[k].day = F.today - 5; on(0, 30); await frames(3); aim(null); check(live()?.kind === 'cherry' && F.hint()?.text?.includes(t('farm.tree.young', { d: 5 })), `young: ${JSON.stringify(F.hint())} ${game.gather.target?.obj?.kind}`);
+      d().trees[k].day = F.today - 30; on(0, 30); await frames(3); aim(null); check(live().look === 'b' && F.hint()?.text?.includes(t('farm.tree.blossom')), `blossom: ${JSON.stringify(F.hint())}`);
+      check(game.nearest()?.text !== t('farm.tree.pick.cherries'), 'cherries in blossom');
+      game.weatherLock = { w: 'nieve', until: null }; R.seen = F.today; R.orchard = -99; F.burnBlossom(d(), 0, Math.floor(ty / CHUNK), F.today + 1); w().touchAround(tx, ty); F.forget(); await frames(3); aim(null);
+      check(d().frostYear?.['tree:' + k] === 2026 && live().look === 'f' && F.hint()?.text?.includes(t('farm.tree.frost_blossom')), `frost: ${JSON.stringify(d().frostYear)} ${live()?.look}`);
+      delete d().frostYear['tree:' + k]; on(0, 70); await frames(3); aim(null); check(live().look === 'r', `ripe: ${live()?.look}`);
+      const c0 = inv().count('cherry'), near = game.nearest(); check(near?.text === t('farm.tree.pick.cherries'), `E says ${near?.text}`); near.run(); await collectDrops(game); check(inv().count('cherry') >= c0 + 4 && live().bare, `${inv().count('cherry') - c0} cherries`);
+      const m0 = inv().count('madera'), c1 = inv().count('cherry'); await harvest(game, live(), 'hacha'); if (openBig(game, tx + 0.5, ty + 0.5)) await collectDrops(game); check(inv().count('madera') > m0 && inv().count('cherry') === c1 && !d().trees[k], `felled: ${inv().count('madera') - m0} wood, ${inv().count('cherry') - c1} cherries`);
+      check(F.journal().includes(t('farm.almanac.trees_help')), 'the diary');
+    } finally { delete F.calAt; game.weatherLock = lock; R.seen = seen; R.orchard = keep; if (d().trees) delete d().trees[k]; if (d().picked) delete d().picked['tree:' + k]; if (d().frostYear) delete d().frostYear['tree:' + k]; w().touchAround(tx, ty); }
   });
   await test('hambre: trabajar la gasta, comer la quita y dormir la recupera', async () => {
     const c = game.combat; check(game.gamemode === 'survival' && game.difficulty === 'normal', `modo ${game.gamemode}, dificultad ${game.difficulty}`);
@@ -12188,7 +12343,7 @@ async function soloTests(game) {
     });
   });
   await test('nature (english): every species has names, facts and a model', async () => {
-    check(SPECIES_IDS.length === 65 && GROUPS.every(gr => SPECIES_IDS.some(id => SPECIES[id].group === gr)), `${SPECIES_IDS.length} species`);
+    check(SPECIES_IDS.length === 67 && GROUPS.every(gr => SPECIES_IDS.some(id => SPECIES[id].group === gr)), `${SPECIES_IDS.length} species`);
     const [en, es] = await Promise.all(['en', 'es'].map(l => fetch(`src/lang/${l}.json`).then(r => r.json())));
     const miss = SPECIES_IDS.flatMap(id => ['name', 'note'].flatMap(k => [en, es].filter(L => !L[`nature.${k}.${id}`]).map(L => `${L === en ? 'en' : 'es'} nature.${k}.${id}`)));
     check(!miss.length, `missing: ${miss.slice(0, 8)}`);

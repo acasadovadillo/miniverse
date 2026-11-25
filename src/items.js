@@ -391,7 +391,7 @@ defineNames(BODY_ITEMS, 'item');
 // ---------- The garden (docs/planes/realismo/PLAN-R2-huerto.md): straw, from wheat cut with the scythe; on tilled soil it keeps
 // the water in (farm.js, mulch) ----------
 // Compost (abono: its old id) feeds the soil, and so does the manure of the stables (soil.js); the bin makes it
-const GARDEN_ITEMS = { straw: {}, manure: {}, compost_bin: { place: 'furniture' }, trough: { place: 'furniture' }, hitching_post: { place: 'furniture' }, abono: ITEMS.abono };
+const GARDEN_ITEMS = { pear: { food: 14 }, cherry: { food: 5 }, pear_sapling: { sapling: 'pear' }, cherry_sapling: { sapling: 'cherry' }, straw: {}, manure: {}, compost_bin: { place: 'furniture' }, trough: { place: 'furniture' }, hitching_post: { place: 'furniture' }, abono: ITEMS.abono };
 Object.assign(ITEMS, GARDEN_ITEMS);
 defineNames(GARDEN_ITEMS, 'item');
 defineNames({ comedero: ITEMS.comedero, herraduras: ITEMS.herraduras }, 'item', ['desc']);
@@ -507,10 +507,13 @@ for (const it of Object.values(ITEMS)) it.stack ??= it.place ? 10 : 99;
 const TREE = { tool: 'hacha', hits: 4, chips: 'wood', verb: 'Talar' };
 export const HARVEST = {
   oak: { ...TREE, drops: [['madera', 3, 5], ['bellota', 1, 1, 0.3]] },
-  fruit: { ...TREE, drops: [['madera', 3, 4], ['manzana', 2, 3]] },
+  // (fruit: lo que no suelta si se le acaba de coger o no es su época: farm.js, dress)
+  fruit: { ...TREE, fruit: 'manzana', drops: [['madera', 3, 4], ['manzana', 2, 3]] },
+  pear: { ...TREE, fruit: 'pear', drops: [['madera', 3, 4], ['pear', 2, 3]] },
+  cherry: { ...TREE, fruit: 'cherry', drops: [['madera', 3, 4], ['cherry', 4, 6]] },
   pine: { ...TREE, drops: [['madera', 3, 5], ['pina', 1, 1, 0.3]] },
   snowPine: { ...TREE, drops: [['madera', 3, 5], ['pina', 1, 1, 0.3]] },
-  palm: { ...TREE, hits: 3, fruit: 'coco', drops: [['madera', 2, 3], ['coco', 2, 3]] },   // (fruit: lo que no suelta si se le acaba de coger)
+  palm: { ...TREE, hits: 3, fruit: 'coco', drops: [['madera', 2, 3], ['coco', 2, 3]] },
   swampTree: { ...TREE, drops: [['madera', 3, 4], ['fibra', 1, 2, 0.4]] },
   cactus: { tool: 'hacha', hits: 2, chips: 'cactus', verb: 'Cortar', drops: [['pulpa', 1, 2], ['fibra', 1, 1, 0.5]] },
   bush: { tool: 'guadana', hand: 2, hits: 1, chips: 'leaf', verb: 'Segar', drops: [['fibra', 1, 2], ['bayas', 1, 2, 0.5], ['semillas', 1, 2, 0.3]] },

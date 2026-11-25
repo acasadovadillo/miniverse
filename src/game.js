@@ -274,7 +274,7 @@ export class Game {
     // el mapa explorado y los lugares descubiertos
     const moved = save.seed !== undefined && save.seed !== WORLD_SEED;
     if (moved) {
-      for (const [k, d] of deltas) if (!k.startsWith('u:')) Object.assign(d, { removed: {}, picked: {}, opened: {}, dived: {}, fished: {} });   // (dived: what was taken from the sea bed, dive.js)
+      for (const [k, d] of deltas) if (!k.startsWith('u:')) Object.assign(d, { removed: {}, picked: {}, opened: {}, dived: {}, fished: {}, frostYear: {} });   // (dived: what was taken from the sea bed, dive.js)
       save = { ...save, explored: [], found: [], spotted: [], lookouts: {} };
     }
     setFamilyHouse(save.house?.family);   // (antes de hacer el pueblo: con la casa familiar, su jardín cambia)

@@ -12,7 +12,7 @@
 // esto ni se carga.
 import * as THREE from 'three';
 import { buildNatureChunk, WIND, DITHER, leafTint } from './nature3d.js';
-import { treeK, ageOf } from '../world/treedims.js';
+import { treeK, ageOf, BROAD } from '../world/treedims.js';
 import { CHUNK } from '../world/gen.js';
 import { ihash } from '../util.js';
 import { opcion, apagada } from '../opciones.js';
@@ -42,6 +42,7 @@ const CELL = LOW_Q ? 128 : 256, NCELL = CELL / 2, SS = 2, SRC = CELL * SS, MARGI
 // Lo que se hace como mucho en un paso: las vistas (cada una, dos dibujos y dos copias en la gráfica) y el tiempo
 const VIEWS_PER_STEP = { menu: 4, game: 2 };
 
+const BLOOM_TINT = { pear: [1, 1.04, 1.02], cherry: [1.04, 0.93, 0.97] };   // (beside the apple blossom of the atlas)
 const BAKE_U = { value: 0 };   // 0: el color; 1: la normal
 const v3 = new THREE.Vector3(), m4 = new THREE.Matrix4(), col = new THREE.Color();
 
@@ -270,7 +271,9 @@ export class ImpostorAtlas {
     const h = ihash(Math.floor(o.x * 3), Math.floor(o.y * 3), 91);
     switch (o.kind) {
       case 'oak': return S.get(ageOf(o) <= 0.75 ? 'roble joven' : h < 0.5 ? 'roble A' : 'roble B');
-      case 'fruit': return S.get('frutal');
+      // (the fruit trees, all with the apple tree's row, tall or narrow and tinted as each is; in spring that one is in
+      // blossom: those that are not, farm.js farLook, with the young oak's)
+      case 'fruit': case 'pear': case 'cherry': return S.get(this.season === 0 && o.look !== 'b' && o.look !== undefined ? 'roble joven' : 'frutal');
       case 'swampTree': return S.get('sauce');
       case 'pine': return S.get(this.season === 3 ? ['pino A', 'pino B', 'pino C'][Math.floor(h * 3)] : h < 0.5 ? 'pino A' : 'pino B');
       case 'snowPine': return S.get(this.season === 3 ? ['pino A', 'pino B', 'pino C'][Math.floor(h * 3)] : 'pino C');
@@ -298,14 +301,15 @@ export function buildFarImpostors(objs, groundY, atlas) {
   geo.setAttribute('aImp', new THREE.InstancedBufferAttribute(aImp, 2));
   const im = new THREE.InstancedMesh(geo, atlas.material, n);
   list.forEach(([o, s], i) => {
-    const sg = treeK(o) / s.k, y = groundY(o.x, o.y);
-    m4.makeScale(2 * s.hw * sg, 2 * s.hh * sg, 1).setPosition(o.x, y + s.yc * sg, o.y);
+    // (its size beside the sample's: of another kind, how wide and how tall by their measures)
+    const sg = treeK(o) / s.k, A = o.kind !== s.kind && BROAD[o.kind], B = A && BROAD[s.kind], gx = B ? sg * A[1] / B[1] : sg, gy = B ? sg * A[0] / B[0] : sg, y = groundY(o.x, o.y);
+    m4.makeScale(2 * s.hw * gx, 2 * s.hh * gy, 1).setPosition(o.x, y + s.yc * gy, o.y);
     im.setMatrixAt(i, m4);
     // (girado como su árbol de cerca: rot, en la muestra, va a parar a rot del árbol, en el sentido de su especie)
     aImp[i * 2] = s.yaw * (s.rot - rotOf(o)); aImp[i * 2 + 1] = s.row;
     // (el color: en los de hoja, el tinte de su copa, el mismo que el de cerca, nature3d.js, leafTint; cae también en el
     // tronco, que de lejos apenas se ve y es oscuro. Los demás, como su muestra, igual que de cerca)
-    if (o.kind === 'oak' || o.kind === 'fruit' || o.kind === 'swampTree') im.setColorAt(i, col.copy(leafTint(o, atlas.season)));
+    if (BROAD[o.kind]) im.setColorAt(i, atlas.season === 0 && o.look === 'b' ? col.setRGB(...(BLOOM_TINT[o.kind] || [1, 1, 1])) : col.copy(leafTint(o, atlas.season)));
     else im.setColorAt(i, col.setRGB(1, 1, 1));
   });
   im.instanceMatrix.needsUpdate = true; im.instanceColor.needsUpdate = true;

@@ -32,7 +32,7 @@ const ROCK = [122, 116, 106], WATER_IN = rgbOf('#4f8f9c'), WATER_OUT = rgbOf('#2
 const soft = c => { const m = (c[0] + c[1] + c[2]) / 3; return c.map(v => (v + (m - v) * 0.2) * 0.92); };
 const same = (...c) => Array(4).fill(c.map(rgbOf)), leaves = [0, 1, 2].map(i => HOJAS[i].c.map(c => soft(rgbOf(c))));
 const CROWN = {
-  oak: [...leaves, null], fruit: [...leaves, null], bush: [...leaves, [rgbOf('#858c84')]], swampTree: [0, 1, 2].map(i => SAUCE[i].c.map(c => soft(rgbOf(c)))).concat([null]),
+  oak: [...leaves, null], fruit: [...leaves, null], pear: [...leaves, null], cherry: [...leaves, null], bush: [...leaves, [rgbOf('#858c84')]], swampTree: [0, 1, 2].map(i => SAUCE[i].c.map(c => soft(rgbOf(c)))).concat([null]),
   pine: same(PAL.follaje.pino, '#475a45', '#3a4c3d'), snowPine: [same('#5d6f5f')[0], same('#4f6250')[0], same('#5d6f5f')[0], same('#a9b5b4', '#97a5a3')[0]],
   palm: same('#6f7f49', '#78884f'), cactus: same('#5f7350'), boulder: same('#8d8a82', '#7f7c74'), snowBoulder: same('#c9cfd1'),
 };
