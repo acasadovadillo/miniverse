@@ -221,25 +221,40 @@ defineNames(THIRST_ITEMS, 'item');
 // model reads (fishwater.js; nothing here is a yes or no but the water and the depth: a pike at noon is rare, not
 // impossible): depth [m, m] of the bed under the bobber, temp [°C, °C] of the water it prefers, night (feeds by night),
 // base (how common), run (× in its seasons, the salmon's run), bite (how the float tells it: fishing.js BITES), k (kg =
-// k × (cm/100)³) and pull (how hard it fights for its weight)
+// k × (cm/100)³), pull (how hard it fights for its weight) and bait (what it likes on the hook: an item's id, or 'insect';
+// only those with a lure there, spoon or jig, are predators: fishwater.js baitK)
 export const FISH = {
-  carpa: { name: 'Carpa', water: ['lago', 'estanque', 'pantano'], color: '#b8904a', size: 5, dif: 0.15, mov: 'calmo', cm: [30, 85], depth: [0.4, 5], temp: [14, 26], bite: 'run', k: 14, pull: 1, base: 0.3 },
-  perca: { name: 'Perca', water: ['lago', 'estanque', 'rio'], color: '#7a9a4a', size: 4, dif: 0.25, mov: 'mixto', cm: [15, 45], depth: [0.4, 5], temp: [8, 24], bite: 'dip', k: 13, pull: 1, base: 0.3 },
-  trucha: { name: 'Trucha', water: ['rio', 'lago'], seasons: [0, 2, 3], color: '#a88aa0', size: 5, dif: 0.4, mov: 'nervioso', cm: [25, 65], depth: [0.3, 4], temp: [4, 18], bite: 'dip', k: 11, pull: 1.2, base: 0.3 },
-  salmon: { name: 'Salmón', water: ['rio'], seasons: [2], color: '#e0806a', size: 6, dif: 0.5, mov: 'flota', cm: [50, 100], depth: [0.8, 4], temp: [4, 15], bite: 'slam', k: 10, pull: 1.4, base: 0.08, run: 3 },
-  lucio: { name: 'Lucio', water: ['lago'], hours: [15, 22], color: '#5a7a4a', size: 7, dif: 0.6, mov: 'nervioso', cm: [50, 120], depth: [1, 5], temp: [6, 22], bite: 'slam', k: 6, pull: 1.2, base: 0.16 },
-  anguila: { name: 'Anguila', water: ['pantano', 'rio'], hours: [19, 5], color: '#4a5a4a', size: 7, thin: true, dif: 0.6, mov: 'mixto', cm: [40, 110], depth: [0.3, 4], temp: [10, 26], night: true, bite: 'taps', k: 1.8, pull: 1.1, base: 0.24 },
-  sardina: { name: 'Sardina', water: ['mar'], color: '#a8c0d8', size: 3, dif: 0.1, mov: 'flota', cm: [10, 22], depth: [1.5, 12], temp: [12, 22], bite: 'dip', k: 8, pull: 0.7, base: 0.34 },
-  lubina: { name: 'Lubina', water: ['mar'], color: '#8aa0b0', size: 6, dif: 0.4, mov: 'mixto', cm: [30, 80], depth: [1, 8], temp: [10, 22], bite: 'slam', k: 11, pull: 1.2, base: 0.2 },
-  pez_globo: { name: 'Pez globo', water: ['mar'], seasons: [1], color: '#e8d080', size: 4, round: true, dif: 0.5, mov: 'flota', cm: [12, 35], depth: [1.5, 12], temp: [18, 28], bite: 'dip', k: 25, pull: 0.8, base: 0.15 },
-  cangrejo: { name: 'Cangrejo', water: ['mar'], color: '#d8502a', size: 4, crab: true, dif: 0.3, mov: 'fondo', cm: [8, 25], depth: [0.5, 12], bite: 'taps', k: 150, pull: 0.8, base: 0.2 },
-  pez_hielo: { name: 'Pez de hielo', water: ['hielo'], color: '#c8e8f8', size: 4, dif: 0.45, mov: 'nervioso', cm: [15, 35], depth: [0.3, 10], temp: [0, 8], bite: 'dip', k: 9, pull: 0.9, base: 0.5 },
-  siluro: { name: 'Siluro', water: ['rio', 'lago'], weather: 'lluvia', color: '#6a6250', size: 7, whiskers: true, dif: 0.6, mov: 'fondo', cm: [60, 160], depth: [0.9, 5], temp: [14, 28], night: true, bite: 'run', k: 7, pull: 1.3, base: 0.22 },
-  pulpo: { name: 'Pulpo', water: ['mar'], hours: [20, 5], color: '#c86a78', size: 5, octo: true, dif: 0.7, mov: 'fondo', cm: [30, 90], depth: [1.5, 12], temp: [12, 24], night: true, bite: 'taps', k: 4, pull: 1, base: 0.18 },
-  atun: { name: 'Atún', water: ['mar'], seasons: [1], color: '#3a5a8a', size: 7, dif: 0.75, mov: 'nervioso', cm: [50, 130], depth: [6, 13], temp: [17, 26], bite: 'slam', k: 13, pull: 1.5, base: 0.22 },
-  esturion: { name: 'Esturión', water: ['lago'], seasons: [3], color: '#7a8088', size: 7, dif: 0.8, mov: 'mixto', cm: [80, 200], depth: [3, 8], temp: [2, 14], bite: 'run', k: 6, pull: 1.3, base: 0.16 },
+  carpa: { name: 'Carpa', water: ['lago', 'estanque', 'pantano'], color: '#b8904a', size: 5, dif: 0.15, mov: 'calmo', cm: [30, 85], depth: [0.4, 5], temp: [14, 26], bite: 'run', k: 14, pull: 1, base: 0.3, bait: { maiz: 2, pan: 1.8, worm: 1.2 } },
+  perca: { name: 'Perca', water: ['lago', 'estanque', 'rio'], color: '#7a9a4a', size: 4, dif: 0.25, mov: 'mixto', cm: [15, 45], depth: [0.4, 5], temp: [8, 24], bite: 'dip', k: 13, pull: 1, base: 0.3, bait: { worm: 1.6, insect: 1.5, spoon: 1.4 } },
+  trucha: { name: 'Trucha', water: ['rio', 'lago'], seasons: [0, 2, 3], color: '#a88aa0', size: 5, dif: 0.4, mov: 'nervioso', cm: [25, 65], depth: [0.3, 4], temp: [4, 18], bite: 'dip', k: 11, pull: 1.2, base: 0.3, bait: { insect: 2, worm: 1.5, spoon: 1.5 } },
+  salmon: { name: 'Salmón', water: ['rio'], seasons: [2], color: '#e0806a', size: 6, dif: 0.5, mov: 'flota', cm: [50, 100], depth: [0.8, 4], temp: [4, 15], bite: 'slam', k: 10, pull: 1.4, base: 0.08, run: 3, bait: { spoon: 2, worm: 1 } },
+  lucio: { name: 'Lucio', water: ['lago'], hours: [15, 22], color: '#5a7a4a', size: 7, dif: 0.6, mov: 'nervioso', cm: [50, 120], depth: [1, 5], temp: [6, 22], bite: 'slam', k: 6, pull: 1.2, base: 0.16, bait: { spoon: 2.5, cut_bait: 1.5 } },
+  anguila: { name: 'Anguila', water: ['pantano', 'rio'], hours: [19, 5], color: '#4a5a4a', size: 7, thin: true, dif: 0.6, mov: 'mixto', cm: [40, 110], depth: [0.3, 4], temp: [10, 26], night: true, bite: 'taps', k: 1.8, pull: 1.1, base: 0.24, bait: { worm: 1.6, cut_bait: 1.6, rotten_fish: 2 } },
+  sardina: { name: 'Sardina', water: ['mar'], color: '#a8c0d8', size: 3, dif: 0.1, mov: 'flota', cm: [10, 22], depth: [1.5, 12], temp: [12, 22], bite: 'dip', k: 8, pull: 0.7, base: 0.34, bait: { pan: 1.5, jig: 1.5, worm: 1.2 } },
+  lubina: { name: 'Lubina', water: ['mar'], color: '#8aa0b0', size: 6, dif: 0.4, mov: 'mixto', cm: [30, 80], depth: [1, 8], temp: [10, 22], bite: 'slam', k: 11, pull: 1.2, base: 0.2, bait: { cut_bait: 1.8, spoon: 1.8, jig: 1.5 } },
+  pez_globo: { name: 'Pez globo', water: ['mar'], seasons: [1], color: '#e8d080', size: 4, round: true, dif: 0.5, mov: 'flota', cm: [12, 35], depth: [1.5, 12], temp: [18, 28], bite: 'dip', k: 25, pull: 0.8, base: 0.15, bait: { cut_bait: 1.2, worm: 1.2 } },
+  cangrejo: { name: 'Cangrejo', water: ['mar'], color: '#d8502a', size: 4, crab: true, dif: 0.3, mov: 'fondo', cm: [8, 25], depth: [0.5, 12], bite: 'taps', k: 150, pull: 0.8, base: 0.2, bait: { cut_bait: 1.8, rotten_fish: 2.2 } },
+  pez_hielo: { name: 'Pez de hielo', water: ['hielo'], color: '#c8e8f8', size: 4, dif: 0.45, mov: 'nervioso', cm: [15, 35], depth: [0.3, 10], temp: [0, 8], bite: 'dip', k: 9, pull: 0.9, base: 0.5, bait: { worm: 1.5, cut_bait: 1.3 } },
+  siluro: { name: 'Siluro', water: ['rio', 'lago'], weather: 'lluvia', color: '#6a6250', size: 7, whiskers: true, dif: 0.6, mov: 'fondo', cm: [60, 160], depth: [0.9, 5], temp: [14, 28], night: true, bite: 'run', k: 7, pull: 1.3, base: 0.22, bait: { rotten_fish: 2.5, cut_bait: 2, worm: 0.8 } },
+  pulpo: { name: 'Pulpo', water: ['mar'], hours: [20, 5], color: '#c86a78', size: 5, octo: true, dif: 0.7, mov: 'fondo', cm: [30, 90], depth: [1.5, 12], temp: [12, 24], night: true, bite: 'taps', k: 4, pull: 1, base: 0.18, bait: { cangrejo: 2, cut_bait: 1.5 } },
+  atun: { name: 'Atún', water: ['mar'], seasons: [1], color: '#3a5a8a', size: 7, dif: 0.75, mov: 'nervioso', cm: [50, 130], depth: [6, 13], temp: [17, 26], bite: 'slam', k: 13, pull: 1.5, base: 0.22, bait: { jig: 2.5, cut_bait: 1 } },
+  esturion: { name: 'Esturión', water: ['lago'], seasons: [3], color: '#7a8088', size: 7, dif: 0.8, mov: 'mixto', cm: [80, 200], depth: [3, 8], temp: [2, 14], bite: 'run', k: 6, pull: 1.3, base: 0.16, bait: { cut_bait: 1.5, worm: 1.2 } },
+  // (Plan R1-2: their names come from the language files)
+  tench: { water: ['estanque', 'lago', 'pantano'], color: '#6f7436', size: 5, dif: 0.35, mov: 'calmo', cm: [20, 55], depth: [0.4, 3], temp: [16, 26], bite: 'lift', k: 15, pull: 1.1, base: 0.18, bait: { worm: 1.8, maiz: 1.5, pan: 1.3 } },
+  barbel: { water: ['rio'], color: '#a58a52', size: 5, dif: 0.35, mov: 'fondo', cm: [25, 80], depth: [0.5, 3], temp: [10, 24], bite: 'run', k: 10, pull: 1.2, base: 0.2, bait: { worm: 1.6, maiz: 1.4, cut_bait: 1.2 } },
+  crayfish: { water: ['rio', 'lago', 'estanque'], color: '#7a4a32', size: 3, crab: true, dif: 0.2, mov: 'fondo', cm: [7, 14], depth: [0.3, 3], temp: [8, 24], night: true, bite: 'taps', k: 120, pull: 0.7, base: 0.14, bait: { rotten_fish: 2.5, cut_bait: 2 } },
+  mackerel: { water: ['mar'], seasons: [0, 1], color: '#3f7286', size: 4, dif: 0.25, mov: 'flota', cm: [20, 40], depth: [2, 12], temp: [11, 20], bite: 'dip', k: 9, pull: 1.1, base: 0.22, bait: { jig: 2.5, cut_bait: 1.5 } },
+  sea_bream: { water: ['mar'], color: '#b4bcc2', size: 5, dif: 0.4, mov: 'mixto', cm: [20, 55], depth: [1, 8], temp: [14, 24], bite: 'taps', k: 16, pull: 1.2, base: 0.18, bait: { cangrejo: 2, worm: 1.5, cut_bait: 1.2 } },
+  squid: { water: ['mar'], hours: [20, 5], color: '#d0a8a0', size: 5, octo: true, dif: 0.45, mov: 'mixto', cm: [15, 45], depth: [3, 12], temp: [12, 20], night: true, bite: 'taps', k: 5, pull: 0.8, base: 0.16, bait: { jig: 2, cut_bait: 0.8 } },
   pez_dorado: { name: 'Pez dorado', water: ['lago', 'rio', 'mar', 'estanque'], rare: true, color: '#f8c030', size: 5, dif: 0.9, mov: 'nervioso', cm: [20, 45], bite: 'dip', k: 12, pull: 1, base: 0 },
 };
+const NEW_FISH = Object.fromEntries(['tench', 'barbel', 'crayfish', 'mackerel', 'sea_bream', 'squid'].map(id => [id, FISH[id]]));
+defineNames(NEW_FISH, 'item', ['name']);
+// ---------- Tackle and bait (Plan R1-2, fishing.js): names and descriptions from the language files ----------
+// lure: casts a spoon or a jig lasts (counted by fishing.js, log.wear: they stack). landing_net only has to be carried
+const TACKLE_ITEMS = { worm: {}, cut_bait: {}, spoon: { stack: 8, lure: 60 }, jig: { stack: 8, lure: 60 }, landing_net: { stack: 1 } };
+Object.assign(ITEMS, TACKLE_ITEMS);
+defineNames(TACKLE_ITEMS, 'item');
 // ---------- Exploración (fase 8) ----------
 Object.assign(ITEMS, {
   amatista: { name: 'Amatista', desc: 'Gema morada de las cuevas (desde el nivel 3).', gem: true },
@@ -283,6 +298,7 @@ ITEMS.red = { name: 'Red de insectos', desc: 'Úsala en la hierba o junto al agu
 ITEMS.vitrina = { name: 'Vitrina', desc: 'Para lucir tus colecciones en casa.', place: 'furniture' };
 
 for (const [id, f] of Object.entries(FISH)) ITEMS[id] = { name: f.name, desc: f.rare ? '¡Rarísimo! Dicen que da suerte.' : 'Un pez. Se puede asar en la cocina o vender.', food: 6, fish: true };
+defineNames(Object.fromEntries(Object.keys(NEW_FISH).map(id => [id, ITEMS[id]])), 'item');
 
 for (const [tool, def] of Object.entries(TOOLS)) ITEMS[`${tool}_hierro`] = { name: `${def.name} ${TIERS[4].name}`, desc: def.desc, tool, tier: 4, stack: 1, dur: TIERS[4].dur };
 // La pala con un bloque de tierra encima: la misma pala (con su desgaste), que al soltar la tierra vuelve a ser la vacía. No

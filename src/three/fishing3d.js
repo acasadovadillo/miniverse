@@ -1,5 +1,6 @@
 // What is seen of fishing (src/fishing.js has the game of it): the line and the float of the player and of up to two others
-// (st.fb), each bite its own way, the rod that bends (actors.js: rodShaft, its guides and tip), the line
+// (st.fb, and st.fg for another rig: on the bottom there is no float, the line goes into the water and the rod's tip nods;
+// a lure is a glint under the surface with its little wake), each bite its own way, the rod that bends (actors.js: rodShaft, its guides and tip), the line
 // weaving in the fight, the fish held up after it and the one that jumps now and then. Everything is made once and reused,
 // with the materials the line and the float always had: nothing is made while fishing but the model of the fish in the hands.
 import * as THREE from 'three';
@@ -8,7 +9,7 @@ import { CAM } from '../camera.js';
 import { nearX } from '../world/planet.js';
 import { WATER_Y } from './terrain.js';
 import { foodModel } from './food3d.js';
-import { BITES, BITE_IDS } from '../fishing.js';
+import { BITES, BITE_IDS, RIGS } from '../fishing.js';
 
 const POINTS = 20, PEERS = 2, PEER_R = 60;            // how many of the others' lines, and how near (m)
 const SETTLE = 0.02, SLIDE = 0.4;                     // m: the float's own bob, and how far a run takes it
@@ -17,6 +18,7 @@ const LEAP_S = 0.55;
 const from = new THREE.Vector3(), to = new THREE.Vector3(), dir = new THREE.Vector3(), Q = new THREE.Quaternion();
 const smooth = k => (k <= 0 ? 0 : k >= 1 ? 1 : k * k * (3 - 2 * k));
 const N = 10, LEN = 1.3, BUTT = 0.08, GUIDE_Y = [0.4, 0.75, 1.1], CURVE = new Float32Array((N + 1) * 2), AT = { up: 0 };   // (the rod: actors.js toolModel)
+const HOW = { sag: 0, bend: 0 };
 const OUT = { x: 0, z: 0, y: 0, tilt: 0, bend: 0, sunk: false };   // (what bobAt says: reused)
 
 // The float, b seconds into a bite: how far it has moved (x, z along and across), up or down (y), tipped, whether it is
@@ -48,15 +50,20 @@ export class FishingView {
     const lineMat = new THREE.LineBasicMaterial({ color: '#f0f0f0', transparent: true, opacity: 0.8 });
     const white = new THREE.MeshStandardMaterial({ color: '#ffffff' }), red = new THREE.MeshStandardMaterial({ color: '#e83a3a' });
     const top = new THREE.SphereGeometry(0.07, 10, 6, 0, Math.PI * 2, 0, Math.PI / 2), bot = new THREE.SphereGeometry(0.07, 10, 6, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2), stem = new THREE.CylinderGeometry(0.009, 0.012, 0.15, 6).translate(0, 0.13, 0);
+    const glint = new THREE.SphereGeometry(1, 8, 5).scale(0.045, 0.018, 0.085), shine = this.shine = new THREE.MeshBasicMaterial({ color: '#ffe6bc', transparent: true, opacity: 0.8, depthWrite: false });
+    const vee = new THREE.BufferGeometry(), foam = new THREE.MeshBasicMaterial({ color: '#f0fafc', transparent: true, opacity: 0.6, depthWrite: false, side: THREE.DoubleSide });   // (the wake: two thin arms behind it)
+    vee.setAttribute('position', new THREE.Float32BufferAttribute([0, 0, 0.06, 0.26, 0, -0.62, 0.17, 0, -0.62, 0, 0, 0.06, -0.17, 0, -0.62, -0.26, 0, -0.62], 3));
     this.rigs = Array.from({ length: 1 + PEERS }, () => {
       const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array((POINTS + 1) * 3), 3).setUsage(THREE.DynamicDrawUsage));
       const line = new THREE.Line(geo, lineMat), bobber = new THREE.Group(), ball = new THREE.Group();
       line.frustumCulled = false;
       ball.add(new THREE.Mesh(top, white), new THREE.Mesh(bot, red), new THREE.Mesh(stem, red));
       bobber.add(ball);
-      line.visible = bobber.visible = false;
-      fx.group.add(line, bobber);
-      return { line, bobber, ball, e: null, rod: null, seen: { phase: -1, at: 0, bite: 0, x: 0, y: 0 }, bendAt: 0 };
+      const lure = new THREE.Group();
+      lure.add(new THREE.Mesh(glint, shine), new THREE.Mesh(vee, foam));
+      line.visible = bobber.visible = lure.visible = false;
+      fx.group.add(line, bobber, lure);
+      return { line, bobber, ball, lure, e: null, rod: null, seen: { phase: -1, at: 0, bite: 0, x: 0, y: 0 }, bendAt: 0 };
     });
     this.ripple = new THREE.Mesh(new THREE.RingGeometry(0.15, 0.19, 24).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: '#e0f4ff', transparent: true, opacity: 0.7, depthWrite: false }));
     this.ripple.visible = false;
@@ -87,7 +94,7 @@ export class FishingView {
   off(rig) {
     if (rig.rod) this.bend(rig.rod, 0);
     rig.rod = null; rig.e = null; rig.seen.phase = -1;
-    rig.line.visible = rig.bobber.visible = false;
+    rig.line.visible = rig.bobber.visible = rig.lure.visible = false;
   }
 
   // The player's: from their rod (in first person, the one in view)
@@ -99,13 +106,15 @@ export class FishingView {
     if (fight) { x = s.ex; z = s.ey; o.y = -0.1; o.sunk = true; sag = 0; bend = 0.28 + s.load * (0.4 + 0.4 * s.run) + 0.03 * Math.sin(t * 23); }
     else if (s.phase === 'bite') { bobAt(s.bite, s.bt, s.taps, s.pre, t); bend = o.bend; sag *= 0.7; }
     else if (s.nib > 0) { o.y -= 0.035 * Math.sin((s.nib / 0.3) * Math.PI); o.tilt = 0.12 * Math.sin(s.nib * 40); bend = 0.06; }
+    const kind = Math.max(0, RIGS.indexOf(s.rig));
+    if (kind) { const q = this.other(kind, s.phase, s.bite, sag, bend, s.nib > 0 ? Math.sin((s.nib / 0.3) * Math.PI) : 0, t); sag = q.sag; bend = q.bend; }
     const side = s.side || 1, dx = (s.bx - s.px) / L, dz = (s.by - s.py) / L;
     x += (-dz * side) * o.x; z += dx * side * o.x;   // (a run goes off to the side)
     const tip = this.rodOf(rig, host);
     this.tipOf(host, tip, s.px, s.py);
     if (rig.rod) { this.point(rig.rod, dir.set(x, WATER_Y, z).sub(from), bend); this.tipOf(host, tip, s.px, s.py); }
-    this.draw(rig, x, z, o, sag, s.fly, Math.atan2(-dz * side, dx * side));
-    const busy = s.phase === 'bite' || s.nib > 0, r = this.ripple;
+    this.draw(rig, x, z, o, sag, s.fly, Math.atan2(-dz * side, dx * side), kind, fight, t);
+    const busy = s.phase === 'bite' || (s.nib > 0 && !kind), r = this.ripple;
     r.visible = busy && s.fly === 1;
     if (r.visible) {
       const w = (t * 2) % 1, small = s.phase !== 'bite';
@@ -126,11 +135,29 @@ export class FishingView {
     o.x = o.z = o.tilt = 0; o.y = Math.sin(t * 3 + 1) * SETTLE * 0.7; o.sunk = false;
     if (phase === 3) { o.y = -0.1; o.sunk = true; sag = 0; bend = 0.3 + 0.2 * fb[4] + 0.1 * Math.sin(t * 3.4); }
     else if (phase === 2) { const bite = BITE_IDS[fb[3]] || 'dip'; bobAt(bite, b, 4, bite === 'taps' ? 1.6 : BITES[bite].pre, t); bend = o.bend; }
+    if (e.fg) { const q = this.other(e.fg, phase === 3 ? 'fight' : phase === 2 ? 'bite' : 'wait', BITE_IDS[fb[3]], sag, bend, 0, t); sag = q.sag; bend = q.bend; }
     const dx = (S.x - px) / L, dz = (S.y - pz) / L, x = S.x - dz * o.x, z = S.y + dx * o.x, tip = this.rodOf(rig, m.hand);
     this.tipOf(m.hand, tip, px, pz);
     if (rig.rod) { this.point(rig.rod, dir.set(x, WATER_Y, z).sub(from), bend); this.tipOf(m.hand, tip, px, pz); }
-    this.draw(rig, x, z, o, sag, phase === 0 ? Math.min(0.95, b / 0.4) : 1, Math.atan2(-dz, dx));
+    this.draw(rig, x, z, o, sag, phase === 0 ? Math.min(0.95, b / 0.4) : 1, Math.atan2(-dz, dx), e.fg || 0, phase === 3, t);
     return true;
+  }
+
+  // The line and the rod without a float. On the bottom (1) the line is taut and it is the tip that tells: it nods with each
+  // tap, pulls over in a run, springs back in a lift (the fish comes up with the lead). A lure (2 spinning, 3 trolling)
+  // keeps a little weight on it
+  other(kind, phase, bite, sag, bend, nib, t) {
+    const q = HOW;
+    q.sag = sag; q.bend = bend;
+    if (phase === 'fight') return q;
+    if (kind === 1) {
+      q.sag = phase === 'bite' && bite === 'lift' ? 0.3 : 0.02;
+      q.bend = phase === 'bite' ? (bite === 'lift' ? 0 : 0.06 + bend * 1.9) : 0.07 + 0.14 * nib + 0.006 * Math.sin(t * 2);
+    } else {
+      q.sag = kind === 3 ? 0.12 : 0.03;
+      q.bend = phase === 'bite' ? 0.7 : (kind === 3 ? 0.2 : 0.12) + 0.03 * Math.sin(t * 11);
+    }
+    return q;
   }
 
   // The rod in a hand: its pieces, found again only when what it holds changes
@@ -182,11 +209,20 @@ export class FishingView {
     return CURVE[i * 2] + (CURVE[i * 2 + 2] - CURVE[i * 2]) * k;
   }
 
-  draw(rig, x, z, o, sag, fly, yaw) {
-    to.set(x, WATER_Y + 0.03 + o.y, z);
+  draw(rig, x, z, o, sag, fly, yaw, kind = 0, fight = false, t = 0) {
+    to.set(x, WATER_Y + (kind === 1 ? -0.35 : kind ? -0.02 : 0.03 + o.y), z);
     if (fly < 1) { to.lerpVectors(from, to, fly); to.y += Math.sin(fly * Math.PI) * 1.2; sag = 0.1; }
     const b = rig.bobber;
-    b.visible = fly < 1 || !o.sunk;
+    b.visible = !kind && (fly < 1 || !o.sunk);
+    const l = rig.lure;
+    l.visible = kind > 0 && !fight && (fly < 1 || kind > 1);   // (the lead, or the lure: in the air; and the lure, coming)
+    if (l.visible) {
+      l.position.copy(to);
+      if (fly === 1) { l.position.y = WATER_Y + 0.015; this.shine.opacity = 0.5 + 0.5 * Math.abs(Math.sin(t * 7)); }
+      l.rotation.y = Math.atan2(from.x - to.x, from.z - to.z);
+      l.children[0].rotation.z = Math.sin(t * 13) * 0.6;
+      l.children[1].visible = fly === 1; l.children[1].scale.setScalar(kind === 3 ? 1.5 : 1);
+    }
     b.position.copy(to); b.rotation.y = yaw; rig.ball.rotation.x = o.tilt;
     const pts = rig.line.geometry.attributes.position;
     for (let i = 0; i <= POINTS; i++) { const k = i / POINTS; pts.setXYZ(i, from.x + (to.x - from.x) * k, from.y + (to.y - from.y) * k - Math.sin(k * Math.PI) * sag, from.z + (to.z - from.z) * k); }

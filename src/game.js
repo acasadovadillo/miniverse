@@ -1390,7 +1390,8 @@ export class Game {
     // (a hint may say its own key, { text, key }: carry.js, "Q Put down the log"; the rest, the click)
     const hk = hint && typeof hint === 'object' ? hint : null;
     if (hk) hint = hk.text;
-    hud.hint(hint, hk ? hk.key : undefined);
+    hud.hint(hint, hk ? hk.key : undefined, hk?.key2, hk?.text2);   // (and a second key with its own words: the bait, fishing.js)
+    if (hk?.all) hint = hk.all;
     try { this.wheel?.frame(); } catch (e) { reportFault(e, 'ToolWheel.frame'); }   // (the tool wheel: src/ui/wheel.js)
     try { this.quick?.frame(); } catch (e) { reportFault(e, 'QuickPlaces.frame'); }   // (the places near: src/ui/quickplaces.js)
     try { this.smartHud?.frame(hint); } catch (e) { reportFault(e, 'SmartHud.frame'); }   // (the minimal interface, unless the full one was chosen: src/ui/smarthud.js)

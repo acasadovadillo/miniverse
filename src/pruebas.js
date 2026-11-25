@@ -15,7 +15,9 @@ import { keys, aimLock, clearKeys, pressW, releaseW, dropSprint, gaitOf, TAP_WIN
 import { ITEMS, HARVEST, hitsFor, CHESTS, BUGS, FISH } from './items.js';
 import { SHOPS, FISH_PRICE_K } from './economy.js';
 import * as FW from './fishwater.js';
-import { BITES, breakP, fightS } from './fishing.js';
+import { BITES, BAITS, breakP, fightS, spinS } from './fishing.js';
+import { COLLECTIONS as COLLECTED } from './progress.js';
+import { foodModel } from './three/food3d.js';
 import { repairMat } from './crafting.js';
 import { RECIPES, aStation } from './recipes.js';
 import { runCommand } from './commands.js';
@@ -4115,6 +4117,188 @@ async function soloTests(game) {
     check(D.ratio > 0.95 && D.ratio < 1.4 && D.ratio > A.ratio * 1.2, `a good dusk earns ×${D.ratio.toFixed(2)}`);
     // (and nobody can live off buying Lía's sardines)
     const e = SHOPS.lia.stock.find(q => q.id === 'sardina'); check(e.price > priceOf('sardina') * 1.2 && e.price >= priceOf('pescado_asado') - 10, `sardines at ${e.price}, sold at ${priceOf('sardina')}, grilled ${priceOf('pescado_asado')}`);
+  });
+  // ---------- tackle and bait (Plan R1-2) ----------
+  // With only these baits in the backpack; what there was, back afterwards
+  const withBaits = async (list, fn) => {
+    const F = game.fishing, I = inv(), was = I.slots.map(q => (q ? { ...q } : null)), st = [F.chosen, F.wear];
+    for (const b of BAITS) I.remove(b.id, I.count(b.id));
+    for (const id of ['sardina', 'landing_net']) I.remove(id, I.count(id));
+    for (const [id, n] of list) I.add(id, n);
+    F.chosen = null; F.wear = {};
+    try { return await fn(); } finally { I.slots.forEach((q, i) => { I.slots[i] = was[i]; }); [F.chosen, F.wear] = st; I.changed(); }
+  };
+  await test('fish (english): R changes the bait, only what you have', atPond(async ({ F, I, use, home }) => {
+    const pressR = shift => { dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyR', key: 'r', shiftKey: !!shift, bubbles: true })); dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyR', key: 'r', bubbles: true })); };
+    await withBaits([], async () => {
+      check(F.bait.key === '' && F.baitText() === t('fish.no_bait'), `with no bait: ${F.bait.key}`);
+      pressR(); check(F.bait.key === '', 'R gives a bait out of nothing');
+    });
+    await withBaits([['jig', 1], ['worm', 3], ['maiz', 2], ['sardina', 1]], async () => {
+      check(F.bait.key === 'worm', `the first one: ${F.bait.key}`);
+      const seen = []; for (let i = 0; i < 7; i++) { seen.push(F.bait.key); pressR(); }
+      check(seen.join() === 'worm,worm_bottom,maiz,cut_bait,jig,,worm', `R: ${seen}`);
+      pressR(true); check(F.bait.key === 'worm', `Shift+R: ${F.bait.key}`); pressR(true); pressR(true); check(F.bait.key === 'jig', `Shift+R twice from the start: ${F.bait.key}`);
+      check(F.baitText() === t('fish.lure', { item: itemNoun('jig'), n: 1 }), F.baitText());
+      // (the prompt: the click hint with R and the bait beside it)
+      F.chosen = 'worm'; game.gather.target = game.gather.pickTarget(); const h = F.hint(); check(h.text === t('fish.in.estanque') && h.key2 === 'R' && h.text2 === t('fish.bait', { item: itemNoun('worm'), n: 3 }), JSON.stringify(h));
+      game.mouse = null; hud.hint(h.text, undefined, h.key2, h.text2); check(document.querySelector('#hint-more')?.textContent === 'R' + h.text2 && getComputedStyle(document.querySelector('#hint-more')).display !== 'none', `on the screen: ${document.querySelector('#hint-more')?.textContent}`); hud.hint(''); check(document.querySelector('#hint-more').style.display === 'none', 'it stays'); 
+      // (with the line out, R brings it in and changes; in a bite it does nothing; building, talking or with another thing in the hand, it is not the rod's)
+      use(); check(F.state.bait === 'worm' && F.state.rig === 'float' && !F.state.bare && F.state.ctx.rig === 'float', JSON.stringify([F.state.bait, F.state.rig]));
+      F.state.fly = 1; pressR(); check(!F.state && F.bait.key === 'worm_bottom' && I.count('worm') === 3, 'R with the line out');
+      use(); check(F.state.rig === 'bottom', 'the worm on the bottom'); F.state.phase = 'bite'; pressR(); check(F.state && F.bait.key === 'worm_bottom', 'R in a bite'); F.state = null;
+      const sel = I.selected; I.selected = I.slots.findIndex(q => !q); check(!F.ownsR(), 'R with the hand empty'); I.selected = sel;
+      game.build.on = true; check(!F.ownsR(), 'R building'); game.build.on = false;
+      // (it runs out: it says so and the next real bait goes on, never food nor a lure)
+      F.chosen = 'worm_bottom'; game.gather.floaters.length = 0; F.spendBait('worm'); F.spendBait('worm'); check(F.bait.key === 'worm_bottom' && !game.gather.floaters.length, 'too soon'); F.spendBait('worm');
+      check(F.bait.key === '' && game.gather.floaters.some(f => f.text === t('fish.bait_out', { item: itemNoun('worm') })), `out of worms: ${F.bait.key}`);
+      // (cut bait: with none, a sardine is cut)
+      F.chosen = 'cut_bait'; check(F.left('cut_bait') === 3, 'a sardine is worth three'); use(); check(I.count('sardina') === 0 && I.count('cut_bait') === 3 && F.state.bait === 'cut_bait' && F.state.rig === 'bottom', 'it is not cut'); F.state = null;
+      // (the save)
+      const out = {}; F.wear.jig = 7; F.save(out); check(out.fishLog.bait === 'cut_bait' && out.fishLog.wear.jig === 7 && !('bait' in F.log), JSON.stringify(out.fishLog.wear));
+      const G = Object.create(Object.getPrototypeOf(F)); G.game = game; G.reset(out); check(G.chosen === 'cut_bait' && G.wear.jig === 7, 'not loaded'); G.reset({ fishRecords: {} }); check(G.chosen === null && !G.wear.jig, 'an old save'); G.reset({ fishLog: { bait: 7, wear: 'x' } }); check(G.chosen === null, 'a broken one');
+    });
+    [p().x, p().y] = home;
+  }));
+  await test('fish (english): what each bait takes, and when it is spent', atPond(async ({ F, I, use }) => {
+    const R = (id, rig, bait, o) => FW.rateOf(FISH[id], ctxAt({ tempC: 15, rig, bait, ...FISH[id].water && { water: FISH[id].water[0], depth: (FISH[id].depth || [1])[0] + 0.5 }, ...o }));
+    const PREY = id => FISH[id].bait?.spoon || FISH[id].bait?.jig || FISH[id].bite === 'slam';
+    for (const id in FISH) { if (FISH[id].rare) continue;
+      if (PREY(id) && !FISH[id].bait.pan) check(R(id, 'float', 'maiz') === 0, `maize takes ${id}`);
+      for (const l of ['spoon', 'jig']) check((R(id, 'spin', l) > 0) === !!FISH[id].bait[l], `${l} and ${id}`);
+      const best = Object.entries(FISH[id].bait).filter(([b]) => ITEMS[b] || b === 'insect').sort((a, b) => b[1] - a[1])[0][0]; check(best && R(id, best === 'spoon' || best === 'jig' ? 'spin' : best === 'cut_bait' || best === 'cangrejo' ? 'bottom' : 'float', best === 'insect' ? 'grillo' : best) > R(id, 'float', ''), `${id}: its best bait, ${best}, is no better than a bare hook`); }
+    check(R('lucio', 'float', 'maiz') === 0 && R('carpa', 'float', 'maiz') > R('carpa', 'float', 'worm') && R('anguila', 'bottom', 'cut_bait') > 0 && R('carpa', 'spin', 'spoon') === 0, 'the table');
+    check(R('siluro', 'float', 'worm', { depth: 4, margin: false }) < 0.4 * R('siluro', 'bottom', 'worm', { depth: 4 }) && R('siluro', 'float', 'worm', { depth: 4, margin: true }) > 2 * R('siluro', 'float', 'worm', { depth: 4, margin: false }), 'a float reaches the bed far from the bank');
+    check(FW.rates(ctxAt({ rig: 'float', bait: '' })) < 0.5 * FW.rates(ctxAt({ rig: 'float', bait: 'worm' })), 'a bare hook');
+    check(FW.here(game, POND.x, POND.y, 1, 'bottom', 'worm').rig === 'bottom' && FW.here(game, POND.x, POND.y).rig === undefined, 'here');
+    await withBaits([['worm', 9], ['spoon', 2]], async () => withRandom(async () => {
+      const bite = (id = 'perca') => { F.state = null; use(); const s = F.state; s.fly = 1; s.next = 99; const pick = F.pick; F.pick = () => id; try { F.bite(); } finally { F.pick = pick; } s.find = false; return s; };
+      const n = id => I.count(id);
+      let s = bite(); F.hook({ cm: 20, trophy: false }); F.state.ft = F.state.T; F.state.breakAt = Infinity; F.fight(0.01); check(F.card && n('worm') === 8, `a fish landed: ${n('worm')} worms`); F.card = null;
+      s = bite(); F.hook({ cm: 20, trophy: false }); F.snap(); check(!F.state && n('worm') === 7, 'a broken line');
+      F.state = null; use(); s = F.state; s.fly = 1; s.t = 20; s.next = 0.01; F.stolen(s); check(s.bare && s.bait === '' && s.ctx.bait === '' && n('worm') === 6 && s.t === 60, 'stolen'); F.state = null;
+      use(); F.state.fly = 1; F.press(); check(!F.state && n('worm') === 6, 'reeled in');
+      F.chosen = 'spoon'; s = bite('perca'); check(s.rig === 'spin' && s.bite === 'slam' && s.self < 1, `on a spoon: ${s.bite}, ${s.self}`); F.hook({ cm: 20, trophy: false }); F.snap(); check(n('spoon') === 1, 'the spoon stays with a broken line'); check(F.wear.spoon === undefined, `the next one is new: ${F.wear.spoon}`);
+      s = bite(); F.missed('x'); check(n('spoon') === 1, 'a spoon goes when the fish spits it');
+      for (let i = 0; i < 60 && n('spoon'); i++) { F.state = null; use(); } check(!n('spoon') && F.wear.spoon === undefined, `worn out after ${F.wear.spoon}`); F.state = null;
+    }, () => 0.4));
+  }));
+  await test('fish (english): the bottom, spinning and the landing net', atPond(async ({ F, I, use }) => {
+    await withBaits([['worm', 9], ['spoon', 3]], async () => {
+      // Spinning: no nibbles; it comes back by itself, to the bank, in 3-6 s; a click brings it in with nothing scared
+      F.chosen = 'spoon';
+      await withRandom(async () => {
+        use(); let s = F.state; check(s.rig === 'spin' && s.at === Infinity && Math.abs(s.T - spinS(Math.hypot(s.bx - p().x, s.by - p().y))) < 1e-6, `at ${s.at}, T ${s.T}`);
+        const d0 = Math.hypot(s.bx - p().x, s.by - p().y); s.fly = 1; let k = 0; while (F.state && k++ < 900) { F.update(0.016); if (F.state) check(F.state.nib < 0 && F.state.phase === 'wait', 'something pecks at a lure'); }
+        check(!F.state && k * 0.016 > s.T - 0.1 && k * 0.016 < s.T + 0.2 && Math.hypot(s.bx - p().x, s.by - p().y) < d0, `it came back in ${(k * 0.016).toFixed(1)} s of ${s.T.toFixed(1)}`);
+        use(); s = F.state; s.fly = 1; s.rt = 1; F.spooks = []; use(); check(!F.state && !F.spooks.length, 'a click while it comes back');
+      }, () => 0.999);
+      await withRandom(async () => {
+        use(); const s = F.state; check(s.at < s.T, `a lucky cast: ${s.at} of ${s.T}`); s.fly = 1; let k = 0; while (F.state?.phase === 'wait' && k++ < 400) F.update(0.016);
+        check(F.state?.phase === 'bite' && F.state.bite === 'slam' && F.state.self <= 0.35, 'nothing on the way'); k = 0; while (F.state?.phase === 'bite' && k++ < 60) F.update(0.016); check(F.state?.phase === 'fight', 'it does not hook itself'); F.state = null;
+      }, () => 0.01);
+      // The bottom: no float, the line into the water and the tip nodding
+      F.chosen = 'worm_bottom'; use(); F.state.fly = 1; F.state.next = 99; F.state.t = 99;
+      const V = game.view3d.fx.fishing, rig = V.rigs[0], see = () => V.update(game, game.scene, true, 1); see(); check(rig.line.visible && !rig.bobber.visible && !rig.lure.visible, 'the float is there on the bottom'); check(F.net()?.length === 5 && F.netRig() === 1, `net ${F.net()} ${F.netRig()}`);
+      const q = (ph, b, nib = 0) => V.other(1, ph, b, 0.2, 0.25, nib, 1).bend; check(q('bite', 'taps') > 2 * q('wait', '') && q('wait', '', 1) > q('wait', '') * 1.5 && q('bite', 'lift') === 0, 'the tip says nothing'); F.state = null;
+      F.chosen = 'spoon'; use(); F.state.fly = 1; see(); check(rig.line.visible && !rig.bobber.visible && rig.lure.visible && F.netRig() === 2, 'the lure is not seen'); F.state = null; see(); check(!rig.lure.visible, 'the lure stays'); check(F.netRig() === undefined, 'st.fg with no line');
+      // The landing net: only carried, it saves what would slip off
+      const bank = (kg, rnd) => withRandom(() => { F.card = null; F.state = { phase: 'fight', rig: 'float', bait: '', id: 'carpa', cm: 60, kg, hx: POND.x, hy: POND.y, ex: POND.x, ey: POND.y, bx: POND.x, by: POND.y, water: 'estanque' }; F.bank(); const ok = !!F.card; F.card = null; F.state = null; return ok; }, () => rnd);
+      const steep = F.steep; F.steep = () => true;
+      try {
+        check(await bank(6, 0.1) === false && await bank(6, 0.3) === true && await bank(2, 0.1) === true, 'without the net');
+        I.add('landing_net', 1); game.gather.floaters.length = 0; check(await bank(6, 0.1) === true && game.gather.floaters.some(f => f.text === t('fish.netted')), 'with it, it slips off');
+      } finally { F.steep = steep; delete F.steep; }
+      F.state = { kg: 6, hx: POND.x, hy: POND.y }; p().boat = true; const a = F.steep(); F.state.kg = 12; const b = F.steep(); p().boat = false; F.state = null; check(a === false && b === true, 'from a boat: a small one slips off, or a huge one never does');
+    });
+  }));
+  await test('fish (english): trolling behind the boat', atPond(async ({ F, I }) => {
+    await withBaits([['jig', 1]], async () => {
+      const at = [p().x, p().y]; let x = 0;
+      const here = FW.here(game, POND.x, POND.y, 1, 'troll', 'jig'), start = () => { F.state = { phase: 'wait', rig: 'spin', bait: 'jig', bare: false, t: Infinity, next: Infinity, nib: -9, rate: 0, ctx: { ...here }, fly: 1, bx: POND.x, by: POND.y, sx: POND.x, sy: POND.y, hx: POND.x, hy: POND.y, rt: 0, T: 5, at: Infinity, click: 0, px: p().x, py: p().y, water: 'estanque' }; };
+      const sail = (speed, s) => { for (let i = 0; i < s / 0.02 && F.state; i++) { x += speed * 0.02; p().x = at[0] + (x % 2 < 1 ? x % 1 : 1 - (x % 1)); F.update(0.02); } };
+      // (back and forth over the pond's bank: the lure stays in the water under test by pulling it there)
+      const keep = F.trolling; F.trolling = function (s, q, dt) { s.look = 9; s.rate = 0; keep.call(this, s, q, dt); };
+      p().boat = true; F.chosen = 'jig';
+      try {
+        start(); sail(3, 1.5); check(F.state?.rig === 'troll' && F.netRig() === 3, `at 3 m/s: ${F.state?.rig}`); sail(4.5, 6); check(F.state, 'rowing (4.5 m/s) brings it in');
+        sail(0, 3); check(F.state, 'a moment stopped and it comes in'); sail(0, 1.6); check(!F.state, 'stopped 4 s and it stays out');
+        start(); sail(3, 1.5); check(F.state?.rig === 'troll', 'again'); game.gather.floaters.length = 0; sail(7.4, 3); check(!F.state && game.gather.floaters.some(f => f.text === t('fish.too_fast')), 'rowing hard and it stays out');
+        // (the lure follows 8 m behind at most; and afoot it comes in)
+        start(); sail(3, 1.5); p().x -= 4; F.state.bx = p().x - 30; F.state.qx = p().x; F.state.qy = p().y; F.update(0.02); check(Math.abs(Math.hypot(F.state.bx - p().x, F.state.by - p().y) - 8) < 0.2, `${Math.hypot(F.state.bx - p().x, F.state.by - p().y)} m behind`);
+        // (a bite: the jig is slammed; the fight goes along with the boat)
+        await withRandom(() => { const s = F.state, pick = F.pick; F.pick = () => 'mackerel'; s.rate = 1; F.bite(); F.pick = pick; check(s.bite === 'slam', s.bite); s.find = false; F.hook({ cm: 30, trophy: false }); s.breakAt = Infinity; s.T = 9; const b0 = s.bx; p().x += 1; F.update(0.02); check(F.state === s && Math.abs(s.bx - b0 - 1) < 1e-6, 'the boat moves and the line breaks or stays behind'); F.state = null; }, () => 0.5);
+        start(); sail(3, 1.5); p().boat = false; F.update(0.02); check(!F.state, 'afoot, still trolling');
+      } finally { F.trolling = keep; delete F.trolling; p().boat = false; [p().x, p().y] = at; F.state = null; }
+      // (the rate: worked out from the water under it, every couple of seconds and no more; tuna like it trolled)
+      const c = o => ctxAt({ water: 'mar', depth: 7, season: 1, tempC: 19, hour: 10, rig: 'troll', bait: 'jig', ...o }); check(FW.rateOf(FISH.atun, c({})) > 1.4 * FW.rateOf(FISH.atun, c({ rig: 'spin' })) && FW.rateOf(FISH.mackerel, c({})) > 0, 'tuna');
+    });
+  }));
+  await test('fish (english): worms from the shovel and the hoe', async () => {
+    const G = game.gather, T = game.days, was = T.weather, drops = G.drops, flat = (() => { for (let r = 60; r < 400; r += 7) for (let a = 0; a < 6.28; a += 0.4) { const x = Math.floor(POND.x + Math.cos(a) * r), y = Math.floor(POND.y + Math.sin(a) * r); if ([3, 4].includes(w().gen.biomeAt(x + 0.5, y + 0.5)) && [[0, 0], [2, 0], [-2, 0], [0, 2], [0, -2]].every(([i, j]) => !w().water(x + 0.5 + i, y + 0.5 + j))) return [x, y]; } })();
+    const count = n => { let k = 0; G.drops = []; for (let i = 0; i < n; i++) { G.turned.clear(); G.worms(...flat); } k = G.drops.filter(d => d.id === 'worm').length; G.drops = []; return k; };
+    try {
+      T.weather = 'sol'; const dry = await withRandom(() => count(2000), seeded(4)); T.weather = 'lluvia'; const rain = await withRandom(() => count(2000), seeded(4));
+      check(dry > 2000 * 0.2 * 1.5 * 0.85 && dry < 2000 * 0.2 * 1.5 * 1.15, `${dry} worms in 2000 dry tiles`); check(rain > dry * 1.75 && rain < dry * 2.25, `after rain ${rain}, dry ${dry}`);
+      G.drops = []; G.turned.clear(); await withRandom(() => { G.worms(...flat); G.worms(...flat); }, () => 0.01); check(G.drops.length === 1, `the same tile twice: ${G.drops.length}`);
+      G.drops = []; G.turned.clear(); const gb = w().gen.biomeAt; w().gen.biomeAt = () => 2; try { await withRandom(() => G.worms(...flat), () => 0.01); } finally { delete w().gen.biomeAt; if (w().gen.biomeAt !== gb) w().gen.biomeAt = gb; } check(!G.drops.length, 'worms on the beach');
+    } finally { T.weather = was; G.drops = drops; }
+  });
+  await test('fish (english): the new species and the tackle, everywhere', async () => {
+    const [en, es] = await Promise.all(['en', 'es'].map(l => fetch(`src/lang/${l}.json`).then(r => r.json())));
+    for (const id of ['tench', 'barbel', 'crayfish', 'mackerel', 'sea_bream', 'squid']) {
+      const f = FISH[id]; check(f && f.water.length && BITES[f.bite] && f.depth && f.temp && f.k && f.base && f.bait && f.name === t(`item.${id}`) && ITEMS[id].fish && ITEMS[id].food, `${id}: ${JSON.stringify(f)}`);
+      for (const L of [en, es]) check(L[`item.${id}`] && L[`item.${id}.desc`] && L[`nature.name.${id}`] && L[`nature.note.${id}`], `texts of ${id}`);
+      check(COLLECTED.fish.includes(id) && SPECIES[id]?.group === 'fish', `${id}: not in the collections or the nature book`);
+      check(priceOf(id) >= 250 && priceOf(id) <= 700, `${id}: ${priceOf(id)}`); const kg = FW.kgOf(f, (f.cm[0] + f.cm[1]) / 2); check(kg > 0.04 && kg < 4, `${id}: ${kg} kg`);
+    }
+    for (const id of ['worm', 'cut_bait', 'spoon', 'jig', 'landing_net']) { for (const L of [en, es]) check(L[`item.${id}`] && L[`item.${id}.desc`], `texts of ${id}`); check(weightOf(id) < 1 && priceOf(id) >= 1, id); }
+    for (const id of ['tench', 'barbel', 'crayfish', 'mackerel', 'sea_bream', 'squid', 'worm', 'cut_bait', 'spoon', 'jig', 'landing_net']) { const m = foodModel(id); let tri = 0, meshes = 0; m.traverse(o => { if (o.isMesh) { meshes++; tri += o.geometry.attributes.position.count / 3; } }); check(meshes === 1 && tri > 300 && tri < 6000, `${id}: ${meshes} meshes, ${tri} triangles`); }
+    const of = id => SHOPS.lia.stock.find(e => e.id === id)?.price; for (const id of ['worm', 'spoon', 'jig', 'landing_net']) check(of(id) > priceOf(id) * 1.3, `${id}: sold at ${of(id)}, bought at ${priceOf(id)}`);
+    const rec = (out, st, n) => RECIPES.some(r => r.out === out && r.station === st && r.n === n); check(rec('spoon', 'yunque', 3) && rec('jig', 'banco', 2) && rec('landing_net', 'banco', 1), 'the recipes');
+    check(ITEMS.spoon.stack === 8 && ITEMS.worm.stack === 99 && ITEMS.landing_net.stack === 1, 'the stacks');
+    // (a peer's rig; an older game sends none)
+    const live = game.live;
+    try {
+      live.receive('fg1', { t: 'hi', id: 'id-fg1', name: 'Remolque', playing: true, look: LOOK }); const st = o => live.receive('fg1', { t: 'st', sc: 'world', x: p().x + 3, y: p().y, yaw: 0, h: 'cana', ...o });
+      st({ fb: [p().x + 6, p().y, 1, 0, 0] }); const e = live.peers.get('fg1').entity; check(e.fg === 0, `an older game: ${e.fg}`);
+      st({ fb: [p().x + 6, p().y, 1, 0, 0], fg: 3 }); check(e.fg === 3, 'trolling'); await frames(3); const rig = game.view3d.fx.fishing.rigs[1]; if (rig.line.visible) check(rig.lure.visible && !rig.bobber.visible, 'their lure'); for (const bad of ['x', 9, -1, 1.5, null]) { st({ fb: [p().x + 6, p().y, 1, 0, 0], fg: bad }); check(e.fg === 0, `fg ${bad} taken`); } st({ fg: 2 }); check(e.fg === 0, 'a rig with no line');
+    } finally { live.drop('fg1', true); await frames(2); }
+  });
+  await test('fish (english): income of each rig against before baits', async () => {
+    // The same hours as «income per hour»: as it was before baits (its sixteen kinds and their water factors) and with each thing on the hook
+    const NEWER = new Set(['tench', 'barbel', 'crayfish', 'mackerel', 'sea_bream', 'squid']), WAS_K = { mar: 0.95, rio: 1, lago: 0.85, estanque: 1.35, pantano: 1.9, hielo: 1.5 }, COST = { worm: 2, maiz: 25, pan: 35, saltamontes: 5, cut_bait: 85, spoon: 25, jig: 30 }, r = seeded(7);
+    const oldOf = c => { let q = 0; for (const id in FISH) if (!NEWER.has(id)) q += FW.rateOf(FISH[id], { ...c, rig: '' }); return q; };
+    const oldRates = c => { const q = oldOf(c) * WAS_K[c.water] * c.k; return q > 1 ? q ** 0.7 : q; }, oldPick = c => { let q = r() * oldOf(c), last = null; for (const id in FISH) { const v = NEWER.has(id) ? 0 : FW.rateOf(FISH[id], { ...c, rig: '' }); if (!(v > 0)) continue; last = id; if ((q -= v) <= 0) break; } return last; };
+    const hour = (c0, rig, bait) => {
+      let T = 0, coins = 0, n = 0, left = 0; const now = rig !== null, lure = rig === 'spin' || rig === 'troll', c = now ? { ...c0, rig, bait } : c0, S = FW.STOCK[c.water], sky = FW.skyK(c, false);
+      while (T < 3600) {
+        if (left > S / 2) { left = 0; T += 25; continue; }
+        c.k = c.spot * FW.stockK(left, c.water) * sky; const R = now ? FW.rates(c) : oldRates(c); if (!(R > 0)) return 0;
+        if (rig === 'spin') { const L = spinS(4.5), q = FW.lureWait(R, r); coins -= COST[bait] / 60; T += 1.4 + Math.min(q, L); if (q > L - 0.4) continue; }
+        else if (rig === 'troll') T += 1.4 - Math.log(1 - r()) * FW.W0 / (R * FW.TROLL_K);
+        else { const wait = FW.waitFor(R, r), nibs = wait / (7 / Math.max(0.5, Math.min(2, R))); if ((!now || bait) && r() < 1 - 0.94 ** nibs) { T += wait * r() + 2.6; coins -= now ? COST[bait] : 0; continue; } if (r() < 0.04 * Math.min(3, nibs)) { T += wait * r() + 2; continue; } T += 1.4 + wait; }
+        if (lure ? r() < 0.08 : r() < 0.1 || r() > 0.88) { T += 1.5; continue; }
+        const id = r() < 0.043 ? 'pez_dorado' : now ? FW.pickFish(c, r) : oldPick(c), f = FISH[id], kg = FW.kgOf(f, FW.sizeOf(f, 1, now && !bait, r).cm);
+        T += fightS(kg, f.pull); if (r() < breakP(kg * f.pull / 5.3)) { T += 1; coins -= lure ? COST[bait] : 0; continue; } if (r() < 0.03 || (kg > 2.5 && r() < 0.12)) { T += 1; continue; }
+        T += 3.2; n++; left++; coins += priceOf(id) - (now && bait && !lure ? COST[bait] : 0); if (n % 30 === 0) T += 120;
+      }
+      return coins;
+    };
+    const DEPTH = { rio: 0.9, lago: 1.8, mar: 2 }, tempOf = (wt, q, dp) => { const b = [12, 21, 15, 6][q]; return (wt === 'mar' ? 13.5 + (b - 13.5) * 0.6 : b) - (q === 1 ? dp * 0.4 : 0) + (q === 3 ? dp * 0.3 : 0); };
+    const mean = (water, rig, bait, dusk) => { let a = 0, k = 0; const dp = rig === 'troll' ? { mar: 7, lago: 3, rio: 1.2 }[water] : DEPTH[water]; for (let season = 0; season < 4; season++) for (const hr of dusk ? [18.5, 19.5, 20.2] : [7, 11, 15, 19, 21]) { a += hour(ctxAt({ water, season, depth: dp, tempC: tempOf(water, season, dp), hour: hr, weather: dusk ? 'nubes' : ['sol', 'nubes', 'lluvia'][hr % 3], spot: dusk ? 1.45 : 0.85 + 0.4 * r() }), rig, bait); k++; } return Math.round(a / k); };
+    const base = {}, rows = []; let best = 0, base3 = 0, bestD = 0, baseD = 0;
+    for (const water of Object.keys(DEPTH)) {
+      base[water] = [mean(water, null, '', false), mean(water, null, '', true)]; let top = 0, topD = 0;
+      for (const [rig, bait] of [['float', ''], ['float', 'worm'], ['bottom', 'worm'], ['float', 'maiz'], ['float', 'pan'], ['float', 'saltamontes'], ['bottom', 'cut_bait'], ['spin', 'spoon'], ['spin', 'jig'], ['troll', 'spoon'], ['troll', 'jig']]) {
+        const a = mean(water, rig, bait, false), d = mean(water, rig, bait, true); rows.push(`${water} ${rig} ${bait || 'bare'} ${a}/${d}`);
+        check(a < base[water][0] * 1.2 && d < base[water][1] * 1.25, `${water}, ${rig} ${bait || 'bare'}: ${a} / ${d} coins/h, before baits ${base[water]}`); if (!bait) check(a < base[water][0] * 0.65 && a > base[water][0] * 0.3, `a bare hook in ${water}: ${a} of ${base[water][0]}`);
+        top = Math.max(top, a); topD = Math.max(topD, d);
+      }
+      best += top; bestD += topD; base3 += base[water][0]; baseD += base[water][1];
+    }
+    console.log(`fish rigs (coins/h, ordinary/dusk; before baits ${JSON.stringify(base)}): ${rows.join(' · ')}; the best of each water ×${(best / base3).toFixed(2)} ordinary, ×${(bestD / baseD).toFixed(2)} dusk`);
+    check(best / base3 < 1.12 && best / base3 > 0.85 && bestD / baseD < 1.15, `the right bait everywhere: ×${(best / base3).toFixed(2)}, dusk ×${(bestD / baseD).toFixed(2)}`);
   });
   await test('fish (english): what Lía says bites', async () => {
     const T = game.days, was = [T.weather, T.shift];
@@ -10407,7 +10591,7 @@ async function soloTests(game) {
     });
   });
   await test('nature (english): every species has names, facts and a model', async () => {
-    check(SPECIES_IDS.length === 55 && GROUPS.every(gr => SPECIES_IDS.some(id => SPECIES[id].group === gr)), `${SPECIES_IDS.length} species`);
+    check(SPECIES_IDS.length === 61 && GROUPS.every(gr => SPECIES_IDS.some(id => SPECIES[id].group === gr)), `${SPECIES_IDS.length} species`);
     const [en, es] = await Promise.all(['en', 'es'].map(l => fetch(`src/lang/${l}.json`).then(r => r.json())));
     const miss = SPECIES_IDS.flatMap(id => ['name', 'note'].flatMap(k => [en, es].filter(L => !L[`nature.${k}.${id}`]).map(L => `${L === en ? 'en' : 'es'} nature.${k}.${id}`)));
     check(!miss.length, `missing: ${miss.slice(0, 8)}`);

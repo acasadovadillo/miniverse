@@ -6,31 +6,56 @@
 // the weight of the fish. On the bank, a card says what it is: E keeps it, X held lets it go.
 // What bites, and how soon, is the water's word (fishwater.js): its kind and depth, the spot, the light, the season, the
 // water's temperature, the weather and how fished-out that spot is.
+// R changes the bait (Shift+R, the other way), and the bait makes the rig: worms, maize, bread and insects hang from the float;
+// a worm on the bottom, cut fish or a crab lie on the bed and it is the rod's tip that tells; a spoon or a jig is cast and
+// comes back by itself, with a chance of a predator on the way. From a boat under way the lure is trolled behind instead.
+// A bait goes with each fish landed or stolen; a lure lasts so many casts and is lost with a broken line.
 //
-//   state   null, or { phase: 'wait' | 'bite' | 'fight', t, fly, nib, bx, by, px, py, ctx, rate, … }: what
-//           three/fishing3d.js draws (bite: the profile; bt: s in the bite; ex, ey: the end of the line in the fight; load)
+//   state   null, or { phase: 'wait' | 'bite' | 'fight', rig, bait, t, fly, nib, bx, by, px, py, ctx, rate, … }: what
+//           three/fishing3d.js draws (bx, by: the float, or where the line goes in; spinning or trolling, the lure, now; bite:
+//           the profile; bt: s in the bite; ex, ey: the end of the line in the fight; load)
+//   chosen  the bait picked with R (a key of BAITS, '' a bare hook, null: the first bait at hand), in the save as log.bait
 //   card    null, or the fish in the hands { id, cm, kg, g, rec, trophy, t }, which ui/fishcard.js shows
 //   records, log   the largest of each (cm; older games read it), and cm, g, the day and the water of it, the counts and the last ones
-import { FISH, ITEMS } from './items.js';
+import { FISH, ITEMS, itemNoun } from './items.js';
 import { WATER_Y } from './world/biomes.js';
 import { Audio } from './audio.js';
 import { Profile } from './accounts.js';
 import { hud } from './ui/hud.js';
 import { nearX } from './world/planet.js';
-import { t as tr, has, fmt } from './i18n.js';
+import { t as tr, has, fmt, getLang } from './i18n.js';
 import * as FW from './fishwater.js';
 import { HOLD_X } from './input.js';
 
 export const MIN_CAST = 1.2, REACH = { 1: 6, 2: 9 };      // tiles: the least, and how far each rod throws
 const LINE_KG = { 1: 5, 2: 12 }, SEDAL_KG = 2;            // kg the line holds; Lía's good line (her gift at three hearts) adds
 const ROD_K = { 1: 1, 2: 1.15 };                          // how the rod changes the rate
+const NOTHING_LOSS = 0.3, MISS_LOSS = 0.5;                // P(the bait is gone) pulling on nothing; pulling late or badly
 const NIB = 0.3, NIB_GAP = [4, 10], STEAL = 0.06, SPOOK = { r: 3, s: 30, k: 1.5 };
 const KEEP_S = 5, BIG = 2.5;                              // s the card stays; kg from which it can slip off at a steep bank
-const FIND = 0.03, RARE = 0.04, TAP = 0.4;
+const SLIP = 0.25, FIND = 0.03, RARE = 0.04, TAP = 0.4;
 // How each kind takes the float. pre: s of warning before it can be struck (pulling then is too soon), win: s to strike
 export const BITES = { dip: { pre: 0.6, win: 0.7 }, run: { pre: 0, win: 2 }, lift: { pre: 0.4, win: 1.5 }, slam: { pre: 0, win: 1 }, taps: { pre: 0, win: 1.2 } };
 export const BITE_IDS = ['dip', 'run', 'lift', 'slam', 'taps'];
 const PHASES = { wait: 1, bite: 2, fight: 3 };
+// What can go on the hook, in the order of R. use: it goes on by itself when the one chosen runs out (real bait, not food or
+// something worth keeping). cut_bait: with none left, a sardine is cut on the spot (CUTS pieces)
+export const BAITS = [
+  { key: 'worm', id: 'worm', rig: 'float', use: true }, { key: 'worm_bottom', id: 'worm', rig: 'bottom' }, { key: 'maiz', id: 'maiz', rig: 'float' }, { key: 'pan', id: 'pan', rig: 'float' },
+  ...['saltamontes', 'grillo', 'polilla'].map(id => ({ key: id, id, rig: 'float', use: true })),
+  { key: 'cut_bait', id: 'cut_bait', rig: 'bottom', use: true }, { key: 'cangrejo', id: 'cangrejo', rig: 'bottom' },
+  { key: 'spoon', id: 'spoon', rig: 'spin' }, { key: 'jig', id: 'jig', rig: 'spin' },
+];
+const BARE_HOOK = { key: '', id: '', rig: 'float' }, CUT_FROM = 'sardina', CUTS = 3;
+export const RIGS = ['float', 'bottom', 'spin', 'troll'];
+const lured = rig => rig === 'spin' || rig === 'troll';
+// Spinning: the s a retrieve lasts (and the last ones of it, at the player's feet, nothing takes it). Trolling: the m/s of
+// the boat between which the lure works (rowing is 4.5, rowing hard 7.4), the m it goes behind, the s stopped or too fast
+// until it is brought in, and the s between looks at the water under it
+export const spinS = d => 3 + 0.4 * d;
+const SPIN_END = 0.4;
+export const TROLL = { v: [0.5, 5.4], back: 8, stop: 4, fast: 0.8, look: 2 };
+const HOOKS_ITSELF = 0.5, BOAT_KG = 10;                   // P(a lure hooks the fish by itself); kg that need the net even from a boat or wading
 const kgClass = kg => (kg < 0.5 ? 0 : kg < 2.5 ? 1 : kg < 8 ? 2 : 3);
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const r2 = v => Math.round(v * 100) / 100;
@@ -56,10 +81,13 @@ export class Fishing {
     // (a save from before the log: its record lengths, their weight worked out)
     const L = save?.fishLog, ok = v => v && typeof v === 'object' && !Array.isArray(v) ? v : {};
     this.log = { v: 1, rec: { ...ok(L?.rec) }, n: { ...ok(L?.n) }, last: Array.isArray(L?.last) ? L.last.slice(0, 20) : [] };
+    this.chosen = typeof L?.bait === 'string' ? L.bait : null;
+    this.wear = Object.fromEntries(Object.entries(ok(L?.wear)).filter(([id, n]) => ITEMS[id]?.lure && n > 0 && n < ITEMS[id].lure));   // (casts of the spoon and the jig in use)
+    this.bagV = -1; this.v = 0;
     for (const [id, r] of Object.entries(this.log.rec)) if (!Array.isArray(r) || !Number.isFinite(r[0])) delete this.log.rec[id];
     for (const [id, cm] of Object.entries(this.records)) if (FISH[id] && Number.isFinite(cm) && !(this.log.rec[id]?.[0] >= cm)) this.log.rec[id] = [cm, Math.round(FW.kgOf(FISH[id], cm) * 1000), 0, ''];
   }
-  save(out) { out.fishRecords = this.records; out.fishLog = this.log; }
+  save(out) { out.fishRecords = this.records; out.fishLog = { ...this.log, ...(this.chosen !== null && { bait: this.chosen }), ...(Object.keys(this.wear).length && { wear: this.wear }) }; }
 
   // ---------- the rod ----------
   get tier() { return ITEMS[this.game.inv.held?.id]?.tier > 1 ? 2 : 1; }
@@ -70,6 +98,60 @@ export class Fishing {
   seated(p) { return !!p?.pose && (p.pose.kind === 'floorSit' || p.pose.kind === 'sit') && !p.bathing; }
 
   canUse(p) { return this.seated(p) && ITEMS[this.game.inv.held?.id]?.tool === 'cana'; }
+
+  // ---------- the bait ----------
+  // Those at hand, in the order of R (looked at again only when the backpack changes)
+  baits() {
+    const I = this.game.inv;
+    if (this.bagV !== I.v || this.bagOf !== I) { this.bagV = I.v; this.bagOf = I; this.bag = BAITS.filter(b => this.left(b.id) > 0); this.now = this.said = null; }
+    return this.bag;
+  }
+  left(id) { const I = this.game.inv; return I.count(id) + (id === 'cut_bait' ? I.count(CUT_FROM) * CUTS : 0); }
+  // The one that goes on now: the one chosen while there is any of it, else the first real bait, else a bare hook
+  get bait() {
+    const bag = this.baits();
+    if (this.now && this.nowOf === this.chosen) return this.now;
+    this.nowOf = this.chosen; this.said = null;
+    return (this.now = this.chosen === '' ? BARE_HOOK : bag.find(b => b.key === this.chosen) || bag.find(b => b.use && (b.id !== 'cut_bait' || this.game.inv.count('cut_bait') > 0)) || BARE_HOOK);
+  }
+  baitText() {
+    const b = this.bait;
+    if (!b.id) return tr('fish.no_bait');
+    const item = itemNoun(b.id), n = this.left(b.id);
+    if (ITEMS[b.id].lure) return tr('fish.lure', { item, n });
+    return tr(b.key === 'worm_bottom' ? 'fish.bait_bottom' : 'fish.bait', { item, n });
+  }
+  // R with the rod in the hand: the next one (with Shift, the one before). With the line out it is brought in first; biting
+  // or fighting, it does nothing
+  cycleBait(dir = 1) {
+    const s = this.state;
+    if (s && s.phase !== 'wait') return false;
+    if (s) { this.state = null; Audio.reel(0.5); }
+    const list = [...this.baits(), BARE_HOOK], i = list.indexOf(this.bait);
+    this.chosen = list[(Math.max(0, i) + dir + list.length) % list.length].key;
+    this.said = null;
+    Audio.tick();
+    return true;
+  }
+  // Is R the rod's? (with the rod in the hand, in the world; building, R turns what is built: main.js)
+  ownsR() { const g = this.game, p = g.player; return !!p && !g.build.on && ITEMS[g.inv.held?.id]?.tool === 'cana' && g.scene === this.world && !p.swim && !g.busy && !hud.dialogOpen; }
+  // One of it is gone. The last one: it says so, and what goes on next (the first real bait, or nothing)
+  spendBait(id) {
+    const I = this.game.inv;
+    if (!id) return;
+    I.remove(id, 1);
+    if (I.infinite || this.left(id) > 0) return;
+    if (this.chosen === id || this.chosen === id + '_bottom') this.chosen = null;
+    this.game.gather.float(tr('fish.bait_out', { item: itemNoun(id) }), '#ffd0a0');
+  }
+  // A cast of a lure: so many and it is worn out. (Counted for each kind, not on the stack: they pile up like any other thing)
+  wearLure(id) {
+    if (this.game.inv.infinite || !ITEMS[id]?.lure) return;
+    if ((this.wear[id] = (this.wear[id] || 0) + 1) < ITEMS[id].lure) return;
+    delete this.wear[id];
+    this.game.gather.float(tr('fish.lure_worn', { item: itemNoun(id) }), '#ffd0a0');
+    this.spendBait(id);
+  }
 
   waterType(x, y) { return FW.waterType(this.world, x, y); }
   // Where a cast would go: the water under the cursor (the camera's ray on the water's plane), or { far: true } if it is
@@ -105,11 +187,11 @@ export class Fishing {
   target(p, held, def) {
     if (def?.tool !== 'cana' || this.game.scene !== this.world || p.swim || (p.pose && !this.seated(p))) return null;
     const s = this.state;
-    // (biting or fighting, no words: the float says it)
-    if (s) return { tile: null, ok: true, still: true, label: s.phase === 'wait' && s.fly === 1 ? tr('fish.reel') : '', use: () => this.press() };
+    // (biting or fighting, no words: the float says it. R and the bait: hint, below)
+    if (s) return { tile: null, ok: true, still: true, fish: true, label: s.phase === 'wait' && s.fly === 1 ? tr('fish.reel') : '', use: () => this.press() };
     const spot = this.aimSpot(p);
     if (!spot) return null;
-    return spot.far ? { tile: null, ok: false, label: tr('fish.too_far') } : { tile: null, ok: true, label: this.card ? '' : tr(`fish.in.${spot.water}`), use: () => this.press() };
+    return spot.far ? { tile: null, ok: false, label: tr('fish.too_far') } : { tile: null, ok: true, fish: true, label: this.card ? '' : tr(`fish.in.${spot.water}`), use: () => this.press() };
   }
 
   // A click: cast, reel in, or strike
@@ -120,7 +202,7 @@ export class Fishing {
     if (!s) return this.cast();
     if (s.phase === 'bite') return this.strike();
     if (s.phase !== 'wait') return;
-    if (s.fly === 1 && s.nib > -0.35) return this.nothing();   // (it was only pecking)
+    if (s.fly === 1 && s.nib > -0.35 && !lured(s.rig)) return this.nothing();   // (it was only pecking)
     this.state = null; Audio.swish(); Audio.reel(0.5);
   }
   // Space strikes too
@@ -136,12 +218,27 @@ export class Fishing {
     g.gather.swing = 0.25; g.gather.swingItem = held.id;
     Audio.swish();
     if (!p.pose && !p.boat && !p.aboard && !p.mount && spot.r > 0.1) p.face = { x: (spot.x - p.x) / spot.r, y: (spot.y - p.y) / spot.r };
-    const ctx = FW.here(g, spot.x, spot.y, ROD_K[this.tier]), rate = ctx ? FW.rates(ctx) : 0;
+    const b = this.bait;
+    if (b.id === 'cut_bait' && !g.inv.count('cut_bait')) { g.inv.remove(CUT_FROM, 1); const over = g.inv.add('cut_bait', CUTS); if (over) g.gather.throwOut('cut_bait', over); g.gather.float(tr('fish.cut', { item: itemNoun(CUT_FROM) }), '#fff3c0'); }
+    const ctx = FW.here(g, spot.x, spot.y, ROD_K[this.tier], b.rig, b.id), rate = ctx ? FW.rates(ctx) : 0;
     let wait = FW.waitFor(rate);
     const now = g.time;
     this.spooks = this.spooks.filter(q => q.until > now);
     if (this.spooks.some(q => Math.hypot(q.x - spot.x, q.y - spot.y) < SPOOK.r)) wait *= SPOOK.k;
-    this.state = { phase: 'wait', t: wait, rate, ctx, nib: -9, next: this.nibGap(rate), bare: false, fly: 0, bx: spot.x, by: spot.y, px: p.x, py: p.y, water: spot.water };
+    const s = this.state = { phase: 'wait', rig: b.rig, bait: b.id, t: wait, rate, ctx, nib: -9, next: this.nibGap(rate), bare: !b.id, fly: 0, bx: spot.x, by: spot.y, px: p.x, py: p.y, water: spot.water };
+    if (!lured(b.rig)) return;
+    // (a lure: it comes back by itself, and something may take it on the way. Nothing pecks at it)
+    this.wearLure(b.id);
+    this.home(s);
+    const T = spinS(spot.r), at = FW.lureWait(rate) * (wait > 0 && this.spooks.some(q => Math.hypot(q.x - spot.x, q.y - spot.y) < SPOOK.r) ? SPOOK.k : 1);
+    Object.assign(s, { sx: s.bx, sy: s.by, rt: 0, T, at: at < T - SPIN_END ? at : Infinity, t: Infinity, next: Infinity, click: 0 });
+  }
+  // Where it is brought in to: the last water between the end of the line and the player
+  home(s) {
+    const p = this.game.player, dx = p.x - s.bx, dy = p.y - s.by, L = Math.hypot(dx, dy) || 1;
+    let hx = s.bx, hy = s.by;
+    for (let r = 0.3; r < L - 0.5; r += 0.3) { const x = s.bx + (dx / L) * r, y = s.by + (dy / L) * r; if (!this.waterType(x, y)) break; hx = x; hy = y; }
+    s.hx = hx; s.hy = hy; s.nx = -dy / L; s.ny = dx / L;
   }
   nibGap(rate) { return (NIB_GAP[0] + Math.random() * (NIB_GAP[1] - NIB_GAP[0])) / clamp(rate, 0.5, 2); }   // (a busy float: a good spot)
 
@@ -150,6 +247,7 @@ export class Fishing {
     const s = this.state;
     this.spooks.push({ x: s.bx, y: s.by, until: this.game.time + SPOOK.s });
     if (this.spooks.length > 6) this.spooks.shift();
+    if (Math.random() < NOTHING_LOSS) this.spendBait(s.bait);
     this.lose(tr('fish.nothing'));
     Audio.reel(0.5);
   }
@@ -165,7 +263,9 @@ export class Fishing {
     if (!id) { s.t = Infinity; return; }
     s.phase = 'bite'; s.bt = 0; s.id = id;
     s.find = Math.random() < FIND;
-    s.bite = id === 'carpa' && Math.random() < 0.3 ? 'lift' : FISH[id].bite || 'dip';   // (a carp on a float sometimes lifts it)
+    const lure = lured(s.rig);
+    s.bite = lure ? 'slam' : id === 'carpa' && s.rig !== 'bottom' && Math.random() < 0.3 ? 'lift' : FISH[id].bite || 'dip';   // (a carp on a float sometimes lifts it; a lure is always slammed)
+    s.self = lure && Math.random() < HOOKS_ITSELF ? 0.15 + 0.2 * Math.random() : Infinity;   // (half of them hook themselves on it)
     s.taps = s.bite === 'taps' ? 3 + Math.floor(Math.random() * 4) : 0;
     s.pre = s.taps ? s.taps * TAP : BITES[s.bite].pre;
     s.win = BITES[s.bite].win + (this.tier > 1 ? 0.15 : 0) + 0.02 * this.level;
@@ -185,8 +285,14 @@ export class Fishing {
     g.gather.swing = 0.25; g.gather.swingItem = g.inv.held?.id;
     if (s.bt < s.pre) return this.nothing();
     const q = clamp(1 - (s.bt - s.pre) / s.win, 0, 1);
-    if (Math.random() > Math.min(0.97, 0.72 + 0.24 * q + 0.02 * this.level)) return this.lose(tr('fish.spat'));
+    if (Math.random() > Math.min(0.97, 0.72 + 0.24 * q + 0.02 * this.level)) return this.missed(tr('fish.spat'));
     this.hook();
+  }
+  // Struck badly, or too late: half the times the bait is gone (a lure, never)
+  missed(text) {
+    const s = this.state;
+    if (!lured(s.rig) && Math.random() < MISS_LOSS) this.spendBait(s.bait);
+    this.lose(text);
   }
   // Hooked: its length and weight, how long it fights and whether the line will break (and when)
   hook(size = null) {
@@ -194,11 +300,8 @@ export class Fishing {
     const kg = s.find ? 0.4 : FW.kgOf(f, z.cm), o = (kg * (s.find ? 0.6 : f.pull || 1)) / this.lineKg;
     Object.assign(s, { phase: 'fight', cm: Math.round(z.cm), kg, trophy: !s.find && z.trophy, ft: 0, T: s.find ? 1.2 : fightS(kg, f.pull || 1), load: clamp(0.15 + 0.5 * o, 0.15, 1), run: 0, click: 0, splash: 0.6, ph: Math.random() * 6 });
     s.breakAt = Math.random() < breakP(o) ? s.T * (0.5 + 0.5 * Math.random()) : Infinity;
-    // (where it is brought in to: the last water between the float and the player)
-    const p = this.game.player, dx = p.x - s.bx, dy = p.y - s.by, L = Math.hypot(dx, dy) || 1;
-    let hx = s.bx, hy = s.by;
-    for (let r = 0.3; r < L - 0.5; r += 0.3) { const x = s.bx + (dx / L) * r, y = s.by + (dy / L) * r; if (!this.waterType(x, y)) break; hx = x; hy = y; }
-    Object.assign(s, { hx, hy, ex: s.bx, ey: s.by, nx: -dy / L, ny: dx / L });
+    this.home(s);
+    s.ex = s.bx; s.ey = s.by;
     Audio.splash(); this.game.gather.chips(s.bx, s.by, 'water', 8);
   }
   fight(dt) {
@@ -223,29 +326,35 @@ export class Fishing {
     g.view3d?.fx?.rippleAt?.(x, y, 0.6 + 0.7 * k, 0.5);
     if (k > 0.7) Audio.splash(); else Audio.plop();
   }
-  snap() { Audio.lineSnap(); this.lose(tr('fish.broke')); }
+  // (what was on the hook goes with it, a lure too)
+  snap() { Audio.lineSnap(); const s = this.state; if (lured(s.rig)) delete this.wear[s.bait]; this.spendBait(s.bait); this.lose(tr('fish.broke')); }
   // At the bank: from a steep one, or where it is deep at your feet, a big fish can still slip off (a boat or a shelving
-  // shore is the way to land it)
+  // shore is the way to land it; or the landing net, which only has to be carried)
   steep() {
     const g = this.game, p = g.player, s = this.state;
-    if (p.boat || p.aboard || p.depth > 0.05) return false;
+    if (p.boat || p.aboard || p.depth > 0.05) return s.kg >= BOAT_KG;
     const up = (g.view3d?.groundY?.(this.world, p.x, p.y) ?? WATER_Y) + (p.floor || 0) - WATER_Y;
     return up > 0.5 || FW.bedDepth(this.world, s.hx, s.hy) > 0.8;
   }
   bank() {
     const s = this.state, g = this.game;
     if (s.find) return this.found();
-    if (s.kg > BIG && this.steep() && Math.random() < 0.25) return this.lose(tr('fish.slipped'));
+    if (!lured(s.rig)) this.spendBait(s.bait);   // (one bait a fish)
+    if (s.kg > BIG && this.steep() && Math.random() < SLIP) {
+      if (!g.inv.count('landing_net')) return this.lose(tr('fish.slipped'));
+      g.gather.float(tr('fish.netted'), '#cfe8c0');
+    }
     this.splashAt(s.ex, s.ey, 1);
     this.state = null;
     this.landed({ id: s.id, cm: s.cm, kg: s.kg, trophy: s.trophy, water: s.water, x: s.bx, y: s.by });
   }
-  // Something that is not a fish: an old boot, a bottle; now and then an old coin
+  // Something that is not a fish: an old boot, a bottle; now and then a lost spoon or an old coin
   found() {
     const g = this.game, r = Math.random();
     this.state = null;
     if (r < 0.35) { this.jump('moneda_antigua'); g.stats?.add('tesoros', 1); g.gather.float(tr('fish.find.coin'), '#ffd77a'); Audio.pickup(); }
-    else g.gather.float(tr(r < 0.7 ? 'fish.find.boot' : 'fish.find.bottle'), '#cfd8dc');
+    else if (r < 0.5) { this.jump('spoon'); g.gather.float(tr('fish.find.lure'), '#ffd77a'); Audio.pickup(); }   // (one that someone lost: it still works)
+    else g.gather.float(tr(r < 0.75 ? 'fish.find.boot' : 'fish.find.bottle'), '#cfd8dc');
   }
 
   // ---------- the catch ----------
@@ -320,29 +429,88 @@ export class Fishing {
     // Another thing in the hand, another place or the water: the line is let go; walking reels it in (fighting, it breaks)
     if (ITEMS[g.inv.held?.id]?.tool !== 'cana' || g.scene !== this.world || p.swim) { if (s.phase === 'fight') this.snap(); else this.lose(null); return; }
     const afloat = !!(p.boat || p.aboard), moved = Math.hypot(p.x - s.px, p.y - s.py);
-    if (s.phase !== 'fight' && (moved > (afloat ? 1.5 : 0.4) || Math.hypot(p.x - s.bx, p.y - s.by) > this.reach + 2.5)) { this.state = null; return; }
+    if (!afloat) s.qx = undefined;
+    else if (!this.adrift(s, p, dt)) { this.state = null; return; }
+    if (s.rig === 'troll') { if (!afloat) { if (s.phase === 'fight') this.snap(); else this.state = null; return; } }
+    else if (s.phase !== 'fight' && (moved > (afloat ? 1.5 : 0.4) || Math.hypot(p.x - s.bx, p.y - s.by) > this.reach + 2.5)) { if (!(afloat && s.rig === 'spin' && s.phase === 'wait' && s.v >= TROLL.v[0])) { this.state = null; return; } }
     if (g.busy) return;   // (with a dialog or a scene on, the fish waits)
     if (s.fly < 1) {
       s.fly = Math.min(1, s.fly + dt / 0.4);
-      if (s.fly === 1) { Audio.plop(); g.gather.chips(s.bx, s.by, 'water', 5); g.view3d?.fx?.rippleAt?.(s.bx, s.by, 0.5, 0.4); if (!(s.rate > 0)) g.gather.float(tr('fish.too_shallow'), '#ffd0a0'); }
+      if (s.fly === 1) { Audio.plop(); g.gather.chips(s.bx, s.by, 'water', 5); g.view3d?.fx?.rippleAt?.(s.bx, s.by, 0.5, 0.4); if (!(s.rate > 0)) g.gather.float(tr(s.ctx?.depth < 0.3 ? 'fish.too_shallow' : 'fish.no_takers'), '#ffd0a0'); }
       return;
     }
     if (s.phase === 'fight') return this.fight(dt);
+    if (s.phase === 'wait' && lured(s.rig)) return s.rig === 'troll' ? this.trolling(s, p, dt) : this.retrieve(s, afloat, dt);
     if (s.phase === 'wait') {
       s.t -= dt; s.nib -= dt;
       if ((s.next -= dt) <= 0 && s.t > 1.5) {
         s.next = this.nibGap(s.rate);
         if (s.rate > 0) {   // (where nothing lives, not even a tremble)
           s.nib = NIB; this.bob();
-          if (!s.bare && Math.random() < STEAL) { s.bare = true; s.t = Math.min(FW.WAIT[1], s.t * 3); g.gather.float(tr('fish.stolen'), '#ffd0a0'); }
+          if (!s.bare && Math.random() < STEAL) this.stolen(s);
         }
       }
       if (s.t <= 0) this.bite();
     } else if (s.phase === 'bite') {
       s.bt += dt;
       this.biteSounds(s);
-      if (s.bt > s.pre + s.win) this.lose(tr('fish.gone'));
+      if (s.bt > s.self) this.hook();
+      else if (s.bt > s.pre + s.win) this.missed(tr('fish.gone'));
     }
+  }
+  // Something has had the bait: a bare hook from here on
+  stolen(s) {
+    this.game.gather.float(tr('fish.stolen'), '#ffd0a0');
+    this.spendBait(s.bait);
+    s.bare = true; s.bait = ''; s.t = Math.min(FW.WAIT[1], s.t * 3);
+    if (s.ctx) s.ctx.bait = '';
+  }
+  // Spinning: the lure comes back to the bank, ticking; what is going to take it does so on the way. From a boat that moves
+  // off, it is trolled from here on
+  retrieve(s, afloat, dt) {
+    if (afloat && s.v >= TROLL.v[0]) {
+      Object.assign(s, { rig: 'troll', still: 0, fast: 0, look: 0 });
+      if (s.ctx) s.ctx.rig = 'troll';
+      return;
+    }
+    s.rt += dt;
+    if ((s.click -= dt) <= 0) { s.click = 0.28; Audio.reel(0.12); }
+    const k = Math.min(1, s.rt / s.T);
+    s.bx = s.sx + (s.hx - s.sx) * k; s.by = s.sy + (s.hy - s.sy) * k;
+    if (s.rt >= s.at) this.bite();
+    else if (k >= 1) { this.state = null; Audio.plop(); }
+  }
+  // How fast the boat goes (s.v, from where it is: a passenger has no speed of its own), and the line goes along with it in
+  // a fight. false: it has jumped somewhere else
+  adrift(s, p, dt) {
+    if (s.qx !== undefined && dt > 0) {
+      const dx = p.x - s.qx, dy = p.y - s.qy, far = Math.abs(dx) + Math.abs(dy) > 5;   // (a jump, or the seam of the planet)
+      const v = far ? 0 : Math.hypot(dx, dy) / dt;
+      s.v += (v - s.v) * Math.min(1, dt * 4);
+      if (far) return false;
+      if (s.phase === 'fight') { s.bx += dx; s.by += dy; s.hx += dx; s.hy += dy; s.px += dx; s.py += dy; }
+    } else s.v = 0;
+    s.qx = p.x; s.qy = p.y;
+    return true;
+  }
+  // Trolling: the lure follows at the end of its line; the water under it is looked at every couple of seconds, and the
+  // longer it swims the likelier it is taken. Stopped a while, or rowing hard, or run aground: it is brought in
+  trolling(s, p, dt) {
+    const g = this.game, dx = s.bx - p.x, dy = s.by - p.y, d = Math.hypot(dx, dy) || 1;
+    s.px = p.x; s.py = p.y;
+    if (d > TROLL.back) { s.bx = p.x + (dx / d) * TROLL.back; s.by = p.y + (dy / d) * TROLL.back; }
+    s.still = s.v < TROLL.v[0] ? s.still + dt : 0;
+    s.fast = s.v > TROLL.v[1] ? s.fast + dt : 0;
+    if (s.fast > TROLL.fast) { g.gather.float(tr('fish.too_fast'), '#ffd0a0'); this.state = null; Audio.reel(0.5); return; }
+    if (s.still > TROLL.stop) { this.state = null; Audio.reel(0.5); return; }
+    if ((s.look -= dt) <= 0) {
+      s.look = TROLL.look;
+      const ctx = s.ctx = FW.here(g, s.bx, s.by, ROD_K[this.tier], 'troll', s.bait);
+      if (!ctx) { this.state = null; Audio.reel(0.5); return; }
+      s.water = ctx.water; s.rate = FW.rates(ctx) * FW.TROLL_K;
+      g.view3d?.fx?.rippleAt?.(s.bx, s.by, 0.4, 0.35);
+    }
+    if (s.still === 0 && Math.random() < (dt * s.rate) / FW.W0) this.bite();
   }
   // (each dip, tap or sinking is heard once)
   biteSounds(s) {
@@ -386,6 +554,8 @@ export class Fishing {
     const fight = s.phase === 'fight';
     return [r2(fight ? s.ex : s.bx), r2(fight ? s.ey : s.by), s.fly < 1 ? 0 : PHASES[s.phase], s.bite ? BITE_IDS.indexOf(s.bite) : 0, fight ? Math.max(kgClass(s.kg), Math.round(s.load * 3)) : 0];
   }
+  // st.fg, only when it is not the float: 1 the bottom, 2 spinning, 3 trolling (no float: the line goes into the water)
+  netRig() { const k = this.state ? RIGS.indexOf(this.state.rig) : 0; return k > 0 ? k : undefined; }
   // A record or a trophy of another player: in the feed if they are near or your couple
   heard(peer, m) {
     const g = this.game, p = g.player, e = peer?.entity;
@@ -394,6 +564,18 @@ export class Fishing {
     if (!near && !g.social?.isPartner?.(peer)) return false;
     hud.toast(tr(m.rec ? 'fish.feed_rec' : 'fish.feed', { who: String(peer.name || '').slice(0, 24), fish: fishName(m.id), cm: Math.round(m.cm), kg: kgText(m.g / 1000) }), 'net');
     return true;
+  }
+
+  // The click hint, with the bait and its key beside it (only over water or with the line out)
+  hint() {
+    const g = this.game, t = g.gather.target;
+    if (!t?.fish || !t.label || ITEMS[g.inv.held?.id]?.tool !== 'cana' || g.mode !== 'play' || g.busy || g.player?.swim || g.build.on) return '';
+    const v = this.bait;
+    if (this.said !== t.label || this.saidFor !== v || this.saidLang !== getLang()) {   // (written only when it changes)
+      const text2 = this.baitText();
+      this.said = t.label; this.saidFor = v; this.saidLang = getLang(); this.hinted = { text: t.label, key2: 'R', text2, all: `${t.label} ${text2}` };
+    }
+    return this.hinted;
   }
 
   // How the player stands: the rod out, leaning back on it in the fight, the fish held in both hands

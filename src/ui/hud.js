@@ -8,7 +8,7 @@ import { glyph } from './glyphs.js';
 import { HudLog } from './hudlog.js';
 
 const $ = id => document.getElementById(id);
-let shownCoords = null, shownHint = null, shownHintKey, shownClock = null, dialog = null;
+let shownCoords = null, shownHint = null, shownHintKey, shownHint2, shownClock = null, dialog = null;
 
 // Retrato de quien habla (si es una persona conocida): su cara en 3D. El nombre puede llevar detrás los corazones.
 function showFace(name) {
@@ -131,8 +131,14 @@ export const hud = {
     shownClock = { text, sky };
   },
   // key: the key on its label (undefined: the click, as always; '': none; 'Q'…: that one)
-  hint(text, key) {
-    if (text === shownHint && key === shownHintKey) return;
+  hint(text, key, key2, text2) {
+    if (text === shownHint && key === shownHintKey && text2 === shownHint2) return;
+    if (text2 !== shownHint2) {   // (a second key and its words, after the first: R and the bait, fishing.js)
+      shownHint2 = text2;
+      let more = $('hint-more');
+      if (!more && text2) { more = document.createElement('span'); more.id = 'hint-more'; more.append(document.createElement('kbd'), document.createElement('span')); $('hint').append(more); }
+      if (more) { more.style.display = text2 ? '' : 'none'; if (text2) { more.firstChild.textContent = key2; more.lastChild.textContent = text2; } }
+    }
     shownHint = text; shownHintKey = key;
     $('hint').classList.toggle('show', !!text);
     if (text) $('hint-text').textContent = text;

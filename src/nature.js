@@ -61,7 +61,7 @@ const LIST = [
   ['cerdo', 'animal', null], ['conejo', 'animal', null], ['caballo', 'animal', null], ['perro', 'animal', null],
   ['gato', 'animal', null],
   ...['carpa', 'perca', 'trucha', 'salmon', 'lucio', 'anguila', 'sardina', 'lubina', 'pez_globo', 'cangrejo', 'pez_hielo',
-    'siluro', 'pulpo', 'atun', 'esturion', 'pez_dorado'].map(id => [id, 'fish', null]),
+    'siluro', 'pulpo', 'atun', 'esturion', 'tench', 'barbel', 'crayfish', 'mackerel', 'sea_bream', 'squid', 'pez_dorado'].map(id => [id, 'fish', null]),
   ...['mariposa', 'mariquita', 'saltamontes', 'libelula', 'luciernaga', 'escarabajo', 'grillo', 'polilla'].map(id => [id, 'bug', null]),
   ...['oak', 'fruit', 'pine', 'snowPine', 'swampTree', 'palm', 'cactus', 'bush', 'deadBush', 'margarita', 'diente_leon',
     'nabo', 'fresa', 'zanahoria', 'tomate', 'maiz', 'trigo', 'calabaza'].map(id => [id, 'plant', null]),
@@ -146,6 +146,8 @@ function fishFacts(id, g) {
   else if (!f.rare) out.push(['nature.fact.fish_dawn', null, 2]);
   if (f.weather === 'lluvia') out.push(['nature.fact.rain', null, 2]);
   out.push(rec ? ['nature.fact.size', { a: f.cm[0], b: f.cm[1], r: rec }, 3] : ['nature.fact.size_none', { a: f.cm[0], b: f.cm[1] }, 3]);
+  const likes = Object.entries(f.bait || {}).filter(([b]) => b === 'insect' || ITEMS[b]).sort((a, b) => b[1] - a[1]).slice(0, 2).map(([b]) => (b === 'insect' ? t('fish.bait.insect') : lower(b)));
+  if (likes.length) out.push(['nature.fact.fish_bait', { list: likes }, 3]);
   if (f.depth) out.push(['nature.fact.fish_depth', { a: f.depth[0], b: f.depth[1] }, 3]);
   if (f.temp) out.push(['nature.fact.fish_temp', { a: f.temp[0], b: f.temp[1] }, 3]);
   return out;

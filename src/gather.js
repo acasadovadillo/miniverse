@@ -14,6 +14,8 @@ import { hud } from './ui/hud.js';
 import { RUG_SIZES, TABLE_SIZES } from './art/stations.js';
 import { XP_ORE, roll } from './xp.js';
 import { dxOf, WATER_Y } from './world/planet.js';
+import { B } from './world/biomes.js';
+import { CHUNK } from './world/gen.js';
 import { reportFault } from './faults.js';
 import { t as tr } from './i18n.js';   // (as tr: t is the target in many places here)
 import { BULKY_PARTS } from './carry-items.js';   // (the big things carried in the arms: never a drop, their parts)
@@ -30,6 +32,7 @@ const sizesOf = id => (id === 'mesa_grande' ? [0, 2, 3, 5] : null);
 const rugK = id => Math.max(0, RUG_SIZES.findIndex(([w, h]) => w === ITEMS[id].size?.[0] && h === ITEMS[id].size?.[1]));
 
 const REACH = 1.7;          // alcance en casillas
+const WORMY = new Set([B.MEADOW, B.FOREST, B.PINES, B.SWAMP]), WORM_P = 0.2;   // (the soils with worms, and how often one is found)
 const COOLDOWN = 0.32;      // segundos entre golpes
 // Which system offered each target of pickTarget (a WeakMap: the targets are theirs, not to be written on)
 const OFFERED = new WeakMap();
@@ -55,6 +58,7 @@ export class Gathering {
     this.parts = [];        // astillas
     this.floaters = [];     // textos que suben ("+3 Madera")
     this.pending = new Map();
+    this.turned = new Set();   // (the tiles whose earth has been turned this session: worms)
     this.target = null;
     this.rot = 0;           // giro de lo que va contra un muro (cuadros y hogar: cuatro, con R)
     this.angle = 0;         // giro de lo que se coloca libre (radianes: R lo va girando poco a poco)
@@ -349,6 +353,7 @@ export class Gathering {
     if (tool === 'azada') {
       if (!t?.ok || !this.spend('azada')) { if (!t?.ok) Audio.swish(); return; }
       g.world.till(...t.tile);
+      this.worms(...t.tile);
       g.stats?.add('labrados', 1);
       this.chips(t.tile[0] + 0.5, t.tile[1] + 0.5, 'dirt', 10);
       Audio.till();
@@ -398,7 +403,7 @@ export class Gathering {
     const g = this.game, p = g.player, slot = g.inv.selected, up = !!ITEMS[held.id].empty;
     if (!t?.shovel || !t.ok) { this.float(t?.why || 'Ahí no', '#ffb0a0'); Audio.error(); this.cooldown = COOLDOWN; return; }
     const [tx, ty] = t.tile, under = Math.floor(p.x) === tx && Math.floor(p.y) === ty && !p.boat, was = under ? g.world.surfaceAt(p.x, p.y) : 0;
-    const wasWet = !!g.world.water(tx + 0.5, ty + 0.5);
+    const wasWet = !!g.world.water(tx + 0.5, ty + 0.5), first = !up && !wasWet && g.world.delta(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK))?.dig?.[`${tx},${ty}`] === undefined;
     g.world.digTile(tx, ty, up ? 1 : -1, g.days.dayIndex);
     const wet = !!g.world.water(tx + 0.5, ty + 0.5);
     if (under) p.z = (p.z || 0) + was - g.world.surfaceAt(p.x, p.y);   // (los pies, donde estaban: cae o sube suave)
@@ -411,7 +416,19 @@ export class Gathering {
     if (wasWet || wet) { this.splash(tx + 0.5, ty + 0.5, 14, 1.3); g.view3d?.fx?.rippleAt?.(tx + 0.5, ty + 0.5, 1.4, 0.6); Audio.splash(); }
     if (!wet) this.chips(tx + 0.5, ty + 0.5, 'dirt', up ? 10 : 14);
     if (!wasWet && !wet) { if (up) Audio.dump(); else Audio.dig(); }
+    if (first && !wet) this.worms(tx, ty);
     g.stats?.add(up ? 'tierra_soltada' : 'cavados', 1);
+  }
+
+  // Worms in the earth just turned (dug with the shovel for the first time, or tilled): one or two, now and then; twice as
+  // often after rain or in wet earth. Bait for the rod (fishing.js). None in sand, rock, snow or ice
+  worms(tx, ty) {
+    const g = this.game, w = g.world, x = tx + 0.5, y = ty + 0.5;
+    if (g.scene !== w || !WORMY.has(w.gen.biomeAt(x, y)) || this.turned.has(`${tx},${ty}`)) return;
+    this.turned.add(`${tx},${ty}`);   // (digging and filling the same tile again and again finds no more)
+    if (this.turned.size > 400) this.turned.delete(this.turned.values().next().value);
+    const damp = g.days?.weatherHere === 'lluvia' || g.days?.weatherHere === 'tormenta' || [[2, 0], [-2, 0], [0, 2], [0, -2]].some(([dx, dy]) => w.water(x + dx, y + dy));
+    this.spawnDrops({ x, y }, { drops: [['worm', 1, 2, WORM_P * (damp ? 2 : 1)]] });
   }
 
   // Lo que suelta al romperse

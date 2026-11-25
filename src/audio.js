@@ -83,6 +83,8 @@ export const Audio = {
     else { Audio.noiseHit(850 * k, 0.045, 0.32); tone([[310 * k, 0.025, 'triangle', 0.09], [165 * k, 0.06, 'triangle', 0.08]]); }
   },
   chalk() { Audio.noiseHit(2600, 0.06, 0.05, 'highpass'); },
+  // (a small dry tick: choosing the bait)
+  tick() { tone([[760, 0.025, 'triangle', 0.05]]); },
   swish() { Audio.noiseHit(3000, 0.08, 0.12, 'highpass'); },
   till() { Audio.noiseHit(300, 0.12, 0.3); },
   // La pala: al cavar, el filo que entra raspando y el golpe sordo del bloque que sale; al soltar la tierra, el golpe blando

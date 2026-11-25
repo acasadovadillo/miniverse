@@ -16,6 +16,8 @@ const BASE = {
   seashell: 5, pearl: 180, mussel: 4, seaweed: 2, canteen: 24, water_jug: 20, apple_juice: 30,
   // The body (Plan E §2.3): soap sells for less than Rosa asks
   soap: 10,
+  // Tackle (Plan R1-2): all of it sells for less than Lía asks
+  worm: 1, cut_bait: 3, spoon: 12, jig: 15,
 };
 // A bite takes 15-60 s (fishwater.js), not 2-7 s as before 2026-11-24: each fish is worth more, so that an hour of ordinary
 // fishing earns about 70 % of what it did and a good dusk more than that (measured: pruebas.js, «fish (english): income»)
@@ -73,7 +75,8 @@ export const SHOPS = {
   // (Lía's canteen is sold empty: shop stacks carry no sips)
   lia: {
     title: 'Aparejos de Lía', hours: [6, 20],
-    stock: [{ id: 'cana', price: 150 }, { id: 'cana_fibra', price: 1500 }, { id: 'regadera', price: 200 }, { id: 'canteen', price: 60 }, { plan: 'barca', price: 600 }, { id: 'sardina', price: 400 }],
+    stock: [{ id: 'cana', price: 150 }, { id: 'cana_fibra', price: 1500 }, { id: 'regadera', price: 200 }, { id: 'canteen', price: 60 }, { plan: 'barca', price: 600 }, { id: 'sardina', price: 400 },
+      { id: 'worm', price: 2 }, { id: 'spoon', price: 25 }, { id: 'jig', price: 30 }, { id: 'landing_net', price: 120 }],
   },
   // Nilo, en la plaza a todas horas: los planos de los muebles de siempre (los demás, Dani, cuando venga al pueblo)
   nilo: {

@@ -11,6 +11,7 @@
 //   rateOf(f, ctx), rates(ctx)  bites of a species, of all (W0 / rate = mean seconds between bites)
 //   waitFor(rate, rnd)          the seconds until the next bite
 //   pickFish(ctx, rnd)          which one
+//   baitK(f, rig, bait), rigK    how a species takes to what is on the hook, and whether that rig reaches it
 //   stockOf, takeFrom           how fished-out the 8 × 8 cell is (chunk delta d.fished)
 import { FISH, HARVEST } from './items.js';
 import { CHUNK } from './world/gen.js';
@@ -22,7 +23,7 @@ export const W0 = 28;                     // s: the mean wait where the rates ad
 export const WAIT = [6, 150];             // s: the shortest and the longest wait
 export const SUNRISE = 6.5, SUNSET = 19.5;   // (the sky's own: engine.js updateSky; the same all the year round)
 // (each water has its own number of kinds: so that an average spot of any of them gives a bite every 35-50 s)
-const WATER_K = { mar: 0.95, rio: 1, lago: 0.85, estanque: 1.35, pantano: 1.9, hielo: 1.5 };
+const WATER_K = { mar: 0.75, rio: 0.76, lago: 0.75, estanque: 1.1, pantano: 1.45, hielo: 1.5 };
 const SEASON_WATER = [12, 21, 15, 6];      // °C of the water in the village's climate, by local season
 const TL_REF = 0.52;                       // (the village's large-scale temperature: clothing.js TEMP.tlRef)
 const WEATHER_K = { sol: 1, nubes: 1.15, niebla: 1.1, lluvia: 1.25, tormenta: 0.5, nieve: 0.8, ventisca: 0.4 };
@@ -115,10 +116,33 @@ export const tempK = (temp, c) => { const off = c < temp[0] ? temp[0] - c : c > 
 export const depthK = (depth, d) => (!depth ? 1 : d < depth[0] ? clamp(1 - (depth[0] - d) / Math.min(0.3, depth[0] / 2), 0, 1) : d > depth[1] ? clamp(1 - (d - depth[1]), 0, 1) : 1);
 
 // ---------- what bites ----------
-// ctx: { water, depth, tempC, hour, season, weather, k } (k: the spot, the stock, the rod, the weather)
+// What is on the hook (Plan R1-2). rig: 'float' (the upper water and the margin), 'bottom' (the bed), 'spin' and 'troll' (a
+// lure: predators only). bait: the item's id, '' a bare hook. A species likes what its FISH.bait says; the rest of them
+// take a worm, an insect or a piece of fish now and then, and only those that are no predators (no lure in their list)
+// nibble at maize and bread. norm: so that each bait, where it is at its best, is worth what fishing was before baits
+export const INSECTS = new Set(['saltamontes', 'grillo', 'polilla']);
+const OTHER = { worm: 0.3, insect: 0.25, maiz: 0.12, pan: 0.12, cut_bait: 0.12, rotten_fish: 0.05, cangrejo: 0.05 };
+const BAIT_NORM = { worm: 0.74, insect: 0.95, maiz: 1.1, pan: 1.1, cut_bait: 0.95, rotten_fish: 0.85, cangrejo: 1.4, spoon: 0.33, jig: 0.43 };
+const BARE = 0.4, BARE_HUNTER = 0.12;
+export const TROLL_K = 1.2;
+const hunter = f => !!(f.bait?.spoon || f.bait?.jig) || f.bite === 'slam';
+export function baitK(f, bait) {
+  if (!bait) return hunter(f) ? BARE_HUNTER : BARE;
+  const id = INSECTS.has(bait) ? 'insect' : bait, k = f.bait?.[id] ?? ((id === 'maiz' || id === 'pan') && hunter(f) ? 0 : OTHER[id] || 0);
+  return k * (BAIT_NORM[id] ?? 1);
+}
+const BED = { run: true, taps: true, lift: true };
+export function rigK(f, rig, bait, c) {
+  if (rig === 'bottom') return BED[f.bite] ? 1.15 : f.bait?.[bait] >= 1.3 ? 0.9 : 0.4;
+  if (rig === 'spin' || rig === 'troll') return f.bait?.[bait] ? (rig === 'troll' && f.bite === 'slam' && bait === 'jig' ? 1.5 : 1) : 0;
+  return BED[f.bite] && c.depth > 2 && !c.margin ? clamp(1 - (c.depth - 2) * 0.4, 0.2, 1) : 1;   // (a float does not get down to the bed)
+}
+// ctx: { water, depth, tempC, hour, season, weather, k } (k: the spot, the stock, the rod, the weather) and what is on the
+// hook: rig, bait, margin (none: as if every fish took it, for what is not a line)
 export function rateOf(f, c) {
   if (f.rare || !f.water.includes(c.water)) return 0;
-  return (f.base || 0) * depthK(f.depth, c.depth) * momentK(f, c);
+  const r = (f.base || 0) * depthK(f.depth, c.depth) * momentK(f, c);
+  return c.rig ? r * baitK(f, c.bait) * rigK(f, c.rig, c.bait, c) : r;
 }
 export function rates(c) {
   let sum = 0;
@@ -132,6 +156,10 @@ export function waitFor(rate, rnd = Math.random) {
   const u = -Math.log(1 - rnd()) - Math.log(1 - rnd());
   return clamp((W0 / rate) * u / 2, WAIT[0], WAIT[1]);
 }
+// Spinning: the s until something takes the lure, if it were in the water for ever (LURE_K: it covers water; a retrieve
+// is only a few of those seconds)
+export const LURE_K = 2.5;
+export const lureWait = (rate, rnd = Math.random) => (rate > 0 ? (-Math.log(1 - rnd()) * W0) / (rate * LURE_K) : Infinity);
 // null where nothing lives (a puddle)
 export function pickFish(c, rnd = Math.random) {
   let sum = 0, last = null;
@@ -181,12 +209,13 @@ export function takeFrom(w, x, y, type, day, n) {
 }
 
 // All of it at a point of the world, for whoever is there now (local hour, season and weather: time.js), or null on land.
-// rod: the rod's own factor
-export function here(g, x, y, rod = 1) {
+// rod: the rod's own factor; rig and bait: what is on the hook (baitK, rigK)
+export function here(g, x, y, rod = 1, rig = '', bait = '') {
   const w = g.world, T = g.days, water = waterType(w, x, y);
   if (!water) return null;
   const depth = bedDepth(w, x, y), season = T.localSeason, hour = T.localHour, weather = T.weatherHere;
   const c = { x, y, water, depth, tempC: waterC(w, x, y, season, water, depth), hour, season, weather, spot: structure(w, x, y, water, depth), stock: stockK(caughtAt(w, x, y, water, T.realDay), water) };
+  if (rig) { c.rig = rig; c.bait = bait; c.margin = rig === 'float' && depth > 2 && RING.some(([a, b]) => !(w.waterDepth?.(x + a, y + b) > 0)); }
   c.k = c.spot * c.stock * rod * skyK(c, hour >= 15 && T.weatherFor(T.dayIndex + 1) === 'tormenta');
   return c;
 }
