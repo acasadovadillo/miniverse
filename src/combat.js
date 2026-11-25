@@ -142,6 +142,7 @@ export class Combat {
     g.body?.hit();   // (a hit leaves a little dirt and tears one of the clothes on a little: Plan E §2.3, §3.2)
     this.hp = Math.max(0, this.hp - dmg);
     this.invuln = 0.8;
+    g.talk?.hurt();   // (a talk stops there: talk.js)
     const dx = p.x - from.x, dy = p.y - from.y, d = Math.hypot(dx, dy) || 1;
     const nx = p.x + (dx / d) * 0.5, ny = p.y + (dy / d) * 0.5;
     if (!this.scene.blocked(nx, ny)) { p.x = nx; p.y = ny; }

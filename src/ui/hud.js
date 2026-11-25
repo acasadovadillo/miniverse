@@ -54,15 +54,16 @@ export const hud = {
   // ui/frontend.js: 'E', 'mouse:l'…), or one text (a string, the old form: one row with key). hold: that key has to be held
   // (its chip has a ring: promptHold). at: [x, y] on the screen, beside which it goes (ui/prompts.js: the thing aimed at, or
   // the cursor); without it, at the bottom, in the middle. The page is written only when the rows change or it moves a pixel
-  prompt(rows, at = null, key = 'E') {
+  // head: whose rows they are, over them (a neighbour: talk.js focus), { name, tier, hearts, doing, mood }
+  prompt(rows, at = null, key = 'E', head = null) {
     if (typeof rows === 'string' || rows === null || rows === undefined) { one.key = key; one.text = rows || ''; rows = rows ? single : none; }
     const P = prompt, el = P.el ||= $('prompt');
-    let sig = '';
+    let sig = head && rows.length ? `${head.name}\u0001${head.tier}\u0001${head.hearts}\u0001${head.doing}\u0001${head.mood}\u0003` : '';
     for (const r of rows) sig += `${r.key}\u0001${r.text}\u0001${r.hold ? 1 : 0}${r.dim ? 1 : 0}\u0002`;
     if (sig !== P.sig) {
       P.sig = sig;
       el.classList.toggle('show', !!rows.length);
-      if (rows.length) this.paintPrompt(rows);   // (none: the last ones fade where they were)
+      if (rows.length) this.paintPrompt(rows, head);   // (none: the last ones fade where they were)
     }
     if (!rows.length) return;
     const follow = !!at;
@@ -73,9 +74,17 @@ export const hud = {
     const x = Math.round(Math.max(safe, Math.min(innerWidth - P.w - safe, at[0]))), y = Math.round(Math.max(safe, Math.min(innerHeight - P.h - safe, at[1])));
     if (x !== P.x || y !== P.y) { P.x = x; P.y = y; el.style.transform = `translate3d(${x}px, ${y}px, 0)`; }
   },
-  paintPrompt(rows) {
+  paintPrompt(rows, head = null) {
     const P = prompt, box = $('prompt-text');
     box.textContent = '';
+    if (head) {
+      const el = document.createElement('div'), add = (tag, text, cls = '') => { if (!text) return; const q = document.createElement(tag); q.textContent = text; q.className = cls; el.append(q); };
+      el.className = 'pr-head';
+      add('b', head.name);
+      add('span', [head.tier, head.hearts].filter(Boolean).join(' '));
+      add('small', [head.doing, head.mood].filter(Boolean).join(' · '));
+      box.append(el);
+    }
     P.chips = rows.map(r => {
       const row = document.createElement('div'), k = chip(r.key, !!r.hold), text = document.createElement('span');
       row.className = r.dim ? 'pr dim' : 'pr';
@@ -92,7 +101,7 @@ export const hud = {
   // The key of a row, being held: its ring at k (0 to 1), or let go of (k < 0: it empties). done: it filled, a white flash.
   // Returns whether that key has a row in sight
   promptHold(key, k, done = false) {
-    const P = prompt, c = P.sig ? P.chips.find(c => c.key === key) : null;
+    const P = prompt, c = P.sig ? P.chips.find(c => c.key === key && c.hold) || P.chips.find(c => c.key === key) : null;   // (a key in two rows, a tap and a hold: the hold's)
     P.held = c && k >= 0 && !done ? key : null; P.heldK = k;
     if (!c) return false;
     const n = k < 0 ? 0 : Math.round(Math.min(1, k) * 100);

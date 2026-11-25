@@ -44,6 +44,7 @@ import { HOTBAR, extraOf } from './inventory.js';
 import { Neighbors } from './neighbors.js';
 import { Reputation } from './reputation.js';
 import { Social } from './social.js';
+import { Talk } from './talk.js';
 import { Board } from './board.js';
 import { Combat, DIFFICULTIES, MONSTERS, EFFECT_NAMES } from './combat.js';
 import { Hunt, bodyBox } from './hunt.js';
@@ -220,6 +221,7 @@ export class Game {
     this.playTime = this.addSystem(new PlayTime());   // how long this character has been played (src/playtime.js)
     this.live = this.addSystem(new Live(this));   // jugar juntos en directo
     this.social = this.addSystem(new Social(this));   // greeting and provoking people (Y or right click on someone)
+    this.talk = this.addSystem(new Talk(this));   // talking to a neighbour: subtitles and a list of options (talk.js)
     this.remarks = this.addSystem(new Remarks(this));   // what the neighbours say about how you look (src/remarks.js; after social: it speaks through social.say)
     this.money = 0;
     this.buffs = {};             // efectos de comida: { rapido: hasta cuándo, incansable: … }
@@ -537,6 +539,7 @@ export class Game {
     hud.log.clear();   // (what was said to this one)
     this.covers = (this.covers || 0) + 1;   // (un salto a oscuras a medias ya no destapa: ver coverJump)
     this.jumping = false; this.view3d.hold = false;
+    this.talk.stop();
     this.player = null;
     this.scene = null;
     this.mode = 'menu';
@@ -550,7 +553,7 @@ export class Game {
   // Lo que se puede hacer con E aquí (text, run) y, a veces, algo más con X (alt: recoger un mueble)
   nearest() {
     const p = this.player;
-    if (this.busy || this.mode !== 'play' || !p || this.gamemode === 'spectator') return null;   // (el espectador no toca nada)
+    if (this.busy || this.talk.on || this.mode !== 'play' || !p || this.gamemode === 'spectator') return null;   // (el espectador no toca nada; talking, E is the talk's)
     const sc = this.scene;
     if (p.pose) return { text: t('pose.stand_up'), run: () => this.rest.stand() };
     if (this.barrow.pushing) return this.barrow.pushAction();   // (the hands on the wheelbarrow: barrow.js)
@@ -868,21 +871,17 @@ export class Game {
   }
   action() {
     if (hud.dialogOpen) return hud.next();
+    if (this.talk.on) return this.talk.press();
     if (this.mode === 'play' && this.fishing.keep()) return;   // (a fish in the hands: it goes in the backpack)
     this.nearest()?.run();   // (what the arms carry is only put down with Q: carry.js)
   }
-  async talkNilo() {
-    this.busy = true;
-    const nilo = this.world.nilo, p = this.player;
-    nilo.flip = p.x - p.y < nilo.x - nilo.y;
+  // What Nilo has to tell before anything else (talk.js): how the game starts, or, in a game of before the hammer, what it is
+  // for, once. { lines, first, after() }, or null
+  niloTells() {
     const first = !this.craft.taught.has('banco');
-    const tips = tList('npc.chat.nilo.tip');
-    // (a game of before the hammer: what it is for, once)
-    const hammer = !first && !this.hammerTold && this.plans.on;
-    await hud.say('Nilo', first ? tList('npc.nilo.first').map(l => formatMessage(l, { name: p.name })) : hammer ? tList('npc.nilo.hammer') : [tips[Math.floor(Math.random() * tips.length)] || '…']);
-    if (first) this.craft.teach('banco');
-    if (first || hammer) this.hammerTold = true;
-    this.busy = false;
+    if (!first && (this.hammerTold || !this.plans.on)) return null;
+    return { first, lines: first ? tList('npc.nilo.first').map(l => formatMessage(l, { name: this.player.name })) : tList('npc.nilo.hammer'),
+      after: () => { if (first) this.craft.teach('banco'); this.hammerTold = true; } };
   }
   // Nilo amplía la casa del pueblo a cambio de materiales
   async offerReform() {

@@ -494,6 +494,7 @@ export class Live {
         break;
       // Alguien llama a una puerta: suena si estás cerca (y, si es la tuya, te avisa)
       case 'greet': if (!Profile.server && this.joined) g.social.heard(conn, peer, m); break;   // (someone greets: social.js)
+      case 'tk': if (!Profile.server && this.joined) g.talk?.heard(conn, peer, m); break;   // (someone talks with a neighbour: talk.js)
       case 'catch': if (!Profile.server && this.joined) g.fishing?.heard(peer, m); break;   // (a record or a trophy: fishing.js)
       case 'wp': g.route?.heard(conn, peer, m); break;   // (a map pin shared by someone: route.js)
       case 'mk': g.marks?.heard(conn, peer, m); break;   // (the marks your couple put on their map: mapmarks.js)

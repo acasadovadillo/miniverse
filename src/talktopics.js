@@ -238,7 +238,7 @@ export function learn(f, item) {
 }
 
 // ---------- the pick ----------
-export function topicWeights(ctx) { const out = {}; for (const [k, T] of Object.entries(TOPICS)) out[k] = T.weight(ctx); return out; }
+export function topicWeights(ctx) { const out = {}; for (const [k, T] of Object.entries(TOPICS)) out[k] = ctx.only && ctx.only !== k ? 0 : T.weight(ctx); return out; }   // (only: that topic and no other)
 export function topicLines(ctx, topic) {
   const T = TOPICS[topic], out = [];
   const add = (key, v) => tList(key).forEach((src, li) => out.push({ topic, key, li, src, params: v.params, done: v.done }));

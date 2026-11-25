@@ -47,7 +47,7 @@ export const REMARKS = [
   'underdressed', 'overdressed', 'fresh', 'haircut', 'new_clothes', 'couple', 'wrapped_up',
 ];
 export const GOOD_REMARKS = new Set(['fresh', 'haircut', 'new_clothes', 'couple', 'wrapped_up']);
-export const RECALLS = ['gift_loved', 'gift_hated', 'insult', 'take_seen', 'helped', 'knock_night', 'project', 'wish_kept'];
+export const RECALLS = ['gift_loved', 'gift_hated', 'insult', 'take_seen', 'helped', 'knock_night', 'project', 'wish_kept', 'walked_off'];
 
 export const NEAR = 6;            // tiles: how close a neighbour must be to remark as you pass
 export const GAP = 40;            // s (game time) between two passing remarks anywhere
@@ -154,7 +154,7 @@ export class Remarks {
     this.acc = 0;
     const g = this.game, p = g.player, w = g.world;
     if (this.off || Settings.v.remarks === false || Profile.server || !p || !w) return;
-    if (g.mode !== 'play' || g.busy || hud.dialogOpen || g.windowsOpen || g.scene !== w || g.gamemode === 'spectator') return;
+    if (g.mode !== 'play' || g.busy || hud.dialogOpen || g.talk?.on || g.windowsOpen || g.scene !== w || g.gamemode === 'spectator') return;
     if (g.time - this.lastAt < GAP) return;
     const now = Date.now();
     while (this.stamps.length && now - this.stamps[0] > HOUR_MS) this.stamps.shift();

@@ -27,7 +27,7 @@ export class Prompts {
     this.game = game;
     this.v3 = new THREE.Vector3();
     this.rows = [];
-    this.pool = Array.from({ length: 4 }, () => ({ key: 'E', text: '', hold: 0, dim: false }));
+    this.pool = Array.from({ length: 5 }, () => ({ key: 'E', text: '', hold: 0, dim: false }));
     this.at = [0, 0];
     this.id = undefined; this.p = { x: 0, y: 0, h: 0 }; this.since = 0; this.shown = false;
     this.held = null;   // { text, t0, ms }: X, being held
@@ -44,9 +44,11 @@ export class Prompts {
   // a click would hit it; social: greeting someone in sight (social.promptFor: its text, or '')
   frame(near, hl, prey, social) {
     const g = this.game, rows = this.rows;
+    let head = null;
     rows.length = 0; this.click = false;   // (click: the rows say what the click does, so the hint over the hotbar does not)
     if (near) {
-      this.add('E', near.text);
+      if (near.npc) head = g.talk.focus(near.npc, near.n, true);   // (a neighbour: their tag over the rows, so these say no name)
+      this.add('E', head ? near.row : near.text);
       if (near.alt) this.add('X', near.alt.hold ? `${near.alt.text} ${t('prompt.hold')}` : near.alt.text, near.alt.hold || 0, true);
       this.click = !!prey;
       if (prey) this.add('mouse:l', t('prompt.attack'), 0, true);
@@ -55,10 +57,16 @@ export class Prompts {
     const plan = g.plans?.row() || null, down = plan || (g.build.on ? g.build.holdRow() : null);
     if (plan) { rows.length = 0; this.click = true; this.add('mouse:l', plan.dim ? plan.text : `${plan.text} ${t('prompt.hold')}`, plan.dim ? 0 : 1, plan.dim); }
     else if (down) { rows.length = 0; this.add('mouse:l', `${down.text} ${t('prompt.hold')}`, 1); }
-    if (social && !down) this.add('Y', social, 0, rows.length > 0);
+    if (social && !down) {
+      const who = g.social.focused();
+      if (who && !near) head = g.talk.focus(who.id, who.n, false);   // (farther than E reaches: only the name)
+      this.add('Y', who?.ringing ? t('talk.row.greet') : social, 0, rows.length > 0);
+      if (who) this.add('Y', who.ringing ? social : `${t('talk.row.provoke')} ${t('prompt.hold')}`, 1, true);
+    }
+    if (down) head = null;
     const target = !rows.length ? null : down ? down.target : near ? hl : social ? g.social.picked : null;
     if (!target) this.id = undefined;
-    hud.prompt(rows, target ? this.place(target, down ? down.target : near ? hl : null) : null);
+    hud.prompt(rows, target ? this.place(target, down ? down.target : near ? hl : null) : null, 'E', head);
     if (down || this.downK) { const k = down && !down.dim ? down.k : -1; if (k !== this.downK) { this.downK = k; hud.promptHold('mouse:l', k); } if (!down) this.downK = 0; }
     this.shown = !!target;
     this.tick(near);

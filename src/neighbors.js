@@ -4,16 +4,13 @@
 import { Person } from './entities.js';
 import { ITEMS, CROPS, itemNoun } from './items.js';
 import { NILO, hasProject, WALK_NODES, WALK_EDGES } from './world/village.js';
-import { SHOPS, mendPrice } from './economy.js';
-import { TRADES } from './trades.js';
+import { mendPrice } from './economy.js';
 import { Audio } from './audio.js';
 import { hud } from './ui/hud.js';
-import { Profile } from './accounts.js';
 import { t, tHtml, tList, fmt, formatMessage } from './i18n.js';
 import { talkContext, pickTopic, moodOf, learn, thing, someOf, countOf, WISH_DAYS } from './talktopics.js';
 import { levelIndex, recent } from './reputation.js';
 import { tearStage, TEAR } from './clothing.js';
-import { openBarber } from './barber.js';
 import { RECALLS } from './remarks.js';   // (a cycle, read only inside functions: remarks.js reads PEOPLE the same way)
 
 // Puntos del pueblo por los que se camina (sobre el camino, para no chocar con nada) y cómo se unen: village.js
@@ -192,7 +189,8 @@ export class Neighbors {
   update(dt) {
     const h = this.game.days.hour;
     for (const n of this.people) {
-      if (n.talkWith && !this.game.busy && !hud.dialogOpen) n.talkWith = null;   // (a talk cut off from outside: the menu)
+      const who = this.game.talk?.holder(n) || null;   // (you, or another player, talking with them: talk.js)
+      if (n.talkWith !== who) n.talkWith = who;
       n.update(dt, h);
       // (si le han quitado la silla o el taburete, de pie; si vuelve a haberlo, sentado)
       if (n.def.sits) { const has = !!this.world.at('placed', Math.floor(n.x), Math.floor(n.y)); if (has !== !!n.pose) n.pose = has ? { kind: 'sit', yaw: n.def.seat[2], h: n.def.sits } : null; }
@@ -210,7 +208,8 @@ export class Neighbors {
     return null;
   }
   // Lo que se hace con un vecino (null: Nilo)
-  actionFor(n) { return { text: t('npc.action.talk', { name: n ? n.def.name : PEOPLE.nilo.name }), run: () => this.talk(n ? n.id : 'nilo', n || undefined) }; }
+  // (npc, n: whose tag goes over the prompt's rows, and row: what its E says under it; ui/prompts.js)
+  actionFor(n) { const id = n ? n.id : 'nilo'; return { text: t('npc.action.talk', { name: PEOPLE[id].name }), row: t('talk.row.talk'), npc: id, n, run: () => this.talk(id, n || undefined) }; }
   // Have they met you? (the first talk is an introduction; until then they do not call you by your name). Nilo met you
   // when you arrived: talkNilo
   introduced(id) {
@@ -260,96 +259,67 @@ export class Neighbors {
     return this.say(id, `greet.${h >= 21 || h < 6 ? 'night' : h < 12 ? 'morning' : h < 18 ? 'day' : 'evening'}`);
   }
 
-  async talk(id, npc) {
-    if (npc) npc.talkWith = this.game.player;   // (they stop for the whole talk: Neighbor.update)
-    try { await this.converse(id, npc); } finally { if (npc) npc.talkWith = null; }
-  }
-  async converse(id, npc) {
-    const g = this.game, def = PEOPLE[id], f = this.friend(id), first = id === 'nilo' && !g.craft.taught.has('banco'), met = this.introduced(id);
-    g.busy = true;
-    g.player.stop();
-    if (npc) { const dx = g.player.x - npc.x, dy = g.player.y - npc.y; npc.faceTo(dx, dy); }   // te mira
-    if (first) { await g.talkNilo(); g.busy = false; return; }
-    // The reputation (reputation.js): at «Outcast» (or provoked three times today) they do not chat with you, but the shop
-    // (dearer), the trades and gifts stay; provoked today, they start with a reproach and the chat does not count
-    const R = g.rep, cold = !R || R.canTalk(id) ? null : 'refuse', sore = f.insultedAt === this.today;
+  // A talk (talk.js): it is over when the promise is
+  talk(id, npc) { return this.game.talk.start(id, npc); }
+  // What a talk does to the friendship and the reputation, at its start. { cold: they do not chat with you ('refuse', or null),
+  // sore: provoked today, they start with a reproach and the chat does not count }
+  meet(id) {
+    // (at «Outcast», or provoked three times today, they do not chat with you, but the shop, dearer, the trades and gifts stay)
+    const R = this.game.rep, f = this.friend(id), cold = !R || R.canTalk(id) ? null : 'refuse', sore = f.insultedAt === this.today;
     // (filthy or with a carcass in the arms, the first chat of the day counts half; freshly bathed, +5 once a day: Plan E §4.5)
     // ('fresh' is the remark's condition: the half hour after a soap bath, not the whole soap spell)
-    const Rm = g.remarks, messy = Rm && (Rm.holds('filthy') || Rm.holds('carcass'));
+    const Rm = this.game.remarks, messy = Rm && (Rm.holds('filthy') || Rm.holds('carcass'));
     if (!cold && !sore && f.talk !== this.today) { f.talk = this.today; this.addPoints(id, messy ? Math.ceil(CHAT_PTS / 2) : CHAT_PTS); R?.change(1, 'talk'); }
     if (!cold && !sore && Rm?.holds('fresh') && f.freshDay !== this.today) { f.freshDay = this.today; this.addPoints(id, FRESH_PTS); }
-    // Eventos de amistad (they wait while the village distrusts you)
-    for (const lvl of cold || R?.eventsWait() ? [] : [3, 6]) {
-      const ev = def.events?.[lvl];
-      if (ev && this.hearts(id) >= lvl && !f.events.includes(lvl)) {
-        f.events.push(lvl);
-        await hud.say(def.name, tList(`npc.events.${id}.${lvl}`).map(l => formatMessage(l, this.params())));
-        for (const [item, n] of ev.gift || []) { const left = g.inv.add(item, n); if (left) g.gather.throwOut(item, left); g.gather.float(`+${n} ${ITEMS[item].name}`, '#fff3c0'); }
-        if (ev.flag) this.flags[ev.flag] = true;
-        R?.change(15, 'event');
-        Audio.unlock();
-        g.busy = false;
-        return;
-      }
-    }
-    const held = g.inv.held, giftable = held && !ITEMS[held.id].tool && f.gift !== this.today;
-    const shop = def.shop && SHOPS[def.shop], now = shop && shop.hours[1] > 24 && g.days.hour < 6 ? g.days.hour + 24 : g.days.hour, open = shop && this.isWorking(id) && now >= shop.hours[0] && now < shop.hours[1];
-    // (the options by id; their texts through t(). A tailor mends while she is in, even before her shop exists: Plan E §4.4)
-    const opts = [], add = (k, text) => opts.push({ k, text });
-    if (!cold) add('chat', t('npc.opt.chat'));
-    const rq = g.board?.requestOf(id);   // (what they ask for on the board today, handed over in person)
-    if (rq && g.board.canDeliver(rq)) add('deliver', t('talk.opt.deliver', { what: countOf(rq.item, rq.n) }));
-    if (open) add('shop', t(def.shopOpt || 'npc.opt.shop'));
-    if (def.mends && (open || !shop)) add('mend', t('npc.opt.mend'));
-    if (def.service === 'barber') add('haircut', t('npc.opt.haircut'));
-    if (open && TRADES[id]) add('trade', t('npc.opt.trade'));
-    if (id === 'nilo') add('plans', t('npc.opt.plans'));   // (los de los muebles de siempre: economy.js, SHOPS.nilo)
-    if (giftable) add('gift', t('npc.opt.gift', { item: itemNoun(held.id) }));
-    if (id === 'nilo' && !g.house.family && Profile.admin && !g.live.guest) add('house', t('npc.opt.house'));   // (la casa es la del dueño del mundo)
-    add('bye', t('npc.opt.bye'));
-    const hearts = '♥'.repeat(this.hearts(id)) || '·';
-    const said = cold ? this.line(open ? 'npc.refuse.shop' : 'npc.refuse') : sore ? this.line('npc.reproach') : this.greeting(id, met);
-    const pick = opts[await hud.ask(`${def.name}  ${hearts}`, said, opts.map(o => o.text))]?.k;
-    if (pick === 'chat') {
-      await this.chat(id, npc);
-    } else if (pick === 'deliver') {
-      await this.deliver(id, npc, rq);
-    } else if (pick === 'shop' || pick === 'plans') {
-      g.busy = false;
-      g.onShop?.(pick === 'plans' ? 'nilo' : def.shop);
-      return;
-    } else if (pick === 'haircut') {
-      g.busy = false;
-      openBarber(g);
-      return;
-    } else if (pick === 'mend') {
-      await this.mend(id);
-    } else if (pick === 'trade') {
-      await this.trade(id);
-    } else if (pick === 'gift') {
-      await this.gift(id, held, npc);
-    } else if (pick === 'house') {
-      await (g.house.big ? g.offerFamily() : g.offerReform());
-    }
-    g.busy = false;
+    return { cold, sore };
+  }
+  // The friendship's moment that is due, 3 hearts before 6 (one a talk; they wait while the village distrusts you): [{ lines,
+  // give() }], or none. give(): it is lived, and what comes with it is handed over (its lines may have been cut)
+  dueEvents(id) {
+    const g = this.game, f = this.friend(id), def = PEOPLE[id];
+    if (g.rep?.eventsWait()) return [];
+    const lvl = [3, 6].find(l => def.events?.[l] && this.hearts(id) >= l && !f.events.includes(l));
+    if (!lvl) return [];
+    const ev = def.events[lvl];
+    return [{ lines: tList(`npc.events.${id}.${lvl}`).map(l => formatMessage(l, this.params())), give: () => {
+      f.events.push(lvl);
+      for (const [item, n] of ev.gift || []) { const left = g.inv.add(item, n); if (left) g.gather.throwOut(item, left); g.gather.float(`+${n} ${ITEMS[item].name}`, '#fff3c0'); }
+      if (ev.flag) this.flags[ev.flag] = true;
+      g.rep?.change(15, 'event');
+      Audio.unlock();
+    } }];
   }
   // ---------- chatting (talktopics.js: what about) ----------
-  async chat(id, npc) {
-    const g = this.game, def = PEOPLE[id], f = this.friend(id), ctx = talkContext(g, id, npc), x = pickTopic(ctx, f);
-    if (!x) return;
-    const lines = x.text.split(' | ');   // (the longer ones, in two boxes)
-    if (ctx.mood > 0 && Math.random() < EXTRA_CHANCE) { const s = this.say(id, 'mood.extra'); if (s) lines.push(s); }
-    await hud.say(def.name, lines);
-    if (ctx.mood) this.gesture(id, npc, ctx.mood > 0 ? 'wave' : 'dismiss');
+  chatLines(id, npc, mood = 0) {
+    const f = this.friend(id), x = pickTopic(talkContext(this.game, id, npc), f);
+    const lines = x ? x.text.split(' | ') : [];   // (the longer ones, in two)
+    if (lines.length && mood > 0 && Math.random() < EXTRA_CHANCE) { const s = this.say(id, 'mood.extra'); if (s) lines.push(s); }
+    return lines;
+  }
+  // What they say, in their talk (as subtitles), or in the box if there is none
+  tell(id, lines) { const T = this.game.talk; return T?.has(id) ? T.say(id, lines) : hud.say(PEOPLE[id].name, lines); }
+  // Where neighbour id is now, by their schedule and where they stand: { kind (npc.where.<kind>), until (the hour it ends, or
+  // when they come, or null), goal (where they go: a node), at: [x, y] to point at, or null }
+  whereIs(id) {
+    const n = this.people.find(p => p.id === id), h = this.game.days.hour;
+    if (id === 'nilo') return { kind: 'nilo', until: null, at: [NILO.x, NILO.y] };
+    if (!n) return { kind: 'away', until: null, at: null };
+    const S = n.def.schedule, at = [n.x, n.y];
+    if (n.def.seat) { const [from, to] = n.def.hours; return n.hidden ? { kind: 'away', until: from, at: null } : { kind: 'taberna', until: to, at }; }
+    const next = S.find(s => s[0] > h), until = next ? next[0] : S[1][0];   // (after the last one of the day, the first of tomorrow's)
+    if (n.path.length) return { kind: 'road', until, goal: n.path[n.path.length - 1], at };
+    if (n.hidden || n.node.startsWith('door')) return { kind: h >= 22 || h < 6 ? 'asleep' : 'home', until, at: h >= 22 || h < 6 ? null : at };
+    return { kind: n.node.startsWith('pond') ? 'pond' : n.node, until, at };
   }
   gesture(id, npc, kind) { const e = npc || (id === 'nilo' ? this.game.world?.nilo : null); if (e && !e.hidden) this.game.social?.emote(e, kind); }
   // Their request of the board, handed over to them: the board's reward (board.js deliver) and a little more friendship
   async deliver(id, npc, r) {
     const g = this.game, got = g.board.deliver(r);
-    if (!got) { Audio.error(); await hud.say(t('board.name'), [g.inv.count(r.item) < r.n ? t('board.short', { what: countOf(r.item, r.n - g.inv.count(r.item)) }) : t('board.row.done', { name: PEOPLE[id].name })]); return; }   // (someone else handed it in meanwhile)
+    if (!got) { Audio.error(); hud.toast(g.inv.count(r.item) < r.n ? t('board.short', { what: countOf(r.item, r.n - g.inv.count(r.item)) }) : t('board.row.done', { name: PEOPLE[id].name }), 'warn'); return; }   // (someone else handed it in meanwhile)
     this.addPoints(id, DELIVER_PTS);
+    hud.toast(t('board.reward', { n: got.reward }), 'money');
+    await this.tell(id, [this.say(id, 'thanks')]);
     this.gesture(id, npc, 'nod');
-    await hud.say(PEOPLE[id].name, [this.say(id, 'thanks'), t('board.reward', { n: got.reward })]);
     g.onSave?.();
   }
   // ---------- mending (Marta, Plan E §4.4) ----------
@@ -384,7 +354,7 @@ export class Neighbors {
     }
   }
   // A random line of a list in the language files (npc.refuse…), with the player's name
-  line(key) { const l = tList(key); return l.length ? formatMessage(l[Math.floor(Math.random() * l.length)], { name: this.game.player?.name || '' }) : ''; }
+  line(key, more) { const l = tList(key); return l.length ? formatMessage(l[Math.floor(Math.random() * l.length)], this.params(more)) : ''; }
   // ---------- memory (Plan E §4.5) ----------
   // Neighbour id remembers something you did today (kind: remarks.js RECALLS; item: an item id, a project id or nothing).
   // The same thing twice in a day is one memory, moved to the end; the oldest go first
@@ -451,8 +421,8 @@ export class Neighbors {
     const R = g.rep, rep = pts >= 90 ? [8, 'gift_loved'] : pts >= 50 ? [4, 'gift_liked'] : pts > 0 ? [2, 'gift'] : [-1, 'gift_hated'];
     if (R) { const n = rep[0] > 0 ? Math.floor(rep[0] / part) : rep[0]; R.change(n > 0 && R.index <= levelIndex('distrusted') ? n * 2 : n, rep[1]); }
     const gs = GIFT_GESTURE[how];
+    await this.tell(id, [this.say(id, wish ? 'wish.kept' : again && how !== 'hated' ? 'gift.again' : `gift.${how}`, { item: thing(item) })]);
     this.gesture(id, npc, typeof gs === 'string' ? gs : gs[def.temper] || 'shrug');
-    await hud.say(def.name, [this.say(id, wish ? 'wish.kept' : again && how !== 'hated' ? 'gift.again' : `gift.${how}`, { item: thing(item) })]);
   }
 
   // Pestaña del diario: amistades

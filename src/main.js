@@ -61,7 +61,7 @@ function play(login = true) {   // (login: abrir la pantalla de entrar)
   initInput({
     frontKey: e => menus.frontKey(e),   // (a menu screen of ui/frontend.js open: the keys are its own)
     chat: prefix => chat.open(prefix),
-    use: () => (hud.dialogOpen ? game.action() : b.on ? b.place() : game.gather.use()),
+    use: () => (hud.dialogOpen ? game.action() : b.on ? b.place() : game.talk.takesClick ? game.talk.click() : game.gather.use()),   // (talking, the click is the talk's; with a bow in hand, it draws it: talk.js bow)
     jump: () => (hud.dialogOpen ? game.action() : game.fishing.space() ? null : game.player?.pose ? game.rest.stand() : game.player?.jump()),
     drop: all => game.toss(all),
     posture: hold => game.rest.posture(hold),   // (Shift alone: a tap or a hold; rest.js posture)

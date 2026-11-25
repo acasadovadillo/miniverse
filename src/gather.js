@@ -320,7 +320,7 @@ export class Gathering {
   // auto: el botón se mantiene pulsado; sigue golpeando, pero no come sin querer ni golpea al aire.
   use(auto = false) {
     const g = this.game, p = g.player;
-    if (!p || g.busy || hud.dialogOpen || g.mode !== 'play' || this.cooldown > 0 || (p.pose && !g.fishing.canUse(p)) || p.swim || g.gamemode === 'spectator') return;   // (nadando, las manos son para nadar)
+    if (!p || g.busy || hud.dialogOpen || g.talk?.takesClick || g.mode !== 'play' || this.cooldown > 0 || (p.pose && !g.fishing.canUse(p)) || p.swim || g.gamemode === 'spectator') return;   // (nadando, las manos son para nadar)
     if (g.carry?.handsBusy()) return g.carry.handsFull(auto);   // (something in the arms, or the hands on the wheelbarrow: no punches, nothing picked by hand; carry.js. Riding or rowing with it, the tool works)
     const held = g.inv.held, def = held && ITEMS[held.id];
     if (def?.food || def?.heal || def?.buff) return auto ? undefined : this.eat(g.inv.selected);

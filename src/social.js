@@ -39,7 +39,7 @@ const MY_LIFE = 2.6, NPC_LIFE = 2.8, STAY = 1.8;   // s: how long the bubbles la
 // the cupped hand (needs.drinkAt plays it again while drinking; its animation is three/actors.js EMOTES.drink: an old
 // client without it shows 'wave', live.js). 'scrub': washing at a river or a lake, or at a basin (body.js, Plan E §4.2);
 // 'shiver': the cold as a gesture (actors.js EMOTES; the idle shiver itself is drawn from st.bd)
-export const EMOTE_KINDS = ['wave', 'nod', 'shrug', 'hips', 'fist', 'flinch', 'point', 'dismiss', 'drink', 'scrub', 'shiver', 'brush', 'pat', 'whistle'];   // (append only: the index travels as st.ek; brush, pat and whistle: the horse, Plan F §5.3)
+export const EMOTE_KINDS = ['wave', 'nod', 'shrug', 'hips', 'fist', 'flinch', 'point', 'dismiss', 'drink', 'scrub', 'shiver', 'brush', 'pat', 'whistle', 'talk', 'think'];   // (append only: the index travels as st.ek; brush, pat and whistle: the horse, Plan F §5.3; talk and think: a talk's, never sent, talk.js)
 export const PLAYER_LINES = ['social.say.greet.morning', 'social.say.greet.day', 'social.say.greet.evening', 'social.say.greet.night', 'social.say.greet_player', 'social.say.greet_partner', 'social.say.insult', 'social.say.insult_player', 'social.say.air'];
 const RELS = ['friend', 'neutral', 'cold'];
 const MEM_DAYS = 2;   // (a memory of today or the 2 days before: «the last 3 days» of relation())
@@ -68,9 +68,11 @@ const CSS = `
 .say-bubble b { display: block; margin-bottom: 1px; font: 600 11px/1.2 var(--font-title); letter-spacing: .07em; text-transform: uppercase; color: #8a5a2a; }
 .say-bubble.mine { background: rgba(10, 12, 16, .88); color: var(--cream); box-shadow: 0 0 0 1px rgba(255, 255, 255, .16), 0 2px 8px rgba(0, 0, 0, .35); }
 .say-bubble.mine::after { border-top-color: rgba(10, 12, 16, .88); }
-#social-sub { position: fixed; left: 50%; bottom: 17%; z-index: 23; max-width: min(640px, 80vw); padding: 6px 16px; transform: translateX(-50%); border-radius: var(--r-s); background: rgba(10, 12, 16, .72);
-  color: var(--cream); font: 500 18px/1.3 var(--font-ui); text-align: center; white-space: pre-line; opacity: 0; visibility: hidden; transition: opacity .2s, visibility 0s linear .2s; pointer-events: none; }
+#social-sub { position: fixed; left: 50%; bottom: max(17%, 152px); z-index: 23; width: max-content; max-width: min(680px, 62vw); transform: translateX(-50%);
+  color: #fff; font: 500 max(18px, calc(22 * var(--ui-s)))/1.35 var(--font-ui); text-align: center; text-wrap: balance; text-shadow: 0 1px 2px rgba(0, 0, 0, .95), 0 0 6px rgba(0, 0, 0, .75), 0 0 14px rgba(0, 0, 0, .5); opacity: 0; visibility: hidden; transition: opacity .2s, visibility 0s linear .2s; pointer-events: none; }
 #social-sub.on { opacity: 1; visibility: visible; transition: opacity .12s, visibility 0s; }
+#social-sub b { margin-right: 9px; font: 600 .95em/1.2 var(--font-title); letter-spacing: .06em; text-transform: uppercase; }
+body.big-text #social-sub { font-size: max(22px, calc(27 * var(--ui-s))); }
 body:not(.playing) #social-sub { display: none; }
 #social-hold { position: fixed; left: 0; top: 0; z-index: 7; display: flex; align-items: center; gap: 6px; pointer-events: none; opacity: 0; visibility: hidden; transition: opacity .12s, visibility 0s linear .12s; }
 #social-hold.on { opacity: 1; visibility: visible; transition: opacity .1s, visibility 0s; }
@@ -120,7 +122,7 @@ export class Social {
     this.lastAt = -Infinity;
     this.picked = null; this.pickT = 0;
     this.back = null;        // the player who just greeted you: { conn, until }
-    this.subLines = [];      // the subtitle's lines (the last two): { text, until }
+    this.subLines = [];      // the subtitle's lines (the last two): { text, until, who, color }
     this.ui = typeof document !== 'undefined' && !Profile.server;
     if (!this.ui) return;
     const style = this.style = document.createElement('style');
@@ -138,7 +140,7 @@ export class Social {
   // Can you greet now? Playing, not talking, not building, not with the tool wheel open, not as a spectator, not typing
   can() {
     const g = this.game;
-    return !!g.player && g.mode === 'play' && !g.busy && !hud.dialogOpen && g.gamemode !== 'spectator' && !g.build?.on && !g.wheel?.open && !g.jumping &&
+    return !!g.player && g.mode === 'play' && !g.busy && !hud.dialogOpen && !g.talk?.on && g.gamemode !== 'spectator' && !g.build?.on && !g.wheel?.open && !g.jumping &&
       !(typeof document !== 'undefined' && document.activeElement instanceof HTMLInputElement) && !Profile.server;
   }
   // The people around who can be greeted: { kind: 'npc' | 'kid' | 'player', id, e, name, conn, peer }
@@ -187,8 +189,10 @@ export class Social {
     const c = this.picked;
     if (!c) return '';
     if (near && !(aimE && c.e === aimE)) return '';
-    return this.ringOn && c.kind !== 'kid' && this.hold?.target?.e === c.e ? t('social.hold') : t('social.prompt.far', { name: c.name });
+    return this.ringOn && c.kind !== 'kid' && this.hold?.target?.e === c.e ? t('social.hold') : c.kind === 'npc' ? t('talk.row.greet') : t('social.prompt.far', { name: c.name });
   }
+  // The neighbour those rows are about, for the tag over them (talk.js focus) and the row of provoking: { id, n } or null
+  focused() { const c = this.picked; return c?.kind === 'npc' ? { id: c.id, n: c.id === 'nilo' ? undefined : c.e, ringing: this.ringOn && this.hold?.target?.e === c.e } : null; }
 
   // ---------- pressing ----------
   // src 'key' (Y) or 'mouse' (right click at x, y). With the mouse and nobody there it returns false: the right click does
@@ -386,13 +390,14 @@ export class Social {
   // ---------- gestures and lines ----------
   lines(key) { return tList(key); }
   // A gesture of the body (actors.js EMOTES). Yours, not swimming, rowing or lying down; it goes to the others in your state
-  emote(e, k) {
+  // (not with local: only seen here)
+  emote(e, k, { amp = 1, local = false } = {}) {
     const g = this.game;
-    if (e === g.player) {
+    if (e === g.player && !local) {
       if (!this.canEmote(e)) return;
       this.emSeq++; this.emKind = EMOTE_KINDS.indexOf(k);
     }
-    e.emote = { k, t: 0, at: g.time };
+    e.emote = { k, t: 0, at: g.time, amp };   // (amp: how big, for the talk's)
     this.emoting.add(e);
   }
   canEmote(p) { const k = p.pose?.kind; return !p.swim && !p.boat && k !== 'lie' && k !== 'floorLie'; }
@@ -402,22 +407,31 @@ export class Social {
     if (!text || !this.ui) return;
     const g = this.game;
     if (e === g.player && CAM.first) { this.subtitle(text, life); return; }
-    if (g.windowsOpen) { const who = mine ? g.player?.name : name; this.subtitle(who ? `${who}: ${text}` : text, life); return; }
+    if (g.windowsOpen) { const who = mine ? g.player?.name : name; this.subtitle(text, life, { who: who || '', color: 'var(--ink-2, #d8c8a8)' }); return; }
     this.bubbles = this.bubbles.filter(b => b.e !== e);
     this.bubbles.push({ e, text, name: mine ? '' : name, t: 0, life, mine });
     if (this.bubbles.length > MAX_BUBBLES) this.bubbles.shift();
   }
   // A line in the subtitle, under the one before (two at most); '' clears it
-  subtitle(text, life = MY_LIFE) {
+  // (who, color: whose line it is, before it in that colour)
+  subtitle(text, life = MY_LIFE, { who = '', color = '' } = {}) {
     if (!this.ui) return;
-    if (text) { this.subLines.push({ text, until: this.game.time + life }); if (this.subLines.length > 2) this.subLines.shift(); }
+    if (text) { this.subLines.push({ text, who, color, until: this.game.time + life }); if (this.subLines.length > 2) this.subLines.shift(); }
     else this.subLines = [];
     this.paintSub();
   }
   paintSub() {
-    const text = this.subLines.map(l => l.text).join('\n');
-    if (this.sub.textContent !== text) this.sub.textContent = text;
-    this.sub.classList.toggle('on', !!text);
+    const sig = this.subLines.map(l => `${l.who}\u0001${l.color}\u0001${l.text}`).join('\u0002');
+    if (this.subSig !== sig) {
+      this.subSig = sig;
+      if (sig) this.sub.replaceChildren(...this.subLines.map(l => {   // (empty: the last one fades where it was)
+        const row = document.createElement('div');
+        if (l.who) { const b = document.createElement('b'); b.textContent = l.who; b.style.color = l.color; row.append(b); }
+        row.append(l.text);
+        return row;
+      }));
+    }
+    this.sub.classList.toggle('on', !!sig);
   }
   // The ring while Y (or the right button) is held: next to the cursor, or in the middle (first person, no cursor)
   showRing(k, h) {

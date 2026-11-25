@@ -381,8 +381,8 @@ export class Actors {
     const P = m.person;
     let want = 0;
     if (m.speed < 0.6 && !e.mount && !e.boat && !e.aboard && !e.pushing) {   // (pushing, the hands stay on the grips)
-      let best = null, bd = LOOK_R;
-      for (const o of this.around || []) {
+      let best = e.lookTarget || null, bd = best ? Math.max(0.05, Math.hypot(best.x - e.x, best.y - e.y)) : LOOK_R;   // (in a talk, whoever they talk with: talk.js)
+      if (!best) for (const o of this.around || []) {
         if (o === e || !(o === this.me || o.look)) continue;
         const d = Math.hypot(o.x - e.x, o.y - e.y);
         if (d > 0.05 && d < bd) { bd = d; best = o; }
@@ -908,13 +908,13 @@ export class Actors {
     // (tool: the hand with the tool in it, the right one, as the brush is held there: see hold)
     const one = E.tool ? P.toolArm : player ? 1 - P.toolArm : P.toolArm, arms = E.both && !(player && m.holding) ? [0, 1] : [one], ride = !!e.mount;
     for (const i of arms) {
-      const q = E.pose(k, i === 0 ? -1 : 1, ride), A = P.arms[i], F = P.fore?.[i];
+      const q = E.pose(k, i === 0 ? -1 : 1, ride, a.amp), A = P.arms[i], F = P.fore?.[i];
       if (q.ax !== undefined) A.rotation.x += (q.ax - A.rotation.x) * sm;
       if (q.az !== undefined) A.rotation.z += (q.az - A.rotation.z) * sm;
       if (q.ay !== undefined) { A.rotation.y = q.ay * sm; m.emTw = true; }   // (animate() never writes it: put back below)
       if (F && q.fx !== undefined) F.rotation.x += (q.fx - F.rotation.x) * sm;
     }
-    const q = E.pose(k, 1, ride);
+    const q = E.pose(k, 1, ride, a.amp);
     if (m.emTw && (q.ay === undefined || k >= 1)) { m.emTw = false; for (const A of P.arms) A.rotation.y = 0; }
     if (q.hx) P.head.rotation.x += q.hx * sm;
     if (q.tx) P.torso.rotation.x += q.tx * sm;
@@ -1113,6 +1113,10 @@ export const EMOTES = {
   // pat: on foot, the hand on its neck at shoulder height, three light pats; riding, a lean forward and the hand down on
   // its neck in front of the saddle
   pat: { dur: 1.3, pose: (k, s, ride) => { const p = Math.max(0, Math.sin(k * Math.PI * 6)); return ride ? { ax: -0.74 + 0.08 * p, az: -s * 0.12, fx: -0.36 - 0.2 * p, tx: 0.46, hx: 0.06 } : { ax: -1.38 + 0.1 * p, az: s * 0.04, fx: -0.35 - 0.25 * p, tx: 0.04 }; } },
+  // A talk's (talk.js), drawn by each game and never sent. talk: both forearms up in front, opening and closing softly as one
+  // speaks, the head going along; amp, how big (by their character; the shy, with the head down). think: the hand to the chin
+  talk: { dur: 2.0, both: true, pose: (k, s, ride, amp = 1) => { const p = Math.sin(k * Math.PI * 2 - 0.6 * (s > 0 ? 1 : 0)), o = Math.sin(k * Math.PI * 4); return { ax: -0.28 - 0.3 * amp - 0.14 * amp * p, az: s * (0.02 + (0.12 + 0.14 * p) * amp), fx: -0.75 - 0.35 * amp + 0.2 * amp * o, hx: amp < 0.35 ? 0.2 : 0.05 * amp * o, hz: 0.04 * amp * p }; } },
+  think: { dur: 0.95, pose: (k, s) => ({ ax: -0.84, az: -s * 0.15, ay: -s * 0.6, fx: -2.02, hx: 0.12, hz: 0.07 }) },
   // whistle: the fingers to the mouth, the head up a touch, held for about half a second
   whistle: { dur: 0.9, pose: (k, s) => ({ ax: -1.2, az: -s * 0.1, ay: -s * 0.85, fx: -2.25, hx: -0.06 }) },
 };

@@ -110,8 +110,9 @@ import { kitOf, kitKey, placeKit, shownOf, splitKit, kindOf, SCABBARD } from './
 import { buildKit } from './three/kit3d.js';
 import { holdPose } from './three/carry3d.js';
 import * as C3 from './three/carry3d.js';   // (pushPose, if the drawing has it: the wheelbarrow's cost)
-import { stowedGeo } from './three/actors.js';
-import { t, tHtml, tList, fmt, formatMessage, defineNames, noun, setLang, getLang, getLangSetting, useLangSetting, onLangChange, accountLangOf, setAccountLang, savedLang, decideFirst, applyDom } from './i18n.js';
+import { stowedGeo, EMOTES } from './three/actors.js';
+import { talkOptions, CHATS } from './talk.js';
+import { t, tHtml, tList, has, fmt, formatMessage, defineNames, noun, setLang, getLang, getLangSetting, useLangSetting, onLangChange, accountLangOf, setAccountLang, savedLang, decideFirst, applyDom } from './i18n.js';
 import { findPath, KIND as RKIND, LIMITS as RLIMITS, releasePool, chunkMask, OVR as ROVR } from './world/routegrid.js';
 import { MAX_VERTS as RIBBON_MAX, OFF as RIBBON_OFF, STILL_S as RIBBON_STILL, routeGround } from './three/route3d.js';
 import { musicState, pickMood, bandOf, TAVERN_VENUE, BAND_R } from './musicstate.js';
@@ -2202,17 +2203,17 @@ async function soloTests(game) {
     }
   }));
   await test('saludo: el aviso de E solo añade la fila de Y si es la misma persona; con la E en una puerta, nada', social(async () => {
-    const rows = () => [...document.querySelectorAll('#prompt .pr')].map(r => `${r.querySelector('kbd').textContent} ${r.querySelector('span').textContent}`), text = () => rows().join(' / '), greet = n => `Y ${t('social.prompt.far', { name: n })}`, look = async e => { aimAtE(e); So().pickT = 0; await frames(2); draw(); };
+    const rows = () => [...document.querySelectorAll('#prompt .pr')].map(r => `${r.querySelector('kbd').textContent} ${r.querySelector('span').textContent}`), text = () => rows().join(' / '), greet = `Y ${t('talk.row.greet')} / Y ${t('talk.row.provoke')} ${t('prompt.hold')}`, head = () => document.querySelector('#prompt .pr-head')?.textContent || '', look = async e => { aimAtE(e); So().pickT = 0; await frames(2); draw(); };
     await goTo(game, 21, 27); draw();
     const r = put('rosa', 22.3, 27); await look(r);
-    check(rows()[0].startsWith('E Hablar con Rosa') && rows().at(-1) === greet('Rosa'), `next to Rosa: «${text()}»`);
+    check(text() === `E ${t('talk.row.talk')} / ${greet}` && head().startsWith('Rosa') && head().includes(t('talk.tier.stranger', { sex: 'girl' })), `next to Rosa: «${head()}» «${text()}»`);
     // Farther than E reaches: only her name and Y
     put('rosa', 25.5, 27.5); await look(nb('rosa'));
-    check(text() === greet('Rosa'), `far: «${text()}»`);
+    check(text() === greet && head() === 'Rosa', `far: «${head()}» «${text()}»`);
     // E on a door, with Rosa next to it: nothing added
     await goTo(game, 21.5, 17.8); draw(); put('rosa', 22.6, 18.4);
     aimAtE({ x: 21.5, y: 16.5 }, 1.1); So().pickT = 0; await frames(2); draw();
-    check(/^E .*puerta/i.test(text()) && !rows().some(r => r.startsWith('Y')), `on the door: «${text()}»`);
+    check(/^E .*puerta/i.test(text()) && !rows().some(r => r.startsWith('Y')) && !head(), `on the door: «${head()}» «${text()}»`);
   }));
   await test('saludo: la E y el borde amarillo no cambian con otro jugador delante de un cofre', social(async () => {
     const live = game.live, was = live.joined;
@@ -2250,7 +2251,7 @@ async function soloTests(game) {
   }));
   await test('increpar (carga): soltar a 0,5 s saluda sin anillo antes de 0,25 s; mantener 0,7 s increpa', social(async () => {
     await goTo(game, 21, 27); const b = put('bruno', 22.8, 27); draw(); aimAtE(b);
-    const ring = () => So().ring.classList.contains('on');
+    const ring = () => !!So().ringOn;   // (on the prompt's row, or its own)
     let seq = So().emSeq;
     So().press('key'); await frames(12); check(!ring(), 'the ring shows at 0.2 s');
     await frames(18); check(ring(), 'no ring at 0.5 s');
@@ -2522,7 +2523,7 @@ async function soloTests(game) {
       game.windows.open('s-inv'); await frames(2);
       So().say(r, 'Hola', { name: 'Rosa' }); So().say(p(), 'Buenas', { mine: true });
       const z = +getComputedStyle(So().sub).zIndex, wz = Math.max(...[...document.querySelectorAll('.win')].map(el => +getComputedStyle(el).zIndex || 0));
-      check(!So().bubbles.length && So().sub.textContent === `Rosa: Hola\n${p().name}: Buenas` && So().sub.classList.contains('on'), `subtitle: «${So().sub.textContent}», bubbles ${So().bubbles.length}`);
+      check(!So().bubbles.length && [...So().sub.children].map(q => `${q.querySelector('b').textContent}: ${q.lastChild.textContent}`).join('|') === `Rosa: Hola|${p().name}: Buenas` && So().sub.classList.contains('on'), `subtitle: «${So().sub.textContent}», bubbles ${So().bubbles.length}`);
       check(z > wz, `the subtitle (${z}) is under the windows (${wz})`);
       game.time += 3; So().update(0); check(!So().sub.classList.contains('on'), 'the subtitle stays');
       game.windows.closeAll(); So().say(r, 'Hola', { name: 'Rosa' }); check(So().bubbles.length === 1, 'no bubble with the windows closed');
@@ -7546,7 +7547,7 @@ async function soloTests(game) {
       const next = game.snapshot(); check(next.hammer === 1, `the mark: ${next.hammer}`);
       game.end(); game.start(JSON.parse(JSON.stringify(next)), new Map(JSON.parse(deltas))); game.onSave = null; check(hammers() === 1, `again: ${hammers()}`);
       const say = hud.say, said = []; hud.say = (who, l) => { said.push(...l); return Promise.resolve(); };
-      try { const on = PL().on; PL().on = true; game.craft.taught.add('banco'); await game.talkNilo(); check(said.join() === tList('npc.nilo.hammer').join() && game.hammerTold && game.snapshot().hammer === 2, 'Nilo says nothing of it'); said.length = 0; await game.talkNilo(); check(said[0] && !tList('npc.nilo.hammer').includes(said[0]), 'twice'); PL().on = on; } finally { hud.say = say; game.busy = false; }
+      try { const on = PL().on; PL().on = true; game.craft.taught.add('banco'); await game.neighbors.talk('nilo'); check(said.slice(0, tList('npc.nilo.hammer').length).join() === tList('npc.nilo.hammer').join() && game.hammerTold && game.snapshot().hammer === 2, 'Nilo says nothing of it'); said.length = 0; await game.neighbors.talk('nilo'); check(said[0] && !tList('npc.nilo.hammer').includes(said[0]), 'twice'); PL().on = on; } finally { hud.say = say; game.busy = false; }
     } finally { game.end(); game.start(snap, new Map(JSON.parse(deltas))); game.onSave = null; }
     // On the belt: the left hip, or the right one with a sword
     const spot = (ids, id) => placeKit(ids).find(q => q.id === id)?.spot;
@@ -8143,17 +8144,211 @@ async function soloTests(game) {
     n.hold = 0; n.placeAt(11); n.hidden = false;   // (at her stall)
     let done; hud.ask = () => new Promise(r => { done = r; });
     const talk = N.talk('rosa', n), x = n.x, y = n.y;
-    check(n.talkWith === p() && game.busy, 'not held');
+    for (let i = 0; i < 40 && !done; i++) await sleep(5);   // (the list)
+    check(n.talkWith === p() && game.talk.on && !game.busy, 'not held');
     for (let i = 0; i < 100; i++) n.update(0.1, 18.5);   // (time to go to the pond)
     check(Math.hypot(n.x - x, n.y - y) < 0.05, `she moved ${Math.hypot(n.x - x, n.y - y)}`);
     done(99); await talk;
-    check(n.talkWith === null && !game.busy, 'held after the talk');
+    check(n.talkWith === null && !game.talk.on && !game.busy, 'held after the talk'); n.hold = 0;
     for (let i = 0; i < 400; i++) n.update(0.1, 18.5);
     check(n.node === 'pond_w' && !n.path.length, `she is at ${n.node}`);
     // The tavern's stay while you talk, and leave after; a talk cut from outside lets go
     const e = nb('eusebio'); e.placeAt(22.9); e.talkWith = p(); e.update(0.1, 23.2); check(!e.hidden, 'vanished in the talk');
     game.busy = false; N.update(0); check(e.talkWith === null, 'a cut talk holds them'); e.update(0.1, 23.2); check(e.hidden, 'still there'); check(T.hour > 0, '');
   }));
+  // ---------- R6.2: talking as in GTA (PLAN-R6-gente §3.2, §8: src/talk.js, ui/talkui.js) ----------
+  const Tk = () => game.talk, opts = () => [...document.querySelectorAll('#talk-list.on .tk span')].map(e => e.textContent), subText = () => (So().sub.classList.contains('on') ? So().sub.textContent : '');
+  const tkey = (code, key = code) => document.body.dispatchEvent(new KeyboardEvent('keydown', { code, key, bubbles: true, cancelable: true }));
+  // With the real list and the subtitles (auto: null), by the plaza, at 11:00, Rosa beside you who knows you
+  const talkTest = fn => social(async () => {
+    const keepR = Math.random, W = game.days.weather;
+    game.days.weather = 'sol'; game.talk.auto = null;
+    const N = Nb();
+    for (const id of Object.keys(PEOPLE)) N.friends[id] = { pts: 250, talk: 0, gift: -1, events: [3, 6], intro: 0 };
+    await goTo(game, 21, 27);
+    const r = put('rosa', 22.4, 27);
+    try { await fn(r, N); }
+    finally { Math.random = keepR; game.days.weather = W; Tk().stop(); Tk().peers.clear(); game.talk.auto = TALK_AUTO; game.busy = false; hud.closeDialog(); }
+  });
+  // Until the list is there (skipping their lines)
+  const toList = async (what = 'the list') => { await until(() => { if (Tk().cur?.line) Tk().skip(Tk().cur); return opts().length || !Tk().on; }, 6000, what); };
+  const pickOpt = async text => { await toList(text); const i = opts().indexOf(text); check(i >= 0, `«${text}» is not offered: ${opts()}`); tkey(`Digit${i + 1}`); await sleep(5); };
+  await test('talk (english): the world goes on, subtitles and the list, and the keys are its own', talkTest(async (r, N) => {
+    const P = p(), sel = inv().selected, clock = w().clock; hud.log.clear();
+    P.face = { x: -1, y: 0 };
+    N.actionFor(r).run(); await sleep(5); await frames(2);
+    check(Tk().on && !game.busy && !hud.dialogOpen && r.talkWith === P && r.lookTarget === P, `on ${Tk().on}, busy ${game.busy}`);
+    check(P.face.x > 0.9, 'you do not face her');
+    const first = subText(); check(first.startsWith('Rosa') && So().sub.querySelector('b').textContent === 'Rosa' && hud.log.said.at(-1)?.name === 'Rosa' && first.endsWith(hud.log.said.at(-1).line), `subtitle «${first}»`);
+    check(opts()[0] === t('npc.opt.chat') && opts()[1] === t('talk.opt.ask') && opts().at(-1) === t('npc.opt.bye'), `options: ${opts()}`);
+    check(game.nearest() === null && !So().can(), 'E or Y reach something else');
+    await frames(20); check(w().clock > clock && r.emote?.k === 'talk', `the clock stopped, or she does not move her hands: ${r.emote?.k}`);
+    // E skips the line; the wheel and the arrows move; a digit picks and changes nothing in the hand
+    tkey('KeyE', 'e'); await sleep(0); check(!subText() && Tk().on && opts().length, 'E does not skip the line');
+    tkey('ArrowDown'); check(document.querySelector('#talk-list .tk.sel span').textContent === t('talk.opt.ask'), 'the arrow');
+    Tk().ui.wheelAt = 0; game.view3d.renderer.domElement.dispatchEvent(new WheelEvent('wheel', { deltaY: -120, bubbles: true, cancelable: true }));
+    check(document.querySelector('#talk-list .tk.sel span').textContent === t('npc.opt.chat') && inv().selected === sel, 'the wheel');
+    tkey('Digit2'); await sleep(5);
+    check(inv().selected === sel && opts().includes(t('talk.ask.weather')) && opts().at(-1) === t('talk.opt.back'), `asking: ${opts()}`);
+    tkey('Escape'); await sleep(5); check(Tk().on && opts()[0] === t('npc.opt.chat'), 'Esc does not go back');
+    // E on the list picks; three topics, then they have things to do
+    for (let i = 0; i < CHATS; i++) { tkey('Digit1'); await sleep(5); await toList('chat'); check(Tk().on && opts()[0] === t('talk.opt.more'), `chat ${i}: ${opts()}`); }
+    hud.log.clear(); tkey('KeyE', 'e'); await sleep(5);
+    check(!Tk().on && Tk().why === 'enough' && subText() && !opts().length && r.talkWith === null && !r.lookTarget, `after: ${Tk().why}`);
+    // Esc on the list: goodbye
+    r.hold = 1e6; N.talk('rosa', r); await toList(); tkey('Escape'); await sleep(5); check(!Tk().on && Tk().why === 'bye' && subText().startsWith('Rosa'), `goodbye: ${Tk().why} «${subText()}»`);
+  }));
+  await test('talk (english): walk away ends', talkTest(async (r, N) => {
+    const P = p(), f = N.friend('rosa'); f.talk = today(); const pts = f.pts, rep = Rp().pts;
+    const over = N.talk('rosa', r); await toList();
+    tkey('Digit1'); await sleep(5); check(Tk().cur?.line, 'nothing is being said');
+    P.x = r.x - 3.2; await frames(2); check(Tk().on, 'too near to be leaving');
+    P.x = r.x - 4; await frames(2); await over;
+    check(!Tk().on && Tk().why === 'walked' && N.memIndex('rosa', 'walked_off', 0) >= 0 && f.pts === pts && Rp().pts === rep, `${Tk().why}, points ${f.pts - pts}`);
+    check(So().bubbles.some(b => b.e === r) && tList('npc.recall.walked_off').length && tList('npc.recall.walked_off').every(l => l), 'she says nothing');
+    // Slowly, for longer than AWAY_S: too
+    P.x = r.x - 1.3; P.y = r.y; N.talk('rosa', r); await toList();
+    for (let i = 0; i < 20 && Tk().on; i++) { P.x -= 0.1; P.vx = -1; Tk().update(0.1); }
+    check(!Tk().on && Tk().why === 'walked', `leaving slowly: ${Tk().why}`); P.vx = 0;
+    // With the list in sight, and nothing being said, it is only a goodbye
+    f.mem = []; P.x = r.x - 1.3; N.talk('rosa', r); await toList(); P.x = r.x - 4; So().bubbles = []; await frames(2); check(Tk().why === 'walked' && !f.mem.length && So().bubbles.some(b => b.e === r), `from the list: ${JSON.stringify(f.mem)}`);
+  }));
+  await test('talk (english): options registry', talkTest(async (r, N) => {
+    let may = false, ran = 0; const off = talkOptions.add({ id: 'test', order: 5, when: () => may, label: () => 'A test', run: c => { ran++; check(c.id === 'rosa' && c.npc === r, 'its context'); } });
+    const broken = talkOptions.add({ id: 'bad', order: 6, when: () => { throw new Error('x'); }, label: () => 'Bad', run: () => {} });
+    try {
+      N.talk('rosa', r); await toList(); check(!opts().includes('A test') && !opts().includes('Bad') && opts().at(-1) === t('npc.opt.bye'), `${opts()}`); Tk().stop();
+      may = true; N.talk('rosa', r); await pickOpt('A test'); await toList(); check(ran === 1 && opts()[0] === 'A test' && opts().at(-1) === t('npc.opt.bye'), `ran ${ran}: ${opts()}`);
+      off(); Tk().stop(); N.talk('rosa', r); await toList(); check(!opts().includes('A test'), 'still there');
+      // What is in the hand: a gift appears and goes, with the list open
+      const I = inv(); I.slots[I.selected] = { id: 'fresa', n: 2 }; I.changed(); await frames(2); await sleep(5); const g2 = t('npc.opt.gift', { item: itemNoun('fresa') });
+      check(opts().includes(g2), `no gift: ${opts()}`); const pts = N.friend('rosa').pts;
+      await pickOpt(g2); await toList(); check(N.friend('rosa').pts === pts + 90 && I.count('fresa') === 1 && !opts().includes(g2) && Tk().on, `gift: ${N.friend('rosa').pts - pts}, ${opts()}`);
+    } finally { off(); broken(); }
+  }));
+  await test('talk (english): shop, trade and mending are the windows of always, and you can come back', talkTest(async (r, N) => {
+    r.hold = 0; r.placeAt(11); r.hidden = false; p().x = r.x; p().y = r.y + 1.4; await frames(1);
+    const over = N.talk('rosa', r); await pickOpt(t('npc.opt.shop')); await until(() => game.mode === 'shop', 4000, 'the shop'); await over;
+    check(!Tk().on && r.talkWith === null, 'still talking'); document.getElementById('sh-close').click(); check(game.mode === 'play', game.mode);
+    N.talk('rosa', r); await toList(); check(Tk().on, 'cannot talk again');
+    // A question (the trades): the box, and she stays meanwhile
+    const ask = hud.ask; let answer; hud.ask = () => new Promise(q => { answer = q; });
+    try {
+      await pickOpt(t('npc.opt.trade')); for (let i = 0; i < 40 && !answer; i++) await sleep(5);
+      check(answer && game.busy && !Tk().on, 'no question'); N.update(0); check(r.talkWith === p(), 'she leaves'); answer(99); await sleep(5); N.update(0);
+      check(!game.busy && r.talkWith === null, 'held after it');
+    } finally { hud.ask = ask; }
+    // Cold (Outcast): the shop stays, chatting and asking do not
+    Rp().v.pts = -800; Rp().v.lvl = 'outcast'; N.friend('rosa').pts = 0; N.talk('rosa', r); await toList(); check(!opts().includes(t('npc.opt.chat')) && !opts().includes(t('talk.opt.ask')) && opts().includes(t('npc.opt.shop')), `outcast: ${opts()}`);
+  }));
+  await test('talk (english): asking where is true, the weather honest, a place you know', talkTest(async (r, N) => {
+    // By the schedule, at any hour
+    for (const [id, h, kind, until] of [['bruno', 9, 'forge', 17], ['bruno', 18, 'board', 20], ['bruno', 23.5, 'asleep', 7.5], ['bruno', 21, 'home', 7.5], ['lia', 13, 'plaza', 15], ['lia', 16, 'pond', 20], ['eusebio', 12, 'taberna', 23], ['eusebio', 3, 'away', 11], ['marta', 1, 'taberna', 26]]) {
+      const n = nb(id), real = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(game.days), 'hour'); n.hold = 0; n.placeAt(h);
+      Object.defineProperty(game.days, 'hour', { configurable: true, get: () => h });
+      try { const a = N.whereIs(id), said = Tk().whereNeighbour(id).text; check(a.kind === kind && a.until === until, `${id} at ${h}: ${JSON.stringify(a)}`); check(said && !/[{}]|npc\./.test(said), `${id}: «${said}»`); } finally { delete game.days.hour; check(real || true, ''); }
+    }
+    check(N.whereIs('nilo').kind === 'nilo', 'Nilo');
+    const l = nb('lia'); l.hold = 0; l.hidden = false; l.path = ['plaza']; check(N.whereIs('lia').kind === 'road' && Tk().whereNeighbour('lia').text.includes(t('npc.goal.plaza')), 'walking'); l.path = [];
+    // Every hour of the schedules has its words
+    for (const d of Object.values(PEOPLE)) for (const h of [...(d.schedule || []).slice(1).map(q => q[0]), ...(d.hours || [])]) check(has(`npc.until.${String(h).replace('.', '_')}`), `no words for ${h}`);
+    put('rosa', 22.4, 27);
+    const over = N.talk('rosa', r); await pickOpt(t('talk.opt.ask')); await pickOpt(t('talk.ask.where')); check(!opts().includes('Rosa') && opts().includes('Bruno') && opts().at(-1) === t('talk.opt.back'), `who: ${opts()}`);
+    await toList(); tkey(`Digit${opts().indexOf('Bruno') + 1}`); await sleep(5); check(subText().startsWith(p().name) && subText().includes('Bruno') && p().emote?.k === 'talk', `your line: «${subText()}»`);
+    const seq = So().emSeq; await toList(); check(subText() || hud.log.said.at(-1).name === 'Rosa', 'no answer'); check(So().emSeq === seq, 'your hands travel');
+    // Tomorrow: the true one, or an honest «I do not know»; with the chin in the hand first
+    await pickOpt(t('talk.opt.ask')); hud.log.clear(); const i = opts().indexOf(t('talk.ask.weather')); tkey(`Digit${i + 1}`); await sleep(5); Tk().skip(Tk().cur); await sleep(5); check(r.emote?.k === 'think', `thinks: ${r.emote?.k}`); await toList();
+    const fc = forecastBy('rosa', game), lines = topicLines(talkContext(game, 'rosa', r), 'forecast').map(x => formatMessage(x.src, N.params(x.params))); check(fc && lines.some(x => hud.log.said.some(q => q.line === x)), `tomorrow: ${hud.log.said.map(q => q.line)}`);
+    // (a sky nobody can know, an op's weather: they say so, at any hour, and not that it is night)
+    const lock = game.weatherLock; game.weatherLock = { w: 'sol', until: Date.now() + 3 * 864e5 };
+    try { await toList(); await pickOpt(t('talk.opt.ask')); hud.log.clear(); await pickOpt(t('talk.ask.weather')); await toList(); check(tList(`npc.topic.forecast.unsure.${PEOPLE.rosa.temper}`).some(x => hud.log.said.some(q => q.line === formatMessage(x, N.params()))), `unknown: ${hud.log.said.map(q => q.line)}`); } finally { game.weatherLock = lock; }
+    // What's new: for now, about somebody
+    await pickOpt(t('talk.opt.ask')); await pickOpt(t('talk.ask.news')); await toList(); check(hud.log.said.at(-1).name === 'Rosa' && Tk().on, 'nothing new'); Tk().stop(); await over;
+    // A place you know, and only those
+    const G = game.places, kp = G.knownPlaces; try {
+      G.knownPlaces = () => [{ key: '1,1', kind: 'torre', x: p().x, y: p().y - 100 }]; const ti = G.title; G.title = () => 'Atalaya de prueba';
+      try { N.talk('rosa', r); await pickOpt(t('talk.opt.ask')); await pickOpt(t('talk.ask.place')); await pickOpt('Atalaya de prueba'); await toList(); const a = hud.log.said.at(-1).line; check(a.includes('Atalaya de prueba') && a.includes(t('place.dir.n')), a); } finally { G.title = ti; }
+      Tk().stop(); G.knownPlaces = () => []; N.talk('rosa', r); await pickOpt(t('talk.opt.ask')); check(!opts().includes(t('talk.ask.place')), 'offers places with none known');
+    } finally { G.knownPlaces = kp; }
+  }));
+  await test('talk (english): interruptions, none costs anything', talkTest(async (r, N) => {
+    const f = N.friend('rosa'), P = p(); f.talk = today(); const pts = f.pts, rep = Rp().pts;
+    const go = async () => { r.hold = 1e6; N.talk('rosa', r); await toList(); check(Tk().on, 'no talk'); };
+    const list = game.mobs.list.slice();
+    try {
+      game.mobs.list.length = 0;
+      await go(); game.mobs.list.push({ x: P.x + 5, y: P.y, type: 'baba' }); Tk().cur.slow = 0; Tk().update(0.01); game.mobs.list.length = 0; check(Tk().why === 'danger' && !Tk().on && r.emote?.k === 'flinch', `danger: ${Tk().why}`);
+      await go(); Tk().hurt(); check(Tk().why === 'hurt', `hurt: ${Tk().why}`);
+      await go(); P.face = { x: r.x - P.x, y: r.y - P.y }; game.archery.drawT = 0.2; Tk().cur.slow = 0; Tk().update(0.01); check(Tk().why === 'bow' && game.archery.drawT === null, `bow: ${Tk().why}`);
+      // (drawn before: no talk; and pointing elsewhere, the talk goes on)
+      game.archery.drawT = 0.2; await N.talk('rosa', r); check(!Tk().on && subText().startsWith('Rosa') && game.archery.drawT === null, 'talks to a drawn bow');
+      await go(); P.face = { x: -1, y: 0 }; game.archery.drawT = 0.2; Tk().cur.slow = 0; Tk().update(0.01); game.archery.drawT = null; check(Tk().on, 'a bow that points elsewhere'); Tk().stop();
+      await go(); Tk().update(15.1); check(Tk().on && subText(), 'no «So?»'); Tk().skip(Tk().cur); Tk().update(10); check(!Tk().on && Tk().why === 'idle', `silence: ${Tk().why}`);
+      await go(); Tk().cur.t = 50; Tk().cur.slot = 'pond_w'; Tk().cur.slow = 0; Tk().update(0.01); check(Tk().why === 'late', `schedule: ${Tk().why}`);
+      // (before LATE_S, not)
+      await go(); Tk().cur.slot = 'pond_w'; Tk().cur.slow = 0; Tk().update(0.01); check(Tk().on, 'too soon'); Tk().stop();
+      // Rain outdoors: one topic, and out of it
+      game.days.weather = 'lluvia'; await go(); await pickOpt(t('npc.opt.chat')); await pickOpt(t('talk.opt.more')); check(!Tk().on && Tk().why === 'enough', `rain: ${Tk().why}`); game.days.weather = 'sol';
+      // A window, B, a question, another scene: over, without a word
+      await go(); game.build.toggle(true); await frames(1); check(!Tk().on && Tk().why === 'off', `B: ${Tk().why}`); game.build.toggle(false);
+      await go(); game.busy = true; await frames(1); game.busy = false; check(!Tk().on, 'a scene');
+      await go(); tkey('KeyI', 'i'); await frames(2); check(!Tk().on && game.windowsOpen, `the backpack: ${Tk().on}`); tkey('KeyI', 'i');
+      // Riding and sitting one talks too; as a spectator, in a scene or in another place, not
+      for (const st of [{ mount: true }, { pose: { kind: 'sit', yaw: 0, h: 0 } }]) { Object.assign(P, st); N.talk('rosa', r); await sleep(5); check(Tk().on && game.nearest() === null, `${Object.keys(st)}: no talk`); Tk().stop(); Object.assign(P, { mount: false, pose: null }); }
+      for (const [set, off] of [[() => { game.gamemode = 'spectator'; }, () => { game.gamemode = 'survival'; }], [() => { game.busy = true; }, () => { game.busy = false; }], [() => { game.mode = 'pause'; }, () => { game.mode = 'play'; }]]) { set(); await N.talk('rosa', r); check(!Tk().on, 'it opens where it should not'); off(); }
+      // The pause: it waits there
+      await go(); game.mode = 'pause'; await frames(30); check(Tk().on && opts().length, 'the pause ends it'); game.mode = 'play'; await frames(1); check(Tk().on, 'it does not come back'); Tk().stop();
+      check(f.pts === pts && Rp().pts === rep && !(f.mem || []).some(m => m[1] === 'walked_off'), `points ${f.pts - pts}, reputation ${Rp().pts - rep}`);
+    } finally { game.mobs.list.length = 0; game.mobs.list.push(...list); game.archery.drawT = null; }
+  }));
+  await test('talk (english): Nilo first, cut or not, teaches the bench; the moments of friendship give their gift', talkTest(async (r, N) => {
+    const had = game.craft.taught.has('banco'), P = p(), nilo = w().nilo; P.x = nilo.x - 1.2; P.y = nilo.y; game.hammerTold = true;
+    try {
+      game.craft.taught.delete('banco'); let over = N.talk('nilo'); await sleep(5); check(Tk().on && subText().startsWith('Nilo') && !opts().length, 'his first words'); P.x -= 6; await frames(2); await over;
+      check(game.craft.taught.has('banco') && !Tk().on, 'cut, not taught'); P.x = nilo.x - 1.2;
+      game.craft.taught.delete('banco'); over = N.talk('nilo'); await until(() => { if (Tk().cur?.line) tkey('KeyE', 'e'); return !Tk().on; }, 6000, 'his words'); await over; check(game.craft.taught.has('banco') && Tk().why === 'bye', 'to the end');
+      N.talk('nilo'); await toList(); check(opts().includes(t('npc.opt.plans')) && opts().at(-1) === t('npc.opt.bye'), `${opts()}`); Tk().stop();
+      // A moment of 3 hearts: its lines, its gift (cut too), once
+      const f = N.friend('lia'), l = put('lia', P.x, P.y + 1.2); f.pts = 320; f.events = []; over = N.talk('lia', l); await sleep(5); check(Tk().on && tList('npc.events.lia.3').some(x => subText().includes(formatMessage(x, N.params()))), `«${subText()}»`); P.x -= 6; await frames(2); await over;
+      check(f.events.join() === '3' && N.flags.sedal, 'the moment is lost'); P.x += 6; N.talk('lia', l); await toList(); check(f.events.join() === '3' && Tk().on, 'twice');
+    } finally { if (had) game.craft.taught.add('banco'); }
+  }));
+  await test('talk net (english): tk', talkTest(async (r, N) => {
+    const live = game.live, was = live.joined, netWas = live.net, P = p();
+    try {
+      live.receive('tk1', { t: 'hi', id: 'id-tk1', name: 'Pepa', playing: true, look: LOOK }); live.receive('tk1', { t: 'st', sc: 'world', x: 23.4, y: 27, yaw: 0 }); live.joined = true;
+      const peer = live.peers.get('tk1'), tk = m => live.receive('tk1', { t: 'tk', ...m });
+      for (const bad of [{ npc: 'nobody', on: 1 }, { npc: '__proto__', on: 1 }, { npc: 'rosa' }, { npc: 5, on: 1 }, { npc: 'rosa', on: 'x' }]) { peer.tkAt = -99; tk(bad); check(!Tk().peers.size, `taken: ${JSON.stringify(bad)}`); }
+      peer.tkAt = -99; tk({ npc: 'rosa', on: 1 }); N.update(0.01); check(r.talkWith === peer.entity, 'not held'); r.hold = 0; r.path = ['stall']; const x = r.x; for (let i = 0; i < 20; i++) N.update(0.1); check(Math.abs(r.x - x) < 0.01, 'she walks');
+      Tk().peerT = 0; Tk().update(0.01); check(r.lookTarget === peer.entity && r.dir[0] > 0.5, 'she does not face them');
+      tk({ npc: 'bruno', on: 1 }); check(Tk().peers.get('tk1').npc === 'rosa', 'a second one within 1 s');
+      // The tag says so, and you can talk to her too
+      check(Tk().focus('rosa', r, true).doing === t('talk.doing.talk', { name: 'Pepa' }), Tk().focus('rosa', r, true).doing);
+      const n = []; live.net = { send: m => { if (m.t === 'tk') n.push(m); } };
+      r.path = []; N.talk('rosa', r); await sleep(5); check(Tk().on && r.talkWith === P && subText().includes('Pepa'), `«${subText()}»`); check(n.length === 1 && n[0].npc === 'rosa' && n[0].on === 1, JSON.stringify(n));
+      Tk().update(20.1); Tk().stop(); check(n.map(q => q.on).join() === '1,1,0' || n.map(q => q.on).join() === '1,0', `sent: ${n.map(q => q.on)}`); check(r.talkWith === peer.entity, 'yours over, theirs not');
+      tk({ npc: 'rosa', on: 0 }); N.update(0.01); check(r.talkWith === null && !r.lookTarget, 'not let go');
+      // 31 s without a word; they go away; they leave
+      peer.tkAt = -99; tk({ npc: 'rosa', on: 1 }); game.time += 31; N.update(0.01); check(r.talkWith === null && !Tk().peers.size, 'held after 31 s');
+      peer.tkAt = -99; tk({ npc: 'rosa', on: 1 }); peer.entity.x += 20; N.update(0.01); check(r.talkWith === null, 'held from afar'); peer.entity.x -= 20;
+      peer.tkAt = -99; tk({ npc: 'rosa', on: 1 }); N.update(0.01); live.peers.delete('tk1'); N.update(0.01); check(r.talkWith === null, 'held by somebody gone');
+    } finally { live.joined = was; live.net = netWas; live.peers.delete('tk1'); }
+  }));
+  await test('talk (english): the tag, the gestures and their cost', talkTest(async (r, N) => {
+    const f = N.friend('rosa'); let v = (Tk().tag = null, Tk().focus('rosa', r, true));
+    check(v.name === 'Rosa' && v.tier === t('talk.tier.friend', { sex: 'girl' }) && v.hearts === '♥♥' && v.doing, JSON.stringify(v));
+    f.pts = 650; Tk().tag = null; check(Tk().focus('rosa', r, true).tier === t('talk.tier.close', { sex: 'girl' }), 'close');
+    N.friends.rosa = { pts: 0, talk: -1, gift: -1, events: [] }; Tk().tag = null; v = Tk().focus('rosa', r, true); check(v.tier === t('talk.tier.stranger', { sex: 'girl' }) && !v.hearts && !v.mood, JSON.stringify(v));
+    check(Tk().focus('rosa', r, false).tier === '', 'far, more than the name');
+    for (const id of Object.keys(PEOPLE)) { Tk().tag = null; const q = Tk().focus(id, nb(id), true); check(q.doing && !/talk\.|npc\./.test(q.doing), `${id}: ${q.doing}`); }
+    check(EMOTE_KINDS.indexOf('talk') === 14 && EMOTE_KINDS.indexOf('think') === 15, 'the kinds moved (they travel as an index)');
+    for (const k of ['talk', 'think']) for (let i = 0; i <= 20; i++) for (const s of [-1, 1]) for (const amp of [0.3, 1]) { const q = EMOTES[k].pose(i / 20, s, false, amp); check(Object.values(q).every(x => Number.isFinite(x) && Math.abs(x) < 2.6), `${k} ${i}: ${JSON.stringify(q)}`); }
+    // (hush, for lines of no talk: nothing left pending)
+    N.talk('rosa', r); await toList(); let t0 = performance.now(); for (let i = 0; i < 2000; i++) Tk().update(0.001); const on = (performance.now() - t0) / 2000; Tk().stop();
+    t0 = performance.now(); for (let i = 0; i < 20000; i++) Tk().update(0.001); const idle = (performance.now() - t0) / 20000;
+    console.log(`talk: ${on.toFixed(4)} ms a step talking, ${idle.toFixed(5)} without`); check(on < 0.03 && idle < 0.002, `${on.toFixed(4)} ms, ${idle.toFixed(5)} ms`);
+  }));
+  // ---------- end of R6.2
   await test('gift (english): repeats halve', social(async () => {
     const N = Nb(), I = inv(), f = N.friend('rosa'), pts = []; f.talk = 0;
     const give = async item => { const before = f.pts; I.slots[I.selected] = { id: item, n: 1 }; I.changed(); let line; hud.say = (who, l) => { line = l[0]; return Promise.resolve(); }; await N.gift('rosa', I.held); return [f.pts - before, line]; };
@@ -8187,7 +8382,7 @@ async function soloTests(game) {
       await N.talk(r.who, n); check(!label(opts), `offered without the items: ${opts}`);
       check(B.deliver(r) === null && !B.requests()[0].done, 'delivered with nothing');
       I.add(r.item, r.n);
-      hud.ask = (w2, s, o) => { opts = o; return Promise.resolve(Math.max(0, o.indexOf(label(o)))); };
+      hud.ask = (w2, s, o) => { if (!label(o)) return Promise.resolve(o.length - 1); opts = o; return Promise.resolve(o.indexOf(label(o))); };   // (and, after it, goodbye)
       await N.talk(r.who, n);
       check(label(opts), `not offered: ${opts}`);
       check(game.money === 100 + r.reward && I.count(r.item) === 0 && B.requests()[0].done && N.friend(r.who).pts === 70, `money ${game.money} (+${r.reward}), left ${I.count(r.item)}, points ${N.friend(r.who).pts}`);
@@ -10298,6 +10493,7 @@ async function guestTests(game) {
   });
 }
 
+let TALK_AUTO = null;
 export async function runTests(game) {
   addEventListener('error', e => errors.push(e.message));
   const err = console.error.bind(console); console.error = (...a) => { errors.push(a.map(x => x?.stack || String(x)).join(' ').slice(0, 300)); err(...a); };
@@ -10315,6 +10511,9 @@ export async function runTests(game) {
   // (el bucle del navegador no avanza ni dibuja nada: lo hacen las pruebas con frames())
   step = game.update.bind(game); draw = game.render.bind(game);
   game.update = () => {}; game.render = () => {};
+  // (a talk goes through hud.ask and hud.say, as the questions do, with no time passing: the tests answer them. The ones of the
+  // talk itself set auto to null)
+  const boxSay = hud.say; game.talk.auto = TALK_AUTO = { ask: (...a) => hud.ask(...a), say: (...a) => (hud.say === boxSay ? null : hud.say(...a)) };
   game.start(fresh());
   game.plans.on = false;   // (building at once, as with ?obra=0: what most tests need. The ones of plan and hammer turn it on)
   game.inv.equip.espalda = { id: 'mochila', color: ITEMS.mochila.dye }; game.inv.changed();   // (con mochila: que quepa lo que se recoge)
