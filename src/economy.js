@@ -3,6 +3,7 @@ import { ITEMS, CROPS, FISH } from './items.js';
 import { seedOf } from './cropdata.js';
 import { t } from './i18n.js';
 import { RECIPES } from './recipes.js';
+import { RACES, RACE_IDS } from './horsebreeds.js';
 import { hooks, isFish, unitG, typicalG, freshK, stateOf } from './catch.js';
 
 const BASE = {
@@ -62,7 +63,7 @@ export const MEND_SHARE = 0.25;
 export const mendPrice = (id, factor = 1) => Math.max(1, Math.round((SHOPS.marta.stock.find(e => e.id === id)?.price ?? buyPrice(id)) * MEND_SHARE * factor));
 
 // Lo que vende cada vecino. `season`: solo esa estación; `project`: solo con ese proyecto terminado;
-// `animal`: no es un objeto, es un animal para tu granja; `price`: precio fijo; `plan`: tampoco es un objeto, es el plano
+// `animal`: no es un objeto, es un animal para tu granja; `horse`: a horse of that breed (horsebreeds.js); `price`: precio fijo; `plan`: tampoco es un objeto, es el plano
 // de algo que se construye con B (buildables.js, PLANS): se compra una vez y enseña a construirlo
 export const SHOPS = {
   rosa: {
@@ -72,6 +73,7 @@ export const SHOPS = {
       { id: 'semilla_manzano', price: 120 }, { id: 'abono', price: 25 },
       { animal: 'gallina', name: 'Gallina', price: 400 }, { animal: 'pato', name: 'Pato', price: 500 }, { animal: 'conejo', name: 'Conejo', price: 700 },
       { animal: 'cabra', name: 'Cabra', price: 1000 }, { animal: 'cerdo', name: 'Cerdo', price: 1300 }, { animal: 'oveja', name: 'Oveja', price: 1200, project: 'mercado' }, { animal: 'vaca', name: 'Vaca', price: 1500, project: 'mercado' },
+      ...RACE_IDS.map(horse => ({ horse, price: RACES[horse].price })),
       { id: 'maceta', price: 90 }, { id: 'alfombra', price: 160, project: 'mercado' }, { id: 'lampara', price: 220, project: 'mercado' },
       { id: 'pan', price: 70 }, { id: 'manzana', price: 30 }, { id: 'soap', price: 25 },
       { id: 'salt', price: 8 },

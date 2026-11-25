@@ -13,9 +13,10 @@ import { MONSTERS } from '../combat.js';
 import { CAM, screenToWorld, screenDirOf } from '../camera.js';
 import { ITEMS, TIERS } from '../items.js';
 import { WATER_Y } from './terrain.js';
-import { animalModel, animalKey, animateAnimal, horseModel, animateHorse, setHorseDirt, setHorseCare, disposeAnimal, prewarmHorse, HORSE_ACTS } from './animals.js';
+import { animalModel, animalKey, animateAnimal, horseModel, animateHorse, SEAT, setHorseDirt, setHorseCare, disposeAnimal, prewarmHorse, HORSE_ACTS } from './animals.js';
 import { nearX } from '../world/planet.js';
 import { scaleOf } from '../herds.js';
+import { raceKey } from '../horsebreeds.js';
 import { RealPerson, realBaby, prebuildReal, realReady, realStats } from './realperson.js';
 import { apagada } from '../opciones.js';
 import { smoothstep } from '../util.js';
@@ -40,6 +41,7 @@ const HERD_SHADOW = 26;   // m: a wild animal of a herd further than this casts 
 const CROUCH = { hip: 1.5, knee: 2.5, drop: 0.11, lean: 0.4 };
 // (asientos, camas y barca se calibraron con los muñecos de antes: la persona realista se ajusta a esas medidas. La
 // cadera de aquel muñeco sentado, lo que medía tumbado y la escala de sus niños; no cambiarlas sin recolocar muebles)
+const SIT_IN = 0.24;   // (how far under the saddle's seat the rider's feet are, with the hips at SEAT_HIP)
 const SEAT_HIP = 0.36, LIE_LEN = 1.36, KID_REF = 0.66;
 // In the tub (pose kind 'bath', body.js bathe; another player's: 'sit' with st.ba): the hip this high over the tub's
 // ground plus the pose's h, on the tub's floor (models.js TUB) with the legs straight forward
@@ -90,7 +92,7 @@ const TIER_PX = [[90, 81], [40, 36]];      // [para subir, para seguir]: a todo;
 // (the grip: the arm forward and in, the elbow bent)
 // Turning at speed the horse and its rider lean into the turn (bank: by how hard they turn, at most so many rad). On the
 // sliding stop the rider sits back (back), and is thrown forward onto the neck when it stumbles (fall)
-const RIDE = { bank: 0.012, bankMax: 0.2, back: 0.42, fall: 0.6, lean: 0.25, bounce: 0.025, bouncePh: 2.2, rearTilt: 0.55, rearLean: 0.5, gripArm: -0.75, gripIn: -0.12, gripFore: -0.85 };
+const RIDE = { astride: 1.15, bank: 0.012, bankMax: 0.2, back: 0.42, fall: 0.6, lean: 0.25, bounce: 0.025, bouncePh: 2.2, rearTilt: 0.55, rearLean: 0.5, gripArm: -0.75, gripIn: -0.12, gripFore: -0.85 };
 // Horses heard (m): the hooves, the snort and the neigh of another player's horse, or of your own nobody rides, fade out
 // to nothing at this distance; yours under you, always at full
 const HEAR_M = 20;
@@ -443,7 +445,7 @@ export class Actors {
   makeThing(e) {
     if (ANIMALS[e.type]) {
       const fill = this.bagFill(null, e);
-      return { kind: 'animal', root: animalModel(e.type, e.breed, e.bags, fill, e.type === 'caballo' && !!e.shod), key: animalKey(e, fill), aShod: e.type === 'caballo' && !!e.shod, aType: e.type, aBreed: e.breed || '', aBags: e.bags ? 1 + fill : 0, prev: null, speed: 0, phase: Math.random() * 6 };
+      return { kind: 'animal', root: animalModel(e.type, e.breed, e.bags, fill, e.type === 'caballo' && !!e.shod, e.type === 'caballo' ? raceKey(e) : ''), key: animalKey(e, fill), aShod: e.type === 'caballo' && !!e.shod, aRace: e.type === 'caballo' ? raceKey(e) : '', aType: e.type, aBreed: e.breed || '', aBags: e.bags ? 1 + fill : 0, prev: null, speed: 0, phase: Math.random() * 6 };
     }
     if (MONSTERS[e.type]) return { kind: 'monster', root: monsterModel(e.type), prev: null, speed: 0, phase: Math.random() * 6 };
     return null;
@@ -507,8 +509,9 @@ export class Actors {
       else if (yaw !== null) P.facing = yaw;
       if (m.horse) {   // (el caballo del jinete, con el pelaje del suyo; and its saddlebags, as full as they look: horseFill 0..2)
         const coat = e.horseCoat || 'castano', f = e.horseFill, bagK = e.horseBags ? 1 + (f === 0 || f === 1 || f === 2 ? f : 1) : 0;
-        const shod = e.mount ? !!this.riddenBy(m, e)?.shod : m.horseShod;
-        if (m.horseCoat !== coat || m.horseBagK !== bagK || !!m.horseShod !== !!shod) this.newHorse(m, coat, bagK, shod);
+        // (its shoes and its breed travel with the Animal; not found, as it was)
+        const under = e.mount ? this.riddenBy(m, e) : null, shod = e.mount ? !!under?.shod : m.horseShod, race = under ? raceKey(under) : m.horseRace || '';
+        if (m.horseCoat !== coat || m.horseBagK !== bagK || !!m.horseShod !== !!shod || (m.horseRace || '') !== race) this.newHorse(m, coat, bagK, shod, race);
       }
       if (m.boat) {
         // Barca y caballo
@@ -665,7 +668,11 @@ export class Actors {
     let o;
     if (where === 'push') { o = pushedModel(e.pushing); P.root.add(o); }
     else if (where === 'arms') { o = carriedModel(id); placeCarried(o, id, P.bagFit()); P.torso.add(o); }
-    else { o = loadModel(id, where); placeLoad(o, id, where); (where === 'horse' ? m.horse.userData.body || m.horse : m.boat).add(o); }
+    else {
+      o = loadModel(id, where); placeLoad(o, id, where);
+      if (where === 'horse') { const U = m.horse.userData; o.position.y += U.dy || 0; o.scale.divideScalar(U.size || 1); }   // (on its breed's back, and its own size)
+      (where === 'horse' ? m.horse.userData.body || m.horse : m.boat).add(o);
+    }
     if (m === this.player) o.traverse(q => { if (q.isMesh) ownMesh(q, m, where === 'arms' || where === 'push'); });
     m.carriedObj = o;
     if (where === 'push') this.pushTilt(m, e, scene);
@@ -686,7 +693,7 @@ export class Actors {
   // Does an animal's model still fit it (type, breed, and a horse's saddlebags with how full they look)? Compared field by
   // field: no key string made for every animal in every frame
   sameAnimal(m, e) {
-    return m.aType === e.type && m.aBreed === (e.breed || '') && m.aBags === (e.bags ? 1 + this.bagFill(m, e) : 0) && (e.type !== 'caballo' || m.aShod === !!e.shod);
+    return m.aType === e.type && m.aBreed === (e.breed || '') && m.aBags === (e.bags ? 1 + this.bagFill(m, e) : 0) && (e.type !== 'caballo' || (m.aShod === !!e.shod && m.aRace === raceKey(e)));
   }
   // The Animal a player rides, looked for at most twice a second (its shoes and how it is looked after: those travel with it)
   riddenBy(m, e) {
@@ -713,15 +720,16 @@ export class Actors {
     if (m) { m.fillT = this.time; m.fill = f; }
     return f;
   }
-  // The rider's horse made again (another coat, or bags that look fuller or emptier: bagK 0 none, else 1 + fill). The old
+  // The rider's horse made again (another coat or breed, or bags that look fuller or emptier: bagK 0 none, else 1 + fill). The old
   // one takes its own materials with it: the player's copies (for the outline), a spectator's see-through ones and its mud
   // material; the big thing on its back is moved by carried(), which sees another host
-  newHorse(m, coat, bagK, shod = false) {
-    const old = m.horse, h = horseModel(coat, bagK > 0, false, Math.max(0, bagK - 1), !!shod);
+  newHorse(m, coat, bagK, shod = false, race = '') {
+    const old = m.horse, h = horseModel(coat, bagK > 0, false, Math.max(0, bagK - 1), !!shod, race);
+    h.scale.setScalar(h.userData.size);
     if (m === this.player) h.traverse(q => { if (q.isMesh) ownMesh(q, m); });
     h.visible = old.visible;
     m.root.remove(old); m.root.add(h);
-    m.horse = h; m.horseCoat = coat; m.horseBagK = bagK; m.horseShod = !!shod;
+    m.horse = h; m.horseCoat = coat; m.horseBagK = bagK; m.horseShod = !!shod; m.horseRace = race;
     old.traverse(o => {
       if (!o.isMesh || o.userData.shared) return;
       if (o.userData.solid) o.material.dispose();
@@ -742,14 +750,16 @@ export class Actors {
     animateHorse(m.horse, m.speed, t, null, dt, e.gait, this.horseState(m, e, e.horseAct, !!e.horseWinded, dt, vol));
     m.gallopK = (m.gallopK || 0) + ((m.speed > 3 ? (e.gait === 2 ? 1 : e.gait === 3 ? 0.35 : 0) : 0) - (m.gallopK || 0)) * Math.min(1, dt * 4);
     if (m.gallopK < 1e-3) m.gallopK = 0;
-    let y = 0.92 + seat + (H.bob || 0) + RIDE.bounce * m.gallopK * (0.5 + 0.5 * Math.sin((H.phase || 0) + RIDE.bouncePh));
+    // (where the seat is: 0.92 on an Español)
+    const size = H.size || 1, sits = (SEAT[0] + (H.dy || 0)) * size - SIT_IN + seat;
+    let y = sits + (H.bob || 0) * size + RIDE.bounce * m.gallopK * (0.5 + 0.5 * Math.sin((H.phase || 0) + RIDE.bouncePh));
     const rk = Math.max(H.rear || 0, H.slide || 0, H.stumble || 0);
     if (rk > 0.001) {
       // (the hips go where the seat goes; the body turns back about them by part of the horse's pitch: the root turns
       // about its feet, so it is moved back by what that turn moves the hips)
-      const phi = (H.seatPitch || 0) * RIDE.rearTilt, hip = P.hipY, dz = (H.seatDz || 0) - hip * Math.sin(phi);
+      const phi = (H.seatPitch || 0) * RIDE.rearTilt, hip = P.hipY, dz = (H.seatDz || 0) * size - hip * Math.sin(phi);
       P.root.rotation.x = phi;
-      y = 0.92 + seat + (H.seatDy || 0) - hip * (Math.cos(phi) - 1);
+      y = sits + (H.seatDy || 0) * size - hip * (Math.cos(phi) - 1);
       P.root.position.x = Math.sin(yaw) * dz; P.root.position.z = Math.cos(yaw) * dz;
       m.reared = true;
     } else if (m.reared) this.unrear(m, P);
@@ -893,7 +903,12 @@ export class Actors {
     else if (m.fishOn && (pz || e.boat || e.aboard) && !lying) fishArms(P, m.fishOn);
     if (m.swimK) this.swimBones(m, P);
     if (e.emote && !busy) this.emote(m, e, P, dt, !!(game || e.remote));   // (with the arms busy, no gesture)
-    if (e.mount) this.riderBones(m, P);
+    if (e.mount) {
+      // (astride a broader back)
+      const U = m.horse?.userData, w = ((U?.wk || 1) * (U?.size || 1) - 1) * RIDE.astride;
+      if (w > 0.01) { P.legs[0].rotation.z += w; P.legs[1].rotation.z -= w; }
+      this.riderBones(m, P);
+    }
     // Shivering with cold, standing still and with nothing else to do: shoulders up, arms hugging the chest, a small
     // tremble (an idle layer over the pose, eased in and out)
     const shiver = !!m.surf?.shiver && !pz && !lying && !busy && !m.anim && !e.emote && m.speed < 0.3 && !(m.swimK > 0.05) && !e.mount && !e.boat && !e.aboard && !(P.crouch > 0.1);

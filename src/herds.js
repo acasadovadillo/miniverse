@@ -9,6 +9,7 @@ import { ihash } from './util.js';
 import { B, BIOMES, climate, classify, wetness } from './world/biomes.js';
 import { BOUNDS } from './world/village.js';
 import { wrapX, wrapIndex, dxOf, inPlanet, latOf } from './world/planet.js';
+import { sizeOf as raceSize } from './horsebreeds.js';
 
 export const CELL = 64;
 // The balance, all together (metres, game seconds, hours): to be tuned by playing
@@ -39,8 +40,8 @@ export const HERD = {
 export const AGE = { young: 0, adult: 1, prime: 2, old: 3 };
 const SIZE0 = 0.85, SIZE_STEP = 0.05;
 export const HIND_K = 0.9, YOUNG = 0.55;     // (how big a hind or a sow is by a stag's or a male's; a young one, by a grown one)
-// How big an animal's body is, by its species' (a farm one, a wild one of a herd, or on its own)
-export const scaleOf = e => (e.young ? YOUNG : 1) * (e.traits ? (e.size || 1) * (e.female && !e.young && e.type !== 'cisne' ? HIND_K : 1) : 1);
+// How big an animal's body is, by its species' (a farm one, a horse by its breed, a wild one of a herd, or on its own)
+export const scaleOf = e => (e.young ? YOUNG : 1) * (e.type === 'caballo' ? raceSize(e) : 1) * (e.traits ? (e.size || 1) * (e.female && !e.young && e.type !== 'cisne' ? HIND_K : 1) : 1);
 const TYPE = { deer: 'ciervo', boar: 'jabali', swan: 'cisne' };
 const KINDS = ['deer', 'boar', 'swan'];
 const NONE = Object.freeze([]);

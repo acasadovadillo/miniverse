@@ -12,6 +12,8 @@
 // shake and the toss (st.act) and the heaving flanks of a winded horse (st.winded); and the hoof strikes it counts for
 // the sound (u.hits, read by actors.js).
 //
+// The horse's breeds (Plan R4-3, horsebreeds.js): the same horse with other proportions (HORSE_BUILD), blended for a mestizo; its
+// race is part of animalKey, and its size, the root's scale. The six coats are the same for every breed.
 // The wild ones' breeds (Plan R3-2, herds.js breedOf): a deer with none is the stag (its antlers); 'hind' (no antlers, slimmer)
 // and 'calf' (white spots on the back); a boar with none is the male (tusks and mane); 'sow', 'piglet' (striped) and 'reddish'
 // (the older young). Their size is the root's scale (herds.js scaleOf).
@@ -19,6 +21,7 @@ import * as THREE from 'three';
 import { mesh, mergeInto, G, M } from './shapes.js';
 import { Builder } from './geo.js';
 import { sobrio } from '../arte.js';
+import { raceKey, buildOfKey, sizeOfBuild } from '../horsebreeds.js';
 
 // (menos de dibujos animados: pelaje apagado y con variación de tono, ojos pequeños sin punto de brillo, patas más finas
 // por debajo de la rodilla y, en los cabezones, la cabeza algo más pequeña)
@@ -40,7 +43,7 @@ const COATS = {
 };
 // (fill: how full a horse's saddlebags look, 0 flat, 1 half, 2 bulging: saddlebags.js fillOf. With bags the key says
 // 1 + fill, so the model is made again only when the fill level changes)
-export const animalKey = (e, fill = 1) => `${e.type}:${e.breed || ''}:${e.bags ? 1 + fill : 0}${e.type === 'caballo' && e.shod ? ':s' : ''}`;
+export const animalKey = (e, fill = 1) => `${e.type}:${e.breed || ''}:${e.bags ? 1 + fill : 0}${e.type === 'caballo' && e.shod ? ':s' : ''}${e.type === 'caballo' && e.race ? ':' + raceKey(e) : ''}`;
 function coatOf(type, breed) { const c = COATS[type]; return c ? c[breed] || Object.values(c)[0] : []; }
 
 // ---------- herramientas ----------
@@ -130,7 +133,7 @@ function neckRig(body, u, m, base, tip, r0, r1, seg, graze, pts = []) {
   // encima de la cruz)
   mesh(G.ball, m, { s: [r0 * 1.03, r0 * 1.03, r0 * 1.03] }, neck);
   const c = Math.cos(a0), s = Math.sin(a0);
-  for (const [mm, p, o] of pts) { const dy = p[1] - base[1], dz = p[2] - base[2]; mesh(G.ball, mm, { ...o, p: [p[0], dy * c + dz * s, -dy * s + dz * c], r: o.r && [o.r[0] - a0, o.r[1], o.r[2]] }, neck); }
+  for (const [mm, p, o, geo] of pts) { const dy = p[1] - base[1], dz = p[2] - base[2]; mesh(geo || G.ball, mm, { ...o, p: [p[0], dy * c + dz * s, -dy * s + dz * c], r: o.r && [o.r[0] - a0, o.r[1], o.r[2]] }, neck); }
   u.rig = { by: base[1], bz: base[2], L, a0, ...graze };
 }
 // (con la cabeza ya de su tamaño) El morro, inclinado SNOUT por debajo de la horizontal (la cabeza casi de pie, como
@@ -167,9 +170,22 @@ function shoeGeo(r2) {
   if (!SHOES.has(r2)) SHOES.set(r2, new THREE.TorusGeometry(r2 * 1.16, r2 * 0.24, 6, 18, Math.PI * 1.56).rotateZ(Math.PI / 2 - Math.PI * 0.78).rotateX(Math.PI / 2).scale(1, 0.62, 1.1));
   return SHOES.get(r2);
 }
+// The long hair of the fetlocks (the draft horse's; a little, the pony's): a skirt of locks from the cannon over the hoof,
+// longer behind. k: how much of it
+const FEATHERS = new Map();
+function featherGeo(k, r2) {
+  const key = k.toFixed(2) + ':' + r2.toFixed(4);
+  if (!FEATHERS.has(key)) FEATHERS.set(key, blob(null, 18, (v, n) => {
+    const a = Math.atan2(n.x, n.z), back = 0.5 - 0.5 * Math.cos(a), d = (1 - n.y) / 2, lock = 0.86 + 0.28 * noise(Math.cos(a) * 2.6 + 4, Math.sin(a) * 2.6, 3);
+    // (from half way up the cannon, close to it, opening over the hoof; the lower edge in points)
+    const r = (r2 * 1.06 + r2 * (0.5 + 0.75 * back) * k * d * d * lock) * Math.min(1, Math.sqrt(Math.max(0, 1 - n.y * n.y)) * 2.2);
+    v.set(Math.sin(a) * r, 0.12 * k + 0.01 - d * (0.05 + 0.09 * k + 0.04 * k * (0.35 + 0.65 * back) * lock), Math.cos(a) * r - r2 * 0.25 * k * d * back);
+  }, n => C.set('#ffffff').multiplyScalar((0.78 + 0.22 * noise(n.x * 6, n.y * 1.5, n.z * 6)) * (0.62 + 0.38 * sm(0.95, 0.1, n.y)))));
+  return FEATHERS.get(key);
+}
 // Una pata con rodilla: su músculo arriba (paletilla o muslo), fina abajo y, en las de atrás (z < 0), con el corvejón hacia
 // atrás: el muslo baja hacia atrás y la caña vuelve hacia delante, con el pie debajo de la cadera
-function leg(body, legs, { x, y, z, up, low, r0, r1, r2, color, foot, footColor, paw = false, phase = 0, shoe = false }) {
+function leg(body, legs, { x, y, z, up, low, r0, r1, r2, color, foot, footColor, paw = false, phase = 0, shoe = false, feather = 0, hair = null }) {
   const hind = z < 0, kz = hind ? -up * 0.24 : up * 0.05, fz = hind ? up * 0.24 : -up * 0.03, c = M(color);
   r1 *= paw ? 0.95 : 0.8; r2 *= paw ? 0.9 : 0.7;
   const hip = new THREE.Group(); hip.position.set(x, y, z); body.add(hip);
@@ -182,6 +198,7 @@ function leg(body, legs, { x, y, z, up, low, r0, r1, r2, color, foot, footColor,
   else if (foot) {
     mesh(G.ball, M(footColor || color), { p: [0, -low + foot * 0.2, fz], s: [r2 * 1.2, r2 * 1.1, r2 * 1.2] }, knee);   // (la cuartilla)
     mesh(new THREE.CylinderGeometry(r2 * 1.05, r2 * 1.35, foot, 10).translate(0, -low - foot / 2, fz + r2 * 0.25), M(footColor || '#2a2420', { roughness: 0.5 }), {}, knee);
+    if (feather > 0.05) mesh(featherGeo(feather, r2), hair, { p: [0, -low - foot * 0.1, fz] }, knee);
     if (shoe) mesh(shoeGeo(r2), M('#767c83'), { p: [0, -low - foot + 0.0045, fz + r2 * 0.25] }, knee);
   }
   legs.push({ hip, knee, phase });
@@ -213,8 +230,8 @@ export function disposeAnimal(root) {
 const TROT = [0, Math.PI, Math.PI, 0];   // patas: delante izquierda y detrás derecha a la vez, y al revés
 
 // ---------- los animales ----------
-export function animalModel(type, breed, bags, fill = 1, shod = false) {
-  if (type === 'caballo') return horseModel(breed, bags, true, fill, shod);
+export function animalModel(type, breed, bags, fill = 1, shod = false, race = '') {
+  if (type === 'caballo') return horseModel(breed, bags, true, fill, shod, race);
   const root = new THREE.Group(), body = new THREE.Group(), legs = [], u = { body, legs, type, seed: Math.random() * 10 };
   root.add(body);
   const [cb, cd, cl] = coatOf(type, breed), k = `${type}:${breed}`;
@@ -563,40 +580,119 @@ export function animateAnimal(m, dt, t, e, st = null) {
 }
 
 // ---------- el caballo ----------
-// También el del jinete: con su pelaje, la silla con su manta y los estribos y, si las tiene, las alforjas
-// (fill: how full the saddlebags look, 0 flat, 1 half, 2 bulging; see saddlebags. shod: with its shoes on, iron under the hooves)
-export function horseModel(breed = 'castano', bags = false, alone = false, fill = 1, shod = false) {
-  const root = new THREE.Group(), body = new THREE.Group(), legs = [], u = { body, legs, type: 'caballo', horse: alone, seed: Math.random() * 10 };
-  root.add(body);
-  const [cb, cd, cl] = coatOf('caballo', breed), k = `caballo:${breed}`, mane = M(cl || cd), pio = breed === 'pio';
-  mesh(blob(k + ':b', pio || breed === 'tordo' ? 64 : 40, trunk({ L: 0.56, W: 0.26, H: 0.29, belly: 0.03, chest: 0.06 }), coat(cb, { back: 0.12, spot: cd, spots: pio ? patches(2, 5.5, 0.55) : breed === 'tordo' ? (n => noise(n.x * 9, n.y * 9, n.z * 9) > 0.62 ? 0.45 : 0) : null })), WHITE, { p: [0, 0.88, 0] }, body);
-  // Cuello y cabeza, con la crin
-  const head = new THREE.Group(); head.position.set(0, 1.38, 0.76); body.add(head); u.head = head;
-  neckRig(body, u, M(cb), [0, 0.9, 0.34], [0, 1.38, 0.76], 0.15, 0.075, 14, { beta: 0.95, S: [-0.24, 0.36] },
-    Array.from({ length: 6 }, (_, i) => [mane, [0, 1.06 + i * 0.065, 0.4 + i * 0.055], { s: [0.045, 0.08, 0.07], r: [0.6, 0, 0] }]));   // (la crin, con el cuello)
-  const morro = M(cl && breed === 'palomino' ? cb : breed === 'blanco' ? '#d8cfc4' : mixc(cb, '#000000', 0.25).getStyle());
-  // La cabeza larga, en cuña: ancha en la frente y las quijadas y estrecha hacia el morro, con los ojos a los lados
-  mesh(blob(k + ':h', 28, (v, n) => { const f = (n.z + 1) / 2, jaw = Gs(n.z + 0.45, 0.3) * Math.max(0, -n.y); v.set(n.x * (0.085 - 0.03 * f + 0.02 * jaw), n.y * (0.105 - 0.04 * f) - 0.03 * jaw, n.z * 0.3); }, n => coat(cb, { back: 0.06 })(n)), WHITE, { p: [0, -0.06, 0.12], r: [0.6, 0, 0] }, head);
-  mesh(G.ball, morro, { p: [0, -0.2, 0.31], s: [0.052, 0.05, 0.07], r: [0.6, 0, 0] }, head);   // el morro
-  if (breed === 'blanco' || breed === 'tordo' || breed === 'palomino' || pio) mesh(G.ball, M('#f8f4ee'), { p: [0, -0.057, 0.243], s: [0.028, 0.012, 0.085], r: [0.76, 0, 0] }, head);   // the blaze, lying on the face
-  for (const s of [-1, 1]) {
-    mesh(G.cone, M(cb), { p: [s * 0.045, 0.1, -0.06], s: [0.025, 0.08, 0.02], r: [-0.25, 0, -s * 0.12] }, head);
-    mesh(G.ball, M('#2a1a14'), { p: [s * 0.026, -0.205, 0.345], s: [0.012, 0.015, 0.012], r: [0.6, 0, 0] }, head);   // ollares
+// What each breed is like, by an Español's (the base: the horse of always, to the last vertex). L, W, H: the trunk's half length,
+// width and height, by its middle; belly, chest, hips as trunk() has them; neck: where it starts and ends (y, z) and its two
+// radii; head: how big; dish: the profile (hollow, or Roman under 0); muzzle, ear, eye, brow (the forelock); bone: how thick the legs are, muscle:
+// their upper part; legX, how far apart; mane: how much of it hangs on both sides; lock: how long it is; tail: how thick, dock: how
+// high it is carried, tlen: how long; feather: the hair of the fetlocks. The legs are as long in all of them (their hips are
+// where the gaits and the tricks turn about): how tall it is, the whole model's size (horsebreeds.js)
+const HORSE_BASE = { L: 0.56, W: 0.26, H: 0.29, by: 0.88, belly: 0.03, chest: 0.06, hips: 0.09, withers: 0.14, n0y: 0.9, n0z: 0.34, n1y: 1.38, n1z: 0.76, r0: 0.15, r1: 0.075, head: 1, dish: 0, muzzle: 1, ear: 1, eye: 1, brow: 1, bone: 1, muscle: 1, legX: 0.16, mane: 0, lock: 1, tail: 1, dock: 0, tlen: 1, feather: 0 };
+const HORSE_BUILD = {
+  arabe: { L: 0.535, W: 0.235, H: 0.268, by: 0.895, belly: -0.005, chest: 0.045, hips: 0.08, n1y: 1.45, n1z: 0.755, r0: 0.128, r1: 0.062, head: 0.92, dish: 1, muzzle: 0.8, ear: 0.9, eye: 1.25, bone: 0.86, muscle: 0.92, legX: 0.145, mane: 0.35, lock: 1.25, tail: 0.95, dock: 1, tlen: 1.06 },
+  breton: { L: 0.6, W: 0.325, H: 0.37, by: 0.825, belly: 0.05, chest: 0.1, hips: 0.17, withers: 0.1, n0y: 0.905, n0z: 0.36, n1y: 1.345, n1z: 0.775, r0: 0.2, r1: 0.115, head: 1.17, dish: -0.7, muzzle: 1.25, ear: 0.95, brow: 1.2, bone: 1.42, muscle: 1.4, legX: 0.19, mane: 0.8, lock: 1.05, tail: 1.5, tlen: 0.8, feather: 1 },
+  asturcon: { L: 0.55, W: 0.3, H: 0.325, by: 0.845, belly: 0.085, chest: 0.055, hips: 0.11, withers: 0.1, n1y: 1.31, n1z: 0.71, r0: 0.16, r1: 0.092, head: 1.1, dish: 0.15, muzzle: 1.05, ear: 0.8, brow: 1.7, bone: 1.08, muscle: 1.1, legX: 0.165, mane: 1, lock: 1.1, tail: 1.35, dock: -0.15, tlen: 1.08, feather: 0.28 },
+};
+const SHAPES = new Map();
+function horseShape(race) {
+  if (!SHAPES.has(race)) {
+    const w = buildOfKey(race), P = { ...HORSE_BASE };
+    for (const r in HORSE_BUILD) if (w[r]) for (const k in HORSE_BUILD[r]) P[k] += w[r] * (HORSE_BUILD[r][k] - HORSE_BASE[k]);
+    P.wk = P.W / HORSE_BASE.W; P.dy = P.by + P.H * 0.9 - (HORSE_BASE.by + HORSE_BASE.H * 0.9); P.size = sizeOfBuild(w);
+    SHAPES.set(race, P);
   }
-  mesh(G.ball, mane, { p: [0, 0.08, 0.02], s: [0.035, 0.045, 0.055] }, head);   // el flequillo
-  eyes(head, 0.075, 0.0, 0.07, 0.024);
+  return SHAPES.get(race);
+}
+// The mane: the horse of always', on the crest; a breed's, a sheet of hair from the crest down both sides of the neck (mane: how
+// far round; to one side, longer), its edge in locks. In the neck's own space (y along it, -z its crest)
+const MANES = new Map();
+function maneGeo(P, race) {
+  if (MANES.has(race)) return MANES.get(race);
+  const L = Math.hypot(P.n1y - P.n0y, P.n1z - P.n0z), NS = 34, NA = 16, pos = [], col = [], idx = [], m = P.mane;
+  for (let i = 0; i <= NS; i++) {
+    const t = i / NS, s = 0.1 + 0.93 * t, r = P.r0 + (P.r1 - P.r0) * Math.min(1, s), end = sm(0, 0.08, t) * (1 - sm(0.95, 1, t) * 0.6);
+    for (let j = 0; j <= NA; j++) {
+      const q = j / NA * 2 - 1, sd = q < 0 ? -1 : 1, lock = 0.74 + 0.42 * noise(t * 13 + sd * 7, sd * 2.5, 1.5), side = sd > 0 ? 1 : 0.55 + 0.45 * m;
+      const far = (0.5 + 1.35 * m) * P.lock * side * lock * (0.8 + 0.2 * (1 - t)), phi = q * far * (0.25 + 0.75 * end);
+      const qa = Math.abs(q), strand = 0.72 + 0.38 * noise(t * 24 + qa * 2.5, sd * 3 + qa, 8) + 0.26 * noise(t * 57 + qa * 4, sd * 5, 3), thick = ((0.02 + 0.024 * m) * (1 - 0.8 * qa ** 1.8) + 0.004) * strand * (0.25 + 0.75 * end);
+      const R = qa > 0.99 ? r * 0.95 : r * 0.985 + thick + 0.012 * Math.max(0, 1 - qa * 4);   // (its edge, into the neck)
+      pos.push(Math.sin(phi) * R, L * (s - 0.09 * qa * qa * m), -Math.cos(phi) * R);
+      const k = 0.8 + 0.28 * noise(t * 46 + qa * 3, sd * 3 + 5, 2); col.push(k, k, k);
+    }
+  }
+  for (let i = 0; i < NS; i++) for (let j = 0; j < NA; j++) { const n = i * (NA + 1) + j; idx.push(n, n + NA + 1, n + 1, n + 1, n + NA + 1, n + NA + 2); }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  g.setIndex(idx); g.computeVertexNormals();
+  MANES.set(race, g);
+  return g;
+}
+function maneOf(P, race, mane) {
+  if (!race) return Array.from({ length: 6 }, (_, i) => [mane, [0, 1.06 + i * 0.065, 0.4 + i * 0.055], { s: [0.045, 0.08, 0.07], r: [0.6, 0, 0] }]);
+  return [[mane, [0, P.n0y, P.n0z], { r: [Math.atan2(P.n1z - P.n0z, P.n1y - P.n0y), 0, 0] }, maneGeo(P, race)]];
+}
+// A breed's tail: the dock thin, the hair full in the middle and thin at its end, in strands; carried high, it rises before it falls
+const TAILS = new Map();
+function tailGeo(P, race) {
+  if (TAILS.has(race)) return TAILS.get(race);
+  const hi = Math.max(0, P.dock), lo = Math.min(0, P.dock), tl = P.tlen, V = (y, z) => new THREE.Vector3(0, y, z);
+  const tc = new THREE.CatmullRomCurve3([V(0, 0.02), V(-0.05 + 0.1 * hi, -0.075 - 0.02 * hi), V((-0.2 + 0.2 * hi) * tl, -0.14 - 0.09 * hi + 0.04 * lo), V((-0.44 + 0.14 * hi) * tl, -0.165 - 0.15 * hi + 0.06 * lo), V((-0.68 + 0.05 * hi) * tl, -0.15 - 0.14 * hi + 0.06 * lo)]);
+  const N = 26, M = 12, g = new THREE.TubeGeometry(tc, N, 1, M), p = g.attributes.position, col = new Float32Array(p.count * 3), v = new THREE.Vector3(), c = new THREE.Vector3();
+  for (let i = 0; i <= N; i++) {
+    const t = i / N, rad = (0.034 + 0.03 * sm(0.05, 0.5, t) * P.tail) * (1 - 0.86 * sm(0.6, 1, t) ** 1.4) * (0.6 + 0.4 * Math.min(1, P.tail));
+    tc.getPointAt(t, c);
+    for (let j = 0; j <= M; j++) {
+      const n = i * (M + 1) + j, a = (j % M) / M * Math.PI * 2, st = noise(Math.cos(a) * 3 + 2, Math.sin(a) * 3, t * 2.2 + 6);
+      v.fromBufferAttribute(p, n).sub(c).multiplyScalar(rad * (0.78 + 0.5 * st)).add(c); p.setXYZ(n, v.x, v.y - 0.05 * tl * st * sm(0.7, 1, t), v.z);
+      col.fill(0.74 + 0.36 * st, n * 3, n * 3 + 3);
+    }
+  }
+  g.setAttribute('color', new THREE.BufferAttribute(col, 3)); g.deleteAttribute('uv'); g.computeVertexNormals();
+  TAILS.set(race, g);
+  return g;
+}
+// También el del jinete: con su pelaje, la silla con su manta y los estribos y, si las tiene, las alforjas
+// (fill: how full the saddlebags look, 0 flat, 1 half, 2 bulging; see saddlebags. shod: with its shoes on, iron under the hooves.
+// race: its breed's key, horsebreeds.js raceKey). u.size: how big the whole is by an Español's (whoever shows it scales it); u.dy and
+// u.wk: how much higher its back is, and how much wider it is (the rider, the bags and the load)
+export function horseModel(breed = 'castano', bags = false, alone = false, fill = 1, shod = false, race = '') {
+  const P = horseShape(race);
+  const root = new THREE.Group(), body = new THREE.Group(), legs = [], u = { body, legs, type: 'caballo', horse: alone, seed: Math.random() * 10, size: P.size, dy: P.dy, wk: P.wk, tailUp: 0.3 * Math.max(0, P.dock) };
+  root.add(body);
+  const [cb, cd, cl] = coatOf('caballo', breed), k = `caballo:${breed}${race && ':' + race}`, mane = M(cl || cd), pio = breed === 'pio', { dy, wk } = P;
+  mesh(blob(k + ':b', pio || breed === 'tordo' ? 64 : 40, trunk({ L: P.L, W: P.W, H: P.H, belly: P.belly, chest: P.chest, hips: P.hips, withers: P.withers }), coat(cb, { back: 0.12, spot: cd, spots: pio ? patches(2, 5.5, 0.55) : breed === 'tordo' ? (n => noise(n.x * 9, n.y * 9, n.z * 9) > 0.62 ? 0.45 : 0) : null })), WHITE, { p: [0, P.by, 0] }, body);
+  // Cuello y cabeza, con la crin
+  const head = new THREE.Group(); head.position.set(0, P.n1y, P.n1z); body.add(head); u.head = head;
+  neckRig(body, u, M(cb), [0, P.n0y, P.n0z], [0, P.n1y, P.n1z], P.r0, P.r1, 14, { beta: 0.95, S: [-0.24, 0.36] }, maneOf(P, race, mane));   // (la crin, con el cuello)
+  const morro = M(cl && breed === 'palomino' ? cb : breed === 'blanco' ? '#d8cfc4' : mixc(cb, '#000000', 0.25).getStyle()), mz = P.muzzle;
+  // La cabeza larga, en cuña: ancha en la frente y las quijadas y estrecha hacia el morro, con los ojos a los lados
+  // (its profile, hollow under the eyes or rounded: dish)
+  mesh(blob(k + ':h', 28, (v, n) => { const f = (n.z + 1) / 2, jaw = Gs(n.z + 0.45, 0.3) * Math.max(0, -n.y); v.set(n.x * (0.085 - (0.03 + 0.008 * Math.max(0, P.dish) - 0.055 * Math.max(0, mz - 1)) * f + 0.02 * jaw), n.y * (0.105 - (0.04 - 0.06 * Math.max(0, mz - 1)) * f) - 0.03 * jaw + P.dish * Math.max(0, n.y) * (0.012 * Gs(n.z + 0.45, 0.25) - 0.022 * Gs(n.z - 0.2, 0.28)), n.z * 0.3); }, n => coat(cb, { back: 0.06 })(n)), WHITE, { p: [0, -0.06, 0.12], r: [0.6, 0, 0] }, head);
+  mesh(G.ball, morro, { p: [0, -0.2, 0.31], s: [0.052 * Math.min(mz, 1.1), 0.05 * Math.min(mz, 1.1), 0.07 * (0.6 + 0.4 * mz)], r: [0.6, 0, 0] }, head);   // el morro
+  if (breed === 'blanco' || breed === 'tordo' || breed === 'palomino' || pio) mesh(G.ball, M('#f8f4ee'), { p: [0, -0.057 - 0.02 * P.dish, 0.243 - 0.014 * P.dish], s: [0.028, 0.012, 0.085], r: [0.76, 0, 0] }, head);   // the blaze, lying on the face
+  for (const s of [-1, 1]) {
+    mesh(G.cone, M(cb), { p: [s * 0.045, 0.1, -0.06], s: [0.025, 0.08 * P.ear, 0.02], r: [-0.25, 0, -s * 0.12] }, head);
+    mesh(G.ball, M('#2a1a14'), { p: [s * 0.026 * mz, -0.205, 0.345], s: [0.012, 0.015, 0.012], r: [0.6, 0, 0] }, head);   // ollares
+  }
+  mesh(G.ball, mane, race ? { p: [0, 0.07, 0.02], s: [0.032, 0.03, 0.05] } : { p: [0, 0.08, 0.02], s: [0.035, 0.045, 0.055] }, head);   // el flequillo
+  if (race) mesh(G.ball, mane, { p: [0, 0.04 - 0.012 * (P.brow - 1), 0.075 + 0.02 * (P.brow - 1)], s: [0.026 * P.brow, 0.02, 0.05 + 0.035 * (P.brow - 1)], r: [0.66, 0, 0] }, head);   // (and down the forehead, as long as the breed has it)
+  eyes(head, 0.075, 0.0, 0.07, 0.024 * P.eye);
+  if (P.head !== 1) head.scale.setScalar(P.head);
   // Silla: manta, asiento con borrén, estribos; alforjas a los lados
   const saddle = M('#6a2a1e'), blanket = M('#3a5a8a'), steel = M('#b8c0c8', { metalness: 0.6, roughness: 0.35 });
-  mesh(G.cyl, blanket, { p: [0, 1.13, -0.02], s: [0.3, 0.025, 0.34] }, body);
-  mesh(blob('silla', 20, (v, n) => v.set(n.x * 0.2, n.y * 0.05 + (Math.abs(n.z) > 0.6 && n.y > 0 ? 0.04 * (Math.abs(n.z) - 0.6) * 4 : 0), n.z * 0.24), () => C.set('#ffffff')), saddle, { p: [0, 1.16, -0.02] }, body);
-  for (const s of [-1, 1]) { tube(M('#4a2a1a'), [s * 0.2, 1.15, 0.02], [s * 0.26, 0.86, 0.04], 0.008, 0.008, body, 4); mesh(new THREE.TorusGeometry(0.035, 0.008, 4, 10), steel, { p: [s * 0.26, 0.84, 0.04], r: [0, Math.PI / 2, 0] }, body); }
-  if (bags) saddlebags(body, fill);
-  // La cola, larga
-  const tail = new THREE.Group(); tail.position.set(0, 1.04, -0.56); body.add(tail); u.tail = tail;
-  const tc = new THREE.CatmullRomCurve3([new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, -0.1, -0.12), new THREE.Vector3(0, -0.4, -0.18), new THREE.Vector3(0, -0.62, -0.14)]);
-  tail.add(new THREE.Mesh(new THREE.TubeGeometry(tc, 12, 0.05, 8), mane));
-  mesh(G.ball, mane, { p: [0, -0.6, -0.14], s: [0.06, 0.08, 0.06] }, tail);
-  [[-0.16, 0.38], [0.16, 0.38], [-0.16, -0.38], [0.16, -0.38]].forEach(([x, z], i) => leg(body, legs, { x, y: 0.72, z, up: 0.36, low: 0.29, r0: 0.085, r1: 0.05, r2: 0.04, color: cb, shoe: shod, foot: 0.07, footColor: breed === 'blanco' ? '#5a5048' : '#2a2420', phase: TROT[i] }));
+  mesh(G.cyl, blanket, { p: [0, 1.13 + dy, -0.02], s: [0.3 * wk, 0.025, 0.34] }, body);
+  mesh(blob('silla', 20, (v, n) => v.set(n.x * 0.2, n.y * 0.05 + (Math.abs(n.z) > 0.6 && n.y > 0 ? 0.04 * (Math.abs(n.z) - 0.6) * 4 : 0), n.z * 0.24), () => C.set('#ffffff')), saddle, { p: [0, 1.16 + dy, -0.02], s: [(1 + wk) / 2, 1, 1] }, body);
+  for (const s of [-1, 1]) { const x = race ? s * (P.W * 1.06 + 0.02) : s * 0.26; tube(M('#4a2a1a'), [s * 0.2 * wk, 1.15 + dy, 0.02], [x, 0.86 + dy, 0.04], 0.008, 0.008, body, 4); mesh(new THREE.TorusGeometry(0.035, 0.008, 4, 10), steel, { p: [x, 0.84 + dy, 0.04], r: [0, Math.PI / 2, 0] }, body); }
+  if (bags) saddlebags(body, fill, 0.2 * (wk - 1), dy);
+  // La cola, larga (carried high, its breed's: it rises before it falls)
+  const tail = new THREE.Group(); if (race) tail.position.set(0, P.by + P.H * 0.44, -P.L * 0.89); else tail.position.set(0, 1.04, -0.56); body.add(tail); u.tail = tail;
+  if (race) { mesh(tailGeo(P, race), mane, {}, tail); mesh(G.ball, M(cb), { p: [0, 0.005, 0], s: [0.055, 0.05, 0.065] }, tail); }
+  else {
+    const tc = new THREE.CatmullRomCurve3([new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, -0.1, -0.12), new THREE.Vector3(0, -0.4, -0.18), new THREE.Vector3(0, -0.62, -0.14)]);
+    tail.add(new THREE.Mesh(new THREE.TubeGeometry(tc, 12, 0.05, 8), mane));
+    mesh(G.ball, mane, { p: [0, -0.6, -0.14], s: [0.06, 0.08, 0.06] }, tail);
+  }
+  const hair = P.feather > 0.05 ? M(mixc(cb, '#e2d4b8', breed === 'negro' ? 0.16 : 0.42).getStyle(), { roughness: 0.95 }) : null;
+  [[-1, 0.38], [1, 0.38], [-1, -0.38], [1, -0.38]].forEach(([x, z], i) => leg(body, legs, { x: x * P.legX, y: 0.72, z, up: 0.36, low: 0.29, r0: 0.085 * P.muscle, r1: 0.05 * P.bone, r2: 0.04 * P.bone, color: cb, shoe: shod, foot: 0.07, footColor: breed === 'blanco' ? '#5a5048' : '#2a2420', phase: TROT[i], feather: P.feather, hair }));
   settleNeck(u);
   u.hipRest = legs.map(l => l.hip.position.y);
   finish(root, u);
@@ -679,10 +775,11 @@ function rollParts() {
   for (const [g] of ROLL_GEO) g.deleteAttribute('uv');
   return ROLL_GEO;
 }
-function saddlebags(body, fill) {
+// (dx, dy: how much further out its flanks are and how much higher its back, its breed's)
+function saddlebags(body, fill, dx = 0, dy = 0) {
   const f = Math.max(0, Math.min(2, fill | 0));
-  for (const s of [-1, 1]) for (const [g, c] of bagParts(s, f)) mesh(g, M(c, { roughness: 0.8 }), {}, body);
-  for (const [g, c] of rollParts()) mesh(g, M(c, { roughness: 0.9 }), {}, body);
+  for (const s of [-1, 1]) for (const [g, c] of bagParts(s, f)) mesh(g, M(c, { roughness: 0.8 }), { p: [s * dx, dy, 0] }, body);
+  for (const [g, c] of rollParts()) mesh(g, M(c, { roughness: 0.9 }), { p: [0, dy, 0] }, body);
 }
 
 // ---------- the horse's mud ----------
@@ -855,7 +952,7 @@ const REAR_FP = { pitch: 0.6, neck: 0.5, head: 0.25 };   // (from the rider's ow
 const SLIDE = { pitch: -0.27, py: 0.72, pz: 0.38, down: 0.025, hindHip: 1.05, foreHip: 0.32, neck: -0.28, head: 0.22 };
 const STUMBLE = { pitch: 0.24, py: 0.72, pz: -0.38, foreHip: 0.5, down: 0, neck: 0.34, head: 0.12, roll: 0.07, hz: 2.2 };
 const SHAKE = { roll: 0.12, hz: 5.6, head: 0.35 };
-const SEAT = [1.16, -0.02];   // (the saddle's seat on the body, y and z: where the rider sits, for the rider's rear)
+export const SEAT = [1.16, -0.02];   // (the saddle's seat on the body, y and z: where the rider sits, for the rider's rear; u.dy higher, by its breed)
 // (winded: the flanks heave at 1.6 breaths a second and the head hangs low)
 const WINDED = { hz: 1.6, flank: 0.035, low: 0.4, head: 0.28 };
 export const horseCadence = (gait, speed) => speed / HORSE_GAITS[gait].stride;   // (cycles a second)
@@ -868,7 +965,9 @@ const struck = (a0, a1) => { const d = wrapT(a1 - a0); return d > 0 && d < Math.
 // u.bob (the trunk's bob, for the rider), u.rear (0..1) with u.seatDy, u.seatDz and u.seatPitch (where the seat goes while
 // it rears) and u.hits (hooves that landed this frame, for the sound)
 export function animateHorse(h, speed, t, e, dt = 1 / 60, gait, st = null) {
-  const u = h.userData, k = Math.min(1, speed / 3), ridden = gait === 0 || gait === 1 || gait === 2 || gait === 3;
+  const u = h.userData;
+  speed /= u.size || 1;   // (a smaller horse takes shorter strides, so more of them)
+  const k = Math.min(1, speed / 3), ridden = gait === 0 || gait === 1 || gait === 2 || gait === 3;
   u.gk = (u.gk || 0) + ((gait === 2 ? 1 : gait === 3 ? CANTER_K : 0) - (u.gk || 0)) * Math.min(1, dt * GALLOP.ease);
   if (u.gk < 1e-3) u.gk = 0;
   const gk = u.gk * k;
@@ -915,7 +1014,7 @@ export function animateHorse(h, speed, t, e, dt = 1 / 60, gait, st = null) {
   const toss = act === 'toss' ? Math.sin(Math.PI * ak) : 0;
   const slide = act === 'slide' ? sm(0, 0.16, ak) * (1 - sm(0.72, 1, ak)) : 0, stumble = act === 'stumble' ? sm(0, 0.14, ak) * (1 - sm(0.5, 1, ak)) : 0;
   const w = st?.winded > 0 ? Math.min(1, st.winded) : 0, breath = Math.sin(t * TAU * WINDED.hz);
-  if (u.tail) u.tail.rotation.set(0.25 * k + gk * (GALLOP.tail + 0.07 * Math.sin(2 * u.phase + 1)), 0, Math.sin(t * 1.8 + u.seed) * 0.25 * (1 - k * 0.6) + gk * 0.06 * Math.sin(u.phase));
+  if (u.tail) u.tail.rotation.set((0.25 + (u.tailUp || 0)) * k + gk * (GALLOP.tail + 0.07 * Math.sin(2 * u.phase + 1)), 0, Math.sin(t * 1.8 + u.seed) * 0.25 * (1 - k * 0.6) + gk * 0.06 * Math.sin(u.phase));
   // (pastando, baja el cuello hasta la hierba; si no, de vez en cuando, parado, agacha un poco la cabeza. Winded, low; at
   // the gallop it pumps; rearing or tossing it, up)
   const eats = EATING[act] && speed < 0.6 && (st.at || 0) < HORSE_ACTS[act] - 0.4 ? EATING[act] * (act === 'drink' ? 1 - 0.2 * Math.min(1, (st.deep || 0) / 0.6) : 1) : 0;   // (standing in the water, it is that much nearer)
@@ -964,8 +1063,9 @@ function posedAct(u, rear, shake, ak, t, pk = 1, slide = 0, stumble = 0) {   // 
     }
     if (u.tail) u.tail.rotation.x += (-rx * 0.95 - u.tail.rotation.x) * rear;
     // (where the seat goes, for the rider: actors.js)
-    u.seatDy = B.position.y + SEAT[0] * c - SEAT[1] * s - SEAT[0];
-    u.seatDz = B.position.z + SEAT[0] * s + SEAT[1] * c - SEAT[1];
+    const sy = SEAT[0] + (u.dy || 0);
+    u.seatDy = B.position.y + sy * c - SEAT[1] * s - sy;
+    u.seatDz = B.position.z + sy * s + SEAT[1] * c - SEAT[1];
     u.seatPitch = rx;
   }
   u.rear = rear;
@@ -987,8 +1087,9 @@ function posedAct(u, rear, shake, ak, t, pk = 1, slide = 0, stumble = 0) {   // 
     }
     if (stumble) B.rotation.z = STUMBLE.roll * w * Math.sin(ak * TAU * STUMBLE.hz);
     else if (B.rotation.z) B.rotation.z = 0;
-    u.seatDy = B.position.y + SEAT[0] * c - SEAT[1] * s - SEAT[0];
-    u.seatDz = B.position.z + SEAT[0] * s + SEAT[1] * c - SEAT[1];
+    const sy = SEAT[0] + (u.dy || 0);
+    u.seatDy = B.position.y + sy * c - SEAT[1] * s - sy;
+    u.seatDz = B.position.z + sy * s + SEAT[1] * c - SEAT[1];
     u.seatPitch = rx;
   }
   if (shake) {

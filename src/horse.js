@@ -41,6 +41,7 @@ import { GROUND, CLIMB, CLIMB_DRAIN, VERY, STEEP_WALK, STAGGER, STUMBLE_STAM } f
 import { G_FLOOR, G_PATH, G_SOFT } from './body.js';
 import { B } from './world/biomes.js';
 import { EVENT } from './senses.js';
+import { statsOf, PLAIN } from './horsebreeds.js';
 
 // ---------- the rules (§2.3) ----------
 export const LEVEL_AT = [0, 3, 6, 9];                     // hearts where levels 1..4 start
@@ -53,8 +54,9 @@ export const BX_NEXT = 100, BX_AFTER_LOSS = 50, BX_MAX = 299;
 export const GAIN = { brush: 20, brushDirt: 30, brushAgain: 10, carrot: 25, apple: 25, hay: 10, wheat: 10, pat1: 10, pat: 3, ride20s: 1, calm: 8, drink: 8, graze: 4, trim: 10 };
 export const CAPS = { treats: 3, pats: 5, rideBx: 40 };
 export const SHOD_STAM = 1.15;
-// The stamina a second of gallop spends: STAM_MAX / GALLOP_S[L-1] / (shod ? SHOD_STAM : 1) × (1 + max(0, kg - 30) / 40)
-export const drainOf = (level, shod, kg = 0) => STAM_MAX / GALLOP_S[Math.max(1, Math.min(4, level)) - 1] / (shod ? SHOD_STAM : 1) * (1 + Math.max(0, kg - 30) / 40);
+// The stamina a second of gallop spends: STAM_MAX / GALLOP_S[L-1] / (shod ? SHOD_STAM : 1) × (1 + max(0, kg - 30) / 40). breed:
+// its stats (horsebreeds.js): how long its gallop lasts and what it carries for nothing
+export const drainOf = (level, shod, kg = 0, breed = PLAIN) => STAM_MAX / GALLOP_S[Math.max(1, Math.min(4, level)) - 1] / breed.stamina / (shod ? SHOD_STAM : 1) * (1 + Math.max(0, kg - breed.kg) / 40);
 // The treats a horse takes, best first (the menu offers the first one you have), and which GAIN each one is
 export const TREATS = ['zanahoria', 'manzana', 'heno', 'trigo'];
 const TREAT_GAIN = { zanahoria: 'carrot', manzana: 'apple', heno: 'hay', trigo: 'wheat' };
@@ -229,13 +231,13 @@ export class Horse {
     if (this.galloping) {
       this.restT = 0;
       // (sand, snow, mud and uphill tire it more, a path a little less: horseride.js GROUND, CLIMB)
-      const R = this.game.player.ride;
-      this.stam -= drainOf(levelOf(a.love), !!a.shod, this.game.saddlebags?.kg?.(a) || 0) * R.ground.drain * (R.grade >= CLIMB ? CLIMB_DRAIN : 1) * dt;
+      const R = this.game.player.ride, S = statsOf(a);
+      this.stam -= drainOf(levelOf(a.love), !!a.shod, this.game.saddlebags?.kg?.(a) || 0, S) * R.ground.drain * (R.grade >= CLIMB + S.slope ? CLIMB_DRAIN : 1) * dt;
       if (this.stam <= 0) this.blow(a);
       return;
     }
     // (walking up something very steep tires it too)
-    if (moving && this.game.player.ride.on && this.game.player.ride.grade >= VERY) {
+    if (moving && this.game.player.ride.on && this.game.player.ride.grade >= VERY + statsOf(a).slope) {
       this.restT = 0;
       if (this.stam > 0 && (this.stam -= STEEP_WALK * dt) <= 0) this.blow(a);
       return;
@@ -270,7 +272,7 @@ export class Horse {
   // Before each mounted step (game.update). arcade: the setting (Ajustes › Juego › Montar, or ?montar=arcade)
   prepRide(p, sc, arcade) {
     const R = p.ride, a = this.ridden;
-    R.love = a ? a.love : 5; R.shod = !!a?.shod;
+    R.love = a ? a.love : 5; R.shod = !!a?.shod; R.breed = statsOf(a);
     const C = this.game.horsecare;
     R.bare = !!C?.bare(a);
     R.winded = this.noGallop(); R.noGallop = R.winded || !!C?.sore(a);   // (sore: the canter at most)
@@ -506,7 +508,7 @@ export class Horse {
     const src = (mob && !this.mobNear) ? 'mob' : (boar && !this.boarNear) ? 'boar' : bolt ? 'thunder' : null;
     this.mobNear = mob; this.boarNear = boar; this.boltsSeen = bolts;
     if (!src || g.time - this.lastSpook < SPOOK_EVERY || this.held()) return;
-    const L = levelOf(a.love), k = SPOOK[L - 1] * (src === 'thunder' ? THUNDER_K : 1) * (g.time < this.calmUntil ? 0.5 : 1);
+    const L = levelOf(a.love), k = SPOOK[L - 1] * statsOf(a).courage * (src === 'thunder' ? THUNDER_K : 1) * (g.time < this.calmUntil ? 0.5 : 1);
     if (Math.random() < k) this.spook(src);
   }
   boarAt(p) {

@@ -12,6 +12,7 @@
 //
 // Everything is in metres, seconds and radians; R.a is the heading as atan2(x, y), as the rest of the game has it.
 import { collide } from './physics.js';
+import { PLAIN } from './horsebreeds.js';
 
 // The gaits by speed (R.gait is an index here). GT: the same as the network, the art and p.gait number them: 0 walk, 1 trot,
 // 2 gallop, as before, and 3 the canter, so an older game never takes it for another gait (live.js reads it as none)
@@ -21,7 +22,9 @@ export const GT = [0, 1, 3, 2];
 // took before R4: the tier of the canter was 7.0 m/s with no heart and 8.6 with ten)
 export const SPEED = { walk: 3.4, trot: 5.6, canter: 7.6, gallop: 10.2 };
 export const BOND_CANTER = 0.15, BOND_GALLOP = 0.05;
-export const speedOf = (gait, love = 5) => (gait === 0 ? SPEED.walk : gait === 1 ? SPEED.trot : gait === 2 ? SPEED.canter + BOND_CANTER * (love - 5) : SPEED.gallop + BOND_GALLOP * love);
+// (and by its breed, horsebreeds.js: its gallop's factor, and its canter's)
+export const speedOf = (gait, love = 5, gallop = 1, canter = 1) => (gait === 0 ? SPEED.walk : gait === 1 ? SPEED.trot : gait === 2 ? (SPEED.canter + BOND_CANTER * (love - 5)) * canter : (SPEED.gallop + BOND_GALLOP * love) * gallop);
+const ownSpeed = (R, gait) => speedOf(gait, R.love, R.breed.speed, R.breed.canter);
 // The W tiers (input.js gaitOf: one press, a second tap, a third) ask for walk, canter and gallop; the trot comes by itself
 const TIER = [0, 2, 3];
 // m/s²: speeding up; letting go of W (a gallop stops in about 1 s and 5 m: the short natural braking of the user's rule, never
@@ -59,7 +62,8 @@ export const GROUND = {
 // Grade (rise over run, along the heading): from CLIMB the gallop tires it half as much again; from STEEP the canter at
 // most, from VERY the walk (uphill, the walk itself tires it: STEEP_WALK a second), and from CLIFF it refuses
 export const CLIMB = 0.25, STEEP = 0.4, VERY = 0.6, CLIFF = 0.85, CLIMB_DRAIN = 1.5, STEEP_WALK = 3;
-export const slopeCap = grade => { const g = Math.abs(grade); return g >= VERY ? 0 : g >= STEEP ? 2 : 3; };
+// (sure: how much steeper this horse takes it, its breed's)
+export const slopeCap = (grade, sure = 0) => { const g = Math.abs(grade) - sure; return g >= VERY ? 0 : g >= STEEP ? 2 : 3; };
 export const WET = [0.3, 0.6, 0.9];   // m of water from which: the canter, the trot, the walk at most
 export const waterCap = depth => (depth >= WET[2] ? 0 : depth >= WET[1] ? 1 : depth >= WET[0] ? 2 : 3);
 const SLOPE_EVERY = 0.1, SLOPE_REACH = 1.2, SLOPE_DRY = 0.3;
@@ -83,7 +87,7 @@ export const makeRide = () => ({
   // what the rider asks (Player.update): the wanted direction (a unit vector), the W tier, the speed factor (a potion, the bow)
   going: false, wx: 0, wy: 1, tier: 0, mul: 1, air: false, look: null,
   // what horse.js prepRide says
-  love: 5, shod: false, bare: false, winded: false, noGallop: false, hold: false, arcade: false, ground: GROUND.open,
+  love: 5, breed: PLAIN, shod: false, bare: false, winded: false, noGallop: false, hold: false, arcade: false, ground: GROUND.open,
   // the caps and the brakes now
   k: 1, capWater: 3, grade: 0, capSlope: 3, hard: false, cliff: false, slopeT: 0, probeT: 0, obs: Infinity, obsLow: false, obsAt: null, max: Infinity, dodge: 0, dodgeAt: null,
   slide: 0, fence: false, blocked: false, target: 0, clears: false, dirt: 0,
@@ -107,15 +111,15 @@ export function rideStep(R, dt) {
   // The gait asked for, and the most that the ground, the slope, the water and its breath allow
   const ask = R.going ? TIER[R.tier] : -1, cap = Math.min(R.ground.cap, R.capSlope, R.capWater, R.winded ? 1 : 3, R.noGallop ? 2 : 3);
   const gait = Math.min(ask, cap), gk = gait === 3 ? groundK(R) * R.ground.kg : groundK(R);
-  let target = gait < 0 ? 0 : speedOf(gait, R.love) * gk * mul, down = EASE;
+  let target = gait < 0 ? 0 : ownSpeed(R, gait) * gk * mul, down = EASE;
   // (what the ground asks is eased into; what the rider asks is braked for)
-  if (gait >= 0 && target < R.v && !R.hard && (gait < ask || gk < 1) && R.v <= speedOf(ask, R.love) * mul + 0.3) down = SOFT;
+  if (gait >= 0 && target < R.v && !R.hard && (gait < ask || gk < 1) && R.v <= ownSpeed(R, ask) * mul + 0.3) down = SOFT;
   // Collecting: a sharp turn asked at speed is taken slower; the opposite way, a sliding stop and a turn on the haunches
   if (R.going && !arc && !R.air) {
     if (!R.slide && e > COLLECT[2] && R.v >= SLIDE_V * Math.max(1, mul)) { R.slide = SLIDE; ev = 'slide'; }
     if (e > COLLECT[2]) target = Math.min(target, SPEED.walk * mul);
     else if (e > COLLECT[1]) target = Math.min(target, SPEED.trot * mul);
-    else if (e > COLLECT[0]) target = Math.min(target, speedOf(2, R.love) * mul);
+    else if (e > COLLECT[0]) target = Math.min(target, ownSpeed(R, 2) * mul);
     if (R.v < PIVOT_V && e > PIVOT) target = 0;
   }
   if (R.max < target) { target = R.max; down = EASE; }   // (something ahead: braking)
@@ -138,8 +142,9 @@ export function rideStep(R, dt) {
     R.a = wrap(R.a + (d > max ? max : d < -max ? -max : d));
     point(R);
   }
-  // The gait shown: by the speed the ground would have let it (so sand does not turn a gallop into a canter), a potion aside
-  const kNow = R.gait === 3 || gait === 3 ? groundK(R) * R.ground.kg : groundK(R);
+  // The gait shown: by the speed the ground and its breed would have let it (so neither sand nor a slow horse turns a gallop
+  // into a canter), a potion aside
+  const kNow = R.gait === 3 || gait === 3 ? groundK(R) * R.ground.kg * R.breed.speed : groundK(R) * R.breed.canter;
   R.k += (kNow - R.k) * Math.min(1, dt * 3);
   const vn = R.v / Math.max(1, mul) / Math.min(1, R.k);
   while (R.gait < 3 && vn > GAIT_V[R.gait] + GAIT_H && (R.gait < 2 || gait === 3)) R.gait++;
@@ -162,9 +167,10 @@ export function slopeStep(R, dt, scene, x, y, depth) {
   if (R.v > PROBE_V) { const far = r + R.v * R.v / (2 * EASE); g1 = (scene.surfaceAt(x + fx * far, y + fy * far) - ahead) / (far - r); }
   R.grade += (g0 - R.grade) * 0.6;
   const was = R.cliff;
-  R.cliff = Math.abs(g0) >= CLIFF && R.going && Math.abs(headingErr(R)) < 1.2;
-  R.hard = Math.abs(g1) >= CLIFF;   // (a cliff ahead: braked for, not eased into)
-  R.capSlope = R.hard ? 0 : Math.min(slopeCap(g0), slopeCap(g1));
+  const sure = R.breed.slope, cliff = CLIFF + sure;
+  R.cliff = Math.abs(g0) >= cliff && R.going && Math.abs(headingErr(R)) < 1.2;
+  R.hard = Math.abs(g1) >= cliff;   // (a cliff ahead: braked for, not eased into)
+  R.capSlope = R.hard ? 0 : Math.min(slopeCap(g0, sure), slopeCap(g1, sure));
   return R.cliff && !was ? (g0 > 0 ? 'up' : 'down') : '';
 }
 

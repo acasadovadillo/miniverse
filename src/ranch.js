@@ -25,7 +25,8 @@ import { HALF, distOf, dxOf, nearX, wrapX } from './world/planet.js';
 import { dropSprint } from './input.js';
 import { levelOf, settle, BX_AFTER_LOSS, TREATS } from './horse.js';
 import { padBags } from './saddlebags.js';
-import { horseCard } from './ui/horsecard.js';
+import { statsOf, foalOf, freshOf, raceOf, racesOff, sizeOf } from './horsebreeds.js';
+import { horseCard, statBars } from './ui/horsecard.js';
 import { sensesOn } from './wildlife.js';
 import { stalkingAs } from './presence.js';
 import { downwind, EVENT } from './senses.js';
@@ -74,7 +75,9 @@ const KEEP = ['id', 'type', 'name', 'home', 'love', 'ready', 'days', 'petDay', '
   // saddlebags open. callBy, callAt and bagsBy never survive a reload: see reset)
   // halt: until when (world clock) it stands still because its menu is open or it is being looked after
   // (Plan R4-2, horsecare.js: what it has eaten and drunk, its shoes, sore, the last day somebody of its family played)
-  'bx', 'care', 'dirt', 'stay', 'callBy', 'callAt', 'bagsBy', 'halt', 'fed', 'water', 'shoe', 'sore', 'ownDay'];
+  'bx', 'care', 'dirt', 'stay', 'callBy', 'callAt', 'bagsBy', 'halt', 'fed', 'water', 'shoe', 'sore', 'ownDay',
+  // (its breed and what it is like, Plan R4-3: horsebreeds.js; breed is its coat)
+  'race', 'gene', 'mix'];
 // Lo de una versión más nueva del juego: un animal de una clase que esta no conoce no se mueve ni se dibuja, pero se
 // guarda y se reparte tal cual (unknown); y de los demás, lo guardado que esta no conoce (unknownFields) se conserva
 const KNOWN_FIELDS = new Set([...KEEP, 'x', 'y']);
@@ -395,6 +398,8 @@ export class Ranch {
   // ---------- pastar ----------
   // Las casillas que ha pastado hoy (o el día que se diga: la cuenta de la mañana mira la de ayer)
   grazedOn(a, day = this.today) { return a.grazeDay === day ? a.grazeN || 0 : 0; }
+  // The grass it needs a day: a horse's, its breed's
+  needOf(a) { return a.def.ride ? statsOf(a).graze : GRAZE_NEED; }
   // Uno que pasta, cerca de quien juega: si está comiendo, sigue (y al acabar, la casilla queda comida); si va hacia
   // una casilla, anda; si le hace falta comer y toca mirar, busca una a menos de R de (cx, cy) (yard: vive en tu jardín,
   // y ahí sí come). Devuelve si se ha ocupado de él (si no, pasea como siempre). Mirar si una casilla tiene hierba cuesta
@@ -423,13 +428,13 @@ export class Ranch {
       return true;
     }
     // (busca cuando le toca echar a andar: si está parado un rato, se queda parado)
-    if (a.wait > 0 || g.time < (a.grazeNext || 0) || this.grazedOn(a) >= GRAZE_NEED || this.looked) return false;
+    if (a.wait > 0 || g.time < (a.grazeNext || 0) || this.grazedOn(a) >= this.needOf(a) || this.looked) return false;
     this.looked = true;
     a.grazeNext = g.time + 3 + Math.random() * 3;   // (si no encuentra, vuelve a mirar al rato)
     const t = this.findGrass(a, a.x, a.y, cx, cy, R, yard);
     if (!t) return false;
     // (se para con el morro encima: un poco antes del centro de la casilla, viniendo desde donde está)
-    const ex = t[0] + 0.5, ey = t[1] + 0.5, d = Math.hypot(ex - a.x, ey - a.y), reach = (MOUTH[a.type] || 0.5) * (a.young ? 0.55 : 1);
+    const ex = t[0] + 0.5, ey = t[1] + 0.5, d = Math.hypot(ex - a.x, ey - a.y), reach = (MOUTH[a.type] || 0.5) * (a.young ? 0.55 : 1) * (a.def.ride ? sizeOf(a) : 1);
     const [fx, fy] = d > 0.05 ? [ex - a.x, ey - a.y] : a.worldDir(), fl = Math.hypot(fx, fy) || 1, ux = fx / fl, uy = fy / fl;
     a.grazeAt = t; a.grazeSpot = [ex - ux * reach, ey - uy * reach];
     if (w.blocked(...a.grazeSpot)) { a.grazeAt = null; return false; }
@@ -452,7 +457,7 @@ export class Ranch {
   }
   // Lejos de todos (no se le ve): pasta cada poco una casilla de cerca de su casa, sin moverse
   grazeFar(a, dt) {
-    if (this.grazedOn(a) >= GRAZE_NEED) return;
+    if (this.grazedOn(a) >= this.needOf(a)) return;
     a.farT ??= Math.random() * FAR_EVERY[0];
     if ((a.farT += dt) < FAR_EVERY[0] || this.looked) return;
     this.looked = true;
@@ -479,7 +484,7 @@ export class Ranch {
     if (a.grazeDay !== today) { a.grazeDay = today; a.grazeN = 0; }
     a.grazeN++;
     this.game.horsecare?.grazedTile(a);
-    if (a.grazeN === GRAZE_NEED && this.game.player && !Profile.server && Math.hypot(a.x - this.game.player.x, a.y - this.game.player.y) < 10) this.game.gather.float(`${a.name} ya ha pastado lo suyo`, '#c8f0a0');
+    if (a.grazeN === this.needOf(a) && this.game.player && !Profile.server && Math.hypot(a.x - this.game.player.x, a.y - this.game.player.y) < 10) this.game.gather.float(`${a.name} ya ha pastado lo suyo`, '#c8f0a0');
   }
   stopGrazing(a) { a.eating = 0; a.grazing = false; a.grazeAt = null; }
 
@@ -766,7 +771,7 @@ export class Ranch {
           a.love--;
           if (def.ride && !this.game.horse?.off) a.bx = BX_AFTER_LOSS;   // (one bad week does not wipe out a level: Plan F §1.2)
         }
-        if (def.ride) { if (care) care.overnight(a, day); else if (this.grazedOn(a, day - 1) >= GRAZE_NEED) a.fedDay = day; }   // (its night: what it eats and drinks, horsecare.js)
+        if (def.ride) { if (care) care.overnight(a, day); else if (this.grazedOn(a, day - 1) >= this.needOf(a)) a.fedDay = day; }   // (its night: what it eats and drinks, horsecare.js)
         continue;
       }
       // (los que pastan, con sus casillas de ayer; los demás, con haber salido. Los de una partida de antes de pastar, la
@@ -829,7 +834,7 @@ export class Ranch {
         const h = this.homeOf(a), room = h && this.homes(def.home).find(x => x.k === h.k)?.free > 0;
         if (!room) continue;
         const mate = this.animals.find(b => b !== a && b.type === a.type && String(b.home) === String(a.home) && !this.young(b));
-        this.animals.push(new Animal({ type: a.type, name: def.baby, named: false, home: a.home, owner: a.owner, x: a.x, y: a.y, born: day, outDay: day, breed: pick([a.breed, mate?.breed || a.breed]) }));
+        this.animals.push(new Animal({ type: a.type, name: def.baby, named: false, home: a.home, owner: a.owner, x: a.x, y: a.y, born: day, outDay: day, breed: pick([a.breed, mate?.breed || a.breed]), ...(def.ride && !racesOff() ? foalOf(a, mate) : null) }));
         news.push(`¡${a.name} ha tenido ${an(def.baby)}! Ve a ponerle nombre.`);
       }
     }
@@ -1169,7 +1174,7 @@ export class Ranch {
     const def = a.def, mine = a.owner === me(), g = this.game;
     if (a.stray) return { text: `Adoptar ${a.type === 'perro' ? 'al perro' : 'al gato'}`, run: () => this.adopt(a) };
     if (!a.named && (!a.owner || mine)) return { text: `Ponerle nombre ${a.def.baby ? 'a la cría' : ''}`.trim(), run: () => this.name(a) };
-    const grass = GRAZERS.has(a.type) ? `ha pastado ${Math.min(GRAZE_NEED, this.grazedOn(a))}/${GRAZE_NEED}` : '';   // (lo que lleva hoy)
+    const grass = GRAZERS.has(a.type) ? `ha pastado ${Math.min(this.needOf(a), this.grazedOn(a))}/${this.needOf(a)}` : '';   // (lo que lleva hoy)
     if (def.ride) { const h = this.horseTalk(a); if (h) return h; }
     if (a.ready) return { text: `${def.verb} (${a.name})`, run: () => this.collect(a) };
     const food = this.loveFood(a);
@@ -1248,7 +1253,7 @@ export class Ranch {
   horseTalk(a) {
     const H = this.game.horse, g = this.game;
     if (H?.ours(a)) {
-      const bits = [a.young && tr('horse.foal'), GRAZERS.has(a.type) && tr('horse.grazed', { g: Math.min(GRAZE_NEED, this.grazedOn(a)), max: GRAZE_NEED })].filter(Boolean).join(' · ');
+      const bits = [a.young && tr('horse.foal'), GRAZERS.has(a.type) && tr('horse.grazed', { g: Math.min(this.needOf(a), this.grazedOn(a)), max: this.needOf(a) })].filter(Boolean).join(' · ');
       const alt = a.bags ? { text: tr('horse.alt_bags'), run: () => g.saddlebags?.open(a) } : null;
       return { text: `${tr('horse.prompt', { name: a.name, hearts: horseHearts(a.love) })}${bits ? ` (${bits})` : ''}`, run: () => this.horseMenu(a), alt };
     }
@@ -1266,17 +1271,53 @@ export class Ranch {
   }
   // The horse the whistle is for: the last ridden, else your own, else your partner's (never a foal: horse.js pick)
   myHorse() { return this.game.horse?.pick() || null; }
+  // Dani's whistle, blown for the first time: an Español, as always
   async newHorse() {
-    const g = this.game, p = g.player, B = ANIMALS.caballo.breeds, coat = b => { const s = tr('horse.coat.' + b); return s[0].toUpperCase() + s.slice(1); };
+    const c = await this.horseAsk(tr('horse.new.title'), tr('horse.new.coat_q'));
+    if (c) this.bringHorse('espanol', c.coat, c.name);
+  }
+  // One of Rosa's (shop.js): its coat, its name, and then it is paid for. With it comes the whistle, if you have none
+  async buyHorse(race, price) {
+    const g = this.game, title = tr('horse.race.' + race);
+    const c = await this.horseAsk(title, tr('horse.buy.coat_q', { race: title, price }), true);
+    if (!c) return false;
+    if (g.money < price) { g.gather.float(tr('horse.buy.poor', { n: price }), '#ffb0a0'); Audio.error(); return false; }
+    g.addMoney(-price);
+    this.bringHorse(race, c.coat, c.name);
+    if (!g.inv.count('caballo')) { const left = g.inv.add('caballo', 1); if (left) g.gather.throwOut('caballo', left); }
+    g.onSave?.();
+    return true;
+  }
+  // Its coat and its name: { coat, name }, or null (only with a way out: may)
+  async horseAsk(title, text, may = false) {
+    const g = this.game, B = ANIMALS.caballo.breeds, coat = b => { const s = tr('horse.coat.' + b); return s[0].toUpperCase() + s.slice(1); };
     g.busy = true;
-    const i = await hud.ask(tr('horse.new.title'), tr('horse.new.coat_q'), B.map(coat));
-    const name = (await hud.askText(tr('horse.new.title'), tr('horse.new.name_q'), this.freeName('caballo')) || '').trim().slice(0, 18) || this.freeName('caballo');
-    g.busy = false;
-    const home = this.homes('cuadra').find(h => h.free > 0);
-    const a = new Animal({ type: 'caballo', name, owner: me(), breed: B[i] || B[0], home: home?.tile || null, x: p.x + 1.2, y: p.y + 0.4, born: this.today - 7, at: [+(p.x + 1.2).toFixed(2), +(p.y + 0.4).toFixed(2)] });
+    try {
+      const i = await hud.ask(title, text, [...B.map(coat), ...(may ? [tr('horse.buy.no')] : [])]);
+      if (may && !B[i]) return null;
+      const name = (await hud.askText(title, tr('horse.new.name_q'), this.freeName('caballo')) || '').trim().slice(0, 18) || this.freeName('caballo');
+      return { coat: B[i] || B[0], name };
+    } finally { g.busy = false; }
+  }
+  bringHorse(race, coat, name) {
+    const p = this.game.player, home = this.homes('cuadra').find(h => h.free > 0), at = this.besides(p);
+    const a = new Animal({ type: 'caballo', name, owner: me(), breed: coat, home: home?.tile || null, x: at[0], y: at[1], born: this.today - 7, at, ...(racesOff() ? null : freshOf(race)) });
     this.animals.push(a);
     Audio.neigh();
     hud.toast(tr(home ? 'horse.new.home' : 'horse.new.no_home', { name }), 'good');
+    return a;
+  }
+  // A free place for it beside the player: on their right as always, or round them (a wall, a stall, the water)
+  besides(p) {
+    const w = this.world, q = { x: 0, y: 0 };
+    for (const r of [1.27, 2, 3]) for (let i = 0; i < 12; i++) {
+      const ang = 0.32 + (i + 1 >> 1) * (i & 1 ? 1 : -1) * Math.PI / 6, x = p.x + Math.cos(ang) * r, y = p.y + Math.sin(ang) * r;
+      if (w.blocked(x, y) || (w.waterDepth?.(x, y) || 0) > 0.3) continue;
+      q.x = x; q.y = y;
+      collide(q, w.collidersNear(x, y), 0.4);
+      if (Math.abs(q.x - x) + Math.abs(q.y - y) < 0.02) return [+x.toFixed(2), +y.toFixed(2)];
+    }
+    return [+(p.x + 1.2).toFixed(2), +(p.y + 0.4).toFixed(2)];
   }
   mount(a) {
     const g = this.game, p = g.player, H = g.horse;
@@ -1379,7 +1420,7 @@ export class Ranch {
     g.busy = true;
     H?.halt(a, 25);   // (it stands still while you choose)
     const pct = a.love >= 10 ? 100 : Math.max(0, Math.min(99, Math.floor(+a.bx || 0)));
-    const head = tr('horse.menu.head', { name: a.name, coat: tr('horse.coat.' + (ANIMALS.caballo.breeds.includes(a.breed) ? a.breed : 'castano')), n: L, level: tr('horse.level.' + L), hearts: horseHearts(a.love), pct, g: Math.min(GRAZE_NEED, this.grazedOn(a)), max: GRAZE_NEED });
+    const head = tr('horse.menu.head', { name: a.name, coat: tr('horse.coat.' + (ANIMALS.caballo.breeds.includes(a.breed) ? a.breed : 'castano')), n: L, level: tr('horse.level.' + L), hearts: horseHearts(a.love), pct, g: Math.min(this.needOf(a), this.grazedOn(a)), max: this.needOf(a) });
     const tail = [tr(a.shod ? 'horse.menu.shod' : 'horse.menu.unshod'), tr(a.bags ? 'horse.menu.bags' : 'horse.menu.no_bags')].join(' · ');
     horseCard.show(g, a);   // (what it needs, beside the menu: ui/horsecard.js)
     let i;
@@ -1473,17 +1514,18 @@ export class Ranch {
     const list = this.animals.filter(a => !a.stray), icon = a => (a.def.w ? animalSprite(a.type, 0).toDataURL() : null);
     const rows = list.map(a => {
       // ("Hen, white · a chick 2 days old · yours · has grazed 3/5 · expecting": its kind and breed, and what there is to say)
-      const breed = a.breed && a.breed !== 'gallo' && has(`ranch.breed.${a.breed}`) ? tr(`ranch.breed.${a.breed}`) : '', kind = kindName(a);
+      const breed = a.breed && a.breed !== 'gallo' && has(`ranch.breed.${a.breed}`) ? tr(`ranch.breed.${a.breed}`) : '', kind = a.def.ride && !racesOff() ? tr('horse.race.' + raceOf(a)) : kindName(a);
       const said = [breed ? tr('ranch.kind_breed', { kind, breed }) : kind];
       if (this.young(a)) said.push(tr('ranch.young', { baby: a.def.baby && has(`ranch.baby.${a.type}`) ? tr(`ranch.baby.${a.type}`) : tr('ranch.baby'), n: this.today - a.born }));
       if (a.owner) said.push(a.owner === me() ? tr('ranch.yours') : tr('ranch.owner', { name: this.game.live.nameOf?.(a.owner) || tr('ranch.somebody') }));
-      if (GRAZERS.has(a.type)) said.push(tr('ranch.grazed', { n: Math.min(GRAZE_NEED, this.grazedOn(a)), need: GRAZE_NEED }));
+      if (GRAZERS.has(a.type)) said.push(tr('ranch.grazed', { n: Math.min(this.needOf(a), this.grazedOn(a)), need: this.needOf(a) }));
       if (a.expecting !== undefined && a.expecting !== null) said.push(tr('ranch.expecting'));
       const img = icon(a);
       // (a horse: its bond level and a thin line of the progress to the next heart, under the hearts; Plan F §4.3, the look
       // is index.html .j-hlv / .j-bx)
       const bond = a.def.ride && this.game.horse && !this.game.horse.off ? `<small class="j-hlv">${tr('journal.horse.level', { n: levelOf(a.love) })}</small><i class="j-bx" style="--p:${a.love >= 10 ? 100 : Math.max(0, Math.min(99, Math.floor(+a.bx || 0)))}%"></i>` : '';
-      return `<div class="j-fish"><span class="j-cell done">${img ? `<img alt="" src="${img}">` : `<img alt="" data-icon="${a.def.home}">`}</span><span><b>${esc(a.name)}</b><small>${said.map(esc).join(' · ')}</small></span><span class="lvl">${hearts(a.love)}${bond}</span></div>`;
+      const bars = a.def.ride && !racesOff() ? statBars(statsOf(a), 'small') : '';   // (and its four, in small: Plan R4 §4.2)
+      return `<div class="j-fish"><span class="j-cell done">${img ? `<img alt="" src="${img}">` : `<img alt="" data-icon="${a.def.home}">`}</span><span><b>${esc(a.name)}</b><small>${said.map(esc).join(' · ')}</small>${bars}</span><span class="lvl">${hearts(a.love)}${bond}</span></div>`;
     }).join('');
     const mail = this.farm.mail.filter(m => m.to === me()).length;
     const head = [this.siloCap ? tr('ranch.hay', { n: this.farm.hay, cap: this.siloCap }) : tr('ranch.hay_no_silo', { n: this.farm.hay })];

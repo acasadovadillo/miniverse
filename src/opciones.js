@@ -35,6 +35,8 @@ const RAW = (() => { try { return new URLSearchParams(globalThis.location?.searc
 // and brakes more sharply and never collects itself, whatever Ajustes › Juego › Montar says). Local only
 // And R4-2 (horsecare.js): cuidado (?cuidado=0: no hunger, thirst, shoe wear or soreness: shoes last for ever, horses eat nothing
 // at night and the horse's card is not shown). On the host it also stops the overnight care; the fields stay unused
+// And R4-3 (horsebreeds.js): razas (?razas=0: every horse is an average Spanish one, in how it goes and how it looks, and Rosa
+// sells none; the fields stay as they are)
 // Plan G (tracking and the nature book, docs/planes/gta/PLAN-G-caza.md §10), each with ?x=0: tracks (no prints, blood or
 // bent grass, made or drawn; no crouch aid, track tag or E study: local only), wounds (the host runs hits as before:
 // heal after 30 s, gone beyond 42 m, no bleed sent, no vital multiplier; a guest's switch does nothing) and naturebook
@@ -65,7 +67,7 @@ export const PARTES = { hierba: 'sinlod', impostores: null, relieve: null, conta
   sed: null, cansancio: null, aguante: null, buceo: null, fondo: null, caustica: null,
   ruta: null, rutasuelo: null, musica: 'chip',
   cuerpo: null, frio: null, crecer: null, desgaste: null, comentarios: null,
-  vinculo: null, alforjas: null, montar: 'arcade', cuidado: null,
+  vinculo: null, alforjas: null, montar: 'arcade', cuidado: null, razas: null,
   tracks: null, wounds: null, naturebook: null,
   sentidos: null, manadas: null, calidad: null, routines: null,
   soporte: null, refugio: null, obra: null, deterioro: null, sat: null, mapa3d: null, sitios: '1', siluetas: null };

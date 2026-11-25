@@ -10,6 +10,7 @@ import { foodModel, hasFood, foodView } from './food3d.js';
 import * as THREE from 'three';
 import { getModel, modelMat } from './models.js';
 import { toolModel } from './actors.js';
+import { horseModel, disposeAnimal } from './animals.js';
 import { ITEMS } from '../items.js';
 import { mk, outlined } from '../util.js';
 
@@ -18,7 +19,7 @@ const SS = 4;               // se dibuja a SS veces el tamaño y se reduce, para
 // Desde dónde se mira (el frente del modelo mira a +z). La comida, según su familia (food3d.js, foodView): de tres cuartos,
 // más desde arriba lo plano (platos, cuencos, carnes), más de lado lo alto (jarras, vasos, botellas, frascos) y el pez
 // tumbado en diagonal, de lado, como los de píxel
-const VIEW = { placed: [-1, 0.95, 1.2], tool: [0.25, 0.5, 1], food: [-1, 1.15, 1.2], flat: [-0.6, 1.8, 1.0], drink: [-1, 0.7, 1.3], fish: [0.15, 0.55, 1] };
+const VIEW = { placed: [-1, 0.95, 1.2], tool: [0.25, 0.5, 1], food: [-1, 1.15, 1.2], flat: [-0.6, 1.8, 1.0], drink: [-1, 0.7, 1.3], fish: [0.15, 0.55, 1], horse: [1, 0.3, 0.25] };
 const PIXEL = new Set(['cana', 'cana_fibra', 'red']);   // (largos y finos: a 36 píxeles no se leen; siguen a píxel)
 const LIT = [['lamp', 1.5], ['shade', 0.6], ['lens', 2]];   // (el brillo de los que se encienden de noche, para el icono)
 const FLAME = new THREE.MeshBasicMaterial({ color: '#ffb040' }), FLAME_GEO = new THREE.SphereGeometry(0.08, 8, 6);
@@ -161,13 +162,21 @@ function build(id, kind, made) {
   return g;
 }
 
+// The icon of a horse of a breed (Rosa's list: ui/shop.js), from the side, in the bay coat; '' without a document
+const HORSE_URL = new Map();
+export function horseIconUrl(race) {
+  if (!HORSE_URL.has(race)) HORSE_URL.set(race, typeof document === 'undefined' ? '' : shot('horse:' + race, 'horse', made => { const h = horseModel('castano', false, false, 1, false, race === 'espanol' ? '' : race); made.push(h); return h; }).toDataURL());
+  return HORSE_URL.get(race);
+}
 // El icono de un objeto con modelo 3D (lienzo de ICON3D × ICON3D con contorno), o null si va a píxel
 export function modelIcon(id) {
   if (cache.has(id)) return cache.get(id);
   const kind = modelKind(id);
-  if (!kind) return null;
+  return kind ? shot(id, kind, made => build(id, kind, made)) : null;
+}
+function shot(id, kind, make) {
   const { renderer, scene, camera } = R || setup(), made = [];
-  let g = build(id, kind, made);
+  let g = make(made);
   const view = kind === 'food' ? foodView(id) : kind;
   if (kind === 'tool') g.rotation.z = -0.75;   // (el mango abajo a la izquierda y la cabeza arriba a la derecha)
   if (kind === 'food') g = forIcon(g, view);
@@ -188,14 +197,14 @@ export function modelIcon(id) {
   Object.assign(camera, { left: cx - half, right: cx + half, top: cy + half, bottom: cy - half, near: 0.1, far: 30 });
   camera.updateProjectionMatrix();
   // (la comida, algo más expuesta: sus colores, apagados para el mundo, con esta curva salían oscuros a este tamaño)
-  renderer.toneMappingExposure = kind === 'food' ? 1.15 : 1;
+  renderer.toneMappingExposure = kind === 'food' ? 1.15 : kind === 'horse' ? 1.6 : 1;   // (a bay horse, so that it reads on the dark rows)
   // (los faroles, las pantallas y la lente comparten material con el mundo, que los enciende de noche: el icono, siempre
   // con su brillo de encendido, sea la hora que sea al pedirlo)
   const lit = kind === 'placed' ? LIT.map(([k, v]) => { const m = modelMat(k), was = m.emissiveIntensity; m.emissiveIntensity = v; return [m, was]; }) : [];
   try { drawOwn(renderer, scene, camera); } finally { for (const [m, was] of lit) m.emissiveIntensity = was; }
   renderer.toneMappingExposure = 1;
   scene.remove(g);
-  for (const geo of made) geo.dispose();
+  for (const geo of made) geo.isObject3D ? disposeAnimal(geo) : geo.dispose();
   if (made.length) { const gone = new Set(made); for (let i = OWN.length; i--;) if (gone.has(OWN[i][0])) OWN.splice(i, 1); }   // (ya soltadas: Three ha quitado su oyente)
   const out = mk(ICON3D, ICON3D), ctx = out.getContext('2d');
   ctx.imageSmoothingQuality = 'high';

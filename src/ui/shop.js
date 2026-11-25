@@ -7,6 +7,9 @@ import { tracked } from '../catch.js';
 import { catchMark, catchText } from './catchmark.js';
 import { itemIconUrl } from '../art/items.js';
 import { animalSprite, ANIMALS } from '../art/farm.js';
+import { raceStats, racesOff } from '../horsebreeds.js';
+import { statBars } from './horsecard.js';
+import { horseIconUrl } from '../three/icons.js';
 import { Audio } from '../audio.js';
 import { hud } from './hud.js';
 import { t, fmt, has } from '../i18n.js';
@@ -21,7 +24,7 @@ export function initShopUI(game, { onClose }) {
 
   function stock() {
     const s = SHOPS[shop], season = game.days.season, done = game.board.projects;
-    return s.stock.filter(e => (!e.seasons || e.seasons.includes(season)) && (!e.project || done[e.project]) && (e.animal || (e.plan ? PLANS.has(e.plan) : ITEMS[e.id] && !LEGACY_ITEMS[e.id])));   // (lo que ahora se construye no se vende, ya no es un objeto: se vende su plano)
+    return s.stock.filter(e => (!e.seasons || e.seasons.includes(season)) && (!e.project || done[e.project]) && (e.animal || (e.horse ? !racesOff() : e.plan ? PLANS.has(e.plan) : ITEMS[e.id] && !LEGACY_ITEMS[e.id])));   // (lo que ahora se construye no se vende, ya no es un objeto: se vende su plano)
   }
   const animalIcon = type => animalSprite(type, 0).toDataURL();
 
@@ -57,6 +60,12 @@ export function initShopUI(game, { onClose }) {
             if (why) { note = why; Audio.error(); return; }
             game.addMoney(-price); note = `${e.name}: ya está en su casa.`; Audio.unlock();
           }, game.money >= price]]);
+          continue;
+        }
+        if (e.horse) {   // (a horse of a breed: its four bars; its coat and its name are asked once the window is closed)
+          const el = row(horseIconUrl(e.horse), t('horse.race.' + e.horse), t('shop.horse.sub', { price, what: t('horse.race.' + e.horse + '.desc') }), [[t('shop.buy'), () => { onClose(); shop = null; game.ranch.buyHorse(e.horse, price); }, game.money >= price]]);
+          el.classList.add('horse');
+          el.querySelector('div').insertAdjacentHTML('beforeend', statBars(raceStats(e.horse), 'small'));
           continue;
         }
         if (e.plan) {   // (un plano: se compra una vez y enseña a construir eso con B)

@@ -96,6 +96,7 @@ import * as CARE from './horsecare.js';   // (R4-2: looking after the horse)
 import { cardHtml } from './ui/horsecard.js';
 import { horseGuard } from './saddlebags.js';
 import * as RIDE from './horseride.js';   // (R4-1: riding with weight)
+import * as BREEDS from './horsebreeds.js';   // (R4-3: the breeds)
 import * as HR from './horse.js';   // (Plan F: the horse's pure rules; as a namespace, levelOf and settle are taken)
 import { HORSE_ACTS as LIVE_HORSE_ACTS } from './live.js';
 import { screenToWorld } from './camera.js';
@@ -9551,7 +9552,7 @@ async function soloTests(game) {
       game.windows?.close?.('s-chest');
     }
   };
-  const aHorse = (o = {}) => ({ id: `hf-${Math.random().toString(36).slice(2, 7)}`, type: 'caballo', name: 'Rayo', owner: myId(), breed: 'castano', love: 0, born: game.days.dayIndex - 60, outDay: game.days.dayIndex, x: p().x + 1, y: p().y, at: [+(p().x + 1).toFixed(2), +p().y.toFixed(2)], ...o });
+  const aHorse = (o = {}) => ({ id: `hf-${Math.random().toString(36).slice(2, 7)}`, type: 'caballo', name: 'Rayo', owner: myId(), breed: 'castano', love: 0, born: game.days.dayIndex - 60, outDay: game.days.dayIndex, x: p().x + 1, y: p().y, at: [+(p().x + 1).toFixed(2), +p().y.toFixed(2)], gene: [0, 0, 0], ...o });   // (gene: an average one, horsebreeds.js)
   // The horse's own clock: dt s of H.update with the player as given (galloping: moving at the sprint tier)
   const ride = (secs, gallop, dt = 1 / 20) => { for (let i = 0; i < Math.round(secs / dt); i++) { p().vx = gallop === null ? 0 : 6; p().vy = 0; p().gait = gallop ? 2 : 0; game.time += dt; HS().update(dt); } p().vx = 0; };
   // A partner: Bea (prueba_b) and this player are a couple while fn runs (the family as social.areCouple reads it)
@@ -10399,6 +10400,128 @@ async function soloTests(game) {
     }
     for (let i = 0; i < 30; i++) play(null); check(u.body.position.z === 0 && u.body.rotation.z === 0 && Math.abs(u.body.position.y - y0) < 1e-6 && Math.abs(u.body.rotation.x) < 1e-3 && u.stumble === 0, 'not put back');
     disposeAnimal(h);
+  });
+  // ---------- R4-3: the horse's breeds (src/horsebreeds.js; docs/planes/realismo/PLAN-R4-caballo.md §8) ----------
+  await test('caballo razas (breeds): statsOf for each race; an old horse is Español with a gene from its id that never changes and is never for the worse; two different parents give a mestizo with averaged stats; Rosa sells the four', async () => {
+    const { statsOf, RACES, RACE_IDS, geneOf, foalOf, freshOf, raceOf, buildOf, raceKey, buildOfKey, barsOf, segOf, sizeOf, PLAIN, raceStats } = BREEDS, near = (a, b) => Math.abs(a - b) < 1e-9;
+    const want = { espanol: [1, 1, 1, 30, 0, 5], arabe: [1.07, 1.3, 1.5, 25, 0, 4], breton: [0.84, 0.85, 0.6, 60, 0, 7], asturcon: [0.86, 1.15, 0.8, 20, 0.15, 3] };
+    for (const r of RACE_IDS) { const s = statsOf({ id: 'x', race: r, gene: [0, 0, 0] }), a = [s.speed, s.stamina, s.courage, s.kg, s.slope, s.graze]; check(a.every((v, i) => near(v, want[r][i])) && s.pull === (r === 'breton' ? 1 : 0.85), `${r}: ${a}`); }
+    check(near(statsOf({ race: 'breton', gene: [0, 0, 0] }).canter, 0.92), 'the draft canter');
+    const g = statsOf({ race: 'arabe', gene: [4, -4, 2] }); check(near(g.speed, 1.07 * 1.04) && near(g.stamina, 1.3 * 0.96) && near(g.courage, 1.5 * 0.95), `its own variation: ${JSON.stringify(g)}`);
+    check(statsOf({ race: 'unicorn', gene: ['x'] }).race === 'espanol' && statsOf(null) === PLAIN && JSON.stringify(geneOf({ gene: [99, -99, 1.4] })) === '[4,-4,1]', 'garbage');
+    // Old horses: no field, always the same, different from one another, and no worse than they were in anything
+    const seen = new Set();
+    for (let i = 0; i < 300; i++) { const a = { id: `caballo-Rayo-${i.toString(36)}`, love: 4 }, s = statsOf(a); check(raceOf(a) === 'espanol' && s.speed >= 1 && s.speed <= 1.04 && s.stamina >= 1 && s.stamina <= 1.04 && s.courage <= 1 && s.courage >= 0.9 && s.kg === 30 && s.slope === 0 && s.graze === 5 && s === statsOf(a) && JSON.stringify(geneOf({ ...a })) === JSON.stringify(geneOf(a)) && Object.keys(a).length === 2 && raceKey(a) === '' && sizeOf(a) === 1, `old horse ${i}: ${JSON.stringify(s)}`); seen.add(geneOf(a).join()); }
+    check(seen.size > 60, `${seen.size} different ones in 300`);
+    const b = { id: 'q', race: 'arabe' }; check(statsOf(b).race === 'arabe', 'arabe'); b.race = 'breton'; check(statsOf(b).race === 'breton' && raceKey(b) === 'breton', 'the cache'); b.gene = [1, 1, 1]; check(near(statsOf(b).speed, 0.84 * 1.01), 'the cache, gene');
+    // Foals
+    const mid = () => 0.5, A = { id: 'a', race: 'arabe', gene: [4, 0, -2] }, H = { id: 'h', race: 'breton', gene: [0, 2, 2] }, E0 = { id: 'e', gene: [1, 1, 1] };
+    let f = foalOf(A, { ...A, id: 'a2', gene: [2, 2, 2] }, mid); check(f.race === 'arabe' && f.gene.join() === '3,1,0' && !f.mix, `same parents: ${JSON.stringify(f)}`);
+    f = foalOf(E0, null, mid); check(f.race === 'espanol' && f.gene.join() === '1,1,1', `no mate: ${JSON.stringify(f)}`);
+    f = foalOf(A, H, mid); check(f.race === 'mestizo' && f.gene.join() === '2,1,0' && f.mix.slice(2).join() === '1.05,42.5,0,5.5' && Math.abs(f.mix[0] - 0.955) < 0.006 && Math.abs(f.mix[1] - 1.075) < 0.006, `mestizo: ${JSON.stringify(f)}`);
+    const M = { id: 'm', ...f }, s = statsOf(M); check(s.race === 'mestizo' && s.kg === 42.5 && s.graze === 6 && Math.abs(s.speed - f.mix[0] * 1.02) < 1e-9, `its stats: ${JSON.stringify(s)}`);
+    check(JSON.stringify(buildOf(M)) === '{"arabe":0.5,"breton":0.5,"asturcon":0}' && raceKey(M) === 'x440' && JSON.stringify(buildOfKey('x440')) === JSON.stringify(buildOf(M)), `its look: ${JSON.stringify(buildOf(M))} ${raceKey(M)}`);
+    // (any two breeds, and their foal with a third: the look is read back from the numbers)
+    for (const r1 of RACE_IDS) for (const r2 of RACE_IDS) if (r1 !== r2) {
+      const x = { id: 'x', ...foalOf({ race: r1, gene: [0, 0, 0] }, { race: r2, gene: [0, 0, 0] }, mid) }, w = buildOf(x); for (const r of RACE_IDS) if (r !== 'espanol') check(w[r] === (r === r1 || r === r2 ? 0.5 : 0), `${r1} × ${r2}: ${JSON.stringify(w)}`);
+      const y = { id: 'y', ...foalOf(x, { race: 'espanol', gene: [0, 0, 0] }, mid) }, v = buildOf(y); for (const r of RACE_IDS) if (r !== 'espanol') check(v[r] === (r === r1 || r === r2 ? 0.25 : 0), `(${r1} × ${r2}) × espanol: ${JSON.stringify(v)}`);
+    }
+    check(raceOf({ race: 'mestizo', mix: [1, 2] }) === 'espanol' && statsOf({ race: 'mestizo', mix: [9, 9, 9, 900, 9, 99], gene: [0, 0, 0] }).speed === 1.07, 'a mestizo made up');
+    for (let i = 0; i < 200; i++) { const n = freshOf('asturcon'); check(n.race === 'asturcon' && n.gene.length === 3 && n.gene.every(v => Number.isInteger(v) && v >= -4 && v <= 4), `fresh ${JSON.stringify(n)}`); }
+    // The card's bars, and Rosa's stall
+    const seg = r => barsOf(raceStats(r)).map(segOf); check(seg('arabe')[0] > seg('espanol')[0] && seg('arabe')[1] > seg('asturcon')[1] && seg('breton')[2] > seg('asturcon')[2] && seg('arabe')[2] < seg('espanol')[2] && seg('breton')[3] > 8 && RACE_IDS.every(r => seg(r).every(v => v >= 1 && v <= 10)), RACE_IDS.map(r => `${r} ${seg(r)}`).join(' · '));
+    const sold = SHOPS.rosa.stock.filter(e => e.horse); check(sold.map(e => `${e.horse} ${e.price}`).join() === 'espanol 3000,arabe 4800,breton 3600,asturcon 1800', `Rosa: ${sold.map(e => e.horse)}`);
+    const was = getLang(); try { for (const l of ['en', 'es']) { setLang(l); for (const r of [...RACE_IDS, 'mestizo']) check(has(`horse.race.${r}`), `${l} ${r}`); } } finally { setLang(was); }
+  });
+  await riding('caballo razas montar (breeds, riding): each gallops and canters at its own pace, with its own gait shown; the arcade too; the pony takes slopes 0.15 steeper; its breath, what it carries and its scares are its breed\'s', async () => {
+    const stats = r => BREEDS.raceStats(r), at = (race, tier, set = {}, o = {}, secs = 9) => { const r = rider(o); r.R.breed = stats(race); Object.assign(r.R, set); r.go(tier); const seen = new Set(); r.run(secs, P => { seen.add(P.gait); return false; }); return { v: r.R.v, gait: r.P.gait, seen, r }; };
+    for (const [race, gallop, canter] of [['espanol', 10.45, 7.6], ['arabe', 10.45 * 1.07, 7.6 * 1.035], ['breton', 10.45 * 0.84, 7.6 * 0.92], ['asturcon', 10.45 * 0.86, 7.6 * 0.93]]) {
+      let a = at(race, 2); check(Math.abs(a.v - gallop) < 0.01 && a.gait === 2 && a.seen.has(1) && a.seen.has(3), `${race} gallop: ${a.v.toFixed(2)} ${a.gait} ${[...a.seen]}`);
+      a = at(race, 1); check(Math.abs(a.v - canter) < 0.01 && a.gait === 3 && !a.seen.has(2), `${race} canter: ${a.v.toFixed(2)} ${a.gait} ${[...a.seen]}`);
+      a = at(race, 1, { love: 0 }); check(a.gait === 3, `${race} canter, no heart: ${a.v.toFixed(2)} ${a.gait}`);
+      a = at(race, 2, { love: 0 }); check(a.gait === 2, `${race} gallop, no heart: ${a.gait}`);
+      a = at(race, 2, { love: 10 }); check(a.gait === 2, `${race} gallop, ten hearts: ${a.gait}`);
+      a = at(race, 0); check(Math.abs(a.v - 3.4) < 0.01 && a.gait === 0, `${race} walk: ${a.v}`);
+      a = at(race, 2, { winded: true, noGallop: true }); check(Math.abs(a.v - 5.6) < 0.01 && a.gait === 1, `${race} winded: ${a.v} ${a.gait}`);
+      a = at(race, 2, { arcade: true }); check(Math.abs(a.v - gallop) < 0.01, `${race} arcade: ${a.v}`);
+      // (from the gallop to each lower gait, the one shown settles on it)
+      for (const [t, g] of [[1, 3], [0, 0]]) { const b = at(race, 2).r; b.go(t); b.run(4); check(b.P.gait === g, `${race} down to ${g}: ${b.P.gait}`); }
+    }
+    for (const k of ['sand', 'snow', 'forest', 'hard']) { const b = at('breton', 2).r; b.R.ground = RIDE.GROUND[k]; const seen = new Set(); b.run(3, P => { seen.add(P.gait); return false; }); check(seen.size === 1 && seen.has(2), `a Breton onto ${k}: ${[...seen]}`); }
+    // The slopes
+    const F = rider().f, up = g => ({ height: (x, y) => g * (x * F.x + y * F.y) }), slope = (race, g) => { const r = rider(up(g)); r.R.breed = stats(race); r.go(2); r.run(8); return r; };
+    for (const [g, e, a] of [[0.45, 3, 2], [0.65, 0, 3], [0.8, 0, 0]]) { let r = slope('espanol', g); check(r.P.gait === e, `Español at ${g}: ${r.P.gait}`); r = slope('asturcon', g); check(r.P.gait === a, `pony at ${g}: ${r.P.gait}`); }
+    check(slope('espanol', 0.9).R.cliff && !slope('asturcon', 0.9).R.cliff && slope('asturcon', 1.05).R.cliff && RIDE.slopeCap(0.45) === 2 && RIDE.slopeCap(0.5, 0.15) === 3, 'refusing');
+    // Its breath, its load
+    const d = (r, kg = 0) => HR.drainOf(2, false, kg, stats(r)); check(d('espanol') === HR.drainOf(2, false) && Math.abs(d('arabe') * 1.3 - d('espanol')) < 1e-9 && Math.abs(d('breton') * 0.85 - d('espanol')) < 1e-9, 'the gallop\'s length');
+    check(d('breton', 60) === d('breton') && d('asturcon', 20) === d('asturcon') && Math.abs(d('asturcon', 60) / d('asturcon') - 2) < 1e-9 && Math.abs(d('espanol', 70) / d('espanol') - 2) < 1e-9, 'what it carries for nothing');
+    await withHorses([aHorse({ love: 4, race: 'arabe' }), aHorse({ love: 4, race: 'breton' })], async (a, b) => {
+      game.gamemode = 'survival'; const H = HS(), mobs = game.mobs, rnd = Math.random;
+      try {
+        game.difficulty = 'normal'; RN().mount(a); H.prepRide(p(), game.scene, false); check(p().ride.breed === BREEDS.statsOf(a) && p().ride.breed.race === 'arabe', 'prepRide');
+        // (a roll of 0.45: the Árabe's 0.35 × 1.5 takes fright, the Breton's 0.35 × 0.6 does not)
+        const scare = x => { H.ridden = x; H.actKind = null; H.lastSpook = -Infinity; H.mobNear = false; game.mobs = Object.create(mobs, { near: { value: () => true } }); Math.random = () => 0.45; const n = H.spooks; H.spookCheck(x, p()); Math.random = rnd; return H.spooks - n; };
+        a.gene = [0, 0, 0]; b.gene = [0, 0, 0]; if (game.scene === game.world) check(scare(a) === 1 && scare(b) === 0, 'the scares');
+        H.actKind = null; H.throwAt = null; RN().dismount();
+      } finally { Math.random = rnd; game.mobs = mobs; }
+    });
+  });
+  await test('caballo razas juego (breeds in the game): Rosa\'s is asked its coat and name, then paid, with the whistle if you have none; it is saved, reaches the others and stays through an older game; nobody changes a breed; the foal; the grass; the card and the journal; the models', async () => {
+    const R = RN(), ask = hud.ask, askText = hud.askText, m0 = game.money, whistles = inv().count('caballo'), keep = {}; R.save(keep); const was = JSON.stringify(keep);
+    try {
+      if (whistles) inv().remove('caballo', whistles);
+      const asked = []; hud.askText = async () => 'Zaina'; hud.ask = async (n, q, o) => { asked.push([n, q, o]); return asked.length === 1 ? o.length - 1 : 1; };
+      game.money = 5000; let n = R.animals.length;
+      check(await R.buyHorse('arabe', 4800) === false && game.money === 5000 && R.animals.length === n && !game.busy, 'Not now');
+      check(await R.buyHorse('arabe', 4800) === true && game.money === 200 && R.animals.length === n + 1 && inv().count('caballo') === 1 && !game.busy, `bought: ${game.money}, whistles ${inv().count('caballo')}`);
+      const a = R.animals[R.animals.length - 1]; check(a.race === 'arabe' && a.breed === 'negro' && a.name === 'Zaina' && a.owner === myId() && a.gene.length === 3 && !R.young(a) && Array.isArray(a.at) && Math.hypot(a.x - p().x, a.y - p().y) < 3.2, JSON.stringify(a.toSave()));
+      check(await R.buyHorse('breton', 3600) === false && game.money === 200 && R.animals.length === n + 1, 'without coins');
+      game.money = 2000; await R.buyHorse('asturcon', 1800); check(inv().count('caballo') === 1 && R.animals[R.animals.length - 1].race === 'asturcon', 'a second horse');
+      n = R.animals.length; await R.newHorse(); check(R.animals.length === n + 1 && R.animals[n].race === 'espanol' && game.money === 200, 'Dani\'s whistle');
+      // In the shop: the four rows, with their bars; the money it takes
+      game.money = 2000; game.onShop('rosa');
+      const rows = [...document.querySelectorAll('#sh-list .sh-row.horse')]; check(rows.length === 4 && rows.every(r => r.querySelectorAll('.hs-bars i').length === 4 && r.querySelector('img').src.startsWith('data:image')) && rows.map(r => r.querySelector('.btn').disabled).join() === 'true,true,true,false', `rows: ${rows.map(r => r.textContent)}`);
+      document.getElementById('sh-close').click(); game.mode = 'play';
+      // Saved and loaded; through an older game (it keeps what it does not know) and back
+      const s = JSON.parse(JSON.stringify(a.toSave())); check(s.race === 'arabe' && s.gene.join() === a.gene.join(), 'saved');
+      const S = game.live.items.animals, guest = { peer: { id: 'prueba_b' } };
+      const couple = game.social.areCouple; game.social.areCouple = () => true;
+      try {
+        S.apply(game, [['set', a.id, 'race', 'breton'], ['set', a.id, 'gene', [4, 4, 4]], ['set', a.id, 'mix', [1, 1, 1, 1, 1, 1]], ['del', a.id, 'race']], false, null, guest);
+        check(a.race === 'arabe' && a.gene.join() === s.gene.join() && a.mix === undefined, `a guest changes its breed: ${a.race} ${a.gene}`);
+        check(horseGuard(a, 'race', 'arabe', 'x', {}) && horseGuard(a, 'gene', [...a.gene], 'x', {}) && !horseGuard(a, 'race', undefined, 'x', {}), 'the guard');
+        // (one bought by a guest comes whole)
+        S.apply(game, [['put', 'hf-guest', { id: 'hf-guest', type: 'caballo', name: 'Bea', owner: 'prueba_b', breed: 'tordo', born: R.today - 7, race: 'breton', gene: [1, 2, 3], at: [p().x, p().y] }]], false, null, guest);
+        const g = R.animals.find(x => x.id === 'hf-guest'); check(g?.race === 'breton' && g.gene.join() === '1,2,3' && BREEDS.statsOf(g).kg === 60, 'a guest\'s horse');
+      } finally { game.social.areCouple = couple; }
+    } finally { hud.ask = ask; hud.askText = askText; game.money = m0; inv().remove('caballo', inv().count('caballo')); if (whistles) inv().add('caballo', whistles); R.reset(JSON.parse(was)); SBg().reset(); HS().reset(); game.live.items.animals.resend.clear(); if (game.mode === 'shop') { document.getElementById('sh-close').click(); game.mode = 'play'; } }
+    // A foal of two in one stable, and the grass each one needs
+    const home = [Math.floor(p().x) + 6, Math.floor(p().y) + 6];
+    await withHorses([aHorse({ id: 'hf-mom', love: 8, race: 'arabe', gene: [0, 0, 0], home, expecting: RN().today - 5 }), aHorse({ id: 'hf-dad', love: 8, race: 'breton', gene: [0, 0, 0], home })], async (mom, dad) => {
+      const homeOf = R.homeOf, homes = R.homes, rnd = Math.random;
+      try {
+        R.homeOf = () => ({ k: 'q', tile: home }); R.homes = () => [{ k: 'q', tile: home, free: 1 }]; Math.random = () => 0.5; R.breed(R.today, []);
+        const f = R.animals.find(x => x.type === 'caballo' && x.born === R.today); check(f?.race === 'mestizo' && f.mix.length === 6 && f.gene.join() === '0,0,0' && f.owner === mom.owner, `the foal: ${f && JSON.stringify(f.toSave())}`);
+        check(RN().needOf(f) === 6 && RN().needOf(mom) === 4 && RN().needOf(dad) === 7 && RN().needOf({ def: {}, type: 'vaca' }) === 5, 'the grass');
+        R.entities(game.world); check(f.young && HERDS.scaleOf(f) < 0.6, 'a young one');
+      } finally { Math.random = rnd; delete R.homeOf; delete R.homes; if (R.homeOf !== homeOf) { R.homeOf = homeOf; R.homes = homes; } }
+      const day = 1000; mom.grazeDay = day - 1; mom.grazeN = 4; dad.grazeDay = day - 1; dad.grazeN = 4; mom.fed = 0.1; dad.fed = 1; const C = CR(), feed = R.eatFromFeeder, hay = R.eatHay, pl = game.farm.playedOn;
+      try { R.eatFromFeeder = R.eatHay = () => false; game.farm.playedOn = () => true; C.overnight(mom, day); C.overnight(dad, day); } finally { delete R.eatFromFeeder; delete R.eatHay; delete game.farm.playedOn; if (R.eatHay !== hay) { R.eatFromFeeder = feed; R.eatHay = hay; } if (game.farm.playedOn !== pl) game.farm.playedOn = pl; }
+      if (!CR().off) check(mom.fed === 1 && dad.fed > 0.5 && dad.fed < 0.8, `4 tiles: the Árabe ${mom.fed}, the Breton ${dad.fed}`);
+      const lang = getLang(); try { for (const l of ['en', 'es']) { setLang(l); const h = cardHtml(game, dad), j = R.journal(); check(h.includes(t('horse.race.breton')) && (h.match(/--n:/g) || []).length === 4 && !/horse\.(race|stat|card)/.test(h) && j.includes(t('horse.race.arabe')) && j.includes('hs-bars small'), `${l}: ${h.slice(0, 200)}`); } } finally { setLang(lang); }
+    });
+    // The models: the key by breed, never more draw calls nor many more triangles, the hooves on the ground, the size
+    const tris = r => { let n = 0, c = 0; r.traverse(o => { if (o.isMesh) { c++; n += (o.geometry.index ? o.geometry.index.count : o.geometry.attributes.position.count) / 3; } }); return [n, c]; };
+    const ak = o => animalKey({ type: 'caballo', breed: 'negro', ...o }); check(new Set(['arabe', 'breton', 'asturcon', undefined].map(race => ak({ race }))).size === 4 && ak({ race: 'mestizo', mix: [1, 1, 1, 45, 0, 6] }) !== ak({ race: 'breton' }), 'the key');
+    const h0 = horseModel('castano', true, true, 2, true), [t0, c0] = tris(h0), hoof = new THREE.Vector3(); disposeAnimal(h0);
+    for (const race of ['arabe', 'breton', 'asturcon', 'x440', 'x044', 'x210']) for (const coat of ['castano', 'pio']) {
+      const h = horseModel(coat, true, true, 2, true, race), u = h.userData, [n, c] = tris(h); check(c === c0 && n < t0 * 1.35, `${race}: ${n} tris (${t0}), ${c} calls`);
+      check(u.size >= 0.86 && u.size <= 1.06 && Math.abs(u.dy) < 0.1, `${race}: size ${u.size}, dy ${u.dy}`);
+      const bad = []; h.traverse(o => { if (o.isMesh) { const q = o.geometry.attributes.position.array; for (let i = 0; i < q.length; i++) if (!Number.isFinite(q[i])) { bad.push(o.name); break; } } }); check(!bad.length, `${race}: NaN`);
+      for (const act of [['slide', 0.4], ['stumble', 0.3], null]) { for (let i = 0; i < 30; i++) animateHorse(h, 0, 0, null, 1 / 60, 0, null); if (act) animateHorse(h, 0, 0, null, 1 / 60, 0, { act: act[0], at: act[1] }); h.updateMatrixWorld(true); u.legs.forEach((l, i) => { const up = -l.knee.position.y; l.knee.localToWorld(hoof.set(0, up - u.hipRest[i], i >= 2 ? up * 0.24 : -up * 0.03)); check(Math.abs(hoof.y) < 0.055, `${race} ${act}, leg ${i}: ${hoof.y.toFixed(3)}`); }); }
+      disposeAnimal(h);
+    }
+    const old = horseModel('castano'); check(old.userData.size === 1 && old.userData.dy === 0 && old.userData.wk === 1 && old.userData.legs.every(l => Math.abs(l.hip.position.x) === 0.16), 'an Español is not the horse of before'); disposeAnimal(old);
   });
   // ---------- Plan G (tracking, wounds and the nature book: docs/planes/gta/PLAN-G-caza.md §13) ----------
   const TR = () => game.tracks, WL = () => game.wildlife, NB = () => game.nature;

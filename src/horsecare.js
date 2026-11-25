@@ -458,7 +458,7 @@ export class HorseCare {
   }
   // Its night: what it ate, drank and rested. Ridden across the dawn, its rider's game has it
   overnight(a, day) {
-    const g = this.game, r = g.ranch, tiles = r.grazedOn(a, day - 1), grazed = tiles >= GRAZE_NEED;
+    const g = this.game, r = g.ranch, tiles = r.grazedOn(a, day - 1), need = r.needOf(a), grazed = tiles >= need;
     if (grazed) a.fedDay = day;
     if (this.off || a.rider) return;
     const home = a.home2, inStable = !!home && !a.stay && distOf(a.x, a.y, home[0], home[1]) < NIGHT.home;
@@ -466,7 +466,7 @@ export class HorseCare {
     const played = g.farm?.playedOn(day - 1) !== false, fed = fedOf(a);
     const ate = grazed || !played || (inStable && (r.eatFromFeeder(a) || r.eatHay()));
     if (ate) a.fedDay = day;
-    const now = nightFed(fed, ate, tiles);
+    const now = nightFed(fed, ate, tiles * GRAZE_NEED / need);
     if (now !== fed) a.fed = r2(now);
     if (waterOf(a) < 1 && (inStable || !played || this.troughNight(a) || this.waterAround(a))) a.water = 1;
     if (a.sore !== undefined && (inStable || !soreLeft(a, this.clock))) delete a.sore;
