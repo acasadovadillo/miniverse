@@ -89,6 +89,7 @@ export const RECIPES = [
   R('banco', 'establo', 1, [['tablas', 30], ['piedra', 20]]),
   R('banco', 'colmena', 1, [['tablas', 6], ['fibra', 4]]),
   R('banco', 'comedero', 1, [['tablas', 4]]),
+  R('mano', 'compost_bin', 1, [['tablas', 6]]),
   R('banco', 'silo', 1, [['tablas', 30], ['piedra', 30], ['lingote_cobre', 2]]),
   R('banco', 'cuadra', 1, [['tablas', 35], ['piedra', 15]]),
   R('banco', 'conejera', 1, [['tablas', 12], ['fibra', 6]]),

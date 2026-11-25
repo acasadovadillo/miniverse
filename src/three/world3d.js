@@ -51,6 +51,8 @@ const NATURE = new Set(['oak', 'fruit', 'pine', 'snowPine', 'swampTree', 'cactus
 // Which neighbours of a tilled tile are tilled too (1 +x, 2 -x, 4 +z, 8 -z), to join them into one field
 // (models.js, tilled). With lv (the height of each tile), only those at the same height: a step between them stays
 const tilledAt = (scene, x, y) => scene.delta(Math.floor(x / CHUNK), Math.floor(y / CHUNK))?.tilled?.[`${x},${y}`] !== undefined;
+// What else a tilled tile shows besides its water (models.js tilled): m straw over it, r rich soil, p poor soil
+const tilledMore = (d, k, farm) => { const s = (d?.mulch?.[k] !== undefined ? 'm' : '') + ['', 'r', 'p'][farm ? farm.soilTone(d, k) : 0]; return s && ':' + s; };
 function tilledMask(scene, tx, ty, lift, lv) {
   let m = 0;
   for (const [bit, x, y] of [[1, tx + 1, ty], [2, tx - 1, ty], [4, tx, ty + 1], [8, tx, ty - 1]]) if (tilledAt(scene, x, y) && (!lv || lv(x, y) === lift)) m |= bit;
@@ -221,7 +223,7 @@ export class World3D {
     for (const o of data.objects) s += o.key + (o.poi ? `${o.poi.kind}${o.x},${o.y},${o.poi.z || 0}` : '') + (o.crop && farm ? ':' + farm.model(o.crop) : '') + (o.open ? '!' : '') + (o.placed ? o.placed + (o.rot || 0) : '') + (o.model ? ':' + o.model : '') + (o.off ? '~' : '') + (o.tuck ? '^' : '') + (o.mask !== undefined ? `m${o.mask}` : '') + (o.door ? `d${o.door}` : '') + (o.free ? `@${o.x.toFixed(2)},${o.y.toFixed(2)},${o.yaw.toFixed(2)}` : '') + (o.window && scene.doorClosed(...o.tile) ? '#' : '') + ',';   // (~: apagado; #: ventana cerrada)
     for (const o of data.flats) s += o.key + (o.model || o.placed || '') + (o.rot || 0) + (o.free ? `@${o.x.toFixed(2)},${o.y.toFixed(2)},${o.yaw.toFixed(2)}` : '') + ',';
     for (const o of data.floors) s += o.key + ',';
-    for (const t of data.tilled) { const k = `${t[0]},${t[1]}`; s += k + (farm ? farm.soilLook(d, k) : 0) + (d?.mulch?.[k] !== undefined ? 'm' : '') + tilledMask(scene, t[0], t[1]) + ';'; }   // (with its neighbours: one tilled next door, in another chunk too, joins it)
+    for (const t of data.tilled) { const k = `${t[0]},${t[1]}`; s += k + (farm ? farm.soilLook(d, k) : 0) + (d?.mulch?.[k] !== undefined ? 'm' : '') + (farm ? farm.soilTone(d, k) : 0) + tilledMask(scene, t[0], t[1]) + ';'; }   // (with its neighbours: one tilled next door, in another chunk too, joins it)
     return s;
   }
 
@@ -252,7 +254,7 @@ export class World3D {
     for (const t of data.tilled) {
       const k = `${t[0]},${t[1]}`, dl = scene.delta(cx, cy), fm = this.farm(scene);
       LIFT = lv(t[0], t[1]);
-      this.placeModel(`tilled:${fm ? fm.soilLook(dl, k) : 0}:${tilledMask(scene, t[0], t[1], LIFT, lv)}${dl?.mulch?.[k] !== undefined ? ':m' : ''}`, t[0] + 0.5, t[1] + 0.5, 0, plain, c, group, false, LIFT);
+      this.placeModel(`tilled:${fm ? fm.soilLook(dl, k) : 0}:${tilledMask(scene, t[0], t[1], LIFT, lv)}${tilledMore(dl, k, fm)}`, t[0] + 0.5, t[1] + 0.5, 0, plain, c, group, false, LIFT);
     }
     for (const o of data.objects.concat(data.flats)) {
       LIFT = o.poi ? o.poi.z || 0 : o.treasure ? (o.treasure.z || 0) + (o.up || 0) : o.tile ? lv(...o.tile) : lv(Math.floor(o.x), Math.floor(o.y));
@@ -267,6 +269,7 @@ export class World3D {
         else if (piece?.kind === 'fence') fenceTile(scene, tx, ty, o.placed, plain);
         else this.placeModel(o.key === this.insideKey ? `${o.placed}:in` : o.model || o.placed, o.x, o.y, o.yaw ?? yawOf(o.rot), plain, c, group, o.off, LIFT);
       } else if (o.unknown) this.placeModel(o.model || 'unknown', o.x, o.y, o.yaw ?? yawOf(o.rot), plain, c, group, false, LIFT);   // (de una versión más nueva: la caja, o el tablón de los cuadros y las alfombras, con «?»)
+      else if (o.heap) this.placeModel(o.model, o.x, o.y, o.yaw || 0, plain, c, group, false, LIFT);
       else if (o.crop && this.farm(scene)) this.placeModel(this.farm(scene).model(o.crop), o.x, o.y, 0, plain, c, group, false, LIFT);
       else if (o.boat) {   // (una barca amarrada; with a big thing in its bow, inside its clone: the outline takes it too)
         const b = (BOAT ||= boatModel()).clone(true); b.position.set(o.x, WATER_Y - 0.12, o.y); b.rotation.y = o.yaw;

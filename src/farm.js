@@ -8,10 +8,12 @@
 //   d.tilled[k], d.wet[k]   the bed and the last day it was watered (as always: older games read them)
 //   d.moist[k]              how much water the soil holds, 0..100 (missing: as if just watered, if it was; see moistOf)
 //   d.mulch[k]              the day straw was spread on it
+//   d.soil[k]               its fertility and what grew on it (soil.js: harvests take from it, manure and compost give back)
 //   d.crops[k]              { id, grow, day, fert?, dead?: true | 'frost' | 'drought' | 'rot', hs, hn (its health: the sum
 //                           and how many days), dry (mornings in a row without water), wt (days a seed has waited), ripe
 //                           (the day it ripened), bolt (the day it went to seed), fb (the day frost bit it), leg (the first
-//                           morning of one planted before the weather decided) }
+//                           morning of one planted before the weather decided), picks (how many times a plant that gives
+//                           again has given), fert (from before the soil counted: it grows faster until its harvest) }
 import { CROPS, HARVEST, ITEMS, itemNoun, thingNoun } from './items.js';
 import { THIRST_MAX } from './needs.js';
 import { t, fmt, getLang } from './i18n.js';
@@ -25,6 +27,7 @@ import { climate } from './world/biomes.js';
 import { seasonOf, WEATHER } from './time.js';
 import { fieldDay } from './fieldclimate.js';
 import { GROW, WATER, DRY, SNOW_WATER, MULCH_DAYS, MULCH_FROST, SEED_WAIT, GRACE, OLD_RIPE, OLD_RATE, FROST_LOOK, BOLT_SEEDS, seedOf, rateAt, waterAt, dryingAt, yieldAt, qualityOf } from './cropdata.js';
+import { SOIL, FOOD, OLD_FERT, OLD_FERT_RATE, FAMILY_TIRED, TIRED_HEALTH, RICH_MORE, BEES, SOIL_MAX, soilStart, fertAt, takesFrom, clampSoil, soilWord, soilTone } from './soil.js';
 import { dxOf } from './world/planet.js';
 import { Profile } from './accounts.js';
 import { hud } from './ui/hud.js';
@@ -38,6 +41,8 @@ const key = (tx, ty) => `${tx},${ty}`;
 const TICK = 5;                   // s between two looks at the clock (who plays today, the frost warning)
 const WARN_FROM = 17, WARN_TO = 23, WARN_R = 64;   // the frost warning: between these hours, for the tender crops this near
 const MULCH = new Set(['straw', 'heno']);
+// (the family a soil can be tired of, as it is said)
+const FAMILIES = new Map([['brassica', 'farm.family.brassica'], ['root', 'farm.family.root'], ['nightshade', 'farm.family.nightshade'], ['grass', 'farm.family.grass'], ['cucurbit', 'farm.family.cucurbit'], ['allium', 'farm.family.allium'], ['legume', 'farm.family.legume'], ['berry', 'farm.family.berry']]);
 const HARVEST_COLOR = { excellent: '#ffe08a', good: '#a8f0a0', poor: '#d8c3a0' };
 const WATERS = { aspersor: 1, noria: 4 };   // lo que riega solo cada mañana: hasta cuántas casillas a cada lado
 
@@ -85,8 +90,8 @@ export class Farm {
     if (c.dead) return `crop:${c.id}:${l && a ? `${a}:${l}` : -1}`;
     return l && a ? `crop:${c.id}:${a}:${l}` : `crop:${c.id}:${a}`;
   }
-  // A crop's health, 0..1 (1: nothing has gone wrong)
-  health(c) { return c.hn ? Math.min(1, c.hs / c.hn) : 1; }
+  // A crop's health, 0..1 (1: nothing has gone wrong). row: how many of its family in a row on its tile
+  health(c, row = 0) { return Math.max(0, (c.hn ? Math.min(1, c.hs / c.hn) : 1) - (row >= FAMILY_TIRED ? TIRED_HEALTH : 0)); }
 
   // ---------- the weather of a field, the soil ----------
   weatherOn(day) {   // (a weather an op has set for good, instead of the day's)
@@ -98,7 +103,7 @@ export class Farm {
     let l = this.lands.get(k);
     if (!l) {
       const x = (cx + 0.5) * CHUNK, y = (cy + 0.5) * CHUNK;
-      this.lands.set(k, l = { Tl: climate(x, y, this.world.seed).Tl, swamp: this.world.gen.biomeAt(x, y) === B.SWAMP });
+      this.lands.set(k, l = { Tl: climate(x, y, this.world.seed).Tl, swamp: this.world.gen.biomeAt(x, y) === B.SWAMP, soil: soilStart(this.world.gen.biomeAt(x, y)) });
     }
     return l;
   }
@@ -114,6 +119,28 @@ export class Farm {
   }
   // The three looks of the soil: 0 damp, 1 wet, 2 dry (three/models.js tilled)
   soilLook(d, k) { const m = this.moistOf(d, k); return m >= WATER.wet ? 1 : m >= WATER.damp ? 0 : 2; }
+  // The soil of a tile: its fertility, the family of the last crop sown and how many of it in a row. [f, fam, n], not to be
+  // written on (soilFor gives the tile's own, to write)
+  soilStartAt(tx, ty) { return this.land(tx, ty).soil ?? soilStart(); }
+  soilOf(d, k, tx, ty) { return d?.soil?.[k] || this.bare(this.soilStartAt(tx, ty)); }
+  bare(f) { const s = (this.bare_ ||= [0, '', 0]); s[0] = f; return s; }
+  soilFor(d, k, tx, ty) { return ((d.soil ||= {})[k] ||= [this.soilStartAt(tx, ty), '', 0]); }
+  // Its look: 0 ordinary, 1 rich, 2 poor (three/models.js tilled)
+  soilTone(d, k) { const s = d?.soil?.[k]; return s ? soilTone(s[0]) : 0; }
+  // Is there a hive near enough, with its bees out? (not in the winter of the place)
+  beesAt(tx, ty) {
+    if (this.fieldAt(this.today, tx, ty).season === 3) return false;
+    const R = BEES.R, c0 = Math.floor((tx - R) / CHUNK), c1 = Math.floor((tx + R) / CHUNK), r0 = Math.floor((ty - R) / CHUNK), r1 = Math.floor((ty + R) / CHUNK);
+    for (let cy = r0; cy <= r1; cy++) for (let cx = c0; cx <= c1; cx++) {
+      const placed = this.world.delta(cx, cy)?.placed;
+      for (const k in placed) {
+        if (!placed[k].startsWith('colmena') || parsePlaced(placed[k])[0] !== 'colmena') continue;
+        const [x, y] = k.split(',').map(Number);
+        if (Math.hypot(dxOf(x, tx), y - ty) <= R) return true;
+      }
+    }
+    return false;
+  }
   // Days a crop would take at a place sown today, with ordinary weather (Infinity: it would not make it)
   daysHere(id, tx, ty) {
     const m = this.days[id], l = this.land(tx, ty), today = this.today;
@@ -178,6 +205,7 @@ export class Farm {
       const [tx, ty] = k.split(',').map(Number);
       out.objects.push({ x: tx + 0.5, y: ty + 0.5, key: 'crop:' + k, tile: [tx, ty], crop: c });
     }
+    if (d.manure) this.game.ranch?.addHeaps(d, out);
     for (const [k, t] of Object.entries(d.trees || {})) {
       const [tx, ty] = k.split(',').map(Number), x = tx + 0.5, y = ty + 0.5;
       if (!HARVEST[t?.kind]) { out.colliders.push({ x, y, r: 0.15 }); continue; }
@@ -205,12 +233,12 @@ export class Farm {
     if (this.game.live.guest) return;   // (en el mundo de otro, los cultivos los hace crecer su juego)
     const w = this.world, played = this.playedOn(day - 1), F = this.day_, N = this.next_, waters = [];
     for (const [ck, d] of w.deltas) {
-      if (ck.startsWith('u:') || (!d.crops && !d.placed && !d.trees)) continue;
+      if (ck.startsWith('u:') || (!d.crops && !d.placed && !d.trees && !d.soil)) continue;
       const [cx, cy] = ck.split(',').map(Number);
       let changed = !!d.trees && Object.keys(d.trees).length > 0, any = false;   // (los arbolitos crecen)
       for (const k in d.tilled) { any = true; break; }
       if (any) {
-        const tx = cx * CHUNK, ty = cy * CHUNK, swamp = this.land(tx, ty).swamp;
+        const tx = cx * CHUNK, ty = cy * CHUNK, swamp = this.land(tx, ty).swamp, start = this.soilStartAt(tx, ty);
         this.fieldAt(day - 1, tx, ty, F); this.fieldAt(day, tx, ty, N);
         const rain = !!WEATHER[N.weather].rain, snow = N.weather === 'nieve', dry = dryingAt(F.max, F.weather), rained = !!WEATHER[F.weather].rain;
         d.wet ||= {}; d.moist ||= {};
@@ -218,7 +246,11 @@ export class Farm {
           let m = d.moist[k] ?? (d.wet[k] >= day - 1 || rained ? 100 : WATER.unknown);
           if (d.mulch?.[k] !== undefined && day - d.mulch[k] >= MULCH_DAYS) delete d.mulch[k];
           const mulch = d.mulch?.[k] !== undefined, c = d.crops?.[k];
-          if (c && !c.dead && CROPS[c.id] && GROW[c.id]) this.growCrop(c, day, F, m, mulch ? MULCH_FROST : 0, played);
+          if (c && !c.dead && CROPS[c.id] && GROW[c.id]) {
+            const s = ((d.soil ||= {})[k] ||= [start, GROW[c.id].fam, 1]);   // (sown before the soil counted: what its land has)
+            if (c.fert === true) { c.fert = 2; s[0] = clampSoil(s[0] + OLD_FERT); }
+            this.growCrop(c, day, F, m, mulch ? MULCH_FROST : 0, played, s[0]);
+          } else if (!c || c.dead) this.restSoil(d, k, start);
           m = Math.max(swamp ? WATER.damp + 5 : 0, m - dry * (mulch ? DRY.mulch : 1));
           if (rain) { m = 100; d.wet[k] = day; } else if (snow) m = Math.min(100, m + SNOW_WATER);
           if (c?.dry && !c.dead) { if (m >= WATER.full) delete c.dry; else if (c.dry >= WATER.dryDays && played && !this.graced(c, day)) c.dead = 'drought'; }
@@ -226,6 +258,8 @@ export class Farm {
         }
         changed = true;
       }
+      // (what is not tilled any more rests too, until it is as it was and there is nothing to remember)
+      if (d.soil) for (const k in d.soil) if (d.tilled?.[k] === undefined) this.restSoil(d, k, this.soilStartAt(cx * CHUNK, cy * CHUNK), true);
       for (const [k, raw] of Object.entries(d.placed || {})) {
         const id = parsePlaced(raw)[0], r = WATERS[id];
         if (!r) continue;
@@ -246,9 +280,18 @@ export class Farm {
       }
     }
   }
+  // A morning's rest of a tile with nothing growing: a little back, up to what its land has (wild: not tilled, also back down to it)
+  restSoil(d, k, start, wild = false) {
+    const s = d.soil?.[k];
+    if (!s) return;
+    if (s[0] < start) s[0] = Math.min(start, s[0] + SOIL.rest);
+    else if (wild && s[0] > start) s[0] = Math.max(start, s[0] - SOIL.rest);
+    if (wild && s[0] === start) delete d.soil[k];
+  }
   graced(c, day) { return c.leg !== undefined && day - c.leg < GRACE; }
-  // One crop, one day: F: the day that ended, and its night; m: its soil's moisture; warm: °C that cover it at night
-  growCrop(c, day, F, m, warm, played) {
+  // One crop, one day: F: the day that ended, and its night; m: its soil's moisture; warm: °C that cover it at night; soil:
+  // its soil's fertility
+  growCrop(c, day, F, m, warm, played, soil = 60) {
     const g = GROW[c.id], crop = CROPS[c.id];
     // (planted before the weather decided: it keeps growing in what were its seasons, and what was ripe waits a few days more)
     if (c.hn === undefined) { c.hs = 0; c.hn = 0; c.leg = day; if (c.grow >= crop.days) c.ripe = day + OLD_RIPE; }
@@ -259,10 +302,10 @@ export class Farm {
     if (c.grow < crop.days) {
       let r = rateAt(c.id, F.mean);
       if (c.leg !== undefined && day - c.leg < OLD_RATE) r = Math.max(r, g.was.includes(F.season) ? 1 : 0.5);
-      const w = waterAt(m, c.grow < crop.days / 2), grew = r * w * (c.fert ? 1.5 : 1);
+      const w = waterAt(m, c.grow < crop.days / 2), fert = fertAt(soil), grew = r * w * (c.fert ? Math.max(fert, OLD_FERT_RATE) : fert);
       if (w === 1) delete c.dry;
       else if (w === 0 && c.grow > 0) c.dry = played ? (c.dry || 0) + 1 : Math.max(c.dry || 0, Math.min(WATER.thirsty, (c.dry || 0) + 1));
-      if (r > 0 && (c.grow > 0 || w > 0)) { c.hs = Math.round((c.hs + w * (bitten ? 0.5 : 1)) * 100) / 100; c.hn++; }
+      if (r > 0 && (c.grow > 0 || w > 0)) { c.hs = Math.round((c.hs + w * Math.min(1, c.fert ? 1 : fert) * (bitten ? 0.5 : 1)) * 100) / 100; c.hn++; }
       if (c.grow < 1 && !(grew > 0)) { if (played && (c.wt = (c.wt || 0) + 1) >= SEED_WAIT) c.dead = 'rot'; }
       c.grow = Math.round(Math.max(0, c.grow + grew - (bitten ? 1 : 0)) * 1000) / 1000;
       if (c.grow >= crop.days) { c.ripe = day; delete c.dry; delete c.wt; }
@@ -301,7 +344,12 @@ export class Farm {
       if (tilled) return { tile, ok: true, auto: true, label: t('farm.can.water', { n: this.can, max: CAN_MAX, soil: this.soilText(d, k) }), use: () => this.water(tx, ty) };
       return null;
     }
-    if (held?.id === 'abono' && CROPS[crop?.id] && !crop.dead && !crop.fert && !this.ready(crop)) return { tile, ok: true, label: 'Abonar', use: () => this.fertilize(crop, tx, ty) };
+    if (FOOD[held?.id] && tilled) {
+      const f = this.soilOf(d, k, tx, ty)[0], to = clampSoil(f + FOOD[held.id]), item = itemNoun(held.id);
+      if (f >= SOIL_MAX) return { tile, ok: false, label: t('farm.feed.full'), use: () => this.no(t('farm.feed.full')) };
+      // (held down, one on each tile; click again on the same one to give it more)
+      return { tile, ok: true, auto: this.lastFed !== k, label: t('farm.feed.spread', { item, f, to }), use: () => this.feedSoil(tx, ty, held.id) };
+    }
     if (MULCH.has(held?.id) && tilled && d.mulch?.[k] === undefined) return { tile, ok: true, auto: true, label: t('farm.mulch.spread', { item: itemNoun(held.id) }), use: () => this.spread(tx, ty, held.id) };
     if (def?.sapling) {
       const ok = this.canPlant(tx, ty);
@@ -389,6 +437,8 @@ export class Farm {
     const g = this.game, d = this.d(tx, ty, true);
     d.crops ||= {};
     d.crops[key(tx, ty)] = { id, grow: 0, day: this.today, hs: 0, hn: 0 };
+    const s = this.soilFor(d, key(tx, ty), tx, ty), fam = GROW[id]?.fam || '';   // (rotation: how many of its family in a row)
+    s[2] = s[1] === fam ? (s[2] || 0) + 1 : 1; s[1] = fam;
     g.inv.remove(seedOf(id), 1);
     this.forget();
     g.stats?.add('sembrados', 1);
@@ -397,11 +447,21 @@ export class Farm {
     Audio.till();
     g.skills?.gain('agricultura', 0.5);
   }
-  fertilize(crop, tx, ty) {
-    crop.fert = true;
-    this.game.inv.remove('abono', 1);
+  // Manure or compost on a tilled tile, with a crop or without: it feeds the soil, and the soil the crops
+  feedSoil(tx, ty, id) {
+    const g = this.game, d = this.d(tx, ty, true), k = key(tx, ty);
+    if (d.tilled?.[k] === undefined || g.inv.count(id) < 1) return;
+    const s = this.soilFor(d, k, tx, ty);
+    s[0] = clampSoil(s[0] + FOOD[id]);
+    this.lastFed = k;
+    g.inv.remove(id, 1);
+    g.gather.cooldown = 0.25;
+    this.forget();
     this.world.touchAround(tx, ty);
-    this.game.gather.float('Abonado: crecerá más deprisa', '#a8f0a0');
+    g.gather.chips(tx + 0.5, ty + 0.5, 'dirt', 8);
+    g.gather.float(t('farm.feed.done', { soil: this.soilFertText(s, tx, ty) }), '#a8f0a0');
+    Audio.dump();
+    g.skills?.gain('agricultura', 0.3);
   }
   // What E (or the click) does with a ripe crop, one gone to seed or a dead one
   cropText(c) { return c.dead ? t('farm.clear_dead') : c.bolt !== undefined ? t('farm.take_seeds') : t('farm.harvest'); }
@@ -416,18 +476,22 @@ export class Farm {
   harvest(tx, ty, straw = 0, quiet = false) {
     const g = this.game, d = this.d(tx, ty), k = key(tx, ty), c = d?.crops?.[k], crop = CROPS[c?.id], at = { x: tx + 0.5, y: ty + 0.5 };
     if (!crop || !this.ready(c)) return 0;
+    const s = this.soilFor(d, k, tx, ty);
     let n = 0;
     if (c.bolt !== undefined) g.gather.spawnDrops(at, { drops: [[seedOf(c.id), ...BOLT_SEEDS]] });
     else {
-      const h = this.health(c), word = qualityOf(h);
+      const h = this.health(c, s[2]), word = qualityOf(h);
       n = yieldAt(c.id, h);
       if (this.over(c)) n = Math.max(1, Math.floor(n / 2));
       if (Math.random() < (g.skills?.bonus('agricultura') || 0)) n++;
+      if (s[0] > SOIL.rich && Math.random() < RICH_MORE) n++;
+      if (GROW[c.id].bees && Math.random() < BEES.more && this.beesAt(tx, ty)) n++;
       g.gather.spawnDrops(at, { drops: straw ? [[c.id, n, n], ['straw', straw, straw]] : [[c.id, n, n]] });
       if (word && !quiet) g.gather.float(t('farm.harvest.quality.' + word), HARVEST_COLOR[word]);
       g.nature?.harvested(c.id);   // (harvested: Known in the nature book)
     }
-    if (crop.regrow && c.bolt === undefined) { c.grow = crop.days - crop.regrow; delete c.ripe; }
+    s[0] = clampSoil(s[0] - takesFrom(c.id, c.picks > 0));
+    if (crop.regrow && c.bolt === undefined) { c.grow = crop.days - crop.regrow; c.picks = (c.picks || 0) + 1; delete c.ripe; delete c.fert; }
     else delete d.crops[k];
     this.forget();
     this.world.touchAround(tx, ty);
@@ -479,6 +543,12 @@ export class Farm {
   say(slot, id, tx, ty, text, ok = true) { Object.assign(this.said[slot] ||= {}, { id, tx, ty, text, ok, at: this.game.time, lang: getLang() }); return text; }
   forget() { for (const k in this.said) this.said[k].at = -1; }
   soilText(d, k) { const l = this.soilLook(d, k); return t(l === 1 ? 'farm.soil.wet' : l === 0 ? 'farm.soil.damp' : 'farm.soil.dry'); }
+  // «tired soil», «rich soil»…; and, from the third crop of a family in a row, what it is tired of
+  soilFertText(s, tx, ty) {
+    const w = soilWord(s[0], this.soilStartAt(tx, ty));
+    return t(w === 'poor' ? 'farm.soil.poor' : w === 'tired' ? 'farm.soil.tired' : w === 'thin' ? 'farm.soil.thin' : w === 'rich' ? 'farm.soil.rich' : 'farm.soil.fertile');
+  }
+  tiredText(s, next = 0) { return s[1] && s[2] + next >= FAMILY_TIRED && FAMILIES.has(s[1]) ? t('farm.soil.tired_of', { family: t(FAMILIES.get(s[1])) }) : ''; }
   // Sowing this here today: fine (about how many days), too cold yet (the seed waits), or it would not live through tonight
   sowText(id, tx, ty) {
     if (this.fresh('sow', id, tx, ty)) return this.said.sow.text;
@@ -486,19 +556,23 @@ export class Farm {
     if (F.min + warm <= g.kill) return this.say('sow', id, tx, ty, t('farm.sow.cold_tonight', { crop }), false);
     if (F.mean <= g.base) return this.say('sow', id, tx, ty, t('farm.sow.cold_yet', { crop, c, need: g.base + 1 }));
     if (F.mean >= g.stop) return this.say('sow', id, tx, ty, t('farm.sow.hot', { crop, c }));
-    const n = this.daysHere(id, tx, ty);
-    return this.say('sow', id, tx, ty, n < Infinity ? t('farm.sow', { crop, days: n }) : t('farm.sow.wont', { crop }));
+    const n = this.daysHere(id, tx, ty), s = this.soilOf(this.d(tx, ty), key(tx, ty), tx, ty), tired = s[1] === g.fam ? this.tiredText(s, 1) : '';
+    const text = n < Infinity ? t('farm.sow', { crop, days: n }) : t('farm.sow.wont', { crop });
+    return this.say('sow', id, tx, ty, tired ? t('farm.sow.tired', { text, tired }) : text);
   }
   // The tile looked at: what grows there and how, and its soil ('' if it is not tilled)
   status(tx, ty, slot = 'tile') {
     if (this.fresh(slot, '', tx, ty)) return this.said[slot].text;
     const d = this.d(tx, ty), k = key(tx, ty);
     if (d?.tilled?.[k] === undefined) return '';
-    const c = d.crops?.[k], known = c && CROPS[c.id], soil = d.mulch?.[k] !== undefined ? t('farm.soil.mulched', { soil: this.soilText(d, k) }) : this.soilText(d, k);
+    const c = d.crops?.[k], known = c && CROPS[c.id], s = this.soilOf(d, k, tx, ty), water = d.mulch?.[k] !== undefined ? t('farm.soil.mulched', { soil: this.soilText(d, k) }) : this.soilText(d, k);
+    const soil = t('farm.soil.both', { soil: water, food: this.tiredText(s) || this.soilFertText(s, tx, ty) });
     if (c && !known) return this.say(slot, '', tx, ty, '');   // (from a newer version)
     if (!c) return this.say(slot, '', tx, ty, t('farm.state.bare', { soil }));
     const crop = itemNoun(c.id), state = this.stateText(c, tx, ty, this.moistOf(d, k));
-    return this.say(slot, '', tx, ty, c.dead || c.bolt !== undefined || slot === 'take' ? t('farm.state.alone', { crop, state }) : t('farm.state.crop', { crop, state, soil }));
+    if (c.dead || c.bolt !== undefined || slot === 'take') return this.say(slot, '', tx, ty, t('farm.state.alone', { crop, state }));
+    const text = t('farm.state.crop', { crop, state, soil });
+    return this.say(slot, '', tx, ty, GROW[c.id].bees && this.beesAt(tx, ty) ? t('farm.state.bees', { text }) : text);
   }
   stateText(c, tx, ty, m) {
     const g = GROW[c.id], days = CROPS[c.id].days;
@@ -540,13 +614,25 @@ export class Farm {
       const g = GROW[id], n = this.daysHere(id, tx, ty);
       return { id, days: n, kill: g.kill, now: T.min <= g.kill ? 'tonight' : n === Infinity ? 'no' : T.mean <= g.base || T.mean >= g.stop ? 'wait' : 'now' };
     });
-    return { mean: T.mean, min: T.min, max: T.max, nights, crops };
+    return { mean: T.mean, min: T.min, max: T.max, nights, crops, soil: this.soilCount(x, y) };
+  }
+  // The beds around a place by how their soil is: { rich, fertile, tired, poor } (thin land counts as tired)
+  soilCount(x, y, R = WARN_R) {
+    const out = { rich: 0, fertile: 0, tired: 0, poor: 0 };
+    for (const [ck, d] of this.world.deltas) {
+      if (ck.startsWith('u:')) continue;
+      const [cx, cy] = ck.split(',').map(Number);
+      if (Math.abs(dxOf((cx + 0.5) * CHUNK, x)) > R || Math.abs((cy + 0.5) * CHUNK - y) > R) continue;
+      const start = this.soilStartAt(cx * CHUNK, cy * CHUNK);
+      for (const k in d.tilled) { const w = soilWord(d.soil?.[k]?.[0] ?? start, start); out[w === 'thin' ? 'tired' : w]++; }
+    }
+    return out;
   }
   journal() {
     const g = this.game, p = g.scene === this.world && g.player ? g.player : { x: 0, y: 30 }, a = this.almanac(p.x, p.y), r = Math.round;
     const rows = a.crops.slice().sort((x, y) => (x.now === 'now' ? 0 : 1) - (y.now === 'now' ? 0 : 1) || x.days - y.days).map(c => `<div class="j-row"><b>${t('farm.name', { crop: thingNoun(c.id) })}</b><span class="lvl">${t('farm.almanac.' + c.now, { n: c.days })}</span><small>${t('farm.almanac.frost', { c: c.kill })}</small></div>`).join('');
-    const nights = a.nights.map(n => `${n.icon} ${r(n.min)}°`).join(' · ');
-    return `<p class="j-note"><b>${t('farm.almanac.title')}</b><br>${t('farm.almanac.here', { mean: r(a.mean), min: r(a.min), max: r(a.max) })}${a.min <= 2 ? ' ' + t('farm.almanac.tonight_frost') : ''}<br>${t('farm.almanac.nights', { list: nights })}<br>${t('farm.almanac.help')}</p>${rows}`;
+    const nights = a.nights.map(n => `${n.icon} ${r(n.min)}°`).join(' · '), beds = a.soil.rich + a.soil.fertile + a.soil.tired + a.soil.poor;
+    return `<p class="j-note"><b>${t('farm.almanac.title')}</b><br>${t('farm.almanac.here', { mean: r(a.mean), min: r(a.min), max: r(a.max) })}${a.min <= 2 ? ' ' + t('farm.almanac.tonight_frost') : ''}<br>${t('farm.almanac.nights', { list: nights })}${beds ? '<br>' + t('farm.almanac.soil', a.soil) : ''}<br>${t('farm.almanac.help')}<br>${t('farm.almanac.soil_help')}</p>${rows}`;
   }
 
   // Cut down a crop that is still growing: the tile stays tilled and its seed drops, to sow it again

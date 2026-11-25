@@ -12,7 +12,7 @@ export const BUILD_CATS = {
   'Cocina y baño': ['encimera', 'alacena', 'fregadero', 'banera', 'lavabo', 'inodoro', 'mueble_bano'],
   Estaciones: ['banco', 'cantero', 'horno', 'telar', 'cocina', 'yunque', 'quesera', 'alambique', 'noria'],
   Exterior: ['barca', 'pozo', 'big_well', 'wheelbarrow', 'watchtower', 'watchtower_tall'],   // (la barca: se amarra en el agua, ver crew.js; el pozo, en un hoyo cavado con la pala, ver scenes.js)
-  Rancho: ['gallinero', 'establo', 'cuadra', 'conejera', 'caseta', 'palomar', 'comedero', 'silo', 'colmena', 'incubadora'],
+  Rancho: ['gallinero', 'establo', 'cuadra', 'conejera', 'caseta', 'palomar', 'comedero', 'silo', 'colmena', 'incubadora', 'compost_bin'],
 };
 // id → { name, cat, cost: [[material, n]…], needs: la estación que hay que tener cerca (o null: a mano), recipe: la
 // receta que hay que conocer para que salga en la barra }

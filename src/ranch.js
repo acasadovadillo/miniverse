@@ -28,13 +28,14 @@ import { padBags } from './saddlebags.js';
 import { sensesOn } from './wildlife.js';
 import { stalkingAs } from './presence.js';
 import { downwind, EVENT } from './senses.js';
+import { DUNG, PILE_MAX, DIRTY_EVERY, HEAP_AT, heapSize, COMPOST, organic, compostAt, compostModel, FEED, FEED_BAG, FEED_MOST, feedModel } from './soil.js';
+import { parsePlaced } from './pieces.js';
 
 const PER_HOME = { gallinero: 4, establo: 4, conejera: 4, cuadra: 2, caseta: 1, cojin: 1 };
 const FRONT = { gallinero: 2.15, establo: 2.25 };   // las casas grandes: del centro a donde se entra (delante de la puerta)
 const STALLS = [[-1.5, -0.45], [1.5, -0.45], [-0.5, -0.55], [0.5, -0.55]];   // dónde se ponen dentro del establo
 const DOORS = new Set(['gallinero', 'establo', 'conejera']), MENU_PAGE = 5;   // (las casas con puerta y cuántos animales enseña el menú de una vez)
 const ROAM = 4.5, HONEY_EVERY = 3, GROW = 5, WAIT_BIRTH = 3, HATCH = 4, SILO_CAP = 240, STRAY_EVERY = 7;
-const FEED = ['heno', 'fibra', 'trigo'];
 // Los que pastan (los demás de granja picotean o hozan: con salir les basta) y lo que hace falta para eso: GRAZE_NEED
 // casillas al día; las buscan a menos de GRAZE_R de su casa, mirando GRAZE_TRY casillas al azar cada vez (no todas: es
 // por intervalos, y lo que cuesta no depende de cuánto campo haya). Comer una casilla les lleva EAT segundos y luego
@@ -771,11 +772,46 @@ export class Ranch {
       a.days++;
       if (!a.young && a.breed !== 'gallo' && a.days % def.every === 0 && (!def.truffle || grazed)) a.ready = true;
     }
+    this.muck(day, news);
+    this.rot(day);
     this.breed(day, news);
     this.hatch(day, news);
     this.nightVisits(day, news);
     this.strays(day);
     for (const n of news) hud.toast(n, 'good');
+  }
+  // What the animals that sleep in a house leave in it (soil.js DUNG: those that have eaten; the horse always has). Full of
+  // it, they love you a little less every other morning: never after a day nobody played here, as with the garden
+  muck(day, news) {
+    const piles = new Map(), played = this.game.farm?.playedOn(day - 1) !== false;
+    for (const a of this.animals) {
+      const n = DUNG[a.type], k = a.home && `${a.home[0]},${a.home[1]}`;
+      if (!n || !k || a.stray || (!a.def.ride && a.fedDay !== day)) continue;
+      const d = this.world.delta(Math.floor(a.home[0] / CHUNK), Math.floor(a.home[1] / CHUNK));
+      if (!d?.placed?.[k] || !HEAP_AT[parsePlaced(d.placed[k])[0]]) continue;
+      let p = piles.get(k);
+      if (!p) piles.set(k, p = { d, k, n: 0, who: [] });
+      p.n += this.young(a) ? n / 2 : n; p.who.push(a);
+    }
+    for (const { d, k, n, who } of piles.values()) {
+      const was = d.manure?.[k] || 0, now = Math.min(PILE_MAX, Math.round((was + n) * 8) / 8), [tx, ty] = k.split(',').map(Number);
+      (d.manure ||= {})[k] = now;
+      if (now >= PILE_MAX && was < PILE_MAX) news.push(tr('farm.stable_full', { home: itemNoun(parsePlaced(d.placed[k])[0]) }));
+      else if (was >= PILE_MAX && played && day % DIRTY_EVERY === 0) for (const a of who) if (a.love > 0) { a.love--; if (a.def.ride && !this.game.horse?.off) a.bx = BX_AFTER_LOSS; }
+      if (heapSize(now) !== heapSize(was)) this.world.touch(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK)); else this.world.chestTouched(tx, ty);
+    }
+  }
+  // The compost bins: the ones that have been rotting long enough are ready, for everybody at once
+  rot(day) {
+    for (const [ck, d] of this.world.deltas) {
+      if (ck.startsWith('u:') || !d.compost) continue;
+      for (const [k, v] of Object.entries(d.compost)) {
+        if (!Array.isArray(v) || v[2] || !compostAt(v, day).ready) continue;
+        d.compost[k] = [v[0], v[1], 1];
+        const [tx, ty] = k.split(',').map(Number);
+        this.world.touch(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK));
+      }
+    }
   }
   breed(day, news) {
     for (const a of [...this.animals]) {
@@ -850,7 +886,7 @@ export class Ranch {
     for (const [, d] of this.world.deltas) {
       for (const [k, n] of Object.entries(d.feed || {})) {
         const [tx, ty] = k.split(',').map(Number);
-        if (n > 0 && a.home && Math.hypot(tx - a.home[0], ty - a.home[1]) < 12) { d.feed[k]--; this.world.chestTouched(tx, ty); return true; }
+        if (n > 0 && a.home && Math.hypot(tx - a.home[0], ty - a.home[1]) < 12) { const was = feedModel(n, d.fodder?.[k]); d.feed[k]--; if (feedModel(n - 1, d.fodder?.[k]) !== was) this.world.touch(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK)); else this.world.chestTouched(tx, ty); return true; }
       }
     }
     return false;
@@ -949,13 +985,24 @@ export class Ranch {
       }
       case 'comedero': {
         d.feed ||= {};
-        const food = FEED.find(id => inv.count(id) > 0), n = d.feed[k] || 0;
-        if (!food) return { text: `Comedero: ${n} raciones (pon heno, fibra o trigo)`, run: () => Audio.error() };
-        return { text: `Llenar el comedero (${n} raciones)`, run: () => { const k2 = Math.min(10, inv.count(food)); inv.remove(food, k2); d.feed[k] = n + k2; touched(); Audio.place(); } };
+        // (what is in the hand, if it is fodder; with something else in it, hay, fiber or wheat from the bag: never what is
+        // also your food without having it in the hand)
+        const held = inv.held?.id, food = FEED[held] ? held : FEED_BAG.find(id => inv.count(id) > 0), n = d.feed[k] || 0;
+        if (!food) return { text: tr('ranch.feeder.empty_hand', { n }), run: () => Audio.error() };
+        return { text: tr('ranch.feeder.fill', { item: itemNoun(food), n, more: FEED[food] * Math.min(FEED_MOST, inv.count(food)) }), run: () => {
+          const some = Math.min(FEED_MOST, inv.count(food)), now = d.feed[k] || 0;
+          if (some < 1) return;
+          inv.remove(food, some);
+          d.feed[k] = now + some * FEED[food]; (d.fodder ||= {})[k] = food;
+          this.world.touch(Math.floor(o.tile[0] / CHUNK), Math.floor(o.tile[1] / CHUNK));
+          Audio.place();
+        } };
       }
       case 'gallinero': case 'establo': case 'conejera': case 'cuadra': {
-        const list = this.livingIn(o.tile);
-        return { text: `${ITEMS[o.placed].name}: ${list.length ? list.map(a => a.name).join(', ') : 'vacío'}`, run: () => this.houseMenu(o) };
+        const list = this.livingIn(o.tile), pile = d.manure?.[k] || 0;
+        if (pile >= 1 && this.emptyShovel()) return this.muckAction(o.tile);
+        const says = `${ITEMS[o.placed].name}: ${list.length ? list.map(a => a.name).join(', ') : 'vacío'}`;
+        return { text: pile >= PILE_MAX ? tr('farm.stable_dirty', { text: says }) : says, run: () => this.houseMenu(o) };
       }
       case 'caseta': case 'cojin': {   // (se usan con E; se recogen con X)
         const list = this.livingIn(o.tile);
@@ -976,9 +1023,100 @@ export class Ranch {
         if (!egg) return { text: 'Incubadora (trae un huevo de gallina o de pato)', run: () => Audio.error() };
         return { text: `Poner ${ITEMS[egg].name.toLowerCase()} a incubar`, run: () => { inv.remove(egg, 1); d.incub[k] = { id: egg, day: this.today }; touched(); Audio.place(); } };
       }
+      case 'compost_bin': return this.compostAction(o, d, k);
       case 'palomar': return this.dovecote();
     }
     return null;
+  }
+  // ---------- manure and compost (Plan R2 §3.8) ----------
+  // The shovel in the hand, with nothing on it
+  emptyShovel() { const def = ITEMS[this.game.inv.held?.id]; return def?.tool === 'pala' && !def.empty; }
+  // The pile of an animal house: its place in the world, [x, y, yaw], from where the house is
+  heapSpot(tile, d, k) {
+    const at = HEAP_AT[parsePlaced(d?.placed?.[k] || '')[0]];
+    if (!at) return null;
+    const rot = parsePlaced(d.placed[k])[1], pos = d.pos?.[`placed:${k}`] || [tile[0] + 0.5, tile[1] + 0.5, ((rot || 0) % 4) * Math.PI / 2], [ux, uy] = sideOf(pos[2]), [vx, vy] = dirOf(pos[2]);
+    return [pos[0] + ux * at[0] + vx * at[1], pos[1] + uy * at[0] + vy * at[1], pos[2]];
+  }
+  // The piles of a chunk, to draw (farm.js addContent)
+  addHeaps(d, out) {
+    for (const k in d?.manure) {
+      const size = heapSize(d.manure[k]), at = size && this.heapSpot(k.split(',').map(Number), d, k);
+      if (at) out.objects.push({ x: at[0], y: at[1], yaw: at[2], key: 'heap:' + k, heap: k, model: `manure_heap:${size}` });
+    }
+  }
+  aimables(p, scene, box) {
+    if (scene !== this.world) return null;
+    const out = [], cx = Math.floor(p.x / CHUNK), cy = Math.floor(p.y / CHUNK);
+    for (let j = -1; j <= 1; j++) for (let i = -1; i <= 1; i++) {
+      const d = this.world.delta(cx + i, cy + j);
+      for (const k in d?.manure) {
+        const size = heapSize(d.manure[k]), tile = size && k.split(',').map(Number), at = tile && this.heapSpot(tile, d, k);
+        if (!at || Math.abs(dxOf(at[0], p.x)) > 4 || Math.abs(at[1] - p.y) > 4) continue;
+        out.push({ kind: 'sys', heap: tile, exact: true, box: box(at[0], at[1], 0.45, 0.45, 0, 0.4), model: { name: `manure_heap:${size}`, x: at[0], y: at[1], yaw: at[2], lift: this.world.levelAt?.(at[0], at[1], true) || 0 }, act: () => this.muckAction(tile) });
+      }
+    }
+    return out;
+  }
+  // What falls out of a house or a bin that is taken down: [item, how many], or null
+  spillOf(o) {
+    const d = this.world.delta(Math.floor(o.tile[0] / CHUNK), Math.floor(o.tile[1] / CHUNK)), k = `${o.tile[0]},${o.tile[1]}`, pile = Math.floor(d?.manure?.[k] || 0);
+    if (o.placed === 'compost_bin' && d?.compost?.[k]) { const c = compostAt(d.compost[k], this.today); return c.ready ? ['abono', COMPOST.gives] : c.units ? ['fibra', c.units] : null; }
+    return HEAP_AT[o.placed] && pile >= 1 ? ['manure', pile] : null;
+  }
+  // All the manure waiting in the stables
+  manureAll() {
+    let n = 0;
+    for (const [ck, d] of this.world.deltas) if (d.manure && !ck.startsWith('u:')) for (const k in d.manure) n += Math.floor(d.manure[k]) || 0;
+    return n;
+  }
+  // Muck out: with the shovel in the hand (E or click), the whole pile at once
+  muckAction(tile) {
+    const d = this.world.delta(Math.floor(tile[0] / CHUNK), Math.floor(tile[1] / CHUNK)), k = `${tile[0]},${tile[1]}`, n = Math.floor(d?.manure?.[k] || 0);
+    if (n < 1) return null;
+    if (!this.emptyShovel()) { const text = tr(ITEMS[this.game.inv.held?.id]?.tool === 'pala' ? 'farm.muck_out.full_shovel' : 'farm.muck_out.need_shovel', { n }); return { text, run: () => { this.game.gather.float(text, '#ffb0a0'); Audio.error(); } }; }
+    return { text: tr('farm.muck_out', { n }), run: () => this.muckOut(tile) };
+  }
+  muckOut(tile) {
+    const g = this.game, d = this.world.delta(Math.floor(tile[0] / CHUNK), Math.floor(tile[1] / CHUNK)), k = `${tile[0]},${tile[1]}`, n = Math.floor(d?.manure?.[k] || 0);
+    if (n < 1 || !this.emptyShovel() || g.gather.cooldown > 0) return;
+    const at = this.heapSpot(tile, d, k) || [tile[0] + 0.5, tile[1] + 0.5];
+    g.gather.swing = 0.25; g.gather.swingItem = g.inv.held.id; g.gather.cooldown = 0.5;
+    if (!g.gather.spend('pala')) return;
+    const left = d.manure[k] - n;
+    if (left > 0) d.manure[k] = left; else delete d.manure[k];
+    const over = g.inv.add('manure', n);
+    if (over) g.gather.throwOut('manure', over);
+    this.world.touch(Math.floor(tile[0] / CHUNK), Math.floor(tile[1] / CHUNK));
+    g.gather.chips(at[0], at[1], 'dirt', 14);
+    g.gather.float(tr('farm.muck_out.done', { n }), '#d8c3a0');
+    Audio.dig();
+    g.skills?.gain('granja', 1);
+    g.onSave?.();
+  }
+  // The compost bin: what is in the hand goes in, if it rots; full, it takes its days; ready, the compost comes out
+  compostAction(o, d, k) {
+    const g = this.game, inv = g.inv, pick = { text: tr('farm.compost.dismantle'), run: () => g.pickUp(o) };
+    const c = compostAt(d.compost?.[k], this.today), changed = () => { this.world.touch(Math.floor(o.tile[0] / CHUNK), Math.floor(o.tile[1] / CHUNK)); g.onSave?.(); };
+    if (c.ready) return { text: tr('farm.compost.take', { n: COMPOST.gives }), alt: pick, run: () => {
+      if (!compostAt(d.compost?.[k], this.today).ready) return;
+      delete d.compost[k];
+      const over = inv.add('abono', COMPOST.gives);
+      if (over) g.gather.throwOut('abono', over);
+      changed(); Audio.dump(); g.gather.chips(o.x, o.y, 'dirt', 10); g.skills?.gain('agricultura', 2);
+    } };
+    if (c.full) return { text: tr('farm.compost.ready_in', { d: Math.max(1, c.left) }), alt: pick, run: () => Audio.blip() };
+    const id = inv.held?.id, each = organic(id);
+    if (!each) return { text: tr('farm.compost.state', { n: c.units, max: COMPOST.need }), alt: pick, run: () => Audio.error() };
+    return { text: tr('farm.compost.add', { item: itemNoun(id), n: c.units, max: COMPOST.need }), alt: pick, run: () => {
+      const s = inv.held, now = compostAt(d.compost?.[k], this.today), some = s?.id === id ? Math.min(s.n, Math.ceil((COMPOST.need - now.units) / each)) : 0;
+      if (some < 1 || now.full) return;
+      inv.take(inv.selected, some);
+      const units = Math.min(COMPOST.need, now.units + some * each);
+      (d.compost ||= {})[k] = [units, this.today];
+      changed(); Audio.swish(); g.gather.chips(o.x, o.y, 'leaf', 8);
+      if (units >= COMPOST.need) g.gather.float(tr('farm.compost.started', { d: COMPOST.days }), '#a8f0a0');
+    } };
   }
   // Los que están en celo buscan a otro igual en celo cerca y van hacia él; al juntarse (o en la misma casa), nace
   // una cría, que va a la casa de uno de los dos si cabe
@@ -1259,6 +1397,10 @@ export class Ranch {
 
   // ---------- la pelota ----------
   target(p, held, def) {
+    if (def?.tool === 'pala' && !def.empty && this.game.scene === this.world && this.game.mouse) {   // (the pile or its house aimed at with the shovel: the click mucks out, as E)
+      const aim = this.game.aimed(), tile = aim?.heap || (aim?.kind === 'placed' && HEAP_AT[aim.o.placed] ? aim.o.tile : null), act = tile && this.muckAction(tile);
+      if (act) return { tile: null, ok: true, label: act.text, use: act.run };
+    }
     if (held?.id !== 'pelota' || this.game.scene !== this.world) return null;
     const dog = this.mine('perro').find(a => Math.hypot(a.x - p.x, a.y - p.y) < 10);
     if (!dog) return { tile: null, ok: false, label: 'Lánzala cerca de tu perro' };
@@ -1333,7 +1475,9 @@ export class Ranch {
     const mail = this.farm.mail.filter(m => m.to === me()).length;
     const head = [this.siloCap ? tr('ranch.hay', { n: this.farm.hay, cap: this.siloCap }) : tr('ranch.hay_no_silo', { n: this.farm.hay })];
     if (mail) head.push(tr('ranch.mail', { n: mail }));
-    return `<h3>${tr('ranch.title')}</h3><p class="j-note">${head.join(' · ')}. ${tr('ranch.help', { n: GRAZE_NEED })}</p>` + (rows || `<p class="j-note">${tr('ranch.none')}</p>`);
+    const manure = this.manureAll();
+    if (manure) head.push(tr('ranch.manure', { n: manure }));
+    return `<h3>${tr('ranch.title')}</h3><p class="j-note">${head.join(' · ')}. ${tr('ranch.help', { n: GRAZE_NEED })} ${tr('ranch.manure_help')}</p>` + (rows || `<p class="j-note">${tr('ranch.none')}</p>`);
   }
 }
 

@@ -8,15 +8,17 @@
 //                       fruit falls and the plant gives more later (it comes back: CROPS[id].regrow)
 //   poor, best          what a neglected plant and a well-kept one give
 //   seeds               [how many are used, how many seeds come out] by hand (recipes.js), or null: only from going to seed
+//   feeds, fam          what a harvest takes from the soil (below 0: gives) and its family, for rotation (soil.js)
+//   bees                insects pollinate it: a hive near gives more (soil.js BEES)
 //   was                 the seasons it used to grow in, before the weather decided: crops from then keep growing in them
 export const GROW = {
-  nabo:      { base: 4,  lo: 10, hi: 20, stop: 28, bite: -4,  kill: -8,  window: 6,  end: 'bolt', poor: 1, best: 2, seeds: null,   was: [0] },
-  fresa:     { base: 6,  lo: 14, hi: 24, stop: 32, bite: -1,  kill: -12, window: 3,  end: 'drop', poor: 2, best: 3, seeds: [2, 1], was: [0] },
-  zanahoria: { base: 5,  lo: 12, hi: 22, stop: 30, bite: -3,  kill: -6,  window: 8,  end: 'bolt', poor: 1, best: 2, seeds: null,   was: [0, 2] },
-  tomate:    { base: 10, lo: 20, hi: 29, stop: 35, bite: 2,   kill: 0,   window: 4,  end: 'rot',  poor: 2, best: 4, seeds: [1, 3], was: [1] },
-  maiz:      { base: 10, lo: 20, hi: 30, stop: 38, bite: 2,   kill: 0,   window: 6,  end: 'rot',  poor: 2, best: 3, seeds: [1, 4], was: [1, 2] },
-  trigo:     { base: 3,  lo: 12, hi: 24, stop: 32, bite: -10, kill: -15, window: 6,  end: 'rot',  poor: 2, best: 3, seeds: [1, 3], was: [1, 2] },
-  calabaza:  { base: 12, lo: 20, hi: 30, stop: 36, bite: 2,   kill: 0,   window: 12, end: 'rot',  poor: 1, best: 2, seeds: [1, 5], was: [2] },
+  nabo:      { base: 4,  lo: 10, hi: 20, stop: 28, bite: -4,  kill: -8,  window: 6,  end: 'bolt', poor: 1, best: 2, seeds: null,   was: [0], feeds: 6, fam: 'brassica' },
+  fresa:     { base: 6,  lo: 14, hi: 24, stop: 32, bite: -1,  kill: -12, window: 3,  end: 'drop', poor: 2, best: 3, seeds: [2, 1], was: [0], feeds: 8, fam: 'berry', bees: true },
+  zanahoria: { base: 5,  lo: 12, hi: 22, stop: 30, bite: -3,  kill: -6,  window: 8,  end: 'bolt', poor: 1, best: 2, seeds: null,   was: [0, 2], feeds: 6, fam: 'root' },
+  tomate:    { base: 10, lo: 20, hi: 29, stop: 35, bite: 2,   kill: 0,   window: 4,  end: 'rot',  poor: 2, best: 4, seeds: [1, 3], was: [1], feeds: 12, fam: 'nightshade', bees: true },
+  maiz:      { base: 10, lo: 20, hi: 30, stop: 38, bite: 2,   kill: 0,   window: 6,  end: 'rot',  poor: 2, best: 3, seeds: [1, 4], was: [1, 2], feeds: 15, fam: 'grass' },
+  trigo:     { base: 3,  lo: 12, hi: 24, stop: 32, bite: -10, kill: -15, window: 6,  end: 'rot',  poor: 2, best: 3, seeds: [1, 3], was: [1, 2], feeds: 10, fam: 'grass' },
+  calabaza:  { base: 12, lo: 20, hi: 30, stop: 36, bite: 2,   kill: 0,   window: 12, end: 'rot',  poor: 1, best: 2, seeds: [1, 5], was: [2], feeds: 15, fam: 'cucurbit', bees: true },
 };
 // The soil's moisture (0..100): enough (full growth) and too little (none), for a plant and for a seedling (its roots are
 // short: it wants water daily in summer). dryDays: mornings in a row without any water until it dies; thirsty: until it

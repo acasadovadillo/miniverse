@@ -89,12 +89,12 @@ Object.assign(ITEMS, {
   regadera: { name: 'Regadera', desc: 'Riega la tierra labrada. Se llena en cualquier agua.', tool: 'regadera', tier: 1, stack: 1 },
   cana: { name: 'Caña de pescar', desc: 'Apunta al agua y haz clic para lanzar. Mira el corcho: cuando el pez se lo lleve, clic otra vez.', tool: 'cana', tier: 1, stack: 1, dur: 80 },
   cana_fibra: { name: 'Caña de fibra', desc: 'Más ligera y sensible: los peces pican antes y da algo más de tiempo.', tool: 'cana', tier: 2, stack: 1, dur: 160 },
-  abono: { name: 'Abono', desc: 'Úsalo en un cultivo: crecerá más deprisa.' },
+  abono: {},   // (its name and text: GARDEN_ITEMS, below)
   aspersor: { name: 'Aspersor', desc: 'Riega solo cada mañana las 8 casillas de alrededor.', place: 'furniture' },
   gallinero: { name: 'Gallinero', desc: 'Casa grande para hasta 4 gallinas o patos. Con E: la puerta y asignarle animales. Con la puerta cerrada, se quedan dentro.', place: 'furniture' },
   establo: { name: 'Establo', desc: 'Casa grande para hasta 4 vacas, ovejas, cabras o cerdos. Con E: la puerta y asignarle animales. Con la puerta cerrada, se quedan dentro.', place: 'furniture' },
   colmena: { name: 'Colmena', desc: 'Las abejas hacen miel cada pocos días (menos en invierno).', place: 'furniture' },
-  comedero: { name: 'Comedero', desc: 'Pon dentro fibra o trigo: tus animales comen de él cada mañana.', place: 'furniture' },
+  comedero: { name: 'Comedero', desc: '', place: 'furniture' },   // (its text: below, from the language files)
   huevo: { name: 'Huevo', desc: 'Fresco del gallinero.', food: 8 },
   leche: { name: 'Leche', desc: 'De vaca contenta.', food: 10, drink: true, thirst: 6 },
   lana: { name: 'Lana', desc: 'Suave. En el telar se convierte en tela.' },
@@ -358,9 +358,11 @@ Object.assign(ITEMS, BODY_ITEMS);
 defineNames(BODY_ITEMS, 'item');
 // ---------- The garden (docs/planes/realismo/PLAN-R2-huerto.md): straw, from wheat cut with the scythe; on tilled soil it keeps
 // the water in (farm.js, mulch) ----------
-const GARDEN_ITEMS = { straw: {} };
+// Compost (abono: its old id) feeds the soil, and so does the manure of the stables (soil.js); the bin makes it
+const GARDEN_ITEMS = { straw: {}, manure: {}, compost_bin: { place: 'furniture' }, abono: ITEMS.abono };
 Object.assign(ITEMS, GARDEN_ITEMS);
 defineNames(GARDEN_ITEMS, 'item');
+defineNames({ comedero: ITEMS.comedero }, 'item', ['desc']);
 // Muebles de la casa familiar: dormitorios, cocina y baño
 Object.assign(ITEMS, {
   sofa: { name: 'Sofá', desc: 'De dos plazas, con cojines. Arrímalo a la pared y siéntate en él con E.', place: 'furniture' },

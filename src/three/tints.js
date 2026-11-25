@@ -31,6 +31,9 @@ const TINT = {
   soot: PAINT('#2a2220'), sheet: PAINT('#e0dacd'), quilt: PAINT('#a85a4c'), quiltB: PAINT('#c8a660'), cloth: PAINT('#d6cfc0'), pot: PAINT('#a0664a'),
   leaf: FLAT('#5d6d42'), leafD: FLAT('#46553a'), moss: FLAT('#5a6a40'), candle: PAINT('#fff4dc'), red: PAINT('#a8483e'), white: PAINT('#dcd7cc'),
   straw: PAINT('#b8a070'), hay: PAINT('#b39b68'), rope: PAINT('#a8946e'), sand: PAINT('#b1a27f'), snow: PAINT('#dfe4e6'), dark0: PAINT('#0a0806'),
+  // (the garden's soil, manure and fodder: soil3d.js)
+  dung: PAINT('#453627'), dungD: PAINT('#36291d'), dungL: PAINT('#574532'), humus: PAINT('#241c15'), humusL: PAINT('#33281d'), strawD: PAINT('#8a7448'), dust: PAINT('#a08a68'), pebble: PAINT('#8c857a'), pebbleD: PAINT('#6c665d'),
+  grain: PAINT('#b8934a'), grainL: PAINT('#cba862'), grainD: PAINT('#94733a'), turnip: PAINT('#ddd6cc'), turnipTop: PAINT('#8a5a78'),
   stripeR: PAINT('#a8483e'), bee: PAINT('#e8c040'), awningB: null, dry: PAINT('#857050'),
   iron: METAL('#4f5254'), brass: METAL('#a08850'), gold: METAL('#f0c840'), copper: METAL('#a8704a'), steel: METAL('#8a929a'),
 };

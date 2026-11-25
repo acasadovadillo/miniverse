@@ -17,6 +17,8 @@ import { apagado } from '../arte.js';
 import { fountain, FOUNT_MATS } from './fountain3d.js';
 import { mailbox, MAIL_MATS } from './mailbox3d.js';
 import { pew } from './chapel3d.js';
+import { tintOf } from './tints.js';
+import { compostBin, manureHeap, troughFill, soilBits } from './soil3d.js';
 
 // Las cajas de los modelos con los cantos biselados, según su material: redondeadas en lo blando (mantas, sábanas,
 // cojines, cuero), con el canto gastado en la madera y un poco en la piedra
@@ -647,11 +649,13 @@ const BUILD = {
     m.box('wood', -0.3, 0.94, -0.26, 0.3, 1.0, 0.26).box('soot', -0.08, 0.36, 0.22, 0.08, 0.39, 0.23);
     for (let i = 0; i < 5; i++) m.ball('bee', Math.sin(i * 2.1) * 0.35, 0.6 + (i % 3) * 0.15, 0.3 + Math.cos(i * 1.3) * 0.15, 0.025, 0.02, 0.03, 6);
   },
-  comedero(m) {
+  comedero(m, level, kind) {
     m.box('wood', -0.48, 0.12, -0.25, 0.48, 0.16, 0.25).box('wood', -0.48, 0.16, -0.25, 0.48, 0.42, -0.21).box('wood', -0.48, 0.16, 0.21, 0.48, 0.42, 0.25).box('wood', -0.48, 0.16, -0.21, -0.44, 0.42, 0.21).box('wood', 0.44, 0.16, -0.21, 0.48, 0.42, 0.21);
     for (const x of [-0.42, 0.36]) m.box('dark', x, 0, -0.2, x + 0.06, 0.12, 0.2);
-    m.box('hay', -0.43, 0.16, -0.2, 0.43, 0.34, 0.2);
+    troughFill(m, level, kind);   // (soil3d.js)
   },
+  compost_bin(m, level) { compostBin(m, level); },
+  manure_heap(m, size) { manureHeap(m, +size || 2); },
   // Granja, segunda parte
   silo(m) {
     m.cyl('stone', 0, 0, 0, 0.42, 0.42, 0.25, 16).cyl('white', 0, 0.25, 0, 0.4, 0.4, 1.9, 16);
@@ -1193,9 +1197,11 @@ function treasure(m, open) {
 // fences: towards them the bed and its furrows reach the tile edge, so a field is one piece of soil with long rows.
 // The rows run along x, or along z in a strip that only has neighbours along z. Three ridges per tile, a third of a
 // tile apart, so they keep the same spacing from one tile to the next
-// look: 0 damp, 1 wet, 2 dry (farm.js soilLook: paler, with fine cracks). mulch: straw spread over it
-function tilled(m, look, mask = 0, mulch = false) {
-  const mat = look === 1 ? 'dirtWet' : look === 2 ? 'dirtDry' : 'dirt', e = bit => (mask & bit ? 0.5 : 0.46);
+// look: 0 damp, 1 wet, 2 dry (farm.js soilLook: paler, with fine cracks). more: m straw spread over it, r rich soil, p poor
+// soil (soil3d.js soilBits)
+function tilled(m, look, mask = 0, more = '') {
+  const mulch = more.includes('m');
+  const mat = look === 1 ? 'dirtWet' : more.includes('r') ? (look === 2 ? 'dirt' : 'dirtRich') : look === 2 ? 'dirtDry' : 'dirt', e = bit => (mask & bit ? 0.5 : 0.46);
   m.box(mat, -e(2), 0, -e(8), e(1), 0.06, e(4), 1);
   const alongZ = !(mask & 3) && (mask & 12), r = bit => (mask & bit ? 0.5 : 0.42);
   for (let i = -1; i <= 1; i++) {
@@ -1209,6 +1215,7 @@ function tilled(m, look, mask = 0, mulch = false) {
     m.geo('crack', CRACK, x, (over ? 0.1 : 0.06) + 0.003, z, [0, a, 0], [l, 1, 0.007 + R() * 0.006]);
     m.geo('crack', CRACK, x + Math.cos(a) * l * 0.5, (over ? 0.1 : 0.06) + 0.003, z - Math.sin(a) * l * 0.5, [0, a + 0.9, 0], [l * 0.7, 1, 0.006]);
   }
+  soilBits(m, more, alongZ, R);
   if (mulch) for (let i = 0; i < 46; i++) {
     const l = 0.12 + R() * 0.2, w = 0.45 - l / 2;
     m.geo(i % 4 ? 'straw' : 'hay', CRACK, (R() - 0.5) * 2 * w, 0.075 + R() * 0.05, (R() - 0.5) * 2 * w, [(R() - 0.5) * 0.3, R() * Math.PI, (R() - 0.5) * 0.3], [l, 1, 0.014 + R() * 0.012]);
@@ -1216,6 +1223,7 @@ function tilled(m, look, mask = 0, mulch = false) {
 }
 // (paler than the texture: its colour goes over 1; the same program as the other two)
 const dirtDry = () => { const M = mat({ map: furrows(), roughness: 1 }); M.color.setRGB(1.5, 1.4, 1.22); return M; };
+const dirtRich = () => { const M = mat({ map: furrows(), roughness: 1 }); M.color.setRGB(0.52, 0.47, 0.44); return M; };
 const CRACK = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2);   // (a flat strip lying on the soil)
 
 // Cuadros: marco con su fondo y el lienzo un poco hundido, a media altura, con la espalda contra el muro (z = -0.05)
@@ -1252,7 +1260,7 @@ export function getModel(name) {
   else if (kind === 'poi') PLACES[a](m, b === 'snow', a === 'faro' ? b === 'dark' : b, d);
   else if (WATCHTOWERS[kind]) bigTower(m, WATCHTOWERS[kind].h, a, +b || 0.4);   // (the ones one builds: id:stone:how far down its base goes)
   else if (kind === 'treasure') treasure(m, a === '1');
-  else if (kind === 'tilled') tilled(m, +a, +b || 0, d === 'm');
+  else if (kind === 'tilled') tilled(m, +a, +b || 0, d);
   else if (kind === 'rug') rugModel(m, a, b);
   else return null;
   CACHE.set(name, m);
@@ -1293,7 +1301,7 @@ export function modelMat(key) {
   if (OWN[key]) return DYN.get(key) || (DYN.set(key, OWN[key]()), DYN.get(key));
   if (!DYN.has(key)) {
     const [k, c] = key.split(':');
-    DYN.set(key, k === 'fruit' ? mat({ color: c, roughness: 0.45 }) : k === 'hide' ? mat({ color: apagado(c), roughness: 0.95 }) : k === 'leafc' ? mat({ color: c, flatShading: true, side: THREE.DoubleSide }) : key === 'dry' ? mat({ color: '#8a6a3a' }) : key === 'dirtWet' ? mat({ map: furrows(), color: '#7a6a60', roughness: 0.7 }) : key === 'dirtDry' ? dirtDry() : mat({ color: '#ff00ff' }));
+    DYN.set(key, k === 'fruit' ? mat({ color: c, roughness: 0.45 }) : k === 'hide' ? mat({ color: apagado(c), roughness: 0.95 }) : k === 'leafc' ? mat({ color: c, flatShading: true, side: THREE.DoubleSide }) : key === 'dry' ? mat({ color: '#8a6a3a' }) : key === 'dirtWet' ? mat({ map: furrows(), color: '#7a6a60', roughness: 0.7 }) : key === 'dirtDry' ? dirtDry() : key === 'dirtRich' ? dirtRich() : mat({ color: tintOf(key)?.[1] || '#ff00ff' }));   // (what only has its paint, as the garden's soil: tints.js)
   }
   return DYN.get(key);
 }

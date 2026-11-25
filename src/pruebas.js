@@ -696,8 +696,150 @@ async function soloTests(game) {
       const was = getLang(); await setLang('en'); try { F.forget(); check(!/farm\./.test(F.status(tx, ty) + F.journal()) && F.status(tx, ty).includes('soil'), F.status(tx, ty)); } finally { await setLang(was); }
     } finally {
       game.weatherLock = lock; game.ranch.farm.seen = seen ?? game.ranch.farm.seen;
-      for (const [x, y] of tiles) { const dd = w().delta(Math.floor(x / CHUNK), Math.floor(y / CHUNK)), kk = `${x},${y}`; if (dd) { delete dd.crops?.[kk]; delete dd.mulch?.[kk]; delete dd.moist?.[kk]; delete dd.wet?.[kk]; delete dd.tilled[kk]; } w().touchAround(x, y); }
+      for (const [x, y] of tiles) { const dd = w().delta(Math.floor(x / CHUNK), Math.floor(y / CHUNK)), kk = `${x},${y}`; if (dd) { delete dd.crops?.[kk]; delete dd.mulch?.[kk]; delete dd.moist?.[kk]; delete dd.wet?.[kk]; delete dd.soil?.[kk]; delete dd.tilled[kk]; } w().touchAround(x, y); }
     }
+  });
+  // ---------- R2-C: the soil and the animals (docs/planes/realismo/PLAN-R2-huerto.md §3.4, §3.8) ----------
+  await test('farm soil (english): fertility, harvests, manure, compost, rest and rotation', async () => {
+    const S = await import('./soil.js'), { fertAt, soilWord, takesFrom, soilTone } = S;
+    check(fertAt(19) === 0.7 && Math.abs(fertAt(20) - 0.85) < 1e-9 && Math.abs(fertAt(35) - 0.925) < 1e-9 && fertAt(50) === 1 && fertAt(70) === 1 && fertAt(71) === 1.15, 'the factor');
+    check(['poor', 'tired', 'thin', 'fertile', 'rich'].join() === [[10, 60], [40, 60], [45, 45], [60, 60], [80, 60]].map(a => soilWord(...a)).join() && soilTone(80) === 1 && soilTone(60) === 0 && soilTone(10) === 2, 'the words or the looks');
+    for (const id of Object.keys(CROPS)) check(GROW[id].feeds > 0 && GROW[id].fam, `${id} takes nothing from the soil`);
+    const random = Math.random; Math.random = () => 0.99;
+    try {
+      // (five tomato plants on the same tile: from the meadow's 60 to nothing, and the next one grows at 0.7)
+      let L = farmLab({ season: 1 }); L.bed();
+      for (let i = 0; i < 5; i++) { L.crop('tomate', CROPS.tomate.days, 0, { ripe: L.day, hs: 5, hn: 5 }); L.F.harvest(...L.at()); delete L.d.crops[L.k()]; }
+      check(L.d.soil[L.k()][0] === 0, `after five plants: ${L.d.soil[L.k()]}`);
+      L.crop('maiz', 2); L.dawn(1, true); check(Math.abs(L.c().grow - 2.7) < 1e-9 && L.F.health(L.c()) === 0.7, `the next one: ${JSON.stringify(L.c())}`);
+      L.F.feedSoil(...L.at(), 'manure'); check(L.d.soil[L.k()][0] === 0, 'fed with nothing in the bag');
+      L.g.inv.count = () => 9; L.F.feedSoil(...L.at(), 'manure'); check(L.d.soil[L.k()][0] === 25, `manure: ${L.d.soil[L.k()]}`); L.F.feedSoil(...L.at(), 'abono'); check(L.d.soil[L.k()][0] === 45, `compost: ${L.d.soil[L.k()]}`);
+      for (let i = 0; i < 4; i++) L.F.feedSoil(...L.at(), 'manure'); check(L.d.soil[L.k()][0] === 100 && L.F.soilTone(L.d, L.k()) === 1, `at most 100: ${L.d.soil[L.k()]}`);
+      const g0 = L.c().grow; L.dawn(1, true); check(Math.abs(L.c().grow - g0 - 1.15) < 1e-9, `on rich soil it grows ${L.c().grow - g0}`);
+      // (a later pick of the same plant takes a third; a crop that gives back, gives)
+      L = farmLab({ season: 1 }); L.crop('tomate', CROPS.tomate.days, 0, { ripe: L.day }); L.F.harvest(...L.at()); check(L.d.soil[L.k()][0] === 48 && L.c().picks === 1, `the first pick: ${L.d.soil[L.k()]}`);
+      Object.assign(L.c(), { grow: CROPS.tomate.days, ripe: L.day }); L.F.harvest(...L.at()); check(L.d.soil[L.k()][0] === 44, `the second: ${L.d.soil[L.k()]}`);
+      GROW.__test = { feeds: -10 }; check(takesFrom('__test') === -10, 'a legume'); delete GROW.__test;
+      // (bare soil gets one back a day up to what its land has; what is not tilled any more, until it is forgotten; fed above it, it keeps while tilled)
+      L = farmLab({ season: 1 }); L.bed(0).bed(1).bed(2); L.d.soil = { [L.k(0)]: [57, 'root', 1], [L.k(1)]: [90, '', 0], [L.k(2)]: [10, '', 0] }; L.crop('maiz', 1, 2);
+      L.dawn(5, true); check(L.d.soil[L.k(0)][0] === 60 && L.d.soil[L.k(1)][0] === 90 && L.d.soil[L.k(2)][0] === 10, `resting: ${JSON.stringify(L.d.soil)}`);
+      delete L.d.tilled[L.k(0)]; delete L.d.tilled[L.k(1)]; L.dawn(30); check(L.d.soil[L.k(0)] === undefined && L.d.soil[L.k(1)] === undefined, `the wild: ${JSON.stringify(L.d.soil)}`);
+      // (rotation: the third of a family in a row has a little less health, and it is said when sowing it)
+      L = farmLab({ season: 0 }); L.bed(); const sow = id => { delete L.d.crops?.[L.k()]; L.F.forget(); L.F.sow(...L.at(), id); return L.d.soil[L.k()]; };
+      sow('nabo'); sow('nabo'); check(L.F.sowText('nabo', ...L.at()).includes(t('farm.soil.tired_of', { family: t('farm.family.brassica') })) && !L.F.sowText('zanahoria', ...L.at()).includes(t('farm.family.brassica')), L.F.sowText('nabo', ...L.at()));
+      check(sow('nabo').join() === '60,brassica,3' && L.F.health({ hs: 1, hn: 1 }, 3) === 0.9 && L.F.health({ hs: 1, hn: 1 }, 2) === 1, `three in a row: ${L.d.soil[L.k()]}`);
+      L.F.forget(); check(L.F.status(...L.at()).includes(t('farm.soil.tired_of', { family: t('farm.family.brassica') })), L.F.status(...L.at())); check(sow('zanahoria').join() === '60,root,1', 'another family does not break it');
+      // (from rich soil, sometimes one more; with a hive near, of what insects pollinate)
+      Math.random = () => 0.1; const give = (id, f, hive) => { const L = farmLab({ season: 1 }); L.crop(id, CROPS[id].days, 0, { ripe: L.day, hs: 1, hn: 1 }); L.d.soil = { [L.k()]: [f, '', 0] }; if (hive) L.g.world.delta(0, Math.floor((30 + hive) / CHUNK), true).placed[`0,${30 + hive}`] = 'colmena@2'; return L.F.harvest(...L.at()); };
+      check(give('maiz', 60) === 3 && give('maiz', 80) === 4 && give('maiz', 60, 5) === 3 && give('tomate', 60) === 4 && give('tomate', 60, 12) === 5 && give('tomate', 60, 14) === 4, `${give('maiz', 60)}, rich ${give('maiz', 80)}; tomatoes ${give('tomate', 60)}, with bees ${give('tomate', 60, 12)}, with them far ${give('tomate', 60, 14)}`);
+      const W = farmLab({ season: 3 }); W.d.placed[W.k(3)] = 'colmena'; check(!W.F.beesAt(...W.at()), 'bees in winter'); const U = farmLab({ season: 1 }); U.d.placed[U.k(3)] = 'colmena'; U.crop('tomate', 2); check(U.F.beesAt(...U.at()) && U.F.status(...U.at()).endsWith(t('farm.state.bees', { text: '' })), U.F.status(...U.at()));
+    } finally { Math.random = random; }
+    // (the biomes; and the soil of a tile travels tile by tile)
+    check(S.soilStart(B.MEADOW) === 60 && S.soilStart(B.FOREST) === 70 && S.soilStart(B.PINES) === 45 && S.soilStart(B.SWAMP) === 65, 'the biomes');
+    const L = farmLab({ season: 1 }); L.crop('maiz', 2); const a = structuredClone(L.d), b = structuredClone(L.d); L.dawn(1, true); applyOps(b, diffChunk(a, L.d)); check(JSON.stringify(b.soil) === JSON.stringify(L.d.soil) && b.soil[L.k()].join() === '60,grass,1', `what travels: ${JSON.stringify(b.soil)}`);
+  });
+  await test('farm soil (english): old fields, a month without feeding them', async () => {
+    // (a chunk as the published game leaves it, without soil: the first mornings are just as before, and the old fertiliser counts)
+    const L = farmLab({ season: 1 }); L.crop('maiz', 2, 0); L.crop('maiz', 2, 1, { fert: true }); L.d.soil = undefined; delete L.d.soil;
+    L.dawn(1, true); check(Math.abs(L.c(0).grow - 3) < 1e-9 && Math.abs(L.c(1).grow - 3.5) < 1e-9 && L.F.health(L.c(0)) === 1, `the first morning: ${L.c(0).grow}, ${L.c(1).grow}`);
+    check(L.d.soil[L.k(0)].join() === '60,grass,1' && L.d.soil[L.k(1)][0] === 80 && L.c(1).fert === 2, `its soil: ${JSON.stringify(L.d.soil)}`); L.dawn(1, true); check(L.d.soil[L.k(1)][0] === 80 && Math.abs(L.c(1).grow - 5) < 1e-9, 'it counts twice, or is lost');
+    Object.assign(L.c(1), { id: 'tomate', grow: 9, ripe: L.day }); L.F.harvest(...L.at(1)); check(L.c(1).fert === undefined, 'the old fertiliser lasts for ever');
+    // (what a tile earns in 30 days, with nothing and fed: the same at the start, never below half, better than before with rich soil)
+    const rows = [], sim = (id, season, how) => {
+      const random = Math.random; let s = 7; Math.random = () => ((s = (s * 16807) % 2147483647) / 2147483647);
+      try {
+        const N = 16, L = farmLab({ season, dos: 25 }); let out = 0, first = 0, fed = 0; L.g.inv.count = () => 99;
+        for (let x = 0; x < N; x++) L.bed(x);
+        for (let day = 0; day < 60; day++) {
+          for (let x = 0; x < N; x++) {
+            const c = L.c(x);
+            if (c && L.F.ready(c)) { const n = L.F.harvest(...L.at(x)); out += n; if (day < 20) first += n; }
+            if (how.feed && (L.d.soil?.[L.k(x)]?.[0] ?? 60) <= how.below) { L.F.feedSoil(...L.at(x), how.feed); fed++; }
+            if (!L.c(x)) L.F.sow(...L.at(x), id);
+          }
+          L.dawn(1, true);
+        }
+        return { day: out / N / 60, first: first / N / 20, fed: fed / N / 60, f: Math.round([...Array(N).keys()].reduce((a, x) => a + L.d.soil[L.k(x)][0], 0) / N) };
+      } finally { Math.random = random; }
+    };
+    for (const [id, season] of [['nabo', 0], ['tomate', 1], ['trigo', 1], ['calabaza', 1], ['fresa', 0]]) {
+      const was = sim(id, season, { feed: 'abono', below: 50 }), bare = sim(id, season, {}), rich = sim(id, season, { feed: 'manure', below: 75 }), p = priceOf(id);
+      console.log('· ' + (rows[rows.length] = `${id}: ${(bare.day * p).toFixed(1)} sin nada (tierra ${bare.f}) · ${(was.day * p).toFixed(1)} fértil con ${was.fed.toFixed(2)} abonos al día · ${(rich.day * p).toFixed(1)} rica con ${rich.fed.toFixed(2)} estiércoles al día · 20 días ${bare.first}/${was.first}/${rich.first}`));
+      check(bare.day > was.day * 0.4 && bare.day < was.day * 0.95 && rich.day >= was.day && rich.day < was.day * 1.5, `${id}: ${bare.day.toFixed(3)} / ${was.day.toFixed(3)} / ${rich.day.toFixed(3)}`);
+      check(Math.abs(bare.first - was.first) < was.first * 0.21, `${id}, the first 20 days: ${bare.first} and ${was.first}`);
+    }
+    console.log('· monedas por casilla y día (60 días, dos plantas de saldo): ' + rows.join(' | '));
+  });
+  await test('farm ranch (english): manure, fodder and compost', async () => {
+    await goTo(game, 60, 30);
+    const R = game.ranch, keep = R.animals, seen = R.farm.seen, hay = R.farm.hay, S = await import('./soil.js');
+    let spot = null;
+    for (let r = 0; r < 16 && !spot; r++) for (let dx = -r; dx <= r && !spot; dx++) for (let dy = -r; dy <= r && !spot; dy++) if ([...Array(8).keys()].every(i => [0, 1, 2, 3, 4].every(j => w().canTill(60 + dx + i, 30 + dy + j)))) spot = [60 + dx, 30 + dy];
+    check(spot, 'no room'); const [x0, y0] = spot, home = [x0 + 2, y0 + 2], hk = String(home), bin = [x0 + 5, y0 + 2], bk = String(bin), tr = [x0 + 7, y0 + 2], tk = String(tr);
+    const D = ([x, y]) => w().delta(Math.floor(x / CHUNK), Math.floor(y / CHUNK), true), put = (tile, id) => { w().setTile(...tile, id); };
+    const hold = id => { let i = inv().slots.findIndex(s => s?.id === id); if (i < 0) { inv().add(id, 1); i = inv().slots.findIndex(s => s?.id === id); } inv().selected = i; game.gather.cooldown = 0; return i; };
+    try {
+      put(home, 'conejera'); put(bin, 'compost_bin'); put(tr, 'comedero'); await frames(3);
+      R.animals = []; const day = R.today;
+      const beast = (type, more = {}) => { if (type === 'caballo') R.netApply([['put', 'soil-horse', { type, name: 'Horse', named: true, at: [home[0], home[1] + 2] }]]); else R.summon(type, home[0], home[1] + 2); const a = R.animals.at(-1); Object.assign(a, { home: [...home], love: 5, fedDay: day, born: day - 30 }, more); return a; };
+      const cow = beast('vaca'), hen = beast('gallina'), hungry = beast('vaca', { fedDay: day - 1 });
+      game.ranch.farm.seen = day; R.muck(day, []); check(D(home).manure[hk] === 1.25, `one morning: ${D(home).manure[hk]}`);
+      beast('caballo', { fedDay: -1 }); R.muck(day, []); check(D(home).manure[hk] === 3.5, `with a horse: ${D(home).manure[hk]}`);
+      beast('vaca', { born: day }); R.muck(day, []); check(D(home).manure[hk] === 6.25, `a calf: half: ${D(home).manure[hk]}`);
+      const news = []; for (let i = 0; i < 3; i++) R.muck(day, news); check(D(home).manure[hk] === 12 && news.length === 1 && cow.love === 5, `full: ${D(home).manure[hk]}, ${news}`);
+      const even = day % 2 ? day + 1 : day; cow.fedDay = hen.fedDay = even; game.ranch.farm.seen = even; R.muck(even, []); check(cow.love === 4 && hen.love === 4 && hungry.love === 5, `a dirty house: ${cow.love}`); cow.fedDay = even + 1; R.muck(even + 1, []); check(cow.love === 4, 'every morning');
+      game.ranch.farm.seen = even - 2; cow.fedDay = even; R.muck(even, []); check(cow.love === 4, 'on a day nobody played'); game.ranch.farm.seen = day;
+      await frames(4); const heap = w().contentFor(Math.floor(home[0] / CHUNK), Math.floor(home[1] / CHUNK)).objects.find(o => o.heap === hk); check(heap?.model === 'manure_heap:3' && Math.hypot(heap.x - home[0] - 0.5, heap.y - home[1] - 0.5) < 1.2, `its pile: ${JSON.stringify(heap)}`);
+      check(R.aimables(p(), w(), () => ({})).length === 0 || true, ''); p().x = home[0] + 0.5; p().y = home[1] + 2; const aims = R.aimables(p(), w(), () => ({})); check(aims.length === 1 && aims[0].model.name === 'manure_heap:3', 'the pile is not aimed at');
+      // (without the shovel it says so; with it, E on the house or the pile takes it all)
+      inv().selected = inv().slots.findIndex(s => !s); check(aims[0].act().text.includes('12') && aims[0].act().text === t('farm.muck_out.need_shovel', { n: 12 }), aims[0].act().text); aims[0].act().run(); check(D(home).manure[hk] === 12, 'taken with the hands');
+      const house = () => w().placedObjectAt(...home); check(R.objectAction(house()).text.includes(t('farm.stable_dirty', { text: '' })), R.objectAction(house()).text);
+      selectTool(game, 'pala'); game.gather.cooldown = 0; const n0 = inv().count('manure'); check(R.objectAction(house()).text === t('farm.muck_out', { n: 12 }), R.objectAction(house()).text); R.objectAction(house()).run(); check(inv().count('manure') === n0 + 12 && !D(home).manure[hk], `mucked out: ${inv().count('manure') - n0}`);
+      check(!R.muckAction(home) && itemIcon('manure') && weightOf('manure') > 0 && priceOf('manure') === 2, 'an empty pile, or manure has no icon, weight or price');
+      // (taken down, what it has falls out; the bin with something is not moved)
+      D(home).manure[hk] = 3.5; check(R.spillOf(house()).join() === 'manure,3', `spills ${R.spillOf(house())}`);
+      // the trough: from the hand, what is also food, with its rations; from the bag, only hay, fiber and wheat
+      const trough = () => w().placedObjectAt(...tr); check(trough().model === 'comedero:0', `the trough: ${trough().model}`);
+      for (const id of ['heno', 'fibra', 'trigo']) inv().remove(id, inv().count(id));
+      inv().add('nabo', 3); inv().selected = inv().slots.findIndex(s => !s); check(R.objectAction(trough()).text === t('ranch.feeder.empty_hand', { n: 0 }), R.objectAction(trough()).text);
+      hold('nabo'); const turnips = inv().count('nabo'); R.objectAction(trough()).run(); check(D(tr).feed[tk] === Math.min(10, turnips) * 2 && D(tr).fodder[tk] === 'nabo' && inv().count('nabo') === turnips - Math.min(10, turnips), `turnips: ${D(tr).feed[tk]}`); await frames(2); check(trough().model === `comedero:${D(tr).feed[tk] >= 8 ? 2 : 1}:r`, trough().model);
+      D(tr).feed[tk] = 1; inv().add('calabaza', 1); hold('calabaza'); R.objectAction(trough()).run(); check(D(tr).feed[tk] >= 5, `a pumpkin: ${D(tr).feed[tk]}`);
+      D(tr).feed[tk] = 1; check(R.eatFromFeeder(cow) && D(tr).feed[tk] === 0, 'not eaten'); await frames(2); check(trough().model === 'comedero:0', 'it does not look empty');
+      // the compost bin: ten units, seven days, four of compost
+      const box = () => w().placedObjectAt(...bin), act = () => R.objectAction(box()); check(box().model === 'compost_bin:0', `the bin: ${box().model}`);
+      inv().selected = inv().slots.findIndex(s => !s); check(act().text === t('farm.compost.state', { n: 0, max: 10 }), act().text);
+      inv().remove('fibra', inv().count('fibra')); inv().add('fibra', 3); hold('fibra'); act().run(); check(D(bin).compost[bk][0] === 3 && inv().count('fibra') === 0, `three of fiber: ${D(bin).compost[bk]}`); await frames(2); check(box().model === 'compost_bin:1', box().model);
+      const m0 = inv().count('manure'); hold('manure'); act().run(); check(D(bin).compost[bk][0] === 10 && inv().count('manure') === m0 - 4 && D(bin).compost[bk][1] === R.today, `manure counts two: ${D(bin).compost[bk]}, ${m0 - inv().count('manure')}`);
+      check(act().text === t('farm.compost.ready_in', { d: 7 }) && R.spillOf(box()).join() === 'fibra,10', act().text); check(!game.pickUp({ tile: bin, layer: 'placed', placed: 'compost_bin' }, true) && w().placedObjectAt(...bin), 'it is moved with what it has');
+      R.rot(R.today + 6); check(!D(bin).compost[bk][2], 'ready in six days'); R.rot(R.today + 7); check(D(bin).compost[bk][2] === 1, 'not ready in seven'); await frames(2); check(box().model === 'compost_bin:4', box().model);
+      const a0 = inv().count('abono'); act().run(); check(inv().count('abono') === a0 + 4 && !D(bin).compost[bk], `compost: ${inv().count('abono') - a0}`); act()?.run(); check(inv().count('abono') === a0 + 4, 'twice');
+      check(S.organic('nabo') && S.organic('manure') === 2 && !S.organic('piedra') && !S.organic('carne_vaca') && !S.organic('abono'), 'what rots');
+      check(BUILDABLE.compost_bin.cat === 'Rancho' && !BUILDABLE.compost_bin.needs && BUILDABLE.compost_bin.cost.join() === 'tablas,6', JSON.stringify(BUILDABLE.compost_bin));
+      check(!/undefined|NaN|ranch\.|farm\./.test(R.journal()) && (R.manureAll() < 1 || R.journal().includes(t('ranch.manure', { n: R.manureAll() }))), 'the diary');
+    } finally {
+      R.animals = keep; R.farm.seen = seen; R.farm.hay = hay;
+      for (const tile of [home, bin, tr]) { const d = D(tile), k = String(tile); for (const f of ['manure', 'compost', 'feed', 'fodder']) if (d[f]) delete d[f][k]; w().setTile(...tile, 'air'); }
+    }
+  });
+  await test('farm soil play (english): reading the soil and feeding it with the real hands', async () => {
+    await goTo(game, 60, 30);
+    let tile = null; for (let r = 0; r < 14 && !tile; r++) for (let dx = -r; dx <= r && !tile; dx++) for (let dy = -r; dy <= r && !tile; dy++) if (w().canTill(60 + dx, 30 + dy) && w().canTill(60 + dx, 31 + dy)) tile = [60 + dx, 30 + dy];
+    const [tx, ty] = tile, F = game.farm, d = () => w().delta(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK), true), k = `${tx},${ty}`;
+    const aim = id => { if (inv().count(id) < 1) inv().add(id, 3); inv().selected = inv().slots.findIndex(s => s?.id === id); game.mouse = null; CAM.first = false; p().x = tx + 0.5; p().y = ty + 1.4; p().face = { x: 0, y: -1 }; game.gather.cooldown = 0; F.forget(); return (game.gather.target = game.gather.pickTarget()); };
+    try {
+      delete d().soil?.[k]; w().till(tx, ty); await frames(2); F.forget(); const start = F.soilStartAt(tx, ty);
+      check(d().soil?.[k] === undefined && F.status(tx, ty).includes(t('farm.soil.fertile')), `a new bed: ${F.status(tx, ty)}`);
+      let T = aim('manure'); check(T?.ok && T.auto && T.label === t('farm.feed.spread', { item: itemNoun('manure'), f: start, to: Math.min(100, start + 25) }), T?.label);
+      const n0 = inv().count('manure'); game.gather.use(); check(d().soil[k][0] === Math.min(100, start + 25) && inv().count('manure') === n0 - 1, `${d().soil[k]}`);
+      T = aim('manure'); check(T.ok && !T.auto, 'held down it would all go on one tile'); F.forget(); check(F.status(tx, ty).includes(t('farm.soil.rich')), F.status(tx, ty));
+      const sig = game.view3d?.world?.signature?.(w(), Math.floor(tx / CHUNK), Math.floor(ty / CHUNK), w().contentFor(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK))); if (sig) check(sig.includes(`${k}${F.soilLook(d(), k)}1`), 'the chunk does not change its look');
+      d().soil[k][0] = 100; T = aim('abono'); check(!T.ok && T.label === t('farm.feed.full'), T?.label); const a0 = inv().count('abono'); T.use(); check(inv().count('abono') === a0, 'spent for nothing');
+      d().soil[k][0] = 12; T = aim('abono'); check(T.ok && T.label.includes('12') && T.label.includes('32'), T.label); game.gather.use(); check(d().soil[k][0] === 32, `${d().soil[k]}`); F.forget(); check(F.status(tx, ty).includes(t('farm.soil.tired')), F.status(tx, ty));
+      check(F.soilCount(tx, ty).tired >= 1 && F.journal().includes(t('farm.almanac.soil_help')), 'the diary');
+      const was = getLang(); await setLang('en'); try { F.forget(); check(F.status(tx, ty).includes('tired') && !/farm\.|ranch\./.test(F.status(tx, ty) + F.journal() + game.ranch.journal()), F.status(tx, ty)); } finally { await setLang(was); }
+      // (digging takes the earth away, with what it had)
+      w().digTile(tx, ty, -1, F.today); check(d().soil[k] === undefined, 'the dug earth keeps its soil');
+    } finally { delete d().tilled[k]; delete d().soil?.[k]; w().setTile(tx, ty, 'air'); if (d().dig) delete d().dig[k]; w().touchAround(tx, ty); }
   });
   await test('hambre: trabajar la gasta, comer la quita y dormir la recupera', async () => {
     const c = game.combat; check(game.gamemode === 'survival' && game.difficulty === 'normal', `modo ${game.gamemode}, dificultad ${game.difficulty}`);

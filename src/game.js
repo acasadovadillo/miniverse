@@ -855,6 +855,10 @@ export class Game {
     if (!B && this.inv.room(id) < 1) { this.gather.float('No te cabe: no llevas sitio libre', '#ffb0a0'); Audio.error(); return false; }
     if (this.scene === this.world && !machineEmpty(machineAt(this.world, o.tile))) { this.gather.float(`Vacía ${MACHINES[o.placed]?.the || 'la máquina'} antes`, '#ffb0a0'); Audio.error(); return false; }
     if (CHESTS[o.placed] && o.placed !== 'mochila' && this.scene.chestAt(...o.tile)?.some(Boolean)) { this.gather.float(`Vacía ${CHESTS[o.placed][1]} antes`, '#ffb0a0'); Audio.error(); return false; }
+    // (a compost bin with something in it is not moved; taken down, what is in it falls out: the compost, or what had not
+    // rotted yet. The manure of an animal house is left on the ground)
+    const spill = this.scene === this.world && (o.layer || 'placed') === 'placed' && o.tile ? this.ranch.spillOf(o) : null;
+    if (spill && carry && o.placed === 'compost_bin') { this.gather.float(t('farm.compost.empty_first'), '#ffb0a0'); Audio.error(); return false; }
     // (whose it was, before it goes: what came with a neighbor's house, or what you had put back there yourself)
     // (the hearth, whose chimney holds the roof: not while it does; structure.js)
     if (PIECES[o.placed] && o.tile && this.build.holds({ tile: o.tile, layer: o.layer || 'placed' })) { this.gather.float(t('build.why.holds_roof'), '#ffb0a0'); Audio.error(); return false; }
@@ -863,6 +867,7 @@ export class Game {
     const tall = watchtower(o.placed), back = tall ? this.build.backOf({ layer: 'placed', tile: o.tile }, o.placed) : B?.cost;
     if (tall && this.player?.tower?.key === `w:${o.tile}`) { this.gather.float(t('why.watchtower.inside'), '#ffb0a0'); Audio.error(); return false; }
     if (this.scene.unplace(o) === false && B) return false;
+    if (spill) this.gather.throwOut(...spill);
     if (!B) this.inv.add(id, 1);
     else if (!carry) for (const [m, n] of back) { const left = this.inv.add(m, n); if (left) this.gather.throwOut(m, left); }
     // (from a neighbor's house the village notices; taking again what you had given back costs again: reputation.js.
