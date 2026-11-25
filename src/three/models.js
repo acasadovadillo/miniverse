@@ -1501,7 +1501,11 @@ function bakeCarcass(root) {
   return out;
 }
 const isIn = (o, g) => { for (let q = o; q; q = q.parent) if (q === g) return true; return false; };
-function carcassModel(m, id, held = false) {
+// Gutted (`<id>:gutted`, lying: quality.js): the belly open from the brisket to the groin, its normal away from the back
+// (z+, lying): k 0..1 how much it is of the opening, and the lips round it
+const CUT = { z: 0.87, dark: [0.06, 0.014, 0.011], flesh: [0.25, 0.06, 0.05], fat: [0.42, 0.27, 0.21], deep: 0.07 };
+const ss = (a, b, v) => { const k = Math.max(0, Math.min(1, (v - a) / (b - a))); return k * k * (3 - 2 * k); };
+function carcassModel(m, id, held = false, gutted = false) {
   const parts = bakeCarcass(posedCarcass(id, held));
   // Where it goes: on the ground, standing on y = 0 and centred; carried, draped (bend) and its ends a little forward,
   // round the neck (z += WRAP x²), and the origin where it rests on the nape (HOLD.across): in the middle of it, the
@@ -1524,6 +1528,8 @@ function carcassModel(m, id, held = false) {
     for (const p of parts) if (p.body) for (let i = 0; i < p.P.length; i += 3) { const [x, y, z] = at(p, i); if (Math.abs(x) < 0.1) { y0 = Math.min(y0, y); z0 = Math.max(z0, z); } }
     if (y0 < Infinity) o[1] = y0, o[2] = z0;
   }
+  // (its trunk: the biggest of the body's own meshes)
+  if (gutted) { let big = null; for (const p of parts) if (p.body && (!big || p.P.length > big.P.length)) big = p; if (big) big.trunk = true; }
   const B = m.B('carcass'), body = [], legs = [];
   B.col ||= new Array(B.pos.length).fill(1);
   let tipY = Infinity, tipZ = 0;
@@ -1532,7 +1538,14 @@ function carcassModel(m, id, held = false) {
     for (let i = 0; i < p.P.length; i += 3) {
       const [x, y, z, nx, ny, nz] = at(p, i);
       if (held && p.leg && z > 0 && y < tipY) { tipY = y; tipZ = z; }
-      B.pos.push(x, y, z); B.nor.push(nx, ny, nz); B.uv.push(0, 0); B.col.push(p.C[i], p.C[i + 1], p.C[i + 2]);
+      let r = p.C[i], gg = p.C[i + 1], b = p.C[i + 2], zz = z;
+      if (gutted && p.body && p.trunk) {
+        const u = (p.P[i] - p.box.min.x) / (p.box.max.x - p.box.min.x), jag = 0.02 * Math.sin(u * 23) + 0.012 * Math.sin(u * 47), along = ss(0.14, 0.24, u + jag * 0.5) * (1 - ss(0.74, 0.86, u + jag * 0.5));
+        const open = along * ss(CUT.z + jag, CUT.z + 0.1 + jag, nz), lip = along * ss(CUT.z - 0.2 + jag, CUT.z + jag, nz) * (1 - open);
+        if (lip > 0) { const f = Math.min(1, lip * 1.15), m2 = ss(0.35, 0.85, lip); r += (CUT.fat[0] + (CUT.flesh[0] - CUT.fat[0]) * m2 - r) * f; gg += (CUT.fat[1] + (CUT.flesh[1] - CUT.fat[1]) * m2 - gg) * f; b += (CUT.fat[2] + (CUT.flesh[2] - CUT.fat[2]) * m2 - b) * f; }
+        if (open > 0) { r += (CUT.dark[0] - r) * open; gg += (CUT.dark[1] - gg) * open; b += (CUT.dark[2] - b) * open; zz -= CUT.deep * open; }
+      }
+      B.pos.push(x, y, zz); B.nor.push(nx, ny, nz); B.uv.push(0, 0); B.col.push(r, gg, b);
       box.expandByPoint(v3.set(x, y, z));
     }
     for (const i of p.I) B.idx.push(i + off);
@@ -1547,7 +1560,7 @@ function carcassModel(m, id, held = false) {
 const v3 = new THREE.Vector3();
 // (the carried pose, made when there is time after the one on the ground: it is the next thing one does with it)
 const later = f => (globalThis.requestIdleCallback ? requestIdleCallback(f, { timeout: 3000 }) : setTimeout(f, 500));
-for (const id of Object.keys(BULKY)) if (BULKY[id].prey) BUILD[id] = (m, pose) => { carcassModel(m, id, pose === 'held'); if (pose !== 'held') later(() => getModel(id + ':held')); };
+for (const id of Object.keys(BULKY)) if (BULKY[id].prey) BUILD[id] = (m, pose) => { carcassModel(m, id, pose === 'held', pose === 'gutted'); if (pose !== 'held') later(() => getModel(id + ':held')); };
 
 // ---------- the wheelbarrow (carry-items.js BARROW; barrow.js) ----------
 // An old wooden one: a tray of boards with flared sides and a sloping front over the wheel, on two shafts that run from

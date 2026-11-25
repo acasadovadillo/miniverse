@@ -26,7 +26,7 @@ export class Inventory {
     // weight inventory puts it back in the arms; this one gives its parts: Carry.reset), the others become their parts.
     // (A save of the weight inventory keeps what is carried in keep, with arms: 1; an older game may have put it in a slot)
     this.armsSaved = null;
-    const big = s => { if (!this.armsSaved) this.armsSaved = { id: s.id, ...(s.day !== undefined && { day: s.day }) }; else for (const [m, k] of BULKY_PARTS[s.id]) this.spill.push([m, k]); };
+    const big = s => { if (!this.armsSaved) this.armsSaved = { id: s.id, ...(s.day !== undefined && { day: s.day }), ...(s.cq && { cq: s.cq }) }; else for (const [m, k] of BULKY_PARTS[s.id]) this.spill.push([m, k]); };
     this.slots.forEach((s, i) => { if (s && BULKY[s.id]) { big(s); this.slots[i] = null; } });
     // Lo de una versión más nueva del juego (un id que este no conoce): no se ve ni se usa, pero no se pierde. Se aparta
     // (kept: [{ i: su casilla, s }]; keptEquip: lo puesto, por hueco del cuerpo) y al guardar vuelve a su sitio (toSave).

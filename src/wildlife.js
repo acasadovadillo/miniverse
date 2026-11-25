@@ -45,6 +45,7 @@ import { Audio } from './audio.js';
 import { Profile } from './accounts.js';
 import { shotHit } from './world/shots.js';
 import { Presence, stalkingAs } from './presence.js';
+import { ZONE } from './anatomy.js';
 import { Herds, HERD, AGE, memberId, parseId, breedOf, dayOfYear } from './herds.js';
 import { SENSES, ALERT, CALM, TENSE, ALARM, FAR, DIFF_K, EVENT_S, A_CALM, A_ALERT, A_ALARM, A_TENSE, perceive, hearEvent, advance, lightAt, packF, unpackF } from './senses.js';
 
@@ -76,6 +77,7 @@ const HEARD = { STAMP: 20, BARK: 60, EVERY: [2.2, 4], STAMP_FOR: 0.45 };
 
 export { KINDS, GRAZE, CREEP };   // (read by the nature book's facts, nature.js)
 const r2 = v => Math.round(v * 100) / 100;
+const LIMP_SLOW = 0.4;   // (one that limps, shot in a leg, flees this share slower at a full limp)
 const within = ([a, b]) => a + Math.random() * (b - a);
 
 // The wound constants (exported so balance and the tests can read them). Times in game seconds, distances in tiles (m)
@@ -93,6 +95,11 @@ export const WOUND = {
   CORNERED: 4,            // with no way out it stays down this long before it can get up again
   LEASH: 160,             // a wounded animal stays while any player is within this (instead of GONE)
   HARD_STOP: 480,         // a heavy wound always ends by this: it bleeds out
+  // (Plan R3-3: shot in the liver or in the gut it does not lose hp, it ends then; the gut's trail is a light one and it goes
+  // further, and for GUT_WARY seconds after it lies down it gets up from twice as far: following it at once only moves it)
+  LIVER_FOR: [120, 240], GUT_FOR: [360, 480], GUT_FLIGHT: [70, 120], GUT_WARY: 60, GUT_FEAR: 2,
+  LEG_LIMP: 0.5,          // a light wound in a leg limps like this
+  SHED: 0.3, SHED_IN: [2, 7],   // the chance that a fleeing one sheds the arrow stuck in it, so many seconds later
 };
 // What a fleeing wounded animal looks for at the end of its run (the cover of trees and bushes)
 const COVER = new Set(['oak', 'pine', 'snowPine', 'fruit', 'swampTree', 'bush']);
@@ -139,7 +146,7 @@ export class Wildlife {
     // leads somewhere, and a badly wounded one not while whoever wounded it is in a cave: they come back to its trail)
     // (one of a herd, only with all of it: herdTick)
     const herds = this.herdsNow();
-    this.list = this.list.filter(w => (w.herd || this.stays(w, players, gone)) && (KINDS[w.type].water || !this.built(w.x, w.y, 0)));
+    this.list = this.list.filter(w => ((w.herd || this.stays(w, players, gone)) && (KINDS[w.type].water || !this.built(w.x, w.y, 0))) || this.leave(w));
     if (herds) this.herdTick(dt, herds, walkers, players);
     else if ((this.t += dt) > SPAWN_EVERY) {
       this.t = 0;
@@ -156,7 +163,7 @@ export class Wildlife {
     this.cues(dt);
     this.bleedAll(dt);
     if (g.live.joined && (this.sendT += dt) >= SEND_EVERY) {
-      const m = this.list.map(w => [w.id, w.type, r2(w.x), r2(w.y), w.hurt > 0 ? 1 : 0, w.grazing ? 1 : 0, w.bleed || 0, w.lying ? 1 : 0, w.sx ?? r2(w.x), w.sy ?? r2(w.y), w.limp || 0, packF(w)]), s = JSON.stringify(m);
+      const m = this.list.map(w => [w.id, w.type, r2(w.x), r2(w.y), w.hurt > 0 ? 1 : 0, w.grazing ? 1 : 0, w.gutshot ? 1 : w.bleed || 0, w.lying ? 1 : 0, w.sx ?? r2(w.x), w.sy ?? r2(w.y), w.limp || 0, packF(w)]), s = JSON.stringify(m);
       this.resend += this.sendT; this.sendT = 0;
       if (s !== this.lastSent || this.resend >= RESEND) { this.lastSent = s; this.resend = 0; g.live.net?.send({ t: 'wild', w: m }); }   // (de vez en cuando, aunque no cambie: por quien acaba de entrar)
     }
@@ -165,6 +172,9 @@ export class Wildlife {
     for (const q of players) if (distOf(q.x, q.y, w.x, w.y) < (w.bleed > 0 || w.lying || w.flight ? WOUND.LEASH : gone)) return true;
     return w.bleed === 2 && this.wounderAway(w);
   }
+
+  // One goes out of the game alive: the arrows stuck in it stay where it was (false, for the list)
+  leave(w) { if (w.arrows > 0) { this.game.hunt?.dropArrows(w.x, w.y, w.arrows); w.arrows = 0; } return false; }
 
   // ---------- herds (host side; Plan R3 §3.3, herds.js) ----------
   // The herds of this world, or null (off: ?manadas=0, ?sentidos=0)
@@ -325,6 +335,7 @@ export class Wildlife {
   }
   vanish(G) {
     this.groups.delete(G.id);
+    for (const w of G.list) this.leave(w);
     this.list = this.list.filter(w => w.herd !== G);
   }
   // One with a herd's id that no group here has (another game ran the world until now)
@@ -643,7 +654,7 @@ export class Wildlife {
       this.bolt(w, [q.x, q.y], [Math.max(15, dist), Math.max(15, dist)], false); w.run = false;
       return;
     }
-    const sp = w.flight === 3 ? k.flee * FLIGHT.TROT : (w.type === 'cisne' ? FLIGHT.SWAN : k.flee) * (w.flT < FLIGHT.BURST_FOR && w.legs === 0 ? K.burst : 1);
+    const sp = (w.limp > 0 ? 1 - LIMP_SLOW * w.limp : 1) * (w.flight === 3 ? k.flee * FLIGHT.TROT : (w.type === 'cisne' ? FLIGHT.SWAN : k.flee) * (w.flT < FLIGHT.BURST_FOR && w.legs === 0 ? K.burst : 1));
     const s = Math.min(dist, sp * dt), p = STEP;
     p.x = w.x + (dx / dist) * s; p.y = w.y + (dy / dist) * s;
     if (!k.water) collide(p, this.world.collidersNear(p.x, p.y), k.r);
@@ -739,13 +750,22 @@ export class Wildlife {
   }
   // hunt.js damage: w was hit and lives. level 1 light, 2 heavy (a wound never gets lighter); from: [x, y] of the hitter.
   // A heavy wound bolts far the first time and runs a shorter, slower way every later time
-  wound(w, level, from) {
+  // zone: where (hunt.js ZONE). In the liver or in the gut it dies at its own hour (endT, of woundT); a worse one after it (the
+  // chest, or nothing left) bleeds it as any other
+  wound(w, level, from, zone = ZONE.body) {
+    const slow = zone === ZONE.liver ? WOUND.LIVER_FOR : zone === ZONE.gut ? WOUND.GUT_FOR : null, was = w.bleed || 0;
     if (level > (w.bleed || 0)) { w.bleed = level; w.bleedT = 0; if (level === 2) { w.woundT = 0; w.tickT = 0; } }
     else if (w.bleed === 1) w.bleedT = 0;   // (hit again while lightly wounded: it bleeds LIGHT_FOR more)
+    if (level === 2) {
+      if (slow) { if (was !== 2 || w.endT !== undefined) w.endT = Math.min(w.endT ?? Infinity, w.woundT + within(slow)); if (was !== 2) w.gutshot = zone === ZONE.gut; else if (zone === ZONE.liver) w.gutshot = false; }
+      else { w.endT = undefined; w.gutshot = false; }
+    }
+    if (w.arrows > 0 && !(w.shedT > 0) && Math.random() < WOUND.SHED) { w.shedT = within(WOUND.SHED_IN); w.shedZ = w.lastZone; }
+    if (w.bleed !== 2 && zone === ZONE.leg) w.limp = Math.max(w.limp || 0, WOUND.LEG_LIMP);
     if (w.bleed !== 2) return;
     w.limp = this.limpOf(w);
     if (w.fled) w.runs = (w.runs || 0) + 1;
-    this.bolt(w, from, w.fled ? WOUND.GETUP : WOUND.FLIGHT);
+    this.bolt(w, from, w.fled ? WOUND.GETUP : w.gutshot ? WOUND.GUT_FLIGHT : WOUND.FLIGHT);
     w.fled = true;
   }
   limpOf(w) { const max = w.hpMax || 1; return Math.round(Math.max(0, Math.min(1, 1 - (w.hp ?? max) / max)) * 10) / 10; }
@@ -777,7 +797,7 @@ export class Wildlife {
   }
   // Lie down where it is (and stop): at the end of a run, after RUN_FOR, or blocked BLOCKS times in a row
   // (cornered: with no way out it stays down a moment, or it would get up and lie down every frame with someone on it)
-  bed(w, cornered = false) { Object.assign(w, { lying: true, bedded: false, run: false, vx: 0, vy: 0, tx: w.x, ty: w.y, scared: 0, downTill: cornered ? this.game.time + WOUND.CORNERED : 0 }); }
+  bed(w, cornered = false) { Object.assign(w, { lying: true, bedded: false, run: false, vx: 0, vy: 0, tx: w.x, ty: w.y, scared: 0, downAt: this.game.time, downTill: cornered ? this.game.time + WOUND.CORNERED : 0 }); }
   // A heavily wounded animal: running to its point, or lying until someone standing comes too close
   moveWounded(w, dt, walkers, k) {
     w.eating = 0; w.grazing = false;
@@ -786,7 +806,7 @@ export class Wildlife {
     if (w.lying || !w.run) {
       w.vx = w.vy = 0;
       if (!w.lying) { this.bed(w); return; }
-      if (q && !(w.downTill > this.game.time) && d < k.fear * WOUND.LIE_FEAR * (q.crouch ? CREEP : 1)) { w.runs = (w.runs || 0) + 1; this.bolt(w, [q.x, q.y], WOUND.GETUP); }
+      if (q && !(w.downTill > this.game.time) && d < k.fear * WOUND.LIE_FEAR * (q.crouch ? CREEP : 1) * (w.gutshot && this.game.time - (w.downAt ?? -1e9) < WOUND.GUT_WARY ? WOUND.GUT_FEAR : 1)) { w.runs = (w.runs || 0) + 1; this.bolt(w, [q.x, q.y], WOUND.GETUP); }
       return;
     }
     const dx = dxOf(w.tx, w.x), dy = w.ty - w.y, dist = Math.hypot(dx, dy);
@@ -835,15 +855,17 @@ export class Wildlife {
   bleedAll(dt) {
     let dead = null;
     for (const w of this.list) {
+      if (w.shedT > 0 && (w.shedT -= dt) <= 0 && w.arrows > 0) { w.arrows--; this.game.archery?.shed(w); }
       if (!(w.bleed > 0)) continue;
       w.bleedT = (w.bleedT || 0) + dt;
       if (w.bleed === 1) {
-        if (w.bleedT >= WOUND.LIGHT_FOR) { w.bleed = 0; w.hitAt = Date.now(); }   // (it heals HEAL_AFTER from now: hunt.js)
+        if (w.bleedT >= WOUND.LIGHT_FOR) { w.bleed = 0; w.limp = 0; w.hitAt = Date.now(); }   // (it heals HEAL_AFTER from now: hunt.js)
         continue;
       }
       // (one this game got from another host, without its hp: about what its limp says)
       if (w.hp === undefined) { w.hpMax ||= 8; w.hp = Math.max(1, Math.round(w.hpMax * (1 - (w.limp || 0)))); }
       w.woundT = (w.woundT || 0) + dt;
+      if (w.endT !== undefined) { if (w.woundT >= w.endT) (dead ||= []).push(w); continue; }   // (the liver, the gut)
       if ((w.tickT = (w.tickT || 0) + dt) >= WOUND.BLEED_TICK) { w.tickT -= WOUND.BLEED_TICK; w.hp = (w.hp ?? w.hpMax ?? 1) - 1; w.limp = this.limpOf(w); }
       if (!(w.hp > 0) || w.woundT >= WOUND.HARD_STOP) (dead ||= []).push(w);
     }

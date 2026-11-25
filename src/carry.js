@@ -13,7 +13,8 @@
 import { Inventory, HOTBAR, SLOTS } from './inventory.js';
 import { tracked, stamp, joins, blend, takeOrder, plain } from './catch.js';
 import { ITEMS, LEGACY_ITEMS, CHESTS } from './items.js';
-import { BULKY, BULKY_PARTS, CARCASS_OF, CARCASS_DAYS, BASE_CAP, BAG_CAP, HEAVY, BARROW, weightOf, stackKg } from './carry-items.js';
+import { BULKY, CARCASS_OF, CARCASS_DAYS, BASE_CAP, BAG_CAP, HEAVY, BARROW, weightOf, stackKg } from './carry-items.js';
+import { qualityOn, cleanCq, dayOfCq, starsOf, starText, whyOf, isGame, kgOf, slowOf, fieldDrops, kitchenList, partsList, warmAt, F, GUT_TTL } from './quality.js';
 import { reportFault } from './faults.js';
 import { BUILD_STATION_REACH } from './build.js';
 import { apagada } from './opciones.js';
@@ -42,6 +43,7 @@ const COOLDOWN = 0.32;         // (as gather.js: between two blows)
 const SAY_RUN = 10;            // seconds between two "too loaded to run"
 const MINE_FIRST = 3;          // seconds a felled log or a hunted carcass is only for whoever got it (as the drops: live.js)
 const OLD_WARN_AFTER = 2.5;    // seconds of play with the world in sight before the notice of an old game carrying too much
+const GUT_S = 6, GUT_AWAY = 0.35;   // s it takes to gut a carcass; moving this far from where you began leaves it
 const PICK_KEEP = 60;          // (seconds a note of who got it stays in its chunk: older ones go when another is written)
 
 // On unless ?inventario=casillas (or =0: opciones.js), the temporary way back to the slot inventory; never on the world
@@ -68,7 +70,7 @@ export class WeightInventory extends Inventory {
     for (const s of later) this.slots.push({ ...s });
     this.weight = true;
     this.armsFull = false;    // (Carry: with something in the arms, nothing is in the hand: held is null)
-    this.armsItem = null;     // ({ id, day }: what the arms carry, for the save)
+    this.armsItem = null;     // ({ id, day, cq }: what the arms carry, for the save)
     this.kgV = -1; this.kgNow = 0;
     // (what waited aside because it did not fit, and is known: to the list, now that there is room)
     if (this.equip.espalda) this.kept = this.kept.filter(e => { if (e.i < 0 && ITEMS[e.s.id] && !LEGACY_ITEMS[e.s.id]) { this.slots.push({ ...e.s }); return false; } return true; });
@@ -122,7 +124,7 @@ export class WeightInventory extends Inventory {
     // (what is kept aside from a newer version: back to its slot if it is free and usable; if not, in keep)
     for (const { i, s } of this.kept) { if (i >= 0 && i < SLOTS && !slots[i] && (i < HOTBAR || this.equip.espalda)) slots[i] = { ...s }; else keep.push({ ...s }); }
     for (const [k, it] of Object.entries(this.keptEquip)) { if (!equip[k]) equip[k] = { ...it }; else keep.push({ ...it, n: 1 }); }
-    if (this.armsItem) keep.push({ id: this.armsItem.id, n: 1, arms: 1, ...(this.armsItem.day !== undefined && this.armsItem.day !== null && { day: this.armsItem.day }) });
+    if (this.armsItem) keep.push({ id: this.armsItem.id, n: 1, arms: 1, ...(this.armsItem.day !== undefined && this.armsItem.day !== null && { day: this.armsItem.day }), ...(this.armsItem.cq && { cq: this.armsItem.cq }) });
     return { slots, selected: this.selected, equip, wardrobe: 2, ...(keep.length && { keep }), w: 1 };
   }
 }
@@ -134,6 +136,8 @@ export class Carry {
     this.game = game;
     this.held = null;        // the id of what the arms carry (a key of BULKY), or null
     this.day = null;         // (a carcass: the day it was hunted, so it keeps rotting on the ground: see today)
+    this.cq = null;          // (a hunted carcass: its record, quality.js)
+    this.gutting = null;     // ({ k, tile, o, sc, x, y, t, beat }: gutting one, see gut)
     this.owner = null;       // (the player it belongs to: a new game does not get the last one's)
     this.splits = new Map(); // the axe blows each log on the ground has had
     this.saidAt = -1e9; this.rotAt = 0; this.oldWarn = false; this.oldWarnIn = 0; this.level = 0; this.shownKg = 0; this.shownUntil = 0; this.runSaidAt = -1e9; this.runWas = false;
@@ -148,10 +152,10 @@ export class Carry {
 
   // What the arms carry: the inventory (held is null meanwhile, and it goes in the save) and the player (the drawing and
   // the network: carrying, armsBusy; entities.js does not hop fences or swim with it)
-  set(id, day = null) {
+  set(id, day = null, cq = null) {
     const g = this.game, inv = g.inv, p = g.player;
-    this.held = id || null; this.day = id ? day : null; this.owner = p;
-    if (inv.weight) inv.armsItem = id ? { id, day } : null;
+    this.held = id || null; this.day = id ? day : null; this.cq = id && isGame(id) ? cleanCq(cq) : null; this.owner = p;
+    if (inv.weight) inv.armsItem = id ? { id, day, ...(this.cq && { cq: this.cq }) } : null;
     this.syncArms(true);
   }
   // Are both hands busy? Pushing the wheelbarrow (barrow.js), or a big thing in the arms on foot (riding or rowing, it goes
@@ -176,11 +180,11 @@ export class Carry {
   }
   reset(save) {
     const g = this.game, inv = g.inv, saved = inv.armsSaved;
-    this.held = null; this.day = null; this.owner = g.player; this.splits.clear(); this.saidAt = -1e9;
+    this.held = null; this.day = null; this.cq = null; this.gutting = null; this.owner = g.player; this.splits.clear(); this.saidAt = -1e9;
     if (g.player) { g.player.carrying = null; g.player.armsBusy = null; g.player.pushing = null; }
     inv.armsFull = false;
     if (inv.weight) inv.armsItem = null;
-    if (saved) { inv.armsSaved = null; if (this.bigNow && BULKY[saved.id]) this.set(saved.id, saved.day == null ? null : this.dayOf(saved.day)); else this.giveParts(saved.id); }
+    if (saved) { inv.armsSaved = null; if (this.bigNow && BULKY[saved.id]) this.set(saved.id, saved.day == null ? null : this.dayOf(saved.day), saved.cq); else this.giveParts(saved.id, cleanCq(saved.cq)); }
     // (a game of slots opened for the first time with the weight inventory may carry far too much: nothing is thrown away,
     // it is only said once. Its save has no w until this game saves it, so it is said again only if it is not saved, or
     // after playing it with ?inventario=casillas. Said by update, once the world is in sight and the notices of the start,
@@ -188,10 +192,10 @@ export class Carry {
     this.oldWarn = !!(this.bigNow && save?.inventory && !save.inventory.w && inv.load > HEAVY && !Profile.server); this.oldWarnIn = OLD_WARN_AFTER;
     this.level = this.levelOf(); this.shownKg = this.on ? inv.kg : 0;
   }
-  // What a big thing is worth, into the backpack (what does not fit, at your feet)
-  giveParts(id) {
+  // What a big thing is worth, into the backpack (what does not fit, at your feet). cq: of a hunted carcass, its record
+  giveParts(id, cq = null) {
     const g = this.game;
-    for (const [m, n] of BULKY_PARTS[id] || []) { const left = g.inv.add(m, n); if (left) g.gather.throwOut(m, left); }
+    for (const [m, n] of partsList(id, cq, this.now())) { const left = g.inv.add(m, n); if (left) g.gather.throwOut(m, left); }
   }
 
   // ---------- the load ----------
@@ -205,7 +209,7 @@ export class Carry {
     if (this.free()) return b;
     const r = this.game.inv.load;
     const k = r <= 1 ? 1 : r <= HEAVY ? 1 - (1 - 0.6) * (r - 1) / (HEAVY - 1) : SLOWEST;
-    return Math.max(FLOOR, k * (this.held ? BULKY[this.held].slow : 1)) * b;
+    return Math.max(FLOOR, k * (this.held ? slowOf(this.held, this.cq) : 1)) * b;
   }
   // No sprinting (the three speeds, entities.js GAIT): loaded past NO_RUN, something in the arms or the wheelbarrow
   noRun() {
@@ -226,7 +230,7 @@ export class Carry {
   hud() { const inv = this.game.inv; return { kg: inv.kg, cap: inv.capKg, r: inv.load, bulky: this.held, arms: this.armsKg() }; }
   // What the arms carry weighs (kg; 0 with nothing): the meter shows it apart, the speed rules do not add it to the load.
   // Riding or rowing it goes on the horse or in the bow, which carry it: 0 then too (the meter would say overloaded)
-  armsKg() { const p = this.game.player; return this.held && !p?.mount && !p?.boat ? BULKY[this.held].kg : 0; }
+  armsKg() { const p = this.game.player; return this.held && !p?.mount && !p?.boat ? kgOf(this.held, this.cq) : 0; }
   // Should the load show now (the minimal interface)? For a while after it changes, and while it is near the limit
   showLoad() { return this.on && this.survival && (performance.now() < this.shownUntil || this.game.inv.load > 0.9 || !!this.held); }
 
@@ -234,6 +238,7 @@ export class Carry {
     const g = this.game, p = g.player;
     // (the carcasses rot also in a game without the weight inventory, like the world server's: see rot)
     if ((this.rotAt += dt) >= ROT_EVERY) { this.rotAt = 0; this.rot(); }
+    this.gutTick(dt);
     if (p) this.syncArms();   // (mounting, getting off, boarding, the wheelbarrow: the hands follow, in either inventory)
     if (!this.on || !p) return;
     const inv = g.inv;
@@ -278,8 +283,10 @@ export class Carry {
       for (const [k, day] of Object.entries(C || {})) {
         if (!(today - this.dayOf(day) >= CARCASS_DAYS)) continue;
         const [tx, ty] = k.split(',').map(Number), id = sc.at?.('placed', tx, ty);
+        const q = sc.state.cq?.[k];
         delete C[k];
-        if (BULKY[id]?.prey) { sc.unplace({ tile: [tx, ty], layer: 'placed', placed: id }); this.bones(tx, ty, sc); }
+        if (sc.state.cq) delete sc.state.cq[k];
+        if (BULKY[id]?.prey) { sc.unplace({ tile: [tx, ty], layer: 'placed', placed: id }); this.bones(tx, ty, sc, q); }
         sc.touched?.();
       }
     }
@@ -288,21 +295,34 @@ export class Carry {
     for (const [key, d] of w.deltas) {
       if (d && (d.barrow || d.pushed || d.boatLoad || d.claim) && !key.startsWith('u:')) work.push(key);
       const C = d?.carcass;
+      if (d && (d.cq || d.gut) && !key.startsWith('u:')) this.tidy(key, d);
       if (!C || key.startsWith('u:')) continue;   // (u:… are the caves' states)
       let stale = false;
       for (const [k, day] of Object.entries(C)) {
         if (!(today - this.dayOf(day) >= CARCASS_DAYS)) continue;   // (also skips a day that is not a number)
         const [tx, ty] = k.split(',').map(Number), raw = w.ownAt('placed', tx, ty), id = raw && raw.split('@')[0];
+        const q = d.cq?.[k];
         delete C[k];
-        if (BULKY[id]?.prey) { w.unplace({ tile: [tx, ty], layer: 'placed', placed: id }); this.bones(tx, ty, w); }
+        if (d.cq) delete d.cq[k];
+        if (BULKY[id]?.prey) { w.unplace({ tile: [tx, ty], layer: 'placed', placed: id }); this.bones(tx, ty, w, q); }
         else stale = true;   // (its carcass was taken some other way: only the note goes)
       }
       if (stale) { const [cx, cy] = key.split(',').map(Number); w.touch(cx, cy); }
     }
     if (work.length && g.barrow) try { g.barrow.sweep(work); } catch (e) { reportFault(e, 'Barrow.sweep'); }
   }
-  bones(tx, ty, sc) {
-    const n = 1 + (Math.random() < 0.5 ? 1 : 0);
+  // (the records of what is no longer there, taken by an older game, and the old gut piles)
+  tidy(key, d) {
+    const now = this.now();
+    let gone = false;
+    for (const k of Object.keys(d.cq || {})) if (!(k in (d.carcass || {}))) { delete d.cq[k]; gone = true; }
+    for (const [k, at] of Object.entries(d.gut || {})) if (!(now - at < GUT_TTL)) { delete d.gut[k]; gone = true; }
+    if (gone) { const [cx, cy] = key.split(',').map(Number); this.game.world.note(cx, cy); }
+  }
+  // (cq: the record of the carcass: the arrows left in it lie there too)
+  bones(tx, ty, sc, cq = null) {
+    const n = 1 + (Math.random() < 0.5 ? 1 : 0), ar = cleanCq(cq)?.[3] || 0;
+    for (let i = 0; i < ar; i++) this.game.gather.addDrop({ id: 'flecha', x: tx + 0.2 + Math.random() * 0.6, y: ty + 0.2 + Math.random() * 0.6, z: 2, vz: 20, t: 0, ttl: BONES_TTL, scene: sc });
     for (let i = 0; i < n; i++) this.game.gather.addDrop({ id: 'hueso', x: tx + 0.3 + Math.random() * 0.4, y: ty + 0.3 + Math.random() * 0.4, z: 2, vz: 20, t: 0, ttl: BONES_TTL, scene: sc });
   }
 
@@ -349,15 +369,31 @@ export class Carry {
     if (!this.bigNow) return { text: t('carry.take', { item }), run: () => this.take(o) };
     const why = this.cantTake();
     if (why) return { text: why, run: () => { this.say(why); Audio.error(); } };
-    return { text: t('carry.shoulder', { item }), run: () => this.take(o), alt: BULKY[id].prey ? { text: t('carry.butcher'), hold: HOLD_X, run: () => this.butcher(o) } : null };
+    const q = BULKY[id].prey ? this.cqAt(o.tile) : null, G = this.gutting;
+    if (G && G.k === String(o.tile) && G.sc === this.game.scene) return { text: t('carry.gutting', { item }), run: () => {}, alt: { text: t('carry.gut'), hold: GUT_S, run: () => {} } };
+    const text = q ? t('carry.carry_stars', { item, stars: starText(starsOf(q, this.now())), kg: kgOf(id, q) }) : t('carry.shoulder', { item });
+    return { text, run: () => this.take(o), alt: !BULKY[id].prey ? null : q && !q[1] ? { text: t('carry.gut'), hold: HOLD_X, run: () => this.gut(o) } : { text: t('carry.butcher'), hold: HOLD_X, run: () => this.butcher(o) } };
   }
   // E on a station with something in the arms: the bench saws the log, the kitchen butchers the carcass (null: nothing)
   stationAction(o) {
     const id = this.held, B = id && BULKY[id];
     if (!B) return null;
     if (B.saw && o.placed === 'banco') return { text: t('carry.saw'), run: () => this.convert(B.saw) };
-    if (B.prey && o.placed === 'cocina') return { text: t('carry.butcher_here'), run: () => this.convert([...B.drops.map(([m, , max]) => [m, max]), [B.extra, 1]]) };
+    if (B.prey && o.placed === 'cocina') return { text: t('carry.butcher_here'), run: () => this.convert(kitchenList(id, this.cq, this.now())) };
     return null;
+  }
+  // Sold whole to Anselmo (talk.js): the money, and the arrows that were in it
+  sellCarcass(price, then) {
+    const g = this.game, ar = this.cq?.[3] || 0;
+    if (!this.held || !(price > 0)) return null;
+    this.set(null);
+    g.addMoney(price);
+    g.stats?.add('ventas', price);
+    if (ar) { const left = g.inv.add('flecha', ar); if (left) g.gather.throwOut('flecha', left); }
+    g.gather.float(`+${price} 🪙`, '#ffe08a');
+    Audio.pickup();
+    g.onSave?.();
+    return then?.();
   }
   // Why it cannot go in the arms here ('' if it can): riding, rowing, as a passenger, swimming, sitting or lying down
   cantTake() {
@@ -372,11 +408,11 @@ export class Carry {
     if (this.held) { this.say(t('carry.hands_full')); Audio.error(); return; }
     const why = this.notYours(o) || (this.bigNow && this.cantTake());
     if (why) { this.say(why); Audio.error(); return; }
-    const day = this.dayAt(o.tile);
+    const day = this.dayAt(o.tile), cq = this.cqAt(o.tile);
     if (sc.unplace(o) === false) { Audio.error(); return; }
     this.forget(o.tile);
-    if (this.bigNow) this.set(o.placed, Number.isFinite(day) ? this.dayOf(day) : BULKY[o.placed].prey ? this.today() : null);
-    else this.giveParts(o.placed);
+    if (this.bigNow) this.set(o.placed, Number.isFinite(day) ? this.dayOf(day) : BULKY[o.placed].prey ? this.today() : null, cq);
+    else this.giveParts(o.placed, cq);
     Audio.pickup();
     g.onSave?.();
   }
@@ -395,13 +431,59 @@ export class Carry {
     Audio.craft();
     g.onSave?.();
   }
-  // X on a carcass on the ground: butchered there, the least of each
+  // X held on a hunted carcass on the ground (Plan R3-3): GUT_S seconds there, without moving, and it is gutted: lighter, its
+  // meat keeps, and a gut pile stays beside it (d.gut, gone in a day). Leaving loses nothing
+  gut(o) {
+    const g = this.game, p = g.player, wait = this.notYours(o);
+    if (wait) { this.say(wait); Audio.error(); return; }
+    if (!p || this.held || this.gutting || p.pose || p.swim || this.cqAt(o.tile)?.[1] !== 0) return;
+    g.body?.stopScrub?.(); g.needs?.stopDrinking?.();   // (one crouch at a time)
+    const dx = o.x - p.x, dy = o.y - p.y, l = Math.hypot(dx, dy);
+    p.stop();
+    if (l > 0.05) { p.face = { x: dx / l, y: dy / l }; p.dir = [dx, dy]; }
+    this.gutting = { k: String(o.tile), tile: o.tile, o, sc: g.scene, x: p.x, y: p.y, t: 0, beat: 0, crouch: !!p.crouch };
+    p.crouch = true;   // (st.cr shows it to the others)
+  }
+  gutTick(dt) {
+    const G = this.gutting;
+    if (!G) return;
+    const g = this.game, p = g.player, off = why => { this.gutting = null; if (p && !p.swim) p.crouch = G.crouch; hud.promptHold('X', -1); if (why) this.say(t(why)); };
+    if (!p || g.scene !== G.sc || g.mode !== 'play' || g.busy || g.gamemode === 'spectator' || this.held || p.mount || p.swim || p.pose || keys.up || keys.down || keys.left || keys.right || keys.space || Math.hypot(p.x - G.x, p.y - G.y) > GUT_AWAY) { off(p && g.scene === G.sc && g.mode === 'play' && !g.busy ? 'carry.gut_left' : ''); return; }
+    const q = this.cqAt(G.tile), raw = G.sc.ownAt?.('placed', ...G.tile) ?? G.sc.at?.('placed', ...G.tile);
+    if (!q || q[1] || !raw || String(raw).split('@')[0] !== G.o.placed) { off(''); return; }   // (taken, or gutted by someone else)
+    G.t += dt;
+    if (!p.emote && g.social?.canEmote?.(p)) g.social.emote(p, 'scrub');   // (both hands at work)
+    if ((G.beat -= dt) <= 0) { G.beat = 1.1; Audio.noiseHit(260, 0.12, 0.12); g.gather.chips(G.o.x, G.o.y, 'dirt', 3); }
+    hud.promptHold('X', Math.min(1, G.t / GUT_S));
+    if (G.t < GUT_S) return;
+    hud.promptHold('X', 1, true);
+    this.gutting = null; p.crouch = G.crouch;
+    const now = Math.round(this.now()), r = [...q];
+    r[1] = now; if (warmAt(g, G.o.x, G.o.y)) r[6] |= F.WARM_GUT;
+    this.setCq(G.tile, r);
+    const at = this.gutSpot(G.tile), P = this.mapOf(at, 'gut', true);
+    if (P) P[String(at)] = now;
+    if (G.sc === g.world) { const c = v => Math.floor(v / CHUNK); g.world.touch(c(G.tile[0]), c(G.tile[1])); if (c(at[0]) !== c(G.tile[0]) || c(at[1]) !== c(G.tile[1])) g.world.note(c(at[0]), c(at[1])); } else G.sc.touched?.();
+    g.body?.butchered();
+    Audio.noiseHit(180, 0.2, 0.35);
+    const s = starsOf(r, now), why = s < 3 ? whyOf(r, now) : '';
+    g.gather.float(`${starText(s)} ${t(`hunt.quality.${s}`)}${why ? ` · ${t(`hunt.quality.why.${why}`)}` : ''}`, '#ffe08a');
+    hud.toast(t('carry.gutted'));
+    g.onSave?.();
+  }
+  // Where the gut pile lies: a free tile by the carcass, away from you; its own if none
+  gutSpot([tx, ty]) {
+    const g = this.game, p = g.player, sc = g.scene, free = ([x, y]) => !(sc.water?.(x + 0.5, y + 0.5)) && !sc.wall?.(x, y) && !sc.ownAt?.('placed', x, y) && !(Math.floor(p.x) === x && Math.floor(p.y) === y);
+    return [[1, 0], [-1, 0], [0, 1], [0, -1]].map(([i, j]) => [tx + i, ty + j]).sort((a, b) => Math.hypot(b[0] + 0.5 - p.x, b[1] + 0.5 - p.y) - Math.hypot(a[0] + 0.5 - p.x, a[1] + 0.5 - p.y)).find(free) || [tx, ty];
+  }
+  // X held on a carcass on the ground (a hunted one, once gutted): butchered there, the least of each (by its stars, quality.js)
   butcher(o) {
     const g = this.game, B = BULKY[o.placed], wait = this.notYours(o);
     if (wait) { this.say(wait); Audio.error(); return; }
+    const cq = this.cqAt(o.tile);
     if (!B?.prey || g.scene.unplace(o) === false) return;
     this.forget(o.tile);
-    g.gather.spawnDrops(o, { drops: B.drops.map(([m, min, , chance]) => [m, min, min, chance]) });
+    g.gather.spawnDrops(o, { drops: fieldDrops(o.placed, cq, this.now()) });
     g.gather.chips(o.x, o.y, 'dirt', 14);
     g.body?.butchered();
     Audio.noiseHit(180, 0.2, 0.35);
@@ -449,16 +531,29 @@ export class Carry {
   putAt([tx, ty]) {
     const g = this.game, p = g.player, sc = g.scene, id = this.held;
     if (BULKY[id].prey) this.setDay([tx, ty], this.day ?? this.today());
+    if (BULKY[id].prey) this.setCq([tx, ty], this.cq);
     sc.place(tx, ty, id, Math.abs(p.face.x) > Math.abs(p.face.y) ? 0 : 1);
     this.set(null);
   }
   // (the day of a carcass: in the world by the chunk, d.carcass, which goes by the network and in the save like d.mown;
   // in a cave, in its own state, saved with it)
-  daysOf([tx, ty], create) {
+  daysOf(tile, create) { return this.mapOf(tile, 'carcass', create); }
+  mapOf([tx, ty], f, create) {
     const g = this.game, w = g.world, sc = g.scene;
-    if (sc === w) { const d = w.delta(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK), create); return d && (create ? (d.carcass ||= {}) : d.carcass); }
+    if (sc === w) { const d = w.delta(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK), create); return d && (create ? (d[f] ||= {}) : d[f]); }
     const st = sc?.state;
-    return st && (create ? (st.carcass ||= {}) : st.carcass);
+    return st && (create ? (st[f] ||= {}) : st[f]);
+  }
+  now() { return this.game.days?.now ?? Date.now(); }
+  // The record of a hunted carcass on a tile (quality.js), or null: its own (of the day it has), not one left by another
+  cqAt(tile) {
+    const q = qualityOn() ? cleanCq(this.mapOf(tile, 'cq', false)?.[String(tile)]) : null;
+    return q && dayOfCq(q) >= this.dayAt(tile) ? q : null;   // (a day to come is noted as today: dayOf)
+  }
+  setCq(tile, q) {
+    const C = this.mapOf(tile, 'cq', !!q);
+    if (!C) return;
+    if (q) C[String(tile)] = q; else delete C[String(tile)];
   }
   dayAt(tile) { return this.daysOf(tile, false)?.[String(tile)] ?? null; }
   setDay(tile, day) {
@@ -469,7 +564,7 @@ export class Carry {
   }
   // A big thing gone from a tile: its day, its axe blows and who got it
   forget(tile) {
-    this.setDay(tile, null); this.splits.delete(String(tile));
+    this.setDay(tile, null); this.setCq(tile, null); this.splits.delete(String(tile));
     const P = this.picks(tile, false);
     if (P) delete P[String(tile)];
   }
@@ -536,17 +631,18 @@ export class Carry {
   }
   // A hunted adult deer, boar, cow, sheep, goat or pig leaves its carcass where it fell (or next to it). Playing together,
   // it is placed by the game of whoever hunted it (hunt.js reward: the host tells the hunter). false: as before
-  hunted(type, x, y, female = false) {
+  // cq: its record (quality.js)
+  hunted(type, x, y, female = false, cq = null) {
     const g = this.game;
     if (!this.bigNow || g.scene !== g.world) return false;
-    return this.placeCarcass(type, x, y, g.live?.joined ? Profile.id || null : null, female);
+    return this.placeCarcass(type, x, y, g.live?.joined ? Profile.id || null : null, female, cq);
   }
   // A carcass in the world chunk at (x, y) or on a free tile next to it, whatever scene this game is in (the host may be in
   // a cave; the world server has no player), with its day (it rots from today) and, with forId, reserved for that player
   // for MINE_FIRST seconds, as every kill. hunted() uses it for a normal kill; hunt.js bledOut for an animal that bled out
   // (Plan G §3.2). The caller decides whether big things exist (bigNow). false: nothing placed (no carcass for that
   // animal, or no room)
-  placeCarcass(type, x, y, forId = null, female = false) {
+  placeCarcass(type, x, y, forId = null, female = false, cq = null) {
     const g = this.game, w = g.world, id = (female && CARCASS_OF[type + ':f']) || CARCASS_OF[type];
     if (!id || !w || !Number.isFinite(x) || !Number.isFinite(y)) return false;
     const tx = Math.floor(x), ty = Math.floor(y), who = g.scene === w ? g.player || null : null;
@@ -554,7 +650,8 @@ export class Carry {
     if (!tile) return false;
     // (its day by the world chunk, d.carcass, as daysOf does in the world: not by the scene this game is in)
     const d = w.delta(Math.floor(tile[0] / CHUNK), Math.floor(tile[1] / CHUNK), true);
-    (d.carcass ||= {})[String(tile)] = this.today();
+    (d.carcass ||= {})[String(tile)] = cq ? dayOfCq(cq) : this.today();
+    if (cq && isGame(id)) (d.cq ||= {})[String(tile)] = cq; else if (d.cq) delete d.cq[String(tile)];
     if (forId) this.markFor(tile, forId);
     w.place(...tile, id, Math.floor(Math.random() * 4));
     return true;
@@ -596,8 +693,9 @@ export class Carry {
     const g = this.game, p = g.player, sc = g.scene, id = this.held, tx = Math.floor(p.x), ty = Math.floor(p.y);
     const tile = [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]].map(([i, j]) => [tx + i, ty + j]).find(([a, b]) => sc.canPlace?.(a, b, id, null));
     if (tile) { this.putAt(tile); return; }
+    const parts = partsList(id, this.cq, this.now());
     this.set(null);
-    for (const [m, n] of BULKY_PARTS[id]) g.gather.addDrop({ id: m, count: n, x: p.x, y: p.y, z: 4, vz: 30, t: 0, scene: sc, sceneKey: g.sceneKey?.(sc), ttl });
+    for (const [m, n] of parts) g.gather.addDrop({ id: m, count: n, x: p.x, y: p.y, z: 4, vz: 30, t: 0, scene: sc, sceneKey: g.sceneKey?.(sc), ttl });
   }
   // Creative or spectator with something in the arms: creative has no big things (its parts, to the backpack); the
   // spectator touches nothing (put down, or its parts)
@@ -605,8 +703,9 @@ export class Carry {
     if (!this.held || this.owner !== this.game.player || gm === 'survival') return;
     const id = this.held, tile = gm === 'spectator' ? this.dropTile() : null;
     if (tile) { this.putAt(tile); return; }
+    const cq = this.cq;
     this.set(null);
-    this.giveParts(id);
+    this.giveParts(id, cq);
   }
   // For the network (live.js, st.ca): only when carrying something, or pushing the wheelbarrow (its model key)
   state() {
@@ -616,11 +715,11 @@ export class Carry {
 
   // ---------- a big thing in a boat (crew.js; PLAN-C2 §4) ----------
   // The boats have no owner: a boat with a big thing in it belongs, while it is there, to whoever brought it (its owner) and
-  // their partner. d.boatLoad[boat] = [id, owner, day, x, y, n], with n in d.boats[boat][3] too: only then is it that boat's
+  // their partner. d.boatLoad[boat] = [id, owner, day, x, y, n, cq?], with n in d.boats[boat][3] too: only then is it that boat's
   // (a boat's id is its place, rounded: another moored there later does not get an old one)
   loadOf(b) {
     const w = this.game.world, d = b && w?.delta(Math.floor(b.x / CHUNK), Math.floor(b.y / CHUNK)), L = d?.boatLoad?.[b.id], n = d?.boats?.[b.id]?.[3];
-    return Array.isArray(L) && BULKY[L[0]] && n && L[5] === n ? { id: L[0], owner: L[1], day: L[2] ?? null, x: L[3], y: L[4], n, raw: L } : null;
+    return Array.isArray(L) && BULKY[L[0]] && n && L[5] === n ? { id: L[0], owner: L[1], day: L[2] ?? null, x: L[3], y: L[4], n, cq: cleanCq(L[6]), raw: L } : null;
   }
   mineOrPartner(owner) { return !owner || owner === (Profile.id || 'me') || !!this.game.social?.isPartnerId?.(owner); }
   // Someone else's big thing in it: nobody else boards it or takes it apart meanwhile (the text; '' if you may)
@@ -631,7 +730,7 @@ export class Carry {
     const g = this.game, w = g.world, id = this.held;
     if (!id || !w) return;
     const cx = Math.floor(x / CHUNK), cy = Math.floor(y / CHUNK), d = w.delta(cx, cy, true);
-    (d.boatLoad ||= {})[boatId] = [id, Profile.id || 'me', this.day ?? null, Math.round(x * 100) / 100, Math.round(y * 100) / 100, n];
+    (d.boatLoad ||= {})[boatId] = [id, Profile.id || 'me', this.day ?? null, Math.round(x * 100) / 100, Math.round(y * 100) / 100, n, ...(this.cq ? [this.cq] : [])];
     this.set(null);
     w.touch(cx, cy);
     if (!quiet) hud.toast(t('carry.on_boat_left', { item: noun('item', id) }));
@@ -646,8 +745,8 @@ export class Carry {
     if (g.barrow?.guest()) {
       g.barrow.claim('boat', `${wrapIndex(Math.floor(b.x / CHUNK), CHUNK)},${Math.floor(b.y / CHUNK)}`, { boat: b.id, n: L.n, to: arms ? 'arms' : 'shore' }, v => {
         if (!v?.ok) return;
-        if (arms) { if (!this.held) this.set(v.id || L.id, v.day ?? L.day); else this.toShore([v.id || L.id, L.owner, v.day ?? L.day, b.x, b.y], b.x, b.y); }
-        else if (v.parts) { this.giveParts(v.id || L.id); hud.toast(t('carry.to_parts', { item: noun('item', L.id) })); }   // (no land near: its parts, to you)
+        if (arms) { if (!this.held) this.set(v.id || L.id, v.day ?? L.day, L.cq); else this.toShore([v.id || L.id, L.owner, v.day ?? L.day, b.x, b.y, 0, L.cq], b.x, b.y); }
+        else if (v.parts) { this.giveParts(v.id || L.id, L.cq); hud.toast(t('carry.to_parts', { item: noun('item', L.id) })); }   // (no land near: its parts, to you)
         else hud.toast(t('carry.to_shore', { item: noun('item', L.id) }));
       });
       return;
@@ -655,7 +754,7 @@ export class Carry {
     const cx = Math.floor(b.x / CHUNK), cy = Math.floor(b.y / CHUNK), d = w.delta(cx, cy);
     if (d?.boatLoad) delete d.boatLoad[b.id];
     w.touch(cx, cy);
-    if (arms) { this.set(L.id, L.day); return; }
+    if (arms) { this.set(L.id, L.day, L.cq); return; }
     hud.toast(t(this.toShore(L.raw, b.x, b.y) ? 'carry.to_shore' : 'carry.to_parts', { item: noun('item', L.id) }));
   }
   // A big thing on the shore near (x, y), for its owner (L: [id, owner, day…]): the nearest land tile in rings of up to 8; if
@@ -664,8 +763,8 @@ export class Carry {
     const g = this.game, id = L?.[0];
     if (!BULKY[id] || !g.world || !Number.isFinite(x) || !Number.isFinite(y)) return false;
     if (this.toLand(L, x, y)) return true;
-    if (local && g.player) this.giveParts(id);
-    else for (const [m, n] of BULKY_PARTS[id] || []) g.gather?.addDrop({ id: m, count: n, x, y, z: 4, vz: 30, t: 0, scene: g.world });
+    if (local && g.player) this.giveParts(id, cleanCq(L[6]));
+    else for (const [m, n] of partsList(id, cleanCq(L[6]), this.now())) g.gather?.addDrop({ id: m, count: n, x, y, z: 4, vz: 30, t: 0, scene: g.world });
     return false;
   }
   // (only the land: false, and nothing done, if there is none within 8)
@@ -678,7 +777,7 @@ export class Carry {
       const tx = tx0 + i, ty = ty0 + j;
       if (!w.canPlace(tx, ty, id, null)) continue;
       const day = Number.isFinite(L[2]) ? L[2] : BULKY[id].prey ? this.today() : null;
-      if (day !== null) { const d = w.delta(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK), true); (d.carcass ||= {})[`${tx},${ty}`] = day; }
+      if (day !== null) { const d = w.delta(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK), true); (d.carcass ||= {})[`${tx},${ty}`] = day; const q = cleanCq(L[6]); if (q && isGame(id)) (d.cq ||= {})[`${tx},${ty}`] = q; else if (d.cq) delete d.cq[`${tx},${ty}`]; }
       if (L[1] && L[1] !== 'me') this.markFor([tx, ty], L[1]);
       w.place(tx, ty, id, 0);
       return true;

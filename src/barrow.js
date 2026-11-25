@@ -1,6 +1,6 @@
 // The wheelbarrow: phase 2 of the weight inventory (docs/planes/gta/PLAN-C2-fase2.md). Built with B (Outdoors, at the
 // bench; its plan is sold by Dani), it is placed like any piece of furniture, always free (fitFree, d.pos): a chest of 12
-// stacks (CHESTS.wheelbarrow, d.chest) with up to 3 big things on it (d.barrow[tile] = { id, l: [[id, day]…] }), drawn on it.
+// stacks (CHESTS.wheelbarrow, d.chest) with up to 3 big things on it (d.barrow[tile] = { id, l: [[id, day, cq?]…] }: cq, a hunted carcass's record, quality.js), drawn on it.
 // E pushes it with both hands: it leaves its tile and becomes a record of the world in the chunk where it was taken
 // (d.pushed[id] = { by, x, y, c, l, t, park }), never part of the player's save; Q parks it again where it is drawn, with
 // the same things and the same id.
@@ -18,6 +18,7 @@
 //     carry.js (speedMul, noRun, handsBusy, syncArms). What it carries does not weigh on you.
 // Only the game imports this file (and the tests); it never imports src/three (the drawing reads e.pushing, o.model).
 import { BARROW, CENTER_AHEAD, WHEEL_AHEAD, BULKY, CARCASS_DAYS, barrowKey, parseBarrowKey, randomId } from './carry-items.js';
+import { cleanCq, dayOfCq, isGame } from './quality.js';
 import { CHUNK } from './world/gen.js';
 import { wrapIndex, inPlanet } from './world/planet.js';
 import { dirOf, hitsCircle, obb, distTo } from './world/fit.js';
@@ -52,8 +53,8 @@ const isMap = v => !!v && typeof v === 'object' && !Array.isArray(v);
 const isBarrow = raw => typeof raw === 'string' && raw.split('@')[0] === ID;
 // Its 12 stacks, copied (what a chest holds: the same objects, never shared between two places)
 export const padStacks = c => { const out = Array.isArray(c) ? c.map(s => (s ? { ...s } : null)) : []; while (out.length < BARROW.STACKS) out.push(null); return out; };
-// Its big things, checked: [[id, day|null]…], LOADS at most
-export const cleanLoads = l => (Array.isArray(l) ? l : []).filter(e => Array.isArray(e) && BULKY[e[0]]).slice(0, LOADS).map(([id, day]) => [id, Number.isFinite(day) ? day : null]);
+// Its big things, checked: [[id, day|null, cq?]…], LOADS at most
+export const cleanLoads = l => (Array.isArray(l) ? l : []).filter(e => Array.isArray(e) && BULKY[e[0]]).slice(0, LOADS).map(([id, day, cq]) => { const q = cleanCq(cq), n = Number.isFinite(day) ? day : null; return q && isGame(id) ? [id, n, q] : [id, n]; });
 const num = (v, d) => (Number.isFinite(v) ? v : Number.isFinite(d) ? d : 0);
 
 // The host, with the changes of a guest's chunk (k), before applying them (live.js 'w'). Only the fields of the
@@ -280,10 +281,10 @@ export class Barrow {
     }
     const why = C?.notYours(o);
     if (why) { this.say(why); return; }
-    const day = this.dayAt(o.tile);
+    const day = this.dayAt(o.tile), cq = this.cqAt(o.tile);
     if (w.unplace(o) === false) { Audio.error(); return; }
     this.forget(o.tile);
-    r.l = [...cleanLoads(r.l), [o.placed, this.dayFix(o.placed, day)]];
+    r.l = cleanLoads([...cleanLoads(r.l), [o.placed, this.dayFix(o.placed, day), cq]]);
     w.note(...xyOf(this.rec.k));
     this.setKey(r.l, r.c);
     Audio.pickup();
@@ -294,21 +295,21 @@ export class Barrow {
     const g = this.game, w = g.world, C = g.carry, id = C?.held;
     if (!id || !this.isAt(o.tile)) return;
     if (this.loadsAt(o.tile).length >= LOADS) { this.say(t('barrow.full')); return; }
-    const day = C.day ?? null;
+    const day = C.day ?? null, cq = C.cq;
     if (this.guest()) {
       if (this.hostOld()) { this.say(t('barrow.server_old')); return; }
       // (out of the arms now, into the request: dropping it, dying, a station or the save meanwhile do not see it twice)
       const tile = [...o.tile];
       C.set(null);
-      this.claim('put', keyOf(...chunkOf(...tile)), { tile, id, day }, v => {
+      this.claim('put', keyOf(...chunkOf(...tile)), { tile, id, day, ...(cq && { cq }) }, v => {
         if (v?.ok) { Audio.place(); g.onSave?.(); return; }
         this.say(t(v ? 'barrow.full' : 'barrow.missed'));
-        this.giveBack(id, day, tile);
+        this.giveBack(id, day, tile, cq);
       });
       return;
     }
     const { d, k } = this.dataAt(o.tile), B = (d.barrow ||= {})[k] ||= { id: 't' + k, l: [] };
-    B.l = [...cleanLoads(B.l), [id, day]];
+    B.l = cleanLoads([...cleanLoads(B.l), [id, day, cq]]);
     C.set(null);
     w.touch(...chunkOf(...o.tile));
     Audio.place();
@@ -319,11 +320,11 @@ export class Barrow {
     const g = this.game, w = g.world, C = g.carry, l = this.loadsAt(tile), it = l[i];
     if (!it || !this.isAt(tile)) return;
     if (C?.held || this.rec) { this.say(t(this.rec ? 'barrow.hands_full' : 'carry.hands_full')); return; }
-    const give = (id, day) => { if (C.bigNow) C.set(id, this.dayFix(id, day)); else C.giveParts(id); Audio.pickup(); g.onSave?.(); };
+    const give = (id, day, cq = it[2]) => { if (C.bigNow) C.set(id, this.dayFix(id, day), cq); else C.giveParts(id, cleanCq(cq)); Audio.pickup(); g.onSave?.(); };
     if (this.guest()) {
       if (this.waiting('take')) return;
       if (this.hostOld()) { this.say(t('barrow.server_old')); return; }
-      this.claim('take', keyOf(...chunkOf(...tile)), { tile: [...tile], i, id: it[0] }, v => { if (!v) return; if (v.ok) { if (C.held || this.rec) this.dropNear(v.id || it[0], v.day ?? null, tile); else give(v.id || it[0], v.day ?? null); } else this.say(t('barrow.missed')); });
+      this.claim('take', keyOf(...chunkOf(...tile)), { tile: [...tile], i, id: it[0] }, v => { if (!v) return; if (v.ok) { if (C.held || this.rec) this.dropNear(v.id || it[0], v.day ?? null, tile, it[2]); else give(v.id || it[0], v.day ?? null); } else this.say(t('barrow.missed')); });
       return;
     }
     const { d, k } = this.dataAt(tile);
@@ -333,14 +334,14 @@ export class Barrow {
   }
   // (a big thing that arrived for hands that are full meanwhile: on the ground beside it, never lost; with no room, its
   // parts to the backpack)
-  dropNear(id, day, tile) { this.game.carry?.toShore([id, me(), day, tile[0] + 0.5, tile[1] + 0.5], tile[0] + 0.5, tile[1] + 0.5, true); }
+  dropNear(id, day, tile, cq = null) { this.game.carry?.toShore([id, me(), day, tile[0] + 0.5, tile[1] + 0.5, 0, cq], tile[0] + 0.5, tile[1] + 0.5, true); }
   // (a request's big thing back to whoever asked: to the arms if they are free, if not beside the wheelbarrow)
-  giveBack(id, day, tile) {
+  giveBack(id, day, tile, cq = null) {
     const C = this.game.carry;
     if (!C || !BULKY[id]) return;
-    if (!C.bigNow) C.giveParts(id);
-    else if (!C.held && !this.rec) C.set(id, day);
-    else this.dropNear(id, day, tile);
+    if (!C.bigNow) C.giveParts(id, cq);
+    else if (!C.held && !this.rec) C.set(id, day, cq);
+    else this.dropNear(id, day, tile, cq);
     this.game.onSave?.();
   }
   // (playing as a guest of a game or a world server too old to answer the wheelbarrow's requests)
@@ -571,10 +572,10 @@ export class Barrow {
         const R = this.findRecord(c.rec, k), tile = Array.isArray(c.tile) ? c.tile.map(Number) : null;
         const raw = tile && w.ownAt('placed', tile[0], tile[1]);
         if (R && R.r.by === c.by && cleanLoads(R.r.l).length < LOADS && raw && raw.split('@')[0] === c.id && BULKY[c.id] && !g.carry?.reservedFor(tile, c.by)) {
-          const day = this.dayAt(tile);
+          const day = this.dayAt(tile), cq = this.cqAt(tile);
           if (w.unplace({ tile, layer: 'placed', placed: c.id }) !== false) {
             this.forget(tile);
-            R.r.l = [...cleanLoads(R.r.l), [c.id, this.dayFix(c.id, day)]];
+            R.r.l = cleanLoads([...cleanLoads(R.r.l), [c.id, this.dayFix(c.id, day), cq]]);
             w.note(...xyOf(R.k));
             ok = true;
           }
@@ -584,7 +585,7 @@ export class Barrow {
         if (tile && this.isAt(tile)) {
           const { d: dt, k: kt } = this.dataAt(tile), B = ((dt.barrow ||= {})[kt] ||= { id: 't' + kt, l: [] }), l = cleanLoads(B.l);
           if (c.k === 'take' && l[c.i]?.[0] === c.id) { extra.id = l[c.i][0]; extra.day = l[c.i][1]; B.l = l.filter((_, j) => j !== c.i); ok = true; }
-          if (c.k === 'put' && l.length < LOADS && BULKY[c.id]) { B.l = [...l, [c.id, Number.isFinite(c.day) ? c.day : null]]; ok = true; }
+          if (c.k === 'put' && l.length < LOADS && BULKY[c.id]) { B.l = cleanLoads([...l, [c.id, Number.isFinite(c.day) ? c.day : null, c.cq]]); ok = true; }
           if (ok) w.touch(...chunkOf(...tile));
         }
       } else if (c.k === 'boat') {
@@ -639,7 +640,7 @@ export class Barrow {
         const [tx, ty] = xyOf(tp);
         if (!isBarrow(d.placed?.[tp])) {
           // (e) its tile is something else now: its big things to the ground near it
-          for (const [id, day] of cleanLoads(B?.l)) g.carry?.toShore([id, null, day, tx + 0.5, ty + 0.5], tx + 0.5, ty + 0.5, false);
+          for (const [id, day, cq] of cleanLoads(B?.l)) g.carry?.toShore([id, null, day, tx + 0.5, ty + 0.5, 0, cq], tx + 0.5, ty + 0.5, false);
           delete d.barrow[tp]; touched = true;
           continue;
         }
@@ -647,6 +648,8 @@ export class Barrow {
         if (keep.length === l.length) continue;
         B.l = keep; touched = true;
         const chest = d.chest[tp] ||= padStacks(null);
+        const lost = l.filter(e => !keep.includes(e)).reduce((n, e) => n + (e[2]?.[3] || 0), 0);   // (the arrows that were in them)
+        for (let i = 0; i < lost; i++) if (!addTo(chest, 'flecha', 1)) g.gather?.addDrop({ id: 'flecha', x: tx + 0.5, y: ty + 0.5, z: 4, vz: 30, t: 0, scene: w });
         for (let i = 0; i < l.length - keep.length; i++) { const n = 1 + (Math.random() < 0.5 ? 1 : 0); if (!addTo(chest, 'hueso', n)) g.carry?.bones(tx, ty, w); }
       }
       // (b) records: alive only if they are this game's own, or their pusher is here and says they push (their newest one)
@@ -676,9 +679,11 @@ export class Barrow {
 
   // ---------- the days of a carcass, by the world's chunks (the host may be in a cave meanwhile: Carry.dayAt asks the scene) ----------
   dayAt(tile) { const d = this.game.world.delta(...chunkOf(...tile)); const v = d?.carcass?.[String(tile)]; return Number.isFinite(v) ? v : null; }
+  cqAt(tile) { const d = this.game.world.delta(...chunkOf(...tile)), q = cleanCq(d?.cq?.[String(tile)]); return q && dayOfCq(q) >= (this.dayAt(tile) ?? 0) ? q : null; }
   forget(tile) {
     const w = this.game.world, d = w.delta(...chunkOf(...tile)), k = String(tile);
     if (d?.carcass) delete d.carcass[k];
+    if (d?.cq) delete d.cq[k];
     if (d?.firstPick) delete d.firstPick[k];
     this.game.carry?.splits?.delete(k);
   }

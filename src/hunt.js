@@ -8,17 +8,24 @@
 // quién pegan y él les dice si lo han matado (lo que suelta es para quien lo mata); la lista sin ese animal les llega
 // a todos con los animales. En pantalla táctil, sin cursor, se pega al que esté delante y hace falta un arma.
 //
-// Wounds (Plan G §3.2): an arrow knows where it hit (archery.js strike → zoneOf): the chest band is vital (×VITAL_MUL,
-// at most VITAL_CAP), a weak arrow, the top or the rump only grazes. The host applies it (a guest only says which zone:
-// hita.z) and, when a deer or a boar survives, makes it bleed (wildlife.js wound): heavily at HEAVY_AT of its hp or less,
-// or after a vital hit (a graze never makes it heavy). A heavy wound skips the 30 s heal; when it bleeds out, bledOut
+// Wounds (Plan G §3.2): an arrow knows where it hit (archery.js strike → zoneOf, the organs of anatomy.js): the chest is
+// vital (×VITAL_MUL, at most VITAL_CAP), the spine kills at once, a weak arrow, the top or the rump only grazes (HIT_MUL).
+// The host applies it (a guest only says which zone: hita.z) and, when a deer or a boar survives, makes it bleed
+// (wildlife.js wound): heavily at HEAVY_AT of its hp or less, or after a vital or a liver hit (a graze never makes it
+// heavy; a gut hit bleeds lightly but never heals). A heavy wound skips the 30 s heal; when it bleeds out, bledOut
 // removes it like a kill, the host places its carcass where it lies (carry.placeCarcass) and whoever wounded it gets the
 // rest of the reward (preydead with bled). Hitting one locks its trail for you (tracks.js lock, why 'blood').
+//
+// The carcass (Plan R3-3, quality.js): the host keeps how it was shot (e.shot: the arrows that hit it, a gut hit, the blows)
+// and the arrows stuck in it (e.arrows: a guest's hita says st: 1 when its arrow stays in), and writes its record when it
+// dies: it goes with the carcass it places, or to whoever killed it (preydead.cq; ar, the arrows, without a carcass).
 import { ANIMALS } from './art/farm.js';
 import { Audio } from './audio.js';
+import { ZONE, GRAZE_DMG, organOf } from './anatomy.js';
+import { qualityOn, recordOf, cleanCq, killDrops, starsOf, starText } from './quality.js';
 import { Profile } from './accounts.js';
 import { obb } from './world/fit.js';
-import { distOf, dxOf } from './world/planet.js';
+import { distOf } from './world/planet.js';
 import { roll } from './xp.js';
 import { woundsOn, trailKey } from './wildlife.js';
 import { scaleOf, nameKey } from './herds.js';
@@ -27,10 +34,10 @@ import { t, noun } from './i18n.js';
 const HEAL_AFTER = 30000, HURT = 0.4, PANIC = 2.5, SCARED = 5;
 const r2 = v => Math.round(v * 100) / 100;
 const me = () => Profile.id || 'yo';
-// Where an arrow hit (Plan G §3.2): the rest of the body, the chest band (vital) or a graze
-export const ZONE = { body: 0, vital: 1, graze: 2 };
+export { ZONE, GRAZE_DMG };     // (where an arrow hit: anatomy.js)
 export const ARROW_MAX = 6;     // an arrow's base damage at most (archery.js MAX_DMG, a full draw): the host clamps a guest's
-export const VITAL_MUL = 1.5, VITAL_CAP = 9, HEAVY_AT = 0.35, GRAZE_DMG = 2;
+export const VITAL_MUL = 1.5, VITAL_CAP = 9, HEAVY_AT = 0.35;
+export const HIT_MUL = { [ZONE.vital]: VITAL_MUL, [ZONE.liver]: 1.2, [ZONE.gut]: 0.8, [ZONE.leg]: 0.6 };
 const LIE_H = 0.6;              // a lying animal's box is this share of its height
 const BLED_NEAR = 60;           // a bled-out animal whose carcass the host could not place: its drops fall only if you are this near
 
@@ -61,20 +68,9 @@ export function bodyBox(e) {
   const k = scaleOf(e), [hw, back, front, h] = BODY[e.type], d = e.worldDir?.() || e.dir || [0, 1], a = Math.atan2(d[0], d[1]), mid = (front - back) / 2 * k;
   return { ...obb(e.x + Math.sin(a) * mid, e.y + Math.cos(a) * mid, hw * k, (front + back) / 2 * k, a), y0: 0, y1: h * k * (e.lying || e.bedded ? LIE_H : 1) + (ANIMALS[e.type].swims ? 0.3 : 0) };
 }
-// Which zone of a wild land animal a hit point [x, height, y] is in (gy: the ground under the animal; dmg: the arrow's).
-// The chest band (15-45 % of the length from the front, 35-75 % of the box's height) is vital; a weak arrow (dmg ≤
-// GRAZE_DMG), the top 15 % or the rear 15 % only graze. Without a point (an old caller), or for anything else: the body
-export function zoneOf(e, hit, gy, dmg) {
-  const A = ANIMALS[e.type];
-  if (!A?.wild || A.swims || !BODY[e.type] || !Array.isArray(hit) || !hit.every(Number.isFinite)) return ZONE.body;
-  if (dmg <= GRAZE_DMG) return ZONE.graze;
-  const b = bodyBox(e), v = dxOf(hit[0], b.x) * b.vx + (hit[2] - b.y) * b.vy;
-  const along = (b.hy - v) / (2 * b.hy || 1), up = (hit[1] - gy - b.y0) / ((b.y1 - b.y0) || 1);   // (0 at the front / the ground)
-  if (up > 0.85 || along > 0.85) return ZONE.graze;
-  // (lying, its box is low and the chest sits in its lower part)
-  if (along >= 0.15 && along <= 0.45 && up <= 0.75 && (e.lying || e.bedded || up >= 0.35)) return ZONE.vital;
-  return ZONE.body;
-}
+// Which zone of a wild land animal a hit point [x, height, y] is in (gy: the ground under the animal; dmg: the arrow's; dir:
+// the way it flies). Without a point (an old caller), or for anything else: the body
+export const zoneOf = (e, hit, gy, dmg, dir = null) => organOf(e, hit, gy, dmg, dir);
 
 // The noun of an animal: of a herd, what it is (a hind, a calf, a sow); else its species
 export function kindNoun(e) {
@@ -119,48 +115,59 @@ export class Hunt {
     this.damage(e, dmg, [p.x, p.y], null);
   }
   // Una flecha que le da (lo decide quien la dispara). zone: where it hit (ZONE, archery.js strike)
-  shot(e, dmg, zone = ZONE.body) {
+  // stays: the arrow is left in it (a real one, not a creative player's)
+  shot(e, dmg, zone = ZONE.body, stays = false) {
     const g = this.game, p = g.player;
     e.hurt = HURT;
     if (ANIMALS[e.type].wild) e.lockAsk = g.time;
     g.gather.chips(e.x, e.y, PREY[e.type].chips || 'dirt', 4);
     g.skills?.gain('combate', 1);
-    if (g.live.guest) g.live.net?.send({ t: 'hita', id: e.id, dmg, x: r2(p.x), y: r2(p.y), far: 1, ...(zone ? { z: zone } : {}) }, g.live.hostConn);
-    else this.damage(e, this.arrowDmg(dmg, zone), [p.x, p.y], null, { zone });
+    if (g.live.guest) g.live.net?.send({ t: 'hita', id: e.id, dmg, x: r2(p.x), y: r2(p.y), far: 1, ...(zone ? { z: zone } : {}), ...(stays ? { st: 1 } : {}) }, g.live.hostConn);
+    else this.damage(e, this.arrowDmg(dmg, zone, e), [p.x, p.y], null, { zone, arrow: true, stays });
   }
   // (quien lleva el mundo) An arrow's damage: the base clamped to a full draw, and the vital multiplier. With ?wounds=0, as
   // before (no clamp, no multiplier: the overall cap of 10 is hitBy's)
-  arrowDmg(dmg, zone) {
+  // (the spine, with an arrow that is not a weak one: whatever it had left)
+  arrowDmg(dmg, zone, e = null) {
     if (!woundsOn()) return dmg;
     const base = Math.min(ARROW_MAX, Math.max(0, dmg));
-    return zone === ZONE.vital ? Math.min(VITAL_CAP, base * VITAL_MUL) : base;
+    if (zone === ZONE.spine && e && this.bleeds(e) && base > GRAZE_DMG) return Math.max(base, e.hp ?? 0, PREY[e.type].hp);
+    return Math.min(VITAL_CAP, base * (HIT_MUL[zone] || 1));
   }
   // Can this animal bleed? (wild ones on land: deer and boar; never farm animals or pets, nor the swan on its lake)
   bleeds(e) { const A = ANIMALS[e.type]; return !!A?.wild && !A.swims && woundsOn(); }
   // (quien lleva el mundo) from: desde dónde; by: la conexión de quien ha pegado (null: tú); zone: where an arrow hit;
-  // peer: the profile id of whoever hit (by a guest), for the carcass of a bled-out animal
-  damage(e, dmg, from, by, { zone = ZONE.body, peer = null } = {}) {
+  // peer: the profile id of whoever hit (by a guest), for the carcass of a bled-out animal; arrow: an arrow (stays: left in it)
+  damage(e, dmg, from, by, { zone = ZONE.body, peer = null, arrow = false, stays = false } = {}) {
     const g = this.game, def = PREY[e.type], bleeds = this.bleeds(e);
     const now = Date.now();   // (en tiempo de verdad, como el celo de los animales)
     // (while it bleeds it does not heal: a light wound heals HEAL_AFTER after it stops, wildlife.js; a heavy one, never)
-    if (e.hp === undefined || (!(bleeds && e.bleed > 0) && now - e.hitAt > HEAL_AFTER)) e.hp = def.hp;
+    if (e.hp === undefined || (!(bleeds && e.bleed > 0) && now - e.hitAt > HEAL_AFTER)) { e.hp = def.hp; e.shot = null; }   // (healed, it is whole again)
     e.hp -= dmg; e.hitAt = now; e.hurt = HURT;
+    if (ANIMALS[e.type].wild) {
+      const s = e.shot ||= { n: 0, gut: 0, melee: 0 };
+      if (arrow) { s.n++; if (zone === ZONE.gut) s.gut++; if (stays) e.arrows = Math.min(99, (e.arrows || 0) + 1); } else if (dmg > 0) s.melee++;
+      e.lastZone = arrow ? zone : undefined;
+    }
     this.scare(e, from);
     if (e.hp > 0) { if (bleeds) this.wound(e, zone, from, by, peer); return false; }
     if (ANIMALS[e.type].wild) { g.wildlife.list.splice(g.wildlife.list.indexOf(e), 1); g.wildlife.lost(e); }
     else g.ranch.remove(e);
-    if (by === null) this.reward(e);
-    else g.live.net?.send({ t: 'preydead', id: e.id, type: e.type, young: !!e.young, ...(e.female ? { female: 1 } : {}), x: r2(e.x), y: r2(e.y), ...(e.sx !== undefined ? { sx: e.sx, sy: e.sy } : {}) }, by);   // (sx, sy: whose trail it was, optional)
+    const cq = this.recordOf(e), ar = e.arrows || 0;
+    if (by === null) this.reward({ type: e.type, young: e.young, female: e.female, x: e.x, y: e.y, id: e.id, sx: e.sx, sy: e.sy, cq, ar });
+    else g.live.net?.send({ t: 'preydead', id: e.id, type: e.type, young: !!e.young, ...(e.female ? { female: 1 } : {}), x: r2(e.x), y: r2(e.y), ...(e.sx !== undefined ? { sx: e.sx, sy: e.sy } : {}), ...(cq ? { cq } : {}), ...(ar ? { ar } : {}) }, by);   // (sx, sy: whose trail it was; cq, ar: its record and its arrows: optional)
     return true;
   }
+  // (host) The record of the carcass of a wild land animal, or null (quality.js)
+  recordOf(e) { const A = ANIMALS[e.type]; return A?.wild && !A.swims && qualityOn() ? recordOf(e, this.game) : null; }
   // (quien lleva el mundo) It survived the hit: it bleeds (wildlife.js runs the wound). Heavy at HEAVY_AT of its hp or after
   // a vital hit; a graze only lightly. Your own hit locks its trail for you
   wound(e, zone, from, by, peer) {
     const g = this.game, max = PREY[e.type].hp;
     e.hpMax = max;
-    const heavy = zone !== ZONE.graze && (zone === ZONE.vital || e.hp <= max * HEAVY_AT);
+    const heavy = zone !== ZONE.graze && (zone === ZONE.vital || zone === ZONE.liver || zone === ZONE.gut || e.hp <= max * HEAVY_AT);
     e.by = by === null ? { me: true } : { conn: by, id: peer };
-    g.wildlife.wound(e, heavy ? 2 : 1, from);
+    g.wildlife.wound(e, heavy ? 2 : 1, from, zone);
     if (by === null && e.lockAsk !== undefined) { e.lockAsk = undefined; g.tracks?.lock(trailKey(e), 'blood'); }
   }
   // Salir corriendo, lejos de quien pega
@@ -177,9 +184,9 @@ export class Hunt {
     if (peer.at && distOf(peer.at[0], peer.at[1], a.x, a.y) > (msg.far ? 60 : 5)) return;   // (con una flecha, de más lejos)
     // (the zone only picks the multiplier, applied here to a clamped base: a guest cannot make a hit stronger; melee and an
     // old client's arrow are the body)
-    const zone = msg.far && (msg.z === ZONE.vital || msg.z === ZONE.graze) ? msg.z : ZONE.body;
+    const zone = msg.far && Number.isInteger(msg.z) && msg.z >= ZONE.vital && msg.z <= ZONE.spine ? msg.z : ZONE.body;
     const dmg = Math.min(10, Math.max(0, msg.dmg));
-    this.damage(a, msg.far ? this.arrowDmg(dmg, zone) : dmg, [msg.x, msg.y], conn, { zone, peer: peer.id ?? null });
+    this.damage(a, msg.far ? this.arrowDmg(dmg, zone, a) : dmg, [msg.x, msg.y], conn, { zone, peer: peer.id ?? null, arrow: !!msg.far, stays: !!msg.far && msg.st === 1 });
   }
   // (invitado) Has matado a uno: ya no está y lo que suelta es para ti (bled: it bled out of your wound; placed: the host
   // left its carcass where it lies)
@@ -189,18 +196,22 @@ export class Hunt {
     if (ANIMALS[msg.type].wild && !Number.isFinite(msg.sx)) { const w = W.list.find(w => w.id === msg.id); if (w) msg = { ...msg, sx: w.sx, sy: w.sy }; }   // (an old host does not say its spawn point)
     if (ANIMALS[msg.type].wild) W.list = W.list.filter(w => w.id !== msg.id);
     else if (a) R.remove(a); else R.gone.add(msg.id);
-    this.reward(msg);
+    this.reward({ ...msg, cq: qualityOn() ? cleanCq(msg.cq) : null, ar: Number.isInteger(msg.ar) ? Math.max(0, Math.min(99, msg.ar)) : 0 });
   }
   // Lo que suelta (la cría, solo un trozo de carne), y lo que se aprende. bled: it bled out (far from you, maybe): its
   // carcass was placed by the host (placed), or else what it leaves falls only if you are in the world and near it
-  // (id, sx, sy: a wild one's trail, so following it counts: tracks.js taken)
-  reward({ type, young, female, x, y, bled = 0, placed = 0, id, sx, sy }) {
+  // (id, sx, sy: a wild one's trail, so following it counts: tracks.js taken; cq: the record of its carcass; ar: the arrows in
+  // it, in its record if it leaves a carcass; else they fall with the rest)
+  reward({ type, young, female, x, y, bled = 0, placed = 0, id, sx, sy, cq = null, ar = 0 }) {
     const g = this.game, def = PREY[type], p = g.player;
     if (ANIMALS[type].wild && id !== undefined && Number.isFinite(sx) && Number.isFinite(sy)) g.tracks?.taken(trailKey({ id, sx, sy }), !!bled);
     const here = !bled || (g.scene === g.world && p && Number.isFinite(x) && Number.isFinite(y) && distOf(p.x, p.y, x, y) < BLED_NEAR);
     if (!placed && here) {
       // (with the weight inventory, an adult deer, boar, cow, sheep, goat or pig leaves its carcass, to carry in the arms: carry.js)
-      if (young || !g.carry?.hunted(type, x, y, !!female)) g.gather.spawnDrops({ x, y }, { drops: young ? [[def.drops[0][0], 1, 1]] : female && type === 'ciervo' ? def.drops.filter(d => d[0] !== 'asta') : def.drops });   // (a hind has no antlers)
+      const body = !young && !!g.carry?.hunted(type, x, y, !!female, cq);
+      if (!body) g.gather.spawnDrops({ x, y }, { drops: young ? [[def.drops[0][0], 1, 1]] : killDrops(female && type === 'ciervo' ? def.drops.filter(d => d[0] !== 'asta') : def.drops, cq, g.days.now) });   // (a hind has no antlers)
+      if (ar && !(body && cq)) this.dropArrows(x, y, ar);
+      if (cq && !young) g.gather.float(starText(starsOf(cq, g.days.now)), '#ffe08a');
       g.gather.chips(x, y, def.chips || 'dirt', 16);
     }
     if (!bled) Audio.noiseHit(180, 0.2, 0.35);
@@ -221,11 +232,18 @@ export class Hunt {
     W.list.splice(i, 1);
     W.lost(w);
     const by = w.by || null, forId = !g.live?.joined ? null : by?.me ? (Profile.id || null) : (by?.id ?? null);
-    const placed = !w.young && (g.carry?.bigNow || Profile.server) && !!g.carry?.placeCarcass(w.type, w.x, w.y, forId, !!w.female);
-    const msg = { id: w.id, type: w.type, young: !!w.young, ...(w.female ? { female: 1 } : {}), x: r2(w.x), y: r2(w.y), bled: 1, placed: placed ? 1 : 0, sx: w.sx, sy: w.sy }, conn = by && !by.me ? this.connOf(by) : null;
+    const cq = this.recordOf(w), ar = w.arrows || 0;
+    const placed = !w.young && (g.carry?.bigNow || Profile.server) && !!g.carry?.placeCarcass(w.type, w.x, w.y, forId, !!w.female, cq);
+    if (ar && !(placed && cq)) this.dropArrows(w.x, w.y, ar);   // (here: whoever wounded it may be far, or gone)
+    const msg = { id: w.id, type: w.type, young: !!w.young, ...(w.female ? { female: 1 } : {}), x: r2(w.x), y: r2(w.y), bled: 1, placed: placed ? 1 : 0, sx: w.sx, sy: w.sy, ...(cq ? { cq } : {}) }, conn = by && !by.me ? this.connOf(by) : null;
     if (by?.me && !Profile.server) this.reward(msg);
     else if (conn !== null) g.live.net.send({ t: 'preydead', ...msg }, conn);
     return true;
+  }
+  // Arrows that were in an animal, on the ground (as things to pick up: they are not stuck in anything)
+  dropArrows(x, y, n) {
+    const g = this.game;
+    for (let i = 0; i < n; i++) g.gather?.addDrop({ id: 'flecha', x: x + (Math.random() - 0.5) * 0.6, y: y + (Math.random() - 0.5) * 0.6, z: 4, vz: 40, t: 0, scene: g.world });
   }
   // The connection now of a guest ({ conn, id } of who hit): if theirs dropped and came back, the one with their profile id.
   // null: not here

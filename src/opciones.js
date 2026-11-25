@@ -50,6 +50,8 @@ const RAW = (() => { try { return new URLSearchParams(globalThis.location?.searc
 // Plan R3-1 (the wild animals' senses, docs/planes/realismo/PLAN-R3-caza.md): sentidos (?sentidos=0 on the host: they run from
 // whoever comes within their fear radius, as before; no heel or point of the dog; nor the ring and the wind mark)
 // Plan R3-2 (herds, src/herds.js): manadas (?manadas=0 on the host: single animals at random round each player, as before)
+// Plan R3-3 (clean kills, src/quality.js): calidad (?calidad=0: no record is written or read: no stars, nothing to gut, the yields
+// and the weights of before; the carcasses that have one keep it untouched)
 // Plan R8-2 (the maps, docs/planes/realismo/PLAN-R8-hud-mapa.md): sat (?sat=0: the maps' ground as before, 1 px per tile made
 // in the game's own thread; no satellite pictures, nothing built on them)
 // Plan R8-5 (the big map in 3D, src/three/map3d.js): mapa3d (?mapa3d=0: the big map is always flat)
@@ -65,7 +67,7 @@ export const PARTES = { hierba: 'sinlod', impostores: null, relieve: null, conta
   cuerpo: null, frio: null, crecer: null, desgaste: null, comentarios: null,
   vinculo: null, alforjas: null, montar: 'arcade', cuidado: null,
   tracks: null, wounds: null, naturebook: null,
-  sentidos: null, manadas: null, routines: null,
+  sentidos: null, manadas: null, calidad: null, routines: null,
   soporte: null, refugio: null, obra: null, deterioro: null, sat: null, mapa3d: null, sitios: '1', siluetas: null };
 
 // El valor tal cual (o null)

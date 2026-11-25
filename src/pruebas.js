@@ -147,6 +147,9 @@ import { ANIMALS } from './art/farm.js';
 import { Presence } from './presence.js';
 import { windAt } from './wind.js';
 import { ZONE, zoneOf, kindName } from './hunt.js';
+import { hitBody, aimPoint, READING } from './anatomy.js';
+import * as QL from './quality.js';
+import { cleanLoads } from './barrow.js';
 import { SPECIES, SPECIES_IDS, GROUPS, REWARDS } from './nature.js';
 import { DOOR, PLAZA, distToPath, doorOf, getProjects, familyHouse } from './world/village.js';
 
@@ -1126,8 +1129,10 @@ async function soloTests(game) {
       // Con comida en la mano, el clic es para comer
       inv.add('pan', 1); inv.select(inv.slots.findIndex(s => s?.id === 'pan'));
       const e = R.summon('gallina', X + 1.4, Y); e.wait = 9999; aimAt(e.x, 0.3, e.y); g.target = g.pickTarget(); check(!g.target?.prey, 'con pan en la mano, pega'); R.remove(e); R.gone.delete(e.id); inv.remove('pan', 1);
-      // El salvaje huye de quien va de pie; de quien va agachado, solo muy de cerca
+      // El salvaje huye de quien va de pie; de quien va agachado, solo muy de cerca (at noon: in the dark of the real clock a
+      // deer sees hardly anything, senses.js lightAt, and it had not noticed anybody standing 3 m away when the test looked)
       const W = game.wildlife, d = W.summon('ciervo', X + 3, Y); W.t = -999;
+      game.days.hourAt = () => 12;
       p.crouch = true; const at = [d.x, d.y]; await frames(20);
       check(W.list.includes(d) && Math.hypot(d.x - at[0], d.y - at[1]) < 2 && !(d.scared > game.time), 'huye de quien va agachado');
       p.crouch = false; d.tx = d.x; d.ty = d.y; d.wait = 0; const at2 = [d.x, d.y]; for (let i = 0; i < 180 && !d.flight; i++) await frames(1); await frames(20);   // (it looks up, and it runs: senses.js)
@@ -1136,13 +1141,13 @@ async function soloTests(game) {
       d.x = X + 1.3; d.y = Y; const v = count('carne_venado');
       for (let i = 0; i < 9 && W.list.includes(d); i++) { game.hunt.hit(d, ITEMS.espada); check(i || d.scared > game.time, 'no se asusta'); }
       check(!W.list.includes(d), 'el ciervo sigue vivo'); check(!game.carry.bigNow || openBig(game, d.x, d.y), 'the deer left no carcass');
-      await collectDrops(game); check(count('carne_venado') >= v + 2, 'el ciervo no suelta carne');
+      await collectDrops(game); check(count('carne_venado') >= v + 1, 'el ciervo no suelta carne');   // (finished off with blows: one star, quality.js)
       // Todo lo que sueltan existe y vale algo, y la carne se asa en la cocina y alimenta más
       for (const [t, def] of Object.entries(PREY)) for (const [id] of def.drops) { check(ITEMS[id], `${t} suelta ${id}`); check(priceOf(id) > 0, `${id} no vale nada`); }
       for (const id of Object.keys(ITEMS).filter(k => k.startsWith('carne_'))) { const r = RECIPES.find(r => r.station === 'cocina' && r.ins[0][0] === id); check(r && ITEMS[r.out].food > ITEMS[id].food, `${id} no se asa`); check(itemIcon(id) && itemIcon(r.out), `sin icono: ${id}`); }
       check(RECIPES.some(r => r.out === 'cuero' && r.ins[0][0] === 'piel') && RECIPES.some(r => r.ins.some(([i]) => i === 'cuero')), 'la piel no sirve de nada');
       check(priceOf('vela') === 29, `la vela vale ${priceOf('vela')}`);   // (las recetas nuevas no cambian lo que ya valía)
-    } finally { game.mouse = was; game.highlight = null; p.crouch = false; inv.slots.splice(0, inv.slots.length, ...kept); inv.select(sel); }
+    } finally { delete game.days.hourAt; game.mouse = was; game.highlight = null; p.crouch = false; inv.slots.splice(0, inv.slots.length, ...kept); inv.select(sel); }
   });
   await test('establo: abierto se entra y se ve a los de dentro; cerrado, no', async () => {
     await goTo(game, 60, 36);
@@ -10683,20 +10688,20 @@ async function soloTests(game) {
     await goTo(game, s.x, s.y + 12);
     await stillWild(async (W, summon) => {
       const d = summon('ciervo', s.x, s.y); d.dir = [1, 0];
-      const gy = game.view3d.groundY(w(), d.x, d.y), b = bodyBox(d), H = b.y1 - b.y0;
-      const at = (along, up) => { const v = b.hy - along * 2 * b.hy; return [b.x + b.vx * v, gy + b.y0 + up * H, b.y + b.vy * v]; };
-      check(zoneOf(d, at(0.3, 0.55), gy, 6) === ZONE.vital, 'the chest is not vital');
-      check(zoneOf(d, at(0.3, 0.15), gy, 6) === ZONE.body, 'a leg is vital');
-      check(zoneOf(d, at(0.95, 0.5), gy, 6) === ZONE.graze, 'the rump is not a graze');
-      check(zoneOf(d, at(0.3, 0.95), gy, 6) === ZONE.graze, 'the top of the back is not a graze');
-      check(zoneOf(d, at(0.3, 0.55), gy, 2) === ZONE.graze, 'a weak arrow in the chest is not a graze');
+      // (a point of it: side, height, ahead, in metres; the organs lie in its trunk: anatomy.js)
+      const gy = game.view3d.groundY(w(), d.x, d.y), at = (z, h) => [d.x + z, gy + h, d.y + 0.2];
+      check(zoneOf(d, at(0.28, 1), gy, 6) === ZONE.vital, 'the chest is not vital');
+      check(zoneOf(d, at(0.3, 0.4), gy, 6) === ZONE.leg, 'a leg is vital');
+      check(zoneOf(d, at(-0.45, 0.95), gy, 6) === ZONE.graze, 'the rump is not a graze');
+      check(zoneOf(d, at(0.3, 1.255), gy, 6) === ZONE.graze, 'the top of the back is not a graze');
+      check(zoneOf(d, at(0.28, 1), gy, 2) === ZONE.graze, 'a weak arrow in the chest is not a graze');
       check(zoneOf(d, null, gy, 6) === ZONE.body, 'no point is not the body');
-      check(zoneOf(game.ranch.summon('vaca', s.x + 3, s.y), at(0.3, 0.55), gy, 6) === ZONE.body, 'a cow has zones');
+      check(zoneOf(game.ranch.summon('vaca', s.x + 3, s.y), at(0.28, 1), gy, 6) === ZONE.body, 'a cow has zones');
       game.ranch.remove(game.ranch.animals.at(-1));
       // archery.strike: the zone from where the arrow met the box; an old caller without a point, the body
       const Hn = game.hunt, got = [];
       Hn.shot = (e, dmg, z) => got.push(z);
-      try { game.archery.strike({ dmg: 6, scene: null }, d); game.archery.strike({ dmg: 6, scene: null }, d, at(0.3, 0.55)); } finally { delete Hn.shot; }
+      try { game.archery.strike({ dmg: 6, scene: null }, d); game.archery.strike({ dmg: 6, scene: null }, d, at(0.28, 1)); } finally { delete Hn.shot; }
       check(got[0] === ZONE.body && got[1] === ZONE.vital, `strike gives zones ${got}`);
     });
   });
@@ -10887,6 +10892,336 @@ async function soloTests(game) {
       check(H.arrowDmg(6, ZONE.vital) === 6 && H.arrowDmg(9, ZONE.body) === 9, 'wounds off: the arrow damage changes');
       d.hitAt -= 30001; H.damage(d, 1, from, null); check(d.hp === 7, `wounds off: not healed after 30 s (hp ${d.hp})`);
     } finally { Wildlife.wounds = was; W.list = W.list.filter(a => a !== d); }
+  });
+  // ---------- Plan R3-3 (clean kills, the arrows and the carcass: docs/planes/realismo/PLAN-R3-caza.md §8) ----------
+  // A record (quality.js), with what one wants of it changed
+  const rec = (o = {}) => { const q = [70, 0, 0, 0, Math.round(game.days.now), 1, 0]; return [o.q ?? q[0], o.gut ?? 0, o.sex ?? 0, o.ar ?? 0, o.at ?? q[4], o.size ?? 1, o.f ?? 0]; };
+  const MINUTE = 60e3, HOUR1 = 3600e3;
+  // An animal standing still, side on to whoever shoots from the south of it, on open ground
+  const shooting = async fn => {
+    const [tx, ty] = openGround(96, 60); await goTo(game, tx + 0.5, ty + 6.5);
+    const A = game.archery, H = game.hunt, list = A.list, fl = game.gather.float, floats = [];
+    game.gather.float = (x, c) => { floats.push(String(x)); return fl.call(game.gather, x, c); };
+    A.list = [];
+    const ground = () => game.view3d.groundY(w(), tx + 0.5, ty + 0.5);
+    // (an arrow about to meet it at `ahead` metres forward of its middle and `up` over the ground, coming along dir)
+    const shot = (e, ahead, up, { dir = [0, 0, -1], dmg = 6, power = 1, free = false } = {}) => {
+      const f = e.dir, l = Math.hypot(...f), q = [e.x + f[0] / l * ahead, ground() + up, e.y + f[1] / l * ahead], n = Math.hypot(...dir), u = dir.map(v => v / n);
+      return A.add({ id: `t-${Math.random()}`, x: q[0] - u[0] * 1.6, h: q[1] - u[1] * 1.6, y: q[2] - u[2] * 1.6, vx: u[0] * 24 * power, vh: u[1] * 24 * power + 0.5, vy: u[2] * 24 * power, dmg, power, mine: true, free, scene: w(), from: null });
+    };
+    const land = async () => { await frames(10); await until(() => A.list.every(a => a.stuck), 8000, 'the arrows landing'); };
+    try { await stillWild((W, summon) => fn({ W, H, A, floats, summon, shot, land, x: tx + 0.5, y: ty + 0.5, gy: ground() })); }
+    finally { A.list = list; delete game.gather.float; game.gather.float = fl; dropCarcass(tx + 0.5, ty + 0.5); TR().unlock(); await collectDrops(game); }
+  };
+  await test('zones (english): organs and angle', async () => {
+    await shooting(async ({ summon, x, y, gy }) => {
+      for (const type of ['ciervo', 'jabali']) {
+        const e = summon(type, x, y), T = type === 'ciervo' ? { lo: 0.7, hi: 1.26, front: 0.5, len: 1 } : { lo: 0.2, hi: 0.83, front: 0.5, len: 1 };
+        for (const dir of [[1, 0], [0.6, -0.8]]) {   // (it turns, and the organs with it)
+          e.dir = dir;
+          const at = (u, v, side = 0.15) => { const z = T.front - u * T.len; return [x + dir[0] * z - dir[1] * side, gy + T.lo + v * (T.hi - T.lo), y + dir[1] * z + dir[0] * side]; };
+          const want = [[0.2, 0.5, 'vital'], [0.4, 0.3, 'vital'], [0.5, 0.5, 'liver'], [0.7, 0.4, 'gut'], [0.5, 0.88, 'spine'], [0.2, 0.9, 'spine'], [0.95, 0.5, 'graze'], [0.3, 0.99, 'graze'], [0.3, -0.3, 'leg']];
+          for (const [u, v, z] of want) check(zoneOf(e, at(u, v), gy, 6) === ZONE[z], `${type} at ${u}, ${v}: ${zoneOf(e, at(u, v), gy, 6)} and not ${z}`);
+          check(zoneOf(e, at(-0.3, 0.8), gy, 6) === ZONE.body, `${type}: the neck`);
+          check(zoneOf(e, at(0.3, 1), gy, 6, [dir[1] * 0.92, -0.4, -dir[0] * 0.92]) === ZONE.spine && zoneOf(e, at(0.3, 1), gy, 6, [dir[1] * 0.6, -0.8, -dir[0] * 0.6]) === ZONE.vital, `${type}: coming down on its back`);
+          // The angle: broadside and quartering keep them; from the front or from behind, not
+          const fwd = [dir[0], 0, dir[1]], back = [-dir[0], 0, -dir[1]], right = [dir[1], 0, -dir[0]], quarter = [dir[0] * 0.7 + right[0] * 0.7, 0, dir[1] * 0.7 + right[2] * 0.7];
+          check(zoneOf(e, at(0.2, 0.5), gy, 6, right) === ZONE.vital && zoneOf(e, at(0.2, 0.5), gy, 6, quarter) === ZONE.vital, `${type}: broadside or quartering away`);
+          check(zoneOf(e, at(0.2, 0.5), gy, 6, back) === ZONE.body && zoneOf(e, at(0.2, 0.5), gy, 6, fwd) === ZONE.gut && zoneOf(e, at(0.96, 0.5), gy, 6, fwd) === ZONE.gut, `${type}: head-on ${zoneOf(e, at(0.2, 0.5), gy, 6, back)}, from behind ${zoneOf(e, at(0.2, 0.5), gy, 6, fwd)}`);
+        }
+        // The same of a small one, and lying down
+        e.dir = [1, 0]; Object.assign(e, { traits: true, female: true, size: 0.9 });
+        const k = type === 'ciervo' ? 0.81 : 0.81;
+        check(zoneOf(e, [x + 0.3 * k, gy + (T.lo + 0.5 * (T.hi - T.lo)) * k, y], gy, 6) === ZONE.vital, `${type}: a small hind's or sow's chest`);
+        Object.assign(e, { traits: false, female: false, lying: true });
+        check(zoneOf(e, [x + 0.3, gy + 0.28, y], gy, 6) === ZONE.vital && zoneOf(e, [x - 0.2, gy + 0.2, y], gy, 6) === ZONE.gut, `${type}: lying`);
+      }
+    });
+  });
+  await test('zones (english): an arrow meets its body, not its box, and the cursor picks where', async () => {
+    await shooting(async ({ W, summon, shot, land, A, x, y, gy }) => {
+      const e = summon('ciervo', x, y); e.dir = [1, 0];
+      const meet = (o, d) => hitBody(e, gy, o, d, 10);
+      check(meet([x, gy + 1, y + 3], [0, 0, -1])?.part === 'trunk' && meet([x + 0.33, gy + 0.3, y + 3], [0, 0, -1])?.part === 'leg' && meet([x + 0.7, gy + 1.4, y + 3], [0, 0, -1])?.part === 'head', 'its parts');
+      check(!meet([x, gy + 1.6, y + 3], [0, 0, -1]), 'an arrow over its back hits'); check(!meet([x, gy + 0.4, y + 3], [0, 0, -1]), 'one between its legs hits');
+      e.grazing = true; check(meet([x + 0.75, gy + 0.5, y + 3], [0, 0, -1])?.part === 'head', 'grazing, its head is not down'); e.grazing = false;
+      const a = shot(e, 0, 1.62); await land(); check(a.stuck && e.hp === undefined && W.list.includes(e), 'the arrow over its back did not go on');
+      // The cursor, from a camera above: at the pointed part; off it, the nearest of the trunk
+      const ray = (tx2, ty2, th) => { const o = [x + 1, gy + 9, y + 9], d = [tx2 - o[0], th - o[1], ty2 - o[2]], l = Math.hypot(...d); return [o, d.map(v => v / l)]; };
+      const chest = aimPoint(e, gy, ...ray(x + 0.28, y + 0.24, gy + 1), 0), rump = aimPoint(e, gy, ...ray(x - 0.4, y + 0.24, gy + 1), 0);
+      check(zoneOf(e, chest, gy, 6) === ZONE.vital && zoneOf(e, rump, gy, 6) === ZONE.graze, `aimed: ${zoneOf(e, chest, gy, 6)}, ${zoneOf(e, rump, gy, 6)}`);
+      const off = aimPoint(e, gy, ...ray(x + 0.2, y, gy + 1.9), 12); check(off[1] < gy + 1.3 && Math.hypot(off[0] - x, off[2] - y) < 0.6, `off it: ${off}`);
+    });
+  });
+  await test('zones (english): the host runs each wound', async () => {
+    await shooting(async ({ W, H, summon, x, y }) => {
+      const from = [p().x, p().y], mk = (dx, type = 'ciervo') => { const e = summon(type, x + dx, y); e.dir = [1, 0]; return e; };
+      const D = z => H.arrowDmg(6, z, { type: 'ciervo', hp: 8 });
+      check(D(ZONE.vital) === 9 && Math.abs(D(ZONE.liver) - 7.2) < 1e-9 && Math.abs(D(ZONE.gut) - 4.8) < 1e-9 && Math.abs(D(ZONE.leg) - 3.6) < 1e-9 && D(ZONE.body) === 6 && D(ZONE.graze) === 6, 'the damage of each zone');
+      const sp = mk(-2); H.shot(sp, 3, ZONE.spine); check(!W.list.includes(sp), 'the spine does not kill at once');
+      const weak = mk(-2); H.shot(weak, 2, ZONE.spine); check(W.list.includes(weak), 'a weak arrow breaks the spine'); W.list = W.list.filter(q => q !== weak);
+      // The liver: heavy, no hp lost, dead within 2 to 4 minutes
+      const li = mk(0); H.shot(li, 6, ZONE.liver);
+      check(li.bleed === 2 && !li.gutshot && li.endT >= WOUND.LIVER_FOR[0] && li.endT <= WOUND.LIVER_FOR[1], `liver: bleed ${li.bleed}, end ${li.endT}`);
+      const hp = li.hp; W.list = [li]; for (let i = 0; i < 110; i++) W.bleedAll(1); check(W.list.includes(li) && li.hp === hp, `the liver at 110 s: hp ${li.hp}`);
+      for (let i = 0; i < 140 && W.list.length; i++) W.bleedAll(1); check(!W.list.length, 'the liver at 250 s');
+      dropCarcass(x, y);
+      // The gut: a light trail that never heals, dead within 6 to 8 minutes; followed at once, it gets up from twice as far
+      const gu = mk(0); W.list = [gu]; H.shot(gu, 6, ZONE.gut);
+      check(gu.bleed === 2 && gu.gutshot && gu.run && gu.endT >= 360 && gu.endT <= 480, `gut: ${gu.bleed}, ${gu.endT}`);
+      const L = game.live, keep = { joined: L.joined, net: L.net }, sent = []; L.joined = true; L.net = { send: m => sent.push(m), peers: new Map() };
+      try { W.sendT = 1; W.update(1 / 60); } finally { L.joined = keep.joined; L.net = keep.net; }
+      check(sent.find(m => m.t === 'wild')?.w[0][6] === 1, `its trail is sent as ${sent.find(m => m.t === 'wild')?.w[0][6]}`);
+      const real = Object.getPrototypeOf(W).moveWounded, walk = d => { gu.lying = true; gu.run = false; gu.downTill = 0; real.call(W, gu, 1 / 60, [{ x: gu.x + d, y: gu.y, crouch: false }], KINDS.ciervo); return !gu.lying; };
+      gu.downAt = game.time; check(walk(6) && !walk(8), 'within the minute'); gu.downAt = game.time - 61; check(!walk(6) && walk(3), 'after it');
+      for (let i = 0; i < 350; i++) W.bleedAll(1); check(W.list.includes(gu), 'the gut at 350 s'); for (let i = 0; i < 140 && W.list.length; i++) W.bleedAll(1); check(!W.list.length, 'the gut at 490 s');
+      dropCarcass(gu.x, gu.y);
+      // Then the chest: it bleeds as any other heavy wound
+      const tw = mk(0, 'jabali'); W.list = [tw]; H.shot(tw, 4, ZONE.gut); check(tw.endT > 0, 'a boar in the gut'); H.shot(tw, 3, ZONE.vital); check(tw.endT === undefined && !tw.gutshot && tw.bleed === 2, 'a gut-shot one, then the chest');
+      // A leg: light, it limps, and it heals
+      const le = mk(0); W.list = [le]; H.shot(le, 6, ZONE.leg); check(le.bleed === 1 && le.limp === WOUND.LEG_LIMP, `leg: ${le.bleed}, limp ${le.limp}`);
+      for (let i = 0; i < 91; i++) W.bleedAll(1); check(le.bleed === 0 && !le.limp, 'the leg does not heal');
+      // A guest says the zone, the host clamps: an old one says none
+      const hit = (z, more = {}) => { const e = mk(0); W.list = [e]; H.hitBy('c1', { id: 'g', at: from }, { id: e.id, dmg: 6, far: 1, x: from[0], y: from[1], ...(z === undefined ? {} : { z }), ...more }); return e; };
+      check(hit(undefined).hp === 2 && Math.abs(hit(ZONE.gut).hp - 3.2) < 1e-9 && hit(99).hp === 2 && hit('1').hp === 2, 'the zones a guest says');
+      check(hit(ZONE.gut, { st: 1 }).arrows === 1 && !hit(ZONE.gut).arrows, 'the arrows a guest leaves in it');
+      W.list = [];
+    });
+  });
+  await test('arrows (english): pass-through and recovery', async () => {
+    await weightOn();
+    const I = inv(), kept = I.slots.slice();
+    try {
+      I.slots.fill(null); I.changed();
+      await shooting(async ({ W, H, A, floats, summon, shot, land, x, y, gy }) => {
+        // Through the chest: it lands behind it, with blood
+        const B = summon('jabali', x, y); B.dir = [1, 0];
+        const z0 = y, key = trailKey(B); shot(B, 0.28, 0.55); await land();
+        const a = A.list[0];
+        check(A.list.length === 1 && a.b === ZONE.vital && a.tr === key && a.stuck && !B.arrows, `after the chest: ${JSON.stringify(A.list.map(q => [q.b, q.stuck]))}`);
+        check(z0 - a.y >= 1.5 && z0 - a.y <= 6.5, `it lands ${z0 - a.y} behind`);
+        check(B.bleed === 2 && B.hp === 1, `the boar: ${B.hp}`);
+        // Picked up, it says so and locks its trail
+        TR().unlock(); p().x = a.x; p().y = a.y; await frames(30);
+        check(!A.list.length && I.count('flecha') === 1 && floats.includes(t('hunt.arrow.lungs')), `picked: ${I.count('flecha')}, ${floats}`);
+        if (!TR().off) check(TR().locked === key, 'its trail is not locked');
+        W.list = [];
+        p().x = x; p().y = y + 6;
+        // A short draw, head-on, the gut: they stay in it
+        for (const [why, o] of [['a short draw', [0.28, 1, { power: 0.5, dmg: 3 }]], ['head-on', [0.45, 1, { dir: [-1, 0, 0] }]], ['the gut', [-0.2, 0.95, {}]]]) {
+          const d = summon('ciervo', x, y); d.dir = [1, 0]; W.list = [d]; A.list = [];
+          if (why === 'a short draw') d.hp = undefined;
+          shot(d, ...o); await frames(16);
+          check(d.arrows === 1 && !A.list.length, `${why}: ${d.arrows} in it, ${A.list.length} on the ground`);
+        }
+        // A creative one's goes nowhere; a graze goes on past it
+        { const d = summon('ciervo', x, y); d.dir = [1, 0]; W.list = [d]; A.list = []; shot(d, -0.2, 0.95, { free: true }); await frames(16); check(!d.arrows, 'a creative arrow stays to be given back');
+          A.list = []; shot(d, -0.45, 1); await land(); check(A.list.length === 1 && A.list[0].b === ZONE.graze, `a graze: ${JSON.stringify(A.list.map(q => q.b))}`); }
+        // It comes back when it is cut up, in the field or at the kitchen; and sold
+        dropCarcass(x, y); await collectDrops(game); p().x = x; p().y = y + 6; I.remove('flecha', I.count('flecha'));
+        const d = summon('ciervo', x, y); d.dir = [1, 0]; W.list = [d]; A.list = [];
+        shot(d, -0.2, 0.95); await frames(16); shot(d, 0.45, 1, { dir: [-1, 0, 0] }); await frames(16);
+        check(!W.list.includes(d), `two arrows do not kill it: ${d.hp}`);
+        const c = near('carcass_deer', x, y, 2), q = c && game.carry.cqAt(c.tile);
+        check(q && q[3] === 2 && q[6] & QL.F.TAINTED && q[6] & QL.F.MANY, `its record: ${JSON.stringify(q)}`);
+        check(QL.fieldDrops('carcass_deer', q, game.days.now).some(e => e[0] === 'flecha' && e[1] === 2) && QL.kitchenList('carcass_deer', q, game.days.now).some(e => e[0] === 'flecha' && e[1] === 2) && QL.partsList('carcass_deer', q, game.days.now).some(e => e[0] === 'flecha'), 'the arrows in it');
+        const n = I.count('flecha'); game.carry.butcher(c); await collectDrops(game); check(I.count('flecha') === n + 2, `butchered: ${I.count('flecha') - n} arrows`);
+        // Shed on the way, and left behind by one that goes away alive
+        p().x = x; p().y = y + 6; A.list = []; game.gather.drops.length = 0;
+        const s2 = summon('ciervo', x, y); W.list = [s2]; Object.assign(s2, { arrows: 2, shedT: 0.01, shedZ: ZONE.leg, vx: 1, vy: 0 });
+        W.bleedAll(0.05); check(s2.arrows === 1 && A.list.length === 1 && A.list[0].b === ZONE.leg && A.list[0].mine, 'nothing shed'); await land(); check(Math.hypot(A.list[0].x - x, A.list[0].y - y) < 2, 'shed elsewhere');
+        W.leave(s2); check(game.gather.drops.filter(q2 => q2.id === 'flecha').length === 1 && s2.arrows === 0, 'the arrow of one that goes is lost');
+        game.gather.drops.length = 0;
+        // Young ones and the slot inventory: with what it leaves
+        A.list = []; H.reward({ type: 'ciervo', young: true, x, y, ar: 2 }); check(game.gather.drops.filter(q2 => q2.id === 'flecha').length === 2, 'a fawn keeps them'); game.gather.drops.length = 0;
+        // A farm animal: it falls by it
+        const cow = game.ranch.summon('vaca', x, y); cow.dir = [1, 0]; cow.wait = 9999; W.list = []; A.list = [];
+        shot(cow, 0, 0.7); await land(); game.ranch.remove(cow); game.ranch.gone.delete(cow.id);
+        check(A.list.length === 1 && A.list[0].b === undefined && Math.hypot(A.list[0].x - x, A.list[0].y - y) < 2, `by the cow: ${A.list.length}`);
+        // The others: an old game's 'arrow' has no b; a wrong one is an ordinary arrow
+        A.list = []; const g0 = { x, h: gy + 1, y, vx: 0, vh: 0, vy: -1, id: 'n1' }; A.ghost(g0, 'c1'); A.ghost({ ...g0, id: 'n2', b: ZONE.gut, tr: key }, 'c1'); A.ghost({ ...g0, id: 'n3', b: 'x', tr: 7 }, 'c1');
+        check(A.list[0].b === undefined && A.list[1].b === ZONE.gut && A.list[1].tr === key && A.list[2].b === undefined && A.list[2].tr === undefined, 'the arrows of the others');
+        // Drawn stained, and clean with the blood off
+        const red = Settings.v.blood; A.list = [{ ...A.list[1], stuck: true, age: 0 }];
+        try { Settings.v.blood = true; draw(); const g1 = game.view3d.arrows.pool[0].children[0].geometry; Settings.v.blood = false; draw(); check(g1 !== game.view3d.arrows.pool[0].children[0].geometry, 'with the blood off it is stained'); } finally { Settings.v.blood = red; }
+        for (const k of READING) for (const L2 of ['', '.plain']) check(t(`hunt.arrow.${k}${L2}`) !== `hunt.arrow.${k}${L2}`, `no text: ${k}${L2}`);
+      });
+    } finally { I.slots.splice(0, I.slots.length, ...kept); I.changed(); }
+  });
+  await test('quality (english): stars', async () => {
+    const now = game.days.now, S = (q, at = now) => QL.starsOf(q, at), dayMs = (m, d) => Date.UTC(2026, m - 1, d, 12), own = Object.getOwnPropertyDescriptor(game.days, 'now');
+    const of = (e, shot, ms) => { Object.defineProperty(game.days, 'now', { value: ms, configurable: true }); try { return QL.recordOf({ type: 'ciervo', x: 60, y: 30, shot, ...e }, game); } finally { delete game.days.now; if (own) Object.defineProperty(game.days, 'now', own); } };
+    const one = { n: 1, gut: 0, melee: 0 }, prime = { traits: true, age: 2, size: 1 }, jan = dayMs(1, 10);
+    const A = of(prime, one, jan);
+    check(S(A, jan) === 3, `a prime stag, one arrow, at once: ${A}`);
+    check(S(of(prime, { ...one, n: 3 }, jan), jan) === 2 && S(of(prime, { ...one, n: 2, gut: 1 }, jan), jan) === 1, 'three arrows; two, one in the gut');
+    check(S(of({ traits: true, age: 1, size: 1 }, one, jan), jan) === 2 && S(of({ traits: true, age: 3, size: 1 }, one, jan), jan) === 3 && S(of({}, one, jan), jan) === 2, 'an adult, an old one, one nobody knows');
+    check(S(of({}, { n: 0, gut: 0, melee: 3 }, jan), jan) === 1, 'finished off with blows');
+    check(of(prime, one, dayMs(10, 1))[0] - A[0] === 15 && of({ ...prime, female: true }, one, dayMs(10, 1))[0] - A[0] === 5 && of(prime, one, dayMs(3, 10))[0] - A[0] === -5, 'the rut, the autumn, the end of the winter');
+    check(A[6] & QL.F.ANTLERS && !(of(prime, one, dayMs(4, 10))[6] & QL.F.ANTLERS) && !(of({ ...prime, female: true }, one, jan)[6] & QL.F.ANTLERS), 'the antlers');
+    // The time: ungutted 50 warm minutes is one star less, 50 cold ones nothing
+    const W = rec({ f: QL.F.WARM }), C = rec({});
+    check(S(W, W[4] + 44 * MINUTE) === 3 && S(W, W[4] + 50 * MINUTE) === 2 && S(W, W[4] + 13 * HOUR1) === 1, 'warm, ungutted');
+    check(S(C, C[4] + 110 * MINUTE) === 3 && S(C, C[4] + 130 * MINUTE) === 2, 'cold, ungutted');
+    const G1 = rec({ f: QL.F.WARM | QL.F.WARM_GUT, gut: W[4] + 10 * MINUTE }); check(S(G1, W[4] + 11 * HOUR1) === 3 && S(G1, W[4] + 13 * HOUR1) === 2, 'gutted, warm');
+    const G2 = rec({ gut: W[4] + 10 * MINUTE }); check(S(G2, W[4] + 23 * HOUR1) === 3 && S(G2, W[4] + 25 * HOUR1) === 2, 'gutted, cold');
+    const G3 = rec({ f: QL.F.WARM, gut: W[4] + 60 * MINUTE }); check(S(G3, W[4] + 61 * MINUTE) === 2 && QL.whyOf(G3, W[4] + 61 * MINUTE) === 'late', 'gutted late');
+    check(S(null) === 2 && QL.kgOf('carcass_deer', null) === 35, 'an old carcass');
+    for (const bad of [null, 'x', [], [70], [70, 0, 0, 0, 'x', 1, 0], [-1, 0, 0, 0, 5, 1, 0], { 0: 70 }]) check(QL.cleanCq(bad) === null, `cleaned: ${JSON.stringify(bad)}`);
+    check(JSON.stringify(QL.cleanCq([70, 0, 5, 1e9, 5, 99, 1e9])) === JSON.stringify([70, 0, 1, 0, 5, 1, 0]), 'cleaned values');
+    check(QL.whyOf(rec({ f: QL.F.TAINTED }), now) === 'gut' && ['gut', 'arrows', 'late', 'melee', 'thin'].every(k => t(`hunt.quality.why.${k}`) !== `hunt.quality.why.${k}`), 'why');
+    // Warm or cold by where and when
+    check(typeof QL.warmAt(game, 30, 30) === 'boolean', 'the air');
+  });
+  await test('quality (english): gutting', async () => {
+    await weightOn();
+    const [tx, ty] = openGround(96, 60); await goTo(game, tx + 0.5, ty + 1.7);
+    const C = game.carry, put = (q, id = 'carcass_deer') => { dropCarcass(tx + 0.5, ty + 0.5); C.placeCarcass('ciervo', tx + 0.5, ty + 0.5, null, id === 'carcass_hind', q); return near(id, tx + 0.5, ty + 0.5, 2); };
+    const d = () => w().delta(Math.floor(tx / 16), Math.floor(ty / 16));
+    try {
+      p().stop();
+      let o = put(rec({ size: 1.1 })); check(o && C.cqAt(o.tile), 'no record');
+      let a = game.placedAction(o); check(a.text === t('carry.carry_stars', { item: noun('item', 'carcass_deer'), stars: '★★★', kg: Math.round(35 * 1.1) }) && a.alt.text === t('carry.gut') && a.alt.hold === 0.3, `E says ${a.text}, X ${a.alt?.text}`);
+      // A tap: nothing (X must be held: ui/prompts.js); held, it takes 6 s and moving leaves it
+      a.alt.run(); check(C.gutting, 'not gutting'); await frames(120); check(C.cqAt(o.tile)[1] === 0 && C.gutting?.t > 1.5, `after 2 s: ${C.gutting?.t}`);
+      check(game.placedAction(o).text === t('carry.gutting', { item: noun('item', 'carcass_deer') }), 'what it says meanwhile');
+      p().x += 0.6; await frames(2); check(!C.gutting && C.cqAt(o.tile)[1] === 0, 'it goes on after moving'); p().x -= 0.6; await frames(2);
+      const blood = game.body?.blood || 0, v0 = d().v;
+      game.placedAction(o).alt.run(); await frames(380);
+      const q = C.cqAt(o.tile);
+      check(q[1] > 0 && !C.gutting && d().v > v0, `not gutted: ${q}`); check(QL.kgOf('carcass_deer', q) === Math.round(35 * 1.1 * 0.75) && C.game === game, `kg ${QL.kgOf('carcass_deer', q)}`);
+      if (game.body && !game.body.off.surface) check(game.body.blood > blood, 'no blood on you');
+      check(Object.keys(d().gut || {}).length === 1 && !(String(o.tile) in d().gut), `the gut pile: ${JSON.stringify(d().gut)}`);
+      o = near('carcass_deer', tx + 0.5, ty + 0.5, 2); o = w().placedObjectAt(...o.tile); check(o.model === 'carcass_deer:gutted' || !QL.Gore.on, `its model: ${o.model}`);
+      const red = Settings.v.blood;
+      try {
+        Settings.v.blood = true; draw(); const G = game.view3d.guts; G.t = -9; draw(); check(G.pool.some(m => m.visible), 'no gut pile drawn');
+        Settings.v.blood = false; draw(); draw(); check(!G.pool.some(m => m.visible) && w().placedObjectAt(...o.tile).model !== 'carcass_deer:gutted', 'with the blood off it shows');
+      } finally { Settings.v.blood = red; draw(); }
+      // Held again: butchered there
+      a = game.placedAction(o); check(a.alt.text === t('carry.butcher') && a.alt.hold === 0.3, `then X: ${a.alt.text}`);
+      // In the arms: lighter, a bit faster, and the record goes with it, there and back, and through the save
+      C.take(o); check(C.held && JSON.stringify(C.cq) === JSON.stringify(q) && C.armsKg() === Math.round(35 * 1.1 * 0.75) && C.speedMul() > 0.8, `in the arms: ${JSON.stringify(C.cq)}, ${C.speedMul()}`);
+      check(!d().cq?.[String(o.tile)], 'its record stays on the ground');
+      const saved = JSON.parse(JSON.stringify(inv().toSave())), back = new WeightInventory(saved); check(JSON.stringify(back.armsSaved?.cq) === JSON.stringify(q), `saved: ${JSON.stringify(back.armsSaved)}`);
+      const old = new Inventory(saved); check(old.armsSaved.id === 'carcass_deer', 'the slot inventory does not read it');
+      check(C.drop(), 'not put down'); const o2 = near('carcass_deer', p().x, p().y, 3); check(JSON.stringify(C.cqAt(o2.tile)) === JSON.stringify(q), 'put down without its record');
+      // A stale record of an older game's carcass is not the new one's
+      w().setTile(...o2.tile, 'air'); C.forget(o2.tile); d().carcass = { ...(d().carcass || {}) }; (d().cq ||= {})['1,1'] = rec({ at: 5 * 864e5 }); C.tidy(`${Math.floor(tx / 16)},${Math.floor(ty / 16)}`, d()); check(!d().cq['1,1'], 'a lost record stays');
+      o = put(null); (d().cq ||= {})[String(o.tile)] = rec({ at: 5 * 864e5 }); check(C.cqAt(o.tile) === null && game.placedAction(o).alt.text === t('carry.butcher'), 'a stale record'); delete d().cq[String(o.tile)];
+      // Rotten: bones, and the arrows that were in it; the gut pile, gone in a day
+      o = put(rec({ ar: 2 })); d().carcass[String(o.tile)] = game.days.realDay - 2; game.gather.drops.length = 0; C.rot(); check(!near('carcass_deer', tx + 0.5, ty + 0.5, 2) && game.gather.drops.filter(x => x.id === 'flecha').length === 2 && !d().cq?.[String(o.tile)], 'the arrows of a rotten one'); game.gather.drops.length = 0;
+      for (const k in d().gut) d().gut[k] = game.days.now - QL.GUT_TTL - 1; C.rot(); check(!Object.keys(d().gut || {}).length, 'old gut piles stay');
+      // ?calidad=0: nothing of it
+      o = put(rec({})); QL.Quality.force = false;
+      try { const e = game.placedAction(o); check(e.text === t('carry.shoulder', { item: noun('item', 'carcass_deer') }) && e.alt.text === t('carry.butcher') && game.hunt.recordOf({ type: 'ciervo', x: 1, y: 1 }) === null, 'off: it still has stars'); C.take(o); check(C.cq === null, 'off: the arms'); C.set(null); } finally { QL.Quality.force = null; }
+    } finally { C.set(null); C.gutting = null; dropCarcass(tx + 0.5, ty + 0.5); if (d()) { delete d().gut; delete d().cq; } await collectDrops(game); }
+  });
+  await test('quality (english): yields and price', async () => {
+    const now = game.days.now, AN = QL.F.ANTLERS, n = (l, id) => l.filter(e => e[0] === id).reduce((s, e) => s + e[1], 0);
+    const kit = (id, q, roll = 0) => QL.kitchenList(id, q, now, roll), fld = (id, q) => QL.fieldDrops(id, q, now);
+    const q3 = rec({ f: AN }), q2 = rec({ q: 55, f: AN }), q1 = rec({ q: 30, f: AN });
+    check(n(fld('carcass_deer', q1), 'carne_venado') === 1 && n(fld('carcass_deer', q2), 'carne_venado') === 2 && n(fld('carcass_deer', q3), 'carne_venado') === 3, 'the field');
+    check(n(kit('carcass_deer', q1), 'carne_venado') === 2 && n(kit('carcass_deer', q2), 'carne_venado') === 3 && n(kit('carcass_deer', q3), 'carne_venado') === 4, 'the kitchen');
+    check(n(kit('carcass_deer', q1), 'hueso') === 0 && n(kit('carcass_deer', q2), 'hueso') === 1 && n(kit('carcass_deer', q3), 'piel') === 3 && n(kit('carcass_deer', q2), 'piel') === 2, 'the extra and the hide');
+    check(n(kit('carcass_deer', q1), 'asta') === 0 && n(kit('carcass_deer', q2, 0.5), 'asta') === 1 && n(kit('carcass_deer', q2, 0.7), 'asta') === 0 && n(kit('carcass_deer', q3, 0.99), 'asta') === 1 && n(kit('carcass_deer', rec({})), 'asta') === 0 && n(kit('carcass_hind', q3), 'asta') === 0, 'the antlers');
+    check(n(kit('carcass_boar', rec({ f: QL.F.TAINTED })), 'carne_jabali') === 3 && n(fld('carcass_boar', rec({ q: 30, f: QL.F.TAINTED })), 'carne_jabali') === 1, 'tainted: one less, never none');
+    for (const id of Object.keys(BULKY)) if (BULKY[id].prey) check(JSON.stringify(kit(id, null)) === JSON.stringify([...BULKY[id].drops.map(([m, , mx]) => [m, mx]), [BULKY[id].extra, 1]]) && JSON.stringify(fld(id, null)) === JSON.stringify(BULKY[id].drops.map(([m, mn, , c]) => [m, mn, mn, c])) && JSON.stringify(QL.partsList(id, null)) === JSON.stringify(BULKY_PARTS[id]), `${id} without a record is not as before`);
+    check(JSON.stringify(QL.killDrops(PREY.ciervo.drops, null, now)) === JSON.stringify(PREY.ciervo.drops), 'the drops of a kill with no record');
+    // Anselmo: base × stars × gutted × the village
+    const g = { gut: now - 1000 }, P = QL.carcassPrice;
+    check(P('carcass_deer', rec(g), now) === 270 && P('carcass_deer', rec({ ...g, q: 55 }), now) === 180 && P('carcass_deer', rec({ ...g, q: 20 }), now) === 99 && P('carcass_hind', rec({ ...g, q: 55 }), now) === 150 && P('carcass_boar', rec({ ...g, q: 55 }), now) === 160, 'gutted');
+    check(P('carcass_deer', rec({}), now) === 216 && P('carcass_deer', null, now) === 180 && P('carcass_deer', rec(g), now, 1.1) === 297 && P('carcass_cow', null, now) === 0 && P('log', null, now) === 0, 'ungutted, old, the village, a cow');
+    check(priceOf('carne_venado') === 30 && priceOf('piel') === 20 && priceOf('asta') === 60 && priceOf('carne_jabali') === 30, 'Rosa changes');
+  });
+  // What an hour of hunting gives, before (every carcass the same, the kitchen) and now, by how well it is shot
+  await test('quality (english): income', async () => {
+    const now = game.days.now; let seed = 12345; const R = () => { seed = (Math.imul(seed, 1103515245) + 12345) >>> 0; return seed / 4294967296; };
+    const val = l => l.reduce((s, [m, k]) => s + (m === 'flecha' ? 0 : priceOf(m) * k), 0), cooked = l => l.reduce((s, [m, k]) => s + (m === 'flecha' ? 0 : /^carne_/.test(m) ? (priceOf(m) * 1.5 + 8) * k : priceOf(m) * k), 0);
+    const KINDS = [['carcass_deer', 0.3], ['carcass_hind', 0.4], ['carcass_boar', 0.3]], pick = () => { let r = R(); for (const [id, k] of KINDS) { if (r < k) return id; r -= k; } return 'carcass_hind'; };
+    // (a hunter: how many arrows, how often in the gut, whether it is gutted in time; carcasses an hour, 15-30 min each)
+    const HUNT = { careful: { n: [0.85, 0.15, 0], gut: 0.05, late: 0.05, h: 2.6 }, usual: { n: [0.5, 0.35, 0.15], gut: 0.2, late: 0.25, h: 2.6 }, careless: { n: [0.2, 0.4, 0.4], gut: 0.4, late: 0.6, h: 2.6 } };
+    const out = {};
+    for (const [who, H] of Object.entries(HUNT)) {
+      const T = { before: 0, beforeCook: 0, kitchen: 0, cook: 0, whole: 0, stars: [0, 0, 0] }, N = 4000;
+      for (let i = 0; i < N; i++) {
+        const id = pick(), hind = id === 'carcass_hind', r = R(), age = r < 0.36 ? 1 : r < 0.72 ? 2 : 3, size = 0.9 + 0.05 * Math.floor(R() * 7), v = R(), n = v < H.n[0] ? 1 : v < H.n[0] + H.n[1] ? 2 : 3, gut = R() < H.gut;
+        const Q = QL.BASE_Q[age] + QL.Q_SIZE * (size - 1) - QL.Q_ARROW * (n - 1) - (gut ? QL.Q_GUT : 0) - (R() < H.late ? QL.Q_LATE : 0);
+        const q = rec({ q: Math.max(0, Q), gut: now - 1, size, f: (id === 'carcass_deer' && R() < 7 / 12 ? QL.F.ANTLERS : 0) | (gut ? QL.F.TAINTED : 0) });   // (the antlers, seven months of twelve)
+        T.before += val(QL.kitchenList(id, null, now)); T.beforeCook += cooked(QL.kitchenList(id, null, now));
+        const k = QL.kitchenList(id, q, now, R()); T.kitchen += val(k); T.cook += cooked(k); T.whole += QL.carcassPrice(id, q, now); T.stars[QL.starsOf(q, now) - 1]++;
+      }
+      out[who] = Object.fromEntries(['before', 'beforeCook', 'kitchen', 'cook', 'whole'].map(k => [k, Math.round(T[k] / N * H.h)])); out[who].stars = T.stars.map(v => Math.round(v / N * 100)).join('/');
+    }
+    console.log('income', JSON.stringify(out));
+    for (const [who, o] of Object.entries(out)) {
+      const best = Math.max(o.cook, o.whole), r = best / o.beforeCook;
+      check(who === 'careful' ? r > 0.95 && r < 1.35 : who === 'usual' ? r > 0.75 && r < 1.1 : r > 0.45 && r < 0.95, `${who}: ${JSON.stringify(o)}`);
+      check(o.whole < o.cook * 1.15 && o.whole > o.cook * 0.6, `${who}: whole ${o.whole} against cooked ${o.cook}`);
+    }
+  });
+  await test('quality (english): the wheelbarrow, the boat, the hands of another and old games', async () => {
+    await weightOn();
+    const C = game.carry, q = rec({ ar: 1, size: 1.1, gut: Math.round(game.days.now) }), same = v => JSON.stringify(v) === JSON.stringify(q), day = game.days.realDay;
+    check(same(cleanLoads([['carcass_deer', day, q]])[0][2]) && cleanLoads([['carcass_deer', day]])[0].length === 2 && cleanLoads([['carcass_cow', day, q]])[0].length === 2 && cleanLoads([['carcass_deer', day, 'x']])[0].length === 2, 'the loads of a wheelbarrow');
+    const [tx, ty] = openGround(); await goTo(game, tx + 0.5, ty + 3.5);
+    const was = game.mouse; game.mouse = null;
+    let o = placeBarrow(tx, ty);
+    try {
+      C.set('carcass_deer', day, q); WB().loadParked(o); check(!C.held && same(WB().loadsAt(o.tile)[0][2]), `on it: ${JSON.stringify(WB().loadsAt(o.tile))}`);
+      WB().takeLoad(o.tile, 0); check(C.held === 'carcass_deer' && same(C.cq), 'off it'); C.set(null);
+    } finally { game.mouse = was; const z = w().placedObjectAt(...o.tile); if (z) w().setTile(...z.tile, 'air'); }
+    // A boat's, and what is put on the shore
+    const L = ['carcass_deer', 'me', day, tx + 0.5, ty + 0.5, 'n', q]; check(C.toLand(L, tx + 0.5, ty + 0.5), 'no shore');
+    const c = near('carcass_deer', tx + 0.5, ty + 0.5, 4); check(same(C.cqAt(c.tile)), 'ashore without its record'); w().setTile(...c.tile, 'air'); C.forget(c.tile);
+    // Sawn into parts (the slot inventory, creative): its arrows too
+    check(QL.partsList('carcass_deer', q, game.days.now).some(e => e[0] === 'flecha' && e[1] === 1) && !QL.partsList('carcass_deer', q, game.days.now).some(e => e[0] === 'hueso'), 'its parts');
+    // Told to whoever killed it: with the record, or, by an old host, without
+    const H = game.hunt;
+    H.killed({ type: 'ciervo', young: false, x: tx + 0.5, y: ty + 0.5, id: 'zz', sx: 1, sy: 1, cq: q, ar: 1 }); let k = near('carcass_deer', tx + 0.5, ty + 0.5, 3); check(k && same(C.cqAt(k.tile)), 'the guest\'s carcass has no record'); w().setTile(...k.tile, 'air'); C.forget(k.tile);
+    game.gather.drops.length = 0;
+    H.killed({ type: 'ciervo', young: false, x: tx + 0.5, y: ty + 0.5, id: 'zy', sx: 1, sy: 1 }); k = near('carcass_deer', tx + 0.5, ty + 0.5, 3); check(k && C.cqAt(k.tile) === null && game.placedAction(k).alt.text === t('carry.butcher') && !game.gather.drops.length, 'an old host\'s'); w().setTile(...k.tile, 'air'); C.forget(k.tile);
+    H.killed({ type: 'ciervo', young: false, x: tx + 0.5, y: ty + 0.5, id: 'zx', cq: 'nonsense', ar: -5 }); k = near('carcass_deer', tx + 0.5, ty + 0.5, 3); check(k && C.cqAt(k.tile) === null && !game.gather.drops.length, 'a wrong one'); w().setTile(...k.tile, 'air'); C.forget(k.tile);
+    // What the host tells
+    const live = game.live, keep = { joined: live.joined, net: live.net }, sent = [], W = WL(), e = W.summon('ciervo', tx + 0.5, ty + 0.5);
+    try { live.joined = true; live.net = { send: (m, to) => sent.push([m, to]), peers: new Map([['g1', {}]]) };
+      H.hitBy('g1', { id: 'guest', at: [tx, ty] }, { id: e.id, dmg: 6, far: 1, z: ZONE.gut, st: 1, x: tx, y: ty }); H.hitBy('g1', { id: 'guest', at: [tx, ty] }, { id: e.id, dmg: 6, far: 1, z: ZONE.vital, x: tx, y: ty });
+    } finally { live.joined = keep.joined; live.net = keep.net; W.list = W.list.filter(a => a !== e); }
+    const m = sent.find(s => s[0].t === 'preydead')?.[0]; check(m?.ar === 1 && QL.cleanCq(m.cq) && m.cq[3] === 1 && m.cq[6] & QL.F.TAINTED && m.cq[6] & QL.F.MANY, `told: ${JSON.stringify(m)}`);
+    // The chunk's difference goes by its tiles
+    const ops = diffChunk({ cq: { '1,1': q } }, { cq: { '1,1': q, '2,2': q }, gut: { '3,3': 5 } }); check(ops.length === 2 && ops.every(x => x.length === 3), `the network: ${JSON.stringify(ops).slice(0, 120)}`);
+    // Dead with it in the arms: it stays with its record; into creative: its parts
+    C.set('carcass_boar', day, q); C.onDeath(100); const dd = near('carcass_boar', p().x, p().y, 3); check(dd && same(C.cqAt(dd.tile)), 'dead: its record'); w().setTile(...dd.tile, 'air'); C.forget(dd.tile);
+    game.gather.drops.length = 0;
+  });
+  await test('quality (english): Anselmo buys it', social(async () => {
+    await weightOn();
+    const C = game.carry, N = Nb(), keepR = Math.random, W = game.days.weather; game.days.weather = 'sol'; game.talk.auto = null;
+    N.friends.anselmo = { pts: 250, talk: 0, gift: -1, events: [3, 6], intro: 0 };
+    await goTo(game, 21, 27); const r = put('anselmo', 22.4, 27), open = N.isOpen; N.isOpen = id => id === 'anselmo';
+    try {
+      p().x = 21; p().y = 27;
+      C.set('carcass_deer', game.days.realDay, rec({ ar: 2, gut: Math.round(game.days.now) }));
+      const price = QL.carcassOffer(game), label = t('hunt.sell', { item: noun('item', 'carcass_deer'), price, stars: '★★★' }), m0 = game.money, I = inv(), n = I.count('flecha');
+      check(price === Math.round(270 * game.rep.sellFactor()), `offers ${price}`);
+      N.talk('anselmo', r); await toList(); check(opts().includes(label), `he says: ${opts()}`);
+      await pickOpt(label); await toList(); check(!C.held && game.money === m0 + price && I.count('flecha') === n + 2 && !opts().includes(label), `sold: ${game.money - m0}, ${I.count('flecha') - n} arrows`); Tk().stop();
+      // Nothing he buys: a cow, a log; closed; another neighbour
+      for (const [id, why] of [['carcass_cow', 'a cow'], ['log', 'a log']]) { C.set(id, game.days.realDay); check(QL.carcassOffer(game) === 0, why); } C.set(null); check(QL.carcassOffer(game) === 0, 'nothing');
+      C.set('carcass_hind', game.days.realDay); N.isOpen = () => false; N.talk('anselmo', r); await toList(); check(!opts().some(o => o.includes('★')), `closed: ${opts()}`); Tk().stop();
+    } finally { N.isOpen = open; delete N.isOpen; C.set(null); Tk().stop(); Math.random = keepR; game.days.weather = W; }
+  }));
+  await test('quality (english): cost', async () => {
+    const A = game.archery, list = A.list, W = WL(), keep = W.list; await goTo(game, 96, 60);
+    try {
+      W.list = []; for (let i = 0; i < 12; i++) { const e = W.summon(i % 2 ? 'ciervo' : 'jabali', 96 + i * 2, 52); e.dir = [1, 0]; }
+      const six = () => { A.list = []; for (let i = 0; i < 6; i++) A.add({ id: `c${i}`, x: 96, h: 60, y: 60, vx: 0, vh: 24, vy: -1, dmg: 6, power: 1, mine: true, free: true, scene: w(), from: null }); };
+      const time = () => { six(); const t0 = performance.now(); for (let i = 0; i < 60; i++) A.step(1 / 240); return (performance.now() - t0) / 60; };
+      time(); const full = time(); W.list = []; const ms = full - time();
+      const t1 = performance.now(); for (let i = 0; i < 600; i++) game.view3d.guts.update(game, w()); const gu = (performance.now() - t1) / 600;
+      console.log('cost', ms.toFixed(3), gu.toFixed(4));
+      check(ms < 1 && gu < 0.05, `12 animals for 6 arrows ${ms.toFixed(2)} ms a frame, the gut piles ${gu.toFixed(3)}`);
+    } finally { A.list = list; W.list = keep; }
   });
   // ---------- Plan R3-1 (the wild animals' senses, the wind and the dog: docs/planes/realismo/PLAN-R3-caza.md §8) ----------
   // A lab: a sunny noon on normal, the wind as asked (s its strength), nothing in between, no other animal; the animals'

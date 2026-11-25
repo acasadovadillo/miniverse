@@ -38,6 +38,7 @@ import { parsePlaced } from '../pieces.js';
 import { SHOPS } from '../economy.js';
 import { HOTBAR } from '../inventory.js';
 import { BULKY } from '../carry-items.js';
+import { isGame } from '../quality.js';
 import { Profile } from '../accounts.js';
 import { Settings } from '../settings.js';
 import { CAM } from '../camera.js';
@@ -96,6 +97,8 @@ const TIPS = {
   tracks: { key: null }, study: { key: null }, blood: { key: null },
   // (stalking, Plan R3: the ring, the wind mark, an animal that stares at you, your dog's point)
   ring: { key: null }, wind: { key: null }, freeze: { key: null }, point: { key: null },
+  // (the first hunted carcass within reach, not gutted yet: Plan R3-3)
+  gut: { key: null },
 };
 // (those three wait at least a minute after any other tip, and are only asked for when they could show at once: a tip
 // about prints that already went by would be noise. Not the blood one: it answers your own shot, and it is asked for as
@@ -576,6 +579,7 @@ export class SmartHud {
     if (C?.bigNow && T - this.started > 8) {
       if (C.held) this.want(p.mount ? 'ride' : p.boat ? 'bow' : 'arms');
       else if (!this.seen.has('bulky') && (g.scene?.placedNear?.(p.x, p.y, 2.2) || []).some(o => BULKY[o.placed])) this.want('bulky');   // (four times a second, until it is known)
+      else if (!this.seen.has('gut') && (g.scene?.placedNear?.(p.x, p.y, 2.2) || []).some(o => isGame(o.placed) && C.cqAt(o.tile)?.[1] === 0)) this.want('gut');
     }
     // A wheelbarrow within reach, and then pushing it (barrow.js), the first times: E, then Q
     if (g.barrow && T - this.started > 8) {

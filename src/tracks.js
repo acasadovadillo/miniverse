@@ -220,7 +220,7 @@ export class Tracks {
           const bx = a.x - ux * st.acc, by = a.y - uy * st.acc, o = SIDE * st.side;
           this.lay(rec, k, bx - uy * o, by + ux * o, yaw, -1, flee, 1, 0, 0, st.side < 0);
         }
-        const bl = Math.min(2, a.bleed | 0);
+        const bl = a.gutshot ? 1 : Math.min(2, a.bleed | 0);   // (shot in the gut it bleeds little, however bad it is: wildlife.js)
         if (bl > 0) {
           st.bacc += d;
           const every = BLOOD_EVERY[bl];

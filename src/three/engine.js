@@ -25,6 +25,7 @@ import { Actors, toolModel, swingArm, pullBow } from './actors.js';
 import { ITEMS } from '../items.js';
 import { Fx } from './fx.js';
 import { ArrowsView } from './arrows.js';
+import { GutView } from './gut3d.js';
 import { Tracks3D } from './tracks3d.js';
 import { Landmarks } from './landmarks3d.js';
 import { RoutineView } from './routine3d.js';
@@ -97,6 +98,7 @@ export class View3D {
     this.viewmodel = new THREE.Group(); this.viewmodel.visible = false; this.scene.add(this.viewmodel);
     this.fx = new Fx(this);
     this.arrows = new ArrowsView(this);
+    this.guts = new GutView(this);
     this.routine3d = new RoutineView(this);   // (the neighbours' routines: meals, the card, the windows, the bell)
     this.landmarks = new Landmarks(this);   // (what stands out far off: landmarks3d.js)
     this.tracks3d = new Tracks3D(this);   // (prints, blood and bent grass on the ground: src/tracks.js, Plan G)
@@ -523,6 +525,7 @@ export class View3D {
     this.fx.update(game, scene, sdt, t);
     routeGround(this, game, scene, t);   // (the marked route on the ground: nothing at all without one, route3d.js)
     this.arrows.update(game, scene);
+    this.guts.update(game, scene);
     this.tracks3d.update(game, scene);
     this.updateWater(t);
     // El suelo se moja con la lluvia (en un minuto) y se seca despacio (unos cinco); el agua, con sus gotas

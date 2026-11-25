@@ -1058,7 +1058,7 @@ export class Game {
           return;
         }
         for (const it of items || []) if (it) this.giveBack(it.id, it.n, it);
-        for (const [id, day] of loads) this.carry.toShore([id, Profile.id || 'me', day ?? null, dx + 0.5, dy + 1.5], dx + 0.5, dy + 1.5);   // (on the ground in front of the door, out of where the walls go; with no room, its parts to the backpack)
+        for (const [id, day, cq] of loads) this.carry.toShore([id, Profile.id || 'me', day ?? null, dx + 0.5, dy + 1.5, 0, cq], dx + 0.5, dy + 1.5);   // (on the ground in front of the door, out of where the walls go; with no room, its parts to the backpack)
       }
       // (lo construido, como al desmontarlo: sus materiales; ver pickUp. Un pozo en un hoyo del jardín, por ejemplo)
       const B = BUILDABLE[cid] || (PIECES[cid] && !ITEMS[cid] ? PIECES[cid] : null);

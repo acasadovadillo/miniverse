@@ -31,7 +31,8 @@ import { Audio } from './audio.js';
 import { hud } from './ui/hud.js';
 import { TalkUI } from './ui/talkui.js';
 import { accent } from './ui/skin.js';
-import { t, tList, has, formatMessage } from './i18n.js';
+import { carcassOffer, starsOf, starText } from './quality.js';
+import { t, tList, has, formatMessage, noun } from './i18n.js';
 
 export const WALK_R = 3.5, AWAY_S = 1.5;      // tiles away, or seconds going away: the talk is over
 export const SO_S = 15, IDLE_S = 25;          // s with the list and nothing picked: «So?», and the end
@@ -61,6 +62,8 @@ opt('chat', 10, c => !c.cold, c => t(c.T.chats ? 'talk.opt.more' : 'npc.opt.chat
 opt('ask', 20, c => !c.cold, () => t('talk.opt.ask'), c => c.talk.ask(c));
 opt('gift', 30, c => c.giftable, c => t('npc.opt.gift', { item: itemNoun(c.held.id) }), c => (c.game.inv.held === c.held ? c.N.gift(c.id, c.held, c.npc) : null));
 opt('deliver', 40, c => !!c.request && c.game.board.canDeliver(c.request), c => t('talk.opt.deliver', { what: countOf(c.request.item, c.request.n) }), c => c.N.deliver(c.id, c.npc, c.request));
+// A hunted carcass in the arms, at Anselmo's while his bar is open (Plan R3-3, quality.js)
+opt('carcass', 48, c => c.id === 'anselmo' && c.open && carcassOffer(c.game) > 0, c => t('hunt.sell', { item: noun('item', c.game.carry.held), price: carcassOffer(c.game), stars: starText(starsOf(c.game.carry.cq, c.game.days.now)) }), c => c.game.carry.sellCarcass(carcassOffer(c.game), () => c.talk.say(c.id, [any(tList('hunt.sold.anselmo'))])));
 opt('shop', 50, c => c.open, c => t(c.def.shopOpt || 'npc.opt.shop'), c => ({ line: 'handoff', open: () => c.game.onShop?.(c.def.shop) }));
 opt('mend', 52, c => c.def.mends && (c.open || !c.shop), () => t('npc.opt.mend'), c => ({ modal: true, open: () => c.N.mend(c.id) }));
 // (Bruno shoes your horse at his forge: horsecare.js)

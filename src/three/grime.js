@@ -32,6 +32,7 @@
 // The cheap chibi people (?arte=1, three/people.js) get no overlay. With ?cuerpo=0 realperson.js never installs it: the
 // persona program is exactly the one of before.
 import * as THREE from 'three';
+import { Gore } from '../quality.js';
 
 export const GRIME_UNIFORMS = ['uGrime', 'uGrime2', 'uTall'];
 const EPS = 0.01;   // (less than this on every channel: drawn clean, and the person goes back to the shared material)
@@ -157,7 +158,7 @@ const c01 = v => (v > 0 ? (v < 1 ? v : 1) : 0);
 export function writeGrime(mat, s, tall = 1.7) {
   const u = uniformsOf(mat);
   u.uGrime.value.set(c01(s.dirt), c01(s.mud), c01(s.wet), c01(s.snow));
-  u.uGrime2.value.set(c01(s.blood), c01(s.wetLegs), c01(s.sweat), c01(s.shiver));
+  u.uGrime2.value.set(Gore.on ? c01(s.blood) : 0, c01(s.wetLegs), c01(s.sweat), c01(s.shiver));   // (Settings › blood off: none is seen)
   u.uTall.value = tall;
 }
 export function clearGrime(mat) {

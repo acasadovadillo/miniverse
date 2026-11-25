@@ -2,9 +2,14 @@
 // la flecha, que vuela en parábola: cuanto más tensa, más lejos y más daña. Choca con la forma de lo que se ve (las barras
 // y los postes de las vallas, los muros, los troncos, las rocas, los muebles, los tejados: ver world/shots.js) y se clava
 // por la punta; por donde no hay nada, sigue volando. Se recoge con solo pasar por encima (o junto al muro o al tronco
-// donde se ha clavado, si se alcanza), también en creativo; la que da a un animal o a una criatura se pierde. En primera
-// persona va hacia la cruceta; en tercera, hacia el cursor (con el ángulo justo para llegar, si la fuerza da); sin ratón,
-// hacia delante.
+// donde se ha clavado, si se alcanza), también en creativo. En primera persona va hacia la cruceta; en tercera, hacia el
+// cursor (con el ángulo justo para llegar, si la fuerza da); sin ratón, hacia delante.
+// None is lost in an animal (Plan R3-3, docs/planes/realismo/PLAN-R3-caza.md §3.5): through the chest or the liver of a wild
+// one, with enough of a draw and not head-on, it goes out on the other side and lands 2 to 6 m behind it, with blood (a.b:
+// what it says of the hit when it is picked up, anatomy.js READING; tr: whose trail it locks); any other stays in a wild
+// animal and comes back when it is cut up (hunt.js, e.arrows; or it is shed on the way, shed), and what only grazes, or hits
+// a farm animal or a creature, falls by it. Each of these is a new arrow ('arrow', with b and tr, which an older game
+// ignores: an ordinary arrow). The bodies of deer and boar are their parts (anatomy.js), not their whole box.
 //
 // Jugando juntos, cada flecha la lleva quien la dispara: él decide a quién da. Los demás la ven volar con los mismos
 // datos, y cualquiera puede recogerla una vez clavada (también las del otro): la propia, al momento; la del otro se le
@@ -23,6 +28,10 @@ import { wrapX, nearX, WATER_Y } from './world/planet.js';
 import { shotHit } from './world/shots.js';
 import { WALL_H, ROOF } from './three/build3d.js';
 import { bodyBox, PREY, zoneOf } from './hunt.js';
+import { ANIMALS } from './art/farm.js';
+import { Settings } from './settings.js';
+import { trailKey } from './wildlife.js';
+import { ZONE, READING, PASS, GRAZE_DMG, hasOrgans, hitBody, aimPoint, angleOf, HEAD_ON } from './anatomy.js';
 import { EVENT, ARROW_R } from './senses.js';
 
 export const V = 24, G = 16;                    // lo que corre la flecha a toda fuerza (casillas por segundo) y lo que la baja
@@ -31,6 +40,10 @@ const AIR_TTL = 12, STUCK_TTL = 300, FREE_TTL = 60, PICK_AFTER = 0.3, PICK_NEAR 
 // (la flecha va por su centro, a.x/a.h/a.y; la punta, TIP por delante. Clavada, la punta entra SINK: más en la tierra)
 const TIP = 0.42, SINK = { ground: 0.18, solid: 0.09 };
 const MAX_ARROWS = 60;
+const BLOODY_TTL = 1200;                        // (s: one with blood waits longer than an ordinary one, you may come back to it)
+const THROUGH = { k: 0.35, v: [6, 11] };        // what is left of its speed past the animal, and between what (tiles a second)
+const FALL_V = 1.2, SHED_V = 0.6;
+const HIT = {};
 const r2 = v => Math.round(v * 100) / 100;
 
 export class Archery {
@@ -96,9 +109,10 @@ export class Archery {
   cursorPoint(m) {
     const g = this.game, ray = g.view3d.rayAt?.(m.x, m.y);
     let best = null, near = Infinity;
-    if (ray) for (const [, b, gy] of this.targets()) {
+    // (a deer or a boar, at the very part under the cursor)
+    if (ray) for (const [e, b, gy] of this.targets()) {
       const t = rayHits(ray.o, ray.d, { ...b, y0: b.y0 + gy, y1: b.y1 + gy });
-      if (t !== null && t < near) { near = t; best = [b.x, gy + (b.y0 + b.y1) / 2, b.y]; }
+      if (t !== null && t < near) { near = t; best = hasOrgans(e) ? aimPoint(e, gy, ray.o, ray.d, t) : [b.x, gy + (b.y0 + b.y1) / 2, b.y]; }
     }
     if (best) return best;
     const pt = g.mousePoint?.();
@@ -121,9 +135,28 @@ export class Archery {
     g.combat.exert(0.1);
     g.needs?.spend(RATES.bow);   // (drawing the bow costs stamina, but does not delay its refill: needs.js)
     Audio.swish();
-    const a = this.add({ id: `${Profile.id || 'yo'}-${++this.n}`, x: o[0], h: o[1], y: o[2], vx: d[0] * speed, vh: d[1] * speed, vy: d[2] * speed, dmg: Math.max(1, Math.round(MAX_DMG * power)), mine: true, free, scene: g.scene, from });
-    if (g.scene === g.world) g.live.net?.send({ t: 'arrow', id: a.id, x: r2(a.x), h: r2(a.h), y: r2(a.y), vx: r2(a.vx), vh: r2(a.vh), vy: r2(a.vy), free: free ? 1 : 0, o: from.map(r2) });
+    const a = this.add({ id: `${Profile.id || 'yo'}-${++this.n}`, x: o[0], h: o[1], y: o[2], vx: d[0] * speed, vh: d[1] * speed, vy: d[2] * speed, dmg: Math.max(1, Math.round(MAX_DMG * power)), power, mine: true, free, scene: g.scene, from });
+    this.tell(a);
     return a;
+  }
+  // (one of yours) The others see it too
+  tell(a) {
+    const g = this.game;
+    if (a.scene === g.world) g.live.net?.send({ t: 'arrow', id: a.id, x: r2(a.x), h: r2(a.h), y: r2(a.y), vx: r2(a.vx), vh: r2(a.vh), vy: r2(a.vy), free: a.free ? 1 : 0, o: (a.from || [a.x, a.h, a.y]).map(r2), ...(a.b !== undefined ? { b: a.b } : {}), ...(a.tr ? { tr: a.tr } : {}) });
+  }
+  // Another of yours, where one that has hit something goes on (p: [x, height, y], v: its speed): it hits nobody else
+  again(a, p, v, more = {}) {
+    const g = this.game;
+    const q = this.add({ id: `${Profile.id || 'yo'}-${++this.n}`, x: a.scene === g.world ? wrapX(p[0]) : p[0], h: p[1], y: p[2], vx: v[0], vh: v[1], vy: v[2], dmg: 1, power: 0, spent: true, mine: true, free: a.free, scene: a.scene, from: null, ...more });
+    this.tell(q);
+    return q;
+  }
+  // (whoever runs the world: wildlife.js) One that a fleeing animal sheds on its trail: it lies flat where it was
+  shed(w) {
+    const g = this.game;
+    if (!g.world) return null;
+    const gy = this.groundOf(g.world, w.x, w.y), l = Math.hypot(w.vx || 0, w.vy || 0) || 1, a = { free: false, scene: g.world };
+    return this.again(a, [w.x, gy + 0.35, w.y], [(w.vx || 0) / l * SHED_V, -0.5, (w.vy || 0) / l * SHED_V], { b: w.shedZ ?? ZONE.body, tr: trailKey(w) });
   }
   add(a) {
     Object.assign(a, { age: 0, stuck: false });
@@ -137,7 +170,7 @@ export class Archery {
     const g = this.game;
     if (Profile.server || !g.player || g.scene !== g.world || ![m.x, m.h, m.y, m.vx, m.vh, m.vy].every(Number.isFinite)) return;
     const l = Math.hypot(m.vx, m.vy) || 1, from = Array.isArray(m.o) && m.o.length === 3 && m.o.every(Number.isFinite) ? m.o : [m.x - m.vx / l * 0.4, m.h, m.y - m.vy / l * 0.4];
-    this.add({ id: m.id, x: m.x, h: m.h, y: m.y, vx: m.vx, vh: m.vh, vy: m.vy, dmg: 0, mine: false, free: !!m.free, scene: g.world, from, owner: conn });
+    this.add({ id: m.id, x: m.x, h: m.h, y: m.y, vx: m.vx, vh: m.vh, vy: m.vy, dmg: 0, mine: false, free: !!m.free, scene: g.world, from, owner: conn, ...(READING[m.b] ? { b: m.b } : {}), ...(typeof m.tr === 'string' && m.tr.length < 60 ? { tr: m.tr } : {}) });
   }
   // (de otro jugador) Una que ya no está: ha dado a algo o la ha recogido. Si se le ha dado a uno (to), y es a ti, a la mochila
   gone(id, to = null) {
@@ -156,8 +189,17 @@ export class Archery {
   give(a) {
     const g = this.game;
     Audio.pickup();
+    if (a.b !== undefined) this.read(a);
     if (a.free && !g.inv.infinite) return;
     if (g.inv.add('flecha', 1)) g.gather.throwOut('flecha', 1);
+  }
+
+  // One that has been in an animal: what it says of the hit, and its trail is followed from here
+  read(a) {
+    const g = this.game, k = READING[a.b];
+    if (!k) return;
+    g.gather.float(t(`hunt.arrow.${k}${Settings.v.blood === false ? '.plain' : ''}`), '#f0d0b8');
+    if (a.tr && g.wildlife?.list.some(w => trailKey(w) === a.tr)) g.tracks?.lock(a.tr, 'blood');
   }
 
   // A quién puede dar: [cosa, su caja, la altura del suelo] de los animales y las criaturas de esta escena
@@ -176,8 +218,9 @@ export class Archery {
   // El suelo para la flecha: el del andar, salvo en las casillas de solo valla en cuesta, donde lo construido sube a su
   // altura para andar pero lo que se ve es la tierra (y, bajo el poste, su dado de piedra: ver world/shots.js); y en la
   // boca de un pozo, su agua (bajo la losa: ver three/models.js, pozo, and WELLS in world/scenes.js), donde se hunde
-  ground(x, y) {
-    const g = this.game, sc = g.scene, v = g.view3d.groundY?.(sc, x, y) || 0;
+  ground(x, y) { return this.groundOf(this.game.scene, x, y); }
+  groundOf(sc, x, y) {
+    const g = this.game, v = g.view3d.groundY?.(sc, x, y) || 0;
     if (sc !== g.world || !sc.groundRaw) return v;
     const well = sc.wellMouth?.(x, y);   // (how far down its water is: see world/scenes.js, WELLS)
     if (well) return v - well;
@@ -187,10 +230,11 @@ export class Archery {
   step(dt) {
     const g = this.game, gy = (x, y) => this.ground(x, y);
     let targets = null;
+    const struck = [];   // (who was hit, after the loop: an arrow may go on as another)
     if (g.scene === g.world && g.world.digV !== this.digV) { this.digV = g.world.digV; this.settle(); }   // (fuera de una cueva: ground mira el suelo de la escena)
     this.list = this.list.filter(a => {
       a.age += dt;
-      if (a.stuck) return a.age < (a.free ? FREE_TTL : STUCK_TTL);
+      if (a.stuck) return a.age < (a.free ? FREE_TTL : a.b !== undefined ? BLOODY_TTL : STUCK_TTL);
       if (a.age > AIR_TTL) return false;
       if (a.scene !== g.scene) return a.scene === g.world;   // (mientras se está en una cueva, las de fuera se quedan quietas)
       const nx = a.x + a.vx * dt, ny = a.y + a.vy * dt, nh = a.h + a.vh * dt - G * dt * dt / 2, len = Math.hypot(nx - a.x, ny - a.y, nh - a.h) || 1e-6;
@@ -200,24 +244,24 @@ export class Archery {
       if (a.from) {
         const f = a.from, v = [tip[0] - f[0], tip[1] - f[1], tip[2] - f[2]], l = Math.hypot(...v) || 1e-6, u = v.map(c => c / l);
         a.from = null;
-        if (a.mine) {
+        if (a.mine && !a.spent) {
           let hit = null, near = l;
-          for (const [e, b, gy0] of (targets ||= this.targets())) {
-            const t = rayHits(f, u, { ...b, y0: b.y0 + gy0, y1: b.y1 + gy0 });
-            if (t !== null && t <= near) { near = t; hit = e; }
+          for (const q of (targets ||= this.targets())) {
+            const t = this.meets(a, q, f, u, near);
+            if (t !== null && t <= near) { near = t; hit = q[0]; }
           }
-          if (hit) { this.strike(a, hit, [f[0] + u[0] * near, f[1] + u[1] * near, f[2] + u[2] * near]); return false; }
+          if (hit) { struck.push([a, hit, [f[0] + u[0] * near, f[1] + u[1] * near, f[2] + u[2] * near], d]); return false; }
         }
         const t = this.hit(g.scene, f, u, l, gy);
         if (t !== null) { this.stick(a, f[0] + u[0] * t, f[1] + u[1] * t, f[2] + u[2] * t, d, SINK.solid); return true; }
       }
-      if (a.mine) {
+      if (a.mine && !a.spent) {
         let hit = null, near = len;
-        for (const [e, b, gy0] of (targets ||= this.targets())) {
-          const t = rayHits(tip, d, { ...b, y0: b.y0 + gy0, y1: b.y1 + gy0 });
-          if (t !== null && t <= near) { near = t; hit = e; }
+        for (const q of (targets ||= this.targets())) {
+          const t = this.meets(a, q, tip, d, near);
+          if (t !== null && t <= near) { near = t; hit = q[0]; }
         }
-        if (hit) { this.strike(a, hit, [tip[0] + d[0] * near, tip[1] + d[1] * near, tip[2] + d[2] * near]); return false; }
+        if (hit) { struck.push([a, hit, [tip[0] + d[0] * near, tip[1] + d[1] * near, tip[2] + d[2] * near], d]); return false; }
       }
       a.vh -= G * dt;
       // (la punta: dónde toca el suelo, si lo toca en este paso, y lo primero que encuentra antes)
@@ -236,6 +280,13 @@ export class Archery {
       a.x = g.scene === g.world ? wrapX(nx) : nx; a.y = ny; a.h = nh;
       return true;
     });
+    for (const s of struck) this.strike(...s);
+  }
+  // Where the ray o, d meets target q ([it, its box, the ground under it]) within max, or null: a deer or a boar, by its parts
+  meets(a, [e, b, gy], o, d, max) {
+    if (Math.abs(b.x - o[0]) > max + 3 || Math.abs(b.y - o[2]) > max + 3) return null;   // (far from this step: most of them)
+    if (hasOrgans(e)) { const h = hitBody(e, gy, o, d, max, HIT); return h ? h.t : null; }
+    return rayHits(o, d, { ...b, y0: b.y0 + gy, y1: b.y1 + gy });
   }
   // Dónde se mete la punta en el suelo yendo de o hacia d, antes de len (o null): el primer cuarto del paso que acaba bajo
   // el suelo, y dentro de él, afinando (vale también para un suelo que sube de golpe)
@@ -310,13 +361,25 @@ export class Archery {
       a.vx *= 0.3; a.vy *= 0.3; a.vh = -1;
     }
   }
-  // It hit e at the point hit ([x, height, y], where the ray met its box; null from an old caller): an animal is told where
-  // (the zone of a wild one: hunt.js zoneOf, Plan G §3.2), a creature only how hard
-  strike(a, e, hit = null) {
-    const g = this.game;
-    if (PREY[e.type]) g.hunt.shot(e, a.dmg, zoneOf(e, hit, g.view3d.groundY?.(g.scene, e.x, e.y) || 0, a.dmg)); else g.combat.shot(e, a.dmg);
-    Audio.chop();
+  // It hit e at the point hit ([x, height, y], where the ray met it; null from an old caller), flying in direction d: an animal
+  // is told where (the zone of a wild one: hunt.js zoneOf), a creature only how hard. And where the arrow goes: through it,
+  // left in it, or to the ground beside it
+  strike(a, e, hit = null, d = null) {
+    const g = this.game, prey = !!PREY[e.type], gy = g.view3d.groundY?.(g.scene, e.x, e.y) || 0, zone = prey ? zoneOf(e, hit, gy, a.dmg, d) : ZONE.body;
+    const organs = prey && hasOrgans(e), angle = organs && d ? angleOf(e, d) : null, power = a.power ?? a.dmg / MAX_DMG;
+    const through = !!angle && angle.c >= HEAD_ON && PASS[zone] !== undefined && power >= PASS[zone];
+    const stays = !through && prey && !!ANIMALS[e.type].wild && zone !== ZONE.graze;
     if (a.scene === g.world) g.live.net?.send({ t: 'arrowgone', id: a.id });
+    if (hit && d && a.scene) {
+      const tr = organs && a.scene === g.world ? trailKey(e) : undefined;
+      if (through) {
+        const h = hitBody(e, gy, [hit[0] - d[0] * 0.01, hit[1] - d[1] * 0.01, hit[2] - d[2] * 0.01], d, 1, HIT), out = (h ? h.exit : 0.5) + TIP, v = Math.hypot(a.vx, a.vh, a.vy) * THROUGH.k, s = Math.max(THROUGH.v[0], Math.min(THROUGH.v[1], v));
+        this.again(a, [hit[0] + d[0] * out, Math.max(hit[1] + d[1] * out, gy + 0.15), hit[2] + d[2] * out], [d[0] * s, Math.max(0.6, d[1] * s), d[2] * s], { b: zone, tr, from: hit });
+      } else if (zone === ZONE.graze && a.dmg > GRAZE_DMG) this.again(a, [hit[0] + d[0] * 0.5, Math.max(hit[1] + d[1] * 0.5, gy + 0.15), hit[2] + d[2] * 0.5], [d[0] * THROUGH.v[0], d[1] * THROUGH.v[0], d[2] * THROUGH.v[0]], { b: zone, tr, from: hit });   // (it only touched it)
+      else if (!stays) this.again(a, [hit[0] - d[0] * 0.5, Math.max(hit[1] - d[1] * 0.5, gy + 0.2), hit[2] - d[2] * 0.5], [-d[0] * FALL_V, 0.3, -d[2] * FALL_V], organs ? { b: zone, tr } : {});
+    }
+    if (prey) g.hunt.shot(e, a.dmg, zone, stays && !a.free); else g.combat.shot(e, a.dmg);
+    Audio.chop();
   }
   // Pasar por encima de una clavada, o junto al muro o al tronco donde está si se alcanza (en lo alto de un muro o de un
   // tejado, no; a través de un muro, tampoco): vuelve a la mochila, también en creativo y también las del otro jugador.

@@ -14,6 +14,7 @@ import { feedModel, compostModel } from '../soil.js';
 import { troughModel } from '../troughs.js';
 import { solidsOf, hull, placeBoxes, bounds, aabb, sat, hitsCircle, distTo, obb, dirOf, sideOf, SOLIDS } from './fit.js';
 import { BARROW, BULKY, barrowKey, randomId } from '../carry-items.js';
+import { Gore } from '../quality.js';
 import { wallRuns, WINDOW_Z, T } from '../art/build.js';
 import { PIECES, layerOf, parsePlaced, fenceReach, fenceJoins } from '../pieces.js';
 import { supportOn, roofWhy, frameOk } from '../structure.js';
@@ -207,6 +208,8 @@ const SNAP = 0.35, MAX_PUSH = 0.45, NUDGE = 0.12;   // (a menos de SNAP de un mu
 // What shows what it has inside: the trough and the compost bin (soil.js)
 const STORES = { comedero: (d, t) => feedModel(d.feed?.[t], d.fodder?.[t]), compost_bin: (d, t) => compostModel(d.compost?.[t]), trough: (d, t) => troughModel(d.trough?.[t]) };
 const HORSE_THINGS = new Set(['trough', 'hitching_post']);   // (longer than a tile: where their boxes are, with /setblock too)
+// (a hunted carcass, gutted: quality.js, the record's second; with Settings › blood off, as the others)
+for (const id of ['carcass_deer', 'carcass_hind', 'carcass_boar']) STORES[id] = (d, t) => (d.cq?.[t]?.[1] > 0 && Gore.on ? id + ':gutted' : undefined);
 const BIG_HOUSE = new Set(['gallinero', 'establo']);   // (con la puerta abierta o cerrada)
 function freeObject(o, id, rot, [x, y, a], { colliders, lights, solids }) {
   Object.assign(o, { x, y, yaw: a, rot, free: true, glow: GLOW[id] });
