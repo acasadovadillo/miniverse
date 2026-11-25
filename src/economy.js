@@ -19,7 +19,7 @@ const BASE = {
   // The body (Plan E §2.3): soap sells for less than Rosa asks
   soap: 10,
   // Tackle (Plan R1-2): all of it sells for less than Lía asks
-  worm: 1, cut_bait: 3, spoon: 12, jig: 15,
+  worm: 1, cut_bait: 3, spoon: 12, jig: 15, fish_trap: 20,
   // The catch (Plan R1-3): what each of these is worth when it does not say what fish it was (stackPrice)
   salt: 3, rotten_fish: 2, fillet: 40, salted_fish: 120,
 };
@@ -91,7 +91,7 @@ export const SHOPS = {
   lia: {
     title: 'Aparejos de Lía', hours: [6, 20],
     stock: [{ id: 'cana', price: 150 }, { id: 'cana_fibra', price: 1500 }, { id: 'regadera', price: 200 }, { id: 'canteen', price: 60 }, { plan: 'barca', price: 600 }, { id: 'sardina', price: 400 },
-      { id: 'worm', price: 2 }, { id: 'spoon', price: 25 }, { id: 'jig', price: 30 }, { id: 'landing_net', price: 120 }, { id: 'salt', price: 8 }],
+      { id: 'worm', price: 2 }, { id: 'spoon', price: 25 }, { id: 'jig', price: 30 }, { id: 'landing_net', price: 120 }, { id: 'fish_trap', price: 80 }, { id: 'salt', price: 8 }],
   },
   // Nilo, en la plaza a todas horas: los planos de los muebles de siempre (los demás, Dani, cuando venga al pueblo)
   nilo: {

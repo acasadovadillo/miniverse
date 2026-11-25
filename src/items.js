@@ -268,7 +268,8 @@ const NEW_FISH = Object.fromEntries(['tench', 'barbel', 'crayfish', 'mackerel', 
 defineNames(NEW_FISH, 'item', ['name']);
 // ---------- Tackle and bait (Plan R1-2, fishing.js): names and descriptions from the language files ----------
 // lure: casts a spoon or a jig lasts (counted by fishing.js, log.wear: they stack). landing_net only has to be carried
-const TACKLE_ITEMS = { worm: {}, cut_bait: {}, spoon: { stack: 8, lure: 60 }, jig: { stack: 8, lure: 60 }, landing_net: { stack: 1 } };
+// (Plan R1-4: the fish trap is dropped in the water, traps.js; the rod rest is placed on the bank, rodrest.js)
+const TACKLE_ITEMS = { worm: {}, cut_bait: {}, spoon: { stack: 8, lure: 60 }, jig: { stack: 8, lure: 60 }, landing_net: { stack: 1 }, fish_trap: { stack: 4 }, rod_rest: { place: 'furniture', stack: 4 } };
 Object.assign(ITEMS, TACKLE_ITEMS);
 defineNames(TACKLE_ITEMS, 'item');
 // ---------- Exploración (fase 8) ----------

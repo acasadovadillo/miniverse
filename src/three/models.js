@@ -19,6 +19,7 @@ import { mailbox, MAIL_MATS } from './mailbox3d.js';
 import { pew } from './chapel3d.js';
 import { tintOf } from './tints.js';
 import { trough, hitchingPost } from './stable3d.js';
+import { rodRest } from './rest3d.js';
 import { compostBin, manureHeap, troughFill, soilBits } from './soil3d.js';
 import { weeds, eaten, slugs, holed, scarecrow } from './pests3d.js';
 import { KIT, PLACE_MATS, placeMat } from './places3d.js';
@@ -662,6 +663,7 @@ const BUILD = {
   scarecrow(m, kind, color, torn) { scarecrow(m, kind, color, torn); },
   trough(m, level) { trough(m, level); },
   hitching_post(m) { hitchingPost(m); },
+  rod_rest(m) { rodRest(m); },
   manure_heap(m, size) { manureHeap(m, +size || 2); },
   // Granja, segunda parte
   silo(m) {

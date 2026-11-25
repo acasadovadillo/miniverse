@@ -411,6 +411,7 @@ const KEPT = {
   },
 };
 
+export { Kit, tube, taper, blot, C, mixTo, dry, shiny };
 // (the long things are drawn upright; laid along z, their broad side to the side, as a fish is seen)
 const LAID = new THREE.Matrix4().makeBasis(new THREE.Vector3(0, 1, 0), new THREE.Vector3(0, 0, 1), new THREE.Vector3(1, 0, 0)), LONG = new Set(['spoon', 'jig', 'landing_net']);
 const make = (f, material, laid) => g => { const k = new Kit(); f(k); const m = k.mesh(material()); if (laid) m.geometry.applyMatrix4(LAID); g.add(m); };

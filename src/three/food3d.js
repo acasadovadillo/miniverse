@@ -8,6 +8,7 @@ import { mat } from './geo.js';
 import { ITEMS, FISH } from '../items.js';
 import { apagado } from '../arte.js';
 import { FISH_MODELS, TACKLE_MODELS, KEPT_MODELS } from './fish3d.js';
+import { creelModel } from './traps3d.js';
 
 const MATS = new Map();
 const M = (c, o = {}) => { const k = c + JSON.stringify(o); if (!MATS.has(k)) MATS.set(k, mat({ color: apagado(c), roughness: 0.7, ...o })); return MATS.get(k); };
@@ -217,6 +218,7 @@ const BUILD = {
 for (const [id, f] of Object.entries(FISH_MODELS)) BUILD[id] = viewOf(f, id === 'crayfish' ? 'flat' : 'fish');
 for (const [id, f] of Object.entries(KEPT_MODELS)) BUILD[id] = viewOf(f, { rotten_fish: 'fish', salt: 'food' }[id] || 'flat');
 for (const [id, f] of Object.entries(TACKLE_MODELS)) BUILD[id] = viewOf(f, { worm: 'flat', cut_bait: 'food' }[id] || 'fish');
+BUILD.fish_trap = viewOf(g => creelModel(g), 'fish');   // (the fish trap: traps3d.js)
 for (const [id, f] of Object.entries(FISH)) BUILD[id] ||= f.crab ? viewOf(g => { add(g, blob(v => { v.y *= 0.45; v.x *= 1.3; }), M(f.color, { roughness: 0.5 }), [0, 0, 0], 0.05); for (const s of [-1, 1]) add(g, BALL, M(f.color), [s * 0.075, 0, 0.03], [0.022, 0.016, 0.03]); }, 'flat')
   : f.octo ? octopus(f.color) : f.round ? g => add(g, LUMP, M(f.color, { roughness: 0.5 }), [0, 0, 0], 0.05) : fishModel(f.color, false, f);
 // ---------- the winter crops (phase R2-D): what they give, their dishes and what is sown of them ----------

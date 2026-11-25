@@ -234,6 +234,23 @@ export const Audio = {
     g.gain.setValueAtTime(0.0005, now); g.gain.exponentialRampToValueAtTime(0.16, now + d);
     src.connect(f).connect(g).connect(sfx); src.start(now); src.stop(now + d);
   },
+  // A little brass bell on the tip of a rod (v: how near), and a wicker trap hauled out: water running off, the creel creaking,
+  // and what is in it (n) scrabbling
+  fishBell(v = 1) {
+    if (!ac || !on) return;
+    const t0 = ac.currentTime;
+    for (const [dt, k] of [[0, 1], [0.11, 0.7], [0.2, 0.85], [0.33, 0.5]]) for (const [f, a, d] of [[2093, 0.05, 0.5], [3140, 0.03, 0.35], [5230, 0.012, 0.2]]) {
+      const o = ac.createOscillator(), g = ac.createGain(), at = t0 + dt;
+      o.type = 'sine'; o.frequency.value = f * (1 + dt * 0.02);
+      g.gain.setValueAtTime(0.0001, at); g.gain.exponentialRampToValueAtTime(a * v * k, at + 0.004); g.gain.exponentialRampToValueAtTime(0.0001, at + d);
+      o.connect(g).connect(sfx); o.start(at); o.stop(at + d + 0.02);
+    }
+  },
+  trapRattle(n = 0) {
+    Audio.splash();
+    for (let i = 0; i < 3; i++) setTimeout(() => Audio.noiseHit(500 + 150 * i, 0.12, 0.1, 'bandpass'), 180 + i * 190);
+    for (let i = 0; i < Math.min(9, n * 3); i++) setTimeout(() => Audio.noiseHit(2600 + Math.random() * 1800, 0.02, 0.09, 'highpass'), 260 + i * 85 + Math.random() * 40);
+  },
   lineSnap() { Audio.noiseHit(3600, 0.05, 0.4, 'highpass'); tone([[900, 0.03, 'square', 0.04], [300, 0.05, 'triangle', 0.05]]); },
   // A horse drinking (a deep, round gulp) and grazing (a tear and a chew)
   gulp() { Audio.noiseHit(320, 0.09, 0.12, 'lowpass'); tone([[150, 0.05, 'sine', 0.045], [105, 0.08, 'sine', 0.035]]); },

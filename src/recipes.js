@@ -121,6 +121,8 @@ export const RECIPES = [
   R('banco', 'regadera', 1, [['lingote_cobre', 1], ['tablas', 1]]),
   R('banco', 'cana', 1, [['tablas', 2], ['cuerda', 2]]),
   R('banco', 'landing_net', 1, [['tablas', 2], ['cuerda', 2]]),
+  R('banco', 'fish_trap', 1, [['tablas', 3], ['cuerda', 2]]),
+  R('banco', 'rod_rest', 1, [['tablas', 2]]),
   R('banco', 'jig', 2, [['plumas', 1], ['lingote_cobre', 1]]),
   R('yunque', 'spoon', 3, [['lingote_cobre', 1]]),
   R('banco', 'gallinero', 1, [['tablas', 20], ['fibra', 10]]),

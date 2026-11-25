@@ -50,6 +50,7 @@ export const KINDS = {
   dog: { glyph: 'dog', color: '#e6cfa4', filter: 'animals', legend: 'map.legend.pets', pri: 40, mini: true },
   cat: { glyph: 'cat', color: '#e6cfa4', filter: 'animals', legend: 'map.legend.pets', pri: 39, mini: true },
   boat: { glyph: 'boat', color: '#7fd6d0', filter: 'boats', legend: 'map.legend.group.boats', pri: 45, mini: true },
+  trap: { glyph: 'trap', color: '#e2b87a', filter: 'boats', legend: 'map.legend.traps', pri: 42, mini: true },
   goal: { glyph: 'goal', color: '#ffd77a', filter: 'jobs', legend: null, pri: 95, mini: true, track: true },
   route: { glyph: 'pin', color: ACCENTS[0], filter: 'markers', legend: 'map.legend.route', pri: 100, mini: true, track: true, pin: 'route' },
   mark: { glyph: 'star', color: ACCENTS[0], filter: 'markers', legend: 'map.legend.marks', pri: 88, mini: true },
@@ -230,6 +231,10 @@ blips.source('boats', (out, { game, time, ours, partner }) => {
     const b = out.add('boat', q[0], q[1]);
     b.who = who; b.name = !who ? say('map.boat.any') : partner(who) ? say('map.boat.partner') : say('map.boat.mine'); b.to = { x: q[0], y: q[1], kind: 'point' };
   }
+});
+// The fish traps in the water, yours and your partner's (traps.js)
+blips.source('traps', (out, { game }) => {
+  if (game.traps && game.world?.deltas) for (const e of game.traps.mine()) { const b = out.add('trap', e.x, e.y); b.name = say(e.own ? 'map.trap.mine' : 'map.trap.partner'); b.to = { x: e.x, y: e.y, kind: 'point' }; }
 });
 // Where a first step sends you (smarthud.js puts it in map.goal), the marked route's target and the pins others shared
 blips.source('marks', (out, { game }) => {

@@ -12,6 +12,7 @@
 // siempre él, como un servidor de Minecraft: si llega cuando ya lo llevaba otro, le pide el mundo y ese juego se lo
 // pasa y sigue en él como uno más. Quien lleva el mundo no deja tocarlo lejos de donde está quien lo pide, ni cambiar
 // las reglas a quien no es op: se lo devuelve como estaba.
+import { cleanRr } from './rodrest.js';
 import { Net } from './net.js';
 import { Person, HEAD_UNDER } from './entities.js';
 import { Profile } from './accounts.js';
@@ -105,6 +106,7 @@ class RemotePlayer extends Person {
     this.sleeping = !!st.zz;
     this.fb = cleanFb(st.fb);   // (their fishing line, fishing.js net: an older game sends none)
     this.fg = this.fb && (st.fg === 1 || st.fg === 2 || st.fg === 3) ? st.fg : 0;   // (their rig, fishing.js netRig: 0 the float)
+    this.rr = cleanRr(st.rr);   // (their rod on its rest, rodrest.js net: an older game sends none)
     this.fishPose = this.fb && this.fb[2] > 0 ? FISH_POSE[this.fb[2]] : null;
     // (kt: the tools they carry, seen on their body: see kit.js. A game from before does not send it: none)
     this.kitKey = typeof st.kt === 'string' ? st.kt.slice(0, 160) : '';
@@ -446,10 +448,12 @@ export class Live {
         else if (this.takes(peer) && Array.isArray(m.ops)) {
           // (the wheelbarrow's fields are arbitrated apart, also far from where the guest is: barrow.js arbitrate)
           const edit = !peer.old && this.mayEdit(peer, m.c), B = !peer.old ? g.barrow : null, A = B ? B.arbitrate(peer, m.c, m.ops, edit) : null;
-          const PA = g.plans?.arbitrate(peer, m.c, A ? A.rest : m.ops), rest = PA ? PA.ok : A ? A.rest : m.ops, mine = A ? A.ok : [];
+          const TR = g.traps?.arbitrate(m.c, A ? A.rest : m.ops), free = TR ? TR.ok : A ? A.rest : m.ops;   // (the fish traps are only whoever decides': traps.js)
+          const PA = g.plans?.arbitrate(peer, m.c, free), rest = PA ? PA.ok : free, mine = A ? A.ok : [];
           const W = edit ? g.wear?.arbitrate(m.c, rest) : null, ok = W ? W.ok : rest;   // (what they build is stamped here: wear.js)
           if (edit) { if (ok.length || mine.length) this.applyChunk(m.c, [...ok, ...mine]); if (W?.back.length) this.net.send({ t: 'w', c: m.c, ops: W.back }, conn); }
           else { if (mine.length) this.applyChunk(m.c, mine); if (rest.length) this.refuse(conn, peer, m.c, rest); }
+          if (TR) this.net.send({ t: 'w', c: m.c, ops: TR.back }, conn);
           if (PA?.back.length) this.net.send({ t: 'w', c: m.c, ops: PA.back }, conn);   // (plans of a building: plans.js)
           if (A) { if (A.back.length) this.net.send({ t: 'w', c: m.c, ops: A.back }, conn); B.afterArbitrate(m.c, A, peer); }
         }
@@ -831,8 +835,8 @@ export class Live {
     const w = this.game.world, [cx, cy] = k.split(',').map(Number);
     applyOps(w.delta(cx, cy, true), ops);
     if (this.guest) { const s = this.synced.get(k) || {}; applyOps(s, ops); this.synced.set(k, s); }
-    // (only a pushed wheelbarrow's record, a plan of a building or a request: nothing new to draw, the chunks are not made again; barrow.js)
-    if (ops.length && ops.every(([f]) => f === 'pushed' || f === 'claim' || f === 'plan')) w.note(cx, cy);
+    // (only a pushed wheelbarrow's record, a plan of a building, a fish trap, the stock of a spot or a request: nothing new to draw, the chunks are not made again; barrow.js)
+    if (ops.length && ops.every(([f]) => f === 'pushed' || f === 'claim' || f === 'plan' || f === 'traps' || f === 'fished')) w.note(cx, cy);
     else {
       w.touch(cx, cy);
       for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (dx || dy) w.merged.delete(`${cx + dx},${cy + dy}`);   // (tejados y vallas miran a sus vecinas)
@@ -978,7 +982,7 @@ export class Live {
     }
     this.sent += dt;
     const sc = g.scene === g.world ? 'world' : null;
-    const st = { t: 'st', sc, x: r2(p.x), y: r2(p.y), z: r2(p.z || 0), fl: p.floor ? r2(p.floor) : undefined, yaw: r2(g.view3d.actors.player?.person.facing ?? 0), in: p.inside ? 1 : 0, po: p.pose ? [poseIndex(p.pose.kind), r2(p.pose.yaw), r2(p.pose.h)] : 0, ba: p.bathing && p.pose?.kind === 'bath' ? 1 : undefined, bd: g.body?.bd || undefined, fr: g.body?.fresh ? 1 : undefined, m: p.mount ? 1 : 0, hc: p.mount ? p.horseCoat || null : null, hb: p.mount && p.horseBags ? 1 + (p.horseFill > 0 ? Math.min(2, p.horseFill | 0) : 0) : 0, hd: p.mount && p.horseDirt > 0 ? Math.min(3, Math.round(p.horseDirt * 3)) || undefined : undefined, hw: p.mount && p.horseWinded ? 1 : undefined, ht: p.mount ? horseAct(p.horseAct) : undefined, b: p.boat ? 1 : 0, pa: p.aboard || 0, fg: g.fishing?.netRig(), cr: p.crouch ? 1 : 0, gm: g.gamemode === 'survival' ? 0 : g.gamemode === 'creative' ? 1 : 3, h: (g.plans?.handId() ?? g.inv.held?.id) || null, sw: this.swings, si: g.gather.swingItem || null, cd: r2(g.gather.cooldown || 0), dr: r2(g.archery.k), na: p.swim ? 1 : 0, hu: p.swim ? r2(p.sink) : undefined, dv: p.swim && p.dive > 0.02 ? r2(p.dive) : undefined, zz: p.sleeping && p.pose?.kind === 'lie' ? 1 : undefined, fb: sc ? g.fishing?.net() : undefined, kt: kitKey(g.kitIds()) || undefined, gt: p.gait || 0, rv: p.mount && g.mode === 'play' && p.ride?.v > 0.5 ? r1(p.ride.v) : undefined, ca: g.carry?.state(), em: g.social.emSeq, ek: g.social.emKind, ac: accentOf(p.name, g.ui?.accent) };
+    const st = { t: 'st', sc, x: r2(p.x), y: r2(p.y), z: r2(p.z || 0), fl: p.floor ? r2(p.floor) : undefined, yaw: r2(g.view3d.actors.player?.person.facing ?? 0), in: p.inside ? 1 : 0, po: p.pose ? [poseIndex(p.pose.kind), r2(p.pose.yaw), r2(p.pose.h)] : 0, ba: p.bathing && p.pose?.kind === 'bath' ? 1 : undefined, bd: g.body?.bd || undefined, fr: g.body?.fresh ? 1 : undefined, m: p.mount ? 1 : 0, hc: p.mount ? p.horseCoat || null : null, hb: p.mount && p.horseBags ? 1 + (p.horseFill > 0 ? Math.min(2, p.horseFill | 0) : 0) : 0, hd: p.mount && p.horseDirt > 0 ? Math.min(3, Math.round(p.horseDirt * 3)) || undefined : undefined, hw: p.mount && p.horseWinded ? 1 : undefined, ht: p.mount ? horseAct(p.horseAct) : undefined, b: p.boat ? 1 : 0, pa: p.aboard || 0, fg: g.fishing?.netRig(), cr: p.crouch ? 1 : 0, gm: g.gamemode === 'survival' ? 0 : g.gamemode === 'creative' ? 1 : 3, h: (g.plans?.handId() ?? g.inv.held?.id) || null, sw: this.swings, si: g.gather.swingItem || null, cd: r2(g.gather.cooldown || 0), dr: r2(g.archery.k), na: p.swim ? 1 : 0, hu: p.swim ? r2(p.sink) : undefined, dv: p.swim && p.dive > 0.02 ? r2(p.dive) : undefined, zz: p.sleeping && p.pose?.kind === 'lie' ? 1 : undefined, fb: sc ? g.fishing?.net() : undefined, rr: sc ? g.rodrest?.net() : undefined, kt: kitKey(g.kitIds()) || undefined, gt: p.gait || 0, rv: p.mount && g.mode === 'play' && p.ride?.v > 0.5 ? r1(p.ride.v) : undefined, ca: g.carry?.state(), em: g.social.emSeq, ek: g.social.emKind, ac: accentOf(p.name, g.ui?.accent) };
     const key = JSON.stringify(st);
     if (this.sent < SEND_EVERY || (key === this.lastSent && this.sent < IDLE_EVERY)) return;
     this.sent = 0; this.lastSent = key;

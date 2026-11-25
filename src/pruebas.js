@@ -148,6 +148,8 @@ import { Farm } from './farm.js';
 import { FRUIT, ORCHARD, FIRST_FRUIT, phaseAt } from './orchard.js';
 import { ihash } from './util.js';
 import * as PESTS from './pests.js';
+import * as TRAPS_MOD from './traps.js';
+import { RodRest, cleanRr, LEASH, BITE_S, IDLE_S } from './rodrest.js';
 import { seasonOf, madridMs } from './time.js';
 import { seasonC, fieldDay } from './fieldclimate.js';
 import { GROW, seedOf, rateAt } from './cropdata.js';
@@ -4997,6 +4999,189 @@ async function soloTests(game) {
     // (neighbours: rotten fish is an insult)
     check(stackPrice({ id: 'pescado_asado', n: 2 }) === priceOf('pescado_asado') && stackPrice({ id: 'madera', n: 1 }) === priceOf('madera') && stackPrice(null) === 0, 'the price of other things');
   });
+  // ---------- fish traps and the rod rest (Plan R1-4: src/traps.js, src/rodrest.js) ----------
+  // A tile of water for a trap by the pond's bank, with the player next to it; everything left as it was
+  const atTrap = fn => atPond(async o => {
+    const T = game.traps, I = inv(), w0 = w(), [cx, cy] = [Math.floor(POND.x / CHUNK), Math.floor(POND.y / CHUNK)], fam = game.family.v, F = game.fishing, was = { chosen: F.chosen, traps: structuredClone(o.d.traps), log: structuredClone(F.log) };
+    const tile = () => { for (let j = 0; j < 4; j++) for (const i of [0, -1, 1]) { const tx = Math.floor(p().x) + i, ty = Math.floor(p().y) + j; if (!T.why(tx, ty) && Math.hypot(tx + 0.5 - p().x, ty + 0.5 - p().y) <= TRAPS_MOD.REACH) return [tx, ty]; } return null; };
+    T.skew = 0; delete o.d.traps; T.look(true);
+    for (let k = 0; k < 6 && !tile(); k++) p().y += 0.3;
+    const at = tile(); check(at, 'no water for a trap by the pond');
+    try { await fn({ ...o, T, at, key: String(at), rec: () => o.d.traps?.[String(at)], put: (by = Profile.id, bait = 'rotten_fish', ago = 0) => { (o.d.traps ||= {})[String(at)] = [by, bait, T.now() - ago * 3600000, 1]; T.look(true); } }); }
+    finally { T.skew = 0; if (was.traps) o.d.traps = was.traps; else delete o.d.traps; for (const [, d] of w0.deltas) if (d.claim) for (const k in d.claim) if (/^trap/.test(d.claim[k].k)) delete d.claim[k]; T.asked.clear(); T.look(true); game.family.v = fam; F.chosen = was.chosen; F.log = was.log; for (const id of ['fish_trap', 'rotten_fish', 'rod_rest', 'crayfish', 'carpa']) I.remove(id, 99); I.changed(); w0.note(cx, cy); }
+  });
+  await test('fish (english): traps, how many and which', async () => {
+    const W = { rio: [1, 1.2], lago: [1, 1.8], mar: [1, 3], estanque: [1, 0.75], pantano: [1, 0.6] }, TEMP = { mar: [12.6, 18, 14.4, 9], x: [12, 20, 15, 7] };
+    const K = (water, bait, season) => TRAPS_MOD.trapK({ water, depth: W[water][1], spot: 1 }, bait, season, (TEMP[water] || TEMP.x)[season]);
+    for (const water of ['rio', 'lago', 'mar', 'estanque', 'pantano']) {
+      const best = water === 'mar' ? 'cut_bait' : 'rotten_fish', k = [0, 1, 2, 3].map(s => K(water, best, s)); console.log(`traps ${water}: rotten fish ${k.map(v => v.toFixed(2)).join(' ')}; cut bait ${K(water, 'cut_bait', 0).toFixed(2)}, worm ${K(water, 'worm', 0).toFixed(2)}, maize ${K(water, 'maiz', 0).toFixed(2)}, none ${K(water, '', 0).toFixed(2)}`);
+      check(k[0] > 0.75 && k[1] > 0.75 && k[2] > 0.75, `${water}: ${k}`); check(k[3] <= k[1] && k[3] > 0.05, `winter in ${water}: ${k[3]}`);
+      check(K(water, '', 0) < 0.45 && K(water, '', 0) > 0.03, `no bait in ${water}: ${K(water, '', 0)}`);
+      check(TRAPS_MOD.countFor(16, k[0], 1) === 3 && TRAPS_MOD.countFor(16 * 60, k[0], 1) === 3, `16 hours in ${water}: ${TRAPS_MOD.countFor(16, k[0], 1)}`);
+      check(TRAPS_MOD.countFor(2, k[0], 1) === 0 && TRAPS_MOD.countFor(5, k[0], 1) === 1 && TRAPS_MOD.countFor(-5, k[0], 1) === 0, `${water}, the first hours`);
+      check(TRAPS_MOD.countFor(16, k[0], 0.25) <= 1, 'a fished-out spot fills as fast');
+    }
+    check(!TRAPS_MOD.lives({ water: 'hielo', depth: 1, spot: 1 }) && !TRAPS_MOD.lives({ water: 'rio', depth: 0.02, spot: 1 }) && !TRAPS_MOD.lives(null), 'something goes in where nothing lives');
+    check(['spoon', 'jig', '', null, 'madera', {}, 'pan ', 'sardina'].every(b => !TRAPS_MOD.baitOk(b)) && ['worm', 'rotten_fish', 'grillo', 'maiz', 'pan', 'cangrejo'].every(TRAPS_MOD.baitOk), 'what is a bait');
+    // which: only what goes into one, of its water, small enough; the same in every game; crayfish and eels by night, crabs at sea
+    const spots = { rio: null, lago: null, mar: null };
+    for (let r = 60; r < 3000 && Object.values(spots).some(v => !v); r += 11) for (let a = 0; a < 40; a++) { const x = Math.floor(Math.cos(a / 40 * 6.283) * r), y = Math.floor(Math.sin(a / 40 * 6.283) * r + 60), q = FW.waterType(w(), x + 0.5, y + 0.5); if (q && q in spots && !spots[q] && w().waterDepth(x + 0.5, y + 0.5) > (q === 'mar' ? 2 : 0.7) && w().waterDepth(x + 0.5, y + 0.5) < (q === 'mar' ? 5 : 2.6)) spots[q] = [x, y]; }
+    const seen = {};
+    for (const [water, at] of Object.entries(spots)) {
+      if (!at) { console.log(`traps: no ${water} near`); continue; }
+      const key = String(at), n = seen[water] = {};
+      for (let i = 0; i < 300; i++) for (const c of TRAPS_MOD.catchOf(game, key, Date.now() - i * 5.3 * 3600000, water === 'mar' ? 'cut_bait' : 'rotten_fish', 3)) {
+        n[c.id] = (n[c.id] || 0) + 1; const f = FISH[c.id];
+        check(f.water.includes(water) && TRAPS_MOD.TRAP_FISH[c.id] && c.cm >= f.cm[0] - 0.1 && c.cm <= TRAPS_MOD.TRAP_FISH[c.id][1] + 0.1 && Math.abs(c.g - FW.kgOf(f, c.cm) * 1000) < 15, JSON.stringify(c));
+      }
+      const set = Date.now() - 9e7; check(JSON.stringify(TRAPS_MOD.catchOf(game, key, set, 'cut_bait', 3)) === JSON.stringify(TRAPS_MOD.catchOf(game, key, set, 'cut_bait', 3)) && TRAPS_MOD.catchOf(game, key, set, 'cut_bait', 99).length === 3 && TRAPS_MOD.catchOf(game, key, set, '', 0).length === 0, 'not the same each time');
+    }
+    console.log('traps, 900 each:', JSON.stringify(seen));
+    if (seen.rio) check((seen.rio.crayfish || 0) + (seen.rio.anguila || 0) > 600 && seen.rio.crayfish > 150, 'the river');
+    if (seen.mar) check(seen.mar.cangrejo > 450 && seen.mar.pulpo > 0 && !seen.mar.crayfish, 'the sea');
+  });
+  await test('fish (english): traps', atTrap(async ({ T, I, d, at, key, rec, put }) => {
+    // Set with what is chosen, from the hand; 16 real hours with rotten fish: three, hauled and baited again
+    I.add('fish_trap', 2); I.add('rotten_fish', 3); game.fishing.chosen = 'rotten_fish'; I.selected = I.slots.findIndex(s => s?.id === 'fish_trap'); I.changed();
+    const q = T.spot(p()); check(q && !q.far, 'no spot ahead'); p().face = { x: (at[0] + 0.5 - p().x), y: (at[1] + 0.5 - p().y) };
+    T.set(...at); check(rec() && rec()[0] === Profile.id && rec()[1] === 'rotten_fish' && I.count('fish_trap') === 1 && I.count('rotten_fish') === 2, `set: ${JSON.stringify(rec())}`);
+    check(T.near.length === 1 && T.why(...at) === 'taken' && T.target(p(), I.held) !== undefined, 'the buoy');
+    const tv = game.view3d.world.traps; for (let i = 0; i < 60 && !tv.instanceOf(key); i++) await frames(2); check(tv.instanceOf(key) && tv.buoys.count >= 1, 'it is not drawn');
+    const a = game.aimTargets(p(), w()).find(c => c.trap === key); check(a && a.box.abs, 'the buoy is not aimed at'); let act = a.act(); check(act.text === t('trap.empty_bait', { item: itemNoun('rotten_fish') }) && act.alt?.hold > 0 && act.alt.text === t('trap.take'), act.text);
+    act.run(); check(rec()[1] === 'rotten_fish' && I.count('rotten_fish') === 2 && T.near.length === 1, 'nothing yet, and it is spent');
+    T.skew = 16 * 3600000; const peces = game.stats.get('peces'), set0 = rec()[2], want = TRAPS_MOD.catchOf(game, key, set0, 'rotten_fish', 3), stock = FW.caughtAt(w(), at[0] + 0.5, at[1] + 0.5, 'estanque', game.days.realDay);
+    check(want.length === 3, JSON.stringify(want)); a.act().run();
+    const got = I.slots.filter(s => s && want.some(c => c.id === s.id)).reduce((n, s) => n + s.n, 0); check(got >= 3 && game.stats.get('peces') === peces + 3 && rec()[2] === T.now() || rec()[2] > set0, `hauled ${got}`);
+    check(I.count('rotten_fish') === 1 && rec()[1] === 'rotten_fish' && FW.caughtAt(w(), at[0] + 0.5, at[1] + 0.5, 'estanque', game.days.realDay) === Math.min(3 + stock, 3 + stock), 'the bait, the stock');
+    check(I.slots.filter(s => s && want.some(c => c.id === s.id)).every(s => s.day === game.days.realDay && s.g > 0) && game.fishing.log.last.length >= 3, 'what they weigh and their day');
+    // a month with nobody: still three, nothing rotten; X held takes it back with what is in it
+    T.skew += 30 * 24 * 3600000; d.fished = undefined; const before = I.count('fish_trap'), n0 = game.stats.get('peces'); T.offer(T.near[0]).alt.run();
+    check(!rec() && !d.traps && I.count('fish_trap') === before + 1 && game.stats.get('peces') === n0 + 3 && I.count('rotten_fish') === 1, 'taken back');
+    check(!T.near.length && !T.interact(p(), w()), 'the buoy stays');
+    // no bait chosen: it goes without, and baiting it later starts it again
+    game.fishing.chosen = ''; check(T.bait() === null && T.baitText() === t('fish.no_bait'), 'a bare hook is a bait'); I.selected = I.slots.findIndex(s => s?.id === 'fish_trap'); I.changed(); T.set(...at); check(rec()[1] === '', 'set without'); game.fishing.chosen = null; T.haul(key); check(rec()[1] === 'rotten_fish' && I.count('rotten_fish') === 0, 'baited later');
+    // the diary and the map
+    check(game.fishing.journal().includes(t('trap.log.title', { n: 1, max: 4 })), 'the diary'); T.mineAt = -1e9; blips.refresh(game, game.time, true); check(blips.list.some(b => b.kind === 'trap' && b.name === t('map.trap.mine')), 'the map');
+    // out of reach, on land, too shallow, at the pond's edge
+    check(T.why(Math.floor(POND.x), Math.floor(POND.y) - 12) === 'land' && ['shallow', 'land'].includes(T.why(at[0], Math.floor(POND.y - POND.ry - 1))), 'where it goes');
+    // R with it in the hand goes round the baits (no lures) and none
+    I.add('worm', 2); I.add('spoon', 1); I.add('maiz', 1); const round = []; for (let i = 0; i < 4; i++) { T.cycle(1); round.push(T.bait()?.id || ''); } check(round.includes('') && round.includes('worm') && round.includes('maiz') && !round.includes('spoon') && T.ownsR(), JSON.stringify(round)); for (const id of ['worm', 'spoon', 'maiz']) I.remove(id, 9);
+  }));
+  await test('fish (english): traps, whose they are (claims, a fake peer)', atTrap(async ({ T, d, at, key, rec, put }) => {
+    const k = TRAPS_MOD.chunkOf(at), ask = (kind, by, data = {}) => { const n = 't' + Math.random(); (d.claim ||= {})[n] = { by, k: kind, key, at: 0, ...data }; game.barrow.resolve(k, n); const c = d.claim[n]; delete d.claim[n]; return c; };
+    let c = ask('trap_set', 'id-a', { bait: 'spoon' }); check(c.ok && rec()[0] === 'id-a' && rec()[1] === '' && Math.abs(rec()[2] - T.now()) < 1000, `set: ${JSON.stringify(c)}`);
+    c = ask('trap_set', 'id-b'); check(!c.ok && c.why === 'taken', 'two on a tile');
+    put('id-a', 'rotten_fish', 16); const set = rec()[2];
+    c = ask('trap', 'id-b', { set }); check(!c.ok && c.why === 'not_yours' && rec()[2] === set, 'a stranger empties it'); c = ask('trap_take', 'id-b', { set }); check(!c.ok && c.why === 'not_yours', 'a stranger takes it');
+    c = ask('trap', 'id-a', { set: set - 1 }); check(!c.ok && c.why === 'late', 'an old request');
+    game.family.v = { ...game.family.v, kids: [...(game.family.v?.kids || []), { name: 'x', parents: ['id-a', 'id-b'] }] };
+    c = ask('trap', 'id-b', { set, bait: 'cut_bait' }); check(c.ok && c.n === 3 && c.set === set && c.bait0 === 'rotten_fish' && rec()[0] === 'id-a' && rec()[1] === 'cut_bait' && rec()[2] > set, `the couple: ${JSON.stringify(c)}`);
+    c = ask('trap', 'id-a', { set }); check(!c.ok && c.why === 'late', 'emptied twice'); c = ask('trap', 'id-a', { set: rec()[2] }); check(!c.ok && c.why === 'none', 'nothing yet');
+    const r0 = structuredClone(rec()); c = ask('trap_take', 'id-b', { set: r0[2] }); check(c.ok && c.n === 0 && !d.traps, 'the couple does not take it away'); d.traps = { [key]: r0 }; c = ask('trap_take', 'id-c', { set: r0[2] }); check(!c.ok && c.why === 'not_yours', 'someone else takes it'); c = ask('trap_take', 'id-a', { set: r0[2] }); check(c.ok && c.n === 0 && !d.traps, 'its owner does not');
+    // four out, anywhere; garbage
+    const far = w().delta(900, 3, true); far.traps = Object.fromEntries([0, 1, 2, 3].map(i => [`${14400 + i},48`, ['id-a', '', T.now(), 1]])); c = ask('trap_set', 'id-a'); check(!c.ok && c.why === 'max' && !d.traps, 'a fifth'); c = ask('trap_set', 'id-b', { bait: 'worm' }); check(c.ok && rec()[1] === 'worm', 'another player'); delete far.traps; delete d.traps;
+    for (const bad of [undefined, null, '', 'x', '1', '1,2,3', { }, `${at[0] + 400},${at[1]}`, '__proto__', 'toString']) for (const kind of ['trap_set', 'trap', 'trap_take']) { c = ask(kind, 'id-a', { key: bad, set: 1 }); check(c.ok === false && !d.traps, `garbage ${bad} ${kind}`); }
+    d.traps = { [key]: 'x', '5,5': [1, 2, 3] }; T.look(true); check(!T.at(key) && !T.near.length && T.mine().length === 0, 'a broken record'); c = ask('trap', 'id-a', { set: 1 }); check(!c.ok && c.why === 'gone', 'a broken record is emptied'); delete d.traps;
+    // a guest never writes them: put back, and the rest passes
+    put('id-a', 'worm', 2); let A = T.arbitrate(k, [['placed', '1,1', 'valla'], ['traps', key], ['traps', '9,9', ['id-b', '', 0, 1]], ['traps', null, {}], ['fished', '0', [1, 2]]]); check(A.ok.length === 2 && A.back.length === 3 && A.back[0][2][0] === 'id-a' && A.back[1].length === 2, JSON.stringify(A)); check(T.arbitrate(k, [['placed', '1,1', 'valla']]) === null, 'with none');
+    // its chunk is not made again by them
+    const v = d.v; game.live.applyChunk(k, [['traps', key, ['id-a', '', 5, 1]], ['fished', '0', [1, 1]]]); check(d.v === v && rec()[2] === 5, 'the chunk is made again');
+  }));
+  await test('fish (english): traps, two games compared (simulated messages)', atTrap(async ({ T, I, d, at, key, rec }) => {
+    // This game, a guest; the host, another world with the same changes. What the guest asks goes to it as ops, its answer comes back
+    const { Overworld } = await import('./world/scenes.js'), { CLAIMS } = await import('./claims.js'), copy = LS.copy, k = TRAPS_MOD.chunkOf(at), [cx, cy] = k.split(',').map(Number);
+    const hw = new Overworld(w().seed, new Map([[k, structuredClone(d)]])), host = { world: hw, days: game.days, family: game.family, live: game.live }; host.traps = new TRAPS_MOD.Traps(host); host.barrow = { decides: () => true };
+    const B = game.barrow, live = game.live; B.decides = () => false; let sent = copy(d); live.flush = () => {};
+    const hostSays = async () => {
+      for (const [f, c, v] of diffChunk(sent, d)) if (f === 'claim' || f === 'traps') applyOps(hw.delta(cx, cy, true), [[f, c, v]]);
+      const hd = hw.delta(cx, cy, true), was = copy(d); let n = 0;
+      for (const id in hd.claim || {}) { const c = hd.claim[id]; if (c.ok !== undefined) continue; n++; const extra = {}; const ok = CLAIMS[c.k](host, c, hd, k, extra); hd.claim[id] = { ...c, ok, ...extra }; }
+      const ops = diffChunk(was, hd).filter(([f]) => f === 'traps' || f === 'claim' || f === 'fished'); applyOps(d, ops); B.onHostOps(k, ops); sent = copy(d); T.look(true); return n;
+    };
+    try {
+      I.add('fish_trap', 1); I.add('rotten_fish', 2); game.fishing.chosen = 'rotten_fish'; I.selected = I.slots.findIndex(s => s?.id === 'fish_trap'); I.changed();
+      T.set(...at); check(!rec() && I.count('fish_trap') === 0 && T.asked.has(key), 'a guest writes it himself'); T.set(...at);
+      check(await hostSays() === 1 && rec()?.[0] === Profile.id && I.count('fish_trap') === 0 && I.count('rotten_fish') === 1, `the host's answer: ${JSON.stringify(rec())}`);
+      check(JSON.stringify(hw.deltas.get(k).traps) === JSON.stringify(d.traps), 'not the same'); host.traps.skew = 16 * 3600000; T.skew = 16 * 3600000;
+      const set = rec()[2], mine = TRAPS_MOD.catchOf(game, key, set, 'rotten_fish', 3), theirs = TRAPS_MOD.catchOf(host, key, set, 'rotten_fish', 3), n0 = game.stats.get('peces'); check(mine.length === 3 && JSON.stringify(mine) === JSON.stringify(theirs), `${JSON.stringify(mine)} / ${JSON.stringify(theirs)}`);
+      T.haul(key); check(game.stats.get('peces') === n0, 'a guest gives himself the catch'); T.haul(key); check(T.offer(T.near[0]).text === t('trap.wait'), 'asked twice'); check(await hostSays() === 1 && game.stats.get('peces') === n0 + 3 && I.count('rotten_fish') === 0 && rec()[1] === 'rotten_fish', 'the haul');
+      check(JSON.stringify(hw.deltas.get(k).fished) === JSON.stringify(d.fished) && JSON.stringify(hw.deltas.get(k).traps) === JSON.stringify(d.traps), 'the stock');
+      // refused (somebody was quicker): nothing given, the bait back
+      I.add('rotten_fish', 1); hw.deltas.get(k).traps[key][2]--; T.haul(key); check(I.count('rotten_fish') === 0, 'the bait'); await hostSays(); check(I.count('rotten_fish') === 1 && game.stats.get('peces') === n0 + 3 && !T.asked.size, 'refused');
+      // never answered: the bait and the trap come back; an older host refuses
+      T.haul(key); check(I.count('rotten_fish') === 0, 'asked'); for (const n of [...B.pending.keys()]) B.settle(n, null); check(I.count('rotten_fish') === 1 && !T.asked.size, 'unanswered');
+    } finally { delete B.decides; delete live.flush; B.pending.clear(); }
+  }));
+  const restTest = async () => {
+    const R = game.rodrest, I = inv(), F = game.fishing, was = { sel: I.selected, chosen: F.chosen, slots: I.slots.map(s => s && { ...s }), rec: { ...F.records }, log: structuredClone(F.log) }, home = [POND.x, POND.y - POND.ry - 0.9], tile = [Math.floor(home[0]), Math.floor(home[1])], mouse = game.mouse;
+    game.mouse = null; await goTo(game, ...home); [p().x, p().y] = home; p().vx = p().vy = 0; p().pose = null;
+    for (let i = 0; i < 9; i++) I.slots[i] = null; I.slots[0] = { id: 'cana', n: 1, dur: 40 }; I.slots[1] = { id: 'cut_bait', n: 6 }; I.slots[2] = { id: 'worm', n: 3 }; I.selected = 0; F.chosen = 'worm'; F.state = null; F.card = null; I.changed();
+    const o = { placed: 'rod_rest', tile, x: home[0], y: home[1] + 0.2, yaw: 0, layer: 'placed' }, pick = { text: 'pick' }, dd = w().delta(Math.floor(tile[0] / CHUNK), Math.floor(tile[1] / CHUNK), true), old = dd.placed[String(tile)], reaches = w().reaches;
+    dd.placed[String(tile)] = 'rod_rest'; w().reaches = () => true;
+    try {
+      check(R.action(o, pick).text === t('rest.bottom') && R.action(o, pick).alt === pick, 'a float on the rest'); F.chosen = 'cut_bait';
+      const q = R.spot(o, 6); check(q && FW.waterType(w(), q.x, q.y) === 'estanque', 'no water ahead'); check(R.spot({ ...o, yaw: Math.PI }, 6) === null, 'water behind it');
+      R.action(o, pick).run(); const s = R.s; check(s && !I.slots[0] && s.rod.dur === 39 && s.bait === 'cut_bait' && s.phase === 'wait' && F.state === null, `planted: ${JSON.stringify(s && s.rod)}`);
+      check(!I.held && !game.kitIds().includes('cana') && game.fishing.target(p(), I.held, undefined) === null, 'it is still in the hand');
+      // saved as if it were in the backpack, in either inventory
+      const snap = game.snapshot(); check(snap.inventory.slots[0]?.id === 'cana' && snap.inventory.slots[0].dur === 39 && snap.inventory.slots.filter(x => x?.id === 'cana').length === 1, 'the save');
+      I.slots[0] = { id: 'madera', n: 1 }; check((game.snapshot().inventory.keep || []).some(x => x.id === 'cana' && x.dur === 39), 'the save with its slot taken'); I.slots[0] = null;
+      check(JSON.stringify(R.net().length) === '7' && cleanRr(R.net()) && cleanRr([1, 2, 3]) === null && cleanRr('x') === null && cleanRr([0, 0, 0, 99, 0, 0, 1]) === null && cleanRr([0, 0, 0, 3, 0, 2, 1]) === null && cleanRr(undefined) === null, 'what travels');
+      // in the world the rest itself; a second rod there, no; with another rod elsewhere, one only
+      check(R.action(o, pick).text === t('rest.take') && !R.action(o, pick).alt, 'taking it'); I.slots[0] = { id: 'cana_fibra', n: 1 }; check(R.action({ ...o, tile: [1, 1] }, pick).text === t('rest.one'), 'two rods'); I.slots[0] = null;
+      s.fly = 1; s.t = 99; s.next = 99; R.update(0.1); check(R.s === s && s.phase === 'wait', 'waiting');
+      // the bite: the bell, six seconds; E: the rod in the hand, biting; the click strikes it
+      let bells = 0; const bell = GameAudio.fishBell; GameAudio.fishBell = () => bells++; s.t = 0; await withRandom(() => R.update(0.05), () => 0.5); check(R.s?.phase === 'bite' && FISH[s.id], 'no bite');
+      R.update(0.05); R.update(1); check(bells >= 2 && R.action(o, pick).text === t('rest.strike'), `${bells} bells`);
+      R.action(o, pick).run(); check(!R.s && I.slots[0]?.id === 'cana' && I.slots[0].dur === 39 && I.selected === 0 && F.state?.phase === 'bite' && F.state.rig === 'bottom' && F.state.bite === 'run' && F.state.win >= 2, `grabbed: ${JSON.stringify(F.state?.phase)}`);
+      await withRandom(() => F.press(), () => 0.3); check(F.state?.phase === 'fight', 'the strike'); F.state = null;
+      // nobody comes: it goes (half the times with the bait); the bare hook waits on; ten minutes: back by itself
+      R.action(o, pick).run(); R.s.fly = 1; R.s.t = 0; R.update(0.01); check(R.s.phase === 'bite', 'again'); const bait = I.count('cut_bait'); await withRandom(() => { for (let i = 0; i < 70; i++) R.update(0.1); }, () => 0.1); check(R.s?.phase === 'wait' && R.s.bait === '' && I.count('cut_bait') === bait - 1, 'gone with the bait');
+      R.s.age = IDLE_S; R.s.t = 999; R.update(0.1); check(!R.s && I.slots[0]?.id === 'cana', 'ten minutes');
+      // too far, its rest gone, another place
+      R.action(o, pick).run(); check(R.s, 'planted'); const x0 = p().x; p().x -= LEASH + 1; R.update(0.1); p().x = x0; check(!R.s && I.count('cana') === 1, 'too far');
+      R.action(o, pick).run(); delete dd.placed[String(tile)]; R.update(0.6); dd.placed[String(tile)] = 'rod_rest'; check(!R.s && I.count('cana') === 1, 'its rest is gone');
+      R.action(o, pick).run(); const sc = game.scene; game.scene = { kind: 'grid' }; R.update(0.1); game.scene = sc; check(!R.s && I.count('cana') === 1, 'another place');
+      // a full bar: to the backpack, what was in the hand; with no room anywhere, at the feet
+      R.action(o, pick).run(); for (let i = 0; i < 9; i++) I.slots[i] ||= { id: 'piedra', n: 99 }; const n9 = I.slots.filter(Boolean).length; I.selected = 4; R.grab(); check(I.held?.id === 'cana' && I.slots.filter(Boolean).length >= n9, 'a full bar');
+      // another player's rod there
+      const live = game.live, st = q => live.receive('rr1', { t: 'st', sc: 'world', x: p().x + 1, y: p().y, yaw: 0, h: null, ...q });
+      try {
+        live.receive('rr1', { t: 'hi', id: 'id-rr1', name: 'Hafsa', playing: true, look: LOOK }); st({}); const e = live.peers.get('rr1').entity; check(e.rr === null, 'an older game: a rod on a rest');
+        st({ rr: [o.x, o.y, 0, o.x, o.y + 4, 1, 2] }); check(e.rr && R.action(o, pick).text === t('rest.busy', { name: 'Hafsa' }), 'another rod on it'); const V = game.view3d.fx.rests; for (let i = 0; i < 60 && !V.rods[1]?.root.visible; i++) await frames(2); const v = V.rods[1]; if (game.scene === w()) check(v?.root.visible && v.line.visible && v.tier === 2, 'theirs is not drawn');
+        for (const bad of ['x', [1], [NaN, 0, 0, 0, 0, 0, 1], { 0: 1 }]) { st({ rr: bad }); check(e.rr === null, JSON.stringify(bad)); } for (let i = 0; i < 60 && v?.root.visible; i++) await frames(2); if (v) check(!v.root.visible, 'theirs stays');
+      } finally { live.drop('rr1', true); }
+      GameAudio.fishBell = bell;
+    } finally {
+      R.s = null; F.state = null; F.card = null; F.chosen = was.chosen; F.records = was.rec; F.log = was.log; I.slots.length = was.slots.length; was.slots.forEach((s, i) => { I.slots[i] = s; }); I.selected = was.sel; I.changed(); game.mouse = mouse;
+      if (old === undefined) delete dd.placed[String(tile)]; else dd.placed[String(tile)] = old; delete w().reaches; if (w().reaches !== reaches) w().reaches = reaches; await frames(2); await collectDrops(game, 'the rod rest');
+    }
+  };
+  await test('fish (english): the rod rest', restTest);
+  await test('fish (english): the rod rest, placed on the bank and on a floor over water', async () => {
+    const y = POND.y - POND.ry - 2, f = w().fitFree('rod_rest', POND.x + 0.5, y, 0, 0, null); check(f.ok || f.why !== 'Ahí no se puede poner', `on the bank: ${f.why}`);
+    const wet = w().fitFree('rod_rest', POND.x, POND.y, 0, 0, null); check(!wet.ok, 'in the water');
+    const m = modelNamed('rod_rest'); check(m && m.solids.length === 1 && m.solids[0][4] < 0.7 && modelKind('rod_rest') === 'placed' && freePlace('rod_rest'), 'its model');
+  });
+  await test('fish (english): the trap and the rest, everywhere', async () => {
+    const [en, es] = await Promise.all(['en', 'es'].map(l => fetch(`src/lang/${l}.json`).then(r => r.json())));
+    for (const id of ['fish_trap', 'rod_rest']) { for (const l of [en, es]) check(l[`item.${id}`] && l[`item.${id}.desc`], `texts of ${id}`); check(RECIPES.some(r => r.out === id && r.station === 'banco' && !r.plan) && weightOf(id) > 0 && itemIconUrl(id) && ITEMS[id].stack === 4, id); }
+    const e = SHOPS.lia.stock.find(q => q.id === 'fish_trap'), r = RECIPES.find(q => q.out === 'fish_trap'), mats = r.ins.reduce((n, [id, k]) => n + priceOf(id) * k, 0); check(e?.price === 80 && priceOf('fish_trap') < e.price / 2 && priceOf('fish_trap') < mats * 3, `Lía asks ${e?.price}, it sells for ${priceOf('fish_trap')}, its materials ${mats}`);
+    check(JSON.stringify(r.ins) === JSON.stringify([['tablas', 3], ['cuerda', 2]]), 'its recipe');
+    const m = foodModel('fish_trap'); let tri = 0; m.traverse(o => { if (o.isMesh) tri += o.geometry.attributes.position.count / 3; }); console.log(`trap: ${Math.round(tri)} triangles`); check(tri > 1000 && tri < 9000, `${tri} triangles`);
+    check(game.view3d.world.traps.proxies().children.length === 3, 'its programs are not prepared');
+  });
+  await test('fish (english): traps, income per day against the rod', async () => {
+    // Four traps in a river, a lake and the sea, hauled once, twice or three times a day, against an hour of ordinary fishing with a rod
+    // (the same numbers as «income per hour»: about 60 fish an hour)
+    const price = c => stackPrice({ id: c.id, n: 1, g: c.g, day: CATCH.hooks.today() }), out = {}, r = seeded(3), TEMP = { mar: [12.6, 18, 14.4, 9], x: [12, 20, 15, 7] };
+    const mean = water => { let coins = 0, n = 0, kg = 0; const D = { rio: 1.2, lago: 1.8, mar: 3 }[water]; for (let i = 0; i < 3000; i++) { const season = i % 4, hour = r() * 24, c = { water, depth: D, hour, season, weather: 'nubes', tempC: (TEMP[water] || TEMP.x)[season] }; let sum = 0, id = null; const sh = q => FISH[q].water.includes(water) ? FISH[q].base * TRAPS_MOD.TRAP_FISH[q][0] * FW.depthK(FISH[q].depth, D) * FW.baitK(FISH[q], 'rotten_fish') * FW.momentK(FISH[q], c) : 0; for (const q in TRAPS_MOD.TRAP_FISH) sum += sh(q); if (!(sum > 0)) continue; let z = r() * sum; for (const q in TRAPS_MOD.TRAP_FISH) { if (!(sh(q) > 0)) continue; id = q; if ((z -= sh(q)) <= 0) break; } const f = FISH[id], cm = f.cm[0] + (Math.min(f.cm[1], TRAPS_MOD.TRAP_FISH[id][1]) - f.cm[0]) * r() ** 2, g = Math.round(FW.kgOf(f, cm) * 1000); coins += price({ id, g }); kg += g / 1000; n++; } return { coins: coins / n, kg: kg / n }; };
+    const days = (water, every, apart) => { let caught = 0, got = 0; const S = FW.STOCK[water]; for (let h = every; h <= 24 * 30; h += every) { caught = Math.max(0, caught - FW.REFILL * S * every / 24); let sum = 0; const k = [0, 1, 2, 3].reduce((q, s) => q + TRAPS_MOD.trapK({ water, depth: { rio: 1.2, lago: 1.8, mar: 3 }[water], spot: 1 }, 'rotten_fish', s, (TEMP[water] || TEMP.x)[s]) / 4, 0); for (let i = 0; i < (apart ? 1 : 4); i++) { const n = TRAPS_MOD.countFor(every, k, FW.stockK(caught, water)); sum += n; caught += n; } got += sum * (apart ? 4 : 1); } return got / 30; };
+    const rod = 24000;
+    for (const water of ['rio', 'lago', 'mar']) { const m = mean(water); out[water] = { each: Math.round(m.coins), kg: +m.kg.toFixed(2), ...Object.fromEntries([24, 12, 8].map(h => [`${24 / h}/day`, `${days(water, h, true).toFixed(1)} fish ${Math.round(days(water, h, true) * m.coins)}; together ${days(water, h, false).toFixed(1)}`])) }; }
+    console.log('trap income (4 traps, coins a day):', JSON.stringify(out));
+    for (const water of ['rio', 'lago', 'mar']) { const m = mean(water), day = days(water, 12, true) * m.coins; check(day > 1000 && day < rod * 0.6, `${water}: ${Math.round(day)} a day`); check(days(water, 12, false) < days(water, 12, true), 'four in the same spot catch as many'); check(days(water, 8, true) <= 36.01, 'more than they hold'); }
+  });
   await test('mesa de encantar retirada: al cargar se quita y se devuelven sus materiales', async () => {
     const cx = 100, cy = 100, k = `${cx},${cy}`, deltas = new Map([[k, { removed: {}, tilled: {}, v: 0, placed: { '1600,1600': 'mesa_encantar@1', '1601,1600': 'silla' }, pos: { 'placed:1600,1600': [1, 2, 3] }, chest: { '1602,1600': [{ id: 'mesa_encantar', n: 1 }, { id: 'madera', n: 2 }] } }]]);
     const save = game.snapshot(); save.inventory.slots = [{ id: 'mesa_encantar', n: 1 }, { id: 'hacha', n: 1, dur: 15, ench: { filo: 2 } }, ...save.inventory.slots.slice(2)];
@@ -5890,6 +6075,7 @@ async function soloTests(game) {
     // Slot mode: a log is its wood
     const S = new Inventory(); S.add('log', 1); check(S.count('madera') === 4 && !S.count('log'), 'slot mode keeps a log');
   });
+  await test('fish (english): the rod rest, with the weight inventory', async () => { await weightOn(); await restTest(); });
   await test('fish (english): kitchen, with the weight inventory and the chests nearby', async () => { await weightOn(); await kitchenTest(true); });
   await test('peso cofres (weight chests): B and C take what is missing from chests within 16 tiles and say from where', async () => {
     await weightOn();

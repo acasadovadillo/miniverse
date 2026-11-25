@@ -29,7 +29,7 @@ const HOLD_MS = 500, SURE_MS = 5000, FLY_WAIT = 140;                        // (
 const landName = b => { if (getLang() === 'es') return BIOMES[b].name; const n = t(`nature.biome.${b}`); return n.charAt(0).toUpperCase() + n.slice(1); };
 const GROUPS = ['places', 'village', 'people', 'animals', 'boats', 'markers', 'jobs', 'hunting'];
 const TABS = ['all', 'village', 'places', 'mine'], ROWS_MAX = 400, INDEX_MS = 1000;
-const MINE = new Set(['mark', 'horse', 'dog', 'cat', 'boat']), VILLAGE = new Set(['home', 'tavern', 'shop', 'house']), FIRM = new Set([...VILLAGE, 'place']);
+const MINE = new Set(['mark', 'horse', 'dog', 'cat', 'boat', 'trap']), VILLAGE = new Set(['home', 'tavern', 'shop', 'house']), FIRM = new Set([...VILLAGE, 'place']);
 
 const CSS = `
 #bigmap { position: fixed; inset: 0; cursor: none; touch-action: none; }

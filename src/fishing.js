@@ -136,6 +136,15 @@ export class Fishing {
   }
   // Is R the rod's? (with the rod in the hand, in the world; building, R turns what is built: main.js)
   ownsR() { const g = this.game, p = g.player; return !!p && !g.build.on && ITEMS[g.inv.held?.id]?.tool === 'cana' && g.scene === this.world && !p.swim && !g.busy && !hud.dialogOpen; }
+  // Before it goes on: with no cut bait left, a sardine is cut on the spot
+  prepare(b) {
+    const g = this.game;
+    if (b.id !== 'cut_bait' || g.inv.count('cut_bait')) return;
+    g.inv.remove(CUT_FROM, 1);
+    const over = g.inv.add('cut_bait', CUTS);
+    if (over) g.gather.throwOut('cut_bait', over);
+    g.gather.float(tr('fish.cut', { item: itemNoun(CUT_FROM) }), '#fff3c0');
+  }
   // One of it is gone. The last one: it says so, and what goes on next (the first real bait, or nothing)
   spendBait(id) {
     const I = this.game.inv;
@@ -220,7 +229,7 @@ export class Fishing {
     Audio.swish();
     if (!p.pose && !p.boat && !p.aboard && !p.mount && spot.r > 0.1) p.face = { x: (spot.x - p.x) / spot.r, y: (spot.y - p.y) / spot.r };
     const b = this.bait;
-    if (b.id === 'cut_bait' && !g.inv.count('cut_bait')) { g.inv.remove(CUT_FROM, 1); const over = g.inv.add('cut_bait', CUTS); if (over) g.gather.throwOut('cut_bait', over); g.gather.float(tr('fish.cut', { item: itemNoun(CUT_FROM) }), '#fff3c0'); }
+    this.prepare(b);
     const ctx = FW.here(g, spot.x, spot.y, ROD_K[this.tier], b.rig, b.id), rate = ctx ? FW.rates(ctx) : 0;
     let wait = FW.waitFor(rate);
     const now = g.time;
@@ -617,7 +626,7 @@ export class Fishing {
       return `<div class="j-fish"><span class="j-cell ${k ? 'done' : 'none'}"${k ? ` data-nature="${id}"` : ''}><img alt="" data-icon="${id}"></span>` +
         `<span><b>${k ? fishName(id) : '???'}</b><small>${tr('nature.fact.waters', { list: water(f) })}${k ? ' · ' + best(f) : ''}</small></span>` +
         `<span class="lvl">${rec(id)}</span></div>`;
-    }).join('') + (last ? `<h3>${tr('fish.log.last')}</h3>${last}` : '');
+    }).join('') + (g.traps?.journal() || '') + (last ? `<h3>${tr('fish.log.last')}</h3>${last}` : '');
   }
 }
 const OUT = { arm: -0.35, lean: 0 }, FIGHT = { arm: -0.9, lean: -0.1 }, HELD = { arm: -1.05, lean: -0.04, both: true };

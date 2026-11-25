@@ -271,7 +271,7 @@ function itemObject(o, id, rot, colliders, lights, [sx, sy] = [0, 0]) {
     if (LONG[id] === 'table') Object.assign(o, { x: (x0 + x1) / 2, y: (y0 + y1) / 2, yaw: 0, model: `mesa_grande:${x1 - x0}x${y1 - y0}` });
     return false;
   }
-  if (id === 'silla' || id === 'antorcha' || id === 'maceta' || id === 'lampara' || id === 'cojin' || id === 'palomar') colliders.push({ x: o.x, y: o.y, r: id === 'silla' || id === 'cojin' ? 0.3 : 0.2 });
+  if (id === 'silla' || id === 'antorcha' || id === 'maceta' || id === 'lampara' || id === 'cojin' || id === 'palomar' || id === 'rod_rest') colliders.push({ x: o.x, y: o.y, r: id === 'silla' || id === 'cojin' ? 0.3 : 0.2 });
   else colliders.push({ x0: tx + 0.06 + sx, y0: ty + 0.06 + sy, x1: tx + 0.94 + sx, y1: ty + 0.94 + sy });
   return false;
 }
@@ -1388,7 +1388,7 @@ export class Overworld {
       if (![...Array(8)].some((_, i) => !this.water(ox + Math.cos(i * Math.PI / 4) * 2.4, oy + Math.sin(i * Math.PI / 4) * 2.4))) return res(false, 'Ponla cerca de la orilla');
     }
     for (const [x, y] of [[w.x, w.y], [b.x0, b.y0], [b.x1, b.y0], [b.x0, b.y1], [b.x1, b.y1]]) {
-      if (this.water(x, y) && id !== 'noria') return res(false, 'Ahí no se puede poner');
+      if (this.water(x, y) && id !== 'noria' && !(id === 'rod_rest' && this.levelAt(x, y) !== null)) return res(false, 'Ahí no se puede poner');
       if (inBounds(x, y) && !isGrass(x, y) && !inOwnHouse(x, y) && !inVillageHouse(x, y) && !this.buildAnywhere) return res(false, 'En el camino y en la plaza no se puede');
     }
     // (nor inside a well's mouth, where its boxes leave room: it would float over the water, and over the hole once it goes)

@@ -952,7 +952,7 @@ export class View3D {
     // (lo de alrededor llega en varios fotogramas, del otro hilo y por tandas: cada vez, solo lo que no se ha mirado aún,
     // con copias vacías de cada objeto; la primera, también el suelo y el agua, que llegan los últimos)
     const seen = (P.seen ||= new WeakSet()), N = (this.prepRoot ||= new THREE.Group());
-    if (!P.warm) { P.warm = true; N.children.push(...this.terrain.proxies().children, ...this.world.seabed.proxies().children, ...this.fx.underProxies().children, ...this.tracks3d.proxies().children); }
+    if (!P.warm) { P.warm = true; N.children.push(...this.terrain.proxies().children, ...this.world.seabed.proxies().children, ...this.world.traps.proxies().children, ...this.fx.underProxies().children, ...this.tracks3d.proxies().children); }
     this.scene.traverse(o => { if (o.material && !seen.has(o)) { seen.add(o); const q = Object.create(o); q.children = []; N.children.push(q); } });
     let progs = [];
     if (N.children.length) {

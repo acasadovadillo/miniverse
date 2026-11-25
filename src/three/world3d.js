@@ -32,6 +32,7 @@ const UNLIT = { shade: 'cloth', lamp: 'white', ember: 'soot', glow: 'soot', crys
 import { tintMats, tintOf } from './tints.js';
 import { wearKind, wearTwin, LOOK, WORN } from './wear3d.js';
 import { Seabed } from './seabed3d.js';
+import { TrapsView } from './traps3d.js';
 import { Site3D } from './site3d.js';
 import { FRUIT } from '../orchard.js';
 import { weedYaw } from '../pests.js';
@@ -102,6 +103,7 @@ export class World3D {
     this.farRoot = new THREE.Group(); this.farRoot.name = 'far';
     this.group.add(this.farRoot);
     this.seabed = new Seabed(this);
+    this.traps = new TrapsView(this);   // (the fish traps: traps3d.js)
     this.site = new Site3D(this);   // (what is drawn to be built, and its scaffolding: site3d.js)
   }
 
@@ -183,6 +185,7 @@ export class World3D {
     if (k !== this.lampK) { this.lampK = k; modelMat('lamp').emissiveIntensity = 0.25 + 1.5 * k; modelMat('lens').emissiveIntensity = 0.5 + 1.5 * k; }
     if (ks !== this.shadeK) { this.shadeK = ks; modelMat('shade').emissiveIntensity = 0.15 + 0.6 * ks; }
     this.seabed.frame(game, game.time);
+    this.traps.frame(game, game.time);
     this.site.frame(game, scene);
   }
   // Under the water: what is above it and far away, hidden (updateGrass shows the tufts again when the camera comes up)
@@ -220,7 +223,7 @@ export class World3D {
     // (lo primero que se monta después, al cambiar de estación o de mundo, sale de golpe: detrás no hay nada con lo que
     // fundirse, que lo lejano también se está rehaciendo, y su sombra saldría entera mientras él aún va tramado)
     this.freshNature = true;
-    this.seabed.clear(); this.site.clear();
+    this.seabed.clear(); this.traps.clear(); this.site.clear();
   }
 
   // La casa en la que se está (el establo), sin tejado; se rehace su trozo al entrar y al salir

@@ -259,6 +259,11 @@ export class Outline {
       const f = view.world?.seabed?.instanceOf?.(a.find);
       if (f) { const [im, i] = f; im.updateMatrixWorld(); im.getMatrixAt(i, MI); L.push([im.geometry, new THREE.Matrix4().multiplyMatrices(im.matrixWorld, MI), null, null]); return true; }
     }
+    // A fish trap (traps.js): its buoy, or its creel
+    if (a.trap) {
+      const f = view.world?.traps?.instanceOf(a.trap, a.creel);
+      if (f) { const [im, i] = f; im.updateMatrixWorld(); im.getMatrixAt(i, MI); L.push([im.geometry, new THREE.Matrix4().multiplyMatrices(im.matrixWorld, MI), null, null]); return true; }
+    }
     // Something drawn on its own: the leaf of a door or a gate, a moored boat, what is in a cave
     const obj = this.objectOf(a);
     if (obj) { for (const o of [].concat(obj)) live(o); return true; }

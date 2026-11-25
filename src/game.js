@@ -37,6 +37,8 @@ import { Steps } from './steps.js';
 import { PlayTime } from './playtime.js';
 import { Recap } from './recap.js';
 import { Fishing } from './fishing.js';
+import { Traps } from './traps.js';
+import { RodRest } from './rodrest.js';
 import { Wildlife } from './wildlife.js';
 import { Wind } from './wind.js';
 import { EVENT } from './senses.js';
@@ -204,6 +206,8 @@ export class Game {
     this.horsecare = this.addSystem(new HorseCare(this));   // what the horse eats and drinks, its shoes, being sore (Plan R4-2, src/horsecare.js)
     this.family = this.addSystem(new Family(this));
     this.fishing = this.addSystem(new Fishing(this));
+    this.traps = this.addSystem(new Traps(this));   // the fish traps and their buoys (src/traps.js)
+    this.rodrest = this.addSystem(new RodRest(this));   // the rod laid on its rest, with its bell (src/rodrest.js)
     this.wind = this.addSystem(new Wind(this));   // the wind, the same for everyone (src/wind.js, Plan R3: it carries the scent; before wildlife, which reads it)
     this.wildlife = this.addSystem(new Wildlife(this));
     this.visitors = this.addSystem(new Visitors(this));   // the birds and the rabbits seen coming to the garden (src/visitors.js; after wildlife: they count together)
@@ -573,8 +577,8 @@ export class Game {
     const sc = this.scene;
     if (p.pose) return { text: t('pose.stand_up'), run: () => this.rest.stand() };
     if (this.barrow.pushing) return this.barrow.pushAction();   // (the hands on the wheelbarrow: barrow.js)
-    if (p.aboard) return this.crew.action();
-    if (p.boat) return this.crew.ownAction();   // (remando: E baja a tierra y amarra la barca)
+    if (p.aboard) return this.traps.boatAction() || this.crew.action();   // (a buoy aimed at: traps.js)
+    if (p.boat) return this.traps.boatAction() || this.crew.ownAction();   // (remando: E baja a tierra y amarra la barca)
     // Swimming: a moored boat first (crew.js, only near the surface); then, with a mouse, only the systems' targets the
     // cursor aims at (a find on the bed, fresh water to drink, a boat: kind 'sys'; never a bed, a chair, a chest or a door
     // on the bank); without one, the find in reach (dive.js) or a drink of the water here (needs.js)
@@ -651,6 +655,7 @@ export class Game {
       // (the box of what it draws, if it draws a model: then the ray goes against its real shape)
       const a = { kind: 'placed', o, yaw: o.yaw ?? yawOf(o.rot), box: placeBoxes([h], o.x, o.y, o.yaw ?? yawOf(o.rot))[0] }, mb = this.shapeBox(a, sc);
       if (mb) { a.box = mb; a.exact = true; }
+      if (o.placed === 'rod_rest') { a.exact = false; a.box = { ...a.box, hx: Math.max(0.26, a.box.hx) }; }   // (two thin sticks: its box, and wider)
       out.push(a);
     }
     // Las puertas, las ventanas y el hogar (piezas de construcción)
@@ -740,6 +745,7 @@ export class Game {
     const hung = hungFirst && o.layer !== 'hang' ? [o.tile, ...extraTiles(o.placed, ...o.tile, o.rot)].map(t => [t, sc.ownAt?.('hang', ...t)]).find(([, v]) => v && ITEMS[v.split('@')[0]]) : null;
     const top = hung ? { tile: hung[0], layer: 'hang', placed: hung[1].split('@')[0] } : o;
     const name = ITEMS[o.placed].name.toLowerCase(), pick = { text: `${BUILDABLE[top.placed] ? 'Desmontar' : 'Recoger'} ${ITEMS[top.placed].name.toLowerCase()}`, run: () => this.pickUp(top) };   // (lo construido, al desmontarlo, devuelve sus materiales)
+    if (o.placed === 'rod_rest') return this.rodrest.action(o, pick);
     if (STATIONS[o.placed]) return { text: `Usar ${name}`, run: () => this.onCraft?.(o.placed), alt: o.fixed ? null : pick };
     if (o.placed === 'cama' || o.placed === 'cama_nino' || o.placed === 'cama_doble') return { text: this.carry.dropFirst() || t('bed.use'), run: () => this.bed(o), alt: pick };   // (with something in the arms: put it down first, carry.js)
     if (o.placed === 'silla' || o.placed === 'taburete' || o.placed === 'sofa' || o.placed === 'sillon' || o.placed === 'barber_chair' || o.placed === 'pew') return { text: this.carry.dropFirst() || 'Sentarse', run: () => this.rest.sit(o), alt: o.fixed ? null : pick };
