@@ -30,6 +30,7 @@ export class Board {
   }
   get world() { return this.game.world; }
   reset(save) {
+    this.shared = false;   // (a guest: has the host's board come yet?)
     this.projects = save.projects || {};
     this.done = save.boardDone || { day: -1, ids: [] };
     setProjects(this.projects);
@@ -38,13 +39,16 @@ export class Board {
   save(out) { out.projects = this.projects; out.boardDone = this.done; }
   // Jugando juntos en directo, como los tiene el anfitrión (y si se ha terminado un proyecto, el pueblo crece)
   share(v) {
-    const had = JSON.stringify(this.projects), casa = this.projects.casa;
+    const had = JSON.stringify(this.projects), casa = this.projects.casa, old = this.projects, first = !this.shared && this.game.live?.guest;
+    this.shared = true;
     this.projects = v.projects || {};
     this.done = v.done || { day: -1, ids: [] };
     if (JSON.stringify(this.projects) === had) return;
     setProjects(this.projects);
     this.world.rebuildVillage();
     if (this.projects.casa && !casa) this.game.neighbors.moveIn('dani');
+    // (what another player has finished is news too, not yours. A guest's first copy is how the village already was)
+    if (!first) for (const id of Object.keys(this.projects)) if (this.projects[id] && !old[id]) this.game.gossip?.news('project', '*', id, 0);
   }
 
   // Encargos del día (siempre los mismos para un día y una semilla)
@@ -70,6 +74,7 @@ export class Board {
     g.addMoney(now.reward);
     g.neighbors.addPoints(now.who, 60);
     g.neighbors.remember?.(now.who, 'helped', now.item);   // (they remember it: neighbors.js, Plan E §4.5)
+    g.gossip?.news('helped', now.who, now.item);
     this.done.ids.push(now.i);
     g.stats?.add('encargos', 1);
     g.rep?.change(10, 'errand');
@@ -141,6 +146,7 @@ export class Board {
     g.rep?.change(60, 'project');
     // (the whole village remembers it: Nilo and everyone who lives here)
     for (const who of ['nilo', ...g.neighbors.people.map(n => n.id)]) g.neighbors.remember?.(who, 'project', id);
+    g.gossip?.news('project', '*', id);
     Audio.unlock();
     hud.toast(t('board.project.done', { name: p.name }), 'good');
     await hud.say(PEOPLE.nilo.name, [t(`board.nilo.${id}`)]);

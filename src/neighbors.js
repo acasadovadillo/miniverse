@@ -423,8 +423,8 @@ export class Neighbors {
     return formatMessage(list[i], this.params(more));
   }
 
-  // The opening of a talk, the first that applies: the introduction; how you look (remarks.js); what they remember; the
-  // cold greeting of a village that distrusts you; their mood; the warm one; the hour and the weather
+  // The opening of a talk ('|' between two lines), the first that applies: the introduction; that you were looking for them;
+  // how you look (remarks.js); what they remember; what they have heard (gossip.js); the cold greeting of a village that distrusts you; their mood; the warm one; the hour and the weather
   greeting(id, met = this.introduced(id)) {
     const g = this.game, T = g.days, h = T.hour, f = this.friend(id), temper = PEOPLE[id].temper;
     if (!met) {
@@ -432,10 +432,14 @@ export class Neighbors {
       const own = tList(`npc.intro.${id}`), l = own.length ? own : tList(`npc.intro.${temper}`);
       if (l.length) return formatMessage(l[Math.floor(Math.random() * l.length)], this.params({ npc: PEOPLE[id].name }));
     }
+    const looked = g.gossip?.lookedFor(id);   // (somebody told them you were asking for them)
+    if (looked) return looked;
     const rm = g.remarks?.forTalk(id);
     if (rm?.text) return rm.text;
     const rc = this.recall(id);
     if (rc) return rc;
+    const nw = g.gossip?.opener(id);
+    if (nw) return nw;
     const R = g.rep;
     if (R?.counts && R.index <= levelIndex('distrusted') && tList('npc.greet.cold').length) return this.line('npc.greet.cold');
     const mood = moodOf(id, T.realDay, g, f);
@@ -478,7 +482,9 @@ export class Neighbors {
   }
   // ---------- chatting (talktopics.js: what about) ----------
   chatLines(id, npc, mood = 0) {
-    const f = this.friend(id), x = pickTopic(talkContext(this.game, id, npc), f);
+    const f = this.friend(id), heard = this.game.gossip?.topic(id);   // (what they have heard: gossip.js)
+    if (heard) return heard.split(' | ');
+    const x = pickTopic(talkContext(this.game, id, npc), f);
     const lines = x ? x.text.split(' | ') : [];   // (the longer ones, in two)
     if (lines.length && mood > 0 && Math.random() < EXTRA_CHANCE) { const s = this.say(id, 'mood.extra'); if (s) lines.push(s); }
     return lines;
@@ -608,8 +614,8 @@ export class Neighbors {
     this.addPoints(id, Math.floor(pts / part) + (wish ? WISH_PTS : 0));
     if (how === 'loved' || how === 'liked') learn(f, item);
     if (how === 'loved') f.giftMood = day;   // (a good mood for the rest of the day)
-    if (pts >= 90) this.remember(id, 'gift_loved', item); else if (pts < 0) this.remember(id, 'gift_hated', item);
-    if (wish) { delete f.wish; this.remember(id, 'wish_kept', item); }
+    if (pts >= 90) { this.remember(id, 'gift_loved', item); if (!wish) g.gossip?.news('gift_loved', id, item); } else if (pts < 0) this.remember(id, 'gift_hated', item);
+    if (wish) { delete f.wish; this.remember(id, 'wish_kept', item); g.gossip?.news('wish_kept', id, item); }
     g.stats?.add('regalos', 1);
     // (the reputation too; while the village distrusts you, what is good counts double: it is how peace is made)
     const R = g.rep, rep = pts >= 90 ? [8, 'gift_loved'] : pts >= 50 ? [4, 'gift_liked'] : pts > 0 ? [2, 'gift'] : [-1, 'gift_hated'];

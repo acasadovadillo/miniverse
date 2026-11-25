@@ -63,6 +63,9 @@ const RAW = (() => { try { return new URLSearchParams(globalThis.location?.searc
 // Plan R7-1 (sites and names, docs/planes/realismo/PLAN-R7-mundo.md): sitios (?sitios=1 or =0: the places where they were
 // before, one roll per chunk, without the ruins; the world's list is neither made nor changed). To compare, playing alone
 // Plan R7-2 (looking from above): siluetas (?siluetas=0: no landmarks far off, three/landmarks3d.js). Drawing only
+// Plan R6.3 (the village talks, docs/planes/realismo/PLAN-R6-gente.md): gossip (?gossip=0: nothing is written in the log of what
+// you do, nor told, nor does it make anybody cold; what is saved stays) and chatter (?chatter=0: the neighbours do not talk among
+// themselves). Local only
 export const PARTES = { hierba: 'sinlod', impostores: null, relieve: null, contacto: null, sombras: 'todas', personas: 'todas', suelo: 'v2', inventario: 'casillas',
   sed: null, cansancio: null, aguante: null, buceo: null, fondo: null, caustica: null,
   ruta: null, rutasuelo: null, musica: 'chip',
@@ -70,7 +73,7 @@ export const PARTES = { hierba: 'sinlod', impostores: null, relieve: null, conta
   vinculo: null, alforjas: null, montar: 'arcade', cuidado: null, razas: null,
   tracks: null, wounds: null, naturebook: null,
   sentidos: null, manadas: null, calidad: null, routines: null,
-  soporte: null, refugio: null, obra: null, deterioro: null, sat: null, mapa3d: null, sitios: '1', siluetas: null };
+  soporte: null, refugio: null, obra: null, deterioro: null, sat: null, mapa3d: null, sitios: '1', siluetas: null, gossip: null, chatter: null };
 
 // El valor tal cual (o null)
 export const opcion = k => RAW.get(k);

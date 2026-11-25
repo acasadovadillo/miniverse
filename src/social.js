@@ -28,7 +28,7 @@ export const COUNT_R = 4;         // tiles: the farthest a greeting counts for t
 const FRONT_R = 6, FRONT_COS = Math.cos(35 * Math.PI / 180);   // Y without anyone under the cursor: who is in front of you
 export const COOLDOWN = 1.2;      // s between two greetings
 export const REPLY_DELAY = 0.6;   // s before the neighbor answers
-export const MAX_BUBBLES = 5;
+export const MAX_BUBBLES = 6;
 export const NET_GAP = 1;         // s: a second 'greet' of the same player sooner than this is ignored
 export const TOAST_GAP = 15;      // s: at most one notice per player this often
 const BACK_FOR = 6;               // s after someone greets you in which Y greets them back without aiming
@@ -68,6 +68,7 @@ const CSS = `
 .say-bubble b { display: block; margin-bottom: 1px; font: 600 11px/1.2 var(--font-title); letter-spacing: .07em; text-transform: uppercase; color: #8a5a2a; }
 .say-bubble.mine { background: rgba(10, 12, 16, .88); color: var(--cream); box-shadow: 0 0 0 1px rgba(255, 255, 255, .16), 0 2px 8px rgba(0, 0, 0, .35); }
 .say-bubble.mine::after { border-top-color: rgba(10, 12, 16, .88); }
+body.big-text .say-bubble { font-size: 20px; max-width: 320px; } body.big-text .say-bubble b { font-size: 14px; }
 #social-sub { position: fixed; left: 50%; bottom: max(17%, 152px); z-index: 23; width: max-content; max-width: min(680px, 62vw); transform: translateX(-50%);
   color: #fff; font: 500 max(18px, calc(22 * var(--ui-s)))/1.35 var(--font-ui); text-align: center; text-wrap: balance; text-shadow: 0 1px 2px rgba(0, 0, 0, .95), 0 0 6px rgba(0, 0, 0, .75), 0 0 14px rgba(0, 0, 0, .5); opacity: 0; visibility: hidden; transition: opacity .2s, visibility 0s linear .2s; pointer-events: none; }
 #social-sub.on { opacity: 1; visibility: visible; transition: opacity .12s, visibility 0s; }
@@ -300,19 +301,20 @@ export class Social {
     N.addPoints(c.id, first && N.hearts(c.id) >= 3 ? -10 : -20);   // (a slip with a friend does not cost Rosa's discount)
     R.change(-8, 'insult');
     N.remember(c.id, 'insult');
+    g.gossip?.news('insult', c.id);
     f.insultedAt = today; f.insults = [today, n];
     if (n >= 3) f.snub = today;   // (the third time in a day: they do not talk to you today)
   }
   // How you get along with a neighbor: 'friend', 'neutral' or 'cold' (in creative the reputation counts as «Newcomer»).
   // Their memory (neighbors.js, Plan E §4.5): having seen you take something from a house in the last 3 days makes them
   // cold whatever the hearts, unless you have helped them since; having helped them in the last 3 days lifts any other
-  // coldness to neutral. It only changes the answers and gestures, never prices or whether they talk (R.canTalk)
+  // coldness to neutral. Having heard something bad of you in the last 2 days cools who knows you little (gossip.js). It only changes the answers and gestures, never prices or whether they talk (R.canTalk)
   relation(id) {
     const g = this.game, N = g.neighbors, f = N.friend(id), today = this.today, lv = g.rep?.counts ? g.rep.index : levelIndex('newcomer'), hearts = N.hearts(id);
     const seen = N.memIndex?.(id, 'take_seen', MEM_DAYS) ?? -1, helped = N.memIndex?.(id, 'helped', MEM_DAYS) ?? -1;
     if (seen >= 0 && helped < seen) return 'cold';
     let rel = 'neutral';
-    if (f.insultedAt === today) rel = 'cold';
+    if (f.insultedAt === today || (hearts < 4 && g.gossip?.heardBad(id))) rel = 'cold';   // (they have heard something bad of you: gossip.js)
     else if (hearts >= 4 || lv >= levelIndex('beloved')) rel = 'friend';
     else if (lv <= levelIndex('distrusted') || (hearts === 0 && lv === levelIndex('newcomer') && recent(today, f.insultedAt, 3))) rel = 'cold';
     return rel === 'cold' && helped >= 0 ? 'neutral' : rel;

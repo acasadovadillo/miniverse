@@ -194,7 +194,7 @@ export class Talk {
       if (!T.live) return;
       spoke = true;
     }
-    if (!spoke) await this.say(id, [cold ? N.line(this.openNow(id) ? 'npc.refuse.shop' : 'npc.refuse') : sore ? N.line('npc.reproach') : other && met ? N.say(id, 'busy_with', { other: other.name }) : N.greeting(id, met)]);
+    if (!spoke) await this.say(id, [cold ? N.line(this.openNow(id) ? 'npc.refuse.shop' : 'npc.refuse') : sore ? N.line('npc.reproach') : other && met ? N.say(id, 'busy_with', { other: other.name }) : N.greeting(id, met)].flatMap(s => s.split(' | ')));
     while (T.live) {
       const c = this.ctx(T, cold, sore), opts = talkOptions.for(c);
       const k = await this.menu(T, opts.map(o => ({ id: o.id, text: o.label(c) })), true);
@@ -472,11 +472,13 @@ export class Talk {
     const opts = askOptions.for(c), k = await this.menu(c.T, [...opts.map(o => ({ id: o.id, text: o.label(c) })), { id: BACK, text: t('talk.opt.back') }]);
     if (c.T.live) await opts.find(o => o.id === k)?.run(c);
   }
-  // What's new: for now, what they think of somebody (R6.3 brings the news)
+  // What's new: the newest thing they know and have not told you (gossip.js); with nothing new, what they think of somebody
   async askNews(c) {
     const { T, N, id } = c;
     await this.mine(N.line('talk.you.news'));
     if (!T.live) return;
+    const e = this.game.gossip?.fresh(id), heard = e && this.game.gossip.mention(id, e);
+    if (heard) { await this.say(id, heard.split(' | ')); return; }
     const x = pickTopic({ ...talkContext(this.game, id, c.npc), only: 'village' });
     await this.say(id, x ? x.text.split(' | ') : N.chatLines(id, c.npc, 0));
   }
@@ -506,6 +508,7 @@ export class Talk {
     await this.mine(N.line('talk.you.where', { who: who.text }));
     if (!T.live) return;
     const a = who.peer ? this.wherePlayer(T.e, who.peer) : this.whereNeighbour(who.id);
+    if (!who.peer) this.game.gossip?.news('looked_for', id, who.id);   // (they will hear of it)
     await this.say(id, [a.text]);
     if (T.live && a.at) this.point(T, ...a.at);
   }

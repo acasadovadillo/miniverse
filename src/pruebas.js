@@ -108,6 +108,8 @@ import * as RT from './routines.js';
 import { wayRound } from './world/walkways.js';
 import { CHAPEL, LOTS, WALK_NODES, setProjects, keepClear, townDigWhy as townWhy } from './world/village.js';
 import { PROJECTS } from './board.js';
+import { Gossip, NEWS, NEWS_KINDS, knowsAt as gossipKnowsAt, ties as gossipTies, involved } from './gossip.js';
+import { Chatter, SLOT } from './chatter.js';
 import { talkContext, pickTopic, topicWeights, topicLines, cropNews, fishNow, moodOf, forecastBy, tomorrowsWeather, lineHash, thing, someOf, TOPICS } from './talktopics.js';
 import { stackKg, SIP_KG } from './carry-items.js';
 import { extraOf } from './inventory.js';
@@ -9474,6 +9476,230 @@ async function soloTests(game) {
     console.log(`talk: ${on.toFixed(4)} ms a step talking, ${idle.toFixed(5)} without`); check(on < 0.03 && idle < 0.002, `${on.toFixed(4)} ms, ${idle.toFixed(5)} ms`);
   }));
   // ---------- end of R6.2
+  // ---------- R6.3: the village talks (PLAN-R6-gente §3.4, §3.5, §8: src/gossip.js, src/chatter.js) ----------
+  const realRandom = Math.random, Go = () => game.gossip, Ch = () => game.chatter, newsList = () => Go().v.list;
+  const IDS = Object.keys(PEOPLE), E_ = (at, kind, src, item = null, val = NEWS[kind].val) => [99, at, kind, src, item, val, 0];
+  // A clean log, the village's clock to be set (clock(ms)), everybody known to you; everything back after (social, routine)
+  const gossiping = fn => social(() => routine(async o => {
+    const N = Nb(); N.flags = {}; newsList();
+    for (const id of IDS) N.friends[id] = { pts: 150, talk: 0, gift: -1, events: [3, 6], intro: 0 };
+    const keepR = Math.random, off = Ch().off, kids = game.family.v;
+    game.family.v = { kids: [], expecting: null };
+    const at = ms => { o.clock(ms); for (const n of N.people) { n.placeAt(ms); } };
+    try { await fn({ ...o, N, at }); }
+    finally { Math.random = keepR; Ch().off = off; Ch().reset(); game.family.v = kids; So().reset(); Tk().stop(); game.talk.auto = TALK_AUTO; hud.closeDialog(); for (const n of N.people) delete n.lookTarget; }
+  })());
+  await test('gossip (english): spreads with delay', gossiping(async () => {
+    // The lamp, seen by Lía at 10:00
+    const at = dayMs(WORKDAY, 10), e = E_(at, 'take_seen', 'lia', 'taberna/lampara'), h = id => (gossipKnowsAt(id, e) - at) / 36e5;
+    check(h('lia') === 0 && h('rosa') === 1 && h('nilo') === 4 && h('anselmo') === 0, `lia ${h('lia')}, rosa ${h('rosa')}, nilo ${h('nilo')}, anselmo, whose it is, ${h('anselmo')}`);
+    const e2 = E_(at, 'insult', 'lia'), hh = id => (gossipKnowsAt(id, e2) - at) / 36e5;
+    check(hh('rosa') === 1 && hh('marta') === 4 && hh('anselmo') === 5 && hh('paco') === 7 && hh('bruno') === 10 && hh('dani') === 8, `marta ${hh('marta')}, anselmo ${hh('anselmo')}, bruno ${hh('bruno')}`);
+    game.days; check(!(gossipKnowsAt('rosa', e2) <= dayMs(WORKDAY, 10.5)) && gossipKnowsAt('rosa', e2) <= dayMs(WORKDAY, 11), 'Rosa at 10:30');
+    check(IDS.every(id => gossipKnowsAt(id, e2) <= dayMs(WORKDAY + 1, 9)), 'not everyone by the next morning');
+    // Nobody learns anything asleep, whatever the hour it happened at
+    for (let q = 0; q < 24; q += 0.25) for (const src of [...IDS, '*']) for (const id of IDS) {
+      if (id === src) continue;
+      const k = gossipKnowsAt(id, E_(dayMs(WORKDAY, q), 'insult', src)), kh = (k % 864e5) / 36e5, late = !!PEOPLE[id].seat;
+      check(k >= dayMs(WORKDAY, q) && (late ? kh >= 9 || kh < 2 : kh >= 7.5 && kh < 23), `${id} hears at ${kh} what ${src} saw at ${q}`);
+    }
+    // Somebody the ties do not name hears it through the tavern; the delays are the same both ways
+    const G = gossipTies([...IDS, 'ramiro']); check(G.h.ramiro.anselmo === 6 && G.h.rosa.ramiro === 10 && G.via.rosa.ramiro === 'anselmo', JSON.stringify(G.h.ramiro));
+    check(IDS.every(a => IDS.every(b => G.h[a][b] === G.h[b][a] && G.h[a][b] <= 24 && (a === b || G.via[a][b] !== b))), 'the graph'); gossipTies();
+  }));
+  await test('gossip (english): pure', gossiping(async ({ N }) => {
+    const A = new Gossip(game), B = new Gossip(game), list = []; for (let i = 0; i < 60; i++) list.push(E_(dayMs(WORKDAY) + Math.floor(Math.random() * 3e8), NEWS_KINDS[i % NEWS_KINDS.length], [...IDS, '*'][i % (IDS.length + 1)], i % 3 ? 'rosa/x' : 'bruno'));
+    for (const e of list) for (const id of IDS) check(A.knowsAt(id, e) === B.knowsAt(id, JSON.parse(JSON.stringify(e))), `${id} ${e}`);
+    let t0 = performance.now(); for (let k = 0; k < 20; k++) for (const e of list) for (const id of IDS) A.knowsAt(id, e); const ms = (performance.now() - t0) / (20 * list.length * IDS.length);
+    for (let i = 0; i < 24; i++) newsList().push(E_(Go().now - 36e5 * 20, 'helped', 'rosa', 'madera').map((v, k) => (k ? v : i)));
+    t0 = performance.now(); for (let i = 0; i < 200; i++) { Go().fresh('paco'); Go().heardBad('paco'); } const fr = (performance.now() - t0) / 200; t0 = performance.now(); for (let i = 0; i < 50; i++) Go().journal(); const jo = (performance.now() - t0) / 50;
+    console.log(`gossip: knowsAt ${(ms * 1000).toFixed(2)} µs, a talk ${fr.toFixed(3)} ms, the diary ${jo.toFixed(2)} ms`); check(ms < 0.01 && fr < 1 && jo < 6, `${ms} ${fr} ${jo}`); check(N, '');
+  }));
+  await test('gossip (english): a week: who knows what, and when', gossiping(async ({ at, N }) => {
+    // Monday 10:00, a loved gift to Rosa; Tuesday 20:00, words with Bruno; Wednesday 23:30, a knock at Bruno's; Friday, a lamp of the tavern before Marta
+    const when = [[0, 10, 'gift_loved', 'rosa', 'fresa'], [1, 20, 'insult', 'bruno', null], [2, 23.5, 'knock_night', 'bruno', 'bruno'], [4, 18, 'take_seen', 'marta', 'taberna/silla']], out = [];
+    for (let h = 0; h < 7 * 24; h++) {
+      at(dayMs(MON, h)); for (const [d, hr, kind, src, item] of when) if (d * 24 + Math.floor(hr) === h) { at(dayMs(MON + d, hr)); check(Go().news(kind, src, item), kind); at(dayMs(MON, h)); }
+      if (h % 24 === 9 || h % 24 === 22) out.push(`${['L', 'M', 'X', 'J', 'V', 'S', 'D'][Math.floor(h / 24)]}${h % 24}: ${Go().all().map(e => `${e[2]} ${Go().knowers(e).length}`).join(', ')}`);
+      const bad = Go().all().filter(e => e[5] < 0); for (const id of N.people.map(n => n.id)) {
+        const cold = Go().heardBad(id); check(cold === bad.some(e => !involved(e).includes(id) && Go().knows(id, e) && Go().now - Go().knowsAt(id, e) < 2 * 864e5), `${id} at ${h}`);
+        if (h === 3 * 24 + 22) check((So().relation(id) === 'cold') === (id !== 'bruno'), `Thursday 22:00, ${id}: ${So().relation(id)}`);   // (Bruno's own two are his own business: neighbours' memory)
+      }
+      if (h === 12) check(!Go().knows('bruno', newsList()[0]) && Go().knows('lia', newsList()[0]) && Go().knows('rosa', newsList()[0]), 'Monday noon');
+      if (h === 33) check(Go().knowers(newsList()[0]).length === Go().people().length, `Tuesday 9:00: ${Go().knowers(newsList()[0])}`);
+      if (h === 24 * 5 + 10) check(!Go().all().some(e => e[2] === 'knock_night' || e[2] === 'gift_loved'), 'old news');
+    }
+    console.log('gossip week: ' + out.join(' | '));
+  }));
+  await test('gossip (english): what makes news, and what does not', gossiping(async ({ at, N, projects }) => {
+    at(dayMs(WORKDAY, 11)); const kinds = () => newsList().map(e => `${e[2]}:${e[3]}:${e[4] ?? ''}`), I = inv(), P = p(); hud.say = () => Promise.resolve();
+    const give = async (id, item) => { I.slots[I.selected] = { id: item, n: 1 }; I.changed(); await N.gift(id, I.held); };
+    await give('rosa', 'fresa'); await give('lia', 'trucha'); await give('bruno', 'fresa'); check(kinds().join() === 'gift_loved:rosa:fresa', kinds().join());
+    await give('rosa', 'fresa'); check(newsList().length === 1, 'the same thing twice in a day');
+    N.friends.paco.wish = ['filete', game.days.realDay]; await give('paco', 'filete'); check(kinds()[1] === 'wish_kept:paco:filete' && newsList().length === 2, kinds().join());
+    // The board
+    const B = game.board, was = JSON.stringify(B.done), keepMoney = game.money, r = B.requests()[0]; B.done = { day: today(), ids: [] }; I.add(r.item, r.n); check(B.deliver(r) && kinds()[2] === `helped:${r.who}:${r.item}`, kinds().join()); B.done = JSON.parse(was); game.money = keepMoney; game.addMoney(0);
+    // Another player finishes a work: news, not yours; a guest's first copy of the board is not
+    const live = Object.getOwnPropertyDescriptor(game.live, 'guest'); projects({});
+    try {
+      B.share({ projects: { fuente: true }, done: B.done }); check(newsList().at(-1).slice(2, 6).join() === 'project,*,fuente,0', kinds().join());
+      Object.defineProperty(game.live, 'guest', { configurable: true, get: () => true }); B.shared = false; B.share({ projects: { fuente: true, muelle: true }, done: B.done }); check(newsList().length === 4, 'the village as it was'); B.share({ projects: { fuente: true, muelle: true, mercado: true }, done: B.done }); check(newsList().at(-1)[4] === 'mercado', 'a guest does not hear of it');
+    } finally { if (live) Object.defineProperty(game.live, 'guest', live); else delete game.live.guest; }
+    // What is bad: an insult, something taken with a witness, a knock by night
+    So().act(1, { kind: 'npc', id: 'nilo', e: w().nilo, name: 'Nilo' }); check(newsList().at(-1).slice(2, 4).join() === 'insult,nilo', kinds().join());
+    const wit = Rp().witness; try { Rp().witness = () => null; Rp().taken('placed', 25, 35, false, 'cama'); check(newsList().at(-1)[2] === 'insult', 'with no witness'); Rp().witness = () => ({ n: nb('dani') || nb('lia'), inside: false }); Rp().taken('placed', 26, 35, false, 'cama'); check(newsList().at(-1)[2] === 'take_seen' && newsList().at(-1)[4] === 'rosa/cama', kinds().join()); } finally { Rp().witness = wit; }
+    nb('bruno').atHome = true; Rp().knockNight([8.5, 53.5], 23); check(newsList().at(-1).slice(2, 5).join() === 'knock_night,bruno,bruno', kinds().join());
+    // A big fish that somebody sees, a horse
+    const n = newsList().length, F = game.fishing; F.card = null; put('lia', P.x + 3, P.y); F.landed({ id: 'carpa', cm: 10, kg: 1 }); check(newsList().length === n, 'a small one'); F.landed({ id: 'carpa', cm: 95, kg: 12, trophy: true }); check(newsList().at(-1).slice(2, 5).join() === `big_catch,${Go().seenBy()},carpa`, kinds().join()); F.card = null; delete F.records.carpa; delete F.log.rec.carpa;
+    // Not in creative; a kind, a neighbour or a thing that is not; no more than MAX; an old save has none, a newer one's are kept
+    runCommand(game, '/gamemode creative', () => {}); check(Go().news('helped', 'rosa', 'pan') === null, 'in creative'); runCommand(game, '/gamemode survival', () => {});
+    check(Go().news('nothing', 'rosa') === null && Go().news('helped', 'nobody') === null && Go().news('toString', 'rosa') === null && Go().news('helped', '__proto__') === null, 'taken');
+    for (let i = 0; i < 40; i++) Go().news('helped', 'rosa', 'thing' + i); check(newsList().length === 24, `${newsList().length} kept`); check(Go().fresh('paco') === null || Go().params(Go().fresh('paco')), 'a thing this game does not know');
+    N.flags = {}; Go().reset(); check(!N.flags.news && Go().all().length === 0 && Go().fresh('rosa') === null && !Go().heardBad('rosa') && Go().journal() === '', 'an old save');
+    N.flags = { news: { v: 2, seq: 7, list: [[1, 5, 'from_the_future', 'rosa', null, 1], 'x', null, [2, dayMs(WORKDAY, 2), 'helped', 'rosa', 'pan', 1]] } }; Go().reset(); check(newsList().length === 2 && Go().all().length === 1, JSON.stringify(newsList()));
+    N.flags = { news: 5 }; Go().reset(); check(Go().all().length === 0, 'a broken log'); await give('marta', 'fresa'); check(newsList().length === 1, '');
+  }));
+  await test('gossip (english): effects and mentions', gossiping(async ({ at, N }) => {
+    at(dayMs(WORKDAY, 10)); const f = N.friends.rosa;
+    Go().news('insult', 'lia'); at(dayMs(WORKDAY, 10.5)); check(So().relation('rosa') === 'neutral', 'before she knows'); at(dayMs(WORKDAY, 11.1)); check(So().relation('rosa') === 'cold', 'after');
+    f.pts = 450; check(So().relation('rosa') === 'friend', 'a friend gone cold'); f.pts = 150; N.remember('rosa', 'helped', 'pan'); check(So().relation('rosa') === 'neutral', 'helped'); f.mem = [];
+    check(Rp().canTalk('rosa') && Rp().buyFactor() === 1, 'it changes prices or whether they talk');
+    at(dayMs(WORKDAY + 2, 10.9)); check(So().relation('rosa') === 'cold', 'less than two days'); at(dayMs(WORKDAY + 2, 11.2)); check(So().relation('rosa') === 'neutral', 'two days later'); at(dayMs(WORKDAY, 12));
+    // Told once, by each; who was in it says nothing
+    Math.random = () => 0; const e = Go().fresh('rosa'); check(e?.[2] === 'insult' && Go().fresh('lia') === null, 'fresh'); const pts = f.pts, said = Go().mention('rosa', e); check(said.includes('Lía') && said.includes(' | ') && Go().fresh('rosa') === null && f.pts === pts, `${said}`);
+    // A good one, +2, once a day
+    Go().news('gift_loved', 'lia', 'trucha'); Go().news('helped', 'lia', 'pan'); at(dayMs(WORKDAY, 14)); let a = Go().fresh('rosa'); Go().mention('rosa', a); check(f.pts === pts + 2, `${f.pts - pts}`); a = Go().fresh('rosa'); check(a && Go().mention('rosa', a) && f.pts === pts + 2, 'twice a day'); check(f.nsaid.length === 3 && Go().fresh('rosa') === null, JSON.stringify(f.nsaid));
+    // As the opening of a talk, in the chat (not twice running) and asked for
+    newsList().length = 0; f.nsaid = []; f.tops = []; Go().news('helped', 'lia', 'pan'); at(dayMs(WORKDAY, 16)); const lines = k => [...tList(`npc.news.${k}`), ...tList(`npc.news.${k}.cheerful`)].map(l => formatMessage(l, { ...N.params(), who: 'Lía', item: thing('pan') }));
+    Math.random = () => 0.3; const g1 = N.greeting('rosa'); check(lines('helped').includes(g1.split(' | ')[0]), `greeting: ${g1}`);
+    f.nsaid = []; const c1 = N.chatLines('rosa', nb('rosa')); check(lines('helped').includes(c1[0]) && f.tops.at(-1) === 'news', `chat: ${c1}`); f.nsaid = []; check(!lines('helped').includes(N.chatLines('rosa', nb('rosa'))[0]), 'two in a row');
+    // Who you asked for hears of it: one opening, and not if you met first
+    newsList().length = 0; Math.random = realRandom; Go().news('looked_for', 'lia', 'rosa'); check(Go().lookedFor('bruno') === '' && Go().fresh('rosa') === null, ''); at(dayMs(WORKDAY, 17.2)); const lf = N.greeting('rosa'); check(lines('looked_for').includes(lf) && N.greeting('rosa') !== lf, `looked for: ${lf}`);
+    newsList().length = 0; f.nsaid = []; Go().news('looked_for', 'nilo', 'rosa'); N.greeting('rosa'); at(dayMs(WORKDAY, 22.5)); check(Go().lookedFor('rosa') === '', 'met already');
+    // A birth: yours, good news; another couple's, news; a year old, nothing; the same for the other player
+    const me = Profile.id, born = today(); game.family.v.kids = [{ id: 'k1', name: 'Sara', sex: 'chica', born, parents: [me, 'other'] }, { id: 'k2', name: 'Leo', sex: 'chico', born, parents: ['x', 'y'] }, { id: 'k3', name: 'Alba', sex: 'chica', born: born - 40, parents: [me, 'other'] }, { id: 'k4', name: 'bebé', sex: 'chica', born, named: false }];
+    at(dayMs(WORKDAY, 23)); newsList().length = 0; check(Go().births().map(q => q[5]).join() === '1,0,1' && Go().all().length === 2 && Go().knows('paco', Go().all()[0]), JSON.stringify(Go().all()));
+    const l1 = Go().mention('paco', Go().all()[0]), l2 = Go().mention('paco', Go().all()[1]); check(l1.includes('Sara') && l2.includes('Leo') && Go().fresh('paco') === null, `${l1} / ${l2}`);
+    // The diary
+    Go().news('take_seen', 'lia', 'rosa/cama'); const J = Go().journal(); check(J.includes('Sara') && !J.includes('Leo') && J.includes(tHtml('journal.news.known', { who: 'Rosa y Lía' })) && J.includes(t('journal.news.title')), J);
+    const box = document.createElement('div'); box.innerHTML = J; check(box.querySelectorAll('li').length === 2 && !/[{}]|undefined|npc\.|journal\./.test(box.textContent), box.textContent);
+    game.family.v.kids[0].name = '<b>x</b>'; check(!Go().journal().includes('<b>x'), 'a name as HTML');
+  }));
+  await test('gossip (english): asking what is new, and the opening, in a real talk', gossiping(async ({ at, N }) => {
+    const W = game.days.weather; game.days.weather = 'sol'; game.talk.auto = null; at(dayMs(WORKDAY, 11));
+    try {
+      await goTo(game, 21, 27); Go().news('gift_loved', 'lia', 'trucha'); at(dayMs(WORKDAY, 13)); const r = put('rosa', 22.4, 27); Math.random = () => 0.95;
+      N.talk('rosa', r); await toList(); await pickOpt(t('talk.opt.ask')); await pickOpt(t('talk.ask.news'));
+      await until(() => { if (Tk().cur?.line?.me) Tk().skip(Tk().cur); return Tk().cur?.line && !Tk().cur.line.me; }, 6000, 'her news'); const said = subText(); check(said.includes('Rosa') && said.includes('Lía') && N.friends.rosa.nsaid.length === 1, `«${said}»`);
+      await toList(); check(Tk().on, 'it ends'); await pickOpt(t('talk.opt.ask')); await pickOpt(t('talk.ask.news')); await until(() => { if (Tk().cur?.line?.me) Tk().skip(Tk().cur); return Tk().cur?.line && !Tk().cur.line.me; }, 6000, 'an opinion'); check(N.friends.rosa.nsaid.length === 1 && subText().startsWith('Rosa'), `«${subText()}»`); await toList();
+      // Asking where Bruno is: he will hear of it
+      await pickOpt(t('talk.opt.ask')); await pickOpt(t('talk.ask.where')); await toList(); for (let i = 0; i < 4 && !opts().includes('Bruno'); i++) await pickOpt(t('talk.opt.next')); await pickOpt('Bruno'); await toList(); check(newsList().at(-1).slice(2, 5).join() === 'looked_for,rosa,bruno', JSON.stringify(newsList().at(-1)));
+    } finally { game.days.weather = W; Tk().stop(); }
+  }));
+  await test('chatter (english): deterministic', gossiping(async ({ at, projects }) => {
+    projects({ fuente: true, mercado: true, casa: true, chapel: true }); const A = new Chatter(game), B = new Chatter(game), all = [], pairs = new Map(), topics = {}; let slots = 0;
+    for (let day = MON + 3; day < MON + 7; day++) for (const kind of ['tavern', 'out']) for (let s = Math.ceil(dayMs(day, 7) / SLOT[kind]); s < dayMs(day, 26) / SLOT[kind]; s++) {
+      const here = s * SLOT[kind]; if (s % 40 === 0 || kind === 'out' && s % 24 === 0) at(here);
+      const x = A.plan(kind, s); slots++;
+      if (s % 7 === 0) check(JSON.stringify(x) === JSON.stringify(B.plan(kind, s)), `slot ${s}`);
+      for (const q of x) {
+        all.push(q); topics[q.topic.topic] = (topics[q.topic.topic] || 0) + 1;
+        for (const id of [q.a, q.b]) { const w2 = A.where(id, here); check(w2 && (id === 'nilo' || !RT.placeAt(id, here).moving), `${id} is not there`); }
+        check(q.at >= here && q.at < here + 15e3 && q.a !== q.b, JSON.stringify(q));
+        const k = [q.a, q.b].sort().join(), last = pairs.get(k); check(!last || q.at - last >= 240e3 || q.at < last, `${k} rest ${(q.at - last) / 1000} s`); pairs.set(k, q.at);
+      }
+    }
+    const tav = all.filter(q => q.zone === 'taberna').length; console.log(`chatter: ${all.length} exchanges in 4 days (${slots} slots), ${tav} in the tavern, ${pairs.size} pairs, ${JSON.stringify(topics)}`);
+    check(tav > all.length / 2 && pairs.size > 12 && ['tie', 'weather', 'work', 'third', 'tavern', 'forecast'].every(k => topics[k]), JSON.stringify(topics));
+    // A guest with the host's clock
+    const L = game.live, wasB = L.clockBase, wg = Object.getOwnPropertyDescriptor(L, 'guest'), s = Math.floor(dayMs(WORKDAY, 21.5) / 45e3); at(dayMs(WORKDAY, 21.5)); let host = null, n = s; while (!host?.length) host = A.plan('tavern', ++n);
+    try { Object.defineProperty(L, 'guest', { configurable: true, get: () => true }); L.clockBase = { db: game.days.dayBase, sh: 5 }; check(JSON.stringify(B.plan('tavern', n)) === JSON.stringify(host), 'a guest picks others'); } finally { L.clockBase = wasB; if (wg) Object.defineProperty(L, 'guest', wg); else delete L.guest; }
+  }));
+  // In the tavern at night, beside them, at the moment an exchange of that kind starts; go(s): a second at a time
+  const tavernTalk = async (at, want = () => true) => {
+    const C = Ch(); C.off = false; at(dayMs(WORKDAY, 21.5)); let x = null, s = Math.floor(dayMs(WORKDAY, 21.5) / 45e3);
+    for (let i = 0; i < 400 && !x; i++) x = C.plan('tavern', ++s).find(want); check(x, 'no exchange');
+    at(x.at - 900); C.reset(); So().reset(); const P = p(); await goTo(game, 5.5, 36.5); at(x.at - 900); P.x = 5.5; P.y = 36.5; game.mode = 'play'; game.busy = false;
+    let ms = x.at - 900; const go = (n = 1) => { for (let i = 0; i < n; i++) { ms += 1000; Object.defineProperty(game.days, 'now', { configurable: true, get: () => ms }); game.time += 1; C.acc = 1; C.update(0); for (const q of So().queue) q.t -= 1; const due = So().queue.filter(q => q.t <= 0); So().queue = So().queue.filter(q => q.t > 0); for (const q of due) q.fn(); for (const b of So().bubbles) b.t += 1; So().bubbles = So().bubbles.filter(b => b.t < b.life); } };
+    return { x, C, go, P };
+  };
+  await test('chatter (english): in the tavern, bubbles one after the other, overheard, and what stops it', gossiping(async ({ at, N }) => {
+    const { x, C, go, P } = await tavernTalk(at, q => !q.news), A = nb(x.a), B = nb(x.b), said = []; const say0 = So().say; So().say = function (e, text, o) { said.push([e.id, text]); say0.call(So(), e, text, o); };
+    try {
+      go(1); check(!said.length || said.length === 1, ''); go(2); check(said.length >= 1 && [x.a, x.b].includes(said[0][0]), JSON.stringify(said)); const other = said[0][0] === x.a ? B : A, first = other === B ? A : B;
+      check(first.emote?.k === 'talk' && first.lookTarget === other && other.lookTarget === first && C.current().length <= 2, 'the body'); go(12); check(said.length >= 2 && said[1][0] === other.id && !/[{}]|npc\./.test(said.map(s => s[1]).join()), JSON.stringify(said)); go(14); check(!A.lookTarget && !B.lookTarget && !C.current().length, 'it does not end');
+      check(!newsList().length && N.friends[x.a].pts === 150, 'it costs something');
+      // With news both know: overheard within 5 tiles; far or in a talk, not; the notice, once in 10 minutes
+      for (const [far, talking, heard] of [[false, false, 1], [true, false, 0], [false, true, 0]]) {
+        newsList().length = 0; const q = await tavernTalk(at, z => z.news && ![z.a, z.b].includes('marta')); newsList().push([1, dayMs(WORKDAY, 9), 'gift_loved', 'nilo', 'pan', 1, 0]); said.length = 0; hud.log.clear(); C.toastAt = -Infinity; const e1 = nb(q.x.a);
+        if (far) { P.x = e1.x; P.y = e1.y + 1; for (const r of [6, 7, 8]) { P.y = e1.y < 36 ? 39.6 : 33.2; } P.x = e1.x < 5 ? 10.2 : 1.6; } else { P.x = e1.x + 0.6; P.y = Math.max(33.6, e1.y + 0.8); }
+        if (talking) game.talk.cur = { id: 'nilo', e: w().nilo }; q.go(3); game.talk.cur = null;
+        if (!far || Math.hypot(P.x - e1.x, P.y - e1.y) > 5) check((newsList()[0][6] || 0) === heard && hud.log.notes.length === (heard ? 1 : 0), `far ${far} talking ${talking}: ${JSON.stringify([newsList(), said, hud.log.notes.length])}`);
+        if (heard) check(said[0]?.[1].includes(P.name) && hud.log.notes[0].text === t('talk.overheard', { what: Go().label(newsList()[0]) }), `${JSON.stringify(said)} ${hud.log.notes[0]?.text}`);
+      }
+      // A window, the server, another scene, spectators: nothing is said (a spectator sees it and hears nothing)
+      for (const [on, off] of [[() => { game.mode = 'pause'; }, () => { game.mode = 'play'; }], [() => { C.off = true; }, () => { C.off = false; }], [() => { game.busy = true; }, () => { game.busy = false; }]]) { const q = await tavernTalk(at); said.length = 0; on(); q.go(4); off(); check(!said.length, 'said'); }
+      // Somebody talks with one of them in the middle: it ends there. Out of the tavern, no bubbles
+      let q = await tavernTalk(at, z => !z.news); said.length = 0; q.go(3); const n0 = said.length; check(n0 === 1, `${n0}`); nb(q.x.b).talkWith = P; nb(q.x.a).talkWith = P; q.go(10); nb(q.x.a).talkWith = nb(q.x.b).talkWith = null; check(said.length === 1, 'they go on');
+      q = await tavernTalk(at); said.length = 0; P.x = 6; P.y = 43; q.go(4); check(!said.length, 'through the wall');
+      // Another player talks with one of them (their 'tk'): neither game has that exchange
+      q = await tavernTalk(at); said.length = 0; const live = game.live, joined = live.joined, ea = nb(q.x.a);
+      try { live.receive('ct1', { t: 'hi', id: 'id-ct1', name: 'Pepa', playing: true, look: LOOK }); live.receive('ct1', { t: 'st', sc: 'world', x: ea.x + 0.8, y: ea.y, yaw: 0 }); live.joined = true; live.peers.get('ct1').tkAt = -99; live.receive('ct1', { t: 'tk', npc: q.x.a, on: 1 }); Nb().update(0.01); check(ea.talkWith === live.peers.get('ct1').entity, 'no tk'); q.go(4); check(!said.some(s => s[0] === q.x.a), 'talks to two'); }
+      finally { live.joined = joined; live.peers.delete('ct1'); Tk().peers.clear(); ea.talkWith = null; }
+      // Arriving in the middle, nothing
+      q = await tavernTalk(at); said.length = 0; P.x = 60; q.go(8); P.x = 5.5; P.y = 36.5; q.go(3); check(!said.some(s => s[1] && q.C.on.some(z => z.seed === q.x.seed && z.next > 0)), 'in the middle');
+    } finally { delete So().say; }
+    let t0 = performance.now(); for (let i = 0; i < 300; i++) { C.acc = 1; C.update(0); } const tick = (performance.now() - t0) / 300; t0 = performance.now(); for (let i = 0; i < 200; i++) { C.plan('tavern', i + 4e7); C.plan('out', i + 2e7); } const pl = (performance.now() - t0) / 200; t0 = performance.now(); for (let i = 0; i < 20000; i++) { C.acc = 0; C.update(0.001); } const idle = (performance.now() - t0) / 20000;
+    console.log(`chatter: a tick ${tick.toFixed(4)} ms, a slot's plan ${pl.toFixed(3)} ms, a frame ${idle.toFixed(5)} ms`); check(tick < 0.1 && pl < 2 && idle < 0.002, `${tick} ${pl} ${idle}`);
+  }));
+  await test('chatter (english): who crosses, greets, and once in ten minutes', gossiping(async ({ at }) => {
+    const C = Ch(); C.off = false; at(dayMs(WORKDAY, 11)); await goTo(game, 21, 27); So().reset(); const said = [], say0 = So().say; So().say = (e, text) => { said.push([e.id, text]); };
+    try {
+      const a = nb('lia'), b = nb('bruno'), set = win => { a.x = 21; a.y = 25; b.x = 22; b.y = 25; a.hidden = b.hidden = false; a.talkWith = b.talkWith = null; a.vx = 2; b.vx = -2; a.vy = b.vy = 0; So().queue = []; C.passed.clear(); const ms = (win + 0.5) * 600e3; at(ms); a.x = 21; a.y = 25; b.x = 22; b.y = 25; a.hidden = b.hidden = a.asleep = b.asleep = false; a.vx = 2; b.vx = -2; return ms; };
+      let yes = 0, w0 = Math.floor(dayMs(WORKDAY, 9) / 600e3), one = null; for (let i = 0; i < 60; i++) { said.length = 0; const ms = set(w0 + i); C.passing([['lia', a], ['bruno', b]], ms); if (said.length) { yes++; one = w0 + i; } }
+      check(yes > 12 && yes < 38 && one, `${yes} of 60`);
+      const ms = set(one); said.length = 0; C.passing([['lia', a], ['bruno', b]], ms); C.passing([['lia', a], ['bruno', b]], ms); check(said.length === 1 && said[0][1].includes(said[0][0] === 'lia' ? 'Bruno' : 'Lía'), JSON.stringify(said)); for (const q of So().queue) q.fn(); check(said.length === 2 && said[1][0] !== said[0][0], 'no answer');
+      C.passing([['lia', a], ['bruno', b]], ms + 1000); check(said.length === 2, 'twice in the same ten minutes');
+      for (const mod of [() => { b.vx = 2; }, () => { a.vx = b.vx = 0; }, () => { b.x = 25.5; }, () => { a.talkWith = p(); }]) { set(one); said.length = 0; So().queue = []; mod(); C.passing([['lia', a], ['bruno', b]], ms); check(!said.length, `greets: ${mod}`); }
+    } finally { delete So().say; }
+  }));
+  await test('family (english): what the children say are subtitles, and the world goes on', gossiping(async ({ at }) => {
+    at(dayMs(WORKDAY, 12)); await goTo(game, 21, 27); const P = p(), F = game.family, says = [], keep = [...F.ents]; hud.say = (...a) => { says.push(a); return Promise.resolve(); };
+    try {
+      F.v.kids = [{ id: 'q1', name: 'Alba', sex: 'chica', born: today() - 20, parents: [Profile.id, 'o'], look: LOOK }]; F.ents.clear(); const e = { kid: true, baby: false, look: LOOK, name: 'Alba', x: 22, y: 27, vx: 1, vy: 0, yaw: 0, h: 0, lying: false, walking: true, to: [24, 27], wait: 0 }; F.ents.set('q1', e);
+      const act = F.actionFor('q1', e); check(act.text === t('family.action.talk', { name: 'Alba' }), act.text); hud.log.clear(); const heard = new Set();
+      for (let i = 0; i < 12; i++) { game.time += 1; act.run(); heard.add(subText()); } check(!says.length && !game.busy && subText().startsWith('Alba') && heard.size >= 5 && hud.log.said.at(-1).name === 'Alba', `${[...heard]}`);
+      check(!e.walking && e.wait >= 3 && Math.abs(e.yaw + Math.PI / 2) < 0.01 && e.emote?.k === 'talk', `stops and looks: ${e.yaw}`);
+      const par = tList('family.kid.parent').map(l => formatMessage(l, { parent: t('family.parent', { sex: P.look.sex === 'chica' ? 'girl' : 'boy' }) })); check([...heard].some(h => par.some(x => h.includes(x))), 'never as a child of yours');
+      F.v.kids[0].parents = ['x', 'y']; heard.clear(); for (let i = 0; i < 12; i++) { game.time += 1; act.run(); heard.add(subText()); } check(![...heard].some(h => par.some(x => h.includes(x))), 'another\'s child calls you dad');
+      e.lying = true; game.time += 1; F.talk('q1', e); check(subText() === formatMessage(tList('family.kid.asleep')[0], { name: 'Alba', sex: 'girl' }) && F.actionFor('q1', e).text === t('family.action.asleep', { name: 'Alba' }), subText()); e.lying = false; e.baby = true; game.time += 1; F.talk('q1', e); check(tList('family.baby.lines').some(l => formatMessage(l, { name: 'Alba' }) === subText()), subText());
+    } finally { F.ents.clear(); for (const [k, v] of keep) F.ents.set(k, v); So().subtitle(''); }
+  }));
+  await test('gossip (english): every line, in both languages', async () => {
+    const lang = getLang(), bad = [];
+    for (const l of ['es', 'en']) {
+      await setLang(l);
+      const P = { name: 'Alberto', sex: 'boy', who: 'Rosa', kid: 'Sara', ksex: 'girl', animal: 'Trueno', other: 'Bruno' }, en = l === 'en', show = (k, src, more) => { const s = formatMessage(src, { ...P, ...more }); if (!s || /[{}]|undefined|npc\.|gossip\./.test(s) || (en && /[ñ¿¡áéíóúÁÉÍÓÚ]/.test(s.replace(/Lía|Inés/g, '')))) bad.push(`${l} ${k}: ${s}`); };
+      for (const kind of NEWS_KINDS) {
+        if (kind === 'rumour_found' || kind === 'wedding') continue;
+        const item = { take_seen: 'rosa/cama', knock_night: 'bruno', project: 'fuente', big_catch: 'carpa', big_game: 'ciervo', new_horse: 'Trueno', kid_born: 'Sara', looked_for: 'rosa' }[kind] || 'fresa', e = E_(dayMs(WORKDAY), kind, ['project', 'kid_born', 'new_horse'].includes(kind) ? '*' : 'rosa', item), Q = Go().params(e);
+        check(Q, `${l} ${kind}: no params`);
+        for (const key of kind === 'project' || kind === 'kid_born' ? [kind, `${kind}_other`] : [kind]) {
+          check(tList(`npc.news.${key}`).length, `${l} npc.news.${key}`);
+          for (const tail of ['', ...Object.keys(PEOPLE).map(i => '.' + i), '.kind', '.cheerful', '.shy', '.gruff', '.wry']) for (const src of tList(`npc.news.${key}${tail}`)) show(key + tail, src, Q);
+          if (kind !== 'looked_for') { check(tList(`npc.pair.news.${key}`).length && has(`journal.news.${key}`), `${l} ${key}: pair or diary`); for (const src of tList(`npc.pair.news.${key}`)) show('pair ' + key, src, Q); show('diary', t(`journal.news.${key}`, Q)); }
+        }
+      }
+      for (const id of IDS) for (const r of ['good', 'bad']) check([...tList(`npc.pair.re.${r}.${PEOPLE[id].temper}`)].length, `${l} ${id} re ${r}`);
+      for (const id of IDS) { check(tList(`npc.pair.work.a.${id}`).length && tList(`npc.pair.pass.${PEOPLE[id].temper}`).length, `${l} ${id}: work or passing`); for (const k of ['weather.b', 'work.b', 'tavern.a', 'tavern.b', 'third.b']) for (const s of tList(`npc.pair.${k}.${PEOPLE[id].temper}`)) show(k, s); }
+      for (const w2 of ['sol', 'nubes', 'lluvia', 'tormenta', 'niebla', 'nieve']) check(tList(`npc.pair.forecast.b.${w2}`).length, `${l} forecast ${w2}`);
+      let ties = 0; for (const a of IDS) for (const b of IDS) for (const s of tList(`npc.pair.tie.${a}_${b}`)) { ties++; check(s.split(' | ').length >= 2 && s.split(' | ').length <= 4, `${a}_${b}: ${s}`); show('tie', s); } check(ties >= 25, `${ties} of their own`);
+      // Every exchange a pair can have has its words
+      for (const topic of ['weather', 'work', 'tavern', 'third', 'tie', 'forecast']) for (const a of IDS) for (const b of IDS) { if (a === b) continue; const C = Ch(), key = C.tieOf(a, b), of = IDS.find(o => o !== a && o !== b && has(`npc.opinion.${a}.${o}`)); if ((topic === 'tie' && !key) || (topic === 'third' && !of) || (topic === 'forecast' && a !== 'eusebio' && b !== 'eusebio')) continue; const x = C.lines({ a, b, zone: 'taberna', news: false, topic: { topic, key, of, w: 'sol' }, close: true, seed: 5 }); check(x && x.text.length >= 2 && x.who.length >= x.text.length && x.text.every(s => s && !/[{}]|npc\./.test(s)), `${l} ${topic} ${a} ${b}: ${JSON.stringify(x)}`); }
+    }
+    await setLang(lang); check(!bad.length, `${bad.length}: ${bad.slice(0, 4).join(' · ')}`);
+  });
+  // ---------- end of R6.3
   await test('gift (english): repeats halve', social(async () => {
     const N = Nb(), I = inv(), f = N.friend('rosa'), pts = []; f.talk = 0;
     const give = async item => { const before = f.pts; I.slots[I.selected] = { id: item, n: 1 }; I.changed(); let line; hud.say = (who, l) => { line = l[0]; return Promise.resolve(); }; await N.gift('rosa', I.held); return [f.pts - before, line]; };
@@ -9507,7 +9733,7 @@ async function soloTests(game) {
       await N.talk(r.who, n); check(!label(opts), `offered without the items: ${opts}`);
       check(B.deliver(r) === null && !B.requests()[0].done, 'delivered with nothing');
       I.add(r.item, r.n);
-      hud.ask = (w2, s, o) => { if (!label(o)) return Promise.resolve(o.length - 1); opts = o; return Promise.resolve(o.indexOf(label(o))); };   // (and, after it, goodbye)
+      let sent = false; hud.ask = (w2, s, o) => { if (!label(o) || sent) return Promise.resolve(o.length - 1); sent = true; opts = o; return Promise.resolve(o.indexOf(label(o))); };   // (and, after it, goodbye)
       await N.talk(r.who, n);
       check(label(opts), `not offered: ${opts}`);
       check(game.money === 100 + r.reward && I.count(r.item) === 0 && B.requests()[0].done && N.friend(r.who).pts === 70, `money ${game.money} (+${r.reward}), left ${I.count(r.item)}, points ${N.friend(r.who).pts}`);
@@ -12519,6 +12745,7 @@ export async function runTests(game) {
   const boxSay = hud.say; game.talk.auto = TALK_AUTO = { ask: (...a) => hud.ask(...a), say: (...a) => (hud.say === boxSay ? null : hud.say(...a)) };
   RT.testDay.kind = 'work';   // (every day a working day for the neighbours, whatever today is: the tests of the week set it)
   game.start(fresh());
+  game.chatter.off = true;   // (the neighbours among themselves: only in its own tests)
   game.plans.on = false;   // (building at once, as with ?obra=0: what most tests need. The ones of plan and hammer turn it on)
   game.inv.equip.espalda = { id: 'mochila', color: ITEMS.mochila.dye }; game.inv.changed();   // (con mochila: que quepa lo que se recoge)
   game.onSave = null;

@@ -33,6 +33,7 @@ const ROD_K = { 1: 1, 2: 1.15 };                          // how the rod changes
 const NOTHING_LOSS = 0.3, MISS_LOSS = 0.5;                // P(the bait is gone) pulling on nothing; pulling late or badly
 const NIB = 0.3, NIB_GAP = [4, 10], STEAL = 0.06, SPOOK = { r: 3, s: 30, k: 1.5 };
 const KEEP_S = 5, BIG = 2.5;                              // s the card stays; kg from which it can slip off at a steep bank
+const TALKED_KG = 3;   // (a record this heavy is talked about: gossip.js)
 const SLIP = 0.25, FIND = 0.03, RARE = 0.04, TAP = 0.4;
 // How each kind takes the float. pre: s of warning before it can be struck (pulling then is too soon), win: s to strike
 export const BITES = { dip: { pre: 0.6, win: 0.7 }, run: { pre: 0, win: 2 }, lift: { pre: 0.4, win: 1.5 }, slam: { pre: 0, win: 1 }, taps: { pre: 0, win: 1.2 } };
@@ -373,6 +374,7 @@ export class Fishing {
     const fresh = !!g.collection && !g.collection.got.has(id);   // (Collections' "new" toast wins over the book's message)
     g.collection?.found(id);
     g.nature?.harvested(id, 1, fresh);   // (the nature book: Studied, five catches Known)
+    if (trophy || (this.card.rec && kg >= TALKED_KG)) { const by = g.gossip?.seenBy(); if (by) g.gossip.news('big_catch', by, id); }   // (whoever sees it tells it: gossip.js)
     // (a record or a trophy is told to the others: heard)
     if ((this.card.rec || trophy) && !Profile.server && g.live?.joined) g.live.net?.send({ t: 'catch', id, cm, g: grams, rec: this.card.rec ? 1 : 0 });
   }

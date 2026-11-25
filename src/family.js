@@ -11,21 +11,12 @@ import { nearX } from './world/planet.js';
 import { Profile } from './accounts.js';
 import { hud } from './ui/hud.js';
 import { Audio } from './audio.js';
-import { t } from './i18n.js';
+import { nameColor, lineTime } from './talk.js';   // (a cycle, read only inside functions)
+import { t, tList, formatMessage } from './i18n.js';
 
 const WAIT = 7, GROW = 7, MAX = 2;   // días hasta que nace, días de bebé y cuántos hijos como mucho
 const NIGHT = [21, 7];               // de qué hora a qué hora duermen los niños
 const NAMES = { chico: ['Omar', 'Leo', 'Adam', 'Hugo', 'Yusuf', 'Mateo', 'Ilyas', 'Nico'], chica: ['Lina', 'Sara', 'Maryam', 'Alba', 'Noor', 'Inés', 'Amira', 'Vega'] };
-const KID_LINES = [
-  p => `¡Hola, ${p}! ¿Jugamos al escondite?`,
-  () => 'Hoy he visto una mariposa enorme en el jardín. Era azul.',
-  p => `${p}, ¿cuándo me haces una espada de madera?`,
-  () => 'Nilo me ha enseñado a hacer nudos con cuerda. ¡Mira!',
-  () => 'Tengo hambre… ¿Hay manzanas?',
-  p => `Te quiero mucho, ${p}.`,
-  () => 'Cuando sea mayor quiero ir más allá del bosque.',
-];
-const BABY_LINES = ['Duerme como un tronco.', 'Te agarra el dedo y no lo suelta.', 'Hace pompas y se ríe.', 'Bosteza enorme y vuelve a dormirse.'];
 const pick = list => list[Math.floor(Math.random() * list.length)];
 const $ = id => document.getElementById(id);
 const SCENE = 4.5;   // lo que duran los corazones (segundos)
@@ -348,14 +339,24 @@ export class Family {
     }
     return null;
   }
-  actionFor(id, e) { return { text: e.baby ? `Mirar a ${e.name}` : e.lying ? `${e.name} duerme` : `Hablar con ${e.name}`, run: () => this.talk(id, e) }; }
-  async talk(id, e) {
-    const g = this.game, parent = (g.player.look?.sex || 'chico') === 'chica' ? 'mamá' : 'papá';
-    g.busy = true;
-    if (e.baby) await hud.say(e.name, [pick(BABY_LINES)]);
-    else if (e.lying) await hud.say(e.name, ['Zzz… (está dormido: mejor no despertarle)']);
-    else { e.wait = 3; e.vx = e.vy = 0; await hud.say(e.name, [pick(KID_LINES)(parent)]); }
-    g.busy = false;
+  actionFor(id, e) { return { text: t(e.baby ? 'family.action.look' : e.lying ? 'family.action.asleep' : 'family.action.talk', { name: e.name }), run: () => this.talk(id, e) }; }
+  // Is that child yours? (one from before the parents were saved: the world owner's)
+  ours(k) { return Array.isArray(k?.parents) ? k.parents.includes(Profile.id) : !this.game.live.guest; }
+  // What a child says: a subtitle with their name, as the neighbours' (talk.js), and the world goes on. Of a baby, or of one
+  // asleep, what they do. Another press, another line
+  talk(id, e) {
+    const g = this.game, p = g.player, k = this.v.kids.find(q => q.id === id), now = g.time;
+    if (now - (this.saidAt ?? -1) < 0.4) return;
+    this.saidAt = now;
+    const awake = !e.baby && !e.lying, girl = q => (q === 'chica' ? 'girl' : 'boy');
+    const list = e.baby ? tList('family.baby.lines') : e.lying ? tList('family.kid.asleep') : [...(this.ours(k) ? tList('family.kid.parent') : tList('family.kid.guest')), ...tList('family.kid.lines')];
+    const left = list.length > 1 ? list.filter(l => l !== this.lastLine) : list, line = this.lastLine = pick(left) || '';
+    const text = formatMessage(line, { name: awake ? p.name : e.name, sex: girl(k?.sex), parent: t('family.parent', { sex: girl(p.look?.sex) }) });
+    if (!text) return;
+    if (!awake) { g.social.subtitle(''); g.social.subtitle(text, lineTime(text)); hud.log.say(e.name, text); return; }
+    if (!g.live.guest) { e.walking = false; e.via = null; e.wait = Math.max(e.wait || 0, 3); e.vx = e.vy = 0; e.yaw = Math.atan2(nearX(p.x, e.x) - e.x, p.y - e.y); }   // (they stop and turn to you)
+    g.talk.show(e.name, nameColor(e.look?.cloth), text, lineTime(text));
+    g.social.emote(e, 'talk', { amp: 1 });
   }
   // Para mandar a los demás dónde está cada uno (lo lleva el anfitrión)
   positions() { return [...this.ents].map(([id, e]) => [id, Math.round(e.x * 100) / 100, Math.round(e.y * 100) / 100, e.lying ? 1 : 0, Math.round(e.yaw * 100) / 100, e.h || 0]); }

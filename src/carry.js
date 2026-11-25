@@ -386,6 +386,7 @@ export class Carry {
   sellCarcass(price, then) {
     const g = this.game, ar = this.cq?.[3] || 0;
     if (!this.held || !(price > 0)) return null;
+    if (isGame(this.held) && starsOf(this.cq, this.now()) >= 3) g.gossip?.news('big_game', 'anselmo', BULKY[this.held].prey);   // (he tells the whole bar: gossip.js)
     this.set(null);
     g.addMoney(price);
     g.stats?.add('ventas', price);

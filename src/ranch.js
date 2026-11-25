@@ -1303,6 +1303,7 @@ export class Ranch {
     const p = this.game.player, home = this.homes('cuadra').find(h => h.free > 0), at = this.besides(p);
     const a = new Animal({ type: 'caballo', name, owner: me(), breed: coat, home: home?.tile || null, x: at[0], y: at[1], born: this.today - 7, at, ...(racesOff() ? null : freshOf(race)) });
     this.animals.push(a);
+    this.game.gossip?.news('new_horse', '*', name);   // (the village sees it: gossip.js)
     Audio.neigh();
     hud.toast(tr(home ? 'horse.new.home' : 'horse.new.no_home', { name }), 'good');
     return a;

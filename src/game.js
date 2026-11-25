@@ -83,6 +83,8 @@ import { Barrow } from './barrow.js';
 import { Needs, RATES } from './needs.js';
 import { Body } from './body.js';
 import { Remarks } from './remarks.js';
+import { Gossip } from './gossip.js';
+import { Chatter } from './chatter.js';
 import { Dive } from './dive.js';
 import { Tracks } from './tracks.js';
 import { NatureBook } from './nature.js';
@@ -206,6 +208,7 @@ export class Game {
     this.crew = this.addSystem(new Crew(this));   // ir de pasajero en la barca de otro
     this.neighbors = this.addSystem(new Neighbors(this));
     this.rep = this.addSystem(new Reputation(this));   // the village's reputation (after stats and neighbors: an old game is born from them)
+    this.gossip = this.addSystem(new Gossip(this));   // what the village knows about you, and who has heard it (src/gossip.js)
     this.hunt = this.addSystem(new Hunt(this));   // pegar a los animales (antes que a las criaturas: va a lo que se apunta)
     this.tracks = this.addSystem(new Tracks(this));   // prints, blood and the locked trail (src/tracks.js, Plan G; drawn by three/tracks3d.js)
     this.combat = this.addSystem(new Combat(this));
@@ -231,6 +234,7 @@ export class Game {
     this.social = this.addSystem(new Social(this));   // greeting and provoking people (Y or right click on someone)
     this.talk = this.addSystem(new Talk(this));   // talking to a neighbour: subtitles and a list of options (talk.js)
     this.remarks = this.addSystem(new Remarks(this));   // what the neighbours say about how you look (src/remarks.js; after social: it speaks through social.say)
+    this.chatter = this.addSystem(new Chatter(this));   // the neighbours talking among themselves (src/chatter.js)
     this.money = 0;
     this.buffs = {};             // efectos de comida: { rapido: hasta cuándo, incansable: … }
     // Slow motion (see slowScale): timeScale, where it is now; timeScaleTarget, where it goes; simScale, what the last
@@ -878,7 +882,7 @@ export class Game {
     else if (!carry) for (const [m, n] of back) { const left = this.inv.add(m, n); if (left) this.gather.throwOut(m, left); }
     // (from a neighbor's house the village notices; taking again what you had given back costs again: reputation.js.
     // Here and not only in B › Remove, so picking it up with X or moving it with B › Move counts the same)
-    if (W) this.rep?.taken(o.layer, o.tile[0], o.tile[1], own);
+    if (W) this.rep?.taken(o.layer, o.tile[0], o.tile[1], own, id);
     Audio.pickup();
     return true;
   }

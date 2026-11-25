@@ -142,7 +142,7 @@ export class Reputation {
   // Something was just removed (B › Remove, or picked up with X or B › Move: game.js pickUp) from a tile of the world: from a neighbor's house, what came with it is taken
   // (take, or take_seen with a witness); what you had put back there yourself, taken again (retake). Per tile, so putting
   // the same wall back and taking it again always adds up to 0
-  taken(layer, tx, ty, own) {
+  taken(layer, tx, ty, own, what = '') {
     if (!this.counts) return;
     const house = this.houseAt(tx, ty);
     if (!house) return;
@@ -161,6 +161,7 @@ export class Reputation {
     const N = this.game.neighbors;
     N.remember?.(id, 'take_seen');
     for (const o of this.ownersOf(house)) if (o !== id) N.remember?.(o, 'take_seen');
+    this.game.gossip?.news('take_seen', id, `${house}/${what}`);   // (and from them it goes round: gossip.js)
     const lines = this.game.social?.lines(theirs ? 'npc.witness.take.own' : 'npc.witness.take') || [];
     const line = lines.length ? lines[Math.floor(Math.random() * lines.length)] : '';
     this.game.neighbors.addPoints(id, -10);
@@ -186,7 +187,9 @@ export class Reputation {
     this.v.knocks[k] = night;
     this.change(-3, 'knock_night');
     const N = this.game.neighbors, house = Array.isArray(door) ? this.houseAt(Math.floor(door[0]), Math.floor(door[1])) : null;
-    if (house && this.counts) for (const n of N.people) if (n.def.home === house && n.atHome) N.remember?.(n.id, 'knock_night');
+    const woken = house && this.counts ? N.people.filter(n => n.def.home === house && n.atHome) : [];
+    for (const n of woken) N.remember?.(n.id, 'knock_night');
+    if (woken.length) this.game.gossip?.news('knock_night', woken[0].id, house);
   }
 
   // ---------- the journal (the Neighbors tab, above the friendships) ----------

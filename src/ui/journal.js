@@ -51,7 +51,7 @@ let book = null;   // (the nature book's screen: made with the journal, below)
 export const JOURNAL_PAGES = [
   { id: 'historia', label: 'journal.tab.story', html: g => g.story.journal() },
   { id: 'pasos', label: 'journal.tab.steps', html: g => g.steps.journal() },
-  { id: 'vecinos', label: 'journal.tab.neighbors', html: g => g.rep.journal() + g.neighbors.journal(), bind: (el, g) => addMemories(g, el) },   // (the village's reputation on top: reputation.js)
+  { id: 'vecinos', label: 'journal.tab.neighbors', html: g => g.rep.journal() + (g.gossip?.journal() || '') + g.neighbors.journal(), bind: (el, g) => addMemories(g, el) },   // (the village's reputation on top: reputation.js; what people say about you: gossip.js)
   { id: 'granja', label: 'journal.tab.farm', html: g => g.farm.journal() + g.ranch.journal() },
   { id: 'pesca', label: 'journal.tab.fishing', html: g => g.fishing.journal() },
   // (the nature book, Plan G: src/ui/naturebook.js)

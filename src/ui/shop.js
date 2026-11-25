@@ -115,6 +115,7 @@ export function initShopUI(game, { onClose }) {
   function sellStack(s, n, p) {
     const i = game.inv.slots.indexOf(s);
     if (i < 0 || s.n < n) return;
+    if (s.tr) game.gossip?.news('big_catch', shop, s.id);   // (a trophy: whoever buys it tells it)
     game.inv.take(i, n);
     sold(n, p);
   }
