@@ -7,6 +7,7 @@
 // Los números (alturas, biomas y píxeles: ground.js) los calcula un hilo aparte (genworker.js), lo más cercano
 // primero; aquí solo se hacen las mallas (unas pocas por fotograma) y se suben las texturas. Sin hilos aparte, se calcula
 // aquí poco a poco. El relieve calculado se guarda en el navegador (groundcache.js) y al volver sale de ahí al momento.
+import { roadList } from '../world/roads.js';
 import * as THREE from 'three';
 import { CHUNK } from '../world/gen.js';
 import * as village from '../world/village.js';
@@ -88,7 +89,7 @@ export class Terrain {
         // (con la versión en la dirección: index.html solo vuelve a pedir sin caché lo que carga la página, y este archivo lo
         // carga solo el hilo; uno viejo en caché con lo de ahora podría no arrancar)
         // (y lo del relieve guardado, que el hilo necesita al arrancar: abre la base antes de que se le pida nada)
-        const extra = paraHilo(['relieve', 'suelo', 'fondo']) + (CACHE_MAX !== 1024 ? `&relieve-max=${CACHE_MAX}` : '');   // (y el suelo de antes: ver arte.js)
+        const extra = paraHilo(['relieve', 'suelo', 'fondo', 'caminos']) + (CACHE_MAX !== 1024 ? `&relieve-max=${CACHE_MAX}` : '');   // (y el suelo de antes: ver arte.js)
         const w = new Worker(new URL('../world/genworker.js?v=' + encodeURIComponent(VERSION) + extra, import.meta.url), { type: 'module' });
         w.onmessage = e => this.onResult(e.data, i);
         w.onerror = e => { console.warn('Suelo: el hilo aparte ha fallado; se calcula aquí', e.message); this.workers = []; this.dropAll(); };
@@ -111,9 +112,9 @@ export class Terrain {
     this.dropAll();
     this.contact.reset();
     this.gen = gen;
-    this.season = gen.season;
+    this.season = gen.season; this.roadsV = gen.roadsV;
     // (owner: el primer hilo es el que limpia lo guardado de otras versiones del relieve)
-    this.workers.forEach((w, i) => w.postMessage({ t: 'init', seed: gen.seed, projects: village.getProjects(), family: village.familyHouse(), owner: i === 0 }));
+    this.workers.forEach((w, i) => w.postMessage({ t: 'init', seed: gen.seed, projects: village.getProjects(), family: village.familyHouse(), roads: roadList(gen), owner: i === 0 }));
   }
   dispose(b) { this.group.remove(b.mesh); b.mesh.geometry.dispose(); b.mesh.material.dispose(); b.tex.dispose(); if (b.waterMesh) { this.water.group.remove(b.waterMesh); b.waterMesh.geometry.dispose(); } this.dropPit(b); }
   dropAll() {
@@ -148,6 +149,7 @@ export class Terrain {
   update(gen, x, z, budget = 8, fill = 0) {
     if (gen !== this.gen) this.reset(gen);
     // Cambió la estación: se repinta todo (poco a poco, empezando por lo cercano)
+    if (gen.roadsV !== this.roadsV) { this.roadsV = gen.roadsV; for (const wk of this.workers) wk.postMessage({ t: 'roads', roads: roadList(gen) }); for (const b of this.blocks.values()) b.stale = true; }
     if (gen.season !== this.season) { this.season = gen.season; for (const b of this.blocks.values()) b.stale = true; }
     DIG_SNOW.value = this.season === 3 ? 0.55 : 0;
     // (lo cavado: si ha cambiado algo, aquí o por la red, o es otro mundo, se rehacen los hoyos de los bloques que lo tocan)

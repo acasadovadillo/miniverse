@@ -341,8 +341,9 @@ export class BuildMode {
     if (!hit) { if (c.why) g.gather.float(c.why, '#ffb0a0'); Audio.error(); return; }
     const id = parsePlaced(sc.at(hit.layer, hit.tile[0], hit.tile[1]))[0];
     if (this.unknown(id, !sc.ownAt || sc.ownAt(hit.layer, hit.tile[0], hit.tile[1]))) return;
+    const signs = id === 'signpost' && sc === g.world ? g.places.roadside.arms(hit) : null;   // (what it says goes with it: gather.js)
     if (!g.pickUp({ tile: hit.tile, layer: hit.layer, placed: id }, true)) return;
-    this.carry = { id };
+    this.carry = signs ? { id, signs } : { id };
     this.pickV++;
     g.gather.chips(hit.tile[0] + 0.5, hit.tile[1] + 0.5, 'wood', 4);
     this.onChange?.();

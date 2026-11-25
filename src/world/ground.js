@@ -7,7 +7,8 @@ import { B, BIOMES, climate, classify, biomeAt, wetness, depthOfWet, deepOf, rel
 import * as village from './village.js';
 import { seasonalPalette } from '../art/seasons.js';
 import { ihash, vnoise, rgbOf } from '../util.js';
-import { wrapNoise } from './planet.js';
+import { wrapNoise, wrapX } from './planet.js';
+import { OUT_Y } from './roads.js';
 import { PAL, SUELO_V2 } from '../arte.js';
 import { apagada } from '../opciones.js';
 
@@ -62,6 +63,34 @@ function villageGround(x, y, col, S) {
   const pd = village.pondDist(x, y) + (n1 - 0.5) * 0.14;
   if (pd < 1.3) col = mix3(col, pd < 1 ? mix3(MUD, SAND, ss(0.6, 1, pd)) : SAND, 1 - ss(1.12, 1.3, pd));
   return col;
+}
+
+// The roads (roads.js): dirt worn down to the soil, with the two ruts of the carts and what the ground has left between them; a track, one
+// worn line. In the sand and the rock, packed ground; under snow, trodden snow with the mud showing in the ruts. q: where it is of the
+// nearest road (Roads.nearIn); wet: not under the water
+const RUT = rgbOf('#5d4c3a'), STONE = rgbOf('#8b8478'), PACKED = rgbOf('#a3895f'), SLUSH = rgbOf('#9c968c');
+function roadGround(x, y, col, S, q, biome) {
+  const n1 = vnoise(x * 0.7, y * 0.7, S + 8811), n2 = vnoise(x * 2.4, y * 2.4, S + 8812), n3 = vnoise(x * 5.3, y * 5.3, S + 8813), n4 = vnoise(x * 0.16, y * 0.16, S + 8814);
+  // (out of the village it begins as its path, and widens)
+  const out = y < 68 && x > 6 && x < 26 ? ss(59.5, 67, y) : 1, half = q.cart ? 0.86 + (q.half - 0.86) * out : q.half;
+  const d = q.d + (n1 - 0.5) * 0.5 + (n2 - 0.5) * 0.18, lum = (col[0] * 0.3 + col[1] * 0.59 + col[2] * 0.11) / 255, ch = (Math.max(col[0], col[1], col[2]) - Math.min(col[0], col[1], col[2])) / 255, snow = ss(0.62, 0.78, lum) * (1 - ss(0.06, 0.14, ch));
+  if (d > half + 0.75) return col;
+  let dirt = mix3(DIRT, DIRT_D, 0.15 + n2 * 0.6);
+  if (biome === B.ROCKY) dirt = mix3(dirt, STONE, 0.55);
+  else if (biome === B.DESERT || biome === B.BEACH) dirt = mix3(mix3(col, PACKED, 0.6), DIRT_D, n2 * 0.18);
+  if (n3 > 0.8) dirt = mix3(dirt, STONE, (n3 - 0.8) * 2.2);   // (pebbles)
+  if (snow > 0) dirt = mix3(dirt, mix3(SLUSH, col, 0.35 + n2 * 0.35), snow * 0.8);
+  if (!q.cart) {
+    const t = (1 - ss(half - 0.42, half + 0.22, d)) * (0.62 + 0.38 * ss(0.25, 0.6, n4 * 0.6 + n1 * 0.4));
+    return mix3(col, mix3(dirt, RUT, 0.22 * (1 - ss(0, 0.3, d))), t * 0.9);
+  }
+  // (its verge, half trodden; the ruts; and the strip between them, where the grass holds here and there)
+  const t = 1 - ss(half - 0.28, half + 0.16, d), verge = (1 - ss(half, half + 0.75, d)) * 0.3 * n1, a = Math.abs(q.side) + (n1 - 0.5) * 0.12, w = a - 0.63, rut = Math.exp(-w * w / 0.045) * out;
+  let road = mix3(dirt, snow > 0 ? mix3(RUT, SLUSH, 0.25) : RUT, rut * (0.5 + 0.3 * n2));
+  const strip = (1 - ss(0.16, 0.42, a)) * ss(0.3, 0.6, n4 * 0.5 + n1 * 0.5) * 0.75 * out;
+  if (strip > 0) road = mix3(road, col, strip);
+  const f = 1 + (n3 - 0.5) * 0.1;
+  return mix3(col, [road[0] * f, road[1] * f, road[2] * f], Math.max(t, verge));
 }
 
 // Profundidad del suelo en un punto, seguida (0 en tierra): el estanque del pueblo por su distancia; lo demás, por
@@ -258,7 +287,7 @@ function biomeBlend(gen, cx, cy, f) {
 // mojada al borde) y, debajo, el fondo, que se oscurece con la profundidad; y el camino y la orilla del estanque del
 // pueblo con el borde irregular. field: gen.field(cx, cy) (se pasa para poder guardarlo en caché aparte)
 export function paintPixels(gen, cx, cy, season, field = gen.field(cx, cy)) {
-  const N = CHUNK * PX, step = RES / PX, S = gen.seed, f = field, near = gen.nearVillage(cx, cy), blend = biomeBlend(gen, cx, cy, f);
+  const N = CHUNK * PX, step = RES / PX, S = gen.seed, f = field, near = gen.nearVillage(cx, cy), blend = biomeBlend(gen, cx, cy, f), way = gen.roads?.inChunk(cx, cy) || null, tiles = way && gen.roads.mask(cx, cy);
   const d = new Uint8ClampedArray(N * N * 4), tone = (pal, k) => mix3(mix3(pal[3], pal[0], ss(0.18, 0.42, k)), mix3(pal[1], pal[2], ss(0.6, 0.85, k)), ss(0.45, 0.62, k));
   const pals = blend && blend.list.map(b => seasonalPalette(b, BIOMES[b], season));
   for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
@@ -308,6 +337,7 @@ export function paintPixels(gen, cx, cy, season, field = gen.field(cx, cy)) {
     }
     const sh = 1 + (h - 0.5) * 0.08;
     if (near && village.inBounds(gx, gy)) col = villageGround(gx, gy, col, S);
+    if (tiles && u < -0.05 && tiles[(j >> 2) * CHUNK + (i >> 2)] && !(near && gy < OUT_Y && village.inBounds(gx, gy))) { const q = gen.roads.nearIn(way, wrapX(gx), gy); if (q) col = roadGround(gx, gy, col, S, q, biome); }
     const o = (j * N + i) * 4;
     d[o] = col[0] * sh; d[o + 1] = col[1] * sh; d[o + 2] = col[2] * sh; d[o + 3] = 255;
   }

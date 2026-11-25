@@ -6,6 +6,7 @@
 // cuanto se lee (un par de milisegundos), y solo se calcula lo que nunca se ha visto.
 import { WorldGen, WORLD_SEED, CHUNK } from './gen.js';
 import { setProjects, setFamilyHouse } from './village.js';
+import { roadsFor } from './roads.js';
 import { blockHeights, blockNormals, blockShore, shoreBiome, blockColors, paintPixels, groundTag, BLOCK } from './ground.js';
 import { openGroundCache } from './groundcache.js';
 import { rasterTile, TILE } from './contact.js';
@@ -22,7 +23,7 @@ const queue = [];   // trabajos pendientes: { t: 'block' | 'paint' | …, id, pr
 // para empezar a jugar una prioridad menor que la de cualquier pintura)
 // (the maps' pictures, sat and thumb, last of all: terrain.js askMap also gives them a pri behind any other)
 // (and what the 3D map stands on, satmesh and sattrees: satpixels.js)
-const RANK = { block: 0, paint: 1, ao: 2, satmesh: 3, sat: 4, thumb: 4, sattrees: 5 };
+const RANK = { block: 0, paint: 1, ao: 2, lines: 2, satmesh: 3, sat: 4, thumb: 4, sattrees: 5 };
 const waiting = new Map(), reading = new Set(), gone = new Set();   // bloques esperando a la caché, los que se están leyendo y los quitados mientras
 const stats = { calc: 0, msCalc: 0, hits: 0, msHit: 0 };
 let pumping = false, batching = false;
@@ -39,10 +40,11 @@ onmessage = e => {
   const m = e.data;
   if (m.t === 'init') {
     setProjects(m.projects); setFamilyHouse(m.family);
-    useSeed(m.seed);
+    useSeed(m.seed); useRoads(m.roads);
     // (el primer hilo limpia lo guardado de otras versiones del relieve, una vez y pasados unos segundos: ver cleanLater)
     if (m.owner && !cleaned && cache) { cleaned = true; cache.then(c => c?.cleanLater()).catch(() => {}); }
   } else if (m.t === 'village') { setProjects(m.projects); setFamilyHouse(m.family); gen?.fields.clear(); gen?.satTrees?.clear(); paints.clear(); }
+  else if (m.t === 'roads') useRoads(m.roads);
   else if (m.t === 'block') {
     if (cache) { waiting.set(m.id, m); if (!batching) { batching = true; setTimeout(readBatch, 0); } }
     else { queue.push(m); pump(); }
@@ -54,6 +56,12 @@ onmessage = e => {
   }
 };
 
+// The roads of the world (the list of what was built where they would go: roads.js setKept), or none
+function useRoads(kept) {
+  const r = kept ? roadsFor(gen.seed) : null, changed = r?.setKept(kept);
+  if (gen.roads === r && !changed) return;
+  gen.setRoads(r); paints.clear();
+}
 // El generador y la huella del relieve para una semilla, y su base abierta (una por huella: el menú y la partida tienen
 // el mismo mundo y la comparten)
 function useSeed(seed) {
@@ -125,6 +133,10 @@ function step() {
     } else if (m.t === 'satmesh' || m.t === 'sattrees') {
       const t0 = performance.now(), data = m.t === 'satmesh' ? satHeights(gen, m) : satTrees(gen, m.cx, m.cy, m.season, { gone: m.gone && new Set(m.gone), clear: m.clear });
       postMessage({ t: m.t, id: m.id, ms: performance.now() - t0, data }, [data.buffer]);
+    } else if (m.t === 'lines') {
+      // The roads ahead (roads.js), worked out a thing at a time, for the game not to have to
+      if (gen.roads?.warm(m.x, m.y, m.r)) queue.push(m);
+      else postMessage({ t: 'lines', id: m.id, list: gen.roads ? gen.roads.pack(m.x, m.y, m.r, new Set(m.have)) : [], cells: gen.roads ? gen.roads.packCells(m.x, m.y, m.r) : [] });
     } else if (m.t === 'sat' || m.t === 'thumb') {
       // A picture for the maps (satpixels.js): made into an ImageBitmap here, so the game only receives it
       const t0 = performance.now(), big = m.t === 'sat', n = big ? SAT_N : CHUNK, paint = big && paints.get(paintKey(m))?.slice();

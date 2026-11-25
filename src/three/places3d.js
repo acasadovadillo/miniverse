@@ -26,7 +26,7 @@ function rodGeo(r0, r1, len, seg) {
   }
   return RODS.get(k);
 }
-function rod(m, key, a, b, r0, r1 = r0, seg = 7, solid = true) {
+export function rod(m, key, a, b, r0, r1 = r0, seg = 7, solid = true) {
   _a.set(...a); _d.set(b[0] - a[0], b[1] - a[1], b[2] - a[2]);
   const len = _d.length();
   if (len < 1e-4) return m;
@@ -37,7 +37,7 @@ function rod(m, key, a, b, r0, r1 = r0, seg = 7, solid = true) {
   return m;
 }
 // A squared timber from a to b, w wide (across) and h along `hint`; bevel: worn edges
-function beam(m, key, a, b, w, h, hint = [0, 1, 0], bevel = 0.01, solid = true) {
+export function beam(m, key, a, b, w, h, hint = [0, 1, 0], bevel = 0.01, solid = true) {
   const A = new THREE.Vector3(...a), Z = new THREE.Vector3(b[0] - a[0], b[1] - a[1], b[2] - a[2]), len = Z.length();
   Z.normalize();
   const X = new THREE.Vector3().crossVectors(new THREE.Vector3(...hint), Z).normalize(), Y = new THREE.Vector3().crossVectors(Z, X);
@@ -51,7 +51,7 @@ function beam(m, key, a, b, w, h, hint = [0, 1, 0], bevel = 0.01, solid = true) 
 }
 // A Builder moved by a matrix, into a material of the model
 const _nm = new THREE.Matrix3(), _v = new THREE.Vector3();
-function addB(m, key, src, M4) {
+export function addB(m, key, src, M4) {
   const b = new Builder();
   _nm.getNormalMatrix(M4);
   b.uv = src.uv.slice(); b.idx = src.idx.slice(); b.col = src.col && src.col.slice();
@@ -95,7 +95,7 @@ function pebbleGeo(i) {
   }
   return PEBBLES[i];
 }
-const pebble = (m, key, x, y, z, sx, sy, sz, i, rot = [0, 0, 0]) => m.geo(key, pebbleGeo(i % 4), x, y, z, rot, [sx, sy, sz]);
+export const pebble = (m, key, x, y, z, sx, sy, sz, i, rot = [0, 0, 0]) => m.geo(key, pebbleGeo(i % 4), x, y, z, rot, [sx, sy, sz]);
 const ROCKS = [];
 const boulder = (m, key, x, y, z, sx, sy, sz, i, yaw = 0) => m.geo(key, (ROCKS[i % 3] ||= rockGeo((i % 3) + 1)), x, y, z, [0, yaw, 0], [sx, sy, sz]);
 
@@ -667,7 +667,8 @@ const PROPS = {
     rod(m, 'rope', [0, 2.32, 0], [0.03, 1.1, 0.04], 0.013, 0.013, 5, false); m.ball('rope', 0.03, 1.08, 0.04, 0.03, 0.05, 0.03, 7);
     m.solids = [[-1.05, 0, -0.32, -0.5, 3.2, 0.32], [0.5, 0, -0.32, 1.05, 3.2, 0.32], [-1.05, 2.6, -0.32, 1.05, 3.9, 0.32]];
   },
-  // A signpost: a post with up to three arms, each with its height and where it points (degrees from +z, as 'a30-a150')
+  // A signpost with nothing written: a post with up to three arms, each with its height and where it points (degrees from +z). With its
+  // names: signs (roads3d.js)
   signpost(m, arms = '20-150-260') {
     rod(m, 'oldWood', [0, -0.15, 0], [0.02, 2.35, 0], 0.075, 0.062, 8); m.geo('oldWood', new THREE.ConeGeometry(0.085, 0.14, 8), 0.02, 2.41, 0);
     for (let i = 0; i < 4; i++) pebble(m, 'crag', Math.cos(i * 1.6) * 0.17, 0.05, Math.sin(i * 1.6) * 0.17, 0.12, 0.09, 0.1, i);
@@ -676,7 +677,6 @@ const PROPS = {
       const B = new Builder(), sh = new THREE.Shape([[-0.12, -0.095], [0.74, -0.095], [0.88, 0], [0.74, 0.095], [-0.12, 0.095]].map(p => new THREE.Vector2(...p)));
       B.addGeometry(new THREE.ExtrudeGeometry(sh, { depth: 0.035, bevelEnabled: true, bevelThickness: 0.006, bevelSize: 0.006, bevelSegments: 1 }), new THREE.Matrix4().makeTranslation(0, 0, 0.06));
       addB(m, i % 2 ? 'oldWood' : 'plankGrey', B, M);
-      const C = new Builder(); for (const [x0, x1, yy] of [[0.04, 0.6, 0.022], [0.04, 0.36, -0.038]]) C.box(x0, yy - 0.012, 0.1, x1, yy + 0.012, 0.1035); addB(m, 'char', C, M);   // (where its name goes: R7-4)
       const N = new Builder(); for (const x of [-0.06, 0.06]) N.box(x - 0.012, -0.012, 0.1, x + 0.012, 0.012, 0.108); addB(m, 'iron', N, M);
     });
     m.solids = [[-0.1, 0, -0.1, 0.1, 2.4, 0.1]];

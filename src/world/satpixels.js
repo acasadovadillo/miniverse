@@ -125,7 +125,7 @@ function disc(d, N, x, y, r, fn) {
 }
 
 export function thumbPixels(gen, cx, cy, season) {
-  const N = CHUNK, f = gen.field(cx, cy), hill = shadeGrid(gen, cx, cy), near = gen.nearVillage(cx, cy), d = new Uint8ClampedArray(N * N * 4);
+  const N = CHUNK, f = gen.field(cx, cy), hill = shadeGrid(gen, cx, cy), near = gen.nearVillage(cx, cy), road = gen.roads?.mask(cx, cy) || null, d = new Uint8ClampedArray(N * N * 4);
   for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
     const s = (j * RES + RES / 2) * f.n + i * RES + RES / 2, b = f.biome[s], info = BIOMES[b], pal = seasonalPalette(b, info, season), k = ss(0.3, 0.75, f.patch[s]), wood = WOOD[b] || 0;
     const w = f.wet[s], o = (j * N + i) * 4, x = cx * CHUNK + i + 0.5, y = cy * CHUNK + j + 0.5, crown = CROWN[b === B.PINES ? 'pine' : b === B.SNOW ? 'snowPine' : 'oak'][season]?.[0] || TWIG;
@@ -145,6 +145,7 @@ export function thumbPixels(gen, cx, cy, season) {
       else if (village.distToPath(x, y) < 0.8) col = PATH;
       if (col) [c0, c1, c2] = col;
     }
+    if (road && road[j * N + i] & 1) { c0 += (PATH[0] - c0) * 0.8; c1 += (PATH[1] - c1) * 0.8; c2 += (PATH[2] - c2) * 0.8; }
     d[o] = c0; d[o + 1] = c1; d[o + 2] = c2; d[o + 3] = 255;
   }
   return d;

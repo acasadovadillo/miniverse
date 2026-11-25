@@ -107,19 +107,23 @@ const TURNS = new Set(['cama', 'chimenea', 'estanteria', 'mesa', 'comoda', 'mace
 // ---------- what one walks on over the water ----------
 // The height of a deck (a jetty, a bridge) at (x, y), or null if it is not on it. Along it, z from -L / 2 to L / 2 (the bridge) or
 // from -0.5 to L - 0.4 (the jetty, its near end first): three/places3d.js draws them with these
-export const JETTY_Y = 0.2, BRIDGE_W = 1.62;
+export const JETTY_Y = 0.2, BRIDGE_W = 1.62, TIMBER_W = 1.42;
+// (a timber bridge: flat, with a short ramp at each end; its lengths)
+export const TIMBER_L = [5, 7, 9, 11];
+export const timberY = (z, L) => { const e = L / 2 - Math.abs(z); return e >= 1 ? 0.36 : 0.06 + 0.3 * Math.max(0, e); };
 export const bridgeY = (z, L) => 0.1 + (L > 11 ? 0.75 : 1.0) * Math.max(0, Math.cos((z / (L / 2)) * Math.PI / 2)) ** 0.9;
 export function deckHeight(d, x, y) {
   const dx = x - d.x, dy = y - d.y, s = Math.sin(d.yaw), c = Math.cos(d.yaw), z = dx * s + dy * c, u = dx * c - dy * s;
   if (d.kind === 'jetty') return Math.abs(u) <= 0.97 && z >= -0.55 && z <= d.L - 0.36 ? JETTY_Y : null;
+  if (d.kind === 'timber_bridge') return Math.abs(u) <= TIMBER_W + 0.02 && Math.abs(z) <= d.L / 2 ? timberY(z, d.L) : null;
   return Math.abs(u) <= BRIDGE_W + 0.02 && Math.abs(z) <= d.L / 2 ? bridgeY(z, d.L) : null;
 }
 export function deckBox(d) { const r = d.kind === 'jetty' ? d.L : d.L / 2 + 1; return [d.x - r, d.y - r, d.x + r, d.y + r]; }
 // What stops one on it: the bridge's parapets and, at their ends, their posts
 export function deckColliders(d) {
   if (d.kind === 'jetty') return [];
-  const out = [], s = Math.sin(d.yaw), c = Math.cos(d.yaw), W = BRIDGE_W - 0.15;
-  for (const k of [-1, 1]) for (let z = -d.L / 2; z <= d.L / 2 + 1e-6; z += 0.4) out.push({ x: d.x + z * s + k * W * c, y: d.y + z * c - k * W * s, r: 0.24, deck: true });
+  const wood = d.kind === 'timber_bridge', out = [], s = Math.sin(d.yaw), c = Math.cos(d.yaw), W = wood ? TIMBER_W : BRIDGE_W - 0.15, e = wood ? d.L / 2 - 0.9 : d.L / 2;   // (a timber bridge's rails do not reach the ends of its ramps)
+  for (const k of [-1, 1]) for (let z = -e; z <= e + 1e-6; z += wood ? 0.3 : 0.4) out.push({ x: d.x + z * s + k * W * c, y: d.y + z * c - k * W * s, r: wood ? 0.12 : 0.24, deck: true });
   return out;
 }
 

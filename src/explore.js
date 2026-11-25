@@ -5,7 +5,7 @@
 import { ihash } from './util.js';
 import { CHUNK } from './world/gen.js';
 import { towerColliders, lighthouseColliders, chestSpot, poiModel, TOWER, GALLERY } from './world/tower.js';
-import { wrapIndex } from './world/planet.js';
+import { wrapIndex, dxOf } from './world/planet.js';
 import { Lookout } from './lookout.js';
 import { houseBlueprint, houseSize, byChunk } from './world/blueprints.js';
 import { hamletPlan, campPlan, campOf, wreckPlan, templePlan, keeperPlan, landmarkPlan, liveryOf, deckHeight, deckBox, deckColliders } from './world/hamlets.js';
@@ -16,7 +16,9 @@ import { residentsOf, updateResidents, talkTo } from './hamletfolk.js';
 import { makeCave, makeDungeon } from './world/underground.js';
 import { sitesFor, LegacyPlaces, hamletSlots, READY, LATER, SITE_SIZE as SIZE } from './world/sites.js';
 import { nameOf, stateOf, storyOf } from './world/names.js';
-import { freeze, freezeMore, extend, bridgeRoom, readPlaces, nearFrozen, kindOf, boxOf, gap, NEAR_FROZEN, FORM } from './world/frozenplaces.js';
+import { roadsFor } from './world/roads.js';
+import { Roadside } from './roadside.js';
+import { freeze, freezeMore, extend, bridgeRoom, roadCells, readPlaces, nearFrozen, kindOf, boxOf, gap, NEAR_FROZEN, FORM } from './world/frozenplaces.js';
 import { Person } from './entities.js';
 import { SHOPS } from './economy.js';
 import { countOf } from './talktopics.js';
@@ -24,7 +26,7 @@ import { Audio } from './audio.js';
 import { apagada } from './opciones.js';
 import { ITEMS, PLACE_ITEMS, FIRE_MS, FIRE_FUEL } from './items.js';
 import { hud } from './ui/hud.js';
-import { t, fmt } from './i18n.js';
+import { t, fmt, getLang } from './i18n.js';
 
 const NINE = [[0, 0], [-1, -1], [0, -1], [1, -1], [-1, 0], [1, 0], [-1, 1], [0, 1], [1, 1]];
 const AROUND = [[-1, -1], [0, -1], [1, -1], [-1, 0], [1, 0], [-1, 1], [0, 1], [1, 1]];
@@ -34,12 +36,14 @@ const SIZE3 = { campamento: 5.6, barco: 4.6, manantial: 2.4, arbol: 4.2, risco: 
 const HITO_R = { roble: 6, majada: 12.5, santuario: 9, puente: 6.5 };
 const NATURAL = new Set(['arbol', 'risco']);   // (they stand on the land as it is)
 export const sizeOf = p => p.size ?? SIZE[p.kind];
+const ROADS_R = 420;                     // …and the roads
 const WARM_R = 520, WARM_EVERY = 0.12;   // the sites are worked out this far ahead, a cell at a time (and how often)
 const SOLID3 = new Set(['torre', 'faro', 'cueva']);   // (the places of now that still are one model with its own ways: climbed, entered)
 const FIRE_GLOW = 1;
 const FOUND_MAX = 1500;                  // (how many places found before a guest tells its host)
 const OLD = apagada('sitios');           // (?sitios=1: the places of before, to compare)
 const byTile = t => { const c = t.indexOf(','); return `${Math.floor(+t.slice(0, c) / CHUNK)},${Math.floor(+t.slice(c + 1) / CHUNK)}`; };
+const NO_ROADS = apagada('caminos');     // (?caminos=0: no roads)
 const ART_OLD = apagada('lugares');      // (?lugares=1: the sites with the shapes they had before R7-3, to compare; nothing is saved of it)
 SHOPS.viajero = { get title() { return t('shop.title.viajero'); }, hours: [7, 21], stock: [{ id: 'semilla_manzano', price: 90 }, { id: 'pocion', price: 120 }, { id: 'espada', price: 380 }, { plan: 'barca', price: 500 }, { id: 'caballo', price: 2600 }, { id: 'lingote_oro', price: 300 }, { id: 'semilla_calabaza', price: 60 }] };
 // What a kind of place is called, whichever it is («Cave»)
@@ -68,6 +72,7 @@ export class Explore {
     this.marks = {};
     this.version = 0; this.warmAt = 0;
     this.look = new Lookout(this);   // (looking from above, and what is spotted: lookout.js)
+    this.roadside = new Roadside(this);   // (the signposts and the bridges of the roads)
   }
   get world() { return this.game.world; }
   reset(save) {
@@ -85,6 +90,7 @@ export class Explore {
     // (live.js, enter): in update, if it is your game that runs it; if not, the places of before, as its host sees them)
     if (save.places1 !== 0 && !save.sharedWorld) { if (!this.places1) this.settle(); else this.resettle(); }
     if (!this.world.layers.includes(this.layer)) this.world.layers.push(this.layer);
+    this.roadside.join(this.world);
   }
   save(out) {
     out.found = [...this.found]; out.placesV = 2; out.foundAt = this.foundAt;
@@ -101,19 +107,35 @@ export class Explore {
     this.found = new Set(this.found);   // (so that the maps make their list again: ui/blips.js)
     this.foundN = -1;
     const w = this.world;
+    this.useRoads();
     if (w?.merged) { w.merged.clear(); w.touches++; }   // (what is drawn of each chunk, and the ground round the places)
+  }
+  // The roads of this world: none until it is known what was built in their way (places1.c)
+  useRoads() {
+    const w = this.world, c = !NO_ROADS && !OLD && this.places1?.r === FORM ? this.places1.c : null, R = Array.isArray(c) && w?.gen ? roadsFor(w.seed) : null;
+    const changed = R?.setKept(c);
+    if (w?.gen && (w.gen.roads !== R || changed)) { w.gen.setRoads(R); this.roadside?.clear(); this.posts?.clear(); }
+  }
+  // (whoever runs the world) …and the first time, that is worked out
+  withRoads(list) {
+    if (NO_ROADS || OLD || ART_OLD || list.r !== FORM || Array.isArray(list.c)) return list;
+    const boxes = [];
+    for (const [k, mark] of Object.entries(list.k)) { const kind = kindOf(mark); if (kind && kind !== '-') { const [cx, cy] = k.split(',').map(Number); boxes.push(boxOf(this.legacy.place(cx, cy, kind))); } }
+    return { ...list, c: roadCells({ deltas: this.world.deltas, boxes }) };
   }
   // Whoever runs the world (or plays alone) writes the list of an old world, once. A guest waits for the host's
   settle() {
     if (OLD || this.places1) return;
     const points = this.points(), list = freeze({ sites: this.sites, legacy: this.legacy, deltas: this.world.deltas, found: this.oldFound, points });
-    this.setPlaces(ART_OLD ? list : extend(list, { sites: this.sites, deltas: this.world.deltas, points }));
+    this.setPlaces(ART_OLD ? list : this.withRoads(extend(list, { sites: this.sites, deltas: this.world.deltas, points })));
   }
   // …and a list of before R7-3 is looked at once more (frozenplaces.js, extend)
   resettle() {
-    if (OLD || ART_OLD || !this.places1 || this.places1.r === FORM) return;
-    this.setPlaces(extend(this.places1, { sites: this.sites, deltas: this.world.deltas, points: this.points() }));
+    if (OLD || ART_OLD || !this.places1 || !this.unsettled) return;
+    this.setPlaces(this.withRoads(this.places1.r === FORM ? this.places1 : extend(this.places1, { sites: this.sites, deltas: this.world.deltas, points: this.points() })));
   }
+  // Is there anything of the list to look at yet? (what came with R7-3, or the roads)
+  get unsettled() { return this.places1.r !== FORM || (!NO_ROADS && !Array.isArray(this.places1.c)); }
   points() {
     const { x, y, spawn, animals } = this.start || {}, at = Array.isArray(spawn) ? spawn : [spawn?.x, spawn?.y];
     return [[x, y], at, ...(Array.isArray(animals) ? animals : []).map(a => [a?.x, a?.y])];
@@ -528,7 +550,8 @@ export class Explore {
         const lit = this.fireLit(o.fireId, p) || o.decor.includes(':lit'), m = lit ? o.decor.replace(/:(laid|cold)/, ':lit') : o.decor;
         out.objects.push({ ...o, decor: m, key: `${o.key}:${lit ? 1 : 0}`, glow: lit ? FIRE_GLOW : null });
         if (lit) out.lights.push({ x: o.x, y: o.y, z: 6, r: 60 });
-      } else out.objects.push(o);
+      } else if (o.decor.startsWith('signpost')) { const m = this.postOf(p, o); out.objects.push(m ? { ...o, decor: m } : o); }
+      else out.objects.push(o);
       if (o.walk) continue;
       const m = o.decor, local = solidsOf(m);
       // (a house of rock is not one box: its parts)
@@ -536,6 +559,14 @@ export class Explore {
       for (const s of parts) { out.colliders.push({ ...bounds(s), obb: s, free: true }); out.solids.push({ ...s, y0: s.y0 ?? 0, y1: s.y1 ?? 2 }); }
     }
     for (const q of L.decks) if (Math.floor(q.x / CHUNK) === cx && Math.floor(q.y / CHUNK) === cy) for (const c of deckColliders(q)) out.colliders.push({ ...c, free: true });
+  }
+  // The signpost of a hamlet (or of the council's oak), with the names of where its roads go: its model, or null (no road comes)
+  postOf(p, o) {
+    if (!this.world.gen.roads || (p.kind !== 'aldea' && p.hito !== 'roble') || o.decor === 'signpost:180') return null;
+    const C = (this.posts ||= new Map()), k = `${o.key}:${getLang()}`;
+    let m = C.get(k);
+    if (m === undefined) { const a = this.roadside.placePost(p); C.set(k, (m = a ? this.roadside.model(a, o.yaw) : null)); }
+    return m;
   }
   // Is this fire of a place (its key, '#' and its number) burning? Lit by somebody, for a while: d.fire of the place's chunk
   fireLit(id, p) { const v = this.world.delta(Math.floor(p.x / CHUNK), Math.floor(p.y / CHUNK))?.fire?.[id]; return typeof v === 'number' && v > Date.now(); }
@@ -546,10 +577,11 @@ export class Explore {
 
   update(dt) {
     const g = this.game, p = g.player, L = g.live;
-    if (!OLD && (!L?.joined || L.role === 'host')) { if (!this.places1) this.settle(); else if (this.places1.r !== FORM) this.resettle(); else if (this.places1.b === undefined) this.bridgeSettle(); }
+    if (!OLD && (!L?.joined || L.role === 'host')) { if (!this.places1) this.settle(); else if (!ART_OLD && this.unsettled) this.resettle(); else if (this.places1.b === undefined) this.bridgeSettle(); }
     if (L?.joined && L.guest) this.tellHost();
     if (g.scene !== this.world) return;
     // (the cells ahead, one at a time, so that none has to be worked out when the land is made)
+    this.warmRoads(p);
     if (this.places1 && !(g.time - this.warmAt < WARM_EVERY)) { this.warmAt = g.time; if (!this.sites.warm(p.x, p.y, WARM_R) && !this.warmMore(p)) this.warmAt = g.time + 1; }
     this.look.update();
     updateResidents(this, Math.min(0.1, dt || 0));
@@ -568,10 +600,21 @@ export class Explore {
       g.skills?.gain('explore', near.kind === 'aldea' ? 60 : 25);
     }
   }
+  // The roads ahead: worked out in the ground worker (terrain.js askMap) and handed over; here, only their graph, a node at a time
+  warmRoads(p) {
+    const g = this.game, R = this.world.gen.roads, W = (this.roadsWarm ||= { at: 0, x: 1e9, y: 0, asked: false });
+    if (!R || g.time - W.at < WARM_EVERY) return;
+    W.at = g.time;
+    if (W.asked) return;
+    if (W.roads === R && Math.hypot(dxOf(p.x, W.x), p.y - W.y) < 90) { if (!W.done) W.done = !R.warm(W.x, W.y, ROADS_R, false); return; }
+    const T = g.view3d?.terrain, x = p.x, y = p.y, done = () => { W.asked = W.done = false; W.roads = R; W.x = x; W.y = y; };
+    if (!T?.workers?.length || T.gen !== this.world.gen) { if (!R.warm(x, y, ROADS_R)) done(); return; }
+    W.asked = !!T.askMap('lines', this.world.gen, Math.floor(x / CHUNK), Math.floor(y / CHUNK), -1e6 + 8, { x, y, r: ROADS_R, have: [...R.lines.keys()] }, m => { W.asked = false; if (this.world?.gen.roads !== R || !m?.list) return; R.adopt(m.list, m.cells); done(); });
+  }
   // (and then the landmarks, and what the hamlets ahead are laid out like: one thing at a time) false: nothing left to do
   warmMore(p) {
     if (this.places1?.r !== FORM) return false;
-    if (!this.sites.hitos) { if (this.sites.hunt()) { this.version++; this.cache.clear(); this.plans.clear(); this.lvls?.clear(); this.described?.clear(); this.foundN = -1; const w = this.world; if (w?.merged) { w.merged.clear(); w.touches++; } } return true; }
+    if (!this.sites.hitos) { if (this.sites.hunt()) { this.version++; this.roadside.clear(); this.posts?.clear(); this.cache.clear(); this.plans.clear(); this.lvls?.clear(); this.described?.clear(); this.foundN = -1; const w = this.world; if (w?.merged) { w.merged.clear(); w.touches++; } } return true; }
     for (const s of this.sites.near(p.x, p.y, 420, ['aldea', 'templo', 'faro'])) { const q = this.poiOf(s.key); if (q?.form && q.kind === s.kind && !this.plans.has(q.key)) { this.planOf(q); return true; } }
     return false;
   }

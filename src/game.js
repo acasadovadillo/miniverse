@@ -599,7 +599,7 @@ export class Game {
     // Lo colocado, lo más cercano primero (la alfombra, al final: lo de encima, las puertas y las ventanas antes).
     // (lo fijo de las casas de los vecinos no se toca)
     const dist = o => (sc.placedDist ? sc.placedDist(o, p.x, p.y) : Math.hypot(o.x - p.x, o.y - p.y));
-    const near = (sc.placedNear?.(p.x, p.y, 1.3) || []).filter(o => (!o.fixed || STATIONS[o.placed] || FIRE_MS[o.placed]) && (!sc.reaches || sc.reaches(p.x, p.y, o.x, o.y))).sort((a, b) => dist(a) - dist(b));
+    const near = (sc.placedNear?.(p.x, p.y, 1.3) || []).filter(o => (!o.fixed || STATIONS[o.placed] || FIRE_MS[o.placed] || o.placed === 'signpost') && (!sc.reaches || sc.reaches(p.x, p.y, o.x, o.y))).sort((a, b) => dist(a) - dist(b));
     const o = near.find(o => o.layer !== 'rug');
     if (o) return this.placedAction(o, true);
     const hearth = sc.hearthNear?.(p.x, p.y);
@@ -644,7 +644,7 @@ export class Game {
     const sees = (x, y) => !sc.reaches || sc.reaches(p.x, p.y, x, y);
     // Lo colocado, a su tamaño y altura (las alfombras, a ras de suelo; los cuadros cuelgan del muro: no se miran a la vista)
     for (const o of sc.placedNear?.(p.x, p.y, R) || []) {
-      if ((o.fixed && !STATIONS[o.placed] && !FIRE_MS[o.placed] && !(TAVERN_SEATS.has(o.placed) && inTavern(o.x, o.y))) || (o.layer !== 'hang' && !sees(o.x, o.y))) continue;
+      if ((o.fixed && !STATIONS[o.placed] && !FIRE_MS[o.placed] && o.placed !== 'signpost' && !(TAVERN_SEATS.has(o.placed) && inTavern(o.x, o.y))) || (o.layer !== 'hang' && !sees(o.x, o.y))) continue;
       // (en el establo abierto se entra: sus paredes, por separado, y el tejado desde fuera)
       if (o.placed === 'establo' && o.model !== 'establo:shut') {
         const yaw = o.yaw ?? yawOf(o.rot), walls = solidsOf('establo').filter(s => s[1] < 1), roof = this.ranch.houseAround(p) === o ? [] : [[-2, 1.95, -1.5, 2, 3, 1.5]];
@@ -757,6 +757,7 @@ export class Game {
     // (no dropFirst here: the mirror still works with full arms; the wash itself refuses them, menus.js)
     if (o.placed === 'lavabo') return { text: this.onBasin && this.body && !this.body.off?.surface ? t('body.basin.use') : t('body.mirror'), run: () => (this.onBasin ? this.onBasin(o) : this.onMirror?.()), alt: pick };   // (onBasin: ui/menus.js asks wash or mirror)
     if (FIRE_MS[o.placed]) return this.fireAction(o, o.fixed ? null : pick);
+    if (o.placed === 'signpost' && sc === this.world) return this.places.roadside.action(o, pick);
     if (o.placed === 'bell_frame') return { text: t('bell.ring'), run: () => Audio.bell?.() ?? Audio.clink(), alt: pick };
     if (BIZ_THINGS.has(o.placed)) return this.business.action(o, o.fixed ? null : pick);   // (a counter, a shelf or a crate: business.js)
     if (wellSpec(o.placed)) return this.farm.wellAction(o, o.fixed ? null : pick);   // (E: llenar la regadera; X: desmontarlo. The big well too)

@@ -252,6 +252,7 @@ export class Minimap {
     });
     for (let i = 0; i < over.length; i += 5) g.drawImage(over[i], over[i + 1], over[i + 2], over[i + 3], over[i + 4]);
     this.pathLines(g, gen, e, f, a, k);
+    if (gen.roads) { const R = n / 2 / a; M.roadLines.flat(g, gen, [p.x - R, p.y - R, p.x + R, p.y + R], off => g.setTransform(k * a, 0, 0, k * a, k * (e + a * off), k * f), a); g.setTransform(k, 0, 0, k, 0, 0); }
     const half = n / 2 / a, fx = Math.floor(p.x - half), fy = Math.floor(p.y - half), side = Math.ceil(half * 2) + 2;
     M.floodOver(g, G.explored, fx, fy, side, side, a, e + fx * a, f + fy * a);
     const R = G.route;

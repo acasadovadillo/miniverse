@@ -106,7 +106,7 @@ const SHAKE_SNORT = 0.45;   // (s into a shake: it blows out through its nose)
 function hardGround(scene, e) {
   if (!scene || scene.kind !== 'world' || e.inside) return true;
   if (scene.levelAt && scene.levelAt(e.x, e.y) !== null) return true;
-  return inBounds(e.x, e.y) && distToPath(e.x, e.y) < 1.1;
+  return (inBounds(e.x, e.y) && distToPath(e.x, e.y) < 1.1) || !!scene.gen?.roads?.onRoad(Math.floor(e.x), Math.floor(e.y));
 }
 // What a brushing hand holds (no item: hold() shows brushModel while the 'brush' gesture lasts)
 const BRUSH = '\u0001brush';

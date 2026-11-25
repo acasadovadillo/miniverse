@@ -39,8 +39,8 @@ export class SatTiles {
   get ready() { return SAT && !!this.terrain()?.workers?.length; }
   // Another world: nothing of the last one is any good
   use(gen) {
-    if (this.gen === gen) return;
-    this.gen = gen;
+    if (this.gen === gen && this.roadsV === gen.roadsV) return;
+    this.gen = gen; this.roadsV = gen.roadsV;
     this.clear();
   }
   clear() {

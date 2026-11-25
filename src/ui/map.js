@@ -15,6 +15,7 @@ import { KIND } from '../world/routegrid.js';
 import { t, getLang } from '../i18n.js';
 import { SatTiles } from './sattiles.js';
 import { MapOverlay } from './mapoverlay.js';
+import { RoadLines } from './roadlines.js';
 import { MapGround } from './mapground.js';
 import { blips, blipScale } from './blips.js';
 import { sprite } from './mapglyphs.js';
@@ -109,6 +110,7 @@ export class MapView {
     this.tiles = new SatTiles({ terrain: () => this.game?.view3d?.terrain || null, world: () => this.world || null, places: () => this.game?.places || null });
     this.built = new MapOverlay({ world: () => this.world || null, places: () => this.game?.places || null });
     this.ground = new MapGround(this);
+    this.roadLines = new RoadLines(() => this.game, () => this.game?.view3d?.terrain || null);
     this.now = 0;                // (performance.now() of the last drawing, in s)
     this.hits = [];              // the named spots and pins of the last big map, with their place on the screen (sx, sy)
     this.drawn = 0;              // (how many times it has been drawn)
@@ -287,6 +289,7 @@ export class MapView {
     const cx = px + this.pan.x, cy = py + this.pan.y;
     this.center = [cx, cy];
     this.sampleBiomes(gen, explored);
+    this.roadLines.warm(gen, cx, cy, w / this.px, h / this.px);
     if (this.drawSolid(gen, explored, cx, cy, stamp, w, h)) { this.screen?.frame(); return; }
     if (c.width !== w * r || c.height !== h * r) { c.width = w * r; c.height = h * r; c.style.width = w + 'px'; c.style.height = h + 'px'; this.bigKey = ''; }
     // Solo si cambia algo de lo que se ve: el sitio, el zoom, el tamaño, las fotos que llegan, lo explorado, los lugares, los
@@ -294,7 +297,7 @@ export class MapView {
     // cada fotograma, con el mapa quieto, era trabajo tirado (y, mientras, el mundo de detrás ya no se dibuja: ver Game.render)
     // (pictures that arrive one after another: painted together, every ARRIVE_S)
     const key = `${w}x${h}x${r}|${this.px}|${cx.toFixed(2)},${cy.toFixed(2)}|${px.toFixed(1)},${py.toFixed(1)}|${this.face ? Math.round(Math.atan2(this.face.y, this.face.x) * 36 / Math.PI) : ''}|${explored.size}|${blips.v}|${stamp}|${accent.v}|${Settings.v.blipSize}|${getLang()}`;
-    const came = `${this.tiles.v}|${this.thumbs.size}|${this.built.v}`, due = this.ground.busy || ((came !== this.cameV || this.built.pending) && Math.abs(this.now - (this.cameAt || 0)) > ARRIVE_S);
+    const came = `${this.tiles.v}|${this.thumbs.size}|${this.built.v}|${this.roadLines.version(gen)}`, due = this.ground.busy || ((came !== this.cameV || this.built.pending) && Math.abs(this.now - (this.cameAt || 0)) > ARRIVE_S);
     if (key !== this.bigKey || due || this.now - this.bigAt > IDLE_S || this.drawnGen !== gen) {
       this.cameV = came; this.cameAt = this.now; this.bigKey = key; this.bigAt = this.now; this.drawnGen = gen;
       this.drawFlat(c.getContext('2d'), gen, explored, cx, cy, r, w, h);
@@ -347,6 +350,8 @@ export class MapView {
     this.ground.draw(g, { gen, explored, cx, cy, a, w, h, r, to, tx: Z ? me[0] + Z.ox - Z.vx / to : cx, ty: Z ? me[1] + Z.oy - Z.vy / to : cy });
     if (a >= 1) { const x0 = Math.floor(cx - w / 2 / a), y0 = Math.floor(cy - h / 2 / a), [sx, sy] = this.toScreen(x0, y0, cx, cy, w, h); this.floodOver(g, explored, x0, y0, Math.ceil(w / a) + 2, Math.ceil(h / a) + 2, a, sx, sy); }
     if (a >= ROOFS_FROM && this.tiles.ready) this.roofs(g, explored, cx, cy, a, w, h);
+    this.roadLines.flat(g, gen, [cx - w / 2 / a, cy - h / 2 / a, cx + w / 2 / a, cy + h / 2 / a], off => g.setTransform(r * a, 0, 0, r * a, r * (w / 2 + a * (off - cx)), r * (h / 2 - a * cy)), a);
+    g.setTransform(r, 0, 0, r, 0, 0);
     // The marked route: from where you are on it to the pin (the pin goes with the spots, for its label)
     const R = this.route;
     if (R?.dbgCells?.length) {   // (?ruta=ver: the tiles the last search expanded)

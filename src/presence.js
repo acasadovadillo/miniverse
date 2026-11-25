@@ -74,7 +74,7 @@ export class Presence {
     if (held === 'arco' && (r.me ? e.drawing : e.bowPull > 0)) expo += EXPO.draw;
     r.expo = Math.min(1, expo);
     const tx = Math.floor(q.x), ty = Math.floor(q.y), biome = W.gen.biomeAt(tx + 0.5, ty + 0.5), sky = weatherAt(g.days, q.y);
-    const hard = inBounds(q.x, q.y) || !!W.at('floor', tx, ty), wading = !e.boat && !e.aboard && !e.swim && (e.depth || 0) > 0.05;
+    const hard = inBounds(q.x, q.y) || !!W.at('floor', tx, ty) || !!W.gen.roads?.onRoad(tx, ty), wading = !e.boat && !e.aboard && !e.swim && (e.depth || 0) > 0.05;
     noise *= (e.swim || e.boat || e.aboard ? 1 : groundNoise(sky === 'nieve' && !hard ? B.SNOW : biome, W.gen.season, hard, wading)) * weatherNoise(sky);
     // (the others' tool hits, from their swings, already in their messages; yours, from gather.spend: toolHit)
     if (!r.me) { const s = e.swing || 0; if (r.sw !== undefined && s > r.sw && TOOL_HIT.has(ITEMS[e.swingItem || e.held]?.tool)) { r.hit = EVENT.tool; r.hitAt = now; } r.sw = s; }

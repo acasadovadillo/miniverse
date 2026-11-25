@@ -403,6 +403,13 @@ export class Sites {
     }
     return out;
   }
+  // Is there a mine within r? The same as near(x, y, r, ['mina']), without working out the cells that roll none (roads.js asks it of every hamlet)
+  mineNear(x, y, r) {
+    const T = SITE_TIERS.major, salt = 9100 + T.kinds.indexOf('mina');
+    let yes = false;
+    this.eachCell('major', x, y, r, (ix, iy) => { if (yes || (!this.cells.has(`major:${ix},${iy}`) && !this.inRing('major', ix, iy) && this.roll(ix, iy, salt) >= T.chance.mina)) return; const s = this.inCell('major', ix, iy); if (s?.kind === 'mina' && distOf(s.x, s.y, x, y) <= r) yes = true; });
+    return yes;
+  }
   // The nearest site of these kinds within maxR that is not in skip (a Set of keys) and passes ok(site), or null: its
   // tiers' cells, ring by ring outwards
   nearest(x, y, kinds, maxR = 4000, skip = null, ok = null) {

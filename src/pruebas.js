@@ -28,7 +28,9 @@ import { CHUNK, WorldGen, WORLD_SEED } from './world/gen.js';
 import { TOWER, TOWER_HEIGHTS, GALLERY, towerFloor, towerColliders, holeOf, chestSpot, poiModel } from './world/tower.js';
 import { SEE_R, LOOK_CHUNKS } from './lookout.js';
 import { Sites, sitesFor, LegacyPlaces, SITE_TIERS, READY, TIERS } from './world/sites.js';
-import { SPECIALTIES, LANDMARKS, hamletLayout, hamletPlan, deckColliders } from './world/hamlets.js';
+import { SPECIALTIES, LANDMARKS, hamletLayout, hamletPlan, deckColliders, deckHeight, TIMBER_L } from './world/hamlets.js';
+import { Roads, roadsFor, landmarksOf, BRIDGE_MAX, TRACK_RANGE } from './world/roads.js';
+import { readArms } from './roadside.js';
 import { stopAt } from './hamletfolk.js';
 import { roofShape, roofPitch, SLAB_PITCH } from './world/roof.js';
 import { rowBoatGeo } from './three/places3d.js';
@@ -141,13 +143,13 @@ import * as C3 from './three/carry3d.js';   // (pushPose, if the drawing has it:
 import { stowedGeo, EMOTES } from './three/actors.js';
 import { talkOptions, CHATS } from './talk.js';
 import { t, tHtml, tList, has, fmt, formatMessage, defineNames, noun, setLang, getLang, getLangSetting, useLangSetting, onLangChange, accountLangOf, setAccountLang, savedLang, decideFirst, applyDom } from './i18n.js';
-import { findPath, KIND as RKIND, LIMITS as RLIMITS, releasePool, chunkMask, OVR as ROVR } from './world/routegrid.js';
+import { findPath, KIND as RKIND, LIMITS as RLIMITS, releasePool, chunkMask, chunkRecord, OVR as ROVR } from './world/routegrid.js';
 import { MAX_VERTS as RIBBON_MAX, OFF as RIBBON_OFF, STILL_S as RIBBON_STILL, routeGround } from './three/route3d.js';
 import { musicState, pickMood, bandOf, TAVERN_VENUE, BAND_R } from './musicstate.js';
 import { Music, LegacyMusic, DynamicMusic, Conductor } from './music.js';
 import { Voices, MAX_VOICES, renderPart } from './musicvoices.js';
 import { SCORES, barS, unitS, stingerNotes, resolveScore } from './musicscore.js';
-import { apagada } from './opciones.js';
+import { apagada, PARTES } from './opciones.js';
 import { Farm } from './farm.js';
 import { FRUIT, ORCHARD, FIRST_FRUIT, phaseAt } from './orchard.js';
 import { ihash } from './util.js';
@@ -5580,6 +5582,148 @@ async function soloTests(game) {
       for (const m of all('mina')) { const q = P.planOf(m).props[0]; check([0, 1, 2, 3].some(k => Math.abs(q.yaw - k * Math.PI / 2) < 0.01), 'a mine looks askew'); }
     } finally { game.gamemode = gm; game.build.select(PIECE_IDS[0]); game.build.toggle(false); I.slots.splice(0, I.slots.length, ...kept); I.changed(); W.deltas.clear(); for (const [k, d] of JSON.parse(was)) W.deltas.set(k, d); W.merged.clear(); W.touches++; game.teleport(CENTER.x, CENTER.y + 3); await frames(4); }
   });
+  // ---------- roads (Plan R7-4) ----------
+  const RB = [-350, -250, 900, 1000], roadList0 = () => { const R = roadsFor(WORLD_SEED); return R.mapSegments(RB).map(q => R.lines.get(q.id)).filter(Boolean); };
+  const onBridge = (R, r, x, y) => r.bridges.some(b => deckHeight({ kind: 'timber_bridge', ...b }, x, y) !== null || Math.hypot(b.x - x, b.y - y) < b.L / 2 + 0.4) || R.landmark().some(n => n.deck && Math.hypot(n.x - x, n.y - y) < n.deck.L / 2 + 1);
+  await test('roads (english): continuous: from node to node, no gap at the chunks\' borders, dry but for bridges of 8 tiles and fords; on their tiles, the flag of the routes', async () => {
+    const R = roadsFor(WORLD_SEED), S = R.sites, G = new WorldGen(WORLD_SEED), list = roadList0(), carts = list.filter(r => r.cart); G.setRoads(R);
+    check(carts.length >= 6 && list.length > carts.length, `${carts.length} roads, ${list.length - carts.length} tracks`);
+    check(carts.some(r => r.a === R.node('home') || r.b === R.node('home')), 'none leaves the village');
+    let wetM = 0, all = 0, fords = 0, long = 0, off = 0, tiles = 0, flagged = 0;
+    for (const r of list) {
+      for (let i = 0; i + 1 < r.n; i++) {
+        const ax = r.pts[i * 2], ay = r.pts[i * 2 + 1], bx = r.pts[i * 2 + 2], by = r.pts[i * 2 + 3], l = Math.hypot(bx - ax, by - ay), mx = (ax + bx) / 2, my = (ay + by) / 2;
+        check(l < 14, `${r.id}: a step of ${l.toFixed(1)} m at ${ax.toFixed(0)},${ay.toFixed(0)}`);
+        all += l;
+        if (!r.dry[i]) { if (i === 0 || r.dry[i - 1]) fords++; continue; }
+        for (let k = 0; k < 8; k++) { const x = ax + (bx - ax) * k / 8, y = ay + (by - ay) * k / 8; if (S.wet(x, y) && !onBridge(R, r, x, y) && !inBounds(x, y)) wetM += l / 8; }
+        const cx = Math.floor(mx / CHUNK), cy = Math.floor(my / CHUNK), C = R.inChunk(cx, cy); let there = false;
+        for (let s = 0; s < C?.n && !there; s++) if (C.a[s * 6] === ax && C.a[s * 6 + 1] === ay && C.a[s * 6 + 2] === bx) there = true;
+        check(there, `${r.id}: a stretch is not in its chunk ${cx},${cy}`);
+        // (and in those of both its ends, if they are others)
+        for (const [x, y] of [[ax, ay], [bx, by]]) { const q = R.inChunk(Math.floor(x / CHUNK), Math.floor(y / CHUNK)); let on = false; for (let s = 0; s < q?.n && !on; s++) if (q.a[s * 6] === ax && q.a[s * 6 + 1] === ay) on = true; if (!on) off++; }
+      }
+      for (const b of r.bridges) { check(b.w <= BRIDGE_MAX && b.L >= b.w && TIMBER_L.includes(b.L), `a bridge of ${b.w} by ${b.L}`); const s = Math.sin(b.yaw), c = Math.cos(b.yaw), e = b.L / 2 + 0.3; check(S.wet(b.x, b.y) && !S.wet(b.x + s * e, b.y + c * e) && !S.wet(b.x - s * e, b.y - c * e), `${r.id}: a bridge with no banks at ${b.x},${b.y}`); long = Math.max(long, b.w); }
+    }
+    check(wetM / all < 0.002 && off === 0, `${wetM.toFixed(1)} m in the water of ${all.toFixed(0)}, ${off} stretches cut at a border`);
+    for (const r of carts.slice(0, 4)) for (let i = 4; i < r.n - 4; i += 3) {
+      if (!r.dry[i] || !r.dry[i - 1]) continue;
+      const x = Math.floor(r.pts[i * 2]), y = Math.floor(r.pts[i * 2 + 1]), cx = Math.floor(x / CHUNK), cy = Math.floor(y / CHUNK); if (inBounds(x + 0.5, y + 0.5)) continue;
+      tiles++; check(R.onRoad(x, y), `no road on the tile ${x},${y}`); if (chunkRecord(G, cx, cy).flags[(y - cy * 16) * 16 + x - cx * 16] & 8) flagged++;
+    }
+    check(tiles > 60 && flagged / tiles > 0.97, `${flagged} of ${tiles} tiles with the flag`);
+    console.log(`roads: ${carts.length} roads and ${list.length - carts.length} tracks, ${(all / 1000).toFixed(1)} km, ${list.reduce((n, r) => n + r.bridges.length, 0)} bridges (the widest water ${long}), ${fords} fords; lines ${(R.stats.ms / Math.max(1, R.stats.lines)).toFixed(1)} ms each, the worst ${R.stats.worst.toFixed(0)}`);
+  });
+  await test('roads (english): pure: two instances, whatever is asked first, and a worker agree to the bit; what the worker hands over is what would be worked out here; across the seam', async () => {
+    const say = R => { const o = []; for (let cy = 2; cy <= 24; cy += 2) for (let cx = -4; cx <= 22; cx += 2) { const C = R.inChunk(cx, cy), m = R.mask(cx, cy); o.push(`${cx},${cy}:${C ? [...C.a].join(',') : ''}:${m ? m.join('') : ''}`); } return o.join('|'); };
+    const A = new Roads(WORLD_SEED), B2 = new Roads(WORLD_SEED), C = new Roads(WORLD_SEED); B2.roadsIn(52, 12); B2.roadsIn(-30, 20); for (const s of B2.sites.near(560, 100, 500, ['torre', 'mina'])) B2.track(s);
+    const a = say(A); check(a.length > 2000 && a === say(B2), 'two instances do not agree');
+    const url = URL.createObjectURL(new Blob([`import { Roads } from '${new URL('./world/roads.js', import.meta.url).href}'; const say = ${say.toString()}; onmessage = e => { const R = new Roads(e.data); const a = say(R); let n = 0; while (R.warm(250, 250, 300) && n++ < 4000); postMessage([a, R.pack(250, 250, 300, new Set())]); };`], { type: 'text/javascript' })), wk = new Worker(url, { type: 'module' });
+    try {
+      const [b, list] = await new Promise((res, rej) => { wk.onmessage = e => res(e.data); wk.onerror = e => rej(new Error(e.message)); wk.postMessage(WORLD_SEED); setTimeout(() => rej(new Error('the worker does not answer')), 90000); });
+      check(a === b, 'the worker does not agree'); C.adopt(list); const n0 = C.stats.lines, seg = r => r && `${[...r.pts].join()};${[...r.dry].join('')};${r.len};${JSON.stringify(r.bridges)};${r.join ?? ''};${r.parent?.id ?? ''};${r.a.id},${r.b.key ?? r.b.id}`;
+      check(list.length > 5 && list.every(([id]) => C.lines.has(id) && seg(C.lines.get(id)) === seg(A.lines.get(id) ?? (id[0] === 't' ? A.track(A.sites.at(...id.slice(1).split(',').map(Number))) : A.line(A.edgesOf(A.node(id.split('>')[0])).find(e => e.id === id))))), 'what it hands over');
+      C.mask(8, 10); check(say(C) === a, 'with what came from the worker'); void n0;
+    } finally { wk.terminate(); URL.revokeObjectURL(url); }
+    // (the planet's seam: a chunk is the same by either number, and a road that crosses it goes on)
+    const E = new Roads(WORLD_SEED), list = E.mapSegments([PHALF - 900, -400, PHALF + 900, 900]); check(list.length > 0, 'no roads by the seam');
+    for (const q of list) { const r = E.lines.get(q.id); for (let i = 0; i + 1 < r.n; i += 5) { const x = r.pts[i * 2], cx = Math.floor(x / CHUNK), cy = Math.floor(r.pts[i * 2 + 1] / CHUNK), m = E.mask(cx, cy), m2 = E.mask(cx + PW / CHUNK, cy); check(m === m2, 'another number of the same chunk'); if (r.dry[i]) check(E.near(x, r.pts[i * 2 + 1])?.d < 0.6, `the road is not where it is at ${x.toFixed(0)}`); } }
+    for (const [id, v] of Object.entries(landmarksOf(WORLD_SEED))) { const S = A.sites; while (!S.hunt()); const h = S.hitos.get(id); check(h && h.id === (typeof v === 'string' ? v : 'puente') && (typeof v === 'string' || JSON.stringify(h.site) === JSON.stringify(v)), `the landmark ${id}: ${JSON.stringify(h)}`); }
+  });
+  await test('roads (english): those of home, worked out beforehand (homeroads.js), are what would be worked out (else: sh tools/homeroads.sh)', async () => {
+    const A = new Roads(WORLD_SEED), B2 = new Roads(WORLD_SEED, false), say = r => r && `${[...r.pts].join()};${[...r.at].join()};${[...r.dry].join('')};${r.len};${JSON.stringify(r.bridges)};${r.join ?? ''};${r.parent?.id ?? ''};${r.a.id},${r.b.key ?? r.b.id},${r.kind},${r.half},${r.box}`;
+    let t0 = performance.now(); for (let cy = -3; cy <= 6; cy++) for (let cx = -3; cx <= 6; cx++) A.mask(cx, cy); const a = performance.now() - t0; t0 = performance.now(); for (let cy = -3; cy <= 6; cy++) for (let cx = -3; cx <= 6; cx++) B2.mask(cx, cy); const b = performance.now() - t0;
+    let n = 0; for (let cy = -20; cy <= 22; cy += 2) for (let cx = -20; cx <= 22; cx += 2) { const p = A.roadsIn(cx, cy) || [], q = B2.roadsIn(cx, cy) || []; check(p.map(r => r.id).sort().join() === q.map(r => r.id).sort().join(), `${cx},${cy}: other roads`); for (const r of p) { check(say(r) === say(q.find(s => s.id === r.id)), `${r.id} is another: run tools/homeroads.sh`); n++; } }
+    check(n > 8 && A.stats.lines < 4 && B2.stats.lines > 15, `${n}, ${A.stats.lines} lines worked out with them, ${B2.stats.lines} without`); console.log(`roads: the masks round home (10 x 10 chunks): ${a.toFixed(0)} ms with them, ${b.toFixed(0)} ms without`);
+  });
+  await test('roads (english): the land: nothing grows on them nor big by their sides, the rest as without them; the village as it was; none under a place', async () => {
+    const R = roadsFor(WORLD_SEED), G = new WorldGen(WORLD_SEED), H = new WorldGen(WORLD_SEED); G.setRoads(R); let gone = 0, kept = 0;
+    for (let cy = 3; cy <= 24; cy++) for (let cx = 0; cx <= 18; cx++) {
+      const m = R.mask(cx, cy), a = G.content(cx, cy).objects, b = H.content(cx, cy).objects, key = o => `${o.kind}${o.key}`; if (!m) { check(a.length === b.length, `${cx},${cy}: without a road`); continue; }
+      const have = new Set(a.map(key)), bit = o => m[(Math.floor(o.y) - cy * 16) * 16 + Math.floor(o.x) - cx * 16];
+      for (const o of b) { const flower = o.kind === 'margarita' || o.kind === 'diente_leon', out = (bit(o) & (flower ? 1 : 2)) !== 0; check(have.has(key(o)) === !out, `${key(o)} (${bit(o)})`); out ? gone++ : kept++; }
+      for (const o of a) check(!(bit(o) & 1), `${key(o)} on the road`);
+      for (let j = 0; j < 16; j++) for (let i = 0; i < 16; i++) if (m[j * 16 + i] & 1) check(G.grassAt(cx * 16 + i, cy * 16 + j) === 0, 'grass on the road'); else check(G.grassAt(cx * 16 + i, cy * 16 + j) === H.grassAt(cx * 16 + i, cy * 16 + j), 'the grass beside it');
+    }
+    check(gone > 60 && kept > 600, `${gone} gone, ${kept} stay`);
+    for (let y = 1; y < 60; y++) for (let x = 0; x < 40; x++) check(!R.bits(x, y), `a road in the village at ${x},${y}`);
+    const P = game.places; let bad = 0; for (const q of P.sites.near(300, 300, 700)) { const L = P.poiOf(q.key)?.form && P.planOf(P.poiOf(q.key)); if (L) for (const l of ['placed']) for (const t of Object.keys(L[l])) { const [x, y] = t.split(',').map(Number); if (R.onRoad(x, y)) bad++; } } check(!bad, `${bad} tiles of places on a road`);
+    // (painted: the dirt, not the grass; and only there)
+    const r = roadList0().find(q => q.cart && [...q.dry].filter(Boolean).length > 40), i = [...r.dry].findIndex((v, k) => v && k > 12 && r.dry[k + 1] && r.dry[k - 1] && G.biomeAt(Math.floor(r.pts[k * 2]) + 0.5, Math.floor(r.pts[k * 2 + 1]) + 0.5) === B.MEADOW), x = r.pts[i * 2], y = r.pts[i * 2 + 1], cx = Math.floor(x / CHUNK), cy = Math.floor(y / CHUNK), t0 = performance.now(), a = paintPixels(G, cx, cy, 1), t1 = performance.now(), b = paintPixels(H, cx, cy, 1), t2 = performance.now(), o = (Math.floor((y - cy * 16) * 4) * 64 + Math.floor((x - cx * 16) * 4)) * 4;
+    check(a[o] > a[o + 1] && (a[o] !== b[o] || a[o + 1] !== b[o + 1]), `the paint: ${a.slice(o, o + 3)} (${b.slice(o, o + 3)})`); let same = 0; for (let k = 0; k < 4096; k++) if (a[k * 4] === b[k * 4] && a[k * 4 + 1] === b[k * 4 + 1]) same++; check(same > 1200, `only ${same} px as they were`);
+    console.log(`roads: painting a chunk with one ${(t1 - t0).toFixed(1)} ms, without ${(t2 - t1).toFixed(1)} ms (first paints)`);
+  });
+  await test('roads (english): an old world: what had been built, sown, fenced or dug in their way is never touched: the road is cut there, for ever; what is built later stays too; a guest waits for the host', async () => {
+    const snap0 = JSON.stringify(game.snapshot()), deltas0 = JSON.stringify([...w().deltas]), R0 = new Roads(WORLD_SEED), r = R0.roadsIn(1, 4).find(q => q.cart && (q.a.id === 'home' || q.b.id === 'home')), fromB = r.b.id === 'home';
+    const at = m => { const M = fromB ? r.len - m : m; let i = 0; while (i + 2 < r.n && r.at[i + 1] < M) i++; return [Math.floor(r.pts[i * 2]), Math.floor(r.pts[i * 2 + 1])]; }, D = new Map(), key = (x, y) => `${Math.floor(x / CHUNK)},${Math.floor(y / CHUNK)}`, d = (x, y) => { const k = key(x, y); if (!D.has(k)) D.set(k, { v: 1, removed: {}, tilled: {}, placed: {}, floor: {}, roof: {}, chest: {} }); return D.get(k); };
+    const [hx, hy] = at(60), [tx, ty] = at(110), [fx, fy] = at(150), [ux, uy] = at(200), mine = [];
+    for (let y = -2; y <= 2; y++) for (let x = -2; x <= 2; x++) { d(hx + x, hy + y).floor[`${hx + x},${hy + y}`] = 'suelo_madera'; d(hx + x, hy + y).lvl ||= {}; d(hx + x, hy + y).lvl[`${hx + x},${hy + y}`] = 0; mine.push([hx + x, hy + y]); }
+    for (let x = -2; x <= 2; x++) { const k = `${tx + x},${ty}`; d(tx + x, ty).tilled[k] = 1; (d(tx + x, ty).crops ||= {})[k] = { id: 'zanahoria', grow: 1, t: 1 }; mine.push([tx + x, ty]); }
+    for (let k = -9; k <= 9; k++) for (const [x, y] of [[fx + k, fy - 9], [fx + k, fy + 9], [fx - 9, fy + k], [fx + 9, fy + k]]) { d(x, y).placed[`${x},${y}`] = 'valla'; mine.push([x, y]); }
+    (d(ux, uy).dig ||= {})[`${ux},${uy}`] = -1; mine.push([ux, uy]);
+    const DS = JSON.stringify([...D]), old = { ...JSON.parse(snap0), places1: { v: 2, k: {}, r: FORM, s: {} }, found: [] };
+    try {
+      game.end(); game.start(JSON.parse(JSON.stringify(old)), new Map(JSON.parse(DS))); game.onSave = null; await frames(4);
+      const P = game.places, R = w().gen.roads; check(Array.isArray(P.places1.c) && P.places1.c.length > 6 && R && R.keptList.join(';') === P.places1.c.join(';') && R.kept.size > 30, `the list: ${P.places1?.c?.join(';')} | ${R && R.keptList.join(';')} | ${R?.kept.size}`);
+      for (const [x, y] of mine) for (let j = -1; j <= 1; j++) for (let i = -1; i <= 1; i++) check(!R.onRoad(x + i, y + j), `a road by what was built at ${x},${y}`);
+      check(!R.onRoad(fx, fy) && R0.onRoad(fx, fy) && R0.onRoad(hx, hy), 'inside the fence'); check(R.onRoad(...at(30)) && R.onRoad(...at(85)) && R.onRoad(...at(250)), 'the rest of the road'); check(at(30).length && w().gen.grassAt(fx, fy) !== undefined, 'grass');
+      for (const [k, v] of JSON.parse(DS)) { const q = w().deltas.get(k); for (const f of ['floor', 'placed', 'tilled', 'crops', 'dig']) check(JSON.stringify(q[f] || {}) === JSON.stringify(v[f] || {}), `${k}.${f} has changed`); }
+      check(w().at('floor', hx, hy) === 'suelo_madera' && w().digH(ux, uy) === -1, 'what there was');
+      const list = JSON.stringify(P.places1), s2 = JSON.parse(JSON.stringify(game.snapshot())); check(JSON.stringify(s2.places1) === list && JSON.stringify(readPlaces(s2.places1)) === list, 'saved and read');
+      // (built since on the road: there it is, and the road round it as it was)
+      const [bx, by] = at(260), bits = JSON.stringify([...R.mask(Math.floor(bx / CHUNK), Math.floor(by / CHUNK))]); w().place(bx, by, 'muro_madera'); P.resettle(); check(JSON.stringify(P.places1) === list && JSON.stringify([...w().gen.roads.mask(Math.floor(bx / CHUNK), Math.floor(by / CHUNK))]) === bits && w().at('placed', bx, by) === 'muro_madera', 'built on it since'); w().unplace({ tile: [bx, by], layer: 'placed', placed: 'muro_madera' });
+      // (a guest of a host that has no list: no roads at all; with it, the same ones)
+      const m0 = JSON.stringify([...R.mask(Math.floor(hx / CHUNK), Math.floor(hy / CHUNK)) || []]); P.setPlaces({ v: 2, k: {}, r: FORM, s: {} }); check(w().gen.roads === null && w().gen.grassAt !== null && P.roadside.at(1, 4) === null, 'a guest of an old host has roads'); P.setPlaces(readPlaces(JSON.parse(list))); check(JSON.stringify([...w().gen.roads.mask(Math.floor(hx / CHUNK), Math.floor(hy / CHUNK)) || []]) === m0, 'with the list');
+      check(readPlaces({ v: 2, k: {}, r: FORM, s: {}, c: ['1,2,f', 'x', 7, '3,4', '-9,10,ffff', '1,2,zz'] }).c.join(';') === '1,2,f;-9,10,ffff', 'what comes from the network');
+    } finally { game.end(); game.start(JSON.parse(snap0), new Map(JSON.parse(deltas0))); game.onSave = null; await frames(3); }
+  });
+  await test('roads (english): the bridges and the signposts: walked over, in the routes, taken apart and built by anyone; of the world, they come back as they came', async () => {
+    const W = w(), P = game.places, R = W.gen.roads, RS = P.roadside, I = inv(), kept = I.slots.map(s => (s ? { ...s } : null)), was = JSON.stringify([...W.deltas]), gm = game.gamemode; check(R, 'the world has no roads');
+    try {
+      const r = roadList0().filter(q => q.bridges.length)[0], b = r.bridges[0], tile = [Math.floor(b.x), Math.floor(b.y)], bc = [Math.floor(b.x / CHUNK), Math.floor(b.y / CHUNK)]; game.gamemode = 'survival';
+      check(Math.abs(W.levelAt(b.x, b.y) - 0.36) < 0.01 && W.waterDepth(b.x, b.y) === 0 && W.at('placed', ...tile)?.startsWith('timber_bridge'), `the bridge: ${W.levelAt(b.x, b.y)}, ${W.at('placed', ...tile)}`);
+      const o = W.placedObjectAt(...tile); check(o?.fixed && o.model === `timber_bridge:${b.L}` && W.collidersNear(b.x, b.y).some(c => c.deck) && W.deckAt(b.x, b.y) !== null, 'its object'); check(!W.canPlace(tile[0], tile[1], 'suelo_madera'), 'built over a bridge');
+      const m = new Uint8Array(256), bits = () => chunkMask(W, ...bc, m)[(tile[1] - bc[1] * 16) * 16 + tile[0] - bc[0] * 16]; check(!(bits() & ROVR.gone) && chunkRecord(W.gen, ...bc).flags[(tile[1] - bc[1] * 16) * 16 + tile[0] - bc[0] * 16] & 8, 'not in the routes');
+      await goTo(game, b.x + Math.sin(b.yaw) * (b.L / 2 + 1.5), b.y + Math.cos(b.yaw) * (b.L / 2 + 1.5)); await readyGround(game, 8000); I.slots.fill(null); game.build.toggle(true); game.build.select('quitar'); game.build.takeDown({ tile, layer: 'placed' });
+      check(!W.at('placed', ...tile) && W.levelAt(b.x, b.y) === null && W.waterDepth(b.x, b.y) > 0 && (bits() & ROVR.gone) && I.count('tablas') === 20 && I.count('madera') === 10, `taken apart: ${I.count('tablas')} tablas, ${I.count('madera')} madera`);
+      // (and built again by hand, the shortest that reaches both banks)
+      const f = W.fitFree('timber_bridge', b.x, b.y, b.yaw, 0, null); check(f.ok && f.model.startsWith('timber_bridge:'), `built: ${f.why}`); W.placeFree('timber_bridge', f); const mine = W.placedObjectAt(...f.anchor), L = +f.model.split(':')[1]; check(L <= b.L && L >= b.w + 1 && !mine.fixed && mine.model === f.model && Math.abs(W.levelAt(b.x, b.y) - 0.36) < 0.01 && W.waterDepth(b.x, b.y) === 0, `mine: ${mine?.model}`); const saved = JSON.parse(JSON.stringify([...W.deltas])); check(saved.length, 'saved'); check(W.unplace(mine) !== false && W.levelAt(b.x, b.y) === null, 'mine, taken apart');
+      check(BUILDABLE.timber_bridge.needs === 'banco' && !W.fitFree('timber_bridge', CENTER.x + 60, CENTER.y, 0, 0, null).ok, 'on dry land');
+      delete W.delta(...bc).gone[`${tile}`]; W.touch(...bc); check(W.levelAt(b.x, b.y) !== null && W.placedObjectAt(...tile)?.fixed, 'the world\'s is back');
+      // The village's signpost, at its way out: its arms to the next hamlets, with the metres of the road
+      const s = R.homePost(), st = [Math.floor(s.x), Math.floor(s.y)]; check(s && s.arms.length >= 1 && !inBounds(s.x, s.y) && !R.onRoad(...st), 'the village has no signpost'); const so = W.placedObjectAt(...st); check(so?.fixed && so.placed === 'signpost' && so.model.startsWith('signs:'), `its object: ${so?.model}`);
+      for (const a of s.arms) { const name = RS.nameOf(a.to); check(name && so.model.includes(name.replace(/[|=]/g, ' ')) && so.model.includes(RS.km(a.m)), `${a.to}: ${name} in ${so.model}`); }
+      const A = RS.action(so, null); check(A.text === t('sign.read'), A.text); A.run(); game.build.takeDown({ tile: st, layer: 'placed' }); check(!W.at('placed', ...st) && !W.placedObjectAt(...st), 'it does not come apart'); delete W.delta(Math.floor(st[0] / CHUNK), Math.floor(st[1] / CHUNK)).gone[`${st}`]; W.touch(Math.floor(st[0] / CHUNK), Math.floor(st[1] / CHUNK));
+      // (the hamlet's, in its square; and where a track leaves a road)
+      const ham = P.sites.near(...V4, 900, ['aldea']).map(q => P.poiOf(q.key)).find(q => q?.form && R.postOf(q.key)?.length), post = P.planOf(ham).props.find(q => q.m.startsWith('signpost')), hc = [Math.floor(post.x / CHUNK), Math.floor(post.y / CHUNK)], deco = W.contentFor(...hc).objects.find(q => q.decor?.startsWith('signs:')); check(deco && R.postOf(ham.key).some(a => deco.decor.includes(RS.nameOf(a.to))), `the hamlet's: ${deco?.decor}`);
+      const tr = roadList0().find(q => !q.cart && TRACK_RANGE[q.b.kind] > 200 && R.postsIn(Math.floor(R.trackPost(q).x / CHUNK), Math.floor(R.trackPost(q).y / CHUNK)).some(p => p === R.trackPost(q))); check(tr && R.trackPost(tr).arms[0].to === tr.b.key && R.trackPost(tr).arms.length === 3, 'a track has no signpost');
+    } finally { game.gamemode = gm; game.build.select(PIECE_IDS[0]); game.build.toggle(false); I.slots.splice(0, I.slots.length, ...kept); I.changed(); W.deltas.clear(); for (const [k, d] of JSON.parse(was)) W.deltas.set(k, d); W.merged.clear(); W.touches++; game.teleport(CENTER.x, CENTER.y + 3); await frames(2); }
+  });
+  await test('signs (english): no free text: a player\'s signpost keeps only keys of places, what is not known is no arm, and it goes with it', async () => {
+    const W = w(), P = game.places, RS = P.roadside, was = JSON.stringify([...W.deltas]), found = new Set(P.found);
+    try {
+      let at = null; for (let k = 0; k < 60 && !at; k++) { const f = W.fitFree('signpost', 60.5 + k, -20.5, 0.4, 0, null); if (f.ok) at = f; } check(at, 'it fits nowhere'); W.placeFree('signpost', at); const o = () => W.placedObjectAt(...at.anchor); check(o().placed === 'signpost' && !o().fixed && !o().model?.startsWith('signs:'), 'blank');
+      const ham = P.poiOf(P.sites.near(...V4, 900, ['aldea'])[0].key), d = () => W.delta(Math.floor(at.anchor[0] / CHUNK), Math.floor(at.anchor[1] / CHUNK)), k = `${at.anchor}`;
+      check(readArms(['<b>hola</b>', 'una casa', 7]) === null && readArms('x') === null && readArms([ham.key, 'home', null, 'x', '1,2']).join() === `${ham.key},home,` && readArms([['1,2']]) === null, 'what it takes');
+      RS.write(o(), [ham.key, 'home', 'free text']); check(d().signs[k].join() === `${ham.key},home,` && o().model === RS.signModel([ham.key, 'home', null], o().x, o().y, o().yaw) && o().model.includes(P.title(ham)) && o().model.includes(t('sign.home')), `written: ${JSON.stringify(d().signs)} ${o().model}`);
+      d().signs[k] = ['9999,9999', null, null]; W.touch(Math.floor(at.anchor[0] / CHUNK), Math.floor(at.anchor[1] / CHUNK)); check(!o().model?.startsWith('signs:') && RS.armsAt(['9999,9999', 'x', null], 0, 0).length === 0, 'an unknown place is an arm');
+      P.found.add(ham.key); check(RS.choices(o().x, o().y).some(c => c[0] === ham.key) && RS.choices(0, 0).some(c => c[0] === 'home') && RS.choices(0, 0).every(c => c[0] === 'home' || P.known(P.poiOf(c[0]))), 'what one may choose'); check(RS.action(o(), { text: 'x' }).text === t('sign.set'), 'E');
+      RS.write(o(), [ham.key, null, null]); check(W.unplace(o()) !== false && !d().signs?.[k], 'what it said stays behind');
+    } finally { P.found = found; W.deltas.clear(); for (const [k, v] of JSON.parse(was)) W.deltas.set(k, v); W.merged.clear(); W.touches++; }
+  });
+  await test('roads (english): the maps: their lines where the land is explored and nowhere else, on both of them and in relief; asked of the worker, none worked out in the game\'s thread', async () => {
+    const W = w(), R = W.gen.roads, L = game.map.roadLines, ex = game.explored, r = roadList0().find(q => q.cart && q.len > 300 && (q.a.id === 'home' || q.b.id === 'home')) || roadList0().find(q => q.cart && q.len > 300); check(R && r, 'no road');
+    const keys = new Set(); for (let i = 0; i < r.n; i++) { const x = r.pts[i * 2]; if (i > r.n / 2) keys.add(`${Math.floor(x / CHUNK)},${Math.floor(r.pts[i * 2 + 1] / CHUNK)}`); }
+    try {
+      game.explored = new Set(keys); const box = [r.box[0] - 5, r.box[1] - 5, r.box[2] + 5, r.box[3] + 5], q = R.mapSegments(box, true).find(s => s.id === r.id); check(q, 'not among those known'); const m = L.of1(q), n = m.runs.reduce((s, u) => s + u.length / 2, 0); check(n > 5 && n < r.n && m.runs.every(u => { for (let i = 0; i < u.length; i += 2) if (!keys.has(`${Math.floor(u[i] / CHUNK)},${Math.floor(u[i + 1] / CHUNK)}`)) return false; return true; }), `${n} of ${r.n} points`);
+      const runs = L.runs(W.gen, box); check(runs.some(u => u.cart) && L.version(W.gen) !== '' && L.version({ roads: null }) === '', 'in relief'); game.explored = new Set(); check(L.runs(W.gen, box).length === 0, 'where nothing is explored');
+      // (drawn: on a canvas, where it goes and not beside it)
+      game.explored = new Set(keys); const c = document.createElement('canvas'); c.width = c.height = 200; const g = c.getContext('2d', { willReadFrequently: true }), k = Math.floor(r.n * 0.75), X = r.pts[k * 2], Y = r.pts[k * 2 + 1], a = 4; L.flat(g, W.gen, [X - 25, Y - 25, X + 25, Y + 25], off => g.setTransform(a, 0, 0, a, 100 + a * (off - X), 100 - a * Y), a); if (r.dry[k] && r.dry[k - 1]) check(g.getImageData(100, 100, 1, 1).data[3] > 100, 'the line is not drawn'); check(g.getImageData(2, 2, 1, 1).data[3] === 0 || g.getImageData(198, 2, 1, 1).data[3] === 0, 'drawn everywhere');
+      // (nothing is worked out when it is drawn; warm asks for it)
+      const n0 = R.stats.lines; L.runs(W.gen, [4000, 4000, 5000, 5000]); check(R.stats.lines === n0, 'worked out while drawing'); if (game.view3d.terrain.workers.length && game.view3d.terrain.gen === W.gen) { const seen = new Set(R.lines.keys()), hx = 2184, hy = 1400; L.asked.clear(); L.flying = false; game.explored = new Set(); for (let j = -20; j <= 20; j++) for (let i = -20; i <= 20; i++) game.explored.add(`${Math.floor(hx / CHUNK) + i},${Math.floor(hy / CHUNK) + j}`); for (let i = 0; i < 12; i++) { L.warm(W.gen, hx, hy, 900, 900); await until(() => !L.flying, 30000, 'the worker'); } check([...R.lines.keys()].some(id => !seen.has(id)) && R.stats.lines - n0 < 3, `asked of the worker: ${R.lines.size} lines, ${R.stats.lines - n0} here`); }
+    } finally { game.explored = ex; }
+    check(apagada('caminos') === false && 'caminos' in PARTES, 'the switch');
+  });
   await test('boat (english): the clinker hull: as long and as wide as ever, the seats where they were, the deck a bundle goes on, its oars moved; moored and rowed alike', async () => {
     const G = rowBoatGeo(), b = boatModel(); G.hull.computeBoundingBox(); const q = G.hull.boundingBox; check(Math.abs(q.max.z - 1.19) < 0.06 && Math.abs(q.min.z + 0.98) < 0.06 && Math.abs(q.max.x - 0.63) < 0.06 && q.min.y < 0 && q.max.y < 0.85, JSON.stringify(q)); check(b.userData.oars.length === 2 && b.userData.oars[0].userData.side === -1 && b.userData.oars[1].position.x === 0.5 && b.children.filter(o => o.isMesh).length === 1, 'its oars'); const pos = G.hull.attributes.position; let bench = 0, deck = 0; for (let i = 0; i < pos.count; i++) { if (Math.abs(pos.getY(i) - 0.475) < 1e-6 && Math.abs(pos.getZ(i) + 0.1) < 0.12) bench++; if (Math.abs(pos.getY(i) - 0.335) < 1e-6 && pos.getZ(i) > 0.6) deck++; } check(bench >= 4 && deck >= 8, `${bench} ${deck}`); check(G.hull.index.count / 3 < 4500, `${G.hull.index.count / 3} triangles`);
   });
@@ -7944,6 +8088,18 @@ async function soloTests(game) {
     }
   });
 
+  await test('route (english): by the roads of the world: from the village to the next hamlet, most of it by the road; with its bridge taken apart, not over it', async () => {
+    const W = w(), RD = W.gen.roads, ex = game.explored, was = JSON.stringify([...W.deltas]); check(RD, 'the world has no roads');
+    try {
+      const r = RD.roadsIn(1, 4).find(q => q.cart && (q.a.id === 'home' || q.b.id === 'home')), ham = r.a.id === 'home' ? r.b : r.a, end = r.a.id === 'home' ? [r.pts[(r.n - 1) * 2], r.pts[r.n * 2 - 1]] : [r.pts[0], r.pts[1]];
+      game.explored = new Set(); for (let cy = Math.floor(r.box[1] / CHUNK) - 5; cy <= Math.floor(r.box[3] / CHUNK) + 5; cy++) for (let cx = Math.floor(r.box[0] / CHUNK) - 5; cx <= Math.floor(r.box[2] / CHUNK) + 5; cx++) game.explored.add(`${cx},${cy}`);
+      await goTo(game, 16.5, 61.5); check(ham.kind === 'aldea', 'not to a hamlet');
+      R().set({ x: end[0], y: end[1], kind: 'point' }, { quiet: true }); check(await routed(60000) === 'ready', `the search: ${R().state} (${R().debug?.why})`);
+      const on = () => { const s = along(R().pts, 1); return s.filter(([x, y]) => RD.onRoad(Math.floor(x), Math.floor(y))).length / s.length; }, k = on();
+      console.log(`route village → ${ham.id}: ${R().len.toFixed(0)} tiles (the road: ${r.len.toFixed(0)}), ${(k * 100).toFixed(0)}% by road`); check(k >= 0.7 && R().kinds.includes(RKIND.road), `${(k * 100).toFixed(0)}% by the road`);
+      const b = r.bridges[0]; if (b) { W.unplace({ tile: [Math.floor(b.x), Math.floor(b.y)], layer: 'placed', placed: 'timber_bridge', fixed: true }); check(W.levelAt(b.x, b.y) === null, 'the bridge stays'); R().set({ x: end[0], y: end[1], kind: 'point' }, { quiet: true }); check(await routed(60000) === 'ready', 'again'); const g = W.gen, m = chunkMask(W, Math.floor(b.x / CHUNK), Math.floor(b.y / CHUNK)); check(m.some(v => v & ROVR.gone), 'its mask'); void g; }
+    } finally { R().clear('user'); game.explored = ex; W.deltas.clear(); for (const [k, d] of JSON.parse(was)) W.deltas.set(k, d); W.merged.clear(); W.touches++; await goTo(game, 21, 26); }
+  });
   await test('route (english): follow and arrive', async () => {
     const cue = Music.cue, cues = [], told0 = told();
     let plans = 0; const plan = R().plan;

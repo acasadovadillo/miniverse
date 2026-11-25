@@ -7,6 +7,7 @@
 //
 // Main thread → worker:
 //   { t: 'init', seed, projects, family }        as genworker.js: the world seed and the village projects
+//   { t: 'roads', roads }                        the world's roads changed (init has them too: terrain.js roadList)
 //   { t: 'village', projects, family }           on onVillageChange (village.js): drop the cached records and masks of
 //        the village
 //   { t: 'route', id, from: { x, y }, to: { x, y }, mode: 'walk' | 'ride' | 'row', explored: ['cx,cy', …], margin?, wide?, debug? }
@@ -34,6 +35,7 @@
 //        to the pin, is KIND.unknown (a gap). seen (debug only): Int32Array [x0,y0,…] of the tiles expanded, at most 20000
 import { WorldGen, WORLD_SEED, CHUNK } from './gen.js';
 import { setProjects, setFamilyHouse, BOUNDS } from './village.js';
+import { roadsFor } from './roads.js';
 import { NORTH, SOUTH, wrapIndex } from './planet.js';
 import { chunkRecord, chunkCost, combine, Search, pathOf, straightPath, KIND, LIMITS, UNKNOWN_COST, COST, MODES } from './routegrid.js';
 
@@ -75,16 +77,23 @@ onmessage = e => {
     if (m.t === 'init') {
       setProjects(m.projects); setFamilyHouse(m.family);
       if ((m.seed | 0) !== gen.seed && Number.isFinite(m.seed)) { gen = new WorldGen(m.seed); records.clear(); coarse.clear(); }
-      dropVillage();
-    } else if (m.t === 'village') { setProjects(m.projects); setFamilyHouse(m.family); gen.fields.clear(); dropVillage(); }
+      dropVillage(); useRoads(m.roads);
+    } else if (m.t === 'roads') useRoads(m.roads);
+    else if (m.t === 'village') { setProjects(m.projects); setFamilyHouse(m.family); gen.fields.clear(); dropVillage(); }
     else if (m.t === 'masks') gotMasks(m);
-    else if (m.t === 'route') start(m);
+    else if (m.t === 'route') { if (m.lines?.length) gen.roads?.adopt(m.lines); start(m); }
   } catch (err) {
     console.warn('Route (worker): a message failed', err);
     if (m.t === 'route' && job?.id === m.id) fail(job, 'error');
   }
 };
 
+// The roads of the world (genworker.js), or none
+function useRoads(kept) {
+  const r = kept ? roadsFor(gen.seed) : null, changed = r?.setKept(kept);
+  if (gen.roads === r && !changed) return;
+  gen.setRoads(r); records.clear(); coarse.clear();
+}
 // What the village changes (its paths with the projects, the family house) is in the records and the masks of its chunks
 function dropVillage() {
   const cx0 = Math.floor(BOUNDS.x0 / CHUNK), cx1 = Math.floor(BOUNDS.x1 / CHUNK), cy0 = Math.floor(BOUNDS.y0 / CHUNK), cy1 = Math.floor(BOUNDS.y1 / CHUNK);

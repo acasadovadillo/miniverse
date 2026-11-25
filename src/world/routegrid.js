@@ -10,6 +10,7 @@ import { B, BIOMES, climate, classify, wetness, depthOfWet, reliefOf } from './b
 import { depthOf } from './ground.js';
 import { WATER_Y, wrapIndex } from './planet.js';
 import { inBounds, distToPath, PLAZA, BOUNDS as VILLAGE } from './village.js';
+import { ON, DECK } from './roads.js';
 
 // Cost of one step onto a tile, per class (× 10 when stored). road: village path, plaza, built floors (camino, wood,
 // stone) and bridges; wade: natural depth < SWIM_IN (entities.js); swim: deeper, walking; blocked: walls, fences, closed
@@ -26,7 +27,8 @@ export const MODES = ['walk', 'ride', 'row'];
 //   road: a built floor or a bridge (cheap, and dry even over water); blocked: something solid on the tile centre;
 //   own: this mask knows the tile's obstacles, so the world's trees and rocks (gen.content) no longer count there (they
 //        may have been cut, or a place may hide them). chunkMask sets it on every tile
-export const OVR = { road: 1, blocked: 2, own: 4 };
+//   gone: the timber bridge of a road that was here has been taken apart (what is under it counts)
+export const OVR = { road: 1, blocked: 2, own: 4, gone: 8 };
 // Limits shared by the worker and route.js
 export const LIMITS = { short: 256, maxTiles: 4096, budget: 120000, weight: 1.6, maxPts: 400 };
 
@@ -110,6 +112,9 @@ export function chunkRecord(gen, cx, cy) {
       if (inBounds(x, y) && (distToPath(x, y) < 0.8 || Math.hypot((x - PLAZA.x) / PLAZA.rx, (y - PLAZA.y) / PLAZA.ry) < 1)) flags[j * CHUNK + i] |= F_ROAD;
     }
   }
+  // The roads (roads.js): their tiles that are on dry land, and those of their bridges
+  const road = gen.roads?.mask(cx, cy);
+  if (road) for (let t = 0; t < 256; t++) if (road[t] & ON && (road[t] & DECK || !(flags[t] & F_WET))) flags[t] |= F_ROAD;
   return { base, flags };
 }
 
@@ -122,7 +127,7 @@ export function combine(rec, mask, mode, cost = new Uint8Array(256), kind = null
     const obst = o & OVR.own ? o & OVR.blocked : (f & F_OBST) || (o & OVR.blocked);
     let c, k = KIND.land;
     if (obst) c = BLOCK;
-    else if ((f & F_ROAD) || (o & OVR.road)) { c = m === 2 ? ROW_LAND : ROAD; k = KIND.road; }   // (a bridge: dry, even over water)
+    else if (((f & F_ROAD) && !(o & OVR.gone)) || (o & OVR.road)) { c = m === 2 ? ROW_LAND : ROAD; k = KIND.road; }   // (a bridge: dry, even over water)
     else if (f & F_WET) {
       const w = f & F_WET;
       if (m === 2) c = ROW_WATER;
@@ -149,7 +154,7 @@ export function tileCosts(gen, cx, cy, override = null, mode = 'walk', kinds = n
 // climate (biome, natural depth and relief) and the share of deep water. Cheap (16 climate calls) and rough: the fine
 // search on the corridor has the last word. costs (optional Uint8Array(3)): filled for the three MODES at once, so a
 // cache needs one call per chunk
-const SAMPLE_BLOCKED = 120;
+const SAMPLE_BLOCKED = 120, ROAD_CHUNK = 7;
 const sh = new Float32Array(16);
 export function chunkCost(gen, cx, cy, mode = 'walk', costs = null) {
   cx = wrapIndex(cx, CHUNK);
@@ -179,8 +184,9 @@ export function chunkCost(gen, cx, cy, mode = 'walk', costs = null) {
     if (j < 3) sl = Math.max(sl, Math.abs(sh[(j + 1) * 4 + i] - h) / 4);
   }
   const steep = SLOPE_K * Math.max(0, sl - SLOPE_FREE);
-  const out = costs || new Uint8Array(3);
+  const out = costs || new Uint8Array(3), road = !!gen.roads?.mask(cx, cy);   // (a chunk with a road: it goes through, whatever there is round it)
   for (let m = 0; m < 3; m++) {
+    if (road && m < 2) { out[m] = ROAD_CHUNK; continue; }
     if (blocked[m] >= 12) { out[m] = BLOCK; continue; }
     out[m] = Math.min(254, Math.max(1, Math.round((sum[m] + blocked[m] * SAMPLE_BLOCKED) / 16 + (m === 2 ? 0 : steep))));
   }
@@ -473,6 +479,7 @@ export function maskWanted(world, cx, cy) {
   const x0 = cx * CHUNK, y0 = cy * CHUNK;
   if (world.deltas?.has(`${cx},${cy}`)) return true;
   if (x0 + CHUNK > VILLAGE.x0 && x0 < VILLAGE.x1 && y0 + CHUNK > VILLAGE.y0 && y0 < VILLAGE.y1) return true;
+  if (world.gen?.roads?.mask(cx, cy) && world.roadsideGone?.(cx, cy)) return true;
   return !!world.layers?.some(l => l.padNear?.(x0, y0, x0 + CHUNK, y0 + CHUNK));
 }
 // The mask of chunk (cx, cy) from the world as it is now: what is solid on each tile centre (the merged colliders of
@@ -504,6 +511,8 @@ export function chunkMask(world, cx, cy, out = new Uint8Array(256)) {
     const [tx, ty] = f.tile || [Math.floor(f.x), Math.floor(f.y)], i = tx - x0, j = ty - y0;
     if (i >= 0 && i < CHUNK && j >= 0 && j < CHUNK) out[j * CHUNK + i] |= OVR.road;
   }
+  const R = world.gen?.roads;
+  if (R && world.roadsideGone) for (const b of R.bridgesIn(cx, cy)) if (world.roadsideGone(cx, cy, b)) R.deckTiles(b, (x, y) => { const i = x - x0, j = y - y0; if (i >= 0 && i < CHUNK && j >= 0 && j < CHUNK) out[j * CHUNK + i] |= OVR.gone; });
   return out;
 }
 // (is the point inside a collider, grown by MARGIN: a circle, an ellipse, an oriented box or an axis box)

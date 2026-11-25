@@ -39,6 +39,7 @@ import { inPlanet, nearX, wrapIndex } from './world/planet.js';
 import { CHUNK } from './world/gen.js';
 import { apagada, opcion } from './opciones.js';
 import { KIND, LIMITS, maskWanted, chunkMask } from './world/routegrid.js';
+import { roadList } from './world/roads.js';
 import { getProjects, familyHouse, onVillageChange, HOUSES } from './world/village.js';
 import { GAME_VERSION } from './version.js';
 import { Music } from './music.js';
@@ -369,7 +370,11 @@ export class Route {
     this.pending = id;
     try {
       // (exact ends: the path starts at your feet and ends on the pin; the explored chunks of its box)
-      w.postMessage({ t: 'route', id, from: { x: p.x, y: p.y }, to: { x: nearX(tg.x, p.x), y: tg.y }, mode: this.mode, explored: this.exploredAround(fx, fy, tx, ty, WIDE), margin: MARGIN, wide: WIDE, debug: this.dbg });
+      // (the roads the game knows there: the worker need not work them out again)
+      const R = this.game.world?.gen?.roads;
+      if (this.linesOf !== R) { this.linesOf = R; this.sentLines = new Set(); }
+      const lines = R ? R.pack((p.x + nearX(tg.x, p.x)) / 2, (p.y + tg.y) / 2, Math.max(Math.abs(nearX(tg.x, p.x) - p.x), Math.abs(tg.y - p.y)) / 2 + 400, this.sentLines) : [];
+      w.postMessage({ t: 'route', id, lines, from: { x: p.x, y: p.y }, to: { x: nearX(tg.x, p.x), y: tg.y }, mode: this.mode, explored: this.exploredAround(fx, fy, tx, ty, WIDE), margin: MARGIN, wide: WIDE, debug: this.dbg });
     } catch (e) { reportFault(e, 'Route.plan'); this.workerFailed(); return; }
     this.touchWorker();
     if (this.state !== 'ready') { this.state = 'finding'; this.version++; }
@@ -407,14 +412,19 @@ export class Route {
   // ---------- the worker ----------
   get noWorker() { return this.failures >= 2 || typeof Worker === 'undefined' || Profile.server; }
   ensureWorker() {
-    if (this.worker) return this.worker;
+    if (this.worker) {
+      const gen = this.game.world?.gen;
+      if (gen && gen.roadsV !== this.roadsV) { this.roadsV = gen.roadsV; this.worker.postMessage({ t: 'roads', roads: roadList(gen) }); }
+      return this.worker;
+    }
     if (this.noWorker) return null;
     try {
       const url = new URL('./world/routeworker.js?v=' + encodeURIComponent(GAME_VERSION) + (this.dbg ? '&ruta=ver' : ''), import.meta.url);
       const w = new Worker(url, { type: 'module' });
       w.onmessage = e => { try { this.onWorker(e.data); } catch (err) { reportFault(err, 'Route.onWorker'); } };
       w.onerror = e => { console.warn('Route: the worker failed; straight lines meanwhile', e?.message || ''); e?.preventDefault?.(); this.workerFailed(); };
-      w.postMessage({ t: 'init', seed: this.game.world?.seed, projects: getProjects(), family: familyHouse() });
+      w.postMessage({ t: 'init', seed: this.game.world?.seed, projects: getProjects(), family: familyHouse(), roads: roadList(this.game.world?.gen) });
+      this.roadsV = this.game.world?.gen?.roadsV; this.linesOf = undefined;   // (a new worker knows no lines)
       this.worker = w;
     } catch (e) { console.warn('Route: no worker', e?.message || e); this.failures = 2; return null; }
     return this.worker;

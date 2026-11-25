@@ -19,6 +19,7 @@ export const FORM = 3;            // (what the sites look like: R7-3)
 export const KEEP_FOUND = false;   // (true: the places somebody had found stay too; false: only those built by or used)
 export const NEAR_FROZEN = 48;    // no new place this near one that stays
 const COVER = 9;                  // nor with its flattened ground (7 m) this near something made by the players
+const ROAD_CELLS = 20000;          // (the most chunks with something kept clear of the roads)
 // What in a chunk's changes is not somebody's work to keep: what was felled, picked, mown, opened or fished there
 const NATURE = new Set(['v', 'removed', 'picked', 'frostYear', 'mown', 'opened', 'dived', 'fished', 'firstPick', 'wet', 'moist']);
 const full = v => v !== null && v !== undefined && (typeof v !== 'object' || Object.keys(v).length > 0);
@@ -34,6 +35,7 @@ export function readPlaces(v) {
   if (v.r === FORM) {
     out.r = FORM; out.s = {};
     if (v.s && typeof v.s === 'object') for (const [key, mark] of Object.entries(v.s)) if (/^-?\d{1,5},-?\d{1,5}$/.test(key) && (mark === 'o' || mark === '-')) out.s[key] = mark;
+    if (Array.isArray(v.c)) out.c = v.c.filter(q => typeof q === 'string' && /^-?\d{1,5},-?\d{1,5},[0-9a-f]{1,4}$/.test(q)).slice(0, ROAD_CELLS);   // (no list: the world has no roads yet)
     if (v.b === 0 || v.b === 1) out.b = v.b;   // (is there the stone bridge of the first river? not decided, if absent: bridgeRoom)
   }
   return out;
@@ -135,4 +137,32 @@ export function extend(list, { sites, deltas, points = [] }) {
     }
   }
   return { ...list, r: FORM, s };
+}
+// ---------- the roads (R7-4) ----------
+// What there was when the roads came (roads.js): the squares of 4 × 4 m with anything made by anybody, or of a place that stays from
+// before. Whoever runs the world makes the list, once (places1.c: 'cx,cy,hhhh', a chunk and its sixteen squares, a bit each), and a road is
+// cut there for ever. What is built later on a road, or by it, is simply there: the road is not painted again for it
+const CELL = 4, FILL = 8;   // (a garden or a yard up to FILL squares across is kept whole)
+function madeCells(d, put) {
+  for (const [k, v] of Object.entries(d)) {
+    if (NATURE.has(k) || k === 'gone' || !v || typeof v !== 'object') continue;
+    for (const [t, w] of Object.entries(v)) {
+      const m = /^(?:[a-z_]+:)?(-?\d+),(-?\d+)$/.exec(t);
+      if (m) put(+m[1], +m[2]);
+      else if (Array.isArray(w) && Number.isFinite(w[0]) && Number.isFinite(w[1])) put(w[0], w[1]);   // (a moored boat, a thing left somewhere)
+    }
+  }
+}
+export function roadCells({ deltas, boxes = [] }) {
+  const made = new Map(), put = (x, y) => { const i = wrapIndex(Math.floor(x / CELL), CELL), j = Math.floor(y / CELL); made.set(`${i},${j}`, [i, j]); };
+  for (const [key, d] of deltas) if (!key.startsWith('u:') && d && touched(d)) madeCells(d, put);
+  for (const [x0, y0, x1, y1] of boxes) for (let y = y0; y <= y1; y += CELL) for (let x = x0; x <= x1; x += CELL) put(x, y);
+  const all = [...made.values()], list = [...made.values()];
+  for (const a of [0, 1]) {
+    list.sort((p, q) => p[1 - a] - q[1 - a] || p[a] - q[a]);
+    for (let i = 0; i + 1 < list.length; i++) if (list[i][1 - a] === list[i + 1][1 - a]) { const n = list[i + 1][a] - list[i][a]; if (n > 1 && n <= FILL) for (let k = 1; k < n; k++) all.push(a ? [list[i][0], list[i][1] + k] : [list[i][0] + k, list[i][1]]); }
+  }
+  const masks = new Map();
+  for (const [i, j] of all) { const k = `${Math.floor(i / 4)},${Math.floor(j / 4)}`; masks.set(k, (masks.get(k) || 0) | 1 << ((j - Math.floor(j / 4) * 4) * 4 + i - Math.floor(i / 4) * 4)); }
+  return [...masks].map(([k, m]) => `${k},${m.toString(16)}`).sort().slice(0, ROAD_CELLS);
 }

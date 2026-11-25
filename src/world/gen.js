@@ -35,7 +35,11 @@ export class WorldGen {
     this.biomes = new Map();   // "cx,cy" → los biomas de medias casillas de un trozo ya calculados (255: aún no)
     this.fields = new Map();   // "cx,cy" → field(cx, cy)
     this.season = 0;   // estación actual (cambia los colores del suelo y de las plantas)
+    this.roads = null; this.roadsV = 0;   // the world's roads (roads.js; null: none) and how many times they have changed
   }
+
+  // The roads of the world being played (explore.js; in the workers, what it tells them), or null: nothing grows on them
+  setRoads(r) { this.roads = r; this.roadsV++; this.cache.clear(); this.satTrees?.clear(); }
 
   // El bioma de un punto. Los puntos a medias casillas (los centros y las esquinas, que son los que piden el
   // mundo, el suelo y el mapa) se recuerdan por trozo: el clima cuesta y se pregunta mucho
@@ -72,6 +76,7 @@ export class WorldGen {
   grassAt(tx, ty) {
     const d = GRASS_DENSITY[this.biomeAt(tx + 0.5, ty + 0.5)];
     if (!d) return 0;
+    if (this.roads?.onRoad(tx, ty)) return 0;
     const s = this.seed, patch = 0.7 + vnoise(tx * 0.13, ty * 0.13, s + 11) * 0.6;
     if (ihash(tx, ty, s + 10) > d * patch * (this.season === 3 ? 0.45 : 1)) return 0;
     return 0.75 + ihash(tx, ty, s + 40) * 0.55;
@@ -214,10 +219,13 @@ export class WorldGen {
     const s = this.seed;
     const objects = [];
     const taken = new Set();   // casillas ya ocupadas ("tx,ty"): la primera que llega se la queda
+    // (a road: nothing grows on it, nor anything big by its sides. What would have been there keeps its tile: the rest is as without it)
+    const road = this.roads?.mask(cx, cy) || null;
     const add = (kind, tx, ty, r) => {
       const t = `${tx},${ty}`;
       if (taken.has(t)) return;
       taken.add(t);
+      if (road && road[(ty - cy * CHUNK) * CHUNK + tx - cx * CHUNK] & (FLOWER_KINDS.has(kind) ? 1 : 2)) return;
       const x = tx + 0.5, y = ty + 0.5;   // centro de la casilla
       const o = { kind, x, y, key: `${x.toFixed(2)},${y.toFixed(2)}` };
       if (r) o.col = { x, y, r };

@@ -90,6 +90,7 @@ export const RECIPES = [
   R('cantero', 'stone_bench', 1, [['piedra', 6]]),
   R('cantero', 'stone_trough', 1, [['piedra', 8]]),
   R('banco', 'jetty', 1, [['tablas', 24], ['madera', 8]]),
+  R('banco', 'timber_bridge', 1, [['tablas', 20], ['madera', 10]]),
   R('cantero', 'stone_bridge', 1, [['piedra', 90]]),
   R('cantero', 'bell_frame', 1, [['piedra', 20], ['lingote_cobre', 4], ['tablas', 2]]),
   R('banco', 'net_rack', 1, [['tablas', 3], ['cuerda', 4]]),

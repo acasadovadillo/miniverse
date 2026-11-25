@@ -459,6 +459,7 @@ export class Gathering {
     if (t.moor) g.world.moorBoat(...t.moor);   // (la barca: amarrada en el agua)
     else if (t.free) g.scene.placeFree(id, t.fit, !!g.player.crouch); else g.scene.place(...t.tile, id, t.rot);
     if (!t.moor && g.scene === g.world) { const at = t.free ? t.fit.anchor : t.tile; g.rep?.placed(layerOf(id), at[0], at[1]); }   // (put back where you took it from: reputation.js)
+    if (id === 'signpost' && t.free && g.build.carry?.signs && g.scene === g.world) g.places.roadside.write({ tile: t.fit.anchor }, g.build.carry.signs);
     if (g.build.on) g.build.paid(id); else g.inv.take(g.inv.selected, 1);   // (construyendo, se pagan sus materiales)
     this.chips(t.free ? t.fit.cx : t.tile[0] + 0.5, t.free ? t.fit.cy : t.tile[1] + 0.5, 'dirt', 8);
     Audio.place();

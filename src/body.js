@@ -333,7 +333,7 @@ export class Body {
       const d = sc.delta?.(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK)), k = `${tx},${ty}`;
       if (d?.tilled?.[k] !== undefined || (sc.digH?.(tx, ty) ?? null) !== null) kind = G_SOFT;
       else if (sc.levelAt && sc.levelAt(p.x, p.y) !== null) kind = G_FLOOR;   // (a floor, a platform, furniture: built)
-      else if (inBounds(tx + 0.5, ty + 0.5) && distToPath(tx + 0.5, ty + 0.5) < 1.05) kind = G_PATH;
+      else if ((inBounds(tx + 0.5, ty + 0.5) && distToPath(tx + 0.5, ty + 0.5) < 1.05) || w?.gen?.roads?.onRoad(tx, ty)) kind = G_PATH;
       else {
         const b = w?.gen?.biomeAt?.(tx + 0.5, ty + 0.5);
         kind = b === B.SWAMP ? G_SOFT : DRY_LAND.has(b) ? G_DRY : G_SOIL;

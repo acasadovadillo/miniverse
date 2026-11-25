@@ -24,6 +24,7 @@ import { rodRest } from './rest3d.js';
 import { compostBin, manureHeap, troughFill, soilBits } from './soil3d.js';
 import { weeds, eaten, slugs, holed, scarecrow } from './pests3d.js';
 import { KIT, PLACE_MATS, placeMat } from './places3d.js';
+import { ROAD_KIT, ROAD_MATS } from './roads3d.js';
 
 // Las cajas de los modelos con los cantos biselados, según su material: redondeadas en lo blando (mantas, sábanas,
 // cojines, cuero), con el canto gastado en la madera y un poco en la piedra
@@ -1299,6 +1300,8 @@ export function getModel(name) {
   else if (kind === 'poi') PLACES[a](m, b === 'snow', a === 'faro' ? b === 'dark' : b, d);
   else if (WATCHTOWERS[kind]) bigTower(m, WATCHTOWERS[kind].h, a, +b || 0.4);   // (the ones one builds: id:stone:how far down its base goes)
   else if (LIGHTHOUSES[kind]) lighthouse(m, kind === 'lighthouse' ? a || 'red' : LIGHTHOUSES[kind].light, b === 'dark', +d || 0.4);   // (id:how it is painted:dark or lit:how far down its base goes)
+  else if (kind === 'signs') ROAD_KIT.signs(m, name.slice(6));   // (its names may have anything in them)
+  else if (ROAD_KIT[kind]) ROAD_KIT[kind](m, a, b, d);   // (roads3d.js)
   else if (KIT[kind]) KIT[kind](m, a, b, d);   // (places3d.js)
   else if (kind === 'treasure') treasure(m, a === '1');
   else if (kind === 'tilled') tilled(m, +a, +b || 0, d);
@@ -1336,6 +1339,7 @@ const OWN = {
   // (the village mailbox's paints and wood: mailbox3d.js; the fountain's stone: fountain3d.js)
   ...MAIL_MATS, ...FOUNT_MATS,
   ...Object.fromEntries(Object.keys(PLACE_MATS).map(k => [k, () => placeMat(k)])),
+  ...ROAD_MATS,
 };
 export function modelMat(key) {
   const M = modelMats();

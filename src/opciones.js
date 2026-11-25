@@ -72,6 +72,8 @@ const RAW = (() => { try { return new URLSearchParams(globalThis.location?.searc
 // themselves). Local only. Plan R6.4: rumores (?rumores=0: nobody tells you of places; the circles are not drawn)
 // Plan H2 (the players' own businesses, src/business.js): shops (?shops=0: in this game the counters do nothing and their goods and
 // customers are not drawn. Whoever runs the world goes on making the sales, so everybody's world is the same)
+// Plan R7-4 (roads, src/world/roads.js): caminos (?caminos=0: no roads at all, painted, walked or on the maps, nor their signposts
+// and bridges, and nothing of them is saved). To compare: playing together, all must have the same
 export const PARTES = { hierba: 'sinlod', impostores: null, relieve: null, contacto: null, sombras: 'todas', personas: 'todas', suelo: 'v2', inventario: 'casillas',
   sed: null, cansancio: null, aguante: null, buceo: null, fondo: null, caustica: null,
   ruta: null, rutasuelo: null, musica: 'chip',
@@ -79,7 +81,7 @@ export const PARTES = { hierba: 'sinlod', impostores: null, relieve: null, conta
   vinculo: null, alforjas: null, montar: 'arcade', cuidado: null, razas: null,
   tracks: null, wounds: null, naturebook: null,
   sentidos: null, manadas: null, calidad: null, routines: null,
-  soporte: null, refugio: null, obra: null, deterioro: null, sat: null, mapa3d: null, sitios: '1', siluetas: null, lugares: '1', gossip: null, chatter: null, rumores: null, pests: null, shops: null };
+  soporte: null, refugio: null, obra: null, deterioro: null, sat: null, mapa3d: null, sitios: '1', siluetas: null, lugares: '1', gossip: null, chatter: null, rumores: null, pests: null, shops: null, caminos: null };
 
 // El valor tal cual (o null)
 export const opcion = k => RAW.get(k);

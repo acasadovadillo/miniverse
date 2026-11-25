@@ -24,7 +24,7 @@ import { Profile } from '../accounts.js';
 import { wrapIndex, inPlanet, dxOf, wrapX, HALF, H as PLANET_H, NORTH } from './planet.js';
 import { roofShape, roofPitch } from './roof.js';
 import { watchtower, halfOf, towerColliders, lighthouseColliders, HALF_SIDE, TOWER } from './tower.js';
-import { deckHeight, deckBox, deckColliders, JETTY_Y } from './hamlets.js';
+import { deckHeight, deckBox, deckColliders, JETTY_Y, TIMBER_L } from './hamlets.js';
 import { t as tr } from '../i18n.js';   // (as tr: t is a common local name here)
 
 const WADE_MAX = 0.5;   // (ver blocked)
@@ -58,9 +58,11 @@ const wideTiles = id => (watchtower(id) ? TOWER_TILES[halfOf(watchtower(id))] : 
 // ---------- the jetty and the stone bridge one builds ----------
 // What one walks on over the water (hamlets.js, deckHeight): how many tiles long; its anchor is the jetty's near end or the bridge's middle.
 // Its tiles have its height (d.lvl), like a big well's
-const DECKS = { jetty: { L: 8 }, stone_bridge: { L: 9 } };
+// The timber bridge, as long as it has to be (TIMBER_L): which one, with its turn (the number after the @: a quarter turn and, from 4 on,
+// the next length)
+const DECKS = { jetty: { L: 8 }, stone_bridge: { L: 9 }, timber_bridge: { L: 5, all: TIMBER_L } };
 export const deckSpec = id => (id && Object.hasOwn(DECKS, id) ? DECKS[id] : null);
-const deckOfId = (id, tx, ty, rot) => ({ kind: id, x: tx + 0.5, y: ty + 0.5, yaw: ((rot || 0) % 4) * Math.PI / 2, L: DECKS[id].L });
+export const deckOfId = (id, tx, ty, rot) => ({ kind: id, x: tx + 0.5, y: ty + 0.5, yaw: ((rot || 0) % 4) * Math.PI / 2, L: DECKS[id].all ? DECKS[id].all[Math.min(3, (rot || 0) >> 2)] : DECKS[id].L });
 // (its tiles: those whose middle is on it, and the jetty's own)
 function deckTiles(d) {
   const [x0, y0, x1, y1] = deckBox(d), out = [];
@@ -955,6 +957,8 @@ export class Overworld {
         else if (W) o.model = wellModel(src.lvl?.[t], this.wellBottom(tx, ty, W.n), id);   // (the big one: down to its deepest tile)
         const fire = FIRE_MODEL[id], lit = !!fire && this.fireAt(tx, ty), own = src.models?.[o.key];   // (own: how the one of a place is; explore.js)
         if (fire) o.model = own ? (lit ? own.replace(/:(laid|cold)/, ':lit') : own) : fire(lit); else if (own) o.model = own;
+        // (a signpost somebody has written on: roadside.js)
+        if (id === 'signpost' && !fixed) { const m = src.signs?.[t] && this.signModel?.(t, src.signs[t], ...src.pos[o.key]); if (m) o.model = m; }
         if (freeObject(o, id, rot, src.pos?.[o.key] || [tx + half, ty + half, (rot % 4) * Math.PI / 2], out)) { flats.push(o); continue; }
         if (fire) { o.lit = lit; o.glow = lit ? GLOW.horno : null; }
       } else {
@@ -1179,7 +1183,7 @@ export class Overworld {
     if (layer === 'placed' && d.barrow) delete d.barrow[k];   // (a wheelbarrow's id and big things: who takes it has read them first, barrow.js)
     if (layer === 'placed' && d.closed) delete d.closed[k];
     if (layer === 'placed' && d.off) delete d.off[k];
-    if (layer === 'placed') for (const f of [d.manure, d.compost, d.trough, d.garb, d.fire]) if (f) delete f[k];   // (what was in it: who takes it has read it first, game.js pickUp)
+    if (layer === 'placed') for (const f of [d.manure, d.compost, d.trough, d.garb, d.fire, d.signs]) if (f) delete f[k];   // (what was in it: who takes it has read it first, game.js pickUp)
     this.dropLevel(tx, ty);
     if (layer === 'placed') { this.dropWell(tx, ty, parsePlaced(was)[0]); this.dropDeck(tx, ty, was); }
     this.touchAround(tx, ty);
@@ -1193,7 +1197,7 @@ export class Overworld {
       const w = this.wellOf(tx, ty) || this.towerOf(tx, ty);   // (a tile of a big well or a watchtower that is not its anchor: it goes whole, from its anchor)
       if (w && (w.tx !== tx || w.ty !== ty) && this.ownAt('placed', w.tx, w.ty)) this.setTile(w.tx, w.ty, 'air');
       for (const layer of ['floor', 'placed', 'roof', 'hang', 'rug']) { if (d[layer]) delete d[layer][k]; if (d.pos) delete d.pos[`${layer}:${k}`]; this.wear?.gone(d, layer, k); }
-      for (const l of ['chest', 'closed', 'off', 'machine', 'tilled', 'barrow', 'manure', 'compost', 'trough', 'garb', 'fire', 'weeds']) if (d[l]) delete d[l][k];
+      for (const l of ['chest', 'closed', 'off', 'machine', 'tilled', 'barrow', 'manure', 'compost', 'trough', 'garb', 'fire', 'weeds', 'signs']) if (d[l]) delete d[l][k];
       for (const layer of ['floor', 'placed', 'roof']) this.planGone(d, layer, tx, ty);
       for (const layer of ['floor', 'placed', 'roof', 'hang', 'rug']) if (this.baseAt(layer, tx, ty)) (d.gone ||= {})[goneKey(layer, k)] = true;
       this.dropLevel(tx, ty);
@@ -1525,7 +1529,7 @@ export class Overworld {
     if (hit && hit.v === d.v && hit.placed === d.placed) return hit.list;
     let list = NO_TILES;
     for (const [t, raw] of Object.entries(d.placed)) {
-      if (typeof raw !== 'string' || (raw[0] !== 'j' && raw[0] !== 's')) continue;
+      if (typeof raw !== 'string' || (raw[0] !== 'j' && raw[0] !== 's' && raw[0] !== 't')) continue;
       const [id, rot] = parsePlaced(raw);
       if (!deckSpec(id)) continue;
       const [tx, ty] = t.split(',').map(Number);
@@ -1553,11 +1557,19 @@ export class Overworld {
   // Where a jetty or a bridge would go: the jetty from the shore straight out (its last half over the water); the bridge, from one
   // bank to the other, its middle on the water
   fitDeck(px, py, a, player, id) {
-    const Q = Math.PI / 2, tx = Math.floor(px), ty = Math.floor(py), r = ((Math.round(a / Q) % 4) + 4) % 4, k = `${id},${tx},${ty},${r},${this.touches}`, D = deckOfId(id, tx, ty, r);
-    if (this.deckTry?.k !== k) this.deckTry = { k, why: this.deckFits(id, D) };
+    const Q = Math.PI / 2, tx = Math.floor(px), ty = Math.floor(py), r = ((Math.round(a / Q) % 4) + 4) % 4, k = `${id},${tx},${ty},${r},${this.touches}`;
+    // (the timber bridge: the shortest one that reaches both banks; with none, what is wrong with the one in the middle)
+    if (this.deckTry?.k !== k) {
+      const all = DECKS[id].all, list = (all || [0]).map((_, i) => { const q = r + 4 * i, D = deckOfId(id, tx, ty, q); return { q, D, why: null }; });
+      let pick = null;
+      for (const c of list) { c.why = this.deckFits(id, c.D); if (!c.why) { pick = c; break; } }
+      pick ||= list[all ? 1 : 0];
+      this.deckTry = { k, why: pick.why, D: pick.D, q: pick.q };
+    }
+    const D = this.deckTry.D;
     const s = Math.sin(D.yaw), c = Math.cos(D.yaw), mid = id === 'jetty' ? (D.L - 1) / 2 : 0, cx = D.x + s * mid, cy = D.y + c * mid, hx = id === 'jetty' ? 0.97 : 1.7, hz = D.L / 2, box = { ...obb(cx, cy, hx, hz, D.yaw), y0: 0, y1: 1.2 };
     const why = this.deckTry.why || (player && hitsCircle(box, player.x, player.y, 0.2) && id !== 'jetty' ? 'Estás tú en medio' : null);
-    return { ok: !why, why, ox: D.x, oy: D.y, a: r * Q, k: 0, model: `${id}:${D.L}`, cx, cy, box, anchor: why ? null : [tx, ty], reach: D.L + 2, lvl: 0 };
+    return { ok: !why, why, ox: D.x, oy: D.y, a: r * Q, k: 0, rot: this.deckTry.q, model: `${id}:${D.L}`, cx, cy, box, anchor: why ? null : [tx, ty], reach: D.L + 2, lvl: 0 };
   }
   deckFits(id, D) {
     const s = Math.sin(D.yaw), c = Math.cos(D.yaw), at = (z, u = 0) => [D.x + s * z + c * u, D.y + c * z - s * u], wet = (z, u) => !!this.natWater(...at(z, u)), jetty = id === 'jetty';
@@ -1574,7 +1586,7 @@ export class Overworld {
     }
     const e = D.L / 2 + 0.3;
     if (!wet(0, 0) || wet(e, 0) || wet(-e, 0)) return tr('why.bridge.banks');
-    for (const z of [e, -e]) { const g = this.groundRaw(...at(z)); if (g > 0.9) return tr('why.bridge.banks'); }
+    for (const z of [e, -e]) { const g = this.groundRaw(...at(z)); if (g > (id === 'timber_bridge' ? 0.5 : 0.9)) return tr('why.bridge.banks'); }
     return null;
   }
   // Is the fire at this tile burning? (a campfire, a brazier, a lighthouse's lamp: lit for a while, d.fire; game.js fireAction)
@@ -1608,7 +1620,7 @@ export class Overworld {
     const [tx, ty] = f.anchor, layer = layerOf(id), d = this.delta(Math.floor(tx / CHUNK), Math.floor(ty / CHUNK), true), r3 = v => Math.round(v * 1000) / 1000;
     const a = ((f.a % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2), sized = layer === 'rug' || id === 'mesa_grande';
     (d.pos ||= {})[`${layer}:${tx},${ty}`] = loose ? [r3(f.ox), r3(f.oy), r3(a), 1] : [r3(f.ox), r3(f.oy), r3(a)];
-    this.place(tx, ty, id, sized ? f.k : Math.round(a / (Math.PI / 2)) % 4);
+    this.place(tx, ty, id, f.rot ?? (sized ? f.k : Math.round(a / (Math.PI / 2)) % 4));
   }
   // Un objeto colocado (mueble, estación o pieza) en una casilla, con sus datos, o null
   placedObjectAt(tx, ty) {

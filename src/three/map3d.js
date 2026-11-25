@@ -214,12 +214,16 @@ const COPY_FS = 'uniform sampler2D map; varying vec2 vU; void main() { gl_FragCo
 const FLAT_FS = 'varying vec3 vC; void main() { gl_FragColor = vec4(vC, 1.0); }';
 const TREE_VS = `varying vec3 vC; uniform float uK;
   void main() { vec4 p = modelMatrix * instanceMatrix * vec4(position, 1.0); p.y *= uK; vC = instanceColor * color.x; gl_Position = projectionMatrix * viewMatrix * p; }`;
+const rgb1 = c => rgbOf(c).map(v => v / 255);
+const ROAD_RGB = [0.83, 0.77, 0.65], TRACK_RGB = [0.76, 0.7, 0.58];   // (the roads' lines: roadlines.js)
 const LINE_VS = `attribute vec4 side; attribute vec4 tone; uniform float uPx, uK; varying vec4 vT; varying float vS, vD, vW;
-  void main() { vT = tone; vS = side.z; vD = side.w; vW = tone.w > 2.5 ? ${(AREA_PX / 2).toFixed(1)} : ${(ROUTE_PX / 2 + 1).toFixed(1)}; vec3 p = vec3(position.x + side.x * side.z * vW * uPx, position.y * uK + ${LIFT} * (0.4 + uPx * 3.0), position.z + side.y * side.z * vW * uPx); gl_Position = projectionMatrix * viewMatrix * modelMatrix * vec4(p, 1.0); }`;
+  void main() { vT = tone; vS = side.z; vD = side.w; vW = tone.w > 4.5 ? 0.7 : tone.w > 3.5 ? 1.3 : tone.w > 2.5 ? ${(AREA_PX / 2).toFixed(1)} : ${(ROUTE_PX / 2 + 1).toFixed(1)}; vec3 p = vec3(position.x + side.x * side.z * vW * uPx, position.y * uK + ${LIFT} * (0.4 + uPx * 3.0), position.z + side.y * side.z * vW * uPx); gl_Position = projectionMatrix * viewMatrix * modelMatrix * vec4(p, 1.0); }`;
 const LINE_FS = `uniform float uPx; uniform vec3 uOut; varying vec4 vT; varying float vS, vD, vW;
   void main() {
     float d = vD / uPx, across = abs(vS) * vW, style = vT.w;
-    if (style > 2.5) { if (mod(d, 12.0) > 7.0) discard; }
+    if (style > 4.5) { if (mod(d, 9.0) > 5.4) discard; }
+    else if (style > 3.5) { }
+    else if (style > 2.5) { if (mod(d, 12.0) > 7.0) discard; }
     else if (style > 1.5) { if (mod(d, 20.0) > 11.7) discard; }
     else if (style > 0.5) { if (mod(d, 8.5) > 4.6) discard; }
     vec3 c = style < 2.5 && across > ${(ROUTE_PX / 2).toFixed(1)} ? uOut : vT.rgb;
@@ -305,13 +309,14 @@ export class Map3D {
     p.setIndex([0, 2, 1, 1, 2, 3]);
     this.plane = add(new THREE.Mesh(p, M.plane), 4);   // (after the land: what it covers is not painted)
     this.roofs = add(new THREE.Mesh(new THREE.BufferGeometry(), M.roof), 1);
+    this.ways = add(new THREE.Mesh(new THREE.BufferGeometry(), M.line), 2);   // (the roads)
     this.lines = add(new THREE.Mesh(new THREE.BufferGeometry(), M.line), 3);
-    this.roofs.visible = this.lines.visible = false;
+    this.roofs.visible = this.lines.visible = this.ways.visible = false;
     this.grid = null;         // { x0, y0, s, h, gen, n (explored then) }: what is in the mesh
     this.pending = 0; this.failed = 0; this.failedAt = -1e9;
     this.origin = new THREE.Vector2();   // (the scene's own (0, 0), in tiles)
     this.hc = 0; this.rise = 0; this.riseAt = null;
-    this.gridV = 0; this.roofKey = this.lineKey = this.key = this.domKey = '';
+    this.gridV = 0; this.roofKey = this.lineKey = this.wayKey = this.key = this.domKey = '';
     this.woods = null;
     this.cur = this.next = null;
     this.batch = new Batch(this.view3d.renderer, M.copy);
@@ -380,10 +385,10 @@ export class Map3D {
   rest(now) { if (this.scene && !this.on && now - (this.offAt ?? now) > REST_S) this.free(); }
   free() {
     if (!this.scene) return;
-    for (const o of [this.ground, this.plane, this.roofs, this.lines]) o.geometry.dispose();
+    for (const o of [this.ground, this.plane, this.roofs, this.lines, this.ways]) o.geometry.dispose();
     this.dropWoods();
     this.cur?.dispose(); this.next?.dispose(); this.batch.dispose();
-    this.batch = this.cur = this.next = this.scene = this.ground = this.plane = this.roofs = this.lines = this.grid = null;
+    this.batch = this.cur = this.next = this.scene = this.ground = this.plane = this.roofs = this.lines = this.ways = this.grid = null;
     for (const M of Object.values(this.mats)) for (const u of [M.uniforms.uMap, M.uniforms.uMask]) if (u) u.value = null;
     this.box.replaceChildren(); this.pool = [];
   }
@@ -583,6 +588,21 @@ export class Map3D {
     const R = this.view.route, rings = this.rings || [], k = `${V.stamp}|${R?.active ? R.seg : ''}|${this.gridV}|${accent.route}|${rings.map(b => `${b.x.toFixed(1)},${b.y.toFixed(1)},${b.r},${b.color}`).join(';')}`;
     if (k === this.lineKey) return;
     this.lineKey = k;
+    this.ribbons(this.lines, line => {
+      if (R?.active) line(R.pts.subarray ? R.pts.subarray(R.seg * 2) : R.pts.slice(R.seg * 2), i => styleOf(R.kinds[i + R.seg], R.kinds[i + R.seg + 1]), rgb1(accent.route));
+      for (const b of rings) { const P = []; for (let i = 0; i <= 96; i++) { const a = i / 96 * Math.PI * 2; P.push(b.x + Math.cos(a) * b.r, b.y + Math.sin(a) * b.r); } line(P, () => 3, rgb1(b.color)); }
+    });
+  }
+  // The roads of the explored land (ui/roadlines.js), under the rest: made again only when there are others
+  putWays(V) {
+    const L = this.view.roadLines, k = `${L.version(V.gen)}|${V.explored.size}|${this.gridV}`;
+    if (k === this.wayKey) return;
+    this.wayKey = k;
+    const G = this.grid, r = (N - 1) / 2 * G.s;
+    this.ribbons(this.ways, line => { for (const q of L.runs(V.gen, [this.origin.x - r, this.origin.y - r, this.origin.x + r, this.origin.y + r])) line(q.pts, () => (q.cart ? 4 : 5), q.cart ? ROAD_RGB : TRACK_RGB); });
+  }
+  // Ribbons on the land into a mesh: put(line) calls line for each
+  ribbons(mesh, put) {
     this.key = '';
     const G = this.grid, pos = [], side = [], tone = [], idx = [], ox = this.origin.x, oy = this.origin.y, reach = (N - 1) / 2 * G.s;
     // A line through points (x, y), in steps no longer than the mesh's: style 0 solid, 1 dots, 2 dashes, 3 an area's
@@ -606,17 +626,15 @@ export class Map3D {
         if (p) idx.push(b - 2, b - 1, b, b, b - 1, b + 1);
       }
     };
-    const col = c => rgbOf(c).map(v => v / 255);
-    if (R?.active) line(R.pts.subarray ? R.pts.subarray(R.seg * 2) : R.pts.slice(R.seg * 2), i => styleOf(R.kinds[i + R.seg], R.kinds[i + R.seg + 1]), col(accent.route));
-    for (const b of rings) { const P = []; for (let i = 0; i <= 96; i++) { const a = i / 96 * Math.PI * 2; P.push(b.x + Math.cos(a) * b.r, b.y + Math.sin(a) * b.r); } line(P, () => 3, col(b.color)); }
+    put(line);
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
     g.setAttribute('side', new THREE.Float32BufferAttribute(side, 4));
     g.setAttribute('tone', new THREE.Float32BufferAttribute(tone, 4));
     g.setIndex(pos.length / 3 > 65535 ? new THREE.Uint32BufferAttribute(idx, 1) : new THREE.Uint16BufferAttribute(idx, 1));
-    this.lines.geometry.dispose();
-    this.lines.geometry = g;
-    this.lines.visible = idx.length > 0;
+    mesh.geometry.dispose();
+    mesh.geometry = g;
+    mesh.visible = idx.length > 0;
   }
 
   // ---------- the camera ----------
@@ -685,6 +703,7 @@ export class Map3D {
       this.putRoofs(V); this.putWoods(V);
       this.rings = [];
       for (const b of blips.list) if (b.r && blips.shown(b)) this.rings.push(b);
+      this.putWays(V);
       this.putLines(V);
       const c = r.domElement, cam = `${V.cx.toFixed(3)},${V.cy.toFixed(3)}|${V.px.toFixed(4)}|${V.yaw.toFixed(5)}|${V.tilt.toFixed(5)}|${this.hc.toFixed(3)}|${this.K.value.toFixed(4)}|${V.w}x${V.h}|${this.gridV}`;
       const key = `${cam}|${c.width}x${c.height}|${this.cur.tex.id}|${this.cur.v}|${this.cur.stats.painted}|${this.woods ? this.woods.v : ''}|${v.drawn}`;
