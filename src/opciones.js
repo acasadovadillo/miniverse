@@ -65,7 +65,7 @@ const RAW = (() => { try { return new URLSearchParams(globalThis.location?.searc
 // Plan R7-2 (looking from above): siluetas (?siluetas=0: no landmarks far off, three/landmarks3d.js). Drawing only
 // Plan R6.3 (the village talks, docs/planes/realismo/PLAN-R6-gente.md): gossip (?gossip=0: nothing is written in the log of what
 // you do, nor told, nor does it make anybody cold; what is saved stays) and chatter (?chatter=0: the neighbours do not talk among
-// themselves). Local only
+// themselves). Local only. Plan R6.4: rumores (?rumores=0: nobody tells you of places; the circles are not drawn)
 export const PARTES = { hierba: 'sinlod', impostores: null, relieve: null, contacto: null, sombras: 'todas', personas: 'todas', suelo: 'v2', inventario: 'casillas',
   sed: null, cansancio: null, aguante: null, buceo: null, fondo: null, caustica: null,
   ruta: null, rutasuelo: null, musica: 'chip',
@@ -73,7 +73,7 @@ export const PARTES = { hierba: 'sinlod', impostores: null, relieve: null, conta
   vinculo: null, alforjas: null, montar: 'arcade', cuidado: null, razas: null,
   tracks: null, wounds: null, naturebook: null,
   sentidos: null, manadas: null, calidad: null, routines: null,
-  soporte: null, refugio: null, obra: null, deterioro: null, sat: null, mapa3d: null, sitios: '1', siluetas: null, gossip: null, chatter: null };
+  soporte: null, refugio: null, obra: null, deterioro: null, sat: null, mapa3d: null, sitios: '1', siluetas: null, gossip: null, chatter: null, rumores: null };
 
 // El valor tal cual (o null)
 export const opcion = k => RAW.get(k);

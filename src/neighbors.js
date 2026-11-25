@@ -423,7 +423,8 @@ export class Neighbors {
     return formatMessage(list[i], this.params(more));
   }
 
-  // The opening of a talk ('|' between two lines), the first that applies: the introduction; that you were looking for them;
+  // The opening of a talk ('|' between two lines), the first that applies: the introduction; that you found the place
+  // they told you of (rumours.js); that you were looking for them;
   // how you look (remarks.js); what they remember; what they have heard (gossip.js); the cold greeting of a village that distrusts you; their mood; the warm one; the hour and the weather
   greeting(id, met = this.introduced(id)) {
     const g = this.game, T = g.days, h = T.hour, f = this.friend(id), temper = PEOPLE[id].temper;
@@ -432,6 +433,8 @@ export class Neighbors {
       const own = tList(`npc.intro.${id}`), l = own.length ? own : tList(`npc.intro.${temper}`);
       if (l.length) return formatMessage(l[Math.floor(Math.random() * l.length)], this.params({ npc: PEOPLE[id].name }));
     }
+    const right = g.rumours?.foundLine(id);   // (you found what they told you of)
+    if (right) return right;
     const looked = g.gossip?.lookedFor(id);   // (somebody told them you were asking for them)
     if (looked) return looked;
     const rm = g.remarks?.forTalk(id);
@@ -472,7 +475,7 @@ export class Neighbors {
     const lvl = [3, 6].find(l => def.events?.[l] && this.hearts(id) >= l && !f.events.includes(l));
     if (!lvl) return [];
     const ev = def.events[lvl];
-    return [{ lines: tList(`npc.events.${id}.${lvl}`).map(l => formatMessage(l, this.params())), give: () => {
+    return [{ flag: ev.flag, lines: tList(`npc.events.${id}.${lvl}`).map(l => formatMessage(l, this.params())), give: () => {
       f.events.push(lvl);
       for (const [item, n] of ev.gift || []) { const left = g.inv.add(item, n); if (left) g.gather.throwOut(item, left); g.gather.float(`+${n} ${ITEMS[item].name}`, '#fff3c0'); }
       if (ev.flag) this.flags[ev.flag] = true;

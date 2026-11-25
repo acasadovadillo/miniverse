@@ -42,6 +42,7 @@ export const KINDS = {
   shop: { glyph: 'shop', color: '#9fd8a4', filter: 'village', legend: 'map.legend.shops', pri: 50, mini: true },
   house: { glyph: 'house', color: '#dcc59c', filter: 'village', legend: 'map.legend.houses', pri: 55, mini: false },
   place: { glyph: 'place', color: '#ffffff', filter: 'places', legend: null, pri: 60, mini: true },
+  rumour: { glyph: 'question', color: '#ffcf87', filter: 'places', legend: 'map.legend.rumours', pri: 57, mini: true },
   neighbor: { glyph: 'person', color: '#bfe3ff', filter: 'people', legend: 'gui.map.neighbors', pri: 20, mini: false },
   player: { glyph: 'player', color: '#8fb2ff', filter: 'people', legend: 'gui.players.title', pri: 75, mini: true },
   partner: { glyph: 'partner', color: '#ff8fbd', filter: 'people', legend: 'map.legend.partner', pri: 85, mini: true },

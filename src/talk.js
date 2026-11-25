@@ -172,6 +172,7 @@ export class Talk {
     if (npc) npc.talkWith = p;
     this.turnTo(T);
     this.send(id, 1);
+    g.rumours?.prepare(id);   // (what they would tell of, looked for meanwhile)
     this.ui?.open();
     try { await this.run(T, other); }
     finally { this.close(T, 'done'); }
@@ -191,6 +192,7 @@ export class Talk {
     for (const ev of cold ? [] : N.dueEvents(id)) {   // (the friendship's moments)
       await this.say(id, ev.lines, { wait: true });
       if (g.player) ev.give();   // (cut too; not if the game is over: it will be told again)
+      if (T.live && ev.flag === 'pista_barco') await g.rumours?.wreck(T);
       if (!T.live) return;
       spoke = true;
     }
@@ -520,7 +522,7 @@ export class Talk {
     const [dx, dy] = gap(q.entity, e), d = Math.hypot(dx, dy), seen = q.sc === 'world' && d <= SEEN;
     return { text: this.game.neighbors.line(`npc.where.player.${!seen ? 'none' : d < 15 ? 'near' : 'far'}`, { who: q.name, dir: t(`place.dir.${dirKey(dx, dy)}`) }), at: seen ? [q.entity.x, q.entity.y] : null };
   }
-  // The places you know, the nearest first (what neighbours tell of the others is R6.4)
+  // The places you know, the nearest first (what neighbours tell of the others: rumours.js)
   placesNear() {
     const g = this.game;
     if (!g.places?.knownPlaces) return [];

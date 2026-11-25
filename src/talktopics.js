@@ -235,6 +235,7 @@ export const TOPICS = {
   },
   personal: { weight: c => (c.hearts >= 3 ? 1.5 : 0), keys: c => [{ key: `npc.chat.${c.id}.personal` }] },
   misc: { weight: () => 1, keys: c => [{ key: `npc.chat.${c.id}.misc` }] },
+  rumour_tease: { weight: c => (c.hearts >= 1 && c.game.rumours?.offer(c.id) ? 1 : 0), subs: c => { const a = c.game.rumours?.tease(c.id); return a ? [{ sub: '', params: { a } }] : []; } },   // (a place they could tell you of: rumours.js)
   tip: { weight: c => (c.id === 'nilo' ? 3 : 0), keys: () => [{ key: 'npc.chat.nilo.tip' }] },
 };
 const goalKey = node => (node.startsWith('door') ? 'home' : node.startsWith('pond') ? 'pond' : node);

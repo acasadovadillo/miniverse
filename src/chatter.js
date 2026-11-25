@@ -15,6 +15,7 @@
 import { PEOPLE } from './neighbors.js';
 import { ROUTINES, placeAt, idNum } from './routines.js';
 import { involved } from './gossip.js';
+import { kindsOf } from './rumours.js';
 import { tomorrowsWeather } from './talktopics.js';
 import { madridMs, WEATHERS } from './time.js';
 import { Profile } from './accounts.js';
@@ -93,6 +94,7 @@ export class Chatter {
     if ((a === 'eusebio' || b === 'eusebio') && wx && g.days.hour >= 5) list.push(['forecast', 2]);
     const here = [a, b], others = this.people().filter(o => !here.includes(o) && has(`npc.opinion.${a}.${o}`) && this.where(o, ms)?.zone !== zone);   // (not of somebody who is right there)
     if (others.length) list.push(['third', 1.5]);
+    if (kindsOf(a).length) list.push(['rumour', 0.5]);   // (with no place to tell of, or one overheard today already: their work)
     let left = r * list.reduce((s, x) => s + x[1], 0), k = 0;
     while (k < list.length - 1 && (left -= list[k][1]) >= 0) k++;
     const topic = list[k][0];
@@ -106,7 +108,7 @@ export class Chatter {
     const g = this.game, N = g.neighbors, name = id => PEOPLE[id].name, at = (list, k) => (list.length ? list[Math.floor(ihash(x.seed, k, 829) * list.length) % list.length] : '');
     const say = (list, k, P) => formatMessage(at(list, k), { ...N.params(), ...P }), own = (key, id) => [...tList(`${key}.${id}`), ...tList(`${key}.${PEOPLE[id].temper}`)], all = (key, id) => { const l = own(key, id); return l.length ? l : tList(key); };
     const { a, b } = x, T = x.topic, P = { a: name(a), b: name(b) };
-    let who = [a, b, a], text = null, news = null;
+    let who = [a, b, a], text = null, news = null, rumour = null;
     if (x.news && (news = this.common(a, b, x))) {
       const key = g.gossip.key(news), Q = { ...P, ...g.gossip.params(news) };
       text = [say(tList(`npc.pair.news.${key}`), 1, Q), say(all(`npc.pair.re.${news[5] > 0 ? 'good' : news[5] < 0 ? 'bad' : 'plain'}`, b), 2, Q)];
@@ -126,11 +128,14 @@ export class Chatter {
       case 'weather': { const w = SAME[g.days.weather] || 'fair'; text = [say(all(`npc.pair.weather.${w}.a`, a), 1, P), say(all('npc.pair.weather.b', b), 2, P)]; break; }
       case 'work': text = [say(all('npc.pair.work.a', a), 1, P), say(all('npc.pair.work.b', b), 2, P)]; break;
       case 'tavern': text = [say(all('npc.pair.tavern.a', a), 1, P), say(all('npc.pair.tavern.b', b), 2, P)]; break;
+      case 'rumour':
+        if ((rumour = g.rumours?.offerAloud(a) || null)) { const W = g.rumours.words(rumour, this.entity(a) || undefined); text = [say(tList('npc.pair.rumour.a'), 1, { ...P, ...W }), say(all('npc.pair.rumour.b', b), 2, { ...P, ...W })]; } else text = [say(all('npc.pair.work.a', a), 1, P), say(all('npc.pair.work.b', b), 2, P)];
+        break;
       case 'third': text = [say(tList(`npc.opinion.${a}.${T.of}`), 1, P), say(all('npc.pair.third.b', b), 2, { ...P, who: name(T.of) })]; break;
     }
     if (!text?.[0] || !text[1]) return null;
     if (text.length < 3 && x.close) { const c = say(all('npc.pair.close', a), 3, P); if (c) text.push(c); }
-    return { who, text, news };
+    return { who, text, news, rumour };
   }
   // Something new of yours (or of the village) that both know and neither was in, and the first one can call you by your name
   common(a, b, x) {
@@ -203,6 +208,7 @@ export class Chatter {
     const nod = x.seed % 3 ? 'nod' : 'shrug';
     if (!first || x.lines.news) g.social.later(() => { if (!other.hidden && !other.talkWith && !other.emote) g.social.emote(other, nod); }, 1.2);
     if (first && x.lines.news) this.overheard(e, x.lines.news, id, text);
+    if (first && x.lines.rumour) this.overheardPlace(e, x.lines.rumour, id, text);
     x.next++;
     x.due = now + Math.max(STEP, life - 1) * 1000;
     if (x.next >= x.lines.text.length) x.dead = true;
@@ -215,6 +221,13 @@ export class Chatter {
     hud.log.say(PEOPLE[id].name, text);   // (the pause's Brief keeps it)
     const what = g.gossip.label(n);
     if (what && g.time - this.toastAt >= TOAST_GAP) { this.toastAt = g.time; hud.toast(t('talk.overheard', { what }), 'social'); }
+  }
+  // …of a place: it goes on your map, as if they had told you (rumours.js: one a day)
+  overheardPlace(e, p, id, text) {
+    const g = this.game;
+    if (g.talk.on || g.gamemode === 'spectator' || !g.neighbors.introduced(id) || !this.seen(e, HEAR) || !g.rumours.overheard(id, p)) return;
+    hud.log.say(PEOPLE[id].name, text);
+    g.rumours.noted(p, id);
   }
   look(e, to, s) {
     if (e.lookTarget && e.lookTarget !== to) return;

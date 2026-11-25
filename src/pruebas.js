@@ -108,8 +108,9 @@ import * as RT from './routines.js';
 import { wayRound } from './world/walkways.js';
 import { CHAPEL, LOTS, WALK_NODES, setProjects, keepClear, townDigWhy as townWhy } from './world/village.js';
 import { PROJECTS } from './board.js';
-import { Gossip, NEWS, NEWS_KINDS, knowsAt as gossipKnowsAt, ties as gossipTies, involved } from './gossip.js';
+import { Gossip, NEWS, NEWS_KINDS, knowsAt as gossipKnowsAt, ties as gossipTies, involved, SHARED_NEWS } from './gossip.js';
 import { Chatter, SLOT } from './chatter.js';
+import { BANDS, FAR as RUM_FAR, kindsOf, kindName as rumKind, aKind } from './rumours.js';
 import { talkContext, pickTopic, topicWeights, topicLines, cropNews, fishNow, moodOf, forecastBy, tomorrowsWeather, lineHash, thing, someOf, TOPICS } from './talktopics.js';
 import { stackKg, SIP_KG } from './carry-items.js';
 import { extraOf } from './inventory.js';
@@ -9855,6 +9856,141 @@ async function soloTests(game) {
     await setLang(lang); check(!bad.length, `${bad.length}: ${bad.slice(0, 4).join(' · ')}`);
   });
   // ---------- end of R6.3
+  // ---------- R6.4: places people know (PLAN-R6-gente §3.6, §8: src/rumours.js) ----------
+  const Ru = () => game.rumours, Pl = () => game.places, RDAY = 20800;
+  // A clean slate: no place found, no rumour told, the village's day RDAY; everything back after (social)
+  const rumouring = fn => social(() => routine(async o => {
+    const N = Nb(), P = Pl(), keep = { found: P.found, old: P.oldFound, at: P.foundAt, marks: P.marks, p1: P.places1, sites: P.sites, rnd: Math.random, off: Ch().off, route: game.route?.target, hammer: game.hammerTold, bench: game.craft.taught.has('banco') };
+    N.flags = {}; for (const id of IDS) N.friends[id] = { pts: 150, talk: RDAY - 1, gift: -1, events: [3, 6], intro: 0 };
+    P.found = new Set(); P.oldFound = new Set(); Ru().reset(); Ch().off = true; game.talk.auto = null; game.hammerTold = true; game.craft.taught.add('banco');
+    const at = (day, h = 12) => { o.clock(dayMs(day, h)); for (const n of N.people) n.placeAt(game.days.now); }; at(RDAY);
+    try { await fn({ ...o, N, P, at }); }
+    finally {
+      Math.random = keep.rnd; game.hammerTold = keep.hammer; if (!keep.bench) game.craft.taught.delete('banco'); P.found = keep.found; P.oldFound = keep.old; P.foundAt = keep.at; P.foundN = -1; Ch().off = keep.off; if (P.sites !== keep.sites || P.places1 !== keep.p1) { P.sites = keep.sites; P.places1 = keep.p1; P.marks = keep.marks; P.version++; P.cache.clear(); }
+      Tk().stop(); game.talk.auto = TALK_AUTO; Ru().reset(); if (!keep.route) game.route?.clear('load'); hud.closeDialog();
+    }
+  })());
+  const tellAll = async (id, menu = t('talk.ask.places')) => { const said = []; game.talk.auto = { say: (who, l) => { said.push(...l.map(q => [who, q])); }, ask: (a, b, rows) => { const k = [t('talk.opt.ask'), menu].map(q => rows.indexOf(q)).find(q => q >= 0); if (k === undefined || said.asked > 1) return rows.indexOf(t('npc.opt.bye')); said.asked = (said.asked || 0) + (rows[k] === menu); return said.asked > 1 ? rows.indexOf(t('talk.opt.back')) : k; } }; try { const e = id === 'nilo' ? w().nilo : put(id, p().x + 1.2, p().y); if (e) { e.hidden = false; e.asleep = false; } await Nb().talk(id, id === 'nilo' ? undefined : e); } finally { game.talk.auto = null; } return said; };
+  await test('rumour (english): each tells of what they know, unfound, stable, one a day', rumouring(async ({ N, P, at }) => {
+    await goTo(game, 21, 27); const seen = []; N.people = [...N.people]; N.moveIn('dani'); await frames(2);
+    for (const id of IDS) {
+      const kinds = kindsOf(id), said = (await tellAll(id)).filter(q => q[0] === PEOPLE[id].name).map(q => q[1]), e = Ru().entries().find(q => q[2] === id);
+      check(said.every(s => s && !/[{}]|npc\.|rumour\.|undefined/.test(s)), `${id}: ${said}`);
+      if (!kinds.length) { check(!e && said.some(s => s.includes('Anselmo')), `${id}: ${said}`); continue; }
+      const q = e && P.poiOf(e[0]); check(q && q.kind === e[1] && kinds.includes(q.kind) && !P.known(q) && e[3] === RDAY && !e[4], `${id}: ${JSON.stringify(e)}`);
+      check(distOf(q.x, q.y, CENTER.x, CENTER.y) < RUM_FAR && !P.sites.wet(q.x, q.y), `${id}: ${q.kind} at ${q.x}, ${q.y}`); check(said.some(s => s.includes(P.nameOf(q))), `${id} does not name it: ${said}`);
+      check(N.friends[id].rumDay === RDAY && N.friends[id].told.join() === e[0] && !seen.includes(e[0]), `${id}: told twice`); seen.push(e[0]);
+      // The same again the same day, and nothing new
+      const n = Ru().entries().length, again = (await tellAll(id)).map(s => s[1]); check(Ru().entries().length === n && again.some(s => s.includes(P.nameOf(q))), `${id}, again: ${again}`);
+    }
+    console.log('rumours: ' + Ru().entries().map(e => { const q = P.poiOf(e[0]); return `${e[2]} ${e[1]} ${Math.round(distOf(q.x, q.y, CENTER.x, CENTER.y))}`; }).join(', '));
+    // The same for anybody who asks that day; another one tomorrow, and never one you have found
+    const first = Ru().entries().find(e => e[2] === 'ines'); N.flags = {}; delete N.friends.ines.told; delete N.friends.ines.rumDay; Ru().reset(); game.talk.auto = { say() {}, ask() {} }; const k1 = (await Ru().ask('ines')).key; check((await Ru().ask('ines')).key === k1, 'not the same'); Ru().reset(); check((await Ru().ask('ines')).key === k1, 'not the same, loaded again');
+    P.found = new Set([k1]); check((await Ru().ask('ines')).key !== k1, 'one you have found'); check(first[0] !== undefined, '');
+    P.found = new Set(); game.talk.auto = null; at(RDAY); Ru().reset(); await tellAll('ines'); at(RDAY + 1); await tellAll('ines'); check(N.friends.ines.told.length === 2 && new Set(N.friends.ines.told).size === 2 && Ru().entries().length === 2, `${N.friends.ines.told}`);
+    // Strangers, and who has none left
+    N.friends.paco.pts = 40; Ru().reset(); let s = (await tellAll('paco')).map(q => q[1]); check(s.some(q => q.includes('Inés')) && N.friends.paco.told.length === 1, `a stranger: ${s}`); N.friends.ines.pts = 40; s = (await tellAll('ines')).map(q => q[1]); check(s.some(q => q.includes('Anselmo')), `Inés, a stranger: ${s}`);
+    N.friends.bruno = { pts: 150, talk: 0, gift: -1, events: [3, 6], intro: 0 }; const ask = Ru().ask; Ru().ask = () => Promise.resolve(null); try { await tellAll('bruno'); } finally { Ru().ask = ask; } check(N.friends.bruno.rumDay === RDAY + 1 && !N.friends.bruno.rum, 'nothing left'); s = (await tellAll('bruno')).map(q => q[1]); check(s.some(q => tList('npc.rumour.none').concat(tList('npc.rumour.none.gruff')).includes(q)), `the same day: ${s}`);
+  }));
+  await test('rumour (english): in a real talk: thinks, points, the circle, the route, found, the reward', rumouring(async ({ N, P, at }) => {
+    await goTo(game, 21, 27); const r = put('ines', 22.4, 27); r.hidden = false; hud.log.clear(); const W = game.days.weather; game.days.weather = 'sol'; Math.random = () => 0.5;
+    try {
+      N.talk('ines', r); check(Ru().job || Ru().queue.length, 'not looked for meanwhile'); await toList(); await pickOpt(t('talk.opt.ask')); check(opts().includes(t('talk.ask.places')), `${opts()}`); await pickOpt(t('talk.ask.places'));
+      await until(() => { if (Tk().cur?.line?.me) Tk().skip(Tk().cur); return r.emote?.k === 'think'; }, 4000, 'she thinks'); await until(() => { if (Tk().cur?.line?.think) Tk().skip(Tk().cur); return Ru().entries().length; }, 4000, 'the rumour'); await sleep(5);
+      const e = Ru().entries()[0], q = P.poiOf(e[0]), W8 = Ru().words(q, r); check(subText().startsWith('Inés') && subText().includes(W8.dir), `«${subText()}»`);
+      const f = r.dir, want = [dxOf(q.x, r.x), q.y - r.y], l = Math.hypot(...want); check(r.emote?.k === 'point' && (f[0] * want[0] + f[1] * want[1]) / l / Math.hypot(...f) > 0.9, `points: ${r.emote?.k} ${f} ${want}`);
+      await toList(); check(hud.log.said.filter(s => s.name === 'Inés').length >= 2, 'no legend'); Tk().stop();
+      // The circle: with the place inside, not in its middle, always the same; on the big map, its card and the route to it
+      blips.refresh(game, 0, true); const b = blips.list.find(x => x.kind === 'rumour'), d = b && distOf(b.x, b.y, q.x, q.y), c = Ru().circle(q); check(b && b.r === BANDS.find(x => distOf(q.x, q.y, CENTER.x, CENTER.y) < x[0])[2] && d > 4 && d < b.r && c.x === b.x && c.y === b.y, `${JSON.stringify(b)} ${d}`);
+      check(b.name.includes('Inés') && b.name.includes(rumKind(q.kind)) && b.sub === t('map.card.rumour') && !b.name.includes(P.nameOf(q)), b.name); const n = game.explored.size;
+      const M = game.map; M.recenter(); M.zoom = 1; M.bigKey = ''; M.panX = b.x - p().x; M.drawBig(w().gen, game.explored, b.x, b.y, 0); const h = M.hits.find(x => x.name === b.name); check(h, 'not on the big map'); game.route.pickAt(b.x, b.y, h.sx, h.sy); check(game.route.active && game.route.target.x === b.x && game.route.target.y === b.y && game.route.target.name === b.name, JSON.stringify(game.route.target)); check(game.explored.size === n, 'land explored'); game.route.clear('user');
+      // Found: the circle closes, and she hears of it at the next talk, once
+      Ru().check(); check(!Ru().entries()[0][4], 'found too soon'); const seen = []; const toast = hud.toast; hud.toast = x => { seen.push(x); }; P.found.add(q.key); try { Ru().check(); Ru().check(); } finally { hud.toast = toast; } check(seen.length === 1 && seen[0] === t('talk.rumour.right', { who: 'Inés', place: P.title(q) }) && Ru().entries()[0][4] === 1 && !Ru().marks().length, `${seen}`);
+      blips.refresh(game, 0, true); check(!blips.list.some(x => x.kind === 'rumour'), 'the circle stays');
+      const pts = N.friends.ines.pts, rep = Rp().v.pts; N.talk('ines', r); await sleep(5); check(subText().includes(P.nameOf(q)), `«${subText()}»`); check(N.friends.ines.pts - pts >= 20 && Rp().v.pts - rep >= 5 && Rp().v.log.some(x => x[2] === 'rumour'), `${N.friends.ines.pts - pts} ${Rp().v.pts - rep}`); check(N.memories('ines').some(m => m.kind === 'rumour_found') && newsList().at(-1).slice(2, 5).join('|') === `rumour_found|ines|${q.kind}/${q.key}`, JSON.stringify(newsList()));
+      check(!Ru().entries().length, 'it stays'); Tk().stop(); const p2 = N.friends.ines.pts; N.talk('ines', r); await toList(); check(N.friends.ines.pts === p2, 'twice'); await pickOpt(t('talk.opt.ask')); hud.log.clear(); await pickOpt(t('talk.ask.places')); await toList(); check(hud.log.said.some(x => [...tList('npc.rumour.tomorrow'), ...tList('npc.rumour.tomorrow.shy')].includes(x.line)), 'another one the same day'); Tk().stop();
+      // …and the village talks of it
+      at(RDAY, 20); const e2 = Go().all().at(-1), said = Go().mention('anselmo', e2); check(said.includes(P.nameOf(q)) && Go().journal().includes(P.nameOf(q)), said);
+    } finally { game.days.weather = W; }
+  }));
+  await test('rumour (english): Lía\'s boat, at her 6 hearts and in an old save; no chest is told of', rumouring(async ({ N, P }) => {
+    await goTo(game, 21, 27); const f = N.friends.lia; f.pts = 620; f.events = [3];
+    game.talk.auto = { say() {}, ask: (a, b, rows) => rows.indexOf(t('npc.opt.bye')) }; const said = []; game.talk.auto.say = (w2, l) => said.push(...l); const l = put('lia', 22.4, 27); l.hidden = false; await N.talk('lia', l); game.talk.auto = null;
+    const e = Ru().entries()[0]; check(f.events.includes(6) && N.flags.pista_barco && e && e[1] === 'barco' && e[2] === 'lia' && N.flags.wreck === e[0] && said.some(s => s.includes(P.nameOf(P.poiOf(e[0])))), `${said} ${JSON.stringify(N.flags)}`); check(f.rumDay === undefined, 'it was the day\'s');
+    check(P.poiOf(e[0]).kind === 'barco' && !said.some(s => /cofre|chest|hundido|sunken/i.test(s)) && Ru().marks()[0].r >= 24, `${said}`); Ru().check(); Ru().check(); check(Ru().entries().length === 1, 'twice');
+    // A save from before: on the map by itself, once; broken flags, nothing
+    N.flags = { pista_barco: true }; Ru().reset(); Ru().check(); await until(() => Ru().entries().length, 5000, 'the boat of an old save'); check(N.flags.wreck === Ru().entries()[0][0] && Ru().entries()[0][1] === 'barco', JSON.stringify(N.flags)); Ru().check(); check(Ru().entries().length === 1 && !Ru().job, 'again');
+    const none = P.nearest; N.flags = { pista_barco: true }; Ru().reset(); const find = Ru().search; Ru().search = function* () { return null; }; try { Ru().check(); await until(() => N.flags.wreckDay === RDAY, 3000, 'none'); Ru().check(); check(!Ru().job && !Ru().queue.length && !N.flags.wreck, 'looked for again the same day'); } finally { Ru().search = find; } check(none === P.nearest, '');
+  }));
+  await test('rumour (english): places that change, guests, old and broken saves, the caps', rumouring(async ({ N, P }) => {
+    game.talk.auto = { say() {}, ask() {} }; const q = await Ru().ask('paco'), c = await Ru().ask('bruno'); game.talk.auto = null;
+    for (const bad of [5, 'x', [5], [null, ['1,1'], ['x,y', 'torre', 'ines', 1], ['1,1', 'torre', 'nobody', 1], ['1,1', 'torre', '__proto__', 1], [1, 2, 3]]]) { N.flags = { rumours: bad }; Ru().reset(); Ru().check(); check(!Ru().entries().length && !Ru().marks().length && Ru().foundLine('ines') === '', JSON.stringify(bad)); }
+    N.friends.paco.told = 'x'; check(Ru().told('paco').length === 0, ''); delete N.friends.paco.told;
+    // Another kind there now, or nothing: gone, with no word; a guest whose host has not said which places there are, not yet
+    N.flags = { rumours: [[q.key, 'torre', 'ines', RDAY, 0], [c.key, 'cueva', 'bruno', RDAY, 0], ['70000,3', 'cueva', 'bruno', RDAY, 0]] }; Ru().reset(); check(Ru().marks().map(m => m.key).join() === c.key, 'a circle of what is not there');
+    const G = Object.getOwnPropertyDescriptor(game.live, 'guest'), J = game.live.joined, p1 = P.places1; Object.defineProperty(game.live, 'guest', { configurable: true, get: () => true }); game.live.joined = true; P.places1 = null; try { Ru().check(); check(Ru().entries().length === 3, 'dropped before the host\'s list'); } finally { P.places1 = p1; game.live.joined = J; if (G) Object.defineProperty(game.live, 'guest', G); else delete game.live.guest; }
+    Ru().check(); check(Ru().entries().map(e => e[0]).join() === c.key, JSON.stringify(N.flags.rumours)); P.version++; check(Ru().marks().length === 1, '');
+    // A frozen place of before is told of as any other, and found as any other
+    const L = P.legacy; let old = null; for (let r = 8; r < 120 && !old; r++) for (let i = -r; i <= r && !old; i++) for (const [x, y] of [[i, -r], [i, r], [-r, i], [r, i]]) { const s = L.at(x, y); if (s?.kind === 'campamento' && distOf(s.x, s.y, CENTER.x, CENTER.y) < 900) { old = s; break; } }
+    check(old, 'no camp of before'); P.setPlaces({ ...p1, k: { ...p1.k, [old.key]: 'campamento' } }); const others = P.sites.near(CENTER.x, CENTER.y, 3000, ['campamento']).map(s => s.key); game.talk.auto = { say() {}, ask() {} }; Ru().reset(); N.friends.paco.told = others.slice(); const told = Ru().skipped; Ru().skipped = id => new Set([...others, ...told.call(Ru(), id)]); const f = await Ru().ask('paco'); Ru().skipped = told; game.talk.auto = null; check(f && f.legacy && f.key === old.key, `${JSON.stringify(f)}`);
+    N.flags = {}; Ru().add(f, 'paco'); check(Ru().marks().length === 1, 'no circle'); P.found = new Set([f.key]); Ru().check(); check(Ru().entries()[0][4] === 1, 'not found'); check(Ru().words(f).place.includes(P.nameOf(f)), ''); P.setPlaces(p1);
+    // With the places of before (a guest of an old host): chunk by chunk
+    P.found = new Set(); P.places1 = null; P.cache.clear(); P.version++; Ru().reset(); delete N.friends.paco.told; N.flags = {}; game.talk.auto = { say() {}, ask() {} }; try { const o = await Ru().ask('paco'); check(o && o.kind === 'campamento' && o.legacy, JSON.stringify(o)); } finally { P.places1 = p1; P.cache.clear(); P.version++; game.talk.auto = null; }
+    // Twelve at most, the oldest goes
+    N.flags = {}; for (let i = 0; i < 20; i++) Ru().add({ key: `${i},1`, kind: 'cueva', x: 0, y: 0 }, 'bruno'); check(N.flags.rumours.length === 12 && N.friends.bruno.told.length === 8 && N.flags.rumours[0][0] === '8,1', `${N.flags.rumours.length} ${N.friends.bruno.told}`);
+  }));
+  await test('rumour (english): overheard, hinted at in the chat, and what your partner did', rumouring(async ({ N, P, at }) => {
+    game.talk.auto = { say() {}, ask() {} }; const q = await Ru().ask('bruno'); game.talk.auto = null; await goTo(game, 21, 27);
+    // Hinted at: only who knows you, with one to tell
+    const ctx = () => talkContext(game, 'bruno', nb('bruno')); check(topicWeights(ctx()).rumour_tease === 1 && topicLines(ctx(), 'rumour_tease').length >= 3, 'no hint'); const l0 = topicLines(ctx(), 'rumour_tease').map(x => formatMessage(x.src, x.params)); check(l0.every(s => s.includes(t('rumour.a.cueva'))), `${l0}`);
+    N.friends.bruno.rumDay = RDAY; check(!topicWeights(ctx()).rumour_tease, 'told today'); delete N.friends.bruno.rumDay; N.friends.bruno.pts = 20; check(!topicWeights(ctx()).rumour_tease, 'a stranger'); N.friends.bruno.pts = 150; check(!topicWeights(talkContext(game, 'marta', nb('marta'))).rumour_tease, 'Marta');
+    // Two who talk of it near you: their words, and it is on the map; one a day
+    const C = Ch(), x = { a: 'bruno', b: 'marta', topic: { topic: 'rumour' }, seed: 4, news: false, close: false }, L = C.lines(x); check(L?.rumour === q && L.text[0].includes(P.nameOf(q)) && L.text[1], JSON.stringify(L));
+    put('bruno', 22.5, 27); put('marta', 23.5, 27).hidden = false; C.overheardPlace(nb('bruno'), q, 'bruno', L.text[0]); const e = Ru().entries()[0]; check(e && e[0] === q.key && e[2] === 'bruno' && N.flags.rumOver === RDAY && N.friends.bruno.rumDay === undefined && Ru().offerAloud('bruno') === null, JSON.stringify(N.flags)); check(C.lines(x).text[0] && !C.lines(x).rumour, 'nothing to say instead');
+    const topics = new Set(); for (let i = 0; i < 400; i++) topics.add(C.topicOf('bruno', 'marta', 'plaza', i / 400, 0.5, game.days.now).topic); check(topics.has('rumour'), [...topics].join()); for (let i = 0; i < 400; i++) check(C.topicOf('marta', 'bruno', 'plaza', i / 400, 0.5, game.days.now).topic !== 'rumour', 'Marta tells of places');
+    // 'nw': what your partner did is told you too; from nobody else, nothing that is not right, not two at once
+    const live = game.live, was = live.joined, net = live.net, isP = So().isPartner; let mate = true;
+    try {
+      live.receive('nw1', { t: 'hi', id: 'id-nw1', name: 'Hafsa', playing: true, look: LOOK }); live.receive('nw1', { t: 'st', sc: 'world', x: 30, y: 27, yaw: 0 }); live.joined = true; So().isPartner = () => mate; const peer = live.peers.get('nw1'), nw = m => { peer.nwAt = -99; live.receive('nw1', { t: 'nw', ...m }); }, K = k => NEWS_KINDS.indexOf(k), list = () => Go().v.partner || [];
+      for (const bad of [{}, { k: 99, npc: 'rosa' }, { k: K('insult'), npc: 'rosa' }, { k: K('project'), npc: '*', it: 'fuente' }, { k: K('helped'), npc: 'nobody', it: 'pan' }, { k: K('helped'), npc: '__proto__', it: 'pan' }, { k: K('helped'), npc: 'rosa', it: 'no_such_thing' }, { k: K('helped'), npc: 'rosa', it: 5 }, { k: K('helped'), npc: 'rosa', it: 'x'.repeat(60) }, { k: K('rumour_found'), npc: 'ines', it: 'torre/1,1' }]) { nw(bad); check(!list().length, `taken: ${JSON.stringify(bad)}`); }
+      mate = false; nw({ k: K('helped'), npc: 'rosa', it: 'pan' }); check(!list().length, 'not your partner'); mate = true; nw({ k: K('gift_loved'), npc: 'rosa', it: 'fresa' }); live.receive('nw1', { t: 'nw', k: K('helped'), npc: 'lia', it: 'pan' }); check(list().length === 1 && list()[0][7] === 'Hafsa', JSON.stringify(list()));
+      at(RDAY, 18); const n = Go().fresh('lia'); check(n === list()[0] || n[0] === list()[0][0], JSON.stringify(n)); const pts = N.friends.lia.pts, s = Go().mention('lia', n); check(s.includes('Hafsa') && s.includes('Rosa') && N.friends.lia.pts === pts && Go().fresh('lia') === null && !Go().journal().includes('Hafsa'), s);
+      nw({ k: K('rumour_found'), npc: 'bruno', it: `cueva/${q.key}` }); check(list().length === 2 && Go().params(list()[1]).place.includes(P.nameOf(q)), ''); for (let i = 0; i < 12; i++) nw({ k: K('helped'), npc: 'lia', it: 'pan' }); check(list().length === 6, `${list().length}`);
+      const sent = []; live.net = { send: (m, c) => sent.push([m, c]) }; game.time += 60; Go().sentAt = -Infinity; Go().news('helped', 'paco', 'pan'); Go().news('gift_loved', 'lia', 'trucha'); check(sent.filter(m => m[0].t === 'nw').length === 1 && sent[0][1] === 'nw1' && sent[0][0].npc === 'paco' && sent[0][0].it === 'pan', JSON.stringify(sent)); game.time += 60; Go().news('insult', 'rosa'); check(sent.filter(m => m[0].t === 'nw').length === 1, 'the bad ones too');
+      N.flags.news.partner = 'x'; check(Go().all().every(Array.isArray), ''); Go().prune(); check(Array.isArray(N.flags.news.partner), '');
+    } finally { live.joined = was; live.net = net; So().isPartner = isP; live.peers.delete('nw1'); }
+  }));
+  await test('rumour (english): many worlds: every rumour is of a place there is, on dry land, within reach; what it costs', rumouring(async ({ N, P }) => {
+    const keep = [P.sites, P.places1, P.marks], ms = [], per = {}, worst = { n: 0, t: 0 }; let total = 0, none = 0;
+    try {
+      for (let k = 0; k < 10; k++) {
+        P.sites = new Sites(4242 + k * 7919); P.places1 = { v: 1, k: {} }; P.marks = {}; P.version++; P.cache.clear();
+        for (const id of IDS) {
+          if (!kindsOf(id).length) continue;
+          Ru().reset(); const q = Ru().ask(id); let frames2 = 0, all = 0; while (Ru().job || Ru().queue.length) { const t0 = performance.now(), n = Ru().run(3), dt = performance.now() - t0; frames2++; all += dt; worst.n = Math.max(worst.n, n); worst.t = Math.max(worst.t, dt); if (frames2 > 2000) break; }
+          const r = await q; total++; (per[id] ||= []).push(r ? Math.round(distOf(r.x, r.y, CENTER.x, CENTER.y)) : -1); ms.push([all, frames2, id]); if (!r) { none++; continue; }
+          check(kindsOf(id).includes(r.kind) && READY.has(r.kind) && P.poiOf(r.key) === r && !P.sites.wet(r.x, r.y), `${k} ${id}: ${JSON.stringify(r)}`); const c = Ru().circle(r); check(distOf(c.x, c.y, r.x, r.y) < c.r && Number.isFinite(c.x + c.y) && !P.sites.wet(c.x, c.y), `${k} ${id}: the circle`);
+        }
+      }
+    } finally { [P.sites, P.places1, P.marks] = keep; P.version++; P.cache.clear(); }
+    ms.sort((a, b) => b[0] - a[0]); console.log(`rumour search: ${total} (${none} none), worst ${ms.slice(0, 3).map(m => `${m[2]} ${m[0].toFixed(0)} ms in ${m[1]} frames`).join(', ')}, median ${ms[ms.length >> 1][0].toFixed(0)} ms; a frame: ${worst.n} cells, ${worst.t.toFixed(1)} ms; ${JSON.stringify(per)}`);
+    check(!none && worst.n <= 400, `${none} none, ${worst.n} cells a frame`);
+    // Nothing a frame with none looked for; the circles
+    N.flags = {}; for (let i = 0; i < 12; i++) Ru().add({ key: `${i},1`, kind: 'cueva' }, 'bruno'); let t0 = performance.now(); for (let i = 0; i < 5000; i++) Ru().update(0.0001); const idle = (performance.now() - t0) / 5000; t0 = performance.now(); for (let i = 0; i < 500; i++) Ru().marks(); const m = (performance.now() - t0) / 500; check(idle < 0.002 && m < 0.05, `${idle} ${m}`);
+  }));
+  await test('rumour (english): every line, in both languages', async () => {
+    const lang = getLang(), bad = [];
+    for (const l of ['es', 'en']) {
+      await setLang(l); const keys = Object.keys(await (await fetch(new URL(`./lang/${l}.json`, import.meta.url))).json()).filter(k => /^(npc\.rumour|rumour|npc\.pair\.rumour|npc\.news\.partner|npc\.news\.rumour|npc\.topic\.rumour|npc\.recall\.rumour|npc\.pair\.news\.rumour|talk\.rumour|map\.rumour|map\.card\.rumour|journal\.news\.rumour|talk\.ask\.places|talk\.you\.places)/.test(k));
+      const P = { name: 'Alberto', sex: 'girl', who: 'Rosa', other: 'Hafsa', a: t('rumour.a.torre'), place: t('rumour.the.torre', { name: 'Monte Alto' }), dir: t('place.dir.nw'), dist: t('npc.rumour.dist.walk'), past: t('npc.rumour.past.pines'), kind: rumKind('torre'), item: thing('pan'), animal: 'Trueno' };
+      check(keys.length > 100, `${keys.length}`); for (const k of keys) for (const src of tList(k)) { const s = formatMessage(src, P); if (!s || /[{}]|undefined/.test(s) || (l === 'en' && /[ñ¿¡áéíóúÁÉÍÓÚ]/.test(s))) bad.push(`${l} ${k}: ${s}`); }
+      for (const k of [...READY, 'mina', 'manantial', 'arbol', 'risco', 'salegar']) check(has(`rumour.a.${k}`) && has(`rumour.the.${k}`) && tList(`npc.rumour.legend.${k}`).length, `${l} ${k}`); check(aKind('from_the_future') === t('rumour.a.other') && rumKind('from_the_future') === t('rumour.kind.other'), 'a kind to come');
+      for (const id of IDS) for (const what of ['rumour.found', 'rumour.none', 'rumour.again', 'rumour.tomorrow', 'rumour.stranger', 'rumour.refer']) check(Nb().say(id, what, P), `${l} ${id} ${what}`); for (const [, b] of BANDS) check(has(`npc.rumour.dist.${b}`), b); for (const b of ['water', 'river', 'beach', 'meadow', 'forest', 'pines', 'swamp', 'desert', 'snow', 'rocky', 'ice']) check(has(`npc.rumour.past.${b}`), b);
+      check(SHARED_NEWS.every(k => tList(`npc.news.partner_${k}`).length), 'partner');
+    }
+    await setLang(lang); check(!bad.length, `${bad.length}: ${bad.slice(0, 4).join(' · ')}`);
+  });
+  // ---------- end of R6.4
   await test('gift (english): repeats halve', social(async () => {
     const N = Nb(), I = inv(), f = N.friend('rosa'), pts = []; f.talk = 0;
     const give = async item => { const before = f.pts; I.slots[I.selected] = { id: item, n: 1 }; I.changed(); let line; hud.say = (who, l) => { line = l[0]; return Promise.resolve(); }; await N.gift('rosa', I.held); return [f.pts - before, line]; };

@@ -85,6 +85,7 @@ import { Body } from './body.js';
 import { Remarks } from './remarks.js';
 import { Gossip } from './gossip.js';
 import { Chatter } from './chatter.js';
+import { Rumours } from './rumours.js';
 import { Dive } from './dive.js';
 import { Tracks } from './tracks.js';
 import { NatureBook } from './nature.js';
@@ -234,6 +235,7 @@ export class Game {
     this.social = this.addSystem(new Social(this));   // greeting and provoking people (Y or right click on someone)
     this.talk = this.addSystem(new Talk(this));   // talking to a neighbour: subtitles and a list of options (talk.js)
     this.remarks = this.addSystem(new Remarks(this));   // what the neighbours say about how you look (src/remarks.js; after social: it speaks through social.say)
+    this.rumours = this.addSystem(new Rumours(this));   // the places the neighbours tell you of (src/rumours.js; after places and talk)
     this.chatter = this.addSystem(new Chatter(this));   // the neighbours talking among themselves (src/chatter.js)
     this.money = 0;
     this.buffs = {};             // efectos de comida: { rapido: hasta cuándo, incansable: … }

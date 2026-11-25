@@ -13,13 +13,15 @@
 //   opener(id), topic(id) it as the opening of a talk (neighbors.js greeting), or in the chat (chatLines)
 //   lookedFor(id)         somebody told them you were asking for them (talk.js askWhere)
 //   heardBad(id, days)    they heard something bad of you in the last days (social.js relation)
+//   heard(conn, peer, m)  'nw': your partner did something good { t: 'nw', k: its kind's index, npc, it }; they tell you of it too
 //   seenBy()              the neighbour who sees you now (who a big catch is first known by), or null
 //   label(e), journal()   the diary, Neighbours: what people say about you, and who knows it
 //
 // Saved in the neighbours' flags and friends (saved whole: an older game keeps them): flags.news { v, seq, list } with
 // list [[id, tMs, kind, src, item, val, heard]], MAX at most, and friends[id].nsaid [news id], .newsDay. Each player's are
 // their own and never go through the network: what is said of you is said to you. The births come from the family, which is
-// shared, and the village's works from the board (board.js share), so both players hear of them.
+// shared, and the village's works from the board (board.js share), so both players hear of them; what your partner did, from
+// 'nw' (flags.news.partner, PARTNER_MAX at most).
 // ?gossip=0: nothing is written or told; what is saved stays as it is.
 import { PEOPLE } from './neighbors.js';   // (a cycle, read only inside functions)
 import { ITEMS } from './items.js';
@@ -28,12 +30,13 @@ import { Profile } from './accounts.js';
 import { DAY_MS } from './time.js';
 import { nearX } from './world/planet.js';
 import { apagada } from './opciones.js';
+import { reportFault } from './faults.js';
 import { thing, someOf } from './talktopics.js';
 import { t, tHtml, has, noun, fmt } from './i18n.js';
 
-const HOUR = 36e5;
-// Append only. val: good (+1), bad (-1) or neither; days: how long it is talked about. (rumour_found: Plan R6.4, and wedding:
-// Plan I, which bring their lines: until then nobody says anything of them)
+const HOUR = 36e5, PARTNER_MAX = 6, PARTNER_GAP = 20;   // (what your partner did: entries kept; s between two 'nw')
+// Append only. val: good (+1), bad (-1) or neither; days: how long it is talked about. (wedding: Plan I, which
+// brings its lines: until then nobody says anything of it)
 export const NEWS = {
   gift_loved: { val: 1, days: 3 }, helped: { val: 1, days: 5 }, project: { val: 1, days: 14 }, kid_born: { val: 1, days: 21 },
   wish_kept: { val: 1, days: 5 }, rumour_found: { val: 1, days: 4 }, take_seen: { val: -1, days: 7 }, insult: { val: -1, days: 3 },
@@ -41,6 +44,8 @@ export const NEWS = {
   new_horse: { val: 1, days: 7 }, wedding: { val: 1, days: 30 },
 };
 export const NEWS_KINDS = Object.keys(NEWS);
+// …and the kinds a couple tells each other (Plan R6.4)
+export const SHARED_NEWS = ['gift_loved', 'helped', 'wish_kept', 'rumour_found', 'big_catch', 'big_game', 'new_horse'];
 export const MAX = 24;             // entries kept
 export const COLD_DAYS = 2;        // how long bad news makes who heard it cold (social.js, only lines)
 export const GOOD_PTS = 2;         // friendship for a good one they bring up
@@ -107,6 +112,7 @@ export class Gossip {
     if (this.off || !F.news) return;
     const v = this.v, now = this.now;
     v.list = v.list.filter(e => Array.isArray(e) && (!own(NEWS, e[2]) || (Number.isFinite(e[1]) && now - e[1] < NEWS[e[2]].days * DAY_MS))).slice(-MAX);
+    if (v.partner) v.partner = (Array.isArray(v.partner) ? v.partner : []).filter(e => this.lives(e, now)).slice(-PARTNER_MAX);
     if (!Number.isFinite(v.seq)) v.seq = v.list.length;
   }
   news(kind, src, item = null, val = NEWS[kind]?.val) {
@@ -118,7 +124,28 @@ export class Gossip {
     const e = [v.seq, now, kind, src, it, val, 0];
     v.list.push(e);
     if (v.list.length > MAX) v.list.splice(0, v.list.length - MAX);
+    this.toPartner(kind, src, it);
     return e;
+  }
+  // Something good of yours: your partner's game hears of it too
+  toPartner(kind, src, it) {
+    const g = this.game, L = g.live;
+    if (!L?.joined || !L.net || !SHARED_NEWS.includes(kind) || Math.abs(g.time - (this.sentAt ?? -Infinity)) < PARTNER_GAP) return;
+    for (const [conn, peer] of L.peers) {
+      if (!peer.playing || peer.server || !g.social?.isPartner(peer)) continue;
+      this.sentAt = g.time;
+      try { L.net.send({ t: 'nw', k: NEWS_KINDS.indexOf(kind), npc: src, it }, conn); } catch (e) { reportFault(e, 'Gossip.toPartner'); }
+    }
+  }
+  heard(conn, peer, m) {
+    const g = this.game, kind = NEWS_KINDS[m?.k], it = m?.it;
+    if (this.off || !g.player || !peer || Profile.server || !SHARED_NEWS.includes(kind) || (m.npc !== '*' && !(typeof m.npc === 'string' && own(PEOPLE, m.npc))) || !g.social?.isPartner(peer)) return;
+    if (typeof it !== 'string' || !it || it.length > 48) return;
+    if (Math.abs(g.time - (peer.nwAt ?? -Infinity)) < PARTNER_GAP / 2) return;
+    peer.nwAt = g.time;
+    const v = this.v, now = this.now, e = [`p:${Math.floor(now)}`, now, kind, m.npc, it, 0, 0, String(peer.name || '').slice(0, 24)];
+    if (!e[7] || !this.params(e)) return;
+    v.partner = [...(Array.isArray(v.partner) ? v.partner : []), e].slice(-PARTNER_MAX);
   }
   // The births: in the family, shared, so both players hear of them. Yours are good news; another couple's, news
   births() {
@@ -133,7 +160,7 @@ export class Gossip {
   }
   all() {
     if (this.off) return [];
-    const now = this.now, F = this.game.neighbors.flags, list = F.news ? this.v.list : [];
+    const now = this.now, F = this.game.neighbors.flags, list = F.news ? [...this.v.list, ...(Array.isArray(this.v.partner) ? this.v.partner : [])] : [];
     return [...list, ...this.births()].filter(e => this.lives(e, now)).sort((a, b) => a[1] - b[1]);
   }
   lives(e, now) { return Array.isArray(e) && own(NEWS, e[2]) && Number.isFinite(e[1]) && now >= e[1] && now - e[1] < NEWS[e[2]].days * DAY_MS; }
@@ -145,7 +172,7 @@ export class Gossip {
   // ---------- words ----------
   // What goes in a line about it: names, the thing, the place… or null when this game does not know what it is about
   params(e) {
-    const [, , kind, src, item] = e, P = { who: src === '*' ? '' : PEOPLE[src]?.name || '' };
+    const [, , kind, src, item] = e, P = { who: src === '*' ? '' : PEOPLE[src]?.name || '', other: this.theirs(e) ? e[7] : '' };
     switch (kind) {
       case 'gift_loved': case 'helped': case 'wish_kept': case 'big_catch':
         if (!ITEMS[item]) return null;
@@ -154,6 +181,7 @@ export class Gossip {
       case 'project': return own(PROJECTS, item) ? { ...P, project: has(`gossip.project.${item}`) ? t(`gossip.project.${item}`) : PROJECTS[item].name } : null;
       case 'kid_born': return { ...P, kid: item, ksex: e[7] === 'chica' ? 'girl' : 'boy' };
       case 'new_horse': return { ...P, animal: item };
+      case 'rumour_found': return (place => place && { ...P, place })(this.game.rumours?.called(item));
       case 'take_seen': case 'knock_night': {
         const [house, what] = String(item ?? '').split('/');
         const place = t(has(`gossip.house.${house}`) ? `gossip.house.${house}` : 'gossip.house.other');
@@ -163,7 +191,8 @@ export class Gossip {
     return P;
   }
   // The keys of a line: someone else's work or child is not yours
-  key(e) { return e[5] === 0 && (e[2] === 'project' || e[2] === 'kid_born') ? `${e[2]}_other` : e[2]; }
+  theirs(e) { return typeof e[0] === 'string' && e[0].startsWith('p:'); }   // (your partner's, not yours)
+  key(e) { return this.theirs(e) ? `partner_${e[2]}` : e[5] === 0 && (e[2] === 'project' || e[2] === 'kid_born') ? `${e[2]}_other` : e[2]; }
   label(e) { const k = `journal.news.${this.key(e)}`, P = has(k) ? this.params(e) : null; return P ? t(k, P) : ''; }
 
   // ---------- what they tell you ----------
